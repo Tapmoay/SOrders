@@ -1,0 +1,22 @@
+# Dev / test (install: pip install -r requirements.txt -r requirements-dev.txt)
+
+pytest>=8.0,<9
+
+pytest-asyncio>=0.24,<1
+
+httpx>=0.27,<1
+
+# Parallel testing
+pytest-xdist>=3.5,<4
+
+# Test reporting
+pytest-html>=4.1,<5
+
+pytest-metadata>=3.1,<4
+
+# Better assertion messages
+pytest-pretty>=1.2,<2
+
+# Coverage reporting
+pytest-cov>=5.0,<6
+

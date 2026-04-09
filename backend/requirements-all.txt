@@ -1,0 +1,3 @@
+# 一次性安装运行与开发/测试依赖：pip install -r requirements-all.txt
+-r requirements.txt
+-r requirements-dev.txt

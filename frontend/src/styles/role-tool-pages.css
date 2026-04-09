@@ -1,0 +1,42 @@
+/**
+ * 派单员 / 司机端工作台内页：与 theme-tokens 一致，克制提示条与搜索区
+ */
+
+.role-tool-page {
+  min-height: 100%;
+  background: var(--van-background);
+}
+
+/* 提示条：低饱和，不刺眼 */
+.role-tool-notice .van-notice-bar {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--van-text-color-2);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 16px;
+}
+
+.role-tool-notice .van-notice-bar__left-icon {
+  color: #b45309;
+}
+
+/* 搜索：略压实、与背景一体 */
+.role-tool-page .van-search {
+  padding: 4px 12px 8px;
+  background: transparent;
+}
+
+.role-tool-page .van-search__content {
+  background: var(--van-active-color);
+  border-radius: var(--van-radius-md, 10px);
+}
+
+.role-tool-page .van-tabs__wrap {
+  min-height: 44px;
+  background: var(--van-background-2);
+  border-bottom: 1px solid var(--van-border-color);
+}
+
+.role-tool-page .van-tab {
+  font-weight: 500;
+}

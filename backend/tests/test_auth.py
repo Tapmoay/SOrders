@@ -1,0 +1,116 @@
+"""
+Authentication and RBAC: login, token validation, permission-denied routes.
+
+Requirements Coverage:
+- FR-SH-XXX: 货主认证
+- FR-DR-XXX: 司机认证
+- FR-SP-XXX: 派单员认证
+- 权限矩阵验证 (DOMAIN_MODEL.md)
+"""
+
+from __future__ import annotations
+
+import pytest
+from starlette.testclient import TestClient
+
+from tests.conftest import auth_headers
+
+
+@pytest.mark.auth
+@pytest.mark.fast
+@pytest.mark.smoke
+def test_login_success(client: TestClient, users: dict) -> None:
+    r = client.post(
+        "/api/v1/auth/login",
+        json={"phone": "13800000002", "password": "pass12345"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["token_type"] == "bearer"
+    assert "access_token" in body
+    assert body["user_id"] == users["shipper"].id
+
+
+@pytest.mark.auth
+@pytest.mark.fast
+def test_login_invalid_password(client: TestClient) -> None:
+    r = client.post(
+        "/api/v1/auth/login",
+        json={"phone": "13800000002", "password": "wrong-password"},
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.auth
+@pytest.mark.fast
+def test_register_shipper_sms_and_login(client: TestClient) -> None:
+    """注册：用户名 + 密码 + 手机号 + 验证码；测试环境 SMS_REVEAL_CODE 返回明文 code。"""
+    phone = "13900000009"
+    r0 = client.post("/api/v1/auth/sms/send", json={"phone": phone})
+    assert r0.status_code == 200
+    body = r0.json()
+    assert body.get("ok") is True
+    code = body.get("code")
+    assert code and len(code) >= 4
+
+    r = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "reguser9",
+            "password": "pass12345",
+            "phone": phone,
+            "verification_code": code,
+        },
+    )
+    assert r.status_code == 200
+    tok = r.json()
+    assert tok["token_type"] == "bearer"
+
+    r2 = client.post(
+        "/api/v1/auth/login",
+        json={"username": "reguser9", "password": "pass12345"},
+    )
+    assert r2.status_code == 200
+
+
+@pytest.mark.auth
+@pytest.mark.dispatcher
+@pytest.mark.fast
+def test_dispatcher_can_list_users(client: TestClient, token_dispatcher: str) -> None:
+    r = client.get("/api/v1/users", headers=auth_headers(token_dispatcher))
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+@pytest.mark.auth
+@pytest.mark.shipper
+@pytest.mark.fast
+def test_shipper_cannot_list_users(client: TestClient, token_shipper: str) -> None:
+    r = client.get("/api/v1/users", headers=auth_headers(token_shipper))
+    assert r.status_code == 403
+
+
+@pytest.mark.auth
+@pytest.mark.shipper
+@pytest.mark.fast
+@pytest.mark.regression
+def test_shipper_cannot_dispatch_order(
+    client: TestClient, token_shipper: str, token_driver: str
+) -> None:
+    r = client.post(
+        "/api/v1/orders/1/assign",
+        headers=auth_headers(token_shipper),
+        json={"driver_id": 1},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.auth
+@pytest.mark.fast
+@pytest.mark.unit
+def test_token_role_mismatch_rejected(client: TestClient, users: dict) -> None:
+    from app.core.security import create_access_token
+
+    bad = create_access_token(str(users["shipper"].id), {"role": "dispatcher"})
+    r = client.get("/api/v1/users/me", headers=auth_headers(bad))
+    assert r.status_code == 401

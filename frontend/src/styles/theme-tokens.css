@@ -1,0 +1,74 @@
+/**
+ * SOrders 全局主题：方向 3 克制品牌蓝 + 方向 4 清晰层级
+ * 覆盖 Vant 4 CSS 变量（需在 vant.css 之后引入）
+ */
+:root {
+  /* 唯一强调色：主按钮、链接、导航品牌条 */
+  --van-primary-color: #1677ff;
+  --van-button-primary-background: #1677ff;
+  --van-button-primary-border-color: #1677ff;
+
+  /* 页面基色：略偏冷的浅灰，减少刺眼白场 */
+  --van-background: #f5f7fa;
+  --van-background-2: #ffffff;
+  --van-active-color: #f0f2f5;
+
+  /* 文字层级：主 / 次 / 辅助 */
+  --van-text-color: #1f2937;
+  --van-text-color-2: #4b5563;
+  --van-text-color-3: #9ca3af;
+
+  --van-border-color: #e5e7eb;
+  --van-cell-border-color: #e5e7eb;
+
+  /* 圆角：统一中等圆角，避免「组件各自为政」 */
+  --van-radius-md: 10px;
+  --van-radius-lg: 12px;
+
+  /* 字号：正文基准 16px，利于移动端可读性 */
+  --van-font-size-md: 16px;
+  --van-line-height-md: 1.5;
+
+  /* Tab / 底栏：强调色一致 */
+  --van-tab-active-text-color: #1677ff;
+  --van-tabs-bottom-bar-color: #1677ff;
+  --van-tabbar-item-active-color: #1677ff;
+  --van-tabbar-background: #ffffff;
+}
+
+/* 可点元素：指针与轻微过渡（方向 4：反馈清晰、不累眼） */
+.van-button,
+.van-cell--clickable,
+.van-nav-bar .van-icon {
+  transition: opacity 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+
+/* Plain 标签：低饱和描边，避免彩虹高亮（订单状态仍可区分） */
+.van-tag--plain.van-tag--primary {
+  color: #155dfc;
+  border-color: rgba(22, 119, 255, 0.35);
+  background: rgba(22, 119, 255, 0.06);
+}
+.van-tag--plain.van-tag--success {
+  color: #0d7a52;
+  border-color: rgba(13, 122, 82, 0.35);
+  background: rgba(7, 193, 96, 0.08);
+}
+.van-tag--plain.van-tag--warning {
+  color: #9a6700;
+  border-color: rgba(180, 140, 0, 0.35);
+  background: rgba(255, 193, 7, 0.1);
+}
+.van-tag--plain.van-tag--danger {
+  color: #b42318;
+  border-color: rgba(180, 35, 24, 0.3);
+  background: rgba(238, 10, 36, 0.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .van-button,
+  .van-cell--clickable,
+  .van-nav-bar .van-icon {
+    transition: none;
+  }
+}

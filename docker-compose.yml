@@ -1,0 +1,49 @@
+# 本地 / 单机部署：MySQL + Redis + 后端 API（Socket.IO 与 FastAPI 同进程）
+# 使用：在仓库根目录执行 docker compose up -d --build
+# 入口脚本会等待 MySQL、执行 scripts/init_tables.py 建表后启动 uvicorn
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: sorders
+      MYSQL_USER: sorders
+      MYSQL_PASSWORD: sorders
+      MYSQL_ROOT_PASSWORD: rootchange_me
+    ports:
+      - "3306:3306"
+    volumes:
+      - sorders_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prootchange_me"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: mysql+pymysql://sorders:sorders@mysql:3306/sorders
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production-use-long-random-string}
+      AMAP_KEY: ${AMAP_KEY:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - sorders_uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  sorders_mysql_data:
+  sorders_uploads:
