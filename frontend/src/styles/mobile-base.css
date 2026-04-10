@@ -1,0 +1,57 @@
+/**
+ * 全站移动端 H5 适配基线（与 Vant 4 配合）
+ * - 动态视口高度、刘海/底部安全区变量
+ * - 桌面浏览器中收窄为手机栏，真机全宽
+ * - 禁止横向滚动溢出
+ */
+
+html {
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+:root {
+  --app-safe-top: env(safe-area-inset-top, 0px);
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-left: env(safe-area-inset-left, 0px);
+  --app-safe-right: env(safe-area-inset-right, 0px);
+  /** 真机 = 100vw；宽屏居中成手机阅读宽度 */
+  --app-max-width: min(100vw, 520px);
+  --app-dvh: 100dvh;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  min-height: 100vh;
+  min-height: var(--app-dvh, 100vh);
+}
+
+#app,
+.app-shell {
+  min-height: 100vh;
+  min-height: var(--app-dvh, 100vh);
+}
+
+.app-shell {
+  width: 100%;
+  max-width: var(--app-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  padding-left: var(--app-safe-left);
+  padding-right: var(--app-safe-right);
+}
+
+a,
+button,
+input,
+textarea,
+select,
+label,
+[role='button'],
+.van-cell--clickable {
+  -webkit-tap-highlight-color: rgba(22, 119, 255, 0.1);
+}

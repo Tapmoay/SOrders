@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { showConfirmDialog, showFailToast, showImagePreview } from 'vant'
 
-import { cancelOrder } from '@/api/orders'
+import { cancelOrder, deleteCancelledOrder } from '@/api/orders'
 import { ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
 import type { Order } from '@/types/order'
 import { formatMoney2 } from '@/utils/formatMoney'
@@ -16,6 +17,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   reload: []
 }>()
+
+const router = useRouter()
 
 const isShipper = computed(() => props.viewerRole === 'shipper')
 const isDispatcher = computed(() => props.viewerRole === 'dispatcher')
@@ -58,6 +61,24 @@ async function tryCancel() {
     if (e !== 'cancel') {
       const err = e as { response?: { data?: { detail?: string } } }
       showFailToast(err.response?.data?.detail || '撤销失败')
+    }
+  }
+}
+
+async function tryDeleteCancelled() {
+  const o = props.order
+  if (o.status !== 'CANCELLED' || (!isShipper.value && !isDispatcher.value)) return
+  try {
+    await showConfirmDialog({
+      title: '删除订单',
+      message: '删除后不可恢复，确定删除该已撤销订单？',
+    })
+    await deleteCancelledOrder(o.id)
+    router.back()
+  } catch (e) {
+    if (e !== 'cancel') {
+      const err = e as { response?: { data?: { detail?: string } } }
+      showFailToast(err.response?.data?.detail || '删除失败')
     }
   }
 }
@@ -212,6 +233,10 @@ async function tryCancel() {
 
     <div v-if="isShipper && order.status === 'PENDING_DISPATCH'" class="foot">
       <van-button type="danger" block round @click="tryCancel">撤销订单</van-button>
+    </div>
+
+    <div v-if="(isShipper || isDispatcher) && order.status === 'CANCELLED'" class="foot">
+      <van-button type="danger" block round plain @click="tryDeleteCancelled">删除该订单</van-button>
     </div>
   </div>
 </template>

@@ -41,20 +41,25 @@ interface EditLineFormState {
   quantity: string
   unit_price: string
 }
+import { useDispatcherWorkbenchStore } from '@/stores/dispatcherWorkbench'
 import { fetchUsers, type UserListItem } from '@/api/user'
 import AmapPicker from '@/components/AmapPicker.vue'
+import DispatcherRoleSwapDialog from '@/components/DispatcherRoleSwapDialog.vue'
 import VirtualScrollList from '@/components/VirtualScrollList.vue'
 import { ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
 import type { Order, OrderStatus } from '@/types/order'
 import { formatApiError } from '@/utils/apiError'
 
 const router = useRouter()
+const dispatcherWorkbench = useDispatcherWorkbenchStore()
 /** 避免 Tab 切换卸载后仍弹出 Toast（请求晚返回） */
 let viewAlive = true
 onBeforeUnmount(() => {
   viewAlive = false
 })
 const hasOrderDraft = ref(false)
+
+const showRoleSwap = ref(false)
 
 const tabIndex = ref(0)
 const tabStatus = computed<OrderStatus>(() => (tabIndex.value === 0 ? 'PENDING_DISPATCH' : 'ACCEPTED'))
@@ -140,19 +145,24 @@ function productLine(o: Order) {
   return o.order_products.map((p) => `${p.product_name_snapshot}×${p.quantity}`).join('；')
 }
 
-async function loadDrivers() {
+async function loadDrivers(forceRefresh = false) {
   try {
-    drivers.value = await fetchUsers({ role: 'driver' })
+    drivers.value = await fetchUsers({ role: 'driver' }, forceRefresh)
   } catch (e: unknown) {
     if (!viewAlive) return
     showFailToast(formatApiError(e, '加载司机列表失败'))
   }
 }
 
+function onRoleSwapSuccess() {
+  void loadDrivers(true)
+}
+
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
     list.value = await fetchOrders(tabStatus.value, debouncedQ.value || undefined)
+    void dispatcherWorkbench.refreshPendingDispatchCount()
   } catch (e: unknown) {
     if (!viewAlive) return
     showFailToast(formatApiError(e, '加载失败'))
@@ -418,10 +428,15 @@ async function submitRecall() {
 
     <van-search v-model="searchText" placeholder="订单号 / 货主 / 地址 / 司机" />
 
-    <van-tabs v-model:active="tabIndex" shrink class="dispatch-pending__tabs">
-      <van-tab title="待派单" />
-      <van-tab title="运输中" />
-    </van-tabs>
+    <div class="tabs-with-driver">
+      <van-tabs v-model:active="tabIndex" shrink class="dispatch-pending__tabs tabs-with-driver__tabs">
+        <van-tab title="待派单" />
+        <van-tab title="运输中" />
+      </van-tabs>
+      <button type="button" class="tabs-with-driver__btn" @click="showRoleSwap = true">
+        <span class="tabs-with-driver__btn-text">司机</span>
+      </button>
+    </div>
 
     <!-- 固定占位高度，避免「待派单」与「运输中」切换时批量区出现/消失导致内容上跳 -->
     <div class="batch-bar-wrap" :aria-hidden="tabIndex !== 0">
@@ -615,6 +630,8 @@ async function submitRecall() {
       @confirm="onEditMapConfirm"
     />
 
+    <DispatcherRoleSwapDialog v-model:show="showRoleSwap" @success="onRoleSwapSuccess" />
+
     <van-popup v-model:show="showRecall" position="bottom" round class="recall-popup">
       <div class="popup-title">撤回派单</div>
       <van-field
@@ -635,6 +652,44 @@ async function submitRecall() {
 <style scoped>
 .dispatch-pending {
   padding-bottom: 8px;
+}
+
+.tabs-with-driver {
+  display: flex;
+  align-items: stretch;
+  background: var(--van-background-2, #fff);
+  border-bottom: 1px solid var(--van-border-color);
+}
+.tabs-with-driver__tabs {
+  flex: 1;
+  min-width: 0;
+}
+.tabs-with-driver__tabs :deep(.van-tabs__wrap) {
+  border-bottom: none;
+}
+.tabs-with-driver__btn {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  padding: 0 10px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--van-primary-color);
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--van-border-color);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tabs-with-driver__btn:active {
+  opacity: 0.75;
+}
+.tabs-with-driver__btn-text {
+  line-height: 1.2;
 }
 
 .edit-lines-wrap {

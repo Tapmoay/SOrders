@@ -78,3 +78,9 @@ export async function updateUser(userId: number, body: UserUpdatePayload) {
   const { data } = await http.patch<UserListItem>(`/users/${userId}`, body)
   return data
 }
+
+/** 货主 ↔ 司机身份切换（派单员） */
+export async function swapShipperDriverRole(userId: number) {
+  const { data } = await http.post<UserListItem>(`/users/${userId}/swap-shipper-driver`)
+  return data
+}

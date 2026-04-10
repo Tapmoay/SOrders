@@ -77,6 +77,9 @@ interface Line {
 
 const lines = ref<Line[]>([{ product_name_snapshot: '', quantity: 1, unit_price: 0, product_id: null }])
 const products = ref<Product[]>([])
+/** 是否已成功请求过商品目录（含返回空列表）；用于避免「目录为空时重复请求失败后误报网络错误」 */
+const productCatalogFetchedOk = ref(false)
+const lastProductCatalogFetchError = ref<unknown>(null)
 const productPickerVisible = ref(false)
 const productPickerIndex = ref(0)
 /** 选品弹窗内图片加载失败时回退为「无图」占位 */
@@ -203,7 +206,32 @@ function removeLine(i: number) {
   lines.value.splice(i, 1)
 }
 
-function openProductPicker(i: number) {
+/** 拉取商品目录；失败返回 false，不抛错（避免连带阻断其它 onMounted 逻辑） */
+async function loadProductsCatalog(): Promise<boolean> {
+  try {
+    products.value = await fetchProductsCatalog()
+    productCatalogFetchedOk.value = true
+    lastProductCatalogFetchError.value = null
+    return true
+  } catch (e: unknown) {
+    productCatalogFetchedOk.value = false
+    lastProductCatalogFetchError.value = e
+    return false
+  }
+}
+
+async function openProductPicker(i: number) {
+  if (!productCatalogFetchedOk.value) {
+    showLoadingToast({ message: '加载商品目录…', forbidClick: true, duration: 0 })
+    const ok = await loadProductsCatalog()
+    closeToast()
+    if (!ok) {
+      showFailToast(
+        formatApiError(lastProductCatalogFetchError.value, '商品目录加载失败，请稍后重试'),
+      )
+      return
+    }
+  }
   if (!products.value.length) {
     showToast('暂无商品目录，请直接在「商品类型」中填写')
     return
@@ -256,7 +284,12 @@ function onPickerTempNameInput() {
   if (shipperPickerTempName.value.trim()) shipperPickTempId.value = null
 }
 
-function onSelectRegisteredShipper(id: number | null) {
+/** 再次点击已选中的货主行可取消选择（不再提供「暂不选择」单独一行） */
+function onSelectRegisteredShipper(id: number) {
+  if (shipperPickTempId.value === id && !shipperPickerTempName.value.trim()) {
+    shipperPickTempId.value = null
+    return
+  }
   shipperPickTempId.value = id
   shipperPickerTempName.value = ''
 }
@@ -289,8 +322,8 @@ onMounted(async () => {
     resetFormToEmpty()
   }
 
+  await loadProductsCatalog()
   try {
-    products.value = await fetchProductsCatalog()
     if (isDispatcher.value) {
       await loadShippers()
     } else if (!wantResume) {
@@ -541,37 +574,33 @@ async function submit() {
       </div>
     </van-popup>
 
-    <van-popup v-model:show="shipperPickerVisible" round position="bottom" class="shipper-pick-popup">
-      <div class="shipper-pick-sheet">
+    <van-popup
+      v-model:show="shipperPickerVisible"
+      round
+      position="center"
+      teleport="body"
+      class="shipper-pick-float-wrap"
+      :close-on-click-overlay="true"
+    >
+      <div class="shipper-pick-float">
+        <div class="shipper-pick-sheet">
         <div class="shipper-pick-sheet__bar">
           <button type="button" class="shipper-pick-sheet__link" @click="shipperPickerVisible = false">取消</button>
           <span class="shipper-pick-sheet__title">归属货主</span>
           <button type="button" class="shipper-pick-sheet__link" @click="confirmShipperPick">确认</button>
         </div>
-        <div class="shipper-pick-sheet__field">
+        <div class="shipper-pick-sheet__field shipper-pick-sheet__field--temp">
+          <div class="shipper-temp-head">临时货主</div>
+          <p class="shipper-temp-hint">填写后仅记名下单，不创建登录账号</p>
           <van-field
             v-model="shipperPickerTempName"
-            label="临时货主"
-            placeholder="填写后仅记名下单，不创建登录账号"
+            placeholder="输入临时称呼（可选）"
+            :border="false"
+            class="shipper-temp-input"
             @update:model-value="onPickerTempNameInput"
           />
         </div>
         <div class="shipper-pick-sheet__list">
-          <div
-            class="shipper-pick-sheet__row"
-            :class="{
-              'shipper-pick-sheet__row--on': shipperPickTempId === null && !shipperPickerTempName.trim(),
-            }"
-            role="button"
-            @click="onSelectRegisteredShipper(null)"
-          >
-            <span class="shipper-pick-sheet__label">暂不选择（订单暂无归属货主）</span>
-            <van-icon
-              v-if="shipperPickTempId === null && !shipperPickerTempName.trim()"
-              name="success"
-              class="shipper-pick-sheet__check"
-            />
-          </div>
           <div
             v-for="u in shippers"
             :key="u.id"
@@ -592,6 +621,7 @@ async function submit() {
           <div v-if="!shippers.length" class="picker-empty shipper-pick-sheet__empty-tip">
             暂无已注册货主；可仅用上方「临时货主」记名
           </div>
+        </div>
         </div>
       </div>
     </van-popup>
@@ -638,9 +668,28 @@ async function submit() {
   text-align: center;
   color: var(--van-text-color-3);
 }
+/* 归属货主：居中浮窗，四周倒角 */
+:deep(.shipper-pick-float-wrap) {
+  width: min(92vw, 400px);
+  max-width: 400px;
+  background: transparent !important;
+  overflow: hidden;
+  border-radius: 16px;
+}
+.shipper-pick-float {
+  max-height: min(72vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: var(--van-background-2, #fff);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
 .shipper-pick-sheet {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   max-height: min(72vh, 560px);
 }
 .shipper-pick-sheet__bar {
@@ -686,6 +735,31 @@ async function submit() {
   flex-shrink: 0;
   padding: 4px 0 8px;
   border-bottom: 1px solid var(--van-border-color);
+}
+.shipper-pick-sheet__field--temp {
+  padding: 12px 16px 14px;
+}
+.shipper-temp-head {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--van-text-color);
+  margin-bottom: 6px;
+}
+.shipper-temp-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--van-text-color-2);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.shipper-temp-input {
+  padding: 0;
+  border-radius: 8px;
+  background: var(--van-background, #f7f8fa);
+}
+.shipper-pick-sheet__field--temp :deep(.van-field__body) {
+  padding: 8px 12px;
 }
 .shipper-pick-sheet__label {
   flex: 1;

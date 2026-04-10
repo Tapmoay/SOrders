@@ -5,7 +5,16 @@ import { useAuthStore } from '@/stores/auth'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    { path: '/', redirect: '/login' },
+    {
+      path: '/',
+      redirect: () => {
+        const auth = useAuthStore()
+        if (auth.isAuthenticated && auth.role) {
+          return roleHome(auth.role)
+        }
+        return '/login'
+      },
+    },
     {
       path: '/login',
       name: 'login',
@@ -153,8 +162,12 @@ function roleHome(role: string | null | undefined) {
   return '/login'
 }
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
+
+  if (auth.isAuthenticated && !auth.role) {
+    await auth.ensureRoleHydrated()
+  }
 
   if (to.meta.public) {
     if (to.name === 'login' && auth.isAuthenticated && auth.role) {

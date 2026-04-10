@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client'
 import { onUnmounted, watch } from 'vue'
 
+import { duringAuthRecovery } from '@/api/client'
 import {
   fetchNotifications,
   fetchUnreadCount,
@@ -9,7 +10,9 @@ import {
 import { bumpDriverOrdersRefresh } from '@/driverRealtimeState'
 import { bumpShipperOrdersRefresh } from '@/shipperRealtimeState'
 import { useAuthStore } from '@/stores/auth'
+import { useDispatcherWorkbenchStore } from '@/stores/dispatcherWorkbench'
 import { useMessageCenterStore } from '@/stores/messageCenter'
+import { playNotificationBeep } from '@/utils/notificationSound'
 
 let socket: Socket | null = null
 
@@ -30,7 +33,8 @@ function shouldBumpDriver(t: string) {
     t === 'order.assigned' ||
     t === 'order.revoked' ||
     t === 'order.cancelled' ||
-    t === 'order.delivered'
+    t === 'order.delivered' ||
+    t === 'order.delivered_driver'
   )
 }
 
@@ -48,6 +52,7 @@ function shouldBumpShipper(t: string) {
 export function useSocketRealtime() {
   const auth = useAuthStore()
   const msg = useMessageCenterStore()
+  const dispatcherWorkbench = useDispatcherWorkbenchStore()
 
   function teardown() {
     try {
@@ -73,6 +78,7 @@ export function useSocketRealtime() {
       const n = payload?.notification
       if (!n) return
       msg.addIncoming(n)
+      playNotificationBeep()
       if (n.speech_important) {
         speakImportant(`${n.title}。${n.content || ''}`.trim())
       }
@@ -89,6 +95,9 @@ export function useSocketRealtime() {
       }
       if (auth.role === 'shipper' && shouldBumpShipper(t)) {
         bumpShipperOrdersRefresh()
+      }
+      if (auth.role === 'dispatcher' && t === 'dispatcher.pending_pool') {
+        void dispatcherWorkbench.refreshPendingDispatchCount()
       }
     })
   }
@@ -120,10 +129,15 @@ export function useSocketRealtime() {
     async ([t, r]) => {
       if (t && r) {
         try {
-          const c = await fetchUnreadCount()
-          msg.setUnread(c)
-          const list = await fetchNotifications({ unread_only: false })
-          msg.setItems(list)
+          await duringAuthRecovery(async () => {
+            const c = await fetchUnreadCount()
+            msg.setUnread(c)
+            const list = await fetchNotifications({ unread_only: false })
+            msg.setItems(list)
+            if (r === 'dispatcher') {
+              await dispatcherWorkbench.refreshPendingDispatchCount()
+            }
+          })
         } catch {
           /* ignore */
         }
@@ -132,6 +146,7 @@ export function useSocketRealtime() {
         teardown()
         msg.clearLocal()
         msg.setUnread(0)
+        dispatcherWorkbench.clear()
       }
     },
     { immediate: true },

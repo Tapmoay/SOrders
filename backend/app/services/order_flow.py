@@ -125,6 +125,7 @@ def cancel_pending(
     if order.status != OrderStatus.PENDING_DISPATCH:
         raise ValueError("仅「待派单」订单可按此流程撤销")
     order.status = OrderStatus.CANCELLED
+    order.cancelled_at = _now()
     write_log(
         db,
         operator_id=operator.id,

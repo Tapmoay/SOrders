@@ -5,7 +5,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.core.rbac import Permission, normalize_role_key, role_has_permission, user_role_key
+from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.core.security import decode_token
 from app.database import get_db
 from app.models import User
@@ -29,7 +29,6 @@ def get_current_user(
         if sub is None:
             raise credentials_exc
         user_id = int(sub)
-        token_role = payload.get("role")
     except (JWTError, ValueError, TypeError):
         raise credentials_exc from None
 
@@ -37,9 +36,8 @@ def get_current_user(
     if user is None or not user.is_active:
         raise credentials_exc
 
-    db_role_key = user_role_key(user)
-    if token_role is not None and normalize_role_key(str(token_role)) != db_role_key:
-        raise credentials_exc
+    # 权限一律以数据库当前角色为准。JWT 内 role 仅作兼容/展示；若与 DB 不一致（如派单员修改了用户角色），仍允许访问，
+    # 避免刷新后 401；冒用 sub 需有效签名，无法用伪造 role 提权（各接口以 user ORM 判权）。
     return user
 
 

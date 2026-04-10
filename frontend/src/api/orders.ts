@@ -17,6 +17,12 @@ export async function fetchOrders(
   return data
 }
 
+/** 派单员：当前「派单中」订单总数（工作台角标） */
+export async function fetchPendingDispatchCount() {
+  const { data } = await http.get<{ count: number }>('/orders/pending-dispatch-count')
+  return data
+}
+
 export interface OrderUpdateBody {
   delivery_description?: string | null
   address_detail?: string | null
@@ -124,6 +130,11 @@ export async function createOrder(body: CreateOrderBody) {
 export async function cancelOrder(id: number) {
   const { data } = await http.post<Order>(`/orders/${id}/cancel`)
   return data
+}
+
+/** 仅已撤销订单可删除；204 No Content */
+export async function deleteCancelledOrder(id: number) {
+  await http.delete(`/orders/${id}`)
 }
 
 export async function driverAckOrder(orderId: number) {

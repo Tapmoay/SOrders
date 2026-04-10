@@ -76,6 +76,40 @@ def test_register_shipper_sms_and_login(client: TestClient) -> None:
 @pytest.mark.auth
 @pytest.mark.dispatcher
 @pytest.mark.fast
+def test_dispatcher_swap_shipper_driver_role(
+    client: TestClient, token_dispatcher: str, users: dict
+) -> None:
+    shipper = users["shipper"]
+    driver = users["driver"]
+    r = client.post(
+        f"/api/v1/users/{shipper.id}/swap-shipper-driver",
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "driver"
+    r2 = client.post(
+        f"/api/v1/users/{shipper.id}/swap-shipper-driver",
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r2.status_code == 200
+    assert r2.json()["role"] == "shipper"
+    r3 = client.post(
+        f"/api/v1/users/{driver.id}/swap-shipper-driver",
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r3.status_code == 200
+    assert r3.json()["role"] == "shipper"
+    r4 = client.post(
+        f"/api/v1/users/{driver.id}/swap-shipper-driver",
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r4.status_code == 200
+    assert r4.json()["role"] == "driver"
+
+
+@pytest.mark.auth
+@pytest.mark.dispatcher
+@pytest.mark.fast
 def test_dispatcher_can_list_users(client: TestClient, token_dispatcher: str) -> None:
     r = client.get("/api/v1/users", headers=auth_headers(token_dispatcher))
     assert r.status_code == 200
@@ -108,9 +142,11 @@ def test_shipper_cannot_dispatch_order(
 @pytest.mark.auth
 @pytest.mark.fast
 @pytest.mark.unit
-def test_token_role_mismatch_rejected(client: TestClient, users: dict) -> None:
+def test_token_fake_role_claim_uses_database_role(client: TestClient, users: dict) -> None:
+    """JWT 内伪造更高角色无效：/users/me 以数据库角色为准（仍须合法 sub+签名）。"""
     from app.core.security import create_access_token
 
     bad = create_access_token(str(users["shipper"].id), {"role": "dispatcher"})
     r = client.get("/api/v1/users/me", headers=auth_headers(bad))
-    assert r.status_code == 401
+    assert r.status_code == 200
+    assert r.json()["role"] == "shipper"

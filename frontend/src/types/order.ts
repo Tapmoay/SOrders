@@ -33,6 +33,8 @@ export interface Order {
   dispatched_at: string | null
   driver_acknowledged_at?: string | null
   delivered_at: string | null
+  /** 撤销时间；已撤销订单保留约 10 天后由服务端清理 */
+  cancelled_at?: string | null
   order_products: OrderProduct[]
   driver_phone: string | null
   driver_name: string | null

@@ -112,6 +112,7 @@ class OrderOut(BaseModel):
     dispatched_at: datetime | None
     driver_acknowledged_at: datetime | None = None
     delivered_at: datetime | None = None
+    cancelled_at: datetime | None = None
     order_products: list[OrderProductOut] = []
     driver_phone: str | None = None
     driver_name: str | None = None

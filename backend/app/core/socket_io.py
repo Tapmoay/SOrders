@@ -9,11 +9,14 @@ from jose import JWTError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.rbac import user_role_key
 from app.core.security import decode_token
 from app.database import SessionLocal
 from app.models import Notification, User
 from app.models.enums import UserRole
 from app.schemas.notification import NotificationOut
+
+DISPATCHERS_ROOM = "role_dispatchers"
 
 sio = socketio.AsyncServer(
     async_mode="asgi",
@@ -29,6 +32,11 @@ def _room(user_id: int) -> str:
 
 async def emit_to_user(user_id: int, event: str, data: dict[str, Any]) -> None:
     await sio.emit(event, data, room=_room(user_id))
+
+
+async def emit_to_dispatchers(event: str, data: dict[str, Any]) -> None:
+    """向所有在线派单员广播（连接时已加入 DISPATCHERS_ROOM）。"""
+    await sio.emit(event, data, room=DISPATCHERS_ROOM)
 
 
 def _count_unread(db: Session, recipient_id: int) -> int:
@@ -52,7 +60,6 @@ async def connect(sid, environ, auth=None) -> bool:  # type: ignore[no-untyped-d
         if sub is None:
             return False
         user_id = int(sub)
-        token_role = payload.get("role")
     except (JWTError, ValueError, TypeError):
         return False
 
@@ -61,13 +68,12 @@ async def connect(sid, environ, auth=None) -> bool:  # type: ignore[no-untyped-d
         user = db.get(User, user_id)
         if user is None or not user.is_active:
             return False
-        ur = user.role.value if isinstance(user.role, UserRole) else str(user.role)
-        if token_role is not None and token_role != ur:
-            return False
     finally:
         db.close()
 
     await sio.enter_room(sid, _room(user_id))
+    if user_role_key(user) == UserRole.DISPATCHER.value:
+        await sio.enter_room(sid, DISPATCHERS_ROOM)
     last_id = 0
     try:
         last_id = int(auth.get("lastNotificationId") or 0)

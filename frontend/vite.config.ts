@@ -27,6 +27,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: Number(env.VITE_DEV_PORT || 5173),
+      /** 与同 WiFi 手机联调：监听局域网；仅本机时可改为 host: false */
+      host: true,
       proxy: {
         '/socket.io': {
           target: env.VITE_PROXY_TARGET || 'http://127.0.0.1:8000',

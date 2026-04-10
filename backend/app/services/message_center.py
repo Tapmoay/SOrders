@@ -157,23 +157,49 @@ async def publish_order_recalled_shipper(db: Session, shipper_id: int, order_id:
     await emit_realtime(shipper_id, {"type": "order.recalled", "order_id": order_id})
 
 
-async def publish_order_delivered(db: Session, shipper_id: int, order_id: int) -> None:
+async def publish_order_delivered(db: Session, order_id: int) -> None:
+    """货主收到 order.delivered；司机收到 order.delivered_driver（无货主时仅司机）。"""
     order = db.get(Order, order_id)
     ono = order.order_no if order else str(order_id)
-    n = create_message(
-        db,
-        recipient_id=shipper_id,
-        category="order",
-        type="order.delivered",
-        title="订单已送达",
-        content=f"订单 {ono} 已完成送达。",
-        payload={"order_id": order_id, "order_no": ono},
-        speech_important=False,
-    )
+    shipper_id = order.shipper_id if order else None
+    driver_id = order.driver_id if order else None
+    ns: list[Notification] = []
+    if shipper_id is not None:
+        ns.append(
+            create_message(
+                db,
+                recipient_id=shipper_id,
+                category="order",
+                type="order.delivered",
+                title="订单已送达",
+                content=f"订单 {ono} 已完成送达。",
+                payload={"order_id": order_id, "order_no": ono},
+                speech_important=False,
+            )
+        )
+    if driver_id is not None:
+        ns.append(
+            create_message(
+                db,
+                recipient_id=driver_id,
+                category="order",
+                type="order.delivered_driver",
+                title="送达已确认",
+                content=f"订单 {ono} 已完成送达，可在「已完成」中查看。",
+                payload={"order_id": order_id, "order_no": ono},
+                speech_important=False,
+            )
+        )
+    if not ns:
+        return
     db.commit()
-    db.refresh(n)
-    await emit_notification(n)
-    await emit_realtime(shipper_id, {"type": "order.delivered", "order_id": order_id})
+    for n in ns:
+        db.refresh(n)
+        await emit_notification(n)
+    if shipper_id is not None:
+        await emit_realtime(shipper_id, {"type": "order.delivered", "order_id": order_id})
+    if driver_id is not None:
+        await emit_realtime(driver_id, {"type": "order.delivered_driver", "order_id": order_id})
 
 
 async def publish_order_cancelled(db: Session, shipper_id: int, order_id: int) -> None:

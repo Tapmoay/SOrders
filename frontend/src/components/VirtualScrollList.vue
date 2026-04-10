@@ -58,6 +58,7 @@ const virtualizer = useVirtualizer(
 .vs-root {
   position: relative;
   width: 100%;
+  max-height: calc(100dvh - 140px);
   max-height: calc(100vh - 140px);
   min-height: 200px;
   overflow: auto;

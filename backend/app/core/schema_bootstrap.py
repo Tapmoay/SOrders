@@ -170,6 +170,31 @@ def bootstrap_schema(engine: Engine) -> None:
                     else:
                         raise
 
+        ocols = {c["name"] for c in insp.get_columns("orders")}
+        if "cancelled_at" not in ocols:
+            logger.warning("检测到旧库缺少 orders.cancelled_at，正在补列并回填已撤销订单…")
+            with engine.begin() as conn:
+                try:
+                    if dialect == "sqlite":
+                        conn.execute(text("ALTER TABLE orders ADD COLUMN cancelled_at DATETIME"))
+                    else:
+                        conn.execute(text("ALTER TABLE orders ADD COLUMN cancelled_at DATETIME NULL"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+                try:
+                    conn.execute(
+                        text(
+                            "UPDATE orders SET cancelled_at = updated_at "
+                            "WHERE status = 'CANCELLED' AND cancelled_at IS NULL"
+                        )
+                    )
+                except OperationalError as e:
+                    logger.warning("orders.cancelled_at 回填跳过: %s", e)
+
         if dialect == "sqlite":
             from app.models.order import Order
 

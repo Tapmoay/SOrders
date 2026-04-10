@@ -31,6 +31,28 @@ export const http = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+/** 启动时 restoreSession 校验 token 期间：401 不清理 localStorage、不整页跳登录 */
+let authRecovery401Depth = 0
+
+/**
+ * 首屏挂载后一段时间内仍为 false，避免连续刷新时并行请求（消息、Socket 等）偶发 401
+ * 触发全局清 token + 整页跳登录。超时后再启用严格 401 处理。
+ */
+let appReadyForStrict401 = false
+
+export function markAppReadyForStrict401() {
+  appReadyForStrict401 = true
+}
+
+export function duringAuthRecovery<T>(fn: () => Promise<T>): Promise<T> {
+  authRecovery401Depth += 1
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      authRecovery401Depth -= 1
+    })
+}
+
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token')
   if (token) {
@@ -46,6 +68,12 @@ http.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
+      if (authRecovery401Depth > 0) {
+        return Promise.reject(err)
+      }
+      if (!appReadyForStrict401) {
+        return Promise.reject(err)
+      }
       localStorage.removeItem('access_token')
       localStorage.removeItem('user_role')
       localStorage.removeItem('user_id')

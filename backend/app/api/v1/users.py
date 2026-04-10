@@ -98,6 +98,30 @@ def update_user(
     return u
 
 
+@router.post("/{user_id}/swap-shipper-driver", response_model=UserOut)
+def swap_shipper_driver(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.USER_MANAGE)),
+) -> User:
+    """货主 ↔ 司机身份切换（派单员操作）。派单员账号不可切换。"""
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    rk = user_role_key(u)
+    if rk == UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=400, detail="不能变更派单员角色")
+    if rk == UserRole.SHIPPER.value:
+        u.role = UserRole.DRIVER
+    elif rk == UserRole.DRIVER.value:
+        u.role = UserRole.SHIPPER
+    else:
+        raise HTTPException(status_code=400, detail="仅支持货主与司机身份切换")
+    db.commit()
+    db.refresh(u)
+    return u
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,

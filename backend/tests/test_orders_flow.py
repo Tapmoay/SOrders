@@ -122,6 +122,22 @@ def test_recall_after_dispatch(
 @pytest.mark.orders
 @pytest.mark.shipper
 @pytest.mark.fast
+def test_delete_cancelled_order_by_shipper(client: TestClient, token_shipper: str) -> None:
+    oid = _create_order(client, token_shipper)
+    r = client.post(
+        f"/api/v1/orders/{oid}/cancel",
+        headers=auth_headers(token_shipper),
+    )
+    assert r.status_code == 200, r.text
+    r = client.delete(f"/api/v1/orders/{oid}", headers=auth_headers(token_shipper))
+    assert r.status_code == 204, r.text
+    r = client.get(f"/api/v1/orders/{oid}", headers=auth_headers(token_shipper))
+    assert r.status_code == 404
+
+
+@pytest.mark.orders
+@pytest.mark.shipper
+@pytest.mark.fast
 def test_cancel_pending_by_shipper(client: TestClient, token_shipper: str) -> None:
     oid = _create_order(client, token_shipper)
     r = client.post(
@@ -129,7 +145,9 @@ def test_cancel_pending_by_shipper(client: TestClient, token_shipper: str) -> No
         headers=auth_headers(token_shipper),
     )
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == OrderStatus.CANCELLED.value
+    body = r.json()
+    assert body["status"] == OrderStatus.CANCELLED.value
+    assert body.get("cancelled_at") is not None
 
 
 @pytest.mark.orders

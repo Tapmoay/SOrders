@@ -13,7 +13,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.core.rbac import Permission, role_has_permission, user_role_key
@@ -37,6 +37,7 @@ from app.schemas.order import (
 )
 from app.services.auth_service import new_order_no
 from app.services.operation_log_service import write_log
+from app.services.cancelled_order_retention import delete_orders_by_ids
 from app.services.order_flow import (
     assign_driver,
     build_order_products,
@@ -47,6 +48,7 @@ from app.services.order_flow import (
 )
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services.push_events import (
+    push_dispatcher_pending_pool_changed,
     push_driver_ack_shipper,
     push_ledger_updated,
     push_order_assigned,
@@ -117,8 +119,8 @@ async def _bg_push_shipper_recalled(shipper_id: int, order_id: int) -> None:
     await push_order_to_shipper(shipper_id, order_id, "order.recalled")
 
 
-async def _bg_notify_delivered(shipper_id: int, order_id: int) -> None:
-    await push_order_delivered(shipper_id, order_id)
+async def _bg_notify_delivered(order_id: int) -> None:
+    await push_order_delivered(order_id)
 
 
 async def _bg_notify_cancel(shipper_id: int, order_id: int) -> None:
@@ -127,6 +129,10 @@ async def _bg_notify_cancel(shipper_id: int, order_id: int) -> None:
 
 async def _bg_notify_driver_ack(shipper_id: int, order_id: int) -> None:
     await push_driver_ack_shipper(shipper_id, order_id)
+
+
+async def _bg_dispatcher_pending_pool() -> None:
+    await push_dispatcher_pending_pool_changed()
 
 
 @router.get("", response_model=list[OrderOut])
@@ -197,6 +203,19 @@ def list_orders(
     return [enrich_order_out(o, db, current) for o in orders]
 
 
+@router.get("/pending-dispatch-count")
+def pending_dispatch_count(
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    """派单工作台：当前「派单中」订单数量，用于底部 Tab / 铃铛角标。"""
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可查询")
+    q = select(func.count()).select_from(Order).where(Order.status == OrderStatus.PENDING_DISPATCH)
+    n = db.scalar(q)
+    return {"count": int(n or 0)}
+
+
 @router.post("/batch-assign", response_model=OrderBatchAssignOut)
 def batch_assign_orders(
     body: OrderBatchAssignBody,
@@ -229,6 +248,8 @@ def batch_assign_orders(
         except ValueError as e:
             db.rollback()
             results.append(BatchAssignResultItem(order_id=oid, success=False, detail=str(e)))
+    if any(r.success for r in results):
+        background_tasks.add_task(_bg_dispatcher_pending_pool)
     return OrderBatchAssignOut(results=results)
 
 
@@ -238,9 +259,29 @@ def get_order(order_id: int, current: CurrentUser, db: Session = Depends(get_db)
     return enrich_order_out(order, db, current)
 
 
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_cancelled_order(
+    order_id: int,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> None:
+    """仅删除「已撤销」状态的订单（货主删自己的单；派单员可删含临时货主单）。"""
+    order = _get_order_scoped(order_id, current, db)
+    role = user_role_key(current)
+    if role not in (UserRole.SHIPPER.value, UserRole.DISPATCHER.value):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
+    if not role_has_permission(role, Permission.ORDER_DELETE_CANCELLED):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
+    if order.status != OrderStatus.CANCELLED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="仅已撤销的订单可删除")
+    delete_orders_by_ids(db, [order_id])
+    db.commit()
+
+
 @router.post("", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
 def create_order(
     body: OrderCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_CREATE)),
 ) -> OrderOut:
@@ -299,6 +340,7 @@ def create_order(
     if target_shipper_id is not None and body.contact_boss_phone.strip():
         upsert_boss_contact(db, target_shipper_id, body.contact_boss_phone.strip())
     db.commit()
+    background_tasks.add_task(_bg_dispatcher_pending_pool)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单保存失败")
@@ -451,8 +493,8 @@ async def complete_order_with_upload(
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
+    background_tasks.add_task(_bg_notify_delivered, order.id)
     if order.shipper_id is not None:
-        background_tasks.add_task(_bg_notify_delivered, order.shipper_id, order.id)
         background_tasks.add_task(_bg_ledger_updated_shipper, order.shipper_id)
     return enrich_order_out(full, db, current)
 
@@ -528,6 +570,7 @@ def assign_order(
         raise HTTPException(status_code=400, detail=str(e)) from e
     db.commit()
     background_tasks.add_task(_bg_push_assigned, body.driver_id, order.id)
+    background_tasks.add_task(_bg_dispatcher_pending_pool)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
@@ -555,8 +598,8 @@ def complete_order(
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
+    background_tasks.add_task(_bg_notify_delivered, order.id)
     if order.shipper_id is not None:
-        background_tasks.add_task(_bg_notify_delivered, order.shipper_id, order.id)
         background_tasks.add_task(_bg_ledger_updated_shipper, order.shipper_id)
     return enrich_order_out(full, db, current)
 
@@ -602,6 +645,7 @@ def cancel_order(
         raise HTTPException(status_code=500, detail="订单数据异常")
     if sid is not None:
         background_tasks.add_task(_bg_notify_cancel, sid, oid)
+    background_tasks.add_task(_bg_dispatcher_pending_pool)
     return enrich_order_out(full, db, current)
 
 
@@ -629,6 +673,7 @@ def recall_order(
         background_tasks.add_task(_bg_push_revoked, old_driver_id, order_id, body.reason)
     if shipper_id is not None:
         background_tasks.add_task(_bg_push_shipper_recalled, shipper_id, order_id)
+    background_tasks.add_task(_bg_dispatcher_pending_pool)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")

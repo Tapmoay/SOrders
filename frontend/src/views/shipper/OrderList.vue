@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showFailToast, showLoadingToast, closeToast } from 'vant'
 
-import { cancelOrder, fetchOrders } from '@/api/orders'
+import { cancelOrder, deleteCancelledOrder, fetchOrders } from '@/api/orders'
 import VirtualScrollList from '@/components/VirtualScrollList.vue'
 import { ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
 import { shipperOrdersRefreshTick } from '@/shipperRealtimeState'
@@ -130,6 +130,26 @@ async function tryCancel(o: Order) {
     }
   }
 }
+
+async function tryDeleteCancelled(o: Order) {
+  if (o.status !== 'CANCELLED') return
+  try {
+    await showConfirmDialog({
+      title: '删除订单',
+      message: `删除后不可恢复，确定删除订单 ${o.order_no}？`,
+    })
+    showLoadingToast({ message: '处理中…', forbidClick: true })
+    await deleteCancelledOrder(o.id)
+    closeToast()
+    await load()
+  } catch (e) {
+    closeToast()
+    if (e !== 'cancel') {
+      const err = e as { response?: { data?: { detail?: string } } }
+      showFailToast(err.response?.data?.detail || '删除失败')
+    }
+  }
+}
 </script>
 
 <template>
@@ -137,6 +157,14 @@ async function tryCancel(o: Order) {
     <van-tabs v-model:active="tabIndex" shrink class="order-list__tabs">
       <van-tab v-for="(t, i) in tabs" :key="i" :title="t.title" />
     </van-tabs>
+
+    <van-notice-bar
+      v-if="tabIndex === 4"
+      left-icon="info-o"
+      wrapable
+      :scrollable="false"
+      text="已撤销订单仅保留 10 天，到期后由系统自动删除；如需留档请及时自行保存。"
+    />
 
     <van-pull-refresh v-model="refreshing" @refresh="onRefresh">
       <van-empty v-if="!loading && list.length === 0" description="暂无订单" />
@@ -157,6 +185,10 @@ async function tryCancel(o: Order) {
             <div v-if="o.status === 'PENDING_DISPATCH'" class="actions" @click.stop>
               <van-button size="small" type="danger" plain @click="tryCancel(o)">撤销订单</van-button>
               <van-button size="small" type="primary" plain @click="goDetail(o.id)">详情</van-button>
+            </div>
+            <div v-else-if="o.status === 'CANCELLED'" class="actions" @click.stop>
+              <van-button size="small" type="danger" plain @click="tryDeleteCancelled(o)">删除</van-button>
+              <van-button size="small" type="primary" plain @click="goDetail(o.id)">查看详情</van-button>
             </div>
             <div v-else class="actions" @click.stop>
               <van-button size="small" type="primary" plain @click="goDetail(o.id)">查看详情</van-button>

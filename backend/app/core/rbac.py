@@ -10,6 +10,7 @@ class Permission(str, Enum):
     ORDER_READ_ALL = "order:read_all"
     ORDER_CANCEL_SHIPPER = "order:cancel_shipper"
     ORDER_CANCEL_DISPATCHER = "order:cancel_dispatcher"
+    ORDER_DELETE_CANCELLED = "order:delete_cancelled"
     ORDER_DISPATCH = "order:dispatch"
     ORDER_RECALL = "order:recall"
     ORDER_EDIT = "order:edit"
@@ -35,6 +36,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.ORDER_CREATE,
             Permission.ORDER_READ_OWN,
             Permission.ORDER_CANCEL_SHIPPER,
+            Permission.ORDER_DELETE_CANCELLED,
             Permission.LEDGER_READ_OWN,
             Permission.NOTIFICATION_READ,
         }
@@ -53,6 +55,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.ORDER_CREATE,
             Permission.ORDER_READ_ALL,
             Permission.ORDER_CANCEL_DISPATCHER,
+            Permission.ORDER_DELETE_CANCELLED,
             Permission.ORDER_DISPATCH,
             Permission.ORDER_RECALL,
             Permission.ORDER_EDIT,

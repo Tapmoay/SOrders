@@ -44,6 +44,9 @@ class Order(Base, TimestampMixin):
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     driver_acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, doc="撤销时间；用于已撤销订单保留期限与自动清理"
+    )
     expected_deliver_before: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, doc="约定送达时间（用于准时率；空则按订单日末）"
     )

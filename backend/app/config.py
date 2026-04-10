@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     amap_key: str = ""
     amap_security_js_code: str = ""
 
-    #: 开发/测试：为 true 时，发送验证码接口在响应中返回明文 code（生产务必为 false）
+    #: 为 true 时发送验证码接口在响应中返回明文 code；生产务必 false。本地若已设 DEBUG=true 也会回显
     sms_reveal_code: bool = False
 
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showFailToast, showSuccessToast } from 'vant'
 
@@ -63,13 +63,41 @@ function formatRequestError(e: unknown): string {
   return `请求失败（${err.response.status ?? '?'}）`
 }
 
+function applySavedLoginPrefill() {
+  const c = auth.getSavedLoginCredentials()
+  if (c) {
+    loginName.value = c.loginId
+    password.value = c.password
+  }
+}
+
+/** 首次点击/聚焦登录输入框时：清空界面上的用户名与密码，并删除本地保存的凭据 */
+let loginFieldInteractCleared = false
+function onLoginFieldInteract() {
+  if (loginFieldInteractCleared) return
+  loginFieldInteractCleared = true
+  loginName.value = ''
+  password.value = ''
+  auth.clearAutoLoginCredentials()
+}
+
 watch(mode, (m) => {
   if (m === 'login') {
     regUsername.value = ''
     regMobile.value = ''
     verifyCode.value = ''
+    loginFieldInteractCleared = false
+    applySavedLoginPrefill()
   } else {
     loginName.value = ''
+    password.value = ''
+  }
+})
+
+onMounted(() => {
+  if (mode.value === 'login') {
+    loginFieldInteractCleared = false
+    applySavedLoginPrefill()
   }
 })
 
@@ -89,9 +117,16 @@ async function onSendSms() {
   if (smsCooldown.value > 0) return
   try {
     const res = await sendRegisterSms(p)
-    showSuccessToast('验证码已发送')
-    if (import.meta.env.DEV && res.code) {
-      console.info('[dev] SMS code:', res.code)
+    if (res.code) {
+      showSuccessToast({
+        message: `验证码：${res.code}（当前为开发模式，未发送真实短信）`,
+        duration: 8000,
+      })
+      if (import.meta.env.DEV) {
+        console.info('[dev] SMS code:', res.code)
+      }
+    } else {
+      showSuccessToast('验证码已发送，请查收短信')
     }
     smsCooldown.value = 60
     smsTimer = setInterval(() => {
@@ -110,11 +145,13 @@ async function onSubmit() {
   loading.value = true
   try {
     if (mode.value === 'login') {
-      const tok = await login({ phone: loginName.value.trim(), password: password.value })
-      localStorage.setItem('access_token', tok.access_token)
+      const id = loginName.value.trim()
+      const pwd = password.value
+      const tok = await login({ phone: id, password: pwd })
       auth.setSession(tok.access_token, tok.role, tok.user_id)
       const me = await fetchMe()
       auth.setSession(tok.access_token, me.role, me.id)
+      auth.persistAutoLogin(id, pwd)
       showSuccessToast('登录成功')
       router.replace(homePath(me.role))
     } else {
@@ -124,10 +161,11 @@ async function onSubmit() {
         phone: regMobile.value.trim(),
         verification_code: verifyCode.value.trim(),
       })
-      localStorage.setItem('access_token', tok.access_token)
       auth.setSession(tok.access_token, tok.role, tok.user_id)
       const me = await fetchMe()
       auth.setSession(tok.access_token, me.role, me.id)
+      /** 注册后静默登录使用手机号（与登录接口 phone 字段一致） */
+      auth.persistAutoLogin(regMobile.value.trim(), password.value)
       showSuccessToast('注册成功')
       router.replace(homePath(me.role))
     }
@@ -182,6 +220,8 @@ async function onSubmit() {
                 autocomplete="username"
                 placeholder="用户名或手机号"
                 :rules="[{ required: true, message: '请填写用户名' }]"
+                @focus="onLoginFieldInteract"
+                @click="onLoginFieldInteract"
               />
               <van-field
                 v-model="password"
@@ -191,6 +231,8 @@ async function onSubmit() {
                 placeholder="密码"
                 autocomplete="current-password"
                 :rules="[{ required: true, message: '请填写密码' }]"
+                @focus="onLoginFieldInteract"
+                @click="onLoginFieldInteract"
               >
                 <template #right-icon>
                   <van-icon

@@ -42,7 +42,8 @@ def send_register_sms(body: SendSmsRequest) -> dict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
     settings = get_settings()
     out: dict = {"ok": True, "expires_in": 300}
-    if settings.sms_reveal_code:
+    # 未接短信网关时不会真发短信；开发环境（DEBUG）或显式开启时回显 code 便于联调
+    if settings.sms_reveal_code or settings.debug:
         out["code"] = code
     return out
 
