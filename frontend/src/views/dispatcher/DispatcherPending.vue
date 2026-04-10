@@ -113,6 +113,12 @@ const initialEditLngLat = computed(() => {
   return Number.isFinite(ln) && Number.isFinite(la) ? { lng: ln, lat: la } : null
 })
 
+const mapEditInitialAddress = computed(() => {
+  if (initialEditLngLat.value) return null
+  const t = editForm.value.address_detail?.trim()
+  return t || null
+})
+
 const showRecall = ref(false)
 const recallReason = ref('')
 const recallOrderId = ref<number | null>(null)
@@ -626,6 +632,7 @@ async function submitRecall() {
     <AmapPicker
       v-model:show="showMapEdit"
       :initial-lng-lat="initialEditLngLat"
+      :initial-address="mapEditInitialAddress"
       panel-title="编辑送货地址"
       @confirm="onEditMapConfirm"
     />

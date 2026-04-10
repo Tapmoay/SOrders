@@ -2,9 +2,13 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
+/** 与仓库根目录 `.env` 共用，避免前后端各维护一份 VITE_ */
+const projectRoot = fileURLToPath(new URL('..', import.meta.url))
+
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+  const env = loadEnv(mode, projectRoot, '')
   return {
+    envDir: projectRoot,
     plugins: [vue()],
     build: {
       rollupOptions: {

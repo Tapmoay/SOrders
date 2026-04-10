@@ -68,6 +68,13 @@ const initialMapLngLat = computed(() => {
   return null
 })
 
+/** 无经纬度时把已填送达地址交给地图做地理编码初始定位 */
+const mapInitialAddress = computed(() => {
+  if (addressLng.value != null && addressLat.value != null) return null
+  const t = addressDetail.value.trim()
+  return t || null
+})
+
 interface Line {
   product_name_snapshot: string
   quantity: number
@@ -629,6 +636,7 @@ async function submit() {
     <AmapPicker
       v-model:show="showMap"
       :initial-lng-lat="initialMapLngLat"
+      :initial-address="mapInitialAddress"
       panel-title="送货地址选点"
       @confirm="onMapConfirm"
     />
