@@ -20,6 +20,7 @@ import {
 } from '@/api/stats'
 import { fetchUsers, type UserListItem } from '@/api/user'
 import { formatApiError } from '@/utils/apiError'
+import { formatMoney2 } from '@/utils/formatMoney'
 
 function pad(n: number) {
   return String(n).padStart(2, '0')
@@ -378,7 +379,7 @@ onUnmounted(() => {
         <van-cell title="已送达" :value="String(activity.delivered_count)" />
         <van-cell title="总消费" :value="String(activity.total_spent)" />
         <van-cell title="客单价(已送达)" :value="String(activity.avg_order_value)" />
-        <van-cell title="约每周下单" :value="String(activity.orders_per_week)" />
+        <van-cell title="约每周下单" :value="formatMoney2(activity.orders_per_week)" />
         <van-cell title="常用商品" :label="activity.top_products.map((p) => p.product_name).join('、') || '—'" />
       </van-cell-group>
       <van-empty v-else description="请选择货主查看活跃度" />

@@ -73,7 +73,11 @@ def create_fastapi_app() -> FastAPI:
 
     @application.get("/health")
     def health() -> dict[str, Any]:
-        body: dict[str, Any] = {"status": "ok", **redis_ok()}
+        body: dict[str, Any] = {
+            "status": "ok",
+            "version": settings.app_version,
+            **redis_ok(),
+        }
         return body
 
     return application

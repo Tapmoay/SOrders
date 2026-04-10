@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "SOrders API"
+    #: 与仓库根目录 VERSION、前端 package.json 对齐（语义化版本，0.2.0 即产品「0.02」）
+    app_version: str = "0.2.0"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 

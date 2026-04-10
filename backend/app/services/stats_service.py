@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from datetime import date, datetime, time, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
 from sqlalchemy import select
@@ -138,7 +138,10 @@ def shipper_activity(
     avg_order_value = (total_spent / delivered_count) if delivered_count else Decimal("0")
     days = max((date_to - date_from).days + 1, 1)
     weeks = max(days / 7, 0.01)
-    orders_per_week = Decimal(order_count) / Decimal(str(weeks))
+    orders_per_week = (Decimal(order_count) / Decimal(str(weeks))).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
 
     prod_count: dict[str, int] = defaultdict(int)
     prod_amt: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
