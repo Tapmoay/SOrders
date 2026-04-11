@@ -1,0 +1,32 @@
+SOrders — 项目依赖说明
+========================
+
+一、后端（Python）
+------------------
+  运行依赖：    backend/requirements.txt
+  开发/测试：   backend/requirements-dev.txt
+  一键安装：    backend/requirements-all.txt（包含上述两者）
+
+  安装示例（建议在 backend 目录下使用虚拟环境）：
+    cd backend
+    python -m venv .venv
+    .venv\Scripts\activate          （Linux/macOS: source .venv/bin/activate）
+    pip install -U pip
+    pip install -r requirements-all.txt
+
+  主要栈：FastAPI、SQLAlchemy、Uvicorn、Redis、Socket.IO 等（见 requirements.txt）。
+
+二、前端（Node.js）
+-------------------
+  清单：        frontend/package.json
+  锁文件：      frontend/package-lock.json（提交到仓库，便于 npm ci 复现）
+
+  安装示例：
+    cd frontend
+    npm ci
+
+  建议：Node.js >= 18（见 frontend/package.json 中 engines）。
+
+三、环境变量
+------------
+  参考仓库根目录 .env.example；本地复制为 .env 并按说明填写（勿提交含密钥的 .env）。
