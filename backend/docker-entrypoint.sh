@@ -18,4 +18,12 @@ else:
     raise SystemExit("Could not reach MySQL at %s:%s" % (host, port))
 PY
 python scripts/init_tables.py
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 置于 Nginx/Ingress 后时设置 UVICORN_PROXY_HEADERS=1，便于识别 X-Forwarded-*（须仅信任上游代理）
+UVICORN_EXTRA=""
+if [ "${UVICORN_PROXY_HEADERS:-}" = "1" ]; then
+  UVICORN_EXTRA="--proxy-headers --forwarded-allow-ips=*"
+fi
+
+# shellcheck disable=SC2086
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 ${UVICORN_EXTRA}

@@ -1,10 +1,14 @@
 # 本地 / 单机部署：MySQL + Redis + 后端 API（Socket.IO 与 FastAPI 同进程）
 # 使用：在仓库根目录执行 docker compose up -d --build
 # 入口脚本会等待 MySQL、执行 scripts/init_tables.py 建表后启动 uvicorn
+# 生产：复制为 compose 覆盖文件或设置环境变量覆盖 JWT/数据库密码；前端需宿主机 npm run build 后由 Nginx 托管 dist
+
+name: sorders
 
 services:
   mysql:
     image: mysql:8.0
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: sorders
       MYSQL_USER: sorders
@@ -22,6 +26,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
 
@@ -29,11 +34,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: mysql+pymysql://sorders:sorders@mysql:3306/sorders
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production-use-long-random-string}
       AMAP_KEY: ${AMAP_KEY:-}
+      # 经 Nginx 反代时设为 1（见 backend/docker-entrypoint.sh）
+      UVICORN_PROXY_HEADERS: ${UVICORN_PROXY_HEADERS:-0}
     ports:
       - "8000:8000"
     volumes:

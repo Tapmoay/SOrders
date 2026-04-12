@@ -30,3 +30,8 @@ SOrders — 项目依赖说明
 三、环境变量
 ------------
   参考仓库根目录 .env.example；本地复制为 .env 并按说明填写（勿提交含密钥的 .env）。
+
+四、生产构建与编排（摘要）
+--------------------------
+  前端静态：`deploy/build-frontend.sh`（Bash）或 `scripts/build-frontend-for-deploy.ps1`（PowerShell），产出 `frontend/dist`。
+  后端容器：仓库根 `docker compose up -d --build`；Nginx 示例 `deploy/nginx.example.conf`。

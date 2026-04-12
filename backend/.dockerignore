@@ -7,3 +7,11 @@ tests
 *.md
 .env
 .env.*
+.git
+.gitattributes
+*.log
+htmlcov
+.coverage
+.ruff_cache
+run_tests.ps1
+run_tests.sh

@@ -126,9 +126,9 @@ docker compose up -d --build
 - **MySQL**：`localhost:3306`（默认用户/库名见 `docker-compose.yml`）
 - **Redis**：`localhost:6379`
 
-生产环境务必通过环境变量或 compose 覆盖 `JWT_SECRET_KEY`、数据库密码等。
+生产环境务必通过环境变量或 compose 覆盖 `JWT_SECRET_KEY`、数据库密码等。API 前有 Nginx 时可将 `UVICORN_PROXY_HEADERS=1` 写入 `.env` 或在 compose 中设置，以便后端识别客户端真实地址（须仅允许可信反代）。
 
-前端需先在宿主机执行 `cd frontend && npm run build`，再将 `dist` 交给 Nginx；反向代理示例见 `deploy/nginx.example.conf`（含 `/api/` 与 `/socket.io/`）。
+前端静态资源：在仓库根目录执行 `bash deploy/build-frontend.sh`（Linux/macOS）或 `.\scripts\build-frontend-for-deploy.ps1`（Windows），产物在 `frontend/dist`，交给 Nginx；反向代理示例见 `deploy/nginx.example.conf`（含 `/api/` 与 `/socket.io/`）。
 
 ## 仓库结构（摘）
 
