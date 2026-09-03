@@ -46,7 +46,7 @@ private fun ReuseTopBar(title: String, onBack: () -> Unit) {
 
 private fun today(): String = LocalDate.now().toString()
 
-/** 统一下拉选择框：人员/类型/分类等改为下拉，避免选项多时按钮堆积 */
+/** 统一下拉选择框：人员/类型/分类等改为下拉，避免选项多时按钮堆积；白底贴合页面背景、淡灰细边框，聚焦时才变蓝 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DropField(
@@ -63,6 +63,13 @@ private fun DropField(
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                cursorColor = MaterialTheme.colorScheme.primary,
+            ),
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -178,6 +185,7 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                             text = vm.selectedCustomer?.let { customerText(it) } ?: "请选择客户",
                             options = vm.customers.map { it.id.toString() to customerText(it) },
                             onSelect = { id -> vm.customers.find { it.id.toString() == id }?.let { vm.onCustomerSelect(it) } },
+
                         )
                     }
                     vm.selectedCustomer?.let { c ->
@@ -207,6 +215,7 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                             text = methodLabel(vm.method),
                             options = listOf("cash" to "现金", "transfer" to "转账", "wechat" to "微信", "arrears_settle" to "挂账结清"),
                             onSelect = { vm.method = it },
+
                         )
                         Spacer(Modifier.height(6.dp))
                         OutlinedTextField(value = vm.receivedAt, onValueChange = { vm.receivedAt = it }, label = { Text("收款日期") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -317,6 +326,7 @@ fun SettlementsScreen(container: AppContainer, onBack: () -> Unit) {
                         text = vm.drivers.find { it.id == vm.selectedDriver }?.let { driverText(it) } ?: "请选择司机",
                         options = vm.drivers.map { it.id.toString() to driverText(it) },
                         onSelect = { vm.selectedDriver = it.toLongOrNull() },
+
                     )
                     Spacer(Modifier.height(8.dp))
                     DropField(
@@ -324,6 +334,7 @@ fun SettlementsScreen(container: AppContainer, onBack: () -> Unit) {
                         text = if (vm.settleType == "piece") "按单 PIECE" else "固定工资",
                         options = listOf("piece" to "按单 PIECE", "salary" to "固定工资"),
                         onSelect = { vm.settleType = it },
+
                     )
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(value = vm.month, onValueChange = { vm.month = it; vm.loadBills() }, label = { Text("结算月份 YYYY-MM") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -431,6 +442,7 @@ fun ExpensesScreen(container: AppContainer, onBack: () -> Unit) {
                         text = vm.drivers.find { it.id == vm.driverId }?.let { driverText(it) } ?: "不指定",
                         options = listOf("" to "不指定") + vm.drivers.map { it.id.toString() to driverText(it) },
                         onSelect = { vm.driverId = it.toLongOrNull() },
+
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = vm.note, onValueChange = { vm.note = it }, label = { Text("备注") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -519,6 +531,7 @@ fun VehiclesScreen(container: AppContainer, onBack: () -> Unit) {
                         text = typeLabel(vm.vehicleType),
                         options = listOf("trailer" to "挂车", "small" to "小货车", "large" to "大货车"),
                         onSelect = { vm.vehicleType = it },
+
                     )
                     Spacer(Modifier.height(8.dp))
                     DropField(
@@ -526,6 +539,7 @@ fun VehiclesScreen(container: AppContainer, onBack: () -> Unit) {
                         text = vm.drivers.find { it.id == vm.driverId }?.let { driverText(it) } ?: "不指定",
                         options = listOf("" to "不指定") + vm.drivers.map { it.id.toString() to driverText(it) },
                         onSelect = { vm.driverId = it.toLongOrNull() },
+
                     )
                     vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     Spacer(Modifier.height(8.dp))
