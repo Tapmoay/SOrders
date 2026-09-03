@@ -727,7 +727,7 @@ private fun DamageCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
             ) {
-                Icon(Icons.Default.BrokenImage, contentDescription = "商品破损", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.BrokenImage, contentDescription = "商品破损", tint = Color(MoneyOrange), modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("商品破损", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
                 Text(
