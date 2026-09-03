@@ -10,6 +10,13 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- 高德地图需要的存储写权限（旧机型） -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- 通知推送（Android 13+ 需运行时授权） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 拍照（相机直拍/预览场景；系统相机 Intent 亦可） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 相册/文件读取（Android 13+ 用媒体权限；12 及以下用存储权限） -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- Android 11+ 包可见性：允许 resolveActivity 识别高德 App 的 androidamap:// 协议 -->
     <queries>

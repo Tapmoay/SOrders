@@ -50,7 +50,7 @@ class AmapLocationManager(private val context: Context) {
             c.setLocationOption(opt)
             c.setLocationListener(object : AMapLocationListener {
                 override fun onLocationChanged(loc: AMapLocation?) {
-                    client = null
+                    // 注意：不移除 client（保持常驻复用），仅停止本次定位——反复重建高德客户端冷启动约 1-2 秒
                     if (loc != null && loc.errorCode == 0) {
                         val pt = AmapLocationPoint(
                             lat = loc.latitude,
