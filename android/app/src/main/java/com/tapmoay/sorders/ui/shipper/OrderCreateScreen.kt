@@ -605,7 +605,13 @@ fun AddQtyDialog(
         text = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                FilledTonalIconButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }) {
+                FilledTonalIconButton(
+                    onClick = { qty = (qty - 1).coerceAtLeast(1) },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = Color(0xFFE8F2FF),
+                        contentColor = Color(0xFF1E6FFF),
+                    ),
+                ) {
                     Icon(Icons.Default.Remove, contentDescription = "减")
                 }
                 OutlinedTextField(
@@ -616,7 +622,13 @@ fun AddQtyDialog(
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                     modifier = Modifier.width(96.dp),
                 )
-                FilledTonalIconButton(onClick = { qty = (qty + 1).coerceAtMost(9999) }) {
+                FilledTonalIconButton(
+                    onClick = { qty = (qty + 1).coerceAtMost(9999) },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = Color(0xFFE8F2FF),
+                        contentColor = Color(0xFF1E6FFF),
+                    ),
+                ) {
                     Icon(Icons.Default.Add, contentDescription = "加")
                 }
             }
