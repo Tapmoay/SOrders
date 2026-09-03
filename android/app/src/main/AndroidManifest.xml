@@ -24,6 +24,7 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="androidamap" />
         </intent>
+        <package android:name="com.autonavi.minimap" />
     </queries>
 
     <application

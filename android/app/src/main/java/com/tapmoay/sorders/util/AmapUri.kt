@@ -19,11 +19,11 @@ fun openAmapNavigation(context: Context, lng: String?, lat: String?, name: Strin
     val scheme = "androidamap://route?sourceApplication=sorders&dev=0&t=0" +
         "&dlat=" + dLat + "&dlon=" + dLng + "&dname=" + dName + "&style=0"
     try {
+        // 直接指定高德包名拉起 App（不依赖 resolveActivity：部分 ROM 对 queries 可见性返回 null）
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(scheme))
-        if (intent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(intent)
-            return
-        }
+        intent.setPackage("com.autonavi.minimap")
+        context.startActivity(intent)
+        return
     } catch (_: Exception) {
         // 高德 App 不存在 / 启动异常 -> 走 H5 回退
     }
