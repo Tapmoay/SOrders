@@ -24,3 +24,16 @@ backend/htmlcov/
 .pytest_cache/
 .agents/
 /0001
+
+# 工作区临时产物（验证截图/辅助脚本/构建日志等，不入库）
+/_*.png
+/_*.jpg
+/_*.py
+/_*.txt
+/_*.xml
+/_*.apk
+/_*.cmd
+/_*.ps1
+/out.txt
+/vis_*.png
+/_agent/
