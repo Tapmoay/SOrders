@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.api.UserCreateRequest
 import com.tapmoay.sorders.data.remote.api.UserUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.launch
@@ -165,6 +166,41 @@ class UsersManageViewModel(
                 load()
             } catch (e: Exception) {
                 error = toApiException(e).message
+            }
+        }
+    }
+    /** 商品维度批量调价（批发商管理页入口：同一商品可同时修改多个批发商） */
+    var products by mutableStateOf<List<ProductDto>>(emptyList())
+    var showBatch by mutableStateOf(false)
+
+    fun openBatch() {
+        showBatch = true
+        if (products.isEmpty()) {
+            viewModelScope.launch {
+                try { products = container.repo.products(includeInactive = true) } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun batchPrice(
+        shipperIds: List<Long>,
+        productIds: List<Long>,
+        mode: String,
+        value: String?,
+        tierIndex: Int?,
+        onDone: (Int) -> Unit,
+    ) {
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                val res = container.repo.batchPriceRules(shipperIds, productIds, mode, value, tierIndex)
+                actionResult = "批量调价成功（" + res.count + " 条）"
+                onDone(res.count)
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
             }
         }
     }

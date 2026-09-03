@@ -25,7 +25,18 @@ class WholesalePricingViewModel(
     /** productId -> 用户当前输入 */
     val drafts = mutableStateMapOf<Long, String>()
 
-    init { load() }
+    /** 当前批发商名称（锁定批量调价时展示用） */
+    var shipperLabel by mutableStateOf("")
+
+    init {
+        load()
+        viewModelScope.launch {
+            try {
+                val m = container.repo.members().firstOrNull { it.id == shipperId }
+                shipperLabel = m?.fullName ?: m?.phone ?: m?.username ?: ""
+            } catch (_: Exception) {}
+        }
+    }
 
     fun load() {
         loading = products.isEmpty()

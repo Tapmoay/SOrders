@@ -45,6 +45,15 @@ fun UsersManageScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                actions = {
+                    if (pool == UserPool.MEMBERS) {
+                        TextButton(onClick = { vm.openBatch() }) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("批量调价", style = MaterialTheme.typography.titleSmall)
+                        }
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -172,6 +181,17 @@ fun UsersManageScreen(
             },
             confirmButton = { TextButton(onClick = { vm.save() }, enabled = !vm.acting) { Text("保存") } },
             dismissButton = { TextButton(onClick = { vm.showDialog = false }) { Text("取消") } },
+        )
+    }
+    // 商品维度批量调价抽屉（批发商管理页：同一商品可同时修改多个批发商专属价）
+    if (vm.showBatch) {
+        BatchPriceSheet(
+            products = vm.products,
+            members = vm.users,
+            lockedShipperId = null,
+            acting = vm.acting,
+            onExecute = { sids, pids, m, v, ti -> vm.batchPrice(sids, pids, m, v, ti) { vm.showBatch = false } },
+            onDismiss = { vm.showBatch = false },
         )
     }
 }
