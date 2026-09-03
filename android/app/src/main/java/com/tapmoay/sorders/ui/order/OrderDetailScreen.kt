@@ -717,7 +717,9 @@ private fun DamageCard(
     val damaged = damageByProduct.values.filter { it > 0 }.sum()
     Surface(
         shape = MaterialTheme.shapes.medium,
-        color = Color(MoneyOrange).copy(alpha = 0.08f),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = 1.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -725,9 +727,9 @@ private fun DamageCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
             ) {
-                Icon(Icons.Default.BrokenImage, contentDescription = "商品破损", tint = Color(MoneyOrange), modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.BrokenImage, contentDescription = "商品破损", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("商品破损", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text("商品破损", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
                 Text(
                     if (damaged > 0) "已填 " + damaged + " 件" else "未填写",
                     style = MaterialTheme.typography.labelMedium,

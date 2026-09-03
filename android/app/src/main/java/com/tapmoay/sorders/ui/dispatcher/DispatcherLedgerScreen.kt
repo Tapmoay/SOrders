@@ -552,7 +552,7 @@ private fun AccountToolsEntry(
         ToolChip(Icons.Default.Payments, "客户收款", MoneyOrange, onReceipts)
         ToolChip(Icons.Default.Handshake, "司机结算", MgrGreen, onSettlements)
         ToolChip(Icons.Default.Receipt, "开销管理", 0xFF00A2C7, onExpenses)
-        ToolChip(Icons.Default.LocalShipping, "车辆台账", 0xFFCDDC39, onVehicles)
+        ToolChip(Icons.Default.LocalShipping, "车辆台账", 0xFF6950F5, onVehicles)
     }
 }
 
@@ -561,14 +561,14 @@ private fun androidx.compose.foundation.layout.RowScope.ToolChip(icon: androidx.
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(10.dp),
-        color = androidx.compose.ui.graphics.Color(color).copy(alpha = 0.12f),
-        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color(color).copy(alpha = 0.5f)),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.weight(1f).height(52.dp),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(icon, contentDescription = null, tint = androidx.compose.ui.graphics.Color(color), modifier = Modifier.size(20.dp))
             Spacer(Modifier.height(2.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color(color))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
