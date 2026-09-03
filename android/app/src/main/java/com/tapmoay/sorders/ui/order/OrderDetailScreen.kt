@@ -477,6 +477,18 @@ private fun DetailBody(
                 }
             }
         }
+        // 司机：已接单可录入商品破损（选填·公司自担），卡片槽紧贴商品明细下方
+        if (role == Role.DRIVER && order.status == "ACCEPTED") {
+            item {
+                DamageCard(
+                    products = order.orderProducts,
+                    damageByProduct = damageByProduct,
+                    damageNote = damageNote,
+                    onQtyChange = onDamageQty,
+                    onNoteChange = onDamageNote,
+                )
+            }
+        }
         item {
             SectionCard {
                 SectionTitle(Icons.Default.History, Color(0xFF1E6FFF), "流转记录")
@@ -656,14 +668,6 @@ private fun DetailBody(
                             Text("拍照送达")
                         }
                     }
-                    Spacer(Modifier.height(6.dp))
-                    DamageInput(
-                        products = order.orderProducts,
-                        damageByProduct = damageByProduct,
-                        damageNote = damageNote,
-                        onQtyChange = onDamageQty,
-                        onNoteChange = onDamageNote,
-                    )
                     Button(
                         onClick = onNavigate,
                         modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -699,9 +703,9 @@ private fun DetailBody(
     }
 }
 
-/** 货损输入（选填，公司自担）：商品行逐行填数量 + 订单备注 */
+/** 商品破损卡片槽（选填·公司自担）：点开可逐商品填破损数量 + 货损备注，默认收起不占空间 */
 @Composable
-private fun DamageInput(
+private fun DamageCard(
     products: List<com.tapmoay.sorders.data.remote.dto.OrderProductDto>,
     damageByProduct: Map<Long, Int>,
     damageNote: String,
@@ -709,54 +713,71 @@ private fun DamageInput(
     onNoteChange: (String) -> Unit,
 ) {
     if (products.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Default.Warning,
-                contentDescription = null,
-                tint = androidx.compose.ui.graphics.Color(0xFFFF6B2C),
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text("货损（选填·公司自担）", style = MaterialTheme.typography.titleSmall)
-        }
-        Text(
-            "送达时如有破损请按商品填写数量，系统按商品成本价自动记入货损开销（不影响客户应付）",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        products.forEach { p ->
-            val q = damageByProduct[p.id] ?: 0
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+    var expanded by remember { mutableStateOf(false) }
+    val damaged = damageByProduct.values.filter { it > 0 }.sum()
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = Color(MoneyOrange).copy(alpha = 0.08f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            ) {
+                Icon(Icons.Default.BrokenImage, contentDescription = "商品破损", tint = Color(MoneyOrange), modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("商品破损", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 Text(
-                    p.productNameSnapshot,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    if (damaged > 0) "已填 " + damaged + " 件" else "未填写",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (damaged > 0) Color(MoneyOrange) else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text("×" + p.quantity, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            if (expanded) {
+                Spacer(Modifier.height(10.dp))
+                products.forEach { p ->
+                    val q = damageByProduct[p.id] ?: 0
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Text(
+                            p.productNameSnapshot,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text("×" + p.quantity, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(10.dp))
+                        OutlinedTextField(
+                            value = if (q <= 0) "" else q.toString(),
+                            onValueChange = { v ->
+                                val n = v.filter { it.isDigit() }.takeLast(3).toIntOrNull() ?: 0
+                                onQtyChange(p.id, if (n > p.quantity) p.quantity else n)
+                            },
+                            modifier = Modifier.width(76.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            label = { Text("破损", style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = if (q <= 0) "" else q.toString(),
-                    onValueChange = { v ->
-                        val n = v.filter { it.isDigit() }.takeLast(3).toIntOrNull() ?: 0
-                        onQtyChange(p.id, if (n > p.quantity) p.quantity else n)
-                    },
-                    modifier = Modifier.width(76.dp),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    label = { Text("货损", style = MaterialTheme.typography.labelSmall) },
+                    value = damageNote,
+                    onValueChange = onNoteChange,
+                    label = { Text("货损备注（可选）") },
+                    minLines = 1,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
-        OutlinedTextField(
-            value = damageNote,
-            onValueChange = onNoteChange,
-            label = { Text("货损说明（可选）") },
-            minLines = 1,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 
@@ -837,7 +858,7 @@ private fun DeliverySheet(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(16.dp))
-            DamageInput(
+            DamageCard(
                 products = products,
                 damageByProduct = damageByProduct,
                 damageNote = damageNote,

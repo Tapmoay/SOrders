@@ -46,6 +46,39 @@ private fun ReuseTopBar(title: String, onBack: () -> Unit) {
 
 private fun today(): String = LocalDate.now().toString()
 
+/** 统一下拉选择框：人员/类型/分类等改为下拉，避免选项多时按钮堆积 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DropField(
+    label: String,
+    text: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (v, l) ->
+                DropdownMenuItem(
+                    text = { Text(l, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    onClick = { onSelect(v); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+private fun customerText(c: CustomerDto): String = c.name + (c.phone?.takeIf { it.isNotBlank() }?.let { " " + it } ?: "")
+private fun driverText(d: UserDto): String = d.fullName ?: d.phone ?: d.username
+
 // ---------------- 客户收款（逐单核销） ----------------
 class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycle.ViewModel() {
     var customers by mutableStateOf<List<CustomerDto>>(emptyList())
@@ -140,15 +173,12 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                     if (vm.customers.isEmpty()) {
                         Text("暂无客户档案（散客需先创建：名称+电话）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            vm.customers.forEach { c ->
-                                FilterChip(
-                                    selected = vm.selectedCustomer?.id == c.id,
-                                    onClick = { vm.onCustomerSelect(c) },
-                                    label = { Text(c.name + (c.phone?.takeIf { it.isNotBlank() }?.let { " " + it } ?: "")) },
-                                )
-                            }
-                        }
+                        DropField(
+                            label = "客户",
+                            text = vm.selectedCustomer?.let { customerText(it) } ?: "请选择客户",
+                            options = vm.customers.map { it.id.toString() to customerText(it) },
+                            onSelect = { id -> vm.customers.find { it.id.toString() == id }?.let { vm.onCustomerSelect(it) } },
+                        )
                     }
                     vm.selectedCustomer?.let { c ->
                         Spacer(Modifier.height(8.dp))
@@ -172,11 +202,12 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                         Text("合计 ¥" + formatMoney(vm.computeTotal().toString()), style = MaterialTheme.typography.titleSmall, color = Color(MoneyOrange))
                         OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = it }, label = { Text("收款金额＝所选订单合计") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                         Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("cash" to "现金", "transfer" to "转账", "wechat" to "微信", "arrears_settle" to "挂账结清").forEach { (v, l) ->
-                                FilterChip(selected = vm.method == v, onClick = { vm.method = v }, label = { Text(l) })
-                            }
-                        }
+                        DropField(
+                            label = "收款方式",
+                            text = methodLabel(vm.method),
+                            options = listOf("cash" to "现金", "transfer" to "转账", "wechat" to "微信", "arrears_settle" to "挂账结清"),
+                            onSelect = { vm.method = it },
+                        )
                         Spacer(Modifier.height(6.dp))
                         OutlinedTextField(value = vm.receivedAt, onValueChange = { vm.receivedAt = it }, label = { Text("收款日期") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Spacer(Modifier.height(10.dp))
@@ -281,16 +312,19 @@ fun SettlementsScreen(container: AppContainer, onBack: () -> Unit) {
                 SectionCard {
                     Text("新建结算单", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(6.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        vm.drivers.forEach { d ->
-                            FilterChip(selected = vm.selectedDriver == d.id, onClick = { vm.selectedDriver = d.id }, label = { Text(d.fullName ?: d.phone ?: d.username) })
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = vm.settleType == "piece", onClick = { vm.settleType = "piece" }, label = { Text("按单 PIECE") })
-                        FilterChip(selected = vm.settleType == "salary", onClick = { vm.settleType = "salary" }, label = { Text("固定工资") })
-                    }
+                    DropField(
+                        label = "司机",
+                        text = vm.drivers.find { it.id == vm.selectedDriver }?.let { driverText(it) } ?: "请选择司机",
+                        options = vm.drivers.map { it.id.toString() to driverText(it) },
+                        onSelect = { vm.selectedDriver = it.toLongOrNull() },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    DropField(
+                        label = "结算类型",
+                        text = if (vm.settleType == "piece") "按单 PIECE" else "固定工资",
+                        options = listOf("piece" to "按单 PIECE", "salary" to "固定工资"),
+                        onSelect = { vm.settleType = it },
+                    )
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(value = vm.month, onValueChange = { vm.month = it; vm.loadBills() }, label = { Text("结算月份 YYYY-MM") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     Spacer(Modifier.height(4.dp))
@@ -386,22 +420,19 @@ fun ExpensesScreen(container: AppContainer, onBack: () -> Unit) {
                     Text("新增开销", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(6.dp))
                     val cats = listOf("fuel" to "加油", "repair" to "维修", "toll" to "过路", "parking" to "停车", "fine" to "罚款", "insurance" to "保险", "loss" to "货损", "other" to "其他")
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        cats.forEach { (v, l) ->
-                            FilterChip(selected = vm.category == v, onClick = { vm.category = v }, label = { Text(l, style = MaterialTheme.typography.labelSmall) })
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
+                    DropField(label = "开销分类", text = catLabel(vm.category), options = cats, onSelect = { vm.category = it })
+                    Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = it }, label = { Text("金额") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(value = vm.expDate, onValueChange = { vm.expDate = it }, label = { Text("日期") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        vm.drivers.forEach { d ->
-                            FilterChip(selected = vm.driverId == d.id, onClick = { vm.driverId = if (vm.driverId == d.id) null else d.id }, label = { Text(d.fullName ?: d.phone ?: d.username, style = MaterialTheme.typography.labelSmall) })
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
+                    DropField(
+                        label = "关联司机（可选）",
+                        text = vm.drivers.find { it.id == vm.driverId }?.let { driverText(it) } ?: "不指定",
+                        options = listOf("" to "不指定") + vm.drivers.map { it.id.toString() to driverText(it) },
+                        onSelect = { vm.driverId = it.toLongOrNull() },
+                    )
+                    Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = vm.note, onValueChange = { vm.note = it }, label = { Text("备注") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     Spacer(Modifier.height(8.dp))
@@ -483,17 +514,19 @@ fun VehiclesScreen(container: AppContainer, onBack: () -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(value = vm.plateNo, onValueChange = { vm.plateNo = it }, label = { Text("车牌号") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("trailer" to "挂车", "small" to "小货车", "large" to "大货车").forEach { (v, l) ->
-                            FilterChip(selected = vm.vehicleType == v, onClick = { vm.vehicleType = v }, label = { Text(l) })
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        vm.drivers.forEach { d ->
-                            FilterChip(selected = vm.driverId == d.id, onClick = { vm.driverId = if (vm.driverId == d.id) null else d.id }, label = { Text(d.fullName ?: d.phone ?: d.username) })
-                        }
-                    }
+                    DropField(
+                        label = "车辆类型",
+                        text = typeLabel(vm.vehicleType),
+                        options = listOf("trailer" to "挂车", "small" to "小货车", "large" to "大货车"),
+                        onSelect = { vm.vehicleType = it },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    DropField(
+                        label = "关联司机（可选）",
+                        text = vm.drivers.find { it.id == vm.driverId }?.let { driverText(it) } ?: "不指定",
+                        options = listOf("" to "不指定") + vm.drivers.map { it.id.toString() to driverText(it) },
+                        onSelect = { vm.driverId = it.toLongOrNull() },
+                    )
                     vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = { vm.submit() }, enabled = !vm.submitting, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(MgrGreen))) {
