@@ -434,6 +434,15 @@ private fun DetailBody(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
+                        if (line.damageQuantity > 0) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "货损 " + line.damageQuantity + " 件",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = Color(MoneyOrange),
+                            )
+                        }
                     }
                     if (i != order.orderProducts.lastIndex) {
                         Spacer(Modifier.height(4.dp))
@@ -472,6 +481,21 @@ private fun DetailBody(
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = androidx.compose.ui.graphics.Color(0xFFFF9500),
+                        )
+                    }
+                }
+                if (order.damageNote.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color(MoneyOrange), modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "货损备注：" + order.damageNote,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }

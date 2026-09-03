@@ -25,6 +25,7 @@ class OrderProductOut(BaseModel):
     quantity: int
     unit_price: Decimal | None = None
     line_total: Decimal | None = None
+    damage_quantity: int = 0  # 送达货损数量（公司自担），0=无
 
 
 class OrderProductCreate(BaseModel):
@@ -132,6 +133,7 @@ class OrderOut(BaseModel):
     paid: bool = False
     arrears_unit_id: int | None = None
     arrears_unit_name: str = ""
+    damage_note: str = ""  # 送达货损备注（公司自担）
 
 
 class OrderChargeBody(BaseModel):

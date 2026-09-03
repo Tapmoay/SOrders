@@ -99,6 +99,7 @@ data class OrderProductDto(
     val unitPrice: String? = null,
     @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("line_total")
     val lineTotal: String? = null,
+    @SerialName("damage_quantity") val damageQuantity: Int = 0,
 )
 
 @Serializable
@@ -147,6 +148,7 @@ data class OrderDto(
     val paid: Boolean = false,
     @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
     @SerialName("arrears_unit_name") val arrearsUnitName: String? = null,
+    @SerialName("damage_note") val damageNote: String = "",
 )
 
 @Serializable
