@@ -308,17 +308,32 @@ fun ProductsScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(10.dp))
+                        // 单位：标准紧凑下拉（点击展开常驻列表，点选自动回填）
                         var unitExpanded by remember { mutableStateOf(false) }
                         ExposedDropdownMenuBox(expanded = unitExpanded, onExpandedChange = { unitExpanded = it }) {
-                            SoTextField(
+                            OutlinedTextField(
                                 value = vm.draftUnit,
-                                onValueChange = { vm.draftUnit = it },
-                                placeholder = "单位（件/个/块/包/斤/公斤/吨…，可手输）",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("单位") },
+                                placeholder = { Text("请选择单位") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unitExpanded) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    cursorColor = MaterialTheme.colorScheme.primary,
+                                ),
+                                singleLine = true,
                                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                             )
                             ExposedDropdownMenu(expanded = unitExpanded, onDismissRequest = { unitExpanded = false }) {
                                 listOf("件", "个", "块", "包", "箱", "桶", "袋", "捆", "瓶", "盒", "盘", "斤", "公斤", "吨", "米", "车").forEach { u ->
-                                    DropdownMenuItem(text = { Text(u) }, onClick = { vm.draftUnit = u; unitExpanded = false })
+                                    DropdownMenuItem(
+                                        text = { Text(u, maxLines = 1) },
+                                        onClick = { vm.draftUnit = u; unitExpanded = false },
+                                    )
                                 }
                             }
                         }
