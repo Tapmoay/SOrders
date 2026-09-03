@@ -74,6 +74,16 @@ class LedgerSyncFromOrdersBody(BaseModel):
         return self
 
 
+class LedgerAccountOut(BaseModel):
+    """账本账户汇总（派单员按货主/批发商维度）。"""
+
+    id: int | None = None          # shipper_id；临时货主为 None
+    temp_name: str | None = None
+    name: str
+    count: int
+    total: Decimal
+
+
 class LedgerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

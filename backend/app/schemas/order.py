@@ -23,8 +23,8 @@ class OrderProductOut(BaseModel):
     product_id: int | None
     product_name_snapshot: str
     quantity: int
-    unit_price: Decimal
-    line_total: Decimal
+    unit_price: Decimal | None = None
+    line_total: Decimal | None = None
 
 
 class OrderProductCreate(BaseModel):
@@ -108,6 +108,7 @@ class OrderOut(BaseModel):
     internal_notes: str
     driver_remark: str
     delivery_photo_urls: list[Any] | None
+    address_image_url: str | None = None
     created_at: datetime
     dispatched_at: datetime | None
     driver_acknowledged_at: datetime | None = None
@@ -115,6 +116,11 @@ class OrderOut(BaseModel):
     cancelled_at: datetime | None = None
     order_products: list[OrderProductOut] = []
     driver_phone: str | None = None
+    freight_fee: Decimal | None = None
+    freight_visible: bool = False
+    driver_billing_mode: str | None = None
+    collect_cash: bool = False  # PIECE=按单计费(挂车) SALARY=固定工资
+    parent_order_id: int | None = None
     driver_name: str | None = None
     shipper_name: str | None = None
     is_new_for_driver: bool = False
@@ -122,6 +128,16 @@ class OrderOut(BaseModel):
     is_exception: bool = False
     exception_reason: str = ""
     exception_resolution: str = ""
+    payment_method: str = "cash"
+    paid: bool = False
+    arrears_unit_id: int | None = None
+    arrears_unit_name: str = ""
+
+
+class OrderChargeBody(BaseModel):
+    """派单员：把订单记到挂账单位名下。"""
+
+    arrears_unit_id: int
 
 
 class OrderExceptionBody(BaseModel):
@@ -131,15 +147,26 @@ class OrderExceptionBody(BaseModel):
     expected_deliver_before: datetime | None = None
 
 
+class OrderFreightBody(BaseModel):
+    freight_fee: Decimal | None = Field(None, ge=0)
+
+
+class OrderSplitBody(BaseModel):
+    parts: list[int] = Field(..., min_length=2, max_length=5, description="各子单比例/份数（如 [1,1] 或 [150,150]，按比例拆分数量）")
+
+
 class OrderAssignBody(BaseModel):
     driver_id: int
     internal_note: str | None = Field(None, max_length=4000)
+    freight_fee: Decimal | None = Field(None, ge=0)
+    collect_cash: bool | None = None
 
 
 class OrderBatchAssignBody(BaseModel):
     order_ids: list[int] = Field(..., min_length=1, max_length=100)
     driver_id: int
     internal_note: str | None = Field(None, max_length=4000)
+    collect_cash: bool | None = None
 
 
 class BatchAssignResultItem(BaseModel):
@@ -153,8 +180,10 @@ class OrderBatchAssignOut(BaseModel):
 
 
 class OrderCompleteBody(BaseModel):
-    delivery_photo_urls: list[str] = Field(..., min_length=1)
+    delivery_photo_urls: list[str] = Field(default_factory=list)
     driver_remark: str = ""
+    # cash=现场收现金；arrears=挂账；None=按订单设置（勾选收取现金但未选择→挂账）
+    payment: str | None = None
 
 
 class OrderRecallBody(BaseModel):

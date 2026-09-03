@@ -18,16 +18,19 @@ from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
-from app.deps import CurrentUser, require_permission
-from app.models import Order, User
+from app.deps import CurrentUser, parse_date_range, require_permission
+from app.models import ArrearsUnit, Order, User
 from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.schemas.order import (
     BatchAssignResultItem,
     DeliveryPhotoUploadOut,
     DriverNoteBody,
     OrderAssignBody,
+    OrderFreightBody,
+    OrderSplitBody,
     OrderBatchAssignBody,
     OrderBatchAssignOut,
+    OrderChargeBody,
     OrderCompleteBody,
     OrderCreate,
     OrderExceptionBody,
@@ -37,6 +40,7 @@ from app.schemas.order import (
 )
 from app.services.auth_service import new_order_no
 from app.services.operation_log_service import write_log
+from app.services.order_flow import split_order
 from app.services.cancelled_order_retention import delete_orders_by_ids
 from app.services.order_flow import (
     assign_driver,
@@ -48,9 +52,14 @@ from app.services.order_flow import (
 )
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services.push_events import (
+    push_new_order_to_dispatchers,
     push_dispatcher_pending_pool_changed,
     push_driver_ack_shipper,
+    push_driver_ack_to_dispatchers,
+    push_order_delivered_to_dispatchers,
+    push_order_cancelled_to_dispatchers,
     push_ledger_updated,
+    push_order_freight_updated,
     push_order_assigned,
     push_order_cancelled,
     push_order_delivered,
@@ -111,6 +120,10 @@ async def _bg_push_assigned(driver_id: int, order_id: int) -> None:
     await push_order_assigned(driver_id, order_id)
 
 
+async def _bg_freight_updated(order_id: int) -> None:
+    await push_order_freight_updated(order_id)
+
+
 async def _bg_push_revoked(driver_id: int, order_id: int, reason: str) -> None:
     await push_order_revoked(driver_id, order_id, reason)
 
@@ -121,18 +134,25 @@ async def _bg_push_shipper_recalled(shipper_id: int, order_id: int) -> None:
 
 async def _bg_notify_delivered(order_id: int) -> None:
     await push_order_delivered(order_id)
+    await push_order_delivered_to_dispatchers(order_id)
 
 
 async def _bg_notify_cancel(shipper_id: int, order_id: int) -> None:
     await push_order_cancelled([shipper_id], order_id)
+    await push_order_cancelled_to_dispatchers(order_id)
 
 
 async def _bg_notify_driver_ack(shipper_id: int, order_id: int) -> None:
     await push_driver_ack_shipper(shipper_id, order_id)
+    await push_driver_ack_to_dispatchers(order_id)
 
 
 async def _bg_dispatcher_pending_pool() -> None:
     await push_dispatcher_pending_pool_changed()
+
+
+async def _bg_notify_new_order(order_id: int) -> None:
+    await push_new_order_to_dispatchers(order_id)
 
 
 @router.get("", response_model=list[OrderOut])
@@ -143,6 +163,8 @@ def list_orders(
     search_q: str | None = Query(None, alias="q"),
     shipper_id_filter: int | None = Query(None, alias="shipper_id"),
     temp_shipper_name_filter: str | None = Query(None, alias="temp_shipper_name"),
+    date_from: str | None = Query(None, alias="date_from", description="YYYY-MM-DD（含当天）"),
+    date_to: str | None = Query(None, alias="date_to", description="YYYY-MM-DD（含当天）"),
 ) -> list[OrderOut]:
     role = user_role_key(current)
     qtrim = (search_q or "").strip() or None
@@ -169,6 +191,12 @@ def list_orders(
             )
             .order_by(Order.created_at.desc())
         )
+        if date_from or date_to:
+            df, dt = parse_date_range(date_from, date_to)
+            if df is not None:
+                stmt = stmt.where(Order.created_at >= df)
+            if dt is not None:
+                stmt = stmt.where(Order.created_at <= dt)
         if status_filter is not None:
             stmt = stmt.where(Order.status == status_filter)
         if temp_shipper_name_filter is not None and temp_shipper_name_filter.strip():
@@ -198,6 +226,12 @@ def list_orders(
 
     if status_filter is not None:
         q = q.where(Order.status == status_filter)
+    if date_from or date_to:
+        df, dt = parse_date_range(date_from, date_to)
+        if df is not None:
+            q = q.where(Order.created_at >= df)
+        if dt is not None:
+            q = q.where(Order.created_at <= dt)
 
     orders = list(db.scalars(q).unique().all())
     return [enrich_order_out(o, db, current) for o in orders]
@@ -242,6 +276,8 @@ def batch_assign_orders(
                 results.append(BatchAssignResultItem(order_id=oid, success=False, detail="未找到订单"))
                 continue
             assign_driver(db, order, driver, current, body.internal_note)
+            if body.collect_cash is not None:
+                order.collect_cash = body.collect_cash
             db.commit()
             results.append(BatchAssignResultItem(order_id=oid, success=True, detail=None))
             background_tasks.add_task(_bg_push_assigned, body.driver_id, oid)
@@ -341,6 +377,7 @@ def create_order(
         upsert_boss_contact(db, target_shipper_id, body.contact_boss_phone.strip())
     db.commit()
     background_tasks.add_task(_bg_dispatcher_pending_pool)
+    background_tasks.add_task(_bg_notify_new_order, order.id)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单保存失败")
@@ -447,6 +484,53 @@ def delete_order(
     db.commit()
 
 
+@router.post("/{order_id}/address-image", response_model=OrderOut)
+async def upload_order_address_image(
+    order_id: int,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+    file: UploadFile = File(...),
+) -> Order:
+    """上传收货地址参考图（定位不清时辅助找路）。"""
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    rk = user_role_key(current)
+    if rk != UserRole.DISPATCHER.value and current.id != order.shipper_id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    from app.api.v1.products import ALLOWED_IMAGE_CT, _sniff_image_mime
+
+    ct = (file.content_type or "").split(";")[0].strip().lower()
+    raw = await file.read()
+    if ct not in ALLOWED_IMAGE_CT or ct in ("", "application/octet-stream"):
+        sniffed = _sniff_image_mime(raw[:32])
+        if sniffed:
+            ct = sniffed
+    if ct not in ALLOWED_IMAGE_CT:
+        raise HTTPException(status_code=400, detail="不支持的图片类型（请使用 JPG/PNG/WebP）")
+    if len(raw) > 4 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片过大（最大 4MB）")
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+        ext = ".jpg"
+    sub = UPLOAD_DIR / str(order_id)
+    name = f"{uuid.uuid4().hex}{ext}"
+    path = sub / name
+    try:
+        sub.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+    except OSError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="图片保存失败：服务器无法写入 uploads 目录",
+        ) from e
+    url = f"/static/uploads/delivery/{order_id}/{name}"
+    order.address_image_url = url
+    db.commit()
+    db.refresh(order)
+    return order
+
+
 @router.post("/{order_id}/delivery-photos", response_model=DeliveryPhotoUploadOut)
 async def upload_delivery_photos(
     order_id: int,
@@ -476,6 +560,7 @@ async def complete_order_with_upload(
     current: User = Depends(require_permission(Permission.ORDER_COMPLETE_DRIVER)),
     files: list[UploadFile] = File(...),
     driver_remark: str = Form(""),
+    payment: str = Form(""),
 ) -> OrderOut:
     order = db.scalars(
         select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
@@ -489,6 +574,7 @@ async def complete_order_with_upload(
         complete_delivery(db, order, current, urls, driver_remark)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    _apply_complete_payment(order, payment.strip() or None)
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
@@ -509,6 +595,9 @@ def driver_ack_view(
     if user_role_key(current) != UserRole.DRIVER.value:
         raise HTTPException(status_code=403, detail="无权操作")
     order = _get_order_scoped(order_id, current, db)
+    if order.status != OrderStatus.DISPATCHED:
+        raise HTTPException(status_code=400, detail="仅「已派单」订单可确认接单")
+    order.status = OrderStatus.ACCEPTED
     order.driver_acknowledged_at = datetime.now(timezone.utc)
     sid = order.shipper_id
     db.commit()
@@ -568,6 +657,9 @@ def assign_order(
         assign_driver(db, order, driver, current, body.internal_note)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    order.freight_fee = body.freight_fee
+    if body.collect_cash is not None:
+        order.collect_cash = body.collect_cash
     db.commit()
     background_tasks.add_task(_bg_push_assigned, body.driver_id, order.id)
     background_tasks.add_task(_bg_dispatcher_pending_pool)
@@ -575,6 +667,83 @@ def assign_order(
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
     return enrich_order_out(full, db, current)
+
+
+@router.post("/{order_id}/split", response_model=list[OrderOut])
+def split_order_endpoint(
+    order_id: int,
+    body: OrderSplitBody,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+) -> list[OrderOut]:
+    """把待派单拆分为 N 个子单（按比例拆分件数），分别派单。"""
+    order = db.scalars(
+        select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
+    ).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    try:
+        created = split_order(db, order, body.parts, current)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    db.commit()
+    for c in created:
+        background_tasks.add_task(_bg_notify_new_order, c.id)
+    background_tasks.add_task(_bg_dispatcher_pending_pool)
+    return [enrich_order_out(c, db, current) for c in created]
+
+
+@router.post("/{order_id}/freight", response_model=OrderOut)
+def update_order_freight(
+    order_id: int,
+    body: OrderFreightBody,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+) -> OrderOut:
+    """派单员补录/修改司机运费（送达/撤销后锁定；传 null 清空回待定）。"""
+    order = db.scalars(select(Order).where(Order.id == order_id)).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED):
+        raise HTTPException(status_code=400, detail="已送达或已撤销的订单不可修改运费")
+    old = order.freight_fee
+    order.freight_fee = body.freight_fee
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_FREIGHT,
+        change_payload={
+            "freight_fee": {
+                "before": str(old) if old is not None else None,
+                "after": str(body.freight_fee) if body.freight_fee is not None else None,
+            }
+        },
+    )
+    db.commit()
+    background_tasks.add_task(_bg_freight_updated, order.id)
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
+    return enrich_order_out(full, db, current)
+
+
+def _apply_complete_payment(order, payment: str | None) -> None:
+    """司机完成订单时的收款处理：
+    - 派单勾选「收取现金」：司机明确选 cash=现场收现金 / arrears=挂账（未选择按挂账兜底）；
+    - 未勾选「收取现金」：账单自动挂账（不出现收款按钮）。"""
+    if order.collect_cash:
+        if payment == "cash":
+            order.payment_method = "cash"
+            order.paid = True
+        else:
+            order.payment_method = "arrears"
+            order.paid = False
+    else:
+        order.payment_method = "arrears"
+        order.paid = False
 
 
 @router.post("/{order_id}/complete", response_model=OrderOut)
@@ -594,6 +763,7 @@ def complete_order(
         complete_delivery(db, order, current, body.delivery_photo_urls, body.driver_remark)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    _apply_complete_payment(order, body.payment)
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
@@ -623,8 +793,8 @@ def cancel_order(
     else:
         raise HTTPException(status_code=403, detail="无权操作")
 
-    if order.status != OrderStatus.PENDING_DISPATCH:
-        raise HTTPException(status_code=400, detail="仅「待派单」订单可撤销")
+    if order.status not in (OrderStatus.PENDING_DISPATCH, OrderStatus.DISPATCHED):
+        raise HTTPException(status_code=400, detail="仅「待派单/已派单（司机未接单）」订单可撤销")
 
     if role == UserRole.SHIPPER.value:
         if not role_has_permission(role, Permission.ORDER_CANCEL_SHIPPER):
@@ -645,7 +815,76 @@ def cancel_order(
         raise HTTPException(status_code=500, detail="订单数据异常")
     if sid is not None:
         background_tasks.add_task(_bg_notify_cancel, sid, oid)
+    if order.driver_id is not None:
+        background_tasks.add_task(_bg_notify_cancel, order.driver_id, oid)
     background_tasks.add_task(_bg_dispatcher_pending_pool)
+    return enrich_order_out(full, db, current)
+
+
+def _payment_scoped_order(order_id: int, db: Session) -> Order:
+    order = db.scalars(
+        select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
+    ).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    if order.status == OrderStatus.CANCELLED:
+        raise HTTPException(status_code=400, detail="已撤销订单不可收款/挂账")
+    return order
+
+
+@router.post("/{order_id}/pay", response_model=OrderOut)
+def pay_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_EDIT)),
+) -> OrderOut:
+    """派单员：现场收款确认（货到付款）。仅派单员界面可用。"""
+    order = _payment_scoped_order(order_id, db)
+    order.payment_method = "cash"
+    order.paid = True
+    order.arrears_unit_id = None
+    order.arrears_unit_name = ""
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=order.id,
+        action="ORDER_PAY",
+        change_payload="现场收款确认",
+    )
+    db.commit()
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
+    return enrich_order_out(full, db, current)
+
+
+@router.post("/{order_id}/charge", response_model=OrderOut)
+def charge_order(
+    order_id: int,
+    body: OrderChargeBody,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_EDIT)),
+) -> OrderOut:
+    """派单员：订单挂账到挂账单位名下。仅派单员界面可用。"""
+    order = _payment_scoped_order(order_id, db)
+    unit = db.get(ArrearsUnit, body.arrears_unit_id)
+    if unit is None:
+        raise HTTPException(status_code=404, detail="挂账单位不存在")
+    order.payment_method = "arrears"
+    order.paid = False
+    order.arrears_unit_id = unit.id
+    order.arrears_unit_name = unit.name
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=order.id,
+        action="ORDER_CHARGE",
+        change_payload="挂账到 " + unit.name,
+    )
+    db.commit()
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
     return enrich_order_out(full, db, current)
 
 

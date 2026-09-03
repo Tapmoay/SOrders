@@ -17,7 +17,7 @@ router = APIRouter(prefix="/order-products", tags=["order-products"])
 
 def _order_allows_line_edit(order: Order) -> bool:
     """派单员修正明细：待派单与已接单（运输中）均可编辑；已送达/已撤销不可。"""
-    return order.status in (OrderStatus.PENDING_DISPATCH, OrderStatus.ACCEPTED)
+    return order.status in (OrderStatus.PENDING_DISPATCH, OrderStatus.DISPATCHED, OrderStatus.ACCEPTED)
 
 
 @router.get("", response_model=list[OrderProductOut])

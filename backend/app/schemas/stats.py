@@ -64,6 +64,7 @@ class ExceptionOrderItem(BaseModel):
     exception_reason: str
     exception_resolution: str
     expected_deliver_before: datetime | None
+    exception_resolved_at: datetime | None = None
     delivered_at: datetime | None
 
 

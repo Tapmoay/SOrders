@@ -74,6 +74,136 @@ def bootstrap_schema(engine: Engine) -> None:
     Base.metadata.create_all(bind=engine, checkfirst=True)
 
     insp = inspect(engine)
+    # ---------- 司机分类计费迁移（2026-09） ----------
+    if "users" in insp.get_table_names():
+        col_names = {c["name"] for c in insp.get_columns("users")}
+        with engine.begin() as conn:
+            if "vehicle_type" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN vehicle_type VARCHAR(16)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+            if "billing_mode" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN billing_mode VARCHAR(16)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+            if "salary" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN salary NUMERIC(12,2)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+    if "orders" in insp.get_table_names():
+        col_names = {c["name"] for c in insp.get_columns("orders")}
+        with engine.begin() as conn:
+            if "freight_fee" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN freight_fee NUMERIC(12,2)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+            if "collect_cash" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN collect_cash BOOLEAN DEFAULT 0"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+            if "driver_billing_mode_snapshot" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN driver_billing_mode_snapshot VARCHAR(16)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+            if "parent_order_id" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN parent_order_id INTEGER"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+            if "exception_resolved_at" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN exception_resolved_at DATETIME"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+    if "shipper_addresses" in insp.get_table_names():
+        acols = {c["name"] for c in insp.get_columns("shipper_addresses")}
+        if "image_url" not in acols:
+            logger.warning("检测到旧库缺少 shipper_addresses.image_url，正在补列…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE shipper_addresses ADD COLUMN image_url VARCHAR(512)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+        if "image_urls" not in acols:
+            logger.warning("检测到旧库缺少 shipper_addresses.image_urls，正在补列（多图 JSON 数组）…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE shipper_addresses ADD COLUMN image_urls TEXT DEFAULT '[]'"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+
+    if "shipper_locations" in insp.get_table_names():
+        lcols = {c["name"] for c in insp.get_columns("shipper_locations")}
+        if "image_url" not in lcols:
+            logger.warning("检测到旧库缺少 shipper_locations.image_url，正在补列…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE shipper_locations ADD COLUMN image_url VARCHAR(512)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+        if "image_urls" not in lcols:
+            logger.warning("检测到旧库缺少 shipper_locations.image_urls，正在补列（多图 JSON 数组）…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE shipper_locations ADD COLUMN image_urls TEXT DEFAULT '[]'"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_vehicle_type ON users (vehicle_type)"))
 
     if "users" in insp.get_table_names():
         col_names = {c["name"] for c in insp.get_columns("users")}
@@ -128,6 +258,39 @@ def bootstrap_schema(engine: Engine) -> None:
                         pass
                     else:
                         raise
+        if "tier_prices" not in pcols:
+            logger.warning("检测到旧库缺少 products.tier_prices，正在补列…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE products ADD COLUMN tier_prices TEXT DEFAULT '[]'"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+        if "unit" not in pcols:
+            logger.warning("检测到旧库缺少 products.unit，正在补列…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE products ADD COLUMN unit VARCHAR(32) DEFAULT '件'"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
+        if "low_stock_alert" not in pcols:
+            logger.warning("检测到旧库缺少 products.low_stock_alert，正在补列…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE products ADD COLUMN low_stock_alert INTEGER DEFAULT 0"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
 
     if "ledgers" in insp.get_table_names():
         lcols = {c["name"] for c in insp.get_columns("ledgers")}
@@ -158,6 +321,17 @@ def bootstrap_schema(engine: Engine) -> None:
                     logger.warning("orders.shipper_id 可空迁移跳过: %s", e)
 
         ocols = {c["name"] for c in insp.get_columns("orders")}
+        if "address_image_url" not in ocols:
+            logger.warning("检测到旧库缺少 orders.address_image_url，正在补列…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN address_image_url VARCHAR(512)"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
         if "temp_shipper_name" not in ocols:
             logger.warning("检测到旧库缺少 orders.temp_shipper_name，正在补列…")
             with engine.begin() as conn:

@@ -65,3 +65,23 @@ def require_permission(permission: Permission):
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+def parse_date_range(date_from: str | None, date_to: str | None):
+    # 通用日期范围解析（订单/账本/库存流水等列表复用）：YYYY-MM-DD 起止，含当天。
+    # 返回 (datetime | None, datetime | None)；非法格式抛 400。
+    from datetime import date, datetime, time
+    from fastapi import HTTPException
+    df = dt = None
+    if date_from:
+        try:
+            df = datetime.combine(date.fromisoformat(date_from), time.min)
+        except ValueError:
+            raise HTTPException(status_code=400, detail='date_from 格式须为 YYYY-MM-DD')
+    if date_to:
+        try:
+            dt = datetime.combine(date.fromisoformat(date_to), time.max)
+        except ValueError:
+            raise HTTPException(status_code=400, detail='date_to 格式须为 YYYY-MM-DD')
+    if df and dt and df > dt:
+        raise HTTPException(status_code=400, detail='开始日期不能晚于结束日期')
+    return df, dt

@@ -8,12 +8,24 @@ class UserRole(str, enum.Enum):
 
 
 class OrderStatus(str, enum.Enum):
-    """派单中 → 已接单 → 已送达；另含已撤销与撤回后的派单中。"""
+    """待派单 → 已派单（已派未接） → 已接单 → 已送达；另含已撤销与撤回后的待派单。"""
 
     PENDING_DISPATCH = "PENDING_DISPATCH"
+    DISPATCHED = "DISPATCHED"
     ACCEPTED = "ACCEPTED"
     DELIVERED = "DELIVERED"
     CANCELLED = "CANCELLED"
+
+
+class VehicleType(str, enum.Enum):
+    SMALL = "small"
+    LARGE = "large"
+    TRAILER = "trailer"
+
+
+class BillingMode(str, enum.Enum):
+    SALARY = "salary"
+    PIECE = "piece"
 
 
 class LedgerSource(str, enum.Enum):
@@ -31,6 +43,8 @@ class OperationAction(str, enum.Enum):
     ORDER_COMPLETE = "ORDER_COMPLETE"
     ORDER_CANCEL = "ORDER_CANCEL"
     ORDER_EXCEPTION = "ORDER_EXCEPTION"
+    ORDER_FREIGHT = "ORDER_FREIGHT"
+    ORDER_SPLIT = "ORDER_SPLIT"
     ORDER_LINE_ADD = "ORDER_LINE_ADD"
     ORDER_LINE_UPDATE = "ORDER_LINE_UPDATE"
     ORDER_LINE_DELETE = "ORDER_LINE_DELETE"

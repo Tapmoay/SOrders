@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.core.rbac import user_role_key
 from app.models import Order, User
+from app.models.order import OrderProduct
+from app.models.user import resolve_billing_mode
 from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.services.ledger_sync import sync_ledger_from_delivered_order
 from app.services.operation_log_service import write_log
@@ -69,9 +71,11 @@ def assign_driver(
         raise ValueError("仅「待派单」状态可派单")
     if user_role_key(driver) != UserRole.DRIVER.value:
         raise ValueError("派单目标须为司机账号")
-    order.status = OrderStatus.ACCEPTED
+    order.status = OrderStatus.DISPATCHED
     order.driver_id = driver.id
     order.dispatched_at = _now()
+    # 司机计费方式快照：司机换类型后，历史订单可见性仍按派单当时判定
+    order.driver_billing_mode_snapshot = resolve_billing_mode(driver.vehicle_type, driver.billing_mode)
     order.driver_acknowledged_at = None
     if internal_note and internal_note.strip():
         ts = _now().strftime("%m-%d %H:%M")
@@ -89,6 +93,75 @@ def assign_driver(
     )
 
 
+
+
+def split_order(
+    db: Session,
+    order: Order,
+    parts: list[int],
+    operator: User,
+) -> list[Order]:
+    """待派单拆分为 N 个子单（parts 为各份比例，数量按比例拆分，余数归首份）；
+    原单撤销留痕并可追溯。返回新建子单列表。"""
+    if order.status != OrderStatus.PENDING_DISPATCH:
+        raise ValueError("仅「待派单」订单可拆分")
+    if len(parts) < 2:
+        raise ValueError("请至少拆分为 2 单")
+    total_w = sum(parts)
+    lines = list(order.order_products)
+    if not lines:
+        raise ValueError("订单无商品明细，无法拆分")
+    created: list[Order] = []
+    for idx, wgt in enumerate(parts):
+        child = Order(
+            order_no=order.order_no + "-" + str(idx + 1),
+            status=OrderStatus.PENDING_DISPATCH,
+            shipper_id=order.shipper_id,
+            temp_shipper_name=order.temp_shipper_name,
+            order_date=order.order_date,
+            delivery_description=order.delivery_description,
+            address_detail=order.address_detail,
+            address_lat=order.address_lat,
+            address_lng=order.address_lng,
+            address_image_url=order.address_image_url,
+            contact_dongjia_phone=order.contact_dongjia_phone,
+            contact_boss_phone=order.contact_boss_phone,
+            remark=order.remark,
+            internal_notes=f"[拆分 {idx + 1}/{len(parts)}] 由 {order.order_no} 拆分",
+            driver_remark=order.driver_remark,
+            payment_method=order.payment_method,
+            arrears_unit_id=order.arrears_unit_id,
+            arrears_unit_name=order.arrears_unit_name,
+            parent_order_id=order.id,
+        )
+        for lp in lines:
+            qty = max(1, round(lp.quantity * wgt / total_w))
+            child.order_products.append(
+                OrderProduct(
+                    product_id=lp.product_id,
+                    product_name_snapshot=lp.product_name_snapshot,
+                    quantity=qty,
+                    unit_price=lp.unit_price,
+                    line_total=lp.unit_price * qty,
+                )
+            )
+        db.add(child)
+        created.append(child)
+    order.status = OrderStatus.CANCELLED
+    order.cancelled_at = _now()
+    order.internal_notes = (order.internal_notes or "").strip() + chr(10) + "[拆分] 已拆分为 " + str(len(parts)) + " 单"
+    write_log(
+        db,
+        operator_id=operator.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_SPLIT,
+        change_payload={"parts": parts, "children": [c.order_no for c in created]},
+    )
+    db.flush()
+    return created
+
+
+
 def complete_delivery(
     db: Session,
     order: Order,
@@ -102,7 +175,9 @@ def complete_delivery(
     if order.driver_id != driver.id:
         raise ValueError("非本单指派司机，无法操作")
     if not delivery_photo_urls:
-        raise ValueError("请至少上传一张送达照片")
+        mode = order.driver_billing_mode_snapshot or resolve_billing_mode(driver.vehicle_type, driver.billing_mode)
+        if mode != "PIECE":
+            raise ValueError("请至少上传一张送达照片")
     order.status = OrderStatus.DELIVERED
     order.delivery_photo_urls = delivery_photo_urls
     order.driver_remark = driver_remark
@@ -122,8 +197,8 @@ def cancel_pending(
     order: Order,
     operator: User,
 ) -> None:
-    if order.status != OrderStatus.PENDING_DISPATCH:
-        raise ValueError("仅「待派单」订单可按此流程撤销")
+    if order.status not in (OrderStatus.PENDING_DISPATCH, OrderStatus.DISPATCHED):
+        raise ValueError("仅「待派单/已派单（司机未接单）」订单可按此流程撤销")
     order.status = OrderStatus.CANCELLED
     order.cancelled_at = _now()
     write_log(
@@ -141,8 +216,8 @@ def recall_dispatch(
     operator: User,
     reason: str,
 ) -> None:
-    if order.status != OrderStatus.ACCEPTED:
-        raise ValueError("仅「已接单」订单可撤回派单")
+    if order.status not in (OrderStatus.DISPATCHED, OrderStatus.ACCEPTED):
+        raise ValueError("仅「已派单/已接单」订单可撤回派单")
     snapshot = order_snapshot_for_log(db, order)
     recalled_driver_id = order.driver_id
     order.status = OrderStatus.PENDING_DISPATCH

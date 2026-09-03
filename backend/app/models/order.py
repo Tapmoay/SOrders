@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -32,12 +32,24 @@ class Order(Base, TimestampMixin):
     address_detail: Mapped[str] = mapped_column(String(512), default="")
     address_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
     address_lng: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    # 收货地址参考图（定位不清时上传辅助）
+    address_image_url: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
 
     contact_dongjia_phone: Mapped[str] = mapped_column(String(32), default="")
     contact_boss_phone: Mapped[str] = mapped_column(String(32), default="")
     remark: Mapped[str] = mapped_column(Text, default="")
     internal_notes: Mapped[str] = mapped_column(Text, default="")
     driver_remark: Mapped[str] = mapped_column(Text, default="")
+    # 司机运费（由派单员指定，与货主货款无关）；空=未定价（司机端显示"运费待定"）
+    freight_fee: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # 派单时司机计费方式快照：司机换类型后历史订单可见性仍按快照
+    driver_billing_mode_snapshot: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # 派单时勾选「收取现金」：司机完成订单时可选择现场收现金或挂账；未勾选则送达自动挂账
+    collect_cash: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 拆分子订单：指向原（父）订单；空=普通订单
+    parent_order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id"), nullable=True, index=True
+    )
 
     delivery_photo_urls: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
@@ -53,6 +65,16 @@ class Order(Base, TimestampMixin):
     is_exception: Mapped[bool] = mapped_column(default=False, index=True)
     exception_reason: Mapped[str] = mapped_column(Text, default="")
     exception_resolution: Mapped[str] = mapped_column(Text, default="")
+    # 异常解决时间（派单员处理后非空=已解决）
+    exception_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # 支付：cash=现场支付（货到付款），arrears=挂账（记到挂账单位名下）
+    payment_method: Mapped[str] = mapped_column(String(16), default="cash")
+    paid: Mapped[bool] = mapped_column(default=False)
+    arrears_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("arrears_units.id"), nullable=True
+    )
+    arrears_unit_name: Mapped[str] = mapped_column(String(128), default="")
 
     shipper: Mapped["User"] = relationship(
         back_populates="orders_as_shipper", foreign_keys=[shipper_id]

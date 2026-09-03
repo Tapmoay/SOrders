@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 开发期允许明文 HTTP（本地联调 FastAPI 后端）。
+     生产上线前：删除 cleartextTrafficPermitted 并启用 HTTPS 白名单。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

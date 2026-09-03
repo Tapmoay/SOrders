@@ -78,7 +78,12 @@ def create_product(
         name=body.name,
         name_color=body.name_color,
         default_unit_price=body.default_unit_price,
+        cost_price=body.cost_price,
         image_url=body.image_url,
+        tier_prices=[t.model_dump(mode="json") for t in body.tier_prices],
+        stock=body.stock if body.stock is not None else 0,
+        unit=body.unit or "件",
+        low_stock_alert=body.low_stock_alert or 0,
     )
     db.add(p)
     db.commit()
@@ -109,6 +114,8 @@ def update_product(
         raise HTTPException(status_code=404, detail="未找到对应记录")
     # 始终更新所有提供的字段（Pydantic 已验证并转换了值）
     update_data = body.model_dump(exclude_unset=True)
+    if "tier_prices" in update_data and update_data["tier_prices"] is not None:
+        update_data["tier_prices"] = [t.model_dump(mode="json") for t in update_data["tier_prices"]]
     for field, value in update_data.items():
         if hasattr(p, field):
             setattr(p, field, value)

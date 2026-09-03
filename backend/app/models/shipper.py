@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ShipperAddress(Base, TimestampMixin):
-    """货主常用地址"""
+    """常用线路：联系人 + 地点（起点可选 + 终点必填）"""
 
     __tablename__ = "shipper_addresses"
 
@@ -24,12 +24,19 @@ class ShipperAddress(Base, TimestampMixin):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     address_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
     address_lng: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    # 线路起点（可选）
+    origin_address: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    origin_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    origin_lng: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 多张图片（JSON 数组，如 ["/static/...", ...]）；image_url 保留兼容（= 首图）
+    image_urls: Mapped[str] = mapped_column(Text, default="[]")
 
     shipper: Mapped["User"] = relationship(back_populates="addresses")
 
 
 class ShipperContact(Base, TimestampMixin):
-    """货主联系人库（如老板电话，首次输入后保存）"""
+    """常用联系人（与地点解耦，可编辑）"""
 
     __tablename__ = "shipper_contacts"
     __table_args__ = (UniqueConstraint("shipper_id", "phone", name="uq_shipper_contact_phone"),)
@@ -40,3 +47,22 @@ class ShipperContact(Base, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(128), default="")
 
     shipper: Mapped["User"] = relationship(back_populates="contacts")
+
+
+class ShipperLocation(Base, TimestampMixin):
+    """单独地点（纯地点，不含人）：支持图片，派单/下单时组合起点与终点"""
+
+    __tablename__ = "shipper_locations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    shipper_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    detail_address: Mapped[str] = mapped_column(String(512), default="")
+    remark: Mapped[str] = mapped_column(String(256), default="")
+    address_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    address_lng: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 多张图片（JSON 数组）；image_url 保留兼容（= 首图）
+    image_urls: Mapped[str] = mapped_column(Text, default="[]")
+
+    shipper: Mapped["User"] = relationship()
