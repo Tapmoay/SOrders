@@ -44,6 +44,7 @@ def sync_ledger_from_delivered_order(db: Session, order: Order) -> None:
             existing.total = lt
             existing.order_id = order.id
             existing.product_id = op.product_id
+            existing.cost_price_snapshot = op.cost_price_snapshot or Decimal("0")
             if not (existing.note or "").strip():
                 existing.note = "订单送达自动记账"
             continue
@@ -61,6 +62,7 @@ def sync_ledger_from_delivered_order(db: Session, order: Order) -> None:
                 product_id=op.product_id,
                 source=LedgerSource.ORDER,
                 note="订单送达自动记账",
+                cost_price_snapshot=op.cost_price_snapshot or Decimal("0"),
             )
         )
 

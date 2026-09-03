@@ -40,6 +40,10 @@ fun DispatcherLedgerScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenOrder: (Long) -> Unit = {},
+    onOpenReceipts: () -> Unit = {},
+    onOpenSettlements: () -> Unit = {},
+    onOpenExpenses: () -> Unit = {},
+    onOpenVehicles: () -> Unit = {},
 ) {
     val vm: DispatcherLedgerViewModel = appViewModel { DispatcherLedgerViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
@@ -69,6 +73,12 @@ fun DispatcherLedgerScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             LedgerTabBar(tab = vm.tab, onTab = { vm.selectTab(it) })
+            AccountToolsEntry(
+                onReceipts = onOpenReceipts,
+                onSettlements = onOpenSettlements,
+                onExpenses = onOpenExpenses,
+                onVehicles = onOpenVehicles,
+            )
             Box(Modifier.weight(1f)) {
                 when {
                     vm.loading && vm.tab == 0 -> LoadingBox()
@@ -523,6 +533,42 @@ private fun LedgerRow(e: LedgerEntryDto, onDelete: () -> Unit, onOpenOrder: (Lon
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.DeleteOutline, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
             }
+        }
+    }
+}
+
+/** 账本工具入口行：客户收款 / 司机结算 / 开销管理 / 车辆台账（四账页签之外的新增工具） */
+@Composable
+private fun AccountToolsEntry(
+    onReceipts: () -> Unit,
+    onSettlements: () -> Unit,
+    onExpenses: () -> Unit,
+    onVehicles: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ToolChip(Icons.Default.Payments, "客户收款", MoneyOrange, onReceipts)
+        ToolChip(Icons.Default.Handshake, "司机结算", MgrGreen, onSettlements)
+        ToolChip(Icons.Default.Receipt, "开销管理", 0xFF00A2C7, onExpenses)
+        ToolChip(Icons.Default.LocalShipping, "车辆台账", 0xFFCDDC39, onVehicles)
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.ToolChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Long, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = androidx.compose.ui.graphics.Color(color).copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color(color).copy(alpha = 0.5f)),
+        modifier = Modifier.weight(1f).height(52.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(icon, contentDescription = null, tint = androidx.compose.ui.graphics.Color(color), modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(2.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color(color))
         }
     }
 }

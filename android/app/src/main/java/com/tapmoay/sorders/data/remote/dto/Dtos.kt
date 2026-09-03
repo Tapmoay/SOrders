@@ -252,6 +252,8 @@ data class OrderCompleteBody(
     @SerialName("delivery_photo_urls") val deliveryPhotoUrls: List<String>,
     @SerialName("driver_remark") val driverRemark: String = "",
     @SerialName("payment") val payment: String? = null,
+    @SerialName("damage_items") val damageItems: List<DamageItem> = emptyList(),
+    @SerialName("damage_note") val damageNote: String = "",
 )
 
 @Serializable
@@ -654,3 +656,157 @@ data class FreightSettlementOrderDto(
     @SerialName("address_detail") val addressDetail: String = "",
 )
 
+
+// ===================== 账本 V2（P0）=====================
+@Serializable
+data class DamageItem(
+    @SerialName("order_product_id") val orderProductId: Long,
+    val quantity: Int = 0,
+)
+
+@Serializable
+data class CustomerCreateRequest(
+    val kind: String = "tmp",
+    @SerialName("user_id") val userId: Long? = null,
+    val name: String,
+    val phone: String? = null,
+    @SerialName("is_member") val isMember: Boolean = false,
+    @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
+)
+
+@Serializable
+data class CustomerDto(
+    val id: Long,
+    val kind: String = "tmp",
+    @SerialName("user_id") val userId: Long? = null,
+    val name: String = "",
+    val phone: String? = null,
+    @SerialName("is_member") val isMember: Boolean = false,
+    @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
+)
+
+@Serializable
+data class DriverBillDto(
+    val id: Long,
+    @SerialName("driver_id") val driverId: Long = 0,
+    @SerialName("bill_type") val billType: String = "",
+    @SerialName("order_id") val orderId: Long? = null,
+    val month: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    val status: String = "open",
+    @SerialName("settled_doc_id") val settledDocId: Long? = null,
+    @SerialName("driver_name") val driverName: String? = null,
+    @SerialName("order_no") val orderNo: String? = null,
+)
+
+@Serializable
+data class DriverBillGenerateRequest(
+    @SerialName("driver_id") val driverId: Long? = null,
+    val month: String,
+    @SerialName("bill_type") val billType: String = "salary",
+)
+
+@Serializable
+data class ReceiptCreateRequest(
+    @SerialName("customer_id") val customerId: Long,
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String,
+    val method: String = "cash",
+    @SerialName("received_at") val receivedAt: String,
+    @SerialName("order_ids") val orderIds: List<Long> = emptyList(),
+    @SerialName("settle_mode") val settleMode: String = "itemized",
+    @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
+    val note: String = "",
+)
+
+@Serializable
+data class ReceiptDto(
+    val id: Long,
+    @SerialName("customer_id") val customerId: Long = 0,
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    val method: String = "",
+    @SerialName("received_at") val receivedAt: String = "",
+    @SerialName("order_ids") val orderIds: List<Long> = emptyList(),
+    @SerialName("customer_name") val customerName: String? = null,
+)
+
+@Serializable
+data class SettlementCreateRequest(
+    @SerialName("driver_id") val driverId: Long,
+    @SerialName("settle_type") val settleType: String = "piece",
+    val month: String,
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String? = null,
+    val note: String = "",
+)
+
+@Serializable
+data class SettlementActionRequest(
+    val action: String,
+    val method: String = "cash",
+)
+
+@Serializable
+data class SettlementDto(
+    val id: Long,
+    @SerialName("driver_id") val driverId: Long = 0,
+    @SerialName("settle_type") val settleType: String = "",
+    val month: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    val status: String = "draft",
+    @SerialName("driver_name") val driverName: String? = null,
+    @SerialName("order_ids") val orderIds: List<Long>? = null,
+    @SerialName("paid_at") val paidAt: String? = null,
+    val method: String = "",
+)
+
+@Serializable
+data class ExpenseCreateRequest(
+    @SerialName("exp_date") val expDate: String,
+    val category: String,
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String,
+    @SerialName("driver_id") val driverId: Long? = null,
+    @SerialName("vehicle_id") val vehicleId: Long? = null,
+    @SerialName("order_id") val orderId: Long? = null,
+    val note: String = "",
+)
+
+@Serializable
+data class ExpenseDto(
+    val id: Long,
+    @SerialName("exp_date") val expDate: String = "",
+    val category: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    @SerialName("driver_id") val driverId: Long? = null,
+    @SerialName("order_id") val orderId: Long? = null,
+    @SerialName("driver_name") val driverName: String? = null,
+    @SerialName("order_no") val orderNo: String? = null,
+    val note: String = "",
+)
+
+@Serializable
+data class CashFlowDto(
+    val id: Long,
+    @SerialName("flow_date") val flowDate: String = "",
+    val direction: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    @SerialName("party_type") val partyType: String = "",
+    @SerialName("biz_type") val bizType: String = "",
+    @SerialName("party_name") val partyName: String? = null,
+    @SerialName("order_id") val orderId: Long? = null,
+)
+
+@Serializable
+data class VehicleCreateRequest(
+    @SerialName("plate_no") val plateNo: String,
+    @SerialName("vehicle_type") val vehicleType: String = "",
+    @SerialName("driver_id") val driverId: Long? = null,
+)
+
+@Serializable
+data class VehicleDto(
+    val id: Long,
+    @SerialName("plate_no") val plateNo: String = "",
+    @SerialName("vehicle_type") val vehicleType: String = "",
+    @SerialName("driver_id") val driverId: Long? = null,
+    @SerialName("driver_name") val driverName: String? = null,
+    @SerialName("is_active") val isActive: Boolean = true,
+)

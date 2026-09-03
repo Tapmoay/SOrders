@@ -3,6 +3,12 @@ from fastapi import APIRouter
 from app.api.v1 import (
     arrears,
     auth,
+    cash_flows,
+    vehicles,
+    customers,
+    driver_bills,
+    driver_settlements,
+    expenses,
     freight_settlement,
     freight_templates,
     inventory,
@@ -36,3 +42,9 @@ api_router.include_router(inventory.router)
 api_router.include_router(notifications.router)
 api_router.include_router(operation_logs.router)
 api_router.include_router(stats.router)
+api_router.include_router(customers.router)
+api_router.include_router(driver_bills.router)
+api_router.include_router(driver_settlements.router)
+api_router.include_router(expenses.router)
+api_router.include_router(cash_flows.router)
+api_router.include_router(vehicles.router)

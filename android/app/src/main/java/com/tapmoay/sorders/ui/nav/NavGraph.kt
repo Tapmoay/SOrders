@@ -14,6 +14,10 @@ import androidx.navigation.navArgument
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.Session
 import com.tapmoay.sorders.ui.common.PlaceholderScreen
+import com.tapmoay.sorders.ui.dispatcher.ExpensesScreen
+import com.tapmoay.sorders.ui.dispatcher.ReceiptsScreen
+import com.tapmoay.sorders.ui.dispatcher.SettlementsScreen
+import com.tapmoay.sorders.ui.dispatcher.VehiclesScreen
 import com.tapmoay.sorders.ui.dispatcher.ArrearsUnitsScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherLedgerScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightSettlementScreen
@@ -219,8 +223,16 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+                onOpenReceipts = { navController.navigate(Routes.DISPATCH_RECEIPTS) },
+                onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },
+                onOpenExpenses = { navController.navigate(Routes.DISPATCH_EXPENSES) },
+                onOpenVehicles = { navController.navigate(Routes.DISPATCH_VEHICLES) },
             )
         }
+        composable(Routes.DISPATCH_RECEIPTS) { ReceiptsScreen(container = container, onBack = { navController.popBackStack() }) }
+        composable(Routes.DISPATCH_SETTLEMENTS) { SettlementsScreen(container = container, onBack = { navController.popBackStack() }) }
+        composable(Routes.DISPATCH_EXPENSES) { ExpensesScreen(container = container, onBack = { navController.popBackStack() }) }
+        composable(Routes.DISPATCH_VEHICLES) { VehiclesScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.FREIGHT_TEMPLATES) { FreightTemplatesScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.FREIGHT_SETTLEMENT) { FreightSettlementScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.DRIVER_FREIGHT) {

@@ -347,7 +347,7 @@ def create_order(
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色不能创建订单")
 
-    lines = build_order_products(body.lines)
+    lines = build_order_products(db, body.lines)
     od = ensure_order_date(body.order_date)
     order = Order(
         order_no=new_order_no(),
@@ -561,6 +561,8 @@ async def complete_order_with_upload(
     files: list[UploadFile] = File(...),
     driver_remark: str = Form(""),
     payment: str = Form(""),
+    damage_items: str = Form("[]"),
+    damage_note: str = Form(""),
 ) -> OrderOut:
     order = db.scalars(
         select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
@@ -571,7 +573,8 @@ async def complete_order_with_upload(
         raise HTTPException(status_code=400, detail="未选择文件")
     urls = await _save_delivery_uploads(order_id, files)
     try:
-        complete_delivery(db, order, current, urls, driver_remark)
+        items = _parse_damage_items(damage_items)
+        complete_delivery(db, order, current, urls, driver_remark, items, damage_note.strip())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     _apply_complete_payment(order, payment.strip() or None)
@@ -730,6 +733,24 @@ def update_order_freight(
     return enrich_order_out(full, db, current)
 
 
+def _parse_damage_items(raw: str) -> list:
+    """解析 multipart Form 的 damage_items JSON（[{order_product_id, quantity}]）。"""
+    import json as _json
+
+    if not raw or not raw.strip():
+        return []
+    try:
+        data = _json.loads(raw)
+    except Exception:
+        raise ValueError("货损数据格式错误")
+    if not isinstance(data, list):
+        raise ValueError("货损数据格式错误")
+    out = []
+    for it in data:
+        out.append(type("DmgItem", (), {"order_product_id": int(it.get("order_product_id")), "quantity": int(it.get("quantity", 0))})())
+    return out
+
+
 def _apply_complete_payment(order, payment: str | None) -> None:
     """司机完成订单时的收款处理：
     - 派单勾选「收取现金」：司机明确选 cash=现场收现金 / arrears=挂账（未选择按挂账兜底）；
@@ -760,7 +781,7 @@ def complete_order(
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
     try:
-        complete_delivery(db, order, current, body.delivery_photo_urls, body.driver_remark)
+        complete_delivery(db, order, current, body.delivery_photo_urls, body.driver_remark, body.damage_items, body.damage_note)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     _apply_complete_payment(order, body.payment)

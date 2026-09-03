@@ -80,6 +80,7 @@ object ApiClient {
             freightTemplateApi = retrofit.create(FreightTemplateApi::class.java),
             freightSettlementApi = retrofit.create(FreightSettlementApi::class.java),
             reportApi = retrofit.create(ReportApi::class.java),
+            accountingApi = retrofit.create(AccountingApi::class.java),
         )
     }
 
@@ -127,4 +128,5 @@ data class ApiBundle(
     val freightTemplateApi: FreightTemplateApi,
     val freightSettlementApi: FreightSettlementApi,
     val reportApi: ReportApi,
+    val accountingApi: AccountingApi,
 )

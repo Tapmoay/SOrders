@@ -4,6 +4,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -17,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
@@ -117,6 +120,10 @@ fun OrderDetailScreen(
                 onEditFreightClick = { vm.openFreightDialog() },
                 onSplitClick = { vm.openSplitDialog() },
                 onDirectCompleteClick = { p -> vm.completeDirect({ onBack() }, p) },
+            damageByProduct = vm.damageByProduct,
+            damageNote = vm.damageNote,
+            onDamageQty = { id, q -> vm.damageByProduct[id] = q },
+            onDamageNote = { vm.damageNote = it },
             )
         }
     }
@@ -241,6 +248,11 @@ fun OrderDetailScreen(
             onSubmit = { p -> vm.completeDelivery({ onBack() }, p) },
             onDismiss = { vm.showDeliverySheet = false },
             collectCash = vm.order?.collectCash == true,
+            products = vm.order?.orderProducts ?: emptyList(),
+            damageByProduct = vm.damageByProduct,
+            damageNote = vm.damageNote,
+            onDamageQty = { id, q -> vm.damageByProduct[id] = q },
+            onDamageNote = { vm.damageNote = it },
         )
     }
 
@@ -274,6 +286,10 @@ private fun DetailBody(
     onEditFreightClick: () -> Unit,
     onSplitClick: () -> Unit,
     onDirectCompleteClick: (String?) -> Unit,
+    damageByProduct: Map<Long, Int> = emptyMap(),
+    damageNote: String = "",
+    onDamageQty: (Long, Int) -> Unit = { _, _ -> },
+    onDamageNote: (String) -> Unit = {},
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
     LazyColumn(
@@ -640,6 +656,14 @@ private fun DetailBody(
                             Text("拍照送达")
                         }
                     }
+                    Spacer(Modifier.height(6.dp))
+                    DamageInput(
+                        products = order.orderProducts,
+                        damageByProduct = damageByProduct,
+                        damageNote = damageNote,
+                        onQtyChange = onDamageQty,
+                        onNoteChange = onDamageNote,
+                    )
                     Button(
                         onClick = onNavigate,
                         modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -675,6 +699,67 @@ private fun DetailBody(
     }
 }
 
+/** 货损输入（选填，公司自担）：商品行逐行填数量 + 订单备注 */
+@Composable
+private fun DamageInput(
+    products: List<com.tapmoay.sorders.data.remote.dto.OrderProductDto>,
+    damageByProduct: Map<Long, Int>,
+    damageNote: String,
+    onQtyChange: (Long, Int) -> Unit,
+    onNoteChange: (String) -> Unit,
+) {
+    if (products.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = androidx.compose.ui.graphics.Color(0xFFFF6B2C),
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text("货损（选填·公司自担）", style = MaterialTheme.typography.titleSmall)
+        }
+        Text(
+            "送达时如有破损请按商品填写数量，系统按商品成本价自动记入货损开销（不影响客户应付）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        products.forEach { p ->
+            val q = damageByProduct[p.id] ?: 0
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    p.productNameSnapshot,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text("×" + p.quantity, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(10.dp))
+                OutlinedTextField(
+                    value = if (q <= 0) "" else q.toString(),
+                    onValueChange = { v ->
+                        val n = v.filter { it.isDigit() }.takeLast(3).toIntOrNull() ?: 0
+                        onQtyChange(p.id, if (n > p.quantity) p.quantity else n)
+                    },
+                    modifier = Modifier.width(76.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = { Text("货损", style = MaterialTheme.typography.labelSmall) },
+                )
+            }
+        }
+        OutlinedTextField(
+            value = damageNote,
+            onValueChange = onNoteChange,
+            label = { Text("货损说明（可选）") },
+            minLines = 1,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
 /** 拍照送达弹层：多张照片 + 备注 + 提交 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -688,6 +773,11 @@ private fun DeliverySheet(
     onSubmit: (String?) -> Unit,
     onDismiss: () -> Unit,
     collectCash: Boolean = false,
+    products: List<com.tapmoay.sorders.data.remote.dto.OrderProductDto> = emptyList(),
+    damageByProduct: Map<Long, Int> = emptyMap(),
+    damageNote: String = "",
+    onDamageQty: (Long, Int) -> Unit = { _, _ -> },
+    onDamageNote: (String) -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
@@ -745,6 +835,14 @@ private fun DeliverySheet(
                 label = { Text("送达备注（可选）") },
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(16.dp))
+            DamageInput(
+                products = products,
+                damageByProduct = damageByProduct,
+                damageNote = damageNote,
+                onQtyChange = onDamageQty,
+                onNoteChange = onDamageNote,
             )
             Spacer(Modifier.height(16.dp))
             if (collectCash) {

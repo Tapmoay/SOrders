@@ -179,11 +179,19 @@ class OrderBatchAssignOut(BaseModel):
     results: list[BatchAssignResultItem]
 
 
+class DamageItem(BaseModel):
+    order_product_id: int
+    quantity: int = Field(..., ge=0, description="货损数量（≤该行数量，0=无货损）")
+
+
 class OrderCompleteBody(BaseModel):
     delivery_photo_urls: list[str] = Field(default_factory=list)
     driver_remark: str = ""
     # cash=现场收现金；arrears=挂账；None=按订单设置（勾选收取现金但未选择→挂账）
     payment: str | None = None
+    # 货损（选填，公司自担）：商品行级数量 + 订单备注；送达后自动记货损开销并冲回等量成本
+    damage_items: list[DamageItem] = Field(default_factory=list)
+    damage_note: str = ""
 
 
 class OrderRecallBody(BaseModel):

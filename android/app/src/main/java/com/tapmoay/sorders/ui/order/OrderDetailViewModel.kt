@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ui.order
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -39,6 +40,13 @@ class OrderDetailViewModel(
     var pendingRawPhoto by mutableStateOf<String?>(null)
     var driverRemark by mutableStateOf("")
     var uploading by mutableStateOf(false)
+    // 货损（选填，公司自担）：商品行 id → 货损数量；damageNote 订单备注
+    val damageByProduct = mutableStateMapOf<Long, Int>()
+    var damageNote by mutableStateOf("")
+    fun resetDamage() {
+        damageByProduct.clear()
+        damageNote = ""
+    }
 
     // 派单员：修改运费
     var showFreightDialog by mutableStateOf(false)
@@ -223,11 +231,13 @@ class OrderDetailViewModel(
     fun completeDirect(onDone: () -> Unit, payment: String? = null) {
         acting = true
         error = null
+        val dmg = damageItems()
         viewModelScope.launch {
             try {
-                order = container.repo.completeDirect(orderId, driverRemark.trim(), payment)
+                order = container.repo.completeDirect(orderId, driverRemark.trim(), payment, dmg, damageNote.trim())
                 actionResult = if (payment == "cash") "已完成并收取现金" else if (payment == "arrears") "已完成并挂账" else "订单已完成"
                 driverRemark = ""
+                resetDamage()
                 onDone()
             } catch (e: Exception) {
                 error = toApiException(e).message
@@ -245,6 +255,7 @@ class OrderDetailViewModel(
         }
         uploading = true
         error = null
+        val dmg = damageItems()
         viewModelScope.launch {
             try {
                 order = container.repo.completeWithUpload(
@@ -252,8 +263,11 @@ class OrderDetailViewModel(
                     capturedPhotos.map { File(it) },
                     driverRemark.trim(),
                     payment,
+                    dmg,
+                    damageNote.trim(),
                 )
                 driverRemark = ""
+                resetDamage()
                 showDeliverySheet = false
                 onDone()
             } catch (e: Exception) {
@@ -263,4 +277,8 @@ class OrderDetailViewModel(
             }
         }
     }
+
+    fun damageItems(): List<com.tapmoay.sorders.data.remote.dto.DamageItem> =
+        damageByProduct.filter { it.value > 0 }
+            .map { com.tapmoay.sorders.data.remote.dto.DamageItem(it.key, it.value) }
 }

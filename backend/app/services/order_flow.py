@@ -9,6 +9,7 @@ from app.models import Order, User
 from app.models.order import OrderProduct
 from app.models.user import resolve_billing_mode
 from app.models.enums import OperationAction, OrderStatus, UserRole
+from app.services.accounting_service import post_delivery_accounting
 from app.services.ledger_sync import sync_ledger_from_delivered_order
 from app.services.operation_log_service import write_log
 
@@ -168,8 +169,13 @@ def complete_delivery(
     driver: User,
     delivery_photo_urls: list[str],
     driver_remark: str = "",
+    damage_items: list | None = None,
+    damage_note: str = "",
 ) -> None:
-    """将订单置为已送达；若有货主则同步货主账本（与明细行幂等）。"""
+    """将订单置为已送达；同步货主账本（与明细行幂等）并执行账务钩子（司机应付明细+货损记账）。
+
+    damage_items: [{order_product_id, quantity}] 商品行级货损（选填，公司自担）；damage_note 订单级备注。
+    """
     if order.status != OrderStatus.ACCEPTED:
         raise ValueError("仅「已接单」订单可完成配送")
     if order.driver_id != driver.id:
@@ -190,6 +196,23 @@ def complete_delivery(
         change_payload={"photos": len(delivery_photo_urls)},
     )
     sync_ledger_from_delivered_order(db, order)
+    # 货损录入（选填）：写商品行/订单备注，随后统一账务钩子
+    from decimal import Decimal as _Dec
+
+    if damage_items:
+        for item in damage_items:
+            op = next((x for x in order.order_products if x.id == item.order_product_id), None)
+            if op is None:
+                raise ValueError("货损商品行不存在")
+            qty = int(item.quantity or 0)
+            if qty < 0:
+                raise ValueError("货损数量不能为负")
+            if qty > op.quantity:
+                raise ValueError(f"货损数量超过该行数量（{op.quantity}）")
+            op.damage_quantity = qty
+        order.damage_note = (damage_note or "").strip()
+    # 账务钩子：PIECE 应付明细 + 货损 LOSS/COGS 冲回（幂等）
+    post_delivery_accounting(db, order, operator_id=driver.id)
 
 
 def cancel_pending(
@@ -243,9 +266,11 @@ def ensure_order_date(d: date | None) -> date:
 
 
 def build_order_products(
+    db: Session,
     lines: list[Any],
 ) -> list:
-    from app.models import OrderProduct
+    """按下单行构建 OrderProduct；商品成本快照在下单时定格（货损/毛利率按此时成本）。"""
+    from app.models import OrderProduct, Product
 
     out = []
     for line in lines:
@@ -254,13 +279,20 @@ def build_order_products(
         up = line.unit_price
         if lt is None or lt == Decimal("0"):
             lt = up * qty
+        pid = getattr(line, "product_id", None)
+        cost_snap = Decimal("0")
+        if pid is not None:
+            prod = db.get(Product, pid)
+            if prod is not None:
+                cost_snap = prod.cost_price or Decimal("0")
         out.append(
             OrderProduct(
-                product_id=line.product_id,
+                product_id=pid,
                 product_name_snapshot=line.product_name_snapshot,
                 quantity=qty,
                 unit_price=up,
                 line_total=lt,
+                cost_price_snapshot=cost_snap,
             )
         )
     return out

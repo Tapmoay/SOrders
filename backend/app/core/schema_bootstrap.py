@@ -402,3 +402,56 @@ def bootstrap_schema(engine: Engine) -> None:
             from app.models.ledger import Ledger
 
             _sqlite_rebuild_table_for_nullable_shipper_id(engine, Ledger)
+
+    # ---------- 账本 V2 迁移（2026-09） ----------
+    if "order_products" in insp.get_table_names():
+        opcols = {c["name"] for c in insp.get_columns("order_products")}
+        with engine.begin() as conn:
+            if "cost_price_snapshot" not in opcols:
+                try:
+                    conn.execute(text("ALTER TABLE order_products ADD COLUMN cost_price_snapshot NUMERIC(14,4) DEFAULT 0"))
+                except OperationalError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+            if "damage_quantity" not in opcols:
+                try:
+                    conn.execute(text("ALTER TABLE order_products ADD COLUMN damage_quantity INTEGER DEFAULT 0"))
+                except OperationalError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
+    if "ledgers" in insp.get_table_names():
+        lcols = {c["name"] for c in insp.get_columns("ledgers")}
+        with engine.begin() as conn:
+            if "cost_price_snapshot" not in lcols:
+                try:
+                    conn.execute(text("ALTER TABLE ledgers ADD COLUMN cost_price_snapshot NUMERIC(14,4) DEFAULT 0"))
+                except OperationalError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+            if "customer_id" not in lcols:
+                try:
+                    conn.execute(text("ALTER TABLE ledgers ADD COLUMN customer_id INTEGER"))
+                except OperationalError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
+    if "orders" in insp.get_table_names():
+        ocols = {c["name"] for c in insp.get_columns("orders")}
+        if "damage_note" not in ocols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN damage_note TEXT DEFAULT ''"))
+                except OperationalError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
+    if "ledger_export_jobs" in insp.get_table_names():
+        ejcols = {c["name"] for c in insp.get_columns("ledger_export_jobs")}
+        if "kind" not in ejcols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE ledger_export_jobs ADD COLUMN kind VARCHAR(16) DEFAULT 'ledger'"))
+                except OperationalError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise

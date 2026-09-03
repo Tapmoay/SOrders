@@ -31,6 +31,7 @@ class BillingMode(str, enum.Enum):
 class LedgerSource(str, enum.Enum):
     ORDER = "order"
     MANUAL = "manual"
+    REFUND = "refund"
 
 
 class OperationAction(str, enum.Enum):
@@ -55,3 +56,69 @@ class OperationAction(str, enum.Enum):
     PRICE_RULE_UPSERT = "PRICE_RULE_UPSERT"
     USER_CREATE = "USER_CREATE"
     USER_UPDATE = "USER_UPDATE"
+
+class CustomerKind(str, enum.Enum):
+    REGISTERED = "registered"
+    TMP = "tmp"
+
+
+class DriverBillType(str, enum.Enum):
+    PIECE = "piece"
+    SALARY = "salary"
+
+
+class DriverBillStatus(str, enum.Enum):
+    OPEN = "open"
+    SETTLED = "settled"
+    CANCELLED = "cancelled"
+
+
+class SettlementStatus(str, enum.Enum):
+    DRAFT = "draft"
+    CONFIRMED = "confirmed"
+    PAID = "paid"
+    CANCELLED = "cancelled"
+
+
+class CashFlowDirection(str, enum.Enum):
+    IN = "in"
+    OUT = "out"
+
+
+class CashFlowBizType(str, enum.Enum):
+    RECEIPT_CASH = "RECEIPT_CASH"
+    RECEIPT_TRANSFER = "RECEIPT_TRANSFER"
+    RECEIPT_ARREARS = "RECEIPT_ARREARS"
+    RECEIPT_PREPAID = "RECEIPT_PREPAID"
+    PAYMENT_DRIVER = "PAYMENT_DRIVER"
+    PAYMENT_SALARY = "PAYMENT_SALARY"
+    PAYMENT_DRIVER_ADVANCE = "PAYMENT_DRIVER_ADVANCE"
+    PAYMENT_SUPPLIER = "PAYMENT_SUPPLIER"
+    PAYMENT_TAX = "PAYMENT_TAX"
+    EXPENSE_FUEL = "EXPENSE_FUEL"
+    EXPENSE_REPAIR = "EXPENSE_REPAIR"
+    EXPENSE_TOLL = "EXPENSE_TOLL"
+    EXPENSE_PARKING = "EXPENSE_PARKING"
+    EXPENSE_FINE = "EXPENSE_FINE"
+    EXPENSE_INSURANCE = "EXPENSE_INSURANCE"
+    EXPENSE_LOSS = "EXPENSE_LOSS"
+    EXPENSE_OTHER = "EXPENSE_OTHER"
+    REFUND_CUSTOMER = "REFUND_CUSTOMER"
+    REFUND_DRIVER = "REFUND_DRIVER"
+    ADJUST = "ADJUST"
+
+
+class ExpenseCategory(str, enum.Enum):
+    FUEL = "fuel"
+    REPAIR = "repair"
+    TOLL = "toll"
+    PARKING = "parking"
+    FINE = "fine"
+    INSURANCE = "insurance"
+    LOSS = "loss"
+    OTHER = "other"
+
+
+class ReceiptSettleMode(str, enum.Enum):
+    ITEMIZED = "itemized"
+    ROLLING = "rolling"

@@ -46,6 +46,8 @@ class Order(Base, TimestampMixin):
     driver_billing_mode_snapshot: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # 派单时勾选「收取现金」：司机完成订单时可选择现场收现金或挂账；未勾选则送达自动挂账
     collect_cash: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 司机送达时录入的货损备注（选填）
+    damage_note: Mapped[str] = mapped_column(Text, default="")
     # 拆分子订单：指向原（父）订单；空=普通订单
     parent_order_id: Mapped[int | None] = mapped_column(
         ForeignKey("orders.id"), nullable=True, index=True
@@ -98,6 +100,10 @@ class OrderProduct(Base, TimestampMixin):
     quantity: Mapped[int] = mapped_column(default=1)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    # 商品成本快照（报表毛利率/利润用；货运损金额=该快照×货损数量）
+    cost_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
+    # 司机送达时录入的货损数量（≤quantity；0=无货损）
+    damage_quantity: Mapped[int] = mapped_column(default=0)
 
     order: Mapped["Order"] = relationship(back_populates="order_products")
     product: Mapped["Product | None"] = relationship(back_populates="order_products")

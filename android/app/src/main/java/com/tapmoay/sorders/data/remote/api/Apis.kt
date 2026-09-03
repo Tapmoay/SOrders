@@ -150,6 +150,8 @@ interface OrderApi {
         @Part files: List<@JvmSuppressWildcards MultipartBody.Part>,
         @Part("driver_remark") driverRemark: RequestBody,
         @Part("payment") payment: RequestBody,
+        @Part("damage_items") damageItems: RequestBody,
+        @Part("damage_note") damageNote: RequestBody,
     ): OrderDto
 }
 
@@ -436,5 +438,72 @@ interface FreightSettlementApi {
 
     @GET("freight-settlement")
     suspend fun settlementRange(@Query("from") from: String, @Query("to") to: String): FreightSettlementDto
+
 }
 
+interface AccountingApi {
+    @GET("customers")
+    suspend fun listCustomers(
+        @Query("kind") kind: String? = null,
+        @Query("q") q: String? = null,
+    ): List<CustomerDto>
+
+    @POST("customers")
+    suspend fun createCustomer(@Body body: CustomerCreateRequest): CustomerDto
+
+    @GET("driver-bills")
+    suspend fun listDriverBills(
+        @Query("driver_id") driverId: Long? = null,
+        @Query("month") month: String? = null,
+        @Query("status") status: String? = null,
+    ): List<DriverBillDto>
+
+    @POST("driver-bills/generate")
+    suspend fun generateBills(@Body body: DriverBillGenerateRequest): List<DriverBillDto>
+
+    @GET("driver-settlements")
+    suspend fun listSettlements(
+        @Query("driver_id") driverId: Long? = null,
+        @Query("month") month: String? = null,
+        @Query("status") status: String? = null,
+    ): List<SettlementDto>
+
+    @POST("driver-settlements")
+    suspend fun createSettlement(@Body body: SettlementCreateRequest): SettlementDto
+
+    @PATCH("driver-settlements/{id}")
+    suspend fun settlementAction(@Path("id") id: Long, @Body body: SettlementActionRequest): SettlementDto
+
+    @GET("expenses")
+    suspend fun listExpenses(
+        @Query("category") category: String? = null,
+        @Query("driver_id") driverId: Long? = null,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): List<ExpenseDto>
+
+    @POST("expenses")
+    suspend fun createExpense(@Body body: ExpenseCreateRequest): ExpenseDto
+
+    @GET("cash-flows")
+    suspend fun listCashFlows(
+        @Query("direction") direction: String? = null,
+        @Query("biz_type") bizType: String? = null,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): List<CashFlowDto>
+
+    @GET("vehicles")
+    suspend fun listVehicles(): List<VehicleDto>
+
+    @POST("vehicles")
+    suspend fun createVehicle(@Body body: VehicleCreateRequest): VehicleDto
+
+    @GET("ledger/receipts")
+    suspend fun listReceipts(
+        @Query("customer_id") customerId: Long? = null,
+    ): List<ReceiptDto>
+
+    @POST("ledger/receipts")
+    suspend fun createReceipt(@Body body: ReceiptCreateRequest): ReceiptDto
+}

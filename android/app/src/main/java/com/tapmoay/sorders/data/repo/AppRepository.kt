@@ -59,12 +59,14 @@ class AppRepository(private val api: ApiBundle) {
             ),
         )
 
-    suspend fun completeWithUpload(orderId: Long, files: List<File>, remark: String, payment: String? = null): com.tapmoay.sorders.data.remote.dto.OrderDto =
+    suspend fun completeWithUpload(orderId: Long, files: List<File>, remark: String, payment: String? = null, damageItems: List<com.tapmoay.sorders.data.remote.dto.DamageItem> = emptyList(), damageNote: String = ""): com.tapmoay.sorders.data.remote.dto.OrderDto =
         api.orderApi.completeOrderWithUpload(
             orderId,
             files.toParts(),
             remark.toRequestBody("text/plain".toMediaType()),
             (payment ?: "").toRequestBody("text/plain".toMediaType()),
+            ApiClient.json.encodeToString(com.tapmoay.sorders.data.remote.dto.DamageItem.serializer().let { kotlinx.serialization.builtins.ListSerializer(it) }, damageItems).toRequestBody("text/plain".toMediaType()),
+            damageNote.toRequestBody("text/plain".toMediaType()),
         )
 
     private fun List<File>.toParts(): List<MultipartBody.Part> = map { f ->
@@ -159,8 +161,8 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun readAll() = api.notificationApi.readAll()
 
     // ===== 司机运费 =====
-    suspend fun completeDirect(orderId: Long, remark: String, payment: String? = null) =
-        api.orderApi.completeOrder(orderId, com.tapmoay.sorders.data.remote.dto.OrderCompleteBody(emptyList(), remark, payment))
+    suspend fun completeDirect(orderId: Long, remark: String, payment: String? = null, damageItems: List<com.tapmoay.sorders.data.remote.dto.DamageItem> = emptyList(), damageNote: String = "") =
+        api.orderApi.completeOrder(orderId, com.tapmoay.sorders.data.remote.dto.OrderCompleteBody(emptyList(), remark, payment, damageItems, damageNote))
 
     suspend fun updateFreight(orderId: Long, freightFee: String?) =
         api.orderApi.updateFreight(orderId, com.tapmoay.sorders.data.remote.dto.FreightUpdateRequest(freightFee))
@@ -192,6 +194,27 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun resolveException(orderId: Long, note: String?) =
         api.reportApi.resolveException(orderId, com.tapmoay.sorders.data.remote.dto.ExceptionResolveRequest(note))
+
+    // ===== 账本 V2（P0）=====
+    suspend fun customers(kind: String? = null, q: String? = null) = api.accountingApi.listCustomers(kind, q)
+    suspend fun createCustomer(body: com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest) = api.accountingApi.createCustomer(body)
+    suspend fun driverBills(driverId: Long? = null, month: String? = null, status: String? = null) =
+        api.accountingApi.listDriverBills(driverId, month, status)
+    suspend fun generateBills(body: com.tapmoay.sorders.data.remote.dto.DriverBillGenerateRequest) = api.accountingApi.generateBills(body)
+    suspend fun settlements(driverId: Long? = null, month: String? = null, status: String? = null) =
+        api.accountingApi.listSettlements(driverId, month, status)
+    suspend fun createSettlement(body: com.tapmoay.sorders.data.remote.dto.SettlementCreateRequest) = api.accountingApi.createSettlement(body)
+    suspend fun settlementAction(id: Long, action: String, method: String = "cash") =
+        api.accountingApi.settlementAction(id, com.tapmoay.sorders.data.remote.dto.SettlementActionRequest(action, method))
+    suspend fun expenses(category: String? = null, driverId: Long? = null, dateFrom: String? = null, dateTo: String? = null) =
+        api.accountingApi.listExpenses(category, driverId, dateFrom, dateTo)
+    suspend fun createExpense(body: com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest) = api.accountingApi.createExpense(body)
+    suspend fun cashFlows(direction: String? = null, bizType: String? = null, dateFrom: String? = null, dateTo: String? = null) =
+        api.accountingApi.listCashFlows(direction, bizType, dateFrom, dateTo)
+    suspend fun vehicles() = api.accountingApi.listVehicles()
+    suspend fun createVehicle(body: com.tapmoay.sorders.data.remote.dto.VehicleCreateRequest) = api.accountingApi.createVehicle(body)
+    suspend fun receipts(customerId: Long? = null) = api.accountingApi.listReceipts(customerId)
+    suspend fun createReceipt(body: com.tapmoay.sorders.data.remote.dto.ReceiptCreateRequest) = api.accountingApi.createReceipt(body)
 }
 
 /** 把异常统一转为可展示的 ApiException */

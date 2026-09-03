@@ -11,6 +11,7 @@ from app.models import Ledger, LedgerExportJob, Order, User
 from app.models.enums import LedgerSource, OperationAction, UserRole
 from app.models.export_job import ExportFormat, ExportJobStatus
 from app.schemas.export_job import LedgerExportJobCreate, LedgerExportJobOut
+from app.schemas.accounting_v2 import ShipperReceiptCreate, ShipperReceiptOut
 from app.schemas.ledger import (
     LedgerAccountOut,
     LedgerCreate,
@@ -388,3 +389,71 @@ def get_export_job(
     else:
         raise HTTPException(status_code=403, detail="无权访问")
     return job
+
+@router.post("/receipts", response_model=ShipperReceiptOut)
+def create_receipt_endpoint(
+    body: ShipperReceiptCreate,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ShipperReceiptOut:
+    """客户收款单（逐单核销默认）：绑定订单并标记 paid=1；生成资金流水。"""
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可操作")
+    from app.services.accounting_service import create_receipt
+
+    try:
+        r = create_receipt(db, body, current.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    db.commit()
+    db.refresh(r)
+    from app.models import Customer
+
+    c = db.get(Customer, r.customer_id)
+    return ShipperReceiptOut(
+        id=r.id, customer_id=r.customer_id, amount=r.amount, method=r.method,
+        received_at=r.received_at, order_ids=r.order_ids, settle_mode=r.settle_mode,
+        arrears_unit_id=r.arrears_unit_id, invoiced=r.invoiced, note=r.note,
+        operator_id=r.operator_id,
+        customer_name=c.name if c else "", created_at=r.created_at,
+    )
+
+
+@router.get("/receipts", response_model=list[ShipperReceiptOut])
+def list_receipts(
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+    customer_id: int | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+) -> list[ShipperReceiptOut]:
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可查看")
+    from app.models import ShipperReceipt
+
+    stmt = select(ShipperReceipt).order_by(ShipperReceipt.received_at.desc(), ShipperReceipt.id.desc())
+    if customer_id is not None:
+        stmt = stmt.where(ShipperReceipt.customer_id == customer_id)
+    if date_from:
+        stmt = stmt.where(ShipperReceipt.received_at >= date_from)
+    if date_to:
+        stmt = stmt.where(ShipperReceipt.received_at <= date_to)
+    rows = list(db.scalars(stmt).all())
+    from app.models import Customer
+
+    names: dict[int, str] = {}
+    out = []
+    for r in rows:
+        if r.customer_id not in names:
+            c = db.get(Customer, r.customer_id)
+            names[r.customer_id] = c.name if c else ""
+        out.append(
+            ShipperReceiptOut(
+                id=r.id, customer_id=r.customer_id, amount=r.amount, method=r.method,
+                received_at=r.received_at, order_ids=r.order_ids, settle_mode=r.settle_mode,
+                arrears_unit_id=r.arrears_unit_id, invoiced=r.invoiced, note=r.note,
+                operator_id=r.operator_id,
+                customer_name=names.get(r.customer_id, ""), created_at=r.created_at,
+            )
+        )
+    return out
