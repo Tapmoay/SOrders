@@ -31,6 +31,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.MoneyOrange
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.util.formatMoney
 import kotlin.math.roundToInt
@@ -162,23 +163,41 @@ fun OrderCreateScreen(
                             Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            val pc = vm.products.firstOrNull { it.id == line.productId }?.let {
+                                androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(it.nameColor ?: "#1565C0"))
+                            } ?: MaterialTheme.colorScheme.onSurface
+                            TintedIcon(Icons.Default.Inventory2, pc, size = 16.dp, container = 36.dp)
+                            Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(line.name.ifBlank { "未命名商品" }, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
                                 Text(
-                                    "单价 ¥" + formatMoney(line.price) + " × " + line.quantity + " " + line.unit,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    line.name.ifBlank { "未命名商品" },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = pc,
+                                    maxLines = 1,
                                 )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("单价 ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("¥" + formatMoney(line.price), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = Color(MoneyOrange))
+                                    Text("  ·  数量 ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(line.quantity.toString() + " " + line.unit, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E6FFF))
+                                }
                             }
-                            Text(
-                                "¥" + formatMoney(line.lineTotal.toString()),
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            IconButton(onClick = { vm.editingLineIndex = i }) {
-                                Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
-                            }
-                            IconButton(onClick = { vm.removeLine(i) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    "¥" + formatMoney(line.lineTotal.toString()),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(MoneyOrange),
+                                )
+                                Row {
+                                    IconButton(onClick = { vm.editingLineIndex = i }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(15.dp), tint = Color(0xFF1E6FFF))
+                                    }
+                                    IconButton(onClick = { vm.removeLine(i) }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
                             }
                         }
                         if (i != vm.lines.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -299,7 +318,11 @@ fun OrderCreateScreen(
         ProductSheet(
             products = vm.products,
             loading = vm.loadingProducts,
-            onPick = { p -> vm.addLine(p.name, p.defaultUnitPrice, p.id, p.unit); vm.showProductSheet = false },
+            priceFor = { vm.priceFor(it) },
+            onPick = { p ->
+                vm.pendingAdd = LineDraft(productId = p.id, name = p.name, quantity = 1, price = vm.priceFor(p), unit = p.unit)
+                vm.showProductSheet = false
+            },
             onDismiss = { vm.showProductSheet = false },
         )
     }
@@ -310,6 +333,18 @@ fun OrderCreateScreen(
             addresses = vm.addresses,
             onPick = { a -> vm.applyAddress(a) },
             onDismiss = { vm.showAddressSheet = false },
+        )
+    }
+
+    // 选商品 → 小型数量弹窗（标题=商品名，只选数量，确定即添加）
+    vm.pendingAdd?.let { draft ->
+        AddQtyDialog(
+            productName = draft.name.ifBlank { "商品信息" },
+            onConfirm = { qty ->
+                vm.addLine(draft.name, draft.price, draft.productId, draft.unit, qty)
+                vm.pendingAdd = null
+            },
+            onDismiss = { vm.pendingAdd = null },
         )
     }
 
@@ -421,6 +456,7 @@ fun OrderCreateScreen(
 private fun ProductSheet(
     products: List<ProductDto>,
     loading: Boolean,
+    priceFor: (ProductDto) -> String,
     onPick: (ProductDto) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -482,9 +518,10 @@ private fun ProductSheet(
                                     color = androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
                                 )
                                 Text(
-                                    "默认价 ¥" + formatMoney(p.defaultUnitPrice),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    "¥" + formatMoney(priceFor(p)),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(MoneyOrange),
+                                    fontWeight = FontWeight.SemiBold,
                                 )
                             }
                             Button(onClick = { onPick(p) }, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
@@ -554,12 +591,48 @@ private fun AddressSheet(
     }
 }
 
+/** 添加商品小弹窗：标题=商品名（无需填写），只选数量，确定即加入明细 */
+@Composable
+fun AddQtyDialog(
+    productName: String,
+    onConfirm: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var qty by remember { mutableStateOf(1) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(productName, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                FilledTonalIconButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }) {
+                    Icon(Icons.Default.Remove, contentDescription = "减")
+                }
+                OutlinedTextField(
+                    value = qty.toString(),
+                    onValueChange = { v -> qty = v.filter { c -> c.isDigit() }.take(4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1E6FFF)),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    modifier = Modifier.width(96.dp),
+                )
+                FilledTonalIconButton(onClick = { qty = (qty + 1).coerceAtMost(9999) }) {
+                    Icon(Icons.Default.Add, contentDescription = "加")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(qty) }) { Text("确定") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
 /** 行编辑弹窗：数量步进 + 单价 */
 @Composable
 fun LineEditDialog(
     initial: LineDraft,
     onConfirm: (LineDraft) -> Unit,
     onDismiss: () -> Unit,
+    title: String = "商品信息",
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var price by remember { mutableStateOf(initial.price) }
@@ -567,7 +640,7 @@ fun LineEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("商品信息") },
+        title = { Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
         text = {
             Column {
                 OutlinedTextField(
@@ -591,7 +664,14 @@ fun LineEditDialog(
                     FilledTonalIconButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }) {
                         Icon(Icons.Default.Remove, contentDescription = "减")
                     }
-                    Text(qty.toString(), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
+                    OutlinedTextField(
+                        value = qty.toString(),
+                        onValueChange = { v -> qty = v.filter { c -> c.isDigit() }.take(4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1E6FFF)),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.width(96.dp),
+                    )
                     FilledTonalIconButton(onClick = { qty = (qty + 1).coerceAtMost(9999) }) {
                         Icon(Icons.Default.Add, contentDescription = "加")
                     }
@@ -608,7 +688,7 @@ fun LineEditDialog(
             TextButton(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onConfirm(LineDraft(initial.productId, name.trim(), qty, price))
+                        onConfirm(LineDraft(initial.productId, name.trim(), qty, price, initial.unit))
                     }
                 },
             ) { Text("确定") }
@@ -616,4 +696,3 @@ fun LineEditDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
-

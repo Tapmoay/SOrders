@@ -118,6 +118,7 @@ fun WholesalePricingScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PricingRow(
     p: ProductDto,
@@ -150,41 +151,42 @@ private fun PricingRow(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            // ② 默认售价（第二信息：大数字，橙色=钱）
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    "默认售价",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 3.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "¥" + formatMoney(p.defaultUnitPrice),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(MoneyOrange),
-                )
-            }
-            // ②b 该商品预设批发价档（点击即填入特价输入，可再改；无档位不显示）
+            // ② 当前价格（只有一行：该批发商实际价=已设特价优先，否则默认价；橙色=钱）
+            val curPrice = value.takeIf { it.isNotBlank() } ?: p.defaultUnitPrice
+            Text(
+                "¥" + formatMoney(curPrice),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(MoneyOrange),
+            )
+            // ②b 批发价档位：下拉选择（点选后填入特价输入，可再改）；无档位不显示
             if (p.tierPrices.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    p.tierPrices.forEach { t ->
-                        Surface(
-                            onClick = { onValueChange(t.unitPrice) },
-                            shape = MaterialTheme.shapes.small,
-                            color = Color(0xFFF5A623).copy(alpha = 0.14f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF5A623).copy(alpha = 0.5f)),
-                        ) {
-                            Text(
-                                t.label.ifBlank { "批发价" } + " ¥" + formatMoney(t.unitPrice) + " 点选",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFB07700),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                var tierSel by remember { mutableStateOf(-1) }
+                var tierExp by remember { mutableStateOf(false) }
+                ExposedDropdownMenuBox(expanded = tierExp, onExpandedChange = { tierExp = it }) {
+                    OutlinedTextField(
+                        value = if (tierSel >= 0) p.tierPrices[tierSel].label.ifBlank { "批发价" } + "  ¥" + formatMoney(p.tierPrices[tierSel].unitPrice) else "选择批发价档位",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("批发价档位") },
+                        placeholder = { Text("选择批发价档位") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tierExp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = tierExp, onDismissRequest = { tierExp = false }) {
+                        p.tierPrices.forEachIndexed { i, t ->
+                            DropdownMenuItem(
+                                text = { Text(t.label.ifBlank { "批发价" } + "   ¥" + formatMoney(t.unitPrice), maxLines = 1) },
+                                onClick = { tierSel = i; tierExp = false; onValueChange(t.unitPrice) },
                             )
                         }
                     }

@@ -5,8 +5,10 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.dto.*
 import com.tapmoay.sorders.data.repo.toApiException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class LineDraft(
@@ -35,6 +37,10 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var shippers by mutableStateOf<List<UserDto>>(emptyList())
 
     var products by mutableStateOf<List<ProductDto>>(emptyList())
+    /** 当前下单人的专属价格规则（productId -> rule）；下单选商品时按此显示/应用实际价 */
+    var myShipperId by mutableStateOf<Long?>(null)
+    var priceRules by mutableStateOf<Map<Long, PriceRuleDto>>(emptyMap())
+    var priceRulesShipper by mutableStateOf<Long?>(null)
     var addresses by mutableStateOf<List<AddressDto>>(emptyList())
     var loadingProducts by mutableStateOf(false)
     var submitting by mutableStateOf(false)
@@ -47,8 +53,15 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     /** 收货地址参考图（本地缓存路径，提交订单成功后逐张上传，最多 9 张） */
     val draftAddressImages: SnapshotStateList<String> = mutableStateListOf()
     var editingLineIndex by mutableStateOf<Int?>(null)
+    /** 选商品后待确认添加的草稿（弹窗：名称+数量，确定后加入明细） */
+    var pendingAdd by mutableStateOf<LineDraft?>(null)
 
     init {
+        viewModelScope.launch {
+            val s = container.tokenStore.sessionFlow.first()
+            myShipperId = s?.userId
+            loadPriceRulesFor(s?.userId)
+        }
         // 预加载商品目录与地址库
         viewModelScope.launch {
             try { products = container.repo.products() } catch (_: Exception) {}
@@ -67,14 +80,33 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     fun setShipper(id: Long?, tempName: String?) {
         shipperId = id
         tempShipperName = tempName?.trim()?.ifBlank { null }
+        loadPriceRulesFor(id ?: myShipperId)
     }
 
-    fun addLine(name: String, price: String, productId: Long?, unit: String = "件") {
+    /** 按下单主体（选择的货主，否则当前登录人）加载其专属价格规则 */
+    fun loadPriceRulesFor(sid: Long?) {
+        if (sid == null) {
+            priceRules = emptyMap()
+            priceRulesShipper = null
+            return
+        }
+        viewModelScope.launch {
+            try {
+                priceRules = container.repo.priceRules().filter { it.shipperId == sid }.associateBy { it.productId }
+                priceRulesShipper = sid
+            } catch (_: Exception) {}
+        }
+    }
+
+    /** 选择商品时的实际单价：有批发商专属价用特价，否则默认售价 */
+    fun priceFor(p: ProductDto): String = priceRules[p.id]?.specialUnitPrice ?: p.defaultUnitPrice
+
+    fun addLine(name: String, price: String, productId: Long?, unit: String = "件", quantity: Int = 1) {
         if (lines.size >= 10) {
             error = "最多支持 10 组商品"
             return
         }
-        lines.add(LineDraft(productId = productId, name = name, price = price, unit = unit))
+        lines.add(LineDraft(productId = productId, name = name, quantity = quantity.coerceAtLeast(1), price = price, unit = unit))
     }
 
     fun updateLine(index: Int, line: LineDraft) {

@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.rbac import Permission
+from app.core.rbac import Permission, user_role_key
 from app.database import get_db
-from app.deps import require_permission
+from app.deps import require_permission, require_roles
+from app.models.enums import UserRole
 from app.models import PriceRule, Product, User
 from app.schemas.price_rule import (
     PriceRuleBatchBody,
@@ -98,10 +99,13 @@ def batch_price_rules(
 @router.get("", response_model=list[PriceRuleOut])
 def list_price_rules(
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
+    user: User = Depends(require_roles(UserRole.DISPATCHER, UserRole.SHIPPER)),
     shipper_id: int | None = None,
 ) -> list[PriceRuleOut]:
     q = select(PriceRule).order_by(PriceRule.id.desc())
+    # 批发商（货主）只读自己的专属价，用于下单时展示实际价格；派单员可看全部
+    if user_role_key(user) == "shipper":
+        q = q.where(PriceRule.shipper_id == user.id)
     if shipper_id is not None:
         q = q.where(PriceRule.shipper_id == shipper_id)
     rows = list(db.scalars(q).all())
