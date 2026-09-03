@@ -118,6 +118,10 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun updatePriceRule(ruleId: Long, specialUnitPrice: String) =
         api.priceRuleApi.updateRule(ruleId, com.tapmoay.sorders.data.remote.api.PriceRuleUpdateRequest(specialUnitPrice))
     suspend fun deletePriceRule(ruleId: Long) = api.priceRuleApi.deleteRule(ruleId)
+    suspend fun batchPriceRules(shipperIds: List<Long>, productIds: List<Long>, mode: String, value: String? = null, tierIndex: Int? = null) =
+        api.priceRuleApi.batchRules(
+            com.tapmoay.sorders.data.remote.api.PriceRuleBatchRequest(shipperIds, productIds, mode, value, tierIndex)
+        )
 
     suspend fun products(includeInactive: Boolean = true) = api.productApi.listProducts(includeInactive)
     suspend fun uploadProductImage(productId: Long, file: File) =

@@ -97,4 +97,40 @@ class WholesalePricingViewModel(
             }
         }
     }
+
+    /** 批发商列表（批量调价时选择范围用） */
+    var members by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.UserDto>>(emptyList())
+    /** 批量调价弹窗开关 */
+    var showBatch by mutableStateOf(false)
+
+    fun loadMembers() {
+        viewModelScope.launch {
+            try { members = container.repo.members() } catch (_: Exception) {}
+        }
+    }
+
+    /** 批量调价：多个批发商 × 多个商品，一次写入 */
+    fun batchPrice(
+        shipperIds: List<Long>,
+        productIds: List<Long>,
+        mode: String,
+        value: String?,
+        tierIndex: Int?,
+        onDone: (Int) -> Unit,
+    ) {
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                val res = container.repo.batchPriceRules(shipperIds, productIds, mode, value, tierIndex)
+                actionResult = "批量调价成功（" + res.count + " 条）"
+                onDone(res.count)
+                load()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
 }

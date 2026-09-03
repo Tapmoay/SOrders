@@ -287,7 +287,24 @@ interface PriceRuleApi {
 
     @DELETE("price-rules/{ruleId}")
     suspend fun deleteRule(@Path("ruleId") ruleId: Long)
+
+    @POST("price-rules/batch")
+    suspend fun batchRules(@Body body: PriceRuleBatchRequest): PriceRuleBatchResult
 }
+
+@Serializable
+data class PriceRuleBatchRequest(
+    @SerialName("shipper_ids") val shipperIds: List<Long>,
+    @SerialName("product_ids") val productIds: List<Long>,
+    val mode: String,
+    @Serializable(with = FlexibleStringSerializer::class) val value: String? = null,
+    @SerialName("tier_index") val tierIndex: Int? = null,
+)
+
+@Serializable
+data class PriceRuleBatchResult(
+    val count: Int = 0,
+)
 
 @Serializable
 data class PriceRuleDto(
