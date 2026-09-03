@@ -1,8 +1,9 @@
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import OrderStatus
 
@@ -134,6 +135,23 @@ class OrderOut(BaseModel):
     arrears_unit_id: int | None = None
     arrears_unit_name: str = ""
     damage_note: str = ""  # 送达货损备注（公司自担）
+    image_urls: list[str] = []  # 收货地址参考图（多图，JSON 数组）
+
+    @field_validator("image_urls", mode="before")
+    @classmethod
+    def _parse_order_image_urls(cls, v: Any) -> list[str]:
+        """image_urls 列（JSON 字符串/列表/None）→ URL 列表；无图时回退 address_image_url。"""
+        if v is None or v == "":
+            return []
+        if isinstance(v, list):
+            return [x for x in v if isinstance(x, str) and x]
+        if isinstance(v, str):
+            try:
+                arr = json.loads(v)
+            except Exception:
+                return [v] if v else []
+            return [x for x in arr if isinstance(x, str) and x] if isinstance(arr, list) else ([v] if v else [])
+        return []
 
 
 class OrderChargeBody(BaseModel):

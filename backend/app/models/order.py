@@ -32,8 +32,9 @@ class Order(Base, TimestampMixin):
     address_detail: Mapped[str] = mapped_column(String(512), default="")
     address_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
     address_lng: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
-    # 收货地址参考图（定位不清时上传辅助）
+    # 收货地址参考图（定位不清时上传辅助）：address_image_url 兼容首图；image_urls 全量（JSON 数组）
     address_image_url: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
+    image_urls: Mapped[str] = mapped_column(Text, default="[]")
 
     contact_dongjia_phone: Mapped[str] = mapped_column(String(32), default="")
     contact_boss_phone: Mapped[str] = mapped_column(String(32), default="")

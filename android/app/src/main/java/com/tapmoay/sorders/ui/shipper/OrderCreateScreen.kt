@@ -1,10 +1,15 @@
 package com.tapmoay.sorders.ui.shipper
 
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +34,7 @@ import com.tapmoay.sorders.ui.common.*
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.util.formatMoney
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,16 +47,35 @@ fun OrderCreateScreen(
 ) {
     val vm: OrderCreateViewModel = appViewModel { OrderCreateViewModel(container) }
     var showShipperPicker by remember { mutableStateOf(false) }
+    var showImageSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val pickAddressImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
+    val scope = rememberCoroutineScope()
+
+    // 相册多选（一次最多 9 张）
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)) { uris ->
+        uris.forEach { uri ->
             try {
-                val f = File(context.cacheDir, "addr_img_" + System.currentTimeMillis() + ".jpg")
+                val f = File(context.cacheDir, "order_img_" + System.currentTimeMillis() + "_" + uris.indexOf(uri) + ".jpg")
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     f.outputStream().use { output -> input.copyTo(output) }
                 }
-                vm.draftAddressImage = f.absolutePath
+                vm.addDraftImage(f.absolutePath)
             } catch (_: Exception) {
+            }
+        }
+    }
+
+    // 拍照（单张，可连续拍累积）
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
+        if (bmp != null) {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val dir = File(context.cacheDir, "order_imgs").apply { mkdirs() }
+                    val f = File(dir, "cam_" + System.currentTimeMillis() + ".jpg")
+                    f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                    vm.addDraftImage(f.absolutePath)
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -181,36 +206,50 @@ fun OrderCreateScreen(
                         color = if (vm.addressDetail.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Row {
-                        OutlinedButton(onClick = { vm.showMapPicker = true }) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = { vm.showMapPicker = true }, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("地图选点")
                         }
-                        Spacer(Modifier.width(10.dp))
-                        OutlinedButton(onClick = { vm.showAddressSheet = true }) {
+                        OutlinedButton(onClick = { vm.showAddressSheet = true }, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("地址库")
                         }
-                        Spacer(Modifier.width(10.dp))
-                        OutlinedButton(onClick = { pickAddressImage.launch("image/*") }) {
-                            Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("位置图片")
-                        }
                     }
-                    vm.draftAddressImage?.let { imgPath ->
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(onClick = { showImageSheet = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("位置图片")
+                    }
+                    if (vm.draftAddressImages.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
-                        AsyncImage(
-                            model = File(imgPath),
-                            contentDescription = "位置参考图",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(150.dp)
-                                .clip(MaterialTheme.shapes.medium),
-                        )
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            vm.draftAddressImages.forEach { imgPath ->
+                                Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp))) {
+                                    AsyncImage(
+                                        model = File(imgPath),
+                                        contentDescription = "位置参考图",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+                                    )
+                                    Box(
+                                        Modifier.align(Alignment.TopEnd).padding(3.dp).size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.55f))
+                                            .clickable { vm.removeDraftImage(imgPath) },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "移除", tint = Color.White, modifier = Modifier.size(13.dp))
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -223,7 +262,7 @@ fun OrderCreateScreen(
                     OutlinedTextField(
                         value = vm.dongjiaPhone,
                         onValueChange = { vm.dongjiaPhone = it },
-                        label = { Text("东家（收货人）电话") },
+                        label = { Text("收货人电话") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -231,7 +270,7 @@ fun OrderCreateScreen(
                     OutlinedTextField(
                         value = vm.bossPhone,
                         onValueChange = { vm.bossPhone = it },
-                        label = { Text("老板电话（可选）") },
+                        label = { Text("下单人电话（可选）") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -286,6 +325,45 @@ fun OrderCreateScreen(
                 vm.editingLineIndex = null
             },
             onDismiss = { vm.editingLineIndex = null },
+        )
+    }
+
+    // 位置图片：弹窗选择（拍摄 / 图片上传·多张）
+    if (showImageSheet) {
+        AlertDialog(
+            onDismissRequest = { showImageSheet = false },
+            title = { Text("位置图片") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "拍摄现场位置照片或从相册选择，可多张（最多 9 张）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = { showImageSheet = false; cameraLauncher.launch(null) },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("拍照")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showImageSheet = false
+                            photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("图片上传（多张）")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showImageSheet = false }) { Text("取消") }
+            },
         )
     }
 
@@ -398,7 +476,11 @@ private fun ProductSheet(
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(p.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    p.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
+                                )
                                 Text(
                                     "默认价 ¥" + formatMoney(p.defaultUnitPrice),
                                     style = MaterialTheme.typography.bodySmall,

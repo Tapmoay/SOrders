@@ -44,8 +44,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var showProductSheet by mutableStateOf(false)
     var showAddressSheet by mutableStateOf(false)
     var showMapPicker by mutableStateOf(false)
-    /** 收货地址参考图（本地缓存路径，提交订单成功后上传） */
-    var draftAddressImage by mutableStateOf<String?>(null)
+    /** 收货地址参考图（本地缓存路径，提交订单成功后逐张上传，最多 9 张） */
+    val draftAddressImages: SnapshotStateList<String> = mutableStateListOf()
     var editingLineIndex by mutableStateOf<Int?>(null)
 
     init {
@@ -102,6 +102,18 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         showAddressSheet = false
     }
 
+    fun addDraftImage(path: String) {
+        if (draftAddressImages.size >= 9) {
+            error = "位置图片最多 9 张"
+            return
+        }
+        if (path !in draftAddressImages) draftAddressImages.add(path)
+    }
+
+    fun removeDraftImage(path: String) {
+        draftAddressImages.remove(path)
+    }
+
     fun submit(onDone: () -> Unit) {
         val nameBlank = lines.any { it.name.isBlank() }
         when {
@@ -127,7 +139,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                             tempShipperName = tempShipperName,
                         )
                         val created = container.repo.createOrder(body)
-                        draftAddressImage?.let { path ->
+                        draftAddressImages.forEach { path ->
                             runCatching {
                                 val f = java.io.File(path)
                                 if (f.exists()) container.repo.uploadOrderAddressImage(created.id, f)

@@ -332,6 +332,17 @@ def bootstrap_schema(engine: Engine) -> None:
                         pass
                     else:
                         raise
+        if "image_urls" not in ocols:
+            logger.warning("检测到旧库缺少 orders.image_urls，正在补列（多图 JSON 数组）…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN image_urls TEXT DEFAULT '[]'"))
+                except OperationalError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
         if "temp_shipper_name" not in ocols:
             logger.warning("检测到旧库缺少 orders.temp_shipper_name，正在补列…")
             with engine.begin() as conn:

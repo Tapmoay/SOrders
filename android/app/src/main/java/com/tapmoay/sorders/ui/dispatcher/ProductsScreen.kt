@@ -111,21 +111,19 @@ fun ProductsScreen(
         }
     }
 
-    // 新增/编辑 全宽弹窗（基础信息 / 价格与批发价 / 库存）
+    // 新增/编辑 下拉抽屉（基础信息 / 价格与批发价 / 库存）
     if (vm.showDialog) {
-        Dialog(onDismissRequest = { vm.showDialog = false }) {
-            Surface(
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
+        ModalBottomSheet(
+            onDismissRequest = { vm.showDialog = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 32.dp),
             ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 560.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(20.dp),
-                ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             if (vm.editing == null) "新增商品" else "编辑商品",
@@ -310,12 +308,20 @@ fun ProductsScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(10.dp))
-                        SoTextField(
-                            value = vm.draftUnit,
-                            onValueChange = { vm.draftUnit = it },
-                            placeholder = "单位（如 件/箱/斤/桶，缺省 件）",
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        var unitExpanded by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(expanded = unitExpanded, onExpandedChange = { unitExpanded = it }) {
+                            SoTextField(
+                                value = vm.draftUnit,
+                                onValueChange = { vm.draftUnit = it },
+                                placeholder = "单位（件/个/块/包/斤/公斤/吨…，可手输）",
+                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            )
+                            ExposedDropdownMenu(expanded = unitExpanded, onDismissRequest = { unitExpanded = false }) {
+                                listOf("件", "个", "块", "包", "箱", "桶", "袋", "捆", "瓶", "盒", "盘", "斤", "公斤", "吨", "米", "车").forEach { u ->
+                                    DropdownMenuItem(text = { Text(u) }, onClick = { vm.draftUnit = u; unitExpanded = false })
+                                }
+                            }
+                        }
                         Spacer(Modifier.height(10.dp))
                         SoTextField(
                             value = vm.draftAlert,
@@ -361,7 +367,6 @@ fun ProductsScreen(
             }
         }
     }
-}
 
 @Composable
 private fun ProductCard(
@@ -398,7 +403,12 @@ private fun ProductCard(
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(p.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Text(
+                        p.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
+                        modifier = Modifier.weight(1f),
+                    )
                     if (!p.isActive) {
                         Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
                             Text(

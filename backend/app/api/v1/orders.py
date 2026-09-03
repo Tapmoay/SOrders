@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -525,7 +526,15 @@ async def upload_order_address_image(
             detail="图片保存失败：服务器无法写入 uploads 目录",
         ) from e
     url = f"/static/uploads/delivery/{order_id}/{name}"
-    order.address_image_url = url
+    # 多图：拼进 image_urls（JSON 数组），address_image_url 始终指向首图（兼容旧客户端）
+    try:
+        urls = json.loads(order.image_urls or "[]")
+    except Exception:
+        urls = []
+    if url not in urls:
+        urls.append(url)
+    order.image_urls = json.dumps(urls, ensure_ascii=False)
+    order.address_image_url = urls[0] if urls else url
     db.commit()
     db.refresh(order)
     return order
