@@ -591,7 +591,7 @@ private fun AddressSheet(
     }
 }
 
-/** 添加商品小弹窗：标题=商品名（无需填写），只选数量，确定即加入明细 */
+/** 添加商品小弹窗：标题=商品名（无需填写），只选数量；加减淡蓝，取消/确定圆形按钮左右对称 */
 @Composable
 fun AddQtyDialog(
     productName: String,
@@ -599,30 +599,72 @@ fun AddQtyDialog(
     onDismiss: () -> Unit,
 ) {
     var qty by remember { mutableStateOf(1) }
+    val paleBlue = Color(0xFFE8F2FF)
+    val qtyBlue = Color(0xFF1E6FFF)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(productName, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
         text = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                FilledTonalIconButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }) {
-                    Icon(Icons.Default.Remove, contentDescription = "减")
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    FilledIconButton(
+                        onClick = { qty = (qty - 1).coerceAtLeast(1) },
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = paleBlue, contentColor = qtyBlue),
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.Default.Remove, contentDescription = "减")
+                    }
+                    OutlinedTextField(
+                        value = qty.toString(),
+                        onValueChange = { v -> qty = v.filter { c -> c.isDigit() }.take(4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = qtyBlue),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = qtyBlue,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            cursorColor = qtyBlue,
+                        ),
+                        modifier = Modifier.width(96.dp),
+                    )
+                    FilledIconButton(
+                        onClick = { qty = (qty + 1).coerceAtMost(9999) },
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = paleBlue, contentColor = qtyBlue),
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "加")
+                    }
                 }
-                OutlinedTextField(
-                    value = qty.toString(),
-                    onValueChange = { v -> qty = v.filter { c -> c.isDigit() }.take(4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1E6FFF)),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                    modifier = Modifier.width(96.dp),
-                )
-                FilledTonalIconButton(onClick = { qty = (qty + 1).coerceAtMost(9999) }) {
-                    Icon(Icons.Default.Add, contentDescription = "加")
+                Spacer(Modifier.height(10.dp))
+                // 取消 / 确定：胶囊按钮，居中对称放置
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(22.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = paleBlue, contentColor = qtyBlue),
+                        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 0.dp),
+                        modifier = Modifier.height(44.dp),
+                    ) {
+                        Text("取消", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.width(20.dp))
+                    Button(
+                        onClick = { onConfirm(qty) },
+                        shape = RoundedCornerShape(22.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color.White),
+                        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 0.dp),
+                        modifier = Modifier.height(44.dp),
+                    ) {
+                        Text("确定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(qty) }) { Text("确定") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {},
+        dismissButton = {},
     )
 }
 
