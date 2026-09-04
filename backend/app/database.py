@@ -19,7 +19,7 @@ else:
         pool_pre_ping=True,
         pool_recycle=3600,
     )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
 
 # 确保无论 ASGI lifespan 是否执行（如仅引用 database 或未走 FastAPI 生命周期），旧库都能补列/迁移
 from app.core.schema_bootstrap import bootstrap_schema  # noqa: E402
