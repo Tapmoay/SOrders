@@ -66,7 +66,7 @@ object Modules {
         // 报表中心直达营业额报表界面（顶部 4 页签：营业/商品/司机/异常，可切换）
         ModuleEntry(
             label = "报表中心",
-            route = Routes.REPORT_TURNOVER,
+            route = Routes.REPORT_HOME,
             icon = Icons.Default.BarChart,
             color = ReportIndigo,
         ),

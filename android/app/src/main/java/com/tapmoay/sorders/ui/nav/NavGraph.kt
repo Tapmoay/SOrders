@@ -32,6 +32,7 @@ import com.tapmoay.sorders.ui.dispatcher.ReportDriverScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportExceptionScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportProductScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportCenterScreen
+import com.tapmoay.sorders.ui.dispatcher.ReportHomeScreen
 import com.tapmoay.sorders.ui.dispatcher.WholesalePricingScreen
 import com.tapmoay.sorders.ui.dispatcher.UsersManageScreen
 import com.tapmoay.sorders.ui.driver.DriverOrdersScreen
@@ -240,6 +241,20 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+            )
+        }
+        composable(Routes.REPORT_HOME) {
+            ReportHomeScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpen = { tab ->
+                    when (tab) {
+                        0 -> navController.navigate(Routes.REPORT_TURNOVER)
+                        1 -> navController.navigate(Routes.REPORT_PRODUCT)
+                        2 -> navController.navigate(Routes.REPORT_DRIVER)
+                        else -> navController.navigate(Routes.REPORT_EXCEPTION)
+                    }
+                },
             )
         }
         composable(Routes.REPORT_TURNOVER) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 0) }

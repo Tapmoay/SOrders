@@ -13,7 +13,7 @@ from app.database import get_db
 from app.deps import require_permission
 from app.models import Order, OrderProduct, User
 from app.models.enums import OrderStatus
-from app.schemas.reports import ProductReportItem, ProductReportOut, ReportSeriesItem, TurnoverReportOut
+from app.schemas.reports import ProductReportItem, ProductReportOut, ReportArrearsUnitItem, ReportSeriesItem, TurnoverReportOut
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -71,6 +71,14 @@ def turnover_report(
     total_amount = Decimal("0")
     total_freight = Decimal("0")
     total_orders = 0
+    cost_total = Decimal("0")
+    total_lines = 0
+    cost_covered_lines = 0
+    damage_qty = 0
+    damage_amount = Decimal("0")
+    collected = Decimal("0")
+    arrears_total = Decimal("0")
+    arrears_map: dict[str, Decimal] = {}
     for o in orders:
         ds = o.delivered_at.date()
         if ds < start or ds > end:
@@ -87,6 +95,24 @@ def turnover_report(
         total_amount += amount
         total_freight += o.freight_fee or Decimal("0")
         total_orders += 1
+        # 成本/货损（仅 cost_price_snapshot>0 的行计入；老订单无成本快照不参与毛利）
+        for lp in o.order_products:
+            total_lines += 1
+            cost = lp.cost_price_snapshot or Decimal("0")
+            if cost > 0:
+                cost_covered_lines += 1
+                cost_total += cost * Decimal(lp.quantity)
+            dq = lp.damage_quantity or 0
+            if dq > 0:
+                damage_qty += dq
+                damage_amount += cost * Decimal(dq) if cost > 0 else Decimal("0")
+        # 资金：cash+paid=已收；arrears 未 paid=挂账未收
+        if (o.payment_method or "") == "cash" and o.paid:
+            collected += amount
+        elif (o.payment_method or "") == "arrears" and not o.paid:
+            arrears_total += amount
+            uname = (o.arrears_unit_name or "").strip() or "未分配挂账单位"
+            arrears_map[uname] = arrears_map.get(uname, Decimal("0")) + amount
     if mode == "day":
         # 按日统计图：x 轴=时间（按实际送达时刻聚合），仅显示有订单的小时，无订单时段不展示
         series = [
@@ -100,6 +126,15 @@ def turnover_report(
     else:
         series = [day_map.get(f"{x.month}-{x.day}", ReportSeriesItem(label=f"{x.month}-{x.day}")) for x in days]
     avg = (total_amount / total_orders) if total_orders else Decimal("0")
+    # 周期内已撤销单数（口径说明用：营业金额=已送达未撤销订单）
+    cancelled_orders = db.scalar(
+        select(func.count(Order.id)).where(
+            Order.status == OrderStatus.CANCELLED,
+            Order.cancelled_at.isnot(None),
+            func.date(Order.cancelled_at) >= start,
+            func.date(Order.cancelled_at) <= end,
+        )
+    ) or 0
     return TurnoverReportOut(
         period_label=_label(d, mode),
         total_amount=total_amount,
@@ -107,6 +142,18 @@ def turnover_report(
         total_freight=total_freight,
         avg_order=avg,
         series=series,
+        cost_total=cost_total,
+        total_lines=total_lines,
+        cost_covered_lines=cost_covered_lines,
+        damage_qty=damage_qty,
+        damage_amount=damage_amount,
+        collected=collected,
+        arrears_total=arrears_total,
+        cancelled_orders=cancelled_orders,
+        arrears_units=[
+            ReportArrearsUnitItem(name=k, amount=v)
+            for k, v in sorted(arrears_map.items(), key=lambda kv: -kv[1])[:5]
+        ],
     )
 
 
@@ -127,6 +174,11 @@ def product_report(
     agg: dict[str, ProductReportItem] = {}
     total_qty = 0
     total_amount = Decimal("0")
+    cost_total = Decimal("0")
+    damage_qty = 0
+    damage_amount = Decimal("0")
+    total_lines = 0
+    cost_covered_lines = 0
     for o in db.scalars(q):
         if o.delivered_at.date() < start or o.delivered_at.date() > end:
             continue
@@ -138,10 +190,28 @@ def product_report(
             item.order_count += 1
             total_qty += lp.quantity
             total_amount += lp.line_total or Decimal("0")
+            total_lines += 1
+            cost = lp.cost_price_snapshot or Decimal("0")
+            if cost > 0:
+                cost_covered_lines += 1
+                cost_total += cost * Decimal(lp.quantity)
+                item.cost += cost * Decimal(lp.quantity)
+            dq = lp.damage_quantity or 0
+            if dq > 0:
+                damage_qty += dq
+                item.damage_qty += dq
+                amt = cost * Decimal(dq) if cost > 0 else Decimal("0")
+                damage_amount += amt
+                item.damage_amount += amt
     items = sorted(agg.values(), key=lambda x: -x.amount)
     return ProductReportOut(
         period_label=_label(d, mode),
         total_qty=total_qty,
         total_amount=total_amount,
         items=items,
+        cost_total=cost_total,
+        damage_qty=damage_qty,
+        damage_amount=damage_amount,
+        total_lines=total_lines,
+        cost_covered_lines=cost_covered_lines,
     )

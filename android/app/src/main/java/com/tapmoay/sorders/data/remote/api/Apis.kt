@@ -447,6 +447,9 @@ interface ReportApi {
 
     @POST("stats/exception-orders/{orderId}/resolve")
     suspend fun resolveException(@Path("orderId") orderId: Long, @Body body: ExceptionResolveRequest): ExceptionResolveResult
+
+    @GET("operation-logs")
+    suspend fun operationLogs(@Query("limit") limit: Int = 60): List<OperationLogDto>
 }
 
 interface FreightSettlementApi {

@@ -199,6 +199,8 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun resolveException(orderId: Long, note: String?) =
         api.reportApi.resolveException(orderId, com.tapmoay.sorders.data.remote.dto.ExceptionResolveRequest(note))
 
+    suspend fun operationLogs(limit: Int = 60) = api.reportApi.operationLogs(limit)
+
     // ===== 账本 V2（P0）=====
     suspend fun customers(kind: String? = null, q: String? = null) = api.accountingApi.listCustomers(kind, q)
     suspend fun createCustomer(body: com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest) = api.accountingApi.createCustomer(body)

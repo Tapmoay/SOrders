@@ -47,6 +47,8 @@ class DriverPerformanceRow(BaseModel):
     on_time_rate: float | None = Field(None, description="0~1，无约定/无样本时为 null")
     avg_delivery_seconds: float | None = None
     photo_upload_rate: float = Field(..., description="0~1")
+    billing_mode: str | None = Field(None, description="PIECE 计件 / SALARY 工资制")
+    freight_owed: str | None = Field(None, description="计件司机待结运费(已结以外)字符串，工资制为 None")
 
 
 class DriverPerformanceOut(BaseModel):

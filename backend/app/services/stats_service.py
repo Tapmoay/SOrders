@@ -5,11 +5,11 @@ from datetime import date, datetime, timedelta, time, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models import Order, OrderProduct, User
-from app.models.enums import OrderStatus
+from app.models import DriverSettlement, Order, OrderProduct, User
+from app.models.enums import OrderStatus, SettlementStatus
 
 
 def _end_of_order_date(od: date) -> datetime:
@@ -233,6 +233,24 @@ def driver_performance(
         photo_ok = sum(1 for x in os if _has_photos(x))
         photo_rate = photo_ok / completed if completed else 0.0
 
+        # 计费方式快照：取该司机最新订单的计费方式（无订单司机按用户表）
+        du_billing = (du.billing_mode or "").upper() if du else ""
+        if not du_billing:
+            snapshot_modes = {ode.driver_billing_mode_snapshot for ode in os if ode.driver_billing_mode_snapshot}
+            du_billing = (next(iter(snapshot_modes))).upper() if snapshot_modes else ""
+        # 计件司机：应结运费 = Σ freight_fee；已结 = 该司机已确认结算单(PAID)金额合计
+        freight_owed = None
+        if du_billing == "PIECE":
+            total_freight = sum((ode.freight_fee or Decimal("0")) for ode in os)
+            settled = db.scalar(
+                select(func.coalesce(func.sum(DriverSettlement.amount), 0)).where(
+                    DriverSettlement.driver_id == did,
+                    DriverSettlement.status == SettlementStatus.PAID,
+                )
+            ) or Decimal("0")
+            owed = total_freight - settled
+            freight_owed = str(max(owed, Decimal("0")))
+
         rows.append(
             {
                 "driver_id": did,
@@ -241,6 +259,8 @@ def driver_performance(
                 "on_time_rate": on_time_rate,
                 "avg_delivery_seconds": avg_sec,
                 "photo_upload_rate": photo_rate,
+                "billing_mode": du_billing or None,
+                "freight_owed": freight_owed,
             }
         )
     rows.sort(key=lambda x: x["completed_count"], reverse=True)

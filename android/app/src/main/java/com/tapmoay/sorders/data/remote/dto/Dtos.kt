@@ -538,6 +538,22 @@ data class TurnoverReportDto(
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("total_freight") val totalFreight: String = "0",
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("avg_order") val avgOrder: String = "0",
     val series: List<ReportSeriesItem> = emptyList(),
+    // 报表中心 v2：成本/毛利/货损/资金（毛利=总金额-有成本快照订单行的成本，未覆盖订单不计入）
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_total") val costTotal: String = "0",
+    @SerialName("total_lines") val totalLines: Int = 0,
+    @SerialName("cost_covered_lines") val costCoveredLines: Int = 0,
+    @SerialName("damage_qty") val damageQty: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("collected") val collected: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("arrears_total") val arrearsTotal: String = "0",
+    @SerialName("cancelled_orders") val cancelledOrders: Int = 0,
+    @SerialName("arrears_units") val arrearsUnits: List<ReportArrearsUnitDto> = emptyList(),
+)
+
+@Serializable
+data class ReportArrearsUnitDto(
+    val name: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
 )
 
 @Serializable
@@ -546,6 +562,9 @@ data class ProductReportItemDto(
     val qty: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
     @SerialName("order_count") val orderCount: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) val cost: String = "0",
+    @SerialName("damage_qty") val damageQty: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
 )
 
 @Serializable
@@ -554,6 +573,11 @@ data class ProductReportDto(
     @SerialName("total_qty") val totalQty: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("total_amount") val totalAmount: String = "0",
     val items: List<ProductReportItemDto> = emptyList(),
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_total") val costTotal: String = "0",
+    @SerialName("damage_qty") val damageQty: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
+    @SerialName("total_lines") val totalLines: Int = 0,
+    @SerialName("cost_covered_lines") val costCoveredLines: Int = 0,
 )
 
 @Serializable
@@ -564,6 +588,8 @@ data class DriverPerformanceRowDto(
     @SerialName("on_time_rate") val onTimeRate: Double? = null,
     @SerialName("avg_delivery_seconds") val avgDeliverySeconds: Double? = null,
     @SerialName("photo_upload_rate") val photoUploadRate: Double = 0.0,
+    @SerialName("billing_mode") val billingMode: String? = null,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("freight_owed") val freightOwed: String? = null,
 )
 
 @Serializable
@@ -596,6 +622,16 @@ data class ExceptionResolveRequest(
 data class ExceptionResolveResult(
     val ok: Boolean = false,
     @SerialName("order_id") val orderId: Long = 0,
+)
+
+@Serializable
+data class OperationLogDto(
+    val id: Long = 0,
+    @SerialName("operator_id") val operatorId: Long = 0,
+    @SerialName("order_id") val orderId: Long? = null,
+    val action: String = "",
+    @SerialName("change_content") val changeContent: String? = null,
+    @SerialName("created_at") val createdAt: String = "",
 )
 
 
