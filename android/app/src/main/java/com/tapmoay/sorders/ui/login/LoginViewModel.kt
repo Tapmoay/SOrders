@@ -41,7 +41,7 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
                 )
                 container.tokenStore.save(session)
                 container.socketManager.connect(
-                    BuildConfig.API_BASE_URL,
+                    com.tapmoay.sorders.core.ApiEndpoint.baseUrl,
                     token.access_token,
                     container.realtimeHub.lastNotificationId.value,
                 )

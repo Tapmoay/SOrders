@@ -44,7 +44,7 @@ class RealtimeHub(private val container: AppContainer) {
                     role = Role.fromKey(s.role)
                     // 登录 / App 重启会话恢复：确保 Socket 长连接（幂等，已连接则跳过）
                     container.socketManager.connect(
-                        BuildConfig.API_BASE_URL,
+                        ApiEndpoint.baseUrl,
                         s.token,
                         lastNotificationId.value,
                     )

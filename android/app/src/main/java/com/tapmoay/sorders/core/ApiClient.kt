@@ -61,7 +61,7 @@ object ApiClient {
             .build()
 
         val retrofit = Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL.trimEnd('/') + "/" + API_PREFIX)
+            .baseUrl(ApiEndpoint.baseUrl.trimEnd('/') + "/" + API_PREFIX)
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()

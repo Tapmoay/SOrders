@@ -6,5 +6,5 @@ import com.tapmoay.sorders.BuildConfig
 fun resolveStaticUrl(path: String?): String? {
     if (path.isNullOrBlank()) return null
     return if (path.startsWith("http")) path
-    else BuildConfig.API_BASE_URL.trimEnd('/') + "/" + path.trimStart('/')
+    else com.tapmoay.sorders.core.ApiEndpoint.baseUrl.trimEnd('/') + "/" + path.trimStart('/')
 }
