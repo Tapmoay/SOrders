@@ -15,6 +15,7 @@
 | [04_ANDROID_MAP.md](04_ANDROID_MAP.md) | Android 端页面/ViewModel/导航/工具类全景、构建命令、网络层、真实设备连接 | 改 Android 必读 |
 | [05_TESTING.md](05_TESTING.md) | 测试手册：模拟器/账号/测试数据/常用命令/自动化工具/已知坑 | 任何验证/测试前必读 |
 | [06_DESIGN_SYSTEM.md](06_DESIGN_SYSTEM.md) | UI 设计与语义色体系（一色一功能）、组件风格、用户偏好 | 改 UI 必读 |
+| [07_END_TO_END_FLOW.md](07_END_TO_END_FLOW.md) | 三端互通端到端流程：下单→派单→接单→送达→入账的完整链路、消息事件表、各角色职责、状态机 | 理解业务流转必读 |
 
 ---
 
