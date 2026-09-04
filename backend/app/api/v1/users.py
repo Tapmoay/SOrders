@@ -47,7 +47,7 @@ def list_users(
 def create_user(
     body: UserCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.USER_MANAGE)),
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> User:
     if db.scalars(select(User).where(User.phone == body.phone)).first():
         raise HTTPException(status_code=400, detail="该手机号已存在")
@@ -135,7 +135,7 @@ def update_user(
 def swap_shipper_driver(
     user_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.USER_MANAGE)),
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> User:
     """货主 ↔ 司机身份切换（派单员操作）。派单员账号不可切换。"""
     u = db.get(User, user_id)
