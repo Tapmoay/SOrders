@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.ReportProblem
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,7 +34,9 @@ fun ReportHomeScreen(container: AppContainer, onBack: () -> Unit, onOpen: (Int) 
         ReportEntry(0, "营业纵览", Icons.Default.Payments, Color(0xFFFF9500)),
         ReportEntry(1, "商品经营", Icons.Default.Inventory2, Color(0xFF8455E6)),
         ReportEntry(2, "司机绩效", Icons.Default.LocalShipping, Color(0xFF00B578)),
-        ReportEntry(3, "异常与审计", Icons.Default.ReportProblem, Color(0xFFFF4D4F)),
+        ReportEntry(3, "客户经营", Icons.Default.Storefront, Color(0xFF00A2C7)),
+        ReportEntry(4, "资金收支", Icons.Default.SwapHoriz, Color(0xFF6950F5)),
+        ReportEntry(5, "异常与审计", Icons.Default.ReportProblem, Color(0xFFFF4D4F)),
     )
     Scaffold(
         topBar = { AppTopBar(title = "报表中心", onBack = onBack) },

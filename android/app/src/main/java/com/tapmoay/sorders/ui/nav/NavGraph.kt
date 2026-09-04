@@ -252,6 +252,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                         0 -> navController.navigate(Routes.REPORT_TURNOVER)
                         1 -> navController.navigate(Routes.REPORT_PRODUCT)
                         2 -> navController.navigate(Routes.REPORT_DRIVER)
+                        3 -> navController.navigate(Routes.REPORT_CUSTOMER)
+                        4 -> navController.navigate(Routes.REPORT_FINANCE)
                         else -> navController.navigate(Routes.REPORT_EXCEPTION)
                     }
                 },
@@ -260,6 +262,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         composable(Routes.REPORT_TURNOVER) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 0) }
         composable(Routes.REPORT_PRODUCT) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 1) }
         composable(Routes.REPORT_DRIVER) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 2) }
+        composable(Routes.REPORT_CUSTOMER) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 3) }
+        composable(Routes.REPORT_FINANCE) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 4) }
         composable(Routes.REPORT_EXCEPTION) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 3) }
         composable(
             route = Routes.MODULE_GROUP + "/{groupKey}",

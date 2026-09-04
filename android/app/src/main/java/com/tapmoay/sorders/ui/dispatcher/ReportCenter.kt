@@ -12,27 +12,32 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ExceptionOrderDto
 import com.tapmoay.sorders.data.remote.dto.OperationLogDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.util.saveExportFile
 
-/** 报表页（从入口页进入）：顶部时间导航 + 主题内容 */
+/** 报表页（从入口页进入）：顶部时间导航 + 主题内容 + 导出 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: Int = 0) {
     val vm: ReportCenterViewModel = appViewModel { ReportCenterViewModel(container, initialTab) }
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(vm.actionResult, vm.error) {
         vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } ?: vm.error?.let { snackbar.showSnackbar(it); vm.error = null }
     }
 
-    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; else -> "异常与审计" }
+    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; else -> "异常与审计" }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -46,12 +51,28 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                         Spacer(Modifier.width(2.dp))
                         Text("刷新")
                     }
+                    TextButton(
+                        onClick = {
+                            vm.exportCurrent { bytes ->
+                                if (bytes != null) {
+                                    val fn = title + "-" + vm.anchor + ".xlsx"
+                                    val path = saveExportFile(context, bytes, fn)
+                                    scope.launch { snackbar.showSnackbar(if (path != null) "已导出：" + path else "导出失败：无法保存文件") }
+                                }
+                            }
+                        },
+                        enabled = !vm.exporting,
+                    ) {
+                        Icon(Icons.Default.FileDownload, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text(if (vm.exporting) "导出中" else "导出")
+                    }
                 },
             )
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            if (vm.tab != 3) {
+            if (vm.tab != 5) {
                 ReportTimeNav(
                     mode = vm.mode,
                     anchor = vm.anchor,
@@ -60,9 +81,8 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                     onAnchorChange = { vm.anchor = it; vm.load() },
                 )
             } else {
-                // 异常与审计：固定近 30 天
                 Text(
-                    "近 30 天运营异常与敏感操作记录",
+                    "资金流水（按日/周/月切换上方时间）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -72,6 +92,8 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                 0 -> TurnoverTab(vm)
                 1 -> ProductTab(vm)
                 2 -> DriverTab(vm)
+                3 -> CustomerTab(vm)
+                4 -> FinanceTab(vm)
                 else -> ExceptionTab(vm)
             }
         }
@@ -138,6 +160,16 @@ private fun StatRow(label: String, value: String, color: Color = MaterialTheme.c
 
 private fun money(s: String?): String = "¥" + formatMoney(s ?: "0")
 
+private fun coverageText(cov: Int, total: Int): String =
+    "毛利口径：仅按有成本快照的订单计算（" + cov + "/" + total + " 行计入），未计入的订单未参与毛利计算。"
+
+@Composable
+private fun CoverNote(cov: Int, total: Int) {
+    Text(coverageText(cov, total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+// ===================== ① 营业纵览 =====================
+
 @Composable
 private fun TurnoverTab(vm: ReportCenterViewModel) {
     val data = vm.turnover
@@ -167,11 +199,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(4.dp))
                     val profit = (data.totalAmount.toDoubleOrNull() ?: 0.0) - (data.costTotal.toDoubleOrNull() ?: 0.0)
                     StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
-                    Text(
-                        "毛利口径：仅按有成本快照的订单计算（" + data.costCoveredLines + "/" + data.totalLines + " 行计入），未计入的订单未参与毛利计算。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    CoverNote(data.costCoveredLines, data.totalLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
                     if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFE53935))
                 }
@@ -252,6 +280,8 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
     }
 }
 
+// ===================== ② 商品经营（信息分层：搜索+排序+TOP收起） =====================
+
 @Composable
 private fun ProductTab(vm: ReportCenterViewModel) {
     val data = vm.products
@@ -273,11 +303,7 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(4.dp))
                     val profit = (data.totalAmount.toDoubleOrNull() ?: 0.0) - (data.costTotal.toDoubleOrNull() ?: 0.0)
                     StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
-                    Text(
-                        "毛利口径：仅按有成本快照的订单计算（" + data.costCoveredLines + "/" + data.totalLines + " 行计入），未计入的订单未参与毛利计算。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    CoverNote(data.costCoveredLines, data.totalLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
                 }
             }
@@ -291,10 +317,43 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                 }
             }
             item {
-                GroupHeader("商品明细")
+                GroupHeader("商品明细（" + data.items.size + " 种）")
                 Spacer(Modifier.height(8.dp))
             }
-            items(data.items, key = { it.productName }) { p ->
+            item {
+                SectionCard {
+                    OutlinedTextField(
+                        value = vm.productSearch,
+                        onValueChange = { vm.productSearch = it },
+                        placeholder = { Text("搜索商品名称", style = MaterialTheme.typography.bodySmall) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("amount" to "按金额", "qty" to "按件数", "profit" to "按毛利", "damage" to "按货损").forEach { (k, label) ->
+                            val sel = vm.productSort == k
+                            Surface(
+                                color = if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant,
+                                shape = MaterialTheme.shapes.small,
+                                modifier = Modifier.clickable { vm.productSort = k },
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            val filtered = vm.filteredProducts
+            val shown = if (vm.productShowAll) filtered else filtered.take(15)
+            items(shown, key = { vm.productSort + "|" + it.productName }) { p ->
                 SectionCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         AccentBar(Color(0xFF8455E6))
@@ -309,9 +368,21 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                     }
                 }
             }
+            if (filtered.size > 15 && !vm.productShowAll) {
+                item {
+                    SectionCard {
+                        TextButton(onClick = { vm.productShowAll = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("查看全部 " + filtered.size + " 个商品（当前显示 TOP15）", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+            if (filtered.isEmpty()) item { ChartEmpty("无匹配商品") }
         }
     }
 }
+
+// ===================== ③ 司机绩效 =====================
 
 @Composable
 private fun DriverTab(vm: ReportCenterViewModel) {
@@ -349,7 +420,7 @@ private fun DriverTab(vm: ReportCenterViewModel) {
                 }
             }
             item {
-                GroupHeader("司机绩效")
+                GroupHeader("司机绩效（" + data.drivers.size + " 人）")
                 Spacer(Modifier.height(8.dp))
             }
             items(data.drivers, key = { it.driverId }) { d ->
@@ -374,6 +445,180 @@ private fun DriverTab(vm: ReportCenterViewModel) {
         }
     }
 }
+
+// ===================== ④ 客户经营 =====================
+
+@Composable
+private fun CustomerTab(vm: ReportCenterViewModel) {
+    if (vm.loading && vm.shipperAccounts.isEmpty() && vm.memberAccounts.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    val shippers = vm.shipperAccounts
+    val members = vm.memberAccounts
+    val all = shippers + members
+    val totalCount = all.sumOf { it.count }
+    val totalAmount = all.sumOf { it.total.toDoubleOrNull() ?: 0.0 }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatBig("订货总额", money(totalAmount.toString()), Color(0xFF00A2C7), Modifier.weight(1f))
+                StatBig("客户数", all.size.toString() + " 家", Color(0xFF00B578), Modifier.weight(1f))
+            }
+        }
+        item {
+            SectionCard {
+                Text("经营概览", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                StatRow("订货笔数", totalCount.toString() + " 笔")
+                StatRow("客单价", if (all.isNotEmpty()) money((totalAmount / all.size).toString()) else "¥0.00", Color(0xFF1E6FFF))
+                StatRow("临时货主", shippers.count { it.tempName != null }.toString() + " 家", Color(0xFF8A8A8E))
+            }
+        }
+        item {
+            SectionCard {
+                Text("客户账分组", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text("货主账", style = MaterialTheme.typography.labelLarge, color = Color(0xFF00A2C7))
+                if (shippers.isEmpty()) Text("暂无流水", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                shippers.take(5).forEach { a ->
+                    StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFF00A2C7))
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("批发商账", style = MaterialTheme.typography.labelLarge, color = Color(0xFFF5A623))
+                if (members.isEmpty()) Text("暂无流水", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                members.take(5).forEach { a ->
+                    StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFFF5A623))
+                }
+            }
+        }
+        if (vm.customerArrears.isNotEmpty()) {
+            item {
+                SectionCard {
+                    Text("挂账未收", style = MaterialTheme.typography.titleMedium, color = Color(0xFFFF6B2C))
+                    Spacer(Modifier.height(6.dp))
+                    vm.customerArrears.take(8).forEach { u ->
+                        StatRow(u.name, money(u.amount), Color(0xFFFF6B2C))
+                    }
+                }
+            }
+        }
+        item {
+            GroupHeader("客户明细")
+            Spacer(Modifier.height(8.dp))
+        }
+        if (shippers.isNotEmpty()) {
+            item {
+                Text("货主 · 临时货主", style = MaterialTheme.typography.labelLarge, color = Color(0xFF00A2C7))
+                Spacer(Modifier.height(6.dp))
+            }
+            items(shippers, key = { "s" + (it.id ?: it.tempName) }) { a ->
+                SectionCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AccentBar(Color(0xFF00A2C7))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(a.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            if (a.tempName != null) Text("临时货主", style = MaterialTheme.typography.bodySmall, color = Color(0xFF8A8A8E))
+                        }
+                        Text(a.count.toString() + " 笔 · ¥" + formatMoney(a.total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF00A2C7))
+                    }
+                }
+            }
+        }
+        if (members.isNotEmpty()) {
+            item {
+                Text("批发商", style = MaterialTheme.typography.labelLarge, color = Color(0xFFF5A623))
+                Spacer(Modifier.height(6.dp))
+            }
+            items(members, key = { "m" + it.id }) { a ->
+                SectionCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AccentBar(Color(0xFFF5A623))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(a.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        }
+                        Text(a.count.toString() + " 笔 · ¥" + formatMoney(a.total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFF5A623))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ===================== ⑤ 资金收支 =====================
+
+@Composable
+private fun FinanceTab(vm: ReportCenterViewModel) {
+    if (vm.loading && vm.cashFlows.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    val flows = vm.cashFlows
+    val income = flows.filter { it.direction == "IN" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    val expense = flows.filter { it.direction == "OUT" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    val expByCat = vm.expenses.groupBy { expenseCategoryLabel(it.category) }.mapValues { it.value.sumOf { e -> e.amount.toDoubleOrNull() ?: 0.0 } }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatBig("资金流入", money(income.toString()), Color(0xFF00B578), Modifier.weight(1f))
+                StatBig("资金流出", money(expense.toString()), Color(0xFFFF6B2C), Modifier.weight(1f))
+            }
+        }
+        item {
+            SectionCard {
+                Text("净额", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                StatRow("净流入", money((income - expense).toString()), if (income - expense >= 0) Color(0xFF00B578) else Color(0xFFE53935))
+            }
+        }
+        if (expByCat.isNotEmpty()) {
+            item {
+                SectionCard {
+                    Text("开销分类汇总", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    expByCat.entries.sortedByDescending { it.value }.forEach { (cat, amt) ->
+                        StatRow(cat, money(amt.toString()), Color(0xFFFF9500))
+                    }
+                }
+            }
+        }
+        item {
+            GroupHeader("资金流水（" + flows.size + " 条）")
+            Spacer(Modifier.height(8.dp))
+        }
+        if (flows.isEmpty()) item { ChartEmpty("该时段暂无资金流水") }
+        items(flows.take(100), key = { it.id.toString() }) { f ->
+            SectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AccentBar(if (f.direction == "IN") Color(0xFF00B578) else Color(0xFFFF6B2C))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(f.partyName?.takeIf { it.isNotBlank() } ?: (if (f.direction == "IN") "收入" else "支出"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(f.flowDate + " · " + flowBizLabel(f.bizType), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(
+                        (if (f.direction == "IN") "+" else "-") + money(f.amount),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (f.direction == "IN") Color(0xFF00B578) else Color(0xFFFF6B2C),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun expenseCategoryLabel(c: String): String = when (c) {
+    "fuel" -> "油费"; "repair" -> "维修"; "toll" -> "过路费"; "parking" -> "停车费"; "fine" -> "罚款"; "insurance" -> "保险"; "damage" -> "货损"; else -> c
+}
+
+private fun flowBizLabel(b: String): String = when (b) {
+    "payment" -> "客户收款"; "driver_payment" -> "司机付款"; "expense" -> "开销"; "refund" -> "退款"; "adjustment" -> "调账"; else -> b
+}
+
+// ===================== ⑥ 异常与审计 =====================
 
 @Composable
 private fun ExceptionTab(vm: ReportCenterViewModel) {
@@ -420,7 +665,7 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
             GroupHeader("敏感操作审计（近 60 条）")
             Spacer(Modifier.height(8.dp))
         }
-        items(vm.operationLogs, key = { "log" + it.id }) { log ->
+        items(vm.operationLogs.take(60), key = { "log" + it.id }) { log ->
             AuditLogCard(log)
         }
         if (vm.operationLogs.isEmpty()) {

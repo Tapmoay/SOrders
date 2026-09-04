@@ -450,6 +450,21 @@ interface ReportApi {
 
     @GET("operation-logs")
     suspend fun operationLogs(@Query("limit") limit: Int = 60): List<OperationLogDto>
+
+    @GET("reports/export")
+    suspend fun exportReport(
+        @Query("kind") kind: String,
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): okhttp3.ResponseBody
+
+    @GET("reports/arrears-summary")
+    suspend fun arrearsSummary(
+        @Query("date_from") dateFrom: String,
+        @Query("date_to") dateTo: String,
+    ): List<ReportArrearsUnitDto>
 }
 
 interface FreightSettlementApi {

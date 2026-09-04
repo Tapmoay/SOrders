@@ -201,6 +201,11 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun operationLogs(limit: Int = 60) = api.reportApi.operationLogs(limit)
 
+    suspend fun exportReport(kind: String, mode: String, date: String, dateFrom: String? = null, dateTo: String? = null) =
+        api.reportApi.exportReport(kind, mode, date, dateFrom, dateTo)
+
+    suspend fun arrearsSummary(dateFrom: String, dateTo: String) = api.reportApi.arrearsSummary(dateFrom, dateTo)
+
     // ===== 账本 V2（P0）=====
     suspend fun customers(kind: String? = null, q: String? = null) = api.accountingApi.listCustomers(kind, q)
     suspend fun createCustomer(body: com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest) = api.accountingApi.createCustomer(body)
