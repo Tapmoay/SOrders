@@ -25,6 +25,11 @@ ROOT = repo_root()
 # ⚠️ 拆成两半写：**判据文件自己不能包含那个整串**，否则它每次都会把自己报成泄露
 #    （第一版就是整串写在这里，于是"扫出 1 处可疑：_check_secrets.py"）。
 KNOWN = ["06393ebf" + "50284409" + "b532ef517b5e63cf"]
+# 2026-09-19 实测**已经泄露过一次**的生产 MySQL 口令：它被 `_test_tools/chk_mysql.py`
+# 的 `mysql -usorders -p<口令>` 带进了这个**公开仓库**（推上去约 20 分钟后才发现）。
+# 已从代码里拿掉（改成读环境变量），但这条值必须永久留在名单里：
+# 只要它再出现在任何一个被跟踪文件里，这条检查立刻红。
+LEAKED = ["sorders" + "123"]
 # 通用形状：赋值语句右边像凭据，而左边是凭据字段名
 PATTERNS = [
     (re.compile(r"(?i)\b(api[_-]?key|secret|access[_-]?token|private[_-]?key)\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{16,})"),
@@ -34,6 +39,10 @@ PATTERNS = [
     #    没有组时它只能拿到整个匹配（`PASSWORD = "123321"`），于是"123321 是开发值"这条豁免
     #    永远不生效（实测：加了豁免还是照报）。
     (re.compile(r"(?i)\bpassword\b\s*[:=]\s*[\"']([^\"']{6,})[\"']"), "明文密码字面量"),
+    # 命令行里**内联口令**：`mysql -usorders -pXXXX`。这一条是拿真实事故换来的——
+    # `_test_tools/chk_mysql.py` 就是这么把生产库口令带进公开仓库的。
+    # 命令行口令在 `ps` 里对同机所有用户可见，本来就不该这么用。
+    (re.compile(r"\bmysql\b[^\n]{0,80}?-u\s*\S+\s+-p(\S+)"), "命令行内联 MySQL 口令"),
 ]
 # 这些路径天然带示例/测试值，命中不算
 # ⚠️ 必须包含 `/test/`（单元测试里的 `apiKey = "sk-unit-test-key…"` 是假值）——
@@ -96,6 +105,9 @@ def main() -> int:
         for k in KNOWN:
             if k in txt:
                 hits.append(f"{f}: 命中已知凭据（高德 key）")
+        for k in LEAKED:
+            if k in txt:
+                hits.append(f"{f}: 命中**已泄露过**的生产口令（必须换掉，不许再进仓库）")
         for rx, why in PATTERNS:
             if any(a in f for a in ALLOW_PATH):
                 continue
