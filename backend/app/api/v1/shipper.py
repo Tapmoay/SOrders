@@ -1,6 +1,8 @@
 from typing import Annotated
 import json
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from pathlib import Path
@@ -43,7 +45,7 @@ def _clear_defaults(db: Session, shipper_id: int, except_id: int | None = None) 
 def list_addresses(current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> list[ShipperAddress]:
     rows = db.scalars(
         select(ShipperAddress)
-        .where(ShipperAddress.shipper_id == current.id)
+        .where(ShipperAddress.shipper_id == current.id, ShipperAddress.is_deleted.is_(False))
         .order_by(ShipperAddress.is_default.desc(), ShipperAddress.id.desc())
     ).all()
     return list(rows)
@@ -133,10 +135,28 @@ def update_address(
 @router.delete("/addresses/{address_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_address(address_id: int, current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> None:
     a = db.get(ShipperAddress, address_id)
+    if a is None or a.shipper_id != current.id or a.is_deleted:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    # 伪装删除：只打标记，POST /addresses/{id}/restore 能原样返回（v3.26）
+    a.is_deleted = True
+    a.deleted_at = datetime.now()
+    a.is_default = False
+    db.commit()
+
+
+@router.post("/addresses/{address_id}/restore", response_model=AddressOut)
+def restore_address(address_id: int, current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> ShipperAddress:
+    """把删掉的常用地址恢复回来（DELETE /addresses/{id} 的逆操作）。"""
+    a = db.get(ShipperAddress, address_id)
     if a is None or a.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    db.delete(a)
+    if not a.is_deleted:
+        raise HTTPException(status_code=400, detail="这条地址没有被删除，不需要恢复")
+    a.is_deleted = False
+    a.deleted_at = None
     db.commit()
+    db.refresh(a)
+    return a
 
 
 @router.post("/addresses/{address_id}/set-default", response_model=AddressOut)
@@ -154,7 +174,9 @@ def set_default_address(address_id: int, current: ShipperOrDispatcher, db: Sessi
 @router.get("/contacts", response_model=list[ContactOut])
 def list_contacts(current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> list[ShipperContact]:
     rows = db.scalars(
-        select(ShipperContact).where(ShipperContact.shipper_id == current.id).order_by(ShipperContact.id.desc())
+        select(ShipperContact)
+        .where(ShipperContact.shipper_id == current.id, ShipperContact.is_deleted.is_(False))
+        .order_by(ShipperContact.id.desc())
     ).all()
     return list(rows)
 
@@ -251,7 +273,7 @@ async def upload_location_image(
 def list_locations(current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> list[ShipperLocation]:
     rows = db.scalars(
         select(ShipperLocation)
-        .where(ShipperLocation.shipper_id == current.id)
+        .where(ShipperLocation.shipper_id == current.id, ShipperLocation.is_deleted.is_(False))
         .order_by(ShipperLocation.id.desc())
     ).all()
     return list(rows)
@@ -314,16 +336,70 @@ def update_location(
 @router.delete("/locations/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_location(location_id: int, current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> None:
     loc = db.get(ShipperLocation, location_id)
+    if loc is None or loc.shipper_id != current.id or loc.is_deleted:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    # 伪装删除：图片等字段原样留着，恢复时逐字段照搬（v3.26）
+    loc.is_deleted = True
+    loc.deleted_at = datetime.now()
+    db.commit()
+
+
+@router.post("/locations/{location_id}/restore", response_model=LocationOut)
+def restore_location(location_id: int, current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> ShipperLocation:
+    """把删掉的地点恢复回来（DELETE /locations/{id} 的逆操作）。"""
+    loc = db.get(ShipperLocation, location_id)
     if loc is None or loc.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    db.delete(loc)
+    if not loc.is_deleted:
+        raise HTTPException(status_code=400, detail="这个地点没有被删除，不需要恢复")
+    loc.is_deleted = False
+    loc.deleted_at = None
     db.commit()
+    db.refresh(loc)
+    return loc
 
 
 @router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_contact(contact_id: int, current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> None:
     c = db.get(ShipperContact, contact_id)
+    if c is None or c.shipper_id != current.id or c.is_deleted:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    # 伪装删除：行留着（恢复时逐字段照搬），但**手机号要释放出来**——
+    # 这张表有 (shipper_id, phone) 唯一约束，不释放的话删掉再加同一个号会直接 500。
+    # 和账号删除（users.py 的 _del{id} 后缀）是同一个套路。
+    c.is_deleted = True
+    c.deleted_at = datetime.now()
+    c.phone = f"{c.phone}_del{c.id}"
+    db.commit()
+
+
+@router.post("/contacts/{contact_id}/restore", response_model=ContactOut)
+def restore_contact(contact_id: int, current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> ShipperContact:
+    """把删掉的联系人恢复回来（DELETE /contacts/{id} 的逆操作）。
+
+    手机号冲突时**保留现在的号码**并把冲突写进日志：硬抢回来会把另一个联系人顶掉，
+    那是更大的错（和账号恢复同一条规则）。
+    """
+    c = db.get(ShipperContact, contact_id)
     if c is None or c.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    db.delete(c)
+    if not c.is_deleted:
+        raise HTTPException(status_code=400, detail="这个联系人没有被删除，不需要恢复")
+    suffix = f"_del{c.id}"
+    if c.phone.endswith(suffix):
+        want = c.phone[: -len(suffix)]
+        taken = db.scalars(
+            select(ShipperContact).where(
+                ShipperContact.shipper_id == current.id,
+                ShipperContact.phone == want,
+                ShipperContact.id != c.id,
+                ShipperContact.is_deleted.is_(False),
+            )
+        ).first()
+        if taken is None:
+            c.phone = want
+    c.is_deleted = False
+    c.deleted_at = None
     db.commit()
+    db.refresh(c)
+    return c

@@ -102,7 +102,11 @@ fun FreightSettlementScreen(container: AppContainer, onBack: () -> Unit) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                Text("¥" + formatMoney(o.freightFee), style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                if (o.freightFee != null) {
+                                    Text("¥" + formatMoney(o.freightFee), style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                } else {
+                                    Text("待定价", style = MaterialTheme.typography.titleSmall, color = Color(0xFFFF6B2C))
+                                }
                             }
                             Spacer(Modifier.height(6.dp))
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

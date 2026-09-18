@@ -1,5 +1,5 @@
 import json
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import Permission, user_role_key
 from app.database import get_db
 from app.deps import require_permission, require_roles
-from app.models.enums import UserRole
+from app.models.enums import OperationAction, UserRole
 from app.models import PriceRule, Product, User
 from app.schemas.price_rule import (
     PriceRuleBatchBody,
@@ -16,9 +16,60 @@ from app.schemas.price_rule import (
     PriceRuleCreate,
     PriceRuleOut,
     PriceRuleUpdate,
+    PriceRuleBatchChange,
 )
+from app.services.operation_log_service import write_log
+from datetime import datetime
 
 router = APIRouter(prefix="/price-rules", tags=["price-rules"])
+
+# 一次批量调价最多**逐条**写多少行审计日志（与响应里的 changes 上限一致）。
+# 为什么要有上限：`shipper_ids`/`product_ids` 都留空时组合可能上万，
+# 逐条记会把日志表冲掉；但**一条都不记**更糟——价格改了却查不到是谁改的。
+# 所以：能逐条记就逐条记，超了补一行汇总（写明"只记了前 N 条"），
+# 让"改了价但日志里什么都没有"这种状态**不可能出现**。
+MAX_LOGGED_CHANGES = 200
+
+
+def _log_price_changes(
+    db: Session,
+    *,
+    operator_id: int,
+    mode: str,
+    body: "PriceRuleBatchBody",
+    changes: list[PriceRuleBatchChange],
+    total: int,
+) -> None:
+    """把这次调价的**每一条改动**写进操作日志（谁在什么时候把哪个批发商的哪个商品从多少改成多少）。"""
+    for c in changes[:MAX_LOGGED_CHANGES]:
+        write_log(
+            db,
+            operator_id=operator_id,
+            order_id=None,
+            action=OperationAction.PRICE_RULE_UPSERT,
+            change_payload={
+                "scope": "batch",
+                "mode": mode,
+                "shipper": c.shipper_name,
+                "product": c.product_name,
+                "before": None if c.before is None else str(c.before),
+                "after": str(c.after),
+            },
+        )
+    if total > MAX_LOGGED_CHANGES:
+        write_log(
+            db,
+            operator_id=operator_id,
+            order_id=None,
+            action=OperationAction.PRICE_RULE_UPSERT,
+            change_payload={
+                "scope": "batch",
+                "mode": mode,
+                "changes": total,
+                "logged": MAX_LOGGED_CHANGES,
+                "note": f"这次共 {total} 条改动，日志里只逐条记了前 {MAX_LOGGED_CHANGES} 条",
+            },
+        )
 
 
 def _rule_to_out(pr: PriceRule, db: Session) -> PriceRuleOut:
@@ -38,7 +89,7 @@ def _rule_to_out(pr: PriceRule, db: Session) -> PriceRuleOut:
 def batch_price_rules(
     body: PriceRuleBatchBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
+    current: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
 ) -> PriceRuleBatchOut:
     """批量调价：多批发商 × 多商品 一次写价。
     - fixed：所有组合统一单价；percent：按商品默认售价百分比；tier：应用商品自身第 N 档批发价。
@@ -56,13 +107,23 @@ def batch_price_rules(
     if not shippers or not products:
         raise HTTPException(status_code=400, detail="未找到批发商或商品，请先选择")
 
-    def _price(p: Product) -> Decimal | None:
+    def _price(p: Product, pr: "PriceRule | None") -> Decimal | None:
         if body.mode == "fixed":
             return body.value
         if body.mode == "percent":
             if body.value is None:
                 return None
             return (p.default_unit_price or Decimal("0")) * body.value / Decimal("100")
+        if body.mode == "adjust":
+            # 相对调整：在**当前生效价**上按百分比涨/降。
+            # 为什么必须读 pr.special_unit_price 而不是 default_unit_price：
+            # 用户说的是「在现在这个价基础上涨 10%」。拿默认价算，
+            # 对一个已经单独谈过价的批发商就是错的——而且错得隐蔽（数字看着也合理）。
+            if body.adjust_percent is None:
+                return None
+            base = pr.special_unit_price if pr is not None else (p.default_unit_price or Decimal("0"))
+            raw = base * (Decimal("100") + body.adjust_percent) / Decimal("100")
+            return raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         # tier：商品自身批发价第 N 档
         if body.tier_index is None:
             return None
@@ -75,25 +136,47 @@ def batch_price_rules(
         return None
 
     count = 0
+    skipped = 0
+    changes: list[PriceRuleBatchChange] = []
     for s in shippers:
         for p in products:
-            price = _price(p)
-            if price is None or price < 0:
-                continue
             pr = db.scalars(
                 select(PriceRule).where(
                     PriceRule.shipper_id == s.id,
                     PriceRule.product_id == p.id,
                 )
             ).first()
+            price = _price(p, pr)
+            if price is None or price < 0:
+                skipped += 1
+                continue
+            before = pr.special_unit_price if pr is not None else None
             if pr is None:
                 pr = PriceRule(shipper_id=s.id, product_id=p.id, special_unit_price=price)
                 db.add(pr)
             else:
                 pr.special_unit_price = price
             count += 1
+            # 明细只留前 200 条：组合可能上万。回报它的目的是**让卡片和结果能核对**，
+            # 不是把整张表搬回客户端。
+            if len(changes) < 200:
+                changes.append(
+                    PriceRuleBatchChange(
+                        shipper_name=(s.full_name or s.username or "")[:64],
+                        product_name=(p.name or "")[:64],
+                        before=before,
+                        after=price,
+                    )
+                )
     db.commit()
-    return PriceRuleBatchOut(count=count)
+    # ⚠️ 审计必须和写入在**同一个事务**里：分开提交时，"写价成功但日志没落"会留下
+    # 一笔无迹可查的价格改动，而这恰恰是最需要追溯的一类改动（AI 的表格批量调价
+    # 一次会打好几个请求，全靠日志把每一行还原出来）。
+    _log_price_changes(
+        db, operator_id=current.id, mode=body.mode, body=body, changes=changes, total=count
+    )
+    db.commit()
+    return PriceRuleBatchOut(count=count, skipped=skipped, changes=changes)
 
 
 @router.get("", response_model=list[PriceRuleOut])
@@ -102,7 +185,7 @@ def list_price_rules(
     user: User = Depends(require_roles(UserRole.DISPATCHER, UserRole.SHIPPER)),
     shipper_id: int | None = None,
 ) -> list[PriceRuleOut]:
-    q = select(PriceRule).order_by(PriceRule.id.desc())
+    q = select(PriceRule).where(PriceRule.is_deleted.is_(False)).order_by(PriceRule.id.desc())
     # 批发商（货主）只读自己的专属价，用于下单时展示实际价格；派单员可看全部
     if user_role_key(user) == "shipper":
         q = q.where(PriceRule.shipper_id == user.id)
@@ -116,22 +199,46 @@ def list_price_rules(
 def create_price_rule(
     body: PriceRuleCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
+    current: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
 ) -> PriceRuleOut:
+    # ⚠️ 这里**故意不过滤 is_deleted**：软删的行仍占着 (shipper_id, product_id) 唯一约束，
+    # 所以再给这个货主设一次这个商品的价格必须**复活那一行**，而不是插一条新的
+    # （插会直接撞唯一约束 500）。复活 = 用户表达的意思，也不需要恢复这个多余动作。
     exists = db.scalars(
         select(PriceRule).where(
             PriceRule.shipper_id == body.shipper_id,
             PriceRule.product_id == body.product_id,
         )
     ).first()
-    if exists:
+    if exists and not exists.is_deleted:
         raise HTTPException(status_code=400, detail="该货主与商品的价格规则已存在")
+    if exists is not None:
+        exists.is_deleted = False
+        exists.deleted_at = None
+        exists.special_unit_price = body.special_unit_price
+        db.commit()
+        db.refresh(exists)
+        return _rule_to_out(exists, db)
     pr = PriceRule(
         shipper_id=body.shipper_id,
         product_id=body.product_id,
         special_unit_price=body.special_unit_price,
     )
     db.add(pr)
+    db.flush()
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PRICE_RULE_UPSERT,
+        change_payload={
+            "scope": "single",
+            "shipper": _name_of(db, body.shipper_id),
+            "product": _product_name_of(db, body.product_id),
+            "before": None,
+            "after": str(body.special_unit_price),
+        },
+    )
     db.commit()
     db.refresh(pr)
     return _rule_to_out(pr, db)
@@ -145,12 +252,23 @@ def get_price_rule(rule_id: int, db: Session = Depends(get_db), _: User = Depend
     return _rule_to_out(pr, db)
 
 
+def _name_of(db: Session, user_id: int | None) -> str:
+    """日志里要写**人看得懂的名字**，不是编号（编号在审计页上没有任何意义）。"""
+    u = db.get(User, user_id) if user_id else None
+    return ((u.full_name or u.phone or "") if u else "")[:64]
+
+
+def _product_name_of(db: Session, product_id: int | None) -> str:
+    p = db.get(Product, product_id) if product_id else None
+    return ((p.name or "") if p else "")[:64]
+
+
 @router.patch("/{rule_id}", response_model=PriceRuleOut)
 def update_price_rule(
     rule_id: int,
     body: PriceRuleUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
+    current: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
 ) -> PriceRuleOut:
     pr = db.get(PriceRule, rule_id)
     if pr is None:
@@ -166,8 +284,25 @@ def update_price_rule(
         if dup is not None:
             raise HTTPException(status_code=400, detail="目标货主已存在该商品的特价")
         pr.shipper_id = body.shipper_id
+    before = pr.special_unit_price
     if body.special_unit_price is not None:
         pr.special_unit_price = body.special_unit_price
+    if before != pr.special_unit_price:
+        # ⚠️ 只在价格**真的变了**时记日志：把"只改了别的字段"也记成一次调价，
+        # 会让审计页被无意义的行淹没（那一页只显示最近 60 条）。
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.PRICE_RULE_UPSERT,
+            change_payload={
+                "scope": "single",
+                "shipper": _name_of(db, pr.shipper_id),
+                "product": _product_name_of(db, pr.product_id),
+                "before": None if before is None else str(before),
+                "after": str(pr.special_unit_price),
+            },
+        )
     db.commit()
     db.refresh(pr)
     return _rule_to_out(pr, db)
@@ -177,10 +312,27 @@ def update_price_rule(
 def delete_price_rule(
     rule_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
+    current: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
 ) -> None:
     pr = db.get(PriceRule, rule_id)
     if pr is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    db.delete(pr)
+    # 删掉一条专属价 = 这个批发商回到商品默认价，**这也是价格变动**，必须留痕。
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PRICE_RULE_UPSERT,
+        change_payload={
+            "scope": "delete",
+            "shipper": _name_of(db, pr.shipper_id),
+            "product": _product_name_of(db, pr.product_id),
+            "before": None if pr.special_unit_price is None else str(pr.special_unit_price),
+            "after": "（删除专属价，回到商品默认价）",
+        },
+    )
+    # 伪装删除（v3.26）：撤回来就是把这条专属价恢复，价格一个字节都不差。
+    # 行还占着 (shipper_id, product_id) 唯一约束，见 create 里的复活分支。
+    pr.is_deleted = True
+    pr.deleted_at = datetime.now()
     db.commit()

@@ -247,9 +247,8 @@ fun ReportDriverScreen(container: AppContainer, onBack: () -> Unit) {
 fun ReportExceptionScreen(container: AppContainer, onBack: () -> Unit) {
     val vm: ExceptionReportViewModel = appViewModel { ExceptionReportViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(vm.actionResult, vm.error) {
-        vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } ?: vm.error?.let { snackbar.showSnackbar(it); vm.error = null }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+    OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = { AppTopBar(title = "异常订单报表", onBack = onBack) }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
             Text(

@@ -16,10 +16,56 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.tapmoay.sorders.core.SunClock
 
-/** 全局外观模式（白天/夜间）：「我的 → 外观」切换，SOrdersTheme 读取 */
+/** 全局外观模式（白天/夜间 + 随日落自动）。落盘用 SharedPreferences，启动时同步读回。 */
 object ThemeMode {
     var isDark by mutableStateOf(false)
+        private set
+
+    /** 随日落自动切换。默认关。 */
+    var autoBySun by mutableStateOf(false)
+        private set
+
+    private const val PREF = "ui_theme"
+    private const val KEY_DARK = "dark"
+    private const val KEY_AUTO = "auto_sun"
+
+    fun load(context: android.content.Context) {
+        val p = prefs(context)
+        autoBySun = p.getBoolean(KEY_AUTO, false)
+        val dark = if (autoBySun) SunClock.stateHere().dark else p.getBoolean(KEY_DARK, false)
+        isDark = dark
+        if (autoBySun) p.edit().putBoolean(KEY_DARK, dark).apply()
+    }
+
+    /** 手动切换；自动模式下忽略（否则会被下一次对表改回去）。 */
+    fun set(context: android.content.Context, dark: Boolean) {
+        if (autoBySun) return
+        apply(context, dark)
+    }
+
+    /** 打开/关闭自动切换；打开时立刻对一次表。 */
+    fun setAuto(context: android.content.Context, on: Boolean) {
+        autoBySun = on
+        prefs(context).edit().putBoolean(KEY_AUTO, on).apply()
+        if (on) refreshAuto(context)
+    }
+
+    /** 对一次表：有定位按真实经纬度，没有就退回时区估算。 */
+    fun refreshAuto(context: android.content.Context) {
+        if (!autoBySun) return
+        apply(context, SunClock.stateHere().dark)
+    }
+
+    private fun apply(context: android.content.Context, dark: Boolean) {
+        if (isDark == dark) return
+        isDark = dark
+        prefs(context).edit().putBoolean(KEY_DARK, dark).apply()
+    }
+
+    private fun prefs(context: android.content.Context) =
+        context.applicationContext.getSharedPreferences(PREF, android.content.Context.MODE_PRIVATE)
 }
 
 /** 圆角 token（对标 iOS 卡片/控件圆角层级：小控件 10 / 卡片 16 / 弹层 28） */

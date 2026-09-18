@@ -43,6 +43,8 @@ class OperationAction(str, enum.Enum):
     ORDER_RECALL = "ORDER_RECALL"
     ORDER_COMPLETE = "ORDER_COMPLETE"
     ORDER_CANCEL = "ORDER_CANCEL"
+    ORDER_DELETE = "ORDER_DELETE"
+    ORDER_RESTORE = "ORDER_RESTORE"
     ORDER_EXCEPTION = "ORDER_EXCEPTION"
     ORDER_FREIGHT = "ORDER_FREIGHT"
     ORDER_SPLIT = "ORDER_SPLIT"
@@ -53,9 +55,46 @@ class OperationAction(str, enum.Enum):
     LEDGER_UPDATE = "LEDGER_UPDATE"
     LEDGER_DELETE = "LEDGER_DELETE"
     PRODUCT_CREATE = "PRODUCT_CREATE"
+    PRODUCT_UPDATE = "PRODUCT_UPDATE"
+    PRODUCT_DELETE = "PRODUCT_DELETE"
+    PRODUCT_RESTORE = "PRODUCT_RESTORE"
     PRICE_RULE_UPSERT = "PRICE_RULE_UPSERT"
     USER_CREATE = "USER_CREATE"
     USER_UPDATE = "USER_UPDATE"
+    USER_DELETE = "USER_DELETE"
+    USER_RESTORE = "USER_RESTORE"
+    # 库存调整（出入库流水）：和改价同一类——动了货/钱的账，月底对不上要能回查。
+    # 以前**一条都不写**，审计页上永远看不到"谁把库存改了多少"（v3.29 补上）。
+    INVENTORY_ADJUST = "INVENTORY_ADJUST"
+    # AI 撤回：用户点了「撤回」，把一次 AI 写操作回滚掉。单独一个动作码，
+    # 是为了让"这次是谁撤的、撤掉了哪一条"在审计页上一眼可辨（v3.26）。
+    AI_UNDO = "AI_UNDO"
+    # 司机计费规则（v3.36）：改的是"他以后怎么算钱"，属于必须留痕的一类。
+    # 拆两个动作码而不是一个，是因为要回答的是两个不同的问题：
+    # 「这份规则被谁改成什么样了」和「谁的计费规则被换了」——合成一个，审计页上只能看到一团。
+    DRIVER_RULE_UPSERT = "DRIVER_RULE_UPSERT"
+    DRIVER_RULE_ATTACH = "DRIVER_RULE_ATTACH"
+    # 司机到场补录导航信息（2026-09-18）：单独一个动作码，因为要回答的是
+    # 「这个坐标是谁标的、标在哪一单上」——它会被写进全库共享地点库，
+    # 混在 ORDER_UPDATE 里就再也分不出"改地址"和"标坐标"了。
+    ORDER_NAVIGATION_FILL = "ORDER_NAVIGATION_FILL"
+    # 商品分类名册（v3.43）：改的是"下单页左侧那一列叫什么、按什么顺序"，
+    # 会影响所有人下单时的选品体验，属于必须留痕的主数据。
+    PRODUCT_CATEGORY_UPSERT = "PRODUCT_CATEGORY_UPSERT"
+    PRODUCT_CATEGORY_DELETE = "PRODUCT_CATEGORY_DELETE"
+    PRODUCT_CATEGORY_REORDER = "PRODUCT_CATEGORY_REORDER"
+    # 商品可见范围（v3.43）：白名单直接决定"某个货主/批发商在选品页能看到什么"，
+    # 本质是一种授权 —— 改动必须能回查"是谁给谁开了哪些商品"。
+    PRODUCT_VISIBILITY_SET = "PRODUCT_VISIBILITY_SET"
+    # 常用共享地点自动进「我的地点」（v3.43）：这是**系统替用户改了他自己的库**，
+    # 必须留痕 —— 否则他下次看到多出一条来源不明的地点，只能猜是谁加的。
+    PLACE_AUTO_ADDED = "PLACE_AUTO_ADDED"
+    # 车辆台账（v3.44）：车牌/车型会出现在记支出、算油耗选车的地方，
+    # 而"这辆车现在挂在谁名下"直接决定派单时能不能选到它 —— 改车辆必须留痕。
+    # 拆两个动作码：要回答的是两个不同的问题 ——「这辆车被谁改成什么样了」
+    # 和「谁把车从张三名下拿走挂到李四名下了」。合成一个，审计页上只能看到一团。
+    VEHICLE_UPSERT = "VEHICLE_UPSERT"
+    VEHICLE_DRIVER_SET = "VEHICLE_DRIVER_SET"
 
 class CustomerKind(str, enum.Enum):
     REGISTERED = "registered"

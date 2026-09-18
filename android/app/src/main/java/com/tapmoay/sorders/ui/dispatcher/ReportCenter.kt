@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,12 +19,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import com.tapmoay.sorders.ai.AiOrderRef
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ExceptionOrderDto
 import com.tapmoay.sorders.data.remote.dto.OperationLogDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.saveExportFile
+import java.time.LocalDate
 
 /** 报表页（从入口页进入）：顶部时间导航 + 主题内容 + 导出 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,9 +36,8 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    LaunchedEffect(vm.actionResult, vm.error) {
-        vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } ?: vm.error?.let { snackbar.showSnackbar(it); vm.error = null }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+    OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
     val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; else -> "异常与审计" }
 
@@ -208,7 +210,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("资金状态", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    StatRow("现金已收", money(data.collected), Color(0xFF00B578))
+                    StatRow("已收", money(data.collected), Color(0xFF00B578))
                     StatRow("挂账未收", money(data.arrearsTotal), Color(0xFFFF6B2C))
                     val all = (data.collected.toDoubleOrNull() ?: 0.0) + (data.arrearsTotal.toDoubleOrNull() ?: 0.0)
                     val rate = if (all > 0) ((data.collected.toDoubleOrNull() ?: 0.0) / all * 100).toInt() else 0
@@ -556,9 +558,11 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
         return
     }
     val flows = vm.cashFlows
-    val income = flows.filter { it.direction == "IN" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
-    val expense = flows.filter { it.direction == "OUT" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
-    val expByCat = vm.expenses.groupBy { expenseCategoryLabel(it.category) }.mapValues { it.value.sumOf { e -> e.amount.toDoubleOrNull() ?: 0.0 } }
+    // ⚠️ 方向比大小写（后端存的是小写 in/out），业务类型/开销分类的取值见 ReportFinance：
+    //    这三处以前各错一种，而且是同一类"不会报错"的错——见 ReportFinance 的类注释。
+    val income = flows.filter { ReportFinance.isIncome(it.direction) }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    val expense = flows.filter { !ReportFinance.isIncome(it.direction) }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    val expByCat = vm.expenses.groupBy { ReportFinance.expenseCategoryLabel(it.category) }.mapValues { it.value.sumOf { e -> e.amount.toDoubleOrNull() ?: 0.0 } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -590,19 +594,20 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
         }
         if (flows.isEmpty()) item { ChartEmpty("该时段暂无资金流水") }
         items(flows.take(100), key = { it.id.toString() }) { f ->
+            val isIn = ReportFinance.isIncome(f.direction)
             SectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AccentBar(if (f.direction == "IN") Color(0xFF00B578) else Color(0xFFFF6B2C))
+                    AccentBar(if (isIn) Color(0xFF00B578) else Color(0xFFFF6B2C))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(f.partyName?.takeIf { it.isNotBlank() } ?: (if (f.direction == "IN") "收入" else "支出"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(f.flowDate + " · " + flowBizLabel(f.bizType), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(f.partyName?.takeIf { it.isNotBlank() } ?: (if (isIn) "收入" else "支出"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(f.flowDate + " · " + ReportFinance.bizLabel(f.bizType), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(
-                        (if (f.direction == "IN") "+" else "-") + money(f.amount),
+                        (if (isIn) "+" else "-") + money(f.amount),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (f.direction == "IN") Color(0xFF00B578) else Color(0xFFFF6B2C),
+                        color = if (isIn) Color(0xFF00B578) else Color(0xFFFF6B2C),
                     )
                 }
             }
@@ -610,13 +615,8 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
     }
 }
 
-private fun expenseCategoryLabel(c: String): String = when (c) {
-    "fuel" -> "油费"; "repair" -> "维修"; "toll" -> "过路费"; "parking" -> "停车费"; "fine" -> "罚款"; "insurance" -> "保险"; "damage" -> "货损"; else -> c
-}
-
-private fun flowBizLabel(b: String): String = when (b) {
-    "payment" -> "客户收款"; "driver_payment" -> "司机付款"; "expense" -> "开销"; "refund" -> "退款"; "adjustment" -> "调账"; else -> b
-}
+// 资金方向 / 业务类型 / 开销分类的映射统一在 ReportFinance（纯函数 + 单测）：
+// 它们曾经各自"悄悄错一种"，而错法在界面上都看不出来。
 
 // ===================== ⑥ 异常与审计 =====================
 
@@ -626,97 +626,348 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
-    val pending = vm.exceptions.filter { it.exceptionResolvedAt == null }
+    // 待解决按**危险层级分组、组内按拖得久的在前**（见 ReportPriority.kt 的口径说明）。
+    // 用户原话：「上百条翻不到，就该按危险层级/紧急层级做分类和优先级排序」——
+    // 分组标题就是"先看哪一组"，组内排序就是"组里先看哪一条"。
+    //
+    // ⚠️ 但真机上先看到的不是"排序不够好"，而是**列表里一半是要留档的东西**：
+    //    后端这个列表是规则自动生成的，275 条里 110 条是「逾期送达」（已经送到客户手里了）、
+    //    9 条是「已撤销」。所以先按"还要不要人做点什么"拆开，再谈组内排序。
+    val pending = pendingExceptions(vm.exceptions)
+    val past = pastExceptions(vm.exceptions)
     val resolved = vm.exceptions.filter { it.exceptionResolvedAt != null }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatBig("待解决异常", pending.size.toString() + " 单", Color(0xFFE53935), Modifier.weight(1f))
-                StatBig("已解决", resolved.size.toString() + " 单", Color(0xFF00B578), Modifier.weight(1f))
-            }
-        }
-        item {
-            val total = vm.exceptions.size
-            val rate = if (total > 0) (resolved.size * 100 / total) else 0
-            SectionCard {
-                Text("解决率", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
-                StatRow("近 30 天异常总数", total.toString() + " 单")
-                StatRow("解决率", rate.toString() + " %", Color(0xFF00B578))
-            }
-        }
-        item {
-            GroupHeader("待解决列表")
-            Spacer(Modifier.height(8.dp))
-        }
-        items(pending, key = { "p" + it.id }) { e ->
-            ExceptionCard(e, onResolve = { vm.openResolve(e) })
-        }
-        if (resolved.isNotEmpty()) {
+    var auditFilter by remember { mutableStateOf<AuditKind?>(null) }
+    val audits = sortedAudits(vm.operationLogs.take(60), auditFilter)
+    val counts = auditCounts(vm.operationLogs.take(60))
+    // 两块各自都有几十上百条，**谁排在前面谁挡住另一块**：
+    // v3.26 把审计挪到异常前面（当时异常几百条翻不到），结果审计 60 条之后，
+    // 「要处理的」又被挡在下面。真正的解法不是再挪一次位置，而是**一次只显示一块**。
+    var pane by remember { mutableStateOf(0) } // 0=要处理 1=审计 2=已过去
+    // 段控件放在 LazyColumn **外面**：放里面就得靠负 padding 去抵消列表的左右留白，
+    // 而 Compose 的 padding 不允许负数——真机上直接崩（logcat：
+    // `IllegalArgumentException: Padding must be non-negative` @ ReportCenter 的这一行）。
+    Column(Modifier.fillMaxSize()) {
+        SegmentedStatusTabs(
+            labels = listOf("要处理 " + pending.size, "审计 " + vm.operationLogs.take(60).size, "已过去 " + past.size),
+            colors = listOf(Color(0xFFE53935), Color(0xFF6950F5), Color(0xFF8A8A8E)),
+            selected = pane,
+            onSelect = { pane = it },
+        )
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (pane == 0) {
             item {
-                GroupHeader("已解决（" + resolved.size + "）")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatBig("要处理", pending.size.toString() + " 单", Color(0xFFE53935), Modifier.weight(1f))
+                    StatBig("其中钱货风险", pending.count { exceptionRisk(it) == RiskLevel.MONEY }.toString() + " 单", Color(0xFFFF8A65), Modifier.weight(1f))
+                }
+            }
+            item {
+                val total = vm.exceptions.size
+                val rate = if (total > 0) (resolved.size * 100 / total) else 0
+                SectionCard {
+                    Text("异常总账（近 30 天）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("总共 " + total.toString() + " 单", "要处理 " + pending.size + " + 已过去 " + past.size + " + 已解决 " + resolved.size)
+                    StatRow("解决率", rate.toString() + " %", Color(0xFF00B578))
+                    val oldest = pending.maxOfOrNull { stuckDays(it) } ?: 0
+                    if (oldest >= 3) StatRow("最久已拖", oldest.toString() + " 天", Color(0xFFFF8A65))
+                }
+            }
+            // 分组渲染：同一危险层级的连在一起，层级标题写清"为什么这组要先看"
+            var lastLevel: RiskLevel? = null
+            pending.forEach { e ->
+                val lv = exceptionRisk(e)
+                if (lv != lastLevel) {
+                    lastLevel = lv
+                    item(key = "lv" + lv.name) {
+                        LevelHeader(lv, pending.count { exceptionRisk(it) == lv })
+                    }
+                }
+                item(key = "p" + e.id) {
+                    ExceptionCard(e, onResolve = { vm.openResolve(e) })
+                }
+            }
+            if (pending.isEmpty()) {
+                item { ChartEmpty("没有要处理的异常") }
+            }
+        }
+        if (pane == 1) {
+            item {
+                GroupHeader("敏感操作审计（近 60 条）")
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AuditChip("全部", counts.values.sum(), auditFilter == null) { auditFilter = null }
+                    AuditChip("改钱", counts[AuditKind.MONEY] ?: 0, auditFilter == AuditKind.MONEY) { auditFilter = AuditKind.MONEY }
+                    AuditChip("删数据", counts[AuditKind.DELETE] ?: 0, auditFilter == AuditKind.DELETE) { auditFilter = AuditKind.DELETE }
+                    AuditChip("账号权限", counts[AuditKind.AUTH] ?: 0, auditFilter == AuditKind.AUTH) { auditFilter = AuditKind.AUTH }
+                    AuditChip("改状态", counts[AuditKind.STATE] ?: 0, auditFilter == AuditKind.STATE) { auditFilter = AuditKind.STATE }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "排序：改钱/删数据/账号权限 → 改状态 → 其它，同级按时间倒序",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(8.dp))
             }
-            items(resolved, key = { "r" + it.id }) { e ->
-                ExceptionCard(e, onResolve = null)
+            items(audits, key = { "log" + it.id }) { log ->
+                AuditLogCard(log)
+            }
+            if (audits.isEmpty()) {
+                item { ChartEmpty(if (vm.operationLogs.isEmpty()) "暂无操作日志" else "这一类里没有操作记录") }
             }
         }
-        item {
-            GroupHeader("敏感操作审计（近 60 条）")
-            Spacer(Modifier.height(8.dp))
+        // 「已过去」单独一屏：它数量最大、但**不用处理**，只是对账/复盘时来看。
+        // 和待处理混在一起正是"274 单翻不到"的根子。
+        if (pane == 2) {
+            item {
+                GroupHeader("已过去（不用处理，只是留档）· " + past.size + " 单")
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "含已送达但迟到过的单（货已经到客户手里）和已撤销/撤回的单（终态）。" +
+                        "它们进这一屏是为了对账时查得到，不需要谁去点「解决」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            items(past, key = { "past" + it.id }) { e ->
+                ExceptionCard(e, onResolve = null)
+            }
+            if (resolved.isNotEmpty()) {
+                item {
+                    GroupHeader("已解决（" + resolved.size + "）")
+                    Spacer(Modifier.height(8.dp))
+                }
+                items(resolved, key = { "r" + it.id }) { e ->
+                    ExceptionCard(e, onResolve = null)
+                }
+            }
+            if (past.isEmpty() && resolved.isEmpty()) {
+                item { ChartEmpty("没有已经过去的异常") }
+            }
         }
-        items(vm.operationLogs.take(60), key = { "log" + it.id }) { log ->
-            AuditLogCard(log)
         }
-        if (vm.operationLogs.isEmpty()) {
-            item { ChartEmpty("暂无操作日志") }
-        }
+    }
+}
+
+@Composable
+private fun AuditChip(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) Color(0xFF6950F5) else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(color = bg, shape = RoundedCornerShape(50), modifier = Modifier.clickable { onClick() }) {
+        Text(
+            if (count > 0) "$label $count" else label,
+            style = MaterialTheme.typography.bodySmall,
+            color = fg,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+/** 异常分组的组标题：一眼看出这组为什么排在前面。 */
+@Composable
+private fun LevelHeader(lv: RiskLevel, count: Int) {
+    val color = when (lv) {
+        RiskLevel.MONEY -> Color(0xFFE53935)
+        RiskLevel.STUCK -> Color(0xFFFF8A65)
+        RiskLevel.OTHER -> Color(0xFF8A8A8E)
+        RiskLevel.PAST -> Color(0xFF8A8A8E)
+        RiskLevel.DONE -> Color(0xFF00B578)
+    }
+    val why = when (lv) {
+        RiskLevel.MONEY -> "已经在赔钱/可能丢货，先处理这些"
+        RiskLevel.STUCK -> "单卡住了（超时未送/未派/地址联系不上），还没赔钱"
+        RiskLevel.OTHER -> "其它异常"
+        RiskLevel.PAST -> "不用处理"
+        RiskLevel.DONE -> "已解决"
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+        Box(Modifier.size(8.dp).background(color, RoundedCornerShape(50)))
+        Spacer(Modifier.width(8.dp))
+        Text(lv.label + "（" + count + "）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color)
+        Spacer(Modifier.width(8.dp))
+        Text(why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun AuditLogCard(log: OperationLogDto) {
+    // 每条自己带级别：分组标题回答"先看哪一类"，这里回答"这一条算哪一档"。
+    // 分类筛选会打乱原来的位置，所以判断不能只靠"它在第几组"。
+    val kind = auditKind(log.action, log.changeContent)
+    val lv = auditRisk(kind)
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AccentBar(Color(0xFF6950F5))
+            AccentBar(levelColor(lv))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(actionLabel(log.action), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                log.changeContent?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(actionLabel(log.action), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(6.dp))
+                    KindBadge(kind.label, levelColor(lv))
                 }
-                Text(log.createdAt.take(19).replace("T", " "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                log.changeContent?.takeIf { it.isNotBlank() }?.let {
+                    // **改了什么**放第二行（用户最先要看的）：后端存的是 JSON，已翻成人话。
+                    Text(auditChangeText(it), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
+                }
+                // **谁、什么时候**：审计的第一个问题就是"谁改的"，原来只印了时间。
+                Text(
+                    auditWhoWhen(log.operatorName, log.createdAt),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            log.orderId?.let { Text("单 #" + it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF6950F5)) }
+            // 涉及哪一单：写**单号**（不是内部编号 `#404`）
+            log.orderNo?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF6950F5))
+            }
         }
     }
 }
 
+/**
+ * 「谁 · 什么时候」——审计页第一眼要看的两个字段。
+ *
+ * 时间做**友好化**：今天 / 昨天 / 更早（更早才写「月-日」）。审计关心"什么时候发生的"，
+ * 而 `2026-09-16 10:21:50` 这种全量时间戳在列表里既占地方又要用户自己换算。
+ * 解析不出来就只写操作人——不编一个时间。
+ */
+internal fun auditWhoWhen(operator: String?, createdAt: String): String {
+    val who = operator?.takeIf { it.isNotBlank() } ?: "操作人未知"
+    val t = parseDateTime(createdAt) ?: return who
+    val today = LocalDate.now()
+    val d = t.toLocalDate()
+    val day = when {
+        d == today -> "今天"
+        d == today.minusDays(1) -> "昨天"
+        else -> "%02d-%02d".format(d.monthValue, d.dayOfMonth)
+    }
+    return "$who · $day %02d:%02d".format(t.hour, t.minute)
+}
+
+@Composable
+private fun KindBadge(text: String, color: Color) {
+    Surface(color = color.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+    }
+}
+
+private fun levelColor(lv: RiskLevel): Color = when (lv) {
+    RiskLevel.MONEY -> Color(0xFFE53935)
+    RiskLevel.STUCK -> Color(0xFFFF8A65)
+    RiskLevel.OTHER -> Color(0xFF8A8A8E)
+    RiskLevel.PAST -> Color(0xFF8A8A8E)
+    RiskLevel.DONE -> Color(0xFF00B578)
+}
+
+/**
+ * 操作日志的 `action` → 中文。
+ *
+ * ⚠️ 这张表原来是**按猜的格式写的**（`order.split`、`price_rule` 这种小写点分形式），
+ * 而后端存的是**枚举名**（`ORDER_SPLIT`、`PRICE_RULE_UPSERT`）——两边从来没对上过，
+ * 于是审计页一直显示 `ORDER_DELETE` 这种原始码。这里按后端的真实取值重写，
+ * 并补上本轮新增的调价留痕（`price_rules.py` 现在会把每次改价写进操作日志）。
+ */
 private fun actionLabel(action: String): String = when (action) {
-    "order.split" -> "拆分子订单"
-    "order.update_freight" -> "修改运费"
-    "order.cancel" -> "撤销订单"
-    "order.delete" -> "删除订单"
-    "order.update" -> "修改订单"
-    "order.exception" -> "标记异常"
-    "price_rule" -> "修改批发价"
+    "ORDER_CREATE" -> "新建订单"
+    "ORDER_UPDATE" -> "修改订单"
+    "ORDER_DISPATCH" -> "派单"
+    "ORDER_RECALL" -> "撤回派单"
+    "ORDER_COMPLETE" -> "送达完成"
+    "ORDER_CANCEL" -> "撤销订单"
+    "ORDER_DELETE" -> "移入回收站"
+    "ORDER_RESTORE" -> "从回收站恢复"
+    "ORDER_EXCEPTION" -> "标记/解除异常"
+    "ORDER_FREIGHT" -> "修改运费"
+    "ORDER_SPLIT" -> "拆分子订单"
+    "ORDER_LINE_ADD" -> "加一行商品"
+    "ORDER_LINE_UPDATE" -> "改一行商品"
+    "ORDER_LINE_DELETE" -> "删一行商品"
+    "ORDER_PAY" -> "标记已收款"
+    "ORDER_CHARGE" -> "转入挂账单位"
+    "LEDGER_CREATE" -> "记一笔账"
+    "LEDGER_UPDATE" -> "改账本流水"
+    "LEDGER_DELETE" -> "删账本流水"
+    "PRODUCT_CREATE" -> "新建商品"
+    "PRODUCT_UPDATE" -> "修改商品"
+    "PRODUCT_DELETE" -> "删除商品"
+    "PRODUCT_RESTORE" -> "恢复商品"
+    "PRICE_RULE_UPSERT" -> "修改批发价"
+    "USER_CREATE" -> "新建账号"
+    "USER_UPDATE" -> "修改账号"
+    // ⚠️ 下面四条是**第二遍真机**补上的：它们在库里出现过，而这张表漏了 →
+    //    审计页上直接显示 `USER_RESTORE`／`PRODUCT_DELETE` 这种原始码，用户看不懂。
+    //    现在有一条红线**从后端源码里扫出所有动作名**，逐个要求这里必须有中文（见 §44.8）。
+    "USER_DELETE" -> "删除账号"
+    "USER_RESTORE" -> "恢复账号"
+    "INVENTORY_ADJUST" -> "调整库存"
+    // AI 撤回：用户点了「撤回」，把一次 AI 写操作回滚掉——单独一行，一眼能看出"这次是撤销"
+    "AI_UNDO" -> "撤回 AI 的改动"
+    // 司机计费规则（v3.36）：拆成两条是为了让审计页能分开回答两个问题——
+    // 「这份规则被改成什么样了」和「谁的计费规则被换了」。
+    "DRIVER_RULE_UPSERT" -> "改司机计费规则"
+    "DRIVER_RULE_ATTACH" -> "换司机的计费规则"
+    // 司机到场补导航信息（v3.42）：这个坐标会被写进**全库共享**的地点库，
+    // 所以要能一眼看出"是谁在哪一单上标的"（混进"修改订单"里就分不出来了）。
+    "ORDER_NAVIGATION_FILL" -> "补订单导航信息"
+    // 商品分类名册（v3.43）：改的是"下单页左侧那一列叫什么、按什么顺序"。
+    // 拆三个码，是因为要回答三个不同的问题——改了哪个分类 / 删了哪个 / 顺序怎么排的。
+    "PRODUCT_CATEGORY_UPSERT" -> "改商品分类"
+    "PRODUCT_CATEGORY_DELETE" -> "删商品分类"
+    "PRODUCT_CATEGORY_REORDER" -> "调整分类顺序"
+    // 商品可见白名单（v3.43）：本质是授权，必须一眼看出"谁给谁开了哪些商品"。
+    "PRODUCT_VISIBILITY_SET" -> "改商品可见范围"
+    // 常用共享地点自动进「我的地点」（v3.43）：系统替他改了他自己的库，
+    // 他下次看到多出一条地点，得能查出是这一步加的。
+    "PLACE_AUTO_ADDED" -> "常用地点自动入库"
+    // 车辆台账（v3.44）：车牌/车型会出现在记账与油耗选车的地方。
+    // 拆两个码，回答两个不同的问题——「这辆车被改成什么样了」和「谁把车从张三名下拿走了」。
+    "VEHICLE_UPSERT" -> "新增/修改车辆"
+    "VEHICLE_DRIVER_SET" -> "车辆换/解绑司机"
     else -> action
 }
 
 @Composable
 private fun ExceptionCard(e: ExceptionOrderDto, onResolve: (() -> Unit)?) {
+    val lv = exceptionRisk(e)
+    val days = stuckDays(e)
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AccentBar(Color(0xFFE53935))
+            AccentBar(levelColor(lv))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("#" + e.orderNo, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("#" + e.orderNo, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    // 「拖了几天」是紧急层级的**可见依据**：用户能自己核对排序对不对。
+                    // 「已过去」的不显示——单子已经了结，没有"拖"可言。
+                    if (lv != RiskLevel.DONE && lv != RiskLevel.PAST && days > 0) {
+                        Spacer(Modifier.width(6.dp))
+                        KindBadge("已拖 " + days + " 天", if (days >= 3) Color(0xFFE53935) else Color(0xFFFF8A65))
+                    }
+                }
+                // **哪里异常**放第二行（用户最先要看的）——它就是后端给的 exception_reason。
                 Text(e.exceptionReason, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE53935))
-                Text(
-                    (e.driverName?.let { "司机：" + it + "  " } ?: "") + (e.shipperName?.let { "货主：" + it } ?: "") + " · " + e.status,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // **谁的异常**：货主/司机各一段，**缺哪个就不显示哪个**，不用 `?: ""` 拼出
+                // 「司机：  货主：老张」这种空壳（用户原话：「没必要的数据不需要存在」）。
+                val who = listOfNotNull(
+                    e.shipperName?.takeIf { it.isNotBlank() }?.let { "货主：$it" },
+                    e.driverName?.takeIf { it.isNotBlank() }?.let { "司机：$it" },
                 )
+                if (who.isNotEmpty()) {
+                    Text(who.joinToString("  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                // ⚠️ 状态要写**中文**：原来直接把后端枚举名（`PENDING_DISPATCH`）印在卡上，
+                //    这就是用户说的"代码返回什么就照样渲染上去"。见 [AiWrites.statusLabel]。
+                val st = AiOrderRef.statusLabel(e.status)
+                if (st.isNotBlank()) {
+                    Text("状态：$st", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (e.exceptionResolvedAt != null) Text("解决：" + e.exceptionResolution, style = MaterialTheme.typography.bodySmall, color = Color(0xFF00B578))
             }
             if (onResolve != null) TextButton(onClick = onResolve) { Text("解决") }

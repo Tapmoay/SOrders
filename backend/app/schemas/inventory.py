@@ -19,6 +19,10 @@ class MovementOut(BaseModel):
     note: str
     operator_id: int
     created_at: datetime
+    source: str = "MANUAL"
+    order_id: int | None = None
+    order_no: str | None = None
+    status: str = "COMMITTED"
 
 
 class InventorySummaryOut(BaseModel):

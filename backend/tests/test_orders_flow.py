@@ -58,7 +58,9 @@ def test_flow_dispatch_ack_complete(
         json={"driver_id": users["driver"].id},
     )
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == OrderStatus.ACCEPTED.value
+    # 派单只到 DISPATCHED；ACCEPTED 要等司机接单（driver-ack）。
+    # 状态机是五态：PENDING_DISPATCH → DISPATCHED → ACCEPTED → DELIVERED（+CANCELLED）。
+    assert r.json()["status"] == OrderStatus.DISPATCHED.value
 
     r = client.post(
         f"/api/v1/orders/{oid}/driver-ack",
@@ -66,6 +68,9 @@ def test_flow_dispatch_ack_complete(
     )
     assert r.status_code == 200, r.text
     assert r.json()["driver_acknowledged_at"] is not None
+    # 「接单」是唯一一处不在 order_flow.py 的状态转移（api/v1/orders.py::driver_ack_view），
+    # 曾经在这里漏过断言，导致这一步失效也测不出来。
+    assert r.json()["status"] == OrderStatus.ACCEPTED.value
 
     r = client.post(
         f"/api/v1/orders/{oid}/complete",

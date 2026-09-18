@@ -4,11 +4,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -42,17 +44,18 @@ import java.io.File
 fun ProductsScreen(
     container: AppContainer,
     onBack: () -> Unit,
+    onOpenCategories: () -> Unit = {},
 ) {
     val vm: ProductsViewModel = appViewModel { ProductsViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
 
-    LaunchedEffect(vm.actionResult) {
-        vm.actionResult?.let {
-            snackbar.showSnackbar(it)
-            vm.actionResult = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+
+    // 失败**必须**看得见：这个页面的错误以前只在"列表为空"时才渲染成整页 ErrorView，
+    // 于是列表有数据时的上下架/删除失败**界面上毫无变化**——用户以为点漏了，反复点。
+    // ⚠️ 消费的是**动作错误**（vm.error）；加载错误走 vm.loadError（它还要驱动整页 ErrorView）。
+    OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
     // 相册选图 → 拷贝到缓存 → 交给 VM
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -79,6 +82,15 @@ fun ProductsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                actions = {
+                    // 分类管理的入口放在**商品管理页**而不是工作台：分类只服务于选品页的分组，
+                    // 它和商品是一件事，多一个工作台格子反而让人找不到。
+                    TextButton(onClick = onOpenCategories) {
+                        Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("分类管理")
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -90,7 +102,7 @@ fun ProductsScreen(
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 vm.loading -> LoadingBox()
-                vm.error != null && vm.products.isEmpty() -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
+                vm.loadError != null && vm.products.isEmpty() -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
                 vm.products.isEmpty() -> EmptyView("暂无商品，点击右下角新增", Modifier.align(Alignment.Center))
                 else -> LazyColumn(
                     Modifier.fillMaxSize(),
@@ -338,6 +350,50 @@ fun ProductsScreen(
                             }
                         }
                         Spacer(Modifier.height(10.dp))
+                        // 分类：选品页左侧导航的分组名。自由填（不是枚举）——"饮料/粮油/日化"
+                        // 这种分法是店家的业务语言，写死一列选项只会逼着人选一个不对的。
+                        SoTextField(
+                            value = vm.draftCategory,
+                            onValueChange = { vm.draftCategory = it.take(8) },
+                            placeholder = "商品分类（选填，如 饮料 / 粮油 / 日化）",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "分类决定下单页「选择商品」左侧怎么分组；留空会归到「未分类」。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        // 已有分类做成可点的小块：**防手打错字**。写错一个字（"饮料 " / "饮 料"）
+                        // 在下单页就是左侧多一个几乎同名的分类，而列表上看不出差别。
+                        // 顺序用**名册**（`vm.categories`，派单员排过的），不是从商品里推的 ——
+                        // 从商品推的话这里和下单页左侧会是两种顺序。
+                        val existingCats = remember(vm.categories) { vm.categories.map { it.name } }
+                        if (existingCats.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                existingCats.forEach { c ->
+                                    val on = vm.draftCategory.trim() == c
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                        modifier = Modifier.clickable { vm.draftCategory = c },
+                                    ) {
+                                        Text(
+                                            c,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (on) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
                         SoTextField(
                             value = vm.draftAlert,
                             onValueChange = { vm.draftAlert = it.filter { c -> c.isDigit() } },
@@ -436,9 +492,10 @@ private fun ProductCard(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "售价 ¥" + formatMoney(p.defaultUnitPrice) +
+                    "售价 ¥" + formatMoney(p.defaultUnitPrice) + "/" + p.unit.ifBlank { "件" } +
                         " · 成本 ¥" + formatMoney(p.costPrice) +
-                        " · 库存 " + p.stock,
+                        " · 库存 " + p.stock + " " + p.unit.ifBlank { "件" } +
+                        " · " + p.category.trim().ifBlank { "未分类" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

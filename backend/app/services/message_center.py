@@ -195,6 +195,35 @@ async def publish_order_recalled_shipper(db: Session, shipper_id: int, order_id:
     await emit_realtime(shipper_id, {"type": "order.recalled", "order_id": order_id})
 
 
+async def publish_navigation_filled(
+    db: Session, shipper_id: int, order_id: int, place_name: str
+) -> None:
+    """司机给这单补上导航信息后，告诉货主（2026-09-18）。
+
+    为什么值得单独发一条站内信：货主这边的实际变化是**他自己看不到的两件事**——
+    地址库里多了一个地点、这单从此能导航了。不发消息的话，货主下次下单时
+    突然发现地址库多了一条来源不明的记录，只能猜。
+    `speech_important=False`：这不是要司机接单那种必须立刻响的事，响铃会变成噪音。
+    """
+    order = db.get(Order, order_id)
+    ono = order.order_no if order else str(order_id)
+    where = place_name.strip() or "本单收货地址"
+    n = create_message(
+        db,
+        recipient_id=shipper_id,
+        category="order",
+        type="order.navigation.filled",
+        title="导航信息已补上",
+        content=f"订单 {ono} 的司机到场后补上了导航位置「{where}」，已存入你的地点库，下次下单可直接选。",
+        payload={"order_id": order_id, "order_no": ono, "place_name": where},
+        speech_important=False,
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(shipper_id, {"type": "order.navigation.filled", "order_id": order_id})
+
+
 async def publish_order_delivered(db: Session, order_id: int) -> None:
     """货主收到 order.delivered；司机收到 order.delivered_driver（无货主时仅司机）。"""
     order = db.get(Order, order_id)

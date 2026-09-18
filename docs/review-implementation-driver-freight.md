@@ -1,5 +1,9 @@
 # 评审结论 — 司机分类计费改造 落地方案
 
+<!-- ref-prefix: android/app/src/main/java/com/tapmoay/sorders/ -->
+<!-- 本文的 Kotlin 路径省略了包根；此行供 check_refs.py 解析（后端路径不受影响）。
+     缺了它，`check_refs.py "docs/**/*.md"` 会在本文报出失效引用。 -->
+
 > 评审对象：docs/implementation-driver-freight.md（依据 docs/plan-driver-freight.md v2）
 > 评审方法：逐条对照真实代码（backend/ + android/）核对，非纸面推断。
 > 总体结论：**需修改**。方向正确、骨架完整，但有 1 处“现状”误判、1 处关键 Android 回归（¥0）、以及若干一致性/完整性缺口；修完即可实施。

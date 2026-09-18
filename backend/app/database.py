@@ -30,6 +30,9 @@ else:
         settings.database_url,
         pool_pre_ping=True,
         pool_recycle=3600,
+        pool_size=64,
+        max_overflow=32,
+        pool_timeout=30,
     )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
 

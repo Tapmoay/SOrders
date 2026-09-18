@@ -48,12 +48,15 @@ fun DispatcherLedgerScreen(
     val vm: DispatcherLedgerViewModel = appViewModel { DispatcherLedgerViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
 
-    LaunchedEffect(vm.actionResult) {
-        vm.actionResult?.let {
-            snackbar.showSnackbar(it)
-            vm.actionResult = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+
+    // 失败**必须**看得见。
+    // 以前这个页面的错误只在「tab != 0 且三个账户列表都空」时才渲染成整页 ErrorView：
+    // 于是「+记一笔」被后端拒绝时（比如既没选货主也没填临时货主名），
+    // **弹窗不关、界面毫无反馈**——用户以为点了没反应，再点一次还是没反应。
+    // ⚠️ 这里消费的是**动作错误**（vm.error）。加载错误走 vm.loadError，
+    //    它还要驱动下面那条整页 ErrorView（带重试），所以**不能**被提示条清掉 —— 见 VM 的注释。
+    OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -83,8 +86,8 @@ fun DispatcherLedgerScreen(
                 when {
                     vm.loading && vm.tab == 0 -> LoadingBox()
                     vm.accountsLoading && vm.tab != 0 -> LoadingBox()
-                    vm.error != null && vm.tab != 0 && vm.driverAccounts.isEmpty() && vm.shipperAccounts.isEmpty() && vm.memberAccounts.isEmpty() ->
-                        ErrorView(vm.error.orEmpty(), onRetry = { if (vm.tab == 0) vm.load() else vm.loadAccounts() })
+                    vm.loadError != null && vm.tab != 0 && vm.driverAccounts.isEmpty() && vm.shipperAccounts.isEmpty() && vm.memberAccounts.isEmpty() ->
+                        ErrorView(vm.loadError.orEmpty(), onRetry = { if (vm.tab == 0) vm.load() else vm.loadAccounts() })
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
@@ -395,11 +398,11 @@ private fun DriverAccountCard(
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "¥" + formatMoney(o.freightFee),
+                        if (o.freightFee != null) "¥" + formatMoney(o.freightFee) else "待定价",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.End,
-                        color = Color(MoneyOrange),
+                        color = if (o.freightFee != null) Color(MoneyOrange) else Color(0xFF8A8A8E),
                         modifier = Modifier.widthIn(min = 92.dp),
                     )
                 }

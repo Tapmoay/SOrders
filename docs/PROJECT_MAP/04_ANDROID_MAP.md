@@ -1,5 +1,9 @@
 # 04 Android 端地图
 
+<!-- ref-prefix: android/app/src/main/java/com/tapmoay/sorders/ -->
+<!-- 上面这行是给 check_refs.py 看的：本文的 Kotlin 路径都省略了 6 层包根（android/app/src/main/java/com/tapmoay/sorders/），
+     声明一次后 `core/ApiClient.kt` 这类写法就能被自动校验；后端路径不受影响（校验器会回退到其它候选根）。 -->
+
 > 包：`com.tapmoay.sorders`；源码：`android/app/src/main/java/com/tapmoay/sorders/`
 
 ## 1. 分层
@@ -87,9 +91,13 @@ util/
 ```powershell
 # 构建（JAVA_HOME 必须设置）
 $env:JAVA_HOME='D:/APPS/AndroidStudio/jbr'
-D:/AProjects/ASDH/orders/_agent/gradle/gradle-8.9/bin/gradle.bat -p D:/AProjects/ASDH/orders/android :app:assembleDebug
-# APK：android/app/build/outputs/apk/debug/app-debug.apk
-# 一键：dev-build.ps1 [-NoBuild|-NoRun|-CleanBuild]
+# 模拟器（x86_64）—— 2026-09-15 起按 ABI 分成 phone / emu 两个 flavor
+D:/AProjects/ASDH/orders/_agent/gradle/gradle-8.9/bin/gradle.bat -p D:/AProjects/ASDH/orders/android :app:assembleEmuDebug
+# APK：android/app/build/outputs/apk/emu/debug/app-emu-debug.apk
+# 真机包（arm64-v8a + armeabi-v7a，推到生产的就是它）
+#   :app:assemblePhoneDebug → outputs/apk/phone/debug/app-phone-debug.apk
+# 一键（模拟器）：dev-build.ps1 [-NoBuild|-NoRun|-CleanBuild]
+# 发版：见 docs/APP_UPDATE_AND_RELEASE.md（别手敲，用 publish_apk.py）
 ```
 
 - Gradle：项目自带 `_agent/gradle/gradle-8.9`（不依赖系统 gradle）
@@ -101,7 +109,7 @@ D:/AProjects/ASDH/orders/_agent/gradle/gradle-8.9/bin/gradle.bat -p D:/AProjects
 - 手机与电脑同网段 Wi-Fi，开启无线调试
 - `adb connect <电脑IP>:<端口>`（端口可能变：44263 等）
 - **电脑重启/换网后 IP 会变** → 更新 `android/local.properties` 的 api_base_url 并重装 APK
-- 安装：`adb install -r app-debug.apk`；下载：`http://<电脑IP>:8001/app-debug.apk`（python http.server 8001）
+- 安装：`adb install -r app-emu-debug.apk`；下载：`http://<电脑IP>:8001/app-emu-debug.apk`（python http.server 8001）
 
 ## 7. 高德地图（坑多）
 

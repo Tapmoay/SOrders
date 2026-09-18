@@ -10,6 +10,8 @@ class SOrdersApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 外观模式要**在第一次组合之前**读回来，否则首帧会先按白天渲染再跳成夜间
+        com.tapmoay.sorders.ui.theme.ThemeMode.load(this)
         container = AppContainer(this)
         container.tokenStore.warmCache()
         // 高德搜索 SDK：官方要求 ServiceSettings.setApiKey 显式设置（跟 manifest 双保险）

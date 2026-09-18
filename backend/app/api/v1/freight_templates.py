@@ -1,5 +1,7 @@
 """运费模板（派单员）：路线×车型×一车价，派单选价一键带出。"""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,7 +35,9 @@ def list_templates(
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     vehicle_type: str | None = Query(None),
 ) -> list[FreightTemplate]:
-    q = select(FreightTemplate).order_by(FreightTemplate.id.desc())
+    q = select(FreightTemplate).where(FreightTemplate.is_deleted.is_(False)).order_by(
+        FreightTemplate.id.desc()
+    )
     if vehicle_type:
         q = q.where(FreightTemplate.vehicle_type == vehicle_type)
     return list(db.scalars(q))
@@ -96,5 +100,26 @@ def delete_template(
     t = db.get(FreightTemplate, template_id)
     if t is None:
         raise HTTPException(status_code=404, detail="未找到该模板")
-    db.delete(t)
+    # 伪装删除（v3.26）：模板是下次派单时的参考价，删错了要能原样回来。
+    t.is_deleted = True
+    t.deleted_at = datetime.now()
     db.commit()
+
+
+@router.post("/{template_id}/restore", response_model=FreightTemplateOut)
+def restore_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+) -> FreightTemplate:
+    """把删掉的运费模板恢复回来（DELETE /{id} 的逆操作）。"""
+    t = db.get(FreightTemplate, template_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="未找到该模板")
+    if not t.is_deleted:
+        raise HTTPException(status_code=400, detail="这个模板没有被删除，不需要恢复")
+    t.is_deleted = False
+    t.deleted_at = None
+    db.commit()
+    db.refresh(t)
+    return t

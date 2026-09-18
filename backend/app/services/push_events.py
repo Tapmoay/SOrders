@@ -92,6 +92,15 @@ async def push_dispatcher_pending_pool_changed() -> None:
     await emit_to_dispatchers("realtime", {"type": "dispatcher.pending_pool"})
 
 
+async def push_navigation_filled(shipper_id: int, order_id: int, place_name: str) -> None:
+    """司机补完导航信息 → 落站内信 + 实时推给货主。"""
+    db = SessionLocal()
+    try:
+        await message_center.publish_navigation_filled(db, shipper_id, order_id, place_name)
+    finally:
+        db.close()
+
+
 async def push_order_to_shipper(shipper_id: int, order_id: int, event_type: str) -> None:
     """撤回：落库+推送；派单已由 publish_order_assigned 覆盖货主。"""
     if event_type == "order.recalled":

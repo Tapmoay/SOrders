@@ -23,7 +23,18 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
 
     var entries by mutableStateOf<List<LedgerEntryDto>>(emptyList())
     var loading by mutableStateOf(false)
+    /**
+     * **动作**失败（记账、改流水被后端拒绝…）：提示条弹一次就该消失。
+     */
     var error by mutableStateOf<String?>(null)
+    /**
+     * **加载**失败：要留在页面上（配合整页 ErrorView + 重试），**不能**被提示条消费掉。
+     *
+     * 为什么要拆（2026-09-18）：原来共用一个 `error`。提示条是"消费即清"的语义，
+     * 不拆的话加载失败会先弹一次提示条、把 error 清掉，**整页「加载失败 + 重试」当场消失**，
+     * 用户掉进一个空列表而且没法重试。两种错误的生命周期本来就不一样。
+     */
+    var loadError by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
     var rangeFrom by mutableStateOf<String?>(null)
@@ -60,7 +71,7 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     /** 司机账/货主账/批发商账：按当前时间范围拉取账户汇总 */
     fun loadAccounts() {
         accountsLoading = true
-        error = null
+        loadError = null
         viewModelScope.launch {
             try {
                 val from = periodStart
@@ -72,7 +83,7 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
                     if (tab == 3) memberAccounts = container.repo.ledgerAccounts(from, to, "member")
                 }
             } catch (e: Exception) {
-                error = toApiException(e).message
+                loadError = toApiException(e).message
             } finally {
                 accountsLoading = false
             }
@@ -102,7 +113,7 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
                 }
                 accountEntries = accountEntries + (key to list)
             } catch (e: Exception) {
-                error = toApiException(e).message
+                loadError = toApiException(e).message
             } finally {
                 accountEntriesLoading = false
             }

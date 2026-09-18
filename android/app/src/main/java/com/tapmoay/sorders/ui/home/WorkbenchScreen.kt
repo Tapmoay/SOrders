@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.ui.common.RoleBadge
@@ -68,16 +69,37 @@ fun WorkbenchScreen(
                         .clickable { onOpen(entry.route) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Surface(
-                        color = androidx.compose.ui.graphics.Color(entry.color),
-                        shape = MaterialTheme.shapes.large,
-                    ) {
-                        Icon(
-                            entry.icon,
-                            contentDescription = entry.label,
-                            tint = androidx.compose.ui.graphics.Color.White,
-                            modifier = Modifier.padding(13.dp).size(32.dp),
-                        )
+                    // 有 gradient 的入口（目前只有 AI）用品牌渐变，其余用单色语义色。
+                    // 渐变必须走 background(brush) —— Surface 的 color 只吃单色，
+                    // 想用画刷就得自己铺一层底。
+                    if (entry.gradient.isEmpty()) {
+                        Surface(
+                            color = androidx.compose.ui.graphics.Color(entry.color),
+                            shape = MaterialTheme.shapes.large,
+                        ) {
+                            Icon(
+                                entry.icon,
+                                contentDescription = entry.label,
+                                tint = androidx.compose.ui.graphics.Color.White,
+                                modifier = Modifier.padding(13.dp).size(32.dp),
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    brush = Brush.linearGradient(entry.gradient.map { androidx.compose.ui.graphics.Color(it) }),
+                                    shape = MaterialTheme.shapes.large,
+                                )
+                                .padding(13.dp),
+                        ) {
+                            Icon(
+                                entry.icon,
+                                contentDescription = entry.label,
+                                tint = androidx.compose.ui.graphics.Color.White,
+                                modifier = Modifier.size(32.dp),
+                            )
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(

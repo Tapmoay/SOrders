@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  单体层（Android 13+ 主题图标 / monochrome）。
+
+  系统会拿这一层的**形状**用桌面主题色重新着色，所以这里只该有一个颜色
+  （形状靠 alpha 说话）。缺了它，用户开「主题图标」时桌面上只有这个 App 还是彩色方块。
+
+  形状必须与 ic_launcher_foreground **完全一致**（同一辆货车），
+  唯一的区别是这里没有背景层，所以"白色"只是为了看得见。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,37 L54,37 Q58,37 58,41 L58,43 L72,43 Q76,43 78.2,46 L83.2,53.4 Q84,54.5 84,56 L84,61 Q84,65 80,65 L28,65 Q24,65 24,61 L24,41 Q24,37 28,37 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M37,63 m-7.5,0 a7.5,7.5 0 1,1 15,0 a7.5,7.5 0 1,1 -15,0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M73,63 m-7.5,0 a7.5,7.5 0 1,1 15,0 a7.5,7.5 0 1,1 -15,0" />
+</vector>

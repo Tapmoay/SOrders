@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.user import User
 
 
-class FreightTemplate(Base, TimestampMixin):
+class FreightTemplate(Base, TimestampMixin, SoftDeleteMixin):
     """订单运费模板：路线×车型 ×一车价，派单员维护，派单选价一键带出。"""
 
     __tablename__ = "freight_templates"

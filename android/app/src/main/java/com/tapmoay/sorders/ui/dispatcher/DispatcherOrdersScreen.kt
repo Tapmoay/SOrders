@@ -25,12 +25,7 @@ fun DispatcherOrdersScreen(
     val vm: DispatcherOrdersViewModel = appViewModel { DispatcherOrdersViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
 
-    LaunchedEffect(vm.actionResult) {
-        vm.actionResult?.let {
-            snackbar.showSnackbar(it)
-            vm.actionResult = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },

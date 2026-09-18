@@ -18,11 +18,18 @@ from app.schemas.notification import NotificationOut
 
 DISPATCHERS_ROOM = "role_dispatchers"
 
+from app.config import get_settings
+
+# 多 worker 部署时用 Redis 适配器共享连接状态（否则 403/400 重连循环）；单进程留空用内存
+_socket_redis_url = get_settings().socket_redis_url
+_client_manager = socketio.AsyncRedisManager(_socket_redis_url) if _socket_redis_url else None
+
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
     logger=False,
     engineio_logger=False,
+    client_manager=_client_manager,
 )
 
 

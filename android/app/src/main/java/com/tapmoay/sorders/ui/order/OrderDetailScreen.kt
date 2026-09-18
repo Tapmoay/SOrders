@@ -105,6 +105,7 @@ fun OrderDetailScreen(
                 acting = vm.acting,
                 uploading = vm.uploading,
                 onCancelClick = { vm.showCancelDialog = true },
+                onDeleteClick = { vm.showDeleteDialog = true },
                 onNavigate = {
                     openAmapNavigation(context, vm.order?.addressLng, vm.order?.addressLat, vm.order?.addressDetail)
                 },
@@ -120,12 +121,41 @@ fun OrderDetailScreen(
                 onEditFreightClick = { vm.openFreightDialog() },
                 onSplitClick = { vm.openSplitDialog() },
                 onDirectCompleteClick = { p -> vm.completeDirect({ onBack() }, p) },
+                canFillNav = vm.canFillNavigation(role.key),
+                onFillNavClick = {
+                    // 先预热定位：地图一打开就落在司机当前所在处，少拖一次
+                    container.locationManager.requestSingle()
+                    vm.showNavPicker = true
+                },
             damageByProduct = vm.damageByProduct,
             damageNote = vm.damageNote,
             onDamageQty = { id, q -> vm.damageByProduct[id] = q },
             onDamageNote = { vm.damageNote = it },
             )
         }
+    }
+
+    // 司机/派单员：地图选点 → 补导航信息（只有原本没坐标的单能补）
+    if (vm.showNavPicker) {
+        AmapPickerDialog(
+            container = container,
+            initialLat = vm.order?.addressLat?.toDoubleOrNull(),
+            initialLng = vm.order?.addressLng?.toDoubleOrNull(),
+            onPicked = { lat, lng, address -> vm.openNavDialog(lat, lng, address) },
+            onDismiss = { vm.showNavPicker = false },
+        )
+    }
+    if (vm.showNavDialog) {
+        NavigationFillDialog(
+            addressText = vm.navDraftAddress,
+            name = vm.navDraftName,
+            onNameChange = { vm.navDraftName = it },
+            lat = vm.navDraftLat,
+            lng = vm.navDraftLng,
+            acting = vm.acting,
+            onConfirm = { vm.saveNavigation() },
+            onDismiss = { vm.showNavDialog = false },
+        )
     }
 
     // 撤销二次确认
@@ -141,6 +171,22 @@ fun OrderDetailScreen(
                 ) { Text("确认撤销") }
             },
             dismissButton = { TextButton(onClick = { vm.showCancelDialog = false }) { Text("再想想") } },
+        )
+    }
+
+    // 软删除确认（隔离区 30 天，派单员可恢复）
+    if (vm.showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { vm.showDeleteDialog = false },
+            title = { Text("删除订单？") },
+            text = { Text("删除后订单将移入隔离区（列表不再显示），30 天内派单员可为您恢复；30 天后彻底删除。确认删除吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.delete(onBack) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("确认删除") }
+            },
+            dismissButton = { TextButton(onClick = { vm.showDeleteDialog = false }) { Text("取消") } },
         )
     }
 
@@ -276,6 +322,7 @@ private fun DetailBody(
     acting: Boolean,
     uploading: Boolean,
     onCancelClick: () -> Unit,
+    onDeleteClick: () -> Unit,
     onNavigate: () -> Unit,
     onAck: () -> Unit,
     onNoteClick: () -> Unit,
@@ -290,6 +337,9 @@ private fun DetailBody(
     damageNote: String = "",
     onDamageQty: (Long, Int) -> Unit = { _, _ -> },
     onDamageNote: (String) -> Unit = {},
+    /** 司机/派单员：这单还没有坐标 → 可以到场补上 */
+    canFillNav: Boolean = false,
+    onFillNavClick: () -> Unit = {},
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
     LazyColumn(
@@ -361,6 +411,15 @@ private fun DetailBody(
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(8.dp))
+                NavigationBlock(
+                    order = order,
+                    role = role,
+                    canFill = canFillNav,
+                    onFillClick = onFillNavClick,
+                )
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -420,7 +479,9 @@ private fun DetailBody(
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            "×" + line.quantity,
+                            // 单位是下单时定格的（选品弹窗里能改）；老数据为空 → 只显示件数，
+                            // **不编一个"件"出来**（编了就成了"系统说的"，而实际没人填过）
+                            "×" + line.quantity + (if (line.unit.isBlank()) "" else " " + line.unit),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = androidx.compose.ui.graphics.Color(0xFF8455E6),
@@ -633,6 +694,24 @@ private fun DetailBody(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     ) { Text("撤销订单") }
                 }
+                // 删除订单（软删除→隔离区 30 天：用户不可见，派单员可恢复）
+                // 货主：已送达/已撤销/异常；派单员：含待派单（废弃）在内的历史单
+                val canDelete = (role == Role.SHIPPER &&
+                    (order.status == "CANCELLED" || order.status == "DELIVERED" || order.isException)) ||
+                    (role == Role.DISPATCHER &&
+                        (order.status == "CANCELLED" || order.status == "DELIVERED" || order.status == "PENDING_DISPATCH" || order.isException))
+                if (canDelete) {
+                    OutlinedButton(
+                        onClick = onDeleteClick,
+                        enabled = !acting,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("删除订单")
+                    }
+                }
                 // 司机：已派单（派了单但还没接）→ 唯一主行动：确认接单
                 if (role == Role.DRIVER && order.status == "DISPATCHED") {
                     Button(
@@ -728,6 +807,158 @@ private fun DetailBody(
 }
 
 /** 商品破损卡片槽（选填·公司自担）：点开可逐商品填破损数量 + 货损备注，默认收起不占空间 */
+/**
+ * 收货信息里的「导航信息」块。
+ *
+ * 三句话要看得出区别，所以三种状态各写各的：
+ * 1. **有坐标** → 显示「导航可用」，并写明**这个坐标是谁给的**（`nav_source`）：
+ *    下单时带的 / 司机到场补的 / 派单员补的。货主看到"司机帮你补的"这件事必须是
+ *    真的（后端落库的来源字段），不能靠猜。
+ * 2. **没坐标 + 我是司机或派单员** → 高亮提示 + 「我到了，帮补导航」按钮。
+ *    这是整个功能的入口：知道坐标的人（到过现场的司机）才有这个按钮。
+ * 3. **没坐标 + 我是货主** → 只说事实，不给按钮（货主此刻也不在现场）。
+ */
+@Composable
+private fun NavigationBlock(
+    order: OrderDto,
+    role: Role,
+    canFill: Boolean,
+    onFillClick: () -> Unit,
+) {
+    val hasCoords = !order.addressLat.isNullOrBlank() && !order.addressLng.isNullOrBlank()
+    when {
+        hasCoords -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.MyLocation,
+                contentDescription = null,
+                tint = Color(0xFF00B578),
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text("导航可用", style = MaterialTheme.typography.bodyMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                when (order.navSource) {
+                    "driver" -> "司机到场补录"
+                    "dispatcher" -> "派单员补录"
+                    else -> "下单时已填"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        canFill -> Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = Color(0xFFE6A23C),
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "这单没有导航信息",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "你到地方之后点一下「帮补导航」，把位置标下来。" +
+                    "标完货主的地点库会多一条、以后同样的位置大家都直接能用 —— 不用再打电话问路。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onFillClick,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A2C7), contentColor = Color.White),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("我到了，帮补导航信息")
+            }
+        }
+
+        else -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = Color(0xFFE6A23C),
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "没有导航信息（司机到场后可以帮你补上）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 补导航确认框：把"这次会写哪三处"讲清楚，用户才知道自己按下去会发生什么。 */
+@Composable
+private fun NavigationFillDialog(
+    addressText: String,
+    name: String,
+    onNameChange: (String) -> Unit,
+    lat: String,
+    lng: String,
+    acting: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("补上导航信息") },
+        text = {
+            Column {
+                Text(
+                    "坐标 " + lat.take(10) + ", " + lng.take(10),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onNameChange,
+                    label = { Text("地点名（货主地点库里显示的就是它）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (addressText.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "收货地址：" + addressText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "按下确定后会做三件事：① 这一单从此有导航；② 存进货主自己的地点库，" +
+                        "他下次下单直接能选；③ 进全库共享地点库，别人送到同一个位置直接拉坐标。" +
+                        "坐标相近（1 米内、或同名且 30 米内）会自动并进已有地点，不会越攒越多。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !acting) {
+                Text(if (acting) "提交中…" else "确定")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
 @Composable
 private fun DamageCard(
     products: List<com.tapmoay.sorders.data.remote.dto.OrderProductDto>,

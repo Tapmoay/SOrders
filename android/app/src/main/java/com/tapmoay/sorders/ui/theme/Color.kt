@@ -18,6 +18,22 @@ val MoneyOrange = 0xFFFF9500L      // 账本 / 收款：金橙
 val ArrearsTangerine = 0xFFFF6B2CL // 挂账单位（欠款警示）：橙红
 val ReportIndigo = 0xFF6950F5L     // 报表中心：靛蓝紫
 val MessageRed = 0xFFFF4D4FL       // 消息 / 通知：红
+// ===== AI 助手：Google AI 智能体（Gemini）配色 =====
+//
+// 用户 2026-09-15 的要求："颜色改成谷歌的 AI 智能体的配色方法，它里面的颜色也要按这个方法配色"。
+// 所以 AI 不用自己的语义色了，直接沿用 Google 的品牌做法：
+//
+//   · 三段品牌渐变：蓝 #4285F4 → 紫 #9B72CB → 粉 #D96570
+//     （来源：Gemini 网页端问候语那段"渐显"文本，逆向出来的 10 段渐变用的就是这三个
+//      品牌色 + 白色段做动画；见 blog.sebastiano.dev 的 Compose 复刻分析）
+//   · 图标形态 = **渐变圆角块 + 白色四角星**（Google 的 AI 图标就长这样）
+//   · 单色强调（按钮/链接/选中态）取渐变起点那个 Google 蓝 #4285F4
+//
+// 好处除了"看起来像 AI"，还顺手解决了原来的问题：渐变和 App 里任何一个**单色**语义色
+// 都不可能撞（货主工作台里并排的方块里不会再出现两块一样的蓝）。
+val AiBlue = 0xFF4285F4L           // Google 蓝（渐变起点；强调色）
+val AiPurple = 0xFF9B72CBL         // Google 紫（渐变中段）
+val AiPink = 0xFFD96570L           // Google 粉（渐变终点）
 
 val SuccessGreen = 0xFF00B578L     // 成功 / 正常
 val WarningAmber = 0xFFFF9F1CL     // 提醒 / 待处理
@@ -57,9 +73,22 @@ val OnSecondaryContainerDark = Color(0xFFDCE3F8)
 val TertiaryDark = Color(0xFF4DD9E0)
 val ErrorDark = Color(0xFFFFB4AB)
 val ErrorContainerDark = Color(0xFF93000A)
-val BackgroundDark = Color(0xFF111318)
+val BackgroundDark = Color(0xFF0E1014)
 val OnBackgroundDark = Color(0xFFE2E2E9)
-val SurfaceDark = Color(0xFF111318)
+/**
+ * 暗色下的「卡片面」。
+ *
+ * ⚠️ 这里**必须比 [BackgroundDark] 亮一档**。原来两者都是 `#111318`，
+ * 而全 App 的卡片（`SectionCard`）用的就是 `surface` —— 于是暗色下
+ * **卡片和背景是同一个颜色**，完全没有分层：卡片看不出边界、分组看不出分界，
+ * 用户 2026-09-18 的原话是「有些卡片都不是很明显，信息丢失，感觉不是很好」。
+ *
+ * 亮色下能分层是因为「白卡 + 灰底」（#FFFFFF on #F2F3F7）；
+ * 暗色下必须反过来用「亮一点的灰 + 更黑的黑」，这是暗色主题唯一能做分层的方向。
+ * 顺带一提：`shadowElevation` 在暗色下基本看不见，所以分层只能靠**色差**，
+ * 不能再指望阴影（见 `SectionCard` 里补的那条暗色描边）。
+ */
+val SurfaceDark = Color(0xFF1B1D23)
 val OnSurfaceDark = Color(0xFFE2E2E9)
 val SurfaceVariantDark = Color(0xFF44464F)
 val OnSurfaceVariantDark = Color(0xFFCCCDD7)

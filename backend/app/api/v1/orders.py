@@ -39,10 +39,12 @@ from app.schemas.order import (
     OrderRecallBody,
     OrderUpdate,
 )
+from app.schemas.place import OrderNavigationBody
+from app.schemas.product_visibility import product_visible_to
 from app.services.auth_service import new_order_no
 from app.services.operation_log_service import write_log
 from app.services.order_flow import split_order
-from app.services.cancelled_order_retention import delete_orders_by_ids
+from app.services.data_retention import delete_orders_by_ids
 from app.services.order_flow import (
     assign_driver,
     build_order_products,
@@ -66,8 +68,10 @@ from app.services.push_events import (
     push_order_delivered,
     push_order_revoked,
     push_order_to_shipper,
+    push_navigation_filled,
 )
 from app.services.shipper_contact_service import upsert_boss_contact
+from app.services import place_service
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -108,6 +112,9 @@ def _get_order_scoped(order_id: int, current: User, db: Session) -> Order:
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
     role = user_role_key(current)
+    # 软删除（隔离区）订单：仅派单员可见可操作；普通用户视为不存在
+    if order.deleted_at is not None and role != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
     if role == UserRole.SHIPPER.value and (
         order.shipper_id is None or order.shipper_id != current.id
     ):
@@ -148,6 +155,10 @@ async def _bg_notify_driver_ack(shipper_id: int, order_id: int) -> None:
     await push_driver_ack_to_dispatchers(order_id)
 
 
+async def _bg_notify_navigation_filled(shipper_id: int, order_id: int, place_name: str) -> None:
+    await push_navigation_filled(shipper_id, order_id, place_name)
+
+
 async def _bg_dispatcher_pending_pool() -> None:
     await push_dispatcher_pending_pool_changed()
 
@@ -166,8 +177,16 @@ def list_orders(
     temp_shipper_name_filter: str | None = Query(None, alias="temp_shipper_name"),
     date_from: str | None = Query(None, alias="date_from", description="YYYY-MM-DD（含当天）"),
     date_to: str | None = Query(None, alias="date_to", description="YYYY-MM-DD（含当天）"),
+    limit: int | None = Query(None, ge=1, le=5000, description="返回条数上限（待派池缺省=300，其余缺省=全量）"),
+    include_deleted: bool = Query(False, description="含软删除(隔离区)订单——仅派单员"),
+    deleted_only: bool = Query(False, description="仅软删除(回收站)订单——仅派单员"),
 ) -> list[OrderOut]:
     role = user_role_key(current)
+    if (include_deleted or deleted_only) and role != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看隔离数据")
+    effective_limit = limit
+    if effective_limit is None and role == UserRole.DISPATCHER.value and status_filter == OrderStatus.PENDING_DISPATCH:
+        effective_limit = 300  # 待派池防护：万级积压时只取最新300单，防接口十几秒/内存暴涨
     qtrim = (search_q or "").strip() or None
 
     if role == UserRole.DISPATCHER.value and qtrim:
@@ -206,10 +225,20 @@ def list_orders(
             )
         elif shipper_id_filter is not None:
             stmt = stmt.where(Order.shipper_id == shipper_id_filter)
+        if deleted_only:
+            stmt = stmt.where(Order.deleted_at.isnot(None))
+        elif not include_deleted:
+            stmt = stmt.where(Order.deleted_at.is_(None))
+        if effective_limit is not None:
+            stmt = stmt.limit(effective_limit)
         orders = list(db.scalars(stmt).unique().all())
         return [enrich_order_out(o, db, current) for o in orders]
 
     q = select(Order).options(selectinload(Order.order_products)).order_by(Order.id.desc())
+    if deleted_only:
+        q = q.where(Order.deleted_at.isnot(None))
+    elif not include_deleted:
+        q = q.where(Order.deleted_at.is_(None))
 
     if role == UserRole.SHIPPER.value:
         q = q.where(Order.shipper_id == current.id)
@@ -234,6 +263,8 @@ def list_orders(
         if dt is not None:
             q = q.where(Order.created_at <= dt)
 
+    if effective_limit is not None:
+        q = q.limit(effective_limit)
     orders = list(db.scalars(q).unique().all())
     return [enrich_order_out(o, db, current) for o in orders]
 
@@ -246,7 +277,10 @@ def pending_dispatch_count(
     """派单工作台：当前「派单中」订单数量，用于底部 Tab / 铃铛角标。"""
     if user_role_key(current) != UserRole.DISPATCHER.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可查询")
-    q = select(func.count()).select_from(Order).where(Order.status == OrderStatus.PENDING_DISPATCH)
+    q = select(func.count()).select_from(Order).where(
+        Order.status == OrderStatus.PENDING_DISPATCH,
+        Order.deleted_at.is_(None),
+    )
     n = db.scalar(q)
     return {"count": int(n or 0)}
 
@@ -302,16 +336,30 @@ def delete_cancelled_order(
     current: CurrentUser,
     db: Session = Depends(get_db),
 ) -> None:
-    """仅删除「已撤销」状态的订单（货主删自己的单；派单员可删含临时货主单）。"""
+    """软删除订单 → 进入隔离区 30 天（用户不可见；派单员可恢复；到期物理清理）。
+    货主：本人 已送达/已撤销/异常 订单；派单员：任意状态（含待派单）。"""
     order = _get_order_scoped(order_id, current, db)
     role = user_role_key(current)
     if role not in (UserRole.SHIPPER.value, UserRole.DISPATCHER.value):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
-    if not role_has_permission(role, Permission.ORDER_DELETE_CANCELLED):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
-    if order.status != OrderStatus.CANCELLED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="仅已撤销的订单可删除")
-    delete_orders_by_ids(db, [order_id])
+    if role == UserRole.SHIPPER.value:
+        if not role_has_permission(role, Permission.ORDER_DELETE_CANCELLED):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
+        if order.status not in (OrderStatus.CANCELLED, OrderStatus.DELIVERED) and not bool(order.is_exception):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="仅已送达/已撤销/异常订单可删除（进行中的订单请走撤销或撤回）",
+            )
+    if order.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="订单已在隔离区，如需恢复请联系派单员")
+    order.deleted_at = datetime.now(timezone.utc)
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_DELETE,
+        change_payload={"order_no": order.order_no},
+    )
     db.commit()
 
 
@@ -344,11 +392,35 @@ def create_order(
             target_shipper_id = None
             order_temp_shipper_name = body.temp_shipper_name
         else:
-            target_shipper_id = None
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="代理下单请选择货主或填写临时货主姓名",
+            )
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色不能创建订单")
 
-    lines = build_order_products(db, body.lines)
+    # 白名单（v3.43）：货主自己下单时，**不许**把看不到的商品塞进单里。
+    # 为什么必须在这一层挡：选品页把商品藏起来只是"看不到"，
+    # 接口照收就等于**看起来限制了、其实没有**（这种洞在界面上完全看不出来）。
+    # 派单员代下单不受这条限制：他不是被限制的那个人，而且他看得到全部商品。
+    bad = [
+        (i + 1, ln.product_id)
+        for i, ln in enumerate(body.lines)
+        if not product_visible_to(db, current, ln.product_id)
+    ]
+    if bad:
+        idx = "、".join(f"第 {i} 行" for i, _ in bad)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{idx}的商品不在你的可选范围内。请重新从商品目录里选一个。",
+        )
+
+    # 行金额/商品编号的判据在 build_order_products 里（**唯一一处**）：
+    # 行金额由服务端按"单价×数量"算，商品编号必须在库里且没被删——被拒时要说清是第几行。
+    try:
+        lines = build_order_products(db, body.lines)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     od = ensure_order_date(body.order_date)
     order = Order(
         order_no=new_order_no(),
@@ -470,19 +542,33 @@ def patch_order_exception(
     return enrich_order_out(full, db, current)
 
 
-@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_order(
+@router.post("/{order_id}/restore", response_model=OrderOut)
+def restore_order(
     order_id: int,
+    current: CurrentUser,
     db: Session = Depends(get_db),
-    current: User = Depends(require_permission(Permission.ORDER_EDIT)),
-) -> None:
-    order = db.scalars(select(Order).where(Order.id == order_id)).first()
-    if order is None:
-        raise HTTPException(status_code=404, detail="未找到对应记录")
-    if order.status != OrderStatus.PENDING_DISPATCH:
-        raise HTTPException(status_code=400, detail="仅「待派单」订单可删除")
-    db.delete(order)
+) -> OrderOut:
+    """派单员：从隔离区恢复订单（软删除后 30 天内可恢复）。"""
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可恢复")
+    order = db.scalars(
+        select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
+    ).first()
+    if order is None or order.deleted_at is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不在隔离区")
+    order.deleted_at = None
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_RESTORE,
+        change_payload={"order_no": order.order_no},
+    )
     db.commit()
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
+    return enrich_order_out(full, db, current)
 
 
 @router.post("/{order_id}/address-image", response_model=OrderOut)
@@ -651,6 +737,126 @@ def driver_append_internal_note(
     return enrich_order_out(full, db, current)
 
 
+@router.post("/{order_id}/navigation", response_model=OrderOut)
+def fill_order_navigation(
+    order_id: int,
+    body: OrderNavigationBody,
+    background_tasks: BackgroundTasks,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> OrderOut:
+    """**司机到场后给这单补上导航信息**（订单原本没有坐标时才能补）。
+
+    ## 为什么会需要这个接口
+    下单时收货地址常常只有一行文字（"XX 路口进来第三家"），没有坐标；而**知道坐标的人
+    恰恰是到过现场的司机**。以前这个坐标没有任何地方可以放：订单的经纬度只有
+    `PATCH /orders/{id}` 一个入口（不带独立按钮），司机的 App 里更没有入口 ——
+    于是同一个地方被问一百遍。这个接口把司机的那一次现场定位变成**三个人受益**：
+
+    1. **这一单**：`orders.address_lat/lng` 补上，`nav_source='driver'`（货主端能看到
+       "司机已帮你补上导航信息"，这句话必须是真的，所以来源要落库）；
+    2. **这个货主**：写进他自己的地点库（`shipper_locations`），下次下单直接可选；
+    3. **所有人**：写进**全局共享地点库**（`places`），同一个位置的下一单直接拉过来。
+
+    ## 三条硬约束
+    - **只补不改**：订单已经有坐标时一律 400。司机到的地方不一定就是收货点
+      （卸货口、隔壁仓），让他覆盖掉一个货主确认过的坐标，是把"有坐标"变成"有错坐标"，
+      而错坐标的危害比没有坐标更大（导航会把人带错，且看不出来）。
+    - **只有这单的司机或派单员**能补（`_get_order_scoped` 已经按角色卡过）。
+    - **合并半径 1 米**（`place_service.MERGE_METERS`）：相近坐标并入同一条而不是新建。
+      "这次到底是新建还是并入"记在 `operation_logs.change_payload` 里（`merged_into_existing_place`）
+      —— 出参保持 `OrderOut`（和其它订单动作一致，客户端拿到后整单刷新），
+      所以**不在这里编造一个界面上的字段**；用户看到的结论两种情况下是同一句：
+      "这个位置的坐标已经进库，下次能直接选"。
+    """
+    role = user_role_key(current)
+    if role not in (UserRole.DRIVER.value, UserRole.DISPATCHER.value):
+        raise HTTPException(status_code=403, detail="仅司机或派单员可以补导航信息")
+    order = _get_order_scoped(order_id, current, db)
+    if order.deleted_at is not None:
+        raise HTTPException(status_code=400, detail="这张订单在回收站里，不能补导航信息")
+    if order.address_lat is not None and order.address_lng is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="这张订单已经有导航信息了，不需要补录（避免把正确的坐标改成错的）",
+        )
+    if order.status == OrderStatus.CANCELLED:
+        raise HTTPException(status_code=400, detail="已撤销的订单不需要补导航信息")
+
+    lat = float(body.address_lat)
+    lng = float(body.address_lng)
+    # 地点名：优先用司机填的，其次用订单原有的文字地址（避免库里一排空白名字）
+    place_name = (body.name or "").strip() or (order.address_detail or "").strip()
+    detail = (body.detail_address or "").strip() or (order.address_detail or "").strip()
+    # ⚠️ 名字与地址**不能都是空**：这张单会往**全库共享**的地点库里写一条，
+    #    而共享库**没有删除接口** —— 一条无名无址的记录是永久的，
+    #    在每个人的「共享地点」列表里都显示成「未命名地点」+ 空地址。
+    #    这里挡在入口，并给一句能照着做的中文（"起个名字"比"参数不合法"有用得多）。
+    if not place_name and not detail:
+        raise HTTPException(
+            status_code=400,
+            detail="请给这个位置起个名字（或填一下地址）再提交 —— "
+            "共享库里只有坐标的话，别人下次认不出是哪儿，而且这条记录删不掉",
+        )
+
+    place, merged = place_service.upsert_place(
+        db,
+        lat=lat,
+        lng=lng,
+        name=place_name,
+        detail_address=detail,
+        source="driver" if role == UserRole.DRIVER.value else "dispatcher",
+        created_by=current.id,
+        order_id=order.id,
+    )
+
+    order.address_lat = body.address_lat
+    order.address_lng = body.address_lng
+    order.nav_source = "driver" if role == UserRole.DRIVER.value else "dispatcher"
+    if detail:
+        order.address_detail = detail
+
+    shipper_location_created = False
+    if order.shipper_id is not None:
+        _, shipper_location_created = place_service.ensure_shipper_location(
+            db,
+            shipper_id=order.shipper_id,
+            name=place_name,
+            detail_address=detail,
+            lat=lat,
+            lng=lng,
+        )
+
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_NAVIGATION_FILL,
+        change_payload={
+            "order_no": order.order_no,
+            "address_lat": str(body.address_lat),
+            "address_lng": str(body.address_lng),
+            "place_id": place.id,
+            "place_name": place.name,
+            # 这两个布尔量是"到底发生了什么"的原始记录：
+            # 并入已有坐标 vs 新建、货主地点库有没有真的多一条。
+            "merged_into_existing_place": merged,
+            "shipper_location_created": shipper_location_created,
+            "shipper_id": order.shipper_id,
+        },
+    )
+    db.commit()
+
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
+    if order.shipper_id is not None:
+        background_tasks.add_task(
+            _bg_notify_navigation_filled, order.shipper_id, order.id, place_name
+        )
+    return enrich_order_out(full, db, current)
+
+
 @router.post("/{order_id}/assign", response_model=OrderOut)
 def assign_order(
     order_id: int,
@@ -666,7 +872,17 @@ def assign_order(
     if driver is None:
         raise HTTPException(status_code=400, detail="未找到该司机")
     try:
-        assign_driver(db, order, driver, current, body.internal_note)
+        # 逐单覆盖值（派单员对这一单单独定的金额/比例）跟着一起进 assign_driver——
+        # 它与模式快照、规则快照是**同一件事的三个字段**，分开写会出现半截状态。
+        assign_driver(
+            db,
+            order,
+            driver,
+            current,
+            body.internal_note,
+            piece_override=body.driver_piece_amount,
+            rate_override=body.driver_commission_rate,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     order.freight_fee = body.freight_fee

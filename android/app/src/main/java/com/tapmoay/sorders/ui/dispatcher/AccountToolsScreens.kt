@@ -171,7 +171,7 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
 fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
     val vm: ReceiptsViewModel = appViewModel { ReceiptsViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(vm.actionResult) { vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     LaunchedEffect(Unit) { vm.load() }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -318,7 +318,7 @@ class SettlementsViewModel(private val container: AppContainer) : androidx.lifec
 fun SettlementsScreen(container: AppContainer, onBack: () -> Unit) {
     val vm: SettlementsViewModel = appViewModel { SettlementsViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(vm.actionResult) { vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     LaunchedEffect(Unit) { vm.load() }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = { ReuseTopBar("司机结算（按月）", onBack) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -427,7 +427,7 @@ class ExpensesViewModel(private val container: AppContainer) : androidx.lifecycl
 fun ExpensesScreen(container: AppContainer, onBack: () -> Unit) {
     val vm: ExpensesViewModel = appViewModel { ExpensesViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(vm.actionResult) { vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     LaunchedEffect(Unit) { vm.load() }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = { ReuseTopBar("开销管理", onBack) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -480,96 +480,9 @@ fun ExpensesScreen(container: AppContainer, onBack: () -> Unit) {
 
 private fun catLabel(c: String): String = when (c) { "fuel" -> "加油"; "repair" -> "维修"; "toll" -> "过路"; "parking" -> "停车"; "fine" -> "罚款"; "insurance" -> "保险"; "loss" -> "货损"; else -> "其他" }
 
-// ---------------- 车辆台账 ----------------
-class VehiclesViewModel(private val container: AppContainer) : androidx.lifecycle.ViewModel() {
-    var vehicles by mutableStateOf<List<VehicleDto>>(emptyList())
-    var drivers by mutableStateOf<List<UserDto>>(emptyList())
-    var loading by mutableStateOf(false)
-    var error by mutableStateOf<String?>(null)
-    var actionResult by mutableStateOf<String?>(null)
-    var plateNo by mutableStateOf("")
-    var vehicleType by mutableStateOf("trailer")
-    var driverId by mutableStateOf<Long?>(null)
-    var submitting by mutableStateOf(false)
-
-    fun load() {
-        loading = true
-        viewModelScope.launch {
-            try {
-                vehicles = container.repo.vehicles()
-                drivers = container.repo.drivers()
-            } catch (e: Exception) { error = toApiException(e).message } finally { loading = false }
-        }
-    }
-
-    fun submit() {
-        if (plateNo.isBlank()) { error = "请输入车牌号"; return }
-        submitting = true
-        viewModelScope.launch {
-            try {
-                container.repo.createVehicle(VehicleCreateRequest(plateNo.trim(), vehicleType, driverId))
-                actionResult = "车辆已添加"
-                vehicles = container.repo.vehicles()
-                plateNo = ""
-            } catch (e: Exception) { error = toApiException(e).message } finally { submitting = false }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun VehiclesScreen(container: AppContainer, onBack: () -> Unit) {
-    val vm: VehiclesViewModel = appViewModel { VehiclesViewModel(container) }
-    val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(vm.actionResult) { vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } }
-    LaunchedEffect(Unit) { vm.load() }
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = { ReuseTopBar("车辆台账", onBack) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
-                SectionCard {
-                    Text("新增车辆", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(6.dp))
-                    OutlinedTextField(value = vm.plateNo, onValueChange = { vm.plateNo = it }, label = { Text("车牌号") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    Spacer(Modifier.height(6.dp))
-                    DropField(
-                        label = "车辆类型",
-                        text = typeLabel(vm.vehicleType),
-                        options = listOf("trailer" to "挂车", "small" to "小货车", "large" to "大货车"),
-                        onSelect = { vm.vehicleType = it },
-
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    DropField(
-                        label = "关联司机（可选）",
-                        text = vm.drivers.find { it.id == vm.driverId }?.let { driverText(it) } ?: "不指定",
-                        options = listOf("" to "不指定") + vm.drivers.map { it.id.toString() to driverText(it) },
-                        onSelect = { vm.driverId = it.toLongOrNull() },
-
-                    )
-                    vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = { vm.submit() }, enabled = !vm.submitting, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(MgrGreen))) {
-                        Text("添加车辆")
-                    }
-                }
-            }
-            item { Text("车辆列表", style = MaterialTheme.typography.titleMedium) }
-            if (vm.vehicles.isEmpty()) item { EmptyView("暂无车辆", Modifier.fillMaxWidth()) }
-            else items(vm.vehicles, key = { it.id }) { v ->
-                SectionCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocalShipping, contentDescription = null, tint = Color(0xFFCDDC39), modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(v.plateNo, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Text(typeLabel(v.vehicleType) + (v.driverName?.let { " · " + it } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (!v.isActive) Text("停用", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun typeLabel(t: String): String = when (t) { "trailer" -> "挂车"; "small" -> "小货车"; "large" -> "大货车"; else -> "其他" }
+// ---------------- 车辆：已迁到 VehicleManageScreen.kt（v3.44） ----------------
+//
+// 原来这里只有一个「新增车辆 + 只读列表」的台账：没有编辑、没有解绑司机。
+// 用户原话「司机的车辆绑定 App 端做不到」指的就是这件事 —— 想换车只能改数据库。
+// 现在整屏（列表/编辑/绑司机/停用）都在 VehicleManageScreen.kt，
+// 而且**司机管理页也能绑**（同一个接口，两个视角）。

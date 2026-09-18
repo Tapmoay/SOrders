@@ -8,7 +8,9 @@ from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import parse_date_range, require_permission
 from app.models import InventoryMovement, Product, User
+from app.models.enums import OperationAction
 from app.schemas.inventory import MovementCreate, MovementOut
+from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -58,8 +60,26 @@ def create_movement(
         change=body.change,
         note=body.note.strip(),
         operator_id=current.id,
+        source="MANUAL",
+        status="COMMITTED",
     )
     db.add(row)
+    # ⚠️ 库存调整**必须留痕**：它和改价是同一类事（改了钱/货的账，月底对不上要能回查）。
+    #    这一条以前漏了——审计页上永远看不到谁把库存改了多少。
+    #    与流水在**同一个事务**里提交，不会出现"货动了、日志没写"。
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.INVENTORY_ADJUST,
+        change_payload={
+            "product_id": product.id,
+            "name": product.name,
+            "change": body.change,
+            "stock_after": new_stock,
+            "note": body.note.strip(),
+        },
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -69,12 +89,33 @@ def create_movement(
 def inventory_summary(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
+    below_alert: bool = Query(False, description="只返回库存已达报警阈值的商品"),
 ) -> list[dict]:
-    """库存概览：商品名 + 当前库存（低库存排前）。"""
-    rows = db.scalars(
-        select(Product).where(Product.is_active.is_(True)).order_by(Product.stock, Product.id)
-    )
+    """库存概览：商品名 + 当前库存 + 在途占用量（派单中未送达，低库存排前）。"""
+    from sqlalchemy import func
+
+    q = select(Product).where(Product.is_active.is_(True)).order_by(Product.stock, Product.id)
+    if below_alert:
+        # 与 Android InventoryScreen 标红判断一致：阈值 > 0 且 库存 <= 阈值
+        q = q.where(Product.low_stock_alert > 0).where(Product.stock <= Product.low_stock_alert)
+    rows = db.scalars(q)
+    reserved_rows = db.execute(
+        select(InventoryMovement.product_id, func.sum(InventoryMovement.change))
+        .where(
+            InventoryMovement.source == "ORDER",
+            InventoryMovement.status == "RESERVED",
+        )
+        .group_by(InventoryMovement.product_id)
+    ).all()
+    reserved_map = {pid: abs(int(total or 0)) for pid, total in reserved_rows}
     return [
-        {"product_id": p.id, "product_name": p.name, "stock": p.stock or 0, "unit": p.unit or "件", "low_stock_alert": p.low_stock_alert or 0}
+        {
+            "product_id": p.id,
+            "product_name": p.name,
+            "stock": p.stock or 0,
+            "unit": p.unit or "件",
+            "low_stock_alert": p.low_stock_alert or 0,
+            "reserved": reserved_map.get(p.id, 0),
+        }
         for p in rows
     ]

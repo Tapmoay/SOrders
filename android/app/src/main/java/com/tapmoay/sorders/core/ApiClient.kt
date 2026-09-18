@@ -38,6 +38,7 @@ object ApiClient {
             else HttpLoggingInterceptor.Level.NONE
         }
         val client = OkHttpClient.Builder()
+            .dns(NetworkDns.dns)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
@@ -71,6 +72,7 @@ object ApiClient {
             userApi = retrofit.create(UserApi::class.java),
             orderApi = retrofit.create(OrderApi::class.java),
             shipperApi = retrofit.create(ShipperApi::class.java),
+            placeApi = retrofit.create(PlaceApi::class.java),
             ledgerApi = retrofit.create(LedgerApi::class.java),
             notificationApi = retrofit.create(NotificationApi::class.java),
             productApi = retrofit.create(ProductApi::class.java),
@@ -78,9 +80,13 @@ object ApiClient {
             inventoryApi = retrofit.create(InventoryApi::class.java),
             priceRuleApi = retrofit.create(PriceRuleApi::class.java),
             freightTemplateApi = retrofit.create(FreightTemplateApi::class.java),
+            driverBillingRuleApi = retrofit.create(DriverBillingRuleApi::class.java),
             freightSettlementApi = retrofit.create(FreightSettlementApi::class.java),
             reportApi = retrofit.create(ReportApi::class.java),
             accountingApi = retrofit.create(AccountingApi::class.java),
+            systemApi = retrofit.create(SystemApi::class.java),
+            fileApi = retrofit.create(FileApi::class.java),
+            rawApi = retrofit.create(RawApi::class.java),
         )
     }
 
@@ -97,6 +103,19 @@ object ApiClient {
         else -> ApiException(e.message ?: "未知错误", code = -1, cause = e)
     }
 
+    /**
+     * 从错误体里抠出一句**能照着改**的话。
+     *
+     * ### 为什么 Pydantic 的英文原文不能直接给用户
+     * 后端 422 的 `detail` 是一个数组，每项形如
+     * `{"loc":["body","order_ids"],"msg":"List should have at most 100 items","type":"too_long"}`。
+     * 直接显示 `msg` 的结果是用户在手机上看到一句英文（"List should have at most 100 items"），
+     * 既不知道是哪个字段，也不知道该改成多少——而这类 422 恰恰**全都能自助修好**
+     * （选太多了、手机号少一位、拆单份数超了）。
+     *
+     * 所以这里把最常见的几类校验翻成人话（**带字段名与上限**），认不出来的一律给一句
+     * 能行动的中文兜底，绝不把英文原文甩给用户。
+     */
     private fun parseDetail(body: String?): String? {
         if (body.isNullOrBlank()) return null
         return try {
@@ -104,13 +123,40 @@ object ApiClient {
             val d = (obj as? kotlinx.serialization.json.JsonObject)?.get("detail")
             when (d) {
                 is kotlinx.serialization.json.JsonPrimitive -> d.content.takeIf { it.isNotBlank() }
-                is kotlinx.serialization.json.JsonArray -> d.firstOrNull()?.let {
-                    (it as? kotlinx.serialization.json.JsonObject)?.get("msg")?.toString()
-                        ?.trim('"') ?: "参数错误"
-                } ?: "参数错误"
+                is kotlinx.serialization.json.JsonArray -> {
+                    val first = d.firstOrNull() as? kotlinx.serialization.json.JsonObject
+                    val raw = first?.get("msg")?.toString()?.trim('"')
+                    humanizeValidation(raw)
+                }
                 else -> null
             }
         } catch (_: Exception) { null }
+    }
+
+    /** Pydantic 的 `msg`（英文）→ 一句中文。见 [parseDetail] 的注释。 */
+    internal fun humanizeValidation(msg: String?): String? {
+        val m = msg?.trim().orEmpty()
+        if (m.isEmpty()) return "提交的内容不符合要求，请检查后重试"
+        val zh = m.contains(Regex("[\\u4e00-\\u9fa5]"))
+        if (zh) return m  // 后端自己写的中文（自定义校验器）原样用
+        return when {
+            m.startsWith("List should have at most") -> {
+                val n = Regex("\\d+").find(m)?.value
+                "一次最多只能选 ${n ?: "规定数量的"} 项，请少选一些再提交"
+            }
+            m.startsWith("List should have at least") -> {
+                val n = Regex("\\d+").find(m)?.value
+                "至少要选 ${n ?: "规定数量的"} 项"
+            }
+            m.contains("String should match pattern") -> "格式不对（例如手机号要 11 位数字），请检查后重试"
+            m.contains("String should have at least") -> "内容太短了，请填写完整"
+            m.contains("String should have at most") -> "内容太长了，请精简一些"
+            m.contains("Input should be greater than or equal to") -> "数值太小了（不能小于允许的下限）"
+            m.contains("Input should be less than or equal to") -> "数值太大了（超过允许的上限）"
+            m.contains("Field required") -> "有必填项没有填"
+            m.contains("Input should be a valid") -> "填写的内容格式不对，请检查后重试"
+            else -> "提交的内容不符合要求，请检查后重试"
+        }
     }
 }
 
@@ -119,6 +165,8 @@ data class ApiBundle(
     val userApi: UserApi,
     val orderApi: OrderApi,
     val shipperApi: ShipperApi,
+    /** 共享地点库（导航信息）：不按人分区，三种角色共用一张表。 */
+    val placeApi: PlaceApi,
     val ledgerApi: LedgerApi,
     val notificationApi: NotificationApi,
     val productApi: ProductApi,
@@ -126,7 +174,13 @@ data class ApiBundle(
     val inventoryApi: InventoryApi,
     val priceRuleApi: PriceRuleApi,
     val freightTemplateApi: FreightTemplateApi,
+    val driverBillingRuleApi: DriverBillingRuleApi,
     val freightSettlementApi: FreightSettlementApi,
     val reportApi: ReportApi,
     val accountingApi: AccountingApi,
+    val systemApi: SystemApi,
+    /** AI 助手「挂载文件」：上传表格让服务端读成文本（不保存文件）。 */
+    val fileApi: FileApi,
+    /** 动态 GET（只给 AI 通用读工具用，路径来自编译期白名单，见 [RawApi]）。 */
+    val rawApi: RawApi,
 )

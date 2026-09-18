@@ -1,14 +1,18 @@
 param(
   [switch]$NoBuild,       # skip gradle build, install existing APK
   [switch]$NoRun,         # install only, do not launch app
-  [switch]$CleanBuild     # gradle clean before assembleDebug
+  [switch]$CleanBuild     # gradle clean before assembleEmuDebug
 )
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $sdk    = "D:\APPS\sdk"
 $adb    = "$sdk\platform-tools\adb.exe"
-$apk    = "$root\android\app\build\outputs\apk\debug\app-debug.apk"
+# ABI flavors since 2026-09-15: emulators are x86_64 -> use the "emu" flavor.
+# Real phones get the "phone" flavor (arm64-v8a + armeabi-v7a), which is what
+# _tools/deploy/publish_apk.py uploads. See docs/APP_UPDATE_AND_RELEASE.md.
+$apk    = "$root\android\app\build\outputs\apk\emu\debug\app-emu-debug.apk"
+$variant = "assembleEmuDebug"
 $gradle = "$root\_agent\gradle\gradle-8.9\bin\gradle.bat"
 $jbr    = "D:\APPS\AndroidStudio\jbr"
 $pkg    = "com.tapmoay.sorders"
@@ -29,9 +33,9 @@ if (-not $NoBuild) {
     & $gradle clean --no-daemon -p "$root\android"
     if ($LASTEXITCODE -ne 0) { Log "clean FAILED"; exit 1 }
   }
-  Log "building assembleDebug ..."
+  Log "building $variant ..."
   $env:JAVA_HOME = $jbr; $env:ANDROID_HOME = $sdk
-  & $gradle assembleDebug --no-daemon -p "$root\android"
+  & $gradle $variant --no-daemon -p "$root\android"
   if ($LASTEXITCODE -ne 0) { Log "build FAILED"; exit 1 }
 }
 if (-not (Test-Path $apk)) { Log "APK missing: $apk"; exit 1 }

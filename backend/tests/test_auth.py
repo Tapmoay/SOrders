@@ -43,34 +43,43 @@ def test_login_invalid_password(client: TestClient) -> None:
 
 @pytest.mark.auth
 @pytest.mark.fast
-def test_register_shipper_sms_and_login(client: TestClient) -> None:
-    """注册：用户名 + 密码 + 手机号 + 验证码；测试环境 SMS_REVEAL_CODE 返回明文 code。"""
+def test_self_registration_is_closed(client: TestClient, db_session) -> None:
+    """自助注册已整体关闭（2026-09-18 用户要求「注册接口关掉，不需要用了」）。
+
+    判据是**效果**，不是"源码里还有没有字符串"：
+    ① 两条路径都取不到（404）；
+    ② 库里账号数一个没多；
+    ③ 那个手机号也登不进来（没有被换个方式悄悄建号）。
+    """
+    from app.models import User
+
+    before = db_session.query(User).count()
     phone = "13900000009"
-    r0 = client.post("/api/v1/auth/sms/send", json={"phone": phone})
-    assert r0.status_code == 200
-    body = r0.json()
-    assert body.get("ok") is True
-    code = body.get("code")
-    assert code and len(code) >= 4
-
-    r = client.post(
-        "/api/v1/auth/register",
-        json={
-            "username": "reguser9",
-            "password": "pass12345",
-            "phone": phone,
-            "verification_code": code,
-        },
+    attempts = (
+        ("/api/v1/auth/sms/send", {"phone": phone}),
+        (
+            "/api/v1/auth/register",
+            {
+                "username": "reguser9",
+                "password": "pass12345",
+                "phone": phone,
+                "verification_code": "000000",
+            },
+        ),
     )
-    assert r.status_code == 200
-    tok = r.json()
-    assert tok["token_type"] == "bearer"
+    for path, body in attempts:
+        r = client.post(path, json=body)
+        assert r.status_code == 404, f"{path} 还能调（{r.status_code}）——注册面又开了？"
 
-    r2 = client.post(
-        "/api/v1/auth/login",
-        json={"username": "reguser9", "password": "pass12345"},
+    db_session.expire_all()
+    assert db_session.query(User).count() == before, "注册接口没关严：库里多出了账号"
+    assert db_session.query(User).filter_by(phone=phone).first() is None
+    assert (
+        client.post(
+            "/api/v1/auth/login", json={"phone": phone, "password": "pass12345"}
+        ).status_code
+        == 401
     )
-    assert r2.status_code == 200
 
 
 @pytest.mark.auth
@@ -122,6 +131,67 @@ def test_dispatcher_can_list_users(client: TestClient, token_dispatcher: str) ->
 def test_shipper_cannot_list_users(client: TestClient, token_shipper: str) -> None:
     r = client.get("/api/v1/users", headers=auth_headers(token_shipper))
     assert r.status_code == 403
+
+
+@pytest.mark.auth
+@pytest.mark.dispatcher
+@pytest.mark.fast
+def test_list_users_q_searches_name_and_phone(
+    client: TestClient, token_dispatcher: str, token_shipper: str, users: dict
+) -> None:
+    """q 按「姓名 or 手机号」模糊搜索；不传 q / q 为空白串时行为与原来完全一致。"""
+    h = auth_headers(token_dispatcher)
+
+    base = client.get("/api/v1/users", headers=h)
+    assert base.status_code == 200, base.text
+    base_ids = [u["id"] for u in base.json()]
+    assert base_ids == sorted(base_ids, reverse=True)  # 仍按 id desc
+    assert users["shipper"].id in base_ids
+
+    # .strip() 后为空 → 不筛：与不传 q 完全等价
+    for params in ({}, {"q": ""}, {"q": "   "}):
+        r = client.get("/api/v1/users", params=params, headers=h)
+        assert r.status_code == 200, r.text
+        assert [u["id"] for u in r.json()] == base_ids
+
+    # 姓名模糊命中（且返回的每一行都确实命中姓名或手机号）
+    by_name = client.get("/api/v1/users", params={"q": "Shipper"}, headers=h)
+    assert by_name.status_code == 200, by_name.text
+    name_rows = by_name.json()
+    assert users["shipper"].id in [u["id"] for u in name_rows]
+    assert all(
+        "Shipper" in (u.get("full_name") or "") or "Shipper" in (u.get("phone") or "")
+        for u in name_rows
+    )
+
+    # 手机号局部模糊
+    by_phone = client.get("/api/v1/users", params={"q": "1380000000"}, headers=h)
+    assert by_phone.status_code == 200, by_phone.text
+    assert users["shipper"].id in [u["id"] for u in by_phone.json()]
+
+    # 手机号精确定位到唯一一人
+    exact = client.get("/api/v1/users", params={"q": "13800000002"}, headers=h)
+    assert exact.status_code == 200, exact.text
+    assert [u["id"] for u in exact.json()] == [users["shipper"].id]
+
+    # q 与既有 role 筛选叠加（不破坏原筛选）
+    combo = client.get(
+        "/api/v1/users", params={"q": "1380000000", "role": "dispatcher"}, headers=h
+    )
+    assert combo.status_code == 200, combo.text
+    combo_rows = combo.json()
+    assert combo_rows
+    assert all(u["role"] == "dispatcher" for u in combo_rows)
+    assert users["dispatcher"].id in [u["id"] for u in combo_rows]
+
+    # q 与既有 limit 叠加
+    limited = client.get("/api/v1/users", params={"q": "1380000000", "limit": 1}, headers=h)
+    assert limited.status_code == 200, limited.text
+    assert len(limited.json()) == 1
+
+    # 权限未变：货主仍不可搜索用户
+    denied = client.get("/api/v1/users", params={"q": "Shipper"}, headers=auth_headers(token_shipper))
+    assert denied.status_code == 403
 
 
 @pytest.mark.auth

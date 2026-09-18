@@ -29,6 +29,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.AddressDto
+import com.tapmoay.sorders.data.remote.dto.LocationDto
+import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -204,12 +206,12 @@ fun OrderCreateScreen(
                     }
                     Spacer(Modifier.height(6.dp))
                     OutlinedButton(
-                        onClick = { vm.showProductSheet = true },
+                        onClick = { vm.showProductPicker = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("添加商品")
+                        Text(if (vm.lines.isEmpty()) "添加商品" else "继续添加商品")
                     }
                 }
             }
@@ -235,6 +237,74 @@ fun OrderCreateScreen(
                             Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("地址库")
+                        }
+                    }
+                    if (vm.addressLat.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "还没选地图坐标：司机拿到这单只能靠打电话问路。" +
+                                "点「地图选点」定位一下，或者从「地址库 → 共享地点」里挑一个别人标过的。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFE6A23C),
+                        )
+                    } else {
+                        // 有坐标 → 给一个**明确的一点**把坐标贡献进共享库。
+                        // 为什么必须手动点：共享库是全库共用、**没有删除接口**的表，
+                        // 一次误操作是永久的；而且"选了地图点"常常只是探索。
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Spacer(Modifier.height(8.dp))
+                        if (vm.placeSaved) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00B578),
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "这个位置已在共享地点库里",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF00B578),
+                                    )
+                                }
+                                // ⚠️ 提示必须放在**用户刚点的那一行下面**，不能塞到页面底部的
+                                //    通用提示位：那在 LazyColumn 末尾，长表单里根本不在屏幕上
+                                //    （真机 dump 验证过 —— 等于没有反馈）。而"新建还是并入"
+                                //    恰恰是用户最需要知道的一句话。
+                                vm.toast?.let {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF00B578),
+                                    )
+                                }
+                            }
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "把这个位置存进共享地点库",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        "下次同样的位置（包括别人送的单）直接拉坐标，不用各自再传一次",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = { vm.saveCurrentPlaceToSharedLibrary() },
+                                    enabled = !vm.savingPlace,
+                                ) {
+                                    Text(if (vm.savingPlace) "存入中…" else "存入")
+                                }
+                            }
                         }
                     }
                     Spacer(Modifier.height(10.dp))
@@ -313,38 +383,31 @@ fun OrderCreateScreen(
         }
     }
 
-    // 商品选择底部弹窗
-    if (vm.showProductSheet) {
-        ProductSheet(
+    // 外卖式全屏选品页（货主下单 / 代理下单共用同一个组件）
+    if (vm.showProductPicker) {
+        ProductPickerSheet(
             products = vm.products,
             loading = vm.loadingProducts,
             priceFor = { vm.priceFor(it) },
-            onPick = { p ->
-                vm.pendingAdd = LineDraft(productId = p.id, name = p.name, quantity = 1, price = vm.priceFor(p), unit = p.unit)
-                vm.showProductSheet = false
+            categoryOrder = vm.categoryOrder,
+            onConfirm = { picked ->
+                if (vm.addPickedLines(picked)) vm.showProductPicker = false
             },
-            onDismiss = { vm.showProductSheet = false },
+            onDismiss = { vm.showProductPicker = false },
         )
     }
 
-    // 地址库选择
+    // 选收货地址：线路 / 我的地点 / 共享地点 三段
     if (vm.showAddressSheet) {
-        AddressSheet(
+        AddressPickerSheet(
             addresses = vm.addresses,
-            onPick = { a -> vm.applyAddress(a) },
+            locations = vm.locations,
+            places = vm.places,
+            onPickAddress = { vm.applyAddress(it) },
+            onPickLocation = { vm.applyLocation(it) },
+            onPickPlace = { vm.applyPlace(it) },
+            onSearchPlaces = { vm.loadPlaces(it) },
             onDismiss = { vm.showAddressSheet = false },
-        )
-    }
-
-    // 选商品 → 小型数量弹窗（标题=商品名，只选数量，确定即添加）
-    vm.pendingAdd?.let { draft ->
-        AddQtyDialog(
-            productName = draft.name.ifBlank { "商品信息" },
-            onConfirm = { qty ->
-                vm.addLine(draft.name, draft.price, draft.productId, draft.unit, qty)
-                vm.pendingAdd = null
-            },
-            onDismiss = { vm.pendingAdd = null },
         )
     }
 
@@ -355,7 +418,7 @@ fun OrderCreateScreen(
         LineEditDialog(
             initial = draft,
             onConfirm = { updated ->
-                if (isNew) vm.addLine(updated.name, updated.price, null)
+                if (isNew) vm.addLine(updated.name, updated.price, null, updated.unit, updated.quantity)
                 else vm.updateLine(idx, updated)
                 vm.editingLineIndex = null
             },
@@ -451,139 +514,152 @@ fun OrderCreateScreen(
     }
 }
 
+
+/**
+ * 选收货地址：**线路 / 我的地点 / 共享地点** 三段。
+ *
+ * ## 为什么要把三张表放在一个弹层里
+ * 它们回答的是同一个问题"这单送到哪"，只是来源不同：
+ * - **线路**（`shipper_addresses`）：带收货人电话的完整线路，最常用；
+ * - **我的地点**（`shipper_locations`）：纯地点（含坐标）。**司机到场补录的坐标会进这里** ——
+ *   用户要的"下次他下这个单的时候就会自动添加"就落在这一段；
+ * - **共享地点**（`places`）：全库共用，别人/司机标过的坐标直接拉过来
+ *   （"省的每个人都要手动上传一次"）。
+ *
+ * 三个来源分开列而不是混成一列，是因为**来源决定了可信度**：自己的地点是确认过的，
+ * 共享地点可能只有坐标没有名字。混在一起用户没法判断该信哪个。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProductSheet(
-    products: List<ProductDto>,
-    loading: Boolean,
-    priceFor: (ProductDto) -> String,
-    onPick: (ProductDto) -> Unit,
+private fun AddressPickerSheet(
+    addresses: List<AddressDto>,
+    locations: List<LocationDto>,
+    places: List<PlaceDto>,
+    onPickAddress: (AddressDto) -> Unit,
+    onPickLocation: (LocationDto) -> Unit,
+    onPickPlace: (PlaceDto) -> Unit,
+    onSearchPlaces: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            Text("选择商品", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp))
-            Spacer(Modifier.height(8.dp))
-            if (loading) {
-                LoadingBox()
-            } else if (products.isEmpty()) {
-                Text(
-                    "暂无可用商品\n请联系派单员先在「商品管理」中添加商品后再下单",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                )
-            } else {
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    itemsIndexed(products) { _, p ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(p) }
-                                .padding(horizontal = 20.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (p.imageUrl != null) {
-                                AsyncImage(
-                                    model = com.tapmoay.sorders.util.resolveStaticUrl(p.imageUrl),
-                                    contentDescription = p.name,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(MaterialTheme.shapes.small),
-                                )
-                            } else {
-                                Box(
-                                    Modifier
-                                        .size(44.dp)
-                                        .clip(MaterialTheme.shapes.small)
-                                        .background(
-                                            androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        Icons.Default.Inventory2,
-                                        contentDescription = null,
-                                        tint = androidx.compose.ui.graphics.Color.White,
-                                        modifier = Modifier.size(22.dp),
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    p.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
-                                )
-                                Text(
-                                    "¥" + formatMoney(priceFor(p)),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(MoneyOrange),
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                            Button(onClick = { onPick(p) }, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
-                                Text("添加")
-                            }
-                        }
-                    }
-                }
-            }
+    val tabs = listOf("线路", "我的地点", "共享地点")
+    var tab by remember { mutableStateOf(0) }
+    var keyword by remember { mutableStateOf("") }
+
+    // 搜索**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
+    // 前两段在本地过滤（数据本来就在手上，即时出结果）；共享地点段还要**同时**打后端 ——
+    // 后端那份是全库的，本地这份只是"最近常用的一页"，只筛本地会漏掉远处的地点。
+    val kw = keyword.trim()
+    val shownAddresses = remember(addresses, kw) {
+        if (kw.isBlank()) addresses
+        else addresses.filter {
+            it.receiverName.contains(kw, true) || it.phone.contains(kw) || it.detailAddress.contains(kw, true)
         }
     }
-}
+    val shownLocations = remember(locations, kw) {
+        if (kw.isBlank()) locations
+        else locations.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
+    }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AddressSheet(
-    addresses: List<AddressDto>,
-    onPick: (AddressDto) -> Unit,
-    onDismiss: () -> Unit,
-) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            Text("从地址库选择", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp))
-            Spacer(Modifier.height(8.dp))
-            if (addresses.isEmpty()) {
-                Text(
-                    "地址库为空，可先去地址管理添加",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+        Column(Modifier.padding(bottom = 20.dp)) {
+            Text(
+                "选择收货地址",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            SegmentedStatusTabs(
+                labels = tabs.map { it + " " + countOf(it, addresses, locations, places) },
+                colors = listOf(
+                    Color(0xFF1E6FFF),
+                    Color(0xFF00A2C7),
+                    Color(0xFF00B578),
+                ),
+                selected = tab,
+                onSelect = {
+                    tab = it
+                    keyword = ""
+                    onSearchPlaces(null)
+                },
+            )
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                SoTextField(
+                    value = keyword,
+                    onValueChange = {
+                        keyword = it
+                        // 共享地点段顺带搜后端（全库那部分本地没有）
+                        if (tab == 2) onSearchPlaces(it.ifBlank { null })
+                    },
+                    placeholder = when (tab) {
+                        0 -> "搜收货人、电话或地址"
+                        1 -> "搜地点名或地址"
+                        else -> "搜地点名或地址（全库）"
+                    },
                 )
-            } else {
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    itemsIndexed(addresses) { _, a ->
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(a) }
-                                .padding(horizontal = 20.dp, vertical = 16.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    a.receiverName.ifBlank { "收货人" } + " " + a.phone,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (a.isDefault) {
-                                    Text(
-                                        "默认",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                            Text(
-                                a.detailAddress,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
+                if (keyword.isNotBlank()) {
+                    TextButton(
+                        onClick = { keyword = ""; onSearchPlaces(null) },
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    ) { Text("清除") }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                when (tab) {
+                    0 -> if (shownAddresses.isEmpty()) {
+                        item {
+                            SheetEmptyHint(
+                                if (kw.isBlank()) "线路库为空，可先去「地址与联系人」添加"
+                                else "没有匹配「$kw」的线路",
                             )
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    } else {
+                        itemsIndexed(shownAddresses) { _, a ->
+                            SheetRow(
+                                title = a.receiverName.ifBlank { "收货人" } + "  " + a.phone,
+                                subtitle = a.detailAddress,
+                                badge = if (a.isDefault) "默认" else null,
+                                hasCoords = !a.addressLat.isNullOrBlank(),
+                                onClick = { onPickAddress(a) },
+                            )
+                        }
+                    }
+                    1 -> if (shownLocations.isEmpty()) {
+                        item {
+                            SheetEmptyHint(
+                                if (kw.isBlank()) "地点库为空。司机到场帮你补的导航位置会出现在这里"
+                                else "没有匹配「$kw」的地点",
+                            )
+                        }
+                    } else {
+                        itemsIndexed(shownLocations) { _, l ->
+                            SheetRow(
+                                title = l.name.ifBlank { l.detailAddress.ifBlank { "未命名地点" } },
+                                subtitle = l.detailAddress,
+                                badge = "我的",
+                                hasCoords = !l.addressLat.isNullOrBlank(),
+                                onClick = { onPickLocation(l) },
+                            )
+                        }
+                    }
+                    else -> if (places.isEmpty()) {
+                        item {
+                            SheetEmptyHint(
+                                if (keyword.isBlank()) "共享地点库还是空的"
+                                else "没有匹配「$keyword」的地点",
+                            )
+                        }
+                    } else {
+                        itemsIndexed(places) { _, p ->
+                            SheetRow(
+                                title = p.name.ifBlank { p.detailAddress.ifBlank { "未命名地点" } },
+                                subtitle = p.detailAddress,
+                                badge = sourceLabel(p.source) + " · 用过 " + p.useCount + " 次",
+                                hasCoords = true,
+                                onClick = { onPickPlace(p) },
+                            )
+                        }
                     }
                 }
             }
@@ -591,52 +667,82 @@ private fun AddressSheet(
     }
 }
 
-/** 添加商品小弹窗：标题=商品名（无需填写），只选数量，确定即加入明细 */
+private fun countOf(
+    tab: String,
+    addresses: List<AddressDto>,
+    locations: List<LocationDto>,
+    places: List<PlaceDto>,
+): Int = when (tab) {
+    "线路" -> addresses.size
+    "我的地点" -> locations.size
+    else -> places.size
+}
+
+private fun sourceLabel(source: String): String = when (source) {
+    "driver" -> "司机补录"
+    "dispatcher" -> "派单员"
+    "shipper" -> "货主"
+    else -> "共享"
+}
+
 @Composable
-fun AddQtyDialog(
-    productName: String,
-    onConfirm: (Int) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var qty by remember { mutableStateOf(1) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(productName, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-        text = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                FilledTonalIconButton(
-                    onClick = { qty = (qty - 1).coerceAtLeast(1) },
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = Color(0xFFE8F2FF),
-                        contentColor = Color(0xFF1E6FFF),
-                    ),
-                ) {
-                    Icon(Icons.Default.Remove, contentDescription = "减")
-                }
-                OutlinedTextField(
-                    value = qty.toString(),
-                    onValueChange = { v -> qty = v.filter { c -> c.isDigit() }.take(4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1E6FFF)),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                    modifier = Modifier.width(96.dp),
-                )
-                FilledTonalIconButton(
-                    onClick = { qty = (qty + 1).coerceAtMost(9999) },
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = Color(0xFFE8F2FF),
-                        contentColor = Color(0xFF1E6FFF),
-                    ),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "加")
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(qty) }) { Text("确定") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+private fun SheetEmptyHint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
     )
 }
+
+/** 弹层里的一行：标题 + 副标题 + 角标 + 「有导航」标记（有没有坐标一眼可辨）。 */
+@Composable
+private fun SheetRow(
+    title: String,
+    subtitle: String,
+    badge: String?,
+    hasCoords: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1)
+            if (hasCoords) {
+                Text(
+                    "有导航",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF00B578),
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            badge?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (subtitle.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
 
 /** 行编辑弹窗：数量步进 + 单价 */
 @Composable
@@ -649,6 +755,7 @@ fun LineEditDialog(
     var name by remember { mutableStateOf(initial.name) }
     var price by remember { mutableStateOf(initial.price) }
     var qty by remember { mutableStateOf(initial.quantity.coerceAtLeast(1)) }
+    var unit by remember { mutableStateOf(initial.unit.ifBlank { "件" }) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -689,6 +796,17 @@ fun LineEditDialog(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
+                // 单位与选品弹窗同一套口径：下单和送货单上显示的就是它
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("单位", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    SoTextField(
+                        value = unit,
+                        onValueChange = { unit = it.take(8) },
+                        placeholder = "件/箱/斤",
+                        modifier = Modifier.width(140.dp),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
                 Text(
                     "小计 ¥" + formatMoney((price.toDoubleOrNull()?.times(qty) ?: 0.0).toString()),
                     style = MaterialTheme.typography.titleMedium,
@@ -700,7 +818,7 @@ fun LineEditDialog(
             TextButton(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onConfirm(LineDraft(initial.productId, name.trim(), qty, price, initial.unit))
+                        onConfirm(LineDraft(initial.productId, name.trim(), qty, price, unit.trim().ifBlank { "件" }))
                     }
                 },
             ) { Text("确定") }

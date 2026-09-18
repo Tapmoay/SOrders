@@ -1,6 +1,11 @@
-from app.schemas.auth import LoginRequest, RegisterRequest, Token
+from app.schemas.auth import LoginRequest, Token
 from app.schemas.ledger import LedgerCreate, LedgerOut, LedgerUpdate
-from app.schemas.notification import NotificationCreate, NotificationOut, NotificationUpdate
+from app.schemas.notification import (
+    NotificationBatchDeleteBody,
+    NotificationCreate,
+    NotificationOut,
+    NotificationUpdate,
+)
 from app.schemas.operation_log import OperationLogOut
 from app.schemas.order import (
     OrderAssignBody,
@@ -23,6 +28,7 @@ __all__ = [
     "LedgerOut",
     "LedgerUpdate",
     "LoginRequest",
+    "NotificationBatchDeleteBody",
     "NotificationCreate",
     "NotificationOut",
     "NotificationUpdate",
@@ -43,7 +49,6 @@ __all__ = [
     "ProductCreate",
     "ProductOut",
     "ProductUpdate",
-    "RegisterRequest",
     "Token",
     "UserCreate",
     "UserOut",

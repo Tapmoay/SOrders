@@ -1,0 +1,359 @@
+# 08 代码定位表（需求 → 文件）
+
+<!-- ref-prefix: android/app/src/main/java/com/tapmoay/sorders/ -->
+<!-- 声明在文件最顶部：本文的 Kotlin 路径一律省略这个包根（6 层深），
+     且**第 1 节的后端行里也会引用 Android 文件**——声明得晚，那些行就解析不到。
+     它只是给 check_refs.py **追加**一个候选根，后端路径照旧解析，不受影响。 -->
+
+> **这份文档回答一个问题：改某个功能，该动哪几个文件？**
+>
+> 用法：接到需求 → 先在表里找对应行 → 直接读「核心」文件。**不要先全库 grep**——同一个业务概念在代码里通常散落 4~14 个文件，grep 只会给你一堆候选，读完才知道哪个是核心。
+>
+> 与 `01~07` 的分工：那 7 份是**架构视角**（了解"这个项目是什么"），本表是**改动视角**（"我要动这个，去哪个文件"）。两者互补，不重复。
+>
+> 与 [`08A_ENDPOINT_INDEX.md`](08A_ENDPOINT_INDEX.md) 的分工：**08A 是机器生成的端点索引**（130 个 URL → handler → 精确行号 → 授权），本表不重复它。
+> - 问"**某个 URL 落在哪个函数、谁能调**" → 查 08A（grep，别通读）
+> - 问"**改这个功能该动哪几个文件**" → 用本表
+>
+> 08A 有 `--check` 守 freshness，行号比本表准；本表的 `L###` 只是**提示性锚点**，对不上时以符号名为准。
+>
+> 📏 **本表约 8k tokens 级别**（中文口径估算；**不要通读**——按业务域跳读你关心的那一节）。
+> 作为参照：只读 `app/api/v1/orders.py` 一个文件就要约 12k tokens，所以**先看表再定位**始终更省。
+
+---
+
+## 0. 先读这两个文件（最高性价比）
+
+| 文件 | 行数 | 为什么先读它 |
+|---|---|---|
+| `backend/app/models/enums.py` | 126 | **整个领域词汇表**。`OrderStatus` 五态、`BillingMode`、`LedgerSource`、`OperationAction`（全部审计动作）、`CashFlowBizType`（20+ 收支类型）、`ExpenseCategory`、`ReceiptSettleMode`、`SettlementStatus`… 读完它就知道系统里所有状态和业务分类叫什么。**胜过读 10 个 API 文件** |
+| `backend/app/api/v1/router.py` | 50 | 22 个路由模块的挂载清单，一眼看清有哪些业务面 |
+
+### 需要"全仓结构"时：生成签名地图，不要读全部源码
+
+```powershell
+cd backend
+python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文件 → 约 12.9k tokens
+```
+
+产物是「文件 → 类/函数 + 签名 + docstring 首行」，**覆盖 100% 文件**（它不做检索，所以没有"漏掉某个文件"的假阴性）。
+以本仓库为参照：`backend/` 全量 **118 文件 / 14,169 行 ≈ 145k tokens** → 签名地图约 **13k tokens**（压缩约 11×，按 token 比；只算 `app/` 时是 99 文件 / 10,703 行 ≈ 110k）。
+**改动大、需要通盘看结构时才生成**；日常改功能用本表 + [`08A_ENDPOINT_INDEX.md`](08A_ENDPOINT_INDEX.md) 就够。
+
+> 它是**工具而非提交物**——每次现生成（一秒钟），不要把产物提交进仓库：
+> 结构快照会随代码漂，手写文档才需要保鲜，生成物需要的是"随时能重生成"。
+
+---
+
+## 1. 后端（`backend/`）
+
+### 1.1 订单与派单（最大的一块）
+
+| 功能 | 核心文件 | 附带文件 | 注意 |
+|---|---|---|---|
+| **订单状态流转**（最高频） | `app/services/order_flow.py`（**5 处**：L76 DISPATCHED / L153 CANCELLED / L190 DELIVERED / L229 CANCELLED / L251 PENDING_DISPATCH） | `app/models/enums.py`、**`app/api/v1/orders.py` L686（第 6 处：`driver_ack_view` 的 DISPATCHED→ACCEPTED，即"接单"）**、`app/services/inventory_service.py` | ⚠️ 全后端共 **6 处** `OrderStatus` 赋值，**不是全在 order_flow.py**。改前先确认是否要给 `OrderStatus` 加值 |
+| **订单流转的库存联动**（极易漏） | `app/services/inventory_service.py` | `app/services/order_flow.py` | 状态机的每一步都在联动库存：派单→`auto_stock_out`（预占，order_flow L82）、送达→`auto_stock_commit`（真扣，L202）、撤销/撤回→`auto_stock_release`（L155/L231/L255）。**改订单流转必须同时考虑它** |
+| **派单 / 批量派单 / 撤回** | `app/api/v1/orders.py`（L281 `batch_assign_orders`、L729 `assign_order`、L996 `recall_order`） | `order_flow.py::assign_driver` / `recall_dispatch` | 撤回会写订单快照日志，见 `order_snapshot_for_log` |
+| **司机送达 + 收现金/挂账** | `app/services/order_flow.py::complete_delivery` | `app/api/v1/orders.py`（L639 `complete_order_with_upload`、L854 `complete_order`）、`app/services/accounting_service.py` | 送达会**同步货主账本 + 触发司机应付 + 货损记账**，不是单纯改状态 |
+| **拆单** | `app/services/order_flow.py::split_order` | `app/api/v1/orders.py` L759 `split_order_endpoint` | 数量按比例拆分，**余数归首份** |
+| **下单 / 订单行** | `app/api/v1/orders.py`（L359 `create_order` 建单） | `app/services/order_flow.py::build_order_products`、`app/schemas/order.py`、`app/api/v1/order_products.py` | 商品**成本快照在下单时定格**，货损/毛利率按此成本算。<br>⚠️ **订单行单位**（`order_products.unit_snapshot`，出参名叫 `unit`）也在这条链上：客户端不传时回退**商品库里的单位**，拆单时**跟着拆**。出参名 ≠ 列名，`OrderProductOut.unit` 必须写 `validation_alias=AliasChoices(...)` —— 不写**不报错、只是恒为空串**（表现是"选了 3 箱，详情页只剩 3"） |
+| **订单软删除 / 恢复** | `app/api/v1/orders.py`（**L334** `delete_cancelled_order` 软删、**L546** `restore_order` 恢复；⚠️ 同一文件里**还有第二个同路径的 `DELETE /{order_id}`**，被 L334 抢先匹配、永不生效——以实测为准，别信 OpenAPI 的 operationId） | `app/services/data_retention.py` | 软删 **30 天**隔离（`data_retention.py` L28 `SOFT_DELETE_RETENTION_DAYS`），物理清理在同一文件 |
+| ⚠️ **不是**订单保留策略 | — | ~~`app/services/cancelled_order_retention.py`~~ | **该文件是死代码**（全后端零导入）。且它 L18 的 `CANCELLED_ORDER_RETENTION_DAYS = 10` 与现行 **30 天**策略**数值冲突**——照它回答会答成 10 天 |
+| **订单异常** | `app/api/v1/orders.py` L484 `patch_order_exception` | — | — |
+| **订单出参装配**（加**派生**字段才看） | `app/services/order_response.py::enrich_order_out` | `app/api/v1/orders.py`（**19 处调用**，唯一调用方） | ⚠️ **加普通列不用动这个文件**——它 L28 是 `OrderOut.model_validate(order)`，**自动带出**模型上有、`OrderOut` 上也有的字段。只有**派生字段**（要靠别的表/按角色算出来的：`driver_phone`/`driver_name`/`driver_billing_mode`/`shipper_name`/`is_new_for_driver`/`freight_visible`/`internal_notes`）才要在这里手写。<br>真正的坑在**别漏 `OrderOut`**：模型有列但 Out 没字段 → `model_validate` 拿不到 → **静默不返回、不报错**。<br>⚠️ `app/api/v1/freight_settlement.py` L13 有一行 `import enrich_order_out as _enrich  # noqa: F401`——**那是未使用的死导入，不是调用点** |
+| **账本出参装配**（加字段必看） | `app/services/ledger_response.py::ledger_to_out` | `app/api/v1/ledger.py`（**4 处调用**：L82/L224/L243/L308） | ⚠️ **这个才是逐字段手写映射**（L16-L33 一个个 `id=row.id, …`）——给 `ledgers` 表加列，**必须在这里补一行**，否则静默丢失 |
+| **给表加字段**（跨层配方，极易漏） | ① `app/models/<表>.py` ② **`app/core/schema_bootstrap.py`**（手写 `ALTER TABLE`，共 66 处） ③ 对应 `app/schemas/`（**`OrderOut` 漏字段 = 静默不返回**） ④ 仅派生字段才动 `order_response.py`（见上两行） ⑤ **若该字段要下发到 App → Android 三层**：`data/remote/dto/Dtos.kt`（DTO + 提交体，**必须给默认值**）→ `data/remote/api/Apis.kt`（`@Part`/body）→ `data/repo/AppRepository.kt`（透传），**新字段若要在界面输入/展示，再加 ViewModel + Screen** | `frontend/`（旧 H5，可选） | ⚠️ **本项目没有 Alembic**，迁移全在 schema_bootstrap 手写，且在 `app/database.py` L42 **`import` 时执行**。漏第 ② 步 = **本地 SQLite 能跑、生产 MySQL 500**。<br>⚠️ 第 ⑤ 步**实测漏过**：跨层字段必然连带 3 个 Android 文件（`Dtos`/`Apis`/`AppRepository`），要输入还要 +2（ViewModel/Screen）；旧 H5 是位置参数，不改不报错但永远传空 |
+| **加一个接口**（配方） | ① `app/api/v1/<模块>.py` 加 `@router.<verb>` 处理函数 ② `app/schemas/` 加 In/Out ③ 若需新权限 → 见下一行 ④ 出参走 `enrich_order_out` 而非手拼（订单类） ⑤ **若要给 App 调用 → Android 三层**：`data/remote/api/Apis.kt`（Retrofit 方法）→ `data/remote/dto/Dtos.kt`（出入参，**必须给默认值**）→ `data/repo/AppRepository.kt`（透传）；要上界面再加 ViewModel/Screen | `app/api/v1/router.py`（仅新模块才需挂载）、旧 H5 `frontend/src/api/` | 现有模块加端点**不用动 router.py**；只有新增模块文件才要 `include_router`。<br>⚠️ 第 ⑤ 步**实测漏过**（与「给表加字段」是同一个坑）：后端加完接口，App 侧不会自动有——不补 Android 三层，接口等于只对旧 H5 和 curl 可见 |
+| **加一个权限点**（配方） | ① `app/core/rbac.py`（`Permission` 枚举 + `ROLE_PERMISSIONS` 表）② 端点签名改用 `require_permission(...)` | [`08A_ENDPOINT_INDEX.md`](08A_ENDPOINT_INDEX.md)「权限点反查」段 | ⚠️ **看 `rbac.py` 推不出某端点的实际准入范围**——130 个端点里大量只用 `CurrentUser`（仅要求登录），并未挂 `require_permission`。端点到权限的映射查 08A，不要自己从 `ROLE_PERMISSIONS` 反推 |
+| **AI 助手**（派单员 + 货主；司机不给。**读 + 申请式写**） | **Android**：`ai/AiAgentLoop.kt`（工具调用循环，**硬上限 8 轮**；system prompt 也在这）、`ai/AiTools.kt`（**8 个工具**：6 读 + 记忆 + **申请式写**；出参裁剪，裁剪逻辑已统一到 `AiRowShaper`；**行数上限 `MAX_ROWS=200`/`DEFAULT_ROWS=20`**——v3.34b 前是 50，导致 97 个货主/62 个司机**物理上列不全**，见 §49）、`ai/AiAnswerSanitizer.kt`（**回答净化器**：编号兜底）、`ai/AiMarkdown.kt`（**模型答复的 Markdown 解析**：表格/加粗/列表，纯逻辑）、`ai/AiContext.kt`（**上下文预算**：**主触发点是固定预算 `HISTORY_BUDGET_TOKENS`=8k、与窗口无关**（v3.34 改；旧口径「窗口 40%」在 1M 窗口下等于永不触发，见 §48）+ **先降级再丢弃**的分级保真 `fitToBudget`（最近 6 条不动 / 旧回答压成首行 / 附件块从尾巴截断保住用户那句话）+ 窗口**按模型名自动推断**（deepseek 实测 1,048,576）+ **双向自愈**（撞上限读端点声明的上限、贴着自己上限成功则翻倍）；窗口比例 40%/90% 降级为兜底）、`ai/AiCompactor.kt`（**上下文压缩**：较早对话→摘要，失败如实降级；**由 `AiChatViewModel.scheduleCompaction` 在回答落地后后台调用**，不再挡用户这一轮）、`ai/AiHabit.kt` + `ai/AiHabitStore.kt`（**使用习惯**：本机统计 + 注入纪律 + 可清除）、`ai/ThinkingLevel.kt`（**思考强度四档** + 老布尔开关迁移）、`ai/LlmClient.kt`（直连 OpenAI 兼容 `/chat/completions`；**端点不认 `thinking` 时自动去掉该参数重试并记住**）、`ai/AiProviders.kt`（厂商预设：DeepSeek/豆包/千问）、`ai/AiKeyStore.kt`（**平台 Keystore** 存用户自带 key + 能力缓存 + 模型候选）、`ai/AiConversation.kt`（对话模型 + 分支/复制/上限/合并，**纯逻辑无 Android 依赖**）、`ai/AiConversationStore.kt`（历史落盘：私有目录 + 原子写 + 坏文件留证 + **没读过盘时只合并不覆盖**）、`ui/ai/AiChatViewModel.kt`、`ui/ai/AiChatScreen.kt`（**左侧历史抽屉 + 模型栏 + 消息上复制/分支图标 + 分支横杠 + 输入区附件面板**：常态只有「⊕ + 输入框 + ↑」，点 ⊕ 展开成 **最近相册照片横排（点一下就挂）+ 拍照/相册/文件 三键**，见 §50）、`ai/AiRecentPhotos.kt`（**最近照片**：只读 MediaStore、没权限就返回空表、不碰其它字段）、`ui/ai/AiRichText.kt`（**表格画成真表格**）、**附件三件套**：`ai/AiAttachment.kt`（**挂载文件的提示词拼装**：TSV 原文 + 截断必须说出来 + 找不到制表符串列；纯逻辑有单测）、`ai/AiAttachmentLoader.kt`（SAF URI → 字节；**图片走相册**并压到长边 1280）、`ai/AiVision.kt`（**能不能看图**：认得的写死、明显非对话模型拦住、其余放行；真正兜底在 LlmClient 的"图被拒→去掉图重试"）、`ai/AiAttachmentService.kt`（上传给后端读成文本表格）、`ai/AiTable.kt`（**拆行拆列的唯一一份规则**，调价表与商品表共用）、`ui/ai/AiSettingsScreen.kt`、**`ai/AiReadService.kt` + `ai/AiReadCatalog.kt`（机器生成）+ `ai/AiRowShaper.kt`（**读所有列表**：通用读工具 `read_data` + 40 条编译期白名单 + 编号只在 App 侧解析 + 出参加工的唯一出口）** | `ai/AiContainer.kt`（组装入口）、`ui/nav/Modules.kt`（工作台入口配置——**货主端 AI 在工作台最后一格**，带 `gradient` 字段；`AiNavButton` 尺寸常量）、`ui/theme/AiBrand.kt`（**AI 品牌渐变（Google AI 三色）的唯一定义处**）、`ai/AiWrite.kt` + `ai/AiWriteService.kt` + `ai/AiWrite*Handlers.kt`（**申请式写**：风险分级 + 两段式确认 + 声明式 CRUD，见 §20~§28）、`_tools/ai/_write_coverage.py`（**覆盖率**：后端 74 个写端点哪些已有动作，链路是 3 跳的，靠它算别靠回忆）、`_tools/ai/_check_order.py`（真机 E2E 之后在库里对账）、`_tools/ai/_check_ledger.py` + `_check_receipt.py` + `_counts.py` + `_show_local_samples.py`（账本/收款/行数快照与料表）、`ai/AiReads.kt`（**读能力的角色裁剪**，与 `AiWrites.forRole` 对称）、`ai/AiScope.kt`（三份本机数据按用户分区）、`ui/home/RoleHomeScreen.kt`（**派单端 AI 入口 = 底部导航正中间的凸起圆钮**；货主端 3 个 Tab 放不正中，改走工作台网格）、`ui/nav/{Routes,NavGraph}.kt`（`ai/chat`、`ai/settings` 两条路由）、`_tools/ai/`（工具白名单生成/校验、`_check_ai_guardrails.py` 红线静态检查、`_seed_test_data.py` 成套造数、`_check_agg_after_seed.py` 接口 vs 库直查对账）、`android/.../ai/{AiAgentLoopTest,LlmClientRequestTest,AiAnswerSanitizerTest,AiConversationsTest,AiMarkdownTest,AiContextTest,AiHabitTest,AiCompactorTest}.kt`（**140 个纯 JVM 单测**） | ⚠️ 十条硬规矩：<br>① **AI 无特权**——用登录 token 走同一套 RBAC；但 `rbac.py:109-113` 对派单员**一律放行**，所以权限收敛**靠工具白名单，不靠提示词**；<br>② 工具响应必须**剪裁 + 剔除成本字段**（`cost_price`/`cost_total`/`cost_covered_lines`/`毛利`）；<br>③ **写能力只有一条路径**：模型只能调 `preview_write` **申请**，落库的 `AiWriteService.execute` 只被聊天页的确认按钮调用；token 由 App 生成、从不进提示词与工具返回值（**不是"注册后禁用提示词"**）；<br>④ **回答里绝不出现内部编号**：三层防线=工具出参不给 `*_id`（`isHiddenField`）＋名字兜底（`safeName`）＋出口净化（`AiAnswerSanitizer`）。**任何一层被删都会漏**；<br>⑤ **对话历史落盘**（私有 `filesDir`）且必须有硬上限（50 段/200 条/单条 8000 字/盘上 2MB），写盘必须**先写 `.tmp` 再 rename**；<br>⑥ ⚠️ **读盘完成前绝不允许落盘**（`AiChatViewModel.loaded`）——`all` 是异步读进来的，读进来之前按它算会**把盘上原有对话覆盖成只剩当前这一段**（实测丢过一次）。存储层还有第二道：没读过盘时 `save()` 退化成按 id 合并；<br>⑦ **表格必须真渲染**（`AiRichText`）+ 列宽按内容给最小宽度、装不下横向滚；system prompt 另有「表格最多 4 列」的硬要求；<br>⑧ **上下文**：历史不再固定只带 10 条（要能用满窗口）→ 到 **40% 自动压缩**（`AiCompactor`）→ 压缩失败还有 **90% 硬裁**（`AiContext.trimToFit`）。用量取**服务端 `prompt_tokens`**，不自己数；窗口**不给用户选**（`/models` 不返回窗口大小），因此**必须有双向自愈链**：认出「上下文超长」→ **优先读端点自己报的上限**（`parseStatedLimit`，实测报文里写着 `maximum context length is 1048576 tokens`）→ 否则按实证值收缩 → 按模型记住（`AiKeyStore.rememberWindow`）→ 最多重试 2 次；反向「猜小了」由 `growOnEvidence`（贴着自设上限成功一次就翻倍）负责。判据只用关键短语，**裸 `exceed`/`token limit` 是禁用的**（限流/欠费会被误判成超长，白缩窗口还会把错误结论记到模型头上）。⚠️ **家族窗口表里的数必须实测**（`_tools/ai/_probe_context_overflow.py`），凭印象写过 128k、实测 1,048,576，差 8 倍；<br>⑨ **思考强度分档**会下发 `reasoning_effort`，但它**在部分端点上被静默忽略**（本项目实测过）——界面必须如实标注，不许暗示"选高一定更准"。老布尔开关要迁移（否则等于偷偷把花费翻倍）；<br>⑩ **使用习惯会改变模型默认行为**，所以：样本 <3 次不注入、注入时必须写明"只在用户没说清时用"+"必须说明按什么范围统计"、设置页要把学到什么摊开给用户看并能一键清除。<br>⑪ `api_base_url` 指向哪，AI 工具就打到哪——**生产后端没有这些新端点时会 404**。<br>⑫ **通用读工具（`read_data`）**：把 40 张只读列表开放给 AI，但 ① **路径只能从编译期白名单 `AiReadCatalog` 查**（机器生成，改它要重跑 `_gen_ai_read_catalog.py`；改窗口/端点表前先看 `--check`）② 只收**路径里没有 `{}`** 的端点（按 id 查详情不开放，AI 看不到编号）③ 需要编号的筛选条件**按名字在 App 侧解析**（`AiReadService.resolveId`），编号全程不进模型上下文 ④ `extra` 里塞编号是**硬错误**（忽略 = 会跑出"全部数据"当"这个商品的"报给用户）⑤ 不支持的筛选条件与替它补的必填项必须写进 `ignored_filters`/`assumed_filters` ⑥ 出参一律过 `AiRowShaper.shape`（**唯一出口**，别再抄第二份剔字段逻辑）⑦ 两层开关：工具级 + 模块级（设置页）⑧ ⚠️ **路径必须取完整路径**（`@router.get("/summary")` 是相对路由前缀的，直接发会打到 `/api/v1/` 吃 404）。<br>⑬ **顶栏形态**：`AppTopBar` 有副标题时是两行、**没有副标题时是单行**（标题与 `subtitleTrailing` 同一行并垂直居中）；⚠️ **不要在 `actions` 里放带 `weight` 的子项**——那会把标题挤成 0 宽（实测标题直接消失）。<br>⑭ **消息上的动作**：用户消息 = 复制 + **编辑**（`beginEdit` 装回输入框，发送时 `applyPendingEdit` 先撤掉这条及其之后的内容再重跑；**绝对不要加「重问」**，用户明确否掉）；模型回答 = 复制 + **分支**（另存一份，原对话保留）。编辑的连带项：`totalTokens` 重算、摘要若覆盖了被撤内容要清掉、`contextUsed` 归零、切对话时清 `editingIndex`。⑮ **读能力也按角色裁剪**：`AiReadCatalog.ReadAction.roles` 是**机器生成**的（`_tools/ai/_gen_ai_read_catalog.py` 从后端源码的权限点/体内 403 门槛推导），三处同源——工具说明、enum、执行前的门（`AiReads.allows`）。改后端鉴权后先跑 `_tools/ai/_probe_read_roles.py`（对三个角色逐条打真后端对账，40×3 全一致才算数）。⚠️ 裁多了（明明能查却说没权限）和裁少了（问一句撞 403）**都是能力缺失**，所以单测是双向的。<br>配套缺口端点：`GET /users?q=`、`GET /stats/shipper-performance`、`GET /inventory/summary?below_alert=true`。<br>方案与实测记录（含两条待拍板发现）：`docs/AI_ASSISTANT_PLAN_V3.md` §13 |
+
+> `app/api/v1/orders.py` 共 **1165 行 / 23 个端点**，是后端最大的单文件。改动前先用它内部的行号定位，不要整文件读。
+
+### 1.2 账务、结算、报表
+
+| 功能 | 核心文件 | 附带文件 | 注意 |
+|---|---|---|---|
+| **账本流水 / 手动记账** | `app/api/v1/ledger.py`（459 行） | `app/models/ledger.py`、`app/services/ledger_sync.py` | 下单/送达会**自动写账**；改账本前先看 `ledger_sync.py` |
+| **输入校验与报错**（改任何入参 schema 前先看） | `app/schemas/text.py`（**文本长度上限的唯一定义处**）、`app/schemas/money.py`（金额容量）、`app/schemas/geo.py`（坐标范围）、`app/core/validation_errors.py`（**422 的中文说明**） | `_tools/qa/_audit_text_fields.py`、`_tools/qa/_audit_money_fields.py` | ⚠️ 上限要与**列宽**对齐（本地 SQLite 照收超长、生产 MySQL `Data too long`）；两层审计工具会逐字段比对。<br>⚠️ 业务范围校验写在**中文 validator** 里，不要写成 `ge/le`（那会变成英文 422 结构体，见 §57.2b） |
+| **登录 / 账号创建** | `app/api/v1/auth.py`（只有 login/token）、`app/api/v1/users.py`（派单员建号，`USER_MANAGE`） | `app/services/auth_service.py` | ⚠️ **没有自助注册**：`POST /auth/register`、`POST /auth/sms/send`、`services/sms_code.py` 已于 2026-09-18 整体删除（旧客户端会拿到 404）。红线 §28 钉着这条 |
+| **司机运费结算** | `app/api/v1/freight_settlement.py`、`app/api/v1/driver_bills.py` | `app/models/driver_bill.py` | 按 `driver_billing_mode` 分 **PIECE / SALARY 两套逻辑**。<br>⚠️ `freight_settlement.py` **自己聚合、不导入 `stats_service`**——`stats_service` 的真实导入者是 `api/v1/stats.py`、`api/v1/reports.py` L443、`services/stats_export.py`。<br>⚠️ `driver_bills` 上有**唯一索引** `uq_driver_bills_order_type(order_id, bill_type)`（v3.41 补，迁移在 `schema_bootstrap.py`）——同一张单插第二条 PIECE 账单会被**数据库**拒绝 |
+| **司机结算单** | `app/api/v1/driver_settlements.py` | `app/models/driver_settlement.py`、`app/services/accounting_service.py::create/confirm/pay/cancel_settlement` | 状态 DRAFT→CONFIRMED→PAID，见 `enums.py`。<br>⚠️ **付款前会再复核一次明细**（还在不在/状态对不对/合计是否相等）：确认与付款是两次点击，中间明细可能被别的路径删掉，钱付出去撤不回来 |
+| **报表中心** | `app/api/v1/reports.py`（496 行）、`app/services/stats_service.py`（425 行） | `app/services/stats_export.py` | **毛利必须带覆盖率说明**（只算 `cost_price_snapshot > 0` 的行），否则毛利虚高 |
+| **货损记账** | `app/services/accounting_service.py`（546 行） | `order_flow.py::complete_delivery` | 货损在**送达时**结算 |
+| **挂账单位** | `app/api/v1/arrears.py` | `app/models/arrears.py` | — |
+| **现金流水** | `app/api/v1/cash_flows.py` | `app/models/cash_flow.py`、`app/models/enums.py::CashFlowBizType` | 收支类型全在 `enums.py` |
+| **费用** | `app/api/v1/expenses.py` | `app/models/expense.py`、`app/models/enums.py::ExpenseCategory` | — |
+
+### 1.3 商品、定价、库存
+
+| 功能 | 核心文件 | 附带文件 | 注意 |
+|---|---|---|---|
+| **商品多档批发价 `tier_prices`** | `app/api/v1/products.py` | `app/models/product.py`（**L29** `tier_prices`）、`app/schemas/product.py` | 出参 list 字段必须防 NULL：加 `@field_validator(mode='before')` 把 `None` 归一为 `[]` |
+| **批发商专属定价** | `app/api/v1/price_rules.py` | `app/models/product.py`（**L49** `class PriceRule`）、`app/api/v1/users.py`（`is_member`） | 批发商 = `users.is_member`；专属价存 `price_rules` 表 |
+| **商品分类 category**（下单页左侧分组） | pp/models/product.py（category）、pp/schemas/product.py、Android ui/dispatcher/ProductsScreen.kt + ProductsViewModel.kt（draftCategory） | pp/api/v1/products.py（创建/更新都 strip()）、pp/core/schema_bootstrap.py（补列） | 空串 = **未分类**（老数据全在这一档）。分类清单**从商品算出来**（ProductPicker.categoryTabs），不是手写枚举；顺序 = 全部 → 各分类按商品数倒序 → 未分类（**全是未分类时它不出现**，否则和「全部」内容一样） |
+| **库存 / 库存流水** | `app/api/v1/inventory.py` | `app/services/inventory_service.py`、`app/models/inventory.py`、`app/schemas/inventory.py` | `products.stock` 只是创建时初值，**后续走流水** |
+| **货主 / 批发商 / 客户管理** | `app/api/v1/customers.py`、`app/api/v1/users.py` | `app/models/customer.py`、`app/models/user.py` | 改工资/计费/车型字段，非派单员会 **403** |
+| **车辆 / 运费模板** | `app/api/v1/vehicles.py`、`app/api/v1/freight_templates.py` | `app/models/vehicle.py`、`app/models/freight_template.py` | 车型校验：`freight_templates.py::_validate_vehicle`（运费模板）、`vehicles.py::_clean_type`（车辆本身）。<br>**两条写路径、一份实现**（v3.44 修完）：`PATCH /vehicles/{id}` 改车牌/车型/启停用（**车牌查重了，且排除自己**），`POST /vehicles/{id}/driver` 绑/解绑司机（`driver_id` **缺省或 null 都 = 解绑**）——两者共用 `_apply_driver`，所以校验与错误文案不会分叉。想看"只改车型也带上同一个车牌"这类自己撞自己的坑，看车辆那一节的红线。<br>⚠️ 为什么解绑必须走专用入口：安卓 `Json { explicitNulls = false }` 会把 `Long? = null` **整个键丢掉**，客户端**发不出**"显式 null"——所以"缺省 = 解绑"被写进契约（与 `POST /driver-billing-rules/attach` 同形）。<br>⚠️ `users.vehicle_type`（"他能开什么车"，决定计费口径）与 `vehicles.vehicle_type`（"这是辆什么车"）**是两件事**：绑车**不会**改司机的车型，界面上只把不一致**说出来**——自动改一次就等于悄悄改了他以后怎么算钱。<br>**Android**：`ui/dispatcher/VehicleManageScreen.kt`（列表/编辑/绑司机/停用）、`UsersManageScreen.kt` 的车辆行 + `VehiclePickerSheet`（司机视角）、`data/remote/api/Apis.kt::updateVehicle/setVehicleDriver`、`dto/VehicleUpdateRequest` / `VehicleDriverSetRequest`<br>**AI**：`ai/AiWriteBasicData.kt`（`vehicle.create` / `vehicle.update` / **`vehicle.set_driver`**：不填司机 = 解绑，卡片必须写"现在归谁"）、`ai/AiResources.kt`（撤回走 **`update` 那种"把 payload 里的键写回旧值"**，配 `CrudSpec.alwaysIncludeTargets` 保证解绑时 payload 里也带 `driver_id=null`）<br>⚠️⚠️ **资源表里的"逆操作是谁"是个会静默失效的声明**：`paired(X, AiInverse(Y,…))` 的 `Y` **绝不能等于 `X`**（`AiRevert.pairedPlan` 第一行就排除自逆 → 撤回方案永远造不出来，而 `canRevert()` 照样返回 true，卡片敢承诺却兑现不了）。红线 §2e-③f 钉着这一条 |
+
+### 1.4 地址、消息、实时
+
+| 功能 | 核心文件 | 附带文件 | 注意 |
+|---|---|---|---|
+| **地址与联系人**（三列表结构） | `app/api/v1/shipper.py`（405 行） | `app/models/shipper.py`、`app/schemas/` 对应 schema | 表归属用 **`user.id`**（字段名 `shipper_id` 是历史包袱）；多图走 `image_urls` JSON + `image_url` 首图兼容。<br>⚠️ **`services/shipper_contact_service.py` 不属于这里**——`shipper.py` 不导入它，唯一导入者是**下单链路** `api/v1/orders.py` L70（`upsert_boss_contact`） |
+| **消息中心 / 通知** | `app/api/v1/notifications.py`、`app/services/message_center.py`（416 行）；Android `ui/messages/MessagesViewModel.kt` + `ui/messages/MessagesScreen.kt` | `app/models/notification.py`、`app/schemas/notification.py` | 30 天保留期是**惰性清理**，没有定时任务。**列表/删除/未读三处口径必须同源**：默认都是"自己的"，派单员要看别人要显式传 `recipient_id`（v3.32 修掉"清空后重启消息复活"）。客户端改动一律**以服务器回包为准重拉**，不做乐观置空 |
+| **待派池 / 站内信实时推送**（**四层，别只看一层**） | ① `app/core/socket_io.py`（server）→ ② `app/services/message_push.py`（`emit_to_user`）→ ③ **`app/services/message_center.py`（文案/收件人/payload 与未读数，真正的业务逻辑）** → ④ `app/services/push_events.py`（订单事件封装） | `app/api/v1/orders.py` | 只改 `socket_io.py` 或 `push_events.py` 会漏掉真正决定"发给谁、发什么"的 `message_center.py` |
+| **图片上传 / 压缩** | `app/services/image_archive.py` | `app/api/v1/orders.py`（L563 `upload_order_address_image` 地址图、L618 `upload_delivery_photos` 送达图） | 原图 1 年后压成 WebP（Q90 / 长边 1920） |
+| **共享地点库 / 订单补导航**（司机到场标坐标 → 全库共用） | **后端**：`app/services/place_service.py`（**合并判据唯一实现**：`MERGE_METERS=1.0` 坐标、`SAME_NAME_METERS=30.0` 同名；`AUTO_ADD_AFTER=2` 常用地点阈值）、`app/api/v1/places.py`（列表/新增/`POST /places/{id}/use`）、`app/api/v1/orders.py::fill_order_navigation`、`app/models/place.py`（`Place` + `PlaceUserUsage`）<br>**Android**：`ui/order/OrderDetailScreen.kt`（`NavigationBlock` + `NavigationFillDialog`）、`ui/shipper/OrderCreateScreen.kt`（`AddressPickerSheet` 三段：线路/我的地点/共享地点，**三段都有搜索框**）、`ui/common/AmapPicker.kt` | `app/models/order.py`（`nav_source`）、`app/models/enums.py`（`ORDER_NAVIGATION_FILL`/`PLACE_AUTO_ADDED`）、`app/schemas/place.py`、`_tools/qa/_probe_place_merge.py` | ⚠️ **一张表不按人分区**（用户明确要"共同的库，相同位置直接拉过来"），三种角色都能查；<br>⚠️ **只补不改**：订单已有坐标一律 400（错坐标比没坐标更危险）；<br>⚠️ 一次补录写**三处**：这一单 + 货主自己的地点库 + 全库共享库；<br>⚠️ 合并判据**只有一处**；<br>⚠️ **常用地点按 (人, 地点) 计数**（不是全库 `use_count` —— 那是"大家都去过这儿"，用它会把热闹地点涌进所有人列表），到 `AUTO_ADD_AFTER` 自动进他自己的「我的地点」并留痕；<br>⚠️ AI **不做**这两个写端点（模型给不出经纬度） |
+| **商品分类名册**（下单页左侧那一列叫什么、按什么顺序） | **后端**：`app/models/product_category.py`、`app/api/v1/product_categories.py`（增/改/删/`reorder` + `ensure_category`）、`app/schemas/product_category.py`<br>**Android**：`ui/dispatcher/ProductCategoriesScreen.kt` + `ProductCategoriesViewModel.kt`（入口在**商品管理页右上角**）、`ui/common/ProductPicker.kt::categoryTabs`、`ui/dispatcher/ProductsScreen.kt`（编辑页从名册选分类） | `app/core/schema_bootstrap.py`（建表 + **存量回填**：把已在用的分类名收进名册、按商品数排序）、`app/api/v1/products.py`（新建/改商品时自动补名册） | ⚠️ **改名必须级联**（同一事务里 `UPDATE products SET category=新名`）——不级联的话商品全变未分类且**不报错**；<br>⚠️ **删除时有商品挂着 → 拒绝**并说明有几个（不"顺手把商品改成未分类"）；<br>⚠️ `reorder` 必须**整份**提交（只传一部分会被拒并点名少了哪些）；<br>⚠️ 名册里没有的分类名**不是错误**，选品页会排到名册后面——**不许因为它不在名册里就把商品藏起来**<br>**AI**：`ai/AiWriteBasicData.kt`（`product_category.create` / `update` / `delete`）、`ai/AiWriteCatalogHandlers.kt`（`product_category.reorder`：**整份顺序**，漏一个就拒绝并把新顺序逐行列在卡上）、`ai/AiResources.kt` + `ai/AiRevert.kt`（改＝写回旧值；**删＝按原名重建一格**——名册没有软删，所以撤回卡上写的是"重建"而不是"行还在"；**重排撤不回来**，要用户把顺序重说一遍）<br>⚠️ 卡片的硬要求：改名卡必须写出**这个分类下有 N 个商品**（改名会级联改过去） |
+| **商品可见白名单**（某个货主/批发商只能看到勾选的商品） | **后端**：`app/schemas/product_visibility.py`（**判据唯一处**：`visible_product_ids` / `product_visible_to` / `replace_visibility`）、`app/models/product_visibility.py`、`app/api/v1/users.py`（`GET/PUT /users/{id}/product-visibility`） | `app/models/user.py`（`product_scope` 开关）、`app/api/v1/products.py`（列表过滤 + 详情按 404 回）、`app/api/v1/orders.py`（**下单也拦**）、Android `ui/dispatcher/UsersManageScreen.kt::ProductVisibilityBlock` + `UsersManageViewModel.kt` | ⚠️ **默认 `all`（不限制）**，开关在 `users.product_scope` 上：空白名单 + `all` = 不限制；空白名单 + `custom` = **真的什么都看不到**（两者语义绝不相同，所以不受限用 `None` 表示而不是空集合）；<br>⚠️ 迁移**必须回填 all** —— 回填成 custom 会让所有老货主上线即空目录；<br>⚠️ **派单员不受限**（否则改错了没人能改回来）；<br>⚠️ 只在选品页藏起来不够：**列表、详情、下单三处都要拦**，否则"看起来限制了、其实没有"<br>**AI**：`ai/AiWriteCatalogHandlers.kt`（`user.product_visibility`，**HIGH**：本质是授权）——卡片必须写清**改的是谁 / 现在什么模式 / 改成什么模式 / custom 时把商品名逐个列出来**；`custom` 但一个都没勾或商品名对不上**在弹卡之前就拒绝**（后端也会 400，但那时用户已经点过确认了）；改回 `all` 要写明**旧白名单会被清掉**<br>**撤回**：`ai/AiResources.kt`（`product_visibility` 资源）把开关和白名单**整份写回**——白名单是内部编号，所以它是**静默键**（跟着写回但不占卡片一行） |
+| **一次性提示条**（snackbar） | `ui/common/Components.kt::OneShotSnackbar`（**先消费、再显示**） | 全 UI 层 20 个调用点 | ⚠️ **不许写"先 `showSnackbar` 再清状态"**：`showSnackbar` 会挂起几秒，用户在这期间切页 → 协程被取消 → 清状态那行永不执行 → **切回来提示条又冒出来**（用户 2026-09-18 报的就是这个）；<br>⚠️ 加载错误与动作错误要**分成两个字段**（`loadError` / `error`），否则提示条一消费，整页「加载失败 + 重试」也一起消失；<br>⚠️ 点一下就弹的那种（`scope.launch { showSnackbar("已复制") }`）本来不会重放，**不用**绕这一层 |
+| **下单页选品（外卖式）** | `ui/common/ProductPicker.kt`（全屏弹层 + `categoryTabs` + `QtyUnitDialog` 数量/单位） | `ui/shipper/OrderCreateScreen.kt`（货主与代理下单**共用**）、`ui/shipper/OrderCreateViewModel.kt`（`mergePickedIntoLines` 纯函数）、单测 `android/app/src/test/java/com/tapmoay/sorders/ui/shipper/ProductPickerTest.kt` | 可在一次里挑多件；同一件商品**累加数量**不新开行；超过 `MAX_ORDER_LINES=10` **整批拒绝**（不做部分成功） |
+
+### 1.5 基础设施（改这些要格外小心）
+
+| 文件 | 行数 | 说明 |
+|---|---|---|
+| `app/core/schema_bootstrap.py` | **615** | 建表 + MySQL 迁移补丁。**历史事故高发区**：orders.status 枚举、ledgers.source 枚举、fcntl 文件锁都在这里。新增迁移代码**必须写在 `with engine.begin()` 作用域内**，否则启动崩溃循环 |
+| `app/services/data_retention.py` | 121 | 数据保留策略总入口（3 年保留 / 软删 30 天物理清理），挂在 `lifespan` 上 |
+| `app/core/rbac.py` | 117 | **角色权限矩阵**（`Permission` 枚举 + `ROLE_PERMISSIONS`）。新增权限点从这里下手。<br>⚠️ 但它是"角色→权限点"的表，**不是"端点→谁能调"的表**：`role_has_permission()` 开头就对**派单员一律放行**（L109-L117），且多数端点根本没挂 `require_permission`。端点到权限的真相看 [`08A_ENDPOINT_INDEX.md`](08A_ENDPOINT_INDEX.md) |
+| `app/deps.py` / `app/core/security.py` | — | 依赖注入与 token |
+| `app/database.py` / `app/config.py` / `app/redis_client.py` | — | 连接与配置（`.env` 可覆盖） |
+
+---
+
+## 2. Android（`android/`）
+
+> 以下路径省略公共前缀 `android/app/src/main/java/com/tapmoay/sorders/`
+> （该前缀已在**文件第 3 行**用 `ref-prefix` 声明给 `check_refs.py`；放在顶部是因为第 1 节的后端行里也会引用 Android 文件）。
+
+### 2.1 导航与角色（改结构先看这里）
+
+| 功能 | 核心文件 | 说明 |
+|---|---|---|
+| **角色 → 底部 Tab / 模块入口** | `ui/nav/Modules.kt` | **单一真相源**：`entriesFor(role)` + `BottomTab`。文件内注释写明"未来加 Tab 只改这里" |
+| **路由定义** | `ui/nav/Routes.kt` | 所有路由常量 |
+| **导航图** | `ui/nav/NavGraph.kt` | 页面注册与跳转 |
+| **语义色体系** | `ui/theme/` | 一色一功能（见 `06_DESIGN_SYSTEM.md`） |
+| **外观模式（白天/夜间 + 随日落自动，**按手机定位算**）** | `ui/theme/Theme.kt`（`ThemeMode`：明暗 + 自动开关，都落盘）、`ui/theme/AutoSunTheme.kt`（定时器，挂**根节点**）、`core/SunClock.kt`（**几点算天黑**，纯函数 + 单测）、`core/SunLocation.kt`（手机在哪：校验 + 兜底）、`core/AmapLocationManager.kt`（定位来源①：高德，**带地址**，成功即喂给 SunLocation）、`core/DeviceLocation.kt`（定位来源②：**系统定位兜底**，只喂 SunLocation）、`ui/home/RoleHomeScreen.kt`（定位到手就重算一次；高德失败/起不来时退兜底）、`ui/profile/ProfileScreen.kt`（三端共用的开关行） | ⚠️ 四处最容易改坏：① 定时器必须挂 `MainActivity.setContent`（挂页面里就只有停在那页才切）；② `MainActivity.onResume` 必须补一次对表（后台过夜进程被冻结，`delay` 不会醒）；③ 自动模式下必须**禁掉**手动开关（否则"点一下又自己弹回来"）；④ **定位只是精度增强**：拿不到坐标必须退回时区估算（`SunClock.stateHere`），且界面要如实说"按定位/按时区估算"——高德定位失败会回调 `(0,0)`，不校验就会算出错 8 小时的日落且不报错<br>⚠️ **两条定位来源分工不许混**：`DeviceLocation` 是**系统**坐标（WGS-84），只准喂 `SunLocation`（日落对几百米不敏感）；地址/拍照水印要的是**高德的 GCJ-02**（与后端/Web 一致），所以它**不许**往 `AmapLocationManager.locations` 里发点。红线 §21 有两条钉着（一条 glob 全树算 `SunLocation.coords()` 的消费点，必须只有 `SunClock.kt`） |
+| **司机计费规则（固定工资/每单/提成，可挂给司机）** | **后端**：`app/services/driver_pay.py`（**钱的唯一算法处**：`order_pay` / `pay_for_order` / `snapshot_mode` / `dispatch_mode` / `override_problem` / `monthly_salary_of`）、`app/models/driver_billing_rule.py`、`app/api/v1/driver_billing_rules.py`（CRUD + `attach`）、`app/schemas/driver_billing_rule.py`（**校验只有一份**）<br>**别人调它**：`services/accounting_service.py::generate_piece_bill`（送达生成账单）、`api/v1/driver_bills.py`（补单 + 月薪单）、`api/v1/freight_settlement.py`、`services/stats_service.py`、`api/v1/reports.py`（导出）<br>**Android**：`ui/dispatcher/DriverBillingRulesScreen.kt`（模板管理）+ `UsersManageScreen/ViewModel`（给司机挂规则）<br>**AI**：`ai/AiWriteBasicData.kt`（五个动作）、`ai/AiResources.kt` + `ai/AiRevert.kt`（撤回 / 撤不回来的理由） | ⚠️ **"这个司机这单拿多少"只有 `driver_pay` 一处实现**，上面五个消费点谁都不许再自己抄 `freight_fee`（红线 §22 逐点断言）；<br>⚠️ 派单时把规则**快照**到 `orders.driver_rule_snapshot`——改规则**不追溯**已派单；<br>⚠️ 挂载只有一条写路径（`POST /driver-billing-rules/attach`），`PATCH /users` 刻意改不了它；<br>⚠️ **逐单覆盖**（这一单单独的金额 `driver_piece_amount` / 比例 `driver_commission_rate`）与两份快照由 `order_flow.assign_driver` 一处写、且**先验再做**：司机没挂规则、或规则里没有提成项时直接 400（判据 `driver_pay.override_problem`），不许"填了不生效"（界面有数字、账单另一个数）；逐单定额还会把这张单的模式快照写成 PIECE——否则那笔钱不生成账单、静默消失；<br>⚠️ 抽成范围（`commission_product_ids`）只在"按商品金额抽成"上合法，手工加的商品行（无 `product_id`）在限定范围时不算 |
+
+### 2.2 网络与实时（改动影响全端）
+
+| 功能 | 核心文件 | 注意 |
+|---|---|---|
+| **后端地址解析** | `core/ApiEndpoint.kt` | 模拟器必须走 **10.0.2.2**；此文件已做自动探测切换 |
+| **HTTP 客户端** | `core/ApiClient.kt` | 拦截器、鉴权头 |
+| **全部接口定义** | `data/remote/api/Apis.kt` | 加/改接口先动这里 |
+| **全部 DTO** | `data/remote/dto/Dtos.kt` | 与后端 schema 对齐 |
+| **仓库层** | `data/repo/AppRepository.kt` | 页面与网络之间的唯一通道 |
+| **Socket 实时** | `core/SocketManager.kt` + `core/RealtimeHub.kt` | **踩坑**：① `connect` 必须在会话恢复时也调用，只在登录时 connect 会导致重启后收不到推送；② 负载是 `JSONObject`，**嵌套对象/数组必须递归转 Map**（`plain()`），只转外层会让站内信的 type/title/单号被静默丢掉 |
+| **通知与语音提醒**（系统通知/来单了/后台常驻） | `core/NotifyCenter.kt`（渠道与发通知）+ `core/NewOrderAlert.kt`（**纯判定，有单测**）+ `core/NewOrderPlayer.kt`（播报）+ `core/AlertService.kt` + `core/BootReceiver.kt` + `core/AlertPrefs.kt` | 设置页 `ui/profile/AlertSettingsScreen.kt`（入口在「我的」）；素材 `res/raw/new_order.wav`（古典号角+神经语音，生成脚本 `_tools/media/_gen_new_order_clip.py`）；红线 `_tools/ai/_check_notify_guardrails.py`；**改这层先看 [INTEGRATIONS.md §5](../INTEGRATIONS.md)** |
+| **底部导航栏（含中间凹口）** | `ui/home/RoleHomeScreen.kt`（接线）+ `ui/nav/NotchedNavBar.kt`（**凹口几何是纯函数，有单测**）+ `ui/nav/Modules.kt` 的 `AiNavButton`（圆钮尺寸/凸出常量） | 有 AI 圆钮的角色才切凹口形状；**凹口画错了不会报错、界面上也看不出来**，所以配了像素量尺 `_tools/notify/_measure_notch.py`（在截图上量缺口深浅）与红线 `_tools/ai/_check_nav_guardrails.py`。凹口圆心在栏**内侧**（半径−凸出），放在栏外会切出一个藏在圆钮后面的浅坑 |
+| **登录态存储** | `core/TokenStore.kt` | DataStore；`sessionFlow` 是**冷流**，注意 `initial=null` 的瞬时态 |
+| **依赖容器** | `core/AppContainer.kt` | 手动 DI |
+
+### 2.3 派单员工作台（`ui/dispatcher/`，36 文件，最大业务面）
+
+| 功能模块 | Screen / ViewModel |
+|---|---|
+| 派单作业（待派池） | `DispatcherPoolScreen.kt` / `DispatcherPoolViewModel.kt` |
+| 订单管理 | `DispatcherOrdersScreen.kt` / `DispatcherOrdersViewModel.kt` |
+| 账本管理 | `DispatcherLedgerScreen.kt` / `DispatcherLedgerViewModel.kt` |
+| 运费结算 | `FreightSettlementScreen.kt` / `FreightSettlementViewModel.kt` |
+| 运费模板 | `FreightTemplatesScreen.kt` / `FreightTemplatesViewModel.kt` |
+| 挂账单位 | `ArrearsUnitsScreen.kt` / `ArrearsUnitsViewModel.kt` |
+| 库存管理 | `InventoryScreen.kt` / `InventoryViewModel.kt` |
+| 商品管理 | `ProductsScreen.kt` / `ProductsViewModel.kt` |
+| 批量改价 | `BatchPriceSheets.kt` |
+| 批发商管理 / 定价 | `WholesalePricingScreen.kt` / `WholesalePricingViewModel.kt` |
+| 司机/货主/批发商用户管理 | `UsersManageScreen.kt` / `UsersManageViewModel.kt`（**司机池多一条「车辆」线**：车队摘要 + 搜索 + 每张卡一行「他开哪辆车」，点它配车/换车/解绑 —— 车辆行与绑定的口径见 §1「车辆 / 运费模板」那一行） |
+| 车辆管理（v3.44） | `VehicleManageScreen.kt`（列表 + 编辑弹层 + 绑司机 + 停用；原来是 `AccountToolsScreens.kt` 里一个"只能新增"的车辆台账） |
+| 账号管理 | `AccountManageScreen.kt` / `AccountManageViewModel.kt`、`AccountToolsScreens.kt`（收款/结算/开销三屏，车辆已迁出） |
+| 商品分类名册 | `ProductCategoriesScreen.kt` / `ProductCategoriesViewModel.kt` |
+| **报表中心入口页** | `ReportHome.kt`（2×2 彩色图标卡） |
+| 报表详情 | `ReportCenter.kt` / `ReportCenterViewModel.kt`、`ReportScreens.kt`、`ReportViewModels.kt` |
+
+### 2.4 货主 / 司机
+
+| 端 | 功能 | 文件 |
+|---|---|---|
+| 货主 | 下单 | `ui/shipper/OrderCreateScreen.kt` / `OrderCreateViewModel.kt` |
+| 货主 | 我的订单 | `ui/shipper/ShipperOrdersScreen.kt` / `ShipperOrdersViewModel.kt` |
+| 货主 | 地址与联系人 | `ui/shipper/AddressScreen.kt` / `AddressViewModel.kt` |
+| 货主 | 账本 | `ui/shipper/ShipperLedgerScreen.kt` / `ShipperLedgerViewModel.kt` |
+| 司机 | 任务列表 | `ui/driver/DriverOrdersScreen.kt` / `DriverOrdersViewModel.kt` |
+| 司机 | 运费 | `ui/driver/DriverFreightScreen.kt` / `DriverFreightViewModel.kt` |
+
+### 2.5 通用 UI 与工具
+
+| 功能 | 文件 |
+|---|---|
+| 通用组件 | `ui/common/Components.kt` |
+| 订单卡片 | `ui/common/OrderCard.kt` |
+| 状态分段导航（统一规范） | `ui/common/SegmentedStatusTabs.kt` |
+| 图表 / 报表时间导航 | `ui/common/Charts.kt` / `ReportTimeNav.kt` |
+| 高德选点 | `ui/common/AmapPicker.kt` |
+| ViewModel 工厂 | `ui/common/ViewModelFactory.kt` |
+| 金额格式化 | `util/Money.kt`（统一两位小数 `formatMoney`） |
+| 时间格式化 | `util/TimeFmt.kt` |
+| 高德 URI / 地理解析 | `util/AmapUri.kt` / `util/GeoResolver.kt` |
+| 导出 | `util/ExportUtil.kt` |
+| 水印 / URL 解析 | `util/Watermark.kt` / `util/UrlResolver.kt` |
+
+### 2.6 打包 / 发布 / 应用内更新（**跨 6 个文件的一条链，别只改一处**）
+
+| 功能 | 核心文件 | 附带文件 / 注意 |
+|---|---|---|
+| **应用内更新（「检查更新」）** | `ui/profile/ProfileViewModel.kt`（下载 + 调安装器）、`ui/profile/ProfileScreen.kt`（进度与引导弹窗） | ⚠️ **必须同时看 `res/xml/file_paths.xml`**：FileProvider 只暴露那里声明的根目录，APK 落盘目录不在其中就会抛 `IllegalArgumentException` 被吞掉，现象是"进度 100% 后毫无反应"（2026-09-15 真事故） |
+| 下载进度文案（速度/剩余时间） | `ui/profile/UpdateProgress.kt` | 纯函数无 Android 依赖 → 有 JVM 单测 `UpdateProgressTest.kt` |
+| 版本声明（服务端） | 服务器 `ackend/uploads/app/version.json` | **必须含 `versionCode`**；App 按它判新旧（版本名字符串比大小会错） |
+| 打包配置 | `android/app/build.gradle.kts` | ABI flavor（`phone`/`emu`）、versionCode 方案。**改动前先读 `docs/APP_UPDATE_AND_RELEASE.md`** |
+| 推送脚本 | `_tools/deploy/publish_apk.py` | 推之前比 versionCode，不更大就中止；推完回读验证 |
+| 红线检查 | `_tools/deploy/_check_update_flow.py` | 31 项，把上面这些跨文件不变量固化；改坏立刻红 |
+| 本地造"假新版本"验证 | `_tools/deploy/_stage_local_update.py` | 只有真跑一遍才知道 FileProvider / 安装权限 / 安装器对不对 |
+
+> 完整背景与实测记录：[docs/APP_UPDATE_AND_RELEASE.md](../APP_UPDATE_AND_RELEASE.md)
+
+---
+
+## 3. 危险区（改之前务必确认）
+
+1. **`backend/app/core/schema_bootstrap.py`** — 生产库曾因 `orders.status` / `ledgers.source` 枚举缺值导致 500。改枚举值必须**同时**改 `enums.py` 和这里的迁移。
+2. **`order_flow.py::complete_delivery`** — 一个函数同时改状态 + 写货主账本 + 写司机应付 + 记货损。**动它会连带影响三张报表**。
+3. **`app/api/v1/orders.py` L686（接单；这是「赋值行」，不是函数头）** — 这是**唯一一处不在 `order_flow.py` 的状态转移**（`driver_ack_view` 里 `order.status = OrderStatus.ACCEPTED`）。只翻 `order_flow.py` 就会漏掉"接单"这一步。函数 `driver_ack_view` 本体在 L675。
+4. **库存联动** — 状态机每一步都调 `inventory_service` 的 `auto_stock_out`（派单预占，L82）/ `auto_stock_commit`（送达真扣，L202）/ `auto_stock_release`（撤销撤回，L155/L231/L255）。改订单流转**必须**同时确认库存语义。
+5. **`order_flow.py::split_order`** — 数量按比例拆分、余数归首份，改动会影响对账。
+6. **"账本写入幂等"只在正常路径上成立，且靠的是入口守卫——不是每个函数自己幂等。** 逐函数核实：
+
+   | 函数 | 是否自身幂等 | 依据 |
+   |---|---|---|
+   | `ledger_sync.py::sync_ledger_from_delivered_order` | ✅ **是** | 按 `(order_product_id, source=ORDER)` 查已存在 → 走**更新**分支（L31-L50） |
+   | `accounting_service.py::generate_piece_bill` | ✅ **是** | 按 `(order_id, bill_type=PIECE)` 查已存在 → 直接 `return existing`（L79-L86） |
+   | `accounting_service.py::apply_damage_accounting` | ❌ **不是** | **无任何已存在检查**，对每行 `damage_quantity>0` 直接 `db.add(Expense)` + `db.add(CashFlow)` + `db.add(Ledger(source=REFUND))`（L104-L160） |
+
+   **那为什么现在不会重复记账？** 因为唯一调用方 `order_flow.py::complete_delivery`（L219）在入口就卡了状态：
+   `if order.status != OrderStatus.ACCEPTED: raise`（L182）——首次执行后状态已变 `DELIVERED`，第二次直接被拒。
+
+   > ⚠️ **所以别把"重试安全"当成函数的性质**。`post_delivery_accounting` 是导出的公共函数，
+   > 一旦有人**在别处再调一次**、或**放宽 L182 的状态守卫**（例如加个"补录货损"入口），
+   > 货损就会**重复入账**（Expense / CashFlow / REFUND 红冲各多一条）。
+   > 要动这块，先给 `apply_damage_accounting` 补一个"该订单是否已记过货损"的判定。
+   >
+   > 📌 **实测交叉印证**：[`99_STRESS_TEST_REPORT.md`](99_STRESS_TEST_REPORT.md) 记录过"双 `complete` → 一个 200 一个 400（状态机拦截），账本 1 条、司机账单 1 条，无重复入账"——
+   > 与上面的静态分析一致。**但那次压测走的是无货损的普通完成**，只验了 `ledger_sync` 与 `generate_piece_bill` 两条幂等路径；
+   > 唯一不幂等的 `apply_damage_accounting` **没被覆盖**。① 静态分析说它不幂等、② 实测没打到它——两者不矛盾，是**覆盖缺口**。
+7. **`products.tier_prices` 等 JSON 列可能被存成 NULL**，出参一律加 `field_validator(mode='before')` 归一为 `[]`。
+8. **`ui/nav/Modules.kt`** — 改底部导航会影响全部角色的入口，注意 Tab 索引越界（历史崩溃点）。
+9. **图片白名单散布在 6 处（不是 2 处），MIME 与扩展名是两套不同的清单** — 改之前务必逐处核对：
+
+   | 位置 | 清单类型 | 内容 | 谁在用 |
+   |---|---|---|---|
+   | `api/v1/products.py` L19 | **MIME（8 种，权威）** | jpeg/jpg/pjpeg/png/webp/x-png/bmp/x-ms-bmp | 商品图；**并被 2 处导入**（见下） |
+   | `api/v1/products.py` L152 | 扩展名（5 种） | .jpg .jpeg .png .webp **.bmp** | 商品图 |
+   | `api/v1/orders.py` L80 | MIME（**5 种，副本**） | jpeg/png/webp/jpg/pjpeg——**缺 bmp/x-png/x-ms-bmp** | **仅送达拍照**（L89） |
+   | `api/v1/orders.py` L95 | 扩展名（**4 种**） | .jpg .jpeg .png .webp——**缺 .bmp** | 送达拍照 |
+   | `api/v1/orders.py` L576 | — | **`from app.api.v1.products import ALLOWED_IMAGE_CT`（延迟导入权威版）** | 地址图（L589 扩展名 5 种） |
+   | `api/v1/shipper.py` L220 | — | 同样**导入 products 的权威版** | 地点图（L233 扩展名 5 种） |
+
+   ⚠️ 三个后果：① **送达拍照不接受 `.bmp`，但地址图/地点图接受**（因为后两者导入了权威版）——看似同类的上传入口，口径并不一致；
+   ② `orders.py` L95 对未知扩展名**静默改名为 `.jpg`**（`products.py` L152 则是按 MIME 反推），所以该路径可能出现"扩展名是 .jpg、字节其实是 webp/png"的文件；
+   ③ 别把 MIME 清单和扩展名清单当成同一份——它们是**两套**，数量也不同（8/5 与 5/4）。
+   > 另注：`services/image_archive.py` L53 的跳过条件（`.webp` / `.compressed.webp`）**永远不成立**——L51 的白名单已把 `.webp` 排除在外，该行是冗余死判断。真正决定"webp 不进归档"的是 L51。
+10. **已知死代码（不要照着改）** — `services/cancelled_order_retention.py`（10 天常量与现行 30 天冲突）、`core/ws_hub.py`（零引用）、**`api/v1/orders.py` L546 `delete_order`**（与 L326 `delete_cancelled_order` 同方法同路径，FastAPI 先注册者胜 → 它**永远不可达**）。
+    ⚠️ 第 3 个尤其阴险：它自己 L551 的注释写着"老路由…已被 307 行的软删除路由覆盖匹配，**保留为兜底**"——**两处都错**：行号过时（实际 326），且"兜底"不成立（FastAPI 不做 fallback，先匹配到的直接处理）。**读源码注释也会拿到错的结论。**
+    > 这类"重复路由"是纯机械事实，已由 08A 自动列出（见其「需要注意的端点」第 1 节）——以后改端点后可重跑 08A 复查，不必靠人眼。
+
+### 3.1 收款口径的隐性分裂（对账会打架）
+
+全后端只有 **4 处**写 `CashFlow`，**全部在 `services/accounting_service.py`**（L126/L215/L337/L398）。
+
+而订单流程里的"收现金"（`POST /orders/{id}/pay`、送达时选 cash）**只改 `orders.paid` 标记，不写资金流水**。唯一写 `CashFlow(IN)` 的客户收款路径是 `POST /ledger/receipts`。
+
+**后果**：报表的「营业纵览 collected」（订单口径）与导出的「kind=finance 流入」（资金口径）**是两个口径，对账时必然出现差异**。改收退款逻辑前先确认你要动的是哪一套。
+
+> 以上第 9、10 条与 3.1 由独立复核发现，机器校验（引用完整性）**查不出来**——它们都是"文件存在但语义不对"。
+
+---
+
+## 4. 常见「找不到文件」误区
+
+| 你想找的 | 别去哪找 | 实际在 |
+|---|---|---|
+| 批发商定价模型 | `models/price_rule.py`（**不存在**） | `app/models/product.py` L49 |
+| 订单状态定义 | `models/order.py` | `app/models/enums.py` |
+| 真正的派单状态转移 | 只看 `order_flow.py`（**会漏掉"接单"**） | `app/services/order_flow.py` **5 处** + `app/api/v1/orders.py` **L686**（共 6 处） |
+| 权限校验 | 各 endpoint 里逐行找 | [`08A_ENDPOINT_INDEX.md`](08A_ENDPOINT_INDEX.md)（机器生成的端点→授权表）。<br>⚠️ 单读 `app/core/rbac.py` **不够**：它是"角色→权限点"，且派单员对 `require_permission` 一律放行，推不出端点准入范围 |
+| 定时任务 | celery / apscheduler（**都没有**） | `lifespan` + `services/data_retention.py` |
+| Android 加新 Tab | 各处硬编码 | `ui/nav/Modules.kt`（**不在 `ui/common/`**） |
+
+> ⚠️ **同名 / 单复数陷阱（后端最容易踩）**：有大量**跨层同名**文件——`ledger.py`、`shipper.py`、`inventory.py`、`arrears.py`、`order.py`、`reports.py`、`stats.py`、`auth.py`、`user.py`、`notification.py`、`freight_template.py`、`operation_log.py`、`export_job.py` 在 `app/api/v1/` 与 `app/models/` 各有一份，部分在 `app/schemas/` 还有第三份。
+>
+> 而且**单复数并不统一**——最典型的是商品：
+>
+> | 层 | 文件名 |
+> |---|---|
+> | 接口 | `app/api/v1/products.py`（**复数**） |
+> | ORM 模型 | `app/models/product.py`（单数） |
+> | 出入参 | `app/schemas/product.py`（单数） |
+>
+> 所以：**引用和搜索都要带层前缀 + 确认单复数**，否则会一次命中多份不相干的文件，或者搜了个不存在的名字。
+
+---
+
+## 4.5 挖漏洞 / 测试工具（`_tools/`）—— 想"换个角度测一遍"时先看这里
+
+| 要测什么 | 工具 | 判据锚在哪 |
+|---|---|---|
+| 接口收到脏输入会怎样（崩溃/收下不该收的） | `fuzz/_fuzz_contract.py` | 5xx = 缺陷；英文 422 = 可疑；「明显不合理的值被接受」= 可疑 |
+| 谁能调什么、能不能看别人的数据 | `fuzz/_fuzz_authz.py` | 源码 `collect()` 的授权声明 vs 实测状态码；跨租户只用自己建的单 |
+| 库里的钱/库存/状态/单据还对不对得上 | `fuzz/_fuzz_invariants.py` | **直接只读查库**；司机账单用 `driver_pay.pay_for_order` 重算（钱只算一处） |
+| 同一件事做两次会不会变成两笔 | `fuzz/_fuzz_replay.py` | 比较操作前后**库里的行数**，不看返回码 |
+| 金额字段有没有上限（静态） | `qa/_audit_money_fields.py` | 判据 `import` 自 `backend/app/schemas/money.py`，不另抄一份 |
+| **文本字段有没有上限**（静态） | `qa/_audit_text_fields.py` | 模型清单由 Pydantic 枚举；**目标表由字段/列名重合度算**，上限与列宽逐个比；扫不到字段就非零退出 |
+| **「已付款却没有明细」的结算单** | `qa/_probe_settlement_orphan.py`（查，含各版本备份）、`qa/_repair_orphan_settlement.py`（修，带备份） | 只删"没有任何付款流水"的那种；有流水的留给人决定 |
+| **探针账号的清理** | `qa/_cleanup_probe_users.py` | 判据 = `full_name like '%探针%'`；**软删**（`is_active=0` + 号码加 `_del{id}`，与 `DELETE /users/{id}` 同语义）+ 写操作日志 |
+| 诊断：工具会碰哪些端点 / 按标记扫残留 | `fuzz/_list_ops.py`、`fuzz/_dbq.py` | 清单由 openapi 与库结构算出来（`_dbq.py --db` 真的会切库） |
+| 收尾：清残留 / 修事故 | `fuzz/_cleanup_leftovers.py`、`fuzz/_repair_price_rules_batch.py` | 各自的判据与还原依据写在文件头 |
+| 老探针（业务口径逐条问） | `qa/_probe_core_flows.py`（11 组；收尾会**软删自己建的账号**） | 见 §55 |
+
+**三条工具纪律（每条都是被咬过才写下的，改工具前先读）**：
+1. **批量/全量端点按类禁止**（`_fuzzlib.BULK_PATTERN`）——"接口只会改我自己建的数据"对批量端点不成立；
+2. **看不见目标就非零退出**（`Report.guard`）——空转的绿灯比红灯危险；
+3. **只动自己建的数据**——路径参数一律换成不存在的 id，并要求工具自检这条约束真的生效。
+
+安全轨本身有反向验证：`python _tools/fuzz/_reverse_verify_fuzz_safety.py`（改坏一处必须报红）。
+
+## 5. 维护约定（重要）
+
+- **什么时候更新**：改动落在本表列出的任一「核心文件」时，同步检查对应行是否还准。
+- **为什么必须更新**：**过期地图比没有地图更糟**——没有地图时 agent 会去读代码拿一手真相；有错地图时它会相信结论直接动手。
+- **对齐标记**：本表依据分支 `p`、2026-09-14 的代码状态编写。大幅重构后请复核第 1、2 节的路径与行号。
+- **行号会漂**：表里的 `L###` 是编写时的锚点。若行号对不上，用 `grep -n` 找函数名，不要因为行号变了就认为整条错了。
+- **`L###` 的语义（曾写反过，已改正）**：本表的 `L###` 是**"这一处要去看的那一行"**，指向什么由上下文决定，共四种：
+  1. **`def` 行** —— 引用端点时的**默认口径**（与 [08A](08A_ENDPOINT_INDEX.md) 一致，写 `L359 `create_order`` 这种"行号 + 符号名"的形式）
+  2. **赋值/语句行** —— 危险区要的是"状态在第几行被改"，如 L686 是 `order.status = OrderStatus.ACCEPTED`（函数头在 L675）
+  3. **常量定义行** —— 如 `data_retention.py` L28 `SOFT_DELETE_RETENTION_DAYS = 30`
+  4. **`class` 行** —— 如 `models/product.py` L42 `class PriceRule`
+  > ⚠️ 本表**曾经**写成"`L###` 指 `def`/`class` 行，不是装饰器行"——实测 14 个锚点里**一个 def 行都没有**（7 个装饰器行、3 个赋值行、4 个语句行），照那条约定读会全部跳错。**引端点时优先写「符号名」，行号只作提示。**
+- **精确行号以 08A 为准**：[`08A_ENDPOINT_INDEX.md`](08A_ENDPOINT_INDEX.md) 由 `backend/scripts/gen_endpoint_index.py` 从代码生成，**每个端点的行号都是机器写的**（数量见该文件头部），且有 `--check` 守 freshness。本表的人工行号会漂，08A 不会。
+  - 改完后端 API 后重生成：`cd backend && python -m scripts.gen_endpoint_index --out ../docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`
+  - 校验有没有过期：加 `--check`，不一致返回 exit 1（可直接进 pre-commit）
+- **改完文档，四件套各跑一次**（缺一件就会有盲区）：
+
+  | 命令（在 `backend/` 下） | 查什么 |
+  |---|---|
+  | `python -m scripts.check_refs ..\docs\**\*.md` | 反引号里的路径是否真实存在（扫整个 docs 树） |
+  | `python -m scripts.check_reachability` | markdown 链接是否有效 + **从 `AGENTS.md` 能否到达每一份文档**（报孤儿） |
+  | `python -m scripts.gen_endpoint_index --check --out ..\docs\PROJECT_MAP\08A_ENDPOINT_INDEX.md` | 端点索引是否与代码同步 |
+  | `python -m scripts.check_doc_claims` | 文档里的断言与计数是否与代码一致，**外加 markdown 结构**（表格列数、裸竖线、标题层级） |
+
+  > **为什么不能只跑第一件**：实测一份 168 处引用的文档，`check_refs` 报 **0 处失效**，独立复核却找出 **9 处语义错误**。
+  > 而且它**只认反引号**——`[文本](路径)` 形式的链接它根本看不见，而入口文件恰好全是这种写法。
+  > **路径对 ≠ 内容对 ≠ 找得到。**
+- **行数口径**：本表行数 = **物理总行数**（`len(open(f).readlines())`，含空行、含结尾空行）。
+  ⚠️ 别用 PowerShell `Measure-Object -Line`（**只数非空行**，同文件可差 10~24%）——实测 `orders.py` 总行 1023 / 非空 929。
+  ⚠️ **也别用 `(Get-Content $f).Count`**：它在部分文件上同样不可靠（实测 `data_retention.py` 给 115，真值 121）。**统一用 Python `readlines()`。**
+- **修订记录（只记教训，不记流水）**：初版 2026-09-14，此后经 **3 轮独立复核、共修 19 处**。三条可复用的教训：
+  1. **行数口径会骗人**：初版用 PowerShell `Measure-Object -Line`（只数非空行），全部行数偏低；换成 `(Get-Content).Count` 后仍有文件错（`data_retention.py` 给 115，真值 121）。**换了个"更可靠"的方法 ≠ 方法可靠**，现在统一用 Python `readlines()`。
+  2. **引用校验通过 ≠ 内容正确**：第二轮 6 项、第三轮 4 项问题里，**没有一项是 `check_refs` 能查出来的**——全是"文件存在、但结论不对"。机械校验与独立复核不可互相替代。
+  3. **约定的"元信息"也要被核对**：本表曾把 `L###` 的语义写反（声称指 `def` 行，实测一个都不是）。**写给读者看的规则，本身也需要被验证。**

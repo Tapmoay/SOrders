@@ -16,6 +16,8 @@ coil = "2.7.0"
 amapLocation = "6.4.9"
 amapMap3d = "9.8.3"
 amapSearch = "9.7.0"
+# 纯 JVM 单元测试（AI agent 循环逻辑测试用；不需要 androidTest / Robolectric）
+junit = "4.13.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -42,6 +44,7 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 amap-location = { group = "com.amap.api", name = "location", version.ref = "amapLocation" }
 amap-map3d = { group = "com.amap.api", name = "3dmap", version.ref = "amapMap3d" }
 amap-search = { group = "com.amap.api", name = "search", version.ref = "amapSearch" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

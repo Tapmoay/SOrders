@@ -29,8 +29,8 @@ class TurnoverReportOut(BaseModel):
     cost_covered_lines: int = 0                 # cost_price_snapshot>0 的行数（覆盖率分子）
     damage_qty: int = 0                         # 货损件数合计
     damage_amount: Decimal = Decimal("0")       # 货损金额 = Σ(成本快照×货损件数)
-    collected: Decimal = Decimal("0")           # 现金已收（payment_method=cash 且 paid）
-    arrears_total: Decimal = Decimal("0")       # 挂账未收（payment_method=arrears 且未 paid）
+    collected: Decimal = Decimal("0")           # 已收（paid=True 即算，含挂账结清）
+    arrears_total: Decimal = Decimal("0")       # 挂账未收（paid=False）——与 collected 构成完整划分：两者之和恒等于营业额
     cancelled_orders: int = 0                   # 周期内已撤销订单数
     arrears_units: list[ReportArrearsUnitItem] = []   # 挂账未收按单位 TOP5
 

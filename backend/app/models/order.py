@@ -32,6 +32,10 @@ class Order(Base, TimestampMixin):
     address_detail: Mapped[str] = mapped_column(String(512), default="")
     address_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
     address_lng: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    # 导航信息的**来源**：driver=司机到场补录，dispatcher=派单员补录；空=下单时就带坐标。
+    # 为什么要存：货主看到的 "司机帮你补上了导航信息" 必须是真的（不能靠猜），
+    # 而且补录这件事会写进共享地点库——出了问题要能顺着这一列查回是谁在哪一单上标的。
+    nav_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # 收货地址参考图（定位不清时上传辅助）：address_image_url 兼容首图；image_urls 全量（JSON 数组）
     address_image_url: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
     image_urls: Mapped[str] = mapped_column(Text, default="[]")
@@ -45,6 +49,14 @@ class Order(Base, TimestampMixin):
     freight_fee: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     # 派单时司机计费方式快照：司机换类型后历史订单可见性仍按快照
     driver_billing_mode_snapshot: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # 派单时挂着的**计费规则**快照（JSON）：规则后来被改了/换了，已送完的单金额不能跟着变。
+    # 空 = 这单没挂规则，按老口径算（计件=全额运费）。
+    driver_rule_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 派单员对**这一单**单独定的数（空=用规则里的）：
+    # 用户 2026-09-18：「每单有多少钱，但每单是不固定的，几百块、几十块，由派单员决定」。
+    driver_piece_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # 「提成又是另外一回事，可能设置这一单、或者这一类单」→ 比例也能逐单给。
+    driver_commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     # 派单时勾选「收取现金」：司机完成订单时可选择现场收现金或挂账；未勾选则送达自动挂账
     collect_cash: Mapped[bool] = mapped_column(Boolean, default=False)
     # 司机送达时录入的货损备注（选填）
@@ -55,6 +67,9 @@ class Order(Base, TimestampMixin):
     )
 
     delivery_photo_urls: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+
+    # 软删除隔离时间：用户删除后 30 天内隔离（用户不可见），派单员可恢复；到期后物理清理
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     driver_acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -101,6 +116,11 @@ class OrderProduct(Base, TimestampMixin):
     quantity: Mapped[int] = mapped_column(default=1)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    # 下单时这一行的单位快照（件/箱/斤…）。空串 = 老数据 → 出参回退商品单位。
+    # ⚠️ 用户在选品弹窗里能**改单位**（"数量后面是要有对应的单位的"），
+    #    所以它必须跟着行存下来：不存的话界面上选了「3 箱」、订单和送货单上还是「3 件」。
+    #    它**不参与任何金额计算**（钱只认 quantity × unit_price），改动它不动账。
+    unit_snapshot: Mapped[str] = mapped_column(String(32), default="")
     # 商品成本快照（报表毛利率/利润用；货运损金额=该快照×货损数量）
     cost_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
     # 司机送达时录入的货损数量（≤quantity；0=无货损）

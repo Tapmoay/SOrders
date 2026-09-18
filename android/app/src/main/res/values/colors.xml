@@ -1,3 +1,8 @@
 <resources>
-    <color name="ic_launcher_background">#1565C0</color>
+    <!--
+      图标的兜底底色：真正的背景是 drawable/ic_launcher_background.xml 的橙金渐变，
+      这一项是给「读不到矢量」的极老工具链/第三方取色用的，取渐变起点同色即可。
+      改图标时两个地方一起改，别让它们各说各的。
+    -->
+    <color name="ic_launcher_background">#FFB020</color>
 </resources>

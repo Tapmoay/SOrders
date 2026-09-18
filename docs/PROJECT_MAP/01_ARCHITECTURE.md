@@ -29,7 +29,7 @@ orders/
 │   │   ├── database.py          # engine/SessionLocal；导入即 bootstrap_schema
 │   │   ├── deps.py              # CurrentUser / require_permission 等依赖
 │   │   ├── redis_client.py      # Redis 健康检查（可选）
-│   │   ├── core/                # rbac(权限) / security(jwt/hash) / socket_io / ws_hub / schema_bootstrap
+│   │   ├── core/                # rbac(权限) / security(jwt/hash) / socket_io / schema_bootstrap（⚠️ `ws_hub.py` 是**死代码**，零引用，别改）
 │   │   ├── models/              # SQLAlchemy ORM（order/user/product/ledger/cash_flow/...）
 │   │   ├── schemas/             # Pydantic DTO（入参/出参）
 │   │   ├── api/v1/              # 路由（按资源分文件，router.py 汇总挂载）
@@ -61,7 +61,7 @@ orders/
 
 ### 后端
 ```powershell
-cd D:AProjectsASDHordersackend
+cd D:\AProjects\ASDH\orders\backend
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 # 健康检查
 curl http://127.0.0.1:8000/health
@@ -79,22 +79,24 @@ D:AProjectsASDHordersdev-build.ps1 -NoRun        # 只构建安装不开APP
 D:AProjectsASDHordersdev-build.ps1 -NoBuild      # 只装现有APK
 D:AProjectsASDHordersdev-build.ps1 -CleanBuild   # clean 后构建
 
-# 方式2：命令行
+# 方式2：命令行（2026-09-15 起按 ABI 分 flavor：emu=模拟器 x86_64，phone=真机 arm64+v7a）
 $env:JAVA_HOME='D:/APPS/AndroidStudio/jbr'
-D:/AProjects/ASDH/orders/_agent/gradle/gradle-8.9/bin/gradle.bat -p D:/AProjects/ASDH/orders/android :app:assembleDebug
-# APK 输出：android/app/build/outputs/apk/debug/app-debug.apk
+D:/AProjects/ASDH/orders/_agent/gradle/gradle-8.9/bin/gradle.bat -p D:/AProjects/ASDH/orders/android :app:assembleEmuDebug
+# APK 输出：android/app/build/outputs/apk/emu/debug/app-emu-debug.apk
+# 真机包：:app:assemblePhoneDebug → outputs/apk/phone/debug/app-phone-debug.apk
+# 发版请用 `_tools/deploy/publish_apk.py`，别手敲（见 docs/APP_UPDATE_AND_RELEASE.md）
 ```
 
 ### 静态 APK 分发（真机下载）
 ```powershell
-python -m http.server 8001 --bind 0.0.0.0   # workdir=android/app/build/outputs/apk/debug
-# 真机访问 http://<电脑IP>:8001/app-debug.apk
+python -m http.server 8001 --bind 0.0.0.0   # workdir=android/app/build/outputs/apk/phone/debug
+# 真机访问 http://<电脑IP>:8001/app-phone-debug.apk
 ```
 
 ## 5. 角色与登录
 
 - 用户表 `users`：`role`（dispatcher/shipper/driver）+ `is_member`（批发商=高级货主）+ `billing_mode`（司机计费 PIECE/SALARY）+ `vehicle_type`
-- 登录：`POST /api/v1/auth/login`（手机号+密码，JWT `access_token`，24h）；也可 `/auth/register`、`/auth/sms/send`（本地回显 code，见 sms_reveal_code）
+- 登录：`POST /api/v1/auth/login`（手机号+密码，JWT `access_token`，24h）——**没有自助注册**：`/auth/register`、`/auth/sms/send` 已于 2026-09-18 按用户要求整体删除，建账号只有派单员 `POST /users` 一条路
 - 角色权限：`app/core/rbac.py`（ROLE_PERMISSIONS 表；派单员=最高业务权限）
 
 ## 6. 业务主流程
@@ -102,8 +104,8 @@ python -m http.server 8001 --bind 0.0.0.0   # workdir=android/app/build/outputs/
 ```
 货主下单(可选批发价/地址/联系人/图片)
   → 订单 PENDING_DISPATCH（待派单池，Socket.IO 推送派单员）
-  → 派单员指派司机（选车辆/运费/collect_cash）→ ASSIGNED
-  → 司机接单(driver-ack) → 送达(complete / complete-with-upload / 拍照)
+  → 派单员指派司机（选车辆/运费/collect_cash）→ DISPATCHED（已派单，待司机确认）
+  → 司机接单(driver-ack) → ACCEPTED → 送达(complete / complete-with-upload / 拍照)
       · 按 collect_cash 决定：现场收现金(cash, paid) 或 挂账(arrears, 未付→挂账单位)
   → DELIVERED → 自动进账本(ledger sync) + 司机账(运费结算) + 报表
 异常：is_exception / 超时自动异常 / 撤销 cancel / 拆分 split / 召回 recall
@@ -115,6 +117,6 @@ python -m http.server 8001 --bind 0.0.0.0   # workdir=android/app/build/outputs/
 - `order_products.cost_price_snapshot`：商品成本快照（报表毛利/货损金额用；老数据可能为 0）
 - `damage_quantity`：货损件数（≤quantity）
 - `collect_cash`：派单时勾选；`payment_method` = cash|arrears；`paid` = 是否结清
-- `ledger`：账本总账（订单自动同步 + 手动记账），`source` = ORDER|MANUAL
+- `ledger`：账本总账（订单自动同步 + 手动记账），`source` = ORDER / MANUAL / **REFUND**（⚠️ 漏掉 REFUND 会 500——货损退款单写的就是这个值，`schema_bootstrap.py` 有专门修复）
 - `cash_flows`：**所有实际收付的唯一写入点**（客户收款/司机付款/开销/退款/调账）
 - `price_rules`：批发商专属价（批发商+商品+special_unit_price）；商品 `tier_prices`=多档批发价（JSON）

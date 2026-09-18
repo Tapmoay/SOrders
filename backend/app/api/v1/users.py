@@ -1,23 +1,40 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.rbac import Permission, user_role_key
 from app.core.security import hash_password
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
-from app.models import User
-from app.models.user import resolve_billing_mode
-from app.models.enums import UserRole
+from app.models import Product, User
+from app.models.user import normalize_billing_mode, resolve_billing_mode
+from app.models.enums import OperationAction, UserRole
+from app.schemas.product_visibility import (
+    ProductVisibilityIn,
+    ProductVisibilityOut,
+    replace_visibility,
+    visibility_of,
+)
 from app.schemas.user import UserCreate, UserOut, UserUpdate
+from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 # 司机端（司机查看自己/列表时）工资一律隐藏：工资仅派单员可见
 def _to_out(u: User, viewer: User) -> User:
     out = UserOut.model_validate(u)
-    if user_role_key(viewer) != UserRole.DISPATCHER.value:
+    is_dispatcher = user_role_key(viewer) == UserRole.DISPATCHER.value
+    if not is_dispatcher:
         out.salary = None
+    # 计费规则：怎么算钱那句话只由 `driver_pay` 生成（界面/确认卡/账单同源，不各写一套）
+    if user_role_key(u) == UserRole.DRIVER.value:
+        from app.services.driver_pay import pay_summary_for, rule_of_user
+
+        rule = rule_of_user(u)
+        out.driver_rule_id = rule.rule_id if rule is not None else None
+        out.driver_rule_name = rule.name if rule is not None else ""
+        # ⚠️ 非派单员不给金额：规则里带着工资数，而"工资仅派单员可见"是既有硬约定
+        out.pay_summary = pay_summary_for(u, include_money=is_dispatcher)
     return out
 
 
@@ -32,15 +49,19 @@ def list_users(
     current: User = Depends(require_permission(Permission.USER_MANAGE)),
     role: UserRole | None = Query(None),
     is_member: bool | None = Query(None, description="会员筛选（is_member=true 取高级货主）"),
+    q: str | None = Query(None, description="按姓名或手机号模糊搜索"),
     skip: int = 0,
     limit: int = Query(100, le=500),
 ) -> list[User]:
-    q = select(User).order_by(User.id.desc()).offset(skip).limit(limit)
+    stmt = select(User).order_by(User.id.desc()).offset(skip).limit(limit)
     if role is not None:
-        q = q.where(User.role == role)
+        stmt = stmt.where(User.role == role)
     if is_member is not None:
-        q = q.where(User.is_member.is_(is_member))
-    return [_to_out(u, current) for u in db.scalars(q).all()]
+        stmt = stmt.where(User.is_member.is_(is_member))
+    kw = (q or "").strip()
+    if kw:
+        stmt = stmt.where(or_(User.full_name.like(f"%{kw}%"), User.phone.like(f"%{kw}%")))
+    return [_to_out(u, current) for u in db.scalars(stmt).all()]
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -63,13 +84,30 @@ def create_user(
         is_member=body.is_member,
         salary=body.salary,
         vehicle_type=(body.vehicle_type or "").strip() or None,
-        billing_mode=(
-            body.billing_mode
-            if body.billing_mode
-            else resolve_billing_mode((body.vehicle_type or "").strip() or None, None)
+        billing_mode=resolve_billing_mode(
+            (body.vehicle_type or "").strip() or None,
+            body.billing_mode or None,
         ),
     )
     db.add(u)
+    db.flush()
+    # 账号的新建/改动以前也不进操作日志（`USER_CREATE` 枚举存在但没人用）——
+    # "谁建的这个账号、谁给他改的权限"查不到。补上（v3.26）。
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.USER_CREATE,
+        change_payload={
+            "user_id": u.id,
+            "username": u.username,
+            "full_name": u.full_name,
+            "phone": u.phone,
+            "role": u.role,
+            "is_member": u.is_member,
+            # ⛔ 绝不记密码（连哈希也不记）：操作日志是给人看的审计页，不是凭据库
+        },
+    )
     db.commit()
     db.refresh(u)
     return _to_out(u, current)
@@ -83,6 +121,81 @@ def get_user(user_id: int, current: CurrentUser, db: Session = Depends(get_db)) 
     if user_role_key(current) != UserRole.DISPATCHER.value and current.id != user_id:
         raise HTTPException(status_code=403, detail="无权访问")
     return _to_out(u, current)
+
+
+@router.get("/{user_id}/product-visibility", response_model=ProductVisibilityOut)
+def get_product_visibility(
+    user_id: int,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ProductVisibilityOut:
+    """某个货主/批发商能看到哪些商品（白名单）。派单员在用户编辑页回显它。"""
+    if user_role_key(current) != UserRole.DISPATCHER.value and current.id != user_id:
+        raise HTTPException(status_code=403, detail="无权访问")
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    return visibility_of(db, user_id)
+
+
+@router.put("/{user_id}/product-visibility", response_model=ProductVisibilityOut)
+def set_product_visibility(
+    user_id: int,
+    body: ProductVisibilityIn,
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
+    db: Session = Depends(get_db),
+) -> ProductVisibilityOut:
+    """整份设置某个货主/批发商的可见商品（**白名单**：勾了的才给他看）。
+
+    ⚠️ 两条拒绝，都是为了不让用户"以为配好了、其实没有"：
+    1. `scope=custom` 但一个商品都没勾 → 拒绝（那等于让他什么都看不到；
+       真要做这件事，是先把 scope 设成 custom 再逐个勾，而不是空着交上来）；
+    2. 勾了但**所有**编号都不在商品库里（全被删了）→ 拒绝并说明。
+    只挡这两条，是因为它们都会让界面显示"已设置"而实际效果是"空目录"。
+    """
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    if user_role_key(u) not in (UserRole.SHIPPER.value,):
+        raise HTTPException(
+            status_code=400,
+            detail="商品可见范围只对货主/批发商有意义（派单员不受限，否则改错了没人能改回来）",
+        )
+    if body.scope == "custom":
+        if not body.product_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="选了「只给勾选的商品」却一个都没勾 —— 那样他打开选品页会是空的。"
+                "请至少勾一个商品，或者改回「全部商品」。",
+            )
+        alive = set(
+            db.scalars(
+                select(Product.id).where(
+                    Product.id.in_(body.product_ids), Product.is_deleted.is_(False)
+                )
+            ).all()
+        )
+        if not alive:
+            raise HTTPException(
+                status_code=400,
+                detail="勾选的商品都不在商品库里了（可能已被删除），请重新勾选",
+            )
+    out = replace_visibility(db, u, body)
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PRODUCT_VISIBILITY_SET,
+        change_payload={
+            "user_id": u.id,
+            "user_name": u.full_name or u.phone,
+            "scope": out.scope,
+            "product_ids": out.product_ids,
+            "product_count": len(out.product_ids),
+        },
+    )
+    db.commit()
+    return out
 
 
 @router.patch("/{user_id}", response_model=UserOut)
@@ -103,6 +216,17 @@ def update_user(
     if not is_dispatcher and (body.role is not None or body.is_active is not None or body.phone is not None):
         raise HTTPException(status_code=403, detail="无权修改他人的角色、手机号或状态")
 
+    # 改前 → 改后逐字段记（不含密码：审计页是给人看的，不是凭据库）
+    before = {
+        "phone": u.phone,
+        "full_name": u.full_name,
+        "role": u.role,
+        "is_active": u.is_active,
+        "is_member": u.is_member,
+        "salary": str(u.salary) if u.salary is not None else None,
+        "billing_mode": u.billing_mode,
+        "vehicle_type": u.vehicle_type,
+    }
     if body.phone is not None:
         u.phone = body.phone
     if body.password is not None:
@@ -115,6 +239,9 @@ def update_user(
         u.is_active = body.is_active
     if body.is_member is not None and is_dispatcher:
         u.is_member = body.is_member
+    # 安全修复：工资/计费方式/车型仅派单员可改（司机自改会绕过结算规则、篡改工资）
+    if (body.salary is not None or body.billing_mode is not None or body.vehicle_type is not None) and not is_dispatcher:
+        raise HTTPException(status_code=403, detail="仅派单员可修改工资/计费方式/车型")
     if body.salary is not None and user_role_key(u) == UserRole.DRIVER.value:
         u.salary = body.salary
     # 司机车型/计费方式：仅司机角色有意义；billing_mode 缺省由车型自动推导
@@ -122,10 +249,34 @@ def update_user(
         if body.vehicle_type is not None:
             u.vehicle_type = (body.vehicle_type or "").strip() or None
         if body.billing_mode is not None:
-            u.billing_mode = (body.billing_mode or "").strip() or None
+            # ⚠️ 必须归一（见 `normalize_billing_mode` 的注释）：这里以前是 `.strip()` 原样落库，
+            # 于是"AI 用小写、页面用大写"两套写法同时存在于库里，
+            # 而各消费点的大小写敏感判据互相矛盾（运费录不进、结算漏单、派单页不显示运费框）。
+            u.billing_mode = normalize_billing_mode(body.billing_mode)
         elif body.vehicle_type is not None:
             u.billing_mode = resolve_billing_mode(u.vehicle_type, None)
 
+    after = {
+        "phone": u.phone,
+        "full_name": u.full_name,
+        "role": u.role,
+        "is_active": u.is_active,
+        "is_member": u.is_member,
+        "salary": str(u.salary) if u.salary is not None else None,
+        "billing_mode": u.billing_mode,
+        "vehicle_type": u.vehicle_type,
+    }
+    changes = [
+        {"field": k, "from": before[k], "to": after[k]} for k in before if before[k] != after[k]
+    ]
+    if changes:
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.USER_UPDATE,
+            change_payload={"user_id": u.id, "username": u.username, "changes": changes},
+        )
     db.commit()
     db.refresh(u)
     return _to_out(u, current)
@@ -158,11 +309,78 @@ def swap_shipper_driver(
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> None:
     u = db.get(User, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    if u.is_active is False and str(u.phone or "").endswith(f"_del{u.id}"):
+        raise HTTPException(status_code=400, detail="这个账号已经删过了")
+    orig_phone, orig_username = u.phone, u.username
     u.is_active = False
+    # 释放手机号/用户名（允许用同号重新建号），数据仍保留可追溯
+    u.phone = f"{u.phone}_del{u.id}"
+    u.username = f"{u.username[:22]}_del{u.id}"
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.USER_DELETE,
+        change_payload={
+            "user_id": u.id,
+            "username": orig_username,
+            "phone": orig_phone,
+            "note": "软删除（可 POST /users/{id}/restore 恢复），手机号已释放",
+        },
+    )
     db.commit()
+
+
+@router.post("/{user_id}/restore", response_model=UserOut)
+def restore_user(
+    user_id: int,
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
+    db: Session = Depends(get_db),
+) -> User:
+    """把删掉的账号恢复回来（`DELETE /{id}` 的逆操作）。
+
+    删除时手机号/用户名被加了 `_del{id}` 后缀（为了释放号码给新账号用），
+    这里**把后缀去掉**还原。冲突处理：如果那个号码已经被别人注册了，
+    只恢复账号与身份、**保留现在的号码**，并把这件事写在返回里——
+    硬抢回来会把另一个账号顶掉，那是更大的错。
+    """
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    suffix = f"_del{u.id}"
+    restored: list[str] = []
+    conflicts: list[str] = []
+    if isinstance(u.phone, str) and u.phone.endswith(suffix):
+        want = u.phone[: -len(suffix)]
+        taken = db.scalars(select(User).where(User.phone == want, User.id != u.id)).first()
+        if taken is None:
+            u.phone = want
+            restored.append("手机号")
+        else:
+            conflicts.append(f"手机号 {want} 已经被别的账号占用，保留了当前的 {u.phone}")
+    if isinstance(u.username, str) and u.username.endswith(suffix):
+        u.username = u.username[: -len(suffix)]
+        restored.append("用户名")
+    u.is_active = True
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.USER_RESTORE,
+        change_payload={
+            "user_id": u.id,
+            "username": u.username,
+            "phone": u.phone,
+            "restored": restored,
+            "conflicts": conflicts,
+        },
+    )
+    db.commit()
+    db.refresh(u)
+    return _to_out(u, current)

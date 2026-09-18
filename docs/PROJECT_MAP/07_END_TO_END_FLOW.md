@@ -1,5 +1,8 @@
 # 07 三端互通端到端流程（货主 ⇄ 派单员 ⇄ 司机）
 
+<!-- ref-prefix: android/app/src/main/java/com/tapmoay/sorders/ -->
+<!-- 本文的 Kotlin 路径省略了包根；此行供 check_refs.py 解析（后端路径不受影响）。 -->
+
 > 本文回答「一条订单从下单到送货再到入账，三端各自看到什么、怎么收到消息、谁能做什么」。
 > 与工程地图（01-06）配合使用：本文讲**业务流转**，02 讲**接口**，05 讲**怎么测**。
 > 数据事实均从代码核实（`orders.py / message_center.py / push_events.py / stats_service.py / ledger 相关`）。
@@ -183,7 +186,7 @@
 | 指派 | 派单员 Assign | POST /orders/{id}/assign | 司机 order.assigned / 货主 order.dispatched |
 | 接单 | 司机 DriverOrders | POST driver-ack | 货主 order.driver_ack / 派单员广播 |
 | 送达 | 司机 Detail | POST complete(\-with-upload) | 货主 order.delivered / 派单员广播 / 货主 ledger.updated |
-| 收款 | 司机 Detail | 完成时 payment=cash|arrears | —（后端落 cash_flows/挂账） |
+| 收款 | 司机 Detail | 完成时 payment=cash\|arrears | —（后端落 cash_flows/挂账） |
 | 改运费 | 派单员 Freight | POST freight | 司机 order.freight.updated |
 | 召回 | 派单员 Recall | POST recall | 原司机 order.revoked / 货主 order.recalled |
 | 撤销 | 货主/派单员 | POST cancel | 货主 order.cancelled（+司机/派单员广播） |

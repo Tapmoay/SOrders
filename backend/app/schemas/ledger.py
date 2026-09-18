@@ -4,9 +4,11 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import LedgerSource
+from app.schemas.money import MoneyInput
+from app.schemas.text import MAX_TEXT
 
 
-class LedgerCreate(BaseModel):
+class LedgerCreate(MoneyInput):
     shipper_id: int | None = None
     temp_shipper_name: str | None = Field(None, max_length=128)
     entry_date: date
@@ -18,7 +20,7 @@ class LedgerCreate(BaseModel):
     order_product_id: int | None = None
     product_id: int | None = None
     source: LedgerSource = LedgerSource.MANUAL
-    note: str = ""
+    note: str = Field("", max_length=MAX_TEXT)
 
     @model_validator(mode="after")
     def _one_shipper_bucket(self) -> "LedgerCreate":
@@ -35,10 +37,10 @@ class LedgerCreate(BaseModel):
         return self
 
 
-class LedgerUpdate(BaseModel):
+class LedgerUpdate(MoneyInput):
     """账本编辑：自动订单行仅备注；手动行可改明细（关联订单仅作核对，不回写订单明细）。"""
 
-    note: str | None = None
+    note: str | None = Field(None, max_length=MAX_TEXT)
     entry_date: date | None = None
     product_name: str | None = Field(None, min_length=1, max_length=256)
     quantity: int | None = Field(None, ge=1)

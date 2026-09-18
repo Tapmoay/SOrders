@@ -2,14 +2,48 @@ package com.tapmoay.sorders.core
 
 import com.tapmoay.sorders.BuildConfig
 import android.os.Build
+import java.net.HttpURLConnection
+import java.net.URL
 
 /** 后端 API 地址统一出口：
- * - 模拟器自动走 10.0.2.2（宿主机映射，不依赖物理 IP，永不超时）
- * - 真机使用 local.properties 的 api_base_url（需与电脑局域网 IP 一致）
+ * 优先连接构建配置 api_base_url（当前=生产服务器 https://sorders.top）；
+ * 模拟器在服务器不可达时自动回退本机后端 http://10.0.2.2:8000（兜底开发联调）。
+ * 探测结果进程内缓存（首次访问时探测，服务器可达时约 200ms）。
  */
 object ApiEndpoint {
+
+    @Volatile
+    private var _resolved: String? = null
+
     val baseUrl: String
-        get() = if (isEmulator()) "http://10.0.2.2:8000" else BuildConfig.API_BASE_URL
+        get() {
+            _resolved?.let { return it }
+            val primary = BuildConfig.API_BASE_URL
+            val resolved = when {
+                primary.startsWith("http://10.0.2.2") -> primary // 显式本地联调配置：不探测
+                probe(primary) -> primary
+                isEmulator() -> "http://10.0.2.2:8000" // 模拟器兜底：本机后端
+                else -> primary
+            }
+            _resolved = resolved
+            return resolved
+        }
+
+    /** 服务器可达性探测（/health 接口，2.5s 超时） */
+    private fun probe(url: String): Boolean {
+        return try {
+            val req = okhttp3.Request.Builder()
+                .url(url.trimEnd('/') + "/health")
+                .get()
+                .build()
+            NetworkDns.okHttp.newCall(req).execute().use { resp ->
+                resp.code in 200..499 // 含 401/404 都说明服务在线
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ApiEndpoint", "probe failed for " + url + " : " + e)
+            false
+        }
+    }
 
     fun isEmulator(): Boolean {
         val fp = Build.FINGERPRINT ?: ""

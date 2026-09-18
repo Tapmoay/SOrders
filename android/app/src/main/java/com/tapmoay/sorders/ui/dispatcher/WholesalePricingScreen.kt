@@ -40,12 +40,13 @@ fun WholesalePricingScreen(
     val vm: WholesalePricingViewModel = appViewModel { WholesalePricingViewModel(container, shipperId) }
     val snackbar = remember { SnackbarHostState() }
 
-    LaunchedEffect(vm.actionResult) {
-        vm.actionResult?.let {
-            snackbar.showSnackbar(it)
-            vm.actionResult = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+
+    // 保存失败必须看得见：以前错误只在"商品列表为空"时显示，
+    // 于是选着商品目录保存专属价失败（400）时**界面毫无反应**——用户以为存上了。
+    // ⚠️ 这里消费的是**动作错误**（vm.error）。加载错误走 vm.loadError，
+    //    它还要驱动下面那条 ErrorView（带重试），所以**不能**被提示条清掉 —— 见 VM 的注释。
+    OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -73,7 +74,7 @@ fun WholesalePricingScreen(
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 vm.loading -> LoadingBox()
-                vm.error != null && vm.products.isEmpty() -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
+                vm.loadError != null && vm.products.isEmpty() -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
                 vm.products.isEmpty() -> EmptyView("暂无商品，请先在商品管理中新增", Modifier.align(Alignment.Center))
                 else -> LazyColumn(
                     Modifier.fillMaxSize(),

@@ -41,6 +41,7 @@ class SocketManager {
                 reconnectionDelayMax = 10000
                 randomizationFactor = 0.5
                 timeout = 10000
+                // 注意：不注入 transportOptions（engine.io 2.1.0 对空字段会 NPE，曾致登录闪退）
             }
             val s = IO.socket(baseUrl.trimEnd('/'), opts)
             listOf("sync", "notification", "unread_count", "realtime").forEach { ev ->
@@ -67,15 +68,31 @@ class SocketManager {
         }
     }
 
-    /** socket.io-client 2.1.0 以 org.json.JSONObject 传递事件负载，转成 Map 供业务层使用 */
+    /**
+     * socket.io-client 2.1.0 以 org.json.JSONObject 传递事件负载，转成 Map 供业务层使用。
+     *
+     * ⚠️ **必须深转**（嵌套对象/数组也要转）。踩过的坑：
+     * 这里原来只转最外层，于是 `data["notification"]` 仍然是个 JSONObject，
+     * 而业务层写的是 `as? Map<*, *>` —— 拿到 null，整条站内信被**静默丢掉**：
+     * 站内信里的 type/title/content/order_id 全都读不到。
+     * 表现是"司机收到了 realtime 事件、却没收到那条新派单消息"，
+     * 而且不会有任何报错。凡是嵌套结构（notification / payload / notifications 数组）都靠这个函数。
+     */
     private fun toMapOfJson(obj: org.json.JSONObject): Map<String, Any?> {
         val out = LinkedHashMap<String, Any?>()
         val it = obj.keys()
         while (it.hasNext()) {
             val k = it.next()
-            out[k] = obj.opt(k) as Any?
+            out[k] = plain(obj.opt(k))
         }
         return out
+    }
+
+    /** 递归把 JSONObject/JSONArray 摊成 Map/List，其余原样返回 */
+    private fun plain(v: Any?): Any? = when (v) {
+        is org.json.JSONObject -> toMapOfJson(v)
+        is org.json.JSONArray -> (0 until v.length()).map { plain(v.opt(it)) }
+        else -> v
     }
 
     fun disconnect() {

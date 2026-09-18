@@ -3,8 +3,10 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.money import MoneyInput
 
-class FreightTemplateBase(BaseModel):
+
+class FreightTemplateBase(MoneyInput):
     name: str = Field(..., min_length=1, max_length=128)
     from_place: str = Field("", max_length=128)
     to_place: str = Field("", max_length=128)
@@ -17,7 +19,7 @@ class FreightTemplateCreate(FreightTemplateBase):
     pass
 
 
-class FreightTemplateUpdate(BaseModel):
+class FreightTemplateUpdate(MoneyInput):
     name: str | None = Field(None, min_length=1, max_length=128)
     from_place: str | None = Field(None, max_length=128)
     to_place: str | None = Field(None, max_length=128)

@@ -15,17 +15,26 @@ from app.deps import require_permission
 from app.models import Order, OrderProduct, User
 from app.models.enums import OrderStatus
 from app.schemas.reports import ProductReportItem, ProductReportOut, ReportArrearsUnitItem, ReportSeriesItem, TurnoverReportOut
+from app.services.driver_pay import has_per_order_pay, pay_for_order
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 def _window(mode: str, anchor: date) -> tuple[date, date]:
+    """[mode] 对应的时间窗口，**两端都是闭区间里的最后一天**。
+
+    ⚠️ 月窗口的上界以前是"下月 1 日"（`day=1 + 32 天 → day=1`），而调用方用的是
+    **闭区间** `ds <= end`（见 `build_turnover`），于是**下个月 1 号的单会被算进本月**。
+    报表上的表现很隐蔽：本月最后一天的日报是对的，月报却多了一天的数据。
+    现在统一返回"本月最后一天"，与周/日两种模式一致。
+    """
     d = anchor
     if mode == "week":
         start = d - timedelta(days=d.weekday())
         return start, start + timedelta(days=6)
     if mode == "month":
-        return d.replace(day=1), (d.replace(day=1) + timedelta(days=32)).replace(day=1)
+        first = d.replace(day=1)
+        return first, (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
     return d, d
 
 
@@ -47,7 +56,15 @@ def _range_dates(start: date, end: date) -> list[date]:
 
 
 def load_delivered(db: Session) -> list[Order]:
-    """全部已送达订单（按送达时间排序）；由各报表按窗口过滤，减少重复查询。"""
+    """全部已送达订单（按送达时间排序）；由各报表按窗口过滤，减少重复查询。
+
+    ### 为什么必须排掉软删（隔离区）的单
+    `DELETE /orders/{id}` 是**伪装删除**（进隔离区 30 天，可恢复），用户界面上已经看不到了。
+    而报表这边以前**没有这个过滤**——只 grep 过 `deleted_at`：
+    全后端只有 `orders.py` 与 `data_retention.py` 用到了它。
+    后果是"删掉的那张单还在营业额、毛利、货损、司机应付里"：
+    用户删掉一张错单，报表上的数字**一分都不减**，而他会以为删干净了。
+    """
     return list(
         db.scalars(
             select(Order)
@@ -55,6 +72,8 @@ def load_delivered(db: Session) -> list[Order]:
             .where(
                 Order.status == OrderStatus.DELIVERED,
                 Order.delivered_at.isnot(None),
+                # 隔离区里的单不算数（列可能不存在于极老的库里时由 schema_bootstrap 补齐）
+                Order.deleted_at.is_(None),
             )
             .order_by(Order.delivered_at)
         )
@@ -107,9 +126,16 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
             if dq > 0:
                 damage_qty += dq
                 damage_amount += cost * Decimal(dq) if cost > 0 else Decimal("0")
-        if (o.payment_method or "") == "cash" and o.paid:
+        # ⚠️ 这笔钱**只有两个去处**：已收 / 还没收（挂账）。必须写成完整划分。
+        #
+        # 原来是两条带条件的判据（`cash 且已收` / `arrears 且未收`），于是
+        # **挂账结清**（收款方式 `arrears_settle`：payment_method 还是 arrears，但 paid=True）
+        # 和 `cash 且未收` 这两种组合**两边都不算**——营业额 200、已收 100、挂账 0，
+        # 差出来的 100 在报表上哪一列都不属于（v3.39 探针实测：挂账结清后
+        # "已收 +0 / 挂账 -100"，钱凭空消失）。
+        if o.paid:
             collected += amount
-        elif (o.payment_method or "") == "arrears" and not o.paid:
+        else:
             arrears_total += amount
             uname = (o.arrears_unit_name or "").strip() or "未分配挂账单位"
             arrears_map[uname] = arrears_map.get(uname, Decimal("0")) + amount
@@ -316,7 +342,7 @@ def export_report(
         ws.append(["营业纵览", f"{mode} {_label(d, mode)}", f"金额口径：已送达未撤销"])
         ws.append(["营业金额", str(data["total_amount"]), "订单数", data["total_orders"], "单均价", str(data["avg_order"])])
         ws.append(["司机运费支出", str(data["total_freight"]), "商品毛利(仅计成本快照行)", str(data["total_amount"] - data["cost_total"]), f"成本覆盖率 {data['cost_covered_lines']}/{data['total_lines']}"])
-        ws.append(["货损件数", data["damage_qty"], "货损金额", str(data["damage_amount"]), "现金已收", str(data["collected"])])
+        ws.append(["货损件数", data["damage_qty"], "货损金额", str(data["damage_amount"]), "已收", str(data["collected"])])
         ws.append(["挂账未收", str(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
         ws.append([])
         ws.append(["时间", "单数", "金额", "运费"])
@@ -364,12 +390,15 @@ def export_report(
                 photo_ok = sum(1 for x in os if x.delivery_photo_urls)
                 mode_snap = ""
                 fre = ""
+                # ⚠️ 这一格原来是"随便取一张单的 freight_fee"（列名却叫待结运费，量纲都不对）。
+                #    v3.36 起改成和账单/结算页同源的 Σ 应付（`pay_for_order` 一处实现）。
+                owed = Decimal("0")
                 for x in os:
                     if x.driver_billing_mode_snapshot:
                         mode_snap = x.driver_billing_mode_snapshot
-                    if x.freight_fee is not None:
-                        fre = str(x.freight_fee)
-                        break
+                    if has_per_order_pay(x):
+                        owed += pay_for_order(x).total
+                fre = str(owed)
                 ws.append([name, len(os), ot, (photo_ok / len(os)) if os else "", "", mode_snap, fre])
         elif kind == "customers":
             from app.models import User

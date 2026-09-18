@@ -16,6 +16,8 @@ from app.schemas.stats import (
     DrilldownOrderItem,
     ExceptionOrderItem,
     ShipperActivityOut,
+    ShipperPerformanceOut,
+    ShipperPerformanceRow,
     ShipperProductChartOut,
     StatsExportBody,
 )
@@ -84,6 +86,21 @@ def get_driver_performance(
     )
 
 
+@router.get("/shipper-performance", response_model=ShipperPerformanceOut)
+def get_shipper_performance(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    _: User = Depends(require_permission(Permission.STATS_READ)),
+    db: Session = Depends(get_db),
+) -> ShipperPerformanceOut:
+    rows = stats_service.shipper_performance(db, date_from, date_to)
+    label = f"{date_from.isoformat()} ~ {date_to.isoformat()}"
+    return ShipperPerformanceOut(
+        period_label=label,
+        shippers=[ShipperPerformanceRow.model_validate(r) for r in rows],
+    )
+
+
 @router.get("/exception-orders", response_model=list[ExceptionOrderItem])
 def get_exception_orders(
     date_from: date = Query(...),
@@ -113,7 +130,11 @@ def resolve_exception_order(
         order = db.scalars(select(Order).where(Order.id == order_id)).first()
         if order is None:
             raise HTTPException(status_code=404, detail="未找到对应记录")
-        order.is_exception = True
+        # ⚠️ 这里原本是 `order.is_exception = True`——"解除异常"把标记又设回了异常。
+        # 后果不是脏数据，而是**用户点了没反应**：异常列表按 `Order.is_exception.is_(True)` 筛，
+        # 解除之后单子仍然留在列表里（App 的报表中心→异常与审计那个按钮就是这个端点）。
+        # 解除语义 = 清掉标记 + 记下解决说明与时间；异常历史仍可从那两个字段回查。
+        order.is_exception = False
         order.exception_reason = order.exception_reason or "异常订单"
         order.exception_resolution = note or order.exception_resolution
         order.exception_resolved_at = datetime.now(timezone.utc)

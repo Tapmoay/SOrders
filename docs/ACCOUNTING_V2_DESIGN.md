@@ -1,7 +1,27 @@
-# 公司级账本方案 V2（探讨稿 · REV5 定稿 · 未实现）
+# 公司级账本方案 V2（探讨稿 · REV5 定稿）
+
+> ## ⚠️ 状态更新（2026-09-14 核实）：本方案**已经实现**，本文只剩历史价值
+>
+> 原标题与状态行写的是"**未实现**""**零代码改动**"——**这两个说法现在都是错的**。
+> 核实结果（按 P0 交付项逐项对代码）：
+>
+> | P0 项 | 落点 |
+> |---|---|
+> | 资金流水 | `backend/app/models/cash_flow.py`、`backend/app/api/v1/cash_flows.py` |
+> | 开销 | `backend/app/models/expense.py`、`backend/app/api/v1/expenses.py` |
+> | 司机账单 / 结算 | `backend/app/models/driver_bill.py`、`driver_settlement.py`、`backend/app/api/v1/driver_bills.py`、`driver_settlements.py` |
+> | 客户收款 | `backend/app/models/shipper_receipt.py` |
+> | 车辆台账 | `backend/app/models/vehicle.py`、`backend/app/api/v1/vehicles.py` |
+> | 核心实现 | `backend/app/services/accounting_service.py`（413 行，"唯一写入点"）、`backend/app/schemas/accounting_v2.py`（215 行） |
+>
+> **要了解账本现状，请看 [PROJECT_MAP/08_CODE_LOCATOR.md](PROJECT_MAP/08_CODE_LOCATOR.md) 与 [PROJECT_MAP/03_BACKEND_DETAILS.md](PROJECT_MAP/03_BACKEND_DETAILS.md)，不要读本文。**
+> 本文保留下来只为一件事：**当时的取舍理由**（D1-D8 决策、为什么这么分表）——那是代码里读不出来的信息。
+>
+> ⚠️ 教训：**"未实现"这类状态断言最容易腐烂**——写的时候是真的，实现之后就变成假的，
+> 而没有任何机制会提醒你。凡在文档里写"尚未/暂不/待定/未实现"，都要注明**截止日期 + 如何核实**。
 
 > 目标：让公司老板在系统里能算清「这个月赚了多少、谁欠我钱、司机成本多少、一天/一月营业额多少」，且所有数字可溯源到订单/司机/开销；并为报税、对账、报表导出预留能力。
-> 状态：**设计探讨稿，仅本文件，零代码改动**。数据现状为 SQLite 开发库审计结果（2026-09-03）。
+> 状态（**原始记录，已过期，见上方状态更新**）：设计探讨稿，仅本文件，零代码改动。数据现状为 SQLite 开发库审计结果（2026-09-03）。
 > REV5：老板已拍板 D1-D8（§9 全部落定）+ 新增「司机完成订单可选录入货损」（§4.12），为提交实现的定稿版本。前四轮只读审查（P0×4→P0×1→P1×2→通过）结论沿用。
 
 ---

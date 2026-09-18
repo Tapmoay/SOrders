@@ -25,6 +25,9 @@ class OrderDetailViewModel(
     // 货主撤销
     var showCancelDialog by mutableStateOf(false)
 
+    // 软删除（隔离区 30 天，派单员可恢复）
+    var showDeleteDialog by mutableStateOf(false)
+
     // 派单员：收款/挂账（仅派单员界面显示）
     var showPayConfirm by mutableStateOf(false)
     var showChargeSheet by mutableStateOf(false)
@@ -143,6 +146,25 @@ class OrderDetailViewModel(
         }
     }
 
+    /** 软删除：进入隔离区 30 天（用户不可见；派单员可恢复）；成功后返回列表 */
+    fun delete(onDone: () -> Unit) {
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                container.repo.deleteOrder(orderId)
+                showDeleteDialog = false
+                container.realtimeHub.notifyOrdersChanged()
+                onDone()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+                showDeleteDialog = false
+            } finally {
+                acting = false
+            }
+        }
+    }
+
     // ---- 司机操作 ----
 
     fun ack() {
@@ -150,6 +172,9 @@ class OrderDetailViewModel(
         viewModelScope.launch {
             try {
                 order = container.repo.driverAck(orderId)
+                // 接单成功 = 司机已经动手了，立刻停止「来单了」播报：
+                // 接完还在喊，司机会怀疑到底接上没有（另一端还在播报是同一个理由的反面）
+                container.newOrderPlayer.stop()
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {
@@ -219,6 +244,67 @@ class OrderDetailViewModel(
                 order = container.repo.chargeOrder(orderId, unitId)
                 actionResult = "已挂账"
                 showChargeSheet = false
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    // ---- 司机/派单员：给没有坐标的订单补导航信息 ----
+    //
+    // 为什么入口开在订单详情而不是列表：这是**到场之后**做的动作，
+    // 那时人已经在看这一单了；列表上一个"补导航"按钮既挤又会误触。
+    var showNavPicker by mutableStateOf(false)
+    var showNavDialog by mutableStateOf(false)
+    var navDraftLat by mutableStateOf("")
+    var navDraftLng by mutableStateOf("")
+    var navDraftName by mutableStateOf("")
+    var navDraftAddress by mutableStateOf("")
+
+    /** 这单是否需要/允许补导航（司机或派单员 + 没有坐标 + 未撤销）。 */
+    fun canFillNavigation(role: String): Boolean {
+        val o = order ?: return false
+        if (role != "driver" && role != "dispatcher") return false
+        if (o.status == "CANCELLED") return false
+        // 回收站里的单不在这里判：客户端拿不到"是否在隔离区"（OrderDto 没有这个字段），
+        // 后端会回一句「这张订单在回收站里，不能补导航信息」——那句话比客户端猜要准。
+        return o.addressLat.isNullOrBlank() || o.addressLng.isNullOrBlank()
+    }
+
+    fun openNavDialog(lat: Double, lng: Double, address: String) {
+        navDraftLat = lat.toString()
+        navDraftLng = lng.toString()
+        navDraftAddress = address.trim()
+        // 默认地点名 = 收货人称呼（货主地点库里显示的就是它）；用户可以改
+        navDraftName = order?.addressDetail?.trim().orEmpty().ifBlank { address.trim() }
+        showNavPicker = false
+        showNavDialog = true
+    }
+
+    fun saveNavigation() {
+        val lat = navDraftLat.toDoubleOrNull()
+        val lng = navDraftLng.toDoubleOrNull()
+        if (lat == null || lng == null) {
+            error = "还没选到坐标，请先在地图上点一下"
+            return
+        }
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                order = container.repo.fillOrderNavigation(
+                    orderId,
+                    com.tapmoay.sorders.data.remote.dto.OrderNavigationBody(
+                        addressLat = navDraftLat,
+                        addressLng = navDraftLng,
+                        name = navDraftName.trim(),
+                        detailAddress = navDraftAddress,
+                    ),
+                )
+                actionResult = "导航信息已补上，并存入共享地点库"
+                showNavDialog = false
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

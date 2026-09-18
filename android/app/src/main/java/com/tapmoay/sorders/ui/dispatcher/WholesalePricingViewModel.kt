@@ -19,7 +19,17 @@ class WholesalePricingViewModel(
     /** productId -> 该批发商的已存特价 */
     var rules by mutableStateOf<Map<Long, PriceRuleDto>>(emptyMap())
     var loading by mutableStateOf(false)
+    /** **动作**失败（保存专属价、批量调价…）：提示条弹一次就该消失。 */
     var error by mutableStateOf<String?>(null)
+    /**
+     * **加载**失败：要一直留在页面上（配合重试按钮），所以**不能**被提示条消费掉。
+     *
+     * 为什么要拆成两个字段（2026-09-18）：原来共用一个 `error`，
+     * 而提示条是"消费即清"的语义 —— 转成 OneShotSnackbar 时如果不拆，
+     * 加载失败会先弹一次提示条、把 error 清掉，**整页的「加载失败 + 重试」当场消失**，
+     * 用户掉进一个空列表且无法重试。两个用途的生命周期根本不同，必须分开。
+     */
+    var loadError by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
     /** productId -> 用户当前输入 */
@@ -40,7 +50,7 @@ class WholesalePricingViewModel(
 
     fun load() {
         loading = products.isEmpty()
-        error = null
+        loadError = null
         viewModelScope.launch {
             try {
                 val ps = container.repo.products(includeInactive = true)
@@ -50,7 +60,7 @@ class WholesalePricingViewModel(
                 products = ps
                 rules = rs
             } catch (e: Exception) {
-                error = toApiException(e).message
+                loadError = toApiException(e).message
             } finally {
                 loading = false
             }

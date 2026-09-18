@@ -56,6 +56,18 @@ class DriverPerformanceOut(BaseModel):
     drivers: list[DriverPerformanceRow]
 
 
+class ShipperPerformanceRow(BaseModel):
+    shipper_id: int | None = Field(None, description="无系统账号的临时货主为 null（按 temp_shipper_name 归组）")
+    shipper_name: str
+    order_count: int = Field(..., description="已送达订单数")
+    total_amount: Decimal = Field(..., description="订单明细金额合计（line_total 求和）")
+
+
+class ShipperPerformanceOut(BaseModel):
+    period_label: str
+    shippers: list[ShipperPerformanceRow]
+
+
 class ExceptionOrderItem(BaseModel):
     id: int
     order_no: str

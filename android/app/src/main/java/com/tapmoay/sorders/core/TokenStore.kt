@@ -25,6 +25,19 @@ class TokenStore(private val context: Context) {
     @Volatile
     private var cachedToken: String? = null
 
+    /**
+     * 当前角色（dispatcher/shipper/driver）的**同步**缓存。
+     *
+     * 为什么需要它：AI 的动作清单和权限判断都是**同步**调用的（在 tools.specs 和
+     * writeService.preview 里），而 sessionFlow 是冷流、跑 DataStore IO。
+     * 走流的话每帧都要起协程读盘，做不到。
+     */
+    @Volatile
+    private var cachedRole: String? = null
+
+    @Volatile
+    private var cachedUserId: Long? = null
+
     private object Keys {
         val TOKEN = stringPreferencesKey("token")
         val ROLE = stringPreferencesKey("role")
@@ -35,6 +48,17 @@ class TokenStore(private val context: Context) {
 
     /** 供 OkHttp 拦截器跨线程读取 */
     fun cachedToken(): String? = cachedToken
+
+    /** 供 AI 层同步判断「这个角色能用哪些动作」（见 AiWrites.forRole）。 */
+    fun cachedRole(): String? = cachedRole
+
+    /**
+     * 当前登录用户 id 的**同步**缓存。
+     *
+     * AI 的三份本机数据（对话/习惯/记忆）按它分区（见 `AiScope`）——
+     * 分区名必须是同步能拿到的，否则每个 store 构造时都要起协程读盘。
+     */
+    fun cachedUserId(): Long? = cachedUserId
 
     val sessionFlow: Flow<Session?> = context.sessionDataStore.data.map { p ->
         val token = p[Keys.TOKEN]
@@ -52,6 +76,8 @@ class TokenStore(private val context: Context) {
 
     suspend fun save(session: Session) {
         cachedToken = session.token
+        cachedRole = session.role
+        cachedUserId = session.userId
         context.sessionDataStore.edit { p ->
             p[Keys.TOKEN] = session.token
             p[Keys.ROLE] = session.role
@@ -63,13 +89,18 @@ class TokenStore(private val context: Context) {
 
     suspend fun clear() {
         cachedToken = null
+        cachedRole = null
+        cachedUserId = null
         context.sessionDataStore.edit { p -> p.clear() }
     }
 
     /** 供启动时同步缓存（拦截器需要） */
     fun warmCache() {
         if (cachedToken == null) {
-            cachedToken = runBlocking { current()?.token }
+            val s = runBlocking { current() }
+            cachedToken = s?.token
+            cachedRole = s?.role
+            cachedUserId = s?.userId
         }
     }
 }

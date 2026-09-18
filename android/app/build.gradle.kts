@@ -1,5 +1,9 @@
 import java.util.Properties
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -21,8 +25,18 @@ android {
         applicationId = "com.tapmoay.sorders"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // 版本号统一「yyyyMMdd * 100 + 当日序号」：2026091501 = 2026-09-15 的第 1 次打包。
+        // 当日要打第二个包就显式覆盖 -PappVersionCode=2026091502。
+        //
+        // ⚠️ 缺省值不要再改回 System.currentTimeMillis()/1000 那种秒级时间戳：
+        //    它和日期式**不同量纲**（1789426316 vs 2026091501），两种方案混着打，
+        //    后打的包 versionCode 反而更小 → 安卓直接拒绝安装（"应用未安装"），
+        //    对外表现就是用户报的「下载完成之后并没有更新」。
+        //    2026-09-14 推到生产的那个包正是时间戳式（1789426316）。
+        versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull()
+            ?: (SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()).toInt() * 100 + 1)
+        versionName = (project.findProperty("appVersionName") as String?)
+            ?: ("1.0.0." + SimpleDateFormat("yyyyMMdd").format(Date()))
 
         // 高德 Key：在 android/local.properties 配置 amap_key=xxx（高德开放平台 Android SDK Key）
         val amapKey = localProps.getProperty("amap_key") ?: ""
@@ -32,6 +46,35 @@ android {
         // 后端地址：api_base_url=http://192.168.x.x:8000（模拟器访问宿主机用 http://10.0.2.2:8000）
         val apiBaseUrl = localProps.getProperty("api_base_url") ?: "http://10.0.2.2:8000"
         buildConfigField("String", "API_BASE_URL", "\"" + "$apiBaseUrl" + "\"")
+        val apiFallbackIp = localProps.getProperty("api_fallback_ip") ?: ""
+        buildConfigField("String", "DNS_FALLBACK_IP", "\"" + "$apiFallbackIp" + "\"")
+    }
+
+    // ── ABI 分流：整包瘦身的最大一笔（2026-09-15）────────────────────────────
+    // 高德地图 SDK 每个 ABI 各带一份 9~14MB 的原生库，五个 ABI 全塞进一个包，
+    // 光 lib/ 就 45.7MB，占整包（74.5MB）的 65%。而一台真机只需要其中一个。
+    //
+    //   phone → arm64-v8a（2016 年之后的所有手机）+ armeabi-v7a（老机器）  约 51MB
+    //   emu   → x86_64（只有模拟器用）                                     约 35MB
+    //
+    // 为什么用 productFlavor 而不是 splits.abi：AGP 给 ABI 分包的 versionCode 会 **乘 10**，
+    // 2026091501 * 10 = 20260915010 直接撑爆 32 位 int（上限 2147483647）。
+    // 版本号一乱，安装器又会拒装。flavor 不动 versionCode，两个包平级。
+    //
+    // 出包命令随之变化（publish 脚本已封装，日常不用手敲）：
+    //   手机包  gradle -p android assemblePhoneDebug    → outputs/apk/phone/debug/app-phone-debug.apk
+    //   模拟器  gradle -p android assembleEmuDebug      → outputs/apk/emu/debug/app-emu-debug.apk
+    //   单测    gradle -p android testPhoneDebugUnitTest
+    flavorDimensions += "abi"
+    productFlavors {
+        create("phone") {
+            dimension = "abi"
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        }
+        create("emu") {
+            dimension = "abi"
+            ndk { abiFilters += "x86_64" }
+        }
     }
 
     buildTypes {
@@ -61,6 +104,10 @@ android {
     }
     lint {
         abortOnError = false
+    }
+    testOptions {
+        // 纯逻辑单测里万一碰到 android.util.* 等桩方法，返回默认值而不是抛 "not mocked"
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -93,4 +140,7 @@ dependencies {
 
     debugImplementation(platform(libs.androidx.compose.bom))
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // 纯 JVM 单元测试（AI agent 循环逻辑；不联网、不依赖 Android 框架）
+    testImplementation(libs.junit)
 }

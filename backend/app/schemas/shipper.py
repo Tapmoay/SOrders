@@ -5,6 +5,9 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.geo import GeoInput
+from app.schemas.text import MAX_IMAGES, MAX_URL, Url
+
 
 def _parse_image_urls(value: Any) -> list[str]:
     """把 image_urls 列（JSON 字符串 / 列表 / 单个 URL）解析为 URL 列表。"""
@@ -56,7 +59,7 @@ class _ImageUrlsMixin(BaseModel):
         return out
 
 
-class AddressCreate(BaseModel):
+class AddressCreate(GeoInput):
     receiver_name: str = Field(default="", max_length=128)
     phone: str = Field(default="", max_length=32)
     detail_address: str = Field(default="", max_length=512)
@@ -64,15 +67,16 @@ class AddressCreate(BaseModel):
     is_default: bool = False
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
-    origin_address: str | None = None
+    origin_address: str | None = Field(None, max_length=512)
     origin_lat: Decimal | None = None
     origin_lng: Decimal | None = None
-    image_urls: list[str] = []
+    # 多图：**条数与单张长度都要有界**（列是 TEXT(JSON)，不设上限就能塞进任意多张长 URL）
+    image_urls: list[Url] = Field(default_factory=list, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
-    image_url: str | None = None
+    image_url: str | None = Field(None, max_length=MAX_URL)
 
 
-class AddressUpdate(BaseModel):
+class AddressUpdate(GeoInput):
     receiver_name: str | None = Field(None, max_length=128)
     phone: str | None = Field(None, max_length=32)
     detail_address: str | None = Field(None, max_length=512)
@@ -80,13 +84,13 @@ class AddressUpdate(BaseModel):
     is_default: bool | None = None
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
-    origin_address: str | None = None
+    origin_address: str | None = Field(None, max_length=512)
     origin_lat: Decimal | None = None
     origin_lng: Decimal | None = None
     # None = 不修改；[] = 清空
-    image_urls: list[str] | None = None
+    image_urls: list[Url] | None = Field(None, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
-    image_url: str | None = None
+    image_url: str | None = Field(None, max_length=MAX_URL)
 
 
 class AddressOut(_ImageUrlsMixin):
@@ -107,27 +111,27 @@ class AddressOut(_ImageUrlsMixin):
     created_at: datetime
 
 
-class LocationCreate(BaseModel):
+class LocationCreate(GeoInput):
     name: str = Field(default="", max_length=128)
     detail_address: str = Field(default="", max_length=512)
     remark: str = Field(default="", max_length=256)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
-    image_urls: list[str] = []
+    image_urls: list[Url] = Field(default_factory=list, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
-    image_url: str | None = None
+    image_url: str | None = Field(None, max_length=MAX_URL)
 
 
-class LocationUpdate(BaseModel):
+class LocationUpdate(GeoInput):
     name: str | None = Field(None, max_length=128)
     detail_address: str | None = Field(None, max_length=512)
     remark: str | None = Field(None, max_length=256)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
     # None = 不修改；[] = 清空
-    image_urls: list[str] | None = None
+    image_urls: list[Url] | None = Field(None, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
-    image_url: str | None = None
+    image_url: str | None = Field(None, max_length=MAX_URL)
 
 
 class LocationOut(_ImageUrlsMixin):

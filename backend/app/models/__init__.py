@@ -2,6 +2,7 @@ from app.models.arrears import ArrearsUnit
 from app.models.cash_flow import CashFlow
 from app.models.customer import Customer
 from app.models.driver_bill import DriverBill
+from app.models.driver_billing_rule import DriverBillingRule
 from app.models.driver_settlement import DriverSettlement
 from app.models.expense import Expense
 from app.models.shipper_receipt import ShipperReceipt
@@ -29,7 +30,10 @@ from app.models.ledger import Ledger
 from app.models.notification import Notification
 from app.models.operation_log import OperationLog
 from app.models.order import Order, OrderProduct
+from app.models.place import Place, PlaceUserUsage
 from app.models.product import PriceRule, Product
+from app.models.product_category import ProductCategory
+from app.models.product_visibility import UserProductVisibility
 from app.models.shipper import ShipperAddress, ShipperContact, ShipperLocation
 from app.models.user import User
 
@@ -44,6 +48,7 @@ __all__ = [
     "DriverBill",
     "DriverBillStatus",
     "DriverBillType",
+    "DriverBillingRule",
     "DriverSettlement",
     "Expense",
     "ExpenseCategory",
@@ -60,12 +65,16 @@ __all__ = [
     "Order",
     "OrderProduct",
     "OrderStatus",
+    "Place",
+    "PlaceUserUsage",
     "PriceRule",
     "Product",
+    "ProductCategory",
     "ShipperAddress",
     "ShipperContact",
     "ShipperLocation",
     "User",
+    "UserProductVisibility",
     "UserRole",
     "ReceiptSettleMode",
     "SettlementStatus",

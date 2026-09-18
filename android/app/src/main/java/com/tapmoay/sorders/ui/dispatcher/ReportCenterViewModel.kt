@@ -114,20 +114,23 @@ class ReportCenterViewModel(
                         drivers = container.repo.driverPerformance(from.toString(), to.toString())
                     }
                     3 -> {
-                        val today = LocalDate.now()
-                        exceptions = container.repo.exceptionOrders(today.minusDays(30).toString(), today.toString())
-                        operationLogs = container.repo.operationLogs(60)
-                    }
-                    4 -> {
+                        // 客户经营：货主账/批发商账 + 挂账未收
                         val (f, t) = dateRange
                         shipperAccounts = container.repo.ledgerAccounts(f, t, "shipper")
                         memberAccounts = container.repo.ledgerAccounts(f, t, "member")
                         customerArrears = container.repo.arrearsSummary(f, t)
                     }
-                    else -> {
+                    4 -> {
+                        // 资金收支
                         val (f, t) = dateRange
                         cashFlows = container.repo.cashFlows(dateFrom = f, dateTo = t)
                         expenses = container.repo.expenses(dateFrom = f, dateTo = t)
+                    }
+                    else -> {
+                        // 异常与审计
+                        val today = LocalDate.now()
+                        exceptions = container.repo.exceptionOrders(today.minusDays(30).toString(), today.toString())
+                        operationLogs = container.repo.operationLogs(60)
                     }
                 }
             } catch (e: Exception) {
@@ -138,19 +141,34 @@ class ReportCenterViewModel(
         }
     }
 
-    /** 导出当前报表为 Excel（保存到系统下载目录），返回保存路径；失败返回 null。 */
+    /**
+     * 导出当前报表为 Excel（保存到系统下载目录），返回保存路径；失败返回 null。
+     *
+     * ⚠️ 页签→kind 与"要不要日期区间"的映射在 [ReportFinance] 里（纯函数 + 单测）。
+     * 这两处**都错过一次**，而且都不会报错：
+     * 前者会导出一张"名字对、内容错"的表（客户经营的文件里装着异常审计），
+     * 后者会让导出的时间段和页面上显示的不是同一段。
+     */
     fun exportCurrent(onDone: (ByteArray?) -> Unit) {
         if (exporting) return
         exporting = true
         viewModelScope.launch {
-            val kind = when (tab) { 0 -> "turnover"; 1 -> "products"; 2 -> "drivers"; 3 -> "audit"; 4 -> "customers"; else -> "finance" }
+            val kind = ReportFinance.exportKind(tab)
+            // 异常与审计页固定看近 30 天（那个页面没有时间导航），导出必须跟着同一段走
+            val range = if (tab == 5) {
+                val today = LocalDate.now()
+                today.minusDays(30).toString() to today.toString()
+            } else {
+                dateRange
+            }
+            val withRange = ReportFinance.usesDateRange(tab)
             try {
                 val bytes = container.repo.exportReport(
                     kind = kind,
                     mode = mode,
                     date = anchor,
-                    dateFrom = if (tab in arrayOf(2, 3, 4, 5)) dateRange.first else null,
-                    dateTo = if (tab == 3) LocalDate.now().toString() else if (tab in arrayOf(2, 4, 5)) dateRange.second else null,
+                    dateFrom = if (withRange) range.first else null,
+                    dateTo = if (withRange) range.second else null,
                 ).bytes()
                 onDone(bytes)
             } catch (e: Exception) {

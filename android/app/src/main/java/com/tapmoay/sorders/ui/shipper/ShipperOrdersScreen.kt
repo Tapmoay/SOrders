@@ -13,7 +13,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -33,12 +32,7 @@ fun ShipperOrdersScreen(
     val vm: ShipperOrdersViewModel = appViewModel { ShipperOrdersViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
 
-    LaunchedEffect(vm.actionResult) {
-        vm.actionResult?.let {
-            snackbar.showSnackbar(it)
-            vm.actionResult = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },

@@ -2,6 +2,7 @@ package com.tapmoay.sorders.ui.dispatcher
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -10,6 +11,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.InventoryMovementDto
@@ -27,12 +31,7 @@ fun InventoryScreen(
     val snackbar = remember { SnackbarHostState() }
     var showMovements by remember { mutableStateOf(false) }
 
-    LaunchedEffect(vm.actionResult) {
-        vm.actionResult?.let {
-            snackbar.showSnackbar(it)
-            vm.actionResult = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -169,24 +168,72 @@ private fun StockCard(
     onOutbound: () -> Unit,
 ) {
     val low = s.lowStockAlert > 0 && s.stock <= s.lowStockAlert
+    val out = s.stock <= 0
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // 语义色图标块：正常=库存管理蓝青#00BCD4；低库存=红#FF4D4F；缺货=灰#8A8A8E
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = when {
+                    low -> Color(0xFFFF4D4F)
+                    out -> Color(0xFF8A8A8E)
+                    else -> Color(0xFF00BCD4)
+                },
+            ) {
+                Icon(
+                    Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.padding(9.dp).size(22.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(s.productName, style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(4.dp))
+                Text(
+                    s.productName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "库存 " + s.stock + " " + s.unit,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (low) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            low -> Color(0xFFFF4D4F)
+                            out -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> Color(0xFF007A8A)
+                        },
                     )
+                    if (s.reserved > 0) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "-" + s.reserved,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFF6B2C),
+                        )
+                    }
                     if (low) {
                         Spacer(Modifier.width(8.dp))
-                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small) {
+                        Surface(color = Color(0xFFFFE8E8), shape = MaterialTheme.shapes.small) {
                             Text(
                                 "低库存",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                color = Color(0xFFFF4D4F),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                            )
+                        }
+                    } else if (out) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(color = Color(0xFFEFEFEF), shape = MaterialTheme.shapes.small) {
+                            Text(
+                                "缺货",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color(0xFF8A8A8E),
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                             )
                         }
@@ -226,13 +273,36 @@ private fun MovementRow(m: InventoryMovementDto) {
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (m.note.isBlank()) (if (inbound) "入库" else "出库") else m.note,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (m.source == "ORDER") {
+                    Spacer(Modifier.width(6.dp))
+                    val text = when (m.status) {
+                        "RESERVED" -> "自动出库·占用"
+                        "COMMITTED" -> "自动出库·已送达"
+                        "RELEASED" -> if (m.change > 0) "自动回库" else "已回冲"
+                        else -> "自动"
+                    }
+                    Surface(
+                        color = Color(0xFFE8F1FF),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            text,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF1E6FFF),
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
             Text(
-                if (m.note.isBlank()) (if (inbound) "入库" else "出库") else m.note,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-            )
-            Text(
-                formatDateTime(m.createdAt),
+                if (m.orderNo != null) m.orderNo + " · " + formatDateTime(m.createdAt) else formatDateTime(m.createdAt),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )

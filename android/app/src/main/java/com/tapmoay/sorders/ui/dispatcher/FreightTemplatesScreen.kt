@@ -29,12 +29,8 @@ fun FreightTemplatesScreen(container: AppContainer, onBack: () -> Unit) {
     val vm: FreightTemplatesViewModel = appViewModel { FreightTemplatesViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
 
-    LaunchedEffect(vm.actionResult, vm.error) {
-        vm.actionResult?.let { snackbar.showSnackbar(it); vm.actionResult = null } ?: vm.error?.let {
-            snackbar.showSnackbar(it)
-            vm.error = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+    OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },

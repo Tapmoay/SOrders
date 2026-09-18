@@ -7,12 +7,27 @@ from sqlalchemy.orm import Session
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
-from app.models import Order, OrderProduct, User
+from app.models import Order, OrderProduct, Product, User
 from app.models.enums import OperationAction, OrderStatus
 from app.schemas.order import OrderProductCreate, OrderProductOut, OrderProductUpdate
 from app.services.operation_log_service import write_log
+from app.services.order_flow import resolve_line_total
 
 router = APIRouter(prefix="/order-products", tags=["order-products"])
+
+
+def _check_product_ref(db: Session, product_id: int | None) -> None:
+    """行上带的商品编号必须真的在商品库里、且没被删（否则成本快照按 0 记、送达不扣库存）。"""
+    if product_id is None:
+        return
+    p = db.get(Product, product_id)
+    if p is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"商品编号 {product_id} 不在商品库里。请重新选一个商品，或改成不填编号的手输商品行。",
+        )
+    if p.is_deleted:
+        raise HTTPException(status_code=400, detail=f"商品「{p.name}」已经删除了，请重新选一个。")
 
 
 def _order_allows_line_edit(order: Order) -> bool:
@@ -44,9 +59,16 @@ def create_order_product(
         raise HTTPException(status_code=404, detail="订单不存在")
     if not _order_allows_line_edit(order):
         raise HTTPException(status_code=400, detail="当前订单状态不可编辑商品明细")
-    lt: Decimal | None = body.line_total
-    if lt is None or lt == Decimal("0"):
-        lt = body.unit_price * body.quantity
+    try:
+        lt = resolve_line_total(body.unit_price, body.quantity, body.line_total)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    _check_product_ref(db, body.product_id)
+    # 单位：客户端给了就用，没给则回退商品库里的单位（人工加的行回退"件"）
+    unit = (body.unit or "").strip()
+    if not unit and body.product_id is not None:
+        p = db.get(Product, body.product_id)
+        unit = (p.unit or "件").strip() if p else "件"
     op = OrderProduct(
         order_id=body.order_id,
         product_id=body.product_id,
@@ -54,6 +76,7 @@ def create_order_product(
         quantity=body.quantity,
         unit_price=body.unit_price,
         line_total=lt,
+        unit_snapshot=(unit or "件")[:32],
     )
     db.add(op)
     db.flush()
@@ -93,6 +116,17 @@ def update_order_product(
     if not _order_allows_line_edit(order):
         raise HTTPException(status_code=400, detail="当前订单状态不可编辑商品明细")
     if body.product_id is not None:
+        _check_product_ref(db, body.product_id)
+    # ⚠️ 只改数量或只改单价时，行金额必须**跟着重算**；两个都给了也要核对一致性
+    #    （原来客户端可以塞一个和"单价×数量"无关的 line_total，账本就跟着错）。
+    new_up = body.unit_price if body.unit_price is not None else op.unit_price
+    new_qty = body.quantity if body.quantity is not None else op.quantity
+    if body.line_total is not None or body.quantity is not None or body.unit_price is not None:
+        try:
+            op.line_total = resolve_line_total(new_up, new_qty, body.line_total)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    if body.product_id is not None:
         op.product_id = body.product_id
     if body.product_name_snapshot is not None:
         op.product_name_snapshot = body.product_name_snapshot
@@ -100,10 +134,8 @@ def update_order_product(
         op.quantity = body.quantity
     if body.unit_price is not None:
         op.unit_price = body.unit_price
-    if body.line_total is not None:
-        op.line_total = body.line_total
-    elif body.quantity is not None or body.unit_price is not None:
-        op.line_total = op.unit_price * op.quantity
+    if body.unit is not None:
+        op.unit_snapshot = body.unit.strip()[:32]
     write_log(
         db,
         operator_id=current.id,

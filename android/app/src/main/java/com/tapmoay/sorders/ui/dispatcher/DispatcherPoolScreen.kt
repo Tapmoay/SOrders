@@ -32,12 +32,10 @@ fun DispatcherPoolScreen(
     val snackbar = remember { SnackbarHostState() }
     var templatePick by remember { mutableStateOf(false) }
 
-    LaunchedEffect(vm.actionResult) {
-        vm.actionResult?.let {
-            snackbar.showSnackbar(it)
-            vm.actionResult = null
-        }
-    }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+
+    // 一次性提示（全选被上限截断等）。没有它，"全选只选了 100 单"这件事用户看不到。
+    OneShotSnackbar(snackbar, vm.notice, onConsumed = { vm.notice = null })
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -78,7 +76,14 @@ fun DispatcherPoolScreen(
                             modifier = Modifier.weight(1f),
                         )
                         TextButton(onClick = { vm.selectAll() }) {
-                            Text(if (vm.selectedIds.size == vm.orders.size && vm.orders.isNotEmpty()) "取消全选" else "全选")
+                            // "已经选满"的判据要跟着上限走：池里 300 单、上限 100 单时，
+                            // 选满 100 单就该显示「取消全选」（否则按钮看起来点了没反应）
+                            val cap = minOf(vm.orders.size, DispatcherPoolViewModel.MAX_BATCH_ASSIGN)
+                            Text(
+                                if (vm.selectedIds.size >= cap && cap > 0) "取消全选"
+                                else "全选" + if (vm.orders.size > DispatcherPoolViewModel.MAX_BATCH_ASSIGN)
+                                    "（最多 ${DispatcherPoolViewModel.MAX_BATCH_ASSIGN}）" else "",
+                            )
                         }
                         Button(
                             onClick = { vm.openAssign(null) },
@@ -99,6 +104,25 @@ fun DispatcherPoolScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    // 列表被后端截断时必须说出来：`GET /orders?status=PENDING_DISPATCH`
+                    // 对派单员**服务端强制 300 条**（积压多时那个接口会返回十几 MB）。
+                    // 不写这一句，用户会以为"待派就这么多"，而实际积压可能是几千单。
+                    if (vm.listTruncated) {
+                        item(key = "truncated-hint") {
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                            ) {
+                                Text(
+                                    "只显示最近 ${vm.orders.size} 单（待派共 ${vm.totalPending} 单）。" +
+                                        "先派掉一批，后面会自动补上来。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                )
+                            }
+                        }
+                    }
                     items(vm.orders, key = { it.id }) { order ->
                         Column {
                             if (vm.selectionMode) {
@@ -250,6 +274,37 @@ fun DispatcherPoolScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                             TextButton(onClick = { templatePick = true }) { Text("模板") }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    val ruleName = vm.selectedDriver?.driverRuleName?.takeIf { it.isNotBlank() }
+                    if (!vm.selectionMode && ruleName != null) {
+                        Text("这一单单独定（不填就按他的规则算）", style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "他现在的规则：$ruleName" +
+                                vm.selectedDriver?.paySummary?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = vm.assignPieceAmount,
+                                onValueChange = { vm.assignPieceAmount = it },
+                                label = { Text("这一单的钱 ¥") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedTextField(
+                                value = vm.assignCommissionRate,
+                                onValueChange = { vm.assignCommissionRate = it },
+                                label = { Text("提成 %") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                         Spacer(Modifier.height(8.dp))
                     }

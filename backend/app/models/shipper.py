@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.user import User
 
 
-class ShipperAddress(Base, TimestampMixin):
+class ShipperAddress(Base, TimestampMixin, SoftDeleteMixin):
     """常用线路：联系人 + 地点（起点可选 + 终点必填）"""
 
     __tablename__ = "shipper_addresses"
@@ -35,7 +35,7 @@ class ShipperAddress(Base, TimestampMixin):
     shipper: Mapped["User"] = relationship(back_populates="addresses")
 
 
-class ShipperContact(Base, TimestampMixin):
+class ShipperContact(Base, TimestampMixin, SoftDeleteMixin):
     """常用联系人（与地点解耦，可编辑）"""
 
     __tablename__ = "shipper_contacts"
@@ -49,7 +49,7 @@ class ShipperContact(Base, TimestampMixin):
     shipper: Mapped["User"] = relationship(back_populates="contacts")
 
 
-class ShipperLocation(Base, TimestampMixin):
+class ShipperLocation(Base, TimestampMixin, SoftDeleteMixin):
     """单独地点（纯地点，不含人）：支持图片，派单/下单时组合起点与终点"""
 
     __tablename__ = "shipper_locations"

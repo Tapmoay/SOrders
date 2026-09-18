@@ -21,6 +21,15 @@ class AppContainer(val context: Context) {
     val tts by lazy { TtsManager(appContext) }
     val beepManager by lazy { BeepManager() }
 
+    /** 提醒设置（语音开关/重复次数/后台接收），同步可读——Socket 回调与服务里都要用 */
+    val alertPrefs by lazy { AlertPrefs(appContext) }
+
+    /** 系统通知出口（本 App 以前一条系统通知都不发，见 NotifyCenter 注释） */
+    val notifyCenter by lazy { NotifyCenter(appContext) }
+
+    /** 司机端「来单了」语音播报 */
+    val newOrderPlayer by lazy { NewOrderPlayer(appContext, tts, alertPrefs) }
+
     /** 收到新通知提示音（订单/消息），及时察觉 */
     fun beep() = beepManager.beep()
     val locationManager by lazy { AmapLocationManager(appContext) }
@@ -28,11 +37,26 @@ class AppContainer(val context: Context) {
     /** 会话失效计数（供 UI Toast 提示） */
     val sessionExpiredTick = MutableStateFlow(0)
 
+    /**
+     * 点通知进来时带的单号，由 AppRoot 消费后直达订单详情。
+     * 放在容器里而不是直接导航：通知可能在 Activity 还没建好时到达（冷启动），
+     * 直接 navigate 会丢。
+     */
+    val pendingOrderId = MutableStateFlow<Long?>(null)
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** 401 时清除本地会话；AppRoot 观察 sessionFlow 会自动跳回登录页 */
     fun clearSession() {
         sessionExpiredTick.value += 1
-        appScope.launch { tokenStore.clear() }
+        // 退出登录 = 这台手机不该再为上一个账号响铃、也不该继续挂着常驻通知
+        newOrderPlayer.stop()
+        AlertService.stop(appContext)
+        appScope.launch {
+            tokenStore.clear()
+            // TTS 引擎在这里销毁（而不是在 Activity.onDestroy）：退出界面后
+            // 后台服务还活着要能说话，一关界面就销毁会让"后台收到的单没声音"
+            tts.shutdown()
+        }
     }
 }

@@ -4,6 +4,7 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -37,41 +39,56 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.ui.theme.SuccessDark
+import com.tapmoay.sorders.ui.theme.ThemeMode
 import com.tapmoay.sorders.util.formatMoney
 
 /** 订单状态徽章（三通道：图标 + 颜色 + 文字；老人/色弱均有兜底） */
 @Composable
 fun OrderStatusChip(status: String) {
     val icon: ImageVector
-    val (label, bg, fg) = when (status) {
+    val label: String
+    /** `[亮底, 亮字, 暗底, 暗字]`——**必须全是 Color**，混进 String 会被推成 `List<Any>` 而编译不过。 */
+    val p: List<Color>
+    when (status) {
         "DISPATCHED" -> {
             icon = Icons.Default.Flag
-            Triple("已派单", Color(0xFFFFE8C2), Color(0xFF8A5300))
+            label = "已派单"
+            p = listOf(Color(0xFFFFE8C2), Color(0xFF8A5300), Color(0xFF4A3200), Color(0xFFFFD9A0))
         }
         "PENDING_DISPATCH" -> {
             icon = Icons.Default.Schedule
-            Triple("派单中", Color(0xFFFFF1C6), Color(0xFF7A5900))
+            label = "派单中"
+            p = listOf(Color(0xFFFFF1C6), Color(0xFF7A5900), Color(0xFF463800), Color(0xFFFFE08A))
         }
         "ACCEPTED" -> {
             icon = Icons.Default.LocalShipping
-            Triple("已接单", Color(0xFFD6E3FF), Color(0xFF0F4690))
+            label = "已接单"
+            p = listOf(Color(0xFFD6E3FF), Color(0xFF0F4690), Color(0xFF14335E), Color(0xFFBBD3FF))
         }
         "DELIVERED" -> {
             icon = Icons.Default.CheckCircle
-            Triple("已送达", Color(0xFFD9F0DA), Success)
+            label = "已送达"
+            p = listOf(Color(0xFFD9F0DA), Success, Color(0xFF0E3A28), SuccessDark)
         }
         "CANCELLED" -> {
             icon = Icons.Default.Close
-            Triple("已撤销", Color(0xFFF1E4E4), Color(0xFF8C4040))
+            label = "已撤销"
+            p = listOf(Color(0xFFF1E4E4), Color(0xFF8C4040), Color(0xFF3A2626), Color(0xFFE0B0B0))
         }
         else -> {
             icon = Icons.Default.Info
-            Triple(status, Color(0xFFE1E2EC), Color(0xFF44464F))
+            label = status
+            p = listOf(Color(0xFFE1E2EC), Color(0xFF44464F), Color(0xFF2A2C33), Color(0xFFC7C9D1))
         }
     }
+    val (bg, fg) = badgeColors(p[0], p[1], p[2], p[3])
     Surface(color = bg, shape = CircleShape) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -130,13 +147,23 @@ fun ErrorView(message: String, onRetry: (() -> Unit)? = null, modifier: Modifier
     }
 }
 
-/** 页面顶栏（融入背景：iOS 大标题风格，顶栏与页面同灰色底，内容优先） */
+/**
+ * 页面顶栏（融入背景：iOS 大标题风格，顶栏与页面同灰色底，内容优先）
+ *
+ * @param subtitleTrailing 放在标题那一行的**行尾**（可空）。
+ *   - **没有副标题**时：标题与它**同一行、垂直居中对齐**（整条顶栏就是一行，最紧凑）；
+ *   - **有副标题**时：它落到副标题那一行的行尾（标题仍占第一行）。
+ *
+ *   为什么不放在 `actions` 里：在 `actions` 中放带 `weight` 的子项，Material3 的 `TopAppBar`
+ *   会把标题列压成 0 宽——实测标题「AI 助手」直接消失（见 AiChatScreen 的注释）。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppTopBar(
     title: String,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
+    subtitleTrailing: @Composable (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     TopAppBar(
@@ -144,10 +171,40 @@ fun AppTopBar(
             containerColor = MaterialTheme.colorScheme.background,
         ),
         title = {
-            Column {
-                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1)
-                if (!subtitle.isNullOrBlank()) {
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (subtitle.isNullOrBlank()) {
+                // 单行形态：标题 + 行尾内容，整体垂直居中——用户要的"所有元件中心对齐"就是这个
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (subtitleTrailing != null) Modifier.weight(1f) else Modifier,
+                    )
+                    subtitleTrailing?.invoke()
+                }
+            } else {
+                Column {
+                    Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 副标题占掉剩余宽度（文字仍靠左）；后面的 trailing 自然被顶到行尾。
+                        // 副标题过长时自己省略，绝不把 trailing 挤走。
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        subtitleTrailing?.invoke()
+                    }
                 }
             }
         },
@@ -181,7 +238,13 @@ fun InfoRow(label: String, value: String, modifier: Modifier = Modifier, valueCo
     }
 }
 
-/** 分组卡片容器（iOS 分组卡片：白色圆角16 + 极轻阴影，无边框，靠灰底分层） */
+/**
+ * 分组卡片容器（iOS 分组卡片：白色圆角16 + 极轻阴影，无边框，靠灰底分层）。
+ *
+ * ⚠️ 暗色下**必须补一条描边**：亮色靠「白卡 + 灰底」分层、阴影只是锦上添花；
+ * 而暗色里 `shadowElevation` 几乎看不见（黑底上的黑影），只靠色差的话卡片边缘会糊在一起。
+ * 这条描边只在暗色下加，亮色仍然是"无边框靠灰底分层"的原设计。
+ */
 @Composable
 fun SectionCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
@@ -190,20 +253,43 @@ fun SectionCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         shadowElevation = 1.dp,
+        border = if (ThemeMode.isDark) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        } else {
+            null
+        },
     ) {
         Column(Modifier.padding(16.dp), content = content)
     }
 }
 
+/**
+ * 徽章配色：**同一套色相，两种底色**。
+ *
+ * 亮色用「浅底 + 深字」，暗色必须换成「深底 + 亮字」。
+ * 把浅粉彩底直接搬到暗色页面上，会在深色背景里戳出一块**发光的色块**——
+ * 既刺眼，又和旁边已经调暗的卡片对不上（用户报的"感觉不是很好"就是这类）。
+ *
+ * 判据用 [ThemeMode.isDark]（驱动配色方案的那个开关），不用 `isSystemInDarkTheme()`：
+ * 本 App 的外观是用户在「我的」里自己切的，和系统设置无关。
+ */
+@Composable
+private fun badgeColors(lightBg: Color, lightFg: Color, darkBg: Color, darkFg: Color): Pair<Color, Color> =
+    if (ThemeMode.isDark) darkBg to darkFg else lightBg to lightFg
+
 /** 角色徽章 */
 @Composable
 fun RoleBadge(role: String) {
-    val (label, bg, fg) = when (role) {
-        "shipper" -> Triple("货主", Color(0xFFD6F3FA), Color(0xFF005A78))
-        "driver" -> Triple("司机", Color(0xFFD5F5E9), Color(0xFF00624A))
-        "dispatcher" -> Triple("派单员", Color(0xFFDBE9FF), Color(0xFF0A4DAF))
-        else -> Triple(role, Color(0xFFE1E2EC), Color(0xFF44464F))
+    val label: String
+    /** `[亮底, 亮字, 暗底, 暗字]` */
+    val p: List<Color>
+    when (role) {
+        "shipper" -> { label = "货主"; p = listOf(Color(0xFFD6F3FA), Color(0xFF005A78), Color(0xFF0B3644), Color(0xFF8FDCF0)) }
+        "driver" -> { label = "司机"; p = listOf(Color(0xFFD5F5E9), Color(0xFF00624A), Color(0xFF0B3A2C), Color(0xFF8FE0C0)) }
+        "dispatcher" -> { label = "派单员"; p = listOf(Color(0xFFDBE9FF), Color(0xFF0A4DAF), Color(0xFF12294F), Color(0xFFA8C8FF)) }
+        else -> { label = role; p = listOf(Color(0xFFE1E2EC), Color(0xFF44464F), Color(0xFF2A2C33), Color(0xFFC7C9D1)) }
     }
+    val (bg, fg) = badgeColors(p[0], p[1], p[2], p[3])
     Surface(color = bg, shape = CircleShape) {
         Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
     }
@@ -442,6 +528,100 @@ fun DateRangeFilter(onChange: (String?, String?) -> Unit, modifier: Modifier = M
         ) {
             DatePicker(state = dpState)
         }
+    }
+}
+
+/**
+ * 分段选择器：**同一维度的少量互斥选项**（如「思考强度：关/低/中/高」）。
+ *
+ * 形态学沿用本 App 已有的 [SegmentedStatusTabs]（独立圆角块 + 间距分隔 + 选中淡色底加粗），
+ * 两处区别是有意的：
+ * - 这里只有**一个强调色**（同一维度的程度差异，不需要五个语义色）；
+ * - 等宽分段（`weight(1f)`），让"一共几档"一眼可见，也不用担心某一档文字长就把别的挤跑。
+ *
+ * 不用 Material3 的 `SegmentedButton`：它在本项目的 BOM 下仍是实验 API，
+ * 而且默认形态（连成一条、只有一条细描边）与本 App 的块状语言不一致。
+ *
+ * @param accent 选中色（默认主题蓝；AI 页传自己的强调色）
+ * @param height 段高，默认 44dp（≥ 手指友好下限，且比 48dp 工具条矮一点，不抢视觉）
+ */
+@Composable
+fun SegmentedPicker(
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Color = Color(0xFF1E6FFF),
+    height: Dp = 44.dp,
+    fontSize: TextUnit = 16.sp,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        labels.forEachIndexed { i, label ->
+            val sel = selected == i
+            Surface(
+                onClick = { onSelect(i) },
+                shape = RoundedCornerShape(12.dp),
+                color = if (sel) accent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface,
+                border = BorderStroke(
+                    1.dp,
+                    if (sel) accent.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant,
+                ),
+                modifier = Modifier.weight(1f).height(height),
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        label,
+                        fontSize = fontSize,
+                        fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium,
+                        color = if (sel) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * **一次性提示条**：先消费消息、再显示。
+ *
+ * ## 为什么必须集中成一个函数（2026-09-18 用户报的 bug）
+ * 之前十几处页面都是这么写的：
+ * ```kotlin
+ * LaunchedEffect(vm.notice) {
+ *     vm.notice?.let {
+ *         snackbar.showSnackbar(it)   // ← 会挂起（默认约 4 秒）
+ *         vm.notice = null            // ← 切页时协程被取消，这一行**永远不执行**
+ *     }
+ * }
+ * ```
+ * 而**页面状态（ViewModel）是 Activity 级的，切页不销毁** —— 于是用户切到别的
+ * 底部 Tab 再切回来，`notice` 还在，提示条**又冒出来一次**。
+ * 用户原话：「切回来显示框还是存在，应该是切换画面之后那个显示框直接消失」。
+ *
+ * 修法只有一个方向：**把"消费"挪到"显示"之前**。这样提示条中途被切页打断时，
+ * 消息已经被取走，回来自然不会再弹 —— 这正是用户要的行为。
+ *
+ * ⚠️ 只对**状态驱动**的提示有意义（`LaunchedEffect(vm.xxx)`）。
+ *    点一下就弹的那种（`scope.launch { snackbar.showSnackbar("已复制") }`）本来就不会重放，
+ *    直接调 `showSnackbar` 即可，不用绕这一层。
+ *
+ * @param message 待显示的消息；null = 什么都不做
+ * @param onConsumed 把消息置空（**在显示之前**调用）
+ */
+@Composable
+fun OneShotSnackbar(
+    hostState: SnackbarHostState,
+    message: String?,
+    onConsumed: () -> Unit,
+) {
+    LaunchedEffect(message) {
+        if (message == null) return@LaunchedEffect
+        onConsumed()
+        hostState.showSnackbar(message)
     }
 }
 

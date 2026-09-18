@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.api.ProductCreateRequest
 import com.tapmoay.sorders.data.remote.api.ProductUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.ProductTierDto
 import com.tapmoay.sorders.data.repo.toApiException
@@ -20,6 +21,13 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
     var products by mutableStateOf<List<ProductDto>>(emptyList())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    /**
+     * **加载**失败：要留在页面上（配合整页 ErrorView + 重试），**不能**被提示条消费掉。
+     * 拆字段的理由见 `WholesalePricingViewModel` 的同一处注释。
+     */
+    var loadError by mutableStateOf<String?>(null)
+    /** 分类名册（决定下单页左侧顺序）。商品编辑页从这里选分类，也能就地新建。 */
+    var categories by mutableStateOf<List<ProductCategoryDto>>(emptyList())
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 
@@ -30,6 +38,8 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
     var draftCost by mutableStateOf("")
     var draftStock by mutableStateOf("")
     var draftUnit by mutableStateOf("")
+    /** 商品分类：选品页左侧的分组名（空 = 未分类）。 */
+    var draftCategory by mutableStateOf("")
     var draftAlert by mutableStateOf("")
     var draftColor by mutableStateOf("#1565C0")
     var draftActive by mutableStateOf(true)
@@ -56,12 +66,13 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun load() {
         loading = products.isEmpty()
-        error = null
+        loadError = null
         viewModelScope.launch {
             try {
                 products = container.repo.products()
+                categories = container.repo.productCategories()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                loadError = toApiException(e).message
             } finally {
                 loading = false
             }
@@ -75,6 +86,7 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         draftCost = ""
         draftStock = ""
         draftUnit = ""
+        draftCategory = ""
         draftAlert = ""
         draftColor = "#1565C0"
         draftActive = true
@@ -90,6 +102,7 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         draftCost = com.tapmoay.sorders.util.formatMoney(p.costPrice)
         draftStock = if (p.stock > 0) p.stock.toString() else ""
         draftUnit = p.unit
+        draftCategory = p.category
         draftAlert = if (p.lowStockAlert > 0) p.lowStockAlert.toString() else ""
         draftColor = p.nameColor ?: "#1565C0"
         draftActive = p.isActive
@@ -151,6 +164,7 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
                                 tierPrices = tiers,
                                 stock = stock,
                                 unit = draftUnit.trim().ifBlank { null },
+                                category = draftCategory.trim(),
                                 lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),
                             )
                         )
@@ -165,6 +179,7 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
                                 isActive = draftActive,
                                 tierPrices = tiers,
                                 unit = draftUnit.trim().ifBlank { null },
+                                category = draftCategory.trim(),
                                 lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),
                             ),
                         )

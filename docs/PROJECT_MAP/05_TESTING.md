@@ -31,7 +31,7 @@ Start-Process 'D:/APPS/sdk/emulator/emulator.exe' -ArgumentList '-avd 7_WSVGA_Ta
 ### 通用操作
 ```powershell
 adb devices                          # 在线设备
-adb -s emulator-5554 install -r app-debug.apk   # 重装（keep 登录态）
+adb -s emulator-5554 install -r app-emu-debug.apk   # 重装（keep 登录态）
 adb -s emulator-5554 shell am force-stop com.tapmoay.sorders
 adb -s emulator-5554 shell monkey -p com.tapmoay.sorders -c android.intent.category.LAUNCHER 1  # 启动
 ```
@@ -87,7 +87,37 @@ adb -s emulator-5554 root; adb -s emulator-5554 shell su 0 date 090308002026.00
 - **git add -A 会误提交大量临时文件**（`_*.png`、`_dl/`、`_amap_probe/`）→ 只 add 源码路径
 - 模拟器访问后端固定走 `10.0.2.2`；真机走 `local.properties api_base_url`；IP 变了=全端超时
 
-## 7. 建议的回归测试清单（大规模测试用）
+## 7. 后端自动化测试（先跑这个，再上模拟器）
+
+```powershell
+cd D:\AProjects\ASDH\orders\backend
+python -m pytest tests/ -q          # 2026-09-14 实测：35 passed
+```
+
+**这是验证后端改动成本最低的一环**（约 2~3 秒）。改完后端先跑它，再去动模拟器。
+用独立 SQLite 文件库（`backend/tests/.test_dbs/`，已 gitignore），不碰开发库。
+
+### ⚠️ 测试也会腐烂——而且它烂了不会自己报出来
+
+实测：工作区改了两处后端行为，`pytest` 立刻红了 **2 个**，但**没人在看**（改动方走的是模拟器手工验证）。两处都是**测试过时、不是代码 bug**：
+
+| 失败 | 原因 | 修法 |
+|---|---|---|
+| `test_orders_flow.py::test_flow_dispatch_ack_complete` 断言 `assign` 后状态为 `ACCEPTED` | 状态机从 4 态改成 **5 态**：`assign` 现在只到 `DISPATCHED`，`ACCEPTED` 要等司机 `driver-ack` | 断言改为 `DISPATCHED`，并**补上** `driver-ack` 后应为 `ACCEPTED` 的断言 |
+| `test_payment_inventory_arrears.py::test_order_pay_and_charge` 以派单员身份建单被 400 | `create_order` 新增校验：**派单员代理下单必须给 `shipper_id` 或 `temp_shipper_name`** | 测试 payload 补 `temp_shipper_name` |
+
+**两个可复用的结论**：
+
+1. **改状态机 / 改必填字段后一定要跑 `pytest`**——这类改动不会让代码报错，只会让旧测试和旧文档**同时变成假的**。
+2. **红了的测试先分辨"代码错"还是"测试旧"**：看报错信息是不是**新版代码特意写的**
+   （例："代理下单请选择货主…" 是三分支 `if/elif/else` 里有意加的），是则改测试，否则查代码。
+
+> 与文档的关系：这两处失败都**印证**了 [`08_CODE_LOCATOR.md`](08_CODE_LOCATOR.md) 的记载
+> （五态状态机、"接单是唯一不在 `order_flow.py` 的状态转移"）——说明是**测试落后于文档与代码**，不是文档写错。
+
+---
+
+## 8. 建议的回归测试清单（大规模测试用）
 
 1. **登录**：三端账号登录/登出/会话恢复（重启 App 不失登录态）
 2. **货主下单**：选商品（特价优先级）→ 数量 → 地址（地图/收藏）→ 提交 → 订单出现在待派单池

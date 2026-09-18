@@ -55,6 +55,8 @@ fun AddressScreen(
     var imageTarget by remember { mutableStateOf("loc") }
     var showImageSource by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(0) }  // 0=路线 1=联系人 2=地址
+    // 搜索词：三段共用（换段时清空 —— 在"联系人"里搜的名字带到"地点"段只会得到空列表）
+    var keyword by remember { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -111,7 +113,43 @@ fun AddressScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            AddressTabBar(tab = tab, onTab = { tab = it })
+            AddressTabBar(tab = tab, onTab = { tab = it; keyword = "" })
+            // 搜索框**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
+            // 这里搜的是本地已有的那份列表 —— 数据本来就在手上，即时出结果，
+            // 不需要往返后端（共享库那一段在下单页的地址弹层里，那里才需要打后端）。
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                SoTextField(
+                    value = keyword,
+                    onValueChange = { keyword = it },
+                    placeholder = when (tab) {
+                        0 -> "搜线路：收货人 / 电话 / 地址"
+                        1 -> "搜联系人：姓名 / 电话"
+                        else -> "搜地点：名称 / 地址"
+                    },
+                )
+                if (keyword.isNotBlank()) {
+                    TextButton(
+                        onClick = { keyword = "" },
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    ) { Text("清除") }
+                }
+            }
+            val kw = keyword.trim()
+            val shownAddresses = remember(vm.addresses, kw) {
+                if (kw.isBlank()) vm.addresses
+                else vm.addresses.filter {
+                    it.receiverName.contains(kw, true) || it.phone.contains(kw) ||
+                        it.detailAddress.contains(kw, true) || it.originAddress.orEmpty().contains(kw, true)
+                }
+            }
+            val shownContacts = remember(vm.contacts, kw) {
+                if (kw.isBlank()) vm.contacts
+                else vm.contacts.filter { it.displayName.contains(kw, true) || it.phone.contains(kw) }
+            }
+            val shownLocations = remember(vm.locations, kw) {
+                if (kw.isBlank()) vm.locations
+                else vm.locations.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
+            }
             Box(Modifier.weight(1f)) {
                 when {
                     vm.loading -> LoadingBox(Modifier.fillMaxSize())
@@ -134,10 +172,10 @@ fun AddressScreen(
                                         }
                                     }
                                 }
-                                if (vm.contacts.isEmpty()) {
-                                    item { EmptyView("暂无联系人") }
+                                if (shownContacts.isEmpty()) {
+                                    item { EmptyView(if (kw.isBlank()) "暂无联系人" else "没有匹配「$kw」的联系人") }
                                 } else {
-                                    items(vm.contacts, key = { "c" + it.id }) { c ->
+                                    items(shownContacts, key = { "c" + it.id }) { c ->
                                         ContactCard(c = c, onEdit = { vm.openContactDialog(c) }, onDelete = { vm.deleteContact(c) })
                                     }
                                 }
@@ -155,10 +193,10 @@ fun AddressScreen(
                                         }
                                     }
                                 }
-                                if (vm.locations.isEmpty()) {
-                                    item { EmptyView("暂无地点") }
+                                if (shownLocations.isEmpty()) {
+                                    item { EmptyView(if (kw.isBlank()) "暂无地点" else "没有匹配「$kw」的地点") }
                                 } else {
-                                    items(vm.locations, key = { "l" + it.id }) { l ->
+                                    items(shownLocations, key = { "l" + it.id }) { l ->
                                         LocationCard(l = l, onEdit = { vm.openLocationEdit(l) }, onDelete = { vm.deleteLocation(l) })
                                     }
                                 }
@@ -177,10 +215,10 @@ fun AddressScreen(
                                     }
                                     Spacer(Modifier.height(4.dp))
                                 }
-                                if (vm.addresses.isEmpty()) {
-                                    item { EmptyView("暂无线路，点右侧新增") }
+                                if (shownAddresses.isEmpty()) {
+                                    item { EmptyView(if (kw.isBlank()) "暂无线路，点右侧新增" else "没有匹配「$kw」的线路") }
                                 } else {
-                                    items(vm.addresses, key = { "a" + it.id }) { a ->
+                                    items(shownAddresses, key = { "a" + it.id }) { a ->
                                         AddressCard(a = a, onEdit = { vm.openEdit(a) }, onDelete = { vm.delete(a) })
                                     }
                                 }

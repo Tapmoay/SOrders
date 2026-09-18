@@ -6,6 +6,7 @@ import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.location.AMapLocationListener
+import com.tapmoay.sorders.BuildConfig
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -22,6 +23,9 @@ data class AmapLocationPoint(
  * - 单次定位 requestSingle()：拍照水印 / 地图选点「使用当前位置」
  * - 返回 lastPoint 含逆地理地址（地点名，如「北京市海淀区中关村…」）
  * 调用前需确保定位权限已授予（UI 层处理）。
+ *
+ * ⚠️ 这里**只**负责"带地址的高德坐标"。[SunLocation]（日落算几点）还有第二条来源
+ * ——[DeviceLocation] 的系统定位，因为日落只需要经纬度，不该被高德 Key/服务卡死。
  */
 class AmapLocationManager(private val context: Context) {
 
@@ -45,7 +49,7 @@ class AmapLocationManager(private val context: Context) {
                 isOnceLocation = true
                 isOnceLocationLatest = true
                 isNeedAddress = true
-                isMockEnable = false
+                isMockEnable = BuildConfig.DEBUG
             }
             c.setLocationOption(opt)
             c.setLocationListener(object : AMapLocationListener {
@@ -59,9 +63,9 @@ class AmapLocationManager(private val context: Context) {
                             accuracy = loc.accuracy,
                         )
                         lastPoint = pt
+                        SunLocation.update(pt.lat, pt.lng)
                         _locations.tryEmit(pt)
                     } else {
-                        // 定位失败：回调空结果由 UI 层提示
                         _locations.tryEmit(
                             AmapLocationPoint(
                                 lat = 0.0,
@@ -81,12 +85,22 @@ class AmapLocationManager(private val context: Context) {
         }
     }
 
+    /**
+     * 发起一次单次定位。
+     *
+     * @return true = 已经发出去（结果走 [locations]）；false = **连发起都没成功**
+     *   （权限缺失或 SDK 起不来）。调用方拿到 false 时应当走 [DeviceLocation] 兜底——
+     *   否则"高德没起来"这种失败**一个回调都不会有**，界面会一直停在"时区估算"，
+     *   而没有任何地方知道该退到系统定位。
+     */
     @SuppressLint("MissingPermission")
-    fun requestSingle() {
-        try {
-            buildClient()?.startLocation()
+    fun requestSingle(): Boolean {
+        return try {
+            val c = buildClient() ?: return false
+            c.startLocation()
+            true
         } catch (_: Exception) {
-            // 权限缺失或 SDK 异常：静默，UI 层给出提示
+            false
         }
     }
 
