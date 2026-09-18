@@ -33,7 +33,7 @@
 ## 改完必跑：一条命令跑完所有静态检查
 
 ```
-python _tools/qa/_check_all.py          # 全部静态检查（18 个脚本，几十秒）
+python _tools/qa/_check_all.py          # 全部静态检查（19 个脚本，几十秒）
 python _tools/qa/_check_all.py --deep   # 再加 29 份反向验证（几分钟，改红线时才要）
 python _tools/qa/_check_all.py --list   # 只列清单不跑（看它到底都在查什么）
 ```

@@ -47,6 +47,9 @@ _test_tools/*.tgz
 def main() -> int:
     raw = GI.read_bytes()
     txt = raw.decode("utf-8", errors="replace")
+    if "本地工作区产物（v3.44 补" in txt and "\x00" not in txt:
+        print("✅ 已经修过了（NUL 没有了、规则段也在）——不再重复追加，免得把规则写两遍")
+        return 0
     lines = txt.splitlines()
     cut = None
     for i, ln in enumerate(lines):
