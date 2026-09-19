@@ -405,6 +405,8 @@ fun OrderCreateScreen(
             addresses = vm.addresses,
             locations = vm.locations,
             places = vm.places,
+            placesTruncated = vm.placesTruncated,
+            placesLimit = vm.placesLimit,
             onPickAddress = { vm.applyAddress(it) },
             onPickLocation = { vm.applyLocation(it) },
             onPickPlace = { vm.applyPlace(it) },
@@ -537,6 +539,9 @@ private fun AddressPickerSheet(
     addresses: List<AddressDto>,
     locations: List<LocationDto>,
     places: List<PlaceDto>,
+    /** 共享地点这一页被服务端截断了没有 + 本次上限（判据是响应头 `X-Truncated`/`X-Result-Limit`）。 */
+    placesTruncated: Boolean,
+    placesLimit: Int?,
     onPickAddress: (AddressDto) -> Unit,
     onPickLocation: (LocationDto) -> Unit,
     onPickPlace: (PlaceDto) -> Unit,
@@ -653,6 +658,18 @@ private fun AddressPickerSheet(
                             )
                         }
                     } else {
+                        // 共享地点被服务端截断时**说出来**：这张表只增不减又全库共用，
+                        // "一页"迟早不是"全部"。出路就是上面那个搜索框——共享地点段的搜索
+                        // 会**打后端** `q`（见 onValueChange），所以它是真能翻出旧记录的。
+                        // ⚠️ 不许写"更早的"：这里是按"用过多少次"倒序，被截掉的是**用得少的**。
+                        if (placesTruncated) {
+                            item {
+                                TruncationNote(
+                                    placesLimit,
+                                    "要找的地点不在列表里就用上面的搜索框搜名字或地址",
+                                )
+                            }
+                        }
                         itemsIndexed(places) { _, p ->
                             SheetRow(
                                 title = p.name.ifBlank { p.detailAddress.ifBlank { "未命名地点" } },

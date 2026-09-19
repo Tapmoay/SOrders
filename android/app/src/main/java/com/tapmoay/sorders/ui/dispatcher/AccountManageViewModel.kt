@@ -49,6 +49,20 @@ class AccountManageViewModel(
 ) : ViewModel() {
 
     var users by mutableStateOf<List<UserDto>>(emptyList())
+
+    /**
+     * 账号列表"这一页不是全部"＝账号超过 500 个（后端 `le=500`）。
+     *
+     * 判据是响应头 `X-Truncated`（走 `AppRepository.pageMeta()`）。这一页**就是这个坑**：
+     * 页面右下角就是「新建账户」，而"列表里没有"会被读成"这个账号不存在"→
+     * 再建一个 → 撞手机号唯一约束。
+     */
+    var truncated by mutableStateOf(false)
+        private set
+
+    /** 本次服务器上限（`X-Result-Limit`）；null = 老后端没回报，界面不许自己编一个数。 */
+    var pageLimit by mutableStateOf<Int?>(null)
+        private set
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
@@ -78,7 +92,10 @@ class AccountManageViewModel(
         error = null
         viewModelScope.launch {
             try {
-                users = container.repo.usersAll()
+                val page = container.repo.usersPage()
+                users = page.rows
+                truncated = page.meta.hasMore
+                pageLimit = page.meta.limit
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

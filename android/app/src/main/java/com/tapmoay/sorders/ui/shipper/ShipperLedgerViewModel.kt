@@ -15,6 +15,19 @@ import java.time.LocalDate
 class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() {
 
     var entries by mutableStateOf<List<LedgerEntryDto>>(emptyList())
+
+    /**
+     * 这一页不是全部（响应头 `X-Truncated`，走 `AppRepository.pageMeta()`）。
+     *
+     * `total()` 与 `chartSeries` 都是拿 [entries] 在客户端算的，而"不传日期"是本页初始状态
+     * （后端走全量路径、缺省只回最近 1000 条）——不说的话「当前范围内合计」就是**只含可见行的错钱数**。
+     */
+    var entriesTruncated by mutableStateOf(false)
+        private set
+
+    /** 本次服务器上限（`X-Result-Limit`）；null = 老后端没回报，界面不许自己编一个数。 */
+    var entriesLimit by mutableStateOf<Int?>(null)
+        private set
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var rangeFrom by mutableStateOf<String?>(null)
@@ -82,7 +95,10 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
         error = null
         viewModelScope.launch {
             try {
-                entries = container.repo.ledgerEntries(from = rangeFrom, to = rangeTo)
+                val page = container.repo.ledgerEntries(from = rangeFrom, to = rangeTo)
+                entries = page.rows
+                entriesTruncated = page.meta.hasMore
+                entriesLimit = page.meta.limit
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

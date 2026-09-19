@@ -671,6 +671,13 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
                     (if (flows.size > 100) "，下面只列最近 100 条" else "") + "）",
             )
             Spacer(Modifier.height(8.dp))
+            // 服务端只回了一页时**说出来**（判据是响应头 `X-Truncated`）：不说的话用户会把
+            // "看得见的这几行"当成整个窗口的明细。出路是上方那个时间导航（它切的是服务端窗口），
+            // 所以这句话直接点名它 —— 不做"加载更多"（这些端点的 limit 是服务端上限，不是页码）。
+            if (vm.cashFlowsTruncated) {
+                TruncationNote(vm.cashFlowsLimit, "这一窗口更早的请用上方时间导航切到更早的日期")
+                Spacer(Modifier.height(4.dp))
+            }
         }
         if (flows.isEmpty()) item { ChartEmpty("该时段暂无资金流水") }
         items(flows.take(100), key = { it.id.toString() }) { f ->
@@ -788,6 +795,16 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // 只回了 60 条时**必须说出来**：这个页签是"我那次改动到底有没有被记录"的
+                // 唯一入口，不说的话用户会把"没看到"读成"没记录"。页签里没有时间筛选
+                // （异常与审计固定近 30 天），能取更多的入口是右上角「导出」——所以指向它。
+                if (vm.operationLogsTruncated) {
+                    Spacer(Modifier.height(6.dp))
+                    TruncationNote(
+                        vm.operationLogsLimit,
+                        "更早的没被列出来（不代表没记录），需要更多请点右上角「导出」",
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
             }
             items(audits, key = { "log" + it.id }) { log ->

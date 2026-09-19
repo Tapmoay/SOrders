@@ -29,6 +29,20 @@ class UsersManageViewModel(
 ) : ViewModel() {
 
     var users by mutableStateOf<List<UserDto>>(emptyList())
+
+    /**
+     * 名册"这一页不是全部"＝账号超过 500 个（后端 `le=500`）。
+     *
+     * 判据是响应头 `X-Truncated`（走 `AppRepository.pageMeta()`），不再靠"条数等于 500"去猜。
+     * 不说出来的后果最重：派单员在名册里找不到某个人，下一步就是"新建一个" ——
+     * 而那个账号其实存在（撞手机号唯一约束）。
+     */
+    var truncated by mutableStateOf(false)
+        private set
+
+    /** 本次服务器上限（`X-Result-Limit`）；null = 老后端没回报，界面不许自己编一个数。 */
+    var pageLimit by mutableStateOf<Int?>(null)
+        private set
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
@@ -172,8 +186,10 @@ class UsersManageViewModel(
         error = null
         viewModelScope.launch {
             try {
-                users = if (pool.memberOnly) container.repo.members()
-                else container.repo.shippersOrDrivers(pool.role)
+                val page = container.repo.usersPage(role = pool.role, memberOnly = pool.memberOnly)
+                users = page.rows
+                truncated = page.meta.hasMore
+                pageLimit = page.meta.limit
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

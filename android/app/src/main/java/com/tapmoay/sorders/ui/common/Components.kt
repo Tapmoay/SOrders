@@ -625,3 +625,29 @@ fun OneShotSnackbar(
     }
 }
 
+/**
+ * 「服务端这一页不是全部」的提示文案 —— **唯一**一份措辞（6 个只回一页的列表页共用）。
+ *
+ * 参数 [howToSeeMore] 是"另外还能怎么看到"：这句话必须**能照着做**，而各页能用的
+ * 筛选不一样（日期范围 / 搜索框 / 只能导出），所以尾巴由调用方给，前半句同源。
+ *
+ * ⛔ 为什么不是"加载更多"：这些端点的 `limit` 是**服务端上限**，不是页码；
+ *    正确出路是页面上**已有的筛选**（`X-Truncated` 只说"被截断了"，不提供翻页游标）。
+ * ⛔ [limit] 读不到时（老后端没有 `X-Result-Limit`）**不说条数** ——
+ *    编一个数或说"最近 null 条"都比不说更糟：用户会拿这个数去核对。
+ */
+fun truncationHint(limit: Int?, howToSeeMore: String): String =
+    (if (limit != null) "只显示了最近 $limit 条（服务器上限）" else "只显示了最近一部分（服务器没回报条数）") +
+        "，" + howToSeeMore
+
+/** [truncationHint] 的渲染；`truncated = false` 时什么都不显示（判据来自响应头）。 */
+@Composable
+fun TruncationNote(limit: Int?, howToSeeMore: String, modifier: Modifier = Modifier) {
+    Text(
+        truncationHint(limit, howToSeeMore),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
+}
+

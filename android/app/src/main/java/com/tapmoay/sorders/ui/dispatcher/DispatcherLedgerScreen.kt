@@ -21,6 +21,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementGroupDto
 import com.tapmoay.sorders.data.remote.dto.LedgerAccountOut
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
+import com.tapmoay.sorders.data.repo.PageMeta
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MemberGold
 import com.tapmoay.sorders.ui.theme.MgrGreen
@@ -148,6 +149,7 @@ fun DispatcherLedgerScreen(
                                             key = key,
                                             expanded = vm.expandedAccount == key,
                                             entries = vm.accountEntries[key],
+                                            meta = vm.accountEntriesMeta[key],
                                             onToggle = { vm.toggleAccount(key) },
                                             onOpenOrder = onOpenOrder,
                                             icon = Icons.Default.PeopleAlt,
@@ -182,6 +184,7 @@ fun DispatcherLedgerScreen(
                                             key = key,
                                             expanded = vm.expandedAccount == key,
                                             entries = vm.accountEntries[key],
+                                            meta = vm.accountEntriesMeta[key],
                                             onToggle = { vm.toggleAccount(key) },
                                             onOpenOrder = onOpenOrder,
                                             icon = Icons.Default.Badge,
@@ -246,6 +249,18 @@ fun DispatcherLedgerScreen(
                                 if (vm.entries.isEmpty()) {
                                     item { EmptyView("该时段暂无账目", Modifier.fillMaxWidth()) }
                                 } else {
+                                    // 服务端只回了一页时**说出来**（判据是响应头 `X-Truncated`，
+                                    // 见 DispatcherLedgerViewModel）。⚠️ 上面那两张卡（趋势/合计）
+                                    // 是拿这一页在客户端算的 —— 不说的话"当前范围内合计"会被
+                                    // 当成整段总额，而它其实只含看得见的这些行。
+                                    if (vm.entriesTruncated) {
+                                        item {
+                                            TruncationNote(
+                                                vm.entriesLimit,
+                                                "更早的请用上方时间导航缩小范围；上面的合计与趋势只含已取到的这些行",
+                                            )
+                                        }
+                                    }
                                     items(vm.entries, key = { it.id }) { e ->
                                         LedgerRow(e, onDelete = { vm.deleteTarget = e }, onOpenOrder = onOpenOrder)
                                     }
@@ -418,6 +433,8 @@ private fun AccountCard(
     key: String,
     expanded: Boolean,
     entries: List<LedgerEntryDto>?,
+    /** 这一账户的明细被服务端截断了没有 + 本次上限（判据是响应头，见 DispatcherLedgerViewModel）。 */
+    meta: PageMeta?,
     onToggle: () -> Unit,
     onOpenOrder: (Long) -> Unit,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -456,6 +473,16 @@ private fun AccountCard(
             } else if (entries.isEmpty()) {
                 Text("该账户时段内暂无流水", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
+                // 明细被截断时**说出来**：卡上那行"N 笔"是**服务端**的全量笔数，
+                // 而这里列出的可能只有一页 —— 不说的话"卡上 5000 笔、展开 1000 条"
+                // 会被当成数据不一致（或干脆以为账丢了）。
+                if (meta?.hasMore == true) {
+                    TruncationNote(
+                        meta.limit,
+                        "该账户在此范围内的流水没列全（卡上的笔数是服务端全量），更早的请用上方时间导航缩小范围",
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
                 entries.forEach { e ->
                     Row(
                         Modifier.fillMaxWidth().clickable(enabled = e.orderId != null) { e.orderId?.let(onOpenOrder) }.padding(vertical = 6.dp),

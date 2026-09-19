@@ -92,6 +92,17 @@ fun ShipperLedgerScreen(
                     if (vm.entries.isEmpty()) {
                         item { EmptyView("该时段暂无账目", Modifier.fillMaxWidth()) }
                     } else {
+                        // 服务端只回了一页时**说出来**（判据是响应头 `X-Truncated`，见
+                        // ShipperLedgerViewModel）。上面的合计与趋势是拿这一页在客户端算的，
+                        // 不说的话那个"合计"会被当成整段的总额。
+                        if (vm.entriesTruncated) {
+                            item {
+                                TruncationNote(
+                                    vm.entriesLimit,
+                                    "更早的请用上方时间导航缩小范围；上面的合计与趋势只含已取到的这些行",
+                                )
+                            }
+                        }
                         items(vm.entries, key = { it.id }) { e ->
                             LedgerCard(e, onOpenOrder = onOpenOrder)
                         }

@@ -31,6 +31,17 @@ class ReportCenterViewModel(
     var drivers by mutableStateOf<DriverPerformanceDto?>(null)
     var exceptions by mutableStateOf<List<ExceptionOrderDto>>(emptyList())
     var operationLogs by mutableStateOf<List<OperationLogDto>>(emptyList())
+
+    /**
+     * 审计日志"这一页不是全部"＝更早的还有。
+     *
+     * 判据是响应头 `X-Truncated`（2026-09-19 后端补的头，走 `AppRepository.pageMeta()`）——
+     * 不说出来的后果不是"少看几条"，而是用户据此判断**"我那次改动没被记录"**。
+     */
+    var operationLogsTruncated by mutableStateOf(false)
+
+    /** 本次服务器上限（`X-Result-Limit`）；null = 老后端没回报，界面不许自己编一个数。 */
+    var operationLogsLimit by mutableStateOf<Int?>(null)
     // 客户账分组（营业纵览）
     var shipperAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
     var memberAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
@@ -38,6 +49,10 @@ class ReportCenterViewModel(
     var customerArrears by mutableStateOf<List<ReportArrearsUnitDto>>(emptyList())
     // 资金收支
     var cashFlows by mutableStateOf<List<CashFlowDto>>(emptyList())
+
+    /** 资金流水明细"这一页不是全部"＝这一窗口更早的没取到（判据同样是响应头 `X-Truncated`）。 */
+    var cashFlowsTruncated by mutableStateOf(false)
+    var cashFlowsLimit by mutableStateOf<Int?>(null)
     /** 资金汇总（流入/流出/净额/笔数）——**服务端算的**，不在这里求和。 */
     var cashFlowSummary by mutableStateOf<CashFlowSummaryDto?>(null)
     var expenses by mutableStateOf<List<ExpenseDto>>(emptyList())
@@ -133,7 +148,12 @@ class ReportCenterViewModel(
                         // 实测同一窗口 200 条 → 流入 ¥18,842、273 条 → ¥48,905.50（少算 62%），
                         // 而同一页 Excel 导出是 SQL 侧全窗口求和 → 页面一个数、导出一个数。
                         val (f, t) = dateRange
-                        cashFlows = container.repo.cashFlows(dateFrom = f, dateTo = t)
+                        // 截断位跟着行一起回来（`X-Truncated`/`X-Result-Limit`）：明细被截断时
+                        // 界面要说出来，否则用户会把"看得见的几行"当成整个窗口的明细。
+                        val flowPage = container.repo.cashFlowsPage(dateFrom = f, dateTo = t)
+                        cashFlows = flowPage.rows
+                        cashFlowsTruncated = flowPage.meta.hasMore
+                        cashFlowsLimit = flowPage.meta.limit
                         cashFlowSummary = container.repo.cashFlowSummary(dateFrom = f, dateTo = t)
                         expenses = container.repo.expenses(dateFrom = f, dateTo = t)
                     }
@@ -141,7 +161,10 @@ class ReportCenterViewModel(
                         // 异常与审计
                         val today = LocalDate.now()
                         exceptions = container.repo.exceptionOrders(today.minusDays(30).toString(), today.toString())
-                        operationLogs = container.repo.operationLogs(60)
+                        val logPage = container.repo.operationLogsPage(60)
+                        operationLogs = logPage.rows
+                        operationLogsTruncated = logPage.meta.hasMore
+                        operationLogsLimit = logPage.meta.limit
                     }
                 }
             } catch (e: Exception) {

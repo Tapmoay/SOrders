@@ -77,6 +77,18 @@ fun AccountManageScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // 被服务端截断时**说出来**（判据是响应头 `X-Truncated`，见 AccountManageViewModel）。
+                    // 这一页尤其要说：右下角就是「新建账户」，而"列表里没有"最容易被读成
+                    // "这个账号不存在"→ 再建一个 → 撞手机号唯一约束。这一页没有搜索框，
+                    // 所以不许写"请用搜索"。
+                    if (vm.truncated) {
+                        item {
+                            TruncationNote(
+                                vm.pageLimit,
+                                "不在列表里不等于没有这个账号，找不到先别直接新建",
+                            )
+                        }
+                    }
                     items(vm.users, key = { it.id }) { u ->
                         SectionCard {
                             Column(Modifier.fillMaxWidth()) {

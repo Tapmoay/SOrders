@@ -129,6 +129,21 @@ fun UsersManageScreen(
                             )
                         }
                     }
+                    // 名册被服务端截断时**说出来**（判据是响应头 `X-Truncated`，见 UsersManageViewModel）。
+                    // ⚠️ 这句话不许写成"请用上面的搜索框"：搜索是**本地过滤已列出的**账号，
+                    //    搜不到第 501 个；而且只有司机池才有那个搜索框（货主/批发商池没有）。
+                    if (vm.truncated) {
+                        item {
+                            TruncationNote(
+                                vm.pageLimit,
+                                if (vm.isDriverPool) {
+                                    "上面的搜索也只在已列出的账号里找 —— 找不到不等于没有这个账号，先别直接新建"
+                                } else {
+                                    "不在列表里不等于没有这个账号，找不到先别直接新建"
+                                },
+                            )
+                        }
+                    }
                     if (vm.shown.isEmpty()) {
                         item {
                             EmptyView("没有匹配「${vm.query}」的账号", Modifier.fillMaxWidth().height(140.dp))

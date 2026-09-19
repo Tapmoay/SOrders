@@ -590,7 +590,7 @@ class RepoWriteDataSource(
                 .firstOrNull { it.role == "shipper" || it.isMember }
                 ?.id ?: return emptyList()
         }
-        return repo.ledgerEntries(shipperId = sid, from = from, to = to).take(limit).map { d ->
+        return repo.ledgerEntries(shipperId = sid, from = from, to = to).rows.take(limit).map { d ->
             AiLedgerRef(
                 id = d.id,
                 date = d.entryDate,

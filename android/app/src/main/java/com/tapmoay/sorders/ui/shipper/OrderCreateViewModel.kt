@@ -85,6 +85,20 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var locations by mutableStateOf<List<LocationDto>>(emptyList())
     /** 共享地点库（全库共用；司机到场补录的坐标在这里） */
     var places by mutableStateOf<List<PlaceDto>>(emptyList())
+
+    /**
+     * 共享地点库"这一页不是全部"＝更少用的那些没取到（后端 `le=MAX_LIST`）。
+     *
+     * 判据是响应头 `X-Truncated`（走 `AppRepository.pageMeta()`）。这张表**只增不减**
+     * （没有删除接口）又全库共用，所以"一页 100 条"迟早不等于"全部"——
+     * 不说的话用户只会以为"我要的那个地点别人没标过"，于是自己再标一遍（又一条重复记录）。
+     */
+    var placesTruncated by mutableStateOf(false)
+        private set
+
+    /** 本次服务器上限（`X-Result-Limit`）；null = 老后端没回报，界面不许自己编一个数。 */
+    var placesLimit by mutableStateOf<Int?>(null)
+        private set
     var loadingProducts by mutableStateOf(false)
     /**
      * 商品目录**加载失败**的原因（2026-09-19 审计）。
@@ -158,7 +172,12 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
 
     fun loadPlaces(q: String? = null) {
         viewModelScope.launch {
-            try { places = container.repo.places(q) } catch (_: Exception) {}
+            try {
+                val page = container.repo.placesPage(q)
+                places = page.rows
+                placesTruncated = page.meta.hasMore
+                placesLimit = page.meta.limit
+            } catch (_: Exception) {}
         }
     }
 

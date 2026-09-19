@@ -10,6 +10,7 @@ import com.tapmoay.sorders.data.remote.dto.FreightSettlementGroupDto
 import com.tapmoay.sorders.data.remote.dto.LedgerAccountOut
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
+import com.tapmoay.sorders.data.repo.PageMeta
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.launch
@@ -22,6 +23,20 @@ import java.time.LocalDate
 class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel() {
 
     var entries by mutableStateOf<List<LedgerEntryDto>>(emptyList())
+
+    /**
+     * 这一页不是全部（响应头 `X-Truncated`，走 `AppRepository.pageMeta()`）。
+     *
+     * ⚠️ 这一页**尤其**要说：`total()` 与 `chartSeries` 都是拿 [entries] 在客户端算的，
+     *    而"不传日期"正是本页的初始状态（后端走全量路径，缺省只回最近 1000 条）——
+     *    不说的话「当前范围内合计」就是在报一个**只含可见行的错钱数**。
+     */
+    var entriesTruncated by mutableStateOf(false)
+        private set
+
+    /** 本次服务器上限（`X-Result-Limit`）；null = 老后端没回报，界面不许自己编一个数。 */
+    var entriesLimit by mutableStateOf<Int?>(null)
+        private set
     var loading by mutableStateOf(false)
     /**
      * **动作**失败（记账、改流水被后端拒绝…）：提示条弹一次就该消失。
@@ -49,6 +64,13 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     var expandedDriver by mutableStateOf<Long?>(null)
     var expandedAccount by mutableStateOf<String?>(null)
     var accountEntries by mutableStateOf<Map<String, List<LedgerEntryDto>>>(emptyMap())
+
+    /**
+     * 逐账户明细的截断位（key → 本次上限）。**不能只留 [accountEntries]**：
+     * 一个货主的全量流水同样超过一页，卡上写着"服务端 N 笔"、展开却只有 1000 条 ——
+     * 那正是"看不到 ≠ 没有"的老坑（2026-09-19）。
+     */
+    var accountEntriesMeta by mutableStateOf<Map<String, PageMeta>>(emptyMap())
     var accountEntriesLoading by mutableStateOf(false)
 
     val periodStart: String get() = _periodRange().first
@@ -106,12 +128,13 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         viewModelScope.launch {
             try {
                 val (id, name) = key.split("|", limit = 2)
-                val list = if (id == "u") {
+                val page = if (id == "u") {
                     container.repo.ledgerEntries(shipperId = name.toLongOrNull(), from = periodStart, to = periodEnd)
                 } else {
                     container.repo.ledgerEntries(tempShipperName = name, from = periodStart, to = periodEnd)
                 }
-                accountEntries = accountEntries + (key to list)
+                accountEntries = accountEntries + (key to page.rows)
+                accountEntriesMeta = accountEntriesMeta + (key to page.meta)
             } catch (e: Exception) {
                 loadError = toApiException(e).message
             } finally {
@@ -192,7 +215,10 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         error = null
         viewModelScope.launch {
             try {
-                entries = container.repo.ledgerEntries(from = rangeFrom, to = rangeTo)
+                val page = container.repo.ledgerEntries(from = rangeFrom, to = rangeTo)
+                entries = page.rows
+                entriesTruncated = page.meta.hasMore
+                entriesLimit = page.meta.limit
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

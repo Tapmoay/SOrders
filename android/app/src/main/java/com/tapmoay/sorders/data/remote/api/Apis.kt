@@ -53,13 +53,20 @@ interface UserApi {
     @GET("users/me")
     suspend fun me(): UserDto
 
+    /**
+     * 账号列表（**一页**）。
+     *
+     * 返回 `Response<...>` 是为了**读响应头**：后端 `le=500`，账号超过 500 个时只回最近
+     * 500 条并置 `X-Truncated: 1`（2026-09-19 补的头）。不读它 = 第 501 个账号在 App 里
+     * **不存在**，而派单员的下一步动作正是"那就新建一个"（撞手机号唯一约束）。
+     */
     @GET("users")
     suspend fun listUsers(
         @Query("role") role: String? = null,
         @Query("is_member") isMember: Boolean? = null,
         @Query("skip") skip: Int = 0,
         @Query("limit") limit: Int = 100,
-    ): List<UserDto>
+    ): Response<List<UserDto>>
 
     @POST("users")
     suspend fun createUser(@Body body: UserCreateRequest): UserDto
@@ -331,11 +338,18 @@ interface ShipperApi {
  * 这正是用户 2026-09-18 要的「共同的库，相同位置直接拉过来，省的每个人都要手动上传一次」。
  */
 interface PlaceApi {
+    /**
+     * 共享地点（**一页**，按"用过多少次"倒序）。
+     *
+     * 返回 `Response<...>` 是为了**读响应头**（`X-Truncated` / `X-Result-Limit`）：
+     * 这张表**没有删除接口**、只会越积越多，所以"一页 100 条"迟早不等于"全部"——
+     * 而界面上看不出差别，用户只会以为"我要的那个地点别人没标过"。
+     */
     @GET("places")
     suspend fun listPlaces(
         @Query("q") q: String? = null,
         @Query("limit") limit: Int = 100,
-    ): List<PlaceDto>
+    ): Response<List<PlaceDto>>
 
     @POST("places")
     suspend fun createPlace(@Body body: PlaceCreateRequest): PlaceDto
@@ -356,13 +370,21 @@ interface LedgerApi {
         @Query("kind") kind: String = "shipper",
     ): List<LedgerAccountOut>
 
+    /**
+     * 账本流水（**一页**）。
+     *
+     * 返回 `Response<...>` 是为了**读响应头**：后端缺省上限 1000、最多 5000，被截断时置
+     * `X-Truncated: 1`（2026-09-19 外部完整检查 C-4 补的）。**不传日期就是不收窄的全量查询**
+     * ——本机实测那条路径 85,474 行 / 27.75 秒 / 29.2MB，拿到的永远只是最近 1000 条。
+     * 不说出来的后果：账本页把"一页"当"整段"，合计与趋势都只算了看得见的那些行。
+     */
     @GET("ledger/entries")
     suspend fun listEntries(
         @Query("shipper_id") shipperId: Long? = null,
         @Query("temp_shipper_name") tempShipperName: String? = null,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
-    ): List<LedgerEntryDto>
+    ): Response<List<LedgerEntryDto>>
 
     @POST("ledger/entries")
     suspend fun createEntry(@Body body: LedgerCreateRequest): LedgerEntryDto
@@ -595,15 +617,16 @@ interface ArrearsApi {
 /**
  * `GET /inventory/movements` 一页取多少条 —— **后端的上限就是 500**（`Query(100, le=500)`）。
  *
- * ⛔ 为什么不能沿用后端缺省的那 100：这个端点**没有** `X-Truncated` 那类截断头
- *    （只有 `/orders` 与 `/notifications` 有），客户端拿满一页也无从知道还有更早的，
- *    于是第 100 条以前的流水在 App 里**静默消失**（2026-09-19 报告 R2-3）。
- *    取满后端允许的上限，界面再用这个数把"还有更早的"说出来（见 InventoryScreen）。
+ * ⚠️ 取满上限只是"这一页尽量大"，**不等于"全部"**：该端点现在回报 `X-Truncated` /
+ *    `X-Result-Limit`（2026-09-19 补的头，见 `AppRepository.parsePageMeta`），界面必须
+ *    **读头**说出"还有更早的"。这里原来靠"这页满了就当作还有更多"去猜：后端补头之前
+ *    只能这么办，补了头再猜就会在**刚好 500 条**时提示一句假话。
  *    它与后端 `le=500` 是同一件事的两端：改后端上限必须同步这里。
  */
 const val INVENTORY_MOVEMENT_PAGE_LIMIT = 500
 
 interface InventoryApi {
+    /** 库存流水（**一页**）。返回 `Response<...>` 读截断头，见 [INVENTORY_MOVEMENT_PAGE_LIMIT]。 */
     @GET("inventory/movements")
     suspend fun listMovements(
         @Query("product_id") productId: Long? = null,
@@ -611,7 +634,7 @@ interface InventoryApi {
         @Query("offset") offset: Int = 0,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
-    ): List<InventoryMovementDto>
+    ): Response<List<InventoryMovementDto>>
 
     @POST("inventory/movements")
     suspend fun createMovement(@Body body: InventoryMovementCreateRequest): InventoryMovementDto
@@ -765,8 +788,15 @@ interface ReportApi {
     @POST("stats/exception-orders/{orderId}/resolve")
     suspend fun resolveException(@Path("orderId") orderId: Long, @Body body: ExceptionResolveRequest): ExceptionResolveResult
 
+    /**
+     * 敏感操作审计（**一页**）。
+     *
+     * 返回 `Response<...>` 是为了**读响应头**：被截断时 `X-Truncated: 1`（`le=1000`）。
+     * 审计的全部价值就在"能翻到"——不说"还有更早的"，用户会据此判断
+     * **"我那次改动没被记录"**，这比少看几条严重得多。
+     */
     @GET("operation-logs")
-    suspend fun operationLogs(@Query("limit") limit: Int = 60): List<OperationLogDto>
+    suspend fun operationLogs(@Query("limit") limit: Int = 60): Response<List<OperationLogDto>>
 
     @GET("reports/export")
     suspend fun exportReport(
@@ -862,6 +892,13 @@ interface AccountingApi {
         @Header("Idempotency-Key") idempotencyKey: String? = null,
     ): ExpenseDto
 
+    /**
+     * 资金流水明细（**一页**）。
+     *
+     * 返回 `Response<...>` 是为了**读响应头**：被截断时 `X-Truncated: 1`（`le=1000`）。
+     * 明细条数只影响"看得见几行"（金额一律走下面的 summary，**不许在客户端对一页流水求和**
+     * ——实测少算 62%），但"被截断了却不说"会让用户以为这一页就是全部。
+     */
     @GET("cash-flows")
     suspend fun listCashFlows(
         @Query("direction") direction: String? = null,
@@ -871,7 +908,7 @@ interface AccountingApi {
         // 明细行的条数上限（只影响"看得见几行"）。金额一律走下面的 summary，
         // 不要在客户端对一页流水求和 —— 那会少算（见 CashFlowSummaryDto 的注释）。
         @Query("limit") limit: Int? = null,
-    ): List<CashFlowDto>
+    ): Response<List<CashFlowDto>>
 
     @GET("cash-flows/summary")
     suspend fun cashFlowSummary(

@@ -16,7 +16,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
-import com.tapmoay.sorders.data.remote.api.INVENTORY_MOVEMENT_PAGE_LIMIT
 import com.tapmoay.sorders.data.remote.dto.InventoryMovementDto
 import com.tapmoay.sorders.data.remote.dto.InventorySummaryItemDto
 import com.tapmoay.sorders.ui.common.*
@@ -151,13 +150,13 @@ fun InventoryScreen(
                         modifier = Modifier.padding(vertical = 24.dp),
                     )
                 } else {
-                    // 截断必须**说出来**（报告 R2-3）：后端这个端点不回报截断，只能看"这一页满没满"。
-                    // 入口就是上面那个日期筛选——所以这句话里直接点名它，用户不用自己找。
+                    // 截断必须**说出来**：判据是响应头 `X-Truncated`（2026-09-19 后端补的头），
+                    // 不再用"这一页满了"去猜（见 InventoryViewModel）。
+                    // 出路就是上面那个日期筛选——所以这句话里直接点名它，用户不用自己找。
                     if (vm.movementsTruncated) {
-                        Text(
-                            "只显示最近 " + INVENTORY_MOVEMENT_PAGE_LIMIT + " 条，更早的请用上方日期筛选",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        TruncationNote(
+                            limit = vm.movementsLimit,
+                            howToSeeMore = "更早的请用上方日期筛选",
                             modifier = Modifier.padding(bottom = 6.dp),
                         )
                     }

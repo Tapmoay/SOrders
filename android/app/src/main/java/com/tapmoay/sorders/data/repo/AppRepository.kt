@@ -7,6 +7,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.Response
 import java.io.File
 
 /** 薄仓库层：统一异常转 ApiException，VM 不再直接接触 Retrofit */
@@ -152,10 +153,17 @@ class AppRepository(private val api: ApiBundle) {
 
     // ---- 共享地点库（导航信息）----
     /**
-     * 全库共享的导航坐标（**不按人分区**，三种角色共用一张表）。
-     * `q` 为空 = 按"用过多少次"倒序取前 N 条（常用的排前面）。
+     * 全库共享的导航坐标（**不按人分区**，三种角色共用一张表）**一页**。
+     * `q` 为空 = 按"用过多少次"倒序取前 N 条（常用的排前面）；给了 `q` 就是服务端模糊匹配。
+     *
+     * 截断位跟着行一起回（[PageRows.meta]）：这张表只增不减，一页 100 条以后的地点
+     * **一个入口都没有**，而界面上看不出来 —— 用户只会以为"我要的地方别人没标过"。
+     * 界面的出路是那个**搜索框**（搜索走服务端 `q`，是能翻出旧记录的）。
      */
-    suspend fun places(q: String? = null, limit: Int = 100) = api.placeApi.listPlaces(q, limit)
+    suspend fun placesPage(
+        q: String? = null,
+        limit: Int = 100,
+    ): PageRows<com.tapmoay.sorders.data.remote.dto.PlaceDto> = api.placeApi.listPlaces(q, limit).pageRows()
 
     /** 手工往共享地点库加一个点（坐标 1 米内/同名 30 米内会并入已有记录）。 */
     suspend fun createPlace(body: com.tapmoay.sorders.data.remote.dto.PlaceCreateRequest) =
@@ -173,8 +181,20 @@ class AppRepository(private val api: ApiBundle) {
 
     // ---- 账本 ----
     suspend fun ledgerAccounts(from: String? = null, to: String? = null, kind: String = "shipper") = api.ledgerApi.accounts(from, to, kind)
-    suspend fun ledgerEntries(shipperId: Long? = null, tempShipperName: String? = null, from: String? = null, to: String? = null) =
-        api.ledgerApi.listEntries(shipperId, tempShipperName, from, to)
+    /**
+     * 账本流水（**一页**）。截断位跟着行一起回（[PageRows.meta]）。
+     *
+     * ⚠️ 不传日期 = 后端走**全量路径**（缺省只回最近 1000 条，最多 5000）：本机实测
+     *    85,474 行 / 27.75 秒 / 29.2MB。账本页的"当前范围内合计"与趋势图都是拿这一页
+     *    在客户端算的 —— 不说"这一页不是全部"，那个合计就是一个**错的钱数**。
+     */
+    suspend fun ledgerEntries(
+        shipperId: Long? = null,
+        tempShipperName: String? = null,
+        from: String? = null,
+        to: String? = null,
+    ): PageRows<com.tapmoay.sorders.data.remote.dto.LedgerEntryDto> =
+        api.ledgerApi.listEntries(shipperId, tempShipperName, from, to).pageRows()
 
     suspend fun createLedger(body: com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest) = api.ledgerApi.createEntry(body)
     suspend fun updateLedger(id: Long, body: com.tapmoay.sorders.data.remote.api.LedgerUpdateRequest) = api.ledgerApi.updateEntry(id, body)
@@ -281,13 +301,28 @@ class AppRepository(private val api: ApiBundle) {
 
     // ---- 用户/通知 ----
     suspend fun me() = api.userApi.me()
-    suspend fun drivers() = api.userApi.listUsers(role = "driver", limit = 500)
-    suspend fun shippers() = api.userApi.listUsers(role = "shipper", limit = 500)
+
+    /**
+     * 账号列表（**一页**）——`role` 为 null = 全量（账户管理页）。
+     *
+     * 后端 `le=500`：超过 500 个账号时只回最近 500 条并置 `X-Truncated: 1`。
+     * 截断位必须**说出来**：派单员在列表里没找到某个人，下一步就是"新建一个"，
+     * 而那个账号其实存在（撞手机号唯一约束）。
+     */
+    suspend fun usersPage(
+        role: String? = null,
+        memberOnly: Boolean = false,
+    ): PageRows<com.tapmoay.sorders.data.remote.dto.UserDto> =
+        api.userApi
+            .listUsers(role = role, isMember = if (memberOnly) true else null, limit = 500)
+            .pageRows()
+
+    suspend fun drivers() = usersPage(role = "driver").rows
+    suspend fun shippers() = usersPage(role = "shipper").rows
+
     /** 会员 = 高级货主 */
-    suspend fun members() = api.userApi.listUsers(role = "shipper", isMember = true, limit = 500)
-    suspend fun shippersOrDrivers(role: String = "shipper") = api.userApi.listUsers(role = role, limit = 500)
-    /** 全量用户（账户管理：派单员视角） */
-    suspend fun usersAll() = api.userApi.listUsers(limit = 500)
+    suspend fun members() = usersPage(role = "shipper", memberOnly = true).rows
+    suspend fun shippersOrDrivers(role: String = "shipper") = usersPage(role = role).rows
     suspend fun createUser(body: com.tapmoay.sorders.data.remote.api.UserCreateRequest) = api.userApi.createUser(body)
     suspend fun updateUser(id: Long, body: com.tapmoay.sorders.data.remote.api.UserUpdateRequest) = api.userApi.updateUser(id, body)
     suspend fun swapRole(id: Long) = api.userApi.swapRole(id)
@@ -307,7 +342,17 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun restoreArrearsUnit(id: Long) = api.arrearsApi.restoreArrearsUnit(id)
 
     suspend fun inventorySummary() = api.inventoryApi.summary()
-    suspend fun inventoryMovements(productId: Long? = null, dateFrom: String? = null, dateTo: String? = null) = api.inventoryApi.listMovements(productId, dateFrom = dateFrom, dateTo = dateTo)
+
+    /**
+     * 库存流水（**一页**）。截断位跟着行一起回：账实不符时没人知道是"没录"还是"没显示"。
+     * ⚠️ 这里**只读头**，不许再退回"这页满了就当作还有更多"（那会在刚好 500 条时说假话）。
+     */
+    suspend fun inventoryMovementsPage(
+        productId: Long? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ): PageRows<com.tapmoay.sorders.data.remote.dto.InventoryMovementDto> =
+        api.inventoryApi.listMovements(productId, dateFrom = dateFrom, dateTo = dateTo).pageRows()
     suspend fun createMovement(body: com.tapmoay.sorders.data.remote.dto.InventoryMovementCreateRequest) = api.inventoryApi.createMovement(body)
 
     suspend fun payOrder(orderId: Long) = api.orderApi.payOrder(orderId)
@@ -326,7 +371,7 @@ class AppRepository(private val api: ApiBundle) {
         val resp = api.notificationApi.listNotifications(limit, null, beforeId)
         return NotificationPage(
             rows = resp.body().orEmpty(),
-            hasMore = resp.headers()["X-Truncated"] == "1",
+            hasMore = resp.pageMeta().hasMore,
         )
     }
 
@@ -491,7 +536,12 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun resolveException(orderId: Long, note: String?) =
         api.reportApi.resolveException(orderId, com.tapmoay.sorders.data.remote.dto.ExceptionResolveRequest(note))
 
-    suspend fun operationLogs(limit: Int = 60) = api.reportApi.operationLogs(limit)
+    /**
+     * 敏感操作日志（**一页**）。截断位跟着行一起回：审计页不说"还有更早的"，
+     * 用户会据此判断"我那次改动没被记录"——而审计的全部价值就在"能翻到"。
+     */
+    suspend fun operationLogsPage(limit: Int = 60): PageRows<com.tapmoay.sorders.data.remote.dto.OperationLogDto> =
+        api.reportApi.operationLogs(limit).pageRows()
 
     /**
      * 原始 GET（只给 AI 的通用读工具用）。
@@ -530,10 +580,20 @@ class AppRepository(private val api: ApiBundle) {
     /** 登出：让服务端作废这个账号已发出的所有令牌（见 Apis.kt 的说明）。 */
     suspend fun logout() = api.authApi.logout()
 
-    suspend fun cashFlows(direction: String? = null, bizType: String? = null, dateFrom: String? = null, dateTo: String? = null) =
-        // 明细只取来展示（上限 1000，见 CashFlowSummaryDto 的注释）；**金额一律走 cashFlowSummary**，
-        // 不要在客户端对一页流水求和 —— 那会在流水超过一页时少算（实测少 62%）。
-        api.accountingApi.listCashFlows(direction, bizType, dateFrom, dateTo, limit = 1000)
+    /**
+     * 资金流水明细（**一页**，`limit=1000`）。
+     *
+     * 金额一律走 [cashFlowSummary]（服务端在库里算完再给），不要在客户端对一页流水求和
+     * —— 那会在流水超过一页时少算（实测少 62%）。截断位跟着行一起回：这一页不是全部时
+     * 界面必须说出来，否则用户会把"看得见的几行"当成全部明细。
+     */
+    suspend fun cashFlowsPage(
+        direction: String? = null,
+        bizType: String? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ): PageRows<com.tapmoay.sorders.data.remote.dto.CashFlowDto> =
+        api.accountingApi.listCashFlows(direction, bizType, dateFrom, dateTo, limit = 1000).pageRows()
 
     /** 资金流水汇总（流入/流出/净额/笔数）——**金额只信服务端**。 */
     suspend fun cashFlowSummary(dateFrom: String? = null, dateTo: String? = null) =
@@ -570,10 +630,75 @@ class AppRepository(private val api: ApiBundle) {
 }
 
 /**
- * 列表的一页。
+ * 列表的一页 = **行 + 截断位 + 本次上限**（[PageRows.meta]）。
  *
- * `hasMore` 只信**服务端的响应头**（`X-Truncated`），不用"条数等于上限"去猜：
- * 猜的写法在"刚好整页"时会多显示一个永远点不出东西的「加载更多」（见 `MessagesViewModel`）。
+ * 为什么不是裸 `List`：截断信息必须**跟着行一起**交到调用方手上。只给一个 List，
+ * ViewModel 就只能回到"条数等于上限 ⇒ 还有更多"的猜法，而猜法在"刚好整页"时会说假话
+ * （见 `MessagesViewModel`）。
+ */
+data class PageRows<T>(
+    val rows: List<T>,
+    val meta: PageMeta,
+)
+
+/**
+ * 「服务端这一页被截断了没有」——`X-Truncated` / `X-Result-Limit` 两个响应头的解析结果。
+ *
+ * 为什么只能靠响应头：列表接口的响应体是**裸数组**，"还有更多"这种元数据塞不进去。
+ *
+ * 为什么收敛成一个类型（2026-09-19）：`X-Truncated` 原来只在消息列表里被读过一份内联，
+ * 而 `GET /cash-flows`（缺省 200）、`/inventory/movements`（100）、`/operation-logs`（200）、
+ * `/places`（100）、`/users`（100）、`/ledger/entries`（1000，且不传日期就是全量路径）
+ * **一份都没有** —— 界面于是把"一页"当成"全部"。
+ * 后果不是"少看到几条"，而是用户据此得出**错误结论**：现金流水页对一页求和当总额
+ * （实测少算 62%，¥18,842 vs ¥48,905.50）；审计页以为"这条改动没被记录"；
+ * 账号列表里没看到就说"这个账号不存在"再去建一个（撞手机号唯一约束）；
+ * 账本页的「当前范围内合计」只加了看得见的那一页。
+ */
+data class PageMeta(
+    /** 服务端说"还有更多"（`X-Truncated: 1`）。 */
+    val hasMore: Boolean,
+    /** 本次服务器上限（`X-Result-Limit`）。**读不到就是 null —— 界面不许自己猜一个数。** */
+    val limit: Int?,
+) {
+    companion object {
+        /** 头缺失（老后端 / 不是列表接口）：**宁可什么都不说，也不许猜**。 */
+        val ABSENT = PageMeta(hasMore = false, limit = null)
+    }
+}
+
+/**
+ * 纯函数：把两个响应头的**原文**解析成 [PageMeta]（有单测 `PageMetaTest`）。
+ *
+ * ⛔ 不许改成"这页满了就当作还有更多"：那是猜，**刚好整页**时会显示一句假话，
+ *    而这条链路上两个方向的假话都要付代价 —— 假"还有更多"让人白找一圈，
+ *    假"没有了"让人把"没显示"读成"不存在"。
+ * ⛔ `X-Result-Limit` 只认**正**整数：`0` / 负数 / 乱码一律当没有这个头
+ *    （否则界面会说"只显示了最近 0 条"）。
+ */
+fun parsePageMeta(truncatedHeader: String?, limitHeader: String?): PageMeta = PageMeta(
+    hasMore = truncatedHeader?.trim() == "1",
+    limit = limitHeader?.trim()?.toIntOrNull()?.takeIf { it > 0 },
+)
+
+/**
+ * 读头的**唯一**入口。
+ *
+ * 所有列表接口一律走它 —— 不许在别处再写一遍 `headers()["X-Truncated"] == "1"`：
+ * 抄第二遍就有两套判据，改一处漏一处（这正是那 6 个端点静默漏报的成因）。
+ */
+fun Response<*>.pageMeta(): PageMeta =
+    parsePageMeta(headers()["X-Truncated"], headers()["X-Result-Limit"])
+
+/** `Response<List<T>>` → [PageRows]（行 + 截断位 + 上限，一次给全）。 */
+fun <T> Response<List<T>>.pageRows(): PageRows<T> = PageRows(body().orEmpty(), pageMeta())
+
+/**
+ * 消息列表的一页。
+ *
+ * `hasMore` 只信**服务端的响应头**（走 [pageMeta] 这唯一一份读头实现），
+ * 不用"条数等于上限"去猜：猜的写法在"刚好整页"时会多显示一个永远点不出东西的
+ * 「加载更多」（见 `MessagesViewModel`）。
  */
 data class NotificationPage(
     val rows: List<com.tapmoay.sorders.data.remote.dto.NotificationDto>,
