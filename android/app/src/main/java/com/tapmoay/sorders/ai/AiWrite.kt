@@ -1042,6 +1042,9 @@ object AiWrites {
     const val PLACE_DELETE = "place.delete"
     const val PLACE_DEMOTE = "place.demote"
     const val PLACE_PUBLISH = "place.publish"
+    //: 从回收站把共享地点放回来。**只给撤回用**（`undoOnly`）：被删的记录在名册里解析不到，
+    //: 模型按名字根本找不到它 —— 但撤回路径拿着确定的编号，所以这条必须存在。
+    const val PLACE_RESTORE = "place.restore"
 
     // ---- 商品可见范围（白名单）----
     //

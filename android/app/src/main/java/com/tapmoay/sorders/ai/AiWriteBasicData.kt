@@ -931,6 +931,11 @@ internal object AiWriteBasicData {
         restoreAction("运费模板", AiWrites.FREIGHT_TEMPLATE_RESTORE, AiWrites.G_ORDER) { ds, id ->
             ds.restoreFreightTemplate(id)
         },
+        // 共享地点（2026-09-19 用户要求"删除一律软删"之后补的那一头）：
+        // 删掉的那条在名册里解析不到，所以模型看不到这个动作；撤回卡拿着确定编号来恢复它。
+        restoreAction("共享地点", AiWrites.PLACE_RESTORE, AiWrites.G_PLACE) { ds, id ->
+            ds.restorePlace(id)
+        },
         restoreAction("计费规则", AiWrites.DRIVER_RULE_RESTORE, AiWrites.G_USER) { ds, id ->
             ds.restoreDriverRule(id)
         },

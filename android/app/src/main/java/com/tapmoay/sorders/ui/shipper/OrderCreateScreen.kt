@@ -438,6 +438,8 @@ fun OrderCreateScreen(
             onDeletePlace = { vm.deletePlace(it) },
             onDemotePlace = { vm.demotePlace(it) },
             onShareLocation = { vm.shareLocation(it) },
+            onRestorePlace = { vm.restorePlace(it) },
+            recentlyDeleted = vm.recentlyDeletedPlace,
             onDismiss = { vm.showAddressSheet = false },
         )
     }
@@ -602,9 +604,12 @@ private fun AddressPickerSheet(
      * [canManagePlaces] = false 时行尾连 `⋮` 都不画：不给他看几个点了必然 403 的按钮。
      */
     canManagePlaces: Boolean,
+    /** 刚删掉的那条（编号 + 名字）：有值就在列表顶上画一行「已删除 · 撤销」。 */
+    recentlyDeleted: Pair<Long, String>?,
     onUpdatePlace: (Long, String?, String?) -> Unit,
     onDeletePlace: (Long) -> Unit,
     onDemotePlace: (Long) -> Unit,
+    onRestorePlace: (Long) -> Unit,
     onShareLocation: (LocationDto) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -813,6 +818,26 @@ private fun AddressPickerSheet(
                                     )
                                 }
                             }
+                            // 刚删掉的那条：**在列表顶上**给一次撤销的机会（删除是软删，
+                            // 用户 2026-09-19：「这些所有功能的删（撤）销操作就是软删」）。
+                            // 不塞进"页面底部提示位"：那在 LazyColumn 末尾，长列表里根本不在屏幕上。
+                            recentlyDeleted?.let { (id, name) ->
+                                item {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "已删除" + if (name.isBlank()) "这条共享地点" else "「$name」",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(onClick = { onRestorePlace(id) }) { Text("撤销") }
+                                    }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                }
+                            }
                             itemsIndexed(places) { _, p ->
                                 SheetRow(
                                     isPlace = true,
@@ -891,7 +916,7 @@ private fun AddressPickerSheet(
             lines = listOf(
                 "把「${p.name.ifBlank { p.detailAddress }}」从共享库删掉。",
                 "这是所有人共用的那一张表：删掉之后每个人都选不到它了。",
-                "删了就没了（共享库没有回收站）。只是不想让别人选、自己还想用的话，请点「撤销为我的地点」。",
+                "删错了可以恢复（软删，没真的抹掉）。只是不想让别人选、自己还想用的话，请点「撤销为我的地点」。",
             ),
             confirmLabel = "删除",
             danger = true,

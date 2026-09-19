@@ -352,6 +352,7 @@ interface AiWriteDataSource {
     suspend fun deletePlace(id: Long)
     suspend fun demotePlace(id: Long)
     suspend fun publishLocation(id: Long)
+    suspend fun restorePlace(id: Long)
     suspend fun createArrearsUnit(fields: JsonObject)
     suspend fun updateArrearsUnit(id: Long, fields: JsonObject)
     suspend fun deleteArrearsUnit(id: Long)
@@ -1364,6 +1365,10 @@ class RepoWriteDataSource(
     }
 
     override suspend fun deletePlace(id: Long) = repo.deletePlace(id)
+
+    override suspend fun restorePlace(id: Long) {
+        repo.restorePlace(id)
+    }
 
     override suspend fun demotePlace(id: Long) {
         repo.demotePlace(id)

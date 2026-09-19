@@ -717,6 +717,12 @@ def _bootstrap_impl(engine: Engine) -> None:
     # 六张表都加 is_deleted + deleted_at，删除只打标记，`POST /{id}/restore` 逐字段照搬回来。
     # 唯一键的处理各不相同（联系人手机号加后缀释放、挂账单位名字加后缀释放、
     # 专属价靠"复活同一行"），见各自的 API 注释。
+    #
+    # ⚠️ `places`（全库共用的共享地点库）2026-09-19 加进来：用户原话
+    #    「还有这些所有功能的删（撤）销操作就是**软删**啊，他们都是要有的」。
+    #    它不是"某个人自己的主数据"，但它照样要有回收站 —— 而且加了之后
+    #    **`find_place_near` 必须一起过滤**（补录同一个坐标时不许并进一条删掉的行），
+    #    那道闸在 `place_service.find_place_near` 里。
     for tbl in (
         "shipper_addresses",
         "shipper_locations",
@@ -724,6 +730,7 @@ def _bootstrap_impl(engine: Engine) -> None:
         "arrears_units",
         "freight_templates",
         "price_rules",
+        "places",
     ):
         if tbl not in insp.get_table_names():
             continue

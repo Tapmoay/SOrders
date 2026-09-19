@@ -34,10 +34,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.models import Place, PlaceUserUsage, ShipperLocation
 
 #: 坐标相差 ≤ 该米数 → 视为**同一个地点**，沿用已有行而不是新建（用户给的数字）
@@ -195,6 +195,12 @@ def find_place_near(
     lat_min, lat_max, lng_min, lng_max = _bbox(lat, lng, radius)
     rows = db.scalars(
         select(Place).where(
+            # ⛔ **删掉的行不算"已有地点"**（2026-09-19 用户把删除改成软删之后补的）：
+            #    漏这一句的后果是这个仓里最隐蔽的一种错 —— 有人删掉了一个点，
+            #    另一个人（或同一个司机）在同一个坐标上补录，会被"合并"进那条**谁也看不见**的行，
+            #    界面上什么都没多出来，而他会以为已经存好了。
+            #    （这正是当初把删除做成物理删除的理由之一；既然改回软删，这道闸就必须在这里。）
+            Place.is_deleted.is_(False),
             Place.lat >= Decimal(str(lat_min)),
             Place.lat <= Decimal(str(lat_max)),
             Place.lng >= Decimal(str(lng_min)),
@@ -429,20 +435,21 @@ def share_location(db: Session, *, location: ShipperLocation, operator_id: int) 
 
 
 def delete_place(db: Session, place: Place) -> None:
-    """从共享库**删掉**一个地点（物理删除；整行内容由调用方先写进审计日志）。
+    """从共享库**删掉**一个地点 —— **软删**（打标记，`POST /places/{id}/restore` 能原样拿回来）。
 
-    ⚠️ `place_user_usage` 必须一起删：那是"谁用过它几次"的计数，地点没了它就没有主语，
-       而且 `place_id` 是指向本表的外键 —— MySQL 上不删会直接外键冲突（本机 SQLite 不报，
-       所以这条只有写下来才拦得住）。
+    用户 2026-09-19 定的规矩：「还有这些所有功能的删（撤）销操作就是**软删**啊，他们都是要有的」。
+    第一版是物理删除，理由写在这里过（"一条记录就是名字+坐标，删了重新标一次就有"）；
+    用户的底线在 `SoftDeleteMixin` 的注释里写着 ——「不要删了就搞不回来了」，一句话就否了。
 
-    ⚠️ 这里是**物理**删除，与主数据那套 `SoftDeleteMixin` 不同，理由是这张表的形状：
-    一条记录就是"名字 + 一对坐标"，删错了重新标一次就有；而软删要在**每一处查询**上补
-    `is_deleted` 过滤，漏一处的后果是"库里明明有一模一样的点，补录却说没找到"
-    （`find_place_near` 也吃这张表，它漏了判据就变成"并进一条已经删掉的行"）。
-    所以删除前把整行写进 `operation_logs`：事后能查回"删的是哪一条、谁删的"。
+    软删之后**三处**必须一起认这个标记（少一处就出事）：
+    · `list_places` / `get_place`：看不见（否则"删了还在列表里"）；
+    · `find_place_near`：**不算已有地点**（否则新补的坐标会并进一条谁也看不见的行）；
+    · `restore`：只放回被删的那一条。
+    ⚠️ `place_user_usage` 现在**不用删**了（这是软删白捡的好处）：谁用过它几次的记录留着，
+    恢复之后一切照旧；物理删除那次必须连它一起删，否则外键会挡住 MySQL 的删除。
     """
-    db.execute(sa_delete(PlaceUserUsage).where(PlaceUserUsage.place_id == place.id))
-    db.delete(place)
+    place.is_deleted = True
+    place.deleted_at = utc_now_naive()
     db.flush()
 
 

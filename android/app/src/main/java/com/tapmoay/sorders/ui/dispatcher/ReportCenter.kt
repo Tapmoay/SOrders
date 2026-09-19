@@ -1063,6 +1063,7 @@ private fun actionLabel(action: String): String = when (action) {
     "PLACE_PUBLISH" -> "设为共享地点"
     "PLACE_DEMOTE" -> "撤销共享地点"
     "PLACE_DELETE" -> "删共享地点"
+    "PLACE_RESTORE" -> "恢复共享地点"
     // 车辆台账（v3.44）：车牌/车型会出现在记账与油耗选车的地方。
     // 拆两个码，回答两个不同的问题——「这辆车被改成什么样了」和「谁把车从张三名下拿走了」。
     "VEHICLE_UPSERT" -> "新增/修改车辆"

@@ -27,6 +27,7 @@ from app.models.enums import OperationAction, UserRole
 from app.schemas.place import PlaceCreate, PlaceDemoteOut, PlaceOut, PlaceUpdate, PlaceUseOut
 from app.services import place_service
 from app.services.operation_log_service import write_log
+from app.services.soft_delete import ensure_alive
 
 router = APIRouter(prefix="/places", tags=["places"])
 
@@ -42,7 +43,8 @@ def list_places(
     q: str | None = Query(None, description="按地点名/地址模糊匹配（不传=常用在前）"),
     limit: int = Query(100, ge=1, le=MAX_LIST),
 ) -> list[Place]:
-    stmt = select(Place)
+    # ⛔ 只看没删的（`SoftDeleteMixin`）：删掉的行不该出现在任何人的选点列表里
+    stmt = select(Place).where(Place.is_deleted.is_(False))
     keyword = (q or "").strip()
     if keyword:
         like = f"%{keyword}%"
@@ -145,9 +147,16 @@ DispatcherOnly = Annotated[User, Depends(require_roles(UserRole.DISPATCHER))]
 
 
 def _alive_place(db: Session, place_id: int) -> Place:
+    """按编号取一条**没被删**的共享地点；删掉的与不存在的一样处理（404）。
+
+    为什么用 `ensure_alive` 而不是自己写 `if row.is_deleted`：这个仓里"对付软删"的判据
+    只有一份（`services/soft_delete.py`），各处自己写一遍迟早有的地方漏掉 ——
+    漏掉的表现是"改一个已经删掉的地点返回 200"，而它在所有列表里都看不见。
+    """
     row = db.get(Place, place_id)
     if row is None:
         raise HTTPException(status_code=404, detail="这个共享地点不存在（可能刚被别人删掉了）")
+    ensure_alive(row, "共享地点", "POST /places/{id}/restore")
     return row
 
 
@@ -232,10 +241,10 @@ def demote_place(
 
 @router.delete("/{place_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_place(place_id: int, current: DispatcherOnly, db: Session = Depends(get_db)) -> Response:
-    """从共享库**删掉**一个地点（只有派单员）。
+    """从共享库**删掉**一个地点（只有派单员）—— **软删**，`POST /places/{id}/restore` 能拿回来。
 
-    ⚠️ 这是**物理删除**（与主数据那套软删不同，理由见 `place_service.delete_place`），
-    所以删除前先把整行写进审计日志 —— 事后要能回答"删的是哪一条、谁删的"。
+    用户 2026-09-19 定的规矩：「这些所有功能的删（撤）销操作就是**软删**，他们都是要有的」。
+    删掉之后它对**所有人**都看不见了（列表、合并判据、详情三处都过滤），但行还在库里。
     """
     place = _alive_place(db, place_id)
     snapshot = {
@@ -253,7 +262,33 @@ def delete_place(place_id: int, current: DispatcherOnly, db: Session = Depends(g
         operator_id=current.id,
         order_id=None,
         action=OperationAction.PLACE_DELETE,
-        change_payload={**snapshot, "note": "共享地点库里的这一条被删除（物理删除，内容见本行）"},
+        change_payload={**snapshot, "note": "共享地点库里的这一条被移入回收站（软删，可恢复）"},
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{place_id}/restore", response_model=PlaceOut)
+def restore_place(place_id: int, current: DispatcherOnly, db: Session = Depends(get_db)) -> Place:
+    """把删掉的共享地点**原样放回来**（`DELETE /places/{id}` 的逆操作，只有派单员）。
+
+    照搬 `SoftDeleteMixin` 那套：只改标记、一个字段都不动 —— 名字/地址/坐标/来源/用过几次
+    全都还在，所以恢复之后大家看到的就是删之前那一条（不是"按记忆重建一条像的"）。
+    """
+    row = db.get(Place, place_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="这个共享地点不存在")
+    if not row.is_deleted:
+        raise HTTPException(status_code=400, detail="这个地点没有被删除，不需要恢复")
+    row.is_deleted = False
+    row.deleted_at = None
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PLACE_RESTORE,
+        change_payload={"place_id": row.id, "name": row.name, "note": "从回收站恢复共享地点"},
+    )
+    db.commit()
+    db.refresh(row)
+    return row

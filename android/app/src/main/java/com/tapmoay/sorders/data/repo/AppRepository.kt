@@ -214,8 +214,11 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun updatePlace(placeId: Long, body: com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest) =
         api.placeApi.updatePlace(placeId, body)
 
-    /** 从共享库删掉一个地点（物理删除；谁删的、删了哪一条进审计日志）。 */
+    /** 从共享库删掉一个地点（**软删**：进回收站，`restorePlace` 能原样拿回来）。 */
     suspend fun deletePlace(placeId: Long) = api.placeApi.deletePlace(placeId)
+
+    /** 把删掉的共享地点从回收站放回来。 */
+    suspend fun restorePlace(placeId: Long) = api.placeApi.restorePlace(placeId)
 
     /** 撤销共享地址 → 存进**自己**的「我的地点」。 */
     suspend fun demotePlace(placeId: Long) = api.placeApi.demotePlace(placeId)

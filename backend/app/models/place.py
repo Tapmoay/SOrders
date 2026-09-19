@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 
 if TYPE_CHECKING:
     pass
 
 
-class Place(Base, TimestampMixin):
+class Place(Base, TimestampMixin, SoftDeleteMixin):
     """**全局共享地点库**（导航信息）。
 
     ## 为什么要有这张表（不是"顺手多一张主数据"）
@@ -30,8 +30,16 @@ class Place(Base, TimestampMixin):
     2. **相近坐标合并**（同一句要求）："有一个要上传的坐标非常相近大概可能只有 1 米的误差，
        那样子的话，就把这个坐标给合并成一个"。判据在 `services/place_service.py`，
        **只有一处实现**（`MERGE_METERS`），谁都不许自己写一遍距离公式。
-    3. **坐标只增不改**：这张表是"已知世界的坐标"，不是订单的一部分。订单改地址不影响它；
-       它也不会反向去改任何订单（补录时由调用方显式写订单那一次）。
+    3. **删除是"伪装删除"**（`SoftDeleteMixin`，2026-09-19 用户定的规矩）：
+       用户原话「还有这些所有功能的删（撤）销操作就是软删啊，他们都是要有的」。
+       第一版做成过物理删除（理由写在下边），用户一句话就否了 —— 而且他的底线在
+       `SoftDeleteMixin` 的注释里写着「不要删了就搞不回来了」。所以：
+       · 列表/合并判据/详情都只认 `is_deleted = False` 的行；
+       · `POST /places/{id}/restore` 原样放回来；
+       · 删除时**不再**删 `place_user_usage`（那正是软删的好处：谁用过它几次的记录留着，
+         恢复之后一切照旧）。
+       ⚠️ **`find_place_near` 必须一起过滤**，否则会出现最隐蔽的一种错：
+       补录一个刚刚被删掉的坐标时，"合并"进那条谁也看不见的行 —— 用户补了坐标却哪儿都没有。
 
     ⚠️ `lat/lng` 用 `Numeric(10, 7)`（与 `orders/shipper_locations` 同精度）：
     7 位小数 ≈ 1.1 厘米，1 米的合并判据落在这个精度之内，不会被舍入吃掉。

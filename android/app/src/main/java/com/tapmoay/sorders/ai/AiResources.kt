@@ -117,12 +117,17 @@ internal object AiResources {
         labels = mapOf("name" to "名称", "detail_address" to "地址"),
         actions = listOf(
             update(AiWrites.PLACE_UPDATE),
-            // ⛔ **删除刻意不挂在这里**：共享库那张表是物理删除、后端没有恢复接口，
-            //    挂一个 `delete(...)` 会让撤回表以为"这一步能恢复"。它的交代在 `AiRevert`
-            //    那条 `none(PLACE_DELETE, …)` 里（写清了"为什么撤不回来、怎么补"）。
-            //    红线接受这两种交代中的任意一种（见 `_check_ai_guardrails.py` §21）。
+            // 删除是**软删**（用户 2026-09-19：「这些所有功能的删（撤）销操作就是软删」），
+            // 所以这里能挂 `delete(...)`：撤回 = 走 `restore` 那一头把同一条原样放回来。
+            delete(AiWrites.PLACE_DELETE),
+            paired(
+                AiWrites.PLACE_RESTORE,
+                AiInverse(AiWrites.PLACE_DELETE, mapOf("place_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
         ),
         read = { ds, id -> ds.snapshot("place", id) },
+        restore = AiInverse(AiWrites.PLACE_RESTORE, mapOf("target_id" to AiRevert.ID)),
     )
 
     private val CONTACT = AiResource(

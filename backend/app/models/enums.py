@@ -113,6 +113,8 @@ class OperationAction(str, enum.Enum):
     PLACE_PUBLISH = "PLACE_PUBLISH"
     PLACE_DEMOTE = "PLACE_DEMOTE"
     PLACE_DELETE = "PLACE_DELETE"
+    #: 从回收站把共享地点放回来（2026-09-19 用户要求"删除一律软删"，那就必须有恢复）。
+    PLACE_RESTORE = "PLACE_RESTORE"
     # 车辆台账（v3.44）：车牌/车型会出现在记支出、算油耗选车的地方，
     # 而"这辆车现在挂在谁名下"直接决定派单时能不能选到它 —— 改车辆必须留痕。
     # 拆两个动作码：要回答的是两个不同的问题 ——「这辆车被谁改成什么样了」

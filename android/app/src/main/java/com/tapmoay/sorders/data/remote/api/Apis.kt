@@ -392,9 +392,13 @@ interface PlaceApi {
     @PATCH("places/{placeId}")
     suspend fun updatePlace(@Path("placeId") placeId: Long, @Body body: PlaceUpdateRequest): PlaceDto
 
-    /** 从共享库**删掉**一个地点（只有派单员）。物理删除，内容进审计日志。 */
+    /** 从共享库**删掉**一个地点（只有派单员）。**软删**：`restorePlace` 能原样拿回来。 */
     @DELETE("places/{placeId}")
     suspend fun deletePlace(@Path("placeId") placeId: Long)
+
+    /** 把删掉的共享地点从回收站**原样放回来**（只有派单员）。 */
+    @POST("places/{placeId}/restore")
+    suspend fun restorePlace(@Path("placeId") placeId: Long): PlaceDto
 
     /**
      * **撤销**共享地址 → 降为**自己**的普通地点（只有派单员）。

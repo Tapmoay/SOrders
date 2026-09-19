@@ -619,6 +619,11 @@ class AiWriteTest {
             boom()
             masterCalls += "publishLocation:$id"
         }
+
+        override suspend fun restorePlace(id: Long) {
+            boom()
+            masterCalls += "restorePlace:$id"
+        }
         override suspend fun createArrearsUnit(fields: JsonObject) = rec("createArrearsUnit", fields)
         override suspend fun updateArrearsUnit(id: Long, fields: JsonObject) {
             boom()
@@ -2958,7 +2963,7 @@ class AiWriteTest {
         //    2026-09-19 给「地点分组」加了 4 个）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 98（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 98)
+        assertTrue("动作数不该多于 99（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 99)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",

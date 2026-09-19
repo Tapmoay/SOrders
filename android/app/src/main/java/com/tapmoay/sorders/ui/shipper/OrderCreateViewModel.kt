@@ -247,12 +247,35 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 从共享库**删掉**一个地点（全库共用那条，删了别人也选不到了）。 */
+    /** 从共享库**删掉**一个地点（软删 → 进回收站，界面立刻给一次「撤销」的机会）。 */
     fun deletePlace(id: Long) {
         viewModelScope.launch {
             try {
                 container.repo.deletePlace(id)
-                toast = "已从共享地点库删除（别人的选点列表里也没有它了）"
+                recentlyDeletedPlace = id to (places.firstOrNull { it.id == id }?.name.orEmpty())
+                toast = "已从共享地点库删除（别人的选点列表里也没有它了；删错了可以点「撤销」）"
+                loadPlaces()
+            } catch (e: Exception) {
+                toast = toApiException(e).message
+            }
+        }
+    }
+
+    /**
+     * 刚删掉的那条（编号 + 名字）：界面拿它在列表顶上画一行「已删除 · 撤销」。
+     *
+     * 为什么要有它：删除是**软删**（用户 2026-09-19 定的规矩），"能恢复"这件事
+     * 必须在**手边**有个入口 —— 撤回卡只在 AI 那条路上有，人点的那一下也得能撤回来。
+     */
+    var recentlyDeletedPlace by mutableStateOf<Pair<Long, String>?>(null)
+
+    /** 把刚删掉的那条共享地点放回来（回收站里那一条）。 */
+    fun restorePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                container.repo.restorePlace(id)
+                recentlyDeletedPlace = null
+                toast = "已恢复这条共享地点"
                 loadPlaces()
             } catch (e: Exception) {
                 toast = toApiException(e).message

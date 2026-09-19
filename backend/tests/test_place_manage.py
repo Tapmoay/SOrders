@@ -120,10 +120,15 @@ def test_place_manage_is_dispatcher_only(
     assert db_session.get(Place, place.id).name == "公共点"
 
 
-def test_place_delete_removes_it_everywhere(
+def test_place_delete_is_soft_and_restorable(
     client: TestClient, db_session: Session, users: dict, token_dispatcher: str
 ) -> None:
-    """删除：列表里看不见、连"谁用过它"的计数一起删（否则外键会挡住 MySQL 的删除）。"""
+    """删除是**软删**（用户 2026-09-19：「这些所有功能的删（撤）销操作就是软删」）：
+
+    · 行还在库里（只打标记），**"谁用过它几次"的记录一条都不动**；
+    · 列表里看不见它，改它也 400（不许改一条界面上看不见的行）；
+    · `POST /places/{id}/restore` 原样放回来。
+    """
     place = _mk_place(db_session, 4, name="要删的点", detail="要删的地址")
     db_session.add(PlaceUserUsage(user_id=users["shipper"].id, place_id=place.id, use_count=3))
     db_session.commit()
@@ -131,10 +136,29 @@ def test_place_delete_removes_it_everywhere(
     r = client.delete(f"/api/v1/places/{place.id}", headers=auth_headers(token_dispatcher))
     assert r.status_code == 204
     db_session.expire_all()
-    assert db_session.get(Place, place.id) is None
-    assert db_session.query(PlaceUserUsage).filter_by(place_id=place.id).count() == 0
+    row = db_session.get(Place, place.id)
+    assert row is not None and row.is_deleted is True, "软删：行必须还在库里"
+    assert row.deleted_at is not None
+    # 软删白捡的好处：用过它的记录留着，恢复之后一切照旧（物理删除那次必须连它一起删）
+    assert db_session.query(PlaceUserUsage).filter_by(place_id=place.id).count() == 1
+
     listed = client.get("/api/v1/places", headers=auth_headers(token_dispatcher)).json()
     assert all(p["id"] != place.id for p in listed)
+
+    # 改一条"已经进了回收站"的行 → 400（不许返回 200 却什么都看不见）
+    r2 = client.patch(f"/api/v1/places/{place.id}", headers=auth_headers(token_dispatcher),
+                      json={"name": "偷偷改一下"})
+    assert r2.status_code == 400 and "回收站" in r2.json()["detail"]
+
+    r3 = client.post(f"/api/v1/places/{place.id}/restore", headers=auth_headers(token_dispatcher))
+    assert r3.status_code == 200, r3.text
+    # ⚠️ `use_count` 是**全库**那个计数器（建的时候是 1），别和 `PlaceUserUsage.use_count`
+    #    （"**这个人**用过几次" = 3）混起来 —— 第一版就是在这儿写错的。
+    assert r3.json()["name"] == "要删的点" and r3.json()["use_count"] == 1
+    db_session.expire_all()
+    assert db_session.get(Place, place.id).is_deleted is False
+    listed2 = client.get("/api/v1/places", headers=auth_headers(token_dispatcher)).json()
+    assert any(p["id"] == place.id for p in listed2)
     log = _last_log(db_session, OperationAction.PLACE_DELETE)
     assert log is not None and "要删的点" in (log.change_content or "")
 
@@ -142,10 +166,11 @@ def test_place_delete_removes_it_everywhere(
 def test_deleted_place_is_not_merged_again(
     client: TestClient, db_session: Session, users: dict, token_dispatcher: str
 ) -> None:
-    """删掉之后，**同一个坐标再补录一次**必须新建一条，而不是"并进那条已经删掉的行"。
+    """删掉（软删）之后，**同一个坐标再补录一次**必须新建一条，而不是"并进那条进了回收站的行"。
 
-    这是物理删除与"软删但要处处加过滤"的分水岭：如果删除只打标记而 `find_place_near`
-    还看得见它，新点会被"合并"进一条列表上永远看不见的记录 —— 用户补了坐标却哪儿都没有。
+    这是软删最容易漏的一道闸：`find_place_near` 若还看得见被删的行，新点会被"合并"进去 ——
+    用户补了坐标却哪儿都没有（列表过滤了 `is_deleted`），而且**两边都不报错**。
+    （当初把删除做成物理删除，理由之一就是这个；既然改回软删，判据里就必须有这道过滤。）
     """
     place = _mk_place(db_session, 5, name="删了再补", detail="A")
     assert client.delete(f"/api/v1/places/{place.id}",
@@ -158,11 +183,14 @@ def test_deleted_place_is_not_merged_again(
     assert r.status_code == 201, r.text
     body = r.json()
     # ⚠️ 不要断言 `body["id"] != place.id`：SQLite 删掉最后一行后**会重用编号**，
-    #    这条断言考的是数据库的编号策略，不是"有没有并进旧行"。
+    #    那条断言考的是数据库的编号策略，不是"有没有并进旧行"。
     assert body["merged"] is False
     assert body["detail_address"] == "B"
     db_session.expire_all()
     assert db_session.get(Place, body["id"]).detail_address == "B"
+    # 旧那条仍然在回收站里（没被"复活"、也没被覆盖）
+    old = db_session.get(Place, place.id)
+    assert old is not None and old.is_deleted is True and old.detail_address == "A"
 
 
 def test_demote_moves_place_into_operator_library(
@@ -177,7 +205,12 @@ def test_demote_moves_place_into_operator_library(
     assert body["created"] is True
 
     db_session.expire_all()
-    assert db_session.get(Place, place.id) is None, "撤销之后共享库里那条必须真的没了"
+    # 「其他的不会显示」= 这一条从**所有人的**共享库里消失。软删（不是物理删）之后，
+    # 判据是"对列表与合并判据都不可见"，而不是"行没了"—— 别把实现细节当成需求。
+    goner = db_session.get(Place, place.id)
+    assert goner is not None and goner.is_deleted is True, "撤销之后共享库里那条必须对所有人不可见"
+    assert all(p["id"] != place.id for p in client.get(
+        "/api/v1/places", headers=auth_headers(token_dispatcher)).json())
     loc = db_session.get(ShipperLocation, body["location_id"])
     assert loc is not None and loc.shipper_id == users["dispatcher"].id
     assert loc.name == "撤销我" and float(loc.address_lat) == pytest.approx(lat, abs=1e-6)
