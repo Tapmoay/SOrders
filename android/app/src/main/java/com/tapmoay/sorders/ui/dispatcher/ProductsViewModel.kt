@@ -224,6 +224,36 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * **快捷改价**：只改默认售价，不动别的字段（商品卡右侧那个「改价」用的）。
+     *
+     * 为什么走 `PATCH` 的部分更新语义（只放 `default_unit_price`）而不是"读出来整套再写回去"：
+     * 改售价是最高频的动作，而"整套写回"会把这期间别人改过的名称/成本/库存**悄悄覆盖掉**
+     * （两个人同时在改同一个商品时必炸，而且看不出来）。
+     */
+    fun updateDefaultPrice(p: ProductDto, raw: String, onDone: () -> Unit) {
+        val v = raw.trim()
+        val n = v.toDoubleOrNull()
+        if (n == null || n < 0) {
+            error = "请输入正确的售价"
+            return
+        }
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                container.api.productApi.updateProduct(p.id, ProductUpdateRequest(defaultUnitPrice = v))
+                actionResult = p.name + " 售价已改为 ¥" + com.tapmoay.sorders.util.formatMoney(v)
+                onDone()
+                load()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
     fun toggleActive(p: ProductDto) {
         viewModelScope.launch {
             try {

@@ -9,6 +9,7 @@ import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.launch
 
 /** 价格矩阵的两个**方向**（同一份数据，两种看法）。 */
@@ -174,9 +175,15 @@ class PriceMatrixViewModel(
             "/" + p.unit.ifBlank { "件" } + "；下面每一行是「这个批发商」买它时付的价，留空按默认价。"
     }
 
-    /** 输入框里显示什么：草稿 > 已存专属价 > 空（空 = 用默认价）。 */
+    /**
+     * 输入框里显示什么：草稿 > 已存专属价 > 空（空 = 用默认价）。
+     *
+     * ⚠️ 已存价要过一遍 [trimMoneyZeros]：库里是 `Numeric(14,4)`，直接显示会是 `12.5000`。
+     * **不能**用 `formatMoney`（它只留两位小数，会把 12.3456 显示成 12.35 —— 在一个可编辑的
+     * 价框里等于骗人：用户不改直接保存，价就真的变了）。
+     */
     fun fieldValue(t: PriceTarget): String =
-        drafts[t.id] ?: rules[t.id]?.specialUnitPrice ?: ""
+        drafts[t.id] ?: trimMoneyZeros(rules[t.id]?.specialUnitPrice)
 
     /** 这一行**当前实际生效**的价（页面上大字显示的那个）。 */
     fun effectivePrice(t: PriceTarget): String =

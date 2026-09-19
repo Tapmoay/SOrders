@@ -43,6 +43,7 @@ import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProductPurple
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.resolveStaticUrl
+import com.tapmoay.sorders.util.trimMoneyZeros
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,6 +58,8 @@ fun ProductsScreen(
     val vm: ProductsViewModel = appViewModel { ProductsViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    /** 快捷改价（卡片右侧「改价」）：non-null = 弹窗开着。 */
+    var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }
 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
@@ -122,6 +125,9 @@ fun ProductsScreen(
         val visible = remember(vm.products, category) {
             if (category == ALL_CATEGORY) vm.products else vm.products.filter { categoryOf(it) == category }
         }
+        // 快捷改价（卡片右侧「改价」）：non-null = 弹窗开着
+        // ⚠️ 必须声明在**函数级**（Scaffold 之外）—— 弹窗渲染在整个 Scaffold 之后，
+        //    声明在 content lambda 里的话外面看不见（第一版就是这么写的，编译报 Unresolved）
 
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
@@ -150,10 +156,12 @@ fun ProductsScreen(
                                 items(visible, key = { it.id }) { p ->
                                     ProductCard(
                                         p = p,
+                                        acting = vm.acting,
                                         onEdit = { vm.openEdit(p) },
                                         onToggle = { vm.toggleActive(p) },
                                         onDelete = { vm.delete(p) },
                                         onOpenPricing = { onOpenPricing(p.id) },
+                                        onQuickPrice = { quickPriceFor = p },
                                     )
                                 }
                                 item { Spacer(Modifier.height(72.dp)) }
@@ -165,7 +173,17 @@ fun ProductsScreen(
         }
     }
 
-    // 新增/编辑 下拉抽屉（基础信息 / 价格与批发价 / 库存）
+    // 快捷改价（只改默认售价）
+    quickPriceFor?.let { p ->
+        QuickPriceDialog(
+            p = p,
+            busy = vm.acting,
+            onConfirm = { price -> vm.updateDefaultPrice(p, price) { quickPriceFor = null } },
+            onDismiss = { quickPriceFor = null },
+        )
+    }
+
+    // 新增/编辑 下拉抽屉（基础信息 / 价格 / 库存）
     if (vm.showDialog) {
         ModalBottomSheet(
             onDismissRequest = { vm.showDialog = false },
@@ -515,10 +533,12 @@ fun ProductsScreen(
 @Composable
 private fun ProductCard(
     p: ProductDto,
+    acting: Boolean,
     onEdit: () -> Unit,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onOpenPricing: () -> Unit,
+    onQuickPrice: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
 
@@ -571,32 +591,42 @@ private fun ProductCard(
                 }
                 ProductFacts(p)
             }
-            // 三个动作全在这里（用户要求"保证按钮性，又不占位子"）
-            Box {
-                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("各批发商价格") },
-                        leadingIcon = { Icon(Icons.Default.Sell, contentDescription = null, tint = Color(MoneyOrange)) },
-                        onClick = { menu = false; onOpenPricing() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (p.isActive) "下架" else "上架") },
-                        leadingIcon = {
-                            Icon(
-                                if (p.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = null,
-                                tint = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
-                            )
-                        },
-                        onClick = { menu = false; onToggle() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("编辑") },
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                        onClick = { menu = false; onEdit() },
+            // 右侧一列：上面是「⋮」菜单，**下面是空的 —— 放一个「改价」快捷入口**。
+            //
+            // 用户 2026-09-19 的原话：「商品右上角不是有 3 个点吗？那是我们的正常设置。
+            // 我们在它的下面，因为下面比较空嘛，在下面再加一个改价，这个改价就是改默认的售价，
+            // 方便嘛、快捷」。
+            //
+            // 为什么值得单独做：改售价是**最高频的日常操作**（进价一变就要改），
+            // 而原来必须先点「⋮ → 编辑」打开整个抽屉、滚到价格那一段、改完再保存。
+            // 现在一步到位，而且**只 PATCH 这一个字段**（不会碰到别的字段）。
+            // 位置也刚好：这一列本来只有顶部一个 ⋮，下面全是空白，加它不会让卡片变高。
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(46.dp)) {
+                Box {
+                    IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("各批发商价格") },
+                            leadingIcon = { Icon(Icons.Default.Sell, contentDescription = null, tint = Color(MoneyOrange)) },
+                            onClick = { menu = false; onOpenPricing() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (p.isActive) "下架" else "上架") },
+                            leadingIcon = {
+                                Icon(
+                                    if (p.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
+                                )
+                            },
+                            onClick = { menu = false; onToggle() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("编辑") },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            onClick = { menu = false; onEdit() },
                     )
                     DropdownMenuItem(
                         text = { Text("删除", color = MaterialTheme.colorScheme.error) },
@@ -606,17 +636,97 @@ private fun ProductCard(
                         onClick = { menu = false; onDelete() },
                     )
                 }
+                }
+                // 「改价」：只改默认售价（用户要的快捷入口，见上面那段注释）
+                Column(
+                    Modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable(enabled = !acting, onClick = onQuickPrice)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Default.CurrencyYuan,
+                        contentDescription = "改价",
+                        tint = Color(MoneyOrange),
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text("改价", style = MaterialTheme.typography.labelSmall, color = Color(MoneyOrange))
+                }
             }
         }
     }
 }
 
-/** 商品卡上那四个关键数字（图标 + 语义色）。配色依据见 [ProductCard] 的注释。 */
+/**
+ * 快捷改价弹窗：**只改默认售价**，不动别的字段。
+ *
+ * 为什么单独做一个（而不是复用商品编辑抽屉）：用户要的是"方便、快捷" ——
+ * 改售价是最高频的动作，而走抽屉要先点开、滚到价格段、再保存。
+ * 这里保存走的是 `PATCH /products/{id}` 的**部分更新**（只放 `default_unit_price`），
+ * 所以不会顺手改掉别的字段。
+ */
+@Composable
+private fun QuickPriceDialog(
+    p: ProductDto,
+    busy: Boolean,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // 预填时去掉尾部多余的 0（后端单价是 Numeric(14,4)，直接显示会是 "12.5000"）；
+    // ⚠️ 用 trimMoneyZeros 而不是 formatMoney —— 后者只留两位小数，会把 12.3456 显示成 12.35
+    var price by remember { mutableStateOf(trimMoneyZeros(p.defaultUnitPrice)) }
+    val unit = p.unit.ifBlank { "件" }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("改默认售价", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column {
+                Text(p.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = price,
+                    // 单价规则唯一实现在 core/InputRules.kt（4 位小数：库里的单价列是 Numeric(14,4)）
+                    onValueChange = { price = InputRules.priceInput(it) },
+                    label = { Text("售价（元 / $unit）") },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "只改这一个价，不动名称、成本、库存、分类。批发商的专属价在「各批发商价格」里单独设。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && price.toDoubleOrNull() != null,
+                onClick = { onConfirm(price) },
+            ) { Text(if (busy) "保存中…" else "保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+/**
+ * 商品卡上那三个关键数字（图标 + 语义色）。配色依据见 [ProductCard] 的注释。
+ *
+ * ⚠️ **刻意没有「分类」这一项**（2026-09-19 用户要求）：分类已经由**左边那根导航条**表达了
+ * （「这个商品管理也做成选择商品的那种界面，左边是分类右边是商品」→
+ * 紧接着：「既然已经在左边显示了分类，那右边的商品就不需要显示分类了」）。
+ * 同一件事在一屏里说两遍，除了占地方没有别的用。
+ * 代价要说清：**「全部」那一档下，卡片上就看不出每件商品属于哪一类了** ——
+ * 想知道归属就点左边对应的分类（那正是那根导航条存在的意义）。
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProductFacts(p: ProductDto) {
     val unit = p.unit.ifBlank { "件" }
-    val category = p.category.trim()
     FlowRow(
         Modifier.fillMaxWidth().padding(top = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -625,12 +735,6 @@ private fun ProductFacts(p: ProductDto) {
         Fact(Icons.Default.Sell, "售价", "¥" + formatMoney(p.defaultUnitPrice) + "/" + unit, Color(MoneyOrange))
         Fact(Icons.Default.Payments, "成本", "¥" + formatMoney(p.costPrice), Color(0xFF8A8A8E))
         Fact(Icons.Default.Inventory2, "库存", "${p.stock} $unit", stockColor(p))
-        Fact(
-            Icons.Default.Category,
-            "分类",
-            category.ifBlank { "未分类" },
-            if (category.isBlank()) Color(0xFFFFB300) else Color(ProductPurple),
-        )
     }
 }
 
