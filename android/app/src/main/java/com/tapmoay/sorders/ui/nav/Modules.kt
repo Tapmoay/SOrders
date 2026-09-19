@@ -103,12 +103,21 @@ object Modules {
         // 两者含义本来就不同（一个是**订单运费**的价目表，一个是**司机拿多少**的规则）。
         //
         // 颜色：两个都是新色，都不是随手挑的（与工作台所有已有色的 RGB 欧氏距离最小值，
-        // 本项目"同屏不许撞色"的判据是 ≥60）：
-        //  · 运费模板 = 深靛 #283593（最小距离 **121**，与报表的亮靛 #6950F5 同族但深浅分明）
-        //  · 计费规则 = 橄榄 #9E9D24（最小距离 **80**，与「司机管理」的黄绿同族 ——
-        //    它们都指"司机这块"，同族不同深浅）
-        ModuleEntry("运费模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = 0xFF283593L),                 // 深靛 · 订单运费的价目表
-        ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFF9E9D24L),           // 橄榄 · 司机怎么算钱
+        // 本项目"同屏不许撞色"的判据是 ≥60）。
+        //
+        // ⚠️ 2026-09-19 这两个色**换过一次**（用户看真机后点名）：
+        //    「计费规则和运费模板，感觉颜色有点深啊。尤其是运费模板，他那个是**深蓝**颜色，
+        //      在整个工作台里是**非常的抢眼**」。
+        //    第一版给的是 深靛 #283593（亮度 58%）与 橄榄 #9E9D24（亮度 62%）——
+        //    在整个工作台（其余 14 格亮度普遍 78% 以上）里，这两格明显"沉下去"，而且
+        //    深色底 + 白图标在浅色网格里最扎眼，正好和"一色一功能、整体克制"要的效果相反。
+        //    现在按标准的色带（S 70-90%、B 78-95%）在**同一色相**上提亮：
+        //  · 运费模板 = 亮靛 #162DDB（亮度 58%→86%，最小距离 **94**，与报表的亮靛同族）
+        //  · 计费规则 = 亮黄绿 #8EC714（亮度 62%→78%，最小距离 **76**，与「司机管理」的黄绿同族）
+        //    两个都跑过 `_archive/_pick_module_colors.py`（在 HSB 空间里搜"带内 + 与其余 14 色
+        //    距离 ≥66"的解），不是手调出来的。
+        ModuleEntry("运费模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = 0xFF162DDBL),                 // 亮靛 · 订单运费的价目表
+        ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFF8EC714L),           // 亮黄绿 · 司机怎么算钱
         ModuleEntry("司机运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.Payments, color = 0xFFFF8A65L),            // 珊瑚橙 · 运费结算
         ModuleEntry("挂账单位", Routes.ARREARS_UNITS, Icons.Default.Business, color = ArrearsTangerine),                 // 橙红 · 挂账警示
         // 报表中心直达营业额报表界面（顶部 4 页签：营业/商品/司机/异常，可切换）
