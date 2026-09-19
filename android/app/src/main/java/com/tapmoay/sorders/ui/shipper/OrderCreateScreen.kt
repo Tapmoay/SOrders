@@ -579,6 +579,10 @@ private fun AddressPickerSheet(
         if (kw.isBlank()) locations
         else locations.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
     }
+    val railKeys = listOf("a", "l", "p")
+    val railTabs = tabs.mapIndexed { i, name ->
+        RailItem(key = railKeys[i], label = name, subtitle = countOf(name, addresses, locations, places).toString() + " 条")
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 20.dp)) {
@@ -588,21 +592,8 @@ private fun AddressPickerSheet(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(10.dp))
-            SegmentedStatusTabs(
-                labels = tabs.map { it + " " + countOf(it, addresses, locations, places) },
-                colors = listOf(
-                    Color(0xFF1E6FFF),
-                    Color(0xFF00A2C7),
-                    Color(0xFF00B578),
-                ),
-                selected = tab,
-                onSelect = {
-                    tab = it
-                    keyword = ""
-                    onSearchPlaces(null)
-                },
-            )
-            Spacer(Modifier.height(10.dp))
+            // 搜索框横跨整页（在左栏**上面**），与商品管理/库存管理同一版式：
+            // 左栏是"有哪几类"，搜索是"那个地点在哪"，塞进左栏会被压成半宽。
             Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 SoTextField(
                     value = keyword,
@@ -624,73 +615,89 @@ private fun AddressPickerSheet(
                     ) { Text("清除") }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(Modifier.heightIn(max = 400.dp)) {
-                when (tab) {
-                    0 -> if (shownAddresses.isEmpty()) {
-                        item {
-                            SheetEmptyHint(
-                                if (kw.isBlank()) "线路库为空，可先去「地址与联系人」添加"
-                                else "没有匹配「$kw」的线路",
-                            )
-                        }
-                    } else {
-                        itemsIndexed(shownAddresses) { _, a ->
-                            SheetRow(
-                                title = a.receiverName.ifBlank { "收货人" } + "  " + a.phone,
-                                subtitle = a.detailAddress,
-                                badge = if (a.isDefault) "默认" else null,
-                                hasCoords = !a.addressLat.isNullOrBlank(),
-                                onClick = { onPickAddress(a) },
-                            )
-                        }
-                    }
-                    1 -> if (shownLocations.isEmpty()) {
-                        item {
-                            SheetEmptyHint(
-                                if (kw.isBlank()) "地点库为空。司机到场帮你补的导航位置会出现在这里"
-                                else "没有匹配「$kw」的地点",
-                            )
-                        }
-                    } else {
-                        itemsIndexed(shownLocations) { _, l ->
-                            SheetRow(
-                                title = l.name.ifBlank { l.detailAddress.ifBlank { "未命名地点" } },
-                                subtitle = l.detailAddress,
-                                badge = "我的",
-                                hasCoords = !l.addressLat.isNullOrBlank(),
-                                onClick = { onPickLocation(l) },
-                            )
-                        }
-                    }
-                    else -> if (places.isEmpty()) {
-                        item {
-                            SheetEmptyHint(
-                                if (keyword.isBlank()) "共享地点库还是空的"
-                                else "没有匹配「$keyword」的地点",
-                            )
-                        }
-                    } else {
-                        // 共享地点被服务端截断时**说出来**：这张表只增不减又全库共用，
-                        // "一页"迟早不是"全部"。出路就是上面那个搜索框——共享地点段的搜索
-                        // 会**打后端** `q`（见 onValueChange），所以它是真能翻出旧记录的。
-                        // ⚠️ 不许写"更早的"：这里是按"用过多少次"倒序，被截掉的是**用得少的**。
-                        if (placesTruncated) {
+            Spacer(Modifier.height(10.dp))
+            // **左边三类、右边对应的地点**（用户 2026-09-19：「我们也改成类似商品管理的形式，
+            // 因为我们有 3 个分组嘛，3 个分组就放在左侧，然后右边就是对应的地点」）。
+            // 原来是三枚横向胶囊（SegmentedStatusTabs）：三段各是一份长列表，
+            // 横胶囊只能显示"现在在哪一段"，而两栏能同时看到"三段各有多少条"。
+            Row(Modifier.fillMaxWidth().height(420.dp)) {
+                MasterRail(
+                    items = railTabs,
+                    selectedKey = railKeys[tab],
+                    onSelect = { key ->
+                        tab = railKeys.indexOf(key).coerceAtLeast(0)
+                        keyword = ""
+                        onSearchPlaces(null)
+                    },
+                    modifier = Modifier.width(104.dp).fillMaxHeight(),
+                )
+                LazyColumn(Modifier.weight(1f).fillMaxHeight()) {
+                    when (tab) {
+                        0 -> if (shownAddresses.isEmpty()) {
                             item {
-                                TruncationNote(
-                                    placesLimit,
-                                    "要找的地点不在列表里就用上面的搜索框搜名字或地址",
+                                SheetEmptyHint(
+                                    if (kw.isBlank()) "线路库为空，可先去「地址与联系人」添加"
+                                    else "没有匹配「$kw」的线路",
+                                )
+                            }
+                        } else {
+                            itemsIndexed(shownAddresses) { _, a ->
+                                SheetRow(
+                                    title = a.receiverName.ifBlank { "收货人" } + "  " + a.phone,
+                                    subtitle = a.detailAddress,
+                                    badge = if (a.isDefault) "默认" else null,
+                                    hasCoords = !a.addressLat.isNullOrBlank(),
+                                    onClick = { onPickAddress(a) },
                                 )
                             }
                         }
-                        itemsIndexed(places) { _, p ->
-                            SheetRow(
-                                title = p.name.ifBlank { p.detailAddress.ifBlank { "未命名地点" } },
-                                subtitle = p.detailAddress,
-                                badge = sourceLabel(p.source) + " · 用过 " + p.useCount + " 次",
-                                hasCoords = true,
-                                onClick = { onPickPlace(p) },
-                            )
+                        1 -> if (shownLocations.isEmpty()) {
+                            item {
+                                SheetEmptyHint(
+                                    if (kw.isBlank()) "地点库为空。司机到场帮你补的导航位置会出现在这里"
+                                    else "没有匹配「$kw」的地点",
+                                )
+                            }
+                        } else {
+                            itemsIndexed(shownLocations) { _, l ->
+                                SheetRow(
+                                    title = l.name.ifBlank { l.detailAddress.ifBlank { "未命名地点" } },
+                                    subtitle = l.detailAddress,
+                                    badge = "我的",
+                                    hasCoords = !l.addressLat.isNullOrBlank(),
+                                    onClick = { onPickLocation(l) },
+                                )
+                            }
+                        }
+                        else -> if (places.isEmpty()) {
+                            item {
+                                SheetEmptyHint(
+                                    if (keyword.isBlank()) "共享地点库还是空的"
+                                    else "没有匹配「$keyword」的地点",
+                                )
+                            }
+                        } else {
+                            // 共享地点被服务端截断时**说出来**：这张表只增不减又全库共用，
+                            // "一页"迟早不是"全部"。出路就是上面那个搜索框——共享地点段的搜索
+                            // 会**打后端** `q`（见 onValueChange），所以它是真能翻出旧记录的。
+                            // ⚠️ 不许写"更早的"：这里是按"用过多少次"倒序，被截掉的是**用得少的**。
+                            if (placesTruncated) {
+                                item {
+                                    TruncationNote(
+                                        placesLimit,
+                                        "要找的地点不在列表里就用上面的搜索框搜名字或地址",
+                                    )
+                                }
+                            }
+                            itemsIndexed(places) { _, p ->
+                                SheetRow(
+                                    title = p.name.ifBlank { p.detailAddress.ifBlank { "未命名地点" } },
+                                    subtitle = p.detailAddress,
+                                    badge = sourceLabel(p.source) + " · 用过 " + p.useCount + " 次",
+                                    hasCoords = true,
+                                    onClick = { onPickPlace(p) },
+                                )
+                            }
                         }
                     }
                 }

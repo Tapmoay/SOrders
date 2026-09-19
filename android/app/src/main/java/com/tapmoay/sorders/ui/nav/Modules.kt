@@ -70,23 +70,19 @@ object AiNavButton {
 object Modules {
 
     // ===== 派单员工作台 =====
+    //
+    // ⛔ **工作台里不再有「派单作业」那个分组图标**（用户 2026-09-19：「将 pai 工作台里的派单
+    //    那个图标给去掉」）。它原来是个分组，点进去是「待派单池 / 全部订单 / 订单模板 / 计费规则」——
+    //    去掉是对的：**待派单池本来就是底部导航第一个 Tab**（同一个页面两个入口），
+    //    「全部订单」与下面那个「订单管理」图标**指向同一条路由**（同一页两个入口）。
+    //    剩下两个不是"订单"的东西（运费模板 / 计费规则）已经按用户要求**提成独立图标**了，
+    //    所以这个分组现在一个独占的子项都没有 —— 留着只会让人多点一次。
+    //
+    // ⚠️ 分组的**机制**还在（`ModuleEntry.children` + `Routes.MODULE_GROUP` +
+    //    `WorkbenchScreen.kt::ModuleListScreen`）：它是工作台的通用能力，删掉的话下次要加分组
+    //    得再写一遍。但**本轮之后没有任何一个网格用它**（三端 children 全为空）——
+    //    别以为它是活的。
     val dispatcherEntries: List<ModuleEntry> = listOf(
-        ModuleEntry(
-            label = "派单作业",
-            route = Routes.MODULE_GROUP + "/dispatch",
-            icon = Icons.Default.PendingActions,
-            color = NavBlue, // 蓝 · 派单主操作
-            children = listOf(
-                ModuleEntry("待派单池", Routes.DISPATCH_POOL, Icons.Default.PendingActions),
-                ModuleEntry("全部订单", Routes.DISPATCH_ORDERS, Icons.Default.ListAlt),
-                ModuleEntry("订单模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = MoneyOrange),
-                // 「计费规则」挂这里而不是「司机管理」下：司机管理现在是**直达页**（没有 children），
-                // 要把它改成分组就得让用户多点一次才看到司机列表 —— 那是没人要求过的行为改动。
-                // 所以先按"子入口挂在派单作业分组"这条既有做法走（与「订单模板」同形）。
-                // 颜色取司机域的**黄绿**（与「司机管理」同色）：一色一功能，跨端同功能同色。
-                ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFFCDDC39L),
-            ),
-        ),
         ModuleEntry("代理下单", Routes.DISPATCH_ORDER_CREATE, Icons.Default.AddCircleOutline, color = MgrGreen),       // 绿 · 下单（与货主端下单同色）
         ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = ShipperTeal),                        // 湖蓝 · 地址
         ModuleEntry("订单管理", Routes.DISPATCH_ORDERS, Icons.Default.ReceiptLong, color = ProgressYellow),            // 黄 · 订单流转
@@ -97,6 +93,22 @@ object Modules {
         ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
         ModuleEntry("账本管理", Routes.DISPATCH_LEDGER, Icons.Default.AccountBalanceWallet, color = MoneyOrange),       // 橙 · 账本
+        // 「运费模板」「计费规则」原来挂在「派单作业」分组下，用户 2026-09-19 要求提成**两个独立图标**
+        // （「去掉这个将里面的计费模板和计费规则，给移出来做一个 2 个单独的图标放在工作台里面」）。
+        // 位置紧挨着「账本管理 / 司机运费结算」这一串**钱的入口**：它们回答的正是"这钱按什么算"。
+        //
+        // 名字：用户口述是「计费模板」，但**没有照抄** —— 它和旁边的「计费规则」只差一个字，
+        // 并排摆两个几乎同名的图标，用户每次都得想一下点哪个（那正是"反人性"）。
+        // 这一页自己的弹窗与字段本来就叫「新建运费模板」「一车价格」，所以取**运费模板**：
+        // 两者含义本来就不同（一个是**订单运费**的价目表，一个是**司机拿多少**的规则）。
+        //
+        // 颜色：两个都是新色，都不是随手挑的（与工作台所有已有色的 RGB 欧氏距离最小值，
+        // 本项目"同屏不许撞色"的判据是 ≥60）：
+        //  · 运费模板 = 深靛 #283593（最小距离 **121**，与报表的亮靛 #6950F5 同族但深浅分明）
+        //  · 计费规则 = 橄榄 #9E9D24（最小距离 **80**，与「司机管理」的黄绿同族 ——
+        //    它们都指"司机这块"，同族不同深浅）
+        ModuleEntry("运费模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = 0xFF283593L),                 // 深靛 · 订单运费的价目表
+        ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFF9E9D24L),           // 橄榄 · 司机怎么算钱
         ModuleEntry("司机运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.Payments, color = 0xFFFF8A65L),            // 珊瑚橙 · 运费结算
         ModuleEntry("挂账单位", Routes.ARREARS_UNITS, Icons.Default.Business, color = ArrearsTangerine),                 // 橙红 · 挂账警示
         // 报表中心直达营业额报表界面（顶部 4 页签：营业/商品/司机/异常，可切换）

@@ -5,7 +5,10 @@ import java.time.ZoneOffset
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -649,6 +652,82 @@ fun TruncationNote(limit: Int?, howToSeeMore: String, modifier: Modifier = Modif
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier,
     )
+}
+
+/**
+ * 两栏版式左边那一列（"篮子"）的一行。
+ *
+ * [key] 用来判选中（分类名 / 司机 id / 来源名），[label] 是给人看的。
+ * 两者**故意分开**：司机那一列的 key 是 `d|12`，而屏幕上写的是「王建国」——
+ * 拿显示名当 key 的话，两个同名司机就会互相点亮（真机上有 293 个司机，重名不是假想）。
+ */
+data class RailItem(
+    val key: String,
+    val label: String,
+    /** 第二行小字（数量/金额/单数…）；null = 只有一行。 */
+    val subtitle: String? = null,
+)
+
+/**
+ * 两栏版式左边那一列 —— **分类 / 司机 / 地址来源三处共用这一份**（用户 2026-09-19 连着要了
+ * 三个"像商品管理那样"的界面：库存、运费结算、下单地址库）。
+ *
+ * 选中态：整块换白底 + 左侧一条**语义色**竖条（外卖 App 的通用写法，一眼看出现在在哪一类），
+ * 未选中是半透明灰底。语义色由调用方给（商品/库存=主题主色，运费结算=它的珊瑚橙）。
+ *
+ * ⚠️ 行高跟着 [RailItem.subtitle] 自动变（52dp / 60dp）：有副标题还压 52dp 会把两行字挤在一起，
+ *    而"挤"在老人用户那里等于看不清。
+ * ⚠️ 有副标题的那一列，副标题**必须**能一行放下（`maxLines = 1` + 省略号）：
+ *    让它折行会把行高顶开、整列的节奏全乱。
+ */
+@Composable
+fun MasterRail(
+    items: List<RailItem>,
+    selectedKey: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Color = MaterialTheme.colorScheme.primary,
+) {
+    val twoLine = items.any { it.subtitle != null }
+    val rowHeight = if (twoLine) 60.dp else 52.dp
+    LazyColumn(
+        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+    ) {
+        itemsIndexed(items, key = { _, it -> it.key }) { _, item ->
+            val on = item.key == selectedKey
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(rowHeight)
+                    .background(if (on) MaterialTheme.colorScheme.surface else Color.Transparent)
+                    .clickable { onSelect(item.key) },
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (on) {
+                    Box(Modifier.fillMaxHeight().width(4.dp).background(accent))
+                }
+                Column(Modifier.padding(horizontal = 12.dp)) {
+                    Text(
+                        item.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (twoLine) 2 else 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (item.subtitle != null) {
+                        Text(
+                            item.subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (on) accent else MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**

@@ -352,6 +352,14 @@ internal fun categoryTabsOf(names: List<String?>, ordered: List<String> = emptyL
     return out
 }
 
+/**
+ * 商品分类那一列 —— 只是 [MasterRail] 的一层薄包装（**版式只有一份实现**）。
+ *
+ * 2026-09-19：用户连着要了三个"像商品管理那样"的两栏界面（库存、司机运费结算、下单地址库），
+ * 左边那一列的样子必须是同一个，所以把版式提到 `Components.kt::MasterRail`，
+ * 这里只做"分类名 → RailItem"的翻译。原来那段 Box/Text 是**照抄一份**的写法，
+ * 抄第三遍时行高就会各自跑偏。
+ */
 @Composable
 internal fun CategoryRail(
     tabs: List<String>,
@@ -359,41 +367,12 @@ internal fun CategoryRail(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(
-        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-    ) {
-        itemsIndexed(tabs) { _, name ->
-            val on = name == selected
-            Box(
-                // 选中态：整块换成白底 + 左侧一条语义色竖条（外卖 App 的通用写法，
-                // 一眼看出现在在哪一类），未选中是半透明灰底。
-                Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .background(if (on) MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { onSelect(name) },
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (on) {
-                    Box(
-                        Modifier
-                            .fillMaxHeight()
-                            .width(4.dp)
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-                Text(
-                    name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                    color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
-            }
-        }
-    }
+    MasterRail(
+        items = tabs.map { RailItem(key = it, label = it) },
+        selectedKey = selected,
+        onSelect = onSelect,
+        modifier = modifier,
+    )
 }
 
 // ---------------------------------------------------------------- 右侧商品行

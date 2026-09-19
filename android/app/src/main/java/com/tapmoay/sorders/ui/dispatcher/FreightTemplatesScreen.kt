@@ -38,7 +38,7 @@ fun FreightTemplatesScreen(container: AppContainer, onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             AppTopBar(
-                title = "订单模板",
+                title = "运费模板",
                 onBack = onBack,
                 actions = {
                     TextButton(onClick = { vm.openCreate() }) {
