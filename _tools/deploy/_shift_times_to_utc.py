@@ -56,6 +56,7 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
@@ -108,18 +109,43 @@ def _already_done(conn) -> bool:
     return bool(n)
 
 
+def _redact(dsn: str) -> str:
+    """打日志用的 DSN：**去掉口令**（脚本会把它打进终端/日志，口令不能跟着走）。"""
+    import re
+
+    return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", dsn)
+
+
+def _dsn_from_app_config() -> str:
+    """从应用自己的配置里取 DSN —— 口令**不经过命令行参数、也不进日志**。
+
+    必须在 `backend/` 目录下运行（`app` 包在那儿）；失败时给一句能照着做的中文。
+    """
+    sys.path.insert(0, str(Path.cwd()))
+    try:
+        from app.config import get_settings  # type: ignore[import-not-found]
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(
+            f"❌ 取不到应用配置（{type(e).__name__}: {e}）。\n"
+            f"   请在 backend/ 目录下运行本脚本，或显式传 --dsn。"
+        ) from e
+    return get_settings().database_url
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dsn", required=True, help="SQLAlchemy DSN（只支持 MySQL）")
+    ap.add_argument("--dsn", default=None, help="SQLAlchemy DSN（只支持 MySQL）；不给则从 app.config 取")
     ap.add_argument("--apply", action="store_true", help="真的改数据（默认只 dry-run）")
     ap.add_argument("--backup-confirmed", action="store_true", help="我已备份（--apply 时必须）")
     ap.add_argument("--force", action="store_true", help="已有标记也照跑（只在确认跑错时用）")
     a = ap.parse_args()
 
-    if not a.dsn.startswith("mysql"):
+    dsn = a.dsn or _dsn_from_app_config()
+    if not dsn.startswith("mysql"):
         raise SystemExit("❌ 只支持 MySQL：本机 SQLite 的 CURRENT_TIMESTAMP 本来就是 UTC，平移会改坏数据")
+    print(f"目标库：{_redact(dsn)}")
 
-    engine = create_engine(a.dsn)
+    engine = create_engine(dsn)
     with engine.connect() as conn:
         offset = _server_offset(conn)
         cols = _columns_to_shift(conn)
