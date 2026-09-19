@@ -101,6 +101,83 @@ class ReorderProductCategoriesHandler(
 }
 
 /**
+ * 重排**地点分组**（整份顺序一次提交）—— 与商品分类那份是同一套规矩。
+ *
+ * 用户 2026-09-19 要求 AI 也能碰地点分组（「添加分类和给地点归为到哪一类，AI 是要有这个能力的」），
+ * 而"顺序"是这个功能的一半（另一半是归属），所以一起给。
+ *
+ * ⚠️ 与商品分类**唯一的差别**：名册是**按人分区**的 —— 读到的、能排的都只是当前登录人自己那一份。
+ * 卡片上必须写明这一点，否则用户会以为自己在给"全店的分组"排序。
+ */
+class ReorderPlaceCategoriesHandler(
+    private val ds: AiWriteDataSource,
+    private val store: AiWritePreviewStore,
+) : AiWriteHandler {
+
+    override val actionId = AiWrites.PLACE_CATEGORY_REORDER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val raw = AiWriteArgs.required(
+            params, "order",
+            "整份顺序：把你自己的地点分组名**一个不漏**地按想要的先后写全（用「、」隔开）",
+        )
+        val pool = ds.placeCategories()
+        if (pool.isEmpty()) {
+            throw AiWriteArgException("你还没有地点分组，先用「新建地点分组」建出来再排顺序。")
+        }
+        val current = pool.joinToString("、") { it.label }
+
+        val picked = ArrayList<AiName>(pool.size)
+        for (name in splitNames(raw)) {
+            val hit = AiWriteArgs.strict(name, pool, "地点分组")
+                ?: throw AiWriteArgException("分组「$name」没对上，请核对名字。")
+            if (picked.any { it.id == hit.id }) {
+                throw AiWriteArgException(
+                    "顺序里「${hit.label}」出现了两次。每个分组只能出现一次，请重新排一遍。",
+                )
+            }
+            picked += hit
+        }
+        val missing = pool.filter { p -> picked.none { it.id == p.id } }
+        if (missing.isNotEmpty()) {
+            throw AiWriteArgException(
+                "这份顺序里少了 ${missing.size} 个分组：${missing.joinToString("、") { it.label }}。" +
+                    "后端要求一次提交**完整**的顺序（少一个都整份拒绝），" +
+                    "请把名册里的分组一个不漏地按顺序写全（当前名册：$current）。",
+            )
+        }
+
+        return AiWriteOutcome.NeedConfirm(
+            store.offer(
+                actionId = actionId,
+                title = AiWrites.titleOf(actionId),
+                risk = AiWrites.byId(actionId)!!.risk,
+                summary = "重排地点分组：${picked.size} 个分组",
+                detailLines = buildList {
+                    add("⚠️ 只影响你自己的地址库（每个人管自己那一份）")
+                    add("改前的顺序：$current")
+                    add("改后的顺序（地址库左栏从上到下就是这个顺序）：")
+                    picked.forEachIndexed { i, n ->
+                        val count = n.note?.let { "（$it）" }.orEmpty()
+                        add("${i + 1}. ${n.label}$count")
+                    }
+                    add("只改显示顺序：一个地点归在哪一组都不动")
+                },
+                payload = buildJsonObject {
+                    put("category_ids", JsonArray(picked.map { JsonPrimitive(it.id) }))
+                },
+            ),
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val ids = (payload["category_ids"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+        ds.reorderPlaceCategories(ids)
+    }
+}
+
+/**
  * 把「水果、冻品 干货」拆成名字列表（模型多半会用「、」，但逗号/斜杠/空格也常见）。
  *
  * 分隔符**只管拆**：拆出来的每一段都要在名册里唯一命中，否则整条命令被拒绝

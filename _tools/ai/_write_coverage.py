@@ -49,6 +49,10 @@ EXCLUDED: dict[tuple[str, str], str] = {
     # 凭据：AI 不碰登录/注册。与风险分级无关——它连「该不该做」都不成立。
     ("POST", "auth/login"): "登录/注册：AI 不该碰凭据（v3.7 定的永久排除）",
     ("POST", "auth/token"): "登录/注册：AI 不该碰凭据（v3.7 定的永久排除）",
+    # 登出（2026-09-19 补：这条端点是被"清单自己算"那个修法**照出来**的 —— 它加进来之后
+    # 一直没进那张签入的表，所以覆盖率看不见它）。理由与凭据同类：
+    # 登出是**会话动作**，模型替用户退出登录只会让他莫名其妙地被踢回登录页。
+    ("POST", "auth/logout"): "登录/注册：AI 不该碰凭据与会话（v3.7 定的永久排除）",
     # 用户明确说永久不做（目标④）。
     ("POST", "customers/merge"): "客户合并：用户明确说不需要、也没必要（目标④，永久排除）",
     # 上传类：模型给不出文件。让它「申请上传」只会产生一张永远填不满的卡。
@@ -202,7 +206,20 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="有「未覆盖且没有理由」就非零退出")
     args = ap.parse_args()
 
-    eps = json.loads(ENDPOINTS.read_text(encoding="utf-8"))
+    # ⛔ **端点清单自己算，不读那份签入的 JSON**（2026-09-19 修）。
+    #
+    # 原来这里读 `docs/ai/write-endpoints.json`，而那份文件是**手工重跑**
+    # `_dump_write_endpoints.py` 才更新的 —— 没有任何检查盯着它新不新鲜。
+    # 实测：它是 2026-09-18 21:57 写下的，之后新加的写端点（本轮 `place-categories` 五个）
+    # **一个都没进这张表**，于是这条"AI 写能力覆盖率"红线报「0 个真缺口」——
+    # **假绿**。这正是本仓库反复栽的那类坑（清单过期 → 结论变成"没问题"，
+    # 而 `_dump_write_endpoints.py` 自己的注释里就写着这句话）。
+    #
+    # 现在直接调那个脚本的 `handlers()`（同一份解析，不抄第二遍），
+    # 端点永远与源码同步；签入的 JSON 只当"给人看的快照"。
+    from _dump_write_endpoints import handlers as dump_handlers  # noqa: E402
+
+    eps = dump_handlers()
     apis = api_paths()
     repo = repo_to_api()
     self_test_comment_blindness()

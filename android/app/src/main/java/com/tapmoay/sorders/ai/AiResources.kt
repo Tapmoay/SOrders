@@ -82,9 +82,10 @@ internal object AiResources {
         key = "location",
         cn = "地点",
         idKey = "location_id",
-        readKeys = setOf("name", "detail_address", "remark", GEO_LAT, GEO_LNG),
+        readKeys = setOf("name", "detail_address", "remark", "category", GEO_LAT, GEO_LNG),
         labels = mapOf(
             "name" to "地点名", "detail_address" to "地址", "remark" to "备注",
+            "category" to "分组",
             GEO_LAT to "纬度", GEO_LNG to "经度",
         ),
         silent = setOf(GEO_LAT, GEO_LNG),
@@ -297,6 +298,35 @@ internal object AiResources {
         restoreLines = listOf(
             "按原来的名字和位置重建一格：分类名册没有回收站，删掉的那一行是真没了",
             "⚠️ 重建出来的是新的一行，编号和原来不一样（挂在它下面的商品不受影响——能删就说明本来没有商品挂着）",
+        ),
+    )
+
+    /**
+     * 地点分组名册（**按人分区**：每个人管自己地址库左栏那一列）。
+     *
+     * 与商品分类那份是同一套做法（改名级联、删的前提是"没有地点挂着"、
+     * 撤回是按原名重建一格因此**编号会变**），差别只有"这是我自己那一份"。
+     */
+    private val PLACE_CATEGORY = AiResource(
+        key = "place_category",
+        cn = "地点分组",
+        idKey = "category_id",
+        readKeys = setOf("name", "sort_order"),
+        labels = mapOf("name" to "分组名", "sort_order" to "顺序（第几位）"),
+        actions = listOf(
+            update(AiWrites.PLACE_CATEGORY_UPDATE),
+            delete(AiWrites.PLACE_CATEGORY_DELETE),
+        ),
+        read = { ds, id -> ds.snapshot("place_category", id) },
+        restore = AiInverse(
+            AiWrites.PLACE_CATEGORY_CREATE,
+            mapOf("name" to "name", "sort_order" to "sort_order"),
+            lines = listOf("名字和位置都照删之前那一行写回去（这一步走的就是「新建地点分组」那个动作）"),
+        ),
+        restoreLines = listOf(
+            "按原来的名字和位置重建一格：分组名册没有回收站，删掉的那一行是真没了",
+            "⚠️ 重建出来的是新的一行，编号和原来不一样（挂在它下面的地点不受影响——能删就说明本来没有地点挂着）",
+            "⚠️ 只影响你自己的地址库",
         ),
     )
 
@@ -568,7 +598,7 @@ internal object AiResources {
     /** 全部资源。红线与单测按它逐个核对（键是否齐全、动作是否都有归属）。 */
     val TABLE: List<AiResource> = listOf(
         ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, FREIGHT_TEMPLATE, DRIVER_RULE,
-        PRODUCT, PRICE_RULE, PRODUCT_CATEGORY, VEHICLE, PRODUCT_VISIBILITY, USER,
+        PRODUCT, PRICE_RULE, PRODUCT_CATEGORY, PLACE_CATEGORY, VEHICLE, PRODUCT_VISIBILITY, USER,
         ORDER, ORDER_LINE, LEDGER_ENTRY, NOTIFICATION,
     )
 }
@@ -675,6 +705,12 @@ internal object AiRevertRead {
      * 两边口径不一致的话，撤回会把这一类排到差一位的地方，而且不会报错。
      */
     fun productCategory(d: ProductCategoryDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        put("sort_order", JsonPrimitive(d.sortOrder + 1))
+    }
+
+    /** 地点分组（与商品分类**同一个口径**：卡片上的"第几位"从 1 数，进 payload 的 `sort_order` 从 0 数）。 */
+    fun placeCategory(d: com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto): JsonObject = buildJsonObject {
         put("name", d.name)
         put("sort_order", JsonPrimitive(d.sortOrder + 1))
     }

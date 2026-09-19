@@ -400,46 +400,66 @@ fun AddressScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 // ---- 分组（用户 2026-09-19：「新增那个地点…没有可以选择哪个分类。
-                //      它默认是可以选择的，但如果你不选的话，就默认进入原始分类」）----
+                // ---- 分组（用户 2026-09-19：「这个分类**不是填名字**啊，是**选择分类**；
+                //      下面不要把它新建的直接写到下面，就相当于点击那个，它下面就有个滑框
+                //      选择对应的分类就可以了」）----
                 //
-                // 一个输入框 + 一排已有分组的小胶囊：**选中已有**和**现场敲一个新的**是同一件事
-                // （后端在保存时会把这个名字补进名册），所以不做成只能选不能填的下拉。
-                // 留空 = 未分类。
-                OutlinedTextField(
-                    vm.locCategory, { vm.locCategory = it },
-                    label = { Text("分组（可选，留空＝未分类）") },
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Folder, null, tint = Color(0xFF8455E6)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (vm.placeCategories.isNotEmpty()) {
-                    FlowRow(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
+                // 所以：**下拉选择**（设计规范 §5 写明了「下拉一律 ExposedDropdownMenuBox 点选回填，
+                // **不要**用 chips 替代下拉」）+ 最后一项「＋ 新建分组…」。
+                // 第一版写成"自由填 + 一排可点的小块"，正是规范里否决过的做法。
+                var catExpanded by remember { mutableStateOf(false) }
+                var newCatDialog by remember { mutableStateOf(false) }
+                ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = it }) {
+                    OutlinedTextField(
+                        value = vm.locCategory.trim().ifBlank { "未分类" },
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("分组") },
+                        leadingIcon = { Icon(Icons.Default.Folder, null, tint = Color(0xFF8455E6)) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("未分类") },
+                            onClick = { vm.locCategory = ""; catExpanded = false },
+                        )
                         vm.placeCategories.forEach { c ->
-                            FilterChip(
-                                selected = vm.locCategory.trim() == c.name,
-                                onClick = { vm.locCategory = c.name },
-                                label = { Text(c.name, style = MaterialTheme.typography.labelMedium) },
+                            DropdownMenuItem(
+                                // 带上"这一类下有几个地点"：选分组时能看出哪个是主力
+                                text = {
+                                    Text(
+                                        c.name + if (c.locationCount > 0) "（${c.locationCount} 个地点）" else "",
+                                        maxLines = 1,
+                                    )
+                                },
+                                onClick = { vm.locCategory = c.name; catExpanded = false },
                             )
                         }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("＋ 新建分组…") },
+                            onClick = { catExpanded = false; newCatDialog = true },
+                        )
                     }
                 }
+                if (newCatDialog) {
+                    NewPlaceCategoryDialog(
+                        busy = vm.acting,
+                        onConfirm = { name ->
+                            vm.createPlaceCategoryAndSelect(name) { newCatDialog = false }
+                        },
+                        onDismiss = { newCatDialog = false },
+                    )
+                }
                 // ---- 仓库：**只有派单员**能标（后端也拦；这里只是不给他看一个点了会报错的开关）----
+                // ⚠️ **不给解释文字**（用户 2026-09-19：「这个设为仓库下面是有解释的，没必要解释」）。
                 if (vm.canMarkWarehouse) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Warehouse, null, Modifier.size(18.dp), tint = Color(MoneyOrange))
                         Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("设为仓库", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "送到这里就按「货进来了」自动入库（按订单商品行加库存）。可以设多个。",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text("设为仓库", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                         Switch(checked = vm.locIsWarehouse, onCheckedChange = { vm.locIsWarehouse = it })
                     }
                 }
@@ -563,6 +583,46 @@ fun AddressScreen(
             }
         }
     }
+}
+
+/**
+ * 地点表单里那个「＋ 新建分组…」的弹窗（与商品编辑页的 `NewCategoryDialog` 同一形状）。
+ *
+ * 建好后后端会把它补进名册、界面**自动选中**它 —— 用户点"新建分组"的意图是"归到这一类"，
+ * 不该建完还要自己再选一次。
+ */
+@Composable
+private fun NewPlaceCategoryDialog(
+    busy: Boolean,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建分组") },
+        text = {
+            Column {
+                SoTextField(
+                    value = name,
+                    onValueChange = { name = it.take(8) },
+                    placeholder = "分组名，如 常送小区 / 工地",
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && name.isNotBlank(), onClick = { onConfirm(name) }) {
+                Text(if (busy) "提交中…" else "新建并选中")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 /** 线路卡：联系人（主）+ 小电话图标 + 终点/起点 */

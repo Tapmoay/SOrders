@@ -306,6 +306,20 @@ interface AiWriteDataSource {
     /** 整份顺序一次提交（`ids[0]` 排最前）。后端要求**一个不漏**，少了就 400。 */
     suspend fun reorderProductCategories(ids: List<Long>)
 
+    // ---- 地点分组名册（**按人分区**：读到的、能改的都只是当前登录人自己那一份）----
+
+    /**
+     * 我自己的地点分组（建/改/删/重排之前先按**名字**找到那一格，也给"把地点归到某一组"当候选）。
+     *
+     * `note` 带"这一组下有几个地点"：删/改名会波及它们，那个数字是用户判断影响面的唯一依据。
+     */
+    suspend fun placeCategories(): List<AiName>
+
+    suspend fun createPlaceCategory(fields: JsonObject)
+    suspend fun updatePlaceCategory(id: Long, fields: JsonObject)
+    suspend fun deletePlaceCategory(id: Long)
+    suspend fun reorderPlaceCategories(ids: List<Long>)
+
     /** 整份替换某个货主/批发商的可见范围（后端同一个事务里换开关 + 换明细）。 */
     suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>)
 
@@ -1274,6 +1288,22 @@ class RepoWriteDataSource(
         if (newText != null && lat == null) {
             error("改地点失败：新地址没有定位到坐标，留着旧坐标会把司机带到旧地点去。请让用户把地址说完整。")
         }
+        // 「把这个地点归到那一类」：**严格对名册**。
+        // ⛔ 不许让它顺手新建：用户说的"那一类"如果库里没有，多半是名字记错了（错别字会**静默**
+        //    多出一格分组），所以这里对不上就拒绝、并把现有分组名列出来。
+        val wantCat = fields.str("category")?.trim()?.takeIf { it.isNotEmpty() }
+        var cat = cur.category
+        if (wantCat != null && wantCat != cur.category) {
+            val pool = repo.placeCategories()
+            val hit = pool.firstOrNull { it.name == wantCat }
+                ?: throw AiWriteArgException(
+                    "你的地点分组里没有「$wantCat」。现有分组：" +
+                        (if (pool.isEmpty()) "（还没有分组，先用「新建地点分组」建一个）"
+                        else pool.joinToString("、") { it.name }) +
+                        "。要么用上面某个名字，要么先新建这个分组。"
+                )
+            cat = hit.name
+        }
         repo.updateLocation(
             id,
             com.tapmoay.sorders.data.remote.dto.LocationCreateRequest(
@@ -1282,11 +1312,11 @@ class RepoWriteDataSource(
                 remark = fields.str("remark") ?: cur.remark,
                 addressLat = lat ?: cur.addressLat,
                 addressLng = lng ?: cur.addressLng,
-                // ⛔ 分类与仓库标记必须**回填原值**：`LocationCreateRequest` 走的是"整体替换"语义，
-                //    不回填就等于"AI 改个地点名把它从分组里踢出去 / 顺手取消仓库标记"——
+                // ⛔ 分类与仓库标记必须**回填原值**（没点名分组时就是原值）：
+                //    `LocationCreateRequest` 走的是"整体替换"语义，不回填就等于
+                //    "AI 改个地点名把它从分组里踢出去 / 顺手取消仓库标记"——
                 //    而界面上只会显示「已改地点」，用户看不出分组没了。
-                //    （这是 `_check_ai_dto_defaults.py` 逐字段盯着的那条纪律。）
-                category = cur.category,
+                category = cat,
                 isWarehouse = cur.isWarehouse,
                 imageUrls = cur.imageUrls,
             ),
@@ -1447,6 +1477,46 @@ class RepoWriteDataSource(
         repo.deleteProductCategory(id)
     }
 
+    /** 我自己的地点分组（按人分区：`repo.placeCategories()` 读的就是当前登录人那一份）。 */
+    override suspend fun placeCategories(): List<AiName> = repo.placeCategories().map {
+        AiName(it.id, it.name, note = if (it.locationCount > 0) "${it.locationCount} 个地点" else null)
+    }
+
+    override suspend fun createPlaceCategory(fields: JsonObject) {
+        val created = repo.createPlaceCategory(
+            name = fields.req("name"),
+            // 先按"排在最后"建出来；有位置要求时再用 reorder 挪过去（与商品分类同一套理由）。
+            sortOrder = null,
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { movePlaceCategoryTo(created.id, it) }
+    }
+
+    /**
+     * 把某个分组挪到「第 N 位」（**从 1 数**）。走 reorder 而不是写绝对值 ——
+     * 理由与商品分类那份一字不差（绝对值会与现有第 1 位撞车、按 id 排后落到别处）。
+     */
+    private suspend fun movePlaceCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.placeCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        val idx = (position1Based - 1).coerceIn(0, ids.size)
+        ids.add(idx, id)
+        repo.reorderPlaceCategories(ids)
+    }
+
+    override suspend fun updatePlaceCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updatePlaceCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updatePlaceCategory(id, name = fields.str("name"), sortOrder = null)
+        fields.str("sort_order")?.toIntOrNull()?.let { movePlaceCategoryTo(id, it) }
+    }
+
+    override suspend fun deletePlaceCategory(id: Long) {
+        repo.deletePlaceCategory(id)
+    }
+
+    override suspend fun reorderPlaceCategories(ids: List<Long>) {
+        repo.reorderPlaceCategories(ids)
+    }
+
     override suspend fun reorderProductCategories(ids: List<Long>) {
         repo.reorderProductCategories(ids)
     }
@@ -1523,6 +1593,8 @@ class RepoWriteDataSource(
             "product" -> repo.products().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.product(it)) }
             "product_category" ->
                 repo.productCategories().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.productCategory(it)) }
+            "place_category" ->
+                repo.placeCategories().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.placeCategory(it)) }
             "vehicle" -> repo.vehicles().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.vehicle(it)) }
             "product_visibility" ->
                 repo.productVisibility(id).let { AiBefore(id, AiRevertRead.productVisibility(it)) }
@@ -1659,6 +1731,7 @@ class AiWriteService(
             PaySettlementHandler(ds, store),
             CancelSettlementHandler(ds, store),
             ReorderProductCategoriesHandler(ds, store),
+            ReorderPlaceCategoriesHandler(ds, store),
             ProductVisibilityHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 

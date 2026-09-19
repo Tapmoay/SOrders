@@ -356,6 +356,43 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         showLocationDialog = true
     }
 
+    /**
+     * 就地新建一个分组并**选中它**（地点表单的分组下拉里那个「＋ 新建分组…」）。
+     *
+     * 与商品编辑页的 `createCategoryAndSelect` 是同一套做法：
+     * 独立入口而不是"自由填名字" —— 自由填能造出只差一个空格的两个分组，
+     * 地址库左栏因此多出一格，而列表上看不出差别。
+     *
+     * ⚠️ 重名（后端 409）时**直接选中已有的那个**：用户要的是"归到这个名字"，
+     *    不是"再建一个"；报错让他自己回头找，是把后端的一句话变成他的一次往返。
+     */
+    fun createPlaceCategoryAndSelect(rawName: String, onDone: () -> Unit) {
+        val name = rawName.trim().take(8)
+        if (name.isBlank()) {
+            error = "分组名不能为空"
+            return
+        }
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                try {
+                    container.repo.createPlaceCategory(name)
+                } catch (e: Exception) {
+                    val msg = toApiException(e).message.orEmpty()
+                    if (!msg.contains("已经存在")) throw e
+                }
+                placeCategories = container.repo.placeCategories()
+                locCategory = name
+                onDone()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
     /** 上传地点图片（相册选择后在 IO 线程调用） */
     fun uploadLocationImage(file: java.io.File) {
         viewModelScope.launch {

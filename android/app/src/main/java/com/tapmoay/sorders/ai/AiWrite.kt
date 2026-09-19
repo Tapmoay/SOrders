@@ -1012,6 +1012,19 @@ object AiWrites {
     const val PRODUCT_CATEGORY_DELETE = "product_category.delete"
     const val PRODUCT_CATEGORY_REORDER = "product_category.reorder"
 
+    // ---- 地点分组名册（2026-09-19：用户要求 AI 也能建分组、也能把地点归到某一组）----
+    //
+    // 用户原话：「**添加分类**和**给地点归为到哪一类**，AI 是要有这个能力的。比如说，
+    // 用户说『我将这个地点归到那一类当中』，AI 是可以操作的」。
+    //
+    // ⚠️ 与商品分类**最大的不同：这是按人分区的**（每个人管自己地址库左栏那一列）。
+    //    所以卡片上要说清"改的是**你自己**的分组"，而且**不许**出现别人的分组名 ——
+    //    数据源 `ds.placeCategories()` 读的就是当前登录人那一份，越权在数据源上就不可能。
+    const val PLACE_CATEGORY_CREATE = "place_category.create"
+    const val PLACE_CATEGORY_UPDATE = "place_category.update"
+    const val PLACE_CATEGORY_DELETE = "place_category.delete"
+    const val PLACE_CATEGORY_REORDER = "place_category.reorder"
+
     // ---- 商品可见范围（白名单）----
     //
     // 用户 2026-09-18 原话：「甚至也可以直接叫 ai 操作（指定某个批发商/货主只能看到哪些商品）」。
@@ -1024,6 +1037,8 @@ object AiWrites {
     const val G_MSG = "消息"
     const val G_PRODUCT = "商品"
     const val G_CATEGORY = "商品分类"
+    /** 地点分组（**按人分区**：每个人管自己地址库左栏那一列）。 */
+    const val G_PLACE_CATEGORY = "地点分组"
     const val G_PRICE = "批发商定价"
     const val G_STOCK = "库存"
     const val G_USER = "账号与收费规则"
@@ -1670,6 +1685,28 @@ object AiWrites {
             ),
         ),
 
+        // ------------------------------------------ 地点分组（整份重排）
+        //
+        // 与商品分类的"重排"同形（手写而**不是**声明式：输入是一整份顺序，
+        // 声明式的规格一次只处理"一条已有记录"；后端也要求整份提交，少一个就 400）。
+        AiWriteAction(
+            id = PLACE_CATEGORY_REORDER,
+            title = "重排地点分组",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_PLACE_CATEGORY,
+            blurb = "把你**自己的**地点分组在地址库左栏里的先后顺序一次换掉。" +
+                "**必须给全**：名册里的分组一个都不能漏（后端少一个就整份拒绝）。" +
+                "它只改显示顺序，一个地点归在哪一组都不动。",
+            params = listOf(
+                AiWriteParam(
+                    "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
+                    hint = "必填。按想要的先后顺序**写全所有分组名**，用「、」或逗号隔开" +
+                        "（如「常送小区、工地」）。先读一次 place_categories.list_categories " +
+                        "拿到当前名册，一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
+                ),
+            ),
+        ),
+
         // ------------------------------------------ 商品可见范围（白名单）
         AiWriteAction(
             id = USER_PRODUCT_VISIBILITY,
@@ -1759,6 +1796,13 @@ object AiWrites {
         LOCATION_CREATE,
         LOCATION_UPDATE,
         LOCATION_DELETE,
+        // 地点分组（2026-09-19）：它是**按人分区**的 —— 货主管的是自己地址库左栏那一列，
+        // 与「地点增删改」是同一件事的另一半（新建地点时要选归到哪一组）。
+        // 商品分类则**不在这里**：那是全店一份（派单员维护、所有人下单看到同一列）。
+        PLACE_CATEGORY_CREATE,
+        PLACE_CATEGORY_UPDATE,
+        PLACE_CATEGORY_DELETE,
+        PLACE_CATEGORY_REORDER,
         NOTIFICATIONS_READ_ALL,
     )
 

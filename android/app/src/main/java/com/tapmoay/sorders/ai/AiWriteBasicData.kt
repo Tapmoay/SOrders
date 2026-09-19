@@ -208,6 +208,15 @@ internal object AiWriteBasicData {
                 textField("name", "新地点名", "不改就不填", maxChars = 64),
                 textField("address", "新地址", "不改就不填", maxChars = 200).copy(key = "detail_address"),
                 textField("remark", "新备注", "不改就不填", maxChars = 200),
+                // 「把这个地点归到那一类」（用户 2026-09-19 点名的例子）。
+                // ⚠️ 名字必须**已经在自己那一份分组名册里**（先读 place_categories.list_categories）——
+                //    对不上会被拒绝并给出候选，**不会**顺手新建一个（那样一个错别字就多出一格分组）。
+                //    要新建分组：先 place_category.create，再回来归。
+                textField(
+                    "category", "归到哪个分组",
+                    "不改就不填。必须是你**已有**的分组名之一；要建新分组请先 place_category.create",
+                    maxChars = 32,
+                ),
             ),
             headline = { c -> "改地点：${c.ref("location")?.label}" },
             details = { c ->
@@ -215,6 +224,7 @@ internal object AiWriteBasicData {
                     c.line("name", "地点名改成"),
                     c.line("detail_address", "地址改成"),
                     c.line("remark", "备注改成"),
+                    c.line("category", "归到分组"),
                 )
             },
             geocodeFrom = "detail_address",
@@ -439,6 +449,83 @@ internal object AiWriteBasicData {
                 )
             },
         ) { ds, p -> ds.deleteProductCategory(p.reqLong("category_id")) },
+
+        // -------------------------------------------------------- 地点分组名册（按人分区）
+        //
+        // 用户 2026-09-19 原话：「**添加分类**和**给地点归为到哪一类**，AI 是要有这个能力的。
+        // 比如说，用户说『我将这个地点归到那一类当中』，AI 是可以操作的」。
+        //
+        // ⚠️ 与商品分类**最大的不同：这是"我自己那一份"**。所以每张卡上都要写明这一点，
+        //    而数据源（`placeCategories()` / `repo.placeCategories()`）读的就是当前登录人那一份 ——
+        //    越权在数据源上就不可能，不需要在这一层再判一次。
+        crud(
+            id = AiWrites.PLACE_CATEGORY_CREATE,
+            title = "新建地点分组",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_PLACE_CATEGORY,
+            blurb = "在**你自己的**地点分组名册里加一格（下单页地址库左栏就是它）。" +
+                "它只决定「怎么分组、什么顺序」，不改任何地点的归属——" +
+                "地点归到哪一组是在「改地点」里选的那个分组名。",
+            fields = listOf(
+                textField("name", "分组名", "必填，如「常送小区」「工地」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+            ),
+            headline = { c -> "新建地点分组：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分组名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    "只加一格分组，不改任何地点的归属",
+                    "⚠️ 只影响你自己的地址库（每个人管自己那一份，别人看不到）",
+                )
+            },
+        ) { ds, p -> ds.createPlaceCategory(p) },
+
+        crud(
+            id = AiWrites.PLACE_CATEGORY_UPDATE,
+            title = "改地点分组",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_PLACE_CATEGORY,
+            blurb = "改一个**你自己的**地点分组的名字，或者把它排到别的位置。只填要改的那一项。" +
+                "改名会级联：挂在它下面的地点会跟着改成新名字（后端在同一个事务里做）。",
+            targets = listOf(targetPlaceCategory()),
+            fields = listOf(
+                textField("name", "新分组名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+            ),
+            headline = { c -> "改地点分组：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分组：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let {
+                        "⚠️ 这个分组下有 $it——改名会把这些地点的分组一起改过去（后端同一个事务）"
+                    },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                    "⚠️ 只影响你自己的地址库",
+                )
+            },
+        ) { ds, p -> ds.updatePlaceCategory(p.reqLong("category_id"), p.pick(PLACE_CATEGORY_KEYS)) },
+
+        crud(
+            id = AiWrites.PLACE_CATEGORY_DELETE,
+            title = "删除地点分组",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_PLACE_CATEGORY,
+            blurb = "从**你自己的**地点分组名册里删掉一格。还有地点挂在这个分组下时后端会拒绝，" +
+                "并告诉你还有几个——先把那些地点改成别的分组（或给这一格改个名）再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。",
+            targets = listOf(targetPlaceCategory()),
+            headline = { c -> "删除地点分组：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分组：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这个分组下有 $it" },
+                    "还有地点挂在它下面时后端会拒绝，并告诉你有几个：先把那些地点改成别的分组",
+                    "⚠️ 只影响你自己的地址库；地点本身一个都不会被删",
+                )
+            },
+        ) { ds, p -> ds.deletePlaceCategory(p.reqLong("category_id")) },
 
         // ------------------------------------------------------------ 车辆
         crud(
@@ -789,6 +876,21 @@ internal object AiWriteBasicData {
         lookup = { ds, _ -> ds.productCategories() },
     )
 
+    /**
+     * 地点分组（按**名字**找，**只在自己那一份名册里找**）。
+     *
+     * `note` 带的是"这一组下有几个地点"——改名/删除会波及它们，
+     * 那个数字是用户判断影响面的唯一依据。
+     */
+    private fun targetPlaceCategory() = AiTargetSpec(
+        param = "category", cn = "地点分组", key = "category_id",
+        hint = "分组名（地址库左栏那一列的格子名，如「常送小区」）",
+        lookup = { ds, _ -> ds.placeCategories() },
+    )
+
+    /** 地点分组进 payload 的键（改分组时只传点名的那几个）。 */
+    private val PLACE_CATEGORY_KEYS = setOf("name", "sort_order")
+
     /** 车辆（按**车牌**找；车牌号忽略大小写与分隔符）。 */
     private fun targetVehicle() = AiTargetSpec(
         param = "vehicle", cn = "车辆", key = "vehicle_id",
@@ -878,7 +980,7 @@ internal object AiWriteBasicData {
         "receiver_name", "phone", "detail_address", "origin_address", "remark", GEO_LAT, GEO_LNG,
     )
     private val CONTACT_KEYS = setOf("display_name", "phone")
-    private val LOCATION_KEYS = setOf("name", "detail_address", "remark", GEO_LAT, GEO_LNG)
+    private val LOCATION_KEYS = setOf("name", "detail_address", "remark", "category", GEO_LAT, GEO_LNG)
     private val UNIT_KEYS = setOf("name", "phone", "remark")
     private val TEMPLATE_KEYS = setOf("from_place", "to_place", "fee", "remark")
     /** 分类的部分更新体（`sort_order` 在这里是**从 1 数**的位置，换算见 [positionField]）。 */

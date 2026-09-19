@@ -669,7 +669,7 @@ object AiRevert {
         )
         // ---- 一次换掉一整张表的顺序：撤回的粒度对不上 ----
         none(
-            listOf(AiWrites.PRODUCT_CATEGORY_REORDER),
+            listOf(AiWrites.PRODUCT_CATEGORY_REORDER, AiWrites.PLACE_CATEGORY_REORDER),
             "重排改的是「整份名册的顺序」（不是某一条记录的一个字段），撤回要把原来那一份顺序" +
                 "整份再提交一遍——而撤回入口只认「一条记录写回旧值」这一种形状。" +
                 "要改回去，把想要的完整顺序再说一遍（例如「水果、冻品、干货」），我照着重排",

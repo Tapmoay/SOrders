@@ -65,6 +65,9 @@ READ_METHODS = {
     "freightTemplates", "customers", "members", "salaryDrivers",
     # 商品分类名册 / 商品可见范围（v3.43）：改分类、设白名单之前都要先把现状读回来
     "productCategories", "productVisibility",
+    # 地点分组名册（2026-09-19）：**按人分区**的那一份，建/改/删/重排之前先读回来，
+    # 也是"把某个地点归到哪一组"的候选来源。它是读（`GET /place-categories`）。
+    "placeCategories",
     # 查单/查行/查流水/查消息（"先找到那一条"用的都是读）
     "findOrders", "orderLines", "findDeletedOrders", "ledgerEntries",
     "myNotifications", "productPrices", "priceRuleRows",

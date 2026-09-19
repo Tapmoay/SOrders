@@ -654,6 +654,27 @@ class AiWriteTest {
             masterCalls += "reorderProductCategories:${ids.joinToString(",")}"
         }
 
+        // ---- 地点分组（**按人分区**那一份；2026-09-19 给 AI 开的能力）----
+        var placeCategoryRows = listOf(
+            AiName(81, "常送小区", note = "3 个地点"),
+            AiName(82, "工地"),
+        )
+
+        override suspend fun placeCategories() = placeCategoryRows.also { boom() }
+        override suspend fun createPlaceCategory(fields: JsonObject) = rec("createPlaceCategory", fields)
+        override suspend fun updatePlaceCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updatePlaceCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deletePlaceCategory(id: Long) {
+            boom()
+            masterCalls += "deletePlaceCategory:$id"
+        }
+        override suspend fun reorderPlaceCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderPlaceCategories:${ids.joinToString(",")}"
+        }
+
         /** 某个货主当前的可见范围（默认值照后端：`all` = 不限制）。 */
         var visibility = AiVisibility("all", emptyList())
 
@@ -2908,10 +2929,11 @@ class AiWriteTest {
     fun `动作总数与域覆盖`() {
         // 用户口径是「整个 App 的功能它都能做」，所以这条断言是**防止能力悄悄缩水**的。
         assertTrue("动作数不该少于 40（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size >= 40)
-        // ⚠️ 上界只是"大概没重复"的粗判据，每加一批动作都得抬它一次（v3.36 加了 5 个计费规则动作）。
+        // ⚠️ 上界只是"大概没重复"的粗判据，每加一批动作都得抬它一次（v3.36 加了 5 个计费规则动作，
+        //    2026-09-19 给「地点分组」加了 4 个）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 90（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 90)
+        assertTrue("动作数不该多于 94（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 94)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -4800,6 +4822,17 @@ class AiWriteTest {
         for (id in ids) {
             assertTrue("$id 应当在派单员动作集里", AiWrites.allows(AiRole.DISPATCHER, id))
             assertFalse("$id 不该给货主", AiWrites.allows(AiRole.SHIPPER, id))
+            assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))
+        }
+        // 地点分组是**按人分区**的（每个人管自己地址库左栏那一列），所以货主**要能用** ——
+        // 与「地点增删改」同一件事的两半。它和上面那批"只给派单员"的区别是刻意的，不是漏标。
+        for (id in listOf(
+            AiWrites.PLACE_CATEGORY_CREATE,
+            AiWrites.PLACE_CATEGORY_UPDATE,
+            AiWrites.PLACE_CATEGORY_DELETE,
+            AiWrites.PLACE_CATEGORY_REORDER,
+        )) {
+            assertTrue("$id 货主也要能用（改的是他自己的地址库）", AiWrites.allows(AiRole.SHIPPER, id))
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))
         }
     }
