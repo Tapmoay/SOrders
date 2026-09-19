@@ -35,6 +35,7 @@ from app.services.ledger_sync import (
 )
 from app.services.operation_log_service import write_log
 from app.services.push_events import push_ledger_updated
+from app.services.soft_delete import strip_del_suffix
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
 
@@ -183,15 +184,41 @@ def list_accounts(
             if kind == "member" and not (u is not None and getattr(u, "is_member", False)):
                 continue
             key = ("u", r.shipper_id)
-            b = buckets.setdefault(key, {"id": r.shipper_id, "temp_name": None, "name": "", "count": 0, "total": Decimal("0")})
+            b = buckets.setdefault(
+                key,
+                {
+                    "id": r.shipper_id,
+                    "temp_name": None,
+                    "name": "",
+                    "phone": None,
+                    "is_active": False,
+                    "count": 0,
+                    "total": Decimal("0"),
+                },
+            )
             if not b["name"]:
                 b["name"] = (u.full_name or u.phone or f"货主#{r.shipper_id}") if u else f"货主#{r.shipper_id}"
+                # 手机号去软删后缀（`13800001234_del160` → `13800001234`）：给用户看的是一个能拨的号
+                b["phone"] = (strip_del_suffix(u.phone) or None) if u else None
+                b["is_active"] = bool(getattr(u, "is_active", True)) if u else False
         else:
             if kind == "member":
                 continue
             name = (r.temp_shipper_name or "").strip() or "临时货主"
             key = ("t", name)
-            b = buckets.setdefault(key, {"id": None, "temp_name": name, "name": name, "count": 0, "total": Decimal("0")})
+            # 临时货主没有账号 → 没有手机号；`is_active` 恒 True（"没有账号"不是"账号停用"）
+            b = buckets.setdefault(
+                key,
+                {
+                    "id": None,
+                    "temp_name": name,
+                    "name": name,
+                    "phone": None,
+                    "is_active": True,
+                    "count": 0,
+                    "total": Decimal("0"),
+                },
+            )
         b["count"] += 1
         b["total"] = b["total"] + (r.total or Decimal("0"))
     result = sorted(buckets.values(), key=lambda x: -x["total"])

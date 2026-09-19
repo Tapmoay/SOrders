@@ -6,7 +6,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.UserSearch
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementGroupDto
+import com.tapmoay.sorders.data.remote.dto.FreightSettlementOrderDto
 import com.tapmoay.sorders.data.remote.dto.LedgerAccountOut
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
@@ -15,6 +17,33 @@ import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+
+/**
+ * 账本仪表盘的一行 —— **司机账 / 货主账 / 批发商账共用同一个视图模型**。
+ *
+ * 三种账的数据源不同（`/freight-settlement` 的 group vs `/ledger/accounts` 的账户汇总），
+ * 但**仪表盘要看的四件事是同一件**：这是谁（名字）+ 怎么找到他（手机号）+
+ * 他有几笔 + 一共多少钱。上一版把这一层拆成两套卡片 + 两套挑选器，
+ * 结果是"同一个需求改两处、改一处漏一处"。
+ */
+data class LedgerAccountRow(
+    /** `d|<司机 id>` / `u|<货主 id>` / `t|<临时货主名>`（跨 tab 不通用，换 tab 会清）。 */
+    val key: String,
+    /** 名字（**原样**，可能是空串 —— 空名要靠手机号搜，所以不在这里兜底成「货主」）。 */
+    val title: String,
+    /** 手机号（临时货主为 null）。同名不同人**只能靠它分开**。 */
+    val phone: String?,
+    /** 这个账号还能不能登录（停用/已删除）。 */
+    val inactive: Boolean,
+    /** 笔数/单数 —— 取**服务端**的全量数，不是本地明细行数（明细是分页的）。 */
+    val count: Int,
+    /** 「笔」/「单」。 */
+    val countUnit: String,
+    val total: Double,
+)
+
+/** 仪表盘上的三个数（**当前搜索过滤之后**的集合）。 */
+data class LedgerDashboard(val accounts: Int, val count: Int, val total: Double)
 
 /**
  * 派单员账本（信息优先：日期范围流水 + 汇总金额 + 手动记账）。
@@ -61,8 +90,11 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     var shipperAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
     var memberAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
     var accountsLoading by mutableStateOf(false)
-    var expandedDriver by mutableStateOf<Long?>(null)
-    var expandedAccount by mutableStateOf<String?>(null)
+
+    /** 就地展开的那一行（账户 key；null = 没展开）。三个 tab 共用这一个。 */
+    var expandedKey by mutableStateOf<String?>(null)
+
+    /** 货主/批发商那一行的流水（**要另取**；司机账的明细已经跟在列表响应里）。 */
     var accountEntries by mutableStateOf<Map<String, List<LedgerEntryDto>>>(emptyMap())
 
     /**
@@ -73,84 +105,83 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     var accountEntriesMeta by mutableStateOf<Map<String, PageMeta>>(emptyMap())
     var accountEntriesLoading by mutableStateOf(false)
 
-    // ============================================================ 账户的"自由选择"
+    // ============================================================ 账本仪表盘（不是"挑选器"）
     //
-    // 用户 2026-09-19：「一个很严重的问题，比如说批发商他只能看到合计的，但如果我想看
-    // **单个**的呢？或者我想看 **2 个**人的呢？这要有个**自由选择**，而且页面也非常的反人性」。
+    // 用户 2026-09-19 第二次拍板（推翻了上一版的"搜索 + 多选 chip 墙"）：
+    // 「你这样子改不对啊…**假如客户非常多司机非常多，那用户要是一个一个去选的话，
+    //   那要有多麻烦啊**。其实我觉得像这个账本啊，**所有的账本你可以一个仪表盘的思维
+    //   进行去构建**」。
     //
-    // 所以：账户列表上面加**搜索框 + 多选**，选中的账户单独算合计。
-    //   · 一个都不选 = 全部账户（原来的样子，不改默认行为）
-    //   · 选 1 个 = 只看那一个   · 选 2 个 = 看那两个
-    // 选中的**合计**单独算一行（"我选的这几个一共多少钱、几笔"）——
-    // 原来只有每张卡各自的钱，要自己心算相加，这正是"反人性"的地方。
+    // 所以上一版那套被**删掉**了，两个理由：
+    //   ① 那一版的交互是"先在一堆 chip 里把人一个个点出来、再看下面的列表" ——
+    //      账户一多，"找到我要点的那几个"比看账本身还花时间（这正是用户说的"麻烦"）；
+    //   ② chip 上写的名字+金额，和下面列表里的名字+金额**是同一份信息**（重复一遍），
+    //      而重复的信息放在两处，就一定会出现"两边对不上"的困惑。
+    //
+    // 现在这一套：
+    //   · **一屏看完所有账户各自的数**（仪表盘）—— 不需要先选，默认就是全量；
+    //   · 一个搜索框把范围收窄（姓名 / 手机号 / **手机号后 4 位**，规则见 `core/UserSearch`）；
+    //   · **收窄之后的合计**写在仪表盘上（"这两家一共多少"就是这么看的，不用勾选）；
+    //   · 点账户行**就地展开**它自己的流水。
+    //
+    // ⚠️ 搜索是**本地**过滤：`/ledger/accounts` 与 `/freight-settlement` 都是**一次回全量**
+    //    （没有分页、没有 500 上限），再走服务端只是每次打字多打一次后端。
+    //    名册页（`/users` 一页最多 500 条）就**必须**走服务端 `?q=`，见 `UsersManageViewModel`。
 
-    /** 按名字搜账户（批发商/货主可能有几十个，滚动找人是这一页最烦的事）。 */
-    var accountQuery by mutableStateOf("")
+    /** 搜索词（三个 tab 共用一个；换 tab 会清）。 */
+    var query by mutableStateOf("")
 
-    /** 选中的账户 key 集合（`u|<id>` / `t|<名字>`）；**空 = 全部**。 */
-    var selectedAccounts by mutableStateOf<Set<String>>(emptySet())
-
-    fun toggleAccountSelected(key: String) {
-        selectedAccounts = if (key in selectedAccounts) selectedAccounts - key else selectedAccounts + key
+    /** 当前 tab 的**全部**账户行（顺序 = 服务端顺序，已按金额倒序）。 */
+    fun accountRows(): List<LedgerAccountRow> = when (tab) {
+        1 -> driverAccounts.map {
+            LedgerAccountRow(
+                key = "d|" + it.driverId,
+                title = it.driverName,
+                phone = it.driverPhone,
+                inactive = !it.driverActive,
+                count = it.count,
+                countUnit = "单",
+                total = it.total,
+            )
+        }
+        else -> {
+            val isMember = tab == 3
+            (if (isMember) memberAccounts else shipperAccounts).map {
+                LedgerAccountRow(
+                    key = accountKey(it),
+                    title = it.name,
+                    phone = it.phone,
+                    inactive = !it.isActive,
+                    count = it.count,
+                    countUnit = "笔",
+                    total = moneyToDouble(it.total),
+                )
+            }
+        }
     }
 
-    fun clearAccountSelection() {
-        selectedAccounts = emptySet()
-    }
-
-    /** 当前 tab 的账户（搜过的）。tab 2=货主账 3=批发商账。 */
-    fun accountsForTab(): List<LedgerAccountOut> {
-        val all = if (tab == 3) memberAccounts else shipperAccounts
-        val kw = accountQuery.trim()
-        return if (kw.isEmpty()) all else all.filter { it.name.contains(kw, ignoreCase = true) }
-    }
+    /** 搜索过滤之后要显示的行。 */
+    fun visibleAccountRows(): List<LedgerAccountRow> =
+        UserSearch.filter(accountRows(), query, { it.title }, { it.phone })
 
     /**
-     * 选中账户的**合计**（钱 + 笔数）。一个都没选 = 全部账户的合计。
+     * 仪表盘三个数：**过滤之后**的账户数 / 笔数 / 金额。
      *
      * ⚠️ 笔数取服务端的 `count`（那一栏是**全量**笔数），不是本地明细的行数 ——
      *    明细是分页的，拿它当"一共几笔"会少报。
      */
-    fun selectedSummary(): Pair<Double, Int> {
-        val all = if (tab == 3) memberAccounts else shipperAccounts
-        val picked = if (selectedAccounts.isEmpty()) all else all.filter { accountKey(it) in selectedAccounts }
-        return picked.sumOf { moneyToDouble(it.total) } to picked.sumOf { it.count }
+    fun dashboard(): LedgerDashboard {
+        val rows = visibleAccountRows()
+        return LedgerDashboard(rows.size, rows.sumOf { it.count }, rows.sumOf { it.total })
     }
 
-    /** 一个账户的 key（与 [toggleAccount] 用的是同一套拼法，**不许各写一份**）。 */
+    /** 一个账户的 key（与 [accountRows] 用的是同一套拼法，**不许各写一份**）。 */
     fun accountKey(a: LedgerAccountOut): String =
         if (a.id != null) "u|${a.id}" else "t|${a.tempName.orEmpty()}"
 
-    // 司机账同样是"自由选择"（用户：「其他其他的都一样」）：司机可能几十个，同样要能搜、能多选。
-    // key 直接用 driver_id（司机账本来就是这个维度，不存在"跨 tab 同名不同人"的问题）。
-    var driverQuery by mutableStateOf("")
-    var selectedDrivers by mutableStateOf<Set<Long>>(emptySet())
-
-    fun toggleDriverSelected(id: Long) {
-        selectedDrivers = if (id in selectedDrivers) selectedDrivers - id else selectedDrivers + id
-    }
-
-    fun clearDriverSelection() {
-        selectedDrivers = emptySet()
-    }
-
-    /** 当前时间范围里的司机（搜过的）。 */
-    fun driversForTab(): List<FreightSettlementGroupDto> {
-        val kw = driverQuery.trim()
-        return if (kw.isEmpty()) driverAccounts
-        else driverAccounts.filter { it.driverName.contains(kw, ignoreCase = true) }
-    }
-
-    /** 选中司机的合计（钱 + 单数）；一个都没选 = 全部。 */
-    fun driverSelectedSummary(): Triple<Double, Int, Int> {
-        val picked = if (selectedDrivers.isEmpty()) driverAccounts
-        else driverAccounts.filter { it.driverId in selectedDrivers }
-        return Triple(
-            picked.sumOf { it.total },
-            picked.sumOf { it.count },
-            picked.size,
-        )
-    }
+    /** 司机账那一行自己在响应里带的订单明细（不用再请求）。 */
+    fun driverOrdersOf(key: String): List<FreightSettlementOrderDto> =
+        driverAccounts.firstOrNull { "d|" + it.driverId == key }?.orders.orEmpty()
 
     // ============================================================ 明细里的订单可以展开
     //
@@ -201,12 +232,10 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
 
     fun selectTab(i: Int) {
         tab = i
-        // 换 tab 就把"选中的账户"清掉：key 是跨 tab 混用的（`u|id` 在货主账与批发商账里
-        // 指的是不同的人），带过去会出现"选了 2 个、列表里一个都没高亮"的鬼状态。
-        selectedAccounts = emptySet()
-        accountQuery = ""
-        selectedDrivers = emptySet()
-        driverQuery = ""
+        // 换 tab 就把搜索词与展开态清掉：key 是跨 tab 混用的（`u|id` 在货主账与批发商账里
+        // 指的是不同的人），带过去会出现"搜了 2 个、列表里一个都没高亮"的鬼状态。
+        query = ""
+        expandedKey = null
         expandedOrderId = null
         expandedOrder = null
         if (i != 0) loadAccounts()
@@ -216,6 +245,12 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     fun loadAccounts() {
         accountsLoading = true
         loadError = null
+        // ⛔ 时间范围一变，**已展开的流水就过期了**：账户卡上的笔数/金额换了新时段、
+        //    展开的明细还是上一段的（而且 `toggleRow` 见缓存非空就直接返回，不会重取）——
+        //    界面上两个数对不上，谁都不报错（2026-09-19 修）。
+        accountEntries = emptyMap()
+        accountEntriesMeta = emptyMap()
+        expandedKey = null
         viewModelScope.launch {
             try {
                 val from = periodStart
@@ -234,17 +269,19 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         }
     }
 
-    fun toggleDriver(id: Long) {
-        expandedDriver = if (expandedDriver == id) null else id
-    }
-
-    /** 展开账户明细（货主/批发商）：按账户拉取其范围内流水 */
-    fun toggleAccount(key: String) {
-        if (expandedAccount == key) {
-            expandedAccount = null
+    /**
+     * 展开/收起一个账户的明细。
+     *
+     * ⚠️ 司机账**不用再取数**：`/freight-settlement` 每个 group 自带 `orders`；
+     *    货主/批发商账的流水要按账户另取一次（取过就缓存，同一时段内不重复请求）。
+     */
+    fun toggleRow(key: String) {
+        if (expandedKey == key) {
+            expandedKey = null
             return
         }
-        expandedAccount = key
+        expandedKey = key
+        if (tab == 1) return
         if (accountEntries[key] != null) return
         accountEntriesLoading = true
         viewModelScope.launch {

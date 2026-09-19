@@ -12,6 +12,8 @@ import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import com.tapmoay.sorders.data.repo.toApiException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class UserPool(val key: String, val role: String, val memberOnly: Boolean, val title: String) {
@@ -49,8 +51,63 @@ class UsersManageViewModel(
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 
-    /** 列表搜索（姓名/手机号/车牌）。288 个司机的列表没有搜索是没法用的。 */
+    // ============================================================ 搜索（**服务端**）
+    //
+    // 用户 2026-09-19：「还有其他的比如说，**司机管理**啊**账户管理**啊。这些也要添加搜索键。
+    // 然后这个搜索键可以根据他们的**名称**还有**电话号码**以及**电话号码的后 4 位**进行搜索」。
+    //
+    // ⛔ 为什么必须打到服务端，而不是过滤手里这一页：
+    //    名册一页最多 500 条，而"这一页不是全部"会被读成"这个账号不存在"→ 再建一个 →
+    //    撞手机号唯一约束。第 501 个人在客户端**根本不存在**，本地过滤物理上不可能找到他。
+    //    后端 `?q=` 是姓名/手机号子串（`app/core/user_search.py`），**后 4 位天然命中**。
+    //
+    // 规则的同一条口径在客户端有一份（`core/UserSearch`）给"回全量"的那两处用（账本仪表盘）。
+    // 两份实现由 `_check_user_search.py` 钉着，不许分叉。
+
+    /** 搜索词（原样保留，防抖只影响发请求的时机）。 */
     var query by mutableStateOf("")
+
+    /**
+     * 服务端搜索命中的账号；**null = 没在搜**（界面要看的是 [roster]）。
+     *
+     * 单独立一个字段而不是覆盖 [roster]：`driverNameOf` / 车队摘要 / 配车弹层都要
+     * **完整名册**才能把名字和车对上，把它们换成"搜索结果"会让这些地方出现
+     * 「账号 #5（不在司机名册里）」这种假故障。
+     */
+    var hits by mutableStateOf<List<UserDto>?>(null)
+        private set
+
+    /** 搜索结果的截断位（与名册那一页各自独立：搜索命中的条数是另一件事）。 */
+    var hitsTruncated by mutableStateOf(false)
+        private set
+    var hitsLimit by mutableStateOf<Int?>(null)
+        private set
+
+    private var searchJob: Job? = null
+
+    /** 搜索框的唯一入口（防抖 300ms：每敲一个字就打后端既浪费又会让列表闪）。 */
+    fun onQueryChange(v: String) {
+        query = v
+        searchJob?.cancel()
+        val kw = v.trim()
+        if (kw.isEmpty()) {
+            hits = null
+            hitsTruncated = false
+            hitsLimit = null
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(300)
+            try {
+                val page = container.repo.usersPage(role = pool.role, memberOnly = pool.memberOnly, q = kw)
+                hits = page.rows
+                hitsTruncated = page.meta.hasMore
+                hitsLimit = page.meta.limit
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            }
+        }
+    }
 
     // ---- 车辆（v3.44）：司机池要显示"他开哪辆车"，并支持在这里配车 ----
     var vehicles by mutableStateOf<List<VehicleDto>>(emptyList())
@@ -61,18 +118,13 @@ class UsersManageViewModel(
 
     val isDriverPool: Boolean get() = pool.role == "driver"
 
-    /** 搜索命中的账号（司机池额外按车牌命中）。 */
-    val shown: List<UserDto>
-        get() {
-            val q = query.trim()
-            if (q.isEmpty()) return users
-            return users.filter { u ->
-                u.fullName.contains(q, ignoreCase = true) ||
-                    u.phone.contains(q) ||
-                    u.username.contains(q, ignoreCase = true) ||
-                    (isDriverPool && vehiclesOf(u.id).any { it.plateNo.contains(q, ignoreCase = true) })
-            }
-        }
+    /** 完整名册（**没在搜**时就是它）。名字查找、车队摘要一律用它。 */
+    val roster: List<UserDto> get() = users
+
+    /** 界面上要显示的那些账号：在搜就是服务端命中，没在搜就是名册。 */
+    val shown: List<UserDto> get() = hits ?: users
+
+    val isSearching: Boolean get() = hits != null
 
     /** 这个人名下的车（可能不止一辆：一个司机两辆车在现实里是存在的，所以不假设唯一）。 */
     fun vehiclesOf(driverId: Long): List<VehicleDto> = vehicles.filter { it.driverId == driverId }
@@ -85,7 +137,9 @@ class UsersManageViewModel(
      */
     fun driverNameOf(driverId: Long?): String {
         if (driverId == null) return ""
-        val d = users.firstOrNull { it.id == driverId } ?: return "账号 #$driverId（不在司机名册里）"
+        val d = users.firstOrNull { it.id == driverId }
+            ?: hits?.firstOrNull { it.id == driverId }
+            ?: return "账号 #$driverId（不在司机名册里）"
         return d.fullName.ifBlank { d.phone.ifBlank { d.username } }
     }
 
@@ -191,6 +245,9 @@ class UsersManageViewModel(
                 users = page.rows
                 truncated = page.meta.hasMore
                 pageLimit = page.meta.limit
+                // 名册变了（新建/改名/停用之后）搜索结果也是旧的 —— 正在搜就按同一个词再搜一次，
+                // 不然"刚建好的人搜不到"会被当成建号失败。
+                if (hits != null) onQueryChange(query)
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

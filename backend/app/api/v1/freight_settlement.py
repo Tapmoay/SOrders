@@ -13,6 +13,7 @@ from app.models.enums import OrderStatus, UserRole
 from app.services.order_response import apply_driver_view_gating
 from app.services.order_response import enrich_order_out as _enrich  # noqa: F401
 from app.services.driver_pay import pay_for_order
+from app.services.soft_delete import strip_del_suffix
 
 router = APIRouter(prefix="/freight-settlement", tags=["freight-settlement"])
 
@@ -86,16 +87,35 @@ async def freight_settlement(
         .order_by(Order.delivered_at.desc())
     )
     orders = list(db.scalars(q))
+    # 司机名册**一次取全**（`IN`）：原来是循环里 `db.get(User, driver_id)`，
+    # 首次命中的确会真发一条 SQL —— 结算页动辄几十个司机、上千单，那是几十条本可以合并的查询。
+    driver_ids = {o.driver_id for o in orders if o.driver_id}
+    driver_by_id: dict[int, User] = (
+        {u.id: u for u in db.scalars(select(User).where(User.id.in_(driver_ids)))} if driver_ids else {}
+    )
     groups: dict[int, dict] = {}
     for o in orders:
         driver_id = o.driver_id or 0
         g = groups.setdefault(
             driver_id,
-            {"driver_id": driver_id, "driver_name": "", "count": 0, "total": 0.0, "orders": []},
+            {
+                "driver_id": driver_id,
+                "driver_name": "",
+                # 手机号 + 能不能登录：与货主/批发商账**同一套**（用户 2026-09-19 要的
+                # 搜索键是「名称 / 电话 / 电话后 4 位」，只下发名字等于那条需求只做了一半）。
+                "driver_phone": None,
+                "driver_active": False,
+                "count": 0,
+                "total": 0.0,
+                "orders": [],
+            },
         )
-        driver = db.get(User, driver_id) if driver_id else None
-        if driver is not None:
+        driver = driver_by_id.get(driver_id) if driver_id else None
+        if driver is not None and not g["driver_phone"]:
+            g["driver_phone"] = strip_del_suffix(driver.phone) or None
+        if driver is not None and not g["driver_name"]:
             g["driver_name"] = driver.full_name or driver.phone or ""
+            g["driver_active"] = bool(getattr(driver, "is_active", True))
         # ⚠️ v3.36：这里原来把 `freight_fee` 当成"司机该拿的钱"（因为当时计件=全额运费）。
         #    现在司机可能挂着计费规则（每单固定 / 运费提成 / 商品提成），
         #    "该拿多少"必须走和账单**同一个**函数，否则这一页和司机账单页会各说一个数。

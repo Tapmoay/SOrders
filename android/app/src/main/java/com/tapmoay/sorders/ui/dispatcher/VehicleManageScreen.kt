@@ -495,7 +495,7 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
                 SoTextField(
                     value = vm.driverQuery,
                     onValueChange = { vm.driverQuery = it },
-                    placeholder = "搜司机姓名 / 手机号",
+                    placeholder = com.tapmoay.sorders.core.UserSearch.HINT,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(6.dp))
@@ -536,10 +536,17 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
 /** 司机候选列表（弹层内展开）。**截断必须说出来**，不能安静地少给。 */
 @Composable
 private fun DriverPickList(vm: VehicleManageViewModel) {
-    val q = vm.driverQuery.trim()
-    val hits = vm.drivers.filter {
-        q.isEmpty() || it.fullName.contains(q) || it.phone.contains(q) || it.username.contains(q)
-    }
+    // 搜索规则走唯一实现（`core/UserSearch`）：姓名 / 手机号 / **手机号后 4 位**。
+    // ⚠️ 原来这里是就地写的一遍「姓名 or 手机号 or 用户名」—— 与后端 `?q=`（只认姓名/手机号）
+    //    和名册页那个搜索框合起来是**三条口径**；同一件事三个答案，用户只会觉得
+    //    "有时搜得到、有时搜不到"，而看不出是规则不一致。
+    val hits = com.tapmoay.sorders.core.UserSearch.filter(
+        vm.drivers,
+        vm.driverQuery,
+        // 传的是**界面上显示的那个名字**（空名回落到用户名），保证"看得见的就能搜到"
+        { it.fullName.ifBlank { it.username } },
+        { it.phone },
+    )
     val shown = hits.take(30)
     Column(Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
         PickRow("不绑司机", vm.draftDriverId == null, "解绑（这辆车暂时不归任何人）") { vm.draftDriverId = null }
@@ -566,7 +573,7 @@ private fun DriverPickList(vm: VehicleManageViewModel) {
         }
         if (hits.isEmpty()) {
             Text(
-                "没有匹配「$q」的司机。",
+                "没有匹配「" + vm.driverQuery.trim() + "」的司机。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),

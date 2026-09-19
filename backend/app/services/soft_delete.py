@@ -10,7 +10,12 @@
 
 from __future__ import annotations
 
+import re
+
 from fastapi import HTTPException
+
+#: `_del` + 纯数字，**只认结尾**（见 [strip_del_suffix]）。
+_DEL_TAIL = re.compile(r"_del\d+$")
 
 
 def del_suffix(original: str | None, row_id: int, width: int) -> str:
@@ -23,6 +28,20 @@ def del_suffix(original: str | None, row_id: int, width: int) -> str:
     suffix = f"_del{int(row_id)}"
     keep = max(0, int(width) - len(suffix))
     return base[:keep] + suffix
+
+
+def strip_del_suffix(value: str | None) -> str:
+    """[del_suffix] 的逆运算：`13800001234_del160` → `13800001234`。
+
+    只用于**展示**（2026-09-19：账本仪表盘要显示货主手机号，把带后缀的号码给用户看
+    等于给了一个打不通的号）。
+
+    ⚠️ **不要拿它去库里查**：库里那一列存的就是带后缀的值（"删除"正是这么实现的），
+       用去尾后的值做等值查询**永远查不到那一行**。
+    ⚠️ 只从**末尾**去掉 `_del` + 纯数字：写"见到 `_del` 就切"会把合法值截断，
+       而这里的输入是用户可见的号码/姓名，截错了没人看得出是代码错还是数据错。
+    """
+    return _DEL_TAIL.sub("", (value or "").strip())
 
 
 def ensure_alive(row, what: str, restore_hint: str) -> None:

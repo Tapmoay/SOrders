@@ -171,6 +171,17 @@ def test_turnover_hour_bucket_uses_business_hour(client, token_dispatcher, db_se
     from app.models import Order, OrderStatus
 
     h = auth_headers(token_dispatcher)
+    d19 = date(2026, 9, 19)
+
+    # ⚠️ 判据必须是**增量**，不能断言「20时 == 0」（2026-09-19 修）：
+    #    这个测试库是**同一个 worker 共用**的，而同一个文件里的
+    #    `test_driver_cannot_complete_a_deleted_order` 会真的走一遍送达
+    #    （`delivered_at = 现在`）—— 只要整套测试跑在当地 20:00~20:59，
+    #    那张单就正好落进「20时」，于是这条断言**按墙上时钟随机变红**。
+    #    实测：20:18 跑 `pytest tests/test_audit_round13_guards.py` 单文件也红。
+    #    这里改成"这一单让 04时 +1、且 20时 不变"——同一个性质，不依赖库里还有谁。
+    before = {s.label: s.orders for s in build_turnover(db_session, "day", d19)["series"]}
+
     r = client.post(
         "/api/v1/orders",
         json={
@@ -187,10 +198,13 @@ def test_turnover_hour_bucket_uses_business_hour(client, token_dispatcher, db_se
     o.delivered_at = datetime(2026, 9, 18, 20, 0)  # 当地 09-19 04:00
     db_session.commit()
 
-    series = build_turnover(db_session, "day", date(2026, 9, 19))["series"]
-    labels = {s.label: s.orders for s in series}
-    assert labels.get("04时", 0) >= 1, f"当地 4 点送达的单没进「04时」：{labels}"
-    assert labels.get("20时", 0) == 0, f"按 UTC 分桶了（出现「20时」）：{labels}"
+    after = {s.label: s.orders for s in build_turnover(db_session, "day", d19)["series"]}
+    assert after.get("04时", 0) == before.get("04时", 0) + 1, (
+        f"当地 4 点送达的单没进「04时」：{before} → {after}"
+    )
+    assert after.get("20时", 0) == before.get("20时", 0), (
+        f"按 UTC 分桶了（「20时」多了一张）：{before} → {after}"
+    )
 
 
 # ------------------------------------------- R13-R4 挂账未收只有一条判据

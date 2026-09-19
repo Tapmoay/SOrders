@@ -78,19 +78,42 @@ fun AccountManageScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // 被服务端截断时**说出来**（判据是响应头 `X-Truncated`，见 AccountManageViewModel）。
-                    // 这一页尤其要说：右下角就是「新建账户」，而"列表里没有"最容易被读成
-                    // "这个账号不存在"→ 再建一个 → 撞手机号唯一约束。这一页没有搜索框，
-                    // 所以不许写"请用搜索"。
-                    if (vm.truncated) {
+                    // 搜索框（用户 2026-09-19：「账户管理…也要添加搜索键」，按**名称 / 手机号 /
+                    // 手机号后 4 位**搜）。走**服务端** `?q=` —— 这一页列的是全部角色的账号、
+                    // 一页最多 500 条，本地过滤会让第 501 个账号"不存在"。
+                    item {
+                        SearchField(value = vm.query, onValueChange = { vm.onQueryChange(it) })
+                    }
+                    if (vm.isSearching) {
+                        if (vm.hitsTruncated) {
+                            item {
+                                TruncationNote(
+                                    vm.hitsLimit,
+                                    "匹配到的账号不止这些 —— 把关键词写细一点（姓名多打一个字，或手机号多打几位）",
+                                )
+                            }
+                        }
+                        if (vm.shown.isEmpty()) {
+                            item {
+                                EmptyView(
+                                    "服务端按姓名/手机号搜过，没有「" + vm.query.trim() + "」这个账号",
+                                    Modifier.fillMaxWidth().height(140.dp),
+                                )
+                            }
+                        }
+                    } else if (vm.truncated) {
+                        // 被服务端截断时**说出来**（判据是响应头 `X-Truncated`，见 AccountManageViewModel）。
+                        // 这一页尤其要说：右下角就是「新建账户」，而"列表里没有"最容易被读成
+                        // "这个账号不存在"→ 再建一个 → 撞手机号唯一约束。
                         item {
                             TruncationNote(
                                 vm.pageLimit,
-                                "不在列表里不等于没有这个账号，找不到先别直接新建",
+                                "用上面的搜索框找 —— 那是服务端按姓名/手机号搜的全量结果，" +
+                                    "不受这一页限制；直接往下翻找不到不等于没有这个账号，先别急着新建",
                             )
                         }
                     }
-                    items(vm.users, key = { it.id }) { u ->
+                    items(vm.shown, key = { it.id }) { u ->
                         SectionCard {
                             Column(Modifier.fillMaxWidth()) {
                                 Row(

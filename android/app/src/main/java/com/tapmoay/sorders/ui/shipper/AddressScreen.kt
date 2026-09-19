@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.core.UserSearch
 import com.tapmoay.sorders.util.resolveStaticUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -147,7 +148,11 @@ fun AddressScreen(
             }
             val shownContacts = remember(vm.contacts, kw) {
                 if (kw.isBlank()) vm.contacts
-                else vm.contacts.filter { it.displayName.contains(kw, true) || it.phone.contains(kw) }
+                // 「联系人」这一段是**纯按人搜**（姓名 / 手机号，后 4 位也命中）——
+                // 走全 App 唯一那份规则（`core/UserSearch`），不在这里再写一遍 contains。
+                // ⚠️ 上面「线路」那一段**故意不用它**：它还要按地址文本匹配，
+                //    套上只认姓名/手机号的规则会让「按地址找线路」直接失效。
+                else vm.contacts.filter { UserSearch.matches(kw, it.displayName, it.phone) }
             }
             val shownLocations = remember(vm.locations, kw) {
                 if (kw.isBlank()) vm.locations

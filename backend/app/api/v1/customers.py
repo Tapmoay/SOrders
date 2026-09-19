@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.rbac import user_role_key
+from app.core.user_search import name_or_phone_like
 from app.database import get_db
 from app.deps import CurrentUser
 from app.models import Customer, Order, User
@@ -25,15 +26,16 @@ def list_customers(
     current: CurrentUser,
     db: Session = Depends(get_db),
     kind: str | None = Query(None, pattern="^(registered|tmp)$"),
-    q: str | None = Query(None, description="名称/电话模糊"),
+    q: str | None = Query(None, description="名称/电话模糊（电话后 4 位也行）"),
 ) -> list[CustomerOut]:
     _require_dispatcher(current)
     stmt = select(Customer).order_by(Customer.id.desc())
     if kind:
         stmt = stmt.where(Customer.kind == kind)
-    if q and q.strip():
-        like = f"%{q.strip()}%"
-        stmt = stmt.where(Customer.name.like(like) | Customer.phone.like(like))
+    # 与账号名册同一份实现（客户档案是"人的另一个视角"，两边口径不许分叉）
+    pred = name_or_phone_like(Customer.name, Customer.phone, q)
+    if pred is not None:
+        stmt = stmt.where(pred)
     return list(db.scalars(stmt).all())
 
 

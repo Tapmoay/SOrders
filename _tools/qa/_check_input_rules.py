@@ -88,13 +88,6 @@ EXCLUDED: dict[str, str] = {
         "给它加数字过滤会把用字母用户名的人挡在登录页外面 —— 这是本检查里唯一一条"
         "**业务上必须放开**的例外，不是「忘了改」。"
     ),
-    "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt::搜姓名 / 手机号 / 车牌": (
-        "这是账号列表的**搜索框**（搜的是别人的姓名/手机号/车牌），不是录入框；"
-        "它要能搜「张」、能搜车牌里的字母。加数字过滤等于把搜索废掉。"
-    ),
-    "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt::搜司机姓名 / 手机号": (
-        "车辆列表的搜索框，同上：搜的是关键词，不是手机号。"
-    ),
     "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt::解决说明（如：已电话联系司机重新派单）": (
         "异常处理说明的**备注框**，标题里那两个字只是举例文案（已电话联系司机重新派单）。"
         "里面要能写中文句子。"

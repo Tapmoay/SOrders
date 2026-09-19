@@ -1,7 +1,8 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 
 from app.core.pagination import finish_page
-from sqlalchemy import or_, select
+from app.core.user_search import name_or_phone_like
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.rbac import Permission, user_role_key
@@ -61,7 +62,7 @@ def list_users(
     current: User = Depends(require_permission(Permission.USER_MANAGE)),
     role: UserRole | None = Query(None),
     is_member: bool | None = Query(None, description="会员筛选（is_member=true 取高级货主）"),
-    q: str | None = Query(None, description="按姓名或手机号模糊搜索"),
+    q: str | None = Query(None, description="按姓名或手机号模糊搜索（手机号后 4 位也行）"),
     skip: int = 0,
     limit: int = Query(100, le=500),
 ) -> list[User]:
@@ -72,9 +73,11 @@ def list_users(
         stmt = stmt.where(User.role == role)
     if is_member is not None:
         stmt = stmt.where(User.is_member.is_(is_member))
-    kw = (q or "").strip()
-    if kw:
-        stmt = stmt.where(or_(User.full_name.like(f"%{kw}%"), User.phone.like(f"%{kw}%")))
+    # 姓名/手机号搜索只有一份实现（`app/core/user_search.py`）：账号名册、客户档案、
+    # 以及 App 侧账本仪表盘三处必须是同一个口径。
+    pred = name_or_phone_like(User.full_name, User.phone, q)
+    if pred is not None:
+        stmt = stmt.where(pred)
     rows = [_to_out(u, current) for u in db.scalars(stmt).all()]
     return finish_page(rows, limit, response)
 

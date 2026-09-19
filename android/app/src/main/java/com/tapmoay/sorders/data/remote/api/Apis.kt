@@ -59,11 +59,15 @@ interface UserApi {
      * 返回 `Response<...>` 是为了**读响应头**：后端 `le=500`，账号超过 500 个时只回最近
      * 500 条并置 `X-Truncated: 1`（2026-09-19 补的头）。不读它 = 第 501 个账号在 App 里
      * **不存在**，而派单员的下一步动作正是"那就新建一个"（撞手机号唯一约束）。
+     *
+     * `q` 是**服务端**的姓名/手机号模糊搜索（后 4 位也命中）：名册页的搜索框走它，
+     * 客户端过滤只能看见这一页（见 `AppRepository.usersPage` 的说明）。
      */
     @GET("users")
     suspend fun listUsers(
         @Query("role") role: String? = null,
         @Query("is_member") isMember: Boolean? = null,
+        @Query("q") q: String? = null,
         @Query("skip") skip: Int = 0,
         @Query("limit") limit: Int = 100,
     ): Response<List<UserDto>>

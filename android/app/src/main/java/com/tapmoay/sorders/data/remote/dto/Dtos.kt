@@ -526,6 +526,12 @@ data class LedgerAccountOut(
     val id: Long? = null,
     @SerialName("temp_name") val tempName: String? = null,
     val name: String = "",
+    /** 注册货主的手机号（临时货主为 null）。没有它 → **同名不同人分不开**、按手机号搜不了。 */
+    val phone: String? = null,
+    /** 这个账号还能不能登录（停用/已删除都算 false）。 */
+    //  ⚠️ 默认 **true**：字段缺席 = 老后端没这个字段，那时把每个货主都标成「已停用」
+    //     是凭空造出来的状态；真正的"已停用"由后端显式回 false。
+    @SerialName("is_active") val isActive: Boolean = true,
     val count: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) val total: String = "0",
 )
@@ -1107,6 +1113,13 @@ data class FreightSettlementDto(
 data class FreightSettlementGroupDto(
     @SerialName("driver_id") val driverId: Long = 0,
     @SerialName("driver_name") val driverName: String = "",
+    /** 司机手机号（去软删后缀）。与货主/批发商账同一套：账本要能按**名称/电话/后 4 位**认人。 */
+    @SerialName("driver_phone") val driverPhone: String? = null,
+    /** 这个司机账号还能不能登录。 */
+    //  ⚠️ 默认 **true**：字段缺席只可能是"老后端没这个字段"，那时把每个司机都标成
+    //     「已停用」是一条**凭空造出来的状态**（比"少显示一个标记"糟得多）。
+    //     真正的"账号不存在/已停用"由后端**显式**回 false。
+    @SerialName("driver_active") val driverActive: Boolean = true,
     val count: Int = 0,
     val total: Double = 0.0,
     val orders: List<FreightSettlementOrderDto> = emptyList(),

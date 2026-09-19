@@ -326,13 +326,23 @@ class AppRepository(private val api: ApiBundle) {
      * 后端 `le=500`：超过 500 个账号时只回最近 500 条并置 `X-Truncated: 1`。
      * 截断位必须**说出来**：派单员在列表里没找到某个人，下一步就是"新建一个"，
      * 而那个账号其实存在（撞手机号唯一约束）。
+     *
+     * [q] 走**服务端**搜索（姓名 / 手机号，**后 4 位天然命中**，见 `app/core/user_search.py`）。
+     * ⛔ 名册页的搜索**必须**用它、不许在客户端过滤手里这一页：第 501 个账号在客户端
+     *    根本不存在，本地过滤物理上找不到他（而"找不到"会被读成"没有这个账号"）。
      */
     suspend fun usersPage(
         role: String? = null,
         memberOnly: Boolean = false,
+        q: String? = null,
     ): PageRows<com.tapmoay.sorders.data.remote.dto.UserDto> =
         api.userApi
-            .listUsers(role = role, isMember = if (memberOnly) true else null, limit = 500)
+            .listUsers(
+                role = role,
+                isMember = if (memberOnly) true else null,
+                q = q?.trim()?.ifBlank { null },
+                limit = 500,
+            )
             .pageRows()
 
     suspend fun drivers() = usersPage(role = "driver").rows

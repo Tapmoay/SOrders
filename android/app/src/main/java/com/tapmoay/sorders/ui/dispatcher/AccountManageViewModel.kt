@@ -9,6 +9,8 @@ import com.tapmoay.sorders.data.remote.api.UserCreateRequest
 import com.tapmoay.sorders.data.remote.api.UserUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** 账户管理可选的账号角色（派单员建号用） */
@@ -64,6 +66,61 @@ class AccountManageViewModel(
     /** 本次服务器上限（`X-Result-Limit`）；null = 老后端没回报，界面不许自己编一个数。 */
     var pageLimit by mutableStateOf<Int?>(null)
         private set
+
+    // ============================================================ 搜索（**服务端**）
+    //
+    // 用户 2026-09-19：「还有其他的比如说，司机管理啊**账户管理**啊。这些也要添加搜索键。
+    // 然后这个搜索键可以根据他们的**名称**还有**电话号码**以及**电话号码的后 4 位**进行搜索」。
+    //
+    // 这一页原来**一个搜索框都没有**（所以"找不到就先新建"在这里是必然会发生的动作）。
+    // 与司机/货主/批发商管理同一套实现、同一个规则：服务端 `?q=`（姓名/手机号，后 4 位也命中）。
+    // ⛔ 不许退回本地过滤：这一页列的是**全部角色**的账号，一页最多 500 条，
+    //    "列表里没有"在这种页面上最容易被读成"这个账号不存在"。
+
+    /** 搜索词（原样保留；防抖只影响发请求的时机）。 */
+    var query by mutableStateOf("")
+
+    /** 服务端命中；**null = 没在搜**（界面要看的是 [users]）。 */
+    var hits by mutableStateOf<List<UserDto>?>(null)
+        private set
+
+    /** 搜索结果的截断位（与名册那一页各自独立）。 */
+    var hitsTruncated by mutableStateOf(false)
+        private set
+    var hitsLimit by mutableStateOf<Int?>(null)
+        private set
+
+    private var searchJob: Job? = null
+
+    /** 界面上要显示的那些账号：在搜就是服务端命中，没在搜就是全部名册。 */
+    val shown: List<UserDto> get() = hits ?: users
+
+    val isSearching: Boolean get() = hits != null
+
+    /** 搜索框的唯一入口（防抖 300ms）。 */
+    fun onQueryChange(v: String) {
+        query = v
+        searchJob?.cancel()
+        val kw = v.trim()
+        if (kw.isEmpty()) {
+            hits = null
+            hitsTruncated = false
+            hitsLimit = null
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(300)
+            try {
+                val page = container.repo.usersPage(q = kw)
+                hits = page.rows
+                hitsTruncated = page.meta.hasMore
+                hitsLimit = page.meta.limit
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            }
+        }
+    }
+
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
@@ -97,6 +154,9 @@ class AccountManageViewModel(
                 users = page.rows
                 truncated = page.meta.hasMore
                 pageLimit = page.meta.limit
+                // 建号/改号/停用之后搜索结果也旧了：正在搜就按同一个词再搜一次，
+                // 否则"刚建好的账号搜不到"会被当成建号失败。
+                if (hits != null) onQueryChange(query)
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

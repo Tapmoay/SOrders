@@ -651,3 +651,43 @@ fun TruncationNote(limit: Int?, howToSeeMore: String, modifier: Modifier = Modif
     )
 }
 
+/**
+ * 搜索框 —— **按人搜索只有这一份实现**（账本仪表盘 + 司机/货主/批发商/账户管理 4 个名册页）。
+ *
+ * 三件事必须同源，各页抄一份就一定会分叉：
+ * 1. **提示文案**（默认 [UserSearch.HINT]）—— 用户得先知道能按手机号后 4 位搜才会去试；
+ * 2. **放大镜图标**（看形状就知道这是搜索，不是录入）；
+ * 3. **一键清空**（`✕`）—— 手机号敲错一位不该让人退格 11 次，这也是"一个一个去选"那类
+ *    抱怨的同一个来源：把力气花在重复劳动上。
+ *
+ * ⚠️ 只负责"长什么样"，**不含**匹配规则：按人匹配走 `core/UserSearch`，服务端走 `?q=`。
+ *    两者是同一条规则的两份实现（客户端的规则在 `UserSearchTest` 里钉着）。
+ */
+@Composable
+fun SearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = com.tapmoay.sorders.core.UserSearch.HINT,
+    enabled: Boolean = true,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium) },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+        trailingIcon = {
+            if (value.isNotEmpty()) {
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
+                }
+            }
+        },
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium,
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+

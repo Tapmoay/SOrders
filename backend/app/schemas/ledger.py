@@ -82,6 +82,16 @@ class LedgerAccountOut(BaseModel):
     id: int | None = None          # shipper_id；临时货主为 None
     temp_name: str | None = None
     name: str
+    #: 注册货主的手机号（临时货主为 None）。
+    #  ⚠️ 2026-09-19 补：**同名不同人**在账本里本来就分不开（两个「张老板」是两行一模一样的卡），
+    #    而用户 2026-09-19 要的搜索键是「名称 / 电话号码 / 电话号码后 4 位」——
+    #    手机号不下发，App 就**只能按名字搜**，等于那条需求只做了一半。
+    #    带软删后缀的（`13800001234_del160`）在这里已经去尾（见 `strip_del_suffix`）：
+    #    给用户看的是一个**能拨的号**。
+    phone: str | None = None
+    #: 这个账号还能不能登录（停用/已删除都算 false）。仪表盘要据此标出来 ——
+    #  一个登不进来的货主混在名单里，用户会以为"他只是没下单"。
+    is_active: bool = True
     count: int
     total: Decimal
 
