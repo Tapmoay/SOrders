@@ -216,7 +216,16 @@ class AppRepository(private val api: ApiBundle) {
         api.ledgerApi.syncFromDelivered(com.tapmoay.sorders.data.remote.api.LedgerSyncBody(shipperId = shipperId))
 
     // ---- 商品 ----
-    suspend fun priceRules() = api.priceRuleApi.listRules()
+    /**
+     * 专属价（批发商特价）。
+     *
+     * ⚠️ **默认按批发商取**（2026-09-19 修）：原来无参数 = 拉全表，
+     * 调用方再 `filter { it.shipperId == 某人 }`。批发商一多，打开一个批发商的定价页
+     * （或下单页每换一次下单主体）都要下载所有批发商 × 所有商品的价格。
+     * 后端一直支持 `?shipper_id=`，只是这一层没接。
+     * `shipperId = null` 才是"全都要"——只有批量调价那种场景需要。
+     */
+    suspend fun priceRules(shipperId: Long? = null) = api.priceRuleApi.listRules(shipperId)
     suspend fun createPriceRule(shipperId: Long, productId: Long, specialUnitPrice: String) =
         api.priceRuleApi.createRule(
             com.tapmoay.sorders.data.remote.api.PriceRuleCreateRequest(shipperId, productId, specialUnitPrice)

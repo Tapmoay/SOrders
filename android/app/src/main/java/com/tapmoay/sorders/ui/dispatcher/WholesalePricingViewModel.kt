@@ -54,9 +54,8 @@ class WholesalePricingViewModel(
         viewModelScope.launch {
             try {
                 val ps = container.repo.products(includeInactive = true)
-                val rs = container.repo.priceRules()
-                    .filter { it.shipperId == shipperId }
-                    .associateBy { it.productId }
+                // 只取**这个批发商**的规则（服务端筛，不是拉全表再 filter —— 见 repo 的注释）
+                val rs = container.repo.priceRules(shipperId).associateBy { it.productId }
                 products = ps
                 rules = rs
             } catch (e: Exception) {
@@ -91,6 +90,11 @@ class WholesalePricingViewModel(
                 } else {
                     container.repo.createPriceRule(shipperId, p.id, raw)
                 }
+                // ⚠️ 存完**清掉这一行的草稿**（2026-09-19）：`fieldValue` 是
+                //    `drafts[p.id] ?: rules[p.id]` —— 草稿永远是第一优先。
+                //    留着它，之后别人（批量调价 / 另一台设备）改了价再 `load()`，
+                //    界面显示的仍是**你上次敲进去的那个数**，而库里已经是另一个数。
+                drafts.remove(p.id)
                 actionResult = p.name + " 特价已保存"
                 load()
             } catch (e: Exception) {
@@ -144,6 +148,10 @@ class WholesalePricingViewModel(
         viewModelScope.launch {
             try {
                 val res = container.repo.batchPriceRules(shipperIds, productIds, mode, value, tierIndex)
+                // ⚠️ 批量调价可能改到**这一页任意一行**，所以草稿要**全部**清掉
+                //    （不清的话，界面上那些你敲过但没保存的数字会盖住刚写进去的新价 ——
+                //    见 savePrice 里那段注释：草稿优先级高于服务端值）。
+                drafts.clear()
                 actionResult = "批量调价成功（" + res.count + " 条）"
                 onDone(res.count)
                 load()

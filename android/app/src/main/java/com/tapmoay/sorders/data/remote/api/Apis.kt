@@ -482,8 +482,17 @@ interface ProductApi {
 }
 
 interface PriceRuleApi {
+    /**
+     * 专属价列表。
+     *
+     * ⚠️ **必须能按批发商取**（2026-09-19）：后端 `GET /price-rules` 一直支持 `?shipper_id=`，
+     * 而这里原来没有参数 —— 于是「批发商定价」页与「下单页」都是**拉全表再在客户端筛**。
+     * 批发商一多，打开一个批发商的定价页要下载**所有批发商 × 所有商品**的价格，
+     * 而下单页每换一次下单主体也要再拉一遍全表。
+     * 传 `shipperId = null` 才是"全都要"（只有批量调价那种场景需要）。
+     */
     @GET("price-rules")
-    suspend fun listRules(): List<PriceRuleDto>
+    suspend fun listRules(@Query("shipper_id") shipperId: Long? = null): List<PriceRuleDto>
 
     @POST("price-rules")
     suspend fun createRule(@Body body: PriceRuleCreateRequest): PriceRuleDto

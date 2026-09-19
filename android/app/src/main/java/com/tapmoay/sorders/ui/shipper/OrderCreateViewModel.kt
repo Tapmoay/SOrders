@@ -212,7 +212,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         }
         viewModelScope.launch {
             try {
-                val loaded = container.repo.priceRules().filter { it.shipperId == sid }.associateBy { it.productId }
+                // 只取**这个下单主体**的专属价（服务端筛，不是拉全表再 filter —— 2026-09-19 修）：
+                // 原来这里每换一次主体就要下载所有批发商 × 所有商品的价格。
+                val loaded = container.repo.priceRules(sid).associateBy { it.productId }
                 // 请求回来时主体又被换过就别写了（`priceRulesShipper` 已经指到新主体）
                 if (shipperId == sid || (shipperId == null && myShipperId == sid)) {
                     priceRules = loaded
