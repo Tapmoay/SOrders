@@ -28,6 +28,7 @@ from app.models.notification import Notification
 from app.models.operation_log import OperationLog
 from app.models.order import Order, OrderProduct
 from app.models.place import Place
+from app.models.product import ProductCostHistory
 from app.models.user import User
 from app.services.image_archive import (
     archive_images_older_than,
@@ -289,6 +290,18 @@ def purge_expired_data(db: Session) -> int:
                         .execution_options(synchronize_session=False)).rowcount
     except Exception:
         logger.warning("logs/cashflows/notifications 3年清理跳过", exc_info=True)
+    # 4) 成本价时间轴：**跟着账本走**（用户 2026-09-19：「这个保留是跟着他的账本走的。
+    #    假如他的账本是一直保留着，那他这个成本价就一直保留着」）→ 与 ledgers 同一档 3 年。
+    #    ⚠️ 判据必须用 `effective_to`（**这段价什么时候结束**），不是 `effective_from`：
+    #       用后者会把"三年前定的价、现在还在用"那一行删掉 —— 而它正是当前生效价，
+    #       删了之后这个商品的成本时间轴就断在最需要它的地方。
+    try:
+        n += db.execute(delete(ProductCostHistory).where(
+            ProductCostHistory.effective_to.isnot(None),
+            ProductCostHistory.effective_to < cutoff,
+        ).execution_options(synchronize_session=False)).rowcount
+    except Exception:
+        logger.warning("product_cost_history 3年清理跳过", exc_info=True)
     logger.info("3 年期数据清理完成 %s 行", n)
     return n
 

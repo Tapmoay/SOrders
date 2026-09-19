@@ -14,6 +14,8 @@ from app.deps import parse_date_range, require_permission
 from app.models import InventoryMovement, Product, User
 from app.models.enums import OperationAction
 from app.schemas.inventory import MovementCreate, MovementOut
+from app.services import cost_history
+from app.services.cost_history import record_cost
 from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -110,11 +112,6 @@ def create_movement(
     # 复核用的权威值：从库里重新读回来（不要拿"算出来的那个数"去写日志）
     db.refresh(product)
     new_stock = product.stock or 0
-    # 进货价（选填）：填了就把商品成本价更新成它 —— 见 `MovementCreate.unit_cost` 的口径说明。
-    # ⚠️ 与库存加减在**同一个事务**里提交：不会出现"货进了、成本没改"或反过来。
-    cost_changed = body.unit_cost is not None and Decimal(body.unit_cost) != cost_before
-    if body.unit_cost is not None:
-        product.cost_price = Decimal(body.unit_cost)
     row = InventoryMovement(
         product_id=body.product_id,
         change=body.change,
@@ -129,6 +126,22 @@ def create_movement(
         unit_cost=Decimal(body.unit_cost) if body.unit_cost is not None else None,
     )
     db.add(row)
+    # 成本价（选填）：填了就走**唯一写入口** `record_cost` —— 它同时更新
+    # `products.cost_price` 与成本价生效区间表（用户 2026-09-19 要的"成本价时间轴"）。
+    # ⛔ 不许在这里写 `product.cost_price = …`：那样价格变了、区间表没变，
+    #    "这段时间的成本价是多少"从此对不上账，而且**界面上完全看不出来**。
+    # ⚠️ 与库存加减在**同一个事务**里提交：不会出现"货进了、成本没改"或反过来。
+    if body.unit_cost is not None:
+        db.flush()  # 要 row.id 才能把"这条价是哪批货带进来的"记进区间表
+        record_cost(
+            db,
+            product,
+            body.unit_cost,
+            source=cost_history.SOURCE_PURCHASE,
+            operator_id=current.id,
+            movement_id=row.id,
+        )
+    cost_changed = body.unit_cost is not None and Decimal(body.unit_cost) != cost_before
     # ⚠️ 库存调整**必须留痕**：它和改价是同一类事（改了钱/货的账，月底对不上要能回查）。
     #    这一条以前漏了——审计页上永远看不到谁把库存改了多少。
     #    与流水在**同一个事务**里提交，不会出现"货动了、日志没写"。

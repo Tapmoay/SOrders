@@ -54,10 +54,18 @@ object AiRowShaper {
      *    所以编号对模型是纯粹的多余信息。**从源头不给，才是"回答里不可能出现编号"的唯一可靠保证**——
      *    靠提示词叮嘱是会漏的。
      * 2. **成本 / 毛利**：`cost*` / `profit` / `margin`，以及中文的成本/毛利。
+     *    ⚠️ 这一类**可以由用户主动放开**（[allowCost]），见下面的说明。
+     *
+     * @param allowCost 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**默认关**）。
+     *   ⛔ 默认必须是 `false`：成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
+     *   那是**用户的数据外发决定**，不该由一次 App 升级替他做。
+     *   放开之后 AI 才能回答"这个商品成本多少 / 这个月毛利多少 / 这货成本怎么变的"，
+     *   也才能申请改成本价与录进货价（那是用户 2026-09-19 明确要求的）。
      */
-    fun isHiddenField(key: String): Boolean {
+    fun isHiddenField(key: String, allowCost: Boolean = false): Boolean {
         val k = key.lowercase()
         if (k == "id" || k.endsWith("_id")) return true
+        if (allowCost) return false
         return k.contains("cost") || k.contains("profit") || k.contains("margin") ||
             key.contains("成本") || key.contains("毛利")
     }
@@ -79,24 +87,24 @@ object AiRowShaper {
     }
 
     /** 递归剔除不该给模型的字段（判据见 [isHiddenField]）。 */
-    fun stripSensitive(el: JsonElement): JsonElement = when (el) {
+    fun stripSensitive(el: JsonElement, allowCost: Boolean = false): JsonElement = when (el) {
         is JsonObject -> JsonObject(
-            el.entries.filter { !isHiddenField(it.key) }
-                .associate { it.key to stripSensitive(it.value) },
+            el.entries.filter { !isHiddenField(it.key, allowCost) }
+                .associate { it.key to stripSensitive(it.value, allowCost) },
         )
-        is JsonArray -> JsonArray(el.map { stripSensitive(it) })
+        is JsonArray -> JsonArray(el.map { stripSensitive(it, allowCost) })
         else -> el
     }
 
     /** 逐行抹平：保留顶层标量；嵌套对象展开一层（键名冲突时以先到者为准）；数组只记条数。 */
-    fun flatten(row: JsonObject): JsonObject = JsonObject(
+    fun flatten(row: JsonObject, allowCost: Boolean = false): JsonObject = JsonObject(
         buildMap {
             row.forEach { (k, v) ->
-                if (isHiddenField(k)) return@forEach
+                if (isHiddenField(k, allowCost)) return@forEach
                 when (v) {
                     is JsonPrimitive -> if (v !is JsonNull) put(k, v)
                     is JsonObject -> v.forEach { (k2, v2) ->
-                        if (!isHiddenField(k2) && v2 is JsonPrimitive && v2 !is JsonNull) put(k2, v2)
+                        if (!isHiddenField(k2, allowCost) && v2 is JsonPrimitive && v2 !is JsonNull) put(k2, v2)
                     }
                     is JsonArray -> put(k + "_count", JsonPrimitive(v.size))
                 }
@@ -105,8 +113,8 @@ object AiRowShaper {
     )
 
     /** 先剔除不该给模型的字段（成本 + 内部编号）再抹平（类型上保证结果仍是对象）。 */
-    fun stripAndFlatten(row: JsonObject): JsonObject =
-        flatten((stripSensitive(row) as? JsonObject) ?: row)
+    fun stripAndFlatten(row: JsonObject, allowCost: Boolean = false): JsonObject =
+        flatten((stripSensitive(row, allowCost) as? JsonObject) ?: row, allowCost)
 
     /** 把行里「名字」类字段统一过一遍 [safeName]（各端点里名字的键名不统一，所以给一组）。 */
     fun normalizeNames(row: JsonObject): JsonObject = JsonObject(
@@ -120,7 +128,8 @@ object AiRowShaper {
     )
 
     /** 一行完整加工：剔字段 → 抹平 → 名字兜底。所有工具都该走这个。 */
-    fun shape(row: JsonObject): JsonObject = normalizeNames(stripAndFlatten(row))
+    fun shape(row: JsonObject, allowCost: Boolean = false): JsonObject =
+        normalizeNames(stripAndFlatten(row, allowCost))
 
     /**
      * 宽松取出「行数组」：裸数组；对象则先试已知包装键，**再退到"第一个对象数组"**。

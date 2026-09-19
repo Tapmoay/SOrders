@@ -37,10 +37,13 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.data.remote.dto.ProductCostHistoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProductPurple
+import com.tapmoay.sorders.ui.theme.QuickPriceGreen
+import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.resolveStaticUrl
 import com.tapmoay.sorders.util.trimMoneyZeros
@@ -65,6 +68,7 @@ fun ProductsScreen(
      *    声明在 content lambda 里的话外面看不见（第一版就是这么写的，编译报 Unresolved）。
      */
     var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }
+    /** 成本价历史弹窗（`⋮ → 成本价历史`）：状态在 VM 里（要拉数据），这里只读它。 */
 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
@@ -160,6 +164,7 @@ fun ProductsScreen(
                                         onDelete = { vm.delete(p) },
                                         onOpenPricing = { onOpenPricing(p.id) },
                                         onQuickPrice = { quickPriceFor = p },
+                                        onCostHistory = { vm.openCostHistory(p) },
                                     )
                                 }
                             }
@@ -177,6 +182,16 @@ fun ProductsScreen(
             busy = vm.acting,
             onConfirm = { price -> vm.updateDefaultPrice(p, price) { quickPriceFor = null } },
             onDismiss = { quickPriceFor = null },
+        )
+    }
+
+    // 成本价历史（只读）：这个商品的价格从什么时候到什么时候是多少
+    vm.costHistoryFor?.let { p ->
+        CostHistoryDialog(
+            p = p,
+            rows = vm.costHistory,
+            loading = vm.costHistoryLoading,
+            onDismiss = { vm.costHistoryFor = null },
         )
     }
 
@@ -593,6 +608,7 @@ private fun ProductCard(
     onDelete: () -> Unit,
     onOpenPricing: () -> Unit,
     onQuickPrice: () -> Unit,
+    onCostHistory: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
 
@@ -677,6 +693,15 @@ private fun ProductCard(
                             },
                             onClick = { menu = false; onToggle() },
                         )
+                        // 成本价历史（用户 2026-09-19 要的溯源能力）：这个价从什么时候到什么时候是多少。
+                        // 只读 —— 改价只有两个入口（这里下面那个快捷改价改售价；成本价在编辑页/进货时改）。
+                        DropdownMenuItem(
+                            text = { Text("成本价历史") },
+                            leadingIcon = {
+                                Icon(Icons.Default.History, contentDescription = null, tint = Color(QuickPriceGreen))
+                            },
+                            onClick = { menu = false; onCostHistory() },
+                        )
                         DropdownMenuItem(
                             text = { Text("编辑") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
@@ -693,11 +718,11 @@ private fun ProductCard(
                 }
                 // 「改价」：只改默认售价（用户要的快捷入口，见上面那段注释）
                 //
-                // ⚠️ 颜色用**商品管理的语义色紫**，不是钱的橙（用户 2026-09-19：
-                //    「那个改价的按钮换个颜色，它与那个售价的颜色撞了一个色，换语义颜色」）——
-                //    同一个卡片上「售价」那个数字已经是 `MoneyOrange`，再拿它染按钮就撞了；
-                //    而这个按钮是**商品管理里的一个操作**，用模块色（`ProductPurple`）正好，
-                //    紫色本来还被卡片上的分类 chip 占着，分类去掉之后这块色就空出来了。
+                // ⚠️ 颜色用**低饱和绿** `QuickPriceGreen`（用户 2026-09-19 第二次点名这个按钮：
+                //    「你商品页面那个改价的那个图标颜色呀，不要用紫色，用绿色，是那种低饱和的绿色」）。
+                //    上一版是商品管理的模块紫 —— 而这一页**同屏已经有两处紫**了
+                //    （底部导航栏的「商品新增 / 分类管理」），三处紫会让人以为它们是同一类动作。
+                //    而钱的橙更不行：旁边「售价」那个数字就是橙的，那是第一版就撞过的色。
                 Column(
                     Modifier
                         .clip(MaterialTheme.shapes.small)
@@ -708,13 +733,115 @@ private fun ProductCard(
                     Icon(
                         Icons.Default.CurrencyYuan,
                         contentDescription = "改价",
-                        tint = Color(ProductPurple),
+                        tint = Color(QuickPriceGreen),
                         modifier = Modifier.size(18.dp),
                     )
-                    Text("改价", style = MaterialTheme.typography.labelSmall, color = Color(ProductPurple))
+                    Text("改价", style = MaterialTheme.typography.labelSmall, color = Color(QuickPriceGreen))
                 }
             }
         }
+    }
+}
+
+/**
+ * 成本价历史（只读）：**这个商品的价格从什么时候到什么时候是多少**。
+ *
+ * 用户 2026-09-19：「我们保留的时候不仅保留成本价，还保留这个成本价存在的时间，
+ * 比如说他是从什么时候开始变的、从什么时候结束的，精确到小时和分钟，
+ * 这样子的话，我们就能方便且精确地算出来在这段时间的毛利率是多少」。
+ *
+ * 三件事必须说清楚，少一件这张表就会骗人：
+ * 1. **时间要换算到设备时区**（后端发的是 naive UTC）—— 直接用会早 8 小时，
+ *    而"这段时间"算错 8 小时正是这个功能要消灭的东西（见 `util/TimeFmt.kt`）；
+ * 2. **最后一段写「至今」**，不是一个空白或一个假的结束时间；
+ * 3. **来源要标出来**（建商品 / 进货 / 编辑 / 老数据回填）—— 尤其 `BACKFILL`：
+ *    那一段的起点是"商品创建时间"，是**推断**出来的，不是真的那一刻改的价，
+ *    不标出来用户会拿它去对账。
+ */
+@Composable
+private fun CostHistoryDialog(
+    p: ProductDto,
+    rows: List<ProductCostHistoryDto>,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val unit = p.unit.ifBlank { "件" }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("成本价历史", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column {
+                Text(
+                    p.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(10.dp))
+                when {
+                    loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("加载中…", style = MaterialTheme.typography.bodySmall)
+                    }
+                    rows.isEmpty() -> Text(
+                        "这个商品还没有成本价记录。入库时填「进货价」、或在编辑页填成本价，之后每次改动都会记一段。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> Column(
+                        Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        rows.forEach { h ->
+                            CostHistoryRow(h, unit)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
+@Composable
+private fun CostHistoryRow(h: ProductCostHistoryDto, unit: String) {
+    val live = h.effectiveTo == null
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "¥" + trimMoneyZeros(h.costPrice) + " / " + unit,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(QuickPriceGreen),
+                modifier = Modifier.weight(1f),
+            )
+            if (live) {
+                Surface(color = Color(0xFFE3F1E8), shape = MaterialTheme.shapes.small) {
+                    Text(
+                        "至今",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(QuickPriceGreen),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            formatDateTime(h.effectiveFrom) + " 起" +
+                (h.effectiveTo?.let { " ～ " + formatDateTime(it) } ?: "（仍在使用）"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        val src = when (h.source) {
+            "CREATE" -> "建商品时填的"
+            "PURCHASE" -> "进货时录的"
+            "BACKFILL" -> "老数据回填（起点取商品创建时间，是推断值）"
+            else -> "在编辑页改的"
+        }
+        Text(src, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
     }
 }
 

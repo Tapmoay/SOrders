@@ -7,6 +7,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.api.ProductCreateRequest
 import com.tapmoay.sorders.data.remote.api.ProductUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
+import com.tapmoay.sorders.data.remote.dto.ProductCostHistoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.launch
@@ -40,6 +41,18 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
     var draftActive by mutableStateOf(true)
     /** 本地已选图片路径（保存时上传）；null=未换图 */
     var draftImageLocal by mutableStateOf<String?>(null)
+
+    /**
+     * 成本价历史（商品卡 `⋮ → 成本价历史`）：non-null = 那个商品的弹窗开着。
+     *
+     * 用户 2026-09-19：「保留成本价，还保留这个成本价存在的时间，从什么时候开始变、
+     * 从什么时候结束，精确到小时和分钟，这样子我们就能方便且精确地算出来在这段时间的毛利率」。
+     * 数据是**只读**的（成本价的改动只能在编辑页/进货时发生），所以这里只有加载，没有写。
+     */
+    var costHistoryFor by mutableStateOf<ProductDto?>(null)
+    var costHistory by mutableStateOf<List<ProductCostHistoryDto>>(emptyList())
+    /** 历史单独一个 loading：它不该把整页顶成 LoadingBox（商品列表已经是好的） */
+    var costHistoryLoading by mutableStateOf(false)
 
     val colorOptions = listOf(
         "#1565C0" to "物流蓝",
@@ -250,6 +263,30 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
                 error = toApiException(e).message
             } finally {
                 acting = false
+            }
+        }
+    }
+
+    /**
+     * 打开某个商品的**成本价历史**（只读）。
+     *
+     * 为什么单独拉一次而不是跟着商品列表下发：这段历史只在有人点开时才需要，
+     * 而商品列表是每次进页面都拉 —— 挂在列表上会让每页多背几百行没人看的数据。
+     */
+    fun openCostHistory(p: ProductDto) {
+        costHistoryFor = p
+        costHistory = emptyList()
+        costHistoryLoading = true
+        viewModelScope.launch {
+            try {
+                costHistory = container.repo.productCostHistory(p.id)
+            } catch (e: Exception) {
+                // 拉失败要**说出来**，不能显示成"这个商品没有成本记录"——
+                // 那两句是完全不同的结论（一句是网络问题，一句是账实不符）
+                error = toApiException(e).message
+                costHistoryFor = null
+            } finally {
+                costHistoryLoading = false
             }
         }
     }

@@ -31,7 +31,7 @@ from app.models.notification import Notification
 from app.models.operation_log import OperationLog
 from app.models.order import Order, OrderProduct
 from app.models.place import Place, PlaceUserUsage
-from app.models.product import PriceRule, Product
+from app.models.product import PriceRule, Product, ProductCostHistory
 from app.models.product_category import ProductCategory
 from app.models.product_visibility import UserProductVisibility
 from app.models.shipper import ShipperAddress, ShipperContact, ShipperLocation
@@ -70,6 +70,7 @@ __all__ = [
     "PriceRule",
     "Product",
     "ProductCategory",
+    "ProductCostHistory",
     "ShipperAddress",
     "ShipperContact",
     "ShipperLocation",

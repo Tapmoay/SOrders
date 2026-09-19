@@ -44,6 +44,14 @@ interface AiToolset {
     val enabledReadModules: Set<String>
 
     /**
+     * 用户是否允许把**成本 / 毛利**给模型看（`AiKeyStore::costVisible`，**默认关**）。
+     *
+     * 提示词里"成本这块你能不能看"那句话**必须跟着它变**：写死成"你没有权限"是错的 ——
+     * 用户打开开关之后模型还照旧说没权限，他会以为开关坏了（"操作与逻辑不匹配"）。
+     */
+    val allowCost: Boolean
+
+    /**
      * 执行工具。**任何失败都必须返回 `{"error":"人话"}` 字符串，绝不抛异常**
      * （抛出去会打断整个 agent 循环）；唯一允许抛出的是 [CancellationException]。
      */
@@ -79,6 +87,19 @@ class AiTools(
     /** 通用读工具的开关（按模块，见 [AiReadCatalog]）。默认全开。 */
     private val readModules: () -> Set<String> = { AiReadCatalog.modules().toSet() },
     /**
+     * **允许把成本 / 毛利给模型看吗**（设置页那个开关，默认**关**）。
+     *
+     * 用户 2026-09-19：「只要是我们改过、比如说新加了一些功能，AI 它都要具备操纵这些功能的能力」。
+     * 而"成本"这一块**本来是拦死的**（v3.7 定的红线：成本价一旦进模型上下文，
+     * 它就出现在聊天记录里、可能被截图外发）。两个要求都成立，所以做成**用户自己的开关**：
+     *
+     * - **默认关** → 升级不会替用户把成本价发出去（这是数据外发决定，不该由升级代做）；
+     * - 打开之后 AI 才能读成本/毛利、查成本价历史、申请改成本价与录进货价。
+     *
+     * 做成 `() -> Boolean` 而不是 `Boolean`：设置页一改立刻生效（与 [readModules] 同一手法）。
+     */
+    private val allowCostProvider: () -> Boolean = { false },
+    /**
      * 「记住」工具的实现：把一条事实写进**本机**长期记忆。
      *
      * 做成回调而不是直接依赖 [AiMemoryStore]，有两个原因：
@@ -105,7 +126,7 @@ class AiTools(
 ) : AiToolset {
 
     /** 通用「读列表」服务（`read_data` 工具的实现，见 [AiReadService]）。 */
-    private val reader: AiReadService by lazy { AiReadService(repo, readModules, roleProvider) }
+    private val reader: AiReadService by lazy { AiReadService(repo, readModules, allowCostProvider, roleProvider) }
 
     /**
      * 工具分组：设置页按这个分两栏渲染（见 [AiTools.Companion.settingsItems]）。
@@ -125,6 +146,7 @@ class AiTools(
     override val role: AiRole? get() = roleProvider()
 
     override val enabledReadModules: Set<String> get() = readModules()
+    override val allowCost: Boolean get() = allowCostProvider()
 
     override val specs: List<ToolSpec>
         get() {
@@ -647,7 +669,8 @@ class AiTools(
      * 留这几个私有转发只是为了不改动原有调用点；**不要在这里重新实现一遍**——
      * 一旦有两份"剔字段"的实现，漏的那个就是把编号/成本泄露给用户的那个。
      */
-    private fun stripAndFlatten(row: JsonObject): JsonObject = AiRowShaper.stripAndFlatten(row)
+    private fun stripAndFlatten(row: JsonObject): JsonObject =
+        AiRowShaper.stripAndFlatten(row, allowCostProvider())
 
     private fun safeName(raw: String?): String = AiRowShaper.safeName(raw)
 
@@ -655,7 +678,7 @@ class AiTools(
 
     private fun rowsOf(root: JsonElement): List<JsonObject> = AiRowShaper.rowsOf(root)
 
-    private fun isHiddenField(key: String): Boolean = AiRowShaper.isHiddenField(key)
+    private fun isHiddenField(key: String): Boolean = AiRowShaper.isHiddenField(key, allowCostProvider())
 
     private fun String.asJsonObjectOrNull(): JsonObject? = try {
         ApiClient.json.parseToJsonElement(this) as? JsonObject

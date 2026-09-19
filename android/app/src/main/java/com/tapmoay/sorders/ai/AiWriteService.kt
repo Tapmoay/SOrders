@@ -264,13 +264,27 @@ interface AiWriteDataSource {
 
     // ---- 商品 / 定价 / 库存 ----
     suspend fun createProduct(name: String, defaultUnitPrice: String, unit: String, stock: Int, lowStockAlert: Int)
-    /** 部分更新：只带要改的键（`name` / `default_unit_price` / `unit` / `low_stock_alert` / `is_active`）。 */
+    /**
+     * 部分更新：只带要改的键（`name` / `default_unit_price` / `unit` / `low_stock_alert` / `is_active`）。
+     *
+     * ⚠️ `cost_price` 也在里面，但它**只有在用户打开了「允许 AI 查看成本与毛利」时才放行**
+     * （见 [AiWriteService] 的 `allowCost`）：成本价一旦进模型上下文就会留在聊天记录里，
+     * 所以这是用户的数据外发决定，默认不做。
+     */
     suspend fun updateProduct(id: Long, fields: JsonObject)
     suspend fun deleteProduct(id: Long)
     suspend fun createPriceRule(shipperId: Long, productId: Long, price: String)
     suspend fun updatePriceRule(ruleId: Long, price: String)
     suspend fun deletePriceRule(ruleId: Long)
-    suspend fun createMovement(productId: Long, change: Int, note: String)
+
+    /**
+     * 库存调整。[unitCost] = 这批货的**进货价**（选填，只在入库时有意义）。
+     *
+     * 填了后端做两件事：记在流水上（毛利率的加权平均进货价从它算）+ 更新商品成本价
+     * 并往成本价时间轴里开一段新区间。
+     * ⚠️ 与 `updateProduct` 的 `cost_price` 同一条门：**开关关着就不许传**。
+     */
+    suspend fun createMovement(productId: Long, change: Int, note: String, unitCost: String?)
 
     // ---- 商品分类名册 + 商品可见范围（v3.43：用户要「AI 建分组、管排序、指定谁能看哪些商品」）----
 
@@ -945,8 +959,10 @@ class RepoWriteDataSource(
         stock: Int,
         lowStockAlert: Int,
     ) {
-        // ⚠️ cost_price 刻意不传（用 DTO 默认 "0"）：成本是红线，不许进模型上下文，
-        // 也就不许由模型来设。要填成本请在「商品管理」页面上填。
+        // ⚠️ **新建**商品时不带 cost_price（用 DTO 默认 "0"）：新商品通常还没进过货，
+        //    成本价是"还不知道"的状态，硬要模型填一个只会逼它编。
+        //    成本价之后有两个**真实**入口：改商品（`products.update` 的 cost_price 字段）
+        //    与进货入库（`inventory.adjust` 的 unit_cost），两者都要过 `allowCost` 那道门。
         repo.createProduct(
             com.tapmoay.sorders.data.remote.api.ProductCreateRequest(
                 name = name,
@@ -971,7 +987,9 @@ class RepoWriteDataSource(
                 isActive = fields.str("is_active")?.toBooleanStrictOrNull(),
                 unit = fields.str("unit"),
                 lowStockAlert = fields.str("low_stock_alert")?.toIntOrNull(),
-                // cost_price 同样不传：见 createProduct 的注释
+                // ⚠️ cost_price **不在这里判**：门开在 `AiWriteService`（所有动作的唯一入口）。
+                //    分散到各个数据源方法里迟早漏一个，而漏掉的后果是"成本价被写进去了"。
+                costPrice = fields.str("cost_price"),
             ),
         )
     }
@@ -988,12 +1006,14 @@ class RepoWriteDataSource(
 
     override suspend fun deletePriceRule(ruleId: Long) = repo.deletePriceRule(ruleId)
 
-    override suspend fun createMovement(productId: Long, change: Int, note: String) {
+    override suspend fun createMovement(productId: Long, change: Int, note: String, unitCost: String?) {
         repo.createMovement(
             com.tapmoay.sorders.data.remote.dto.InventoryMovementCreateRequest(
                 productId = productId,
                 change = change,
                 note = note,
+                // 同一个门：进货价也是成本，见上面那段注释
+                unitCost = unitCost,
             ),
         )
     }
@@ -1558,9 +1578,29 @@ class AiWriteService(
      * 所以这一层是**真正的门**，界面只是"不给你看"。
      */
     private val roleProvider: () -> AiRole? = { AiRole.DISPATCHER },
+    /**
+     * 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**默认关**）。
+     *
+     * 这是成本那两扇门**唯一**的开关：`updateProduct` 的 `cost_price` 与
+     * `createMovement` 的 `unit_cost` 都要过它。
+     * ⛔ 门必须开在**数据源这一层**，不能只靠"动作清单里不列这两个字段"——
+     * 模型仍然能从提示词知道它们存在，而且可以被越权调用（与 [roleProvider] 同一条纪律）。
+     */
+    private val allowCost: () -> Boolean = { false },
     /** 撤回方案的暂存区（App 本地内存）。 */
     private val undos: AiUndoStore = AiUndoStore(),
 ) {
+    /**
+     * 参数里带没带**成本类**字段（`cost_price` / `unit_cost`）；带了解释为什么现在不能用。
+     *
+     * ⚠️ 这两个键与 `AiWriteMasterData` 里那两个字段的 `key` **必须一致**（写错了门就形同虚设，
+     *    而且不会有任何报错）。判据钉在 `_check_ai_guardrails.py` 里。
+     */
+    private fun costFieldIn(params: JsonObject): String? =
+        if (allowCost()) null else COST_PARAMS.firstOrNull { params.containsKey(it) }
+
+    /** 成本类字段的键名（见 [costFieldIn]）。改这里必须同时改 `AiWriteMasterData` 里那两个 `key`。 */
+    private val COST_PARAMS = listOf("cost_price", "unit_cost")
     /**
      * 动作 id → 处理器。
      *
@@ -1649,6 +1689,20 @@ class AiWriteService(
         }
         val handler = handlers[action.id]
             ?: return AiWriteOutcome.Rejected("操作「${action.title}」暂未实现。")
+
+        // ---- 成本那道门（唯一一处）----
+        // 用户 2026-09-19：「我们改过、新加的功能 AI 都要能操作」。成本这一块本来是拦死的
+        // （成本价一旦进模型上下文就留在聊天记录里、可能被截图外发），现在改成**用户自己的开关**
+        // （`AiKeyStore::costVisible`，默认关）。开关关着时：**不发卡、直接说清楚**，
+        // 而不是"发一张卡、点了什么都不发生"——后者是本项目最贵的一类坑。
+        costFieldIn(params)?.let { field ->
+            return AiWriteOutcome.Rejected(
+                "「$field」（成本/进货价）现在是关着的：打开它之后我才能读成本、毛利，" +
+                    "也才能帮你改成本价或记进货价。\n" +
+                    "位置：AI 助手 → 设置 → 「允许 AI 查看成本与毛利」。\n" +
+                    "在此之前，成本价请在「商品管理 → 编辑」里改，进货价在「库存管理 → 入库」里填。",
+            )
+        }
 
         return try {
             handler.prepare(params)

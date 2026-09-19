@@ -22,6 +22,7 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
+| `logout` | 写 | `POST /api/v1/auth/logout` | 登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）+ 断开长连接。 |  |
 | `login_json` | 写 | `POST /api/v1/auth/login` | OAuth2 兼容：username 字段填手机号。 |  |
 | `login_form` | 写 | `POST /api/v1/auth/token` | OAuth2 兼容：username 字段填手机号。 |  |
 
@@ -30,6 +31,7 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `list_cash_flows` | 只读 | `GET /api/v1/cash-flows` |  |  |
+| `cash_flow_summary` | 只读 | `GET /api/v1/cash-flows/summary` | **服务端**汇总流入/流出/净额（与列表同一套筛选）。 |  |
 
 ## 客户（`customers`）
 
@@ -99,7 +101,7 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `list_movements` | 只读 | `GET /api/v1/inventory/movements` |  |  |
-| `create_movement` | 写 | `POST /api/v1/inventory/movements` |  |  |
+| `create_movement` | 写 | `POST /api/v1/inventory/movements` | 手工出入库：**判据与加减在同一条 SQL 里**（2026-09-19 审计）。 |  |
 | `inventory_summary` | 只读 | `GET /api/v1/inventory/summary` | 库存概览：商品名 + 当前库存 + 在途占用量（派单中未送达，低库存排前）。 |  |
 
 ## 账本（`ledger`）
@@ -114,8 +116,9 @@
 | `get_entry` | 只读 | `GET /api/v1/ledger/entries/{entry_id}` |  |  |
 | `update_entry` | 写 | `PATCH /api/v1/ledger/entries/{entry_id}` | 派单员：订单自动同步行与手动行均可改明细；修改订单来源行时会尝试回写对应订单明细。 |  |
 | `delete_entry` | 写 | `DELETE /api/v1/ledger/entries/{entry_id}` |  |  |
-| `create_export_job` | 只读 | `POST /api/v1/ledger/export-jobs` |  |  |
+| `create_export_job` | 只读 | `POST /api/v1/ledger/export-jobs` | 建一个账本导出任务（异步生成，完成后发站内信带下载链接）。 |  |
 | `get_export_job` | 只读 | `GET /api/v1/ledger/export-jobs/{job_id}` |  |  |
+| `download_export_job` | 只读 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | 下载导出的账本文件（**带鉴权**）。 |  |
 | `create_receipt_endpoint` | 写 | `POST /api/v1/ledger/receipts` | 客户收款单（逐单核销默认）：绑定订单并标记 paid=1；生成资金流水。 |  |
 | `list_receipts` | 只读 | `GET /api/v1/ledger/receipts` |  |  |
 
@@ -124,7 +127,7 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `unread_count` | 只读 | `GET /api/v1/notifications/unread-count` |  |  |
-| `list_notifications` | 只读 | `GET /api/v1/notifications` | 消息列表。 |  |
+| `list_notifications` | 只读 | `GET /api/v1/notifications` |  |  |
 | `notify_price_change` | 写 | `POST /api/v1/notifications/price-notify` | 派单员：价格变更后向选定货主发送站内通知并推送 Socket。 |  |
 | `create_notification` | 写 | `POST /api/v1/notifications` |  |  |
 | `mark_all_read` | 写 | `POST /api/v1/notifications/read-all` |  |  |
@@ -193,7 +196,7 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `batch_price_rules` | 写 | `POST /api/v1/price-rules/batch` | 批量调价：多批发商 × 多商品 一次写价。 |  |
-| `list_price_rules` | 只读 | `GET /api/v1/price-rules` |  |  |
+| `list_price_rules` | 只读 | `GET /api/v1/price-rules` | 专属价列表。三个筛选条件的关系是**先锁角色、再叠加**，谁也绕不过角色那一层： |  |
 | `create_price_rule` | 写 | `POST /api/v1/price-rules` |  |  |
 | `get_price_rule` | 只读 | `GET /api/v1/price-rules/{rule_id}` | 日志里要写**人看得懂的名字**，不是编号（编号在审计页上没有任何意义）。 |  |
 | `update_price_rule` | 写 | `PATCH /api/v1/price-rules/{rule_id}` |  |  |
@@ -215,6 +218,7 @@
 |---|---|---|---|---|
 | `list_products` | 只读 | `GET /api/v1/products` |  |  |
 | `create_product` | 写 | `POST /api/v1/products` |  |  |
+| `product_cost_history` | 只读 | `GET /api/v1/products/cost-history` | 成本价的**生效时间轴**（新的在前）：某个价从什么时候到什么时候、是哪来的。 |  |
 | `get_product` | 只读 | `GET /api/v1/products/{product_id}` |  |  |
 | `update_product` | 写 | `PATCH /api/v1/products/{product_id}` | 按请求中**实际出现的字段**更新（含显式 name_color=null 以清除颜色）。 |  |
 | `upload_product_image` | 写 | `POST /api/v1/products/{product_id}/image` | 上传商品展示图，写入 image_url（静态路径）。 |  |
@@ -288,3 +292,4 @@
 | `list_vehicles` | 只读 | `GET /api/v1/vehicles` |  |  |
 | `create_vehicle` | 写 | `POST /api/v1/vehicles` |  |  |
 | `update_vehicle` | 写 | `PATCH /api/v1/vehicles/{vehicle_id}` |  |  |
+| `set_vehicle_driver` | 写 | `POST /api/v1/vehicles/{vehicle_id}/driver` | 把车绑给某个司机 / 解绑。`driver_id` 缺省或 null **都算解绑**。 |  |

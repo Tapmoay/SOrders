@@ -554,6 +554,26 @@ fun AiSettingsScreen(
                 }
                 Spacer(Modifier.height(8.dp))
 
+                // 「允许 AI 查看成本与毛利」——**默认关**。
+                // ⚠️ 这一条必须让用户**自己**开：成本价进了模型上下文就会留在聊天记录里、
+                //    可能被截图外发，那是数据外发决定，不该由一次 App 升级替他做。
+                //    说明里要写清"打开之后能做什么"，否则用户不知道它值不值得开。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("允许 AI 查看成本与毛利", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            // ⚠️ 这里是普通 Text，不渲染 Markdown——别写 **粗体**（会原样显示星号）
+                            "打开后：它才能答「这个商品成本多少、这个月毛利多少、这货成本怎么变的」，" +
+                                "也才能帮你改成本价、记进货价。关着时这些数不会发给模型。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Switch(checked = vm.costVisible, onCheckedChange = { vm.updateCostVisible(it) })
+                }
+                Spacer(Modifier.height(8.dp))
+
                 if (vm.memories.isEmpty()) {
                     Text(
                         "还没有记住任何事。想教它点什么，直接在聊天里说「记住：…」就行。",

@@ -499,9 +499,12 @@ class AiWriteTest {
             masterCalls += "deletePriceRule:$ruleId"
         }
 
-        override suspend fun createMovement(productId: Long, change: Int, note: String) {
+        override suspend fun createMovement(productId: Long, change: Int, note: String, unitCost: String?) {
             boom()
-            masterCalls += "movement:$productId:$change:$note"
+            // ⚠️ unit_cost 必须记进来：`成本开关打开后_进货价会写进流水` 那条用例就是靠它断言的。
+            //    不记的话那条用例只会看到 movement:… —— 而它要证明的恰恰是"价真的传下去了"。
+            masterCalls += "movement:$productId:$change:$note" +
+                (unitCost?.let { ":unit_cost=$it" } ?: "")
         }
 
         override suspend fun createUser(
@@ -763,10 +766,16 @@ class AiWriteTest {
     private class Rig(
         ttlMs: Long = AiWritePreviewStore.DEFAULT_TTL_MS,
         role: AiRole? = AiRole.DISPATCHER,
+        /**
+         * 「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`）。
+         * **默认 false = 与真实默认一致**：成本相关的动作在开关关着时必须被拒
+         * （见 `成本开关关着时_…` 那几条用例）。
+         */
+        allowCost: Boolean = false,
     ) {
         val ds = FakeDs()
         val store = AiWritePreviewStore(ttlMs = ttlMs)
-        val svc = AiWriteService(ds, store, roleProvider = { role })
+        val svc = AiWriteService(ds, store, roleProvider = { role }, allowCost = { allowCost })
     }
 
     private fun p(vararg kv: Pair<String, String>): JsonObject =
@@ -1832,18 +1841,71 @@ class AiWriteTest {
     }
 
     @Test
-    fun `成本价不在任何动作的参数表里`() {
-        // 成本是红线：它不许进模型的上下文，所以也不许由模型来设。
-        // 一旦有人给某个动作加上 cost_price 参数，模型就能看到、也能改成本——
-        // 那是这套系统里唯一"看一眼就够本"的数据。
-        AiWrites.ALL.forEach { a ->
-            a.params.forEach { pm ->
-                assertFalse(
-                    "${a.id} 的参数 ${pm.name} 碰了成本",
-                    pm.name.contains("cost", ignoreCase = true),
-                )
-            }
-        }
+    fun `成本价在参数表里_因为用户要求 AI 也能操作它`() {
+        // ⚠️ 这条**在 2026-09-19 被用户推翻了**。原来写的是「成本价不在任何动作的参数表里」：
+        //    成本是红线，不许进模型上下文，所以也不许由模型来设。
+        //    用户后来的话是：「只要是我们改过、比如说新加了一些功能，AI 它都要具备操纵这些
+        //    功能的能力」—— 而"进货时录成本价""改成本价"正是我们刚加的功能。
+        //
+        // 所以规则从"**从来不许**"变成"**必须在开关后面**"：
+        //   · 参数表里有 cost_price / unit_cost（模型看得见、能申请）；
+        //   · 但开关（`AiKeyStore::costVisible`，默认关）没开时 **preview 直接拒绝、不发卡** ——
+        //     见下面那条端到端用例，以及 `_check_ai_guardrails.py` 里对应的判据。
+        val paramsOf = AiWrites.ALL.flatMap { a -> a.params.map { a.id to it.name } }
+        assertTrue(
+            "没有任何动作带成本参数 —— AI 就操作不了用户刚刚要求的那两个功能",
+            paramsOf.any { it.second == "cost_price" },
+        )
+        assertTrue(paramsOf.any { it.second == "unit_cost" })
+    }
+
+    @Test
+    fun `成本开关关着时_改成本价的申请被拒绝且不发卡`() = runBlocking {
+        val r = Rig() // 默认 allowCost = false（与真实默认一致）
+        val out = r.svc.preview(AiWrites.PRODUCTS_UPDATE, p("product" to "红富士苹果", "cost_price" to "12"))
+        assertTrue("开关关着却发了卡：$out", out is AiWriteOutcome.Rejected)
+        // ⛔ 拒绝的话必须**告诉用户怎么打开**，否则他只会觉得"AI 又说它不能"
+        val msg = (out as AiWriteOutcome.Rejected).reason
+        assertTrue("拒绝理由里没说要怎么开：$msg", msg.contains("允许 AI 查看成本与毛利"))
+    }
+
+    @Test
+    fun `成本开关打开后_改成本价能落库`() = runBlocking {
+        val r = Rig(allowCost = true)
+        val card = ok(r.svc.preview(AiWrites.PRODUCTS_UPDATE, p("product" to "红富士苹果", "cost_price" to "12")))
+        r.svc.execute(card.token)
+        assertTrue(
+            "开关开了却没把 cost_price 发给后端：${r.ds.masterCalls}",
+            r.ds.masterCalls.any { it.contains("cost_price") && it.contains("12") },
+        )
+    }
+
+    @Test
+    fun `成本开关关着时_进货价不会被静默丢掉而是明确拒绝`() = runBlocking {
+        val r = Rig()
+        val out = r.svc.preview(
+            AiWrites.INVENTORY_ADJUST,
+            p("product" to "红富士苹果", "change" to "50", "unit_cost" to "9.5"),
+        )
+        // ⛔ 这里**不能**"收下参数、发张卡、然后悄悄不写进货价" ——
+        //    那正是本项目最贵的一类坑（界面填了、库里什么都没有）。
+        assertTrue("进货价开关关着却发了卡：$out", out is AiWriteOutcome.Rejected)
+    }
+
+    @Test
+    fun `成本开关打开后_进货价会写进流水`() = runBlocking {
+        val r = Rig(allowCost = true)
+        val card = ok(
+            r.svc.preview(
+                AiWrites.INVENTORY_ADJUST,
+                p("product" to "红富士苹果", "change" to "50", "unit_cost" to "9.5"),
+            ),
+        )
+        r.svc.execute(card.token)
+        assertTrue(
+            "开关开了却没把 unit_cost 发给后端：${r.ds.masterCalls}",
+            r.ds.masterCalls.any { it.contains("unit_cost") && it.contains("9.5") },
+        )
     }
 
     @Test

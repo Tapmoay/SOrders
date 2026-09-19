@@ -300,6 +300,12 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun deleteProduct(id: Long) = api.productApi.deleteProduct(id)
 
+    /**
+     * 成本价生效时间轴（新的在前）—— 商品卡的「成本价历史」与 AI 的查询动作都走这里。
+     * 只有派单员能调（成本是内部数）。
+     */
+    suspend fun productCostHistory(id: Long) = api.productApi.productCostHistory(id)
+
     suspend fun restoreProduct(id: Long) = api.productApi.restoreProduct(id)
     suspend fun uploadProductImage(productId: Long, file: File) =
         api.productApi.uploadProductImage(

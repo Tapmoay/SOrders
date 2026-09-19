@@ -249,6 +249,7 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         habitEnabled = ai.habits.enabled()
         habitSummary = habitSummaryText()
         memoryEnabled = ai.keyStore.memoryEnabled()
+        costVisible = ai.keyStore.costVisible()
         loadMemories()
         apiKeyInput = ai.keyStore.apiKey().orEmpty()
         hasStoredKey = apiKeyInput.isNotBlank()
@@ -277,6 +278,20 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
     fun updateMemoryEnabled(on: Boolean) {
         ai.keyStore.setMemoryEnabled(on)
         memoryEnabled = on
+    }
+
+    /**
+     * 「允许 AI 查看成本与毛利」（**默认关**）。
+     *
+     * 成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
+     * 所以这是用户的**数据外发决定**，升级不替他做。
+     * 打开之后 AI 才能读成本/毛利、查成本价历史、改成本价、记进货价。
+     */
+    var costVisible by mutableStateOf(false)
+
+    fun updateCostVisible(on: Boolean) {
+        ai.keyStore.setCostVisible(on)
+        costVisible = on
     }
 
     /** 清空全部记忆前的二次确认（与清除 API Key 同一套：危险操作必须确认）。 */

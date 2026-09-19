@@ -2,8 +2,8 @@
  "generated_by": "_gen_ai_read_catalog.py",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 55,
-  "listed": 40,
+  "read_endpoints": 58,
+  "listed": 42,
   "missing_handler": []
  },
  "actions": [
@@ -24,12 +24,88 @@
   },
   {
    "module": "cash_flows",
+   "action": "cash_flow_summary",
+   "cn": "现金流水",
+   "module_cn": "现金流水",
+   "method": "get",
+   "path": "/api/v1/cash-flows/summary",
+   "at": "backend/app/api/v1/cash_flows.py:70",
+   "auth": "仅登录 + 体内仅允许:派单员",
+   "roles": [
+    "dispatcher"
+   ],
+   "params": [
+    {
+     "name": "direction",
+     "arg": "direction",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "biz_type",
+     "arg": "biz_type",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "party_type",
+     "arg": "party_type",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "party_id",
+     "arg": "party_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_from",
+     "arg": "date_from",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_to",
+     "arg": "date_to",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "cash_flows",
    "action": "list_cash_flows",
    "cn": "现金流水",
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows",
-   "at": "backend/app/api/v1/cash_flows.py:44",
+   "at": "backend/app/api/v1/cash_flows.py:46",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -420,7 +496,7 @@
    "module_cn": "库存管理",
    "method": "get",
    "path": "/api/v1/inventory/summary",
-   "at": "backend/app/api/v1/inventory.py:127",
+   "at": "backend/app/api/v1/inventory.py:172",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -446,7 +522,7 @@
    "module_cn": "库存管理",
    "method": "get",
    "path": "/api/v1/inventory/movements",
-   "at": "backend/app/api/v1/inventory.py:19",
+   "at": "backend/app/api/v1/inventory.py:25",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -512,7 +588,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:152",
+   "at": "backend/app/api/v1/ledger.py:148",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -558,7 +634,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:82",
+   "at": "backend/app/api/v1/ledger.py:83",
    "auth": "仅登录 + 体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
@@ -635,7 +711,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:715",
+   "at": "backend/app/api/v1/ledger.py:711",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -681,7 +757,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:206",
+   "at": "backend/app/api/v1/ledger.py:202",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -696,7 +772,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications",
-   "at": "backend/app/api/v1/notifications.py:38",
+   "at": "backend/app/api/v1/notifications.py:39",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -754,7 +830,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications/unread-count",
-   "at": "backend/app/api/v1/notifications.py:30",
+   "at": "backend/app/api/v1/notifications.py:31",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -771,7 +847,7 @@
    "module_cn": "操作日志",
    "method": "get",
    "path": "/api/v1/operation-logs",
-   "at": "backend/app/api/v1/operation_logs.py:29",
+   "at": "backend/app/api/v1/operation_logs.py:31",
    "auth": "权限:OPERATION_LOG_READ",
    "roles": [
     "dispatcher"
@@ -843,7 +919,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:199",
+   "at": "backend/app/api/v1/orders.py:195",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -957,7 +1033,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:321",
+   "at": "backend/app/api/v1/orders.py:317",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -972,7 +1048,7 @@
    "module_cn": "共享地点库",
    "method": "get",
    "path": "/api/v1/places",
-   "at": "backend/app/api/v1/places.py:34",
+   "at": "backend/app/api/v1/places.py:36",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -1010,7 +1086,7 @@
    "module_cn": "批发商定价",
    "method": "get",
    "path": "/api/v1/price-rules",
-   "at": "backend/app/api/v1/price_rules.py:216",
+   "at": "backend/app/api/v1/price_rules.py:211",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1043,7 +1119,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products",
-   "at": "backend/app/api/v1/products.py:74",
+   "at": "backend/app/api/v1/products.py:77",
    "auth": "权限:ORDER_CREATE + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",
@@ -1064,13 +1140,49 @@
    "skipped_params": []
   },
   {
+   "module": "products",
+   "action": "product_cost_history",
+   "cn": "商品管理",
+   "module_cn": "商品管理",
+   "method": "get",
+   "path": "/api/v1/products/cost-history",
+   "at": "backend/app/api/v1/products.py:165",
+   "auth": "权限:PRODUCT_MANAGE",
+   "roles": [
+    "dispatcher"
+   ],
+   "params": [
+    {
+     "name": "product_id",
+     "arg": "product_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "limit",
+     "arg": "limit",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
    "module": "reports",
    "action": "arrears_summary",
    "cn": "报表中心",
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:341",
+   "at": "backend/app/api/v1/reports.py:388",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1106,7 +1218,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:288",
+   "at": "backend/app/api/v1/reports.py:335",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1142,7 +1254,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:275",
+   "at": "backend/app/api/v1/reports.py:322",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1488,7 +1600,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:56",
+   "at": "backend/app/api/v1/users.py:58",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -1548,7 +1660,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users/me",
-   "at": "backend/app/api/v1/users.py:51",
+   "at": "backend/app/api/v1/users.py:53",
    "auth": "仅登录",
    "roles": [
     "dispatcher",

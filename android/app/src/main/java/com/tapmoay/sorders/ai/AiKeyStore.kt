@@ -282,6 +282,23 @@ class AiKeyStore(
         prefs.edit().putBoolean(KEY_MEMORY_ENABLED, on).apply()
     }
 
+    /**
+     * **允许 AI 查看成本与毛利吗**（默认 `false`）。
+     *
+     * 成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
+     * 所以这是**用户的数据外发决定**，不该由一次 App 升级替他做（所以默认关）。
+     * 用户 2026-09-19 要求「我们改过、新加的功能 AI 都要能操作」，成本这块就靠这个开关放行：
+     * 打开之后 AI 能读成本/毛利、查成本价历史、申请改成本价与录进货价。
+     *
+     * ⚠️ 与 [OPT_IN_TOOLS] 同一套纪律：默认关、用户主动开；关着的时候
+     * `AiRowShaper.isHiddenField` 会把 `cost*` / `profit` / `margin` 全部拦掉。
+     */
+    fun costVisible(): Boolean = prefs.getBoolean(KEY_COST_VISIBLE, false)
+
+    fun setCostVisible(on: Boolean) {
+        prefs.edit().putBoolean(KEY_COST_VISIBLE, on).apply()
+    }
+
     // ------------------------------------------------- 上下文窗口（自动，不给用户选）
 
     /**
@@ -529,6 +546,8 @@ class AiKeyStore(
 
         /** 长期记忆总开关（默认开，见 [memoryEnabled]）。 */
         private const val KEY_MEMORY_ENABLED = "memory_enabled"
+        /** 「允许 AI 查看成本与毛利」——默认关，见 [costVisible]。 */
+        private const val KEY_COST_VISIBLE = "cost_visible"
 
         /**
          * 「用户见过哪些工具」的清单——用来判断**上次保存之后新加了哪些工具**。

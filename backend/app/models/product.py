@@ -59,6 +59,62 @@ class Product(Base, TimestampMixin):
     inventory_movements: Mapped[list["InventoryMovement"]] = relationship(back_populates="product")
 
 
+class ProductCostHistory(Base, TimestampMixin):
+    """商品成本价的**生效区间**（用户 2026-09-19 要求）。
+
+    ## 用户原话
+    > 「那个成本价去做一个保留…这个保留是跟着他的账本走的。假如他的账本是一直保留着，
+    >   那他这个成本价就一直保留着。如果成本价发生了变化，就直接变化成本价就可以了，
+    >   这样子我们就好溯源。而且我们保留的时候不仅保留成本价，还保留这个成本价存在的时间，
+    >   比如说他是从什么时候开始变的、从什么时候结束的，**精确到小时和分钟**，
+    >   这样子的话，我们就能方便且精确地算出来在这段时间的毛利率是多少。」
+
+    ## 语义：一个商品的多行 = 一条时间轴（不是"改动日志"）
+    每行是**一段区间**：
+      · `effective_to IS NULL` 的那一行 = **当前生效价**
+      · 改价 = 给旧行补上 `effective_to`，再插一行 `effective_from=这一刻`
+      · "某个时刻的价" = `effective_from <= t AND (effective_to IS NULL OR effective_to > t)`
+
+    ⚠️ **为什么用区间而不是"旧价→新价"的事件日志**：用户要的是"**在这段时间的**毛利率"
+    —— 那需要按**任意时刻**取价。事件日志要从头累一遍，区间表一次比较就定位；
+    而且区间表能一眼看出"这个价用了多久"，事件日志看不出来。
+    代价是每次改价写两行（旧行补尾巴 + 插新行），两行在**同一事务**里做，不会留空洞。
+
+    ⚠️ **"恰好一行当前价"由应用层保证**，不靠数据库：MySQL 不支持带 `WHERE` 的过滤唯一索引，
+    所以做不出"每个商品只能有一行 effective_to IS NULL"这个约束。
+    唯一的写入口是 `services/cost_history.py::record_cost`（红线钉着"不许别处直接改 cost_price"）。
+
+    ## 保留期**跟着账本走**（用户明确要求）
+    "账本留多久，成本价历史就留多久" → 与 `ledgers` 同一档：
+    `data_retention.DATA_RETENTION_DAYS`（3 年），清理写在 `purge_expired_data` 里。
+
+    ## 为什么还要 `source` / `movement_id` / `operator_id`
+    溯源时下一个问题一定是"**这条价是怎么来的**"：是进货带进来的（那批货多少件、谁进的），
+    还是有人在商品编辑里手填的。前者能连回 `inventory_movements`，后者只能连操作日志。
+    """
+
+    __tablename__ = "product_cost_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    #: 这一段区间内的单位成本（与 `products.cost_price` 同精度）
+    cost_price: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
+    #: 从这一刻（**UTC**，与全库时间基准一致）开始生效
+    effective_from: Mapped[datetime] = mapped_column(DateTime, index=True)
+    #: 到这一刻为止（**半开区间**：不含这一刻）；NULL = 仍在生效中
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    #: CREATE=建商品时填的 / PURCHASE=进货带进来的 / MANUAL=编辑里改的 / BACKFILL=老数据回填
+    source: Mapped[str] = mapped_column(String(16), default="MANUAL")
+    operator_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, default=None)
+    #: 进货带进来的那条库存流水（溯源：那批货多少件、备注是什么）。
+    #  ⚠️ 这里**刻意不加外键**：保留任务物理清理老订单时会连 `inventory_movements` 一起删
+    #     （`data_retention.delete_orders_by_ids`），有外键的话那样删会直接失败。
+    #     今天不会被删（只有手工入库才带价，那种流水 order_id 为空），但"今天不会"不是约束。
+    movement_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+
+    product: Mapped["Product"] = relationship()
+
+
 class PriceRule(Base, TimestampMixin, SoftDeleteMixin):
     """货主特殊定价：货主 + 商品 + 特殊单价。
 

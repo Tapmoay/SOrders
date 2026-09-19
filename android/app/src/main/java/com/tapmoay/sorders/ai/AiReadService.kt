@@ -264,6 +264,13 @@ class AiReadService(
      */
     private val enabledModules: () -> Set<String> = { AiReadCatalog.modules().toSet() },
     /**
+     * 允许把成本 / 毛利给模型看吗（设置页那个开关，默认**关**）。
+     *
+     * 与 [AiTools.allowCost] 同源（都读 `AiKeyStore::costVisible`）：读工具与通用读表
+     * **两条路都要过同一道门** —— 只给一条路开口，另一条就成了绕过开关的后门。
+     */
+    private val allowCost: () -> Boolean = { false },
+    /**
      * 当前登录角色（**读侧的门**，见 [AiReads]）。
      *
      * 默认给 null = 认不出角色就一张表都不给（fail-closed）。这里刻意**不**默认成派单员：
@@ -381,7 +388,7 @@ class AiReadService(
                 )
             }
             putJsonArray("items") {
-                capped.forEach { add(AiRowShaper.shape(it)) }
+                capped.forEach { add(AiRowShaper.shape(it, allowCost())) }
             }
         }.toString()
     }

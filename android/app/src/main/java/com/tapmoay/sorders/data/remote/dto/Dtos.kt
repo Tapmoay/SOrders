@@ -720,6 +720,30 @@ data class ArrearsUnitUpdateRequest(
 )
 
 // ===== 库存 =====
+/**
+ * 成本价的**一段生效区间**（用户 2026-09-19 要求的成本价时间轴）。
+ *
+ * 一个商品的多行 = 一条时间轴：每行是"某个价从这一刻到那一刻有效"，
+ * `effectiveTo == null` 的那一行 = **当前生效价**。
+ *
+ * ⚠️ 两个时间都是 **UTC**（后端全库同基准），显示前必须走 `formatDateTime`
+ * （它会把 naive UTC 换算到设备时区；直接打印会早 8 小时）。
+ */
+@Serializable
+data class ProductCostHistoryDto(
+    val id: Long,
+    /** 这一段区间内的单位成本（Numeric(14,4)，字符串形式） */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_price")
+    val costPrice: String = "0",
+    @SerialName("effective_from") val effectiveFrom: String = "",
+    /** null = 这一段**还在生效中** */
+    @SerialName("effective_to") val effectiveTo: String? = null,
+    /** CREATE=建商品时填的 / PURCHASE=进货带进来的 / MANUAL=编辑里改的 / BACKFILL=老数据回填 */
+    val source: String = "MANUAL",
+    /** 进货带进来的那条库存流水（本页只用它显示「哪次进货」这个来源标签） */
+    @SerialName("movement_id") val movementId: Long? = null,
+)
+
 @Serializable
 data class InventoryMovementDto(
     val id: Long,
@@ -732,6 +756,10 @@ data class InventoryMovementDto(
     @SerialName("order_id") val orderId: Long? = null,
     @SerialName("order_no") val orderNo: String? = null,
     val status: String = "COMMITTED",
+    /** 这一批的进货单价（只有手工入库且填了才有值）；null = 没填。 */
+    @SerialName("unit_cost")
+    @Serializable(with = NullableFlexibleStringSerializer::class)
+    val unitCost: String? = null,
 )
 
 @Serializable
@@ -745,9 +773,11 @@ data class InventoryMovementCreateRequest(
      * 用户 2026-09-19：「成本价也是可以进行调整的，包括进货的时候也要输入成本价，
      * 因为可能这个时间的进货和那个时间进货的成本价是不一样的」。
      *
-     * 填了后端就把商品的 `cost_price` 更新成它（商品成本 = **最近一次进货价**，
-     * 订单在下单时把当时的成本定格成快照，毛利据此算）。不填就只动库存、不碰成本。
-     * ⚠️ 这是近似口径，不是分批成本（FIFO/加权）—— 别把它当"这批货的成本"。
+     * 填了后端做**两件**事（同一事务）：① 这个价**记在流水上**（`inventory_movements.unit_cost`）
+     * —— 毛利率的「入库加权平均进货价」就是从它算的；② 把商品的 `cost_price` 更新成它，
+     * 并往成本价时间轴里开一段新区间（`product_cost_history`）。
+     * 不填就只动库存、不碰成本。
+     * ⚠️ 它不是"这批货的成本"（不做 FIFO / 分批结转）—— 那件事没做，别这么说。
      */
     @SerialName("unit_cost")
     @Serializable(with = NullableFlexibleStringSerializer::class)

@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -93,3 +94,25 @@ class ProductOut(BaseModel):
     unit: str = "件"
     category: str = ""
     low_stock_alert: int = 0
+
+
+class ProductCostHistoryOut(BaseModel):
+    """成本价的**一段生效区间**（用户 2026-09-19 要求的时间轴，见 `models/product.py`）。
+
+    ⚠️ 时间一律是 **UTC**（与全库同基准），**由客户端换算成设备本地时区再显示** ——
+    后端不下发"已经算好的本地时间"，那会让"哪个时区"变成一个藏在响应里的隐含约定。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    cost_price: Decimal
+    effective_from: datetime
+    #: NULL = 这一段**还在生效中**（每个商品最多一行）
+    effective_to: datetime | None = None
+    #: CREATE=建商品时填的 / PURCHASE=进货带进来的 / MANUAL=编辑里改的 / BACKFILL=老数据回填
+    source: str = "MANUAL"
+    #: 进货带进来的那条库存流水（点进去看那批货多少件、备注是什么）
+    movement_id: int | None = None
+    # ⛔ 刻意**不下发** `operator_id`：那是内部主键，界面上要显示的是人名，
+    #    而名字要另查一次（这一屏不值得为它多一次请求）。要查是谁改的走「异常与审计」。

@@ -471,6 +471,23 @@ interface ProductApi {
     @PATCH("products/{productId}")
     suspend fun updateProduct(@Path("productId") productId: Long, @Body body: ProductUpdateRequest): ProductDto
 
+    /**
+     * 成本价的**生效时间轴**（新的在前）。
+     *
+     * 用户 2026-09-19 要的溯源能力：「保留成本价，还保留这个成本价存在的时间，
+     * 从什么时候开始变、从什么时候结束，精确到小时和分钟」。
+     *
+     * ⚠️ 为什么商品是**查询参数**而不是路径参数：AI 也必须有这个能力，而
+     * **模型看不到任何内部编号** —— 带 `{}` 的端点对它是死的
+     * （`_gen_ai_read_catalog.py` 按"路径里有没有 `{}`"排除）。
+     * 把商品放进 query 之后，模型说商品名、App 解析成编号、调同一条路由。
+     *
+     * ⚠️ 出参的时间是 **UTC**，显示前必须换算到设备时区（`util/TimeFmt.kt`）。
+     * ⛔ 只有派单员能调（成本是内部数，货主/司机连商品详情里的 `cost_price` 都拿不到）。
+     */
+    @GET("products/cost-history")
+    suspend fun productCostHistory(@Query("product_id") productId: Long): List<ProductCostHistoryDto>
+
     @Multipart
     @POST("products/{productId}/image")
     suspend fun uploadProductImage(

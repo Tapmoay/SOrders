@@ -81,13 +81,17 @@ internal object AiWriteMasterData {
             title = "改商品",
             risk = AiWriteRisk.MEDIUM,
             group = AiWrites.G_PRODUCT,
-            blurb = "改商品的名称、默认单价、单位、库存报警阈值。**只填要改的那几项，没填的不动。**",
+            blurb = "改商品的名称、默认单价、单位、库存报警阈值、成本价。**只填要改的那几项，没填的不动。**",
             targets = listOf(targetProduct()),
             fields = listOf(
                 textField("name", "新商品名", "要改成什么名字；不改就不填", maxChars = 64),
                 moneyField("price", "新默认单价（元）", "只传数字", key = "default_unit_price"),
                 textField("unit", "新单位", "如「件」「斤」", maxChars = 8),
                 AiFieldSpec("alert", "新报警阈值", AiFieldType.NON_NEGATIVE, "库存 ≤ 这个数就报警；填 0 = 不报警", key = "low_stock_alert"),
+                // 成本价（用户 2026-09-19：「成本价也是可以进行调整的」）。
+                // ⚠️ 门在 `AiWriteService`（开关关着就不写进去），卡片上不能承诺它会生效 ——
+                //    所以说明里写清"要用户先打开那个开关"。
+                moneyField("cost_price", "新成本价（元/单位）", "只传数字。要生效，用户需先在 AI 设置里打开「允许 AI 查看成本与毛利」", key = "cost_price"),
             ),
             headline = { c -> "改商品：${c.ref("product")?.label}" },
             details = { c ->
@@ -96,10 +100,14 @@ internal object AiWriteMasterData {
                     c.str("default_unit_price")?.let { "默认单价改成：$it 元" },
                     c.line("unit", "单位改成"),
                     c.str("low_stock_alert")?.let { "库存报警阈值改成：$it" },
+                    c.str("cost_price")?.let { "成本价改成：$it 元/单位（会记进成本价历史；开关没开则这一项不生效）" },
                 )
             },
         ) { ds, p ->
-            ds.updateProduct(p.reqLong("product_id"), p.pick(setOf("name", "default_unit_price", "unit", "low_stock_alert")))
+            ds.updateProduct(
+                p.reqLong("product_id"),
+                p.pick(setOf("name", "default_unit_price", "unit", "low_stock_alert", "cost_price")),
+            )
         },
 
         crud(
@@ -243,6 +251,13 @@ internal object AiWriteMasterData {
             fields = listOf(
                 AiFieldSpec("change", "增减量", AiFieldType.DELTA, "入库填正数（如 50），出库填负数（如 -20）；不能是 0", required = true),
                 textField("note", "原因备注", "如「供应商到货」「盘点差异」——**建议填**，事后查流水全靠它"),
+                // 进货价（用户 2026-09-19：「进货的时候也要输入成本价，因为可能这个时间的进货和
+                // 那个时间进货的成本价是不一样的」）。
+                // ⚠️ 只有用户打开了「允许 AI 查看成本与毛利」才真的写进去（门在 AiWriteService）。
+                //    这里**不做条件渲染**：动作表是静态的，藏起来反而会让模型以为"这个功能不存在"，
+                //    而它问一句"要我记进货价吗"是完全合理的。真传了而开关关着，后端侧会被丢掉 ——
+                //    所以卡片上必须**如实写**这一条，不能承诺"成本价已更新"。
+                moneyField("unit_cost", "进货价（元/单位）", "选填，只在入库时有意义；出库不要填", key = "unit_cost"),
             ),
             headline = { c ->
                 val d = c.int("change") ?: 0
@@ -253,11 +268,17 @@ internal object AiWriteMasterData {
                     "商品：${c.ref("product")?.label}",
                     "增减：${c.int("change")}",
                     c.str("note")?.let { "原因：$it" } ?: "原因：没填（事后查流水会看不出为什么）",
+                    c.str("unit_cost")?.let { "这批的进货价：$it 元/单位（同时更新商品成本价、记进成本价历史）" },
                     "这会直接改变「还能不能下单」",
                 )
             },
         ) { ds, p ->
-            ds.createMovement(p.reqLong("product_id"), p.reqInt("change"), p.str("note").orEmpty())
+            ds.createMovement(
+                p.reqLong("product_id"),
+                p.reqInt("change"),
+                p.str("note").orEmpty(),
+                p.str("unit_cost"),
+            )
         },
 
         // -------------------------------------------------- 账号与收费规则

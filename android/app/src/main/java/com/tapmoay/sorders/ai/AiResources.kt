@@ -201,7 +201,18 @@ internal object AiResources {
             "active" to "是否在售",
         ),
         actions = listOf(
-            update(AiWrites.PRODUCTS_UPDATE),
+            update(
+                AiWrites.PRODUCTS_UPDATE,
+                // ⛔ 成本价**撤回不回去**，这里是明说，不是漏了。
+                //    撤回方案要读"改之前是多少"，而成本价**刻意不进 readKeys**：
+                //    撤回卡的文案是模型生成的上下文的一部分，成本只在用户自己打开
+                //    「允许 AI 查看成本与毛利」之后才该出现在那条路上 —— 撤回卡不在那条路上。
+                //    所以声明 drop，并把这件事**写在卡上**：用户点确认前就知道
+                //    "撤回只回名称/单价/单位/阈值，成本价不回"，而不是撤完以为全回去了。
+                drop = setOf("cost_price"),
+                note = "撤回只把名称、默认单价、单位、报警阈值改回去；成本价不跟着撤回" +
+                    "（撤回读不到旧成本价）。要改成本价请到商品管理的编辑里改一次。",
+            ),
             // 上下架：payload 里的键叫 `active`（后端字段是 is_active），快照按 payload 键给。
             update(AiWrites.PRODUCTS_SET_ACTIVE),
             delete(AiWrites.PRODUCTS_DELETE),
@@ -210,14 +221,17 @@ internal object AiResources {
             update(
                 AiWrites.INVENTORY_ADJUST,
                 negate = setOf("change"),
-                drop = setOf("note"),
+                // `unit_cost` 同理：反向那条流水不带进货价（成本走"哪批货多少钱"的语义，
+                // 一条"撤回流水"没有对应的货）。商品成本价也**不会**被撤回改回去 —— 见卡上那句。
+                drop = setOf("note", "unit_cost"),
                 // ⚠️ 旧原因**不搬**，但不能就这么空着（v3.45，真机 E2E 抓到的空原因流水）：
                 //    真机上那条反向流水的 note 是 `''`——"入库 +5（原因：真机校验B）"下面
                 //    躺着一条 "-5（原因：无）"，过几天谁也说不清那 5 件是怎么少的。
                 //    旧那句说的是"上一次为什么入库"，搬到反向流水上会被读成"这一次为什么出库"，
                 //    所以补一句说得清这一次是什么的字（卡片上照实写出来给用户看）。
                 dropWrite = mapOf("note" to "撤回：刚才那次库存调整（由撤回入口发起）"),
-                note = "库存按「相反方向再记一条流水」来撤回（原来那条留着——库存变动本来就该留痕）",
+                note = "库存按「相反方向再记一条流水」来撤回（原来那条留着——库存变动本来就该留痕）；" +
+                    "进货价与商品成本价不跟着撤回。",
             ),
             paired(AiWrites.PRODUCTS_RESTORE, AiInverse(AiWrites.PRODUCTS_DELETE, mapOf("product_id" to AiRevert.ID)), idKey = "target_id"),
         ),

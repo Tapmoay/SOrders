@@ -2,19 +2,22 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
+from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
-from app.models import Product, User
+from app.models import Product, ProductCostHistory, User
 from app.models.enums import OperationAction, UserRole
 from app.api.v1.product_categories import ensure_category
 from app.schemas.product_visibility import product_visible_to, visible_product_ids
-from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
+from app.schemas.product import ProductCostHistoryOut, ProductCreate, ProductOut, ProductUpdate
+from app.services import cost_history
+from app.services.cost_history import record_cost
 from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -121,6 +124,13 @@ def create_product(
     )
     db.add(p)
     db.flush()
+    # 建商品时填的成本价 = 成本价时间轴的第一段（用户 2026-09-19 要求留痕）。
+    # ⚠️ 必须走 `record_cost`（唯一写入口），别在这里直接 `p.cost_price = …`：
+    #    绕开它的话价格变了、区间表没变，"这段时间的成本价是多少"从此对不上账。
+    record_cost(
+        db, p, p.cost_price, source=cost_history.SOURCE_CREATE, operator_id=current.id,
+        when=p.created_at or None,
+    )
     # 新建商品时带了一个名册里没有的分类名 → **自动补进名册**（排到最后）。
     # 不补的话派单员得先建分类、再建商品，两步做完才能用；而且选品页左侧那一列的顺序
     # 来自名册 —— 名单外的分类只能排到最后，用户会以为"我刚建的分类怎么跑最后去了"。
@@ -143,6 +153,51 @@ def create_product(
     db.commit()
     db.refresh(p)
     return p
+
+
+# ⛔⛔ **这条路由必须声明在 `@router.get("/{product_id}")` 之前，顺序不能动。**
+#
+# Starlette 按**声明顺序**匹配：`/products/cost-history` 会被先声明的 `/{product_id}` 接住，
+# 然后后端拿 "cost-history" 去转 int → **422**（不是 404，看起来像"参数填错了"），
+# 而接口本身完全正常 —— 这类"位置决定行为"的坑正是本项目记过好几次的那种。
+# 判据钉在 `_tools/qa/_check_cost_history.py`（它就查这两条路由的先后）。
+@router.get("/cost-history", response_model=list[ProductCostHistoryOut])
+def product_cost_history(
+    response: Response,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
+    product_id: int | None = Query(None, description="按商品筛；不传 = 全部商品"),
+    limit: int = Query(200, ge=1, le=500),
+) -> list[ProductCostHistory]:
+    """成本价的**生效时间轴**（新的在前）：某个价从什么时候到什么时候、是哪来的。
+
+    用户 2026-09-19：「不仅保留成本价，还保留这个成本价存在的时间…从什么时候开始变、
+    从什么时候结束，精确到小时和分钟，这样子我们就能方便且精确地算出来在这段时间的毛利率」。
+
+    ## 为什么是"带 ?product_id= 的列表"而不是 "/products/{id}/cost-history"
+    因为 **AI 看不到任何内部编号**（本项目第一条硬规矩）：带路径参数的端点对模型是死的
+    （`_gen_ai_read_catalog.py` 明确按"路径里有没有 `{}`"把这类端点排除掉 ——
+    暴露了它也只能瞎猜 id）。而这个能力用户明确要求 AI 也要有。
+    所以商品用**查询参数**给：模型说商品名 → App 按名字解析成编号 → 调这里。
+    商品侧另有 `GET /products/{product_id}/cost-history` 的写法就没有必要了 —— 一条路由两副面孔
+    只会让人分不清哪条在生效。
+
+    ⛔ 权限是 `product:manage`（派单员）。成本是内部数：货主与司机连商品详情里的
+    `cost_price` 都拿不到（见 `schemas/product.py::ProductOut.cost_price`），这里当然也不能给。
+    **不要**为了"方便"把它降成登录即可。
+    """
+    q = (
+        select(ProductCostHistory)
+        .order_by(ProductCostHistory.effective_from.desc(), ProductCostHistory.id.desc())
+        # 多取一行判截断（2026-09-19 的分页红线）：不给 `X-Truncated` 的话，
+        # "这个价改过 200 次以上"会静默变成"就改了 200 次"——而用户正要拿它去对账。
+        .limit(limit + 1)
+    )
+    if product_id is not None:
+        q = q.where(ProductCostHistory.product_id == product_id)
+    # ⚠️ 不按 `products.is_deleted` 过滤：删掉的是商品，不是"这批货当时的成本是多少"这个事实，
+    #    而派单员正是要靠它核对历史订单的毛利 —— 商品删了反而更需要这份记录。
+    return finish_page(list(db.scalars(q)), limit, response)
 
 
 @router.get("/{product_id}", response_model=ProductOut)
@@ -186,6 +241,15 @@ def update_product(
         ensure_category(db, update_data["category"])
     # 改前 → 改后**逐字段**记下来：商品改价是"钱"的事，查不到就等于没留痕（v3.26）。
     changes = []
+    # 成本价**单独处理**：它还要维护"生效区间"（见 services/cost_history.py），
+    # 不能跟着下面这个通用循环 setattr —— 那样区间表就缺了一段，而且是静默的。
+    cost_before = p.cost_price
+    if "cost_price" in update_data:
+        cost_new = update_data.pop("cost_price")
+        if cost_new is not None and record_cost(
+            db, p, cost_new, source=cost_history.SOURCE_MANUAL, operator_id=current.id
+        ):
+            changes.append({"field": "cost_price", "from": str(cost_before), "to": str(p.cost_price)})
     for field, value in update_data.items():
         if not hasattr(p, field):
             continue

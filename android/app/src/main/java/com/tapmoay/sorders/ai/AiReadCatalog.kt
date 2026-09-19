@@ -39,6 +39,14 @@ object AiReadCatalog {
     val ACTIONS: List<ReadAction> = listOf(
         ReadAction("arrears.list_units", "挂账单位列表", "/api/v1/arrears-units", "", setOf("dispatcher"), listOf(
         )),
+        ReadAction("cash_flows.cash_flow_summary", "现金收支汇总（按期合计流入/流出）", "/api/v1/cash-flows/summary", "direction、biz_type、party_type、party_id、date_from、date_to", setOf("dispatcher"), listOf(
+            ReadParam("direction", "str", false, emptyList(), false),
+            ReadParam("biz_type", "str", false, emptyList(), false),
+            ReadParam("party_type", "str", false, emptyList(), false),
+            ReadParam("party_id", "int", false, emptyList(), true),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
+        )),
         ReadAction("cash_flows.list_cash_flows", "现金流水", "/api/v1/cash-flows", "direction、biz_type、party_type、party_id、date_from、date_to、limit", setOf("dispatcher"), listOf(
             ReadParam("direction", "str", false, emptyList(), false),
             ReadParam("biz_type", "str", false, emptyList(), false),
@@ -148,8 +156,12 @@ object AiReadCatalog {
         )),
         ReadAction("product_categories.list_categories", "商品分类名册（下单页左侧那一列的分组与显示顺序，带每类下有几个商品）", "/api/v1/product-categories", "", setOf("dispatcher", "driver", "shipper"), listOf(
         )),
-        ReadAction("products.list_products", "商品列表（含库存、分类）", "/api/v1/products", "include_inactive", setOf("dispatcher", "shipper"), listOf(
+        ReadAction("products.list_products", "商品列表（含库存、批发价档位）", "/api/v1/products", "include_inactive", setOf("dispatcher", "shipper"), listOf(
             ReadParam("include_inactive", "bool", false, emptyList(), false),
+        )),
+        ReadAction("products.product_cost_history", "商品成本价的历史（某段时间的成本价是多少、从什么时候到什么时候、是进货录的还是手改的）", "/api/v1/products/cost-history", "product_id、limit", setOf("dispatcher"), listOf(
+            ReadParam("product_id", "int", false, emptyList(), true),
+            ReadParam("limit", "int", false, emptyList(), false),
         )),
         ReadAction("reports.arrears_summary", "挂账/欠款汇总报表", "/api/v1/reports/arrears-summary", "date_from、date_to", setOf("dispatcher"), listOf(
             ReadParam("date_from", "date", true, emptyList(), false),

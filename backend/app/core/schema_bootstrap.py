@@ -1046,6 +1046,39 @@ def _bootstrap_impl(engine: Engine) -> None:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise
 
+    # ---------- 成本价时间轴回填（2026-09-19 用户要求） ----------
+    #
+    # `product_cost_history` 表由 `create_all` 建（它只建缺失的**表**，所以这里不用补列）。
+    # 这里做**存量回填**：老商品一个区间都没有的话，"这个商品在某个时刻成本价是多少"
+    # 就只有从现在往后才有答案 —— 而用户要的正是**回头算**（"这段时间的毛利率是多少"）。
+    #
+    # 口径：每个还没有任何区间的商品补**一行**，价格 = 当前 `products.cost_price`，
+    # 起点 = 商品的创建时间（这是我们唯一知道的"这个价大概从什么时候开始"），
+    # `effective_to` 留空 = 仍在生效。⛔ 这是**近似**：它假定"这个价从建商品那天起就没变过"，
+    # 而实际上老库里的历史变化已经无从得知（改价以前只进操作日志，不成区间）。
+    # 与其编几段假区间，不如如实给一段并标明来源是 `BACKFILL`。
+    if "products" in insp.get_table_names() and "product_cost_history" in insp.get_table_names():
+        try:
+            with engine.begin() as conn:
+                n = conn.execute(
+                    text(
+                        "INSERT INTO product_cost_history "
+                        "(product_id, cost_price, effective_from, effective_to, source, "
+                        " operator_id, movement_id, created_at, updated_at) "
+                        "SELECT p.id, COALESCE(p.cost_price, 0), "
+                        "       COALESCE(p.created_at, CURRENT_TIMESTAMP), NULL, 'BACKFILL', "
+                        "       NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                        "FROM products p "
+                        "WHERE NOT EXISTS ("
+                        "  SELECT 1 FROM product_cost_history h WHERE h.product_id = p.id"
+                        ")"
+                    )
+                ).rowcount
+            if n:
+                logger.warning("成本价时间轴已回填 %s 个商品（起点取商品创建时间，来源标 BACKFILL）", n)
+        except DBAPIError:
+            logger.debug("成本价时间轴回填跳过（表可能刚建或字段不同）")
+
     # ---------- 商品分类名册（2026-09-18 v3.43） ----------    #
     # `product_categories` 表由 `create_all` 建。这里做**存量回填**：
     # v3.42 的分类只是 `products.category` 上的一个字符串，名册是空的话选品页左侧那一列

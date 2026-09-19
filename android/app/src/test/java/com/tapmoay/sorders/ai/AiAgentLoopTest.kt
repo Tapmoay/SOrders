@@ -54,9 +54,12 @@ class AiAgentLoopTest {
     private class FakeTools(
         val result: String = """{"count":1,"items":[{"user_id":7}]}""",
         override val role: AiRole? = AiRole.DISPATCHER,
+        allowCostOn: Boolean = false,
     ) : AiToolset {
         override val allToolNames = listOf("search_shipper")
         override val enabledReadModules: Set<String> = AiReadCatalog.modules().toSet()
+        /** 成本开关默认关（真实默认也是关）；要测"开着"的行为就在构造时传 true。 */
+        override val allowCost: Boolean = allowCostOn
         override val specs = listOf(
             ToolSpec(
                 type = "function",

@@ -412,6 +412,9 @@ CN_DESC = {
     "orders.pending_dispatch_count": "待派单池还有多少单",
     "order_products.list_order_products": "订单商品行（按订单或商品查）",
     "products.list_products": "商品列表（含库存、批发价档位）",
+    "products.product_cost_history": (
+        "商品成本价的历史（某段时间的成本价是多少、从什么时候到什么时候、是进货录的还是手改的）"
+    ),
     "product_categories.list_categories": "商品分类名册（下单页左侧那一列的分组与显示顺序，带每类下有几个商品）",
     "inventory.inventory_summary": "库存汇总（可只看低于报警线的）",
     "inventory.list_movements": "库存流水（入库/出库/盘点记录）",
@@ -424,6 +427,7 @@ CN_DESC = {
     "ledger.list_receipts": "收款记录",
     "ledger.list_temp_shipper_names": "临时货主名清单",
     "cash_flows.list_cash_flows": "现金流水",
+    "cash_flows.cash_flow_summary": "现金收支汇总（按期合计流入/流出）",
     "expenses.list_expenses": "支出记录",
     "arrears.list_units": "挂账单位列表",
     "driver_bills.list_driver_bills": "司机账单",

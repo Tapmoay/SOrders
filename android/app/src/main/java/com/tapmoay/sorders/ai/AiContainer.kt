@@ -133,6 +133,8 @@ class AiContainer(
             RepoWriteDataSource(repo, selfId = { userIdKey() }, context = appContext),
             writes,
             roleProvider = { role() },
+            // 成本那两扇门唯一的开关（默认关）：设置页一改立刻生效
+            allowCost = { keyStore.costVisible() },
         )
     }
 
@@ -142,6 +144,7 @@ class AiContainer(
             repo = repo,
             enabledNames = { keyStore.enabledTools() },
             readModules = { keyStore.enabledReadModules() },
+            allowCostProvider = { keyStore.costVisible() },
             rememberFact = { subject, fact -> rememberFact(subject, fact) },
             roleProvider = { role() },
             requestWrite = { actionId, params -> writeService.preview(actionId, params) },
