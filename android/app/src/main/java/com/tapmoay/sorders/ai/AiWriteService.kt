@@ -5,6 +5,7 @@ import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderProductLine
+import com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest
 import com.tapmoay.sorders.data.repo.AppRepository
 import android.content.Context
 import kotlinx.coroutines.CancellationException
@@ -49,6 +50,15 @@ interface AiWriteDataSource {
     /** 地址/线路、地点、联系人、批发商专属价——都是"要先找到那一条"。 */
     suspend fun addresses(): List<AiName>
     suspend fun locations(): List<AiName>
+
+    /**
+     * 共享地点库（**全库共用**那一张表）的名字名册 —— 「改/撤销/删除共享地点」的目标池。
+     *
+     * ⚠️ 与 [locations] 不是一回事：那个是**当前登录人自己**的地点库。
+     * 两者都能叫「地点」，但一个是私有、一个是所有人共用 —— 卡片上必须写清楚，
+     * 否则「删掉这个地点」会被理解成"删我自己的"，而它动的是所有人的选点。
+     */
+    suspend fun places(): List<AiName>
     suspend fun contacts(): List<AiName>
     suspend fun priceRules(): List<AiName>
 
@@ -338,6 +348,10 @@ interface AiWriteDataSource {
     suspend fun createLocation(fields: JsonObject)
     suspend fun updateLocation(id: Long, fields: JsonObject)
     suspend fun deleteLocation(id: Long)
+    suspend fun updatePlace(id: Long, fields: JsonObject)
+    suspend fun deletePlace(id: Long)
+    suspend fun demotePlace(id: Long)
+    suspend fun publishLocation(id: Long)
     suspend fun createArrearsUnit(fields: JsonObject)
     suspend fun updateArrearsUnit(id: Long, fields: JsonObject)
     suspend fun deleteArrearsUnit(id: Long)
@@ -949,6 +963,13 @@ class RepoWriteDataSource(
 
     override suspend fun locations(): List<AiName> = repo.locations().map { AiName(it.id, it.name.trim()) }
 
+    override suspend fun places(): List<AiName> = repo.placesAll().map {
+        AiName(
+            it.id,
+            listOf(it.name.trim(), it.detailAddress.trim()).filter { s -> s.isNotEmpty() }.joinToString(" "),
+        )
+    }
+
     override suspend fun contacts(): List<AiName> =
         repo.contacts().map { AiName(it.id, listOf(it.displayName.trim(), it.phone.trim()).filter { s -> s.isNotEmpty() }.joinToString(" ")) }
 
@@ -1325,6 +1346,33 @@ class RepoWriteDataSource(
 
     override suspend fun deleteLocation(id: Long) = repo.deleteLocation(id)
 
+    // ---- 共享地点（全库共用那张表）：改 / 删 / 撤销 / 设为共享 ----
+    //
+    // 四个都是**转发**，没有一处自己算业务：
+    // 合并判据（1 米/同名 30 米）与"名字地址不能都空"都在后端 `services/place_service.py`，
+    // 客户端的任何一处再写一遍就会与它走散（而两边都不报错）。
+
+    override suspend fun updatePlace(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updatePlace 的部分更新体是空的（规格 key 写错了）" }
+        repo.updatePlace(
+            id,
+            PlaceUpdateRequest(
+                name = fields.str("name"),
+                detailAddress = fields.str("detail_address"),
+            ),
+        )
+    }
+
+    override suspend fun deletePlace(id: Long) = repo.deletePlace(id)
+
+    override suspend fun demotePlace(id: Long) {
+        repo.demotePlace(id)
+    }
+
+    override suspend fun publishLocation(id: Long) {
+        repo.shareLocation(id)
+    }
+
     override suspend fun createArrearsUnit(fields: JsonObject) {
         repo.createArrearsUnit(
             com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest(
@@ -1605,6 +1653,7 @@ class RepoWriteDataSource(
             "notification" -> AiBefore(id, AiRevertRead.notification(repo.notificationById(id)))
             "price_rule" -> repo.priceRules().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.priceRule(it)) }
             "location" -> repo.locations().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.location(it)) }
+            "place" -> repo.placesAll().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.place(it)) }
             "contact" -> repo.contacts().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.contact(it)) }
             "arrears_unit" -> repo.arrearsUnits().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.arrearsUnit(it)) }
             "freight_template" ->

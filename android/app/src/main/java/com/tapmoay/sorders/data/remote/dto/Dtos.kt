@@ -487,6 +487,26 @@ data class PlaceUseOut(
 )
 
 /**
+ * 改共享地址（**只有派单员**）：只放点名的键 —— `null` = 这个字段不动。
+ *
+ * ⚠️ **坐标刻意不在里面**：改坐标等于把一条别人核对过的导航信息指到另一个地方，
+ * 司机照着走就是错的。位置不对就删掉重新录一个点。
+ */
+@Serializable
+data class PlaceUpdateRequest(
+    val name: String? = null,
+    @SerialName("detail_address") val detailAddress: String? = null,
+)
+
+/** 「撤销共享地址」的答复：撤下来的那一条落在**我的地点**里的编号（`created`=是不是新建的）。 */
+@Serializable
+data class PlaceDemoteOut(
+    @SerialName("place_id") val placeId: Long = 0,
+    @SerialName("location_id") val locationId: Long = 0,
+    val created: Boolean = false,
+)
+
+/**
  * 司机到场补导航信息的入参。
  *
  * 只有**原本没有坐标**的订单能补（后端会 400 挡掉覆盖），

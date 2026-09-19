@@ -192,8 +192,36 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun createPlace(body: com.tapmoay.sorders.data.remote.dto.PlaceCreateRequest) =
         api.placeApi.createPlace(body)
 
+    /**
+     * 共享地点的**名字名册**（AI 用「名字 → 编号」解析的目标池）。
+     *
+     * 与 [placesPage] 的区别只在"要不要分页元信息"：AI 那条路要的是一份能按名字找的清单
+     * （解析不到就拒绝并列候选），界面那条路要的是"这一页是不是全部"。
+     * 两者打的是**同一个端点**，不是两份数据。
+     */
+    suspend fun placesAll(limit: Int = 200): List<com.tapmoay.sorders.data.remote.dto.PlaceDto> =
+        api.placeApi.listPlaces(null, limit).pageRows().rows
+
     /** 记一次「我用了这个共享地点」；用到第 2 次后端会自动收进我的地点库。 */
     suspend fun usePlace(placeId: Long) = api.placeApi.usePlace(placeId)
+
+    /**
+     * 共享库的**管理**四件事（2026-09-19）：改 / 删 / 撤销 / 设为共享地址。
+     *
+     * ⛔ 四个都**只有派单员**能调（后端 `require_roles(DISPATCHER)`，货主/司机是 403）——
+     * 这一组放在 Repository 里不代表界面上谁都能看到入口，界面按角色决定要不要画那几个动作。
+     */
+    suspend fun updatePlace(placeId: Long, body: com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest) =
+        api.placeApi.updatePlace(placeId, body)
+
+    /** 从共享库删掉一个地点（物理删除；谁删的、删了哪一条进审计日志）。 */
+    suspend fun deletePlace(placeId: Long) = api.placeApi.deletePlace(placeId)
+
+    /** 撤销共享地址 → 存进**自己**的「我的地点」。 */
+    suspend fun demotePlace(placeId: Long) = api.placeApi.demotePlace(placeId)
+
+    /** 把「我的地点」里的一个地点设为共享地址（坐标从那一条上取，见 Apis.kt 注释）。 */
+    suspend fun shareLocation(locationId: Long) = api.placeApi.shareLocation(locationId)
 
     /**
      * 司机到场补导航信息。后端一次写三处：这一单、货主的地点库、全库共享地点库。

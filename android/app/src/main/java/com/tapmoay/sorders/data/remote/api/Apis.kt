@@ -384,6 +384,37 @@ interface PlaceApi {
     suspend fun createPlace(@Body body: PlaceCreateRequest): PlaceDto
 
     /**
+     * 改共享地址的名字 / 地址（**只有派单员**）。
+     *
+     * 用户 2026-09-19：「共享地址的编辑**只有派单员**可以编辑，其他人都编辑不了。
+     * 派单员可以改名称…」—— PATCH 语义：只传点名的字段（坐标刻意不给改，见 DTO 注释）。
+     */
+    @PATCH("places/{placeId}")
+    suspend fun updatePlace(@Path("placeId") placeId: Long, @Body body: PlaceUpdateRequest): PlaceDto
+
+    /** 从共享库**删掉**一个地点（只有派单员）。物理删除，内容进审计日志。 */
+    @DELETE("places/{placeId}")
+    suspend fun deletePlace(@Path("placeId") placeId: Long)
+
+    /**
+     * **撤销**共享地址 → 降为**自己**的普通地点（只有派单员）。
+     *
+     * 用户 2026-09-19：「也可以撤销某些共享地址，把它降为普通的地址…如果是降为普通的地址的话，
+     * 则这个地址会保存在**派单员**的地址库当中，其他的不会显示」。
+     */
+    @POST("places/{placeId}/demote")
+    suspend fun demotePlace(@Path("placeId") placeId: Long): PlaceDemoteOut
+
+    /**
+     * 把「我的地点」里的一个地点**设为共享地址**（只有派单员）。
+     *
+     * ⚠️ 走这个端点而不是 `POST /places`：唯一的输入是**地点编号**，坐标从那一条上取 ——
+     * 客户端与 AI 都没有机会自己编一组坐标塞进共享库（那会把司机带错地方）。
+     */
+    @POST("shipper/locations/{locationId}/share")
+    suspend fun shareLocation(@Path("locationId") locationId: Long): PlaceDto
+
+    /**
      * 记一次「我用了这个共享地点」。**同一个人用到第 2 次**会自动把它收进我自己的地点库，
      * 返回值里的 `auto_added` 就是"这一次刚加的"——界面要据此说一句，不能不吭声。
      */

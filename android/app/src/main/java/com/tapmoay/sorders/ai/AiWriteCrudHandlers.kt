@@ -278,6 +278,19 @@ internal fun targetLocation() = AiTargetSpec(
     lookup = { ds, _ -> ds.locations() },
 )
 
+/**
+ * 共享地点（**全库共用**那一张表里的点）。
+ *
+ * ⛔ 与 [targetLocation] 完全是两回事，卡片上的名字必须区分开：
+ * 那个是"**你自己**的地点库"，这个是"**所有人都看得到**的共享库"。
+ * 用户分不清这两个的话，「删掉这个地点」会被理解成"删我自己的"，而实际影响的是所有人。
+ */
+internal fun targetPlace() = AiTargetSpec(
+    param = "place", cn = "共享地点", key = "place_id",
+    hint = "共享地点库里那个地点的名字（或它那一整条地址）",
+    lookup = { ds, _ -> ds.places() },
+)
+
 internal fun targetContact() = AiTargetSpec(
     param = "contact", cn = "联系人", key = "contact_id",
     hint = "联系人姓名或手机号",

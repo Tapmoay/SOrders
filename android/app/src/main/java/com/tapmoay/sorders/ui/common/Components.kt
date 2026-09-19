@@ -655,6 +655,45 @@ fun TruncationNote(limit: Int?, howToSeeMore: String, modifier: Modifier = Modif
 }
 
 /**
+ * 表单里的一句话错误 —— 画在**抽屉 / 弹窗内部**、提交按钮的上方。
+ *
+ * ## 为什么必须有这么一个东西（2026-09-19 真机缺陷）
+ * 用户报：「我新建了一个地点，但是我没有填任何地址，直接点击保存，然后再返回去的时候，
+ * 它那个地点库的**所有列表全消失了**，需要重新连接」。根因不是断线，是**错误的落点**：
+ * 表单的校验错误写进了**页面级**的错误状态，而页面级错误会把整页换成
+ * 「一句话 + 重试」（`ErrorView`）—— 于是同一句话造成两个假象：
+ *
+ * | 用户看到的 | 真相 |
+ * |---|---|
+ * | 点「保存」**没有任何反应** | 那句话画在抽屉**背后**，被抽屉盖住了 |
+ * | 关掉抽屉后**三个列表全没了** | 那句话还挂着，整页被 `ErrorView` 顶掉；一条数据都没丢 |
+ *
+ * 所以规矩是：**表单的错误必须和表单同生共死** —— 画在表单里、打开表单时清掉。
+ * 页面级错误状态只留给"这一页的数据没加载出来"。
+ */
+@Composable
+fun FormErrorLine(text: String?, modifier: Modifier = Modifier) {
+    if (text.isNullOrBlank()) return
+    Row(
+        modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(
+            Icons.Default.ErrorOutline,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+/**
  * 两栏版式左边那一列（"篮子"）的一行。
  *
  * [key] 用来判选中（分类名 / 司机 id / 来源名），[label] 是给人看的。

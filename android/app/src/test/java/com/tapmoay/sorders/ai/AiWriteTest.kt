@@ -374,6 +374,10 @@ class AiWriteTest {
             (roleUsers[role] ?: emptyList()).also { boom() }
         override suspend fun addresses() = addressRows.also { boom() }
         override suspend fun locations() = locationRows.also { boom() }
+
+        /** 共享地点库（全库共用）的名册 —— 与 `locationRows`（自己的地点库）是两份数据。 */
+        var placeRows = listOf(AiName(1, "共享探针点"), AiName(2, "北京温榆河公园"))
+        override suspend fun places() = placeRows.also { boom() }
         override suspend fun contacts() = contactRows.also { boom() }
         override suspend fun priceRules() = priceRuleRows.also { boom() }
 
@@ -593,6 +597,27 @@ class AiWriteTest {
         override suspend fun deleteLocation(id: Long) {
             boom()
             masterCalls += "deleteLocation:$id"
+        }
+
+        // ---- 共享地点（全库共用那张表）：改 / 删 / 撤销 / 设为共享 ----
+        override suspend fun updatePlace(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updatePlace:$id:${fields.toString()}"
+        }
+
+        override suspend fun deletePlace(id: Long) {
+            boom()
+            masterCalls += "deletePlace:$id"
+        }
+
+        override suspend fun demotePlace(id: Long) {
+            boom()
+            masterCalls += "demotePlace:$id"
+        }
+
+        override suspend fun publishLocation(id: Long) {
+            boom()
+            masterCalls += "publishLocation:$id"
         }
         override suspend fun createArrearsUnit(fields: JsonObject) = rec("createArrearsUnit", fields)
         override suspend fun updateArrearsUnit(id: Long, fields: JsonObject) {
@@ -2933,7 +2958,7 @@ class AiWriteTest {
         //    2026-09-19 给「地点分组」加了 4 个）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 94（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 94)
+        assertTrue("动作数不该多于 98（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 98)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",

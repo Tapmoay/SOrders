@@ -433,6 +433,11 @@ fun OrderCreateScreen(
             onPickPlace = { vm.applyPlace(it) },
             onSearchPlaces = { vm.loadPlaces(it) },
             onCategoriesChanged = { vm.reloadAddressLibrary() },
+            canManagePlaces = vm.canManageSharedPlaces,
+            onUpdatePlace = { id, name, addr -> vm.updatePlace(id, name, addr) },
+            onDeletePlace = { vm.deletePlace(it) },
+            onDemotePlace = { vm.demotePlace(it) },
+            onShareLocation = { vm.shareLocation(it) },
             onDismiss = { vm.showAddressSheet = false },
         )
     }
@@ -591,6 +596,16 @@ private fun AddressPickerSheet(
     onSearchPlaces: (String?) -> Unit,
     /** 第二层抽屉里改过分组之后回来：让上层把分组名册刷一遍。 */
     onCategoriesChanged: () -> Unit,
+    /**
+     * 共享库的管理（2026-09-19）：**只有派单员**看得到入口，所以连标记带四个动作一起传进来 ——
+     * 这一层（抽屉）只画界面，改数据的活全在上层那个 ViewModel 里（它才拿得到 repository）。
+     * [canManagePlaces] = false 时行尾连 `⋮` 都不画：不给他看几个点了必然 403 的按钮。
+     */
+    canManagePlaces: Boolean,
+    onUpdatePlace: (Long, String?, String?) -> Unit,
+    onDeletePlace: (Long) -> Unit,
+    onDemotePlace: (Long) -> Unit,
+    onShareLocation: (LocationDto) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var keyword by remember { mutableStateOf("") }
@@ -603,6 +618,13 @@ private fun AddressPickerSheet(
      * 干脆就直接弹一个 —— 也算一个抽屉吧，**它 2 个抽屉**」。
      */
     var managing by remember { mutableStateOf(false) }
+
+    // 共享库的管理：三个动作各要一次确认/编辑（**只有派单员**看得到入口）。
+    // 都放在这一层（抽屉里）而不是各写一个路由：它们都是"改一行数据"，弹一个框就够了。
+    var editingPlace by remember { mutableStateOf<PlaceDto?>(null) }
+    var demoteTarget by remember { mutableStateOf<PlaceDto?>(null) }
+    var deleteTarget by remember { mutableStateOf<PlaceDto?>(null) }
+    var publishTarget by remember { mutableStateOf<LocationDto?>(null) }
 
     // 搜索**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
     // 前两段在本地过滤（数据本来就在手上，即时出结果）；共享地点段还要**同时**打后端 ——
@@ -763,6 +785,11 @@ private fun AddressPickerSheet(
                                     ).joinToString(" · ").ifBlank { "未分类" },
                                     hasCoords = !l.addressLat.isNullOrBlank(),
                                     onClick = { onPickLocation(l) },
+                                    actions = if (canManagePlaces) {
+                                        listOf(RowAction("设为共享地址") { publishTarget = l })
+                                    } else {
+                                        emptyList()
+                                    },
                                 )
                             }
                         }
@@ -792,9 +819,23 @@ private fun AddressPickerSheet(
                                     title = p.name.ifBlank { p.detailAddress.ifBlank { "未命名地点" } },
                                     phone = null,
                                     subtitle = p.detailAddress,
-                                    badge = sourceLabel(p.source) + " · 用过 " + p.useCount + " 次",
+                                    // ⛔ 这里**原来还挂着**「司机补录 · 用过 2 次」。
+                                    // 用户 2026-09-19 点名去掉：「共享地址，它下面不要显示谁是谁使用了、
+                                    // 谁是谁用了多少次，这个信息属于多余的」——
+                                    // 选地址的时候这两个信息都帮不上忙（用了多少次是别人的使用习惯，
+                                    // 来源是谁也不改变这个点能不能用），而它占着行里最醒目的一行小字。
+                                    badge = null,
                                     hasCoords = true,
                                     onClick = { onPickPlace(p) },
+                                    actions = if (canManagePlaces) {
+                                        listOf(
+                                            RowAction("改名称或地址") { editingPlace = p },
+                                            RowAction("撤销为我的地点") { demoteTarget = p },
+                                            RowAction("从共享库删除") { deleteTarget = p },
+                                        )
+                                    } else {
+                                        emptyList()
+                                    },
                                 )
                             }
                         }
@@ -804,12 +845,157 @@ private fun AddressPickerSheet(
             }
         }
     }
+
+    // ---- 共享库的管理动作（都只对派单员开放入口）----
+    editingPlace?.let { p ->
+        EditPlaceDialog(
+            place = p,
+            busy = false,
+            onSave = { name, addr ->
+                onUpdatePlace(p.id, name, addr)
+                editingPlace = null
+            },
+            onDismiss = { editingPlace = null },
+        )
+    }
+    publishTarget?.let { l ->
+        ConfirmActionDialog(
+            title = "设为共享地址",
+            lines = listOf(
+                "把「${l.name.ifBlank { l.detailAddress.ifBlank { "这个地点" } }}」放进共享地点库。",
+                "放进去之后所有角色（货主、司机）下单时都能选到它。",
+                "你原来这条「我的地点」不会消失，两边各有一份。",
+                "坐标相近时会并进已有那一条，不会重复建一个点。",
+            ),
+            confirmLabel = "设为共享",
+            onConfirm = { onShareLocation(l) },
+            onDismiss = { publishTarget = null },
+        )
+    }
+    demoteTarget?.let { p ->
+        ConfirmActionDialog(
+            title = "撤销共享地址",
+            lines = listOf(
+                "把「${p.name.ifBlank { p.detailAddress }}」从共享库撤下来。",
+                "撤下来之后别人再也选不到它了。",
+                "它会被存进你自己的「我的地点」，以后只有你能选。",
+            ),
+            confirmLabel = "撤销",
+            onConfirm = { onDemotePlace(p.id) },
+            onDismiss = { demoteTarget = null },
+        )
+    }
+    deleteTarget?.let { p ->
+        ConfirmActionDialog(
+            title = "从共享库删除",
+            lines = listOf(
+                "把「${p.name.ifBlank { p.detailAddress }}」从共享库删掉。",
+                "这是所有人共用的那一张表：删掉之后每个人都选不到它了。",
+                "删了就没了（共享库没有回收站）。只是不想让别人选、自己还想用的话，请点「撤销为我的地点」。",
+            ),
+            confirmLabel = "删除",
+            danger = true,
+            onConfirm = { onDeletePlace(p.id) },
+            onDismiss = { deleteTarget = null },
+        )
+    }
 }
-private fun sourceLabel(source: String): String = when (source) {
-    "driver" -> "司机补录"
-    "dispatcher" -> "派单员"
-    "shipper" -> "货主"
-    else -> "共享"
+
+/** 行尾那个 `⋮` 里的一项（共享库的管理动作）。 */
+private data class RowAction(val label: String, val onClick: () -> Unit)
+
+/**
+ * 一个动作的确认框：标题 + **一句句把后果写出来** + 确认。
+ *
+ * 为什么要有它（而不是直接执行）：共享库这张表是**全库共用**的，
+ * 「撤销」和「删除」的差别在用户嘴里只差一个字，在库里差的是"别人还能不能选到它"。
+ * 所以两句话都要写清楚，而且确认按钮的文案就是那个动作本身（「撤销」「删除」），
+ * 不写成含糊的"确定"。
+ */
+@Composable
+private fun ConfirmActionDialog(
+    title: String,
+    lines: List<String>,
+    confirmLabel: String,
+    danger: Boolean = false,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                lines.forEach {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(); onDismiss() }) {
+                Text(confirmLabel, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+/**
+ * 改共享地点的**名称与地址**（坐标不给改：那是"这个位置在哪儿"的事实，见后端注释）。
+ *
+ * 两个框都预填当前值、都允许清空其中一个 —— 「名字和地址不能都是空」由后端判并给出一句话，
+ * 这里不重复实现那条规则（两处写迟早有两种说法）。
+ */
+@Composable
+private fun EditPlaceDialog(
+    place: PlaceDto,
+    busy: Boolean,
+    onSave: (String?, String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(place.id) { mutableStateOf(place.name) }
+    var address by remember(place.id) { mutableStateOf(place.detailAddress) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("改共享地点") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("地址") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "改完所有角色下单时看到的都是新的。坐标不在这里改（位置不对就删掉重新录一个点）。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy,
+                onClick = {
+                    onSave(
+                        name.trim().takeIf { it != place.name },
+                        address.trim().takeIf { it != place.detailAddress },
+                    )
+                },
+            ) { Text(if (busy) "保存中…" else "保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable
@@ -853,6 +1039,8 @@ private fun SheetRow(
     badge: String?,
     hasCoords: Boolean,
     onClick: () -> Unit,
+    /** 行尾 `⋮` 里的管理动作（**只有派单员**会给；空 = 不画那个按钮）。 */
+    actions: List<RowAction> = emptyList(),
 ) {
     val headColor = if (isPlace) Color(0xFF00A2C7) else Color(0xFF1E6FFF)
     val headIcon = if (isPlace) Icons.Default.Place else Icons.Default.Person
@@ -908,6 +1096,30 @@ private fun SheetRow(
                     color = Color(0xFF00B578),
                     fontWeight = FontWeight.Bold,
                 )
+            }
+            // 管理动作收进 `⋮`（设计规范 §4.2：卡片上的动作三个以上就收进 `⋮`）。
+            // ⛔ 不要把它们平铺成文字按钮：共享库那一行已经有「改名称/撤销/删除」三个，
+            //    平铺会把整行的排版压垮，而"删除"混在里面也更容易被误点。
+            if (actions.isNotEmpty()) {
+                var open by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { open = true }, modifier = Modifier.size(30.dp)) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "更多操作",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                        actions.forEach { a ->
+                            DropdownMenuItem(
+                                text = { Text(a.label) },
+                                onClick = { open = false; a.onClick() },
+                            )
+                        }
+                    }
+                }
             }
         }
         if (subtitle.isNotBlank()) {

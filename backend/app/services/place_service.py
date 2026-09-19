@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
@@ -348,3 +349,120 @@ def ensure_shipper_location(
     db.add(row)
     db.flush()
     return row, True
+
+
+# ===========================================================================
+# 共享地点的**管理**（2026-09-19 用户要求）
+#
+# 用户原话：
+# > 这个地址是可以编辑的。如果是来到了共享库的话，共享地址的编辑**只有派单员**可以编辑，
+# > 其他人都编辑不了。派单员可以改名称，也可以把一些地点给**设置为共享地址**，
+# > 也可以**撤销**某些共享地址，把它**降为普通的地址**，或者直接**删掉**。
+# > 如果是降为普通的地址的话，则这个地址会保存在**派单员**的地址库当中，其他的不会显示。
+#
+# 四个动作都在这里收口（API 与 AI 走同一份实现）：
+#   改  → `apply_place_update`      设 → `share_location`
+#   撤  → `demote_place`            删 → `delete_place`
+# ===========================================================================
+
+#: 「名字和地址不能都是空」的**唯一一句话**。
+#:
+#: 原来这句话只活在 `schemas/place.py` 的新建校验器里 —— 而"改地址"也要判同一条，
+#: 且必须看**改完之后的整行**（PATCH 只带一个字段），校验器拿不到那一行。
+#: 所以判据落在这里，schema 反过来引它（一句话两处写，迟早会变成两种说法）。
+NO_NAME_TEXT = "请给这个地点起个名字或填个地址（共享库里只有坐标的话，别人认不出是哪儿）"
+
+
+def identify_error(name: str | None, detail_address: str | None) -> str | None:
+    """这一行"认得出来"吗（名字与地址不能都是空）。返回给用户看的那句话，或 None。"""
+    if not (name or "").strip() and not (detail_address or "").strip():
+        return NO_NAME_TEXT
+    return None
+
+
+def apply_place_update(
+    db: Session,
+    place: Place,
+    *,
+    name: str | None = None,
+    detail_address: str | None = None,
+) -> tuple[str, str]:
+    """改共享地点（**只有派单员**）：PATCH 语义 —— `None` = 这个字段不改。
+
+    返回 `(旧值, 新值)` 的摘要串给调用方写审计（"「旧名」→「新名」"）。
+
+    ⚠️ **先算好改完的样子再落盘**：两个字段都可能只改一个，而"名字和地址不能都是空"
+    要按**整行**判 —— 先写再验会把一行非法数据留在 session 里（异常路径上它可能被别处一并提交）。
+    """
+    before = f"{place.name} | {place.detail_address}"
+    new_name = place.name if name is None else _clean(name, 128)
+    new_detail = place.detail_address if detail_address is None else _clean(detail_address, 512)
+    err = identify_error(new_name, new_detail)
+    if err is not None:
+        raise ValueError(err)
+    place.name = new_name
+    place.detail_address = new_detail
+    db.flush()
+    return before, f"{new_name} | {new_detail}"
+
+
+def share_location(db: Session, *, location: ShipperLocation, operator_id: int) -> tuple[Place, bool]:
+    """把「我的地点」里的一个地点**设为共享地址**（进那张全库共用的表）。
+
+    判据完全复用 `upsert_place`：坐标 1 米内（或同名 30 米内）**并进已有那条**，不新建重复项 ——
+    同一处地方被点两次"设为共享"，共享库里不该出现两条。
+    返回 `(place, merged)`；`merged=True` 时界面要说"已并入已有地点「XX」"。
+    """
+    if location.address_lat is None or location.address_lng is None:
+        # 没有坐标的地点**进不了共享库**（那张表的唯一硬条件是坐标：它是给导航用的）。
+        # 这条闸必须在写之前拦，否则会进去一条谁也导不到的点。
+        raise ValueError("这个地点还没有坐标，先用「地图选点」定位一下，再设为共享地址")
+    return upsert_place(
+        db,
+        lat=float(location.address_lat),
+        lng=float(location.address_lng),
+        name=location.name,
+        detail_address=location.detail_address,
+        source="dispatcher",
+        created_by=operator_id,
+    )
+
+
+def delete_place(db: Session, place: Place) -> None:
+    """从共享库**删掉**一个地点（物理删除；整行内容由调用方先写进审计日志）。
+
+    ⚠️ `place_user_usage` 必须一起删：那是"谁用过它几次"的计数，地点没了它就没有主语，
+       而且 `place_id` 是指向本表的外键 —— MySQL 上不删会直接外键冲突（本机 SQLite 不报，
+       所以这条只有写下来才拦得住）。
+
+    ⚠️ 这里是**物理**删除，与主数据那套 `SoftDeleteMixin` 不同，理由是这张表的形状：
+    一条记录就是"名字 + 一对坐标"，删错了重新标一次就有；而软删要在**每一处查询**上补
+    `is_deleted` 过滤，漏一处的后果是"库里明明有一模一样的点，补录却说没找到"
+    （`find_place_near` 也吃这张表，它漏了判据就变成"并进一条已经删掉的行"）。
+    所以删除前把整行写进 `operation_logs`：事后能查回"删的是哪一条、谁删的"。
+    """
+    db.execute(sa_delete(PlaceUserUsage).where(PlaceUserUsage.place_id == place.id))
+    db.delete(place)
+    db.flush()
+
+
+def demote_place(db: Session, *, place: Place, operator_id: int) -> tuple[ShipperLocation, bool]:
+    """**撤销**一个共享地址：从共享库撤下来，存进**操作人自己的**「我的地点」。
+
+    用户 2026-09-19：
+    > 也可以撤销某些共享地址，把它降为普通的地址…如果是降为普通的地址的话，
+    > 则这个地址会保存在**派单员**的地址库当中，其他的不会显示。
+
+    「其他的不会显示」＝ 这一行从共享库里消失，而不是"只对某个人隐藏" ——
+    共享库是全库一张表，没有"只对你隐藏"这种东西，所以撤销就是真的撤下来。
+    """
+    loc, created = ensure_shipper_location(
+        db,
+        shipper_id=operator_id,
+        name=place.name,
+        detail_address=place.detail_address,
+        lat=float(place.lat),
+        lng=float(place.lng),
+    )
+    delete_place(db, place)
+    return loc, created

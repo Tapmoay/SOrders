@@ -131,11 +131,21 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var savingPlace by mutableStateOf(false)
     /** 一次性提示（"已存进共享地点库"这类）；界面显示完自己清掉 */
     var toast by mutableStateOf<String?>(null)
+    /**
+     * 我能不能管共享库（改/撤销/删除共享地址、把我的地点设为共享）。
+     *
+     * 判据只有一个：**登录角色是派单员**（与后端 `require_roles(DISPATCHER)` 同一件事）。
+     * 界面上不给他画那几个按钮，省得点了才吃一个 403 —— 但真正的门在后端，
+     * 这个标记只决定"画不画入口"。
+     */
+    var canManageSharedPlaces by mutableStateOf(false)
+        private set
 
     init {
         viewModelScope.launch {
             val s = container.tokenStore.sessionFlow.first()
             myShipperId = s?.userId
+            canManageSharedPlaces = s?.role == "dispatcher"
             loadPriceRulesFor(s?.userId)
         }
         // 预加载商品目录与地址库
@@ -204,6 +214,79 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                 placesTruncated = page.meta.hasMore
                 placesLimit = page.meta.limit
             } catch (_: Exception) {}
+        }
+    }
+
+    // ===== 共享库的管理（**只有派单员**，用户 2026-09-19）=====
+    //
+    // 用户原话：「共享地址的编辑只有派单员可以编辑，其他人都编辑不了。派单员可以改名称，
+    // 也可以把一些地点给设置为共享地址，也可以撤销某些共享地址，把它降为普通的地址，
+    // 或者直接删掉」。
+    //
+    // 四个动作都在这里**如实回报**（`toast`），而且**改完立刻重拉两份列表**：
+    // 撤销会同时改「共享地点」（少一条）和「我的地点」（多一条），只刷一份的话
+    // 抽屉里会出现"刚撤销的地点还在共享库里"这种假象。
+
+    /** 改共享地点的名称/地址。 */
+    fun updatePlace(id: Long, name: String?, address: String?) {
+        if (name == null && address == null) {
+            toast = "没有要改的内容"
+            return
+        }
+        viewModelScope.launch {
+            try {
+                container.repo.updatePlace(
+                    id,
+                    com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest(name = name, detailAddress = address),
+                )
+                toast = "已改共享地点"
+                loadPlaces()
+            } catch (e: Exception) {
+                toast = toApiException(e).message
+            }
+        }
+    }
+
+    /** 从共享库**删掉**一个地点（全库共用那条，删了别人也选不到了）。 */
+    fun deletePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                container.repo.deletePlace(id)
+                toast = "已从共享地点库删除（别人的选点列表里也没有它了）"
+                loadPlaces()
+            } catch (e: Exception) {
+                toast = toApiException(e).message
+            }
+        }
+    }
+
+    /** **撤销**共享地址 → 降为**自己**的普通地点。 */
+    fun demotePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                val r = container.repo.demotePlace(id)
+                toast = if (r.created) "已撤销，并存进了你的「我的地点」"
+                else "已撤销（你本来就有这个地点，没有重复加）"
+                locations = container.repo.locations()
+                loadPlaces()
+            } catch (e: Exception) {
+                toast = toApiException(e).message
+            }
+        }
+    }
+
+    /** 把「我的地点」里的一个地点**设为共享地址**。 */
+    fun shareLocation(l: LocationDto) {
+        viewModelScope.launch {
+            try {
+                val p = container.repo.shareLocation(l.id)
+                // 如实说明"新建"还是"并入"：用户以为库里多了一条、而列表没变，是最容易困惑的地方
+                toast = if (p.merged) "已并入共享地点库里的「${p.name}」（坐标相近，没有重复建）"
+                else "已设为共享地址，以后大家都能直接选它"
+                loadPlaces()
+            } catch (e: Exception) {
+                toast = toApiException(e).message
+            }
         }
     }
 

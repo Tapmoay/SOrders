@@ -8,6 +8,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.geo import GeoInput
 from app.schemas.text import MAX_ADDRESS, MAX_NAME
+from app.services import place_service
 
 #: `(0,0)` 哨兵的判据阈值 —— 与安卓侧 `core/SunLocation.isPlausible` 是同一个数。
 _SENTINEL_EPS = Decimal("0.01")
@@ -44,20 +45,46 @@ class PlaceCreate(GeoInput):
 
     @model_validator(mode="after")
     def _needs_a_name(self) -> "PlaceCreate":
-        """**名字和地址不能都是空**（2026-09-18 加的，因为这张表**没有删除接口**）。
+        """**名字和地址不能都是空**（2026-09-18 加的，因为这张表当时**没有任何入口能删掉一条**）。
 
-        为什么这条比看起来重要：`places` 是**全库共享**的一张表，而且**没有任何入口能删掉一条**
-        —— 所以一条没有名字的记录是**永久的**：它会在每个人的「共享地点」列表里显示成
-        「未命名地点」+ 空地址，谁也认不出那是哪儿，谁也没法清理。
-        （开发库里真出现过一条：合同模糊测试往 `POST /places` 打了 5 次空名请求，
-        按 1 米合并成一条 `name="   "` 的记录 —— 修好 strip 之后它会变成 `""`，
-        但"空名记录"这件事本身还是该在入口拦掉。）
+        为什么这条比看起来重要：`places` 是**全库共享**的一张表 —— 所以一条没有名字的记录
+        是**所有人都要看的**：它会在每个人的「共享地点」列表里显示成「未命名地点」+ 空地址，
+        谁也认不出那是哪儿。（开发库里真出现过一条：合同模糊测试往 `POST /places` 打了 5 次
+        空名请求，按 1 米合并成一条 `name="   "` 的记录。）
 
         只要求**二选一**：只要有一个能认出来的信息就够了（有人就是"先钉个点、地址回头补"）。
+
+        ⚠️ 判据本身在 `services/place_service.identify_error`（**只有那一处**）：
+        2026-09-19 加了"改共享地址"之后，同一句话也要用在校验**改完之后的整行**上，
+        而校验器只看得到入参、看不到那一行 —— 所以那句话搬到服务层，这里反过来引它。
         """
-        if not (self.name or "").strip() and not (self.detail_address or "").strip():
-            raise ValueError("请给这个地点起个名字或填个地址（共享库里只有坐标的话，别人认不出是哪儿）")
+        err = place_service.identify_error(self.name, self.detail_address)
+        if err:
+            raise ValueError(err)
         return self
+
+
+class PlaceUpdate(BaseModel):
+    """改共享地址（**只有派单员**，见 `api/v1/places.py`）。
+
+    部分更新语义：`None` = 这个字段不动（`""` = 清空）。两个字段都不传是**空操作**，
+    接口会直接 400 —— 让一次什么都没改的请求返回 200，界面上看起来像"改成功了"。
+    """
+
+    name: str | None = Field(None, max_length=MAX_NAME)
+    detail_address: str | None = Field(None, max_length=MAX_ADDRESS)
+
+
+class PlaceDemoteOut(BaseModel):
+    """「撤销共享地址」的答复：撤下来之后它落在**操作人自己的**「我的地点」里的那一条。
+
+    `created=False` 表示操作人自己的地点库里**本来就有**这个点（按 1 米/同名 30 米判），
+    只是把共享库里那条撤掉了 —— 界面要如实说，不能让用户以为"多出来一条"。
+    """
+
+    place_id: int
+    location_id: int
+    created: bool
 
 
 class PlaceOut(BaseModel):

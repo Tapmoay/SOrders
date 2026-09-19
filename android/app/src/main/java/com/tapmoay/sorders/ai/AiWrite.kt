@@ -1025,6 +1025,24 @@ object AiWrites {
     const val PLACE_CATEGORY_DELETE = "place_category.delete"
     const val PLACE_CATEGORY_REORDER = "place_category.reorder"
 
+    // ---- 共享地点库的管理（2026-09-19：用户要求 AI 也要会这一套）----
+    //
+    // 用户原话：「再给派单端的 AI 去增加这些功能，比如说**更改共享地址的名称**，
+    // 或者说更改地址的名称，它这些都要有；还有**撤销某个共享地址**、将某个共享地址
+    // **降为一个普通的**…或者说**直接删除**某个共享地址都可以」。
+    //
+    // ⚠️ 与「地点」（`location.*`）是**两张表**，卡片上不能混：
+    //    `location.*` 动的是**你自己**的地点库（按人分区）；
+    //    这一组动的是**全库共用**的那一张（改一条，所有人的选点列表都跟着变）。
+    // ⛔ **坐标一律不给**：共享库里的坐标是"某个位置是哪儿"的事实，模型编一个会把司机带错地方
+    //    （`POST /places` 就是因为这条被永久排除在 AI 之外的）。"设为共享地址"这个动作
+    //    的输入是**一个地点编号**，坐标从那一条上抄——模型全程碰不到经纬度。
+    // ⚠️ 这一组**只有派单员**：不进 [SHIPPER_ACTIONS] 就是默认不给货主（fail-closed）。
+    const val PLACE_UPDATE = "place.update"
+    const val PLACE_DELETE = "place.delete"
+    const val PLACE_DEMOTE = "place.demote"
+    const val PLACE_PUBLISH = "place.publish"
+
     // ---- 商品可见范围（白名单）----
     //
     // 用户 2026-09-18 原话：「甚至也可以直接叫 ai 操作（指定某个批发商/货主只能看到哪些商品）」。
@@ -1039,6 +1057,8 @@ object AiWrites {
     const val G_CATEGORY = "商品分类"
     /** 地点分组（**按人分区**：每个人管自己地址库左栏那一列）。 */
     const val G_PLACE_CATEGORY = "地点分组"
+    /** 共享地点（**全库共用**那一张表：改一条，所有人的选点列表都跟着变）。 */
+    const val G_PLACE = "共享地点"
     const val G_PRICE = "批发商定价"
     const val G_STOCK = "库存"
     const val G_USER = "账号与收费规则"

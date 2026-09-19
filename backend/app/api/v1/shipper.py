@@ -15,14 +15,21 @@ from app.core.rbac import user_role_key
 from app.api.v1.place_categories import ensure_place_category
 from app.database import get_db
 from app.deps import require_roles
+from app.services import place_service
+from app.services.operation_log_service import write_log
 from app.services.soft_delete import del_suffix, ensure_alive
-from app.models import ShipperAddress, ShipperContact, ShipperLocation, User
+from app.models import OperationAction, ShipperAddress, ShipperContact, ShipperLocation, User
 from app.models.enums import UserRole
+from app.schemas.place import PlaceOut
 from app.schemas.shipper import AddressCreate, AddressOut, AddressUpdate, ContactCreate, ContactOut, ContactUpdate, LocationCreate, LocationImageOut, LocationOut, LocationUpdate
 
 router = APIRouter(prefix="/shipper", tags=["shipper"])
 
 ShipperOrDispatcher = Annotated[User, Depends(require_roles(UserRole.SHIPPER, UserRole.DISPATCHER))]
+
+#: 共享库的**管理**动作（设为共享地址）只有派单员能做 —— 与 `api/v1/places.py` 的
+#: 改/撤销/删除同一个角色集合，理由也在那边（共享库全库共用，改它要一个人负责）。
+DispatcherOnly = Annotated[User, Depends(require_roles(UserRole.DISPATCHER))]
 
 
 def _clean_category(value: str | None) -> str:
@@ -395,6 +402,52 @@ def delete_location(location_id: int, current: ShipperOrDispatcher, db: Session 
     loc.is_deleted = True
     loc.deleted_at = utc_now_naive()
     db.commit()
+
+
+@router.post("/locations/{location_id}/share", response_model=PlaceOut)
+def share_location(
+    location_id: int,
+    current: DispatcherOnly,
+    db: Session = Depends(get_db),
+) -> PlaceOut:
+    """把「我的地点」里的一个地点**设为共享地址**（进全库共用的那张表）。**只有派单员**。
+
+    用户 2026-09-19：「派单员可以改名称，也可以把一些地点给**设置为共享地址**」。
+
+    为什么单独一个端点、而不是让客户端直接打 `POST /places`（那条路三种角色都能走）：
+    ① 这条路的**唯一输入是一个地点编号**，坐标/名字/地址都从那条地点上取 ——
+       客户端（以及 AI）**没有机会自己编一组坐标**塞进共享库；
+    ② 它要有审计（`PLACE_PUBLISH`）与"已并入已有地点"的如实回报，那两件事都需要一个落点。
+    合并判据仍然只有一处（`place_service.upsert_place`）。
+    """
+    loc = db.get(ShipperLocation, location_id)
+    if loc is None or loc.shipper_id != current.id or loc.is_deleted:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    try:
+        place, merged = place_service.share_location(db, location=loc, operator_id=current.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PLACE_PUBLISH,
+        change_payload={
+            "location_id": loc.id,
+            "place_id": place.id,
+            "name": place.name,
+            "detail_address": place.detail_address,
+            "address_lat": str(place.lat),
+            "address_lng": str(place.lng),
+            "merged": merged,
+            "note": "把「我的地点」里的一个地点设为共享地址（全库共用）",
+        },
+    )
+    db.commit()
+    db.refresh(place)
+    out = PlaceOut.model_validate(place)
+    out.merged = merged
+    return out
 
 
 @router.post("/locations/{location_id}/restore", response_model=LocationOut)

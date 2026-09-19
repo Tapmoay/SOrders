@@ -74,7 +74,7 @@ fun AddressScreen(
                 }
                 if (target == "line") vm.uploadLineImage(f) else vm.uploadLocationImage(f)
             } catch (_: Exception) {
-                vm.error = "图片读取失败，请重试"
+                vm.formError = "图片读取失败，请重试"
             }
         }
     }
@@ -98,13 +98,20 @@ fun AddressScreen(
                     f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
                     if (target == "line") vm.uploadLineImage(f) else vm.uploadLocationImage(f)
                 } catch (_: Exception) {
-                    vm.error = "图片处理失败，请重试"
+                    vm.formError = "图片处理失败，请重试"
                 }
             }
         }
     }
 
+    // 行上的「删除 / 设为默认」这类**没有表单可挂**的动作，失败时用 Snackbar 说一句
+    // （与全 App 的做法一致：`OneShotSnackbar` + `vm.notice` 用完置回 null）。
+    // ⛔ 不要把它写进 loadError —— 那会把整页换成错误页，而列表其实好好的。
+    val snackbar = remember { SnackbarHostState() }
+    OneShotSnackbar(snackbar, vm.notice, onConsumed = { vm.notice = null })
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("地址与联系人") },
@@ -161,7 +168,9 @@ fun AddressScreen(
             Box(Modifier.weight(1f)) {
                 when {
                     vm.loading -> LoadingBox(Modifier.fillMaxSize())
-                    vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() }, Modifier.fillMaxSize())
+                    // ⚠️ 只看 **loadError**：表单的错误写在抽屉里（见 AddressViewModel 的注释），
+                    //    混进来就会让"保存被拦下"变成"整页列表全没了"。
+                    vm.loadError != null -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() }, Modifier.fillMaxSize())
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
@@ -366,6 +375,9 @@ fun AddressScreen(
                     Switch(checked = vm.draftIsDefault, onCheckedChange = { vm.draftIsDefault = it })
                 }
                 Spacer(Modifier.height(8.dp))
+                // 校验/保存失败的那句话画在**抽屉里面**（见 FormErrorLine 的注释：
+                // 写进页面级错误会让"保存被拦下"变成"整页列表全没了"）
+                FormErrorLine(vm.formError)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { vm.showCreateDialog = false }, modifier = Modifier.weight(1f).height(48.dp)) { Text("取消") }
                     Button(onClick = { vm.save() }, enabled = !vm.acting, modifier = Modifier.weight(1f).height(48.dp)) { Text(if (vm.acting) "保存中…" else "保存") }
@@ -447,6 +459,7 @@ fun AddressScreen(
                 if (newCatDialog) {
                     NewPlaceCategoryDialog(
                         busy = vm.acting,
+                        error = vm.formError,
                         onConfirm = { name ->
                             vm.createPlaceCategoryAndSelect(name) { newCatDialog = false }
                         },
@@ -485,6 +498,8 @@ fun AddressScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
+                // 同上：新增/编辑地点被拦下时，那句话说在**这张抽屉里**
+                FormErrorLine(vm.formError)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { vm.showLocationDialog = false }, modifier = Modifier.weight(1f).height(48.dp)) { Text("取消") }
                     Button(onClick = { vm.saveLocation() }, enabled = !vm.acting, modifier = Modifier.weight(1f).height(48.dp)) { Text(if (vm.acting) "保存中…" else "保存") }
@@ -575,6 +590,8 @@ fun AddressScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
+                // 同上：电话不合规（InputRules 那一句）也画在这张抽屉里
+                FormErrorLine(vm.formError)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { vm.showContactDialog = false }, modifier = Modifier.weight(1f).height(48.dp)) { Text("取消") }
                     Button(onClick = { vm.saveContact() }, modifier = Modifier.weight(1f).height(48.dp)) { Text(if (vm.editingContact == null) "添加" else "保存") }
@@ -596,6 +613,8 @@ private fun NewPlaceCategoryDialog(
     busy: Boolean,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
+    /** 建失败时的一句话（如"已经存在"之外的错误）；画在弹窗里，不写到页面上。 */
+    error: String? = null,
 ) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
@@ -614,6 +633,7 @@ private fun NewPlaceCategoryDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                FormErrorLine(error)
             }
         },
         confirmButton = {

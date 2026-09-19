@@ -1064,7 +1064,7 @@
    "module_cn": "共享地点库",
    "method": "get",
    "path": "/api/v1/places",
-   "at": "backend/app/api/v1/places.py:36",
+   "at": "backend/app/api/v1/places.py:38",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -1306,7 +1306,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/addresses",
-   "at": "backend/app/api/v1/shipper.py:59",
+   "at": "backend/app/api/v1/shipper.py:66",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1322,7 +1322,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/contacts",
-   "at": "backend/app/api/v1/shipper.py:200",
+   "at": "backend/app/api/v1/shipper.py:207",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1338,7 +1338,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/locations",
-   "at": "backend/app/api/v1/shipper.py:304",
+   "at": "backend/app/api/v1/shipper.py:311",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",

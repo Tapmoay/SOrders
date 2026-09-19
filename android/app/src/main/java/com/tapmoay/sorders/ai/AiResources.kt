@@ -9,6 +9,7 @@ import com.tapmoay.sorders.data.remote.dto.FreightTemplateDto
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.remote.dto.NotificationDto
+import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductRow
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
@@ -96,6 +97,32 @@ internal object AiResources {
         ),
         read = { ds, id -> ds.snapshot("location", id) },
         restore = AiInverse(AiWrites.LOCATION_RESTORE, mapOf("target_id" to AiRevert.ID)),
+    )
+
+    /**
+     * 共享地点（**全库共用**那一张表里的点）。
+     *
+     * 与 [LOCATION] 刻意分成两份资源：那个是"**我自己**的地点库"（按人分区、软删、有恢复），
+     * 这个是"**所有人共用**的选点表"（物理删除、没有回收站）。合成一份的后果是撤回表会
+     * 以为它们都能"恢复"——而共享库那边根本没有恢复接口。
+     *
+     * 只有 `place.update` 挂在这里（改名字/地址可以照原样写回）；
+     * `place.delete` 与 `place.demote` 是**撤不回来**的，理由写在 [AiRevert] 里。
+     */
+    private val PLACE = AiResource(
+        key = "place",
+        cn = "共享地点",
+        idKey = "place_id",
+        readKeys = setOf("name", "detail_address"),
+        labels = mapOf("name" to "名称", "detail_address" to "地址"),
+        actions = listOf(
+            update(AiWrites.PLACE_UPDATE),
+            // ⛔ **删除刻意不挂在这里**：共享库那张表是物理删除、后端没有恢复接口，
+            //    挂一个 `delete(...)` 会让撤回表以为"这一步能恢复"。它的交代在 `AiRevert`
+            //    那条 `none(PLACE_DELETE, …)` 里（写清了"为什么撤不回来、怎么补"）。
+            //    红线接受这两种交代中的任意一种（见 `_check_ai_guardrails.py` §21）。
+        ),
+        read = { ds, id -> ds.snapshot("place", id) },
     )
 
     private val CONTACT = AiResource(
@@ -599,6 +626,7 @@ internal object AiResources {
     val TABLE: List<AiResource> = listOf(
         ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, FREIGHT_TEMPLATE, DRIVER_RULE,
         PRODUCT, PRICE_RULE, PRODUCT_CATEGORY, PLACE_CATEGORY, VEHICLE, PRODUCT_VISIBILITY, USER,
+        PLACE,
         ORDER, ORDER_LINE, LEDGER_ENTRY, NOTIFICATION,
     )
 }
@@ -652,6 +680,18 @@ internal object AiRevertRead {
     fun contact(d: ContactDto): JsonObject = buildJsonObject {
         put("display_name", d.displayName)
         put("phone", d.phone)
+    }
+
+    /**
+     * 共享地点（全库共用那张表）的可撤回字段。
+     *
+     * ⚠️ **只有名字和地址**：坐标不进 payload 是有意的 —— 撤回是把这份快照**原样写回**，
+     * 而"改共享地点"这个动作本身就不接受坐标（见 `AiWrite.kt` 里那一组动作的注释）。
+     * 把坐标读进来只会让撤回卡上多出两行用户改不动、也看不懂的数。
+     */
+    fun place(d: PlaceDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        put("detail_address", d.detailAddress)
     }
 
     fun arrearsUnit(d: ArrearsUnitDto): JsonObject = buildJsonObject {

@@ -251,6 +251,92 @@ internal object AiWriteBasicData {
             },
         ) { ds, p -> ds.deleteLocation(p.reqLong("location_id")) },
 
+        // ---------------------------------------------------- 共享地点（全库共用）
+        //
+        // 用户 2026-09-19：「再给派单端的 AI 去增加这些功能，比如说更改共享地址的名称…
+        // 还有撤销某个共享地址、将某个共享地址降为一个普通的，或者说直接删除某个共享地址都可以」。
+        //
+        // ⚠️ 四张卡的措辞都要把「**所有人**都看得到」写出来：这张表全库共用，
+        //    改一条/删一条影响的是**每个下单的人**的选点列表，不是"我自己那一份"。
+        crud(
+            id = AiWrites.PLACE_UPDATE,
+            title = "改共享地点",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_PLACE,
+            blurb = "改一个共享地点的名字或地址（共享库全库共用，改完全世界看到的都是新的）。",
+            targets = listOf(targetPlace()),
+            fields = listOf(
+                textField("name", "新名称", "不改就不填", maxChars = 128),
+                textField("address", "新地址", "不改就不填", maxChars = 512)
+                    .copy(key = "detail_address"),
+            ),
+            headline = { c -> "改共享地点：${c.ref("place")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "要改的：${c.ref("place")?.label}",
+                    c.line("name", "名称改成"),
+                    c.line("detail_address", "地址改成"),
+                    "⚠️ 共享库是所有人共用的：改完每个下单的人选到的都是新的名字/地址",
+                    "⚠️ 坐标不在这次改动里（位置不对要删掉重新录一个点）",
+                )
+            },
+        ) { ds, p -> ds.updatePlace(p.reqLong("place_id"), p.pick(PLACE_KEYS)) },
+
+        crud(
+            id = AiWrites.PLACE_PUBLISH,
+            title = "设为共享地点",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_PLACE,
+            blurb = "把「我的地点」里的一个地点设为共享地址：所有角色下单时都能选到它。",
+            targets = listOf(targetLocation()),
+            headline = { c -> "设为共享地点：${c.ref("location")?.label}" },
+            details = { c ->
+                listOf(
+                    "要共享的：${c.ref("location")?.label}（你自己的「我的地点」里那一条）",
+                    "改完：每个人的共享地点库里都能选到它（司机也能照着导航）",
+                    "⚠️ 你原来那条私有地点不会消失，两边各有一份",
+                    "⚠️ 坐标相近的地点会并进已有那一条，不会在库里重复建一个点",
+                    "⚠️ 没有坐标的地点推不上去（共享库是给导航用的，只有文字没有用）",
+                )
+            },
+        ) { ds, p -> ds.publishLocation(p.reqLong("location_id")) },
+
+        crud(
+            id = AiWrites.PLACE_DEMOTE,
+            title = "撤销共享地点",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_PLACE,
+            blurb = "把一个共享地址撤销：从共享库撤下来，存进你自己的「我的地点」。",
+            targets = listOf(targetPlace()),
+            headline = { c -> "撤销共享地点：${c.ref("place")?.label}" },
+            details = { c ->
+                listOf(
+                    "要撤销的：${c.ref("place")?.label}",
+                    "撤销后：它从共享库里消失（别人再也选不到它）",
+                    "同时存进你自己的「我的地点」，以后只有你自己能选",
+                    "⚠️ 这一步撤不回来：想让别人也能用，得重新「设为共享地点」一次",
+                )
+            },
+        ) { ds, p -> ds.demotePlace(p.reqLong("place_id")) },
+
+        crud(
+            id = AiWrites.PLACE_DELETE,
+            title = "删除共享地点",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_PLACE,
+            blurb = "从共享库里删掉一个地点（谁都选不到了）。删掉就没了，没有回收站。",
+            targets = listOf(targetPlace()),
+            headline = { c -> "删除共享地点：${c.ref("place")?.label}" },
+            details = { c ->
+                listOf(
+                    "要删的：${c.ref("place")?.label}",
+                    "这是全库共用的那一条：删掉之后每个人的共享地点里都没有它了",
+                    "⚠️ 恢复不了（共享库没有回收站）——只是想让别人选不到、自己还想用的话，"
+                        + "用「撤销共享地点」而不是删除",
+                )
+            },
+        ) { ds, p -> ds.deletePlace(p.reqLong("place_id")) },
+
         // -------------------------------------------------------- 挂账单位
         crud(
             id = AiWrites.ARREARS_UNIT_CREATE,
@@ -891,6 +977,9 @@ internal object AiWriteBasicData {
     /** 地点分组进 payload 的键（改分组时只传点名的那几个）。 */
     private val PLACE_CATEGORY_KEYS = setOf("name", "sort_order")
 
+    /** 共享地点进 payload 的键（**没有坐标**：改坐标等于把导航指到别处，见 AiWrite.kt）。 */
+    private val PLACE_KEYS = setOf("name", "detail_address")
+
     /** 车辆（按**车牌**找；车牌号忽略大小写与分隔符）。 */
     private fun targetVehicle() = AiTargetSpec(
         param = "vehicle", cn = "车辆", key = "vehicle_id",
@@ -1062,3 +1151,4 @@ internal object AiWriteBasicData {
  * 的 `sortOrder + 1`（撤回是把快照**原样写回 payload**，两边口径不一致就会差一位）。
  */
 internal fun positionToSortOrder(position: Int): Int = position - 1
+

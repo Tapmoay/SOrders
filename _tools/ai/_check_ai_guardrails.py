@@ -2345,16 +2345,29 @@ def main() -> int:
         f"恢复 {len(restore_ids)} 个 / 删除 {len(delete_ids)} 个",
     )
 
-    # ⚠️ 反向的那一半：**删除类动作必须真的挂在资源表里**。
+    # ⚠️ 反向的那一半：**删除类动作必须真的交代过**。
     #    只查"恢复动作存在"是不够的——把某一行 `delete(AiWrites.XXX_DELETE)` 删掉，
     #    上面那些照样绿，而那个动作的撤回就没了（反向验证抓到的就是这个空转）。
+    #
+    # ⚠️ 2026-09-19 放宽了**交代的方式**（共享地点那一组逼出来的）：
+    #    原来只认"挂在资源表上（有恢复动作）"，可共享库那张表是**物理删除、后端没有恢复接口**
+    #    （删掉重新录一个点就有，见 `place_service.delete_place` 的注释）。
+    #    给它硬凑一个 `delete(...)` 会让撤回表以为"这一步能恢复"，而 `AiRevert` 里
+    #    又必须写一句"撤不回来"——两条红线互相打架（`_show_undo_status` 当场报了
+    #    「既能撤回、又写了撤不回来的理由（自相矛盾）」）。
+    #    所以现在的判据是：**要么有恢复动作，要么在 `none(...)` 里写清了为什么撤不回来**。
+    #    两种都是"交代过"，而"什么都没写"照样红。
     decl_delete = set(re.findall(r"id = AiWrites\.(\w*_DELETE)", basic20 + master20 + AI_join("AiWrite.kt")))
     hooked = set(re.findall(r"(?:delete|paired)\(AiWrites\.(\w+)", resources))
-    missing_undo = sorted(decl_delete - hooked)
+    # 「撤不回来」那一桶：`none(listOf(AiWrites.X, ...), "理由")` 里的那些 id
+    explained_none = set(
+        re.findall(r"AiWrites\.(\w+)", "".join(re.findall(r"none\(\s*listOf\([^)]*\)", AI_join("AiRevert.kt"))))
+    )
+    missing_undo = sorted(decl_delete - hooked - explained_none)
     c.ok(
-        "声明式的删除动作都挂在资源表上（漏一个 = 那一步删了没法退）",
+        "声明式的删除动作都交代过（挂资源表 / 或在 none 里写清为什么撤不回来）",
         not missing_undo,
-        f"这些删除动作没有接撤回：{missing_undo}",
+        f"这些删除动作既没接撤回、也没写理由：{missing_undo}",
     )
 
     # ---- 生产实现必须真的会读回现场（默认实现返回 null 是 fail-closed，但不能是唯一实现）----
@@ -3337,12 +3350,23 @@ def main() -> int:
     c.present("共享地点库进了 AI 读目录的模块名册（否则生成器报「缺中文名」）",
               read(ROOT / "_tools/ai/_gen_ai_toolmap.py"), r'"places": "共享地点库"')
 
-    # ---- 无主记录护栏（这张表全库共享、而且**没有删除接口**）----
-    # 一条没有名字的记录是**永久的**：它在每个人的「共享地点」列表里都显示成
-    # 「未命名地点」+ 空地址。开发库里真出现过（合同模糊测试往 POST /places 打了空名请求）。
-    c.present("`POST /places` 拦住「无名无址」的点（二选一即可）",
-              place_schema,
-              r'if not \(self\.name or ""\)\.strip\(\) and not \(self\.detail_address or ""\)\.strip\(\)')
+    # ---- 无主记录护栏（这张表全库共享）----
+    # 一条没有名字的记录是**所有人的列表里**都显示成「未命名地点」+ 空地址的记录。
+    # 开发库里真出现过（合同模糊测试往 POST /places 打了空名请求）。
+    #
+    # ⚠️ 判据在 2026-09-19 挪过一次位置：加了"改共享地址"之后，同一句话要用在
+    #    **改完之后的整行**上，而 Pydantic 校验器只看得到入参、看不到那一行 ——
+    #    于是规则搬到 `services/place_service.identify_error`（唯一一份），schema 反过来引它。
+    #    所以这里锚**两件事**：规则本体在服务层、新建入口真的在引它。
+    #    只锚其中一处的话，"把校验删掉"或"把两边各写一份"都能溜过去。
+    c.present("`POST /places` 拦住「无名无址」的点（规则本体在 place_service）",
+              place_svc,
+              r'def identify_error\(name: str \| None, detail_address: str \| None\) -> str \| None:')
+    c.present("新建/改共享地点都引**同一处**判据（不许各写一份）",
+              place_schema, r"err = place_service\.identify_error\(self\.name, self\.detail_address\)")
+    c.present("`PATCH /places/{id}` 拒绝把名字与地址都清空（判据看的是改完之后的整行）",
+              read(ROOT / "backend/app/services/place_service.py"),
+              r"err = identify_error\(new_name, new_detail\)\s*\n\s*if err is not None:\s*\n\s*raise ValueError\(err\)")
     c.present("补导航也拦住「名字与地址都空」（否则一样往共享库塞无名记录）",
               read(ROOT / "backend/app/api/v1/orders.py"), r"if not place_name and not detail:")
     # ⚠️ 锚"strip 之后才判空"这个结构：只锚函数名的话，把 strip 去掉照样绿 ——
