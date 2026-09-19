@@ -111,7 +111,15 @@ python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文�
 | **一次性提示条**（snackbar） | `ui/common/Components.kt::OneShotSnackbar`（**先消费、再显示**） | 全 UI 层 20 个调用点 | ⚠️ **不许写"先 `showSnackbar` 再清状态"**：`showSnackbar` 会挂起几秒，用户在这期间切页 → 协程被取消 → 清状态那行永不执行 → **切回来提示条又冒出来**（用户 2026-09-18 报的就是这个）；<br>⚠️ 加载错误与动作错误要**分成两个字段**（`loadError` / `error`），否则提示条一消费，整页「加载失败 + 重试」也一起消失；<br>⚠️ 点一下就弹的那种（`scope.launch { showSnackbar("已复制") }`）本来不会重放，**不用**绕这一层 |
 | **下单页选品（外卖式）** | `ui/common/ProductPicker.kt`（全屏弹层 + `categoryTabs` + `QtyUnitDialog` 数量/单位） | `ui/shipper/OrderCreateScreen.kt`（货主与代理下单**共用**）、`ui/shipper/OrderCreateViewModel.kt`（`mergePickedIntoLines` 纯函数）、单测 `android/app/src/test/java/com/tapmoay/sorders/ui/shipper/ProductPickerTest.kt` | 可在一次里挑多件；同一件商品**累加数量**不新开行；超过 `MAX_ORDER_LINES=10` **整批拒绝**（不做部分成功） |
 
-### 1.5 基础设施（改这些要格外小心）
+### 1.5 跨层不变量（改接口/时间/图片前先看这三行）
+
+| 功能 | 核心文件 | 附带文件 | 注意 |
+|---|---|---|---|
+| **列表端点的分页与截断**（**唯一出口**） | `app/core/pagination.py::finish_page(rows, limit, response)` | 8 个有 `limit` 的端点全调它：`orders`（`_orders_response`）、`notifications`、`ledger`、`cash_flows`、`inventory`、`operation_logs`、`places`、`users` | ⛔ **不许各写一份**（原来就是这么漏掉 5 个端点的）。规矩是两条，红线 `_tools/qa/_check_pagination_wiring.py` **自己算清单**盯着：① 有 `limit` 就必须回报 `X-Truncated`/`X-Result-Limit`（裸数组响应体加不了元数据，只能走头）② 取数必须 **`.limit(n + 1)`**（少了这条 `finish_page` 永远算出"没截断"）。<br>⚠️ 不缺这半边会怎样：现金流水页把"一页 200 条"当总额（实测少算 **62%**）、审计页以为"这条改动没被记录"、账号列表找不到人再去建一个（撞唯一约束）。<br>⚠️ `X-Truncated`/`X-Result-Limit` 必须留在 CORS `expose_headers` 里（跨源时浏览器只让脚本读被显式暴露的头） |
+| **时间基准**（**全库一律 UTC**） | `app/core/business_time.py`（`utc_now_naive` / `business_date` / `business_day_start_utc`）、`app/models/base.py::TimestampMixin`（**Python 写** `default=utc_now_naive`）、`app/database.py`（MySQL `connect` 钩子 `SET time_zone = '+00:00'`） | `app/models/operation_log.py::created_at`（不走 mixin，同样口径） | ⛔ **不许再用库端时钟**：`server_default=func.now()` / `onupdate=func.now()` 在生产是 **+08:00**（会话 `SYSTEM`），与 Python 写的 UTC 差 8 小时 → 「待派超时 4 小时」实际 12 小时、保留策略与审计窗口整体偏 8 小时。**本机 SQLite 两边都是 UTC，所以单测全绿**（这条缺陷就是这么活的）。红线 `_tools/qa/_check_time_base.py`：凡库端时钟列必须同时有 Python `default=`，且 `database.py` 必须有那个会话时区钩子。<br>⚠️ 口径是"**UTC 存、按业务当地日分桶**"（`BUSINESS_TZ` 东八区）——不要把存储基准和报表分桶混成一件事。<br>⚠️ **存量数据**：代码收口后老行仍是 +08:00，一次性平移脚本 `_tools/deploy/_shift_times_to_utc.py`（默认 dry-run、要备份确认、幂等标记、时差问库不写死） |
+| **图片文件的清理**（**唯一判据**） | `app/services/image_archive.py::purge_orphan_images` + `REFERENCED_IMAGE_COLUMNS` | 红线 `_tools/qa/_check_image_refs.py` | ⛔ 删文件的判据是"**还有没有任何一行指着它**"（**软删行也算**）：漏一列 = 删掉还在用的图且不可恢复。`delivery/` 刻意不在扫描范围（送达凭证的寿命绑在订单上，由 `delete_orders_by_ids` 按单清）。归档前先按 header 里的尺寸判 `MAX_ARCHIVE_PIXELS`（解码峰值 = 宽×高×通道，而尺寸是客户端说了算） |
+
+### 1.6 基础设施（改这些要格外小心）
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
