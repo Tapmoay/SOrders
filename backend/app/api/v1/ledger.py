@@ -11,7 +11,9 @@ from app.models import Ledger, LedgerExportJob, Order, User
 from app.models.enums import LedgerSource, OperationAction, UserRole
 from app.models.export_job import ExportFormat, ExportJobStatus
 from app.schemas.export_job import LedgerExportJobCreate, LedgerExportJobOut
+from app.schemas.accounting_v2 import ShipperReceiptCreate, ShipperReceiptOut
 from app.schemas.ledger import (
+    LedgerAccountOut,
     LedgerCreate,
     LedgerOut,
     LedgerSyncFromOrdersBody,
@@ -59,11 +61,7 @@ def list_entries(
             q = q.where(Ledger.shipper_id == shipper_id)
         elif tsn:
             q = q.where(Ledger.shipper_id.is_(None)).where(Ledger.temp_shipper_name == tsn)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="派单员查询账本时请指定货主（shipper_id）或临时货主名称（temp_shipper_name）",
-            )
+        # 无筛选参数 = 派单员查看全部流水（账本管理总览），有参数则按货主过滤
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
 
@@ -82,6 +80,60 @@ def list_entries(
 
     rows = list(db.scalars(q).all())
     return [ledger_to_out(r, db) for r in rows]
+
+
+@router.get("/accounts", response_model=list[LedgerAccountOut])
+def list_accounts(
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+    date_from: str | None = Query(None, description="YYYY-MM-DD"),
+    date_to: str | None = Query(None, description="YYYY-MM-DD"),
+    kind: str = Query("shipper", pattern="^(shipper|member)$"),
+) -> list[LedgerAccountOut]:
+    """派单员账本账户汇总：货主账 / 批发商账（按流水累计 + 笔数）。"""
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
+
+    from datetime import date as date_type
+
+    q = select(Ledger)
+    if date_from:
+        try:
+            df = date_type.fromisoformat(date_from[:10])
+            q = q.where(Ledger.entry_date >= df)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="开始日期格式无效") from None
+    if date_to:
+        try:
+            dt = date_type.fromisoformat(date_to[:10])
+            q = q.where(Ledger.entry_date <= dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="结束日期格式无效") from None
+
+    rows = list(db.scalars(q).all())
+    buckets: dict[tuple, dict] = {}
+    user_cache: dict[int, User | None] = {}
+    for r in rows:
+        if r.shipper_id is not None:
+            if r.shipper_id not in user_cache:
+                user_cache[r.shipper_id] = db.get(User, r.shipper_id)
+            u = user_cache[r.shipper_id]
+            if kind == "member" and not (u is not None and getattr(u, "is_member", False)):
+                continue
+            key = ("u", r.shipper_id)
+            b = buckets.setdefault(key, {"id": r.shipper_id, "temp_name": None, "name": "", "count": 0, "total": Decimal("0")})
+            if not b["name"]:
+                b["name"] = (u.full_name or u.phone or f"货主#{r.shipper_id}") if u else f"货主#{r.shipper_id}"
+        else:
+            if kind == "member":
+                continue
+            name = (r.temp_shipper_name or "").strip() or "临时货主"
+            key = ("t", name)
+            b = buckets.setdefault(key, {"id": None, "temp_name": name, "name": name, "count": 0, "total": Decimal("0")})
+        b["count"] += 1
+        b["total"] = b["total"] + (r.total or Decimal("0"))
+    result = sorted(buckets.values(), key=lambda x: -x["total"])
+    return [LedgerAccountOut(**x) for x in result]
 
 
 @router.get("/temp-shipper-names", response_model=list[str])
@@ -337,3 +389,71 @@ def get_export_job(
     else:
         raise HTTPException(status_code=403, detail="无权访问")
     return job
+
+@router.post("/receipts", response_model=ShipperReceiptOut)
+def create_receipt_endpoint(
+    body: ShipperReceiptCreate,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ShipperReceiptOut:
+    """客户收款单（逐单核销默认）：绑定订单并标记 paid=1；生成资金流水。"""
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可操作")
+    from app.services.accounting_service import create_receipt
+
+    try:
+        r = create_receipt(db, body, current.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    db.commit()
+    db.refresh(r)
+    from app.models import Customer
+
+    c = db.get(Customer, r.customer_id)
+    return ShipperReceiptOut(
+        id=r.id, customer_id=r.customer_id, amount=r.amount, method=r.method,
+        received_at=r.received_at, order_ids=r.order_ids, settle_mode=r.settle_mode,
+        arrears_unit_id=r.arrears_unit_id, invoiced=r.invoiced, note=r.note,
+        operator_id=r.operator_id,
+        customer_name=c.name if c else "", created_at=r.created_at,
+    )
+
+
+@router.get("/receipts", response_model=list[ShipperReceiptOut])
+def list_receipts(
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+    customer_id: int | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+) -> list[ShipperReceiptOut]:
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可查看")
+    from app.models import ShipperReceipt
+
+    stmt = select(ShipperReceipt).order_by(ShipperReceipt.received_at.desc(), ShipperReceipt.id.desc())
+    if customer_id is not None:
+        stmt = stmt.where(ShipperReceipt.customer_id == customer_id)
+    if date_from:
+        stmt = stmt.where(ShipperReceipt.received_at >= date_from)
+    if date_to:
+        stmt = stmt.where(ShipperReceipt.received_at <= date_to)
+    rows = list(db.scalars(stmt).all())
+    from app.models import Customer
+
+    names: dict[int, str] = {}
+    out = []
+    for r in rows:
+        if r.customer_id not in names:
+            c = db.get(Customer, r.customer_id)
+            names[r.customer_id] = c.name if c else ""
+        out.append(
+            ShipperReceiptOut(
+                id=r.id, customer_id=r.customer_id, amount=r.amount, method=r.method,
+                received_at=r.received_at, order_ids=r.order_ids, settle_mode=r.settle_mode,
+                arrears_unit_id=r.arrears_unit_id, invoiced=r.invoiced, note=r.note,
+                operator_id=r.operator_id,
+                customer_name=names.get(r.customer_id, ""), created_at=r.created_at,
+            )
+        )
+    return out

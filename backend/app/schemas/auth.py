@@ -1,10 +1,12 @@
-import re
+"""登录入参 / token 出参。
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+⚠️ `SendSmsRequest` 与 `RegisterRequest` 已于 2026-09-18 随自助注册端点一起删除
+（用户要求关掉注册；账号改由派单员在 `POST /api/v1/users` 创建）。
+"""
+
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import UserRole
-
-USERNAME_RE = re.compile(r"^[a-zA-Z0-9_\u4e00-\u9fff]{3,32}$")
 
 
 class Token(BaseModel):
@@ -38,47 +40,3 @@ class LoginRequest(BaseModel):
             raise ValueError("phone 或 username 必填其一")
         object.__setattr__(self, "phone", login_id)
         return self
-
-
-class SendSmsRequest(BaseModel):
-    """向手机号发送注册验证码（中国大陆 11 位）。"""
-
-    phone: str = Field(..., min_length=11, max_length=11)
-
-    @field_validator("phone")
-    @classmethod
-    def _phone_fmt(cls, v: str) -> str:
-        p = v.strip()
-        if not re.match(r"^1[3-9]\d{9}$", p):
-            raise ValueError("手机号格式不正确")
-        return p
-
-
-class RegisterRequest(BaseModel):
-    """自助注册货主；司机与派单员由管理员创建。"""
-
-    username: str = Field(..., min_length=3, max_length=32)
-    password: str = Field(..., min_length=6, max_length=128)
-    phone: str = Field(..., min_length=11, max_length=11)
-    verification_code: str = Field(..., min_length=4, max_length=8)
-
-    @field_validator("verification_code")
-    @classmethod
-    def _strip_verification(cls, v: str) -> str:
-        return v.strip()
-
-    @field_validator("username")
-    @classmethod
-    def _username_fmt(cls, v: str) -> str:
-        s = v.strip()
-        if not USERNAME_RE.match(s):
-            raise ValueError("用户名需为 3–32 位，含字母、数字、下划线或中文")
-        return s
-
-    @field_validator("phone")
-    @classmethod
-    def _reg_phone(cls, v: str) -> str:
-        p = v.strip()
-        if not re.match(r"^1[3-9]\d{9}$", p):
-            raise ValueError("手机号格式不正确")
-        return p

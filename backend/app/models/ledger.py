@@ -32,6 +32,10 @@ class Ledger(Base, TimestampMixin):
     product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"), nullable=True)
     source: Mapped[LedgerSource] = mapped_column(Enum(LedgerSource), index=True)
     note: Mapped[str] = mapped_column(Text, default="")
+    # 商品成本快照（毛利率/利润用）；红冲行 cost_price_snapshot 为负数（COGS 冲减）
+    cost_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
+    # 客户档案（customers.id）；NULL=历史行（按名称兜底聚合）
+    customer_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
 
     shipper: Mapped["User | None"] = relationship(back_populates="ledgers")
     order: Mapped["Order | None"] = relationship()

@@ -44,6 +44,8 @@ class LedgerExportJob(Base, TimestampMixin):
     file_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 导出类型：ledger(货主账本，默认) | driver_bills | cash_flows | pnl | ...
+    kind: Mapped[str] = mapped_column(String(16), default="ledger")
 
     creator: Mapped["User"] = relationship(foreign_keys=[created_by_id])
     shipper: Mapped["User"] = relationship(foreign_keys=[shipper_id])

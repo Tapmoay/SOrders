@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -9,12 +9,15 @@ from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
 from app.models import User
+from app.schemas.exception import ExceptionResolveBody
 from app.schemas.stats import (
     DriverPerformanceOut,
     DriverPerformanceRow,
     DrilldownOrderItem,
     ExceptionOrderItem,
     ShipperActivityOut,
+    ShipperPerformanceOut,
+    ShipperPerformanceRow,
     ShipperProductChartOut,
     StatsExportBody,
 )
@@ -83,6 +86,21 @@ def get_driver_performance(
     )
 
 
+@router.get("/shipper-performance", response_model=ShipperPerformanceOut)
+def get_shipper_performance(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    _: User = Depends(require_permission(Permission.STATS_READ)),
+    db: Session = Depends(get_db),
+) -> ShipperPerformanceOut:
+    rows = stats_service.shipper_performance(db, date_from, date_to)
+    label = f"{date_from.isoformat()} ~ {date_to.isoformat()}"
+    return ShipperPerformanceOut(
+        period_label=label,
+        shippers=[ShipperPerformanceRow.model_validate(r) for r in rows],
+    )
+
+
 @router.get("/exception-orders", response_model=list[ExceptionOrderItem])
 def get_exception_orders(
     date_from: date = Query(...),
@@ -92,6 +110,38 @@ def get_exception_orders(
 ) -> list[ExceptionOrderItem]:
     rows = stats_service.exception_orders(db, date_from, date_to)
     return [ExceptionOrderItem.model_validate(r) for r in rows]
+
+
+@router.post("/exception-orders/{order_id}/resolve", response_model=dict)
+def resolve_exception_order(
+    order_id: int,
+    body: "ExceptionResolveBody",
+    _: User = Depends(require_permission(Permission.STATS_READ)),
+) -> dict:
+    """派单员解决异常：填写解决说明，订单标记已解决。"""
+    from app.database import SessionLocal
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from app.models import Order
+
+    note = (body.note or "").strip()
+    db = SessionLocal()
+    try:
+        order = db.scalars(select(Order).where(Order.id == order_id)).first()
+        if order is None:
+            raise HTTPException(status_code=404, detail="未找到对应记录")
+        # ⚠️ 这里原本是 `order.is_exception = True`——"解除异常"把标记又设回了异常。
+        # 后果不是脏数据，而是**用户点了没反应**：异常列表按 `Order.is_exception.is_(True)` 筛，
+        # 解除之后单子仍然留在列表里（App 的报表中心→异常与审计那个按钮就是这个端点）。
+        # 解除语义 = 清掉标记 + 记下解决说明与时间；异常历史仍可从那两个字段回查。
+        order.is_exception = False
+        order.exception_reason = order.exception_reason or "异常订单"
+        order.exception_resolution = note or order.exception_resolution
+        order.exception_resolved_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"ok": True, "order_id": order_id}
+    finally:
+        db.close()
 
 
 @router.post("/export")

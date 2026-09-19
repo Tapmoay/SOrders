@@ -1,15 +1,16 @@
 """派单员看板聚合（基于订单与明细；数据量较大时可改为 SQL 聚合）。"""
 
 from collections import defaultdict
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timedelta, time, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models import Order, OrderProduct, User
-from app.models.enums import OrderStatus
+from app.models import DriverSettlement, Order, OrderProduct, User
+from app.models.enums import OrderStatus, SettlementStatus
+from app.services.driver_pay import has_per_order_pay, pay_for_order
 
 
 def _end_of_order_date(od: date) -> datetime:
@@ -20,7 +21,9 @@ def _on_time_delivered(o: Order) -> bool | None:
     if o.status != OrderStatus.DELIVERED or not o.delivered_at or not o.dispatched_at:
         return None
     sla = o.expected_deliver_before or _end_of_order_date(o.order_date)
-    return o.delivered_at <= sla
+    if sla.tzinfo is not None:
+        sla = sla.replace(tzinfo=None)
+    return o.delivered_at.replace(tzinfo=None) <= sla
 
 
 def _delivery_seconds(o: Order) -> float | None:
@@ -44,6 +47,8 @@ def load_delivered_orders(
         .where(Order.status == OrderStatus.DELIVERED)
         .where(Order.order_date >= date_from)
         .where(Order.order_date <= date_to)
+        # 隔离区（软删）的单不算数：用户删掉一张错单，报表上的数字必须跟着少
+        .where(Order.deleted_at.is_(None))
         .options(
             selectinload(Order.order_products),
             joinedload(Order.shipper),
@@ -67,6 +72,8 @@ def load_orders_by_delivered_at(
         .where(Order.delivered_at.is_not(None))
         .where(Order.delivered_at >= start)
         .where(Order.delivered_at <= end)
+        # 同上：软删的单不进司机绩效
+        .where(Order.deleted_at.is_(None))
         .options(selectinload(Order.order_products), joinedload(Order.driver))
     )
     return list(db.scalars(q).unique().all())
@@ -122,6 +129,8 @@ def shipper_activity(
         .where(Order.shipper_id == shipper_id)
         .where(Order.order_date >= date_from)
         .where(Order.order_date <= date_to)
+        # 软删的单不进"货主活跃度"（用户已经把它删了，不该还算他下过这单）
+        .where(Order.deleted_at.is_(None))
         .options(selectinload(Order.order_products), joinedload(Order.shipper))
     )
     orders = list(db.scalars(q).unique().all())
@@ -231,6 +240,31 @@ def driver_performance(
         photo_ok = sum(1 for x in os if _has_photos(x))
         photo_rate = photo_ok / completed if completed else 0.0
 
+        # 计费方式快照：取该司机最新订单的计费方式（无订单司机按用户表）
+        du_billing = (du.billing_mode or "").upper() if du else ""
+        if not du_billing:
+            snapshot_modes = {ode.driver_billing_mode_snapshot for ode in os if ode.driver_billing_mode_snapshot}
+            du_billing = (next(iter(snapshot_modes))).upper() if snapshot_modes else ""
+        # 计件司机：应结 = Σ**按规则算出来的**应付；已结 = 该司机已确认结算单(PAID)金额合计
+        #
+        # ⚠️ v3.36 起"应结"不再等于 Σ freight_fee：司机可能挂计费规则（每单固定/运费提成/商品提成），
+        #    所以和账单、结算页共用 `pay_for_order` 一处实现。
+        #    顺带修掉一个老口径不一致：这里原来把该司机**所有**已送达单的运费都算进去，
+        #    而结算页是按**每张单的快照**筛的——他中途从工资制转成计件时，两边金额就对不上。
+        freight_owed = None
+        if du_billing == "PIECE":
+            total_freight = sum(
+                (pay_for_order(ode).total for ode in os if has_per_order_pay(ode)), Decimal("0")
+            )
+            settled = db.scalar(
+                select(func.coalesce(func.sum(DriverSettlement.amount), 0)).where(
+                    DriverSettlement.driver_id == did,
+                    DriverSettlement.status == SettlementStatus.PAID,
+                )
+            ) or Decimal("0")
+            owed = total_freight - settled
+            freight_owed = str(max(owed, Decimal("0")))
+
         rows.append(
             {
                 "driver_id": did,
@@ -239,11 +273,76 @@ def driver_performance(
                 "on_time_rate": on_time_rate,
                 "avg_delivery_seconds": avg_sec,
                 "photo_upload_rate": photo_rate,
+                "billing_mode": du_billing or None,
+                "freight_owed": freight_owed,
             }
         )
     rows.sort(key=lambda x: x["completed_count"], reverse=True)
     return rows
 
+
+def shipper_performance(
+    db: Session,
+    date_from: date,
+    date_to: date,
+) -> list[dict]:
+    """按货主聚合订单数与订单金额（口径同 load_delivered_orders：status=DELIVERED 且 order_date 在区间内）。
+    无系统账号的货主（orders.shipper_id IS NULL）按 temp_shipper_name 归组，不丢单。"""
+    orders = load_delivered_orders(db, date_from, date_to)
+    by_shipper: dict[tuple[str, int | str], list[Order]] = defaultdict(list)
+    for o in orders:
+        if o.shipper_id is not None:
+            by_shipper[("u", o.shipper_id)].append(o)
+        else:
+            by_shipper[("t", (o.temp_shipper_name or "").strip() or "临时货主")].append(o)
+
+    rows = []
+    for key, os in by_shipper.items():
+        kind, k = key
+        if kind == "u":
+            sid: int | None = int(k)
+            su = os[0].shipper or db.get(User, sid)
+            name = (su.full_name or su.phone or f"货主#{sid}") if su else f"货主#{sid}"
+        else:
+            sid = None
+            name = str(k)
+        total_amount = sum(
+            (lp.line_total for o in os for lp in o.order_products),
+            Decimal("0"),
+        )
+        rows.append(
+            {
+                "shipper_id": sid,
+                "shipper_name": name,
+                "order_count": len(os),
+                "total_amount": total_amount,
+            }
+        )
+    rows.sort(key=lambda x: x["order_count"], reverse=True)
+    return rows
+
+
+def auto_exception_reason(o, now):
+    """自动异常规则：任何环节出问题都会被标记。
+    返回原因字符串（不满足返回 None）；已解决的订单不再自动复现。"""
+    if o.exception_resolved_at is not None:
+        return None
+    if o.status == OrderStatus.CANCELLED:
+        return "已撤销/撤回订单"
+    if o.status == OrderStatus.PENDING_DISPATCH:
+        ct = o.created_at or o.updated_at
+        if ct is not None and now - ct > timedelta(hours=4):
+            return "待派超时（超过4小时未派单）"
+        return None
+    if o.status in (OrderStatus.DISPATCHED, OrderStatus.ACCEPTED):
+        if o.expected_deliver_before is not None and o.expected_deliver_before < now:
+            return "超时未送（超过预计送达时间）"
+        return None
+    if o.status == OrderStatus.DELIVERED:
+        if o.expected_deliver_before is not None and o.delivered_at is not None and o.delivered_at > o.expected_deliver_before:
+            return "逾期送达（超过预计送达时间）"
+        return None
+    return None
 
 def exception_orders(
     db: Session,
@@ -255,6 +354,8 @@ def exception_orders(
         .where(Order.is_exception.is_(True))
         .where(Order.order_date >= date_from)
         .where(Order.order_date <= date_to)
+        # 隔离区里的单不再显示在异常列表（派单员已经删了它）
+        .where(Order.deleted_at.is_(None))
         .options(joinedload(Order.shipper), joinedload(Order.driver))
         .order_by(Order.id.desc())
     )
@@ -279,6 +380,46 @@ def exception_orders(
                 "exception_resolution": o.exception_resolution,
                 "expected_deliver_before": o.expected_deliver_before,
                 "delivered_at": o.delivered_at,
+                "exception_resolved_at": o.exception_resolved_at,
             }
         )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    auto_q = (
+        select(Order)
+        .where(Order.is_exception.is_(False))
+        .where(Order.order_date >= date_from)
+        .where(Order.order_date <= date_to)
+        # 隔离区里的单不该被自动判成"超时未派"之类的异常（用户已经删了它）
+        .where(Order.deleted_at.is_(None))
+        .options(joinedload(Order.shipper), joinedload(Order.driver))
+    )
+    seen = {o["id"] for o in out}
+    for o in db.scalars(auto_q).unique().all():
+        if o.id in seen:
+            continue
+        reason = auto_exception_reason(o, now)
+        if not reason:
+            continue
+        sn = None
+        if o.shipper:
+            sn = o.shipper.full_name or o.shipper.phone
+        dn = None
+        if o.driver:
+            dn = o.driver.full_name or o.driver.phone
+        out.append(
+            {
+                "id": o.id,
+                "order_no": o.order_no,
+                "order_date": o.order_date,
+                "status": o.status.value,
+                "shipper_name": sn,
+                "driver_name": dn,
+                "exception_reason": reason,
+                "exception_resolution": "",
+                "expected_deliver_before": o.expected_deliver_before,
+                "delivered_at": o.delivered_at,
+                "exception_resolved_at": None,
+            }
+        )
+    out.sort(key=lambda x: x["id"], reverse=True)
     return out

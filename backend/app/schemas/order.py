@@ -1,18 +1,25 @@
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import OrderStatus
+from app.schemas.geo import GeoInput
+from app.schemas.money import MoneyInput
+from app.schemas.text import MAX_IMAGES, MAX_PHONE, MAX_SHORT_NAME, MAX_TEXT, Url
 
 
-class OrderProductIn(BaseModel):
+class OrderProductIn(MoneyInput):
     product_id: int | None = None
     product_name_snapshot: str = Field(..., min_length=1, max_length=256)
     quantity: int = Field(default=1, ge=1)
-    unit_price: Decimal = Field(default=Decimal("0"))
-    line_total: Decimal = Field(default=Decimal("0"))
+    unit_price: Decimal = Field(default=Decimal("0"), ge=0)
+    line_total: Decimal = Field(default=Decimal("0"), ge=0)
+    # 这一行的单位（件/箱/斤…）：选品弹窗里可以改（"数量后面是要有对应的单位的"）。
+    # 留空 = 用商品库里的单位（`build_order_products` 兜底）。长度与列宽一致。
+    unit: str = Field("", max_length=MAX_SHORT_NAME)
 
 
 class OrderProductOut(BaseModel):
@@ -23,37 +30,49 @@ class OrderProductOut(BaseModel):
     product_id: int | None
     product_name_snapshot: str
     quantity: int
-    unit_price: Decimal
-    line_total: Decimal
+    unit_price: Decimal | None = None
+    line_total: Decimal | None = None
+    # 下单时定格的单位；老数据为空串（客户端显示时按空处理，别编一个"件"出来）。
+    #
+    # ⚠️ `validation_alias` 不是装饰：模型列名是 `unit_snapshot`，出参名想叫 `unit`。
+    #    `from_attributes` 只按**同名属性**取值，取不到就落默认值 —— 于是 `unit` 恒为空串、
+    #    **不报任何错**，表现是"选品时明明选了 3 箱，订单详情里只剩 3"。
+    #    （第一版就是这么写的，`model_validate` 实测返回 `unit=''` 才发现。）
+    unit: str = Field("", validation_alias=AliasChoices("unit", "unit_snapshot"))
+    damage_quantity: int = 0  # 送达货损数量（公司自担），0=无
 
 
-class OrderProductCreate(BaseModel):
+class OrderProductCreate(MoneyInput):
     order_id: int
     product_id: int | None = None
     product_name_snapshot: str = Field(..., min_length=1, max_length=256)
     quantity: int = Field(default=1, ge=1)
-    unit_price: Decimal = Field(default=Decimal("0"))
-    line_total: Decimal | None = Field(default=None)
+    unit_price: Decimal = Field(default=Decimal("0"), ge=0)
+    line_total: Decimal | None = Field(None, ge=0)
+    unit: str = Field("", max_length=MAX_SHORT_NAME)
 
 
-class OrderProductUpdate(BaseModel):
+class OrderProductUpdate(MoneyInput):
     product_id: int | None = None
     product_name_snapshot: str | None = Field(None, min_length=1, max_length=256)
     quantity: int | None = Field(None, ge=1)
-    unit_price: Decimal | None = None
-    line_total: Decimal | None = None
+    unit_price: Decimal | None = Field(None, ge=0)
+    line_total: Decimal | None = Field(None, ge=0)
+    unit: str | None = Field(None, max_length=MAX_SHORT_NAME)
 
 
-class OrderCreate(BaseModel):
+class OrderCreate(GeoInput):
     lines: list[OrderProductIn] = Field(..., min_length=1, max_length=10)
     order_date: date | None = None
-    delivery_description: str = ""
-    address_detail: str = ""
+    # 长度上限与**列宽**一致（`String(512)` / `String(32)`），备注类是 TEXT 用 MAX_TEXT。
+    # 不加的话：本地 SQLite 照收 8000 字，生产 MySQL `Data too long`（模糊测试实测）。
+    delivery_description: str = Field("", max_length=512)
+    address_detail: str = Field("", max_length=512)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
-    contact_dongjia_phone: str = ""
-    contact_boss_phone: str = ""
-    remark: str = ""
+    contact_dongjia_phone: str = Field("", max_length=MAX_PHONE)
+    contact_boss_phone: str = Field("", max_length=MAX_PHONE)
+    remark: str = Field("", max_length=MAX_TEXT)
     shipper_id: int | None = Field(
         default=None,
         description="派单员代下单时可指定归属货主；不指定则订单暂无货主，可后续再关联。货主本人下单勿传。",
@@ -77,15 +96,15 @@ class OrderCreate(BaseModel):
         return self
 
 
-class OrderUpdate(BaseModel):
-    delivery_description: str | None = None
-    address_detail: str | None = None
+class OrderUpdate(GeoInput):
+    delivery_description: str | None = Field(None, max_length=512)
+    address_detail: str | None = Field(None, max_length=512)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
-    contact_dongjia_phone: str | None = None
-    contact_boss_phone: str | None = None
-    remark: str | None = None
-    internal_notes: str | None = None
+    contact_dongjia_phone: str | None = Field(None, max_length=MAX_PHONE)
+    contact_boss_phone: str | None = Field(None, max_length=MAX_PHONE)
+    remark: str | None = Field(None, max_length=MAX_TEXT)
+    internal_notes: str | None = Field(None, max_length=MAX_TEXT)
 
 
 class OrderOut(BaseModel):
@@ -102,12 +121,15 @@ class OrderOut(BaseModel):
     address_detail: str
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
+    # 导航信息来源：driver/dispatcher=到场补录；空=下单时就带坐标
+    nav_source: str | None = None
     contact_dongjia_phone: str
     contact_boss_phone: str
     remark: str
     internal_notes: str
     driver_remark: str
     delivery_photo_urls: list[Any] | None
+    address_image_url: str | None = None
     created_at: datetime
     dispatched_at: datetime | None
     driver_acknowledged_at: datetime | None = None
@@ -115,6 +137,14 @@ class OrderOut(BaseModel):
     cancelled_at: datetime | None = None
     order_products: list[OrderProductOut] = []
     driver_phone: str | None = None
+    freight_fee: Decimal | None = None
+    freight_visible: bool = False
+    driver_billing_mode: str | None = None
+    # 这一单派单员单独定的计费参数（回显给界面，也让人看得出"这单和别人不一样"）
+    driver_piece_amount: Decimal | None = None
+    driver_commission_rate: Decimal | None = None
+    collect_cash: bool = False  # PIECE=按单计费(挂车) SALARY=固定工资
+    parent_order_id: int | None = None
     driver_name: str | None = None
     shipper_name: str | None = None
     is_new_for_driver: bool = False
@@ -122,6 +152,35 @@ class OrderOut(BaseModel):
     is_exception: bool = False
     exception_reason: str = ""
     exception_resolution: str = ""
+    payment_method: str = "cash"
+    paid: bool = False
+    arrears_unit_id: int | None = None
+    arrears_unit_name: str = ""
+    damage_note: str = ""  # 送达货损备注（公司自担）
+    image_urls: list[str] = []  # 收货地址参考图（多图，JSON 数组）
+    deleted_at: datetime | None = None  # 软删除隔离时间（派单员可查，用户不可见）
+
+    @field_validator("image_urls", mode="before")
+    @classmethod
+    def _parse_order_image_urls(cls, v: Any) -> list[str]:
+        """image_urls 列（JSON 字符串/列表/None）→ URL 列表；无图时回退 address_image_url。"""
+        if v is None or v == "":
+            return []
+        if isinstance(v, list):
+            return [x for x in v if isinstance(x, str) and x]
+        if isinstance(v, str):
+            try:
+                arr = json.loads(v)
+            except Exception:
+                return [v] if v else []
+            return [x for x in arr if isinstance(x, str) and x] if isinstance(arr, list) else ([v] if v else [])
+        return []
+
+
+class OrderChargeBody(BaseModel):
+    """派单员：把订单记到挂账单位名下。"""
+
+    arrears_unit_id: int
 
 
 class OrderExceptionBody(BaseModel):
@@ -131,15 +190,33 @@ class OrderExceptionBody(BaseModel):
     expected_deliver_before: datetime | None = None
 
 
-class OrderAssignBody(BaseModel):
+class OrderFreightBody(MoneyInput):
+    freight_fee: Decimal | None = Field(None, ge=0)
+
+
+class OrderSplitBody(BaseModel):
+    parts: list[int] = Field(..., min_length=2, max_length=5, description="各子单比例/份数（如 [1,1] 或 [150,150]，按比例拆分数量）")
+
+
+class OrderAssignBody(MoneyInput):
     driver_id: int
     internal_note: str | None = Field(None, max_length=4000)
+    freight_fee: Decimal | None = Field(None, ge=0)
+    collect_cash: bool | None = None
+    # 派单员对这一单单独定的计费参数（空 = 用司机挂着的规则里的值）
+    # ⚠️ 这两个字段**故意不加 ge/le、也不进 MoneyInput 的容量检查**：越界会被 Pydantic 拦成
+    #    422 + 英文结构体，而派单员/AI 要的是"这个司机没挂规则，逐单金额没有地方生效"
+    #    这种能照着改的中文。范围与"能不能生效"只有一份判据：
+    #    `driver_pay.override_problem`（同规则模板那一份的理由）。
+    driver_piece_amount: Decimal | None = Field(None, description="这一单的司机金额（每单的钱不固定时用）")
+    driver_commission_rate: Decimal | None = Field(None, description="这一单的提成比例（%）")
 
 
 class OrderBatchAssignBody(BaseModel):
     order_ids: list[int] = Field(..., min_length=1, max_length=100)
     driver_id: int
     internal_note: str | None = Field(None, max_length=4000)
+    collect_cash: bool | None = None
 
 
 class BatchAssignResultItem(BaseModel):
@@ -152,9 +229,21 @@ class OrderBatchAssignOut(BaseModel):
     results: list[BatchAssignResultItem]
 
 
+class DamageItem(BaseModel):
+    order_product_id: int
+    quantity: int = Field(..., ge=0, description="货损数量（≤该行数量，0=无货损）")
+
+
 class OrderCompleteBody(BaseModel):
-    delivery_photo_urls: list[str] = Field(..., min_length=1)
-    driver_remark: str = ""
+    # 送达照片：条数与单张长度都要有界（客户端相册多选也是 9 张）
+    delivery_photo_urls: list[Url] = Field(default_factory=list, max_length=MAX_IMAGES)
+    driver_remark: str = Field("", max_length=MAX_TEXT)
+    # cash=现场收现金；arrears=挂账；None=按订单设置（勾选收取现金但未选择→挂账）
+    # ⚠️ 取值限定成这两档：写死的字符串会让"收了现金"这种事实静默变成挂账
+    payment: str | None = Field(None, pattern="^(cash|arrears)$")
+    # 货损（选填，公司自担）：商品行级数量 + 订单备注；送达后自动记货损开销并冲回等量成本
+    damage_items: list[DamageItem] = Field(default_factory=list, max_length=20)
+    damage_note: str = Field("", max_length=MAX_TEXT)
 
 
 class OrderRecallBody(BaseModel):

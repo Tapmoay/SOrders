@@ -24,3 +24,34 @@ backend/htmlcov/
 .pytest_cache/
 .agents/
 /0001
+
+# 工作区临时产物（验证截图/辅助脚本/构建日志等，不入库）
+/_*.png
+/_*.jpg
+/_*.py
+/_*.txt
+/_*.xml
+/_*.apk
+/_*.cmd
+/_*.ps1
+/out.txt
+/vis_*.png
+/_agent/
+
+# ---- 本地工作区产物（v3.44 补：它们以前没被忽略，git status 里一直躺着）----
+# ⚠️ 这一段的上一行原来是一段 **UTF-16 残片**（`_\x00a\x00r\x00…`），
+#    所以 `_archive/` 从来没被真正忽略过。改这里请用能看见字节的方式（`_tools/qa/_fix_gitignore.py`）。
+/_archive/
+/_dl/
+/_amap_probe/
+/_*.json
+android/local.properties.dev
+android/local.properties.bak
+backend/sorders.db*
+backend/_uvicorn.*
+backend/_wal_launch*.py
+_tools/**/out/
+docs/ai/_backup_*/
+_test_tools/*.log
+_test_tools/*.png
+_test_tools/*.tgz

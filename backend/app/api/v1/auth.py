@@ -1,14 +1,21 @@
+"""登录与凭据。
+
+⚠️ **这个文件里只许有"进门"的端点，不许有"开门"的端点。**
+`POST /auth/register` 与 `POST /auth/sms/send` 已于 2026-09-18 按用户要求**整体删除**
+（App 侧注册入口在 v3.40 就拆掉了，接口一直公开着；本地 `sms_reveal_code=true` 时
+验证码还是明文回显的，等于任何人都能自助开一个货主账号）。
+账号现在**只有一条创建路径**：派单员 `POST /api/v1/users`（要 token + 权限点）。
+"""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.database import get_db
-from app.schemas.auth import LoginRequest, RegisterRequest, SendSmsRequest, Token
-from app.services.auth_service import authenticate_user, create_user
-from app.services.sms_code import send_code
+from app.schemas.auth import LoginRequest, Token
+from app.services.auth_service import authenticate_user
 from app.services.token_response import build_token_response
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -31,27 +38,4 @@ def login_form(
     user = authenticate_user(db, form_data.username, form_data.password)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
-    return build_token_response(user)
-
-
-@router.post("/sms/send")
-def send_register_sms(body: SendSmsRequest) -> dict:
-    """发送注册短信验证码（开发环境内存存储；生产需接入短信网关）。"""
-    code, err = send_code(body.phone)
-    if err:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
-    settings = get_settings()
-    out: dict = {"ok": True, "expires_in": 300}
-    # 未接短信网关时不会真发短信；开发环境（DEBUG）或显式开启时回显 code 便于联调
-    if settings.sms_reveal_code or settings.debug:
-        out["code"] = code
-    return out
-
-
-@router.post("/register", response_model=Token)
-def register(body: RegisterRequest, db: Session = Depends(get_db)) -> Token:
-    try:
-        user = create_user(db, body)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return build_token_response(user)

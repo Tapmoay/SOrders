@@ -11,6 +11,8 @@ from app.database import engine
 from app.models.base import Base
 
 from app.models import (  # noqa: F401
+    ArrearsUnit,
+    InventoryMovement,
     Ledger,
     LedgerExportJob,
     Notification,

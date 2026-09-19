@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  通知栏小图标（24dp 单色剪影）= 同一辆货车，按 24 格重新排过。
+
+  ### 为什么不直接把 108 的路径塞进来
+  状态栏的可用视觉区域很小，而货车在 108 视口里只占 x 24→84（约 56%）。
+  原样塞进 24dp 的话，车里还剩一半是空白，图标会显得比旁边的小一号。
+  所以这里把坐标**重新算过**：把 108 空间里那辆车（x 24→84、y 37→70.5）
+  线性映射到 24 格里留 2 格边距的位置（缩放 1/3、平移 (-6, -10.3)）——
+  这也是为什么这些数字看着"不整齐"：它们是算出来的，不是随手写的。
+
+  ⚠️ **小图标不能再用 @mipmap/ic_launcher**：状态栏只取 alpha 通道，
+  而自适应图标的形状是铺满 108×108 的方块（背景层全出血）→ 会显示成**一个纯白方块**。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3.3,2 L12,2 Q13.3,2 13.3,3.3 L13.3,4 L18,4 Q19.3,4 20,5 L21.7,7.5 Q22,7.9 22,8.3 L22,10 Q22,11.3 20.7,11.3 L3.3,11.3 Q2,11.3 2,10 L2,3.3 Q2,2 3.3,2 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6.3,10.7 m-2.5,0 a2.5,2.5 0 1,1 5,0 a2.5,2.5 0 1,1 -5,0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M18.3,10.7 m-2.5,0 a2.5,2.5 0 1,1 5,0 a2.5,2.5 0 1,1 -5,0" />
+</vector>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 只暴露这里列出的根目录。
+
+  ⚠️ 应用内更新踩过的坑（2026-09-15）：APK 以前下到 cacheDir 根下
+  （cacheDir/sorders-update.apk），而这里只声明了 cacheDir/photos/，
+  于是 FileProvider.getUriForFile 直接抛
+      IllegalArgumentException: Failed to find configured root that contains ...
+  被外层 catch 吞掉后表现成「进度跑到 100%，然后什么都没发生」——
+  用户报的「下载完成之后并没有更新」就是它。**APK 必须下到 updates/ 子目录。**
+-->
+<paths>
+    <cache-path name="photos" path="photos/" />
+    <cache-path name="updates" path="updates/" />
+</paths>

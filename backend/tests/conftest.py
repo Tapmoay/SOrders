@@ -42,7 +42,6 @@ def get_db_path() -> str:
 TEST_DB_URL = f"sqlite:///{get_db_path()}"
 os.environ["DATABASE_URL"] = TEST_DB_URL
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-32chars-minimum!!"
-os.environ["SMS_REVEAL_CODE"] = "true"
 
 # Import app modules AFTER setting environment
 from app.config import get_settings

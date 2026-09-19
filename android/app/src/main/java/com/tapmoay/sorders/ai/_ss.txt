@@ -1,0 +1,6 @@
+﻿AiWriteLedgerHandlers.kt          293 | û�ҵ�������$no���������û�ȷ�ϵ��ţ�**��Ҫ�Լ���һ��**��
+AiWriteLedgerHandlers.kt          307 | �𵥺�������**ȫ��**���⼸�ŵ��ϼ� ${AiWriteArgs.money(sum)} Ԫ��
+AiWriteSettlementHandlers.kt       59 | ȱ�� type�������**�����Ʒѵ��˷��˵�**��piece������**�̶����ʵ���н��**��salary����
+AiWriteSettlementHandlers.kt      141 | ϵͳ��û��**������**˾����û��˭�ļƷѷ�ʽ�ǡ��̶����ʡ�����н���� 0����
+AiWriteSettlementHandlers.kt      148 | ��${named.label}������**������**˾���������ڵļƷѷ�ʽ�ǰ����Ʒѣ���û����н���Խ�����
+AiWriteSettlementHandlers.kt      162 | $month �Ĺ��ʵ�**�Ѿ�ȫ�����ɹ���**��������ݵȵģ�����һ�β����ظ�������

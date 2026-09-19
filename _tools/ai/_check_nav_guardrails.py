@@ -1,0 +1,205 @@
+"""底部导航栏「凹口」造型的红线自检。
+
+### 为什么单独钉这一块
+用户拿星巴克 App 的截图要求「那个圆圈里面要凹一下，参考这个样式」。
+第一次实现**画错了但完全看不出来**：凹口的圆心算在了导航栏上沿**之上**，
+切出来的坑只有 18dp 深、而且几乎整块被圆钮自己盖住——代码"跑了"、界面"没变"，
+唯一能发现的办法是**量像素**（缺口内外上沿的 y 完全一样，落差 0px）。
+
+所以这里钉三件事：
+1. 有圆钮时，导航条底色必须用带凹口的形状（而不是 M3 默认的平直方块）；
+2. 凹口几何必须**从圆钮尺寸算**（写死数字的话，改圆钮大小就会对不上）；
+3. 几何数字本身必须落在"看得见"的区间里（太浅＝白做，太深＝把栏咬穿）。
+
+用法：python _tools/ai/_check_nav_guardrails.py     # 全过 → 退出码 0
+"""
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _airepo import repo_root  # noqa: E402
+
+ROOT = repo_root()
+UI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui"
+HOME = UI / "home/RoleHomeScreen.kt"
+NAV = UI / "nav/NotchedNavBar.kt"
+MODULES = UI / "nav/Modules.kt"
+TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/nav/NotchedBarTest.kt"
+MEASURE = ROOT / "_tools/notify/_measure_notch.py"
+
+
+def read(p: Path) -> str:
+    if not p.exists():
+        raise SystemExit(f"找不到文件：{p}（改名/移动了？本脚本的断言要跟着改）")
+    return p.read_text(encoding="utf-8")
+
+
+def strip_comments(src: str) -> str:
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    src = re.sub(r"(?m)^\s*//.*$", "", src)
+    src = re.sub(r"//[^\n\"']*$", "", src, flags=re.M)
+    return src
+
+
+class Checker:
+    def __init__(self) -> None:
+        self.fails: list[str] = []
+        self.passes = 0
+
+    def ok(self, label: str, cond: bool, detail: str = "") -> None:
+        if cond:
+            self.passes += 1
+            print(f"  [OK]   {label}")
+        else:
+            self.fails.append(label + (f" —— {detail}" if detail else ""))
+            print(f"  [FAIL] {label}" + (f" —— {detail}" if detail else ""))
+
+    def present(self, label: str, text: str, pattern: str) -> None:
+        m = re.search(pattern, text)
+        self.ok(label, m is not None, f"没找到 {pattern!r}")
+
+    def absent(self, label: str, text: str, pattern: str) -> None:
+        m = re.search(pattern, text)
+        self.ok(label, m is None, f"命中：{m.group(0)!r}" if m else "")
+
+
+def main() -> int:
+    c = Checker()
+    home = strip_comments(read(HOME))
+    nav = strip_comments(read(NAV))
+    modules = strip_comments(read(MODULES))
+    test = read(TEST)
+
+    # ---- §1 界面接线：有圆钮就必须有凹口 ----
+    c.present("有圆钮的角色用带凹口的导航条形状", home, r"NotchedBarShape\(\)")
+    c.present(
+        "凹口背景画在 NavigationBar **下面**（声明在前 + matchParentSize）",
+        home,
+        r"matchParentSize\(\)[\s\S]{0,200}?background\(MaterialTheme\.colorScheme\.surface,\s*barShape\)",
+    )
+    c.present(
+        "有圆钮时 NavigationBar 容器透明（否则平直的白底会把凹口盖回去）",
+        home,
+        r"containerColor = if \(showAiButton\)[\s\S]{0,200}?Color\.Transparent",
+    )
+    c.present("无圆钮的角色仍走 M3 默认底色（不折腾没圆钮的栏）", home, r"NavigationBarDefaults\.containerColor")
+    c.present("阴影也用同一个形状（底色凹了、阴影还是方的会穿帮）", home, r"shadow\(8\.dp,\s*barShape\)")
+
+    # ---- §2 几何必须从圆钮尺寸算，不许写死 ----
+    c.present("几何由圆钮尺寸算出（geometryForButton）", nav, r"fun geometryForButton\(density: Density\)")
+    c.present("用的是 AiNavButton 的真实尺寸常量", nav, r"AiNavButton\.Size")
+    c.present("凸出高度也取同一个常量（两处必须一致）", nav, r"AiNavButton\.Protrude")
+    c.present("圆心取「半径 − 凸出」＝在栏内侧，而不是在栏外", nav, r"val centerY = radius - buttonTopAboveEdge\.toDouble\(\)")
+    c.present("有防咬穿的夹取（栏高被改小时不会切穿）", nav, r"if \(g\.depth > size\.height\)")
+    c.present("弧从左边交点逆时针画（顺时针会补一条弦把缺口盖住）", nav, r"startAngleDegrees = g\.leftAngle")
+    c.present("凹口有可见缝隙常量", nav, r"val Gap = \d+\.dp")
+    c.present("外角有圆角（参照图那块白是圆角的）", nav, r"val CornerRadius = \d+\.dp")
+
+    # ---- §3 几何数字落在"看得见"的区间（真机量过：缺口深 57dp、半宽 34dp） ----
+    size = re.search(r"val Size = (\d+)\.dp", modules)
+    protrude = re.search(r"val Protrude = (\d+)\.dp", modules)
+    gap = re.search(r"val Gap = (\d+)\.dp", nav)
+    c.ok("圆钮尺寸/凸出/缝隙三个常量都能取到", all((size, protrude, gap)))
+    if size and protrude and gap:
+        d, p, g = float(size.group(1)), float(protrude.group(1)), float(gap.group(1))
+        radius, center = d / 2, d / 2 - p
+        depth = center + radius + g
+        half = (radius + g) ** 2 - center**2
+        half = half ** 0.5 if half > 0 else 0
+        c.ok(f"圆心在栏内侧（{center:.0f}dp > 0）", center > 0, f"实际 {center}")
+        # 用户两轮反馈都冲着这两个数来：
+        # 「太窄了、紧贴着这个按钮，不要紧贴，稍微扩大一点」→ 缝 ≥6dp
+        # 「把那个原先按钮稍微向下移一点」→ 圆心进栏 ≥15dp
+        c.ok(f"凹口不紧贴圆钮：缝 {g:.0f}dp ≥ 6dp", g >= 6, f"实际 {g}dp（会被判「紧贴」）")
+        c.ok(f"圆钮坐进栏里（圆心进栏 {center:.0f}dp ≥ 15dp）", center >= 15, f"实际 {center}dp（看着还飘在栏上）")
+        c.ok(f"凹口看得见：深 {depth:.0f}dp > 30dp", depth > 30, f"实际 {depth}")
+        c.ok(f"凹口不咬穿：深 {depth:.0f}dp < 栏高 80dp", depth < 80, f"实际 {depth}")
+        c.ok(
+            f"凹口比圆钮宽（半宽 {half:.0f}dp > 钮半径 {radius:.0f}dp）",
+            half > radius,
+            f"实际 {half:.1f} vs {radius}",
+        )
+
+    # ---- §4 单测与量尺（这块形状画错了不会报错，只能靠这两个） ----
+    for fn in ("centerY", "radius", "halfWidth", "depth", "startAngle", "sweepAngle", "leftAngle"):
+        c.present(f"几何字段 [{fn}] 有单测", test, rf"{fn}")
+    c.present("测试里钉住「圆心必须在栏内」（第一版就错在这）", test, r"圆心必须在栏内")
+    c.present("测试里钉住「太浅了看不见」", test, r"太浅了看不见")
+    c.ok("有真机像素量尺（截图上量缺口深浅）", MEASURE.exists(), str(MEASURE))
+    if MEASURE.exists():
+        c.present("量尺有判据（太浅就报失败，不靠肉眼）", read(MEASURE), r"凹口太浅/没画出来")
+
+    # ---- §5 能力声明必须算出来（这块最容易烂：手写的能力承诺会和真实能力走散） ----
+    settings = strip_comments(read(UI / "ai/AiSettingsScreen.kt"))
+    role_prompt = strip_comments(read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiRolePrompt.kt"))
+    c.present("设置页的能力声明调用生成函数", settings, r"AiRolePrompt\.settingsSummary\(")
+    c.absent(
+        "设置页不再手写能力承诺（写窄了会让用户以为它不会，写宽了会让用户白试一次）",
+        settings,
+        r"这五件事它做不了",
+    )
+    c.present("生成函数从写动作表算「能改什么」", role_prompt, r"fun settingsSummary[\s\S]{0,900}?AiWrites\.forModel\(role\)")
+    c.present("生成函数从读能力表算「能查什么」", role_prompt, r"fun settingsSummary[\s\S]{0,900}?AiReads\.forRole\(role")
+    # ⚠️ 这一条**曾经红着没人管**（2026-09-17 跑全套反向验证时才发现）：
+    #    它把判据锚在一个**局部变量名**上（`it !in groups`），后来那个变量改名成 `mine`，
+    #    于是断言永远找不到——而"永远红的检查等于没有检查"（这个仓库栽过 6 次）。
+    #    现在锚的是**不变量**：这份"不归它的"必须由 `ALL_WRITE_GROUPS` 过滤出来
+    #    （变量叫什么无所谓），并且**真的用进了提示词**（防"算了但没接线"）。
+    c.present("「不归它的」是算出来的（不是手写域名单）",
+              role_prompt, r"ALL_WRITE_GROUPS\.filter \{ it !in \w+ \}")
+    c.present("这份算出来的清单真的用进了提示词（不是算了没用）",
+              role_prompt, r"notMine\.joinToString")
+    c.present("认不出角色时 fail-closed（说它什么都做不了）", role_prompt, r"if \(role == null\)[\s\S]{0,200}?查不到也改不了")
+
+    # ---- §6 指路只能用他真有的页面（用户 2026-09-17 抓到的 bug） ----
+    ai_role_prompt = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiRolePrompt.kt")
+    modules = read(UI / "nav/Modules.kt")
+    c.present("页面清单从界面配置算出来（不手写）", role_prompt, r"Modules\.entriesFor\(Role\.fromKey\(role\.key\)\)")
+    c.present("提示词里带上了「他界面上有的页面」这一行", role_prompt, r"他界面上有的页面")
+    c.present(
+        "指路规则按「有没有那个页面」分两种说法",
+        role_prompt,
+        r"他\*\*没有\*\*那个页面[\s\S]{0,120}?不要指任何页面",
+    )
+    c.absent(
+        "不再无条件「告诉他去哪个页面自己做」（货主没有派单/商品/库存页，会被指到墙上）",
+        role_prompt,
+        r"并告诉他去哪个页面自己做。",
+    )
+    c.present("货主身份段写明派单是派单员的活", role_prompt, r"派单是派单员的活")
+    c.present("货主身份段写明他自己没有派单这个操作", role_prompt, r"没有派单这个操作")
+    c.present(
+        "货主的写能力白名单里**有**下单（指路指的就是它）",
+        read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt"),
+        r"SHIPPER_ACTIONS[\s\S]{0,600}?ORDERS_CREATE",
+    )
+    # ⚠️ 下面这条要先确认**真的取到了**那段白名单：取不到时传空串进去，
+    #    `absent` 会永远通过——那就是"永远绿的检查"，比没有检查更糟。
+    m_ship = re.search(
+        r"SHIPPER_ACTIONS: Set<String> = setOf\(([\s\S]*?)\n    \)",
+        read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt"),
+    )
+    c.ok("取到货主动作白名单（取不到这条检查就是空转）", m_ship is not None and len(m_ship.group(1)) > 50)
+    if m_ship:
+        c.absent(
+            "货主白名单里不许出现派单动作（他被问派单只能指向派单员）",
+            m_ship.group(1),
+            r"ORDERS_ASSIGN|orders\.assign|ORDER_DISPATCH|ASSIGN",
+        )
+    c.present("界面配置里货主确实有「下单」入口（指路指的就是它）", modules, r'ModuleEntry\("下单"')
+
+    print("\n" + "=" * 60)
+    if c.fails:
+        print(f"❌ {len(c.fails)} 项不通过：")
+        for f in c.fails:
+            print("   - " + f)
+        return 1
+    print(f"✅ 全部 {c.passes} 项通过。")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

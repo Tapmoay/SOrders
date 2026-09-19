@@ -8,6 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Notification, Order, User
+from app.models.enums import UserRole
+from app.models.user import resolve_billing_mode
 from app.schemas.notification import NotificationOut
 from app.services.message_push import emit_to_user
 
@@ -119,6 +121,42 @@ async def publish_order_assigned(db: Session, order_id: int) -> None:
         await emit_realtime(shipper_id, {"type": "order.dispatched", "order_id": order_id})
 
 
+async def publish_order_freight_updated(db: Session, order_id: int) -> None:
+    """运费更新提醒：仅按单计费（PIECE）司机可见金额，固定工资司机不打扰。"""
+    order = db.get(Order, order_id)
+    if order is None or order.driver_id is None:
+        return
+    driver = db.get(User, order.driver_id)
+    if driver is None:
+        return
+    mode = order.driver_billing_mode_snapshot or resolve_billing_mode(
+        driver.vehicle_type, driver.billing_mode
+    )
+    if mode != "PIECE":
+        return
+    ono = order.order_no
+    fee = order.freight_fee
+    content = (
+        f"订单 {ono} 运费已更新：{fee} 元。"
+        if fee is not None
+        else f"订单 {ono} 运费已清空（待定）。"
+    )
+    n = create_message(
+        db,
+        recipient_id=order.driver_id,
+        category="order",
+        type="order.freight.updated",
+        title="运费更新",
+        content=content,
+        payload={"order_id": order_id, "order_no": ono},
+        speech_important=False,
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(order.driver_id, {"type": "order.freight.updated", "order_id": order_id})
+
+
 async def publish_order_revoked(db: Session, driver_id: int, order_id: int, reason: str) -> None:
     order = db.get(Order, order_id)
     ono = order.order_no if order else str(order_id)
@@ -155,6 +193,35 @@ async def publish_order_recalled_shipper(db: Session, shipper_id: int, order_id:
     db.refresh(n)
     await emit_notification(n)
     await emit_realtime(shipper_id, {"type": "order.recalled", "order_id": order_id})
+
+
+async def publish_navigation_filled(
+    db: Session, shipper_id: int, order_id: int, place_name: str
+) -> None:
+    """司机给这单补上导航信息后，告诉货主（2026-09-18）。
+
+    为什么值得单独发一条站内信：货主这边的实际变化是**他自己看不到的两件事**——
+    地址库里多了一个地点、这单从此能导航了。不发消息的话，货主下次下单时
+    突然发现地址库多了一条来源不明的记录，只能猜。
+    `speech_important=False`：这不是要司机接单那种必须立刻响的事，响铃会变成噪音。
+    """
+    order = db.get(Order, order_id)
+    ono = order.order_no if order else str(order_id)
+    where = place_name.strip() or "本单收货地址"
+    n = create_message(
+        db,
+        recipient_id=shipper_id,
+        category="order",
+        type="order.navigation.filled",
+        title="导航信息已补上",
+        content=f"订单 {ono} 的司机到场后补上了导航位置「{where}」，已存入你的地点库，下次下单可直接选。",
+        payload={"order_id": order_id, "order_no": ono, "place_name": where},
+        speech_important=False,
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(shipper_id, {"type": "order.navigation.filled", "order_id": order_id})
 
 
 async def publish_order_delivered(db: Session, order_id: int) -> None:
@@ -266,6 +333,82 @@ async def publish_order_cancelled_multi(db: Session, user_ids: list[int], order_
         await emit_notification(n)
     for uid in user_ids:
         await emit_realtime(uid, {"type": "order.cancelled", "order_id": order_id})
+
+
+async def _broadcast_to_dispatchers(
+    db: Session,
+    order_id: int,
+    type_: str,
+    title: str,
+    content_tpl: str,
+) -> None:
+    """广播给所有派单员：消息落库 + 实时推送 + 未读角标（三端同步）。"""
+    order = db.get(Order, order_id)
+    if order is None:
+        return
+    content = content_tpl.format(ono=order.order_no)
+    dispatchers = db.scalars(
+        select(User).where(
+            User.role == UserRole.DISPATCHER,
+            User.is_active.is_(True),
+        )
+    ).all()
+    for d in dispatchers:
+        n = create_message(
+            db,
+            recipient_id=d.id,
+            category="order",
+            type=type_,
+            title=title,
+            content=content,
+            payload={"order_id": order_id, "order_no": order.order_no},
+            speech_important=False,
+        )
+        db.commit()
+        db.refresh(n)
+        await emit_notification(n)
+        await emit_unread_count(d.id)
+
+
+async def broadcast_order_delivered_to_dispatchers(db: Session, order_id: int) -> None:
+    await _broadcast_to_dispatchers(db, order_id, "order.delivered_dispatcher", "订单已送达", "订单 {ono} 已完成送达，请知悉。")
+
+
+async def broadcast_driver_ack_to_dispatchers(db: Session, order_id: int) -> None:
+    await _broadcast_to_dispatchers(db, order_id, "order.driver_ack_dispatcher", "司机已接单", "订单 {ono} 司机已确认接单。")
+
+
+async def broadcast_order_cancelled_to_dispatchers(db: Session, order_id: int) -> None:
+    await _broadcast_to_dispatchers(db, order_id, "order.cancelled_dispatcher", "订单已撤销", "订单 {ono} 已撤销，请知悉。")
+
+
+async def publish_new_order_to_dispatchers(db: Session, order_id: int) -> None:
+    """新订单提交：通知所有派单员（消息落库 + 实时推送 + 未读角标）。"""
+    order = db.get(Order, order_id)
+    if order is None:
+        return
+    ono = order.order_no
+    dispatchers = db.scalars(
+        select(User).where(
+            User.role == UserRole.DISPATCHER,
+            User.is_active.is_(True),
+        )
+    ).all()
+    for d in dispatchers:
+        n = create_message(
+            db,
+            recipient_id=d.id,
+            category="order",
+            type="order.created",
+            title="新订单待派单",
+            content=f"订单 {ono} 已提交，请及时派单。",
+            payload={"order_id": order.id, "order_no": ono},
+            speech_important=True,
+        )
+        db.commit()
+        db.refresh(n)
+        await emit_notification(n)
+        await emit_unread_count(d.id)
 
 
 async def publish_ledger_updated_event(shipper_id: int) -> None:

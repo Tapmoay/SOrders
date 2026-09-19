@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标背景层（108×108，可见区是中心 72×72）。
+
+  橙金渐变：#FFB020 → #F26A00。
+  为什么不是 App 内的品牌蓝：**图标的颜色要按"品类认知"选，不是按 App 的界面配色选**。
+  大众对"送货/配送"的认知色就是暖橙黄（美团黄、货拉拉橙、淘宝橙、京东红）——
+  用户在一屏几十个图标里找的，是"那个橙色的送货 App"，而不是"那个蓝色的 App"。
+  界面里仍然是蓝为主色，两者不冲突（美团也是黄图标 + 白/蓝界面）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0 H108 V108 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0" android:startY="0"
+                android:endX="108" android:endY="108"
+                android:type="linear">
+                <item android:offset="0" android:color="#FFB020" />
+                <item android:offset="1" android:color="#F26A00" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

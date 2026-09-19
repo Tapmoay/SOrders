@@ -15,6 +15,14 @@ async def push_order_assigned(driver_id: int, order_id: int) -> None:
         db.close()
 
 
+async def push_order_freight_updated(order_id: int) -> None:
+    db = SessionLocal()
+    try:
+        await message_center.publish_order_freight_updated(db, order_id)
+    finally:
+        db.close()
+
+
 async def push_order_revoked(driver_id: int, order_id: int, reason: str = "") -> None:
     db = SessionLocal()
     try:
@@ -51,9 +59,46 @@ async def push_ledger_updated(shipper_id: int) -> None:
     await message_center.publish_ledger_updated_event(shipper_id)
 
 
+async def push_order_delivered_to_dispatchers(order_id: int) -> None:
+    db = SessionLocal()
+    try:
+        await message_center.broadcast_order_delivered_to_dispatchers(db, order_id)
+    finally:
+        db.close()
+
+
+async def push_driver_ack_to_dispatchers(order_id: int) -> None:
+    db = SessionLocal()
+    try:
+        await message_center.broadcast_driver_ack_to_dispatchers(db, order_id)
+    finally:
+        db.close()
+
+
+async def push_order_cancelled_to_dispatchers(order_id: int) -> None:
+    db = SessionLocal()
+    try:
+        await message_center.broadcast_order_cancelled_to_dispatchers(db, order_id)
+    finally:
+        db.close()
+
+
+async def push_new_order_to_dispatchers(order_id: int) -> None:
+    await message_center.publish_new_order_to_dispatchers(SessionLocal(), order_id)
+
+
 async def push_dispatcher_pending_pool_changed() -> None:
     """待派单池数量变化时通知所有在线派单员刷新角标。"""
     await emit_to_dispatchers("realtime", {"type": "dispatcher.pending_pool"})
+
+
+async def push_navigation_filled(shipper_id: int, order_id: int, place_name: str) -> None:
+    """司机补完导航信息 → 落站内信 + 实时推给货主。"""
+    db = SessionLocal()
+    try:
+        await message_center.publish_navigation_filled(db, shipper_id, order_id, place_name)
+    finally:
+        db.close()
 
 
 async def push_order_to_shipper(shipper_id: int, order_id: int, event_type: str) -> None:

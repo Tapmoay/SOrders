@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 网络 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- 高德定位（GCJ-02，与后端/Web 端坐标一致） -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 高德地图需要的存储写权限（旧机型） -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- 通知推送（Android 13+ 需运行时授权） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 通知震动：渠道里的 vibrationPattern 需要这条权限才会真的振 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!--
+        后台接收派单（关闭 App 也不能漏单）：
+        实时消息走 Socket.IO 长连接，App 退回后台后系统随时可以杀掉进程，
+        所以要用前台服务把进程按住（详见 core/AlertService.kt）。
+        dataSync 是 API 29~33 用的类型；API 34+ 用 specialUse——
+        Android 15 对 dataSync 有"每 24 小时累计 6 小时"的硬上限，
+        司机的手机整天挂着，被掐掉就等于又收不到单了。
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 开机后自动接上（只在登录过 + 用户开着后台接收时，见 core/BootReceiver.kt） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 拍照（相机直拍/预览场景；系统相机 Intent 亦可） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 相册/文件读取（Android 13+ 用媒体权限；12 及以下用存储权限） -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- App 内更新：安装 APK 需未知来源安装授权（Android 8+ 运行时引导） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Android 11+ 包可见性：允许 resolveActivity 识别高德 App 的 androidamap:// 协议 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="androidamap" />
+        </intent>
+        <package android:name="com.autonavi.minimap" />
+    </queries>
+
+    <application
+        android:name=".SOrdersApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SOrders">
+
+        <!-- 高德地图 SDK Key（值来自 gradle manifestPlaceholders，未配置则为空） -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="${amapKey}" />
+
+        <!--
+            高德定位服务。**必须手写**：项目依赖的是 `com.amap.api:3dmap`（一个 JAR，
+            不带自己的清单），所以清单合并不会替我们补这个 service。
+            缺了它的表现是"定位永远拿不到结果"，而日志里只有一行不起眼的
+            `Unable to start service Intent { cmp=.../com.amap.api.location.APSService }: not found`
+            ——App 里则表现为一直退回"时区估算"（自动夜间模式因此永远用不上真坐标）。
+        -->
+        <service android:name="com.amap.api.location.APSService" />
+
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <!--
+                launchMode=singleTop 不是可选项：点通知带的"直达哪一单"是靠
+                onNewIntent 传进来的。standard 模式下，App 还在后台时点通知，
+                系统只会把任务提到前台、**不投递 intent**——表现是"点了通知，
+                App 打开了，但停在列表页"，而且没有任何报错（真机验证时抓到）。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 后台接收派单：关闭 App 后仍能收到新单（常驻通知，可一键关） -->
+        <service
+            android:name=".core.AlertService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="持续接收派单消息并向司机播报新单语音" />
+        </service>
+
+        <!-- 开机 / App 更新后把常驻接收接回来 -->
+        <receiver
+            android:name=".core.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 拍照成品 FileProvider -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

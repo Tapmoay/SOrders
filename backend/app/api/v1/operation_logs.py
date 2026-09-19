@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.rbac import Permission
 from app.database import get_db
@@ -11,6 +11,20 @@ from app.schemas.operation_log import OperationLogOut
 router = APIRouter(prefix="/operation-logs", tags=["operation-logs"])
 
 
+def _out(row: OperationLog) -> OperationLogOut:
+    """把 ORM 行转成出参，并**补上两个"用户看得懂"的字段**。
+
+    为什么不在 schema 里用 relationship 自动带：`operator_name` 是"姓名优先、没有就用手机号"
+    的取值规则，写在端点里只有一处；`order_no` 来自订单表，也要 join。
+    这两个字段是审计页的刚需（谁改的 / 哪一单），只给 `operator_id`/`order_id` 用户看不懂。
+    """
+    item = OperationLogOut.model_validate(row)
+    op = row.operator
+    item.operator_name = (op.full_name or op.phone) if op is not None else None
+    item.order_no = row.order.order_no if row.order is not None else None
+    return item
+
+
 @router.get("", response_model=list[OperationLogOut])
 def list_operation_logs(
     db: Session = Depends(get_db),
@@ -19,13 +33,19 @@ def list_operation_logs(
     operator_id: int | None = Query(None),
     skip: int = 0,
     limit: int = Query(200, le=1000),
-) -> list[OperationLog]:
-    q = select(OperationLog).order_by(OperationLog.id.desc()).offset(skip).limit(limit)
+) -> list[OperationLogOut]:
+    q = (
+        select(OperationLog)
+        .options(joinedload(OperationLog.operator), joinedload(OperationLog.order))
+        .order_by(OperationLog.id.desc())
+        .offset(skip)
+        .limit(limit)
+    )
     if order_id is not None:
         q = q.where(OperationLog.order_id == order_id)
     if operator_id is not None:
         q = q.where(OperationLog.operator_id == operator_id)
-    return list(db.scalars(q).all())
+    return [_out(r) for r in db.scalars(q).unique().all()]
 
 
 @router.get("/{log_id}", response_model=OperationLogOut)
@@ -33,8 +53,8 @@ def get_operation_log(
     log_id: int,
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.OPERATION_LOG_READ)),
-) -> OperationLog:
+) -> OperationLogOut:
     row = db.get(OperationLog, log_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到对应记录")
-    return row
+    return _out(row)
