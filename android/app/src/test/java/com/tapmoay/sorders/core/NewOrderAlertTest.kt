@@ -177,6 +177,49 @@ class NewOrderAlertTest {
         assertTrue("过期的键要被清掉，否则跟着进程活成一条慢泄漏", seen.size <= 64)
     }
 
+    // ---- 撤回后重派必须重新响（R14-14，2026-09-19 审计） ----
+
+    @Test
+    fun `撤回后 60 秒内重派给同一个司机也要响`() {
+        // 真机场景：派单员派给司机 A（响）→ 撤回 → 立刻改派给同一个司机。
+        // 不去作废去重键的话，第二声会被 60 秒窗口吞掉 —— 司机刚被告知"撤回了"，
+        // 重派却没有提示音（列表会刷新，但人在车上不会盯屏幕）。
+        val seen = mutableMapOf<String, Long>()
+        val key = NewOrderAlert.eventOf("order.assigned", 42L)!!.dedupeKey
+        seen[key] = 1_000L
+        // 同一批派单的第二条链路：应当算重复
+        assertTrue(NewOrderAlert.isDuplicate(seen, key, 1_200L))
+
+        // 撤回到达 → 该单的新单去重键作废
+        NewOrderAlert.forgetOnStop(seen, "order.revoked", 42L)
+        assertFalse(
+            "撤回之后再派给同一个司机，必须在窗口内也能响",
+            NewOrderAlert.isDuplicate(seen, key, 1_300L),
+        )
+    }
+
+    @Test
+    fun `取消、接单、撤回、召回都会作废该单的新单去重键`() {
+        listOf("order.cancelled", "order.driver_ack", "order.revoked", "order.recalled").forEach { t ->
+            val seen = mutableMapOf("assigned:5" to 1_000L)
+            NewOrderAlert.forgetOnStop(seen, t, 5L)
+            assertFalse("$t 之后该单的新单键应当作废", seen.containsKey("assigned:5"))
+        }
+    }
+
+    @Test
+    fun `无关事件与缺单号不会误清去重键`() {
+        // 不能因为一条无关事件就把别人的"正在响"状态清掉（否则同一单会被播两遍）
+        val seen = mutableMapOf("assigned:6" to 1_000L)
+        NewOrderAlert.forgetOnStop(seen, "order.delivered", 6L) // 送达是停止信号：允许清
+        assertFalse(seen.containsKey("assigned:6"))
+        val again = mutableMapOf("assigned:6" to 1_000L)
+        NewOrderAlert.forgetOnStop(again, "ledger.updated", 6L)
+        assertTrue("无关事件不许去动去重表", again.containsKey("assigned:6"))
+        NewOrderAlert.forgetOnStop(again, "order.revoked", null)
+        assertTrue("没有单号时无从清起", again.containsKey("assigned:6"))
+    }
+
     // ---- 音量 ----
 
     @Test

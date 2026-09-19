@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { formatMoney2 } from '@/utils/formatMoney'
 
 import { fetchUnreadCount, markNotificationRead, type AppNotification } from '@/api/notifications'
 import { useMessageCenterStore } from '@/stores/messageCenter'
@@ -47,7 +48,7 @@ function onOpen() {
           pay.price_type === 'special' ? '货主特殊价' : '全局默认价'
         }}</span>
         <span v-if="pay.old_price != null && String(pay.old_price) !== ''" class="spn__old">{{
-          pay.old_price
+          formatMoney2(pay.old_price)
         }}</span>
         <span
           v-if="pay.old_price != null && pay.new_price != null"
@@ -55,7 +56,7 @@ function onOpen() {
         >
           →
         </span>
-        <span class="spn__new">{{ pay.new_price }}</span>
+        <span class="spn__new">{{ formatMoney2(pay.new_price) }}</span>
         <span class="spn__hint">（价格变动）</span>
       </div>
     </div>

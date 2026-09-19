@@ -123,6 +123,20 @@ fun MessagesScreen(
                         onDelete = { vm.delete(m) },
                     )
                 }
+                // 「加载更多」：服务端说了还有更早的消息（响应头 X-Truncated）才显示。
+                // R14-8（2026-09-19 审计）：这条接口原来没有分页、也不回报截断，
+                // 于是第 201 条以前的旧消息在 App 里一个入口都没有。
+                if (vm.hasMore) {
+                    item(key = "load-more") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            if (vm.loadingMore) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                TextButton(onClick = { vm.loadMore() }) { Text("加载更早的消息") }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -22,7 +22,18 @@ STAMP = time.strftime("%Y%m%d%H%M%S")
 conf = open(CONF, encoding="utf-8").read()
 shutil.copy(CONF, CONF + ".bak-static-" + STAMP)
 
-NEW_BLOCK = """location /static/uploads/ {
+NEW_BLOCK = """# ⛔ 导出产物一律 404（2026-09-19 审计 R12-A3）：
+    #    `/static/uploads/` 是**直出磁盘、不过应用层**的 alias，而应用层
+    #    （`main.py` 的静态路由）对 `exports/` 是明确拒绝的——两者不一致时，
+    #    只要 `uploads/exports/` 里**还留着**历史上那一批账本 Excel
+    #    （文件名是 `ledger_{货主id}_{任务id}.xlsx` 这种可枚举的小整数），
+    #    任何能访问公网 80 的人不需要账号就能把它们拖走。
+    #    这条 deny 必须放在 `/static/uploads/` **之前**才会优先命中。
+    location ^~ /static/uploads/exports/ {
+        return 404;
+    }
+
+    location /static/uploads/ {
         # 直出磁盘，不经 uvicorn——慢客户端不再占住后端 worker
         alias /opt/SOrders/backend/uploads/;
         sendfile on;
@@ -43,6 +54,20 @@ NEW_BLOCK = """location /static/uploads/ {
 
 if "/static/uploads/" in conf:
     print("SKIP  conf: /static/uploads/ 已经配过了")
+    # ⚠️ 已经配过的机器也要补上导出产物的 deny（老配置里没有这一条）
+    if "/static/uploads/exports/" not in conf:
+        conf_add, n = re.subn(
+            r"(\n\s*location\s+/static/uploads/\s*\{)",
+            "\n    location ^~ /static/uploads/exports/ {\n        return 404;\n    }\n\\1",
+            conf,
+            count=1,
+        )
+        if n == 0:
+            print("WARN  conf: 找到 /static/uploads/ 但没能插进 exports 的 deny，请手工确认")
+        else:
+            shutil.copy(CONF, CONF + ".bak-exports-" + STAMP)
+            open(CONF, "w", encoding="utf-8").write(conf_add)
+            print("OK    conf: 补上 /static/uploads/exports/ → 404")
 else:
     conf2, n = re.subn(r"location /static/ \{[^}]*\}", NEW_BLOCK, conf)
     if n == 0:

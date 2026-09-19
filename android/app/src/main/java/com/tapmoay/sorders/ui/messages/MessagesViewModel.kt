@@ -40,6 +40,18 @@ class MessagesViewModel(private val container: AppContainer) : ViewModel() {
     var error by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * 服务器上**还有更早的消息**（响应头 `X-Truncated: 1`，2026-09-19 审计 R14-8 补）。
+     *
+     * 为什么必须让界面知道：这条接口原来是一条硬 `.limit(200)`，没有分页、也不回报截断 ——
+     * 于是第 201 条以前的旧消息在 App 里**一个入口都没有**（里面还有「账本导出完成」这种
+     * payload 里带唯一下载链接的通知），用户以为消息中心就是全部。
+     */
+    var hasMore by mutableStateOf(false)
+        private set
+    var loadingMore by mutableStateOf(false)
+        private set
+
     /** 一次性提示（界面用 Snackbar 显示后置回 null）。成功/失败都用它说人话。 */
     var notice by mutableStateOf<String?>(null)
 
@@ -68,10 +80,37 @@ class MessagesViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch { fetch(silent) }
     }
 
+    /**
+     * 加载更早的一页（「加载更多」）。
+     *
+     * 游标是**当前列表里最后一条的 id**（后端按 id 倒序 = 时间倒序，只回 id 小于它的）。
+     * 两种翻页写法里选了游标而不是 offset：offset 在"翻页过程中来了新消息"时
+     * 会把同一条重复显示或整条跳过（消息是**不断新增**的表，这正是 offset 最不擅长的场景）。
+     */
+    fun loadMore() {
+        if (loadingMore || !hasMore || messages.isEmpty()) return
+        viewModelScope.launch {
+            loadingMore = true
+            try {
+                val page = container.repo.notificationsPage(limit = PAGE_SIZE, beforeId = messages.last().id)
+                val known = messages.map { it.id }.toSet()
+                // 去重后追加：服务端游标已经排除了边界重复，但"翻页期间消息被删/新增"时仍可能撞上
+                messages = messages + page.rows.filter { it.id !in known }
+                hasMore = page.hasMore
+            } catch (e: Exception) {
+                notice = toApiException(e).message ?: "加载更早的消息失败"
+            } finally {
+                loadingMore = false
+            }
+        }
+    }
+
     /** 真正拉一次列表；[silent] 时不动 loading（用于改动后的静默对齐）。 */
     private suspend fun fetch(silent: Boolean) {
         try {
-            messages = container.repo.notifications(limit = 100)
+            val page = container.repo.notificationsPage(limit = PAGE_SIZE)
+            messages = page.rows
+            hasMore = page.hasMore
         } catch (e: Exception) {
             if (!silent) error = toApiException(e).message
         } finally {
@@ -215,3 +254,11 @@ class MessagesViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 }
+
+/**
+ * 一页多少条。
+ *
+ * 100 而不是 200：后端一次最多给 200，但**首屏**只要填满一屏多一点就够，
+ * 剩下的靠「加载更多」按需取 —— 一个 2336 条消息的账号首屏就应该快。
+ */
+private const val PAGE_SIZE = 100

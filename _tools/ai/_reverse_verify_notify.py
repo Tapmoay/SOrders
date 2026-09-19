@@ -136,8 +136,13 @@ MUTATIONS = [
     (
         "实时事件里不再检查停止信号（撤回/送达后还在喊）",
         CORE / "RealtimeHub.kt",
-        "                if (NewOrderAlert.shouldStop(e.type)) container.newOrderPlayer.stop()",
-        "                if (false) container.newOrderPlayer.stop()",
+        # ⚠️ 锚点跟着实现走（2026-09-19 第十四轮）：这一段现在是一个块
+        #    （里面多了 `forgetOnStop` —— 撤回后重派要能重新响，见 R14-14），
+        #    所以不能再锚"单行 + 尾部语句"。注入的语义不变：**整块拿掉**。
+        "                if (NewOrderAlert.shouldStop(e.type)) {\n"
+        "                    container.newOrderPlayer.stop()\n",
+        "                if (false) {\n"
+        "                    container.newOrderPlayer.stop()\n",
         "实时事件里检查停止信号",
     ),
     (
@@ -216,6 +221,36 @@ MUTATIONS = [
         "        AlertKind.REVOKED -> AlertPlan(repeats = 1, gapMs = GAP_MS)",
         "        AlertKind.REVOKED -> plan(setting)",
         None,  # 纯函数判据：靠单测
+    ),
+    # ---- §11：不许承诺「语音播报」而其实不会播（R14-11）----
+    (
+        "AI 确认卡又承诺「对方会收到语音播报」（安卓侧根本不读 speech_important）",
+        SRC / "ai/AiWriteNotificationHandlers.kt",
+        'if (important) add("标为重要：只会打上「重要」标记（新版 App 不会因此播语音，仍是普通提醒）")',
+        'if (important) add("标为重要：对方会收到语音播报")',
+        "凡提到「语音播报」的地方都说明了它会不会发生",
+    ),
+    (
+        "AI 参数名又写「重要（语音播报）」（模型会照着这句向用户承诺）",
+        SRC / "ai/AiWrite.kt",
+        '"important", "重要标记", kind = AiWriteParamKind.ENUM,',
+        '"important", "重要（语音播报）", kind = AiWriteParamKind.ENUM,',
+        "凡提到「语音播报」的地方都说明了它会不会发生",
+    ),
+    (
+        "把 AI 层塞进「这么说是对的」豁免表（那层的文案会直接变成承诺）",
+        CHECK,
+        "SPOKEN_TRUE: dict[str, str] = {\n",
+        "SPOKEN_TRUE: dict[str, str] = {\n"
+        '    "android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt": "注入：假装 AI 层也可以这么说",\n',
+        "AI 层不许进",
+    ),
+    (
+        "把「重要标记不会播语音」这句如实说明整段删掉（不提 ≠ 说清楚了）",
+        SRC / "ai/AiWriteNotificationHandlers.kt",
+        'if (important) add("标为重要：只会打上「重要」标记（新版 App 不会因此播语音，仍是普通提醒）")',
+        "",
+        "AI 层「重要标记不播语音」",
     ),
 ]
 

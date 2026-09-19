@@ -78,4 +78,24 @@ class AiAnswerSanitizerTest {
         assertTrue("换行结构要保留，实际：<$cleaned>", cleaned.contains("\n"))
         assertFalse(cleaned.contains("user_id"))
     }
+
+    @Test
+    fun stripsControlCharactersButKeepsLineBreaks() {
+        // 由来：模拟器上 AI 聊天页在前台时 `uiautomator dump` 连崩两次，logcat 是
+        // `IllegalArgumentException: Illegal character (U+0)`（AccessibilityNodeInfoDumper）
+        // ——界面文本里的 NUL 让整棵无障碍树序列化不出来（读屏与自动化全失效）。
+        val dirty = "库存\u0000+5，备注\u0007如下\u001b[0m\r\n第二行\u009f结束"
+        val cleaned = AiAnswerSanitizer.clean(dirty)
+        assertEquals("库存+5，备注如下[0m\r\n第二行结束", cleaned)
+        // 一个控制字符都不许剩（含 C1 区）
+        assertTrue(
+            "还有控制字符没剥掉：${cleaned.map { it.code }}",
+            cleaned.none { it.code < 0x20 && it != '\t' && it != '\n' && it != '\r' } &&
+                cleaned.none { it.code in 0x7F..0x9F },
+        )
+        // 制表符与换行是排版手段，不是控制字符，必须原样留着
+        assertEquals("甲\t乙\n丙", AiAnswerSanitizer.clean("甲\t乙\n丙"))
+        // 幂等性对这条同样成立（净化器整体是幂等的）
+        assertEquals(cleaned, AiAnswerSanitizer.clean(cleaned))
+    }
 }

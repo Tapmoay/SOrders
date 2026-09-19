@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import InvalidRequestError as SaInvalidRequest
 from sqlalchemy.orm import Session
 
+from app.core.business_time import business_today
 from app.core.rbac import user_role_key
 from app.models import Order, User
 from app.models.order import OrderProduct
@@ -126,8 +127,22 @@ def assign_driver(
     order = lock_order_row(db, order)
     if order.status != OrderStatus.PENDING_DISPATCH:
         raise ValueError("仅「待派单」状态可派单")
+    # ⚠️ 隔离区（已进回收站）的单不许派（2026-09-19 审计 R13-D1 同族）：
+    #    派了会给司机推「新派单」，而司机点进去是 404（读侧对非派单员一律"订单不存在"），
+    #    撤回派单又会因为它的 CAS 要求 `deleted_at is None` 而失败——这张单只能靠 restore 解开。
+    if order.deleted_at is not None:
+        raise ValueError("这一单已被删除（在回收站里），不能派单；请先恢复它。")
     if user_role_key(driver) != UserRole.DRIVER.value:
         raise ValueError("派单目标须为司机账号")
+    # ⚠️ **必须校 is_active**（2026-09-19 审计）。这是全后端唯一一处派单写入，也是唯一的闸：
+    #    人工派单界面（`DispatcherPoolViewModel` 的 `filter { it.isActive }`）是**客户端**过滤的，
+    #    而 AI 的司机名册（`AppRepository.drivers()`）没有过滤——所以"把单派给已离职的王师傅"
+    #    在 AI 路径上是走得通的，卡片还长得完全合理（后端给的 paySummary 看不出账号已停用）。
+    #    后果不是报错，而是**静默卡死**：`deps.py` 与 socket 握手都会拦 is_active=False 的登录、
+    #    消息也只推给 active 收件人 → 司机登不进来、收不到推送、这单永远停在「派单中」，
+    #    不在待派池里、没人能完成它，只能靠人工发现后撤回派单。
+    if not getattr(driver, "is_active", True):
+        raise ValueError("这个司机账号已停用（离职或被删除），不能派单；请先恢复账号或换一位司机")
     # 逐单覆盖值先验：**填了不生效**（司机没挂规则、规则里没有提成项）要在这里拦掉，
     # 不能收下再默默按规则算——先验再做，失败时订单一个字段都没动过（批量派单靠这个回滚）。
     rule = rule_of_user(driver)
@@ -140,7 +155,12 @@ def assign_driver(
     # 两个并发派单会各自通过上面的状态检查，把同一张单派给两个司机。
     claimed = db.execute(
         update(Order)
-        .where(Order.id == order.id, Order.status == OrderStatus.PENDING_DISPATCH)
+        .where(
+            Order.id == order.id,
+            Order.status == OrderStatus.PENDING_DISPATCH,
+            # 隔离区的单不许派（同上）：判完到写之间被删掉的话，这里再挡一次
+            Order.deleted_at.is_(None),
+        )
         .values(status=OrderStatus.DISPATCHED, driver_id=driver.id, dispatched_at=_now())
     )
     if claimed.rowcount != 1:
@@ -163,10 +183,14 @@ def assign_driver(
     order.driver_rule_snapshot = rule_to_snapshot(rule)
     # 派单员对这一单单独定的数（v3.37）：和快照同一处落库，免得"快照说按单付钱、
     # 金额却没人写"这种半截状态。None = 这一单不特殊，用规则里的值。
-    if piece_override is not None:
-        order.driver_piece_amount = piece_override
-    if rate_override is not None:
-        order.driver_commission_rate = rate_override
+    #
+    # ⚠️ **无条件赋值**（2026-09-19 审计 R12-M1）：原来写成 `if piece_override is not None:`，
+    #    于是"这次没单独定钱"**不会清掉上一次定过的数**——撤回派单再派给别人时，
+    #    上一个司机的金额会原样跟着新司机走（账单按上一个司机的数字算，note 还印着
+    #    「（这一单单独定的）」，看起来像有人故意定的）。字段自己的注释就写着
+    #    "None = 这一单不特殊"，实现必须与这句话一致：**没给就是不特殊**。
+    order.driver_piece_amount = piece_override
+    order.driver_commission_rate = rate_override
     order.driver_acknowledged_at = None
     auto_stock_out(db, order, operator.id)
     if internal_note and internal_note.strip():
@@ -339,6 +363,16 @@ def complete_delivery(
     # 先锁行再判状态：司机手滑点两下/网络重试时，两个请求都会通过下面那道检查，
     # 各自往下走 → **同一张单生成两条司机账单**（钱）。
     order = lock_order_row(db, order)
+    # ⚠️ **隔离区（已进回收站）的单不许送达**（2026-09-19 审计 R13-D1）：
+    #    读侧对所有非派单员是 404（`orders.py` 的 `_get_order_scoped`：「订单不存在」），
+    #    而送达这条写路径原来**完全不看 `deleted_at`** —— 司机端手上那一页还停在旧数据时
+    #    点「送达」，接口返回 200：库存照扣、账本照入、**司机应付账单照生成**，
+    #    而这张单在司机/货主/派单员的普通查询里全都不存在（只有 `deleted_only=true` 看得到）。
+    #    30 天后它被物理清理，那笔 OPEN 应付随之作废（R12-H4 现在至少会发一条通知）——
+    #    但司机这一趟是白跑的，而全程没有任何界面提示过这张单已经不存在。
+    #    判据与同一批状态跃迁里做对了的几处同源：driver-ack / 撤销 / 撤回 的 CAS 都带 `deleted_at is None`。
+    if order.deleted_at is not None:
+        raise ValueError("这一单已经被删掉了（在回收站里），不能送达。请让派单员确认这一单的归属。")
     if order.status != OrderStatus.ACCEPTED:
         raise ValueError("仅「已接单」订单可完成配送")
     if order.driver_id != driver.id:
@@ -347,6 +381,17 @@ def complete_delivery(
         mode = order.driver_billing_mode_snapshot or resolve_billing_mode(driver.vehicle_type, driver.billing_mode)
         if mode != "PIECE":
             raise ValueError("请至少上传一张送达照片")
+    # ⛔ 照片必须是**本系统送达上传端点**的产物（2026-09-19 全项目报告 L-14，低）：
+    #    上面只判了"列表非空"，于是 `["x"]` 就算履行了拍照义务 —— 而这条义务的意义是
+    #    "送到时留证"，随手编一个字符串就绕过去了。判据取上传端点唯一的产物形状
+    #    （`orders.py::_save_delivery_uploads` → `/static/uploads/delivery/{order_id}/{uuid}.{ext}`）。
+    #    两条送达路径都经过这里：`complete-with-upload` 的 URL 本来就是服务端生成的，
+    #    旧 H5 / API 调用方走 `POST /orders/{id}/delivery-photos` 拿到的也是这个形状。
+    #    ⚠️ 刻意**不**校验"文件是否存在 / 是否属于本单"：那要把文件系统拉进业务层，
+    #    而且会让 15 份用假 URL 的测试夹具与历史数据一起被牵连，与这条的危害不成比例。
+    bad_photos = [u for u in delivery_photo_urls if not str(u).startswith("/static/uploads/delivery/")]
+    if bad_photos:
+        raise ValueError("送达照片必须是本系统上传的凭证：请用「拍照送达」重新上传后再提交")
 
     # ---- 原子占位：把「已接单 → 已送达」这件事**只让一个请求做成** ----
     #
@@ -360,7 +405,12 @@ def complete_delivery(
     # 在写入时再判一次，SQLite / MySQL 都一样原子。改到 0 行的人立刻出局。
     claimed = db.execute(
         update(Order)
-        .where(Order.id == order.id, Order.status == OrderStatus.ACCEPTED)
+        .where(
+            Order.id == order.id,
+            Order.status == OrderStatus.ACCEPTED,
+            # 同上：CAS 里也要带这一条，否则"判完到写之间被删掉"仍会落成一张看不见的已送达单
+            Order.deleted_at.is_(None),
+        )
         .values(status=OrderStatus.DELIVERED, delivered_at=_now())
     )
     if claimed.rowcount != 1:
@@ -416,10 +466,25 @@ def cancel_pending(
     order: Order,
     operator: User,
 ) -> None:
-    if order.status not in (OrderStatus.PENDING_DISPATCH, OrderStatus.DISPATCHED):
+    # ⚠️ 条件 UPDATE 占位（2026-09-19 审计）：原来这里是"读状态 → 判断 → 赋值"，
+    #    中间没有锁也没有 CAS，而这个状态跃迁与**司机的接单/送达**是并发的
+    #    （派单员两台设备、或司机在别人撤销的同时点接单）。真实后果：
+    #      · 撤销 × 接单：撤销把行写成 CANCELLED 并释放了预占，接单又把行覆盖回 ACCEPTED
+    #        → 单子"复活"但预占已经没了 → 送达时 `auto_stock_commit` 查不到 RESERVED **库存永远不扣**；
+    #      · 已送达的单被打回（撤回 × 送达）会让同一批货扣两次。
+    #    作业同 `assign_driver`/`complete_delivery`：把跃迁本身变成"改到行的人才能继续"。
+    allowed = (OrderStatus.PENDING_DISPATCH, OrderStatus.DISPATCHED)
+    if order.status not in allowed:
         raise ValueError("仅「待派单/已派单（司机未接单）」订单可按此流程撤销")
-    order.status = OrderStatus.CANCELLED
-    order.cancelled_at = _now()
+    claimed = db.execute(
+        update(Order)
+        .where(Order.id == order.id, Order.status.in_(allowed), Order.deleted_at.is_(None))
+        .values(status=OrderStatus.CANCELLED, cancelled_at=_now())
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError("这张单刚刚被别的操作改过（可能已被接单/送达/撤销），请刷新后重试")
+    db.refresh(order)
     auto_stock_release(db, order, operator.id)
     write_log(
         db,
@@ -436,14 +501,34 @@ def recall_dispatch(
     operator: User,
     reason: str,
 ) -> None:
-    if order.status not in (OrderStatus.DISPATCHED, OrderStatus.ACCEPTED):
+    allowed = (OrderStatus.DISPATCHED, OrderStatus.ACCEPTED)
+    if order.status not in allowed:
         raise ValueError("仅「已派单/已接单」订单可撤回派单")
     snapshot = order_snapshot_for_log(db, order)
     recalled_driver_id = order.driver_id
-    order.status = OrderStatus.PENDING_DISPATCH
-    order.driver_id = None
-    order.dispatched_at = None
-    order.driver_acknowledged_at = None
+    # ⚠️ 条件 UPDATE 占位（2026-09-19 审计，理由同 `cancel_pending`）：
+    #    撤回 × 送达并发时，撤回的无条件赋值会把**已送达**的单覆盖回「待派单 + 无司机」，
+    #    于是同一张单能被再派一次、库存与货损各记两次（唯一索引只挡得住账单那一处）。
+    claimed = db.execute(
+        update(Order)
+        .where(Order.id == order.id, Order.status.in_(allowed), Order.deleted_at.is_(None))
+        .values(
+            status=OrderStatus.PENDING_DISPATCH,
+            driver_id=None,
+            dispatched_at=None,
+            driver_acknowledged_at=None,
+            # ⚠️ 逐单覆盖值必须**一起清掉**（2026-09-19 审计 R12-M1）：它们是"给**这个**司机
+            #    单独定的数"，撤回之后这张单没有司机了。不清的话，下一次派给别人时
+            #    `assign_driver` 读到的是上一个司机的数字 → 账单按**上一个司机**算钱
+            #    （实测口径：这单运费 1000、残留覆盖 300+8% → 账单 380，而新司机的规则只该 350）。
+            driver_piece_amount=None,
+            driver_commission_rate=None,
+        )
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError("这张单刚刚被别的操作改过（可能已送达/已撤销），请刷新后再撤回")
+    db.refresh(order)
     auto_stock_release(db, order, operator.id)
     write_log(
         db,
@@ -460,7 +545,13 @@ def recall_dispatch(
 
 
 def ensure_order_date(d: date | None) -> date:
-    return d or date.today()
+    """订单业务日期：客户端没传时用**业务当地日**（不是进程本地日）。
+
+    ⛔ `date.today()` 取的是**服务器/容器的本地日期**。部署时区一旦不是东八区
+    （生产是 systemd 直接跑 uvicorn，容器化后更常见 UTC），兜底出来的"单据日期"
+    就和报表、账单、单号差一天 —— 而且只在"客户端没传日期"这条路径上出现（R14-9 同族）。
+    """
+    return d or business_today()
 
 
 def resolve_line_total(unit_price, quantity, given=None, *, index: int | None = None) -> Decimal:

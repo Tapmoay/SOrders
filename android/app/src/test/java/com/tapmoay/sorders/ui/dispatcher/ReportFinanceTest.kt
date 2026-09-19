@@ -1,7 +1,11 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.data.remote.dto.ProductReportDto
+import com.tapmoay.sorders.data.remote.dto.ProductReportItemDto
+import com.tapmoay.sorders.data.remote.dto.TurnoverReportDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,6 +53,63 @@ class ReportFinanceTest {
         assertTrue(ReportFinance.usesDateRange(5))
     }
 
+    // ---------------------------------------------------------- 毛利公式
+
+    @Test
+    fun `商品毛利只算有成本快照的那批行（旧公式虚高约七倍）`() {
+        // 实测同一个月：旧公式（营业金额 − 成本）算出 72,177.75，
+        // 正确值（有成本那批行的收入 − 成本）是 10,789.00。
+        val data = TurnoverReportDto(
+            totalAmount = "97131.75",          // 全部行的金额
+            costTotal = "24954.00",            // 只有成本行的成本
+            costCoveredAmount = "35743.00",    // 有成本那批行的**收入**
+        )
+        assertEquals(10789.0, grossProfit(data), 0.005)
+        assertTrue("不许退回旧公式", grossProfit(data) < 20000.0)
+
+        // 缺字段时按 0 处理，不崩
+        assertEquals(0.0, grossProfit(TurnoverReportDto()), 0.005)
+    }
+
+    @Test
+    fun `商品页的毛利也走后端给的参与毛利金额（不许客户端自己再筛一遍）`() {
+        // 实测同一个月三处三个数：App 商品页 11,071.00 / 正确的 10,789.00 / 导出逐行合计 72,177.75。
+        // 根因：客户端与导出**各自** sum 了一遍"有成本行的金额"，于是两边一起错。
+        val data = ProductReportDto(
+            totalAmount = "97131.75",
+            costTotal = "24954.00",
+            costCoveredAmount = "35743.00",
+            costCoveredLines = 147,
+            totalLines = 557,
+        )
+        assertEquals(10789.0, productGrossProfit(data), 0.005)
+
+        // 老后端不下发 cost_covered_amount → 回落到本地筛选（过渡口径）：只有带成本的行进收入侧
+        val legacy = ProductReportDto(
+            totalAmount = "100",
+            costTotal = "40",
+            items = listOf(ProductReportItemDto(productName = "有成本", amount = "100", cost = "40")),
+        )
+        assertEquals(60.0, productGrossProfit(legacy), 0.005)
+    }
+
+    @Test
+    fun `逐行毛利必须用参与毛利的金额，没有成本快照的行返回 null`() {
+        // 唯一混合组实测：正确 305.50−260=45.50；老公式（全额金额 − 成本）印 587.50−260=327.50（7.2 倍）
+        val mixed = ProductReportItemDto(
+            productName = "ttt", amount = "587.50", cost = "260", coveredAmount = "305.50", coveredLines = 3
+        )
+        assertEquals(45.50, productItemProfit(mixed)!!, 0.005)
+
+        // 一行都没有成本快照 → 不进毛利（界面印「—」，不是印一个 100% 毛利的大数）
+        val noCost = ProductReportItemDto(productName = "没成本", amount = "61106.75", cost = "0")
+        assertNull(productItemProfit(noCost))
+
+        // 老后端（没有 coveredAmount）：有成本才算，收入侧仍按全额 → 与老行为一致，不崩
+        val legacy = ProductReportItemDto(productName = "老后端", amount = "100", cost = "40")
+        assertEquals(60.0, productItemProfit(legacy)!!, 0.005)
+    }
+
     // ---------------------------------------------------------- 资金方向
 
     @Test
@@ -94,5 +155,18 @@ class ReportFinanceTest {
         assertEquals("其他", ReportFinance.expenseCategoryLabel("other"))
         // 旧词表把货损写成 "damage"（后端从来没有这个值）→ 真值 loss 落到 else，页面显示英文
         assertEquals("damage", ReportFinance.expenseCategoryLabel("damage"))
+    }
+
+    @Test
+    fun `时间窗口：整月就是整月、整周就是整周（不许只到锚点当天）`() {
+        // 2026-09-19 审计：标题与取数窗口原来是**两处各写一遍**，而且写法不同 ——
+        // 标题写整月 `2026-09-01 ~ 2026-09-30`，取数只到锚点当天 `2026-09-01 ~ 2026-09-05`。
+        // 结果 9/5 打开报表：标题写整月、数字只含 5 天；9/20 打开则少掉后面 10 天的收支。
+        // 现在两边都走 rangeFor，这里把它钉死。
+        assertEquals("2026-09-01" to "2026-09-30", ReportFinance.rangeFor("month", "2026-09-19"))
+        assertEquals("2026-02-01" to "2026-02-28", ReportFinance.rangeFor("month", "2026-02-10"))
+        // 2026-09-19 是周六 → 本周一 09-14、周日 09-20
+        assertEquals("2026-09-14" to "2026-09-20", ReportFinance.rangeFor("week", "2026-09-19"))
+        assertEquals("2026-09-19" to "2026-09-19", ReportFinance.rangeFor("day", "2026-09-19"))
     }
 }

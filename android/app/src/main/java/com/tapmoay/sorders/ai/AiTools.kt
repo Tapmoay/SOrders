@@ -190,7 +190,17 @@ class AiTools(
                         }
                         putJsonObject("status") {
                             put("type", "string")
-                            put("description", "状态筛选（接口支持 status 时生效），如 PENDING_DISPATCH / DELIVERED / PAID")
+                            // ⚠️ 这里**不许举例子**（2026-09-19 审计）：原来写「如 PENDING_DISPATCH /
+                            //    DELIVERED / PAID」，而 PAID 根本不是订单状态（它是账单状态）——
+                            //    模型照着抄 → 422 → 被翻成"这个功能没上线"，用户彻底放弃这条路。
+                            //    合法取值由 App 侧按接口自己的 enum 校验（不合法会回一句带合法值的提示）。
+                            put(
+                                "description",
+                                "状态筛选（接口支持 status 时生效）。**取值必须用该接口自己的枚举**：" +
+                                    "订单是 PENDING_DISPATCH / DISPATCHED / ACCEPTED / DELIVERED / CANCELLED；" +
+                                    "账单是 open / settled；结算单是 draft / confirmed / paid / cancelled。" +
+                                    "不确定或用户没提，就**不要填**这个参数——填错会被后端拒掉。",
+                            )
                         }
                         putJsonObject("limit") {
                             put("type", "integer")
@@ -613,7 +623,13 @@ class AiTools(
         if (e is SerializationException) return "服务返回的数据格式无法解析（$toolName）。"
         val ax = ApiClient.toApiException(e)
         return when (ax.code) {
-            404, 422, 405 -> "该能力暂不可用（$toolName 依赖的后端接口还没提供）。请把这个情况如实告诉用户。"
+            // ⚠️ 422 必须与 404/405 分开（2026-09-19 审计）：422 = **参数不对**（后端会给一句中文，
+            //    写明哪个字段、允许什么值），而 404/405 才是"接口不存在"。
+            //    原来三者合成一句"该能力暂不可用（接口还没提供）"，于是模型把"参数写错"
+            //    讲成"这个功能没上线"——用户听到的是假话，而且永远不会再试第二次。
+            422 -> "参数没通过后端的校验：" + (ax.message ?: "请按接口允许的取值改一个再试") +
+                "。这不是功能缺失，请**照着这句话改参数重试一次**；改不动就如实告诉用户参数不受支持。"
+            404, 405 -> "该能力暂不可用（$toolName 依赖的后端接口还没提供）。请把这个情况如实告诉用户。"
             // ⚠️ 权限类**只说一句**（用户原话：「权限不够的话不用说那么多，直接返回权限不够」）。
             //    这里以前是"当前登录账号没有权限查看这项数据。"——模型会绕着这句解释半天，
             //    用户看到的是一篇作文。现在给一句结论 + 两条"别做"的指令。
@@ -1001,7 +1017,17 @@ class AiTools(
                         }
                         putJsonObject("status") {
                             put("type", "string")
-                            put("description", "状态筛选（接口支持 status 时生效），如 PENDING_DISPATCH / DELIVERED / PAID")
+                            // ⚠️ 这里**不许举例子**（2026-09-19 审计）：原来写「如 PENDING_DISPATCH /
+                            //    DELIVERED / PAID」，而 PAID 根本不是订单状态（它是账单状态）——
+                            //    模型照着抄 → 422 → 被翻成"这个功能没上线"，用户彻底放弃这条路。
+                            //    合法取值由 App 侧按接口自己的 enum 校验（不合法会回一句带合法值的提示）。
+                            put(
+                                "description",
+                                "状态筛选（接口支持 status 时生效）。**取值必须用该接口自己的枚举**：" +
+                                    "订单是 PENDING_DISPATCH / DISPATCHED / ACCEPTED / DELIVERED / CANCELLED；" +
+                                    "账单是 open / settled；结算单是 draft / confirmed / paid / cancelled。" +
+                                    "不确定或用户没提，就**不要填**这个参数——填错会被后端拒掉。",
+                            )
                         }
                         putJsonObject("limit") {
                             put("type", "integer")

@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
@@ -259,7 +260,7 @@ def delete_rule(
             detail=f"还有 {attached} 个司机挂着这份规则，先给他们换掉或解挂再删",
         )
     r.is_deleted = True
-    r.deleted_at = datetime.now()
+    r.deleted_at = utc_now_naive()
     _write_log(db, current, OperationAction.DRIVER_RULE_UPSERT, {"rule_id": r.id, "op": "delete", "before": r.params()})
     db.commit()
 

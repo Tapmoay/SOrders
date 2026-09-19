@@ -34,6 +34,22 @@ CLIP = APP / "res/raw/new_order.wav"
 GEN = ROOT / "_tools/media/_gen_new_order_clip.py"
 TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/core/NewOrderAlertTest.kt"
 
+#: 提到「语音播报」但**说的是真话**的文件 → 为什么这么说不会误导（§11 用）。
+#: 每一条都必须能回答"用户看到这句会不会以为某件不会发生的事会发生"。
+#: ⚠️ AI 层（`.../ai/`）的文件永远不许进这张表：那层的文案会直接变成对用户的承诺。
+SPOKEN_TRUE: dict[str, str] = {
+    "android/app/src/main/java/com/tapmoay/sorders/core/NotifyCenter.kt":
+        "说的是系统通知渠道的 description（有新派单、任务被撤回时提醒（语音播报由 App 负责））"
+        "——陈述的是「渠道本身不出声、语音由 App 自己放」这个事实，"
+        "而「新派单/撤回」这一类事件确实有语音（NewOrderPlayer），不是对用户的承诺",
+    "android/app/src/main/java/com/tapmoay/sorders/ui/profile/AlertSettingsScreen.kt":
+        "这句本身就是**对非司机解释他没有语音**：「语音播报只在司机端有（司机才需要边开车边听单）；"
+        "你收到的消息会进通知栏。」——它出现的前提是「当前角色没有语音」",
+    "android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileScreen.kt":
+        "司机角色下的副标题「语音播报 / 后台接收新单」，只在 `isSpoken(role)` 为真时显示；"
+        "非司机走另一半文案（「通知栏提醒 / 后台接收新单」），由 §9 的断言钉着",
+}
+
 
 def read(p: Path) -> str:
     if not p.exists():
@@ -286,6 +302,57 @@ def main() -> int:
     c.ok("纯判定的公开函数 >= 8 个（清单自己从源码里数）", len(public_fns) >= 8, f"实际 {len(public_fns)}")
     missing = [f for f in public_fns if f not in test]
     c.ok("每个公开判定函数都在单测里出现过", not missing, f"没测到：{missing}")
+
+    # ---- §11 全仓库：不许承诺「语音播报」而其实不会播（R14-11，2026-09-19 审计） ----
+    # 由来：AI 的确认卡写着「标为重要：对方会收到语音播报」、参数名写着「重要（语音播报）」，
+    # 而**安卓侧全仓库没有任何一处读 `speech_important`**（只有旧网页端读）——
+    # 于是派单员以为司机手机把这句话喊出来了，实际司机很可能根本没看手机。
+    # 原红线 §9 只扫了设置页文案，**没扫 AI 卡片**，所以这类承诺在 AI 层一路绿灯。
+    #
+    # 判据（**清单自己算**，不手写文件清单）：
+    #   ① 把 `android/app/src/main` 下所有 .kt 里的「语音播报」找出来（文件清单由 glob 算）；
+    #   ② 每处附近必须有否定词（不会/不播/只在…有/没有）**或**所在文件在下面的 [SPOKEN_TRUE]
+    #      里有一条写清理由的豁免（"这句话为什么是真的"）；
+    #   ③ 豁免表不许变化石；**AI 层任何文件都不许进豁免表**（那层必须每句都自我否定）。
+    kotlin = sorted((APP / "java").rglob("*.kt"))
+    c.ok("Kotlin 源码文件 >= 80 个（清单自己算，防路径写错后空转）", len(kotlin) >= 80, f"实际 {len(kotlin)}")
+    denied = re.compile(r"不(?:会|播|是|再)|只在|没有|无语音")
+    liars: list[str] = []
+    seen_files: set[str] = set()
+    for p in kotlin:
+        rel = str(p.relative_to(ROOT)).replace("\\", "/")
+        body = strip_comments(p.read_text(encoding="utf-8"))
+        if "语音播报" not in body:
+            continue
+        seen_files.add(rel)
+        if rel in SPOKEN_TRUE:
+            continue
+        for m in re.finditer(r"语音播报", body):
+            window = body[max(0, m.start() - 40) : m.end() + 40]
+            if not denied.search(window):
+                liars.append(f"{rel}：…{window.strip()[:70]}…")
+    c.ok("凡提到「语音播报」的地方都说明了它会不会发生", not liars, "｜".join(liars[:4]))
+    fossils = [k for k in SPOKEN_TRUE if k not in seen_files]
+    c.ok("「这么说是对的」豁免表没有化石条目", not fossils, "、".join(fossils))
+    ai_in_allow = [k for k in SPOKEN_TRUE if "/ai/" in k]
+    c.ok("AI 层不许进「语音播报」豁免表（那层每句都必须自我否定）", not ai_in_allow, "、".join(ai_in_allow))
+    ai_dir = SRC / "ai"
+    # ⚠️ 判据要按**文件**数，不能按出现次数：把卡片里那句删掉之后，
+    #    参数说明里还留着两处「语音」，按次数判照样绿（反向验证第一次就是这样漏的）。
+    #    真正要成立的是「两处都说清」——模型看到的参数说明 + 用户看到的确认卡。
+    #    ⚠️ 标记词必须是"播报"这件事（`播语音|语音播报|语音提醒`），不能是裸的「语音」：
+    #    `AiVision.kt` 里那句「embedding / rerank / 语音（模型）收不了图片」是另一码事，
+    #    用裸词判会让这条断言永远绿（反向验证第二次就是这样漏的）。
+    ai_voice_files = sorted(
+        p.name
+        for p in ai_dir.glob("*.kt")
+        if re.search(r"播语音|语音播报|语音提醒", strip_comments(p.read_text(encoding="utf-8")))
+    )
+    c.ok(
+        "AI 层「重要标记不播语音」在参数说明与确认卡两处都说清了（按文件数，不按出现次数）",
+        len(ai_voice_files) >= 2,
+        f"只有这些文件把「播报」说清楚了：{ai_voice_files}",
+    )
 
     print("\n" + "=" * 60)
     if c.fails:

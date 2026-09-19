@@ -371,6 +371,16 @@ def main() -> int:
         len(re.findall(r"fun shape\(", shaper)) == 1,
         "AiRowShaper 里应当只有一处 shape()",
     )
+    # 行数组的判据必须是**机器认**，不能只认一张手写键名表（2026-09-19 审计）：
+    # 只认表的话 `{"drivers": […179 行…]}` / `{"groups": […175 组…]}` 整包认不出，
+    # 会退化成 `drivers_count: 179` —— 模型拿到"有 179 个司机"而不是那 179 行，且**没有任何标志**。
+    # ⚠️ 钉**接线**而不是"函数存在"（2026-09-19 反向验证自己抓出来的恒真判据）：
+    #    第一版只断言 `private fun firstObjectArray(` 出现过，于是把调用点去掉之后判据照样绿
+    #    —— 函数还在、兜底没了。
+    c.present("行数组有「任意对象数组」兜底，且真的接在 rowsOf 上（不再只认手写键名表）",
+              shaper, r"knownRows\(root\) \?: firstObjectArray\(root\)")
+    c.present("兜底只认「元素全是对象」的数组（纯标量数组不算行数据）",
+              shaper, r"it\.size == arr\.size")
 
     print("\n== 2. 工具集必须纯只读（白名单精确匹配）==")
     m = re.search(r"val ALL = listOf\((.*?)\)\s*\n", tools, re.S)
@@ -553,6 +563,21 @@ def main() -> int:
     # ① 纯界面文件：整份都不该出现 Markdown
     for rel in ("../ui/ai/AiChatScreen.kt", "../ui/ai/AiSettingsScreen.kt", "../ui/ai/AiSettingsViewModel.kt"):
         no_md(f"{rel.split('/')[-1]} 的文案里没有 Markdown 记号", read(AI / rel))
+
+    # ①b **所有 Compose 界面文件**（清单自己算，不手写）。
+    #    2026-09-19 审计 R13-R1 又栽了一次同一类：报表页的毛利说明写成了
+    #    `**不进毛利**`，真机截图上原样印着一堆星号——而上面那三条只管 AI 那几个文件。
+    #    UI 层的 `Text()` 一律不渲染 Markdown，所以这一整层的字符串都不许带 `**` / `__`。
+    #    （`ui/` 之下不会出现"给模型看的文案"，所以这里可以按目录一刀切。）
+    ui_files = sorted((AI / "../ui").rglob("*.kt"))
+    c.ok("扫到的 Compose 界面文件不少于 20 个（太少说明清单过期）", len(ui_files) >= 20, f"实际 {len(ui_files)}")
+    ui_bad: list[str] = []
+    for f in ui_files:
+        src = read(f)
+        for s in string_literals(strip_comments(src)):
+            if "**" in s or "__" in s:
+                ui_bad.append(f"{f.name}: {s[:40]}")
+    c.ok("界面层（ui/**）的文案里没有 Markdown 记号", not ui_bad, f"例如 {ui_bad[:2]}")
 
     # ② 设置页读的那两张表（TITLES/HINTS 只给界面用，模型看不到）
     for name in ("TITLES", "HINTS"):
@@ -1238,6 +1263,17 @@ def main() -> int:
     c.absent("三个 store 不许再用 by lazy（会把首次访问的分区缓存住）", AI_join("AiContainer.kt"), r"by lazy \{ Ai(ConversationStore|HabitStore|MemoryStore)\(")
     c.present("用户 id 有同步缓存（分区名是同步路径）", AI_join("../core/TokenStore.kt"), r"fun cachedUserId\(\): Long\?")
     c.present("导航层把 userId 传进容器", AI_join("../ui/nav/NavGraph.kt"), r"userIdKey = \{ container\.tokenStore\.cachedUserId\(\) \}")
+    # ⚠️ 上面那三份查得很全，**唯独漏了凭据那份**（2026-09-19 审计 P0-6）：
+    #    `AiKeyStore` 用固定串 prefs 名、容器里还是 `by lazy`，于是同机换账号后
+    #    下一个登录的人能读出上一个人的**明文 LLM Key**（可计费活凭据），账单也记在上一人头上。
+    #    这是本项目第 6 次栽在「要检查哪些文件的清单是手写的」——所以这四条不是补充说明，
+    #    它们是这一节**唯一能挡住"凭据不分区"的东西**（凭据是最贵的那份数据）。
+    c.present("凭据 store 也用分区后的 prefs 名", AI_join("AiKeyStore.kt"), r"PREFS_NAME \+ scope")
+    # 用单引号的 Python 串：r"..." 会在模式里的第一个 " 处结束（同上面 1253 行那条教训）
+    c.absent("凭据不许再用固定串 prefs 名", AI_join("AiKeyStore.kt"), r'getSharedPreferences\("sorders_ai_prefs"')
+    c.present("旧的无分区凭据文件是**隔离**而不是被继承", AI_join("AiKeyStore.kt"), r"AiScope\.quarantineLegacy\(")
+    c.present("凭据 store 纳入分区重建（构造时拿到 scope）", AI_join("AiContainer.kt"), r"AiKeyStore\(appContext, s\)")
+    c.absent("凭据 store 不许再用 by lazy（与那三个 store 同理）", AI_join("AiContainer.kt"), r"by lazy \{ AiKeyStore\(")
 
     # ---- 2g-5 批量调价：范围不能全空 ----
     # 这是这条链路上最危险的一种误用：一句「全部涨价」就把整张价格表改了。
@@ -1679,7 +1715,11 @@ def main() -> int:
     c.ok("DEFAULT_ROWS 仍要小（默认查询别一上来就拖几百行）",
          bool(m2) and int(m2.group(1)) <= 50, f"现在是 {m2.group(1) if m2 else '找不到'}")
     c.present("limit 必须传给后端（不传的话后端按自己的默认截，永远拿不到 100 以上）",
-              readsvc, r"if \(declared\.containsKey\(A_LIMIT\)\) query\[A_LIMIT\] = limit\.toString\(\)")
+              readsvc, r"if \(declared\.containsKey\(A_LIMIT\)\) query\[A_LIMIT\] = \(limit \+ 1\)\.toString\(\)")
+    # 多要一行是"后面还有没有"的唯一探针：传原值 → 后端先截到 limit 且返回裸数组（无 total）
+    # → `rows.size > capped.size` 永远为假 → 模型把 limit 条当全量（本机真量 790 却答"共 200 单"）。
+    c.present("向后端多要一行，否则截断检测永久失灵（模型会把 limit 当全量）",
+              readsvc, r"query\[A_LIMIT\] = \(limit \+ 1\)\.toString\(\)")
     c.present("截断要带一句给模型的实话（别当全部、别让用户说继续）",
               readsvc, r'"truncated_note"')
     c.present("提示词要求「要全部就一次取够」", loop, r"用户要「全部/所有/名单」时，一次就取够")
@@ -1818,6 +1858,73 @@ def main() -> int:
     c.present("执行结果如实汇报（commitNote）", pricing, r"override fun commitNote\(\): String\? = pendingNote")
     c.present("服务层把逐行结果拼进最终答复", wsvc, r"handler\.commitNote\(\)")
     c.present("commitNote 有默认实现（否则 50 多个处理器都要跟着改）", wr, r"fun commitNote\(\): String\? = null")
+
+    # ---- 「一次确认 → 多个请求」的动作**全都**要逐条汇报（2026-09-19 审计，清单机器算）----
+    #
+    # 为什么机器算：上面那两条只钉住了**调价**那一个处理器，而"哪些动作算多请求"这份清单
+    # 是**手写**的 —— 这个仓库已经因为手写清单栽过 6 次（卡片 Markdown、prepare 只读、
+    # 写方法名单……）。实测抓到的漏网之鱼：「标记消息已读」的 commit 就是
+    # `ids.forEach { ds.markNotificationRead(it) }`，中途一条失败会把"已标 N-1 条"
+    # 整体报成失败（与"已完成盖住失败行"是同一个病的两面）。
+    #
+    # 判据（**形状**，且必须精确到位）：`commit` 体里某个 **forEach/for 的循环体内部**
+    # 出现了 `ds.xxx(` → 那就是"一次确认发多个请求" → 必须有 `commitNote()`。
+    #   ⚠️ 第一版写成"commit 里有循环、又有 ds. 调用"，当场把 `UpdateOrderHandler` 报成缺陷——
+    #   它的 `forEach` 只是**拼 payload**（循环里没有请求），全函数只有一个 `ds.updateOrder`。
+    #   判据松一格就会制造假缺陷，而假缺陷会让人开始无视红线。
+    def _ds_calls_inside_loops(commit_src: str) -> int:
+        """数一数"**在迭代里**发出去的请求"有几个。
+
+        ⚠️ 迭代形式要写全（2026-09-19 踩到）：第一版只认 `forEach {`，而"
+        标记消息已读"用的是 `forEachIndexed { i, id -> … }` —— 扫出 0 个动作、
+        判据直接空转（幸好我给它配了"扫到 0 个就报错"的锚点，否则这条检查会**看起来是绿的**）。
+        """
+        total = 0
+        for m in re.finditer(r"\b\w*[Ff]orEach\w*\s*\{|\bfor\s*\([^)]*\)\s*\{|\b(?:map|mapNotNull|flatMap|onEach|repeat)\s*\{", commit_src):
+            brace = m.end() - 1
+            if commit_src[brace] != "{":
+                continue
+            inner = balanced_inside(commit_src, brace)
+            total += len(re.findall(r"\bds\.\w+\(", inner))
+        return total
+
+    multi_req_classes: list[str] = []
+    missing_note: list[str] = []
+    for f in sorted(AI.glob("AiWrite*.kt")):
+        src = strip_comments(f.read_text(encoding="utf-8"))
+        for m in re.finditer(r"override suspend fun commit\(", src):
+            brace = src.find("{", m.end())
+            if brace < 0:
+                continue
+            body = balanced_inside(src, brace)
+            if _ds_calls_inside_loops(body) < 1:
+                continue
+            head = src[: m.start()]
+            cls = None
+            for cm in re.finditer(r"\nclass (\w+)", head):
+                cls = cm.group(1)
+            cls = cls or f.name
+            # 这个类里有没有实现 commitNote（在它之后、下一个 class 之前）
+            tail = src[m.start():]
+            nxt = re.search(r"\nclass \w+", tail)
+            scope = tail if nxt is None else tail[: nxt.start()]
+            # 往前也要看：commitNote 常写在 commit 之前
+            prev = head[head.rfind("\nclass "):] if "\nclass " in head else head
+            multi_req_classes.append(cls)
+            if "override fun commitNote(" not in scope and "override fun commitNote(" not in prev:
+                missing_note.append(cls)
+    c.ok(
+        "「一次确认发多个请求」的动作都实现了 commitNote（逐条如实汇报）",
+        not missing_note,
+        "这些处理器的循环体里直接发了 `ds.*` 请求（= 一次确认发多个请求），却没有 commitNote："
+        f"{missing_note}。要么逐条 try/catch 后如实汇报，要么在检查里写明为什么不需要。"
+        f"（本次扫描到 {len(multi_req_classes)} 个多请求动作：{multi_req_classes}）",
+    )
+    c.ok(
+        "扫描到的多请求动作数不为 0（否则上面那条判据在空转）",
+        len(multi_req_classes) > 0,
+        f"扫到 {len(multi_req_classes)} 个 —— 判据形状可能过期了（class/commit 的写法变了？）",
+    )
     c.ok(
         "调价类动作都不在货主白名单里（调价是派单员的权限）",
         "PRICE_RULES" not in wr.split("val SHIPPER_ACTIONS")[1].split(")")[0],
@@ -2096,7 +2203,35 @@ def main() -> int:
     c.present(
         "警告行里说人话（用中文名，不是 payload 裸键）",
         revert_code,
-        r'stuck \+= "\$\{res\.labels\[k\] \?: k\}：',
+        r'stuck \+= "\$\{cnOf\(res, entry\.id, k\)\}：',
+    )
+    # 中文名必须有**第二处来源**（v3.45，真机 E2E 抓到的两行裸键）：
+    # 资源表的 labels 被单测钉成 `readKeys`（那条是对的——它管的是"**读回来**的东西叫什么"），
+    # 而 payload 里还有一批**读不回来的键**（库存调整的 change/note 从来不在商品快照里），
+    # 于是它们查不到中文名，在 5554 真机上的撤回卡里长成了
+    # 「· change：5 → 撤回到 -5」和「· 「note」不写回（…）」。
+    c.present(
+        "卡片上的字段中文名还有第二处来源：动作声明的字段/目标规格（payload 专用键才不会印裸键）",
+        revert_code,
+        r"fun cnOf\(res: AiResource, actionId: String, key: String\): String ="
+        r"[\s\S]{0,200}?spec\.fields\.firstOrNull \{ it\.key == key \}\?\.cn",
+    )
+    c.absent(
+        "卡片文案不许绕开解析器直接查资源表（漏一个键就是把裸英文键摆给用户）",
+        revert_code,
+        r"res\.labels\[(?:k|it)\] \?: (?:k|it)",
+    )
+    # 「不搬旧值」不等于「什么都不写」（v3.45，真机抓到的空原因流水）：
+    # 库存撤回的反向流水 note 曾经是 `''`——"入库 +5（原因：真机校验B）"下面躺着一条"-5（原因：无）"。
+    c.present(
+        "撤回时「故意不写回旧值」的键可以声明补写一句（不然审计流水上会留一条没有原因的记录）",
+        revert_code,
+        r"entry\.dropWrite\[k\]\?\.let \{ put\(k, it\) \}",
+    )
+    c.present(
+        "库存调整的撤回给反向那条流水补了原因（真机上它曾经是空的）",
+        resources_code,
+        r'dropWrite = mapOf\("note" to "撤回：',
     )
     c.present("每个动作都要回答「误操作了怎么办」", revert_code, r"fun cardLine\(actionId: String\)")
     c.present("撤不回来的理由逐条写清后果", revert_code, r"private fun buildUndoNone")
@@ -2117,10 +2252,19 @@ def main() -> int:
     )
 
     # ---- 每个动作都要回答"误操作了怎么办"，而且要在卡上 ----
+    # ⚠️ v3.45：最后一行改成"按这张卡是不是撤回卡"二选一（真机上出现过**撤回卡**印着
+    #    「这一步撤不回来」的自相矛盾）。判据跟着钉**两件事**：
+    #    ① 这一行仍然由暂存区统一加（所有卡片的必经之路）；
+    #    ② 撤回卡走的是 `undoCardLine`，不是被撤回那个动作的 `undoLineOf`。
     c.present(
         "卡片最后一行由**暂存区**统一加（所有卡片唯一的必经之路，漏不了）",
         wr,
-        r"detailLines = detailLines \+ listOfNotNull\(AiWrites\.undoLineOf\(actionId\)\)",
+        r"detailLines = detailLines \+ listOfNotNull\(lastLine\)",
+    )
+    c.present(
+        "最后一行按「是不是撤回卡」二选一（撤回卡不许说「这一步撤不回来」）",
+        wr,
+        r"val lastLine = if \(isUndo\) AiRevert\.undoCardLine\(actionId\) else AiWrites\.undoLineOf\(actionId\)",
     )
     c.present("能撤回的动作会告诉用户执行完会出现「撤回」", revert_code, r"执行完那条消息上会出现「撤回」")
     c.present("撤不回来的动作会写明为什么", revert_code, r"⚠️ 这一步撤不回来：")
@@ -2511,7 +2655,14 @@ def main() -> int:
     c.absent("结算页不许再拿运费当应得", strip_comments(settle), r"fee = float\(o\.freight_fee or 0\)")
     c.present("司机绩效的待结走 driver_pay", stats_svc, r"pay_for_order\(ode\)\.total")
     c.absent("绩效不许再 Σ freight_fee", strip_comments(stats_svc), r"sum\(\(ode\.freight_fee or Decimal")
-    c.present("报表导出也走 driver_pay", reports_py, r"pay_for_order\(x\)\.total")
+    # ⚠️ v3.46（2026-09-19 审计 R13-R5）：司机绩效**导出**原来是手写的第三份算法
+    #    （平均送达分钟恒空、准时率分母与页面不同、工资制司机印 0），
+    #    现在直接调页面用的那个服务——判据跟着改成"调同一个服务"，
+    #    而不是"导出里出现过 pay_for_order"（那种锚在手写实现上，越锚越偏）。
+    c.present("司机绩效导出与页面**同一个服务**（不再自己写第三份算法）",
+              reports_py, r"from app\.services\.stats_service import driver_performance")
+    c.absent("司机绩效导出不许再自己算准时率/待结运费",
+             strip_comments(reports_py), r"ot_valid = \[1 for x in os")
 
     # ⚠️ 这两条原来钉的是"orders.py 里那两行赋值"。v3.37 把逐单覆盖值**收进 assign_driver**
     #    （模式快照、规则快照、覆盖值本来就是同一件事的三个字段，分开写会留下半截状态），
@@ -2734,11 +2885,14 @@ def main() -> int:
     print("\n== 25. 并发：同一张单被两个请求同时写（派单/送达/核销）==")
     probe_tool = read(ROOT / "_tools/qa/_probe_core_flows.py")
     c.present("有一个「锁住订单行再判状态」的入口（唯一一处）", flow, r"def lock_order_row\(")
-    # ⚠️ 锚"锁 + 紧接着判状态"这个结构：只钉函数存在的话，把调用删掉照样绿（§23/§24 都栽过）。
+    # ⚠️ 锚"锁 + **很快**判状态"这个结构：只钉函数存在的话，把调用删掉照样绿（§23/§24 都栽过）。
+    #    中间允许夹着别的守卫（2026-09-19 审计 R13-D1 在"锁"和"判状态"之间插了
+    #    「隔离区（软删除）的单不许派/不许送达」——那是同一个位置的另一道闸，不该让判据变红，
+    #    所以窗口放宽到 400 字符，而不是把新守卫挪到别处去迎合正则）。
     c.present("派单前真的先锁再判状态",
-              flow, r"order = lock_order_row\(db, order\)\s*\n\s*if order\.status != OrderStatus\.PENDING_DISPATCH")
+              flow, r"order = lock_order_row\(db, order\)[\s\S]{0,400}?if order\.status != OrderStatus\.PENDING_DISPATCH")
     c.present("送达前真的先锁再判状态",
-              flow, r"order = lock_order_row\(db, order\)\s*\n\s*if order\.status != OrderStatus\.ACCEPTED")
+              flow, r"order = lock_order_row\(db, order\)[\s\S]{0,900}?if order\.status != OrderStatus\.ACCEPTED")
     # ⚠️ 判据必须锚**代码行**（`try:` 之后的 refresh），不能只写 `db.refresh(order, with_for_update=True)`：
     #    `lock_order_row` 的 docstring 里也写着这句话，只按那句话找的话，
     #    把代码行改成不刷新（`db.refresh(order)`）检查照样绿——反向验证当场抓到了这个空转。
@@ -2747,10 +2901,16 @@ def main() -> int:
     # v3.40：**光有行锁不够** —— SQLite 不支持 `SELECT … FOR UPDATE`（SQLAlchemy 直接忽略），
     # 本地两个并发 complete 各自通过状态检查，实测把同一张单生成两条 60 元账单。
     # 所以状态跃迁必须再有一道**条件 UPDATE 占位**（改到 1 行的人继续），这条在两种库上都原子。
+    # 判据放宽成"在这个 CAS 的 where 里"，不锚单行写法：2026-09-19 审计 R13-D1 给两个 CAS
+    # 各加了一条 `Order.deleted_at.is_(None)`（隔离区的单不许派/不许送达），
+    # `.where(` 于是变成多行——**判据锚的是"这条条件在不在"，不是"它写在第几行"**。
     c.present("派单是条件 UPDATE 占位（SQLite 也生效，不靠行锁）",
-              flow, r"\.where\(Order\.id == order\.id, Order\.status == OrderStatus\.PENDING_DISPATCH\)")
+              flow, r"\.where\([\s\S]{0,200}?Order\.status == OrderStatus\.PENDING_DISPATCH")
     c.present("送达是条件 UPDATE 占位（SQLite 也生效，不靠行锁）",
-              flow, r"\.where\(Order\.id == order\.id, Order\.status == OrderStatus\.ACCEPTED\)")
+              flow, r"\.where\([\s\S]{0,200}?Order\.status == OrderStatus\.ACCEPTED")
+    # 隔离区的单不许被这两个跃迁碰到（R13-D1：读侧 404、写侧也必须拒绝）
+    c.present("派单/送达的 CAS 都带「隔离区的单不算」（deleted_at is None）",
+              flow, r"Order\.status == OrderStatus\.ACCEPTED,[\s\S]{0,200}?Order\.deleted_at\.is_\(None\)")
     c.present("占位失败（rowcount≠1）要回滚并给出中文原因，不能继续往下走",
               flow, r"if claimed\.rowcount != 1:\s*\n\s*db\.rollback\(\)")
     # 锁不住 ≠ 崩：并发下 refresh 会抛 InvalidRequestError，必须退化成"重新查一次"
@@ -2758,8 +2918,9 @@ def main() -> int:
               flow, r"except SaInvalidRequest:[\s\S]{0,200}?select\(Order\)\.where\(Order\.id == order\.id\)\.with_for_update\(\)")
     c.present("条件 UPDATE 占位用的是 update(Order)（不是手写 SQL 字符串）",
               flow, r"update\(Order\)")
+    # ⚠️ 同样锚"形状"不锚变量名（见下面同组注释）：改名 `ids` → `order_ids` 不该让红线变红。
     c.present("逐单核销也要锁订单行（否则两个请求都读到 paid=False）",
-              acct, r"select\(Order\)\.where\(Order\.id\.in_\(ids\)\)\.with_for_update\(\)")
+              acct, r"select\(Order\)\.where\(Order\.id\.in_\(\w+\)\)\.with_for_update\(\)")
     c.present("探针里有「并发」这一组（不然这类缝隙没人盯）",
               probe_tool, r'"并发": probe_concurrency')
     # v3.40：并发送达的**钱**不变式要有回归测试（本地能复现的那条）
@@ -2772,13 +2933,46 @@ def main() -> int:
     #        「两个请求都 200、同一张单两条收款记录」（钱多记一笔）。
     #        只靠 `with_for_update()` 不行：SQLite 直接忽略它（生产 MySQL 才有行锁），
     #        所以这里也补了条件 UPDATE 占位，判据同样锚在**那个 UPDATE 的形状**上。
+    #
+    # ⚠️ 判据锚"形状"，不锚变量名（2026-09-19）：原来正则写死了局部变量 `ids`，
+    #    审计后把那段校验提出来给两种 settle_mode 共用、变量改名 `order_ids`，四条断言立刻全红——
+    #    而那四条**钉的是并发保护，不是变量名**。红线的价值在于"保护还在不在"，
+    #    所以这里一律用 `\(\w+\)` 匹配列表变量名。
     c.present("逐单核销也用条件 UPDATE 占位（SQLite 也生效，不靠行锁）",
-              acct, r"\.where\(Order\.id\.in_\(ids\), Order\.paid\.is_\(False\)\)")
+              acct, r"\.where\(Order\.id\.in_\(\w+\), Order\.paid\.is_\(False\)\)")
     # 只钉"有个 UPDATE"不够：抢不到行（rowcount 少）却继续往下走等于没占位。
     c.present("占位抢不到（rowcount 少）要回滚并给中文原因",
-              acct, r"if claimed\.rowcount != len\(ids\):\s*\n\s*db\.rollback\(\)")
+              acct, r"if claimed\.rowcount != len\(\w+\):\s*\n\s*db\.rollback\(\)")
+    # 收款流水必须"逐单写自己那一份"：写 None 会 500（NOT NULL），
+    # 写全额则 N 张单就是 N 倍钱（滚动收款曾经就是这样）。
+    c.present("逐单核销按每张单各自那部分写流水（不是每张都写全额）",
+              acct, r"for oid, part in per_order\.items\(\)")
+    c.present("滚动收款的流水是**一笔**（不绑单、金额=实收）",
+              acct, r"db\.add\(CashFlow\(order_id=None, amount=body\.amount")
     c.present("逐单核销占位在本机数据库上有原子性测试",
               conc_tests, r"def test_paid_claim_is_atomic_on_this_db")
+    # ---- 25b. 结算单的状态跃迁也是"读-判断-写"（2026-09-19 审计第十七轮）----
+    # 付款（`pay_settlement`）从第十二轮起就有条件 UPDATE 占位，但**确认与作废没有**：
+    # `confirm × cancel` 并发时两个请求都读到 DRAFT、各自往下走 → 终态可能是
+    # 「结算单 CANCELLED + 明细已 SETTLED」：那批账单既不 OPEN（结算单不再收）也不可付
+    # （付款要 CONFIRMED）→ **司机这笔钱永远结不掉，只能改库**。
+    # 判据锚"那段 UPDATE 的形状"（`update(DriverSettlement)` + `status ==` 条件 + rowcount 校验），
+    # 不锚函数名与行号。
+    # ⚠️ 判据必须锚到**确认**那一个（`.values(status=CONFIRMED)`）：只写
+    #    "有个 update(DriverSettlement) + DRAFT 条件"的话，`cancel_settlement` 里那段
+    #    形状一模一样 → 把确认的 CAS 整段删掉，判据照样绿（反向验证当场抓到）。
+    c.present("确认结算单是条件 UPDATE 占位（不是读 DRAFT 后无条件赋值）",
+              acct, r"update\(DriverSettlement\)[\s\S]{0,240}?DriverSettlement\.status == SettlementStatus\.DRAFT\)\s*\n\s*\.values\(status=SettlementStatus\.CONFIRMED\)")
+    c.present("确认/作废抢不到行要回滚并给中文原因",
+              acct, r"if claimed\.rowcount != 1:\s*\n\s*db\.rollback\(\)[\s\S]{0,200}?结算单")
+    c.present("作废结算单也要占位（cancel × confirm 并发不许两个都成立）",
+              acct, r"SettlementStatus\.CANCELLED\)\s*\n\s*\)\s*\n\s*if claimed\.rowcount != 1")
+    # 月薪单："先查再插"没有唯一索引兜底（`(order_id, bill_type)` 里的 order_id 是 NULL，
+    # NULL 在唯一索引里互不相等）→ 并发生成两张月薪单，结算单把两行一起 sum（¥4500 → ¥9000），
+    # 而确认时的"金额与明细合计一致"校验**会通过**。所以生成前必须锁住司机行。
+    bills_src = read(ROOT / "backend/app/api/v1/driver_bills.py")
+    c.present("月薪单生成前锁住司机行（先查再插 + NULL 不参与唯一索引 = 付两次月薪）",
+              bills_src, r"with_for_update\(\)[\s\S]{0,400}?DriverBillType\.SALARY")
     c.present("串行重复核销只落一条收款记录（钱的回归测试）",
               conc_tests, r"def test_double_itemized_receipt_sequential_records_money_once")
     c.present("探针会核对「账单唯一索引真的在库里」（不再是「没有唯一约束」的信息）",
@@ -2829,8 +3023,12 @@ def main() -> int:
               acct_schema, r'@field_validator\("month", mode="before"\)')
     # ⚠️ 必须是 `mode="before"`：写成 after 时 `month=202609`（数字）会先被 Pydantic 拦成
     #    `string_type`（英文结构体），用户看不到"月份要写成 YYYY-MM"那句中文（本轮实测）。
+    # ⚠️ 窗口放宽到 700 字符：2026-09-19 审计 R13-D3 在中间加了"月份不能晚于本月"那条上界
+    #    （它同样必须在**核心校验之前**跑，否则数字月份会先被 Pydantic 拦成英文 422）。
     c.present("月份校验在核心校验之前跑（数字月份也要看到中文提示）",
-              acct_schema, r"def validate_month\(v: str\) -> str:[\s\S]{0,400}?str\(v\)\.strip\(\) if v is not None")
+              acct_schema, r"def validate_month\(v: str\) -> str:[\s\S]{0,700}?str\(v\)\.strip\(\) if v is not None")
+    c.present("月份有上界：不能晚于本月（否则能造出未来月份的应付工资单）",
+              acct_schema, r"if s > now_month:")
     c.present("超出数据库范围的整数映射成 400 中文（不是 500）",
               main_py, r"@application\.exception_handler\(OverflowError\)")
     c.present("写库被数据库拒绝（超范围/超长）也映射成 400 中文",

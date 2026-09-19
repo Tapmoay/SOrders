@@ -83,7 +83,20 @@ android {
             buildConfigField("Boolean", "DEBUG_LOG", "true")
         }
         release {
-            isMinifyEnabled = true
+            // ⛔ **release 必须签名**（2026-09-19 全项目报告 P0-2，high）：本文件原来没有任何
+            //    `signingConfigs` 块，release 也没设 `signingConfig` → release 产物是**未签名的**
+            //    （根本装不上）→ 日常只能发 debug 变体 → 生产上跑的是 `debuggable=true` 的包：
+            //    一次 USB 连接 + `adb shell run-as com.tapmoay.sorders` 就能直读会话令牌
+            //    （DataStore 里的 JWT 是明文），`DEBUG_LOG=true` 还把登录口令与 JWT 打进 logcat。
+            //    用**同一把 debug keystore** 签 release：签名指纹不变 → 存量用户可以直接升级，
+            //    不需要"换密钥 → 全员卸载重装"（`docs/APP_UPDATE_AND_RELEASE.md` 里那个前提
+            //    在"不换密钥"的做法下不成立）。发布脚本另有两道闸：产物不许 debuggable、
+            //    证书指纹必须与线上一致（`_tools/deploy/publish_apk.py`）。
+            signingConfig = signingConfigs.getByName("debug")
+            // ⚠️ R8：release 变体**从来没被发布过**，所以"混淆之后还能不能跑"从没被验证过
+            //    （Socket.IO / 反射那类代码最容易在这里出事）。先把"能装、能跑"拿到手，
+            //    混淆作为**独立的一次改动**再开——两件事一起改，出问题时无法判断是谁的锅。
+            isMinifyEnabled = false
             buildConfigField("Boolean", "DEBUG_LOG", "false")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

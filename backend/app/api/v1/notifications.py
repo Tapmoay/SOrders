@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
@@ -35,12 +36,17 @@ def unread_count(current: CurrentUser, db: Session = Depends(get_db)) -> dict[st
 
 @router.get("", response_model=list[NotificationOut])
 def list_notifications(
+    response: Response,
     current: CurrentUser,
     db: Session = Depends(get_db),
     unread_only: bool = False,
     recipient_id: int | None = None,
     category: str | None = Query(None, description="system | order | reminder"),
-    days: int = Query(30, ge=1, le=365, description="仅返回最近 N 天消息，并顺带物理清理超过 N 天的消息（默认30）"),
+    days: int = Query(30, ge=1, le=365, description="仅返回最近 N 天消息（只过滤，不删除任何数据；保留期由每日保留任务负责）"),
+    limit: int = Query(200, ge=1, le=5000, description="本次最多返回多少条（缺省 200；上限 5000 与 /orders 一致）"),
+    before_id: int | None = Query(
+        None, ge=1, description="游标：只返回 id **小于**它的消息（「加载更多」往下翻页用；按 id 倒序即时间倒序）"
+    ),
 ) -> list[Notification]:
     """消息列表。
 
@@ -59,24 +65,41 @@ def list_notifications(
 
     现在与 `batch-delete` 使用**同一套口径**：默认自己；派单员可以显式带 `recipient_id`
     查看某个账户的消息（消息中心全局视图要保留时，必须由调用方**显式**指定看谁的）。
+
+    ### 硬上限 200 与「还有更多」（R14-8，2026-09-19 审计）
+    这里一直有一个硬 `limit(200)`：**没有分页、没有游标、也不回报截断**。实测（派单员账号
+    2336 条消息、未读 1134）：无论 `?limit=5` 还是 `?limit=1000`，一律返回 200 条，
+    响应头里什么都没有；而 `GET /orders` 早就有 `X-Truncated` 了。
+    真实后果是第 201 条以前的旧消息在 App 里**一个入口都没有**（其中包含「账本导出完成」
+    这种 payload 里带唯一下载链接的通知），用户点「全部已读」把 1134 条标掉，却只看过 200 条。
+
+    现在：`limit` 真的生效（缺省 200、上限 5000，与 `GET /orders` 同一档）、
+    `before_id` 游标可以往下翻页、响应头如实回报"还有更多"
+    （`X-Truncated: 1/0` + `X-Result-Limit`，与订单列表**同一个形状**，客户端不用学第二套）。
+
+    ⚠️ 上限放开到 5000 而不是钉死在 200，是为了让 AI 的**截断探针**能用：
+    `AiReadService` 判断"是否还有更多"的唯一办法是**多要一行**（传 `limit + 1`），
+    上限钉在 200 就会让"要 200 条"变成 201 → 422。`GET /orders` 早就是这个上限。
     """
     is_dispatcher = user_role_key(current) == UserRole.DISPATCHER.value
     target = recipient_id if (is_dispatcher and recipient_id is not None) else current.id
 
-    # 消息保留期：由请求路径惰性清理实现，无任何服务器后台定时任务
-    # （客户端未来做本地缓存/离线查看时，联网任一请求即触发过期清理，不影响离线快照）
+    # 消息保留期：**只过滤，不删除**（2026-09-19 审计修正）。
     #
-    # ⚠️ 惰性清理只清**这次看得到的那个账户**的过期消息：读一个人的列表，
-    #    不该顺手把别人的行删掉（全局保留期由 data_retention.purge_expired_notifications 每日负责）。
-    cutoff = datetime.now() - timedelta(days=days)
-    purge = delete(Notification).where(
-        Notification.recipient_id == target, Notification.created_at < cutoff
-    )
-    try:
-        db.execute(purge)
-        db.commit()
-    except Exception:
-        db.rollback()  # 清理失败不影响查询；查询仍然按保留期过滤
+    # ⛔ 这里原来还顺手 `DELETE ... WHERE recipient_id=target AND created_at < cutoff`。
+    #    后果不是"清理得早了一点"，而是**一个 GET 会永久删数据**，而且删的是"最近 N 天之外"——
+    #    触发它的方式又极其自然：AI 的 `read_data` 工具把 `days` 声明成可筛参数并渲染进工具说明
+    #    （`AiReadCatalog.kt` / `AiReads.kt`），读工具**不经确认卡直接执行**。
+    #    于是用户问一句「最近三天的消息」，模型填 `days=1`，一天前的站内信就被物理删掉了，
+    #    全程没有提示、没有 operation_logs、也没法恢复；派单员带上别人的 recipient_id 还能清掉**别人**的消息。
+    #    保留期该由"谁负责"来做：`data_retention.purge_expired_notifications`（每日随保留任务跑，
+    #    main.py 的 lifespan 里 `run_daily_retention` 调它）——那是**有意为之的删除**，看得见、可审计。
+    #
+    # ⛔ cutoff 用 `datetime.now()`（**进程本地时间**）是错的（R14-9）：`created_at` 按本项目的
+    #    口径存的是 **UTC**，两者相减就是固定时区偏差 —— 本机实测 `days=1` 少给 8 小时 / 1508 条，
+    #    同一列在 SQLite（CURRENT_TIMESTAMP=UTC）与 MySQL（NOW()=会话时区）上基准还不一样。
+    #    统一走 `business_time.utc_now_naive()`（与每日保留任务同一个"现在"）。
+    cutoff = utc_now_naive() - timedelta(days=days)
     q = (
         select(Notification)
         .where(Notification.recipient_id == target, Notification.created_at >= cutoff)
@@ -86,8 +109,14 @@ def list_notifications(
         q = q.where(Notification.read_at.is_(None))
     if category:
         q = q.where(Notification.category == category)
-    q = q.limit(200)
-    return list(db.scalars(q).all())
+    if before_id is not None:
+        q = q.where(Notification.id < before_id)
+    # 多要一行：拿到第 limit+1 行就说明"还有更多"，与 `GET /orders` 的 X-Truncated 同源。
+    rows = list(db.scalars(q.limit(limit + 1)).all())
+    truncated = len(rows) > limit
+    response.headers["X-Result-Limit"] = str(limit)
+    response.headers["X-Truncated"] = "1" if truncated else "0"
+    return rows[:limit]
 
 
 @router.post("/price-notify", response_model=list[NotificationOut], status_code=status.HTTP_201_CREATED)
@@ -182,9 +211,20 @@ def batch_delete_notifications(
     db: Session = Depends(get_db),
 ) -> dict[str, int]:
     """批量删除消息：ids 指定列表，或 all=true 清空该账户全部消息（二选一）。
-    默认仅本人消息；派单员可带 recipient_id 指定其他用户。"""
+    默认仅本人消息；派单员可带 recipient_id 指定其他用户。
+
+    ⛔ `{"ids": [], "all": false}` 必须拒绝（R14-8/A8，2026-09-19 审计复核）。
+    这里的判据原来是"`ids` 非空就按 ids 删，否则删光"——`all` **根本没参与**这个判断
+    （它只在上面做了一次互斥校验）。于是空 ids 会落到 else 分支，**把该账号的消息全删**。
+    客户端的默认形状恰好就是空表（Android `NotificationBatchDeleteRequest` 的
+    `ids = emptyList()`；AI 侧键缺失时也会得到空表），当前三个调用点都自己带了守卫，
+    所以**现状不可达**——但"参数为空 = 删光"这种兜底不该留在服务端：
+    它把任何一个新调用方的一次疏忽变成"用户消息全没了"，而且没有二次确认、不可恢复。
+    """
     if body.ids and body.all:
         raise HTTPException(status_code=400, detail="ids 与 all 不能同时使用")
+    if not body.ids and not body.all:
+        raise HTTPException(status_code=400, detail="请指定要删除的消息（ids），或显式传 all=true 清空")
     is_disp = user_role_key(current) == UserRole.DISPATCHER.value
     if body.recipient_id is not None and not is_disp:
         raise HTTPException(status_code=403, detail="无权删除他人消息")

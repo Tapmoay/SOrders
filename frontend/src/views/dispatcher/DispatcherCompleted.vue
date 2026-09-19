@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { showFailToast } from 'vant'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { fetchOrders } from '@/api/orders'
+import { fetchOrdersPage } from '@/api/orders'
 import VirtualScrollList from '@/components/VirtualScrollList.vue'
 import { formatApiError } from '@/utils/apiError'
 import { ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
@@ -23,6 +23,15 @@ watch(searchText, (v) => {
 
 const list = ref<Order[]>([])
 const loading = ref(false)
+/** 服务端把这一页截断了（`X-Truncated`）：界面必须说出来，否则用户会以为「这就是全部」，据此判断某一单不存在 */
+const truncated = ref(false)
+/** 服务端本次的上限（`X-Result-Limit`）；读不到时为空 */
+const resultLimit = ref<number | null>(null)
+const truncatedText = computed(() => {
+  const n = resultLimit.value
+  const shown = n ? `最近 ${n} 条` : '一部分'
+  return `只显示了${shown}，可能还有更早的没有列出来 —— 请用搜索或时间范围缩小范围。`
+})
 const refreshing = ref(false)
 
 function fmtTime(iso: string | null | undefined) {
@@ -50,7 +59,10 @@ function productLine(o: Order) {
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    list.value = await fetchOrders('DELIVERED', debouncedQ.value || undefined)
+    const page = await fetchOrdersPage('DELIVERED', debouncedQ.value || undefined)
+    list.value = page.items
+    truncated.value = page.truncated
+    resultLimit.value = page.limit
   } catch (e: unknown) {
     showFailToast(formatApiError(e, '加载失败'))
   } finally {
@@ -82,6 +94,14 @@ function openDetail(o: Order) {
       <van-notice-bar left-icon="info-o" text="仅展示已送达订单，支持关键字筛选。" />
     </div>
     <van-search v-model="searchText" placeholder="订单号 / 货主 / 地址 / 司机" />
+
+    <van-notice-bar
+      v-if="truncated"
+      left-icon="info-o"
+      wrapable
+      :scrollable="false"
+      :text="truncatedText"
+    />
 
     <van-pull-refresh v-model="refreshing" @refresh="onRefresh">
       <van-empty v-if="!loading && !list.length" description="暂无已送达订单" />

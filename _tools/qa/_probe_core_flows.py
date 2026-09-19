@@ -915,16 +915,30 @@ def probe_export(tok: str) -> None:
     ok("导出的「挂账未收」= 报表的 arrears_total",
        eq(cells.get("挂账未收"), data.get("arrears_total")),
        f"Excel {cells.get('挂账未收')} vs 接口 {data.get('arrears_total')}")
-    # 营业额在导出里是和"商品毛利"同一行的第二列，单独核对一次
-    total_in_xls = None
+    # ⚠️ 这一条原来读错了格子（2026-09-19 审计）：它找 `司机运费支出` 那一行、取 row[3]，
+    #    而 row[3] 是**商品毛利**、不是营业额 —— 过去一直"通过"只是因为当时所有行都没有成本快照、
+    #    毛利恰好等于营业额（25075.2 == 25075.2）。毛利口径修对之后它立刻红了。
+    #    这正是"探针自己的判据也会空转"的又一个实例，所以现在**分别**核对两个格子：
+    #    营业额取 `营业金额` 行的第 2 格；毛利取 `司机运费支出` 行的第 4 格。
+    revenue_in_xls = margin_in_xls = None
     for ws in wb.worksheets:
         for row in ws.iter_rows(values_only=True):
-            if row and row[0] == "司机运费支出":
-                total_in_xls = row[3] if len(row) > 3 else None
-    if total_in_xls is not None:
+            if not row:
+                continue
+            if row[0] == "营业金额" and len(row) > 1:
+                revenue_in_xls = row[1]
+            if row[0] == "司机运费支出" and len(row) > 3:
+                margin_in_xls = row[3]
+    if revenue_in_xls is not None:
         ok("导出里的营业额与接口一致（同一份聚合，不许各算各的）",
-           eq(str(total_in_xls).lstrip("¥"), data.get("total_amount")),
-           f"Excel {total_in_xls} vs 接口 {data.get('total_amount')}")
+           eq(str(revenue_in_xls).lstrip("¥"), data.get("total_amount")),
+           f"Excel {revenue_in_xls} vs 接口 {data.get('total_amount')}")
+    if margin_in_xls is not None:
+        # 毛利必须 = 参与计算的收入 − 那批行的成本（两侧同一批行，见 schemas/reports.py）
+        want = float(data.get("cost_covered_amount", 0)) - float(data.get("cost_total", 0))
+        ok("导出的毛利只按「有成本快照的行」算（营业额的分子里不许混进无成本的行）",
+           eq(str(margin_in_xls).lstrip("¥"), want),
+           f"Excel {margin_in_xls} vs 期望 {want}（参与毛利的收入 {data.get('cost_covered_amount')} − 成本 {data.get('cost_total')}）")
 
 
 # ------------------------------------------------------------------ 价格（多档批发价 / 专属价）

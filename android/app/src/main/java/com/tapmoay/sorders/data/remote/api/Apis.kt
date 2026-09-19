@@ -7,11 +7,21 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import retrofit2.Response
 import retrofit2.http.*
 
 interface AuthApi {
     @POST("auth/login")
     suspend fun login(@Body body: LoginRequest): TokenDto
+
+    /**
+     * 登出：让**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）。
+     *
+     * ⚠️ 2026-09-19 审计：原来客户端登出只清本机 DataStore，服务端不知道 ——
+     * 被复制走的令牌照样能用满 24 小时。
+     */
+    @POST("auth/logout")
+    suspend fun logout(): JsonObject
 }
 
 /**
@@ -612,14 +622,20 @@ interface NotificationApi {
      * 于是「清空」清的是自己的、列表里却还有别人的，重启后"消息又回来了"。
      * 要看某个账户的消息，显式传 [recipientId]。
      *
-     * ⚠️ `limit` **后端不认**（硬 `.limit(200)`），传什么都一样。
+     * ⚠️ `limit` / `beforeId` **现在后端认了**（2026-09-19 审计 R14-8 修）：原来是一条硬
+     * `.limit(200)`，传什么都一样、也不回报截断 —— 于是第 201 条以前的旧消息在 App 里
+     * 一个入口都没有（其中包含「账本导出完成」这种 payload 里带唯一下载链接的通知）。
+     * 现在返回 `Response<...>` 是为了**读响应头**：`X-Truncated: 1` = 还有更多，
+     * 客户端据此显示「加载更多」，用 [beforeId] 往下翻。
      */
     @GET("notifications")
     suspend fun listNotifications(
         @Query("limit") limit: Int = 50,
         /** 只看发给谁的。null = 自己（后端语义），非 null 时派单员可以看别人的。 */
         @Query("recipient_id") recipientId: Long? = null,
-    ): List<NotificationDto>
+        /** 游标：只取 id 小于它的消息（「加载更多」往下翻页）。 */
+        @Query("before_id") beforeId: Long? = null,
+    ): Response<List<NotificationDto>>
 
     @GET("notifications/unread-count")
     suspend fun unreadCount(): UnreadCountDto
@@ -841,7 +857,18 @@ interface AccountingApi {
         @Query("biz_type") bizType: String? = null,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
+        // 明细行的条数上限（只影响"看得见几行"）。金额一律走下面的 summary，
+        // 不要在客户端对一页流水求和 —— 那会少算（见 CashFlowSummaryDto 的注释）。
+        @Query("limit") limit: Int? = null,
     ): List<CashFlowDto>
+
+    @GET("cash-flows/summary")
+    suspend fun cashFlowSummary(
+        @Query("direction") direction: String? = null,
+        @Query("biz_type") bizType: String? = null,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): CashFlowSummaryDto
 
     @GET("vehicles")
     suspend fun listVehicles(): List<VehicleDto>

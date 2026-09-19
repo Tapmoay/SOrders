@@ -180,7 +180,11 @@ fun DispatcherPoolScreen(
                             color = MaterialTheme.colorScheme.error,
                         )
                     } else {
-                        var pickVehicle by remember { mutableStateOf(false) } // false=大车司机组, true=挂车司机组
+                        // ⚠️ 这两个页签是**车型**分组（标签就写着大车/挂车），所以按 `vehicle_type` 过滤。
+                        //    原来用的判据是"按不按单计费"（`isPieceDriver`）——两者只因"挂车默认按单"
+                        //    而恰好重合；挂了计费规则之后就会错位（大车司机跑到"挂车司机"组里）。
+                        //    "要不要显示运费框"是另一件事，它只看 `isPieceDriver`（后端口径，见下方）。
+                        var pickVehicle by remember { mutableStateOf(false) } // false=大车组, true=挂车组
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             val selL = !pickVehicle
                             Surface(
@@ -188,7 +192,7 @@ fun DispatcherPoolScreen(
                                 shape = MaterialTheme.shapes.small,
                                 modifier = Modifier.weight(1f).clickable {
                                     pickVehicle = false
-                                    vm.selectedDriverId = vm.drivers.firstOrNull { !vm.isPieceDriver(it) }?.id
+                                    vm.selectedDriverId = vm.drivers.firstOrNull { it.vehicleType != "trailer" }?.id
                                 },
                             ) {
                                 Column(
@@ -214,7 +218,7 @@ fun DispatcherPoolScreen(
                                 shape = MaterialTheme.shapes.small,
                                 modifier = Modifier.weight(1f).clickable {
                                     pickVehicle = true
-                                    vm.selectedDriverId = vm.drivers.firstOrNull { vm.isPieceDriver(it) }?.id
+                                    vm.selectedDriverId = vm.drivers.firstOrNull { it.vehicleType == "trailer" }?.id
                                 },
                             ) {
                                 Column(
@@ -242,12 +246,12 @@ fun DispatcherPoolScreen(
                                 value = if (vm.selectedDriver != null) (vm.selectedDriver?.fullName?.ifBlank { vm.selectedDriver?.username ?: "" } ?: "") + " " + (vm.selectedDriver?.phone ?: "") else "请选择司机",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text(if (pickVehicle) "挂车司机（按单计费）" else "大车司机（固定工资）") },
+                                label = { Text(if (pickVehicle) "挂车司机" else "大车司机") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dExp) },
                                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                             )
                             ExposedDropdownMenu(expanded = dExp, onDismissRequest = { dExp = false }) {
-                                vm.drivers.filter { vm.isPieceDriver(it) == pickVehicle }.forEach { d ->
+                                vm.drivers.filter { (it.vehicleType == "trailer") == pickVehicle }.forEach { d ->
                                     DropdownMenuItem(
                                         text = { Text((d.fullName.ifBlank { d.username }) + " " + d.phone) },
                                         onClick = {

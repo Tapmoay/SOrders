@@ -15,7 +15,7 @@ import {
   assignOrder,
   batchAssignOrders,
   cancelOrder,
-  fetchOrders,
+  fetchOrdersByStatuses,
   recallOrder,
   updateOrder,
   updateOrderProduct,
@@ -46,7 +46,12 @@ import { fetchUsers, type UserListItem } from '@/api/user'
 import AmapPicker from '@/components/AmapPicker.vue'
 import DispatcherRoleSwapDialog from '@/components/DispatcherRoleSwapDialog.vue'
 import VirtualScrollList from '@/components/VirtualScrollList.vue'
-import { ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
+import {
+  CANCELLABLE_STATUSES,
+  ORDER_STATUS_LABEL,
+  RECALLABLE_STATUSES,
+  orderStatusTagType,
+} from '@/constants/order'
 import type { Order, OrderStatus } from '@/types/order'
 import { formatApiError } from '@/utils/apiError'
 
@@ -62,7 +67,16 @@ const hasOrderDraft = ref(false)
 const showRoleSwap = ref(false)
 
 const tabIndex = ref(0)
-const tabStatus = computed<OrderStatus>(() => (tabIndex.value === 0 ? 'PENDING_DISPATCH' : 'ACCEPTED'))
+/**
+ * 页签 → 状态。**「运输中」必须同时包含 `DISPATCHED`（已派单·司机未接）与 `ACCEPTED`**
+ * （2026-09-19 审计 H1）：原来只有 `ACCEPTED` 一档，于是"刚派出去、司机还没接"的订单
+ * 在派单端**两个页签里都不存在**——派单员看不到这张单，也就**撤不回、改不了地址**
+ * （司机还没接之前正是最需要改地址的时候），而订单确实已经被派出去了。
+ * 司机的自动播报还在响，派单员这边却查无此单。
+ */
+const tabStatuses = computed<OrderStatus[]>(() =>
+  tabIndex.value === 0 ? ['PENDING_DISPATCH'] : ['DISPATCHED', 'ACCEPTED'],
+)
 
 const searchText = ref('')
 const debouncedQ = ref('')
@@ -77,6 +91,15 @@ watch(searchText, (v) => {
 
 const list = ref<Order[]>([])
 const loading = ref(false)
+/** 服务端把这一页截断了（`X-Truncated`）：界面必须说出来，否则用户会以为「这就是全部」，据此判断某一单不存在 */
+const truncated = ref(false)
+/** 服务端本次的上限（`X-Result-Limit`）；读不到时为空 */
+const resultLimit = ref<number | null>(null)
+const truncatedText = computed(() => {
+  const n = resultLimit.value
+  const shown = n ? `最近 ${n} 条` : '一部分'
+  return `只显示了${shown}，可能还有更早的没有列出来 —— 请用搜索或时间范围缩小范围。`
+})
 const refreshing = ref(false)
 const drivers = ref<UserListItem[]>([])
 
@@ -167,7 +190,13 @@ function onRoleSwapSuccess() {
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    list.value = await fetchOrders(tabStatus.value, debouncedQ.value || undefined)
+    const page = await fetchOrdersByStatuses(
+      tabStatuses.value,
+      debouncedQ.value || undefined,
+    )
+    list.value = page.items
+    truncated.value = page.truncated
+    resultLimit.value = page.limit
     void dispatcherWorkbench.refreshPendingDispatchCount()
   } catch (e: unknown) {
     if (!viewAlive) return
@@ -313,50 +342,77 @@ function openEdit(o: Order) {
 
 async function submitEdit() {
   if (editingId.value == null) return
+  // ① **先把每一行都校完再动任何写操作**（2026-09-19 审计）：
+  //    原来的顺序是"先 PATCH 订单 → 再逐行校验 → 再逐行 PATCH 行"，
+  //    于是某一行不合格时**订单字段已经落库了**，而提示只说「商品名称不能为空」——
+  //    用户以为什么都没保存，其实订单的地址/备注/内部备注已经改了。
+  const rows: { id: number; name: string; qty: number; price: string }[] = []
+  for (const line of editLines.value) {
+    const name = line.product_name_snapshot.trim()
+    if (!name) {
+      showFailToast('商品名称不能为空（这一次没有保存任何改动）')
+      return
+    }
+    const q = parseInt(line.quantity, 10)
+    if (!Number.isFinite(q) || q < 1) {
+      showFailToast('数量须为不小于 1 的整数（这一次没有保存任何改动）')
+      return
+    }
+    const upRaw = String(line.unit_price).trim()
+    const upNum = Number(upRaw === '' ? '0' : upRaw)
+    if (!Number.isFinite(upNum)) {
+      showFailToast('单价格式不正确（这一次没有保存任何改动）')
+      return
+    }
+    rows.push({ id: line.id, name, qty: q, price: String(upNum) })
+  }
+
   showLoadingToast({ message: '保存中…', forbidClick: true, duration: 0 })
+  // ② 写操作不是一个事务（订单一次 PATCH + 每行一次 PATCH），
+  //    所以失败时必须**如实报出哪几部分已经落库**，不能让用户以为"要么全成要么全没成"。
+  let orderSaved = false
+  const savedRows: string[] = []
   try {
     const body: OrderUpdateBody = { ...editForm.value }
     await updateOrder(editingId.value, body)
-    for (const line of editLines.value) {
-      const name = line.product_name_snapshot.trim()
-      if (!name) {
-        showFailToast('商品名称不能为空')
-        return
-      }
-      const q = parseInt(line.quantity, 10)
-      if (!Number.isFinite(q) || q < 1) {
-        showFailToast('数量须为不小于 1 的整数')
-        return
-      }
-      const upRaw = String(line.unit_price).trim()
-      const upNum = Number(upRaw === '' ? '0' : upRaw)
-      if (!Number.isFinite(upNum)) {
-        showFailToast('单价格式不正确')
-        return
-      }
-      await updateOrderProduct(line.id, {
-        product_name_snapshot: name,
-        quantity: q,
-        unit_price: String(upNum),
+    orderSaved = true
+    for (const row of rows) {
+      await updateOrderProduct(row.id, {
+        product_name_snapshot: row.name,
+        quantity: row.qty,
+        unit_price: row.price,
       })
+      savedRows.push(row.name)
     }
     showSuccessToast('已保存')
     showEdit.value = false
     await load(true)
   } catch (e: unknown) {
     const err = e as { response?: { data?: { detail?: string } } }
-    showFailToast(err.response?.data?.detail || '保存失败')
+    const detail = err.response?.data?.detail || '保存失败'
+    const done = [
+      orderSaved ? '订单信息' : '',
+      savedRows.length ? `商品行「${savedRows.join('、')}」` : '',
+    ].filter(Boolean)
+    showFailToast(
+      done.length
+        ? `${done.join('、')}已保存，后面这一步失败：${detail}。请刷新后继续。`
+        : detail,
+    )
   } finally {
     closeToast()
   }
 }
 
 async function tryCancel(o: Order) {
-  if (o.status !== 'PENDING_DISPATCH') return
+  // 与货主端同一处判据（真源=后端 `cancel_pending`）：待派单 + 已派单（司机未接）。
+  if (!CANCELLABLE_STATUSES.includes(o.status)) return
+  const note =
+    o.status === 'DISPATCHED' ? '该单已派给司机（还没接单），撤销后司机会收到通知。' : ''
   try {
     await showConfirmDialog({
       title: '撤销订单',
-      message: `确定撤销订单 ${o.order_no}？撤销后不可恢复（货主端将同步）。`,
+      message: `确定撤销订单 ${o.order_no}？${note}撤销后不可恢复（货主端将同步）。`,
     })
     showLoadingToast({ message: '处理中…', forbidClick: true })
     await cancelOrder(o.id)
@@ -373,7 +429,9 @@ async function tryCancel(o: Order) {
 }
 
 function openRecall(o: Order) {
-  if (o.status !== 'ACCEPTED') return
+  // 真源=后端 `recall_dispatch`：`allowed = (DISPATCHED, ACCEPTED)`。
+  // 原来只认 ACCEPTED，于是"已派单但司机还没接"的单**撤不回来**（派错司机的第一时间撤不了）。
+  if (!RECALLABLE_STATUSES.includes(o.status)) return
   recallOrderId.value = o.id
   recallReason.value = ''
   showRecall.value = true
@@ -463,6 +521,14 @@ async function submitRecall() {
       </div>
     </div>
 
+    <van-notice-bar
+      v-if="truncated"
+      left-icon="info-o"
+      wrapable
+      :scrollable="false"
+      :text="truncatedText"
+    />
+
     <van-pull-refresh v-model="refreshing" @refresh="onRefresh">
       <van-empty v-if="!loading && !list.length" :description="debouncedQ ? '无匹配订单' : '暂无订单'" />
 
@@ -518,6 +584,14 @@ async function submitRecall() {
               <template v-else-if="o.status === 'ACCEPTED'">
                 <van-button size="small" type="warning" plain @click="openRecall(o)">撤回派单</van-button>
                 <van-button size="small" plain @click="openEdit(o)">编辑</van-button>
+              </template>
+              <!-- 已派单（司机还没接）：既能撤回（后端 `recall_dispatch` 允许 DISPATCHED），
+                   也能撤销整单（`cancel_pending` 允许 DISPATCHED）。这一档原来一条动作都没有，
+                   因为这张单在任何页签里都看不见。 -->
+              <template v-else-if="o.status === 'DISPATCHED'">
+                <van-button size="small" type="warning" plain @click="openRecall(o)">撤回派单</van-button>
+                <van-button size="small" plain @click="openEdit(o)">编辑</van-button>
+                <van-button size="small" plain type="danger" @click="tryCancel(o)">撤销订单</van-button>
               </template>
             </div>
           </div>

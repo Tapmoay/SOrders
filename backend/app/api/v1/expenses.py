@@ -10,7 +10,8 @@ from app.core.rbac import user_role_key
 from app.database import get_db
 from app.deps import CurrentUser
 from app.models import Expense, Order, User
-from app.models.enums import UserRole
+from app.models.enums import OperationAction, UserRole
+from app.services.operation_log_service import write_log
 from app.schemas.accounting_v2 import ExpenseCreate, ExpenseOut
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
@@ -73,6 +74,21 @@ def create_expense(
         e = svc_create(db, body, current.id)
     except ValueError as ex:
         raise HTTPException(status_code=400, detail=str(ex)) from ex
+    # 开销＝钱出去了（还会写一条 cash_flows OUT），必须留痕（2026-09-19 审计）
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=e.order_id,
+        action=OperationAction.EXPENSE_CREATE,
+        change_payload={
+            "expense_id": e.id,
+            "category": str(getattr(e.category, "value", e.category)),
+            "amount": str(e.amount),
+            "exp_date": str(e.exp_date),
+            "driver_id": e.driver_id,
+            "vehicle_id": e.vehicle_id,
+        },
+    )
     db.commit()
     db.refresh(e)
     return ExpenseOut(

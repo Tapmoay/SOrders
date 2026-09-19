@@ -4,6 +4,20 @@ from app.models.enums import UserRole
 
 
 class Permission(str, Enum):
+    """权限点。
+
+    ⚠️ **这几个"读"权限点只是声明，没有 `require_permission(...)` 在用它们**
+    （2026-09-19 审计 F8）：`ORDER_READ_OWN` / `ORDER_READ_ASSIGNED` /
+    `LEDGER_READ_OWN` / `LEDGER_READ_ALL` / `NOTIFICATION_READ` —— 读侧的真实判据是
+    各端点体内**内联的 `user_role_key(current)` 判断**（因为"货主只看自己的、派单员看全部"
+    这种行级规则一个权限点表达不了）。
+
+    于是存在一个**会静默失效的错觉**：改 `ROLE_PERMISSIONS`（比如把 `LEDGER_READ_ALL`
+    从派单员那儿去掉）**不会**改变任何端点的行为，而 `08A_ENDPOINT_INDEX.md` 的权限列
+    与 AI 读能力目录又是从这张矩阵推导的 → 文档说"没权限了"、接口照样能读。
+    机器判据见 `_tools/qa/_check_permission_points.py`（未使用的权限点必须在这张表里写清理由，
+    且这张表不许变长）。要真正按矩阵收口，得逐个端点把内联判断换成 `require_permission`。
+    """
     ORDER_CREATE = "order:create"
     ORDER_READ_OWN = "order:read_own"
     ORDER_READ_ASSIGNED = "order:read_assigned"

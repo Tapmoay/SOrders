@@ -54,6 +54,15 @@ class OperationAction(str, enum.Enum):
     LEDGER_CREATE = "LEDGER_CREATE"
     LEDGER_UPDATE = "LEDGER_UPDATE"
     LEDGER_DELETE = "LEDGER_DELETE"
+    # 钱的写操作必须留痕（2026-09-19 审计）：下面这几条以前**一条日志都不写**，
+    # 于是"这笔收款谁录的""这张 675 谁点的付款"事后无法回答；而
+    # `docs/ACCOUNTING_V2_DESIGN.md` §4.10 明确写着「所有写账接口都要写 operation_logs」。
+    RECEIPT_CREATE = "RECEIPT_CREATE"
+    SETTLEMENT_CREATE = "SETTLEMENT_CREATE"
+    SETTLEMENT_STATUS = "SETTLEMENT_STATUS"
+    EXPENSE_CREATE = "EXPENSE_CREATE"
+    DRIVER_BILL_GENERATE = "DRIVER_BILL_GENERATE"
+    CUSTOMER_MERGE = "CUSTOMER_MERGE"
     PRODUCT_CREATE = "PRODUCT_CREATE"
     PRODUCT_UPDATE = "PRODUCT_UPDATE"
     PRODUCT_DELETE = "PRODUCT_DELETE"
@@ -95,6 +104,18 @@ class OperationAction(str, enum.Enum):
     # 和「谁把车从张三名下拿走挂到李四名下了」。合成一个，审计页上只能看到一团。
     VEHICLE_UPSERT = "VEHICLE_UPSERT"
     VEHICLE_DRIVER_SET = "VEHICLE_DRIVER_SET"
+    # 挂账单位（2026-09-19 审计 R14-1）：**钱挂在谁名下**这件事原来一条日志都不写
+    # （`arrears.py` 四个写端点、0 次 `write_log`）——单位改名/删掉之后，
+    # 历史欠款按 `arrears_unit_name` 快照分组，谁也说不清"这名字是谁改的、什么时候改的"。
+    # 真机实证：用 AI 建了一个挂账单位，库里多了一行、审计页上却什么都没有。
+    ARREARS_UNIT_UPSERT = "ARREARS_UNIT_UPSERT"
+    ARREARS_UNIT_DELETE = "ARREARS_UNIT_DELETE"
+    ARREARS_UNIT_RESTORE = "ARREARS_UNIT_RESTORE"
+    # 运费模板（同上一轮审计）：它是派单填运费的**参考价**，改一个数字会影响所有人报价，
+    # 而原来同样一次日志都不写。
+    FREIGHT_TEMPLATE_UPSERT = "FREIGHT_TEMPLATE_UPSERT"
+    FREIGHT_TEMPLATE_DELETE = "FREIGHT_TEMPLATE_DELETE"
+    FREIGHT_TEMPLATE_RESTORE = "FREIGHT_TEMPLATE_RESTORE"
 
 class CustomerKind(str, enum.Enum):
     REGISTERED = "registered"

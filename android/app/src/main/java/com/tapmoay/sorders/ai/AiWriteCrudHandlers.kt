@@ -184,6 +184,7 @@ class CrudWriteHandler(
                 JsonPrimitive(AiWriteArgs.parseMoney(raw, f.cn, mustPositive = f.positive).toPlainString())
             AiFieldType.COUNT -> JsonPrimitive(AiWriteArgs.parseQuantity(raw))
             AiFieldType.DELTA -> JsonPrimitive(parseDelta(raw, f))
+            AiFieldType.NON_NEGATIVE -> JsonPrimitive(AiWriteArgs.parseNonNegative(raw, f.cn))
             AiFieldType.DATE -> JsonPrimitive(
                 (AiWriteArgs.parseDate(raw, f.cn)
                     ?: throw AiWriteArgException("$f.cn 不能为空")).toString(),
@@ -257,10 +258,12 @@ internal fun targetShipper() = AiTargetSpec(
     lookup = { ds, q -> ds.searchShippers(q, 20) },
 )
 
-internal fun targetUser(cn: String) = AiTargetSpec(
+internal fun targetUser(cn: String, role: String? = null) = AiTargetSpec(
     param = "user", cn = cn, key = "user_id",
     hint = "$cn 的姓名（或手机号）",
-    lookup = { ds, q -> ds.users(q) },
+    // ⚠️ 只对**这个角色有意义**的动作必须传 `role`（2026-09-19 审计）：
+    //    不传就是全角色名册，而"给货主改司机计费方式"在后端是**静默空转**（200、零改动、无日志）。
+    lookup = { ds, q -> if (role == null) ds.users(q) else ds.usersOfRole(q, role) },
 )
 
 internal fun targetAddress() = AiTargetSpec(

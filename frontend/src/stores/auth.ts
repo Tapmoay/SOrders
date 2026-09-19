@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { duringAuthRecovery } from '@/api/client'
+import { logout as apiLogout } from '@/api/auth'
 import { fetchMe, type UserRole } from '@/api/user'
 
 const ROLE_KEY = 'user_role'
@@ -37,6 +38,26 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('access_token')
     localStorage.removeItem(ROLE_KEY)
     localStorage.removeItem(USER_ID_KEY)
+  }
+
+  /**
+   * 退出登录：**先让服务端作废令牌**，再清本机。
+   *
+   * ⚠️ 2026-09-19 审计：原来只调 `clearSession()`（删本机 localStorage），
+   * 服务端令牌照样有效满 24 小时——手机丢了、在别人电脑上登过，都没有止损手段。
+   * 网络失败也要把本机清干净（否则用户"退不出去"），但要把这件事如实说出来：
+   * 服务端没作废成功时提示用户改密码，而不是假装已经退出。
+   */
+  async function logout(): Promise<{ serverRevoked: boolean }> {
+    let serverRevoked = false
+    try {
+      await apiLogout()
+      serverRevoked = true
+    } catch {
+      serverRevoked = false
+    }
+    clearSession()
+    return { serverRevoked }
   }
 
   /**
@@ -135,6 +156,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     setSession,
     clearSession,
+    logout,
     persistAutoLogin,
     getSavedLoginCredentials,
     clearAutoLoginCredentials,

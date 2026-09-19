@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { showImagePreview } from 'vant'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { fetchOrders } from '@/api/orders'
+import { fetchOrdersPage } from '@/api/orders'
 import VirtualScrollList from '@/components/VirtualScrollList.vue'
 import { driverOrdersRefreshTick } from '@/driverRealtimeState'
 import { ORDER_STATUS_LABEL } from '@/constants/order'
@@ -11,6 +11,15 @@ import type { Order } from '@/types/order'
 
 const router = useRouter()
 const loading = ref(false)
+/** 服务端把这一页截断了（`X-Truncated`）：界面必须说出来，否则用户会以为「这就是全部」，据此判断某一单不存在 */
+const truncated = ref(false)
+/** 服务端本次的上限（`X-Result-Limit`）；读不到时为空 */
+const resultLimit = ref<number | null>(null)
+const truncatedText = computed(() => {
+  const n = resultLimit.value
+  const shown = n ? `最近 ${n} 条` : '一部分'
+  return `只显示了${shown}，可能还有更早的没有列出来 —— 请用搜索或时间范围缩小范围。`
+})
 const refreshing = ref(false)
 const list = ref<Order[]>([])
 
@@ -58,7 +67,10 @@ function previewDeliveryPhotos(urls: string[] | null | undefined, start: number)
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    list.value = await fetchOrders('DELIVERED')
+    const page = await fetchOrdersPage('DELIVERED')
+    list.value = page.items
+    truncated.value = page.truncated
+    resultLimit.value = page.limit
   } finally {
     if (!silent) loading.value = false
   }
@@ -80,6 +92,14 @@ onMounted(() => {
 
 <template>
   <div class="driver-done role-tool-page">
+    <van-notice-bar
+      v-if="truncated"
+      left-icon="info-o"
+      wrapable
+      :scrollable="false"
+      :text="truncatedText"
+    />
+
     <van-pull-refresh v-model="refreshing" @refresh="onRefresh">
       <van-empty v-if="!loading && !list.length" description="暂无已完成订单" />
       <VirtualScrollList v-else :items="list" :estimate-size="280">

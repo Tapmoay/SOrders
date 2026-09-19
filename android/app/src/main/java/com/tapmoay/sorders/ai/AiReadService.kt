@@ -88,7 +88,26 @@ object AiReadPlanner {
         // ---- 状态 ----
         str(A_STATUS)?.let { v ->
             val p = firstDeclared(declared, "status", "state")
-            if (p != null) query[p] = v else ignored += A_STATUS
+            if (p == null) {
+                ignored += A_STATUS
+            } else {
+                val spec = declared[p]
+                // ⚠️ 枚举取值必须**当场校验**（2026-09-19 审计）：目录里一直躺着 `enum`，但从没被用过。
+                //    后果是模型顺着工具说明传 `status=PAID`（说明里举的例子，而 PAID 根本不是订单状态）
+                //    → 后端 422 → `humanError` 把它翻成"该后端接口还没提供" → **模型告诉用户"这个功能没上线"**，
+                //    而功能明明在、后端也已经给出了一句可照着改的中文。用户彻底放弃这条路。
+                //    现在：取值不合法就在**计划阶段**回一句带合法取值的话，模型一次就能改对。
+                val picked = spec?.enum?.firstOrNull { it.equals(v.trim(), ignoreCase = true) }
+                when {
+                    spec == null || spec.enum.isEmpty() -> query[p] = v
+                    picked != null -> query[p] = picked      // 归一成后端认的那个大小写
+                    else -> return Result.Bad(
+                        "「$A_STATUS=$v」不是这个查询允许的取值。允许的有：" +
+                            "${spec.enum.joinToString(" / ")}。" +
+                            "请从里面挑一个（大小写不敏感）；如果用户没说要按状态筛，就别填这个参数。",
+                    )
+                }
+            }
         }
 
         // ---- 额外筛选（JSON，键必须是这个接口声明的参数）----
@@ -155,8 +174,15 @@ object AiReadPlanner {
         // 不传的话后端按自己的默认截：`GET /users` 是 `limit=100`，
         // 于是"全部货主"永远拿不到 100 以上，而我们这边再怎么调大上限都没用。
         // 传下去是安全的：声明了 limit 的接口上限都比我们大（users le=500、cash-flows le=1000、
-        // operation-logs le=1000、inventory le=500），不会撞 422。
-        if (declared.containsKey(A_LIMIT)) query[A_LIMIT] = limit.toString()
+        // operation-logs le=1000、inventory le=500、orders le=5000），不会撞 422。
+        //
+        // ⚠️ 传的是 **limit + 1**（2026-09-19 审计抓到的真缺陷）：
+        //    如果原样传 limit，后端会自己截到 limit 并返回**裸数组**（没有 total），
+        //    于是下面 `rows.size > capped.size` 永远为假 → `truncated` 不置位 →
+        //    模型把 200 条当成全量，答"共 200 单"（本机真量 790、生产更多，**没有任何告警**）。
+        //    多要一行是"是否还有更多"的唯一可靠探针：后端多回一行 → 截断判据成立 → 如实告知。
+        //    上限安全：我方 MAX_ROWS=200，+1 后 201 仍低于所有端点的 le。
+        if (declared.containsKey(A_LIMIT)) query[A_LIMIT] = (limit + 1).toString()
 
         return Result.Ok(Plan(action, query, ignored, assumed, nameNeed, limit))
     }
@@ -277,12 +303,28 @@ class AiReadService(
 
         // ---- 名字 → 编号：编号只在这一次 HTTP 里用一下，**不进结果、不进模型上下文** ----
         plan.nameNeed?.let { need ->
-            val id = resolveId(need)
-                ?: return err(
+            // ⚠️ 解析失败**不许直接报错**（2026-09-19 审计）：这个接口同时声明了编号参数与 `q`
+            //    （`orders.list_orders` 有 `shipper_id` 也有 `q`），而模型的 `name` 里既可能是人名、
+            //    也可能是**单号**（工具说明里"订单号"就是明写的例子）。原来的行为是：
+            //    货主问「帮我查 SO2026… 到哪了」→ 模型把单号填进 name → 拿它去调**只有派单员能调**
+            //    的 `/users` → 403 → 工具把 403 翻成"权限不够" → 用户被告知自己看不了自己的单。
+            //    现在：解析不出来（或无权解析）就**退化成关键词**（如果这个接口支持 q），
+            //    并在 `assumed_filters` 里如实说明"按关键词匹配"；接口不支持关键词才报错。
+            val id = runCatching { resolveId(need) }.getOrNull()
+            val kw = plan.action.params
+                .firstOrNull { it.name == AiReadPlanner.A_Q || it.name == "keyword" }
+                ?.name
+            if (id != null) {
+                plan.query[need.param] = id.toString()
+            } else if (kw != null) {
+                plan.query[kw] = need.name
+                plan.assumed[kw] = need.name
+            } else {
+                return err(
                     "没找到叫「${need.name}」的记录（${kindLabel(need.kind)}）。" +
-                        "请先用找货主/查列表的工具确认准确名字，或改用关键词 $AiReadPlanner.A_Q 查。",
+                        "请先用找货主/查列表的工具确认准确名字，或改用关键词 ${AiReadPlanner.A_Q} 查。",
                 )
-            plan.query[need.param] = id.toString()
+            }
         }
 
         val path = plan.action.path.removePrefix("/api/v1/")

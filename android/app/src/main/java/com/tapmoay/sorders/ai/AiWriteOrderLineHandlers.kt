@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.OrderStatusModel
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -44,7 +45,7 @@ abstract class OrderLineWriteHandler(
                 candidates = pool.take(AiWriteArgs.MAX_CANDIDATES).map { it.label() },
             )
         }
-        if (order.statusCn !in EDITABLE_STATUSES) {
+        if (order.status !in OrderStatusModel.LINE_EDITABLE) {
             throw AiWriteArgException(
                 "这单现在是「${order.statusCn}」，**已送达或已撤销的单不能改商品明细**。" +
                     "请如实告诉用户，不要换一张单去操作。",
@@ -101,7 +102,7 @@ abstract class OrderLineWriteHandler(
     protected fun amountOf(o: AiOrderRef): BigDecimal = o.amount.toBigDecimalOrNull() ?: BigDecimal.ZERO
 
     protected companion object {
-        val EDITABLE_STATUSES = setOf("待派单", "派单中", "已接单")
+        // 状态集合统一放 `core/OrderStatusModel`（与后端 `_order_allows_line_edit` 逐值对账）
     }
 }
 

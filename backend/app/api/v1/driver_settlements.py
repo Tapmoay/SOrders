@@ -8,12 +8,13 @@ from app.core.rbac import user_role_key
 from app.database import get_db
 from app.deps import CurrentUser
 from app.models import DriverSettlement, User
-from app.models.enums import UserRole
+from app.models.enums import OperationAction, UserRole
 from app.schemas.accounting_v2 import (
     DriverSettlementCreate,
     DriverSettlementOut,
     SettlementActionBody,
 )
+from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/driver-settlements", tags=["driver-settlements"])
 
@@ -87,6 +88,24 @@ def create_settlement(
         s = svc_create(db, body, current.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    # 建结算单＝把一批「待结」明细锁进一张单子（钱虽未出，但已经不能再被第二张单占用），必须留痕。
+    # ⚠️ 先 flush 拿到 id：`write_log` 里要写 `settlement_id`，不 flush 的话 `s.id` 还是 None
+    #    （实测踩到：日志写成了 `{"settlement_id": null}`，等于这条痕迹查不回是哪张单）。
+    db.flush()
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.SETTLEMENT_CREATE,
+        change_payload={
+            "settlement_id": s.id,
+            "driver_id": s.driver_id,
+            "month": s.month,
+            "settle_type": str(getattr(s.settle_type, "value", s.settle_type)),
+            "amount": str(s.amount),
+            "bill_count": len(s.order_ids or []),
+        },
+    )
     db.commit()
     db.refresh(s)
     u = db.get(User, s.driver_id)
@@ -127,6 +146,22 @@ def settlement_action(
             raise HTTPException(status_code=400, detail="不支持的动作")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    # confirm / pay / cancel 三个动作都要留痕（2026-09-19 审计）：
+    # 「付款」尤其重要——钱真的出去了，而原来审计页一个字都没有。
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.SETTLEMENT_STATUS,
+        change_payload={
+            "settlement_id": s.id,
+            "driver_id": s.driver_id,
+            "action": body.action,
+            "amount": str(s.amount),
+            "status": str(getattr(s.status, "value", s.status)),
+            "method": body.method if body.action == "pay" else None,
+        },
+    )
     db.commit()
     db.refresh(s)
     u = db.get(User, s.driver_id)

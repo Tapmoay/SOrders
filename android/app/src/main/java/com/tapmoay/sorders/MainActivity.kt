@@ -85,12 +85,22 @@ class MainActivity : ComponentActivity() {
      * 点了通知 = 用户已经看到了那件事，所以：
      * 1. 立刻停止「来单了」播报（还在响会让人以为又来了新单）；
      * 2. 带单号的话交给 AppRoot 直达订单详情，不用用户自己在列表里再找一遍。
+     *
+     * ⚠️ 打断播报**必须挂在"这一单"上**（2026-09-19 审计 P1-15）：原来这里对**任何** intent
+     * 都先 `stop()` 一次，而本 Activity 是 `exported=true` + LAUNCHER——司机正在响新单时，
+     * 点一下桌面图标（或任何别的 App 拉起本 App）就把播报打断了，表现是"新单只响了一声"，
+     * 而且没有任何报错、日志里也看不出被谁打断。
+     *
+     * 所以判据只能是「真的是从通知点进来的，且带着合法单号」：[NotifyCenter.EXTRA_ORDER_ID]
+     * 是唯一的凭据（本 App 的通知一律由 [NotifyCenter.openApp] 生成，只有它会给这条 extra）。
      */
     private fun consumeIntent(intent: Intent?, container: AppContainer, from: String) {
         if (intent == null) return
-        container.newOrderPlayer.stop()
         val orderId = intent.getLongExtra(NotifyCenter.EXTRA_ORDER_ID, -1L)
         Log.i(NewOrderPlayer.TAG, "收到通知点击（$from）单号=$orderId")
-        if (orderId > 0) container.pendingOrderId.value = orderId
+        if (orderId > 0) {
+            container.newOrderPlayer.stop()
+            container.pendingOrderId.value = orderId
+        }
     }
 }

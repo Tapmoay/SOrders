@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -16,6 +16,14 @@ if TYPE_CHECKING:
 
 class Ledger(Base, TimestampMixin):
     __tablename__ = "ledgers"
+    #: 同一订单行同一来源只能有一行账（2026-09-19 审计）。
+    #: 送达自动入账是"先查再插"，并发下会落两行同样的账 —— **营业额直接虚增**
+    #: （本机实测复现：订单 581 同一 order_product 两条 60 元）。
+    #: 手工行的 `order_product_id` 是 NULL，MySQL/SQLite 的唯一索引都允许多个 NULL，互不干扰。
+    #: ⚠️ 老库靠 `schema_bootstrap` 补这个索引（会先查重复行，有重复就不建并吵一声）。
+    __table_args__ = (
+        UniqueConstraint("order_product_id", "source", name="uq_ledgers_order_product_source"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     shipper_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)

@@ -9,33 +9,68 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps import CurrentUser
 from app.schemas.auth import LoginRequest, Token
+from app.services import login_guard
 from app.services.auth_service import authenticate_user
 from app.services.token_response import build_token_response
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=Token)
-def login_json(body: LoginRequest, db: Session = Depends(get_db)) -> Token:
-    user = authenticate_user(db, body.phone, body.password)
+def _client_ip(request: Request) -> str | None:
+    """来源 IP。生产经 nginx 反代（`UVICORN_PROXY_HEADERS` 已开），`request.client` 是真实客户端。"""
+    return getattr(getattr(request, "client", None), "host", None)
+
+
+def _login(db: Session, login_id: str, password: str, ip: str | None) -> Token:
+    """两条登录端点共用：限流 → 校验 → 记账（成功清计数、失败累加）。"""
+    reason = login_guard.block_reason(login_id, ip)
+    if reason:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=reason)
+    user = authenticate_user(db, login_id, password)
     if user is None:
+        login_guard.note_failure(login_id, ip)
+        # 不区分"用户不存在"与"密码错误"（避免账号枚举），也不提示还能试几次
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+    login_guard.note_success(login_id)
     return build_token_response(user)
+
+
+@router.post("/logout")
+def logout(
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> dict:
+    """登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）。
+
+    ⚠️ 为什么需要它（2026-09-19 审计）：客户端原来的"登出"只删掉本机 DataStore 里的令牌，
+    服务端一个字都不知道 —— 被复制走的令牌照样能用满 24 小时。手机丢了、在别人电脑上登过，
+    都没有止损手段。现在登出＝真的作废（代价是同一账号的其它设备也要重新登录，
+    这是"登出"应有的语义）。
+    """
+    from app.services.auth_service import bump_token_version
+
+    bump_token_version(db, current)
+    db.commit()
+    return {"ok": True, "note": "本账号已发出的登录令牌已全部作废，请重新登录"}
+
+
+@router.post("/login", response_model=Token)
+def login_json(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> Token:
+    return _login(db, (body.phone or "").strip(), body.password, _client_ip(request))
 
 
 @router.post("/token", response_model=Token)
 def login_form(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Token:
     """OAuth2 兼容：username 字段填手机号。"""
-    user = authenticate_user(db, form_data.username, form_data.password)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
-    return build_token_response(user)
+    return _login(db, (form_data.username or "").strip(), form_data.password, _client_ip(request))

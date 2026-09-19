@@ -207,6 +207,14 @@ class AiWritePreviewStore(
         summary: String,
         detailLines: List<String>,
         payload: JsonObject,
+        /**
+         * true = **这一张卡是「撤回」卡**。
+         *
+         * 为什么要传这个：卡片最后一行由这里统一按 `actionId` 拼，而撤回走的是**另一个**写动作
+         * （删专属价 → 撤回走"设专属价"）。不区分的话，撤回卡上会印着被撤回动作的那句
+         * 「⚠️ 这一步撤不回来」，和标题「撤回：…」互相打架（真机 E2E 抓到的原样）。
+         */
+        isUndo: Boolean = false,
     ): AiPendingWrite {
         synchronized(lock) {
             pruneLocked()
@@ -219,13 +227,14 @@ class AiWritePreviewStore(
             items.firstOrNull { it.actionId == actionId && it.payload == payload }?.let { return it }
 
             val at = now()
+            val lastLine = if (isUndo) AiRevert.undoCardLine(actionId) else AiWrites.undoLineOf(actionId)
             val p = AiPendingWrite(
                 token = newToken(),
                 actionId = actionId,
                 title = title,
                 risk = risk,
                 summary = summary,
-                detailLines = detailLines + listOfNotNull(AiWrites.undoLineOf(actionId)),
+                detailLines = detailLines + listOfNotNull(lastLine),
                 payload = payload,
                 createdAtMs = at,
                 expiresAtMs = at + ttlMs,
@@ -383,7 +392,16 @@ data class AiOrderRef(
     val id: Long,
     val orderNo: String,
     val shipper: String,
-    val statusCn: String,
+    /**
+     * 后端**原始状态码**（`PENDING_DISPATCH` / `DISPATCHED` / …）。
+     *
+     * ⚠️ 状态门（`requireStatus`）只认它。原来这里存的是**中文状态**，
+     * 于是每个动作的状态门写成 `setOf("待派单", "派单中")` —— 中文只是**显示名**，
+     * 谁把 `statusLabel` 的措辞改一下（那看起来是纯文案改动），
+     * 12 处状态门的含义就跟着一起变了，而且**不会有任何测试或编译错误**。
+     * 现在门用状态码（可与后端枚举逐值对账），中文只出现在卡片文案里。
+     */
+    val status: String,
     val address: String,
     /** 当前的司机（没派单时为 null）。撤回/改运费时卡片要显示"本来是谁"。 */
     val driverLabel: String? = null,
@@ -400,6 +418,9 @@ data class AiOrderRef(
      */
     val isException: Boolean = false,
 ) {
+    /** 卡片上显示的中文状态（由 [status] 推出来，不再单独存一份）。 */
+    val statusCn: String get() = statusLabel(status)
+
     /** 卡片和候选名单里显示的一行字。**只有名字和状态，没有编号。** */
     fun label(): String = buildString {
         append(orderNo.ifBlank { "订单" })
@@ -666,6 +687,15 @@ enum class AiFieldType(val cn: String) {
     COUNT("数量"),
     /** 可以填 0 或负数的整数（如库存变动量）。 */
     DELTA("增减量"),
+    /**
+     * **非负整数**（0 合法、不许负数）：库存报警阈值、初始库存这类"绝对值"。
+     *
+     * ⚠️ 为什么不能拿 [DELTA] 凑（2026-09-19 审计）：DELTA 的语义是"增减量"，
+     * 它**拒 0 且允许负数** —— 而这两条正好与阈值相反：卡片上写着"填 0 = 不报警"，
+     * 模型照做会被拒（错误文还在讲"不会改变库存、只会留下一条没意义的流水"，文不对题），
+     * 而填了负数后端 `ge=0` 会 422。类型必须有自己的名字，判据才能钉住它。
+     */
+    NON_NEGATIVE("非负整数"),
     DATE("日期"),
     BOOL("是/否"),
     ENUM("枚举"),
@@ -1527,8 +1557,13 @@ object AiWrites {
                 AiWriteParam("title", "标题", required = true, hint = "必填，一句话标题"),
                 AiWriteParam("content", "正文", required = true, hint = "必填，要说的事"),
                 AiWriteParam(
-                    "important", "重要（语音播报）", kind = AiWriteParamKind.ENUM,
-                    hint = "可选，true/false。默认 false；只有真的急事才填 true",
+                    // ⛔ 标题原来写「重要（语音播报）」——**模型会照着这句向用户承诺**，
+                    //    而新版 App 从不读 `speech_important`（只有旧网页端读），
+                    //    所以那是一句"不会发生的事"（2026-09-19 审计 R14-11）。
+                    //    参数名里不许再出现"播报"这类承诺，只描述它真的做什么。
+                    "important", "重要标记", kind = AiWriteParamKind.ENUM,
+                    hint = "可选，true/false。默认 false；只有真的急事才填 true。" +
+                        "**这只是打一个「重要」标记，新版 App 不会因此播语音**，不要向用户承诺语音提醒",
                     enumValues = listOf("true", "false"),
                 ),
             ),
@@ -1670,7 +1705,12 @@ object AiWrites {
      * 一句"今天所有单都派给老王"如果不设上限，可能在用户完全没意识到数量时动几十单。
      * 上限不是技术限制，是**让用户有机会核对数量**：超了就让他分批，或者去页面上用批量派单。
      */
-    const val MAX_SPLIT_PARTS: Int = 6
+    // ⚠️ 必须与**后端**的上限一致（2026-09-19 审计）：`backend/app/schemas/order.py` 的
+    //    `parts: list[int] = Field(..., min_length=2, max_length=5)` —— 服务层只再查下限，
+    //    上限（5）只有 Pydantic 那一道。原来这里是 6，于是"按 1:1:1:1:1:1 拆 6 单"能一路弹到
+    //    确认卡（卡片还算好了每单折算金额），点确认必吃 422「parts：最多 5 项」。
+    //    确认卡承诺了后端做不到的事，比直接拒绝糟：用户已经核过一遍数了。
+    const val MAX_SPLIT_PARTS: Int = 5
     const val MAX_BATCH_ASSIGN: Int = 10
 
     /**
@@ -1790,9 +1830,17 @@ object AiWrites {
      *
      * **按域分组**：动作到 10 个以上时，一长条平铺的清单会让模型选错域
      * （把"派单"的参数填进"账本"里）。分组之后它至少先落在正确的域上。
+     *
+     * ⚠️ 必须用 `forModel`（2026-09-19 审计）：这段文本是**贴给模型看的**，而 `forRole` 里
+     *    还包含 8 个 `undoOnly` 的"撤回专用恢复动作"。原来这里用的是 `forRole`，于是
+     *    `preview_write` 的说明里逐条印着 `products.restore（…）：撤回路径专用，模型看不到它`，
+     *    而同一个参数的 `enum` 用的是 `forModel`（不含它们）—— 说明与 enum **自相矛盾**。
+     *    模型照说明"原样照抄"一个 restore → `AiWrites.allows`（用 forRole）放行 →
+     *    处理器拿 `target_id` 去匹配一个写死为空的名册 → 报「系统里没有匹配「12」的商品」。
+     *    用户真实存在的需求（从回收站恢复）就这样被答成"没这条记录"。
      */
     fun describeForModel(role: AiRole? = AiRole.DISPATCHER): String =
-        forRole(role).groupBy { it.group }.entries.joinToString("\n") { (group, actions) ->
+        forModel(role).groupBy { it.group }.entries.joinToString("\n") { (group, actions) ->
             "【$group】\n" + actions.joinToString("\n") { a ->
                 buildString {
                     append("- ").append(a.id).append("（").append(a.title).append("）：").append(a.blurb)

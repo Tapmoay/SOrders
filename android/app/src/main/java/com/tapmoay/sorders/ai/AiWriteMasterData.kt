@@ -51,8 +51,8 @@ internal object AiWriteMasterData {
                 textField("name", "商品名", "必填，如「红富士苹果」", required = true, maxChars = 64),
                 moneyField("price", "默认单价（元）", "只传数字；不填按 0 建，之后可以在商品管理里改", key = "default_unit_price"),
                 textField("unit", "单位", "如「件」「斤」「箱」", maxChars = 8),
-                AiFieldSpec("stock", "初始库存", AiFieldType.DELTA, "只传数字；不填按 0"),
-                AiFieldSpec("alert", "库存报警阈值", AiFieldType.DELTA, "库存 ≤ 这个数就报警；不填就是不报警", key = "low_stock_alert"),
+                AiFieldSpec("stock", "初始库存", AiFieldType.NON_NEGATIVE, "只传数字（0 合法）；不填按 0"),
+                AiFieldSpec("alert", "库存报警阈值", AiFieldType.NON_NEGATIVE, "库存 ≤ 这个数就报警；填 0 = 不报警", key = "low_stock_alert"),
             ),
             headline = { c -> "新增商品：${c.str("name")}" },
             details = { c ->
@@ -87,7 +87,7 @@ internal object AiWriteMasterData {
                 textField("name", "新商品名", "要改成什么名字；不改就不填", maxChars = 64),
                 moneyField("price", "新默认单价（元）", "只传数字", key = "default_unit_price"),
                 textField("unit", "新单位", "如「件」「斤」", maxChars = 8),
-                AiFieldSpec("alert", "新报警阈值", AiFieldType.DELTA, "库存 ≤ 这个数就报警；填 0 = 不报警", key = "low_stock_alert"),
+                AiFieldSpec("alert", "新报警阈值", AiFieldType.NON_NEGATIVE, "库存 ≤ 这个数就报警；填 0 = 不报警", key = "low_stock_alert"),
             ),
             headline = { c -> "改商品：${c.ref("product")?.label}" },
             details = { c ->
@@ -107,10 +107,17 @@ internal object AiWriteMasterData {
             title = "商品上架/下架",
             risk = AiWriteRisk.MEDIUM,
             group = AiWrites.G_PRODUCT,
-            blurb = "把商品停用（下架）或重新启用。**下架后不能再用它下单**，但已有的单不受影响。",
+            // ⚠️ 措辞必须与后端一致（2026-09-19 审计「声明式 CRUD」专项，高）：
+            //    原来这里写「下架后**不能再用它下单**」——**没有任何一侧拦这件事**：
+            //    `order_flow.py` 下单只查 `prod.is_deleted`（全仓没有 `Product.is_active` 判定），
+            //    而 App 的选品页是 `includeInactive=true` + 只画一个红色「已下架」角标、加号仍可点。
+            //    所以"下架"的真实语义是「标记为停用 + 下单页显示警告」，不是"拦住下单"。
+            //    卡片承诺一件后端不做的事，用户就会以为拦住 —— 这是本项目反复强调的那类谎。
+            blurb = "把商品停用（下架）或重新启用。下架=**在名册里标记为停用**：" +
+                "下单页仍会列出它（带「已下架」标记），系统**不会**拦住拿它下单；已有的单不受影响。",
             targets = listOf(targetProduct()),
             fields = listOf(
-                boolField("active", "上架还是下架", "true=上架（可用），false=下架（不能下单）"),
+                boolField("active", "上架还是下架", "true=上架（可用），false=下架（标记为停用）"),
             ),
             headline = { c ->
                 val on = c.bool("active") == true
@@ -120,7 +127,12 @@ internal object AiWriteMasterData {
                 if (c.bool("active") == true) {
                     listOf("上架后：可以正常下单")
                 } else {
-                    listOf("下架后：不能再用它下单", "已有的订单不受影响", "随时可以再上架")
+                    listOf(
+                        "下架后：名册里标记为停用（下单页仍会列出它、并显示「已下架」）",
+                        "系统不拦下单：要真拦住，得把商品「删除」（回收站可恢复）",
+                        "已有的订单不受影响",
+                        "随时可以再上架",
+                    )
                 }
             },
         ) { ds, p ->
@@ -326,7 +338,7 @@ internal object AiWriteMasterData {
             group = AiWrites.G_USER,
             blurb = "定这个司机**以后怎么算运费**：按件计费（每单算运费）或固定工资（完全不显示运费），" +
                 "以及车型和工资额。**只管以后**，已有的单用的是派单当时的快照。",
-            targets = listOf(targetUser("司机")),
+            targets = listOf(targetUser("司机", role = "driver")),
             fields = listOf(
                 enumField(
                     "mode", "计费方式", "必填",
@@ -548,7 +560,8 @@ internal object AiWriteMasterData {
 
     private fun AiFieldSpec.paramKind(): AiWriteParamKind = when (type) {
         AiFieldType.TEXT -> AiWriteParamKind.TEXT
-        AiFieldType.MONEY, AiFieldType.COUNT, AiFieldType.DELTA -> AiWriteParamKind.NUMBER
+        AiFieldType.MONEY, AiFieldType.COUNT, AiFieldType.DELTA, AiFieldType.NON_NEGATIVE ->
+        AiWriteParamKind.NUMBER
         AiFieldType.DATE -> AiWriteParamKind.DATE
         AiFieldType.BOOL -> AiWriteParamKind.TEXT
         AiFieldType.ENUM -> AiWriteParamKind.ENUM

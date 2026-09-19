@@ -211,6 +211,12 @@ internal object AiResources {
                 AiWrites.INVENTORY_ADJUST,
                 negate = setOf("change"),
                 drop = setOf("note"),
+                // ⚠️ 旧原因**不搬**，但不能就这么空着（v3.45，真机 E2E 抓到的空原因流水）：
+                //    真机上那条反向流水的 note 是 `''`——"入库 +5（原因：真机校验B）"下面
+                //    躺着一条 "-5（原因：无）"，过几天谁也说不清那 5 件是怎么少的。
+                //    旧那句说的是"上一次为什么入库"，搬到反向流水上会被读成"这一次为什么出库"，
+                //    所以补一句说得清这一次是什么的字（卡片上照实写出来给用户看）。
+                dropWrite = mapOf("note" to "撤回：刚才那次库存调整（由撤回入口发起）"),
                 note = "库存按「相反方向再记一条流水」来撤回（原来那条留着——库存变动本来就该留痕）",
             ),
             paired(AiWrites.PRODUCTS_RESTORE, AiInverse(AiWrites.PRODUCTS_DELETE, mapOf("product_id" to AiRevert.ID)), idKey = "target_id"),

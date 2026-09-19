@@ -85,7 +85,16 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "逐单覆盖值不写进订单（派单员填了 300，账单还是按规则算）",
         FLOW,
-        lambda s: s.replace("        order.driver_piece_amount = piece_override", "", 1),
+        # ⚠️ 锚点跟着实现走（2026-09-19 第十四轮）：这一行现在与比例那行**成对**出现，
+        #    而且上面多了 6 行"为什么必须无条件赋值"的说明 —— 只锚 `piece_amount` 那一行
+        #    仍然能匹配，但为了让注入的语义（"这两个覆盖值都没写进去"）更贴近原意，
+        #    这里把两行一起换掉。
+        lambda s: s.replace(
+            "    order.driver_piece_amount = piece_override\n"
+            "    order.driver_commission_rate = rate_override\n",
+            "",
+            1,
+        ),
     ),
     (
         "覆盖值不做先验（填了不生效也照收：界面上有数字、账单里另一个数）",

@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import Place, PlaceUserUsage, ShipperLocation
@@ -126,9 +126,18 @@ def note_place_use(db: Session, *, user: Any, place: Place) -> tuple[int, bool]:
     if row is None:
         row = PlaceUserUsage(user_id=user.id, place_id=place.id, use_count=1, last_used_at=now)
         db.add(row)
+        db.flush()
     else:
-        row.use_count = (row.use_count or 0) + 1
-        row.last_used_at = now
+        # ⛔ 计数列必须**由数据库自增**，不许 `row.use_count = (row.use_count or 0) + 1`
+        #    （2026-09-19 审计，与库存同一个形状的 lost update）：司机手滑点两下"沿用这个地点"、
+        #    或两部手机同时点，两边都读到同一个旧值 → 后写的人把前一次的 +1 盖掉 →
+        #    次数攒得比实际慢，`AUTO_ADD_AFTER` 那条"常用就自动进我的地点"永远差一次才触发。
+        db.execute(
+            update(PlaceUserUsage)
+            .where(PlaceUserUsage.id == row.id)
+            .values(use_count=func.coalesce(PlaceUserUsage.use_count, 0) + 1, last_used_at=now)
+        )
+        db.refresh(row)
     db.flush()
 
     if row.auto_added or row.use_count < AUTO_ADD_AFTER:
@@ -276,8 +285,14 @@ def upsert_place(
     existing = find_place_near(db, lat, lng, name=name)
     now = datetime.now(timezone.utc)
     if existing is not None:
-        existing.use_count = (existing.use_count or 0) + 1
-        existing.last_used_at = now
+        # 同上：计数由数据库自增（`use_count` 只用于"常用的排前面"，但同一个形状的
+        # lost update 一样会让排序与"用过几次"的展示慢慢失真）
+        db.execute(
+            update(Place)
+            .where(Place.id == existing.id)
+            .values(use_count=func.coalesce(Place.use_count, 0) + 1, last_used_at=now)
+        )
+        db.refresh(existing)
         _fill_blank(existing, "name", name)
         _fill_blank(existing, "detail_address", detail_address)
         return existing, True

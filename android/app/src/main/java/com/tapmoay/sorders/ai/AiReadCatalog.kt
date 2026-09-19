@@ -109,9 +109,11 @@ object AiReadCatalog {
         )),
         ReadAction("ledger.list_temp_shipper_names", "临时货主名清单", "/api/v1/ledger/temp-shipper-names", "", setOf("dispatcher"), listOf(
         )),
-        ReadAction("notifications.list_notifications", "消息中心列表", "/api/v1/notifications", "category、days", setOf("dispatcher", "driver", "shipper"), listOf(
+        ReadAction("notifications.list_notifications", "消息中心列表", "/api/v1/notifications", "category、days、limit、before_id", setOf("dispatcher", "driver", "shipper"), listOf(
             ReadParam("category", "str", false, emptyList(), false),
             ReadParam("days", "int", false, emptyList(), false),
+            ReadParam("limit", "int", false, emptyList(), false),
+            ReadParam("before_id", "int", false, emptyList(), true),
         )),
         ReadAction("notifications.unread_count", "未读消息数", "/api/v1/notifications/unread-count", "", setOf("dispatcher", "driver", "shipper"), listOf(
         )),
@@ -148,16 +150,16 @@ object AiReadCatalog {
             ReadParam("include_inactive", "bool", false, emptyList(), false),
         )),
         ReadAction("reports.arrears_summary", "挂账/欠款汇总报表", "/api/v1/reports/arrears-summary", "date_from、date_to", setOf("dispatcher"), listOf(
-            ReadParam("date_from", "str", true, emptyList(), false),
-            ReadParam("date_to", "str", true, emptyList(), false),
+            ReadParam("date_from", "date", true, emptyList(), false),
+            ReadParam("date_to", "date", true, emptyList(), false),
         )),
         ReadAction("reports.product_report", "商品报表（销量、货损）", "/api/v1/reports/products", "mode、date", setOf("dispatcher"), listOf(
             ReadParam("mode", "str", false, emptyList(), false),
-            ReadParam("date", "str", true, emptyList(), false),
+            ReadParam("date", "date", true, emptyList(), false),
         )),
         ReadAction("reports.turnover_report", "营业报表（营业额/成本/毛利，按日期范围）", "/api/v1/reports/turnover", "mode、date", setOf("dispatcher"), listOf(
             ReadParam("mode", "str", false, emptyList(), false),
-            ReadParam("date", "str", true, emptyList(), false),
+            ReadParam("date", "date", true, emptyList(), false),
         )),
         ReadAction("shipper.list_addresses", "地址与线路库", "/api/v1/shipper/addresses", "", setOf("dispatcher", "shipper"), listOf(
         )),

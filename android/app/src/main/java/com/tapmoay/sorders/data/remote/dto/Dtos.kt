@@ -78,6 +78,11 @@ data class UserDto(
     @SerialName("driver_rule_id") val driverRuleId: Long? = null,
     @SerialName("driver_rule_name") val driverRuleName: String = "",
     @SerialName("pay_summary") val paySummary: String = "",
+    // 「他按不按单拿钱」——派单端要不要给他显示运费框，**以后端为准**（同 `snapshot_mode`，
+    // 规则优先）。界面不许自己按 `billingMode ?: 车型` 猜：挂着运费提成规则的大车司机会被
+    // 猜成工资制，于是运费框不显示、运费为空、提成算成 0 → 连账单都不生成（报告 P0-3）。
+    // null = 老后端还没这个字段 → 退回兜底判据（与 `resolve_billing_mode` 一致）。
+    @SerialName("pays_per_order") val paysPerOrder: Boolean? = null,
     @SerialName("created_at") val createdAt: String = "",
 )
 
@@ -803,8 +808,13 @@ data class TurnoverReportDto(
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("total_freight") val totalFreight: String = "0",
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("avg_order") val avgOrder: String = "0",
     val series: List<ReportSeriesItem> = emptyList(),
-    // 报表中心 v2：成本/毛利/货损/资金（毛利=总金额-有成本快照订单行的成本，未覆盖订单不计入）
+    // 报表中心 v2：成本/毛利/货损/资金
+    // ⚠️ 毛利 = `cost_covered_amount − cost_total`（**两侧同一批行**：只有有成本快照的行），
+    //    2026-09-19 审计 R13-R1 修：界面原来用 `total_amount − cost_total`（全部行的金额 − 只有
+    //    成本行的成本），同一个月实测 72,177.75 vs 正确 10,789.00 —— 差 6.7 倍。
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_total") val costTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_covered_amount")
+    val costCoveredAmount: String = "0",
     @SerialName("total_lines") val totalLines: Int = 0,
     @SerialName("cost_covered_lines") val costCoveredLines: Int = 0,
     @SerialName("damage_qty") val damageQty: Int = 0,
@@ -830,6 +840,11 @@ data class ProductReportItemDto(
     @Serializable(with = FlexibleStringSerializer::class) val cost: String = "0",
     @SerialName("damage_qty") val damageQty: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
+    // 参与毛利的金额（只有带成本快照的行）与行数 —— 2026-09-19 审计第十七轮：
+    // 没有它们，逐行毛利只能拿**全额**收入减成本（本机实测逐行合计 72,177.75，正确 10,789 量级）。
+    // 老后端不下发这两个字段 → null → 界面回落到"有成本才算毛利"的老口径（过渡，不是长期口径）。
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("covered_amount") val coveredAmount: String? = null,
+    @SerialName("covered_lines") val coveredLines: Int? = null,
 )
 
 @Serializable
@@ -843,6 +858,7 @@ data class ProductReportDto(
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
     @SerialName("total_lines") val totalLines: Int = 0,
     @SerialName("cost_covered_lines") val costCoveredLines: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_covered_amount") val costCoveredAmount: String? = null,
 )
 
 @Serializable
@@ -954,6 +970,12 @@ data class DriverBillingRuleDto(
     @SerialName("piece_unit") val pieceUnit: String = "order",
     /** none = 不提成；freight = 按运费；goods = 按商品金额。 */
     @SerialName("commission_base") val commissionBase: String = "none",
+    // ⚠️ `@SerialName` 不能省（2026-09-19 审计抓到的真缺陷）：后端出参键名是 `commission_rate`，
+    //    少了这一行 → `ApiClient.ignoreUnknownKeys = true` 把它当未知键**静默丢掉** →
+    //    提成比例永远读成默认 "0"。后果链：计费规则编辑页回填空白 → 想只改备注会被自己的校验拦住 →
+    //    用户唯一出路是把提成基数改成「不提成」→ **真提成被清成 0，挂着它的司机从此少拿钱**；
+    //    而且 AI 的撤回快照读的是同一个 DTO，会让「撤回」把 5% 写回成 0%。
+    @SerialName("commission_rate")
     @Serializable(with = FlexibleStringSerializer::class) val commissionRate: String = "0",
     /** 只对哪些商品抽成（空 = 不限）。 */
     @SerialName("commission_product_ids") val commissionProductIds: List<Long> = emptyList(),
@@ -1041,7 +1063,18 @@ data class FreightSettlementOrderDto(
     @SerialName("order_id") val orderId: Long = 0,
     @SerialName("order_no") val orderNo: String = "",
     @SerialName("delivered_at") val deliveredAt: String? = null,
-    @SerialName("freight_fee") val freightFee: String = "",
+    // ⚠️ 这里**必须是可空 String**（2026-09-19 审计）：后端对"还没定价"的单明确回 `null`，
+    //    而 `ApiClient.coerceInputValues = true` 会把 null 洗成非空字段的默认值 ""，
+    //    `formatMoney("")` 又返回 "0.00" → 结算页那一行显示「¥0.00」而不是「待定价」
+    //    （界面里 `if (freightFee != null)` 那个 else 分支在非空类型上恒为死代码）。
+    //    后果：需要补价的单失去唯一提示 → 运费漏结。
+    @SerialName("freight_fee") val freightFee: String? = null,
+    // ⛔ 这三个是**司机应得**（后端 `driver_pay.pay_for_order` 算的，与司机账单同源）。
+    //    以前 DTO 里没有它们，于是客户端拿 `freight_fee`（货主运费）当"司机该拿多少"自己求和 →
+    //    司机端「我的账本」合计与司机账单对不上（账单 675 / 司机端 1500），两边都不报错。
+    @SerialName("pay_total") val payTotal: String = "0",
+    @SerialName("pay_piece") val payPiece: String = "0",
+    @SerialName("pay_commission") val payCommission: String = "0",
     @SerialName("delivery_description") val deliveryDescription: String = "",
     @SerialName("address_detail") val addressDetail: String = "",
 )
@@ -1170,6 +1203,22 @@ data class ExpenseDto(
     @SerialName("driver_name") val driverName: String? = null,
     @SerialName("order_no") val orderNo: String? = null,
     val note: String = "",
+)
+
+/**
+ * 资金流水的**服务端汇总**（`GET /cash-flows/summary`）。
+ *
+ * ⚠️ 为什么要服务端算（2026-09-19 审计）：客户端原来"拉一页流水自己求和"，
+ * 而列表有 `limit`（默认 200）。实测同一窗口：默认只拿 200 条 → 流入 ¥18,842；
+ * limit=1000 → 273 条 → 流入 ¥48,905.50（页面少算 62%），而同一页 Excel 导出是 SQL 侧
+ * 全窗口求和（真值）→ "页面一个数、导出一个数"。金额必须在库里算完。
+ */
+@Serializable
+data class CashFlowSummaryDto(
+    val income: String = "0",
+    val expense: String = "0",
+    val net: String = "0",
+    val count: Int = 0,
 )
 
 @Serializable

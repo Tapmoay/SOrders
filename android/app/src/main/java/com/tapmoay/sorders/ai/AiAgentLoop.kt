@@ -299,7 +299,10 @@ class AiAgentLoop(
                         val argsJson = call.function.arguments
                         usedTools += ToolCallRecord(fnName, argsJson)
 
-                        onEvent(AiEvent.ToolStarted(fnName, summarizeArgs(argsJson)))
+                        // ⚠️ 这两行会进聊天页、进无障碍树、还会被存进对话文件：
+                        //    控制字符（模型给的参数里带 NUL 是最难查的一种）先在这里剥掉。
+                        //    见 [AiAnswerSanitizer.stripControl] 里那段实测记录。
+                        onEvent(AiEvent.ToolStarted(fnName, AiAnswerSanitizer.stripControl(summarizeArgs(argsJson))))
                         val output = try {
                             tools.execute(fnName, argsJson)
                         } catch (e: CancellationException) {
@@ -309,7 +312,13 @@ class AiAgentLoop(
                             """{"error":"工具执行异常：${oneLine(e.message ?: e.javaClass.simpleName, 80)}"}"""
                         }
                         val ok = !isErrorResult(output)
-                        onEvent(AiEvent.ToolFinished(fnName, ok, tools.summarize(fnName, output)))
+                        onEvent(
+                            AiEvent.ToolFinished(
+                                fnName,
+                                ok,
+                                AiAnswerSanitizer.stripControl(tools.summarize(fnName, output)),
+                            ),
+                        )
                         if (fnName == AiTools.PREVIEW_WRITE && isCardOffered(output)) cardsOffered++
 
                         messages += ChatMessage.tool(call.id, output)

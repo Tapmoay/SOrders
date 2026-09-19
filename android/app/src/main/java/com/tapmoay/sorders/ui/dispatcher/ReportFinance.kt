@@ -43,6 +43,28 @@ internal object ReportFinance {
     fun usesDateRange(tab: Int): Boolean = tab in 2..5
 
     /**
+     * 报表的时间窗口：`mode`（day/week/month）+ `anchor` → 起止日期（含首含尾）。
+     *
+     * ⚠️ **唯一真相**（2026-09-19 审计）：以前"标题"和"取数窗口"是**两处各写一遍**的，
+     * 而且写法不同 —— 标题写整月/整周（`2026-09-01 ~ 2026-09-30`），取数只到**锚点当天**
+     * （`2026-09-01 ~ 2026-09-05`）。于是 9/5 打开报表：标题写整月、数字只含 5 天；
+     * 9/20 打开则少掉后面 10 天的收支。而同一屏的「营业纵览」营业额走的是后端整月窗口 →
+    * **同一页两个时间段**，页面上完全看不出来。
+     * 现在两边都调这一个函数，写错了单测会红。
+     */
+    fun rangeFor(mode: String, anchor: String): Pair<String, String> {
+        val d = java.time.LocalDate.parse(anchor)
+        return when (mode) {
+            "week" -> {
+                val s = d.minusDays((d.dayOfWeek.value - 1).toLong())
+                s.toString() to s.plusDays(6).toString()
+            }
+            "month" -> d.withDayOfMonth(1).toString() to d.withDayOfMonth(d.lengthOfMonth()).toString()
+            else -> d.toString() to d.toString()
+        }
+    }
+
+    /**
      * 资金方向是不是"收"。
      *
      * 后端 `CashFlowDirection` 的真实取值是**小写** `in` / `out`

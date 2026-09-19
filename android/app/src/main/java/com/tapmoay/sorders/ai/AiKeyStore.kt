@@ -3,6 +3,7 @@ package com.tapmoay.sorders.ai
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import java.io.File
 import java.security.KeyStore
 import java.util.Base64
 import javax.crypto.Cipher
@@ -30,11 +31,39 @@ import javax.crypto.spec.GCMParameterSpec
  *
  * ⚠️ 模拟器注意：AVD 的 AndroidKeyStore 是完整实现（软件 TEE），加解密与真机行为一致；
  * 但「清除数据 / 卸载重装」会连同 Keystore 别名一起删掉，此时必须重新输入 key。
+ *
+ * ### 【红线】这份数据属于谁 —— 凭据必须按用户分区
+ * 这里曾是 [AiScope] 那条账上**唯一漏掉的一份**：同容器的对话/习惯/记忆都按用户分区了，
+ * 而凭据用的是固定串 prefs 名 `sorders_ai_prefs`（2026-09-19 审计 P0-6）。
+ * 后果不是"设置串了"这么轻：**同一台手机换账号后，下一个登录的人能读出上一个人的明文 LLM Key**
+ * （点一下设置页的眼睛图标即是明文；不点也能用——聊天与"测试连接"走的就是它，账单记在上一人头上）。
+ *
+ * 做法与 [AiHabitStore] 完全一致：**prefs 名带上分区后缀**（[PREFS_NAME] + scope），
+ * 而不是在里面加一层 key——旧的无分区文件自然就没人读了。**但不只是"没人读"**：
+ * 无分区的旧文件在 [init] 里被**隔离改名**（见 [AiScope.quarantineLegacy]），
+ * 因为"我们不知道那把 Key 是谁的"，绝不能把它交给现在登录的这个人。
  */
-class AiKeyStore(context: Context) {
+class AiKeyStore(
+    context: Context,
+    /**
+     * 用户分区后缀（见 [AiScope]）。**刻意不给默认值**：留一个默认空串，
+     * 下一个调用点就会写出"忘了传分区"的凭据 store——而那正是本类要修的那个 bug。
+     */
+    scope: String,
+) {
 
     private val prefs = context.applicationContext
-        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getSharedPreferences(PREFS_NAME + scope, Context.MODE_PRIVATE)
+
+    init {
+        // 无分区的旧凭据文件（`sorders_ai_prefs.xml`）隔离改名：
+        // 改完是 `sorders_ai_prefs.xml.legacy-<时间戳>`，系统再也不会把它当 prefs 读。
+        // 不删（可人工找回），但**绝不归给现在登录的人**——理由见类注释。
+        AiScope.quarantineLegacy(
+            File(context.applicationContext.filesDir.parentFile, "shared_prefs"),
+            PREFS_NAME + ".xml",
+        )
+    }
 
     // ---------------------------------------------------------------- API Key
 
@@ -449,6 +478,10 @@ class AiKeyStore(context: Context) {
          */
         val DEFAULT_THINKING_LEVEL: ThinkingLevel = ThinkingLevel.DEFAULT
 
+        /**
+         * prefs 名的**前缀**——真正的名字是它 + 用户分区后缀（见类注释）。
+         * 直接用固定串就等于"大家共用一份凭据"，那是 P0-6。
+         */
         private const val PREFS_NAME = "sorders_ai_prefs"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val ALIAS = "sorders_ai_key_v1"

@@ -57,6 +57,7 @@ import com.amap.api.services.geocoder.GeocodeQuery
 import com.amap.api.services.geocoder.GeocodeSearch
 import com.amap.api.services.geocoder.RegeocodeQuery
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.SunLocation
 import com.tapmoay.sorders.util.GeoResolver
 import kotlinx.coroutines.delay
 
@@ -99,6 +100,9 @@ fun AmapPickerDialog(
     var mapReady by remember { mutableStateOf(false) }
     // 弹层存活标记：关闭销毁地图后所有地图操作一律短路，防止定位回流/回调触发闪退
     var alive by remember { mutableStateOf(true) }
+    // 坐标不可信时的**就地**提示（2026-09-19 报告 P1-13）：以前这里没有这个状态，
+    // 于是坐标是 (0,0) 时也照样确认出去。
+    var coordError by remember { mutableStateOf<String?>(null) }
 
     // 地图载体：全程单例（规避 9.8.3 onDestroy 在 Android 16 arm64 上 native 崩溃）
     val mapView = remember { AmapMapHolder.get(context.applicationContext) }
@@ -273,6 +277,7 @@ fun AmapPickerDialog(
                                 position?.let { p ->
                                     lat = p.target.latitude
                                     lng = p.target.longitude
+                                    coordError = null   // 重新选了点，把上一次的提示撤掉
                                     regeo(lat, lng)
                                 }
                             }
@@ -301,17 +306,38 @@ fun AmapPickerDialog(
                         maxLines = 2,
                     )
                     Spacer(Modifier.height(8.dp))
+                    coordError?.let { msg ->
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = {
+                                // ⛔ **坐标不可信时不许确认**（2026-09-19 全项目报告 P1-13，中）：
+                                //    高德定位失败回的是 `(0,0)`（不是 null），而这个弹层的初始坐标就是
+                                //    `initialLat ?: 0.0` —— 于是"没拿到定位就直接点确认"会把 `(0.0, 0.0)`
+                                //    交给调用方：写进订单、也写进**全库共享的地点库**（那个库没有删除接口，
+                                //    污染不可逆），导航还会把人指到几内亚湾。
+                                //    判据直接复用 `SunLocation.isPlausible` —— 它已经是本仓"这个坐标是不是
+                                //    真的"的唯一一份（`core/DeviceLocation.kt` 也用它过滤定位回调，
+                                //    注释里写明了"定位失败时高德回的是 (0,0)"）。
+                                //    闸放在这**唯一一个确认口**，三个调用方（下单/地址与联系人/导航）一起受保护。
+                                if (!SunLocation.isPlausible(lat, lng)) {
+                                    coordError = "还没拿到有效坐标：请点「定位到当前位置」，或在图上点一下/拖动地图重新选点。"
+                                    return@Button
+                                }
                                 val a = address.trim()
                                 if (a.isNotBlank()) {
                                     onPicked(lat, lng, a)
                                 } else {
                                     // 逆地理未回填时兜底：IO 线程同步解析再回传
+                                    // （走到这里时坐标一定可信，所以兜底文案可以直接给"已选位置"）
                                     scope.launch(Dispatchers.IO) {
-                                        val fallback = GeoResolver.resolveSync(context, lat, lng)
-                                            ?: (if (lat != 0.0 || lng != 0.0) "已选位置" else "")
+                                        val fallback = GeoResolver.resolveSync(context, lat, lng) ?: "已选位置"
                                         onPicked(lat, lng, fallback)
                                     }
                                 }

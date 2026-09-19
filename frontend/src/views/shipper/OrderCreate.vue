@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { showFailToast, showLoadingToast, showSuccessToast, showToast, closeToast } from 'vant'
 
 import { fetchAddresses, upsertContact } from '@/api/addresses'
 import { createOrder } from '@/api/orders'
 import { fetchProductsCatalog, type Product } from '@/api/products'
+import { fetchPriceRules, type PriceRule } from '@/api/priceRules'
 import { resolveStaticUrl } from '@/utils/assets'
 import { normalizeHexColor } from '@/utils/productColor'
 import { formatApiError } from '@/utils/apiError'
@@ -26,6 +28,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const isDispatcher = computed(() => route.path.startsWith('/dispatcher'))
 const draftRole = computed(() => (isDispatcher.value ? 'dispatcher' : 'shipper'))
 
@@ -213,6 +216,54 @@ function removeLine(i: number) {
   lines.value.splice(i, 1)
 }
 
+/**
+ * 当前下单主体的**批发商专属价**（`product_id` → 单价）。
+ *
+ * 后端 `GET /price-rules` 就是为「下单时报出实际价格」存在的：货主只拿得到自己的，
+ * 派单员代下单则按所选货主取。**换主体时必须先清空**——异步加载会晚一步回来，
+ * 不清空就会拿甲的专属价给乙下单（App 侧踩过这个坑：`priceRulesShipper` 那个守卫就是为它加的）。
+ */
+const priceRules = ref<Record<number, number>>({})
+const priceRulesSubject = ref<number | null>(null)
+
+async function loadPriceRulesFor(subject: number | null) {
+  if (subject == null) {
+    priceRules.value = {}
+    priceRulesSubject.value = null
+    return
+  }
+  if (priceRulesSubject.value !== subject) {
+    priceRules.value = {}
+    priceRulesSubject.value = null
+  }
+  try {
+    const rows: PriceRule[] = await fetchPriceRules(isDispatcher.value ? subject : undefined)
+    const map: Record<number, number> = {}
+    for (const r of rows) {
+      const n = Number(r.special_unit_price)
+      if (Number.isFinite(n)) map[r.product_id] = n
+    }
+    // 请求回来时主体又被换过就别写了（同一个守卫）
+    if (priceRulesSubject.value === null) {
+      priceRules.value = map
+      priceRulesSubject.value = subject
+    }
+  } catch {
+    /* 拿不到专属价就用默认价，不打断下单 */
+  }
+}
+
+/** 这一行该报的单价：有专属价用专属价，否则默认价。返回 null = 该商品没有专属价。 */
+function specialPriceOf(pr: Product): number | null {
+  if (priceRulesSubject.value == null) return null
+  const v = priceRules.value[pr.id]
+  return typeof v === 'number' ? v : null
+}
+
+function priceForProduct(pr: Product): number {
+  const sp = specialPriceOf(pr)
+  return sp != null ? sp : Number(pr.default_unit_price)
+}
 /** 拉取商品目录；失败返回 false，不抛错（避免连带阻断其它 onMounted 逻辑） */
 async function loadProductsCatalog(): Promise<boolean> {
   try {
@@ -254,7 +305,8 @@ function onProductRowClick(pr: Product) {
   const i = productPickerIndex.value
   lines.value[i].product_id = pr.id
   lines.value[i].product_name_snapshot = pr.name
-  lines.value[i].unit_price = Number(pr.default_unit_price)
+  // 批发商专属价优先（后端 `/price-rules` 的既定用途；App 侧同口径）
+  lines.value[i].unit_price = priceForProduct(pr)
   productPickerVisible.value = false
 }
 
@@ -317,6 +369,12 @@ function confirmShipperPick() {
   shipperPickerVisible.value = false
 }
 
+/** 下单主体变化（派单员换货主 / 恢复草稿）→ 换成那个主体的专属价 */
+watch(shipperId, (sid) => {
+  if (!isDispatcher.value) return
+  void loadPriceRulesFor(sid)
+})
+
 onMounted(async () => {
   hydrating.value = true
   const wantResume = route.query.resume === '1' || route.query.resume === 'true'
@@ -330,6 +388,12 @@ onMounted(async () => {
   }
 
   await loadProductsCatalog()
+  // 专属价：货主取自己的；派单员等选定货主后再取（下面的 watch(shipperId) 会跟进）
+  if (isDispatcher.value) {
+    await loadPriceRulesFor(shipperId.value)
+  } else {
+    await loadPriceRulesFor(typeof auth.userId === 'number' ? auth.userId : null)
+  }
   try {
     if (isDispatcher.value) {
       await loadShippers()
@@ -572,7 +636,10 @@ async function submit() {
               <div class="product-picker-float__name" :style="productNameColorStyle(pr.name_color)">
                 {{ pr.name }}
               </div>
-              <div class="product-picker-float__price">¥{{ formatMoney2(pr.default_unit_price) }}</div>
+              <div class="product-picker-float__price">
+                ¥{{ formatMoney2(priceForProduct(pr)) }}
+                <span v-if="specialPriceOf(pr) != null" class="product-picker-float__special">专属价</span>
+              </div>
             </div>
             <van-tag v-if="!pr.is_active" type="danger" class="product-picker-float__tag">已下架</van-tag>
           </div>
@@ -905,6 +972,17 @@ async function submit() {
   color: var(--van-danger-color, #ee0a24);
   margin-top: 6px;
   letter-spacing: 0.02em;
+}
+/* 「专属价」标记：让货主一眼看出报的不是默认价（他谈下来的价） */
+.product-picker-float__special {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--van-primary-color, #1677ff);
+  background: rgba(22, 119, 255, 0.1);
 }
 .product-picker-float__tag {
   flex-shrink: 0;

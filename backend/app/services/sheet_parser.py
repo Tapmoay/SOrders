@@ -124,18 +124,24 @@ def _parse_xlsx(data: bytes, rows_cap: int) -> ParsedSheet:
         names = list(wb.sheetnames)
         for sheet_name in names[:MAX_SHEETS]:
             ws = wb[sheet_name]
-            rows, total, cols, truncated = _read_xlsx_sheet(ws, rows_cap)
+            rows, total, cols, truncated, dropped_cols = _read_xlsx_sheet(ws, rows_cap)
             if not rows:
                 # 空表不进结果（但要说一声，否则用户会以为"我明明有一个 sheet 没读到"）
                 warnings.append(f"工作表「{sheet_name}」是空的，跳过了。")
                 continue
+            if dropped_cols:
+                warnings.append(
+                    f"工作表「{sheet_name}」有 {cols + dropped_cols} 列，只读了前 {MAX_COLS} 列"
+                    f"（右侧 {dropped_cols} 列没读）。要读那些列，请把它们挪到前面或单独另存一个文件。"
+                )
             tables.append(
                 Table(
                     name=str(sheet_name),
                     rows=rows,
                     row_count=total,
                     col_count=cols,
-                    truncated=truncated,
+                    # 列被砍掉也算"截断"：卡片上写"40 列"时，用户必须能看出这不是全部
+                    truncated=truncated or dropped_cols > 0,
                 )
             )
         if len(names) > MAX_SHEETS:
@@ -157,8 +163,8 @@ def _parse_xlsx(data: bytes, rows_cap: int) -> ParsedSheet:
     return ParsedSheet(kind="xlsx", tables=tables, warnings=warnings)
 
 
-def _read_xlsx_sheet(ws: Any, rows_cap: int) -> tuple[list[list[str]], int, int, bool]:
-    """读一张工作表：返回（行、真实行数、列数、是否截断）。"""
+def _read_xlsx_sheet(ws: Any, rows_cap: int) -> tuple[list[list[str]], int, int, bool, int]:
+    """读一张工作表：返回（行、真实行数、列数、行是否截断、被砍掉的列数）。"""
     out: list[list[str]] = []
     total = 0
     cols = 0
@@ -174,11 +180,11 @@ def _read_xlsx_sheet(ws: Any, rows_cap: int) -> tuple[list[list[str]], int, int,
         else:
             truncated = True
         cols = max(cols, len(cells))
-    out = _trim(out, cols)
+    out, dropped_cols = _trim(out, cols)
     # 列数按**裁完之后**的实际宽度算：Excel 里到过的空列（D 列以后什么都没写）不算列，
     # 否则用户会看到"5 列"而表里只有 3 列有内容，模型也会以为后面两列是空的。
     cols_out = len(out[0]) if out else 0
-    return out, total, cols_out, truncated
+    return out, total, cols_out, truncated, dropped_cols
 
 
 def _cell_text(v: Any) -> str:
@@ -209,14 +215,25 @@ def _cell_text(v: Any) -> str:
     return s
 
 
-def _trim(rows: list[list[str]], cols: int) -> list[list[str]]:
-    """裁掉右侧全空的列，并把每行补齐到同样宽度（模型看表格时列数一致才不会串列）。"""
+def _trim(rows: list[list[str]], cols: int) -> tuple[list[list[str]], int]:
+    """裁掉右侧全空的列，并把每行补齐到同样宽度（模型看表格时列数一致才不会串列）。
+
+    返回（裁完的行、**被 MAX_COLS 砍掉的非空列数**）。
+
+    ⛔ 第二步（`min(keep, MAX_COLS)`）原来是**静默**的（2026-09-19 审计 R14-10）：
+       `truncated` 只由**行数**决定，列被砍掉时既不置位也没有 warning，`col_count` 还直接
+       报 40。一张 50 列的商品/账单表挂给 AI → 卡片写"200 行 × 40 列"、提示词里也写 40 列、
+       什么提示都没有 → 模型按"这张表只有 40 列"作答（"没有这一列"），用户不知道后 10 列
+       去哪了；拿它的结论去改价/建商品就是把**截断后的表当成全表**。
+       本模块自己的硬约束写着"截断这件事必须告诉用户"，列截断没有理由例外。
+    """
     if not rows:
-        return rows
+        return rows, 0
     keep = 0
     for i in range(cols):
         if any((r[i] if i < len(r) else "") for r in rows):
             keep = i + 1
+    dropped = max(0, keep - MAX_COLS)
     keep = min(keep, MAX_COLS)
     out: list[list[str]] = []
     for r in rows:
@@ -224,7 +241,7 @@ def _trim(rows: list[list[str]], cols: int) -> list[list[str]]:
         if len(row) < keep:
             row += [""] * (keep - len(row))
         out.append(row)
-    return out
+    return out, dropped
 
 
 # ------------------------------------------------------------------ csv / txt
@@ -253,16 +270,21 @@ def _parse_text(data: bytes, name: str, ext: str, rows_cap: int) -> ParsedSheet:
     truncated = total > rows_cap
     rows = rows_all[:rows_cap]
     cols = max((len(r) for r in rows), default=0)
-    rows = _trim(rows, cols)
+    rows, dropped_cols = _trim(rows, cols)
     if truncated:
         warnings.append(f"这个文件有 {total} 行，只读了前 {rows_cap} 行。")
+    if dropped_cols:
+        warnings.append(
+            f"这个文件有 {cols} 列，只读了前 {MAX_COLS} 列（右侧 {dropped_cols} 列没读）。"
+            f"要读那些列，请把它们挪到前面或单独另存一个文件。"
+        )
 
     table = Table(
         name=name.rsplit(".", 1)[0] or name,
         rows=rows,
         row_count=total,
         col_count=min(cols, MAX_COLS),
-        truncated=truncated,
+        truncated=truncated or dropped_cols > 0,
     )
     return ParsedSheet(kind=("tsv" if ext == ".tsv" else "text"), tables=[table], warnings=warnings)
 

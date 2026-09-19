@@ -97,7 +97,10 @@ class ProductOut(BaseModel):
     name: str
     name_color: str | None = None
     default_unit_price: Decimal
-    cost_price: Decimal = Decimal("0")
+    # ⚠️ 进价**按角色裁剪**：只有派单员（product:manage）拿到真实值，其余角色是 null
+    #    （2026-09-19 审计 R12-H1：原来无条件下发，货主与司机都能读到）。
+    #    为什么是 null 而不是 0：0 会被读成"这东西没成本"，那是个假数。
+    cost_price: Decimal | None = None
     is_active: bool
     image_url: str | None = None
     stock: int = 0

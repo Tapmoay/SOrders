@@ -27,8 +27,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- 开机后自动接上（只在登录过 + 用户开着后台接收时，见 core/BootReceiver.kt） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- 拍照（相机直拍/预览场景；系统相机 Intent 亦可） -->
-    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- ⛔ **不许再加 `android.permission.CAMERA`**（2026-09-19 报告 P1-9）：
+         本 App 一行相机 API 都没调（全仓无 CameraX/Camera2），4 处拍照全部委托系统相机 App
+         （`ActivityResultContracts.TakePicture` / `TakePicturePreview` → ACTION_IMAGE_CAPTURE）。
+         而系统文档写得很明确：**声明了** CAMERA 却没授权时，ACTION_IMAGE_CAPTURE 会抛
+         SecurityException —— 于是"司机在权限弹窗点拒绝 → 点拍照送达 → 无提示崩溃"。
+         删掉这个声明，4 处一起好（同一个坑的另一半见 `ui/order/OrderDetailScreen.kt` 的注释）。 -->
     <!-- 相册/文件读取（Android 13+ 用媒体权限；12 及以下用存储权限） -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -44,9 +48,22 @@
         <package android:name="com.autonavi.minimap" />
     </queries>
 
+    <!--
+        allowBackup=false（2026-09-19 审计 P1-5）：
+        本机存着**会话令牌**（files/datastore/session.preferences_pb 明文 JWT）与
+        **AI 凭据/对话/记忆**（shared_prefs + filesDir 的几份 json），而 App 对用户的承诺是
+        「只在本机、不上传、不跨设备同步」。allowBackup=true 等于让系统把它们
+        （`adb backup` / 云备份）搬到另一台设备或另一台电脑上，与那句承诺直接矛盾。
+
+        为什么选 false 而不是补 dataExtractionRules/fullBackupContent 白名单：
+        白名单是**手写清单**，新加一份敏感文件就得记得同步排除，漏掉的那次不会报错
+        （本项目已栽过 6 次）；false 是 fail-closed 的——没有备份，就没有可漏的东西。
+        业务数据全在服务端，本机丢的只是"要重新登录一次 + 本机 AI 历史/记忆"，
+        而这正是 App 承诺过的行为。
+    -->
     <application
         android:name=".SOrdersApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"

@@ -29,21 +29,33 @@ PROBE = ROOT / "_tools/qa/_probe_core_flows.py"
 CONC_TEST = ROOT / "backend/tests/test_concurrent_delivery_money.py"
 
 ASSIGN_GUARD = "    order = lock_order_row(db, order)\n    if order.status != OrderStatus.PENDING_DISPATCH:"
-COMPLETE_GUARD = "    order = lock_order_row(db, order)\n    if order.status != OrderStatus.ACCEPTED:"
+#: ⚠️ 锚点不许跨"后来插进来说明/守卫"的行（2026-09-19 第十四轮修）：
+#:    `complete_delivery` 里锁行与状态判断之间现在隔了 10 行 `deleted_at` 守卫 + 说明，
+#:    原来那个两行锚点因此**匹配不上**，脚本报"替换串过期"——
+#:    也就是说那条注入已经很久没生效过（判据是不是活的，谁也不知道）。
+#:    现在只锚**那一行判断本身**（它在整个文件里唯一），注入的语义不变。
+COMPLETE_GUARD = "    if order.status != OrderStatus.ACCEPTED:\n        raise ValueError(\"仅「已接单」订单可完成配送\")"
+#: 锁行那一行在两处出现（派单 / 送达），用**它上面那句注释**保证唯一
+COMPLETE_LOCK = (
+    "    # 各自往下走 → **同一张单生成两条司机账单**（钱）。\n"
+    "    order = lock_order_row(db, order)\n"
+)
 #: v3.40 起状态跃迁多了一道"条件 UPDATE 占位"（SQLite 不认行锁，本地实测能生成两条账单）
+#: ⚠️ 同样不许跨行锚：`.where(...)` 里后来加了 `Order.deleted_at.is_(None)`（R13-D1），
+#:    所以锚点只取"这个 CAS 从哪开始"。两处的起点不同（status 条件不同），各自唯一。
 ASSIGN_CAS = (
     "    claimed = db.execute(\n"
     "        update(Order)\n"
-    "        .where(Order.id == order.id, Order.status == OrderStatus.PENDING_DISPATCH)\n"
-    "        .values(status=OrderStatus.DISPATCHED, driver_id=driver.id, dispatched_at=_now())\n"
-    "    )"
+    "        .where(\n"
+    "            Order.id == order.id,\n"
+    "            Order.status == OrderStatus.PENDING_DISPATCH,\n"
 )
 COMPLETE_CAS = (
     "    claimed = db.execute(\n"
     "        update(Order)\n"
-    "        .where(Order.id == order.id, Order.status == OrderStatus.ACCEPTED)\n"
-    "        .values(status=OrderStatus.DELIVERED, delivered_at=_now())\n"
-    "    )"
+    "        .where(\n"
+    "            Order.id == order.id,\n"
+    "            Order.status == OrderStatus.ACCEPTED,\n"
 )
 CAS_FAIL = (
     "    if claimed.rowcount != 1:\n"
@@ -59,7 +71,9 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "送达前不锁行（并发送达会生成两条司机账单 = 司机拿两份钱）",
         FLOW,
-        lambda s: s.replace(COMPLETE_GUARD, "    if order.status != OrderStatus.ACCEPTED:", 1),
+        lambda s: s.replace(
+            COMPLETE_LOCK, "    order = db.get(Order, order.id)\n", 1
+        ),
     ),
     (
         "锁了但不刷新值（等的锁白等：判据用的还是事务开始时那份旧状态）",
@@ -102,8 +116,8 @@ CASES: list[tuple[str, Path, object]] = [
         "逐单核销不锁订单行（两个请求都读到 paid=False → 两条收款记录）",
         ACCT,
         lambda s: s.replace(
-            "for o in db.scalars(select(Order).where(Order.id.in_(ids)).with_for_update())",
-            "for o in db.scalars(select(Order).where(Order.id.in_(ids)))",
+            "for o in db.scalars(select(Order).where(Order.id.in_(order_ids)).with_for_update())",
+            "for o in db.scalars(select(Order).where(Order.id.in_(order_ids)))",
             1,
         ),
     ),
@@ -128,17 +142,16 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "逐单核销少了 paid 的条件 UPDATE 占位（并发下同一张单两条收款记录 = 钱多记一笔）",
         ACCT,
-        # 把 `WHERE paid=false` 这个**占位的判据本身**换掉（留着那句 UPDATE 但条件没了 = 占位失效）
-        lambda s: s.replace(
-            "            .where(Order.id.in_(ids), Order.paid.is_(False))",
-            "            .where(Order.id.in_(ids))",
-            1,
-        ),
+        # 把 `WHERE paid=false` 这个**占位的判据本身**反转掉。
+        # ⚠️ 别用"删掉条件"的写法：这段 CAS 现在有**两处**（逐单核销 / 滚动收款绑单），
+        #    只替换一处时另一处仍在，红线照样能命中 → 这条注入就变成了假绿
+        #    （2026-09-19 实测：正是这么失败的）。语义反转两处都会变，绕不过去。
+        lambda s: s.replace("Order.paid.is_(False)", "Order.paid.is_(True)"),
     ),
     (
         "逐单核销占位抢不到也往下走（rowcount 不检查＝没占位）",
         ACCT,
-        lambda s: s.replace("        if claimed.rowcount != len(ids):", "        if False:", 1),
+        lambda s: s.replace("        if claimed.rowcount != len(order_ids):", "        if False:"),
     ),
     (
         "逐单核销占位的原子性测试被删掉",

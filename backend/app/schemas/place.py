@@ -9,6 +9,9 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from app.schemas.geo import GeoInput
 from app.schemas.text import MAX_ADDRESS, MAX_NAME
 
+#: `(0,0)` 哨兵的判据阈值 —— 与安卓侧 `core/SunLocation.isPlausible` 是同一个数。
+_SENTINEL_EPS = Decimal("0.01")
+
 
 class PlaceCreate(GeoInput):
     """手工往共享地点库里加一个点（货主/派单员录入）。"""
@@ -25,6 +28,18 @@ class PlaceCreate(GeoInput):
         # `GeoInput` 只校验范围，不校验存在性——两个 `None` 都能过，所以这里补一刀。
         if self.address_lat is None or self.address_lng is None:
             raise ValueError("共享地点必须有坐标（这是给导航用的，不是文字地址）")
+        # ⛔ `(0,0)` 是"**没有定位**"的占位值，不是坐标（2026-09-19 全项目报告 P1-13，中）：
+        #    高德定位失败回的就是 `(0,0)`（不是 null），而安卓的地图选点在修好之前会把它
+        #    原样交出来 → 于是它既进了订单、也进了这张**没有删除接口**的表（脏点是永久的，
+        #    而且会被别人的单复用来当导航点）。
+        #    判据与安卓侧 `core/SunLocation.isPlausible` **同一个阈值**（两个绝对值都 < 0.01）：
+        #    "这个坐标是不是真的"在本仓只该有一处口径。
+        #    ⚠️ 只拦**这一对**：单独一个 `0` 是合法坐标（赤道 / 本初子午线上的地点）。
+        #    闸放在这里而不是 `GeoInput`：`places` **只有 GET/POST，没有改和删**，
+        #    所以这道闸零误伤；而地址/订单那几张表有历史脏行，拦在它们入口会让
+        #    "改个电话"也被迫先重选坐标 —— 那是另一件要单独拍板的事。
+        if abs(self.address_lat) < _SENTINEL_EPS and abs(self.address_lng) < _SENTINEL_EPS:
+            raise ValueError("这两个数是「没有定位」的占位值（0,0），不是坐标：请在地图上重新选点")
         return self
 
     @model_validator(mode="after")

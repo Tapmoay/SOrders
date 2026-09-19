@@ -176,20 +176,28 @@ def test_ledger_includes_order_delivery_description_and_sync_endpoint(
     assert row0.get("order_delivery_description") == "定制机 A 型 / 红色"
     assert row0.get("order_id") == oid
 
-    for e in rows:
-        if e.get("order_id") == oid:
-            dr = client.delete(
-                f"/api/v1/ledger/entries/{e['id']}",
-                headers=auth_headers(token_dispatcher),
-            )
-            assert dr.status_code == 204, dr.text
+    # 造出"这一单没有账本行"的现场：**直接从库里删**，不再走 DELETE 接口——
+    # 2026-09-19 审计 R12-M3 之后，已送达订单的账本行**不允许**从接口删
+    # （删了它，订单行还在、账本侧少一笔，两个口径永久差这一笔；那条守卫有自己的测试）。
+    # 这里要验的是"补账接口能把缺的行补回来"，所以直接制造缺行。
+    from app.database import get_db as _get_db  # noqa: F401
+    from app.models import Ledger as _Ledger
+
+    from tests.conftest import get_test_session_factory
+
+    db = get_test_session_factory()()
+    try:
+        db.query(_Ledger).filter(_Ledger.order_id == oid).delete()
+        db.commit()
+    finally:
+        db.close()
 
     r = client.get(
         "/api/v1/ledger/entries",
         params={"shipper_id": users["shipper"].id},
         headers=auth_headers(token_dispatcher),
     )
-    assert not any(e.get("order_id") == oid for e in r.json())
+    assert not any(e.get("order_id") == oid for e in r.json()), "账本行没删掉，后面的补账就测不出来了"
 
     r = client.post(
         "/api/v1/ledger/sync-from-delivered-orders",

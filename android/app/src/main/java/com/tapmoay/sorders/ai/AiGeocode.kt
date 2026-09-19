@@ -5,6 +5,7 @@ import com.amap.api.services.geocoder.GeocodeQuery
 import com.amap.api.services.geocoder.GeocodeResult
 import com.amap.api.services.geocoder.GeocodeSearch
 import com.amap.api.services.geocoder.RegeocodeResult
+import com.tapmoay.sorders.core.SunLocation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -80,7 +81,22 @@ internal object AiGeocode {
                                 null
                             }
                             if (cont.isActive) {
-                                cont.resume(point?.let { it.latitude to it.longitude })
+                                // ⛔ 坐标不可信时按"没解析出来"处理（2026-09-19 报告 P1-13 的同类）：
+                                //    高德定位/解析失败会回 `(0,0)` 而不是 null，而这里的返回值会被
+                                //    AI 写链路直接写进地址/线路（`address_lat/lng`）——写进去就是一条
+                                //    谁也删不掉、还会被别的单复用的脏坐标。
+                                //    下游契约本来就有"null = 没解析出来 → 拒绝并如实说"，所以这里
+                                //    只是把"假的成功"降级成"诚实的失败"，不新增任何分支。
+                                //    判据复用本仓唯一那一份 `SunLocation.isPlausible`。
+                                cont.resume(
+                                    point?.let { p ->
+                                        if (SunLocation.isPlausible(p.latitude, p.longitude)) {
+                                            p.latitude to p.longitude
+                                        } else {
+                                            null
+                                        }
+                                    }
+                                )
                             }
                         }
                     },

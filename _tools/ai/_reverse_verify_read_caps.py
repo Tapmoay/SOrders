@@ -25,10 +25,11 @@ ROOT = HERE.parent.parent
 AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
 TOOLS = AI / "AiTools.kt"
 READSVC = AI / "AiReadService.kt"
+SHAPER = AI / "AiRowShaper.kt"
 LOOP = AI / "AiAgentLoop.kt"
 STYLE = AI / "AiAnswerStyle.kt"
 
-LIMIT_FWD = "if (declared.containsKey(A_LIMIT)) query[A_LIMIT] = limit.toString()"
+LIMIT_FWD = "if (declared.containsKey(A_LIMIT)) query[A_LIMIT] = (limit + 1).toString()"
 
 CASES: list[tuple[str, Path, object]] = [
     (
@@ -40,6 +41,25 @@ CASES: list[tuple[str, Path, object]] = [
         "不把 limit 传给后端（后端按自己的默认截，调多大都没用）",
         READSVC,
         lambda s: s.replace(LIMIT_FWD, "// 不传了", 1),
+    ),
+    (
+        "不再多要一行（后端先截断 → 截断检测失灵 → 把 limit 条当全量）",
+        READSVC,
+        lambda s: s.replace("query[A_LIMIT] = (limit + 1).toString()",
+                            "query[A_LIMIT] = limit.toString()", 1),
+    ),
+    (
+        "行数组退回「只认手写键名表」（drivers/groups 这类包装键整包丢成 *_count）",
+        SHAPER,
+        lambda s: s.replace(
+            "is JsonObject -> (knownRows(root) ?: firstObjectArray(root)).orEmpty()",
+            "is JsonObject -> knownRows(root).orEmpty()", 1),
+    ),
+    (
+        "行数组兜底不再要求「元素全是对象」（纯标量数组会被当成行数据）",
+        SHAPER,
+        lambda s: s.replace("objs.takeIf { it.isNotEmpty() && it.size == arr.size }",
+                            "objs.takeIf { it.isNotEmpty() }", 1),
     ),
     (
         "截断时不告诉模型该怎么办（只留一个 truncated 标志）",
@@ -93,10 +113,10 @@ def section(out: str) -> str:
 def main() -> int:
     fails: list[str] = []
     code, out = run_check()
-    if code != 0 or not section(out):
-        print(f"❌ 前提不成立：源码完好时 §11d 就没过（code={code}）\n{out[-1200:]}")
+    if code != 0 or "[FAIL]" in out:
+        print(f"❌ 前提不成立：源码完好时红线就没过（code={code}）\n{out[-1200:]}")
         return 1
-    print("✅ 前提：源码完好时检查是绿的，且 §11d 存在")
+    print("✅ 前提：源码完好时红线是绿的（注入后**任意一节**报红都算数）")
 
     for label, path, mutate in CASES:
         original = path.read_text(encoding="utf-8")
@@ -109,7 +129,7 @@ def main() -> int:
             code, out = run_check()
         finally:
             path.write_text(original, encoding="utf-8", newline="")
-        if code == 0 or "[FAIL]" not in section(out):
+        if code == 0 or "[FAIL]" not in out:
             fails.append(f"{label}：注入后 §11d 没有报红（code={code}）——判据是空转的")
         else:
             print(f"✅ 注入「{label}」→ §11d 报红")

@@ -1,11 +1,12 @@
 """账本 V2（P0）：客户档案 / 司机应付明细 / 客户收款单 / 司机结算单 / 开销单 / 资金流水 / 车辆台账。"""
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.business_time import business_local
 from app.models.enums import (
     CashFlowBizType,
     CashFlowDirection,
@@ -35,10 +36,22 @@ def validate_month(v: str) -> str:
 
     ⚠️ 接收的是**原始输入**（`mode="before"`）：写成 `mode="after"` 时，`month=202609`
     这种数字会先被 Pydantic 拦成 `string_type`（英文），用户看不到下面这句中文提示。
+
+    ⚠️ **上界：不能晚于本月**（2026-09-19 审计 R13-D3）。原来只校验格式，
+    于是 9 月就能造出 10 月的工资单——而账单**没有删除入口**（`DriverBillStatus.CANCELLED`
+    只有保留任务会写），它会被结算单收走、被真金白银付出去；等 10 月真的到了，
+    幂等逻辑又会跳过重算，金额定格在造单当时（期间离职/调薪都不纠正）。
+    本机库里就躺着这样一张：`driver_bills id=8`，`month='2026-10'`、6500 元、`created_at=2026-09-15`。
     """
     s = str(v).strip() if v is not None else ""
     if not MONTH_RE.match(s):
         raise ValueError(MONTH_TIP)
+    now_month = business_local(datetime.now(timezone.utc)).strftime("%Y-%m")
+    if s > now_month:
+        raise ValueError(
+            f"月份不能晚于本月（现在是 {now_month}）。{s} 还没到，"
+            "提前生成会造出一笔现在就能付款的应付，而且账单没有删除入口。"
+        )
     return s
 
 
@@ -98,6 +111,20 @@ class DriverBillOut(BaseModel):
     rule_name: str = ""
     piece_amount: Decimal | None = None
     commission_amount: Decimal | None = None
+
+    @field_validator("note", "rule_name", mode="before")
+    @classmethod
+    def _null_str_to_empty(cls, v: object) -> object:
+        """`NULL` 归一成空串（2026-09-19 审计 R12-L10）。
+
+        这两列在模型里是 `Mapped[str]`（NOT NULL），但它们是 **v3.36 才加的列**，
+        由 `schema_bootstrap` 用 `ALTER TABLE ADD COLUMN` 补出来（`rule_name` 带了
+        `DEFAULT ''`，`note` 更早、也带默认）——**生产库里只要有一行为 NULL，
+        整个司机账单列表就会 500**（`ResponseValidationError`），结算页与司机端一起打不开。
+        这是本项目已经栽过一次的同一类问题（出参 JSON 列被 NULL 毒化），
+        所以在 schema 层统一兜住：显示用字符串读不出来就当空串，不让一行脏数据打垮一个列表。
+        """
+        return "" if v is None else v
 
 
 class DriverBillGenerateBody(BaseModel):

@@ -154,22 +154,30 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 val cur = editing
-                    if (cur == null) {
-                        container.api.productApi.createProduct(
-                            ProductCreateRequest(
-                                name = draftName.trim(),
-                                defaultUnitPrice = draftPrice.trim(),
-                                costPrice = cost,
-                                nameColor = draftColor,
-                                tierPrices = tiers,
-                                stock = stock,
-                                unit = draftUnit.trim().ifBlank { null },
-                                category = draftCategory.trim(),
-                                lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),
-                            )
+                // ⚠️ 新增时必须**接住 createProduct 返回的 id**（2026-09-19 审计）：
+                //    原来返回的 ProductDto（含新 id）被直接丢掉，上传图片时改成
+                //    `products().firstOrNull { it.name == 草稿名 }?.id` —— 而 `products.name`
+                //    **没有唯一约束、创建也不查重**，于是"库里已有同名商品"时那个 id 指向**旧商品**：
+                //    新商品没图、旧商品被打上新图，两边都不报错。
+                val createdId: Long
+                val localImage = draftImageLocal          // 先取快照，别在挂起点之后再读可变状态
+                if (cur == null) {
+                    createdId = container.api.productApi.createProduct(
+                        ProductCreateRequest(
+                            name = draftName.trim(),
+                            defaultUnitPrice = draftPrice.trim(),
+                            costPrice = cost,
+                            nameColor = draftColor,
+                            tierPrices = tiers,
+                            stock = stock,
+                            unit = draftUnit.trim().ifBlank { null },
+                            category = draftCategory.trim(),
+                            lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),
                         )
-                    } else {
-                        container.api.productApi.updateProduct(
+                    ).id
+                } else {
+                    createdId = cur.id
+                    container.api.productApi.updateProduct(
                             cur.id,
                             ProductUpdateRequest(
                                 name = draftName.trim(),
@@ -183,16 +191,17 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
                                 lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),
                             ),
                         )
-                    }
-                // 换图：重新拉取商品拿 id 再上传
-                if (draftImageLocal != null) {
-                    val pid = if (cur == null) {
-                        container.repo.products().firstOrNull { it.name.trim() == draftName.trim() }?.id
-                    } else cur.id
-                    if (pid != null) {
-                        val f = File(draftImageLocal!!)
-                        if (f.exists()) container.repo.uploadProductImage(pid, f)
-                    }
+                }
+                // 图片上传用**上面接住的那个 id**（不再按名字去全表猜）。
+                // ⚠️ 也不再在挂起点之后读 `draftImageLocal!!`（2026-09-19 审计）：用户可以在
+                //    "商品已经建好、图片还没传完"这段时间点「移除图片」把状态改成 null，
+                //    那一刻 `!!` 抛 NPE → 被下面的 `catch (Exception)` 收成"未知错误"、
+                //    `showDialog = false` 被跳过 → **商品其实已建成，界面却说未知错误、弹窗不关**，
+                //    用户再点一次保存就建出第二条同名商品。
+                val imagePath = localImage
+                if (imagePath != null) {
+                    val f = File(imagePath)
+                    if (f.exists()) container.repo.uploadProductImage(createdId, f)
                 }
                 actionResult = if (cur == null) "商品已新增" else "商品已更新"
                 showDialog = false

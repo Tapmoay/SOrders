@@ -41,6 +41,12 @@ docs/ai/_backup_*/
 _test_tools/*.log
 _test_tools/*.png
 _test_tools/*.tgz
+
+# ---- 测试/导出产物（2026-09-19 补：它们一直躺在 `git status` 的未跟踪清单里）----
+# `.schemathesis/` 是接口模糊测试的缓存与 crash dump；`backend/exports/` 是导出产物（xlsx）。
+# 两者都是"跑一次生一次"，进库只会让仓库变大，还会在每次 `git status` 里干扰视线。
+.schemathesis/
+backend/exports/
 """
 
 

@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.ui.common.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,6 +85,16 @@ fun ShipperOrdersScreen(
                     if (vm.selectedTab == 3 || vm.selectedTab == 4) {
                         DateRangeFilter(onChange = vm::applyRange)
                     }
+                    // 列表可能被服务端截断时说清楚（见 ShipperOrdersViewModel.maybeTruncated）
+                    if (vm.maybeTruncated) {
+                        Text(
+                            "只显示了最近 ${vm.orders.size} 条 —— 可能还有更早的订单没列出来。" +
+                                "要按时间找，请用上面的日期筛选。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        )
+                    }
                     Spacer(Modifier.height(6.dp))
                 }
                         items(vm.orders, key = { it.id }) { order ->
@@ -91,8 +102,9 @@ fun ShipperOrdersScreen(
                                 order = order,
                                 onClick = { onOpenOrder(order.id) },
                                 extra = {
-                                    // 待派单/已派单（司机未接）可卡片直撤，不进详情
-                                    if (order.status == "PENDING_DISPATCH" || order.status == "DISPATCHED") {
+                                    // 待派单/已派单（司机未接）可卡片直撤，不进详情。
+                                    // 状态门取 `OrderStatusModel.CANCELLABLE`（后端 `cancel_pending` 同一对取值）。
+                                    if (order.status in OrderStatusModel.CANCELLABLE) {
                                         TextButton(
                                             onClick = { vm.cancelTarget = order },
                                             enabled = !vm.acting,

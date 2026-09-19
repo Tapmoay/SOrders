@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.Job
@@ -50,7 +51,9 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
             loading = orders.isEmpty()
             error = null
             try {
-                val statuses = if (tab == 0) listOf("DISPATCHED", "ACCEPTED") else listOf("DELIVERED")
+                // 进行中 = 已派单（还没接）+ 已接单。状态取自 `OrderStatusModel.DRIVER_OPEN`
+                // （原来这里硬写两个字面量；只查 ACCEPTED 时新派来的单在司机端**根本不出现**）。
+                val statuses = if (tab == 0) OrderStatusModel.DRIVER_OPEN else listOf("DELIVERED")
                 orders = statuses
                     .flatMap { container.repo.orders(status = it, dateFrom = if (tab == 1) dateFrom else null, dateTo = if (tab == 1) dateTo else null) }
                     .sortedByDescending { it.createdAt }

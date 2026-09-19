@@ -122,3 +122,47 @@ export async function getLedgerExportJob(jobId: number) {
   const { data } = await http.get<LedgerExportJob>(`/ledger/export-jobs/${jobId}`)
   return data
 }
+
+/**
+ * 下载导出产物（2026-09-19 审计 H5）——**必须走这个端点、并且带着 token 取**。
+ *
+ * ### 原来为什么永远下不下来
+ * `ShipperLedger.vue` 原来是 `window.open(origin + job.file_path)`，而
+ * `file_path` 存的是**产物文件名**（`ledger_2_5_rgtt4-aHvnGtA9aF.xlsx`，实测库里的样子），
+ * 不是 URL → 拼出来是 `http://host/ledger_2_5_rgtt4-….xlsx` → **404**；
+ * 就算拼对了，`window.open` 也**带不上 `Authorization` 头**（下载端点要鉴权）→ 401。
+ * 而界面照样弹「导出完成」——**用户以为导出成功了，其实什么都没有**。
+ *
+ * 做法与 `/stats/export` 同一套（`api/stats.ts::downloadStatsExport`）：
+ * 以 blob 取回（axios 会自动带 token）→ 从 `Content-Disposition` 取文件名（拿不到就用兜底名）→
+ * `<a download>` 触发保存。
+ */
+export async function downloadLedgerExportFile(job: {
+  id: number
+  date_from?: string
+  date_to?: string
+  file_format?: ExportFormat
+}) {
+  const res = await http.get(`/ledger/export-jobs/${job.id}/download`, { responseType: 'blob' })
+  const blob = res.data as Blob
+  // 文件名：**先用"人看得懂的名字"**（`账本_2026-09-01_2026-09-19.xlsx`）。
+  // 后端 `Content-Disposition` 给的是产物文件名（`ledger_2_1_F2LB-X4mBOcYhR3A.xlsx`），
+  // 那串随机后缀对用户没有任何意义 —— 只在拿不到日期区间时才退回它。
+  const ext = job.file_format === 'pdf' ? 'pdf' : 'xlsx'
+  let name =
+    job.date_from && job.date_to ? `账本_${job.date_from}_${job.date_to}.${ext}` : ''
+  if (!name) {
+    const cd = res.headers['content-disposition'] as string | undefined
+    name = `ledger-export-${job.id}.${ext}`
+    if (cd) {
+      const m = /filename="?([^";]+)"?/i.exec(cd)
+      if (m?.[1]) name = m[1]
+    }
+  }
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}

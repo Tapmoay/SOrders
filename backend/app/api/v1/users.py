@@ -16,7 +16,9 @@ from app.schemas.product_visibility import (
     visibility_of,
 )
 from app.schemas.user import UserCreate, UserOut, UserUpdate
+from app.services.soft_delete import del_suffix
 from app.services.operation_log_service import write_log
+from app.services.auth_service import bump_token_version
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -28,13 +30,20 @@ def _to_out(u: User, viewer: User) -> User:
         out.salary = None
     # 计费规则：怎么算钱那句话只由 `driver_pay` 生成（界面/确认卡/账单同源，不各写一套）
     if user_role_key(u) == UserRole.DRIVER.value:
-        from app.services.driver_pay import pay_summary_for, rule_of_user
+        from app.services.driver_pay import pay_summary_for, rule_of_user, snapshot_mode
 
         rule = rule_of_user(u)
         out.driver_rule_id = rule.rule_id if rule is not None else None
         out.driver_rule_name = rule.name if rule is not None else ""
         # ⚠️ 非派单员不给金额：规则里带着工资数，而"工资仅派单员可见"是既有硬约定
         out.pay_summary = pay_summary_for(u, include_money=is_dispatcher)
+        # 「他按不按单拿钱」——派单端据此决定要不要显示运费框，**必须与账单同源**。
+        # 客户端原来自己按 `billing_mode ?: 车型` 猜（与 `resolve_billing_mode` 一致，但
+        # 少了"规则优先"这一层）：挂着**运费提成**规则的大车司机被判成工资制 → 运费框不显示
+        # → 运费永远是空的 → 提成 = 0 × 比例 = 0 → 送达时 `pay.total <= 0` 连账单都不生成
+        # （司机白跑一趟，账面上查不到任何异常）。这里直接问 `snapshot_mode` ——
+        # 它的文档里写明消费点之一就是"运费对他可不可见"（`order_response` 的 `freight_visible`）。
+        out.pays_per_order = snapshot_mode(u) == "PIECE"
     return out
 
 
@@ -231,12 +240,20 @@ def update_user(
         u.phone = body.phone
     if body.password is not None:
         u.password_hash = hash_password(body.password)
+        # 改密码 → 旧令牌立刻失效（2026-09-19 审计）：
+        # 否则'改密码'这个最自然的止损动作，对已经泄漏的令牌在 24 小时内完全无效。
+        bump_token_version(db, u)
     if body.full_name is not None:
         u.full_name = body.full_name
     if body.role is not None and is_dispatcher:
         u.role = body.role
     if body.is_active is not None and is_dispatcher:
         u.is_active = body.is_active
+        # 停用一个账号 → **已发出的令牌立刻失效**（2026-09-19 审计）：
+        # 在这之前 `deps` 只查 `is_active`，而 JWT 是自包含的，所以停用只挡住"下一次登录"，
+        # 已经登录中的会话要等令牌自然过期（24h）。丢手机/离职场景下这是最要紧的一下。
+        if body.is_active is False:
+            bump_token_version(db, u)
     if body.is_member is not None and is_dispatcher:
         u.is_member = body.is_member
     # 安全修复：工资/计费方式/车型仅派单员可改（司机自改会绕过结算规则、篡改工资）
@@ -320,8 +337,8 @@ def delete_user(
     orig_phone, orig_username = u.phone, u.username
     u.is_active = False
     # 释放手机号/用户名（允许用同号重新建号），数据仍保留可追溯
-    u.phone = f"{u.phone}_del{u.id}"
-    u.username = f"{u.username[:22]}_del{u.id}"
+    u.phone = del_suffix(u.phone, u.id, 32)   # 列宽 String(32)：先截断再拼，别再让它撞 Data too long
+    u.username = del_suffix(u.username, u.id, 32)   # 列宽 String(32)
     write_log(
         db,
         operator_id=current.id,

@@ -19,7 +19,10 @@ class DriverFreightViewModel(private val container: AppContainer) : ViewModel() 
         val orderId: Long,
         val orderNo: String,
         val deliveredAt: String?,
-        val freightFee: String,
+        /** **司机应得**（后端 `driver_pay.pay_for_order` 算的，与司机账单同源）。 */
+        val payTotal: String,
+        /** 货主那头的运费（提成基数）；null = 还没定价。**不等于司机应得**。 */
+        val freightFee: String?,
         val desc: String,
         val address: String,
     )
@@ -40,7 +43,10 @@ class DriverFreightViewModel(private val container: AppContainer) : ViewModel() 
         }
     }
 
-    fun total(): Double = rows.sumOf { moneyToDouble(it.freightFee) }
+    // ⚠️ 合计与趋势图都必须用 **payTotal（司机应得）**，不能用 freightFee（货主运费）：
+    //    司机挂了"每单 300 + 运费 5%"这类规则时两者差得很远（账单 675 / 旧算法 1500），
+    //    而页面标题写的是"当前范围内合计"——用运费求和就等于司机拿一个公司不认的数来对账。
+    fun total(): Double = rows.sumOf { moneyToDouble(it.payTotal) }
 
     val periodStart: String get() = _periodRange().first
     val periodEnd: String get() = _periodRange().second
@@ -71,7 +77,7 @@ class DriverFreightViewModel(private val container: AppContainer) : ViewModel() 
         val map = LinkedHashMap<String, Double>()
         rows.forEach { e ->
             val key = (e.deliveredAt ?: "").take(10)
-            if (key.isNotBlank()) map[key] = (map[key] ?: 0.0) + moneyToDouble(e.freightFee)
+            if (key.isNotBlank()) map[key] = (map[key] ?: 0.0) + moneyToDouble(e.payTotal)
         }
         return map.entries.map { it.key to it.value }
     }
@@ -88,6 +94,7 @@ class DriverFreightViewModel(private val container: AppContainer) : ViewModel() 
                         orderId = it.orderId,
                         orderNo = it.orderNo,
                         deliveredAt = it.deliveredAt?.take(16)?.replace("T", " "),
+                        payTotal = it.payTotal,
                         freightFee = it.freightFee,
                         desc = it.deliveryDescription,
                         address = it.addressDetail,

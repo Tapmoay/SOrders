@@ -129,14 +129,23 @@ fun DriverFreightScreen(
                                             maxLines = 2,
                                         )
                                     }
-                                    Text(
-                                        if (e.freightFee != null) "¥" + formatMoney(e.freightFee) else "待定价",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.End,
-                                        color = if (e.freightFee != null) androidx.compose.ui.graphics.Color(MoneyOrange) else androidx.compose.ui.graphics.Color(0xFF8A8A8E),
-                                        modifier = Modifier.widthIn(min = 92.dp),
-                                    )
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            "¥" + formatMoney(e.payTotal),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.End,
+                                            color = androidx.compose.ui.graphics.Color(MoneyOrange),
+                                            modifier = Modifier.widthIn(min = 92.dp),
+                                        )
+                                        Text(
+                                            if (e.freightFee != null) "运费 ¥" + formatMoney(e.freightFee) else "运费 待定价",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            textAlign = TextAlign.End,
+                                            color = if (e.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else androidx.compose.ui.graphics.Color(0xFFFF6B2C),
+                                            modifier = Modifier.widthIn(min = 92.dp),
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -735,6 +735,13 @@ onMounted(() => {
         placeholder="从历史订单选择"
         @click="showOrderPick = true"
       />
+      <!-- ⚠️ 如实说明（2026-09-19 审计）：手工记账**不会挂到订单上** ——
+           后端刻意把 `order_id` 置空（挂了会被当日订单账重复计入），只把它记进审计日志当线索。
+           原来这一格叫「关联订单」、选完还显示单号，用户会以为这笔账挂到了那张单上。 -->
+      <p v-if="manualForm.order_id != null" class="manual-order-hint">
+        手工记账不会挂到订单上（订单账由送达/货损自动生成，挂了会重复计入）。
+        这里选的单号只写进审计日志，方便日后查这笔钱的来由。
+      </p>
       <van-field
         label="商品"
         readonly
@@ -778,7 +785,7 @@ onMounted(() => {
           v-for="p in filteredProducts"
           :key="p.id"
           :title="p.name"
-          :label="p.is_active ? `默认单价 ¥${p.default_unit_price}` : '已下架'"
+          :label="p.is_active ? `默认单价 ¥${formatMoney2(p.default_unit_price)}` : '已下架'"
           clickable
           :class="{ 'is-disabled': !p.is_active }"
           @click="p.is_active ? onPickProduct(p) : showFailToast('该商品已下架')"
@@ -814,6 +821,13 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 手工记账的「关联订单」说明：这一格**不会**把账挂到订单上（后端刻意置空，防重复计入） */
+.manual-order-hint {
+  margin: 6px 16px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--van-text-color-2, #646566);
+}
 .ledger-page {
   padding-bottom: 24px;
 }

@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.nav.Routes
 
@@ -77,6 +78,17 @@ fun DispatcherOrdersScreen(
                     if (vm.tab == 3 || vm.tab == 4) {
                         DateRangeFilter(onChange = vm::applyRange)
                     }
+                    // 列表可能被服务端截断时说清楚（见 DispatcherOrdersViewModel.maybeTruncated）：
+                    // 「全部订单」只显示最近 300 条时，不说就等于让派单员以为"这单不存在"。
+                    if (vm.maybeTruncated) {
+                        Text(
+                            "只显示了最近 ${vm.orders.size} 条 —— 可能还有更早的订单没列出来。" +
+                                "要按时间找，请切到「按日期」筛选。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        )
+                    }
                     Spacer(Modifier.height(6.dp))
                 }
                         items(vm.orders, key = { it.id }) { order ->
@@ -97,7 +109,11 @@ fun DispatcherOrdersScreen(
                                             modifier = Modifier.size(18.dp),
                                         )
                                     }
-                                    if (order.status == "ACCEPTED") {
+                                    // ⚠️ 状态门取 `OrderStatusModel.RECALLABLE`（后端 `recall_dispatch`
+                                    //    允许 已派单 + 已接单）。原来只写 `== "ACCEPTED"`，
+                                    //    于是**派错司机的第一时间撤不回来**：必须等司机先点接单，
+                                    //    司机不接就永远撤不回来——而这正是最需要改派的时候。
+                                    if (order.status in OrderStatusModel.RECALLABLE) {
                                         TextButton(onClick = { vm.openRecall(order) }) {
                                             Text("撤回", color = MaterialTheme.colorScheme.error)
                                         }

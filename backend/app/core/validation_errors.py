@@ -84,6 +84,19 @@ FIELD_CN: dict[str, str] = {
     "action": "动作",
     "category": "分类",
     "commission_product_ids": "抽成商品",
+    # 报表筛选与消息列表（2026-09-19 审计 R14-15：报表导出原来把非法日期抛成 500，
+    # 改成真正的 `date` 类型后走这里；字段名不翻译的话用户看到的是英文 key）
+    "kind": "报表类型",
+    "mode": "统计口径",
+    "date": "日期",
+    "anchor": "日期",
+    "date_from": "开始日期",
+    "date_to": "结束日期",
+    "days": "天数",
+    "limit": "条数",
+    "before_id": "翻页游标",
+    "recipient_id": "收件人",
+    "unread_only": "只看未读",
 }
 
 #: 枚举值 → 中文（只列"用户一眼认不出"的那些：cash/arrears/tmp…）

@@ -390,6 +390,8 @@ fun OrderCreateScreen(
             loading = vm.loadingProducts,
             priceFor = { vm.priceFor(it) },
             categoryOrder = vm.categoryOrder,
+            error = vm.productsError,
+            onRetry = { vm.loadProducts() },
             onConfirm = { picked ->
                 if (vm.addPickedLines(picked)) vm.showProductPicker = false
             },

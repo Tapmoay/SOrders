@@ -93,6 +93,59 @@ object AiWriteArgs {
 
     fun money(v: BigDecimal): String = v.setScale(2, RoundingMode.HALF_UP).toPlainString()
 
+    /**
+     * 解析**数量/件数类整数**参数（台账数量、库存增减、拆单份数…）。
+     *
+     * ⚠️ 为什么必须与 [parseMoney] 分开（2026-09-19 审计抓到的真缺陷）：
+     *    金额解析器会把结果**补成两位小数**（`3` → `"3.00"`）。账本「改数量」原来复用了它，
+     *    而消费端 `updateLedgerEntry` 对数量用的是 `toIntOrNull()` —— `"3.00"` 解析成 `null`，
+     *    再被 `ApiClient` 的 `explicitNulls = false` **整条键丢掉**，于是 PATCH 体是 `{}`：
+     *    卡片写着「数量 3.00」、界面回「已完成」，**而库里一位都没变**（静默空转）。
+     *    这里返回 Int，调用方直接 `toString()` 就是后端能认的形状。
+     *
+     * 容忍「3」「3 件」「3.0」（能整除的整数形式）；拒绝小数、0/负数（当 [min] > 0）、超大值。
+     */
+    fun int(args: JsonObject, key: String, field: String, min: Int = 1): Int? {
+        val raw = str(args, key) ?: return null
+        val cleaned = raw.replace(",", "").replace("，", "")
+            .removeSuffix("件").removeSuffix("个").removeSuffix("条").removeSuffix("份").trim()
+        val v = try {
+            BigDecimal(cleaned)
+        } catch (e: NumberFormatException) {
+            throw AiWriteArgException("$field「$raw」不是数字。只传数字，不要带单位或文字。")
+        }
+        if (v.stripTrailingZeros().scale() > 0) {
+            throw AiWriteArgException("$field 必须是整数（收到 $raw）。数量不能是小数，请跟用户核对。")
+        }
+        val n = v.toInt()
+        if (n < min) {
+            throw AiWriteArgException(
+                if (min > 0) "$field 必须大于 0（收到 $raw）。" else "$field 最小是 $min（收到 $raw）。",
+            )
+        }
+        if (v > MAX_AMOUNT) {
+            throw AiWriteArgException(
+                "$field 是 ${v.toPlainString()}，超过 ${MAX_AMOUNT.toPlainString()} 的上限。" +
+                    "这个数看着像多打了几个零——先跟用户核对，不要直接记。",
+            )
+        }
+        return n
+    }
+
+    /**
+     * 非负整数（0 合法）：库存报警阈值、初始库存这类"绝对值"。
+     *
+     * 与 [parseQuantity]（≥1）和 [parseDelta]（≠0、可负）都不同，所以必须是独立的一份 ——
+     * 拿它们任何一个去凑，都会出现"卡片上写着能填 0、照做却被拒"或"填了负数后端 422"。
+     */
+    fun parseNonNegative(raw: String, field: String, max: Int = 1_000_000): Int {
+        val v = raw.trim().removeSuffix("件").removeSuffix("个").trim().toIntOrNull()
+            ?: throw AiWriteArgException("$field「$raw」不是整数。")
+        if (v < 0) throw AiWriteArgException("$field 不能是负数（收到 $raw）。")
+        if (v > max) throw AiWriteArgException("$field 是 $v，超过 $max 的上限，请先核对。")
+        return v
+    }
+
     fun parseQuantity(raw: String): Int {
         val v = raw.trim().removeSuffix("件").removeSuffix("个").trim().toIntOrNull()
             ?: throw AiWriteArgException("quantity「$raw」不是整数。")

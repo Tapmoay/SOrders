@@ -315,13 +315,23 @@ class AppRepository(private val api: ApiBundle) {
         api.orderApi.chargeOrder(orderId, com.tapmoay.sorders.data.remote.dto.OrderChargeBody(arrearsUnitId))
 
     /**
-     * 我的消息列表。
+     * 我的消息列表（**一页**）。
      *
-     * ⚠️ `limit` 这个参数后端**不认**（FastAPI 静默忽略未知 query），后端是硬 `.limit(200)`。
-     * 也就是说真实上限永远是 200 条，传 50 或 100 只是"看起来能控制条数"。
-     * 这里保留参数是为了调用方语义清楚（将来后端支持时不用改调用点），**不要**把它当成有效约束。
+     * `limit` 现在是**真的**（2026-09-19 审计 R14-8）：原然后端是一条硬 `.limit(200)`，
+     * 传什么都一样、也不回报截断——于是第 201 条以前的旧消息在 App 里一个入口都没有
+     * （其中包含「账本导出完成」这种 payload 里带唯一下载链接的通知）。
+     * `hasMore` 来自响应头 `X-Truncated`（与订单列表同一个形状），界面据此显示「加载更多」。
      */
-    suspend fun notifications(limit: Int = 50) = api.notificationApi.listNotifications(limit)
+    suspend fun notificationsPage(limit: Int = 100, beforeId: Long? = null): NotificationPage {
+        val resp = api.notificationApi.listNotifications(limit, null, beforeId)
+        return NotificationPage(
+            rows = resp.body().orEmpty(),
+            hasMore = resp.headers()["X-Truncated"] == "1",
+        )
+    }
+
+    /** 只要行的调用方（AI 等）用这个；截断信息在 [notificationsPage] 里。 */
+    suspend fun notifications(limit: Int = 50) = notificationsPage(limit).rows
 
     /**
      * AI 附件：把用户选的文件交给服务端读成文本表格。
@@ -359,7 +369,7 @@ class AppRepository(private val api: ApiBundle) {
      * "派单员不带 recipient_id 会拿到所有人的消息"的行为是个 bug，已修）。
      */
     suspend fun notificationsFor(recipientId: Long?, limit: Int = 50) =
-        api.notificationApi.listNotifications(limit, recipientId)
+        api.notificationApi.listNotifications(limit, recipientId).body().orEmpty()
     suspend fun unreadCount() = api.notificationApi.unreadCount()
     suspend fun markRead(id: Long) = api.notificationApi.markRead(id)
     suspend fun readAll() = api.notificationApi.readAll()
@@ -517,8 +527,17 @@ class AppRepository(private val api: ApiBundle) {
         body: com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest,
         idempotencyKey: String? = null,
     ) = api.accountingApi.createExpense(body, idempotencyKey)
+    /** 登出：让服务端作废这个账号已发出的所有令牌（见 Apis.kt 的说明）。 */
+    suspend fun logout() = api.authApi.logout()
+
     suspend fun cashFlows(direction: String? = null, bizType: String? = null, dateFrom: String? = null, dateTo: String? = null) =
-        api.accountingApi.listCashFlows(direction, bizType, dateFrom, dateTo)
+        // 明细只取来展示（上限 1000，见 CashFlowSummaryDto 的注释）；**金额一律走 cashFlowSummary**，
+        // 不要在客户端对一页流水求和 —— 那会在流水超过一页时少算（实测少 62%）。
+        api.accountingApi.listCashFlows(direction, bizType, dateFrom, dateTo, limit = 1000)
+
+    /** 资金流水汇总（流入/流出/净额/笔数）——**金额只信服务端**。 */
+    suspend fun cashFlowSummary(dateFrom: String? = null, dateTo: String? = null) =
+        api.accountingApi.cashFlowSummary(dateFrom = dateFrom, dateTo = dateTo)
     suspend fun vehicles() = api.accountingApi.listVehicles()
     suspend fun createVehicle(body: com.tapmoay.sorders.data.remote.dto.VehicleCreateRequest) = api.accountingApi.createVehicle(body)
     /** 改车辆（只传要改的键）。解绑司机**不走这里**，见 [setVehicleDriver]。 */
@@ -549,6 +568,17 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun shipperPerformance(dateFrom: String, dateTo: String) =
         api.reportApi.shipperPerformance(dateFrom, dateTo)
 }
+
+/**
+ * 列表的一页。
+ *
+ * `hasMore` 只信**服务端的响应头**（`X-Truncated`），不用"条数等于上限"去猜：
+ * 猜的写法在"刚好整页"时会多显示一个永远点不出东西的「加载更多」（见 `MessagesViewModel`）。
+ */
+data class NotificationPage(
+    val rows: List<com.tapmoay.sorders.data.remote.dto.NotificationDto>,
+    val hasMore: Boolean,
+)
 
 /** 把异常统一转为可展示的 ApiException */
 fun toApiException(e: Throwable) = ApiClient.toApiException(e)

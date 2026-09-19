@@ -3,6 +3,7 @@ package com.tapmoay.sorders.ui.ai
 import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tapmoay.sorders.ai.AiAnswerSanitizer
 import com.tapmoay.sorders.ai.AiAttachment
 import com.tapmoay.sorders.ai.AiAttachmentLoader
 import com.tapmoay.sorders.ai.AiContainer
@@ -838,7 +839,7 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
                             // 不说的话，用户会以为"AI 看过我的照片了"——而它其实一个字都没看到，
                             // 那段回答很可能是答非所问（甚至像"你没有发图片给我"）。
                             finalText = "⚠️ 这张图没能发出去（当前模型/端点不收图片输入），" +
-                                "下面是**只按文字**回答的；要传图请到设置页换一个能看图的模型。\n\n" + finalText
+                                "下面是「只按文字」回答的；要传图请到设置页换一个能看图的模型。\n\n" + finalText
                         }
                         updateAt(holder) {
                             it.copy(text = finalText.ifBlank { "（模型没有返回内容）" }, tokens = runTokens)
@@ -1223,7 +1224,8 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
      * 已经查到东西时另起一条，避免把痕迹冲掉。
      */
     private fun appendError(holder: Int, raw: String) {
-        val msg = raw.trim().ifBlank { "请求失败，请稍后重试" }
+        // 错误气泡也是用户可见文本，同样不许带控制字符（见 AiAnswerSanitizer.stripControl）
+        val msg = AiAnswerSanitizer.stripControl(raw).trim().ifBlank { "请求失败，请稍后重试" }
         error = msg
         val cur = messages.getOrNull(holder)
         messages = if (cur != null && cur.text.isBlank() && cur.toolTrace.isEmpty()) {

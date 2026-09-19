@@ -20,6 +20,14 @@ class OrderDetailViewModel(
     var order by mutableStateOf<OrderDto?>(null)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    /**
+     * 「刷新失败但旧数据还在」时的一行提示（2026-09-19 审计）。
+     *
+     * 与 [error] 的分工：`error` = 没有数据可显示（整页 ErrorView）；
+     * `refreshWarning` = 有数据、只是这次没刷新成功（界面显示一行提示，别把内容换掉）。
+     * 本页有 socket 自动刷新，网络一抖就整页报错是真实发生过的体验事故。
+     */
+    var refreshWarning by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
 
     // 货主撤销
@@ -119,12 +127,17 @@ class OrderDetailViewModel(
 
     fun load() {
         loading = order == null
+        // ⚠️ 已经有数据时失败**不要整页变错误**（2026-09-19 审计）：本页会被 socket 事件高频触发刷新
+        //    （谁派单/接单/撤回都会 `refreshOrders`），网络抖一下就 `error != null`，
+        //    而界面的 `when` 里 error 优先于 order（`OrderDetailScreen`）→ 司机在路上最需要看单的
+        //    那一刻整页被"网络连接失败"顶掉、刚看的东西全没了。有旧数据时把失败降级成一行提示。
         error = null
         viewModelScope.launch {
             try {
                 order = container.repo.order(orderId)
             } catch (e: Exception) {
-                error = toApiException(e).message
+                val msg = toApiException(e).message
+                if (order == null) error = msg else refreshWarning = msg
             } finally {
                 loading = false
             }

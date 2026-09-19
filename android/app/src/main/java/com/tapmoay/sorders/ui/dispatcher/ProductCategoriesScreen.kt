@@ -266,7 +266,7 @@ private fun CategoryNameDialog(
                 if (!isNew) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "改名会把挂在这个分类下的商品**一起改过去**（同一事务），不会让它们变成未分类。",
+                        "改名会把挂在这个分类下的商品「一起改过去」（同一事务），不会让它们变成未分类。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

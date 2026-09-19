@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue'
 
 import {
   deleteNotification,
-  fetchNotifications,
+  fetchNotificationsPage,
   fetchUnreadCount,
   markAllNotificationsRead,
   markNotificationRead,
@@ -19,6 +19,10 @@ const emit = defineEmits<{ 'update:show': [boolean] }>()
 const msg = useMessageCenterStore()
 const tab = ref<'all' | MessageCategory>('all')
 const loading = ref(false)
+/** 服务端把这一页截断了（`X-Truncated`）：界面必须说出来，否则用户以为「这就是全部」 */
+const truncated = ref(false)
+/** 服务端本次的上限（`X-Result-Limit`）；读不到时为空 */
+const resultLimit = ref<number | null>(null)
 
 const titleMap: Record<string, string> = {
   all: '全部',
@@ -38,8 +42,12 @@ async function loadList() {
   try {
     const params =
       tab.value === 'all' ? undefined : { category: tab.value as MessageCategory }
-    const list = await fetchNotifications(params)
-    msg.setItems(list)
+    // 服务端对消息列表有硬上限（200 条），必须把「被截断」这件事取回来并说出来：
+    // 第 201 条以前的旧消息在界面上一个入口都没有，其中包含带唯一下载链接的通知。
+    const page = await fetchNotificationsPage(params)
+    msg.setItems(page.items)
+    truncated.value = page.truncated
+    resultLimit.value = page.limit
   } catch {
     showFailToast('加载消息失败')
   } finally {
@@ -128,6 +136,13 @@ function catLabel(row: AppNotification) {
         <van-tab title="提醒" name="reminder" />
       </van-tabs>
 
+      <van-notice-bar
+        v-if="truncated"
+        left-icon="info-o"
+        wrapable
+        :scrollable="false"
+        text="更早的消息没有列出来（服务端一次最多返回 200 条）——「全部已读」只作用于已加载的这些。"
+      />
       <van-loading v-if="loading" vertical class="ld">加载中</van-loading>
       <van-empty v-else-if="!displayList.length" description="暂无消息" />
       <van-cell-group v-else inset>

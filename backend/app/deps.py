@@ -36,6 +36,13 @@ def get_current_user(
     if user is None or not user.is_active:
         raise credentials_exc
 
+    # ⚠️ **服务端撤销**（2026-09-19 审计）：令牌里的 `tv` 必须等于库里当前的 `token_version`。
+    #    改密码 / 停用 / 删除 / 主动登出都会把库里的值 +1，于是那些旧令牌立刻失效 ——
+    #    在这之前"改密码"对已经泄漏的令牌毫无作用，只能等满 24 小时。
+    #    老令牌没有 `tv` claim → 按 0 处理；老库补列时默认也是 0 → **升级不会把所有人踢下线**。
+    if int(payload.get("tv", 0) or 0) != int(getattr(user, "token_version", 0) or 0):
+        raise credentials_exc
+
     # 权限一律以数据库当前角色为准。JWT 内 role 仅作兼容/展示；若与 DB 不一致（如派单员修改了用户角色），仍允许访问，
     # 避免刷新后 401；冒用 sub 需有效签名，无法用伪造 role 提权（各接口以 user ORM 判权）。
     return user

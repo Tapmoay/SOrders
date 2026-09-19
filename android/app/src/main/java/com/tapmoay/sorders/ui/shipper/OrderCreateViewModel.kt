@@ -86,6 +86,16 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     /** 共享地点库（全库共用；司机到场补录的坐标在这里） */
     var places by mutableStateOf<List<PlaceDto>>(emptyList())
     var loadingProducts by mutableStateOf(false)
+    /**
+     * 商品目录**加载失败**的原因（2026-09-19 审计）。
+     *
+     * 原来这里只有一个从没被赋过 true 的 `loadingProducts`，而商品请求是
+     * `catch (_: Exception) {}` 静默吞掉 → 选品页对"还在加载"和"加载失败"都会显示
+     * 「**暂无可用商品**\n请联系派单员先在「商品管理」中添加商品后再下单」。
+     * 那是**断言式假话**：货主弱网/服务重启时打开下单页就会看到它，然后去质问派单员"你们没配商品"，
+     * 而派单员那边一切正常。失败必须有个能重试的出口。
+     */
+    var productsError by mutableStateOf<String?>(null)
     var submitting by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var success by mutableStateOf(false)
@@ -111,9 +121,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             loadPriceRulesFor(s?.userId)
         }
         // 预加载商品目录与地址库
-        viewModelScope.launch {
-            try { products = container.repo.products() } catch (_: Exception) {}
-        }
+        loadProducts()
         // 分类名册的顺序（派单员排的）。拉不到就退回"按商品数倒序"——
         // 顺序不理想，但**商品一件都不会少**（选品页不依赖它做过滤）。
         viewModelScope.launch {
@@ -129,6 +137,25 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /** 共享地点库（全库共用）。搜索时由界面调 `loadPlaces(q)`。 */
+    /**
+     * 拉商品目录（失败要有出口：见 [productsError] 的注释）。
+     * 界面在失败时显示"加载失败 + 重试"，而不是"暂无可用商品，请联系派单员添加"。
+     */
+    fun loadProducts() {
+        if (loadingProducts) return
+        loadingProducts = true
+        productsError = null
+        viewModelScope.launch {
+            try {
+                products = container.repo.products()
+            } catch (e: Exception) {
+                productsError = toApiException(e).message ?: "商品目录加载失败"
+            } finally {
+                loadingProducts = false
+            }
+        }
+    }
+
     fun loadPlaces(q: String? = null) {
         viewModelScope.launch {
             try { places = container.repo.places(q) } catch (_: Exception) {}
@@ -154,16 +181,40 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             priceRulesShipper = null
             return
         }
+        // ⚠️ 换主体时**先把上一次的规则清掉**（2026-09-19 审计）：`priceRules` 是异步加载的，
+        //    不清就会在"派单员代理下单：选货主 A（有专属价）→ 改选 B → 立刻打开选品页"这段窗口里
+        //    继续用 A 的价（`priceFor` 读的是这个 map）。后果是**报价串号**：把甲谈下来的专属价
+        //    按在乙头上、或按默认价报给本该有专属价的批发商——订单/小票/账本三处一致（都错），
+        //    事后无从发现。`priceRulesShipper` 本来就该是"这份 map 属于谁"的守卫，之前只写不读。
+        if (priceRulesShipper != sid) {
+            priceRules = emptyMap()
+            priceRulesShipper = null
+        }
         viewModelScope.launch {
             try {
-                priceRules = container.repo.priceRules().filter { it.shipperId == sid }.associateBy { it.productId }
-                priceRulesShipper = sid
-            } catch (_: Exception) {}
+                val loaded = container.repo.priceRules().filter { it.shipperId == sid }.associateBy { it.productId }
+                // 请求回来时主体又被换过就别写了（`priceRulesShipper` 已经指到新主体）
+                if (shipperId == sid || (shipperId == null && myShipperId == sid)) {
+                    priceRules = loaded
+                    priceRulesShipper = sid
+                }
+            } catch (_: Exception) {
+                loadingProducts = false   // 失败也要收尾，别让界面永远停在"加载中"
+            }
         }
     }
 
-    /** 选择商品时的实际单价：有批发商专属价用特价，否则默认售价 */
-    fun priceFor(p: ProductDto): String = priceRules[p.id]?.specialUnitPrice ?: p.defaultUnitPrice
+    /**
+     * 选择商品时的实际单价：有批发商专属价用特价，否则默认售价。
+     *
+     * ⚠️ 只认**当前下单主体**那份规则：`priceRulesShipper` 对不上就回退默认价
+     * （回退到默认价是"少赚"，用错人的专属价是"报错价"，两害相权）。
+     */
+    fun priceFor(p: ProductDto): String {
+        val subject = shipperId ?: myShipperId
+        if (priceRulesShipper != subject) return p.defaultUnitPrice
+        return priceRules[p.id]?.specialUnitPrice ?: p.defaultUnitPrice
+    }
 
     fun addLine(name: String, price: String, productId: Long?, unit: String = "件", quantity: Int = 1) {
         if (lines.size >= 10) {

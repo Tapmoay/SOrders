@@ -26,7 +26,10 @@ from tests.test_driver_billing_api import _attach, _mk_driver, _mk_rule, _uniq
 
 
 def _today_utc() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    """报表/绩效的锚点 = **业务当地日**（2026-09-19 审计 R12-M11；见 report_reconciliation 里的说明）。"""
+    from app.core.business_time import business_today
+
+    return business_today().isoformat()
 
 
 def _deliver(client: TestClient, token_shipper: str, token_dispatcher: str, token_driver: str,

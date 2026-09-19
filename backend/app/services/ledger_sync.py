@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.business_time import business_date
 from app.models import Ledger, Order, OrderProduct
 from app.models.enums import LedgerSource, OrderStatus
 
@@ -20,10 +21,10 @@ def sync_ledger_from_delivered_order(db: Session, order: Order) -> None:
     if not has_user_shipper and not has_temp:
         return
     entry_date: date
-    if order.delivered_at is not None:
-        entry_date = order.delivered_at.date()
-    else:
-        entry_date = order.order_date
+    # ⚠️ 账本行的日期用**业务当地日**（2026-09-19 审计 R12-M11）：`delivered_at` 是 UTC，
+    #    直接取 `.date()` 会让东八区凌晨送达的单记成"前一天的那笔账"
+    #    —— 账本按日期筛/对账时就会跟订单的送达日对不上。
+    entry_date = business_date(order.delivered_at) or order.order_date
     shipper_id = order.shipper_id
     temp_shipper_name = temp_name if not has_user_shipper else None
     for op in order.order_products:
@@ -68,7 +69,22 @@ def sync_ledger_from_delivered_order(db: Session, order: Order) -> None:
 
 
 def sync_order_product_from_ledger(db: Session, ledger: Ledger) -> None:
-    if ledger.source == LedgerSource.MANUAL:
+    """把账本行的数量/单价/金额**写回订单商品行**。
+
+    ⛔ **只有 `source=ORDER` 的行才允许回写**（2026-09-19 审计 F2，高）。
+    原来只排除了 `MANUAL`，于是 `REFUND`（货损红冲）那类行也走回写，而它们的
+    `quantity/unit_price/total` 记的是**被冲掉的那一部分**（本机实例：ledgers.id=17 是
+    `REFUND` 行，quantity=2 / unit_price=0 / total=0，指向 order_products.id=26，
+    而那一行真实值是 qty=10 / 单价 23.5 / 金额 235）。
+
+    于是"改一下那条红冲的备注"就会把订单行**静默清零**：数量→2、单价→0、金额→0，
+    营业额 235→0、挂账未收与商品经营全线掉数，而司机账单（按送达时冻结）与那条
+    ORDER 账本行仍然是 235 —— **一张单三个数**，且操作日志里因为"明细本身没变"
+    记的是"什么都没改"。
+
+    回写的语义只在"这一行账本就是订单行的那份账"时成立，那就是 `source=ORDER`。
+    """
+    if ledger.source != LedgerSource.ORDER:
         return
     if ledger.order_id is None:
         return

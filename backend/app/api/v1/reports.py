@@ -1,7 +1,7 @@
 """报表（派单员）：营业额/商品明细 按日/周/月聚合，供折线图与条形图使用。"""
 
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -9,6 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
 
+from app.core.business_time import business_date, business_local, business_range_utc
+from app.services.ledger_scope import visible_ledger_select
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
@@ -93,6 +95,7 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
     total_freight = Decimal("0")
     total_orders = 0
     cost_total = Decimal("0")
+    cost_covered_amount = Decimal("0")
     total_lines = 0
     cost_covered_lines = 0
     damage_qty = 0
@@ -101,20 +104,33 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
     arrears_total = Decimal("0")
     arrears_map: dict[str, Decimal] = {}
     for o in orders:
-        ds = o.delivered_at.date()
-        if ds < start or ds > end:
+        # ⚠️ 按**业务当地日**分桶（2026-09-19 审计 R12-M11）：`delivered_at` 存的是 UTC，
+        #    直接用 `.date()` 会让东八区当地 00:00~08:00 送达的单落进**前一天**
+        #    ——"早上看今天的日报是 0"就是这么来的，而两个页面都不报错。
+        ds = business_date(o.delivered_at)
+        if ds is None or ds < start or ds > end:
             continue
         key = f"{ds.month}-{ds.day}"
         amount = sum((lp.line_total or Decimal("0")) for lp in o.order_products)
         item = day_map.setdefault(key, ReportSeriesItem(label=key))
         item.amount += amount
         item.orders += 1
-        item.freight += o.freight_fee or Decimal("0")
-        h = o.delivered_at.hour
+        # ⚠️ 「司机运费支出」= **司机应得的钱**，不是订单上那个运费（2026-09-19 审计 R12-M2）：
+        #    v3.36 起"司机拿多少"由计费规则决定（每单固定／运费提成／商品金额提成／工资+提成），
+        #    而 `orders.freight_fee` 只是**提成基数**。原来这里直接累加它，于是同一个词
+        #    在「营业纵览」和「司机运费结算」页是两个数（同一天实测：47870.00 vs 24770.00，
+        #    虚高 93%），而两个页面都不报错——老板照这一格判断车费成本会系统性高估。
+        #    口径现在与账单/结算页/司机绩效导出**同源**：`pay_for_order` 一处实现。
+        pay = pay_for_order(o).total if has_per_order_pay(o) else Decimal("0")
+        item.freight += pay
+        # ⚠️ 小时桶也按**业务当地时刻**（2026-09-19 审计 R13-R3）：`delivered_at` 是 UTC，
+        #    直接取 `.hour` 会把当地凌晨 0~3 点送达的单标成「16~18时」——
+        #    日报的时段分布整段错位，而数字看起来很正常。
+        h = business_local(o.delivered_at).hour
         hour_amount[h] = hour_amount.get(h, Decimal("0")) + amount
         hour_orders[h] = hour_orders.get(h, 0) + 1
         total_amount += amount
-        total_freight += o.freight_fee or Decimal("0")
+        total_freight += pay
         total_orders += 1
         for lp in o.order_products:
             total_lines += 1
@@ -122,6 +138,9 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
             if cost > 0:
                 cost_covered_lines += 1
                 cost_total += cost * Decimal(lp.quantity)
+                # 收入侧**只收有成本快照的行**（见 schemas/reports.py 里 cost_covered_amount 的注释）：
+                # 不这么写，没快照的行会以"0 成本"全额变成毛利。
+                cost_covered_amount += lp.line_total or Decimal("0")
             dq = lp.damage_quantity or 0
             if dq > 0:
                 damage_qty += dq
@@ -150,13 +169,21 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         ]
     else:
         series = [day_map.get(f"{x.month}-{x.day}", ReportSeriesItem(label=f"{x.month}-{x.day}")) for x in days]
-    avg = (total_amount / total_orders) if total_orders else Decimal("0")
+    # ⚠️ 单均价先量化到两位（2026-09-19 审计 R13-R7）：`Decimal/Decimal` 会给出
+    #    28 位商（实测导出的单元格是 `193.4895418326693227091633466`），
+    #    Excel 里既难看又和界面上显示的"¥193.49"对不上。
+    avg = (total_amount / total_orders).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if total_orders else Decimal("0")
+    # ⚠️ 撤销数按**业务当地日**筛（2026-09-19 审计 R13-R3）：`func.date(cancelled_at)` 取的是
+    #    UTC 日期，东八区当地 00:00~08:00 撤销的单会被算到前一天 ——
+    #    实测「今天撤销 0 单」而当天其实有 125 张（该行只在 >0 时渲染，于是整行消失）。
+    #    `business_range_utc` 把当地日区间换成库里的 UTC 时刻，SQL 侧直接比时间列。
+    c_start, c_end = business_range_utc(start, end)
     cancelled_orders = db.scalar(
         select(func.count(Order.id)).where(
             Order.status == OrderStatus.CANCELLED,
             Order.cancelled_at.isnot(None),
-            func.date(Order.cancelled_at) >= start,
-            func.date(Order.cancelled_at) <= end,
+            Order.cancelled_at >= c_start,
+            Order.cancelled_at < c_end,
         )
     ) or 0
     return {
@@ -167,6 +194,7 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         "avg_order": avg,
         "series": series,
         "cost_total": cost_total,
+        "cost_covered_amount": cost_covered_amount,
         "total_lines": total_lines,
         "cost_covered_lines": cost_covered_lines,
         "damage_qty": damage_qty,
@@ -194,8 +222,10 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
     damage_amount = Decimal("0")
     total_lines = 0
     cost_covered_lines = 0
+    cost_covered_amount = Decimal("0")
     for o in load_delivered(db):
-        if o.delivered_at.date() < start or o.delivered_at.date() > end:
+        ds = business_date(o.delivered_at)
+        if ds is None or ds < start or ds > end:
             continue
         for lp in o.order_products:
             name = lp.product_name_snapshot or "未命名商品"
@@ -209,6 +239,13 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
             cost = lp.cost_price_snapshot or Decimal("0")
             if cost > 0:
                 cost_covered_lines += 1
+                item.covered_lines += 1
+                # ⚠️ 毛利的两侧必须是**同一批行**（2026-09-19 审计第十七轮）：
+                #    只累计成本、收入侧却用全额，等于"没成本快照的行按 0 成本、100% 毛利进账"。
+                #    本机实测：商品页/导出的表头毛利 11,071.00，而营业纵览（正确口径）是 10,789.00；
+                #    唯一那个混合组 ttt 印出 327.50（正确 45.50，差 7.2 倍）。
+                item.covered_amount += lp.line_total or Decimal("0")
+                cost_covered_amount += lp.line_total or Decimal("0")
                 cost_total += cost * Decimal(lp.quantity)
                 item.cost += cost * Decimal(lp.quantity)
             dq = lp.damage_quantity or 0
@@ -229,6 +266,7 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
         "damage_amount": damage_amount,
         "total_lines": total_lines,
         "cost_covered_lines": cost_covered_lines,
+        "cost_covered_amount": cost_covered_amount,
         "_window": (start, end),
     }
 
@@ -238,9 +276,9 @@ def turnover_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     mode: str = Query("day", pattern="^(day|week|month)$"),
-    anchor: str = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
 ) -> TurnoverReportOut:
-    d = date.fromisoformat(anchor)
+    d = anchor
     data = build_turnover(db, mode, d)
     data.pop("_window", None)
     return TurnoverReportOut(**{**data, "period_label": data["period_label"]})
@@ -251,9 +289,9 @@ def product_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     mode: str = Query("day", pattern="^(day|week|month)$"),
-    anchor: str = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
 ) -> ProductReportOut:
-    d = date.fromisoformat(anchor)
+    d = anchor
     data = build_products(db, mode, d)
     data.pop("_window", None)
     return ProductReportOut(**data)
@@ -270,15 +308,26 @@ def build_arrears_summary(db: Session, start: date, end: date) -> list[dict]:
             .where(
                 Order.status == OrderStatus.DELIVERED,
                 Order.delivered_at.isnot(None),
-                Order.payment_method == "arrears",
+                # ⚠️ 隔离区（软删）的单不算欠款（2026-09-19 审计）：这个查询与 `load_delivered`
+                #    是同一批口径，但当初只给 `load_delivered` 加了这一条 → 删掉一张挂账单之后，
+                #    「营业纵览·挂账未收」减了、而这一份（客户经营页 + kind=customers 导出）没减，
+                #    同一个页面两个"挂账未收"。实测本机差 ¥500。
+                Order.deleted_at.is_(None),
+                # ⚠️ **只按 `paid=False` 划"还没收"**，不再加 `payment_method == "arrears"`
+                #    （2026-09-19 审计 R13-R4）：营业纵览那一份用的是 `paid=False` 一条判据，
+                #    这里多一条 `payment_method == "arrears"` → 只要库里有一张
+                #    `cash + paid=0 + collect_cash=0` 的已送达单（老数据/导库/直接改库都可能），
+                #    两个"挂账未收"就永久分叉（实测 63,006.00 vs 62,920.50，差 ¥85.50 / 7 张单）。
+                #    schema 里 `arrears_total` 的注释写的就是"挂账未收（paid=False）"——
+                #    判据只有一处实现，才不会再走散。
                 Order.paid.is_(False),
             )
         )
     )
     unit_map: dict[str, dict] = {}
     for o in rows:
-        ds = o.delivered_at.date()
-        if ds < start or ds > end:
+        ds = business_date(o.delivered_at)
+        if ds is None or ds < start or ds > end:
             continue
         name = (o.arrears_unit_name or "").strip() or "未分配挂账单位"
         g = unit_map.setdefault(name, {"name": name, "count": 0, "amount": Decimal("0")})
@@ -292,11 +341,11 @@ def build_arrears_summary(db: Session, start: date, end: date) -> list[dict]:
 def arrears_summary(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
-    date_from: str = Query(..., description="YYYY-MM-DD"),
-    date_to: str = Query(..., description="YYYY-MM-DD"),
+    date_from: date = Query(..., description="YYYY-MM-DD"),
+    date_to: date = Query(..., description="YYYY-MM-DD"),
 ) -> list[dict]:
-    start = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
+    start = date_from
+    end = date_to
     return build_arrears_summary(db, start, end)
 
 
@@ -309,15 +358,33 @@ def _xlsx_sheet(ws, title_rows: list[list], header: list, rows: list[list]):
         ws.append(r)
 
 
+def _money(v) -> float:
+    """导出里的金额写成**数字**（不是文本），保留两位小数。
+
+    2026-09-19 审计 R13-R7：原来一律 `str(decimal)` 写进单元格，openpyxl 存成**文本**
+    （实测 `B2='97131.7500' type=s`）——用户在 Excel 里 `SUM` 选一列金额，
+    得到的是 0（或只把"单数/件数"这种真数字加起来），账要自己拿计算器重算。
+    金额是给人算的，必须能被 Excel 当数用。
+
+    ⚠️ 进位方式必须显式写 `ROUND_HALF_UP`（2026-09-19 审计 F7）：`.quantize()` 的默认是
+    **ROUND_HALF_EVEN**（银行家舍入），而全项目的 `driver_pay.money()` 是 ROUND_HALF_UP ——
+    金额正好落在半分位上时（如 0.125）两处差 1 分，而"导出与页面差 1 分"是对账时最难查的那种。
+    同族的货损两处已在第十五轮改过，这里是最后一处。
+    """
+    if v is None or v == "":
+        return ""
+    return float(Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 @router.get("/export")
 def export_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit)$"),
     mode: str = Query("day", pattern="^(day|week|month)$"),
-    anchor: str = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
-    date_from: str | None = Query(None, description="YYYY-MM-DD（finance/customers 可用，优先于 mode+anchor）"),
-    date_to: str | None = Query(None, description="YYYY-MM-DD"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（finance/customers 可用，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
 ) -> StreamingResponse:
     """报表 Excel 导出（内存流 xlsx）。"""
     from io import BytesIO
@@ -326,7 +393,12 @@ def export_report(
     from app.models import CashFlow, DriverSettlement, Expense, Ledger
     from app.models.enums import SettlementStatus
 
-    d = date.fromisoformat(anchor)
+    d = anchor
+    # 文件名的日期段：默认用锚点日；按区间导出时用**真实区间**（见下面 `range_label = ...`）。
+    # ⛔ 原来文件名一律写 `{anchor}`，于是 `?date_from=2026-09-01&date_to=2026-09-01` 导出的文件
+    #    叫 `finance-report-2026-09-18.xlsx`、内容却是 09-01~09-01 —— 对账/存档时按文件名找回来
+    #    会拿到一份"名字与内容不符"的凭证（2026-09-19 审计第十一轮记录，第十五轮修）。
+    range_label = str(d)
     wb = Workbook()
 
     def next_sheet(title: str):
@@ -340,73 +412,93 @@ def export_report(
         data = build_turnover(db, mode, d)
         ws = next_sheet("营业纵览")
         ws.append(["营业纵览", f"{mode} {_label(d, mode)}", f"金额口径：已送达未撤销"])
-        ws.append(["营业金额", str(data["total_amount"]), "订单数", data["total_orders"], "单均价", str(data["avg_order"])])
-        ws.append(["司机运费支出", str(data["total_freight"]), "商品毛利(仅计成本快照行)", str(data["total_amount"] - data["cost_total"]), f"成本覆盖率 {data['cost_covered_lines']}/{data['total_lines']}"])
-        ws.append(["货损件数", data["damage_qty"], "货损金额", str(data["damage_amount"]), "已收", str(data["collected"])])
-        ws.append(["挂账未收", str(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
+        ws.append(["营业金额", _money(data["total_amount"]), "订单数", data["total_orders"], "单均价", _money(data["avg_order"])])
+        ws.append([
+            # 口径同「司机运费结算」页：按计费规则应付（不是订单上的运费）——审计 R12-M2
+            "司机运费支出(按计费规则应付)", _money(data["total_freight"]),
+            "商品毛利(仅计成本快照行)",
+            # 毛利 = 参与计算的收入 − 那些行的成本。**两侧必须是同一批行**（见 schemas/reports.py 的注释）
+            _money(data["cost_covered_amount"] - data["cost_total"]),
+            f"成本覆盖率 {data['cost_covered_lines']}/{data['total_lines']}；"
+            f"参与毛利的收入 {data['cost_covered_amount']}／未参与 {data['total_amount'] - data['cost_covered_amount']}",
+        ])
+        ws.append(["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), "已收", _money(data["collected"])])
+        ws.append(["挂账未收", _money(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
         ws.append([])
         ws.append(["时间", "单数", "金额", "运费"])
         for s in data["series"]:
-            ws.append([s.label, s.orders, str(s.amount), str(s.freight)])
+            ws.append([s.label, s.orders, _money(s.amount), _money(s.freight)])
         ws.append([])
         ws.append(["挂账未收单位TOP"])
         for u in data["arrears_units"]:
-            ws.append([u.name, str(u.amount)])
+            ws.append([u.name, _money(u.amount)])
     elif kind == "products":
         data = build_products(db, mode, d)
         ws = next_sheet("商品经营")
         ws.append(["商品经营", f"{mode} {_label(d, mode)}"])
-        ws.append(["销售总额", str(data["total_amount"]), "总件数", data["total_qty"], "商品毛利", str(data["total_amount"] - data["cost_total"])])
-        ws.append(["货损件数", data["damage_qty"], "货损金额", str(data["damage_amount"]), f"成本覆盖率 {data['cost_covered_lines']}/{data['total_lines']}"])
+        # ⚠️ 毛利的两侧必须**同一批行**（2026-09-19 审计第十七轮）：这里原来用
+        #    "Σ 有成本行的**全额**金额 − cost_total" 当表头毛利 → 与营业纵览
+        #    （cost_covered_amount − cost_total）差 ¥282（本机 11,071.00 vs 10,789.00），
+        #    而逐行列更离谱：用的是 `amount − cost` 老公式，合计回到修复前那个错数 72,177.75。
+        ws.append(["销售总额", _money(data["total_amount"]), "总件数", data["total_qty"],
+                   "商品毛利(仅计成本快照行)",
+                   _money((data["cost_covered_amount"] or Decimal("0")) - (data["cost_total"] or Decimal("0")))])
+        ws.append(["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), f"成本覆盖率 {data['cost_covered_lines']}/{data['total_lines']}"])
         ws.append([])
-        ws.append(["商品", "件数", "单数", "金额", "毛利", "货损件数", "货损金额"])
+        ws.append(["商品", "件数", "单数", "金额", "参与毛利的金额", "毛利", "货损件数", "货损金额"])
         for it in data["items"]:
-            ws.append([it.product_name, it.qty, it.order_count, str(it.amount), str(it.amount - it.cost), it.damage_qty, str(it.damage_amount)])
+            cov = it.covered_amount or Decimal("0")
+            # 没有成本快照的行**不进毛利**（写"—"，不是写一个看起来像毛利的大数）
+            gross = _money(cov - it.cost) if (it.covered_lines or 0) > 0 else "—"
+            ws.append([it.product_name, it.qty, it.order_count, _money(it.amount), _money(cov), gross, it.damage_qty, _money(it.damage_amount)])
     elif kind in ("drivers", "customers", "finance", "audit"):
         # 需要 date_from/date_to：缺省用窗口
         if date_from and date_to:
-            s = date.fromisoformat(date_from)
-            e = date.fromisoformat(date_to)
+            s = date_from
+            e = date_to
         else:
             s, e = _window(mode, d)
+        # 文件名跟着**真实取数区间**走（不是锚点日）
+        range_label = f"{s}_{e}" if s != e else str(s)
 
         if kind == "drivers":
-            from app.models import User
+            from app.services.stats_service import driver_performance
 
             ws = next_sheet("司机绩效")
-            orders = [o for o in load_delivered(db) if s <= o.delivered_at.date() <= e]
-            by_driver: dict[int, list[Order]] = {}
-            for o in orders:
-                if o.driver_id:
-                    by_driver.setdefault(o.driver_id, []).append(o)
             ws.append(["司机绩效", f"{s} ~ {e}"])
             ws.append(["司机", "完成单量", "准时率", "拍照率", "平均送达分钟", "计费方式", "待结运费"])
-            for did, os in sorted(by_driver.items(), key=lambda kv: -len(kv[1])):
-                du = db.get(User, did)
-                name = (du.full_name or du.phone or str(did)) if du else str(did)
-                ot_valid = [1 for x in os if x.delivered_at and x.expected_deliver_before and x.delivered_at <= x.expected_deliver_before]
-                ot_total = [x for x in os if x.delivered_at and x.expected_deliver_before]
-                ot = (sum(ot_valid) / len(ot_total)) if ot_total else ""
-                photo_ok = sum(1 for x in os if x.delivery_photo_urls)
-                mode_snap = ""
-                fre = ""
-                # ⚠️ 这一格原来是"随便取一张单的 freight_fee"（列名却叫待结运费，量纲都不对）。
-                #    v3.36 起改成和账单/结算页同源的 Σ 应付（`pay_for_order` 一处实现）。
-                owed = Decimal("0")
-                for x in os:
-                    if x.driver_billing_mode_snapshot:
-                        mode_snap = x.driver_billing_mode_snapshot
-                    if has_per_order_pay(x):
-                        owed += pay_for_order(x).total
-                fre = str(owed)
-                ws.append([name, len(os), ot, (photo_ok / len(os)) if os else "", "", mode_snap, fre])
+            # ⚠️ 这一块原来自己又写了一遍算法，于是三处与页面不是同一件事（2026-09-19 审计 R13-R5）：
+            #    ① 「平均送达分钟」写死 `""` → 所有行、所有月份恒空；
+            #    ② 准时率分母只算**有 `expected_deliver_before`** 的单，而页面按 models 的口径
+            #       **空则按订单日末**（本库 637 张已送达单里 419 张没有 SLA → 导出恒空、页面有值）；
+            #    ③ 工资制司机这里印 0，页面印"工资制"。
+            #    现在**直接复用页面那一个服务**（`stats_service.driver_performance`）：
+            #    一个指标只有一处实现，导出与页面不可能再走散。
+            for row in driver_performance(db, s, e):
+                rate = row["on_time_rate"]
+                avg_sec = row["avg_delivery_seconds"]
+                ws.append(
+                    [
+                        row["driver_name"],
+                        row["completed_count"],
+                        "" if rate is None else round(rate, 4),
+                        round(row["photo_upload_rate"] or 0.0, 4),
+                        "" if avg_sec is None else round(avg_sec / 60, 1),
+                        row["billing_mode"] or "",
+                        # 工资制司机这一格是 None（页面显示"工资制"）——导出也不许印 0，
+                        # 那会被读成"这个月一分钱都不用付给他"
+                        "工资制" if row["billing_mode"] == "SALARY" else (row["freight_owed"] or "0"),
+                    ]
+                )
         elif kind == "customers":
             from app.models import User
 
             ws = next_sheet("客户经营")
             ws.append(["客户账汇总", f"{s} ~ {e}"])
             # 货主账/批发商账（复用 ledger accounts 逻辑的简化：按流水聚合）
-            rows = list(db.scalars(select(Ledger)))
+            # ⚠️ 隔离区（软删）订单的那份账不算（R13-R6）：与营业纵览同一句，否则
+            #    "客户经营"的订货总额会比"营业额"多出一张已删单的钱（本机差 ¥4,600）。
+            rows = list(db.scalars(visible_ledger_select()))
             users: dict[int, User | None] = {}
             shipper_buckets: dict[int, dict] = {}
             member_buckets: dict[int, dict] = {}
@@ -429,16 +521,16 @@ def export_report(
                 b["total"] += r.total or Decimal("0")
             ws.append(["类别", "客户", "笔数", "总额"])
             for b in sorted(shipper_buckets.values(), key=lambda x: -x["total"]):
-                ws.append(["货主", b["name"], b["count"], str(b["total"])])
+                ws.append(["货主", b["name"], b["count"], _money(b["total"])])
             for b in sorted(temp_bucket.values(), key=lambda x: -x["total"]):
-                ws.append(["临时货主", b["name"], b["count"], str(b["total"])])
+                ws.append(["临时货主", b["name"], b["count"], _money(b["total"])])
             for b in sorted(member_buckets.values(), key=lambda x: -x["total"]):
-                ws.append(["批发商", b["name"], b["count"], str(b["total"])])
+                ws.append(["批发商", b["name"], b["count"], _money(b["total"])])
             ws.append([])
             ws.append(["挂账未收 TOP"])
             ws.append(["单位", "笔数", "金额"])
             for g in build_arrears_summary(db, s, e):
-                ws.append([g["name"], g["count"], str(g["amount"])])
+                ws.append([g["name"], g["count"], _money(g["amount"])])
         elif kind == "finance":
             ws = next_sheet("资金收支")
             flows = list(
@@ -448,14 +540,16 @@ def export_report(
                     .order_by(CashFlow.flow_date.desc())
                 )
             )
-            income = sum(f.amount for f in flows if f.direction == "IN")
-            expense = sum(f.amount for f in flows if f.direction == "OUT")
+            income = sum((f.amount for f in flows if str(f.direction).lower() == "in"), Decimal("0"))
+            expense = sum((f.amount for f in flows if str(f.direction).lower() == "out"), Decimal("0"))
             ws.append(["资金收支", f"{s} ~ {e}"])
-            ws.append(["流入", str(income), "流出", str(expense), "净额", str(income - expense)])
+            ws.append(["流入", _money(income), "流出", _money(expense), "净额", _money(income - expense)])
             ws.append([])
             ws.append(["日期", "方向", "金额", "对象", "渠道", "类型", "备注"])
             for f in flows:
-                ws.append([f.flow_date.isoformat(), "收入" if f.direction == "IN" else "支出", str(f.amount), f.party_name or "", f.channel, f.biz_type, f.note])
+                ws.append([f.flow_date.isoformat(),
+                           "收入" if str(f.direction).lower() == "in" else "支出",
+                           _money(f.amount), f.party_name or "", f.channel, f.biz_type, f.note])
             ws.append([])
             ws.append(["开销分类"])
             ws.append(["分类", "金额"])
@@ -464,7 +558,7 @@ def export_report(
             for x in exp_rows:
                 cat_map[x.category] = cat_map.get(x.category, Decimal("0")) + x.amount
             for cat, amt in sorted(cat_map.items(), key=lambda kv: -kv[1]):
-                ws.append([cat, str(amt)])
+                ws.append([cat, _money(amt)])
         elif kind == "audit":
             from app.models import OperationLog
 
@@ -480,15 +574,33 @@ def export_report(
                     o["exception_resolved_at"].isoformat() if o["exception_resolved_at"] else "",
                 ])
             ws.append([])
-            ws.append(["敏感操作日志"])
-            logs = list(db.scalars(select(OperationLog).order_by(OperationLog.id.desc()).limit(200)))
+            # ⛔ 「敏感操作日志」原来**完全不看区间**（就是 `order_by(id.desc()).limit(200)`）：
+            #    导出一份"09-01 的审计报告"，里面躺着的却是**库里最新**的 200 条日志（可能是 09-18 的）。
+            #    审计凭证"名字写着 A、内容是 B"比"少给几条"严重得多——看的人会以为那就是当天的全部动作。
+            #    现在按**业务当地日区间**过滤（与保留任务同一个 UTC 换算），并且如实说清有没有被截断。
+            lo, hi = business_range_utc(s, e)
+            in_range = (OperationLog.created_at >= lo, OperationLog.created_at < hi)
+            total = db.scalar(
+                select(func.count()).select_from(OperationLog).where(*in_range)
+            ) or 0
+            logs = list(
+                db.scalars(
+                    select(OperationLog).where(*in_range).order_by(OperationLog.id.desc()).limit(200)
+                )
+            )
+            note = f"{s} ~ {e}"
+            if total > len(logs):
+                note += f"（区间内共 {total} 条，这里只列了最近 {len(logs)} 条）"
+            else:
+                note += f"（共 {total} 条）"
+            ws.append(["敏感操作日志", note])
             ws.append(["时间", "操作", "内容"])
             for log in logs:
                 ws.append([log.created_at.isoformat() if log.created_at else "", log.action, log.change_content or ""])
 
     buf = BytesIO()
     wb.save(buf)
-    fn = f"{kind}-report-{anchor}.xlsx"
+    fn = f"{kind}-report-{range_label}.xlsx"
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

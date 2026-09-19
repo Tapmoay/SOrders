@@ -10,6 +10,7 @@ from app.deps import require_permission
 from app.models import Order, OrderProduct, Product, User
 from app.models.enums import OperationAction, OrderStatus
 from app.schemas.order import OrderProductCreate, OrderProductOut, OrderProductUpdate
+from app.services.inventory_service import resync_reservations
 from app.services.operation_log_service import write_log
 from app.services.order_flow import resolve_line_total
 
@@ -28,6 +29,38 @@ def _check_product_ref(db: Session, product_id: int | None) -> None:
         )
     if p.is_deleted:
         raise HTTPException(status_code=400, detail=f"商品「{p.name}」已经删除了，请重新选一个。")
+
+
+def _resync_stock_if_assigned(db: Session, order: Order, operator_id: int) -> int:
+    """订单行变更后把**预占**重算（只对已经派过单的单做）。
+
+    ⛔ 判据"派过单没有"**不能看有没有 RESERVED 流水**（2026-09-19 审计第十七轮，
+    这是一条"越修越错"的判据）：
+
+    `auto_stock_out` 是**逐行**写的，而行的商品要能解析出 `product_id` 才写
+    （手输商品名、或商品库里有多个同名 → `_resolve_product` 返回 None → 那一行**一条流水都没有**，
+    这是设计如此，见 `inventory_service` 的模块注释）。于是：
+
+    手输商品名下单 → 派单（这条流水没写）→ 派单员在明细里把该行改成库里的商品
+    → 老判据查到 0 条 RESERVED，直接 `return 0` → **预占永远补不回来**
+    → 送达时 `auto_stock_commit` 只遍历 RESERVED，那一件货**一件都不扣**。
+
+    本机只读复核（2026-09-19）：在途未删订单里"有商品编号却零预占"的 (单,商品) 对 **21** 个，
+    `GET /inventory/summary` 的「在途占用」与在途订单行有 **9** 个商品对不上（合计至少 72 件）；
+    而 `note='订单行变更后重算预占'` 的流水**一行都没有** —— 说明这个守卫从来没放行过。
+
+    正确的判据是**订单自己的状态**：已经派过单（`dispatched_at` 有值，或状态已过 DISPATCHED）
+    就说明"这一刻库里已经为该单占过位"，改完行必须重算；没派过的单不需要动
+    （那时还没预占，送达前若再派单会按当时的行一次性预占）。
+    """
+    if order.dispatched_at is None:
+        return 0
+    # 重算期间把订单行锁住（MySQL 上是 `SELECT … FOR UPDATE`，SQLite 忽略）：
+    # `resync_reservations` 是"按当前行算目标值 → 与本单现有 RESERVED 流水对账 → 补差额"，
+    # 两个并发的行编辑会各自读到同一份"现有值"、各写同一个差额 → 预占翻倍 → 送达**多扣**。
+    # 锁住订单行之后两次编辑串行，第二个人读到的是第一个人写完的流水。
+    db.execute(select(Order.id).where(Order.id == order.id).with_for_update())
+    return resync_reservations(db, order, operator_id)
 
 
 def _order_allows_line_edit(order: Order) -> bool:
@@ -66,9 +99,19 @@ def create_order_product(
     _check_product_ref(db, body.product_id)
     # 单位：客户端给了就用，没给则回退商品库里的单位（人工加的行回退"件"）
     unit = (body.unit or "").strip()
-    if not unit and body.product_id is not None:
+    cost_snapshot = Decimal("0")
+    if body.product_id is not None:
         p = db.get(Product, body.product_id)
-        unit = (p.unit or "件").strip() if p else "件"
+        if p is not None:
+            if not unit:
+                unit = (p.unit or "件").strip() or "件"
+            # ⚠️ 成本快照必须在这里定格（2026-09-19 审计）：下单路径早就在写
+            #    （`order_flow.build_order_products`），而这个"派单员后来加一行"的入口**从来没写** ——
+            #    行成本恒为 0，于是：① 报表把这一行算成"0 成本、100% 毛利"（毛利虚高）；
+            #    ② 司机对这一行报货损时 `apply_damage_accounting` 判 cost<=0 直接跳过 →
+            #    **损失金额永远不落账**，而提示语还把原因说成"请在商品管理里补上成本价"
+            #    （商品库里有成本价，缺的是这一行没定格）。
+            cost_snapshot = p.cost_price or Decimal("0")
     op = OrderProduct(
         order_id=body.order_id,
         product_id=body.product_id,
@@ -77,6 +120,7 @@ def create_order_product(
         unit_price=body.unit_price,
         line_total=lt,
         unit_snapshot=(unit or "件")[:32],
+        cost_price_snapshot=cost_snapshot,
     )
     db.add(op)
     db.flush()
@@ -87,6 +131,9 @@ def create_order_product(
         action=OperationAction.ORDER_LINE_ADD,
         change_payload={"line_id": op.id},
     )
+    # 行加了 → 预占要跟着加，否则送达时这件货**永远不扣库**（见 resync_reservations 的说明）
+    db.flush()
+    _resync_stock_if_assigned(db, order, current.id)
     db.commit()
     db.refresh(op)
     return op
@@ -128,6 +175,11 @@ def update_order_product(
             raise HTTPException(status_code=400, detail=str(e)) from e
     if body.product_id is not None:
         op.product_id = body.product_id
+        # 换商品必须**同时换成本快照**（2026-09-19 审计）：不换的话这一行仍按旧商品的成本
+        # 算毛利/货损（把 50 元成本的货按 10 元记，毛利虚增、货损少记）。
+        changed = db.get(Product, body.product_id)
+        if changed is not None:
+            op.cost_price_snapshot = changed.cost_price or Decimal("0")
     if body.product_name_snapshot is not None:
         op.product_name_snapshot = body.product_name_snapshot
     if body.quantity is not None:
@@ -143,6 +195,9 @@ def update_order_product(
         action=OperationAction.ORDER_LINE_UPDATE,
         change_payload={"line_id": op.id},
     )
+    # 数量/商品改了 → 预占按商品逐一对账补齐（否则送达按旧流水扣库：多扣/少扣/扣错商品）
+    db.flush()
+    _resync_stock_if_assigned(db, order, current.id)
     db.commit()
     db.refresh(op)
     return op
@@ -172,4 +227,7 @@ def delete_order_product(
             action=OperationAction.ORDER_LINE_DELETE,
             change_payload={"line_id": line_id},
         )
+        # 行删了 → 对应的预占要放掉，否则送达会照扣一件已经不存在的货
+        db.flush()
+        _resync_stock_if_assigned(db, order, current.id)
     db.commit()

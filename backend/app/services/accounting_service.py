@@ -7,11 +7,12 @@
 """
 
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.business_time import business_date, business_local
 from app.models import (
     CashFlow,
     Customer,
@@ -31,6 +32,7 @@ from app.models.enums import (
     DriverBillType,
     ExpenseCategory,
     LedgerSource,
+    OrderStatus,
     ReceiptSettleMode,
     SettlementStatus,
 )
@@ -48,8 +50,21 @@ from app.services.driver_pay import (
 
 # ---------- 工具 ----------
 def _month_of(dt: datetime | None) -> str:
+    """账单归属的月份 = **业务当地月**（东八区），不是 UTC 月。
+
+    2026-09-19 审计 R13-D2：`delivered_at` 存的是 UTC，而「司机运费结算」页/司机绩效/
+    账本全都按**当地月**开窗口（`freight_settlement` 会把 `month` 当当地墙上时间再换 UTC）。
+    账单月份按 UTC 算时，当地月初 00:00~08:00 送达的单被记到**上一个月**：
+    结算页（当地月窗口）看得到它、账单表（UTC 月桶）里没有 → 派单员去建结算单被告知
+    「本月无待结算明细」，而 AI 的补单卡会一直算出"还差 X 元"、点确认却一张都生成不了（见 D2 的另一半）。
+    """
     d = dt or datetime.now(timezone.utc)
-    return d.strftime("%Y-%m")
+    return business_local(d).strftime("%Y-%m")
+
+
+def business_month_now() -> str:
+    """业务当地的当前月份（`YYYY-MM`）——用来挡住"未来的月份"。"""
+    return business_local(datetime.now(timezone.utc)).strftime("%Y-%m")
 
 
 def _now() -> datetime:
@@ -161,7 +176,11 @@ def apply_damage_accounting(db: Session, order: Order, operator_id: int | None =
         if qty <= 0:
             continue
         cost = op.cost_price_snapshot or Decimal("0")
-        cost_amt = (cost * Decimal(qty)).quantize(Decimal("0.01"))
+        # ⚠️ 进位方式必须与**全项目**一致：`driver_pay.money()` 用的是 ROUND_HALF_UP，
+        #    而 `.quantize(Decimal("0.01"))` 的默认是 ROUND_HALF_EVEN → 成本价正好落在半分上时
+        #    （如 12.3450）两处会差 1 分（2026-09-19 审计第十七轮，纯静态：本机 437 个商品
+        #    里恰好没有一个命中，所以它从没被发现，但"钱的算法只许一处"是硬规矩）。
+        cost_amt = (cost * Decimal(qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if cost_amt <= 0:
             # 数量**留着**（那是司机报的事实），只是没有成本价就算不出损失金额
             warnings.append(
@@ -170,7 +189,8 @@ def apply_damage_accounting(db: Session, order: Order, operator_id: int | None =
                 f"要按成本计损失，请在「商品管理」里补上成本价（只对之后新下的单生效）。"
             )
             continue
-        dod = order.delivered_at.date() if order.delivered_at else order.order_date
+        # 货损开销的日期用**业务当地日**（2026-09-19 审计 R12-M11，理由同账本行）
+        dod = business_date(order.delivered_at) or order.order_date
         exp = Expense(
             exp_date=dod,
             category=ExpenseCategory.LOSS,
@@ -215,7 +235,9 @@ def apply_damage_accounting(db: Session, order: Order, operator_id: int | None =
                 product_id=op.product_id,
                 source=LedgerSource.REFUND,
                 note=f"送达货损成本冲回（自动）{qty} 件",
-                cost_price_snapshot=-(cost * Decimal(qty)).quantize(Decimal("0.0001")),
+                cost_price_snapshot=-(cost * Decimal(qty)).quantize(
+                    Decimal("0.0001"), rounding=ROUND_HALF_UP
+                ),
             )
         )
     return warnings
@@ -234,23 +256,18 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
     if cust is None:
         raise ValueError("客户档案不存在")
     per_order: dict[int, Decimal] = {}
-    if body.settle_mode == ReceiptSettleMode.ITEMIZED:
-        if not body.order_ids:
-            raise ValueError("逐单核销需绑定订单")
-        total = Decimal("0")
-        # ⚠️ 逐单核销是"读 paid → 判断 → 写"，中间没有锁：两个请求同时核销同一张单会**都读到
-        #    paid=False**，于是两条收款记录、两条现金流水（钱多记一笔）。
-        #    `with_for_update()` = MySQL 上的行锁（第二个请求等第一个提交后再读，就读到 paid=True 了）；
-        #    SQLite **不支持行锁**（SQLAlchemy 直接忽略）——2026-09-18 探针在本机实测复现了
-        #    「两个请求都 200、同一张单两条收款记录」（`_tools/qa/_probe_core_flows.py` 的并发组）。
-        #    所以下面还有一道**条件 UPDATE 占位**（作业同 `order_flow` 的状态跃迁）：
-        #    把 paid=false → true 这一步变成"改到行的人才能继续"，两种数据库上都原子。
-        ids = sorted({int(x) for x in body.order_ids})
-        locked = {
-            o.id: o
-            for o in db.scalars(select(Order).where(Order.id.in_(ids)).with_for_update())
-        }
-        for oid in ids:
+    # ⚠️ 归属 / 存在 / 已收款这三道校验必须对**两种 settle_mode 都生效**（2026-09-19 审计）。
+    #    原来整段校验写在 `if ITEMIZED:` 里面，而上面 `ShipperReceiptCreate` 并没有禁止
+    #    「rolling + order_ids」这个组合 —— 于是滚动收款带着 order_ids 进来时：
+    #      ① 不校验归属 → 可以把**任意货主的任意订单**标成已收款；
+    #      ② 不校验 paid → 可以**无限重复**调用；
+    #      ③ `per_order` 是空的，下面按 `body.amount` 给**每个** order_id 各写一条**全额**流水
+    #         （10 个 order_ids × 1000 元 = 10 条 1000 元的流入，而收款单只有 1000）。
+    #    这道洞两个库里都没有任何测试覆盖（实测 rolling 行数 = 0，纯靠代码读出来）。
+    order_ids = sorted({int(x) for x in (body.order_ids or [])})
+    if order_ids:
+        locked = {o.id: o for o in db.scalars(select(Order).where(Order.id.in_(order_ids)).with_for_update())}
+        for oid in order_ids:
             o = locked.get(oid)
             if o is None:
                 raise ValueError(f"订单 {oid} 不存在")
@@ -258,34 +275,76 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
                 raise ValueError(f"订单 {oid} 无客户归属（临时货主收款需先关联客户档案）")
             if o.shipper_id != cust.user_id:
                 raise ValueError(f"订单 {oid} 不属于该客户")
-            # ⚠️ 已经收过款的单不能再逐单核销一次（v3.39 探针实测：原来可以，
-            #    于是同一张单出现两条收款记录、两条现金流水——账上多出一笔没收到的钱）。
-            #    "逐单核销"的语义就是"这张单的钱收齐了"（下面那句 amount 必须等于合计），
-            #    所以第二次必然是多记。补差额请改用「滚动收款」（绑定不了单的那种）。
+            # ⛔ **已撤销 / 已进回收站**的单不许收款（2026-09-19 审计 F1）。
+            #    这三道校验（存在/归属/已收款）原来**唯独没有状态**：本机就有一批
+            #    **已撤销**的单挂着逐单核销的收款单 + 现金流水（73 张 / ¥2,900）。
+            #    一手交钱一手交货的单被撤销了（客户不要了、改派了），钱却记在它头上 ——
+            #    客户的"已收"虚高、而真正该收的那张单还是欠着；撤销时谁也没被告知这一笔。
+            #    预收（还没派/还没送就先收钱）是**产品口径**（见待拍板清单第 2 条），
+            #    所以这里只挡"单已经作废"，不挡"单还没送达"。
+            if o.deleted_at is not None:
+                raise ValueError(
+                    f"订单 {o.order_no} 已经删除（在回收站里），不能再对它收款。"
+                    "请先恢复这张单，或改用不绑单的滚动收款。"
+                )
+            if (o.status or "").upper() == OrderStatus.CANCELLED.value:
+                raise ValueError(
+                    f"订单 {o.order_no} 已经撤销了，不能再对它收款。"
+                    "如果是提前收的款，请用不绑单的滚动收款记这一笔；"
+                    "要让这张单重新可收，得先把它恢复成有效单据。"
+                )
             if o.paid:
                 how = {
                     "cash": "司机送达时收的现金",
                     "arrears": "已挂账结清",
                 }.get((o.payment_method or "").lower(), "之前已经核销过")
                 raise ValueError(
-                    f"订单 {o.order_no} 已经收过款了（{how}），逐单核销不能重复收款。"
+                    f"订单 {o.order_no} 已经收过款了（{how}），不能重复收款。"
                     "如果是补差额，请改用「滚动收款」。"
                 )
-            line_total = sum((op.line_total or Decimal("0")) for op in o.order_products)
-            per_order[oid] = line_total
-            total += line_total
+            per_order[oid] = sum((op.line_total or Decimal("0")) for op in o.order_products)
+    if body.settle_mode == ReceiptSettleMode.ITEMIZED:
+        if not body.order_ids:
+            raise ValueError("逐单核销需绑定订单")
+        total = sum(per_order.values(), Decimal("0"))
         if Decimal(body.amount) != total:
             raise ValueError(f"收款金额 {body.amount} 与所选订单合计 {total} 不一致（逐单核销需全额）")
         # 原子占位：只有把 paid 从 false 改成 true 的那个请求能继续（另一个 rowcount 会少）
         claimed = db.execute(
             update(Order)
-            .where(Order.id.in_(ids), Order.paid.is_(False))
+            .where(Order.id.in_(order_ids), Order.paid.is_(False))
             .values(
                 paid=True,
                 payment_method="cash" if body.method in ("cash", "transfer", "wechat") else "arrears",
             )
         )
-        if claimed.rowcount != len(ids):
+        if claimed.rowcount != len(order_ids):
+            db.rollback()
+            raise ValueError("这些订单里有刚刚被别的收款记录核销掉的，请刷新订单后重试")
+    elif order_ids:
+        # 滚动收款**绑了单**（App 与 AI 都不会这么发：它们绑单时一律走 itemized）。
+        # ⚠️ 这里原来**无条件**把这批单标成已收款，却不校验金额（2026-09-19 审计 R12-M4）：
+        #    传 `amount=1` + 两张合计 10000 的单 → 两张单从所有"欠款/挂账未收"口径里消失，
+        #    而资金只记了 1 元 —— **9999 元应收被静默抹掉**，客户不必再付、也没人知道。
+        #    逐单核销那条分支一直有这道校验，同一个端点两种语义宽严不一。
+        #    现在两边同一条底线：**绑了单就得对得上**；"先收一笔钱、以后再说"请用不绑单的滚动收款。
+        total = sum(per_order.values(), Decimal("0"))
+        if Decimal(body.amount) != total:
+            raise ValueError(
+                f"收款金额 {body.amount} 与所选订单合计 {total} 不一致。"
+                "绑了订单就必须逐单对得上；如果只是先收一笔钱（以后再说冲哪几张单），"
+                "请把订单留空，用滚动收款。"
+            )
+        # 并发下两张收款单抢同一批订单：走条件 UPDATE 占位（与逐单核销同一条理由）。
+        claimed = db.execute(
+            update(Order)
+            .where(Order.id.in_(order_ids), Order.paid.is_(False))
+            .values(
+                paid=True,
+                payment_method="cash" if body.method in ("cash", "transfer", "wechat") else "arrears",
+            )
+        )
+        if claimed.rowcount != len(order_ids):
             db.rollback()
             raise ValueError("这些订单里有刚刚被别的收款记录核销掉的，请刷新订单后重试")
     receipt = ShipperReceipt(
@@ -293,7 +352,10 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
         amount=body.amount,
         method=body.method,
         received_at=body.received_at,
-        order_ids=body.order_ids,
+        # ⚠️ 落库存的是上面**去重并排序**过的那一份（`order_ids`），不是 `body.order_ids`
+        #    （2026-09-19 审计 F9）：`[5,5]` 能过校验（去重后只有一张单、金额也对得上），
+        #    却会让收款记录里显示两条同样的订单 —— 对账的人会以为收了两次。
+        order_ids=order_ids or None,
         settle_mode=body.settle_mode,
         arrears_unit_id=body.arrears_unit_id,
         note=body.note,
@@ -308,40 +370,31 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
         biz = CashFlowBizType.RECEIPT_TRANSFER
     elif body.method == "arrears_settle":
         biz = CashFlowBizType.RECEIPT_ARREARS
-    for oid in (body.order_ids or []):
-        o = db.get(Order, oid)
-        if o is not None:
-            # ⚠️ `paid` 已经在上面**用条件 UPDATE 占位**写过了（那是原子性的来源）。
-            #    这里只兜**滚动收款**那条路（它不绑单、没有占位），逐单核销时
-            #    这一句是幂等的重复赋值（值一样），不会覆盖上面的判定。
-            if body.settle_mode != ReceiptSettleMode.ITEMIZED:
-                o.paid = True
-                o.payment_method = "cash" if body.method in ("cash", "transfer", "wechat") else "arrears"
-        db.add(
-            CashFlow(
-                flow_date=body.received_at,
-                direction=CashFlowDirection.IN,
-                # ⚠️ 这里**必须**逐单写金额，不能写 None。
-                #
-                # `cash_flows.amount` 是 NOT NULL（`models/cash_flow.py`：`Mapped[Decimal]`），
-                # 以前多张单的逐单核销写的是 `None`，于是**收款直接 500**
-                # （IntegrityError），钱一分都没落库——而界面上只说"收款失败"。
-                #
-                # 拆成"每张单各自那部分"也是**语义上对的**：逐单核销本来就是
-                # "这笔钱分摊到这几张单上"，每条流水写自己那一份，
-                # 合计等于收款总额（`reports.py` 的资金收支就是按流水逐条求和的）。
-                amount=per_order.get(oid) if per_order else body.amount,
-                party_type="customer",
-                party_id=cust.id,
-                party_name=cust.name,
-                channel="wechat" if body.method == "wechat" else ("bank" if body.method == "transfer" else "cash"),
-                biz_type=biz,
-                order_id=oid,
-                doc_id=receipt.id,
-                note=f"客户收款（逐单核销，收款单 #{receipt.id}）",
-                operator_id=operator_id,
-            )
-        )
+    common = {
+        "flow_date": body.received_at,
+        "direction": CashFlowDirection.IN,
+        "party_type": "customer",
+        "party_id": cust.id,
+        "party_name": cust.name,
+        "channel": "wechat" if body.method == "wechat" else ("bank" if body.method == "transfer" else "cash"),
+        "biz_type": biz,
+        "doc_id": receipt.id,
+        "operator_id": operator_id,
+    }
+    if body.settle_mode == ReceiptSettleMode.ITEMIZED:
+        # 逐单核销：**逐单**写金额，每张单写自己那一份，合计等于收款总额
+        # （`reports.py` 的资金收支按流水逐条求和）。
+        # `cash_flows.amount` 是 NOT NULL，所以这里绝不能写 None——
+        # 以前多张单的核销写的是 None，收款直接 500（IntegrityError），钱一分都没落库。
+        for oid, part in per_order.items():
+            db.add(CashFlow(order_id=oid, amount=part, note=f"客户收款（逐单核销，收款单 #{receipt.id}）", **common))
+    else:
+        # 滚动收款：**一笔钱就是一笔流水**（不绑单）。
+        # ⚠️ 2026-09-19 审计：原来这里也走 `for oid in order_ids` 的循环、且金额一律写
+        #    `body.amount` —— 于是"滚动收款 + 10 个 order_ids"会写出 **10 条全额流水**
+        #    （收款单只有 1000，账上却记了 10000 流入）。滚动收款的语义本来就是
+        #    "收到一笔钱、不指定它冲哪几张单"，所以正确的形状是一笔、金额 = 实收。
+        db.add(CashFlow(order_id=None, amount=body.amount, note=f"客户收款（滚动，收款单 #{receipt.id}）", **common))
     return receipt
 
 
@@ -351,13 +404,28 @@ def create_settlement(db: Session, body: DriverSettlementCreate, operator_id: in
     if driver is None:
         raise ValueError("司机不存在")
     if body.settle_type == DriverBillType.PIECE:
+        # ⛔ 已进回收站（软删）订单的 OPEN 账单**不许被结算单收走**（2026-09-19 审计第十七轮）。
+        #    这一段原来只按"司机 + 类型 + 月份 + OPEN"取明细，**根本不 join orders**，
+        #    而运费结算页与报表都排除了软删单（`freight_settlement.py`、
+        #    `reports.py::load_delivered` 都带 `Order.deleted_at.is_(None)`）→ 两边各自都错：
+        #      · 账单表会比页面**多**出这些单的应付（本机实测：2026-09 已软删单的 PIECE 账单
+        #        38 张 ¥1130.00），结算单会把它们一起收走并**真付款**；
+        #      · 本机已有既成事实：结算单 #3（¥880、已付）的 order_ids 里就含一张已软删的订单
+        #        （先删单 13:55、后付款 14:50）。
+        #    口径统一到"页面看得见的单才结得掉"：软删单的账单留给保留任务作废（`data_retention`
+        #    在物理清理时会把它们翻成 CANCELLED 并通知司机与派单员）。
         bills = list(
             db.scalars(
-                select(DriverBill).where(
+                select(DriverBill)
+                .outerjoin(Order, Order.id == DriverBill.order_id)
+                .where(
                     DriverBill.driver_id == body.driver_id,
                     DriverBill.bill_type == DriverBillType.PIECE,
                     DriverBill.month == body.month,
                     DriverBill.status == DriverBillStatus.OPEN,
+                    # 只挡"订单存在且已软删"：`order_id` 为空的历史孤儿账单仍按原样处理
+                    # （那是另一条已知问题，见台账 D2，不在本次口径内）
+                    or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),
                 )
             )
         )
@@ -438,7 +506,21 @@ def confirm_settlement(db: Session, s: DriverSettlement, operator_id: int | None
     for b in bills:
         b.status = DriverBillStatus.SETTLED
         b.settled_doc_id = s.id
-    s.status = SettlementStatus.CONFIRMED
+    # ⚠️ **条件 UPDATE 占位**（2026-09-19 审计第十七轮，与 `pay_settlement` 同一套）：
+    #    上面"读 DRAFT → 判断 → 写"中间没有锁也没有 CAS。`confirm × cancel` 并发时
+    #    （派单员两台设备、或手滑点两下）两个请求都读到 DRAFT、各自往下走 →
+    #    终态可能出现「结算单 CANCELLED + 明细已 SETTLED」：那批账单既不 OPEN
+    #    （`create_settlement` 不再收）也不可付（`pay_settlement` 要 CONFIRMED）→
+    #    **司机这笔钱永远结不掉，只能改库**。改到行的人才能继续，SQLite / MySQL 都原子。
+    claimed = db.execute(
+        update(DriverSettlement)
+        .where(DriverSettlement.id == s.id, DriverSettlement.status == SettlementStatus.DRAFT)
+        .values(status=SettlementStatus.CONFIRMED)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError("这张结算单刚刚被别的操作改过（可能已确认/已作废），请刷新后查看")
+    db.refresh(s)
     return s
 
 
@@ -463,9 +545,20 @@ def pay_settlement(db: Session, s: DriverSettlement, method: str, operator_id: i
         raise ValueError(
             f"结算单金额 {s.amount} 与现存明细合计 {live_total} 不一致，不能付款；请作废后重新结算"
         )
-    s.status = SettlementStatus.PAID
-    s.paid_at = _now()
-    s.method = method
+    # ⚠️ **原子占位**（2026-09-19 审计）：上面那几步是"读 → 判断 → 写"，中间没有锁也没有 CAS。
+    #    两个并发的"付款"（派单员两台设备、或手滑点两下 + 网络重试）会**都读到 confirmed**、
+    #    于是写出**两条** PAYMENT_DRIVER 流水 —— 同一笔付款在账上扣两次（`cash_flows` 没有
+    #    (doc_id, biz_type) 唯一约束兜底）。作业方式与派单/送达同一套：把状态跃迁本身变成
+    #    "改到行的人才能继续"，SQLite 与 MySQL 上都原子。
+    claimed = db.execute(
+        update(DriverSettlement)
+        .where(DriverSettlement.id == s.id, DriverSettlement.status == SettlementStatus.CONFIRMED)
+        .values(status=SettlementStatus.PAID, paid_at=_now(), method=method)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError("这张结算单刚刚被别的操作付过款了（重复提交或两个人在同时操作），请刷新后查看")
+    db.refresh(s)
     db.add(
         CashFlow(
             flow_date=(s.paid_at).date(),
@@ -487,7 +580,16 @@ def pay_settlement(db: Session, s: DriverSettlement, method: str, operator_id: i
 def cancel_settlement(db: Session, s: DriverSettlement, operator_id: int | None) -> DriverSettlement:
     if s.status != SettlementStatus.DRAFT:
         raise ValueError("仅草稿可取消")
-    s.status = SettlementStatus.CANCELLED
+    # 同 `confirm_settlement`：作废也要占位（`cancel × confirm` 并发时不许两个都成立）
+    claimed = db.execute(
+        update(DriverSettlement)
+        .where(DriverSettlement.id == s.id, DriverSettlement.status == SettlementStatus.DRAFT)
+        .values(status=SettlementStatus.CANCELLED)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError("这张结算单刚刚被别的操作改过（可能已确认/已作废），请刷新后查看")
+    db.refresh(s)
     if s.settle_type == DriverBillType.PIECE and s.order_ids:
         bills = list(
             db.scalars(

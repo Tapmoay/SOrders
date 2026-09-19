@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterView, START_LOCATION, useRoute, useRouter } from 'vue-router'
+import { showFailToast } from 'vant'
 
 import MessageCenterPopup from '@/components/MessageCenterPopup.vue'
 import ShipperPriceNoticeBar from '@/components/ShipperPriceNoticeBar.vue'
@@ -134,8 +135,12 @@ function onBack() {
   if (showBack.value) router.back()
 }
 
-function logout() {
-  auth.clearSession()
+async function logout() {
+  // 先让服务端作废令牌（后端 `POST /auth/logout` 把 token_version +1），失败也要清本机。
+  const { serverRevoked } = await auth.logout()
+  if (!serverRevoked) {
+    showFailToast('本机已退出，但服务端没确认作废令牌（网络问题）。如设备可能被他人使用，请尽快改密码。')
+  }
   router.replace('/login')
 }
 

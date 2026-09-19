@@ -102,10 +102,20 @@ fun FreightSettlementScreen(container: AppContainer, onBack: () -> Unit) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                if (o.freightFee != null) {
-                                    Text("¥" + formatMoney(o.freightFee), style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                } else {
-                                    Text("待定价", style = MaterialTheme.typography.titleSmall, color = Color(0xFFFF6B2C))
+                                // 明细行显示**司机应得**（pay_total，与组头同一个来源），运费另标注：
+                                // 以前这里取 `freightFee`（货主运费）→ 明细加起来 ≠ 组头那个数。
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        "¥" + formatMoney(o.payTotal),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        if (o.freightFee != null) "运费 ¥" + formatMoney(o.freightFee) else "运费 待定价",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (o.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFFF6B2C),
+                                    )
                                 }
                             }
                             Spacer(Modifier.height(6.dp))

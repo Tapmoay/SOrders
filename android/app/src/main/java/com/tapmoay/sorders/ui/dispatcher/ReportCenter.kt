@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import com.tapmoay.sorders.ai.AiOrderRef
+import com.tapmoay.sorders.data.remote.dto.ProductReportDto
+import com.tapmoay.sorders.data.remote.dto.ProductReportItemDto
+import com.tapmoay.sorders.data.remote.dto.TurnoverReportDto
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ExceptionOrderDto
 import com.tapmoay.sorders.data.remote.dto.OperationLogDto
@@ -162,8 +165,59 @@ private fun StatRow(label: String, value: String, color: Color = MaterialTheme.c
 
 private fun money(s: String?): String = "¥" + formatMoney(s ?: "0")
 
+/**
+ * 商品毛利 = **有成本快照的那批行的收入** − 成本（2026-09-19 审计 R13-R1）。
+ *
+ * ⚠️ 这里原来是 `totalAmount − costTotal`（全部行的金额 − 只有成本行的成本），
+ * 和第三轮修掉的后端口径**不是同一个数**：没成本快照的行会以"0 成本、100% 毛利"全额进账。
+ * 实测同一个月：界面按旧公式算出 **72,177.75**，而正确值（导出与后端接口）是 **10,789.00**——
+ * 差 6.7 倍。所以这份公式必须和后端 `cost_covered_amount - cost_total` 一模一样。
+ */
+internal fun grossProfit(data: TurnoverReportDto): Double =
+    (data.costCoveredAmount?.toDoubleOrNull() ?: 0.0) - (data.costTotal?.toDoubleOrNull() ?: 0.0)
+
+/**
+ * 商品经营页的毛利 = **有成本快照那批商品的金额** − 成本合计。
+ *
+ * ⚠️ 和营业纵览是同一个道理（R13-R1）：原来这里也用 `totalAmount − costTotal`，
+ * 把"没有成本快照的商品"当成 0 成本全额算进毛利。
+ *
+ * ⚠️ 2026-09-19 审计第十七轮再修一次：**收入的来源必须与后端同一处**。
+ *    上一版是客户端自己 `items.filter { cost > 0 }.sumOf { amount }` —— 它和后端
+ *    **导出**那一行（当时也是自己 sum 一遍）恰好一致，于是两处一起错：
+ *    本机实测商品页/导出 11,071.00，而营业纵览（正确口径）10,789.00。
+ *    现在直接用后端给的 `costCoveredAmount`（只有一处算它），客户端不再自己筛。
+ *    老后端（没有这个字段）才回落到本地筛选——那是过渡，不是长期口径。
+ */
+internal fun productGrossProfit(data: ProductReportDto): Double {
+    val fromServer = data.costCoveredAmount?.toDoubleOrNull()
+    val income = fromServer ?: data.items
+        .filter { (it.cost.toDoubleOrNull() ?: 0.0) > 0.0 }
+        .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    val cost = data.costTotal.toDoubleOrNull() ?: 0.0
+    return income - cost
+}
+
+/**
+ * 单个商品的毛利：**参与毛利的金额 − 该商品成本**（没有成本快照的商品返回 null = 显示"—"）。
+ *
+ * ⛔ 原来这一列用的是 `amount − cost`（全额收入减成本）——那是被废止的老公式：
+ *    本机实测逐行毛利列合计 72,177.75，正是营业纵览修复前那个错数；唯一混合组
+ *    ttt 印 327.50（正确 45.50，差 7.2 倍）。
+ */
+internal fun productItemProfit(it: ProductReportItemDto): Double? {
+    val covered = it.coveredAmount?.toDoubleOrNull()
+    if (covered != null) {
+        return if ((it.coveredLines ?: 0) > 0) covered - (it.cost.toDoubleOrNull() ?: 0.0) else null
+    }
+    // 老后端没有 coveredAmount：按老口径判断"这一行参不参与毛利"，但收入侧仍然只算有成本的
+    val cost = it.cost.toDoubleOrNull() ?: 0.0
+    return if (cost > 0.0) (it.amount.toDoubleOrNull() ?: 0.0) - cost else null
+}
+
 private fun coverageText(cov: Int, total: Int): String =
-    "毛利口径：仅按有成本快照的订单计算（" + cov + "/" + total + " 行计入），未计入的订单未参与毛利计算。"
+    "毛利口径：只算有成本快照的 " + cov + "/" + total + " 行（收入与成本取同一批行）；" +
+        "其余行没有成本快照，「不进毛利」（营业额里仍然有它们）。"
 
 @Composable
 private fun CoverNote(cov: Int, total: Int) {
@@ -191,7 +245,9 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     StatRow("订单数", data.totalOrders.toString() + " 单")
                     StatRow("单均价", money(data.avgOrder))
                     StatRow("司机运费支出", money(data.totalFreight), Color(0xFFFF9500))
-                    StatRow("异常订单数", vm.pendingExceptionCount.toString() + " 单", Color(0xFFE53935))
+                    // 口径必须写在标签里：这是**近 30 天待处理**的异常数（随本页一起取，见 ViewModel），
+                    // 而上面几行是本期（当天/周/月）的营业额口径 —— 两个窗口不同，不说清就会被当成一个。
+                    StatRow("待处理异常（近 30 天）", vm.pendingExceptionCount.toString() + " 单", Color(0xFFE53935))
                     if (data.cancelledOrders > 0) StatRow("已撤销订单数", data.cancelledOrders.toString() + " 单", Color(0xFF8A8A8E))
                 }
             }
@@ -199,7 +255,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("盈利概览", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    val profit = (data.totalAmount.toDoubleOrNull() ?: 0.0) - (data.costTotal.toDoubleOrNull() ?: 0.0)
+                    val profit = grossProfit(data)
                     StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
                     CoverNote(data.costCoveredLines, data.totalLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
@@ -303,7 +359,7 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("盈利与损耗", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    val profit = (data.totalAmount.toDoubleOrNull() ?: 0.0) - (data.costTotal.toDoubleOrNull() ?: 0.0)
+                    val profit = productGrossProfit(data)
                     StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
                     CoverNote(data.costCoveredLines, data.totalLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
@@ -363,8 +419,17 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                         Column(Modifier.weight(1f)) {
                             Text(p.productName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Text(p.qty.toString() + " 件 · " + p.orderCount + " 单" + (if (p.damageQty > 0) " · 货损 " + p.damageQty + " 件" else ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            val profit = (p.amount.toDoubleOrNull() ?: 0.0) - (p.cost.toDoubleOrNull() ?: 0.0)
-                            Text("毛利 ¥" + formatMoney(profit.toString()) + (if (p.damageQty > 0) " · 货损 ¥" + formatMoney(p.damageAmount) else ""), style = MaterialTheme.typography.bodySmall, color = Color(0xFF00B578))
+                            // ⛔ 逐行毛利必须走 `productItemProfit`（参与毛利的金额 − 成本）：
+                            //    这里原来是 `amount − cost`，把没有成本快照的商品按 100% 毛利印出来
+                            //    （本机实测逐行合计 72,177.75，正是营业纵览修复前那个错数）。
+                            val profit = productItemProfit(p)
+                            Text(
+                                (if (profit == null) "毛利 —（这一行没有成本快照，不进毛利）"
+                                 else "毛利 ¥" + formatMoney(profit.toString())) +
+                                    (if (p.damageQty > 0) " · 货损 ¥" + formatMoney(p.damageAmount) else ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (profit == null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF00B578),
+                            )
                         }
                         Text(money(p.amount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFFF9500))
                     }
@@ -458,7 +523,14 @@ private fun CustomerTab(vm: ReportCenterViewModel) {
     }
     val shippers = vm.shipperAccounts
     val members = vm.memberAccounts
-    val all = shippers + members
+    // ⛔ **批发商不能算两遍**（2026-09-19 审计）：后端的 `kind=shipper` 与 `kind=member` 两个列表
+    //    都按"账本流水归属"分组，而批发商（is_member）**同时出现在两个列表里** —— 直接相加会让
+    //    订货总额虚高（本机实测 ¥185,121 vs 真值 ¥128,063，虚高 44.6%）、客户数也从 38 变 41。
+    //    同一页签的 Excel 导出反而是对的（后端分三桶），于是"页面一个数、导出一个数"。
+    //    这里按用户 id 去重：批发商优先算在 members 桶里。
+    val memberIds = members.mapNotNull { it.id }.toSet()
+    val plainShippers = shippers.filter { it.id == null || it.id !in memberIds }
+    val all = plainShippers + members
     val totalCount = all.sumOf { it.count }
     val totalAmount = all.sumOf { it.total.toDoubleOrNull() ?: 0.0 }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -560,8 +632,13 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
     val flows = vm.cashFlows
     // ⚠️ 方向比大小写（后端存的是小写 in/out），业务类型/开销分类的取值见 ReportFinance：
     //    这三处以前各错一种，而且是同一类"不会报错"的错——见 ReportFinance 的类注释。
-    val income = flows.filter { ReportFinance.isIncome(it.direction) }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
-    val expense = flows.filter { !ReportFinance.isIncome(it.direction) }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    // ⚠️ 金额取**服务端汇总**（见 ViewModel 里的注释）：客户端对"这一页流水"求和会少算。
+    //    汇总拿不到时（老后端/请求失败）才退回对当前页求和，并在标题上写明"仅本页"。
+    val summary = vm.cashFlowSummary
+    val income = summary?.income?.toDoubleOrNull()
+        ?: flows.filter { ReportFinance.isIncome(it.direction) }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    val expense = summary?.expense?.toDoubleOrNull()
+        ?: flows.filter { !ReportFinance.isIncome(it.direction) }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
     val expByCat = vm.expenses.groupBy { ReportFinance.expenseCategoryLabel(it.category) }.mapValues { it.value.sumOf { e -> e.amount.toDoubleOrNull() ?: 0.0 } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -589,7 +666,10 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
             }
         }
         item {
-            GroupHeader("资金流水（" + flows.size + " 条）")
+            GroupHeader(
+                "资金流水（本窗口共 " + (summary?.count ?: flows.size) + " 条" +
+                    (if (flows.size > 100) "，下面只列最近 100 条" else "") + "）",
+            )
             Spacer(Modifier.height(8.dp))
         }
         if (flows.isEmpty()) item { ChartEmpty("该时段暂无资金流水") }
@@ -894,6 +974,13 @@ private fun actionLabel(action: String): String = when (action) {
     "LEDGER_CREATE" -> "记一笔账"
     "LEDGER_UPDATE" -> "改账本流水"
     "LEDGER_DELETE" -> "删账本流水"
+    // 2026-09-19 审计补的"动钱必留痕"动作码（这几条写操作以前一条日志都不写）
+    "RECEIPT_CREATE" -> "客户收款"
+    "SETTLEMENT_CREATE" -> "建司机结算单"
+    "SETTLEMENT_STATUS" -> "结算单确认/付款/作废"
+    "EXPENSE_CREATE" -> "记一笔开销"
+    "DRIVER_BILL_GENERATE" -> "生成司机应付明细"
+    "CUSTOMER_MERGE" -> "合并客户"
     "PRODUCT_CREATE" -> "新建商品"
     "PRODUCT_UPDATE" -> "修改商品"
     "PRODUCT_DELETE" -> "删除商品"
@@ -930,6 +1017,15 @@ private fun actionLabel(action: String): String = when (action) {
     // 拆两个码，回答两个不同的问题——「这辆车被改成什么样了」和「谁把车从张三名下拿走了」。
     "VEHICLE_UPSERT" -> "新增/修改车辆"
     "VEHICLE_DRIVER_SET" -> "车辆换/解绑司机"
+    // 挂账单位与运费模板（2026-09-19 审计 R14-1）：这两块原来**一条日志都不写**，
+    // 所以审计页上也从来不会出现它们；现在补上了写入点，中文名也得跟上
+    // （`_check_action_labels.py` 会拦：漏了的话卡片上直接显示原始码）。
+    "ARREARS_UNIT_UPSERT" -> "新增/修改挂账单位"
+    "ARREARS_UNIT_DELETE" -> "删除挂账单位"
+    "ARREARS_UNIT_RESTORE" -> "恢复挂账单位"
+    "FREIGHT_TEMPLATE_UPSERT" -> "新增/修改运费模板"
+    "FREIGHT_TEMPLATE_DELETE" -> "删除运费模板"
+    "FREIGHT_TEMPLATE_RESTORE" -> "恢复运费模板"
     else -> action
 }
 

@@ -2,6 +2,7 @@ package com.tapmoay.sorders.ui.order
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,12 +20,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.nav.Role
@@ -49,10 +52,26 @@ fun OrderDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val session by container.tokenStore.sessionFlow.collectAsState(initial = null)
+    // ⚠️ 会话没就绪**不许猜角色**（2026-09-19 审计）：`sessionFlow` 是 DataStore 冷流，
+    //    首帧必然 null，而 `Role.fromKey("")` 会回落成 **SHIPPER**。司机点系统通知冷启动直达
+    //    这一页时，首帧就以"货主"渲染：商品行/合计显示 **¥0.00**（后端对司机已把 line_total 置空）、
+    //    多出「撤销订单」「删除订单」两个按钮（点了必然 403），而「确认接单」这一帧不存在——
+    //    司机打开自己的单看到"这单值 0 元 + 一个点不动的按钮"，会以为系统坏了。
+    //    `RoleHomeScreen` 早就为同一件事做了守卫（null → 整页 Loading），这里漏了。
+    if (session == null) {
+        Box(Modifier.fillMaxSize()) { LoadingBox() }
+        return
+    }
     val role = Role.fromKey(session?.role ?: "")
     var previewUrl by remember { mutableStateOf<String?>(null) }
 
-    // 系统相机拍照（无需 CAMERA 权限；成品走 FileProvider）
+    // 系统相机拍照（成品走 FileProvider）。**不需要 CAMERA 权限**——
+    // 这一行以前是错的：清单声明了 `android.permission.CAMERA`，而系统文档写明
+    // "declares as using the CAMERA permission which is not granted → ACTION_IMAGE_CAPTURE
+    // 抛 SecurityException"；于是司机在权限弹窗点「拒绝」后再点「拍照送达」就是一次
+    // **没有任何提示的崩溃**（2026-09-19 报告 P1-9，同源共 4 处：这里 + AI 会话 + 代理下单 + 地址）。
+    // 根治不是给 4 处各加一道权限闸，而是**把那个声明删掉**（App 自己一行相机 API 都没调，
+    // 4 条链路全部委托系统相机 App）：声明不存在 → 系统不再要求 → 4 处一起好。
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val rawPath = vm.pendingRawPhoto
         if (ok && rawPath != null) {
@@ -86,6 +105,11 @@ fun OrderDetailScreen(
         takePicture.launch(uri)
     }
 
+    // ⚠️ 「系统相机拍照不需要 CAMERA 权限」**只在清单没声明它时成立** —— 而清单已经不再声明它
+    //    （2026-09-19 报告 P1-9 的根治：删掉 `AndroidManifest.xml` 里的 CAMERA 声明）。
+    //    所以这里**不许**再加权限闸：真加了反而会让「拍照送达」永远打不开相机
+    //    （`checkSelfPermission` 对一个没声明的权限永远返回 DENIED）。
+
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("订单详情") },
@@ -99,7 +123,19 @@ fun OrderDetailScreen(
             vm.loading -> LoadingBox()
             vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
             vm.order == null -> EmptyView("订单不存在")
-            else -> DetailBody(
+            else -> Column(Modifier.fillMaxSize()) {
+                // 「刷新失败但旧数据还在」→ 只提示一行，别把已经看到的内容换成整页错误
+                vm.refreshWarning?.let { w ->
+                    Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                        Text(
+                            "这次刷新没成功：$w（下面显示的是上一次的内容）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                DetailBody(
                 order = vm.order!!,
                 role = role,
                 acting = vm.acting,
@@ -132,6 +168,7 @@ fun OrderDetailScreen(
             onDamageQty = { id, q -> vm.damageByProduct[id] = q },
             onDamageNote = { vm.damageNote = it },
             )
+            }
         }
     }
 
@@ -563,7 +600,7 @@ private fun DetailBody(
             }
         }
         // 司机：已接单可录入商品破损（选填·公司自担），卡片槽紧贴商品明细下方
-        if (role == Role.DRIVER && order.status == "ACCEPTED") {
+        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
             item {
                 DamageCard(
                     products = order.orderProducts,
@@ -641,7 +678,7 @@ private fun DetailBody(
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                 color = Color(MoneyOrange),
                             )
-                            if (order.status != "DELIVERED" && order.status != "CANCELLED") {
+                            if (order.status in OrderStatusModel.FREIGHT_EDITABLE) {
                                 TextButton(onClick = onEditFreightClick) { Text("修改") }
                             }
                         }
@@ -674,7 +711,7 @@ private fun DetailBody(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // 派单员：待派单可拆分（大单拆多单分派）
-                if (role == Role.DISPATCHER && order.status == "PENDING_DISPATCH") {
+                if (role == Role.DISPATCHER && order.status in OrderStatusModel.ASSIGNABLE) {
                     OutlinedButton(
                         onClick = onSplitClick,
                         enabled = !acting,
@@ -685,8 +722,8 @@ private fun DetailBody(
                         Text("拆分订单（可分派多位司机）")
                     }
                 }
-                // 货主：派单中可撤销
-                if (role == Role.SHIPPER && (order.status == "PENDING_DISPATCH" || order.status == "DISPATCHED")) {
+                // 货主：派单中/已派单可撤销（后端 `cancel_pending` 同一对取值）
+                if (role == Role.SHIPPER && order.status in OrderStatusModel.CANCELLABLE) {
                     OutlinedButton(
                         onClick = onCancelClick,
                         enabled = !acting,
@@ -695,9 +732,13 @@ private fun DetailBody(
                     ) { Text("撤销订单") }
                 }
                 // 删除订单（软删除→隔离区 30 天：用户不可见，派单员可恢复）
-                // 货主：已送达/已撤销/异常；派单员：含待派单（废弃）在内的历史单
+                // ⚠️ 货主侧**只认终态**：「异常」不是通行证（2026-09-19 审计，与后端同一套判据）。
+                //    原来这里多了 `|| order.isException`，于是在途单（已接单/待派单）只要被标过异常
+                //    就会显示「删除订单」——点了后端会 400（进行中的订单请走撤销或撤回），
+                //    而且司机还在路上，删掉会让他的列表里直接少一张单。
+                //    「界面给的按钮点了必然失败」这一类，本仓库已经栽过多次，判据必须两端同源。
                 val canDelete = (role == Role.SHIPPER &&
-                    (order.status == "CANCELLED" || order.status == "DELIVERED" || order.isException)) ||
+                    (order.status == "CANCELLED" || order.status == "DELIVERED")) ||
                     (role == Role.DISPATCHER &&
                         (order.status == "CANCELLED" || order.status == "DELIVERED" || order.status == "PENDING_DISPATCH" || order.isException))
                 if (canDelete) {
@@ -713,7 +754,7 @@ private fun DetailBody(
                     }
                 }
                 // 司机：已派单（派了单但还没接）→ 唯一主行动：确认接单
-                if (role == Role.DRIVER && order.status == "DISPATCHED") {
+                if (role == Role.DRIVER && order.status in OrderStatusModel.ACKABLE) {
                     Button(
                         onClick = onAck,
                         enabled = !acting,
@@ -729,7 +770,7 @@ private fun DetailBody(
                     }
                 }
                 // 司机：已接单 → 拍照送达 / 导航 / 备注（挂车司机可直接完成，无需拍照）
-                if (role == Role.DRIVER && order.status == "ACCEPTED") {
+                if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
                     if (order.freightVisible) {
                         if (order.collectCash) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1253,28 +1294,52 @@ private fun ChargeSheet(
     }
 }
 
-/** 送达照片：任一张加载失败 → 整块隐藏（不占位） */
+/**
+ * 送达照片：**单张加载失败只影响那一张**。
+ *
+ * ⚠️ 原来这里是一个 `var broken by remember { mutableStateOf(false) }`，任何一张的
+ * `onError` 把它置真 → 整块 `return`（2026-09-19 审计 L-12）。后果是静默且方向相反的：
+ * 司机明明拍了 3 张（提交时也都上传成功了），只要其中一张的 URL 取不到
+ * （图片被保留策略压过/服务端刚清理过/那一次上传的响应丢了），界面上**一张都看不到**，
+ * 连"这里有送达照片"这件事都看不出来——而送达照片正是"这单真的送到了"的凭据。
+ * 所以失败的是**哪一张**，不是"有没有失败"。
+ */
 @Composable
 private fun DeliveryPhotosSection(urls: List<String>, onPhotoClick: (String) -> Unit) {
-    var broken by remember { mutableStateOf(false) }
-    if (broken) return
+    val broken = remember { mutableStateListOf<String>() }
     SectionCard {
         SectionTitle(Icons.Default.PhotoLibrary, Color(MgrGreen), "送达照片（" + urls.size + "）")
         Spacer(Modifier.height(10.dp))
         urls.chunked(3).forEach { rowUrls ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 rowUrls.forEach { url ->
-                    AsyncImage(
-                        model = resolveStaticUrl(url),
-                        contentDescription = "送达照片",
-                        contentScale = ContentScale.Crop,
-                        onError = { broken = true },
-                        modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(1f)
-                            .clip(MaterialTheme.shapes.small)
-                            .clickable { onPhotoClick(url) },
-                    )
+                    val tile = Modifier
+                        .weight(1f)
+                        .aspectRatio(1f)
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable { onPhotoClick(url) }
+                    if (url in broken) {
+                        // 占位而不是消失：格子留着、点开仍是大图，并如实说是这张没加载出来
+                        Box(
+                            modifier = tile.background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "这张没加载出来",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    } else {
+                        AsyncImage(
+                            model = resolveStaticUrl(url),
+                            contentDescription = "送达照片",
+                            contentScale = ContentScale.Crop,
+                            onError = { broken.add(url) },
+                            modifier = tile,
+                        )
+                    }
                 }
                 repeat(3 - rowUrls.size) { Spacer(Modifier.weight(1f)) }
             }

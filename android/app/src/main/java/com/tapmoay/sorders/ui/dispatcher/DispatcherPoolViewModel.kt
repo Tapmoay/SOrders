@@ -175,9 +175,20 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
     val selectedDriver: UserDto?
         get() = drivers.find { it.id == selectedDriverId }
 
-    /** 按单计费司机（挂车默认按单；显式 salary 覆盖） */
+    /**
+     * 这个司机是不是"按单拿钱"（决定要不要给他显示运费框、以及列表按哪一组展示）。
+     *
+     * ⛔ 判据必须**与账单同源**（2026-09-19 全项目报告 P0-3，high）：后端是**规则优先**
+     *    （`driver_pay.snapshot_mode`：挂了规则就按规则算，`billing_mode` 只是兜底）。
+     *    这里原来自己按 `billingMode ?: 车型` 猜 —— 挂着**运费提成**规则的大车司机被判成
+     *    工资制 → 运费框**根本不显示** → 运费永远是空的 → 提成 = 0 × 比例 = 0
+     *    → 送达时 `pay.total <= 0` **连账单都不生成**（司机白跑，账面上查不到异常）。
+     *    现在直接读后端算好的 `paysPerOrder`（与 `freight_visible`、账单同一处口径）；
+     *    老后端没有这个字段时才退回兜底判据（与 `resolve_billing_mode` 一字不差）。
+     */
     fun isPieceDriver(u: UserDto?): Boolean {
         if (u == null) return false
+        u.paysPerOrder?.let { return it }
         val mode = u.billingMode ?: (if (u.vehicleType == "trailer") "PIECE" else "SALARY")
         return mode == "PIECE"
     }
@@ -216,7 +227,11 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
                 } else {
                     val oid = assignOrderId ?: 0L
                     if (oid == 0L) 0 else {
-                        val fee = if (isPieceDriver(drivers.find { it.id == driverId })) assignFreight.trim().ifBlank { null } else null
+                        // ⛔ 派单员**填了什么就发什么**（2026-09-19 报告 P0-3）：这里原来写着
+                        //    `if (isPieceDriver(...)) … else null` —— 判成工资制就把用户输入的
+                        //    运费**整条丢掉**。就算判据本身是对的，也不该拿界面的猜测去丢用户的
+                        //    输入：后端收不到运费，提成型的规则只能算成 0（老账口径更是直接 0 元）。
+                        val fee = assignFreight.trim().ifBlank { null }
                         val piece = assignPieceAmount.trim().ifBlank { null }
                         val rate = assignCommissionRate.trim().ifBlank { null }
                         container.repo.assignOrder(oid, driverId, note, fee, collect, piece, rate)

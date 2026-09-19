@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission, user_role_key
 from app.database import get_db
 from app.deps import require_permission, require_roles
@@ -19,6 +20,7 @@ from app.schemas.price_rule import (
     PriceRuleBatchChange,
 )
 from app.services.operation_log_service import write_log
+from app.services.soft_delete import ensure_alive
 from datetime import datetime
 
 router = APIRouter(prefix="/price-rules", tags=["price-rules"])
@@ -107,6 +109,18 @@ def batch_price_rules(
     if not shippers or not products:
         raise HTTPException(status_code=400, detail="未找到批发商或商品，请先选择")
 
+    # ⚠️ **服务端**必须有全表护栏（2026-09-19 审计 K5 复核后修）：
+    #    这一行原来只写在客户端（`AiWritePricing.kt`），于是任何直接打接口的人
+    #    （旧客户端、脚本、以后新加的界面）**两个范围都留空**就等于"给全部批发商 × 全部商品调价"——
+    #    一次请求改掉整张价格表，而且卡片/返回里只报"改了 N 条"。
+    #    闸门必须长在服务端：客户端那道只是提前告知，不是防线。
+    if not body.shipper_ids and not body.product_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="要指定范围：批发商或商品至少选一个。两个都不选等于给**全部批发商 × 全部商品**调价，"
+                   "一次改掉整张价格表——请点名范围后再提交。",
+        )
+
     def _price(p: Product, pr: "PriceRule | None") -> Decimal | None:
         if body.mode == "fixed":
             return body.value
@@ -121,7 +135,15 @@ def batch_price_rules(
             # 对一个已经单独谈过价的批发商就是错的——而且错得隐蔽（数字看着也合理）。
             if body.adjust_percent is None:
                 return None
-            base = pr.special_unit_price if pr is not None else (p.default_unit_price or Decimal("0"))
+            # ⚠️ **软删的规则不算"当前生效价"**（2026-09-19 审计「声明式 CRUD」专项，高）：
+            #    下面那次查询故意不过滤 `is_deleted`（唯一约束要求复用那一行），
+            #    但一条软删的规则**对谁都不生效**：`GET /price-rules` 过滤它、下单页拿不到它、
+            #    客户实际按默认价成交。此时把它的旧价当基准，等于"在一份看不见的价上打折"：
+            #    AI 的确认卡（按可见价算）写「10.00 → 8.50」，库里却写 17.00（= 隐藏的 20.00 × 85%），
+            #    而且这个数**用户核对不出来**——卡上那个 8.50 是他唯一能看到的依据。
+            base = p.default_unit_price or Decimal("0")
+            if pr is not None and not pr.is_deleted:
+                base = pr.special_unit_price
             raw = base * (Decimal("100") + body.adjust_percent) / Decimal("100")
             return raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         # tier：商品自身批发价第 N 档
@@ -155,6 +177,17 @@ def batch_price_rules(
                 pr = PriceRule(shipper_id=s.id, product_id=p.id, special_unit_price=price)
                 db.add(pr)
             else:
+                # ⚠️ 命中**软删**的那一行时必须一起**复活**它（2026-09-19 审计 K4 复核后修）。
+                #    上面那次查询故意不过滤 `is_deleted`（唯一约束要求复用那一行），
+                #    但原来只写了价、没把 `is_deleted` 置回 False →
+                #    ① `GET /price-rules` 过滤软删 → 批量调完价**列表里看不到**，
+                #       用户以为"改价失败了"；
+                #    ② `adjust` 模式的基准读的就是 `pr.special_unit_price`（这个文件上面那几行），
+                #       于是百分比在**一份看不见的价**上反复滚。
+                #    `create_price_rule` 的复活分支（本文件下方）一直是写全的，这里对齐它。
+                if pr.is_deleted:
+                    pr.is_deleted = False
+                    pr.deleted_at = None
                 pr.special_unit_price = price
             count += 1
             # 明细只留前 200 条：组合可能上万。回报它的目的是**让卡片和结果能核对**，
@@ -273,6 +306,10 @@ def update_price_rule(
     pr = db.get(PriceRule, rule_id)
     if pr is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⚠️ 软删的专属价**改不了**（R11-F4）：界面按 is_deleted 过滤，看不见它；
+    #    改它只会得到一句「已完成」+ 一条价格变动日志，而批发商看到的价格**一个字都没变**。
+    #    （要重新启用这条价：`POST /price-rules` 传同一个（批发商+商品）会复活它。）
+    ensure_alive(pr, "批发商专属价", "POST /price-rules 重新设一次这个价（会复活这一行）")
     if body.shipper_id is not None and body.shipper_id != pr.shipper_id:
         dup = db.scalars(
             select(PriceRule).where(
@@ -334,5 +371,5 @@ def delete_price_rule(
     # 伪装删除（v3.26）：撤回来就是把这条专属价恢复，价格一个字节都不差。
     # 行还占着 (shipper_id, product_id) 唯一约束，见 create 里的复活分支。
     pr.is_deleted = True
-    pr.deleted_at = datetime.now()
+    pr.deleted_at = utc_now_naive()
     db.commit()

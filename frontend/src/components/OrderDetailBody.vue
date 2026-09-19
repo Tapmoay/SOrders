@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { showConfirmDialog, showFailToast, showImagePreview } from 'vant'
 
 import { cancelOrder, deleteCancelledOrder } from '@/api/orders'
-import { ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
+import { CANCELLABLE_STATUSES, ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
 import type { Order } from '@/types/order'
 import { formatMoney2 } from '@/utils/formatMoney'
 
@@ -52,9 +52,11 @@ function emptyText(v: string | null | undefined, placeholder = '未填写') {
 
 async function tryCancel() {
   const o = props.order
-  if (o.status !== 'PENDING_DISPATCH') return
+  // 与列表页同一处判据（真源=后端 `cancel_pending` 的状态门）：待派单 + 已派单（司机未接）。
+  if (!CANCELLABLE_STATUSES.includes(o.status)) return
+  const note = o.status === 'DISPATCHED' ? '该单已派给司机（还没接单），撤销后司机会收到通知。' : ''
   try {
-    await showConfirmDialog({ title: '撤销订单', message: '确定撤销该订单？' })
+    await showConfirmDialog({ title: '撤销订单', message: `确定撤销该订单？${note}` })
     await cancelOrder(o.id)
     emit('reload')
   } catch (e) {
@@ -149,7 +151,12 @@ async function tryDeleteCancelled() {
     </van-cell-group>
 
     <van-cell-group
-      v-if="!isDriver && (order.status === 'ACCEPTED' || order.status === 'DELIVERED')"
+      v-if="
+        !isDriver &&
+        (order.status === 'DISPATCHED' ||
+          order.status === 'ACCEPTED' ||
+          order.status === 'DELIVERED')
+      "
       inset
       title="司机"
       class="mt"
@@ -231,7 +238,7 @@ async function tryDeleteCancelled() {
       <van-cell title="水印说明" :label="watermarkText" />
     </van-cell-group>
 
-    <div v-if="isShipper && order.status === 'PENDING_DISPATCH'" class="foot">
+    <div v-if="isShipper && CANCELLABLE_STATUSES.includes(order.status)" class="foot">
       <van-button type="danger" block round @click="tryCancel">撤销订单</van-button>
     </div>
 

@@ -36,6 +36,15 @@ object ApiClient {
         val interceptor = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG_LOG) HttpLoggingInterceptor.Level.BODY
             else HttpLoggingInterceptor.Level.NONE
+            // ⛔ 日志里**不许出现会话令牌**（2026-09-19 全项目报告 P0-2，high）：
+            //    这个日志拦截器加在下面的 Auth 拦截器**之后**，所以它看到的请求**已经带上**
+            //    `Authorization: Bearer <JWT>` —— 一条 `adb logcat -s okhttp.OkHttpClient`
+            //    就能把派单员的令牌读走（24 小时有效）。
+            //    ⚠️ `redactHeader` 只管**请求/响应头**，管不到**请求体**：登录口令在 body 里，
+            //    那条只能靠"生产不发 debug 包"根治（release 的 `DEBUG_LOG = false`，
+            //    见 `app/build.gradle.kts` 的 release 块）。
+            redactHeader("Authorization")
+            redactHeader("Cookie")
         }
         val client = OkHttpClient.Builder()
             .dns(NetworkDns.dns)

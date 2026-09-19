@@ -366,8 +366,11 @@ async def _broadcast_to_dispatchers(
         )
         db.commit()
         db.refresh(n)
+        # ⛔ 不要再补一次 `emit_unread_count(d.id)`（R14-16）：`emit_notification` 内部
+        #    已经发过 `unread_count` 了。重复那次是"每张新单每个派单员多一条事件 +
+        #    多一次 count 查询"，数值一致所以看不出来，只是噪音 —— 但这条链路上是常态
+        #    （N 个派单员 × 每张单 = 2N 条事件、2N 次 count）。
         await emit_notification(n)
-        await emit_unread_count(d.id)
 
 
 async def broadcast_order_delivered_to_dispatchers(db: Session, order_id: int) -> None:
@@ -407,8 +410,8 @@ async def publish_new_order_to_dispatchers(db: Session, order_id: int) -> None:
         )
         db.commit()
         db.refresh(n)
+        # 同上：`emit_notification` 已经含 `unread_count`，不许再补一次。
         await emit_notification(n)
-        await emit_unread_count(d.id)
 
 
 async def publish_ledger_updated_event(shipper_id: int) -> None:

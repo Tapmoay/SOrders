@@ -172,10 +172,16 @@ class AccountManageViewModel(
                             password = draftPassword.ifBlank { null },
                             role = kind.role,
                             isMember = kind.isMember,
-                            vehicleType = kind.role.let { if (it == "driver") kind.vehicleType else null },
-                            billingMode = if (kind.role == "driver") {
-                                if (kind.vehicleType == "trailer") "PIECE" else "SALARY"
-                            } else null,
+                            // 车型只在**角色真的变了**时才发（它唯一的作用就是给新角色定车型）。
+                            // 编辑既有司机时车型是独立属性（在「司机管理」里改）：从 kind 反推会把
+                            // `vehicle_type = NULL` 静默写成 "large"（2026-09-19 报告 L-9）。
+                            vehicleType = if (kind.role == "driver" && kind.role != cur.role) kind.vehicleType else null,
+                            // ⛔ 账户管理**不许**发 billing_mode（2026-09-19 报告 P0-5，high）：原来这里按
+                            //    车型重算并发送，于是「只改个手机号」也会把司机显式设过的 PIECE 静默翻回
+                            //    SALARY → 此后每单快照成 SALARY → 不生成按单账单（不是金额算错，是**账单
+                            //    不存在**），而界面只回一句「已更新账号」。`null` 会被 `ApiClient.json` 的
+                            //    `explicitNulls = false` 整条丢掉，正好等于"不动"（= 司机管理那条路径的语义）。
+                            billingMode = null,
                         )
                     )
                     onSaved("已更新账号：" + draftPhone.trim())

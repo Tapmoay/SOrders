@@ -136,8 +136,15 @@ class UpdateLedgerEntryHandler(
             newOf(params, "new_amount", "合计金额")?.let {
                 add(Change("合计金额", entry.total, AiWriteArgs.money(it), "total", it.toPlainString()))
             }
-            newOf(params, "new_quantity", "数量")?.let {
-                add(Change("数量", "", it.toPlainString(), "quantity", it.toPlainString()))
+            // ⚠️ 数量必须按**整数**解析（2026-09-19 审计抓到的真缺陷）：
+            //    原来这里复用了 `newOf`（内部是 `parseMoney` → 一定补两位小数），
+            //    于是用户说"数量改成 3"时 payload 里是字符串 `"3.00"`；
+            //    消费端 `AIWriteService.updateLedgerEntry` 用 `toIntOrNull()` 解析 →
+            //    **null**（Kotlin 只认纯整数串）→ 配合 `explicitNulls = false` 这个键
+            //    整个不进请求体 → PATCH 体是 `{}` → 后端一个字段都没改，而界面回「已完成」。
+            //    账本对账会差，且"数量×单价≠金额"还会顺着 `sync_order_product_from_ledger` 回写订单行。
+            AiWriteArgs.int(params, "new_quantity", "数量")?.let {
+                add(Change("数量", "", it.toString(), "quantity", it.toString()))
             }
             newOf(params, "new_unit_price", "单价")?.let {
                 add(Change("单价", "", AiWriteArgs.money(it), "unit_price", it.toPlainString()))
@@ -322,9 +329,14 @@ class CreateReceiptHandler(
                 if (orders.isEmpty()) {
                     add("———— 核销 ————")
                     add("不核销到具体订单（滚动收款）：只记一笔收到的钱，不会把任何订单标成已收")
-                    // ⚠️ 这句是真机实测出来的（不是推测）：后端的现金流水只在**逐单核销**时逐单生成，
-                    // 不绑订单的滚动收款不写现金流水。钱没丢（在「收款记录」里），但用户必须知道去哪找。
-                    add("这笔钱会记在「收款记录」里，不进「现金流水」")
+                    // ⛔ 这句原来是「这笔钱会记在『收款记录』里，**不进「现金流水」**」——**说反了**
+                    //    （2026-09-19 审计 F4）：后端从 S4b 起，滚动收款也会写**一笔**现金流水
+                    //    （`accounting_service` 里 `db.add(CashFlow(order_id=None, amount=body.amount…))`，
+                    //    红线 §25 正钉着这件事）。用户按卡片理解会**在资金收支里找不到**那笔钱其实在里面、
+                    //    或者反过来以为现金流水少了钱 —— 两边都错。
+                    //    与 R14-11（承诺语音播报）同一类：**卡片承诺/说明必须与后端行为一字不差**。
+                    add("这笔钱会记在「收款记录」里，并写一笔「现金流水」（不绑具体订单）")
+                    add("所以它会计入「资金收支」的流入，但不会改变任何订单的已收/未收")
                 } else {
                     add("———— 核销到这些单（逐单核销）————")
                     orders.forEach { add("· ${it.label()}｜${it.amount} 元") }

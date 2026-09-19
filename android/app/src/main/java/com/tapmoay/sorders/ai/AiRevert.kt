@@ -148,6 +148,29 @@ object AiRevert {
         }
     }
 
+    /**
+     * **撤回卡**上的最后一行：说的是"这次撤回本身还能不能再反悔"（v3.45，真机 E2E 抓到）。
+     *
+     * ### 为什么必须和 [cardLine] 分开
+     * 撤回走的是**另一个已有的写动作**（删专属价 → 撤回走的是"设专属价"）。卡片的最后一行
+     * 由暂存区统一按 `actionId` 拼——于是真机上出现了这样一张卡：
+     * ```text
+     * 撤回：把批发商专属价恢复回来          ← 标题说这是「撤回」
+     * 专属价在库里是软删（行还在），这一下会「把原来那一行复活」，不是新建一条
+     * ⚠️ 这一步撤不回来：新建出来的那一条撤不掉…   ← 却告诉用户「这一步撤不回来」
+     * ```
+     * 两句话在互相打架，而用户正在决定要不要点「确认」——这一行必须说的是
+     * **"撤回之后如果想再反悔怎么办"**，而不是被撤回的那个动作的性质。
+     */
+    fun undoCardLine(actionId: String): String? {
+        val a = AiWrites.byId(actionId) ?: return null
+        return if (canRevert(actionId)) {
+            "这次撤回本身也能再撤回：执行完新消息上照样会出现「撤回」"
+        } else {
+            "⚠️ 这次撤回（走的是「${a.title}」）本身撤不回来；要改回去就再说一句，我重新申请一次"
+        }
+    }
+
     /** 全部**能一键撤回**的动作 id（设置页、红线、文档都看这一份）。 */
     val CAPABLE: Set<String> get() = AiWrites.ALL.filter { canRevert(it.id) }.map { it.id }.toSet()
 
@@ -222,7 +245,7 @@ object AiRevert {
     ): AiUndoPlan? {
         val restore = res.restore ?: return null
         if (restore.actionId == actionId) return null
-        val built = AiInverse.build(restore, before, res.labels) ?: return null
+        val built = AiInverse.build(restore, before) { cnOf(res, restore.actionId, it) } ?: return null
         return AiUndoPlan(
             actionId = restore.actionId,
             summary = "撤回：把${res.cn}恢复回来",
@@ -259,7 +282,7 @@ object AiRevert {
         summary: String,
     ): AiUndoPlan? {
         if (inverse.actionId == entry.id) return null
-        val built = AiInverse.build(inverse, before, res.labels) ?: return null
+        val built = AiInverse.build(inverse, before) { cnOf(res, inverse.actionId, it) } ?: return null
         return AiUndoPlan(
             actionId = inverse.actionId,
             summary = labelOf(summary),
@@ -319,6 +342,10 @@ object AiRevert {
         val invert = buildJsonObject {
             for ((k, v) in payload) {
                 if (k == key) continue
+                // ⚠️ 「不搬旧值」的键**不进这张表**：这张表是"撤回成旧值"，而它们是"这一次写一句新的"
+                //    （进 payload 的部分见下面的 `replaced`）。混进来的后果实测过：
+                //    卡片上会多一行 `· 原因备注：到货 → 撤回到 撤回：刚才那次库存调整（由撤回入口发起）`
+                //    ——"撤回到一句新原因"是句读不通的话（反向验证那次注入把它打出来了）。
                 if (k in entry.drop) continue
                 if (k in entry.negate) {
                     put(k, AiRevertJson.negate(v))
@@ -329,18 +356,31 @@ object AiRevert {
                     // ⚠️ 警告行也要**说人话**：这里以前直接拼 `$k`，单测随即抓到
                     //    「这一项撤不回来——address_lat」这种裸键（真机上就长这样）。
                     //    卡片上出现用户看不懂的字段名，等于没告诉他这一项没撤回来。
-                    old == null -> stuck += "${res.labels[k] ?: k}：${res.frozen[k] ?: "读不到它原来的值，这一项只能你自己在页面上改"}"
+                    old == null -> stuck += "${cnOf(res, entry.id, k)}：${res.frozen[k] ?: "读不到它原来的值，这一项只能你自己在页面上改"}"
                     // ⚠️ "原来是空的"有两种：**清不掉**（旧接口把空值忽略掉）与**能清掉**
                     //    （`res.nullableWritable` 点名的那些，如车辆解绑司机）。
                     //    后者以前会得到一句**假话**「这个接口清不掉它」——而它明明可以（v3.44 修）。
                     old is JsonNull && k in res.nullableWritable -> put(k, JsonNull)
-                    old is JsonNull -> stuck += "${res.labels[k] ?: k}：${res.frozen[k] ?: "这一项原来就是空的，而这个接口清不掉它——撤回时它会保持现在的值"}"
+                    old is JsonNull -> stuck += "${cnOf(res, entry.id, k)}：${res.frozen[k] ?: "这一项原来就是空的，而这个接口清不掉它——撤回时它会保持现在的值"}"
                     else -> put(k, old)
                 }
             }
         }
+        /**
+         * 「不搬旧值，但要补一句新的」的键（v3.45）：进 payload，但不进"撤回成旧值"那张表。
+         *
+         * ⚠️ 为什么不能只写进 [invert]：真机 E2E 抓到的空原因流水就是这么来的——
+         * 反向那条流水的 note 是 `''`（"入库 +5（原因：真机校验B）"下面躺着"-5（原因：无）"），
+         * 因为撤回把 note 整条丢掉了；而库里的流水正是**事后查账唯一的地方**。
+         */
+        val replaced = buildMap {
+            for (k in entry.drop) {
+                if (k !in payload) continue
+                entry.dropWrite[k]?.let { put(k, it) }
+            }
+        }
         // 一件都写不回去 = 这次撤回是空转。宁可不给按钮，也不给一个按下去什么都没发生的按钮。
-        if (invert.isEmpty()) return null
+        if (invert.isEmpty() && replaced.isEmpty()) return null
 
         val lines = buildList {
             // ⚠️ 冒号后面必须有东西（真机 E2E 报告点出来的）：全是静默键时，
@@ -350,7 +390,7 @@ object AiRevert {
             if (shown.isEmpty()) {
                 // 只有编号类字段（车辆的关联司机就是这种）——印中文名，但**不印编号**：
                 // 「司机：13 → 撤回到 3」这种行用户没法核对，和裸英文键一样没用。
-                val names = invert.keys.joinToString("、") { res.labels[it] ?: it }
+                val names = invert.keys.joinToString("、") { cnOf(res, entry.id, it) }
                 add("撤回会把这几项改回写之前的值：$names")
                 add("（$names 在库里存的是内部编号，卡片上不显示编号；点确认前会再读一次现状，改过会告诉你）")
             } else {
@@ -362,9 +402,14 @@ object AiRevert {
                 //    用户核对的是"终点地址"，两行裸英文键只会让人怀疑是不是改错了。
                 //    注意这里是"不占一行"，不是"不写回"——它必须写回，否则司机会被带去旧地址。
                 if (k in res.silent) continue
-                add("· ${res.labels[k] ?: k}：${AiRevertJson.textOf(payload[k], moneyOf(res, entry.id, k))} → 撤回到 ${AiRevertJson.textOf(v, moneyOf(res, entry.id, k))}")
+                add("· ${cnOf(res, entry.id, k)}：${AiRevertJson.textOf(payload[k], moneyOf(res, entry.id, k))} → 撤回到 ${AiRevertJson.textOf(v, moneyOf(res, entry.id, k))}")
             }
-            entry.drop.filter { it in payload }.forEach { add("· 「${res.labels[it] ?: it}」不写回（${entry.note ?: "这一次撤回不动它"}）") }
+            for ((k, v) in replaced) {
+                add("· ${cnOf(res, entry.id, k)}：不搬原来那句，写成「$v」")
+            }
+            entry.drop.filter { it in payload && it !in replaced }.forEach { k ->
+                add("· 「${cnOf(res, entry.id, k)}」不写回（${entry.note ?: "这一次撤回不动它"}）")
+            }
             // 静默键**读不回来**的时候不静默：那时候司机真的会被带去错地方，必须写在卡上。
             stuck.forEach { add("⚠️ 这一项撤不回来——$it") }
             if (entry.negate.any { it in payload }) {
@@ -383,6 +428,8 @@ object AiRevert {
             payload = buildJsonObject {
                 put(key, JsonPrimitive(id))
                 for ((k, v) in invert) put(k, v)
+                // 「不搬旧值、补一句新的」的键也在这里进 payload（卡片上单独一行说清了写什么）
+                for ((k, v) in replaced) put(k, JsonPrimitive(v))
             },
             label = labelOf(summary),
             // 探针基准是**这次写进去的 payload**（不是旧值）：比较的是
@@ -406,6 +453,36 @@ object AiRevert {
     private fun moneyOf(res: AiResource, actionId: String, key: String): Boolean =
         key in res.moneyKeys ||
             AiWrites.byId(actionId)?.crud?.fields?.firstOrNull { it.key == key }?.type == AiFieldType.MONEY
+
+    /**
+     * 一个键**在卡片上叫什么**。
+     *
+     * ### 为什么中文名要有第二处来源（v3.45，真机 E2E 抓到）
+     * 撤回卡上真的印出过这两行：
+     * ```text
+     * · change：5 → 撤回到 -5
+     * · 「note」不写回（…）
+     * ```
+     * 乍看像"漏写了两条 label"，其实是**来源不对**：[AiResource.labels] 的键集合被单测钉成
+     * `readKeys`（那条断言是对的——它管的是"**读回来**的东西叫什么"），而 payload 里还有一批
+     * **读不回来的键**：库存调整的 `change` / `note` 从来不在商品快照里（快照读的是商品本身），
+     * 于是它们永远查不到中文名，永远以裸英文键印给用户。
+     *
+     * 这类键的中文名只有一个现成来源：**动作自己声明的字段规格**
+     * （[CrudSpec.fields] 的 `key`/`cn`、[CrudSpec.targets] 的 `key`/`cn`）。
+     * 它在"给模型看的参数说明""正向卡片的摘要"里已经用了一次，这里用第二次——
+     * **声明一次、多处同源**，不会分叉；也不必给每个资源手抄一份 payload 键名。
+     *
+     * ### 三档顺序
+     * 资源中文名 → 动作字段中文名 → 原样返回键名。
+     * 最后一档正常**不该出现**：`AiWriteTest` 里那条"撤回卡上的每个 payload 键都要有中文名"
+     * 会逐个动作、逐个键算出来对账（清单由脚本自己算，不手写）。
+     */
+    fun cnOf(res: AiResource, actionId: String, key: String): String =
+        res.labels[key] ?: AiWrites.byId(actionId)?.crud?.let { spec ->
+            spec.fields.firstOrNull { it.key == key }?.cn
+                ?: spec.targets.firstOrNull { it.key == key }?.cn
+        } ?: key
 
     /** 撤回按钮上的字：摘要前面已经有「撤回：」的话不再叠一层。 */
     private fun labelOf(summary: String): String = "撤回：" + summary.removePrefix("撤回：")
@@ -460,7 +537,7 @@ object AiRevert {
                             changed.joinToString("；") { (k, _) ->
                                 // 金额按两位小数写——和上面那一行"撤回到 X"保持同一种写法，
                                 // 同一张卡上两种写法会让用户以为说的是两件事。
-                                "${res.labels[k] ?: k} 现在是 ${AiRevertJson.textOf(now.values[k], moneyOf(res, actionId, k))}" +
+                                "${cnOf(res, actionId, k)} 现在是 ${AiRevertJson.textOf(now.values[k], moneyOf(res, actionId, k))}" +
                                     "（撤回会写成 ${AiRevertJson.textOf(willWrite[k], moneyOf(res, actionId, k))}）"
                             },
                     )
@@ -682,8 +759,24 @@ class AiRevertAction(
     val idKey: String? = null,
     /** 逆运算是"取负"的键（库存增减量：撤回＝记一条反向流水，不是把库存改回去）。 */
     val negate: Set<String> = emptySet(),
-    /** 撤回**故意不写回**的键（配合 [note] 在卡上说明为什么）。 */
+    /** 撤回**故意不写回旧值**的键（配合 [note] 在卡上说明为什么）。 */
     val drop: Set<String> = emptySet(),
+    /**
+     * [drop] 里那些键**改成写什么**（v3.45）。
+     *
+     * ### 为什么"不搬旧值"不能顺手变成"什么都不写"（真机 E2E 抓到的空原因流水）
+     * 库存调整的撤回是"再记一条反向流水"，它的 `note` 被 [drop] 掉了——理由是充分的：
+     * 旧那句写的是"上一次为什么入库"，搬到反向流水上会被读成"这一次为什么出库"。
+     * 但**丢掉之后没有任何东西补上来**，于是真机上出现了这样一对流水：
+     * ```text
+     * id=297  change=+5  note='真机校验B'      ← 用户写的
+     * id=298  change=-5  note=''              ← 撤回写下的，原因空着
+     * ```
+     * 而"原因备注"这个字段存在的唯一目的就是**事后回查**（字段说明里写着"事后查流水全靠它"）。
+     * 所以这里补一个声明：不搬旧值，但写一句**说得清这一次是什么**的固定值。
+     * 卡片上也会照实写「不搬原来那句，写成「…」」——用户点确认前就知道流水上会留什么字。
+     */
+    val dropWrite: Map<String, String> = emptyMap(),
     /** 撤回走**另一个动作**（派单↔撤回派单、标记异常↔解除异常）。 */
     val inverse: AiInverse? = null,
     /**
@@ -707,8 +800,9 @@ internal fun update(
     id: String,
     negate: Set<String> = emptySet(),
     drop: Set<String> = emptySet(),
+    dropWrite: Map<String, String> = emptyMap(),
     note: String? = null,
-): AiRevertAction = AiRevertAction(id, negate = negate, drop = drop, note = note)
+): AiRevertAction = AiRevertAction(id, negate = negate, drop = drop, dropWrite = dropWrite, note = note)
 
 /** 删一条（撤回＝按资源的 [AiResource.restore] 恢复）。 */
 internal fun delete(id: String, idKey: String? = null): AiRevertAction =
@@ -755,11 +849,13 @@ class AiInverse(
          *   **这一项就不带**（逆操作自己会按"没填=不动"处理），并在卡上写一行警告；
          * - 主键取不到 → 整个撤回作废（返回 null）。认不出是哪一条就写不对地方。
          *
-         * @param labels 键 → 中文名（资源的 [AiResource.labels]）。**警告行必须说人话**：
+         * @param cn 键 → 中文名（[AiRevert.cnOf]）。**警告行必须说人话**：
          *   之前这里直接拼 `$k`，真机上就长成「⚠️ 「driver_id」读不到写之前的值」——
          *   和 patchPlan 里那条"不许出现裸键"是同一条教训（那边修过，这边漏了）。
+         *   传的是**解析函数**而不是 `res.labels` 这一张表：payload 键里有一批不在 labels 里
+         *   （它们不是"读回来的键"，见 [AiRevert.cnOf]），只传表的话这里又会印裸键。
          */
-        internal fun build(inv: AiInverse, before: AiBefore, labels: Map<String, String> = emptyMap()): Built? {
+        internal fun build(inv: AiInverse, before: AiBefore, cn: (String) -> String = { it }): Built? {
             val warnings = mutableListOf<String>()
             val out = buildJsonObject {
                 for ((k, src) in inv.from) {
@@ -770,7 +866,7 @@ class AiInverse(
                     val v = if (src == AiRevert.ID) before.id?.let { JsonPrimitive(it) } else before.values[src]
                     if (v == null || v is JsonNull) {
                         if (src == AiRevert.ID) return null
-                        val name = labels[k] ?: k
+                        val name = cn(k)
                         warnings += if (v is JsonNull) {
                             "⚠️ 「$name」写之前本来就是空的 —— 这次撤回「不带这一项」" +
                                 "（走的是同一个动作，按它「不填」的语义处理）"

@@ -135,13 +135,64 @@ def repo_to_api() -> dict[str, str]:
     return out
 
 
+def self_test_comment_blindness() -> None:
+    """自检：**注释里的方法名不算覆盖**。
+
+    为什么要有它（2026-09-19 审计）：覆盖率是"AI 写能力做完了没有"的唯一权威，而它的判据是
+    "这个 repo 方法名在 ai/ 里出现过"。如果哪天有人把 `strip_comments` 去掉（或者换成
+    不剥注释的写法），**在 KDoc 里写一句示例就能把某个写端点算成"已覆盖"** ——
+    覆盖率虚高、不会红、下一个人会以为那个端点已经有 AI 动作。
+    这条自检用一段合成源码当场比对：剥完注释后，注释里的 `markRead(` 必须**看不见**。
+    """
+    from _check_ai_guardrails import strip_comments  # 同目录脚本，模块级可导入
+
+    sample = (
+        "// 撤回走 repo.markRead(id)\n"
+        "/* 也可以 repo.deleteLedgerEntry(x) */\n"
+        "val n = 1\n"
+    )
+    names = set(re.findall(r"\b(\w+)\s*\(", strip_comments(sample)))
+    leaked = names & {"markRead", "deleteLedgerEntry"}
+    if leaked:
+        raise SystemExit(
+            f"❌ 覆盖率自检不通过：注释里的方法名被当成了真实调用（{sorted(leaked)}）——"
+            "判据没剥注释，写一句 KDoc 示例就能把端点算成「已覆盖」。"
+        )
+
+
+def scan_called_names(src: str) -> set[str]:
+    """**唯一的扫描入口**：剥掉注释之后，取源码里出现过的调用名。
+
+    ⚠️ 自检与真实扫描都走这里（2026-09-19 审计）：如果自检自己调 `strip_comments`、
+    而真实扫描走另一条路，那么"把剥注释删掉"这种破坏**自检照样绿** —— 我第一版就是这么写的，
+    注入验证当场证明它抓不到。判据必须与被判据的代码**同一条路径**。
+    """
+    from _check_ai_guardrails import strip_comments  # 同目录脚本，模块级可导入
+
+    return {m.group(1) for m in re.finditer(r"\b(\w+)\s*\(", strip_comments(src))}
+
+
+def self_test_comment_blindness() -> None:
+    """自检：**注释里的方法名不算覆盖**。
+
+    为什么要有它：覆盖率是"AI 写能力做完了没有"的唯一权威，判据是"这个 repo 方法名在 ai/ 里
+    出现过"。不剥注释时，**在 KDoc 里写一句示例**（"撤回走 `repo.markRead(id)`"）就能把对应写
+    端点算成"已覆盖" —— 覆盖率虚高、不会红，下一个人会以为那个端点已经有 AI 动作了。
+    """
+    leaked = scan_called_names("// 撤回走 repo.markRead(id)\n/* repo.deleteLedgerEntry(x) */\nval n = 1\n")
+    bad = leaked & {"markRead", "deleteLedgerEntry"}
+    if bad:
+        raise SystemExit(
+            f"❌ 覆盖率自检不通过：注释里的方法名被当成真实调用了（{sorted(bad)}）——"
+            "判据没剥注释，写一句 KDoc 示例就能把端点算成「已覆盖」。"
+        )
+
+
 def ai_mentioned_repos() -> set[str]:
-    """ai/ 包里出现过哪些 repo 方法名（含 write 处理器里的调用）。"""
+    """ai/ 包里出现过哪些 repo 方法名（**只看真实代码，注释不算**，见自检的说明）。"""
     names: set[str] = set()
     for f in AI.glob("*.kt"):
-        src = f.read_text(encoding="utf-8")
-        for m in re.finditer(r"\b(\w+)\s*\(", src):
-            names.add(m.group(1))
+        names |= scan_called_names(f.read_text(encoding="utf-8"))
     return names
 
 
@@ -154,6 +205,7 @@ def main() -> int:
     eps = json.loads(ENDPOINTS.read_text(encoding="utf-8"))
     apis = api_paths()
     repo = repo_to_api()
+    self_test_comment_blindness()
     mentioned = ai_mentioned_repos()
 
     rows = []

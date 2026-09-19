@@ -26,6 +26,7 @@ import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatMoney
+import java.math.BigDecimal
 import java.time.LocalDate
 
 // ============================================================
@@ -132,6 +133,18 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
 
     fun loadCustomerOrders() {
         val c = selectedCustomer ?: return
+        // ⛔ 临时客户（散客）**没有绑定账号**（`user_id == null`）。原来这里的 `shipperId = c.userId`
+        //    会把 null 交给 Retrofit，而 null 的查询参数会被**整条丢掉** → 后端对派单员不带
+        //    `shipper_id` 时返回**全库**已送达单 → 界面标题写着「该客户的未收款订单」，
+        //    列出的却是**全公司**所有未收款订单（用户照着这个列表勾选、算合计），提交才 400。
+        //    这是跨客户数据显示：宁可不给列表，也不能给错的列表（2026-09-19 审计）。
+        if (c.userId == null) {
+            orders = emptyList()
+            error = "「${c.name}」是临时客户（没有绑定账号），逐单核销用不了。" +
+                "请改用「滚动收款」，或先把这个客户关联到一个货主账号。"
+            return
+        }
+        error = null
         viewModelScope.launch {
             try {
                 orders = container.repo.orders(status = "DELIVERED", shipperId = c.userId).filter { !it.paid }
@@ -141,13 +154,39 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
         }
     }
 
-    fun computeTotal(): Double = orders.filter { it.id in selectedOrderIds }.sumOf { it.orderProducts.sumOf { p -> p.lineTotal?.toDoubleOrNull() ?: 0.0 } }
+    /**
+     * 一张订单的商品行合计（**定点**，两位小数）。
+     *
+     * 本屏**唯一**的金额求和实现：明细行的 ¥ 与「合计 ¥」都走它，保证"显示的数 = 判据的数"。
+     */
+    fun orderTotal(o: OrderDto): BigDecimal =
+        o.orderProducts.fold(BigDecimal.ZERO) { a, p -> a.add(p.lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO) }
+
+    /**
+     * 所选订单合计（**定点**）。
+     *
+     * ⛔ 这里不许用 `Double` 累加（2026-09-19 全项目 bug 报告 P0-4，high）：
+     * 后端 `accounting_service` 用 **Decimal 定点**相加，而界面把**后端算出的那个数**（两位小数）
+     * 显示给用户、让用户照抄填进输入框——原来判据用的却是 `Double` 顺序累加的结果，
+     * 也就是**两个不同的数**。守护者 20 万次随机试验的失配率：2 行 22.72% / 3 行 26.59% /
+     * 4 行 33.44% / 5 行 37.68%。实测表现是「界面显示合计 ¥3190.68 → 照抄填入 → 红字说
+     * 需要 ¥3190.68」，而唯一的"自救"办法（把位数打多成 3190.6800000000003）会被后端
+     * `Decimal(body.amount) != total` 立刻 400 → **多行/多单时永久收不了款**。
+     * 写法与本仓库既有实现同源（`ai/AiWriteService.kt:473`）。
+     */
+    fun computeTotal(): BigDecimal = orders
+        .filter { it.id in selectedOrderIds }
+        .fold(BigDecimal.ZERO) { acc, o -> acc.add(orderTotal(o)) }
 
     fun submit() {
         val c = selectedCustomer ?: return
         if (selectedOrderIds.isEmpty()) { error = "请勾选绑定订单"; return }
         val total = computeTotal()
-        if (amount.toDoubleOrNull() != total) { error = "收款金额需等于所选订单合计 ¥" + formatMoney(total.toString()); return }
+        // 金额按**定点**比（`compareTo`），不按 Double 比；显示与判据用同一个 BigDecimal。
+        if (amount.trim().toBigDecimalOrNull()?.compareTo(total) != 0) {
+            error = "收款金额需等于所选订单合计 ¥" + formatMoney(total.toPlainString())
+            return
+        }
         submitting = true
         viewModelScope.launch {
             try {
@@ -207,12 +246,12 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                                     Checkbox(checked = o.id in vm.selectedOrderIds, onCheckedChange = {
                                         vm.selectedOrderIds = if (o.id in vm.selectedOrderIds) vm.selectedOrderIds - o.id else vm.selectedOrderIds + o.id
                                     })
-                                    Text(o.orderNo + "  ¥" + formatMoney(o.orderProducts.sumOf { p -> p.lineTotal?.toDoubleOrNull() ?: 0.0 }.toString()), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(o.orderNo + "  ¥" + formatMoney(vm.orderTotal(o).toPlainString()), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
                         Spacer(Modifier.height(6.dp))
-                        Text("合计 ¥" + formatMoney(vm.computeTotal().toString()), style = MaterialTheme.typography.titleSmall, color = Color(MoneyOrange))
+                        Text("合计 ¥" + formatMoney(vm.computeTotal().toPlainString()), style = MaterialTheme.typography.titleSmall, color = Color(MoneyOrange))
                         OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = it }, label = { Text("收款金额＝所选订单合计") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                         Spacer(Modifier.height(6.dp))
                         DropField(

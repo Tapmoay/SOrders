@@ -60,8 +60,8 @@ class AiWriteTest {
         var products = listOf(AiName(41, "红富士苹果"), AiName(42, "皇冠梨"))
         var units = listOf(AiName(51, "明辉食品商行"))
         var orders = listOf(
-            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "待派单", "测试收货地址 65 号", null, "320.00"),
-            AiOrderRef(62, "SOTEST2026091200229", "明辉食品商行", "派单中", "测试收货地址 4 号", "李强", "704.00"),
+            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "PENDING_DISPATCH", "测试收货地址 65 号", null, "320.00"),
+            AiOrderRef(62, "SOTEST2026091200229", "明辉食品商行", "DISPATCHED", "测试收货地址 4 号", "李强", "704.00"),
         )
 
         val expenses = mutableListOf<Pair<ExpenseCreateRequest, String?>>()
@@ -261,7 +261,7 @@ class AiWriteTest {
             AiOrderLine(902, "皇冠梨", 2, "50.00", "100.00"),
         )
         var deletedOrderRows = listOf(
-            AiOrderRef(71, "SOTEST2026090100220", "明辉食品商行", "已撤销", "测试收货地址 9 号", null, "88.00"),
+            AiOrderRef(71, "SOTEST2026090100220", "明辉食品商行", "CANCELLED", "测试收货地址 9 号", null, "88.00"),
         )
 
         /** 商品行/回收站写操作记一行，断言用。 */
@@ -349,6 +349,17 @@ class AiWriteTest {
 
         // ---- 主数据域（v3.9）----
         var users = listOf(AiName(71, "张三"), AiName(72, "李四"))
+
+        /**
+         * 带角色的名册（角色 → 人）。默认：张三=司机、李四=货主。
+         *
+         * 为什么需要它：「改司机收费规则」这类动作**只对司机有意义**，而全角色名册会让模型
+         * 把货主也挑出来 —— 后端打过去是**静默空转**（200、零改动、无日志），界面却回「已完成」。
+         */
+        var roleUsers = mapOf(
+            "driver" to listOf(AiName(71, "张三")),
+            "shipper" to listOf(AiName(72, "李四")),
+        )
         var priceRuleRows = listOf(AiName(81, "城东水果批发 红富士苹果 = 4.5"))
         var addressRows = listOf(AiName(91, "王五 测试路 1 号"))
         var locationRows = listOf(AiName(92, "东仓库"))
@@ -358,6 +369,9 @@ class AiWriteTest {
         val masterCalls = mutableListOf<String>()
 
         override suspend fun users(query: String) = users.also { boom() }
+
+        override suspend fun usersOfRole(query: String, role: String) =
+            (roleUsers[role] ?: emptyList()).also { boom() }
         override suspend fun addresses() = addressRows.also { boom() }
         override suspend fun locations() = locationRows.also { boom() }
         override suspend fun contacts() = contactRows.also { boom() }
@@ -1149,12 +1163,24 @@ class AiWriteTest {
 
     @Test
     fun `给模型的动作清单包含每个动作和每个必填参数名`() {
+        // ⚠️ 判据是 `forModel`（= 模型真的能调的那些），**不是 `ALL`**（2026-09-19 审计）。
+        //    原来这里断言的是 `AiWrites.ALL`，把 8 个 `undoOnly`（撤回专用恢复动作）也算进去，
+        //    于是它**反向钉住了缺陷**：`describeForModel` 当时用的是 `forRole`（含 undoOnly），
+        //    模型在 `preview_write` 说明里看得到 `products.restore` 这种"模型看不到它"的动作，
+        //    照着抄必然失败——而这条测试和另一条"恢复动作不进模型清单"同时是绿的。
+        //    这是"两条互相矛盾的断言同时绿"的典型：一条查清单文本（含 undoOnly），一条查 enum（不含）。
         val text = AiWrites.describeForModel()
-        AiWrites.ALL.forEach { a ->
+        AiWrites.forModel(AiRole.DISPATCHER).forEach { a ->
             assertTrue("清单里少了动作 ${a.id}", text.contains(a.id))
             a.params.filter { it.required }.forEach { pm ->
                 assertTrue("清单里少了 ${a.id} 的必填参数 ${pm.name}", text.contains(pm.name))
             }
+        }
+        AiWrites.ALL.filter { it.undoOnly }.forEach { a ->
+            assertFalse(
+                "撤回专用动作 ${a.id} 不该出现在给模型的清单里（说明与 enum 必须同一套）",
+                text.contains(a.id),
+            )
         }
     }
 
@@ -1279,6 +1305,40 @@ class AiWriteTest {
     }
 
     @Test
+    fun `改司机收费规则不会挑到货主头上（后端对这种目标静默空转）`() = runBlocking<Unit> {
+        val r = Rig()
+        // 李四是**货主**：后端 `PATCH /users/{id}` 的计费分支只在目标是司机时才生效，
+        // 打给货主会返回 200、一个字段不改、连日志都不写 —— 卡片却会回「已完成」。
+        val out = r.svc.preview(
+            AiWrites.USERS_SET_BILLING,
+            p("user" to "李四", "mode" to "salary"),
+        )
+        assertTrue("货主不该被当成司机挑中，实际返回 $out", out is AiWriteOutcome.Rejected)
+        assertTrue(
+            "提示里要说清是「司机」，实际：${(out as AiWriteOutcome.Rejected).reason}",
+            out.reason.contains("司机"),
+        )
+        assertEquals("不许对货主下发计费改动", 0, r.ds.masterCalls.size)
+    }
+
+    @Test
+    fun `改司机收费规则挑得到真司机`() = runBlocking<Unit> {
+        val r = Rig()
+        // 车型是必填（`vehicle`）——这里只验"**真司机挑得到**"，
+        // 所以把必填项一起给上，让卡片能正常弹出来。
+        val card = ok(
+            r.svc.preview(
+                AiWrites.USERS_SET_BILLING,
+                p("user" to "张三", "mode" to "piece", "vehicle" to "small"),
+            ),
+        )
+        assertTrue(
+            card.summary + card.detailLines.joinToString(),
+            card.summary.contains("张三") || card.detailLines.any { it.contains("张三") },
+        )
+    }
+
+    @Test
     fun `派单没说派给谁就拒绝`() = runBlocking<Unit> {
         val r = Rig()
         val out = rejected(r.svc.preview(AiWrites.ORDERS_ASSIGN, p("order" to "SOTEST2026091100230")))
@@ -1349,8 +1409,8 @@ class AiWriteTest {
         val r = Rig()
         // 后端 q 是模糊匹配：搜「SOTEST」会命中全部测试单。
         r.ds.orders = listOf(
-            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "待派单", "地址1", null, "320.00"),
-            AiOrderRef(63, "SOTEST2026091100231", "明辉食品商行", "待派单", "地址2", null, "100.00"),
+            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "PENDING_DISPATCH", "地址1", null, "320.00"),
+            AiOrderRef(63, "SOTEST2026091100231", "明辉食品商行", "PENDING_DISPATCH", "地址2", null, "100.00"),
         )
         val out = rejected(
             r.svc.preview(AiWrites.ORDERS_ASSIGN, p("order" to "SOTEST", "driver" to "王建国")),
@@ -1366,7 +1426,7 @@ class AiWriteTest {
         val r = Rig()
         // 用绝不会和业务数字撞车的编号，才能断言得干净
         r.ds.orders = listOf(
-            AiOrderRef(900061, "SOTEST2026091100230", "城东水果批发", "待派单", "测试收货地址 65 号", null, "320.00"),
+            AiOrderRef(900061, "SOTEST2026091100230", "城东水果批发", "PENDING_DISPATCH", "测试收货地址 65 号", null, "320.00"),
         )
         r.ds.drivers = listOf(AiName(900011, "王建国"))
 
@@ -1420,7 +1480,7 @@ class AiWriteTest {
     fun `已接单的单不能撤销`() = runBlocking<Unit> {
         val r = Rig()
         r.ds.orders = listOf(
-            AiOrderRef(64, "SOTEST2026091300228", "城东水果批发", "已接单", "地址3", "李强", "200.00"),
+            AiOrderRef(64, "SOTEST2026091300228", "城东水果批发", "ACCEPTED", "地址3", "李强", "200.00"),
         )
         val out = rejected(r.svc.preview(AiWrites.ORDERS_CANCEL, p("order" to "SOTEST2026091300228")))
         assertTrue(out.reason.contains("已接单"))
@@ -1533,7 +1593,7 @@ class AiWriteTest {
     fun `已送达的单不能改运费`() = runBlocking<Unit> {
         val r = Rig()
         r.ds.orders = listOf(
-            AiOrderRef(65, "SOTEST2026091400227", "城东水果批发", "已送达", "地址4", "李强", "200.00"),
+            AiOrderRef(65, "SOTEST2026091400227", "城东水果批发", "DELIVERED", "地址4", "李强", "200.00"),
         )
         val out = rejected(
             r.svc.preview(AiWrites.ORDERS_FREIGHT, p("order" to "SOTEST2026091400227", "freight" to "80")),
@@ -1846,6 +1906,9 @@ class AiWriteTest {
         f.type == AiFieldType.MONEY -> "12.34"
         f.type == AiFieldType.COUNT -> "3"
         f.type == AiFieldType.DELTA -> "5"
+        // 非负整数（库存报警阈值/初始库存）：**用 0**——它是这类字段唯一"合法但容易被拒"的值
+        // （DELTA 时代填 0 会被拒，那正是 2026-09-19 审计修掉的那条）
+        f.type == AiFieldType.NON_NEGATIVE -> "0"
         f.type == AiFieldType.DATE -> "2026-09-15"
         f.type == AiFieldType.BOOL -> "true"
         else -> f.enumValues.first()
@@ -2302,6 +2365,79 @@ class AiWriteTest {
     }
 
     @Test
+    fun `撤回卡不说「这一步撤不回来」（真机抓到的自相矛盾）`() = runBlocking {
+        // 真机原样（删批发商专属价 → 点撤回）：
+        //     撤回：把批发商专属价恢复回来            ← 标题说这是「撤回」
+        //     ⚠️ 这一步撤不回来：新建出来的那一条撤不掉…   ← 却告诉用户「这一步撤不回来」
+        // 根因：卡片最后一行由暂存区按 **actionId** 统一拼，而撤回走的是另一个动作
+        // （`price_rules.set` 是"新建类"）→ 把那句话原样搬到了撤回卡上。
+        val r = Rig()
+        r.ds.snapshots["price_rule:81"] = buildJsonObject {
+            put("shipper_id", "31")
+            put("product_id", "41")
+            put("special_unit_price", "4.50")
+        }
+        val card = ok(r.svc.preview(AiWrites.PRICE_RULES_DELETE, p("rule" to "城东水果批发 红富士苹果 = 4.5")))
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        val undoCard = ok(r.svc.offerUndo(done.undoToken!!))
+
+        val lines = undoCard.detailLines
+        assertTrue("撤回卡没写「撤回」两个字：${undoCard.summary}", undoCard.summary.contains("撤回"))
+        assertTrue(
+            "撤回卡上又出现了「这一步撤不回来」这种自相矛盾的话：$lines",
+            lines.none { it.contains("这一步撤不回来") },
+        )
+        assertTrue(
+            "撤回卡最后一行应当说的是「这次撤回本身能不能再反悔」：$lines",
+            lines.any { it.contains("这次撤回") },
+        )
+        // 而**普通**卡片仍然要照旧回答"误操作了怎么办"
+        val plain = ok(r.svc.preview(AiWrites.PRICE_RULES_DELETE, p("rule" to "城东水果批发 红富士苹果 = 4.5")))
+        assertTrue(
+            "普通卡片丢掉了「误操作了怎么办」那一行：${plain.detailLines}",
+            plain.detailLines.any { it.contains("误操作了不要紧") || it.contains("撤不回来") },
+        )
+    }
+
+    @Test
+    fun `撤回卡上的每个 payload 键都要有中文名（真机抓到过 change 与 note）`() {
+        // 真机 E2E 打出来的两行（模拟器 5554，库存调整 → 撤回）：
+        //     · change：5 → 撤回到 -5
+        //     · 「note」不写回（…）
+        // 原因不是"漏写了两条 label"，而是**中文名的来源不对**：上一条断言把资源表的
+        // `labels` 钉成 readKeys（那条是对的——它管的是"**读回来**的东西叫什么"），
+        // 而 payload 里有一批**读不回来的键**（库存的增减量从来不在商品快照里），
+        // 于是它们永远查不到中文名，永远以裸英文键印给用户。
+        // 现在中文名有两处来源（资源表 → 动作声明的字段规格，见 AiRevert.cnOf）：
+        // 这条断言把**清单自己算出来**——遍历资源表 × 每个动作的声明式规格，
+        // 逐个 payload 键问一遍"它在卡片上叫什么"，不是中文就报红。
+        val cjk = Regex("[\\u4e00-\\u9fff]")
+        var scanned = 0
+        val bad = mutableListOf<String>()
+        for (r in AiResources.TABLE) {
+            for (a in r.actions) {
+                val spec = AiWrites.byId(a.id)?.crud ?: continue
+                for (k in spec.targets.map { it.key } + spec.fields.map { it.key }) {
+                    // 主键那一项不单独占一行（卡片按编号定位，印出来也没法核对）
+                    if (k == a.keyIn(r)) continue
+                    scanned++
+                    val cn = AiRevert.cnOf(r, a.id, k)
+                    if (!cjk.containsMatchIn(cn)) bad += "${r.key}:${a.id}:$k → $cn"
+                }
+            }
+        }
+        assertTrue("一个 payload 键都没扫到（这条断言在空转）", scanned >= 40)
+        assertTrue("这些键在撤回卡上会印成裸英文键：$bad", bad.isEmpty())
+
+        // 具体到真机那一条：要的是**这两个词**，不是"有中文就行"
+        val product = AiResources.TABLE.first { it.key == "product" }
+        assertEquals("增减量", AiRevert.cnOf(product, AiWrites.INVENTORY_ADJUST, "change"))
+        assertEquals("原因备注", AiRevert.cnOf(product, AiWrites.INVENTORY_ADJUST, "note"))
+        // 资源表那份优先：同一个键在字段规格里可能叫别的（"新商品名"），卡片上该用资源表那个
+        assertEquals("商品名", AiRevert.cnOf(product, AiWrites.PRODUCTS_UPDATE, "name"))
+    }
+
+    @Test
     fun `改类动作能一键撤回：撤回就是同一个动作写回旧值`() = runBlocking {
         val r = Rig()
         // 写之前的现场：单价 8.00、名字「红富士苹果」
@@ -2516,8 +2652,30 @@ class AiWriteTest {
             undoCard.detailLines.any { it.contains("相反方向") },
         )
         r.svc.execute(undoCard.token)
-        // 原来是 +50，撤回就是 -50；备注不写回（原备注留在原来那条流水上）
-        assertEquals(listOf("movement:41:-50:"), r.ds.masterCalls)
+        // 原来是 +50，撤回就是 -50。
+        // ⚠️ 备注**不搬旧那句**（旧那句说的是"上一次为什么入库"），但**必须补一句新的**：
+        //    这里以前断言的是 `movement:41:-50:`（备注空）—— 那条断言把真机上抓到的缺陷
+        //    钉成了"预期行为"（库里真出现过 note='' 的反向流水，事后没人说得清那 5 件是怎么少的）。
+        assertEquals(
+            listOf("movement:41:-50:撤回：刚才那次库存调整（由撤回入口发起）"),
+            r.ds.masterCalls,
+        )
+        // 卡片上要写明它会写什么字，以及旧备注去哪了（用户点确认前就能核对）
+        assertTrue(
+            "卡片要写清这条流水上会留什么原因：${undoCard.detailLines}",
+            undoCard.detailLines.any { it.contains("不搬原来那句") && it.contains("由撤回入口发起") },
+        )
+        // 而且不许写成「撤回到 一句新原因」——那句话读不通（反向验证那次注入打出来过这行）。
+        // 分辨"撤回成旧值"与"补一句新的"就是这里的分界线。
+        assertTrue(
+            "把「补一句新原因」写成了「撤回到 新原因」：${undoCard.detailLines}",
+            undoCard.detailLines.none { "撤回到" in it && "撤回：" in it.substringAfter("撤回到") },
+        )
+        // 两行不许再印同一个键名（真机上 `change` / `note` 两个裸键就是这么被看见的）
+        assertTrue(
+            "撤回卡上又出现了裸英文键：${undoCard.detailLines.filter { it.contains("change") || it.contains("note") }}",
+            undoCard.detailLines.none { it.contains("change：") || it.contains("「note」") || it.contains("· note") },
+        )
     }
 
     @Test
@@ -2992,7 +3150,7 @@ class AiWriteTest {
     @Test
     fun `已送达的单不能改`() = runBlocking<Unit> {
         val r = Rig()
-        r.ds.orders = r.ds.orders + AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "已送达", "测试收货地址 1 号")
+        r.ds.orders = r.ds.orders + AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "DELIVERED", "测试收货地址 1 号")
         rejected(
             r.svc.preview(
                 AiWrites.ORDERS_UPDATE,
@@ -3019,7 +3177,7 @@ class AiWriteTest {
         // 已经是异常的单：再标一次没有意义，必须拒绝而不是照做
         val r2 = Rig()
         r2.ds.orders = listOf(
-            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "待派单", "测试收货地址 65 号", null, "320.00", false, true),
+            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "PENDING_DISPATCH", "测试收货地址 65 号", null, "320.00", false, true),
         )
         val out = rejected(
             r2.svc.preview(
@@ -3041,7 +3199,7 @@ class AiWriteTest {
 
         val r2 = Rig()
         r2.ds.orders = listOf(
-            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "待派单", "测试收货地址 65 号", null, "320.00", false, true),
+            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "PENDING_DISPATCH", "测试收货地址 65 号", null, "320.00", false, true),
         )
         val card = ok(
             r2.svc.preview(AiWrites.ORDERS_RESOLVE_EXCEPTION, p("order" to "SOTEST2026091100230", "note" to "已补发两件")),
@@ -3093,7 +3251,7 @@ class AiWriteTest {
     fun `批量派单把每张单都列在卡上，落了库的顺序与用户给的一致`() = runBlocking {
         val r = Rig()
         r.ds.orders = r.ds.orders +
-            AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "待派单", "测试收货地址 1 号", null, "100.00")
+            AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "PENDING_DISPATCH", "测试收货地址 1 号", null, "100.00")
         val card = ok(
             r.svc.preview(
                 AiWrites.ORDERS_BATCH_ASSIGN,
@@ -3134,7 +3292,7 @@ class AiWriteTest {
     fun `批量派单里提到运费要如实说明不会写进去`() = runBlocking {
         val r = Rig()
         r.ds.orders = r.ds.orders +
-            AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "待派单", "测试收货地址 1 号", null, "100.00")
+            AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "PENDING_DISPATCH", "测试收货地址 1 号", null, "100.00")
         val card = ok(
             r.svc.preview(
                 AiWrites.ORDERS_BATCH_ASSIGN,
@@ -3348,7 +3506,7 @@ class AiWriteTest {
     @Test
     fun `加商品行：已送达的单拒绝（后端也会拒，别让用户点了确认才知道）`() = runBlocking<Unit> {
         val r = Rig()
-        r.ds.orders = r.ds.orders + AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "已送达", "测试收货地址 1 号")
+        r.ds.orders = r.ds.orders + AiOrderRef(63, "SOTEST2026091300228", "城东水果批发", "DELIVERED", "测试收货地址 1 号")
         rejected(
             r.svc.preview(
                 AiWrites.ORDERS_ADD_LINE,
@@ -4583,4 +4741,5 @@ class AiWriteTest {
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))
         }
     }
+
 }

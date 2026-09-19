@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showFailToast, showSuccessToast } from 'vant'
 
-import { login, register, sendRegisterSms } from '@/api/auth'
+import { login } from '@/api/auth'
 import { fetchMe } from '@/api/user'
 import { useAuthStore } from '@/stores/auth'
 
@@ -13,16 +13,8 @@ const auth = useAuthStore()
 const loginName = ref('')
 const password = ref('')
 
-const regUsername = ref('')
-const regMobile = ref('')
-const verifyCode = ref('')
-
-const mode = ref<'login' | 'register'>('login')
 const loading = ref(false)
-/** 密码框显示/隐藏（登录与注册共用一条密码） */
 const showPassword = ref(false)
-const smsCooldown = ref(0)
-let smsTimer: ReturnType<typeof setInterval> | null = null
 
 /** 兼容旧版后端或未重启实例返回的英文 detail */
 const EN_TO_ZH: Record<string, string> = {
@@ -81,24 +73,9 @@ function onLoginFieldInteract() {
   auth.clearAutoLoginCredentials()
 }
 
-watch(mode, (m) => {
-  if (m === 'login') {
-    regUsername.value = ''
-    regMobile.value = ''
-    verifyCode.value = ''
-    loginFieldInteractCleared = false
-    applySavedLoginPrefill()
-  } else {
-    loginName.value = ''
-    password.value = ''
-  }
-})
-
 onMounted(() => {
-  if (mode.value === 'login') {
-    loginFieldInteractCleared = false
-    applySavedLoginPrefill()
-  }
+  loginFieldInteractCleared = false
+  applySavedLoginPrefill()
 })
 
 function homePath(role: string) {
@@ -108,67 +85,18 @@ function homePath(role: string) {
   return '/login'
 }
 
-async function onSendSms() {
-  const p = regMobile.value.trim()
-  if (!/^1[3-9]\d{9}$/.test(p)) {
-    showFailToast('请输入正确的手机号')
-    return
-  }
-  if (smsCooldown.value > 0) return
-  try {
-    const res = await sendRegisterSms(p)
-    if (res.code) {
-      showSuccessToast({
-        message: `验证码：${res.code}（当前为开发模式，未发送真实短信）`,
-        duration: 8000,
-      })
-      if (import.meta.env.DEV) {
-        console.info('[dev] SMS code:', res.code)
-      }
-    } else {
-      showSuccessToast('验证码已发送，请查收短信')
-    }
-    smsCooldown.value = 60
-    smsTimer = setInterval(() => {
-      smsCooldown.value -= 1
-      if (smsCooldown.value <= 0 && smsTimer) {
-        clearInterval(smsTimer)
-        smsTimer = null
-      }
-    }, 1000)
-  } catch (e: unknown) {
-    showFailToast(formatRequestError(e))
-  }
-}
-
 async function onSubmit() {
   loading.value = true
   try {
-    if (mode.value === 'login') {
-      const id = loginName.value.trim()
-      const pwd = password.value
-      const tok = await login({ phone: id, password: pwd })
-      auth.setSession(tok.access_token, tok.role, tok.user_id)
-      const me = await fetchMe()
-      auth.setSession(tok.access_token, me.role, me.id)
-      auth.persistAutoLogin(id, pwd)
-      showSuccessToast('登录成功')
-      router.replace(homePath(me.role))
-    } else {
-      const tok = await register({
-        username: regUsername.value.trim(),
-        password: password.value,
-        phone: regMobile.value.trim(),
-        verification_code: verifyCode.value.trim(),
-      })
-      auth.setSession(tok.access_token, tok.role, tok.user_id)
-      const me = await fetchMe()
-      auth.setSession(tok.access_token, me.role, me.id)
-      /** 注册后静默登录使用手机号（与登录接口 phone 字段一致） */
-      auth.persistAutoLogin(regMobile.value.trim(), password.value)
-      showSuccessToast('注册成功')
-      router.replace(homePath(me.role))
-    }
+    const id = loginName.value.trim()
+    const pwd = password.value
+    const tok = await login({ phone: id, password: pwd })
+    auth.setSession(tok.access_token, tok.role, tok.user_id)
+    const me = await fetchMe()
+    auth.setSession(tok.access_token, me.role, me.id)
+    auth.persistAutoLogin(id, pwd)
+    showSuccessToast('登录成功')
+    router.replace(homePath(me.role))
   } catch (e: unknown) {
     showFailToast(formatRequestError(e))
   } finally {
@@ -183,133 +111,46 @@ async function onSubmit() {
       <van-nav-bar title="派单送货" class="login-nav-bar" />
 
       <div class="pad">
-        <p class="hint">使用用户名与密码登录或注册；登录成功后进入对应工作台。</p>
-
-        <div class="mode-seg" role="tablist" aria-label="登录或注册">
-          <button
-            type="button"
-            class="mode-seg__btn"
-            :class="{ 'mode-seg__btn--active': mode === 'login' }"
-            role="tab"
-            :aria-selected="mode === 'login'"
-            @click="mode = 'login'"
-          >
-            登录
-          </button>
-          <button
-            type="button"
-            class="mode-seg__btn"
-            :class="{ 'mode-seg__btn--active': mode === 'register' }"
-            role="tab"
-            :aria-selected="mode === 'register'"
-            @click="mode = 'register'"
-          >
-            注册
-          </button>
-        </div>
+        <p class="hint">使用用户名与密码登录；账号由管理员开通，登录成功后进入对应工作台。</p>
 
         <van-form @submit="onSubmit">
           <van-cell-group inset>
-            <template v-if="mode === 'login'">
-              <van-field
-                v-model="loginName"
-                name="loginName"
-                label="用户名"
-                type="text"
-                maxlength="32"
-                autocomplete="username"
-                placeholder="用户名或手机号"
-                :rules="[{ required: true, message: '请填写用户名' }]"
-                @focus="onLoginFieldInteract"
-                @click="onLoginFieldInteract"
-              />
-              <van-field
-                v-model="password"
-                :type="showPassword ? 'text' : 'password'"
-                name="password"
-                label="密码"
-                placeholder="密码"
-                autocomplete="current-password"
-                :rules="[{ required: true, message: '请填写密码' }]"
-                @focus="onLoginFieldInteract"
-                @click="onLoginFieldInteract"
-              >
-                <template #right-icon>
-                  <van-icon
-                    :name="showPassword ? 'eye-o' : 'closed-eye'"
-                    class="pwd-eye"
-                    @click.stop="showPassword = !showPassword"
-                  />
-                </template>
-              </van-field>
-            </template>
-            <template v-else>
-              <van-field
-                v-model="regUsername"
-                name="regUsername"
-                label="用户名"
-                type="text"
-                maxlength="32"
-                autocomplete="username"
-                placeholder="设置登录用户名"
-                :rules="[{ required: true, message: '请填写用户名' }]"
-              />
-              <van-field
-                v-model="password"
-                :type="showPassword ? 'text' : 'password'"
-                name="password"
-                label="密码"
-                placeholder="密码"
-                autocomplete="new-password"
-                :rules="[{ required: true, message: '请填写密码' }]"
-              >
-                <template #right-icon>
-                  <van-icon
-                    :name="showPassword ? 'eye-o' : 'closed-eye'"
-                    class="pwd-eye"
-                    @click.stop="showPassword = !showPassword"
-                  />
-                </template>
-              </van-field>
-              <van-field
-                v-model="regMobile"
-                name="mobile"
-                label="手机号"
-                type="tel"
-                maxlength="11"
-                placeholder="11 位手机号"
-                :rules="[{ required: true, message: '请填写手机号' }]"
-              >
-                <template #button>
-                  <van-button
-                    size="small"
-                    type="primary"
-                    plain
-                    :disabled="smsCooldown > 0"
-                    native-type="button"
-                    @click="onSendSms"
-                  >
-                    {{ smsCooldown > 0 ? `${smsCooldown}s` : '获取验证码' }}
-                  </van-button>
-                </template>
-              </van-field>
-              <van-field
-                v-model="verifyCode"
-                name="verifyCode"
-                label="验证码"
-                type="digit"
-                maxlength="8"
-                placeholder="短信验证码"
-                :rules="[{ required: true, message: '请填写验证码' }]"
-              />
-            </template>
+            <van-field
+              v-model="loginName"
+              name="loginName"
+              label="用户名"
+              type="text"
+              maxlength="32"
+              autocomplete="username"
+              placeholder="用户名或手机号"
+              :rules="[{ required: true, message: '请填写用户名' }]"
+              @focus="onLoginFieldInteract"
+              @click="onLoginFieldInteract"
+            />
+            <van-field
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              name="password"
+              label="密码"
+              placeholder="密码"
+              autocomplete="current-password"
+              :rules="[{ required: true, message: '请填写密码' }]"
+              @focus="onLoginFieldInteract"
+              @click="onLoginFieldInteract"
+            >
+              <template #right-icon>
+                <van-icon
+                  :name="showPassword ? 'eye-o' : 'closed-eye'"
+                  class="pwd-eye"
+                  @click.stop="showPassword = !showPassword"
+                />
+              </template>
+            </van-field>
           </van-cell-group>
-
-          <p v-if="mode === 'register'" class="register-tip">司机与派单员账号由管理员开通。</p>
 
           <div class="actions">
             <van-button round block type="primary" native-type="submit" :loading="loading">
-              {{ mode === 'login' ? '登录' : '注册' }}
+              登录
             </van-button>
           </div>
         </van-form>
@@ -390,13 +231,6 @@ async function onSubmit() {
 .mode-seg__btn:focus-visible {
   outline: 2px solid var(--van-primary-color);
   outline-offset: 2px;
-}
-
-.register-tip {
-  margin: 12px 16px 0;
-  font-size: 12px;
-  color: var(--van-text-color-3);
-  line-height: 1.5;
 }
 
 .actions {

@@ -8,10 +8,28 @@ from app.config import get_settings
 
 settings = get_settings()
 if settings.database_url.startswith("sqlite"):
+    # ⚠️ **只有内存库才用 StaticPool**（2026-09-19 审计）。
+    #
+    # `StaticPool` = 所有 Session 复用**同一条** SQLite 连接。对 `:memory:` 是必需的
+    # （每条新连接都是另一个空库），但对**文件库**是个陷阱：
+    #   · FastAPI 的同步端点在**线程池**里跑、`background_tasks` 又各自开 `SessionLocal()`
+    #     —— 它们拿到的是**同一条连接**；
+    #   · 于是 A 请求的事务还没提交时，B（后台任务）的 `commit()`/`rollback()` 会把 A 的改动
+    #     **一起提交或一起回滚**。
+    # 实测症状（两轮探针各撞到一次，查下来都不是代码缺陷）：
+    #   ① 撤销订单返回 200，紧接着再派单也 200（中间那次 CANCELLED 被别的会话回滚了）；
+    #   ② 建单后立刻查不到行 → 500「订单保存失败」。
+    # 两者单独重跑都正常，而**生产是 MySQL**（正常连接池、每个 Session 独占连接）不会这样。
+    # 影响不止"偶尔红"：它会让本机所有并发结论都不可信 —— 所以按库类型区分。
+    _is_memory = ":memory:" in settings.database_url
     engine = create_engine(
         settings.database_url,
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        **(
+            dict(poolclass=StaticPool)
+            if _is_memory
+            else dict(pool_size=5, max_overflow=5, pool_timeout=30)
+        ),
     )
 
     @event.listens_for(engine, "connect")

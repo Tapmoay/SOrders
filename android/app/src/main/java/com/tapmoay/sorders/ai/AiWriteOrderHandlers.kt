@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.OrderStatusModel
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -83,9 +84,14 @@ abstract class OrderWriteHandler(
         if (o.driverLabel != null) add("当前司机：${o.driverLabel}")
     }
 
-    /** 状态不满足时抛出一句**人话**（用户看不懂「仅 PENDING_DISPATCH 可派单」）。 */
+    /** 状态不满足时抛出一句**人话**（用户看不懂「仅 PENDING_DISPATCH 可派单」）。
+     *
+     * ⚠️ 判据是 [AiOrderRef.status]（后端原始状态码）而不是中文：中文只是显示名，
+     *    拿它当键的话，改一次文案就会悄悄改掉 12 处状态门的含义（见 `AiOrderRef.status` 的注释）。
+     *    集合一律取自 [OrderStatusModel]（与后端逐值对账，红线 `_check_client_contract.py` 管着）。
+     */
     protected fun requireStatus(o: AiOrderRef, allowed: Set<String>, why: String) {
-        if (o.statusCn !in allowed) {
+        if (o.status !in allowed) {
             throw AiWriteArgException(
                 "这单现在是「${o.statusCn}」，$why。请如实告诉用户，不要换一张单去操作。",
             )
@@ -131,7 +137,7 @@ class AssignOrderHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
-        requireStatus(order, setOf("待派单"), "只有「待派单」的单能派单")
+        requireStatus(order, OrderStatusModel.ASSIGNABLE, "只有「待派单」的单能派单")
 
         val driverName = AiWriteArgs.required(params, "driver", "这单派给谁？把司机姓名告诉我。")
         val driver = AiWriteArgs.strict(driverName, ds.drivers(), "司机")
@@ -220,7 +226,7 @@ class RecallOrderHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
-        requireStatus(order, setOf("派单中", "已接单"), "只有「派单中」或「已接单」的单能撤回")
+        requireStatus(order, OrderStatusModel.RECALLABLE, "只有「派单中」或「已接单」的单能撤回")
 
         val reason = AiWriteArgs.required(params, "reason", "为什么要撤回？这句话会推送给原司机，要说清楚。")
         AiWriteArgs.text(reason, "撤回原因", max = 200)
@@ -264,7 +270,7 @@ class CancelOrderHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
-        requireStatus(order, setOf("待派单", "派单中"), "只有「待派单」和「派单中（司机未接单）」的单能撤销")
+        requireStatus(order, OrderStatusModel.CANCELLABLE, "只有「待派单」和「派单中（司机未接单）」的单能撤销")
 
         return card(
             summary = "撤销订单：${order.orderNo}",
@@ -455,7 +461,7 @@ class FreightWriteHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
-        requireStatus(order, setOf("待派单", "派单中", "已接单"), "已送达或已撤销的单不能再改运费")
+        requireStatus(order, OrderStatusModel.FREIGHT_EDITABLE, "已送达或已撤销的单不能再改运费")
 
         val freight = AiWriteArgs.parseMoney(
             AiWriteArgs.str(params, "freight"),
@@ -494,7 +500,7 @@ class PayOrderHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
-        requireStatus(order, setOf("待派单", "派单中", "已接单", "已送达"), "已撤销的单不能收款")
+        requireStatus(order, OrderStatusModel.NOT_CANCELLED, "已撤销的单不能收款")
 
         return card(
             summary = "收款：${order.orderNo} · ${order.amount} 元",
@@ -523,7 +529,7 @@ class ChargeOrderHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
-        requireStatus(order, setOf("待派单", "派单中", "已接单", "已送达"), "已撤销的单不能挂账")
+        requireStatus(order, OrderStatusModel.NOT_CANCELLED, "已撤销的单不能挂账")
 
         val unitName = AiWriteArgs.required(params, "unit", "挂到哪个单位名下？把单位名字告诉我。")
         val unit = AiWriteArgs.strict(unitName, ds.arrearsUnits(), "挂账单位")
@@ -578,7 +584,7 @@ class UpdateOrderHandler(
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
         // 后端规则：已送达 / 已撤销不可再编辑。核对放在卡片之前，别让用户点了确认才被拒。
-        requireStatus(order, setOf("待派单", "派单中", "已接单"), "已送达或已撤销的单不能再改")
+        requireStatus(order, OrderStatusModel.EDITABLE, "已送达或已撤销的单不能再改")
 
         val changes = changesOf(params)
         if (changes.isEmpty()) {
@@ -678,7 +684,7 @@ class MarkOrderExceptionHandler(
                     "如果他是想改异常说明，那要先把异常解除再重新标记。",
             )
         }
-        requireStatus(order, setOf("待派单", "派单中", "已接单", "已送达"), "已撤销的单不该再标异常")
+        requireStatus(order, OrderStatusModel.NOT_CANCELLED, "已撤销的单不该再标异常")
 
         val reason = AiWriteArgs.required(params, "reason", "为什么标异常？这句话会显示在异常清单里，要说清楚。")
         val reasonText = AiWriteArgs.text(reason, "异常原因", max = 200)
@@ -788,7 +794,7 @@ class SplitOrderHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
-        requireStatus(order, setOf("待派单"), "只有「待派单」的单能拆")
+        requireStatus(order, OrderStatusModel.ASSIGNABLE, "只有「待派单」的单能拆")
 
         val raw = AiWriteArgs.required(
             params,
@@ -886,7 +892,7 @@ class BatchAssignOrderHandler(
         }
 
         val orders = refs.map { resolveOrder(buildJsonObject { put("order", it) }) }
-        orders.forEach { requireStatus(it, setOf("待派单"), "只有「待派单」的单能派单（这一张不是）") }
+        orders.forEach { requireStatus(it, OrderStatusModel.ASSIGNABLE, "只有「待派单」的单能派单（这一张不是）") }
 
         val driverName = AiWriteArgs.required(params, "driver", "这批单派给谁？把司机姓名告诉我。")
         val driver = AiWriteArgs.strict(driverName, ds.drivers(), "司机")

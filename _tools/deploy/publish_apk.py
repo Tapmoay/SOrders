@@ -59,7 +59,42 @@ def badging(apk: Path) -> dict:
     m = re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']*)'", out.stdout)
     if not m:
         raise SystemExit("解析不出包信息，确认这是个 APK：" + str(apk))
-    return {"pkg": m.group(1), "versionCode": int(m.group(2)), "versionName": m.group(3)}
+    # `aapt2 dump badging` 对 `android:debuggable="true"` 的包会多打一行 `application-debuggable`
+    # —— 这一行就是"拿到手机的人能不能用 `adb shell run-as` / `adb backup` 直接抽数据"的判据。
+    debuggable = "application-debuggable" in out.stdout
+    return {"pkg": m.group(1), "versionCode": int(m.group(2)), "versionName": m.group(3),
+            "debuggable": debuggable}
+
+
+def find_apksigner() -> str:
+    sdk = os.environ.get("ANDROID_HOME") or r"D:\APPS\sdk"
+    bt = Path(sdk) / "build-tools"
+    cands = sorted((p / "apksigner.bat" for p in bt.iterdir() if (p / "apksigner.bat").is_file()),
+                   key=lambda p: p.parent.name, reverse=True)
+    if not cands:
+        raise SystemExit("找不到 apksigner.bat，请设置 ANDROID_HOME")
+    return str(cands[0])
+
+
+#: 线上包（= 存量用户手机上那个包）的**签名证书指纹**（SHA-256，去冒号大写）。
+#:
+#: ⚠️ 它不是"加密材料"，而是**升级能不能装上去**的判据：安卓只允许「同包名 + 同签名 + 更高
+#:    versionCode」覆盖安装 —— 指纹一变，所有存量用户都会看到「应用未安装」，只能卸载重装。
+#:    所以它必须是发布流程里的一道闸，而不是一句注释（2026-09-19 全项目报告 P0-2/L-8）。
+#: 来源（可复算）：
+#:    keytool -list -v -keystore %USERPROFILE%\.android\debug.keystore -storepass android -alias androiddebugkey
+EXPECTED_CERT_SHA256 = "8AAC1B5778F8DDCFC2613FC9B9574AE8E380F13D59D402B49FEC75ADC259DEE0"
+
+
+def cert_sha256(apk: Path) -> str:
+    """这个 APK 的签名证书 SHA-256（去冒号大写）—— 用来确认"还是原来那把钥匙"。"""
+    out = subprocess.run([find_apksigner(), "verify", "--print-certs", str(apk)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    m = re.search(r"certificate SHA-256 digest:\s*([0-9a-fA-F:]+)", out.stdout or "")
+    if not m:
+        raise SystemExit("读不出签名证书指纹（这个包大概率**没签名**，装不上）：\n"
+                         + (out.stdout or "") + (out.stderr or ""))
+    return m.group(1).replace(":", "").upper()
 
 
 def ssh(*cmd: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -91,11 +126,14 @@ def online_version() -> dict:
 
 
 def default_apk() -> Path:
-    p = ROOT / "android" / "app" / "build" / "outputs" / "apk" / "phone" / "debug" / "app-phone-debug.apk"
+    # ⛔ 默认产物从 **debug** 改成 **release**（2026-09-19 全项目报告 P0-2，high）：
+    #    以前这里指向 `phone/debug/app-phone-debug.apk`，于是"发布"这个动作本身就在把
+    #    `debuggable=true` + `DEBUG_LOG=true` 的包推给所有用户（生产上跑的一直是它）。
+    p = ROOT / "android" / "app" / "build" / "outputs" / "apk" / "phone" / "release" / "app-phone-release.apk"
     if not p.is_file():
         raise SystemExit(
             "没找到手机包，先构建：\n"
-            "  gradle -p android assemblePhoneDebug '-PappVersionName=...' '-PappVersionCode=...'\n"
+            "  gradle -p android assemblePhoneRelease '-PappVersionName=...' '-PappVersionCode=...'\n"
             "找不到：" + str(p))
     return p
 
@@ -107,14 +145,22 @@ DEV_URL_PATTERNS = ("10.0.2.2", "127.0.0.1", "localhost", "192.168.", "172.16.",
                     "172.18.", "172.19.", "172.2", "172.30.", "172.31.", ":8000")
 
 
-def baked_api_base_url() -> str:
+def baked_api_base_url(apk: Path | None = None) -> str:
     """读 AGP 生成的 BuildConfig.java —— 这才是**这个包真正编译进去**的地址。
 
     为什么不读 android/local.properties：那份文件随时可能被改，
     而包是几分钟前构建的，两者可以不一致。要拦就拦真的那个。
+
+    ⚠️ 必须读**正在发布的那个包**的变体（2026-09-19）：手上同时有 debug 与 release 两份
+    `BuildConfig.java` 时，原来按名字排序取第一份 = 取到 `phone/debug` 那份。于是
+    「release 包里编译的是开发地址、而 debug 那份恰好写着生产地址」这种组合会被**放行**——
+    那正是这道闸要拦的灾难。变体名直接从 APK 路径取（…/apk/phone/release/app-….apk）。
     """
     base = ROOT / "android" / "app" / "build" / "generated" / "source" / "buildConfig"
     hits = sorted(base.rglob("BuildConfig.java"))
+    if apk is not None:
+        want = set(apk.parts[-3:-1])
+        hits = [h for h in hits if want <= set(h.parts)] or hits
     phone = [h for h in hits if "phone" in h.parts]
     target = (phone or hits)
     if not target:
@@ -146,8 +192,24 @@ def main() -> int:
     size = apk.stat().st_size
     print(f"本地包 : {apk.name}  {size/1048576:.1f} MB  versionName={name} versionCode={code}")
 
+    # ⓪-a 产物本身的两道硬闸（原来**一条都没有**：`_check_update_flow.py` 33/33 全绿也拦不住
+    #      一个 debuggable 的包上线，因为那些检查全在客户端那条链路上）。
+    if info["debuggable"]:
+        raise SystemExit(
+            "中止：这个包是 **debuggable** 的（aapt2 打出 `application-debuggable`）。\n"
+            "      装到用户手机上，任何人插一次 USB 就能 `adb shell run-as` 读走会话令牌，\n"
+            "      调试日志里还会带登录口令与 JWT。请发 release 变体：\n"
+            "  gradle -p android assemblePhoneRelease '-PappVersionName=...' '-PappVersionCode=...'")
+    fp = cert_sha256(apk)
+    if fp != EXPECTED_CERT_SHA256:
+        raise SystemExit(
+            f"中止：签名证书指纹与线上不一致。\n      新包 {fp}\n      线上 {EXPECTED_CERT_SHA256}\n"
+            "      指纹变了 = 存量用户**装不上**这个更新（安卓要求同包名 + 同签名），\n"
+            "      只能让他们卸载重装。确认是有意换钥匙，再改 EXPECTED_CERT_SHA256。")
+    print(f"签名   : {fp[:16]}…（与线上一致，存量用户可直接升级）")
+
     # ⓪ 后端地址必须是生产地址。
-    base_url = baked_api_base_url()
+    base_url = baked_api_base_url(apk)
     print(f"后端址 : {base_url or '(读不到 BuildConfig，跳过这项检查)'}")
     if base_url:
         bad = [p for p in DEV_URL_PATTERNS if p in base_url]
@@ -159,6 +221,15 @@ def main() -> int:
                 f"重新 assemblePhoneDebug 再推。")
 
     online = online_version()
+    # ⛔ 读不到线上清单 → **停**（2026-09-19 报告 P1-2，fail-open）：
+    #    原来这里静默"按没有旧版本处理"，于是两道 versionCode 闸门**同时失效**，
+    #    推上去一个不比线上大的包 —— 用户下完只会看到「应用未安装」，
+    #    而服务器上 version.json 已经指向它了（所有人一起装不上）。
+    if not online:
+        raise SystemExit(
+            f"中止：读不到线上 version.json，无法确认版本号闸门。\n      {API_VERSION_URL}\n"
+            "      读不到时继续发布 = 跳过两道 versionCode 闸门（用户会「应用未安装」）。\n"
+            "      确认服务器可达后重试。")
     old_code = int(online.get("versionCode") or 0)
     old_name = online.get("version") or "(无)"
     print(f"线上包 : versionName={old_name} versionCode={old_code or '(version.json 里没写)'}")

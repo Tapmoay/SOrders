@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.business_time import to_utc_naive
 from app.core.rbac import Permission, user_role_key
 from app.database import get_db
 from app.deps import get_current_user, require_permission
@@ -52,6 +53,11 @@ async def freight_settlement(
         start, end = await _month_range(month)
     else:
         raise HTTPException(status_code=400, detail="需提供 month 或 from/to 范围")
+    # ⚠️ 客户端传的是**当地墙上时间**（`2026-09-19T00:00:00`），而 `delivered_at` 存的是 UTC：
+    #    直接拿去比，东八区当地 00:00~08:00 送达的单会被整段漏掉——报表里算得出来的应付，
+    #    在结算页里看不见（2026-09-19 审计 R12-M11）。统一换算到 UTC 再比。
+    start = to_utc_naive(start)
+    end = to_utc_naive(end)
     q = (
         select(Order)
         .options(selectinload(Order.order_products))

@@ -1,4 +1,14 @@
-"""账本导出：Excel / PDF 写入 uploads/exports。"""
+"""账本导出：Excel / PDF 写入 `exports/`（**不在 uploads 之下**，见下面的理由）。
+
+⛔ 为什么不能放在 `uploads/`（2026-09-19 审计）：`/static/uploads/**` 是一条**无鉴权**路由，
+生产 nginx 还把它 alias 到磁盘直出。账本导出物里是货主名/商品/单价/总额/订单号，
+放进那里等于"谁都能匿名下载别家的账本"，而且文件名以前是可枚举的。
+现在产物目录在 uploads 之外，只能经带鉴权的下载端点取。
+
+⚠️ 产物的**命名与定位**只有一处实现（[ledger_export_paths]）：生成时怎么起名、
+下载时怎么找到它、给前端的 URL 长什么样，三件事各写一份的话就会像 2026-09-19 那样
+"生成写 URL、下载端读一个不存在的属性" → 每次下载 500。
+"""
 
 from datetime import date
 from pathlib import Path
@@ -8,12 +18,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Ledger, Order, User
+from app.services.ledger_scope import visible_ledger_select
+from app.services.ledger_export_paths import (
+    EXPORT_DIR,
+    LEGACY_UPLOAD_EXPORTS,
+    download_url,
+    ensure_export_dir,
+    export_file_name,
+    find_export_file,
+    legacy_file_names,
+)
 
-UPLOAD_EXPORTS = Path("uploads") / "exports"
-
-
-def ensure_export_dir() -> None:
-    UPLOAD_EXPORTS.mkdir(parents=True, exist_ok=True)
+__all__ = [
+    "EXPORT_DIR",
+    "LEGACY_UPLOAD_EXPORTS",
+    "build_ledger_rows",
+    "download_url",
+    "ensure_export_dir",
+    "export_file_name",
+    "find_export_file",
+    "legacy_file_names",
+    "run_ledger_export_file",
+    "write_excel",
+    "write_pdf",
+]
 
 
 def build_ledger_rows(
@@ -25,7 +53,8 @@ def build_ledger_rows(
     shipper = db.get(User, shipper_id)
     shipper_label = (shipper.full_name or shipper.phone or str(shipper_id)) if shipper else str(shipper_id)
     q = (
-        select(Ledger)
+        # 隔离区（软删）订单的那份账不算（R13-R6）：与报表侧同一句
+        visible_ledger_select()
         .where(Ledger.shipper_id == shipper_id)
         .where(Ledger.entry_date >= date_from)
         .where(Ledger.entry_date <= date_to)
@@ -117,13 +146,19 @@ def run_ledger_export_file(
     fmt: str,
     job_id: int,
 ) -> str:
+    """生成产物，返回**文件名**（相对 [EXPORT_DIR]，不含目录）。
+
+    ⚠️ 这里原来返回的是"下载 URL"，任务行把它存进 `file_path`，而下载端点又拿它当文件名去
+    磁盘上找 → 必然 404；更早还返回过 `/static/uploads/...`（无鉴权可枚举，2026-09-19 审计）。
+    现在只回名字：**数据库里存的是"产物叫什么"，URL 由 [download_url] 现算**——
+    这样"改路由前缀"不会让历史数据失效，"改文件名规则"也不会让下载端猜错。
+    """
     ensure_export_dir()
     rows, shipper_label = build_ledger_rows(db, shipper_id, date_from, date_to)
-    ext = "xlsx" if fmt == "excel" else "pdf"
-    fname = f"ledger_{shipper_id}_{job_id}.{ext}"
-    path = UPLOAD_EXPORTS / fname
+    fname = export_file_name(shipper_id, job_id, fmt)
+    path = EXPORT_DIR / fname
     if fmt == "excel":
         write_excel(db, path, rows, shipper_label, date_from, date_to)
     else:
         write_pdf(path, rows, shipper_label, date_from, date_to)
-    return f"/static/uploads/exports/{fname}"
+    return fname

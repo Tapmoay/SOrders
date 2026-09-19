@@ -64,6 +64,10 @@ fun ProductPickerSheet(
     onConfirm: (List<PickedLine>) -> Unit,
     onDismiss: () -> Unit,
     categoryOrder: List<String> = emptyList(),
+    /** 商品目录**加载失败**的原因（null = 没失败）。见 `OrderCreateViewModel.productsError`。 */
+    error: String? = null,
+    /** 失败时的重试入口。 */
+    onRetry: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // 全屏高度：用户要的就是"底部窗口直接拉到最顶处"
@@ -93,6 +97,9 @@ fun ProductPickerBody(
     modifier: Modifier = Modifier,
     /** 分类名册的顺序（派单员排的）。空 = 还没加载出来，退回"按商品数倒序"。 */
     categoryOrder: List<String> = emptyList(),
+    /** 商品目录**加载失败**的原因（null = 没失败）。 */
+    error: String? = null,
+    onRetry: () -> Unit = {},
 ) {
     var keyword by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ALL_CATEGORY) }
@@ -145,6 +152,21 @@ fun ProductPickerBody(
 
         when {
             loading -> Box(Modifier.fillMaxWidth().height(240.dp)) { LoadingBox() }
+            // ⚠️ 加载失败与"真的没有商品"必须分开说（2026-09-19 审计）：原来两者都落到下面那句
+            //    「暂无可用商品…请联系派单员添加」——它是**断言式假话**（服务重启/弱网时打开下单页
+            //    就会看到），货主会去质问派单员，而派单员那边一切正常。失败要给原因 + 重试。
+            error != null -> Box(Modifier.fillMaxWidth().height(240.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    EmptyView("商品目录加载失败：$error")
+                    Text(
+                        "这不是「没有商品」——是没拉到。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onRetry) { Text("重试") }
+                }
+            }
             products.isEmpty() -> Box(Modifier.fillMaxWidth().height(240.dp)) {
                 EmptyView("暂无可用商品\n请联系派单员先在「商品管理」中添加商品后再下单")
             }

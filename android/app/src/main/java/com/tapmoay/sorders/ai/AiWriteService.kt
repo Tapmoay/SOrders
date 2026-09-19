@@ -35,6 +35,16 @@ interface AiWriteDataSource {
 
     /** 全量用户（按姓名/手机号筛），用于定位"改哪个账号"。 */
     suspend fun users(query: String): List<AiName>
+    /**
+     * 按**角色**取账号名册（`role` = `driver` / `shipper` / `dispatcher`）。
+     *
+     * ⚠️ 为什么必须有（2026-09-19 审计）：`users()` 是全角色名册，而
+     * 「改司机收费规则」这类动作**只对司机有意义** —— 后端 `PATCH /users/{id}`
+     * 的计费分支是 `if user_role_key(u) == DRIVER`，打给货主会**静默什么都不做**
+     * （200、changes 空、不写日志），而卡片照样回「已完成」。
+     * 名册按角色收窄之后，模型根本挑不到货主 → 当场如实报「系统里没有匹配的司机」。
+     */
+    suspend fun usersOfRole(query: String, role: String): List<AiName>
 
     /** 地址/线路、地点、联系人、批发商专属价——都是"要先找到那一条"。 */
     suspend fun addresses(): List<AiName>
@@ -388,7 +398,14 @@ class RepoWriteDataSource(
      * 卡片上不写这句话，用户就是闭着眼睛点确认。
      */
     override suspend fun drivers(): List<AiName> =
-        repo.drivers().map {
+        // ⚠️ **必须过滤 isActive**（2026-09-19 审计）：人工派单界面本来就有
+        //    `DispatcherPoolViewModel` 里的 `.filter { it.isActive }`，而 AI 的名册原来没有 ——
+        //    于是"把单派给王师傅"，只要王师傅是**已停用/已删除**的账号（删号是软删，full_name 保留），
+        //    AI 会精确命中他并弹出一张看起来完全合理的确认卡（后端给的 paySummary 看不出账号已停用）。
+        //    后果是**静默卡死**：司机登不进来（deps/socket 都拦 is_active=False）、也收不到推送
+        //    （消息只推 active 收件人），单子停在「派单中」且不在待派池里，没人能完成它。
+        //    后端 `assign_driver` 另有同一道闸（真正兜底的那一道），这里是"别让用户先看到假选项"。
+        repo.drivers().filter { it.isActive }.map {
             AiName(
                 id = it.id,
                 label = it.fullName.trim().ifBlank { it.username.trim() },
@@ -450,7 +467,7 @@ class RepoWriteDataSource(
                 id = d.id,
                 orderNo = d.orderNo,
                 shipper = d.shipperName?.trim().orEmpty().ifBlank { d.tempShipperName?.trim().orEmpty() },
-                statusCn = AiOrderRef.statusLabel(d.status),
+                status = d.status,
                 address = d.addressDetail.trim(),
                 driverLabel = d.driverName?.trim()?.takeIf { it.isNotEmpty() },
                 amount = d.orderProducts.fold(BigDecimal.ZERO) { acc, p ->
@@ -592,13 +609,28 @@ class RepoWriteDataSource(
         repo.customers().map { AiName(it.id, it.name.trim()) }.filter { it.label.isNotEmpty() }
 
     override suspend fun updateLedgerEntry(id: Long, fields: JsonObject) {
+        // ⚠️ 数量必须**要么解析成整数、要么当场炸**（2026-09-19 审计）：
+        //    原来这里是 `fields.str("quantity")?.toIntOrNull()` —— 解析失败静默变 null，
+        //    再被 `explicitNulls = false` 整条丢掉 → 请求体 `{}` → 后端一个字段都没改，
+        //    而卡片写着「数量 3.00」、界面回「已完成」。**静默空转比报错糟得多**。
+        val qtyRaw = fields.str("quantity")
+        val qty = qtyRaw?.toIntOrNull()
+        if (qtyRaw != null && qty == null) {
+            throw IllegalStateException("数量「$qtyRaw」不是整数，这次没有改动任何数据，请重新说一次数量")
+        }
+        require(
+            listOfNotNull(
+                fields.str("note"), fields.str("entry_date"), fields.str("product_name"),
+                qtyRaw, fields.str("unit_price"), fields.str("total"),
+            ).isNotEmpty(),
+        ) { "这次没有任何要改的内容，已取消（避免弹一张什么都不改的卡）" }
         repo.updateLedger(
             id,
             com.tapmoay.sorders.data.remote.api.LedgerUpdateRequest(
                 note = fields.str("note"),
                 entryDate = fields.str("entry_date"),
                 productName = fields.str("product_name"),
-                quantity = fields.str("quantity")?.toIntOrNull(),
+                quantity = qty,
                 unitPrice = fields.str("unit_price"),
                 total = fields.str("total"),
             ),
@@ -684,7 +716,7 @@ class RepoWriteDataSource(
                 id = d.id,
                 orderNo = d.orderNo,
                 shipper = d.shipperName?.trim().orEmpty().ifBlank { d.tempShipperName?.trim().orEmpty() },
-                statusCn = AiOrderRef.statusLabel(d.status),
+                status = d.status,
                 address = d.addressDetail.trim(),
                 driverLabel = d.driverName?.trim()?.takeIf { it.isNotEmpty() },
                 amount = d.orderProducts.fold(BigDecimal.ZERO) { acc, p ->
@@ -864,6 +896,13 @@ class RepoWriteDataSource(
     }
 
     // ------------------------------------------------ 名册（主数据域）
+
+    override suspend fun usersOfRole(query: String, role: String): List<AiName> =
+        users(query).let { all ->
+            // `AiName` 不带角色，所以这里要再查一遍带角色的那份（同一批名字，只是过滤）
+            val ids = repo.searchUsers(query, USER_PROBE_LIMIT).filter { it.role == role }.map { it.id }.toSet()
+            all.filter { it.id in ids }
+        }
 
     override suspend fun users(query: String): List<AiName> =
         repo.searchUsers(query, USER_PROBE_LIMIT)
@@ -1086,6 +1125,13 @@ class RepoWriteDataSource(
                 name = fields.str("name"),
                 salary = fields.str("salary"),
                 pieceAmount = fields.str("piece_amount"),
+                // ⚠️ 这两行原来**漏了**（2026-09-19 审计）：`DRIVER_RULE_KEYS` 与字段规格里
+                //    都有 `piece_unit` / `commission_base`，声明式那层也把它们 pick 进了 payload，
+                //    但这里没往请求里搬 → 模型说「改成每件」、卡片上也写「每件：3 元」，
+                //    实际发出去的请求里根本没有这个键 → **规则还是"每单"**。
+                //    钱算错而且看不出来（卡片与库里的说法不一致，只有对账单能发现）。
+                pieceUnit = fields.str("piece_unit"),
+                commissionBase = fields.str("commission_base"),
                 commissionRate = fields.str("commission_rate"),
                 // 没点名 = null（后端不动它）；点名了就整体替换（空/「全部」= 取消范围）
                 commissionProductIds = if (fields.containsKey("commission_products")) {
@@ -1145,6 +1191,15 @@ class RepoWriteDataSource(
                 addressLat = lat ?: cur.addressLat,
                 addressLng = lng ?: cur.addressLng,
                 originAddress = fields.str("origin_address") ?: cur.originAddress,
+                // ⚠️ **必须回填图片**（2026-09-19 审计「声明式 CRUD」专项，高）：
+                //    `AddressCreateRequest.imageUrls` 的默认值是 `emptyList()`，而 ApiClient 的
+                //    `encodeDefaults = true` 会把它**永远发出去** → 后端 `_apply_images` 把
+                //    `[]` 当成"清空"（只有 `None` 才是不改）→ **每次 AI 改这条线路的电话/地址，
+                //    线路上的照片全没了**，而卡片照样回「已完成」。
+                //    更糟的是撤回救不回来：`AiResources` 的 ADDRESS.readKeys 里没有 image_urls，
+                //    而卡片最后一行承诺"点它就能改回原样"。
+                //    地点那条路（`updatePlace`）一直有这一行 —— 这里是漏写。
+                imageUrls = cur.imageUrls,
             ),
         )
     }
@@ -1330,21 +1385,36 @@ class RepoWriteDataSource(
         repo.productVisibility(userId).let { AiVisibility(it.scope, it.productIds) }
 
     override suspend fun createProductCategory(fields: JsonObject) {
-        repo.createProductCategory(
+        val created = repo.createProductCategory(
             name = fields.req("name"),
-            // payload 里的 sort_order 是**从 1 数**的位置（卡片上说的就是"第几位"），
-            // 后端要的是从 0 数的绝对位置（reorder 写的也是这一套：ids[0] = 0）。
-            sortOrder = fields.str("sort_order")?.toIntOrNull()?.let { positionToSortOrder(it) },
+            // 先按"排在最后"建出来；有位置要求时再用 reorder 挪过去（见 moveCategoryTo）。
+            sortOrder = null,
         )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveCategoryTo(created.id, it) }
+    }
+
+    /**
+     * 把某个分类挪到「第 N 位」（**从 1 数**，卡片上说的就是这个）。
+     *
+     * ⚠️ 为什么不能只写 `sort_order = N-1`（2026-09-19 审计）：那是**绝对值**，
+     * 后端不会把别人往后挤（`product_categories.py` 的 PATCH 只改自己那一行），
+     * 于是"排第 1 位"会和现有第 1 位**撞值**、按 id 排序后落到别处 ——
+     * 而卡片上明确承诺了「1 = 最前面」。顺序这件事的真相是**整份列表**，
+     * 所以只能走 reorder（`ids[0]` 排最前，后端要求一个不漏）。
+     */
+    private suspend fun moveCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.productCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        val idx = (position1Based - 1).coerceIn(0, ids.size)
+        ids.add(idx, id)
+        repo.reorderProductCategories(ids)
     }
 
     override suspend fun updateProductCategory(id: Long, fields: JsonObject) {
         require(fields.isNotEmpty()) { "updateProductCategory 的部分更新体是空的（规格 key 写错了）" }
-        repo.updateProductCategory(
-            id,
-            name = fields.str("name"),
-            sortOrder = fields.str("sort_order")?.toIntOrNull()?.let { positionToSortOrder(it) },
-        )
+        repo.updateProductCategory(id, name = fields.str("name"), sortOrder = null)
+        // 位置走 reorder（理由见 moveCategoryTo）：只写绝对值会撞车、落到别处
+        fields.str("sort_order")?.toIntOrNull()?.let { moveCategoryTo(id, it) }
     }
 
     override suspend fun deleteProductCategory(id: Long) {
@@ -1640,6 +1710,9 @@ class AiWriteService(
                 summary = plan.summary,
                 detailLines = plan.detailLines + fresh,
                 payload = plan.payload,
+                // ⚠️ 告诉暂存区"这是一张撤回卡"：最后一行要说的是"撤回本身能不能再反悔"，
+                //    而不是被撤回那个动作的性质（真机上出现过自相矛盾的卡片）。
+                isUndo = true,
             ),
         )
     }

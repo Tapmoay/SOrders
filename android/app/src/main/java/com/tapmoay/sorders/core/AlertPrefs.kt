@@ -20,6 +20,7 @@ class AlertPrefs(context: Context) {
         const val REPEAT = "repeat_times"
         const val BACKGROUND = "background_enabled"
         const val BOOST = "boost_volume"
+        const val LAST_NOTIFICATION_ID = "last_notification_id"
     }
 
     /** 新单语音总开关。默认开——司机端最要紧的就是听见这一声。 */
@@ -49,4 +50,16 @@ class AlertPrefs(context: Context) {
     var boostVolume: Boolean
         get() = sp.getBoolean(Keys.BOOST, true)
         set(v) = sp.edit().putBoolean(Keys.BOOST, v).apply()
+
+    /**
+     * 「我已经收到的最大站内信 id」——重连时回传给后端做断线回补的游标。
+     *
+     * ⛔ 原来这个游标只活在内存里（`RealtimeHub._lastNotificationId`，初始 0），
+     *    进程被杀/重启后归零 → 后端按 id **升序**回补最旧的 200 条（R14-13，2026-09-19 审计）
+     *    → 断线期间的消息**永远补不到**，"司机错过新单"的三层提醒在重启这条路径上是空的。
+     *    **必须落盘**：它跨进程生命周期，只存内存等于没有。
+     */
+    var lastNotificationId: Long
+        get() = sp.getLong(Keys.LAST_NOTIFICATION_ID, 0L)
+        set(v) = sp.edit().putLong(Keys.LAST_NOTIFICATION_ID, v).apply()
 }

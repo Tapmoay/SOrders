@@ -568,18 +568,24 @@ internal object AiWriteBasicData {
             title = "新增客户",
             risk = AiWriteRisk.MEDIUM,
             group = AiWrites.G_LEDGER,
-            blurb = "新增一个客户（收款、对账用的对象）。可以是系统里的账号，也可以只是一个名字。",
+            blurb = "新增一个客户（收款、对账用的对象）。只是一个**档案名字**，不建登录账号。",
             fields = listOf(
                 textField("name", "客户名", "必填", required = true, maxChars = 128),
-                textField("phone", "电话", "可选", maxChars = 20),
-                boolField("member", "是不是批发商", "true=批发商（高级货主）"),
+                textField("phone", "电话", "可选；同号会被沿用，见卡片说明", maxChars = 20),
+                // ⚠️ 这里原来有一个「是不是批发商」的开关，写的是 `Customer.is_member` ——
+                //    而那一列**全后端没有任何地方读**（会员/批发商身份的真实判据是
+                //    `User.is_member`：`price_rules` / `users` / `ledger` / `reports` 读的都是它）。
+                //    于是"类型：批发商（高级货主）"是一句**做不到的承诺**：建档完价格体系一点没变。
+                //    2026-09-19 审计：去掉这个假能力，改成如实说明去哪改。
             ),
             headline = { c -> "新增客户：${c.str("name")}" },
             details = { c ->
                 listOfNotNull(
                     "客户名：${c.str("name")}",
                     c.str("phone")?.let { "电话：$it" },
-                    if (c.bool("member") == true) "类型：批发商（高级货主）" else "类型：临时客户",
+                    "同一个手机号已经有客户时「会沿用那一条」（不会新建、也不会改名字）——" +
+                        "如果这是另一个人，请换一个手机号",
+                    "批发商（高级货主）身份在「账号」上：需要的话请改那个账号的类型，建档时改不了",
                 )
             },
         ) { ds, p -> ds.createCustomer(p) },
@@ -704,7 +710,7 @@ internal object AiWriteBasicData {
             blurb = "把一份计费规则挂到某个司机身上，或者不带规则名=解挂（他退回原来的算法）。" +
                 "挂上之后他以后接的每一单都按这份规则算钱。",
             targets = listOf(
-                targetUser("司机"),
+                targetUser("司机", role = "driver"),
                 // 不带规则名 = 解挂。**允许"查不到"**在这种语义下正好用得上：
                 // 用户说「把张三的计费规则取消」，模型就没东西可填。
                 targetDriverRule(required = false),
@@ -878,7 +884,17 @@ internal object AiWriteBasicData {
     /** 分类的部分更新体（`sort_order` 在这里是**从 1 数**的位置，换算见 [positionField]）。 */
     private val CATEGORY_KEYS = setOf("name", "sort_order")
     /** 车辆的部分更新体（键名与 `VehicleUpdateRequest` 的 wire 名一致）。 */
-    private val VEHICLE_KEYS = setOf("plate_no", "vehicle_type", "driver_id", "active")
+    /**
+     * 「改车辆」进 payload 的键。
+     *
+     * ⚠️ 这里原来还有 `driver_id` —— 是 v3.44 把"换/解绑司机"挪到独立动作
+     * （`vehicle.set_driver`）之后**留下的化石**：字段规格里已经没有这个键了，
+     * 实现里也明确写着 `driverId = null, // 司机不从这里走`。
+     * 它在运行时不会生效（`pick` 只挑字段真产出的键），但"声明与实现走散"这件事本身有代价：
+     * 下一个人看到键集合里有它，会以为这条路能改司机。
+     * 判据 `_tools/qa/_check_ai_declarative_crud.py` 逐处对账 pick 键与实现（就是它抓到的这条）。
+     */
+    private val VEHICLE_KEYS = setOf("plate_no", "vehicle_type", "active")
 
     /** 与 [AiWriteMasterData] 里的同名工厂是同一份写法（见那里的注释）。 */
     private fun crud(
@@ -923,7 +939,8 @@ internal object AiWriteBasicData {
 
     private fun AiFieldSpec.paramKind(): AiWriteParamKind = when (type) {
         AiFieldType.TEXT -> AiWriteParamKind.TEXT
-        AiFieldType.MONEY, AiFieldType.COUNT, AiFieldType.DELTA -> AiWriteParamKind.NUMBER
+        AiFieldType.MONEY, AiFieldType.COUNT, AiFieldType.DELTA, AiFieldType.NON_NEGATIVE ->
+        AiWriteParamKind.NUMBER
         AiFieldType.DATE -> AiWriteParamKind.DATE
         AiFieldType.BOOL -> AiWriteParamKind.TEXT
         AiFieldType.ENUM -> AiWriteParamKind.ENUM

@@ -106,6 +106,14 @@ def _apply_driver(db: Session, current: User, v: Vehicle, driver_id: int | None)
                 status_code=400,
                 detail=f"「{u.full_name or u.phone}」不是司机账号，车辆只能绑给司机",
             )
+        # 已停用/已删除的账号不该再绑车（2026-09-19 审计）：删号是**软删**（is_active=False +
+        # 手机号加 `_del{id}` 后缀），full_name 原样保留 → 它仍出现在按角色拉的列表里。
+        # 绑上去的后果不是报错，而是"这台车看起来有司机、实际没人开"。
+        if not getattr(u, "is_active", True):
+            raise HTTPException(
+                status_code=400,
+                detail=f"「{u.full_name or u.phone}」的账号已停用（离职或被删除），不能绑车；请先恢复账号",
+            )
         v.driver_id = driver_id
         after_name = u.full_name or u.phone
     else:

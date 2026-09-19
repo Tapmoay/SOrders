@@ -11,12 +11,14 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
+from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, parse_date_range, require_permission
@@ -121,6 +123,13 @@ def _get_order_scoped(order_id: int, current: User, db: Session) -> Order:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
     if role == UserRole.DRIVER.value and order.driver_id != current.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
+    # ⚠️ 认不出的角色**一律拒绝**（2026-09-19 审计 R12-L5）：
+    #    原来是 if/if 两个分支，role 是第三种值（将来新增角色、或库里出现枚举外的值）时
+    #    **两个分支都不进 → 直接放行**，那个角色能读全库订单详情；
+    #    而同一个文件的列表接口对这种情况是 403（`list_orders` 的 else 分支）——
+    #    同一份判据两处不一致，改一处就会留下一个口子。fail-closed 才对。
+    if role not in (UserRole.SHIPPER.value, UserRole.DRIVER.value, UserRole.DISPATCHER.value):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
     return order
 
 
@@ -167,9 +176,29 @@ async def _bg_notify_new_order(order_id: int) -> None:
     await push_new_order_to_dispatchers(order_id)
 
 
+def _orders_response(
+    db: Session, current: User, rows: list[Order], limit: int, response: Response
+) -> list[OrderOut]:
+    """列表接口的公共出口：把"截断了没有"如实写进响应头。
+
+    ⚠️ 为什么要让客户端知道（2026-09-19 审计）：`GET /orders` 以前除"派单员+待派单"外**没有上限**，
+    现在统一给了 300 —— 但**界面必须知道自己在看一页还是一切**：派单员在「全部订单」里以为看到了
+    全部、其实只是最近 300 条，比"慢"更糟（他会据此判断"这单不存在"）。
+    响应体是 `list[OrderOut]`（裸数组，加不了元数据，改形状会破坏所有老客户端），所以走响应头：
+    `X-Result-Limit`（本次上限）、`X-Truncated: 1`（还有更多）。
+    """
+    truncated = len(rows) > limit
+    if truncated:
+        rows = rows[:limit]
+    response.headers["X-Result-Limit"] = str(limit)
+    response.headers["X-Truncated"] = "1" if truncated else "0"
+    return [enrich_order_out(o, db, current) for o in rows]
+
+
 @router.get("", response_model=list[OrderOut])
 def list_orders(
     current: CurrentUser,
+    response: Response,
     db: Session = Depends(get_db),
     status_filter: OrderStatus | None = Query(None, alias="status"),
     search_q: str | None = Query(None, alias="q"),
@@ -177,16 +206,20 @@ def list_orders(
     temp_shipper_name_filter: str | None = Query(None, alias="temp_shipper_name"),
     date_from: str | None = Query(None, alias="date_from", description="YYYY-MM-DD（含当天）"),
     date_to: str | None = Query(None, alias="date_to", description="YYYY-MM-DD（含当天）"),
-    limit: int | None = Query(None, ge=1, le=5000, description="返回条数上限（待派池缺省=300，其余缺省=全量）"),
+    limit: int | None = Query(None, ge=1, le=5000, description="返回条数上限（缺省=300，最多 5000）"),
     include_deleted: bool = Query(False, description="含软删除(隔离区)订单——仅派单员"),
     deleted_only: bool = Query(False, description="仅软删除(回收站)订单——仅派单员"),
 ) -> list[OrderOut]:
     role = user_role_key(current)
     if (include_deleted or deleted_only) and role != UserRole.DISPATCHER.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看隔离数据")
-    effective_limit = limit
-    if effective_limit is None and role == UserRole.DISPATCHER.value and status_filter == OrderStatus.PENDING_DISPATCH:
-        effective_limit = 300  # 待派池防护：万级积压时只取最新300单，防接口十几秒/内存暴涨
+    # ⚠️ **所有**查询都有缺省上限（2026-09-19 审计）。原来只有"派单员 + 待派单"这一条路径有 300 的
+    #    防护，其余（派单员「全部」页签、货主「全部」、司机「已完成」）都是**全量**：
+    #    数据保留 3 年，一年后就是几万单、十几 MB 一次性下发，客户端全解析成 DTO 再交给列表 ——
+    #    这是"随时间必然发生"的功能不可用，而它落在最常用的入口上。
+    #    上限取 300 与待派池一致；客户端要知道"是不是被截断了"，看响应头 `X-Truncated`（见下）。
+    DEFAULT_LIST_LIMIT = 300
+    effective_limit = limit or DEFAULT_LIST_LIMIT
     qtrim = (search_q or "").strip() or None
 
     if role == UserRole.DISPATCHER.value and qtrim:
@@ -229,10 +262,10 @@ def list_orders(
             stmt = stmt.where(Order.deleted_at.isnot(None))
         elif not include_deleted:
             stmt = stmt.where(Order.deleted_at.is_(None))
-        if effective_limit is not None:
-            stmt = stmt.limit(effective_limit)
+        # 多取一行：拿到 limit+1 行就说明"还有更多"，据此写 X-Truncated
+        stmt = stmt.limit(effective_limit + 1)
         orders = list(db.scalars(stmt).unique().all())
-        return [enrich_order_out(o, db, current) for o in orders]
+        return _orders_response(db, current, orders, effective_limit, response)
 
     q = select(Order).options(selectinload(Order.order_products)).order_by(Order.id.desc())
     if deleted_only:
@@ -256,6 +289,22 @@ def list_orders(
 
     if status_filter is not None:
         q = q.where(Order.status == status_filter)
+    # ⚠️ `q` 对**所有角色**都要生效（2026-09-19 审计）。原来这个模糊搜索只在派单员分支里处理，
+    #    货主/司机带 `q` 时后端**静默忽略**、照样返回他自己的一整页订单。而 AI 的读工具会把它
+    #    写进 `filters_used`（`AiReadService` 原样回报生效条件）→ 模型以为筛过了 →
+    #    用户问「SO202609186557849472 这单送到哪了」，答的是**另一张单**的地址与金额。
+    #    作用域不变（货主只在自己的单里搜、司机只在自己的任务里搜），所以放开是安全的。
+    if qtrim and role != UserRole.DISPATCHER.value:
+        term = f"%{qtrim}%"
+        q = q.where(
+            or_(
+                Order.order_no.like(term),
+                Order.address_detail.like(term),
+                Order.delivery_description.like(term),
+                Order.contact_boss_phone.like(term),
+                Order.contact_dongjia_phone.like(term),
+            )
+        )
     if date_from or date_to:
         df, dt = parse_date_range(date_from, date_to)
         if df is not None:
@@ -263,10 +312,9 @@ def list_orders(
         if dt is not None:
             q = q.where(Order.created_at <= dt)
 
-    if effective_limit is not None:
-        q = q.limit(effective_limit)
+    q = q.limit(effective_limit + 1)
     orders = list(db.scalars(q).unique().all())
-    return [enrich_order_out(o, db, current) for o in orders]
+    return _orders_response(db, current, orders, effective_limit, response)
 
 
 @router.get("/pending-dispatch-count")
@@ -345,14 +393,28 @@ def delete_cancelled_order(
     if role == UserRole.SHIPPER.value:
         if not role_has_permission(role, Permission.ORDER_DELETE_CANCELLED):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
-        if order.status not in (OrderStatus.CANCELLED, OrderStatus.DELIVERED) and not bool(order.is_exception):
+        # ⛔ 「异常」**不是**删除通行证（2026-09-19 审计）。原来这里是
+        #    `if 状态不在(已撤销, 已送达) and not is_exception:` —— 那个 `and` 让"是异常单"
+        #    成了万能钥匙，而括号里那句"进行中的订单请走撤销或撤回"正是它要防的情况：
+        #    派单员给一张**已接单在途**的单标了异常（客户催单是日常操作）→ 货主那一页出现
+        #    「删除订单」→ 一删，单子进回收站 → 司机端列表里它直接消失（`GET /orders` 对司机
+        #    过滤 `deleted_at`）→ **司机拿着打不开的单跑车，到现场发现单子没了、也拿不到钱**。
+        #    现在：异常单必须**先撤销/撤回**（把状态变成终态）才能删。
+        if order.status not in (OrderStatus.CANCELLED, OrderStatus.DELIVERED):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="仅已送达/已撤销/异常订单可删除（进行中的订单请走撤销或撤回）",
+                detail=(
+                    "仅已送达/已撤销订单可删除。这是一张进行中的订单"
+                    + ("（已标异常）" if bool(order.is_exception) else "")
+                    + "，请先走撤销或撤回，再删除。"
+                ),
             )
     if order.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="订单已在隔离区，如需恢复请联系派单员")
-    order.deleted_at = datetime.now(timezone.utc)
+    # 软删除时间统一用 **UTC naive**（`business_time.utc_now_naive`）：保留任务按 UTC 比
+    # `deleted_at < cutoff`，而原来这里是 tz-aware UTC、其它六张表是本地时间 —— 三种基准混用，
+    # 30 天隔离期在同一套判据下有的早 8 小时、有的同秒比较还会受字符串形状影响（R14-9 同族）。
+    order.deleted_at = utc_now_naive()
     write_log(
         db,
         operator_id=current.id,
@@ -522,6 +584,14 @@ def patch_order_exception(
     order.is_exception = body.is_exception
     order.exception_reason = body.exception_reason or ""
     order.exception_resolution = body.exception_resolution or ""
+    # ⚠️ 重新登记异常时必须**清掉上一次的解决时间**（2026-09-19 审计）：
+    #    `exception_resolved_at` 一直只有"解决"那条路径写，这里从来不清。
+    #    于是"用户重新登记一条异常 → 接口 200、提示"异常已登记"，但列表里它带着旧的解决时间
+    #    → 报表的「要处理」按 resolved 过滤 → **它永远不出现在待处理里**（典型的"操作成功但事情没做"），
+    #    而且自动异常判定（`stats_service`）看到 resolved_at 非空也不再判它。
+    if body.is_exception:
+        order.exception_resolved_at = None
+        order.exception_resolution = ""
     if body.expected_deliver_before is not None:
         order.expected_deliver_before = body.expected_deliver_before
     write_log(
@@ -626,6 +696,25 @@ async def upload_order_address_image(
     return order
 
 
+def _order_not_deleted_or_404(order: Order | None) -> Order:
+    """取到单之后**统一挡掉隔离区（已进回收站）的单**（2026-09-19 审计 R13-D1）。
+
+    ### 为什么需要它
+    读侧对所有非派单员是「订单不存在」（`_get_order_scoped`），而司机端的**写路径**
+    （送达 / 上传凭证 / 追加备注 / 派单）原来一个都不看 `deleted_at`：
+    派单员把一张在途单删进回收站之后（客户催单 → 标记异常 → 删单，是日常操作，
+    而且这条删除**没有任何推送**告诉司机），司机手上那一页还停在旧数据，点「送达」返回 **200**：
+    库存实扣、账本入账、**司机应付账单生成**，而这张单在司机/货主/派单员的普通查询里都不存在。
+    30 天后它被物理清理，那笔 OPEN 应付随之作废——司机白跑一趟，全程无提示。
+
+    ⚠️ 用 404 而不是 403：与读侧同一种答复（"这张单对你来说不存在"），
+    否则司机能从状态码差异反推出"有一张我看不到的已删除单"。
+    """
+    if order is None or order.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
+    return order
+
+
 @router.post("/{order_id}/delivery-photos", response_model=DeliveryPhotoUploadOut)
 async def upload_delivery_photos(
     order_id: int,
@@ -633,9 +722,9 @@ async def upload_delivery_photos(
     current: User = Depends(require_permission(Permission.ORDER_UPLOAD_DELIVERY)),
     files: list[UploadFile] = File(...),
 ) -> DeliveryPhotoUploadOut:
-    order = db.scalars(select(Order).where(Order.id == order_id)).first()
-    if order is None:
-        raise HTTPException(status_code=404, detail="未找到对应记录")
+    order = _order_not_deleted_or_404(
+        db.scalars(select(Order).where(Order.id == order_id)).first()
+    )
     if user_role_key(current) != UserRole.DRIVER.value or order.driver_id != current.id:
         raise HTTPException(status_code=403, detail="无权操作")
     if order.status != OrderStatus.ACCEPTED:
@@ -659,20 +748,34 @@ async def complete_order_with_upload(
     damage_items: str = Form("[]"),
     damage_note: str = Form(""),
 ) -> OrderOut:
-    order = db.scalars(
-        select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
-    ).first()
-    if order is None:
-        raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⛔ **归属与状态必须在落盘之前判完**（2026-09-19 全项目报告 P1-11，中）：
+    #    本端点原来取到单就直接 `_save_delivery_uploads`，把"是不是你的单 / 状态对不对"
+    #    留给后面的 `complete_delivery` —— 后果有两条，都不是理论：
+    #      · **任意司机的令牌可以对任意 `order_id` 写文件**到匿名可读的公开静态目录
+    #        （`/static/uploads/delivery/<order_id>/…`）：拒绝发生在文件已经落盘之后；
+    #      · `order_id` 不存在时 `order` 是 None → `complete_delivery(db, None, …)` 抛
+    #        `AttributeError`（**不是** ValueError，下面的 `except ValueError` 接不住）→ **500**。
+    #    三道门照抄同文件 `upload_delivery_photos`（同一条链上它是做对的那一个：先判后写）。
+    order = _order_not_deleted_or_404(
+        db.scalars(
+            select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
+        ).first()
+    )
+    if user_role_key(current) != UserRole.DRIVER.value or order.driver_id != current.id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    if order.status != OrderStatus.ACCEPTED:
+        raise HTTPException(status_code=400, detail="仅「已接单」订单可上传凭证")
     if not files:
         raise HTTPException(status_code=400, detail="未选择文件")
     urls = await _save_delivery_uploads(order_id, files)
     try:
         items = _parse_damage_items(damage_items)
         complete_delivery(db, order, current, urls, driver_remark, items, damage_note.strip())
+        # 收款方式也放进同一个 try：明确要现金而派单没勾选时要**整单回滚**（不能只送达到一半）
+        _apply_complete_payment_logged(db, order, payment.strip() or None, current.id)
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
-    _apply_complete_payment(order, payment.strip() or None)
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
@@ -695,8 +798,27 @@ def driver_ack_view(
     order = _get_order_scoped(order_id, current, db)
     if order.status != OrderStatus.DISPATCHED:
         raise HTTPException(status_code=400, detail="仅「已派单」订单可确认接单")
-    order.status = OrderStatus.ACCEPTED
-    order.driver_acknowledged_at = datetime.now(timezone.utc)
+    # ⚠️ 条件 UPDATE 占位（2026-09-19 审计）：这是**司机手滑点两下**最容易撞上的一处
+    #    （派单员同一时刻可能在撤销/撤回）。原来是无条件赋值，与撤销并发时能把已经撤销的单
+    #    覆盖回 ACCEPTED —— 而撤销那一步已经把预占释放了，于是单子复活但**库存永远不扣**
+    #    （送达时 `auto_stock_commit` 找不到 RESERVED 行）。作业同 assign/complete。
+    claimed = db.execute(
+        update(Order)
+        .where(
+            Order.id == order.id,
+            Order.status == OrderStatus.DISPATCHED,
+            Order.driver_id == current.id,   # 只有被派的那个人能接（_get_order_scoped 已挡，这里再钉一次）
+            Order.deleted_at.is_(None),
+        )
+        .values(status=OrderStatus.ACCEPTED, driver_acknowledged_at=datetime.now(timezone.utc))
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="这张单刚刚被改过（可能已被撤销/撤回/别人接过），请刷新后看看当前状态",
+        )
+    db.refresh(order)
     sid = order.shipper_id
     db.commit()
     full = load_order_for_response(db, order.id)
@@ -717,9 +839,7 @@ def driver_append_internal_note(
     role = user_role_key(current)
     if role not in (UserRole.DRIVER.value, UserRole.DISPATCHER.value):
         raise HTTPException(status_code=403, detail="无权操作")
-    order = db.scalars(select(Order).where(Order.id == order_id)).first()
-    if order is None:
-        raise HTTPException(status_code=404, detail="未找到对应记录")
+    order = _order_not_deleted_or_404(db.scalars(select(Order).where(Order.id == order_id)).first())
     if role == UserRole.DRIVER.value:
         if order.driver_id != current.id:
             raise HTTPException(status_code=403, detail="无权操作")
@@ -885,7 +1005,19 @@ def assign_order(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    order.freight_fee = body.freight_fee
+    # ⛔ **没传运费 ≠ 把运费清空**（2026-09-19 审计 H3，高）：
+    #    这里原来是无条件 `order.freight_fee = body.freight_fee`，而 `OrderAssignBody.freight_fee`
+    #    的缺省是 `None` —— 于是"派单时没填运费"会把订单上**原有的运费清成 NULL**：
+    #      · 司机计费规则为空时，司机应得 = `freight_fee`（`driver_pay` 的 PIECE 分支）→ **¥0.00**；
+    #      · 而 `post_delivery_accounting` 里 `if pay.total <= 0: return None` →
+    #        **连账单都不生成、不报错、不留痕** —— 司机这一趟白跑，账面上查不到任何异常。
+    #    老 H5 的单条派单弹层没有运费输入框（批量派单那条路径不碰 freight_fee）→ 同一屏两个按钮
+    #    两个结果：单条派单 = 司机拿 0 元，批量派单 = 运费还在。本机旁证：132 张 `freight_fee`
+    #    为 NULL 的已送达单，`driver_bills` **0 条**。
+    #    口径与紧邻的 `collect_cash` 一致（它有 `is not None` 守卫）：**没传就是不改**。
+    #    要真的清掉运费得显式传一个值（现在不允许传 null —— 清运费属于改单，走订单编辑）。
+    if body.freight_fee is not None:
+        order.freight_fee = body.freight_fee
     if body.collect_cash is not None:
         order.collect_cash = body.collect_cash
     db.commit()
@@ -976,10 +1108,67 @@ def _parse_damage_items(raw: str) -> list:
     return out
 
 
-def _apply_complete_payment(order, payment: str | None) -> None:
+def _already_collected(db: Session, order: Order) -> bool:
+    """这张单**已经收过款**了吗？（判据与 [_reject_if_already_collected] 同一套）
+
+    两条：`order.paid` 是标记，而**指向这张单的 inbound 流水**是"钱真的进来过"的物证
+    （标记可能被别的路径改过，物证不会）。
+    """
+    if order.paid:
+        return True
+    from app.models import CashFlow
+
+    return (
+        db.scalars(
+            select(CashFlow).where(
+                CashFlow.order_id == order.id,
+                func.lower(CashFlow.direction) == "in",
+            )
+        ).first()
+        is not None
+    )
+
+
+def _apply_complete_payment(db, order, payment: str | None) -> str | None:
     """司机完成订单时的收款处理：
     - 派单勾选「收取现金」：司机明确选 cash=现场收现金 / arrears=挂账（未选择按挂账兜底）；
-    - 未勾选「收取现金」：账单自动挂账（不出现收款按钮）。"""
+    - 未勾选「收取现金」：账单自动挂账（界面上不出现收款按钮）。
+
+    ⚠️ **明确要现金、但派单没勾选**时必须报错，不许悄悄改成挂账（2026-09-19 真机 E2E 抓到）：
+    实测里司机侧传 `payment=cash`、而这一单派单时没勾「收取现金」，结果订单落成
+    `payment_method=arrears / paid=False`、接口 200 —— 两边对同一件事的理解**相反**：
+    司机以为自己收了现金，系统记的是"还没收"，于是这块账会出现在催收名单里。
+    App 侧不会这么发（按钮只在勾选后才出现），但"接口照收却按另一个意思记"正是
+    这个项目反复在治的那一类（后端没有的语义要如实拒绝，不许悄悄换掉）。
+
+    ⛔ **已经收过款的单，送达不许把 `paid` 改回 False**（2026-09-19 审计 F1，高）：
+    下面原来是无条件赋值，于是这条链一路静默 ——
+    ① 先收了一笔钱（预收 / 派单员代收：`POST /ledger/receipts` → `paid=True` + 收款单 + 现金流水）；
+    ② 单子照常派送、送达时 `collect_cash` 是默认的 False → 落到 `else` 分支 →
+       **`paid` 被抹回 False**，而收款单与流水都还在，审计日志里也**没有任何翻 `paid` 的痕迹**；
+    ③ 派单员打开「客户收款」，这张单又出现在"已送达未收"列表里 → 再核销一次 →
+       **第二张收款单 + 第二条现金流水**：资金流入 = 2×，营业额 = 1×，客户被重复催收。
+
+    所以现在的口径：**钱只认一次**。
+      · 已经收过款 + 司机说收了现金 → 直接拒绝（再收一次就是重复收款）；
+      · 已经收过款 + 没说要现金 → **保留**原来的收款方式与 `paid=True`（送达只记送达）。
+    返回一句"要不要留痕"的说明（改了收款状态时非 None，调用方写进审计日志）。
+    """
+    if payment == "cash" and not order.collect_cash:
+        raise ValueError(
+            "这一单在派单时没有勾选「收取现金」，不能按现金收款。"
+            "请让派单员先勾选（或改派），再按现金提交；否则只能按挂账提交。"
+        )
+    if _already_collected(db, order):
+        if payment == "cash":
+            raise ValueError(
+                "这一单已经收过款了，司机再收一次现金就是重复收款。"
+                "请让派单员核对「客户收款」里这张单的记录；确认钱确实没收到的，"
+                "先处理掉那笔收款再送达。"
+            )
+        # 保留原来的收款方式（不许因为"派单没勾现金"就把一笔已收的钱改回未收）
+        return f"送达时发现这一单已有收款记录，保留原收款方式（{order.payment_method or '—'} / paid=True）"
+    before = (order.paid, order.payment_method)
     if order.collect_cash:
         if payment == "cash":
             order.payment_method = "cash"
@@ -990,6 +1179,35 @@ def _apply_complete_payment(order, payment: str | None) -> None:
     else:
         order.payment_method = "arrears"
         order.paid = False
+    if (order.paid, order.payment_method) == before:
+        return None
+    return f"送达收款处理：paid {before[0]} → {order.paid}，方式 {before[1] or '—'} → {order.payment_method or '—'}"
+
+
+def _apply_complete_payment_logged(db, order, payment: str | None, operator_id: int) -> None:
+    """送达时的收款处理 + **留痕**（两个送达端点共用这一处，别各写一遍）。
+
+    ⚠️ 为什么要有这个封装（2026-09-19 全项目 bug 报告 P1-10，实测 500）：
+    两个送达端点原先各写了一遍收款调用，其中 `/{order_id}/complete-with-upload`（拍照送达，
+    司机端的主力路径）**漏传了第一个位置参数** → `TypeError`（不是 `ValueError`，下面的
+    `except ValueError` 接不住）→ **恒 500**，而 `complete_delivery` 已经跑完（改状态、扣库存、
+    入账、生成司机账单），只有最后的 `db.commit()` 没执行 → 整笔回滚，**照片却已落盘**。
+    另一条路径（`/{order_id}/complete`）虽然调对了，但它的留痕块写在端点里，
+    所以拍照送达这一侧连"钱的收款状态变过"这件事都不会进审计。
+
+    收口成一个函数之后，两条路径**在同一个地方**保证「调用参数 + 留痕」两件事都做到：
+    留痕是 F1（2026-09-19 审计，高）的要求——送达只写 `ORDER_COMPLETE{photos:N}` 时，
+    `paid` 被翻动在审计页上完全看不见，而"钱的状态变过"正是最需要能回查的那一类事实。
+    """
+    note = _apply_complete_payment(db, order, payment)
+    if note:
+        write_log(
+            db,
+            operator_id=operator_id,
+            order_id=order.id,
+            action=OperationAction.ORDER_COMPLETE,
+            change_payload={"payment_change": note},
+        )
 
 
 @router.post("/{order_id}/complete", response_model=OrderOut)
@@ -1000,16 +1218,16 @@ def complete_order(
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_COMPLETE_DRIVER)),
 ) -> OrderOut:
-    order = db.scalars(
-        select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
-    ).first()
-    if order is None:
-        raise HTTPException(status_code=404, detail="未找到对应记录")
+    order = _order_not_deleted_or_404(
+        db.scalars(select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)).first()
+    )
     try:
         complete_delivery(db, order, current, body.delivery_photo_urls, body.driver_remark, body.damage_items, body.damage_note)
+        # 收款方式也放进同一个 try：明确要现金而派单没勾选时要**整单回滚**（不能只送达到一半）
+        _apply_complete_payment_logged(db, order, body.payment, current.id)
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
-    _apply_complete_payment(order, body.payment)
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
@@ -1078,6 +1296,57 @@ def _payment_scoped_order(order_id: int, db: Session) -> Order:
     return order
 
 
+def _reject_if_already_collected(db: Session, order: Order, what: str) -> None:
+    """这张单**已经收过款**了 → 不许再把它改回「未收」（2026-09-19 审计 R14-2）。
+
+    ### 缺口长什么样（真机可复现的三步，派单员一个人就能做完）
+    1. 送货 → `POST /ledger/receipts`（逐单核销）→ 订单 `paid=True` + 一张收款单 + 一条现金流水；
+    2. App 上这张已送达单的「挂账」按钮**一直是可点的**（`OrderDetailScreen` 只判 `!acting`）→
+       `POST /orders/{id}/charge` → 本函数原来的写法是**无条件** `paid=False, payment_method=arrears`；
+    3. 再核销一次 → 收款侧唯一的防重判据就是 `paid`（`accounting_service` 的 `if o.paid` 与
+       条件 UPDATE 的 `Order.paid.is_(False)` 都只看它）→ **第二张收款单 + 第二条现金流水**。
+
+    后果是"钱多记一笔"：资金收支流入 = 2×订单金额，而营业额 = 1×（按 `paid` 二选一），
+    两个口径永久分叉；客户还会重新出现在「挂账未收」名单里被再催一次。
+
+    ### 判据为什么是两条
+    - `order.paid`：正常核销/现场收款的标记；
+    - **指向这张单的收款流水**：`paid` 可能被别的路径改过（本轮修的就是"能改回去"这件事），
+      而 `cash_flows(order_id=…, direction=in)` 是"钱真的进来过"的物证——它比标记可信。
+    """
+    if order.paid:
+        collected = True
+    else:
+        # 标记可能被别的路径改过（本轮修的正是"能改回去"这件事）：再问一次"钱真的进来过吗"。
+        # `cash_flows(order_id=这张单, direction=in)` 是物证——比一个布尔标记可信。
+        from app.models import CashFlow
+
+        collected = (
+            db.scalars(
+                select(CashFlow).where(
+                    CashFlow.order_id == order.id,
+                    func.lower(CashFlow.direction) == "in",
+                )
+            ).first()
+            is not None
+        )
+    if not collected:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"这张单已经收过款了，不能{what}。"
+            # ⛔ 这句原来写的是"请先在账本里把那笔收款处理掉"——而**系统里根本做不到**
+            #    （2026-09-19 审计 F5：`ledger.py` 只有 `POST/GET /ledger/receipts`，
+            #    没有 DELETE/PATCH，也没有反向分录）。让用户去做一件做不到的事，
+            #    比直接说"做不到"更糟：他会反复找、以为是自己没找到入口。
+            "系统目前**没有撤销收款的入口**，所以这一笔只能这样处理："
+            "先确认钱是不是真的收到了——如果这笔收款记错了，请联系管理员在账上冲正；"
+            "如果钱确实收到了，那这张单不用再收，保持现状即可。"
+        ),
+    )
+
+
 @router.post("/{order_id}/pay", response_model=OrderOut)
 def pay_order(
     order_id: int,
@@ -1113,6 +1382,9 @@ def charge_order(
 ) -> OrderOut:
     """派单员：订单挂账到挂账单位名下。仅派单员界面可用。"""
     order = _payment_scoped_order(order_id, db)
+    # ⚠️ 已收款的单**不许改回挂账**（2026-09-19 审计 R14-2）：收款侧唯一的防重判据就是 `paid`，
+    #    把 paid 改回 False 等于给这张单**重新开了一次收款窗口**（收款单与现金流水都还在）。
+    _reject_if_already_collected(db, order, "改回挂账")
     unit = db.get(ArrearsUnit, body.arrears_unit_id)
     if unit is None:
         raise HTTPException(status_code=404, detail="挂账单位不存在")

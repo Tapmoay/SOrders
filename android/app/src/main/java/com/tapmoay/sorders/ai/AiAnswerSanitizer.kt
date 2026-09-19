@@ -49,12 +49,44 @@ object AiAnswerSanitizer {
     private val TRAILING_SPACE = Regex("[ \\t]+\\n")
 
     /**
+     * 控制字符（C0 与 C1，**保留 `\t` `\n` `\r`**）。
+     *
+     * ### 为什么净化器要管它（v3.45，模拟器上实测撞到一次）
+     * AI 聊天页在前台时，`uiautomator dump` **连崩两次**，logcat 里是：
+     * ```text
+     * java.lang.IllegalArgumentException: Illegal character (U+0)
+     *   at ...KXmlSerializer.reportInvalidCharacter
+     *   at ...AccessibilityNodeInfoDumper.dumpNodeRec
+     * ```
+     * 也就是界面某个节点的文本里带了一个 **NUL**，整棵无障碍树**序列化不出来**。
+     * 对用户的实际后果：读屏（TalkBack 之类）与任何 UI 自动化在这个页面上直接失效，
+     * 而肉眼只看得出"有个看不见的字符"（渲染成豆腐块或什么都没有）。
+     *
+     * ⚠️ 那次的具体节点**没能复现**（force-stop 之后 dump 就正常了、存盘的对话文件里
+     * 也搜不到控制字符），所以这一条**不是根因修复，是边界加固**：模型给的文本是
+     * 唯一可能把控制字符带进界面的来源（用户输入、后端数据都另有来源），而控制字符
+     * 在界面上没有任何合法用途。留在 [clean] 里，和"抹掉编号"是同一道闸。
+     */
+    private val CONTROL = Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F]")
+
+    /**
+     * 只剥控制字符，**不动编号**（[clean] 的第一道）。
+     *
+     * 给"只要求能安全显示、不该改写内容"的地方用：工具痕迹那两行
+     * （`🔧 正在查：…（{…}）` / `✓ … → …`）是给用户看工具用过什么的，
+     * 里面的参数是**原样裁剪**出来的，不该被编号规则改写，但同样不许带控制字符
+     * （它们和答案一样会进聊天页、进无障碍树、还会被存进对话文件）。
+     */
+    fun stripControl(text: String): String = CONTROL.replace(text, "")
+
+    /**
      * 净化一段文本。空串原样返回（调用方不必自己判空）。
      * 幂等：对已净化的文本再跑一次结果不变。
      */
     fun clean(text: String): String {
         if (text.isBlank()) return text
-        var out = ID_PHRASE.replace(text, "")
+        var out = stripControl(text)
+        out = ID_PHRASE.replace(out, "")
         out = HASH_ID.replace(out) { it.groupValues[1] }
         out = EMPTY_BRACKET.replace(out, "")
         out = TRAILING_SPACE.replace(out, "\n")

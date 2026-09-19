@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.business_time import business_local
 from app.core.rbac import user_role_key
 from app.database import get_db
 from app.deps import CurrentUser
 from app.models import DriverBill, User
-from app.models.enums import DriverBillStatus, DriverBillType, UserRole
+from app.models.enums import DriverBillStatus, DriverBillType, OperationAction, UserRole
 from app.schemas.accounting_v2 import DriverBillGenerateBody, DriverBillOut
+from app.services.operation_log_service import write_log
+from app.services.operation_log_service import write_log
 from app.services.driver_pay import (
     has_per_order_pay,
     monthly_salary_of,
@@ -18,6 +21,11 @@ from app.services.driver_pay import (
 )
 
 router = APIRouter(prefix="/driver-bills", tags=["driver-bills"])
+
+
+def _bill_month(dt) -> str:
+    """这一单的账单属于哪个月 = **业务当地月**（与 `accounting_service._month_of` 同源）。"""
+    return business_local(dt).strftime("%Y-%m")
 
 
 def _can_view_or_raise(current: User, db: Session, driver_id: int) -> None:
@@ -114,6 +122,16 @@ def generate_bills(
             drivers = [d for d in drivers if d.id == body.driver_id]
         created = []
         for d in drivers:
+            # ⛔ 并发保护（2026-09-19 审计第十七轮，台账 M6 一直没修）：
+            #    月薪单的"先查再插"没有任何兜底 —— 唯一的唯一索引是
+            #    `uq_driver_bills_order_type (order_id, bill_type)`，而月薪单的 `order_id` 是 **NULL**，
+            #    NULL 在唯一索引里互不相等（SQLite / MySQL 都如此）→ **挡不住第二行**。
+            #    两个并发的 `POST /driver-bills/generate {SALARY, 本月}` 会各插一行，
+            #    `create_settlement` 把两行一起 sum（¥4500 变 ¥9000），
+            #    而 confirm 的"金额与明细合计一致"校验**会通过**（两边都自洽）。
+            #    修法：先把司机行锁住（MySQL 上是 `SELECT … FOR UPDATE`，SQLite 忽略），
+            #    同一个月薪单的生成因此串行，第二个人进来时 `exists` 已经查得到。
+            db.execute(select(User.id).where(User.id == d.id).with_for_update())
             exists = db.scalars(
                 select(DriverBill).where(
                     DriverBill.driver_id == d.id,
@@ -139,6 +157,22 @@ def generate_bills(
             )
             db.add(b)
             created.append(b)
+        # 月薪单＝**造出可支付的应付**（月结时会被结算单收走），必须留痕（2026-09-19 审计）。
+        # 一条汇总日志：写明这次生成了多少张、合计多少钱、哪个月。
+        if created:
+            write_log(
+                db,
+                operator_id=current.id,
+                order_id=None,
+                action=OperationAction.DRIVER_BILL_GENERATE,
+                change_payload={
+                    "bill_type": "SALARY",
+                    "month": body.month,
+                    "driver_id": body.driver_id,
+                    "created_count": len(created),
+                    "created_total": str(sum((x.amount for x in created), Decimal("0"))),
+                },
+            )
         db.commit()
         return created
     else:
@@ -169,7 +203,11 @@ def generate_bills(
         orders = list(db.scalars(stmt))
         created = []
         for o in orders:
-            if o.delivered_at is None or o.delivered_at.strftime("%Y-%m") != body.month:
+            # ⚠️ 月份按**业务当地月**比（2026-09-19 审计 R13-D2）：账单落库用的就是
+            #    `accounting_service._month_of`（同样按当地月），两边必须同源——
+            #    否则当地月初 00:00~08:00 送达的单会被这里跳过，用户点"补单"得到
+            #    「已完成」而一张都没生成（AI 那条路会一直重复申请）。
+            if o.delivered_at is None or _bill_month(o.delivered_at) != body.month:
                 continue
             if not has_per_order_pay(o):
                 continue
@@ -204,5 +242,20 @@ def generate_bills(
             )
             db.add(b)
             created.append(b)
+        # 手工补单同样**造出可支付的应付**，必须留痕（2026-09-19 审计）：一条汇总日志。
+        if created:
+            write_log(
+                db,
+                operator_id=current.id,
+                order_id=None,
+                action=OperationAction.DRIVER_BILL_GENERATE,
+                change_payload={
+                    "bill_type": "PIECE",
+                    "month": body.month,
+                    "driver_id": body.driver_id,
+                    "created_count": len(created),
+                    "created_total": str(sum((x.amount for x in created), Decimal("0"))),
+                },
+            )
         db.commit()
         return created

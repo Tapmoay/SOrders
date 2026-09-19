@@ -73,6 +73,16 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
 
     fun logout(onDone: () -> Unit) {
         viewModelScope.launch {
+            // ⚠️ 先让**服务端**作废这些令牌，再清本机（2026-09-19 审计）。
+            //    原来只 `tokenStore.clear()`——服务端一个字都不知道，被复制走的令牌还能用满 24 小时；
+            //    手机丢了、在别人电脑上登过，都没有止损手段。
+            //    网络失败也必须照常登出（本地清干净是第一位的），所以放在 try/catch 里，
+            //    失败就退化成"只清本机"——比"登出按钮点了没反应"好。
+            try {
+                container.repo.logout()
+            } catch (_: Exception) {
+                // 离线登出：服务端那份令牌会在 24 小时后自然过期
+            }
             container.socketManager.disconnect()
             container.tokenStore.clear()
             onDone()

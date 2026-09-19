@@ -815,6 +815,57 @@ def _bootstrap_impl(engine: Engine) -> None:
                         if "duplicate" not in str(e).lower():
                             raise
 
+    # ---------- 账本唯一性：同一订单行同一来源只能有一行（2026-09-19 审计） ----------
+    #
+    # 为什么必须是**数据库级**约束：送达自动入账（`ledger_sync.sync_ledger_from_delivered_order`）
+    # 是"按 order_product_id + source 先查再插"的读-判断-写。并发下两个请求都读到"还没有"，
+    # 就落两行同样的账 —— **营业额直接虚增**。本机实测复现过（订单 581 两条 60 元，
+    # 就是 `_fuzz_invariants.py` 那条"订单账本净额与订单金额对不上"抓出来的）。
+    # 生产实测目前 0 组重复（`ledgers` 上只有普通索引），所以可以安全补索引。
+    #
+    # ⚠️ 与 driver_bills 同一套纪律：有重复行时**不建索引**并吵一声，绝不让启动崩掉。
+    if "ledgers" in insp.get_table_names():
+        ldups: list = []
+        try:
+            with engine.connect() as conn:
+                ldups = conn.execute(
+                    text(
+                        "SELECT order_product_id, source, COUNT(*) AS c FROM ledgers "
+                        "WHERE order_product_id IS NOT NULL "
+                        "GROUP BY order_product_id, source HAVING c > 1"
+                    )
+                ).fetchall()
+        except DBAPIError:
+            logger.debug("ledgers 重复检查跳过（表可能刚建）")
+        if ldups:
+            logger.warning(
+                "ledgers 存在同一订单行重复入账（%s 组，例：order_product_id=%s），"
+                "**暂不创建唯一索引**。请用 _tools/fuzz/_fuzz_invariants.py 的"
+                "「订单账本净额与订单金额对不上」定位后人工清理，下次启动会自动补上索引。",
+                len(ldups),
+                ", ".join(str(d[0]) for d in ldups[:5]),
+            )
+        else:
+            with engine.begin() as conn:
+                if engine.dialect.name == "sqlite":
+                    conn.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ledgers_order_product_source "
+                            "ON ledgers (order_product_id, source)"
+                        )
+                    )
+                else:
+                    try:
+                        conn.execute(
+                            text(
+                                "CREATE UNIQUE INDEX uq_ledgers_order_product_source "
+                                "ON ledgers (order_product_id, source)"
+                            )
+                        )
+                    except DBAPIError as e:
+                        if "duplicate" not in str(e).lower():
+                            raise
+
     # ---------- 商品分类 + 订单行单位 + 导航来源（2026-09-18） ----------
     #
     # 三列都是**纯展示/来源**信息，不参与任何金额计算，但没有它们界面就做不出来：
@@ -874,6 +925,22 @@ def _bootstrap_impl(engine: Engine) -> None:
                         text("ALTER TABLE users ADD COLUMN product_scope VARCHAR(16) NOT NULL DEFAULT 'all'")
                     )
                     logger.warning("users.product_scope 已补列并回填为 all（白名单默认关闭）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
+        # ---------- 令牌版本列（2026-09-19）：服务端撤销令牌 ----------
+        # 没有这一列时 `deps.get_current_user` 的版本比对取不到属性（按 0 兜底），
+        # 于是"改密码 / 停用 / 登出立刻作废旧令牌"这条能力在老库上**静默失效**。
+        # 默认 0 与"老令牌没有 tv claim 也按 0"一致 → 补列不会把任何人踢下线。
+        if "token_version" not in ucols:
+            with engine.begin() as conn:
+                try:
+                    col_type = "INTEGER" if engine.dialect.name == "sqlite" else "INT"
+                    conn.execute(
+                        text(f"ALTER TABLE users ADD COLUMN token_version {col_type} NOT NULL DEFAULT 0")
+                    )
+                    logger.warning("users.token_version 已补列（默认 0：旧令牌继续有效，改密码后立刻作废）")
                 except DBAPIError as e:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise

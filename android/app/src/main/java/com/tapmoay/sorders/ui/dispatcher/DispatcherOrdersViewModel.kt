@@ -67,6 +67,16 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
         load()
     }
 
+
+    /**
+     * 这次列表**可能被服务端截断**（2026-09-19 审计）。
+     *
+     * `GET /orders` 现在对所有角色都有缺省上限 300（以前除"派单员+待派单"外是全量下发，
+     * 3 年数据后就是几万单十几 MB）。判据只用"返回条数 == 上限"——少于上限就一定没有更多，
+     * 等于上限则**可能**还有，所以文案说"可能"，不撒谎也不吓人。
+     */
+    val maybeTruncated: Boolean get() = orders.size >= ORDER_LIST_LIMIT
+
     fun load() {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
@@ -200,3 +210,6 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
         showExceptionDialog = false
     }
 }
+
+/** 服务端 `GET /orders` 的缺省条数上限（与后端 `DEFAULT_LIST_LIMIT` 对齐）。 */
+private const val ORDER_LIST_LIMIT = 300

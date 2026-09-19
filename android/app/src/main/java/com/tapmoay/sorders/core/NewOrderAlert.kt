@@ -164,6 +164,22 @@ object NewOrderAlert {
         return last != null && now - last < DEDUPE_MS
     }
 
+    /**
+     * 收到「这单结束了」的信号时，把该单的**新单去重键**作废（R14-14，2026-09-19 审计）。
+     *
+     * ⛔ 缺陷形状：派单员把单派给司机 A（响「来单了」）→ **撤回** → 60 秒内再派给同一个司机
+     *    → 新事件带的还是**同一个** `assigned:{orderId}` 键、仍在 [DEDUPE_MS] 窗口内
+     *    → `isDuplicate` 返回 true → **第二声完全不响**。
+     *    司机刚被告知"撤回了"，重派却没有提示音；列表会刷新，但人在车上不会盯屏幕。
+     *
+     * 归 [shouldStop] 管是有道理的：接单/送达/撤回/取消之后，"这一单的新单提醒"本就该作废
+     * ——作废之后如果这单又被重新派给他，那是一次**新的派单**，必须重新响。
+     */
+    fun forgetOnStop(seen: MutableMap<String, Long>, type: String, orderId: Long?) {
+        if (orderId == null || !shouldStop(type)) return
+        seen.remove("assigned:" + orderId)
+    }
+
     /** 设置页显示的档位文案（用户看不懂「0 次」是什么意思） */
     fun repeatLabel(setting: Int): String = when (setting) {
         FOREVER -> "一直响到我接单"

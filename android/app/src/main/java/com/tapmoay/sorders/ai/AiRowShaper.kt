@@ -34,7 +34,18 @@ object AiRowShaper {
         "full_name", "username", "party_name", "operator_name", "unit_name", "product_name",
     )
 
-    /** 宽松取出「行数组」时要试的键名（后端各端点的包装键不统一）。 */
+    /**
+     * 宽松取出「行数组」时要**优先**试的键名（后端各端点的包装键不统一）。
+     *
+     * ⚠️ 这张表只是"优先顺序"，**不再是判据**（2026-09-19 审计抓到的真缺陷）：
+     *    原来 [rowsOf] 只认这几个键，于是 `{"drivers": [...]}`（司机绩效 179 行）、
+     *    `{"groups": [...]}`（运费结算 175 组）这类响应**整包认不出** → 掉进
+     *    `AiReadService` 的 `rows.isEmpty()` 分支退化成 `drivers_count: 179`，
+     *    模型拿到的是"有 179 个司机"而不是那 179 行，**而且没有任何标志说明数据被丢了**
+     *    （连 `truncated` 都不置位）——用户问"哪个司机跑得最多"只能得到"查不到"。
+     *    这已经是本项目第 6 次栽在"清单是手写的"上，所以判据改成机器认：
+     *    先按这张表取（保证稳定），取不到就取响应里**第一个对象数组**。
+     */
     private val ROW_ARRAY_KEYS = listOf("shippers", "items", "rows", "data", "list", "results", "records")
 
     /**
@@ -111,14 +122,31 @@ object AiRowShaper {
     /** 一行完整加工：剔字段 → 抹平 → 名字兜底。所有工具都该走这个。 */
     fun shape(row: JsonObject): JsonObject = normalizeNames(stripAndFlatten(row))
 
-    /** 宽松取出「行数组」：裸数组、或对象里第一个非空数组字段。 */
+    /**
+     * 宽松取出「行数组」：裸数组；对象则先试已知包装键，**再退到"第一个对象数组"**。
+     *
+     * 第二条兜底是关键：它让"后端换了个包装键"（`drivers` / `groups` / `categories`…）
+     * 不再变成"模型一行都拿不到"。判据只看形状（元素是对象），不看名字。
+     */
     fun rowsOf(root: JsonElement): List<JsonObject> = when (root) {
         is JsonArray -> root.filterIsInstance<JsonObject>()
-        is JsonObject -> ROW_ARRAY_KEYS.firstNotNullOfOrNull { k ->
-            (root[k] as? JsonArray)?.filterIsInstance<JsonObject>()?.takeIf { it.isNotEmpty() }
-        }.orEmpty()
+        is JsonObject -> (knownRows(root) ?: firstObjectArray(root)).orEmpty()
         else -> emptyList()
     }
+
+    private fun knownRows(root: JsonObject): List<JsonObject>? =
+        ROW_ARRAY_KEYS.firstNotNullOfOrNull { k ->
+            (root[k] as? JsonArray)?.filterIsInstance<JsonObject>()?.takeIf { it.isNotEmpty() }
+        }
+
+    private fun firstObjectArray(root: JsonObject): List<JsonObject>? =
+        root.values.filterIsInstance<JsonArray>()
+            .firstNotNullOfOrNull { arr ->
+                val objs = arr.filterIsInstance<JsonObject>()
+                // 只有"确实装着对象"的数组才算行数组：全空数组、纯标量数组都不算
+                // （否则 `{"categories": ["水果","蔬菜"]}` 会被当成两行空数据）。
+                objs.takeIf { it.isNotEmpty() && it.size == arr.size }
+            }
 
     /**
      * 这个响应里是不是**根本没有列表**（只有一个聚合对象，如"待派单还有几单"、

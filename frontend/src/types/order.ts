@@ -1,4 +1,16 @@
-export type OrderStatus = 'PENDING_DISPATCH' | 'ACCEPTED' | 'DELIVERED' | 'CANCELLED'
+/**
+ * 与 `backend/app/models/enums.py::OrderStatus` **逐值对齐**（五个，不是四个）。
+ *
+ * ⚠️ 少一个取值不是"类型不够全"，而是**这一档状态的订单在客户端上整体消失**：
+ *    `DISPATCHED`（已派单·司机未接单）曾经就不在这里，于是 H5 全站没有任何入口能列出它
+ *    （2026-09-19 审计 H1）。红线 `_tools/qa/_check_client_contract.py` 从后端枚举逐值对账。
+ */
+export type OrderStatus =
+  | 'PENDING_DISPATCH'
+  | 'DISPATCHED'
+  | 'ACCEPTED'
+  | 'DELIVERED'
+  | 'CANCELLED'
 
 export interface OrderProduct {
   id: number
@@ -33,7 +45,7 @@ export interface Order {
   dispatched_at: string | null
   driver_acknowledged_at?: string | null
   delivered_at: string | null
-  /** 撤销时间；已撤销订单保留约 10 天后由服务端清理 */
+  /** 撤销时间；已撤销/软删除订单进隔离区保留 **30 天**（`data_retention.py`），不是 10 天 */
   cancelled_at?: string | null
   order_products: OrderProduct[]
   driver_phone: string | null

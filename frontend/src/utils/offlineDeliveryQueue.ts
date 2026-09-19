@@ -10,6 +10,15 @@ export interface OfflineDeliveryQueueItem {
   driverRemark: string
   /** 联网同步时先 appendDriverNote，再上传送达照 */
   internalNoteAppend?: string
+  /**
+   * 那条追加备注**是否已经写进服务端**了。
+   *
+   * ⚠️ 为什么必须持久化这个标记（2026-09-19 审计）：同步是"追加备注 → 上传照片"两步，
+   * 而重试是**整条重来**。第二次走的时候如果还去 append，订单的内部备注里就会出现
+   * 两遍、三遍同一句话（"司机说货主让放门口"重复三行）——而派单员正是靠内部备注判断现场发生了什么。
+   * 上传失败是常事（信号差），所以这不是边角情况。
+   */
+  noteAppended?: boolean
   blobs: Blob[]
   createdAt: number
   retries: number
@@ -78,8 +87,31 @@ export async function bumpRetry(id: string): Promise<void> {
   })
 }
 
-export async function setQueueItemError(id: string, message: string): Promise<void> {
+/**
+ * 记下"这条队列项的追加备注已经写进服务端了"。
+ *
+ * ⚠️ 必须**先写标记、再上传照片**（顺序反了就等于没记）：上传失败会重试整条，
+ * 而重试时靠这个标记跳过 append，否则内部备注会被追加多遍。
+ */
+export async function markNoteAppended(id: string): Promise<void> {
   const db = await openDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite')
+    const st = tx.objectStore(STORE)
+    const g = st.get(id)
+    g.onsuccess = () => {
+      const row = g.result as OfflineDeliveryQueueItem | undefined
+      if (row) {
+        row.noteAppended = true
+        st.put(row)
+      }
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+export async function setQueueItemError(id: string, message: string): Promise<void> {  const db = await openDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite')
     const st = tx.objectStore(STORE)

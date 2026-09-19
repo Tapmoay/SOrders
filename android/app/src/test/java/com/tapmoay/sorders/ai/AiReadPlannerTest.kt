@@ -236,4 +236,26 @@ class AiReadPlannerTest {
         assertNull(AiReadPlanner.parseDateOrNull("上周"))
         assertNull(AiReadPlanner.parseDateOrNull(null))
     }
+
+    @Test
+    fun statusValueIsValidatedAgainstTheEndpointsOwnEnum() {
+        // 2026-09-19 审计：目录里一直躺着 `enum` 却从没被用过，于是模型顺着工具说明传
+        // `status=PAID`（说明里举的例子，而 PAID 根本不是订单状态）→ 后端 422 →
+        // 被翻成"这个功能没上线" → 用户彻底放弃这条路。现在计划阶段就拦住并给出合法取值。
+        val msg = bad("orders.list_orders", args("status" to "PAID"))
+        assertTrue("应当提示合法取值，实际：$msg", msg.contains("PENDING_DISPATCH"))
+        assertTrue("应当说明这是取值问题，实际：$msg", msg.contains("不是这个查询允许的取值"))
+
+        // 合法值**大小写不敏感**并被归一成后端认的写法
+        val p = ok("orders.list_orders", args("status" to "delivered"))
+        assertEquals("DELIVERED", p.query["status"])
+    }
+
+    @Test
+    fun unknownStatusOnAnEndpointWithoutStatusIsIgnoredNotSent() {
+        // 接口没有 status 参数时，不许把它当筛选条件发下去（那会 422 或静默不生效）
+        val p = ok("products.list_products", args("status" to "PAID"))
+        assertNull(p.query["status"])
+        assertTrue("应当记进 ignored_filters", p.ignored.any { it.contains("status") })
+    }
 }

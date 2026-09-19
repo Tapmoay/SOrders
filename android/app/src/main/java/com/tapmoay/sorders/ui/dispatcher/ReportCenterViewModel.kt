@@ -38,6 +38,8 @@ class ReportCenterViewModel(
     var customerArrears by mutableStateOf<List<ReportArrearsUnitDto>>(emptyList())
     // 资金收支
     var cashFlows by mutableStateOf<List<CashFlowDto>>(emptyList())
+    /** 资金汇总（流入/流出/净额/笔数）——**服务端算的**，不在这里求和。 */
+    var cashFlowSummary by mutableStateOf<CashFlowSummaryDto?>(null)
     var expenses by mutableStateOf<List<ExpenseDto>>(emptyList())
     // 商品明细筛选
     var productSearch by mutableStateOf("")
@@ -53,27 +55,24 @@ class ReportCenterViewModel(
 
     val pendingExceptionCount: Int get() = exceptions.count { it.exceptionResolvedAt == null }
 
-    /** 完整时段标题（参考截图起止时间样式） */
+    /** 完整时段标题（参考截图起止时间样式）。窗口与 [dateRange] **同一个函数**，不许各写一遍。 */
     val periodText: String get() {
-        val d = LocalDate.parse(anchor)
-        val (start, end) = when (mode) {
-            "week" -> d.minusDays((d.dayOfWeek.value - 1).toLong()) to d.plusDays((7 - d.dayOfWeek.value).toLong())
-            "month" -> d.withDayOfMonth(1) to d.withDayOfMonth(d.lengthOfMonth())
-            else -> d to d
-        }
+        val (start, end) = ReportFinance.rangeFor(mode, anchor)
         val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-        return start.atStartOfDay().format(fmt) + "~" + end.atTime(LocalTime.MAX).format(fmt)
+        return LocalDate.parse(start).atStartOfDay().format(fmt) + "~" +
+            LocalDate.parse(end).atTime(LocalTime.MAX).format(fmt)
     }
 
-    /** 往来账日期窗口（账本账户/挂账按 entry_date/送达日） */
-    val dateRange: Pair<String, String> get() {
-        val d = LocalDate.parse(anchor)
-        return when (mode) {
-            "week" -> { val s = d.minusDays((d.dayOfWeek.value - 1).toLong()); s.toString() to d.toString() }
-            "month" -> d.withDayOfMonth(1).toString() to d.toString()
-            else -> d.toString() to d.toString()
-        }
-    }
+    /**
+     * 往来账日期窗口（账本账户 / 挂账 / 资金收支 / 开销 / 司机绩效 / 导出的 date_from~date_to）。
+     *
+     * ⚠️ **必须与 [periodText] 同一段**（2026-09-19 审计）：原来这里 month 只到**锚点当天**
+     * （`9/5` → `2026-09-01 ~ 2026-09-05`），而标题写的是整个月 `2026-09-01 ~ 2026-09-30`。
+     * 后果：9/5 打开报表，标题写整月、数字只含 5 天；9/20 打开则少掉后面 10 天的收支 ——
+     * 而同一屏的「营业纵览」营业额走的是后端整月窗口，**同一页两个时间段**。
+     * 已过去的月份取整月没有副作用（未来那几天本来就没有数据）。
+     */
+    val dateRange: Pair<String, String> get() = ReportFinance.rangeFor(mode, anchor)
 
     /** 筛选后的商品明细（按当前排序） */
     val filteredProducts: List<ProductReportItemDto> get() {
@@ -102,16 +101,24 @@ class ReportCenterViewModel(
                         val (f, t) = dateRange
                         shipperAccounts = container.repo.ledgerAccounts(f, t, "shipper")
                         memberAccounts = container.repo.ledgerAccounts(f, t, "member")
+                        // 「异常订单数」这一行原来读的是"异常页签加载出来的列表"，而那只在切到
+                        // 「异常与审计」时才赋值 → 从工作台直接进营业纵览时**恒显示 0 单**；
+                        // 先看过异常页再回来又会显示近 30 天的数（同屏其它数字是当天/周/月的）。
+                        // 现在这一页**自己**去取，口径写明是"近 30 天待处理"（2026-09-19 审计）。
+                        val today = LocalDate.now()
+                        exceptions = container.repo.exceptionOrders(
+                            today.minusDays(30).toString(), today.toString(),
+                        )
                     }
                     1 -> products = container.repo.productReport(mode, anchor)
                     2 -> {
-                        val d = LocalDate.parse(anchor)
-                        val (from, to) = when (mode) {
-                            "week" -> d.minusDays((d.dayOfWeek.value - 1).toLong()) to d
-                            "month" -> d.withDayOfMonth(1) to d
-                            else -> d to d
-                        }
-                        drivers = container.repo.driverPerformance(from.toString(), to.toString())
+                        // ⚠️ 取数窗口必须与**标题/导出**同源（2026-09-19 审计 R13-R2）：
+                        //    这里原来自己算了一遍（`month -> d.withDayOfMonth(1) to d`，即 1 号到**锚点当天**），
+                        //    而标题与导出走 `ReportFinance.rangeFor`（整月）。锚点选 8/15 时，
+                        //    页面按 8/1~8/15 取数（16 单）、标题写"8 月"、导出给整月（34 单）——
+                        //    同一个页面两个数，用户对不上账。窗口只留一处实现（`rangeFor`）。
+                        val (from, to) = ReportFinance.rangeFor(mode, anchor)
+                        drivers = container.repo.driverPerformance(from, to)
                     }
                     3 -> {
                         // 客户经营：货主账/批发商账 + 挂账未收
@@ -121,9 +128,13 @@ class ReportCenterViewModel(
                         customerArrears = container.repo.arrearsSummary(f, t)
                     }
                     4 -> {
-                        // 资金收支
+                        // 资金收支：明细用于列表，**金额一律取服务端汇总**（2026-09-19 审计）——
+                        // 原来在客户端对"这一页流水"求和，而列表有 limit（默认 200）：
+                        // 实测同一窗口 200 条 → 流入 ¥18,842、273 条 → ¥48,905.50（少算 62%），
+                        // 而同一页 Excel 导出是 SQL 侧全窗口求和 → 页面一个数、导出一个数。
                         val (f, t) = dateRange
                         cashFlows = container.repo.cashFlows(dateFrom = f, dateTo = t)
+                        cashFlowSummary = container.repo.cashFlowSummary(dateFrom = f, dateTo = t)
                         expenses = container.repo.expenses(dateFrom = f, dateTo = t)
                     }
                     else -> {

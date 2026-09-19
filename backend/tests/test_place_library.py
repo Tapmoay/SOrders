@@ -345,6 +345,33 @@ def test_place_rejects_out_of_range_coordinates(client, token_dispatcher):
     assert "纬度" in r.json()["detail"]
 
 
+def test_place_rejects_no_fix_sentinel(client, token_dispatcher, db_session):
+    """`(0,0)` 是"**没有定位**"的占位值，不是坐标（2026-09-19 全项目报告 P1-13，中）。
+
+    为什么这条比看起来重要：高德定位失败回的就是 `(0,0)`（不是 null），而 `places` 是
+    **全库共享、且只有 GET/POST（没有改、没有删）** 的一张表 —— 一条脏点是**永久**的，
+    还会被别人的单拿去当导航点（人会被导到几内亚湾）。所以闸放在入口，而且零误伤。
+    判据与安卓侧 `core/SunLocation.isPlausible` 是同一个阈值。
+    """
+    before = db_session.query(Place).count()
+    r = client.post(
+        "/api/v1/places",
+        json={"name": "没定位的点", "address_lat": "0", "address_lng": "0"},
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r.status_code == 422, f"(0,0) 必须被拒：{r.status_code} {r.text[:200]}"
+    assert "没有定位" in r.json()["detail"]
+    assert db_session.query(Place).count() == before, "被拒的请求不该往共享库里写东西"
+
+    # 对照：**单独一个 0 是合法坐标**（赤道 / 本初子午线上的地点），别把正当输入堵死
+    ok = client.post(
+        "/api/v1/places",
+        json={"name": "赤道上的点", "address_lat": "0", "address_lng": "114.0540000"},
+        headers=auth_headers(token_dispatcher),
+    )
+    assert ok.status_code == 201, f"lat=0 本身是合法坐标：{ok.status_code} {ok.text[:200]}"
+
+
 # ---------------------------------------------------------------- 司机补导航
 
 

@@ -116,7 +116,7 @@ def get_exception_orders(
 def resolve_exception_order(
     order_id: int,
     body: "ExceptionResolveBody",
-    _: User = Depends(require_permission(Permission.STATS_READ)),
+    current: User = Depends(require_permission(Permission.STATS_READ)),
 ) -> dict:
     """派单员解决异常：填写解决说明，订单标记已解决。"""
     from app.database import SessionLocal
@@ -138,6 +138,22 @@ def resolve_exception_order(
         order.exception_reason = order.exception_reason or "异常订单"
         order.exception_resolution = note or order.exception_resolution
         order.exception_resolved_at = datetime.now(timezone.utc)
+        # 解除异常也要留痕（2026-09-19 审计）：它改的是报表「异常与审计」的口径，
+        # 而这一页本身就是给人查"谁处理了哪条异常"用的 —— 没有日志，等于这一页查不到自己。
+        from app.models.enums import OperationAction
+        from app.services.operation_log_service import write_log
+
+        write_log(
+            db,
+            operator_id=current.id if current is not None else None,
+            order_id=order.id,
+            action=OperationAction.ORDER_EXCEPTION,
+            change_payload={
+                "resolved": True,
+                "note": note,
+                "order_no": order.order_no,
+            },
+        )
         db.commit()
         return {"ok": True, "order_id": order_id}
     finally:

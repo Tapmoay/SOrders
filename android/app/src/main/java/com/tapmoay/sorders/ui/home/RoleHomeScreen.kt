@@ -75,7 +75,9 @@ fun RoleHomeScreen(
             } else {
                 add(Manifest.permission.READ_EXTERNAL_STORAGE)
             }
-            add(Manifest.permission.CAMERA)
+            // ⛔ 这里原来还 add 了 CAMERA：本 App 不调相机 API（拍照全走系统相机 App 的
+            //    ACTION_IMAGE_CAPTURE），声明了它反而会让"拒绝授权后再拍照"直接崩溃
+            //    （2026-09-19 报告 P1-9）——声明已从清单删除，这里也不许再要。 
         }.filter {
             ContextCompat.checkSelfPermission(permContext, it) != PackageManager.PERMISSION_GRANTED
         }

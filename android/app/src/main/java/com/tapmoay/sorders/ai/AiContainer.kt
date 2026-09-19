@@ -36,7 +36,7 @@ class AiContainer(
      */
     private val roleKey: () -> String? = { "dispatcher" },
     /**
-     * 当前登录用户 id。AI 的三份本机数据按它分区（见 [AiScope]）。
+     * 当前登录用户 id。AI 的**四份**本机数据按它分区（对话/习惯/记忆 + 凭据，见 [AiScope]）。
      *
      * **读不到就落到 `_anon` 分区，绝不回落到"公共区"**——回落正是那个跨账号串数据的 bug。
      */
@@ -54,7 +54,7 @@ class AiContainer(
     private fun scope(): String = AiScope.suffix(userIdKey())
 
     /**
-     * 三个本机 store **按分区重建**。
+     * 四个本机 store **按分区重建**（第四个是凭据，见 [keyStore]）。
      *
      * ⚠️ 为什么不能用 `by lazy`：lazy 会把 store 连同**首次访问时的分区**一起缓存住。
      * 这个容器是 `remember { AiContainer(...) }`（一次会话只建一次），
@@ -65,6 +65,7 @@ class AiContainer(
     private var convStore: AiConversationStore? = null
     private var habitStore: AiHabitStore? = null
     private var memStore: AiMemoryStore? = null
+    private var keyStoreRef: AiKeyStore? = null
 
     @Synchronized
     private fun ensureScoped() {
@@ -74,10 +75,17 @@ class AiContainer(
         convStore = AiConversationStore(appContext, s)
         habitStore = AiHabitStore(appContext, s)
         memStore = AiMemoryStore(appContext, s)
+        keyStoreRef = AiKeyStore(appContext, s)
     }
 
-    /** Keystore 加密存储：API Key、Base URL、模型名、工具开关。 */
-    val keyStore: AiKeyStore by lazy { AiKeyStore(appContext) }
+    /**
+     * Keystore 加密存储：API Key、Base URL、模型名、工具开关。
+     *
+     * 它**也必须按分区重建**（与另外三个 store 同理，见 [ensureScoped]）：原来这里是
+     * lazy 只传 appContext 建的（凭据是四份数据里唯一没分区的），
+     * 于是同机换账号后新登录的人读到的还是上一个人的 **明文 LLM Key**（2026-09-19 审计 P0-6）。
+     */
+    val keyStore: AiKeyStore get() { ensureScoped(); return keyStoreRef!! }
 
     /**
      * LLM 直连客户端（独立 OkHttp 实例，无日志拦截器）。

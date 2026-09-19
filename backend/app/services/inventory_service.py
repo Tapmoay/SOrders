@@ -11,7 +11,7 @@
 - 库存不足不拦截（先出后补），库存允许为负并在流水上如实记录。
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import InventoryMovement, Order, Product
@@ -70,7 +70,23 @@ def auto_stock_out(db: Session, order: Order, operator_id: int) -> int:
 
 
 def auto_stock_commit(db: Session, order: Order) -> int:
-    """订单送达：此时才真正减库存（预占用转实扣，RESERVED → COMMITTED）。返回更新条数。"""
+    """订单送达：此时才真正减库存（预占用转实扣，RESERVED → COMMITTED）。返回更新条数。
+
+    ⛔ **库存只能用 SQL 表达式自减，不许 Python 读改写**（2026-09-19 审计，核心循环）：
+
+        prod = db.get(Product, m.product_id)
+        prod.stock = (prod.stock or 0) + m.change     # ← 典型 lost update
+
+    两个请求同时扣同一个商品（两张不同的单同时送达、或"送达 × 派单员手工出库"）时，
+    两边都先读到同一个旧值、各自算出新值、后写的人把前一个人的减扣**整段盖掉**：
+    库存 100、两单各扣 3 → 最终是 97 而不是 94，而且**谁都不会报错**（账面上只少了一件货，
+    月底盘库才发现，且没有任何一处日志能指出是哪两次操作）。
+    本机 SQLite 写是串行的，**这个缝隙在本机测不出来** —— 所以修法不能靠"本地跑一遍看看"。
+
+    现在把加法交给数据库自己做（`stock = stock + change`），读与写在同一条 UPDATE 里完成，
+    行锁由数据库保证（MySQL/InnoDB 会对被更新的行加锁，两个请求自然串行）。
+    这与 `order_flow` 里那批"条件 UPDATE 占位"是同一个思路：**让改到行的人才能继续**。
+    """
     rows = list(
         db.scalars(
             select(InventoryMovement).where(
@@ -81,9 +97,11 @@ def auto_stock_commit(db: Session, order: Order) -> int:
         )
     )
     for m in rows:
-        prod = db.get(Product, m.product_id)
-        if prod is not None:
-            prod.stock = (prod.stock or 0) + m.change  # change 为负 → 真正减库存
+        db.execute(
+            update(Product)
+            .where(Product.id == m.product_id)
+            .values(stock=func.coalesce(Product.stock, 0) + m.change)
+        )
         m.status = "COMMITTED"
     return len(rows)
 
@@ -116,3 +134,63 @@ def auto_stock_release(db: Session, order: Order, operator_id: int) -> int:
         )
         n += 1
     return n
+
+
+def resync_reservations(db: Session, order: Order, operator_id: int) -> int:
+    """订单**行变了之后**把预占重算到与当前订单行一致（返回补写的流水条数）。
+
+    ## 为什么必须有这个函数（2026-09-19 审计，生产同样成立）
+    预占是在**派单那一刻**按当时的订单行生成的（`auto_stock_out`），而实扣发生在送达时、
+    且 `auto_stock_commit` 是**按流水**扣的（`prod.stock += m.change`），**从不读订单行**。
+    两边一旦分叉，库存就永久错账，而且全程 200、没有任何报错：
+      · 派单后把某行数量 2 改成 5 → 实扣 2（订单写 5）；
+      · 派单后**加一行** → 新行没有预占流水 → 这件货**永远不扣库**；
+      · 派单后**删一行** → 流水还在 → 照扣一件不存在的货；
+      · 派单后**换商品** → 扣到旧商品头上、新商品不扣。
+    `_order_allows_line_edit` 是**故意**允许"待派单/派单中/已接单"改行的（司机还没出发时
+    改数量是真实需求），所以修法不是禁止改行，而是改完把预占补齐。
+
+    ## 判据（按商品逐一对账，而不是只看总数）
+    对每个商品：`目标预占 = -Σ该商品的订单行数量`，`现有预占 = Σ该单 RESERVED 流水的 change`；
+    差额补一条 RESERVED 流水。按商品对账才能处理"换商品/加行/删行"这三种形状。
+    """
+    ordered: dict[int, int] = {}
+    for op in _order_rows(db, order):
+        prod = _resolve_product(db, op)
+        if prod is None:
+            continue
+        ordered[prod.id] = ordered.get(prod.id, 0) + int(op.quantity or 0)
+
+    reserved: dict[int, int] = {}
+    rows = list(
+        db.scalars(
+            select(InventoryMovement).where(
+                InventoryMovement.order_id == order.id,
+                InventoryMovement.source == "ORDER",
+                InventoryMovement.status == "RESERVED",
+            )
+        )
+    )
+    for m in rows:
+        reserved[m.product_id] = reserved.get(m.product_id, 0) + int(m.change or 0)
+
+    written = 0
+    for pid in sorted(set(ordered) | set(reserved)):
+        want = -ordered.get(pid, 0)
+        have = reserved.get(pid, 0)
+        delta = want - have
+        if delta == 0:
+            continue
+        db.add(
+            InventoryMovement(
+                product_id=pid,
+                change=delta,
+                note="订单行变更后重算预占",
+                operator_id=operator_id,
+                source="ORDER",
+                order_id=order.id,
+                status="RESERVED",
+            )
+        )
+        written += 1
+    return written

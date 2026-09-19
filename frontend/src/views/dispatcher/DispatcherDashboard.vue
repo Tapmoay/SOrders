@@ -20,6 +20,8 @@ import {
 } from '@/api/stats'
 import { fetchUsers, type UserListItem } from '@/api/user'
 import { formatApiError } from '@/utils/apiError'
+import { ORDER_STATUS_LABEL } from '@/constants/order'
+import type { OrderStatus } from '@/types/order'
 import { formatMoney2 } from '@/utils/formatMoney'
 
 function pad(n: number) {
@@ -377,8 +379,8 @@ onUnmounted(() => {
       <van-cell-group v-else-if="activity" inset class="act">
         <van-cell title="下单次数" :value="String(activity.order_count)" />
         <van-cell title="已送达" :value="String(activity.delivered_count)" />
-        <van-cell title="总消费" :value="String(activity.total_spent)" />
-        <van-cell title="客单价(已送达)" :value="String(activity.avg_order_value)" />
+        <van-cell title="总消费" :value="`¥${formatMoney2(activity.total_spent)}`" />
+        <van-cell title="客单价(已送达)" :value="`¥${formatMoney2(activity.avg_order_value)}`" />
         <van-cell title="约每周下单" :value="formatMoney2(activity.orders_per_week)" />
         <van-cell title="常用商品" :label="activity.top_products.map((p) => p.product_name).join('、') || '—'" />
       </van-cell-group>
@@ -404,7 +406,8 @@ onUnmounted(() => {
       <template v-else>
         <van-cell-group v-for="ex in exceptions" :key="ex.id" inset class="ex">
           <van-cell :title="ex.order_no" :value="ex.order_date" />
-          <van-cell title="状态" :value="ex.status" />
+          <!-- 后端给的是状态码（DELIVERED…），直接印上去用户看不懂 -->
+          <van-cell title="状态" :value="ORDER_STATUS_LABEL[ex.status as OrderStatus] || ex.status" />
           <van-cell title="货主" :value="ex.shipper_name || '—'" />
           <van-cell title="司机" :value="ex.driver_name || '—'" />
           <van-cell title="原因" :label="ex.exception_reason || '—'" />
@@ -430,7 +433,7 @@ onUnmounted(() => {
       <van-cell-group v-else v-for="r in drillRows" :key="`${r.id}-${r.product_name}`" inset>
         <van-cell :title="r.order_no" :value="r.order_date" />
         <van-cell title="货主" :value="r.shipper_name || '—'" />
-        <van-cell title="数量 / 行金额" :value="`${r.quantity} / ${r.line_total}`" />
+        <van-cell title="数量 / 行金额" :value="`${r.quantity} / ¥${formatMoney2(r.line_total)}`" />
       </van-cell-group>
       <van-empty v-if="!drillLoading && !drillRows.length" description="无匹配行" />
     </van-popup>

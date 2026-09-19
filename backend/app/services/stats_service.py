@@ -8,9 +8,10 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.core.business_time import business_range_utc
 from app.models import DriverSettlement, Order, OrderProduct, User
 from app.models.enums import OrderStatus, SettlementStatus
-from app.services.driver_pay import has_per_order_pay, pay_for_order
+from app.services.driver_pay import has_per_order_pay, pay_for_order, snapshot_mode
 
 
 def _end_of_order_date(od: date) -> datetime:
@@ -63,15 +64,20 @@ def load_orders_by_delivered_at(
     date_from: date,
     date_to: date,
 ) -> list[Order]:
-    """按送达时间筛选（司机绩效）。"""
-    start = datetime.combine(date_from, time.min, tzinfo=timezone.utc)
-    end = datetime.combine(date_to, time(23, 59, 59), tzinfo=timezone.utc)
+    """按送达时间筛选（司机绩效）。
+
+    ⚠️ 区间是**业务当地日**，要换算成 UTC 再去比（2026-09-19 审计 R12-M11）：
+    原来把当地日期直接当 UTC 用（`datetime.combine(d, time.min, tzinfo=utc)`），
+    于是东八区当地 00:00~08:00 送达的单被排除在"今天"之外 ——
+    绩效页少算一截，而账面上没有任何异常。
+    """
+    start, end_exclusive = business_range_utc(date_from, date_to)
     q = (
         select(Order)
         .where(Order.status == OrderStatus.DELIVERED)
         .where(Order.delivered_at.is_not(None))
         .where(Order.delivered_at >= start)
-        .where(Order.delivered_at <= end)
+        .where(Order.delivered_at < end_exclusive)
         # 同上：软删的单不进司机绩效
         .where(Order.deleted_at.is_(None))
         .options(selectinload(Order.order_products), joinedload(Order.driver))
@@ -240,11 +246,20 @@ def driver_performance(
         photo_ok = sum(1 for x in os if _has_photos(x))
         photo_rate = photo_ok / completed if completed else 0.0
 
-        # 计费方式快照：取该司机最新订单的计费方式（无订单司机按用户表）
-        du_billing = (du.billing_mode or "").upper() if du else ""
-        if not du_billing:
-            snapshot_modes = {ode.driver_billing_mode_snapshot for ode in os if ode.driver_billing_mode_snapshot}
-            du_billing = (next(iter(snapshot_modes))).upper() if snapshot_modes else ""
+        # 计费方式：**只有一处实现**（`driver_pay.snapshot_mode`，2026-09-19 审计第十七轮）。
+        # ⛔ 原来先读 `users.billing_mode`、只有它为空才回落订单快照 —— 于是：
+        #    给一个 `billing_mode='SALARY'` 的司机挂上"每单 300 + 运费 5%"的计费规则
+        #    （车型对上、能挂上），新单照出账单、结算页照列出应得、结算单照收，
+        #    而**绩效与导出仍然说他是工资制、待结运费印"—"**（同一件事四句话）。
+        #    而"按不按单拿钱"的判据在 `snapshot_mode` 里已经写过一次（挂了规则看规则，
+        #    没挂规则看车型+模式），这里再抄一遍必然走散。
+        #
+        # ⚠️ 也不许"从窗口里的订单快照里随便取一个"：同一个窗口里他可能既有工资制时期的单、
+        #    又有挂上规则之后的单，取集合里任意一个都是**掷骰子**（实测：先跑一个工资制司机
+        #    的用例、再跑挂规则的用例，同一个断言时绿时红）。这里只答"他**现在**怎么算钱"，
+        #    历史单归历史单；而"有没有按单应付"由**每张单自己**的 `has_per_order_pay` 判。
+        du_billing = (snapshot_mode(du) if du is not None else "").upper()
+        has_piece_orders = any(has_per_order_pay(ode) for ode in os)
         # 计件司机：应结 = Σ**按规则算出来的**应付；已结 = 该司机已确认结算单(PAID)金额合计
         #
         # ⚠️ v3.36 起"应结"不再等于 Σ freight_fee：司机可能挂计费规则（每单固定/运费提成/商品提成），
@@ -252,7 +267,7 @@ def driver_performance(
         #    顺带修掉一个老口径不一致：这里原来把该司机**所有**已送达单的运费都算进去，
         #    而结算页是按**每张单的快照**筛的——他中途从工资制转成计件时，两边金额就对不上。
         freight_owed = None
-        if du_billing == "PIECE":
+        if du_billing == "PIECE" or has_piece_orders:
             total_freight = sum(
                 (pay_for_order(ode).total for ode in os if has_per_order_pay(ode)), Decimal("0")
             )

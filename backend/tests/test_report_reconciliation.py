@@ -24,8 +24,15 @@ from tests.conftest import auth_headers
 
 
 def _today_utc() -> str:
-    """报表按 `delivered_at.date()` 落窗口，而后端 `_now()` 是 UTC——锚点必须用 UTC 的今天。"""
-    return datetime.now(timezone.utc).date().isoformat()
+    """报表锚点 = **业务当地日**（2026-09-19 审计 R12-M11 之后）。
+
+    锚点原本按 UTC 取（"后端 `_now()` 是 UTC，所以窗口也得按 UTC 落"）——那是**实现细节泄漏到
+    契约里**：锚点来自用户（手机传 `LocalDate.now()`，就是当地的今天），所以分桶也必须按当地日。
+    不这么改的话，东八区当地 00:00~08:00 送达的单会被算进前一天，早上看日报是 0。
+    """
+    from app.core.business_time import business_today
+
+    return business_today().isoformat()
 
 
 def _turnover(client: TestClient, tok: str) -> dict:

@@ -58,9 +58,12 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "卡片不再回答「误操作了怎么办」",
         WR,
+        # ⚠️ 锚点跟着实现走（2026-09-19 第十四轮）：这一行现在是"按 isUndo 二选一"，
+        #    注入要打在**两种卡共用的那一行**上（只改 undoLineOf 那一支的话，
+        #    撤回卡本来就不走它 → 注入等于没做）。
         lambda s: s.replace(
-            "detailLines = detailLines + listOfNotNull(AiWrites.undoLineOf(actionId)),",
-            "detailLines = detailLines,",
+            "                detailLines = detailLines + listOfNotNull(lastLine),",
+            "                detailLines = detailLines,",
             1,
         ),
     ),
@@ -101,10 +104,34 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "警告行改回拼裸键（用户看到 address_lat 而不是「纬度」）",
         REVERT,
+        # 同上：改全部出现（这几行的形态一样，都在"警告行"这一族里）。
         lambda s: re.sub(
-            r'stuck \+= "\$\{res\.labels\[k\] \?: k\}：',
-            'stuck += "$k：',
+            r"\$\{cnOf\(res, entry\.id, k\)\}",
+            "$k",
             s,
+        ),
+    ),
+    (
+        "中文名解析器丢掉「动作声明的字段规格」这一档（payload 专用键又印成裸键）",
+        REVERT,
+        # 这一条对应真机抓到的那两行（`· change：5 → 撤回到 -5`、「· 「note」不写回」）：
+        # 资源表的 labels 只覆盖 readKeys，payload 里的 change/note 不在其中，
+        # 所以第二处来源（动作自己的字段规格）一去掉，那两个键就退回英文。
+        lambda s: re.sub(
+            r"res\.labels\[key\] \?: AiWrites\.byId\(actionId\)\?\.crud\?\.let \{ spec ->"
+            r"[\s\S]{0,220}?\} \?: key",
+            "res.labels[key] ?: key",
+            s,
+            count=1,
+        ),
+    ),
+    (
+        "「故意不写回旧值」的键连补写都没有（反向流水的原因空着）",
+        REVERT,
+        lambda s: s.replace(
+            "                entry.dropWrite[k]?.let { put(k, it) }\n",
+            "",
+            1,
         ),
     ),
     (

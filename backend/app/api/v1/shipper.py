@@ -10,8 +10,10 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.database import get_db
 from app.deps import require_roles
+from app.services.soft_delete import del_suffix, ensure_alive
 from app.models import ShipperAddress, ShipperContact, ShipperLocation, User
 from app.models.enums import UserRole
 from app.schemas.shipper import AddressCreate, AddressOut, AddressUpdate, ContactCreate, ContactOut, ContactUpdate, LocationCreate, LocationImageOut, LocationOut, LocationUpdate
@@ -100,6 +102,12 @@ def update_address(
     a = db.get(ShipperAddress, address_id)
     if a is None or a.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+
+    # 软删（回收站）里的行**不许再被改**（2026-09-19 审计）：删除是「伪装删除」（行还在库里），
+    # 于是这些端点会返回 200、改一条**用户已经看不见的线路** ——
+    # 界面上什么都没变，用户以为自己改的是另一条。
+    if getattr(a, "is_deleted", False):
+        raise HTTPException(status_code=400, detail="这条线路已经被删除了（在回收站里），不能修改")
     if body.is_default is True:
         _clear_defaults(db, current.id, except_id=address_id)
     if body.receiver_name is not None:
@@ -139,7 +147,7 @@ def delete_address(address_id: int, current: ShipperOrDispatcher, db: Session = 
         raise HTTPException(status_code=404, detail="未找到对应记录")
     # 伪装删除：只打标记，POST /addresses/{id}/restore 能原样返回（v3.26）
     a.is_deleted = True
-    a.deleted_at = datetime.now()
+    a.deleted_at = utc_now_naive()
     a.is_default = False
     db.commit()
 
@@ -164,6 +172,11 @@ def set_default_address(address_id: int, current: ShipperOrDispatcher, db: Sessi
     a = db.get(ShipperAddress, address_id)
     if a is None or a.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⚠️ 软删的地址**不能设成默认**（R11-F4）：`delete_address` 特意把 `is_default` 置 false
+    #    （防止默认标记留在看不见的行上），而这里能一句话把它设回去——
+    #    结果是"默认地址"落在一条列表里根本看不见的记录上：下单页取不到默认地址、
+    #    地址列表里一条带默认标记的都没有，而接口还回了一张"已设为默认"的卡。
+    ensure_alive(a, "地址", "POST /shipper/addresses/{id}/restore")
     _clear_defaults(db, current.id, except_id=address_id)
     a.is_default = True
     db.commit()
@@ -215,6 +228,12 @@ def update_contact(
     c = db.get(ShipperContact, contact_id)
     if c is None or c.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+
+    # 软删（回收站）里的行**不许再被改**（2026-09-19 审计）：删除是「伪装删除」（行还在库里），
+    # 于是这些端点会返回 200、改一条**用户已经看不见的联系人** ——
+    # 界面上什么都没变，用户以为自己改的是另一条。
+    if getattr(c, "is_deleted", False):
+        raise HTTPException(status_code=400, detail="这条联系人已经被删除了（在回收站里），不能修改")
     new_phone = body.phone.strip() if body.phone and body.phone.strip() else None
     if new_phone and new_phone != c.phone:
         dup = db.scalars(
@@ -313,6 +332,12 @@ def update_location(
     loc = db.get(ShipperLocation, location_id)
     if loc is None or loc.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+
+    # 软删（回收站）里的行**不许再被改**（2026-09-19 审计）：删除是「伪装删除」（行还在库里），
+    # 于是这些端点会返回 200、改一条**用户已经看不见的地点** ——
+    # 界面上什么都没变，用户以为自己改的是另一条。
+    if getattr(loc, "is_deleted", False):
+        raise HTTPException(status_code=400, detail="这条地点已经被删除了（在回收站里），不能修改")
     if body.name is not None:
         loc.name = body.name
     if body.detail_address is not None:
@@ -340,7 +365,7 @@ def delete_location(location_id: int, current: ShipperOrDispatcher, db: Session 
         raise HTTPException(status_code=404, detail="未找到对应记录")
     # 伪装删除：图片等字段原样留着，恢复时逐字段照搬（v3.26）
     loc.is_deleted = True
-    loc.deleted_at = datetime.now()
+    loc.deleted_at = utc_now_naive()
     db.commit()
 
 
@@ -368,8 +393,8 @@ def delete_contact(contact_id: int, current: ShipperOrDispatcher, db: Session = 
     # 这张表有 (shipper_id, phone) 唯一约束，不释放的话删掉再加同一个号会直接 500。
     # 和账号删除（users.py 的 _del{id} 后缀）是同一个套路。
     c.is_deleted = True
-    c.deleted_at = datetime.now()
-    c.phone = f"{c.phone}_del{c.id}"
+    c.deleted_at = utc_now_naive()
+    c.phone = del_suffix(c.phone, c.id, 32)   # shipper_contacts.phone 是 String(32)
     db.commit()
 
 

@@ -98,7 +98,12 @@ class SendNotificationHandler(
                 add("收件人：${who.label}")
                 add("标题：$title")
                 add("正文：$content")
-                if (important) add("标为重要：对方会收到语音播报")
+                // ⛔ 这句原来写「对方会收到语音播报」——**这是一句不会发生的事**
+                //    （2026-09-19 审计 R14-11）：全仓库 grep `speech_important`/`speechImportant`，
+                //    安卓侧只有 DTO 声明与这里的写入，**没有一处读取**；唯一的消费方是旧网页端。
+                //    于是派单员按卡片承诺以为司机手机把这句话喊出来了，实际司机很可能没看手机。
+                //    「承诺一件不会发生的事」正是本项目明令禁止的形状，所以改成如实说明。
+                if (important) add("标为重要：只会打上「重要」标记（新版 App 不会因此播语音，仍是普通提醒）")
                 add("———— 发出去之后 ————————")
                 add("对方会立刻收到一条推送（收不回来）")
             },
@@ -235,9 +240,40 @@ class MarkNotificationsReadHandler(
         )
     }
 
+    /** 逐条结果（[commitNote] 取走即清空）——见下面 commit 里的说明。 */
+    private var pendingNote: String? = null
+
+    override fun commitNote(): String? = pendingNote.also { pendingNote = null }
+
     override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
-        payload.req("ids").split(",").mapNotNull { it.trim().toLongOrNull() }
-            .forEach { ds.markNotificationRead(it) }
+        // ⚠️ 这是"一次确认 → N 个请求"的动作，必须**逐条**汇报结果（2026-09-19 审计）。
+        //    原来是一个 `forEach { ds.markNotificationRead(it) }`：中间任何一条失败
+        //    （例如那条消息在两次点击之间被另一台设备删掉 → 404）都会让异常冒泡到服务层，
+        //    用户看到的是**整体失败**——而实际上前面几条**已经标成已读了**。
+        //    与它对称的另一个病（"已完成"盖住失败行）在批量调价里也犯过，那里的解法是 `commitNote`，
+        //    这里照同一套写：全成功就说全成功，有失败就把**第几条、为什么**如实列出来。
+        val ids = payload.req("ids").split(",").mapNotNull { it.trim().toLongOrNull() }
+        val failed = mutableListOf<String>()
+        var done = 0
+        ids.forEachIndexed { i, id ->
+            try {
+                ds.markNotificationRead(id)
+                done += 1
+            } catch (e: Exception) {
+                failed += "第 ${i + 1} 条：${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+        pendingNote = when {
+            failed.isEmpty() -> "已标记 $done 条（全部成功）"
+            done == 0 -> "这 ${ids.size} 条「一条都没标上」：${failed.joinToString("；")}"
+            else -> "成功 $done 条、失败 ${failed.size} 条（${failed.joinToString("；")}）。" +
+                "失败的多半是那条消息已被别处删除，请刷新后看看还剩哪些未读。"
+        }
+        if (done == 0 && failed.isNotEmpty()) {
+            // 一条都没成功 = 这次动作**没有产生任何效果**：必须让它以失败结束，
+            // 否则用户看到的是"已完成"，而实际上什么都没变。
+            throw IllegalStateException(pendingNote)
+        }
     }
 }
 

@@ -7,15 +7,17 @@ import {
   appendDriverNote,
   completeOrderWithUpload,
   driverAckOrder,
-  fetchOrders,
+  fetchOrdersByStatuses,
 } from '@/api/orders'
 import { driverOrdersRefreshTick } from '@/driverRealtimeState'
+import { ORDER_STATUS_LABEL, orderStatusTagType } from '@/constants/order'
 import type { Order } from '@/types/order'
 import { openAmapNavigation } from '@/utils/amapNav'
 import VirtualScrollList from '@/components/VirtualScrollList.vue'
 import {
   bumpRetry,
   listOfflineQueue,
+  markNoteAppended,
   queueOfflineDelivery,
   removeOfflineQueueItem,
   setQueueItemError,
@@ -24,6 +26,15 @@ import {
 import { addWatermarkToBlob, buildDeliveryWatermarkLines } from '@/utils/watermark'
 
 const loading = ref(false)
+/** 服务端把这一页截断了（`X-Truncated`）：界面必须说出来，否则用户会以为「这就是全部」，据此判断某一单不存在 */
+const truncated = ref(false)
+/** 服务端本次的上限（`X-Result-Limit`）；读不到时为空 */
+const resultLimit = ref<number | null>(null)
+const truncatedText = computed(() => {
+  const n = resultLimit.value
+  const shown = n ? `最近 ${n} 条` : '一部分'
+  return `只显示了${shown}，可能还有更早的没有列出来 —— 请用搜索或时间范围缩小范围。`
+})
 const refreshing = ref(false)
 const orders = ref<Order[]>([])
 const queueCount = ref(0)
@@ -63,7 +74,14 @@ function ensureDraft(orderId: number) {
 async function loadOrders(forPull = false) {
   if (!forPull) loading.value = true
   try {
-    orders.value = await fetchOrders('ACCEPTED')
+    // ⚠️ 司机的「进行中」= **已派单（司机还没接）+ 已接单** 两档（2026-09-19 审计 H1）。
+    //    后端 `complete_delivery` 只认 ACCEPTED，所以「已派单」的单必须先点「接单」；
+    //    而这里原来只查 ACCEPTED → **新派来的单在 H5 上根本不出现**：司机看不到、接不了，
+    //    这一趟就卡死（派单员那边还以为已经派出去了）。
+    const page = await fetchOrdersByStatuses(['DISPATCHED', 'ACCEPTED'])
+    orders.value = page.items
+    truncated.value = page.truncated
+    resultLimit.value = page.limit
   } catch (e: unknown) {
     showFailToast((e as Error)?.message || '加载失败')
   } finally {
@@ -104,8 +122,13 @@ async function syncOfflineQueue() {
       )
       try {
         const note = (it.internalNoteAppend || '').trim()
-        if (note) {
+        // ⚠️ 重试是"整条重来"：上一次可能已经 append 成功、只是照片没传上去。
+        //    不看标记就再 append 一次 → 内部备注里同一句话出现两三遍，
+        //    而派单员正是靠内部备注判断现场发生了什么（2026-09-19 审计）。
+        if (note && !it.noteAppended) {
           await appendDriverNote(it.orderId, note)
+          // **先落标记再传照片**：顺序反了就等于没记（照片失败后重试仍会重复追加）
+          await markNoteAppended(it.id)
         }
         await completeOrderWithUpload(it.orderId, files, it.driverRemark, (p) => {
           uploadProgress.value = p
@@ -159,6 +182,24 @@ async function onAckNew(o: Order) {
     if (idx >= 0) orders.value[idx] = updated
   } catch {
     /* ignore */
+  }
+}
+
+/** 「已派单」那张卡上的唯一主行动：确认接单（后端 `POST /orders/{id}/driver-ack`）。 */
+async function ackOrder(o: Order) {
+  if (o.status !== 'DISPATCHED') return
+  showLoadingToast({ message: '接单中…', forbidClick: true, duration: 0 })
+  try {
+    const updated = await driverAckOrder(o.id)
+    const idx = orders.value.findIndex((x) => x.id === o.id)
+    if (idx >= 0) orders.value[idx] = updated
+    closeToast()
+    showSuccessToast('已接单')
+    await loadOrders(true)
+  } catch (e: unknown) {
+    closeToast()
+    const err = e as { response?: { data?: { detail?: string } } }
+    showFailToast(err.response?.data?.detail || '接单失败')
   }
 }
 
@@ -241,13 +282,18 @@ function onNavigate(o: Order) {
 
 async function complete(orderId: number) {
   const d = ensureDraft(orderId)
+  const current = orders.value.find((x) => x.id === orderId)
+  // 后端 `complete_delivery` 的状态门是 ACCEPTED：没接单就提交送达，只会拿到一句 400。
+  if (current && current.status !== 'ACCEPTED') {
+    showFailToast('请先点「接单」，接单后才能提交送达')
+    return
+  }
   if (!d.files.length) {
     showFailToast('请至少上传一张照片')
     return
   }
   const remark = d.remark || ''
   const pendingInternal = (noteDraft[orderId] || '').trim()
-  const current = orders.value.find((x) => x.id === orderId)
 
   if (!navigator.onLine) {
     const id = crypto.randomUUID()
@@ -364,6 +410,14 @@ onUnmounted(() => {
       />
     </van-cell-group>
 
+    <van-notice-bar
+      v-if="truncated"
+      left-icon="info-o"
+      wrapable
+      :scrollable="false"
+      :text="truncatedText"
+    />
+
     <van-pull-refresh v-model="refreshing" @refresh="onRefresh">
       <van-empty v-if="!loading && !orders.length" description="暂无未完成订单" />
       <VirtualScrollList v-else :items="orders" :estimate-size="420">
@@ -377,6 +431,9 @@ onUnmounted(() => {
           >
             {{ o.order_no }}
           </RouterLink>
+          <van-tag :type="orderStatusTagType(o.status)" plain>
+            {{ ORDER_STATUS_LABEL[o.status] }}
+          </van-tag>
           <van-icon v-if="o.is_new_for_driver" name="warning-o" class="new-ico" />
         </div>
         <div class="row">
@@ -391,7 +448,12 @@ onUnmounted(() => {
           <span class="label">商品</span>
           <span class="wrap">{{ productLine(o) }}</span>
         </div>
-        <div class="remark-photos-block">
+        <!-- 还没接单（已派单）：这一帧只有「接单」这一个动作。
+             送达照片/内部备注是接单之后的事——提前摆出来会让人以为现在就能提交。 -->
+        <div v-if="o.status === 'DISPATCHED'" class="pending-ack">
+          <div class="pending-ack__hint">这一单还没接单。接单后才会出现拍照送达的操作。</div>
+        </div>
+        <div v-else class="remark-photos-block">
           <div class="hp-row">
             <div class="hp-label">内部备注</div>
             <div class="hp-main">
@@ -435,6 +497,7 @@ onUnmounted(() => {
         </div>
 
         <van-field
+          v-if="o.status === 'ACCEPTED'"
           v-model="ensureDraft(o.id).remark"
           label="完成备注"
           placeholder="选填"
@@ -446,6 +509,15 @@ onUnmounted(() => {
             导航
           </van-button>
           <van-button
+            v-if="o.status === 'DISPATCHED'"
+            size="small"
+            type="primary"
+            @click="ackOrder(o)"
+          >
+            接单
+          </van-button>
+          <van-button
+            v-else
             size="small"
             type="success"
             :disabled="!ensureDraft(o.id).files.length"
@@ -517,6 +589,15 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.pending-ack {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--van-border-color, #ebedf0);
+}
+.pending-ack__hint {
+  font-size: 13px;
+  color: var(--van-warning-color, #ff976a);
 }
 .hp-row {
   display: flex;

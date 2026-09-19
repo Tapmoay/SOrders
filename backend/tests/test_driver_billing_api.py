@@ -385,7 +385,10 @@ def test_固定工资加提成_月薪单和按单账单是两张(
     )
     driver_id, _ = _mk_driver(client, token_dispatcher, vehicle="trailer")
     assert _attach(client, token_dispatcher, driver_id, rule["id"]).status_code == 200
-    month = "2031-07"   # 挑一个不可能有历史数据的月份，避免和别的用例互相污染
+    # ⚠️ 月份必须是**已经过去的**（或不晚于本月）：2026-09-19 审计 R13-D3 之后，
+    #    「未来的月份」被明确拒绝（9 月能造出 10 月的可支付工资单，而账单没有删除入口）。
+    #    这里挑一个不可能有历史数据的**过去**月份，避免和别的用例互相污染。
+    month = "2001-07"
     r = client.post(
         "/api/v1/driver-bills/generate",
         headers=auth_headers(token_dispatcher),

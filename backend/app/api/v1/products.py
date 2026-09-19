@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
@@ -46,6 +47,29 @@ def _sniff_image_mime(head: bytes) -> str | None:
     return None
 
 
+def product_out(p: Product, role_key: str) -> ProductOut:
+    """商品出参：**进价只给管商品的人看**（2026-09-19 审计 R12-H1）。
+
+    ### 为什么要有这个函数
+    `ProductOut.cost_price` 原来是**无条件下发**的，而
+    - `GET /products`（列表）货主与派单员都能调，
+    - `GET /products/{id}`（详情）**只要求登录**——连 `order:create` 都不要求，
+    于是司机也能拿到。实测：货主列表里每行都带 `cost_price`；司机 `GET /products/1`
+    返回 200 且带 `cost_price: 20.0000`（同一个司机打列表是 403，两个入口两个结论）。
+
+    后果不是"信息多一点"：进价是**报价体系的底牌**，客户拿到它就能算出每一单的加价空间，
+    谈判时直接压到成本线；而这条信息一旦发出去，**收不回来**。
+
+    ### 口径
+    只有持有 `product:manage` 的角色（派单员）看得到真实进价；其余角色拿到 `null`
+    （字段仍在，但值是"未披露"，不是 0——0 会被读成"这东西没成本"，那是个假数）。
+    """
+    out = ProductOut.model_validate(p)
+    if not role_has_permission(role_key, Permission.PRODUCT_MANAGE):
+        out.cost_price = None
+    return out
+
+
 @router.get("", response_model=list[ProductOut])
 def list_products(
     current: CurrentUser,
@@ -54,7 +78,7 @@ def list_products(
         False,
         description="含已下架商品（派单员价格管理、货主下单选品目录）",
     ),
-) -> list[Product]:
+) -> list[ProductOut]:
     rk = user_role_key(current)
     # 与全局 RBAC 一致：货主/派单员均可浏览商品目录；派单员在 role_has_permission 中一律放行
     if not role_has_permission(rk, Permission.ORDER_CREATE):
@@ -75,7 +99,7 @@ def list_products(
         # 空集合 = 真的什么都不给看（他自己选了自定义却没勾）——照做，不能退化成"全部"
         q = q.where(Product.id.in_(ids or {-1}))
     rows = db.scalars(q).all()
-    return list(rows)
+    return [product_out(p, rk) for p in rows]
 
 
 @router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
@@ -125,7 +149,7 @@ def create_product(
 @router.get("/{product_id}", response_model=ProductOut)
 def get_product(
     product_id: int, current: CurrentUser, db: Session = Depends(get_db)
-) -> Product:
+) -> ProductOut:
     p = db.get(Product, product_id)
     # 软删的商品对普通查询不可见（这正是"删掉了"该有的样子；要恢复走 /restore）
     if p is None or p.is_deleted:
@@ -134,7 +158,10 @@ def get_product(
     # 回 403 等于告诉他"有个你看不到的商品"，而白名单的意义就是让他看不到。
     if not product_visible_to(db, current, p.id):
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    return p
+    # ⚠️ 详情原来只要求"登录"，比列表还宽（列表至少要求 order:create）——
+    #    同一个司机打列表 403、打详情 200 且带进价（2026-09-19 审计 R12-H1 实测）。
+    #    这里不额外收紧"谁能看商品"（下单要看得见商品名和售价），只**按角色裁剪进价**。
+    return product_out(p, user_role_key(current))
 
 
 @router.patch("/{product_id}", response_model=ProductOut)
@@ -257,7 +284,7 @@ def delete_product(
     if p is None or p.is_deleted:
         raise HTTPException(status_code=404, detail="未找到对应记录")
     p.is_deleted = True
-    p.deleted_at = datetime.now()
+    p.deleted_at = utc_now_naive()
     p.is_active = False
     write_log(
         db,

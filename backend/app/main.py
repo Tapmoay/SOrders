@@ -9,7 +9,7 @@ import socketio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy.exc import DataError
+from sqlalchemy.exc import DataError, IntegrityError
 
 from app.api.v1.router import api_router
 from app.config import get_settings
@@ -22,7 +22,11 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 os.makedirs("uploads/delivery", exist_ok=True)
-os.makedirs("uploads/exports", exist_ok=True)
+# ⛔ **不再重建 `uploads/exports/`**（2026-09-19 审计 R12-A3）：导出产物已改到 `exports/`
+#    （不在公开静态目录之下）。而 `uploads/` 在生产是 nginx 用 alias **直出磁盘**的
+#    （`/etc/nginx/conf.d/sorders.conf` 的 `location /static/uploads/`），凡落在这个目录里的
+#    东西都是**匿名可下载**的。每次启动把这个空目录重建出来，等于给下一个往这里写文件的人
+#    留了个陷阱。（老文件的读取路径仍然保留：`ledger_export_paths.LEGACY_UPLOAD_EXPORTS`。）
 os.makedirs("uploads/products", exist_ok=True)
 
 
@@ -70,6 +74,17 @@ def create_fastapi_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # ⚠️ **浏览器只让脚本读"被显式暴露"的响应头**（2026-09-19 审计）：
+        #    列表接口把"这次是不是被截断了"写在 `X-Truncated` / `X-Result-Limit` 里
+        #    （响应体是裸数组，加不了元数据），而 `allow_headers` 只管**请求**头。
+        #    不写这一条时：同源部署（nginx 反代 / Vite 代理）读得到，
+        #    一旦把 H5 放到别的源上（`VITE_API_BASE_URL` 指到 API 域名），
+        #    axios 拿到的 `headers['x-truncated']` 是 `undefined` —— **界面永远是"没有更多了"**，
+        #    而这正是"派单员以为看到了全部订单"那条缺陷的静默版本。
+        #    清单由 `_tools/qa/_check_pagination_wiring.py` 从客户端源码算出来对账。
+        #    `Content-Disposition` 同理：导出下载要靠它取文件名
+        #    （不暴露就只能用一个兜底名，用户拿到 `ledger-export-7.xlsx`，看不出这是哪份账）。
+        expose_headers=["X-Truncated", "X-Result-Limit", "Content-Disposition"],
     )
 
     application.include_router(api_router, prefix=settings.api_v1_prefix)
@@ -109,13 +124,48 @@ def create_fastapi_app() -> FastAPI:
             content={"detail": "填写的内容超出可保存范围：数字太大或文字太长，请改小一些"},
         )
 
+    # 唯一约束冲突 → **409 + 中文**（2026-09-19 审计）。
+    #
+    # 为什么必须收口：全库原来**没有 IntegrityError 处理器**，于是任何唯一约束冲突都会变成
+    # `500 Internal Server Error`。而这类冲突恰恰是**正常业务**会遇到的：
+    #   · 同一车牌建两次（`vehicles.plate_no` 唯一）；
+    #   · 同一分类名建两次（`product_categories.name` 唯一）；
+    #   · 同一挂账单位名建两次（`arrears_units.name` 唯一）；
+    #   · 同一联系人电话建两次（`shipper_contacts` 的唯一约束）；
+    #   · **并发/双击**提交同一条记录（先查后插在并发下必然撞约束）。
+    # 用户看到"服务器内部错误"只会以为系统坏了、然后重试（把冲突刷得更多）；
+    # 而这里能给出的信息是明确的："这条已经存在了，改一个再试"。
+    @application.exception_handler(IntegrityError)
+    async def _integrity_error(_request: Request, exc: IntegrityError) -> JSONResponse:
+        logger.warning("唯一约束/外键冲突：%s", exc, exc_info=True)
+        text = str(getattr(exc, "orig", exc)).lower()
+        if "foreign key" in text or "1452" in text:
+            detail = "这条记录引用了不存在的关联数据（可能刚被别处删掉了），请刷新后重新选择"
+        elif "cannot be null" in text or "1048" in text:
+            detail = "有必填项没填"
+        else:
+            detail = "已经有一条一模一样的记录了（同名/同号/同电话不能重复），请换一个再试"
+        return JSONResponse(status_code=409, content={"detail": detail})
+
     @application.get("/static/uploads/{file_path:path}")
     def static_uploads(file_path: str):
         """静态文件服务（经应用层：防目录穿越；图片已由数据治理自动压缩归档）。
         客户端 URL 如 /static/uploads/delivery/{order_id}/{name}。"""
+        # ⛔ `exports/` 一律不给（2026-09-19 审计）：账本导出产物里是货主名/商品/单价/总额/订单号，
+        #    而这条路由**没有鉴权**（生产 nginx 还把 /static/uploads/ alias 直出磁盘）。
+        #    以前文件名是 `ledger_{货主id}_{任务id}.xlsx` 这种可枚举的小整数 → 匿名就能拖走别家账本。
+        #    产物现在写到 uploads **之外**的 `exports/`，只经带鉴权的
+        #    `GET /api/v1/ledger/export-jobs/{id}/download` 取；这里再堵一道历史文件。
+        if file_path.split("/", 1)[0] == "exports":
+            raise HTTPException(status_code=404, detail="文件不存在")
         base = Path("uploads").resolve()
         target = (base / file_path).resolve()
-        if not str(target).startswith(str(base)) or not target.is_file():
+        # ⚠️ 判据必须是**路径关系**，不能是字符串前缀（2026-09-19 审计 L-15）：
+        #    原来是 `str(target).startswith(str(base))`，而 `uploads_evil/…` 的前缀**就是** `uploads/`
+        #    的前缀 —— 于是 `/static/uploads/..%2Fuploads_evil%2Fx.txt`（点段被 `%2F` 编码后
+        #    路由不做归一）真的以 200 读到了 uploads 之外的兄弟目录（实测复现，见
+        #    `tests/test_audit_round24_hardening.py`）。`is_relative_to` 是按路径分量判的。
+        if not target.is_relative_to(base) or not target.is_file():
             raise HTTPException(status_code=404, detail="文件不存在")
         suffix = target.suffix.lower()
         media_type = {

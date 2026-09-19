@@ -80,6 +80,10 @@ data class AiAttachment(
     /**
      * chip 副标题：「商品清单 · 200 行 × 5 列」；多张表时写「3 张表 · 共 200 行」。
      * **截断在这里就要说出来**（"前 200 行 / 共 512 行"），因为这是用户唯一能看到的地方。
+     *
+     * ⚠️ `truncated` 现在有两种成因：**行**被截（`rows.size < rowCount`）与**列**被截
+     * （2026-09-19 审计 R14-10：后端 40 列以上是静默砍掉的，现在会置位并给 warning）。
+     * 所以这里不能一律写"只附了前 N 行"——列被截时行数是全的，那句话会把用户引到错的方向。
      */
     fun summary(): String {
         if (isImage) return listOf("图片", imageMeta).filter { it.isNotBlank() }.joinToString(" · ")
@@ -87,7 +91,12 @@ data class AiAttachment(
         if (tables.size == 1) {
             val t = tables[0]
             val head = t.name.take(12).ifBlank { "表 1" }
-            return "$head · ${t.rowCount} 行 × ${t.colCount} 列" + if (t.truncated) "（只附了前 ${t.rows.size} 行）" else ""
+            val cut = when {
+                !t.truncated -> ""
+                t.rows.size < t.rowCount -> "（只附了前 ${t.rows.size} 行）"
+                else -> "（列被截断了）"
+            }
+            return "$head · ${t.rowCount} 行 × ${t.colCount} 列" + cut
         }
         val cut = tables.any { it.truncated }
         return "${tables.size} 张表 · 共 ${tables.sumOf { it.rowCount }} 行" + if (cut) "（有表被截断）" else ""
@@ -181,10 +190,24 @@ data class AiAttachment(
             a.tables.forEachIndexed { ti, t ->
                 val label = if (a.tables.size > 1) "工作表「${t.name}」" else "内容"
                 sb.append("$label：${t.rowCount} 行 × ${t.colCount} 列")
-                if (t.truncated) sb.append("（**只附了前 ${t.rows.size} 行**，其余没有发给你）")
+                // 行被截才说"只附了前 N 行"；列被截时行是全的，说那句话会把模型引到错的方向
+                // （R14-10：后端 40 列以上会置位 truncated，具体砍了几列由下面的 warning 说）。
+                if (t.truncated) {
+                    sb.append(
+                        if (t.rows.size < t.rowCount) "（**只附了前 ${t.rows.size} 行**，其余没有发给你）"
+                        else "（**列没有全给你**，下面的 ⚠️ 写了砍掉几列）"
+                    )
+                }
                 sb.append("。列之间用 Tab 分隔，第一行通常是表头：\n")
                 val (tsv, shown) = renderTsv(t)
-                sb.append("```tsv\n").append(tsv).append("\n```\n")
+                // ⛔ 围栏长度必须**比表里最长的一段反引号还长**（2026-09-19 审计 R14-12）：
+                //    固定写 3 个反引号时，只要某个格子里就有三个反引号（用户挂的是**别人给的**
+                //    表格/文本——间接提示词注入最常见的入口），栅栏会被单元格内容提前闭合，
+                //    后面的文字就落在"数据栅栏之外"，从"只能当数据看"降级成"可以伪装成用户指令"。
+                //    CommonMark 的规则正好可用：闭合围栏必须**不短于**开启围栏，
+                //    所以只要开启围栏比内容里最长的反引号串更长，内容就永远闭合不了它。
+                val fence = fenceFor(tsv)
+                sb.append(fence).append("tsv\n").append(tsv).append("\n").append(fence).append("\n")
                 if (shown < t.rows.size) {
                     sb.append("（这一段按长度上限截断，实际只附了前 $shown 行）\n")
                 }
@@ -194,13 +217,31 @@ data class AiAttachment(
             return sb.toString()
         }
 
+        /** 内容里最长的一段连续反引号有多长（0 = 没有）。 */
+        internal fun longestBacktickRun(text: String): Int {
+            var best = 0
+            var cur = 0
+            for (ch in text) {
+                if (ch == '`') {
+                    cur++
+                    if (cur > best) best = cur
+                } else {
+                    cur = 0
+                }
+            }
+            return best
+        }
+
+        /** 一段内容该用多长的围栏：至少 3 个反引号，且**严格长于**内容里最长的反引号串。 */
+        internal fun fenceFor(text: String): String = "`".repeat(maxOf(3, longestBacktickRun(text) + 1))
+
         /**
          * 一张表 → TSV 文本。返回（文本, 真正放进去的行数）。
          *
          * 行数上限与**字符**上限是两个闸门，都要有：
          * 列少的表能放 200 行，列特别宽的表可能 20 行就到顶了。
          */
-        private fun renderTsv(t: Table): Pair<String, Int> {
+        internal fun renderTsv(t: Table): Pair<String, Int> {
             val sb = StringBuilder()
             var shown = 0
             for (row in t.rows) {

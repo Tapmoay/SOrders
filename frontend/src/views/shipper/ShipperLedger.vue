@@ -5,13 +5,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { shipperOrdersRefreshTick } from '@/shipperRealtimeState'
 
 import LedgerEntryTable from '@/components/LedgerEntryTable.vue'
-import {
-  createLedgerExportJob,
-  fetchLedgerEntries,
-  getLedgerExportJob,
-  type LedgerEntry,
-  type ExportFormat,
-} from '@/api/ledger'
+import { createLedgerExportJob, downloadLedgerExportFile, fetchLedgerEntries, getLedgerExportJob, type ExportFormat, type LedgerEntry } from '@/api/ledger'
 import { useAuthStore } from '@/stores/auth'
 import { formatMoney2 } from '@/utils/formatMoney'
 
@@ -32,11 +26,6 @@ const stats = computed(() => {
   }
   return { count: list.value.length, sum }
 })
-
-function fullFileUrl(path: string) {
-  if (path.startsWith('http')) return path
-  return `${window.location.origin}${path}`
-}
 
 async function load() {
   loading.value = true
@@ -102,8 +91,16 @@ async function runExport() {
           if (pollTimer) clearInterval(pollTimer)
           pollTimer = null
           exporting.value = false
-          window.open(fullFileUrl(j.file_path), '_blank', 'noopener,noreferrer')
-          showSuccessToast('导出完成')
+          // ⚠️ 必须**带 token 以 blob 取回**：`j.file_path` 是产物文件名（不是 URL），
+          //    拼成链接是 404；就算拼对了，window.open 也带不上 Authorization 头 → 401，
+          //    而界面照样弹「导出完成」= 用户以为导出成功、其实什么都没有。
+          try {
+            await downloadLedgerExportFile(job)
+            showSuccessToast('导出完成，已开始下载')
+          } catch (e: unknown) {
+            const err = e as { response?: { data?: { detail?: string } } }
+            showFailToast(err.response?.data?.detail || '下载失败（文件可能已被清理）')
+          }
         } else if (j.status === 'failed') {
           if (pollTimer) clearInterval(pollTimer)
           pollTimer = null

@@ -27,6 +27,12 @@ class UserOut(BaseModel):
     driver_rule_id: int | None = None
     driver_rule_name: str = ""
     pay_summary: str = ""
+    # 「他按不按单拿钱」——决定派单端**要不要给这个司机显示运费框**。
+    # ⛔ 与账单同一个判据（`driver_pay.snapshot_mode`，规则优先），客户端**不许**自己按
+    #    车型/`billing_mode` 猜：猜错的表现是运费框不显示 → 运费为空 → 提成型的规则算成 0
+    #    → 送达时 `pay.total <= 0` **连账单都不生成**（2026-09-19 全项目报告 P0-3）。
+    #    None = 非司机（这个字段对他没有意义）。
+    pays_per_order: bool | None = None
     created_at: datetime
 
 

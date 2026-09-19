@@ -37,6 +37,10 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
+#: 金钱字段的上限（与 `schemas/money.py::MONEY_MAX` 同一个数：列宽 Numeric(12,2)）。
+#: 逐单覆盖值的上界判据要用它（见 `override_problem`）。
+MONEY_MAX = Decimal("9999999999.99")
+
 ZERO = Decimal("0.00")
 _CENT = Decimal("0.01")
 
@@ -308,6 +312,14 @@ def override_problem(rule: PayRule | None, *, piece_override=None, rate_override
         )
     if money(piece_override) < 0:
         return "这一单的司机金额不能是负数"
+    # ⚠️ **上界**（2026-09-19 审计 R12-L6）：原来只有下界，而 `driver_piece_amount` 是
+    #    逐单覆盖值里**唯一没有上界**的一个——它被 `schemas/money.py` 的 `NOT_MONEY`
+    #    排除在通用容量检查之外（注释说"范围判据在 override_problem"，那句话当时只兑现了一半），
+    #    于是 1e20 能被本机 SQLite 原样收下（生产 `Numeric(12,2)` 会 `Out of range` → 500），
+    #    送达时还会带着这个数生成账单、结算单、现金流水——一条链全炸。
+    #    这里补上界，与 `MoneyInput` 的 MONEY_MAX 同一个数（列宽 Numeric(12,2) 的上限）。
+    if money(piece_override) > MONEY_MAX:
+        return f"这一单的司机金额不能超过 {MONEY_MAX} 元（金钱字段的上限）"
     if rate_override is not None:
         if rule.commission_base == "none":
             return (

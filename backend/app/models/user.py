@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -18,6 +18,17 @@ if TYPE_CHECKING:
 
 
 class User(Base, TimestampMixin):
+    """账号。
+
+    `token_version`（2026-09-19 审计补）：**服务端撤销令牌**的唯一凭据。
+    令牌里带签发时的版本号，`deps.get_current_user` 每次都拿它和库里的比 ——
+    改密码 / 停用 / 删除 / 主动登出时把这一列 +1，那些旧令牌立刻失效。
+    没有它的时候：用户丢了手机、或密码泄漏后改了密码，**旧令牌照样能用满 24 小时**
+    （"改密码"这个最自然的止损动作在有效期内完全无效）。
+    老库由 `schema_bootstrap` 补列、默认 0；老令牌里没有这个 claim 也按 0 处理
+    → **升级不会把所有人踢下线**。
+    """
+
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -27,6 +38,11 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(128), default="")
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    #: 令牌版本（服务端撤销用）。改密码 / 停用 / 删除 / 登出时 +1 →
+    #: 已发出的旧令牌在下一次请求就失效（见 `deps.get_current_user`）。
+    #: 老库由 `schema_bootstrap` 补列、默认 0；老令牌没有这个 claim 也按 0 处理。
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # 司机画像（仅司机有意义）：small小车/large大车/trailer挂车
     vehicle_type: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     # 计费方式：salary固定工资/piece按单计费（挂车默认按单，可独立设置）

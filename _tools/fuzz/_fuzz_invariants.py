@@ -78,6 +78,20 @@ def check_ic(rep: Report, title: str, bad_sql: str, total_sql: str | None = None
         except Exception:
             total = None
     if not bad:
+        # ⚠️ 「0 行」有两种含义，必须分开（2026-09-19 审计）：
+        #    ① 真的没问题；② **判据在空转**——SQL 里的字面量跟库里的值对不上，
+        #    于是它永远扫 0 行、永远报绿。本仓真实发生过：5 条订单状态判据写成小写
+        #    （`'delivered'`/`'dispatched'`/`'acked'`），而库里是大写 `DELIVERED`/`DISPATCHED`/`ACCEPTED`
+        #    （SQLite 的 TEXT 等值默认区分大小写；生产 MySQL 是 ci 排序规则 → **只在本地失效**，
+        #    而本地正是所有探针跑的地方）。改对大小写后立刻命中真缺陷（订单 581 账本重复行）。
+        #    所以这里把"扫了 0 行"当成必须解释的信号，而不是 OK。
+        if total == 0:
+            rep.risk(
+                f"判据空转（扫了 0 行，等于没查）：{title}",
+                f"总数 SQL = {total_sql!r} 返回 0 —— 要么这段数据真的没有，要么字面量与库里的值对不上"
+                "（最常见：枚举大小写）。请核对后把这条判据删掉或改对，别让它一直绿着。",
+            )
+            return
         rep.ok(f"{title}（检查 {total if total is not None else '?'} 行）")
         return
     if total is not None and len(bad) >= total and total > 0:
@@ -96,7 +110,15 @@ def check_ic(rep: Report, title: str, bad_sql: str, total_sql: str | None = None
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=5)
-    lim = ap.parse_args().limit
+    #: `--check`：**这个脚本在必跑清单里的唯一凭据**（`_tools/qa/_check_all.py` 的清单是自己算的：
+    #:  `_check_*.py` 或声明了 `--check` 的脚本）。它的名字不叫 `_check_*`，所以以前**根本不在必跑组里**——
+    #:  后果是它明明能抓到真缺陷（账本重复行、库存重复出库、撤销单没有撤销时间），却因为"没人手动跑它"
+    #:  而长期是绿的：先是 5 条判据因大小写恒扫 0 行，再是没人跑。两条叠在一起 = 没有检查。
+    ap.add_argument("--check", action="store_true",
+                    help="检查模式（同默认行为：有任何确认缺陷就以非零退出，供 _check_all.py 调用）")
+    ap.add_argument("--check-mode", action="store_true", help=argparse.SUPPRESS)
+    a = ap.parse_args()
+    lim = a.limit
 
     rep = Report("数据不变式审计：钱 / 库存 / 状态 / 单据还对不对得上", module="_fuzz_invariants")
     n_orders = db_q("select count(*) from orders")[0][0]
@@ -174,11 +196,11 @@ def main() -> int:
              "select o.id, o.order_no, o.status, "
              "(select coalesce(sum(l.total),0) from ledgers l where l.order_id=o.id) net, "
              "(select coalesce(sum(p.line_total),0) from order_products p where p.order_id=o.id) want "
-             "from orders o where o.status='delivered' and o.deleted_at is null and exists "
+             "from orders o where upper(o.status)='DELIVERED' and o.deleted_at is null and exists "
              "(select 1 from ledgers l where l.order_id=o.id) and "
              "abs((select coalesce(sum(l.total),0) from ledgers l where l.order_id=o.id) - "
              "(select coalesce(sum(p.line_total),0) from order_products p where p.order_id=o.id)) > 0.01",
-             "select count(*) from orders where status='delivered'", limit=lim)
+             "select count(*) from orders where upper(status)='DELIVERED'", limit=lim)
 
     # ---------------------------------------------------------------- 收款 vs paid
     rep.section("收款与 paid 标记")
@@ -201,21 +223,21 @@ def main() -> int:
     rep.section("司机结算单")
     check_ic(rep, "已结算账单没有挂结算单号",
              "select id, driver_id, month, status from driver_bills "
-             "where status='settled' and (settled_doc_id is null or settled_doc_id=0)",
-             "select count(*) from driver_bills where status='settled'", limit=lim)
+             "where upper(status)='SETTLED' and (settled_doc_id is null or settled_doc_id=0)",
+             "select count(*) from driver_bills where upper(status)='SETTLED'", limit=lim)
     check_ic(rep, "未结算账单却挂着结算单号",
              "select id, driver_id, month, status, settled_doc_id from driver_bills "
-             "where status='open' and settled_doc_id is not null",
-             "select count(*) from driver_bills where status='open'", limit=lim)
+             "where upper(status)='OPEN' and settled_doc_id is not null",
+             "select count(*) from driver_bills where upper(status)='OPEN'", limit=lim)
     check_ic(rep, "结算单金额与明细合计对不上（已确认/已付款的单）",
              "select s.id, s.amount, s.status, "
              "(select coalesce(sum(b.amount),0) from driver_bills b where b.settled_doc_id=s.id) want, "
              "(select count(*) from driver_bills b where b.settled_doc_id=s.id) n_bills "
-             "from driver_settlements s where s.status in ('confirmed','paid') and "
+             "from driver_settlements s where upper(s.status) in ('CONFIRMED', 'PAID') and "
              "exists (select 1 from driver_bills b where b.settled_doc_id=s.id) and "
              "abs(s.amount - (select coalesce(sum(b.amount),0) from driver_bills b "
              "where b.settled_doc_id=s.id)) > 0.01",
-             "select count(*) from driver_settlements where status in ('confirmed','paid')",
+             "select count(*) from driver_settlements where upper(status) in ('CONFIRMED', 'PAID')",
              limit=lim)
 
     # ---------------------------------------------------------------- 库存
@@ -226,14 +248,14 @@ def main() -> int:
     check_ic(rep, "已送达订单的出库数量与该单数量之和对不上",
              "select o.id, o.order_no, "
              "(select coalesce(sum(m.change),0) from inventory_movements m "
-             " where m.order_id=o.id and m.status='committed') mv, "
+             " where m.order_id=o.id and upper(m.status)='COMMITTED') mv, "
              "-(select coalesce(sum(p.quantity),0) from order_products p where p.order_id=o.id) want "
              "from orders o where exists (select 1 from inventory_movements m "
-             " where m.order_id=o.id and m.status='committed') and "
+             " where m.order_id=o.id and upper(m.status)='COMMITTED') and "
              "(select coalesce(sum(m.change),0) from inventory_movements m "
-             " where m.order_id=o.id and m.status='committed') != "
+             " where m.order_id=o.id and upper(m.status)='COMMITTED') != "
              "-(select coalesce(sum(p.quantity),0) from order_products p where p.order_id=o.id)",
-             "select count(distinct order_id) from inventory_movements where status='committed' "
+             "select count(distinct order_id) from inventory_movements where upper(status)='COMMITTED' "
              "and order_id is not null", limit=lim)
     check_ic(rep, "库存为负（超卖）", 
              "select id, name, stock from products where is_deleted=0 and stock < 0",
@@ -241,27 +263,27 @@ def main() -> int:
     check_ic(rep, "预占流水没有对应的撤销/实扣（订单已终结但仍 RESERVED）",
              "select m.id, m.order_id, m.change, m.status from inventory_movements m "
              "join orders o on o.id = m.order_id "
-             "where m.status='reserved' and o.status in ('cancelled','delivered','recalled')",
-             "select count(*) from inventory_movements where status='reserved'", limit=lim)
+             "where upper(m.status)='RESERVED' and upper(o.status) in ('CANCELLED', 'DELIVERED', 'RECALLED')",
+             "select count(*) from inventory_movements where upper(status)='RESERVED'", limit=lim)
 
     # ---------------------------------------------------------------- 状态机一致性
     rep.section("状态与时间戳/字段的对应")
     check_ic(rep, "已送达但没有送达时间",
              "select id, order_no, status, delivered_at from orders "
-             "where status='delivered' and delivered_at is null",
-             "select count(*) from orders where status='delivered'", limit=lim)
+             "where upper(status)='DELIVERED' and delivered_at is null",
+             "select count(*) from orders where upper(status)='DELIVERED'", limit=lim)
     check_ic(rep, "派单中/已接单但没有司机",
              "select id, order_no, status, driver_id from orders "
-             "where status in ('dispatched','acked') and driver_id is null",
-             "select count(*) from orders where status in ('dispatched','acked')", limit=lim)
+             "where upper(status) in ('DISPATCHED', 'ACKED') and driver_id is null",
+             "select count(*) from orders where upper(status) in ('DISPATCHED', 'ACKED')", limit=lim)
     check_ic(rep, "待派单却已经有司机",
              "select id, order_no, status, driver_id from orders "
-             "where status='pending_dispatch' and driver_id is not null",
-             "select count(*) from orders where status='pending_dispatch'", limit=lim)
+             "where upper(status)='PENDING_DISPATCH' and driver_id is not null",
+             "select count(*) from orders where upper(status)='PENDING_DISPATCH'", limit=lim)
     check_ic(rep, "已撤销但没有撤销时间",
              "select id, order_no, status, cancelled_at from orders "
-             "where status='cancelled' and cancelled_at is null",
-             "select count(*) from orders where status='cancelled'", limit=lim)
+             "where upper(status)='CANCELLED' and cancelled_at is null",
+             "select count(*) from orders where upper(status)='CANCELLED'", limit=lim)
     check_ic(rep, "既已送达又有撤销时间",
              "select id, order_no, status, delivered_at, cancelled_at from orders "
              "where delivered_at is not null and cancelled_at is not null", None, limit=lim, kind="info")
@@ -310,9 +332,9 @@ def main() -> int:
     #    `_tools/qa/_repair_orphan_settlement.py` 处置掉。
     check_ic(rep, "已确认/已付款结算单在库里没有任何关联明细",
              "select s.id, s.driver_id, s.month, s.amount, s.status, s.note from driver_settlements s "
-             "where s.status in ('confirmed','paid') and not exists "
+             "where upper(s.status) in ('CONFIRMED', 'PAID') and not exists "
              "(select 1 from driver_bills b where b.settled_doc_id = s.id)",
-             "select count(*) from driver_settlements where status in ('confirmed','paid')",
+             "select count(*) from driver_settlements where upper(status) in ('CONFIRMED', 'PAID')",
              limit=lim)
 
     return rep.finish()
