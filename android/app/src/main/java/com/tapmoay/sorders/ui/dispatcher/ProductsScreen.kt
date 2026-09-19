@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -507,7 +506,7 @@ fun ProductsScreen(
     }
 
 /**
- * 商品卡：**一眼看完"卖多少钱、进价多少、还剩多少、属于哪一类"**，动作收进右上角「⋮」。
+ * 商品卡：**一眼看完"卖多少钱、还剩多少"**，动作收进右上角「⋮」、快捷改价在它下面。
  *
  * ## 为什么三个按钮收进菜单（用户 2026-09-19）
  * 原话：「红色框的也就是右边 3 个按钮太占位置了，把在保证按钮性的同时，又让他不占位子」。
@@ -518,17 +517,18 @@ fun ProductsScreen(
  * ## 信息为什么用"图标 + 语义色"（用户 2026-09-19）
  * 原话：「那些信息是在商品管理中非常重要的，不一定非要等编辑才能看得到，
  * 我们要用对应的语义色和图标在它的名字的下面进行显示，让人一眼就能看出来」。
- * 所以四个数各自带图标与颜色 —— 扫一眼按颜色定位，不必读完整行字：
  *
- * | 信息 | 颜色 | 图标 | 为什么是这个色 |
+ * | 信息 | 颜色 | 图标 | 为什么是这个色 / 为什么在卡上 |
  * |---|---|---|---|
  * | 售价 | 金橙 `MoneyOrange` | `Sell` | 系统里"钱"的语义色（账本/报表/小计同色） |
- * | 成本 | 中性灰 `#8A8A8E` | `Payments` | 它**也是钱**，但颜色在这里的作用是区分"对外的价"和"对内的成本"：两个都染橙的话，用户得读完字才知道哪个是卖价。成本不参与报价，中性灰最不容易看错 |
  * | 库存 | 蓝青 `#00BCD4`（= 库存管理模块色） | `Inventory2` | 跨端同功能同色：这个数字属于库存管理 |
- * | 分类 | 紫 `ProductPurple` | `Category` | 商品管理的模块色；**未分类**用提醒黄 —— 它是个待办（会让选品页多出一格） |
  *
  * ⚠️ **库存还会按状态变色**：0 → 红（没货了）、≤ 报警阈值 → 黄。这两个颜色不是装饰，
  * 是"这一行要你处理"的信号：派单员扫列表时靠它决定先看哪几个。
+ *
+ * ⛔ **成本价与分类都不在卡上**（都是用户 2026-09-19 明确要求去掉的）：
+ * 成本是内部数、不参与对客户报价，只在「⋮ → 编辑」里看和改；
+ * 分类已经由**左边那根导航条**表达，同一件事在一屏说两遍只占地方。
  */
 @Composable
 private fun ProductCard(
@@ -638,6 +638,12 @@ private fun ProductCard(
                 }
                 }
                 // 「改价」：只改默认售价（用户要的快捷入口，见上面那段注释）
+                //
+                // ⚠️ 颜色用**商品管理的语义色紫**，不是钱的橙（用户 2026-09-19：
+                //    「那个改价的按钮换个颜色，它与那个售价的颜色撞了一个色，换语义颜色」）——
+                //    同一个卡片上「售价」那个数字已经是 `MoneyOrange`，再拿它染按钮就撞了；
+                //    而这个按钮是**商品管理里的一个操作**，用模块色（`ProductPurple`）正好，
+                //    紫色本来还被卡片上的分类 chip 占着，分类去掉之后这块色就空出来了。
                 Column(
                     Modifier
                         .clip(MaterialTheme.shapes.small)
@@ -648,10 +654,10 @@ private fun ProductCard(
                     Icon(
                         Icons.Default.CurrencyYuan,
                         contentDescription = "改价",
-                        tint = Color(MoneyOrange),
+                        tint = Color(ProductPurple),
                         modifier = Modifier.size(18.dp),
                     )
-                    Text("改价", style = MaterialTheme.typography.labelSmall, color = Color(MoneyOrange))
+                    Text("改价", style = MaterialTheme.typography.labelSmall, color = Color(ProductPurple))
                 }
             }
         }
@@ -714,26 +720,25 @@ private fun QuickPriceDialog(
 }
 
 /**
- * 商品卡上那三个关键数字（图标 + 语义色）。配色依据见 [ProductCard] 的注释。
+ * 商品卡上那两个数字（图标 + 语义色），**一个一行**。
  *
- * ⚠️ **刻意没有「分类」这一项**（2026-09-19 用户要求）：分类已经由**左边那根导航条**表达了
- * （「这个商品管理也做成选择商品的那种界面，左边是分类右边是商品」→
- * 紧接着：「既然已经在左边显示了分类，那右边的商品就不需要显示分类了」）。
- * 同一件事在一屏里说两遍，除了占地方没有别的用。
- * 代价要说清：**「全部」那一档下，卡片上就看不出每件商品属于哪一类了** ——
- * 想知道归属就点左边对应的分类（那正是那根导航条存在的意义）。
+ * ## 为什么一个一行（用户 2026-09-19）
+ * 原话：「那个库存……在成本价的后面，这个不要有，他们全在成本价的下面」——
+ * 原来用 `FlowRow` 流式排列，`成本 ¥0.00` 短的时候 `库存` 会被挤到**同一行**、
+ * 长的时候又自己换行，于是**每张卡长得都不一样**（列表看起来是毛的）。
+ * 现在固定一行一个：既不会出现"这个挤一起、那个换行"，数字也**在竖直方向对齐成一列**，
+ * 扫一列价格比扫一片流式文本快得多。
+ *
+ * ## 为什么没有「成本」（同一天用户要求）
+ * 原话：「商品管理界面不要有成本价的显示，成本价是要在编辑里面才会有」。
+ * 成本是**内部数**，不参与对客户报价，放在每天扫的列表里只是噪音；
+ * 要看/要改都在「⋮ → 编辑」，进货时也能顺手改（见库存页的「进货价」）。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProductFacts(p: ProductDto) {
     val unit = p.unit.ifBlank { "件" }
-    FlowRow(
-        Modifier.fillMaxWidth().padding(top = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Fact(Icons.Default.Sell, "售价", "¥" + formatMoney(p.defaultUnitPrice) + "/" + unit, Color(MoneyOrange))
-        Fact(Icons.Default.Payments, "成本", "¥" + formatMoney(p.costPrice), Color(0xFF8A8A8E))
         Fact(Icons.Default.Inventory2, "库存", "${p.stock} $unit", stockColor(p))
     }
 }

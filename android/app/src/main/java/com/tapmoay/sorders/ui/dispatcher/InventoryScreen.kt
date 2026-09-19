@@ -118,6 +118,27 @@ fun InventoryScreen(
                         placeholder = "备注（如供应商/用途）",
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // 进货价：**只在入库时给**（用户 2026-09-19：「包括进货的时候也要输入成本价，
+                    // 因为可能这个时间的进货和那个时间进货的成本价是不一样的」）。
+                    // 填了会把商品成本价一起更新（毛利按它算）；不填就只动库存。
+                    if (vm.movementInbound) {
+                        Spacer(Modifier.height(8.dp))
+                        SoTextField(
+                            vm.movementCost,
+                            // 单价规则唯一实现在 core/InputRules.kt（4 位小数：成本价列是 Numeric(14,4)）
+                            { vm.movementCost = InputRules.priceInput(it) },
+                            placeholder = "进货价（选填，￥/单位）",
+                            keyboardType = KeyboardType.Decimal,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "填了就同时把商品的成本价更新成这个价（毛利按成本价算）；" +
+                                "不填只改库存，成本价不动。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (!vm.movementInbound) {
                         Spacer(Modifier.height(6.dp))
                         Text(

@@ -739,6 +739,19 @@ data class InventoryMovementCreateRequest(
     @SerialName("product_id") val productId: Long,
     val change: Int,
     val note: String = "",
+    /**
+     * 本次**进货价**（选填，只在入库时有意义）。
+     *
+     * 用户 2026-09-19：「成本价也是可以进行调整的，包括进货的时候也要输入成本价，
+     * 因为可能这个时间的进货和那个时间进货的成本价是不一样的」。
+     *
+     * 填了后端就把商品的 `cost_price` 更新成它（商品成本 = **最近一次进货价**，
+     * 订单在下单时把当时的成本定格成快照，毛利据此算）。不填就只动库存、不碰成本。
+     * ⚠️ 这是近似口径，不是分批成本（FIFO/加权）—— 别把它当"这批货的成本"。
+     */
+    @SerialName("unit_cost")
+    @Serializable(with = NullableFlexibleStringSerializer::class)
+    val unitCost: String? = null,
 )
 
 @Serializable

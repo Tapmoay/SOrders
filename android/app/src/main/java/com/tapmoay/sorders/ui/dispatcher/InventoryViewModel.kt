@@ -46,6 +46,13 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
     var movementInbound by mutableStateOf(true)
     var movementQty by mutableStateOf("")
     var movementNote by mutableStateOf("")
+    /**
+     * 本次**进货价**（只对入库有意义，选填）。
+     *
+     * 用户 2026-09-19：「包括进货的时候也要输入成本价，因为可能这个时间的进货和
+     * 那个时间进货的成本价是不一样的」。填了会把商品成本价一起更新（见请求体注释）。
+     */
+    var movementCost by mutableStateOf("")
 
     init {
         load()
@@ -93,6 +100,7 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
         movementInbound = inbound
         movementQty = ""
         movementNote = ""
+        movementCost = ""
         showMovementDialog = true
     }
 
@@ -103,15 +111,22 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
             error = "请输入大于 0 的整数数量"
             return
         }
+        // 进货价只在入库时看：出库带着它，后端会 400（"进货价只在入库时填"）
+        val cost = if (movementInbound) movementCost.trim().ifBlank { null } else null
+        if (cost != null && cost.toDoubleOrNull() == null) {
+            error = "进货价请填数字（最多四位小数）"
+            return
+        }
         acting = true
         error = null
         viewModelScope.launch {
             try {
                 val change = if (movementInbound) qty else -qty
                 container.repo.createMovement(
-                    InventoryMovementCreateRequest(p.id, change, movementNote.trim())
+                    InventoryMovementCreateRequest(p.id, change, movementNote.trim(), cost)
                 )
-                actionResult = (if (movementInbound) "入库 " else "出库 ") + qty + " " + p.name
+                actionResult = (if (movementInbound) "入库 " else "出库 ") + qty + " " + p.name +
+                    if (cost != null) "（进货价 ¥" + com.tapmoay.sorders.util.trimMoneyZeros(cost) + " 已更新成本价）" else ""
                 showMovementDialog = false
                 load()
             } catch (e: Exception) {

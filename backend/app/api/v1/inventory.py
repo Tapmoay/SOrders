@@ -1,5 +1,7 @@
 """库存管理（派单员）：出入库流水自动维护商品库存。"""
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.core.pagination import finish_page
@@ -73,9 +75,14 @@ def create_movement(
     """
     if body.change == 0:
         raise HTTPException(status_code=400, detail="变动数量不能为 0")
+    # 进货价只在**入库**时有意义：出库带价是"一个不会生效的参数"，宁可报错也不要收下
+    # （本项目最贵的一类坑就是"接受但静默无效"：界面填了、库里什么都没有）。
+    if body.unit_cost is not None and body.change < 0:
+        raise HTTPException(status_code=400, detail="进货价只在入库时填；出库不用填成本价")
     product = db.get(Product, body.product_id)
     if product is None:
         raise HTTPException(status_code=404, detail="商品不存在")
+    cost_before = product.cost_price
     res = db.execute(
         update(Product)
         .where(
@@ -103,6 +110,11 @@ def create_movement(
     # 复核用的权威值：从库里重新读回来（不要拿"算出来的那个数"去写日志）
     db.refresh(product)
     new_stock = product.stock or 0
+    # 进货价（选填）：填了就把商品成本价更新成它 —— 见 `MovementCreate.unit_cost` 的口径说明。
+    # ⚠️ 与库存加减在**同一个事务**里提交：不会出现"货进了、成本没改"或反过来。
+    cost_changed = body.unit_cost is not None and Decimal(body.unit_cost) != cost_before
+    if body.unit_cost is not None:
+        product.cost_price = Decimal(body.unit_cost)
     row = InventoryMovement(
         product_id=body.product_id,
         change=body.change,
@@ -115,18 +127,23 @@ def create_movement(
     # ⚠️ 库存调整**必须留痕**：它和改价是同一类事（改了钱/货的账，月底对不上要能回查）。
     #    这一条以前漏了——审计页上永远看不到谁把库存改了多少。
     #    与流水在**同一个事务**里提交，不会出现"货动了、日志没写"。
+    payload: dict = {
+        "product_id": product.id,
+        "name": product.name,
+        "change": body.change,
+        "stock_after": new_stock,
+        "note": body.note.strip(),
+    }
+    # 成本价变了就一起记（旧价→新价）：不然"这个月毛利怎么变了"在审计页上查不到原因
+    if cost_changed:
+        payload["cost_before"] = str(cost_before)
+        payload["cost_after"] = str(product.cost_price)
     write_log(
         db,
         operator_id=current.id,
         order_id=None,
         action=OperationAction.INVENTORY_ADJUST,
-        change_payload={
-            "product_id": product.id,
-            "name": product.name,
-            "change": body.change,
-            "stock_after": new_stock,
-            "note": body.note.strip(),
-        },
+        change_payload=payload,
     )
     db.commit()
     db.refresh(row)
