@@ -157,11 +157,23 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         loadPlaces()
     }
 
-    /** 地点分类名册（**自己那一份**）：地址库左栏除了固定的三段，还把自定义分类列出来。 */
-    fun reloadPlaceCategories() {
-        viewModelScope.launch {
-            try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {}
-        }
+    /**
+     * 地址库抽屉每次打开都刷一遍**抽屉里显示的那三份**：分组名册 / 线路 / 我的地点。
+     * （分组名册是"自己那一份"：货主和派单员各管各的，互相看不到。）
+     *
+     * ⚠️ 为什么必须刷：VM 挂在路由上随页面复用，而这四份数据只在 `init` 里各拉过一次。
+     * 用户去「地址与联系人」新建了一个地点、再回来下单 —— 抽屉里**还是进来时那一份**，
+     * 表现是"我刚建的地方这里选不到"（只能退出重进，而退出重进看起来跟"就是没有"一样）。
+     *
+     * ⚠️ 三份必须**一起**刷，所以只留这一个入口（原来只有 `reloadPlaceCategories`）：
+     * 分组**改名会在后端级联改掉挂着的地点的 `category`**，而本地的 `locations` 还带着旧名字 ——
+     * 只刷名册的话，点进那个刚改名的分组会显示「这个分组下还没有地点」（按新名字一条都筛不到），
+     * 而数据其实一条没少。这正是"只刷其中一段"会造出来的假象。
+     */
+    fun reloadAddressLibrary() {
+        viewModelScope.launch { try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {} }
+        viewModelScope.launch { try { addresses = container.repo.addresses() } catch (_: Exception) {} }
+        viewModelScope.launch { try { locations = container.repo.locations() } catch (_: Exception) {} }
     }
 
     /** 共享地点库（全库共用）。搜索时由界面调 `loadPlaces(q)`。 */

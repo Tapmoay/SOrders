@@ -241,9 +241,10 @@ fun OrderCreateScreen(
                         }
                         OutlinedButton(
                             onClick = {
-                                // 每次打开都刷一次分组名册：用户可能刚去「管理分组」建/改过，
-                                // 而 VM 是随页面复用的（回来时那份还是进来时拉的）。
-                                vm.reloadPlaceCategories()
+                                // 每次打开都刷一遍抽屉里那三份（分组名册 / 线路 / 我的地点）：
+                                // 用户可能刚去「管理分组」改过名，也可能刚去「地址与联系人」
+                                // 建过地点，而 VM 是随页面复用的（回来时那份还是进来时拉的）。
+                                vm.reloadAddressLibrary()
                                 vm.showAddressSheet = true
                             },
                             modifier = Modifier.weight(1f),
@@ -431,7 +432,7 @@ fun OrderCreateScreen(
             onPickLocation = { vm.applyLocation(it) },
             onPickPlace = { vm.applyPlace(it) },
             onSearchPlaces = { vm.loadPlaces(it) },
-            onCategoriesChanged = { vm.reloadPlaceCategories() },
+            onCategoriesChanged = { vm.reloadAddressLibrary() },
             onDismiss = { vm.showAddressSheet = false },
         )
     }
@@ -624,15 +625,27 @@ private fun AddressPickerSheet(
     // 「在这个界面当中管理分组的话，就在这个**红框**的位置。它跟左边那一个一个分组类别
     //   是一个**对齐**的状态。然后管理分组是一个**新的界面**吧」。
     // 所以「管理分组」是左栏里的一格（不是按钮、不是浮层），点它去新界面（与商品分类同一个做法）。
-    val catCounts = locations.groupingBy { it.category }.eachCount()
+    //
+    // ⛔ **一格都不带「N 条」**（用户 2026-09-19 看截图后点名）：「那个分组下面不要显示有多少条啊，
+    //    这是多余信息」。左栏回答的是"有哪几类"，条数回答的是"这一类里有多少个"——
+    //    后者点进去一眼就数得完；放左栏的代价是整列被撑成两行：`MasterRail` 的**行高是整列统一的**
+    //    （`twoLine = items.any { subtitle != null }`），只要有一格带副标题，六格全是 60dp、
+    //    五格的第二行空着。真机截图里那五行「8 条 / 9 条 / 3 条 / 0 条 / 0 条」就是这么来的。
+    // 同理「管理分组」那格也不再挂「新建 / 排序」：它是**去的地方**不是**数据**，
+    // 挂一行小字只会让"整列里独独这一格是两行"。
     val railItems = buildList {
-        add(RailItem("a", "线路", addresses.size.toString() + " 条"))
-        add(RailItem("l", "我的地点", locations.size.toString() + " 条"))
-        add(RailItem("p", "共享地点", places.size.toString() + " 条"))
-        categories.forEach { c ->
-            add(RailItem("c|" + c.name, c.name, (catCounts[c.name] ?: 0).toString() + " 条"))
-        }
-        add(RailItem("manage", "管理分组", "新建 / 排序"))
+        add(RailItem("a", "线路"))
+        add(RailItem("l", "我的地点"))
+        add(RailItem("p", "共享地点"))
+        categories.forEach { c -> add(RailItem("c|" + c.name, c.name)) }
+        add(RailItem("manage", "管理分组"))
+    }
+
+    // ⚠️ 分组被**改名/删掉**之后，左栏的选中项可能还指着一个已经不存在的老名字
+    //    （`sel` 是本地的，管理分组那一层改的是后端名册）——那时右栏按老名字一条都筛不到，
+    //    屏幕上看起来像"**这个分组是空的**"，而地点一条没少。所以名册一变就核对一次选中项。
+    LaunchedEffect(categories) {
+        if (sel.startsWith("c|") && categories.none { "c|" + it.name == sel }) sel = "l"
     }
 
     // 提示语在**调用之前**算好（不写成 `placeholder = when {...}`）：
@@ -859,8 +872,22 @@ private fun SheetRow(
                 fontWeight = if (isPlace) FontWeight.Bold else FontWeight.SemiBold,
                 color = headColor,
                 maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                // ⚠️ 标题**从尾部省略**（`StartEllipsis`），不是从头部。
+                //
+                // 地点标题常常**本身就是一串地址**（司机补录 / 共享地点进来的记录，
+                // name 就是详细地址），而这一屏的地址开头全是「北京市顺义区」——
+                // 真正区分彼此的只有**最后那一段**（村 / 小区 / 门牌）。
+                // 常规的尾部省略恰好把唯一有用的部分省掉：真机截图里八行全是
+                // 「北京市顺义...」，看八行等于没看。
+                // 用户 2026-09-19：「省略是可以的，但是你要**从后面往前显示**……
+                // 前面的前缀基本上不需要知道，所以那个最明显的那个有颜色的标题
+                // 应该是**最后面**的那个地点」。
+                overflow = androidx.compose.ui.text.style.TextOverflow.StartEllipsis,
+                // ⚠️ 标题**独占**剩下的宽度。原来是 `weight(1f, fill = false)` 后面跟着一个
+                //    `Spacer(Modifier.weight(1f))` —— 两个 1 权重把宽度**对半分**，
+                //    22 个汉字的地址在右栏里只放得下 7 个字。改成独占后（「有导航」/电话
+                //    都是不带权重的固有宽度，仍然贴右），同一行能多显示一倍的字。
+                modifier = Modifier.weight(1f),
             )
             if (!phone.isNullOrBlank()) {
                 Spacer(Modifier.width(10.dp))
@@ -873,8 +900,8 @@ private fun SheetRow(
                     maxLines = 1,
                 )
             }
-            Spacer(Modifier.weight(1f))
             if (hasCoords) {
+                Spacer(Modifier.width(8.dp))
                 Text(
                     "有导航",
                     style = MaterialTheme.typography.labelSmall,
