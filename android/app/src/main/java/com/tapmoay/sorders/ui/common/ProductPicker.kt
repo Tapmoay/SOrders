@@ -305,7 +305,18 @@ internal const val ALL_CATEGORY = "全部"
 internal const val NO_CATEGORY = "未分类"
 
 /** 一个商品属于哪个分类（空/纯空格 = 未分类）。 */
-internal fun categoryOf(p: ProductDto): String = p.category.trim().ifBlank { NO_CATEGORY }
+internal fun categoryOf(p: ProductDto): String = categoryNameOf(p.category)
+
+/**
+ * 同上，但直接吃**分类名**。
+ *
+ * 为什么要多这一层（2026-09-19）：库存管理页也改成了"左边分类、右边商品"，
+ * 而它手里的是 `InventorySummaryItemDto`（不是 `ProductDto`）。
+ * 让那一页自己去 trim/兜底的话，同屏两个页面就会出现"同一件商品在这里属于日化、
+ * 在那里属于未分类" —— 这正是这个文件顶上那段注释警告过的事。
+ * 所以判据拆成"名字 → 档位"（这里）与"商品 → 档位"（[categoryOf]）两层，**只有一份实现**。
+ */
+internal fun categoryNameOf(raw: String?): String = raw?.trim().orEmpty().ifBlank { NO_CATEGORY }
 
 /**
  * 分类清单：**由商品算出来**，不是手写枚举；**顺序由名册定**（派单员排过的那一列）。
@@ -319,9 +330,13 @@ internal fun categoryOf(p: ProductDto): String = p.category.trim().ifBlank { NO_
  * - 名册里**没有商品**的分类不出现（空页签是纯噪音；它会留在「分类管理」页里）；
  * - 「未分类」永远最后，且**只在真有正经分类时才出现**（全是未分类时它和「全部」内容一样）。
  */
-internal fun categoryTabs(products: List<ProductDto>, ordered: List<String> = emptyList()): List<String> {
+internal fun categoryTabs(products: List<ProductDto>, ordered: List<String> = emptyList()): List<String> =
+    categoryTabsOf(products.map { it.category }, ordered)
+
+/** [categoryTabs] 的"按分类名"入口 —— 库存页的行不是 `ProductDto`，用它。**同一份实现**。 */
+internal fun categoryTabsOf(names: List<String?>, ordered: List<String> = emptyList()): List<String> {
     val counts = linkedMapOf<String, Int>()
-    products.forEach { p -> counts[categoryOf(p)] = (counts[categoryOf(p)] ?: 0) + 1 }
+    names.forEach { n -> counts[categoryNameOf(n)] = (counts[categoryNameOf(n)] ?: 0) + 1 }
     val inRail = counts.keys.filter { it != NO_CATEGORY }.toSet()
     val out = mutableListOf(ALL_CATEGORY)
     // ① 名册顺序里、且真的有商品的

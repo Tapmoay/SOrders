@@ -3200,8 +3200,16 @@ def main() -> int:
     # ---- 分类：由商品算出来，不是手写枚举（手写清单必然过期）----
     # ⚠️ 锚在**计数那一句**上，不锚函数签名：只锚 `fun categoryTabs(...)` 的话，
     #    在函数第一行塞一个 `return listOf("全部","饮料")` 它照样绿（反向验证抓到）。
+    # ⚠️ 2026-09-19 这个锚点跟着实现搬过一次：库存页也改成"左边分类"之后，判据被拆成
+    #    `categoryOf`（商品→档位）与 `categoryNameOf`（名字→档位）两层，
+    #    计数那一句从 `products.forEach { p -> ... }` 变成 `names.forEach { n -> ... }`
+    #    （原来那一句所在的 `categoryTabs` 现在只是把商品映射成分类名再转交）。
+    #    **规则没变**（逐个商品数出来、不是写死的枚举），所以这里跟着改锚点，
+    #    而不是把规则放宽 —— 下面那条"只有一份实现"就是防止有人在新位置重写一份。
     c.present("分类清单**逐个商品数出来**（不是写死的枚举，商品管理加一类就多一格）",
-              picker, r"products\.forEach \{ p -> counts\[categoryOf\(p\)\]")
+              picker, r"names\.forEach \{ n -> counts\[categoryNameOf\(n\)\]")
+    c.present("分类清单**只有一份实现**（商品管理/库存/选品三页共用 categoryTabsOf）",
+              picker, r"categoryTabsOf\(products\.map \{ it\.category \}, ordered\)")
     c.present("分类栏是**独立滚动**的（换分类不会把右侧商品列表一起带走）",
               picker, r"fun CategoryRail\(")
     c.present("「未分类」只在真有正经分类时才出现（全是未分类时它是纯噪音）",

@@ -122,6 +122,11 @@ def create_movement(
         operator_id=current.id,
         source="MANUAL",
         status="COMMITTED",
+        # ⛔ 这一行是"毛利能不能算准"的关键：进货价必须**落在流水上**。
+        #    以前只拿去改商品的 `cost_price`，流水里什么都没留 ——
+        #    于是毛利只能用"最新一次进货价"当成本（进货价一涨、旧库存毛利就偏低）。
+        #    现在 `services/cost_basis.py` 拿这一列算加权平均进货价。
+        unit_cost=Decimal(body.unit_cost) if body.unit_cost is not None else None,
     )
     db.add(row)
     # ⚠️ 库存调整**必须留痕**：它和改价是同一类事（改了钱/货的账，月底对不上要能回查）。
@@ -187,6 +192,11 @@ def inventory_summary(
             "unit": p.unit or "件",
             "low_stock_alert": p.low_stock_alert or 0,
             "reserved": reserved_map.get(p.id, 0),
+            # 分类随行下发（2026-09-19）：库存页现在是"左边分类、右边商品"（用户要求与商品管理
+            # 版式一致），左边的分类导航条与"这个商品属于哪一类"必须和其他页面**同一份判据**。
+            # 这行以前没有，安卓侧只能再去拉一次全量商品列表自己 join —— 多一次请求，
+            # 而且商品列表要是少了一个（比如刚下架），那一行就会静默变成「未分类」。
+            "category": p.category or "",
         }
         for p in rows
     ]

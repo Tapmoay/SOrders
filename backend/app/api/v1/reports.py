@@ -17,6 +17,7 @@ from app.deps import require_permission
 from app.models import Order, OrderProduct, User
 from app.models.enums import OrderStatus
 from app.schemas.reports import ProductReportItem, ProductReportOut, ReportArrearsUnitItem, ReportSeriesItem, TurnoverReportOut
+from app.services.cost_basis import SNAPSHOT, CostBasis
 from app.services.driver_pay import has_per_order_pay, pay_for_order
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -88,6 +89,8 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
     start, end = _window(mode, anchor)
     days = _range_dates(start, end)
     orders = load_delivered(db)
+    # 成本口径**只有一处**（`services/cost_basis.py`）：本期的入库加权平均进货价。
+    basis = CostBasis(db, start, end)
     day_map: dict[str, ReportSeriesItem] = {}
     hour_amount: dict[int, Decimal] = {}
     hour_orders: dict[int, int] = {}
@@ -98,6 +101,9 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
     cost_covered_amount = Decimal("0")
     total_lines = 0
     cost_covered_lines = 0
+    # 参与毛利的行里，有多少行真的用了"入库加权平均进货价"、有多少行退回了下单快照
+    cost_avg_lines = 0
+    cost_snapshot_lines = 0
     damage_qty = 0
     damage_amount = Decimal("0")
     collected = Decimal("0")
@@ -134,17 +140,29 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         total_orders += 1
         for lp in o.order_products:
             total_lines += 1
-            cost = lp.cost_price_snapshot or Decimal("0")
+            # ⚠️ 成本 = **入库流水的加权平均进货价**（2026-09-19 用户要求，取代下单快照）。
+            #    快照是"下单那一刻的最新进货价"，进货价一涨，从旧库存出的货就被按高价算成本
+            #    → 毛利偏低。三级口径（期间均价 / 累计均价 / 下单快照兜底）与理由全写在
+            #    `services/cost_basis.py`，这里**不许**再自己写一份取成本的逻辑。
+            cost, basis_src = basis.of(lp.product_id, lp.cost_price_snapshot)
             if cost > 0:
                 cost_covered_lines += 1
                 cost_total += cost * Decimal(lp.quantity)
-                # 收入侧**只收有成本快照的行**（见 schemas/reports.py 里 cost_covered_amount 的注释）：
-                # 不这么写，没快照的行会以"0 成本"全额变成毛利。
+                # 收入侧**只收参与毛利的行**（见 schemas/reports.py 里 cost_covered_amount 的注释）：
+                # 不这么写，没成本的行会以"0 成本"全额变成毛利。
                 cost_covered_amount += lp.line_total or Decimal("0")
+                if basis_src == SNAPSHOT:
+                    cost_snapshot_lines += 1
+                else:
+                    cost_avg_lines += 1
             dq = lp.damage_quantity or 0
             if dq > 0:
                 damage_qty += dq
-                damage_amount += cost * Decimal(dq) if cost > 0 else Decimal("0")
+                # ⛔ 货损**故意**还是快照口径：送达那一刻就按当时的快照把损失金额写进了
+                #    开销账与现金流水（`accounting_service.apply_damage_accounting`），
+                #    那是一笔已入账的历史金额 —— 追溯改成均价会让账本和报表各说一套。
+                snap = lp.cost_price_snapshot or Decimal("0")
+                damage_amount += snap * Decimal(dq) if snap > 0 else Decimal("0")
         # ⚠️ 这笔钱**只有两个去处**：已收 / 还没收（挂账）。必须写成完整划分。
         #
         # 原来是两条带条件的判据（`cash 且已收` / `arrears 且未收`），于是
@@ -197,6 +215,8 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         "cost_covered_amount": cost_covered_amount,
         "total_lines": total_lines,
         "cost_covered_lines": cost_covered_lines,
+        "cost_avg_lines": cost_avg_lines,
+        "cost_snapshot_lines": cost_snapshot_lines,
         "damage_qty": damage_qty,
         "damage_amount": damage_amount,
         "collected": collected,
@@ -214,6 +234,8 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
     """商品经营聚合（含成本/货损），供接口与导出复用。"""
     d = anchor
     start, end = _window(mode, anchor)
+    # 成本口径与营业纵览**同一处**（`services/cost_basis.py`）：两页的毛利必须对得上
+    basis = CostBasis(db, start, end)
     agg: dict[str, ProductReportItem] = {}
     total_qty = 0
     total_amount = Decimal("0")
@@ -223,6 +245,8 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
     total_lines = 0
     cost_covered_lines = 0
     cost_covered_amount = Decimal("0")
+    cost_avg_lines = 0
+    cost_snapshot_lines = 0
     for o in load_delivered(db):
         ds = business_date(o.delivered_at)
         if ds is None or ds < start or ds > end:
@@ -236,23 +260,29 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
             total_qty += lp.quantity
             total_amount += lp.line_total or Decimal("0")
             total_lines += 1
-            cost = lp.cost_price_snapshot or Decimal("0")
+            cost, basis_src = basis.of(lp.product_id, lp.cost_price_snapshot)
             if cost > 0:
                 cost_covered_lines += 1
                 item.covered_lines += 1
                 # ⚠️ 毛利的两侧必须是**同一批行**（2026-09-19 审计第十七轮）：
-                #    只累计成本、收入侧却用全额，等于"没成本快照的行按 0 成本、100% 毛利进账"。
+                #    只累计成本、收入侧却用全额，等于"没成本的行按 0 成本、100% 毛利进账"。
                 #    本机实测：商品页/导出的表头毛利 11,071.00，而营业纵览（正确口径）是 10,789.00；
                 #    唯一那个混合组 ttt 印出 327.50（正确 45.50，差 7.2 倍）。
                 item.covered_amount += lp.line_total or Decimal("0")
                 cost_covered_amount += lp.line_total or Decimal("0")
                 cost_total += cost * Decimal(lp.quantity)
                 item.cost += cost * Decimal(lp.quantity)
+                if basis_src == SNAPSHOT:
+                    cost_snapshot_lines += 1
+                else:
+                    cost_avg_lines += 1
             dq = lp.damage_quantity or 0
             if dq > 0:
-                damage_qty += dq
                 item.damage_qty += dq
-                amt = cost * Decimal(dq) if cost > 0 else Decimal("0")
+                damage_qty += dq
+                # 货损与营业纵览同口径（快照，理由见那边）
+                snap = lp.cost_price_snapshot or Decimal("0")
+                amt = snap * Decimal(dq) if snap > 0 else Decimal("0")
                 damage_amount += amt
                 item.damage_amount += amt
     items = sorted(agg.values(), key=lambda x: -x.amount)
@@ -267,8 +297,25 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
         "total_lines": total_lines,
         "cost_covered_lines": cost_covered_lines,
         "cost_covered_amount": cost_covered_amount,
+        "cost_avg_lines": cost_avg_lines,
+        "cost_snapshot_lines": cost_snapshot_lines,
         "_window": (start, end),
     }
+
+
+def _cost_basis_note(data: dict) -> str:
+    """导出里的"成本怎么算的"说明行。
+
+    ⛔ 营业纵览与商品经营两个 sheet **必须用这同一份文字**：两边各写一句，
+       改口径时漏改一处，导出里就出现两个互相矛盾的口径说明
+       （而"两个表对不上"正是这份报表历史上最贵的一类缺陷）。
+    """
+    return (
+        f"成本口径：入库流水的加权平均进货价（{data['cost_avg_lines']} 行）；"
+        f"另有 {data['cost_snapshot_lines']} 行该商品没记过进货价、按下单时的成本快照算；"
+        f"共 {data['cost_covered_lines']}/{data['total_lines']} 行算得出成本，其余行不进毛利；"
+        f"参与毛利的收入 {data['cost_covered_amount']}／未参与 {data['total_amount'] - data['cost_covered_amount']}"
+    )
 
 
 @router.get("/turnover", response_model=TurnoverReportOut)
@@ -429,11 +476,10 @@ def export_report(
         ws.append([
             # 口径同「司机运费结算」页：按计费规则应付（不是订单上的运费）——审计 R12-M2
             "司机运费支出(按计费规则应付)", _money(data["total_freight"]),
-            "商品毛利(仅计成本快照行)",
+            "商品毛利(仅算得出成本的行)",
             # 毛利 = 参与计算的收入 − 那些行的成本。**两侧必须是同一批行**（见 schemas/reports.py 的注释）
             _money(data["cost_covered_amount"] - data["cost_total"]),
-            f"成本覆盖率 {data['cost_covered_lines']}/{data['total_lines']}；"
-            f"参与毛利的收入 {data['cost_covered_amount']}／未参与 {data['total_amount'] - data['cost_covered_amount']}",
+            _cost_basis_note(data),
         ])
         ws.append(["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), "已收", _money(data["collected"])])
         ws.append(["挂账未收", _money(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
@@ -456,14 +502,14 @@ def export_report(
         #    （cost_covered_amount − cost_total）差 ¥282（本机 11,071.00 vs 10,789.00），
         #    而逐行列更离谱：用的是 `amount − cost` 老公式，合计回到修复前那个错数 72,177.75。
         ws.append(["销售总额", _money(data["total_amount"]), "总件数", data["total_qty"],
-                   "商品毛利(仅计成本快照行)",
+                   "商品毛利(仅算得出成本的行)",
                    _money((data["cost_covered_amount"] or Decimal("0")) - (data["cost_total"] or Decimal("0")))])
-        ws.append(["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), f"成本覆盖率 {data['cost_covered_lines']}/{data['total_lines']}"])
+        ws.append(["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), _cost_basis_note(data)])
         ws.append([])
         ws.append(["商品", "件数", "单数", "金额", "参与毛利的金额", "毛利", "货损件数", "货损金额"])
         for it in data["items"]:
             cov = it.covered_amount or Decimal("0")
-            # 没有成本快照的行**不进毛利**（写"—"，不是写一个看起来像毛利的大数）
+            # 算不出成本的行**不进毛利**（写"—"，不是写一个看起来像毛利的大数）
             gross = _money(cov - it.cost) if (it.covered_lines or 0) > 0 else "—"
             ws.append([it.product_name, it.qty, it.order_count, _money(it.amount), _money(cov), gross, it.damage_qty, _money(it.damage_amount)])
     elif kind in ("drivers", "customers", "finance", "audit"):

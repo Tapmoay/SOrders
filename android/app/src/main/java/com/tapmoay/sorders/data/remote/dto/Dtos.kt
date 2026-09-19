@@ -762,6 +762,8 @@ data class InventorySummaryItemDto(
     val unit: String = "件",
     @SerialName("low_stock_alert") val lowStockAlert: Int = 0,
     val reserved: Int = 0,
+    //: 商品分类（库存页左侧导航条按它分组）。空串 = 未分类，与 `ProductDto.category` 同判据。
+    val category: String = "",
 )
 
 // ===== 通用响应 =====
@@ -813,14 +815,21 @@ data class TurnoverReportDto(
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("avg_order") val avgOrder: String = "0",
     val series: List<ReportSeriesItem> = emptyList(),
     // 报表中心 v2：成本/毛利/货损/资金
-    // ⚠️ 毛利 = `cost_covered_amount − cost_total`（**两侧同一批行**：只有有成本快照的行），
+    // ⚠️ 毛利 = `cost_covered_amount − cost_total`（**两侧同一批行**：只有算得出成本的行），
     //    2026-09-19 审计 R13-R1 修：界面原来用 `total_amount − cost_total`（全部行的金额 − 只有
     //    成本行的成本），同一个月实测 72,177.75 vs 正确 10,789.00 —— 差 6.7 倍。
+    // ⚠️ 成本口径 2026-09-19 又换过一次（用户要求）：不再用订单行的 cost_price_snapshot
+    //    （"下单那一刻的最新进货价"，进货价一涨就把旧库存的毛利压低），改成**入库流水的
+    //    加权平均进货价**。唯一实现在后端 `services/cost_basis.py`。
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_total") val costTotal: String = "0",
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_covered_amount")
     val costCoveredAmount: String = "0",
     @SerialName("total_lines") val totalLines: Int = 0,
     @SerialName("cost_covered_lines") val costCoveredLines: Int = 0,
+    //: 算得出成本的行里，有多少行用的是"入库加权平均进货价"、有多少行退回了"下单时的成本价"
+    //  （老后端不下发 → 都是 0 → 说明文字自动退回不带区分的写法，不会说假话）
+    @SerialName("cost_avg_lines") val costAvgLines: Int = 0,
+    @SerialName("cost_snapshot_lines") val costSnapshotLines: Int = 0,
     @SerialName("damage_qty") val damageQty: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("collected") val collected: String = "0",
@@ -863,6 +872,9 @@ data class ProductReportDto(
     @SerialName("total_lines") val totalLines: Int = 0,
     @SerialName("cost_covered_lines") val costCoveredLines: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_covered_amount") val costCoveredAmount: String? = null,
+    //: 口径区分（同 TurnoverReportDto 的说明）：入库加权平均进货价多少行 / 退回下单成本价多少行
+    @SerialName("cost_avg_lines") val costAvgLines: Int = 0,
+    @SerialName("cost_snapshot_lines") val costSnapshotLines: Int = 0,
 )
 
 @Serializable

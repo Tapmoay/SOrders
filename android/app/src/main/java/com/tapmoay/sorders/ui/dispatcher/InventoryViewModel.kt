@@ -7,7 +7,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.InventoryMovementCreateRequest
 import com.tapmoay.sorders.data.remote.dto.InventoryMovementDto
 import com.tapmoay.sorders.data.remote.dto.InventorySummaryItemDto
-import com.tapmoay.sorders.data.remote.dto.ProductDto
+import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
 import com.tapmoay.sorders.data.repo.PageRows
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.launch
@@ -31,7 +31,27 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
     /** 本次服务器上限（响应头 `X-Result-Limit`）；读不到 = null，界面不许自己编一个数。 */
     var movementsLimit by mutableStateOf<Int?>(null)
         private set
-    var products by mutableStateOf<List<ProductDto>>(emptyList())
+
+    /**
+     * 商品分类名册（**顺序由它定**）。
+     *
+     * 用户 2026-09-19：「库存管理也是跟商品管理一样的，左边是分类、右边是商品」——
+     * 左侧导航条必须与商品管理/选品页**同一套顺序与同一套判据**，
+     * 否则同一件商品在三个页面会落在不同位置（甚至"这一页有、那一页没有"）。
+     * 分类本身随 `/inventory/summary` 的行下发（见 `InventorySummaryItemDto.category`），
+     * 这里拉的只是**顺序**。
+     *
+     * ⚠️ 这里原来拉的是**全量商品列表**（`repo.products()`），只为了
+     *    `firstOrNull { it.id == s.productId }` 把库存概览的一行"翻译"成 `ProductDto`
+     *    再打开出入库弹窗 —— 而那一行本来就带着 id/名称/库存。
+     *    多一次请求不说，商品不在列表里时那个按钮**点了什么都不发生**（静默）。
+     *    现在弹窗直接吃概览行，省掉的这次请求正好用来取名册顺序。
+     */
+    var categories by mutableStateOf<List<ProductCategoryDto>>(emptyList())
+
+    /** 按名称搜索（用户要求："通过搜索名称来搜索商品，来盘查实时库存是怎样的"）。 */
+    var query by mutableStateOf("")
+
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
@@ -42,7 +62,9 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
 
     // 出入库弹窗
     var showMovementDialog by mutableStateOf(false)
-    var movementProduct by mutableStateOf<ProductDto?>(null)
+
+    /** 弹窗针对的那一行库存概览（不是 `ProductDto` —— 见 [categories] 的注释）。 */
+    var movementProduct by mutableStateOf<InventorySummaryItemDto?>(null)
     var movementInbound by mutableStateOf(true)
     var movementQty by mutableStateOf("")
     var movementNote by mutableStateOf("")
@@ -50,7 +72,8 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
      * 本次**进货价**（只对入库有意义，选填）。
      *
      * 用户 2026-09-19：「包括进货的时候也要输入成本价，因为可能这个时间的进货和
-     * 那个时间进货的成本价是不一样的」。填了会把商品成本价一起更新（见请求体注释）。
+     * 那个时间进货的成本价是不一样的」。填了会做两件事：记在这条流水上
+     * （毛利按入库流水的平均进货价算）、并把商品的成本价也更新成它。
      */
     var movementCost by mutableStateOf("")
 
@@ -65,7 +88,13 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 summary = container.repo.inventorySummary()
                 applyMovements(container.repo.inventoryMovementsPage(dateFrom = movDateFrom, dateTo = movDateTo))
-                products = container.repo.products()
+                // 名册顺序只是为了左侧导航条好看/一致：取不到就退回"按商品数排"，
+                // **不许**因为它失败就让整页报错（库存才是这一页的正事）
+                categories = try {
+                    container.repo.productCategories()
+                } catch (_: Exception) {
+                    emptyList()
+                }
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {
@@ -95,8 +124,8 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun openMovement(p: ProductDto, inbound: Boolean) {
-        movementProduct = p
+    fun openMovement(s: InventorySummaryItemDto, inbound: Boolean) {
+        movementProduct = s
         movementInbound = inbound
         movementQty = ""
         movementNote = ""
@@ -123,10 +152,10 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 val change = if (movementInbound) qty else -qty
                 container.repo.createMovement(
-                    InventoryMovementCreateRequest(p.id, change, movementNote.trim(), cost)
+                    InventoryMovementCreateRequest(p.productId, change, movementNote.trim(), cost)
                 )
-                actionResult = (if (movementInbound) "入库 " else "出库 ") + qty + " " + p.name +
-                    if (cost != null) "（进货价 ¥" + com.tapmoay.sorders.util.trimMoneyZeros(cost) + " 已更新成本价）" else ""
+                actionResult = (if (movementInbound) "入库 " else "出库 ") + qty + " " + p.productName +
+                    if (cost != null) "（进货价 ¥" + com.tapmoay.sorders.util.trimMoneyZeros(cost) + " 已记进这批货）" else ""
                 showMovementDialog = false
                 load()
             } catch (e: Exception) {

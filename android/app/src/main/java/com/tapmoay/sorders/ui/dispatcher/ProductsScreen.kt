@@ -2,6 +2,7 @@ package com.tapmoay.sorders.ui.dispatcher
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -57,7 +58,12 @@ fun ProductsScreen(
     val vm: ProductsViewModel = appViewModel { ProductsViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
-    /** 快捷改价（卡片右侧「改价」）：non-null = 弹窗开着。 */
+    /**
+     * 快捷改价（卡片右侧「改价」）：non-null = 弹窗开着。
+     *
+     * ⚠️ 必须声明在**函数级**（Scaffold 之外）—— 弹窗渲染在整个 Scaffold 之后，
+     *    声明在 content lambda 里的话外面看不见（第一版就是这么写的，编译报 Unresolved）。
+     */
     var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }
 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
@@ -92,22 +98,15 @@ fun ProductsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                actions = {
-                    // 分类管理的入口放在**商品管理页**而不是工作台：分类只服务于选品页的分组，
-                    // 它和商品是一件事，多一个工作台格子反而让人找不到。
-                    TextButton(onClick = onOpenCategories) {
-                        Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("分类管理")
-                    }
-                },
+                // ⛔ 顶栏原来挂着一个「分类管理」按钮、右下角挂着一个「＋」悬浮球。
+                //    2026-09-19 用户要求两个动作合并成**底部一条导航栏**
+                //    （「给那个商品管理界面的下面加个导航栏，左边分组管理、右边商品新增，
+                //     那个 + 把它改成商品新增…两个导航栏做得美观一点」）：
+                //    悬浮球压在列表最后一张卡上、顶栏按钮又和返回键挤在一行，
+                //    两个动作各在一个角上，视线要跑两趟。
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { vm.openCreate() }) {
-                Icon(Icons.Default.Add, contentDescription = "新增商品")
-            }
-        },
+        bottomBar = { ProductsBottomBar(onCategories = onOpenCategories, onAdd = { vm.openCreate() }) },
     ) { padding ->
         // 分类清单与当前选中的分类：**与选品页同一套实现**
         // （`categoryTabs` / `categoryOf` / `CategoryRail` 都在 `ui/common/ProductPicker.kt` 里，
@@ -124,15 +123,12 @@ fun ProductsScreen(
         val visible = remember(vm.products, category) {
             if (category == ALL_CATEGORY) vm.products else vm.products.filter { categoryOf(it) == category }
         }
-        // 快捷改价（卡片右侧「改价」）：non-null = 弹窗开着
-        // ⚠️ 必须声明在**函数级**（Scaffold 之外）—— 弹窗渲染在整个 Scaffold 之后，
-        //    声明在 content lambda 里的话外面看不见（第一版就是这么写的，编译报 Unresolved）
 
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 vm.loading -> LoadingBox()
                 vm.loadError != null && vm.products.isEmpty() -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
-                vm.products.isEmpty() -> EmptyView("暂无商品，点击右下角新增", Modifier.align(Alignment.Center))
+                vm.products.isEmpty() -> EmptyView("暂无商品，点下方「商品新增」", Modifier.align(Alignment.Center))
                 else -> Row(Modifier.fillMaxSize()) {
                     // 左：分类（独立滚动，不会把右边的商品一起带走）—— 与选品页同宽、同观感
                     CategoryRail(
@@ -147,6 +143,9 @@ fun ProductsScreen(
                             // 空的是**这一分类**，不是整个商品库 —— 两句话不能混（混了用户会去新建重复商品）
                             EmptyView("「$category」下暂无商品", Modifier.align(Alignment.Center))
                         } else {
+                            // ⚠️ 这里原来末尾有一句 `item { Spacer(Modifier.height(72.dp)) }` 给悬浮球让位。
+                            //    动作已经搬到底部导航栏、而 Scaffold 的 padding 已经扣掉了那条栏的高度，
+                            //    再留 72dp 就是列表底下凭空多一块空白。
                             LazyColumn(
                                 Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 12.dp),
@@ -163,7 +162,6 @@ fun ProductsScreen(
                                         onQuickPrice = { quickPriceFor = p },
                                     )
                                 }
-                                item { Spacer(Modifier.height(72.dp)) }
                             }
                         }
                     }
@@ -504,6 +502,62 @@ fun ProductsScreen(
             }
         }
     }
+
+/**
+ * 商品管理的**底部导航栏**：左边「分类管理」、右边「商品新增」（用户 2026-09-19 要求）。
+ *
+ * 原话：「给那个商品管理界面的下面加个导航栏，左边分别是那个分组管理、右边是商品的
+ * 添加按钮，就是那个 + 把它改成商品新增…两个导航栏做得美观一点」。
+ *
+ * ## 为什么从"两个角"搬到底部一条栏
+ * 搬之前是**顶栏一个「分类管理」文字按钮 + 右下角一个「＋」悬浮球**：
+ * 两个动作各占一个角，视线在屏幕上要跑两趟；悬浮球还压着列表最后一张卡
+ * （所以列表尾巴上被迫留了 72dp 空白）。收到一条栏里之后两个动作并排、
+ * 都能写全名（悬浮球只能画一个 +），列表也不再被遮。
+ *
+ * ## 为什么两个按钮**一实一虚**（"美观"落在这里）
+ * 它们不是平级的：新增商品是日常动作、分类管理是偶尔才动一次的设置。
+ * 所以右边用实底主按钮（[PrimaryActionButton]，与"提交订单"同一个组件）、
+ * 左边用描边次按钮 —— 一眼能看出哪个是主操作。
+ * 宽度也按主次分（`weight(1f)` : `weight(1.4f)`），不是两个等宽的方块。
+ *
+ * 颜色用**商品管理的语义色紫** `ProductPurple`（一色一功能）：这一栏里的两个动作
+ * 都属于商品管理，紫是这一块的识别色（卡片上那个「改价」也是它）。
+ * ⛔ 不要用钱的橙：同屏「售价」那个数字已经是橙的，会撞色（用户当天刚为这件事改过一次）。
+ */
+@Composable
+private fun ProductsBottomBar(onCategories: () -> Unit, onAdd: () -> Unit) {
+    Surface(shadowElevation = 8.dp) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                // 底部系统导航条留白：这一栏不是 M3 的 NavigationBar，不会自己处理 insets
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                onClick = onCategories,
+                modifier = Modifier.weight(1f).height(56.dp),
+                shape = MaterialTheme.shapes.medium,
+                border = BorderStroke(1.5.dp, Color(ProductPurple)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(ProductPurple)),
+            ) {
+                Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("分类管理", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            }
+            PrimaryActionButton(
+                text = "商品新增",
+                onClick = onAdd,
+                icon = Icons.Default.Add,
+                containerColor = Color(ProductPurple),
+                modifier = Modifier.weight(1.4f),
+            )
+        }
+    }
+}
 
 /**
  * 商品卡：**一眼看完"卖多少钱、还剩多少"**，动作收进右上角「⋮」、快捷改价在它下面。

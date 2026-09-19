@@ -15,12 +15,12 @@ class MovementCreate(BaseModel):
     为什么要有这个字段（用户 2026-09-19）：「成本价也是可以进行调整的，包括进货的时候
     也要输入成本价，因为可能这个时间的进货和那个时间进货的成本价是不一样的」。
 
-    口径（**刻意只做到这一步**）：填了就把商品的 `cost_price` 更新成这个价
-    —— 商品的成本价 = **最近一次进货价**，订单的 `cost_price_snapshot` 在下单时定格，
-    于是毛利反映的是"卖的时候那批货的进货价"。历史进货价留在操作日志里可回查。
-    ⚠️ 这是**近似**，不是分批成本（FIFO / 加权平均）：100 件 ¥10 与 100 件 ¥12 之后，
-    商品成本是 ¥12，卖旧货那几单的毛利会偏低。要精确到批次是另一件事（要改毛利口径），
-    用户没有要求，这里不做，但**别把它说成"分批成本"**。
+    两件事同时发生（**同一个事务**，不会出现"货进了、成本没改"）：
+    ① 这一个价**记在流水上**（`inventory_movements.unit_cost`）—— 它是"这批货多少钱"的
+       一手数据，毛利的加权平均进货价就是从它算的（`services/cost_basis.py`）；
+    ② 商品的 `cost_price` 也更新成它（商品卡与编辑页显示的就是"最近一次进货价"）。
+
+    ⚠️ 只填 ② 不填 ① 就等于把成本信息丢了 —— 这正是这一列存在的原因。
     """
     unit_cost: Decimal | None = Field(None, ge=0, description="本次进货价（选填，仅入库）")
 
@@ -38,6 +38,8 @@ class MovementOut(BaseModel):
     order_id: int | None = None
     order_no: str | None = None
     status: str = "COMMITTED"
+    #: 这一批的进货单价（只有手工入库且填了才有值）；出参带出来是为了让"成本从哪来"看得见
+    unit_cost: Decimal | None = None
 
 
 class InventorySummaryOut(BaseModel):

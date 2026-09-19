@@ -976,6 +976,25 @@ def _bootstrap_impl(engine: Engine) -> None:
                 if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                     raise
 
+    # ---------- 入库流水记进货价（2026-09-19 用户要求，毛利成本口径的数据基础） ----------
+    #
+    # `unit_cost` = **这批货的进货单价**。它必须落在流水上，不能只写进 `products.cost_price`：
+    # 只留一个"最新进货价"，进货价一涨，从旧库存出的货就被按新的高价算成本 → 毛利偏低
+    # （用户原话：「不能这么算啊，这么算的话，毛利率会偏低」）。
+    # 毛利现在按入库流水算加权平均进货价（`services/cost_basis.py` 是唯一实现），数据源就是这一列。
+    # 老库这一列是 NULL（老数据没有进货价）→ 成本回落到下单时的 `cost_price_snapshot`，不会崩。
+    if "inventory_movements" in insp.get_table_names():
+        mcols = {c["name"] for c in insp.get_columns("inventory_movements")}
+        if "unit_cost" not in mcols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(
+                        text("ALTER TABLE inventory_movements ADD COLUMN unit_cost NUMERIC(14,4)")
+                    )
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
     # `places`（全局共享地点库）由 `Base.metadata.create_all` 建表，这里只补索引：
     # 老库上不存在这张表时 create_all 已经建好了；表存在但缺索引的情况只会出现在
     # "模型加了索引而表已经建过"的时候 —— 那种情况下按唯一名建，重复即跳过。

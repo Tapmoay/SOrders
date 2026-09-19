@@ -50,8 +50,17 @@ CASES: list[tuple[str, Path, object]] = [
         "分类清单改成手写枚举（商品管理里加一类、选品页不会多一格）",
         PICKER,
         lambda s: s.replace(
-            "    products.forEach { p -> counts[categoryOf(p)] = (counts[categoryOf(p)] ?: 0) + 1 }",
+            "    names.forEach { n -> counts[categoryNameOf(n)] = (counts[categoryNameOf(n)] ?: 0) + 1 }",
             '    counts["饮料"] = 1\n    counts["粮油"] = 1',
+            1,
+        ),
+    ),
+    (
+        "分类顺序不再由名册定（退回按商品数排，派单员在「分类管理」里排的那一列白排了）",
+        PICKER,
+        lambda s: s.replace(
+            "categoryTabsOf(products.map { it.category }, ordered)",
+            "categoryTabsOf(products.map { it.category })",
             1,
         ),
     ),

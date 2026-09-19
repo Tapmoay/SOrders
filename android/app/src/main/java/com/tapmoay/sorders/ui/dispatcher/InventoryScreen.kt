@@ -59,34 +59,7 @@ fun InventoryScreen(
                 vm.loading -> LoadingBox()
                 vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
                 vm.summary.isEmpty() -> EmptyView("暂无商品，请先在商品管理中创建", Modifier.align(Alignment.Center))
-                else -> LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    item {
-                        Text(
-                            "实时库存（低库存在前）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    items(vm.summary, key = { it.productId }) { s ->
-                        StockCard(
-                            s = s,
-                            onInbound = {
-                                vm.products.firstOrNull { it.id == s.productId }?.let { p ->
-                                    vm.openMovement(p, inbound = true)
-                                }
-                            },
-                            onOutbound = {
-                                vm.products.firstOrNull { it.id == s.productId }?.let { p ->
-                                    vm.openMovement(p, inbound = false)
-                                }
-                            },
-                        )
-                    }
-                }
+                else -> InventoryBody(vm)
             }
         }
     }
@@ -99,7 +72,7 @@ fun InventoryScreen(
             text = {
                 Column {
                     Text(
-                        "商品：" + (vm.movementProduct?.name ?: "") +
+                        "商品：" + (vm.movementProduct?.productName ?: "") +
                             "（当前库存 " + (vm.movementProduct?.stock ?: 0) + "）",
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -120,7 +93,9 @@ fun InventoryScreen(
                     )
                     // 进货价：**只在入库时给**（用户 2026-09-19：「包括进货的时候也要输入成本价，
                     // 因为可能这个时间的进货和那个时间进货的成本价是不一样的」）。
-                    // 填了会把商品成本价一起更新（毛利按它算）；不填就只动库存。
+                    // ⚠️ 它现在做**两件**事，说明文字必须两件都写：这一批的价记进流水
+                    //    （毛利按入库流水的平均进货价算），同时把商品成本价更新成它。
+                    //    只说后半句的话，用户会以为它只影响"下一个报价"，想不到它会改毛利。
                     if (vm.movementInbound) {
                         Spacer(Modifier.height(8.dp))
                         SoTextField(
@@ -133,8 +108,8 @@ fun InventoryScreen(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "填了就同时把商品的成本价更新成这个价（毛利按成本价算）；" +
-                                "不填只改库存，成本价不动。",
+                            "填了就把这一批的进货价记下来（毛利率按入库的平均进货价算），" +
+                                "并把商品成本价更新成它；不填只改库存。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -195,6 +170,102 @@ fun InventoryScreen(
     }
 }
 
+/**
+ * 库存页主体：**左边分类、右边商品**（用户 2026-09-19：
+ * 「库存管理也是跟商品管理一样的，左边是分类右边是商品，并且可以通过搜索名称来搜索商品，
+ *   来盘查实时库存是怎样的」）。
+ *
+ * ## 版式为什么要跟商品管理一致
+ * 两页看的是**同一批商品**、做的是同一件事的两个阶段（一个是维护、一个是看库存）。
+ * 版式一致之后，"左边那一列"在两个页面里是同一个东西、同一个顺序 ——
+ * 用户不用重新学一遍怎么找商品。分类导航条与判据都复用
+ * `ui/common/ProductPicker.kt` 的 `CategoryRail` / `categoryTabsOf` / `categoryNameOf`
+ * （**不许各写一份**：各写一份就会出现"同一件商品在商品管理页属于日化、在库存页属于未分类"）。
+ *
+ * ## 搜索为什么放在分类上面（全宽）
+ * 它和左边那列是**两个维度**：分类是"这一块有哪些商品"，搜索是"那个商品在哪"。
+ * 放进右边那一栏会让它被压成半宽、而且分类为空时它跟着消失 —— 而"找不到某件商品"
+ * 恰恰是最需要搜索的时候。所以它横跨整页，任何时候都在。
+ */
+@Composable
+private fun InventoryBody(vm: InventoryViewModel) {
+    // 左侧分类：顺序由名册定（与商品管理/选品页同一处实现）
+    val cats = remember(vm.summary, vm.categories) {
+        categoryTabsOf(vm.summary.map { it.category }, vm.categories.map { it.name })
+    }
+    var category by remember { mutableStateOf(ALL_CATEGORY) }
+    // 选中的分类可能因为改名/商品改分类而消失 → 退回「全部」，
+    // 否则用户会停在一个导航条上已不存在的分类上、右边一片空白且无法解释
+    LaunchedEffect(cats) {
+        if (category !in cats) category = ALL_CATEGORY
+    }
+    val keyword = vm.query.trim()
+    val visible = remember(vm.summary, category, keyword) {
+        vm.summary.filter { s ->
+            (category == ALL_CATEGORY || categoryNameOf(s.category) == category) &&
+                (keyword.isEmpty() || s.productName.contains(keyword, ignoreCase = true))
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = vm.query,
+            onValueChange = { vm.query = it },
+            placeholder = { Text("搜索商品名称，查实时库存", style = MaterialTheme.typography.bodySmall) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            trailingIcon = {
+                if (vm.query.isNotEmpty()) {
+                    IconButton(onClick = { vm.query = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
+                    }
+                }
+            },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        )
+        Row(Modifier.weight(1f)) {
+            CategoryRail(
+                tabs = cats,
+                selected = category,
+                onSelect = { category = it },
+                modifier = Modifier.width(92.dp).fillMaxHeight(),
+            )
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                if (visible.isEmpty()) {
+                    // 「搜不到」和「这一类是空的」是两句不同的话：说不清用户会以为商品丢了
+                    EmptyView(
+                        if (keyword.isNotEmpty()) "没有名称含「$keyword」的商品" else "「$category」下暂无商品",
+                        Modifier.align(Alignment.Center),
+                    )
+                } else {
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        item {
+                            Text(
+                                "共 " + visible.size + " 个商品" +
+                                    if (keyword.isNotEmpty()) "（搜索结果）" else "（低库存在前）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        items(visible, key = { it.productId }) { s ->
+                            StockCard(
+                                s = s,
+                                onInbound = { vm.openMovement(s, inbound = true) },
+                                onOutbound = { vm.openMovement(s, inbound = false) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun StockCard(
     s: InventorySummaryItemDto,
@@ -221,7 +292,7 @@ private fun StockCard(
                     modifier = Modifier.padding(9.dp).size(22.dp),
                 )
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     s.productName,
@@ -251,39 +322,47 @@ private fun StockCard(
                             color = Color(0xFFFF6B2C),
                         )
                     }
-                    if (low) {
-                        Spacer(Modifier.width(8.dp))
-                        Surface(color = Color(0xFFFFE8E8), shape = MaterialTheme.shapes.small) {
-                            Text(
-                                "低库存",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFFFF4D4F),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                            )
-                        }
-                    } else if (out) {
-                        Spacer(Modifier.width(8.dp))
-                        Surface(color = Color(0xFFEFEFEF), shape = MaterialTheme.shapes.small) {
-                            Text(
-                                "缺货",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF8A8A8E),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                            )
-                        }
-                    }
                 }
             }
-            FilledTonalButton(onClick = onInbound, contentPadding = PaddingValues(horizontal = 12.dp)) {
+            // 状态角标放**名称那一行**（不是按钮那一行）：它说的是"这个商品现在怎么样"，
+            // 和库存数字是一件事；和按钮挤在一起会被当成按钮的一部分。
+            when {
+                low -> StockBadge("低库存", Color(0xFFFF4D4F), Color(0xFFFFE8E8))
+                out -> StockBadge("缺货", Color(0xFF8A8A8E), Color(0xFFEFEFEF))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        // ⚠️ 出入库两个按钮**另起一行、靠右**（原来是塞在同一行的最右边）：
+        //    右边那一栏现在只有 92dp 让给了分类，卡片可用宽度少了近三分之一，
+        //    再横着排会把商品名和库存数字挤成一堆省略号 —— 而那两个才是这一页要看的东西。
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilledTonalButton(onClick = onInbound, contentPadding = PaddingValues(horizontal = 14.dp)) {
                 Text("入库")
             }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = onOutbound,
                 enabled = s.stock > 0,
-                contentPadding = PaddingValues(horizontal = 12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp),
             ) { Text("出库") }
         }
+    }
+}
+
+/** 库存状态角标（低库存 / 缺货）—— 一直只在这两种状态下出现，正常时不占位置。 */
+@Composable
+private fun StockBadge(text: String, fg: Color, bg: Color) {
+    Surface(color = bg, shape = MaterialTheme.shapes.small) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = fg,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+        )
     }
 }
 

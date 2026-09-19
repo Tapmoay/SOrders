@@ -215,13 +215,36 @@ internal fun productItemProfit(it: ProductReportItemDto): Double? {
     return if (cost > 0.0) (it.amount.toDoubleOrNull() ?: 0.0) - cost else null
 }
 
-private fun coverageText(cov: Int, total: Int): String =
-    "毛利口径：只算有成本快照的 " + cov + "/" + total + " 行（收入与成本取同一批行）；" +
-        "其余行没有成本快照，「不进毛利」（营业额里仍然有它们）。"
+/**
+ * 毛利说明（口径 + 覆盖率）—— **两个页面共用这一份文字**。
+ *
+ * ⚠️ 成本口径 2026-09-19 换过一次（用户要求：「这么算的话，毛利率会偏低」）：
+ *    旧口径 = 订单行的 `cost_price_snapshot`（下单那一刻的最新进货价）—— 进货价一涨，
+ *    从旧库存出的货就被按新的高价算成本；新口径 = **入库流水的加权平均进货价**。
+ *    所以这句话必须**同时报出两个数**：多少行真的用了入库均价、多少行退回了下单时的成本价。
+ *    只报覆盖率的话，用户会以为整份毛利都已经是平均口径 —— 而那正是最容易骗人的写法。
+ *
+ * `avg + snap == 0` 有两种情况：老后端不下发这两个字段，或者这段窗口一行成本都没有。
+ * 这时**不许编**一个区分说法，退回不带区分的写法（宁可少说，不能说错）。
+ */
+private fun coverageText(cov: Int, total: Int, avgLines: Int, snapLines: Int): String {
+    val head = if (avgLines + snapLines > 0) {
+        "毛利口径：成本按「入库流水的加权平均进货价」算（${avgLines} 行）；" +
+            "另有 ${snapLines} 行该商品没记过进货价，按下单时的成本价算。"
+    } else {
+        "毛利口径：成本按商品的成本价算（还没有入库进货价可加权）。"
+    }
+    return head + "共 ${cov}/${total} 行算得出成本（收入与成本取同一批行）；" +
+        "其余行没有成本，「不进毛利」（营业额里仍然有它们）。"
+}
 
 @Composable
-private fun CoverNote(cov: Int, total: Int) {
-    Text(coverageText(cov, total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun CoverNote(cov: Int, total: Int, avgLines: Int, snapLines: Int) {
+    Text(
+        coverageText(cov, total, avgLines, snapLines),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 // ===================== ① 营业纵览 =====================
@@ -257,7 +280,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(4.dp))
                     val profit = grossProfit(data)
                     StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
-                    CoverNote(data.costCoveredLines, data.totalLines)
+                    CoverNote(data.costCoveredLines, data.totalLines, data.costAvgLines, data.costSnapshotLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
                     if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFE53935))
                 }
@@ -361,7 +384,7 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(4.dp))
                     val profit = productGrossProfit(data)
                     StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
-                    CoverNote(data.costCoveredLines, data.totalLines)
+                    CoverNote(data.costCoveredLines, data.totalLines, data.costAvgLines, data.costSnapshotLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
                 }
             }
