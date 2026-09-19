@@ -495,6 +495,14 @@ data class ContactCreateRequest(
 @Serializable
 data class LedgerEntryDto(
     val id: Long,
+    /**
+     * 这一笔挂在**谁**名下（注册货主 → 人名/手机号；临时货主 → 那句称呼）。
+     *
+     * ⚠️ 后端 2026-09-19 才补下发的字段。在此之前「订单账」那一栏只能拿 [tempShipperName] 显示，
+     * 于是**注册货主**的账全被写成「临时货主」——名字根本没下发，界面上看不出来是缺数据。
+     * 老后端没有这个字段 → null → 才退回原来那句（过渡，不是长期口径）。
+     */
+    @SerialName("shipper_name") val shipperName: String? = null,
     @SerialName("shipper_id") val shipperId: Long? = null,
     @SerialName("temp_shipper_name") val tempShipperName: String? = null,
     @SerialName("entry_date") val entryDate: String = "",

@@ -92,6 +92,13 @@ class LedgerOut(BaseModel):
     id: int
     shipper_id: int | None = None
     temp_shipper_name: str | None = None
+    #: 这一笔挂在**谁**名下（注册货主 → 人名/手机号；临时货主 → 那句称呼）。
+    #  ⚠️ 2026-09-19 补：原来只有 `shipper_id` + `temp_shipper_name`，
+    #    于是**注册货主**的账在「订单账」那一栏全部显示成「临时货主」——**名字根本没下发**。
+    #    而 AI 又**看不到任何内部编号**（本项目第一条硬规矩），只给 id 等于让模型
+    #    读得到这张表却**说不出这一笔是谁的**。
+    #    由后端算（`ledger_response._shipper_name`，**一次 IN 批量取人**）而不是客户端拿 id 去查。
+    shipper_name: str | None = None
     entry_date: date
     product_name: str
     quantity: int

@@ -98,30 +98,41 @@ fun DispatcherLedgerScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         when (vm.tab) {
-                            // ---- 司机账 ----
+                            // ---- 司机账（与货主账/批发商账**同一套**：搜索 + 多选 + 就地展开订单）----
                             1 -> {
+                                val visible = vm.driversForTab()
                                 item { ReportTimeNav(mode = vm.chartMode, anchor = vm.chartAnchor, periodText = vm.periodText, onModeChange = { vm.applyMode(it) }, onAnchorChange = { vm.setAnchor(it) }) }
                                 item {
-                                    SectionCard {
-                                        Text("当前范围司机运费合计", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            "¥" + formatMoney(vm.driverAccounts.sumOf { it.total }.toString()),
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(MoneyOrange),
-                                        )
-                                    }
+                                    DriverPicker(
+                                        drivers = visible,
+                                        selected = vm.selectedDrivers,
+                                        query = vm.driverQuery,
+                                        onQuery = { vm.driverQuery = it },
+                                        onToggle = { vm.toggleDriverSelected(it) },
+                                        onClear = { vm.clearDriverSelection() },
+                                    )
                                 }
-                                if (vm.driverAccounts.isEmpty()) {
-                                    item { EmptyView("该时段暂无司机运费", Modifier.fillMaxWidth()) }
-                                } else {
-                                    items(vm.driverAccounts, key = { it.driverId }) { g ->
+                                item { DriverSelectedSummary(vm) }
+                                when {
+                                    vm.driverAccounts.isEmpty() ->
+                                        item { EmptyView("该时段暂无司机运费", Modifier.fillMaxWidth()) }
+                                    visible.isEmpty() ->
+                                        item {
+                                            EmptyView(
+                                                "没有名字含「" + vm.driverQuery.trim() + "」的司机",
+                                                Modifier.fillMaxWidth(),
+                                            )
+                                        }
+                                    else -> items(visible, key = { it.driverId }) { g ->
                                         DriverAccountCard(
                                             g = g,
                                             expanded = vm.expandedDriver == g.driverId,
                                             onToggle = { vm.toggleDriver(g.driverId) },
                                             onOpenOrder = onOpenOrder,
+                                            expandedOrderId = vm.expandedOrderId,
+                                            expandedOrder = vm.expandedOrder,
+                                            orderLoading = vm.expandedOrderLoading,
+                                            onToggleOrder = { vm.toggleOrderDetail(it) },
                                         )
                                     }
                                 }
@@ -251,7 +262,15 @@ fun DispatcherLedgerScreen(
                                         }
                                     }
                                     items(vm.entries, key = { it.id }) { e ->
-                                        LedgerRow(e, onDelete = { vm.deleteTarget = e }, onOpenOrder = onOpenOrder)
+                                        LedgerRow(
+                                            e = e,
+                                            onDelete = { vm.deleteTarget = e },
+                                            onOpenOrder = onOpenOrder,
+                                            expandedOrderId = vm.expandedOrderId,
+                                            expandedOrder = vm.expandedOrder,
+                                            orderLoading = vm.expandedOrderLoading,
+                                            onToggleOrder = { vm.toggleOrderDetail(it) },
+                                        )
                                     }
                                 }
                             }
@@ -355,6 +374,11 @@ private fun DriverAccountCard(
     expanded: Boolean,
     onToggle: () -> Unit,
     onOpenOrder: (Long) -> Unit,
+    /** 就地展开那一单（与货主账/批发商账**同一套**：用户说「其他其他的都一样」）。 */
+    expandedOrderId: Long? = null,
+    expandedOrder: com.tapmoay.sorders.data.remote.dto.OrderDto? = null,
+    orderLoading: Boolean = false,
+    onToggleOrder: (Long) -> Unit = {},
 ) {
     SectionCard {
         Row(
@@ -386,7 +410,8 @@ private fun DriverAccountCard(
             Spacer(Modifier.height(4.dp))
             g.orders.forEach { o ->
                 Row(
-                    Modifier.fillMaxWidth().clickable { onOpenOrder(o.orderId) }.padding(vertical = 8.dp),
+                    // 与账本其余各处一致：点一下**就地展开那一单**，不是跳走
+                    Modifier.fillMaxWidth().clickable { onToggleOrder(o.orderId) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Default.LocalShipping, contentDescription = null, tint = Color(MgrGreen), modifier = Modifier.size(14.dp))
@@ -410,7 +435,125 @@ private fun DriverAccountCard(
                         modifier = Modifier.widthIn(min = 92.dp),
                     )
                 }
+                if (o.orderId == expandedOrderId) {
+                    OrderPeek(loading = orderLoading, order = expandedOrder, onOpenFull = { onOpenOrder(o.orderId) })
+                }
             }
+        }
+    }
+}
+
+/**
+ * 司机挑选器：与 [AccountPicker] **同一套交互**（搜索 + 多选 + 一键清空 + 那句"不选=全部"）。
+ *
+ * 为什么单独写一个而不是复用 [AccountPicker]：两者的数据类型不同
+ * （`FreightSettlementGroupDto.driverId/driverName` vs `LedgerAccountOut.id/name`）。
+ * 硬套的话要给 [AccountPicker] 加一层"取值适配器"，那层适配器比这 40 行更容易写错。
+ * ⚠️ **但交互规则必须一致**（不选=全部、可点掉、清空、写明当前含义）——
+ *    两处不一致才是真正的"反人性"。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DriverPicker(
+    drivers: List<FreightSettlementGroupDto>,
+    selected: Set<Long>,
+    query: String,
+    onQuery: (String) -> Unit,
+    onToggle: (Long) -> Unit,
+    onClear: () -> Unit,
+) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("选司机", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            if (selected.isNotEmpty()) {
+                TextButton(onClick = onClear) { Text("清空选择") }
+            }
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            placeholder = { Text("搜索司机名字", style = MaterialTheme.typography.bodySmall) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        if (drivers.isEmpty()) {
+            Text("没有匹配的司机", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                drivers.forEach { g ->
+                    val on = g.driverId in selected
+                    Surface(
+                        color = if (on) Color(MgrGreen).copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.clickable { onToggle(g.driverId) },
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (on) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color(MgrGreen), modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Text(
+                                g.driverName,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                                color = if (on) Color(MgrGreen) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "¥" + formatMoney(g.total.toString()),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (on) Color(MgrGreen) else MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (selected.isEmpty()) "一个都不选 = 全部（共 " + drivers.size + " 位）"
+            else "已选 " + selected.size + " 位，下面只显示这几位；再点一下可以取消",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** 选中司机的合计（钱 + 单数 + 人数）。 */
+@Composable
+private fun DriverSelectedSummary(vm: DispatcherLedgerViewModel) {
+    val (money, orders, n) = vm.driverSelectedSummary()
+    SectionCard {
+        Text(
+            if (vm.selectedDrivers.isEmpty()) "当前范围全部司机运费合计" else "已选 " + n + " 位司机合计",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(2.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                "¥" + formatMoney(money.toString()),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(MoneyOrange),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                orders.toString() + " 单",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 3.dp),
+            )
         }
     }
 }
@@ -663,10 +806,20 @@ private fun AccountCard(
 }
 
 @Composable
-private fun LedgerRow(e: LedgerEntryDto, onDelete: () -> Unit, onOpenOrder: (Long) -> Unit) {
+private fun LedgerRow(
+    e: LedgerEntryDto,
+    onDelete: () -> Unit,
+    onOpenOrder: (Long) -> Unit,
+    /** 就地展开那一单（与货主账/批发商账**同一套**，用户说「其他其他的都一样」）。 */
+    expandedOrderId: Long?,
+    expandedOrder: com.tapmoay.sorders.data.remote.dto.OrderDto?,
+    orderLoading: Boolean,
+    onToggleOrder: (Long) -> Unit,
+) {
+    val oid = e.orderId
     SectionCard {
         Row(
-            Modifier.fillMaxWidth().clickable(enabled = e.orderId != null) { e.orderId?.let(onOpenOrder) },
+            Modifier.fillMaxWidth().clickable(enabled = oid != null) { oid?.let(onToggleOrder) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -678,7 +831,13 @@ private fun LedgerRow(e: LedgerEntryDto, onDelete: () -> Unit, onOpenOrder: (Lon
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    (e.tempShipperName ?: "临时货主").ifBlank { "临时货主" },
+                    // ⚠️ 这里原来是 `e.tempShipperName ?: "临时货主"` —— 而**注册货主**的
+                    //    `tempShipperName` 本来就是 null，于是满屏都是「临时货主」，
+                    //    根本看不出这一笔是谁的（2026-09-19 后端补了 `shipper_name`）。
+                    //    兜底顺序必须与后端一致：真名 → 临时货主称呼 → 「未命名」。
+                    e.shipperName?.ifBlank { null }
+                        ?: e.tempShipperName?.ifBlank { null }
+                        ?: "未命名",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
@@ -705,6 +864,9 @@ private fun LedgerRow(e: LedgerEntryDto, onDelete: () -> Unit, onOpenOrder: (Lon
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.DeleteOutline, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
             }
+        }
+        if (oid != null && oid == expandedOrderId) {
+            OrderPeek(loading = orderLoading, order = expandedOrder, onOpenFull = { onOpenOrder(oid) })
         }
     }
 }

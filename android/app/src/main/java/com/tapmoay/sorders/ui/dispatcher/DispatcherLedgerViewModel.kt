@@ -121,6 +121,37 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     fun accountKey(a: LedgerAccountOut): String =
         if (a.id != null) "u|${a.id}" else "t|${a.tempName.orEmpty()}"
 
+    // 司机账同样是"自由选择"（用户：「其他其他的都一样」）：司机可能几十个，同样要能搜、能多选。
+    // key 直接用 driver_id（司机账本来就是这个维度，不存在"跨 tab 同名不同人"的问题）。
+    var driverQuery by mutableStateOf("")
+    var selectedDrivers by mutableStateOf<Set<Long>>(emptySet())
+
+    fun toggleDriverSelected(id: Long) {
+        selectedDrivers = if (id in selectedDrivers) selectedDrivers - id else selectedDrivers + id
+    }
+
+    fun clearDriverSelection() {
+        selectedDrivers = emptySet()
+    }
+
+    /** 当前时间范围里的司机（搜过的）。 */
+    fun driversForTab(): List<FreightSettlementGroupDto> {
+        val kw = driverQuery.trim()
+        return if (kw.isEmpty()) driverAccounts
+        else driverAccounts.filter { it.driverName.contains(kw, ignoreCase = true) }
+    }
+
+    /** 选中司机的合计（钱 + 单数）；一个都没选 = 全部。 */
+    fun driverSelectedSummary(): Triple<Double, Int, Int> {
+        val picked = if (selectedDrivers.isEmpty()) driverAccounts
+        else driverAccounts.filter { it.driverId in selectedDrivers }
+        return Triple(
+            picked.sumOf { it.total },
+            picked.sumOf { it.count },
+            picked.size,
+        )
+    }
+
     // ============================================================ 明细里的订单可以展开
     //
     // 用户 2026-09-19：「账本相近的明细，比如他这个账本对应什么订单，
@@ -174,6 +205,8 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         // 指的是不同的人），带过去会出现"选了 2 个、列表里一个都没高亮"的鬼状态。
         selectedAccounts = emptySet()
         accountQuery = ""
+        selectedDrivers = emptySet()
+        driverQuery = ""
         expandedOrderId = null
         expandedOrder = null
         if (i != 0) loadAccounts()
