@@ -2,27 +2,29 @@
 <!--
   自适应图标背景层（108×108，可见区是中心 72×72）。
 
-  橙金渐变：#FFB020 → #F26A00。
-  为什么不是 App 内的品牌蓝：**图标的颜色要按"品类认知"选，不是按 App 的界面配色选**。
-  大众对"送货/配送"的认知色就是暖橙黄（美团黄、货拉拉橙、淘宝橙、京东红）——
-  用户在一屏几十个图标里找的，是"那个橙色的送货 App"，而不是"那个蓝色的 App"。
-  界面里仍然是蓝为主色，两者不冲突（美团也是黄图标 + 白/蓝界面）。
+  ### 这一版为什么是浅蓝，而不是上一版的橙金渐变
+  用户 2026-09-19 的原话：「登录界面那个图标挺好，挺不错的，把 App 界面的那个图标
+  换成登录界面的图标」。登录页那个方块是 `PrimaryContainer`（浅蓝 #D9E8FF）+ 深藏蓝
+  `OnPrimaryContainer`（#0A3168）的货车 —— 所以这里就**照抄登录页**：平涂浅蓝，
+  不留渐变（登录页那个 Surface 也是平涂的，加了渐变就不是同一个东西了）。
+
+  ⚠️ 这里**推翻**了上一版写在注释里的那条"图标按品类认知选橙色"的纪律。
+  那条纪律本身没错，但它是一个人（我）推出来的偏好，而用户看过实物之后做了选择：
+  他要的是"和登录页一致"。**用户看过真东西之后的判断，优先于推出来的偏好。**
+  真机验证过（模拟器桌面 + 圆形/圆角方两种遮罩），浅蓝底 + 深藏蓝货车在 48px 上
+  依然看得清（深藏蓝和浅蓝的对比度足够，弱的是"和别的灰色图标挤在一起时的显眼度"，
+  这一点如实写在这里，不再靠猜）。
+
+  ### 改这里要连带改的两个文件
+  `ic_launcher_foreground.xml`（货车）与 `ic_launcher_monochrome.xml`（主题图标）
+  必须和这一层一起改 —— 三层不一致会出现「彩色版是货车、主题图标却是别的形状」。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M0,0 H108 V108 H0 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="0" android:startY="0"
-                android:endX="108" android:endY="108"
-                android:type="linear">
-                <item android:offset="0" android:color="#FFB020" />
-                <item android:offset="1" android:color="#F26A00" />
-            </gradient>
-        </aapt:attr>
-    </path>
+    <path
+        android:fillColor="#D9E8FF"
+        android:pathData="M0,0 H108 V108 H0 Z" />
 </vector>

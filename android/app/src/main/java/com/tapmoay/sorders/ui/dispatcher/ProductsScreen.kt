@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
@@ -255,13 +256,18 @@ fun ProductsScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = vm.draftPrice,
-                                onValueChange = { vm.draftPrice = it.filter { c -> c.isDigit() || c == '.' } },
+                                // 单价规则（唯一实现在 core/InputRules.kt）：只数字 + 至多一个小数点。
+                                // ⚠️ 用 priceInput（**4 位小数**）而不是 moneyInput（2 位）：库里
+                                //    `products.default_unit_price` 是 `Numeric(14,4)`，用 2 位会把
+                                //    "12.3456 元"这种本来定得了的价**悄悄截掉**（用户只会发现第四位打不进去）。
+                                //    原来那句 `isDigit() || c == '.'` 能敲出 `1.2.3`，toDoubleOrNull() 得 null。
+                                onValueChange = { vm.draftPrice = InputRules.priceInput(it) },
                                 label = { Text("默认售价（必填）") },
                                 singleLine = true, modifier = Modifier.weight(1f),
                             )
                             OutlinedTextField(
                                 value = vm.draftCost,
-                                onValueChange = { vm.draftCost = it.filter { c -> c.isDigit() || c == '.' } },
+                                onValueChange = { vm.draftCost = InputRules.priceInput(it) },
                                 label = { Text("成本价（选填）") },
                                 singleLine = true, modifier = Modifier.weight(1f),
                             )
@@ -290,7 +296,7 @@ fun ProductsScreen(
                                 Spacer(Modifier.width(8.dp))
                                 OutlinedTextField(
                                     value = tier.price,
-                                    onValueChange = { v -> vm.draftTiers[idx] = tier.copy(price = v.filter { c -> c.isDigit() || c == '.' }) },
+                                    onValueChange = { v -> vm.draftTiers[idx] = tier.copy(price = InputRules.priceInput(v)) },
                                     label = { Text("价格（元）") },
                                     singleLine = true, modifier = Modifier.weight(1f),
                                 )
@@ -314,7 +320,7 @@ fun ProductsScreen(
                         Spacer(Modifier.height(4.dp))
                         SoTextField(
                             value = vm.draftStock,
-                            onValueChange = { vm.draftStock = it.filter { c -> c.isDigit() } },
+                            onValueChange = { vm.draftStock = InputRules.intInput(it, 7) },
                             placeholder = if (vm.editing == null) "初始库存（选填）" else "当前库存（由出入库流水维护）",
                             enabled = vm.editing == null,
                             modifier = Modifier.fillMaxWidth(),
@@ -396,7 +402,7 @@ fun ProductsScreen(
                         Spacer(Modifier.height(10.dp))
                         SoTextField(
                             value = vm.draftAlert,
-                            onValueChange = { vm.draftAlert = it.filter { c -> c.isDigit() } },
+                            onValueChange = { vm.draftAlert = InputRules.intInput(it, 7) },
                             placeholder = "库存报警阈值（低于该值提醒，0=不报警）",
                             modifier = Modifier.fillMaxWidth(),
                         )

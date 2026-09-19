@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.DriverBillingRuleDto
 import com.tapmoay.sorders.ui.common.*
 
@@ -256,17 +257,19 @@ private fun RuleDialog(vm: DriverBillingRulesViewModel) {
                 Spacer(Modifier.height(12.dp))
                 SoTextField(
                     vm.draftSalary,
-                    { vm.draftSalary = it },
+                    // 金额规则唯一实现在 core/InputRules.kt（只数字 + 至多一个小数点 + 两位小数）。
+                    // 这三个框原来什么过滤都没有，键盘还是 Number（没有小数点）。
+                    { vm.draftSalary = InputRules.moneyInput(it) },
                     placeholder = "固定工资（元/月，留空 = 0）",
-                    keyboardType = KeyboardType.Number,
+                    keyboardType = KeyboardType.Decimal,
                 )
 
                 Spacer(Modifier.height(12.dp))
                 SoTextField(
                     vm.draftPieceAmount,
-                    { vm.draftPieceAmount = it },
+                    { vm.draftPieceAmount = InputRules.moneyInput(it) },
                     placeholder = "每单金额（元，留空 = 0）",
-                    keyboardType = KeyboardType.Number,
+                    keyboardType = KeyboardType.Decimal,
                 )
                 Spacer(Modifier.height(6.dp))
                 SegmentedPicker(
@@ -290,10 +293,10 @@ private fun RuleDialog(vm: DriverBillingRulesViewModel) {
                 Spacer(Modifier.height(6.dp))
                 SoTextField(
                     vm.draftCommissionRate,
-                    { vm.draftCommissionRate = it },
+                    { vm.draftCommissionRate = InputRules.moneyInput(it, maxDecimals = 2, maxWhole = 3) },
                     placeholder = "提成比例（%，如 5 表示 5%）",
                     enabled = vm.draftCommissionBase != "none",
-                    keyboardType = KeyboardType.Number,
+                    keyboardType = KeyboardType.Decimal,
                 )
 
                 // 抽成范围：只有"按商品金额抽成"才有这回事（按运费抽成时后端会拒这个组合）。

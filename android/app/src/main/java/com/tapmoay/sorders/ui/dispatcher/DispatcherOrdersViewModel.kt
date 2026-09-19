@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
 import com.tapmoay.sorders.data.repo.toApiException
@@ -119,6 +120,16 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
 
     fun saveEdit() {
         val o = editingOrder ?: return
+        // 电话格式先在这一侧挡一道（与后端同一条规则）。老单里可能是"嘿嘿"这种旧数据，
+        // 它不会被静默清空 —— 而是明确告诉用户"这一单的电话要改一下才能存"。
+        InputRules.phoneError(editDongjia.trim())?.let {
+            error = it
+            return
+        }
+        InputRules.phoneError(editBoss.trim())?.let {
+            error = it
+            return
+        }
         acting = true
         viewModelScope.launch {
             try {

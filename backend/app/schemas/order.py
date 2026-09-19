@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.phone import ContactPhone, OptionalContactPhone
 from app.models.enums import OrderStatus
 from app.schemas.geo import GeoInput
 from app.schemas.money import MoneyInput
@@ -70,8 +71,10 @@ class OrderCreate(GeoInput):
     address_detail: str = Field("", max_length=512)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
-    contact_dongjia_phone: str = Field("", max_length=MAX_PHONE)
-    contact_boss_phone: str = Field("", max_length=MAX_PHONE)
+    # 联系电话：规则在 `app/core/phone.py`（去空格后 7~12 位数字，空 = 没填）。
+    # 生产库这两列里真的有 `[嘿嘿] [刚刚好]` 这种值 —— 司机拿到单打不出去。
+    contact_dongjia_phone: ContactPhone = Field("", max_length=MAX_PHONE)
+    contact_boss_phone: ContactPhone = Field("", max_length=MAX_PHONE)
     remark: str = Field("", max_length=MAX_TEXT)
     shipper_id: int | None = Field(
         default=None,
@@ -101,8 +104,9 @@ class OrderUpdate(GeoInput):
     address_detail: str | None = Field(None, max_length=512)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
-    contact_dongjia_phone: str | None = Field(None, max_length=MAX_PHONE)
-    contact_boss_phone: str | None = Field(None, max_length=MAX_PHONE)
+    # PATCH 语义：None = 不改这一项，所以这里用可选别名（它会放行 None）
+    contact_dongjia_phone: OptionalContactPhone = Field(None, max_length=MAX_PHONE)
+    contact_boss_phone: OptionalContactPhone = Field(None, max_length=MAX_PHONE)
     remark: str | None = Field(None, max_length=MAX_TEXT)
     internal_notes: str | None = Field(None, max_length=MAX_TEXT)
 

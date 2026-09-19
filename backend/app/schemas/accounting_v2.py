@@ -7,6 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.business_time import business_local
+from app.core.phone import OptionalContactPhone
 from app.models.enums import (
     CashFlowBizType,
     CashFlowDirection,
@@ -64,7 +65,8 @@ class CustomerCreate(MoneyInput):
     kind: CustomerKind = CustomerKind.TMP
     user_id: int | None = None
     name: str = Field(..., min_length=1, max_length=128)
-    phone: str | None = Field(None, max_length=32)
+    # 客户电话：规则在 `app/core/phone.py`（去空格后 7~12 位数字，空/None = 没填）
+    phone: OptionalContactPhone = Field(None, max_length=32)
     is_member: bool = False
     arrears_unit_id: int | None = None
 

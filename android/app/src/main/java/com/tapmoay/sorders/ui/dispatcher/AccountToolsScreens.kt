@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.*
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
@@ -252,7 +253,7 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                         }
                         Spacer(Modifier.height(6.dp))
                         Text("合计 ¥" + formatMoney(vm.computeTotal().toPlainString()), style = MaterialTheme.typography.titleSmall, color = Color(MoneyOrange))
-                        OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = it }, label = { Text("收款金额＝所选订单合计") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = InputRules.moneyInput(it) }, label = { Text("收款金额＝所选订单合计") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                         Spacer(Modifier.height(6.dp))
                         DropField(
                             label = "收款方式",
@@ -477,7 +478,7 @@ fun ExpensesScreen(container: AppContainer, onBack: () -> Unit) {
                     val cats = listOf("fuel" to "加油", "repair" to "维修", "toll" to "过路", "parking" to "停车", "fine" to "罚款", "insurance" to "保险", "loss" to "货损", "other" to "其他")
                     DropField(label = "开销分类", text = catLabel(vm.category), options = cats, onSelect = { vm.category = it })
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = it }, label = { Text("金额") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = InputRules.moneyInput(it) }, label = { Text("金额") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(value = vm.expDate, onValueChange = { vm.expDate = it }, label = { Text("日期") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     Spacer(Modifier.height(6.dp))

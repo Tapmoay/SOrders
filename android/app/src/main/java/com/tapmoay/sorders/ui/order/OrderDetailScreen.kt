@@ -27,6 +27,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.ui.common.*
@@ -236,9 +237,11 @@ fun OrderDetailScreen(
                 Column {
                     OutlinedTextField(
                         value = vm.draftFreight,
-                        onValueChange = { vm.draftFreight = it },
+                        // 金额规则唯一实现在 core/InputRules.kt（原来这里什么过滤都没有）
+                        onValueChange = { vm.draftFreight = InputRules.moneyInput(it) },
                         label = { Text("运费 ¥（留空=待定）") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -261,9 +264,13 @@ fun OrderDetailScreen(
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = vm.splitPartsText,
-                        onValueChange = { vm.splitPartsText = it },
+                        // 份数只可能是"数字 + 分隔符"（如 150/150）；原来这个框连过滤都没有。
+                        // 口味刁的输入（`150/abc`）本来就会在 saveSplit 里被挡成
+                        // 「请按份填写比例，如 150/150」—— 但那时候用户已经敲完了，不如敲不进去。
+                        onValueChange = { vm.splitPartsText = InputRules.splitPartsInput(it) },
                         label = { Text("各份比例/数量，如 150/150") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(6.dp))
@@ -1056,7 +1063,8 @@ private fun DamageCard(
                         OutlinedTextField(
                             value = if (q <= 0) "" else q.toString(),
                             onValueChange = { v ->
-                                val n = v.filter { it.isDigit() }.takeLast(3).toIntOrNull() ?: 0
+                                // 只留数字（原来手写的 `filter { isDigit }.takeLast(3)` 是规则的一份副本）
+                                val n = InputRules.intInput(v, 3).toIntOrNull() ?: 0
                                 onQtyChange(p.id, if (n > p.quantity) p.quantity else n)
                             },
                             modifier = Modifier.width(76.dp),

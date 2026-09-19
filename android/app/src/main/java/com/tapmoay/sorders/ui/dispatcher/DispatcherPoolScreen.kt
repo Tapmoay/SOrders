@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.nav.Routes
@@ -270,7 +271,8 @@ fun DispatcherPoolScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
                                 value = vm.assignFreight,
-                                onValueChange = { vm.assignFreight = it },
+                                // 金额规则唯一实现在 core/InputRules.kt（原来这三个框都没有过滤）
+                                onValueChange = { vm.assignFreight = InputRules.moneyInput(it) },
                                 label = { Text("一车运费 ¥（可后补）") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -295,7 +297,7 @@ fun DispatcherPoolScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = vm.assignPieceAmount,
-                                onValueChange = { vm.assignPieceAmount = it },
+                                onValueChange = { vm.assignPieceAmount = InputRules.moneyInput(it) },
                                 label = { Text("这一单的钱 ¥") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -303,7 +305,7 @@ fun DispatcherPoolScreen(
                             )
                             OutlinedTextField(
                                 value = vm.assignCommissionRate,
-                                onValueChange = { vm.assignCommissionRate = it },
+                                onValueChange = { vm.assignCommissionRate = InputRules.moneyInput(it, maxDecimals = 2, maxWhole = 3) },
                                 label = { Text("提成 %") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),

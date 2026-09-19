@@ -5,6 +5,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.dto.*
 import com.tapmoay.sorders.data.repo.toApiException
@@ -235,14 +236,6 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         return priceRules[p.id]?.specialUnitPrice ?: p.defaultUnitPrice
     }
 
-    fun addLine(name: String, price: String, productId: Long?, unit: String = "件", quantity: Int = 1) {
-        if (lines.size >= 10) {
-            error = "最多支持 10 组商品"
-            return
-        }
-        lines.add(LineDraft(productId = productId, name = name, quantity = quantity.coerceAtLeast(1), price = price, unit = unit))
-    }
-
     /**
      * 选品页一次挑多件 → 一次性加入清单。
      *
@@ -383,9 +376,16 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
 
     fun submit(onDone: () -> Unit) {
         val nameBlank = lines.any { it.name.isBlank() }
+        // 电话格式先在这一侧挡一道：这两个框现在只让数字进来（`InputRules.phoneInput`），
+        // 但"位数不够"过滤挡不住（用户可能刚输了一半就点提交）。在这里拦下来，
+        // 用户看到的是**立刻**的中文提示，而不是等服务端 422 转一圈。
+        // ⚠️ 两个电话都是**可选**的（不要顺手把它们改成必填 —— 那是产品决定，不是修 bug）。
+        val phoneError = InputRules.phoneError(dongjiaPhone.trim())
+            ?: InputRules.phoneError(bossPhone.trim())
         when {
             lines.isEmpty() -> error = "请至少添加一组商品"
             nameBlank -> error = "商品名称不能为空"
+            phoneError != null -> error = phoneError
             else -> {
                 submitting = true
                 error = null

@@ -10,8 +10,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto
 import com.tapmoay.sorders.ui.common.*
 
@@ -81,8 +83,10 @@ fun ArrearsUnitsScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     SoTextField(
-                        vm.draftPhone, { vm.draftPhone = it },
+                        // 电话只让数字进来（规则唯一实现在 core/InputRules.kt）
+                        vm.draftPhone, { vm.draftPhone = InputRules.phoneInput(it) },
                         placeholder = "联系电话",
+                        keyboardType = KeyboardType.Phone,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))

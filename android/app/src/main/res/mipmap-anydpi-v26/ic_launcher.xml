@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  自适应图标：背景层铺满、前景层是「包裹箱 + 右向箭头」、单体层给 Android 13+ 主题图标用。
-  三层都由 drawable/ 下的同名矢量定义，改图标只改那三个文件。
+  自适应图标：背景层铺满（浅蓝）、前景层是**登录页那个货车图标**、单体层给 Android 13+ 主题图标用。
+  三层都由 drawable/ 下的同名矢量定义，改图标只改那三个文件（三层必须一起改）。
+
+  为什么 background 的底色是浅蓝而不是 App 的橙金渐变：见 `drawable/ic_launcher_background.xml`
+  的注释（用户要求与登录页的图标一致）。
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />

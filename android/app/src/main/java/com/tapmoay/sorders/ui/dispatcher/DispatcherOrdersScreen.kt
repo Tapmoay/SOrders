@@ -3,6 +3,7 @@ package com.tapmoay.sorders.ui.dispatcher
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -10,8 +11,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.nav.Routes
@@ -136,9 +139,22 @@ fun DispatcherOrdersScreen(
                 Column {
                     OutlinedTextField(vm.editAddress, { vm.editAddress = it }, label = { Text("收货地址") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(vm.editDongjia, { vm.editDongjia = it }, label = { Text("东家电话") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    // 两个电话都只让数字进来（规则唯一实现在 core/InputRules.kt）。
+                    // ⚠️ 老单里可能存着"嘿嘿"这种旧数据（生产库里真有），它会原样显示在框里；
+                    //    用户一动手就被过滤掉，不动手直接保存会被后端用中文挡回（见 saveEdit）。
+                    OutlinedTextField(
+                        vm.editDongjia, { vm.editDongjia = InputRules.phoneInput(it) },
+                        label = { Text("东家电话") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(vm.editBoss, { vm.editBoss = it }, label = { Text("老板电话") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(
+                        vm.editBoss, { vm.editBoss = InputRules.phoneInput(it) },
+                        label = { Text("老板电话") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(vm.editRemark, { vm.editRemark = it }, label = { Text("备注") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(8.dp))

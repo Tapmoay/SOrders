@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.UserCreateRequest
 import com.tapmoay.sorders.data.remote.api.UserUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.DriverBillingRuleDto
@@ -273,8 +274,10 @@ class UsersManageViewModel(
     }
 
     fun save() {
-        if (draftPhone.trim().length < 5) {
-            error = "请填写手机号"
+        // 手机号就是登录账号 —— 格式要求与后端 `UserCreate.phone` 的 `^1\d{10}$` 完全一致。
+        // 原来这里只判"长度 ≥5"，于是 10 位、以 2 开头的号能一路走到后端才被 422 挡回来。
+        InputRules.mobileError(draftPhone.trim())?.let {
+            error = it
             return
         }
         val cur = editing

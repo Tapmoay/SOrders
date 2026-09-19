@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -19,8 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
@@ -190,9 +193,15 @@ fun UsersManageScreen(
                 //    叠起来在小屏上会把「保存」顶出屏幕外，而用户只会觉得"这个弹窗坏了"。
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     OutlinedTextField(
-                        value = vm.draftPhone, onValueChange = { vm.draftPhone = it },
+                        // 手机号是**登录账号**，所以按手机号规则来：只数字、正好 11 位、以 1 开头。
+                        // 规则唯一实现在 core/InputRules.kt（这一处原来什么过滤都没有，
+                        // 同一个 App 里的「账号管理」页却有 —— 两页两个口径）。
+                        value = vm.draftPhone,
+                        onValueChange = { vm.draftPhone = InputRules.mobileInput(it) },
                         label = { Text("手机号（登录账号）") },
-                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
@@ -210,9 +219,10 @@ fun UsersManageScreen(
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = vm.draftSalary,
-                            onValueChange = { vm.draftSalary = it },
+                            onValueChange = { vm.draftSalary = InputRules.moneyInput(it) },
                             label = { Text("固定工资（元/月，仅派单员可见）") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

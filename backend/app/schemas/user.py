@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.phone import MobilePhone, OptionalMobilePhone
 from app.models.enums import UserRole
 from app.schemas.money import MoneyInput
 
@@ -37,8 +38,10 @@ class UserOut(BaseModel):
 
 
 class UserCreate(MoneyInput):
-    # 派单员建号：账号=手机号，必须 11 位（1 开头）——客户端已限制，服务端兜底
-    phone: str = Field(..., pattern=r"^1\d{10}$")
+    # 派单员建号：账号=手机号，必须 11 位（1 开头）——客户端已限制，服务端兜底。
+    # 规则本身在 `app/core/phone.py`（原来这里写着 `pattern=r"^1\d{10}$"`，是**第二条**同义实现，
+    # 已收拢到唯一实现处；`max_length=11` 与规则同宽，只是给"文本上界"审计一个可读的界）。
+    phone: MobilePhone = Field(..., max_length=11)
     username: str | None = Field(None, min_length=3, max_length=32)
     password: str = Field(..., min_length=6, max_length=128)
     full_name: str = Field(default="", max_length=128)
@@ -56,7 +59,9 @@ class UserCreate(MoneyInput):
 
 
 class UserUpdate(MoneyInput):
-    phone: str | None = Field(None, min_length=5, max_length=32)
+    # 改账号手机号：与建号**同一条规则**（`app/core/phone.py`），原先只有 min/max_length，
+    # 也就是说建号必须 11 位、改号却可以改成任意 5~32 个字符 —— 改完就登不进来了。
+    phone: OptionalMobilePhone = Field(None, max_length=11)
     password: str | None = Field(None, min_length=6, max_length=128)
     full_name: str | None = Field(None, max_length=128)
     role: UserRole | None = None

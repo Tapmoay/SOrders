@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.AddressCreateRequest
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.ContactCreateRequest
@@ -260,8 +261,11 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun saveContact() {
-        if (contactPhone.trim().length < 5) {
-            error = "请填写联系人电话"
+        // 口径与后端一致（`ContactCreate.phone` 也走同一条电话规则）：只数字、7~12 位。
+        // 原来是"长度 ≥5 就算过" —— 于是 `222`、`12345` 这种打不通的号也能进库
+        // （生产库里真有一条 `222`）。规则唯一实现在 core/InputRules.kt。
+        InputRules.phoneError(contactPhone.trim(), required = true)?.let {
+            error = it
             return
         }
         viewModelScope.launch {

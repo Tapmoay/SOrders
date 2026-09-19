@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitUpdateRequest
@@ -59,6 +60,12 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
     fun save() {
         if (draftName.isBlank()) {
             error = "请填写单位名称"
+            return
+        }
+        // 联系电话是可选的，但**填了就得是个能打通的号**（7~12 位数字）。
+        // 规则唯一实现在 core/InputRules.kt（输入框那边已经在过滤非数字字符）。
+        InputRules.phoneError(draftPhone.trim())?.let {
+            error = it
             return
         }
         acting = true

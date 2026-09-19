@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -206,7 +207,10 @@ private fun PricingRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SoTextField(
                     value = value,
-                    onValueChange = onValueChange,
+                    // 过滤放在**这个框自己身上**（不是调用方）：它是一个可复用的输入框，
+                    // 谁用它都该只收到单价。用 priceInput（4 位小数，`price_rules.special_unit_price`
+                    // 是 `Numeric(14,4)`）。规则唯一实现在 core/InputRules.kt。
+                    onValueChange = { onValueChange(InputRules.priceInput(it)) },
                     placeholder = "留空表示使用默认售价",
                     enabled = !acting,
                     keyboardType = KeyboardType.Decimal,

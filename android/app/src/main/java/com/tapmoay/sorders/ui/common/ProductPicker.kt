@@ -1,7 +1,6 @@
 package com.tapmoay.sorders.ui.common
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatMoney
@@ -42,8 +42,19 @@ import com.tapmoay.sorders.util.resolveStaticUrl
  * 商品一多就要来回滚，而且**选不了第二件**（弹窗已经关了）。
  * 现在按外卖 App 的组织方式：
  * - 左侧分类竖排（**一屏能看完全部分类**，不用横向滑）、右侧商品列表，各自独立滚动；
- * - 点「＋」弹**数量 + 单位**小窗（用户明确要求"数量后面是要有对应的单位的"）；
+ * - 点「＋」弹**只填数量**的小窗（用户 2026-09-19 改的，理由见下面那段）；
  * - 可以一次挑好几件，底部汇总「已选 N 种 · 合计 ¥X」再一起加入清单。
+ *
+ * ## 为什么小窗里**没有单位了**（2026-09-19 用户要求）
+ * 原话：「那个单位不要出现啊，他是默认是已经配好了的只要填数量就可以了。那个单位是
+ * 派单员在设置的时候会给这个商品设置单位，货主去下单的时候他是不能去更改单位的不然
+ * 会出现认知判断错误」。
+ *
+ * 所以单位的**唯一来源是商品库**（`products.unit`，派单员在「商品管理」里设的）。
+ * 下单的人（货主 / 代理下单的派单员）都没有选它的入口 ——
+ * 一个能改的字段就是一个会被改错的字段：同一件货这次记"3 箱"、下次记"3 件"，
+ * 库存与对账按单位分组时就成了两行，而且**两边都不报错**。
+ * 小窗里因此只剩数量，单位跟着商品走（`QtyDialog` 连参数都不收单位了）。
  *
  * ## 分类从哪来
  * `products.category`（商品管理里维护）。三种情况都要能优雅显示：
@@ -200,7 +211,6 @@ fun ProductPickerBody(
                                     product = p,
                                     price = priceFor(p),
                                     pickedQty = picked[p.id]?.qty ?: 0,
-                                    pickedUnit = picked[p.id]?.unit,
                                     onAdd = { editing = p },
                                 )
                             }
@@ -257,18 +267,20 @@ fun ProductPickerBody(
 
     editing?.let { p ->
         val exist = picked[p.id]
-        QtyUnitDialog(
+        // 单位**不由用户给**：取商品库里的（派单员在商品管理里设的），空则退回「件」。
+        // 见文件头「为什么小窗里没有单位了」。
+        val unit = p.unit.ifBlank { "件" }
+        QtyDialog(
             productName = p.name,
             productColor = p.nameColor,
-            defaultUnit = exist?.unit ?: p.unit.ifBlank { "件" },
             initialQty = exist?.qty ?: 1,
             price = priceFor(p),
-            onConfirm = { qty, unit ->
+            onConfirm = { qty ->
                 picked[p.id] = PickedLine(
                     productId = p.id,
                     name = p.name,
                     qty = qty,
-                    unit = unit.ifBlank { "件" },
+                    unit = unit,
                     price = priceFor(p),
                     nameColor = p.nameColor,
                     imageUrl = p.imageUrl,
@@ -372,9 +384,9 @@ private fun ProductRow(
     product: ProductDto,
     price: String,
     pickedQty: Int,
-    pickedUnit: String?,
     onAdd: () -> Unit,
 ) {
+    val unit = product.unit.ifBlank { "件" }
     val color = remember(product.nameColor) { parseNameColor(product.nameColor) }
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -428,7 +440,7 @@ private fun ProductRow(
                         color = Color(MoneyOrange),
                     )
                     Text(
-                        " / " + product.unit.ifBlank { "件" },
+                        " / " + unit,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -444,7 +456,7 @@ private fun ProductRow(
                 if (pickedQty > 0) {
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "已选 $pickedQty ${pickedUnit ?: product.unit}",
+                        "已选 $pickedQty $unit",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFF00A56E),
                         fontWeight = FontWeight.SemiBold,
@@ -490,9 +502,15 @@ private fun ProductRow(
     }
 }
 
-// ---------------------------------------------------------------- 数量 + 单位
+// ---------------------------------------------------------------- 数量
 
-/** 选品清单里的一项（数量与单位都定好了）。 */
+/**
+ * 选品清单里的一项。
+ *
+ * [unit] 不是用户选的：它来自商品库（`products.unit`），见文件头
+ * 「为什么小窗里没有单位了」。留在这个 data class 里是因为它要跟着**行**走 ——
+ * 加入清单那一刻商品库的单位是多少，这一行就记多少（后端也会按商品库兜底）。
+ */
 data class PickedLine(
     val productId: Long,
     val name: String,
@@ -506,35 +524,24 @@ data class PickedLine(
 }
 
 /**
- * 常用的计量单位。
+ * **只填数量**的小窗（2026-09-19 起这里没有单位了）。
  *
- * 为什么给一排快捷项而不是只让用户打字：这些是**同一件事在库里的既定写法**
- * （商品库、库存、订单显示都用它们）。让每个人自由手输的结果是
- * 同一件货出现"件 / 件装 / 1件"三种写法，报表按单位分组时就成了三行。
- * 需要别的写法时仍可自己填（最后一个「自定义」）。
- */
-private val COMMON_UNITS = listOf("件", "箱", "袋", "桶", "包", "瓶", "斤", "个")
-
-/**
- * 数量 + 单位 小窗（用户明确要求："点击确认商品的时候，弹个小窗，
- * 我们可以选择对应的数量，并且后面是要有对应的单位的"）。
+ * 为什么不给选单位：单位是派单员在「商品管理」里给商品设好的，下单的人改它只会改错 ——
+ * 详见文件头「为什么小窗里没有单位了」。商品名不用填（从目录里选的），所以标题就是商品名。
  *
- * 商品名不需要填（从目录里选的），所以标题就是商品名。
+ * [onConfirm] 只回数量；单位由调用方从商品库取。
  */
 @Composable
-fun QtyUnitDialog(
+fun QtyDialog(
     productName: String,
     productColor: String?,
-    defaultUnit: String,
     initialQty: Int,
     price: String,
-    onConfirm: (Int, String) -> Unit,
+    onConfirm: (Int) -> Unit,
     onDismiss: () -> Unit,
     onRemove: (() -> Unit)? = null,
 ) {
     var qty by remember { mutableStateOf(initialQty.coerceAtLeast(1)) }
-    var unit by remember { mutableStateOf(defaultUnit.ifBlank { "件" }) }
-    var custom by remember { mutableStateOf(unit !in COMMON_UNITS) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -549,7 +556,6 @@ fun QtyUnitDialog(
         },
         text = {
             Column {
-                // ---- 数量 ----
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                     StepButton(Icons.Default.Remove, "减", enabled = qty > 1) {
@@ -558,7 +564,8 @@ fun QtyUnitDialog(
                     OutlinedTextField(
                         value = qty.toString(),
                         onValueChange = { v ->
-                            qty = v.filter { c -> c.isDigit() }.take(4).toIntOrNull()?.coerceIn(1, 9999) ?: 1
+                            // 只留数字（原来手写的 isDigit 过滤是规则的一份副本）
+                            qty = InputRules.intInput(v, 4).toIntOrNull()?.coerceIn(1, 9999) ?: 1
                         },
                         singleLine = true,
                         textStyle = MaterialTheme.typography.titleMedium.copy(
@@ -575,43 +582,6 @@ fun QtyUnitDialog(
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                // ---- 单位 ----
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("单位", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Text(
-                        "下单和送货单上显示的就是它",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                // 两行流式排列（不用 FlowRow，避免额外实验 API 依赖）
-                COMMON_UNITS.chunked(4).forEach { rowUnits ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        rowUnits.forEach { u ->
-                            UnitChip(u, selected = !custom && unit == u) {
-                                custom = false
-                                unit = u
-                            }
-                        }
-                    }
-                }
-                UnitChip("自定义", selected = custom) {
-                    custom = true
-                    if (unit in COMMON_UNITS) unit = ""
-                }
-                if (custom) {
-                    Spacer(Modifier.height(8.dp))
-                    SoTextField(
-                        value = unit,
-                        onValueChange = { unit = it.take(8) },
-                        placeholder = "例如：托、筐、扎",
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -626,7 +596,7 @@ fun QtyUnitDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(qty, unit.trim().ifBlank { "件" }) }) { Text("确定") }
+            TextButton(onClick = { onConfirm(qty) }) { Text("确定") }
         },
         dismissButton = {
             if (onRemove != null) {
@@ -656,29 +626,6 @@ private fun StepButton(
         ),
     ) {
         Icon(icon, contentDescription = label)
-    }
-}
-
-@Composable
-private fun UnitChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) Color(0xFF1E6FFF) else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        Modifier
-            .height(36.dp)
-            .widthIn(min = 56.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(bg)
-            .border(
-                width = 1.dp,
-                color = if (selected) Color(0xFF1E6FFF) else MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(10.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text, style = MaterialTheme.typography.bodyMedium, color = fg, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
     }
 }
 

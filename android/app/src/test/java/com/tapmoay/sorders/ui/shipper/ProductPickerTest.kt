@@ -158,7 +158,12 @@ class ProductPickerTest {
     }
 
     @Test
-    fun `数量与单位一起落到行上`() {
+    fun `商品库来的单位跟着行落到订单行上`() {
+        // ⚠️ 这个名字原来叫「数量与单位一起落到行上」，2026-09-19 改了：
+        //    单位**不再是用户选的**（选品小窗里的单位选择区已删掉，用户原话
+        //    "那个单位不要出现…货主去下单的时候他是不能去更改单位的不然会出现认知判断错误"）。
+        //    现在 `PickedLine.unit` 是调用方从商品库带下来的值，这里断言的是
+        //    "它要一路落到 LineDraft 上"（否则订单行会退回默认的「件」）。
         val merged = mergePickedIntoLines(emptyList(), listOf(picked(1, 3, "箱")))!!
         assertEquals(3, merged[0].quantity)
         assertEquals("箱", merged[0].unit)

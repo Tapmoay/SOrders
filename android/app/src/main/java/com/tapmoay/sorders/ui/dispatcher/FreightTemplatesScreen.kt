@@ -19,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
+import androidx.compose.ui.text.input.KeyboardType
 import com.tapmoay.sorders.data.remote.dto.FreightTemplateDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
@@ -129,7 +131,7 @@ fun FreightTemplatesScreen(container: AppContainer, onBack: () -> Unit) {
                         SoTextField(vm.draftTo, { vm.draftTo = it }, Modifier.weight(1f), placeholder = "终点")
                     }
                     Spacer(Modifier.height(8.dp))
-                    SoTextField(vm.draftFee, { vm.draftFee = it }, Modifier.fillMaxWidth(), placeholder = "一车价格 ¥")
+                    SoTextField(vm.draftFee, { vm.draftFee = InputRules.moneyInput(it) }, Modifier.fillMaxWidth(), placeholder = "一车价格 ¥", keyboardType = KeyboardType.Decimal)
                     Spacer(Modifier.height(8.dp))
                     Text("适用车型", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(4.dp))

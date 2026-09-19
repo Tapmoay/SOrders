@@ -13,9 +13,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.InventoryMovementDto
 import com.tapmoay.sorders.data.remote.dto.InventorySummaryItemDto
 import com.tapmoay.sorders.ui.common.*
@@ -104,8 +106,9 @@ fun InventoryScreen(
                     Spacer(Modifier.height(10.dp))
                     SoTextField(
                         vm.movementQty,
-                        { vm.movementQty = it.filter { c -> c.isDigit() } },
+                        { vm.movementQty = InputRules.intInput(it, 6) },
                         placeholder = "数量",
+                        keyboardType = KeyboardType.Number,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))

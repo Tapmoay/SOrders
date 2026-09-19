@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.*
@@ -224,15 +225,20 @@ private fun AccountFormSheet(
         )
         Spacer(Modifier.height(8.dp))
 
-        // 手机号（必填 + 11 位 + 仅数字）
+        // 手机号（必填 + 11 位 + 仅数字）；规则唯一实现在 core/InputRules.kt。
+        // 过滤写在调用点上（原来的 `vm.onPhoneChange` 也只是转一手），
+        // 这样"这个框走的是哪条规则"在同一行就能看见，`_check_input_rules.py` 也是这么认的。
         OutlinedTextField(
             value = vm.draftPhone,
-            onValueChange = { vm.onPhoneChange(it) },
+            onValueChange = { v ->
+                vm.draftPhone = InputRules.mobileInput(v)
+                vm.phoneError = null
+            },
             label = { Text("手机号（登录账号）") },
             singleLine = true,
             isError = vm.phoneError != null,
             supportingText = { vm.phoneError?.let { Text(it, color = Color(MessageRed)) } },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))

@@ -5,6 +5,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.phone import ContactPhone, OptionalContactPhone
 from app.schemas.geo import GeoInput
 from app.schemas.text import MAX_IMAGES, MAX_URL, Url
 
@@ -61,7 +62,8 @@ class _ImageUrlsMixin(BaseModel):
 
 class AddressCreate(GeoInput):
     receiver_name: str = Field(default="", max_length=128)
-    phone: str = Field(default="", max_length=32)
+    # 联系电话：规则在 `app/core/phone.py`（去空格后 7~12 位数字，空 = 没填）
+    phone: ContactPhone = Field(default="", max_length=32)
     detail_address: str = Field(default="", max_length=512)
     remark: str = Field(default="", max_length=256)
     is_default: bool = False
@@ -78,7 +80,8 @@ class AddressCreate(GeoInput):
 
 class AddressUpdate(GeoInput):
     receiver_name: str | None = Field(None, max_length=128)
-    phone: str | None = Field(None, max_length=32)
+    # None = 不改这一项（可选别名会放行 None）
+    phone: OptionalContactPhone = Field(None, max_length=32)
     detail_address: str | None = Field(None, max_length=512)
     remark: str | None = Field(None, max_length=256)
     is_default: bool | None = None
@@ -152,12 +155,15 @@ class LocationImageOut(BaseModel):
 
 
 class ContactCreate(BaseModel):
-    phone: str = Field(..., min_length=5, max_length=32)
+    # 原来只写 `min_length=5` —— 5 位的"电话"实际上打不出去（生产库那条 `[222]` 就是这么进来的）。
+    # 现在的下限由 `app/core/phone.py` 的规则给（7 位），不再另写一个更松的数字。
+    phone: ContactPhone = Field(..., max_length=32)
     display_name: str = Field(default="", max_length=128)
 
 
 class ContactUpdate(BaseModel):
-    phone: str | None = Field(None, min_length=5, max_length=32)
+    # None = 不改这一项（可选别名会放行 None）
+    phone: OptionalContactPhone = Field(None, max_length=32)
     display_name: str | None = Field(None, max_length=128)
 
 

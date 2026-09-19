@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.ui.common.SoTextField
@@ -201,14 +202,17 @@ fun BatchPriceSheet(
             when (mode) {
                 "fixed" -> SoTextField(
                     value = fixedValue,
-                    onValueChange = { fixedValue = it.filter { c -> c.isDigit() || c == '.' } },
+                    // 单价规则唯一实现在 core/InputRules.kt（只数字 + 至多一个小数点）。
+                    // 4 位小数：`price_rules.special_unit_price` 是 `Numeric(14,4)`。
+                    onValueChange = { fixedValue = InputRules.priceInput(it) },
                     placeholder = "统一单价（元）",
                     keyboardType = KeyboardType.Decimal,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 "percent" -> SoTextField(
                     value = percentValue,
-                    onValueChange = { percentValue = it.filter { c -> c.isDigit() || c == '.' } },
+                    // 百分比与金额同一条规则：都是"至多两位小数的数字"
+                    onValueChange = { percentValue = InputRules.moneyInput(it, maxDecimals = 2, maxWhole = 3) },
                     placeholder = "默认售价的百分比（如 95 = 95%）",
                     keyboardType = KeyboardType.Decimal,
                     modifier = Modifier.fillMaxWidth(),

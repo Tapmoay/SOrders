@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.UserCreateRequest
 import com.tapmoay.sorders.data.remote.api.UserUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.UserDto
@@ -128,21 +129,12 @@ class AccountManageViewModel(
         showSheet = true
     }
 
-    /** 手机号输入过滤：仅数字、最多 11 位（超位直接截断，不满足即不能填入） */
-    fun onPhoneChange(v: String) {
-        draftPhone = v.filter { it.isDigit() }.take(11)
-        phoneError = null
-    }
-
     /** 校验必填项；全过返回 true（红边提示由各 error 状态承载） */
     fun validate(): Boolean {
         nameError = if (draftName.trim().isEmpty()) "必填信息" else null
-        phoneError = when {
-            draftPhone.isEmpty() -> "必填信息"
-            draftPhone.length != 11 -> "请输入 11 位手机号"
-            !draftPhone.startsWith("1") -> "请输入 11 位手机号"
-            else -> null
-        }
+        // 手机号格式走唯一实现（原来这里手抄了一遍"11 位 + 以 1 开头"，
+        // 而**同一个 App 的账号管理页**抄的是另一份 —— 两份口径迟早会分叉）
+        phoneError = InputRules.mobileError(draftPhone)
         passwordError = when {
             draftPassword.isEmpty() -> if (editing != null) null else "必填信息"
             draftPassword.length < 6 -> "密码至少 6 位"

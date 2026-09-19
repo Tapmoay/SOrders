@@ -10,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,8 +27,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
@@ -350,17 +353,21 @@ fun OrderCreateScreen(
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = vm.dongjiaPhone,
-                        onValueChange = { vm.dongjiaPhone = it },
+                        // 只让数字敲得进来（汉字/字母/符号在输入层就被丢掉），最多 12 位，
+                        // 并给数字键盘。规则唯一实现在 core/InputRules.kt。
+                        onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },
                         label = { Text("收货人电话") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = vm.bossPhone,
-                        onValueChange = { vm.bossPhone = it },
+                        onValueChange = { vm.bossPhone = InputRules.phoneInput(it) },
                         label = { Text("下单人电话（可选）") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(10.dp))
@@ -415,15 +422,21 @@ fun OrderCreateScreen(
         )
     }
 
-    // 行编辑弹窗
-    vm.editingLineIndex?.let { idx ->
-        val isNew = idx < 0 || idx >= vm.lines.size
-        val draft = if (isNew) LineDraft() else vm.lines[idx]
+    // 行编辑弹窗。
+    // ⚠️ 只有**清单里已有的行**能编辑（idx 由列表行上的编辑按钮给出）。
+    //    这里原本还有一条"新增手输的自定义商品行"的分支（`idx` 越界即新增），
+    //    但 `editingLineIndex` 的唯一赋值点就是 `vm.editingLineIndex = i`，
+    //    那条分支**从来没有被走到过**；而且 2026-09-19 起行编辑弹窗不再收单价，
+    //    真走进去也只会产出一行没有价格的行（手输的自定义商品没有商品库给它定价，
+    //    后端会按空单价收下 = 0 元）。死分支 + 会产废行的分支，一起删掉。
+    //    后端仍然支持 product_id 为空的行（AI 的手输行用得上），只是下单页不再开这个口子。
+    val editIdx = vm.editingLineIndex
+    val editLine = editIdx?.let { vm.lines.getOrNull(it) }
+    if (editLine != null) {
         LineEditDialog(
-            initial = draft,
+            initial = editLine,
             onConfirm = { updated ->
-                if (isNew) vm.addLine(updated.name, updated.price, null, updated.unit, updated.quantity)
-                else vm.updateLine(idx, updated)
+                vm.updateLine(editIdx!!, updated)
                 vm.editingLineIndex = null
             },
             onDismiss = { vm.editingLineIndex = null },
@@ -763,7 +776,21 @@ private fun SheetRow(
 }
 
 
-/** 行编辑弹窗：数量步进 + 单价 */
+/**
+ * 行编辑弹窗：**只能改商品名与数量** —— 单价与单位都不给改。
+ *
+ * ## 为什么不给改单价（2026-09-19 用户要求）
+ * 用户原话：「它这个选的商品页面它是不能改订单价的不然那货主他想改多少就改多少」。
+ * 单价只有一个来源：**商品定价**（`products.default_unit_price`，批发商走
+ * `price_rules.special_unit_price`），由派单员在「商品管理 / 批发商定价」里维护。
+ * 下单的人（货主、代理下单的派单员）手上不该有一个能改它的框：
+ * 能改的字段就是会被改错的字段，而这里改错的是**钱**（且不会有任何提示）。
+ * 弹窗里保留「小计」（数量 × 单价，跟着数量实时变）—— 不给改，但钱要看得见。
+ *
+ * ## 为什么不给改单位（2026-09-19 用户要求）
+ * 见 `ui/common/ProductPicker.kt` 文件头：单位由派单员在商品上设好，
+ * 改它会产生"这次记 3 箱、下次记 3 件"这种两边都不报错的口径分裂。
+ */
 @Composable
 fun LineEditDialog(
     initial: LineDraft,
@@ -772,9 +799,7 @@ fun LineEditDialog(
     title: String = "商品信息",
 ) {
     var name by remember { mutableStateOf(initial.name) }
-    var price by remember { mutableStateOf(initial.price) }
     var qty by remember { mutableStateOf(initial.quantity.coerceAtLeast(1)) }
-    var unit by remember { mutableStateOf(initial.unit.ifBlank { "件" }) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -789,14 +814,6 @@ fun LineEditDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = price,
-                    onValueChange = { price = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("单价（元）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                     FilledTonalIconButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }) {
@@ -804,10 +821,10 @@ fun LineEditDialog(
                     }
                     OutlinedTextField(
                         value = qty.toString(),
-                        onValueChange = { v -> qty = v.filter { c -> c.isDigit() }.take(4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
+                        onValueChange = { v -> qty = InputRules.intInput(v, 4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
                         singleLine = true,
                         textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1E6FFF)),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.width(96.dp),
                     )
                     FilledTonalIconButton(onClick = { qty = (qty + 1).coerceAtMost(9999) }) {
@@ -815,21 +832,16 @@ fun LineEditDialog(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                // 单位与选品弹窗同一套口径：下单和送货单上显示的就是它
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("单位", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    SoTextField(
-                        value = unit,
-                        onValueChange = { unit = it.take(8) },
-                        placeholder = "件/箱/斤",
-                        modifier = Modifier.width(140.dp),
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
                 Text(
-                    "小计 ¥" + formatMoney((price.toDoubleOrNull()?.times(qty) ?: 0.0).toString()),
+                    "小计 ¥" + formatMoney((initial.price.toDoubleOrNull()?.times(qty) ?: 0.0).toString()),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "单价由商品定价决定，下单时不能改；要改价请让派单员在「商品管理 / 批发商定价」里调整。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
@@ -837,7 +849,8 @@ fun LineEditDialog(
             TextButton(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onConfirm(LineDraft(initial.productId, name.trim(), qty, price, unit.trim().ifBlank { "件" }))
+                        // 单价与单位都沿用原值（商品定价 / 商品库单位），这里不给改 —— 见函数头注释
+                        onConfirm(LineDraft(initial.productId, name.trim(), qty, initial.price, initial.unit.ifBlank { "件" }))
                     }
                 },
             ) { Text("确定") }

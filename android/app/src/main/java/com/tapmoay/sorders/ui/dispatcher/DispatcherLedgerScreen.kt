@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
+import androidx.compose.ui.text.input.KeyboardType
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementGroupDto
 import com.tapmoay.sorders.data.remote.dto.LedgerAccountOut
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
@@ -286,9 +288,9 @@ fun DispatcherLedgerScreen(
                     SoTextField(vm.draftProduct, { vm.draftProduct = it }, placeholder = "商品名称")
                     Spacer(Modifier.height(10.dp))
                     Row {
-                        SoTextField(vm.draftQty, { vm.draftQty = it.filter { c -> c.isDigit() } }, placeholder = "数量", modifier = Modifier.weight(1f))
+                        SoTextField(vm.draftQty, { vm.draftQty = InputRules.intInput(it, 6) }, placeholder = "数量", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))
-                        SoTextField(vm.draftPrice, { vm.draftPrice = it }, placeholder = "单价（元）", modifier = Modifier.weight(1f))
+                        SoTextField(vm.draftPrice, { vm.draftPrice = InputRules.priceInput(it) }, placeholder = "单价（元）", keyboardType = KeyboardType.Decimal, modifier = Modifier.weight(1f))
                     }
                     Spacer(Modifier.height(10.dp))
                     SoTextField(vm.draftDate, { vm.draftDate = it }, placeholder = "日期（如 2026-08-31）")

@@ -26,7 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.util.resolveStaticUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -495,8 +498,10 @@ fun AddressScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    vm.contactPhone, { vm.contactPhone = it },
+                    // 电话只让数字进来（规则唯一实现在 core/InputRules.kt）
+                    vm.contactPhone, { vm.contactPhone = InputRules.phoneInput(it) },
                     label = { Text("电话") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     leadingIcon = { Icon(Icons.Default.Phone, null, tint = Color(MgrGreen)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
