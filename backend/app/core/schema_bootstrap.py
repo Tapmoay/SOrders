@@ -751,6 +751,30 @@ def _bootstrap_impl(engine: Engine) -> None:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise
 
+    # ---------- 运费价目挂到"路线"上（2026-09-19 用户要求） ----------
+    #
+    # 用户原话：「它是**根据路线**来创建的…同一个路线，我们可以配置**多个价格**」
+    # +「这个价格是会**跟司机绑定**的」。
+    # `freight_template_drivers` 是新表（`create_all` 会建），这里补两列：
+    #  · `route_id` → `shipper_addresses.id`（复用「地址与联系人 → 常用线路」）；
+    #  · `price_name` → 这条价目叫什么（小车价/大车价/回程价…）。
+    # ⚠️ 两列都可空/有默认值：**老数据一条都不动**，`from_place/to_place` 继续当路线快照用，
+    #    所以升级过程中旧页面看到的还是原来的样子（只是多了"可以挂路线"这个能力）。
+    if "freight_templates" in insp.get_table_names():
+        fcols = {c["name"] for c in insp.get_columns("freight_templates")}
+        for col, ddl in (
+            ("route_id", "ALTER TABLE freight_templates ADD COLUMN route_id INTEGER NULL"),
+            ("price_name", "ALTER TABLE freight_templates ADD COLUMN price_name VARCHAR(32) NOT NULL DEFAULT ''"),
+        ):
+            if col in fcols:
+                continue
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text(ddl))
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
     # ---------- 计费方式归一成大写（2026-09-17） ----------
     #
     # 为什么要有这一步（不是"顺手清理"）：`billing_mode` 各消费点的大小写判据互相矛盾，

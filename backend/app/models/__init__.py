@@ -23,7 +23,7 @@ from app.models.enums import (
     UserRole,
     VehicleType,
 )
-from app.models.freight_template import FreightTemplate
+from app.models.freight_template import FreightTemplate, FreightTemplateDriver
 from app.models.export_job import ExportFormat, ExportJobStatus, LedgerExportJob
 from app.models.inventory import InventoryMovement
 from app.models.ledger import Ledger
@@ -56,6 +56,7 @@ __all__ = [
     "ExportFormat",
     "ExportJobStatus",
     "FreightTemplate",
+    "FreightTemplateDriver",
     "Ledger",
     "InventoryMovement",
     "LedgerExportJob",

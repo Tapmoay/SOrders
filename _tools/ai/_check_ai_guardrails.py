@@ -2402,7 +2402,16 @@ def main() -> int:
     for f in soft_files:
         src = read(ROOT / "backend/app/api/v1" / f)
         n_restore_route += len(re.findall(r'@router\.post\("[^"]*/restore"', src))
-        c.absent(f"{f}: 不再物理删除（改成伪装删除 + 恢复端点）", src, r"db\.delete\(")
+        # ⚠️ 判据锚在**删这一行的那段代码**上，不是整个文件（2026-09-19 收紧）：
+        #    原来扫的是"整个文件里不许出现 `db.delete(`"，可是
+        #    `freight_templates.py` 里现在还有一张**绑定表**（`freight_template_drivers`）——
+        #    解绑就是删那一行，它本来就该物理删（绑定关系没有"历史价值"，
+        #    要查"这单当时按哪一档算"看的是订单快照）。整文件扫会把这件事判成违规，
+        #    而"假违规"的代价是有人开始无视这条红线。
+        #    真正要守住的是：**这些主数据自己的删除必须打标记**（`is_deleted = True`）+ 有恢复端点。
+        m = re.search(r"def delete_\w+\(.*?(?=\n@router|\Z)", src, re.S)
+        c.absent(f"{f}: 这个模块的删除不再物理删（改成伪装删除 + 恢复端点）",
+                 m.group(0) if m else src, r"db\.delete\(")
     c.ok("后端有 ≥7 个恢复端点（每张可撤的表一个）", n_restore_route >= 7, f"实际 {n_restore_route} 个")
     pmodel = read(ROOT / "backend/app/models/product.py")
     c.absent(
