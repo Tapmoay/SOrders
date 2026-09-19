@@ -10,7 +10,9 @@
   给**订单**补导航是 `POST /orders/{id}/navigation`，只允许该单司机或派单员（见那边）。
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+
+from app.core.pagination import finish_page
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -33,6 +35,7 @@ MAX_LIST = 200
 @router.get("", response_model=list[PlaceOut])
 def list_places(
     current: CurrentUser,
+    response: Response,
     db: Session = Depends(get_db),
     q: str | None = Query(None, description="按地点名/地址模糊匹配（不传=常用在前）"),
     limit: int = Query(100, ge=1, le=MAX_LIST),
@@ -43,8 +46,10 @@ def list_places(
         like = f"%{keyword}%"
         stmt = stmt.where(or_(Place.name.like(like), Place.detail_address.like(like)))
     # 常用在前（use_count 是"有多少人沿用/录过这个点"），同频次按新近
-    stmt = stmt.order_by(Place.use_count.desc(), Place.id.desc()).limit(limit)
-    return list(db.scalars(stmt).all())
+    # 多取一行判截断（2026-09-19 外部完整检查 §9.1）：共享库会一直长，
+    # 不说"还有更多"的话用户会以为"这个点大家都没录过"。
+    stmt = stmt.order_by(Place.use_count.desc(), Place.id.desc()).limit(limit + 1)
+    return finish_page(list(db.scalars(stmt).all()), limit, response)
 
 
 @router.post("", response_model=PlaceOut, status_code=status.HTTP_201_CREATED)

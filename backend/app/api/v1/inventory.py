@@ -1,6 +1,8 @@
 """库存管理（派单员）：出入库流水自动维护商品库存。"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+
+from app.core.pagination import finish_page
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,7 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 @router.get("/movements", response_model=list[MovementOut])
 def list_movements(
+    response: Response,
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
     product_id: int | None = Query(None),
@@ -25,7 +28,14 @@ def list_movements(
     date_from: str | None = Query(None, description="YYYY-MM-DD（含当天）"),
     date_to: str | None = Query(None, description="YYYY-MM-DD（含当天）"),
 ) -> list[InventoryMovement]:
-    q = select(InventoryMovement).order_by(InventoryMovement.id.desc()).offset(offset).limit(limit)
+    # 多取一行判截断（2026-09-19 外部完整检查 R2-3）：这条端点原来**既不回报截断、
+    # 缺省又只有 100 条**，于是更早的流水在 App 里静默消失 —— 用户会据此得出"这批货没入过库"。
+    q = (
+        select(InventoryMovement)
+        .order_by(InventoryMovement.id.desc())
+        .offset(offset)
+        .limit(limit + 1)
+    )
     if product_id is not None:
         q = q.where(InventoryMovement.product_id == product_id)
     if date_from or date_to:
@@ -34,7 +44,7 @@ def list_movements(
             q = q.where(InventoryMovement.created_at >= df)
         if dt is not None:
             q = q.where(InventoryMovement.created_at <= dt)
-    return list(db.scalars(q))
+    return finish_page(list(db.scalars(q)), limit, response)
 
 
 @router.post("/movements", response_model=MovementOut, status_code=status.HTTP_201_CREATED)

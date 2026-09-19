@@ -3,15 +3,44 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.core.business_time import utc_now_naive
+
 
 class Base(DeclarativeBase):
     pass
 
 
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    """`created_at` / `updated_at`：**由 Python 写 UTC**，不用库端时钟。
+
+    ### 为什么（2026-09-19 外部完整检查 C-2，本轮收敛）
+    原来是 `server_default=func.now()` + `onupdate=func.now()`，也就是**库端时钟**。
+    而本项目的口径是"库里一律存 UTC"（`core/business_time.py`）——于是在生产 MySQL
+    （会话时区 +08:00）上，**同一个库里同时存在两种基准**：
+
+    | 列 | 谁写 | 生产基准 |
+    |---|---|---|
+    | `created_at` / `updated_at`（所有表） | 库端 `NOW()` | **+08:00 墙上时间** |
+    | `orders.delivered_at`、各类 `*_at` | Python `utc_now_naive()` | UTC |
+
+    后果是**静默**的：拿 UTC 的 Python 值去减库端的 `created_at`，差整整 8 小时 ——
+    "待派超时 4 小时"实际 12 小时、保留策略与审计窗口整体偏 8 小时；
+    而**本机 SQLite 两边都是 UTC，所以所有单测与探针都是绿的**（这正是它活了这么久的原因）。
+
+    ### 现在的形状
+    - **Python 提供值**（`default` / `onupdate`）→ 新写入的行一律是 UTC；
+    - `server_default` **保留**：只是给"绕过 ORM 的原生 SQL 插入"兜底，而
+      `database.py` 已把 MySQL 会话时区钉成 UTC，所以那条兜底路径**也是 UTC**（不再有两个基准）。
+    """
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now_naive, server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
+        server_default=func.now(),
     )
 
 

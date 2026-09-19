@@ -1,4 +1,6 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+
+from app.core.pagination import finish_page
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -54,6 +56,7 @@ def read_me(current: CurrentUser) -> UserOut:
 
 @router.get("", response_model=list[UserOut])
 def list_users(
+    response: Response,
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.USER_MANAGE)),
     role: UserRole | None = Query(None),
@@ -62,7 +65,9 @@ def list_users(
     skip: int = 0,
     limit: int = Query(100, le=500),
 ) -> list[User]:
-    stmt = select(User).order_by(User.id.desc()).offset(skip).limit(limit)
+    # 多取一行判截断（2026-09-19 外部完整检查 §9.1）：账号列表超过 100 时界面不说，
+    # 派单员会以为"没有这个账号"再去建一个（而同号会撞唯一约束）。
+    stmt = select(User).order_by(User.id.desc()).offset(skip).limit(limit + 1)
     if role is not None:
         stmt = stmt.where(User.role == role)
     if is_member is not None:
@@ -70,7 +75,8 @@ def list_users(
     kw = (q or "").strip()
     if kw:
         stmt = stmt.where(or_(User.full_name.like(f"%{kw}%"), User.phone.like(f"%{kw}%")))
-    return [_to_out(u, current) for u in db.scalars(stmt).all()]
+    rows = [_to_out(u, current) for u in db.scalars(stmt).all()]
+    return finish_page(rows, limit, response)
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)

@@ -860,3 +860,109 @@ async def test_participants_adapts_to_both_manager_shapes(monkeypatch):
     assert [s for s, _ in [x async for x in si._participants("user_1")]] == ["a"]
     monkeypatch.setattr(si.sio, "manager", _SyncMgr())
     assert [s for s, _ in [x async for x in si._participants("user_1")]] == ["b"]
+
+
+# ============================================================
+# §9.1：所有声明了 limit 的列表端点都必须回报截断（本轮把 5 个补齐）
+# ============================================================
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/cash-flows",
+        "/api/v1/inventory/movements",
+        "/api/v1/operation-logs",
+        "/api/v1/places",
+        "/api/v1/users",
+    ],
+)
+def test_every_limited_endpoint_reports_truncation(client, token_dispatcher, path):
+    """有 `limit` 就必须说清「这次是不是被截断了」。
+
+    缺陷现场（2026-09-19 外部完整检查 §9.1）：判据的**扫描范围是手写的** —— 只遍历
+    "已经出现过 `X-Truncated` 的模块"，于是另外 5 个有 `limit` 的端点根本不在范围内。
+    后果不是"少看到几条"：现金流水页把一页当总额（实测少算 **62%**）、审计页以为
+    "这条改动没被记录"、账号列表里找不到人再去建一个（撞唯一约束）。
+    """
+    r = client.get(path, params={"limit": 1}, headers=auth_headers(token_dispatcher))
+    assert r.status_code == 200, r.text
+    assert r.headers.get("X-Result-Limit") == "1", f"{path} 说不出本次上限"
+    assert r.headers.get("X-Truncated") in ("0", "1"), f"{path} 不说有没有更多"
+    assert len(r.json()) <= 1, f"{path} 多取的那一行漏出来了"
+
+
+def test_limited_endpoint_says_there_is_more(client, token_dispatcher):
+    """真的还有更多时，必须置 `X-Truncated: 1`（而不只是"有个头"）。"""
+    r = client.get("/api/v1/users", params={"limit": 1}, headers=auth_headers(token_dispatcher))
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 1, "limit=1 只许回 1 行（多取的那行是判据用的，不许下发）"
+    assert r.headers.get("X-Truncated") == "1", "库里显然不止一个账号，却说没有更多"
+
+
+# ============================================================
+# C-2：时间基准只许有一个（库里一律存 UTC）
+# ============================================================
+
+
+def test_new_rows_timestamps_are_utc_not_db_clock(client, token_dispatcher, db_session):
+    """新建的行，`created_at` 必须贴近 **Python 的 UTC 现在**。
+
+    缺陷现场（2026-09-19 外部完整检查 C-2）：`created_at` 由**库端** `NOW()` 写，
+    生产 MySQL 的会话时区是 +08:00，而 Python 那边写的是 UTC —— 同一个库里两个基准，
+    差 8 小时（"待派超时 4 小时"实际 12 小时）。
+    ⚠️ 本机 SQLite 的 `CURRENT_TIMESTAMP` 本来就是 UTC，所以**这条用例在 SQLite 上骗得过去**
+    （这正它活了这么久的原因）——真正钉住它的是同一轮加的
+    `_tools/qa/_check_time_base.py`（结构判据）+ `database.py` 的会话时区钩子。
+    这里保留的是最直白的"症状断言"：在**生产 MySQL** 上它一红就是 8 小时。
+    """
+    from app.core.business_time import utc_now_naive
+
+    before = utc_now_naive()
+    r = client.post(
+        "/api/v1/ledger/entries",
+        headers=auth_headers(token_dispatcher),
+        json={
+            "temp_shipper_name": "UTC 探针",
+            "entry_date": str(before.date()),
+            "product_name": "UTC 探针",
+            "quantity": 1,
+            "unit_price": "1.00",
+            "total": "1.00",
+            "source": "manual",
+            "note": "",
+        },
+    )
+    assert r.status_code == 201, r.text
+    from sqlalchemy import select
+
+    from app.models import Ledger
+
+    row = db_session.scalars(
+        select(Ledger).where(Ledger.product_name == "UTC 探针").order_by(Ledger.id.desc())
+    ).first()
+    assert row is not None
+    delta = abs((row.created_at - before).total_seconds())
+    assert delta < 60, (
+        f"新建行的 created_at 与本机 UTC 现在差 {delta:.0f} 秒 —— "
+        f"库端时钟与 Python 时钟不是同一个基准（生产 MySQL 上这就是 8 小时）"
+    )
+
+
+def test_timestamp_columns_have_python_defaults_not_db_clock_only():
+    """结构判据：凡用库端时钟兜底的列，**必须**同时有 Python 的默认值。
+
+    这条比"值对不对"更硬：值对不对只在生产 MySQL 上才看得出来（见上一条），
+    而"有没有 Python 默认值"在本机就能判死。
+    """
+    from app.models import OperationLog, Order
+
+    for model, names in ((Order, ("created_at", "updated_at")), (OperationLog, ("created_at",))):
+        for name in names:
+            col = model.__table__.c[name]
+            assert col.default is not None and col.default.is_callable, (
+                f"{model.__tablename__}.{name} 没有 Python 默认值 → 生产上会由库端 NOW() 写（+08:00）"
+            )
+    assert Order.__table__.c["updated_at"].onupdate is not None, (
+        "updated_at 的 onupdate 必须是 Python 可调用对象（库端 onupdate 在生产是 +08:00）"
+    )

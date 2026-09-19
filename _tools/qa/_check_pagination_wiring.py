@@ -91,7 +91,48 @@ def main() -> int:
                 f"{p.name} 同时给了 X-Result-Limit（只有截断位说不出『看到的是多少条』）",
                 "X-Result-Limit" in src,
             )
+        elif "finish_page(" in src:
+            # 走**共享出口**（`app/core/pagination.py`）：两个头在那里一起写，
+            # 所以模块里不必再出现字面量。这是本轮把 8 个列表端点收敛到一处之后的新常态。
+            with_trunc.append(p.name)
     ok("至少 2 个列表端点回报截断（notification + orders）", len(with_trunc) >= 2, f"实际 {len(with_trunc)}")
+
+    # ---- 2026-09-19 外部完整检查 §9.1：**扫描范围不许是手写的** ----
+    #
+    # 原来这一节只遍历"已经出现过 X-Truncated 的模块"，于是"从来没写过截断头的端点"
+    # **根本不在扫描范围内** —— 实测漏掉 5 个（`cash_flows` / `inventory` / `operation_logs`
+    # / `places` / `users`）：它们都有 `limit` 参数、都只回一页，却什么都不说。
+    # 后果不是"少看到几条"，而是用户/模型据此得出**错误结论**（现金流水页把一页当总额，
+    # 实测少算 62%；审计页以为"这条改动没被记录"）。
+    #
+    # 所以判据改成**从源码算**：谁声明了 `limit` 查询参数，谁就必须
+    # ① 回报截断（调共享出口 `core.pagination.finish_page()`，或自己写 X-Truncated）
+    # ② 取数时**多取一行**（少了这一条，`finish_page` 永远算出"没截断"）
+    # 再加一条数量下限：认出来的端点少于 6 个说明正则失配了（不是"项目里没有列表端点"）。
+    print("\n后端：声明了 limit 的端点必须『回报截断 + 多取一行』")
+    limit_mods: list[tuple[str, str]] = []
+    for p in mods:
+        raw = p.read_text(encoding="utf-8")
+        src = code_only(raw)
+        # 只看**函数签名里**的 Query 参数（`limit: int = Query(...)`），不是查询体里的 .limit()
+        if re.search(r"^\s{4}limit\s*:\s*[^=\n]+=\s*Query\(", src, re.M):
+            limit_mods.append((p.name, src))
+    ok(
+        "认出的『有 limit 的端点模块』>= 6 个（清单自己算，防正则失配后空转）",
+        len(limit_mods) >= 6,
+        f"实际 {len(limit_mods)}：{[n for n, _ in limit_mods]}",
+    )
+    for name, src in limit_mods:
+        ok(
+            f"{name} 回报了截断（finish_page 或 X-Truncated）",
+            "finish_page(" in src or "X-Truncated" in src,
+            "有 limit 却什么都不说 → 调用方会把『一页』当成『全部』",
+        )
+        ok(
+            f"{name} 取数时多取了一行（否则永远算出『没截断』）",
+            re.search(r"\.limit\([^)]*\+\s*1\s*\)", src) is not None,
+            "没有 `.limit(<n> + 1)` → finish_page 拿到多少行就说多少行，永远不会置截断位",
+        )
 
     # ---- 2026-09-19 审计 H2：**浏览器只让脚本读「被显式暴露」的响应头** ----
     # `allow_headers` 管的是请求头；响应头不写进 `expose_headers`，跨源时

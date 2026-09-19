@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+
+from app.core.pagination import finish_page
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -27,6 +29,7 @@ def _out(row: OperationLog) -> OperationLogOut:
 
 @router.get("", response_model=list[OperationLogOut])
 def list_operation_logs(
+    response: Response,
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.OPERATION_LOG_READ)),
     order_id: int | None = Query(None),
@@ -39,13 +42,16 @@ def list_operation_logs(
         .options(joinedload(OperationLog.operator), joinedload(OperationLog.order))
         .order_by(OperationLog.id.desc())
         .offset(skip)
-        .limit(limit)
+        # 多取一行判截断（2026-09-19 外部完整检查 §9.1）：审计页拿不到"还有更早的"，
+        # 用户会据此判断"这条改动没被记录"——而审计的全部价值就在"能翻到"。
+        .limit(limit + 1)
     )
     if order_id is not None:
         q = q.where(OperationLog.order_id == order_id)
     if operator_id is not None:
         q = q.where(OperationLog.operator_id == operator_id)
-    return [_out(r) for r in db.scalars(q).unique().all()]
+    rows = [_out(r) for r in db.scalars(q).unique().all()]
+    return finish_page(rows, limit, response)
 
 
 @router.get("/{log_id}", response_model=OperationLogOut)

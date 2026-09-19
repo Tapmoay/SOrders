@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Generator
 
 from sqlalchemy import create_engine, event
@@ -5,6 +6,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 if settings.database_url.startswith("sqlite"):
@@ -52,6 +55,42 @@ else:
         max_overflow=32,
         pool_timeout=30,
     )
+
+    @event.listens_for(engine, "connect")
+    def _mysql_session_utc(dbapi_conn, _record) -> None:
+        """把 MySQL 会话时区钉成 **UTC** —— 这是「库里一律存 UTC」这条口径的另一半。
+
+        ### 为什么（2026-09-19 外部完整检查 C-2）
+        本项目的口径写在 `core/business_time.py`：**库里存 UTC，报表按业务当地日分桶**。
+        但 MySQL 的 `NOW()` 取的是**会话时区**的当前时间，生产是 `SYSTEM`（+08:00）——
+        于是凡是由库端时钟写出来的值（`server_default=func.now()`、任何原生 SQL 里的 `NOW()`）
+        都变成 +08:00 墙上时间，和 Python 写的 UTC **差 8 小时**：
+        「待派超时 4 小时」实际 12 小时、保留策略与审计窗口整体偏 8 小时。
+        本机 SQLite 的 `CURRENT_TIMESTAMP` 本来就是 UTC，所以这个偏差**只有生产才有**，
+        单测与探针全绿 —— 它就是这么活下来的。
+
+        现在：Python 侧统一由 `utc_now_naive()` 提供值（见 `TimestampMixin`），
+        这里再把**库端**的时钟也钉成 UTC，两条路都指向同一个基准，
+        `server_default` 这类兜底路径也不会再引入第二个基准。
+
+        ⚠️ 只对 MySQL 生效（SQLite 分支在上面，没有这句话）。`SET time_zone` 是**会话级**的，
+        所以必须每条新连接都执行（`connect` 事件正是干这个的）；连接池复用连接时不会重复执行，
+        也不需要重复执行。
+        """
+        cur = dbapi_conn.cursor()
+        try:
+            cur.execute("SET time_zone = '+00:00'")
+        except Exception:  # noqa: BLE001
+            # 权限不足/时区表没装时**不要**让应用起不来：记一条日志，退回原来的行为（与修复前一致）。
+            logging.getLogger(__name__).warning(
+                "MySQL 会话时区没能设成 UTC（SET time_zone 失败）——"
+                "由库端时钟写出的时间会比 Python 写的 UTC 快 8 小时（见 database._mysql_session_utc）",
+                exc_info=True,
+            )
+        finally:
+            cur.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
 
 # 确保无论 ASGI lifespan 是否执行（如仅引用 database 或未走 FastAPI 生命周期），旧库都能补列/迁移

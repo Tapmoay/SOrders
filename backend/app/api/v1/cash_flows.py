@@ -3,7 +3,9 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+
+from app.core.pagination import finish_page
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
@@ -43,6 +45,7 @@ def _scoped_stmt(
 @router.get("", response_model=list[CashFlowOut])
 def list_cash_flows(
     current: CurrentUser,
+    response: Response,
     db: Session = Depends(get_db),
     direction: str | None = Query(None),
     biz_type: str | None = Query(None),
@@ -57,9 +60,10 @@ def list_cash_flows(
     stmt = (
         _scoped_stmt(current, direction, biz_type, party_type, party_id, date_from, date_to)
         .order_by(CashFlow.flow_date.desc(), CashFlow.id.desc())
-        .limit(limit)
+        # 多取一行：拿到 limit+1 行就说明还有更多（`finish_page` 据此写 X-Truncated）
+        .limit(limit + 1)
     )
-    return list(db.scalars(stmt).all())
+    return finish_page(list(db.scalars(stmt).all()), limit, response)
 
 
 @router.get("/summary")

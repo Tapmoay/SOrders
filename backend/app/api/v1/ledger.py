@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
+from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
@@ -140,12 +141,7 @@ def list_entries(
     DEFAULT_LEDGER_LIMIT = 1000
     effective_limit = limit or DEFAULT_LEDGER_LIMIT
     rows = list(db.scalars(q.offset(offset).limit(effective_limit + 1)).all())
-    truncated = len(rows) > effective_limit
-    if truncated:
-        rows = rows[:effective_limit]
-    response.headers["X-Result-Limit"] = str(effective_limit)
-    response.headers["X-Truncated"] = "1" if truncated else "0"
-    return ledger_rows_to_out(rows, db)
+    return ledger_rows_to_out(finish_page(rows, effective_limit, response), db)
 
 
 @router.get("/accounts", response_model=list[LedgerAccountOut])

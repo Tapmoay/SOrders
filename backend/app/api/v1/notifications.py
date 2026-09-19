@@ -5,6 +5,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
+from app.core.pagination import finish_page
 from app.core.rbac import Permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
@@ -113,10 +114,7 @@ def list_notifications(
         q = q.where(Notification.id < before_id)
     # 多要一行：拿到第 limit+1 行就说明"还有更多"，与 `GET /orders` 的 X-Truncated 同源。
     rows = list(db.scalars(q.limit(limit + 1)).all())
-    truncated = len(rows) > limit
-    response.headers["X-Result-Limit"] = str(limit)
-    response.headers["X-Truncated"] = "1" if truncated else "0"
-    return rows[:limit]
+    return finish_page(rows, limit, response)
 
 
 @router.post("/price-notify", response_model=list[NotificationOut], status_code=status.HTTP_201_CREATED)

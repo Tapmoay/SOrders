@@ -19,6 +19,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.core.business_time import utc_now_naive
+from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, parse_date_range, require_permission
@@ -187,12 +188,7 @@ def _orders_response(
     响应体是 `list[OrderOut]`（裸数组，加不了元数据，改形状会破坏所有老客户端），所以走响应头：
     `X-Result-Limit`（本次上限）、`X-Truncated: 1`（还有更多）。
     """
-    truncated = len(rows) > limit
-    if truncated:
-        rows = rows[:limit]
-    response.headers["X-Result-Limit"] = str(limit)
-    response.headers["X-Truncated"] = "1" if truncated else "0"
-    return [enrich_order_out(o, db, current) for o in rows]
+    return [enrich_order_out(o, db, current) for o in finish_page(rows, limit, response)]
 
 
 @router.get("", response_model=list[OrderOut])
