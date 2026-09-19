@@ -25,11 +25,25 @@ class SocketManager {
     private val _connected = MutableSharedFlow<Boolean>(extraBufferCapacity = 2)
     val connected: SharedFlow<Boolean> = _connected.asSharedFlow()
 
+    /**
+     * 服务端**明确拒绝**了这次会话（握手被拒 / 收到 `session_revoked`）。
+     *
+     * 与 [connected] = false 是两件事：那个只说"现在没连着"（网络抖动也会），
+     * 这个说"再连也不会成功，令牌已经不算数了"。区别对待的理由见 [PushTrust.isServerRefusal]。
+     */
+    private val _sessionRefused = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val sessionRefused: SharedFlow<Unit> = _sessionRefused.asSharedFlow()
+
+    /** 一次会话只报一次：握手被拒后重连还会再抛几条，不该弹几个「登录已失效」 */
+    @Volatile
+    private var refusalNotified = false
+
     val isConnected: Boolean get() = socket?.connected() == true
 
     fun connect(baseUrl: String, token: String, lastNotificationId: Long = 0L) {
         if (socket?.connected() == true) return
         disconnect()
+        refusalNotified = false
         try {
             val opts = IO.Options().apply {
                 auth = mapOf(
@@ -60,7 +74,22 @@ class SocketManager {
             }
             s.on(Socket.EVENT_CONNECT) { Log.i("SOrdersSock", "CONNECTED to " + baseUrl); _connected.tryEmit(true) }
             s.on(Socket.EVENT_DISCONNECT) { Log.w("SOrdersSock", "DISCONNECTED"); _connected.tryEmit(false) }
-            s.on(Socket.EVENT_CONNECT_ERROR) { Log.w("SOrdersSock", "CONNECT_ERROR " + it?.toString()); _connected.tryEmit(false) }
+            s.on(Socket.EVENT_CONNECT_ERROR) { args ->
+                val err = args?.firstOrNull()
+                Log.w("SOrdersSock", "CONNECT_ERROR " + err?.toString())
+                _connected.tryEmit(false)
+                // 服务端拒绝（令牌被吊销 / 账号停用 / 会话被撤销）→ 重试一辈子也不会好，
+                // 必须让用户去重新登录；网络不通只是重连（判据与理由见 PushTrust.isServerRefusal）。
+                // ⛔ 这里原来只打一行日志：司机"以为在连着、其实一条新单都收不到"（报告 C-3）。
+                if (PushTrust.isServerRefusal(err)) notifyRefused("握手被拒绝")
+            }
+            // 后端在登出 / 改密码 / 停用之后**主动推**这个事件，然后断开连接
+            // （服务端撤销会话的信号，不是普通断线）。令牌此时已经作废，
+            // 所以不重连、直接走清会话那条链。
+            s.on("session_revoked") {
+                Log.w("SOrdersSock", "SESSION_REVOKED")
+                notifyRefused("会话被服务端撤销")
+            }
             socket = s
             s.connect()
         } catch (_: Exception) {
@@ -86,6 +115,14 @@ class SocketManager {
             out[k] = plain(obj.opt(k))
         }
         return out
+    }
+
+    /** 通知"这次会话已经没救了"（去重：一次会话只报一次） */
+    private fun notifyRefused(why: String) {
+        if (refusalNotified) return
+        refusalNotified = true
+        Log.w("SOrdersSock", "会话失效（$why）→ 清会话，不再重连")
+        _sessionRefused.tryEmit(Unit)
     }
 
     /** 递归把 JSONObject/JSONArray 摊成 Map/List，其余原样返回 */

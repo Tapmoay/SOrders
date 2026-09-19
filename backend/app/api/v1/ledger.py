@@ -1,9 +1,11 @@
 from decimal import Decimal
+from datetime import timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
@@ -19,8 +21,12 @@ from app.schemas.ledger import (
     LedgerSyncFromOrdersBody,
     LedgerUpdate,
 )
-from app.services.ledger_export_worker import run_ledger_export_job_task
-from app.services.ledger_response import ledger_to_out
+from app.services.ledger_export_worker import (
+    acquire_export_slot,
+    release_export_slot,
+    run_ledger_export_job_with_slot,
+)
+from app.services.ledger_response import ledger_rows_to_out, ledger_to_out
 from app.services.ledger_scope import visible_ledger_select
 from app.services.ledger_sync import (
     sync_delivered_orders_to_ledger,
@@ -30,6 +36,12 @@ from app.services.operation_log_service import write_log
 from app.services.push_events import push_ledger_updated
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
+
+#: 单次导出最多包含多少笔流水（见 `create_export_job` 的说明）。
+#: 实测 85,474 行 → 39.77 秒 / 85,119 条 SQL / 峰值 RSS 469MB；20000 行约 9 秒、100MB 级。
+MAX_EXPORT_ROWS = 20_000
+#: 同一账号 24 小时内最多导出几次（产物可重复下载，不需要反复生成）。
+EXPORT_DAILY_QUOTA = 20
 
 
 async def _bg_push_ledger_shipper(shipper_id: int) -> None:
@@ -69,11 +81,14 @@ def _reject_if_order_closed(db: Session, row: Ledger, *, wants_detail: bool, wha
 @router.get("/entries", response_model=list[LedgerOut])
 def list_entries(
     current: CurrentUser,
+    response: Response,
     db: Session = Depends(get_db),
     shipper_id: int | None = Query(None),
     temp_shipper_name: str | None = Query(None, description="临时货主名称（与 shipper_id 二选一）"),
     date_from: str | None = Query(None, description="YYYY-MM-DD"),
     date_to: str | None = Query(None, description="YYYY-MM-DD"),
+    limit: int | None = Query(None, ge=1, le=5000, description="返回条数上限（缺省=1000，最多 5000）"),
+    offset: int = Query(0, ge=0, description="跳过前 N 条（翻页用）"),
 ) -> list[LedgerOut]:
     from datetime import date as date_type
 
@@ -114,8 +129,23 @@ def list_entries(
         except ValueError:
             raise HTTPException(status_code=400, detail="结束日期格式无效") from None
 
-    rows = list(db.scalars(q).all())
-    return [ledger_to_out(r, db) for r in rows]
+    # ⚠️ **所有**查询都有缺省上限，并且把"是不是被截断了"如实写进响应头
+    #    （2026-09-19 外部完整检查 C-4）。原来这条端点**没有 limit**：实测 85,474 行
+    #    → 27.75 秒 / 响应体 29.12 MB / 客户端把整包解析成 DTO 再交给列表，
+    #    而两个已经发到用户手机上的安卓账本页在"清掉日期筛选"时走的正是这条全量路径。
+    #    形状与 `GET /orders` / `GET /notifications` 同源：多取一行判截断，
+    #    `X-Result-Limit` 说明本次上限（裸数组响应体加不了元数据，只能走头）。
+    #    缺省取 1000（比订单列表的 300 大）：账本一行的体量小得多，而"账本少看见一笔钱"
+    #    比"订单少看见几条"严重；1000 行的响应体约 0.3MB，SQL 条数与行数无关。
+    DEFAULT_LEDGER_LIMIT = 1000
+    effective_limit = limit or DEFAULT_LEDGER_LIMIT
+    rows = list(db.scalars(q.offset(offset).limit(effective_limit + 1)).all())
+    truncated = len(rows) > effective_limit
+    if truncated:
+        rows = rows[:effective_limit]
+    response.headers["X-Result-Limit"] = str(effective_limit)
+    response.headers["X-Truncated"] = "1" if truncated else "0"
+    return ledger_rows_to_out(rows, db)
 
 
 @router.get("/accounts", response_model=list[LedgerAccountOut])
@@ -466,6 +496,24 @@ def create_export_job(
     current: CurrentUser,
     db: Session = Depends(get_db),
 ) -> LedgerExportJob:
+    """建一个账本导出任务（异步生成，完成后发站内信带下载链接）。
+
+    ### 三道闸（2026-09-19 外部完整检查 C-5）
+    这条端点原来是**完全无闸**的：只要有账号就能 fire-and-forget 地连点，而重活
+    （读全区间流水 + 拼 xlsx）跑在同一进程的线程池里。实测单任务 39.77 秒 / 85,119 条 SQL /
+    峰值 RSS 469MB，并且能把最廉价的端点（`/health` 级）从 1ms 拖到 29.77 秒 ——
+    一个货主就能让所有人的请求排队。三道闸分别是：
+
+    1. **同一个账号同时只能有一个在跑**（`acquire_export_slot`，OS 文件锁，进程死了自动释放）；
+    2. **每天最多 [EXPORT_DAILY_QUOTA] 次**（配额，拦住"跑完立刻再来一次"的循环）；
+    3. **单次区间最多 [MAX_EXPORT_ROWS] 笔** —— 这是**按行数**而不是按天数的上限：
+       天数是个猜的数字（一天的流水可能是 3 笔也可能是 3000 笔），而行数是成本的直接度量。
+       超了就告诉用户实际有多少笔、请他缩小范围，而不是闷头跑 40 秒。
+
+    ⚠️ 三道闸都在**落库之前**，失败时不留下一个永远不会被执行的 PENDING 任务。
+    ⚠️ 第 1 条是"最好努力"：两个请求同时到达时可能都看到空槽（真正的互斥由文件锁在
+       紧接的 `acquire_export_slot` 里做，那个是原子的）。
+    """
     role = user_role_key(current)
     if role == UserRole.SHIPPER.value:
         if body.shipper_id != current.id:
@@ -477,18 +525,77 @@ def create_export_job(
         raise HTTPException(status_code=403, detail="无权访问")
     if body.date_from > body.date_to:
         raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
-    job = LedgerExportJob(
-        created_by_id=current.id,
-        shipper_id=body.shipper_id,
-        file_format=body.export_format,
-        date_from=body.date_from,
-        date_to=body.date_to,
-        status=ExportJobStatus.PENDING,
+
+    # ---- 闸 3：先算这次要导多少笔（与导出侧同一句 `visible_ledger_select`，口径不许分叉）----
+    rows_in_range = int(
+        db.scalar(
+            select(func.count()).select_from(
+                visible_ledger_select()
+                .where(Ledger.shipper_id == body.shipper_id)
+                .where(Ledger.entry_date >= body.date_from)
+                .where(Ledger.entry_date <= body.date_to)
+                .subquery()
+            )
+        )
+        or 0
     )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-    background_tasks.add_task(run_ledger_export_job_task, job.id)
+    if rows_in_range > MAX_EXPORT_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"这个区间有 {rows_in_range} 笔流水，一次最多导出 {MAX_EXPORT_ROWS} 笔"
+                f"（导出会占用服务器很久，也会拖慢其他人的操作）。请把日期范围缩小一些，分几次导。"
+            ),
+        )
+
+    # ---- 闸 2：配额 ----
+    # ⚠️ 这里的 24 小时窗口用的是 `utc_now_naive()`，而生产 MySQL 的 `created_at` 是
+    #    会话时区的墙上时间（+08:00）—— 两者差 8 小时，所以实际窗口会略宽于 24 小时。
+    #    这是 **C-2（时间基准不统一）** 的已知代价，方向是"更宽松"，不影响闸 1 的拦截；
+    #    等时间基准收敛之后再回来把这条改成同源（台账里记了）。
+    recent_jobs = int(
+        db.scalar(
+            select(func.count())
+            .select_from(LedgerExportJob)
+            .where(
+                LedgerExportJob.created_by_id == current.id,
+                LedgerExportJob.created_at > utc_now_naive() - timedelta(hours=24),
+            )
+        )
+        or 0
+    )
+    if recent_jobs >= EXPORT_DAILY_QUOTA:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"今天已经导出 {recent_jobs} 次（上限 {EXPORT_DAILY_QUOTA} 次）。"
+                "导出产物在消息中心能重复下载，不需要重新生成；确实还要导，请明天再试。"
+            ),
+        )
+
+    # ---- 闸 1：占槽位（原子；占不到说明上一个还在跑）----
+    slot = acquire_export_slot(current.id)
+    if slot is None:
+        raise HTTPException(
+            status_code=429,
+            detail="上一次导出还在生成中，请等它完成（完成后会发站内信，里面有下载链接）再导下一次。",
+        )
+    try:
+        job = LedgerExportJob(
+            created_by_id=current.id,
+            shipper_id=body.shipper_id,
+            file_format=body.export_format,
+            date_from=body.date_from,
+            date_to=body.date_to,
+            status=ExportJobStatus.PENDING,
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+    except Exception:
+        release_export_slot(slot)   # 落库失败就别把槽位锁死
+        raise
+    background_tasks.add_task(run_ledger_export_job_with_slot, job.id, slot)
     return job
 
 

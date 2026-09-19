@@ -148,8 +148,12 @@ MUTATIONS = [
     (
         "点通知后不停止播报（司机已经在看那一单了，手机还在喊）",
         SRC / "MainActivity.kt",
-        "        container.newOrderPlayer.stop()\n        val orderId = intent.getLongExtra",
-        "        val orderId = intent.getLongExtra",
+        # ⚠️ 锚点跟着实现走（2026-09-19 报告 R2-NS-3）：`consumeIntent` 现在先过凭据
+        #    （`PushTrust.trustedOrderId`）再动手，所以 stop() 不再紧跟 getLongExtra。
+        #    注入的语义不变：**把 stop() 那一行删掉**。
+        "            container.newOrderPlayer.stop()\n"
+        "            container.pendingOrderId.value = orderId",
+        "            container.pendingOrderId.value = orderId",
         "点通知立刻停止播报",
     ),
     (

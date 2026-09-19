@@ -21,6 +21,7 @@ class AlertPrefs(context: Context) {
         const val BACKGROUND = "background_enabled"
         const val BOOST = "boost_volume"
         const val LAST_NOTIFICATION_ID = "last_notification_id"
+        const val NOTIFY_TOKEN = "notify_token"
     }
 
     /** 新单语音总开关。默认开——司机端最要紧的就是听见这一声。 */
@@ -62,4 +63,28 @@ class AlertPrefs(context: Context) {
     var lastNotificationId: Long
         get() = sp.getLong(Keys.LAST_NOTIFICATION_ID, 0L)
         set(v) = sp.edit().putLong(Keys.LAST_NOTIFICATION_ID, v).apply()
+
+    /**
+     * 「这条 intent 真的是本机通知发出来的」凭据：每安装一个随机串，只落在本机私有存储。
+     *
+     * 为什么需要：[MainActivity] 是 LAUNCHER + `exported="true"`（桌面要能拉起它，
+     * 不能改成 false，见清单里的注释），所以**任何 App** 都能发一个带
+     * `sorders_order_id=<任意单号>` 的 intent 进来打断司机正在响的新单播报，
+     * 而代码原来只判 `orderId > 0`——等于把外部可伪造的 extra 当成了凭据（报告 R2-NS-3）。
+     * 不能靠"不给它 extra"来区分（Intent 是别人拼的），只能靠一个**猜不到的串**：
+     * 随机生成、只在本机、不进源码/日志/网络。
+     *
+     * `synchronized` + `commit()` 不是保险：通知是从 Socket 回调线程建的，
+     * 首次读盘可能与主线程（MainActivity 对照凭据）并发；两个线程各生成一个串的话，
+     * 用旧串建出来的那些通知**点一下就失效**（静默，看不出来）。commit 保证落盘后再返回。
+     *
+     * ⚠️ 副作用（一次性的）：App 升级前就已经躺在通知栏里的那几条旧通知没带这个串，
+     * 升级后点它们会落到首页而不是订单详情，再点一条新通知就恢复正常。
+     */
+    val notifyToken: String
+        get() = synchronized(this) {
+            sp.getString(Keys.NOTIFY_TOKEN, null) ?: java.util.UUID.randomUUID().toString().also {
+                sp.edit().putString(Keys.NOTIFY_TOKEN, it).commit()
+            }
+        }
 }

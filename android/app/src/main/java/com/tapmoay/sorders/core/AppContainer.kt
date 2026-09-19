@@ -25,7 +25,7 @@ class AppContainer(val context: Context) {
     val alertPrefs by lazy { AlertPrefs(appContext) }
 
     /** 系统通知出口（本 App 以前一条系统通知都不发，见 NotifyCenter 注释） */
-    val notifyCenter by lazy { NotifyCenter(appContext) }
+    val notifyCenter by lazy { NotifyCenter(appContext, alertPrefs) }
 
     /** 司机端「来单了」语音播报 */
     val newOrderPlayer by lazy { NewOrderPlayer(appContext, tts, alertPrefs) }

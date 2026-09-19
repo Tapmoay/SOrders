@@ -8,11 +8,13 @@
 import secrets
 from datetime import datetime
 
+from fastapi import BackgroundTasks
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import business_today
 from app.core.security import create_access_token, verify_password
+from app.core.socket_io import revoke_user_sockets
 from app.models import User
 from app.models.enums import UserRole
 
@@ -44,6 +46,26 @@ def bump_token_version(db: Session, user: User) -> None:
     """
     user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
     db.flush()
+
+
+def revoke_tokens_and_sockets(
+    db: Session, user: User, background: BackgroundTasks, reason: str
+) -> None:
+    """撤销这个账号的会话：**令牌作废 + 长连接断开**（登出 / 改密码 / 停用都走这一处）。
+
+    ⚠️ 为什么不许只调 `bump_token_version`（2026-09-19 外部完整检查 C-3）：
+    令牌版本只在 **socket 握手**时校验一次（`socket_io.connect`），而 `disconnect` 是空实现、
+    全后端只有 `connect`/`disconnect` 两个 socket 事件。于是"登出/停用/改密"之后：
+    旧令牌打 HTTP 全 401，**但那条已经建起来的长连接继续收推送**（站内信正文、单号、账本）。
+    丢手机、共用手机的场景里，这正是"登出止损"最要紧的地方 —— 而它一行都没生效。
+
+    把两件事绑在一个函数里，是为了让"作废令牌"这个动作**不可能**漏掉断开连接：
+    三个撤销点（`/auth/logout`、改密码、停用）都调这一个入口。
+
+    `background` 用来把断开动作排到响应之后（要 await socket 推送，不能在同步端点里做）。
+    """
+    bump_token_version(db, user)
+    background.add_task(revoke_user_sockets, user.id, reason)
 
 
 def new_order_no() -> str:

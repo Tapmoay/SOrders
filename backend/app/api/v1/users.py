@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,7 @@ from app.schemas.product_visibility import (
 from app.schemas.user import UserCreate, UserOut, UserUpdate
 from app.services.soft_delete import del_suffix
 from app.services.operation_log_service import write_log
-from app.services.auth_service import bump_token_version
+from app.services.auth_service import revoke_tokens_and_sockets
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -211,6 +211,7 @@ def set_product_visibility(
 def update_user(
     user_id: int,
     body: UserUpdate,
+    background_tasks: BackgroundTasks,
     current: CurrentUser,
     db: Session = Depends(get_db),
 ) -> User:
@@ -240,20 +241,21 @@ def update_user(
         u.phone = body.phone
     if body.password is not None:
         u.password_hash = hash_password(body.password)
-        # 改密码 → 旧令牌立刻失效（2026-09-19 审计）：
-        # 否则'改密码'这个最自然的止损动作，对已经泄漏的令牌在 24 小时内完全无效。
-        bump_token_version(db, u)
+        # 改密码 → 旧令牌立刻失效 + **长连接立刻断开**（2026-09-19 审计；外部完整检查 C-3 补后半）：
+        # 否则'改密码'这个最自然的止损动作，对已经泄漏的令牌在 24 小时内完全无效，
+        # 而那条已经建起来的 socket 更是继续收推送。
+        revoke_tokens_and_sockets(db, u, background_tasks, "改密码")
     if body.full_name is not None:
         u.full_name = body.full_name
     if body.role is not None and is_dispatcher:
         u.role = body.role
     if body.is_active is not None and is_dispatcher:
         u.is_active = body.is_active
-        # 停用一个账号 → **已发出的令牌立刻失效**（2026-09-19 审计）：
+        # 停用一个账号 → **已发出的令牌立刻失效 + 断开长连接**（2026-09-19 审计）：
         # 在这之前 `deps` 只查 `is_active`，而 JWT 是自包含的，所以停用只挡住"下一次登录"，
         # 已经登录中的会话要等令牌自然过期（24h）。丢手机/离职场景下这是最要紧的一下。
         if body.is_active is False:
-            bump_token_version(db, u)
+            revoke_tokens_and_sockets(db, u, background_tasks, "账号被停用")
     if body.is_member is not None and is_dispatcher:
         u.is_member = body.is_member
     # 安全修复：工资/计费方式/车型仅派单员可改（司机自改会绕过结算规则、篡改工资）

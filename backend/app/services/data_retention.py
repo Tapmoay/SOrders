@@ -4,11 +4,14 @@
 - 软删除（用户删除）：隔离 30 天，用户不可见、派单员可恢复；到期物理删除
 - 原始图片：保留 1 年后自动压缩为「感知无损」WebP（Q90 / 长边≤1920），原图删除
 注意：本模块无任何常驻定时器之外的额外调度；调用方 = main.lifespan 每日循环。
+⚠️ 入口 `run_daily_retention` 自带**跨进程互斥**（见 `_single_runner`）：多 worker 部署下
+只有一个进程会真的执行，其余进程当轮跳过（不是排队重跑）。
 """
 from __future__ import annotations
 
 import logging
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -26,10 +29,17 @@ from app.models.operation_log import OperationLog
 from app.models.order import Order, OrderProduct
 from app.models.place import Place
 from app.models.user import User
-from app.services.image_archive import archive_images_older_than, purge_orphan_compressed
+from app.services.image_archive import (
+    archive_images_older_than,
+    purge_orphan_compressed,
+    purge_orphan_images,
+)
 from app.services.ledger_export_paths import EXPORT_DIR, LEGACY_UPLOAD_EXPORTS
 
 logger = logging.getLogger(__name__)
+
+#: 治理的跨进程锁文件（与 `schema_bootstrap` 同一个思路）。
+GOVERNANCE_LOCK_PATH = "/tmp/sorders_retention.lock"
 
 #: 导出产物的保留期（天）。派生数据，源数据在库里还能再导一次——不需要留 3 年。
 EXPORT_FILE_RETENTION_DAYS = 30
@@ -39,6 +49,44 @@ DATA_RETENTION_DAYS = 365 * 3          # 业务数据 3 年
 SOFT_DELETE_RETENTION_DAYS = 30        # 软删除隔离 30 天（派单员可恢复）
 NOTIFICATION_RETENTION_DAYS = 30       # 消息保留 30 天（与原消息中心约定一致）
 BATCH_LIMIT = 2000                     # 每轮每表批量上限（大库分批收敛）
+
+
+@contextmanager
+def _single_runner():
+    """跨进程互斥：**拿不到锁就跳过本轮**，而不是排队等它跑完再原样跑一遍。
+
+    ⚠️ 为什么必须有（2026-09-19 外部完整检查 PERF-05 / R2-5(bak)）：
+    治理循环挂在 `main.lifespan` 上，而生产是 `uvicorn --workers 2`
+    （systemd 的 `ExecStart`）—— **两个 worker 启动后各跑一遍，之后每天再各跑一遍**，
+    而整套治理（物理删单、作废应付明细、压图、清导出产物）原来没有任何互斥。
+    实测后果：两个执行者同时压同一张图时，40 轮里有 4 张**根本没压成**、
+    30 轮一方失败；单执行者对照 40/40 全成。而"删数据"被重复执行的后果比压图严重得多。
+
+    同仓库为并发 DDL 专门加过 `fcntl` 锁（`schema_bootstrap.bootstrap_schema`），
+    这里的道理完全一样，只是当时漏了。
+
+    ⚠️ 用 `LOCK_NB`（非阻塞）而不是 `LOCK_EX`（阻塞）：阻塞会让第二个 worker
+    **等第一个跑完、然后自己再跑一遍** —— 那正是要避免的重复执行，跳过才是本意。
+    Windows 本机开发没有 `fcntl`（单进程也无所谓），照常执行。
+    """
+    try:
+        import fcntl
+    except ImportError:                    # pragma: no cover - Windows 本机开发
+        yield True
+        return
+    lock_file = open(GOVERNANCE_LOCK_PATH, "w")
+    try:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+    finally:
+        lock_file.close()
 
 
 def delete_orders_by_ids(db: Session, ids: list[int]) -> int:
@@ -260,13 +308,23 @@ def purge_old_export_files(days: int = EXPORT_FILE_RETENTION_DAYS) -> int:
 
 
 def run_daily_retention(db: Session) -> dict[str, int]:
-    """数据治理总入口。返回各步骤删除量。
+    """数据治理总入口。返回各步骤删除量（拿不到跨进程锁时返回 `{"skipped": 1}`）。
 
     ⚠️ 顺序是**故意的**（2026-09-19 审计 R12-L8）：先把数据库那几步提交，再做文件级清理
     （图片压缩、导出产物过期、孤儿压缩图）。原来四步共用一个事务、最后才 `commit`：
     图片压缩里任何一张图抛错 → **当天三块 DB 清理全部回滚，而磁盘上的文件已经真删了**，
     于是出现"文件没了、行还在"（订单还在、照片 404），下一次要等 24 小时。
     """
+    with _single_runner() as is_runner:
+        if not is_runner:
+            logger.info(
+                "本机已有另一个进程在跑数据治理，本轮跳过（跨进程锁 %s）", GOVERNANCE_LOCK_PATH
+            )
+            return {"skipped": 1}
+        return _run_daily_retention_locked(db)
+
+
+def _run_daily_retention_locked(db: Session) -> dict[str, int]:
     r = {
         "soft_deleted_purged": purge_soft_deleted_orders(db),
         "expired_purged": purge_expired_data(db),
@@ -277,4 +335,6 @@ def run_daily_retention(db: Session) -> dict[str, int]:
     r["images_archived"] = archive_images_older_than(days=365)
     r["compressed_orphans_purged"] = purge_orphan_compressed()
     r["exports_purged"] = purge_old_export_files()
+    # ⚠️ 放在 DB 那几步**之后**：它要按"库里还引用着哪些 URL"来判，必须看到本轮删完之后的真实引用集。
+    r["orphan_images_purged"] = purge_orphan_images(db)
     return r

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import socketio
@@ -15,6 +16,8 @@ from app.database import SessionLocal
 from app.models import Notification, User
 from app.models.enums import UserRole
 from app.schemas.notification import NotificationOut
+
+logger = logging.getLogger(__name__)
 
 DISPATCHERS_ROOM = "role_dispatchers"
 
@@ -32,9 +35,7 @@ if not _socket_redis_url:
     #    连在 worker B 上的司机收不到 worker A 发出的推送 —— 表现是"约一半推送静默丢失"
     #    （司机端只是没动静，没有报错，运维也无从发现）。生产是 `--workers 2`，
     #    所以这一行日志在多进程部署里是很要紧的信号；单进程本机开发忽略即可。
-    import logging as _logging
-
-    _logging.getLogger(__name__).warning(
+    logger.warning(
         "SOCKET_REDIS_URL 未配置：Socket.IO 走**进程内**内存模式。"
         "单进程（本机开发）没问题；多 worker 部署下跨进程推送会丢失一半，请配置该变量。"
     )
@@ -178,6 +179,56 @@ def sync_payload_for(user_id: int, last_id: int) -> dict[str, Any]:
         }
     finally:
         db.close()
+
+
+async def _participants(room: str):
+    """本进程里这个房间的连接（sid, eio_sid）。
+
+    ⚠️ 命名空间管理器的 `get_participants` 有两种形状：`AsyncManager` 是**异步生成器**，
+    `AsyncRedisManager` 是普通生成器（它只返回**本机**的参与者，跨 worker 的看不到）。
+    两种都要能吃，所以这里做一层适配，而不是赌其中一种。
+    """
+    got = sio.manager.get_participants("/", room)
+    if hasattr(got, "__aiter__"):
+        async for item in got:          # type: ignore[union-attr]
+            yield item
+    else:
+        for item in got:
+            yield item
+
+
+async def revoke_user_sockets(user_id: int, reason: str = "") -> None:
+    """撤销这个账号的长连接：先推 `session_revoked`，再断开**本进程**里它的连接。
+
+    ### 为什么必须有（2026-09-19 外部完整检查 C-3）
+    `authenticate_socket_token` 只在**握手**时校验一次 `tv`（令牌版本）；`connect` 之后
+    这个连接就一直躺在 `user_{id}` 房间里收推送，而 `disconnect` 是空实现、
+    全后端也只有 `connect`/`disconnect` 两个 socket 事件。于是"登出/改密/停用"之后：
+    旧令牌打 HTTP 全 401，**但那条已经建起来的连接继续收**（站内信正文、单号、账本变动）。
+    丢手机、共用手机的场景里，这正是"登出止损"最要紧的地方。
+
+    ### 两半各管一段（跨 worker 的账要算清）
+    - `emit` 经 Redis 适配器**广播到所有 worker**，每个 worker 再发给本机这个房间里的连接
+      → 客户端收到 `session_revoked` 后自己走"登录已失效"那条链（App 侧已实现）；
+    - `disconnect(sid)` 只对本进程的连接有效（管理器拿不到别的 worker 的参与者列表）。
+      它的作用是**兜住还没升级的旧客户端** —— 它们不认识那个事件，只能由服务端断开。
+
+    ⚠️ 残留（已记进台账）：旧客户端如果恰好连在**另一个** worker 上，要等它下次重连
+    （握手时会被 `tv` 判据拒掉）才会真正断开。要做到"任意 worker 上的旧连接立刻断"，
+    得自己维护一份跨进程的 sid 名册 —— 那是另一条改动链，本轮不做。
+    """
+    try:
+        await sio.emit("session_revoked", {"reason": reason}, room=_room(user_id))
+    except Exception:  # noqa: BLE001 - 推不出去也要继续断本地连接
+        logger.warning("推送 session_revoked 失败 user_id=%s", user_id, exc_info=True)
+    try:
+        async for sid, _eio_sid in _participants(_room(user_id)):
+            try:
+                await sio.disconnect(sid)
+            except Exception:  # noqa: BLE001
+                logger.warning("断开已撤销的 socket 失败 sid=%s user_id=%s", sid, user_id, exc_info=True)
+    except Exception:  # noqa: BLE001
+        logger.warning("枚举 user_id=%s 的连接失败", user_id, exc_info=True)
 
 
 @sio.event

@@ -592,11 +592,22 @@ interface ArrearsApi {
     suspend fun deleteUnit(@Path("unitId") unitId: Long)
 }
 
+/**
+ * `GET /inventory/movements` 一页取多少条 —— **后端的上限就是 500**（`Query(100, le=500)`）。
+ *
+ * ⛔ 为什么不能沿用后端缺省的那 100：这个端点**没有** `X-Truncated` 那类截断头
+ *    （只有 `/orders` 与 `/notifications` 有），客户端拿满一页也无从知道还有更早的，
+ *    于是第 100 条以前的流水在 App 里**静默消失**（2026-09-19 报告 R2-3）。
+ *    取满后端允许的上限，界面再用这个数把"还有更早的"说出来（见 InventoryScreen）。
+ *    它与后端 `le=500` 是同一件事的两端：改后端上限必须同步这里。
+ */
+const val INVENTORY_MOVEMENT_PAGE_LIMIT = 500
+
 interface InventoryApi {
     @GET("inventory/movements")
     suspend fun listMovements(
         @Query("product_id") productId: Long? = null,
-        @Query("limit") limit: Int = 100,
+        @Query("limit") limit: Int = INVENTORY_MOVEMENT_PAGE_LIMIT,
         @Query("offset") offset: Int = 0,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,

@@ -9,7 +9,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -44,19 +44,24 @@ def _login(db: Session, login_id: str, password: str, ip: str | None) -> Token:
 
 @router.post("/logout")
 def logout(
+    background_tasks: BackgroundTasks,
     current: CurrentUser,
     db: Session = Depends(get_db),
 ) -> dict:
-    """登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）。
+    """登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）+ 断开长连接。
 
     ⚠️ 为什么需要它（2026-09-19 审计）：客户端原来的"登出"只删掉本机 DataStore 里的令牌，
     服务端一个字都不知道 —— 被复制走的令牌照样能用满 24 小时。手机丢了、在别人电脑上登过，
     都没有止损手段。现在登出＝真的作废（代价是同一账号的其它设备也要重新登录，
     这是"登出"应有的语义）。
-    """
-    from app.services.auth_service import bump_token_version
 
-    bump_token_version(db, current)
+    ⚠️ 2026-09-19 外部完整检查 C-3：光作废令牌**不够** —— `tv` 只在 socket 握手时校验一次，
+    已经建起来的长连接不会因此断开，照样继续收推送。所以走
+    `revoke_tokens_and_sockets`（作废 + 断开是同一个入口，不可能只做一半）。
+    """
+    from app.services.auth_service import revoke_tokens_and_sockets
+
+    revoke_tokens_and_sockets(db, current, background_tasks, "登出")
     db.commit()
     return {"ok": True, "note": "本账号已发出的登录令牌已全部作废，请重新登录"}
 

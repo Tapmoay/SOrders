@@ -23,6 +23,7 @@ Pydantic 校验失败时 FastAPI 默认回：
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any
 
@@ -134,6 +135,7 @@ TYPE_CN: dict[str, str] = {
     "int_type": "要填整数",
     "int_from_float": "要填整数（不能带小数点）",
     "float_parsing": "要填数字",
+    "finite_number": "要填一个正常的数字（不能是无穷大或非数字）",
     "decimal_parsing": "要填数字",
     "decimal_max_digits": "数字太长了（最多 {max_digits} 位）",
     "decimal_max_places": "小数位太多了（最多 {decimal_places} 位）",
@@ -222,25 +224,50 @@ def describe(errors: list[dict[str, Any]]) -> str:
     return "；".join(out)
 
 
+def _json_safe(v: Any) -> Any:
+    """任意值 → **一定能被 `json.dumps` 序列化**的等价物（递归）。
+
+    ⚠️ 为什么非要有这一步（2026-09-19 审计 S5）：`input` 里的值**不是我们挑的**，
+    它是客户端发来的原样。而 `NaN` / `Infinity` / `-Infinity` 是 `json.loads`
+    **默认接受**的字面量（它们不合法，但 Python 收），于是它会顺着 `input` 一路走到
+    `JSONResponse` —— 而 Starlette 的 `render` 是 `json.dumps(..., allow_nan=False)`，
+    直接抛 `ValueError: Out of range float values are not JSON compliant`。
+
+    后果不是"某个字段的报错不好看"，而是**这个处理器自己 500**：本文件存在的全部意义
+    （"绝不让用户看到 500，一定给一句能照着改的中文"）在那一刻整个失效，
+    而且是**任何带数值字段的写端点**都中招（实测 `{"amount": NaN}` → 500 Internal Server Error）。
+    所以非有限浮点降级成字符串（`'nan'` / `'inf'`），排障时照样看得出原值是什么。
+    """
+    if isinstance(v, bool) or v is None or isinstance(v, (str, int)):
+        return v
+    if isinstance(v, float):
+        return v if math.isfinite(v) else str(v)
+    if isinstance(v, (list, tuple, set)):
+        return [_json_safe(x) for x in v]
+    if isinstance(v, dict):
+        # 键也过一遍：`json.dumps` 只接受 str/int/float/bool/None 当键，
+        # 其余（tuple、Decimal…）会 `TypeError: keys must be str…`
+        return {k if isinstance(k, str) else str(k): _json_safe(x) for k, x in v.items()}
+    return str(v)   # Decimal / datetime / 异常对象 / bytes…
+
+
 def safe_errors(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """原始错误数组 → **可以 JSON 序列化**的副本。
 
-    ⚠️ Pydantic 的 `ctx` 里装的是**异常对象**（`{"error": ValueError(...)}`），
-    直接塞进 JSONResponse 会 `TypeError: Object of type ValueError is not JSON serializable`
-    ——处理器自己抛异常，用户拿到的是 500（本轮实测踩到，27 个测试一起变红）。
+    ⚠️ 两处踩过的坑（都是"处理器自己抛异常 → 用户拿到 500"）：
+    ① Pydantic 的 `ctx` 里装的是**异常对象**（`{"error": ValueError(...)}`），
+       直接塞进 JSONResponse 会 `TypeError: Object of type ValueError is not JSON serializable`
+       ——上一轮实测踩到，27 个测试一起变红；
+    ② `input` 里可能是 `NaN`/`Infinity`（见 `_json_safe`），本轮实测踩到。
+    所以这里不再"白名单放行 + 其余 str()"，而是**统一交给 `_json_safe` 递归收口**：
+    只要它在，就不会再出现"某一种客户端输入让兜底自己炸掉"。
     """
     out: list[dict[str, Any]] = []
     for e in errors:
         d: dict[str, Any] = {}
         for k, v in e.items():
-            if k == "ctx":
-                d["ctx"] = {ck: str(cv) for ck, cv in (v or {}).items()}
-            elif isinstance(v, tuple):
-                d[k] = list(v)          # loc 原来是 ('body','remark')，JSON 里给成数组更好读
-            elif isinstance(v, (str, int, float, bool, type(None), list, dict)):
-                d[k] = v
-            else:
-                d[k] = str(v)
+            # ctx 的值按定义是异常/上下文对象，一律取字符串形式（人读的，不参与程序判断）
+            d[k] = {ck: str(cv) for ck, cv in (v or {}).items()} if k == "ctx" else _json_safe(v)
         out.append(d)
     return out
 

@@ -45,6 +45,13 @@ class RealtimeHub(private val container: AppContainer) {
     private var role: Role = Role.SHIPPER
 
     /**
+     * 当前登录用户 id——核对"这条站内信是不是发给我的"要用（见 [PushTrust.acceptNotification]）。
+     * 必须在 `connect()` **之前**赋值：握手成功后服务端立刻下发 `sync`，
+     * 那一批回补消息要与实时消息走同一套判据。
+     */
+    private var userId: Long? = null
+
+    /**
      * 最近播报过的事件（去重键 → 时间戳）。
      *
      * 为什么需要：同一次派单后端会从**两条链路**各推一次——
@@ -59,6 +66,7 @@ class RealtimeHub(private val container: AppContainer) {
             container.tokenStore.sessionFlow.collect { s ->
                 if (s != null) {
                     role = Role.fromKey(s.role)
+                    userId = s.userId
                     // 登录 / App 重启会话恢复：确保 Socket 长连接（幂等，已连接则跳过）
                     container.socketManager.connect(
                         ApiEndpoint.baseUrl,
@@ -66,6 +74,7 @@ class RealtimeHub(private val container: AppContainer) {
                         lastNotificationId.value,
                     )
                 } else {
+                    userId = null
                     container.socketManager.disconnect()
                     _unreadCount.value = 0
                     // 退出登录 / 未登录：**把回补游标清掉**（R14-13 的落盘带来的必然要求）。
@@ -81,6 +90,16 @@ class RealtimeHub(private val container: AppContainer) {
         scope.launch {
             container.socketManager.events.collect { handle(it) }
         }
+        // 握手被服务端拒绝 / 会话被撤销（`session_revoked`）：重试一辈子也不会好，
+        // 所以走**已有的**清会话通道（`AppContainer.clearSession` → `sessionExpiredTick`
+        // + `tokenStore.clear()`），用户看到「登录已失效，请重新登录」，
+        // 而不是"以为还连着、其实一条新单都收不到"（2026-09-19 报告 C-3）。
+        // ⛔ 网络不通**不**走这条链（判据见 [PushTrust.isServerRefusal]）：信号差不能把人踢下线。
+        scope.launch {
+            container.socketManager.sessionRefused.collect {
+                if (container.tokenStore.cachedToken() != null) container.clearSession()
+            }
+        }
     }
 
     private fun handle(e: SocketEvent) {
@@ -92,19 +111,21 @@ class RealtimeHub(private val container: AppContainer) {
                 // 断线回补（R14-13，2026-09-19 审计）。这里原来**只把游标往前推、列表整个丢掉**：
                 // 而回补窗口本身也退化成"补最旧的 200 条"（后端已改），于是断线期间的消息
                 // 既不会变成系统通知、也不会播报 —— 司机错过新单的三层提醒在重连这条路径上是空的。
-                // 现在：① 逐条补发系统通知（order.* 走订单通知，其余走消息通知）；
+                // 现在：① 逐条补发系统通知（白名单里的订单事件走订单通知，其余走消息通知）；
                 //      ② 游标**落盘**（`AlertPrefs.lastNotificationId`），进程重启不再归零。
                 val list = e.data["notifications"]
                 if (list is List<*>) {
                     list.forEach { item ->
                         val m = item as? Map<*, *> ?: return@forEach
+                        // 回补的每一条也是站内信：同样只采信发给我的（判据一处实现，见 PushTrust）
+                        if (!PushTrust.acceptNotification(m, userId)) return@forEach
                         val id = (m["id"] as? Number)?.toLong() ?: 0L
                         val ntype = (m["type"] as? String) ?: ""
                         val title = (m["title"] as? String) ?: ""
                         val content = (m["content"] as? String) ?: ""
                         if (title.isNotBlank()) {
-                            if (ntype.startsWith("order.")) {
-                                container.notifyCenter.postOrder(orderIdOf(m), title, content)
+                            if (PushTrust.isOrderEvent(ntype)) {
+                                container.notifyCenter.postOrder(PushTrust.orderIdOf(m), title, content)
                             } else {
                                 container.notifyCenter.postMessage(title, content)
                             }
@@ -116,8 +137,13 @@ class RealtimeHub(private val container: AppContainer) {
                 _unreadCount.value = (e.data["unread_count"] as? Number)?.toLong() ?: 0L
             }
             "notification" -> {
-                _unreadCount.value += 1
+                // ⛔ 先判"这条是不是发给我的"（2026-09-19 报告 P1-4）：房间投递由后端决定，
+                //    客户端不核对的话，任何一条发错人的通知都会在**别人**手机上响、进别人通知栏。
+                //    判据只认 `recipient_id` 且只看一个方向（缺字段一律放行，理由见 PushTrust），
+                //    所以派单员那种"没有收件人"的广播不受影响。
                 val n = e.data["notification"] as? Map<*, *>
+                if (!PushTrust.acceptNotification(n, userId)) return
+                _unreadCount.value += 1
                 val id = (n?.get("id") as? Number)?.toLong() ?: 0L
                 bumpCursor(id)
                 _newMessages.tryEmit(Unit)
@@ -130,12 +156,17 @@ class RealtimeHub(private val container: AppContainer) {
                 //    在这之前 App **一条系统通知都没发过**（只在自己界面里显示），
                 //    锁屏的手机上什么都看不到——这是"不像别的软件"的根因。
                 if (title.isNotBlank()) {
-                    if (ntype.startsWith("order.")) {
+                    // 走哪条渠道由**白名单**决定（P1-4）：认识的订单事件才进「派单与新单」
+                    // （高优先级横幅 + 点开直达某一单），编出来的 order.* 降级成普通消息——
+                    // 不丢，但不许它冒充派单（原来只判 `startsWith("order.")`）。
+                    if (PushTrust.isOrderEvent(ntype)) {
                         container.notifyCenter.postOrder(orderId, title, content)
                     } else {
                         container.notifyCenter.postMessage(title, content)
                     }
                 }
+                // 列表刷新仍按 `order.` 前缀（不用白名单）：后端将来加一个 order.* 事件时，
+                // 这里若也收紧就会"列表不刷新"而没人发现——那是本项目最讨厌的静默失效。
                 if (ntype.startsWith("order.")) {
                     _refreshOrders.tryEmit(Unit)
                     // 提示音：有消息及时察觉（司机另有语音播报）
@@ -205,12 +236,11 @@ class RealtimeHub(private val container: AppContainer) {
         runCatching { container.alertPrefs.lastNotificationId = id }
     }
 
-    /** 单号可能躺在站内信的 payload 里，也可能在 realtime 事件的顶层——两处都认 */
-    private fun orderIdOf(data: Map<*, *>?): Long? {
-        val payload = data?.get("payload") as? Map<*, *>
-        val v = payload?.get("order_id") ?: data?.get("order_id")
-        return (v as? Number)?.toLong()
-    }
+    /**
+     * 单号可能躺在站内信的 payload 里，也可能在 realtime 事件的顶层——两处都认。
+     * 解析与边界（越界/负数/非数字 → null，不回绕）只有一处实现，见 [PushTrust.orderIdOf]。
+     */
+    private fun orderIdOf(data: Map<*, *>?): Long? = PushTrust.orderIdOf(data)
 
     /** 登录/重连成功后同步未读数（REST 兜底） */    suspend fun syncUnreadFromApi() {
         runCatching {

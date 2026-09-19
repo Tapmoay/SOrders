@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.data.remote.api.INVENTORY_MOVEMENT_PAGE_LIMIT
 import com.tapmoay.sorders.data.remote.dto.InventoryMovementCreateRequest
 import com.tapmoay.sorders.data.remote.dto.InventoryMovementDto
 import com.tapmoay.sorders.data.remote.dto.InventorySummaryItemDto
@@ -15,6 +16,15 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
 
     var summary by mutableStateOf<List<InventorySummaryItemDto>>(emptyList())
     var movements by mutableStateOf<List<InventoryMovementDto>>(emptyList())
+
+    /**
+     * 流水"拿满一页"＝更早的还有，界面必须**说出来**。
+     *
+     * ⛔ 后端这个端点不回报截断（没有 `X-Truncated`），所以判据只能是"这一页是满的"。
+     *    不说出来的后果是"更早的流水在 App 里静默消失"——账实不符时没人知道是没录还是没显示。
+     */
+    var movementsTruncated by mutableStateOf(false)
+        private set
     var products by mutableStateOf<List<ProductDto>>(emptyList())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -41,7 +51,7 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 summary = container.repo.inventorySummary()
-                movements = container.repo.inventoryMovements(dateFrom = movDateFrom, dateTo = movDateTo)
+                applyMovements(container.repo.inventoryMovements(dateFrom = movDateFrom, dateTo = movDateTo))
                 products = container.repo.products()
             } catch (e: Exception) {
                 error = toApiException(e).message
@@ -53,12 +63,18 @@ class InventoryViewModel(private val container: AppContainer) : ViewModel() {
 
     fun refresh() = load()
 
+    /** 流水只有一个赋值口：截断判据跟着一起更新，免得两条加载路径分叉（一处漏判＝又静默消失） */
+    private fun applyMovements(rows: List<InventoryMovementDto>) {
+        movements = rows
+        movementsTruncated = rows.size >= INVENTORY_MOVEMENT_PAGE_LIMIT
+    }
+
     fun applyMovFilter(from: String?, to: String?) {
         movDateFrom = from
         movDateTo = to
         viewModelScope.launch {
             try {
-                movements = container.repo.inventoryMovements(dateFrom = movDateFrom, dateTo = movDateTo)
+                applyMovements(container.repo.inventoryMovements(dateFrom = movDateFrom, dateTo = movDateTo))
             } catch (e: Exception) {
                 error = toApiException(e).message
             }

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,37 @@ from app.services.data_retention import run_daily_retention
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """把应用自己的日志接出来（**只配一次**，且不抢别人的配置）。
+
+    ⚠️ 为什么必须有（2026-09-19 外部完整检查 R2-6）：全仓库**从来没有日志配置**
+    （`basicConfig`/`dictConfig` 一处都没有），而 `uvicorn` 只给自己那几个 logger
+    （`uvicorn`/`uvicorn.error`/`uvicorn.access`）装 handler，**root logger 是空的**。
+    于是 `logging.getLogger("app.…").info(...)` 全部被 `lastResort`（只放 WARNING 以上）
+    丢掉：生产 journal 里 289,926 行，**"数据保留治理完成"一行都没有** ——
+    每天在物理删数据的那个任务，成功时是完全不可观测的，出事时也只有一行谁也看不到的日志。
+
+    写在这里而不是日志配置文件：`uvicorn app.main:app` 就是进程入口，
+    模块导入时配一次即可（也要覆盖 `python -m scripts.*` 这类不经过 lifespan 的入口）。
+    已有 handler 时不覆盖（pytest 的日志插件、gunicorn、`--log-config` 都算"别人配好了"），
+    所以它不会把测试输出或宿主环境的日志格式改掉。
+    日志级别可用环境变量 `LOG_LEVEL` 调（默认 INFO）。
+    """
+    if "pytest" in sys.modules:
+        # 测试里不接管日志：pytest 自己有 caplog/失败重放，抢过来只会让每个用例多刷一堆
+        # 应用日志（400+ 个用例各起一次 lifespan，治理循环的 INFO 会铺满输出）。
+        return
+    if logging.getLogger().handlers:
+        return
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+
+
+_configure_logging()
 
 os.makedirs("uploads/delivery", exist_ok=True)
 # ⛔ **不再重建 `uploads/exports/`**（2026-09-19 审计 R12-A3）：导出产物已改到 `exports/`

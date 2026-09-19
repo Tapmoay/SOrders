@@ -866,6 +866,84 @@ def _bootstrap_impl(engine: Engine) -> None:
                         if "duplicate" not in str(e).lower():
                             raise
 
+    # ---------- 散客电话唯一性：改成两库都成立的形式（2026-09-19 外部完整检查 S2） ----------
+    #
+    # 缺陷现场：`Customer` 上写的是
+    # `Index("uq_customers_tmp_phone", "phone", unique=True, sqlite_where=text("kind='tmp' …"))`
+    # —— `sqlite_where` 是 **SQLite 专属**参数，MySQL 上被**静默忽略**，于是这条"部分唯一索引"
+    # 在生产被编译成**整表唯一**：给一个已存在的注册货主建同号散客档案 **必然 409**
+    # （本机 SQLite 是 201，所以整套单测与探针都是绿的）。而"注册货主与散客同号"业务上很正常。
+    #
+    # 修法：把"谁参与唯一"编码进**列值**（`customers.tmp_phone_key`：散客填电话、其余 NULL），
+    # 在它上面建普通唯一索引 —— 两种库对"唯一索引里的多个 NULL"语义一致，方言差异消失。
+    # 迁移四步：① 加列 ② 回填 ③ **丢掉旧索引**（MySQL 上它就是那条错误的整表唯一，不丢则 bug 还在）
+    # ④ 在新列上建唯一索引。
+    if "customers" in insp.get_table_names():
+        cust_cols = {c["name"] for c in insp.get_columns("customers")}
+        if "tmp_phone_key" not in cust_cols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN tmp_phone_key VARCHAR(32)"))
+                except DBAPIError as e:
+                    msg = str(e).lower()
+                    if "duplicate" not in msg and "already exists" not in msg:
+                        raise
+        # 回填：老库上"散客 + 有电话"的行补上键值（幂等，只补空的那批）。
+        # ⚠️ 这一步必须在**建新索引之前**，否则新索引建成后再回填会撞唯一约束。
+        with engine.begin() as conn:
+            try:
+                conn.execute(
+                    text(
+                        "UPDATE customers SET tmp_phone_key = phone "
+                        "WHERE kind = 'tmp' AND phone IS NOT NULL AND tmp_phone_key IS NULL"
+                    )
+                )
+            except DBAPIError:
+                logger.warning("customers.tmp_phone_key 回填失败（下次启动会重试）", exc_info=True)
+        # ③ 丢旧索引：**这一步才是真正修掉生产那条 409 的地方**。
+        #    SQLite 上旧索引与新的语义相同（本来就没坏），一起换掉只是为了两库同形。
+        with engine.begin() as conn:
+            try:
+                if engine.dialect.name == "sqlite":
+                    conn.execute(text("DROP INDEX IF EXISTS uq_customers_tmp_phone"))
+                else:
+                    conn.execute(text("ALTER TABLE customers DROP INDEX uq_customers_tmp_phone"))
+            except DBAPIError as e:
+                msg = str(e).lower()
+                # MySQL 上没有这个索引时是 "Can't DROP …; check that column/key exists"
+                if "check that column" not in msg and "doesn't exist" not in msg:
+                    logger.warning("丢掉旧的 uq_customers_tmp_phone 失败（下次启动会重试）：%s", e)
+        with engine.begin() as conn:
+            try:
+                if engine.dialect.name == "sqlite":
+                    conn.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_tmp_phone "
+                            "ON customers (tmp_phone_key)"
+                        )
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            "CREATE UNIQUE INDEX uq_customers_tmp_phone "
+                            "ON customers (tmp_phone_key)"
+                        )
+                    )
+            except DBAPIError as e:
+                msg = str(e).lower()
+                if "duplicate" in msg or "already exists" in msg:
+                    pass
+                elif "duplicate entry" in msg or "1062" in msg:
+                    # 老库上真的存在重复的"散客+电话" → **不建索引**并吵一声，绝不让启动崩掉
+                    # （与 driver_bills / ledgers 那两处同一条纪律）。
+                    logger.warning(
+                        "customers 存在重复的散客电话，**暂不创建唯一索引**：%s。"
+                        "请人工确认后清理，下次启动会自动补上。",
+                        e,
+                    )
+                else:
+                    raise
+
     # ---------- 商品分类 + 订单行单位 + 导航来源（2026-09-18） ----------
     #
     # 三列都是**纯展示/来源**信息，不参与任何金额计算，但没有它们界面就做不出来：

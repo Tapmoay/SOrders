@@ -394,11 +394,24 @@ def export_report(
     from app.models.enums import SettlementStatus
 
     d = anchor
-    # 文件名的日期段：默认用锚点日；按区间导出时用**真实区间**（见下面 `range_label = ...`）。
-    # ⛔ 原来文件名一律写 `{anchor}`，于是 `?date_from=2026-09-01&date_to=2026-09-01` 导出的文件
-    #    叫 `finance-report-2026-09-18.xlsx`、内容却是 09-01~09-01 —— 对账/存档时按文件名找回来
-    #    会拿到一份"名字与内容不符"的凭证（2026-09-19 审计第十一轮记录，第十五轮修）。
-    range_label = str(d)
+    # 文件名的日期段 = **这一份报表真实取数的区间**（不是锚点日）。
+    # ⛔ 原来只有 drivers/customers/finance/audit 四个 kind 按真实区间命名，
+    #    `turnover`/`products` 一律写锚点日 —— 而它们的内容是 `_window(mode, anchor)`
+    #    （mode=month 时是整月）：`kind=turnover&mode=month&date=2026-09-18` 导出的文件叫
+    #    `turnover-report-2026-09-18.xlsx`、内容却是 09-01~09-30。对账/存档时按文件名找回来
+    #    会拿到一份"名字与内容不符"的凭证（2026-09-19 第二轮外部检查 R2-4；
+    #    第十一轮报过一次，第十五轮只修了另外四个 kind，这两个漏了）。
+    # ⚠️ 判据必须跟着**每种 kind 真实取数的那一套**走，不能无脑把区间抽到最上面：
+    #    `date_from/date_to` 只对 drivers/customers/finance/audit 生效（见函数签名说明），
+    #    对 turnover/products 是**被忽略**的 —— 无脑抽上去会让
+    #    `kind=turnover&date_from=…` 变成"名字写区间、内容按 mode 的窗口"，那还是两个口径。
+    if kind in ("turnover", "products"):
+        s, e = _window(mode, d)
+    elif date_from and date_to:
+        s, e = date_from, date_to
+    else:
+        s, e = _window(mode, d)
+    range_label = f"{s}_{e}" if s != e else str(s)
     wb = Workbook()
 
     def next_sheet(title: str):
@@ -426,8 +439,10 @@ def export_report(
         ws.append(["挂账未收", _money(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
         ws.append([])
         ws.append(["时间", "单数", "金额", "运费"])
-        for s in data["series"]:
-            ws.append([s.label, s.orders, _money(s.amount), _money(s.freight)])
+        for pt in data["series"]:
+            # ⚠️ 循环变量刻意不叫 `s`：`s`/`e` 是上面算好的**导出区间**（文件名与内容同源），
+            #    拿 `s` 当循环变量会把它盖掉 —— 而这里恰好是"营业纵览"分支，改名零风险。
+            ws.append([pt.label, pt.orders, _money(pt.amount), _money(pt.freight)])
         ws.append([])
         ws.append(["挂账未收单位TOP"])
         for u in data["arrears_units"]:
@@ -452,15 +467,7 @@ def export_report(
             gross = _money(cov - it.cost) if (it.covered_lines or 0) > 0 else "—"
             ws.append([it.product_name, it.qty, it.order_count, _money(it.amount), _money(cov), gross, it.damage_qty, _money(it.damage_amount)])
     elif kind in ("drivers", "customers", "finance", "audit"):
-        # 需要 date_from/date_to：缺省用窗口
-        if date_from and date_to:
-            s = date_from
-            e = date_to
-        else:
-            s, e = _window(mode, d)
-        # 文件名跟着**真实取数区间**走（不是锚点日）
-        range_label = f"{s}_{e}" if s != e else str(s)
-
+        # `s`/`e` 与文件名已经按同一套规则算好（见函数开头）——这里不许再算一遍
         if kind == "drivers":
             from app.services.stats_service import driver_performance
 
@@ -477,6 +484,7 @@ def export_report(
             for row in driver_performance(db, s, e):
                 rate = row["on_time_rate"]
                 avg_sec = row["avg_delivery_seconds"]
+                owed = row["freight_owed"]
                 ws.append(
                     [
                         row["driver_name"],
@@ -485,9 +493,17 @@ def export_report(
                         round(row["photo_upload_rate"] or 0.0, 4),
                         "" if avg_sec is None else round(avg_sec / 60, 1),
                         row["billing_mode"] or "",
-                        # 工资制司机这一格是 None（页面显示"工资制"）——导出也不许印 0，
-                        # 那会被读成"这个月一分钱都不用付给他"
-                        "工资制" if row["billing_mode"] == "SALARY" else (row["freight_owed"] or "0"),
+                        # ⚠️ 待结运费必须是**数字**（2026-09-19 第二轮外部检查 R2-3(exp)）：
+                        #    `stats_service.driver_performance` 这一格给的是**字符串**
+                        #    （`str(Decimal)` —— 页面按 JSON 收它没问题），原样写进 xlsx
+                        #    会让整列变成文本，用户在 Excel 里选这一列 `SUM` 得 **0**，
+                        #    账得自己拿计算器重算（与 R13-R7 修金额列是同一个毛病，两处都走 `_money`）。
+                        #    两位小数口径与页面一致（页面 `formatMoney`，`_money` 也是 ROUND_HALF_UP）。
+                        # ⚠️ 工资制司机这一格仍是**文字"工资制"**（页面同款，刻意）：印 0 会被读成
+                        #    "这个月一分钱都不用付给他"。
+                        # ⚠️ 没有待结值（既不是工资制、服务层也没算出应付）时写真数值 0，
+                        #    不再写文本 "0" —— 那一格同样是文本列里的坑。
+                        "工资制" if row["billing_mode"] == "SALARY" else (_money(owed) if owed else 0),
                     ]
                 )
         elif kind == "customers":
@@ -498,14 +514,28 @@ def export_report(
             # 货主账/批发商账（复用 ledger accounts 逻辑的简化：按流水聚合）
             # ⚠️ 隔离区（软删）订单的那份账不算（R13-R6）：与营业纵览同一句，否则
             #    "客户经营"的订货总额会比"营业额"多出一张已删单的钱（本机差 ¥4,600）。
-            rows = list(db.scalars(visible_ledger_select()))
+            # ⚠️ 日期条件**下推到 SQL**（2026-09-19 第二轮外部检查 R2-7(exp)）：原来是
+            #    `list(db.scalars(visible_ledger_select()))` —— 把**整张 ledgers 表**读进内存，
+            #    再在 Python 里 `if r.entry_date < s or r.entry_date > e: continue` 丢掉区间外的行。
+            #    导一份"9 月客户经营"要先把三年的账全部拉进进程（还得逐行过一遍
+            #    `visible_ledger_clause` 的 exists 判据），库越大越慢、内存越高。
+            #    口径**一处没变**：可见性仍只由 `visible_ledger_select()` 决定，区间交给数据库。
+            #    ⚠️ 原来那两行 Python 过滤是**删掉**、不是留成双保险：同一件事两个判据，
+            #    下次改口径时必然只改一处（本仓库已经在"两处口径"上栽过好几次）。
+            #    ⚠️ `s`/`e` 是 `date` 对象（`_window` 返回的就是 date，`date_from`/`date_to`
+            #    也是），与 `Ledger.entry_date`（Date 列）同类型比较，不存在"字符串比大小"。
+            rows = list(
+                db.scalars(
+                    visible_ledger_select()
+                    .where(Ledger.entry_date >= s)
+                    .where(Ledger.entry_date <= e)
+                )
+            )
             users: dict[int, User | None] = {}
             shipper_buckets: dict[int, dict] = {}
             member_buckets: dict[int, dict] = {}
             temp_bucket: dict[str, dict] = {}
             for r in rows:
-                if r.entry_date < s or r.entry_date > e:
-                    continue
                 if r.shipper_id is not None:
                     if r.shipper_id not in users:
                         u = db.get(User, r.shipper_id)

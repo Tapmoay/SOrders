@@ -62,6 +62,13 @@ def create_customer(
         user_id=body.user_id,
         name=body.name.strip(),
         phone=(body.phone or "").strip() or None,
+        # 唯一键只在"散客 + 有电话"时填（见 models/customer.py 的说明）：
+        # 这是**唯一**的写入点，写错的话数据库层的散客电话唯一性就形同虚设。
+        tmp_phone_key=(
+            ((body.phone or "").strip() or None)
+            if body.kind == "tmp"
+            else None
+        ),
         is_member=body.is_member,
         arrears_unit_id=body.arrears_unit_id,
     )

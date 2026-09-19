@@ -36,7 +36,7 @@ const val SERVICE_NOTIFICATION_ID = 9001
  * 只有一条 AppSettings，没有任何渠道）。结果是"消息只在打开 App 时存在"，
  * 锁屏、口袋里的手机上什么都没有——这正是"不像别的软件"的原因。
  */
-class NotifyCenter(private val context: Context) {
+class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) {
 
     private val manager = NotificationManagerCompat.from(context)
 
@@ -95,7 +95,10 @@ class NotifyCenter(private val context: Context) {
             .setAutoCancel(true)
             .setContentIntent(openApp(orderId))
             .build()
-        // 一条订单一格：司机一次可能收到好几单，堆成一条会看不出有几单
+        // 一条订单一格：司机一次可能收到好几单，堆成一条会看不出有几单。
+        // 单号在进到这里之前已经被 PushTrust.orderIdOf 限制在 1..Int.MAX_VALUE（越界/负数
+        // 那一步就丢了），所以这个 toInt() 不会回绕——回绕会让两张单落到同一个通知 id 上
+        // （后一条把前一条盖掉），而同 id 的 requestCode 还会让点旧通知打开新单。
         notify(orderId?.toInt() ?: ORDER_FALLBACK_ID, n)
     }
 
@@ -136,10 +139,17 @@ class NotifyCenter(private val context: Context) {
         }
     }
 
-    /** 点通知进 App：带单号就直达订单详情，没单号落消息中心 */
+    /**
+     * 点通知进 App：带单号就直达订单详情，没单号落消息中心。
+     *
+     * ⚠️ 单号 extra 必须**同时**带上 [EXTRA_NOTIFY_TOKEN] 凭据：本 Activity 是 exported 的
+     * LAUNCHER，别的 App 也能拼一个带单号的 intent 进来（见 [AlertPrefs.notifyToken]、
+     * [PushTrust.trustedOrderId]）。凭据只有本机建的这一份 PendingIntent 带得上。
+     */
     private fun openApp(orderId: Long?): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_NOTIFY_TOKEN, prefs.notifyToken)
             if (orderId != null) putExtra(EXTRA_ORDER_ID, orderId)
         }
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -149,6 +159,9 @@ class NotifyCenter(private val context: Context) {
     companion object {
         /** 从通知点进来的订单号（AppRoot 消费后直达详情） */
         const val EXTRA_ORDER_ID = "sorders_order_id"
+
+        /** 本机通知的凭据（[AlertPrefs.notifyToken]）：对不上就忽略 [EXTRA_ORDER_ID] */
+        const val EXTRA_NOTIFY_TOKEN = "sorders_notify_token"
 
         private const val ORDER_FALLBACK_ID = 9100
         private const val MESSAGE_ID = 9200

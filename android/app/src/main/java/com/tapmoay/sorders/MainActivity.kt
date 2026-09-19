@@ -14,6 +14,7 @@ import com.tapmoay.sorders.core.ApiEndpoint
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.NewOrderPlayer
 import com.tapmoay.sorders.core.NotifyCenter
+import com.tapmoay.sorders.core.PushTrust
 import com.tapmoay.sorders.core.Session
 import com.tapmoay.sorders.ui.nav.AppRoot
 import com.tapmoay.sorders.ui.theme.AutoSunThemeEffect
@@ -91,14 +92,23 @@ class MainActivity : ComponentActivity() {
      * 点一下桌面图标（或任何别的 App 拉起本 App）就把播报打断了，表现是"新单只响了一声"，
      * 而且没有任何报错、日志里也看不出被谁打断。
      *
-     * 所以判据只能是「真的是从通知点进来的，且带着合法单号」：[NotifyCenter.EXTRA_ORDER_ID]
-     * 是唯一的凭据（本 App 的通知一律由 [NotifyCenter.openApp] 生成，只有它会给这条 extra）。
+     * ⛔ 光判 `orderId > 0` 不够（报告 R2-NS-3）：那个 extra 是**外部可伪造**的——
+     * 本 Activity 必须能被桌面拉起（`exported` 不能改 false，见 AndroidManifest 的注释），
+     * 于是任何 App 发一个 `sorders_order_id=<任意单号>` 的 intent 就能静默打断播报。
+     * 所以真正的凭据是 [NotifyCenter.EXTRA_NOTIFY_TOKEN]：本机 [NotifyCenter.openApp]
+     * 建 PendingIntent 时才附上的随机串（见 [AlertPrefs.notifyToken]）。
+     * 对不上就**整条忽略**——不清会话、不崩溃、不提示（那是别人的 intent，不是我们的会话问题）。
      */
     private fun consumeIntent(intent: Intent?, container: AppContainer, from: String) {
         if (intent == null) return
-        val orderId = intent.getLongExtra(NotifyCenter.EXTRA_ORDER_ID, -1L)
-        Log.i(NewOrderPlayer.TAG, "收到通知点击（$from）单号=$orderId")
-        if (orderId > 0) {
+        val raw = intent.getLongExtra(NotifyCenter.EXTRA_ORDER_ID, -1L)
+        val orderId = PushTrust.trustedOrderId(
+            orderId = raw,
+            token = intent.getStringExtra(NotifyCenter.EXTRA_NOTIFY_TOKEN),
+            mine = container.alertPrefs.notifyToken,
+        )
+        Log.i(NewOrderPlayer.TAG, "通知点击（$from）单号=$raw 采信=${orderId != null}")
+        if (orderId != null) {
             container.newOrderPlayer.stop()
             container.pendingOrderId.value = orderId
         }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, IO
 
 from starlette.concurrency import run_in_threadpool
 
@@ -19,6 +19,61 @@ from app.services.message_push import emit_to_user
 from app.services.push_events import push_ledger_updated
 
 logger = logging.getLogger(__name__)
+
+#: 每个账号同时在跑的导出任务上限（靠 OS 文件锁实现，见 `acquire_export_slot`）。
+EXPORT_SLOT_PATH = "/tmp/sorders_export_{user_id}.lock"
+
+
+def acquire_export_slot(user_id: int) -> IO[str] | None:
+    """占住"这个账号的导出槽位"；占不到（已经有一个在跑）返回 None。
+
+    ⚠️ 为什么需要它（2026-09-19 外部完整检查 C-5）：导出是 fire-and-forget 的后台任务，
+    任何货主都能连点几次把自己的导出排满 —— 实测能把**最廉价端点从 1ms 拖到 29.77 秒**
+    （单任务 39.77s / 85,119 条 SQL / 峰值 RSS 469MB），因为重活跑在同一个进程的线程池里。
+
+    ⚠️ 为什么用**文件锁**而不是"查库里的 PENDING/PROCESSING 行"：
+    1. 查库要配一条"多久算卡死"的时间判据，而 `created_at` 是库端时钟（生产 +08:00）、
+       Python 是 UTC —— 那条判据会**静默**偏 8 小时（本机 SQLite 测不出来，见 C-2）；
+       偏严 = 上一次导出崩了以后好几小时不能导出，偏松 = 根本拦不住。
+    2. **进程死了锁自动释放**（操作系统语义），不需要谁来清理"卡在 processing 的任务"。
+    3. 多 worker 之间照样互斥（锁在文件系统上，不在进程内存里）。
+    Windows 本机开发没有 `fcntl`（也只有一个进程），返回一个空句柄＝不拦。
+    """
+    try:
+        import fcntl
+    except ImportError:                    # pragma: no cover - Windows 本机开发
+        return _NullSlot()
+    handle = open(EXPORT_SLOT_PATH.format(user_id=user_id), "w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+class _NullSlot:
+    """没有 `fcntl` 时的占位句柄（`close()` 之后什么也不用做）。"""
+
+    def close(self) -> None:  # pragma: no cover - 只在 Windows 走到
+        return
+
+
+def release_export_slot(handle: IO[str] | None) -> None:
+    """放掉槽位（**必须**在所有路径上都调到，否则这个账号再也导不出东西）。"""
+    if handle is None:
+        return
+    try:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    except (ImportError, OSError):          # pragma: no cover - Windows / 句柄已失效
+        pass
+    finally:
+        try:
+            handle.close()
+        except Exception:                   # noqa: BLE001
+            pass
 
 
 def run_ledger_export_job_sync(job_id: int) -> dict[str, Any] | None:
@@ -121,3 +176,15 @@ async def run_ledger_export_job_task(job_id: int) -> None:
         await push_ledger_updated(info["shipper_id"])
     except Exception:  # noqa: BLE001
         logger.warning("账本导出完成的 socket 推送失败（不影响下载）：job_id=%s", job_id, exc_info=True)
+
+
+async def run_ledger_export_job_with_slot(job_id: int, slot: IO[str] | None) -> None:
+    """带槽位的后台任务：跑完（或失败、或被取消）**一定**放锁。
+
+    为什么不在 `create_export_job` 里放：任务在响应发出**之后**才跑，
+    中间隔着整个导出过程（几十秒）。放锁必须发生在真正结束的那一刻。
+    """
+    try:
+        await run_ledger_export_job_task(job_id)
+    finally:
+        release_export_slot(slot)
