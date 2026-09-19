@@ -12,6 +12,15 @@
 
 [docs/PROJECT_MAP/INDEX.md](docs/PROJECT_MAP/INDEX.md) — 地图索引与文档导航（架构、后端 API、Android、测试、设计系统、端到端流程）。
 
+## 刚接手 / 要动核心代码前：先看审计交接
+
+工作区里有**大量未提交改动**，其中很大一部分来自一轮全系统漏洞审计（2026-09-19）。
+动核心循环、钱、AI 写链路之前，先花两分钟看这两份：
+
+1. [**_archive/audit/HANDOVER.md**](_archive/audit/HANDOVER.md) — **审计交接文档**：
+   改了什么、为什么；**知道但没改**的（等你拍板的产品决策 + 排在后面的缺陷）；**没探查**的范围（明确空白）。
+2. [_archive/audit/FINDINGS.md](_archive/audit/FINDINGS.md) — 逐轮台账（证据 `文件:行号`、修法、待拍板 15 条）。
+
 ## 改动前必做：先查定位表，不要先全库 grep
 
 **接手任何"改某个功能"的需求，第一步是查 [docs/PROJECT_MAP/08_CODE_LOCATOR.md](docs/PROJECT_MAP/08_CODE_LOCATOR.md)，不是全库搜索。**
@@ -33,10 +42,13 @@
 ## 改完必跑：一条命令跑完所有静态检查
 
 ```
-python _tools/qa/_check_all.py          # 全部静态检查（19 个脚本，几十秒）
-python _tools/qa/_check_all.py --deep   # 再加 29 份反向验证（几分钟，改红线时才要）
+python _tools/qa/_check_all.py          # 全部静态检查（当前 34 个脚本，约一分钟）
+python _tools/qa/_check_all.py --deep   # 再加 48 份反向验证（几分钟，改红线时才要）
 python _tools/qa/_check_all.py --list   # 只列清单不跑（看它到底都在查什么）
 ```
+
+> ⚠️ 上面这两个数字会随脚本增删变化（**清单是自己算的**，不手写）；
+> 以 `_check_all.py` 第一行打印的"共 N 个检查脚本"为准。
 
 ⚠️ **跑 `--deep`（反向验证）的时候不要改源码**：它会先拍快照，跑完把与快照不一致的文件写回去，
 并发做的修改会**被一起抹掉**（实测被抹掉过 15 个文件）。而并发的**检查**会自动拒绝出结论

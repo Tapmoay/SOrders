@@ -14,7 +14,7 @@
    "module_cn": "挂账单位",
    "method": "get",
    "path": "/api/v1/arrears-units",
-   "at": "backend/app/api/v1/arrears.py:18",
+   "at": "backend/app/api/v1/arrears.py:22",
    "auth": "权限:LEDGER_EDIT",
    "roles": [
     "dispatcher"
@@ -29,7 +29,7 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows",
-   "at": "backend/app/api/v1/cash_flows.py:20",
+   "at": "backend/app/api/v1/cash_flows.py:44",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -115,7 +115,7 @@
    "module_cn": "客户",
    "method": "get",
    "path": "/api/v1/customers",
-   "at": "backend/app/api/v1/customers.py:23",
+   "at": "backend/app/api/v1/customers.py:24",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -151,7 +151,7 @@
    "module_cn": "司机计费规则",
    "method": "get",
    "path": "/api/v1/driver-billing-rules",
-   "at": "backend/app/api/v1/driver_billing_rules.py:125",
+   "at": "backend/app/api/v1/driver_billing_rules.py:126",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -187,7 +187,7 @@
    "module_cn": "司机账单",
    "method": "get",
    "path": "/api/v1/driver-bills",
-   "at": "backend/app/api/v1/driver_bills.py:33",
+   "at": "backend/app/api/v1/driver_bills.py:41",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机",
    "roles": [
     "dispatcher",
@@ -244,7 +244,7 @@
    "module_cn": "司机结算单",
    "method": "get",
    "path": "/api/v1/driver-settlements",
-   "at": "backend/app/api/v1/driver_settlements.py:27",
+   "at": "backend/app/api/v1/driver_settlements.py:28",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机",
    "roles": [
     "dispatcher",
@@ -291,7 +291,7 @@
    "module_cn": "费用",
    "method": "get",
    "path": "/api/v1/expenses",
-   "at": "backend/app/api/v1/expenses.py:20",
+   "at": "backend/app/api/v1/expenses.py:21",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -347,7 +347,7 @@
    "module_cn": "司机运费结算",
    "method": "get",
    "path": "/api/v1/freight-settlement",
-   "at": "backend/app/api/v1/freight_settlement.py:36",
+   "at": "backend/app/api/v1/freight_settlement.py:37",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机",
    "roles": [
     "dispatcher",
@@ -394,7 +394,7 @@
    "module_cn": "订单/运费模板",
    "method": "get",
    "path": "/api/v1/freight-templates",
-   "at": "backend/app/api/v1/freight_templates.py:33",
+   "at": "backend/app/api/v1/freight_templates.py:37",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -512,7 +512,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:86",
+   "at": "backend/app/api/v1/ledger.py:116",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -558,7 +558,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:39",
+   "at": "backend/app/api/v1/ledger.py:69",
    "auth": "仅登录 + 体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
@@ -615,7 +615,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:423",
+   "at": "backend/app/api/v1/ledger.py:590",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -661,7 +661,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:140",
+   "at": "backend/app/api/v1/ledger.py:170",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -676,7 +676,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications",
-   "at": "backend/app/api/v1/notifications.py:37",
+   "at": "backend/app/api/v1/notifications.py:38",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -703,6 +703,26 @@
      "is_id": false,
      "is_path": false,
      "desc": ""
+    },
+    {
+     "name": "limit",
+     "arg": "limit",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "before_id",
+     "arg": "before_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
     }
    ],
    "skipped_params": []
@@ -714,7 +734,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications/unread-count",
-   "at": "backend/app/api/v1/notifications.py:29",
+   "at": "backend/app/api/v1/notifications.py:30",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -777,7 +797,7 @@
    "module_cn": "订单商品行",
    "method": "get",
    "path": "/api/v1/order-products",
-   "at": "backend/app/api/v1/order_products.py:39",
+   "at": "backend/app/api/v1/order_products.py:62",
    "auth": "权限:ORDER_READ_ALL",
    "roles": [
     "dispatcher"
@@ -803,7 +823,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:171",
+   "at": "backend/app/api/v1/orders.py:199",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -917,7 +937,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:273",
+   "at": "backend/app/api/v1/orders.py:321",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -970,7 +990,7 @@
    "module_cn": "批发商定价",
    "method": "get",
    "path": "/api/v1/price-rules",
-   "at": "backend/app/api/v1/price_rules.py:183",
+   "at": "backend/app/api/v1/price_rules.py:208",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1003,7 +1023,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products",
-   "at": "backend/app/api/v1/products.py:50",
+   "at": "backend/app/api/v1/products.py:74",
    "auth": "权限:ORDER_CREATE + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",
@@ -1030,7 +1050,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:292",
+   "at": "backend/app/api/v1/reports.py:331",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1039,7 +1059,7 @@
     {
      "name": "date_from",
      "arg": "date_from",
-     "type": "str",
+     "type": "date",
      "required": true,
      "enum": [],
      "is_id": false,
@@ -1049,7 +1069,7 @@
     {
      "name": "date_to",
      "arg": "date_to",
-     "type": "str",
+     "type": "date",
      "required": true,
      "enum": [],
      "is_id": false,
@@ -1066,7 +1086,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:250",
+   "at": "backend/app/api/v1/reports.py:278",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1085,7 +1105,7 @@
     {
      "name": "date",
      "arg": "anchor",
-     "type": "str",
+     "type": "date",
      "required": true,
      "enum": [],
      "is_id": false,
@@ -1102,7 +1122,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:237",
+   "at": "backend/app/api/v1/reports.py:265",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1121,7 +1141,7 @@
     {
      "name": "date",
      "arg": "anchor",
-     "type": "str",
+     "type": "date",
      "required": true,
      "enum": [],
      "is_id": false,
@@ -1138,7 +1158,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/addresses",
-   "at": "backend/app/api/v1/shipper.py:45",
+   "at": "backend/app/api/v1/shipper.py:47",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1154,7 +1174,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/contacts",
-   "at": "backend/app/api/v1/shipper.py:175",
+   "at": "backend/app/api/v1/shipper.py:188",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1170,7 +1190,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/locations",
-   "at": "backend/app/api/v1/shipper.py:273",
+   "at": "backend/app/api/v1/shipper.py:292",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1448,7 +1468,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:47",
+   "at": "backend/app/api/v1/users.py:49",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -1508,7 +1528,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users/me",
-   "at": "backend/app/api/v1/users.py:42",
+   "at": "backend/app/api/v1/users.py:44",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -1525,7 +1545,7 @@
    "module_cn": "车辆管理",
    "method": "get",
    "path": "/api/v1/vehicles",
-   "at": "backend/app/api/v1/vehicles.py:147",
+   "at": "backend/app/api/v1/vehicles.py:156",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
