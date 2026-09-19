@@ -634,7 +634,6 @@ data class ProductDto(
     @SerialName("is_active") val isActive: Boolean = true,
     @SerialName("image_url") val imageUrl: String? = null,
     val stock: Int = 0,
-    @SerialName("tier_prices") val tierPrices: List<ProductTierDto> = emptyList(),
     val unit: String = "件",
     /**
      * 商品分类（如 饮料/粮油/日化）：选品页左侧导航按它分组。
@@ -694,14 +693,6 @@ data class ProductVisibilityDto(
 data class ProductVisibilityRequest(
     val scope: String,
     @SerialName("product_ids") val productIds: List<Long> = emptyList(),
-)
-
-// ===== 多档批发价 =====
-@Serializable
-data class ProductTierDto(
-    val label: String = "",
-    @SerialName("unit_price") @Serializable(with = FlexibleStringSerializer::class)
-    val unitPrice: String = "0",
 )
 
 // ===== 挂账单位 =====

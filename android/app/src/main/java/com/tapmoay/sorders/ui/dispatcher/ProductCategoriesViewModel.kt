@@ -68,7 +68,7 @@ class ProductCategoriesViewModel(private val container: AppContainer) : ViewMode
     val categories = mutableStateListOf<ProductCategoryDto>()
     var loading by mutableStateOf(true)
     var busy by mutableStateOf(false)
-    /** 加载失败（留在页面上 + 重试），与一次性提示分开 —— 见 `WholesalePricingViewModel` 的说明。 */
+    /** 加载失败（留在页面上 + 重试），与一次性提示分开 —— 见 `PriceMatrixViewModel` 的说明。 */
     var loadError by mutableStateOf<String?>(null)
     var error by mutableStateOf<String?>(null)
     var notice by mutableStateOf<String?>(null)

@@ -26,7 +26,16 @@ class Product(Base, TimestampMixin):
     image_url: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
     # 当前库存（只由库存流水增减，不走商品编辑接口）
     stock: Mapped[int] = mapped_column(Integer, default=0)
-    # 多档批发价（[{"label": "批发价一", "unit_price": "12.0000"}, ...]）
+    # ⛔ 已废弃（2026-09-19 用户拍板删掉「批发价档位」这个概念）：原来存的是多档批发价
+    #    （形如 [{"label": "批发价一", "unit_price": "12.0000"}, ...]）。
+    #    废弃的原因：它**看起来像批发价，下单时却一个字节都不照它走** —— 下单只认
+    #    `price_rules` 的按（批发商×商品）专属价，没有专属价才用 `default_unit_price`。
+    #    这种"看着像价、其实谁都不按它成交"的概念正是用户说的「操作与逻辑不匹配」。
+    #    ⚠️ **列与历史数据一律保留，不写迁移、不清数据、也不 drop**：它此前只在两处当过
+    #    "预设值"（`POST /price-rules/batch` 的 `mode="tier"`、App 批发商定价页的下拉），
+    #    那两处已删，所以这列**不再被任何接口读写**（schema_bootstrap 补列的那段也保留，
+    #    老库缺列时会报错）。留着只为不丢数据 —— **不是漏了迁移**。
+    #    ⚠️ 别按它写新逻辑：要"这个批发商的这个商品多少钱"就查 `price_rules`。
     tier_prices: Mapped[list] = mapped_column(JSON, default=list)
     # 商品单位（如 件/箱/斤/桶），下单与库存均展示
     unit: Mapped[str] = mapped_column(String(32), default="件")

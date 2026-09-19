@@ -4736,6 +4736,10 @@ def lock_order_row(db: Session, order: Order) -> None:
 
 ### 55.10 第六轮：价格是谁说了算（最后一处点名的板块）
 
+> ⚠️ **2026-09-19 更新**：这一节里的「多档批发价 `products.tier_prices`」**已被用户拍板删掉**
+> （它看着像批发价、下单却一个字节都不照它走，属于"操作与逻辑不匹配"）。下面这段是**当时的记录**，
+> 现在价格只认 `price_rules` 的按（批发商×商品）专属价或商品默认售价；`tier_prices` 列保留在库里但不再被任何接口读写。
+
 多档批发价（`products.tier_prices`）与批发商专属价（`price_rules.special_unit_price`）
 在后端**都只存不管**：下单的 `unit_price` 由客户端传，后端不按商品/客户二次定价。探针实测：
 

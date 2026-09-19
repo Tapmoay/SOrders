@@ -3483,8 +3483,11 @@ def main() -> int:
               read(UI / "messages/MessagesScreen.kt"),
               r"OneShotSnackbar\(snackbar, vm\.notice, onConsumed = \{ vm\.notice = null \}\)")
     # 两个页面把"加载错误"和"动作错误"拆成了两个字段（否则提示条会把整页 ErrorView 清掉）
+    # ⚠️ 2026-09-19：这个文件原来叫 `WholesalePricingViewModel.kt`，本轮定价页泛化成
+    #    「价格矩阵」（按批发商 / 按商品两个方向）后改名 `PriceMatrixViewModel.kt`。
+    #    路径写死在这里正是为了"文件被改名时这条判据要报红"—— 它确实报了（红在"找不到文件"）。
     c.present("加载错误与动作错误**分开**（否则提示条一消费，整页 ErrorView 就没了）",
-              read(UI / "dispatcher/WholesalePricingViewModel.kt"),
+              read(UI / "dispatcher/PriceMatrixViewModel.kt"),
               r"var loadError by mutableStateOf<String\?>\(null\)")
     c.present("账本管理页同样拆开了",
               read(UI / "dispatcher/DispatcherLedgerViewModel.kt"),

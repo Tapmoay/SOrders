@@ -125,13 +125,6 @@ def probe_products(tok: str) -> None:
     print(f"  [信息] 同名商品两次创建：{st1} / {st2}"
           + ("（允许，靠 id 区分）" if st2 == 201 else "（拒绝）"))
 
-    st, r = call("POST", "/products", {"name": uniq("档位重复"), "tier_prices": [
-        {"label": "批发", "unit_price": "9"}, {"label": "批发", "unit_price": "8"}]}, token=tok)
-    if st == 201:
-        call("DELETE", f"/products/{r['id']}", token=tok)
-    print(f"  [信息] 同名档位两次：{st}"
-          + ("（允许——但界面上两个'批发'档，选哪个看不出来）" if st == 201 else "（拒绝）"))
-
     st, r = call("POST", "/products", {"name": uniq("下架测试")}, token=tok)
     pid = r["id"]
     st2, _ = call("PATCH", f"/products/{pid}", {"is_active": False}, token=tok)
@@ -941,36 +934,37 @@ def probe_export(tok: str) -> None:
            f"Excel {margin_in_xls} vs 期望 {want}（参与毛利的收入 {data.get('cost_covered_amount')} − 成本 {data.get('cost_total')}）")
 
 
-# ------------------------------------------------------------------ 价格（多档批发价 / 专属价）
+# ------------------------------------------------------------------ 价格（批发商专属价）
 
 def probe_pricing(tok: str) -> None:
-    """价格是谁说了算：多档批发价（tier_prices）与批发商专属价（price_rules）在下单时的口径。
+    """价格是谁说了算：批发商专属价（price_rules）在下单时的口径。
 
-    这两处**后端都不做校验**（下单的 `unit_price` 由客户端传），所以要测的不是"能不能绕"
+    ⚠️ 2026-09-19：这里的「多档批发价（`products.tier_prices`）」**已被用户拍板删掉**
+    （它看着像批发价，下单却一个字节都不照它走——下单只认 `price_rules` 的专属价或商品默认售价），
+    所以这一节只测专属价；`products.tier_prices` 列保留在库里但不再被接口读写。
+
+    后端**不做二次定价**（下单的 `unit_price` 由客户端传），所以要测的不是"能不能绕"
     （也没必要绕：代理下单本来就要能手改价），而是：
-    ① 档位价/专属价是不是纯展示；② 落库是不是老实照抄客户端（金额口径一致）；
+    ① 专属价是不是纯展示；② 落库是不是老实照抄客户端（金额口径一致）；
     ③ 改商品价之后已下的单会不会跟着变（快照语义）。
     """
-    print("\n== 价格：多档批发价 / 批发商专属价 在下单时的口径 ==")
+    print("\n== 价格：批发商专属价 在下单时的口径 ==")
     shipper = login(SHIPPER)
 
-    p = call("POST", "/products", {"name": uniq("价格探针商品"), "default_unit_price": "10",
-                                   "tier_prices": [{"label": "批发", "unit_price": "8"},
-                                                   {"label": "大批发", "unit_price": "6"}]}, token=tok)[1]
+    p = call("POST", "/products", {"name": uniq("价格探针商品"), "default_unit_price": "10"}, token=tok)[1]
     pid = p["id"]
-    print("  [信息] 商品默认价 %s，档位价 %s"
-          % (p["default_unit_price"], [(t["label"], t["unit_price"]) for t in p["tier_prices"]]))
+    print("  [信息] 商品默认价 %s" % p["default_unit_price"])
 
-    # ① 客户端给档位价就落档位价（后端不做二次定价）
+    # ① 客户端给什么价就落什么价（后端不做二次定价）
     st, o = call("POST", "/orders", {"lines": [{"product_id": pid, "product_name_snapshot": "价格探针货",
                                                 "quantity": 10, "unit_price": "8.00",
                                                 "line_total": "80.00"}],
                                      "delivery_description": "价格探针"}, token=shipper)
     oid = None
-    ok("货主按档位价（8.00）下单能落库", st == 201, f"返回 {st} {str(o)[:120]}")
+    ok("货主按自己那份价（8.00）下单能落库", st == 201, f"返回 {st} {str(o)[:120]}")
     if st == 201:
         oid = o["id"]
-        ok("落库单价 = 客户端给的档位价（后端不做二次定价）",
+        ok("落库单价 = 客户端给的那份价（后端不做二次定价）",
            float(o["order_products"][0]["unit_price"]) == 8.0,
            f"落库 {o['order_products'][0]['unit_price']}")
 

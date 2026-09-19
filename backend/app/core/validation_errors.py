@@ -209,7 +209,11 @@ def describe(errors: list[dict[str, Any]]) -> str:
             reason = tpl.format_map(_SafeDict(ctx))
             # 枚举越界时把允许的取值也翻出来（"取值不在允许范围内"单说等于没说）
             allowed = ctx.get("expected")
-            if etype == "enum" and isinstance(allowed, str):
+            # ⚠️ `literal_error`（`Literal["fixed","percent","adjust"]` 这种取值约束）
+            #    和 `enum` 的 ctx 形状**一样**（`expected` 是 `'a', 'b' or 'c'`），
+            #    原来只认 `enum` → 写了 Literal 的字段（如批量调价的 `mode`）报错只说
+            #    "取值不在允许范围内"，用户照着改不了。2026-09-19 删掉 `mode="tier"` 时一起接上。
+            if etype in ("enum", "literal_error") and isinstance(allowed, str):
                 # Pydantic 给的是 `'fuel', 'repair' or 'toll'` 这种串：逗号与 or 都要当分隔符，
                 # 否则会印出 "fuel / repair' or 'toll"（本轮实测）
                 picks = [p.strip().strip("'\"") for p in re.split(r",|\bor\b", allowed)]

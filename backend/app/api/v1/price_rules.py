@@ -1,4 +1,3 @@
-import json
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -94,8 +93,11 @@ def batch_price_rules(
     current: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
 ) -> PriceRuleBatchOut:
     """批量调价：多批发商 × 多商品 一次写价。
-    - fixed：所有组合统一单价；percent：按商品默认售价百分比；tier：应用商品自身第 N 档批发价。
+    - fixed：所有组合统一单价；percent：按商品默认售价百分比；adjust：在【当前生效价】基础上按百分比涨/降。
     - 已有规则自动覆盖；shipper_ids/product_ids 为空 = 全部批发商/全部商品。
+
+    ⚠️ 2026-09-19 起**没有** `mode="tier"`（取商品自身"批发价第 N 档"那一档）：`products.tier_prices`
+    是"看着像批发价、下单谁都不照它走"的概念，已被用户拍板删掉，传 `tier` 由 schema 直接 422 拒掉。
     """
     qs = select(User).where(User.is_member == True)  # noqa: E712
     if body.shipper_ids:
@@ -146,15 +148,8 @@ def batch_price_rules(
                 base = pr.special_unit_price
             raw = base * (Decimal("100") + body.adjust_percent) / Decimal("100")
             return raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        # tier：商品自身批发价第 N 档
-        if body.tier_index is None:
-            return None
-        try:
-            tiers = json.loads(p.tier_prices) if isinstance(p.tier_prices, str) else (p.tier_prices or [])
-            if body.tier_index < len(tiers):
-                return Decimal(str(tiers[body.tier_index]["unit_price"]))
-        except Exception:
-            return None
+        # mode 只有 fixed / percent / adjust 三档（schema 的 `Literal` 把别的取值挡在 422），
+        # 上面三分支已经把三条路都走完了 —— 这个 return 只为"函数每条路径都有返回值"而留。
         return None
 
     count = 0
@@ -217,13 +212,27 @@ def list_price_rules(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(UserRole.DISPATCHER, UserRole.SHIPPER)),
     shipper_id: int | None = None,
+    product_id: int | None = None,
 ) -> list[PriceRuleOut]:
+    """专属价列表。三个筛选条件的关系是**先锁角色、再叠加**，谁也绕不过角色那一层：
+
+    1. 批发商（货主）**先**被锁成只看自己的（`PriceRule.shipper_id == user.id`）——
+       所以货主带**别人的** `shipper_id` 只会得到**空列表**，拿不到别人的价；
+    2. 再叠加 `shipper_id`（只看某个批发商，派单员用来做「这个批发商都有哪些专属价」）；
+    3. 再叠加 `product_id`（只看某个商品，用来做「这个商品各家批发商分别什么价」）——
+       App 新增的「按商品看各批发商价」页要用它：以前只能按 `shipper_id` 筛，
+       客户端要凑出"这一个商品的所有专属价"就只能拉全表再自己过滤（正是本轮修掉的那种毛病）。
+
+    两个筛选是**并列 AND**（同时给就是"这个批发商的这个商品"），都不给 = 这个角色能看的全部。
+    """
     q = select(PriceRule).where(PriceRule.is_deleted.is_(False)).order_by(PriceRule.id.desc())
     # 批发商（货主）只读自己的专属价，用于下单时展示实际价格；派单员可看全部
     if user_role_key(user) == "shipper":
         q = q.where(PriceRule.shipper_id == user.id)
     if shipper_id is not None:
         q = q.where(PriceRule.shipper_id == shipper_id)
+    if product_id is not None:
+        q = q.where(PriceRule.product_id == product_id)
     rows = list(db.scalars(q).all())
     return [_rule_to_out(pr, db) for pr in rows]
 

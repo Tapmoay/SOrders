@@ -119,4 +119,4 @@ python -m http.server 8001 --bind 0.0.0.0   # workdir=android/app/build/outputs/
 - `collect_cash`：派单时勾选；`payment_method` = cash|arrears；`paid` = 是否结清
 - `ledger`：账本总账（订单自动同步 + 手动记账），`source` = ORDER / MANUAL / **REFUND**（⚠️ 漏掉 REFUND 会 500——货损退款单写的就是这个值，`schema_bootstrap.py` 有专门修复）
 - `cash_flows`：**所有实际收付的唯一写入点**（客户收款/司机付款/开销/退款/调账）
-- `price_rules`：批发商专属价（批发商+商品+special_unit_price）；商品 `tier_prices`=多档批发价（JSON）
+- `price_rules`：批发商专属价（批发商+商品+special_unit_price），**下单报价的唯一依据**（没有专属价才用商品默认售价）；⛔ 商品上的 `tier_prices`（多档批发价）已于 2026-09-19 废弃：它看着像批发价、下单却谁都不照它走，列与历史数据保留但不再被任何接口读写

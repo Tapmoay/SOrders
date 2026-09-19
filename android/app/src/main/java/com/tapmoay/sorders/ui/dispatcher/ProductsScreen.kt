@@ -51,6 +51,8 @@ fun ProductsScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenCategories: () -> Unit = {},
+    /** 打开「各批发商价格」（价格矩阵的"按商品"方向）。 */
+    onOpenPricing: (Long) -> Unit = {},
 ) {
     val vm: ProductsViewModel = appViewModel { ProductsViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
@@ -105,25 +107,59 @@ fun ProductsScreen(
             }
         },
     ) { padding ->
+        // 分类清单与当前选中的分类：**与选品页同一套实现**
+        // （`categoryTabs` / `categoryOf` / `CategoryRail` 都在 `ui/common/ProductPicker.kt` 里，
+        //  这一页只是把同一根导航条用在自己的列表左边）
+        val cats = remember(vm.products, vm.categories) {
+            categoryTabs(vm.products, vm.categories.map { it.name })
+        }
+        var category by remember { mutableStateOf(ALL_CATEGORY) }
+        // 选中的分类可能因为改名/改商品分类而消失 —— 那就退回「全部」，
+        // 否则用户会停在一个**导航条上已经不存在的分类**上、右边一片空白且无法解释
+        LaunchedEffect(cats) {
+            if (category !in cats) category = ALL_CATEGORY
+        }
+        val visible = remember(vm.products, category) {
+            if (category == ALL_CATEGORY) vm.products else vm.products.filter { categoryOf(it) == category }
+        }
+
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 vm.loading -> LoadingBox()
                 vm.loadError != null && vm.products.isEmpty() -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
                 vm.products.isEmpty() -> EmptyView("暂无商品，点击右下角新增", Modifier.align(Alignment.Center))
-                else -> LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(vm.products, key = { it.id }) { p ->
-                        ProductCard(
-                            p = p,
-                            onEdit = { vm.openEdit(p) },
-                            onToggle = { vm.toggleActive(p) },
-                            onDelete = { vm.delete(p) },
-                        )
+                else -> Row(Modifier.fillMaxSize()) {
+                    // 左：分类（独立滚动，不会把右边的商品一起带走）—— 与选品页同宽、同观感
+                    CategoryRail(
+                        tabs = cats,
+                        selected = category,
+                        onSelect = { category = it },
+                        modifier = Modifier.width(92.dp).fillMaxHeight(),
+                    )
+                    // 右：商品
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        if (visible.isEmpty()) {
+                            // 空的是**这一分类**，不是整个商品库 —— 两句话不能混（混了用户会去新建重复商品）
+                            EmptyView("「$category」下暂无商品", Modifier.align(Alignment.Center))
+                        } else {
+                            LazyColumn(
+                                Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                items(visible, key = { it.id }) { p ->
+                                    ProductCard(
+                                        p = p,
+                                        onEdit = { vm.openEdit(p) },
+                                        onToggle = { vm.toggleActive(p) },
+                                        onDelete = { vm.delete(p) },
+                                        onOpenPricing = { onOpenPricing(p.id) },
+                                    )
+                                }
+                                item { Spacer(Modifier.height(72.dp)) }
+                            }
+                        }
                     }
-                    item { Spacer(Modifier.height(72.dp)) }
                 }
             }
         }
@@ -284,37 +320,16 @@ fun ProductsScreen(
                             color = MaterialTheme.colorScheme.outline,
                         )
 
-                        Spacer(Modifier.height(12.dp))
-                        Text("批发价（可选，可多档）", style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(6.dp))
-                        vm.draftTiers.forEachIndexed { idx, tier ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    tier.label.ifBlank { "批发价" },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.width(72.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                OutlinedTextField(
-                                    value = tier.price,
-                                    onValueChange = { v -> vm.draftTiers[idx] = tier.copy(price = InputRules.priceInput(v)) },
-                                    label = { Text("价格（元）") },
-                                    singleLine = true, modifier = Modifier.weight(1f),
-                                )
-                                IconButton(onClick = { vm.removeTier(idx) }) {
-                                    Icon(Icons.Default.DeleteOutline, contentDescription = "删除档位", modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-                        TextButton(onClick = { vm.addTier() }) {
-                            Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("添加批发价")
-                        }
+                        Spacer(Modifier.height(8.dp))
+                        // ⛔ **这里原来有一段「批发价（可选，可多档）」**（批发价一/二/三 + 添加按钮），
+                        //    2026-09-19 用户拍板**整个概念删掉**。
+                        //    理由（用户原话）：「同一个商品，这个批发商的价格和那个批发商的价格是不一样的，
+                        //    保证操作与逻辑匹配」——而商品上那几个"批发价档位"**下单时谁都不照它走**
+                        //    （下单只认按（批发商×商品）存的专属价，或商品默认售价），
+                        //    它只在"批量调价"和"定价页下拉"里当预设值。一个看起来像批发价、
+                        //    实际不生效的字段，就是最典型的"操作与逻辑不匹配"。
+                        //    批发商的价格现在只有一个入口：商品卡「⋮ → 各批发商价格」
+                        //    （或批发商管理「定价」），两处都是**真的会生效**的那个价。
                     }
 
                     Spacer(Modifier.height(10.dp))
@@ -503,6 +518,7 @@ private fun ProductCard(
     onEdit: () -> Unit,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
+    onOpenPricing: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
 
@@ -554,15 +570,6 @@ private fun ProductCard(
                     }
                 }
                 ProductFacts(p)
-                if (p.tierPrices.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        p.tierPrices.joinToString(" · ") { "${it.label} ¥" + formatMoney(it.unitPrice) },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                        maxLines = 1,
-                    )
-                }
             }
             // 三个动作全在这里（用户要求"保证按钮性，又不占位子"）
             Box {
@@ -570,6 +577,11 @@ private fun ProductCard(
                     Icon(Icons.Default.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(20.dp))
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("各批发商价格") },
+                        leadingIcon = { Icon(Icons.Default.Sell, contentDescription = null, tint = Color(MoneyOrange)) },
+                        onClick = { menu = false; onOpenPricing() },
+                    )
                     DropdownMenuItem(
                         text = { Text(if (p.isActive) "下架" else "上架") },
                         leadingIcon = {

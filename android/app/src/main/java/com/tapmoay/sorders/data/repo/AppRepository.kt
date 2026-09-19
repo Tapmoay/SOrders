@@ -219,13 +219,18 @@ class AppRepository(private val api: ApiBundle) {
     /**
      * 专属价（批发商特价）。
      *
-     * ⚠️ **默认按批发商取**（2026-09-19 修）：原来无参数 = 拉全表，
+     * ⚠️ **两个方向都能筛**（2026-09-19 修）：原来无参数 = 拉全表，
      * 调用方再 `filter { it.shipperId == 某人 }`。批发商一多，打开一个批发商的定价页
      * （或下单页每换一次下单主体）都要下载所有批发商 × 所有商品的价格。
-     * 后端一直支持 `?shipper_id=`，只是这一层没接。
-     * `shipperId = null` 才是"全都要"——只有批量调价那种场景需要。
+     * 后端一直支持 `?shipper_id=`，只是这一层没接；`product_id` 是这一轮为
+     * 「按商品看各批发商价」新加的。
+     * 两个都传 null 才是"全都要"——只有 AI 按 id 取行那种场景需要。
      */
-    suspend fun priceRules(shipperId: Long? = null) = api.priceRuleApi.listRules(shipperId)
+    suspend fun priceRules(shipperId: Long? = null, productId: Long? = null) =
+        api.priceRuleApi.listRules(shipperId, productId)
+
+    /** 单个商品（「按商品定价」页要知道它的名字、默认价、单位）。 */
+    suspend fun product(id: Long) = api.productApi.getProduct(id)
     suspend fun createPriceRule(shipperId: Long, productId: Long, specialUnitPrice: String) =
         api.priceRuleApi.createRule(
             com.tapmoay.sorders.data.remote.api.PriceRuleCreateRequest(shipperId, productId, specialUnitPrice)
@@ -236,7 +241,7 @@ class AppRepository(private val api: ApiBundle) {
     /**
      * 批量调价（多批发商 × 多商品一次写价）。
      *
-     * @param mode fixed / tier / percent / adjust
+     * @param mode fixed / percent / adjust（原来的 tier 已随"批发价档位"概念一起删除）
      * @param adjustPercent 只在 adjust 模式下用：在当前生效价基础上涨/降百分之多少。
      *   它和 percent 模式**不是一回事**（见 PriceRuleBatchRequest 的注释）。
      */
@@ -245,7 +250,6 @@ class AppRepository(private val api: ApiBundle) {
         productIds: List<Long>,
         mode: String,
         value: String? = null,
-        tierIndex: Int? = null,
         adjustPercent: String? = null,
     ) = api.priceRuleApi.batchRules(
         com.tapmoay.sorders.data.remote.api.PriceRuleBatchRequest(
@@ -253,7 +257,6 @@ class AppRepository(private val api: ApiBundle) {
             productIds = productIds,
             mode = mode,
             value = value,
-            tierIndex = tierIndex,
             adjustPercent = adjustPercent,
         ),
     )

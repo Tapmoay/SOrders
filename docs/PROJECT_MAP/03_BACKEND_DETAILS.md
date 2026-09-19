@@ -38,7 +38,7 @@ app/
 | users | user.py | role/is_member/billing_mode/vehicle_type/salary/password_hash |
 | orders | order.py | status/order_no/shipper_id/temp_shipper_name/driver_id/freight_fee/collect_cash/payment_method/paid/arrears_unit_*/delivered_at/expected_deliver_before/is_exception/exception_*/image_urls(JSON)　⚠️ 旧写的 `damage_photo_*` 全库 **0 命中**，已不存在, driver_billing_mode_snapshot |
 | order_products | order.py | product_name_snapshot/quantity/unit_price/line_total/**cost_price_snapshot**/**damage_quantity** |
-| products | product.py | name/name_color/**default_unit_price**/**cost_price**（毛利来源）/unit/tier_prices(JSON 多档)/stock(初值)/is_active/**image_url**（⚠️ 旧写的 `unit_price`、`image` 两个字段名都不存在）/low_stock_alert |
+| products | product.py | name/name_color/**default_unit_price**/**cost_price**（毛利来源）/unit/stock(初值)/is_active/**image_url**（⚠️ 旧写的 `unit_price`、`image` 两个字段名都不存在）/low_stock_alert　⛔ `tier_prices`(JSON 多档批发价) **2026-09-19 起已废弃**：接口不再读写它，列与历史数据保留、不写迁移（别再按它写逻辑，报价只认 `price_rules`） |
 | price_rules | product.py（⚠️ **没有独立的 `price_rule.py`**；`PriceRule` 定义在 `models/product.py` L42） | shipper_id(批发商)/product_id/special_unit_price |
 | ledger | ledger.py | shipper_id/temp_shipper_name/entry_date/product_name/quantity/unit_price/total/source(ORDER/MANUAL/**REFUND**——⚠️ 漏 REFUND 会 500)/order_id/note |
 | cash_flows | cash_flow.py | flow_date/direction(IN\|OUT)/amount/party_type/party_name/channel/biz_type/order_id/doc_id |

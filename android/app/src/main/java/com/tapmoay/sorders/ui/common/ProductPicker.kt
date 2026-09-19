@@ -297,11 +297,15 @@ fun ProductPickerBody(
 
 // ---------------------------------------------------------------- 左侧分类栏
 
-private const val ALL_CATEGORY = "全部"
-private const val NO_CATEGORY = "未分类"
+// ⚠️ 这三个（以及 `categoryTabs` / `CategoryRail`）是 **internal** 而不是 private：
+//    「商品管理」页现在也是"左边分类、右边商品"（用户 2026-09-19 要求跟选品页一致），
+//    它必须用**同一套**分类定义与同一根导航条 —— 各写一份的话，
+//    同屏两个页面会出现"同一件商品在选品页属于日化、在商品管理页属于未分类"。
+internal const val ALL_CATEGORY = "全部"
+internal const val NO_CATEGORY = "未分类"
 
 /** 一个商品属于哪个分类（空/纯空格 = 未分类）。 */
-private fun categoryOf(p: ProductDto): String = p.category.trim().ifBlank { NO_CATEGORY }
+internal fun categoryOf(p: ProductDto): String = p.category.trim().ifBlank { NO_CATEGORY }
 
 /**
  * 分类清单：**由商品算出来**，不是手写枚举；**顺序由名册定**（派单员排过的那一列）。
@@ -334,7 +338,7 @@ internal fun categoryTabs(products: List<ProductDto>, ordered: List<String> = em
 }
 
 @Composable
-private fun CategoryRail(
+internal fun CategoryRail(
     tabs: List<String>,
     selected: String,
     onSelect: (String) -> Unit,

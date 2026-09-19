@@ -330,6 +330,9 @@ def main() -> int:
         cur.execute(
             "INSERT INTO products (name, default_unit_price, cost_price, is_active, stock, unit,"
             " low_stock_alert, tier_prices, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            # ⚠️ `tier_prices` 这个概念 2026-09-19 已废弃，但这一列**必须继续填**：
+            #    它是 NOT NULL 且没有 server default，从 INSERT 里删掉这一列会直接失败
+            #    （填 "[]" 只是为了满足列约束，不代表这个概念还在）。
             (f"{TAG}{name}", price, cost, 1, stock, unit, alert, "[]", now, now),
         )
         products.append((int(cur.lastrowid or 0), name, Decimal(price), Decimal(cost)))

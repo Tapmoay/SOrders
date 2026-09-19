@@ -114,7 +114,6 @@ def create_product(
         default_unit_price=body.default_unit_price,
         cost_price=body.cost_price,
         image_url=body.image_url,
-        tier_prices=[t.model_dump(mode="json") for t in body.tier_prices],
         stock=body.stock if body.stock is not None else 0,
         unit=body.unit or "件",
         category=(body.category or "").strip()[:32],
@@ -177,8 +176,6 @@ def update_product(
         raise HTTPException(status_code=404, detail="未找到对应记录")
     # 始终更新所有提供的字段（Pydantic 已验证并转换了值）
     update_data = body.model_dump(exclude_unset=True)
-    if "tier_prices" in update_data and update_data["tier_prices"] is not None:
-        update_data["tier_prices"] = [t.model_dump(mode="json") for t in update_data["tier_prices"]]
     # 分类/单位先 strip：与创建路径同一口径。不归一的话「饮料」与「饮料  」会是
     # 选品页左侧的**两个不同分类**（列表上看不出差别，只会觉得"怎么多了一组空的"）。
     for short_field in ("category", "unit"):

@@ -18,23 +18,15 @@ def _validate_hex_color(v: object) -> str | None:
     return s.upper()
 
 
-class ProductTier(MoneyInput):
-    """多档批发价条目。"""
-
-    label: str = Field(..., min_length=1, max_length=32)
-    unit_price: Decimal = Field(..., ge=Decimal("0"))
-
-
 class ProductCreate(MoneyInput):
     name: str = Field(..., min_length=1, max_length=256)
     # ⚠️ 价格/成本**必须 ≥ 0**（v3.39 探针实测：原来可以建出单价 -5 的商品，
     #    下单就得到负金额的订单行 → 账本入账负数、营业额为负，全程不报错）。
-    #    这里与 tier_prices 一样用 ge=0（同一个 schema 里两种风格更糟）。
+    #    两个金额字段都写 ge=0：同一个 schema 里混两种风格，下一个人就会照着错的那份抄。
     default_unit_price: Decimal = Field(default=Decimal("0"), ge=0)
     cost_price: Decimal = Field(default=Decimal("0"), ge=0)
     image_url: str | None = Field(None, max_length=512)
     name_color: str | None = Field(None, max_length=32)
-    tier_prices: list[ProductTier] = Field(default_factory=list)
     stock: int | None = Field(default=None, ge=0, description="初始库存（选填，仅创建时生效）")
     unit: str | None = Field(None, max_length=32, description="商品单位，如 件/箱/斤/桶（缺省 件）")
     # 分类（如 饮料/粮油/日化）：选品页左侧导航按它分组；留空 = 「未分类」（老数据都是这一档）
@@ -64,7 +56,6 @@ class ProductUpdate(MoneyInput):
     is_active: bool | None = None
     image_url: str | None = Field(None, max_length=512)
     name_color: str | None = Field(None, max_length=32)
-    tier_prices: list[ProductTier] | None = None
     unit: str | None = Field(None, max_length=32)
     category: str | None = Field(None, max_length=MAX_SHORT_NAME)
     low_stock_alert: int | None = Field(None, ge=0)
@@ -88,11 +79,6 @@ class ProductUpdate(MoneyInput):
 class ProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    @field_validator("tier_prices", mode="before")
-    @classmethod
-    def tier_prices_not_none(cls, v: object) -> object:
-        return [] if v is None else v
-
     id: int
     name: str
     name_color: str | None = None
@@ -104,7 +90,6 @@ class ProductOut(BaseModel):
     is_active: bool
     image_url: str | None = None
     stock: int = 0
-    tier_prices: list[ProductTier] = Field(default_factory=list)
     unit: str = "件"
     category: str = ""
     low_stock_alert: int = 0

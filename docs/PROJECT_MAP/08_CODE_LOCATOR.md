@@ -90,8 +90,8 @@ python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文�
 
 | 功能 | 核心文件 | 附带文件 | 注意 |
 |---|---|---|---|
-| **商品多档批发价 `tier_prices`** | `app/api/v1/products.py` | `app/models/product.py`（**L29** `tier_prices`）、`app/schemas/product.py` | 出参 list 字段必须防 NULL：加 `@field_validator(mode='before')` 把 `None` 归一为 `[]` |
-| **批发商专属定价** | `app/api/v1/price_rules.py` | `app/models/product.py`（**L49** `class PriceRule`）、`app/api/v1/users.py`（`is_member`） | 批发商 = `users.is_member`；专属价存 `price_rules` 表 |
+| **商品（建/改/软删/图片）** | `app/api/v1/products.py` | `app/models/product.py`、`app/schemas/product.py` | ⚠️ 进价 `cost_price` **按角色裁剪**（只有 `product:manage` 拿到真值，其余 `null`）——判据只在 `product_out()` 一处，列表与详情同一个口径。删除是**软删**（可 `POST /{id}/restore`），下架请用 `PATCH is_active=false`。<br>⛔ `tier_prices`（多档批发价）**2026-09-19 已废弃**：它看着像批发价、下单却一个字节都不照它走（下单只认 `price_rules` 的专属价或商品默认售价），所以入参/出参字段与批量调价的 `mode="tier"` 全删；**列与历史数据保留在库里、不写迁移**——别去 drop 它，也别按它写新逻辑 |
+| **批发商专属定价** | `app/api/v1/price_rules.py` | `app/models/product.py`（**L49** `class PriceRule`）、`app/api/v1/users.py`（`is_member`） | 批发商 = `users.is_member`；专属价存 `price_rules` 表。<br>`GET /price-rules` 的筛选是**先锁角色、再叠加**：货主先被锁成只看自己的（所以带**别人的** `shipper_id` 得到**空列表**，不是别人的价——下单页正是拿这份价报价的），再叠加 `shipper_id`（某批发商有哪些价）与 `product_id`（某商品各家批发商什么价，App「按商品看各批发商价」页用它；两个条件是并列 AND）。<br>⛔ 批量调价的 `mode` 只有 `fixed` / `percent` / `adjust` 三档：原第四档 `tier`（取商品自身"批发价第 N 档"）随 `tier_prices` 一起删了，传 `tier` 由 schema 直接 **422** 拒掉 |
 | **商品分类 category**（下单页左侧分组） | pp/models/product.py（category）、pp/schemas/product.py、Android ui/dispatcher/ProductsScreen.kt + ProductsViewModel.kt（draftCategory） | pp/api/v1/products.py（创建/更新都 strip()）、pp/core/schema_bootstrap.py（补列） | 空串 = **未分类**（老数据全在这一档）。分类清单**从商品算出来**（ProductPicker.categoryTabs），不是手写枚举；顺序 = 全部 → 各分类按商品数倒序 → 未分类（**全是未分类时它不出现**，否则和「全部」内容一样） |
 | **库存 / 库存流水** | `app/api/v1/inventory.py` | `app/services/inventory_service.py`、`app/models/inventory.py`、`app/schemas/inventory.py` | `products.stock` 只是创建时初值，**后续走流水**。<br>⚠️ **缺货判据写在 `UPDATE ... WHERE` 里**（`stock + change >= 0`），不许"先读再判再写回绝对值"：那是 TOCTOU，库存 10、两人同时出库 8 会都放行（一共出库 16、账面 2）；"写回绝对值"还会把并发的另一笔加减整段盖掉（lost update）。<br>⚠️ **「在途占用」必须 `join orders` 并排除软删单**，否则已物理清理订单的 RESERVED 流水会永久被算成在途（保留任务现在会连库存流水一起删）。<br>⚠️ 计数列只能由数据库自增（`stock = stock + delta`）——红线 `_tools/qa/_check_counter_updates.py`、回归测试 `tests/test_audit_round16_counters.py` |
 | **货主 / 批发商 / 客户管理** | `app/api/v1/customers.py`、`app/api/v1/users.py` | `app/models/customer.py`、`app/models/user.py` | 改工资/计费/车型字段，非派单员会 **403**。<br>⚠️ **合并（`POST /customers/merge`）是不可逆的**（customers 表连 `is_deleted` 都没有）：把引用搬到 keep 上、再**物理删除**被并档案。三条闸门：① `keep_id` 不许同时出现在 `merge_ids`（否则两个档案一起被删）；② 两个**不同 `user_id`** 的注册客户不许合并（订单归属绑在账号上，`orders.shipper_id` 这一列没有搬 → 那批历史应收会永久失去核销入口）；③ 临时货主（无账号）的名字在库里存**两份**（`orders.temp_shipper_name` 与 `ledgers.temp_shipper_name`）——合并时**两份一起改**，只改账本那一份的话 `ledger_sync` 下一次同步会拿订单上的旧名字覆盖回去，改名被静默还原（R14-4，回归测试 `test_merge_renames_both_copies_and_survives_a_resync`）。**没有重命名端点** |
@@ -174,9 +174,9 @@ python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文�
 | 运费模板 | `FreightTemplatesScreen.kt` / `FreightTemplatesViewModel.kt` |
 | 挂账单位 | `ArrearsUnitsScreen.kt` / `ArrearsUnitsViewModel.kt` |
 | 库存管理 | `InventoryScreen.kt` / `InventoryViewModel.kt` |
-| 商品管理 | `ProductsScreen.kt` / `ProductsViewModel.kt`。**商品卡上那四个数字的图标与配色是定死的**（售价橙/成本灰/库存蓝青/分类紫，库存还按状态变色）—— 见 §2.3 上一行与 `06_DESIGN_SYSTEM.md §4`，改之前先读那两条理由；三个动作（上架/下架/编辑/删除）在卡片右上角 `⋮` 菜单里，**不许**再摊成三个按钮（用户 2026-09-19：「太占位置了」） |
-| 批量改价 | `BatchPriceSheets.kt` |
-| 批发商管理 / 定价 | `WholesalePricingScreen.kt` / `WholesalePricingViewModel.kt` |
+| 商品管理 | `ProductsScreen.kt` / `ProductsViewModel.kt`。**版式 = 左边分类、右边商品**（用户 2026-09-19：「这个商品管理也做成选择商品的那种界面，左边是分类右边是商品」）—— 分类导航条与"商品属于哪一类"的判据都复用选品页那一份（`ui/common/ProductPicker.kt` 的 `CategoryRail` / `categoryTabs` / `categoryOf`，都是 `internal`），**不许各写一份**（各写一份会出现"同一件商品在选品页属于日化、在商品管理页属于未分类"）。<br>**商品卡上那四个数字的图标与配色是定死的**（售价橙/成本灰/库存蓝青/分类紫，库存还按状态变色）—— 见 §2.3 上一行与 `06_DESIGN_SYSTEM.md §4`，改之前先读那两条理由；三个动作（上架/下架/编辑/删除）+「各批发商价格」在卡片右上角 `⋮` 菜单里，**不许**再摊成三个按钮（用户 2026-09-19：「太占位置了」）。<br>⛔ 商品编辑页**没有"批发价档位"**了（2026-09-19 删）：那个概念看着像批发价、下单时谁都不照它走，批发商的价格只有「各批发商价格 / 定价」两个入口设 |
+| 批量改价 | `BatchPriceSheets.kt`（`mode` 只有**统一单价 / 按售价%**两档 —— 原来的"引用批发价档"随 `tier_prices` 一起删了） |
+| **价格矩阵（批发商专属价）** | `PriceMatrixScreen.kt` / `PriceMatrixViewModel.kt` —— **一个商品 × 一个批发商 = 一个价**，**两个方向共用这一页**：<br> · `PriceAxis.BY_SHIPPER`：入口 = 批发商管理 →「定价」，行 = 商品（这个批发商买每个商品多少钱）；<br> · `PriceAxis.BY_PRODUCT`：入口 = 商品管理 → 卡片 `⋮` →「各批发商价格」，行 = 批发商（这个商品卖给每家多少钱）。<br>⚠️ 两个方向是**同一件事**（设那个（批发商 × 商品）的价），所以交互刻意做成一样的（用户 2026-09-19：「保证操作与逻辑匹配，并且是那种不是很复杂的操作」）。<br>⚠️ 取数一律**服务端筛**（`?shipper_id=` / `?product_id=`），不许拉全表再 filter。<br>⚠️ `BY_PRODUCT` 只列**启用中**的批发商，并把"另有 N 个已停用/已删除的没列出"写在页面上（给人设价是白设：账号软删后 `_del{id}`，人已经登不进来也下不了单）。<br>⚠️ 保存后要**清该行草稿**、批量调价后清**全部**草稿：`fieldValue` 是"草稿优先"，不清的话界面会拿你上次敲的数盖住库里刚写进去的新价（界面上看不出来） |
 | 司机/货主/批发商用户管理 | `UsersManageScreen.kt` / `UsersManageViewModel.kt`（**司机池多一条「车辆」线**：车队摘要 + 搜索 + 每张卡一行「他开哪辆车」，点它配车/换车/解绑 —— 车辆行与绑定的口径见 §1「车辆 / 运费模板」那一行） |
 | 车辆管理（v3.44） | `VehicleManageScreen.kt`（列表 + 编辑弹层 + 绑司机 + 停用；原来是 `AccountToolsScreens.kt` 里一个"只能新增"的车辆台账） |
 | 账号管理 | `AccountManageScreen.kt` / `AccountManageViewModel.kt`、`AccountToolsScreens.kt`（收款/结算/开销三屏，车辆已迁出） |
@@ -256,7 +256,7 @@ python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文�
    > 📌 **实测交叉印证**：[`99_STRESS_TEST_REPORT.md`](99_STRESS_TEST_REPORT.md) 记录过"双 `complete` → 一个 200 一个 400（状态机拦截），账本 1 条、司机账单 1 条，无重复入账"——
    > 与上面的静态分析一致。**但那次压测走的是无货损的普通完成**，只验了 `ledger_sync` 与 `generate_piece_bill` 两条幂等路径；
    > 唯一不幂等的 `apply_damage_accounting` **没被覆盖**。① 静态分析说它不幂等、② 实测没打到它——两者不矛盾，是**覆盖缺口**。
-7. **`products.tier_prices` 等 JSON 列可能被存成 NULL**，出参一律加 `field_validator(mode='before')` 归一为 `[]`。
+7. **JSON 列可能被存成 NULL**（`orders.image_urls`、`shipper_addresses.image_urls` 等），出参一律加 `field_validator(mode='before')` 归一为 `[]`。（`products.tier_prices` 是这条规矩最初的现场，但它 2026-09-19 已废弃、不再是出参字段。）
 8. **`ui/nav/Modules.kt`** — 改底部导航会影响全部角色的入口，注意 Tab 索引越界（历史崩溃点）。
 9. **图片白名单散布在 6 处（不是 2 处），MIME 与扩展名是两套不同的清单** — 改之前务必逐处核对：
 

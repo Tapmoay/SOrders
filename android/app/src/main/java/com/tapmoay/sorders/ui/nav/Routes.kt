@@ -42,7 +42,12 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val DISPATCH_EXPENSES = "dispatcher/expenses"
     const val DISPATCH_VEHICLES = "dispatcher/vehicles"
     const val DRIVER_FREIGHT = "driver/freight"
-    const val WHOLESALE_PRICING = "dispatcher/pricing/{shipperId}"
+    /**
+     * 价格矩阵（一个商品 × 一个批发商 = 一个专属价）的**两个方向**。
+     * 两个入口、同一页实现 —— 见 `PriceMatrixScreen` 的注释。
+     */
+    const val PRICE_BY_SHIPPER = "dispatcher/pricing/shipper/{shipperId}"
+    const val PRICE_BY_PRODUCT = "dispatcher/pricing/product/{productId}"
     const val MODULE_GROUP = "moduleGroup"
 
     // AI 助手（派单员端）
@@ -58,7 +63,8 @@ const val REPORT_FINANCE = "report/finance"
     const val REPORT_EXCEPTION = "report/exception"
 
     fun orderDetail(orderId: Long) = "order/$orderId/detail".replace("$orderId", orderId.toString())
-    fun wholesalePricing(shipperId: Long) = "dispatcher/pricing/$shipperId"
+    fun priceByShipper(shipperId: Long) = "dispatcher/pricing/shipper/$shipperId"
+    fun priceByProduct(productId: Long) = "dispatcher/pricing/product/$productId"
 }
 
 enum class Role(val key: String, val label: String) {

@@ -464,6 +464,10 @@ interface ProductApi {
     @POST("products")
     suspend fun createProduct(@Body body: ProductCreateRequest): ProductDto
 
+    /** 单个商品（「按商品看各批发商价」页要知道它的名字、默认价、单位）。 */
+    @GET("products/{productId}")
+    suspend fun getProduct(@Path("productId") productId: Long): ProductDto
+
     @PATCH("products/{productId}")
     suspend fun updateProduct(@Path("productId") productId: Long, @Body body: ProductUpdateRequest): ProductDto
 
@@ -485,14 +489,19 @@ interface PriceRuleApi {
     /**
      * 专属价列表。
      *
-     * ⚠️ **必须能按批发商取**（2026-09-19）：后端 `GET /price-rules` 一直支持 `?shipper_id=`，
-     * 而这里原来没有参数 —— 于是「批发商定价」页与「下单页」都是**拉全表再在客户端筛**。
-     * 批发商一多，打开一个批发商的定价页要下载**所有批发商 × 所有商品**的价格，
-     * 而下单页每换一次下单主体也要再拉一遍全表。
-     * 传 `shipperId = null` 才是"全都要"（只有批量调价那种场景需要）。
+     * ⚠️ **两个方向都要能筛**（2026-09-19）：
+     * - `shipperId`：**按批发商**看（「批发商定价」页：这个批发商每个商品多少钱）；
+     * - `productId`：**按商品**看（「各批发商价格」页：这个商品每个批发商多少钱）。
+     *
+     * 后端 `GET /price-rules` 一直支持 `?shipper_id=`，而这里原来一个参数都没有 ——
+     * 于是两个页面都是**拉全表再在客户端筛**：批发商一多，打开一页就要下载
+     * 所有批发商 × 所有商品的价格。两个参数都传 null 才是"全都要"（只有 AI 按 id 取行需要）。
      */
     @GET("price-rules")
-    suspend fun listRules(@Query("shipper_id") shipperId: Long? = null): List<PriceRuleDto>
+    suspend fun listRules(
+        @Query("shipper_id") shipperId: Long? = null,
+        @Query("product_id") productId: Long? = null,
+    ): List<PriceRuleDto>
 
     @POST("price-rules")
     suspend fun createRule(@Body body: PriceRuleCreateRequest): PriceRuleDto
@@ -511,10 +520,18 @@ interface PriceRuleApi {
 data class PriceRuleBatchRequest(
     @SerialName("shipper_ids") val shipperIds: List<Long>,
     @SerialName("product_ids") val productIds: List<Long>,
-    /** fixed=统一单价 / tier=第N档批发价 / percent=默认价的百分比 / **adjust=在现有价上±百分比**。 */
+    /**
+     * `fixed` = 统一单价 / `percent` = 商品默认价的百分之多少 /
+     * `adjust` = 在**当前生效价**上 ±百分之多少。
+     *
+     * ⚠️ 原来的 `tier`（引用商品自身第 N 档批发价）已于 2026-09-19 **删除**：
+     * 那套"商品上的批发价档位"看起来像是这家商品的批发价，其实下单时谁都不照它走
+     * （下单只认按（批发商×商品）存的专属价或商品默认价）—— 用户拍板把那个概念整个删掉。
+     * 老客户端若还发 `mode="tier"` 会被后端 422 挡下（这是有意的：宁可报错也不要
+     * 让"按一个已经被删掉的概念定价"这条路继续存在）。
+     */
     val mode: String,
     @Serializable(with = FlexibleStringSerializer::class) val value: String? = null,
-    @SerialName("tier_index") val tierIndex: Int? = null,
     /**
      * adjust 模式的涨/降百分比：`+10` = 涨 10%，`-15` = 降 15%。
      *
@@ -581,7 +598,6 @@ data class ProductCreateRequest(
     val costPrice: String = "0",
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("name_color") val nameColor: String? = null,
-    @SerialName("tier_prices") val tierPrices: List<ProductTierDto> = emptyList(),
     val stock: Int? = null,
     val unit: String? = null,
     /** 商品分类（选品页左侧分组用）；空 = 未分类。 */
@@ -599,7 +615,6 @@ data class ProductUpdateRequest(
     @SerialName("is_active") val isActive: Boolean? = null,
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("name_color") val nameColor: String? = null,
-    @SerialName("tier_prices") val tierPrices: List<ProductTierDto>? = null,
     val unit: String? = null,
     /** 传空串 = 清成"未分类"；传 null = 不改（PATCH 部分更新语义）。 */
     val category: String? = null,

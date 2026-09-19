@@ -39,7 +39,8 @@ import com.tapmoay.sorders.ui.dispatcher.ReportExceptionScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportProductScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportCenterScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportHomeScreen
-import com.tapmoay.sorders.ui.dispatcher.WholesalePricingScreen
+import com.tapmoay.sorders.ui.dispatcher.PriceAxis
+import com.tapmoay.sorders.ui.dispatcher.PriceMatrixScreen
 import com.tapmoay.sorders.ui.dispatcher.AccountManageScreen
 import com.tapmoay.sorders.ui.dispatcher.UsersManageScreen
 import com.tapmoay.sorders.ui.driver.DriverOrdersScreen
@@ -235,6 +236,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenCategories = { navController.navigate(Routes.PRODUCT_CATEGORIES) },
+                // 「这个商品卖给每家批发商多少钱」——价格矩阵的另一个方向（2026-09-19 新增）
+                onOpenPricing = { pid -> navController.navigate(Routes.priceByProduct(pid)) },
             )
         }
         composable(Routes.PRODUCT_CATEGORIES) {
@@ -252,18 +255,30 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 UserPool.MEMBERS,
                 onBack = { navController.popBackStack() },
                 onOpenPricing = { u ->
-                    navController.navigate(Routes.wholesalePricing(u.id))
+                    navController.navigate(Routes.priceByShipper(u.id))
                 },
             )
         }
+        // 价格矩阵的两个方向（同一页实现，见 PriceMatrixScreen 的注释）
         composable(
-            route = Routes.WHOLESALE_PRICING,
+            route = Routes.PRICE_BY_SHIPPER,
             arguments = listOf(navArgument("shipperId") { type = NavType.LongType }),
         ) { entry ->
-            val sid = entry.arguments?.getLong("shipperId") ?: 0L
-            WholesalePricingScreen(
+            PriceMatrixScreen(
                 container = container,
-                shipperId = sid,
+                axis = PriceAxis.BY_SHIPPER,
+                focusId = entry.arguments?.getLong("shipperId") ?: 0L,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = Routes.PRICE_BY_PRODUCT,
+            arguments = listOf(navArgument("productId") { type = NavType.LongType }),
+        ) { entry ->
+            PriceMatrixScreen(
+                container = container,
+                axis = PriceAxis.BY_PRODUCT,
+                focusId = entry.arguments?.getLong("productId") ?: 0L,
                 onBack = { navController.popBackStack() },
             )
         }

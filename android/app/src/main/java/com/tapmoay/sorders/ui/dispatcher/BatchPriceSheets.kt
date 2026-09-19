@@ -64,7 +64,7 @@ fun BatchPriceSheet(
     lockedShipperId: Long?,
     lockedShipperName: String = "",
     acting: Boolean,
-    onExecute: (shipperIds: List<Long>, productIds: List<Long>, mode: String, value: String?, tierIndex: Int?) -> Unit,
+    onExecute: (shipperIds: List<Long>, productIds: List<Long>, mode: String, value: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val locked = lockedShipperId != null
@@ -73,7 +73,6 @@ fun BatchPriceSheet(
     var mode by remember { mutableStateOf("fixed") }
     var fixedValue by remember { mutableStateOf("") }
     var percentValue by remember { mutableStateOf("") }
-    var tierIndex by remember { mutableStateOf(0) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -193,9 +192,13 @@ fun BatchPriceSheet(
             Spacer(Modifier.height(4.dp))
 
             // ---------- 定价方式 ----------
+            // ⚠️ 原来的「引用批发价档」（mode=tier）已于 2026-09-19 删除：
+            //    它读的是**商品上的批发价档位**，而那套东西看起来像批发价、下单时谁都不照它走
+            //    （用户拍板整个概念删掉）。批量调价现在只剩"直接给一个价"和"按默认价百分比"两种，
+            //    两种都是**真的会生效**的口径。
             Text("定价方式", style = MaterialTheme.typography.titleSmall)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("fixed" to "统一单价", "tier" to "引用批发价档", "percent" to "按售价%").forEach { (v, l) ->
+                listOf("fixed" to "统一单价", "percent" to "按售价%").forEach { (v, l) ->
                     FilterChip(selected = mode == v, onClick = { mode = v }, label = { Text(l, maxLines = 1) })
                 }
             }
@@ -217,35 +220,16 @@ fun BatchPriceSheet(
                     keyboardType = KeyboardType.Decimal,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                else -> {
-                    var tierExp by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = tierExp, onExpandedChange = { tierExp = it }) {
-                        OutlinedTextField(
-                            value = listOf("批价一", "批价二", "批价三", "批价四", "批价五")[tierIndex],
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("应用各商品第几档批发价") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tierExp) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                        )
-                        ExposedDropdownMenu(expanded = tierExp, onDismissRequest = { tierExp = false }) {
-                            listOf("批价一", "批价二", "批价三", "批价四", "批价五").forEachIndexed { i, l ->
-                                DropdownMenuItem(text = { Text(l) }, onClick = { tierIndex = i; tierExp = false })
-                            }
-                        }
-                    }
-                }
             }
             Spacer(Modifier.height(10.dp))
             Button(
                 onClick = {
-                    val value = when (mode) { "fixed" -> fixedValue; "percent" -> percentValue; else -> null }
+                    val value = when (mode) { "percent" -> percentValue; else -> fixedValue }
                     onExecute(
                         selShippers.toList(),
                         selProducts.toList(),
                         mode,
-                        value?.takeIf { it.isNotBlank() },
-                        if (mode == "tier") tierIndex else null,
+                        value.takeIf { it.isNotBlank() },
                     )
                 },
                 enabled = !acting && selShippers.isNotEmpty() && selProducts.isNotEmpty(),

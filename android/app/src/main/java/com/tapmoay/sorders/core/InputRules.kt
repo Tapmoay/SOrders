@@ -185,8 +185,8 @@ object InputRules {
     /**
      * **单价**输入过滤：与 [moneyInput] 同一条规则，只是小数位放到 [PRICE_DECIMALS]（4 位）。
      *
-     * 用在"这是**每单位多少钱**"的地方：商品默认售价 / 成本价 / 批发价档位 /
-     * 批发商特价 / 订单行的单价 / 账本流水单价 / 批量调价的统一单价。
+     * 用在"这是**每单位多少钱**"的地方：商品默认售价 / 成本价 / 批发商专属价 /
+     * 订单行的单价 / 账本流水单价 / 批量调价的统一单价。
      * 为什么它们与金额分开见 [PRICE_DECIMALS] 的注释（库里的列精度不同）。
      */
     fun priceInput(v: String): String = moneyInput(v, maxDecimals = PRICE_DECIMALS)

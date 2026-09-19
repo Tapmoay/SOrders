@@ -8,22 +8,17 @@ import com.tapmoay.sorders.data.remote.api.ProductCreateRequest
 import com.tapmoay.sorders.data.remote.api.ProductUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
-import com.tapmoay.sorders.data.remote.dto.ProductTierDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** 批发价草稿行 */
-data class TierDraft(val label: String = "", val price: String = "")
-
 class ProductsViewModel(private val container: AppContainer) : ViewModel() {
-
     var products by mutableStateOf<List<ProductDto>>(emptyList())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     /**
      * **加载**失败：要留在页面上（配合整页 ErrorView + 重试），**不能**被提示条消费掉。
-     * 拆字段的理由见 `WholesalePricingViewModel` 的同一处注释。
+     * 拆字段的理由见 `PriceMatrixViewModel` 的同一处注释。
      */
     var loadError by mutableStateOf<String?>(null)
     /** 分类名册（决定下单页左侧顺序）。商品编辑页从这里选分类，也能就地新建。 */
@@ -45,8 +40,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
     var draftActive by mutableStateOf(true)
     /** 本地已选图片路径（保存时上传）；null=未换图 */
     var draftImageLocal by mutableStateOf<String?>(null)
-    /** 删除表情：需要清除原图时置 true（本轮先只支持换图，不做删图） */
-    val draftTiers = mutableStateListOf<TierDraft>()
 
     val colorOptions = listOf(
         "#1565C0" to "物流蓝",
@@ -91,7 +84,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         draftColor = "#1565C0"
         draftActive = true
         draftImageLocal = null
-        draftTiers.clear()
         showDialog = true
     }
 
@@ -107,23 +99,7 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         draftColor = p.nameColor ?: "#1565C0"
         draftActive = p.isActive
         draftImageLocal = null
-        draftTiers.clear()
-        p.tierPrices.forEach { draftTiers.add(TierDraft(it.label, it.unitPrice)) }
         showDialog = true
-    }
-
-    fun addTier() {
-        val idx = draftTiers.size + 1
-        draftTiers.add(TierDraft("批发价" + cjkNum(idx), ""))
-    }
-
-    fun removeTier(index: Int) {
-        if (index in draftTiers.indices) draftTiers.removeAt(index)
-    }
-
-    private fun cjkNum(n: Int): String = when (n) {
-        1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"; 5 -> "五"
-        6 -> "六"; 7 -> "七"; 8 -> "八"; 9 -> "九"; else -> n.toString()
     }
 
     fun save() {
@@ -145,9 +121,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         }
         val cost = draftCost.trim().ifBlank { "0" }
         val stock = draftStock.trim().ifBlank { null }?.toIntOrNull()
-        val tiers = draftTiers
-            .filter { it.price.isNotBlank() && it.price.toDoubleOrNull() != null }
-            .map { ProductTierDto(label = it.label.trim().ifBlank { "批发价" }, unitPrice = it.price.trim()) }
 
         acting = true
         error = null
@@ -168,7 +141,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
                             defaultUnitPrice = draftPrice.trim(),
                             costPrice = cost,
                             nameColor = draftColor,
-                            tierPrices = tiers,
                             stock = stock,
                             unit = draftUnit.trim().ifBlank { null },
                             category = draftCategory.trim(),
@@ -185,7 +157,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
                                 costPrice = cost,
                                 nameColor = draftColor,
                                 isActive = draftActive,
-                                tierPrices = tiers,
                                 unit = draftUnit.trim().ifBlank { null },
                                 category = draftCategory.trim(),
                                 lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),

@@ -148,7 +148,7 @@ object AiReadCatalog {
         )),
         ReadAction("product_categories.list_categories", "商品分类名册（下单页左侧那一列的分组与显示顺序，带每类下有几个商品）", "/api/v1/product-categories", "", setOf("dispatcher", "driver", "shipper"), listOf(
         )),
-        ReadAction("products.list_products", "商品列表（含库存、批发价档位）", "/api/v1/products", "include_inactive", setOf("dispatcher", "shipper"), listOf(
+        ReadAction("products.list_products", "商品列表（含库存、分类）", "/api/v1/products", "include_inactive", setOf("dispatcher", "shipper"), listOf(
             ReadParam("include_inactive", "bool", false, emptyList(), false),
         )),
         ReadAction("reports.arrears_summary", "挂账/欠款汇总报表", "/api/v1/reports/arrears-summary", "date_from、date_to", setOf("dispatcher"), listOf(

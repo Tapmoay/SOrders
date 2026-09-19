@@ -7,13 +7,19 @@ from app.schemas.money import MoneyInput
 
 
 class PriceRuleBatchBody(MoneyInput):
-    """批量调价：多批发商 × 多商品，统一一套价格逻辑。"""
+    """批量调价：多批发商 × 多商品，统一一套价格逻辑。
+
+    ⚠️ `mode` 只有三档（2026-09-19 用户拍板删掉第四档 `tier`）：原来是
+    `Literal["fixed", "tier", "percent", "adjust"]`，`tier` = 取商品自身的"批发价第 N 档"。
+    那个档位（`products.tier_prices`）**下单时谁都不照它走**（下单只认 `price_rules` 的
+    按（批发商×商品）专属价，或商品默认售价），属于"看着像批发价、其实是纯预设值"的概念，
+    所以整套删掉、由 `Literal` 直接 422 拒掉（不留一个"接受但静默无效"的口子）。
+    """
 
     shipper_ids: list[int] = Field(default_factory=list, description="空=全部批发商")
     product_ids: list[int] = Field(default_factory=list, description="空=全部商品")
-    mode: Literal["fixed", "tier", "percent", "adjust"] = "fixed"
+    mode: Literal["fixed", "percent", "adjust"] = "fixed"
     value: Decimal | None = Field(None, ge=Decimal("0"), description="fixed=统一单价；percent=默认售价的百分比(如95=95%)")
-    tier_index: int | None = Field(None, ge=0, description="tier=应用商品自身第几档批发价")
     adjust_percent: Decimal | None = Field(
         None,
         ge=Decimal("-100"),

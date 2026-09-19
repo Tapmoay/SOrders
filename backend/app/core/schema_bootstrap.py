@@ -399,6 +399,10 @@ def _bootstrap_impl(engine: Engine) -> None:
                         pass
                     else:
                         raise
+        # ⚠️ 这一段**必须留着**（2026-09-19）：模型 `Product.tier_prices` 这一列还在，
+        #    老库缺这列时 SELECT 会直接报错。注意「列还在」不等于「概念还在」——
+        #    多档批发价这个概念已被用户拍板删掉（它看着像批发价，下单却只认 price_rules），
+        #    这列不再被任何接口读写，保留只为不丢历史数据、不做迁移。详见 models/product.py。
         if "tier_prices" not in pcols:
             logger.warning("检测到旧库缺少 products.tier_prices，正在补列…")
             with engine.begin() as conn:

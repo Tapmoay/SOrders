@@ -411,14 +411,13 @@ class UsersManageViewModel(
         productIds: List<Long>,
         mode: String,
         value: String?,
-        tierIndex: Int?,
         onDone: (Int) -> Unit,
     ) {
         acting = true
         error = null
         viewModelScope.launch {
             try {
-                val res = container.repo.batchPriceRules(shipperIds, productIds, mode, value, tierIndex)
+                val res = container.repo.batchPriceRules(shipperIds, productIds, mode, value)
                 actionResult = "批量调价成功（" + res.count + " 条）"
                 onDone(res.count)
             } catch (e: Exception) {

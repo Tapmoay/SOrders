@@ -365,7 +365,7 @@ fun UsersManageScreen(
             members = vm.users,
             lockedShipperId = null,
             acting = vm.acting,
-            onExecute = { sids, pids, m, v, ti -> vm.batchPrice(sids, pids, m, v, ti) { vm.showBatch = false } },
+            onExecute = { sids, pids, m, v -> vm.batchPrice(sids, pids, m, v) { vm.showBatch = false } },
             onDismiss = { vm.showBatch = false },
         )
     }
