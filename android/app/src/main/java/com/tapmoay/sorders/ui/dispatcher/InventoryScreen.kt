@@ -331,24 +331,31 @@ private fun StockCard(
                 out -> StockBadge("缺货", Color(0xFF8A8A8E), Color(0xFFEFEFEF))
             }
         }
-        Spacer(Modifier.height(8.dp))
-        // ⚠️ 出入库两个按钮**另起一行、靠右**（原来是塞在同一行的最右边）：
+        Spacer(Modifier.height(10.dp))
+        // ⚠️ 出入库两个按钮**另起一行**（原来是塞在同一行的最右边）：
         //    右边那一栏现在只有 92dp 让给了分类，卡片可用宽度少了近三分之一，
         //    再横着排会把商品名和库存数字挤成一堆省略号 —— 而那两个才是这一页要看的东西。
+        //
+        // 用户 2026-09-19 的第二次调整：「那 2 个按钮换一下位置，且不要**贴**得太紧了，
+        // 那个出库也就是左边的…那个左边那个名字也**放**在下面，也就库存的下面，这样子做个区分」：
+        //   · **出库在左、入库在右**（原来入库在左）；
+        //   · 两个按钮**各占一半宽度**、中间留 14dp —— 原来只有 8dp、
+        //     而且都是"内容宽度"，两个 2 字按钮几乎粘在一起，在窄栏里很容易点错
+        //     （而出库点错成入库是**直接改库存**的错，不是视觉问题）；
+        //   · 整组仍**在库存那一行下面**（库存的数字在上一行，按钮在这一行 = 两件事分开）。
         Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
+            Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FilledTonalButton(onClick = onInbound, contentPadding = PaddingValues(horizontal = 14.dp)) {
-                Text("入库")
-            }
-            Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = onOutbound,
                 enabled = s.stock > 0,
-                contentPadding = PaddingValues(horizontal = 14.dp),
+                modifier = Modifier.weight(1f),
             ) { Text("出库") }
+            FilledTonalButton(onClick = onInbound, modifier = Modifier.weight(1f)) {
+                Text("入库")
+            }
         }
     }
 }

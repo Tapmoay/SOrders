@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
@@ -126,26 +127,43 @@ fun DispatcherLedgerScreen(
                                 }
                             }
 
-                            // ---- 货主账 ----
-                            2 -> {
+                            // ---- 货主账 / 批发商账（**同一套版式，一份实现**）----
+                            //
+                            // 用户 2026-09-19：「批发商他只能看到合计的，但如果我想看**单个**的呢？
+                            // 或者我想看 **2 个**人的呢？这要有个**自由选择**，而且页面也非常的反人性」。
+                            // 两栏原来是两段几乎一样的代码（各写一遍 = 改一处漏一处），现在合成一支。
+                            2, 3 -> {
+                                val isMember = vm.tab == 3
+                                val label = if (isMember) "批发商" else "货主"
+                                val color = if (isMember) Color(MemberGold) else Color(ShipperTeal)
+                                val visible = vm.accountsForTab()
                                 item { ReportTimeNav(mode = vm.chartMode, anchor = vm.chartAnchor, periodText = vm.periodText, onModeChange = { vm.applyMode(it) }, onAnchorChange = { vm.setAnchor(it) }) }
                                 item {
-                                    SectionCard {
-                                        Text("当前范围货主账合计", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            "¥" + formatMoney(vm.shipperAccounts.sumOf { moneyToDouble(it.total) }.toString()),
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(MoneyOrange),
-                                        )
-                                    }
+                                    AccountPicker(
+                                        label = label,
+                                        accounts = visible,
+                                        keyOf = { vm.accountKey(it) },
+                                        selected = vm.selectedAccounts,
+                                        query = vm.accountQuery,
+                                        onQuery = { vm.accountQuery = it },
+                                        onToggle = { vm.toggleAccountSelected(it) },
+                                        onClear = { vm.clearAccountSelection() },
+                                        color = color,
+                                    )
                                 }
-                                if (vm.shipperAccounts.isEmpty()) {
-                                    item { EmptyView("该时段暂无货主账目", Modifier.fillMaxWidth()) }
-                                } else {
-                                    items(vm.shipperAccounts, key = { it.id?.toString() + "|" + (it.tempName ?: "") }) { a ->
-                                        val key = (if (a.id != null) "u|" + a.id else "t|" + a.tempName)
+                                item { SelectedSummary(vm) }
+                                when {
+                                    (if (isMember) vm.memberAccounts else vm.shipperAccounts).isEmpty() ->
+                                        item { EmptyView("该时段暂无" + label + "账目", Modifier.fillMaxWidth()) }
+                                    visible.isEmpty() ->
+                                        item {
+                                            EmptyView(
+                                                "没有名字含「" + vm.accountQuery.trim() + "」的" + label,
+                                                Modifier.fillMaxWidth(),
+                                            )
+                                        }
+                                    else -> items(visible, key = { vm.accountKey(it) }) { a ->
+                                        val key = vm.accountKey(a)
                                         AccountCard(
                                             a = a,
                                             key = key,
@@ -153,44 +171,13 @@ fun DispatcherLedgerScreen(
                                             entries = vm.accountEntries[key],
                                             meta = vm.accountEntriesMeta[key],
                                             onToggle = { vm.toggleAccount(key) },
+                                            expandedOrderId = vm.expandedOrderId,
+                                            expandedOrder = vm.expandedOrder,
+                                            orderLoading = vm.expandedOrderLoading,
+                                            onToggleOrder = { vm.toggleOrderDetail(it) },
                                             onOpenOrder = onOpenOrder,
-                                            icon = Icons.Default.PeopleAlt,
-                                            color = Color(ShipperTeal),
-                                        )
-                                    }
-                                }
-                            }
-
-                            // ---- 批发商账 ----
-                            3 -> {
-                                item { ReportTimeNav(mode = vm.chartMode, anchor = vm.chartAnchor, periodText = vm.periodText, onModeChange = { vm.applyMode(it) }, onAnchorChange = { vm.setAnchor(it) }) }
-                                item {
-                                    SectionCard {
-                                        Text("当前范围批发商账合计", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            "¥" + formatMoney(vm.memberAccounts.sumOf { moneyToDouble(it.total) }.toString()),
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(MoneyOrange),
-                                        )
-                                    }
-                                }
-                                if (vm.memberAccounts.isEmpty()) {
-                                    item { EmptyView("该时段暂无批发商账目", Modifier.fillMaxWidth()) }
-                                } else {
-                                    items(vm.memberAccounts, key = { it.id?.toString() + "|" + (it.tempName ?: "") }) { a ->
-                                        val key = (if (a.id != null) "u|" + a.id else "t|" + a.tempName)
-                                        AccountCard(
-                                            a = a,
-                                            key = key,
-                                            expanded = vm.expandedAccount == key,
-                                            entries = vm.accountEntries[key],
-                                            meta = vm.accountEntriesMeta[key],
-                                            onToggle = { vm.toggleAccount(key) },
-                                            onOpenOrder = onOpenOrder,
-                                            icon = Icons.Default.Badge,
-                                            color = Color(MemberGold),
+                                            icon = if (isMember) Icons.Default.Storefront else Icons.Default.PeopleAlt,
+                                            color = color,
                                         )
                                     }
                                 }
@@ -428,6 +415,139 @@ private fun DriverAccountCard(
     }
 }
 
+/**
+ * 账户挑选器：**搜索 + 多选**（用户 2026-09-19 要的"自由选择"）。
+ *
+ * 原话：「批发商他只能看到合计的，但如果我想看**单个**的呢？或者我想看 **2 个**人的呢？
+ * 这要有个**自由选择**，而且页面也非常的反人性」。
+ *
+ * 三条设计：
+ * 1. **一个都不选 = 全部**（默认行为不变）—— 不逼用户先做一次选择才能看账；
+ * 2. 选中态是**可点掉的**（再点一下取消），并且有一键「清空」—— 选错了不用一个个找回来；
+ * 3. 下面那句「一个都不选 = 全部（共 N 个）」是**必需**的：多选控件最常见的困惑就是
+ *    "我什么都没点，那现在显示的是全部还是什么都没有？"——不写清就是个猜谜。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AccountPicker(
+    label: String,
+    accounts: List<LedgerAccountOut>,
+    keyOf: (LedgerAccountOut) -> String,
+    selected: Set<String>,
+    query: String,
+    onQuery: (String) -> Unit,
+    onToggle: (String) -> Unit,
+    onClear: () -> Unit,
+    color: Color,
+) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("选$label", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            if (selected.isNotEmpty()) {
+                TextButton(onClick = onClear) { Text("清空选择") }
+            }
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            placeholder = { Text("搜索$label 名字", style = MaterialTheme.typography.bodySmall) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        if (accounts.isEmpty()) {
+            Text(
+                "没有匹配的$label",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            // FlowRow：账户名长短不一，用 Row 会挤成一条、用 Column 会占掉半屏（设计规范 §5）
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                accounts.forEach { a ->
+                    val k = keyOf(a)
+                    val on = k in selected
+                    Surface(
+                        color = if (on) color.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.clickable { onToggle(k) },
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (on) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Text(
+                                a.name.ifBlank { label },
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                                color = if (on) color else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "¥" + formatMoney(a.total),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (on) color else MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (selected.isEmpty()) "一个都不选 = 全部（共 " + accounts.size + " 个）"
+            else "已选 " + selected.size + " 个，下面只显示这几个；再点一下可以取消",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * 选中账户的**合计**。
+ *
+ * ⚠️ 为什么必须单独有这一行：原来每个账户各自一个数，要看"这几家一共多少钱"得自己心算相加 ——
+ * 用户说的"反人性"就包括这一条。笔数取**服务端**的 `count`（全量），不是本地明细行数（那是分页的）。
+ */
+@Composable
+private fun SelectedSummary(vm: DispatcherLedgerViewModel) {
+    val (money, count) = vm.selectedSummary()
+    SectionCard {
+        Text(
+            if (vm.selectedAccounts.isEmpty()) "当前范围全部账户合计" else "已选 " + vm.selectedAccounts.size + " 个账户合计",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(2.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                "¥" + formatMoney(money.toString()),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(MoneyOrange),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                count.toString() + " 笔",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 3.dp),
+            )
+        }
+    }
+}
+
+
 /** 货主/批发商账卡：可展开流水明细 */
 @Composable
 private fun AccountCard(
@@ -438,6 +558,12 @@ private fun AccountCard(
     /** 这一账户的明细被服务端截断了没有 + 本次上限（判据是响应头，见 DispatcherLedgerViewModel）。 */
     meta: PageMeta?,
     onToggle: () -> Unit,
+    /** 就地展开的订单（用户要求"订单是可以展开进行查看的"）：当前展开的是哪一条 + 它的内容。 */
+    expandedOrderId: Long?,
+    expandedOrder: com.tapmoay.sorders.data.remote.dto.OrderDto?,
+    orderLoading: Boolean,
+    onToggleOrder: (Long) -> Unit,
+    /** 仍然保留"跳到订单详情页"这条路（就地展开不替代它）。 */
     onOpenOrder: (Long) -> Unit,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     color: Color,
@@ -486,8 +612,14 @@ private fun AccountCard(
                     )
                 }
                 entries.forEach { e ->
+                    // ⚠️ 这一行点下去是**就地展开那一单**，不是跳走（用户 2026-09-19 的要求）。
+                    //    跳走再回来，筛选/展开的账户/滚动位置全没了 —— 连着核几笔要来回跳十几趟。
+                    val oid = e.orderId
                     Row(
-                        Modifier.fillMaxWidth().clickable(enabled = e.orderId != null) { e.orderId?.let(onOpenOrder) }.padding(vertical = 6.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = oid != null) { oid?.let(onToggleOrder) }
+                            .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
@@ -514,6 +646,14 @@ private fun AccountCard(
                             textAlign = TextAlign.End,
                             color = Color(MoneyOrange),
                             modifier = Modifier.widthIn(min = 92.dp),
+                        )
+                    }
+                    // 展开了就把它那一单摊在流水行下面（"订单是可以展开进行查看的"）
+                    if (oid != null && oid == expandedOrderId) {
+                        OrderPeek(
+                            loading = orderLoading,
+                            order = expandedOrder,
+                            onOpenFull = { onOpenOrder(oid) },
                         )
                     }
                 }

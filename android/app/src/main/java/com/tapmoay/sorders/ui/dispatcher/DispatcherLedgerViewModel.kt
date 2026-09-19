@@ -73,6 +73,89 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     var accountEntriesMeta by mutableStateOf<Map<String, PageMeta>>(emptyMap())
     var accountEntriesLoading by mutableStateOf(false)
 
+    // ============================================================ 账户的"自由选择"
+    //
+    // 用户 2026-09-19：「一个很严重的问题，比如说批发商他只能看到合计的，但如果我想看
+    // **单个**的呢？或者我想看 **2 个**人的呢？这要有个**自由选择**，而且页面也非常的反人性」。
+    //
+    // 所以：账户列表上面加**搜索框 + 多选**，选中的账户单独算合计。
+    //   · 一个都不选 = 全部账户（原来的样子，不改默认行为）
+    //   · 选 1 个 = 只看那一个   · 选 2 个 = 看那两个
+    // 选中的**合计**单独算一行（"我选的这几个一共多少钱、几笔"）——
+    // 原来只有每张卡各自的钱，要自己心算相加，这正是"反人性"的地方。
+
+    /** 按名字搜账户（批发商/货主可能有几十个，滚动找人是这一页最烦的事）。 */
+    var accountQuery by mutableStateOf("")
+
+    /** 选中的账户 key 集合（`u|<id>` / `t|<名字>`）；**空 = 全部**。 */
+    var selectedAccounts by mutableStateOf<Set<String>>(emptySet())
+
+    fun toggleAccountSelected(key: String) {
+        selectedAccounts = if (key in selectedAccounts) selectedAccounts - key else selectedAccounts + key
+    }
+
+    fun clearAccountSelection() {
+        selectedAccounts = emptySet()
+    }
+
+    /** 当前 tab 的账户（搜过的）。tab 2=货主账 3=批发商账。 */
+    fun accountsForTab(): List<LedgerAccountOut> {
+        val all = if (tab == 3) memberAccounts else shipperAccounts
+        val kw = accountQuery.trim()
+        return if (kw.isEmpty()) all else all.filter { it.name.contains(kw, ignoreCase = true) }
+    }
+
+    /**
+     * 选中账户的**合计**（钱 + 笔数）。一个都没选 = 全部账户的合计。
+     *
+     * ⚠️ 笔数取服务端的 `count`（那一栏是**全量**笔数），不是本地明细的行数 ——
+     *    明细是分页的，拿它当"一共几笔"会少报。
+     */
+    fun selectedSummary(): Pair<Double, Int> {
+        val all = if (tab == 3) memberAccounts else shipperAccounts
+        val picked = if (selectedAccounts.isEmpty()) all else all.filter { accountKey(it) in selectedAccounts }
+        return picked.sumOf { moneyToDouble(it.total) } to picked.sumOf { it.count }
+    }
+
+    /** 一个账户的 key（与 [toggleAccount] 用的是同一套拼法，**不许各写一份**）。 */
+    fun accountKey(a: LedgerAccountOut): String =
+        if (a.id != null) "u|${a.id}" else "t|${a.tempName.orEmpty()}"
+
+    // ============================================================ 明细里的订单可以展开
+    //
+    // 用户 2026-09-19：「账本相近的明细，比如他这个账本对应什么订单，
+    // **订单是可以展开进行查看的**」。
+    //
+    // 原来点一行是**跳到订单详情页**——回来之后筛选/展开状态全没了，
+    // 想连着核几笔就得来回跳。现在就地展开：单号、状态、货主、地址、商品行、金额。
+
+    /** 就地展开的那条订单（null = 没展开）。 */
+    var expandedOrderId by mutableStateOf<Long?>(null)
+    var expandedOrder by mutableStateOf<com.tapmoay.sorders.data.remote.dto.OrderDto?>(null)
+    var expandedOrderLoading by mutableStateOf(false)
+
+    fun toggleOrderDetail(id: Long) {
+        if (expandedOrderId == id) {
+            expandedOrderId = null
+            expandedOrder = null
+            return
+        }
+        expandedOrderId = id
+        expandedOrder = null
+        expandedOrderLoading = true
+        viewModelScope.launch {
+            try {
+                expandedOrder = container.repo.order(id)
+            } catch (e: Exception) {
+                // 拉失败要**说出来**，不能显示成"这一单没有内容"（两句是完全不同的结论）
+                error = toApiException(e).message
+                expandedOrderId = null
+            } finally {
+                expandedOrderLoading = false
+            }
+        }
+    }
+
     val periodStart: String get() = _periodRange().first
     val periodEnd: String get() = _periodRange().second
 
@@ -87,6 +170,12 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
 
     fun selectTab(i: Int) {
         tab = i
+        // 换 tab 就把"选中的账户"清掉：key 是跨 tab 混用的（`u|id` 在货主账与批发商账里
+        // 指的是不同的人），带过去会出现"选了 2 个、列表里一个都没高亮"的鬼状态。
+        selectedAccounts = emptySet()
+        accountQuery = ""
+        expandedOrderId = null
+        expandedOrder = null
         if (i != 0) loadAccounts()
     }
 

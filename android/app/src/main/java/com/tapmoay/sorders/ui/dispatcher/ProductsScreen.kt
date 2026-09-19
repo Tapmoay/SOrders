@@ -124,11 +124,35 @@ fun ProductsScreen(
         LaunchedEffect(cats) {
             if (category !in cats) category = ALL_CATEGORY
         }
-        val visible = remember(vm.products, category) {
-            if (category == ALL_CATEGORY) vm.products else vm.products.filter { categoryOf(it) == category }
+        val keyword = vm.query.trim()
+        val visible = remember(vm.products, category, keyword) {
+            vm.products
+                .filter { category == ALL_CATEGORY || categoryOf(it) == category }
+                // 名称搜索（用户 2026-09-19：「商品管理的页面要有个搜索的框啊，方便我们找商品」）：
+                // 与库存页同一个判据（本地 + 与左边分类 **AND**）。
+                .filter { keyword.isEmpty() || it.name.contains(keyword, ignoreCase = true) }
         }
 
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // 搜索框**横跨整页**（在分类条上面）—— 与库存管理页同一版式。
+            // 放右栏会被压成半宽，而且分类为空时它会跟着消失；而"找不到某个商品"正是最需要它的时候。
+            OutlinedTextField(
+                value = vm.query,
+                onValueChange = { vm.query = it },
+                placeholder = { Text("搜索商品名称", style = MaterialTheme.typography.bodySmall) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                trailingIcon = {
+                    if (vm.query.isNotEmpty()) {
+                        IconButton(onClick = { vm.query = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+            Box(Modifier.weight(1f)) {
             when {
                 vm.loading -> LoadingBox()
                 vm.loadError != null && vm.products.isEmpty() -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
@@ -144,8 +168,11 @@ fun ProductsScreen(
                     // 右：商品
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         if (visible.isEmpty()) {
-                            // 空的是**这一分类**，不是整个商品库 —— 两句话不能混（混了用户会去新建重复商品）
-                            EmptyView("「$category」下暂无商品", Modifier.align(Alignment.Center))
+                            // 「搜不到」和「这一类是空的」是两句不同的话 —— 说不清用户会以为商品丢了
+                            EmptyView(
+                                if (keyword.isNotEmpty()) "没有名称含「$keyword」的商品" else "「$category」下暂无商品",
+                                Modifier.align(Alignment.Center),
+                            )
                         } else {
                             // ⚠️ 这里原来末尾有一句 `item { Spacer(Modifier.height(72.dp)) }` 给悬浮球让位。
                             //    动作已经搬到底部导航栏、而 Scaffold 的 padding 已经扣掉了那条栏的高度，
@@ -171,6 +198,7 @@ fun ProductsScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -24,6 +24,14 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
     var loadError by mutableStateOf<String?>(null)
     /** 分类名册（决定下单页左侧顺序）。商品编辑页从这里选分类，也能就地新建。 */
     var categories by mutableStateOf<List<ProductCategoryDto>>(emptyList())
+
+    /**
+     * 按**名称**搜商品（用户 2026-09-19：「商品管理的页面要有个搜索的框啊，方便我们找商品」）。
+     *
+     * 与库存页的搜索是同一套判据（本地过滤 + 与左侧分类 **AND**）：
+     * 商品名册的量级是几百，本地过滤比每次打字都打后端快，也不会让键盘卡顿。
+     */
+    var query by mutableStateOf("")
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 

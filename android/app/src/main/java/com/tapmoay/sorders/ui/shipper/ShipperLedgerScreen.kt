@@ -104,7 +104,14 @@ fun ShipperLedgerScreen(
                             }
                         }
                         items(vm.entries, key = { it.id }) { e ->
-                            LedgerCard(e, onOpenOrder = onOpenOrder)
+                            LedgerCard(
+                                e = e,
+                                expandedOrderId = vm.expandedOrderId,
+                                expandedOrder = vm.expandedOrder,
+                                orderLoading = vm.expandedOrderLoading,
+                                onToggleOrder = { vm.toggleOrderDetail(it) },
+                                onOpenOrder = onOpenOrder,
+                            )
                         }
                     }
                     item { Spacer(Modifier.height(56.dp)) }
@@ -115,10 +122,21 @@ fun ShipperLedgerScreen(
 }
 
 @Composable
-private fun LedgerCard(e: LedgerEntryDto, onOpenOrder: (Long) -> Unit) {
+private fun LedgerCard(
+    e: LedgerEntryDto,
+    /** 就地展开的订单（用户要求「订单是可以展开进行查看的…包括货主的账本」）。 */
+    expandedOrderId: Long?,
+    expandedOrder: com.tapmoay.sorders.data.remote.dto.OrderDto?,
+    orderLoading: Boolean,
+    onToggleOrder: (Long) -> Unit,
+    /** 仍然保留"跳到订单详情页"这条路（展开块右上角那个「打开订单」）。 */
+    onOpenOrder: (Long) -> Unit,
+) {
+    val oid = e.orderId
     SectionCard {
         Row(
-            Modifier.fillMaxWidth().clickable(enabled = e.orderId != null) { e.orderId?.let(onOpenOrder) },
+            // ⚠️ 点一下是**就地展开那一单**，不是跳走：跳走再回来，时间范围与滚动位置全没了
+            Modifier.fillMaxWidth().clickable(enabled = oid != null) { oid?.let(onToggleOrder) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
@@ -166,6 +184,13 @@ private fun LedgerCard(e: LedgerEntryDto, onOpenOrder: (Long) -> Unit) {
                 textAlign = TextAlign.End,
                 color = androidx.compose.ui.graphics.Color(0xFFFF9500),
                 modifier = Modifier.widthIn(min = 92.dp),
+            )
+        }
+        if (oid != null && oid == expandedOrderId) {
+            OrderPeek(
+                loading = orderLoading,
+                order = expandedOrder,
+                onOpenFull = { onOpenOrder(oid) },
             )
         }
     }

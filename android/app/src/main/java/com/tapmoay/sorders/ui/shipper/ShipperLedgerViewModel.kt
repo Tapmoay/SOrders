@@ -38,6 +38,38 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
     var chartAnchor by mutableStateOf(LocalDate.now().toString())
     var chartType by mutableStateOf("line")
 
+    // ===== 明细里那一单可以**就地展开**（用户 2026-09-19：
+    //       「账本相近的明细…订单是可以展开进行查看的…**包括货主的账本啊，都一样的**」）=====
+    //
+    // 与派单员账本共用 `ui/common/OrderPeek.kt` 那一份渲染：各写一遍必然走散。
+    // 原来点一行是**跳到订单详情页** —— 跳过去再回来，时间范围/滚动位置全没了，
+    // 想连着核几笔就得来回跳。跳转那条路仍然留着（展开块右上角「打开订单」）。
+    var expandedOrderId by mutableStateOf<Long?>(null)
+    var expandedOrder by mutableStateOf<com.tapmoay.sorders.data.remote.dto.OrderDto?>(null)
+    var expandedOrderLoading by mutableStateOf(false)
+
+    fun toggleOrderDetail(id: Long) {
+        if (expandedOrderId == id) {
+            expandedOrderId = null
+            expandedOrder = null
+            return
+        }
+        expandedOrderId = id
+        expandedOrder = null
+        expandedOrderLoading = true
+        viewModelScope.launch {
+            try {
+                expandedOrder = container.repo.order(id)
+            } catch (e: Exception) {
+                // 拉失败要**说出来**，不能显示成"这一单没有内容"（两句是完全不同的结论）
+                error = toApiException(e).message
+                expandedOrderId = null
+            } finally {
+                expandedOrderLoading = false
+            }
+        }
+    }
+
     init {
         load()
         // 订单送达自动记账后实时刷新账本
