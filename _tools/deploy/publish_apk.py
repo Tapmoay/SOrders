@@ -255,6 +255,11 @@ def main() -> int:
 
     print(f"上传中 : {apk.name} → {remote_apk}")
     scp(apk, remote_apk)
+    # 同时留一份**最新包的短链**（`http://8.145.40.22/apk` → `sorders-latest.apk`）。
+    # 为什么要它（2026-09-19）：服务端开始拒绝明文登录之后，老版本 App 的用户会卡在登录页，
+    # 而"检查更新"在登录之后的页面里、那个页面他们进不去 —— 拒绝报文里只能给一条能念出来的短链。
+    ssh(f"cp -f {remote_apk} {REMOTE_DIR}/sorders-latest.apk")
+    print(f"短链   : {URL_BASE.rsplit('/static', 1)[0]}/apk → sorders-latest.apk")
 
     ver = {
         "version": name,
@@ -266,8 +271,9 @@ def main() -> int:
     payload = json.dumps(ver, ensure_ascii=False)
     ssh(f"cat > {REMOTE_DIR}/version.json.tmp <<'JSONEOF'\n{payload}\nJSONEOF")
     ssh(f"mv {REMOTE_DIR}/version.json.tmp {REMOTE_DIR}/version.json")
-    # 顺手清历史包，别把 40G 的盘塞满
-    ssh(f"ls -1t {REMOTE_DIR}/sorders-*.apk | tail -n +{args.keep + 1} | xargs -r rm -f")
+    # 顺手清历史包，别把 40G 的盘塞满（`sorders-latest.apk` 不匹配 `sorders-<版本>.apk` 的清理口径？
+    # 它匹配 `sorders-*.apk` —— 所以**必须显式排除**，否则"最新包"会被当成最旧的那个删掉）
+    ssh(f"ls -1t {REMOTE_DIR}/sorders-*.apk | grep -v 'sorders-latest.apk$' | tail -n +{args.keep + 1} | xargs -r rm -f")
     print("已写入 : version.json")
 
     # ④ 回读验证。不验证的发布等于没发布——线上到底发生效只有这里能证明。

@@ -13,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.core.transport import reject_plaintext_credentials
 from app.database import get_db
 from app.deps import CurrentUser
 from app.schemas.auth import LoginRequest, Token
@@ -28,8 +29,13 @@ def _client_ip(request: Request) -> str | None:
     return getattr(getattr(request, "client", None), "host", None)
 
 
-def _login(db: Session, login_id: str, password: str, ip: str | None) -> Token:
-    """两条登录端点共用：限流 → 校验 → 记账（成功清计数、失败累加）。"""
+def _login(db: Session, login_id: str, password: str, ip: str | None, request: Request) -> Token:
+    """两条登录端点共用：**拒明文** → 限流 → 校验 → 记账（成功清计数、失败累加）。
+
+    ⚠️ 第一道是 2026-09-19 外部完整检查 C-1 的修法第 5 步（见 `core/transport.py`）：
+    携带凭据的端点**不收明文**。放在最前面是为了在任何 DB/限流逻辑之前就把它挡掉。
+    """
+    reject_plaintext_credentials(request)
     reason = login_guard.block_reason(login_id, ip)
     if reason:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=reason)
@@ -68,7 +74,7 @@ def logout(
 
 @router.post("/login", response_model=Token)
 def login_json(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> Token:
-    return _login(db, (body.phone or "").strip(), body.password, _client_ip(request))
+    return _login(db, (body.phone or "").strip(), body.password, _client_ip(request), request)
 
 
 @router.post("/token", response_model=Token)
@@ -78,4 +84,4 @@ def login_form(
     db: Session = Depends(get_db),
 ) -> Token:
     """OAuth2 兼容：username 字段填手机号。"""
-    return _login(db, (form_data.username or "").strip(), form_data.password, _client_ip(request))
+    return _login(db, (form_data.username or "").strip(), form_data.password, _client_ip(request), request)

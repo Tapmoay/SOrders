@@ -69,6 +69,10 @@ DEV_VALUES = {
 }
 # 形如手机号的"值"多半是 `PHONE, PASSWORD = "138…", "123321"` 这种元组位置错位，不算密码
 PHONE_LIKE = re.compile(r"^1\d{10}$")
+# PEM 证书（公钥，不是秘密）与 PEM 私钥（**严重事件**）。两者的 base64 长得一样，
+# 形状判不出来，只能按 `BEGIN …` 那一行分 —— 见扫描循环里的说明。
+PEM_CERT = re.compile(r"-----BEGIN CERTIFICATE-----")
+PEM_PRIVATE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 # 公网 IP：**不是秘密**，但仓库是公开的，值得在收尾时提醒一句（只警告、不判失败）。
 # ⚠️ 光看"四个点分数字"会把**版本号**也认成 IP（`1.0.0.10`、`1.0.0.9` 就出现在 Dtos.kt 里），
 #    而"狼来了"式的警告等于没有警告。所以要求它出现在**像主机的地方**：
@@ -111,6 +115,17 @@ def main() -> int:
         except OSError:
             continue
         scanned += 1
+        # ⚠️ PEM 的**证书**与**私钥**必须分开判（2026-09-19 加，起因是它把 CA 证书报成"裸密钥串"）：
+        #    · 证书（`BEGIN CERTIFICATE`）里那段 base64 是**公钥** ——
+        #      App 的信任锚（`android/app/src/main/res/raw/sorders_ca.crt`）必须随包分发，
+        #      它命中"裸密钥串"纯属形状巧合。**假阳性会让下一个人学会无视这条检查**，
+        #      所以这里不是"豁免那个文件"，而是"证书本来就不是秘密"这条语义。
+        #    · 私钥（`BEGIN … PRIVATE KEY`）进仓库是**严重事件**，必须直接红 ——
+        #      原来没有任何一条判据盯着它，等于"把私钥提交上去"可以一路绿灯。
+        is_public_cert = bool(PEM_CERT.search(txt))
+        if PEM_PRIVATE.search(txt):
+            hits.append(f"{f}: **私钥**进了仓库（PEM PRIVATE KEY）—— 绝不许提交，请轮换并改用环境变量/挂载")
+            continue
         for k in KNOWN:
             if k in txt:
                 hits.append(f"{f}: 命中已知凭据（高德 key）")
@@ -119,6 +134,9 @@ def main() -> int:
                 hits.append(f"{f}: 命中**已泄露过**的生产口令（必须换掉，不许再进仓库）")
         for rx, why in PATTERNS:
             if any(a in f for a in ALLOW_PATH):
+                continue
+            # 公钥证书里的 base64 不是秘密（见上面 `is_public_cert` 的说明）
+            if is_public_cert and why.startswith("裸密钥串"):
                 continue
             for m in rx.finditer(txt):
                 # ⚠️ 取值要取**正则里最后那个组**（= 被赋的字面量），不能取整个匹配：
