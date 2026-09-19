@@ -185,11 +185,17 @@ def test_daily_governance_runs_and_releases_the_lock(monkeypatch, db_session, tm
         setattr(module, name, getattr(fake, name))
     monkeypatch.setitem(sys.modules, "fcntl", module)
     monkeypatch.chdir(tmp_path)
+    # ⚠️ 标记文件也要指到 tmp_path：否则第一遍会把 `/tmp/sorders_retention.last` 写成今天，
+    #    第二遍就被"同一天只跑一次"挡下（这条用例验的是**锁的释放**，不是当天去重）。
+    monkeypatch.setattr(dr, "GOVERNANCE_MARKER_PATH", str(tmp_path / "retention.last"))
 
     calls: list[int] = []
     monkeypatch.setattr(dr, "_run_daily_retention_locked", lambda db: calls.append(1) or {"x": 1})
 
     assert dr.run_daily_retention(db_session) == {"x": 1}
+    # 抹掉"今天跑过"的标记 = 模拟新的一天（这条用例验的是**锁的释放**；
+    # 同一天跑第二遍该不该跳过由 `test_daily_governance_runs_once_per_day` 钉着）。
+    (tmp_path / "retention.last").unlink()
     assert dr.run_daily_retention(db_session) == {"x": 1}
     assert calls == [1, 1]
     assert fake.held == set(), "跑完必须没有残留锁"
@@ -966,3 +972,30 @@ def test_timestamp_columns_have_python_defaults_not_db_clock_only():
     assert Order.__table__.c["updated_at"].onupdate is not None, (
         "updated_at 的 onupdate 必须是 Python 可调用对象（库端 onupdate 在生产是 +08:00）"
     )
+
+
+def test_daily_governance_runs_once_per_day(monkeypatch, db_session, tmp_path):
+    """锁只挡并发 —— 同一天里跑第二遍必须**跳过**（生产实测踩到）。
+
+    现场（2026-09-19 生产 journal）：两个 worker 各打了一条"数据保留治理完成"，
+    时间差 **203 毫秒** —— 空库上第一个 200ms 就跑完并释放锁，第二个紧接着拿到锁又跑一遍。
+    任务幂等，所以不毁数据；但"每天一次"变成"每天 N 次"，而在真实的库上
+    （几万张图重新扫 mtime、几万行重新比时间）那是白烧 CPU 与磁盘 IO。
+    """
+    from app.services import data_retention as dr
+
+    monkeypatch.chdir(tmp_path)
+    marker = tmp_path / "retention.last"
+    monkeypatch.setattr(dr, "GOVERNANCE_MARKER_PATH", str(marker))
+    calls: list[int] = []
+    monkeypatch.setattr(dr, "_run_daily_retention_locked", lambda db: calls.append(1) or {"x": 1})
+
+    assert dr.run_daily_retention(db_session) == {"x": 1}
+    assert marker.is_file(), "跑完必须写标记（不然下一个 worker 还会再跑）"
+    assert dr.run_daily_retention(db_session) == {"skipped_same_day": 1}, "同一天第二遍必须跳过"
+    assert calls == [1], f"治理只许真的跑一次，实际跑了 {len(calls)} 次"
+
+    # 换一天（标记内容变成昨天）→ 又该跑了
+    marker.write_text("2000-01-01", encoding="utf-8")
+    assert dr.run_daily_retention(db_session) == {"x": 1}
+    assert calls == [1, 1]

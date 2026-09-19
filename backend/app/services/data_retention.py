@@ -18,7 +18,7 @@ from pathlib import Path
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from app.core.business_time import utc_now_naive
+from app.core.business_time import business_today, utc_now_naive
 from app.models.cash_flow import CashFlow
 from app.models.driver_bill import DriverBill
 from app.models.enums import DriverBillStatus, UserRole
@@ -41,6 +41,16 @@ logger = logging.getLogger(__name__)
 #: 治理的跨进程锁文件（与 `schema_bootstrap` 同一个思路）。
 GOVERNANCE_LOCK_PATH = "/tmp/sorders_retention.lock"
 
+#: 「今天已经治理过了」的标记文件。
+#:
+#: ⚠️ 为什么光有锁不够（2026-09-19 **生产实测**）：锁只挡**并发**。空库上第一轮治理 200 毫秒
+#: 就跑完并释放了锁，另一个 worker 紧接着拿到锁**又跑了一遍** —— journal 里两条
+#: "数据保留治理完成"，时间差 203ms。任务幂等所以不毁数据，但"每天一次"变成了"每天 N 次"；
+#: 而在真实的库上（几万张图要重新扫 mtime、几万行要重新比时间）那是白烧 CPU 与磁盘 IO。
+#: 所以拿到锁之后再问一句"今天是不是已经跑过"。
+#: 用**文本文件**而不是数据库行：治理的第一步就是删数据，标记不能跟着那份事务一起回滚。
+GOVERNANCE_MARKER_PATH = "/tmp/sorders_retention.last"
+
 #: 导出产物的保留期（天）。派生数据，源数据在库里还能再导一次——不需要留 3 年。
 EXPORT_FILE_RETENTION_DAYS = 30
 
@@ -49,6 +59,23 @@ DATA_RETENTION_DAYS = 365 * 3          # 业务数据 3 年
 SOFT_DELETE_RETENTION_DAYS = 30        # 软删除隔离 30 天（派单员可恢复）
 NOTIFICATION_RETENTION_DAYS = 30       # 消息保留 30 天（与原消息中心约定一致）
 BATCH_LIMIT = 2000                     # 每轮每表批量上限（大库分批收敛）
+
+
+def _already_ran_today() -> bool:
+    """今天（**业务当地日**）是不是已经治理过一轮了。读不到标记就当"没跑过"。"""
+    try:
+        return Path(GOVERNANCE_MARKER_PATH).read_text(encoding="utf-8").strip() == business_today().isoformat()
+    except OSError:
+        return False
+
+
+def _mark_ran_today() -> None:
+    """写"今天跑过了"。**跑完才写**：中途崩掉时另一个 worker 还应该能接手。"""
+    try:
+        Path(GOVERNANCE_MARKER_PATH).write_text(business_today().isoformat(), encoding="utf-8")
+    except OSError:
+        # 写不进去只意味着"另一个 worker 会再跑一遍"（幂等，无害），不该让治理失败。
+        logger.warning("写治理标记失败（另一个 worker 会重复跑一轮，无副作用）：%s", GOVERNANCE_MARKER_PATH)
 
 
 @contextmanager
@@ -308,7 +335,9 @@ def purge_old_export_files(days: int = EXPORT_FILE_RETENTION_DAYS) -> int:
 
 
 def run_daily_retention(db: Session) -> dict[str, int]:
-    """数据治理总入口。返回各步骤删除量（拿不到跨进程锁时返回 `{"skipped": 1}`）。
+    """数据治理总入口。返回各步骤删除量。
+
+    拿不到跨进程锁 → `{"skipped": 1}`；今天已经跑过 → `{"skipped_same_day": 1}`。
 
     ⚠️ 顺序是**故意的**（2026-09-19 审计 R12-L8）：先把数据库那几步提交，再做文件级清理
     （图片压缩、导出产物过期、孤儿压缩图）。原来四步共用一个事务、最后才 `commit`：
@@ -321,7 +350,13 @@ def run_daily_retention(db: Session) -> dict[str, int]:
                 "本机已有另一个进程在跑数据治理，本轮跳过（跨进程锁 %s）", GOVERNANCE_LOCK_PATH
             )
             return {"skipped": 1}
-        return _run_daily_retention_locked(db)
+        if _already_ran_today():
+            # 锁只挡并发：第一个 worker 200ms 跑完释放锁后，第二个会拿到锁再跑一遍
+            # （2026-09-19 生产实测，journal 里两条"治理完成"）。任务幂等，但没必要。
+            return {"skipped_same_day": 1}
+        r = _run_daily_retention_locked(db)
+        _mark_ran_today()
+        return r
 
 
 def _run_daily_retention_locked(db: Session) -> dict[str, int]:
