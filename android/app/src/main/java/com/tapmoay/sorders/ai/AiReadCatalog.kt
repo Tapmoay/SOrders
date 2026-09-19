@@ -96,11 +96,13 @@ object AiReadCatalog {
             ReadParam("date_to", "str", false, emptyList(), false),
             ReadParam("kind", "str", false, emptyList(), false),
         )),
-        ReadAction("ledger.list_entries", "订单账流水（手动记账 + 订单产生的收支）", "/api/v1/ledger/entries", "shipper_id、temp_shipper_name、date_from、date_to", setOf("dispatcher", "shipper"), listOf(
+        ReadAction("ledger.list_entries", "订单账流水（手动记账 + 订单产生的收支）", "/api/v1/ledger/entries", "shipper_id、temp_shipper_name、date_from、date_to、limit、offset", setOf("dispatcher", "shipper"), listOf(
             ReadParam("shipper_id", "int", false, emptyList(), true),
             ReadParam("temp_shipper_name", "str", false, emptyList(), false),
             ReadParam("date_from", "str", false, emptyList(), false),
             ReadParam("date_to", "str", false, emptyList(), false),
+            ReadParam("limit", "int", false, emptyList(), false),
+            ReadParam("offset", "int", false, emptyList(), false),
         )),
         ReadAction("ledger.list_receipts", "收款记录", "/api/v1/ledger/receipts", "customer_id、date_from、date_to", setOf("dispatcher"), listOf(
             ReadParam("customer_id", "int", false, emptyList(), true),
