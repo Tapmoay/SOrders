@@ -214,6 +214,45 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * 就地新建一个分类，并**选中它**（商品编辑页的分类下拉里那个「＋ 新建分类…」）。
+     *
+     * 为什么不让用户直接手打分类名（原来那样）：
+     * 手打能造出只差一个空格的"同名"分类，下单页左侧就多出一格，而列表上看不出差别。
+     * 新建这条路不能堵死（派单员建商品时才发现缺一个分类是常事），所以要有一个**明确**的入口。
+     *
+     * ⚠️ 重名（后端 409）时**直接选中已有的那个**：用户想要的是"归类到这个名字"，
+     *    而不是"再建一个"。报错让他自己回去找那一条，是把后端的一句话变成了他的一次往返。
+     */
+    fun createCategoryAndSelect(rawName: String, onDone: () -> Unit) {
+        val name = rawName.trim().take(8)
+        if (name.isBlank()) {
+            error = "分类名不能为空"
+            return
+        }
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                try {
+                    container.repo.createProductCategory(name)
+                    actionResult = "已新建分类「$name」"
+                } catch (e: Exception) {
+                    val msg = toApiException(e).message.orEmpty()
+                    if (!msg.contains("已经存在")) throw e
+                    actionResult = "已经有分类「$name」了，直接用它"
+                }
+                categories = container.repo.productCategories()
+                draftCategory = name
+                onDone()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
     fun toggleActive(p: ProductDto) {
         viewModelScope.launch {
             try {

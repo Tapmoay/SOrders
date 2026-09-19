@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -29,6 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
@@ -36,6 +39,8 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.ProductPurple
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.resolveStaticUrl
 import java.io.File
@@ -356,48 +361,71 @@ fun ProductsScreen(
                             }
                         }
                         Spacer(Modifier.height(10.dp))
-                        // 分类：选品页左侧导航的分组名。自由填（不是枚举）——"饮料/粮油/日化"
-                        // 这种分法是店家的业务语言，写死一列选项只会逼着人选一个不对的。
-                        SoTextField(
-                            value = vm.draftCategory,
-                            onValueChange = { vm.draftCategory = it.take(8) },
-                            placeholder = "商品分类（选填，如 饮料 / 粮油 / 日化）",
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        // 分类：**从名册里选**（用户 2026-09-19：「他要选择类别的商品分类」）。
+                        // 原来这里是"自由填 + 一排可点的小块"，两个毛病：
+                        // ① 设计规范 §5 写明了「下拉一律 ExposedDropdownMenuBox 点选回填，
+                        //    **不要**用 chips 替代下拉」—— 那是用户早就否决过的做法；
+                        // ② 自由填能造出只差一个空格的同名分类，下单页左侧因此多出一格，
+                        //    而列表上看不出差别（旧注释也承认这一点，所以才补了那些小块）。
+                        // 名册里没有想要的分类时走最后一项「＋ 新建分类…」—— 不把新建这条路堵死。
+                        var catExpanded by remember { mutableStateOf(false) }
+                        var newCatDialog by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = it }) {
+                            OutlinedTextField(
+                                value = vm.draftCategory.trim().ifBlank { "未分类" },
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("商品分类（选填）") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    cursorColor = MaterialTheme.colorScheme.primary,
+                                ),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            )
+                            ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("未分类") },
+                                    onClick = { vm.draftCategory = ""; catExpanded = false },
+                                )
+                                vm.categories.forEach { c ->
+                                    DropdownMenuItem(
+                                        // 带上"这一类下有几个商品"：改分类时能看出哪个是主力分类
+                                        text = {
+                                            Text(
+                                                c.name + if (c.productCount > 0) "（${c.productCount} 个商品）" else "",
+                                                maxLines = 1,
+                                            )
+                                        },
+                                        onClick = { vm.draftCategory = c.name; catExpanded = false },
+                                    )
+                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("＋ 新建分类…") },
+                                    onClick = { catExpanded = false; newCatDialog = true },
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "分类决定下单页「选择商品」左侧怎么分组；留空会归到「未分类」。",
+                            "分类决定下单页「选择商品」左侧怎么分组；留空会归到「未分类」。" +
+                                "顺序在「分类管理」里排。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline,
                         )
-                        // 已有分类做成可点的小块：**防手打错字**。写错一个字（"饮料 " / "饮 料"）
-                        // 在下单页就是左侧多一个几乎同名的分类，而列表上看不出差别。
-                        // 顺序用**名册**（`vm.categories`，派单员排过的），不是从商品里推的 ——
-                        // 从商品推的话这里和下单页左侧会是两种顺序。
-                        val existingCats = remember(vm.categories) { vm.categories.map { it.name } }
-                        if (existingCats.isNotEmpty()) {
-                            Spacer(Modifier.height(6.dp))
-                            Row(
-                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                existingCats.forEach { c ->
-                                    val on = vm.draftCategory.trim() == c
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                        modifier = Modifier.clickable { vm.draftCategory = c },
-                                    ) {
-                                        Text(
-                                            c,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = if (on) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        )
-                                    }
-                                }
-                            }
+                        if (newCatDialog) {
+                            NewCategoryDialog(
+                                busy = vm.acting,
+                                onConfirm = { name ->
+                                    vm.createCategoryAndSelect(name) { newCatDialog = false }
+                                },
+                                onDismiss = { newCatDialog = false },
+                            )
                         }
                         Spacer(Modifier.height(10.dp))
                         SoTextField(
@@ -445,6 +473,30 @@ fun ProductsScreen(
         }
     }
 
+/**
+ * 商品卡：**一眼看完"卖多少钱、进价多少、还剩多少、属于哪一类"**，动作收进右上角「⋮」。
+ *
+ * ## 为什么三个按钮收进菜单（用户 2026-09-19）
+ * 原话：「红色框的也就是右边 3 个按钮太占位置了，把在保证按钮性的同时，又让他不占位子」。
+ * 三个动作各占一个 `IconButton` 的宽度、横着排，把**商品名和关键数字挤成两行灰字**——
+ * 而那正是这一页真正要看的。收进 `DropdownMenu` 之后：动作一个没少
+ * （可发现性靠标准的「⋮」），腾出来的整条右边都还给信息。
+ *
+ * ## 信息为什么用"图标 + 语义色"（用户 2026-09-19）
+ * 原话：「那些信息是在商品管理中非常重要的，不一定非要等编辑才能看得到，
+ * 我们要用对应的语义色和图标在它的名字的下面进行显示，让人一眼就能看出来」。
+ * 所以四个数各自带图标与颜色 —— 扫一眼按颜色定位，不必读完整行字：
+ *
+ * | 信息 | 颜色 | 图标 | 为什么是这个色 |
+ * |---|---|---|---|
+ * | 售价 | 金橙 `MoneyOrange` | `Sell` | 系统里"钱"的语义色（账本/报表/小计同色） |
+ * | 成本 | 中性灰 `#8A8A8E` | `Payments` | 它**也是钱**，但颜色在这里的作用是区分"对外的价"和"对内的成本"：两个都染橙的话，用户得读完字才知道哪个是卖价。成本不参与报价，中性灰最不容易看错 |
+ * | 库存 | 蓝青 `#00BCD4`（= 库存管理模块色） | `Inventory2` | 跨端同功能同色：这个数字属于库存管理 |
+ * | 分类 | 紫 `ProductPurple` | `Category` | 商品管理的模块色；**未分类**用提醒黄 —— 它是个待办（会让选品页多出一格） |
+ *
+ * ⚠️ **库存还会按状态变色**：0 → 红（没货了）、≤ 报警阈值 → 黄。这两个颜色不是装饰，
+ * 是"这一行要你处理"的信号：派单员扫列表时靠它决定先看哪几个。
+ */
 @Composable
 private fun ProductCard(
     p: ProductDto,
@@ -452,8 +504,10 @@ private fun ProductCard(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    var menu by remember { mutableStateOf(false) }
+
     SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Top) {
             // 商品图
             Box(
                 Modifier
@@ -484,9 +538,12 @@ private fun ProductCard(
                         p.name,
                         style = MaterialTheme.typography.titleSmall,
                         color = Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
-                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                     if (!p.isActive) {
+                        Spacer(Modifier.width(6.dp))
                         Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
                             Text(
                                 "已下架",
@@ -496,15 +553,7 @@ private fun ProductCard(
                         }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "售价 ¥" + formatMoney(p.defaultUnitPrice) + "/" + p.unit.ifBlank { "件" } +
-                        " · 成本 ¥" + formatMoney(p.costPrice) +
-                        " · 库存 " + p.stock + " " + p.unit.ifBlank { "件" } +
-                        " · " + p.category.trim().ifBlank { "未分类" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ProductFacts(p)
                 if (p.tierPrices.isNotEmpty()) {
                     Spacer(Modifier.height(2.dp))
                     Text(
@@ -515,19 +564,125 @@ private fun ProductCard(
                     )
                 }
             }
-            TextButton(onClick = onToggle) {
-                Text(
-                    if (p.isActive) "下架" else "上架",
-                    color = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                )
-            }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+            // 三个动作全在这里（用户要求"保证按钮性，又不占位子"）
+            Box {
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(20.dp))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (p.isActive) "下架" else "上架") },
+                        leadingIcon = {
+                            Icon(
+                                if (p.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = null,
+                                tint = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
+                            )
+                        },
+                        onClick = { menu = false; onToggle() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("编辑") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        onClick = { menu = false; onEdit() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        },
+                        onClick = { menu = false; onDelete() },
+                    )
+                }
             }
         }
     }
+}
+
+/** 商品卡上那四个关键数字（图标 + 语义色）。配色依据见 [ProductCard] 的注释。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ProductFacts(p: ProductDto) {
+    val unit = p.unit.ifBlank { "件" }
+    val category = p.category.trim()
+    FlowRow(
+        Modifier.fillMaxWidth().padding(top = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Fact(Icons.Default.Sell, "售价", "¥" + formatMoney(p.defaultUnitPrice) + "/" + unit, Color(MoneyOrange))
+        Fact(Icons.Default.Payments, "成本", "¥" + formatMoney(p.costPrice), Color(0xFF8A8A8E))
+        Fact(Icons.Default.Inventory2, "库存", "${p.stock} $unit", stockColor(p))
+        Fact(
+            Icons.Default.Category,
+            "分类",
+            category.ifBlank { "未分类" },
+            if (category.isBlank()) Color(0xFFFFB300) else Color(ProductPurple),
+        )
+    }
+}
+
+@Composable
+private fun Fact(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(3.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(3.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            maxLines = 1,
+        )
+    }
+}
+
+/** 库存的颜色 = 状态：0 红（断货）、≤ 报警阈值 黄、其余用库存管理的语义色。 */
+private fun stockColor(p: ProductDto): Color = when {
+    p.stock <= 0 -> Color(0xFFE53935)
+    p.lowStockAlert > 0 && p.stock <= p.lowStockAlert -> Color(0xFFFFB300)
+    else -> Color(0xFF00BCD4)
+}
+
+/**
+ * 商品编辑页里"就地新建分类"的小弹窗。
+ *
+ * 与「分类管理」页那个 [ProductCategoriesScreen] 里的新建是同一件事，但**不共用**那个弹窗：
+ * 那一页还要解释"改名会级联改商品"，这里只要一个名字。重复的是一个 12 行的输入框，
+ * 而抽公共组件要给它加三个用不上的参数 —— 不值。
+ */
+@Composable
+private fun NewCategoryDialog(
+    busy: Boolean,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建分类") },
+        text = {
+            Column {
+                SoTextField(
+                    value = name,
+                    onValueChange = { name = it.take(8) },
+                    placeholder = "分类名，如 饮料 / 粮油 / 日化",
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "建好后会自动选中它。顺序到「分类管理」里排。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && name.isNotBlank(), onClick = { onConfirm(name) }) {
+                Text(if (busy) "提交中…" else "新建并选中")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
