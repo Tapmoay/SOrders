@@ -217,8 +217,10 @@ def main() -> int:
             raise SystemExit(
                 f"中止：这个包的后端地址是开发地址 {base_url}（命中 {', '.join(bad)}）。\n"
                 f"      装到真机上会连不上后端，用户看到的是「App 打不开」，不是「更新失败」。\n"
-                f"      修法：把 android/local.properties 的 api_base_url 改成生产地址，"
-                f"重新 assemblePhoneDebug 再推。")
+                f"      修法：重新打包时用 -PapiBaseUrl=http://8.145.40.22 覆盖，例如\n"
+                f"        gradle -p android assemblePhoneRelease -PapiBaseUrl=http://8.145.40.22\n"
+                f"      （**不要去改** android/local.properties —— 改了要记得改回来，"
+                f"忘了就会让本地调试直接打在生产库上）")
 
     online = online_version()
     # ⛔ 读不到线上清单 → **停**（2026-09-19 报告 P1-2，fail-open）：

@@ -44,7 +44,10 @@ android {
         // search SDK 官方初始化为 ServiceSettings.setApiKey，代码里显式注入
         buildConfigField("String", "AMAP_KEY", "\"" + amapKey + "\"")
         // 后端地址：api_base_url=http://192.168.x.x:8000（模拟器访问宿主机用 http://10.0.2.2:8000）
-        val apiBaseUrl = localProps.getProperty("api_base_url") ?: "http://10.0.2.2:8000"
+        // ⚠️ 发版时**不要**去改 `local.properties`（改了就得记得改回来，忘了的话本地调试会直接打生产库），
+        //    用 `-PapiBaseUrl=http://8.145.40.22` 覆盖即可（见 `_tools/deploy/publish_apk.py` 的提示）。
+        val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?)
+            ?: localProps.getProperty("api_base_url") ?: "http://10.0.2.2:8000"
         buildConfigField("String", "API_BASE_URL", "\"" + "$apiBaseUrl" + "\"")
         val apiFallbackIp = localProps.getProperty("api_fallback_ip") ?: ""
         buildConfigField("String", "DNS_FALLBACK_IP", "\"" + "$apiFallbackIp" + "\"")
