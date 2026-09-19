@@ -22,17 +22,33 @@ import kotlinx.coroutines.launch
  *
  * ⚠️ 没变化时**原样返回同一个列表实例**（调用方靠这个判断要不要写回状态）。
  */
-internal fun moveCategoryTo(
-    list: List<ProductCategoryDto>,
-    id: Long,
-    position: Int,
-): List<ProductCategoryDto> {
-    val from = list.indexOfFirst { it.id == id }
+/**
+ * 「把第 N 位那一条抽出来插到第 M 位」—— **商品的分类与地点的分组共用这一份**。
+ *
+ * 用户 2026-09-19 要求地点分组直接复用商品分类管理那套排序：「你直接复用，或者直接复制
+ * 商品管理的那个分类管理的代码就可以了」。**复制**会立刻变成两份会各自跑偏的代码，
+ * 所以这里是把它泛化了一层：`idOf` 告诉它"这两条是不是同一条"，
+ * 其余（下标换算、越界夹取、不变时原样返回）一字不改。
+ *
+ * 拖动与"填数字"两种排序也共用它 —— 两条路只是"目标位置"的来源不同，
+ * 到位之后做的事一模一样。
+ *
+ * ⚠️ 没变化时**原样返回同一个列表实例**（调用方靠这个判断要不要写回状态 / 发请求）。
+ */
+internal fun <T> moveItemTo(list: List<T>, idOf: (T) -> Long, id: Long, position: Int): List<T> {
+    val from = list.indexOfFirst { idOf(it) == id }
     if (from < 0 || list.size < 2) return list
     val to = (position - 1).coerceIn(0, list.lastIndex)
     if (to == from) return list
     return list.toMutableList().apply { add(to, removeAt(from)) }
 }
+
+/** 商品分类那一份（老调用点，语义不变）。 */
+internal fun moveCategoryTo(
+    list: List<ProductCategoryDto>,
+    id: Long,
+    position: Int,
+): List<ProductCategoryDto> = moveItemTo(list, { it.id }, id, position)
 
 /**
  * 拖动位移 → 要挪几格（正数往下）。**纯函数，有单测。**

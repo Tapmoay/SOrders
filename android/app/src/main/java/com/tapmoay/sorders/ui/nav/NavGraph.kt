@@ -31,7 +31,6 @@ import com.tapmoay.sorders.ui.driver.DriverFreightScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherOrdersScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolScreen
 import com.tapmoay.sorders.ui.dispatcher.InventoryScreen
-import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductCategoriesScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductsScreen
 import com.tapmoay.sorders.ui.dispatcher.UserPool
@@ -163,7 +162,6 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onCreated = { navController.popBackStack() },
-                onOpenPlaceCategories = { navController.navigate(Routes.PLACE_CATEGORIES) },
             )
         }
         composable(Routes.DISPATCH_ORDER_CREATE) {
@@ -172,11 +170,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onBack = { navController.popBackStack() },
                 onCreated = { navController.popBackStack() },
                 proxyMode = true,
-                onOpenPlaceCategories = { navController.navigate(Routes.PLACE_CATEGORIES) },
             )
-        }
-        composable(Routes.PLACE_CATEGORIES) {
-            PlaceCategoriesScreen(container = container, onBack = { navController.popBackStack() })
         }
         composable(
             route = Routes.ORDER_DETAIL,

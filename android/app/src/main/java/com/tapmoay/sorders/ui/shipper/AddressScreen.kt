@@ -399,6 +399,50 @@ fun AddressScreen(
                     leadingIcon = { Icon(Icons.Default.Place, null, tint = Color(MoneyOrange)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // ---- 分组（用户 2026-09-19：「新增那个地点…没有可以选择哪个分类。
+                //      它默认是可以选择的，但如果你不选的话，就默认进入原始分类」）----
+                //
+                // 一个输入框 + 一排已有分组的小胶囊：**选中已有**和**现场敲一个新的**是同一件事
+                // （后端在保存时会把这个名字补进名册），所以不做成只能选不能填的下拉。
+                // 留空 = 未分类。
+                OutlinedTextField(
+                    vm.locCategory, { vm.locCategory = it },
+                    label = { Text("分组（可选，留空＝未分类）") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Folder, null, tint = Color(0xFF8455E6)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (vm.placeCategories.isNotEmpty()) {
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        vm.placeCategories.forEach { c ->
+                            FilterChip(
+                                selected = vm.locCategory.trim() == c.name,
+                                onClick = { vm.locCategory = c.name },
+                                label = { Text(c.name, style = MaterialTheme.typography.labelMedium) },
+                            )
+                        }
+                    }
+                }
+                // ---- 仓库：**只有派单员**能标（后端也拦；这里只是不给他看一个点了会报错的开关）----
+                if (vm.canMarkWarehouse) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warehouse, null, Modifier.size(18.dp), tint = Color(MoneyOrange))
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("设为仓库", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "送到这里就按「货进来了」自动入库（按订单商品行加库存）。可以设多个。",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = vm.locIsWarehouse, onCheckedChange = { vm.locIsWarehouse = it })
+                    }
+                }
                 OutlinedButton(onClick = { vm.openPicker("loc") }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Place, null, Modifier.size(18.dp), tint = Color(MoneyOrange))
                     Spacer(Modifier.width(6.dp))

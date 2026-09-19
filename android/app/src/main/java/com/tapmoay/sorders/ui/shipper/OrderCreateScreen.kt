@@ -35,6 +35,8 @@ import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
+import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesPanel
+import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesViewModel
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -51,8 +53,6 @@ fun OrderCreateScreen(
     onBack: () -> Unit,
     onCreated: () -> Unit,
     proxyMode: Boolean = false,
-    /** 地址库左栏那格「管理分组」→ 地点分类管理页（新建 / 排序）。 */
-    onOpenPlaceCategories: () -> Unit = {},
 ) {
     val vm: OrderCreateViewModel = appViewModel { OrderCreateViewModel(container) }
     var showShipperPicker by remember { mutableStateOf(false) }
@@ -420,6 +420,7 @@ fun OrderCreateScreen(
     // 选收货地址：线路 / 我的地点 / 共享地点 三段
     if (vm.showAddressSheet) {
         AddressPickerSheet(
+            container = container,
             addresses = vm.addresses,
             locations = vm.locations,
             places = vm.places,
@@ -430,10 +431,7 @@ fun OrderCreateScreen(
             onPickLocation = { vm.applyLocation(it) },
             onPickPlace = { vm.applyPlace(it) },
             onSearchPlaces = { vm.loadPlaces(it) },
-            onManageCategories = {
-                vm.showAddressSheet = false
-                onOpenPlaceCategories()
-            },
+            onCategoriesChanged = { vm.reloadPlaceCategories() },
             onDismiss = { vm.showAddressSheet = false },
         )
     }
@@ -577,6 +575,7 @@ fun OrderCreateScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddressPickerSheet(
+    container: AppContainer,
     addresses: List<AddressDto>,
     locations: List<LocationDto>,
     places: List<PlaceDto>,
@@ -589,13 +588,20 @@ private fun AddressPickerSheet(
     onPickLocation: (LocationDto) -> Unit,
     onPickPlace: (PlaceDto) -> Unit,
     onSearchPlaces: (String?) -> Unit,
-    /** 左栏底部那格「管理分组」→ 新界面（建分组 / 排序）。 */
-    onManageCategories: () -> Unit,
+    /** 第二层抽屉里改过分组之后回来：让上层把分组名册刷一遍。 */
+    onCategoriesChanged: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var keyword by remember { mutableStateOf("") }
     /** 左栏选中的 key：`a`=线路 / `l`=我的地点 / `p`=共享地点 / `c|<分类名>`=我的地点里的某一类。 */
     var sel by remember { mutableStateOf("a") }
+    /**
+     * 第二层抽屉：点左栏底部那格「管理分组」时，**把这块内容换掉**而不是收起抽屉再开一页。
+     *
+     * 用户 2026-09-19：「切换的时候突然会闪一下…这样太麻烦了。要干脆就不要弹一个界面，
+     * 干脆就直接弹一个 —— 也算一个抽屉吧，**它 2 个抽屉**」。
+     */
+    var managing by remember { mutableStateOf(false) }
 
     // 搜索**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
     // 前两段在本地过滤（数据本来就在手上，即时出结果）；共享地点段还要**同时**打后端 ——
@@ -671,21 +677,34 @@ private fun AddressPickerSheet(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                MasterRail(
-                    items = railItems,
-                    selectedKey = sel,
-                    onSelect = { key ->
-                        if (key == "manage") {
-                            onManageCategories()
-                        } else {
-                            sel = key
-                            keyword = ""
-                            onSearchPlaces(null)
-                        }
+            if (managing) {
+                // 第二层抽屉（同一个 ModalBottomSheet 里换内容 → 不 dismiss、不 push，所以不闪）
+                val catVm: PlaceCategoriesViewModel = appViewModel { PlaceCategoriesViewModel(container) }
+                PlaceCategoriesPanel(
+                    vm = catVm,
+                    onBack = {
+                        managing = false
+                        // 回来时把分组名册刷一遍：建/改名/排序都可能刚发生过，
+                        // 不刷的话左栏还是旧的（要退出重进才看得到）。
+                        onCategoriesChanged()
                     },
-                    modifier = Modifier.width(112.dp).fillMaxHeight(),
                 )
+            } else {
+                Row(Modifier.fillMaxWidth().weight(1f)) {
+                    MasterRail(
+                        items = railItems,
+                        selectedKey = sel,
+                        onSelect = { key ->
+                            if (key == "manage") {
+                                managing = true
+                            } else {
+                                sel = key
+                                keyword = ""
+                                onSearchPlaces(null)
+                            }
+                        },
+                        modifier = Modifier.width(112.dp).fillMaxHeight(),
+                    )
                 LazyColumn(Modifier.weight(1f).fillMaxHeight()) {
                     when {
                         sel == "a" -> if (shownAddresses.isEmpty()) {
@@ -698,9 +717,11 @@ private fun AddressPickerSheet(
                         } else {
                             itemsIndexed(shownAddresses) { _, a ->
                                 SheetRow(
-                                    title = a.receiverName.ifBlank { "收货人" } + "  " + a.phone,
+                                    isPlace = false,
+                                    title = a.receiverName.ifBlank { "未填收货人" },
+                                    phone = a.phone,
                                     subtitle = a.detailAddress,
-                                    badge = if (a.isDefault) "默认" else null,
+                                    badge = if (a.isDefault) "默认线路" else null,
                                     hasCoords = !a.addressLat.isNullOrBlank(),
                                     onClick = { onPickAddress(a) },
                                 )
@@ -718,7 +739,9 @@ private fun AddressPickerSheet(
                         } else {
                             itemsIndexed(shownLocations) { _, l ->
                                 SheetRow(
+                                    isPlace = true,
                                     title = l.name.ifBlank { l.detailAddress.ifBlank { "未命名地点" } },
+                                    phone = null,
                                     subtitle = l.detailAddress,
                                     // 分类与仓库都摆在行上：选地点时最需要区分的就是"这是哪一类、是不是我的仓"
                                     badge = listOfNotNull(
@@ -752,7 +775,9 @@ private fun AddressPickerSheet(
                             }
                             itemsIndexed(places) { _, p ->
                                 SheetRow(
+                                    isPlace = true,
                                     title = p.name.ifBlank { p.detailAddress.ifBlank { "未命名地点" } },
+                                    phone = null,
                                     subtitle = p.detailAddress,
                                     badge = sourceLabel(p.source) + " · 用过 " + p.useCount + " 次",
                                     hasCoords = true,
@@ -761,6 +786,7 @@ private fun AddressPickerSheet(
                             }
                         }
                     }
+                }
                 }
             }
         }
@@ -784,22 +810,70 @@ private fun SheetEmptyHint(text: String) {
 }
 
 /** 弹层里的一行：标题 + 副标题 + 角标 + 「有导航」标记（有没有坐标一眼可辨）。 */
+/**
+ * 弹层里的一行 —— 用**语义色 + 图标**把"人 / 电话 / 地点"分成三样东西。
+ *
+ * 用户 2026-09-19：「你看那个选择地址…有些信息都不是很明确，字都比较小。
+ * 我们看信息的时候要有点明确啊，包括它这个表格，像有些**人物、电话号码、地点**，
+ * 我们都可以用对应的**语义色和图标**进行区分。尤其是我们在选择地点的时候要格外注意，
+ * **我们选地点可以加粗**，与那个人物和电话号码做一个区分」。
+ *
+ * 三段各有自己的图标与颜色（一色一功能，与全 App 同一套语义）：
+ * | 是什么 | 图标 | 颜色 |
+ * |---|---|---|
+ * | 人（收货人姓名） | `Person` | 派单蓝 `#1E6FFF` |
+ * | 电话 | `Phone` | 完成绿 `#00B578`（绿＝"能打通/可联系"） |
+ * | 地点 | `Place` | 地址湖蓝 `#00A2C7`（与「地址与联系人」同色），**加粗** |
+ * * 仓库用橙 `#FF9500`、分类用紫 `#8455E6`（与商品分类同色），都做成小标签。
+ *
+ * ⚠️ 地点名**加粗**是用户点名要的：不加粗时"地点名"和"收货人名"在屏幕上是同一副样子，
+ *    而这一段最常见的一眼判断就是"这一条是地点还是人"。
+ */
 @Composable
 private fun SheetRow(
+    /** 这一行是"人/线路"还是"地点"——决定图标与标题颜色。 */
+    isPlace: Boolean,
     title: String,
+    /** 电话（线路才有）。单独一段、绿色 + 电话图标。 */
+    phone: String?,
     subtitle: String,
     badge: String?,
     hasCoords: Boolean,
     onClick: () -> Unit,
 ) {
+    val headColor = if (isPlace) Color(0xFF00A2C7) else Color(0xFF1E6FFF)
+    val headIcon = if (isPlace) Icons.Default.Place else Icons.Default.Person
     Column(
         Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1)
+            Icon(headIcon, contentDescription = null, tint = headColor, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                // 地点加粗（用户点名）；人只用颜色区分，不再加粗，否则两段又一样重
+                fontWeight = if (isPlace) FontWeight.Bold else FontWeight.SemiBold,
+                color = headColor,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (!phone.isNullOrBlank()) {
+                Spacer(Modifier.width(10.dp))
+                Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF00B578), modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    phone,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF00B578),
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.weight(1f))
             if (hasCoords) {
                 Text(
                     "有导航",
@@ -807,24 +881,24 @@ private fun SheetRow(
                     color = Color(0xFF00B578),
                     fontWeight = FontWeight.Bold,
                 )
-                Spacer(Modifier.width(8.dp))
-            }
-            badge?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
         if (subtitle.isNotBlank()) {
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+        if (badge != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                badge,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF8455E6),
             )
         }
     }

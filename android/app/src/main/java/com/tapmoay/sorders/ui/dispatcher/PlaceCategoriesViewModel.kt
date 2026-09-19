@@ -9,7 +9,6 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.launch
-
 /**
  * 地点分组管理（**每个人自己那一份**：货主和派单员各管各的）。
  *
@@ -82,6 +81,23 @@ class PlaceCategoriesViewModel(private val container: AppContainer) : ViewModel(
         val tmp = next[index]
         next[index] = next[target]
         next[target] = tmp
+        submit(next)
+    }
+
+    /**
+     * 排到第几位（1 起）—— 与「商品分类管理」**同一个语义**（用户要求直接复用那套）。
+     *
+     * ⚠️ 搬运本身交给 `moveItemTo` 那一份纯函数（列表内"抽出来插到第 N 位"，
+     *    与商品分类共用同一份），不在这里再写一遍 `add/removeAt` ——
+     *    那是最容易差一格的地方，而它有单测。
+     */
+    fun moveTo(id: Long, position: Int) {
+        val next = moveItemTo(rows, { it.id }, id, position)
+        if (next === rows) return  // 没变化（同一位置）：不发请求
+        submit(next)
+    }
+
+    private fun submit(next: List<PlaceCategoryDto>) {
         val ids = next.map { it.id }
         acting = true
         error = null

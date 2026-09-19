@@ -26,6 +26,7 @@ from app.services.driver_pay import (
 #: 不是"可以随便差一点"。见 [resolve_line_total]。
 LINE_TOTAL_TOLERANCE = Decimal("0.01")
 from app.services.inventory_service import auto_stock_commit, auto_stock_out, auto_stock_release
+from app.services.warehouse import auto_warehouse_inbound, warehouse_for_order
 from app.services.ledger_sync import sync_ledger_from_delivered_order
 from app.services.operation_log_service import write_log
 
@@ -431,6 +432,36 @@ def complete_delivery(
     )
     sync_ledger_from_delivered_order(db, order)
     auto_stock_commit(db, order)
+    # ---- 到仓入库：**独立的一条线**（用户 2026-09-19：「再开一条计算线，这条线是独立算的…
+    #      入库就正常入；直到那个订单完成了之后它才会减库存」）----
+    #
+    # ⛔ 它与上面那行 `auto_stock_commit` **各算各的**：那条是"订单把货扣掉"，这条是
+    #    "货进了仓库"。所以这里**不撤销预占、也不改扣减** —— 想改的是另一条决策。
+    # 判据（"这一单是不是送到仓库的"）在 `services/warehouse.py`，只有一处实现。
+    wh = warehouse_for_order(db, order)
+    if wh is not None:
+        # 记在订单备注里了吗？没有 —— 用一条操作日志留痕（审计页能查到"谁的单入了哪个仓"）。
+        write_log(
+            db,
+            operator_id=driver.id,
+            order_id=order.id,
+            action=OperationAction.ORDER_COMPLETE,
+            change_payload={
+                "warehouse_inbound": wh.name or wh.detail_address,
+                "warehouse_id": wh.id,
+            },
+        )
+        inbound = auto_warehouse_inbound(db, order, driver.id)
+        if inbound["skipped"]:
+            # ⛔ **没入库的那几行必须说出来**：商品在商品管理里找不到（或同名不唯一）时
+            #    这一行不会入库，而用户看到的是"已送达" —— 不说的话他会以为货已经进库了。
+            write_log(
+                db,
+                operator_id=driver.id,
+                order_id=order.id,
+                action=OperationAction.ORDER_COMPLETE,
+                change_payload={"warehouse_inbound_skipped": inbound["skipped"]},
+            )
     # 货损录入（选填）：写商品行/订单备注，随后统一账务钩子
     from decimal import Decimal as _Dec
 

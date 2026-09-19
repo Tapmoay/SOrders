@@ -31,8 +31,6 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     /** 商品分类管理（新建/改名/调顺序）——下单页左侧那一列的顺序就是它。 */
     const val PRODUCT_CATEGORIES = "dispatcher/product-categories"
 
-    /** 地点分组管理（**按人分区**：货主和派单员各管自己那一份）。入口在下单页地址库左栏底部。 */
-    const val PLACE_CATEGORIES = "dispatcher/place-categories"
     const val INVENTORY = "dispatcher/inventory"
     const val ARREARS_UNITS = "dispatcher/arrears"
     const val FREIGHT_TEMPLATES = "dispatcher/freight-templates"

@@ -15,6 +15,7 @@ import com.tapmoay.sorders.data.remote.dto.ContactUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.LocationCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.repo.toApiException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** 三个列表：常用线路（联系人+地点）/ 联系人 / 地点 */
@@ -59,6 +60,18 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     var locLng by mutableStateOf<String?>(null)
     var locRemark by mutableStateOf("")
     var locImageUrls by mutableStateOf<List<String>>(emptyList())
+
+    /** 这个地点属于哪个分组（空 = 未分类）；表单里可以现敲一个新的（后端会自动补进名册）。 */
+    var locCategory by mutableStateOf("")
+
+    /** 地点分组名册（**自己那一份**）：表单里那排候选胶囊。 */
+    var placeCategories by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto>>(emptyList())
+
+    /** 这个地点是不是仓库（**只有派单员**能改，见后端 `api/v1/shipper.py`）。 */
+    var locIsWarehouse by mutableStateOf(false)
+
+    /** 当前登录人能不能标仓库 —— 货主看不到那个开关（后端也会拦，这里只是不给他点一个必然报错的东西）。 */
+    var canMarkWarehouse by mutableStateOf(false)
     var locImageUploading by mutableStateOf(false)
     var pendingSlot by mutableStateOf<String?>(null)   // 行内新增地点回填槽位 start/end
     var lineContactCtx by mutableStateOf(false)        // 从线路抽屉打开的联系人抽屉
@@ -75,10 +88,19 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                 addresses = container.repo.addresses()
                 contacts = container.repo.contacts()
                 locations = container.repo.locations()
+                // 分组名册 + "我能不能标仓库"：两件都只在**表单**里用得到，
+                // 但一次拉完最省事（分组只有几条；角色来自本机会话，不发请求）。
+                placeCategories = container.repo.placeCategories()
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {
                 loading = false
+            }
+        }
+        viewModelScope.launch {
+            try {
+                canMarkWarehouse = container.tokenStore.sessionFlow.first()?.role == "dispatcher"
+            } catch (_: Exception) {
             }
         }
     }
@@ -314,6 +336,8 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         locName = ""; locDetail = ""; locRemark = ""
         locLat = null; locLng = null
         locImageUrls = emptyList(); locImageUploading = false
+        locCategory = ""
+        locIsWarehouse = false
         showLocationDialog = true
     }
 
@@ -326,6 +350,8 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         locLat = l.addressLat
         locLng = l.addressLng
         locImageUrls = l.imageUrls.ifEmpty { listOfNotNull(l.imageUrl) }
+        locCategory = l.category
+        locIsWarehouse = l.isWarehouse
         locImageUploading = false
         showLocationDialog = true
     }
@@ -360,6 +386,12 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                     remark = locRemark.trim(),
                     addressLat = locLat,
                     addressLng = locLng,
+                    // 分组：留空 = 未分类；敲一个新的名字时后端会把它补进名册（顺手建分组）。
+                    category = locCategory.trim(),
+                    // ⚠️ 仓库标记按表单里的开关走。**货主那一侧开关不显示**，所以传 false ——
+                    //    他编辑自己的地点不会影响仓库标记（那些点也不是他的）。
+                    //    请求体是"整体替换"语义，不回填就等于"改个地点名顺手取消了仓库标记"。
+                    isWarehouse = canMarkWarehouse && locIsWarehouse,
                     imageUrls = locImageUrls,
                 )
                 val cur = editingLocation
