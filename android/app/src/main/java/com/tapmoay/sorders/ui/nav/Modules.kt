@@ -90,7 +90,7 @@ object Modules {
         ModuleEntry("司机管理", Routes.DISPATCH_DRIVERS, Icons.Default.Groups, color = 0xFFCDDC39L),                    // 黄绿 · 司机团队
         ModuleEntry("货主管理", Routes.SHIPPERS_MANAGE, Icons.Default.PeopleAlt, color = InventoryTeal),                // 深青 · 货主
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
-        ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品
+        ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = 0xFF9570E0L),                     // 柔紫 · 商品（工作台专用，见下面的说明）
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
         ModuleEntry("账本管理", Routes.DISPATCH_LEDGER, Icons.Default.AccountBalanceWallet, color = MoneyOrange),       // 橙 · 账本
         // 「运费模板」「计费规则」原来挂在「派单作业」分组下，用户 2026-09-19 要求提成**两个独立图标**
@@ -128,18 +128,30 @@ object Modules {
         //    所以这一格改成低饱和的雾蓝，让它**退到后面去**。
         //    ⛔ 这条不是"标准可以随便破"：色带管的是"主色该多亮多艳"，而这里要的是
         //    "16 格里最不该抢眼的那一格"，两条目标冲突时**以用户的眼睛为准**（他也确实是对的）。
+        //
+        // ⚠️⚠️ 同一手法**又用了 4 次**（用户 2026-09-19 第二轮）：「将商品管理、报表中心、
+        //    挂账单位、消息中心都做相同的处理啊，现在这 4 个看起来比较鲜艳」。
+        //    这 4 格原来是全屏饱和度/亮度最高的一批（S63-83 / B90-100），压完：
+        //      商品管理 #8455E6 → #9570E0（S50/B88）· 报表中心 #6950F5 → #614AE0（B88）
+        //      挂账单位 #FF6B2C → #D96B3D（S72/B85）· 消息中心 #FF4D4F → #B53638（B71）
+        //    同样按 `_archive/_pick_module_colors2.py` 搜（色相不动、与其余 15 格距离 ≥62）。
+        //
+        // ⛔ **只改工作台这一格，不动全局那几个语义色**（`MessageRed` / `ArrearsTangerine` /
+        //    `ProductPurple` / `ReportIndigo`）：它们在别处担的是**功能语义**——
+        //    消息红要做角标（角标**必须**跳出来）、挂账要警示、报表页签要区分。
+        //    把全局色一起压暗 = "为了工作台好看，顺手把全 App 的通知角标也弄哑"。
         ModuleEntry("运费模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = 0xFF5F7FBFL),                 // 雾蓝 · 订单运费的价目表
         ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFF8EC714L),           // 亮黄绿 · 司机怎么算钱
         ModuleEntry("司机运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.Payments, color = 0xFFFF8A65L),            // 珊瑚橙 · 运费结算
-        ModuleEntry("挂账单位", Routes.ARREARS_UNITS, Icons.Default.Business, color = ArrearsTangerine),                 // 橙红 · 挂账警示
+        ModuleEntry("挂账单位", Routes.ARREARS_UNITS, Icons.Default.Business, color = 0xFFD96B3DL),                  // 柔砖橙 · 挂账警示（工作台专用）
         // 报表中心直达营业额报表界面（顶部 4 页签：营业/商品/司机/异常，可切换）
         ModuleEntry(
             label = "报表中心",
             route = Routes.REPORT_HOME,
             icon = Icons.Default.BarChart,
-            color = ReportIndigo,
+            color = 0xFF614AE0L,   // 柔靛紫（工作台专用一档，比全局的 ReportIndigo 暗一档）
         ),
-        ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = MessageRed),
+        ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = 0xFFB53638L),
         // ⚠️ AI 助手**不在这里**：它的入口是底部导航正中间那个凸起的圆钮（见 RoleHomeScreen）。
         // 放两处会让人以为是两个功能；它现在是"随时按一下"的入口，不该混在"进哪个模块"的网格里。
         // 例外见 shipperEntries：货主端只有 3 个 Tab，圆钮落不到正中，那边才改成网格图标。
@@ -154,7 +166,7 @@ object Modules {
         ModuleEntry("下单", Routes.ORDER_CREATE, Icons.Default.AddCircleOutline, color = MgrGreen),
         ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = ShipperTeal),
         ModuleEntry("我的账本", Routes.SHIPPER_LEDGER, Icons.Default.AccountBalanceWallet, color = MoneyOrange),
-        ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = MessageRed),
+        ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = 0xFFB53638L),
         // AI 助手放**最后一格**（用户 2026-09-15 明确要求：不要第一个）。
         // 理由站得住：这一排前 5 格是"货主日常办的事"（看单/下单/地址/账本/消息），
         // 顺序本身就是在教他怎么用；AI 是"这些事都能用嘴说"的另一条路，垫底不抢主流程，
