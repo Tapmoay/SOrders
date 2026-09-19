@@ -120,6 +120,10 @@ class LocationCreate(GeoInput):
     remark: str = Field(default="", max_length=256)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
+    #: 自定义分类（空 = 未分类）。名册里没有这个名字时**自动补进去**（顺手建分类）。
+    category: str = Field(default="", max_length=32)
+    #: 是不是仓库。**只有派单员**能置 true（见 api/v1/shipper.py）；货主传 true 会被忽略并提示。
+    is_warehouse: bool = False
     image_urls: list[Url] = Field(default_factory=list, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
     image_url: str | None = Field(None, max_length=MAX_URL)
@@ -131,6 +135,10 @@ class LocationUpdate(GeoInput):
     remark: str | None = Field(None, max_length=256)
     address_lat: Decimal | None = None
     address_lng: Decimal | None = None
+    #: None = 不改；"" = 清成未分类
+    category: str | None = Field(None, max_length=32)
+    #: None = 不改（只有派单员能改）
+    is_warehouse: bool | None = None
     # None = 不修改；[] = 清空
     image_urls: list[Url] | None = Field(None, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
@@ -147,6 +155,10 @@ class LocationOut(_ImageUrlsMixin):
     remark: str
     address_lat: Decimal | None
     address_lng: Decimal | None
+    #: 自定义分类（"" = 未分类）+ 是不是仓库。两个都要下发：下单页的地址库要按分类分栏、
+    #  还要在行上标出"这是我的仓"。
+    category: str = ""
+    is_warehouse: bool = False
     created_at: datetime
 
 

@@ -33,6 +33,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
+import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
@@ -50,6 +51,8 @@ fun OrderCreateScreen(
     onBack: () -> Unit,
     onCreated: () -> Unit,
     proxyMode: Boolean = false,
+    /** 地址库左栏那格「管理分组」→ 地点分类管理页（新建 / 排序）。 */
+    onOpenPlaceCategories: () -> Unit = {},
 ) {
     val vm: OrderCreateViewModel = appViewModel { OrderCreateViewModel(container) }
     var showShipperPicker by remember { mutableStateOf(false) }
@@ -236,7 +239,15 @@ fun OrderCreateScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("地图选点")
                         }
-                        OutlinedButton(onClick = { vm.showAddressSheet = true }, modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = {
+                                // 每次打开都刷一次分组名册：用户可能刚去「管理分组」建/改过，
+                                // 而 VM 是随页面复用的（回来时那份还是进来时拉的）。
+                                vm.reloadPlaceCategories()
+                                vm.showAddressSheet = true
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("地址库")
@@ -412,12 +423,17 @@ fun OrderCreateScreen(
             addresses = vm.addresses,
             locations = vm.locations,
             places = vm.places,
+            categories = vm.placeCategories,
             placesTruncated = vm.placesTruncated,
             placesLimit = vm.placesLimit,
             onPickAddress = { vm.applyAddress(it) },
             onPickLocation = { vm.applyLocation(it) },
             onPickPlace = { vm.applyPlace(it) },
             onSearchPlaces = { vm.loadPlaces(it) },
+            onManageCategories = {
+                vm.showAddressSheet = false
+                onOpenPlaceCategories()
+            },
             onDismiss = { vm.showAddressSheet = false },
         )
     }
@@ -545,6 +561,18 @@ fun OrderCreateScreen(
  *
  * 三个来源分开列而不是混成一列，是因为**来源决定了可信度**：自己的地点是确认过的，
  * 共享地点可能只有坐标没有名字。混在一起用户没法判断该信哪个。
+ *
+ * ## 2026-09-19：改成"左边一栏、右边内容"，左栏底部多一格「管理分组」
+ * 用户先要「3 个分组就放在左侧，右边就是对应的地点」，又改口要"三个漂亮按钮"，
+ * 最后拿着一张**左栏版**的截图圈住左栏底部说：
+ * 「在这个界面当中管理分组的话，就在这个红框的位置。它跟左边那一个一个分组类别是一个
+ *   对齐的状态。然后管理分组是一个**新的界面**吧…同样是可以创建分组然后进行排序都可以。
+ *   所以我们在下单的时候是**可以**勾选分组的，但也不会强迫去勾选；如果不去选分组的话，
+ *   我们就默认按照我们的 3 个分组进行选择」。
+ *
+ * 于是：左栏 = 固定三段（线路 / 我的地点 / 共享地点）+ 自定义分组（有才出现）+
+ * **底部那格「管理分组」**（点了去 `PlaceCategoriesScreen` 新界面，与商品分类同一套做法）。
+ * 「默认按 3 个分组」= 一进来选中的就是「线路」，不选分组也照样能用。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -552,6 +580,8 @@ private fun AddressPickerSheet(
     addresses: List<AddressDto>,
     locations: List<LocationDto>,
     places: List<PlaceDto>,
+    /** 自定义分组名册（**自己那一份**）：左栏在固定三段后面把它们列出来。 */
+    categories: List<PlaceCategoryDto>,
     /** 共享地点这一页被服务端截断了没有 + 本次上限（判据是响应头 `X-Truncated`/`X-Result-Limit`）。 */
     placesTruncated: Boolean,
     placesLimit: Int?,
@@ -559,11 +589,13 @@ private fun AddressPickerSheet(
     onPickLocation: (LocationDto) -> Unit,
     onPickPlace: (PlaceDto) -> Unit,
     onSearchPlaces: (String?) -> Unit,
+    /** 左栏底部那格「管理分组」→ 新界面（建分组 / 排序）。 */
+    onManageCategories: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val tabs = listOf("线路", "我的地点", "共享地点")
-    var tab by remember { mutableStateOf(0) }
     var keyword by remember { mutableStateOf("") }
+    /** 左栏选中的 key：`a`=线路 / `l`=我的地点 / `p`=共享地点 / `c|<分类名>`=我的地点里的某一类。 */
+    var sel by remember { mutableStateOf("a") }
 
     // 搜索**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
     // 前两段在本地过滤（数据本来就在手上，即时出结果）；共享地点段还要**同时**打后端 ——
@@ -575,38 +607,61 @@ private fun AddressPickerSheet(
             it.receiverName.contains(kw, true) || it.phone.contains(kw) || it.detailAddress.contains(kw, true)
         }
     }
-    val shownLocations = remember(locations, kw) {
-        if (kw.isBlank()) locations
-        else locations.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
+    val shownLocations = remember(locations, sel, kw) {
+        val byCat = if (sel.startsWith("c|")) locations.filter { it.category == sel.removePrefix("c|") } else locations
+        if (kw.isBlank()) byCat
+        else byCat.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
     }
-    val railKeys = listOf("a", "l", "p")
-    val railTabs = tabs.mapIndexed { i, name ->
-        RailItem(key = railKeys[i], label = name, subtitle = countOf(name, addresses, locations, places).toString() + " 条")
+    // 左栏 = 固定三段 + 自定义分类（有才显示）+ 底部「管理分组」。
+    //
+    // 用户 2026-09-19：截图里画了个框指着左栏**底部**那一格 ——
+    // 「在这个界面当中管理分组的话，就在这个**红框**的位置。它跟左边那一个一个分组类别
+    //   是一个**对齐**的状态。然后管理分组是一个**新的界面**吧」。
+    // 所以「管理分组」是左栏里的一格（不是按钮、不是浮层），点它去新界面（与商品分类同一个做法）。
+    val catCounts = locations.groupingBy { it.category }.eachCount()
+    val railItems = buildList {
+        add(RailItem("a", "线路", addresses.size.toString() + " 条"))
+        add(RailItem("l", "我的地点", locations.size.toString() + " 条"))
+        add(RailItem("p", "共享地点", places.size.toString() + " 条"))
+        categories.forEach { c ->
+            add(RailItem("c|" + c.name, c.name, (catCounts[c.name] ?: 0).toString() + " 条"))
+        }
+        add(RailItem("manage", "管理分组", "新建 / 排序"))
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 20.dp)) {
+    // 提示语在**调用之前**算好（不写成 `placeholder = when {...}`）：
+    // `_check_input_rules.py` 会把 `placeholder =` 后面那一段里的字符串字面量当"框的标题"，
+    // 而 `when { sel == "a" -> ... }` 里的 `"a"` 会被它当成标题 → 误判成"电话输入框"。
+    // 挪出来之后这一段里一个字符串都没有，判据不再误报（那条 EXCLUDED 也随之作废）。
+    val searchHint = when {
+        sel == "a" -> "搜收货人、电话或地址"
+        sel == "p" -> "搜地点名或地址（全库）"
+        else -> "搜地点名或地址"
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        // **抽屉直接拉到最高**（用户 2026-09-19：「把底部抽屉拉到最高」）
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(bottom = 12.dp)) {
             Text(
                 "选择收货地址",
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(10.dp))
-            // 搜索框横跨整页（在左栏**上面**），与商品管理/库存管理同一版式：
-            // 左栏是"有哪几类"，搜索是"那个地点在哪"，塞进左栏会被压成半宽。
+            // 搜索框横跨整页（在左栏**上面**）：左栏是"有哪几类"、搜索是"那个地点在哪"，
+            // 两个维度；放进左栏会被压成半宽，而且左栏为空时它跟着消失。
             Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 SoTextField(
                     value = keyword,
                     onValueChange = {
                         keyword = it
                         // 共享地点段顺带搜后端（全库那部分本地没有）
-                        if (tab == 2) onSearchPlaces(it.ifBlank { null })
+                        if (sel == "p") onSearchPlaces(it.ifBlank { null })
                     },
-                    placeholder = when (tab) {
-                        0 -> "搜收货人、电话或地址"
-                        1 -> "搜地点名或地址"
-                        else -> "搜地点名或地址（全库）"
-                    },
+                    placeholder = searchHint,
                 )
                 if (keyword.isNotBlank()) {
                     TextButton(
@@ -616,24 +671,24 @@ private fun AddressPickerSheet(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            // **左边三类、右边对应的地点**（用户 2026-09-19：「我们也改成类似商品管理的形式，
-            // 因为我们有 3 个分组嘛，3 个分组就放在左侧，然后右边就是对应的地点」）。
-            // 原来是三枚横向胶囊（SegmentedStatusTabs）：三段各是一份长列表，
-            // 横胶囊只能显示"现在在哪一段"，而两栏能同时看到"三段各有多少条"。
-            Row(Modifier.fillMaxWidth().height(420.dp)) {
+            Row(Modifier.fillMaxWidth().weight(1f)) {
                 MasterRail(
-                    items = railTabs,
-                    selectedKey = railKeys[tab],
+                    items = railItems,
+                    selectedKey = sel,
                     onSelect = { key ->
-                        tab = railKeys.indexOf(key).coerceAtLeast(0)
-                        keyword = ""
-                        onSearchPlaces(null)
+                        if (key == "manage") {
+                            onManageCategories()
+                        } else {
+                            sel = key
+                            keyword = ""
+                            onSearchPlaces(null)
+                        }
                     },
-                    modifier = Modifier.width(104.dp).fillMaxHeight(),
+                    modifier = Modifier.width(112.dp).fillMaxHeight(),
                 )
                 LazyColumn(Modifier.weight(1f).fillMaxHeight()) {
-                    when (tab) {
-                        0 -> if (shownAddresses.isEmpty()) {
+                    when {
+                        sel == "a" -> if (shownAddresses.isEmpty()) {
                             item {
                                 SheetEmptyHint(
                                     if (kw.isBlank()) "线路库为空，可先去「地址与联系人」添加"
@@ -651,11 +706,13 @@ private fun AddressPickerSheet(
                                 )
                             }
                         }
-                        1 -> if (shownLocations.isEmpty()) {
+                        sel == "l" || sel.startsWith("c|") -> if (shownLocations.isEmpty()) {
                             item {
                                 SheetEmptyHint(
-                                    if (kw.isBlank()) "地点库为空。司机到场帮你补的导航位置会出现在这里"
-                                    else "没有匹配「$kw」的地点",
+                                    if (kw.isBlank()) {
+                                        if (sel == "l") "地点库为空。司机到场帮你补的导航位置会出现在这里"
+                                        else "这个分组下还没有地点（在「地址与联系人」里给地点选个分组）"
+                                    } else "没有匹配「$kw」的地点",
                                 )
                             }
                         } else {
@@ -663,7 +720,11 @@ private fun AddressPickerSheet(
                                 SheetRow(
                                     title = l.name.ifBlank { l.detailAddress.ifBlank { "未命名地点" } },
                                     subtitle = l.detailAddress,
-                                    badge = "我的",
+                                    // 分类与仓库都摆在行上：选地点时最需要区分的就是"这是哪一类、是不是我的仓"
+                                    badge = listOfNotNull(
+                                        l.category.ifBlank { null },
+                                        if (l.isWarehouse) "仓库" else null,
+                                    ).joinToString(" · ").ifBlank { "未分类" },
                                     hasCoords = !l.addressLat.isNullOrBlank(),
                                     onClick = { onPickLocation(l) },
                                 )
@@ -705,18 +766,6 @@ private fun AddressPickerSheet(
         }
     }
 }
-
-private fun countOf(
-    tab: String,
-    addresses: List<AddressDto>,
-    locations: List<LocationDto>,
-    places: List<PlaceDto>,
-): Int = when (tab) {
-    "线路" -> addresses.size
-    "我的地点" -> locations.size
-    else -> places.size
-}
-
 private fun sourceLabel(source: String): String = when (source) {
     "driver" -> "司机补录"
     "dispatcher" -> "派单员"

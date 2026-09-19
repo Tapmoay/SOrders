@@ -64,5 +64,13 @@ class ShipperLocation(Base, TimestampMixin, SoftDeleteMixin):
     image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # 多张图片（JSON 数组）；image_url 保留兼容（= 首图）
     image_urls: Mapped[str] = mapped_column(Text, default="[]")
+    #: 自定义分类（用户 2026-09-19：「地点库的分类…他们都可以自行的添加分类，也可以进行分类的
+    #  管理」）。自由文本 + 一张按人分区的名册表（`PlaceCategory`）管顺序，与商品分类同一套做法。
+    #  空串 = 未分类。
+    category: Mapped[str] = mapped_column(String(32), default="", index=True)
+    #: 这个地点是**仓库**（用户 2026-09-19：「给派单员有一个选择可以选择一个地点作为仓库，
+    #  不一定只能选一个，可以选好多个」）。送到仓库的单按"货进来了"处理（自动入库，
+    #  见 `services/warehouse.py`）。**只有派单员能改**（`api/v1/shipper.py` 里判）。
+    is_warehouse: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     shipper: Mapped["User"] = relationship()

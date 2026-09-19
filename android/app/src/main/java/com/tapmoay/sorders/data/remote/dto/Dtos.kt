@@ -406,10 +406,37 @@ data class LocationDto(
     val addressLat: String? = null,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("address_lng")
     val addressLng: String? = null,
+    /** 自定义分类（"" = 未分类）。地址库左侧那一列按它分栏。 */
+    val category: String = "",
+    /** 是不是仓库（**只有派单员能标**）。送到仓库的单按"货进来了"处理（自动入库）。 */
+    @SerialName("is_warehouse") val isWarehouse: Boolean = false,
     @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("created_at") val createdAt: String = "",
 )
+
+/**
+ * 地点分类名册（**按人分区**：每个人管自己地址库左侧那一列）。
+ *
+ * 与商品分类同一套形状，差别是"谁的"——读回来的一定是**当前登录人自己那一份**。
+ */
+@Serializable
+data class PlaceCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 这一类下**在用**的地点条数（删之前要让用户看见影响面）。 */
+    @SerialName("location_count") val locationCount: Int = 0,
+)
+
+@Serializable
+data class PlaceCategoryCreateRequest(val name: String, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class PlaceCategoryUpdateRequest(val name: String? = null, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class PlaceCategoryReorderRequest(val ids: List<Long>)
 
 @Serializable
 data class LocationImageOut(val url: String = "")
@@ -482,6 +509,10 @@ data class LocationCreateRequest(
     val remark: String = "",
     @SerialName("address_lat") val addressLat: String? = null,
     @SerialName("address_lng") val addressLng: String? = null,
+    /** 分类名（空 = 未分类）。名册里没有这个名字时后端**自动补进去**（顺手建分类）。 */
+    val category: String = "",
+    /** 只在**派单员**的请求里有意义；货主传 true 会被后端 403。 */
+    @SerialName("is_warehouse") val isWarehouse: Boolean = false,
     @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
 )
 

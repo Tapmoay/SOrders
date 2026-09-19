@@ -182,6 +182,16 @@
 | `charge_order` | 写 | `POST /api/v1/orders/{order_id}/charge` | 派单员：订单挂账到挂账单位名下。仅派单员界面可用。 |  |
 | `recall_order` | 写 | `POST /api/v1/orders/{order_id}/recall` |  |  |
 
+## 地点分类（`place_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/place-categories` | **自己那一份**分类名册（按显示顺序）。司机没有地点库，拿不到。 |  |
+| `create_category` | 写 | `POST /api/v1/place-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/place-categories/{category_id}` | 改名 / 改顺序。**改名会级联改掉挂在这一类下的地点**（同一事务）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/place-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前。**必须覆盖自己全部现存分类**（理由同商品分类： |  |
+| `delete_category` | 写 | `DELETE /api/v1/place-categories/{category_id}` | 删掉自己名册里的一行。**还有地点挂着时拒绝**（告诉有几条）。 |  |
+
 ## 共享地点库（`places`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |

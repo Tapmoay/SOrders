@@ -976,6 +976,33 @@ def _bootstrap_impl(engine: Engine) -> None:
                 if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                     raise
 
+    # ---------- 地点的分类 + 仓库标记（2026-09-19 用户要求） ----------
+    #
+    # 用户原话：「关于**地点库的分类**，包括货主和派单员，他们都可以自行的添加分类，
+    # 也可以进行分类的管理」、「给派单员有一个选择可以选择一个地点作为仓库，
+    # 不一定只能选一个，可以选好多个」。
+    #
+    # - `shipper_locations.category`：自由文本（与 `products.category` 同一个做法），
+    #   空串 = 未分类；顺序由**按人分区**的名册表 `place_categories` 管（`create_all` 建表，
+    #   与商品分类的 `product_categories` 同一套）。
+    # - `shipper_locations.is_warehouse`：是不是仓库。送到仓库的单按"货进来了"处理
+    #   （`services/warehouse.py` + `inventory_service.auto_warehouse_inbound`）。
+    #   默认 0 = 老数据全不是仓库（不会因为升级就凭空多出一堆仓库）。
+    if "shipper_locations" in insp.get_table_names():
+        lcols = {c["name"] for c in insp.get_columns("shipper_locations")}
+        for col, ddl in (
+            ("category", "ALTER TABLE shipper_locations ADD COLUMN category VARCHAR(32) NOT NULL DEFAULT ''"),
+            ("is_warehouse", "ALTER TABLE shipper_locations ADD COLUMN is_warehouse BOOLEAN NOT NULL DEFAULT 0"),
+        ):
+            if col in lcols:
+                continue
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text(ddl))
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
     # ---------- 入库流水记进货价（2026-09-19 用户要求，毛利成本口径的数据基础） ----------
     #
     # `unit_cost` = **这批货的进货单价**。它必须落在流水上，不能只写进 `products.cost_price`：

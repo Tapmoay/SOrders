@@ -1282,6 +1282,12 @@ class RepoWriteDataSource(
                 remark = fields.str("remark") ?: cur.remark,
                 addressLat = lat ?: cur.addressLat,
                 addressLng = lng ?: cur.addressLng,
+                // ⛔ 分类与仓库标记必须**回填原值**：`LocationCreateRequest` 走的是"整体替换"语义，
+                //    不回填就等于"AI 改个地点名把它从分组里踢出去 / 顺手取消仓库标记"——
+                //    而界面上只会显示「已改地点」，用户看不出分组没了。
+                //    （这是 `_check_ai_dto_defaults.py` 逐字段盯着的那条纪律。）
+                category = cur.category,
+                isWarehouse = cur.isWarehouse,
                 imageUrls = cur.imageUrls,
             ),
         )

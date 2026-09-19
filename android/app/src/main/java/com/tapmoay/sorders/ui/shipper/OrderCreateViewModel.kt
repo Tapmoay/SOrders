@@ -87,6 +87,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     /** 共享地点库（全库共用；司机到场补录的坐标在这里） */
     var places by mutableStateOf<List<PlaceDto>>(emptyList())
 
+    /** 地点分类名册（**自己那一份**）：地址库左栏自定义分类那一截按它排。 */
+    var placeCategories by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto>>(emptyList())
+
     /**
      * 共享地点库"这一页不是全部"＝更少用的那些没取到（后端 `le=MAX_LIST`）。
      *
@@ -148,7 +151,17 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try { locations = container.repo.locations() } catch (_: Exception) {}
         }
+        viewModelScope.launch {
+            try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {}
+        }
         loadPlaces()
+    }
+
+    /** 地点分类名册（**自己那一份**）：地址库左栏除了固定的三段，还把自定义分类列出来。 */
+    fun reloadPlaceCategories() {
+        viewModelScope.launch {
+            try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {}
+        }
     }
 
     /** 共享地点库（全库共用）。搜索时由界面调 `loadPlaces(q)`。 */

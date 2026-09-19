@@ -148,6 +148,8 @@ object AiReadCatalog {
         )),
         ReadAction("orders.pending_dispatch_count", "待派单池还有多少单", "/api/v1/orders/pending-dispatch-count", "", setOf("dispatcher"), listOf(
         )),
+        ReadAction("place_categories.list_categories", "地点分类名册（**当前登录人自己那份**：地点库左侧那一列的名字与顺序）", "/api/v1/place-categories", "", setOf("dispatcher", "shipper"), listOf(
+        )),
         ReadAction("places.list_places", "共享地点库（司机/货主标过的导航坐标，不分人、大家共用；可按地点名或地址搜）", "/api/v1/places", "q、limit", setOf("dispatcher", "driver", "shipper"), listOf(
             ReadParam("q", "str", false, emptyList(), false),
             ReadParam("limit", "int", false, emptyList(), false),
@@ -245,6 +247,7 @@ object AiReadCatalog {
         "operation_logs" to "操作日志",
         "order_products" to "订单商品行",
         "orders" to "订单/派单",
+        "place_categories" to "地点分类",
         "places" to "共享地点库",
         "price_rules" to "批发商定价",
         "product_categories" to "商品分类",

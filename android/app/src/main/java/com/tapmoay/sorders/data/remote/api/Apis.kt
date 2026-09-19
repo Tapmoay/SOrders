@@ -306,6 +306,31 @@ interface ShipperApi {
     @GET("shipper/locations")
     suspend fun listLocations(): List<LocationDto>
 
+    /**
+     * 地点分类名册（**按人分区**：读回来的是当前登录人自己那一份）。
+     *
+     * 与商品分类不同：商品分类是全店一份（派单员维护、所有人下单看到同一列），
+     * 地点库是每个人自己那一份（货主和派单员都用这套接口，各自的库互不可见）。
+     */
+    @GET("place-categories")
+    suspend fun listPlaceCategories(): List<PlaceCategoryDto>
+
+    @POST("place-categories")
+    suspend fun createPlaceCategory(@Body body: PlaceCategoryCreateRequest): PlaceCategoryDto
+
+    @PATCH("place-categories/{categoryId}")
+    suspend fun updatePlaceCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: PlaceCategoryUpdateRequest,
+    ): PlaceCategoryDto
+
+    @DELETE("place-categories/{categoryId}")
+    suspend fun deletePlaceCategory(@Path("categoryId") categoryId: Long)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    @POST("place-categories/reorder")
+    suspend fun reorderPlaceCategories(@Body body: PlaceCategoryReorderRequest): List<PlaceCategoryDto>
+
     @Multipart
     @POST("shipper/locations/image")
     suspend fun uploadLocationImage(@Part file: MultipartBody.Part): LocationImageOut

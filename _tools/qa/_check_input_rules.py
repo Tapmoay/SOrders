@@ -98,9 +98,6 @@ EXCLUDED: dict[str, str] = {
     "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt::搜线路：收货人 / 电话 / 地址": (
         "地址与联系人页的**搜索框**（搜线路/联系人），关键词里带「电话」而已。"
     ),
-    "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt::搜收货人、电话或地址": (
-        "下单页「地址库」抽屉的**搜索框**，同上。"
-    ),
     "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DriverBillingRulesScreen.kt::规则名称（如：挂车计件 / 小型车月薪+提成）": (
         "这是计费**规则的名称**（自由文本，要能写「月薪+提成」这种名字），"
         "命中关键词只因为它出现在举例文案里。这一条是「提成」进关键词表的代价："

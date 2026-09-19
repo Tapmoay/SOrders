@@ -3482,12 +3482,12 @@ def main() -> int:
     c.present("端到端钉住「第 2 次才自动进库」", pcat_test, r"def test_second_use_auto_adds_shared_place")
 
     # ---- ④ 只要是选地点的地方都能搜 ----
-    c.present("下单页地址弹层：**三段都有搜索框**（不是只有共享地点那段）",
-              ocs31, r'placeholder = when \(tab\) \{\s*\n\s*0 -> "搜收货人、电话或地址"')
+    c.present("下单页地址弹层：三段都有搜索框（不是只有共享地点那段）",
+              ocs31, r'sel == "a" -> "搜收货人、电话或地址"')
     c.present("地址与联系人页也有搜索框（线路/联系人/地点三段共用）",
               addr_screen, r'0 -> "搜线路：收货人 / 电话 / 地址"')
     c.present("本地过滤 + 共享地点段同时打后端（全库那部分本地没有）",
-              ocs31, r"if \(tab == 2\) onSearchPlaces\(it\.ifBlank \{ null \}\)")
+              ocs31, r"if \(sel == \"p\"\) onSearchPlaces\(it\.ifBlank \{ null \}\)")
 
     # ---- ⑤ 一次性提示：先消费再显示 ----
     c.present("一次性提示只有一处实现（OneShotSnackbar）", comp31, r"fun OneShotSnackbar\(")

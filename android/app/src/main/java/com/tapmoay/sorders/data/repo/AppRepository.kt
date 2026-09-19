@@ -145,6 +145,29 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun deleteLocation(id: Long) = api.shipperApi.deleteLocation(id)
 
     suspend fun restoreLocation(id: Long) = api.shipperApi.restoreLocation(id)
+
+    // ---- 地点分类名册（**按人分区**：每个人管自己地址库左侧那一列）----
+    suspend fun placeCategories() = api.shipperApi.listPlaceCategories()
+    suspend fun createPlaceCategory(name: String, sortOrder: Int? = null) =
+        api.shipperApi.createPlaceCategory(
+            com.tapmoay.sorders.data.remote.dto.PlaceCategoryCreateRequest(name, sortOrder)
+        )
+
+    /** 改名 / 改顺序（`PATCH /place-categories/{id}`，后端是部分更新：null = 不动）。 */
+    suspend fun updatePlaceCategory(id: Long, name: String? = null, sortOrder: Int? = null) =
+        api.shipperApi.updatePlaceCategory(
+            id,
+            com.tapmoay.sorders.data.remote.dto.PlaceCategoryUpdateRequest(name, sortOrder),
+        )
+
+    suspend fun deletePlaceCategory(id: Long) = api.shipperApi.deletePlaceCategory(id)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    suspend fun reorderPlaceCategories(ids: List<Long>) =
+        api.shipperApi.reorderPlaceCategories(
+            com.tapmoay.sorders.data.remote.dto.PlaceCategoryReorderRequest(ids)
+        )
+
     suspend fun createContact(body: com.tapmoay.sorders.data.remote.dto.ContactCreateRequest) = api.shipperApi.createContact(body)
     suspend fun updateContact(id: Long, body: com.tapmoay.sorders.data.remote.dto.ContactUpdateRequest) = api.shipperApi.updateContact(id, body)
     suspend fun deleteContact(id: Long) = api.shipperApi.deleteContact(id)

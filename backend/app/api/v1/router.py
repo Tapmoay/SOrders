@@ -19,6 +19,7 @@ from app.api.v1 import (
     operation_logs,
     order_products,
     orders,
+    place_categories,
     places,
     price_rules,
     product_categories,
@@ -38,6 +39,7 @@ api_router.include_router(freight_settlement.router)
 api_router.include_router(shipper.router)
 api_router.include_router(orders.router)
 api_router.include_router(places.router)
+api_router.include_router(place_categories.router)
 api_router.include_router(order_products.router)
 api_router.include_router(products.router)
 api_router.include_router(product_categories.router)

@@ -92,6 +92,12 @@ class OperationAction(str, enum.Enum):
     PRODUCT_CATEGORY_UPSERT = "PRODUCT_CATEGORY_UPSERT"
     PRODUCT_CATEGORY_DELETE = "PRODUCT_CATEGORY_DELETE"
     PRODUCT_CATEGORY_REORDER = "PRODUCT_CATEGORY_REORDER"
+    # 地点分类名册（2026-09-19）：与商品分类同一类东西（主数据、管顺序），
+    # 但**按人分区**（每个人管自己地址库左侧那一列）。单独一套动作码而不是复用商品分类那两个：
+    # 审计页上「改了商品分类」和「改了自己的地点分类」是两件事，混在一起就分不出是哪一件了。
+    PLACE_CATEGORY_UPSERT = "PLACE_CATEGORY_UPSERT"
+    PLACE_CATEGORY_DELETE = "PLACE_CATEGORY_DELETE"
+    PLACE_CATEGORY_REORDER = "PLACE_CATEGORY_REORDER"
     # 商品可见范围（v3.43）：白名单直接决定"某个货主/批发商在选品页能看到什么"，
     # 本质是一种授权 —— 改动必须能回查"是谁给谁开了哪些商品"。
     PRODUCT_VISIBILITY_SET = "PRODUCT_VISIBILITY_SET"

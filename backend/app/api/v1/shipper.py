@@ -11,6 +11,8 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
+from app.core.rbac import user_role_key
+from app.api.v1.place_categories import ensure_place_category
 from app.database import get_db
 from app.deps import require_roles
 from app.services.soft_delete import del_suffix, ensure_alive
@@ -21,6 +23,16 @@ from app.schemas.shipper import AddressCreate, AddressOut, AddressUpdate, Contac
 router = APIRouter(prefix="/shipper", tags=["shipper"])
 
 ShipperOrDispatcher = Annotated[User, Depends(require_roles(UserRole.SHIPPER, UserRole.DISPATCHER))]
+
+
+def _clean_category(value: str | None) -> str:
+    """分类名清洗（与 `PlaceCategory` 同一个口径：strip、≤32 字、空=未分类）。"""
+    return (value or "").strip()[:32]
+
+
+def _may_mark_warehouse(user: User) -> bool:
+    """只有派单员能把地点标成仓库（见 `update_location` 里的说明）。"""
+    return user_role_key(user) == UserRole.DISPATCHER.value
 
 
 def _apply_images(row, urls: list[str] | None) -> None:
@@ -311,7 +323,12 @@ def create_location(
         remark=body.remark,
         address_lat=body.address_lat,
         address_lng=body.address_lng,
+        category=_clean_category(body.category),
+        is_warehouse=_may_mark_warehouse(current) and body.is_warehouse,
     )
+    # 顺手建分类：用户在"保存地点"时直接敲一个新分类名 = 他就是在建分类。
+    # 放在 flush 之前不影响；名册里已经有了就什么都不做。
+    ensure_place_category(db, current.id, loc.category)
     _apply_images(
         loc,
         body.image_urls if body.image_urls else ([body.image_url] if body.image_url else []),
@@ -348,6 +365,17 @@ def update_location(
         loc.address_lat = body.address_lat
     if body.address_lng is not None:
         loc.address_lng = body.address_lng
+    if body.category is not None:
+        loc.category = _clean_category(body.category)
+        ensure_place_category(db, current.id, loc.category)
+    if body.is_warehouse is not None:
+        # ⛔ **只有派单员能标仓库**（用户 2026-09-19：「给**派单员**有一个选择可以选择一个地点
+        #    作为仓库」）。货主自己标的话，他随便一条地点就能让"送到这儿=入库"生效 ——
+        #    那是**改库存**的口子，必须有明确的权限边界。
+        #    给了货主一个 false 只是不许他开；不许他关别人的（他的库里本来也只有他自己的）。
+        if body.is_warehouse and not _may_mark_warehouse(current):
+            raise HTTPException(status_code=403, detail="只有派单员可以把地点设为仓库")
+        loc.is_warehouse = body.is_warehouse
     # 多图：显式传 image_urls 用新列表；旧客户端传 image_url 单图兼容
     if body.image_urls is not None:
         _apply_images(loc, body.image_urls)

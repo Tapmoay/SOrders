@@ -1048,6 +1048,11 @@ private fun actionLabel(action: String): String = when (action) {
     "PRODUCT_CATEGORY_UPSERT" -> "改商品分类"
     "PRODUCT_CATEGORY_DELETE" -> "删商品分类"
     "PRODUCT_CATEGORY_REORDER" -> "调整分类顺序"
+    // 地点分类（2026-09-19）：与商品分类**分开命名** —— 审计里"改了商品分类"和
+    // "改了自己的地点分类"是两件事，都叫「改分类」就分不出是哪一件了。
+    "PLACE_CATEGORY_UPSERT" -> "改地点分类"
+    "PLACE_CATEGORY_DELETE" -> "删地点分类"
+    "PLACE_CATEGORY_REORDER" -> "调地点分类顺序"
     // 商品可见白名单（v3.43）：本质是授权，必须一眼看出"谁给谁开了哪些商品"。
     "PRODUCT_VISIBILITY_SET" -> "改商品可见范围"
     // 常用共享地点自动进「我的地点」（v3.43）：系统替他改了他自己的库，

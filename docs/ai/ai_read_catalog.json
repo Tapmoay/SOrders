@@ -2,8 +2,8 @@
  "generated_by": "_gen_ai_read_catalog.py",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 58,
-  "listed": 42,
+  "read_endpoints": 59,
+  "listed": 43,
   "missing_handler": []
  },
  "actions": [
@@ -191,7 +191,7 @@
    "module_cn": "客户",
    "method": "get",
    "path": "/api/v1/customers",
-   "at": "backend/app/api/v1/customers.py:24",
+   "at": "backend/app/api/v1/customers.py:25",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -423,7 +423,7 @@
    "module_cn": "司机运费结算",
    "method": "get",
    "path": "/api/v1/freight-settlement",
-   "at": "backend/app/api/v1/freight_settlement.py:37",
+   "at": "backend/app/api/v1/freight_settlement.py:38",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机",
    "roles": [
     "dispatcher",
@@ -588,7 +588,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:148",
+   "at": "backend/app/api/v1/ledger.py:149",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -634,7 +634,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:83",
+   "at": "backend/app/api/v1/ledger.py:84",
    "auth": "仅登录 + 体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
@@ -711,7 +711,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:711",
+   "at": "backend/app/api/v1/ledger.py:738",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -757,7 +757,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:202",
+   "at": "backend/app/api/v1/ledger.py:229",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -1042,6 +1042,22 @@
    "skipped_params": []
   },
   {
+   "module": "place_categories",
+   "action": "list_categories",
+   "cn": "地点分类",
+   "module_cn": "地点分类",
+   "method": "get",
+   "path": "/api/v1/place-categories",
+   "at": "backend/app/api/v1/place_categories.py:96",
+   "auth": "角色:dispatcher\\|shipper",
+   "roles": [
+    "dispatcher",
+    "shipper"
+   ],
+   "params": [],
+   "skipped_params": []
+  },
+  {
    "module": "places",
    "action": "list_places",
    "cn": "共享地点库",
@@ -1290,7 +1306,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/addresses",
-   "at": "backend/app/api/v1/shipper.py:47",
+   "at": "backend/app/api/v1/shipper.py:59",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1306,7 +1322,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/contacts",
-   "at": "backend/app/api/v1/shipper.py:188",
+   "at": "backend/app/api/v1/shipper.py:200",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1322,7 +1338,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/locations",
-   "at": "backend/app/api/v1/shipper.py:292",
+   "at": "backend/app/api/v1/shipper.py:304",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1600,7 +1616,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:58",
+   "at": "backend/app/api/v1/users.py:59",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -1660,7 +1676,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users/me",
-   "at": "backend/app/api/v1/users.py:53",
+   "at": "backend/app/api/v1/users.py:54",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
