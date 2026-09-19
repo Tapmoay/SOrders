@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- **debug 变体专用**：本地联调允许明文，发布包拿不到这一份。
+
+     为什么要单独一份（2026-09-19 全项目报告 C-1 的修法第 2 步）：
+     原来 `main` 里写的是 `cleartextTrafficPermitted="true"`（**全局许可**），于是发布包也能走明文 ——
+     同网段的人 ARP 欺骗就能读到派单员的 JWT、Socket.IO 握手里的同一个 token，
+     以及登录报文里的**明文口令**。而"本地联调需要明文"这个正当需求，把它挪到 debug 源集就够了：
+     发布包在**编译期**就不允许明文，不是靠"记得改回来"。
+
+     这里刻意用 `base-config` 全放行（而不是只列 10.0.2.2）：本地除了模拟器访问宿主机，
+     还会有局域网里的自建模型服务、局域网后端等，一个个列会天天漏。
+     release 变体是 `main/res/xml/network_security_config.xml`（只允许 TLS + 系统根 + 我们的 CA）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/sorders_ca" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

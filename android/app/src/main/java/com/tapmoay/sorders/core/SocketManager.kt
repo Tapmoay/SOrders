@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.core
 
+import com.tapmoay.sorders.BuildConfig
 import com.tapmoay.sorders.data.remote.dto.SocketEvent
 import android.util.Log
 import io.socket.client.IO
@@ -42,6 +43,15 @@ class SocketManager {
 
     fun connect(baseUrl: String, token: String, lastNotificationId: Long = 0L) {
         if (socket?.connected() == true) return
+        // ⛔ 发布包**只许走 TLS**（2026-09-19 全项目报告 C-1 的修法第 4 步）：
+        //    长连接上会下发站内信正文、单号、账本变动，走明文等于把这些内容广播给同网段。
+        //    HTTP 侧由 `network_security_config` 的 `cleartextTrafficPermitted=false` 兜住，
+        //    但 socket.io 是**另一条通道**（同一个 host 但独立建连），必须在代码里也拦一道。
+        //    debug 例外：本地联调就是 http://10.0.2.2:8000。
+        if (!BuildConfig.DEBUG && !baseUrl.startsWith("https://")) {
+            Log.e("SOrdersSock", "拒绝建立非 TLS 的长连接：$baseUrl（发布包只允许 https）")
+            return
+        }
         disconnect()
         refusalNotified = false
         try {

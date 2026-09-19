@@ -125,7 +125,7 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
     /** 下载并安装新版 APK（OkHttp 流式 → cacheDir/updates → 触发系统安装器） */
     fun downloadAndInstall(ctx: Context) {
         val info = latest ?: return
-        val url = info.url ?: return
+        val url = upgradeToTls(info.url ?: return)
         if (!url.startsWith("http")) {
             updateMessage = "下载地址无效"
             updateState = "latest"
@@ -149,6 +149,25 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
                 updateMessage = humanError(e)
                 updateState = "latest"
             }
+        }
+    }
+
+    /**
+     * 清单里的下载地址：**我们自己生产主机的 http 一律升级成 https**。
+     *
+     * ⚠️ 为什么必须这么绕（2026-09-19 全项目报告 C-1）：
+     * 新包的发布策略是 `cleartextTrafficPermitted=false`，而线上清单里的地址**必须保持 http** ——
+     * 老用户手机上的包**不认我们这张私有 CA**，清单改成 https 他们就再也下不到更新了。
+     * 所以：清单保持 http（老客户端能下），**新客户端自己升成 https**（它认这张 CA）。
+     * 顺带把"下载中途被换包"这条路堵上（剩下那道闸是安装器的签名校验）。
+     * 域名备案完成后这条依然成立（那时证书是公开 CA 签的，两种客户端都认）。
+     */
+    private fun upgradeToTls(raw: String): String {
+        val ourHosts = listOf("8.145.40.22", "sorders.top")
+        return if (raw.startsWith("http://") && ourHosts.any { raw.startsWith("http://$it") }) {
+            "https://" + raw.removePrefix("http://")
+        } else {
+            raw
         }
     }
 

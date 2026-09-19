@@ -1,6 +1,8 @@
 package com.tapmoay.sorders.ui.ai
 
 import androidx.compose.runtime.*
+
+import com.tapmoay.sorders.ai.AiEndpointRules
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.ai.AiContainer
@@ -358,9 +360,7 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         val url = baseUrl.trim()
         val key = apiKeyInput.trim()
         when {
-            url.isEmpty() -> { modelsError = "请先填写 Base URL"; return }
-            !url.startsWith("http://") && !url.startsWith("https://") ->
-                { modelsError = "Base URL 要以 http:// 或 https:// 开头"; return }
+            AiEndpointRules.error(url) != null -> { modelsError = AiEndpointRules.error(url)!!; return }
             key.isEmpty() -> { modelsError = "请先填写 API Key，再拉取模型列表"; return }
         }
         fetchingModels = true
@@ -460,9 +460,7 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         val url = baseUrl.trim()
         val m = model.trim()
         when {
-            url.isEmpty() -> { error = "请填写 Base URL"; return }
-            !url.startsWith("http://") && !url.startsWith("https://") ->
-                { error = "Base URL 要以 http:// 或 https:// 开头"; return }
+            AiEndpointRules.error(url) != null -> { error = AiEndpointRules.error(url)!!; return }
             m.isEmpty() -> { error = "请填写模型名，例如 " + AiKeyStore.DEFAULT_MODEL; return }
         }
         ai.keyStore.saveConfig(LlmConfig(url, "", m, thinkingLevel, ai.keyStore.windowFor(m)))
@@ -497,9 +495,8 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         val m = model.trim()
         val key = apiKeyInput.trim()
         when {
-            url.isEmpty() -> { testOk = false; testMessage = "请先填写 Base URL"; return }
-            !url.startsWith("http://") && !url.startsWith("https://") ->
-                { testOk = false; testMessage = "Base URL 要以 http:// 或 https:// 开头"; return }
+            AiEndpointRules.error(url) != null ->
+                { testOk = false; testMessage = AiEndpointRules.error(url)!!; return }
             m.isEmpty() -> { testOk = false; testMessage = "请先填写模型名"; return }
             key.isEmpty() -> { testOk = false; testMessage = "请先填写 API Key"; return }
         }

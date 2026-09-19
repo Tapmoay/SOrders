@@ -22,7 +22,12 @@ object ApiEndpoint {
             val resolved = when {
                 primary.startsWith("http://10.0.2.2") -> primary // 显式本地联调配置：不探测
                 probe(primary) -> primary
-                isEmulator() -> "http://10.0.2.2:8000" // 模拟器兜底：本机后端
+                // ⚠️ 兜底**只给 debug**（2026-09-19 全项目报告 C-1）：
+                //    发布包一旦允许"服务器不可达就退回本机 http://10.0.2.2:8000"，
+                //    ① 它会去连一个连不上的明文地址（发布包已经 `cleartextTrafficPermitted=false`）；
+                //    ② 更要紧的是语义：真机上的正式版**不许**因为探测失败就换一个后端 ——
+                //       那会让界面显示另一套数据而用户毫不知情。
+                BuildConfig.DEBUG && isEmulator() -> "http://10.0.2.2:8000"
                 else -> primary
             }
             _resolved = resolved

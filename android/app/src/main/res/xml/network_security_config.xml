@@ -1,10 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 开发期允许明文 HTTP（本地联调 FastAPI 后端）。
-     生产上线前：删除 cleartextTrafficPermitted 并启用 HTTPS 白名单。 -->
+<!-- 生产网络策略：**只允许 TLS**，并且只信任「系统根 + 本项目的私有 CA」。
+
+     ## 为什么是"IP + 私有 CA"而不是域名（2026-09-19 实测）
+     `sorders.top` **没有 ICP 备案**，阿里云按 Host/SNI 拦截：带 `Host: sorders.top` 请求本机 IP
+     的 80 端口会拿到他们那张「Non-compliance ICP Filing」403 页，443 也被按 SNI 打断。
+     后果是 Let's Encrypt 的 HTTP-01 挑战（走 80）**从 2026-07-11 起一直失败**，那张证书过期
+     两个多月没人发现 —— 配置都在，就是不通。
+     所以 App 走 `https://8.145.40.22`：证书由项目自己的 CA 签（SAN 含 `IP:8.145.40.22`），
+     App 把这张 CA 当信任锚。**备案做完之后换成域名证书即可，不必改这份策略。**
+
+     ## 为什么这不是"放松校验"
+     - `cleartextTrafficPermitted="false"`：**编译期就不允许明文**，中间人无法把 App 降级回 HTTP；
+     - 只多信任一张**自己的 CA**，系统根证书照旧信任；
+     - 私有 CA 私钥在服务器 `/etc/nginx/ssl/`（600）并已备份 —— 拿到它才能伪造证书，
+       而它签出的叶子还必须匹配 `IP:8.145.40.22` 这个 SAN。
+     ⛔ 换掉这张 CA（或换签发者）**必须同时发新版 App**：老包只认旧 CA。
+     换**叶子证书**不用发版（只要仍由这张 CA 签），这也是当初选"私有 CA + 叶子"而不是自签证书的原因。
+
+     ## 本地开发
+     `src/debug/res/xml/network_security_config.xml` 只对 10.0.2.2 / localhost 开明文
+     —— 发布包在编译期就不可能允许明文（2026-09-19 全项目报告 C-1 的修法第 2 步）。
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="@raw/sorders_ca" />
         </trust-anchors>
     </base-config>
 </network-security-config>

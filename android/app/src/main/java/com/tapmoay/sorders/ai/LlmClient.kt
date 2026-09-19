@@ -768,9 +768,8 @@ class LlmClient(
         if (cfg.model.isBlank()) {
             return ChatResult.Failure("模型名为空，请先到「AI 助手设置」填写。", null)
         }
-        val url = cfg.endpoint
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            return ChatResult.Failure("Base URL 必须以 http:// 或 https:// 开头（当前：${cfg.baseUrl}）", null)
+        AiEndpointRules.error(cfg.endpoint)?.let {
+            return ChatResult.Failure(it, null)
         }
         return null
     }
@@ -1127,10 +1126,8 @@ class LlmClient(
             if (apiKey.isBlank()) {
                 return ModelListResult.Failure("请先填写 API Key，再拉取模型列表")
             }
+            AiEndpointRules.error(baseUrl)?.let { return ModelListResult.Failure(it) }
             val url = modelsEndpoint(baseUrl)
-            if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                return ModelListResult.Failure("Base URL 要以 http:// 或 https:// 开头（当前：$baseUrl）")
-            }
             val request = Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer " + apiKey.trim())
