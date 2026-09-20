@@ -84,7 +84,6 @@ import com.tapmoay.sorders.ai.AiPendingWrite
 import com.tapmoay.sorders.ai.AiRecentPhotos
 import com.tapmoay.sorders.ai.AiRole
 import com.tapmoay.sorders.ai.AiVision
-import com.tapmoay.sorders.ai.AiWritePreviewStore
 import com.tapmoay.sorders.ai.AiWriteRisk
 import com.tapmoay.sorders.ai.ThinkingLevel
 import com.tapmoay.sorders.ui.common.AppTopBar
@@ -1867,8 +1866,12 @@ private fun WriteCard(
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // ⚠️ 有效期按**这张卡自己的窗口**算（`createdAtMs → expiresAtMs`），不是照抄
+            //    `AiWritePreviewStore.DEFAULT_TTL_MS`：store 的 TTL 是可配置的（单测就传过别的值），
+            //    照抄默认值的后果是"卡片上那句有效期是假话" —— 而用户是拿它当真的看的。
+            val validMinutes = ((p.expiresAtMs - p.createdAtMs) / 60_000L).coerceAtLeast(1L)
             Text(
-                "${AiWritePreviewStore.DEFAULT_TTL_MS / 60000} 分钟内有效，过期后重新说一次就行。",
+                "$validMinutes 分钟内有效，过期后重新说一次就行。",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

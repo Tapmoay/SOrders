@@ -204,11 +204,14 @@ data class AiPendingWrite(
     val createdAtMs: Long,
     val expiresAtMs: Long,
 ) {
-    fun expired(now: Long = System.currentTimeMillis()): Boolean = now > expiresAtMs
-
-    /** 还剩几秒（卡片上写"x 分钟内有效"）。已过期返回 0。 */
-    fun secondsLeft(now: Long = System.currentTimeMillis()): Long =
-        ((expiresAtMs - now) / 1000L).coerceAtLeast(0L)
+    // ⛔ 这里**删掉过**两个方法（2026-09-21 精简轮）：`expired(now)` 与 `secondsLeft(now)` ——
+    //    全仓搜只有它们自己的声明（界面从来没有按"还剩几秒"画过东西；过期与否由
+    //    `AiWritePreviewStore.take()` 在数据层保证，那才是唯一权威）。
+    //    ⚠️ 顺带修掉一处"界面上的有效期是假话"：卡片那句有效期原来照抄
+    //    `AiWritePreviewStore.DEFAULT_TTL_MS`（store 的**默认值**），而 store 的 TTL 是可配置的
+    //    （单测就传过别的值）→ 一旦有人配了别的 TTL，卡片上那句"5 分钟内有效"就是假的，
+    //    而用户是拿它当真的看的。现在界面按**这张卡自己的窗口**（`expiresAtMs - createdAtMs`）算。
+    //    要恢复倒计时的话：在这儿加回 `secondsLeft`，界面按它画（记得它要随时间刷新）。
 }
 
 /**

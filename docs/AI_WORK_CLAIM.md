@@ -411,6 +411,20 @@
 **验证**：`_check_all.py` **51/51** · `_reverse_verify_generated_artifacts.py` **6/6** ·
 `--only ai/_check_role_parity` 与 `--only qa/_check_dead_code` 都能用（各 1/1 通过）· 钱的对账不变。
 
+### 第十六轮：把确认卡那句「5 分钟内有效」改成**按这张卡自己算**（并删掉两个没人用的辅助方法）
+
+| 改的 | 为什么 |
+| --- | --- |
+| `ui/ai/AiChatScreen.kt` | 有效期文案原来照抄 `AiWritePreviewStore.DEFAULT_TTL_MS`（store 的**默认值**），而 store 的 TTL 是可配置的（单测就传过别的值）→ 一旦有人配了别的 TTL，卡片上那句"5 分钟内有效"就是**假话**，而用户是拿它当真的看的。现在按**这张卡自己的窗口**（`expiresAtMs - createdAtMs`）算 |
+| `ai/AiWrite.kt` | 顺带删掉 `expired(now)` 与 `secondsLeft(now)`：全仓搜**只有它们自己的声明**（界面从来没按"还剩几秒"画过东西；过期与否由 `AiWritePreviewStore.take()` 在数据层保证，那才是唯一权威）。原地留注释写清"要恢复倒计时就加回 `secondsLeft`" |
+
+⚠️ **删完之后红线当场抓到一件事**（这正是它存在的意义）：`AiChatScreen.kt` 里的
+`import com.tapmoay.sorders.ai.AiWritePreviewStore` 变成了**没被用到的 import** ——
+`_check_dead_code.py` 报红、删掉后 51/51。（顺带说明：这一步**没人会记得手动做**。）
+
+**验证**：`:app:assembleEmuDebug` + `:app:testEmuDebugUnitTest` **BUILD SUCCESSFUL** · 装到
+emulator-5556 启动 smoke 通过（`topResumedActivity=MainActivity`、无 FATAL）· `_check_all.py` **51/51**。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
