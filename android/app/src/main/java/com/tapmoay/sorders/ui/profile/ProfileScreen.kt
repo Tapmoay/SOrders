@@ -245,12 +245,14 @@ fun ProfileScreen(    container: AppContainer,
                             .fillMaxWidth(),
                     )
                     HorizontalDivider()
-                    // 「提示一直显示」——App 里那些解释性的话默认**最多出现 3 次**就消失
+                    // 「提示」——App 里那些解释性的话默认**最多出现 3 次**就消失
                     // （用户 2026-09-20：「第四次就不会有了」）；这个开关打开 = 不走那个机制、一直显示。
                     // 默认**关**（他要的就是"默认关"），所以开关本身不需要解释文字，
                     // 副标题只在打开时说一句"一直显示"，关着时说"说三次就不说了"。
+                    // 标题只留「提示」两个字（用户 2026-09-20 看真机截图：「你只要把那个标题改成
+                    // 提示就可以了」——原来写「提示一直显示」，和副标题的"一直显示"重复了一遍）。
                     ListItem(
-                        headlineContent = { Text("提示一直显示") },
+                        headlineContent = { Text("提示") },
                         supportingContent = {
                             Text(if (hintAlwaysOn) "一直显示" else "说三次就不说了")
                         },

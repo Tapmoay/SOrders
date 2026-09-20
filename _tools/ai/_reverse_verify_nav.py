@@ -85,9 +85,61 @@ MUTATIONS = [
     (
         "去掉防咬穿的夹取（栏高被改小时缺口会切穿导航栏）",
         NAV,
-        "        val scale = if (g.depth > size.height) size.height / g.depth else 1.0",
-        "        val scale = 1.0",
+        "        val fitHeight = if (g.depth > 0) size.height / g.depth else 1.0\n"
+        "        val fitWidth = if (g.filletDx > 0) availHalf / g.filletDx else 1.0\n"
+        "        val scale = minOf(1.0, fitHeight, fitWidth).toFloat()",
+        "        val scale = 1.0f",
         "有防咬穿的夹取",
+    ),
+    (
+        "过渡半径退回一个随手挑的小值 6dp（切点跑回大圆上半圈，留下一小块喙）",
+        NAV,
+        "        val f = fillet?.toDouble() ?: centerY",
+        "        val f = fillet?.toDouble() ?: 6.0",
+        "默认过渡半径 = 圆心深度",
+    ),
+    (
+        "过渡半径又变回一个常量（等于给'切点落在哪儿'开了个能改错的旋钮）",
+        NAV,
+        "    val CornerRadius = 18.dp\n",
+        "    val CornerRadius = 18.dp\n    val Fillet = 6.dp\n",
+        "过渡半径没有常量",
+    ),
+    (
+        "圆角圆心不再按「与上沿、大圆同时相切」解（随手拿交加点一截当圆心）",
+        NAV,
+        "        val filletDx = sqrt(halfWidth * halfWidth + 2 * f * (r + centerY))",
+        "        val filletDx = halfWidth + f",
+        "过渡圆心按",
+    ),
+    (
+        "左圆角弧反着扫（arcTo 会先补一条弦横在缺口上）",
+        NAV,
+        "                    startAngleDegrees = 270f,\n"
+        "                    sweepAngleDegrees = g.filletSweepAngle.toFloat(),",
+        "                    startAngleDegrees = 270f,\n"
+        "                    sweepAngleDegrees = -g.filletSweepAngle.toFloat(),",
+        "左圆角弧从顶点",
+    ),
+    (
+        "右边那段圆角不画了（一边圆一边尖，比不做还难看）",
+        NAV,
+        "                // 右圆角弧：从大圆上的切点顺时针扫回顶点（270°），对称的另一半\n"
+        "                arcTo(\n"
+        "                    rect = Rect(left = cx + fx - f, top = 0f, right = cx + fx + f, bottom = 2f * f),\n"
+        "                    startAngleDegrees = g.rightFilletStartAngle.toFloat(),\n"
+        "                    sweepAngleDegrees = g.filletSweepAngle.toFloat(),\n"
+        "                    forceMoveTo = false,\n"
+        "                )\n",
+        "",
+        "两侧各有一段圆角弧",
+    ),
+    (
+        "圆角半径不吃缩放（栏高/宽度被夹取时，圆角与大圆不再相切）",
+        NAV,
+        "        val f = (g.filletRadius * scale).toFloat()",
+        "        val f = g.filletRadius.toFloat()",
+        "夹取时三个尺寸",
     ),
     (
         "圆钮改成「整个浮在栏外」（凸出高度＝直径，凹口退化成看不见的小坑）",

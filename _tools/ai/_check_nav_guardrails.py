@@ -11,6 +11,12 @@
 2. 凹口几何必须**从圆钮尺寸算**（写死数字的话，改圆钮大小就会对不上）；
 3. 几何数字本身必须落在"看得见"的区间里（太浅＝白做，太深＝把栏咬穿）。
 
+2026-09-20 加了第四件：凹口两侧的**圆滑过渡**（用户：「它那个圆圈图标它是被 2 个矩形
+像是框在一起的…那个角是尖尖，把它做一个曲线过渡」）。过渡的判据不是"像不像"，而是
+**相切**——圆角要同时与上沿和大圆相切，少切一个那边就还是尖角。所以这里钉：
+过渡常量在 3~10dp、圆心是按相切公式算的（不是随手一个数）、上沿开口因此被撑宽
+（撑不宽就说明圆角没生效）、左右两段弧都在、扫角方向是顺时针（反了 arcTo 会补一条弦）。
+
 用法：python _tools/ai/_check_nav_guardrails.py     # 全过 → 退出码 0
 """
 import re
@@ -93,10 +99,46 @@ def main() -> int:
     c.present("用的是 AiNavButton 的真实尺寸常量", nav, r"AiNavButton\.Size")
     c.present("凸出高度也取同一个常量（两处必须一致）", nav, r"AiNavButton\.Protrude")
     c.present("圆心取「半径 − 凸出」＝在栏内侧，而不是在栏外", nav, r"val centerY = radius - buttonTopAboveEdge\.toDouble\(\)")
-    c.present("有防咬穿的夹取（栏高被改小时不会切穿）", nav, r"if \(g\.depth > size\.height\)")
+    c.present("有防咬穿的夹取（栏高被改小时不会切穿）", nav, r"size\.height / g\.depth")
+    c.present(
+        "夹取时三个尺寸**同比例**缩放（半径/圆心/圆角分开夹取=圆角不再与大圆相切）",
+        nav,
+        r"g\.filletRadius \* scale",
+    )
     c.present("弧从左边交点逆时针画（顺时针会补一条弦把缺口盖住）", nav, r"startAngleDegrees = g\.leftAngle")
     c.present("凹口有可见缝隙常量", nav, r"val Gap = \d+\.dp")
     c.present("外角有圆角（参照图那块白是圆角的）", nav, r"val CornerRadius = \d+\.dp")
+
+    # ---- §2b 圆滑过渡：几何必须是"相切"算出来的，两段弧都要在 ----
+    c.absent(
+        "过渡半径没有常量（它由两个相切条件解出来；写成常量 = 给'切点落在哪儿'开了个能改错的旋钮）",
+        nav,
+        r"val Fillet = \d",
+    )
+    c.present(
+        "默认过渡半径 = 圆心深度（圆角圆心与大圆圆心等高 ⇒ 切点落在大圆最宽处，旧方角整块消失）",
+        nav,
+        r"val f = fillet\?\.toDouble\(\) \?: centerY",
+    )
+    c.present(
+        "过渡圆心按「与上沿相切 + 与大圆相切」两个条件解出来（halfWidth² + 2f(r + centerY)）",
+        nav,
+        r"2 \* f \* \(r \+ centerY\)",
+    )
+    c.present("大圆弧的起点换成与圆角的切点（不再是上沿交点）", nav, r"val startAngle = -toCenterDeg")
+    c.present(
+        "左圆角弧从顶点（270°）顺时针扫到切点",
+        nav,
+        r"startAngleDegrees = 270f,\s*sweepAngleDegrees = g\.filletSweepAngle",
+    )
+    c.present("右圆角弧从切点扫回顶点", nav, r"startAngleDegrees = g\.rightFilletStartAngle")
+    n_fillet = len(re.findall(r"sweepAngleDegrees = g\.filletSweepAngle", nav))
+    c.ok(
+        f"两侧各有一段圆角弧（实测 {n_fillet} 处，只做一边＝一边圆一边尖）",
+        n_fillet == 2,
+        f"实际 {n_fillet} 处",
+    )
+    c.present("缺口用同一个 scale 缩放（三个 fit 取最小）", nav, r"minOf\(1\.0, fitHeight, fitWidth\)")
 
     # ---- §3 几何数字落在"看得见"的区间（真机量过：缺口深 57dp、半宽 34dp） ----
     size = re.search(r"val Size = (\d+)\.dp", modules)
@@ -123,14 +165,68 @@ def main() -> int:
             f"实际 {half:.1f} vs {radius}",
         )
 
+        # ---- 圆滑过渡（两侧的圆角）：这几个数是"过渡到底做没做对"的判据 ----
+        # 过渡半径**不是常量**，而是"圆心深度"（= 钮半径 − 凸出）：只有取这个值，切点才
+        # 落在大圆最宽处，旧形状那块"方角"才会整块消失；取小了切点退回大圆上半圈、
+        # 留下一小块"喙"加一条缝（6dp 时喙宽 1.2dp——真机看不出来，量尺量得出来）。
+        f = center
+        # 切点在最宽处的必然结果：上沿开口半宽 = 半径 + 缝 + 圆心深度
+        xf = radius + g + f
+        c.ok(f"过渡半径 = 圆心深度（{f:.0f}dp ≥ 8dp，太小就没有过渡的样子）", f >= 8.0, f"实际 {f}dp")
+        c.ok(
+            f"过渡真的把上沿开口撑宽了（{xf:.0f}dp > 交点 {half:.0f}dp）＝不是尖角",
+            xf > half,
+            f"实际 {xf:.1f} vs {half:.1f}（相等 ⇒ 圆角没生效）",
+        )
+        # 5 槽各 72dp（360dp 宽的屏），左右两个 Tab 的图标内沿在 ±60dp：
+        # 开口半宽超过 58dp 就缺到图标脸上了
+        c.ok(f"开口没啃到左右两个 Tab：半宽 {xf:.0f}dp < 58dp", xf < 58.0, f"实际 {xf:.1f}dp")
+        # 切点在大圆最宽处 ⇒ 与大圆圆心等高（= 圆心深度），且落在栏内（0 < 切点 < 缺口底）
+        c.ok(
+            f"切点与大圆圆心等高（{f:.0f}dp）且落在栏内（< 深 {depth:.0f}dp）",
+            0.0 < f < depth,
+            f"实际 {f:.1f}dp",
+        )
+
     # ---- §4 单测与量尺（这块形状画错了不会报错，只能靠这两个） ----
-    for fn in ("centerY", "radius", "halfWidth", "depth", "startAngle", "sweepAngle", "leftAngle"):
+    for fn in (
+        "centerY",
+        "radius",
+        "halfWidth",
+        "depth",
+        "startAngle",
+        "sweepAngle",
+        "leftAngle",
+        "filletRadius",
+        "filletDx",
+        "filletSweepAngle",
+        "rightFilletStartAngle",
+    ):
         c.present(f"几何字段 [{fn}] 有单测", test, rf"{fn}")
     c.present("测试里钉住「圆心必须在栏内」（第一版就错在这）", test, r"圆心必须在栏内")
     c.present("测试里钉住「太浅了看不见」", test, r"太浅了看不见")
+    # 过渡的判据必须落在"相切"上，而不是"看起来圆了"——相切是唯一能算的东西
+    c.present("测试钉住「圆角与上沿和大圆同时相切」", test, r"圆滑过渡与上沿和大圆同时相切")
+    c.present("测试钉住「开口被撑宽＝圆角真的生效了」", test, r"过渡把上沿的开口撑宽")
+    c.present("测试钉住「过渡半径 = 0 时逐位退回尖角」（对照组）", test, r"fillet = 0\.0")
+    c.present("测试钉住「圆角弧的扫角方向」（反了会补一条弦）", test, r"圆角弧的扫角是顺时针的")
     c.ok("有真机像素量尺（截图上量缺口深浅）", MEASURE.exists(), str(MEASURE))
     if MEASURE.exists():
-        c.present("量尺有判据（太浅就报失败，不靠肉眼）", read(MEASURE), r"凹口太浅/没画出来")
+        measure = read(MEASURE)
+        c.present("量尺有判据（太浅就报失败，不靠肉眼）", measure, r"凹口太浅/没画出来")
+        c.present("量尺有「过渡不是尖角」的像素判据", measure, r"两侧还是尖角")
+    # 判据本身也要有"已知答案"的对照：同一套公式画两张图（带过渡/尖角），
+    # 要求量尺前者过、后者挂。**造不出对照图 = 那把尺子可能只是永远绿**。
+    render = ROOT / "_tools/notify/_notch_render.py"
+    c.ok("量尺有已知答案的对照图（_notch_render.py --check）", render.exists(), str(render))
+    if render.exists():
+        src = read(render)
+        c.present("对照图用的是同一套几何公式", src, r"def geometry\(fillet: float\)")
+        c.present(
+            "对照图有判据（分不开就报失败）",
+            src,
+            r"量尺的判据分不开这两张图",
+        )
 
     # ---- §5 能力声明必须算出来（这块最容易烂：手写的能力承诺会和真实能力走散） ----
     settings = strip_comments(read(UI / "ai/AiSettingsScreen.kt"))
