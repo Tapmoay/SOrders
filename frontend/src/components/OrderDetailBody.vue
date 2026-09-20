@@ -73,7 +73,11 @@ async function tryDeleteCancelled() {
   try {
     await showConfirmDialog({
       title: '删除订单',
-      message: '删除后不可恢复，确定删除该已撤销订单？',
+      // ⛔ 这句原来写的是「删除后不可恢复」，与后端**相反**：`DELETE /orders/{id}` 是**软删除**
+      //    （进隔离区 30 天，用户看不见、派单员可查可恢复，到期才物理清理 —— 见
+      //    `orders.py::delete_cancelled_order` 与 `services/data_retention.py`）。
+      //    按"不可恢复"说，用户会以为删掉就没了 —— 与数据保留策略当场打架。
+      message: '删除后订单进入回收站（30 天内可由派单员恢复），确定删除该已撤销订单？',
     })
     await deleteCancelledOrder(o.id)
     router.back()

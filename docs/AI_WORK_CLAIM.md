@@ -240,6 +240,11 @@
 
 **验证**：`_reverse_verify_ai_settings.py` **3/3 注入报红 + 逐字节还原** · `_check_ai_guardrails.py` **1102 项全过** · `_check_all.py` **50/50**。
 
+**顺手修掉一句与后端相反的用户提示**（H5 `OrderDetailBody.vue`）：删除确认框写的是
+「**删除后不可恢复**」，而后端 `DELETE /orders/{id}` 是**软删除**（`data_retention.py::SOFT_DELETE_RETENTION_DAYS = 30`：
+进隔离区 30 天、用户不可见、**派单员可查可恢复**，到期才物理清理）。按"不可恢复"说，
+用户会以为删掉就没了 —— 与数据保留策略当场打架。改成「删除后订单进入回收站（30 天内可由派单员恢复）」。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
