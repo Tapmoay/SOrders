@@ -62,7 +62,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +76,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import com.tapmoay.sorders.ai.AiAttachment
 import com.tapmoay.sorders.ai.AiAttachmentLoader
+import com.tapmoay.sorders.ai.AiCardTable
 import com.tapmoay.sorders.ai.AiContainer
 import com.tapmoay.sorders.ai.AiContext
 import com.tapmoay.sorders.ai.AiConversations
@@ -1852,13 +1856,7 @@ private fun WriteCard(
                     .heightIn(max = DetailMaxHeight)
                     .verticalScroll(rememberScrollState()),
             ) {
-                p.detailLines.forEach { line ->
-                    Text(
-                        line,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                CardInfoTable(p.detailLines)
             }
 
             Spacer(Modifier.height(8.dp))
@@ -1910,6 +1908,92 @@ private fun WriteCard(
         }
     }
 }
+
+/**
+ * 确认卡的**信息区**：以**两列表格**显示（标签 / 值）—— 用户 2026-09-20：
+ * > 所有卡片只要是那里显示的信息，尽量都使用表格的形式…核心目标是**将信息正确且明显地展示出来**。
+ * > 如果只是文字的信息的话太看不清了。
+ *
+ * ### 与聊天里的 Markdown 表格（`AiRichText.MdTable`）为什么不是同一个渲染器
+ * 那张是**数据网格**：列数不定、要实测列宽 + 横向滚动 + 合计行。
+ * 这一张是**标签-值表**：永远两列，而值的长度不可控 —— 所以值那一列必须**换行**（不是横向滚）：
+ * 把「这单的导航、货主的地点库、全库共享地点库」滚出屏幕，比纯文字还难看。
+ * 两者共用的是**视觉语言**（1dp 分隔线 / 分段底 / 取色），不是同一段代码。
+ *
+ * ### 标签列宽度：量出来，不是写死
+ * 标签从 2 个字（「货主」）到 10 个字都有，写死 96dp 会让长的换行、短的留一片空。
+ * 所以用 `rememberTextMeasurer` 把最长那个标签量一遍再夹到 [LabelMin]/[LabelMax]
+ * —— 与 `MdTable` 量列宽同一个手法。
+ *
+ * ⚠️ 值那一列 `weight(1f)` 独占剩余宽度：给它固定宽度的话长值会被截断，
+ *    而这一行恰恰是用户要核对的**后果**。
+ */
+@Composable
+private fun CardInfoTable(detailLines: List<String>) {
+    val rows = remember(detailLines) { AiCardTable.rows(detailLines) }
+    if (rows.isEmpty()) return
+
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.bodySmall
+    val labelWidth = remember(rows, density) {
+        val widest = rows.filterIsInstance<AiCardTable.Row.Pair>()
+            .maxOfOrNull { measurer.measure(AnnotatedString(it.label), labelStyle).size.width } ?: 0
+        with(density) { (widest.toDp() + 12.dp).coerceIn(LabelMin, LabelMax) }
+    }
+
+    val line = MaterialTheme.colorScheme.outlineVariant
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val sectionBg = MaterialTheme.colorScheme.surfaceContainerHigh
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, line, RoundedCornerShape(10.dp)),
+    ) {
+        rows.forEachIndexed { i, row ->
+            if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+            when (row) {
+                is AiCardTable.Row.Section -> Text(
+                    row.text,
+                    style = labelStyle,
+                    fontWeight = FontWeight.SemiBold,
+                    color = labelColor,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(sectionBg)
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                )
+
+                is AiCardTable.Row.Pair -> Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(row.label, style = labelStyle, color = labelColor, modifier = Modifier.width(labelWidth))
+                    Text(
+                        row.value,
+                        style = labelStyle,
+                        // 值用正常前景色 + 中黑：一眼看出"这是这一行的答案"
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                is AiCardTable.Row.Full -> Text(
+                    row.text,
+                    style = labelStyle,
+                    color = labelColor,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                )
+            }
+        }
+    }
+}
+
+/** 标签列宽度的上下限（量出来的宽度夹在这个区间里）。 */
+private val LabelMin = 64.dp
+private val LabelMax = 132.dp
 
 @Composable
 private fun InputBar(

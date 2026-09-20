@@ -31,6 +31,8 @@ SERVICE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteServic
 REVERT = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiRevert.kt"
 # 资源表（撤回卡文案 + 「逆操作是谁」都在这里声明）
 RESOURCES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiResources.kt"
+# 确认卡的**渲染处**：信息区是"表格"还是"逐行纯文本"就看这一行（2026-09-20）
+CHAT = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatScreen.kt"
 
 
 def read_src(p: Path):
@@ -152,6 +154,18 @@ MUTATIONS = [
         "paired(AiWrites.CONTACT_RESTORE, AiInverse(AiWrites.CONTACT_DELETE,",
         "paired(AiWrites.CONTACT_RESTORE, AiInverse(AiWrites.CONTACT_RESTORE,",
         "没有任何动作把逆操作声明成它自己",
+    ),
+    (
+        # 2026-09-20：卡片**信息区**改成表格显示（用户：「所有卡片…尽量都使用表格的形式…
+        # 核心目标是将信息正确且明显地展示出来」）。这条注入把它退回"逐行画纯文本"
+        # ——正是用户嫌看不清的那个形态，检查必须报红。
+        "卡片信息区退回「逐行画纯文本」（用户嫌看不清的那个形态）",
+        CHAT,
+        "                CardInfoTable(p.detailLines)",
+        "                p.detailLines.forEach { line ->\n"
+        "                    Text(line, style = MaterialTheme.typography.bodySmall)\n"
+        "                }",
+        "卡片信息区不许退回「逐行画纯文本」",
     ),
 ]
 

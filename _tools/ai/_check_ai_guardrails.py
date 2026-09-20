@@ -755,8 +755,28 @@ def main() -> int:
         f"实际 {sum(n for _, n, _ in md_files)} 块：{md_files}",
     )
 
-    # ---- 2e-③e 撤回卡与「撤不回来」的理由（`AiRevert*.kt`）也不许有 Markdown ----
+    # ---- 2e-③d-2 卡片「信息区」用表格显示（用户 2026-09-20）----
     #
+    # 用户截了一张确认卡、把信息区框出来说：
+    # > 所有卡片只要是那里显示的信息，尽量都使用表格的形式…核心目标是**将信息正确且明显地展示出来**。
+    # > 如果只是文字的信息的话太看不清了。
+    #
+    # 那一块原来是 `p.detailLines.forEach { Text(it) }` —— 一列同样的灰字，
+    # 标签和值只能一行行读。现在**解析成「标签 / 值」两列表格**（`AiCardTable`），
+    # 好处是**一次改动覆盖全部 ~50 个处理器**（不用改它们一个字）。
+    #
+    # 钉三件事：① 信息区走表格；② 解析只有一处实现；③ **不许退回去逐行画纯文本**
+    # （那正是用户说"看不清"的形态）。反向验证：`_reverse_verify_card_markdown.py`。
+    c.present("卡片信息区走表格渲染",
+              read(UI / "ai/AiChatScreen.kt"), r"CardInfoTable\(p\.detailLines\)")
+    c.present("「标签 / 值」的解析只有一处实现",
+              read(AI / "AiCardTable.kt"), r"fun rows\(lines: List<String>\): List<Row>")
+    c.absent("卡片信息区不许退回「逐行画纯文本」",
+             read(UI / "ai/AiChatScreen.kt"), r"p\.detailLines\.forEach \{ line ->")
+    c.present("表格只有一处渲染（`CardInfoTable` 只被调用一次）",
+              read(UI / "ai/AiChatScreen.kt"), r"private fun CardInfoTable\(")
+
+    # ---- 2e-③e 撤回卡与「撤不回来」的理由（`AiRevert*.kt`）也不许有 Markdown ----    #
     # ⚠️⚠️ v3.44 真机实测抓到的**第 4 次**同一类事故：重排商品分类的确认卡最后一行
     #    印着字面的 `**整份名册的顺序**`（截图 `_archive/ai-e2e-v343/t3-02-card.png`），
     #    而这一段的所有检查**全是绿的**——因为它们的文件清单写的是
