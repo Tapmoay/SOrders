@@ -1110,12 +1110,21 @@ def main() -> int:
     #
     # 两个要求都成立，所以规则从「**从来不许**」改成「**必须在开关后面**」：
     #   · 成本价一旦进模型上下文就会留在聊天记录里、可能被截图外发 →
-    #     所以它必须是**用户主动打开**的（`AiKeyStore::costVisible`），默认关；
-    #   · 而默认关着的时候，**数据源那一层**必须真的把它滤掉 ——
+    #     所以它必须是一个**用户能关的开关**（`AiKeyStore::costVisible`）；
+    #   · 开关关着的时候，**数据源那一层**必须真的把它滤掉 ——
     #     只靠"动作清单里不列它"是不够的（模型仍能从提示词知道它存在，也能被越权调用）。
     #   ⚠️ 判据要盯着**这两头**：一头是"有开关"，另一头是"开关关着时真的传不出去"。
-    c.present("成本开关默认关（升级不会替用户把成本价发出去）",
-              keystore, r"costVisible\(\): Boolean = prefs\.getBoolean\(KEY_COST_VISIBLE, false\)")
+    #
+    # ⚠️ 2026-09-20 用户改了**默认值**（「对那个默认也要开起来」，接着上一句
+    #    「派单员所有 AI 功能全都是默认开启」）→ 原来的"一律默认关"换成"按角色"：
+    #    派单员默认开、其余角色默认关。开关本身与"关着必滤"这两条**都没动**。
+    c.present("成本开关的默认值按角色（派单员默认开，其余角色默认关）",
+              keystore, r"fun defaultCostVisible\(role: AiRole\?\): Boolean = role == AiRole\.DISPATCHER")
+    c.present("没设置过时才用默认值（用户关过就听用户的）",
+              keystore, r"if \(prefs\.contains\(KEY_COST_VISIBLE\)\) return prefs\.getBoolean\(KEY_COST_VISIBLE, false\)")
+    c.present("两个读侧调用点都把角色传进去了（否则派单员的默认值不生效）",
+              read(AI / "AiContainer.kt") + read(UI / "ai/AiSettingsViewModel.kt"),
+              r"costVisible\(role\(\)\)|costVisible\(ai\.currentRole\)")
     c.present("成本价与进货价**在动作参数表里**（否则 AI 操作不了这两个功能）",
               wmaster, r'key = "cost_price"')
     c.present("进货价同样在参数表里", wmaster, r'key = "unit_cost"')

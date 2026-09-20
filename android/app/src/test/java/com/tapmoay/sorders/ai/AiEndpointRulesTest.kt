@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ai
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -43,6 +44,20 @@ class AiEndpointRulesTest {
             AiKeyStore.OPT_IN_TOOLS,
             AiKeyStore.optInExclusion(AiRole.SHIPPER),
         )
+    }
+
+    /**
+     * 「允许 AI 查看成本与毛利」的默认值**按角色**（用户 2026-09-20：
+     * 「对那个默认也要开起来」，接着上一句「派单员所有 AI 功能全都是默认开启」）。
+     *
+     * 这条是**数据外发**开关，所以另外三个方向的判据在别处（`AiWriteTest` 的
+     * 「成本开关…」用例：关着必拒、打开才落库）——这里只钉"没设置过时是谁开着的"。
+     */
+    @Test
+    fun `成本开关默认值按角色：派单员开、其余角色关`() {
+        assertTrue("派单员默认应当开着", AiKeyStore.defaultCostVisible(AiRole.DISPATCHER))
+        assertFalse("货主不该默认把成本价发出去", AiKeyStore.defaultCostVisible(AiRole.SHIPPER))
+        assertFalse("认不出角色 = 不开（fail-closed）", AiKeyStore.defaultCostVisible(null))
     }
 
     @Test

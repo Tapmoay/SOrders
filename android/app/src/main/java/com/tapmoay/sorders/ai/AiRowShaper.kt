@@ -56,7 +56,7 @@ object AiRowShaper {
      * 2. **成本 / 毛利**：`cost*` / `profit` / `margin`，以及中文的成本/毛利。
      *    ⚠️ 这一类**可以由用户主动放开**（[allowCost]），见下面的说明。
      *
-     * @param allowCost 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**默认关**）。
+     * @param allowCost 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。
      *   ⛔ 默认必须是 `false`：成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
      *   那是**用户的数据外发决定**，不该由一次 App 升级替他做。
      *   放开之后 AI 才能回答"这个商品成本多少 / 这个月毛利多少 / 这货成本怎么变的"，

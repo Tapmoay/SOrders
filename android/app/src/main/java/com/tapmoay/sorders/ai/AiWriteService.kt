@@ -1744,7 +1744,7 @@ class AiWriteService(
      */
     private val roleProvider: () -> AiRole? = { AiRole.DISPATCHER },
     /**
-     * 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**默认关**）。
+     * 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。
      *
      * 这是成本那两扇门**唯一**的开关：`updateProduct` 的 `cost_price` 与
      * `createMovement` 的 `unit_cost` 都要过它。
@@ -1860,7 +1860,7 @@ class AiWriteService(
         // ---- 成本那道门（唯一一处）----
         // 用户 2026-09-19：「我们改过、新加的功能 AI 都要能操作」。成本这一块本来是拦死的
         // （成本价一旦进模型上下文就留在聊天记录里、可能被截图外发），现在改成**用户自己的开关**
-        // （`AiKeyStore::costVisible`，默认关）。开关关着时：**不发卡、直接说清楚**，
+        // （`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。开关关着时：**不发卡、直接说清楚**，
         // 而不是"发一张卡、点了什么都不发生"——后者是本项目最贵的一类坑。
         costFieldIn(params)?.let { field ->
             return AiWriteOutcome.Rejected(

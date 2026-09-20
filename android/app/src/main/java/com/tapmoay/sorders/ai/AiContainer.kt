@@ -133,8 +133,8 @@ class AiContainer(
             RepoWriteDataSource(repo, selfId = { userIdKey() }, context = appContext),
             writes,
             roleProvider = { role() },
-            // 成本那两扇门唯一的开关（默认关）：设置页一改立刻生效
-            allowCost = { keyStore.costVisible() },
+            // 成本那两扇门唯一的开关（**按角色给默认值**：派单员默认开，见 `defaultCostVisible`）
+            allowCost = { keyStore.costVisible(role()) },
         )
     }
 
@@ -146,7 +146,7 @@ class AiContainer(
             //    其余角色除写工具外全开）——见 `AiKeyStore.defaultEnabledTools`。
             enabledNames = { keyStore.enabledTools(role()) },
             readModules = { keyStore.enabledReadModules() },
-            allowCostProvider = { keyStore.costVisible() },
+            allowCostProvider = { keyStore.costVisible(role()) },
             rememberFact = { subject, fact -> rememberFact(subject, fact) },
             roleProvider = { role() },
             requestWrite = { actionId, params -> writeService.preview(actionId, params) },

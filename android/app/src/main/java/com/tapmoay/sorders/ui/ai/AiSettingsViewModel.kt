@@ -265,7 +265,7 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         habitEnabled = ai.habits.enabled()
         habitSummary = habitSummaryText()
         memoryEnabled = ai.keyStore.memoryEnabled()
-        costVisible = ai.keyStore.costVisible()
+        costVisible = ai.keyStore.costVisible(ai.currentRole)
         loadMemories()
         apiKeyInput = ai.keyStore.apiKey().orEmpty()
         hasStoredKey = apiKeyInput.isNotBlank()

@@ -284,17 +284,23 @@ class AiKeyStore(
     }
 
     /**
-     * **允许 AI 查看成本与毛利吗**（默认 `false`）。
+     * **允许 AI 查看成本与毛利吗** —— 没设置过时**按角色**给默认值：
+     * **派单员默认开**（用户 2026-09-20：「对那个默认也要开起来」，紧接着上一句
+     * 「派单员所有 AI 功能全都是默认开启」）；其余角色默认关。
      *
      * 成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
-     * 所以这是**用户的数据外发决定**，不该由一次 App 升级替他做（所以默认关）。
+     * 所以这仍然是**用户的数据外发决定**，开关留在设置页、随时能关；
+     * 差别只在"新账号第一次进来时它是开着的"（用户明确要求）。
      * 用户 2026-09-19 要求「我们改过、新加的功能 AI 都要能操作」，成本这块就靠这个开关放行：
      * 打开之后 AI 能读成本/毛利、查成本价历史、申请改成本价与录进货价。
      *
-     * ⚠️ 与 [OPT_IN_TOOLS] 同一套纪律：默认关、用户主动开；关着的时候
-     * `AiRowShaper.isHiddenField` 会把 `cost*` / `profit` / `margin` 全部拦掉。
+     * ⚠️ **关着的时候** `AiRowShaper.isHiddenField` 会把 `cost*` / `profit` / `margin` 全部拦掉
+     * （那条判据与默认值无关，永远成立 —— 见 `_check_ai_guardrails.py`）。
      */
-    fun costVisible(): Boolean = prefs.getBoolean(KEY_COST_VISIBLE, false)
+    fun costVisible(role: AiRole? = null): Boolean {
+        if (prefs.contains(KEY_COST_VISIBLE)) return prefs.getBoolean(KEY_COST_VISIBLE, false)
+        return defaultCostVisible(role)
+    }
 
     fun setCostVisible(on: Boolean) {
         prefs.edit().putBoolean(KEY_COST_VISIBLE, on).apply()
@@ -547,7 +553,7 @@ class AiKeyStore(
 
         /** 长期记忆总开关（默认开，见 [memoryEnabled]）。 */
         private const val KEY_MEMORY_ENABLED = "memory_enabled"
-        /** 「允许 AI 查看成本与毛利」——默认关，见 [costVisible]。 */
+        /** 「允许 AI 查看成本与毛利」——**派单员默认开**、其余角色默认关，见 [costVisible]。 */
         private const val KEY_COST_VISIBLE = "cost_visible"
 
         /**
@@ -630,5 +636,13 @@ class AiKeyStore(
          */
         fun optInExclusion(role: AiRole?): Set<String> =
             if (role == AiRole.DISPATCHER) emptySet() else OPT_IN_TOOLS
+
+        /**
+         * 「允许 AI 查看成本与毛利」**没设置过**时的默认值（纯函数，可单测）。
+         *
+         * 派单员 = `true`（用户 2026-09-20 的原话：「对那个默认也要开起来」——
+         * 紧接在「派单员所有 AI 功能全都是默认开启」之后）；其余角色 = `false`。
+         */
+        fun defaultCostVisible(role: AiRole?): Boolean = role == AiRole.DISPATCHER
     }
 }
