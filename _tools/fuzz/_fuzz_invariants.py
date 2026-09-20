@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -60,11 +61,68 @@ def check_negative(rep: Report, table: str, col: str, extra: str,
                  + "　—— 属于旧缺陷的遗留数据，建议清理或忽略（新行会单独报成缺陷）")
 
 
+#: 从"总数 SQL"里认出「哪张表的哪一列 + 拿哪些字面量去筛」。
+#: 认本文件里真实用到的两种形状：`upper(col) in ('A','B')` 与 `col = 'A'`（`upper()` 可选）——
+#: 认不出来就**返回 None**，那条判据仍然按"可疑"报（分辨不出就不许放行）。
+_IDLE_PAT = re.compile(
+    r"from\s+([a-z_][a-z0-9_]*)[\s\S]*?(?:upper\(\s*)?([a-z_][a-z0-9_]*)\s*\)?\s*"
+    r"(?:in\s*\(([^)]*)\)|=\s*'([^']*)')",
+    re.I,
+)
+_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$", re.I)
+
+
+def _idle_reason(total_sql: str | None) -> str | None:
+    """「这次为什么扫了 0 行」——能证明是"本机没有这类数据"就返回说明，否则返回 None。
+
+    ## 为什么需要它（2026-09-21）
+    原来的口径是"扫了 0 行 = 可疑"（这条口径救过命：5 条订单状态判据写成小写、
+    而库里是大写，于是永远扫描 0 行、永远报绿，改对大小写后立刻命中真缺陷）。
+    但本机库长期没有"已确认/已付款的结算单"，于是**4 条判据永远在喊可疑** ——
+    输出永远脏着，人就不看了（"永远红的检查＝没有检查"的镜像）。
+
+    判据（**分不清就返回 None，继续按可疑报**，不许放宽）：
+    · 从总数 SQL 里认出 `表.列` 与字面量；
+    · 查这一列在库里的**真实取值**；
+    · 字面量**大小写不敏感地命中**任一真实取值 → None（那 0 行本身就可疑，保持告警：
+      这正是当年"小写 vs 大写"那个坑的形状）；
+    · 一个都不命中 → 说明库里没有这一类数据（返回说明并**把真实取值打出来**，
+      人一眼能看出是"没数据"还是"字面量写错"）。
+    """
+    if not total_sql:
+        return None
+    m = _IDLE_PAT.search(total_sql)
+    if not m:
+        return None
+    table, col = m.group(1), m.group(2)
+    if not (_IDENT.match(table) and _IDENT.match(col)):
+        return None
+    raw = m.group(3) if m.group(3) is not None else f"'{m.group(4)}'"
+    lits = [s.strip().strip("'\"").lower() for s in raw.split(",") if s.strip()]
+    if not lits:
+        return None
+    try:
+        vals = sorted({
+            str(r[0]).lower() for r in db_q(f"select distinct {col} from {table}") if r[0] is not None
+        })
+    except Exception:
+        return None
+    if not vals:
+        return f"表 {table} 里一行都没有（本机库是新建/清空过的？）"
+    if any(lit in vals for lit in lits):
+        return None      # 字面量确实出现在库里 → 0 行这件事本身可疑，保持告警
+    return (
+        f"库里 {table}.{col} 的真实取值是 {vals}，没有 {lits} 这一类 —— "
+        "是「这段数据本机没有」，不是判据写错；等有这类数据时它会自动开始查"
+    )
+
+
 def check_ic(rep: Report, title: str, bad_sql: str, total_sql: str | None = None,
              detail_sql: str | None = None, limit: int = 5, kind: str = "BUG") -> None:
     """通用一条：`bad_sql` 返回坏行（可为 id+说明），`total_sql` 返回检查总数。
 
     ⚠️ 校准：坏行 == 总数 且 总数 > 0 时判为"判据写错"，不算缺陷。
+    ⚠️ 「总数为 0」分两种，见 [_idle_reason]：能证明本机没有这类数据 → 信息；否则 → 可疑。
     """
     try:
         bad = db_q(bad_sql)
@@ -86,6 +144,11 @@ def check_ic(rep: Report, title: str, bad_sql: str, total_sql: str | None = None
         #    而本地正是所有探针跑的地方）。改对大小写后立刻命中真缺陷（订单 581 账本重复行）。
         #    所以这里把"扫了 0 行"当成必须解释的信号，而不是 OK。
         if total == 0:
+            # 分辨"本机没有这类数据"（信息）与"判据可能写错"（可疑）：见 [_idle_reason]。
+            why = _idle_reason(total_sql)
+            if why is not None:
+                rep.info(f"这次没东西可查（扫了 0 行）：{title}", why)
+                return
             rep.risk(
                 f"判据空转（扫了 0 行，等于没查）：{title}",
                 f"总数 SQL = {total_sql!r} 返回 0 —— 要么这段数据真的没有，要么字面量与库里的值对不上"

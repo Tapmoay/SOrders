@@ -27,6 +27,8 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 HERE = Path(__file__).resolve().parent
 LIB = HERE / "_fuzzlib.py"
 CONTRACT = HERE / "_fuzz_contract.py"
+#: 不变式审计工具（④ 测的是它里面"扫了 0 行"的分辨判据）
+INV = HERE / "_fuzz_invariants.py"
 
 
 def run(script: Path, *args: str, timeout: int = 180) -> tuple[int, str]:
@@ -111,12 +113,44 @@ def main() -> int:
             print(f"✅ 注入「guard 不再中止」→ 空转的运行不再被拦住（code={code}），"
                   f"证明自检就是那道闸")
 
+    # ---- ④ 「扫了 0 行」的分辨判据不许被改松（2026-09-21 加的那条）
+    #    那条判据把 0 行分成两种：能证明"本机没有这类数据" → 信息；否则 → 可疑。
+    #    ⚠️ 这里**直接测它的契约**，不用注入：注入口只能选在"本机真实存在"的判据上，
+    #       而本机的 5 条空转判据全都是"数据确实没有"那一类 —— 没有一条能用来证明"该可疑"。
+    sys.path.insert(0, str(HERE))
+    import _fuzz_invariants as FI  # noqa: E402
+
+    code, out = run(INV, "--check")
+    if code != 0 or "这次没东西可查" not in out or "可疑 0" not in out:
+        fails.append(f"④ 前提不成立：完好状态下 _fuzz_invariants 没把空转判据说明白（code={code}）")
+    else:
+        print("✅ 前提：完好状态下空转的判据被说明成「本机没有这类数据」，可疑 0")
+
+    # 方向一：字面量**命中库里真实取值**（`bill_type='piece'` 本机 267 行都是）→ 不许放行。
+    #        这正是当年"5 条判据写成小写、库里是大写"那个坑的形状。
+    if FI._idle_reason("select count(*) from driver_bills where bill_type='piece'") is not None:
+        fails.append("④ 判据放行了一条『字面量在库里确实存在』的 SQL —— 小写/大写那个坑会复活")
+    else:
+        print("✅ 方向一：字面量命中库里真实取值 → 不放行（上层仍然报「可疑」）")
+    # 方向二：字面量库里根本不存在（`salary`）→ 说明"本机没有这类数据"，并把真实取值打出来
+    why = FI._idle_reason("select count(*) from driver_bills where bill_type='salary'")
+    if not why or "piece" not in why:
+        fails.append(f"④ 判据没能说明『本机没有这类数据』或没打出真实取值（返回 {why!r}）")
+    else:
+        print("✅ 方向二：字面量库里不存在 → 说明原因并打出真实取值（人一眼能看出是没数据还是写错）")
+    # 方向三：认不出的 SQL 形状 → 必须不放行（fail-closed，宁可吵也不许静默放行）
+    if FI._idle_reason("select count(*) from (select 1 from nope where y='z')") is not None:
+        fails.append("④ 认不出的 SQL 形状被放行了 —— 分辨不出时必须按「可疑」报")
+    else:
+        print("✅ 方向三：认不出的形状 → 不放行（fail-closed）")
+
     if fails:
         print("\n❌ 反向验证不通过：")
         for f in fails:
             print("   - " + f)
         return 1
-    print("\n✅ fuzz 工具的三道轨（批量端点白名单 / 安全模式自检 / guard 中止）全部证明是活的。")
+    print("\n✅ fuzz 工具的四道轨（批量端点白名单 / 安全模式自检 / guard 中止 / "
+          "「扫了 0 行」的分辨判据）全部证明是活的。")
     return 0
 
 

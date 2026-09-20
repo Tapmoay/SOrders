@@ -201,6 +201,22 @@
 
 **验证**：`:app:compileEmuDebugKotlin` + `:app:testEmuDebugUnitTest` **BUILD SUCCESSFUL** · 装到 emulator-5556 启动 smoke 通过（`topResumedActivity=MainActivity`、无 FATAL）· `_check_all.py` **50/50**。
 
+### 第九轮：把 fuzz 审计里 4 条**永远在喊"可疑"**的判据说明白（可疑 4 → 0，信息 5）
+
+`_tools/fuzz/_fuzz_invariants.py` 长期打印 `可疑 4`：那 4 条判据的 `total_sql` 扫 0 行，
+而工具的口径是"**扫了 0 行 = 可疑**"（这条口径本身救过命：5 条订单状态判据写成小写、
+库里是大写，于是永远扫 0 行、永远报绿，改对大小写后立刻命中真缺陷）。
+问题是本机库长期没有"已确认/已付款的结算单"，于是**输出永远脏着，人就不看了** ——
+这正是"永远红的检查＝没有检查"的镜像。
+
+| 我改的 | 内容 |
+| --- | --- |
+| `_tools/fuzz/_fuzz_invariants.py::_idle_reason`（新） | 把"0 行"分成两种：**能证明是本机没有这类数据** → 信息（并把**库里该列的真实取值**打出来，人一眼能看出是"没数据"还是"字面量写错"）；否则 → 可疑。⛔ 判据是**fail-closed**：SQL 形状认不出、列名不合法、表不存在、字面量**大小写不敏感地命中**任一真实取值 —— 全都返回 None（继续按可疑报）。最后一条正是当年那个坑的形状，**必须**保持告警 |
+| `_tools/fuzz/_reverse_verify_fuzz_safety.py` | 新增第 ④ 条轨：**直接测分辨判据的契约**（三个方向：命中真实取值不放行 / 库里没有则说明原因并打出真实取值 / 认不出的形状不放行）。⚠️ 为什么不用注入：注入口只能选在"本机真实存在"的判据上，而本机 5 条空转判据**全都是"数据确实没有"那一类**，没有一条能用来证明"该可疑" |
+
+**结果**：`可疑 4 → 0`、`信息 1 → 5`，每条空转判据都自己说清"库里 `driver_settlements.status` 的真实取值是 `['draft']`"。
+**验证**：`_reverse_verify_fuzz_safety.py` **8 项全过**（4 条注入 + 前提 + 3 个方向）· `_check_all.py` **50/50** · 钱的对账仍是 `39 项 / 确认缺陷 0`（**可疑 0**）。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
