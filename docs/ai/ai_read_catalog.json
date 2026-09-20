@@ -2,8 +2,8 @@
  "generated_by": "_gen_ai_read_catalog.py",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 59,
-  "listed": 43,
+  "read_endpoints": 62,
+  "listed": 46,
   "missing_handler": []
  },
  "actions": [
@@ -19,6 +19,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -34,6 +35,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "direction",
@@ -110,6 +112,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "direction",
@@ -196,6 +199,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "kind",
@@ -227,11 +231,12 @@
    "module_cn": "司机计费规则",
    "method": "get",
    "path": "/api/v1/driver-billing-rules",
-   "at": "backend/app/api/v1/driver_billing_rules.py:126",
+   "at": "backend/app/api/v1/driver_billing_rules.py:243",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "vehicle_type",
@@ -269,6 +274,7 @@
     "dispatcher",
     "driver"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "driver_id",
@@ -326,6 +332,7 @@
     "dispatcher",
     "driver"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "driver_id",
@@ -372,6 +379,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "category",
@@ -429,6 +437,7 @@
     "dispatcher",
     "driver"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "month",
@@ -470,11 +479,12 @@
    "module_cn": "订单/运费模板",
    "method": "get",
    "path": "/api/v1/freight-templates",
-   "at": "backend/app/api/v1/freight_templates.py:133",
+   "at": "backend/app/api/v1/freight_templates.py:210",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "vehicle_type",
@@ -501,6 +511,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "below_alert",
@@ -527,6 +538,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "product_id",
@@ -593,6 +605,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "date_from",
@@ -640,6 +653,7 @@
     "dispatcher",
     "shipper"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "shipper_id",
@@ -716,6 +730,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "customer_id",
@@ -762,6 +777,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -779,6 +795,7 @@
     "driver",
     "shipper"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "category",
@@ -837,6 +854,7 @@
     "driver",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -852,6 +870,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "order_id",
@@ -898,6 +917,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "order_id",
@@ -919,13 +939,14 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:195",
+   "at": "backend/app/api/v1/orders.py:237",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
     "driver",
     "shipper"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "status",
@@ -937,7 +958,8 @@
       "DISPATCHED",
       "ACCEPTED",
       "DELIVERED",
-      "CANCELLED"
+      "CANCELLED",
+      "RETURNED"
      ],
      "is_id": false,
      "is_path": false,
@@ -974,6 +996,16 @@
      "desc": ""
     },
     {
+     "name": "unpriced",
+     "arg": "unpriced",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
      "name": "date_from",
      "arg": "date_from",
      "type": "str",
@@ -986,6 +1018,26 @@
     {
      "name": "date_to",
      "arg": "date_to",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "delivered_from",
+     "arg": "delivered_from",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "delivered_to",
+     "arg": "delivered_to",
      "type": "str",
      "required": false,
      "enum": [],
@@ -1033,11 +1085,12 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:317",
+   "at": "backend/app/api/v1/orders.py:399",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -1054,6 +1107,7 @@
     "dispatcher",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -1071,6 +1125,7 @@
     "driver",
     "shipper"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "q",
@@ -1108,6 +1163,7 @@
     "dispatcher",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -1125,6 +1181,7 @@
     "driver",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -1141,6 +1198,7 @@
     "dispatcher",
     "shipper"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "include_inactive",
@@ -1167,6 +1225,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "product_id",
@@ -1198,11 +1257,12 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:388",
+   "at": "backend/app/api/v1/reports.py:413",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "date_from",
@@ -1234,11 +1294,12 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:335",
+   "at": "backend/app/api/v1/reports.py:353",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "mode",
@@ -1270,11 +1331,12 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:322",
+   "at": "backend/app/api/v1/reports.py:340",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "mode",
@@ -1300,6 +1362,100 @@
    "skipped_params": []
   },
   {
+   "module": "return_requests",
+   "action": "list_my_return_requests",
+   "cn": "退货申请",
+   "module_cn": "退货申请",
+   "method": "get",
+   "path": "/api/v1/return-requests/mine",
+   "at": "backend/app/api/v1/return_requests.py:216",
+   "auth": "权限:ORDER_RETURN_REQUEST",
+   "roles": [
+    "shipper"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "order_id",
+     "arg": "order_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "status",
+     "arg": "status_filter",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "limit",
+     "arg": "limit",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "return_requests",
+   "action": "list_return_requests",
+   "cn": "退货申请",
+   "module_cn": "退货申请",
+   "method": "get",
+   "path": "/api/v1/return-requests",
+   "at": "backend/app/api/v1/return_requests.py:273",
+   "auth": "权限:ORDER_RETURN",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "order_id",
+     "arg": "order_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "status",
+     "arg": "status_filter",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "limit",
+     "arg": "limit",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
    "module": "shipper",
    "action": "list_addresses",
    "cn": "地址与联系人",
@@ -1312,6 +1468,7 @@
     "dispatcher",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -1328,6 +1485,7 @@
     "dispatcher",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -1344,7 +1502,85 @@
     "dispatcher",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
+   "skipped_params": []
+  },
+  {
+   "module": "shipper_ledger",
+   "action": "list_settlements",
+   "cn": "我的账本",
+   "module_cn": "我的账本",
+   "method": "get",
+   "path": "/api/v1/shipper-ledger/settlements",
+   "at": "backend/app/api/v1/shipper_ledger.py:121",
+   "auth": "角色:shipper",
+   "roles": [
+    "shipper"
+   ],
+   "member_only": true,
+   "params": [
+    {
+     "name": "order_id",
+     "arg": "order_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "delivered_from",
+     "arg": "delivered_from",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "delivered_to",
+     "arg": "delivered_to",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "limit",
+     "arg": "limit",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "offset",
+     "arg": "offset",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
    "skipped_params": []
   },
   {
@@ -1359,6 +1595,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "date_from",
@@ -1395,6 +1632,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "date_from",
@@ -1431,6 +1669,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "product_name",
@@ -1477,6 +1716,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "shipper_id",
@@ -1523,6 +1763,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "date_from",
@@ -1559,6 +1800,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "date_from",
@@ -1621,6 +1863,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [
     {
      "name": "role",
@@ -1683,6 +1926,7 @@
     "driver",
     "shipper"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   },
@@ -1698,6 +1942,7 @@
    "roles": [
     "dispatcher"
    ],
+   "member_only": false,
    "params": [],
    "skipped_params": []
   }

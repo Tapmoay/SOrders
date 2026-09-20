@@ -55,6 +55,16 @@ class Order(Base, TimestampMixin):
     driver_remark: Mapped[str] = mapped_column(Text, default="")
     # 司机运费（由派单员指定，与货主货款无关）；空=未定价（司机端显示"运费待定"）
     freight_fee: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    #: 这一单属于**哪一类货**（运费分类名册编号）。派单时由匹配出来的那条价目带过来，
+    #: 也可以由派单员手动定价时指定。它决定：① 用哪条价目（路线+分类+司机）；
+    #: ② 司机计费规则在 `piece_mode=category` 时按哪一档给钱。
+    #: ⚠️ 没匹配到价目时它是 NULL —— 那就是"运费待定价"（**不标异常**，用户 2026-09-21 定的）。
+    freight_category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("freight_categories.id"), nullable=True, index=True
+    )
+    #: 分类名的**快照**（分类改名/删掉之后，历史单仍然看得懂"当时按哪一类算的"）。
+    #: 与 `driver_rule_snapshot` 同一个道理：历史单据要能独立复核。
+    freight_category: Mapped[str] = mapped_column(String(32), default="")
     # 派单时司机计费方式快照：司机换类型后历史订单可见性仍按快照
     driver_billing_mode_snapshot: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # 派单时挂着的**计费规则**快照（JSON）：规则后来被改了/换了，已送完的单金额不能跟着变。
@@ -85,6 +95,10 @@ class Order(Base, TimestampMixin):
     cancelled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, doc="撤销时间；用于已撤销订单保留期限与自动清理"
     )
+    # 最后一次退货的时间（2026-09-20）：整单退完时与 status=RETURNED 一起写。
+    # 留着它是为了回答"这单什么时候退的"——账本红冲行的 entry_date 只有一个日期，
+    # 而退货是**可能分几次**发生的（部分退货），最后一次才是"这单结束"的时刻。
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expected_deliver_before: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, doc="约定送达时间（用于准时率；空则按订单日末）"
     )
@@ -133,6 +147,14 @@ class OrderProduct(Base, TimestampMixin):
     cost_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
     # 司机送达时录入的货损数量（≤quantity；0=无货损）
     damage_quantity: Mapped[int] = mapped_column(default=0)
+    # **已退货数量**（2026-09-20）：客户把货退回来了几件。
+    #
+    # 为什么记在**行**上而不是只在订单上打一个「已退货」标记：用户明确要求
+    # 「可以整单退货，也可以只退其中的某几个商品或者一个商品，他自己勾选」——
+    # 只有行级数量才能同时表达"整单退完"（每行 returned == quantity）与"部分退货"，
+    # 也才能让退货红冲行**按行**写、库存**按行**回补。
+    # 判据：`0 <= returned_quantity <= quantity`（红线 `_check_order_return.py`）。
+    returned_quantity: Mapped[int] = mapped_column(default=0)
 
     order: Mapped["Order"] = relationship(back_populates="order_products")
     product: Mapped["Product | None"] = relationship(back_populates="order_products")

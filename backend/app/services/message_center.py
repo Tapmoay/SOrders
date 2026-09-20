@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Notification, Order, User
+from app.models import Notification, Order, OrderReturnRequest, User
 from app.models.enums import UserRole
 from app.models.user import resolve_billing_mode
 from app.schemas.notification import NotificationOut
@@ -417,3 +417,188 @@ async def publish_new_order_to_dispatchers(db: Session, order_id: int) -> None:
 async def publish_ledger_updated_event(shipper_id: int) -> None:
     """仅实时刷新账本列表（不额外落库，避免每条编辑一条消息）。"""
     await emit_realtime(shipper_id, {"type": "ledger.updated"})
+
+
+async def publish_return_request_closed(
+    db: Session, request_id: int, *, returned_amount: str, note: str
+) -> None:
+    """派单员**直连退货**（订单管理那条老路）→ 那张申请自动关闭 → 告诉货主（2026-09-21）。
+
+    这条消息是"我的申请为什么没被办理就结束了"的**唯一答复**，所以两件事都要写出来：
+    · 退了多少（`returned_amount`，由 `return_order` 的回参带过来，⛔ 不在这里重算）；
+    · `note` 那句"申请了什么 / 实退什么"的对照 —— 两边不一致时必须一眼看见
+      （⛔ 不许把一个真实的差异悄悄盖成"已办理"，那正是本仓库最贵的一类错）。
+    """
+    req = db.get(OrderReturnRequest, request_id)
+    if req is None:
+        return
+    order = db.get(Order, req.order_id)
+    ono = order.order_no if order else str(req.order_id)
+    payload = _return_request_payload(req, ono)
+    payload["returned_amount"] = returned_amount
+    payload["closed_note"] = note
+    n = create_message(
+        db,
+        recipient_id=req.shipper_id,
+        category="order",
+        type="order.return_request.closed",
+        title="退货申请已关闭（派单员直接退了货）",
+        content=(
+            f"订单 {ono} 的退货申请已自动关闭：派单员在订单管理里直接办了退货，"
+            f"退货金额 ¥{returned_amount}。{note}"
+        ),
+        payload=payload,
+        speech_important=False,
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(
+        req.shipper_id,
+        {"type": "order.return_request.closed", "order_id": req.order_id, "request_id": req.id},
+    )
+
+
+# ------------------------------------------------------------------ 退货申请（2026-09-21）
+#
+# 用户原话：「批发商……他可以直接在订单上作退货。然后我们的那个派单员，他会接到一个通知，
+# 这个时候派单员就会去帮他进行一个退货的操作」。所以这里是一对消息：
+# **货主提交 → 全体派单员**；**派单员办完/驳回 → 那一个货主**。
+#
+# ⚠️ 三个 `type` 都是**给客户端做路由用的**（点了通知要跳到哪一页）：
+#    `order.return_request`（去申请详情/待办）、`…rejected`、`…done`。
+#    payload 里一定带 `request_id` —— 没有它，派单员点开消息只能看到一句"有人申请退货"，
+#    还得自己去列表里找是哪一张。
+
+
+def _return_request_parts(req: OrderReturnRequest) -> str:
+    parts = "、".join(f"{ln.product_name}×{ln.quantity}" for ln in req.lines)
+    return parts or "（未填明细）"
+
+
+def _return_request_payload(req: OrderReturnRequest, ono: str) -> dict[str, Any]:
+    return {
+        "request_id": req.id,
+        "order_id": req.order_id,
+        "order_no": ono,
+        "items": [{"product_name": ln.product_name, "quantity": ln.quantity} for ln in req.lines],
+    }
+
+
+async def publish_return_request_to_dispatchers(db: Session, request_id: int) -> None:
+    """货主提交退货申请 → 通知**所有**派单员（消息落库 + 实时推送 + 未读角标）。
+
+    为什么广播给全体而不是指定某一个：派单员是**一个班次一个角色**，谁在线谁办
+    （与"新订单待派单"完全同一条口径）。指定人反而会出现"他今天休息，这张申请没人看"。
+    `speech_important=False`：货已经在客户手里放着了，晚一小时处理没有任何后果 ——
+    让它响铃的代价是下次真正该响的（新订单）被无视。
+    """
+    req = db.get(OrderReturnRequest, request_id)
+    if req is None:
+        return
+    order = db.get(Order, req.order_id)
+    ono = order.order_no if order else str(req.order_id)
+    who = _user_label(db, req.shipper_id) or "货主"
+    dispatchers = db.scalars(
+        select(User).where(
+            User.role == UserRole.DISPATCHER,
+            User.is_active.is_(True),
+        )
+    ).all()
+    for d in dispatchers:
+        n = create_message(
+            db,
+            recipient_id=d.id,
+            category="order",
+            type="order.return_request",
+            title="退货申请待处理",
+            content=f"{who} 对订单 {ono} 申请退货：{_return_request_parts(req)}。核对后请办理或驳回。",
+            payload=_return_request_payload(req, ono),
+            speech_important=False,
+        )
+        db.commit()
+        db.refresh(n)
+        # 与 `_broadcast_to_dispatchers` 同一条：`emit_notification` 内部已发 `unread_count`，
+        # 不许再补一次（重复那次是纯噪音：N 个派单员 × 每条消息多一次 count 查询）。
+        await emit_notification(n)
+
+
+async def publish_return_request_rejected(db: Session, request_id: int) -> None:
+    """派单员驳回 → 告诉货主（**带上理由**：这是他唯一能拿到的答复）。"""
+    req = db.get(OrderReturnRequest, request_id)
+    if req is None:
+        return
+    order = db.get(Order, req.order_id)
+    ono = order.order_no if order else str(req.order_id)
+    payload = _return_request_payload(req, ono)
+    payload["reason"] = req.reject_reason or ""
+    n = create_message(
+        db,
+        recipient_id=req.shipper_id,
+        category="order",
+        type="order.return_request.rejected",
+        title="退货申请被驳回",
+        content=f"订单 {ono} 的退货申请被驳回：{req.reject_reason or '（未填原因）'}",
+        payload=payload,
+        speech_important=False,
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(
+        req.shipper_id,
+        {"type": "order.return_request.rejected", "order_id": req.order_id, "request_id": req.id},
+    )
+
+
+async def publish_return_request_done(
+    db: Session,
+    request_id: int,
+    *,
+    returned_amount: str,
+    refund_amount: str,
+    fully_returned: bool,
+) -> None:
+    """派单员**办完了**（真的退了货）→ 告诉货主：退了多少、退了多少钱、这单结没结。
+
+    ⚠️ 金额是**办理那一刻算出来的值**（由调用方从 `return_order` 的回参传进来），
+       ⛔ 不在这里按订单重算：钱的口径只有 `services/order_money.py` / `order_return.py` 一处，
+       消息中心再算一遍就是第二处（两边一旦不一致，货主看到的数字和账本上的对不上，
+       而他只会相信消息里的那个）。
+    """
+    req = db.get(OrderReturnRequest, request_id)
+    if req is None:
+        return
+    order = db.get(Order, req.order_id)
+    ono = order.order_no if order else str(req.order_id)
+    tail = "这一单已经整单退完。" if fully_returned else "这是部分退货，订单仍然是「已送达」。"
+    refund_note = ""
+    try:
+        if float(refund_amount or 0) > 0:
+            refund_note = f"，已退款 ¥{refund_amount}"
+    except (TypeError, ValueError):  # pragma: no cover - 出参异常时不要因此不发货主
+        refund_note = ""
+    payload = _return_request_payload(req, ono)
+    payload["returned_amount"] = returned_amount
+    payload["refund_amount"] = refund_amount
+    payload["fully_returned"] = fully_returned
+    n = create_message(
+        db,
+        recipient_id=req.shipper_id,
+        category="order",
+        type="order.return_request.done",
+        title="退货已办理",
+        content=(
+            f"订单 {ono} 的退货申请已办理：{_return_request_parts(req)}，"
+            f"退货金额 ¥{returned_amount}{refund_note}。{tail}"
+        ),
+        payload=payload,
+        speech_important=False,
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(
+        req.shipper_id,
+        {"type": "order.return_request.done", "order_id": req.order_id, "request_id": req.id},
+    )

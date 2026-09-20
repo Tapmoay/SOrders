@@ -142,12 +142,18 @@ def main() -> int:
     ok(f"没有「测试/压测/验证/占位」字样（扫了全部表）", not hits, "；".join(hits[:5]))
 
     # ---- ② 该填的都填 ----
+    #
+    # ⚠️ 商品这几条**只看没被软删的**（`is_deleted = 0`）：模糊测试（`_tools/fuzz/`）会在库里
+    #    留下 `fuzz-xxxx` 这种**软删**的商品（单价/成本都是 0、没有分类），而"删除"在本项目里
+    #    是软删（用户定的硬规矩），那行数据本来就看不见 —— 拿它判"演示数据不达标"，
+    #    这条检查就会**永远红**，而永远红的检查等于没有检查。
     ok("商品：名称/单位/单价/成本都不为空且为正",
-       q("select count(*) n from products where trim(name)='' or trim(unit)='' "
+       q("select count(*) n from products where is_deleted = 0 and (trim(name)='' or trim(unit)='' "
          "or default_unit_price is null or cast(default_unit_price as real)<=0 "
-         "or cost_price is null or cast(cost_price as real)<=0")[0]["n"] == 0)
+         "or cost_price is null or cast(cost_price as real)<=0)")[0]["n"] == 0)
     ok("商品：分类都填了（没有未分类）",
-       q("select count(*) n from products where trim(coalesce(category,''))=''")[0]["n"] == 0)
+       q("select count(*) n from products where is_deleted = 0 "
+         "and trim(coalesce(category,''))=''")[0]["n"] == 0)
     ok("账号：姓名与手机号都不为空",
        q("select count(*) n from users where trim(coalesce(full_name,''))='' or trim(coalesce(phone,''))=''")[0]["n"] == 0)
     ok("订单：地址/联系人都填了",
@@ -306,14 +312,18 @@ def main() -> int:
     ORDER_DAY = "date(coalesce(o.delivered_at, o.order_date))"
     # 表: (跟着订单走的那一列, 粒度, 额外条件)
     DERIVED = {
-        "ledgers": ("entry_date", "day", ""),
+        # ⚠️ 退货红冲行（`source='RETURN'`）**故意**不跟着订单走：它记的是"这次退货什么时候发生的"，
+        #    而不是"这单什么时候送的"。把 9 月的退货记回 8 月 = 篡改 8 月的账（那个月的数字
+        #    过两天自己变了，而没有任何人改过 8 月的任何一张单）。与"收款日"同一条道理。
+        "ledgers": ("entry_date", "day", "and x.source <> 'RETURN'"),
         "expenses": ("exp_date", "day", ""),
         "driver_bills": ("month", "month", ""),
         # 收款流水的日子是**收款日**：客户 8 月才结 6 月的账，本来就该晚于送达日 ——
         # 所以这条只认货损那一类（EXPENSE_LOSS）。
         "cash_flows": ("flow_date", "day", "and x.biz_type = 'EXPENSE_LOSS'"),
-        # `created_at` 就是库存流水的业务时间（`GET /inventory/movements` 按它做日期过滤）
-        "inventory_movements": ("created_at", "day", ""),
+        # `created_at` 就是库存流水的业务时间（`GET /inventory/movements` 按它做日期过滤）。
+        # 退货回补（`status='RETURNED'`）同理：货是退货那天回来的，不是送达那天。
+        "inventory_movements": ("created_at", "day", "and x.status <> 'RETURNED'"),
     }
     EXEMPT = {
         "operation_logs": "created_at 是「这条日志什么时候写的」（审计时刻），没有业务日期列，"
@@ -328,7 +338,25 @@ def main() -> int:
     uncovered = with_oid - set(DERIVED) - set(EXEMPT)
     ok(f"带 order_id 的表都被「派生日期」覆盖或写了理由（共 {sorted(with_oid)}）",
        not uncovered, "没覆盖也没理由：" + "、".join(sorted(uncovered)))
-    # 防"清单被改坏 → 整条检查空转"：覆盖的表不能少于 4 张，EXEMPT 里也不许留已经不存在的表
+
+    # ---- ⑨b 退货真的在数据里出现过（2026-09-20 加的两件事）----
+    #
+    # ⚠️ 为什么这条必须有：造数里那几步是 `try/except`（一单退不掉就跳过、打印一句），
+    #    于是"退货全被跳过了"的表现是**一切照常绿** —— 而真机上「已退货」那一档、
+    #    账本红冲、库存回补、退现这四样就永远看不到。演示数据是用来验收的，
+    #    它自己必须覆盖到这一轮新加的功能。
+    n_ret_orders = q("select count(*) n from orders where status = 'RETURNED'")[0]["n"]
+    n_ret_rows = q("select count(*) n from ledgers where source = 'RETURN'")[0]["n"]
+    n_ret_moves = q("select count(*) n from inventory_movements where status = 'RETURNED'")[0]["n"]
+    n_part = q("select count(distinct order_id) n from ledgers where source = 'RETURN' "
+               "and order_id in (select id from orders where status = 'DELIVERED')")[0]["n"]
+    ok(f"有整单退货的单（已退货 {n_ret_orders} 张）", n_ret_orders >= 1)
+    ok(f"有部分退货的单（退过货但仍留在已送达 {n_part} 张）", n_part >= 1,
+       "只有整单退货的话，「部分退货」那条路径在真机上验收不到")
+    ok(f"退货写了账本红冲行（{n_ret_rows} 行）", n_ret_rows >= 1)
+    ok(f"退货回补了库存（{n_ret_moves} 条流水）", n_ret_moves >= 1)
+    neg = q("select count(*) n from ledgers where source = 'RETURN' and total > 0")[0]["n"]
+    ok("红冲行的金额是负数（写成正数就是「退了货又多一笔营业额」）", neg == 0, f"{neg} 行是正数")
     ok(f"派生日期的覆盖清单不是空的（{len(DERIVED)} 张表 + {len(EXEMPT)} 条理由）",
        len(DERIVED) >= 4 and len(EXEMPT) >= 1)
     ok("EXEMPT 里的表都还在、还真的带 order_id（防化石）",

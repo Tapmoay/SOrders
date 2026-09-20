@@ -9,9 +9,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 「来单了」判定逻辑的单测。
+ * 「来单了」判定逻辑的单测（司机听新派单、派单员听待派单）。
  *
- * 这些断言存在的理由只有一个：**司机端最不能出的错是"这次没响"**，
+ * 这些断言存在的理由只有一个：**这套提醒最不能出的错是"这次没响"**，
  * 而它在界面上没有任何表现（不会报错、不会变红，就是安静）。
  * 所以每一条规则都要有测试钉着，而不是靠"看起来写了"。
  */
@@ -26,6 +26,17 @@ class NewOrderAlertTest {
         assertEquals(AlertKind.NEW_ORDER, ev!!.kind)
         assertEquals(404L, ev.orderId)
         assertEquals("assigned:404", ev.dedupeKey)
+    }
+
+    @Test
+    fun `待派单的新订单能认出来（派单员那句挂在它上面）`() {
+        // 后端 `publish_new_order_to_dispatchers` 发的就是这条站内信（标题「新订单待派单」）
+        val ev = NewOrderAlert.eventOf("order.created", 512L, "新订单待派单")
+        assertNotNull(ev)
+        assertEquals(AlertKind.PENDING_ORDER, ev!!.kind)
+        assertEquals(512L, ev.orderId)
+        // ⛔ 去重键必须与司机那条分开：两条链路推同一单时靠它各去各的重
+        assertEquals("pending:512", ev.dedupeKey)
     }
 
     @Test
@@ -53,15 +64,51 @@ class NewOrderAlertTest {
         assertEquals("assigned:-1", ev!!.dedupeKey)
     }
 
-    // ---- 谁该听见 ----
+    // ---- 谁该听见（**角色 × 事件类型两个维度**，少一个就会"喊错人"） ----
 
     @Test
-    fun `只有司机播语音`() {
-        assertTrue(NewOrderAlert.isSpoken(Role.DRIVER))
-        assertFalse(NewOrderAlert.isSpoken(Role.DISPATCHER))
-        assertFalse(NewOrderAlert.isSpoken(Role.SHIPPER))
-        // 认不出角色 → 不播（少播一次，好过给错的人放"来单了"）
-        assertFalse(NewOrderAlert.isSpoken(null))
+    fun `司机听新派单，派单员听待派单，两个人各听各的`() {
+        // ⛔ 这条钉的是"同一句话不许对两个角色都播"：派单员听到「你有新的订单，请及时查看」
+        //    会以为是自己要去送货；司机听到「有新订单待派单」也会以为要他去派单。
+        assertTrue(NewOrderAlert.speaks(Role.DRIVER, AlertKind.NEW_ORDER))
+        assertTrue(NewOrderAlert.speaks(Role.DISPATCHER, AlertKind.PENDING_ORDER))
+        assertFalse("司机不播派单员那一句", NewOrderAlert.speaks(Role.DRIVER, AlertKind.PENDING_ORDER))
+        assertFalse("派单员不播司机那一句", NewOrderAlert.speaks(Role.DISPATCHER, AlertKind.NEW_ORDER))
+    }
+
+    @Test
+    fun `撤回只对司机播`() {
+        // 一单被撤，待派池少一单是安静地变少的；为它喊一嗓子只会让派单员以为又多了一单
+        assertTrue(NewOrderAlert.speaks(Role.DRIVER, AlertKind.REVOKED))
+        assertFalse(NewOrderAlert.speaks(Role.DISPATCHER, AlertKind.REVOKED))
+    }
+
+    @Test
+    fun `货主与认不出的角色一句都不播`() {
+        // 「来单了」对货主是**错的信息**：他不是要跑车也不是要派单的那个人
+        AlertKind.values().forEach { k ->
+            assertFalse("货主不该听到 " + k, NewOrderAlert.speaks(Role.SHIPPER, k))
+            assertFalse("认不出角色时宁可不播：" + k, NewOrderAlert.speaks(null, k))
+        }
+        assertFalse(NewOrderAlert.hasVoice(Role.SHIPPER))
+        assertFalse(NewOrderAlert.hasVoice(null))
+    }
+
+    @Test
+    fun `有语音的角色各自对应一句日常播报`() {
+        // voiceKind 是设置页文案与「试听一声」的唯一来源（页面里不许硬编码某个 AlertKind）
+        assertTrue(NewOrderAlert.hasVoice(Role.DRIVER))
+        assertTrue(NewOrderAlert.hasVoice(Role.DISPATCHER))
+        assertEquals(AlertKind.NEW_ORDER, NewOrderAlert.voiceKind(Role.DRIVER))
+        assertEquals(AlertKind.PENDING_ORDER, NewOrderAlert.voiceKind(Role.DISPATCHER))
+        // 「有语音」与「有一句日常播报」必须同进同出，否则设置页会摆一个点了没声的开关
+        listOf(Role.DRIVER, Role.DISPATCHER, Role.SHIPPER, null).forEach { r ->
+            assertEquals(
+                "hasVoice 与 voiceKind 对不上：$r",
+                NewOrderAlert.voiceKind(r) != null,
+                NewOrderAlert.hasVoice(r),
+            )
+        }
     }
 
     // ---- 响几次 ----
@@ -96,6 +143,19 @@ class NewOrderAlertTest {
         assertEquals(3, NewOrderAlert.planFor(AlertKind.NEW_ORDER, 3).repeats)
         assertEquals(2, NewOrderAlert.planFor(AlertKind.NEW_ORDER, 2).repeats)
         assertTrue(NewOrderAlert.planFor(AlertKind.NEW_ORDER, NewOrderAlert.FOREVER).forever)
+        // 派单员那句同理：他也要能自己决定"念几遍"（设置页同一个 ChoiceRow）
+        assertEquals(3, NewOrderAlert.planFor(AlertKind.PENDING_ORDER, 3).repeats)
+        assertTrue(NewOrderAlert.planFor(AlertKind.PENDING_ORDER, NewOrderAlert.FOREVER).forever)
+    }
+
+    @Test
+    fun `每一类播报都有自己的素材时长`() {
+        // 两句素材长短不同（司机 4.87s、派单员 5.33s），共用一个常量会让重复播报叠在一起
+        assertEquals(NewOrderAlert.CLIP_MS, NewOrderAlert.clipMs(AlertKind.NEW_ORDER))
+        assertEquals(NewOrderAlert.PENDING_CLIP_MS, NewOrderAlert.clipMs(AlertKind.PENDING_ORDER))
+        assertTrue("派单员那句长一点（多几个字）", NewOrderAlert.PENDING_CLIP_MS > NewOrderAlert.CLIP_MS)
+        // 撤回跟着司机那份素材走（它没有自己的语音素材，见 NewOrderPlayer.clipRes）
+        assertEquals(NewOrderAlert.CLIP_MS, NewOrderAlert.clipMs(AlertKind.REVOKED))
     }
 
     @Test
@@ -137,9 +197,21 @@ class NewOrderAlertTest {
     }
 
     @Test
+    fun `派单员的三条广播也是停止信号`() {
+        // 司机接单/送达/订单被撤销（后端广播给所有派单员的 `*_dispatcher`）：对派单员就是
+        // "这一单已经有人处理了 / 没了"，他手机上那句「有新订单待派单」此时已经过时。
+        listOf(
+            "order.driver_ack_dispatcher",
+            "order.delivered_dispatcher",
+            "order.cancelled_dispatcher",
+        ).forEach { assertTrue("$it 应该停止播报", NewOrderAlert.shouldStop(it)) }
+    }
+
+    @Test
     fun `新单本身不是停止信号`() {
         // 写完 shouldStop 最容易犯的错是把 order.assigned 也塞进去——那样一单都不会响
         assertFalse(NewOrderAlert.shouldStop("order.assigned"))
+        assertFalse(NewOrderAlert.shouldStop("order.created"))
         assertFalse(NewOrderAlert.shouldStop("order.freight.updated"))
     }
 
@@ -199,12 +271,28 @@ class NewOrderAlertTest {
     }
 
     @Test
-    fun `取消、接单、撤回、召回都会作废该单的新单去重键`() {
-        listOf("order.cancelled", "order.driver_ack", "order.revoked", "order.recalled").forEach { t ->
-            val seen = mutableMapOf("assigned:5" to 1_000L)
+    fun `取消、接单、撤回、召回都会作废该单的去重键（司机与派单员两条都作废）`() {
+        listOf(
+            "order.cancelled", "order.driver_ack", "order.revoked", "order.recalled",
+            "order.cancelled_dispatcher", "order.delivered_dispatcher", "order.driver_ack_dispatcher",
+        ).forEach { t ->
+            val seen = mutableMapOf("assigned:5" to 1_000L, "pending:5" to 1_000L)
             NewOrderAlert.forgetOnStop(seen, t, 5L)
             assertFalse("$t 之后该单的新单键应当作废", seen.containsKey("assigned:5"))
+            assertFalse("$t 之后该单的待派单键也应当作废", seen.containsKey("pending:5"))
         }
+    }
+
+    @Test
+    fun `派单员那一单处理完之后再回到待派池也要重新响`() {
+        // 与司机那条同形（R14-14）：这一单被撤/被处理掉之后又回到待派池（撤销重开、拆单），
+        // 那是一次**新的**待派单，不能被 60 秒窗口吞掉。
+        val seen = mutableMapOf<String, Long>()
+        val key = NewOrderAlert.eventOf("order.created", 88L)!!.dedupeKey
+        seen[key] = 1_000L
+        assertTrue(NewOrderAlert.isDuplicate(seen, key, 1_200L))
+        NewOrderAlert.forgetOnStop(seen, "order.cancelled_dispatcher", 88L)
+        assertFalse("作废之后必须能重新响", NewOrderAlert.isDuplicate(seen, key, 1_300L))
     }
 
     @Test
@@ -245,9 +333,11 @@ class NewOrderAlertTest {
     // ---- 后台常驻的缺省 ----
 
     @Test
-    fun `司机默认后台常驻，其他角色默认关`() {
+    fun `司机与派单员默认后台常驻，货主默认关`() {
+        // 两个角色都在等"响一声"：关掉 App 就收不到，等于这个功能白做（用户 2026-09-21 拍板）。
+        // 货主不是必须实时知道（他的单没人派会留在列表里）
         assertTrue(NewOrderAlert.defaultBackground(Role.DRIVER))
-        assertFalse(NewOrderAlert.defaultBackground(Role.DISPATCHER))
+        assertTrue(NewOrderAlert.defaultBackground(Role.DISPATCHER))
         assertFalse(NewOrderAlert.defaultBackground(Role.SHIPPER))
     }
 
@@ -258,9 +348,12 @@ class NewOrderAlertTest {
         assertEquals("1 次", NewOrderAlert.repeatLabel(1))
         assertEquals("5 次", NewOrderAlert.repeatLabel(5))
         assertEquals("一直响到我接单", NewOrderAlert.repeatLabel(NewOrderAlert.FOREVER))
+        // 派单员不接单：他看到「响到我接单」会以为自己点错了页面
+        assertEquals("一直响到我派完单", NewOrderAlert.repeatLabel(NewOrderAlert.FOREVER, Role.DISPATCHER))
         // 「0 次」这种从常量直接漏到界面上的写法要拦住
         NewOrderAlert.REPEAT_CHOICES.forEach {
             assertFalse("档位 $it 的文案不能出现 0", NewOrderAlert.repeatLabel(it).contains("0"))
+            assertFalse("档位 $it 的文案不能出现 0", NewOrderAlert.repeatLabel(it, Role.DISPATCHER).contains("0"))
         }
     }
 
@@ -278,17 +371,34 @@ class NewOrderAlertTest {
     }
 
     @Test
-    fun `货主和派单员不会被告知有语音`() {
-        // 语音只有司机有；给他们写「语音 3 次」就是一句假话，他们会等一个永远不会响的东西
-        listOf(Role.DISPATCHER, Role.SHIPPER, null).forEach { r ->
+    fun `货主不会被告知有语音`() {
+        // 语音只有司机和派单员有；给货主写「语音 3 次」就是一句假话，他会等一个永远不会响的东西
+        listOf(Role.SHIPPER, null).forEach { r ->
             val s = NewOrderAlert.summary(r, true, voiceEnabled = true, repeat = 3, background = true)
-            assertFalse("非司机不该出现「语音」：$s", s.contains("语音"))
+            assertFalse("货主不该出现「语音」：$s", s.contains("语音"))
             assertEquals("后台接收中", s)
             assertEquals(
                 "仅前台接收",
                 NewOrderAlert.summary(r, true, voiceEnabled = true, repeat = 3, background = false),
             )
         }
+    }
+
+    @Test
+    fun `派单员的摘要也如实写「语音」`() {
+        // 2026-09-21 起派单员有语音（用户要求）：那一行必须写出来，
+        // 否则「我的」页上等于告诉他"你只会收到通知栏提醒"，他会以为这个功能不存在。
+        assertEquals(
+            "语音 3 次·后台接收",
+            NewOrderAlert.summary(Role.DISPATCHER, true, voiceEnabled = true, repeat = 3, background = true),
+        )
+        assertEquals(
+            "语音 一直响到我派完单·后台接收",
+            NewOrderAlert.summary(
+                Role.DISPATCHER, true, voiceEnabled = true,
+                repeat = NewOrderAlert.FOREVER, background = true,
+            ),
+        )
     }
 
     @Test

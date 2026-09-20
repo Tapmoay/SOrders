@@ -1,6 +1,5 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Inventory2

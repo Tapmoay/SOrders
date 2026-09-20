@@ -68,6 +68,24 @@ EXCLUDED: dict[str, str] = {
     # ---- app 级端点（不在 `app/api/v1/*.py` 里，toolmap 生成器扫不到）----
     "main.health": "服务健康检查：给运维探针用的，不是业务数据。",
     "main.app_version": "App 版本信息：客户端启动时自己会读，模型拿它没用。",
+    # ---- 开销分类名册（2026-09-20）----
+    # 模型要"按分类看开销"时**不需要先读名册**：`expenses` 那张读表里每一行都带 `category`
+    # 与 `link_kind`（分类名与"卡片突出哪一项"），直接按行里的分类筛就行。
+    # 名册本身回答的是"界面上左栏按什么顺序排、卡片突出哪一项"——那是**界面配置**，
+    # 不是一件业务事实；模型读了也用不上（它不画界面）。
+    "freight_categories.list_categories": (
+        "界面配置：运费分类名册（顺序 + 有几条价目/几份规则挂着）。"
+        "模型要看「这一单算哪一类货」时，订单行上直接带 `freight_category` 这个名字，不用先查名册。"
+    ),
+    "freight_templates.quote_freight": (
+        "**匹配本身就是服务端算的**：派单时由 App 拿这一单 + 司机去问价，"
+        "模型不需要自己调它 —— 它要做的是改价目（`freight_template.*` 那几个写动作），"
+        "而不是在对话里替某一单报价。"
+    ),
+    "expense_categories.list_categories": (
+        "界面配置：开销分类名册（顺序 + 卡片突出哪一项）。"
+        "模型要按分类看开销时，`expenses` 那张表的每一行都带 `category`，不用先查名册。"
+    ),
 }
 
 MIN_ENDPOINTS = 100

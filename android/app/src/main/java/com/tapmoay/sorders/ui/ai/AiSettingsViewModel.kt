@@ -20,7 +20,6 @@ import com.tapmoay.sorders.ai.ChatResult
 import com.tapmoay.sorders.ai.LlmClient
 import com.tapmoay.sorders.ai.LlmConfig
 import com.tapmoay.sorders.ai.ModelListResult
-import com.tapmoay.sorders.ai.ThinkingLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,7 +59,7 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
     var model by mutableStateOf(AiKeyStore.DEFAULT_MODEL)
 
     /**
-     * 思考强度：关 / 低 / 中 / 高（见 [ThinkingLevel]）。
+     * 思考强度：关 / 低 / 中 / 高（见 [com.tapmoay.sorders.ai.ThinkingLevel]）。
      * 默认值与取舍理由见 [AiKeyStore.DEFAULT_THINKING_LEVEL]；老版本的布尔开关会在读取时自动迁移。
      */
     var thinkingLevel by mutableStateOf(AiKeyStore.DEFAULT_THINKING_LEVEL)
@@ -256,6 +255,14 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
 
     fun load() {
         val cfg = ai.currentConfig()
+        // ⚠️ 先问一次"是不是批发商货主"（2026-09-20 用户第七轮）：这一页顶上那段**能力声明**
+        //    （`AiRolePrompt.settingsSummary`）与下面的读模块清单都按 (角色 + member) 裁，
+        //    晚问一步就会按普通货主列给批发商看。放协程里异步问、问完只重刷那两份清单，
+        //    不挡住这一屏先画出来。
+        viewModelScope.launch {
+            ai.refreshMembership()
+            reloadAbilityLists()
+        }
         baseUrl = cfg.baseUrl
         model = cfg.model
         thinkingLevel = cfg.thinkingLevel
@@ -275,7 +282,22 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         tools.clear()
         // 按角色裁：货主不该看到"库存预警/司机跑车统计"这种他永远用不上的开关
         // （打开了也不生效 = "看起来有、其实没有"）。
-        AiTools.settingsItems(ai.currentRole).forEach { t ->
+        AiTools.settingsItems(ai.currentActor).forEach { t ->
+            tools.add(AiToolToggle(t.name, t.title, t.hint, t.name in enabled, t.group))
+        }
+        loadReadModules()
+    }
+
+    /**
+     * 只重刷"按能力裁出来"的那两份清单（工具开关 + 读模块）。
+     *
+     * 为什么要单独一个函数：`load()` 在 `init` 里被调，而"是不是批发商货主"要**联网问**
+     * ——问回来的那一刻这一屏已经画完了，得有个不重跑其余几十个字段的入口。
+     */
+    private fun reloadAbilityLists() {
+        val enabled = ai.keyStore.enabledTools(ai.currentRole)
+        tools.clear()
+        AiTools.settingsItems(ai.currentActor).forEach { t ->
             tools.add(AiToolToggle(t.name, t.title, t.hint, t.name in enabled, t.group))
         }
         loadReadModules()
@@ -453,10 +475,10 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         //    后果：货主打开设置页会看到「库存管理」「账号」「操作日志」这些他根本读不到的开关，
         //    拨过去**不会报错、也没有效果**（读侧的门在 `AiReads.allows`），
         //    等于界面替他承诺了一个做不到的能力——用户试一次就不知道该信哪一个了。
-        //    同一页的工具开关一直是按角色裁的（`AiTools.settingsItems(ai.currentRole)`），
+        //    同一页的工具开关一直是按角色裁的（`AiTools.settingsItems(ai.currentActor)`），
         //    只有这一块漏了；`AiRolePrompt.settingsSummary` 又是裁过的，所以顶上的能力摘要
         //    和下面的列表会对不上（摘要说 12 类、列表列 21 个）。
-        val mine = AiReads.forRole(ai.currentRole, AiReadCatalog.modules().toSet())
+        val mine = AiReads.forRole(ai.currentActor, AiReadCatalog.modules().toSet())
             .map { it.action.substringBefore('.') }
             .toSet()
         AiReadCatalog.modules().filter { it in mine }.forEach { m ->

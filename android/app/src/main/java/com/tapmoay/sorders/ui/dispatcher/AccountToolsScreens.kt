@@ -51,11 +51,13 @@ private fun today(): String = LocalDate.now().toString()
 /** 统一下拉选择框：人员/类型/分类等改为下拉，避免选项多时按钮堆积；白底贴合页面背景、淡灰细边框，聚焦时才变蓝 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DropField(
+internal fun DropField(
     label: String,
     text: String,
     options: List<Pair<String, String>>,
     onSelect: (String) -> Unit,
+    /** 放进 Row 里并排时用（例如"卡片突出哪一项"要和图标按钮同一行）。 */
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
@@ -72,7 +74,7 @@ private fun DropField(
                 unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                 cursorColor = MaterialTheme.colorScheme.primary,
             ),
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
+            modifier = modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(
             expanded = expanded,
@@ -91,7 +93,11 @@ private fun DropField(
 }
 
 private fun customerText(c: CustomerDto): String = c.name + (c.phone?.takeIf { it.isNotBlank() }?.let { " " + it } ?: "")
-private fun driverText(d: UserDto): String = d.fullName ?: d.phone ?: d.username
+internal fun driverText(d: UserDto): String = d.fullName ?: d.phone ?: d.username
+
+/** 车辆在人面前怎么显示：**车牌号**（开销卡片上"突出车辆"显示的就是它）。 */
+internal fun vehicleText(v: com.tapmoay.sorders.data.remote.dto.VehicleDto): String =
+    v.plateNo.ifBlank { "（无车牌）" }
 
 // ---------------- 客户收款（逐单核销） ----------------
 class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycle.ViewModel() {
@@ -421,104 +427,6 @@ fun SettlementsScreen(container: AppContainer, onBack: () -> Unit) {
 }
 
 private fun statusLabel(s: String): String = when (s) { "draft" -> "草稿"; "confirmed" -> "已确认"; "paid" -> "已付款"; "cancelled" -> "已取消"; else -> s }
-
-// ---------------- 开销管理 ----------------
-class ExpensesViewModel(private val container: AppContainer) : androidx.lifecycle.ViewModel() {
-    var expenses by mutableStateOf<List<ExpenseDto>>(emptyList())
-    var drivers by mutableStateOf<List<UserDto>>(emptyList())
-    var loading by mutableStateOf(false)
-    var error by mutableStateOf<String?>(null)
-    var actionResult by mutableStateOf<String?>(null)
-
-    var category by mutableStateOf("fuel")
-    var amount by mutableStateOf("")
-    var expDate by mutableStateOf("")
-    var driverId by mutableStateOf<Long?>(null)
-    var note by mutableStateOf("")
-    var submitting by mutableStateOf(false)
-
-    fun load() {
-        loading = true
-        viewModelScope.launch {
-            try {
-                expenses = container.repo.expenses()
-                drivers = container.repo.drivers()
-                if (expDate.isBlank()) expDate = today()
-            } catch (e: Exception) { error = toApiException(e).message } finally { loading = false }
-        }
-    }
-
-    fun submit() {
-        if ((amount.toDoubleOrNull() ?: 0.0) <= 0) { error = "请输入金额"; return }
-        submitting = true
-        viewModelScope.launch {
-            try {
-                container.repo.createExpense(ExpenseCreateRequest(expDate, category, amount, driverId, null, null, note))
-                actionResult = "开销已记录"
-                expenses = container.repo.expenses()
-                amount = ""; note = ""
-            } catch (e: Exception) { error = toApiException(e).message } finally { submitting = false }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ExpensesScreen(container: AppContainer, onBack: () -> Unit) {
-    val vm: ExpensesViewModel = appViewModel { ExpensesViewModel(container) }
-    val snackbar = remember { SnackbarHostState() }
-    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
-    LaunchedEffect(Unit) { vm.load() }
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = { ReuseTopBar("开销管理", onBack) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
-                SectionCard {
-                    Text("新增开销", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(6.dp))
-                    val cats = listOf("fuel" to "加油", "repair" to "维修", "toll" to "过路", "parking" to "停车", "fine" to "罚款", "insurance" to "保险", "loss" to "货损", "other" to "其他")
-                    DropField(label = "开销分类", text = catLabel(vm.category), options = cats, onSelect = { vm.category = it })
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(value = vm.amount, onValueChange = { vm.amount = InputRules.moneyInput(it) }, label = { Text("金额") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    Spacer(Modifier.height(6.dp))
-                    OutlinedTextField(value = vm.expDate, onValueChange = { vm.expDate = it }, label = { Text("日期") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    Spacer(Modifier.height(6.dp))
-                    DropField(
-                        label = "关联司机（可选）",
-                        text = vm.drivers.find { it.id == vm.driverId }?.let { driverText(it) } ?: "不指定",
-                        options = listOf("" to "不指定") + vm.drivers.map { it.id.toString() to driverText(it) },
-                        onSelect = { vm.driverId = it.toLongOrNull() },
-
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(value = vm.note, onValueChange = { vm.note = it }, label = { Text("备注") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = { vm.submit() }, enabled = !vm.submitting, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(MoneyOrange))) {
-                        Text(if (vm.submitting) "保存中…" else "保存开销")
-                    }
-                }
-            }
-            item { Text("开销记录", style = MaterialTheme.typography.titleMedium) }
-            if (vm.expenses.isEmpty()) item { EmptyView("暂无开销记录", Modifier.fillMaxWidth()) }
-            else items(vm.expenses, key = { it.id }) { e ->
-                SectionCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF00A2C7), modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(catLabel(e.category), style = MaterialTheme.typography.titleSmall)
-                            Text(e.expDate + (e.driverName?.let { " · " + it } ?: "") + (e.orderNo?.let { " · " + it } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (e.note.isNotBlank()) Text(e.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Text("¥" + formatMoney(e.amount), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(MoneyOrange))
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun catLabel(c: String): String = when (c) { "fuel" -> "加油"; "repair" -> "维修"; "toll" -> "过路"; "parking" -> "停车"; "fine" -> "罚款"; "insurance" -> "保险"; "loss" -> "货损"; else -> "其他" }
 
 // ---------------- 车辆：已迁到 VehicleManageScreen.kt（v3.44） ----------------
 //

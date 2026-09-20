@@ -5,8 +5,12 @@
 
 - 又写成两条带条件的判据（`cash 且已收` / `arrears 且未收`）→ **挂账结清**（arrears + paid=True）
   两边都不算：营业额 200、已收 100、挂账 0，差出来的 100 在报表上哪一列都不属于；
+- 报表自己拿 `line_total` 求和当营业额 → **退货红冲整个漏掉**（退了货还照记收入）；
 - 「已收」的含义只在代码里改、出参注释还写着"现金已收" → 下一个人按注释理解又会写错；
 - 端到端那条闭合性断言被删掉 → 这类错误再也没有东西拦得住。
+
+⚠️ 2026-09-20：三个数（应收/净已收/欠款）改由 `services/order_money.py` 一处算，
+   所以这几条注入也换成了"**把那一处的口径绕开**"的形状 —— 绕开它的每一种写法都必须报红。
 
 用法：`python _tools/qa/_reverse_verify_report_guards.py`
 """
@@ -26,22 +30,17 @@ REPORTS = ROOT / "backend/app/api/v1/reports.py"
 REPORT_SCHEMA = ROOT / "backend/app/schemas/reports.py"
 RECON_TESTS = ROOT / "backend/tests/test_report_reconciliation.py"
 
-PARTITION = (
-    "        if o.paid:\n"
-    "            collected += amount\n"
-    "        else:\n"
-    "            arrears_total += amount\n"
-)
+PARTITION = "        collected += mm.settled - mm.refunded\n"
 
 CASES: list[tuple[str, Path, object]] = [
     (
-        "又写成两条带条件的判据（挂账结清的钱两边都不算 → 报表上凭空消失）",
+        "又写成两条带条件的判据（挂账结清 / 部分核销的钱两边都不算 → 报表上凭空消失）",
         REPORTS,
         lambda s: s.replace(
             PARTITION,
-            "        if (o.payment_method or \"\") == \"cash\" and o.paid:\n"
+            "        if o.paid:\n"
             "            collected += amount\n"
-            "        elif (o.payment_method or \"\") == \"arrears\" and not o.paid:\n"
+            "        else:\n"
             "            arrears_total += amount\n",
             1,
         ),
@@ -49,12 +48,14 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "「已收」不再往上加（只减挂账不加已收 = 钱消失）",
         REPORTS,
+        lambda s: s.replace(PARTITION, "        pass\n", 1),
+    ),
+    (
+        "报表里自己把订单行加起来当营业额（退货红冲整个漏掉）",
+        REPORTS,
         lambda s: s.replace(
-            PARTITION,
-            "        if o.paid:\n"
-            "            pass\n"
-            "        else:\n"
-            "            arrears_total += amount\n",
+            "        amount = mm.receivable",
+            "        amount = sum((lp.line_total or Decimal(\"0\")) for lp in o.order_products)",
             1,
         ),
     ),

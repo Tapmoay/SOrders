@@ -44,6 +44,22 @@ class DatePresetsTest {
     }
 
     @Test
+    fun `这周是本周一到今天（2026-09-20 用户点名要的档）`() {
+        // 用户原话：「第 2 层是时间上的统计，比如说，昨天、今天、前天、**这周**、这个月」
+        assertEquals("2026-09-14" to "2026-09-16", DatePresets.rangeOf(DatePresets.THIS_WEEK, wed))
+        // 周一那天 = 单日窗口（与「本月」在月初那天同形）
+        assertEquals(
+            "2026-09-14" to "2026-09-14",
+            DatePresets.rangeOf(DatePresets.THIS_WEEK, LocalDate.of(2026, 9, 14)),
+        )
+        // 周日那天 = 整周（周一~周日），不是"只到今天"以外的别的东西
+        assertEquals(
+            "2026-09-14" to "2026-09-20",
+            DatePresets.rangeOf(DatePresets.THIS_WEEK, LocalDate.of(2026, 9, 20)),
+        )
+    }
+
+    @Test
     fun `上周在周一那天取到的仍然是上一周`() {
         val monday = LocalDate.of(2026, 9, 14)
         assertEquals("2026-09-07" to "2026-09-13", DatePresets.rangeOf(DatePresets.LAST_WEEK, monday))

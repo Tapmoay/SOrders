@@ -28,6 +28,15 @@ internal fun restoreAction(
     cn: String,
     id: String,
     group: String,
+    /**
+     * 只有**批发商货主**能用（与 [AiWriteAction.memberOnly] 同一个意思）。
+     *
+     * 为什么这个工厂也要有它：「恢复一笔核销」打的是货主自己那本账，
+     * 而 `memberOnly` 那三个动作是一组 —— 漏掉这一个的后果很具体：
+     * 普通货主的清单里没有「核销」却有「恢复核销」，撤回入口也会拿着一个
+     * 他自己根本不该有的动作去执行。
+     */
+    memberOnly: Boolean = false,
     /** 真正的恢复调用。参数是**编号**。 */
     call: suspend (AiWriteDataSource, Long) -> Unit,
 ) = AiWriteAction(
@@ -61,4 +70,5 @@ internal fun restoreAction(
         commit = { ds, p -> p.reqLong("target_id").let { call(ds, it) } },
     ),
     undoOnly = true,
+    memberOnly = memberOnly,
 )

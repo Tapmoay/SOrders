@@ -1,22 +1,30 @@
-"""司机端「新单提醒」的红线自检（系统通知 + 语音播报 + 后台常驻）。
+"""「来单提醒」的红线自检（系统通知 + 语音播报 + 后台常驻）。
 
 ### 这一节钉的是什么
-用户原话：「司机端如果派单员派的单给他，他那个要有对应的消息通信还有语音播报
+用户原话（司机端）：「司机端如果派单员派的单给他，他那个要有对应的消息通信还有语音播报
 说来，来单了来单了，大概 3 秒钟，可以重复多次，就像是货拉拉的样子」。
+用户原话（派单员端，2026-09-21）：「派单员**收到订单的时候**、他**有订单需要派**的时候，
+他会有个**语音播报**，就跟我们的司机是一样的」。
+
+⚠️ 2026-09-21 起**这一节是两条线**：司机听「有新派单」（`order.assigned`），
+派单员听「有新订单待派单」（`order.created`）。所以判据从"只有司机会响"变成
+**「角色 × 事件类型」两维**——只按角色判的话，派单员会对着司机那句话发呆。
 
 这件事有一条**别的功能没有的性质**：它坏了不会报错、不会变红、界面上也看不出来——
-司机那头的表现只是「今天没响」。真机验证这一轮就抓到 4 个这种 bug：
+用户那头的表现只是「今天没响」。真机验证这一轮就抓到 4 个这种 bug：
 1. 站内信的 type/title/content 被静默丢掉（socket 负载只深转了一层，业务层 `as? Map` 拿到 null）；
 2. 前台服务的常驻通知在权限刚授予前发出，之后**没有任何人重发**（用户永远看不到）；
 3. 「试听一声」在 UI 线程调用时一次都不播（协程在 job 赋值前就同步跑起来了）；
 4. 打断播报时会把"取消"当成"播放失败"，于是**退回 TTS 又喊了一嗓子**（司机接了单还在响）。
 
-所以这里把「必须一直成立」的东西钉成断言：权限、渠道、前台服务类型、音频素材时长、
+所以这里把「必须一直成立」的东西钉成断言：权限、渠道、前台服务类型、音频素材时长（两份）、
 去重、停止规则、点通知直达。改坏了立刻红。
 
 用法：python _tools/ai/_check_notify_guardrails.py     # 全过 → 退出码 0
 """
+import ast
 import re
+import subprocess
 import sys
 import wave
 from pathlib import Path
@@ -30,8 +38,8 @@ APP = ROOT / "android/app/src/main"
 SRC = APP / "java/com/tapmoay/sorders"
 CORE = SRC / "core"
 MANIFEST = APP / "AndroidManifest.xml"
-CLIP = APP / "res/raw/new_order.wav"
 GEN = ROOT / "_tools/media/_gen_new_order_clip.py"
+VOICE_PROBE = ROOT / "_tools/media/_probe_clip_voice.py"
 TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/core/NewOrderAlertTest.kt"
 
 #: 提到「语音播报」但**说的是真话**的文件 → 为什么这么说不会误导（§11 用）。
@@ -43,11 +51,12 @@ SPOKEN_TRUE: dict[str, str] = {
         "——陈述的是「渠道本身不出声、语音由 App 自己放」这个事实，"
         "而「新派单/撤回」这一类事件确实有语音（NewOrderPlayer），不是对用户的承诺",
     "android/app/src/main/java/com/tapmoay/sorders/ui/profile/AlertSettingsScreen.kt":
-        "这句本身就是**对非司机解释他没有语音**：「语音播报只在司机端有（司机才需要边开车边听单）；"
-        "你收到的消息会进通知栏。」——它出现的前提是「当前角色没有语音」",
+        "这句本身就是**对没有语音的角色（货主）解释他没有语音**：「语音播报只在司机端和派单员端有"
+        "（一个要边开车边听单、一个要在手机上派单）；你收到的消息会进通知栏。」"
+        "——它出现的前提是 `NewOrderAlert.voiceKind(role) == null`",
     "android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileScreen.kt":
-        "司机角色下的副标题「语音播报 / 后台接收新单」，只在 `isSpoken(role)` 为真时显示；"
-        "非司机走另一半文案（「通知栏提醒 / 后台接收新单」），由 §9 的断言钉着",
+        "司机/派单员角色下的副标题「语音播报 / 后台接收新单」，只在 `hasVoice(role)` 为真时显示；"
+        "货主走另一半文案（「通知栏提醒 / 后台接收新单」），由 §9 的断言钉着",
 }
 
 
@@ -55,6 +64,37 @@ def read(p: Path) -> str:
     if not p.exists():
         raise SystemExit(f"找不到文件：{p}（改名/移动了？本脚本的断言要跟着改）")
     return p.read_text(encoding="utf-8")
+
+
+def parse_kinds() -> dict[str, dict[str, str]]:
+    """→ 生成脚本里的素材清单（kind → {file, text, const}）。
+
+    ⛔ **清单自己算**：写死"就一个 new_order.wav"的话，加了第二句素材（派单员那句）
+    而这里没跟着改，检查会继续绿着说"都对"——本项目栽过 5 次的就是这个形状。
+    """
+    tree = ast.parse(read(GEN))
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "KINDS":
+            return ast.literal_eval(node.value)  # type: ignore[return-value]
+    raise SystemExit("生成脚本里找不到 KINDS（改名了？本脚本的素材清单是从它解析出来的）")
+
+
+def probe_wav(p: Path) -> tuple[int, int, int, int, float, float]:
+    """→ (采样率, 声道, 位宽, 毫秒, 开头 1/3 秒峰值, 整段峰值)"""
+    import array
+
+    with wave.open(str(p), "rb") as w:
+        frames, rate = w.getnframes(), w.getframerate()
+        channels, width = w.getnchannels(), w.getsampwidth()
+        ms = round(frames * 1000 / rate)
+        pcm = w.readframes(frames)
+    head = array.array("h")
+    head.frombytes(pcm[: rate // 3 * 2])  # 前 1/3 秒（16bit 单声道 = 每采样 2 字节）
+    peak_head = max((abs(v) for v in head), default=0) / 32767
+    allp = array.array("h")
+    allp.frombytes(pcm)
+    peak_all = max((abs(v) for v in allp), default=0) / 32767
+    return rate, channels, width, ms, peak_head, peak_all
 
 
 def strip_comments(src: str) -> str:
@@ -109,6 +149,7 @@ def main() -> int:
     nav = strip_comments(read(SRC / "ui/nav/NavGraph.kt"))
     settings = strip_comments(read(SRC / "ui/profile/AlertSettingsScreen.kt"))
     detail_vm = strip_comments(read(SRC / "ui/order/OrderDetailViewModel.kt"))
+    pool_vm = strip_comments(read(SRC / "ui/dispatcher/DispatcherPoolViewModel.kt"))
     profile = strip_comments(read(SRC / "ui/profile/ProfileScreen.kt"))
     test = read(TEST)
 
@@ -183,63 +224,112 @@ def main() -> int:
     c.present("notify() 包了 SecurityException（拒权限不能让 App 崩）", notify, r"catch \(_:\s*SecurityException\)")
 
     # ---- §3 音频素材：结构、时长、音量都必须和代码里的常量对得上 ----
-    c.ok("语音素材存在（res/raw/new_order.wav）", CLIP.exists(), str(CLIP))
-    if CLIP.exists():
-        import array
-        with wave.open(str(CLIP), "rb") as w:
-            frames, rate = w.getnframes(), w.getframerate()
-            channels, width = w.getnchannels(), w.getsampwidth()
-            ms = round(frames * 1000 / rate)
-            pcm = w.readframes(frames)
-        c.ok("素材是 24kHz 单声道 16bit（神经语音原生采样率，体积也小）",
+    # 整段 = 号角（≈1 秒）+ 一整句话（≈3.7 秒）。用户要的是「先响亮的号角，再是一句话，
+    # 这句话播 2~3 遍」；号角必须在最前面、够响（他第一句反馈就是「声音比较小」）。
+    kinds = parse_kinds()
+    c.ok("解析出 >=2 种播报素材（司机那句 + 派单员那句）", len(kinds) >= 2, f"实际 {sorted(kinds)}")
+    for key, meta in sorted(kinds.items()):
+        clip = APP / "res/raw" / meta["file"]
+        c.ok(f"[{key}] 语音素材存在（res/raw/{meta['file']}）", clip.exists(), str(clip))
+        if not clip.exists():
+            continue
+        rate, channels, width, ms, peak_head, peak_all = probe_wav(clip)
+        c.ok(f"[{key}] 素材是 24kHz 单声道 16bit（神经语音原生采样率，体积也小）",
              rate == 24000 and channels == 1 and width == 2,
              f"实际 {rate}Hz {channels}ch {width * 8}bit")
-        # 整段 = 号角（≈1 秒）+ 一整句话（≈3.7 秒）。用户要的是「先响亮的号角，再是
-        # 『来订单了，你有新的订单，请及时查看』，这句话播 2~3 遍」
-        c.ok("素材 4~6 秒（号角 + 一整句话）", 4000 <= ms <= 6000, f"实际 {ms}ms")
-        # 号角必须在最前面、而且够响：用户第一句反馈就是「声音比较小、要响亮的号角」
-        head = array.array("h")
-        head.frombytes(pcm[: rate // 3 * 2])  # 前 1/3 秒
-        peak_head = max((abs(v) for v in head), default=0) / 32767
-        c.ok("开头 1/3 秒是响亮的号角（峰值 ≥0.5，用户要的就是它抓注意力）",
+        c.ok(f"[{key}] 素材 4~6 秒（号角 + 一整句话）", 4000 <= ms <= 6000, f"实际 {ms}ms")
+        c.ok(f"[{key}] 开头 1/3 秒是响亮的号角（峰值 ≥0.5，用户要的就是它抓注意力）",
              peak_head >= 0.5, f"实际峰值 {peak_head:.2f}")
         # 整段也不能削顶：满了会失真，听起来像破音而不是"响亮"
-        allp = array.array("h")
-        allp.frombytes(pcm)
-        peak_all = max((abs(v) for v in allp), default=0) / 32767
-        c.ok("整段峰值接近满刻度但不削顶（0.8~1.0）", 0.8 <= peak_all <= 1.0, f"实际 {peak_all:.2f}")
-        m = re.search(r"const val CLIP_MS = (\d+)L", alert)
-        c.ok("CLIP_MS 常量存在", m is not None)
+        c.ok(f"[{key}] 整段峰值接近满刻度但不削顶（0.8~1.0）", 0.8 <= peak_all <= 1.0, f"实际 {peak_all:.2f}")
+        m = re.search(r"const val " + re.escape(meta["const"]) + r" = (\d+)L", alert)
+        c.ok(f"[{key}] 时长常量 {meta['const']} 存在", m is not None)
         if m:
             drift = abs(int(m.group(1)) - ms)
             c.ok(
-                "CLIP_MS 与素材实际时长一致（差 >150ms 重复播报会叠在一起）",
+                f"[{key}] {meta['const']} 与素材实际时长一致（差 >150ms 重复播报会叠在一起）",
                 drift <= 150,
                 f"常量 {m.group(1)}ms vs 素材 {ms}ms",
             )
-    c.present("素材真的被播放器用上了（不是白放进 APK）", player, r"R\.raw\.new_order")
+    # 素材真的被播放器用上（不是白放进 APK）；两条线各自的素材都要在里面
+    for key, meta in sorted(kinds.items()):
+        c.present(
+            f"[{key}] 素材真的被播放器用上了（R.raw.{meta['file'][:-4]}）",
+            player,
+            re.escape("R.raw." + meta["file"][:-4]),
+        )
+    c.present("播放器按类型取素材（不是写死一份）", player, r"private fun clipRes\(kind: AlertKind\)")
+    c.present("取到的素材真的交给了 MediaPlayer（取完不用＝素材白放）", player,
+              r"MediaPlayer\.create\(context, clipRes\(kind\), attrs")
+    c.present("时长也只留一处映射（不是各处自己 when 一遍）", alert, r"fun clipMs\(kind: AlertKind\): Long")
+    c.present("派单员那类映射到**它自己**的时长常量（映射错了会叠音）", alert,
+              r"AlertKind\.PENDING_ORDER -> PENDING_CLIP_MS")
     c.present("抬音量的比例是用户要的八成", alert, r"const val BOOST_RATIO = 0\.8f")
     c.ok("生成脚本还在（换素材有路可走，不是一次性二进制）", GEN.exists(), str(GEN))
     if GEN.exists():
         gen = read(GEN)
-        c.present("生成脚本用的是用户指定的那句话", gen, r"来订单了，你有新的订单，请及时查看")
+        for key, meta in sorted(kinds.items()):
+            c.present(f"[{key}] 生成脚本里有那句话（{meta['text']}）", gen, re.escape(meta["text"]))
         c.present("生成脚本离线时能退回本机 TTS（断网也要能换素材）", gen, r"def _sapi_fallback")
-        c.present("生成脚本会打印该改的 CLIP_MS（防止换素材忘改常量）", gen, r"CLIP_MS = \{wave_ms\}L")
+        c.present(
+            "生成脚本会打印该改的时长常量（防止换素材忘改常量）",
+            gen,
+            re.escape("NewOrderAlert.{kind['const']} = {wave_ms}L"),
+        )
+        c.present("生成脚本按 --kind 选素材与文案（两句各生成各的）", gen, r'ap\.add_argument\("--kind"')
         c.present("生成脚本用神经语音而不是本机 SAPI（「机器人」就是这么来的）", gen, r"import edge_tts")
+        # ⛔ 音色必须钉住：**换错音色不报任何错**——文件照样能播、时长照样对得上，
+        #    只有用户听得出来。2026-09-21 就是这么出事的：生成派单员那句时用了脚本当时的
+        #    默认音色（云健＝男声），而用户 2026-09-17 指定的是**晓晓＝女声**。
+        #    两道一起上：① 默认值必须等于用户选的那一个；② 实测基频（下面那句）。
+        c.present("生成脚本的默认音色是用户选的那一个（晓晓，女声）", gen,
+                  r'DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural"')
+
+    voice = subprocess.run(
+        [sys.executable, str(VOICE_PROBE)], capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+    )
+    c.ok(
+        "两份素材实测都是女声（拿基频对账，不是看文件名/注释）",
+        voice.returncode == 0,
+        "；".join(ln.strip() for ln in ((voice.stdout or "") + (voice.stderr or "")).splitlines()
+                  if ln.strip().startswith(("❌", "Traceback", "ImportError")))[:200],
+    )
 
     # ---- §4 播报判定：复用纯函数，不许在各处各写一遍 ----
-    c.present("只有司机播语音（判定集中在纯函数里）", alert, r"fun isSpoken\(role: Role\?\): Boolean = role == Role\.DRIVER")
-    c.present("播报前问「这个角色该不该响」", realtime, r"NewOrderAlert\.isSpoken\(")
+    # ⚠️ 判据是**两维**的（角色 × 事件类型）：只断言"有个角色判断"的话，
+    #    把派单员也塞进司机那一句里照样绿——而那正是这一轮最容易写错的地方。
+    c.present("两个角色的日常播报各有归属（判定集中在纯函数里）", alert,
+              r"fun voiceKind\(role: Role\?\): AlertKind\? = when \(role\) \{[\s\S]{0,200}?Role\.DRIVER -> AlertKind\.NEW_ORDER")
+    c.present("派单员那句归派单员（Role.DISPATCHER -> PENDING_ORDER）", alert,
+              r"Role\.DISPATCHER -> AlertKind\.PENDING_ORDER")
+    c.present("「有没有语音」是算出来的（不给每个调用点各写一遍）", alert,
+              r"fun hasVoice\(role: Role\?\): Boolean = voiceKind\(role\) != null")
+    c.present("「这一刻响不响」按角色 × 类型判（两维，缺一维就喊错人）", alert,
+              r"fun speaks\(role: Role\?, kind: AlertKind\): Boolean[\s\S]{0,400}?voiceKind\(role\) == kind")
+    c.present("播报前问「这一刻该不该响」", realtime, r"NewOrderAlert\.speaks\(role, ev\.kind\)")
     c.present("播报前查重（同一次派单后端推两条链路）", realtime, r"NewOrderAlert\.isDuplicate\(")
     c.present("重复次数走设置", realtime, r"NewOrderAlert\.planFor\(")
     c.present("新单/撤回的识别在纯函数里", alert, r'"order\.assigned" -> AlertEvent')
+    c.present("待派单的识别也在纯函数里（认 order.created 那条站内信）", alert,
+              r'"order\.created" -> AlertEvent')
+    c.absent("不用「dispatcher.pending_pool」那条**没有单号**的角标事件当触发（去重键会退化成 -1，第二单完全不响）",
+             alert, r'"dispatcher\.pending_pool" -> AlertEvent')
     c.present("「一直响」有止损上限", alert, r"FOREVER_MAX_MS")
+    c.present("后台常驻的缺省按角色算（司机与派单员默认开，货主默认关）", alert,
+              r"fun defaultBackground\(role: Role\?\): Boolean = hasVoice\(role\)")
 
-    # ---- §5 停止规则：司机的动作必须能立刻打断 ----
+    # ---- §5 停止规则：动手的那一方必须能立刻打断 ----
     for ev in ("order.driver_ack", "order.delivered_driver", "order.revoked", "order.cancelled"):
         c.present(f"停止规则覆盖 {ev}", alert, re.escape(f'"{ev}"'))
+    # 派单员那条语音的"活没了"信号：后端广播给所有派单员的同形事件
+    # （有人接了单 / 已经送达 / 订单被撤销）——对派单员就是"这一单已经有人处理了"。
+    for ev in ("order.driver_ack_dispatcher", "order.delivered_dispatcher", "order.cancelled_dispatcher"):
+        c.present(f"停止规则也覆盖派单员的 {ev}", alert, re.escape(f'"{ev}"'))
     c.present("实时事件里检查停止信号", realtime, r"NewOrderAlert\.shouldStop\(")
     c.present("App 内接单成功后立刻停止播报", detail_vm, r"driverAck[\s\S]{0,200}?newOrderPlayer\.stop\(\)")
+    c.present("App 内派单成功后立刻停止播报（派完还在喊「待派单」＝让他去找一张已派掉的单）",
+              pool_vm, r"clearSelection\(\)[\s\S]{0,500}?newOrderPlayer\.stop\(\)")
     c.present("点通知立刻停止播报", main_activity, r"fun consumeIntent[\s\S]{0,600}?newOrderPlayer\.stop\(\)")
     c.present(
         "取消 ≠ 播放失败（否则打断后还会退回 TTS 再喊一句）",
@@ -287,11 +377,19 @@ def main() -> int:
         profile,
         r"语音播报 / 后台接收新单[\s\S]{0,400}?通知栏提醒 / 后台接收新单",
     )
-    c.present("摘要按角色说不同的话（货主/派单员不该被告知有语音）", alert, r"if \(!isSpoken\(role\)\) return if \(background\)")
+    c.present("摘要按角色说不同的话（货主不该被告知有语音）", alert, r"if \(!hasVoice\(role\)\) return if \(background\)")
     c.present("权限没开时明确说出来（而不是显示一个假的「已开」）", alert, r'"通知权限未开"')
     c.present("设置页在权限没开时给出「去开启」入口", settings, r"手机还没允许 SOrders 发通知[\s\S]{0,400}?openNotificationSettings")
     c.present("设置页能改重复次数", settings, r"REPEAT_CHOICES\.forEach")
     c.present("设置页有试听且真的会播一遍", settings, r"试听一声[\s\S]{0,900}?newOrderPlayer\.play\(")
+    # ⚠️ 判据必须钉到**试听那一处调用**（`planFor(voiceKind, repeat)`）：只写 `play(voiceKind,`
+    #    的话，开关那一行 `play(voiceKind, NewOrderAlert.plan(1))` 也满足它——反向验证第一次
+    #    就是这样漏的（把试听改回写死司机那句，检查照样全绿）。
+    c.present("试听播的是**当前角色**那一句（不是写死司机那句）", settings,
+              r"container\.newOrderPlayer\.play\(\s*voiceKind,\s*NewOrderAlert\.planFor\(voiceKind, repeat\)")
+    c.present("开关文案按角色说（派单员听到的是「待派单」那一句）", settings,
+              r"role == Role\.DISPATCHER[\s\S]{0,160}?有新订单待派单")
+    c.present("档位文案也按角色说（派单员不接单）", settings, r"repeatLabel\(n, role\)")
     c.present("设置页能跳通知权限设置", settings, r"ACTION_APP_NOTIFICATION_SETTINGS")
     c.present("设置页能跳省电策略设置", settings, r"ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS")
     c.present("设置项落在本机（聊天/设置不上传）", prefs, r'getSharedPreferences\("alerts"')

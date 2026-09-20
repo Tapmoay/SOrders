@@ -1,9 +1,12 @@
 /**
- * 与 `backend/app/models/enums.py::OrderStatus` **逐值对齐**（五个，不是四个）。
+ * 与 `backend/app/models/enums.py::OrderStatus` **逐值对齐**（六个，不是五个）。
  *
  * ⚠️ 少一个取值不是"类型不够全"，而是**这一档状态的订单在客户端上整体消失**：
  *    `DISPATCHED`（已派单·司机未接单）曾经就不在这里，于是 H5 全站没有任何入口能列出它
  *    （2026-09-19 审计 H1）。红线 `_tools/qa/_check_client_contract.py` 从后端枚举逐值对账。
+ *
+ * ⚠️ 2026-09-20 加了 `RETURNED`（已退货）：⛔ 它与 `CANCELLED` **不是一回事** ——
+ *    撤销＝这张单没发生过（货没出门），退货＝送了、入了账、事后客户把货退回来。
  */
 export type OrderStatus =
   | 'PENDING_DISPATCH'
@@ -11,6 +14,7 @@ export type OrderStatus =
   | 'ACCEPTED'
   | 'DELIVERED'
   | 'CANCELLED'
+  | 'RETURNED'
 
 export interface OrderProduct {
   id: number

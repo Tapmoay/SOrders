@@ -3,10 +3,8 @@ package com.tapmoay.sorders.ai
 import com.tapmoay.sorders.core.OrderStatusModel
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -290,6 +288,172 @@ class CancelOrderHandler(
     }
 }
 
+// ============================================================== 退货
+
+/**
+ * **订单退货**（2026-09-20 用户要求：整单退 / 只退其中几个商品）。
+ *
+ * ### 这个动作为什么是 HIGH 而不是 MEDIUM
+ * 它一次动四样东西：账本红冲（营业额减）、库存回补、**可能真退钱给客户**、订单状态。
+ * 撤销只是"让一张没发生的单作废"，退货是"已经发生的生意改了一部分" —— 后者赔的是真金白银。
+ *
+ * ### 三道前置核对（都在卡片之前，理由同撤销）
+ * 1. **状态必须是已送达**（后端只认 DELIVERED）——"点了确认才告诉你不能退"会让用户以为系统坏了；
+ * 2. **必须真有余量**：整单已退完、或者每一行的余量都是 0（全是货损）时直接拒绝，
+ *    而不是弹一张"退 0 件"的卡；
+ * 3. **数量不许超过余量**（[AiReturnableLine.maxReturnable] 一处算）。
+ *
+ * ### 卡片上必须写出来的两件事
+ * · **货损那几件退不了**：用户看到"可退 8（下单 10、货损 2）"才知道为什么不是 10；
+ * · **退完会发生什么**：账本红冲、库存回补、已结账则自动退款、整单退完变「已退货」。
+ *   ⛔ 退款**金额**不在卡片上编一个数：它取决于"累计收过多少、退过多少"，
+ *   那只有后端算得对（卡片写"以后端为准"比写一个错数强）。
+ */
+class ReturnOrderHandler(
+    ds: AiWriteDataSource,
+    store: AiWritePreviewStore,
+) : OrderWriteHandler(ds, store) {
+
+    override val actionId = AiWrites.ORDERS_RETURN
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val order = resolveOrder(params)
+        requireStatus(order, OrderStatusModel.RETURNABLE, "只有「已送达」的单能退货（货还没送到的请用「撤销」）")
+
+        // ⚠️ 这一单若挂着一张**待处理的退货申请**：直连退货**照旧允许**（2026-09-21 用户拍板
+        //    「如果是派单员的话，就不需要去修改这个按钮」），退完之后那张申请会被后端**自动关闭**
+        //    （状态转「已关闭（派单员已直接退货）」，并把"申请了什么 / 实退什么"发给货主）。
+        //    ⛔ 所以这里**不再拒绝**（早先那版是 fail-closed 挡掉，规则已按用户口径改回来）——
+        //    但卡片上必须把这件事写出来：派单员才知道货主手上那张申请会跟着关掉、货主会收到消息。
+        val pendingReq = ds.pendingReturnRequests(order.id).firstOrNull { it.isPending }
+
+        val lines = ds.returnableLines(order.id)
+        if (lines.isEmpty()) {
+            throw AiWriteArgException("这一单一件商品都没有，退不了。请让派单员打开订单详情看一眼。")
+        }
+        val available = lines.filter { it.maxReturnable > 0 }
+        if (available.isEmpty()) {
+            throw AiWriteArgException(
+                "这一单没有可以退的商品了：" +
+                    lines.joinToString("；") { it.label() } +
+                    "。请如实告诉用户（已经退完的部分不要再退一次）。",
+            )
+        }
+
+        val picked = parseItems(params, available)
+        val amount = picked.fold(BigDecimal.ZERO) { acc, (line, qty) ->
+            acc.add(BigDecimal(line.unitPrice).multiply(BigDecimal(qty)))
+        }.setScale(2, RoundingMode.HALF_UP)
+        val whollyReturned = lines.all { it.maxReturnable <= 0 || picked.any { p -> p.first.id == it.id && p.second >= it.maxReturnable } }
+        val note = AiWriteArgs.text(AiWriteArgs.str(params, "note"), "退货备注")
+
+        return card(
+            summary = "退货：${order.orderNo} · ${picked.sumOf { it.second }} 件 · " +
+                "${AiWriteArgs.money(amount)} 元",
+            details = buildList {
+                addAll(orderLines(order))
+                add("———— 退回 ————")
+                picked.forEach { (line, qty) ->
+                    add(
+                        "· ${line.name}  $qty × ${line.unitPrice} 元 = " +
+                            "${AiWriteArgs.money(BigDecimal(line.unitPrice).multiply(BigDecimal(qty)).setScale(2, RoundingMode.HALF_UP))} 元",
+                    )
+                    add("    ${line.label()}")
+                }
+                add("合计：${AiWriteArgs.money(amount)} 元")
+                add("———— 会发生什么 ————")
+                add("账本按这几行红冲（营业额减 ${AiWriteArgs.money(amount)} 元）")
+                add("退回来的货补回库存")
+                add("这单如果已经收过钱：自动记一笔退给客户的现金（金额按「收过多少、退过多少」由系统算）")
+                add(
+                    if (whollyReturned) "这几行退完，整单就退完了 → 订单变成「已退货」"
+                    else "这是部分退货，订单仍然是「已送达」，剩下的还欠着",
+                )
+                add("⚠️ 已经报过货损的那几件退不了（那部分已经按损失计过账）")
+                if (pendingReq != null) {
+                    add(
+                        "这一单还有一张待处理的退货申请（${pendingReq.linesText()}）：" +
+                            "退完之后那张申请会自动关闭，并给货主发一条消息说明实退了多少" +
+                            "（两边件数不一致时会如实写出来）",
+                    )
+                }
+                if (note.isNotBlank()) add("备注：$note")
+            },
+            payload = buildJsonObject {
+                put("order_id", order.id)
+                put("note", note)
+                put(
+                    "items",
+                    buildJsonArray {
+                        picked.forEach { (line, qty) ->
+                            add(
+                                buildJsonObject {
+                                    put("order_product_id", line.id)
+                                    put("quantity", qty)
+                                },
+                            )
+                        }
+                    },
+                )
+            },
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val items = payload["items"] as? JsonArray
+            ?: throw AiWriteArgException("退货明细丢了，请重新发起一次。")
+        val pairs = items.map { el ->
+            val obj = el as? JsonObject ?: throw AiWriteArgException("退货明细格式不对，请重新发起一次。")
+            obj.reqLong("order_product_id") to obj.reqInt("quantity")
+        }
+        ds.returnOrder(payload.reqLong("order_id"), pairs, payload.str("note").orEmpty())
+    }
+
+    /**
+     * 解析 `lines`；**留空 = 整单退货**（每行都退到余量上限）。
+     *
+     * ⚠️ 整单退货**不是另一条路径**：它就是"每一行都填满"，走同一套上限校验。
+     *    多一个 `all=true` 开关就多一条绕过上限的路（后端 `OrderReturnBody` 也没有这个开关）。
+     */
+    private suspend fun parseItems(
+        params: JsonObject,
+        available: List<AiReturnableLine>,
+    ): List<Pair<AiReturnableLine, Int>> {
+        val raw = params["lines"] as? JsonArray
+        if (raw == null || raw.isEmpty()) {
+            return available.map { it to it.maxReturnable }
+        }
+        if (raw.size > MAX_ITEMS) {
+            throw AiWriteArgException("一次最多退 $MAX_ITEMS 种商品，收到 ${raw.size} 种。")
+        }
+        val pool = available.map { AiName(it.id, it.name) }
+        val out = mutableListOf<Pair<AiReturnableLine, Int>>()
+        raw.forEachIndexed { i, el ->
+            val obj = el as? JsonObject
+                ?: throw AiWriteArgException("lines 第 ${i + 1} 项不是一个对象，应该形如 {\"product\":\"…\",\"quantity\":2}。")
+            val name = AiWriteArgs.required(obj, "product", "第 ${i + 1} 行退哪个商品？")
+            val hit = AiWriteArgs.strict(name, pool, "可退的商品")
+            val line = available.first { it.id == hit!!.id }
+            val qty = AiWriteArgs.str(obj, "quantity")?.let { AiWriteArgs.parseQuantity(it) } ?: 1
+            if (qty > line.maxReturnable) {
+                throw AiWriteArgException(
+                    "「${line.name}」最多只能退 ${line.maxReturnable} 件（${line.label()}），你填了 $qty。",
+                )
+            }
+            if (out.any { it.first.id == line.id }) {
+                throw AiWriteArgException("「${line.name}」在 lines 里出现了两次，请合成一行。")
+            }
+            out += line to qty
+        }
+        return out
+    }
+
+    private companion object {
+        /** 与后端 `OrderReturnBody.items` 的 `max_length=20` 对齐（一张单的商品行上限是 10）。 */
+        const val MAX_ITEMS = 10
+    }
+}
+
 // ============================================================== 创建订单
 
 /**
@@ -309,14 +473,33 @@ class CreateOrderHandler(
     override val actionId = AiWrites.ORDERS_CREATE
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
-        val shipperRaw = AiWriteArgs.required(params, "shipper", "这单是谁的？把货主名告诉我。")
+        // ⚠️⚠️ **按角色分叉，这一步不能省**（2026-09-20 实测的坑，用户第七轮要求"手机能做的 AI 也要能做"）：
+        //     派单员代理下单要先查"这单是谁的"（`GET /users?q=`），而**货主是给自己下单** ——
+        //     后端 `orders.py::create_order` 对货主是 `target_shipper_id = current.id`，
+        //     传了 `shipper_id` 还会 400「货主下单无需指定货主」。
+        //     而 `GET /users` 的角色门是 `USER_MANAGE`（只有派单员），**货主调它 403**
+        //     （真后端实测：`{"detail":"无操作权限…"}`）—— 于是货主的 AI「帮我下一单」
+        //     在第一步就抛异常，**卡片永远发不出来**，而手机上他自己明明能下单。
+        //
+        // 判据取 `ds.currentRoleKey()`（数据源里现问一次 `users/me`），不是"传了 shipper 参数就算代理"：
+        // 货主随口说"给张三下单"也不该被当成代理（后端会 403，他也没有那个能力）。
+        val selfOrder = ds.currentRoleKey() == "shipper"
+        val shipperRaw = if (selfOrder) {
+            "" // 自己给自己下单，没有"这单是谁的"这个问题
+        } else {
+            AiWriteArgs.required(params, "shipper", "这单是谁的？把货主名告诉我。")
+        }
         // 货主允许"查不到"→ 按临时货主记（代理下单时很常见：来收一趟货、没建过档）
-        val shipper = AiWriteArgs.strict(
-            shipperRaw,
-            ds.searchShippers(shipperRaw, LedgerEntryWriteHandler.SHIPPER_PROBE_LIMIT),
-            "货主",
-            allowMissing = true,
-        )
+        val shipper = if (selfOrder) {
+            null
+        } else {
+            AiWriteArgs.strict(
+                shipperRaw,
+                ds.searchShippers(shipperRaw, LedgerEntryWriteHandler.SHIPPER_PROBE_LIMIT),
+                "货主",
+                allowMissing = true,
+            )
+        }
 
         val lines = parseLines(params)
         val address = AiWriteArgs.text(AiWriteArgs.str(params, "address"), "送货地址")
@@ -338,11 +521,13 @@ class CreateOrderHandler(
         }.setScale(2, RoundingMode.HALF_UP)
 
         return card(
-            summary = "新建订单：${shipper?.label ?: "$shipperRaw（临时货主）"} · " +
+            summary = "新建订单：" +
+                (if (selfOrder) "你自己" else shipper?.label ?: "$shipperRaw（临时货主）") + " · " +
                 "${lines.size} 种商品 · 合计 ${AiWriteArgs.money(total)} 元",
             details = buildList {
                 add(
-                    if (shipper != null) "货主：${shipper.label}（系统里的货主）"
+                    if (selfOrder) "货主：你自己（货主给自己下单，不用指定货主）"
+                    else if (shipper != null) "货主：${shipper.label}（系统里的货主）"
                     else "货主：$shipperRaw（系统里没有这个名字，将按「临时货主」记）",
                 )
                 add("下单日期：$date")
@@ -367,8 +552,13 @@ class CreateOrderHandler(
                 add("新单进入「待派单」，需要再派单才会到司机手上")
             },
             payload = buildJsonObject {
-                shipper?.id?.let { put("shipper_id", it) }
-                if (shipper == null) put("temp_shipper_name", shipperRaw)
+                // ⚠️ 货主自己下单**不许**带 shipper_id / temp_shipper_name：
+                //    后端 `create_order` 对货主是 `target_shipper_id = current.id`，
+                //    带了 shipper_id 直接 400「货主下单无需指定货主」。
+                if (!selfOrder) {
+                    shipper?.id?.let { put("shipper_id", it) }
+                    if (shipper == null) put("temp_shipper_name", shipperRaw)
+                }
                 put("order_date", date.toString())
                 put("address_detail", address)
                 geo?.let {

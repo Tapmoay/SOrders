@@ -1210,3 +1210,197 @@ def _bootstrap_impl(engine: Engine) -> None:
                     logger.warning("商品分类名册已回填 %s 个分类（按在用的商品数排序）", len(rows))
         except DBAPIError:
             logger.debug("商品分类名册回填跳过（表可能刚建或字段不同）")
+
+    # ---------- 退货（2026-09-20 用户要求） ----------
+    #
+    # 用户原话：「那个订单管理……我们可以进行一个退货」「可以整单退货，也可以只退其中的
+    # 某几个商品或者是一个商品，**他自己勾选**」。
+    #
+    # 三件东西：
+    #   ① `order_products.returned_quantity` —— 这一行退了几件。**行级事实**是整单/部分
+    #      两种退货唯一的共同底座（整单退完 = 每行 returned == quantity），退货红冲行
+    #      与库存回补都按它算；
+    #   ② `orders.returned_at` —— 最后一次退货时间（整单退完时与 `status=RETURNED` 同写）；
+    #   ③ 两个 MySQL 枚举补新值（`orders.status` 补 RETURNED、`ledgers.source` 补 RETURN）
+    #      —— ⛔ 漏了枚举就是"本机 SQLite 一路正常、生产一按退货就 500"
+    #      （DISPATCHED 与 REFUND 都在这里栽过，见上面两段）。
+    for tbl, col, ddl in (
+        (
+            "order_products",
+            "returned_quantity",
+            "ALTER TABLE order_products ADD COLUMN returned_quantity INTEGER NOT NULL DEFAULT 0",
+        ),
+        ("orders", "returned_at", "ALTER TABLE orders ADD COLUMN returned_at DATETIME"),
+    ):
+        if tbl not in insp.get_table_names():
+            continue
+        if col in {c["name"] for c in insp.get_columns(tbl)}:
+            continue
+        logger.warning("检测到旧库缺少 %s.%s，正在补列…", tbl, col)
+        with engine.begin() as conn:
+            try:
+                conn.execute(text(ddl))
+            except DBAPIError as e:
+                msg = str(e).lower()
+                if "duplicate" in msg or "already exists" in msg:
+                    pass
+                else:
+                    raise
+    if dialect == "mysql":
+        with engine.begin() as conn:
+            # orders.status 枚举补 RETURNED（已退货）
+            try:
+                st_type = conn.execute(text(
+                    "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'status'"
+                )).scalar()
+                if st_type and "RETURNED" not in st_type:
+                    logger.warning("检测到旧库 orders.status 枚举缺少 RETURNED，正在修复…")
+                    conn.execute(text(
+                        "ALTER TABLE orders MODIFY COLUMN status "
+                        "ENUM('PENDING_DISPATCH','DISPATCHED','ACCEPTED','DELIVERED','CANCELLED','RETURNED') NOT NULL"
+                    ))
+            except DBAPIError as e:
+                logger.warning("orders.status 枚举补 RETURNED 跳过: %s", e)
+            # ledgers.source 枚举补 RETURN（退货红冲）
+            try:
+                src_type = conn.execute(text(
+                    "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ledgers' AND COLUMN_NAME = 'source'"
+                )).scalar()
+                if src_type and "RETURN" not in src_type:
+                    logger.warning("检测到旧库 ledgers.source 枚举缺少 RETURN，正在修复…")
+                    conn.execute(text(
+                        "ALTER TABLE ledgers MODIFY COLUMN source ENUM('ORDER','MANUAL','REFUND','RETURN') NOT NULL"
+                    ))
+            except DBAPIError as e:
+                logger.warning("ledgers.source 枚举补 RETURN 跳过: %s", e)
+
+    # ---------- 开销分类名册（2026-09-20 用户要求「开销分类也有个分类管理」） ----------
+    #
+    # 三件事，缺一件都会在真机上以一种"不报错但不对"的方式出现：
+    #   ① `expense_categories` 表（`create_all` 建）+ **存量回填**：把已经在用的分类收进名册，
+    #      按用到的笔数从多到少排（之后由派单员在「分类管理」里自己排）；
+    #   ② 老英文键 → 中文名（`fuel` → 「加油」…）：分类名是要**给人看**的，名册里存 `fuel`
+    #      等于让用户在分类管理里看见一串英文再逐个改名；
+    #   ③ `expenses.category` 列宽 16 → 32：名册名与商品分类同名宽（32），
+    #      窄了的话 MySQL 上写长分类名会被截断/报错（SQLite 不拦，所以本地测不出来）。
+    EXPENSE_CATEGORY_RENAME = {
+        "fuel": "加油",
+        "repair": "维修",
+        "toll": "过路",
+        "parking": "停车",
+        "fine": "罚款",
+        "insurance": "保险",
+        "loss": "货损",
+        "other": "其他",
+    }
+    #: 卡片上"突出哪一项"的默认口径（用户点名不许一刀切，但**初始值**得有个合理默认）：
+    #: 车相关的几类关联车辆、货损关联订单、其他不关联。之后在「分类管理」里可改。
+    EXPENSE_CATEGORY_LINK = {
+        "加油": "vehicle", "维修": "vehicle", "过路": "vehicle",
+        "停车": "vehicle", "罚款": "vehicle", "保险": "vehicle",
+        "货损": "order",
+    }
+    if "expenses" in insp.get_table_names():
+        cols = {c["name"]: c for c in insp.get_columns("expenses")}
+        cat = cols.get("category")
+        # ③ 列宽（只对 MySQL 做：SQLite 的 VARCHAR 宽度本来就不拦，改了也没意义）
+        if dialect == "mysql" and cat is not None:
+            try:
+                with engine.begin() as conn:
+                    col_type = conn.execute(text(
+                        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'expenses' "
+                        "AND COLUMN_NAME = 'category'"
+                    )).scalar()
+                    if col_type and "32" not in col_type:
+                        logger.warning("检测到 expenses.category 列宽偏窄（%s），正在放宽到 32…", col_type)
+                        conn.execute(text(
+                            "ALTER TABLE expenses MODIFY COLUMN category VARCHAR(32) NOT NULL"
+                        ))
+            except DBAPIError as e:
+                logger.warning("expenses.category 放宽列宽跳过: %s", e)
+        # ② 老英文键 → 中文名（两种库同一段 SQL，参数化）
+        try:
+            with engine.begin() as conn:
+                moved = 0
+                for old, new in EXPENSE_CATEGORY_RENAME.items():
+                    moved += conn.execute(
+                        text("UPDATE expenses SET category = :n WHERE category = :o"),
+                        {"n": new, "o": old},
+                    ).rowcount or 0
+            if moved:
+                logger.warning("开销分类：老英文键已翻成中文名，共 %s 笔", moved)
+        except DBAPIError:
+            logger.debug("开销分类改名跳过（表可能刚建或字段不同）")
+        # ① 名册回填
+        if "expense_categories" in insp.get_table_names():
+            try:
+                with engine.connect() as conn:
+                    existing = conn.execute(text("SELECT COUNT(*) FROM expense_categories")).scalar() or 0
+                if existing == 0:
+                    with engine.begin() as conn:
+                        rows = conn.execute(text(
+                            "SELECT TRIM(category) AS c, COUNT(*) AS n FROM expenses "
+                            "WHERE category IS NOT NULL AND TRIM(category) <> '' "
+                            "GROUP BY TRIM(category) ORDER BY n DESC, c ASC"
+                        )).fetchall()
+                        for idx, (name, _n) in enumerate(rows):
+                            conn.execute(
+                                text(
+                                    "INSERT INTO expense_categories "
+                                    "(name, sort_order, link_kind, created_at, updated_at) "
+                                    "VALUES (:n, :s, :k, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                                ),
+                                {"n": name, "s": idx, "k": EXPENSE_CATEGORY_LINK.get(str(name), "none")},
+                            )
+                        # 一个开销都没有的新库：把八个默认分类先摆上（否则分类栏是空的，
+                        # 用户得先自己建分类才能记第一笔）
+                        if not rows:
+                            for idx, name in enumerate(EXPENSE_CATEGORY_RENAME.values()):
+                                conn.execute(
+                                    text(
+                                        "INSERT INTO expense_categories "
+                                        "(name, sort_order, link_kind, created_at, updated_at) "
+                                        "VALUES (:n, :s, :k, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                                    ),
+                                    {"n": name, "s": idx, "k": EXPENSE_CATEGORY_LINK.get(name, "none")},
+                                )
+                    if rows:
+                        logger.warning("开销分类名册已回填 %s 个分类（按在用的笔数排序）", len(rows))
+            except DBAPIError:
+                logger.debug("开销分类名册回填跳过（表可能刚建或字段不同）")
+
+    # ---------- 运费分类 / 计费规则按分类（2026-09-21）----------
+    # 新表（freight_categories / freight_template_categories / driver_billing_rule_categories）
+    # 由上面的 `create_all(checkfirst=True)` 建；这里是**给已有表加列**（SQLite/MySQL 都要能跑）。
+    _ADD_COLUMNS = (
+        ("orders", "freight_category_id", "INTEGER"),
+        ("orders", "freight_category", "VARCHAR(32)"),
+        ("driver_billing_rules", "piece_mode", "VARCHAR(16)"),
+    )
+    tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table, col, ddl_type in _ADD_COLUMNS:
+            if table not in tables:
+                continue
+            cols = {c["name"] for c in insp.get_columns(table)}
+            if col in cols:
+                continue
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl_type}"))
+                logger.warning("补列：%s.%s", table, col)
+            except DBAPIError as e:
+                msg = str(e).lower()
+                if "duplicate" in msg or "already exists" in msg:
+                    continue
+                raise
+        # 已有规则默认都是"所有单统一"（老口径一字不变）
+        if "driver_billing_rules" in tables:
+            try:
+                conn.execute(
+                    text("UPDATE driver_billing_rules SET piece_mode = 'uniform' WHERE piece_mode IS NULL")
+                )
+            except DBAPIError:
+                logger.debug("piece_mode 回填跳过")

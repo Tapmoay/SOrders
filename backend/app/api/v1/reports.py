@@ -19,6 +19,7 @@ from app.models.enums import OrderStatus
 from app.schemas.reports import ProductReportItem, ProductReportOut, ReportArrearsUnitItem, ReportSeriesItem, TurnoverReportOut
 from app.services.cost_basis import SNAPSHOT, CostBasis
 from app.services.driver_pay import has_per_order_pay, pay_for_order
+from app.services.order_money import line_receivable, money_map
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -89,6 +90,11 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
     start, end = _window(mode, anchor)
     days = _range_dates(start, end)
     orders = load_delivered(db)
+    # ⚠️ 一页/一期的**钱**先一次算完（`order_money`：4 条分组查询，与订单条数无关）：
+    #    本期营业额要**减掉退货红冲**、已收要含现场收现金、挂账要减掉已收与退货 ——
+    #    这三件事原来各自用 `paid` + `line_total` 现算，加了"部分核销"与"退货"之后
+    #    必然与账本页、订单详情说不到一起（而两边都不报错）。
+    money = money_map(db, orders)
     # 成本口径**只有一处**（`services/cost_basis.py`）：本期的入库加权平均进货价。
     basis = CostBasis(db, start, end)
     day_map: dict[str, ReportSeriesItem] = {}
@@ -117,7 +123,10 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         if ds is None or ds < start or ds > end:
             continue
         key = f"{ds.month}-{ds.day}"
-        amount = sum((lp.line_total or Decimal("0")) for lp in o.order_products)
+        # 营业额 = **应收**（`order_money.receivable`）＝ 当时卖的 − 退掉的。
+        # 退货是"这笔生意少了一部分"，营业额不减就成了"退了货还照记收入"。
+        mm = money[o.id]
+        amount = mm.receivable
         item = day_map.setdefault(key, ReportSeriesItem(label=key))
         item.amount += amount
         item.orders += 1
@@ -139,6 +148,11 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         total_freight += pay
         total_orders += 1
         for lp in o.order_products:
+            # 退货的货**回到库里了**（`order_return` 已回补库存）→ 这一行的成本不能照全额算，
+            # 否则"退了货还照记成本"，毛利被两头挤（收入减了、成本没减）。
+            net_qty = int(lp.quantity or 0) - int(lp.returned_quantity or 0)
+            if net_qty <= 0 and (lp.damage_quantity or 0) <= 0:
+                continue
             total_lines += 1
             # ⚠️ 成本 = **入库流水的加权平均进货价**（2026-09-19 用户要求，取代下单快照）。
             #    快照是"下单那一刻的最新进货价"，进货价一涨，从旧库存出的货就被按高价算成本
@@ -147,10 +161,11 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
             cost, basis_src = basis.of(lp.product_id, lp.cost_price_snapshot)
             if cost > 0:
                 cost_covered_lines += 1
-                cost_total += cost * Decimal(lp.quantity)
+                cost_total += cost * Decimal(max(0, net_qty))
                 # 收入侧**只收参与毛利的行**（见 schemas/reports.py 里 cost_covered_amount 的注释）：
                 # 不这么写，没成本的行会以"0 成本"全额变成毛利。
-                cost_covered_amount += lp.line_total or Decimal("0")
+                # 用 `line_receivable`（= 行金额 − 退掉那部分）与上面的成本同口径。
+                cost_covered_amount += line_receivable(lp)
                 if basis_src == SNAPSHOT:
                     cost_snapshot_lines += 1
                 else:
@@ -170,12 +185,15 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         # 和 `cash 且未收` 这两种组合**两边都不算**——营业额 200、已收 100、挂账 0，
         # 差出来的 100 在报表上哪一列都不属于（v3.39 探针实测：挂账结清后
         # "已收 +0 / 挂账 -100"，钱凭空消失）。
-        if o.paid:
-            collected += amount
-        else:
-            arrears_total += amount
+        #
+        # 2026-09-20 改成**按钱算**（`order_money` 一处）：`paid` 一个布尔只能表达
+        # "全收/全没收"，而按商品核销之后"收了一半"是常态、退货又会让应收变小。
+        # 恒等式仍然成立、而且现在是精确的：`营业额(应收) = 净已收 + 挂账`。
+        collected += mm.settled - mm.refunded
+        if mm.arrears != 0:
+            arrears_total += mm.arrears
             uname = (o.arrears_unit_name or "").strip() or "未分配挂账单位"
-            arrears_map[uname] = arrears_map.get(uname, Decimal("0")) + amount
+            arrears_map[uname] = arrears_map.get(uname, Decimal("0")) + mm.arrears
     if mode == "day":
         series = [
             ReportSeriesItem(
@@ -372,15 +390,22 @@ def build_arrears_summary(db: Session, start: date, end: date) -> list[dict]:
         )
     )
     unit_map: dict[str, dict] = {}
+    # 金额改成**这一单还欠多少**（`order_money.arrears`），不是"当时卖了多少"：
+    # 收了一半的单、退了一部分的单，欠款都不等于 `line_total` 之和。
+    money = money_map(db, rows)
     for o in rows:
         ds = business_date(o.delivered_at)
         if ds is None or ds < start or ds > end:
             continue
+        mm = money[o.id]
+        if mm.arrears == 0:
+            # `paid=False` 但一分钱都不欠了（比如整单被收干净了、或货全退了）→ 不算挂账。
+            # 把它算进去会得到一条"0 元欠款"的挂账单位行，看的人只会以为系统坏了。
+            continue
         name = (o.arrears_unit_name or "").strip() or "未分配挂账单位"
         g = unit_map.setdefault(name, {"name": name, "count": 0, "amount": Decimal("0")})
-        amount = sum((lp.line_total or Decimal("0")) for lp in o.order_products)
         g["count"] += 1
-        g["amount"] += amount
+        g["amount"] += mm.arrears
     return sorted(unit_map.values(), key=lambda x: -x["amount"])
 
 

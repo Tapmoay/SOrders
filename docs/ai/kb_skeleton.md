@@ -67,6 +67,15 @@
 | `create_settlement` | 写 | `POST /api/v1/driver-settlements` |  |  |
 | `settlement_action` | 写 | `PATCH /api/v1/driver-settlements/{settlement_id}` |  |  |
 
+## 开销分类（`expense_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `create_category` | 写 | `POST /api/v1/expense-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/expense-categories/{category_id}` | 改名 / 改顺序 / 改"突出哪一项"。**改名会级联改掉挂在它下面的开销**（同一事务）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/expense-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前。 |  |
+| `delete_category` | 写 | `DELETE /api/v1/expense-categories/{category_id}` | 删除名册里的一行。**还有开销挂着时拒绝**（告诉有几笔）。 |  |
+
 ## 费用（`expenses`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -79,6 +88,15 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `parse_sheet` | 写 | `POST /api/v1/files/parse-sheet` | 上传 Excel(.xlsx/.xlsm) 或文本表格(.csv/.tsv/.txt)，读成「一格一格」的文本。 |  |
+
+## 运费分类（`freight_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `create_category` | 写 | `POST /api/v1/freight-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/freight-categories/{category_id}` | 改名 / 改顺序。**不需要级联**：两条线都按编号关联（见模块注释第 1 条）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/freight-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前（**必须覆盖全部现存分类**，见模块注释第 3 条）。 |  |
+| `delete_category` | 写 | `DELETE /api/v1/freight-categories/{category_id}` | 删除分类名册里的一行。**还有价目/规则挂着它时拒绝**（告诉各有几处）。 |  |
 
 ## 司机运费结算（`freight_settlement`）
 
@@ -173,11 +191,13 @@
 | `driver_ack_view` | 写 | `POST /api/v1/orders/{order_id}/driver-ack` |  |  |
 | `driver_append_internal_note` | 写 | `POST /api/v1/orders/{order_id}/driver-note` |  |  |
 | `fill_order_navigation` | 写 | `POST /api/v1/orders/{order_id}/navigation` | **司机到场后给这单补上导航信息**（订单原本没有坐标时才能补）。 |  |
+| `price_freight` | 写 | `POST /api/v1/orders/{order_id}/price-freight` | 派单员**手动定价**：没匹配到价目的单，由人给一个数。 |  |
 | `assign_order` | 写 | `POST /api/v1/orders/{order_id}/assign` |  |  |
 | `split_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/split` | 把待派单拆分为 N 个子单（按比例拆分件数），分别派单。 |  |
-| `update_order_freight` | 写 | `POST /api/v1/orders/{order_id}/freight` | 派单员补录/修改司机运费（送达/撤销后锁定；传 null 清空回待定）。 |  |
+| `update_order_freight` | 写 | `POST /api/v1/orders/{order_id}/freight` | 派单员补录/修改司机运费（送达/撤销/退货后锁定；传 null 清空回待定）。 |  |
 | `complete_order` | 写 | `POST /api/v1/orders/{order_id}/complete` |  |  |
 | `cancel_order` | 写 | `POST /api/v1/orders/{order_id}/cancel` |  |  |
+| `return_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/return` | **订单退货**（2026-09-20 用户要求）。 |  |
 | `pay_order` | 写 | `POST /api/v1/orders/{order_id}/pay` | 派单员：现场收款确认（货到付款）。仅派单员界面可用。 |  |
 | `charge_order` | 写 | `POST /api/v1/orders/{order_id}/charge` | 派单员：订单挂账到挂账单位名下。仅派单员界面可用。 |  |
 | `recall_order` | 写 | `POST /api/v1/orders/{order_id}/recall` |  |  |
@@ -200,6 +220,10 @@
 | `create_place` | 写 | `POST /api/v1/places` | 往共享地点库加一个点；**坐标 ≤1 米内已有点时并入那一条**（不新建重复行）。 |  |
 | `use_place` | 写 | `POST /api/v1/places/{place_id}/use` | 记一次"我用了这个共享地点"；**同一个人用到第 2 次就自动收进他自己的地点库**。 |  |
 | `get_place` | 只读 | `GET /api/v1/places/{place_id}` |  |  |
+| `update_place` | 写 | `PATCH /api/v1/places/{place_id}` | 改共享地址的名称 / 地址（**只有派单员**）。 |  |
+| `demote_place` | 写 | `POST /api/v1/places/{place_id}/demote` | **撤销**一个共享地址 → 降为**操作人自己**的普通地点（叫「我的地点」）。 |  |
+| `delete_place` | 写 | `DELETE /api/v1/places/{place_id}` | 从共享库**删掉**一个地点（只有派单员）—— **软删**，`POST /places/{id}/restore` 能拿回来。 |  |
+| `restore_place` | 写 | `POST /api/v1/places/{place_id}/restore` | 把删掉的共享地点**原样放回来**（`DELETE /places/{id}` 的逆操作，只有派单员）。 |  |
 
 ## 批发商定价（`price_rules`）
 
@@ -244,6 +268,17 @@
 | `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` |  |  |
 | `export_report` | 只读 | `GET /api/v1/reports/export` | 报表 Excel 导出（内存流 xlsx）。 |  |
 
+## 退货申请（`return_requests`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `create_return_request` | 写 | `POST /api/v1/return-requests` | **货主申请退货**（数量＝他想退多少，不会真的退）。 |  |
+| `list_my_return_requests` | 只读 | `GET /api/v1/return-requests/mine` | **我的**退货申请（货主端列表打标记、看驳回理由、撤回都读它）。 |  |
+| `withdraw_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/withdraw` | 货主撤回自己的申请（**不是删除**：记录留着，派单员看得到"他提过又撤了"）。 |  |
+| `list_return_requests` | 只读 | `GET /api/v1/return-requests` | **派单员待办**：谁申请了退货、要退哪几样、各几件、什么时候提的。 |  |
+| `reject_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/reject` | 派单员驳回（**必带理由**：这是货主唯一能拿到的答复）。 |  |
+| `fulfill_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/fulfill` | **派单员照这张申请实际退货** —— 货主申请的终点，也是库存/账本唯一会发生变动的时刻。 |  |
+
 ## 地址与联系人（`shipper`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -262,10 +297,20 @@
 | `list_locations` | 只读 | `GET /api/v1/shipper/locations` |  |  |
 | `create_location` | 写 | `POST /api/v1/shipper/locations` |  |  |
 | `update_location` | 写 | `PATCH /api/v1/shipper/locations/{location_id}` |  |  |
-| `delete_location` | 写 | `DELETE /api/v1/shipper/locations/{location_id}` | 把删掉的地点恢复回来（DELETE /locations/{id} 的逆操作）。 |  |
+| `delete_location` | 写 | `DELETE /api/v1/shipper/locations/{location_id}` |  |  |
+| `share_location` | 写 | `POST /api/v1/shipper/locations/{location_id}/share` | 把「我的地点」里的一个地点**设为共享地址**（进全库共用的那张表）。**只有派单员**。 |  |
 | `restore_location` | 写 | `POST /api/v1/shipper/locations/{location_id}/restore` | 把删掉的地点恢复回来（DELETE /locations/{id} 的逆操作）。 |  |
 | `delete_contact` | 写 | `DELETE /api/v1/shipper/contacts/{contact_id}` |  |  |
 | `restore_contact` | 写 | `POST /api/v1/shipper/contacts/{contact_id}/restore` | 把删掉的联系人恢复回来（DELETE /contacts/{id} 的逆操作）。 |  |
+
+## 我的账本（`shipper_ledger`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_settlements` | 只读 | `GET /api/v1/shipper-ledger/settlements` |  |  |
+| `create_settlement` | 写 | `POST /api/v1/shipper-ledger/settlements` | 核销一笔：**整单**（`lines` 留空）或**按商品**（给要核的那几行）。 |  |
+| `delete_settlement` | 写 | `DELETE /api/v1/shipper-ledger/settlements/{settlement_id}` | **撤掉核销**（软删：行留着，`POST /{id}/restore` 逐字段放回来）。 |  |
+| `restore_settlement` | 写 | `POST /api/v1/shipper-ledger/settlements/{settlement_id}/restore` | 把撤掉的核销放回来（`DELETE` 的逆操作）。 |  |
 
 ## 统计口径（`stats`）
 

@@ -8,12 +8,19 @@ import com.tapmoay.sorders.data.remote.dto.OrderProductLine
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest
 import com.tapmoay.sorders.data.repo.AppRepository
+import com.tapmoay.sorders.ui.dispatcher.centsToMoney
+import com.tapmoay.sorders.ui.dispatcher.lineReceivableCents
+import com.tapmoay.sorders.ui.shipper.customerNameOf
+import com.tapmoay.sorders.ui.shipper.customerPhoneOf
+import com.tapmoay.sorders.ui.shipper.settledByLineCents
 import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -116,6 +123,19 @@ interface AiWriteDataSource {
     )
     suspend fun recallOrder(orderId: Long, reason: String)
     suspend fun cancelOrder(orderId: Long)
+
+    /**
+     * 这一单**可退的商品行**（退货动作的核对依据）。
+     *
+     * ⚠️ 必须问后端/仓库要，不能在卡片里凭 `AiOrderRef.amount` 推算：
+     *    "能不能退、还能退几件"取决于 `quantity − damage_quantity − returned_quantity`
+     *    三个字段，而 `AiOrderRef` 一个都没有。
+     */
+    suspend fun returnableLines(orderId: Long): List<AiReturnableLine>
+
+    /** 退货（整单/部分都走这一条）。 */
+    suspend fun returnOrder(orderId: Long, items: List<Pair<Long, Int>>, note: String)
+
     suspend fun updateFreight(orderId: Long, freightFee: String?)
     suspend fun payOrder(orderId: Long)
     suspend fun chargeOrder(orderId: Long, arrearsUnitId: Long)
@@ -188,6 +208,81 @@ interface AiWriteDataSource {
 
     /** 客户名册（记收款时要先找到那个客户）。 */
     suspend fun customers(): List<AiName>
+
+    // ---- 货主自己那一本账（批发商给下游货主核销，2026-09-20）----
+    //
+    // ⛔ 与上面那几个 `ledger*` 方法**不是同一本账**：那些读写的是公司账
+    // （`/ledger/entries`、`/ledger/receipts`，只有派单员能动），
+    // 这几个走 `/shipper-ledger/...`，写的是"我向我的货主收钱"。
+
+    /** 这个账号是不是**批发商货主**（`users.is_member`）——只有他有核销那一段。 */
+    suspend fun isMemberShipper(): Boolean
+
+    /**
+     * 当前登录角色 key（`dispatcher` / `shipper` / `driver`）；认不出返回 null。
+     *
+     * ⚠️ 为什么数据源要暴露它（2026-09-20 实测的坑）：「下单」这条路**按角色分叉** ——
+     *    派单员代理下单要先查"这单是谁的"（`GET /users?q=`），而**货主是给自己下单**，
+     *    后端 `create_order` 对货主是 `target_shipper_id = current.id`，连 `shipper_id`
+     *    都不许传。那一步查名册对货主是 **403**（真后端实测：`GET /users` 的角色门是
+     *    `USER_MANAGE`＝派单员），于是货主的 AI「帮我下一单」**永远发不出卡** ——
+     *    手机上他自己明明能下单。
+     */
+    suspend fun currentRoleKey(): String?
+
+    /**
+     * 我账本上的一张单（按**完整单号**查）：带逐行"还可核销多少"。
+     *
+     * 为什么按单号而不是"给一串候选让模型挑"：核销是**钱**，挑错单就是记到别人头上，
+     * 而这件事要到对账那天才会被发现。单号写全了才是**确定的**那一张。
+     */
+    suspend fun mySettleOrder(orderNo: String): AiSettleOrder?
+
+    /** 这一单我记过哪些核销（含已撤销的；撤销/恢复都要按它认人）。 */
+    suspend fun mySettlements(orderId: Long): List<AiMySettlementRef>
+
+    /** 核销一笔（`lines` 留空 = 整单）。 */
+    suspend fun createMySettlement(
+        orderId: Long,
+        lines: List<Pair<Long, String>>,
+        method: String,
+        note: String,
+    )
+
+    /** 撤销一笔核销（**软删**：记录还在，能恢复）。 */
+    suspend fun revokeMySettlement(id: Long)
+
+    /** 把撤掉的那一笔放回来。 */
+    suspend fun restoreMySettlement(id: Long)
+
+    // ---------------------------------------------------------------- 退货申请（2026-09-21）
+    //
+    // 用户原话：「批发商**只是一个申请**，派单员才是实际性的操作」＋
+    // 「同时**货主的 AI 可以代替货主进行申请退货**」。
+    // ⚠️ 前两个是**货主**的（写申请单/撤回，什么都不动）；
+    //    后两个是**派单员的**（驳回 / 真的退货）。角色越权由后端鉴权兜底，清单是第一道门。
+
+    /** **我的**退货申请（`orderId` 非空 = 只看这一张单的）。 */
+    suspend fun myReturnRequests(orderId: Long? = null): List<AiReturnRequest>
+
+    /** 货主提交退货申请（⛔ 只写申请单：账本、库存、订单状态一个都不动）。 */
+    suspend fun applyReturnRequest(orderId: Long, items: List<Pair<Long, Int>>, note: String)
+
+    /** 货主撤回自己的申请（不是删除：记录留着）。 */
+    suspend fun withdrawReturnRequest(id: Long)
+
+    /** 派单员的待办退货申请（`orderId` 非空 = 只看这一张单的）。 */
+    suspend fun pendingReturnRequests(orderId: Long? = null): List<AiReturnRequest>
+
+    /** 派单员驳回（理由必填：那是货主唯一能拿到的答复）。 */
+    suspend fun rejectReturnRequest(id: Long, reason: String)
+
+    /**
+     * 派单员**照这张申请实际退货** —— 库存与账本在这一刻才变。
+     *
+     * ⛔ 没有数量参数（用户拍板"数量锁死"）：数量只能来自申请单本身。
+     */
+    suspend fun fulfillReturnRequest(id: Long)
 
     /** 部分更新账本流水（后端 PATCH 语义：没带的键不改）。 */
     suspend fun updateLedgerEntry(id: Long, fields: JsonObject)
@@ -564,6 +659,26 @@ class RepoWriteDataSource(
         repo.cancelOrder(orderId)
     }
 
+    override suspend fun returnableLines(orderId: Long): List<AiReturnableLine> =
+        repo.order(orderId).orderProducts.map { p ->
+            AiReturnableLine(
+                id = p.id,
+                name = p.productNameSnapshot,
+                quantity = p.quantity,
+                returned = p.returnedQuantity,
+                damaged = p.damageQuantity,
+                unitPrice = p.unitPrice ?: "0",
+            )
+        }
+
+    override suspend fun returnOrder(orderId: Long, items: List<Pair<Long, Int>>, note: String) {
+        repo.returnOrder(
+            orderId,
+            items.map { com.tapmoay.sorders.data.remote.dto.OrderReturnItem(it.first, it.second) },
+            note,
+        )
+    }
+
     override suspend fun updateFreight(orderId: Long, freightFee: String?) {
         repo.updateFreight(orderId, freightFee)
     }
@@ -685,6 +800,140 @@ class RepoWriteDataSource(
 
     override suspend fun customers(): List<AiName> =
         repo.customers().map { AiName(it.id, it.name.trim()) }.filter { it.label.isNotEmpty() }
+
+    // ---------------- 货主自己那一本账 ----------------
+
+    override suspend fun isMemberShipper(): Boolean = repo.me().isMember
+
+    override suspend fun currentRoleKey(): String? = repo.me().role
+
+    override suspend fun mySettleOrder(orderNo: String): AiSettleOrder? {
+        val want = AiWriteArgs.normCode(orderNo)
+        if (want.length < MIN_ORDER_NO_LEN) return null
+        // 用自己的订单名册找那一张（`GET /orders?q=` 对货主是**只搜自己的单**，
+        // 作用域由后端保证），再**精确比单号**——模糊命中一堆时不许挑一个。
+        val hit = repo.orders(q = orderNo.trim())
+            .firstOrNull { AiWriteArgs.normCode(it.orderNo) == want }
+            ?: return null
+
+        val order = repo.order(hit.id)
+        val settled = settledByLineCents(repo.mySettlements(orderId = order.id).rows)
+        return AiSettleOrder(
+            id = order.id,
+            orderNo = order.orderNo,
+            customer = customerNameOf(order),
+            customerPhone = customerPhoneOf(order),
+            status = order.status,
+            lines = order.orderProducts.map { line ->
+                AiSettleLine(
+                    id = line.id,
+                    name = line.productNameSnapshot.ifBlank { "（未命名商品）" },
+                    // 逐行口径只有一处：`lineReceivableCents`（与界面、与后端同一个式子）
+                    receivable = BigDecimal(centsToMoney(lineReceivableCents(line))),
+                    settled = BigDecimal(centsToMoney(settled[line.id] ?: 0L)),
+                )
+            },
+        )
+    }
+
+    override suspend fun mySettlements(orderId: Long): List<AiMySettlementRef> =
+        repo.mySettlements(orderId = orderId, includeDeleted = true, limit = MY_SETTLE_PROBE)
+            .rows
+            .map { s ->
+                AiMySettlementRef(
+                    id = s.id,
+                    orderId = s.orderId,
+                    orderNo = s.orderNo ?: "",
+                    customer = s.customerName,
+                    amount = s.amount,
+                    method = s.method,
+                    settledAt = s.settledAt.take(16).replace("T", " "),
+                    isDeleted = s.isDeleted,
+                    products = s.lines.map { it.productName },
+                )
+            }
+
+    override suspend fun createMySettlement(
+        orderId: Long,
+        lines: List<Pair<Long, String>>,
+        method: String,
+        note: String,
+    ) {
+        repo.createMySettlement(
+            com.tapmoay.sorders.data.remote.api.ShipperSettlementCreateRequest(
+                orderId = orderId,
+                lines = lines.map {
+                    com.tapmoay.sorders.data.remote.api.ShipperSettlementLineRequest(
+                        orderProductId = it.first,
+                        amount = it.second,
+                    )
+                },
+                method = method,
+                note = note,
+                // 这笔核销是 AI 确认卡提交的：审计与列表上会如实标出来
+                source = "ai",
+            ),
+        )
+    }
+
+    override suspend fun revokeMySettlement(id: Long) = repo.revokeMySettlement(id)
+
+    override suspend fun restoreMySettlement(id: Long) {
+        repo.restoreMySettlement(id)
+    }
+
+    // ---------------------------------------------------------------- 退货申请（2026-09-21）
+
+    /**
+     * DTO → 模型看得见的形状。
+     *
+     * ⚠️ `id` 留着（撤回/办理都要按它认人），但**不进候选名单文案** ——
+     * [AiReturnRequest.label] 里只有单号、商品名和中文状态（模型第一条硬规矩：不给编号）。
+     */
+    private fun toAiReturnRequest(dto: com.tapmoay.sorders.data.remote.dto.ReturnRequestDto) =
+        AiReturnRequest(
+            id = dto.id,
+            orderId = dto.orderId,
+            orderNo = dto.orderNo,
+            status = dto.status,
+            statusLabel = dto.statusLabel,
+            shipperName = dto.shipperName,
+            note = dto.note,
+            rejectReason = dto.rejectReason,
+            handledByName = dto.handledByName,
+            lines = dto.lines.map { it.productName to it.quantity },
+        )
+
+    override suspend fun myReturnRequests(orderId: Long?): List<AiReturnRequest> =
+        repo.myReturnRequests(orderId = orderId).items.map { toAiReturnRequest(it) }
+
+    override suspend fun applyReturnRequest(orderId: Long, items: List<Pair<Long, Int>>, note: String) {
+        repo.applyReturnRequest(
+            orderId = orderId,
+            items = items.map {
+                com.tapmoay.sorders.data.remote.dto.OrderReturnItem(
+                    orderProductId = it.first,
+                    quantity = it.second,
+                )
+            },
+            note = note,
+        )
+    }
+
+    override suspend fun withdrawReturnRequest(id: Long) {
+        repo.withdrawReturnRequest(id)
+    }
+
+    override suspend fun pendingReturnRequests(orderId: Long?): List<AiReturnRequest> =
+        repo.returnRequestTodo(status = "pending", orderId = orderId).items.map { toAiReturnRequest(it) }
+
+    override suspend fun rejectReturnRequest(id: Long, reason: String) {
+        repo.rejectReturnRequest(id, reason)
+    }
+
+    override suspend fun fulfillReturnRequest(id: Long) {
+        repo.fulfillReturnRequest(id)
+    }
 
     override suspend fun updateLedgerEntry(id: Long, fields: JsonObject) {
         // ⚠️ 数量必须**要么解析成整数、要么当场炸**（2026-09-19 审计）：
@@ -1700,6 +1949,13 @@ class RepoWriteDataSource(
                 repo.freightTemplates().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.freightTemplate(it)) }
             "driver_rule" ->
                 repo.driverBillingRules().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.driverRule(it)) }
+            // 我自己那一本账上的核销记录：**按 id 拉列表再挑**（后端没有单取端点）。
+            // 它只被"改类"撤回用到，而撤销/恢复是一对**成对动作**（不需要读现场），
+            // 所以这条分支存在的意义是"这条资源真有读法"——红线会逐个资源对账，缺一个就红。
+            "shipper_settlement" ->
+                repo.mySettlements(includeDeleted = true, limit = SETTLE_SNAPSHOT_PROBE)
+                    .rows.firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, buildJsonObject { put("settlement_id", it.id) }) }
             // 认不出的资源标识 = **撤不回来**（不是"不需要撤"）。
             // 静默返回一份空现场会让撤回卡弹出来却什么都没写回去——那比没有撤回更糟。
             else -> null
@@ -1709,6 +1965,20 @@ class RepoWriteDataSource(
     private companion object {
         /** 查账号名册时一次拉多少条。 */
         const val USER_PROBE_LIMIT = 20
+
+        /**
+         * 单号短于这个长度**直接拒绝**（核销/撤销都按单号认单）。
+         *
+         * 与订单域同一条理由：`GET /orders?q=` 是模糊匹配，两三个字符会命中一堆单，
+         * 而"挑一个最像的"在钱上是不可接受的。
+         */
+        const val MIN_ORDER_NO_LEN = 6
+
+        /** 一笔订单最多列几笔核销记录（撤销时要全摆出来让用户自己指认）。 */
+        const val MY_SETTLE_PROBE = 50
+
+        /** 撤回快照最多在多少笔核销里找那一条（后端这个端点一次最多 2000）。 */
+        const val SETTLE_SNAPSHOT_PROBE = 300
     }
 }
 
@@ -1738,20 +2008,24 @@ class AiWriteService(
     private val ds: AiWriteDataSource,
     private val store: AiWritePreviewStore,
     /**
-     * 当前登录角色。**动作集按它裁剪**（见 [AiWrites.forRole]）。
+     * 当前登录角色 + **他是不是批发商货主**。**动作集按它裁剪**（见 [AiWrites.forRole]）。
      *
      * 为什么在这里再查一次而不是只靠界面隐藏：界面藏起来的动作，
      * 模型仍然能从提示词里知道它存在；更糟的是它可以被越权调用。
      * 所以这一层是**真正的门**，界面只是"不给你看"。
+     *
+     * ⚠️ 第二维（`memberShipper`）不能省：普通货主与批发商货主的**手机上界面就不一样**，
+     *    工具清单会按它裁；但"清单裁过"不等于"调不到" —— 模型可以凭上一轮的记忆
+     *    写一个 `my_ledger.settle` 出来，所以执行前这一道必须同样按 member 判。
      */
-    private val roleProvider: () -> AiRole? = { AiRole.DISPATCHER },
+    private val actorProvider: () -> AiActor? = { AiActor.byRole(AiRole.DISPATCHER) },
     /**
      * 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。
      *
      * 这是成本那两扇门**唯一**的开关：`updateProduct` 的 `cost_price` 与
      * `createMovement` 的 `unit_cost` 都要过它。
      * ⛔ 门必须开在**数据源这一层**，不能只靠"动作清单里不列这两个字段"——
-     * 模型仍然能从提示词知道它们存在，而且可以被越权调用（与 [roleProvider] 同一条纪律）。
+     * 模型仍然能从提示词知道它们存在，而且可以被越权调用（与 [actorProvider] 同一条纪律）。
      */
     private val allowCost: () -> Boolean = { false },
     /** 撤回方案的暂存区（App 本地内存）。 */
@@ -1788,6 +2062,13 @@ class AiWriteService(
             AssignOrderHandler(ds, store),
             RecallOrderHandler(ds, store),
             CancelOrderHandler(ds, store),
+            ReturnOrderHandler(ds, store),
+            // 退货申请（2026-09-21）：货主申请/撤回 + 派单员驳回/办理。
+            // ⚠️ 顺序与 `AiWrites.ACTIONS` 无关（那张表管设置页的显示顺序），这里只管"谁能跑"。
+            ApplyReturnRequestHandler(ds, store),
+            WithdrawReturnRequestHandler(ds, store),
+            RejectReturnRequestHandler(ds, store),
+            FulfillReturnRequestHandler(ds, store),
             CreateOrderHandler(ds, store),
             FreightWriteHandler(ds, store),
             PayOrderHandler(ds, store),
@@ -1823,6 +2104,9 @@ class AiWriteService(
             ReorderProductCategoriesHandler(ds, store),
             ReorderPlaceCategoriesHandler(ds, store),
             ProductVisibilityHandler(ds, store),
+            // 货主自己那一本账（批发商核销 / 撤销；恢复走声明式那个 restoreAction）
+            SettleMyLedgerHandler(ds, store),
+            RevokeMySettlementHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 
         // 声明式：凡是带 crud 规格的动作，一律由通用处理器执行
@@ -1848,10 +2132,10 @@ class AiWriteService(
             ?: return AiWriteOutcome.Rejected(
                 "没有叫「$actionId」的操作。可用操作：${AiWrites.ids.joinToString("、")}。",
             )
-        val role = roleProvider()
-        if (!AiWrites.allows(role, action.id)) {
+        val actor = actorProvider()
+        if (!AiWrites.allows(actor, action.id)) {
             return AiWriteOutcome.Rejected(
-                "当前账号是「${role?.cn ?: "未知角色"}」，没有「${action.title}」这个操作的权限。" +
+                "当前账号是「${actor?.role?.cn ?: "未知角色"}」，没有「${action.title}」这个操作的权限。" +
                     "请如实告诉用户他做不了这件事，并告诉他该找派单员、还是去页面上做。" +
                     "**不要换一个操作去凑**。",
             )
@@ -1914,7 +2198,7 @@ class AiWriteService(
         val action = AiWrites.byId(plan.actionId)
             ?: return AiWriteOutcome.Rejected("撤回入口指向了一个不存在的操作（${plan.actionId}）。")
         // 三处门一个都不能少：撤回也是**写**，角色门照走（用户可能在两次点击之间换了账号）。
-        if (!AiWrites.allows(roleProvider(), plan.actionId)) {
+        if (!AiWrites.allows(actorProvider(), plan.actionId)) {
             return AiWriteOutcome.Rejected("当前账号没有「${action.title}」的权限，这次撤回已取消。")
         }
         // 再读一次现状。读失败（网络/权限）不影响撤回本身，所以只是少一行提示。
@@ -1956,7 +2240,7 @@ class AiWriteService(
             ?: return AiWriteOutcome.Rejected("操作「${p.title}」没有执行入口。")
         // 预览时查过一次，执行时**再查一次**：角色可能在两次之间变了
         // （用户登出换账号），而这条路是真正写库的那条。
-        if (!AiWrites.allows(roleProvider(), p.actionId)) {
+        if (!AiWrites.allows(actorProvider(), p.actionId)) {
             return AiWriteOutcome.Rejected("当前账号没有「${p.title}」的权限，这次操作已取消。")
         }
 

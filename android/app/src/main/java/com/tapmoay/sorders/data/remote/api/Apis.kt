@@ -144,13 +144,47 @@ interface OrderApi {
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
         /**
+         * 按**送达日**（业务当地日）筛 —— 账本页"选货主 → 选时间 → 这些单的账"用它。
+         *
+         * ⚠️ 与 `date_from/date_to`（按**下单时间**）是两件事，不能互相替代：
+         *    账本流水按 `entry_date`（＝送达那天）开窗，用下单时间筛会让
+         *    「8/31 下单、9/1 送达」的单从 9 月的列表里消失（而账上明明有它）。
+         */
+        @Query("delivered_from") deliveredFrom: String? = null,
+        @Query("delivered_to") deliveredTo: String? = null,
+        /**
          * 只看**回收站**（隔离区）里的订单——仅派单员。
          *
          * 为什么要这个参数：软删掉的单在普通列表里查不到，而"把删掉的单恢复回来"
          * 恰恰要先找到它。没有它，恢复功能就只能靠用户报编号，而 AI 拿不到编号。
          */
         @Query("deleted_only") deletedOnly: Boolean? = null,
-    ): List<OrderDto>
+        /**
+         * 这一次最多要多少条（后端缺省 300、上限 5000）。
+         *
+         * 账本页要它：那页把"这些单的钱"加在一起当合计，300 条一页对批发商那种
+         * 一天几十单的账号很快就不够 —— 不给这个参数，界面上就会把一页当全部。
+         * **截断与否以响应头为准**（`pageMeta()`），不看"条数是否等于 limit"。
+         */
+        @Query("limit") limit: Int? = null,
+        /**
+         * 只看**运费待定价**的单（2026-09-21）：已经派出去了（有司机）但运费还是空的。
+         *
+         * 用户口径：「没有匹配到就没有计费、没有定价……这个订单就得派单员**手动去给他定价**」。
+         * ⚠️ 它**不改异常标记**（那是人工标的业务异常，两件事混在一列就都看不清了）。
+         */
+        @Query("unpriced") unpriced: Boolean? = null,
+    ): Response<List<OrderDto>>
+
+    /**
+     * 派单员**手动定价**（没匹配到价目的单）：写订单的运费 + 分类，
+     * 并（可选）把这条路线 + 价目**沉淀**下来，下次同样的单自动带价。
+     */
+    @POST("orders/{orderId}/price-freight")
+    suspend fun priceFreight(
+        @Path("orderId") orderId: Long,
+        @Body body: OrderFreightPriceRequest,
+    ): OrderDto
 
     /** 把订单从回收站恢复（仅派单员；订单必须在隔离区里）。 */
     @POST("orders/{orderId}/restore")
@@ -209,6 +243,61 @@ interface OrderApi {
 
     @POST("orders/{orderId}/cancel")
     suspend fun cancelOrder(@Path("orderId") orderId: Long): OrderDto
+
+    /**
+     * **订单退货**（2026-09-20）。
+     *
+     * 一次调用动五样东西（行级已退数量 / 账本红冲 / 库存回补 / 可能退现 / 订单状态），
+     * 全部在后端 `services/order_return.py` 一处。
+     * ⚠️ **整单退货也是走这一条**（把每一行的数量填满），没有第二个"整单"端点 ——
+     *    多一条路径就多一条能绕过「货损那几件不能退」的路。
+     */
+    @POST("orders/{orderId}/return")
+    suspend fun returnOrder(
+        @Path("orderId") orderId: Long,
+        @Body body: OrderReturnBody,
+    ): OrderReturnResultDto
+
+    // ---------------------------------------------------------- 退货申请（2026-09-21）
+    //
+    // ⛔ 货主**没有**直接退货的接口：`returnOrder` 上面那条要 `order:return` 权限，只有派单员有。
+    //    申请与执行分成两组接口、两组权限，正是这条流程的意义（见 `return_requests.py` 开头）。
+    //    「货主能不能自己做这件事」的判据是**后端鉴权**，不是界面上有没有按钮。
+
+    /** 货主提交退货申请（**只写申请单**：账本、库存、订单状态一个都不动）。 */
+    @POST("return-requests")
+    suspend fun applyReturnRequest(@Body body: ReturnRequestCreateBody): ReturnRequestDto
+
+    /** 我在所有订单上的退货申请（打标记、看驳回理由、撤回都读它）。 */
+    @GET("return-requests/mine")
+    suspend fun myReturnRequests(
+        @Query("order_id") orderId: Long? = null,
+        @Query("status") status: String = "all",
+        @Query("limit") limit: Int = 200,
+    ): ReturnRequestListDto
+
+    /** 货主撤回自己的申请（不是删除：记录留着，派单员看得到"他提过又撤了"）。 */
+    @POST("return-requests/{requestId}/withdraw")
+    suspend fun withdrawReturnRequest(@Path("requestId") requestId: Long): ReturnRequestDto
+
+    /** 派单员的待办退货申请（默认只给待处理的那几张）。 */
+    @GET("return-requests")
+    suspend fun returnRequestTodo(
+        @Query("status") status: String = "pending",
+        @Query("order_id") orderId: Long? = null,
+        @Query("limit") limit: Int = 200,
+    ): ReturnRequestListDto
+
+    /** 派单员驳回（必带理由）。 */
+    @POST("return-requests/{requestId}/reject")
+    suspend fun rejectReturnRequest(
+        @Path("requestId") requestId: Long,
+        @Body body: ReturnRequestRejectBody,
+    ): ReturnRequestDto
+
+    /** 派单员**照这张申请实际退货**：库存与账本在这一刻才变。 */
+    @POST("return-requests/{requestId}/fulfill")
+    suspend fun fulfillReturnRequest(@Path("requestId") requestId: Long): ReturnRequestFulfillDto
 
     @POST("orders/{orderId}/pay")
     suspend fun payOrder(@Path("orderId") orderId: Long): OrderDto
@@ -823,6 +912,35 @@ interface FreightTemplateApi {
     @POST("freight-templates/{templateId}/restore")
     suspend fun restoreFreightTemplate(@Path("templateId") templateId: Long): FreightTemplateDto
 
+    // ---- 运费分类名册（2026-09-21，与商品/开销分类同一套规矩）----
+    @GET("freight-categories")
+    suspend fun listFreightCategories(): List<FreightCategoryDto>
+
+    @POST("freight-categories")
+    suspend fun createFreightCategory(@Body body: FreightCategoryCreateRequest): FreightCategoryDto
+
+    @PATCH("freight-categories/{categoryId}")
+    suspend fun updateFreightCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: FreightCategoryUpdateRequest,
+    ): FreightCategoryDto
+
+    @DELETE("freight-categories/{categoryId}")
+    suspend fun deleteFreightCategory(@Path("categoryId") categoryId: Long)
+
+    @POST("freight-categories/reorder")
+    suspend fun reorderFreightCategories(
+        @Body body: FreightCategoryReorderRequest,
+    ): List<FreightCategoryDto>
+
+    /** 这一单 + 这个司机 → 运价结论（匹配/没匹配到/多条候选都由后端算）。 */
+    @GET("freight-templates/quote")
+    suspend fun quoteFreight(
+        @Query("order_id") orderId: Long,
+        @Query("driver_id") driverId: Long? = null,
+        @Query("category_id") categoryId: Long? = null,
+    ): FreightQuoteDto
+
     @DELETE("freight-templates/{templateId}")
     suspend fun deleteTemplate(@Path("templateId") templateId: Long)
 }
@@ -975,6 +1093,28 @@ interface AccountingApi {
     @PATCH("driver-settlements/{id}")
     suspend fun settlementAction(@Path("id") id: Long, @Body body: SettlementActionRequest): SettlementDto
 
+    /** 开销分类名册（按显示顺序）。见 `ExpensesScreen` 左侧那一列。 */
+    @GET("expense-categories")
+    suspend fun listExpenseCategories(): List<ExpenseCategoryDto>
+
+    @POST("expense-categories")
+    suspend fun createExpenseCategory(@Body body: ExpenseCategoryCreateRequest): ExpenseCategoryDto
+
+    @PATCH("expense-categories/{categoryId}")
+    suspend fun updateExpenseCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: ExpenseCategoryUpdateRequest,
+    ): ExpenseCategoryDto
+
+    @DELETE("expense-categories/{categoryId}")
+    suspend fun deleteExpenseCategory(@Path("categoryId") categoryId: Long)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    @POST("expense-categories/reorder")
+    suspend fun reorderExpenseCategories(
+        @Body body: ExpenseCategoryReorderRequest,
+    ): List<ExpenseCategoryDto>
+
     @GET("expenses")
     suspend fun listExpenses(
         @Query("category") category: String? = null,
@@ -1079,3 +1219,89 @@ interface RawApi {
     @GET
     suspend fun get(@Url path: String, @QueryMap params: Map<String, String>): JsonElement
 }
+
+/**
+ * 货主**自己那一本账**：批发商给他下游货主的核销（2026-09-20）。
+ *
+ * ⛔ 与 [LedgerApi]（派单员开的公司账）是**两本账**，谁都不写谁：
+ * 这里记的是"我的客户欠我多少、我收到了多少"，走的是 `shipper-ledger` 这一组端点，
+ * 后端一个字节都不写 `orders.paid` / `cash_flows` / `ledgers`。
+ *
+ * 只有**批发商货主**能写（普通货主调写接口一律 403，后端会给一句中文说明）；
+ * 读也限货主自己（派单员/司机 403）。列表返回 `Response<...>` 是为了读
+ * `X-Truncated` / `X-Result-Limit` 两个头（`AppRepository.pageRows()`）。
+ */
+interface ShipperLedgerApi {
+    /**
+     * 我记下的核销记录。
+     *
+     * ⚠️ 窗口按**订单的送达日**（`delivered_from/to`）而不是核销时间：
+     *    否则"上个月送的单、今天收到钱"会从本月账面上消失，那一单看起来又变成没核销。
+     */
+    @GET("shipper-ledger/settlements")
+    suspend fun listSettlements(
+        @Query("order_id") orderId: Long? = null,
+        @Query("delivered_from") deliveredFrom: String? = null,
+        @Query("delivered_to") deliveredTo: String? = null,
+        /** 连**已撤销**的核销一起回（界面上那个「已撤销」折叠区要用它）。 */
+        @Query("include_deleted") includeDeleted: Boolean? = null,
+        @Query("limit") limit: Int? = null,
+    ): Response<List<ShipperSettlementDto>>
+
+    /** 核销一笔：`lines` 留空 = 整单；给了行 = 按商品核销。金额由后端按"还可核销"算。 */
+    @POST("shipper-ledger/settlements")
+    suspend fun createSettlement(@Body body: ShipperSettlementCreateRequest): ShipperSettlementDto
+
+    /** **撤掉核销**（软删：记录留着，`restore` 能原样放回来）。 */
+    @DELETE("shipper-ledger/settlements/{settlementId}")
+    suspend fun deleteSettlement(@Path("settlementId") settlementId: Long)
+
+    @POST("shipper-ledger/settlements/{settlementId}/restore")
+    suspend fun restoreSettlement(@Path("settlementId") settlementId: Long): ShipperSettlementDto
+}
+
+@Serializable
+data class ShipperSettlementLineDto(
+    val id: Long = 0,
+    @SerialName("order_product_id") val orderProductId: Long = 0,
+    /** 商品名快照（订单行没了这笔钱仍要能说清核的是哪样货）。 */
+    @SerialName("product_name") val productName: String = "",
+    @SerialName("amount") @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+)
+
+@Serializable
+data class ShipperSettlementDto(
+    val id: Long = 0,
+    @SerialName("order_id") val orderId: Long = 0,
+    @SerialName("order_no") val orderNo: String? = null,
+    /** 归属货主（订单上的收货人）。 */
+    @SerialName("customer_name") val customerName: String = "",
+    @SerialName("customer_phone") val customerPhone: String = "",
+    @SerialName("amount") @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    val method: String = "cash",
+    val note: String = "",
+    @SerialName("settled_at") val settledAt: String = "",
+    /** `app` = 人工点的；`ai` = AI 助手确认卡提交的。 */
+    val source: String = "app",
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
+    @SerialName("created_at") val createdAt: String = "",
+    val lines: List<ShipperSettlementLineDto> = emptyList(),
+)
+
+/** 核销的一行：核哪一行商品、核多少钱。 */
+@Serializable
+data class ShipperSettlementLineRequest(
+    @SerialName("order_product_id") val orderProductId: Long,
+    @SerialName("amount") val amount: String,
+)
+
+@Serializable
+data class ShipperSettlementCreateRequest(
+    @SerialName("order_id") val orderId: Long,
+    /** 留空 = 整单核销（每一行按「还可核销」全额）。 */
+    val lines: List<ShipperSettlementLineRequest> = emptyList(),
+    val method: String = "cash",
+    val note: String = "",
+    /** `ai` = AI 助手确认卡。 */
+    val source: String = "app",
+)

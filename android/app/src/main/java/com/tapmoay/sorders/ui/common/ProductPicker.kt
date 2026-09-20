@@ -1,11 +1,9 @@
 package com.tapmoay.sorders.ui.common
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,6 +63,8 @@ import com.tapmoay.sorders.util.resolveStaticUrl
  * @param products 商品目录（调用方已经按专属价算好了 `priceFor`）
  * @param priceFor 实际单价（批发商专属价优先）
  * @param initialPicked 打开时已经选过的商品（同一件再加会**合并数量**而不是多一行）
+ * @param single **只挑一件**（2026-09-20 账本「记一笔账」要的：一条账本行就是一件商品）。
+ *   默认 false = 下单那种"一次挑多件"，**那边一个字都不变**。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +79,8 @@ fun ProductPickerSheet(
     error: String? = null,
     /** 失败时的重试入口。 */
     onRetry: () -> Unit = {},
+    /** 只挑一件：再挑一件是**换掉**而不是累加（见文件头 `single` 的说明）。 */
+    single: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // 全屏高度：用户要的就是"底部窗口直接拉到最顶处"
@@ -94,6 +96,7 @@ fun ProductPickerSheet(
             onConfirm = onConfirm,
             modifier = Modifier.fillMaxHeight(0.94f),
             categoryOrder = categoryOrder,
+            single = single,
         )
     }
 }
@@ -111,6 +114,8 @@ fun ProductPickerBody(
     /** 商品目录**加载失败**的原因（null = 没失败）。 */
     error: String? = null,
     onRetry: () -> Unit = {},
+    /** 只挑一件（见 [ProductPickerSheet] 的 `single`）：再挑一件是**换掉**。 */
+    single: Boolean = false,
 ) {
     var keyword by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ALL_CATEGORY) }
@@ -231,7 +236,7 @@ fun ProductPickerBody(
             Column(Modifier.weight(1f)) {
                 if (kinds == 0) {
                     Text(
-                        "点右侧「＋」挑商品，可一次挑多件",
+                        if (single) "点右侧「＋」挑商品（只挑一件）" else "点右侧「＋」挑商品，可一次挑多件",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -257,7 +262,11 @@ fun ProductPickerBody(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A56E)),
             ) {
                 Text(
-                    if (kinds == 0) "加入清单" else "加入清单（$kinds）",
+                    when {
+                        single -> "用这件"
+                        kinds == 0 -> "加入清单"
+                        else -> "加入清单（$kinds）"
+                    },
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                 )
@@ -276,6 +285,9 @@ fun ProductPickerBody(
             initialQty = exist?.qty ?: 1,
             price = priceFor(p),
             onConfirm = { qty ->
+                // ⚠️ 单选模式（账本「记一笔账」）：先清空再放下这一件 —— 再挑一件是**换掉**。
+                //    不清空的话用户会挑出"两件商品、账上却只记了一件"，而界面看着完全正常。
+                if (single) picked.clear()
                 picked[p.id] = PickedLine(
                     productId = p.id,
                     name = p.name,

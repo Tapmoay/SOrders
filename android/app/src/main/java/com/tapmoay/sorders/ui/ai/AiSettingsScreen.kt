@@ -123,7 +123,9 @@ fun AiSettingsScreen(
                         // （批量调价 v3.21 就上线了，这页却还写着「改价做不了」）。
                         Text(
                             AiRolePrompt.settingsSummary(
-                                role = ai.currentRole,
+                                // ⚠️ 必须传 **actor**（角色 + 是不是批发商货主）：这段是能力声明，
+                                //    而两个货主的能力不一样（批发商多一本自己的账）。
+                                actor = ai.currentActor,
                                 readModules = vm.readModules.filter { it.enabled }.map { it.module }.toSet(),
                             ),
                             style = MaterialTheme.typography.bodySmall,

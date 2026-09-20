@@ -1006,6 +1006,15 @@ private fun actionLabel(action: String): String = when (action) {
     "ORDER_EXCEPTION" -> "标记/解除异常"
     "ORDER_FREIGHT" -> "修改运费"
     "ORDER_SPLIT" -> "拆分子订单"
+    "ORDER_RETURN" -> "订单退货"
+    // 退货申请（2026-09-21）：**申请与执行是两个动作、两个人**，审计页上必须分得开 ——
+    // 看到「订单退货」是"货真的退了"，看到「申请退货」只是"他提了一嘴"。
+    "ORDER_RETURN_REQUEST" -> "申请退货"
+    "ORDER_RETURN_REQUEST_REJECT" -> "驳回退货申请"
+    "ORDER_RETURN_REQUEST_WITHDRAW" -> "撤回退货申请"
+    // 派单员直接退了货 → 那张申请被自动关闭（2026-09-21 用户拍板的那条规则）。
+    // 与「订单退货」分开：审计页上要能回答"这张申请为什么没被办理就结束了"。
+    "ORDER_RETURN_REQUEST_CLOSE" -> "退货申请自动关闭"
     "ORDER_LINE_ADD" -> "加一行商品"
     "ORDER_LINE_UPDATE" -> "改一行商品"
     "ORDER_LINE_DELETE" -> "删一行商品"
@@ -1053,6 +1062,11 @@ private fun actionLabel(action: String): String = when (action) {
     "PLACE_CATEGORY_UPSERT" -> "改地点分类"
     "PLACE_CATEGORY_DELETE" -> "删地点分类"
     "PLACE_CATEGORY_REORDER" -> "调地点分类顺序"
+    // 开销分类（2026-09-20）：与上面两套**分开命名**，原因同地点分类 ——
+    // 审计里"改了开销分类"和"改了商品/地点分类"是三件事，都叫「改分类」就分不出来了。
+    "EXPENSE_CATEGORY_UPSERT" -> "改开销分类"
+    "EXPENSE_CATEGORY_DELETE" -> "删开销分类"
+    "EXPENSE_CATEGORY_REORDER" -> "调开销分类顺序"
     // 商品可见白名单（v3.43）：本质是授权，必须一眼看出"谁给谁开了哪些商品"。
     "PRODUCT_VISIBILITY_SET" -> "改商品可见范围"
     // 常用共享地点自动进「我的地点」（v3.43）：系统替他改了他自己的库，
@@ -1077,6 +1091,18 @@ private fun actionLabel(action: String): String = when (action) {
     "FREIGHT_TEMPLATE_UPSERT" -> "新增/修改运费模板"
     "FREIGHT_TEMPLATE_DELETE" -> "删除运费模板"
     "FREIGHT_TEMPLATE_RESTORE" -> "恢复运费模板"
+    // 运费分类名册（2026-09-21）：运费模板与计费规则共用的一套分类
+    "FREIGHT_CATEGORY_UPSERT" -> "改运费分类"
+    "FREIGHT_CATEGORY_DELETE" -> "删运费分类"
+    "FREIGHT_CATEGORY_REORDER" -> "调运费分类顺序"
+    // 派单员手动定价：这一单没匹配到价目 → 他手填了运费（可顺带沉淀成价目）
+    "ORDER_FREIGHT_PRICE" -> "手动定价运费"
+    // 批发商自己那一本账（2026-09-20）：他给下游货主核销 / 撤销 / 恢复。
+    // 这三个动作**不写** cash_flows、不动 orders.paid（见 `models/shipper_settlement.py`），
+    // 所以审计页是唯一能回查"这笔核销谁在什么时候记的、撤的"的地方。
+    "SHIPPER_SETTLE_CREATE" -> "批发商核销（向他的货主收钱）"
+    "SHIPPER_SETTLE_REVOKE" -> "撤销批发商核销"
+    "SHIPPER_SETTLE_RESTORE" -> "恢复批发商核销"
     else -> action
 }
 

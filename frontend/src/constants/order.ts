@@ -1,7 +1,7 @@
 import type { OrderStatus } from '@/types/order'
 
 /**
- * 后端 `OrderStatus` **五个**取值的唯一中文名（与 `docs/DOMAIN_MODEL.md` §订单状态机一致）。
+ * 后端 `OrderStatus` **六个**取值的唯一中文名（与 `docs/DOMAIN_MODEL.md` §订单状态机一致）。
  *
  * ⚠️ 这里必须是 `Record<OrderStatus, string>`（全量映射，少一个取值类型检查就报错）——
  *    旧版 H5 当初正是漏掉了 `DISPATCHED`（2026-09-19 审计 H1）：
@@ -16,6 +16,8 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   ACCEPTED: '已接单',
   DELIVERED: '已送达',
   CANCELLED: '已撤销',
+  // 2026-09-20：退货（送了、入了账、事后货退回来了）。与「已撤销」是两件事。
+  RETURNED: '已退货',
 }
 
 /**
@@ -32,7 +34,7 @@ export const CANCELLABLE_STATUSES: readonly OrderStatus[] = ['PENDING_DISPATCH',
 /** 「派单员还撤得回这张单吗」——`recall_dispatch`：`allowed = (DISPATCHED, ACCEPTED)`。 */
 export const RECALLABLE_STATUSES: readonly OrderStatus[] = ['DISPATCHED', 'ACCEPTED']
 
-/** van-tag type。五个状态取五种，互不撞色（同屏要能一眼分开）。 */
+/** van-tag type。六个状态取六种，互不撞色（同屏要能一眼分开）。 */
 export function orderStatusTagType(
   s: OrderStatus,
 ): 'primary' | 'success' | 'warning' | 'danger' | 'default' {
@@ -48,6 +50,11 @@ export function orderStatusTagType(
     case 'DELIVERED':
       return 'success'
     case 'CANCELLED':
+      return 'danger'
+    // 2026-09-20：已退货。van-tag 只有这五种 type，六档状态必然有一档与别人共用 ——
+    // 挑 danger 与「已撤销」同色是**故意的**：两者都是"这单的钱不作数了"，
+    // 而它们靠文字分得开（新加一个 type 需要改主题，收益只有一点点颜色差异）。
+    case 'RETURNED':
       return 'danger'
     default:
       return 'default'

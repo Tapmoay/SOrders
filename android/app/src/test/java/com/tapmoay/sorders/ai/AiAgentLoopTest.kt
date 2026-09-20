@@ -53,7 +53,7 @@ class AiAgentLoopTest {
     /** 假工具集：记录被调用的 (name, args)，返回固定 JSON。 */
     private class FakeTools(
         val result: String = """{"count":1,"items":[{"user_id":7}]}""",
-        override val role: AiRole? = AiRole.DISPATCHER,
+        override val actor: AiActor? = AiActor.byRole(AiRole.DISPATCHER),
         allowCostOn: Boolean = false,
     ) : AiToolset {
         override val allToolNames = listOf("search_shipper")

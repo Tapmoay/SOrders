@@ -88,7 +88,13 @@ class AiWriteTest {
         override suspend fun drivers() =
             drivers.map { it.copy(note = it.note ?: driverNote) }.also { boom() }
         override suspend fun vehicles() = vehicles.also { boom() }
-        override suspend fun searchShippers(query: String, limit: Int) = shippers.also { boom() }
+        /** 查过几次货主名册（`GET /users`）—— 货主那条路**一次都不许有**（对他是 403）。 */
+        val searchShipperCalls: MutableList<String> = mutableListOf()
+
+        override suspend fun searchShippers(query: String, limit: Int): List<AiName> {
+            searchShipperCalls += query
+            return shippers.also { boom() }
+        }
         override suspend fun products() = products.also { boom() }
         override suspend fun arrearsUnits() = units.also { boom() }
         // 忠实照抄后端 `GET /orders?q=` 的行为：**模糊匹配**单号/货主/地址，命中几万条也只回这么多。
@@ -137,6 +143,67 @@ class AiWriteTest {
         override suspend fun cancelOrder(orderId: Long) {
             boom()
             orderCalls += "cancel:$orderId"
+        }
+
+        /**
+         * 退货（2026-09-20）：可退行由用例摆（[returnLines]），退货调用记进 orderCalls。
+         * 与真实现一样是"**先读回可退余量、再按上限校验**"两步，所以这里读方法也吃 `boom()`。
+         */
+        var returnLines = listOf<AiReturnableLine>()
+
+        override suspend fun returnableLines(orderId: Long): List<AiReturnableLine> =
+            returnLines.also { boom() }
+
+        override suspend fun returnOrder(orderId: Long, items: List<Pair<Long, Int>>, note: String) {
+            boom()
+            orderCalls += "return:$orderId:" +
+                items.joinToString(",") { "${it.first}x${it.second}" } +
+                (if (note.isBlank()) "" else ":$note")
+        }
+
+        // ---- 退货申请（2026-09-21）：货主申请/撤回 + 派单员驳回/办理 ----
+        //
+        // ⚠️ 替身里**只有一个** `pendingReturn`：这正是后端的真实规则
+        //    （一张单同时只允许一条待处理申请），用例靠它验证"已有待办时不许再申请"。
+        var pendingReturn: AiReturnRequest? = null
+        val appliedReturns = mutableListOf<Triple<Long, List<Pair<Long, Int>>, String>>()
+        val withdrawnReturns = mutableListOf<Long>()
+        val rejectedReturns = mutableListOf<Pair<Long, String>>()
+        val fulfilledReturns = mutableListOf<Long>()
+
+        private fun pendingFor(orderId: Long?): List<AiReturnRequest> {
+            val p = pendingReturn ?: return emptyList()
+            return if (orderId == null || p.orderId == orderId) listOf(p) else emptyList()
+        }
+
+        override suspend fun myReturnRequests(orderId: Long?): List<AiReturnRequest> =
+            pendingFor(orderId).also { boom() }
+
+        override suspend fun applyReturnRequest(
+            orderId: Long,
+            items: List<Pair<Long, Int>>,
+            note: String,
+        ) {
+            boom()
+            appliedReturns += Triple(orderId, items, note)
+        }
+
+        override suspend fun withdrawReturnRequest(id: Long) {
+            boom()
+            withdrawnReturns += id
+        }
+
+        override suspend fun pendingReturnRequests(orderId: Long?): List<AiReturnRequest> =
+            pendingFor(orderId).also { boom() }
+
+        override suspend fun rejectReturnRequest(id: Long, reason: String) {
+            boom()
+            rejectedReturns += id to reason
+        }
+
+        override suspend fun fulfillReturnRequest(id: Long) {
+            boom()
+            fulfilledReturns += id
         }
 
         override suspend fun updateFreight(orderId: Long, freightFee: String?) {
@@ -238,6 +305,64 @@ class AiWriteTest {
         }
 
         override suspend fun customers() = customerRows.also { boom() }
+
+        // ---- 货主自己那一本账（批发商核销，2026-09-20）----
+        //
+        // 这 6 个替身是**接口新增方法时必须补的那一半**：少了它们整个测试源集编译不过
+        // （`FakeDs : AiWriteDataSource` 抽象方法没实现），而 885 个单测就一条都跑不出来。
+        // 判据与别处一致：读方法也吃 `boom()`（failWith 模拟的是"这一次预览里每个请求都失败"）。
+
+        /** 这个账号是不是批发商货主。测试要验普通货主那条分支时把它设成 false。 */
+        var memberShipper: Boolean = true
+
+        /** 我的账本上"查得到"的那些单（按单号匹配）。 */
+        var settleOrders: MutableList<AiSettleOrder> = mutableListOf()
+
+        /** 我记过的核销（含已撤销的）。 */
+        var mySettlementRows: MutableList<AiMySettlementRef> = mutableListOf()
+
+        /** 核销/撤销/恢复的调用记录（断言"点确认之后真的写了一次"）。 */
+        val myLedgerCalls: MutableList<String> = mutableListOf()
+
+        override suspend fun isMemberShipper(): Boolean = memberShipper.also { boom() }
+
+        /**
+         * 当前登录角色 key。**默认派单员**（这个替身原来服务的都是代理下单那条路）。
+         *
+         * ⚠️ 它决定「下单」那条路走哪个分支：货主是**给自己下单**（不查货主名册，
+         * `GET /users` 对他是 403），派单员才要查"这单是谁的"。
+         */
+        var roleKey: String? = "dispatcher"
+
+        override suspend fun currentRoleKey(): String? = roleKey
+
+        override suspend fun mySettleOrder(orderNo: String): AiSettleOrder? =
+            settleOrders.firstOrNull { it.orderNo.contains(orderNo.trim(), ignoreCase = true) }
+                .also { boom() }
+
+        override suspend fun mySettlements(orderId: Long): List<AiMySettlementRef> =
+            mySettlementRows.filter { it.orderId == orderId }.also { boom() }
+
+        override suspend fun createMySettlement(
+            orderId: Long,
+            lines: List<Pair<Long, String>>,
+            method: String,
+            note: String,
+        ) {
+            boom()
+            myLedgerCalls += "settle:$orderId:" +
+                lines.joinToString(",") { "${it.first}=${it.second}" } + ":$method:$note"
+        }
+
+        override suspend fun revokeMySettlement(id: Long) {
+            boom()
+            myLedgerCalls += "revoke:$id"
+        }
+
+        override suspend fun restoreMySettlement(id: Long) {
+            boom()
+            myLedgerCalls += "restore:$id"
+        }
 
         override suspend fun updateLedgerEntry(id: Long, fields: JsonObject) {
             boom()
@@ -852,7 +977,7 @@ class AiWriteTest {
 
     private class Rig(
         ttlMs: Long = AiWritePreviewStore.DEFAULT_TTL_MS,
-        role: AiRole? = AiRole.DISPATCHER,
+        actor: AiActor? = AiActor.byRole(AiRole.DISPATCHER),
         /**
          * 「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`）。
          * **默认 false = 与真实默认一致**：成本相关的动作在开关关着时必须被拒
@@ -862,7 +987,7 @@ class AiWriteTest {
     ) {
         val ds = FakeDs()
         val store = AiWritePreviewStore(ttlMs = ttlMs)
-        val svc = AiWriteService(ds, store, roleProvider = { role }, allowCost = { allowCost })
+        val svc = AiWriteService(ds, store, actorProvider = { actor }, allowCost = { allowCost })
     }
 
     private fun p(vararg kv: Pair<String, String>): JsonObject =
@@ -1266,7 +1391,7 @@ class AiWriteTest {
         //    照着抄必然失败——而这条测试和另一条"恢复动作不进模型清单"同时是绿的。
         //    这是"两条互相矛盾的断言同时绿"的典型：一条查清单文本（含 undoOnly），一条查 enum（不含）。
         val text = AiWrites.describeForModel()
-        AiWrites.forModel(AiRole.DISPATCHER).forEach { a ->
+        AiWrites.forModel(AiActor.byRole(AiRole.DISPATCHER)).forEach { a ->
             assertTrue("清单里少了动作 ${a.id}", text.contains(a.id))
             a.params.filter { it.required }.forEach { pm ->
                 assertTrue("清单里少了 ${a.id} 的必填参数 ${pm.name}", text.contains(pm.name))
@@ -1336,8 +1461,21 @@ class AiWriteTest {
 
     @Test
     fun `每个域都出现在给模型的清单里`() {
-        val text = AiWrites.describeForModel()
-        AiWrites.groups.forEach { g -> assertTrue("清单里少了域「$g」", text.contains("【$g】")) }
+        // ⚠️ 2026-09-20 第七轮：域清单不再"一个角色全都有"——「我的账本」那一域
+        //    只给**批发商货主**（派单员与普通货主都不该看到它）。
+        //    所以判据是"**每个域都得有主人**"：要么派单员有、要么批发商货主有。
+        //    （写死成"派单员必须有全部域"会变成一句假话，而假话比没有检查更糟。）
+        val seen = AiWrites.describeForModel(AiActor.byRole(AiRole.DISPATCHER)) +
+            AiWrites.describeForModel(AiActor.of(AiRole.SHIPPER, true))
+        AiWrites.groups.forEach { g -> assertTrue("清单里少了域「$g」（没有任何角色看得到它）", seen.contains("【$g】")) }
+        // 双向：那一域**确实**只属于批发商货主
+        val memberOnly = AiWrites.G_MY_LEDGER
+        assertTrue("批发商货主的清单里该有「$memberOnly」",
+            AiWrites.describeForModel(AiActor.of(AiRole.SHIPPER, true)).contains("【$memberOnly】"))
+        assertFalse("派单员的清单里不该有「$memberOnly」（后端只认货主角色）",
+            AiWrites.describeForModel(AiActor.byRole(AiRole.DISPATCHER)).contains("【$memberOnly】"))
+        assertFalse("普通货主的清单里不该有「$memberOnly」（他手机上没这一段）",
+            AiWrites.describeForModel(AiActor.byRole(AiRole.SHIPPER)).contains("【$memberOnly】"))
     }
 
     // ==================================================== 9. 派单
@@ -2436,7 +2574,7 @@ class AiWriteTest {
         val card = ok(r.svc.preview(AiWrites.PRODUCTS_DELETE, p("product" to "红富士苹果")))
         val token = (r.svc.execute(card.token) as AiWriteOutcome.Done).undoToken!!
         // 换个身份来点"撤回"：货主没有删商品的权限，撤回自然也不该放行
-        val shipper = AiWriteService(r.ds, r.store, roleProvider = { AiRole.SHIPPER })
+        val shipper = AiWriteService(r.ds, r.store, actorProvider = { AiActor.byRole(AiRole.SHIPPER) })
         val out = shipper.offerUndo(token)
         assertTrue("货主不能撤回派单员的商品删除，实际 $out", out is AiWriteOutcome.Rejected)
         assertTrue(r.ds.restores.isEmpty())
@@ -2945,7 +3083,7 @@ class AiWriteTest {
     @Test
     fun `恢复动作不进模型清单`() {
         // 被软删的记录不在名册里，模型按名字一定解析不到——放进清单就是"能看见但一定失败"
-        val modelIds = AiWrites.forModel(AiRole.DISPATCHER).map { it.id }
+        val modelIds = AiWrites.forModel(AiActor.byRole(AiRole.DISPATCHER)).map { it.id }
         val undoOnlyIds = AiWrites.ALL.filter { it.undoOnly }.map { it.id }
         assertTrue("undoOnly 动作不该是空的（否则这条断言在空转）", undoOnlyIds.size >= 7)
         assertTrue(
@@ -2953,7 +3091,7 @@ class AiWriteTest {
             undoOnlyIds.none { it in modelIds },
         )
         // 但权限门认识它们（撤回要过 allows）
-        assertTrue(AiWrites.allows(AiRole.DISPATCHER, AiWrites.ADDRESS_RESTORE))
+        assertTrue(AiWrites.allows(AiActor.byRole(AiRole.DISPATCHER), AiWrites.ADDRESS_RESTORE))
     }
 
     // ---- 坐标（v3.24）：AI 没有人点地图，坐标得自己去高德换 ----
@@ -3090,10 +3228,10 @@ class AiWriteTest {
         // 用户口径是「整个 App 的功能它都能做」，所以这条断言是**防止能力悄悄缩水**的。
         assertTrue("动作数不该少于 40（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size >= 40)
         // ⚠️ 上界只是"大概没重复"的粗判据，每加一批动作都得抬它一次（v3.36 加了 5 个计费规则动作，
-        //    2026-09-19 给「地点分组」加了 4 个，2026-09-20 加了「补导航」1 个）。
+        //    2026-09-19 给「地点分组」加了 4 个，2026-09-20 加了「补导航」1 个与「订单退货」1 个）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 100（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 100)
+        assertTrue("动作数不该多于 110（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 110)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -3255,8 +3393,8 @@ class AiWriteTest {
 
     @Test
     fun `货主能用下单和撤单`() {
-        assertTrue(AiWrites.allows(AiRole.SHIPPER, AiWrites.ORDERS_CREATE))
-        assertTrue(AiWrites.allows(AiRole.SHIPPER, AiWrites.ORDERS_CANCEL))
+        assertTrue(AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), AiWrites.ORDERS_CREATE))
+        assertTrue(AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), AiWrites.ORDERS_CANCEL))
     }
 
     @Test
@@ -3265,7 +3403,7 @@ class AiWriteTest {
             AiWrites.ADDRESS_CREATE, AiWrites.ADDRESS_UPDATE, AiWrites.ADDRESS_DELETE, AiWrites.ADDRESS_SET_DEFAULT,
             AiWrites.CONTACT_UPSERT, AiWrites.CONTACT_UPDATE, AiWrites.CONTACT_DELETE,
             AiWrites.LOCATION_CREATE, AiWrites.LOCATION_UPDATE, AiWrites.LOCATION_DELETE,
-        ).forEach { assertTrue("货主该能用 $it", AiWrites.allows(AiRole.SHIPPER, it)) }
+        ).forEach { assertTrue("货主该能用 $it", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), it)) }
     }
 
     @Test
@@ -3277,14 +3415,14 @@ class AiWriteTest {
             AiWrites.INVENTORY_ADJUST,
             AiWrites.USERS_CREATE, AiWrites.USERS_SET_BILLING, AiWrites.USERS_SET_PASSWORD,
             AiWrites.EXPENSES_CREATE, AiWrites.ARREARS_UNIT_DELETE,
-        ).forEach { assertFalse("货主不该能用 $it", AiWrites.allows(AiRole.SHIPPER, it)) }
+        ).forEach { assertFalse("货主不该能用 $it", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), it)) }
     }
 
     @Test
     fun `货主不能记账本流水（他对账本只有只读权限）`() {
         // 后端 shipper 的权限点是 ledger:read_own（**只读**），记流水要 LEDGER_EDIT。
         // 这一条特别容易想当然："货主当然能记自己的账"——不能。
-        assertFalse(AiWrites.allows(AiRole.SHIPPER, AiWrites.LEDGER_CREATE_ENTRY))
+        assertFalse(AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), AiWrites.LEDGER_CREATE_ENTRY))
     }
 
     @Test
@@ -3299,14 +3437,251 @@ class AiWriteTest {
     fun `新动作默认只给派单员`() {
         // 守的是**默认值的方向**：新加的动作如果不显式进 SHIPPER_ACTIONS 白名单，货主就看不到它。
         // 漏标 = 少给一个能力（会被立刻发现）；"默认全开"则漏标 = 多给一个权限（不会有人发现）。
-        val shipperOnlyViaList = AiWrites.forRole(AiRole.SHIPPER).map { it.id }.toSet()
-        assertEquals(AiWrites.SHIPPER_ACTIONS, shipperOnlyViaList)
-        assertEquals("派单员应当拿到全集", AiWrites.ALL.size, AiWrites.forRole(AiRole.DISPATCHER).size)
+        val plain = AiActor.byRole(AiRole.SHIPPER)!!
+        // ⚠️ 2026-09-20 第七轮：白名单里那 3 条 `memberOnly`（货主自己那本账）**不给普通货主**，
+        //    所以这里比的是"白名单减去 memberOnly"，而不是白名单本身。
+        val memberOnlyIds = AiWrites.forRole(AiActor.of(AiRole.SHIPPER, true)!!).map { it.id }.toSet() -
+            AiWrites.forRole(plain).map { it.id }.toSet()
+        assertEquals(setOf(AiWrites.MY_LEDGER_SETTLE, AiWrites.MY_LEDGER_REVOKE, AiWrites.MY_LEDGER_RESTORE), memberOnlyIds)
+        assertEquals(AiWrites.SHIPPER_ACTIONS - memberOnlyIds, AiWrites.forRole(plain).map { it.id }.toSet())
+        // ⚠️ 2026-09-21：派单员的算式多了一项 —— 退货申请那一组里 `roles = setOf(SHIPPER)` 的两条
+        //    （申请/撤回）**点名不给派单员**（他点了必被后端以「这不是你的订单」拒绝）。
+        //    这里仍然按"全集减去不该给他的"来算：新动作默认还是发给派单员，
+        //    只有显式点名（`roles`）或会员专属（`memberOnly`）才会被减掉。
+        val notForDispatcher = AiWrites.ALL
+            .filter { it.memberOnly || (it.roles != null && AiRole.DISPATCHER !in it.roles) }
+            .map { it.id }
+            .toSet()
+        assertEquals(
+            "派单员应当拿到全集减掉货主自己那本账、以及点名不给他的那些",
+            AiWrites.ALL.size - notForDispatcher.size,
+            AiWrites.forRole(AiActor.byRole(AiRole.DISPATCHER)).size,
+        )
+        // 反向钉住：点名不给派单员的**只有**退货申请那两条（别人顺手给 orders.assign 加个
+        // `roles = setOf(SHIPPER)` 就会把派单的核心能力裁掉，而那不会有人发现）
+        assertEquals(
+            setOf(AiWrites.RETURN_REQUEST_APPLY, AiWrites.RETURN_REQUEST_WITHDRAW),
+            notForDispatcher - memberOnlyIds,
+        )
+    }
+
+    @Test
+    fun `两个货主：批发商能用核销，普通货主连清单里都没有`() {
+        // 用户 2026-09-20 第七轮原话：「AI 也会分成 2 个：一个是普通货主、一个是批发商货主的 AI……
+        // 他不能越权，批发商没有的功能 AI 也做不到；普通货主**手机做不到的事情，AI 也做不到**」。
+        // 手机上这两个货主的「我的账本」就不一样：批发商多一段"我的货主欠我多少"、每单能核销。
+        val plain = AiActor.byRole(AiRole.SHIPPER)!!
+        val member = AiActor.of(AiRole.SHIPPER, true)!!
+        val book = listOf(
+            AiWrites.MY_LEDGER_SETTLE, AiWrites.MY_LEDGER_REVOKE, AiWrites.MY_LEDGER_RESTORE,
+        )
+        // ① 批发商三条都要能用（少一条他的账就管不了；撤回那条不走这里就点不动）
+        book.forEach { assertTrue("批发商该能用 $it", AiWrites.allows(member, it)) }
+        // ② 普通货主：**清单里都没有**，而且工具说明里也不许出现
+        val plainText = AiWrites.describeForModel(plain)
+        book.forEach {
+            assertFalse("普通货主不该能用 $it", AiWrites.allows(plain, it))
+            assertFalse("普通货主的工具说明里不该出现 $it", plainText.contains(it))
+        }
+        // ③ 派单员也不该有这本账（后端 `shipper_ledger.py` 是 `require_roles(SHIPPER)`）
+        book.forEach {
+            assertFalse("派单员不该有货主自己那本账：$it", AiWrites.allows(AiActor.byRole(AiRole.DISPATCHER), it))
+        }
+        // ④ 双向：两人**共有**的能力一个都不能因为这次拆分而少
+        val plainIds = AiWrites.forRole(plain).map { it.id }.toSet()
+        val memberIds = AiWrites.forRole(member).map { it.id }.toSet()
+        assertEquals("批发商 = 普通货主 + 那三条，多一条少一条都说明裁错了", plainIds + book, memberIds)
+    }
+
+    // ==================================================== 退货申请（2026-09-21）
+    //
+    // 用户原话：「批发商**只是一个申请**，派单员才是实际性的操作。派单员进行完了之后，
+    // 整个才进行库存才会发生一个改变和变动」＋「同时**货主的 AI 可以代替货主进行申请退货**」。
+    //
+    // 这一组钉四件事：
+    // ① 申请卡片必须写明"**现在库存和账本都不动**"（用户最怕的正是它偷偷动）；
+    // ② 数量锁死：办理时**不带数量**，只能按申请单来；
+    // ③ 越权：**派单员的清单里不许出现"申请退货"**（点了必被后端以「这不是你的订单」拒），
+    //    货主的清单里不许出现"办理/驳回"；
+    // ④ 一张单已经有一张待处理申请时**不许再申请**（否则发一张必然失败的卡）。
+
+    /** 一张已送达、能退 5 件的单（用 `orders` 里那张 SOTEST2026091100230，id=61）。 */
+    private fun Rig.withReturnableOrder() = apply {
+        // ⚠️ 状态必须是**已送达**：`RETURNABLE` 只认这一档（假名册里那两张是待派/已派，
+        //    拿它们测"申请退货"会得到一张发不出来的卡 —— 那就把用例测成了别的东西）
+        ds.orders = listOf(
+            AiOrderRef(61, "SOTEST2026091100230", "城东水果批发", "DELIVERED", "测试收货地址 65 号", null, "320.00"),
+        )
+        ds.returnLines = listOf(
+            AiReturnableLine(71, "红富士苹果", quantity = 5, returned = 0, damaged = 0, unitPrice = "10.00"),
+        )
+    }
+
+    private fun pendingRequest(orderId: Long = 61) = AiReturnRequest(
+        id = 901,
+        orderId = orderId,
+        orderNo = "SOTEST2026091100230",
+        status = "pending",
+        statusLabel = "待派单员处理",
+        shipperName = "城东水果批发",
+        note = "有两件破了",
+        rejectReason = "",
+        handledByName = "",
+        lines = listOf("红富士苹果" to 2),
+    )
+
+    @Test
+    fun `货主的 AI 能代替他申请退货，卡片写明现在什么都不动`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER)).withReturnableOrder()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.RETURN_REQUEST_APPLY,
+                p("order" to "SOTEST2026091100230", "note" to "有两件破了"),
+            ),
+        )
+        // ★ 卡片上必须说清"现在还不动"（这句话没了，用户会以为点完就退了）
+        val text = card.detailLines.joinToString("\n")
+        assertTrue("卡片必须写明库存/账本现在不动：$text", text.contains("现在都不动") || text.contains("都不动"))
+        assertTrue("卡片必须写明派单员会收到通知：$text", text.contains("派单员会收到"))
+        assertTrue("卡片必须写明数量锁死：$text", text.contains("锁死"))
+
+        // 提交：走的是申请接口，**不是退货接口**
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(1, r.ds.appliedReturns.size)
+        val (orderId, items, note) = r.ds.appliedReturns.first()
+        assertEquals(61L, orderId)
+        assertEquals(listOf(71L to 5), items) // lines 留空 = 整单申请（每行填满）
+        assertEquals("有两件破了", note)
+        assertTrue("申请阶段绝不许调退货：${r.ds.orderCalls}", r.ds.orderCalls.isEmpty())
+    }
+
+    @Test
+    fun `已有待处理申请时不再发第二张卡`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER)).withReturnableOrder()
+        r.ds.pendingReturn = pendingRequest()
+        val out = r.svc.preview(AiWrites.RETURN_REQUEST_APPLY, p("order" to "SOTEST2026091100230"))
+        val why = rejected(out).reason
+        assertTrue("要说清「已经有一张待处理的」：$why", why.contains("待处理"))
+        assertTrue("要给出路（先撤回）：$why", why.contains("撤回"))
+        assertTrue(r.ds.appliedReturns.isEmpty())
+    }
+
+    @Test
+    fun `货主撤回自己的申请`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER))
+        r.ds.pendingReturn = pendingRequest()
+        val card = ok(r.svc.preview(AiWrites.RETURN_REQUEST_WITHDRAW, p("order" to "SOTEST2026091100230")))
+        assertTrue(
+            "撤回卡片要写明「这不是删除」：${card.detailLines}",
+            card.detailLines.any { it.contains("不是删除") || it.contains("记录留着") },
+        )
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf(901L), r.ds.withdrawnReturns)
+    }
+
+    @Test
+    fun `派单员办理时数量锁死、卡片写明库存此刻才变`() = runBlocking<Unit> {
+        val r = Rig().withReturnableOrder() // 默认 actor = 派单员
+        r.ds.pendingReturn = pendingRequest()
+        val card = ok(r.svc.preview(AiWrites.RETURN_REQUEST_FULFILL, p("order" to "SOTEST2026091100230")))
+        val text = card.detailLines.joinToString("\n")
+        assertTrue("卡片必须写明这一刻才动库存：$text", text.contains("库存"))
+        assertTrue("卡片必须写明数量锁死：$text", text.contains("不能改"))
+        assertTrue("卡片要写出申请单上的明细（红富士苹果×2）：$text", text.contains("红富士苹果×2"))
+
+        // ★ 数量锁死：commit 只带申请单号，**没有任何数量参数**
+        val payload = card.payload.toString()
+        assertFalse("payload 不许出现数量：$payload", payload.contains("quantity"))
+        assertEquals("办理卡片是 HIGH（真退钱、真动库存）", AiWriteRisk.HIGH, AiWrites.byId(AiWrites.RETURN_REQUEST_FULFILL)!!.risk)
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf(901L), r.ds.fulfilledReturns)
+    }
+
+    @Test
+    fun `驳回必须写理由，理由会发给申请人`() = runBlocking<Unit> {
+        val r = Rig().withReturnableOrder()
+        r.ds.pendingReturn = pendingRequest()
+        val blank = r.svc.preview(AiWrites.RETURN_REQUEST_REJECT, p("order" to "SOTEST2026091100230"))
+        assertTrue("空理由必须被拒（后端也要求必填）", blank is AiWriteOutcome.Rejected)
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.RETURN_REQUEST_REJECT,
+                p("order" to "SOTEST2026091100230", "reason" to "货已拆封，不能退"),
+            ),
+        )
+        assertTrue(
+            "卡片要写明这句话会发给申请人：${card.detailLines}",
+            card.detailLines.any { it.contains("发给申请人") },
+        )
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf(901L to "货已拆封，不能退"), r.ds.rejectedReturns)
+    }
+
+    @Test
+    fun `没有待处理申请时办理与驳回都要如实说清楚`() = runBlocking<Unit> {
+        val r = Rig().withReturnableOrder() // pendingReturn 默认 null
+        listOf(AiWrites.RETURN_REQUEST_FULFILL, AiWrites.RETURN_REQUEST_REJECT).forEach { id ->
+            val why = rejected(r.svc.preview(id, p("order" to "SOTEST2026091100230"))).reason
+            assertTrue("$id 要说清「没有待处理的申请」：$why", why.contains("没有待处理的退货申请"))
+        }
+        assertTrue(r.ds.fulfilledReturns.isEmpty() && r.ds.rejectedReturns.isEmpty())
+    }
+
+    @Test
+    fun `越权：派单员看不见申请退货，货主看不见办理驳回`() {
+        val dispatcher = AiActor.byRole(AiRole.DISPATCHER)
+        val shipper = AiActor.byRole(AiRole.SHIPPER)
+
+        // ① 货主的申请/撤回：**只给货主**（派单员点它必被后端以「这不是你的订单」拒绝）
+        listOf(AiWrites.RETURN_REQUEST_APPLY, AiWrites.RETURN_REQUEST_WITHDRAW).forEach {
+            assertTrue("货主该有 $it", AiWrites.allows(shipper, it))
+            assertFalse("派单员不该有 $it（点了必然失败）", AiWrites.allows(dispatcher, it))
+            assertFalse("派单员的工具说明里也不许出现 $it", AiWrites.describeForModel(dispatcher).contains(it))
+        }
+        // ② 派单员的办理/驳回：货主不该有（手机上没有这个按钮）
+        listOf(AiWrites.RETURN_REQUEST_FULFILL, AiWrites.RETURN_REQUEST_REJECT).forEach {
+            assertTrue("派单员该有 $it", AiWrites.allows(dispatcher, it))
+            assertFalse("货主不该有 $it", AiWrites.allows(shipper, it))
+            assertFalse("货主的工具说明里不许出现 $it", AiWrites.describeForModel(shipper).contains(it))
+        }
+        // ③ ★ 所有货主都能申请（用户拍板）—— 普通货主与批发商**一样**
+        val member = AiActor.of(AiRole.SHIPPER, true)!!
+        assertEquals(
+            "申请退货不该按 is_member 收窄（收窄一半订单就没有退货入口）",
+            AiWrites.allows(shipper, AiWrites.RETURN_REQUEST_APPLY),
+            AiWrites.allows(member, AiWrites.RETURN_REQUEST_APPLY),
+        )
+    }
+
+    @Test
+    fun `货主给自己下单不查货主名册`() = runBlocking<Unit> {
+        // ⚠️ 真机/真后端实测过的 bug：`CreateOrderHandler` 原来无条件走
+        //    `ds.searchShippers()` → `GET /users`，而那个端点对货主是 **403**
+        //    （角色门是 USER_MANAGE＝派单员）。于是货主的 AI「帮我下一单」第一步就炸，
+        //    **卡片永远发不出来** —— 手机上他自己明明能下单。
+        //    现在按 `ds.currentRoleKey()` 分叉：货主走"给自己下单"，连 shipper_id 都不传。
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER))
+        r.ds.roleKey = "shipper"
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_CREATE,
+                buildJsonObject {
+                    // ⚠️ 货主那条路**不传 shipper**（他自己就是货主）——传了反而会被判成代理下单。
+                    put("lines", lineJson(Triple("红富士苹果", 2, "3.5")))
+                },
+            ),
+        )
+        assertTrue("卡片上要写明这单是他自己的：${card.detailLines}", card.detailLines.any { it.contains("你自己") })
+        assertFalse("货主那条路不许带 shipper_id", card.payload.containsKey("shipper_id"))
+        assertFalse("也不许退化成临时货主", card.payload.containsKey("temp_shipper_name"))
+        assertTrue("没查过货主名册（查了就是 403）", r.ds.searchShipperCalls.isEmpty())
     }
 
     @Test
     fun `货主的动作清单里没有派单员的动作`() {
-        val text = AiWrites.describeForModel(AiRole.SHIPPER)
+        val text = AiWrites.describeForModel(AiActor.byRole(AiRole.SHIPPER))
         assertTrue("清单里该有下单", text.contains(AiWrites.ORDERS_CREATE))
         assertTrue("清单里该有地址", text.contains(AiWrites.ADDRESS_CREATE))
         assertFalse("清单里不该出现派单", text.contains(AiWrites.ORDERS_ASSIGN))
@@ -3318,7 +3693,7 @@ class AiWriteTest {
     fun `货主越权调用会被服务层拒绝`() = runBlocking<Unit> {
         // ⚠️ 这一段里最重要的一条：**界面藏了不等于拦住**。
         // 模型可能从别处知道有这个动作（提示词、历史对话），直接就调过来了。
-        val r = Rig(role = AiRole.SHIPPER)
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER))
         val out = rejected(
             r.svc.preview(AiWrites.ORDERS_ASSIGN, p("order" to "SOTEST2026091100230", "driver" to "王建国")),
         )
@@ -3328,7 +3703,7 @@ class AiWriteTest {
 
     @Test
     fun `货主用自己范围内的动作正常放行`() = runBlocking {
-        val r = Rig(role = AiRole.SHIPPER)
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER))
         val card = ok(
             r.svc.preview(AiWrites.ADDRESS_CREATE, p("receiver" to "张三", "address" to "测试路 1 号")),
         )
@@ -3338,7 +3713,7 @@ class AiWriteTest {
 
     @Test
     fun `派单员仍然拿到全集`() = runBlocking {
-        val r = Rig(role = AiRole.DISPATCHER)
+        val r = Rig(actor = AiActor.byRole(AiRole.DISPATCHER))
         val card = ok(
             r.svc.preview(AiWrites.ORDERS_ASSIGN, p("order" to "SOTEST2026091100230", "driver" to "王建国")),
         )
@@ -3824,6 +4199,39 @@ class AiWriteTest {
         assertTrue("要写清多少天内可恢复：${card.detailLines}", card.detailLines.any { it.contains("30 天内可以恢复") })
         r.svc.execute(card.token)
         assertEquals("softDelete:61", r.ds.lineCalls.single())
+    }
+
+    @Test
+    fun `货主的 AI 只删已撤销的单，已送达的单不替他删`() = runBlocking<Unit> {
+        // 用户 2026-09-21 口述：「他**不能删他的订单**……凡事有关订单信息，他的 AI 是不能做的。
+        // 货主和批发商都一样，**除非是那个已撤销的订单信息，这个是可以删的**。」
+        // ⚠️ AI 侧比界面严一档（界面那个「删除订单」按钮对已送达也还在，那是 2026-09-04 定的
+        //    数据保留策略、由用户自己点）：已送达是**已经发生过的一趟生意**，
+        //    账本流水/司机账单/库存都挂在它上面，用户对 AI 说"把这单删了"时多半没想到这一层。
+        val delivered = AiOrderRef(65, "SOTEST2026091400227", "城东水果批发", "DELIVERED", "地址4", "李强", "200.00")
+        val cancelled = AiOrderRef(71, "SOTEST2026090100220", "明辉食品商行", "CANCELLED", "地址9", null, "88.00")
+        for (actor in listOf(AiActor.byRole(AiRole.SHIPPER)!!, AiActor.of(AiRole.SHIPPER, true)!!)) {
+            val r = Rig(actor = actor)
+            r.ds.roleKey = "shipper"
+            r.ds.orders = r.ds.orders + delivered
+            // 已送达 → 拒绝，且理由要说清"只能删已撤销的"
+            val out = rejected(r.svc.preview(AiWrites.ORDERS_SOFT_DELETE, p("order" to delivered.orderNo)))
+            assertTrue("理由要说清只能删已撤销的单：${out.reason}", out.reason.contains("已撤销"))
+            assertEquals("没落库", 0, r.ds.lineCalls.size)
+        }
+        // 已撤销 → 可以删（那趟生意本来就没发生，删掉只是清一条废记录）
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER)!!)
+        r.ds.roleKey = "shipper"
+        r.ds.orders = r.ds.orders + cancelled
+        val card = ok(r.svc.preview(AiWrites.ORDERS_SOFT_DELETE, p("order" to cancelled.orderNo)))
+        assertTrue("卡上要说明为什么只有这一种能删：${card.detailLines}",
+            card.detailLines.any { it.contains("本来就没发生") })
+        r.svc.execute(card.token)
+        assertEquals("softDelete:71", r.ds.lineCalls.single())
+        // 派单员那条路不受影响（任意状态都能删，原来就是）
+        val rd = Rig()
+        rd.ds.orders = rd.ds.orders + delivered
+        ok(rd.svc.preview(AiWrites.ORDERS_SOFT_DELETE, p("order" to delivered.orderNo)))
     }
 
     @Test
@@ -4406,12 +4814,12 @@ class AiWriteTest {
             AiWrites.SETTLEMENTS_CANCEL,
         )
         for (id in ids) {
-            assertTrue("$id 应当在派单员动作集里", AiWrites.allows(AiRole.DISPATCHER, id))
-            assertFalse("$id 不该给货主", AiWrites.allows(AiRole.SHIPPER, id))
+            assertTrue("$id 应当在派单员动作集里", AiWrites.allows(AiActor.byRole(AiRole.DISPATCHER), id))
+            assertFalse("$id 不该给货主", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), id))
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))
         }
         // 服务层是真正的门：越权调用必须被拒，而不是靠界面藏起来。
-        val r = Rig(role = AiRole.SHIPPER)
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER))
         val out = rejected(
             r.svc.preview(
                 AiWrites.SETTLEMENTS_GENERATE_BILLS,
@@ -4568,7 +4976,7 @@ class AiWriteTest {
 
     @Test
     fun `按表格调价：货主不能用（调价是派单员的权限）`() = runBlocking<Unit> {
-        val r = Rig(role = AiRole.SHIPPER)
+        val r = Rig(actor = AiActor.byRole(AiRole.SHIPPER))
         val out = rejected(
             r.svc.preview(AiWrites.PRICE_RULES_APPLY_TABLE, p("rows" to "红富士苹果\t-10%")),
         )
@@ -4980,8 +5388,8 @@ class AiWriteTest {
             AiWrites.VEHICLE_SET_DRIVER,
         )
         for (id in ids) {
-            assertTrue("$id 应当在派单员动作集里", AiWrites.allows(AiRole.DISPATCHER, id))
-            assertFalse("$id 不该给货主", AiWrites.allows(AiRole.SHIPPER, id))
+            assertTrue("$id 应当在派单员动作集里", AiWrites.allows(AiActor.byRole(AiRole.DISPATCHER), id))
+            assertFalse("$id 不该给货主", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), id))
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))
         }
         // 地点分组是**按人分区**的（每个人管自己地址库左栏那一列），所以货主**要能用** ——
@@ -4992,7 +5400,7 @@ class AiWriteTest {
             AiWrites.PLACE_CATEGORY_DELETE,
             AiWrites.PLACE_CATEGORY_REORDER,
         )) {
-            assertTrue("$id 货主也要能用（改的是他自己的地址库）", AiWrites.allows(AiRole.SHIPPER, id))
+            assertTrue("$id 货主也要能用（改的是他自己的地址库）", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), id))
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))
         }
     }

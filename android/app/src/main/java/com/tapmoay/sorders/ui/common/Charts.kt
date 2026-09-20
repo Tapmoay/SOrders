@@ -1,22 +1,18 @@
 package com.tapmoay.sorders.ui.common
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.max
@@ -111,122 +107,5 @@ fun BarChart(
 fun ChartEmpty(message: String = "暂无数据") {
     Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
         Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-// ============================================================ 扇形（环形）统计图
-
-/**
- * 扇形图的一块。
- *
- * [display] 是**已经格式化好的数**（「¥1,234.00」）：组件不管钱怎么显示（那是 `util/formatMoney`
- * 的事）。[value] 只用来算角度与占比 —— 两者分开的另一个理由：`value` 是 Float（画图用），
- * 钱的精确值在 `display` 里，格式化不会因为 Float 精度掉一分钱。
- */
-data class PieSlice(val label: String, val value: Float, val display: String)
-
-/**
- * 纯函数：每块的 (起始角, 扫角)，单位度；0° = 三点方向、正值顺时针（Compose `drawArc` 的口径）。
- *
- * · 总值 ≤ 0 → 返回**空**（调用方画空态）：全零时画一个圆出来，等于告诉用户"这里有钱"；
- * · 最后一块的扫角取**余数**（360 − 已用），这样角度和恒等于 360 —— 不补这个零头，
- *   各块的浮点误差会在环上留一条缝，切换图表时一眼能看见。
- */
-fun pieAngles(values: List<Float>): List<Pair<Float, Float>> {
-    val positive = values.map { if (it.isFinite() && it > 0f) it else 0f }
-    val total = positive.sum()
-    if (total <= 0f) return emptyList()
-    val out = ArrayList<Pair<Float, Float>>(positive.size)
-    var start = 0f
-    positive.forEachIndexed { i, v ->
-        val sweep = if (i == positive.lastIndex) 360f - start else 360f * (v / total)
-        out += start to sweep
-        start += sweep
-    }
-    return out
-}
-
-/**
- * 纯函数：占比文字。**小于 1% 的块也显示一位小数**（`0.4%`），不显示成 `0%` ——
- * 一个明明看得见的小扇形写着 0%，会被读成"数据错了"。
- */
-fun percentText(value: Float, total: Float): String {
-    if (total <= 0f) return "0%"
-    val p = (value / total * 100f).toDouble()
-    return if (p < 1.0 || p > 99.0) String.format("%.1f%%", p) else String.format("%.0f%%", p)
-}
-
-/**
- * 环形（甜甜圈）统计图 + 图例。
- *
- * 画成**环形**而不是实心饼：中间那圈正好放"一共多少"——那是看这张图第一个要问的数，
- * 实心饼的正中间反而什么都放不下。
- */
-@Composable
-fun PieChart(
-    slices: List<PieSlice>,
-    colors: List<Color>,
-    centerTitle: String,
-    centerValue: String,
-    modifier: Modifier = Modifier,
-) {
-    val angles = pieAngles(slices.map { it.value })
-    val total = slices.map { it.value }.sum()
-    Column(modifier) {
-        Box(Modifier.fillMaxWidth().height(168.dp), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.size(156.dp)) {
-                if (angles.isEmpty()) return@Canvas
-                val ring = size.minDimension * 0.24f
-                val d = size.minDimension - ring
-                val topLeft = Offset((size.width - d) / 2f, (size.height - d) / 2f)
-                angles.forEachIndexed { i, (start, sweep) ->
-                    drawArc(
-                        color = colors[i % colors.size],
-                        startAngle = start,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = androidx.compose.ui.geometry.Size(d, d),
-                        style = Stroke(width = ring, cap = StrokeCap.Butt),
-                    )
-                }
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(centerTitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    centerValue,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        slices.forEachIndexed { i, s ->
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(colors[i % colors.size]))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    s.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    percentText(s.value, total),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    s.display,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                )
-            }
-        }
     }
 }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,6 +23,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.AssignmentReturn
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -31,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -44,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.tapmoay.sorders.core.HintPrefs
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -85,6 +89,14 @@ fun OrderStatusChip(status: String) {
             icon = Icons.Default.Close
             label = "已撤销"
             p = listOf(Color(0xFFF1E4E4), Color(0xFF8C4040), Color(0xFF3A2626), Color(0xFFE0B0B0))
+        }
+        // 已退货（2026-09-20）：⛔ 这一档**必须**有中文名与配色 ——
+        // 落到下面的 `else` 分支上，徽章里会直接印出 `RETURNED` 这个原始码。
+        // 配色是"货回来了、钱退了"的橙棕，与「已撤销」的灰红分得开（一个是没发生过、一个是发生过又退回来）。
+        "RETURNED" -> {
+            icon = Icons.AutoMirrored.Filled.AssignmentReturn
+            label = "已退货"
+            p = listOf(Color(0xFFFFE3D2), Color(0xFF8A3B00), Color(0xFF43230F), Color(0xFFFFC9A8))
         }
         else -> {
             icon = Icons.Default.Info
@@ -501,6 +513,91 @@ fun DatePresetRow(
     }
 }
 
+/**
+ * **紧凑时间药丸**：写着当前窗口（「本月」/「09-01~09-20」/「全部」），点开是档位清单。
+ *
+ * 为什么要有它（2026-09-20 账本页第五轮）：用户看真机说
+ * 「那个时间也太复杂了，换一种**崭新形式**，但是**时间和选择人物不要一样的展现形式**」。
+ * [DatePresetRow] 那条胶囊行是给**筛选条**用的（横着铺、和别的筛选控件并排）；
+ * 账本页上面已经有"人员"那一行，再铺一行胶囊就是两排长得一样的控件，而且 9 档要滑两屏。
+ *
+ * 药丸放在**顶栏**：当前窗口**永远看得见** —— 这一页最容易搞错的就是口径词
+ * （「本月」和「近 7 天」差的那几天没人说得清）。
+ */
+@Composable
+fun DatePresetPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 1.dp,
+        modifier = modifier.padding(end = 12.dp).height(36.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.CalendarMonth, contentDescription = "时间", modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/**
+ * 时间档位清单（点 [DatePresetPill] 打开）—— 一档一行、右边打勾。
+ *
+ * ⚠️ 档位与区间**仍然只有一份实现**（`DatePresets.rangeOf`）：这里只负责把 [DatePresets.ROW]
+ *    画出来、把选中的那一档回给调用方。谁也别在这里 `when(档位)` 自己算日期。
+ * ⚠️ 「自定义」那一行显示的是**选中的那段日期**（`09-01~09-20`），不是光写"自定义"三个字 ——
+ *    只写那三个字，用户就分不清自己选的到底是哪一段。
+ */
+@Composable
+fun DatePresetDialog(
+    selected: String,
+    customFrom: String?,
+    customTo: String?,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("看哪一段时间") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                (DatePresets.ROW + DatePresets.CUSTOM).forEach { label ->
+                    val shown = if (label == DatePresets.CUSTOM) {
+                        DatePresets.customLabel(customFrom, customTo)
+                    } else {
+                        label
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onPick(label) }.padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            shown,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (label == selected) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (label == selected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "当前档位",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
 @Composable
 private fun DatePill(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
@@ -668,6 +765,19 @@ fun SegmentedPicker(
  *    点一下就弹的那种（`scope.launch { snackbar.showSnackbar("已复制") }`）本来就不会重放，
  *    直接调 `showSnackbar` 即可，不用绕这一层。
  *
+ * ## ⛔ 显示必须挂在**不受 key 变化影响**的作用域上（2026-09-22 真机实证的回归）
+ *
+ * 上面那条"先消费、再显示"的修法本身**换来了一个新 bug**：`onConsumed()` 会把 `message`
+ * 置空，而 `message` 正是 `LaunchedEffect(message)` 的 **key** —— key 一变，正在跑的协程
+ * 立刻被取消，于是紧接着那句 `showSnackbar` 要么没跑、要么刚注册就被撤掉：
+ * **提示条全 App 都不显示**。真机连拍 30+ 帧（每帧 MD5 相同）实证：界面上从来没有提示条，
+ * 而操作本身是成功的（列表状态都变了）—— 这是最难发现的一类 bug：**它只是不说话**。
+ *
+ * 所以两件事要**同时**成立（只做一件就会回到某一个旧 bug）：
+ * 1. **先消费**（保住"切页回来不重放"——用户 2026-09-18 要的行为）；
+ * 2. **显示交给 [rememberCoroutineScope]**：那个作用域的生命周期是这个 Composable 本身，
+ *    不随 key 变化取消（离开页面时自然取消，提示条跟着消失，正是期望行为）。
+ *
  * @param message 待显示的消息；null = 什么都不做
  * @param onConsumed 把消息置空（**在显示之前**调用）
  */
@@ -677,10 +787,11 @@ fun OneShotSnackbar(
     message: String?,
     onConsumed: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     LaunchedEffect(message) {
-        if (message == null) return@LaunchedEffect
+        val text = message ?: return@LaunchedEffect
         onConsumed()
-        hostState.showSnackbar(message)
+        scope.launch { hostState.showSnackbar(text) }
     }
 }
 

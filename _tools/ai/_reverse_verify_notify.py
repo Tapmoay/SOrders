@@ -25,6 +25,8 @@ APP = ROOT / "android/app/src/main"
 CORE = APP / "java/com/tapmoay/sorders/core"
 SRC = APP / "java/com/tapmoay/sorders"
 MANIFEST = APP / "AndroidManifest.xml"
+GEN = ROOT / "_tools/media/_gen_new_order_clip.py"
+VOICE_PROBE = ROOT / "_tools/media/_probe_clip_voice.py"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词；None = 只有单测能抓)
 MUTATIONS = [
@@ -94,9 +96,23 @@ MUTATIONS = [
     (
         "播放器不再用音频素材（放不出声时只剩 TTS 兜底，素材白放进 APK）",
         CORE / "NewOrderPlayer.kt",
-        "MediaPlayer.create(context, R.raw.new_order, attrs, AudioManager.AUDIO_SESSION_ID_GENERATE)",
+        "MediaPlayer.create(context, clipRes(kind), attrs, AudioManager.AUDIO_SESSION_ID_GENERATE)",
         "MediaPlayer.create(context, R.raw.clip_missing, attrs, AudioManager.AUDIO_SESSION_ID_GENERATE)",
-        "素材真的被播放器用上了",
+        "取到的素材真的交给了 MediaPlayer",
+    ),
+    (
+        "派单员那条播报偷偷改用司机那份素材（喊的话和要做的事对不上）",
+        CORE / "NewOrderPlayer.kt",
+        "        AlertKind.PENDING_ORDER -> R.raw.pending_order",
+        "        AlertKind.PENDING_ORDER -> R.raw.new_order",
+        "[dispatcher] 素材真的被播放器用上了",
+    ),
+    (
+        "派单员那类的时长映射到司机那个常量（重复播报叠在一起）",
+        CORE / "NewOrderAlert.kt",
+        "        AlertKind.PENDING_ORDER -> PENDING_CLIP_MS",
+        "        AlertKind.PENDING_ORDER -> CLIP_MS",
+        "派单员那类映射到**它自己**的时长常量",
     ),
     (
         "CLIP_MS 和素材时长对不上（重复播报会叠在一起/每遍之间空一截）",
@@ -120,11 +136,81 @@ MUTATIONS = [
         None,  # 纯函数判据：靠单测（默认总时长/档位）
     ),
     (
-        "不管什么角色都播「来单了」（派单员/货主手机上也开始喊）",
+        "不管什么角色都播（派单员/货主手机上也开始喊「来单了」）",
         CORE / "RealtimeHub.kt",
-        "        if (!NewOrderAlert.isSpoken(role)) return",
+        "        if (!NewOrderAlert.speaks(role, ev.kind)) return",
         "        if (false) return",
-        "播报前问「这个角色该不该响」",
+        "播报前问「这一刻该不该响」",
+    ),
+    (
+        "只按角色判、不看事件类型（派单员会对着司机那句「请及时查看」发呆）",
+        CORE / "NewOrderAlert.kt",
+        "        else -> voiceKind(role) == kind",
+        "        else -> hasVoice(role)",
+        "「这一刻响不响」按角色 × 类型判",
+    ),
+    (
+        "不再认「order.created」（派单员那张新单永远不响）",
+        CORE / "NewOrderAlert.kt",
+        '        "order.created" -> AlertEvent(',
+        '        "order.created.disabled" -> AlertEvent(',
+        "待派单的识别也在纯函数里",
+    ),
+    (
+        "拿那条**没有单号**的角标事件当触发（去重键退化成 pending:-1，第二张单完全不响）",
+        CORE / "NewOrderAlert.kt",
+        '        "order.created" -> AlertEvent(',
+        '        "dispatcher.pending_pool" -> AlertEvent(',
+        "没有单号",
+    ),
+    (
+        "派单员那三条「活没了」的信号不再算停止信号（有人接了单他手机还在喊待派单）",
+        CORE / "NewOrderAlert.kt",
+        '        "order.driver_ack_dispatcher", "order.delivered_dispatcher", "order.cancelled_dispatcher",\n',
+        "",
+        "停止规则也覆盖派单员的 order.driver_ack_dispatcher",
+    ),
+    (
+        "派单成功后不再打断播报（派完还在喊，他回头去找一张已经派掉的单）",
+        SRC / "ui/dispatcher/DispatcherPoolViewModel.kt",
+        "                    container.newOrderPlayer.stop()\n",
+        "",
+        "App 内派单成功后立刻停止播报",
+    ),
+    (
+        "后台常驻的缺省改回「只有司机默认开」（派单员关掉 App 就彻底安静）",
+        CORE / "NewOrderAlert.kt",
+        "    fun defaultBackground(role: Role?): Boolean = hasVoice(role)",
+        "    fun defaultBackground(role: Role?): Boolean = role == Role.DRIVER",
+        "后台常驻的缺省按角色算",
+    ),
+    (
+        "设置页的试听改回硬编码司机那句（派单员点试听听到的是别人的活）",
+        SRC / "ui/profile/AlertSettingsScreen.kt",
+        "                            container.newOrderPlayer.play(\n                                voiceKind,",
+        "                            container.newOrderPlayer.play(\n                                AlertKind.NEW_ORDER,",
+        "试听播的是**当前角色**那一句",
+    ),
+    (
+        "生成脚本里派单员那份素材的文件名写成司机那份（两句话指向同一个文件）",
+        GEN,
+        '        "file": "pending_order.wav",',
+        '        "file": "new_order.wav",',
+        "[dispatcher] PENDING_CLIP_MS 与素材实际时长一致",
+    ),
+    (
+        "生成脚本的默认音色改回云健（男声）——2026-09-21 派单员那句就是这么变成男声的",
+        GEN,
+        'DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural"',
+        'DEFAULT_VOICE = "zh-CN-YunjianNeural"',
+        "默认音色是用户选的那一个",
+    ),
+    (
+        "音色判据被改坏（阈值抬到 300Hz，女声素材也会被判成男声）",
+        VOICE_PROBE,
+        "FEMALE_MIN_HZ = 165.0",
+        "FEMALE_MIN_HZ = 300.0",
+        "两份素材实测都是女声",
     ),
     (
         "不做去重（同一次派单两条链路各响一遍，司机听到两组）",

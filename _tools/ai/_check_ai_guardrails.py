@@ -79,6 +79,29 @@ READ_METHODS = {
     # `placeById` 是在它里面按编号取一条（拿坐标）。两个都是读 —— 补导航那个动作
     # **写**的是 `fillOrderNavigation`（不在白名单里，默认受"prepare 里不许写"的约束）。
     "places", "placeById",
+    # 退货（2026-09-20）：发卡之前必须把"这一单每一行还能退几件"读回来
+    # （`quantity − damage_quantity − returned_quantity`），所以它是读 ——
+    # 真正写库的是 `returnOrder`（不在白名单里，默认受"prepare 里不许写"的约束）。
+    "returnableLines",
+    # 货主自己那一本账（2026-09-20）：核销/撤销之前先读回"这一单还欠多少、记过哪几笔"。
+    # ⚠️ 这两个是**读**（`GET /orders` + `GET /shipper-ledger/settlements`）；
+    #    真正写库的是 `createMySettlement` / `revokeMySettlement` / `restoreMySettlement`
+    #    —— 那三个**不在**白名单里，默认受"prepare 里不许写"的约束。
+    "mySettleOrder", "mySettlements",
+    # 「这一次是谁在用」——`GET /users/me`，纯读（2026-09-20）。
+    # ⚠️ 为什么要它：下单那条路**按角色分叉**（派单员代理下单要先查货主名册，
+    #    货主是给自己下单、不查）。不把这句读放进白名单的话，"prepare 里不许写"
+    #    这条会把它误报成写调用；而真按"写"处理，就只能把角色分叉挪走 ——
+    #    那会让货主的 AI 下单重新去调 `GET /users`（对他是 403，实测过）。
+    "currentRoleKey",
+    # 退货申请（2026-09-21）：三个处理器都要在**发卡之前**把"这一单有没有待处理的申请"读回来
+    # （`GET /return-requests?order_id=` / `GET /return-requests/mine`），判据与后端
+    # "一张单同时只允许一条待处理申请"同源。它是**读**；
+    # ⚠️ 为什么这一读是必需的、不是可选的优化：不读就会发一张**点了必然失败**的卡
+    #    （申请`submit` 会以「已经有一张待处理的退货申请」拒绝），
+    #    而 `orders.return` 那边不读则会漏掉"手工退 + 申请还挂着 = 同一批货退两遍"那个洞。
+    #    真正写库的是 apply / withdraw / reject / fulfill 四个（都不在白名单里）。
+    "myReturnRequests", "pendingReturnRequests",
 }
 
 
@@ -1161,11 +1184,11 @@ def main() -> int:
     c.present("有角色枚举，且不含司机（司机不开放）", wr, r"enum class AiRole")
     c.absent("司机没有资格（AiRole 里不许有 DRIVER）", fn_body(wr, "enum class AiRole("), r"DRIVER\(")
     c.present("货主动作是**白名单**（漏标=少给能力，不会多给）", wr, r"val SHIPPER_ACTIONS: Set<String> = setOf\(")
-    c.present("forRole 认不出角色就返回空（fail-closed）", wr, r"null -> emptyList\(\)")
-    c.present("服务层 preview 会再查一次角色", wsvc, r"if \(!AiWrites\.allows\(role, action\.id\)\)")
-    c.present("执行时再查一次（两次之间角色可能变了）", wsvc, r"if \(!AiWrites\.allows\(roleProvider\(\), p\.actionId\)\)")
-    c.present("工具说明按角色裁剪（不是只裁执行）", tools, r"AiWrites\.describeForModel\(role\)")
-    c.present("preview_write 的工具定义是现拼的（静态表看不到角色）", tools, r"private fun previewWriteSpec\(role: AiRole\?\)")
+    c.present("forRole 认不出角色就返回空（fail-closed）", wr, r"actor\?.role \?: return emptyList\(\)")
+    c.present("服务层 preview 会再查一次角色", wsvc, r"if \(!AiWrites\.allows\(actor, action\.id\)\)")
+    c.present("执行时再查一次（两次之间角色可能变了）", wsvc, r"if \(!AiWrites\.allows\(actorProvider\(\), p\.actionId\)\)")
+    c.present("工具说明按角色裁剪（不是只裁执行）", tools, r"AiWrites\.describeForModel\(actor\)")
+    c.present("preview_write 的工具定义是现拼的（静态表看不到角色）", tools, r"private fun previewWriteSpec\(actor: AiActor\?\)")
     c.present(
         "AI 入口对货主开放、司机不给",
         AI_join("../ui/home/RoleHomeScreen.kt"),
@@ -1177,12 +1200,22 @@ def main() -> int:
     # 所以主数据/派单/账本写入/账号管理这些**一个都不许**混进去。
     # 判据按**常量名**匹配（`ORDERS_`、`PRODUCTS_`…）：加进来一个新动作时会自动被这条逮到。
     whitelist = block_between(wr, "val SHIPPER_ACTIONS: Set<String> = setOf(", "\n    )")
+    shipper_n = len(re.findall(r"\b[A-Z][A-Z0-9_]+\b", strip_comments(whitelist)))
+    # 「全量」按**动作常量**数（`const val X = "动作.id"`）—— 那是这份文件里动作的唯一定义处，
+    # 与 `AiWrites.ALL` 里挂了几份清单无关（ALL 是拼出来的，数不出常量）。
+    all_n = len(re.findall(r'\n    const val [A-Z][A-Z0-9_]* = "', strip_comments(wr))) or 1
     forbidden_prefixes = (
         "ORDERS_ASSIGN", "ORDERS_RECALL", "ORDERS_SPLIT", "ORDERS_UPDATE", "ORDERS_FREIGHT",
         "ORDERS_EXCEPTION", "ORDERS_RESOLVE", "ORDERS_DELETE", "ORDERS_RESTORE", "ORDERS_LINE_",
         "PRODUCTS_", "PRICE_RULES_", "INVENTORY_", "USERS_", "LEDGER_", "SETTLEMENTS_",
-        "DRIVER_BILLS_", "NOTIFICATIONS_SEND", "NOTIFICATIONS_DELETE", "NOTIFICATIONS_UPDATE",
+        "DRIVER_BILLS_", "NOTIFICATIONS_SEND", "NOTIFICATIONS_UPDATE",
         "ARREARS_", "VEHICLES_", "CUSTOMERS_", "FREIGHT_TEMPLATE", "ORDERS_MARK",
+        # ⚠️ 2026-09-20 从这里**拿掉**了 `NOTIFICATIONS_DELETE`：那条禁令的理由写的是
+        #    "删除别人的消息"，而后端根本没有"删别人的消息"这条能力 ——
+        #    `POST /notifications/batch-delete` 与 `DELETE /notifications/{id}` 都是
+        #    "仅登录 + 只动自己的"（动别人的直接 404）。手机上消息页三端共用、货主能删自己的，
+        #    所以 AI 也要能删（用户第七轮：「他手机做不到的事情 AI 也做不到」，
+        #    反过来同样成立）。留下的两条（发消息 / 改消息）仍然是派单员的。
     )
     leaked = sorted({p for p in forbidden_prefixes if re.search(rf"\b{p}", whitelist)})
     c.ok(
@@ -1192,8 +1225,14 @@ def main() -> int:
     )
     c.ok(
         "白名单非空且远小于全量（空=货主没得用；接近全量=等于没裁）",
-        5 <= len(re.findall(r"\b[A-Z][A-Z0-9_]+\b", whitelist)) <= 25,
-        f"白名单里有 {len(re.findall(r'[A-Z][A-Z0-9_]+', whitelist))} 个常量",
+        # ⚠️ 判据从"绝对值 ≤25"改成**相对全量**的比例（2026-09-20 第七轮）：
+        #    白名单这一轮按用户要求补了 6 条（消息标已读 / 删自己的消息 / 删自己终态的单 /
+        #    地址·联系人·地点的恢复），26 个 —— 而绝对值那条会因此变红，
+        #    逼着人要么删能力、要么改数字。真正要防的是"等于没裁"（接近全量），
+        #    不是"数字变大"，所以判据写比例：**白名单不得超过全量的 35%**。
+        #    比例条自己算（`ALL` 的常量从同一个文件里数），动作表长大时它会跟着长。
+        5 <= shipper_n <= max(8, int(0.35 * all_n)),
+        f"白名单 {shipper_n} 个 / 全部 {all_n} 个（上限 {max(8, int(0.35 * all_n))}）",
     )
     c.present(
         "角色能力账有脚本（派单员/货主/司机各给多少，一条命令看全）",
@@ -1205,11 +1244,24 @@ def main() -> int:
     #    （注入 `AiRole.DISPATCHER -> ALL.take(3)` 和 `AiRole.SHIPPER -> ALL` 当时全绿。）
     #    ⚠️ 末尾必须锚住：`-> ALL\b` 会漏掉 `-> ALL.take(3)`（`ALL` 和 `.` 之间正好是词边界），
     #    反向验证就是这么抓到这条判据原本是空转的。
-    c.present("派单员确实是全量（不是顺便也裁一下）", strip_comments(wr), r"AiRole\.DISPATCHER -> ALL\s*\n")
+    # ⚠️ 2026-09-21：这条判据从 `ALL.filter { !it.memberOnly }` 变成"再叠一层 `roles`"。
+    #    起因是退货申请那一组里申请/撤回归货主、办理/驳回归派单员，而 `memberOnly` 只区分
+    #    "批发商货主"，派单员会把货主那两条一起拿走 → **两张点了必然失败的卡**。
+    #    仍然要求末尾锚住 `.filter {`（见上一条注释：不能退化成 `-> ALL` 这种更宽的东西）。
     c.present(
-        "货主确实按白名单过滤（白名单只是摆设的话等于没裁）",
+        "派单员确实是全量（减掉 memberOnly，再按 roles 点名）",
         strip_comments(wr),
-        r"AiRole\.SHIPPER -> ALL\.filter \{ it\.id in SHIPPER_ACTIONS \}",
+        r"AiRole\.DISPATCHER -> ALL\.filter \{",
+    )
+    c.present(
+        "派单员那一条真的过了 roles（只过滤 memberOnly 的话货主动作会漏给他）",
+        strip_comments(wr),
+        r"AiRole\.DISPATCHER -> ALL\.filter \{[\s\S]{0,160}?it\.roles == null \|\| role in it\.roles",
+    )
+    c.present(
+        "货主确实按白名单 + member 过滤（白名单只是摆设的话等于没裁）",
+        strip_comments(wr),
+        r"AiRole\.SHIPPER -> ALL\.filter \{[\s\S]{0,200}?it\.id in SHIPPER_ACTIONS",
     )
     c.present(
         "这条判据有反向验证（往白名单里塞一个派单动作会红）",
@@ -1224,7 +1276,7 @@ def main() -> int:
     role_prompt_test = read(ROOT / "android/app/src/test/java/com/tapmoay/sorders/ai/AiRolePromptTest.kt")
     loop_code = strip_comments(loop)
     c.absent("提示词不再写死「给派单员用的助手」", loop_code, r"给派单员用的助手")
-    c.present("身份段按角色生成", loop_code, r"AiRolePrompt\.brief\(tools\.role")
+    c.present("身份段按角色生成", loop_code, r"AiRolePrompt\.brief\(tools\.actor")
     c.present("有按角色分的身份提示词（[AiRolePrompt]）", role_prompt, r"object AiRolePrompt")
     c.present("货主有独立的身份段", role_prompt, r"SHIPPER_IDENTITY")
     c.present("派单员的身份段写明他是管理员", role_prompt, r"派单员（管理员）")
@@ -1252,7 +1304,7 @@ def main() -> int:
     tools_kt = AI_join("AiTools.kt")
     c.present("有按角色的工具白名单（只此一处）", tools_kt, r"val ROLE_TOOLS: Map<AiRole, Set<String>>")
     c.present("工具清单按角色过滤（不是只裁说明）", strip_comments(tools_kt), r"it in on && it in mine")
-    c.present("设置页开关也按角色裁（否则给货主一个永远不生效的开关）", tools_kt, r"fun settingsItems\(role: AiRole\?")
+    c.present("设置页开关也按角色裁（否则给货主一个永远不生效的开关）", tools_kt, r"fun settingsItems\(actor: AiActor\?")
     c.present(
         "货主那份工具白名单是显式写出来的（能审计）",
         strip_comments(tools_kt),
@@ -1424,8 +1476,8 @@ def main() -> int:
     c.present("有读侧角色闸门", reads, r"object AiReads")
     c.present("角色映射到后端角色名（目录里的 roles 用的就是后端那套键）", reads, r'AiRole\.DISPATCHER -> "dispatcher"')
     c.present("按 roles 过滤（不是「全给」）", reads, r"k in it\.roles")
-    c.present("认不出角色就返回空（fail-closed）", reads, r"val k = key\(role\) \?: return emptyList\(\)")
-    c.present("服务侧默认不认角色（刻意不默认成派单员，免得忘了传还静悄悄放行）", reader, r"private val roleProvider: \(\) -> AiRole\? = \{ null \}")
+    c.present("认不出角色就返回空（fail-closed）", reads, r"val k = key\(actor\?\.role\) \?: return emptyList\(\)")
+    c.present("服务侧默认不认角色（刻意不默认成派单员，免得忘了传还静悄悄放行）", reader, r"private val actorProvider: \(\) -> AiActor\? = \{ null \}")
     c.present("读之前先问角色闸门", reader, r"if \(!AiReads\.allows\(role, action\.action, enabledModules\(\)\)\)")
     c.ok(
         "**角色检查排在发请求之前**（排在后面等于查完了才告诉他没权限）",
@@ -1433,9 +1485,9 @@ def main() -> int:
         and reader.find("AiReads.allows(") < reader.find("repo.rawGet("),
         f"allows@{reader.find('AiReads.allows(')} / rawGet@{reader.find('repo.rawGet(')}",
     )
-    c.present("read_data 的说明按角色现拼", tools, r"private fun readDataSpec\(role: AiRole\?\)")
-    c.present("说明清单来自 AiReads", tools, r"AiReads\.describeForModel\(role, readModules\(\)\)")
-    c.present("enum 也按角色裁（只裁说明=模型照抄一个它调不了的动作）", tools, r"AiReads\.forRole\(role, readModules\(\)\)")
+    c.present("read_data 的说明按角色现拼", tools, r"private fun readDataSpec\(actor: AiActor\?\)")
+    c.present("说明清单来自 AiReads", tools, r"AiReads\.describeForModel\(actor, readModules\(\)\)")
+    c.present("enum 也按角色裁（只裁说明=模型照抄一个它调不了的动作）", tools, r"AiReads\.forRole\(actor, readModules\(\)\)")
     # ⚠️ 上面那条只证明"文件里出现过 forRole"，证明不了 enum 用的是它。
     #    第一版就是这么写的，反向验证时把 enum 改回全量目录**居然还是绿的**——所以补这条：
     #    工具定义里不许回落到全量目录（说明与 enum 必须同源）。
@@ -2213,7 +2265,7 @@ def main() -> int:
             "store.offer(" in body and "handler.commit(" not in body and ".execute(" not in body,
             "撤回入口里出现了直接写库的调用——那就成了第二条写入口",
         )
-        c.present("撤回也过角色门", body, r"if \(!AiWrites\.allows\(roleProvider\(\), plan\.actionId\)\)")
+        c.present("撤回也过角色门", body, r"if \(!AiWrites\.allows\(actorProvider\(\), plan\.actionId\)\)")
         c.present(
             "撤回卡弹出之前**再读一次现状**（否则会把别人后来的改动一起盖掉而用户不知道）",
             body,
@@ -2437,11 +2489,11 @@ def main() -> int:
         not missing_branch,
         f"没有分支的：{missing_branch}",
     )
-    c.present("撤回专用动作不进模型清单（能看见但一定失败是最坏的一类 bug）", tools, r"AiWrites\.forModel\(role\)")
+    c.present("撤回专用动作不进模型清单（能看见但一定失败是最坏的一类 bug）", tools, r"AiWrites\.forModel\(actor\)")
     c.present(
         "forModel 的定义就是「去掉 undoOnly」",
         wr,
-        r"fun forModel\(role: AiRole\?\): List<AiWriteAction> = forRole\(role\)\.filter \{ !it\.undoOnly \}",
+        r"fun forModel\(actor: AiActor\?\): List<AiWriteAction> = forRole\(actor\)\.filter \{ !it\.undoOnly \}",
     )
 
     # ---- 后端：删除必须是"伪装删除"，而且真的能恢复 ----
@@ -2459,8 +2511,19 @@ def main() -> int:
         #    而"假违规"的代价是有人开始无视这条红线。
         #    真正要守住的是：**这些主数据自己的删除必须打标记**（`is_deleted = True`）+ 有恢复端点。
         m = re.search(r"def delete_\w+\(.*?(?=\n@router|\Z)", src, re.S)
-        c.absent(f"{f}: 这个模块的删除不再物理删（改成伪装删除 + 恢复端点）",
-                 m.group(0) if m else src, r"db\.delete\(")
+        # ⚠️ 2026-09-21：判据从「整段里不许出现 `db.delete(`」收紧成「**不许物理删这张主数据的行**」——
+        #    运费模板那一轮加了"删除时顺手清掉它的分类绑定"（`freight_template_categories` 是一张
+        #    **不软删的关联表**，留着就会让那个分类永远删不掉）。整段扫会把这件事判成违规，
+        #    而"假违规"的代价是有人开始无视这条红线。
+        #    真正要守住的还是那一句：**这张主数据自己那一行不许被物理删掉**。
+        #    ⚠️ 判据不能写成"整段里出现 `db.delete(` 就红"（那会把"顺手清掉关联表的行"判成违规，
+        #       而账号那边的删除用的是另一套标记：`is_active = False` + 手机号加后缀）。
+        #       所以判据锚在**"删掉你刚查出来的那一行"**：`x = db.get(...)` 之后又 `db.delete(x)`。
+        seg = m.group(0) if m else src
+        fetched = re.findall(r"(\w+)\s*=\s*db\.get\(", seg)
+        physical = [v for v in fetched if f"db.delete({v})" in seg]
+        c.ok(f"{f}: 这个模块的删除不是把那一行物理删掉（打标记 / 改名隔离）",
+             not physical, f"物理删了查出来的那一行：{physical}")
     c.ok("后端有 ≥7 个恢复端点（每张可撤的表一个）", n_restore_route >= 7, f"实际 {n_restore_route} 个")
     pmodel = read(ROOT / "backend/app/models/product.py")
     c.absent(
@@ -2851,8 +2914,12 @@ def main() -> int:
     # 开关本身也要钉：把 `if product_ids:` 改成 `if False:`（范围彻底失效）时，
     # 上面那条"决定算哪几行"还在原地，只有这一条能拦住它。
     c.present("范围生效的开关在（product_ids 非空才按范围算）", pay_py, r"if product_ids:")
+    # ⚠️ 2026-09-21：`else` 那一支从 `rule.commission_rate` 变成 `base_rate` ——
+    #    因为"每单金额/比例"现在有两种形态（所有单统一 / 按运费分类），
+    #    基价先由 `piece_mode` 解析成 `base_piece` / `base_rate`，逐单覆盖仍然**优先**。
+    #    判据的**意思一个字没变**（覆盖值优先），改的只是右边那个来源。
     c.present("算钱时优先用逐单覆盖的比例（否则派单员定的比例会被规则默认值盖掉）",
-              pay_py, r"rate = money\(rate_override\) if rate_override is not None else rule\.commission_rate")
+              pay_py, r"rate = money\(rate_override\) if rate_override is not None else base_rate")
     c.present("规则表有抽成范围这一列", rule_model, r"commission_product_ids: Mapped\[")
     c.present("抽成范围只在商品金额抽成上合法（按运费抽时没有这回事）",
               rule_py, r"只能配在按商品金额抽成上")
@@ -2948,7 +3015,26 @@ def main() -> int:
     acct = read(ROOT / "backend/app/services/accounting_service.py")
     # 同 §23 前面那条：锚"判断 + 紧接着就抛"，不锚"这句中文在不在文件里"。
     c.present("已经收过款的单不能再逐单核销（否则同一张单两条收款记录、两条现金流水）",
-              acct, r"if o\.paid:[\s\S]{0,400}?raise ValueError\(")
+              acct, r"if o\.paid or m\.arrears <= 0:[\s\S]{0,400}?raise ValueError\(")
+    # v3.44（2026-09-20 按商品核销）：**核销金额不许超过这一单的欠款**。
+    # 判据是"判断 + 紧接着就抛"（与上面同一条理由）；它挡的是"退过货的单被按原价全额收钱"
+    # 和"并发两次各收一遍"这两件都会把钱收多的事。
+    c.present("核销金额不许超过欠款（退过货的单上 line_total 之和已经不是欠款了）",
+              acct, r"if part > m\.arrears:[\s\S]{0,400}?raise ValueError\(")
+    # v3.45（2026-09-20 账本页「点合计批量核销」）：**整单核销收的是还欠的钱**。
+    # 这条是上面那条的另一半：`arrears` 才是"这一单还能收多少"，而"当时卖了多少"（`receivable`）
+    # 在一张**按商品核销过一部分**的单上偏大 —— 客户端按欠款发、后端按应收算，两边金额对不上
+    # （这种单从此再也收不动）；金额要是凑巧对上了，就是**多收**。
+    c.present("整单核销收的是**还欠的钱**（部分核销过的单要能收剩下那部分）",
+              acct, r"else m\.arrears\b")
+    c.absent("整单核销不许按「应收」算（会多收，或让收过一半的单再也收不动）",
+             strip_comments(acct), r"else m\.receivable\b")
+    c.present("按商品核销的金额按行算（与整单核销同一份行级算法，不许各算一遍）",
+              acct, r"line_receivable\(op\) for op in picked\[oid\]")
+    c.present("只有「这次收完就结清」的单才翻 paid（部分核销必须留在未收）",
+              acct, r"settling = \[oid for oid in order_ids if per_order\[oid\] >= money\[oid\]\.arrears\]")
+    c.present("并发下的欠款判定走加锁读（REPEATABLE READ 的快照会让两个请求都读到旧值）",
+              acct, r"money_map\(db, list\(locked\.values\(\)\), lock=True\)")
     c.present("拒绝时要说清怎么办（补差额改用滚动收款）", acct, r"如果是补差额，请改用「滚动收款」")
     c.present("端到端钉住「同一张单不能被逐单核销两次」",
               pay_tests, r"test_同一张单不能被逐单核销两次")
@@ -2962,8 +3048,23 @@ def main() -> int:
     recon_tests = read(ROOT / "backend/tests/test_report_reconciliation.py")
     # ⚠️ 判据锚在**完整划分**这个结构上：两条带条件的判据（cash 且已收 / arrears 且未收）
     #    会让"挂账结清"（arrears + paid=True）这种组合两边都不算——钱在报表上凭空消失。
-    c.present("已收 / 挂账 是一对完整划分（paid 与否各归一边）",
-              reports_py, r"if o\.paid:\s*\n\s+collected \+= amount\s*\n\s+else:\s*\n\s+arrears_total \+= amount")
+    #
+    # 2026-09-20（按商品核销 + 退货）之后，划分从"营业额 = 已收 + 挂账"变成
+    # **"应收 = 净已收 + 欠款"**，而三个数都改由 `services/order_money.py` 一处算
+    # （`paid` 一个布尔表达不了"收了一半"或"退掉一部分"）。所以判据改成两条：
+    # ① 报表**必须**用那一处的数（三句都在）；② 报表**不许**再自己把订单行加起来。
+    c.present("营业额取自唯一口径（应收＝卖的 − 退的）",
+              reports_py, r"amount = mm\.receivable")
+    c.absent("不许在报表里自己把订单行加起来当营业额（退货红冲会整个漏掉）",
+             strip_comments(reports_py), r"amount = sum\(\(lp\.line_total")
+    c.present("已收按**净额**入账（含现场收的现金，减掉退给客户的现金）",
+              reports_py, r"collected \+= mm\.settled - mm\.refunded")
+    c.present("挂账入账用的是这一单的**欠款**（不是当时卖了多少）",
+              reports_py, r"arrears_total \+= mm\.arrears")
+    c.present("一批订单的钱一次算完（不在循环里逐单查）",
+              reports_py, r"money = money_map\(db, orders\)")
+    c.present("挂账单位报表也用欠款口径（同一份钱，两个页面不许各算一遍）",
+              reports_py, r"g\[\"amount\"\] \+= mm\.arrears")
     c.absent("不许再用「cash 且已收 / arrears 且未收」这种带条件的判据",
              strip_comments(reports_py), r'\) == "cash" and o\.paid')
     c.present("出参写清「已收」的含义（含挂账结清，不再是现金已收）",
@@ -3016,7 +3117,7 @@ def main() -> int:
               flow, r"update\(Order\)")
     # ⚠️ 同样锚"形状"不锚变量名（见下面同组注释）：改名 `ids` → `order_ids` 不该让红线变红。
     c.present("逐单核销也要锁订单行（否则两个请求都读到 paid=False）",
-              acct, r"select\(Order\)\.where\(Order\.id\.in_\(\w+\)\)\.with_for_update\(\)")
+              acct, r"select\(Order\)[\s\S]{0,120}?\.where\(Order\.id\.in_\(\w+\)\)[\s\S]{0,80}?\.with_for_update\(\)")
     c.present("探针里有「并发」这一组（不然这类缝隙没人盯）",
               probe_tool, r'"并发": probe_concurrency')
     # v3.40：并发送达的**钱**不变式要有回归测试（本地能复现的那条）
@@ -3593,11 +3694,27 @@ def main() -> int:
               ocs31,
               r"val shownLocations = remember\(locations, sel, kw\) \{")
 
-    # ---- ⑤ 一次性提示：先消费再显示 ----
+    # ---- ⑤ 一次性提示：先消费、再显示 ----
     c.present("一次性提示只有一处实现（OneShotSnackbar）", comp31, r"fun OneShotSnackbar\(")
-    # ⚠️ 顺序是这条红线的全部要点：先 onConsumed() 再 showSnackbar。
-    c.present("**先消费、再显示**（顺序反了切页就会重放）", comp31,
-              r"onConsumed\(\)\s*\n\s*hostState\.showSnackbar\(message\)")
+    # ⚠️ 这条红线的要点是**两件事同时成立**（2026-09-21 补第二件）：
+    #    ① **先消费**（`onConsumed()` 在显示之前）—— 顺序反了，切页时协程被取消、
+    #       那一行"置空"永远不执行，用户切回来提示条**又冒一次**（用户 2026-09-18 报的 bug）；
+    #    ② **显示不能挂在会随 key 取消的作用域上** —— 这是①的**代价**，也是真机逐帧拍出来的：
+    #       `message` 正是 `LaunchedEffect(message)` 的 key，`onConsumed()` 把它置空 → key 变 →
+    #       协程被取消 → 紧接着那句 `showSnackbar` 没跑，**提示条全 App 都不显示**（47 处调用）。
+    #       所以显示必须放进 `scope.launch { … }`（`rememberCoroutineScope()` 的生命周期是
+    #       Composable 本身，不随 key 变化取消）。
+    #    ⛔ 只断言①会把代码按回"不显示"，只断言②会把代码按回"会重放" —— 两个旧 bug 是一对。
+    c.present(
+        "**先消费**（顺序反了切页就会重放）",
+        comp31,
+        r"LaunchedEffect\(message\)\s*\{[\s\S]{0,400}?onConsumed\(\)[\s\S]{0,200}?showSnackbar",
+    )
+    c.present(
+        "**显示不随 key 取消**（不然提示条根本不显示）",
+        comp31,
+        r"rememberCoroutineScope\(\)[\s\S]{0,400}?scope\.launch\s*\{\s*hostState\.showSnackbar",
+    )
     ui_files = sorted((UI).rglob("*.kt"))
     risky = [
         f.name

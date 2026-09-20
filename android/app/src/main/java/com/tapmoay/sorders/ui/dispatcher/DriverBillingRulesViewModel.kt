@@ -69,6 +69,83 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
     var draftScopeIds by mutableStateOf<Set<Long>>(emptySet())
     var draftRemark by mutableStateOf("")
 
+    /**
+     * 每单金额怎么定（用户 2026-09-21）：
+     * uniform = 所有单统一（用 [draftPieceAmount] / [draftCommissionRate]）；
+     * category = **按运费分类**逐类定价（金额在 [draftCategoryRows] 里）。
+     * ⛔ 两者**互斥**（后端 alidate_rule_params 会拒"两个都填"，因为那是"填了不生效"）。
+     */
+    var draftPieceMode by mutableStateOf("uniform")
+
+    /** 按分类定价表：分类编号 → (每单金额, 提成比例)。只保留有数字的那些。 */
+    var draftCategoryRows by mutableStateOf<Map<Long, Pair<String, String>>>(emptyMap())
+
+    /** 价目目录（规则要在里面勾"这份规则用哪几条价目"）。 */
+    var templates by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.FreightTemplateDto>>(emptyList())
+        private set
+
+    /** 勾了哪几条价目（价目归规则：派单选了司机就从这里挑）。 */
+    var draftTemplateIds by mutableStateOf<Set<Long>>(emptySet())
+
+    /** 价目选择器的分类栏选中哪一格。 */
+    var pickTab by mutableStateOf(FREIGHT_TAB_ALL)
+
+    /** 「用哪些运费价目」选择器开着没有。 */
+    var showTemplatePicker by mutableStateOf(false)
+
+    fun loadTemplates() {
+        viewModelScope.launch {
+            runCatching { templates = container.repo.freightTemplates() }
+        }
+    }
+
+    /** 选择器里当前这一格下的价目（一条价目挂多类 → 每类下都出现；与模板页同一套规则）。 */
+    fun pickerItems(): List<com.tapmoay.sorders.data.remote.dto.FreightTemplateDto> =
+        templates.filter { underFreightTab(it, pickTab) }
+
+    /** 选择器的分类栏（名册 + 未分类，由数据算出来）。 */
+    fun pickerTabs(): List<String> {
+        val out = mutableListOf(FREIGHT_TAB_ALL)
+        templates.forEach { t -> t.categoryNames.forEach { c -> if (c !in out) out += c } }
+        if (templates.any { it.categoryNames.isEmpty() }) out += FREIGHT_TAB_NONE
+        return out
+    }
+
+    fun toggleTemplate(id: Long) {
+        draftTemplateIds = if (id in draftTemplateIds) draftTemplateIds - id else draftTemplateIds + id
+    }
+
+    /** 「全选本分类」：把当前这一格下的价目一次勾上（再点一次取消这一格）。 */
+    fun toggleWholeTab() {
+        val ids = pickerItems().map { it.id }.toSet()
+        if (ids.isEmpty()) return
+        draftTemplateIds = if (ids.all { it in draftTemplateIds }) {
+            draftTemplateIds - ids
+        } else {
+            draftTemplateIds + ids
+        }
+    }
+
+    /** 运费分类名册（按分类定价要按名字挑）。 */
+    var categories by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.FreightCategoryDto>>(emptyList())
+        private set
+
+    fun loadCategories() {
+        viewModelScope.launch {
+            runCatching { categories = container.repo.freightCategories() }
+        }
+    }
+
+    fun setCategoryRow(categoryId: Long, piece: String?, rate: String?) {
+        val cur = draftCategoryRows[categoryId] ?: ("" to "")
+        val next = (piece ?: cur.first) to (rate ?: cur.second)
+        draftCategoryRows = if (next.first.isBlank() && next.second.isBlank()) {
+            draftCategoryRows - categoryId
+        } else {
+            draftCategoryRows + (categoryId to next)
+        }
+    }
+
     /** 抽成商品可选项（商品库全量）。拉不到就只显示"不限"，不让用户以为商品库里没货。 */
     var products by mutableStateOf<List<ProductDto>>(emptyList())
 
@@ -143,8 +220,13 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
         draftCommissionRate = ""
         draftScopeIds = emptySet()
         draftRemark = ""
+        draftPieceMode = "uniform"
+        draftCategoryRows = emptyMap()
+        draftTemplateIds = emptySet()
         dialogError = null
         loadProducts()
+        loadCategories()
+        loadTemplates()
         showDialog = true
     }
 
@@ -159,8 +241,13 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
         draftCommissionRate = trimZero(r.commissionRate)
         draftScopeIds = r.commissionProductIds.toSet()
         draftRemark = r.remark
+        draftPieceMode = r.pieceMode.ifBlank { "uniform" }
+        draftCategoryRows = r.categories.associate { it.categoryId to (trimZero(it.pieceAmount) to trimZero(it.commissionRate)) }
+        draftTemplateIds = r.templateIds.toSet()
         dialogError = null
         loadProducts()
+        loadCategories()
+        loadTemplates()
         showDialog = true
     }
 
@@ -181,6 +268,19 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
             // 不是"按商品金额抽成"时**显式清空范围**：留着一份上次选的范围会让人以为它生效了，
             // 而后端对"按运费 + 有范围"是直接拒绝的。
             commissionProductIds = if (draftCommissionBase == "goods") draftScopeIds.sorted() else emptyList(),
+            // 按分类定价：把有数字的那些行提交上去（空行 = 这一类不定价）
+            pieceMode = draftPieceMode,
+            categories = if (draftPieceMode == "category") {
+                draftCategoryRows.map { (cid, v) ->
+                    com.tapmoay.sorders.data.remote.dto.RuleCategoryRequest(
+                        categoryId = cid,
+                        pieceAmount = amountText(v.first),
+                        commissionRate = amountText(v.second),
+                    )
+                }
+            } else emptyList(),
+            // 价目归规则：把勾的这几条提交上去（空 = 还没勾，派单时那一单会进「待定价」）
+            templateIds = draftTemplateIds.toList(),
             remark = draftRemark.trim(),
         )
         val cur = editing

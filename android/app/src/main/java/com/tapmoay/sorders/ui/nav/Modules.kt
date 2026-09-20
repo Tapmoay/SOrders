@@ -20,19 +20,23 @@ import com.tapmoay.sorders.ui.theme.ReportIndigo
 import com.tapmoay.sorders.ui.theme.ShipperTeal
 
 /**
- * 工作台图标入口。children 非空 = 分组（点击进入二级列表页），
- * 为空 = 直达页面（route 即导航路由）。
+ * 工作台图标入口：**一格 = 一个页面**（`route` 即导航路由）。
  * 新增功能：在这里加一条 ModuleEntry + 在 NavGraph 注册对应路由即可。
  * color = 模块语义色（老人友好：一色一功能，工作台/列表页按色快速定位）。
  * gradient 非空 = 这块图标用**品牌渐变**而不是单色（目前只有 AI 用：Google AI 的
  *   蓝→紫→粉，见 theme/AiBrand.kt）。用渐变而不是单色是刻意的：AI 不是一个"业务模块"，
  *   它是**另一种用法**（说一句话，而不是点进某个功能），外观上就该和其余方块不是一类。
+ *
+ * ⛔ 2026-09-20 **删掉了「分组（二级列表页）」那套机制**（`children` 字段 + `findGroup` +
+ *    `Routes.MODULE_GROUP` 路由 + `ModuleListScreen`）：三端 `children` 全为空，
+ *    那条路由**没有任何入口点得到**，等于一条永远走不到的死路 —— 而它还带着
+ *    "工作台支持分组"这个假印象（下一个接手的人会照它去加 `children`，然后发现没人会导航过去）。
+ *    真要再分组时按当时的版式写一遍，比留一套猜不到口径的半成品便宜。
  */
 data class ModuleEntry(
     val label: String,
     val route: String,
     val icon: ImageVector,
-    val children: List<ModuleEntry> = emptyList(),
     val color: Long = NavBlue,
     val gradient: List<Long> = emptyList(),
 )
@@ -77,15 +81,15 @@ object Modules {
     //    「全部订单」与下面那个「订单管理」图标**指向同一条路由**（同一页两个入口）。
     //    剩下两个不是"订单"的东西（运费模板 / 计费规则）已经按用户要求**提成独立图标**了，
     //    所以这个分组现在一个独占的子项都没有 —— 留着只会让人多点一次。
-    //
-    // ⚠️ 分组的**机制**还在（`ModuleEntry.children` + `Routes.MODULE_GROUP` +
-    //    `WorkbenchScreen.kt::ModuleListScreen`）：它是工作台的通用能力，删掉的话下次要加分组
-    //    得再写一遍。但**本轮之后没有任何一个网格用它**（三端 children 全为空）——
-    //    别以为它是活的。
+    //    分组那套机制本身也已删除（见 [ModuleEntry] 的注释：三端 children 全空 = 死路）。
     val dispatcherEntries: List<ModuleEntry> = listOf(
         ModuleEntry("代理下单", Routes.DISPATCH_ORDER_CREATE, Icons.Default.AddCircleOutline, color = MgrGreen),       // 绿 · 下单（与货主端下单同色）
         ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = ShipperTeal),                        // 湖蓝 · 地址
         ModuleEntry("订单管理", Routes.DISPATCH_ORDERS, Icons.Default.ReceiptLong, color = ProgressYellow),            // 黄 · 订单流转
+        // 退货申请（2026-09-21）：货主（含批发商）在订单上**只能申请**，**这里才是实际执行** ——
+        // 点了「办理退货」那一刻库存、账本、退款、订单状态才变（用户原话：「批发商只是一个申请，
+        // 派单员才是实际性的操作」）。所以它紧挨着「订单管理」：同一件事的两头。
+        ModuleEntry("退货申请", Routes.DISPATCH_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),  // 棕橙 · 退货这条线
         ModuleEntry("账户管理", Routes.ACCOUNTS, Icons.Default.AccountBox, color = 0xFF8D6E63L),                     // 棕 · 统一建号（账号+密码+角色）
         ModuleEntry("司机管理", Routes.DISPATCH_DRIVERS, Icons.Default.Groups, color = 0xFFCDDC39L),                    // 黄绿 · 司机团队
         ModuleEntry("货主管理", Routes.SHIPPERS_MANAGE, Icons.Default.PeopleAlt, color = InventoryTeal),                // 深青 · 货主
@@ -188,17 +192,21 @@ object Modules {
      * 这个账本管理**类似于报表中心的形式**；然后车辆台账属于车辆管理，车辆管理直接放在桌面上」。
      *
      * 与上一版（工作台那张 8 格卡片）的差别，一条一条对着看：
-     * · **司机结算不再单独占一格** —— 并进「司机账」；入口在司机账那类账的页面上（`onOpenSettlements`）。
+     * · **司机结算不再单独占一格** —— 入口页里没有它（用户点名「合并成一个」）；而账本页里
+     *   **也不再挂入口**（2026-09-20 第四轮：「那个结算，这个也直接去掉」）—— 它从工作台
+     *   那一格 `Routes.FREIGHT_SETTLEMENT` 进。
      * · **开销管理并进来**（原来它在卡片里是第 7 格，现在在这里）。
      * · **车辆台账搬去工作台**，改叫「车辆管理」（用户：「车辆台账就是车辆管理嘛」）。
      *
-     * 4 类账 = **同一页的 4 个档位**（`Routes.dispatcherLedger(tab)`）——
+     * 4 类账 = **同一页的四个档位**（`Routes.dispatcherLedger(tab)`）——
      * ⛔ 别给它们各建一个页面：同一套数据四份实现，改一处漏三处。
+     * ⛔ 也别在那一页里再加一条档位导航：用户 2026-09-20 明确否掉了（「最上面的 4 个去掉，
+     *   那是老的导航栏」）—— 格子点进去是哪一类，那一页就是哪一类。
      */
     val ledgerHomeEntries: List<ModuleEntry> = listOf(
         // ---- 4 类账（同一页的 4 个档位）----
         ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = MoneyOrange),     // 橙 · 账本本体
-        ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF2E7D32L),           // 深绿 · 司机该拿多少（含结算单）
+        ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF2E7D32L),           // 深绿 · 司机该拿多少（结算走工作台那一格）
         ModuleEntry("货主账", Routes.dispatcherLedger(2), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少
         ModuleEntry("批发商账", Routes.dispatcherLedger(3), Icons.Default.Storefront, color = 0xFFB8860BL),             // 暗金 · 批发账户
         // ---- 2 个工具（各自有页面）----
@@ -216,6 +224,11 @@ object Modules {
         ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = ShipperTeal),
         ModuleEntry("我的账本", Routes.SHIPPER_LEDGER, Icons.Default.AccountBalanceWallet, color = MoneyOrange),
         ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = MessageRed),
+        // 退货申请（2026-09-21）：货主在「我的订单」里对**已送达**的单提出申请，进展在这一页看
+        // （待派单员处理 / 已办理 / 已驳回，能撤回）。⛔ 货主只能申请，真正退货在派单端。
+        // ⚠️ 位置是**唯一可选的那一格**：本文件的两条单测钉着「消息中心」必须在第 4 格
+        //    （`shipperEntries[4]`）、「AI 助手」必须在最后一格 —— 所以插在消息中心与 AI 之间。
+        ModuleEntry("退货申请", Routes.SHIPPER_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),
         // AI 助手放**最后一格**（用户 2026-09-15 明确要求：不要第一个）。
         // 理由站得住：这一排前 5 格是"货主日常办的事"（看单/下单/地址/账本/消息），
         // 顺序本身就是在教他怎么用；AI 是"这些事都能用嘴说"的另一条路，垫底不抢主流程，
@@ -244,10 +257,6 @@ object Modules {
         Role.SHIPPER -> shipperEntries
         Role.DRIVER -> driverEntries
     }
-
-    /** 按路由查找分组（二级列表页用） */
-    fun findGroup(route: String): ModuleEntry? = dispatcherEntries
-        .firstOrNull { it.route == route }
 
     /** 底部导航：派单端（派单作业/工作台/消息/我的），其他端（工作台/消息/我的）。加 Tab 只改这里 */
     fun bottomTabs(role: Role): List<BottomTab> = when (role) {

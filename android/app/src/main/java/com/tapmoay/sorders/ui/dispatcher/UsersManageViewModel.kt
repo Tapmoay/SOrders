@@ -149,12 +149,16 @@ class UsersManageViewModel(
     var draftName by mutableStateOf("")
     var draftPassword by mutableStateOf("")
     var draftVehicleType by mutableStateOf("large")
-    var draftBillingMode by mutableStateOf("SALARY")
-    var draftSalary by mutableStateOf("")
 
     /**
      * 计费规则（v3.36）：司机可以挂一份**命名好的规则模板**，挂上之后他怎么算钱由规则决定。
-     * `draftRuleId = null` = 不挂（按车型的老口径）。
+     *
+     * ⚠️ 2026-09-21 起**不再有** `draftBillingMode` / `draftSalary` 这两个草稿字段：
+     *    用户原话「司机管理他现在有固定工资和按单计费，但是后面又加了一个计费规则，
+     *    其实**计费规则就已经包括他们上面的这个**」——一份规则里本来就有「固定工资」与「每单/每件/提成」，
+     *    再在账号上放两个同类字段就是**同一个数两处写**（改哪一处都可能不生效，而两边都不报错）。
+     *    于是：他怎么算钱**只有**这一个入口（[draftRuleId]）；没挂规则时按车型的老口径兜底读，
+     *    而那句话由后端算好下发（`pay_summary`），界面不自己拼。
      */
     var rules by mutableStateOf<List<DriverBillingRuleDto>>(emptyList())
     var draftRuleId by mutableStateOf<Long?>(null)
@@ -262,8 +266,6 @@ class UsersManageViewModel(
         draftName = ""
         draftPassword = ""
         draftVehicleType = "large"
-        draftBillingMode = "SALARY"
-        draftSalary = ""
         draftRuleId = null
         showDialog = true
     }
@@ -274,8 +276,6 @@ class UsersManageViewModel(
         draftName = u.fullName
         draftPassword = ""
         draftVehicleType = if (u.vehicleType == "trailer") "trailer" else "large"
-        draftBillingMode = u.billingMode ?: (if (u.vehicleType == "trailer") "PIECE" else "SALARY")
-        draftSalary = u.salary ?: ""
         draftRuleId = u.driverRuleId
         showDialog = true
         // 商品可见范围：**只有货主/批发商有这一项**（派单员不受限，司机没有商品目录）
@@ -355,8 +355,12 @@ class UsersManageViewModel(
                             role = pool.role,
                             isMember = pool.memberOnly,
                             vehicleType = if (pool.role == "driver") draftVehicleType.ifBlank { null } else null,
-                            billingMode = draftBillingMode,
-                            salary = if (pool.role == "driver") draftSalary.trim().ifBlank { null } else null,
+                            // ⛔ **不再发 `billing_mode` / `salary`**（2026-09-21 用户：
+                            //    「司机管理他现在有固定工资和按单计费，但后面又加了一个计费规则，
+                            //      其实计费规则**就已经包括**他们上面的这个」）：
+                            //    他怎么算钱只有一处——挂的那份「计费规则」（`driver_pay`）。
+                            //    建司机时不写这两个字段 = 新账号从此只有一条口径；
+                            //    老数据里已有的值仍然按老口径兜底读（没挂规则的司机金额不变）。
                         )
                     )
                 } else {
@@ -367,8 +371,6 @@ class UsersManageViewModel(
                             fullName = draftName.trim().ifBlank { null },
                             password = draftPassword.ifBlank { null },
                             vehicleType = if (pool.role == "driver") draftVehicleType.ifBlank { null } else null,
-                            billingMode = draftBillingMode,
-                            salary = if (pool.role == "driver") draftSalary.trim().ifBlank { null } else null,
                         ),
                     )
                 }

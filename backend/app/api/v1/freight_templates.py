@@ -23,13 +23,16 @@ from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
-from app.models import FreightTemplate, FreightTemplateDriver, ShipperAddress, User
+from app.models import FreightCategory, FreightTemplate, FreightTemplateCategory, FreightTemplateDriver, ShipperAddress, User
 from app.models.enums import OperationAction, UserRole
 from app.schemas.freight_template import (
+    FreightQuoteCandidate,
+    FreightQuoteOut,
     FreightTemplateCreate,
     FreightTemplateOut,
     FreightTemplateUpdate,
 )
+from app.services.freight_pricing import Quote, quote_for
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import ensure_alive
 
@@ -123,10 +126,84 @@ def _set_drivers(db: Session, t: FreightTemplate, driver_ids: list[int]) -> None
     db.flush()
 
 
+def _rule_names(db: Session, template_ids: list[int]) -> dict[int, list[str]]:
+    """价目 → 用它的规则名（一次查完；卡片上要写"这条价目归哪几份规则"）。"""
+    from app.models import DriverBillingRule, DriverBillingRuleTemplate
+
+    if not template_ids:
+        return {}
+    rows = db.execute(
+        select(DriverBillingRuleTemplate.template_id, DriverBillingRule.name)
+        .join(DriverBillingRule, DriverBillingRule.id == DriverBillingRuleTemplate.rule_id)
+        .where(
+            DriverBillingRuleTemplate.template_id.in_(template_ids),
+            DriverBillingRule.is_deleted.is_(False),
+        )
+    ).all()
+    out: dict[int, list[str]] = {}
+    for tid, name in rows:
+        out.setdefault(tid, []).append(name)
+    return out
+
+
 def _out(db: Session, t: FreightTemplate) -> FreightTemplateOut:
     o = FreightTemplateOut.model_validate(t)
     o.driver_ids = _driver_ids(db, [t.id]).get(t.id, [])
+    cats = _category_ids(db, [t.id]).get(t.id, [])
+    o.category_ids = cats
+    o.category_names = _category_names(db, cats)
+    o.rule_names = _rule_names(db, [t.id]).get(t.id, [])
     return o
+
+
+def _category_ids(db: Session, template_ids: list[int]) -> dict[int, list[int]]:
+    """一次把多条价目挂的分类查出来（列表页别按行查 —— N+1）。"""
+    if not template_ids:
+        return {}
+    rows = db.execute(
+        select(FreightTemplateCategory.template_id, FreightTemplateCategory.category_id).where(
+            FreightTemplateCategory.template_id.in_(template_ids)
+        )
+    ).all()
+    out: dict[int, list[int]] = {}
+    for tid, cid in rows:
+        out.setdefault(tid, []).append(cid)
+    return out
+
+
+def _category_names(db: Session, category_ids: list[int]) -> list[str]:
+    """分类编号 → 名字（**一次查完**；界面上要显示"这条价目算哪几类货"）。"""
+    if not category_ids:
+        return []
+    rows = db.execute(
+        select(FreightCategory.id, FreightCategory.name).where(FreightCategory.id.in_(category_ids))
+    ).all()
+    by_id = {cid: name for cid, name in rows}
+    # 顺序跟调用方给的编号顺序走（表单里勾选的先后不该影响显示顺序）
+    return [by_id[cid] for cid in category_ids if cid in by_id]
+
+
+def _set_categories(db: Session, t: FreightTemplate, category_ids: list[int]) -> None:
+    """整份替换这条价目挂的分类。
+
+    ⛔ 编号必须真的存在：挂一个不存在的分类，派单匹配时那条价目**永远不会命中**
+    （界面看着配好了、运费永远带不出来），而两边都不报错。
+    """
+    wanted = list(dict.fromkeys(int(i) for i in category_ids))
+    if wanted:
+        found = set(
+            db.scalars(select(FreightCategory.id).where(FreightCategory.id.in_(wanted))).all()
+        )
+        missing = [i for i in wanted if i not in found]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"这些运费分类不存在：{missing}")
+    for row in db.scalars(
+        select(FreightTemplateCategory).where(FreightTemplateCategory.template_id == t.id)
+    ).all():
+        db.delete(row)
+    for cid in wanted:
+        db.add(FreightTemplateCategory(template_id=t.id, category_id=cid))
+    db.flush()
 
 
 @router.get("", response_model=list[FreightTemplateOut])
@@ -142,11 +219,17 @@ def list_templates(
         q = q.where(FreightTemplate.vehicle_type == vehicle_type)
     rows = list(db.scalars(q))
     bind = _driver_ids(db, [r.id for r in rows])
+    cats = _category_ids(db, [r.id for r in rows])
     out = []
     for r in rows:
         o = FreightTemplateOut.model_validate(r)
         o.driver_ids = bind.get(r.id, [])
+        o.category_ids = cats.get(r.id, [])
+        o.category_names = _category_names(db, o.category_ids)
         out.append(o)
+    rules = _rule_names(db, [r.id for r in rows])
+    for o in out:
+        o.rule_names = rules.get(o.id, [])
     return out
 
 
@@ -173,6 +256,7 @@ def create_template(
     db.add(t)
     db.flush()
     _set_drivers(db, t, body.driver_ids)
+    _set_categories(db, t, body.category_ids)
     # ⚠️ 运费模板是派单填运费的**参考价**，改一个数字影响所有人报价——原来一次日志都不写
     #    （2026-09-19 审计 R14-1，与挂账单位同一批）。审计页上必须能回答"这条价是谁定的"。
     write_log(
@@ -191,6 +275,7 @@ def create_template(
             "vehicle_type": t.vehicle_type,
             "fee": str(t.fee),
             "driver_ids": body.driver_ids,
+            "category_ids": body.category_ids,
         },
     )
     db.commit()
@@ -214,7 +299,8 @@ def update_template(
     before = {"name": t.name, "route_id": t.route_id, "price_name": t.price_name,
               "from_place": t.from_place, "to_place": t.to_place,
               "vehicle_type": t.vehicle_type, "fee": str(t.fee),
-              "driver_ids": _driver_ids(db, [t.id]).get(t.id, [])}
+              "driver_ids": _driver_ids(db, [t.id]).get(t.id, []),
+              "category_ids": _category_ids(db, [t.id]).get(t.id, [])}
     if body.name is not None:
         t.name = body.name.strip()
     if body.route_id is not None:
@@ -236,6 +322,8 @@ def update_template(
         t.remark = body.remark
     if body.driver_ids is not None:
         _set_drivers(db, t, body.driver_ids)
+    if body.category_ids is not None:
+        _set_categories(db, t, body.category_ids)
     write_log(
         db,
         operator_id=current.id,
@@ -248,7 +336,8 @@ def update_template(
             "after": {"name": t.name, "route_id": t.route_id, "price_name": t.price_name,
                       "from_place": t.from_place, "to_place": t.to_place,
                       "vehicle_type": t.vehicle_type, "fee": str(t.fee),
-                      "driver_ids": _driver_ids(db, [t.id]).get(t.id, [])},
+                      "driver_ids": _driver_ids(db, [t.id]).get(t.id, []),
+              "category_ids": _category_ids(db, [t.id]).get(t.id, [])},
         },
     )
     db.commit()
@@ -266,6 +355,14 @@ def delete_template(
     if t is None:
         raise HTTPException(status_code=404, detail="未找到该模板")
     # 伪装删除（v3.26）：模板是下次派单时的参考价，删错了要能原样回来。
+    #
+    # ⚠️ 分类绑定（`freight_template_categories`）**跟着删掉**：那张表不软删，
+    #    留着的话"这个分类还有几条价目挂着"会把一条已经不存在的价目算进去 ——
+    #    于是分类永远删不掉，而界面上根本看不到是它挡着。
+    for row in db.scalars(
+        select(FreightTemplateCategory).where(FreightTemplateCategory.template_id == t.id)
+    ).all():
+        db.delete(row)
     t.is_deleted = True
     t.deleted_at = utc_now_naive()
     write_log(
@@ -303,3 +400,45 @@ def restore_template(
     db.commit()
     db.refresh(t)
     return t
+
+
+def _quote_out(q: Quote) -> FreightQuoteOut:
+    def cand(c) -> FreightQuoteCandidate:
+        return FreightQuoteCandidate(
+            template_id=c.template_id,
+            name=c.name,
+            fee=c.fee,
+            price_name=c.price_name,
+            route=c.route,
+            category_names=list(c.category_names),
+            driver_names=list(c.driver_names),
+        )
+
+    return FreightQuoteOut(
+        matched=cand(q.matched) if q.matched is not None else None,
+        category_id=q.category_id,
+        category_name=q.category_name,
+        reason=q.reason,
+        ambiguous=[cand(c) for c in q.ambiguous],
+    )
+
+
+@router.get("/quote", response_model=FreightQuoteOut)
+def quote_freight(
+    order_id: int = Query(..., description="这一单"),
+    driver_id: int | None = Query(None, description="按这个司机找价目（不传 = 只看分类/路线）"),
+    category_id: int | None = Query(None, description="不传 = 用订单上已有的分类"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+) -> FreightQuoteOut:
+    """**派单时自动带价**用的报价（唯一的匹配实现：`services/freight_pricing.py`）。
+
+    没匹配到不是错误：它会带着"为什么没匹配到"回去，界面显示成「运费待定价」，
+    由派单员手动定价（`POST /orders/{id}/price-freight`）。
+    """
+    from app.models import Order
+
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    return _quote_out(quote_for(db, order, driver_id=driver_id, category_id=category_id))

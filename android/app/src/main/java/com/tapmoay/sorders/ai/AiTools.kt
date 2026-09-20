@@ -4,13 +4,10 @@ import com.tapmoay.sorders.core.ApiClient
 import com.tapmoay.sorders.data.repo.AppRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
@@ -34,11 +31,14 @@ interface AiToolset {
     val specs: List<ToolSpec>
 
     /**
-     * 当前登录角色。**提示词要用它分身份**（见 [AiRolePrompt]）：工具集是按角色裁出来的，
-     * 提示词如果还按派单员写，模型就会把派单员的能力念给货主听（真机实测过）。
+     * 当前登录角色 + **他是不是批发商货主**（见 [AiActor]）。
+     *
+     * ⚠️ 为什么工具集要看第二维（2026-09-20 用户第七轮）：货主有两个 —— 普通货主与批发商货主，
+     * 手机上「我的账本」那一段就不一样（批发商多一本自己的账：给下游货主核销/撤销/恢复）。
+     * 工具**说明**和**enum** 都按它裁：裁少了用户办不成事，裁多了会看见一张点了必然失败的卡。
      * null = 还没认出来（fail-closed：身份段只说"没认出你的角色"）。
      */
-    val role: AiRole?
+    val actor: AiActor?
 
     /** 用户在设置里打开的只读模块（提示词里的读能力清单要与工具说明同源）。 */
     val enabledReadModules: Set<String>
@@ -121,12 +121,25 @@ class AiTools(
      */
     /** 当前登录角色：决定**动作清单**里给模型看哪些（执行侧的门在 AiWriteService 里）。 */
     private val roleProvider: () -> AiRole? = { AiRole.DISPATCHER },
+    /**
+     * **他是不是批发商货主**（`users.is_member=1`）。
+     *
+     * 与 [roleProvider] 成对出现、缺一不可：只看角色的后果是普通货主的工具说明里
+     * 也印着「核销」那一组（模型会照着它跟用户解释一件他做不了的事）。
+     *
+     * ⚠️ 默认 `false` 是**故意**的（fail-closed）：认不出就按普通货主给能力 ——
+     *    少给会立刻被发现（批发主会问"怎么不能核销了"），多给不会有人发现。
+     *    真正的实现在 `AiContainer`（发货主之前先问一次 `users/me`）。
+     */
+    private val memberProvider: () -> Boolean = { false },
     private val requestWrite: suspend (String, JsonObject) -> AiWriteOutcome =
         { _, _ -> AiWriteOutcome.Rejected("写操作功能当前不可用。") },
 ) : AiToolset {
 
     /** 通用「读列表」服务（`read_data` 工具的实现，见 [AiReadService]）。 */
-    private val reader: AiReadService by lazy { AiReadService(repo, readModules, allowCostProvider, roleProvider) }
+    private val reader: AiReadService by lazy {
+        AiReadService(repo, readModules, allowCostProvider, { actor() })
+    }
 
     /**
      * 工具分组：设置页按这个分两栏渲染（见 [AiTools.Companion.settingsItems]）。
@@ -143,7 +156,10 @@ class AiTools(
 
     override val allToolNames: List<String> = ALL
 
-    override val role: AiRole? get() = roleProvider()
+    /** 角色 + 是不是批发商货主（[AiActor]）—— 工具清单与说明都按它现算。 */
+    private fun actor(): AiActor? = AiActor.of(roleProvider(), memberProvider())
+
+    override val actor: AiActor? get() = actor()
 
     override val enabledReadModules: Set<String> get() = readModules()
     override val allowCost: Boolean get() = allowCostProvider()
@@ -151,18 +167,18 @@ class AiTools(
     override val specs: List<ToolSpec>
         get() {
             val on = enabledNames()
-            val role = roleProvider()
-            // preview_write 的说明里嵌着**动作清单**，而清单按角色裁剪——
+            val actor = actor()
+            // preview_write 的说明里嵌着**动作清单**，而清单按角色+member 裁剪——
             // 所以它不能走静态的 SCHEMAS（那份表在 companion 里，看不到实例状态）。
             //
             // ⚠️ 还要过 `ROLE_TOOLS[role]`：**工具本身也按角色裁**（v3.28）。
             //    只裁说明不裁工具的话，货主照样能调 `driver_performance` / `export_sheet`，
             //    然后拿一个后端 403 回来——用户看到的还是"我明明有这功能"。
-            val mine = ROLE_TOOLS[role] ?: emptySet()
+            val mine = ROLE_TOOLS[actor?.role] ?: emptySet()
             return ALL.filter { it in on && it in mine }.map {
                 when (it) {
-                    PREVIEW_WRITE -> previewWriteSpec(role)
-                    READ_DATA -> readDataSpec(role)
+                    PREVIEW_WRITE -> previewWriteSpec(actor)
+                    READ_DATA -> readDataSpec(actor)
                     else -> specOf(it)
                 }
             }
@@ -175,8 +191,8 @@ class AiTools(
      * 而"哪些表这个角色能读"是从后端授权推导出来的、每个角色都不一样。
      * 参数部分（name/q/from/to/status/limit/extra）与静态那份一致，只是把 action 清单换掉。
      */
-    private fun readDataSpec(role: AiRole?): ToolSpec {
-        val actions = AiReads.forRole(role, readModules())
+    private fun readDataSpec(actor: AiActor?): ToolSpec {
+        val actions = AiReads.forRole(actor, readModules())
         return ToolSpec(
             type = "function",
             function = FunctionSpec(
@@ -189,7 +205,7 @@ class AiTools(
                             put("type", "string")
                             put("description",
                                 "要查哪张表，从下面清单里**原样照抄**一个（格式 模块.动作）：\n" +
-                                    AiReads.describeForModel(role, readModules()))
+                                    AiReads.describeForModel(actor, readModules()))
                             putJsonArray("enum") { actions.forEach { add(JsonPrimitive(it.action)) } }
                         }
                         putJsonObject("name") {
@@ -250,11 +266,11 @@ class AiTools(
      * 静态的 `SCHEMAS` 建在 companion object 里，**看不到实例上的角色**，
      * 所以这个工具只能在这里现拼。schema 的其它部分（参数名、类型）与静态那份保持一致。
      */
-    private fun previewWriteSpec(role: AiRole?): ToolSpec {
+    private fun previewWriteSpec(actor: AiActor?): ToolSpec {
         // ⚠️ 必须用 forModel：orRole 里还包含撤回专用的恢复动作（undoOnly），
                 //    它们不进模型清单——被软删的记录已经不在名册里，模型按名字一定解析不到，
                 //    放进清单就是能看见但一定失败（红线把这一类列为最坏 bug）。
-                val actions = AiWrites.forModel(role)
+                val actions = AiWrites.forModel(actor)
         return ToolSpec(
             type = "function",
             function = FunctionSpec(
@@ -267,7 +283,7 @@ class AiTools(
                             put("type", "string")
                             put("description",
                                 "要做的操作，从下面清单里**原样照抄**一个（格式 模块.动作）：\n" +
-                                    AiWrites.describeForModel(role))
+                                    AiWrites.describeForModel(actor))
                             putJsonArray("enum") { actions.forEach { add(JsonPrimitive(it.id)) } }
                         }
                         putJsonObject("params") {
@@ -888,19 +904,19 @@ class AiTools(
          * v3.21 之后他能申请的动作有七十多个、覆盖十来个域，而设置页还只列着三个。
          * 这类"能力声明过期"的后果和提示词写歪一样：用户以为它不会，就不去用。
          */
-        fun settingsItems(role: AiRole? = AiRole.DISPATCHER): List<ToolSetting> =
-            toolsFor(role).map { name ->
+        fun settingsItems(actor: AiActor? = AiActor.byRole(AiRole.DISPATCHER)): List<ToolSetting> =
+            toolsFor(actor?.role).map { name ->
                 ToolSetting(
                     name = name,
                     title = titleOf(name),
-                    hint = if (name == PREVIEW_WRITE) previewWriteHint(role) else hintOf(name),
+                    hint = if (name == PREVIEW_WRITE) previewWriteHint(actor) else hintOf(name),
                     group = groupOf(name),
                 )
             }
 
         /** 一句话说清"它能申请哪些改动"，域名单从动作表算（和提示词同源）。 */
-        private fun previewWriteHint(role: AiRole?): String {
-            val groups = AiWrites.forModel(role).map { it.group }.distinct()
+        private fun previewWriteHint(actor: AiActor?): String {
+            val groups = AiWrites.forModel(actor).map { it.group }.distinct()
             val what = if (groups.isEmpty()) {
                 "当前角色没有任何可申请的改动"
             } else {

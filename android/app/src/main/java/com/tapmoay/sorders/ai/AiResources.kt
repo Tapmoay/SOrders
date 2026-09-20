@@ -594,6 +594,42 @@ internal object AiResources {
         read = { ds, id -> ds.snapshot("order_line", id) },
     )
 
+    /**
+     * 货主**自己那一本账**上的核销记录（批发商给下游货主核销，2026-09-20）。
+     *
+     * 只有**撤销 ↔ 恢复**这一对在这里：
+     * · 撤销 = 软删（后端 `DELETE` 只打标记），所以撤回就是"把它放回来"；
+     * · **核销本身（`my_ledger.settle`）不在这里**：它写的是**新的一条**，
+     *   编号在写之前不存在，所以挂不上"撤回"按钮——那条理由逐句写在
+     *   `AiRevert` 的 `UNDO_NONE` 里（并告诉用户该说什么话把它撤掉）。
+     */
+    private val SHIPPER_SETTLEMENT = AiResource(
+        key = "shipper_settlement",
+        cn = "核销记录",
+        idKey = "target_id",
+        readKeys = setOf("settlement_id"),
+        labels = mapOf("settlement_id" to "核销记录"),
+        silent = setOf("settlement_id"),
+        actions = listOf(
+            paired(
+                AiWrites.MY_LEDGER_REVOKE,
+                AiInverse(
+                    AiWrites.MY_LEDGER_RESTORE,
+                    mapOf("target_id" to AiRevert.ID),
+                    lines = listOf(
+                        "把刚撤掉的那一笔核销放回来（后台是伪删除：行还在，逐字段照搬）",
+                        "放回来之后这一单重新算成「已收」，金额、商品、收款方式都和撤掉之前一样",
+                        "这只动你自己那一本账，公司那边的账不受影响",
+                    ),
+                ),
+                idKey = "settlement_id",
+            ),
+        ),
+        // 成对动作的撤回**不需要读现场**（参数只有主键，`AiRevert.plan` 里那道判据会跳过读），
+        // 而这一条被撤掉之后本来就躺在回收站里、按常规列表读不到——所以这里如实返回 null。
+        read = { _, _ -> null },
+    )
+
     // ============================================================ 账本 / 消息
 
     private val LEDGER_ENTRY = AiResource(
@@ -636,6 +672,7 @@ internal object AiResources {
         PRODUCT, PRICE_RULE, PRODUCT_CATEGORY, PLACE_CATEGORY, VEHICLE, PRODUCT_VISIBILITY, USER,
         PLACE,
         ORDER, ORDER_LINE, LEDGER_ENTRY, NOTIFICATION,
+        SHIPPER_SETTLEMENT,
     )
 }
 

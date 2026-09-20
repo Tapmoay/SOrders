@@ -271,12 +271,13 @@ class AiReadService(
      */
     private val allowCost: () -> Boolean = { false },
     /**
-     * 当前登录角色（**读侧的门**，见 [AiReads]）。
+     * 当前登录角色 + **他是不是批发商货主**（**读侧的门**，见 [AiReads]）。
      *
      * 默认给 null = 认不出角色就一张表都不给（fail-closed）。这里刻意**不**默认成派单员：
      * 让"忘了传角色"变成"读不到任何表"这种一眼能看出来的症状，而不是悄悄按派单员的权限跑。
+     * ⚠️ 第二维（member）同理：默认 false = 按**普通货主**算，批发商专属那张表读不到。
      */
-    private val roleProvider: () -> AiRole? = { null },
+    private val actorProvider: () -> AiActor? = { null },
 ) {
 
     /**
@@ -287,7 +288,7 @@ class AiReadService(
             ?: return err(
                 "没有名为「$actionKey」的查询。请照抄工具说明里列出的 action 取值。",
             )
-        val role = roleProvider()
+        val role = actorProvider()
         if (!AiReads.allows(role, action.action, enabledModules())) {
             // 这道门是给**说错话**兜底的：工具说明里已经按角色裁过清单，但模型可能凭上一轮
             // 的记忆写一个它这个角色查不了的 action。

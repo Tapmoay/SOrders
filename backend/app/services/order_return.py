@@ -1,0 +1,307 @@
+"""订单退货（2026-09-20 用户要求）。
+
+## 用户要的是什么
+
+原话：「那个订单管理……我们可以进行一个退货」「可以整单退货，也可以只退其中的
+某几个商品或者是一个商品，**他自己勾选**」「如果这个单子已经收了钱的话，做相应的退款……
+它会显示"订单已结账"，我们在退货的话，就会**自动的退款**」。
+
+## 一次退货动五样东西（缺一样就是"退了但账不对"）
+
+1. **行级事实** `order_products.returned_quantity += n` —— 退货的底座；
+2. **账本红冲** `ledgers(source=RETURN)`：**售价冲减**（`total` 为负）+ **负成本快照**
+   （货回来了 → COGS 同步冲回）。同一行多次退货**累加到同一行**（唯一约束
+   `(order_product_id, source)` 钉着，见 `LedgerSource.RETURN` 的注释）；
+3. **库存回补** `inventory_service.restock_returned`（送达时实扣过，货真回来了）；
+4. **退现**（只有"这单已经结过账"才发生）：`cash_flows(OUT, biz_type=REFUND_CUSTOMER)`。
+   退多少不是拍脑袋 —— 见下面 `_refund_amount` 的三条边界；
+5. **状态**：每行都退完 → `orders.status = RETURNED`（已退货）+ `returned_at`。
+   只退了一部分 → **留在已送达**，界面靠 `returned_quantity` 打「部分退货」。
+
+## 三条刻意不做的（都要能答上来"为什么"）
+
+· **不复原司机账单**：司机把货送到了、这一趟跑完了，退货是客户与公司之间的事。
+  与货损同一个口径（`apply_damage_accounting` 也不动司机应付）。要扣司机钱是另一个决定，
+  得由人来做（`driver_bills` 有作废规则），不能由"点一下退货"顺带决定。
+· **不动 `orders.paid`**：`paid` 的语义是"这单收过钱没有"，退货不会让"收过"变成"没收过"
+  （钱确实进来过，然后又退回去了 —— 那是两条现金流水的事，不是把标记抹掉）。
+  欠款口径由 `services/order_money.py` 一处算：`应收 − 已收 + 已退现`。
+· **不物理删任何东西**：退货是一笔**新事实**（红冲行 + 回库流水 + 审计日志），
+  原订单行、原账本行、原司机账单一个字都不改 —— 所以"退错了"永远查得回来。
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
+
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session
+
+from app.core.business_time import business_date
+from app.models import CashFlow, Ledger, Order, OrderProduct
+from app.models.enums import (
+    CashFlowBizType,
+    CashFlowDirection,
+    LedgerSource,
+    OperationAction,
+    OrderStatus,
+)
+from app.services.accounting_service import resolve_customer_for_order
+from app.services.inventory_service import restock_returned
+from app.services.operation_log_service import write_log
+from app.services.order_money import money_of
+
+ZERO = Decimal("0")
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class OrderReturnError(ValueError):
+    """退货被业务规则拒绝（接口层翻成 400）。"""
+
+
+@dataclass
+class ReturnItem:
+    """一行要退多少（`order_product_id` + 数量）。"""
+
+    order_product_id: int
+    quantity: int
+
+
+@dataclass
+class ReturnResult:
+    order_no: str
+    returned_amount: Decimal
+    refund_amount: Decimal
+    fully_returned: bool
+    restocked_lines: int
+    warnings: list[str] = field(default_factory=list)
+
+
+def _q2(v: Decimal) -> Decimal:
+    return Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def max_returnable(op: OrderProduct) -> int:
+    """这一行**最多还能退几件** = 数量 − 货损 − 已退。
+
+    ⚠️ 为什么减掉货损：货损那部分货已经在送达时按成本计进损失账了（`EXPENSE_LOSS`），
+       客户手里根本没有那几件 —— 让它也能"退"，就是同一批货既算损失又算回库。
+       `damage_quantity` 是司机送达时当场填的，是这份事实的唯一来源。
+    """
+    return max(0, int(op.quantity or 0) - int(op.damage_quantity or 0) - int(op.returned_quantity or 0))
+
+
+def _refund_amount(order: Order, db: Session, returned_now: Decimal) -> Decimal:
+    """这次退货**该退给客户多少现金**（用户：「已经收了钱的话，做相应的退款」）。
+
+    三条边界，缺一条都会退错钱：
+      ① **上限 = 这次退掉的货值**（不可能退得比退的货还多）；
+      ② **上限 = 还欠着的"已收"部分** = `已收 − 已退现`。这条是关键：
+         客户只付过 300（欠 700）、现在退掉值 400 的货 → 只退 300，
+         剩下 100 是他本来就没付的，退了就等于公司倒贴；
+      ③ 没收到过钱（`settled == 0`）→ 退 0：应收直接红冲掉就够了
+         （这正是用户说的"按道理来说是不会有的，因为我们的收款是按订单来计算的"）。
+    """
+    m = money_of(db, order)
+    already_refundable = max(ZERO, m.settled - m.refunded)
+    return _q2(min(returned_now, already_refundable))
+
+
+def _reversal_row(
+    db: Session, order: Order, op: OrderProduct, qty: int, entry_date, customer_id: int | None
+) -> None:
+    """写/累加这一行的退货红冲账本行（负数口径：数量、金额、成本快照全为负）。
+
+    累加而不是新插一行：`ledgers` 有唯一约束 `(order_product_id, source)`，
+    而"同一行分几次退"是真实场景（先退 2 件、过两天再退 3 件）。
+    """
+    unit_price = op.unit_price or ZERO
+    line_total = (unit_price * Decimal(qty)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    cost = op.cost_price_snapshot or ZERO
+    cost_total = (cost * Decimal(qty)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+    row = db.scalars(
+        select(Ledger).where(
+            Ledger.order_product_id == op.id,
+            Ledger.source == LedgerSource.RETURN,
+        )
+    ).first()
+    if row is None:
+        db.add(
+            Ledger(
+                shipper_id=order.shipper_id,
+                temp_shipper_name=order.temp_shipper_name if order.shipper_id is None else None,
+                customer_id=customer_id,
+                entry_date=entry_date,
+                product_name=op.product_name_snapshot,
+                quantity=-qty,
+                unit_price=unit_price,
+                total=-line_total,
+                order_id=order.id,
+                order_product_id=op.id,
+                product_id=op.product_id,
+                source=LedgerSource.RETURN,
+                note="订单退货红冲（自动）",
+                cost_price_snapshot=-cost_total,
+            )
+        )
+        return
+    # ⛔ **累加走 SQL 表达式，不许 Python 读改写**（与 `inventory_service.auto_stock_commit`
+    #    同一条理由，红线 `_tools/qa/_check_counter_updates.py` 钉着）：两次退货同时提交时，
+    #    两边都读到同一个旧值、各自算出新值，后写的把前一次**整段盖掉** ——
+    #    货退了两批、账上只红冲了一批，而**谁都不报错**（月底对账才发现，且查不出是哪两次）。
+    #    把加法交给数据库，读与写在同一条 UPDATE 里完成。
+    db.execute(
+        update(Ledger)
+        .where(Ledger.id == row.id)
+        .values(
+            quantity=Ledger.quantity - qty,
+            total=Ledger.total - line_total,
+            cost_price_snapshot=Ledger.cost_price_snapshot - cost_total,
+            # 日期跟着**最后一次**退货走（红冲行的金额是多次累加的，日期取最早那次会让人
+            # 以为"钱是那天退的"；`orders.returned_at` 记的也是最后一次）
+            entry_date=entry_date,
+            note="订单退货红冲（自动，多次退货累加）",
+        )
+    )
+
+
+def return_order(
+    db: Session,
+    order: Order,
+    items: list[ReturnItem],
+    *,
+    note: str = "",
+    operator_id: int,
+) -> ReturnResult:
+    """退货主流程（调用方负责 `db.commit()`）。
+
+    传 `items` 就是"退货明细"；整单退货由接口层翻成"每一行都退满"，
+    ⛔ **不接受 `all=true` 这种开关**：服务层只认数量，`max_returnable` 是唯一的上限来源。
+    """
+    if order.deleted_at is not None:
+        raise OrderReturnError("这张单在回收站里（已删除），不能退货。请先恢复它。")
+    if order.status != OrderStatus.DELIVERED:
+        raise OrderReturnError(
+            "只有「已送达」的订单可以退货"
+            f"（这张单现在是「{order.status.value if order.status else '—'}」）。"
+            "货还没送到的单请用「撤销」。"
+        )
+    if not items:
+        raise OrderReturnError("请至少勾选一个要退的商品")
+
+    ops = {op.id: op for op in order.order_products}
+    seen: set[int] = set()
+    for it in items:
+        if it.order_product_id in seen:
+            raise OrderReturnError("同一行重复勾选了，请刷新后重试")
+        seen.add(it.order_product_id)
+        op = ops.get(it.order_product_id)
+        if op is None:
+            raise OrderReturnError("勾选的商品不在这一单里，请刷新后重试")
+        if it.quantity <= 0:
+            raise OrderReturnError(f"「{op.product_name_snapshot}」的退货数量要大于 0")
+        cap = max_returnable(op)
+        if it.quantity > cap:
+            extra = "（这一行的货损已经计过损失，那部分不能退）" if (op.damage_quantity or 0) > 0 else ""
+            raise OrderReturnError(
+                f"「{op.product_name_snapshot}」最多只能退 {cap} {op.unit_snapshot or '件'}"
+                f"（下单 {op.quantity}、已退 {op.returned_quantity or 0}），你填了 {it.quantity}{extra}"
+            )
+
+    entry_date = business_date(datetime.now(timezone.utc)) or order.order_date
+    cust = resolve_customer_for_order(db, order)
+    warnings: list[str] = []
+    returned_amount = ZERO
+    lines: list[tuple[OrderProduct, int]] = []
+
+    for it in items:
+        op = ops[it.order_product_id]
+        qty = it.quantity
+        line_total = _q2((op.unit_price or ZERO) * Decimal(qty))
+        returned_amount += line_total
+        # ⛔ 已退数量走 **SQL 表达式**（`returned_quantity = returned_quantity + qty`），
+        #    不许 `op.returned_quantity = op.returned_quantity + qty`：两次退货同时提交时，
+        #    两边都读到同一个旧值、各自算新值，后写的把前一次盖掉 ——
+        #    货退了两批、账上只红冲一批，且谁都不报错
+        #    （红线 `_tools/qa/_check_counter_updates.py` 钉着，与 `auto_stock_commit` 同一条理由）。
+        db.execute(
+            update(OrderProduct)
+            .where(OrderProduct.id == op.id)
+            .values(returned_quantity=OrderProduct.returned_quantity + qty)
+        )
+        lines.append((op, qty))
+        _reversal_row(db, order, op, qty, entry_date, cust.id if cust else None)
+
+    restocked = restock_returned(db, order, lines, operator_id)
+    if restocked < len(lines):
+        warnings.append(
+            "有商品已经不在商品库里（被删/改名），这次退货的库存没有回补；"
+            "请到「库存管理」手工入库，或用「商品管理」确认它还在。"
+        )
+
+    returned_amount = _q2(returned_amount)
+    refund = _refund_amount(order, db, returned_amount)
+    if refund > 0:
+        party_name = cust.name if cust else ((order.temp_shipper_name or "").strip() or "临时货主")
+        db.add(
+            CashFlow(
+                flow_date=entry_date,
+                direction=CashFlowDirection.OUT,
+                amount=refund,
+                party_type="customer",
+                party_id=cust.id if cust else None,
+                party_name=party_name,
+                channel="cash",
+                biz_type=CashFlowBizType.REFUND_CUSTOMER,
+                order_id=order.id,
+                note=f"订单退货退款（{order.order_no}）",
+                operator_id=operator_id,
+            )
+        )
+
+    # 「整单退完」= **每一行的数量都退满**（不是"退过一次"，也不是"能退的都退了"）。
+    #
+    # ⚠️ 判据读的是**库里的真实值**（上面那次更新走的是 SQL 表达式，内存里的 `op` 还是旧的）——
+    #    拿内存对象判会漏掉"这一次退的就是最后那几件"，整单退完的单永远不进「已退货」。
+    #
+    # ⚠️ 带损单刻意**不会**进「已退货」：司机报过货损的那几件不允许退（`max_returnable` 减掉了它们），
+    #    而按既有口径**货损的货款客户照付**（`apply_damage_accounting`：损失由公司自担、营收不动）——
+    #    所以那张单的应收还剩"货损那几件"的钱，必须继续留在「挂账未收」里被人追。
+    #    用"能退的都退了"当判据就会把它标成已退货，而挂账报表的集合是 `status == DELIVERED`
+    #    → 那笔钱**从所有催收入口同时消失**（正是这个项目反复在治的"静默抹掉应收"）。
+    fresh = db.execute(
+        select(OrderProduct.quantity, OrderProduct.returned_quantity).where(
+            OrderProduct.order_id == order.id
+        )
+    ).all()
+    fully = bool(fresh) and all(int(r[1] or 0) >= int(r[0] or 0) for r in fresh)
+    if fully:
+        order.status = OrderStatus.RETURNED
+    order.returned_at = _now()
+
+    parts = "、".join(f"{ops[i.order_product_id].product_name_snapshot}×{i.quantity}" for i in items)
+    write_log(
+        db,
+        operator_id=operator_id or 0,
+        order_id=order.id,
+        action=OperationAction.ORDER_RETURN,
+        change_payload={
+            "退货": parts,
+            "退货金额": str(returned_amount),
+            "退款": str(refund),
+            "整单退完": fully,
+            "备注": (note or "").strip(),
+        },
+    )
+    return ReturnResult(
+        order_no=order.order_no,
+        returned_amount=returned_amount,
+        refund_amount=refund,
+        fully_returned=fully,
+        restocked_lines=restocked,
+        warnings=warnings,
+    )

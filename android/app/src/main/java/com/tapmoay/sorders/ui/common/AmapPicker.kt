@@ -59,7 +59,6 @@ import com.amap.api.services.geocoder.RegeocodeQuery
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.SunLocation
 import com.tapmoay.sorders.util.GeoResolver
-import kotlinx.coroutines.delay
 
 /**
  * 高德地图选点弹层：地图可拖动选点（微信式中心图钉）+ 搜索框（POI 联想）+ 定位当前位置 + 逆地理地址。

@@ -45,6 +45,28 @@ internal fun contactWho(name: String?, phone: String?): String? {
     }
 }
 
+/**
+ * **下单人就是货主**吗？是的话「货主」那一行就不画（卡片与详情共用这一份判据）。
+ *
+ * 用户原话（2026-09-20）：「那个下单人和货主是一样的，**不需要重新说一遍**啊，
+ * 毕竟 3 个人嘛，比较麻烦。所以**你只要出现下单人就可以了**」。
+ *
+ * 一单上本来有三方：货主（这单是谁的）、收货人（到现场接货的）、下单人（谁下的单）。
+ * 货主自己下单时后两者可能就是同一个人 —— 那时卡片上会连着出现
+ * 「下单人：永盛食品」和「货主：永盛食品」两行一模一样的字，用户得逐字比对才能确认
+ * 这是同一个人，而"看起来像两个人"正是他要避免的。
+ *
+ * ⚠️ 判据只有名字（出参里没有货主的电话），所以：
+ *  · 两边去空格、忽略大小写之后**完全相等**才算同一个人（「永盛食品」vs「永盛 食品」算同一个）；
+ *  · 有一边是空的 → **不算**（老单没记过下单人，不能因此把货主那行也抹掉）。
+ */
+internal fun ordererIsShipper(bossName: String?, shipperName: String?): Boolean {
+    fun norm(s: String?) = s.orEmpty().filterNot { it.isWhitespace() }.lowercase()
+    val b = norm(bossName)
+    val s = norm(shipperName)
+    return b.isNotEmpty() && b == s
+}
+
 /** tinted 圆底图标（iOS 风格：12% 语义色圆底 + 同色图标，精致不裸奔） */
 @Composable
 fun TintedIcon(icon: ImageVector, tint: Color, size: Dp = 16.dp, container: Dp = 28.dp) {
@@ -159,7 +181,7 @@ fun OrderCard(
                     )
                 }
             }
-            if (showShipper) {
+            if (showShipper && !ordererIsShipper(order.contactBossName, order.shipperName ?: order.tempShipperName)) {
                 val who = order.shipperName ?: order.tempShipperName
                 if (!who.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
@@ -180,7 +202,11 @@ fun OrderCard(
                 TintedIcon(Icons.Default.Inventory2, Color(ProductPurple), size = 15.dp)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    order.orderProducts.take(3).forEach { op ->
+                    order.orderProducts.take(3).forEachIndexed { idx, op ->
+                        // 多商品时行与行之间加一条**虚线**：名字在左、数量在右，两行紧挨着排，
+                        // "×3 / ×4"很容易被看成同一行的（用户 2026-09-20：「多个商品……
+                        // 中间做虚线横杠稍微做一个区分，省的看错位」）。
+                        if (idx > 0) DashedLine()
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 op.productNameSnapshot,
@@ -264,6 +290,35 @@ fun OrderCard(
                 horizontalArrangement = Arrangement.End,
             ) {
                 extra()
+            }
+        }
+    }
+}
+
+/**
+ * 商品行之间的**虚线**横杠（用户 2026-09-20 点名）。
+ *
+ * 为什么不用 [HorizontalDivider]：它只会画实线，而这里的语义是"同一组的相邻两项"——
+ * 实线看起来像"分组到此结束"，虚线才是"接着下一项"。
+ *
+ * 为什么不用 `Canvas` 自己画：本仓库有一条红线「**自己画的图只许在 Charts.kt**」
+ * （`_tools/qa/_check_ledger_dashboard.py`，白名单只有 `Charts.kt` 与 `util/Watermark.kt`）。
+ * 这里用一串小方块拼出来（段数按可用宽度算），既守规矩也不依赖 `PathEffect`。
+ */
+@Composable
+private fun DashedLine(modifier: Modifier = Modifier) {
+    val lineColor = MaterialTheme.colorScheme.outlineVariant
+    BoxWithConstraints(modifier.fillMaxWidth().height(9.dp)) {
+        val dash = 5.dp
+        val gap = 4.dp
+        val count = ((maxWidth + gap) / (dash + gap)).toInt().coerceAtLeast(1)
+        Row(
+            Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(gap),
+        ) {
+            repeat(count) {
+                Box(Modifier.width(dash).height(1.dp).background(lineColor))
             }
         }
     }

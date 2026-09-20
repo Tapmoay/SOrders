@@ -20,6 +20,8 @@ CHECK = HERE / "_check_ledger_dashboard.py"
 ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 SCREEN = ANDROID / "ui/dispatcher/DispatcherLedgerScreen.kt"
 VM = ANDROID / "ui/dispatcher/DispatcherLedgerViewModel.kt"
+PRESETS = ANDROID / "ui/common/DatePresets.kt"
+PERSON_SCREEN = ANDROID / "ui/dispatcher/LedgerPersonScreen.kt"
 LEDGER_HOME = ANDROID / "ui/dispatcher/LedgerHomeScreen.kt"
 REPORT_HOME = ANDROID / "ui/dispatcher/ReportHome.kt"
 ENTRY_GRID = ANDROID / "ui/common/EntryGrid.kt"
@@ -33,9 +35,9 @@ MUTATIONS = [
     (
         "工作台又长出第二张卡片（用户当天推翻的那一版）",
         WORKBENCH,
-        "        item { WorkbenchCard(title = null, entries = entries, onOpen = onOpen) }\n",
-        "        item { WorkbenchCard(title = null, entries = entries, onOpen = onOpen) }\n"
-        "        item { WorkbenchCard(title = null, entries = Modules.dispatcherLedgerEntries, onOpen = onOpen) }\n",
+        "        item { WelcomeBar(role) }\n",
+        "        item { WelcomeBar(role) }\n"
+        "        item { EntryGrid(entries = Modules.dispatcherLedgerEntries, onOpen = onOpen, onMove = {}, onDrop = {}) }\n",
         "工作台不再渲染第二张卡片",
     ),
     (
@@ -75,12 +77,141 @@ MUTATIONS = [
         '        ModuleEntry("司机结算", Routes.DISPATCH_SETTLEMENTS, Icons.Default.Handshake, color = 0xFF7CB342L),\n',
         "6 格里没有「司机结算」",
     ),
+    # ---- 第四轮（2026-09-20）：账本页的排版与那两处"直接去掉" ----
     (
-        "账本页里那个「司机结算单」入口被删了（合并的落点没了）",
+        "账本页里又长出一条档位导航（用户刚否掉的「老的导航栏」）",
         SCREEN,
-        "                        if (vm.tab == 1) {\n",
-        "                        if (false) {\n",
-        "司机账档位里有「司机结算单」入口",
+        "                if (vm.tab != 0) {\n                    PersonTriggerRow(\n",
+        "                LedgerTabBar(tab = vm.tab, onTab = { })\n"
+        "                if (vm.tab != 0) {\n                    PersonTriggerRow(\n",
+        "4 页签导航没了",
+    ),
+    (
+        "人员那一行整条消失（用户点名要的「选择人物」这一步）",
+        SCREEN,
+        "                if (vm.tab != 0) {\n                    PersonTriggerRow(\n",
+        "                if (false) {\n                    PersonTriggerRow(\n",
+        "人员那一行真的会渲染",
+    ),
+    # ---- 第五轮（2026-09-20）：图全删、时间换药丸、人换抽屉 ----
+    (
+        "账本页又画回三张图（用户：「直接去掉就行了…在报表中心看就可以了」）",
+        SCREEN,
+        "                Box(Modifier.weight(1f).fillMaxHeight()) {\n",
+        "                LedgerChartCard(vm)\n"
+        "                LineChart(listOf(1f), listOf(\"x\"), Color.Blue)\n"
+        "                Box(Modifier.weight(1f).fillMaxHeight()) {\n",
+        "账本页不画折线",
+    ),
+    (
+        "时间又变回那一行胶囊（用户：「太复杂了…换一种崭新形式」）",
+        SCREEN,
+        "                        DatePresetPill(\n",
+        "                        DatePresetRow(selected = vm.preset, customFrom = null, customTo = null, onPick = { })\n"
+        "                        DatePresetPill(\n",
+        "账本页不再铺那一行日期胶囊",
+    ),
+    (
+        "时间与人变成同一种形态（用户：「不要选择一样的展现形式」）",
+        SCREEN,
+        "                        DatePresetPill(\n",
+        "                        DatePresetRow(selected = vm.preset, customFrom = null, customTo = null, onPick = { })\n"
+        "                        DatePresetPill(\n",
+        "账本页不再铺那一行日期胶囊",
+    ),
+    (
+        "选人退回「一排 chip」（用户：「假如司机多的话，那我要选该怎么去选呢？」）",
+        SCREEN,
+        "        drawerContent = {\n",
+        "        drawerContent = { LazyRow { item { Text(\"全部\") } } }\n        drawerContent = {\n",
+        "选人不是一排 chip",
+    ),
+    (
+        "抽屉里的搜索改成「筛页面合计」（关掉抽屉后剩下的那个总数对不上账）",
+        VM,
+        "        val rows = accountRows()\n",
+        "        val rows = visibleAccountRows()\n",
+        "抽屉里的搜索**不改页面上的合计**",
+    ),
+    (
+        "默认档位退回「本月」（用户要的是「默认今天，没单才退」）",
+        VM,
+        "    var preset by mutableStateOf(DatePresets.TODAY)\n",
+        "    var preset by mutableStateOf(DatePresets.THIS_MONTH)\n",
+        "默认档位 = 今天",
+    ),
+    (
+        "退档只退到「昨天」就停（前天有单也看不到）",
+        PRESETS,
+        "    val AUTO_LADDER = listOf(TODAY, YESTERDAY, BEFORE_YESTERDAY, LAST_7)",
+        "    val AUTO_LADDER = listOf(TODAY, YESTERDAY, LAST_7)",
+        "退档阶梯四档齐全",
+    ),
+    (
+        "账本页又抄了一份自己的阶梯（两份迟早走散）",
+        VM,
+        "        for (label in DatePresets.AUTO_LADDER) {\n            if (periodHasData(label)) {",
+        "        for (label in listOf(DatePresets.TODAY, DatePresets.YESTERDAY)) {\n            if (periodHasData(label)) {",
+        "账本页读的是那一份共享阶梯",
+    ),
+    (
+        "用户手动挑过档位之后，退档还会把他拽回去",
+        VM,
+        "        if (userPickedPreset) return\n        for (label in AUTO_LADDER) {\n            if (periodHasData(label)) {\n",
+        "        for (label in AUTO_LADDER) {\n            if (periodHasData(label)) {\n",
+        "**用户自己挑过档位之后永不再自动改**",
+    ),
+    (
+        "用户自己挑过档位之后，点某个人还会被他拽走（抢方向盘）",
+        VM,
+        "        if (userPickedPreset) return\n        for (label in AUTO_LADDER) {\n            val r = DatePresets.rangeOf(label, LocalDate.now()) ?: continue\n",
+        "        for (label in AUTO_LADDER) {\n            val r = DatePresets.rangeOf(label, LocalDate.now()) ?: continue\n",
+        "那个人退档与页面退档共用同一个开关",
+    ),
+    (
+        "点开某个人时不再退档（每个人都是空屏）",
+        VM,
+        "                if (personOrders.isEmpty()) fallbackForPerson(key)\n",
+        "",
+        "点开某个人、他这一段没单时也退档",
+    ),
+    (
+        "账本页的档位又能被切开（入口页定死的档位形同虚设）",
+        VM,
+        "    var tab by mutableStateOf(initialTab)\n        private set\n",
+        "    var tab by mutableStateOf(initialTab)\n\n    fun selectTab(i: Int) { tab = i }\n",
+        "也没有能切档位的方法",
+    ),
+    (
+        "司机结算单入口又挂回账本页（用户：「那个结算，这个也直接去掉」）",
+        SCREEN,
+        "    initialTab: Int = 0,\n",
+        "    onOpenSettlements: () -> Unit = {},\n    initialTab: Int = 0,\n",
+        "「司机结算单」入口没了",
+    ),
+    (
+        "批量核销在「全部人」那一层也能点（收的钱会记到某个人的档案上）",
+        VM,
+        "        if (personKey == null || tab == 1) return\n",
+        "",
+        "批量核销**必须先选中某个人**",
+    ),
+    (
+        "批量核销的金额改成界面上自己把行金额加起来（与后端逐单校验对不上）",
+        VM,
+        "        centsToMoney(settleAllTargets().sumOf { orderArrearsCents(it) })",
+        "        centsToMoney(settleAllTargets().sumOf { orderReceivableCents(it) })",
+        "批量金额 = 各单欠款之和",
+    ),
+    (
+        "两个核销弹层各写一份收款方式（单张加了「挂账结清」批量没加）",
+        PERSON_SCREEN,
+        "private fun SettleMethodChips(vm: DispatcherLedgerViewModel) {\n",
+        "private fun SettleMethodChips(vm: DispatcherLedgerViewModel) {\n"
+        "    Text(\"收款方式（抄的第二份）\", style = MaterialTheme.typography.titleSmall)\n"
+        "}\n\n"
+        "private fun SettleMethodChips(vm: DispatcherLedgerViewModel) {\n",
+        "收款方式定义处数正常",
     ),
     (
         "入口页自己排一遍格子（两页版式各偏一点）",

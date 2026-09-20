@@ -303,13 +303,46 @@ class SoftDeleteOrderHandler(
 
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
+        // ⚠️ **货主的门与派单员不同，判据与界面/后端三处同源**（2026-09-20 用户第七轮：
+        //    "手机上能做的 AI 也要能做，做不到的也不能越权"）：
+        //    · 界面：`ui/order/OrderDetailScreen.kt` 的 `canDelete` —— 货主只认
+        //      `CANCELLED` / `DELIVERED`（「异常」**不是**通行证）；
+        //    · 后端：`orders.py::delete_cancelled_order` 同一对状态，否则 400；
+        //    · 这里：合成一张卡之前先判，免得用户点「确认」才吃一个 400。
+        //    ⛔ 派单员那条路**一个字都不改**（他能删任意状态，含待派单）。
+        val selfShipper = ds.currentRoleKey() == "shipper"
+        // ⚠️ **AI 侧比界面严一档**（用户 2026-09-21）：「他不能删他的订单……货主和批发商都一样，
+        //    **除非是那个已撤销的订单信息，这个是可以删的**」。
+        //    所以这里判的是 `SHIPPER_AI_DELETABLE`（只认已撤销），**不是**界面那个
+        //    `SHIPPER_DELETABLE`（已送达也能删）—— 理由写在 `OrderStatusModel` 那两段注释里：
+        //    「已送达」是已经发生过的一趟生意（账本流水/司机账单/库存都挂在它上面），
+        //    用户对 AI 说一句"把这单删了"时多半没想到这一层。
+        if (selfShipper && order.status !in OrderStatusModel.SHIPPER_AI_DELETABLE) {
+            throw AiWriteArgException(
+                "「${order.orderNo}」现在是「${order.statusCn}」，**我不能替你删**：" +
+                    "货主这边只有「已撤销」的单可以删（已送达的单是已经发生过的生意，" +
+                    "账本、司机账单都挂在它上面，删了只是从列表里消失、并不是没发生过）。" +
+                    "要删已送达的单，请你自己在订单详情页里操作；" +
+                    "进行中的单请先走「撤销订单」。",
+            )
+        }
         return card(
             summary = "移入回收站：${order.orderNo}",
             details = buildList {
                 addAll(orderLines(order))
                 add("———— 移入之后 ————")
                 add("这单从所有人的列表里消失（货主、司机、内勤都看不到）")
-                add("${AiWrites.RECYCLE_DAYS} 天内可以恢复（在订单回收站里），到期系统才会物理清理")
+                // ⚠️ 恢复路径**按角色说实话**：回收站只有派单员有（`POST /orders/{id}/restore`
+                //    是「体内仅允许：派单员」）。对货主写成"你可以去回收站恢复"就是承诺一件
+                //    他做不到的事 —— 而这张卡上写的每一句他都会当真。
+                if (selfShipper) {
+                    add("${AiWrites.RECYCLE_DAYS} 天内可以恢复，但要请派单员在订单回收站里恢复（货主端没有回收站）")
+                    // 用户 2026-09-21：「除非是那个**已撤销**的订单信息，这个是可以删的」
+                    // —— 卡上把"为什么只有这一种能删"说清楚，否则用户会反复试已送达的单。
+                    add("这一张是「已撤销」的单：那趟生意本来就没发生，删掉只是把一条废记录清走")
+                } else {
+                    add("${AiWrites.RECYCLE_DAYS} 天内可以恢复（在订单回收站里），到期系统才会物理清理")
+                }
                 add("订单的账目、消息记录不会跟着删")
             },
             payload = buildJsonObject { put("order_id", order.id) },

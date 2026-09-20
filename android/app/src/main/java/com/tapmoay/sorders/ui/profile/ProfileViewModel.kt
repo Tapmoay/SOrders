@@ -46,8 +46,17 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
         loadMe()
     }
 
-    fun loadMe() {
-        loading = true
+    /**
+     * 拉一次 `/users/me`。
+     *
+     * @param silent true = **不显示整页 loading**（保留当前内容，拉回来直接替换）。
+     *   为什么需要它：这一页里有**会被派单员改掉**的东西 —— 最要紧的是「他按不按单拿钱」
+     *   （`pays_per_order`，决定「我的账本」那一格显不显示）。以前只有 `init` 拉一次，
+     *   而 VM 是 App 级缓存的 → 派单员刚给他挂了提成规则，司机这边得**杀进程**才看得见
+     *   （2026-09-20 实测：切 Tab 没反应、重启才出现），用户会以为"没生效"。
+     */
+    fun loadMe(silent: Boolean = false) {
+        if (!silent) loading = true
         error = null
         viewModelScope.launch {
             try {

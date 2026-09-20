@@ -21,8 +21,8 @@ import org.junit.Test
  */
 class AiRolePromptTest {
 
-    private val shipper = AiRolePrompt.brief(AiRole.SHIPPER)
-    private val dispatcher = AiRolePrompt.brief(AiRole.DISPATCHER)
+    private val shipper = AiRolePrompt.brief(AiActor.byRole(AiRole.SHIPPER))
+    private val dispatcher = AiRolePrompt.brief(AiActor.byRole(AiRole.DISPATCHER))
     private val unknown = AiRolePrompt.brief(null)
 
     /**
@@ -62,12 +62,12 @@ class AiRolePromptTest {
     @Test
     fun `能力清单是从代码算出来的，不是手写的`() {
         val can = canDoPart(shipper)        // 写能力：货主能改的每个域都要念出来
-        val shipperGroups = AiWrites.forModel(AiRole.SHIPPER).map { it.group }.distinct()
+        val shipperGroups = AiWrites.forModel(AiActor.byRole(AiRole.SHIPPER)).map { it.group }.distinct()
         for (g in shipperGroups) {
             assertTrue("货主能改的域「$g」必须出现在提示词里：\n$can", can.contains(g))
         }
         // 读能力：念出来的模块**正好**等于 AiReads.forRole 的模块集合（不多不少）
-        val want = AiReads.forRole(AiRole.SHIPPER, AiReadCatalog.modules().toSet())
+        val want = AiReads.forRole(AiActor.byRole(AiRole.SHIPPER), AiReadCatalog.modules().toSet())
             .map { it.action.substringBefore('.') }.distinct().sorted()
         val line = can.lines().first { it.startsWith("· 查数据") }
         val got = line.substringAfter("：").split("、").map { it.trim() }.sorted()
@@ -85,8 +85,8 @@ class AiRolePromptTest {
     @Test
     fun `货主的能力清单里全是白名单里的动作（一件不多）`() {
         // 「能做」那段逐个 title 念的必须是 forModel(SHIPPER) 的子集
-        val titles = AiWrites.forModel(AiRole.SHIPPER).map { it.title }
-        val others = AiWrites.forModel(AiRole.DISPATCHER).map { it.title } - titles.toSet()
+        val titles = AiWrites.forModel(AiActor.byRole(AiRole.SHIPPER)).map { it.title }
+        val others = AiWrites.forModel(AiActor.byRole(AiRole.DISPATCHER)).map { it.title } - titles.toSet()
         val can = canDoPart(shipper)
         for (t in others) {
             assertFalse("派单员专属的「$t」不该出现在货主的能力清单里：\n$can", can.contains(t))
@@ -113,7 +113,7 @@ class AiRolePromptTest {
         assertEquals(AiTools.ALL.toSet(), AiTools.toolsFor(AiRole.DISPATCHER).toSet())
         assertTrue("认不出角色时不许给任何工具", AiTools.toolsFor(null).isEmpty())
         // 设置页的开关清单也必须同步裁：给货主一个永远不生效的开关 = "看起来有、其实没有"
-        assertEquals(shipperTools.toSet(), AiTools.settingsItems(AiRole.SHIPPER).map { it.name }.toSet())
+        assertEquals(shipperTools.toSet(), AiTools.settingsItems(AiActor.byRole(AiRole.SHIPPER)).map { it.name }.toSet())
     }
 
     @Test

@@ -36,6 +36,10 @@ CATALOG = ROOT / "docs/ai/ai_read_catalog.json"
 
 # 货主**永远不许**拿到的能力（不是"暂时不给"）：主数据、派单、账本写入、他人数据。
 # 每一条都对得上后端的一个权限点或角色门——写进代码是为了它可被审计，不是为了好看。
+# ⚠️ 2026-09-20 第七轮**拿掉了 `notifications.delete`**：那条理由原本写的是
+#    "删除别人的消息" —— 而后端根本没有这条能力：`batch-delete` 与 `DELETE /{id}`
+#    都是"仅登录 + 只动自己的"（动别人的 404）。手机消息页三端共用，货主能删自己的，
+#    所以助手也要能删（用户：「他手机做不到的事情助手也做不到」，反过来同样成立）。
 SHIPPER_FORBIDDEN_HINTS = {
     "orders.assign": "派单是派单员的（ORDER_ASSIGN）",
     "orders.recall": "撤回派单同上",
@@ -52,13 +56,21 @@ SHIPPER_FORBIDDEN_HINTS = {
     "settlements.": "结算与司机账单是派单员的",
     "driver_bills.": "同上",
     "notifications.send": "发消息给他人是派单员的",
-    "notifications.delete": "删除别人的消息同上",
 }
 
 
 def shipper_whitelist(consts: dict[str, str]) -> set[str]:
-    """读 `SHIPPER_ACTIONS` 白名单（常量名 → 动作 id）。"""
-    src = (AI / "AiWrite.kt").read_text(encoding="utf-8")
+    """读 `SHIPPER_ACTIONS` 白名单（常量名 → 动作 id）。
+
+    ⚠️ **必须剥注释**（2026-09-20）：判据原来是"块里所有全大写词"，于是注释里写一个
+    `SHIPPER_DELETABLE`（说明为什么只放终态）就会被当成一个动作常量，
+    报一句「`SHIPPER_DELETABLE` 不是一个动作常量（化石？）」——**注释把检查搞红了**。
+    这与 `_write_coverage.py` 栽过的那个坑同族（注释里的 `repo.markRead(id)`
+    把端点算成已覆盖），所以两条判据现在都走同一份 `strip_comments`。
+    """
+    from _check_ai_guardrails import strip_comments  # 同目录脚本，模块级可导入
+
+    src = strip_comments((AI / "AiWrite.kt").read_text(encoding="utf-8"))
     m = re.search(r"val SHIPPER_ACTIONS: Set<String> = setOf\(([\s\S]*?)\n    \)", src)
     if not m:
         raise SystemExit("❌ 找不到 SHIPPER_ACTIONS——货主白名单被搬走或改名了？")
@@ -127,13 +139,22 @@ def main() -> int:
             if a == hint or a.startswith(hint):
                 problems.append(f"货主拿到了不该有的 `{a}`（{why}）")
     # ③ fail-closed：认不出角色 = 一个动作都不给
-    #    （这条靠 AiWrite.kt 的 `null -> emptyList()` 保证，这里断言它还在）
+    #    （这条靠 `AiWrites.forRole` 开头那句 `?: return emptyList()` 保证，这里断言它还在）
     src_w = (AI / "AiWrite.kt").read_text(encoding="utf-8")
-    if not re.search(r"null -> emptyList\(\)", src_w):
-        problems.append("`forRole(null)` 不再是 emptyList——认不出角色就会拿到动作")
-    # ④ 派单员 = 全部（不是"比货主多"这种模糊说法）
-    if "AiRole.DISPATCHER -> ALL" not in src_w:
-        problems.append("派单员不再是全量（ALL）")
+    if not re.search(r"actor\?\.role \?: return emptyList\(\)", src_w):
+        problems.append("`forRole` 认不出角色时不再是空清单——认不出就会拿到动作")
+    # ④ 派单员 = 全部**减去 memberOnly**（货主自己那本账后端只认货主角色），
+    #    ⚠️ 2026-09-21 起还要**再按 `roles` 点名过滤**：退货申请那一组里
+    #    申请/撤回归货主、办理/驳回归派单员，而 `memberOnly` 只区分"批发商货主" ——
+    #    只判 memberOnly 的话派单员会把货主那两条一起拿到手（点了必被后端以
+    #    「这不是你的订单」拒绝 = 能看见但一定失败的卡）。
+    if not re.search(r"AiRole\.DISPATCHER -> ALL\.filter \{", src_w):
+        problems.append("派单员不再是「全部减去 memberOnly」")
+    if not re.search(
+        r"AiRole\.DISPATCHER -> ALL\.filter \{[\s\S]{0,160}?it\.roles == null \|\| role in it\.roles",
+        src_w,
+    ):
+        problems.append("派单员那一条没有过 `roles`（货主的申请动作会漏给他）")
     # ⑤ 司机端不许有 AI 读能力
     if "driver" in reads and reads["driver"]:
         # 司机确实有读能力（订单/消息/结算单）——那是给**司机端之外**的口径留的，

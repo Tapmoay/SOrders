@@ -270,3 +270,103 @@ def test_逐单核销仍然可以滚动作补差额(client, token_dispatcher, to
     # 补差额：不绑单（rolling），金额随便给 —— 这条路必须通
     extra = _receipt(client, h, customer_id, "20.00", [], mode="rolling")
     assert extra.status_code in (200, 201), extra.text
+
+
+def test_部分核销之后整单核销只收剩下的欠款(client, token_dispatcher, token_shipper):
+    """整单核销收的是**还欠的钱**，不是"当时卖了多少"（2026-09-20，账本页批量核销推出来的）。
+
+    背景：一张单可以**按商品核销**收一部分（`paid` 仍是 False）。这种单再点一次「核销」
+    时，客户端发的是**欠款**（700），而后端按 `receivable`（1000）算 —— 两边金额对不上，
+    这种"收过一半的单"从此再也收不动；要是哪天金额凑巧对上，就是**多收 300**。
+
+    这里钉住两件：① 剩下那部分能收；② 收完这一单才变 `paid`（欠款归零）。
+    """
+    h = auth_headers(token_dispatcher)
+    hs = auth_headers(token_shipper)
+    order = client.post(
+        "/api/v1/orders", headers=hs,
+        json={"lines": [
+            {"product_name_snapshot": "整单甲", "quantity": 1, "unit_price": "60.00", "line_total": "60.00"},
+            {"product_name_snapshot": "整单乙", "quantity": 1, "unit_price": "40.00", "line_total": "40.00"},
+        ], "delivery_description": "整单核销探针"},
+    )
+    assert order.status_code == 201, order.text
+    oid = order.json()["id"]
+    me = client.get("/api/v1/users/me", headers=hs).json()
+    cust = client.post("/api/v1/customers", headers=h,
+                       json={"name": f"整单核销探针客户-{oid}", "user_id": me["id"]})
+    assert cust.status_code in (200, 201), cust.text
+    customer_id = cust.json()["id"]
+
+    rows = client.get("/api/v1/order-products", params={"order_id": oid}, headers=h).json()
+    assert len(rows) == 2, rows
+    first_line = next(r for r in rows if r["product_name_snapshot"] == "整单甲")
+
+    # ① 按商品核销其中一行（60）—— 这张单还没结清
+    part = client.post(
+        "/api/v1/ledger/receipts", headers=h,
+        json={"customer_id": customer_id, "amount": "60.00", "method": "cash",
+              "settle_mode": "itemized", "order_ids": [oid],
+              "order_product_ids": [first_line["id"]], "received_at": "2026-09-18"},
+    )
+    assert part.status_code in (200, 201), part.text
+    after_part = client.get(f"/api/v1/orders/{oid}", headers=h).json()
+    assert after_part["paid"] is False, "只收了一部分，不许翻 paid"
+    assert after_part["arrears_amount"] == "40.00", after_part
+
+    # ② 整单核销剩下那 40 —— 必须能收（旧代码会按 receivable=100 算，直接 400）
+    rest = _receipt(client, h, customer_id, "40.00", [oid])
+    assert rest.status_code in (200, 201), rest.text
+
+    done = client.get(f"/api/v1/orders/{oid}", headers=h).json()
+    assert done["paid"] is True
+    assert done["arrears_amount"] == "0.00", done
+
+    # ③ 收满了就不许再收（防重复那条判据不能被这次改动绕过去）
+    again = _receipt(client, h, customer_id, "0.01", [oid])
+    assert again.status_code == 400, again.text
+    assert "已经收过款" in again.json()["detail"], again.text
+
+
+def test_一张收款单可以批量核销同一个人的多张单(client, token_dispatcher, token_shipper):
+    """账本页「点合计 → 核销全部」走的就是这一条：一笔收款、多张单、金额等于各单欠款之和。
+
+    用户 2026-09-20：「有订单可以直接按订单结算…如果全部要结算的话可以直接点击合计…
+    相当于一个**可控的批量处理**，但是如果是全部（所有人）的话那个合计不能批量核销，
+    只能下到每个司机/货主才能批量核销」。
+    """
+    h = auth_headers(token_dispatcher)
+    hs = auth_headers(token_shipper)
+    me = client.get("/api/v1/users/me", headers=hs).json()
+    ids = []
+    for i, amount in enumerate(("30.00", "70.00")):
+        r = client.post(
+            "/api/v1/orders", headers=hs,
+            json={"lines": [{"product_name_snapshot": f"批量货{i}", "quantity": 1,
+                             "unit_price": amount, "line_total": amount}],
+                  "delivery_description": "批量核销探针"},
+        )
+        assert r.status_code == 201, r.text
+        ids.append(r.json()["id"])
+    cust = client.post("/api/v1/customers", headers=h,
+                       json={"name": f"批量核销探针客户-{ids[0]}", "user_id": me["id"]})
+    assert cust.status_code in (200, 201), cust.text
+    customer_id = cust.json()["id"]
+
+    # 金额必须**逐单对得上**：这就是"批量"不能拍脑袋给数的原因（少一分都拒）
+    bad = _receipt(client, h, customer_id, "90.00", ids)
+    assert bad.status_code == 400, bad.text
+    assert "不一致" in bad.json()["detail"], bad.text
+
+    # 一次收两单 = 各单欠款之和
+    ok = _receipt(client, h, customer_id, "100.00", ids)
+    assert ok.status_code in (200, 201), ok.text
+    for oid in ids:
+        o = client.get(f"/api/v1/orders/{oid}", headers=h).json()
+        assert o["paid"] is True and o["arrears_amount"] == "0.00", o
+
+    # 一笔收款单绑两张单（不是两条收款记录 —— 对账的人会以为收了两次）
+    receipts = client.get("/api/v1/ledger/receipts", headers=h).json()
+    hits = [x for x in receipts if sorted(x.get("order_ids") or []) == sorted(ids)]
+    assert len(hits) == 1, hits
+    assert hits[0]["amount"] == "100.00", hits[0]

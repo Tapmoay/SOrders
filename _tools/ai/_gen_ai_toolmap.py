@@ -42,11 +42,30 @@ except Exception:  # noqa: BLE001
 ROOT = repo_root()
 API_DIR = ROOT / "backend" / "app" / "api" / "v1"
 
+#: 「这个端点不给模型读」的**唯一出处**（`模块.handler` → 理由）。
+#: ⛔ 从那张表读进来，而不是在这里再抄一份：抄一份的后果见下面过滤处那段注释。
+#: 读不到就**直接停**（退回"不过滤"会让本表与那张理由表悄悄分叉）。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from _read_coverage import EXCLUDED as AI_READ_EXCLUDED  # noqa: E402
+except Exception as exc:  # noqa: BLE001  # pragma: no cover
+    raise SystemExit(
+        f"❌ 读不到 `_read_coverage.EXCLUDED`（{exc}）——它是「哪些端点不给模型读」的唯一出处，"
+        "读不到就不许生成（不过滤会把两个检查变成互相矛盾的结论）"
+    ) from exc
+
 # 模块 -> 中文名（人工维护，用于大白话文档；空的话会提示补）
 MODULE_CN: dict[str, str] = {
     "orders": "订单/派单",
     "order_products": "订单商品行",
     "shipper": "地址与联系人",
+    # 货主自己那一本账（2026-09-20）：普通货主只看单（搜索 + 日期筛选 + 欠总分销商合计），
+    # 批发商另外能给他下游的货主**核销**（整单 / 按商品 / 可撤销）。
+    # 中文名与 App 里那一格（`Modules.shipperEntries`）**同名**：能力按模块认领时才对得上。
+    "shipper_ledger": "我的账本",
+    # 退货申请（2026-09-21）：货主**申请** → 派单员**实际执行**。
+    # 中文名与 App 里那一格同名（能力按模块认领时才对得上）。
+    "return_requests": "退货申请",
     # 共享地点库（导航信息）：司机到场补录的坐标，全库共用（2026-09-18）
     "places": "共享地点库",
     "ledger": "账本",
@@ -59,8 +78,10 @@ MODULE_CN: dict[str, str] = {
     "inventory": "库存管理",
     "users": "司机/货主/批发商/账号",
     "vehicles": "车辆管理",
+    "expense_categories": "开销分类",
     "customers": "客户",
     "freight_templates": "订单/运费模板",
+    "freight_categories": "运费分类",
     "driver_billing_rules": "司机计费规则",
     "arrears": "挂账单位",
     "driver_settlements": "司机结算单",
@@ -192,6 +213,32 @@ def main() -> int:
         # risk 按"是否改变状态"判，不单看动词（见文件头局限说明）
         pure_read = e["method"] in READ_METHODS or (e["module"], e["handler"]) in READ_SEMANTICS_EXTRA
         e["risk"] = "read" if pure_read else "write"
+
+    # ⛔ **写明了「不做」的端点不许进这张表**（2026-09-21 补）。
+    #
+    # 本表是读侧的**白名单**（`_read_coverage.py` 的判据：在表里 = 这个端点有 AI 读动作），
+    # 而 `_read_coverage.EXCLUDED` 是同一件事的**另一面**（"这条不给模型读"+ 理由）。
+    # 两边各写一份的后果不是"多一条少一条"，而是**同一件事有两处相反的结论**：
+    # 生成一次工具表，`_read_coverage.py --check` 立刻报「既算有 AI 读动作又写了不做」——
+    # 而那时的修法只能是人手去删表里那几行，下次再生成又回来了（必有一轮会漏）。
+    # 所以出处只有一个：那张理由表。这里读它、照它过滤。
+    dropped = [
+        f"{e['module']}.{e['handler']}"
+        for e in eps
+        if f"{e['module']}.{e['action']}" in AI_READ_EXCLUDED
+        or f"{e['module']}.{e['handler']}" in AI_READ_EXCLUDED
+    ]
+    if dropped:
+        eps = [
+            e
+            for e in eps
+            if f"{e['module']}.{e['action']}" not in AI_READ_EXCLUDED
+            and f"{e['module']}.{e['handler']}" not in AI_READ_EXCLUDED
+        ]
+        print(f"（`_read_coverage.EXCLUDED` 写了「不做」的 {len(dropped)} 个端点不进本表：")
+        for n in dropped:
+            print(f"     - {n}")
+        print("）")
 
     reads = [e for e in eps if e["risk"] == "read"]
     writes = [e for e in eps if e["risk"] == "write"]

@@ -35,6 +35,15 @@ REASONS: dict[str, str] = {
     "files.py": "只解析上传的表格（不落库、不改任何业务数据）",
     "notifications.py": "已读/删除是**消息状态**不是业务数据；逐条记日志会把审计页淹掉"
                         "（一条群发就是几十行），而消息本身已经落库可查",
+    # ⚠️ 这条**不是"不记日志"**，是"日志不写在这一层"（2026-09-21 退货申请）：
+    #    四个写端点的日志都由 `services/order_return_request.py` 在**同一个事务里**写
+    #    （`ORDER_RETURN_REQUEST` 提交 / `_REJECT` 驳回 / `_WITHDRAW` 撤回；
+    #     办理那条走 `services/order_return.py::return_order` 的 `ORDER_RETURN`）——
+    #    审计必须与数据变更同生共死，写在服务层才拿得到同一个 `db`。
+    #    在端点里再补一次 `write_log` 就是**双重记账**（同一件事两行日志）。
+    "return_requests.py": "日志在服务层写（`services/order_return_request.py` 三条动作码 + "
+                          "办理走 `order_return.return_order` 的 `ORDER_RETURN`），"
+                          "与数据变更同一个事务；端点层再写一次就是双重记账",
     # ⛔ `shipper.py` 原来挂在这里，理由是"货主自己的地址/联系人/地点是用户私有主数据，
     #    量极大、且不影响钱与订单归属"。**2026-09-19 这条豁免过期了**：共享地点库的
     #    「设为共享地址」端点（`POST /shipper/locations/{id}/share`）会把一条**私有**地点

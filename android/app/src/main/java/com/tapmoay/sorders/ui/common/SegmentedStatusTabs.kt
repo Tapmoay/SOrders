@@ -13,13 +13,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-/** 订单状态导航色：全部/派单中/已接单/已送达/已撤销 */
+/**
+ * 订单状态导航色：全部/派单中/已接单/已送达/已撤销/已退货。
+ *
+ * ⚠️ 新档位**只能往后面加**：这一份是派单端与货主端**共用**的，按位置取色 ——
+ *    插在中间会把后面每一档的颜色都顶掉（而两端的档位个数不同，
+ *    顶掉之后没有人会收到任何报错，只会看到"已送达"变成灰色）。
+ * ⚠️ 已退货的棕橙与「派单中」的黄、「已撤销」的灰两两 RGB 距离都 > 60（肉眼分得开）。
+ */
 val ORDER_TAB_COLORS = listOf(
     Color(0xFF1E6FFF),  // 全部 · 蓝
     Color(0xFFFFB300),  // 派单中 · 黄
     Color(0xFF00A2C7),  // 已接单 · 湖蓝
     Color(0xFF00B578),  // 已送达 · 绿
     Color(0xFF8A8A8E),  // 已撤销 · 灰
+    Color(0xFFBF5B00),  // 已退货 · 棕橙
 )
 
 /** 独立块导航：每项各自独立圆角块（间距分隔，不连成一条），选中块淡色底+语义色加粗 */

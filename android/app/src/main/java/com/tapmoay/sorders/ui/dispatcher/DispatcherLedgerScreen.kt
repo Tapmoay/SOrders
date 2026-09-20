@@ -1,11 +1,10 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -20,30 +19,42 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
-import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.UserSearch
-import androidx.compose.ui.text.input.KeyboardType
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementOrderDto
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
-import com.tapmoay.sorders.data.repo.PageMeta
 import com.tapmoay.sorders.ui.common.*
-import com.tapmoay.sorders.ui.theme.ChartPalette
-import com.tapmoay.sorders.ui.theme.MemberGold
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProductPurple
-import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.util.formatMoney
-import com.tapmoay.sorders.util.moneyToDouble
+import kotlinx.coroutines.launch
 
 /**
- * 派单员账本：四类账（订单账/司机账/货主账/批发商账）。
- * ①时间范围导航 ②趋势图 ③汇总金额 ④明细（订单可点击查看；账户可展开流水）。
+ * 派单员账本：**一类账一页**（订单账 / 司机账 / 货主账 / 批发商账，由入口页那一格定）。
  *
- * ⚠️ 这一页**只管看账**：账本管理那 6 件事的入口在工作台的「账本管理」入口页
- * （`LedgerHomeScreen`）。这里保留的**唯一**一个额外入口是司机账档位里的「司机结算单」——
- * 那是用户点名要"并进司机账"的那件事（见下面那条 item 的注释）。
+ * ## 页面形状（2026-09-20 第五轮定稿，用户口述逐条对着做）
+ *
+ * 顶上那一条是「这一类账的名字 + 时间」，正文第一行是「人员」，下面才是数据：
+ *
+ * > 那个折线图条形图还有扇形图，我们**直接去掉**就行了……到时候**在报表中心看**就可以了。
+ * > 那个时间也太复杂了，换一种崭新形式，**但是时间和选择人物不要一样的展现形式**；
+ * > 选择人物我们用那种**侧边栏抽屉**，可以在那里寻找人物，点击人物就可以了。
+ *
+ * | 谁 | 用什么形态 | 为什么 |
+ * |---|---|---|
+ * | **时间** | 顶栏一个紧凑的**药丸**（写着当前窗口，点开是档位清单） | 9 个胶囊横着铺两行太占地方；药丸常驻顶栏，**当前窗口永远看得见**（口径词是这一页最容易搞错的东西） |
+ * | **人员** | 页面上**一行入口** → 打开**侧边抽屉**（抽屉里带搜索） | 人一多，"一排 chip 里找"比看账还花时间；抽屉里能搜、能滚，选中即关 |
+ * | **图** | **一张都没有** | 用户点名去掉；图归报表中心（那里有现成的营业额/商品/司机三套） |
+ *
+ * ## 这一页被否掉过的东西（别再装回来）
+ *
+ * · 页内那条 **4 页签导航**（`LedgerTabBar`）——「最上面的 4 个去掉，那是**老的导航栏**」；
+ * · **司机账里的「司机结算单」入口**——「那个结算，这个也直接去掉」（功能还在，走工作台那一格）；
+ * · **日期胶囊那一行**（`DatePresetRow`）——「太复杂了，这样的不好，换一种崭新形式」；
+ * · **人员 chip 那一行**——「假如司机多的话，那我要选该怎么去选呢？」；
+ * · **三种图**（折线/条形/扇形）——「直接去掉就行了…在报表中心看就可以了」。
+ * · ⛔ 这一页**只管看账**：客户收款 / 开销管理在入口页里，不在这里。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,254 +62,153 @@ fun DispatcherLedgerScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenOrder: (Long) -> Unit = {},
-    onOpenSettlements: () -> Unit = {},
     initialTab: Int = 0,
+    /** 「记账」按钮 → 去「记一笔账」那一页（用户 2026-09-20 第七轮改成单独一页）。 */
+    onCreateEntry: () -> Unit = {},
 ) {
-    val vm: DispatcherLedgerViewModel = appViewModel { DispatcherLedgerViewModel(container) }
+    val vm: DispatcherLedgerViewModel = appViewModel { DispatcherLedgerViewModel(container, initialTab) }
     val snackbar = remember { SnackbarHostState() }
-    // 自定义日期弹层：状态必须在**函数体**这一层（弹层画在 Scaffold 外面，
-    // 声明在 Scaffold 的 content 里就出了作用域）
+    // 两个弹层：自定义日期（选完区间）与档位清单（选哪一档）——都是**函数体这一层**的状态
+    // （弹层画在 Scaffold 外面，声明在它的 content 里就出了作用域）
     var showCustomRange by remember { mutableStateOf(false) }
-
-    // 从工作台那张「账本管理」卡片进来时直达某一类账（订单账/司机账/货主账/批发商账）。
-    // ⚠️ 只在**第一次**组合时切一次：每次重组都切的话，用户手动换了档位会被立刻拽回去。
-    LaunchedEffect(Unit) { if (initialTab != 0) vm.selectTab(initialTab) }
+    var showDatePresets by remember { mutableStateOf(false) }
+    // 侧边抽屉：选人用（订单账没有"人"，所以那一边连手势都关掉）
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
+    // 从「记一笔账」那一页回来时重取一次（第一次进这一页不重复拉，`init` 刚拉过）。
+    // ⚠️ 少了这一句：刚记的那笔不在列表里 → 用户以为没存上 → 再记一遍。
+    LaunchedEffect(Unit) { vm.onEnter() }
+
     // 失败**必须**看得见。
-    // 以前这个页面的错误只在「tab != 0 且三个账户列表都空」时才渲染成整页 ErrorView：
+    // 以前这个页面的错误只在「三个账户列表都空」时才渲染成整页 ErrorView：
     // 于是「+记一笔」被后端拒绝时（比如既没选货主也没填临时货主名），
     // **弹窗不关、界面毫无反馈**——用户以为点了没反应，再点一次还是没反应。
     // ⚠️ 这里消费的是**动作错误**（vm.error）。加载错误走 vm.loadError，
     //    它还要驱动下面那条整页 ErrorView（带重试），所以**不能**被提示条清掉 —— 见 VM 的注释。
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
-                title = { Text("账本管理", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            // 4 类账的页签（订单账/司机账/货主账/批发商账）。**自成一页的那 8 件事不在这一页**
-            // —— 它们在工作台那张「账本管理」卡片里（`Modules.dispatcherLedgerEntries`），
-            // 这一页只管"看账"：日期档位 → 三种图 → 明细。
-            LedgerTabBar(tab = vm.tab, onTab = { vm.selectTab(it) })
-            // 搜索框横跨整页（设计规范 §4.6）：只有账户类档位需要它，
-            // 订单账那一堆流水里没有"人"可搜。
-            if (vm.tab != 0) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    SearchField(value = vm.query, onValueChange = { vm.query = it })
-                }
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        gesturesEnabled = vm.tab != 0,
+        drawerContent = {
+            ModalDrawerSheet {
+                PersonDrawer(
+                    vm = vm,
+                    onPick = { key ->
+                        vm.selectPersonKey(key)
+                        scope.launch { drawer.close() }
+                    },
+                )
             }
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                when {
-                    vm.loading && vm.tab == 0 -> LoadingBox()
-                    vm.accountsLoading && vm.tab != 0 -> LoadingBox()
-                    vm.loadError != null && vm.tab != 0 && vm.driverAccounts.isEmpty() && vm.shipperAccounts.isEmpty() && vm.memberAccounts.isEmpty() ->
-                        ErrorView(vm.loadError.orEmpty(), onRetry = { if (vm.tab == 0) vm.load() else vm.loadAccounts() })
-                    else -> LazyColumn(
-                        Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        // ① 日期档位（第一格就是「全部」＝不带日期条件）
-                        item {
-                            DatePresetRow(
-                                selected = vm.preset,
-                                customFrom = vm.customFrom,
-                                customTo = vm.customTo,
-                                onPick = { p ->
-                                    if (p == DatePresets.CUSTOM) showCustomRange = true else vm.applyPreset(p)
-                                },
-                            )
+        },
+    ) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbar) },
+            topBar = {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ),
+                    title = {
+                        // 标题写的是**这一类账**：页内没有导航了，它是唯一说明"我在看哪一本账"的地方
+                        Text(vm.kindTitle(), style = MaterialTheme.typography.titleLarge)
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
-                        // ①b **司机账**档位带一个「司机结算单」入口（用户 2026-09-20：
-                        //    「我们将司机的账和司机结算这 2 个东西**合并成一个**」）。
-                        //    合并的落点就是这里：司机账那一格里**没有第二个图标**，
-                        //    结算单从这一类账自己的页面上进 —— 两件事本来就是一笔钱的两头
-                        //    （司机账看"他该拿多少"，结算单看"这笔钱结了没"）。
-                        if (vm.tab == 1) {
-                            item {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = MaterialTheme.shapes.medium,
-                                    onClick = onOpenSettlements,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-                                    ) {
-                                        Icon(Icons.Default.Handshake, contentDescription = null,
-                                            tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(Modifier.weight(1f)) {
-                                            Text("司机结算单", style = MaterialTheme.typography.titleSmall)
-                                            Text(
-                                                "按月给司机结算（草稿 → 确认 → 付款）",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                        Icon(Icons.Default.ChevronRight,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
+                    },
+                    actions = {
+                        // 时间：紧凑药丸（当前窗口 + 下拉箭头），点开是档位清单。
+                        DatePresetPill(
+                            label = vm.periodWord,
+                            onClick = { showDatePresets = true },
+                        )
+                    },
+                )
+            },
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                // 人员那一行：**只在"人的账"里出现**（订单账那一堆流水里没有"人"可挑）
+                if (vm.tab != 0) {
+                    PersonTriggerRow(
+                        vm = vm,
+                        onOpen = { vm.query = ""; scope.launch { drawer.open() } },
+                    )
+                }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    when {
+                        // ⚠️ 「先盘点、再取数」那一帧：窗口还没定下来之前**整页 loading**
+                        //    （2026-09-21 用户：「它会闪两下再跳到前天……闪两下已经不行了，
+                        //     不美观，且占用性能」）。老写法在这里会先画一版「今天」的账/空态。
+                        !vm.windowSettled -> LoadingBox()
+                        vm.loading && vm.tab == 0 -> LoadingBox()
+                        vm.accountsLoading && vm.tab != 0 -> LoadingBox()
+                        vm.loadError != null && vm.tab != 0 && vm.driverAccounts.isEmpty() && vm.shipperAccounts.isEmpty() && vm.memberAccounts.isEmpty() ->
+                            ErrorView(vm.loadError.orEmpty(), onRetry = { if (vm.tab == 0) vm.load() else vm.loadAccounts() })
+                        else -> LazyColumn(
+                            Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            when {
+                                // ---- 订单账：一页流水（唯一还能手动记账的地方）----
+                                vm.tab == 0 -> ledgerEntryItems(vm, onOpenOrder, onCreateEntry)
+                                // ---- 某个人：他这一段的账（按订单）----
+                                vm.personKey != null -> {
+                                    // 名字是**现成的**（就在账户行/抽屉里），所以先画"这是谁"，
+                                    // 钱等拉回来再说 —— 反过来先画一堆 0 再跳成真数，用户会以为账错了。
+                                    item { PersonHeaderCard(vm) }
+                                    if (vm.personLoading) item { LoadingBox() }
+                                    else ledgerPersonItems(vm, onOpenOrder)
                                 }
-                            }
-                        }
-                        // ② 统计图（折线/条形/扇形可切换）
-                        item { LedgerChartSwitch(vm) }
-                        item { LedgerChartCard(vm) }
-                        // ③ 明细（按款项：账户类是一行一个账户、订单账是一行一笔流水）
-                        when (vm.tab) {
-                            // ---- 司机账 / 货主账 / 批发商账：**一套仪表盘，一份实现** ----
-                            //
-                            // 用户 2026-09-19：「**所有的账本你可以一个仪表盘的思维进行去构建**」
-                            // （这句推翻了他上一轮要的"搜索 + 多选"，理由见 ViewModel 顶部那段）。
-                            // 三类账原来各有一张卡 + 一个挑选器（改一处漏一处），现在合成一支：
-                            // 仪表盘（账户数/笔数/金额，跟着搜索走）+ 一个搜索框 + 可展开的账户行。
-                            1, 2, 3 -> {
-                                val isMember = vm.tab == 3
-                                val isDriver = vm.tab == 1
-                                val label = when (vm.tab) {
-                                    1 -> "司机"
-                                    3 -> "批发商"
-                                    else -> "货主"
-                                }
-                                val color = when (vm.tab) {
-                                    1 -> Color(MgrGreen)
-                                    3 -> Color(MemberGold)
-                                    else -> Color(ShipperTeal)
-                                }
-                                val icon = when (vm.tab) {
-                                    1 -> Icons.Default.LocalShipping
-                                    3 -> Icons.Default.Storefront
-                                    else -> Icons.Default.PeopleAlt
-                                }
-                                val all = vm.accountRows()
-                                val visible = vm.visibleAccountRows()
-                                // 时间档位与统计图在**所有档位共用**（上面那两条 item），
-                                // 这里只剩"这一类账自己的明细"：仪表盘 + 可展开的账户行
-                                item { LedgerDashboardCard(vm, label = label, color = color) }
-                                when {
-                                    all.isEmpty() ->
+                                // ---- 全部人：合计 + 每人一行（点一行 = 进他的账）----
+                                else -> {
+                                    val label = vm.kindLabel()
+                                    val all = vm.accountRows()
+                                    item { LedgerDashboardCard(vm, label = label, color = vm.kindColor()) }
+                                    if (all.isEmpty()) {
                                         item { EmptyView("该时段暂无" + label + "账目", Modifier.fillMaxWidth()) }
-                                    visible.isEmpty() ->
-                                        item {
-                                            EmptyView(
-                                                UserSearch.noMatchText(vm.query) + label + "账户",
-                                                Modifier.fillMaxWidth(),
+                                    } else {
+                                        items(all, key = { it.key }) { r ->
+                                            LedgerAccountRow(
+                                                row = r,
+                                                blankLabel = label,
+                                                icon = vm.kindIcon(),
+                                                color = vm.kindColor(),
+                                                onOpen = { vm.openPerson(r) },
                                             )
-                                        }
-                                    else -> items(visible, key = { it.key }) { r ->
-                                        LedgerAccountRowCard(
-                                            row = r,
-                                            blankLabel = label,
-                                            expanded = vm.expandedKey == r.key,
-                                            onToggle = { vm.toggleRow(r.key) },
-                                            icon = icon,
-                                            color = color,
-                                        ) {
-                                            // 展开块：司机账的明细**已经在列表响应里**（group.orders），
-                                            // 货主/批发商的流水是另取的 —— 两件事，两种内容，各自渲染。
-                                            if (isDriver) {
-                                                DriverOrderLines(
-                                                    orders = vm.driverOrdersOf(r.key),
-                                                    expandedOrderId = vm.expandedOrderId,
-                                                    expandedOrder = vm.expandedOrder,
-                                                    orderLoading = vm.expandedOrderLoading,
-                                                    onToggleOrder = { vm.toggleOrderDetail(it) },
-                                                    onOpenOrder = onOpenOrder,
-                                                )
-                                            } else {
-                                                AccountEntryLines(
-                                                    entries = vm.accountEntries[r.key],
-                                                    meta = vm.accountEntriesMeta[r.key],
-                                                    loading = vm.accountEntriesLoading,
-                                                    onOpenOrder = onOpenOrder,
-                                                    expandedOrderId = vm.expandedOrderId,
-                                                    expandedOrder = vm.expandedOrder,
-                                                    orderLoading = vm.expandedOrderLoading,
-                                                    onToggleOrder = { vm.toggleOrderDetail(it) },
-                                                )
-                                            }
                                         }
                                     }
                                 }
                             }
-
-                            // ---- 订单账 ----
-                            else -> {
-                                item {
-                                    SectionCard {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Column(Modifier.weight(1f)) {
-                                                // 与另外三类账**同一个 KPI 版式**（仪表盘思维：钱单独一行）
-                                                KpiBlock(
-                                                    label = "订单账合计（" + vm.periodWord + "）",
-                                                    total = vm.total(),
-                                                    stats = "共 " + vm.entries.size + " 笔流水" +
-                                                        if (vm.entriesTruncated) "（只含已取到的）" else "",
-                                                )
-                                            }
-                                            Button(onClick = { vm.openCreate() }) {
-                                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                                Spacer(Modifier.width(4.dp))
-                                                Text("记账", style = MaterialTheme.typography.titleSmall)
-                                            }
-                                        }
-                                    }
-                                }
-                                if (vm.entries.isEmpty()) {
-                                    item { EmptyView("该时段暂无账目", Modifier.fillMaxWidth()) }
-                                } else {
-                                    // 服务端只回了一页时**说出来**（判据是响应头 `X-Truncated`，
-                                    // 见 DispatcherLedgerViewModel）。⚠️ 上面那两张卡（合计/趋势）
-                                    // 都是拿这一页在客户端算的 —— 不说的话"当前范围内合计"会被
-                                    // 当成整段总额，而它其实只含看得见的这些行。
-                                    if (vm.entriesTruncated) {
-                                        item {
-                                            TruncationNote(
-                                                vm.entriesLimit,
-                                                "更早的请用上方日期档位缩小范围；上面的合计与图只含已取到的这些行",
-                                            )
-                                        }
-                                    }
-                                    items(vm.entries, key = { it.id }) { e ->
-                                        LedgerRow(
-                                            e = e,
-                                            onDelete = { vm.deleteTarget = e },
-                                            onOpenOrder = onOpenOrder,
-                                            expandedOrderId = vm.expandedOrderId,
-                                            expandedOrder = vm.expandedOrder,
-                                            orderLoading = vm.expandedOrderLoading,
-                                            onToggleOrder = { vm.toggleOrderDetail(it) },
-                                        )
-                                    }
-                                }
-                            }
+                            item { Spacer(Modifier.height(56.dp)) }
                         }
-                        item { Spacer(Modifier.height(56.dp)) }
                     }
                 }
             }
         }
     }
 
-    // 自定义日期（与筛选条共用同一个弹层；只选一头点「应用」＝什么都不做）
+    // 时间档位清单（点顶栏那个药丸打开）
+    if (showDatePresets) {
+        DatePresetDialog(
+            selected = vm.preset,
+            customFrom = vm.customFrom,
+            customTo = vm.customTo,
+            onPick = { label ->
+                showDatePresets = false
+                // 「自定义」不由档位表给区间（它要选两头的日期）→ 直接开日期弹层
+                if (label == DatePresets.CUSTOM) showCustomRange = true else vm.applyPreset(label)
+            },
+            onDismiss = { showDatePresets = false },
+        )
+    }
+
+    // 自定义日期（只选一头点「应用」＝什么都不做）
     if (showCustomRange) {
         DateRangeDialog(
             initialFrom = vm.customFrom,
@@ -311,36 +221,10 @@ fun DispatcherLedgerScreen(
         )
     }
 
-    // 新增记账弹窗
-    if (vm.showCreate) {
-        AlertDialog(
-            onDismissRequest = { if (!vm.acting) vm.showCreate = false },
-            title = { Text("记一笔账") },
-            text = {
-                Column {
-                    SoTextField(vm.draftShipperName, { vm.draftShipperName = it }, placeholder = "货主姓名（未注册可直接填）")
-                    Spacer(Modifier.height(10.dp))
-                    SoTextField(vm.draftProduct, { vm.draftProduct = it }, placeholder = "商品名称")
-                    Spacer(Modifier.height(10.dp))
-                    Row {
-                        SoTextField(vm.draftQty, { vm.draftQty = InputRules.intInput(it, 6) }, placeholder = "数量", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f))
-                        Spacer(Modifier.width(8.dp))
-                        SoTextField(vm.draftPrice, { vm.draftPrice = InputRules.priceInput(it) }, placeholder = "单价（元）", keyboardType = KeyboardType.Decimal, modifier = Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    SoTextField(vm.draftDate, { vm.draftDate = it }, placeholder = "日期（如 2026-08-31）")
-                    Spacer(Modifier.height(10.dp))
-                    SoTextField(vm.draftNote, { vm.draftNote = it }, placeholder = "备注（选填）")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { vm.create() }, enabled = !vm.acting) {
-                    Text(if (vm.acting) "处理中…" else "保存")
-                }
-            },
-            dismissButton = { TextButton(onClick = { vm.showCreate = false }, enabled = !vm.acting) { Text("取消") } },
-        )
-    }
+    // ⛔ 「记一笔账」的弹窗**不在这里了**（用户 2026-09-20 第七轮）：记账要**从商品库选商品**，
+    //    而选品那一份 UI 是全屏底部弹层 —— 套在 `AlertDialog` 里就是两层 modal 窗口叠着。
+    //    现在它是单独一页（`Routes.LEDGER_CREATE` / `LedgerCreateScreen.kt`），
+    //    回来那一下由 `vm.onEnter()` 重取（见下面那个 LaunchedEffect）。
 
     // 删除确认（危险操作二次确认）
     vm.deleteTarget?.let { target ->
@@ -352,225 +236,164 @@ fun DispatcherLedgerScreen(
             onDismiss = { vm.deleteTarget = null },
         )
     }
+
+    // 就地核销（整单 / 按商品）—— 用户 2026-09-20：「点击订单点击核销…可以全部核销，
+    // 也可以按商品进行核销」。
+    if (vm.settleTarget != null) SettleOrderDialog(vm, onDismiss = { vm.closeSettle() })
+    // 批量核销（点合计 → 核销全部，只有"进到某个人"时才给）
+    if (vm.settleAllOpen) SettleAllDialog(vm, onDismiss = { vm.closeSettleAll() })
 }
 
-/** 账本分类导航：订单账 / 司机账 / 货主账 / 批发商账 */
+/**
+ * 人员那一行：**页面上唯一一个"选人"的入口**（点开右侧抽屉）。
+ *
+ * 为什么不做成一排 chip（那是被否掉的那一版）：「假如司机多的话，那我要选该怎么去选呢？」
+ * —— 一屏铺不下、还得左右滑；抽屉里能搜（姓名 / 手机号 / 后 4 位）能滚，选完自动关上。
+ * ⚠️ 这一行**不写金额**：金额在下面的账户行上（同一份信息写两处，就一定会"两边对不上"）。
+ */
 @Composable
-private fun LedgerTabBar(tab: Int, onTab: (Int) -> Unit) {
-    val tabs = listOf(
-        Triple(0, "订单账", Icons.Default.AccountBalanceWallet to Color(MoneyOrange)),
-        Triple(1, "司机账", Icons.Default.LocalShipping to Color(MgrGreen)),
-        Triple(2, "货主账", Icons.Default.PeopleAlt to Color(ShipperTeal)),
-        Triple(3, "批发商账", Icons.Default.Badge to Color(MemberGold)),
-    )
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+private fun PersonTriggerRow(vm: DispatcherLedgerViewModel, onOpen: () -> Unit) {
+    Surface(
+        onClick = onOpen,
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
-        tabs.forEach { (idx, label, ic) ->
-            val (icon, color) = ic
-            val selected = tab == idx
-            Surface(
-                onClick = { onTab(idx) },
-                shape = RoundedCornerShape(12.dp),
-                color = if (selected) color.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, if (selected) color.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.weight(1f).height(42.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(icon, contentDescription = label, modifier = Modifier.size(16.dp), tint = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(4.dp))
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TintedIcon(vm.kindIcon(), vm.kindColor(), size = 16.dp, container = 32.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "人员",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    if (vm.personKey == null) "全部（" + vm.accountRows().size + " 人）" else vm.personTitle(),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("选择", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/**
+ * 侧边抽屉的内容：**搜索框 + 名单**（第一行永远是「全部」）。
+ *
+ * 「全部」放在最上面而不是藏起来：默认状态就是它，用户看完某个人要回到"所有人在这一段的账"
+ * 时得有个明确的地方点。
+ */
+@Composable
+private fun PersonDrawer(vm: DispatcherLedgerViewModel, onPick: (String?) -> Unit) {
+    val rows = vm.drawerPersons()
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Spacer(Modifier.height(20.dp))
+        Text(
+            "选择" + vm.kindLabel(),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(10.dp))
+        SearchField(value = vm.query, onValueChange = { vm.query = it })
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(Modifier.weight(1f)) {
+            item(key = "all") {
+                DrawerPersonRow(
+                    title = "全部（" + vm.accountRows().size + " 人）",
+                    subtitle = "看所有人在" + vm.periodWord + "的账",
+                    selected = vm.personKey == null,
+                    onClick = { onPick(null) },
+                )
+            }
+            if (rows.isEmpty()) {
+                item {
                     Text(
-                        label,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant,
+                        UserSearch.noMatchText(vm.query) + vm.kindLabel(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp),
+                    )
+                }
+            } else {
+                items(rows, key = { it.key }) { r ->
+                    DrawerPersonRow(
+                        title = r.title.ifBlank { r.phone ?: "未命名" + vm.kindLabel() },
+                        // 手机号是**同名不同人**唯一的分辨依据（两个「张老板」在真机上就是两行一样的名字）
+                        subtitle = listOfNotNull(r.phone?.ifBlank { null }, "停用".takeIf { r.inactive }).joinToString(" · "),
+                        selected = vm.personKey == r.key,
+                        onClick = { onPick(r.key) },
                     )
                 }
             }
         }
+        Spacer(Modifier.height(12.dp))
     }
 }
 
-/**
- * 图表类型切换条：只列**这一档真的画得出来**的类型。
- *
- * 货主账 / 批发商账没有折线（接口只回账户汇总，见 `DispatcherLedgerViewModel.chartTypes`）——
- * 与其给一个点了没反应的档，不如不给，并用一行小字说明为什么。
- */
+/** 抽屉里的一行（选中那行打勾 + 加粗）。 */
 @Composable
-private fun LedgerChartSwitch(vm: DispatcherLedgerViewModel) {
-    val types = vm.chartTypes()
-    SegmentedStatusTabs(
-        labels = types.map { chartTypeLabel(it) },
-        colors = types.map {
-            when (it) {
-                CHART_LINE -> Color(0xFF1E6FFF)
-                CHART_BAR -> Color(MgrGreen)
-                else -> Color(MoneyOrange)
-            }
-        },
-        selected = types.indexOf(vm.chartTypeNow).coerceAtLeast(0),
-        onSelect = { vm.chartType = types[it] },
-    )
-    if (types.size < CHART_TYPES_ALL.size) {
-        Text(
-            "这一类只有账户汇总、没有按天的数，所以给排行与构成两种图",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-    }
-}
-
-/**
- * 统计图卡 —— 三种图共用一张卡，卡片只负责画。
- *
- * ⚠️ 图上的数**必须**与下面那行合计同源：这里一律取 VM 算好的序列/切片
- *    （口径与取舍写在 `LedgerCharts.kt` 顶部），卡片自己不再加一遍。
- * ⚠️ 订单账那一档要标出"只含已取到的"：合计与图都是拿**这一页流水**在客户端算的，
- *    不说的话它会被当成整段时间的总额（服务端上限 1000 条）。
- */
-@Composable
-private fun LedgerChartCard(vm: DispatcherLedgerViewModel) {
-    val title = when (vm.tab) {
-        0 -> "账单趋势"
-        1 -> "司机应得"
-        else -> "账户排行"
-    } + " · " + vm.periodWord
-    SectionCard {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        if (vm.tab == 0 && vm.entriesTruncated) {
+private fun DrawerPersonRow(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
             Text(
-                "只含已取到的 " + vm.entries.size + " 笔（服务端上限 " + (vm.entriesLimit?.toString() ?: "未回报") + "）",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-        }
-        Spacer(Modifier.height(8.dp))
-        when (vm.chartTypeNow) {
-            CHART_LINE -> {
-                val rows = vm.seriesForChart()
-                if (rows.isEmpty()) ChartEmpty("该时段暂无账单")
-                else LineChart(rows.map { it.second.toFloat() }, rows.map { dayLabel(it.first) }, Color(0xFF1E6FFF))
-            }
-            CHART_BAR -> {
-                val (values, labels) = vm.barsForChart()
-                if (values.isEmpty()) ChartEmpty("该时段暂无账单")
-                // 按天的条形用绿、账户排行用橙：图例说的"这是什么"应该和颜色一起变
-                else BarChart(values, labels, if (vm.tab == 0 || vm.tab == 1) Color(MgrGreen) else Color(MoneyOrange))
-            }
-            else -> {
-                val rows = vm.slicesForChart()
-                if (rows.isEmpty()) ChartEmpty("该时段暂无账单")
-                else PieChart(
-                    slices = rows.map { PieSlice(it.first, it.second.toFloat(), "¥" + formatMoney(it.second.toString())) },
-                    colors = ChartPalette.map { Color(it) },
-                    centerTitle = "合计",
-                    // 环心那个数取**切片之和**：图上每一块加起来必须正好等于中间那个数
-                    centerValue = "¥" + formatMoney(rows.sumOf { it.second }.toString()),
+            if (subtitle.isNotBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
             }
         }
-    }
-}
-
-// ============================================================ 账本仪表盘
-//
-// 用户 2026-09-19 第二次拍板：「**所有的账本你可以一个仪表盘的思维进行去构建**」——
-// 这句推翻了上一版的「搜索 + 多选 chip 墙」。两个理由记在这里，免得下一轮又有人把它加回来：
-//   ① chip 墙上写的"名字 + 金额"与下面列表里的**是同一份信息**，重复放在两处，
-//      就一定会出现"两边对不上"的困惑；
-//   ② 账户一多，"在一堆 chip 里找到要点的那几个"比看账本身更花时间 —— 这正是他说的「麻烦」。
-//
-// 现在：一屏看完所有账户各自的数（下面第一张卡就是仪表盘），一个搜索框把范围收窄，
-// **收窄之后的合计写在仪表盘上**（"这两家一共多少"这么看，不用勾选），点账户行就地展开流水。
-
-/**
- * 仪表盘上那三个数（**钱单独一行**，账户数/笔数是在解释它，用弱化的小字跟在下面）。
- *
- * 「一个数字一行」是本项目的既有约定（商品卡上售价与库存分行）；这里钱的数字最大最粗、
- * 独占一行，另外两个数合成一句 —— 而不是把三个数并排堆成一行小字（那既不突出钱，
- * 也看不出哪个数是解释哪个的）。
- */
-@Composable
-private fun KpiBlock(label: String, total: Double, stats: String, hint: String? = null) {
-    Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Spacer(Modifier.height(2.dp))
-    Text(
-        "¥" + formatMoney(total.toString()),
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold,
-        color = Color(MoneyOrange),
-    )
-    Spacer(Modifier.height(2.dp))
-    Text(stats, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    if (hint != null) {
-        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        if (selected) {
+            Icon(Icons.Default.Check, contentDescription = "当前选中", tint = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
 /**
- * 账户仪表盘：合计（跟着搜索走）+ 搜索框。
+ * 账户一行 —— 司机账 / 货主账 / 批发商账**同一个版式、同一份实现**。
  *
- * ⚠️ 搜索是**本地**过滤：`/ledger/accounts` 与 `/freight-settlement` 都是一次回全量
- *    （没有分页、也没有 500 上限），再走服务端只是每次打字多打一次后端。
- *    名册页（`/users` 一页最多 500 条）就**必须**走服务端 `?q=`，见 `UsersManageViewModel`。
- */
-@Composable
-private fun LedgerDashboardCard(
-    vm: DispatcherLedgerViewModel,
-    label: String,
-    color: Color,
-) {
-    val d = vm.dashboard()
-    val all = vm.accountRows()
-    val searching = vm.query.isNotBlank()
-    SectionCard {
-        KpiBlock(
-            // 口径词跟着窗口走（§4.9）：档位是「全部」时写"当前时间范围"会让人以为有个具体窗口
-            label = if (searching) "按「" + vm.query.trim() + "」筛出的合计" else label + "账合计（" + vm.periodWord + "）",
-            total = d.total,
-            stats = d.accounts.toString() + " 个账户 · 共 " + d.count + " 笔",
-            // 过滤时把"全部是多少"一起说出来：不说的话用户会拿筛出的那个数当总额去对账
-            hint = if (searching) {
-                "全部 " + all.size + " 个" + label + "账户合计 ¥" +
-                    formatMoney(all.sumOf { it.total }.toString()) + "（清空搜索可看全部）"
-            } else null,
-        )
-        // ⚠️ 搜索框**不在这里**：它横跨整页、在左栏上面（设计规范 §4.6）——
-        //    两处各放一个就是同一屏两个搜索框、同一个状态，用户不知道该用哪个。
-    }
-}
-
-/**
- * 一个账户一行 —— 司机账 / 货主账 / 批发商账**同一个版式、同一份实现**。
- *
- * 名字下面那行是**手机号 + 笔数**：
+ * 名字下面那行是**手机号 + 笔数/单数**：
  * · 手机号是**同名不同人**唯一的分辨依据（两个「张老板」以前是两行一模一样的卡，
  *   只能靠金额猜谁是谁），也是用户 2026-09-19 要的搜索键之一；
  * · 没号的（临时货主）要说清"为什么没有"，不能留一行空白让人以为是加载失败。
  *
- * [expand] 是展开块的内容插槽：司机账展开的是**响应里已经带着的**订单明细，
- * 货主/批发商账展开的是**另取的**流水 —— 两件事，两种内容，共用这一个外壳。
+ * ⛔ 这里**没有展开块**：点一下就是进他的账（第二层，按订单）。
  */
 @Composable
-private fun LedgerAccountRowCard(
+private fun LedgerAccountRow(
     row: LedgerAccountRow,
     blankLabel: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
     icon: ImageVector,
     color: Color,
-    expand: @Composable () -> Unit,
+    onOpen: () -> Unit,
 ) {
     SectionCard {
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onToggle),
+            Modifier.fillMaxWidth().clickable(onClick = onOpen),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TintedIcon(icon, color, size = 16.dp, container = 32.dp)
@@ -613,27 +436,143 @@ private fun LedgerAccountRowCard(
                 fontWeight = FontWeight.Bold,
                 color = Color(MoneyOrange),
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             Icon(
-                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null,
+                Icons.Default.ChevronRight,
+                contentDescription = "进他的账",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (expanded) {
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(4.dp))
-            expand()
+    }
+}
+
+/** 订单账那一档的明细（「记账」按钮去单独一页：`Routes.LEDGER_CREATE`）。 */
+private fun LazyListScope.ledgerEntryItems(
+    vm: DispatcherLedgerViewModel,
+    onOpenOrder: (Long) -> Unit,
+    onCreateEntry: () -> Unit,
+) {
+    item {
+        SectionCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    // 与其余几类账**同一个 KPI 版式**（仪表盘思维：钱单独一行）
+                    KpiBlock(
+                        label = "订单账合计（" + vm.periodWord + "）",
+                        total = vm.total(),
+                        stats = "共 " + vm.entries.size + " 笔流水" +
+                            if (vm.entriesTruncated) "（只含已取到的）" else "",
+                    )
+                }
+                Button(onClick = onCreateEntry) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("记账", style = MaterialTheme.typography.titleSmall)
+                }
+            }
         }
+    }
+    if (vm.entries.isEmpty()) {
+        item { EmptyView("该时段暂无账目", Modifier.fillMaxWidth()) }
+    } else {
+        // 服务端只回了一页时**说出来**（判据是响应头 `X-Truncated`，见 DispatcherLedgerViewModel）。
+        // ⚠️ 上面那张卡（合计）是拿这一页在客户端算的 —— 不说的话"当前范围内合计"会被当成
+        //    整段总额，而它其实只含看得见的这些行。
+        if (vm.entriesTruncated) {
+            item {
+                TruncationNote(
+                    vm.entriesLimit,
+                    "更早的请点右上角的日期档位缩小范围；上面的合计只含已取到的这些行",
+                )
+            }
+        }
+        items(vm.entries, key = { it.id }) { e ->
+            LedgerRow(
+                e = e,
+                onDelete = { vm.deleteTarget = e },
+                onOpenOrder = onOpenOrder,
+                expandedOrderId = vm.expandedOrderId,
+                expandedOrder = vm.expandedOrder,
+                orderLoading = vm.expandedOrderLoading,
+                onToggleOrder = { vm.toggleOrderDetail(it) },
+            )
+        }
+    }
+}
+
+// ============================================================ 账本仪表盘
+//
+// 用户 2026-09-19 第二次拍板：「**所有的账本你可以一个仪表盘的思维进行去构建**」——
+// 这句推翻了上一版的「搜索 + 多选 chip 墙」。两个理由记在这里，免得下一轮又有人把它加回来：
+//   ① chip 墙上写的"名字 + 金额"与下面列表里的**是同一份信息**，重复放在两处，
+//      就一定会出现"两边对不上"的困惑；
+//   ② 账户一多，"在一堆 chip 里找到要点的那几个"比看账本身更花时间 —— 这正是他说的「麻烦」。
+//
+// 现在：一屏看完所有账户各自的数（下面第一张卡就是仪表盘），选人走侧边抽屉，
+// 点账户行进他的账。
+//
+// ⛔ 2026-09-20 第五轮**又删掉了三张图**（折线/条形/扇形）：用户说「直接去掉就行了……
+//    到时候在报表中心看就可以了」。所以这一页现在只有**数**，没有图 —— 图在
+//    `ui/common/Charts.kt`（报表中心/货主账本/司机端在用），账本页一张都不画。
+
+/**
+ * 仪表盘上那三个数（**钱单独一行**，账户数/笔数是在解释它，用弱化的小字跟在下面）。
+ *
+ * 「一个数字一行」是本项目的既有约定（商品卡上售价与库存分行）；这里钱的数字最大最粗、
+ * 独占一行，另外两个数合成一句 —— 而不是把三个数并排堆成一行小字（那既不突出钱，
+ * 也看不出哪个数是解释哪个的）。
+ */
+@Composable
+private fun KpiBlock(label: String, total: Double, stats: String, hint: String? = null) {
+    Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(2.dp))
+    Text(
+        "¥" + formatMoney(total.toString()),
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold,
+        color = Color(MoneyOrange),
+    )
+    Spacer(Modifier.height(2.dp))
+    Text(stats, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (hint != null) {
+        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/**
+ * 账户仪表盘：这一类账在**当前时间窗口**里的合计。
+ *
+ * ⚠️ 它取的是**全部账户**的合计（`dashboard()` 里没有搜索）：搜索在抽屉里，
+ *    而抽屉是"选人"用的 —— 边打字边改这里的合计，关掉抽屉就会剩一个对不上的总数。
+ * ⚠️ 这里**故意不给**「核销全部」按钮：用户 2026-09-20 明说"全部（所有人）时那个合计
+ *    不能批量核销，只能下到每个司机/货主才能批量核销" —— 收款单绑的是**一个人的**
+ *    客户档案，在"全部人"这一层收钱就等于把钱记到某个随机的人头上。
+ */
+@Composable
+private fun LedgerDashboardCard(
+    vm: DispatcherLedgerViewModel,
+    label: String,
+    color: Color,
+) {
+    val d = vm.dashboard()
+    SectionCard {
+        KpiBlock(
+            // 口径词跟着窗口走（§4.9）：档位是「全部」时写"当前时间范围"会让人以为有个具体窗口
+            label = label + "账合计（" + vm.periodWord + "）",
+            total = d.total,
+            stats = d.accounts.toString() + " 个账户 · 共 " + d.count + " 笔",
+            hint = "点某一行进他的账（核销在那一页里）；批量核销要先选中某个人，再点他的合计",
+        )
+        // ⚠️ 选人的入口**不在这里**：它是页面上单独那一行（设计规范 §4.15）。
     }
 }
 
 /**
  * 司机账展开：他在这段时间里完成的单。
  *
- * ⚠️ 明细**已经跟在结算响应里**（`group.orders`），所以这里不请求、也没有"加载中"这一态 ——
- *    而货主账那边要另取一次（见 [AccountEntryLines]），两种情形不能共用一句状态文案。
+ * ⚠️ 明细**已经跟在结算响应里**（`group.orders`），所以这里不请求、也没有"加载中"这一态。
+ * ⚠️ 金额显示的是**司机应得**（`pay_total`，与组头合计同源）；货主运费另用小字标注 ——
+ *    两个数常常不等，拿运费当"他该拿多少"会让这一列加起来对不上上面的合计。
  */
 @Composable
 private fun DriverOrderLines(
@@ -670,14 +609,21 @@ private fun DriverOrderLines(
                 )
             }
             Spacer(Modifier.width(10.dp))
-            Text(
-                if (o.freightFee != null) "¥" + formatMoney(o.freightFee) else "待定价",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.End,
-                color = if (o.freightFee != null) Color(MoneyOrange) else Color(0xFF8A8A8E),
-                modifier = Modifier.widthIn(min = 92.dp),
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "¥" + formatMoney(o.payTotal),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.End,
+                    color = Color(MoneyOrange),
+                    modifier = Modifier.widthIn(min = 92.dp),
+                )
+                Text(
+                    if (o.freightFee != null) "运费 ¥" + formatMoney(o.freightFee) else "运费 待定价",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (o.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFFF6B2C),
+                )
+            }
         }
         if (o.orderId == expandedOrderId) {
             OrderPeek(loading = orderLoading, order = expandedOrder, onOpenFull = { onOpenOrder(o.orderId) })
@@ -685,94 +631,20 @@ private fun DriverOrderLines(
     }
 }
 
-/**
- * 货主/批发商账展开：这个账户在这一段里的流水（**另取**，取过就缓存）。
- *
- * 一行点下去是**就地展开那一单**（用户 2026-09-19：「订单是可以展开进行查看的」）——
- * 原来是跳到订单详情页，回来之后筛选/展开/滚动位置全没了，连着核几笔要来回跳十几趟。
- * 「打开订单」那条路仍然留着（展开块右上角），看照片/导航/司机备注还得进详情页。
- */
+/** 司机第二层那一块：他这一段跑的单（不再请求，明细在列表响应里）。 */
 @Composable
-private fun AccountEntryLines(
-    entries: List<LedgerEntryDto>?,
-    /** 这一账户的明细被服务端截断了没有 + 本次上限（判据是响应头，见 DispatcherLedgerViewModel）。 */
-    meta: PageMeta?,
-    loading: Boolean,
-    onOpenOrder: (Long) -> Unit,
-    expandedOrderId: Long?,
-    expandedOrder: OrderDto?,
-    orderLoading: Boolean,
-    onToggleOrder: (Long) -> Unit,
-) {
-    if (entries == null) {
-        Text(
-            if (loading) "加载中…" else "还没取到流水，收起再展开试试",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+internal fun DriverPersonOrders(vm: DispatcherLedgerViewModel, onOpenOrder: (Long) -> Unit) {
+    SectionCard {
+        Text("他跑的单（" + vm.periodWord + "）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        DriverOrderLines(
+            orders = vm.driverOrdersOf(vm.personKey.orEmpty()),
+            expandedOrderId = vm.expandedOrderId,
+            expandedOrder = vm.expandedOrder,
+            orderLoading = vm.expandedOrderLoading,
+            onToggleOrder = { vm.toggleOrderDetail(it) },
+            onOpenOrder = onOpenOrder,
         )
-        return
-    }
-    if (entries.isEmpty()) {
-        Text(
-            "该账户时段内暂无流水",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
-    // 明细被截断时**说出来**：卡上那行"N 笔"是**服务端**的全量笔数，
-    // 而这里列出的可能只有一页 —— 不说的话"卡上 5000 笔、展开 1000 条"
-    // 会被当成数据不一致（或干脆以为账丢了）。
-    if (meta?.hasMore == true) {
-        TruncationNote(
-            meta.limit,
-            "该账户在此范围内的流水没列全（卡上的笔数是服务端全量），更早的请用上方时间导航缩小范围",
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-    }
-    entries.forEach { e ->
-        val oid = e.orderId
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = oid != null) { oid?.let(onToggleOrder) }
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                if (e.source == "manual") Icons.Default.EditNote else Icons.Default.ReceiptLong,
-                contentDescription = null,
-                tint = if (e.source == "manual") Color(ProductPurple) else Color(0xFF1E6FFF),
-                modifier = Modifier.size(13.dp),
-            )
-            Spacer(Modifier.width(7.dp))
-            Column(Modifier.weight(1f)) {
-                Text(e.productName + " ×" + e.quantity, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text(
-                    listOfNotNull(e.entryDate, e.orderNo?.let { "#" + it }, e.note.ifBlank { null }).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "¥" + formatMoney(e.total),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.End,
-                color = Color(MoneyOrange),
-                modifier = Modifier.widthIn(min = 92.dp),
-            )
-        }
-        // 展开了就把它那一单摊在流水行下面（"订单是可以展开进行查看的"）
-        if (oid != null && oid == expandedOrderId) {
-            OrderPeek(
-                loading = orderLoading,
-                order = expandedOrder,
-                onOpenFull = { onOpenOrder(oid) },
-            )
-        }
     }
 }
 
@@ -783,7 +655,7 @@ private fun LedgerRow(
     onOpenOrder: (Long) -> Unit,
     /** 就地展开那一单（与货主账/批发商账**同一套**，用户说「其他其他的都一样」）。 */
     expandedOrderId: Long?,
-    expandedOrder: com.tapmoay.sorders.data.remote.dto.OrderDto?,
+    expandedOrder: OrderDto?,
     orderLoading: Boolean,
     onToggleOrder: (Long) -> Unit,
 ) {
@@ -841,4 +713,3 @@ private fun LedgerRow(
         }
     }
 }
-

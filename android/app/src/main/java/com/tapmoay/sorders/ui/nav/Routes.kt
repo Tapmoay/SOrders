@@ -15,6 +15,13 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val ORDER_DETAIL = "order/{orderId}/detail"
     const val ADDRESSES = "shipper/addresses"
     const val SHIPPER_LEDGER = "shipper/ledger"
+    /**
+     * 「我的退货申请」（2026-09-21）：货主在订单上提的退货申请在这里看进展、可以撤回。
+     *
+     * ⛔ 货主**只能申请**（申请阶段库存与账本一分不动）；真正执行退货的是派单端的
+     * [DISPATCH_RETURN_REQUESTS]（用户口径：「批发商只是一个申请，派单员才是实际性的操作」）。
+     */
+    const val SHIPPER_RETURN_REQUESTS = "shipper/return-requests"
 
     // 司机
     const val DRIVER_ORDERS = "driver/orders"
@@ -22,6 +29,13 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     // 派单员
     const val DISPATCH_POOL = "dispatcher/pool"
     const val DISPATCH_ORDERS = "dispatcher/orders"
+    /**
+     * 「退货申请」待办页（派单端，2026-09-21）：货主提的申请排队在这里。
+     *
+     * ★ **办理就是真的退货**：库存、账本、退款、订单状态都在点下去那一刻才变；
+     * 数量**锁死**（照申请单退），要改只能驳回让货主重提。驳回必须写理由。
+     */
+    const val DISPATCH_RETURN_REQUESTS = "dispatcher/return-requests"
     const val ACCOUNTS = "dispatcher/accounts"
     const val DISPATCH_DRIVERS = "dispatcher/drivers"
     const val DISPATCH_LEDGER = "dispatcher/ledger"
@@ -38,6 +52,13 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
      * 各自建一个页面就会出现"同一套数据四份实现"。
      */
     fun dispatcherLedger(tab: Int): String = DISPATCH_LEDGER + "?tab=" + tab
+    /**
+     * 账本「**记一笔账**」= 单独一页（用户 2026-09-20 第七轮）。
+     *
+     * 为什么不是弹窗：这一页要**从商品库选商品**（全屏底部弹层）——
+     * 套进 `AlertDialog` 就是两层 modal 窗口叠着；而且一共 7 项要填。
+     */
+    const val LEDGER_CREATE = "dispatcher/ledger/create"
     const val MEMBERS = "dispatcher/members"
     const val SHIPPERS_MANAGE = "dispatcher/shippers"
     const val PRODUCTS = "dispatcher/products"
@@ -47,6 +68,15 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val INVENTORY = "dispatcher/inventory"
     const val ARREARS_UNITS = "dispatcher/arrears"
     const val FREIGHT_TEMPLATES = "dispatcher/freight-templates"
+    /** 运费分类管理（2026-09-21）：运费模板与计费规则**共用**的一套分类。 */
+    const val FREIGHT_CATEGORIES = "dispatcher/freight-categories"
+    /**
+     * **运费待定价**（2026-09-21）：已经派出去、但没有运费的单。
+     *
+     * 「没有匹配到就没有计费、没有定价……这个订单就得派单员手动去给他定价」——
+     * 那种单在这里排队，定价时可以顺手把路线 + 价目沉淀下来。
+     */
+    const val FREIGHT_UNPRICED = "dispatcher/freight-unpriced"
     /** 司机计费规则模板（"给司机定怎么算钱"的规则库，挂载在司机编辑页）。 */
     const val DRIVER_BILLING_RULES = "dispatcher/driver-billing-rules"
     const val FREIGHT_SETTLEMENT = "dispatcher/freight-settlement"
@@ -54,6 +84,10 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val DISPATCH_RECEIPTS = "dispatcher/receipts"
     const val DISPATCH_SETTLEMENTS = "dispatcher/settlements"
     const val DISPATCH_EXPENSES = "dispatcher/expenses"
+    /** 新增开销：**单独一页**（用户 2026-09-20：「就相当于新增订单一样」）。 */
+    const val EXPENSE_CREATE = "dispatcher/expenses/create"
+    /** 开销分类管理（与商品分类管理同一套规矩）。 */
+    const val EXPENSE_CATEGORIES = "dispatcher/expenses/categories"
     const val DISPATCH_VEHICLES = "dispatcher/vehicles"
     const val DRIVER_FREIGHT = "driver/freight"
     /**
@@ -62,7 +96,8 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
      */
     const val PRICE_BY_SHIPPER = "dispatcher/pricing/shipper/{shipperId}"
     const val PRICE_BY_PRODUCT = "dispatcher/pricing/product/{productId}"
-    const val MODULE_GROUP = "moduleGroup"
+    // ⛔ `MODULE_GROUP`（工作台分组二级页）2026-09-20 删除：三端都没有带 children 的格子，
+    //    那条路由没有任何入口点得到（见 `ModuleEntry` 的注释）。
 
     // AI 助手（派单员端）
     const val AI_CHAT = "ai/chat"
@@ -79,6 +114,25 @@ const val REPORT_FINANCE = "report/finance"
     fun orderDetail(orderId: Long) = "order/$orderId/detail".replace("$orderId", orderId.toString())
     fun priceByShipper(shipperId: Long) = "dispatcher/pricing/shipper/$shipperId"
     fun priceByProduct(productId: Long) = "dispatcher/pricing/product/$productId"
+
+    // ---- 退货申请的**定位直达**（2026-09-21 用户要求：「到消息中心哦。其实本来就要做到直达的」）----
+    //
+    // 消息中心点那条通知 → 打开对应那一端的退货申请页，并**定位到那一张**（`?focus=`）。
+    // 两页各自只有一条路由：参数是**可选的查询串**（`defaultValue = 0L`），
+    // 所以工作台网格那种"不带 focus"的进入方式照旧用 `SHIPPER_RETURN_REQUESTS` 本身，不要另建路由。
+    //
+    // ⚠️ 为什么要一个构造函数而不是让调用方自己拼字符串：`?focus=` 的键名在
+    //    `NavGraph.kt` 的 `navArgument` 与这两处各写一遍就会分叉（改了这边忘了那边 =
+    //    点了通知静默落在列表顶部、定位不到 —— 而界面上完全看不出来是路由参数写错了）。
+    fun shipperReturnRequests(focusRequestId: Long? = null): String =
+        withFocus(SHIPPER_RETURN_REQUESTS, focusRequestId)
+
+    fun dispatcherReturnRequests(focusRequestId: Long? = null): String =
+        withFocus(DISPATCH_RETURN_REQUESTS, focusRequestId)
+
+    /** `focus` 的键名**只有这一处**（`NavGraph.kt` 的 `navArgument("focus")` 认的就是它）。 */
+    private fun withFocus(base: String, focusRequestId: Long?): String =
+        if (focusRequestId != null && focusRequestId > 0L) "$base?focus=$focusRequestId" else base
 }
 
 enum class Role(val key: String, val label: String) {

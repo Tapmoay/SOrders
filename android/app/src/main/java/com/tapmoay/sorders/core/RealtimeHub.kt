@@ -1,6 +1,5 @@
 package com.tapmoay.sorders.core
 
-import com.tapmoay.sorders.BuildConfig
 import com.tapmoay.sorders.data.remote.dto.SocketEvent
 import com.tapmoay.sorders.ui.nav.Role
 import kotlinx.coroutines.CoroutineScope
@@ -13,7 +12,8 @@ import kotlinx.coroutines.launch
  * Socket.IO 事件中枢：
  * - 维护未读数与最近通知 ID（重连时回传后端补拉）
  * - 关键订单事件触发列表刷新信号（refreshOrders）
- * - 司机端对新单/撤回进行语音播报。⚠️ **站内信的 `speech_important` 不会被播报**
+ * - 司机端对新单/撤回、**派单员端对"有待派单的新订单"**进行语音播报
+ *   （判定在 core/NewOrderAlert.kt，按 角色 × 事件类型）。⚠️ **站内信的 `speech_important` 不会被播报**
  *   （2026-09-19 审计 R14-11 把这里原来那句"（speech_important 消息同样播报）"删掉了：
  *   全仓库 Android 侧没有任何一处读这个字段，只有旧网页端读；写着它就会让人以为已经有这功能）
  */
@@ -204,9 +204,9 @@ class RealtimeHub(private val container: AppContainer) {
     }
 
     /**
-     * 司机语音播报。**只有司机会响**（判定在 [NewOrderAlert.isSpoken]）：
-     * 派单员/货主大部分时间在电脑前，手机上再放语音是打扰，
-     * 而且「来单了」对他们本来就是**错的信息**——那不是他们的活。
+     * 语音播报。**按 (角色 × 事件类型) 判**（[NewOrderAlert.speaks]）：
+     * 司机听「有新派单」，派单员听「有新订单待派单」，货主一句都不听
+     * （「来单了」对货主本来就是**错的信息**——他不是要跑车也不是要派单的那个人）。
      */
     private fun announce(type: String, orderId: Long?, title: String) {
         if (type.isBlank()) return
@@ -214,7 +214,7 @@ class RealtimeHub(private val container: AppContainer) {
         // 顺手把该单的新单去重键作废（R14-14），否则撤回后重派没人响。
         NewOrderAlert.forgetOnStop(announced, type, orderId)
         val ev = NewOrderAlert.eventOf(type, orderId, title) ?: return
-        if (!NewOrderAlert.isSpoken(role)) return
+        if (!NewOrderAlert.speaks(role, ev.kind)) return
         val now = System.currentTimeMillis()
         if (NewOrderAlert.isDuplicate(announced, ev.dedupeKey, now)) return
         announced[ev.dedupeKey] = now

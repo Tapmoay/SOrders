@@ -192,15 +192,33 @@ def main() -> int:
 
     # ---------------------------------------------------------------- 账本 vs 订单
     rep.section("账本净额 = 订单行金额合计（未撤销单）")
+    # ⚠️ 2026-09-20（退货）之后拆成两条**互不循环**的判据：
+    #    原来那一条把**所有**账本行加起来（退货红冲是负数），于是"部分退货的单"必然对不上 ——
+    #    那是口径变了、不是缺陷。拆开之后两边都还是硬的：
+    #      ① 订单来源的行 == 商品行金额合计（原意：送达自动记账没记错）；
+    #      ② 退货来源的行 == −（单价 × 已退数量）（新增：红冲的金额与退掉的数量必须对得上）。
+    #    合成一条"净额 == line_total − 退货"是**循环论证**（净额里本来就含退货那一项），
+    #    所以不合成 —— 而循环的判据等于没有判据。
     check_ic(rep, "订单账本净额与订单金额对不上",
              "select o.id, o.order_no, o.status, "
-             "(select coalesce(sum(l.total),0) from ledgers l where l.order_id=o.id) net, "
+             "(select coalesce(sum(l.total),0) from ledgers l where l.order_id=o.id and l.source='ORDER') net, "
              "(select coalesce(sum(p.line_total),0) from order_products p where p.order_id=o.id) want "
              "from orders o where upper(o.status)='DELIVERED' and o.deleted_at is null and exists "
-             "(select 1 from ledgers l where l.order_id=o.id) and "
-             "abs((select coalesce(sum(l.total),0) from ledgers l where l.order_id=o.id) - "
+             "(select 1 from ledgers l where l.order_id=o.id and l.source='ORDER') and "
+             "abs((select coalesce(sum(l.total),0) from ledgers l where l.order_id=o.id and l.source='ORDER') - "
              "(select coalesce(sum(p.line_total),0) from order_products p where p.order_id=o.id)) > 0.01",
              "select count(*) from orders where upper(status)='DELIVERED'", limit=lim)
+    check_ic(rep, "退货红冲金额与已退数量对不上",
+             "select id, order_no, net, want from ("
+             "select o.id id, o.order_no order_no, "
+             "(select coalesce(sum(l.total),0) from ledgers l "
+             " where l.order_id=o.id and l.source='RETURN') net, "
+             "-(select coalesce(sum(p.unit_price * p.returned_quantity),0) from order_products p "
+             "  where p.order_id=o.id) want "
+             "from orders o where o.deleted_at is null"
+             ") where abs(net - want) > 0.01",
+             "select count(*) from orders o where o.deleted_at is null and exists "
+             "(select 1 from ledgers l where l.order_id=o.id and l.source='RETURN')", limit=lim)
 
     # ---------------------------------------------------------------- 收款 vs paid
     rep.section("收款与 paid 标记")
@@ -241,22 +259,60 @@ def main() -> int:
              limit=lim)
 
     # ---------------------------------------------------------------- 库存
-    rep.section("库存账（按订单核对：出库合计必须等于该单数量之和）")
-    # ⚠️ 判据改过一次：原来写"product.stock == 流水合计"，结果 39/39 行都不满足——
+    rep.section("库存账（按订单核对：**出库**线与**到仓入库**线各自等于该单数量之和）")
+    # ⚠️ 这条判据改过两次，两次的原因都留在这里（下次要动它之前先读完，别只看代码）：
+    #
+    # ① 最早写的是"product.stock == 流水合计"，结果 39/39 行都不满足 ——
     #    因为 `products.stock` 是**创建时的初始值**（后续只由流水增减），初始值没存在任何地方，
-    #    所以"库存 = 流水合计"在库里根本不可判。换成**能判的**那条：按订单核。
-    check_ic(rep, "已送达订单的出库数量与该单数量之和对不上",
-             "select o.id, o.order_no, "
+    #    所以"库存 = 流水合计"在库里根本不可判。于是换成**能判的**那条：按订单核。
+    #
+    # ② 换完之后它**长期红**（"39 行（共 40 行）"），而每一行的证据都是 `mv` 与 `want`
+    #    **符号相反**：`2 SO202606231529806459 20 -20`、`5 SO202606235253609124 24 -24`、
+    #    `31 SO202607020883175318 6 -6`… —— 一边 +20、一边 −20，"相等"永远不成立。
+    #    2026-09-21 查清了：**错的是判据，不是数据**。`inventory_movements.order_id` 上挂着
+    #    **两条互不相干的线**（这是设计，不是巧合）：
+    #      · `source='ORDER'`     = 订单那条线（派单预占 → 送达实扣）→ `change` 是**负数**（出库）；
+    #        送达时 `inventory_service.auto_stock_commit` 把 RESERVED(−qty) 翻成 COMMITTED，
+    #        所以这一条线的合计**必须**等于 −（该单商品数量合计）。
+    #      · `source='WAREHOUSE'` = **到仓入库**那条独立线（终点是"仓库点"→ 货真进库）→
+    #        `change=qty` **正数**（`services/warehouse.py::auto_warehouse_inbound`；口径见
+    #        `models/inventory.py` 那句「正数入库 / 负数出库」）。它对着**同一个 order_id**，
+    #        记的却是反方向的一件事 —— 用户原话就是"这条线是独立算的"。
+    #    旧判据 `where m.order_id=o.id and upper(m.status)='COMMITTED'` **没有 source 过滤**，
+    #    把两条线加在一起：+20（到仓入库）与 −20（订单实扣）互相抵消或互相顶牛。
+    #    本地库里那批 2026-06-23 的老单**只有** WAREHOUSE 那一半（那时订单线还没跑过），
+    #    于是 `mv=+20 vs want=−20` —— 看起来像"数据全错"，其实是判据把两件事当成了一件事。
+    #
+    # ③ 现在**按 source 拆成两条**，两条都还是硬的（各自 == 该单商品数量合计，方向带正负号）：
+    #      · 出库线少扣/多扣、或"送达没实扣" → 第一条红；
+    #      · 到仓入库漏入、或**同一批货入两次**（库存虚高，月底盘库才发现）→ 第二条红。
+    #    ⛔ 不许把两条线合起来"取绝对值"或"比大小"来让它变绿 —— 那是把判据改成恒真，
+    #       而"永远绿的检查 = 没有检查"（本项目最忌讳的一条）。
+    #    校准（2026-09-21 本地库）：出库线 2/2 一致、到仓入库线 39/39 一致 → 两条都绿。
+    check_ic(rep, "订单出库（source=ORDER）的实扣数量与该单商品数量之和对不上",
+             "select o.id, o.order_no, o.status, "
              "(select coalesce(sum(m.change),0) from inventory_movements m "
-             " where m.order_id=o.id and upper(m.status)='COMMITTED') mv, "
+             " where m.order_id=o.id and m.source='ORDER' and upper(m.status)='COMMITTED') mv, "
              "-(select coalesce(sum(p.quantity),0) from order_products p where p.order_id=o.id) want "
              "from orders o where exists (select 1 from inventory_movements m "
-             " where m.order_id=o.id and upper(m.status)='COMMITTED') and "
+             " where m.order_id=o.id and m.source='ORDER' and upper(m.status)='COMMITTED') and "
              "(select coalesce(sum(m.change),0) from inventory_movements m "
-             " where m.order_id=o.id and upper(m.status)='COMMITTED') != "
+             " where m.order_id=o.id and m.source='ORDER' and upper(m.status)='COMMITTED') != "
              "-(select coalesce(sum(p.quantity),0) from order_products p where p.order_id=o.id)",
-             "select count(distinct order_id) from inventory_movements where upper(status)='COMMITTED' "
-             "and order_id is not null", limit=lim)
+             "select count(distinct order_id) from inventory_movements where source='ORDER' "
+             "and upper(status)='COMMITTED' and order_id is not null", limit=lim)
+    check_ic(rep, "到仓入库（source=WAREHOUSE）的数量与该单商品数量之和对不上",
+             "select o.id, o.order_no, o.status, "
+             "(select coalesce(sum(m.change),0) from inventory_movements m "
+             " where m.order_id=o.id and m.source='WAREHOUSE' and upper(m.status)='COMMITTED') mv, "
+             "(select coalesce(sum(p.quantity),0) from order_products p where p.order_id=o.id) want "
+             "from orders o where exists (select 1 from inventory_movements m "
+             " where m.order_id=o.id and m.source='WAREHOUSE' and upper(m.status)='COMMITTED') and "
+             "(select coalesce(sum(m.change),0) from inventory_movements m "
+             " where m.order_id=o.id and m.source='WAREHOUSE' and upper(m.status)='COMMITTED') != "
+             "(select coalesce(sum(p.quantity),0) from order_products p where p.order_id=o.id)",
+             "select count(distinct order_id) from inventory_movements where source='WAREHOUSE' "
+             "and upper(status)='COMMITTED' and order_id is not null", limit=lim)
     check_ic(rep, "库存为负（超卖）", 
              "select id, name, stock from products where is_deleted=0 and stock < 0",
              "select count(*) from products where is_deleted=0", limit=lim, kind="risk")

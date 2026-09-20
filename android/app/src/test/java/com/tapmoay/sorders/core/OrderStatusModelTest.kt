@@ -18,12 +18,19 @@ import org.junit.Test
 class OrderStatusModelTest {
 
     @Test
-    fun `五个状态一个不少（少一档就等于那一档订单在客户端查无此单）`() {
-        assertEquals(5, OrderStatusModel.ALL.size)
+    fun `六个状态一个不少（少一档就等于那一档订单在客户端查无此单）`() {
+        // 2026-09-20 加了 RETURNED（已退货）：**与 CANCELLED 不是一回事** ——
+        // 撤销＝这单没发生过；退货＝送了、入了账、事后货退回来了。
+        assertEquals(6, OrderStatusModel.ALL.size)
         assertEquals(
-            listOf("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED", "DELIVERED", "CANCELLED"),
+            listOf("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED", "DELIVERED", "CANCELLED", "RETURNED"),
             OrderStatusModel.ALL,
         )
+    }
+
+    @Test
+    fun `可退货只有已送达一档（与后端 order_return 的状态门一致）`() {
+        assertEquals(setOf("DELIVERED"), OrderStatusModel.RETURNABLE)
     }
 
     @Test
@@ -38,6 +45,7 @@ class OrderStatusModelTest {
             "EDITABLE" to OrderStatusModel.EDITABLE,
             "FREIGHT_EDITABLE" to OrderStatusModel.FREIGHT_EDITABLE,
             "NOT_CANCELLED" to OrderStatusModel.NOT_CANCELLED,
+            "RETURNABLE" to OrderStatusModel.RETURNABLE,
             "DRIVER_OPEN" to OrderStatusModel.DRIVER_OPEN.toSet(),
         )
         for ((name, values) in sets) {

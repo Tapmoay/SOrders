@@ -30,8 +30,9 @@ import com.tapmoay.sorders.ui.nav.Modules
  * 版式与报表中心**共用** `EntryCardGrid`（抄一份的话两页迟早长得不一样）。
  *
  * ⚠️ 6 件事的清单唯一来源是 [Modules.ledgerHomeEntries] —— 这里不许再写一份。
- * ⚠️ **「司机结算」不单独占一格**：它并进「司机账」那一格里（在那类账的页面上有入口），
- *    这是用户点名要的"合并成一个"。
+ * ⚠️ **「司机结算」不单独占一格**：入口页里没有它（用户点名要"合并成一个"），而且账本页里
+ *    **也不再挂入口**（2026-09-20 第四轮：「那个结算，这个也直接去掉」）——
+ *    它从工作台那一格（`Routes.FREIGHT_SETTLEMENT`）进。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -825,8 +825,11 @@ private fun DetailBody(
                 //    就会显示「删除订单」——点了后端会 400（进行中的订单请走撤销或撤回），
                 //    而且司机还在路上，删掉会让他的列表里直接少一张单。
                 //    「界面给的按钮点了必然失败」这一类，本仓库已经栽过多次，判据必须两端同源。
+                //    ⚠️ 2026-09-20：这一对状态提成 `OrderStatusModel.SHIPPER_DELETABLE`
+                //       —— AI 侧（`SoftDeleteOrderHandler`）现在也判同一件事，
+                //       写两份的下场是"AI 说能删、界面没有按钮"或反过来。
                 val canDelete = (role == Role.SHIPPER &&
-                    (order.status == "CANCELLED" || order.status == "DELIVERED")) ||
+                    order.status in OrderStatusModel.SHIPPER_DELETABLE) ||
                     (role == Role.DISPATCHER &&
                         (order.status == "CANCELLED" || order.status == "DELIVERED" || order.status == "PENDING_DISPATCH" || order.isException))
                 if (canDelete) {

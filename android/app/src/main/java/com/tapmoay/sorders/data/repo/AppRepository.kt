@@ -4,7 +4,6 @@ import com.tapmoay.sorders.core.ApiBundle
 import com.tapmoay.sorders.core.ApiClient
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
-import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
@@ -15,11 +14,81 @@ class AppRepository(private val api: ApiBundle) {
 
     // ---- 订单 ----
     suspend fun orders(status: String? = null, q: String? = null, shipperId: Long? = null, tempShipperName: String? = null, dateFrom: String? = null, dateTo: String? = null, deletedOnly: Boolean? = null) =
-        api.orderApi.listOrders(status = status, q = q, shipperId = shipperId, tempShipperName = tempShipperName, dateFrom = dateFrom, dateTo = dateTo, deletedOnly = deletedOnly)
+        api.orderApi.listOrders(status = status, q = q, shipperId = shipperId, tempShipperName = tempShipperName, dateFrom = dateFrom, dateTo = dateTo, deletedOnly = deletedOnly).body().orEmpty()
+
+    /**
+     * 账本页的订单列表（**按送达日**开窗，并把截断位一起带回来）。
+     *
+     * ⚠️ 必须走这一条而不是 [orders]：账本页把"这些单的应收/已收/欠款"加在一起当 KPI，
+     *    而被截断时那个合计只含**取到的那一页** —— 不带 `meta` 就没法把这件事说出来
+     *    （红线 `_check_page_truncation_wiring.py` 管着：列表页必须渲染截断提示）。
+     */
+    suspend fun ordersByDelivered(
+        shipperId: Long? = null,
+        tempShipperName: String? = null,
+        deliveredFrom: String? = null,
+        deliveredTo: String? = null,
+    ) = api.orderApi.listOrders(
+        shipperId = shipperId,
+        tempShipperName = tempShipperName,
+        deliveredFrom = deliveredFrom,
+        deliveredTo = deliveredTo,
+    ).pageRows()
 
     /** 回收站（隔离区）里按关键词找订单——只有派单员能查。 */
     suspend fun deletedOrders(q: String? = null, limit: Int? = null) =
-        api.orderApi.listOrders(q = q, deletedOnly = true).let { if (limit == null) it else it.take(limit) }
+        api.orderApi.listOrders(q = q, deletedOnly = true).body().orEmpty().let { if (limit == null) it else it.take(limit) }
+
+    /**
+     * **货主账本**（以订单为基础）那一页的订单：我自己的单，按**送达日**开窗。
+     *
+     * 为什么单独一条而不是复用 [orders]：账本页把"这些单的应收 / 已收 / 欠款"加起来当合计，
+     * 被截断时那个合计只含**取到的那一页** —— 所以必须把 `meta` 一起带回来（红线
+     * `_check_page_truncation_wiring.py`：列表页必须把"这是不是全部"说出来）。
+     */
+    suspend fun myLedgerOrders(
+        q: String? = null,
+        deliveredFrom: String? = null,
+        deliveredTo: String? = null,
+        limit: Int? = null,
+    ) = api.orderApi.listOrders(
+        q = q,
+        deliveredFrom = deliveredFrom,
+        deliveredTo = deliveredTo,
+        limit = limit,
+    ).pageRows()
+
+    // ---- 货主自己那一本账：批发商给下游货主的核销（2026-09-20）----
+    //
+    // ⛔ 与上面的 `ledgerEntries` / `createReceipt`（派单员开的**公司账**）是两本账：
+    //    这里记的是"我的客户欠我多少、我收到了多少"。后端一个字节都不写
+    //    `orders.paid` / `cash_flows` / `ledgers` —— 所以这两个方法**不许**被改成
+    //    转发到 `ledgerApi`（那会让公司账上凭空多出一笔已收，而钱还在他自己口袋里）。
+
+    /** 我记下的核销（窗口按**订单送达日**；`includeDeleted=true` 连已撤销的一起回）。 */
+    suspend fun mySettlements(
+        orderId: Long? = null,
+        deliveredFrom: String? = null,
+        deliveredTo: String? = null,
+        includeDeleted: Boolean? = null,
+        limit: Int? = null,
+    ) = api.shipperLedgerApi.listSettlements(
+        orderId = orderId,
+        deliveredFrom = deliveredFrom,
+        deliveredTo = deliveredTo,
+        includeDeleted = includeDeleted,
+        limit = limit,
+    ).pageRows()
+
+    /** 核销一笔（`lines` 留空 = 整单）。 */
+    suspend fun createMySettlement(body: com.tapmoay.sorders.data.remote.api.ShipperSettlementCreateRequest) =
+        api.shipperLedgerApi.createSettlement(body)
+
+    /** 撤掉一笔核销（**软删**，界面上的"撤销核销"）。 */
+    suspend fun revokeMySettlement(id: Long) = api.shipperLedgerApi.deleteSettlement(id)
+
+    /** 把撤掉的核销放回来。 */
+    suspend fun restoreMySettlement(id: Long) = api.shipperLedgerApi.restoreSettlement(id)
 
     /** 把订单从回收站恢复（仅派单员）。 */
     suspend fun restoreOrder(orderId: Long) = api.orderApi.restoreOrder(orderId)
@@ -45,6 +114,59 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun cancelOrder(orderId: Long, reason: String = "") = api.orderApi.cancelOrder(orderId)
 
+    /**
+     * **订单退货**（2026-09-20）：整单退 / 只退其中几个商品，都走这一条。
+     * 后端一次动五样：行级已退数量、账本红冲、库存回补、已结账则自动退现、订单状态。
+     */
+    suspend fun returnOrder(
+        orderId: Long,
+        items: List<com.tapmoay.sorders.data.remote.dto.OrderReturnItem>,
+        note: String = "",
+    ) = api.orderApi.returnOrder(
+        orderId,
+        com.tapmoay.sorders.data.remote.dto.OrderReturnBody(items = items, note = note),
+    )
+
+    // ---------------------------------------------------------------- 退货申请（2026-09-21）
+    //
+    // 用户口径：「批发商**只是一个申请**，派单员才是实际性的操作」。
+    // 所以这四个写方法里，货主那两个（apply / withdraw）**一行钱和库存都不动** ——
+    // 它们只写申请单；真正的退货只有派单员的 `fulfillReturnRequest` 会调后端那条唯一执行路径。
+
+    /** 货主提交退货申请。 */
+    suspend fun applyReturnRequest(
+        orderId: Long,
+        items: List<com.tapmoay.sorders.data.remote.dto.OrderReturnItem>,
+        note: String = "",
+    ) = api.orderApi.applyReturnRequest(
+        com.tapmoay.sorders.data.remote.dto.ReturnRequestCreateBody(
+            orderId = orderId,
+            items = items,
+            note = note,
+        ),
+    )
+
+    /** 我的退货申请（`orderId` 非空 = 只看这一张单的）。 */
+    suspend fun myReturnRequests(orderId: Long? = null, status: String = "all") =
+        api.orderApi.myReturnRequests(orderId = orderId, status = status)
+
+    /** 撤回我的申请。 */
+    suspend fun withdrawReturnRequest(requestId: Long) = api.orderApi.withdrawReturnRequest(requestId)
+
+    /** 派单员的待办退货申请（`orderId` 非空 = 只看这一张单的）。 */
+    suspend fun returnRequestTodo(status: String = "pending", orderId: Long? = null) =
+        api.orderApi.returnRequestTodo(status = status, orderId = orderId)
+
+    /** 派单员驳回（理由必填）。 */
+    suspend fun rejectReturnRequest(requestId: Long, reason: String) =
+        api.orderApi.rejectReturnRequest(
+            requestId,
+            com.tapmoay.sorders.data.remote.dto.ReturnRequestRejectBody(reason = reason),
+        )
+
+    /** 派单员照申请办理：**库存与账本在这一刻才变**。 */
+    suspend fun fulfillReturnRequest(requestId: Long) = api.orderApi.fulfillReturnRequest(requestId)
+
     /** 软删除订单（进入隔离区 30 天：用户不可见，派单员可恢复） */
     suspend fun deleteOrder(orderId: Long) = api.orderApi.deleteOrder(orderId)
 
@@ -63,7 +185,12 @@ class AppRepository(private val api: ApiBundle) {
     ) = api.orderApi.assignOrder(
         orderId,
         com.tapmoay.sorders.data.remote.dto.OrderAssignRequest(
-            driverId, note, freightFee, collectCash, pieceAmount, commissionRate,
+            driverId = driverId,
+            internalNote = note,
+            freightFee = freightFee,
+            collectCash = collectCash,
+            driverPieceAmount = pieceAmount,
+            driverCommissionRate = commissionRate,
         ),
     )
 
@@ -547,6 +674,32 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun deleteFreightTemplate(id: Long) = api.freightTemplateApi.deleteTemplate(id)
 
+    // ---- 运费分类名册（2026-09-21）----
+    suspend fun freightCategories() = api.freightTemplateApi.listFreightCategories()
+
+    /** 运费待定价的单（已派单、没运费）——派单员手动定价那一页用它。 */
+    suspend fun unpricedOrders(): PageRows<com.tapmoay.sorders.data.remote.dto.OrderDto> =
+        api.orderApi.listOrders(unpriced = true, limit = 200).pageRows()
+
+    /** 手动定价（+ 可选沉淀成路线与价目）。 */
+    suspend fun priceFreight(
+        orderId: Long,
+        body: com.tapmoay.sorders.data.remote.dto.OrderFreightPriceRequest,
+    ) = api.orderApi.priceFreight(orderId, body)
+
+    /** 这一单 + 这个司机的运价结论（匹配只有后端一处实现）。 */
+    suspend fun quoteFreight(orderId: Long, driverId: Long? = null, categoryId: Long? = null) =
+        api.freightTemplateApi.quoteFreight(orderId, driverId, categoryId)
+    suspend fun createFreightCategory(body: com.tapmoay.sorders.data.remote.dto.FreightCategoryCreateRequest) =
+        api.freightTemplateApi.createFreightCategory(body)
+    suspend fun updateFreightCategory(id: Long, body: com.tapmoay.sorders.data.remote.dto.FreightCategoryUpdateRequest) =
+        api.freightTemplateApi.updateFreightCategory(id, body)
+    suspend fun deleteFreightCategory(id: Long) = api.freightTemplateApi.deleteFreightCategory(id)
+    suspend fun reorderFreightCategories(ids: List<Long>) =
+        api.freightTemplateApi.reorderFreightCategories(
+            com.tapmoay.sorders.data.remote.dto.FreightCategoryReorderRequest(ids)
+        )
+
     suspend fun restoreFreightTemplate(id: Long) = api.freightTemplateApi.restoreFreightTemplate(id)
 
     // ---- 司机计费规则模板 ----
@@ -652,6 +805,31 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun createSettlement(body: com.tapmoay.sorders.data.remote.dto.SettlementCreateRequest) = api.accountingApi.createSettlement(body)
     suspend fun settlementAction(id: Long, action: String, method: String = "cash") =
         api.accountingApi.settlementAction(id, com.tapmoay.sorders.data.remote.dto.SettlementActionRequest(action, method))
+    // ---- 开销分类名册（2026-09-20）：与商品分类同一套规矩 ----
+    suspend fun expenseCategories() = api.accountingApi.listExpenseCategories()
+
+    suspend fun createExpenseCategory(
+        name: String,
+        linkKind: String = "none",
+    ) = api.accountingApi.createExpenseCategory(
+        com.tapmoay.sorders.data.remote.dto.ExpenseCategoryCreateRequest(name = name, linkKind = linkKind)
+    )
+
+    suspend fun updateExpenseCategory(
+        id: Long,
+        name: String? = null,
+        linkKind: String? = null,
+    ) = api.accountingApi.updateExpenseCategory(
+        id,
+        com.tapmoay.sorders.data.remote.dto.ExpenseCategoryUpdateRequest(name = name, linkKind = linkKind),
+    )
+
+    suspend fun deleteExpenseCategory(id: Long) = api.accountingApi.deleteExpenseCategory(id)
+
+    suspend fun reorderExpenseCategories(ids: List<Long>) = api.accountingApi.reorderExpenseCategories(
+        com.tapmoay.sorders.data.remote.dto.ExpenseCategoryReorderRequest(ids)
+    )
+
     suspend fun expenses(category: String? = null, driverId: Long? = null, dateFrom: String? = null, dateTo: String? = null) =
         api.accountingApi.listExpenses(category, driverId, dateFrom, dateTo)
     /** @param idempotencyKey 见 [com.tapmoay.sorders.data.remote.api.AccountingApi.createExpense]；手动记账不传。 */

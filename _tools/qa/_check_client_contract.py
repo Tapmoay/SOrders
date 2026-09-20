@@ -194,10 +194,23 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
         gates[name] = (enum - _members(m.group(1)), f"orders.{func}::status in (…) → raise")
 
     body = body_of(ORDERS_API, "_payment_scoped_order")
-    m = re.search(r"if\s+order\.status\s*==\s*OrderStatus\.([A-Z_]+)\s*:\s*\n\s*raise", body)
-    if m is None:
-        raise KeyError("orders._payment_scoped_order 里没解析出 `if order.status == OrderStatus.X: raise`")
-    gates["NOT_CANCELLED"] = (enum - {m.group(1)}, "orders::_payment_scoped_order::status == X → raise")
+    # 两种写法都认：单值的 `== OrderStatus.X`（原来那种）与多值的 `in (A, B)`。
+    # ⚠️ 2026-09-20 加退货时合并成了 `in (CANCELLED, RETURNED)` —— 只认单值时这里会硬失败
+    #    （"形状变了，判据跟不上"），而如果当时改成"两种都不认就跳过"，这条红线就静默没了。
+    m = re.search(r"if\s+order\.status\s+==\s*OrderStatus\.([A-Z_]+)\s*:\s*\n\s*raise", body)
+    if m is not None:
+        gates["NOT_CANCELLED"] = (enum - {m.group(1)}, "orders::_payment_scoped_order::status == X → raise")
+    else:
+        m = re.search(r"if\s+order\.status\s+in\s*\(([^)]*)\)\s*:\s*\n\s*raise", body)
+        if m is None:
+            raise KeyError(
+                "orders._payment_scoped_order 里既没解析出 `if order.status == OrderStatus.X: raise`，"
+                "也没解析出 `if order.status in (…): raise`"
+            )
+        gates["NOT_CANCELLED"] = (
+            enum - _members(m.group(1)),
+            "orders::_payment_scoped_order::status in (…) → raise",
+        )
 
     return gates
 

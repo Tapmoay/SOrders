@@ -249,6 +249,9 @@ fun RoleHomeScreen(
                     container = container,
                     onBack = {},
                     onOpenOrder = { id -> onNavigate(Routes.orderDetail(id)) },
+                    // 消息中心里点退货申请类的通知 → 直达那一页并定位那一条（2026-09-21 用户要求）。
+                    // 路由由消息页一处算好（type + 当前角色），这里只把 onNavigate 交出去。
+                    onOpenReturnRequest = onNavigate,
                     embedded = true,
                 )
                 "driverOpen", "driverDone" -> DriverOrdersScreen(

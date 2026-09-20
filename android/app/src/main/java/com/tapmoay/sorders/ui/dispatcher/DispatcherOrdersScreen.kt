@@ -17,7 +17,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.ui.common.*
-import com.tapmoay.sorders.ui.nav.Routes
+import com.tapmoay.sorders.util.formatMoney
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,6 +120,11 @@ fun DispatcherOrdersScreen(
                                         TextButton(onClick = { vm.openRecall(order) }) {
                                             Text("撤回", color = MaterialTheme.colorScheme.error)
                                         }
+                                    }
+                                    // 退货（2026-09-20）：只有「已送达」且**还有可退的量**才给这个按钮 ——
+                                    // 点了必然被拒的按钮比没有按钮更糟（用户会以为系统坏了）。
+                                    if (order.status in OrderStatusModel.RETURNABLE && vm.hasReturnable(order)) {
+                                        TextButton(onClick = { vm.openReturn(order) }) { Text("退货") }
                                     }
                                 },
                             )
@@ -231,5 +236,89 @@ fun DispatcherOrdersScreen(
             confirmButton = { TextButton(onClick = { vm.confirmException() }, enabled = !vm.acting) { Text("登记") } },
             dismissButton = { TextButton(onClick = { vm.showExceptionDialog = false }) { Text("取消") } },
         )
+    }
+
+    // 退货弹窗（2026-09-20）：整单退 / 只退其中几个商品，**数量自己勾**
+    vm.returnTarget?.let { order ->
+        if (vm.showReturnDialog) {
+            AlertDialog(
+                onDismissRequest = { if (!vm.returnSubmitting) vm.showReturnDialog = false },
+                title = { Text("退货 " + order.orderNo) },
+                text = {
+                    Column {
+                        Text(
+                            "退回来的货会补回库存、账上按行红冲；这单如果已经收过钱，" +
+                                "退掉的那部分会自动记一笔退给客户的现金。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { vm.returnAll() }) { Text("整单全退") }
+                            TextButton(onClick = { vm.returnNone() }) { Text("全清零") }
+                        }
+                        order.orderProducts.forEach { line ->
+                            val max = vm.maxReturnable(line)
+                            val qty = vm.returnQty[line.id] ?: 0
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(line.productNameSnapshot, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        buildString {
+                                            append("下单 ").append(line.quantity)
+                                            if (line.damageQuantity > 0) append(" · 货损 ").append(line.damageQuantity)
+                                            if (line.returnedQuantity > 0) append(" · 已退 ").append(line.returnedQuantity)
+                                            append(" · 可退 ").append(max)
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { vm.setReturnQty(line.id, qty - 1) },
+                                    enabled = qty > 0,
+                                ) { Icon(Icons.Default.Remove, contentDescription = "减") }
+                                Text(qty.toString(), style = MaterialTheme.typography.titleMedium)
+                                IconButton(
+                                    onClick = { vm.setReturnQty(line.id, qty + 1) },
+                                    enabled = qty < max,
+                                ) { Icon(Icons.Default.Add, contentDescription = "加") }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("退货金额", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                "¥" + formatMoney(vm.returnAmount()),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            vm.returnNote,
+                            { vm.returnNote = it },
+                            label = { Text("退货备注（选填，会留痕）") },
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { vm.confirmReturn() },
+                        enabled = !vm.returnSubmitting,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text(if (vm.returnSubmitting) "处理中…" else "确认退货") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { vm.showReturnDialog = false }, enabled = !vm.returnSubmitting) { Text("取消") }
+                },
+            )
+        }
     }
 }

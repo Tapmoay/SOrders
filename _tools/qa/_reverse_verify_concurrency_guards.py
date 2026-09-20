@@ -116,8 +116,13 @@ CASES: list[tuple[str, Path, object]] = [
         "逐单核销不锁订单行（两个请求都读到 paid=False → 两条收款记录）",
         ACCT,
         lambda s: s.replace(
-            "for o in db.scalars(select(Order).where(Order.id.in_(order_ids)).with_for_update())",
-            "for o in db.scalars(select(Order).where(Order.id.in_(order_ids)))",
+            "select(Order)\n"
+            "                .options(selectinload(Order.order_products))\n"
+            "                .where(Order.id.in_(order_ids))\n"
+            "                .with_for_update()",
+            "select(Order)\n"
+            "                .options(selectinload(Order.order_products))\n"
+            "                .where(Order.id.in_(order_ids))",
             1,
         ),
     ),

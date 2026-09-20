@@ -101,6 +101,14 @@ data class OrderProductDto(
     /** 下单时定格的单位（件/箱/斤…）；老数据是空串 → 显示时不编"件"出来。 */
     val unit: String = "",
     @SerialName("damage_quantity") val damageQuantity: Int = 0,
+    /**
+     * 这一行**已退了几件**（2026-09-20 加的退货）。
+     *
+     * ⚠️ 界面上"最多还能退几件" = `quantity − damageQuantity − returnedQuantity`
+     * —— 与后端 `services/order_return.py::max_returnable` **同一份规则**。
+     * 两边各写一遍就会出现"界面让填 3、后端只认 2"这种当面打架（而且用户不知道该信谁）。
+     */
+    @SerialName("returned_quantity") val returnedQuantity: Int = 0,
 )
 
 @Serializable
@@ -145,6 +153,9 @@ data class OrderDto(
     @SerialName("is_new_for_driver") val isNewForDriver: Boolean = false,
     @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("freight_fee")
     val freightFee: String? = null,
+    /** 这一单属于**哪一类货**（运费分类）；空 + 没有运费 = 「运费待定价」。 */
+    @SerialName("freight_category_id") val freightCategoryId: Long? = null,
+    @SerialName("freight_category") val freightCategory: String = "",
     @SerialName("freight_visible") val freightVisible: Boolean = false,
     @SerialName("driver_billing_mode") val driverBillingMode: String? = null,
     @SerialName("driver_piece_amount") val driverPieceAmount: String? = null,
@@ -163,6 +174,128 @@ data class OrderDto(
     @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
     @SerialName("arrears_unit_name") val arrearsUnitName: String? = null,
     @SerialName("damage_note") val damageNote: String = "",
+    @SerialName("returned_at") val returnedAt: String? = null,
+    // ---- 这一单的钱（**唯一算法在**后端 `services/order_money.py`，客户端只显示，不许自己算）----
+    /** 已退金额（正数）。 */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("returned_amount")
+    val returnedAmount: String = "0",
+    /** 已收（含司机现场收的现金）。 */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("settled_amount")
+    val settledAmount: String = "0",
+    /** 已退给客户的现金（退货退款）。 */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("refunded_amount")
+    val refundedAmount: String = "0",
+    /**
+     * 欠款。**界面上一律用它**，不要拿"订单金额 − settledAmount"自己减：
+     * 退货红冲和退现都不在 `settledAmount` 里，减出来的数偏大。
+     * 恒等式（后端 `tests/test_order_return.py` 钉着）：
+     * `订单金额 − returnedAmount == (settledAmount − refundedAmount) + arrearsAmount`
+     */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("arrears_amount")
+    val arrearsAmount: String = "0",
+)
+
+/** 退货的一行（哪一行商品、退几件）。 */
+@Serializable
+data class OrderReturnItem(
+    @SerialName("order_product_id") val orderProductId: Long,
+    val quantity: Int,
+)
+
+/**
+ * `POST /orders/{id}/return` 的请求体。
+ *
+ * ⛔ **没有 `all = true` 这种开关**：整单退货就是把每一行的数量填满、走同一套行级校验。
+ *    多一个开关就多一条绕过「货损那几件不能退」的路径（后端 `order_return.py` 也是这么写的）。
+ */
+@Serializable
+data class OrderReturnBody(
+    val items: List<OrderReturnItem>,
+    val note: String = "",
+)
+
+/** `POST /orders/{id}/return` 的回参。 */
+@Serializable
+data class OrderReturnResultDto(
+    @SerialName("order_no") val orderNo: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("returned_amount")
+    val returnedAmount: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("refund_amount")
+    val refundAmount: String = "0",
+    @SerialName("fully_returned") val fullyReturned: Boolean = false,
+    @SerialName("restocked_lines") val restockedLines: Int = 0,
+    val warnings: List<String> = emptyList(),
+    val order: OrderDto? = null,
+)
+
+// ============================================================ 退货申请（2026-09-21）
+//
+// 用户口径：「批发商**只是一个申请**，派单员才是实际性的操作。派单员进行完了之后，
+// 整个才进行库存才会发生一个改变和变动」。
+// ⛔ 所以这几个 DTO 里**没有任何金额字段**是对的：申请阶段一分钱、一件货都不动，
+//    金额是派单员办理时由后端算出来的（写在 `ReturnRequestFulfillDto.returned` 里）。
+
+/** 申请要退的一行商品（后端 `ReturnRequestLineOut`）。 */
+@Serializable
+data class ReturnRequestLineDto(
+    @SerialName("order_product_id") val orderProductId: Long,
+    @SerialName("product_name") val productName: String = "",
+    val quantity: Int = 0,
+)
+
+/** 一张退货申请（货主端与派单端**同一个形状**，中文状态名由后端给）。 */
+@Serializable
+data class ReturnRequestDto(
+    val id: Long,
+    @SerialName("order_id") val orderId: Long = 0,
+    @SerialName("order_no") val orderNo: String = "",
+    @SerialName("shipper_id") val shipperId: Long = 0,
+    @SerialName("shipper_name") val shipperName: String = "",
+    val status: String = "",
+    /** 后端给的中文状态名（⛔ 前端不要再写一套映射：加了新状态就会显示原始码）。 */
+    @SerialName("status_label") val statusLabel: String = "",
+    val note: String = "",
+    @SerialName("reject_reason") val rejectReason: String = "",
+    val lines: List<ReturnRequestLineDto> = emptyList(),
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("handled_at") val handledAt: String? = null,
+    @SerialName("handled_by") val handledBy: Long? = null,
+    @SerialName("handled_by_name") val handledByName: String = "",
+    /** app=人工点、ai=AI 助手确认卡（报表/审计按它区分人机）。 */
+    val source: String = "app",
+) {
+    /** 还能撤回 / 还能被办理（两边都用这一个判据，避免"我以为还能撤"）。 */
+    val isPending: Boolean get() = status == "pending"
+
+    /** 一行摘要：`苹果×2、梨×1`（列表与卡片都用它，别再各写一遍拼接）。 */
+    val linesSummary: String
+        get() = lines.joinToString("、") { "${it.productName}×${it.quantity}" }.ifBlank { "（未填明细）" }
+}
+
+@Serializable
+data class ReturnRequestListDto(
+    val items: List<ReturnRequestDto> = emptyList(),
+    /** 待处理的张数（角标直接用，不要自己数）。 */
+    @SerialName("pending_count") val pendingCount: Int = 0,
+)
+
+/** 货主提交申请（`POST /return-requests`）。 */
+@Serializable
+data class ReturnRequestCreateBody(
+    @SerialName("order_id") val orderId: Long,
+    val items: List<OrderReturnItem>,
+    val note: String = "",
+)
+
+/** 派单员驳回（理由必填：那是货主唯一能拿到的答复）。 */
+@Serializable
+data class ReturnRequestRejectBody(val reason: String)
+
+/** `POST /return-requests/{id}/fulfill` 的回参：申请单的最终样子 + 那次真实退货的结果。 */
+@Serializable
+data class ReturnRequestFulfillDto(
+    val request: ReturnRequestDto,
+    val returned: OrderReturnResultDto,
 )
 
 @Serializable
@@ -296,6 +429,7 @@ data class OrderAssignRequest(
     @SerialName("driver_id") val driverId: Long,
     @SerialName("internal_note") val internalNote: String? = null,
     @SerialName("freight_fee") val freightFee: String? = null,
+
     @SerialName("collect_cash") val collectCash: Boolean? = null,
     @SerialName("driver_piece_amount") val driverPieceAmount: String? = null,
     @SerialName("driver_commission_rate") val driverCommissionRate: String? = null,
@@ -1056,17 +1190,71 @@ data class FreightTemplateDto(
     val remark: String = "",
     @SerialName("created_by") val createdBy: Long? = null,
     @SerialName("created_at") val createdAt: String = "",
+    /** 这条价目算**哪几类货**（运费分类编号）；派单匹配 = 路线 + 分类 + 司机。 */
+    @SerialName("category_ids") val categoryIds: List<Long> = emptyList(),
+    /** 上面那几个分类叫什么（后端一次给全，界面不用再查一次名册）。 */
+    @SerialName("category_names") val categoryNames: List<String> = emptyList(),
+    /** 挂在这条价目上的司机编号（空 = 谁都能用，见 `services/freight_pricing.py`）。 */
+    @SerialName("driver_ids") val driverIds: List<Long> = emptyList(),
+    /** 哪条**线路**（`shipper_addresses.id`）。老数据可能为 null（那时只有 from/to 文字）。 */
+    @SerialName("route_id") val routeId: Long? = null,
+    /** 这条价目**被哪几份计费规则用着**（价目归规则，反向也要看得见）。 */
+    @SerialName("rule_names") val ruleNames: List<String> = emptyList(),
+    /** 这条价目叫什么（小车价 / 大车价 / 回程价…）。 */
+    @SerialName("price_name") val priceName: String = "",
 )
 
 @Serializable
 data class FreightTemplateRequest(
     val name: String,
+    /** 选中的线路（**从线路库来**）。给了它，起点/终点以后端那条路线的快照为准。 */
+    @SerialName("route_id") val routeId: Long? = null,
     @SerialName("from_place") val fromPlace: String = "",
     @SerialName("to_place") val toPlace: String = "",
+    // ⚠️ 下面这几个**必须可空**：`encodeDefaults = true` 会把非空默认值**永远发出去** ——
+    //    只改价格的一次调用会顺手把分类/司机清空（AI 的 `updateFreightTemplate` 就是这么栽的，
+    //    见 `_tools/qa/_check_ai_dto_defaults.py`）。null = 不改这一项（后端 PATCH 语义）。
+    @SerialName("price_name") val priceName: String? = null,
     @SerialName("vehicle_type") val vehicleType: String? = null,
     @Serializable(with = FlexibleStringSerializer::class) val fee: String = "0",
     val remark: String = "",
+    @SerialName("driver_ids") val driverIds: List<Long>? = null,
+    @SerialName("category_ids") val categoryIds: List<Long>? = null,
 )
+
+// ===== 运费分类名册（2026-09-21）：运费模板与司机计费规则**共用**的一套分类 =====
+
+/**
+ * 一条运费分类（「蔬菜」「水果」「冻品」…）。
+ *
+ * 用户 2026-09-21：「**他那个运费模板是有自己的一套分类的**，只是我们复用他那个代码和方法」
+ * —— 形制与商品分类/开销分类一模一样（名字 + 顺序 + 一个分类管理页），内容各管各的。
+ */
+@Serializable
+data class FreightCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 有几条运费价目挂在这一类（删之前要让用户看见"还有几条在用"）。 */
+    @SerialName("template_count") val templateCount: Int = 0,
+    /** 有几份司机计费规则在这一类上定了价。 */
+    @SerialName("rule_count") val ruleCount: Int = 0,
+)
+
+@Serializable
+data class FreightCategoryCreateRequest(
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+)
+
+@Serializable
+data class FreightCategoryUpdateRequest(
+    val name: String? = null,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+)
+
+@Serializable
+data class FreightCategoryReorderRequest(val ids: List<Long>)
 
 // ===== 司机计费规则模板 =====
 
@@ -1113,6 +1301,16 @@ data class DriverBillingRuleDto(
     @SerialName("attached_count") val attachedCount: Int = 0,
     @SerialName("is_deleted") val isDeleted: Boolean = false,
     @SerialName("created_at") val createdAt: String? = null,
+
+    /** 每单金额怎么定：`uniform` = 所有单统一；`category` = 按运费分类逐类定价。 */
+    @SerialName("piece_mode") val pieceMode: String = "uniform",
+    /** 按分类定价表（只在 `pieceMode == "category"` 时有内容）。 */
+    val categories: List<RuleCategoryDto> = emptyList(),
+    /** 这份规则**用哪几条运费价目**（价目归规则：派单选了司机就从这里挑）。 */
+    @SerialName("template_ids") val templateIds: List<Long> = emptyList(),
+    /** 勾的价目摘要，一条一行「路线 ¥价格」；空 = 还没勾，派单会进待定价。 */
+    @SerialName("template_briefs") val templateBriefs: List<String> = emptyList(),
+
 )
 
 /**
@@ -1143,6 +1341,15 @@ data class DriverBillingRuleRequest(
     /** 抽成范围（商品编号）。null = 不改；空列表 = 改成"不限商品"。 */
     @SerialName("commission_product_ids") val commissionProductIds: List<Long>? = null,
     val remark: String? = null,
+    // ⚠️ 可空（null = 不改这一项）：非空默认值会被 `encodeDefaults = true` 永远发出去 ——
+    //    "只改工资"的一次更新会把按分类定价整张表抹成"统一价"。
+    @SerialName("piece_mode") val pieceMode: String? = null,
+    /** 按分类定价表（`pieceMode=category` 时必填；null = 不改） */
+    val categories: List<RuleCategoryRequest>? = null,
+    /** 这份规则用哪几条价目（null = 不改） */
+    @SerialName("template_ids") val templateIds: List<Long>? = null,
+
+
 )
 
 /**
@@ -1209,6 +1416,13 @@ data class FreightSettlementOrderDto(
     @SerialName("pay_commission") val payCommission: String = "0",
     @SerialName("delivery_description") val deliveryDescription: String = "",
     @SerialName("address_detail") val addressDetail: String = "",
+    /**
+     * 起点地址 —— **后端目前不出这个字段**（`orders` 表没有起点列，下单选线路只快照了终点），
+     * 所以它恒为 null。留着它是因为用户 2026-09-20 的裁决：
+     * 「有起点和终点（也就是路线）的时候就**自动显示**，没有路线就自动显示终点」——
+     * 后端哪天把起点补进订单出参，App 这边**不用再改一行**就自动变成「起点 → 终点」。
+     */
+    @SerialName("origin_address") val originAddress: String? = null,
 )
 
 
@@ -1271,6 +1485,17 @@ data class ReceiptCreateRequest(
     @SerialName("settle_mode") val settleMode: String = "itemized",
     @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
     val note: String = "",
+    /**
+     * **按商品核销**（2026-09-20）：只核销点名的这几行（`order_products.id`）。
+     *
+     * 留空 = 整单核销（老语义）。给了行的时候 `amount` 必须等于**这些行**的应收合计，
+     * 后端会逐行校验归属（行必须落在 `orderIds` 这几张单里）。
+     *
+     * ⚠️ 它**故意排在最后**：这个类有一处按位置传参的老调用
+     *    （`AccountToolsScreens.kt` 的收款页），插在中间会把 `settle_mode` 顶到别的位置上
+     *    —— 编译能过（都是 String？不，会报类型错），但真机上收款的语义会变。
+     */
+    @SerialName("order_product_ids") val orderProductIds: List<Long> = emptyList(),
 )
 
 @Serializable
@@ -1332,10 +1557,52 @@ data class ExpenseDto(
     @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
     @SerialName("driver_id") val driverId: Long? = null,
     @SerialName("order_id") val orderId: Long? = null,
+    @SerialName("vehicle_id") val vehicleId: Long? = null,
     @SerialName("driver_name") val driverName: String? = null,
+    /** 车牌（卡片上「突出车辆」时显示的就是它）。 */
+    @SerialName("vehicle_name") val vehicleName: String? = null,
     @SerialName("order_no") val orderNo: String? = null,
     val note: String = "",
+    /**
+     * 这个分类"卡片上突出哪一项"（`vehicle`/`driver`/`order`/`none`）。
+     *
+     * ⚠️ 它来自**分类名册**（`expense_categories.link_kind`），由服务端按这笔开销的分类带下来 ——
+     *    客户端**不许**自己按分类名 `when(...)` 判（用户新加一个分类就失效了）。
+     */
+    @SerialName("link_kind") val linkKind: String = "none",
 )
+
+/**
+ * 开销分类名册里的一行（`GET /expense-categories`）。
+ *
+ * `id == 0` = **名册外的分类**（老数据/直接写库的）：它排在最后、改不了名也排不了序，
+ * 但它名下的开销**必须照常显示**（不在名册里 ≠ 这笔钱不存在）。
+ */
+@Serializable
+data class ExpenseCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("link_kind") val linkKind: String = "none",
+    @SerialName("expense_count") val expenseCount: Int = 0,
+)
+
+@Serializable
+data class ExpenseCategoryCreateRequest(
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+    @SerialName("link_kind") val linkKind: String = "none",
+)
+
+@Serializable
+data class ExpenseCategoryUpdateRequest(
+    val name: String? = null,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+    @SerialName("link_kind") val linkKind: String? = null,
+)
+
+@Serializable
+data class ExpenseCategoryReorderRequest(val ids: List<Long>)
 
 /**
  * 资金流水的**服务端汇总**（`GET /cash-flows/summary`）。
@@ -1409,4 +1676,61 @@ data class VehicleDto(
     @SerialName("driver_id") val driverId: Long? = null,
     @SerialName("driver_name") val driverName: String? = null,
     @SerialName("is_active") val isActive: Boolean = true,
+)
+
+// ===== 计费规则「按分类定价」的一行（2026-09-21）=====
+@Serializable
+data class RuleCategoryDto(
+    @SerialName("category_id") val categoryId: Long = 0,
+    @SerialName("category_name") val categoryName: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("piece_amount")
+    val pieceAmount: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("commission_rate")
+    val commissionRate: String = "0",
+)
+
+@Serializable
+data class RuleCategoryRequest(
+    @SerialName("category_id") val categoryId: Long,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("piece_amount")
+    val pieceAmount: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("commission_rate")
+    val commissionRate: String = "0",
+)
+
+// ===== 手动定价 / 运价报价（2026-09-21）=====
+@Serializable
+data class OrderFreightPriceRequest(
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("freight_fee")
+    val freightFee: String,
+    /** 这一单算哪一类货（计费规则按分类给钱时要用它） */
+    @SerialName("category_id") val categoryId: Long? = null,
+    /** 定价的同时把这条路线 + 价目沉淀成模板（下次同样的单自动带价） */
+    @SerialName("save_template") val saveTemplate: Boolean = false,
+    @SerialName("template_name") val templateName: String = "",
+    @SerialName("price_name") val priceName: String = "",
+    /** （已废弃）价目不再绑司机；沉淀出来的价目会**自动勾进这一单司机的规则** */
+    @SerialName("bind_driver") val bindDriver: Boolean = false,
+)
+
+@Serializable
+data class FreightQuoteCandidateDto(
+    @SerialName("template_id") val templateId: Long = 0,
+    val name: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val fee: String = "0",
+    @SerialName("price_name") val priceName: String = "",
+    val route: String = "",
+    @SerialName("category_names") val categoryNames: List<String> = emptyList(),
+    @SerialName("driver_names") val driverNames: List<String> = emptyList(),
+)
+
+@Serializable
+data class FreightQuoteDto(
+    val matched: FreightQuoteCandidateDto? = null,
+    @SerialName("category_id") val categoryId: Long? = null,
+    @SerialName("category_name") val categoryName: String = "",
+    /** 没匹配到时的原因（后端给的中文，界面直接显示） */
+    val reason: String = "",
+    /** 同样优先级的候选多于一条（不猜，让派单员挑） */
+    val ambiguous: List<FreightQuoteCandidateDto> = emptyList(),
 )

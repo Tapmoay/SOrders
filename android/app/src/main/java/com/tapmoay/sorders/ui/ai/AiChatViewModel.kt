@@ -784,6 +784,13 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
             // 所以从 viewModelScope 进来时这里就在 Main 线程，可以直接写 Compose state。
             val streamed = StringBuilder()
             try {
+                // ---- 发送前第 0 步：**问清"是不是批发商货主"**（2026-09-20 用户第七轮）----
+                // 工具清单、enum、身份段里那份"你实际能干的事"都是按 (角色 + member) 现算的
+                // （见 AiActor）。这一问必须发生在 `agentLoop.run` **之前**：
+                // 它是同步读 [AiContainer.memberShipper] 的，晚一步模型拿到的就是上一轮的清单。
+                // 失败不影响提问（容器里保留了上一次的值，首次仍是 false = 按普通货主，fail-closed）。
+                ai.refreshMembership()
+
                 // ---- 发送前：两道闸，顺序不能反（v3.34）----
                 // ① 固定预算（主闸）：先降级、再丢弃，**与模型窗口无关**，纯计算不联网
                 //    —— 它替代了"窗口 40% 才压缩"那个实际永不触发的旧触发点

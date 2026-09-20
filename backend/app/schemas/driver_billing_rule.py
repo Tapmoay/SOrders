@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.money import MoneyInput
 from app.schemas.text import MAX_TEXT
-from app.services.driver_pay import COMMISSION_BASES, PIECE_UNITS
+from app.services.driver_pay import COMMISSION_BASES, PIECE_MODES, PIECE_UNITS
 
 _VEHICLE_TYPES = ("small", "large", "trailer")
 
@@ -38,6 +38,28 @@ def validate_rule_params(p: dict) -> str | None:
     if base not in COMMISSION_BASES:
         return "提成基数只能是 none/freight（运费）/goods（商品金额）"
 
+    # ---- 「每单金额怎么定」：所有单统一 / 按运费分类（用户 2026-09-21）----
+    mode = p.get("piece_mode") or "uniform"
+    if mode not in PIECE_MODES:
+        return "每单金额的定法只能是 uniform（所有单统一）或 category（按运费分类）"
+    cats = list(p.get("categories") or [])
+    if mode == "category":
+        if not cats:
+            return "选了「按分类定价」，就要至少给一个分类填金额（否则这份规则一分钱都算不出来）"
+        for c in cats:
+            if Decimal(str(c.get("piece_amount") or 0)) < 0:
+                return "按分类的每单金额不能是负数"
+            rate = Decimal(str(c.get("commission_rate") or 0))
+            if rate < 0:
+                return "按分类的提成比例不能是负数"
+            if rate > 100:
+                return "按分类的提成比例不能超过 100%"
+        if Decimal(str(p.get("piece_amount") or 0)) > 0 or Decimal(str(p.get("commission_rate") or 0)) > 0:
+            # ⛔ 「填了不生效」正是本项目最恨的那种情况（界面上有数字、账单按另一个算）
+            return "选了「按分类定价」，就不要再填统一的每单金额/提成比例（两者取一）"
+    elif cats:
+        return "填了分类金额，就把「每单金额的定法」选成「按分类」（否则那些数字不会生效）"
+
     for key, cn in (("salary", "固定工资"), ("piece_amount", "每单金额"), ("commission_rate", "提成比例")):
         v = p.get(key)
         if v is None:
@@ -58,12 +80,14 @@ def validate_rule_params(p: dict) -> str | None:
         return "填了提成比例，就要选提成基数（按运费还是按商品金额）——否则这份规则一分钱都算不出来"
     if base != "none" and rate <= 0:
         return "选了提成基数，就要填提成比例（百分比）"
+    if mode == "category" and unit == "order_price":
+        return "「每单拿这一单的钱」与「按分类定价」不能同时配（前者本来就逐单不同）；只留一个"
     if unit == "order_price" and base == "freight" and rate > 0:
         # "拿这一单全额" 再加 "按这单运费抽 X%" = 拿了 100%+X%，几乎一定是配错了
         return "「每单拿这一单的钱」和「按运费抽成」不能同时配（那等于拿 100% 再加提成）；只留一个"
     if unit == "order_price" and piece > 0:
         return "「每单拿这一单的钱」时不要再填固定每单金额（两者取一）"
-    if salary <= 0 and piece <= 0 and rate <= 0 and unit != "order_price":
+    if salary <= 0 and piece <= 0 and rate <= 0 and unit != "order_price" and mode != "category":
         return "这份规则一分钱都不给（固定工资/每单金额/提成/拿这一单的钱 至少要有一个）"
     return None
 
@@ -80,10 +104,24 @@ class DriverBillingRuleCreate(MoneyInput):
     salary: Decimal = Decimal("0")
     piece_amount: Decimal = Decimal("0")
     piece_unit: str = Field("order", max_length=8)
+    #: uniform（所有单统一）或 category（按运费分类）
+    piece_mode: str = Field("uniform", max_length=16)
+    #: 按分类定价表（只在 piece_mode=category 时有意义）
+    categories: list["RuleCategoryIn"] = []
     commission_base: str = Field("none", max_length=16)
     commission_rate: Decimal = Decimal("0")
     commission_product_ids: list[int] = []
+    #: 这份规则**用哪几条运费价目**（价目编号；空 = 还没勾，派单时这一单会进「待定价」）
+    template_ids: list[int] = []
     remark: str = Field("", max_length=MAX_TEXT)
+
+
+class RuleCategoryIn(BaseModel):
+    """一条「分类 → 每单金额/比例」。"""
+
+    category_id: int
+    piece_amount: Decimal = Decimal("0")
+    commission_rate: Decimal = Decimal("0")
 
 
 class DriverBillingRuleUpdate(MoneyInput):
@@ -94,9 +132,14 @@ class DriverBillingRuleUpdate(MoneyInput):
     salary: Decimal | None = None
     piece_amount: Decimal | None = None
     piece_unit: str | None = Field(None, max_length=8)
+    piece_mode: str | None = Field(None, max_length=16)
+    #: None = 不动；[] = 清空（PATCH 语义与 driver_ids 那类字段一致）
+    categories: list[RuleCategoryIn] | None = None
     commission_base: str | None = Field(None, max_length=16)
     commission_rate: Decimal | None = None
     commission_product_ids: list[int] | None = None
+    #: None = 不动；[] = 一条都不用（PATCH 语义与 driver_ids 那类字段一致）
+    template_ids: list[int] | None = None
     remark: str | None = Field(None, max_length=MAX_TEXT)
 
 
@@ -107,12 +150,19 @@ class DriverBillingRuleOut(BaseModel):
     salary: Decimal
     piece_amount: Decimal
     piece_unit: str
+    piece_mode: str = "uniform"
+    #: 按分类定价表（编号 + 名字都下发：名字用于显示，编号用于回填表单）
+    categories: list["RuleCategoryOut"] = []
     commission_base: str
     commission_rate: Decimal
     # 抽成范围（商品 id 列表；空 = 不限）
     commission_product_ids: list[int] = []
     # 这些商品叫什么（出参给人看，不用客户端再查一次商品库）
     commission_product_names: list[str] = []
+    #: 这份规则挂着哪几条价目（编号 + 摘要都下发：摘要用于显示，编号用于回填表单）
+    template_ids: list[int] = []
+    #: 勾的价目摘要，一条一行「路线 ¥价格」（见 `_template_briefs`）；空 = 还没勾，派单会进待定价
+    template_briefs: list[str] = []
     remark: str = ""
     # 一句话说清它怎么给钱（由 `driver_pay.PayRule.describe()` 生成，界面/卡片直接显示）
     summary: str = ""
@@ -129,3 +179,17 @@ class AttachRuleBody(BaseModel):
 
     driver_id: int
     rule_id: int | None = None
+
+
+class RuleCategoryOut(BaseModel):
+    """一条「分类 → 每单金额/比例」（出参：带分类名，界面不用再查一次名册）。"""
+
+    category_id: int
+    category_name: str = ""
+    piece_amount: Decimal = Decimal("0")
+    commission_rate: Decimal = Decimal("0")
+
+
+DriverBillingRuleCreate.model_rebuild()
+DriverBillingRuleUpdate.model_rebuild()
+DriverBillingRuleOut.model_rebuild()

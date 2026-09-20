@@ -344,7 +344,7 @@ class AiAgentLoop(
         return buildString {
             // ⚠️ 身份段放在**最前面**：后面那些规则（成本价、36 张表、那几类永远不做的动作）
             //    都是按派单员的口径写的，货主读到会以为自己也有这些能力。
-            appendLine(AiRolePrompt.brief(tools.role, tools.enabledReadModules))
+            appendLine(AiRolePrompt.brief(tools.actor, tools.enabledReadModules))
             appendLine()
             appendLine("今天是 $today（${weekdayCn(today)}）。所有「今天/本周/上周/本月」都要基于这个日期换算。")
             appendLine()
@@ -481,19 +481,19 @@ class AiAgentLoop(
      * 原来写死的是派单员的例子（派给谁、改哪个账号、新密码是什么）——货主读到这些词，
      * 会以为自己也有派单/建账号的能力（这正是"说得出做不到"的来源之一）。
      */
-    private fun decideExamples(): String = when (tools.role) {
+    private fun decideExamples(): String = when (tools.actor?.role) {
         AiRole.SHIPPER -> "下什么货、每种多少件、送到哪个地址、用哪个联系人、备注写什么、要撤哪一单"
         else -> "派给谁、操作哪一单、改哪个商品、改哪个账号、下什么货、多少钱、挂到哪个单位、新密码是什么"
     }
 
     /** 「你能改的域」也按角色算：货主看到的不能是派单员的七个域。 */
     private fun writeGroupsHint(): String {
-        val groups = AiWrites.forModel(tools.role).map { it.group }.distinct()
+        val groups = AiWrites.forModel(tools.actor).map { it.group }.distinct()
         return if (groups.isEmpty()) "一个都没有" else groups.joinToString("、")
     }
 
     /** 「你能读几张表」同理：数字从同一份 [AiReads.forRole] 算，避免提示词和工具说明对不上。 */
-    private fun readTableCount(): Int = AiReads.forRole(tools.role, tools.enabledReadModules).size
+    private fun readTableCount(): Int = AiReads.forRole(tools.actor, tools.enabledReadModules).size
 
     // ------------------------------------------------------------------ 辅助
 

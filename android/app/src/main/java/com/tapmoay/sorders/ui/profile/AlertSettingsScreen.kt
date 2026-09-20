@@ -34,7 +34,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.tapmoay.sorders.core.AlertKind
 import com.tapmoay.sorders.core.AlertService
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.NewOrderAlert
@@ -42,7 +41,7 @@ import com.tapmoay.sorders.ui.common.TintedIcon
 import com.tapmoay.sorders.ui.nav.Role
 
 /**
- * 消息提醒设置（司机端最要紧的一页）。
+ * 消息提醒设置（司机端与派单员端最要紧的一页）。
  *
  * 为什么值得单独一页：这一页上的每一项都对应一个**用户能听懂、也必须能自己决定**的事——
  * 「来单了会不会喊」「喊几遍」「关了 App 还收不收」「手机是不是自己把后台掐了」。
@@ -63,9 +62,11 @@ fun AlertSettingsScreen(
     var repeat by remember { mutableIntStateOf(prefs.repeatTimes) }
     var background by remember { mutableStateOf(prefs.backgroundEnabled(role)) }
     var boost by remember { mutableStateOf(prefs.boostVolume) }
-    // 语音只有司机有（判定在 NewOrderAlert.isSpoken）。给货主/派单员也摆一个「新单语音提醒」
-    // 开关，等于让他们调一个永远不会生效的东西——**能点、但不做事**比没有更糟。
-    val voiceRole = NewOrderAlert.isSpoken(role)
+    // 语音按角色分工（判定在 NewOrderAlert.voiceKind）：司机听「有新派单」、
+    // 派单员听「有新订单待派单」，**货主一句都没有**。给货主也摆一个「新单语音提醒」
+    // 开关，等于让他调一个永远不会生效的东西——**能点、但不做事**比没有更糟。
+    // 这句话也是"试听按钮该播哪一句"的唯一来源（不许在这页里硬编码某个 AlertKind）。
+    val voiceKind = NewOrderAlert.voiceKind(role)
     // 系统权限/省电策略会被用户在系统设置里改，回到这一页要重新读一次
     var notifAllowed by remember { mutableStateOf(notificationsAllowed(context)) }
     var batteryFree by remember { mutableStateOf(batteryUnrestricted(context)) }
@@ -99,18 +100,22 @@ fun AlertSettingsScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
-            if (voiceRole) {
+            if (voiceKind != null) {
                 SwitchRow(
                     icon = Icons.Default.NotificationsActive,
                     color = Color(0xFFFF4D4F),
                     title = "新单语音提醒",
-                    subtitle = "有新派单时大声念「来单了」",
+                    subtitle = if (role == Role.DISPATCHER) {
+                        "有订单需要派时大声念「有新订单待派单」"
+                    } else {
+                        "有新派单时大声念「来单了」"
+                    },
                     checked = voice,
                     onCheckedChange = {
                         voice = it
                         prefs.voiceEnabled = it
                         // 立刻生效给用户听一遍：开关拨了却不出声，用户只会怀疑是坏的
-                        if (it) container.newOrderPlayer.play(AlertKind.NEW_ORDER, NewOrderAlert.plan(1))
+                        if (it) container.newOrderPlayer.play(voiceKind, NewOrderAlert.plan(1))
                         else container.newOrderPlayer.stop()
                     },
                 )
@@ -119,11 +124,12 @@ fun AlertSettingsScreen(
                 Spacer(Modifier.height(4.dp))
                 ChoiceRow(
                     title = "念几遍",
+                    role = role,
                     current = repeat,
                     onPick = {
                         repeat = it
                         prefs.repeatTimes = it
-                        container.newOrderPlayer.play(AlertKind.NEW_ORDER, NewOrderAlert.planFor(AlertKind.NEW_ORDER, it))
+                        container.newOrderPlayer.play(voiceKind, NewOrderAlert.planFor(voiceKind, it))
                     },
                 )
                 Spacer(Modifier.height(8.dp))
@@ -131,7 +137,7 @@ fun AlertSettingsScreen(
                     headlineContent = { Text("试听一声") },
                     supportingContent = {
                         Text(
-                            "按下播一遍（约 3 秒），确认手机上真的听得见",
+                            "按下播一遍（约 5 秒），确认手机上真的听得见",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -142,8 +148,8 @@ fun AlertSettingsScreen(
                     modifier = Modifier
                         .clickable {
                             container.newOrderPlayer.play(
-                                AlertKind.NEW_ORDER,
-                                NewOrderAlert.planFor(AlertKind.NEW_ORDER, repeat),
+                                voiceKind,
+                                NewOrderAlert.planFor(voiceKind, repeat),
                             )
                         }
                         .fillMaxWidth(),
@@ -153,7 +159,7 @@ fun AlertSettingsScreen(
                     icon = Icons.Default.VolumeUp,
                     color = Color(0xFFFF9500),
                     title = "响的时候自动提高音量",
-                    subtitle = "手机音量太低时临时提到 70%，念完恢复原样",
+                    subtitle = "手机音量太低时临时提到 80%，念完恢复原样",
                     checked = boost,
                     onCheckedChange = { boost = it; prefs.boostVolume = it },
                 )
@@ -209,10 +215,10 @@ fun AlertSettingsScreen(
 
             Spacer(Modifier.height(20.dp))
             Text(
-                if (voiceRole) {
-                    "语音只对司机端播报：派单员和货主收到的消息只有通知栏提醒。"
+                if (voiceKind != null) {
+                    "语音按角色分工：司机听「有新派单」，派单员听「有新订单待派单」；其他消息只有通知栏提醒。"
                 } else {
-                    "语音播报只在司机端有（司机才需要边开车边听单）；你收到的消息会进通知栏。"
+                    "语音播报只在司机端和派单员端有（一个要边开车边听单、一个要在手机上派单）；你收到的消息会进通知栏。"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -259,7 +265,7 @@ private fun SwitchRow(
 
 /** 档位选择：固定几档而不是滑杆——司机在车上没空调一个滑杆 */
 @Composable
-private fun ChoiceRow(title: String, current: Int, onPick: (Int) -> Unit) {
+private fun ChoiceRow(title: String, role: Role?, current: Int, onPick: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(6.dp))
@@ -272,7 +278,8 @@ private fun ChoiceRow(title: String, current: Int, onPick: (Int) -> Unit) {
                     modifier = Modifier.clickable { onPick(n) },
                 ) {
                     Text(
-                        NewOrderAlert.repeatLabel(n),
+                        // 档位文案也按角色说：司机是「响到我接单」，派单员是「响到我派完单」
+                        NewOrderAlert.repeatLabel(n, role),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
                         color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,

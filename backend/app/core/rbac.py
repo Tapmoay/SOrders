@@ -24,6 +24,20 @@ class Permission(str, Enum):
     ORDER_READ_ALL = "order:read_all"
     ORDER_CANCEL_SHIPPER = "order:cancel_shipper"
     ORDER_CANCEL_DISPATCHER = "order:cancel_dispatcher"
+    # 退货（2026-09-20）：**只有派单员**能做。
+    # 为什么不给货主：一次退货同时动四样东西（账本红冲、库存回补、可能退现、订单状态），
+    # 而货主端看到的就是"应收"这个数 —— 让他按一下就把自己的应收改掉，这份账就没有第二个人核对了。
+    # 与撤销的差别正在这里：撤销不动钱也不动库存（把还没发生的单作废），所以货主可以自己做。
+    ORDER_RETURN = "order:return"
+    # 货主**申请**退货（2026-09-21 用户要求：「批发商只是一个申请，派单员才是实际性的操作」）。
+    #
+    # ⛔ 为什么必须与 `ORDER_RETURN` **分开两个权限点**（而不是给货主加上 ORDER_RETURN）：
+    #    两者的差别正是这一轮要保住的那条线 ——
+    #    · `ORDER_RETURN_REQUEST` = **写一张申请单**（不碰账本、不碰库存、不改订单状态）；
+    #    · `ORDER_RETURN` = **真的退货**（红冲营收、回补库存、可能退现、订单转「已退货」）。
+    #    合成一个权限点的后果不是"少一层校验"，而是把上面那条注释的理由原地作废：
+    #    货主按一下就能改自己的应收和公司库存，而派单员根本不知道。
+    ORDER_RETURN_REQUEST = "order:return_request"
     ORDER_DELETE_CANCELLED = "order:delete_cancelled"
     ORDER_DISPATCH = "order:dispatch"
     ORDER_RECALL = "order:recall"
@@ -50,6 +64,11 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.ORDER_CREATE,
             Permission.ORDER_READ_OWN,
             Permission.ORDER_CANCEL_SHIPPER,
+            # 申请退货（2026-09-21）：**只申请**。真正的退货是**另一个权限点**，
+            # 它只在 dispatcher 那一格里（见上面两段注释）。
+            # ⚠️ 这条注释里刻意**不写**那个权限点的完整名字：`_check_order_return.py` 会在
+            #    "货主这一段"里搜它，写了就等于声明"货主也有退货权"（那是错的）。
+            Permission.ORDER_RETURN_REQUEST,
             Permission.ORDER_DELETE_CANCELLED,
             Permission.LEDGER_READ_OWN,
             Permission.NOTIFICATION_READ,
@@ -69,6 +88,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.ORDER_CREATE,
             Permission.ORDER_READ_ALL,
             Permission.ORDER_CANCEL_DISPATCHER,
+            Permission.ORDER_RETURN,
             Permission.ORDER_DELETE_CANCELLED,
             Permission.ORDER_DISPATCH,
             Permission.ORDER_RECALL,

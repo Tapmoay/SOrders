@@ -18,14 +18,22 @@ from fastapi import (
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
-from app.core.business_time import utc_now_naive
+from app.core.business_time import business_range_utc, utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, parse_date_range, require_permission
 from app.models import ArrearsUnit, Order, User
 from app.models.enums import OperationAction, OrderStatus, UserRole
+from app.models import (
+    DriverBillingRuleTemplate,
+    FreightCategory,
+    FreightTemplate,
+    FreightTemplateCategory,
+    ShipperAddress,
+)
 from app.schemas.order import (
+    OrderFreightPriceBody,
     BatchAssignResultItem,
     DeliveryPhotoUploadOut,
     DriverNoteBody,
@@ -40,6 +48,8 @@ from app.schemas.order import (
     OrderExceptionBody,
     OrderOut,
     OrderRecallBody,
+    OrderReturnBody,
+    OrderReturnOut,
     OrderUpdate,
 )
 from app.schemas.place import OrderNavigationBody
@@ -56,7 +66,10 @@ from app.services.order_flow import (
     ensure_order_date,
     recall_dispatch,
 )
+from app.services.order_money import money_map
 from app.services.order_response import enrich_order_out, load_order_for_response
+from app.services.order_return import OrderReturnError, ReturnItem, return_order
+from app.services import order_return_request as return_request_svc
 from app.services.push_events import (
     push_new_order_to_dispatchers,
     push_dispatcher_pending_pool_changed,
@@ -72,6 +85,7 @@ from app.services.push_events import (
     push_order_revoked,
     push_order_to_shipper,
     push_navigation_filled,
+    push_return_request_closed,
 )
 from app.services.shipper_contact_service import upsert_boss_contact
 from app.services import place_service
@@ -173,6 +187,11 @@ async def _bg_dispatcher_pending_pool() -> None:
     await push_dispatcher_pending_pool_changed()
 
 
+async def _bg_notify_return_request_closed(request_id: int, amount: str, note: str) -> None:
+    """直连退货把那张申请自动关掉之后，告诉货主（2026-09-21 用户拍板的那条规则）。"""
+    await push_return_request_closed(request_id, returned_amount=amount, note=note)
+
+
 async def _bg_notify_new_order(order_id: int) -> None:
     await push_new_order_to_dispatchers(order_id)
 
@@ -187,8 +206,38 @@ def _orders_response(
     全部、其实只是最近 300 条，比"慢"更糟（他会据此判断"这单不存在"）。
     响应体是 `list[OrderOut]`（裸数组，加不了元数据，改形状会破坏所有老客户端），所以走响应头：
     `X-Result-Limit`（本次上限）、`X-Truncated: 1`（还有更多）。
+
+    ⚠️ 这里还顺手把**一页的钱**一次算完（`money_map`：4 条分组查询，与订单条数无关）再逐单装配。
+       留给 `enrich_order_out` 逐单算就是 4×N 条 SQL（一页 300 条 = 1200 条）。
     """
-    return [enrich_order_out(o, db, current) for o in finish_page(rows, limit, response)]
+    page = finish_page(rows, limit, response)
+    money = money_map(db, page)
+    return [enrich_order_out(o, db, current, money.get(o.id)) for o in page]
+
+
+def _apply_delivered_window(stmt, delivered_from: str | None, delivered_to: str | None):
+    """按**送达日**（业务当地日）筛一批订单 —— 只给账本用，口径与账本行的 `entry_date` 对齐。
+
+    ## 为什么必须有这一对参数（2026-09-20，账本管理改成"按订单的账"）
+    账本页现在是"选货主 → 选时间 → 这个人的账（**按订单**）"：KPI 与商品统计都来自
+    这些订单的 `应收 / 已收 / 欠款`。如果订单列表按 `created_at` 筛（也就是 `date_from/date_to`
+    的语义），而账本流水按 `entry_date`（= **送达**那天）筛，那么
+    「8 月 31 日下单、9 月 1 日送达」的单会出现在 9 月的账本流水里、却不在 9 月的订单列表里 ——
+    同一屏两个集合，谁都不报错，用户只会以为"这个月少算了一单"。
+
+    所以窗口按 `delivered_at` 取，并且**换算成业务当地日**（`business_range_utc`）：
+    直接拿当地日期去比 UTC 列，会让当地 00:00~08:00 送达的单掉出窗口
+    （`core/business_time.py` 的模块注释记着这个坑踩过多少次）。
+
+    ⚠️ 「全部」那一档不传这两个参数 = 不加条件（与 `date_from/date_to` 同一条约定）。
+    """
+    if not delivered_from and not delivered_to:
+        return stmt
+    df, dt = parse_date_range(delivered_from, delivered_to)
+    if df is None or dt is None:
+        return stmt
+    lo, hi = business_range_utc(df.date(), dt.date())
+    return stmt.where(Order.delivered_at.isnot(None)).where(Order.delivered_at >= lo).where(Order.delivered_at < hi)
 
 
 @router.get("", response_model=list[OrderOut])
@@ -200,8 +249,18 @@ def list_orders(
     search_q: str | None = Query(None, alias="q"),
     shipper_id_filter: int | None = Query(None, alias="shipper_id"),
     temp_shipper_name_filter: str | None = Query(None, alias="temp_shipper_name"),
-    date_from: str | None = Query(None, alias="date_from", description="YYYY-MM-DD（含当天）"),
-    date_to: str | None = Query(None, alias="date_to", description="YYYY-MM-DD（含当天）"),
+    #: **待定价**（2026-09-21）：已派出去、但还没有运费的单 —— 派单员要手动给它们定价。
+    #: 用户口径：「没有匹配到就没有计费、没有定价……这个订单就得派单员手动去给他定价」。
+    #: ⚠️ 它**不改异常标记**（`is_exception` 是人工标的业务异常，两件事混在一列就都看不清了）。
+    unpriced: bool = Query(False, description="只看运费待定价的单（已派单但没有运费）"),
+    date_from: str | None = Query(None, alias="date_from", description="YYYY-MM-DD（含当天，按**下单时间**）"),
+    date_to: str | None = Query(None, alias="date_to", description="YYYY-MM-DD（含当天，按**下单时间**）"),
+    delivered_from: str | None = Query(
+        None, alias="delivered_from", description="YYYY-MM-DD（含当天，按**送达日**的当地日；账本用）"
+    ),
+    delivered_to: str | None = Query(
+        None, alias="delivered_to", description="YYYY-MM-DD（含当天，按**送达日**的当地日；账本用）"
+    ),
     limit: int | None = Query(None, ge=1, le=5000, description="返回条数上限（缺省=300，最多 5000）"),
     include_deleted: bool = Query(False, description="含软删除(隔离区)订单——仅派单员"),
     deleted_only: bool = Query(False, description="仅软删除(回收站)订单——仅派单员"),
@@ -254,6 +313,13 @@ def list_orders(
                 stmt = stmt.where(Order.created_at <= dt)
         if status_filter is not None:
             stmt = stmt.where(Order.status == status_filter)
+        if unpriced:
+            # 待定价 = **已经派出去了**（有司机）但运费还是空的，而且单还活着
+            stmt = stmt.where(
+                Order.driver_id.isnot(None),
+                Order.freight_fee.is_(None),
+                Order.status.notin_([OrderStatus.PENDING_DISPATCH, OrderStatus.CANCELLED]),
+            )
         if temp_shipper_name_filter is not None and temp_shipper_name_filter.strip():
             stmt = stmt.where(Order.shipper_id.is_(None)).where(
                 Order.temp_shipper_name == temp_shipper_name_filter.strip()
@@ -264,6 +330,7 @@ def list_orders(
             stmt = stmt.where(Order.deleted_at.isnot(None))
         elif not include_deleted:
             stmt = stmt.where(Order.deleted_at.is_(None))
+        stmt = _apply_delivered_window(stmt, delivered_from, delivered_to)
         # 多取一行：拿到 limit+1 行就说明"还有更多"，据此写 X-Truncated
         stmt = stmt.limit(effective_limit + 1)
         orders = list(db.scalars(stmt).unique().all())
@@ -291,6 +358,17 @@ def list_orders(
 
     if status_filter is not None:
         q = q.where(Order.status == status_filter)
+    # ⚠️⚠️ `unpriced` 必须**两条路径都加**（2026-09-21 真机抓到）：这个端点有两条互不相干的查询
+    #    构造路径（上面"派单员 + 搜索词"那条用 `stmt`，这条用 `q`），过滤条件要各写一遍。
+    #    只加在上面那条的后果：**待定价页（不带 q）静默返回全部订单**——它显示的是"所有单"，
+    #    而页面上写着"这些单已经派出去了、但还没有运费"，用户照着这句话去核对就全错了。
+    #    静态检查（`_check_freight_pricing.py`）当时只断言了"参数存在"，抓不到这种"文本对、行为错"。
+    if unpriced:
+        q = q.where(
+            Order.driver_id.isnot(None),
+            Order.freight_fee.is_(None),
+            Order.status.notin_([OrderStatus.PENDING_DISPATCH, OrderStatus.CANCELLED]),
+        )
     # ⚠️ `q` 对**所有角色**都要生效（2026-09-19 审计）。原来这个模糊搜索只在派单员分支里处理，
     #    货主/司机带 `q` 时后端**静默忽略**、照样返回他自己的一整页订单。而 AI 的读工具会把它
     #    写进 `filters_used`（`AiReadService` 原样回报生效条件）→ 模型以为筛过了 →
@@ -317,6 +395,7 @@ def list_orders(
             q = q.where(Order.created_at >= df)
         if dt is not None:
             q = q.where(Order.created_at <= dt)
+    q = _apply_delivered_window(q, delivered_from, delivered_to)
 
     q = q.limit(effective_limit + 1)
     orders = list(db.scalars(q).unique().all())
@@ -568,7 +647,7 @@ def update_order(
     order = db.scalars(select(Order).where(Order.id == order_id)).first()
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED):
+    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
         raise HTTPException(status_code=400, detail="订单已结束，不可再编辑")
     before = {
         "delivery_description": order.delivery_description,
@@ -1059,6 +1138,144 @@ def fill_order_navigation(
     return enrich_order_out(full, db, current)
 
 
+@router.post("/{order_id}/price-freight", response_model=OrderOut)
+def price_freight(
+    order_id: int,
+    body: OrderFreightPriceBody,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+) -> OrderOut:
+    """派单员**手动定价**：没匹配到价目的单，由人给一个数。
+
+    用户 2026-09-21：「这个定价完之后，同理，他会**新增对应的地点/路线和对应的运费模板**，
+    并且放到那个分类当中去，就是绑定那个分类」——所以带上 `save_template` 时，
+    这一次定价会**沉淀**成：①（必要时）一条线路；② 一条绑了这个分类的价目。
+
+    ⛔ 沉淀**只新建/更新价目**，绝不动别的单：改价目只影响"以后派的单"
+    （已经派出去的单记的是当时的运费，不是引用）。
+    """
+    order = db.scalars(select(Order).where(Order.id == order_id)).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    if order.status == OrderStatus.CANCELLED:
+        raise HTTPException(status_code=400, detail="这一单已经撤销了，不用再定价")
+
+    before = {
+        "freight_fee": str(order.freight_fee) if order.freight_fee is not None else None,
+        "freight_category_id": order.freight_category_id,
+        "freight_category": order.freight_category or "",
+    }
+    # 分类：给了就用它（并把名字快照写下来），没给就清空（"这一类不适用"）
+    cat_name = ""
+    if body.category_id is not None:
+        cat = db.get(FreightCategory, body.category_id)
+        if cat is None:
+            raise HTTPException(status_code=400, detail="这个运费分类不存在")
+        cat_name = cat.name
+    order.freight_fee = body.freight_fee
+    order.freight_category_id = body.category_id
+    order.freight_category = cat_name
+
+    saved: dict = {}
+    if body.save_template:
+        # ① 路线：优先用现成的一条（同一终点、且是当前派单员的），没有就建一条
+        route = None
+        if body.save_template:
+            route = db.scalars(
+                select(ShipperAddress).where(
+                    ShipperAddress.shipper_id == current.id,
+                    ShipperAddress.detail_address == (order.address_detail or "").strip(),
+                    ShipperAddress.is_deleted.is_(False),
+                )
+            ).first()
+        if route is None:
+            route = ShipperAddress(
+                shipper_id=current.id,
+                receiver_name=(order.contact_dongjia_name or "").strip()[:64],
+                phone=(order.contact_dongjia_phone or "").strip()[:32],
+                detail_address=(order.address_detail or "").strip()[:512],
+                remark="由手动定价自动沉淀",
+            )
+            db.add(route)
+            db.flush()
+            saved["route_created"] = route.id
+        # ② 价目：这条路线上"同一套分类"已经有一条就改价，否则新建
+        want_cats = {body.category_id} if body.category_id is not None else set()
+        existing = None
+        for t in db.scalars(
+            select(FreightTemplate).where(
+                FreightTemplate.route_id == route.id,
+                FreightTemplate.is_deleted.is_(False),
+            )
+        ).all():
+            mine = set(_template_category_ids(db, t.id))
+            if mine == want_cats:
+                existing = t
+                break
+        if existing is not None:
+            existing.fee = body.freight_fee
+            if body.price_name.strip():
+                existing.price_name = body.price_name.strip()[:32]
+            saved["template_updated"] = existing.id
+            tmpl = existing
+        else:
+            tmpl = FreightTemplate(
+                name=(body.template_name.strip() or (route.detail_address or "手动定价")[:120]),
+                route_id=route.id,
+                from_place=(route.origin_address or "").strip()[:128],
+                to_place=(route.detail_address or "").strip()[:128],
+                price_name=body.price_name.strip()[:32],
+                fee=body.freight_fee,
+                remark="由手动定价自动沉淀",
+                created_by=current.id,
+            )
+            db.add(tmpl)
+            db.flush()
+            saved["template_created"] = tmpl.id
+        if body.category_id is not None:
+            db.add(FreightTemplateCategory(template_id=tmpl.id, category_id=body.category_id))
+        # ⛔ 价目**不绑司机**（2026-09-21 用户：「运费模板不会去匹配车型也不会匹配司机……
+        #    这一目录就归这个计费规则」）。所以"下次自动带价"要落到**规则**上：
+        #    这一单的司机有规则 → 把新价目**勾进他的规则**（没有就如实说，不偷偷造规则）。
+        driver = db.get(User, order.driver_id) if order.driver_id is not None else None
+        rule_id = getattr(driver, "driver_rule_id", None) if driver is not None else None
+        if rule_id is not None:
+            linked = db.scalars(
+                select(DriverBillingRuleTemplate).where(
+                    DriverBillingRuleTemplate.rule_id == int(rule_id),
+                    DriverBillingRuleTemplate.template_id == tmpl.id,
+                )
+            ).first()
+            if linked is None:
+                db.add(DriverBillingRuleTemplate(rule_id=int(rule_id), template_id=tmpl.id))
+                saved["rule_linked"] = int(rule_id)
+        else:
+            saved["rule_not_linked"] = "这一单的司机还没挂计费规则，价目已存好但要有人在他的规则里勾上才会自动带价"
+        db.flush()
+
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_FREIGHT_PRICE,
+        change_payload={
+            "before": before,
+            "after": {
+                "freight_fee": str(order.freight_fee),
+                "freight_category_id": order.freight_category_id,
+                "freight_category": order.freight_category or "",
+            },
+            "saved": saved,
+        },
+    )
+    db.commit()
+
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
+    return enrich_order_out(full, db, current)
+
+
 @router.post("/{order_id}/assign", response_model=OrderOut)
 def assign_order(
     order_id: int,
@@ -1144,11 +1361,13 @@ def update_order_freight(
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
 ) -> OrderOut:
-    """派单员补录/修改司机运费（送达/撤销后锁定；传 null 清空回待定）。"""
+    """派单员补录/修改司机运费（送达/撤销/退货后锁定；传 null 清空回待定）。"""
     order = db.scalars(select(Order).where(Order.id == order_id)).first()
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED):
+    # 已退货也算"这单结束了"：司机账单在送达那一刻就按当时的规则快照生成好了，
+    # 事后改运费不会动账单（改了个寂寞），而界面上会显示一个与账单不一致的数。
+    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
         raise HTTPException(status_code=400, detail="已送达或已撤销的订单不可修改运费")
     old = order.freight_fee
     order.freight_fee = body.freight_fee
@@ -1367,14 +1586,110 @@ def cancel_order(
     return enrich_order_out(full, db, current)
 
 
+@router.post("/{order_id}/return", response_model=OrderReturnOut)
+def return_order_endpoint(
+    order_id: int,
+    body: OrderReturnBody,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_RETURN)),
+) -> OrderReturnOut:
+    """**订单退货**（2026-09-20 用户要求）。
+
+    一次调用动五样东西（行级已退数量 / 账本红冲 / 库存回补 / 可能退现 / 订单状态），
+    全部在 `services/order_return.py` 一处，本端点只做"取单 → 调服务 → 提交 → 回参"。
+
+    ⚠️ **整单退货不是另一个端点**：客户端把每一行的数量都填满，走同一套行级校验。
+       多一条"整单"的路径就多一条能绕过"货损那几件不能退"的路。
+    ⚠️ 失败要**整单回滚**（所有变更在一个事务里）：红冲写了一半而库存没回补，
+       是最难查的一类账（账上说退了、仓库里货没回来）。
+    ⚠️ 取单时就**锁住这一行**（与收款同一条理由）：两个退货请求同时进来会各自通过
+       "还能退几件"的校验（`max_returnable` 读的是各自快照里的 `returned_quantity`），
+       退出去的量就会超过下单量。加锁之后后到的请求要等前一个提交，算出来的是真实余量。
+    """
+    order = db.scalars(
+        select(Order)
+        .options(selectinload(Order.order_products))
+        .where(Order.id == order_id)
+        .with_for_update()
+    ).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    # 这一单若挂着一张**待处理的退货申请**：直连退货**照旧允许**，退完把它**自动关掉**
+    # （2026-09-21 用户拍板：「把规则改成派单员退货之后，自动取消申请，然后它对应的数据发生改变」）。
+    #
+    # ⚠️ 这条规则换过一次方向，两次都记在这里，免得下一个人再翻回去：
+    #   ① 最初（同日早些时候）我这里是 **400 fail-closed**：申请还挂着时不许直连退货。
+    #      理由是真实的 —— 货主申请退 2 件（共 5 件）→ 派单员手工退了 2 件 → 申请仍是待处理 →
+    #      他（或另一个派单员）再点「办理」时余量 3 ≥ 2、**校验全部通过** → 同一批货退第二遍。
+    #   ② 用户拍板改成"**允许直连 + 自动关闭申请**"。← **现在跑的是这一条**。
+    #      所以"同一批货退两遍"那个洞由**关闭申请**来堵：申请一旦不是 pending，
+    #      `fulfill` 会被 `_check_pending` 拒（"已经由派单员直接退了货（自动关闭）"）。
+    # ⛔ 因此下面这一次 `close_by_direct_return` 调用**不是可选的美化**：删掉它，
+    #    ①里的双重退货就会原样复活（红线 `_check_return_request.py` 与它的反向验证钉着）。
+    pending_req = return_request_svc.pending_for_order(db, order.id)
+    try:
+        result = return_order(
+            db,
+            order,
+            [ReturnItem(order_product_id=i.order_product_id, quantity=i.quantity) for i in body.items],
+            note=body.note,
+            operator_id=current.id,
+        )
+        closed = None
+        closed_note = ""
+        if pending_req is not None:
+            closed = return_request_svc.close_by_direct_return(
+                db,
+                order,
+                dispatcher_id=current.id,
+                items=[ReturnItem(order_product_id=i.order_product_id, quantity=i.quantity) for i in body.items],
+            )
+            if closed is not None:
+                closed_note = closed[1]
+                closed = closed[0]
+    except OrderReturnError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    sid = order.shipper_id
+    oid = order.id
+    closed_id = closed.id if closed is not None else None
+    db.commit()
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
+    if sid is not None:
+        background_tasks.add_task(_bg_ledger_updated_shipper, sid)
+    if closed_id is not None:
+        # 告诉货主"你那张申请被直接办掉了、实退多少"（差异也在这里如实写出来）
+        background_tasks.add_task(
+            _bg_notify_return_request_closed,
+            closed_id,
+            str(result.returned_amount),
+            closed_note,
+        )
+    return OrderReturnOut(
+        order_no=result.order_no,
+        returned_amount=result.returned_amount,
+        refund_amount=result.refund_amount,
+        fully_returned=result.fully_returned,
+        restocked_lines=result.restocked_lines,
+        warnings=result.warnings,
+        order=enrich_order_out(full, db, current),
+    )
+
+
 def _payment_scoped_order(order_id: int, db: Session) -> Order:
     order = db.scalars(
         select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
     ).first()
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    if order.status == OrderStatus.CANCELLED:
-        raise HTTPException(status_code=400, detail="已撤销订单不可收款/挂账")
+    # 已撤销 / 已退货的单都不能再收款或挂账（2026-09-20 合并成一条）：
+    # 撤销 = 这单没发生过；退货 = 货款已经红冲掉了 —— 两种情况下再记一次收款/挂账，
+    # 都是把一笔不存在的应收重新变成"收过钱"或"欠着钱"。
+    if order.status in (OrderStatus.CANCELLED, OrderStatus.RETURNED):
+        raise HTTPException(status_code=400, detail="已撤销/已退货订单不可收款、挂账")
     return order
 
 
@@ -1517,3 +1832,14 @@ def recall_order(
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
     return enrich_order_out(full, db, current)
+
+
+def _template_category_ids(db: Session, template_id: int) -> list[int]:
+    """一条价目挂的分类编号（沉淀时用来判断"这条路线上是不是已经有一条同类的价目"）。"""
+    return list(
+        db.scalars(
+            select(FreightTemplateCategory.category_id).where(
+                FreightTemplateCategory.template_id == template_id
+            )
+        ).all()
+    )

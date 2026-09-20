@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import user_role_key
 from app.database import get_db
 from app.deps import CurrentUser
-from app.models import Expense, Order, User
+from app.models import Expense, ExpenseCategory, Order, User, Vehicle
 from app.models.enums import OperationAction, UserRole
 from app.services.operation_log_service import write_log
 from app.schemas.accounting_v2 import ExpenseCreate, ExpenseOut
@@ -40,6 +40,16 @@ def list_expenses(
     rows = list(db.scalars(stmt).all())
     names: dict[int, str] = {}
     order_nos: dict[int, str] = {}
+    # 车牌：卡片上「突出车辆」那一项要显示的就是它（车辆的名字就是车牌号）。
+    # 按 id 缓存、一次查完 —— 不要每行查一次。
+    plates: dict[int, str] = {}
+    # 分类 → 「卡片突出哪一项」：**一次查完**（名册最多两百行），别每行查一次。
+    link_kinds = {
+        (str(getattr(n, "value", n) or "")).strip(): (k or "none")
+        for n, k in db.execute(
+            select(ExpenseCategory.name, ExpenseCategory.link_kind)
+        ).all()
+    }
     out = []
     for r in rows:
         if r.driver_id and r.driver_id not in names:
@@ -48,12 +58,17 @@ def list_expenses(
         if r.order_id and r.order_id not in order_nos:
             o = db.get(Order, r.order_id)
             order_nos[r.order_id] = o.order_no if o else ""
+        if r.vehicle_id and r.vehicle_id not in plates:
+            v = db.get(Vehicle, r.vehicle_id)
+            plates[r.vehicle_id] = (v.plate_no or "") if v else ""
         out.append(
             ExpenseOut(
                 id=r.id, exp_date=r.exp_date, category=r.category, amount=r.amount,
                 driver_id=r.driver_id, vehicle_id=r.vehicle_id, order_id=r.order_id,
                 note=r.note, operator_id=r.operator_id,
                 driver_name=names.get(r.driver_id, ""), order_no=order_nos.get(r.order_id, ""),
+                vehicle_name=plates.get(r.vehicle_id, ""),
+                link_kind=link_kinds.get(str(getattr(r.category, "value", r.category)).strip(), "none"),
                 created_at=r.created_at,
             )
         )

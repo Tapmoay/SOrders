@@ -83,6 +83,7 @@ object ApiClient {
             shipperApi = retrofit.create(ShipperApi::class.java),
             placeApi = retrofit.create(PlaceApi::class.java),
             ledgerApi = retrofit.create(LedgerApi::class.java),
+            shipperLedgerApi = retrofit.create(ShipperLedgerApi::class.java),
             notificationApi = retrofit.create(NotificationApi::class.java),
             productApi = retrofit.create(ProductApi::class.java),
             arrearsApi = retrofit.create(ArrearsApi::class.java),
@@ -177,6 +178,8 @@ data class ApiBundle(
     /** 共享地点库（导航信息）：不按人分区，三种角色共用一张表。 */
     val placeApi: PlaceApi,
     val ledgerApi: LedgerApi,
+    /** 货主**自己那一本账**（批发商给下游货主的核销）：与 [ledgerApi] 是两本账，见接口注释。 */
+    val shipperLedgerApi: ShipperLedgerApi,
     val notificationApi: NotificationApi,
     val productApi: ProductApi,
     val arrearsApi: ArrearsApi,

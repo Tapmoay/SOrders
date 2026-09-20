@@ -10,7 +10,6 @@ import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonPrimitive
 
 class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel() {
@@ -242,6 +241,10 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
                 if (result > 0) {
                     showAssignDialog = false
                     clearSelection()
+                    // 派完了就闭嘴：这一单已经不在待派池里，手机还在喊「有新订单待派单」
+                    // 会让他回头去找一张已经派掉的单。语义与司机「接单成功立刻停」完全一样
+                    // （见 NewOrderAlert.speaks：待派单那条只播给派单员，所以只有这里能打断它）。
+                    container.newOrderPlayer.stop()
                 }
                 load()
             } catch (e: Exception) {

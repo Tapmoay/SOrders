@@ -30,7 +30,6 @@ from app.models.enums import (
     CashFlowDirection,
     DriverBillStatus,
     DriverBillType,
-    ExpenseCategory,
     LedgerSource,
     OrderStatus,
     ReceiptSettleMode,
@@ -41,6 +40,12 @@ from app.schemas.accounting_v2 import (
     ExpenseCreate,
     ShipperReceiptCreate,
 )
+from app.services.order_money import line_receivable, money_map
+
+#: 送达货损自动生成的那笔开销用哪个分类 —— **就是名册里的那个名字**（原来是枚举 `LOSS`）。
+#: 迁移会把老库里的 `loss` 翻成「货损」，所以这里写中文名与名册对得上。
+DAMAGE_EXPENSE_CATEGORY = "货损"
+
 from app.services.driver_pay import (
     has_per_order_pay,
     pay_for_order,
@@ -193,7 +198,7 @@ def apply_damage_accounting(db: Session, order: Order, operator_id: int | None =
         dod = business_date(order.delivered_at) or order.order_date
         exp = Expense(
             exp_date=dod,
-            category=ExpenseCategory.LOSS,
+            category=DAMAGE_EXPENSE_CATEGORY,
             amount=cost_amt,
             driver_id=order.driver_id,
             order_id=order.id,
@@ -265,17 +270,47 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
     #         （10 个 order_ids × 1000 元 = 10 条 1000 元的流入，而收款单只有 1000）。
     #    这道洞两个库里都没有任何测试覆盖（实测 rolling 行数 = 0，纯靠代码读出来）。
     order_ids = sorted({int(x) for x in (body.order_ids or [])})
+    # **按商品核销**（2026-09-20 用户要求：「点击订单点击核销……也可以按商品进行核销」）：
+    # 只收点名的这几行的钱。留空 = 整单核销（老语义一字不变）。
+    line_ids = sorted({int(x) for x in (body.order_product_ids or [])})
+    if line_ids and not order_ids:
+        raise ValueError("「按商品核销」要同时说明这几个商品属于哪张订单（order_ids 不能为空）")
     if order_ids:
-        locked = {o.id: o for o in db.scalars(select(Order).where(Order.id.in_(order_ids)).with_for_update())}
+        locked = {
+            o.id: o
+            for o in db.scalars(
+                select(Order)
+                .options(selectinload(Order.order_products))
+                .where(Order.id.in_(order_ids))
+                .with_for_update()
+            )
+        }
+        picked: dict[int, list[OrderProduct]] = {}
+        if line_ids:
+            rows = list(db.scalars(select(OrderProduct).where(OrderProduct.id.in_(line_ids))))
+            found = {op.id for op in rows}
+            if any(i not in found for i in line_ids):
+                raise ValueError("勾选的商品行已经不在了（被删掉了），请刷新订单后重试")
+            for op in rows:
+                if op.order_id not in locked:
+                    raise ValueError("勾选的商品不在所选的订单里，请刷新后重试")
+                picked.setdefault(op.order_id, []).append(op)
+            if any(oid not in picked for oid in order_ids):
+                raise ValueError("有一张被选中的订单一件商品都没勾，请去掉它，或把商品勾上")
+        # ⚠️ 钱的口径**只有一处**：`order_money`（退货红冲 / 已收 / 已退现都在里面）。
+        #    `lock=True` 是并发防重：现金流水走加锁读，后到的请求会看到前一个已提交的收款。
+        #    （REPEATABLE READ 下普通 SELECT 读的是事务开始时的快照 → 两个并发核销会双双通过
+        #      "没有超过欠款"的校验，各收一笔，**收成两倍的钱**。）
+        money = money_map(db, list(locked.values()), lock=True)
         for oid in order_ids:
             o = locked.get(oid)
             if o is None:
                 raise ValueError(f"订单 {oid} 不存在")
             if o.shipper_id is None:
-                raise ValueError(f"订单 {oid} 无客户归属（临时货主收款需先关联客户档案）")
+                raise ValueError(f"订单 {o.order_no} 无客户归属（临时货主收款需先关联客户档案）")
             if o.shipper_id != cust.user_id:
-                raise ValueError(f"订单 {oid} 不属于该客户")
-            # ⛔ **已撤销 / 已进回收站**的单不许收款（2026-09-19 审计 F1）。
+                raise ValueError(f"订单 {o.order_no} 不属于该客户")
+            # ⛔ **已撤销 / 已退货 / 已进回收站**的单不许收款（2026-09-19 审计 F1 + 2026-09-20 退货）。
             #    这三道校验（存在/归属/已收款）原来**唯独没有状态**：本机就有一批
             #    **已撤销**的单挂着逐单核销的收款单 + 现金流水（73 张 / ¥2,900）。
             #    一手交钱一手交货的单被撤销了（客户不要了、改派了），钱却记在它头上 ——
@@ -293,7 +328,13 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
                     "如果是提前收的款，请用不绑单的滚动收款记这一笔；"
                     "要让这张单重新可收，得先把它恢复成有效单据。"
                 )
-            if o.paid:
+            if (o.status or "").upper() == OrderStatus.RETURNED.value:
+                raise ValueError(
+                    f"订单 {o.order_no} 已经退货了，货款已经红冲掉、不用再收。"
+                    "如果只退了其中一部分，剩下的那部分仍然留在「已送达」的单上可以收。"
+                )
+            m = money[oid]
+            if o.paid or m.arrears <= 0:
                 how = {
                     "cash": "司机送达时收的现金",
                     "arrears": "已挂账结清",
@@ -302,25 +343,55 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
                     f"订单 {o.order_no} 已经收过款了（{how}），不能重复收款。"
                     "如果是补差额，请改用「滚动收款」。"
                 )
-            per_order[oid] = sum((op.line_total or Decimal("0")) for op in o.order_products)
+            # 这次对这一单核销多少：
+            # · 按商品核销 = 点名那几行的**应收**合计（行级算法只有 `line_receivable` 一份）；
+            # · 整单核销 = 这一单**还欠的钱**（`m.arrears`）。
+            # ⚠️ 整单核销这里**改过两次**，两次都是"按一个比欠款大的数收钱"：
+            #    ① 第一版是"把各行 `line_total` 全加起来" —— 退过货的单上那个数比该收的多
+            #       （退货红冲只动账本、不动行金额）；
+            #    ② 第二版改成 `m.receivable`——对**按商品核销过一部分**的单仍然偏大：
+            #       一张 1000 的单收过 300 之后（`paid=False`、欠 700），后端算出 1000，
+            #       而客户端按欠款发 700 → 两边金额对不上（400「收款金额与所选订单合计不一致」，
+            #       其实客户端是对的），这种单从此**再也收不动**；要是金额凑巧对上了，
+            #       就是**多收 300**。
+            #    整单核销的语义本来就是"把这一单的钱收清"，那就是欠款。
+            part = (
+                sum((line_receivable(op) for op in picked[oid]), Decimal("0"))
+                if line_ids
+                else m.arrears
+            )
+            part = part.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if part <= 0:
+                raise ValueError(f"订单 {o.order_no} 没有可以核销的金额（这一单已经全部退货了）")
+            if part > m.arrears:
+                raise ValueError(
+                    f"订单 {o.order_no} 这次要核销 {part} 元，但它只欠 {m.arrears} 元"
+                    "（差额来自已经收过的部分或退掉的货），不能超额收款。"
+                )
+            per_order[oid] = part
     if body.settle_mode == ReceiptSettleMode.ITEMIZED:
         if not body.order_ids:
             raise ValueError("逐单核销需绑定订单")
         total = sum(per_order.values(), Decimal("0"))
         if Decimal(body.amount) != total:
             raise ValueError(f"收款金额 {body.amount} 与所选订单合计 {total} 不一致（逐单核销需全额）")
-        # 原子占位：只有把 paid 从 false 改成 true 的那个请求能继续（另一个 rowcount 会少）
-        claimed = db.execute(
-            update(Order)
-            .where(Order.id.in_(order_ids), Order.paid.is_(False))
-            .values(
-                paid=True,
-                payment_method="cash" if body.method in ("cash", "transfer", "wechat") else "arrears",
+        # 原子占位：**只有"这次收完就结清"的单**才去抢 `paid`（并发下只有一个请求改得到）。
+        # ⚠️ 按商品核销**不是**"结清"：钱没付完，`paid` 必须留在 False ——
+        #    翻成 True 这张单就会从「挂账未收」名单里消失，而它还欠着一半。
+        #    这种单的并发由上面的行锁 + 加锁读兜住（第二次请求会算出"还欠 700"）。
+        settling = [oid for oid in order_ids if per_order[oid] >= money[oid].arrears]
+        if settling:
+            claimed = db.execute(
+                update(Order)
+                .where(Order.id.in_(settling), Order.paid.is_(False))
+                .values(
+                    paid=True,
+                    payment_method="cash" if body.method in ("cash", "transfer", "wechat") else "arrears",
+                )
             )
-        )
-        if claimed.rowcount != len(order_ids):
-            db.rollback()
-            raise ValueError("这些订单里有刚刚被别的收款记录核销掉的，请刷新订单后重试")
+            if claimed.rowcount != len(settling):
+                db.rollback()
+                raise ValueError("这些订单里有刚刚被别的收款记录核销掉的，请刷新订单后重试")
     elif order_ids:
         # 滚动收款**绑了单**（App 与 AI 都不会这么发：它们绑单时一律走 itemized）。
         # ⚠️ 这里原来**无条件**把这批单标成已收款，却不校验金额（2026-09-19 审计 R12-M4）：
@@ -607,9 +678,18 @@ def cancel_settlement(db: Session, s: DriverSettlement, operator_id: int | None)
 
 # ---------- ⑥ 开销单 ----------
 def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) -> Expense:
+    # 分类**先补进名册**（不在就补到最后）：否则用户在一个新分类下记的开销，
+    # 左侧分类栏里没有它 —— 那条记录只能靠"名册外的分类"兜底显示（排序/改名都轮不到它）。
+    # ⚠️ 与 `expense_categories.py::ensure_category` 是同一个函数，不抄第二份判据。
+    from app.api.v1.expense_categories import ensure_category
+
+    clean = (str(body.category or "")).strip()
+    if not clean:
+        raise ValueError("请选择开销分类")
+    ensure_category(db, clean)
     e = Expense(
         exp_date=body.exp_date,
-        category=body.category,
+        category=clean,
         amount=body.amount,
         driver_id=body.driver_id,
         vehicle_id=body.vehicle_id,
@@ -619,15 +699,19 @@ def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) ->
     )
     db.add(e)
     db.flush()
+    # 分类名 → 现金流水口径（报表按它分类汇总）。
+    # ⚠️ 中文名与**老英文键**都要认：迁移会把老键翻成中文名，但已经写进流水的老数据
+    #    以及别的库（测试库）里可能还是老键；**认不出的落 OTHER**，不抛异常 ——
+    #    用户新加一个分类不该让这笔开销存不进去。
     biz_map = {
-        "fuel": CashFlowBizType.EXPENSE_FUEL,
-        "repair": CashFlowBizType.EXPENSE_REPAIR,
-        "toll": CashFlowBizType.EXPENSE_TOLL,
-        "parking": CashFlowBizType.EXPENSE_PARKING,
-        "fine": CashFlowBizType.EXPENSE_FINE,
-        "insurance": CashFlowBizType.EXPENSE_INSURANCE,
-        "loss": CashFlowBizType.EXPENSE_LOSS,
-        "other": CashFlowBizType.EXPENSE_OTHER,
+        "加油": CashFlowBizType.EXPENSE_FUEL, "fuel": CashFlowBizType.EXPENSE_FUEL,
+        "维修": CashFlowBizType.EXPENSE_REPAIR, "repair": CashFlowBizType.EXPENSE_REPAIR,
+        "过路": CashFlowBizType.EXPENSE_TOLL, "toll": CashFlowBizType.EXPENSE_TOLL,
+        "停车": CashFlowBizType.EXPENSE_PARKING, "parking": CashFlowBizType.EXPENSE_PARKING,
+        "罚款": CashFlowBizType.EXPENSE_FINE, "fine": CashFlowBizType.EXPENSE_FINE,
+        "保险": CashFlowBizType.EXPENSE_INSURANCE, "insurance": CashFlowBizType.EXPENSE_INSURANCE,
+        "货损": CashFlowBizType.EXPENSE_LOSS, "loss": CashFlowBizType.EXPENSE_LOSS,
+        "其他": CashFlowBizType.EXPENSE_OTHER, "other": CashFlowBizType.EXPENSE_OTHER,
     }
     db.add(
         CashFlow(
@@ -636,9 +720,9 @@ def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) ->
             amount=body.amount,
             party_type="expense",
             party_id=e.id,
-            party_name=body.category.value,
+            party_name=str(body.category),
             channel="cash",
-            biz_type=biz_map.get(body.category.value, CashFlowBizType.EXPENSE_OTHER),
+            biz_type=biz_map.get(str(body.category), CashFlowBizType.EXPENSE_OTHER),
             order_id=body.order_id,
             doc_id=e.id,
             note=body.note,

@@ -14,15 +14,13 @@
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.models import InventoryMovement, Order, Product
+from app.models import InventoryMovement, Order, OrderProduct, Product
 
 
 def _order_rows(db: Session, order: Order) -> list:
     products = getattr(order, "order_products", None) or []
     if products:
         return products
-    from app.models import OrderProduct
-
     return list(db.scalars(select(OrderProduct).where(OrderProduct.order_id == order.id)))
 
 
@@ -130,6 +128,48 @@ def auto_stock_release(db: Session, order: Order, operator_id: int) -> int:
                 source="ORDER",
                 order_id=order.id,
                 status="RELEASED",
+            )
+        )
+        n += 1
+    return n
+
+
+def restock_returned(db: Session, order: Order, lines: list[tuple[OrderProduct, int]], operator_id: int) -> int:
+    """订单**退货**：把退回来的货加回库存（返回写了几条流水）。
+
+    ⚠️ 退货为什么必须动库存：送达那一刻 `auto_stock_commit` 已经把货**实扣**掉了
+    （`stock -= qty`），退货是货真的回到仓库 —— 不回补的话库存**永久少一批货**，
+    而且盘库时找不出原因（订单、账本、司机账单三处都是"退了"，只有库存还停在当时）。
+
+    ⚠️ 加库存走 SQL 表达式自减（`stock = stock + change`），与 `auto_stock_commit`
+    同一条理由：Python 读改写会在并发下丢掉别人的加减，且**两边都不报错**（见那里的长注释）。
+
+    ⚠️ 判据是"送到客户手里的好货"：`lines` 里的数量由调用方（`order_return`）按
+    `quantity − damage_quantity` 上限校验过 —— **货损那部分不许回补**，
+    它已经在送达时按成本计进损失账了，再回补就是同一批货算两遍。
+    """
+    n = 0
+    for op, qty in lines:
+        if qty <= 0:
+            continue
+        prod = _resolve_product(db, op)
+        if prod is None:
+            # 商品已删/改名 → 回补不了。**如实跳过**（调用方把这一条写进返回值的提示里），
+            # 不许把数量记到别的商品头上。
+            continue
+        db.execute(
+            update(Product).where(Product.id == prod.id).values(stock=func.coalesce(Product.stock, 0) + qty)
+        )
+        db.add(
+            InventoryMovement(
+                product_id=prod.id,
+                change=qty,
+                note="订单退货回库",
+                operator_id=operator_id,
+                source="ORDER",
+                order_id=order.id,
+                # 与 RESERVED/COMMITTED/RELEASED 同一套状态词：RETURNED = 退货回库
+                status="RETURNED",
             )
         )
         n += 1

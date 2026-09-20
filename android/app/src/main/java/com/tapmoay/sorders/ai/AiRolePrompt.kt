@@ -57,24 +57,35 @@ object AiRolePrompt {
     /**
      * 拼出这一轮的身份段，追加在通用规则之前。
      *
-     * @param role 当前登录角色（null = 还没加载出来 → fail-closed）
+     * @param actor 当前登录角色 + **他是不是批发商货主**（null = 还没加载出来 → fail-closed）。
+     *   第二维必须传真的那一个：普通货主与批发商货主的**移动端界面就不一样**
+     *   （批发商多一本自己的账），身份段里那份"你实际能干的事"是照它生成的。
      * @param readModules 用户在设置里打开的只读模块（和工具说明同一份，保证两边一致）
      */
     fun brief(
-        role: AiRole?,
+        actor: AiActor?,
         readModules: Set<String> = AiReadCatalog.modules().toSet(),
     ): String {
+        val role = actor?.role
         val identity = when (role) {
             AiRole.DISPATCHER -> DISPATCHER_IDENTITY
             AiRole.SHIPPER -> SHIPPER_IDENTITY
             null -> return UNKNOWN_IDENTITY
         }
-        val writes = AiWrites.forModel(role)
-        val reads = AiReads.forRole(role, readModules)
+        // 批发商货主多一句话：他手机上还多一本自己的账（下游货主欠他多少）。
+        // 不写这句的后果：模型从清单里看到「我的账本」那一组，却按普通货主的身份解释它。
+        val identityFull = if (actor.memberShipper) {
+            identity + "\n你还是**批发商货主**：除了给自己下单，你还管着下游货主 —— " +
+                "「我的账本」上有一段\"我的货主欠我多少\"，可以在那一单上核销（记的是**你自己**这一本账）。"
+        } else {
+            identity
+        }
+        val writes = AiWrites.forModel(actor)
+        val reads = AiReads.forRole(actor, readModules)
         val pages = pagesOf(role)
 
         return buildString {
-            appendLine(identity)
+            appendLine(identityFull)
             appendLine()
             appendLine("【你实际能干的事——这份清单是从代码里生成的，永远和真实能力一致】")
             if (writes.isEmpty()) {
@@ -142,24 +153,24 @@ object AiRolePrompt {
      * 而同一段代码的注释里恰好警告过这件事（"写窄了模型会跟着否认自己的能力"）。
      * 和提示词同源之后，两边不可能再各说一套。
      *
-     * @param role 当前登录角色（null → 按"什么都做不了"说，fail-closed）
+     * @param actor 当前登录角色 + 是不是批发商货主（null → 按"什么都做不了"说，fail-closed）
      * @param readModules 用户在下面打开的只读模块
      */
     fun settingsSummary(
-        role: AiRole?,
+        actor: AiActor?,
         readModules: Set<String> = AiReadCatalog.modules().toSet(),
     ): String {
-        if (role == null) {
+        if (actor == null) {
             return "当前没认出你的角色，AI 现在查不到也改不了任何业务数据——去「我的」页面重新登录一次。"
         }
         // ⚠️ 必须翻成中文名（`AiReadCatalog.MODULE_CN`）。这里原来是 `action.substringBefore('.')`，
         //    也就是把 `arrears`、`cash_flows`、`driver_settlements` 这些**内部模块码**整段印给用户看——
         //    21 个英文词堆成一段，用户既读不懂也记不住。这和「回答里不许出现内部编号」是同一条规矩，
         //    只是当时漏在了设置页上。
-        val reads = AiReads.forRole(role, readModules)
+        val reads = AiReads.forRole(actor, readModules)
             .map { a -> a.action.substringBefore('.').let { AiReadCatalog.MODULE_CN[it] ?: it } }
             .distinct()
-        val groups = AiWrites.forModel(role).map { it.group }.distinct()
+        val groups = AiWrites.forModel(actor).map { it.group }.distinct()
         // 用户 2026-09-17：「能用一两句话解决的事情就不要说那么多话。」
         // 所以这里从"能查 + 能改 + 不归它的 + 从代码生成"四段压成两句，
         // **必要信息一条没少**：能查什么、能改什么、以及"改"这一步必须他确认。

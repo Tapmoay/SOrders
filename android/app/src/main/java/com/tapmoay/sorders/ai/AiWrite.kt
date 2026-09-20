@@ -138,6 +138,39 @@ data class AiWriteAction(
      * 而红线早就把"能看见但用不了"列为最坏的一类 bug。
      */
     val undoOnly: Boolean = false,
+    /**
+     * true = **只有批发商货主**（`users.is_member=1`）能用。
+     *
+     * 2026-09-20 用户第七轮：「AI 也会分成 2 个：一个是普通货主、一个是批发商货主的 AI……
+     * 他不能越权，批发商没有的功能 AI 也做不到；普通货主**手机做不到的事情，AI 也做不到**」。
+     * 核销那三个动作就是这一类的全部：手机上只有批发商那本账上有「核销」按钮，
+     * 普通货主那一页连这一段都不画 —— 所以普通货主的 AI **连清单里都不该出现它**。
+     *
+     * ⚠️ 与"发卡时再拦"不是一回事：只在 `prepare` 里问一句 `isMemberShipper()`，
+     *    普通货主仍然会**看见**这三个动作（工具说明里写着、模型会照它解释），
+     *    只是点下去必然失败。能力清单本身分叉，才是用户说的"两个 AI"。
+     *
+     * ⛔ 同一个标记顺带把**派单员**挡住：这三个动作打的是货主自己那一本账
+     *    （后端 `shipper_ledger.py` 是 `require_roles(SHIPPER)`），派单员本来就不该有。
+     *    （原来 `forRole(DISPATCHER) = ALL` 把它一起给了派单员 —— 一类"能看见但一定失败"的卡。）
+     */
+    val memberOnly: Boolean = false,
+    /**
+     * 非 null = 这个动作**只属于这几个角色**（`null` = 老口径：谁都按 [AiWrites.forRole] 的规则拿）。
+     *
+     * ### 为什么 `memberOnly` 不够，还需要它（2026-09-21 退货申请这一轮踩到的）
+     * `forRole(DISPATCHER) = ALL.filter { !it.memberOnly }` —— 派单员拿的是**全表减会员专属**。
+     * 于是"申请退货""撤回退货申请"这两个**本该只有货主**的动作落进了派单员清单：
+     * 后端 `submit()` 会以「这不是你的订单」拒绝（`order.shipper_id != current.id`），
+     * 也就是**派单员看到两张点下去必然失败的卡** —— 本仓库明确列为最坏的一类 bug。
+     *
+     * ⛔ 别把它做成"再写一条 `dispatcherOnly` 布尔"：那一维迟早要变成第三、第四个角色
+     *    （司机端已经在做），而 `Set<AiRole>` 加角色时不用改判据。
+     *
+     * ⚠️ 两个方向的过滤都要走它（见 [forRole]）：只顺手过滤一边，
+     *    另一边就会多出"能看见但一定失败"的动作 —— 而那正是这个字段要治的病。
+     */
+    val roles: Set<AiRole>? = null,
 )
 
 /**
@@ -444,9 +477,40 @@ data class AiOrderRef(
             "ACCEPTED" -> "已接单"
             "DELIVERED" -> "已送达"
             "CANCELLED" -> "已撤销"
+            "RETURNED" -> "已退货"
             null, "" -> ""
             else -> raw
         }
+    }
+}
+
+/**
+ * 退货时的一行商品（后端 `services/order_return.py::max_returnable` 的客户端镜像）。
+ *
+ * ⚠️ 三个字段与后端逐一对齐（`quantity` / `damage_quantity` / `returned_quantity`），
+ * 上限算在 [maxReturnable] **一处** —— 卡片文案、参数校验、请求体三处都用它。
+ * 各算一遍的后果很具体：界面让填 3、后端只认 2，而用户不知道该信谁。
+ */
+data class AiReturnableLine(
+    val id: Long,
+    val name: String,
+    val quantity: Int,
+    val returned: Int,
+    val damaged: Int,
+    /** 单价（元/单位）。成本价不在出参里（那是成本字段，不进模型上下文）。 */
+    val unitPrice: String,
+) {
+    /** 还能退几件 = 数量 − 货损 − 已退。规则只有一份（`core/ReturnRules`，与后端同源）。 */
+    val maxReturnable: Int
+        get() = com.tapmoay.sorders.core.ReturnRules.maxReturnable(quantity, damaged, returned)
+
+    /** 卡片上那一行（把三个数都摆出来，用户才知道为什么只能退这么多）。 */
+    fun label(): String = buildString {
+        append(name)
+        append("（下单 ").append(quantity)
+        if (damaged > 0) append("、货损 ").append(damaged)
+        if (returned > 0) append("、已退 ").append(returned)
+        append("；还能退 ").append(maxReturnable).append("）")
     }
 }
 
@@ -889,6 +953,7 @@ object AiWrites {
     const val ORDERS_ASSIGN = "orders.assign"
     const val ORDERS_RECALL = "orders.recall"
     const val ORDERS_CANCEL = "orders.cancel"
+    const val ORDERS_RETURN = "orders.return"
     const val ORDERS_CREATE = "orders.create"
     const val ORDERS_FREIGHT = "orders.freight"
     const val ORDERS_PAY = "orders.pay"
@@ -911,11 +976,36 @@ object AiWrites {
     // ---- 订单（第四批：补导航 = 引用共享地点库里已有的坐标）----
     const val ORDERS_FILL_NAV = "orders.fill_nav"
 
+    // ---- 退货申请（第五批，2026-09-21 用户要求）----
+    //
+    // 用户原话：「批发商**只是一个申请**，派单员才是实际性的操作。派单员进行完了之后，
+    // 整个才进行库存才会发生一个改变和变动」＋「同时**货主的 AI 可以代替货主进行申请退货**」。
+    //
+    // ⛔ 与 [ORDERS_RETURN] 是**两件事、两个人**：
+    //    · `return_request.apply` / `.withdraw` —— **货主**（写一张申请单，什么都不动）；
+    //    · `return_request.reject` / `.fulfill` —— **派单员**（后者才真的退：账本/库存/退现/状态）。
+    //    合成一个动作的后果是把用户刚定下来的那条线抹掉：货主按一下就能改自己的应收和公司库存。
+    const val RETURN_REQUEST_APPLY = "return_request.apply"
+    const val RETURN_REQUEST_WITHDRAW = "return_request.withdraw"
+    const val RETURN_REQUEST_REJECT = "return_request.reject"
+    const val RETURN_REQUEST_FULFILL = "return_request.fulfill"
+
     // ---- 账本（改/删流水、客户收款、补进账本）----
     const val LEDGER_UPDATE_ENTRY = "ledger.update_entry"
     const val LEDGER_DELETE_ENTRY = "ledger.delete_entry"
     const val LEDGER_CREATE_RECEIPT = "ledger.create_receipt"
     const val LEDGER_SYNC_DELIVERED = "ledger.sync_delivered"
+
+    // ---- 货主**自己那一本账**（批发商给下游货主核销，2026-09-20）----
+    //
+    // ⛔ 与上面那四个 `ledger.*` 是**两本账**：那四个写的是**公司账**
+    //    （`customers` / `cash_flows` / `orders.paid` / `ledgers`，只有派单员能写）；
+    //    这三个写的是"我自己向我的货主收钱"，后端落在 `shipper_settlements`，
+    //    一个字节都不碰公司账。用户原话：「这个核销只对他来说……他自己管自己的」。
+    const val MY_LEDGER_SETTLE = "my_ledger.settle"
+    const val MY_LEDGER_REVOKE = "my_ledger.revoke"
+    //: 撤回专用（`undoOnly`）：撤销之后要能放回来，模型看不到它。
+    const val MY_LEDGER_RESTORE = "my_ledger.restore"
 
     // ---- 司机账单与结算（月末收口：生成账单 → 生成结算单 → 确认 → 付款）----
     const val SETTLEMENTS_GENERATE_BILLS = "settlements.generate_bills"
@@ -1064,7 +1154,24 @@ object AiWrites {
 
     /** 域标签：清单与文档按它分组。 */
     const val G_ORDER = "订单"
+    /**
+     * 退货申请（货主申请 → 派单员办理）。
+     *
+     * 单独一个域而不是并进 [G_ORDER]：它在界面上是**两个人的两件事**——
+     * 货主那一栏是"我提的申请"，派单员那一栏是"待我办的申请"；
+     * 并进「订单」之后，两边会在同一个域里看到对方才该用的动作
+     * （货主看到"办理退货申请"、派单员看到"申请退货"，都是点了必然失败的卡）。
+     */
+    const val G_RETURN_REQUEST = "退货申请"
     const val G_LEDGER = "账目"
+    /**
+     * 货主自己那一本账（批发商给下游货主核销）。
+     *
+     * 单独一个域而不是并进 [G_LEDGER]：`G_LEDGER` 是**公司账**（派单员写的），
+     * 两本账混在一个域里，界面上会出现"同一个域里一半能动、一半必然 403"——
+     * 而按域分组的设置页与 AI 工具清单都是照域给的。
+     */
+    const val G_MY_LEDGER = "我的账本"
     const val G_MSG = "消息"
     const val G_PRODUCT = "商品"
     const val G_CATEGORY = "商品分类"
@@ -1102,7 +1209,8 @@ object AiWrites {
     /** 顺序 = 设置页里的显示顺序（手写的在前，声明式的在后）。 */
     val ALL: List<AiWriteAction>
         get() = MANUAL + AiWriteMasterData.ALL + AiWriteBasicData.ALL +
-            AiWritePricing.ACTIONS + AiWriteSettlements.ACTIONS
+            AiWritePricing.ACTIONS + AiWriteSettlements.ACTIONS +
+            AiWriteShipperLedger.ACTIONS + AiWriteReturnRequest.ACTIONS
 
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(
@@ -1237,6 +1345,24 @@ object AiWrites {
                 "撤销后是终态，撤销同时会自动把占用恢复。",
             params = listOf(
                 AiWriteParam("order", "订单", required = true, hint = "必填，订单号"),
+            ),
+        ),
+        AiWriteAction(
+            id = ORDERS_RETURN,
+            title = "订单退货",
+            risk = AiWriteRisk.HIGH,
+            group = G_ORDER,
+            blurb = "**已送达**的单，客户把货退回来。可以整单退，也可以只退其中几个商品（用 lines 点名）。" +
+                "一次会动四样：账本红冲（营业额减）、库存回补、这单如果已经收过钱就**自动记一笔退款**、" +
+                "整单退完这单变成「已退货」。**货损的那几件不能退**（那部分已经计过损失）。",
+            params = listOf(
+                AiWriteParam("order", "订单", required = true, hint = "必填，订单号"),
+                AiWriteParam(
+                    "lines", "退哪些商品", kind = AiWriteParamKind.TEXT,
+                    hint = "**留空 = 整单退货**。只退一部分时传数组：" +
+                        "[{\"product\":\"红富士苹果\",\"quantity\":2}]（product 传商品名，quantity 只传数字）",
+                ),
+                AiWriteParam("note", "退货备注", hint = "可选，一句话（会写进这笔退货的审计记录）"),
             ),
         ),
         AiWriteAction(
@@ -1569,7 +1695,9 @@ object AiWrites {
             risk = AiWriteRisk.HIGH,
             group = G_ORDER,
             blurb = "把订单**移进回收站**（隔离区）：用户列表里立刻看不到它，**30 天内可以恢复**，" +
-                "到期系统会物理清理。派单员可对任意状态的单做这件事。",
+                "到期系统会物理清理。派单员可对任意状态的单做这件事；" +
+                "**货主（含批发商）只能删「已撤销」的单** —— 已送达的单是已经发生过的一趟生意" +
+                "（账本、司机账单挂在它上面），AI 不替货主删它，要删请他自己在订单详情页操作。",
             params = listOf(
                 AiWriteParam("order", "订单", required = true, hint = "必填，订单号；不确定就先查一下"),
             ),
@@ -1873,19 +2001,69 @@ object AiWrites {
         PLACE_CATEGORY_DELETE,
         PLACE_CATEGORY_REORDER,
         NOTIFICATIONS_READ_ALL,
+        // 消息：**只看得到自己那些**（后端 `batch-delete` / `{id}/read` 都是"仅登录 + 只动自己的"，
+        // 动别人的直接 404）。手机上消息页三端共用 —— 单条已读、删除、清空货主都能点，
+        // 所以助手也要能做（用户 2026-09-20：「他手机做不到的事情，助手也做不到」，
+        // 反过来同样成立：手机能做到的，助手也要能做）。
+        NOTIFICATIONS_MARK_READ,
+        NOTIFICATIONS_DELETE,
+        // 自己那张单：**移入回收站**（软删，与订单详情页那个「删除订单」按钮同一条路）。
+        // ⚠️ 只放**终态**（已送达/已撤销）—— 判据在 `SoftDeleteOrderHandler` 里，
+        //    与 `OrderStatusModel.SHIPPER_DELETABLE` / 后端 `delete_cancelled_order` 三处同源。
+        // ⚠️ 恢复**不给**货主：`POST /orders/{id}/restore` 是「体内仅允许：派单员」，
+        //    货主端连回收站都没有 —— 卡上会如实写"要请派单员恢复"。
+        ORDERS_SOFT_DELETE,
+        // 软删之后的**恢复**（撤回路径专用 `undoOnly`，模型看不到）。
+        // ⚠️ 这三条原来漏在白名单外，后果很具体：`allows()` 是 preview 与**撤回**
+        //    两条路共用的门 —— 货主删掉一条地址之后，点自己那张卡上的「撤回」
+        //    会被自己的权限门挡掉，而记录就躺在回收站里（用户 2026-09-19 定的硬规矩：
+        //    "所有删除一律软删 + **必须有恢复路径**"）。
+        ADDRESS_RESTORE,
+        CONTACT_RESTORE,
+        LOCATION_RESTORE,
+        // 货主自己那一本账（2026-09-20 用户要求：「他的助手也要具备这些功能 ——
+        // 帮他核销、帮他管理账本、还有帮他撤回核销」）。
+        // ⚠️ 三条都要在这里：`allows()` 是 preview 与 execute **两条路共用的门**，
+        //    漏掉后两条的话撤回按钮点下去会被自己的权限门挡掉。
+        // ⚠️ 它们同时标了 `memberOnly = true`（**只有批发商货主**）：
+        //    普通货主手机上没有这一段，所以他的 AI 连清单里都不该有（见 [AiWriteAction.memberOnly]）。
+        MY_LEDGER_SETTLE,
+        MY_LEDGER_REVOKE,
+        MY_LEDGER_RESTORE,
+        // 退货申请（2026-09-21 用户要求：「同时**货主的 AI 可以代替货主进行申请退货**」）。
+        // ⚠️ **两条都要**：`apply` 是他要的能力，`withdraw` 是"提错了怎么办"的答案 ——
+        //    数量是锁死的，所以"改数量"的唯一路径就是撤回重提；
+        //    只给 apply 会让货主提错之后彻底没有退路（手机上有撤回按钮，助手却没有）。
+        // ⛔ 派单员那两条（reject / fulfill）**不进这里**：货主点它们是必然失败，
+        //    而"能看见但用不了"是本仓库明确列出的最坏一类 bug。
+        RETURN_REQUEST_APPLY,
+        RETURN_REQUEST_WITHDRAW,
     )
 
     /**
-     * 这个角色能用哪些动作。**默认只给派单员**（fail-closed）：
-     * 新加的动作如果不显式进白名单，货主就看不到它——反过来（默认全开）一旦漏标就是越权。
+     * 这个角色（+ 是不是批发商货主）能用哪些动作。**默认只给派单员**（fail-closed）。
+     *
+     * 三条过滤，缺一条就是一类"能看见但一定失败"的卡：
+     * 1. [AiWriteAction.roles] 非空的动作只给它点名的角色（退货申请那种"两个角色各有一半"的域）；
+     * 2. 货主走 [SHIPPER_ACTIONS] 白名单（新加的动作不进白名单 = 货主拿不到）；
+     * 3. `memberOnly` 的动作只给**批发商货主**，派单员与普通货主都拿不到
+     *    （派单员拿不到是因为那本账后端只认货主角色）。
      */
-    fun forRole(role: AiRole?): List<AiWriteAction> = when (role) {
-        AiRole.DISPATCHER -> ALL
-        AiRole.SHIPPER -> ALL.filter { it.id in SHIPPER_ACTIONS }
-        null -> emptyList()
+    fun forRole(actor: AiActor?): List<AiWriteAction> {
+        val role = actor?.role ?: return emptyList()
+        val member = actor.memberShipper
+        return when (role) {
+            AiRole.DISPATCHER -> ALL.filter {
+                (it.roles == null || role in it.roles) && !it.memberOnly
+            }
+            AiRole.SHIPPER -> ALL.filter {
+                (it.roles == null || role in it.roles) &&
+                    it.id in SHIPPER_ACTIONS && (!it.memberOnly || member)
+            }
+        }
     }
 
-    fun allows(role: AiRole?, id: String): Boolean = forRole(role).any { it.id == id }
+    fun allows(actor: AiActor?, id: String): Boolean = forRole(actor).any { it.id == id }
 
     /**
      * **模型**能看到/能调的动作（= [forRole] 去掉 `undoOnly` 那些）。
@@ -1895,7 +2073,7 @@ object AiWrites {
      * 两个用途对"哪些动作算数"的答案不一样，所以必须是两个函数——
      * 合成一个的话，要么撤回被自己的权限门挡掉，要么恢复动作漏进模型清单。
      */
-    fun forModel(role: AiRole?): List<AiWriteAction> = forRole(role).filter { !it.undoOnly }
+    fun forModel(actor: AiActor?): List<AiWriteAction> = forRole(actor).filter { !it.undoOnly }
 
     fun byId(id: String): AiWriteAction? = ALL.firstOrNull { it.id == id }
 
@@ -1952,8 +2130,8 @@ object AiWrites {
      *    处理器拿 `target_id` 去匹配一个写死为空的名册 → 报「系统里没有匹配「12」的商品」。
      *    用户真实存在的需求（从回收站恢复）就这样被答成"没这条记录"。
      */
-    fun describeForModel(role: AiRole? = AiRole.DISPATCHER): String =
-        forModel(role).groupBy { it.group }.entries.joinToString("\n") { (group, actions) ->
+    fun describeForModel(actor: AiActor? = AiActor.byRole(AiRole.DISPATCHER)): String =
+        forModel(actor).groupBy { it.group }.entries.joinToString("\n") { (group, actions) ->
             "【$group】\n" + actions.joinToString("\n") { a ->
                 buildString {
                     append("- ").append(a.id).append("（").append(a.title).append("）：").append(a.blurb)

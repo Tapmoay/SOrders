@@ -25,16 +25,74 @@ object DatePresets {
     const val TODAY = "今天"
     const val YESTERDAY = "昨天"
     const val BEFORE_YESTERDAY = "前天"
+    const val THIS_WEEK = "这周"
     const val LAST_7 = "近 7 天"
     const val LAST_WEEK = "上周"
     const val THIS_MONTH = "本月"
     const val LAST_MONTH = "上月"
+    /**
+     * 「近一年」= 今天往前 365 天（含今天）。
+     *
+     * 2026-09-20 用户点名要它（「这周、这个月、[近]一年啊，这些都可以，这预设好的，它都可以选择」）：
+     * 账本是**三年**数据，只到「上月」的话"去年的账"只能靠自定义去点两次日期。
+     * 口径与「近 7 天」同形（含今天，所以是 `minusDays(364)` 而不是 365）。
+     */
+    const val LAST_YEAR = "近一年"
 
     /** 「自定义」不由本表给区间（它要弹日期选择），所以**不在** [ROW] 里。 */
     const val CUSTOM = "自定义"
 
     /** 筛选条上按顺序显示的那几档（「自定义」由 UI 自己加在最后）。 */
-    val ROW = listOf(ALL, TODAY, YESTERDAY, BEFORE_YESTERDAY, LAST_7, LAST_WEEK, THIS_MONTH, LAST_MONTH)
+    val ROW = listOf(
+        ALL, TODAY, YESTERDAY, BEFORE_YESTERDAY, THIS_WEEK, LAST_7, LAST_WEEK,
+        THIS_MONTH, LAST_MONTH, LAST_YEAR,
+    )
+
+    /**
+     * **账本/开销这类"一打开就该有数"的页面**自动退档用的阶梯：
+     * 今天 → 昨天 → 前天 → 近 7 天（都没有再落到 [ALL]）。
+     *
+     * 为什么把这四档放进来而不是各页各写一份：这已经是**第四个**页面要"今天没数就往前退"
+     * （派单员账本、开销管理、货主账本，加上司机那两个），几份写死的清单必然走散 ——
+     * 而走散的表现是"同一个默认行为在两个页面上不一样"，用户只会觉得系统不稳。
+     *
+     * ⚠️ 它**不是**"所有页面都该用这一条"：司机端那两页用的是更长的一条
+     * （今天→昨天→前天→这周→上周→近 7 天→本月→上月，见 `ui/driver/DriverOrdersViewModel.kt`
+     * 的 `DRIVER_PRESET_LADDER`）—— 因为司机按**送达日**看任务，"这周/上周"对他是有意义的窗口。
+     * 要用更长的那条就显式引用它，别悄悄改这一条（改了这一条，别的页面会跟着动）。
+     */
+    val AUTO_LADDER = listOf(TODAY, YESTERDAY, BEFORE_YESTERDAY, LAST_7)
+
+    /**
+     * **先把窗口定下来，再取那一次数** —— 所有"一打开就该有数"的页面共用这一条。
+     *
+     * ### 用户 2026-09-21 的原话（他报的是一个看得见的毛病）
+     * > 「我在点击我的账本的时候，它会**闪两下**再跳到「前天」……我在点击账本之前，
+     * >   它就已经**提前盘点好了**：今天有账就直接出今天，今天没账再换前天……
+     * >   其他派单员那些账本界面基本上也是这个逻辑，**闪两下已经不行了**，不美观，且占用性能。」
+     *
+     * ### 为什么会闪（以及为什么"先按今天拉一次"是错的）
+     * 老写法是「先按今天就位并**取一次数**（屏幕立刻有东西），真没单再异步退档」——
+     * 于是最坏情况要画三帧：**今天（加载）→ 今天（空态）→ 前天（有数据）**。
+     * 用户看到的就是"闪两下"，而且白发了一次注定被丢掉的请求。
+     *
+     * ### 现在的形状
+     * 先只做**探测**（每档 `limit=1`，便宜），拿到那个"真有数"的档位、**只取一次数**。
+     * 页面那边配一个 `windowSettled` 门：定下来之前整页是 loading，**一次都不画错窗口**。
+     *
+     * @param ladder 候选档位（默认 [AUTO_LADDER]；司机端传自己那条更长的）
+     * @param hasData 这一档有没有数（**判据必须与页面自己的取数同源**，见各页注释）
+     * @return 该用的档位：阶梯里第一个有数的；都没有 → [ALL]（不带日期条件，至少看得到全貌）
+     */
+    suspend fun pickWindow(
+        ladder: List<String> = AUTO_LADDER,
+        hasData: suspend (String) -> Boolean,
+    ): String {
+        for (label in ladder) {
+            if (hasData(label)) return label
+        }
+        return ALL
+    }
 
     /**
      * 这一档对应的日期区间（`YYYY-MM-DD`，两端都含）；返回 **null = 这一档不带限制**（全部）。
@@ -47,6 +105,10 @@ object DatePresets {
         TODAY -> today.toString() to today.toString()
         YESTERDAY -> today.minusDays(1).let { it.toString() to it.toString() }
         BEFORE_YESTERDAY -> today.minusDays(2).let { it.toString() to it.toString() }
+        // 「这周」= 本周一 ~ **今天**（与「本月」同一条理由：未来的日子没有账）。
+        // ⚠️ 与「上周」是一对：那一档是**整周**（周一~周日），这一档只到今天 ——
+        //    两档都按"周一为一周之首"，各写一份周首算法就会出现"这周比上周少一天"。
+        THIS_WEEK -> today.minusDays((today.dayOfWeek.value - 1).toLong()).toString() to today.toString()
         LAST_7 -> today.minusDays(6).toString() to today.toString()
         LAST_WEEK -> {
             // 本周一往前退一周 = 上周一；+6 天 = 上周日（周一为一周之首，与报表口径一致）
@@ -58,6 +120,9 @@ object DatePresets {
             val first = today.withDayOfMonth(1).minusMonths(1)
             first.toString() to first.withDayOfMonth(first.lengthOfMonth()).toString()
         }
+        // 「近一年」= 今天往前 365 天（含今天）—— 与「近 7 天」同一个写法（`minusDays(N-1)`），
+        // 两种写法的差别是"到底 365 天还是 366 天"，用户看不出来，但**对账时会差一天**。
+        LAST_YEAR -> today.minusDays(364).toString() to today.toString()
         // 认不出的档（含「自定义」：它的区间由调用方给）→ **不加日期限制**。
         // 宁可查全量，也不要凭空造一个区间出来（造出来的区间会静默少算钱）。
         else -> null

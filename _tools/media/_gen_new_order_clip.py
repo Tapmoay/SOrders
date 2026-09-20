@@ -8,14 +8,21 @@ SAPI 是拼接连绵音，机器感是它的天花板；改用微软 Edge 的**�
 才有真人感，代价是生成时要联网（离线时自动退回 SAPI，见 `_sapi_fallback`）。
 
 ### 成品结构
-    [号角 哒-哒-哒——哒—— ≈1.0 秒] + [语音「来订单了，你有新的订单，请及时查看」≈3.x 秒]
+    [号角 哒-哒-哒——哒—— ≈1.0 秒] + [语音 ≈3.x 秒]
 整段由 App 按用户设置的次数重复播放（见 core/NewOrderAlert.kt）。
 
+### 两种角色、两句话（2026-09-21 起）
+`sound` 文件与文案都在下面的 [KINDS] 里，**一处定义**：
+· `driver`     → `res/raw/new_order.wav`     「来订单了，你有新的订单，请及时查看」→ `NewOrderAlert.CLIP_MS`
+· `dispatcher` → `res/raw/pending_order.wav` 「来订单了，有新订单待派单，请及时处理」→ `NewOrderAlert.PENDING_CLIP_MS`
+（派单员听的那句是用户 2026-09-21 拍板"新录一句专用的"。）
+
 用法：
-    python _tools/media/_gen_new_order_clip.py                # 默认音色，写进 res/raw/new_order.wav
+    python _tools/media/_gen_new_order_clip.py                     # 司机那句，写进 res/raw/new_order.wav
+    python _tools/media/_gen_new_order_clip.py --kind dispatcher   # 派单员那句
     python _tools/media/_gen_new_order_clip.py --voice zh-CN-XiaoxiaoNeural
-    python _tools/media/_gen_new_order_clip.py --list-voices  # 列出可选中文音色
-    python _tools/media/_gen_new_order_clip.py --candidates   # 试听用：同一句话多音色各出一份
+    python _tools/media/_gen_new_order_clip.py --list-voices       # 列出可选中文音色
+    python _tools/media/_gen_new_order_clip.py --candidates        # 试听用：同一句话多音色各出一份
 """
 import argparse
 import asyncio
@@ -30,13 +37,36 @@ import numpy as np
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "android/app/src/main/res/raw/new_order.wav"
 
-TEXT = "来订单了，你有新的订单，请及时查看"
+#: 两种播报（**同一套素材结构，两句话**）。角色与类型的对应关系在
+#: `core/NewOrderAlert.kt::speaks` 里，改这里要连它一起改（红线拿两边对账）。
+KINDS: dict[str, dict[str, str]] = {
+    # 司机：派单员把这单派给他了（core/NewOrderAlert.AlertKind.NEW_ORDER）
+    "driver": {
+        "file": "new_order.wav",
+        "text": "来订单了，你有新的订单，请及时查看",
+        "const": "CLIP_MS",
+    },
+    # 派单员：有订单需要派（同 AlertKind.PENDING_ORDER）。这句话与消息中心那条
+    # 「新订单待派单」是同一件事，措辞也照着它来。
+    "dispatcher": {
+        "file": "pending_order.wav",
+        "text": "来订单了，有新订单待派单，请及时处理",
+        "const": "PENDING_CLIP_MS",
+    },
+}
 
-# 音色：默认取「云健」——解说/播报风格，有力但不刺耳，适合"有事了"这种提醒。
+TEXT = KINDS["driver"]["text"]
+
+# 音色：**晓晓（zh-CN-XiaoxiaoNeural，亲切女声）——用户 2026-09-17 听完云健那一版后指定的**。
+#
+# ⛔ 2026-09-21 踩过一次：这个默认值当时是**云健（男声）**，生成派单员那句时没显式传 `--voice`，
+#    于是素材成了男声——用户一听就发现了（「音色不对啊，我选的是女生的音色」）。
+#    实测中位基频：晓晓 ≈245Hz、云健 ≈116Hz。
+#    所以默认值必须等于**用户选的那一个**；别拿"解说风格更有力"当理由改它。
+#    红线现在也拿基频对账（`_tools/media/_probe_clip_voice.py`，两份素材都必须是女声）。
 # （晓晓=亲切女声、云希=阳光男声、云扬=新闻男声，见 --list-voices）
-DEFAULT_VOICE = "zh-CN-YunjianNeural"
+DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural"
 DEFAULT_RATE = "+12%"
 
 SR = 24000  # 神经语音原生 24kHz；跟着它走，避免重采样把清晰度磨掉
@@ -194,9 +224,11 @@ def list_voices() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--kind", choices=sorted(KINDS), default="driver",
+                    help="driver=司机（新派单）/ dispatcher=派单员（待派单）")
     ap.add_argument("--voice", default=DEFAULT_VOICE)
     ap.add_argument("--rate", default=DEFAULT_RATE)
-    ap.add_argument("--text", default=TEXT)
+    ap.add_argument("--text", default=None, help="覆盖默认文案（默认取 KINDS 里那一句）")
     ap.add_argument("--list-voices", action="store_true")
     ap.add_argument("--candidates", action="store_true", help="多音色各出一份整段音频供试听")
     args = ap.parse_args()
@@ -205,6 +237,10 @@ def main() -> int:
         print("可选中文音色：")
         list_voices()
         return 0
+
+    kind = KINDS[args.kind]
+    text = args.text or kind["text"]
+    out = ROOT / "android/app/src/main/res/raw" / kind["file"]
 
     if args.candidates:
         out_dir = ROOT / "_agent/voice-candidates"
@@ -217,20 +253,20 @@ def main() -> int:
             ("zh-CN-XiaoyiNeural", "晓伊-活泼女声"),
         ]
         for voice, label in picks:
-            clip, src = build(voice, args.rate)
-            p = out_dir / f"{voice}.wav"
+            clip, src = build(voice, args.rate, text)
+            p = out_dir / f"{args.kind}-{voice}.wav"
             sec = write_wav(p, clip)
             print(f"✅ {label:16s} {sec:.2f}s  {p}")
         return 0
 
-    clip, src = build(args.voice, args.rate, args.text)
-    sec = write_wav(OUT, clip)
+    clip, src = build(args.voice, args.rate, text)
+    sec = write_wav(out, clip)
     wave_ms = int(round(sec * 1000))
-    print(f"✅ 已生成 {OUT}")
+    print(f"✅ 已生成 {out}（{args.kind}：{text}）")
     print(f"   语音来源：{src}")
     print(f"   整段时长：{sec:.2f} 秒（{wave_ms} ms）")
-    print(f"   ⚠️ 请同步 NewOrderAlert.CLIP_MS = {wave_ms}L（红线会拿 wav 文件头对账）")
-    print(f"   ⚠️ 号角时长常量 HORN_MS 也要核对：{int(round(1.0 * 1000))} ms 左右")
+    print(f"   ⚠️ 请同步 NewOrderAlert.{kind['const']} = {wave_ms}L（红线会拿 wav 文件头对账）")
+    print(f"   ⚠️ 播放器里也要用上这个素材：NewOrderPlayer 按 AlertKind 选 R.raw.{kind['file'][:-4]}")
     return 0
 
 

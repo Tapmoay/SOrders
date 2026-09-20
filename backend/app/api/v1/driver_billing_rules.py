@@ -27,12 +27,21 @@ from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
-from app.models import DriverBillingRule, Product, User
+from app.models import (
+    DriverBillingRule,
+    DriverBillingRuleCategory,
+    DriverBillingRuleTemplate,
+    FreightCategory,
+    FreightTemplate,
+    Product,
+    User,
+)
 from app.models.enums import OperationAction, UserRole
 from app.schemas.driver_billing_rule import (
     AttachRuleBody,
     DriverBillingRuleCreate,
     DriverBillingRuleOut,
+    RuleCategoryOut,
     DriverBillingRuleUpdate,
     validate_rule_params,
 )
@@ -61,6 +70,11 @@ def _pay_rule(r: DriverBillingRule) -> PayRule:
         commission_rate=r.commission_rate or 0,
         vehicle_type=r.vehicle_type or None,
         commission_product_ids=tuple(int(x) for x in (r.commission_product_ids or [])),
+        piece_mode=str(getattr(r, "piece_mode", None) or "uniform"),
+        by_category=tuple(
+            (int(x.category_id), x.piece_amount or 0, x.commission_rate or 0)
+            for x in (getattr(r, "category_rows", None) or [])
+        ),
     )
 
 
@@ -88,6 +102,90 @@ def _product_names(db: Session, ids: list[int]) -> list[str]:
     return [by_id.get(i, f"#{i}") for i in ids]
 
 
+def _category_names(db: Session, ids: list[int]) -> dict[int, str]:
+    if not ids:
+        return {}
+    rows = db.scalars(select(FreightCategory).where(FreightCategory.id.in_(ids))).all()
+    return {c.id: c.name for c in rows}
+
+
+def _check_categories(db: Session, items: list[dict]) -> list[dict]:
+    """按分类定价表里的分类必须真的存在（挂一个不存在的分类 = 这一类永远算不出钱）。"""
+    if not items:
+        return []
+    ids = [int(i.get("category_id")) for i in items if i.get("category_id") is not None]
+    found = set(db.scalars(select(FreightCategory.id).where(FreightCategory.id.in_(ids))).all())
+    missing = [i for i in ids if i not in found]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"按分类定价里有对不上的分类编号：{missing}")
+    return items
+
+
+def _check_templates(db: Session, ids: list[int]) -> list[int]:
+    """勾的价目必须真的存在（软删的不算）：勾一条不存在的价目 = 这条规则永远匹配不到运价。"""
+    if not ids:
+        return []
+    uniq = list(dict.fromkeys(int(i) for i in ids))
+    found = set(
+        db.scalars(
+            select(FreightTemplate.id).where(
+                FreightTemplate.id.in_(uniq), FreightTemplate.is_deleted.is_(False)
+            )
+        ).all()
+    )
+    missing = [i for i in uniq if i not in found]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"勾的价目里有对不上的编号：{missing}")
+    return uniq
+
+
+def _template_briefs(db: Session, ids: list[int]) -> list[str]:
+    """勾的价目，一条一行：**路线 + 价格**（例：惠州江北 → 东莞樟木头 ¥62.00）。
+
+    为什么带价格：规则卡片要回答的是"这条规则跑一趟多少钱"，光有路线名答不上来；
+    价格本来就在这批行里，顺手带上不额外查库。
+    """
+    if not ids:
+        return []
+    rows = db.scalars(select(FreightTemplate).where(FreightTemplate.id.in_(ids))).all()
+    by_id: dict[int, str] = {}
+    for t in rows:
+        label = t.name or ((t.from_place or "") + " → " + (t.to_place or ""))
+        by_id[t.id] = f"{label} ¥{t.fee:.2f}" if t.fee is not None else label
+    return [by_id.get(i, f"#{i}") for i in ids]
+
+
+def _set_rule_templates(db: Session, r: DriverBillingRule, ids: list[int]) -> None:
+    """整份替换"这份规则用哪几条价目"。"""
+    for row in list(getattr(r, "template_rows", None) or []):
+        db.delete(row)
+    r.template_rows = []
+    db.flush()
+    for tid in ids:
+        db.add(DriverBillingRuleTemplate(rule_id=r.id, template_id=int(tid)))
+    db.flush()
+    db.refresh(r)
+
+
+def _set_category_rows(db: Session, r: DriverBillingRule, items: list[dict]) -> None:
+    """整份替换"按分类"的那些行。"""
+    for row in list(getattr(r, "category_rows", None) or []):
+        db.delete(row)
+    r.category_rows = []
+    db.flush()
+    for it in items:
+        db.add(
+            DriverBillingRuleCategory(
+                rule_id=r.id,
+                category_id=int(it["category_id"]),
+                piece_amount=it.get("piece_amount") or 0,
+                commission_rate=it.get("commission_rate") or 0,
+            )
+        )
+    db.flush()
+    db.refresh(r)
+
+
 def _to_out(db: Session, r: DriverBillingRule, attached: int | None = None) -> DriverBillingRuleOut:
     if attached is None:
         attached = db.scalar(
@@ -96,6 +194,10 @@ def _to_out(db: Session, r: DriverBillingRule, attached: int | None = None) -> D
             .where(User.driver_rule_id == r.id, User.role == UserRole.DRIVER.value)
         ) or 0
     scope = [int(x) for x in (r.commission_product_ids or [])]
+    names = _category_names(
+        db, [int(x.category_id) for x in (getattr(r, "category_rows", None) or [])]
+    )
+    tpl_ids = [int(x.template_id) for x in (getattr(r, "template_rows", None) or [])]
     return DriverBillingRuleOut(
         id=r.id,
         name=r.name,
@@ -105,10 +207,25 @@ def _to_out(db: Session, r: DriverBillingRule, attached: int | None = None) -> D
         piece_unit=r.piece_unit,
         commission_base=r.commission_base,
         commission_rate=r.commission_rate,
+        piece_mode=str(getattr(r, "piece_mode", None) or "uniform"),
+        template_ids=tpl_ids,
+        template_briefs=_template_briefs(db, tpl_ids),
+        categories=[
+            RuleCategoryOut(
+                category_id=int(x.category_id),
+                category_name=names.get(int(x.category_id), f"#{x.category_id}"),
+                piece_amount=x.piece_amount or 0,
+                commission_rate=x.commission_rate or 0,
+            )
+            for x in sorted(
+                (getattr(r, "category_rows", None) or []), key=lambda x: int(x.category_id)
+            )
+        ],
         commission_product_ids=scope,
         commission_product_names=_product_names(db, scope),
         remark=r.remark or "",
-        summary=_pay_rule(r).describe(),  # 一句话说清它怎么给钱（界面/卡片直接显示，不各写一套）
+        # 一句话说清它怎么给钱（界面/卡片直接显示，不各写一套）；按分类定价时把分类名摆出来
+        summary=_pay_rule(r).describe(names),
         attached_count=attached,
         is_deleted=bool(r.is_deleted),
         created_at=r.created_at,
@@ -144,6 +261,8 @@ def create_rule(
 ) -> DriverBillingRuleOut:
     params = body.model_dump()
     params["commission_product_ids"] = _check_products(db, params.get("commission_product_ids") or [])
+    params["categories"] = _check_categories(db, params.get("categories") or [])
+    params["template_ids"] = _check_templates(db, params.get("template_ids") or [])
     err = validate_rule_params(params)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -163,6 +282,7 @@ def create_rule(
         salary=params.get("salary") or 0,
         piece_amount=params.get("piece_amount") or 0,
         piece_unit=params.get("piece_unit") or "order",
+        piece_mode=params.get("piece_mode") or "uniform",
         commission_base=params.get("commission_base") or "none",
         commission_rate=params.get("commission_rate") or 0,
         commission_product_ids=_check_products(db, params.get("commission_product_ids") or []),
@@ -171,6 +291,8 @@ def create_rule(
     )
     db.add(r)
     db.flush()
+    _set_category_rows(db, r, params.get("categories") or [])
+    _set_rule_templates(db, r, params.get("template_ids") or [])
     _write_log(db, current, OperationAction.DRIVER_RULE_UPSERT, {"rule_id": r.id, "op": "create", "after": r.params()})
     db.commit()
     db.refresh(r)
@@ -196,6 +318,10 @@ def update_rule(
     merged.update({k: v for k, v in patch.items() if v is not None or k == "vehicle_type"})
     if "commission_product_ids" in patch:
         merged["commission_product_ids"] = _check_products(db, patch["commission_product_ids"] or [])
+    if "categories" in patch:
+        merged["categories"] = _check_categories(db, patch["categories"] or [])
+    if "template_ids" in patch:
+        merged["template_ids"] = _check_templates(db, patch["template_ids"] or [])
     err = validate_rule_params(merged)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -220,6 +346,12 @@ def update_rule(
         r.piece_amount = patch["piece_amount"]
     if patch.get("piece_unit") is not None:
         r.piece_unit = patch["piece_unit"]
+    if patch.get("piece_mode") is not None:
+        r.piece_mode = patch["piece_mode"]
+    if "categories" in patch:
+        _set_category_rows(db, r, merged["categories"])
+    if "template_ids" in patch:
+        _set_rule_templates(db, r, merged["template_ids"])
     if patch.get("commission_base") is not None:
         r.commission_base = patch["commission_base"]
     if patch.get("commission_rate") is not None:

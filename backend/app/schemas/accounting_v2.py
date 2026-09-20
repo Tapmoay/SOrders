@@ -14,7 +14,6 @@ from app.models.enums import (
     CustomerKind,
     DriverBillStatus,
     DriverBillType,
-    ExpenseCategory,
     ReceiptSettleMode,
     SettlementStatus,
 )
@@ -152,6 +151,14 @@ class ShipperReceiptCreate(MoneyInput):
     method: str = Field("cash", pattern="^(cash|transfer|wechat|arrears_settle)$")
     received_at: date
     order_ids: list[int] = Field(default_factory=list, description="逐单核销绑定的订单，必填（itemized 默认）")
+    # **按商品核销**（2026-09-20 用户要求：「点击订单点击核销……也可以按商品进行核销」）：
+    # 只核销点名的商品行，`amount` 必须等于**这些行**的 line_total 合计。
+    # 留空 = 整单核销（老语义一字不变：金额 = 该单全部行合计）。
+    # ⛔ 传了行就必须落在 `order_ids` 这几张单里（服务层逐行校验）：
+    #    不校验的话，可以拿 A 单的行去核销 B 单的额度。
+    order_product_ids: list[int] = Field(
+        default_factory=list, description="按商品核销：只核销这些订单行（空=整单核销）"
+    )
     settle_mode: ReceiptSettleMode = ReceiptSettleMode.ITEMIZED
     arrears_unit_id: int | None = None
     note: str = Field("", max_length=256)
@@ -222,7 +229,10 @@ class SettlementActionBody(BaseModel):
 # ---------------- 开销单 ----------------
 class ExpenseCreate(MoneyInput):
     exp_date: date
-    category: ExpenseCategory
+    # 分类是**可维护名册里的名字**（自由字符串，≤32 字）：
+    # 原来这里是 `ExpenseCategory` 枚举 —— 枚举认不出的名字会让读接口整个 500，
+    # 现在由 `expense_categories.ensure_category` 把新名字自动补进名册。
+    category: str = Field(..., max_length=32)
     amount: Decimal = Field(..., gt=0)
     driver_id: int | None = None
     vehicle_id: int | None = None
@@ -234,7 +244,7 @@ class ExpenseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     exp_date: date
-    category: ExpenseCategory
+    category: str
     amount: Decimal
     driver_id: int | None = None
     vehicle_id: int | None = None
@@ -242,6 +252,11 @@ class ExpenseOut(BaseModel):
     note: str = ""
     operator_id: int | None = None
     driver_name: str | None = None
+    # 车牌（卡片上「突出车辆」时显示的就是它；原来只回 vehicle_id，客户端拿不到车牌）
+    vehicle_name: str | None = None
+    # 这个分类「卡片上突出哪一项」（vehicle/driver/order/none）——**由分类名册带下来**，
+    # 客户端不许自己按分类名 when(...) 判（用户新加一个分类就失效了）。
+    link_kind: str = "none"
     order_no: str | None = None
     created_at: datetime | None = None
 

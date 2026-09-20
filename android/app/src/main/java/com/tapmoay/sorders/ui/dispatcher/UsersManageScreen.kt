@@ -241,17 +241,6 @@ fun UsersManageScreen(
                         label = { Text(if (vm.editing == null) "初始密码（至少 6 位）" else "重置密码（留空不改）") },
                         singleLine = true, modifier = Modifier.fillMaxWidth(),
                     )
-                    if (pool == UserPool.DRIVERS && vm.draftVehicleType != "trailer") {
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = vm.draftSalary,
-                            onValueChange = { vm.draftSalary = InputRules.moneyInput(it) },
-                            label = { Text("固定工资（元/月，仅派单员可见）") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
                     if (pool == UserPool.DRIVERS) {
                         Spacer(Modifier.height(10.dp))
                         // 车辆类型下拉（大车/挂车）
@@ -268,56 +257,38 @@ fun UsersManageScreen(
                             ExposedDropdownMenu(expanded = vtExpanded, onDismissRequest = { vtExpanded = false }) {
                                 listOf("large" to "大车司机", "trailer" to "挂车司机").forEach { (k, label) ->
                                     DropdownMenuItem(text = { Text(label) }, onClick = {
+                                        // ⚠️ 这里原来会顺手把「计费方式」改成 PIECE/SALARY ——
+                                        //    那是老口径的副作用，现在没有那个字段了（他怎么算钱只看规则）
                                         vm.draftVehicleType = k
-                                        vm.draftBillingMode = if (k == "trailer") "PIECE" else "SALARY"
                                         vtExpanded = false
                                     })
                                 }
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        // 计费方式下拉（固定工资/按单计费）
-                        var billExpanded by remember { mutableStateOf(false) }
-                        ExposedDropdownMenuBox(expanded = billExpanded, onExpandedChange = { billExpanded = it }) {
-                            OutlinedTextField(
-                                value = if (vm.draftBillingMode == "PIECE") "按单计费（每单一价）" else "固定工资（月薪，司机不可见）",
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("计费方式") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = billExpanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            )
-                            ExposedDropdownMenu(expanded = billExpanded, onDismissRequest = { billExpanded = false }) {
-                                listOf("SALARY" to "固定工资（月薪，司机不可见）", "PIECE" to "按单计费（每单一价）").forEach { (k, label) ->
-                                    DropdownMenuItem(text = { Text(label) }, onClick = {
-                                        vm.draftBillingMode = k
-                                        billExpanded = false
-                                    })
-                                }
-                            }
-                        }
 
-                        // ---- 计费规则（v3.36）----
+                        // ---- 计费规则：**他怎么算钱只有这一个入口**（2026-09-21）----
                         //
-                        // 上面那两档（固定工资 / 按单计费）是**老口径**，只能表达"月薪"和"拿全额运费"。
-                        // 用户 2026-09-18 要的那几种（每单固定、运费提成、商品提成、工资+提成）
-                        // 表达不了，所以走"挂一份命名好的规则"。挂了规则时上面两档就不起作用了，
-                        // 这里必须写清楚——否则用户在老字段上改半天，账单一点不变。
+                        // 用户原话：「司机管理他现在有固定工资和按单计费，但是后面又加了一个计费规则，
+                        // 其实**计费规则就已经包括他们上面的这个**」。
+                        // 一份规则里本来就有「固定工资」＋「每单/每件/按这一单的钱/提成」，所以
+                        // 账号上再放「固定工资」「计费方式」两个框就是同一个数两处写：改哪一处都可能
+                        // **不生效**（挂了规则时老字段被完全忽略），而界面上两边都不报错。
+                        // 于是那两个框**删掉**，这里只留规则；没挂规则时如实说出兜底口径。
                         Spacer(Modifier.height(10.dp))
                         var ruleExpanded by remember { mutableStateOf(false) }
                         val attached = vm.rules.firstOrNull { it.id == vm.draftRuleId }
                         ExposedDropdownMenuBox(expanded = ruleExpanded, onExpandedChange = { ruleExpanded = it }) {
                             OutlinedTextField(
-                                value = attached?.name ?: "不挂规则（按上面的车型/计费方式）",
+                                value = attached?.name ?: "还没挂规则",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("计费规则（挂了就以规则为准）") },
+                                label = { Text("计费规则（他怎么算钱就看这一项）") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ruleExpanded) },
                                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                             )
                             ExposedDropdownMenu(expanded = ruleExpanded, onDismissRequest = { ruleExpanded = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("不挂规则（按上面的车型/计费方式）") },
+                                    text = { Text("不挂规则") },
                                     onClick = { vm.draftRuleId = null; ruleExpanded = false },
                                 )
                                 vm.rules.forEach { r ->
@@ -338,15 +309,20 @@ fun UsersManageScreen(
                                 }
                             }
                         }
-                        if (attached != null) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            if (attached != null) {
                                 "他以后按「${attached.name}」算钱：" + attached.summary +
-                                    "（上面的车型/计费方式只在没挂规则时才生效）",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                                    "（固定工资、每单/每件、提成都在这一份规则里，账号上不再单独填）"
+                            } else {
+                                "没挂规则 → 按车型的老口径兜底（" +
+                                    driverKindLabel(vm.draftVehicleType) + "）。" +
+                                    "要给他固定工资/计件/提成，请到工作台「计费规则」建一份再挂上 —— " +
+                                    "否则他这一趟可能一分钱都算不出来。"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         // 车辆绑定**不在这个弹窗里**：它是另一条写路径（POST /vehicles/{id}/driver），
                         // 单独一个弹层更好报错（后端会因为"这不是司机账号"而拒绝，那句话要原样给用户看）。
                         if (vm.editing != null) {

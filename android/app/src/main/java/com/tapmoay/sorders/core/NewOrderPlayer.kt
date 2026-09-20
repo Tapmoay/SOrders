@@ -18,15 +18,16 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 司机端「来单了」的播放器：放固定音频素材、按设置的次数重复、能被接单打断。
+ * 「来单了」的播放器（**司机听新派单、派单员听待派单**，见 [NewOrderAlert.speaks]）：
+ * 放固定音频素材、按设置的次数重复、能被"活已经被人接走/派完"打断。
  *
  * 三个刻意的选择：
  * 1. **用音频素材而不是系统 TTS**：「来单了」是这套系统里最不能哑的一句话，
  *    而中文 TTS 语音包在国产 ROM 上经常不存在（放不出来时才退回 TTS 兜底）。
  * 2. **自己控制循环，而不是让通知渠道响铃**：渠道的声音一旦响起就停不下来，
  *    而司机接单后必须立刻闭嘴（否则司机会怀疑到底接上没有）。
- * 3. **响的时候把媒体音量抬到 70%**（播完还原）：司机手机常常是静音/低音量，
- *    "响过了但没听见"等于没响。这一条可以在设置里关掉。
+ * 3. **响的时候把媒体音量抬到八成**（播完还原，见 [NewOrderAlert.BOOST_RATIO]）：
+ *    手机常常是静音/低音量，"响过了但没听见"等于没响。这一条可以在设置里关掉。
  */
 class NewOrderPlayer(
     private val context: Context,
@@ -78,18 +79,18 @@ class NewOrderPlayer(
             while (currentCoroutineContext().isActive) {
                 if (!plan.forever && done >= plan.repeats) break
                 // 「一直响」的止损：没人接的单不能响一整夜
-                if (plan.forever && done * (NewOrderAlert.CLIP_MS + plan.gapMs) > NewOrderAlert.FOREVER_MAX_MS) break
+                if (plan.forever && done * (NewOrderAlert.clipMs(kind) + plan.gapMs) > NewOrderAlert.FOREVER_MAX_MS) break
 
                 // 素材放不出来（机型解码问题/资源被裁）→ 退回 TTS 并一直用它：
                 // 有声音永远好过"以为响了其实什么都没播"。
-                if (ttsBroken || !playOnce()) {
+                if (ttsBroken || !playOnce(kind)) {
                     // 已经被叫停（司机接单/点了通知）就别再补一嗓子——
                     // 这是"接单后还在喊"的另一种形态，来源是取消被当成播放失败
                     currentCoroutineContext().ensureActive()
                     ttsBroken = true
                     Log.w(TAG, "音频素材放不出来，退回系统 TTS")
                     tts.speak(voiceText(kind))
-                    delay(NewOrderAlert.CLIP_MS)
+                    delay(NewOrderAlert.clipMs(kind))
                 }
                 done++
                 if (!plan.forever && done >= plan.repeats) break
@@ -104,26 +105,39 @@ class NewOrderPlayer(
 
     private fun voiceText(kind: AlertKind): String = when (kind) {
         AlertKind.NEW_ORDER -> "来单了"
+        AlertKind.PENDING_ORDER -> "有新订单待派单"
         AlertKind.REVOKED -> "有任务被撤回"
     }
 
+    /**
+     * 这一类播报用哪份素材。
+     *
+     * ⚠️ 「撤回」跟着司机那句走（本来是给"来单了"用的）：它只有喇叭、没有对应的语音素材，
+     *    真机上听起来就是「来订单了」——**这是一处已知的老毛病**（见声明页），
+     *    不要照它推断"撤回应该喊来单了"。
+     */
+    private fun clipRes(kind: AlertKind): Int = when (kind) {
+        AlertKind.PENDING_ORDER -> R.raw.pending_order
+        else -> R.raw.new_order
+    }
+
     /** 放一遍素材；失败返回 false（由调用方决定要不要退回 TTS） */
-    private suspend fun playOnce(): Boolean {
+    private suspend fun playOnce(kind: AlertKind): Boolean {
         val attrs = AudioAttributes.Builder()
             // USAGE_MEDIA：跟着媒体音量走（司机开车时媒体音量通常开着导航）
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build()
         val mp = try {
-            MediaPlayer.create(context, R.raw.new_order, attrs, AudioManager.AUDIO_SESSION_ID_GENERATE)
+            MediaPlayer.create(context, clipRes(kind), attrs, AudioManager.AUDIO_SESSION_ID_GENERATE)
         } catch (_: Exception) {
             null
         } ?: return false
         player = mp
         return try {
             mp.start()
-            // 素材时长 = NewOrderAlert.CLIP_MS（红线拿 wav 头对账，改素材不改常量会报红）
-            delay(NewOrderAlert.CLIP_MS)
+            // 素材时长 = NewOrderAlert.clipMs(kind)（红线拿 wav 文件头对账，改素材不改常量会报红）
+            delay(NewOrderAlert.clipMs(kind))
             true
         } catch (e: CancellationException) {
             // ⚠️ 取消必须原样抛出，**不能**被下面那个 catch(Exception) 吞掉：

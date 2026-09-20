@@ -2,8 +2,6 @@ package com.tapmoay.sorders.core
 
 import com.tapmoay.sorders.BuildConfig
 import android.os.Build
-import java.net.HttpURLConnection
-import java.net.URL
 
 /** 后端 API 地址统一出口：
  * 优先连接构建配置 api_base_url（当前=生产服务器 https://sorders.top）；

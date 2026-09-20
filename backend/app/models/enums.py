@@ -8,13 +8,49 @@ class UserRole(str, enum.Enum):
 
 
 class OrderStatus(str, enum.Enum):
-    """待派单 → 已派单（已派未接） → 已接单 → 已送达；另含已撤销与撤回后的待派单。"""
+    """待派单 → 已派单（已派未接） → 已接单 → 已送达；另含已撤销、已退货与撤回后的待派单。"""
 
     PENDING_DISPATCH = "PENDING_DISPATCH"
     DISPATCHED = "DISPATCHED"
     ACCEPTED = "ACCEPTED"
     DELIVERED = "DELIVERED"
     CANCELLED = "CANCELLED"
+    # 已退货（2026-09-20 用户拍板新增这一档）：货物送达之后客户又把货退回来。
+    #
+    # ⛔ **不是「已撤销」**（用户明确选了"新增一个状态"，不是沿用）：
+    #    · 已撤销 = 这张单**没发生过**（还在待派/已派未接时撤掉，货没出门）；
+    #    · 已退货 = 单**发生过**（送了、入了账、司机也拿到了那一单的钱），事后货退回来了。
+    #    混成一个状态会让「营业额为什么要减」「司机那单的钱还在不在」都答不上来。
+    # 只有**整单退完**才进这个状态；退了一部分仍然留在 DELIVERED（界面打「部分退货」标记），
+    # 理由同账本：一张单一个结论，部分退货的"结论"是"还欠着一部分"。
+    RETURNED = "RETURNED"
+
+
+class ReturnRequestStatus(str, enum.Enum):
+    """货主申请退货的四种归宿（2026-09-21）。
+
+    ⚠️ **没有「已删除」这一档**：撤回（`WITHDRAWN`）与删除是两件事 ——
+       撤回是"我不想退了"（申请仍然留在这张单的历史里，派单员看得到"他提过又撤了"），
+       删除走 `SoftDeleteMixin`（`is_deleted`）。把撤回做成删除，后果是货主反复提了又撤，
+       派单员那边什么都看不见，只能看到"这张单一直没人申请过"。
+    """
+
+    #: 等派单员处理（**同一张单同时只允许一条**，见 `services/order_return_request.py`）
+    PENDING = "pending"
+    #: 派单员已经照这张申请**实际退过货**了（钱、库存、订单状态都在那一刻才变）
+    DONE = "done"
+    #: 派单员驳回（必带理由 —— 货主凭什么被拒，得能回查）
+    REJECTED = "rejected"
+    #: 货主自己撤回（申请作废，但记录留着）
+    WITHDRAWN = "withdrawn"
+    #: **派单员直接退了货**（2026-09-21 用户拍板：「把规则改成派单员退货之后，自动取消申请」）。
+    #:
+    #: ⛔ 为什么不是 `DONE`：`DONE` 的语义是"**照这张申请**办的"；而派单员走订单管理那条直连退货时，
+    #:    退的件数/商品**不一定**等于申请上写的（他退 3 件、申请写 2 件）。
+    #:    标成 DONE 就等于替他把这个差异说成"一致"，而事后谁都查不出来 ——
+    #:    本仓库最贵的一类错就是这种"把差异盖掉"。所以单独一档，中文写明是"直接退货"，
+    #:    件数与结果以**订单/账本**为准（"退了多少"只有一处口径），差异写进审计与站内信。
+    CLOSED = "closed"
 
 
 class VehicleType(str, enum.Enum):
@@ -32,6 +68,14 @@ class LedgerSource(str, enum.Enum):
     ORDER = "order"
     MANUAL = "manual"
     REFUND = "refund"
+    # 退货红冲（2026-09-20）：客户把货退回来 → 按行写**负金额**红冲行（售价冲减 + 负成本快照）。
+    #
+    # ⛔ 为什么不复用 REFUND：`ledgers` 上有唯一约束 `(order_product_id, source)`，而
+    #    REFUND 那一格已经被**货损成本回冲行**占着（`apply_damage_accounting`，一单一行）。
+    #    复用会直接撞唯一约束（500），或者更糟——把两次退货累加到货损那一行上。
+    # 语义上也该分开：REFUND = 货损（货没回来，只冲成本），RETURN = 退货（货回来了，营收与成本一起冲）。
+    # 同一条行上的**多次退货累加到同一行**（数量与金额一起加），所以唯一约束仍然成立。
+    RETURN = "return"
 
 
 class OperationAction(str, enum.Enum):
@@ -48,6 +92,24 @@ class OperationAction(str, enum.Enum):
     ORDER_EXCEPTION = "ORDER_EXCEPTION"
     ORDER_FREIGHT = "ORDER_FREIGHT"
     ORDER_SPLIT = "ORDER_SPLIT"
+    # 退货（2026-09-20）：动了钱（红冲营收 + 可能退现）也动了库存，必须留痕。
+    ORDER_RETURN = "ORDER_RETURN"
+    # 货主**申请**退货（2026-09-21 用户要求：「批发商只是一个申请，派单员才是实际性的操作」）。
+    #
+    # ⛔ 为什么不复用 `ORDER_RETURN`：这两个动作要回答的是**两个不同的问题** ——
+    #    「这张单的货是谁退的、退了多少钱」（ORDER_RETURN，钱和库存都动了）
+    #    和「这个货主什么时候提过退货、后来是被办的还是被驳的」（下面三个码，一分钱没动）。
+    #    合成一个的后果是审计页上分不出"真的退了货"和"只是提了个申请"，
+    #    而这恰恰是这一轮新增流程的**全部意义**（申请与执行是两个人、两个时刻）。
+    # 拆三个而不是一个：驳回与撤回是**两个不同的人**做的相反的决定（派单员驳回 / 货主自己撤回），
+    # 出问题时第一个要问的就是"这是谁决定的"。
+    ORDER_RETURN_REQUEST = "ORDER_RETURN_REQUEST"
+    ORDER_RETURN_REQUEST_REJECT = "ORDER_RETURN_REQUEST_REJECT"
+    ORDER_RETURN_REQUEST_WITHDRAW = "ORDER_RETURN_REQUEST_WITHDRAW"
+    #: 派单员**直接退了货**，那张待处理申请被自动关掉（2026-09-21 用户拍板）。
+    #: 单独一个码：审计页上要能回答"这张申请为什么没被办理就消失了"——
+    #: 它既不是货主撤回的，也不是派单员驳回的，而是**另一条路把这件事做完了**。
+    ORDER_RETURN_REQUEST_CLOSE = "ORDER_RETURN_REQUEST_CLOSE"
     ORDER_LINE_ADD = "ORDER_LINE_ADD"
     ORDER_LINE_UPDATE = "ORDER_LINE_UPDATE"
     ORDER_LINE_DELETE = "ORDER_LINE_DELETE"
@@ -98,6 +160,12 @@ class OperationAction(str, enum.Enum):
     PLACE_CATEGORY_UPSERT = "PLACE_CATEGORY_UPSERT"
     PLACE_CATEGORY_DELETE = "PLACE_CATEGORY_DELETE"
     PLACE_CATEGORY_REORDER = "PLACE_CATEGORY_REORDER"
+    # 开销分类名册（2026-09-20，用户「开销分类……也有个分类管理」）：与商品/地点分类同一类东西
+    # （主数据、管顺序），但它还决定**卡片上突出哪一项关联**（vehicle/driver/order/none）——
+    # 改它会改所有人看开销的方式，必须留痕。
+    EXPENSE_CATEGORY_UPSERT = "EXPENSE_CATEGORY_UPSERT"
+    EXPENSE_CATEGORY_DELETE = "EXPENSE_CATEGORY_DELETE"
+    EXPENSE_CATEGORY_REORDER = "EXPENSE_CATEGORY_REORDER"
     # 商品可见范围（v3.43）：白名单直接决定"某个货主/批发商在选品页能看到什么"，
     # 本质是一种授权 —— 改动必须能回查"是谁给谁开了哪些商品"。
     PRODUCT_VISIBILITY_SET = "PRODUCT_VISIBILITY_SET"
@@ -133,6 +201,25 @@ class OperationAction(str, enum.Enum):
     FREIGHT_TEMPLATE_UPSERT = "FREIGHT_TEMPLATE_UPSERT"
     FREIGHT_TEMPLATE_DELETE = "FREIGHT_TEMPLATE_DELETE"
     FREIGHT_TEMPLATE_RESTORE = "FREIGHT_TEMPLATE_RESTORE"
+    # 运费分类名册（2026-09-21）：运费模板与计费规则**共用**的一套分类。
+    # 它决定"这类货走哪条价目/每单给司机多少"——改一个分类名或顺序会影响报价口径，
+    # 所以要能回答"这个分类是谁建的、谁改的、谁删的"。
+    FREIGHT_CATEGORY_UPSERT = "FREIGHT_CATEGORY_UPSERT"
+    FREIGHT_CATEGORY_DELETE = "FREIGHT_CATEGORY_DELETE"
+    FREIGHT_CATEGORY_REORDER = "FREIGHT_CATEGORY_REORDER"
+    # 派单员**手动定价**（2026-09-21）：这一单没匹配到任何价目 → 没有运费 → 待定价，
+    # 他手填一个数，并（可选）把这条路线+价目**沉淀**成模板。这是一个改钱的动作，
+    # 必须能回答"这单的运费是谁定的、什么时候定的、当时说了什么"。
+    ORDER_FREIGHT_PRICE = "ORDER_FREIGHT_PRICE"
+    # 批发商自记账核销（2026-09-20 用户要求）：他向下游货主收钱时在自己账本上核销。
+    # ⛔ 这本账**不写** cash_flows / orders.paid / ledgers（见 `models/shipper_settlement.py`），
+    #    所以 operation_logs 是**唯一**能回答"这笔核销谁在什么时候记的、撤的"的地方 ——
+    #    三个动作码都要有，唯独不能不记。
+    # 拆三个：要回答的是三个不同的问题 ——「他向谁收了多少钱」「谁把这笔核销撤了」
+    # 「谁又把撤掉的放回来了」。合成一个，审计页上只能看到一团。
+    SHIPPER_SETTLE_CREATE = "SHIPPER_SETTLE_CREATE"
+    SHIPPER_SETTLE_REVOKE = "SHIPPER_SETTLE_REVOKE"
+    SHIPPER_SETTLE_RESTORE = "SHIPPER_SETTLE_RESTORE"
 
 class CustomerKind(str, enum.Enum):
     REGISTERED = "registered"
@@ -185,15 +272,12 @@ class CashFlowBizType(str, enum.Enum):
     ADJUST = "ADJUST"
 
 
-class ExpenseCategory(str, enum.Enum):
-    FUEL = "fuel"
-    REPAIR = "repair"
-    TOLL = "toll"
-    PARKING = "parking"
-    FINE = "fine"
-    INSURANCE = "insurance"
-    LOSS = "loss"
-    OTHER = "other"
+# ⛔ `ExpenseCategory` 枚举**已删除**（2026-09-20）：开销分类改成**可维护名册**
+#    （`models/expense_category.py` + `/expense-categories`），`expenses.category`
+#    存的是名册里的名字（中文，≤32 字）。留着这个枚举，下一个人还会拿它当"合法取值表"，
+#    于是"用户新加的分类存不进去"这件事会换个地方再发生一次。
+#    ⚠️ 老英文键（fuel/repair/…）由 `core/schema_bootstrap.py` 的迁移翻成中文名；
+#    `services/accounting_service.py` 的现金流水口径映射**两种都认**（认不出落 OTHER）。
 
 
 class ReceiptSettleMode(str, enum.Enum):

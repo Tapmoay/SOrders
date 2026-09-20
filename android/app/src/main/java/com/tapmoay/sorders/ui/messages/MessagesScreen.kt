@@ -25,12 +25,27 @@ fun MessagesScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenOrder: (Long) -> Unit,
+    /**
+     * 「退货申请」类通知的去处 —— 传的是**整条路由**（`?focus=<申请单号>` 已经拼好）。
+     *
+     * 为什么由这一页决定去哪一页：该去派单端还是货主端由 **type + 当前角色**共同决定，
+     * 而这两样都在这一页手里（`noticeReturnRoute`，纯函数、一处判断）。让三个调用方
+     * 各自再写一遍"哪种消息去哪个端"，就是同一套路由的第二、三份实现 —— 改了这边忘了那边
+     * 的那一天，表现是"点了通知去了错误的那一页、或者 403"。
+     * 默认空实现 = 不接这条直达（老调用方/预览不会因此崩），此时点通知退回老行为。
+     */
+    onOpenReturnRequest: (String) -> Unit = {},
     /** true = 作为底部导航内容内嵌（隐藏返回矢头/双重 inset） */
     embedded: Boolean = false,
 ) {
     val vm: MessagesViewModel = appViewModel { MessagesViewModel(container) }
     val unread by container.realtimeHub.unreadCount.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+
+    // 当前角色的 key（同步缓存，登录/登出时由 TokenStore 维护）。
+    // ⚠️ 读**原文**而不是 `Role.fromKey(...)`：那个函数对空串会回落成 SHIPPER，
+    //    于是"会话还没恢复"的那一瞬间会被当成货主（`NoticeRouting.kt` 头部解释了后果）。
+    val roleKey = container.tokenStore.cachedRole()
 
     // 删除确认对话框：null=不弹；emptyList=清空确认
     var pendingBatchDelete by remember { mutableStateOf<List<Long>?>(null) }
@@ -74,15 +89,20 @@ fun MessagesScreen(
                         Text("删除(" + vm.selectedIds.size + ")", color = MaterialTheme.colorScheme.error)
                     }
                 } else {
-                    // ⚠️ 判据不能只看全局红点。用户 2026-09-17 报「还加一个全部已读的功能」——
-                    //    功能其实一直在，但它的显示条件是 `unread > 0`，而 `unread` 来自
-                    //    `realtimeHub.unreadCount`（**全局计数**，靠 socket 推送与 syncUnreadFromApi 维护）。
-                    //    那个数没同步上时它是 0，于是按钮一直藏着，用户以为没这个功能。
-                    //    「全部已读」真正作用的对象是**列表里这些消息**，所以列表里有未读也必须出现。
+                    // ⚠️ **常显，不许因为没有未读就把它藏起来**（2026-09-20 用户第二次报同一件事：
+                    //    「消息中心没有全部已读的功能了……其他 2 个都有」——实测司机端 8 条消息全已读，
+                    //    按钮按老条件被隐藏；派单员那边有 12 条未读，所以看得到）。
+                    //    2026-09-17 那次报的也是这件事，当时的修法（补 `listUnread` 判据）只放宽了
+                    //    触发条件，没解决"看起来没有"：只要恰好没有未读，功能就又"消失"一次。
+                    //    现在改成一直画出来，没有未读时**置灰** —— 灰 = 现在没什么可标的，而不是没这功能。
+                    //    `unread` 是全局计数（`realtimeHub.unreadCount`，靠 socket 推送与
+                    //    `syncUnreadFromApi` 维护），`listUnread` 是列表里这些消息的未读数；
+                    //    「全部已读」真正作用的对象是列表里这些消息，两个都算上才不会误灰。
                     val listUnread = vm.messages.count { it.readAt == null }
-                    if (unread > 0 || listUnread > 0) {
-                        TextButton(enabled = !vm.busy, onClick = { vm.markAllRead() }) { Text("全部已读") }
-                    }
+                    TextButton(
+                        enabled = !vm.busy && (unread > 0 || listUnread > 0),
+                        onClick = { vm.markAllRead() },
+                    ) { Text("全部已读") }
                     if (vm.messages.isNotEmpty()) {
                         TextButton(
                             enabled = !vm.busy,
@@ -116,7 +136,16 @@ fun MessagesScreen(
                                 vm.toggleSelect(m.id)
                             } else {
                                 vm.markRead(m)
-                                m.payload?.get("order_id")?.toString()?.toLongOrNull()?.let { onOpenOrder(it) }
+                                // 退货申请类的通知 → **直达那一页并定位那一条**（2026-09-21 用户要求：
+                                // 「到消息中心哦。其实本来就要做到直达的」）。
+                                // 认不出来（别的 type / 角色对不上 / payload 里没有申请单号）时
+                                // 退回老行为：有单号就开订单详情 —— 绝不出现"点了没反应"。
+                                val direct = noticeReturnRoute(roleKey, m.type, m.payload)
+                                if (direct != null) {
+                                    onOpenReturnRequest(direct)
+                                } else {
+                                    m.payload?.get("order_id")?.toString()?.toLongOrNull()?.let { onOpenOrder(it) }
+                                }
                             }
                         },
                         onLongClick = { if (!vm.selectionMode) vm.enterSelection(m.id) },

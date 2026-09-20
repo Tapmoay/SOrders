@@ -12,8 +12,10 @@ from app.api.v1 import (
     expenses,
     files,
     freight_settlement,
+    freight_categories,
     freight_templates,
     inventory,
+    expense_categories,
     ledger,
     notifications,
     operation_logs,
@@ -25,7 +27,9 @@ from app.api.v1 import (
     product_categories,
     products,
     reports,
+    return_requests,
     shipper,
+    shipper_ledger,
     stats,
     users,
 )
@@ -35,14 +39,24 @@ api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(files.router)
 api_router.include_router(freight_templates.router)
+# 运费分类名册（2026-09-21）：运费模板与计费规则**共用**的一套分类，见 `api/v1/freight_categories.py` 开头
+api_router.include_router(freight_categories.router)
 api_router.include_router(freight_settlement.router)
 api_router.include_router(shipper.router)
+# 批发商自己那一本账（他给下游货主核销）：与 `ledger.router`（派单员开的账）是两本账，
+# 谁都不写谁 —— 见 `api/v1/shipper_ledger.py` 开头。
+api_router.include_router(shipper_ledger.router)
 api_router.include_router(orders.router)
+# 退货申请（2026-09-21）：货主**申请** → 派单员**实际执行**。与 `orders.router` 里那条
+# `POST /orders/{id}/return`（唯一的执行路径）是两件事，见 `api/v1/return_requests.py` 开头。
+api_router.include_router(return_requests.router)
 api_router.include_router(places.router)
 api_router.include_router(place_categories.router)
 api_router.include_router(order_products.router)
 api_router.include_router(products.router)
 api_router.include_router(product_categories.router)
+# 开销分类名册（2026-09-20）：与商品分类同一套规矩，见 `api/v1/expense_categories.py` 开头
+api_router.include_router(expense_categories.router)
 api_router.include_router(price_rules.router)
 api_router.include_router(reports.router)
 api_router.include_router(ledger.router)

@@ -18,7 +18,11 @@ import org.junit.Test
  */
 class AiReadRoleTest {
 
-    private fun actionsOf(role: AiRole) = AiReads.forRole(role).map { it.action }.toSet()
+    private fun actionsOf(actor: AiActor) = AiReads.forRole(actor).map { it.action }.toSet()
+
+    /** 两个货主：普通货主（`is_member=0`）与批发商货主（`is_member=1`）。 */
+    private val plainShipper = AiActor.byRole(AiRole.SHIPPER)!!
+    private val memberShipper = AiActor.of(AiRole.SHIPPER, true)!!
 
     @Test
     fun `每张表都标了角色，没有谁都不给的孤儿`() {
@@ -33,8 +37,32 @@ class AiReadRoleTest {
     }
 
     @Test
-    fun `派单员拿到全部表`() {
-        assertEquals(AiReadCatalog.ACTIONS.size, AiReads.forRole(AiRole.DISPATCHER).size)
+    fun `派单员拿到全部表（除了只给货主的那几张）`() {
+        // ⚠️ 原来这里断言的是"派单员拿到**全部**"，那是 2026-09-20 之前成立的前提：
+        //    那时目录里没有一张表是"只给货主"的。加了 `shipper_ledger.list_settlements`
+        //    （批发商自己那一本核销账，**派单员读它是 403**）之后，那条断言变成了假话。
+        //    现在按目录自己算"应该拿到几张"——多一张少一张都会红。
+        val shipperOnly = AiReadCatalog.ACTIONS.filter { it.roles == setOf("shipper") }
+        assertEquals(
+            AiReadCatalog.ACTIONS.size - shipperOnly.size,
+            AiReads.forRole(AiActor.byRole(AiRole.DISPATCHER)).size,
+        )
+        // 双向：**批发商货主**能拿到自己那一张（裁多了和裁少了都是能力缺失）。
+        // ⚠️ 2026-09-20 第七轮：这张表从"只给 shipper"再收窄成"只给**批发商**货主" ——
+        //    普通货主手机上「我的账本」根本没有核销那一段（他给自己下单，没有第二个债务人），
+        //    所以他的清单里不该出现这张表。判据在目录的 `memberOnly` 上（生成器写的）。
+        assertTrue(
+            "批发商货主拿不到自己的核销账目录（生成器或角色推导坏了）",
+            AiReads.allows(memberShipper, "shipper_ledger.list_settlements"),
+        )
+        assertFalse(
+            "普通货主不该拿到核销账（手机上他没有这一段）",
+            AiReads.allows(plainShipper, "shipper_ledger.list_settlements"),
+        )
+        assertFalse(
+            "派单员不该拿到货主私账那张表（后端对它 403）",
+            AiReads.allows(AiActor.byRole(AiRole.DISPATCHER), "shipper_ledger.list_settlements"),
+        )
     }
 
     @Test
@@ -68,7 +96,7 @@ class AiReadRoleTest {
             "customers.list_customers",
             "orders.pending_dispatch_count",
         )
-        val got = actionsOf(AiRole.SHIPPER)
+        val got = actionsOf(plainShipper)
         val leaked = forbidden.filter { it in got }
         assertTrue("货主不该拿到这些表：$leaked", leaked.isEmpty())
     }
@@ -88,7 +116,7 @@ class AiReadRoleTest {
             "notifications.unread_count",
             "price_rules.list_price_rules",     // 批发商专属价
         )
-        val got = actionsOf(AiRole.SHIPPER)
+        val got = actionsOf(plainShipper)
         val missing = must.filter { it !in got }
         assertTrue("货主能做的事却没给他读：$missing", missing.isEmpty())
     }
@@ -96,9 +124,9 @@ class AiReadRoleTest {
     @Test
     fun `关掉的模块对两个角色都生效`() {
         val only = setOf("orders")
-        for (role in listOf(AiRole.DISPATCHER, AiRole.SHIPPER)) {
-            val ok = AiReads.forRole(role, only).all { it.action.startsWith("orders.") }
-            assertTrue("$role 在只开 orders 模块时仍拿到了别的表", ok)
+        for (actor in listOf(AiActor.byRole(AiRole.DISPATCHER)!!, plainShipper)) {
+            val ok = AiReads.forRole(actor, only).all { it.action.startsWith("orders.") }
+            assertTrue("$actor 在只开 orders 模块时仍拿到了别的表", ok)
         }
     }
 
@@ -106,9 +134,9 @@ class AiReadRoleTest {
     fun `工具说明里的清单与可执行集合同源`() {
         // 说明里列了却调不了（或反过来）是最难查的一类问题：模型会照抄说明里的 action，
         // 然后拿到一句"没有名为 X 的查询"。两边必须来自同一个 forRole。
-        for (role in listOf(AiRole.DISPATCHER, AiRole.SHIPPER)) {
-            val described = AiReads.describeForModel(role).lines().filter { it.startsWith("- ") }
-            assertEquals("$role 的说明行数与可读表数不一致", AiReads.forRole(role).size, described.size)
+        for (actor in listOf(AiActor.byRole(AiRole.DISPATCHER)!!, plainShipper, memberShipper)) {
+            val described = AiReads.describeForModel(actor).lines().filter { it.startsWith("- ") }
+            assertEquals("$actor 的说明行数与可读表数不一致", AiReads.forRole(actor).size, described.size)
         }
     }
 }

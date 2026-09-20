@@ -5,7 +5,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.tapmoay.sorders.BuildConfig
 import com.tapmoay.sorders.core.ApiClient
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.Session

@@ -41,6 +41,11 @@ class OrderProductOut(BaseModel):
     #    （第一版就是这么写的，`model_validate` 实测返回 `unit=''` 才发现。）
     unit: str = Field("", validation_alias=AliasChoices("unit", "unit_snapshot"))
     damage_quantity: int = 0  # 送达货损数量（公司自担），0=无
+    # 已退货数量（2026-09-20）：这一行退了几件。界面靠它算"还能退几件"
+    # （上限 = quantity − damage_quantity − returned_quantity，与
+    # `services/order_return.py::max_returnable` **同一份规则**，两边差一条就会
+    # 出现"界面让填 3、后端只认 2"这种当面打架）。
+    returned_quantity: int = 0
 
 
 class OrderProductCreate(MoneyInput):
@@ -151,6 +156,10 @@ class OrderOut(BaseModel):
     order_products: list[OrderProductOut] = []
     driver_phone: str | None = None
     freight_fee: Decimal | None = None
+    #: 这一单属于**哪一类货**（运费分类）。派单时由匹配到的价目带过来，或手动定价时指定；
+    #: 司机计费规则在 `piece_mode=category` 时按它给钱。空 + 没有运费 = "运费待定价"。
+    freight_category_id: int | None = None
+    freight_category: str = ""
     freight_visible: bool = False
     driver_billing_mode: str | None = None
     # 这一单派单员单独定的计费参数（回显给界面，也让人看得出"这单和别人不一样"）
@@ -172,6 +181,19 @@ class OrderOut(BaseModel):
     damage_note: str = ""  # 送达货损备注（公司自担）
     image_urls: list[str] = []  # 收货地址参考图（多图，JSON 数组）
     deleted_at: datetime | None = None  # 软删除隔离时间（派单员可查，用户不可见）
+    returned_at: datetime | None = None  # 最后一次退货时间（status=RETURNED 时非空）
+    # ---- 这一单的钱（**唯一算法**在 `services/order_money.py`，这里只是把它带出来）----
+    # 为什么要带到订单出参上：账本页要按**订单**显示"这单多少、收了多少、还欠多少"，
+    # 而这三个数只有后端算得对（现场收现金没有流水、退货红冲在账本行上、部分核销不留标记）。
+    # 客户端各攒一遍就会出现"账本页说欠 700、订单详情说欠 1000"，且两边都不报错。
+    returned_amount: Decimal = Decimal("0")  # 已退金额（正数）
+    settled_amount: Decimal = Decimal("0")  # 已收（含现场收现金）
+    refunded_amount: Decimal = Decimal("0")  # 已退给客户的现金（REFUND_CUSTOMER）
+    arrears_amount: Decimal = Decimal("0")  # 欠款（< 0 = 预收）
+    # ⚠️ 界面上写"还欠多少"就用 `arrears_amount`，**不要**自己拿 `订单金额 − settled_amount`：
+    #    退货红冲与退现都不在 `settled_amount` 里，减出来的数会偏大。
+    #    恒等式（`tests/test_order_return.py` 钉着）：
+    #    `订单金额 − returned_amount == (settled_amount − refunded_amount) + arrears_amount`
 
     @field_validator("image_urls", mode="before")
     @classmethod
@@ -188,6 +210,21 @@ class OrderOut(BaseModel):
                 return [v] if v else []
             return [x for x in arr if isinstance(x, str) and x] if isinstance(arr, list) else ([v] if v else [])
         return []
+
+    @field_validator("freight_category", mode="before")
+    @classmethod
+    def _none_freight_category_to_empty(cls, v: Any) -> str:
+        """`freight_category` 在**存量行上是 NULL**（新加的列没回填）→ 归一成 ""。
+
+        ⚠️ 只写 `freight_category: str = ""` **挡不住它**：`default` 只在**字段缺失**时生效，
+           而这里是**字段存在、值就是 None** → Pydantic `string_type` 校验失败 →
+           **整个订单列表 500**（2026-09-21 实测：`GET /orders` 只要列表非空就挂，
+           司机「已完成」/ 派单员订单列表 / 货主「我的订单」全中；而 App 把 500 显示成
+           "网络连接失败"，排查方向被带偏）。
+        与同文件 `image_urls` 那个 validator 是同一条规矩：**出参字段自己兜住库里的 NULL**，
+        不要让一整页接口替一行脏数据殉葬。
+        """
+        return v or ""
 
 
 class OrderChargeBody(BaseModel):
@@ -209,6 +246,25 @@ class OrderFreightBody(MoneyInput):
 
 class OrderSplitBody(BaseModel):
     parts: list[int] = Field(..., min_length=2, max_length=5, description="各子单比例/份数（如 [1,1] 或 [150,150]，按比例拆分数量）")
+
+
+class OrderFreightPriceBody(MoneyInput):
+    """派单员**手动定价**（没匹配到价目的单）。
+
+    用户 2026-09-21：「这个定价完之后，同理，他会**新增对应的地点/路线和对应的运费模板**，
+    并且放到那个分类当中去」——所以这里除了金额，还带着"要不要把这条路线+价目存下来"。
+    """
+
+    freight_fee: Decimal = Field(..., ge=0)
+    #: 这一单算哪一类货（存进订单；`piece_mode=category` 的计费规则按它给钱）
+    category_id: int | None = None
+    #: 定价的同时把这条路线+价目**沉淀**成模板（下次同样的单自动带价）
+    save_template: bool = False
+    template_name: str = Field("", max_length=128)
+    price_name: str = Field("", max_length=32)
+    #: （已废弃）价目不再绑司机 —— 留着只为老客户端不报错，后端**不看**它。
+    #:  价目归**计费规则**（规则里勾价目、规则再匹配司机），见 `services/freight_pricing.py`
+    bind_driver: bool = False
 
 
 class OrderAssignBody(MoneyInput):
@@ -261,6 +317,38 @@ class OrderCompleteBody(BaseModel):
 
 class OrderRecallBody(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1024)
+
+
+class OrderReturnItem(BaseModel):
+    """退货的一行（哪一行商品、退几件）。"""
+
+    order_product_id: int
+    quantity: int = Field(..., ge=1, le=100000, description="这一行退几件（≤ 可退上限）")
+
+
+class OrderReturnBody(BaseModel):
+    """订单退货（2026-09-20 用户要求）。
+
+    ⛔ **没有 `all=true` 这种开关**：整单退货 = 客户端把每一行的数量都填满，
+       由**同一套**行级校验过一遍。多一个开关就多一条不经过校验的路径，
+       而它恰好能绕过"货损那几件不能退"这条规则。
+    ⛔ 上限只写在两处：这里 `ge=1`（挡住 0/负数）与 `order_return.max_returnable`
+       （业务上限）。范围判据**故意不用 `le=`** —— 越界会变成 422 + 英文结构体，
+       而用户要的是一句"「苹果」最多只能退 2 件"。
+    """
+
+    items: list[OrderReturnItem] = Field(..., min_length=1, max_length=20)
+    note: str = Field("", max_length=MAX_TEXT)
+
+
+class OrderReturnOut(BaseModel):
+    order_no: str
+    returned_amount: Decimal
+    refund_amount: Decimal
+    fully_returned: bool
+    restocked_lines: int
+    warnings: list[str] = []
+    order: OrderOut | None = None
 
 
 class DeliveryPhotoUploadOut(BaseModel):

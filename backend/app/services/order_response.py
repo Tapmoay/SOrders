@@ -6,6 +6,7 @@ from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
 from app.models.user import resolve_billing_mode
 from app.schemas.order import OrderOut
+from app.services.order_money import OrderMoney, money_map, money_of
 
 
 def apply_driver_view_gating(data: dict, order: Order, driver: User) -> None:
@@ -24,7 +25,16 @@ def apply_driver_view_gating(data: dict, order: Order, driver: User) -> None:
         data["freight_fee"] = None
 
 
-def enrich_order_out(order: Order, db: Session, viewer: User | None = None) -> OrderOut:
+def enrich_order_out(
+    order: Order, db: Session, viewer: User | None = None, money: OrderMoney | None = None
+) -> OrderOut:
+    """出参装配。**列表请传 `money`**（用 `money_map` 一次算好一页的钱）。
+
+    ⚠️ 不传 `money` 时这里会为**这一张**单发 4 条分组查询（`money_of`）。
+       单张详情无所谓，但列表里逐单调用就是 4×N 条 SQL —— 而
+       `enrich_order_out` 本来已经在逐单 `db.get(User, …)` 了（同类问题的实测代价
+       见 `ledger_response.py`：85,474 行 → 27.75 秒）。所以列表端点走批次。
+    """
     data = OrderOut.model_validate(order).model_dump()
     if order.driver_id:
         du = db.get(User, order.driver_id)
@@ -45,6 +55,13 @@ def enrich_order_out(order: Order, db: Session, viewer: User | None = None) -> O
         and order.driver_id is not None
         and order.driver_acknowledged_at is None
     )
+    # 这一单的钱：口径只有 `services/order_money.py` 一处（退货红冲、部分核销、现场收现金
+    # 三件事都在这三个数里体现，客户端不许自己再加一遍）
+    m = money or money_of(db, order)
+    data["returned_amount"] = m.returned
+    data["settled_amount"] = m.settled
+    data["refunded_amount"] = m.refunded
+    data["arrears_amount"] = m.arrears
     if viewer is not None:
         if user_role_key(viewer) == UserRole.SHIPPER.value:
             data["internal_notes"] = ""

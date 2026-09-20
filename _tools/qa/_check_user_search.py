@@ -329,20 +329,24 @@ def main() -> int:
         )
     ls = kts[LEDGER_SCREEN]
     ok(
-        "账本有仪表盘卡（KpiBlock）与一个搜索框（SearchField）",
+        "账本有仪表盘卡（KpiBlock）与一个搜索框（SearchField，在侧边抽屉里）",
         "KpiBlock(" in ls and "SearchField(" in ls,
     )
-    # ⚠️ 判据要读**原始源码**：`ls` 是剥过注释的，而"一支顶三段"这件事的证据正是那行注释
-    #    （代码里 `1, 2, 3 ->` 与 `2, 3 ->` 长得一样，看不出是合成的一支还是复制的两段）。
-    ls_raw = read(LEDGER_SCREEN)
+    # 三类账共用**一份**行渲染：`LedgerAccountRow` 只有一处定义 + 一处调用，
+    # 而"这一类账叫什么/什么颜色/什么图标"在 VM 的 `kind*` 三处（不再散在页面的 when 里）。
+    # 判据是**数出来的**（定义 1 + 调用 1）：三段复制会把它变成 4 处，而那时这个数就报错。
+    n_rows = ls.count("LedgerAccountRow(")
     ok(
-        "三个账户 tab 走同一份行渲染（一支 `1, 2, 3 ->`，不是三段复制）",
-        "1, 2, 3 ->" in ls and "一套仪表盘，一份实现" in ls_raw,
+        f"三类账走同一份行渲染（`LedgerAccountRow` 定义 1 + 调用 1，实测 {n_rows}）",
+        n_rows == 2
+        and "fun kindColor()" in kts[LEDGER_VM]
+        and "fun kindIcon()" in kts[LEDGER_VM]
+        and "fun kindLabel()" in kts[LEDGER_VM],
         "三段复制 = 改一处漏一处（上一版就是这么长出两套挑选器的）",
     )
     ok(
-        "账本的搜索走唯一实现 UserSearch.filter",
-        "UserSearch.filter(" in kts[LEDGER_VM],
+        "账本里按人过滤只有一处（侧边抽屉那份名单），走唯一实现 UserSearch.filter",
+        "UserSearch.filter(accountRows()" in kts[LEDGER_VM],
         "自己写 contains 就又分叉了",
     )
 

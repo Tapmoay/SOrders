@@ -237,8 +237,10 @@ def main() -> int:
         settings,
         r"这五件事它做不了",
     )
-    c.present("生成函数从写动作表算「能改什么」", role_prompt, r"fun settingsSummary[\s\S]{0,900}?AiWrites\.forModel\(role\)")
-    c.present("生成函数从读能力表算「能查什么」", role_prompt, r"fun settingsSummary[\s\S]{0,900}?AiReads\.forRole\(role")
+    # ⚠️ 2026-09-20：这里的形参名从 `role` 换成 `actor`（角色 + 是不是批发商货主，见 `AiActor`）——
+    #    两个货主的能力不一样，身份段/能力声明必须按 (角色 + member) 算。
+    c.present("生成函数从写动作表算「能改什么」", role_prompt, r"fun settingsSummary[\s\S]{0,900}?AiWrites\.forModel\(actor\)")
+    c.present("生成函数从读能力表算「能查什么」", role_prompt, r"fun settingsSummary[\s\S]{0,900}?AiReads\.forRole\(actor")
     # ⚠️ 这一条**曾经红着没人管**（2026-09-17 跑全套反向验证时才发现）：
     #    它把判据锚在一个**局部变量名**上（`it !in groups`），后来那个变量改名成 `mine`，
     #    于是断言永远找不到——而"永远红的检查等于没有检查"（这个仓库栽过 6 次）。
@@ -248,7 +250,7 @@ def main() -> int:
               role_prompt, r"ALL_WRITE_GROUPS\.filter \{ it !in \w+ \}")
     c.present("这份算出来的清单真的用进了提示词（不是算了没用）",
               role_prompt, r"notMine\.joinToString")
-    c.present("认不出角色时 fail-closed（说它什么都做不了）", role_prompt, r"if \(role == null\)[\s\S]{0,200}?查不到也改不了")
+    c.present("认不出角色时 fail-closed（说它什么都做不了）", role_prompt, r"if \(actor == null\)[\s\S]{0,200}?查不到也改不了")
 
     # ---- §6 指路只能用他真有的页面（用户 2026-09-17 抓到的 bug） ----
     ai_role_prompt = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiRolePrompt.kt")

@@ -173,9 +173,14 @@ CASES: list[tuple[str, Path, object]] = [
         ),
     ),
     (
-        "三个账户 tab 拆回三段复制（改一处漏一处）",
+        "三类账的行渲染拆回三段复制（改一处漏一处）",
         LEDGER_SCREEN,
-        lambda s: s.replace("                            1, 2, 3 -> {", "                            1 -> {", 1),
+        lambda s: s.replace(
+            "                                        LedgerAccountRow(\n",
+            "                                        LedgerAccountRow(\n"
+            "                                        LedgerAccountRow(\n",
+            1,
+        ),
     ),
     (
         "账本的搜索不再走唯一实现（自己写 contains）",

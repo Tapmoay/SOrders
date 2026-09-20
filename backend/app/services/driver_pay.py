@@ -49,6 +49,10 @@ _CENT = Decimal("0.01")
 # 「每单有多少钱，但每单是不固定的，几百块、几十块，这些单价是由派单员来决定的」
 PIECE_UNITS = ("order", "order_price", "item")
 COMMISSION_BASES = ("none", "freight", "goods")
+# 每单金额怎么定：`uniform` = 所有单统一（规则上的 piece_amount / commission_rate）；
+# `category` = **按运费分类**逐类定价（金额在 `driver_billing_rule_categories` 里）。
+# 用户 2026-09-21：「按单计费有两种规则：所有单统一价/统一提成，或者按分类匹配」。
+PIECE_MODES = ("uniform", "category")
 _VEHICLE_TYPES = ("small", "large", "trailer")
 
 PIECE_UNIT_CN = {"order": "单", "order_price": "单（按派单时定的价）", "item": "件"}
@@ -78,14 +82,39 @@ class PayRule:
     vehicle_type: str | None = None
     # 只对哪些商品抽成（空 = 不限）。用户 2026-09-18：「哪些商品是要抽成的」
     commission_product_ids: tuple[int, ...] = ()
+    #: `uniform`（所有单统一）或 `category`（按运费分类）。
+    piece_mode: str = "uniform"
+    #: 按分类定价表：`(分类编号, 每单金额, 提成比例)`。只在 `piece_mode == "category"` 时有意义。
+    by_category: tuple[tuple[int, Decimal, Decimal], ...] = ()
 
     @property
     def has_salary(self) -> bool:
         return self.salary > 0
 
     @property
+    def by_category_pay(self) -> bool:
+        """这份规则的每单金额是按**分类**定的（而不是所有单一个数）。"""
+        return self.piece_mode == "category" and bool(self.by_category)
+
+    def category_row(self, category_id) -> tuple[Decimal, Decimal] | None:
+        """这一类的（每单金额, 提成比例）；这一类没定价 → None。"""
+        if category_id is None:
+            return None
+        for cid, piece, rate in self.by_category:
+            if int(cid) == int(category_id):
+                return money(piece), money(rate)
+        return None
+
+    @property
     def has_per_order_pay(self) -> bool:
-        """这一单有没有"按单应付"（决定要不要生成明细、司机看不看得到运费）。"""
+        """这一单有没有"按单应付"（决定要不要生成明细、司机看不看得到运费）。
+
+        ⚠️ **按分类定价时也必须算"有"**：否则派单时模式快照会写成 SALARY，
+        `has_per_order_pay(order)` 于是返回 False —— 送达时**连账单都不生成**，
+        那笔钱静默消失（这一条是本文件反复强调的同一个坑）。
+        """
+        if self.by_category_pay:
+            return True
         if self.piece_amount > 0:
             return True
         return self.commission_base in ("freight", "goods") and self.commission_rate > 0
@@ -95,16 +124,28 @@ class PayRule:
         """三件全空 = 这份规则一分钱都不给（创建/修改时会被拒，这里是兜底判据）。"""
         return not self.has_salary and not self.has_per_order_pay
 
-    def describe(self) -> str:
+    def describe(self, category_names: dict[int, str] | None = None) -> str:
         """一句话说清它怎么给钱。
 
         ⚠️ 确认卡、账单说明、司机列表都调它：文案只写一遍，
         否则必然出现"卡片说每单 200、账单按 5% 算"这种前后不一致。
+
+        [category_names] 只在"按分类定价"时有意义（把分类名摆出来，否则用户只知道有几类）。
         """
         parts: list[str] = []
         if self.has_salary:
             parts.append(f"固定工资 {money(self.salary)} 元/月")
-        if self.piece_amount > 0:
+        if self.by_category_pay:
+            names = category_names or {}
+            detail = "、".join(
+                f"{names.get(int(cid), '分类' + str(cid))} "
+                + (f"{money(piece)} 元/单" if money(piece) > 0 else "")
+                + (" · " if money(piece) > 0 and money(rate) > 0 else "")
+                + (f"{_plain(rate)}%" if money(rate) > 0 else "")
+                for cid, piece, rate in self.by_category
+            )
+            parts.append(f"按分类定价（{detail}）")
+        elif self.piece_amount > 0:
             parts.append(f"每{PIECE_UNIT_CN.get(self.piece_unit, '单')} {money(self.piece_amount)} 元")
         if self.commission_base in ("freight", "goods") and self.commission_rate > 0:
             scope = ""
@@ -128,6 +169,9 @@ class OrderPay:
     # 这一单的金额/比例是不是派单员单独指定的（账单要写出来，否则事后没人说得清为什么和别人不一样）
     piece_overridden: bool = False
     rate_overridden: bool = False
+    #: 规则是"按分类定价"、而这一单**没有分类或那一类没定价** → 这份钱没算出来。
+    #: 界面/账单要如实说出来（不是 0 元"算出来是 0"，而是"没定价"）。
+    category_unmatched: bool = False
 
     @property
     def total(self) -> Decimal:
@@ -142,6 +186,7 @@ def order_pay(
     quantity: int | None = None,
     piece_override=None,
     rate_override=None,
+    category_id=None,
 ) -> OrderPay:
     """一单司机应得。
 
@@ -157,6 +202,15 @@ def order_pay(
     if rule is None:
         return OrderPay(piece=fee, commission=ZERO, basis=ZERO, rate_used=ZERO)
 
+    # 这一单的"基价"从哪来：按分类定价 → 查这一单的分类；否则用规则上那个统一的数
+    category_unmatched = False
+    if rule.by_category_pay:
+        row = rule.category_row(category_id)
+        category_unmatched = row is None
+        base_piece, base_rate = row if row is not None else (ZERO, ZERO)
+    else:
+        base_piece, base_rate = rule.piece_amount, rule.commission_rate
+
     if piece_override is not None:
         piece = money(piece_override)
         piece_overridden = True
@@ -166,11 +220,11 @@ def order_pay(
             # 「拿这一单的钱」——金额由派单员在派单时填（不固定），不是规则里的固定数
             piece = fee
         elif rule.piece_unit == "item":
-            piece = rule.piece_amount * Decimal(int(quantity or 0))
+            piece = base_piece * Decimal(int(quantity or 0))
         else:
-            piece = rule.piece_amount
+            piece = base_piece
 
-    rate = money(rate_override) if rate_override is not None else rule.commission_rate
+    rate = money(rate_override) if rate_override is not None else base_rate
     rate_overridden = rate_override is not None
     basis = ZERO
     if rule.commission_base == "freight":
@@ -186,6 +240,7 @@ def order_pay(
         rate_used=money(rate),
         piece_overridden=piece_overridden,
         rate_overridden=rate_overridden,
+        category_unmatched=category_unmatched,
     )
 
 
@@ -204,6 +259,11 @@ def rule_of_user(user) -> PayRule | None:
         commission_rate=money(rule.commission_rate),
         commission_product_ids=tuple(int(x) for x in (getattr(rule, "commission_product_ids", None) or [])),
         vehicle_type=rule.vehicle_type or None,
+        piece_mode=str(getattr(rule, "piece_mode", None) or "uniform"),
+        by_category=tuple(
+            (int(r.category_id), money(r.piece_amount), money(r.commission_rate))
+            for r in (getattr(rule, "category_rows", None) or [])
+        ),
     )
 
 
@@ -368,6 +428,8 @@ def pay_for_order(order) -> OrderPay:
         quantity=order_quantity(order),
         piece_override=getattr(order, "driver_piece_amount", None),
         rate_override=getattr(order, "driver_commission_rate", None),
+        # 这一单属于哪一类货（派单时由匹配到的价目带过来 / 手动定价时指定）
+        category_id=getattr(order, "freight_category_id", None),
     )
 
 
@@ -388,6 +450,12 @@ def rule_to_snapshot(rule: PayRule | None) -> str | None:
             "commission_rate": str(rule.commission_rate),
             "commission_product_ids": list(rule.commission_product_ids),
             "vehicle_type": rule.vehicle_type,
+            # 按分类定价的**表**也要进快照：改规则不追溯已派单（这是本文件的口径）
+            "piece_mode": rule.piece_mode,
+            "by_category": [
+                {"category_id": int(cid), "piece_amount": str(money(piece)), "commission_rate": str(money(rate))}
+                for cid, piece, rate in rule.by_category
+            ],
         },
         ensure_ascii=False,
     )
@@ -414,6 +482,12 @@ def rule_from_snapshot(raw: str | None) -> PayRule | None:
         commission_rate=money(d.get("commission_rate")),
         commission_product_ids=tuple(int(x) for x in (d.get("commission_product_ids") or [])),
         vehicle_type=(d.get("vehicle_type") or None),
+        piece_mode=str(d.get("piece_mode") or "uniform"),
+        by_category=tuple(
+            (int(r.get("category_id")), money(r.get("piece_amount")), money(r.get("commission_rate")))
+            for r in (d.get("by_category") or [])
+            if isinstance(r, dict) and r.get("category_id") is not None
+        ),
     )
 
 

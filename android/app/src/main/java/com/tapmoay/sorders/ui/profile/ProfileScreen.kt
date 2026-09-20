@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.WbTwilight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +57,10 @@ fun ProfileScreen(    container: AppContainer,
     embedded: Boolean = false,
 ) {
     val vm: ProfileViewModel = appViewModel { ProfileViewModel(container) }
+    // 每次进这一页**静默重拉**一次资料：「我的账本」那一格的显示条件（`pays_per_order`）
+    // 会被派单员改规则改掉（固定工资 ↔ 工资+抽成 ↔ 按单计费），不重拉就得**杀进程重启**
+    // 才看得见 —— 2026-09-20 实测：挂了提成规则之后切 Tab 没反应、重启才出现，用户会以为"没生效"。
+    LaunchedEffect(Unit) { vm.loadMe(silent = true) }
     val unread by container.realtimeHub.unreadCount.collectAsState()
     val context = LocalContext.current
     // 「提示一直显示」的当前值：SharedPreferences 不是可观察状态，所以在这里持一份
@@ -115,7 +120,12 @@ fun ProfileScreen(    container: AppContainer,
                     Spacer(Modifier.height(24.dp))
 
                     // 司机「我的账本」（其余角色的账本在工作台入口）
-                    if (vm.user?.role == "driver") {
+                    // ⚠️ 判据是**他按不按单拿钱**（`/users/me` 的 `pays_per_order`，与账单同源），
+                    //    不是"他是不是司机"：纯固定工资的司机**没有这一格**
+                    //    （用户 2026-09-20 明确要求：「拿固定工资的司机不需要「我的账本」，所以他是没有的」），
+                    //    而**固定工资 + 抽成**或按单计费的司机**有** —— 他每单都有钱要对。
+                    //    派单员一改规则（attach / 改规则），这个值跟着变 → 这一格跟着出现或消失。
+                    if (vm.user?.role == "driver" && vm.user?.paysPerOrder == true) {
                         ListItem(
                             headlineContent = { Text("我的账本") },
                             leadingContent = {
@@ -159,10 +169,11 @@ fun ProfileScreen(    container: AppContainer,
                     // 右侧直接写当前状态——不写的话，用户只能进去看一遍才知道现在是开是关。
                     ListItem(
                         headlineContent = { Text("消息提醒") },
-                        // 副标题也按角色说：对货主/派单员写「语音播报」同样是承诺一件不会发生的事
+                        // 副标题也按角色说：**货主**没有语音，对他写「语音播报」就是承诺一件不会发生的事
+                        // （司机与派单员各有一句，见 NewOrderAlert.voiceKind）
                         supportingContent = {
                             Text(
-                                if (NewOrderAlert.isSpoken(Role.fromKey(container.tokenStore.cachedRole() ?: ""))) {
+                                if (NewOrderAlert.hasVoice(Role.fromKey(container.tokenStore.cachedRole() ?: ""))) {
                                     "语音播报 / 后台接收新单"
                                 } else {
                                     "通知栏提醒 / 后台接收新单"
@@ -171,7 +182,7 @@ fun ProfileScreen(    container: AppContainer,
                         },
                         leadingContent = {
                             TintedIcon(
-                                if (NewOrderAlert.isSpoken(Role.fromKey(container.tokenStore.cachedRole() ?: ""))) {
+                                if (NewOrderAlert.hasVoice(Role.fromKey(container.tokenStore.cachedRole() ?: ""))) {
                                     Icons.Default.VolumeUp
                                 } else {
                                     Icons.Default.NotificationsActive

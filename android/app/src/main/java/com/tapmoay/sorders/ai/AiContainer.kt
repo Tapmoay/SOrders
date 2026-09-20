@@ -47,8 +47,50 @@ class AiContainer(
     /** 解析出来的角色；认不出就当没有（[AiWrites.forRole] 会返回空清单）。 */
     private fun role(): AiRole? = AiRole.fromKey(roleKey())
 
-    /** 当前角色（界面据此调整文案与示例问题；权限门槛在 [writeService] 那一层）。 */
-    val currentRole: AiRole? get() = role()
+    /**
+     * **他是不是批发商货主**（`users.is_member=1`）—— 两个货主 AI 的唯一分叉点。
+     *
+     * ### 为什么要缓存在容器上（而不是每次现问）
+     * [AiWrites.forRole] / [AiReads.forRole] 是**同步**的（工具清单、enum、卡片摘要都在同步代码里
+     * 现算），而 `GET /users/me` 是网络调用。所以：容器持有一个可变值，由聊天页在**每次提问前**
+     * 调 [refreshMembership] 刷一次。
+     *
+     * ### 初值与失败都按 `false`（fail-closed）
+     * `false` = 按**普通货主**给能力：批发商会少掉"核销/撤销/恢复"三条（他会立刻发现，
+     * 说一句"怎么不能核销了"），而反过来多给是**不会有人发现**的（那正是本仓库最怕的一类）。
+     * 失败时**保留上一次的值**：一次网络抖动不该把已经确认过的批发商悄悄降级。
+     */
+    var memberShipper: Boolean = false
+        private set
+
+    /**
+     * 问一次"我是不是批发商货主"。**只对货主有意义**（派单员/司机不动这个值）。
+     *
+     * 调用点：聊天页每次提问前（`AiChatViewModel.run`），以及货主打开 AI 页时。
+     * 非货主直接返回 —— 免得给派单员也留一个会变的 member 标志（那份清单里根本没有 member 动作）。
+     */
+    suspend fun refreshMembership() {
+        if (role() != AiRole.SHIPPER) return
+        memberShipper = try {
+            repo.me().isMember
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            memberShipper // 问不到就沿用上一次；首次仍为 false（按普通货主，fail-closed）
+        }
+    }
+
+    /** 当前角色 + 是不是批发商货主（工具清单/提示词/执行门都按它算，见 [AiActor]）。 */
+    val currentActor: AiActor? get() = AiActor.of(role(), memberShipper)
+
+    /**
+     * 当前角色（界面据此调整文案与示例问题）。
+     *
+     * ⚠️ **凡是"算能力清单"的地方都不要用它，用 [currentActor]** ——
+     * 只看角色的后果是普通货主也会看到批发商那一组动作（两个货主的手机界面不一样）。
+     * 它留着是给"只关心是不是派单员/货主"的文案判断用的（如聊天页的示例问题）。
+     */
+    val currentRole: AiRole? get() = currentActor?.role
 
     /** 本机数据的分区后缀（按用户）。 */
     private fun scope(): String = AiScope.suffix(userIdKey())
@@ -132,7 +174,9 @@ class AiContainer(
             // 否则司机端的「高德导航」只会打开高德首页（详见 AiGeocode）。
             RepoWriteDataSource(repo, selfId = { userIdKey() }, context = appContext),
             writes,
-            roleProvider = { role() },
+            // ⚠️ 两个 provider 缺一不可：角色决定"能不能"，member 决定"这一本账有没有"
+            //    （见 AiActor 的注释：核销那三条只给批发商货主）。
+            actorProvider = { currentActor },
             // 成本那两扇门唯一的开关（**按角色给默认值**：派单员默认开，见 `defaultCostVisible`）
             allowCost = { keyStore.costVisible(role()) },
         )
@@ -149,6 +193,8 @@ class AiContainer(
             allowCostProvider = { keyStore.costVisible(role()) },
             rememberFact = { subject, fact -> rememberFact(subject, fact) },
             roleProvider = { role() },
+            // 两维都要传：普通货主与批发商货主的工具说明/enum 不一样（见 AiActor）。
+            memberProvider = { memberShipper },
             requestWrite = { actionId, params -> writeService.preview(actionId, params) },
         )
     }

@@ -17,27 +17,29 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.Session
 import com.tapmoay.sorders.ui.ai.AiChatScreen
 import com.tapmoay.sorders.ui.ai.AiSettingsScreen
-import com.tapmoay.sorders.ui.common.PlaceholderScreen
+import com.tapmoay.sorders.ui.dispatcher.ExpenseCategoriesScreen
+import com.tapmoay.sorders.ui.dispatcher.ExpenseCreateScreen
 import com.tapmoay.sorders.ui.dispatcher.ExpensesScreen
 import com.tapmoay.sorders.ui.dispatcher.ReceiptsScreen
 import com.tapmoay.sorders.ui.dispatcher.SettlementsScreen
 import com.tapmoay.sorders.ui.dispatcher.VehicleManageScreen
 import com.tapmoay.sorders.ui.dispatcher.ArrearsUnitsScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherLedgerScreen
+import com.tapmoay.sorders.ui.dispatcher.LedgerCreateScreen
 import com.tapmoay.sorders.ui.dispatcher.LedgerHomeScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightSettlementScreen
+import com.tapmoay.sorders.ui.dispatcher.FreightCategoriesScreen
+import com.tapmoay.sorders.ui.dispatcher.UnpricedOrdersScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightTemplatesScreen
 import com.tapmoay.sorders.ui.dispatcher.DriverBillingRulesScreen
 import com.tapmoay.sorders.ui.driver.DriverFreightScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherOrdersScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolScreen
+import com.tapmoay.sorders.ui.dispatcher.DispatcherReturnRequestsScreen
 import com.tapmoay.sorders.ui.dispatcher.InventoryScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductCategoriesScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductsScreen
 import com.tapmoay.sorders.ui.dispatcher.UserPool
-import com.tapmoay.sorders.ui.dispatcher.ReportDriverScreen
-import com.tapmoay.sorders.ui.dispatcher.ReportExceptionScreen
-import com.tapmoay.sorders.ui.dispatcher.ReportProductScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportCenterScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportHomeScreen
 import com.tapmoay.sorders.ui.dispatcher.PriceAxis
@@ -45,7 +47,6 @@ import com.tapmoay.sorders.ui.dispatcher.PriceMatrixScreen
 import com.tapmoay.sorders.ui.dispatcher.AccountManageScreen
 import com.tapmoay.sorders.ui.dispatcher.UsersManageScreen
 import com.tapmoay.sorders.ui.driver.DriverOrdersScreen
-import com.tapmoay.sorders.ui.home.ModuleListScreen
 import com.tapmoay.sorders.ui.home.RoleHomeScreen
 import com.tapmoay.sorders.ui.login.LoginScreen
 import com.tapmoay.sorders.ui.login.LoginScreen
@@ -57,6 +58,7 @@ import com.tapmoay.sorders.ui.shipper.AddressScreen
 import com.tapmoay.sorders.ui.shipper.OrderCreateScreen
 import com.tapmoay.sorders.ui.shipper.ShipperLedgerScreen
 import com.tapmoay.sorders.ui.shipper.ShipperOrdersScreen
+import com.tapmoay.sorders.ui.shipper.ShipperReturnRequestsScreen
 
 @Composable
 fun AppRoot(container: AppContainer, initialSession: Session?) {
@@ -148,6 +150,11 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+                // 退货申请类通知**直达那一页并定位那一条**（2026-09-21 用户要求：
+                // 「到消息中心哦。其实本来就要做到直达的」）。路由由消息页按
+                // 「type + 当前角色」在一处算好（`ui/messages/NoticeRouting.kt`），
+                // 这里只负责导航 —— 与「账本管理入口页」的 `onOpen` 同一个写法。
+                onOpenReturnRequest = { route -> navController.navigate(route) },
             )
         }
         composable(Routes.SHIPPER_ORDERS) {
@@ -194,6 +201,23 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
             )
         }
+        // 「我的退货申请」（2026-09-21）：货主在订单上提的申请在这里看进展、可以撤回。
+        // ⛔ 货主只能申请 —— 真正退货在下面派单端那条路由上。
+        //
+        // `?focus={focusId}`（2026-09-21 追加）：从消息中心点「退货已办理/被驳回/已关闭」
+        // 那条站内信进来时带的是**哪一张申请**。参数有默认值 → 不带 focus 的老入口
+        // （工作台网格那一格走 `Routes.SHIPPER_RETURN_REQUESTS` 本身）照旧能用，不要另建路由。
+        composable(
+            route = Routes.SHIPPER_RETURN_REQUESTS + "?focus={focusId}",
+            arguments = listOf(navArgument("focusId") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            ShipperReturnRequestsScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+                focusRequestId = entry.arguments?.getLong("focusId") ?: 0L,
+            )
+        }
         composable(Routes.DRIVER_ORDERS) {
             DriverOrdersScreen(
                 container = container,
@@ -213,6 +237,23 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+            )
+        }
+        // 「退货申请」待办页（2026-09-21）：★ 在这一页点「办理退货」才是**真的退货** ——
+        // 库存、账本、退款、订单状态都在那一刻才变（货主那边只是提了一张申请）。
+        //
+        // `?focus={focusId}`（2026-09-21 追加）：点消息中心里「退货申请待处理」那条通知
+        // 直接落在这里并定位到那一张（payload 的 `request_id`）。不带 focus 的入口
+        // （工作台那一格）照旧走 `Routes.DISPATCH_RETURN_REQUESTS` 本身。
+        composable(
+            route = Routes.DISPATCH_RETURN_REQUESTS + "?focus={focusId}",
+            arguments = listOf(navArgument("focusId") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            DispatcherReturnRequestsScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+                focusRequestId = entry.arguments?.getLong("focusId") ?: 0L,
             )
         }
         composable(Routes.ACCOUNTS) {
@@ -294,6 +335,10 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         }
         // 账本页支持 `?tab=` 直达某一类账（账本管理入口页里的 4 格用它）。
         // 4 类账是**同一页的四个档位**，所以这里一条路由带一个参数就够了，不要建四个页面。
+        // ⛔ 页内**没有**切换档位的入口了（用户 2026-09-20：「最上面的 4 个去掉，那是老的导航栏」），
+        //    所以这个参数就是"这一页是哪一本账"，进来之后不再变。
+        // ⛔ 这里**没有** `onOpenSettlements` 了：司机结算单不再挂在司机账页面里（用户：
+        //    「那个结算，这个也直接去掉」），它从工作台那一格（`Routes.FREIGHT_SETTLEMENT`）进。
         composable(
             route = Routes.DISPATCH_LEDGER + "?tab={tab}",
             arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 }),
@@ -302,16 +347,62 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
-                // 司机账那一档里的「司机结算单」入口（用户 2026-09-20：司机账与司机结算**合并成一个**）
-                onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },
                 initialTab = entry.arguments?.getInt("tab") ?: 0,
+                // 「记一笔账」= 单独一页（选商品要走商品库那一份 UI，弹窗里套不下）；
+                // 存好之后回退，账本页自己会重新拉一次（见 DispatcherLedgerScreen 的 LaunchedEffect）
+                onCreateEntry = { navController.navigate(Routes.LEDGER_CREATE) },
+            )
+        }
+        composable(Routes.LEDGER_CREATE) {
+            LedgerCreateScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
             )
         }
         composable(Routes.DISPATCH_RECEIPTS) { ReceiptsScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.DISPATCH_SETTLEMENTS) { SettlementsScreen(container = container, onBack = { navController.popBackStack() }) }
-        composable(Routes.DISPATCH_EXPENSES) { ExpensesScreen(container = container, onBack = { navController.popBackStack() }) }
+        // 开销管理（2026-09-20 重写）：分类栏 + 时间药丸 + 卡片；底部两个按钮各去一页。
+        composable(Routes.DISPATCH_EXPENSES) {
+            ExpensesScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+                onCreate = { navController.navigate(Routes.EXPENSE_CREATE) },
+                onManageCategories = { navController.navigate(Routes.EXPENSE_CATEGORIES) },
+            )
+        }
+        // 新增开销 = 单独一页；存好之后**回退**到开销页（列表页在 onResume 之外不会自己刷新，
+        // 所以回来那一下要靠它自己重新拉一次 —— 见 ExpensesScreen 的 LaunchedEffect 说明）
+        composable(Routes.EXPENSE_CREATE) {
+            ExpenseCreateScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
+            )
+        }
+        composable(Routes.EXPENSE_CATEGORIES) {
+            ExpenseCategoriesScreen(container = container, onBack = { navController.popBackStack() })
+        }
         composable(Routes.DISPATCH_VEHICLES) { VehicleManageScreen(container = container, onBack = { navController.popBackStack() }) }
-        composable(Routes.FREIGHT_TEMPLATES) { FreightTemplatesScreen(container = container, onBack = { navController.popBackStack() }) }
+        composable(Routes.FREIGHT_TEMPLATES) {
+            FreightTemplatesScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onManageCategories = { navController.navigate(Routes.FREIGHT_CATEGORIES) },
+                onOpenUnpriced = { navController.navigate(Routes.FREIGHT_UNPRICED) },
+            )
+        }
+        composable(Routes.FREIGHT_CATEGORIES) {
+            FreightCategoriesScreen(container = container, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.FREIGHT_UNPRICED) {
+            UnpricedOrdersScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+            )
+        }
         composable(Routes.DRIVER_BILLING_RULES) { DriverBillingRulesScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.FREIGHT_SETTLEMENT) {
             FreightSettlementScreen(
@@ -363,20 +454,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(
-            route = Routes.MODULE_GROUP + "/{groupKey}",
-            arguments = listOf(navArgument("groupKey") { type = NavType.StringType }),
-        ) { entry ->
-            val key = entry.arguments?.getString("groupKey") ?: ""
-            val group = Modules.findGroup(Routes.MODULE_GROUP + "/" + key)
-            if (group != null) {
-                ModuleListScreen(
-                    title = group.label,
-                    entries = group.children,
-                    onBack = { navController.popBackStack() },
-                    onOpen = { r -> navController.navigate(r) },
-                )
-            }
-        }
+        // ⛔ 2026-09-20 删掉了 `moduleGroup/{groupKey}` 这条路由（连同 `Modules.findGroup`
+        //    与 `ModuleListScreen`）：三端都没有任何一格带 `children`，所以**没有任何入口
+        //    导航得到这里** —— 一条走不到的路由留着，只会让下一个人以为工作台支持分组。
     }
 }

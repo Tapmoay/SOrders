@@ -38,12 +38,10 @@ import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesPanel
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesViewModel
-import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.util.formatMoney
-import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import java.io.File
 

@@ -3,6 +3,12 @@ package com.tapmoay.sorders.ui.dispatcher
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.PeopleAlt
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
@@ -10,11 +16,14 @@ import com.tapmoay.sorders.core.UserSearch
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementGroupDto
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementOrderDto
 import com.tapmoay.sorders.data.remote.dto.LedgerAccountOut
-import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
-import com.tapmoay.sorders.data.repo.PageMeta
+import com.tapmoay.sorders.data.remote.dto.OrderDto
+import com.tapmoay.sorders.data.remote.dto.ReceiptCreateRequest
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.DatePresets
+import com.tapmoay.sorders.ui.theme.MemberGold
+import com.tapmoay.sorders.ui.theme.MgrGreen
+import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -49,8 +58,15 @@ data class LedgerDashboard(val accounts: Int, val count: Int, val total: Double)
 /**
  * 派单员账本（信息优先：日期范围流水 + 汇总金额 + 手动记账）。
  * 查询/记账全部复用 ledger API 与通用日期解析，不写死业务。
+ *
+ * ⚠️ [initialTab] 是**这一类账**，由入口页（`LedgerHomeScreen` 的 6 格）定下来，
+ *    页面内**不再切换**：用户 2026-09-20 看了真机，把页内那条 4 页签导航否掉了 ——
+ *    「最上面的 4 个去掉，那是**老的导航栏**」。
  */
-class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel() {
+class DispatcherLedgerViewModel(
+    private val container: AppContainer,
+    initialTab: Int = 0,
+) : ViewModel() {
 
     var entries by mutableStateOf<List<LedgerEntryDto>>(emptyList())
 
@@ -90,8 +106,25 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     //    `MutableState.setValue … on a null object reference` —— **打开这一页就崩**
     //    （2026-09-20 真机抓到的就是这一次）。判据：`_tools/qa/_check_vm_state_before_init.py`。
 
-    /** 当前选中的日期档位（[DatePresets.ROW] 里的一档，或「自定义」）。 */
-    var preset by mutableStateOf(DatePresets.THIS_MONTH)
+    /**
+     * 当前选中的日期档位（[DatePresets.ROW] 里的一档，或「自定义」）。
+     *
+     * ⚠️ 初值 = **今天**（用户 2026-09-20：「这些时间默认是今天的，如果今天没有任何订单的话，
+     *    然后再是昨天，以此类推」）。⚠️ 但**不再"先按今天拉一次"了**（2026-09-21）：
+     *    那一下就是用户说的"闪两下"——先画一版今天的空态、再退到前天。现在 `init` 只探测、
+     *    定下来之后才取一次数，页面在 [windowSettled] 为假时整页 loading。
+     */
+    var preset by mutableStateOf(DatePresets.TODAY)
+        private set
+
+    /**
+     * **窗口定下来了没有**（2026-09-21）。
+     *
+     * 用户原话：「我在点击我的账本的时候，它会**闪两下**再跳到「前天」……其他**派单员那些
+     * 账本界面**基本上也是这个逻辑，**闪两下已经不行了**，不美观，且占用性能。」
+     * 为假时页面整页 loading（药丸上的字也先写「…」）——**一次都不画错窗口**。
+     */
+    var windowSettled by mutableStateOf(false)
         private set
 
     /** 「自定义」那一档的两端（用户在日期弹层里选的）。 */
@@ -100,29 +133,22 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     var customTo by mutableStateOf<String?>(null)
         private set
 
-    /** 图表类型：`line` 折线 / `bar` 条形 / `pie` 扇形。 */
-    var chartType by mutableStateOf(CHART_LINE)
+    // ⛔ 这里**没有** `chartType` 了：账本页整个不画图（2026-09-20 第五轮，用户：
+    //    「那个折线图条形图还有扇形图，我们直接去掉就行了……到时候在报表中心看就可以了」）。
+    //    图与它们的取数纯函数（`LedgerCharts.kt`）一起删了 —— 留着"没人调的类型开关 +
+    //    取数函数"只会让下一个人以为这一页还能切图。
 
     // ===== 账本分类：0=订单账 1=司机账 2=货主账 3=批发商账 =====
-    var tab by mutableStateOf(0)
+    //
+    // ⛔ 页面里**没有**切换它的入口了（用户 2026-09-20：「最上面的 4 个去掉，那是老的导航栏」）——
+    //    它由入口页那一格决定，构造时就定死。留着 `selectTab` 那样一个没人调的方法，
+    //    下一个人会以为"这一页还能切档位"，然后照着它写一个切档位的入口。
+    var tab by mutableStateOf(initialTab)
+        private set
     var driverAccounts by mutableStateOf<List<FreightSettlementGroupDto>>(emptyList())
     var shipperAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
     var memberAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
     var accountsLoading by mutableStateOf(false)
-
-    /** 就地展开的那一行（账户 key；null = 没展开）。三个 tab 共用这一个。 */
-    var expandedKey by mutableStateOf<String?>(null)
-
-    /** 货主/批发商那一行的流水（**要另取**；司机账的明细已经跟在列表响应里）。 */
-    var accountEntries by mutableStateOf<Map<String, List<LedgerEntryDto>>>(emptyMap())
-
-    /**
-     * 逐账户明细的截断位（key → 本次上限）。**不能只留 [accountEntries]**：
-     * 一个货主的全量流水同样超过一页，卡上写着"服务端 N 笔"、展开却只有 1000 条 ——
-     * 那正是"看不到 ≠ 没有"的老坑（2026-09-19）。
-     */
-    var accountEntriesMeta by mutableStateOf<Map<String, PageMeta>>(emptyMap())
-    var accountEntriesLoading by mutableStateOf(false)
 
     // ============================================================ 账本仪表盘（不是"挑选器"）
     //
@@ -179,24 +205,61 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         }
     }
 
-    /** 搜索过滤之后要显示的行。 */
+    /**
+     * 搜索过滤之后的名单 —— **侧边抽屉里那一份**（用户 2026-09-20 第五轮：
+     * 「选择人物，我们使用那种侧边栏抽屉，可以在那里寻找人物，点击人物就可以了」）。
+     *
+     * ⚠️ 它是**选人用的清单**，不参与页面上的合计：用户在抽屉里打字只是想"快点找到那个人"，
+     *    不是"把这一页的账筛成两家"—— 关掉抽屉后剩一个对不上的合计，那种账最难查。
+     */
     fun visibleAccountRows(): List<LedgerAccountRow> =
         UserSearch.filter(accountRows(), query, { it.title }, { it.phone })
 
     /**
-     * 仪表盘三个数：**过滤之后**的账户数 / 笔数 / 金额。
+     * 仪表盘三个数：**全部**账户的账户数 / 笔数 / 金额。
      *
      * ⚠️ 笔数取服务端的 `count`（那一栏是**全量**笔数），不是本地明细的行数 ——
      *    明细是分页的，拿它当"一共几笔"会少报。
+     * ⚠️ 这里**不跟抽屉里的搜索走**：抽屉是"选人"用的（第五轮用户要求），
+     *    边打字边改这一页的合计，关掉抽屉就会剩一个对不上的总数。
      */
     fun dashboard(): LedgerDashboard {
-        val rows = visibleAccountRows()
+        val rows = accountRows()
         return LedgerDashboard(rows.size, rows.sumOf { it.count }, rows.sumOf { it.total })
     }
 
     /** 一个账户的 key（与 [accountRows] 用的是同一套拼法，**不许各写一份**）。 */
     fun accountKey(a: LedgerAccountOut): String =
         if (a.id != null) "u|${a.id}" else "t|${a.tempName.orEmpty()}"
+
+    // ===== 这一类账自己的名字 / 颜色 / 图标（页面标题、空态、行卡都取这一份）=====
+    //
+    // 以前这四样散在页面里的三处 `when (vm.tab)`（标题、仪表盘、行卡图标），改一处漏一处；
+    // 页内那条 4 页签导航删掉之后，标题成了**唯一**说明"我在看哪一本账"的地方，
+    // 更不能有两份。
+
+    /** 顶栏标题。 */
+    fun kindTitle(): String = when (tab) {
+        1 -> "司机账"
+        2 -> "货主账"
+        3 -> "批发商账"
+        else -> "订单账"
+    }
+
+    /** 行卡/空态里的那两个字（「未命名司机」这种兜底也用它）。 */
+    fun kindLabel(): String = if (tab == 3) "批发商" else kindTitle().removeSuffix("账")
+
+    fun kindColor(): Color = when (tab) {
+        1 -> Color(MgrGreen)
+        3 -> Color(MemberGold)
+        else -> Color(ShipperTeal)
+    }
+
+    fun kindIcon(): ImageVector = when (tab) {
+        1 -> Icons.Default.LocalShipping
+        3 -> Icons.Default.Storefront
+        else -> Icons.Default.PeopleAlt
+    }
 
     /** 司机账那一行自己在响应里带的订单明细（不用再请求）。 */
     fun driverOrdersOf(key: String): List<FreightSettlementOrderDto> =
@@ -237,33 +300,16 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         }
     }
 
+    /**
+     * 这一单/这一类账当前窗口的左端（**只给 `LedgerCharts` 的纯函数用**：它们要按天分桶）。
+     * 右端直接用 `rangeTo`。
+     */
     val periodStart: String? get() = rangeFrom
-    val periodEnd: String? get() = rangeTo
-
-    fun selectTab(i: Int) {
-        tab = i
-        // 换 tab 就把搜索词与展开态清掉：key 是跨 tab 混用的（`u|id` 在货主账与批发商账里
-        // 指的是不同的人），带过去会出现"搜了 2 个、列表里一个都没高亮"的鬼状态。
-        query = ""
-        expandedKey = null
-        expandedOrderId = null
-        expandedOrder = null
-        // 新档位不支持当前图（比如从司机账带着"折线"切到货主账）→ 落到它支持的第一个，
-        // 否则切换条上会出现一个"选中了但画不出来"的档
-        if (chartType !in chartTypes()) chartType = chartTypes().first()
-        if (i != 0) loadAccounts()
-    }
 
     /** 司机账/货主账/批发商账：按当前时间范围拉取账户汇总 */
     fun loadAccounts() {
         accountsLoading = true
         loadError = null
-        // ⛔ 时间范围一变，**已展开的流水就过期了**：账户卡上的笔数/金额换了新时段、
-        //    展开的明细还是上一段的（而且 `toggleRow` 见缓存非空就直接返回，不会重取）——
-        //    界面上两个数对不上，谁都不报错（2026-09-19 修）。
-        accountEntries = emptyMap()
-        accountEntriesMeta = emptyMap()
-        expandedKey = null
         viewModelScope.launch {
             try {
                 if (tab == 1) {
@@ -285,52 +331,113 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         }
     }
 
-    /**
-     * 展开/收起一个账户的明细。
-     *
-     * ⚠️ 司机账**不用再取数**：`/freight-settlement` 每个 group 自带 `orders`；
-     *    货主/批发商账的流水要按账户另取一次（取过就缓存，同一时段内不重复请求）。
-     */
-    fun toggleRow(key: String) {
-        if (expandedKey == key) {
-            expandedKey = null
-            return
-        }
-        expandedKey = key
-        if (tab == 1) return
-        if (accountEntries[key] != null) return
-        accountEntriesLoading = true
-        viewModelScope.launch {
-            try {
-                val (id, name) = key.split("|", limit = 2)
-                val page = if (id == "u") {
-                    container.repo.ledgerEntries(shipperId = name.toLongOrNull(), from = periodStart, to = periodEnd)
-                } else {
-                    container.repo.ledgerEntries(tempShipperName = name, from = periodStart, to = periodEnd)
-                }
-                accountEntries = accountEntries + (key to page.rows)
-                accountEntriesMeta = accountEntriesMeta + (key to page.meta)
-            } catch (e: Exception) {
-                loadError = toApiException(e).message
-            } finally {
-                accountEntriesLoading = false
-            }
-        }
-    }
-
-    var showCreate by mutableStateOf(false)
-    var draftShipperName by mutableStateOf("")
-    var draftProduct by mutableStateOf("")
-    var draftQty by mutableStateOf("")
-    var draftPrice by mutableStateOf("")
-    var draftDate by mutableStateOf(LocalDate.now().toString())
-    var draftNote by mutableStateOf("")
+    // 记一笔账的草稿状态**不在这一页了**：用户 2026-09-20 第七轮把它改成单独一页
+    // （`LedgerCreateScreen.kt`），因为商品要**从商品库选**（全屏底部弹层）——
+    // 那个弹层套在 `AlertDialog` 里就是两层 modal 窗口叠着。这里只留"回来重取一次"的钩子。
     var deleteTarget by mutableStateOf<LedgerEntryDto?>(null)
 
+    // ===== 第二层：某个货主 / 批发商**按订单**的账 =====
+    //
+    // 用户 2026-09-20 拍板：「账本管理的核心单位也就是最小单位是**订单**。首先我们来管一下
+    // 货主的账，他这个账**第一层就是货主选择**，**第 2 层是时间上的统计**（昨天/今天/前天/
+    // 这周/这个月、自定义，包括我们也可以直接搜索货主）……然后就会出现对应的账本，
+    // 这个月账本是**按那个订单来算的、按订单来结算的**。」
+    //
+    // ⚠️ 第一层仍然是"一屏看完所有账户各自的数"（列表上就写着每人的笔数与金额）——
+    //    2026-09-19 用户否掉过"先在一堆 chip 里把人一个个点出来"的那一版，
+    //    理由是"客户非常多的时候，一个一个去选太麻烦"。两层与那条并不冲突：
+    //    **选人之前就已经看得见每个人的钱**，点进去只是"看他这一段的账"。
+    //
+    // 2026-09-20 第五轮（**就是这一版**）：用户把"图"和"选人那一排 chip"都否掉了 ——
+    //   · 「那个折线图条形图还有扇形图，我们直接去掉就行了啊，其他的都也去掉，其他的像什么
+    //     批发商账、货主账，全都去掉这些图，**到时候在报表中心看就可以了**」
+    //     → 账本页**一张图都不画**（`LedgerCharts.kt` / `ChartPalette` / `PieChart` 一起删了）；
+    //   · 「选择司机那一行，假如司机多的话，那我要选该怎么去选呢？……选择人物，我们使用那种
+    //     **侧边栏抽屉**，可以在那里寻找人物，点击人物就可以了」
+    //     → 选人改成抽屉（抽屉里带搜索），页面上只留一行「人员：全部（N 人）」当入口；
+    //   · 「那个时间也太复杂了，这样的不好，换一种崭新形式」+「时间和选择人物**不要选择一样的
+    //     展现形式**」 → 时间挪到顶栏做一个紧凑药丸（点开档位清单），与抽屉是两种形态。
+    // 于是这一页从上到下就是：顶栏（这一类账 + 时间）→ 人员那一行 → 数据。
+    //
+    // ⛔ **这几个状态必须声明在 `init {}` 之前**（`_check_vm_state_before_init.py` 钉着）：
+    //    init 会调 `applyPreset(本月)` → `loadPerson()`。Kotlin 按书写顺序初始化属性，
+    //    写在 init 之后的话 `personLoading = true` 会对着一个还没初始化的引用赋值 ——
+    //    **打开这一页直接崩**（这条坑这个文件已经栽过一次，见文件开头那段注释）。
+
+    /** 选中的那个人（`u|id` / `t|名字`）；null = 还在第一层"选货主"。 */
+    var personKey by mutableStateOf<String?>(null)
+        private set
+
+    /** 他的订单（按**送达日**落窗口）——KPI 与商品统计都从这一份算出来。 */
+    var personOrders by mutableStateOf<List<OrderDto>>(emptyList())
+        private set
+    var personStats by mutableStateOf<List<ProductStat>>(emptyList())
+        private set
+    var personLoading by mutableStateOf(false)
+        private set
+
+    /** 这一页被截断了没有（KPI 与统计都只含**取到的那一页**，必须说出来）。 */
+    var personTruncated by mutableStateOf(false)
+        private set
+    var personLimit by mutableStateOf<Int?>(null)
+        private set
+
+    /** 他对应的客户档案（核销要 `customer_id`）。null = 没有档案（临时货主 / 没关联账号）。 */
+    var personCustomerId by mutableStateOf<Long?>(null)
+        private set
+
+    /** 正在核销的那张单（null = 没开核销弹层）。 */
+    var settleTarget by mutableStateOf<OrderDto?>(null)
+        private set
+
+    /** 勾了哪几行（`order_products.id`）。空 = 整单核销。 */
+    var settlePicked by mutableStateOf<Set<Long>>(emptySet())
+        private set
+    var settleMethod by mutableStateOf("cash")
+    var settleSubmitting by mutableStateOf(false)
+        private set
+
+    /**
+     * 批量核销（点合计 → 核销全部）的弹层开着没有。
+     *
+     * 用户 2026-09-20：「我们那个卡片的最顶端不是一个**全部合计**吗…如果是今天，那就是今天的
+     * 所有订单；如果是这周，那就这周的所有订单。这样子我们就可以**直接点这个合计将它核销掉**，
+     * 就不用一个一个去核销订单了，它相当于一个**可控的批量处理**。但是如果是**全部**
+     * （所有人）的话，那个合计**不能**批量核销，只能下到每个司机/货主才能批量核销」
+     * —— 所以 [openSettleAll] 里有一道"必须先选中某个人"的门。
+     */
+    var settleAllOpen by mutableStateOf(false)
+        private set
+
+    /**
+     * 用户**手动**挑过档位了没有 —— 挑过就永不自动改（见 `init` 里那次 `pickWindow`）。
+     *
+     * 自动挑默认档位只该发生在"刚打开这一页、屏幕上空着"的时候；用户已经明确说了
+     * "我要看本月"，再替他改回去就是抢方向盘。
+     */
+    private var userPickedPreset = false
+
     init {
-        // 默认档位 = **本月**（不是"今天"）：账本第一屏看一天，几乎什么都没有，
-        // 而"这个月一共多少"才是打开账本要问的第一句话。
-        applyPreset(DatePresets.THIS_MONTH)
+        // 默认档位 = **今天**；今天没账就往前退（用户 2026-09-20：「这些时间默认是今天的，
+        // 如果今天没有任何订单的话，然后再是昨天，以此类推」）。
+        //
+        // ⚠️⚠️ 2026-09-21 改成 **"先盘点、再取数"**（用户报的是同一类毛病，且点名了派单员这边）：
+        //     > 「我在点击我的账本的时候，它会**闪两下**再跳到「前天」……我在点击账本之前，
+        //     >   它就已经提前盘点好了……其他**派单员那些账本界面**基本上也是这个逻辑，
+        //     >   **闪两下已经不行了**，不美观，且占用性能。」
+        //     老写法是"先按今天就位并**取一次数**，真没单再异步退档"——最坏要画三帧
+        //     （今天·加载 → 今天·空态 → 前天·有数据），还白发一次注定被丢掉的请求。
+        //     现在只做**探测**（每档 limit=1），定下来之后**只取一次数**；
+        //     页面那边用 [windowSettled] 把"还没定下来"那一帧挡成 loading。
+        viewModelScope.launch {
+            // ⚠️ **用户可能在探测期间自己挑了档位**（探测是网络请求，来回一秒很正常）：
+            //    那时再按阶梯的结果 switchPreset 就是**抢方向盘** —— 与 `fallbackForPerson`
+            //    共用同一个开关（"默认"只在你还没表态的时候替你选）。
+            if (!userPickedPreset) {
+                switchPreset(DatePresets.pickWindow(DatePresets.AUTO_LADDER) { periodHasData(it) })
+            }
+            windowSettled = true
+        }
         // 账本变动（送达自动记账/手动记账端联动）实时刷新
         viewModelScope.launch {
             container.realtimeHub.refreshLedger.collect { load() }
@@ -346,6 +453,27 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         const val WIDE_TO = "2099-12-31"
     }
 
+    /**
+     * 这一段有没有账（**只探测、不动页面状态**）。
+     *
+     * 判据与页面自己那一份取数**同源**：订单账看流水、司机账看结算分组、货主/批发商账看账户汇总
+     * —— 用别的接口猜"有没有单"，会出现"退档到的那一天页面还是空的"。
+     * ⚠️ 探测失败（网络/权限）当"没数"处理：不能因为探测不通就把用户按在一个看不见的窗口上。
+     */
+    private suspend fun periodHasData(label: String): Boolean {
+        val r = DatePresets.rangeOf(label, LocalDate.now()) ?: return true
+        val (f, t) = r
+        return try {
+            when (tab) {
+                0 -> container.repo.ledgerEntries(from = f, to = t).rows.isNotEmpty()
+                1 -> container.repo.freightSettlementRange(f + " 00:00:00", t + " 23:59:59").groups.isNotEmpty()
+                else -> container.repo.ledgerAccounts(f, t, if (tab == 3) "member" else "shipper").isNotEmpty()
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun total(): Double = entries.sumOf { moneyToDouble(it.total) }
 
     fun applyRange(from: String?, to: String?) {
@@ -354,10 +482,41 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         load()
     }
 
+    /** 用户自己挑的档位（**手动**：从此不再自动退档）。 */
+    fun applyPreset(label: String) {
+        userPickedPreset = true
+        // 用户已经表态 = 窗口就算是定下来了（不必再等 init 那次探测跑完才开闸，
+        // 否则他挑完档位画面还要再 loading 一下）。
+        windowSettled = true
+        switchPreset(label)
+    }
+
+    /** 真正的换档（自动退档与手动换档都走这一条路，**不许各写一份**）。 */
+    private fun switchPreset(label: String) {
+        preset = label
+        val r = DatePresets.rangeOf(label, LocalDate.now())
+        applyRange(r?.first, r?.second)
+        refreshForNewWindow()
+    }
+
+    /**
+     * 自定义区间（日期弹层回来的）。两头都没选 = 清掉区间，退回「全部」。
+     * ⚠️ 手输的窗口同样是**手动**：不再自动退档。
+     */
+    fun applyCustomRange(from: String?, to: String?) {
+        userPickedPreset = true
+        windowSettled = true // 同上：手输的窗口也算"用户已经表态"
+        customFrom = from
+        customTo = to
+        preset = if (from == null && to == null) DatePresets.ALL else DatePresets.CUSTOM
+        applyRange(from, to)
+        refreshForNewWindow()
+    }
+
     // 日期档位**不在这里算**：档位与它们的区间在 `ui/common/DatePresets`（唯一一份实现），
     // 本页只把选中的那一档翻成 from/to。自己再写一遍 `when("本月")`，
     // 就会出现"账本页的本月和订单筛选条的本月差几天"——而两边都看着对。
-    // （`preset` / `customFrom` / `customTo` / `chartType` 四个状态声明在**文件开头**：
+    // （`preset` / `customFrom` / `customTo` 几个状态声明在**文件开头**：
     //   init 块会写它们，写在 init 之后就是"打开这一页必崩"，原因见那边的注释。）
 
     /**
@@ -365,71 +524,33 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
      * 就是对不上账的第一步。
      */
     val periodWord: String get() = when {
+        // 还没盘点完 → 先写「…」：这时候写任何档位都是**假话**（窗口还没定），
+        // 而"今天 → 前天"那一下正是用户说的"闪两下"里最扎眼的一半。
+        !windowSettled -> "…"
         preset != DatePresets.CUSTOM -> preset
         rangeFrom == null || rangeTo == null -> DatePresets.ALL
         else -> rangeFrom!!.take(10).substring(5) + "~" + rangeTo!!.take(10).substring(5)
     }
 
-    /** 切档位（含「全部」：那一档**不带日期条件**）。 */
-    fun applyPreset(label: String) {
-        preset = label
-        val r = DatePresets.rangeOf(label, LocalDate.now())
-        applyRange(r?.first, r?.second)
+    /**
+     * 时间窗口换了之后要重取的东西。**一处写全**：漏一处就是"上面的合计写着本月、
+     * 下面的明细还是上个月"，而两边都不报错。
+     * ⚠️ 司机那一层不用重取：他的单**跟在账户汇总响应里**（`/freight-settlement` 的 group 自带
+     *    `orders`），账户汇总重取一次，他的第二层就跟着新了。
+     */
+    private fun refreshForNewWindow() {
         if (tab != 0) loadAccounts()
-    }
-
-    /** 自定义区间（日期弹层回来的）。两头都没选 = 清掉区间，退回「全部」。 */
-    fun applyCustomRange(from: String?, to: String?) {
-        customFrom = from
-        customTo = to
-        preset = if (from == null && to == null) DatePresets.ALL else DatePresets.CUSTOM
-        applyRange(from, to)
-        if (tab != 0) loadAccounts()
+        // 第二层（某个人的按订单账）也要跟着换窗口
+        if (personKey != null && tab != 1) loadPerson()
     }
 
     /**
-     * 这一档 tab 有哪几种图可选（规则在 `LedgerCharts.chartTypesFor`，有单测）。
+     * 侧边抽屉里那一份名单（三类账共用）。
      *
-     * ⚠️ 货主账 / 批发商账**没有折线**：`/ledger/accounts` 只回账户汇总，没有按天的数。
-     *    拿明细接口（`/ledger/entries`，一页最多 1000 条）去凑一条曲线，会在明细被截断时
-     *    画出一条**比上面合计小**的线 —— 同一屏两个数，比"少一种图"糟得多。
+     * ⚠️ 抽屉是**选人用的**，所以它筛的只有"人"（姓名 / 手机号 / 后 4 位）——
+     *    与页面上的合计无关（见 [dashboard]）。
      */
-    fun chartTypes(): List<String> = chartTypesFor(tab)
-
-    /** 当前选中档位的图表类型（切档位后原类型不支持时自动落到第一个）。 */
-    val chartTypeNow: String get() = if (chartType in chartTypes()) chartType else chartTypes().first()
-
-    /** 折线/条形要的**按天**序列（账户类没有按天的数 → 空）。 */
-    fun seriesForChart(): List<Pair<String, Double>> = when (tab) {
-        0 -> orderDailySeries(entries, rangeFrom, rangeTo)
-        1 -> driverDailySeries(visibleDriverGroups(), rangeFrom, rangeTo)
-        else -> emptyList()
-    }
-
-    /**
-     * 扇形/排行要的切片。
-     *
-     * ⚠️ 集合**跟着搜索走**（与仪表盘同一个）：图上一个数、仪表盘另一个数，
-     *    用户只会以为其中一个坏了。
-     */
-    fun slicesForChart(): List<Pair<String, Double>> = when (tab) {
-        0 -> topSlices(orderSourceTotals(entries))
-        1 -> topSlices(driverTotals(visibleDriverGroups()))
-        else -> topSlices(accountTotals(visibleAccountRows()))
-    }
-
-    /** 条形图的数值与标签（账户类用"账户排行"当条形，图上会写明）。 */
-    fun barsForChart(): Pair<List<Float>, List<String>> {
-        val byDay = tab == 0 || tab == 1
-        val rows = if (byDay) seriesForChart() else slicesForChart()
-        // 标签：按天用 `09/20`（与折线同一份 dayLabel），账户用短名（长了会把旁边的挤掉）
-        val labels = if (byDay) rows.map { dayLabel(it.first) } else rows.map { shortLabel(it.first) }
-        return rows.map { it.second.toFloat() } to labels
-    }
-
-    /** 搜索过滤之后的司机组（图表与仪表盘**必须**是同一个集合）。 */
-    fun visibleDriverGroups(): List<FreightSettlementGroupDto> =
-        UserSearch.filter(driverAccounts, query, { it.driverName }, { it.driverPhone })
+    fun drawerPersons(): List<LedgerAccountRow> = visibleAccountRows()
 
     fun load() {
         loading = entries.isEmpty()
@@ -448,56 +569,24 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         }
     }
 
-    fun openCreate() {
-        draftShipperName = ""
-        draftProduct = ""
-        draftQty = ""
-        draftPrice = ""
-        draftDate = LocalDate.now().toString()
-        draftNote = ""
-        showCreate = true
-    }
+    /**
+     * 从「记一笔账」那一页回来时重取一次（用户 2026-09-20 第七轮：记账改成单独一页）。
+     *
+     * ⚠️ 为什么不能只靠 `init`：`init` 只在 VM 第一次创建时跑一次，从记账页 `popBackStack()`
+     *    回来时这一屏重新进组合但 VM 还在 —— 不重取的话列表里**没有刚记的那一笔**，
+     *    用户会以为没存上，然后再记一遍（账就真的多了一笔）。
+     * ⚠️ 第一次进这一页（`entered` 还是 false）不重复拉：那时 `init` 刚拉过。
+     */
+    private var entered = false
 
-    fun create() {
-        val qty = draftQty.toIntOrNull()
-        val price = draftPrice.toDoubleOrNull()
-        if (draftProduct.isBlank()) {
-            error = "请填写商品名称"
+    fun onEnter() {
+        if (!entered) {
+            entered = true
             return
         }
-        if (qty == null || qty <= 0) {
-            error = "请填写正确的数量"
-            return
-        }
-        if (price == null || price < 0) {
-            error = "请填写正确的单价"
-            return
-        }
-        acting = true
-        error = null
-        viewModelScope.launch {
-            try {
-                container.repo.createLedger(
-                    LedgerCreateRequest(
-                        tempShipperName = draftShipperName.trim().ifBlank { null },
-                        entryDate = draftDate.trim(),
-                        productName = draftProduct.trim(),
-                        quantity = qty,
-                        unitPrice = price.toString(),
-                        total = (qty * price).toString(),
-                        source = "manual",
-                        note = draftNote.trim(),
-                    )
-                )
-                actionResult = "已记一笔账"
-                showCreate = false
-                load()
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                acting = false
-            }
-        }
+        load()
+        loadAccounts()
+        if (personKey != null && tab != 1) loadPerson()
     }
 
     fun confirmDelete() {
@@ -514,6 +603,321 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
                 error = toApiException(e).message
             } finally {
                 acting = false
+            }
+        }
+    }
+
+    // ============================================================ 第二层：某个货主 / 批发商**按订单**的账
+    //
+    // 状态声明在 `init {}` **之前**（见那一大段注释：写在 init 之后 = 打开这一页直接崩）。
+
+    /** 第二层顶部那三个数（**这些单现在**的应收/已收/欠款）。 */
+    fun personKpi(): Triple<Double, Double, Double> {
+        val receivable = personOrders.sumOf { centsToMoney(orderReceivableCents(it)).toDouble() }
+        val settled = personOrders.sumOf { (it.settledAmount.toDoubleOrNull() ?: 0.0) }
+        val arrears = personOrders.sumOf { (it.arrearsAmount.toDoubleOrNull() ?: 0.0) }
+        return Triple(receivable, settled, arrears)
+    }
+
+    /**
+     * 点账户行 = **看他这一段的账**（第二层）。三类账走同一条路：
+     *
+     * · 货主 / 批发商：要另取"按送达日落在窗口里的单"（[loadPerson]，它还要找客户档案）；
+     * · 司机：那几单**已经在列表响应里**（`/freight-settlement` 每个 group 自带 `orders`），
+     *   再打一次后端只是把同样的数再取一遍 —— 所以司机这一层不发请求。
+     *   ⚠️ 司机那笔钱的口径是 `driver_pay`（我们该给他多少），与客户应收是两套，
+     *      所以他的第二层**没有核销**，只有"他跑了哪几趟、这一共多少"。
+     */
+    fun openPerson(row: LedgerAccountRow) {
+        personKey = row.key
+        personOrders = emptyList()
+        personStats = emptyList()
+        personCustomerId = null
+        if (tab != 1) loadPerson()
+    }
+
+    /** 选择栏上的「全部」= 回到第一层（所有人）。 */
+    fun selectPersonKey(key: String?) {
+        if (key == null) {
+            closePerson()
+            return
+        }
+        accountRows().firstOrNull { it.key == key }?.let { openPerson(it) } ?: closePerson()
+    }
+
+    /** 返回第一层（人列表）。 */
+    fun closePerson() {
+        personKey = null
+        personOrders = emptyList()
+        personStats = emptyList()
+        personCustomerId = null
+    }
+
+    /** 第二层标题：名字 + 手机号（与第一层那张行卡同一份数据，**不留两份**）。 */
+    fun personTitle(): String {
+        val key = personKey ?: return ""
+        return accountRows().firstOrNull { it.key == key }?.let { r ->
+            if (r.phone.isNullOrBlank()) r.title.ifBlank { "（没有名字）" }
+            else r.title.ifBlank { r.phone } + "（" + r.phone + "）"
+        } ?: "（已不在名单里）"
+    }
+
+    /** 图表标题用的短名：图上的字要短，但**必须**能看出这是谁的（不许写"他"）。 */
+    fun personShortName(): String {
+        val key = personKey ?: return ""
+        return accountRows().firstOrNull { it.key == key }?.title?.ifBlank { null }
+            ?: accountRows().firstOrNull { it.key == key }?.phone
+            ?: "这个人"
+    }
+
+    /** 空列表时给一句能照着做的话（口径词 + 时间档位）。 */
+    fun personTimeHint(): String = "当前是「" + periodWord + "」，可以点右上角换一个日期档位。"
+
+    /**
+     * 司机的第二层：他不是"客户应收"，而是**这一段时间我们该给他多少**
+     * （口径在 `services/driver_pay.py`，与组头的 `total` 同一份）。返回 (合计, 单数)。
+     */
+    fun driverPersonTotal(): Pair<Double, Int> {
+        val row = accountRows().firstOrNull { it.key == personKey } ?: return 0.0 to 0
+        return row.total to row.count
+    }
+
+    /** 「清空勾选」= 回到整单核销（不是"什么都不收"）。 */
+    fun clearSettleLines() {
+        settlePicked = emptySet()
+    }
+
+    /**
+     * 拉这个人的账。
+     *
+     * ⚠️ 窗口用 **`delivered_from/delivered_to`（送达日）**而不是下单日：
+     *    账本流水的 `entry_date` 是**送达那天**，用下单日筛会漏掉
+     *    「上月底下单、这月初送达」的单 —— 而账上明明有它（同一屏两个集合，谁都不报错）。
+     * ⚠️ 拉完如果**这一段他没单**，顺手退档到"他最近有单的那一天"（[fallbackForPerson]）：
+     *    同一条"默认档位要落到有数的地方"的规矩，否则点开每个人都是空屏。
+     */
+    fun loadPerson() {
+        val key = personKey ?: return
+        personLoading = true
+        loadError = null
+        viewModelScope.launch {
+            try {
+                val page = fetchPersonOrders(key, rangeFrom, rangeTo, withMeta = true)
+                // 只留"有账意义"的单：还没送到的单不进账本（它们没有应收）
+                personOrders = page.first.filter { it.deliveredAt != null || it.returnedAt != null }
+                personStats = productStats(personOrders)
+                personTruncated = page.second?.hasMore ?: false
+                personLimit = page.second?.limit
+                // 核销要客户档案：按 user_id 找（临时货主没有账号 → 找不到 → 界面如实说）
+                val (kind, raw) = key.split("|", limit = 2)
+                personCustomerId = if (kind == "u") {
+                    container.repo.customers().firstOrNull { it.userId == raw.toLongOrNull() }?.id
+                } else {
+                    container.repo.customers().firstOrNull { it.name.trim() == raw.trim() }?.id
+                }
+                if (personOrders.isEmpty()) fallbackForPerson(key)
+            } catch (e: Exception) {
+                loadError = toApiException(e).message
+            } finally {
+                personLoading = false
+            }
+        }
+    }
+
+    /**
+     * 某个人的账（**探测与正式加载共用一条路**，免得"探测说有、加载却是空"）。
+     * 返回 (订单, 分页信息)；探测时不要分页信息（[withMeta] = false）。
+     */
+    private suspend fun fetchPersonOrders(
+        key: String,
+        from: String?,
+        to: String?,
+        withMeta: Boolean,
+    ): Pair<List<OrderDto>, com.tapmoay.sorders.data.repo.PageMeta?> {
+        val (kind, raw) = key.split("|", limit = 2)
+        val page = if (kind == "u") {
+            container.repo.ordersByDelivered(shipperId = raw.toLongOrNull(), deliveredFrom = from, deliveredTo = to)
+        } else {
+            container.repo.ordersByDelivered(tempShipperName = raw, deliveredFrom = from, deliveredTo = to)
+        }
+        return page.rows to if (withMeta) page.meta else null
+    }
+
+    /**
+     * 这个人这一段没单 → 退到"他最近有单的那一天"（今天 → 昨天 → 前天 → 近 7 天）。
+     *
+     * ⚠️ 只在**还是自动档位**的时候退（[userPickedPreset] 为假）：用户自己挑了"本月"来看，
+     *    点个人进来又被他退回"近 7 天"，那是抢方向盘 —— 与 `init` 里那次 `pickWindow` 是同一条
+     *    规矩，所以两处共用一个开关（"默认"只在你还没表态的时候替你选）。
+     */
+    private suspend fun fallbackForPerson(key: String) {
+        if (userPickedPreset) return
+        for (label in DatePresets.AUTO_LADDER) {
+            val r = DatePresets.rangeOf(label, LocalDate.now()) ?: continue
+            val has = try {
+                fetchPersonOrders(key, r.first, r.second, withMeta = false).first
+                    .any { it.deliveredAt != null || it.returnedAt != null }
+            } catch (e: Exception) {
+                false
+            }
+            if (has) {
+                if (label != preset) switchPreset(label)
+                return
+            }
+        }
+    }
+
+    // ============================================================ 就地核销（整单 / 按商品）
+    //
+    // 用户原话：「包括我们核销账也是在这里核销，我们可以点击订单点击核销，
+    //   核销订单的这里可以**全部核销**，也可以**按商品进行核销**」。
+    // 状态声明在 `init {}` 之前（同上）。
+
+    fun openSettle(o: OrderDto) {
+        settleTarget = o
+        settlePicked = emptySet()
+        settleMethod = "cash"
+    }
+
+    fun closeSettle() {
+        settleTarget = null
+        settlePicked = emptySet()
+    }
+
+    fun toggleSettleLine(lineId: Long) {
+        settlePicked = if (lineId in settlePicked) settlePicked - lineId else settlePicked + lineId
+    }
+
+    /** 「全部核销」：把所有**还能收**的行勾上（已退完的行本来就没有金额）。 */
+    fun pickAllSettleLines() {
+        val o = settleTarget ?: return
+        settlePicked = o.orderProducts.map { it.id }.toSet()
+    }
+
+    /**
+     * 这次核销的金额（元，两位小数）。
+     *
+     * ⚠️ 一行都没勾 = **整单核销**，金额取这一单的**欠款**（不是把行金额全加起来 ——
+     *    退过货的单上那个数比该收的多）。勾了行 = 那些行的**应收**之和。
+     *    两者都必须与后端算出的数**逐分相同**（后端就是这么校验的）。
+     */
+    fun settleAmount(): String {
+        val o = settleTarget ?: return "0.00"
+        if (settlePicked.isEmpty()) return o.arrearsAmount.ifBlank { "0.00" }
+        val cents = o.orderProducts.filter { it.id in settlePicked }.sumOf { lineReceivableCents(it) }
+        return centsToMoney(cents)
+    }
+
+    /** 这一单还能不能核销（已收清 / 已退货的单没有可收的钱）。 */
+    fun canSettle(o: OrderDto): Boolean =
+        !o.paid && o.status.uppercase() != "CANCELLED" && o.status.uppercase() != "RETURNED" &&
+            (o.arrearsAmount.toDoubleOrNull() ?: 0.0) > 0.0
+
+    // ============================================================ 批量核销（点合计 → 核销全部）
+    //
+    // 用户 2026-09-20：「如果是今天，那就是今天的**所有订单**；如果是这周，那就这周的所有订单。
+    //   这样子我们就可以直接点这个**合计**将它核销掉，就不用一个一个的去核销订单了，
+    //   它相当于一个**可控的批量处理**」。
+    //
+    // ⚠️ 三件事必须写清楚，否则这个按钮会变成"把钱收错"的入口：
+    //   ① **只有选中某个人**才给批量核销（用户明说"全部（所有人）时那个合计不能批量核销"）——
+    //      见 [openSettleAll] 的那道门；
+    //   ② 一次核销**一个收款人**：收款单绑的是这个人的客户档案，跨人批量会记到别人头上；
+    //   ③ 金额 = 各单**欠款**之和（`arrears_amount`，后端算的），一分都不许在这里自己减。
+
+    /** 这一段里**还能核销**的单（这个人的）。 */
+    fun settleAllTargets(): List<OrderDto> = personOrders.filter { canSettle(it) }
+
+    /** 批量核销的金额（各单欠款之和，两位小数）。 */
+    fun settleAllAmount(): String =
+        centsToMoney(settleAllTargets().sumOf { orderArrearsCents(it) })
+
+    fun openSettleAll() {
+        // 门：没选人就没有"这个人的合计"可点（用户明确否掉了"全部时批量核销"）。
+        if (personKey == null || tab == 1) return
+        if (settleAllTargets().isEmpty()) {
+            error = "这一段没有还没结清的单。"
+            return
+        }
+        settleMethod = "cash"
+        settleAllOpen = true
+    }
+
+    fun closeSettleAll() {
+        settleAllOpen = false
+    }
+
+    fun submitSettleAll() {
+        val customerId = personCustomerId
+        val targets = settleAllTargets()
+        if (customerId == null) {
+            error = "这位货主没有客户档案，核销记不到谁头上。" +
+                "请先到「货主管理」把这个账号关联成客户（或建一份档案），再回来核销。"
+            return
+        }
+        if (targets.isEmpty()) {
+            error = "这一段没有还没结清的单。"
+            return
+        }
+        settleSubmitting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                container.repo.createReceipt(
+                    ReceiptCreateRequest(
+                        customerId = customerId,
+                        amount = settleAllAmount(),
+                        method = settleMethod,
+                        receivedAt = LocalDate.now().toString(),
+                        orderIds = targets.map { it.id },
+                        settleMode = "itemized",
+                    )
+                )
+                actionResult = "已核销 " + targets.size + " 单 ¥" + settleAllAmount()
+                closeSettleAll()
+                loadPerson()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                settleSubmitting = false
+            }
+        }
+    }
+
+    fun submitSettle() {
+        val o = settleTarget ?: return
+        val customerId = personCustomerId
+        if (customerId == null) {
+            error = "这位货主没有客户档案，核销记不到谁头上。" +
+                "请先到「货主管理」把这个账号关联成客户（或建一份档案），再回来核销。"
+            return
+        }
+        if (!canSettle(o)) {
+            error = "这一单已经没有可收的钱了（已收清 / 已退货 / 已撤销）。"
+            return
+        }
+        settleSubmitting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                container.repo.createReceipt(
+                    ReceiptCreateRequest(
+                        customerId = customerId,
+                        amount = settleAmount(),
+                        method = settleMethod,
+                        receivedAt = LocalDate.now().toString(),
+                        orderIds = listOf(o.id),
+                        orderProductIds = settlePicked.toList(),
+                        settleMode = "itemized",
+                    )
+                )
+                actionResult = "已核销 " + o.orderNo + " ¥" + settleAmount()
+                closeSettle()
+                loadPerson()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                settleSubmitting = false
             }
         }
     }

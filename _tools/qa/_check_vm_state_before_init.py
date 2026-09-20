@@ -60,7 +60,19 @@ CALL = re.compile(r"\b(\w+)\s*\(")
 MAX_DEPTH = 4
 #: 赋值左边：行首（允许缩进）的裸属性名 + `=`（排除 == / >= / <= / != / +=）
 ASSIGN = re.compile(r"^\s{4,}(\w+)\s*=(?!=)", re.M)
-DECL = re.compile(r"^\s*(?:@\w+\s+)*(?:private\s+|internal\s+)?(?:var|val)\s+(\w+)\b", re.M)
+#: **类成员**声明：缩进正好 4 个空格（本仓库的 Kotlin 风格：类体 4、函数体 8+）。
+#:
+#: ⚠️ 2026-09-20 修的一个误报（它把这条红线推到了"永远红"的边缘）：
+#:    原来这里允许任意缩进，于是**函数里的局部变量**（`        val q = returnQty[id] ?: 0`）
+#:    也被当成"属性声明"。而同一个名字很可能在别处作为**具名实参**出现
+#:    （`orders(q = search.trim()…)`，那行恰好也满足 [ASSIGN] 的"行首 4+ 空格 + 名字 + ="）——
+#:    两者一配，就报出一个**根本不存在的属性**在 init 之后声明。
+#:    判据必须锚"类成员"这个位置，不然任何一个局部变量都可能撞出一次假红。
+DECL = re.compile(
+    r"^    (?:@\w+\s+)*(?:private\s+|internal\s+|protected\s+)?(?:var|val)\s+(\w+)\b", re.M
+)
+#: 解析出来的类成员声明数下限（DECL 收紧之后，先确认没有把真属性一起漏掉）
+MIN_DECLS = 300
 
 
 def block_after(src: str, start: int) -> str:
@@ -136,12 +148,14 @@ def main() -> int:
     files = sorted(APP.rglob("*.kt"))
     vms = [f for f in files if f.name.endswith("ViewModel.kt") or "ViewModels.kt" in f.name]
     problems: list[tuple[str, list[str]]] = []
+    decls = 0
     for f in files:
+        decls += len(DECL.findall(f.read_text(encoding="utf-8", errors="ignore")))
         bad = check_file(f)
         if bad:
             problems.append((f.relative_to(APP).as_posix(), sorted(set(bad))))
 
-    print(f"扫到 .kt {len(files)} 个，其中 ViewModel 文件 {len(vms)} 个")
+    print(f"扫到 .kt {len(files)} 个，其中 ViewModel 文件 {len(vms)} 个；类成员声明 {decls} 个")
     print(f"状态声明在 init 之后、且会被 init 调用链写到的：{len(problems)} 个文件")
 
     fails: list[str] = []
@@ -149,6 +163,10 @@ def main() -> int:
         fails.append(f"扫到的 .kt 太少（{len(files)} < {MIN_FILES}）：路径或 glob 坏了")
     if len(vms) < MIN_VMS:
         fails.append(f"认出的 ViewModel 文件太少（{len(vms)} < {MIN_VMS}）：切块逻辑可能坏了")
+    if decls < MIN_DECLS:
+        fails.append(
+            f"解析到的类成员声明太少（{decls} < {MIN_DECLS}）：DECL 的缩进判据可能把真属性漏掉了"
+        )
     for name, props in problems:
         fails.append(f"{name}：{'、'.join(props)} 声明在 init 之后 → 打开这一页会 NPE")
         print(f"  ❌ {name}: {'、'.join(props)}")

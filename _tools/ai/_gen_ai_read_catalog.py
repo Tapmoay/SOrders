@@ -372,6 +372,8 @@ def extract() -> dict:
                 "at": f"backend/app/api/v1/{py.name}:{fn.lineno}",
                 "auth": key_auth["auth"],
                 "roles": sorted(key_auth["roles"]),
+                # 只有批发商货主能读的表（见 MEMBER_ONLY_READS 的理由）
+                "member_only": f"{mod}.{fn.name}" in MEMBER_ONLY_READS,
                 "params": params,
                 "skipped_params": skipped,
             }
@@ -409,6 +411,14 @@ EXCLUDE = {
 # 缺条目时生成器直接报错退出，逼着人补——不许出现"没有说明的工具"。
 CN_DESC = {
     "orders.list_orders": "订单列表（可按状态/日期/货主名/司机名筛选）",
+    # 退货申请（2026-09-21）：**两张表分给两个人**，说明里必须写清"谁的申请"，
+    # 否则模型会给派单员查"我提的申请"（他从来不提单），或让货主看到全店的待办。
+    "return_requests.list_my_return_requests": (
+        "我（货主）自己提过的退货申请：待派单员处理的、已办完的、被驳回的（含驳回原因）"
+    ),
+    "return_requests.list_return_requests": (
+        "待派单员处理的退货申请（货主提的、还没办的）：谁提的、要退哪几样、各几件"
+    ),
     "orders.pending_dispatch_count": "待派单池还有多少单",
     "order_products.list_order_products": "订单商品行（按订单或商品查）",
     "products.list_products": "商品列表（含库存、批发价档位）",
@@ -448,6 +458,14 @@ CN_DESC = {
     "shipper.list_addresses": "地址与线路库",
     "shipper.list_contacts": "联系人库",
     "shipper.list_locations": "地点库",
+    # 批发商自己那一本账（2026-09-20）：他给下游货主收的钱记在哪。
+    # ⚠️ 说明里必须点破"这是**他自己**的账、与派单员那本无关" —— 否则模型会把
+    #    「张三还欠我 300」答成"公司账上张三还欠 300"（两本账在同一张订单上）。
+    "shipper_ledger.list_settlements": (
+        "我（批发商）给下游货主收钱的核销记录 —— **自己那一本账**，"
+        "与派单员记录的公司账是两笔钱；可按订单、按送达日窗口查，"
+        "`include_deleted=true` 能看到已撤销的那些"
+    ),
     # 地点分类名册（2026-09-19）：地址库左侧那一列。**按人分区** —— 读到的是"当前登录人
     # 自己那一份"，不是全店的（与商品分类不同，那条要写清，否则模型会以为改一处影响所有人）。
     "place_categories.list_categories": "地点分类名册（**当前登录人自己那份**：地点库左侧那一列的名字与顺序）",
@@ -457,6 +475,24 @@ CN_DESC = {
     "notifications.list_notifications": "消息中心列表",
     "notifications.unread_count": "未读消息数",
     "operation_logs.list_operation_logs": "操作日志（谁在什么时候改了什么）",
+}
+
+#: 只有**批发商货主**（`users.is_member=1`）能读的表 —— 普通货主的 AI 连清单里都不该有它。
+#:
+#: 2026-09-20 用户第七轮：「AI 也会分成 2 个：一个是普通货主、一个是批发商货主的 AI……
+#: 普通货主**手机做不到的事情，AI 也做不到**」。普通货主那一本账（`我的账本`）上
+#: **根本没有"给下游货主核销"这一段**，所以核销记录这张表对他不是"读出来是空的"，
+#: 而是**这个功能不存在**：给清单只会让模型照着它去解释一件他做不了的事。
+#:
+#: 键 = `模块.动作`；值 = 理由（写下来是为了它能被审计，不是为了好看）。
+#: ⚠️ 后端那一侧这两张表的角色是 `shipper`（`require_roles(SHIPPER)`），
+#:    普通货主调它拿到的是**空列表而不是 403** —— 所以这一层裁的是"界面有没有这段"，
+#:    不是"会不会被拒"。判据必须落在代码里（这里），不能指望后端拦。
+MEMBER_ONLY_READS: dict[str, str] = {
+    "shipper_ledger.list_settlements": (
+        "批发商货主自己那一本账（给下游货主核销的记录）：普通货主手机上「我的账本」"
+        "根本没有这一段（他给自己下单，没有第二个债务人）"
+    ),
 }
 
 
@@ -503,6 +539,14 @@ def to_kotlin(cat: dict, module_cn: dict) -> str:
         "     * 不是手抄的：权限点改名、端点换守卫，这里会跟着变。**空集 = 谁也不给**（fail-closed）。",
         "     */",
         "    val roles: Set<String>,",
+        "    /**",
+        "     * 只有**批发商货主**（`users.is_member=1`）能读这张表。",
+        "     *",
+        "     * 判据来自生成脚本的 `MEMBER_ONLY_READS`（与写侧 `AiWriteAction.memberOnly` 对称）：",
+        "     * 普通货主手机上**没有这一段界面** —— 给他的 AI 列出来，只会让它去解释",
+        "     * 一件他做不了的事。**空集 roles 之外的第二个维度，别混。**",
+        "     */",
+        "    val memberOnly: Boolean,",
         "    /** 该端点声明的查询参数（白名单：只转这些，别的参数一律不转）。 */",
         "    val params: List<ReadParam>,",
         ")",
@@ -527,9 +571,10 @@ def to_kotlin(cat: dict, module_cn: dict) -> str:
         hint = filter_hint(a).replace('"', "＂")
         roles = ", ".join(f'"{r}"' for r in a["roles"])
         roles_kt = f"setOf({roles})" if roles else "emptySet()"
+        member_kt = "true" if a.get("member_only") else "false"
         lines.append(
             f'        ReadAction("{a["module"]}.{a["action"]}", "{cn}", "{a["path"]}", "{hint}", '
-            f"{roles_kt}, listOf("
+            f"{roles_kt}, {member_kt}, listOf("
         )
         for p in a["params"]:
             en = ", ".join(f'"{v}"' for v in p["enum"])

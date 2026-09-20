@@ -16,8 +16,13 @@ package com.tapmoay.sorders.ai
  * AI 会说"我没这个权限"，用户永远不知道有这功能。
  *
  * ### fail-closed
- * 认不出角色（[AiRole] 为 null，例如角色还没加载出来）→ **一张表都不给**。
+ * 认不出角色（[AiActor] 为 null，例如角色还没加载出来）→ **一张表都不给**。
  * 少给是"等一下再问"，多给是"问了也白问"。
+ *
+ * ### 两个货主读的东西也不一样（2026-09-20 用户第七轮）
+ * 「AI 也会分成 2 个：一个是普通货主、一个是批发商货主的 AI……普通货主**手机做不到的事情，
+ * AI 也做不到**」。所以除了角色，还要看**他是不是批发商**（[AiActor.memberShipper]）：
+ * 目录里标了 `memberOnly` 的那几张表（现在只有"我记下的核销"）只给批发商货主。
  */
 object AiReads {
 
@@ -28,23 +33,26 @@ object AiReads {
         null -> null
     }
 
-    /** 这个角色能读的表（已叠加"用户在设置里关掉的模块"）。 */
+    /** 这个角色（+ 是不是批发商货主）能读的表（已叠加"用户在设置里关掉的模块"）。 */
     fun forRole(
-        role: AiRole?,
+        actor: AiActor?,
         enabledModules: Set<String> = AiReadCatalog.modules().toSet(),
     ): List<ReadAction> {
-        val k = key(role) ?: return emptyList()
+        val k = key(actor?.role) ?: return emptyList()
+        val member = actor?.memberShipper ?: false
         return AiReadCatalog.ACTIONS.filter {
-            k in it.roles && it.action.substringBefore('.') in enabledModules
+            k in it.roles &&
+                (!it.memberOnly || member) &&
+                it.action.substringBefore('.') in enabledModules
         }
     }
 
     /** 执行侧的门（工具说明里看不到 ≠ 调不到：模型可以凭记忆写一个 action 出来）。 */
     fun allows(
-        role: AiRole?,
+        actor: AiActor?,
         action: String,
         enabledModules: Set<String> = AiReadCatalog.modules().toSet(),
-    ): Boolean = forRole(role, enabledModules).any { it.action == action }
+    ): Boolean = forRole(actor, enabledModules).any { it.action == action }
 
     /**
      * 渲染成"给模型看的可读清单"，拼进 `read_data` 的 description。
@@ -53,9 +61,9 @@ object AiReads {
      * 是因为实测它最爱猜的就是"能不能按状态/日期筛"——目录里有、说明里没写，等于没有。
      */
     fun describeForModel(
-        role: AiRole?,
+        actor: AiActor?,
         enabledModules: Set<String> = AiReadCatalog.modules().toSet(),
-    ): String = forRole(role, enabledModules).joinToString("\n") {
+    ): String = forRole(actor, enabledModules).joinToString("\n") {
         buildString {
             append("- ").append(it.action).append("（").append(it.cn).append("）")
             if (it.filterHint.isNotBlank()) append("〔可筛：").append(it.filterHint).append("〕")

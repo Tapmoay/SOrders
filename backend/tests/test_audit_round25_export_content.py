@@ -493,17 +493,27 @@ def test_customers_export_pushes_dates_into_sql_and_keeps_rows_identical(
         (fn, content), sqls = _capture_sql(lambda: _export(client, h, **params))
         assert fn == f"customers-report-{s}_{e}.xlsx", f"文件名与真实区间不符：{fn}"
 
-        # 下推的证据：整条请求里对 ledgers 的**查询**只有一条，且带着 entry_date 的上下界
+        # 下推的证据：**取行**的那条查询（`select ledgers.id, …`）只有一条，且带着 entry_date 的上下界
         # （`DELETE FROM ledgers` 是保留任务在顺带清理三年以上的老账，不算在"取数"里）
+        #
+        # ⚠️ 2026-09-20：这里从"只有一条 ledgers 查询"放宽成"**取行的**只有一条 + 总数有上界"。
+        #    原因是加了退货之后，`order_money.money_map` 会对同一批订单再发一条
+        #    `select ledgers.order_id, sum(...) ... group by order_id` 的**聚合**查询
+        #    （退货红冲金额）。它不随结果行数增长（一次算完一页），所以不是这条测试要拦的 N+1；
+        #    真正的判据是"取行的那条不许变多"。
         ledger_selects = [
             q for q in sqls if q.lstrip().lower().startswith("select") and "from ledgers" in q.lower()
         ]
-        assert len(ledger_selects) == 1, f"账本查询不是一条：{ledger_selects} / 全部 SQL：{sqls}"
-        lowered = ledger_selects[0].lower()
-        assert "ledgers.entry_date >=" in lowered, (
-            f"日期条件没有下推到 SQL（还是在 Python 里过滤）：{ledger_selects[0]}"
+        ledger_row_selects = [q for q in ledger_selects if "ledgers.id" in q.lower()]
+        assert len(ledger_row_selects) == 1, f"取行的账本查询不是一条：{ledger_row_selects} / 全部 SQL：{sqls}"
+        assert len(ledger_selects) <= 2, (
+            f"账本查询条数随行数增长了（N+1 又回来了）：{ledger_selects} / 全部 SQL：{sqls}"
         )
-        assert "ledgers.entry_date <=" in lowered, ledger_selects[0]
+        lowered = ledger_row_selects[0].lower()
+        assert "ledgers.entry_date >=" in lowered, (
+            f"日期条件没有下推到 SQL（还是在 Python 里过滤）：{ledger_row_selects[0]}"
+        )
+        assert "ledgers.entry_date <=" in lowered, ledger_row_selects[0]
 
         ws = _sheet(content, "客户经营")
         got = _data_rows(ws)

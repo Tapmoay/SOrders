@@ -6,7 +6,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.ReturnRules
 import com.tapmoay.sorders.data.remote.dto.OrderDto
+import com.tapmoay.sorders.data.remote.dto.OrderProductDto
+import com.tapmoay.sorders.data.remote.dto.OrderReturnItem
+import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -19,6 +23,9 @@ val SHIPPER_TABS = listOf(
     OrderTab("ACCEPTED", "已接单"),
     OrderTab("DELIVERED", "已送达"),
     OrderTab("CANCELLED", "已撤销"),
+    // 已退货（2026-09-20）：货主必须看得到这一档 —— 否则"送过的单被退掉了"只会从他的
+    // 「已送达」里消失（筛选按状态走），而界面上一个字都不提这件事。
+    OrderTab("RETURNED", "已退货"),
 )
 
 class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() {
@@ -33,6 +40,43 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
     var cancelTarget by mutableStateOf<OrderDto?>(null)
     var dateFrom by mutableStateOf<String?>(null)
     var dateTo by mutableStateOf<String?>(null)
+
+    // ---- 退货申请（2026-09-21）：货主**只能申请**，派单员办理完库存与账本才变 ----
+    /** 这一单**待处理**的退货申请（`orderId` → 申请）。有它就说明这张单不能再申请一次。 */
+    var pendingReturns by mutableStateOf<Map<Long, ReturnRequestDto>>(emptyMap())
+
+    /**
+     * 「待处理申请」这一份**到底有没有拉到手**。
+     *
+     * ⛔ 为什么要有这个门：`myReturnRequests` 万一失败（老后端没这个端点 / 网络抖），
+     *    `pendingReturns` 会是**空表**，而空表与"确实没有待处理申请"在界面上长得一模一样 ——
+     *    于是「申请退货」又会冒出来，点下去必然被后端拒（这正是要避免的那种按钮）。
+     *    所以拉不到就 `false`，**宁可不显示那个按钮**（宁可少一个入口，也不给一个必然失败的）。
+     */
+    var pendingKnown by mutableStateOf(false)
+        private set
+
+    // 申请弹层（与派单员那个退货弹窗同形：逐行勾数量 + 备注）
+    var showReturnDialog by mutableStateOf(false)
+    var returnTarget by mutableStateOf<OrderDto?>(null)
+    /** 每行申请退几件（`order_products.id` → 数量）。**只有 > 0 的行才会提交**。 */
+    var returnQty by mutableStateOf<Map<Long, Int>>(emptyMap())
+    var returnNote by mutableStateOf("")
+    var returnSubmitting by mutableStateOf(false)
+
+    /**
+     * 申请弹层**自己**的错误（表单级，不是页面级）。
+     *
+     * ⚠️ 本仓库的规矩（`Components.kt::FormErrorLine` 那段注释讲的就是这个踩过的坑）：
+     *    **表单的错误必须和表单同生共死** —— 否则表现是"点提交没有任何反应"
+     *    （错误被 AlertDialog 的遮罩盖在背后），关掉弹层又整页被 `ErrorView` 顶掉。
+     *    页面级 [error] 只留给"这一页的数据没加载出来"。
+     */
+    var returnFormError by mutableStateOf<String?>(null)
+
+    /** 撤回申请（二次确认） */
+    var withdrawTarget by mutableStateOf<ReturnRequestDto?>(null)
+    var withdrawFormError by mutableStateOf<String?>(null)
 
     private var loadJob: Job? = null
 
@@ -80,6 +124,154 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
             } finally {
                 loading = false
                 refreshing = false
+            }
+            loadPendingReturns()
+        }
+    }
+
+    /**
+     * 拉「我这一单有没有待处理的退货申请」——**一次拉全部待处理**，按 `orderId` 建表。
+     *
+     * 为什么不是每张单各问一次：列表里有几十张单，逐单问就是几十个请求。
+     * 为什么失败**不**把整页变成错误页：那样等于"退货申请这个新功能把订单列表弄挂了"，
+     *   而这只是一次附带查询 —— 失败的后果收敛成上面 [pendingKnown] 那一个开关。
+     */
+    private suspend fun loadPendingReturns() {
+        pendingReturns = try {
+            val items = container.repo.myReturnRequests(status = "pending").items
+            pendingKnown = true
+            items.filter { it.isPending }.associateBy { it.orderId }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // 换档/下拉重拉会取消上一个 job —— 那不是"拉失败"，别把它记成 pendingKnown=false
+            // （本项目栽过一次同类坑：把 CancellationException 当成业务失败）。
+            throw e
+        } catch (e: Exception) {
+            pendingKnown = false
+            emptyMap()
+        }
+    }
+
+    // ---- 退货申请 ----
+
+    /** 这一行**最多还能申请退几件**。规则只有一份：`core/ReturnRules`（与后端 `max_returnable` 同源）。 */
+    fun maxReturnable(line: OrderProductDto): Int =
+        ReturnRules.maxReturnable(line.quantity, line.damageQuantity, line.returnedQuantity)
+
+    fun hasReturnable(o: OrderDto): Boolean = o.orderProducts.any { maxReturnable(it) > 0 }
+
+    /**
+     * 这一单现在能不能提申请。
+     *
+     * 三个条件缺一不可（**全都是"先判再显示"，不许出现点了必然失败的按钮**）：
+     * ① 已送达（后端 `order_return_request.submit` 只认 `DELIVERED`）；
+     * ② 还有可退量（全退完 / 剩下的都是货损 → 后端会拒）；
+     * ③ 没有待处理的申请（一张单同时只允许一条，要改数量得先撤回）。
+     */
+    fun canApplyReturn(o: OrderDto): Boolean =
+        pendingKnown &&
+            pendingReturns[o.id] == null &&
+            o.status in com.tapmoay.sorders.core.OrderStatusModel.RETURNABLE &&
+            hasReturnable(o)
+
+    /** 这张单上待处理的申请（没有则 null）。 */
+    fun pendingFor(o: OrderDto): ReturnRequestDto? = pendingReturns[o.id]
+
+    /** 打开申请弹层：默认**全部勾满**（最常见的就是整单退，再自己往下减），与派单员那个弹窗同一手感。 */
+    fun openReturn(o: OrderDto) {
+        returnTarget = o
+        returnQty = o.orderProducts.associate { it.id to maxReturnable(it) }
+        returnNote = ""
+        returnFormError = null
+        showReturnDialog = true
+    }
+
+    /** 关掉申请弹层：**顺手把它自己的错误清掉**（表单的错误与表单同生共死）。 */
+    fun dismissReturnDialog() {
+        if (returnSubmitting) return
+        showReturnDialog = false
+        returnFormError = null
+    }
+
+    fun setReturnQty(lineId: Long, qty: Int) {
+        val o = returnTarget ?: return
+        val line = o.orderProducts.firstOrNull { it.id == lineId } ?: return
+        // 上限夹在这一处：加减号、整单全勾、全清零三条路都走它，
+        // 所以不可能出现"填了 5 却只退 3"这种鬼状态（与派单员那一份同一写法）
+        returnQty = returnQty + (lineId to qty.coerceIn(0, maxReturnable(line)))
+    }
+
+    fun returnAll() {
+        val o = returnTarget ?: return
+        returnQty = o.orderProducts.associate { it.id to maxReturnable(it) }
+    }
+
+    fun returnNone() {
+        val o = returnTarget ?: return
+        returnQty = o.orderProducts.associate { it.id to 0 }
+    }
+
+    /** 这次一共申请退几件（只用于弹层上的一行提示；**不显示金额** —— 那要派单员办理时才算得出来）。 */
+    fun returnTotalQty(): Int = returnQty.values.sum()
+
+    fun confirmApplyReturn() {
+        val o = returnTarget ?: return
+        val items = o.orderProducts
+            .mapNotNull { line -> (returnQty[line.id] ?: 0).takeIf { it > 0 }?.let { line.id to it } }
+        if (items.isEmpty()) {
+            // 这是**表单**的错误：画在弹层里（画在页面上会被遮罩盖住 = "点了没反应"）
+            returnFormError = "请至少勾一个要退的商品（数量大于 0）"
+            return
+        }
+        returnSubmitting = true
+        returnFormError = null
+        viewModelScope.launch {
+            try {
+                container.repo.applyReturnRequest(
+                    o.id,
+                    items.map { OrderReturnItem(it.first, it.second) },
+                    returnNote.trim(),
+                )
+                // 这句话必须写清"这只是申请"：界面上一个数字都没变，用户很容易以为货已经退了。
+                // 提交后**库存与账本一分没动**是这个功能的全部意义（见后端 order_return_request.py 头）。
+                actionResult = "已提交退货申请，派单员会收到通知并办理；现在库存和账本还没有变化"
+                showReturnDialog = false
+                returnFormError = null
+                returnTarget = null
+                load()
+            } catch (e: Exception) {
+                // 后端的 detail 是能照着改的中文（"这一单已经有一张待处理的退货申请了（…），
+                // 要改就先把那一张撤回，再重新申请"）——原样显示在弹层里，别自己翻译
+                returnFormError = toApiException(e).message
+            } finally {
+                returnSubmitting = false
+            }
+        }
+    }
+
+    fun askWithdraw(req: ReturnRequestDto) {
+        withdrawTarget = req
+        withdrawFormError = null
+    }
+
+    fun cancelWithdraw() {
+        withdrawTarget = null
+        withdrawFormError = null
+    }
+
+    fun confirmWithdraw() {
+        val req = withdrawTarget ?: return
+        acting = true
+        withdrawFormError = null
+        viewModelScope.launch {
+            try {
+                container.repo.withdrawReturnRequest(req.id)
+                actionResult = "已撤回退货申请（申请记录留着，派单员看得到你提过又撤了）"
+                withdrawTarget = null
+                load()
+            } catch (e: Exception) {
+                withdrawFormError = toApiException(e).message
+            } finally {
+                acting = false
             }
         }
     }

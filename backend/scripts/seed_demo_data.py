@@ -69,7 +69,6 @@ from app.models.driver_settlement import DriverSettlement  # noqa: E402
 from app.models.enums import (  # noqa: E402
     DriverBillType,
     DriverBillStatus,
-    ExpenseCategory,
     LedgerSource,
     OrderStatus,
     SettlementStatus,
@@ -132,19 +131,19 @@ UNITS = ["箱", "件", "袋", "桶", "筐", "包"]
 #    权重靠重复表达：小车最多、挂车最少（挂车只有 6.8 米以上才有）。
 VEHICLE_TYPES = ["small", "small", "large", "large", "trailer"]
 PLATE_PREFIX = ["粤L", "粤S", "粤B"]
-# ⛔ 开销分类的**存储值**是枚举值（`ExpenseCategory`：fuel/repair/toll/parking/fine/insurance/other），
-#    中文名只是界面上的一层标签（`AccountToolsScreens.catLabel`）。
-#    第一版这里把中文标签当成了存储值 —— 写库一声不响，读的时候
-#    `ExpenseOut.category: ExpenseCategory` 校验失败，`GET /expenses` 整个端点 500。
-#    货损（loss）不在这里：它是送达时按货损件数自动记的（`accounting_service`）。
+# ⛔ 开销分类自 2026-09-20 起是**可维护名册**（`/expense-categories`）里的名字，
+#    存的就是中文名本身（旧库里的 fuel/repair/… 已由 `schema_bootstrap` 翻成中文）。
+#    ⚠️ 之前这里是枚举值、中文只是界面标签：第一版把中文当存储值时写库一声不响、
+#    读的时候 `ExpenseOut` 校验失败 → `GET /expenses` 整个端点 500。
+#    货损不在这里：它是送达时按货损件数自动记的（`accounting_service`）。
 EXPENSE_NOTES = {
-    ExpenseCategory.FUEL: ["仲恺加油站 92#", "江北中石化", "塘厦加气站", "常平服务区加油"],
-    ExpenseCategory.TOLL: ["惠河高速", "潮莞高速", "博深高速", "长深高速"],
-    ExpenseCategory.REPAIR: ["换两条后胎", "刹车片保养", "空调加雪种", "年检代办", "换机油三滤"],
-    ExpenseCategory.PARKING: ["信立农批月租", "樟木头市场临停", "龙岗园区停车"],
-    ExpenseCategory.INSURANCE: ["交强险续保", "商业险续保", "承运人责任险"],
-    ExpenseCategory.FINE: ["违停罚单", "超载罚款"],
-    ExpenseCategory.OTHER: ["仓库加班餐", "跟车午餐", "早班早餐", "打印纸与标签", "送货单印刷",
+    "加油": ["仲恺加油站 92#", "江北中石化", "塘厦加气站", "常平服务区加油"],
+    "过路": ["惠河高速", "潮莞高速", "博深高速", "长深高速"],
+    "维修": ["换两条后胎", "刹车片保养", "空调加雪种", "年检代办", "换机油三滤"],
+    "停车": ["信立农批月租", "樟木头市场临停", "龙岗园区停车"],
+    "保险": ["交强险续保", "商业险续保", "承运人责任险"],
+    "罚款": ["违停罚单", "超载罚款"],
+    "其他": ["仓库加班餐", "跟车午餐", "早班早餐", "打印纸与标签", "送货单印刷",
                             "月结话费", "对讲机电池", "临时装卸工钱", "叉车租用"],
 }
 ARREARS_UNITS = ["仲恺中学食堂", "信立农批市场管理处", "惠阳人民医院饭堂", "德赛工业园食堂",
@@ -636,14 +635,23 @@ def main() -> int:
                       product_name=p.name, quantity=qty, unit_price=p.default_unit_price,
                       total=(p.default_unit_price * qty).quantize(Decimal("0.01")),
                       product_id=p.id, source=LedgerSource.MANUAL, note=rng.choice(LEDGER_NOTES)))
+    # ⚠️ 车相关的几类**必须挂上车**（2026-09-20）：开销卡片上"燃油/维修突出车辆"
+    #    靠的就是 `vehicle_id`（分类名册的 `link_kind=vehicle` 只说明"该突出车"）——
+    #    一笔都不挂车的话，真机上永远只看到"退到司机"的兜底路径，看不到正路径。
+    VEHICLE_CATEGORIES = ("加油", "维修", "过路", "停车", "罚款", "保险")
+    # 车是上面逐台 `db.add` 建的、没留列表变量 —— 这里现查一次（可用的那几台）
+    cars = list(db.scalars(select(Vehicle).where(Vehicle.is_active.is_(True))))
     for _ in range(30):
         et = rng.choice(list(EXPENSE_NOTES))
+        car = rng.choice(cars) if (et in VEHICLE_CATEGORIES and cars) else None
         db.add(Expense(exp_date=rng.choice(days), category=et,
                        amount=Decimal(rng.choice([80, 120, 180, 260, 350, 480, 620, 900, 1500, 2600, 3800, 5200])),
                        note=rng.choice(EXPENSE_NOTES[et]),
-                       driver_id=rng.choice(drivers).id
-                       if et in (ExpenseCategory.FUEL, ExpenseCategory.TOLL, ExpenseCategory.REPAIR)
-                       else None,
+                       vehicle_id=car.id if car else None,
+                       # 车相关的开销**跟着车走**（挂车的那台车的司机），其余才随机挑一个司机
+                       driver_id=(car.driver_id if car else None)
+                       if et in VEHICLE_CATEGORIES
+                       else (rng.choice(drivers).id if et in ("货损",) else None),
                        operator_id=dispatcher.id))
     db.commit()
     print("  手工流水 18 笔、开销 30 笔")
@@ -761,6 +769,43 @@ def main() -> int:
             print(f"    （滚动收款跳过：{e}）")
     db.commit()
     print(f"  收款单 {n_receipt} 张（含逐单核销与滚动收款）")
+
+    # ---------------------------------------------------------- ⑦b 退货（整单 / 部分）
+    #
+    # 2026-09-20 加的两件事（退货、按商品核销）**必须在这份演示数据里出现过**：
+    # 演示数据是用来验收的（用户原话「这次我们用来测试的数据很重要」），
+    # 数据里没有一条退货，就等于「已退货」那一档、账本红冲、库存回补、退现这四样
+    # 在真机上永远看不到，而它们恰恰是最容易悄悄坏掉的。
+    #
+    # 走**真实业务函数** `return_order`（与端点同一个入口），所以账本/库存/现金流水
+    # 都是业务代码自己写的 —— 造数脚本不直接写这几张表。
+    from app.services.order_return import ReturnItem, return_order  # noqa: E402
+
+    n_return = 0
+    # 挑几单**已送达且没被整单核销**的（收款那一步已经标走了 `paid=True` 的那批），
+    # 退货要覆盖两种：① 整单退完（→ 状态变「已退货」）② 只退其中几件（→ 留在已送达）
+    cand = [o for o in delivered if not o.paid and o.order_products]
+    for o, mode in zip(cand[:4], ("full", "part", "part", "full")):
+        try:
+            lines = [op for op in o.order_products if (op.quantity or 0) > 0]
+            if not lines:
+                continue
+            if mode == "full":
+                items = [ReturnItem(order_product_id=op.id, quantity=op.quantity) for op in lines]
+            else:
+                op = lines[0]
+                qty = max(1, (op.quantity or 1) // 2)
+                if qty >= op.quantity:
+                    continue
+                items = [ReturnItem(order_product_id=op.id, quantity=qty)]
+            return_order(db, o, items, note=rng.choice(["客户说不要了", "送错规格", "货不对版"]),
+                         operator_id=dispatcher.id)
+            n_return += 1
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            print(f"    （一单退货跳过：{e}）")
+    db.commit()
+    print(f"  退货 {n_return} 单（整单退 → 已退货；部分退 → 留在已送达）")
 
     # ---------------------------------------------------------- ⑧ 司机结算单（按月，草稿）
     n_set = 0

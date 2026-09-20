@@ -17,6 +17,9 @@ val DISPATCH_TABS = listOf(
     "ACCEPTED" to "已接单",
     "DELIVERED" to "已送达",
     "CANCELLED" to "已撤销",
+    // 已退货（2026-09-20）：与「已撤销」**不是一回事**（撤销＝单没发生过，
+    // 退货＝送了、入了账、事后货退回来了）。两者都有各自的页签，别合并成一档。
+    "RETURNED" to "已退货",
 )
 
 class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel() {
@@ -221,11 +224,106 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
         }
     }
 
+    // 退出/作废弹窗
+    // 退货（2026-09-20 用户要求）：「订单管理……我们可以进行一个退货」，
+    // 「可以整单退货，也可以只退其中的某几个商品或者是一个商品，他自己勾选」。
+    var showReturnDialog by mutableStateOf(false)
+    var returnTarget by mutableStateOf<OrderDto?>(null)
+    /** 每行退几件（`order_products.id` → 数量）。**只有 > 0 的行才会提交**。 */
+    var returnQty by mutableStateOf<Map<Long, Int>>(emptyMap())
+    var returnNote by mutableStateOf("")
+    var returnSubmitting by mutableStateOf(false)
+
+    /** 这一行**最多还能退几件**（规则只有一份：`core/ReturnRules`，与后端 `max_returnable` 同源）。 */
+    fun maxReturnable(line: com.tapmoay.sorders.data.remote.dto.OrderProductDto): Int =
+        com.tapmoay.sorders.core.ReturnRules.maxReturnable(
+            line.quantity,
+            line.damageQuantity,
+            line.returnedQuantity,
+        )
+
+    fun hasReturnable(o: OrderDto): Boolean = o.orderProducts.any { maxReturnable(it) > 0 }
+
+    /** 打开发货单：默认**全部退满**（用户最常见的就是整单退，再自己往下减）。 */
+    fun openReturn(o: OrderDto) {
+        returnTarget = o
+        returnQty = o.orderProducts.associate { it.id to maxReturnable(it) }
+        returnNote = ""
+        showReturnDialog = true
+    }
+
+    fun setReturnQty(lineId: Long, qty: Int) {
+        val o = returnTarget ?: return
+        val line = o.orderProducts.firstOrNull { it.id == lineId } ?: return
+        // 上限夹在这一处：手输、加减号、整单三条路都走它，所以不可能有"填了 5 却只退 3"的鬼状态
+        returnQty = returnQty + (lineId to qty.coerceIn(0, maxReturnable(line)))
+    }
+
+    fun returnAll() {
+        val o = returnTarget ?: return
+        returnQty = o.orderProducts.associate { it.id to maxReturnable(it) }
+    }
+
+    fun returnNone() {
+        val o = returnTarget ?: return
+        returnQty = o.orderProducts.associate { it.id to 0 }
+    }
+
+    /** 这次要退的金额（元）—— 与后端红冲公式同一份：单价 × 数量。 */
+    fun returnAmount(): String {
+        val o = returnTarget ?: return "0.00"
+        val total = o.orderProducts.fold(java.math.BigDecimal.ZERO) { acc, line ->
+            val q = returnQty[line.id] ?: 0
+            acc.add(
+                (line.unitPrice?.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)
+                    .multiply(java.math.BigDecimal(q)),
+            )
+        }.setScale(2, java.math.RoundingMode.HALF_UP)
+        return total.toPlainString()
+    }
+
+    fun confirmReturn() {
+        val o = returnTarget ?: return
+        val items = o.orderProducts
+            .mapNotNull { line -> (returnQty[line.id] ?: 0).takeIf { it > 0 }?.let { line.id to it } }
+        if (items.isEmpty()) {
+            error = "请至少勾一个要退的商品（数量大于 0）"
+            return
+        }
+        returnSubmitting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                val r = container.repo.returnOrder(
+                    o.id,
+                    items.map { com.tapmoay.sorders.data.remote.dto.OrderReturnItem(it.first, it.second) },
+                    returnNote.trim(),
+                )
+                actionResult = buildString {
+                    append("已退货 ¥").append(r.returnedAmount)
+                    if ((r.refundAmount.toDoubleOrNull() ?: 0.0) > 0.0) {
+                        append("，并退给客户 ¥").append(r.refundAmount)
+                    }
+                    if (r.fullyReturned) append("（整单退完，订单已变为「已退货」）")
+                    r.warnings.forEach { append("；").append(it) }
+                }
+                showReturnDialog = false
+                returnTarget = null
+                load()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                returnSubmitting = false
+            }
+        }
+    }
+
     // 复用：编辑/撤回/异常用
     fun dismissDialogs() {
         showEditDialog = false
         showRecallDialog = false
         showExceptionDialog = false
+        showReturnDialog = false
     }
 }
 

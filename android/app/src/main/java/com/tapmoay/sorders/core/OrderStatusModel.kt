@@ -34,7 +34,16 @@ object OrderStatusModel {
         "ACCEPTED",
         "DELIVERED",
         "CANCELLED",
+        // 已退货（2026-09-20）：货物送达之后客户又把货退回来。⛔ 与「已撤销」是两回事
+        // （撤销＝这单没发生过；退货＝单发生过、事后货退回来了），后端也是两个枚举值。
+        "RETURNED",
     )
+
+    /**
+     * 可退货：后端 `services/order_return.py::return_order` 只认「已送达」。
+     * 货还没送到的单要走「撤销」（那条路不动钱、不动库存，只把还没发生的单作废）。
+     */
+    val RETURNABLE: Set<String> = setOf("DELIVERED")
 
     /** 撤销整单：后端 `order_flow.cancel_pending`（货主/派单员共用同一对取值）。 */
     val CANCELLABLE: Set<String> = setOf("PENDING_DISPATCH", "DISPATCHED")
@@ -56,6 +65,36 @@ object OrderStatusModel {
 
     /** 改订单外围信息（地址/电话/备注）：后端 `orders.update_order` 只拒「已送达/已撤销」。 */
     val EDITABLE: Set<String> = setOf("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED")
+
+    /**
+     * **货主**在**界面上**能把单移进回收站的状态：后端 `orders.delete_cancelled_order`
+     * （`role == shipper` 时 `status not in (CANCELLED, DELIVERED) → 400`）。
+     *
+     * ⛔ 「异常」**不是**通行证（2026-09-19 审计）：原来后端那个 `and not is_exception`
+     * 让被标过异常的在途单也能删 —— 一删，司机端列表里它直接消失，
+     * 司机拿着打不开的单跑车，到现场发现单子没了、也拿不到钱。
+     * 这是**后端授权的上限**（界面订单详情页的 `canDelete` 用它）；
+     * ⚠️ AI 侧比它**更严**，见 [SHIPPER_AI_DELETABLE] —— 两处不要混，理由写在那边。
+     * **派单员不适用**（他能删任意状态，含待派单）。
+     */
+    val SHIPPER_DELETABLE: Set<String> = setOf("CANCELLED", "DELIVERED")
+
+    /**
+     * **AI** 能替货主删的状态 —— 比界面**更严**：只认「已撤销」。
+     *
+     * ### 用户 2026-09-21 的原话（口述）
+     * > 「他**不能删他的订单**……凡事有关订单信息，他的 AI 是不能做的。
+     * >   货主和批发商都一样，**除非是那个已撤销的订单信息，这个是可以删的**。」
+     *
+     * ### 为什么 AI 要比界面严一档（这条不是洁癖）
+     * 「已送达」是**已经发生过的一趟生意**：它有账本流水、司机账单、库存扣减、
+     * 可能还有收款记录挂在同一张单上。软删它只是"看不见"，但用户对 AI 说的是一句
+     * 「把这单删了」——他多半以为那是"这条记录没用了"，而不是"把一趟生意从列表里拿掉"。
+     * 「已撤销」不一样：那趟生意**本来就没发生**，删掉只是把一条废记录清走。
+     * ⛔ 所以 AI 侧不给「已送达」这条路；**界面上那个按钮仍然保留**（那是用户自己点、
+     *    自己看得见上下文，且这一档是 2026-09-04 定过的数据保留策略）。
+     */
+    val SHIPPER_AI_DELETABLE: Set<String> = setOf("CANCELLED")
 
     /** 可改运费：后端 `orders.update_order_freight` 只拒「已送达/已撤销」（`in (DELIVERED, CANCELLED)`）。 */
     val FREIGHT_EDITABLE: Set<String> = setOf("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED")

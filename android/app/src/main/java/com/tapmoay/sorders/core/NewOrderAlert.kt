@@ -10,13 +10,25 @@ import com.tapmoay.sorders.ui.nav.Role
  * 没人能从界面上看出来是判定写错了、网络没到、还是素材没声音。
  * 判定抽成纯函数，才有廉价的单测能钉住它；Android 侧只剩"把声音放出来"。
  *
- * 播报素材：`android/app/src/main/res/raw/new_order.wav`（约 3 秒：叮咚 + 「来单了，来单了」），
- * 由 `_tools/media/_gen_new_order_clip.ps1` 离线合成。**不用手机 TTS 是有意的**：
+ * 播报素材：`android/app/src/main/res/raw/` 下两份，**一个角色一句**
+ * （`new_order.wav`「来订单了，你有新的订单，请及时查看」= 司机；
+ *   `pending_order.wav`「来订单了，有新订单待派单，请及时处理」= 派单员），
+ * 由 `_tools/media/_gen_new_order_clip.py --kind {driver,dispatcher}` 离线合成。**不用手机 TTS 是有意的**：
  * 国产 ROM 常常没有中文语音包，最关键的这一句不能赌在它上面（放不出来时才退回 TTS）。
  */
 enum class AlertKind {
     /** 新派单：司机在等活，最重要的一件事，默认重复到司机动手为止 */
     NEW_ORDER,
+
+    /**
+     * 新订单待派单：**派单员的活**（2026-09-21 用户要求「派单员收到订单、有单要派的时候
+     * 也要有语音播报，就跟司机一样」）。
+     *
+     * 与 [NEW_ORDER] 分开是一件事的两面：两者的**触发事件不同**（`order.created` / `order.assigned`）、
+     * **听的句子不同**（「请及时派单」/「请及时查看」）、**打断的时机也不同**
+     * （司机接单 / 派单员派完）。合成一个的话，"这句话该不该对这个人说"就没有地方表达了。
+     */
+    PENDING_ORDER,
 
     /** 任务被撤回 / 取消：说一遍就够，重复只会让人以为还有别的事 */
     REVOKED,
@@ -54,6 +66,30 @@ object NewOrderAlert {
      */
     const val CLIP_MS = 4874L
 
+    /**
+     * 派单员那句素材的实测时长（`res/raw/pending_order.wav`）。
+     *
+     * 句子是「来订单了，有新订单待派单，请及时处理」，比司机那句长一点，所以是**另一个常量**
+     * ——两条播报共用一份时长会让重复播报叠在一起（而这个错在真机上听起来只是"有点糊"）。
+     * 同样由 `_tools/media/_gen_new_order_clip.py --kind dispatcher` 生成，脚本会打印该填的数字。
+     *
+     * ⚠️ **音色必须与司机那句一致**（晓晓，女声）：第一版是拿脚本当时的默认音色（云健，男声）
+     * 生成的，用户一听就听出来了。两份素材的音色由 `_tools/media/_probe_clip_voice.py` 量基频对账
+     * （红线在跑），女声中位 F0 ≈245~260Hz、男声 ≈116Hz。
+     */
+    const val PENDING_CLIP_MS = 5210L
+
+    /**
+     * 这一类播报的素材时长（毫秒）。
+     *
+     * ⛔ 只留一处映射：播放器 `delay`、「一直响」的止损、设置页那句"约几秒"全都要用它，
+     * 各处自己 `when` 一遍的话，加了第三句素材就会有一处漏改（漏的那处不报错，只是叠音）。
+     */
+    fun clipMs(kind: AlertKind): Long = when (kind) {
+        AlertKind.PENDING_ORDER -> PENDING_CLIP_MS
+        else -> CLIP_MS
+    }
+
     /** 两次播报之间留的静默：太短会粘成一片，太长会错过"赶紧看一眼"的紧迫感 */
     const val GAP_MS = 350L
 
@@ -87,7 +123,7 @@ object NewOrderAlert {
      * 「有任务被撤回」连说三遍，司机只会以为又撤了两单。
      */
     fun planFor(kind: AlertKind, setting: Int): AlertPlan = when (kind) {
-        AlertKind.NEW_ORDER -> plan(setting)
+        AlertKind.NEW_ORDER, AlertKind.PENDING_ORDER -> plan(setting)
         AlertKind.REVOKED -> AlertPlan(repeats = 1, gapMs = GAP_MS)
     }
 
@@ -108,15 +144,44 @@ object NewOrderAlert {
     }
 
     /**
-     * 语音只给司机播。
+     * 这个角色**平时听哪一句**（没有语音的角色 → null）。
      *
-     * 派单员/货主大部分时间在电脑前，手机上还放语音是打扰；
-     * 而且「来单了」这句对他们是**错的信息**（不是他们的活）。
+     * 一个角色只有一种"日常播报"：司机听「有新派单」，派单员听「有新订单待派单」。
+     * 设置页的开关文案与「试听一声」都读它，**不许各自硬编码**
+     * ——否则派单员点试听听到的是司机那句「请及时查看」，他会以为配错了。
+     *
+     * ⚠️ 「任务被撤回」不在其中：那是**事件**不是角色（见 [speaks]）。
      */
-    fun isSpoken(role: Role?): Boolean = role == Role.DRIVER
+    fun voiceKind(role: Role?): AlertKind? = when (role) {
+        Role.DRIVER -> AlertKind.NEW_ORDER
+        Role.DISPATCHER -> AlertKind.PENDING_ORDER
+        else -> null
+    }
 
-    /** 没设置过「后台常驻」时按角色给缺省：司机默认开，其余角色默认关 */
-    fun defaultBackground(role: Role?): Boolean = role == Role.DRIVER
+    /**
+     * 这个角色有没有语音播报这件事（设置页/「我的」入口用它决定摆不摆语音那几项）。
+     *
+     * 2026-09-21 起**派单员也有**（用户要求）；货主仍然没有——「来单了」对他是**错的信息**，
+     * 他不是要跑车也不是要派单的那个人。
+     */
+    fun hasVoice(role: Role?): Boolean = voiceKind(role) != null
+
+    /**
+     * 这一刻该不该响（**按角色 × 事件类型判**，不是"这个角色有没有语音"）。
+     *
+     * ⛔ 为什么必须两维：`announce()` 是站内信与实时事件**共用**的一个入口，
+     * 只按角色判的话，派单员会对着司机的「来订单了，你有新的订单」发呆
+     * （那不是他的活），司机也会被派单员那句「请及时派单」喊醒。
+     */
+    fun speaks(role: Role?, kind: AlertKind): Boolean = when (kind) {
+        // 撤回/取消是司机那条线上的事（他不用跑了）。派单员不播它：
+        // 一单被撤，待派池少一单是安静地变少的，为它喊一嗓子只会让人以为又多了一单。
+        AlertKind.REVOKED -> role == Role.DRIVER
+        else -> voiceKind(role) == kind
+    }
+
+    /** 没设置过「后台常驻」时按角色给缺省：司机与派单员默认开（都在等"响一声"），货主默认关 */
+    fun defaultBackground(role: Role?): Boolean = hasVoice(role)
 
     /**
      * 把一条事件认成「要不要播、播什么」。
@@ -130,6 +195,17 @@ object NewOrderAlert {
             orderId = orderId,
             title = title,
             dedupeKey = "assigned:" + (orderId ?: -1L),
+        )
+        // 新订单进待派池：后端 `publish_new_order_to_dispatchers` 给**每个**派单员发一条
+        // 站内信（type=order.created，标题「新订单待派单」）。派单员那条语音就挂在这个事件上。
+        // ⛔ 不认「dispatcher.pending_pool」那条实时事件：它**不带单号**（只是一句"角标该刷新了"），
+        //    拿它当触发会变成"单号是 null 的一类播报"，去重键退化成 `pending:-1`
+        //    → 60 秒内第二张单完全不响。
+        "order.created" -> AlertEvent(
+            kind = AlertKind.PENDING_ORDER,
+            orderId = orderId,
+            title = title,
+            dedupeKey = "pending:" + (orderId ?: -1L),
         )
         // 撤回与取消对司机是同一件事：这单不用跑了。取消单不会再有 realtime 事件，
         // 只有站内信，所以这里也得认。
@@ -152,6 +228,10 @@ object NewOrderAlert {
     fun shouldStop(type: String): Boolean = when (type) {
         "order.driver_ack", "order.delivered_driver", "order.delivered",
         "order.revoked", "order.cancelled", "order.recalled",
+        // 派单员的三个：`*_dispatcher` 是后端广播给**所有**派单员的同形事件
+        // （司机接单/送达/订单被撤销）——对派单员就是"这一单已经有人处理了/没了"，
+        // 他手机上那句「有新订单待派单」此时已经过时（他还盯着手机找那一单呢）。
+        "order.driver_ack_dispatcher", "order.delivered_dispatcher", "order.cancelled_dispatcher",
         -> true
         else -> false
     }
@@ -178,11 +258,16 @@ object NewOrderAlert {
     fun forgetOnStop(seen: MutableMap<String, Long>, type: String, orderId: Long?) {
         if (orderId == null || !shouldStop(type)) return
         seen.remove("assigned:" + orderId)
+        // 派单员那条同理：这一单已经处理完了，之后它若又回到待派池（撤销后重开、拆单等），
+        // 那是一次**新的**待派单，必须重新响。
+        seen.remove("pending:" + orderId)
     }
 
     /** 设置页显示的档位文案（用户看不懂「0 次」是什么意思） */
-    fun repeatLabel(setting: Int): String = when (setting) {
-        FOREVER -> "一直响到我接单"
+    fun repeatLabel(setting: Int, role: Role? = null): String = when (setting) {
+        // 「一直响到……我干什么」这件事按角色说：司机是接单，派单员是派完单。
+        // 派单员在设置页看到「响到我接单」会以为自己点错了页面（他不接单）。
+        FOREVER -> if (role == Role.DISPATCHER) "一直响到我派完单" else "一直响到我接单"
         1 -> "1 次"
         else -> setting.toString() + " 次"
     }
@@ -195,8 +280,8 @@ object NewOrderAlert {
      * 「我的 → 消息提醒」右侧那一行的状态摘要。
      *
      * 为什么放进纯函数：这一行是用户判断「派单来了会不会响」的唯一入口，
-     * 而它必须**按角色**说不同的话——语音只有司机有（见 [isSpoken]），
-     * 给货主/派单员也写「语音 3 次」，他们看到的就是一句假话。
+     * 而它必须**按角色**说不同的话——语音只有司机和派单员有（见 [hasVoice] / [voiceKind]），
+     * 给**货主**写「语音 3 次」，他看到的就是一句假话（他会等一个永远不会响的东西）。
      */
     fun summary(
         role: Role?,
@@ -206,8 +291,9 @@ object NewOrderAlert {
         background: Boolean,
     ): String {
         if (!notificationsAllowed) return "通知权限未开"
-        if (!isSpoken(role)) return if (background) "后台接收中" else "仅前台接收"
+        if (!hasVoice(role)) return if (background) "后台接收中" else "仅前台接收"
         if (!voiceEnabled) return "语音已关"
-        return "语音 " + repeatLabel(repeat) + if (background) "·后台接收" else ""
+        // ⚠️ 档位文案要带上角色：派单员那一行如果写「一直响到我接单」，他会以为自己点错了页面
+        return "语音 " + repeatLabel(repeat, role) + if (background) "·后台接收" else ""
     }
 }

@@ -76,3 +76,24 @@ class FreightTemplateDriver(Base, TimestampMixin):
         ForeignKey("freight_templates.id"), index=True
     )
     driver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+
+class FreightTemplateCategory(Base, TimestampMixin):
+    """**这条价目算哪几类货**（用户 2026-09-21：「一个模板可以有多个分类」）。
+
+    派单时的匹配是「路线 + 分类 + 司机 → 唯一一条价目」（唯一实现
+    `services/freight_pricing.py`）：所以一条价目挂多个分类 = "这几类货同价"。
+
+    ⚠️ 按**编号**关联（不是名字）：分类改名之后这条线不会断。
+    ⚠️ 这张表**不软删**：改绑定就是删行 —— 绑定关系没有"历史价值"，
+      要查历史请看订单上的 `freight_category_id` / `freight_category` 快照。
+    """
+
+    __tablename__ = "freight_template_categories"
+    __table_args__ = (
+        UniqueConstraint("template_id", "category_id", name="uq_freight_template_category"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    template_id: Mapped[int] = mapped_column(ForeignKey("freight_templates.id"), index=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("freight_categories.id"), index=True)
