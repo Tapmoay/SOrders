@@ -324,7 +324,7 @@
 | 1 | `GET /api/v1/reports/turnover` | `turnover_report` | `backend/app/api/v1/reports.py:340` | 权限:ORDER_DISPATCH |
 | 2 | `GET /api/v1/reports/products` | `product_report` | `backend/app/api/v1/reports.py:353` | 权限:ORDER_DISPATCH |
 | 3 | `GET /api/v1/reports/arrears-summary` | `arrears_summary` | `backend/app/api/v1/reports.py:413` | 权限:ORDER_DISPATCH |
-| 4 | `GET /api/v1/reports/export` | `export_report` | `backend/app/api/v1/reports.py:452` | 权限:ORDER_DISPATCH |
+| 4 | `GET /api/v1/reports/export` | `export_report` | `backend/app/api/v1/reports.py:443` | 权限:ORDER_DISPATCH |
 
 ### `backend/app/api/v1/return_requests.py` — 6 个
 

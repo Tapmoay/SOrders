@@ -1,13 +1,9 @@
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Numeric, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
-
-if TYPE_CHECKING:
-    from app.models.user import User
 
 
 class FreightTemplate(Base, TimestampMixin, SoftDeleteMixin):
@@ -52,8 +48,6 @@ class FreightTemplate(Base, TimestampMixin, SoftDeleteMixin):
     fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     remark: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-
-    creator: Mapped["User | None"] = relationship(foreign_keys=[created_by])
 
 
 class FreightTemplateDriver(Base, TimestampMixin):

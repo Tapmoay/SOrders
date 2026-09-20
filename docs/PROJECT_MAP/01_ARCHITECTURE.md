@@ -29,7 +29,7 @@ orders/
 │   │   ├── database.py          # engine/SessionLocal；导入即 bootstrap_schema
 │   │   ├── deps.py              # CurrentUser / require_permission 等依赖
 │   │   ├── redis_client.py      # Redis 健康检查（可选）
-│   │   ├── core/                # rbac(权限) / security(jwt/hash) / socket_io / schema_bootstrap（⚠️ `ws_hub.py` 是**死代码**，零引用，别改）
+│   │   ├── core/                # rbac(权限) / security(jwt/hash) / socket_io / schema_bootstrap
 │   │   ├── models/              # SQLAlchemy ORM（order/user/product/ledger/cash_flow/...）
 │   │   ├── schemas/             # Pydantic DTO（入参/出参）
 │   │   ├── api/v1/              # 路由（按资源分文件，router.py 汇总挂载）

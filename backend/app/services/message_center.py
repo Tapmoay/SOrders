@@ -269,25 +269,6 @@ async def publish_order_delivered(db: Session, order_id: int) -> None:
         await emit_realtime(driver_id, {"type": "order.delivered_driver", "order_id": order_id})
 
 
-async def publish_order_cancelled(db: Session, shipper_id: int, order_id: int) -> None:
-    order = db.get(Order, order_id)
-    ono = order.order_no if order else str(order_id)
-    n = create_message(
-        db,
-        recipient_id=shipper_id,
-        category="order",
-        type="order.cancelled",
-        title="订单已取消",
-        content=f"订单 {ono} 已取消。",
-        payload={"order_id": order_id, "order_no": ono},
-        speech_important=True,
-    )
-    db.commit()
-    db.refresh(n)
-    await emit_notification(n)
-    await emit_realtime(shipper_id, {"type": "order.cancelled", "order_id": order_id})
-
-
 async def publish_driver_ack_shipper(db: Session, shipper_id: int, order_id: int) -> None:
     order = db.get(Order, order_id)
     ono = order.order_no if order else str(order_id)

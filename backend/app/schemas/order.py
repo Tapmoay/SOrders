@@ -9,7 +9,7 @@ from app.core.phone import ContactPhone, OptionalContactPhone
 from app.models.enums import OrderStatus
 from app.schemas.geo import GeoInput
 from app.schemas.money import MoneyInput
-from app.schemas.text import MAX_IMAGES, MAX_PHONE, MAX_SHORT_NAME, MAX_TEXT, Url
+from app.schemas.text import MAX_IMAGES, MAX_PHONE, MAX_REASON, MAX_SHORT_NAME, MAX_TEXT, Url
 
 
 class OrderProductIn(MoneyInput):
@@ -316,7 +316,9 @@ class OrderCompleteBody(BaseModel):
 
 
 class OrderRecallBody(BaseModel):
-    reason: str = Field(..., min_length=1, max_length=1024)
+    #: 理由上限走全项目那一个定义（`schemas/text.py::MAX_REASON`）——这里硬编码 1024
+    #: 就是第二个定义处，改一处漏一处。
+    reason: str = Field(..., min_length=1, max_length=MAX_REASON)
 
 
 class OrderReturnItem(BaseModel):

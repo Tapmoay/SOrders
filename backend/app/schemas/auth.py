@@ -16,11 +16,6 @@ class Token(BaseModel):
     user_id: int
 
 
-class TokenPayload(BaseModel):
-    sub: str | None = None
-    role: UserRole | None = None
-
-
 class LoginRequest(BaseModel):
     """登录：密码必填；手机号与 username 二选一（均为登录名，通常为手机号）。"""
 

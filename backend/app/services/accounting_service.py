@@ -67,18 +67,12 @@ def _month_of(dt: datetime | None) -> str:
     return business_local(d).strftime("%Y-%m")
 
 
-def business_month_now() -> str:
-    """业务当地的当前月份（`YYYY-MM`）——用来挡住"未来的月份"。"""
-    return business_local(datetime.now(timezone.utc)).strftime("%Y-%m")
-
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def customer_display_name(db: Session, customer_id: int | None, customer: Customer | None = None) -> str:
-    c = customer or (db.get(Customer, customer_id) if customer_id else None)
     return c.name if c else ""
+
 
 def resolve_customer_for_order(db: Session, order: Order) -> Customer | None:
     """订单归属客户：registered→按 user_id；temp→按名称（尽力匹配）。"""

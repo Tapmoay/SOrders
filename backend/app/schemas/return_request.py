@@ -13,9 +13,10 @@ from pydantic import BaseModel, Field
 # 再定义一个"申请用的行"就等于把同一套校验写两遍 —— 两遍就会有一天不一致。
 from app.schemas.order import OrderReturnItem, OrderReturnOut
 
-#: 与 `models/order_return_request.py` 的 `String(256)` 对齐（超了在 MySQL 严格模式下会 500，
-#: 而不是一句"太长了"）。
-MAX_NOTE = 256
+# 备注长度**复用全项目那一份**（与 `String(256)` 列宽对齐）：
+# 这里再写一个 256 就是第二个定义处 —— 改一处漏一处，迟早与列宽对不上
+# （`tools/qa/_audit_text_fields.py` 会逐字段比列宽，但"两个常量都叫 MAX_NOTE"它看不出来）。
+from app.schemas.text import MAX_NOTE  # noqa: E402
 
 
 class ReturnRequestCreateBody(BaseModel):

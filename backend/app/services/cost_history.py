@@ -46,7 +46,6 @@ from app.models import Product, ProductCostHistory
 SOURCE_CREATE = "CREATE"
 SOURCE_PURCHASE = "PURCHASE"
 SOURCE_MANUAL = "MANUAL"
-SOURCE_BACKFILL = "BACKFILL"
 
 _Q = Decimal("0.0001")  # 与 `products.cost_price` 的 Numeric(14,4) 同精度
 

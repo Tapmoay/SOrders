@@ -1,14 +1,10 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
-
-if TYPE_CHECKING:
-    from app.models.user import User
 
 
 class ExportFormat(str, Enum):
@@ -46,6 +42,3 @@ class LedgerExportJob(Base, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 导出类型：ledger(货主账本，默认) | driver_bills | cash_flows | pnl | ...
     kind: Mapped[str] = mapped_column(String(16), default="ledger")
-
-    creator: Mapped["User"] = relationship(foreign_keys=[created_by_id])
-    shipper: Mapped["User"] = relationship(foreign_keys=[shipper_id])

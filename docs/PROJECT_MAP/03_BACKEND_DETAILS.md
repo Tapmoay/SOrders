@@ -14,8 +14,7 @@ app/
 │   ├── rbac.py        # Permission 枚举 + ROLE_PERMISSIONS；role_has_permission（⚠️ 派单员恒真，见 08A）
 │   ├── security.py    # hash_password / verify_password / create_access_token / decode_token
 │   ├── schema_bootstrap.py  # 启动即 ALTER TABLE 补列（不加列就删掉；大小写/驱动兼容）
-│   ├── socket_io.py   # sio = socketio.AsyncServer；L23-L32 按 socket_redis_url 自建 socketio.AsyncRedisManager（多 worker 共享连接状态，空则退化为单进程内存）
-│   └── ws_hub.py      # ⚠️ **死代码**（全后端零引用）：裸 WebSocket，无角色房间。别照它改推送，真实推送链见 08 号
+│   └── socket_io.py   # sio = socketio.AsyncServer；L23-L32 按 socket_redis_url 自建 socketio.AsyncRedisManager（多 worker 共享连接状态，空则退化为单进程内存）
 ├── models/            # SQLAlchemy 2.0 ORM（__init__ 汇总导出）
 ├── schemas/           # Pydantic v2（Out 含 from_attributes；入参带校验）
 ├── api/v1/            # 路由层（**不是薄层**，见下方说明）
@@ -84,7 +83,8 @@ app/
 | schemas/text.py | **文本入参长度上限的唯一定义处**（MAX_URL/MAX_IMAGES/MAX_NOTE/MAX_TEXT + `Url` 类型；与列宽对齐，审计工具 `_tools/qa/_audit_text_fields.py` 逐字段核对） |
 | shipper_contact_service.py | 联系人唯一性校验（重复电话 409） |
 | push_events.py | 订单状态事件广播 |
-| ~~cancelled_order_retention.py~~ | ⚠️ **死代码（零引用）**，其 L18 的 10 天常量与现行 30 天策略**冲突**。真正的保留策略在 `data_retention.py`（121 行）。**与 08_CODE_LOCATOR.md 一致** |
+| ~~cancelled_order_retention.py~~ | **已于 2026-09-21 删除**（长期零引用）。它 L18 的 10 天常量与现行 **30 天**策略**冲突**，留着会把人答错；真正的保留策略在 `data_retention.py` |
+| schemas/text.py 的 `MAX_NOTE` / `MAX_REASON` | 2026-09-21 起**真的只有一处**：`MAX_NOTE` 由 `schemas/return_request.py` 导入（原来那边自己又写了一个 256）、`MAX_REASON` 由 `schemas/order.py::OrderRecallBody` 使用（原来硬编码 1024） |
 
 ## 4. 数据库迁移注意
 

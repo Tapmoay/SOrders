@@ -141,10 +141,6 @@ class DriverBillGenerateBody(BaseModel):
 
 
 # ---------------- 客户收款单 ----------------
-class ReceiptItem(BaseModel):
-    order_id: int
-
-
 class ShipperReceiptCreate(MoneyInput):
     customer_id: int = Field(..., description="customers.id（含散客）")
     amount: Decimal = Field(..., gt=0)

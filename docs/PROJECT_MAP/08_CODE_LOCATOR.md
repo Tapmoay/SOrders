@@ -59,7 +59,7 @@ python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文�
 | **拆单** | `app/services/order_flow.py::split_order` | `app/api/v1/orders.py` L759 `split_order_endpoint` | 数量按比例拆分，**余数归首份** |
 | **下单 / 订单行** | `app/api/v1/orders.py`（L359 `create_order` 建单） | `app/services/order_flow.py::build_order_products`、`app/schemas/order.py`、`app/api/v1/order_products.py` | 商品**成本快照在下单时定格**，货损/毛利率按此成本算。<br>⚠️ **订单行单位**（`order_products.unit_snapshot`，出参名叫 `unit`）也在这条链上：客户端不传时回退**商品库里的单位**，拆单时**跟着拆**。出参名 ≠ 列名，`OrderProductOut.unit` 必须写 `validation_alias=AliasChoices(...)` —— 不写**不报错、只是恒为空串**（表现是"选了 3 箱，详情页只剩 3"） |
 | **订单软删除 / 恢复** | `app/api/v1/orders.py`（**L334** `delete_cancelled_order` 软删、**L546** `restore_order` 恢复；⚠️ 同一文件里**还有第二个同路径的 `DELETE /{order_id}`**，被 L334 抢先匹配、永不生效——以实测为准，别信 OpenAPI 的 operationId） | `app/services/data_retention.py` | 软删 **30 天**隔离（`data_retention.py` L28 `SOFT_DELETE_RETENTION_DAYS`），物理清理在同一文件 |
-| ⚠️ **不是**订单保留策略 | — | ~~`app/services/cancelled_order_retention.py`~~ | **该文件是死代码**（全后端零导入）。且它 L18 的 `CANCELLED_ORDER_RETENTION_DAYS = 10` 与现行 **30 天**策略**数值冲突**——照它回答会答成 10 天 |
+| ⚠️ **不是**订单保留策略 | — | ~~`app/services/cancelled_order_retention.py`~~ | **该文件已于 2026-09-21 删除**（长期零导入）。它 L18 的 `CANCELLED_ORDER_RETENTION_DAYS = 10` 与现行 **30 天**策略**数值冲突**——照它回答会答成 10 天。现行策略看 `services/data_retention.py`（30 天隔离 / 3 年保留 / 图片 1 年归档） |
 | **订单异常** | `app/api/v1/orders.py` L484 `patch_order_exception` | — | — |
 | **订单出参装配**（加**派生**字段才看） | `app/services/order_response.py::enrich_order_out` | `app/api/v1/orders.py`（**19 处调用**，唯一调用方） | ⚠️ **加普通列不用动这个文件**——它 L28 是 `OrderOut.model_validate(order)`，**自动带出**模型上有、`OrderOut` 上也有的字段。只有**派生字段**（要靠别的表/按角色算出来的：`driver_phone`/`driver_name`/`driver_billing_mode`/`shipper_name`/`is_new_for_driver`/`freight_visible`/`internal_notes`）才要在这里手写。<br>真正的坑在**别漏 `OrderOut`**：模型有列但 Out 没字段 → `model_validate` 拿不到 → **静默不返回、不报错**。<br>⚠️ `app/api/v1/freight_settlement.py` L13 有一行 `import enrich_order_out as _enrich  # noqa: F401`——**那是未使用的死导入，不是调用点** |
 | **账本出参装配**（加字段必看） | `app/services/ledger_response.py`：单行 `ledger_to_out(row, db)`（**3 处调用** L318/L337/L442）、列表 `ledger_rows_to_out(rows, db)`（`GET /ledger/entries` 用） | `app/api/v1/ledger.py` | ⚠️ **这个才是逐字段手写映射**（L10-L38 的 `_to_out` 一个个 `id=row.id, …`）——给 `ledgers` 表加列，**必须在这里补一行**，否则静默丢失。<br>⚠️ **列表端点不许用逐行 `ledger_to_out`**（2026-09-19 外部完整检查 C-4）：`db.get()` 每次都真发一条 SQL（身份映射对已加载对象持**弱引用**），实测 85,474 行 → 85,476 条 SQL / 27.75 秒。`ledger_rows_to_out` 一次 `IN` 取订单，SQL 条数变**常数 2** |
@@ -287,8 +287,8 @@ python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文�
    ② `orders.py` L95 对未知扩展名**静默改名为 `.jpg`**（`products.py` L152 则是按 MIME 反推），所以该路径可能出现"扩展名是 .jpg、字节其实是 webp/png"的文件；
    ③ 别把 MIME 清单和扩展名清单当成同一份——它们是**两套**，数量也不同（8/5 与 5/4）。
    > 另注（2026-09-19 外部完整检查时核对，**上面这条旧说法已作废**）：`services/image_archive.py` 的 `_FORMAT_BY_SUFFIX` **包含** `.webp` —— webp 同样走「原地压缩」（重编码为 WebP q90 并按长边 1920 缩放），所以"webp 不进归档"不再成立；而 `.compressed.webp` 那类历史遗留的孤儿文件由 `purge_orphan_compressed` 直接删掉（顺带清中断留下的 `*.archiving`）。
-10. **已知死代码（不要照着改）** — `services/cancelled_order_retention.py`（10 天常量与现行 30 天冲突）、`core/ws_hub.py`（零引用）、**`api/v1/orders.py` L546 `delete_order`**（与 L326 `delete_cancelled_order` 同方法同路径，FastAPI 先注册者胜 → 它**永远不可达**）。
-    ⚠️ 第 3 个尤其阴险：它自己 L551 的注释写着"老路由…已被 307 行的软删除路由覆盖匹配，**保留为兜底**"——**两处都错**：行号过时（实际 326），且"兜底"不成立（FastAPI 不做 fallback，先匹配到的直接处理）。**读源码注释也会拿到错的结论。**
+10. **已删掉的死代码（2026-09-21 精简轮，留一行免得有人去 git 历史里翻）** — `services/cancelled_order_retention.py`（10 天常量与现行 30 天冲突）、`core/ws_hub.py`（零引用）、`api/v1/orders.py` 里那个重复定义的 `delete_order`（同方法同路径、FastAPI 先注册者胜 → 永远不可达）。
+    ⚠️ 最后那个曾经**两处都错**：它自己 L551 的注释写着"老路由…已被 307 行的软删除路由覆盖匹配，**保留为兜底**"——行号过时（实际 326），且"兜底"不成立（FastAPI 不做 fallback，先匹配到的直接处理）。**读源码注释也会拿到错的结论。**
     > 这类"重复路由"是纯机械事实，已由 08A 自动列出（见其「需要注意的端点」第 1 节）——以后改端点后可重跑 08A 复查，不必靠人眼。
 
 ### 3.1 收款口径的隐性分裂（对账会打架）

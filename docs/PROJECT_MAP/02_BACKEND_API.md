@@ -183,7 +183,7 @@
 - 客户端：`socketManager.connect(token)`；房间按角色（`role_dispatchers` 等）
 - 事件：`order.assigned` / `order.revoked` / `dispatcher.pending_pool_changed`（待派单刷新） 等
 - 后端推送：`app/services/push_events.py`（事件封装）→ `message_center.py`（收件人/文案/未读数）→ `message_push.py` → `socket_io.py`
-  ⚠️ `app/core/ws_hub.py` 是**死代码**（全仓零引用），此前本文件把它写成"Redis 广播，可选"——**别照它改**。
+  > `app/core/ws_hub.py` 已于 2026-09-21 **删除**（它一直是死代码：全仓零引用）。此前本文件把它写成"Redis 广播，可选"是**错的**。
   ⚠️ Redis 也不是 `redis_client.py` 在广播：多 worker 的连接共享由 **`app/core/socket_io.py` L23-L32 自建** `socketio.AsyncRedisManager(settings.socket_redis_url)`（URL 为空则退回单进程内存）。
   `app/redis_client.py` 只有一个用途——给 `/health` 提供 `redis_ok()`。
 - Android 监听：`core/RealtimeHub.kt`

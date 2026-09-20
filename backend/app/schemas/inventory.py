@@ -40,12 +40,3 @@ class MovementOut(BaseModel):
     status: str = "COMMITTED"
     #: 这一批的进货单价（只有手工入库且填了才有值）；出参带出来是为了让"成本从哪来"看得见
     unit_cost: Decimal | None = None
-
-
-class InventorySummaryOut(BaseModel):
-    product_id: int
-    product_name: str
-    stock: int
-    unit: str = "件"
-    low_stock_alert: int = 0
-    is_active: bool

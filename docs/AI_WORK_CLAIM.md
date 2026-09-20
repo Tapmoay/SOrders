@@ -73,6 +73,37 @@
 
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **672 passed**（含新增那条）· `_reverse_verify_order_return.py` **25/25** · 账本存储值未变（`ledgers` 仍是 4 位列、原位）。
 
+### 第三轮：删掉后端死代码（2 个整文件 + 15 个符号 + 3 个关系）
+
+每条都**自己数过引用数**（全仓词边界计数 = 1 即"只有定义那一行"），不是凭命名猜的：
+
+| 删掉的 | 计数 | 为什么它不该留 |
+| --- | --- | --- |
+| `core/ws_hub.py`（整文件）| 零导入 | 4 份文档早就把它标成死代码；留着会被下一个人当成"现成的 WebSocket 层" |
+| `services/cancelled_order_retention.py`（整文件）| 零导入 | L18 的 10 天常量与现行 **30 天**策略**冲突**（照它答会答错）。⚠️ 生产服务器早已被 `_test_tools/patch_server2.py` 换成 `data_retention`，删它不会断线上 |
+| `reports.py::_xlsx_sheet` | 1 | 导出四条分支各写一遍 `ws.append`，这个"公共小助手"从没接线 |
+| `order_money.py::OrderMoney.net_collected` | 1 | 四个消费点都直接用 `m.settled/m.refunded` |
+| `shipper_settle.py::settled_order_map` / `order_settle_state` | 各 1 | 真正在用的是 `settled_line_map` + `lines_of_order` |
+| `accounting_service.py::business_month_now` / `customer_display_name` | 各 1 | 前者 docstring 说"挡住未来的月份"——全仓**没有**这条判据（真的挡在别处）；后者名字口径的入口是 `resolve_customer_for_order` |
+| `cost_history.py::SOURCE_BACKFILL` | 1 | 真正的回填写的是 `schema_bootstrap` 里的 SQL 字面量 `'BACKFILL'` |
+| `message_center.py::publish_order_cancelled` | 1 | 已被 `publish_order_cancelled_multi` 取代 |
+| `place_service.py::RULE_TEXT` | 1 | 注释写"界面/提示词要用同一句"，而这句话在 android/frontend **一次都没出现** |
+| `schemas/auth.py::TokenPayload`、`accounting_v2.py::ReceiptItem`、`inventory.py::InventorySummaryOut` | 各 1 | 都不是出参模型（`/inventory/summary` 返回裸 `list[dict]`）|
+| `models/export_job.py` 的 `creator` **与 `shipper`**（两个关系）| 各 1 | 代码里只用 `created_by_id`/`shipper_id`。⚠️ 子代理只报了 `creator`，`shipper` 是我复核时补的（**清单要自己再验一遍**）|
+| `models/freight_template.py::creator` | 1 | 同上 |
+| 随之无用的 import（`relationship` / `TYPE_CHECKING` / `User`）| — | 删完才看得见 |
+
+**收成一处（不是删）**：`schemas/text.py` 自称"文本长度上限的唯一定义处"，可 `MAX_NOTE` 在
+`schemas/return_request.py` 里又写了一个 256、`MAX_REASON` 从没人用（`order.py` 硬编码 1024）——
+现在 `return_request` **导入**它、`OrderRecallBody` **用它**（**数值不变**，行为一个字节没改）。
+
+**文档跟着改**（过期地图比没有地图更糟）：`01_ARCHITECTURE.md`、`02_BACKEND_API.md`、
+`03_BACKEND_DETAILS.md`、`08_CODE_LOCATOR.md` 里 6 处"某某是死代码"改成"已删除"；
+其中 `08_CODE_LOCATOR.md` 那条「`orders.py` L546 `delete_order` 是不可达的重复路由」
+**本来就是过期的**（今天 `@router.delete` 只有 L466 一处，`delete_order` 这个名字全后端已不存在）——一并改对。
+
+**验证**：`_check_all.py` **54/54** · `pytest -q` **672 passed** · `08A_ENDPOINT_INDEX.md` 重新生成（行号跟着 `reports.py` 的删除对齐）。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）

@@ -421,15 +421,6 @@ def arrears_summary(
     return build_arrears_summary(db, start, end)
 
 
-def _xlsx_sheet(ws, title_rows: list[list], header: list, rows: list[list]):
-    ws.append([title_rows[0] if title_rows else ""])
-    if len(title_rows) > 1:
-        ws.append(title_rows[1])
-    ws.append(header)
-    for r in rows:
-        ws.append(r)
-
-
 def _money(v) -> float:
     """导出里的金额写成**数字**（不是文本），保留两位小数。
 

@@ -65,23 +65,6 @@ def settled_line_map(db: Session, order_product_ids: list[int]) -> dict[int, Dec
     return out
 
 
-def settled_order_map(db: Session, order_ids: list[int]) -> dict[int, Decimal]:
-    """这几张单**各自已经核销了多少**（批发商向他的货主收的钱）。"""
-    ids = [int(i) for i in order_ids if i]
-    if not ids:
-        return {}
-    rows = db.execute(
-        select(ShipperSettlementLine.order_id, ShipperSettlementLine.amount)
-        .where(ShipperSettlementLine.order_id.in_(ids))
-        .where(ShipperSettlementLine.settlement_id.in_(_alive_settlement_ids(db)))
-    ).all()
-    out: dict[int, Decimal] = {}
-    for oid, amount in rows:
-        key = int(oid)
-        out[key] = q2(out.get(key, ZERO) + Decimal(amount or 0))
-    return out
-
-
 def line_remaining(op: OrderProduct, settled: Decimal) -> Decimal:
     """这一行**现在还能核销多少**（= 行应收 − 已核销；不会小于 0）。"""
     left = q2(line_receivable(op) - Decimal(settled or 0))
@@ -100,17 +83,6 @@ def lines_of_order(db: Session, order: Order) -> list[tuple[OrderProduct, Decima
     """订单各行 + 各行还可核销多少（**界面与提交共用这一份**）。"""
     settled = settled_line_map(db, [op.id for op in order.order_products])
     return remaining_of_lines(order, settled)
-
-
-def order_settle_state(db: Session, order: Order) -> tuple[Decimal, Decimal]:
-    """(单已核销, 单还可核销)。"""
-    pairs = lines_of_order(db, order)
-    settled_total = ZERO
-    left_total = ZERO
-    for op, left in pairs:
-        left_total += left
-        settled_total += line_receivable(op) - left
-    return q2(settled_total), q2(left_total)
 
 
 def settle_blocker(order: Order) -> str | None:
