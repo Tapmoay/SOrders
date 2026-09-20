@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _airepo import extra_files, restore_snapshot, snapshot_dir  # noqa: E402
+from _airepo import extra_files, restore_snapshot, snapshot_dir, unlock_reverse_verify  # noqa: E402
 
 
 def main() -> int:
@@ -39,6 +39,16 @@ def main() -> int:
         if extra:
             print(f"   现场比快照多的文件（{len(extra)}）：{'、'.join(extra)}")
         return 1
+
+    # ⚠️ **还要清掉那把注入锁**（2026-09-21 实测踩到）：反向验证开跑时会写一把锁
+    #    （`_airepo.LOCK`），被 kill 时 `finally` 里的 `unlock_reverse_verify()` **不会执行** ——
+    #    于是接下来**所有检查都会拒绝出结论**（"源码是注入状态，给不出可信结论"），
+    #    最长卡 30 分钟（`LOCK_STALE_SECONDS`）。我那次的实际现场是：
+    #    **文件都已经还原干净了，锁还在**，于是 `_check_all.py` 一直报"拒绝出结论"。
+    #    判据：只有在"确实发现了遗留快照"这条路径上才清（＝上一次真的没跑完），
+    #    免得把**正在跑**的那一次反向验证的锁误删（那会让并发的检查去读注入过的源码）。
+    unlock_reverse_verify()
+    print("   已清掉注入锁（否则接下来最长 30 分钟内所有检查都会拒绝出结论）。")
 
     # ⚠️ 顺序要紧：**先**看"多出来的文件"（还原会把快照删掉，之后就比不了了）
     extra = extra_files()

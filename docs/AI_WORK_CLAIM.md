@@ -267,6 +267,46 @@
 
 **验证**：`_check_all.py` **50/50** · `_reverse_verify_ledger_dashboard.py` **33/33** · `_reverse_verify_expense_page.py` **17/17** · Android `assembleEmuDebug` + **913 单测 0 失败** · **真机走了一遍**（emulator-5556：工作台 → 账本管理 → 开销管理 → 点时间药丸 → 档位清单 11 档全在 → 点「自定义」→ **区间弹层真的打开了**，截图 `_archive/ui-01-datefilter-custom.png`）· 钱的对账 `39 项 / 确认缺陷 0 / 可疑 0`。
 
+### 第十二轮：修掉 4 处「注入在空转」+ 给"锚点腐烂"配一把廉价的尺
+
+**起因**：上一轮顺手撞见 4 条反向验证的注入替换串早对不上源码（静默 SKIP），于是这一轮先想跑一遍
+`_reverse_verify_all.py` 把全部量清 —— **跑到 50 分钟还没完，被我杀掉**。杀它留下三样东西，
+每一样都值得写进交接（**这就是"跑反向验证"这件事的真实代价**）：
+
+| 杀掉的后果 | 现场 | 复原办法 |
+| --- | --- | --- |
+| ① 注入没还原 | 4 个文件带着注入（`AiRolePrompt.kt`/`AiWriteBasicData.kt`/`accounting_service.py`/`ai_read_catalog.json`）| `git status` 一眼看出 → `git checkout --` 还原 |
+| ② **注入锁没释放** | `%TEMP%\dsh_reverse_verify.lock` 还在 → **接下来所有检查都拒绝出结论**（"源码是注入状态"），最长卡 30 分钟 | 删掉那个锁文件（或等 30 分钟自动失效） |
+| ③ 快照留在临时目录 | `%TEMP%\dsh_rv_snapshot`（**开跑前**的状态）| ⚠️ **不要**直接跑 `_recover_injections.py` 还原：它会按快照写回，把**开跑之后**的改动一起抹掉（本轮就差点抹掉红线自己）。真实状态在 git 里 → **删快照 + 清锁**即可 |
+
+**改进**：`_tools/ai/_recover_injections.py` 现在在"确实发现遗留现场"那条路径上**顺手清锁**
+（判据写在注释里：只在发现遗留快照时清，免得误删正在跑的那一次的锁）。
+
+**新增的廉价尺**：`_tools/qa/_scan_stale_anchors.py`（报告工具，不进 `_check_all`，秒级只读）——
+用 AST 解出 65 份反向验证里的**注入锚点**（266 个，能核对 247 个），拿去目标文件里核对还在不在；
+正则锚点用 `re.search` 判、字面量锚点用 `in` 判（第一版把正则当字面量，会淹掉真问题）。
+覆盖不到 150 个时会**主动声明"说服力不足"**（反空转）。
+
+**它一次就抓出 3 处腐烂**（都在别的会话留下的脚本里），逐条修好：
+
+| 脚本 | 腐烂的锚点 | 修法 |
+| --- | --- | --- |
+| `_reverse_verify_billing.py` | `rate = money(rate_override) … else rule.commission_rate` | 兜底值后来改成了 `base_rate` → 锚点跟进，注入原意（丢掉逐单覆盖）不变 |
+| `_reverse_verify_product_guards.py` | `if o.paid:` | 守卫长成 `if o.paid or m.arrears <= 0:` → **只摘掉 `o.paid` 那一半**（整句换成 `if False` 会把"欠款为 0 不许再收"一起放开，那验的就不是这一条了）|
+| `_reverse_verify_soft_delete.py` | `.replace("    is_deleted:", …)` | 那一行**在目标文件里根本不存在**（三个模型是 `SoftDeleteMixin` 混入式声明）→ 删掉这句永远不生效的替换 |
+
+**顺带挖出一条"看起来有牙、其实恒绿"的断言**：`_reverse_verify_billing.py` 现在能跑了，报
+「校验放行『拿这一单的钱 + 按运费抽成』：注入后 §22 没有报红」。根因不是锚点，而是
+`_check_ai_guardrails.py:2937` 那条锚的是**裸子串** `不能同时配` —— 而这句话在**两条**报错里都有
+（「…与「按分类定价」不能同时配」/「…和「按运费抽成」不能同时配」），删掉后者它照样被前者满足。
+改成两条各钉各的后半句（`（那等于拿 100% 再加提成）` / `（前者本来就逐单不同）`）→
+`_reverse_verify_billing.py` **16/16 全过**。
+（与 `_check_order_return.py` 里 `ORDER_RETURN\b` 那次同源：**裸子串会被兄弟文案满足**。）
+
+**验证**：`_check_all.py` **50/50** · `_check_ai_guardrails.py` **1103 项** · `_reverse_verify_billing` **16/16** ·
+`_reverse_verify_product_guards` **13/13** · `_reverse_verify_soft_delete` **5/5** ·
+`_scan_stale_anchors.py` 复跑 **0 处腐烂** · 钱的对账 `39 项 / 确认缺陷 0 / 可疑 0`。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）

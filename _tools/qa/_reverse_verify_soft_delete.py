@@ -58,7 +58,12 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "判据自己空转：把三个模型的混合式软删声明全删掉（扫到的模型 < 下限）",
         "backend/app/models/shipper.py",
-        lambda s: s.replace("SoftDeleteMixin", "XSoftDelete").replace("    is_deleted:", "    isDeletedX:"),
+        # ⚠️ 2026-09-21 更新：这里原来还跟着一句 `.replace("    is_deleted:", "    isDeletedX:")`，
+        #    它是**空转** —— `models/shipper.py` 里根本没有那一行（那三个模型是
+        #    `SoftDeleteMixin` **混入式**声明，`is_deleted` 只写在 `base.py` 的 mixin 里）。
+        #    注入里留一句永远不生效的替换，会让人以为"那一路也验过了"，所以删掉；
+        #    真正让判据空转的是前一句（把混入的名字改掉）。
+        lambda s: s.replace("SoftDeleteMixin", "XSoftDelete"),
         "check",
     ),
 ]

@@ -72,8 +72,10 @@ CASES: list[tuple[str, Path, object]] = [
         "逐单覆盖不生效（派单员为这一单定的比例被规则默认值盖掉）",
         PAY,
         lambda s: s.replace(
-            "    rate = money(rate_override) if rate_override is not None else rule.commission_rate",
-            "    rate = rule.commission_rate",
+            # ⚠️ 锚点 2026-09-21 更新：兜底价从 `rule.commission_rate` 改成了 `base_rate`
+            #    （逐单覆盖 + 分类规则的取值链变过）。注入原意不变：**把逐单覆盖丢掉**。
+            "    rate = money(rate_override) if rate_override is not None else base_rate",
+            "    rate = base_rate",
             1,
         ),
     ),

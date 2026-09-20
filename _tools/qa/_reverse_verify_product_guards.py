@@ -118,7 +118,15 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "同一张单又能被逐单核销两次（账上多出一笔没收到的钱）",
         ACCT,
-        lambda s: s.replace("            if o.paid:", "            if False:", 1),
+        lambda s: s.replace(
+            # ⚠️ 锚点 2026-09-21 更新：那处守卫后来长成 `if o.paid or m.arrears <= 0:`
+            #    （多了一条"欠款为 0 也不许再收"）。**只摘掉 `o.paid` 那一半**才是这条注入的
+            #    原意（同一张单被核销两次）——整句换成 `if False` 会把两条判据一起放开，
+            #    那验的就不是这一条了。
+            "if o.paid or m.arrears <= 0:",
+            "if m.arrears <= 0:",
+            1,
+        ),
     ),
     (
         "拒绝时不再说「补差额改用滚动收款」（用户只知道失败了，不知道下一步怎么做）",
