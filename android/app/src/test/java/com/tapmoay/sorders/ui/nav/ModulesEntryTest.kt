@@ -129,4 +129,60 @@ class ModulesEntryTest {
             assertTrue(entries.none { it.route.isBlank() })
         }
     }
+
+    // ============================================================ 第二张卡片「账本管理」
+    //
+    // 用户 2026-09-20：「干脆就在工作台里做 2 个卡片…卡片中间有一个提示词…就叫账本管理，
+    // 然后将账本管理的所有的 8 个模块全部拆成类似于工作台现在的一个图标的形式，放在一个卡片」。
+
+    @Test
+    fun `账本卡片正好 8 格，而且是 4 类账 + 4 个工具`() {
+        val e = Modules.dispatcherLedgerEntries
+        assertEquals("用户点名的就是这 8 件", 8, e.size)
+        assertEquals(
+            listOf("订单账", "司机账", "货主账", "批发商账", "客户收款", "司机结算", "开销管理", "车辆台账"),
+            e.map { it.label },
+        )
+        // 4 类账是**同一页的 4 个档位**（一条带参数的路由），不是四个页面
+        assertEquals(
+            "4 类账必须都走 dispatcher/ledger?tab=",
+            (0..3).map { Routes.dispatcherLedger(it) },
+            e.take(4).map { it.route },
+        )
+        // 4 个工具各自有页面（点了就离开账本页）
+        assertEquals(
+            listOf(Routes.DISPATCH_RECEIPTS, Routes.DISPATCH_SETTLEMENTS, Routes.DISPATCH_EXPENSES, Routes.DISPATCH_VEHICLES),
+            e.drop(4).map { it.route },
+        )
+        assertEquals("入口不能重复", e.size, (e.map { it.label + it.route }).toSet().size)
+    }
+
+    @Test
+    fun `账本卡片里的 8 格两两颜色分得开（同屏不许撞色）`() {
+        val e = Modules.dispatcherLedgerEntries
+        for (i in e.indices) {
+            for (j in i + 1 until e.size) {
+                val d = colorGap(e[i].color, e[j].color)
+                assertTrue(
+                    "「${e[i].label}」(${hex(e[i].color)}) 与「${e[j].label}」(${hex(e[j].color)}) 几乎同色，距离只有 ${d.toInt()}",
+                    d >= MIN_COLOR_GAP,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `账本卡片不许和上面那张卡片撞色（同一个屏幕上）`() {
+        // 只判**完全相同**：上面那张卡片自己就有三只很接近的青（29~48），
+        // 拿更严的尺子回溯判它等于逼着改一堆用户早就认可的配色（同一条理由见下面那条 AI 的断言）。
+        val dup = Modules.dispatcherLedgerEntries
+            .flatMap { l -> Modules.dispatcherEntries.filter { it.color == l.color }.map { l.label to it.label } }
+        assertTrue("两张卡片里有完全同色的图标：$dup", dup.isEmpty())
+    }
+
+    @Test
+    fun `账本卡片里 8 个图标互不相同`() {
+        val icons = Modules.dispatcherLedgerEntries.map { it.icon.name }
+        assertEquals("同一张卡片里两格同图标 = 没标", icons.size, icons.toSet().size)
+    }
 }

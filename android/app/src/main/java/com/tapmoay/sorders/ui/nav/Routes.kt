@@ -25,6 +25,13 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val ACCOUNTS = "dispatcher/accounts"
     const val DISPATCH_DRIVERS = "dispatcher/drivers"
     const val DISPATCH_LEDGER = "dispatcher/ledger"
+    /**
+     * 账本**某一类**的直达路由（工作台那张「账本管理」卡片里的 4 格用它）。
+     *
+     * 4 类账是同一页的四个档位（`?tab=`），所以卡片上的四格不是四个页面 ——
+     * 各自建一个页面就会出现"同一套数据四份实现"。
+     */
+    fun dispatcherLedger(tab: Int): String = DISPATCH_LEDGER + "?tab=" + tab
     const val MEMBERS = "dispatcher/members"
     const val SHIPPERS_MANAGE = "dispatcher/shippers"
     const val PRODUCTS = "dispatcher/products"

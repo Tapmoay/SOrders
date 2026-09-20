@@ -16,14 +16,22 @@ Kotlin 的属性初始化与 `init` 块**按书写顺序**执行。所以
 又写到了文件后半段 —— 说明**靠注释提醒是靠不住的**，得有机器拦。
 
 ## 判据（只抓"真的会被 init 写到"的，不做一刀切）
-1. 找出文件里的 `init { … }` 块，取出里面被调用的函数名（`load()` / `refresh()` …）；
-2. 找出这些函数在本文件里的函数体，收集 **赋值语句左边的属性名**（`x = …`）；
+1. 找出文件里的 `init { … }` 块，取出里面被调用的函数名；
+2. **沿着调用链往下跟**（这些函数自己再调用的函数也算，最多 4 层）——收集
+   **赋值语句左边的属性名**（`x = …`）；
 3. 这些属性里，**声明位置在 `init` 块之后**的 → 报错。
 
 ⚠️ 为什么不用"init 之后不许出现任何 `by mutableStateOf`"这种一刀切：
    实测全项目有 6 个文件命中，而其中多数是**无害**的（例如 `showNavPicker`
    只在用户点按钮时才写，init 根本不碰它）——那种红线会立刻变成"永远红"，
    而永远红的检查等于没有检查。所以这里只钉**能被 init 写到**的那一批。
+
+📌 2026-09-20 补的两个盲区（都是**又崩了一次**之后才发现的）：
+   · 原来只跟 `foo()` 这种**无参**调用 —— 账本 VM 的 `init { applyPreset(档位) }`
+     带实参，判据当场放行，而真机上打开那一页就是必崩；
+   · 原来只看 init **直接**调用的那一个函数体 —— 中间隔一层（`init → applyPreset → applyRange`）
+     就漏。现在两件都跟（`CALL` 只要求"名字后面有左括号"，并沿链下钻 4 层）。
+   反向验证里专门有这两条注入：`_tools/qa/_reverse_verify_vm_init_order.py`。
 
 用法：python _tools/qa/_check_vm_state_before_init.py [--check]
 """
@@ -44,7 +52,12 @@ MIN_FILES = 60
 MIN_VMS = 8
 
 INIT = re.compile(r"^\s*init\s*\{", re.M)
-CALL = re.compile(r"\b(\w+)\s*\(\s*\)")
+#: ⚠️ 只要"名字后面有左括号"就算一次调用（**带不带实参都跟**）：
+#:   原来写成 `\b(\w+)\s*\(\s*\)`，于是 `applyPreset(档位)` 这种带参数的调用被漏掉，
+#:   而账本 VM 正是这么写的 —— 判据放行了，真机上打开那一页必崩（2026-09-20）。
+CALL = re.compile(r"\b(\w+)\s*\(")
+#: 调用链跟几层（init → f → g → h 够用了；再深说明这个 init 该拆了）
+MAX_DEPTH = 4
 #: 赋值左边：行首（允许缩进）的裸属性名 + `=`（排除 == / >= / <= / != / +=）
 ASSIGN = re.compile(r"^\s{4,}(\w+)\s*=(?!=)", re.M)
 DECL = re.compile(r"^\s*(?:@\w+\s+)*(?:private\s+|internal\s+)?(?:var|val)\s+(\w+)\b", re.M)
@@ -75,6 +88,25 @@ def fun_body(src: str, name: str) -> str | None:
     return block_after(src, brace)
 
 
+def writes_reachable(src: str, entry: str, depth: int = MAX_DEPTH, seen: set[str] | None = None) -> set[str]:
+    """从 [entry] 这个函数出发，收集它（以及它调用到的本文件函数）里被赋值的属性名。
+
+    只认**本文件里真的存在**的 `fun entry(` —— 所以 `if (` / `when (` / `launch {` 这类
+    同形写法会自然落空（找不到对应函数就返回空集），不会造成误报。
+    """
+    seen = seen if seen is not None else set()
+    if entry in seen or depth <= 0:
+        return set()
+    seen.add(entry)
+    body = fun_body(src, entry)
+    if body is None:
+        return set()
+    out = set(ASSIGN.findall(body))
+    for nxt in CALL.findall(body):
+        out |= writes_reachable(src, nxt, depth - 1, seen)
+    return out
+
+
 def check_file(path: Path) -> list[str]:
     src = path.read_text(encoding="utf-8", errors="ignore")
     out: list[str] = []
@@ -86,10 +118,7 @@ def check_file(path: Path) -> list[str]:
             continue
         written: set[str] = set()
         for fn in called:
-            fb = fun_body(src, fn)
-            if fb is None:
-                continue
-            written |= set(ASSIGN.findall(fb))
+            written |= writes_reachable(src, fn)
         if not written:
             continue
         # 声明位置：属性名 → 首次声明处的偏移

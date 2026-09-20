@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECK = ROOT / "_tools/qa/_check_vm_state_before_init.py"
 CHECK_REL = "_tools/qa/_check_vm_state_before_init.py"
 VM = "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiSettingsViewModel.kt"
+LEDGER_VM = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherLedgerViewModel.kt"
 
 INIT_BLOCK = "    init {\n        load()\n    }\n"
 
@@ -66,6 +67,29 @@ CASES: list[tuple[str, str, object, str]] = [
         CHECK_REL,
         lambda s: s.replace("MIN_FILES = 60", "MIN_FILES = 100000", 1),
         "太少",
+    ),
+    (
+        "init 调一个**带参数**的方法，而那个方法（隔一层）写到声明在后面的状态"
+        "—— 老判据只跟无参调用、只看直接调用的那一个函数体，这就漏了（2026-09-20 真机又崩一次）",
+        LEDGER_VM,
+        lambda s: s.replace(
+            "        applyPreset(DatePresets.THIS_MONTH)",
+            "        applyPreset(DatePresets.THIS_MONTH)\n        _probeLate(1)",
+            1,
+        )
+        .replace(
+            "    fun applyPreset(label: String) {",
+            "    private fun _probeLate(n: Int) {\n        _probeDeeper(n)\n    }\n\n"
+            "    private fun _probeDeeper(n: Int) {\n        probeLate = n\n    }\n\n"
+            "    fun applyPreset(label: String) {",
+            1,
+        )
+        .replace(
+            "    fun total(): Double =",
+            "    var probeLate by mutableStateOf(0)\n\n    fun total(): Double =",
+            1,
+        ),
+        "probeLate",
     ),
 ]
 

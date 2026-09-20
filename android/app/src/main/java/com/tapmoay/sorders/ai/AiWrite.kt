@@ -485,13 +485,13 @@ data class AiLedgerRef(
     }
 
     companion object {
-        /** 来源码 → 中文（卡片上要写人话）。 */
-        fun sourceLabel(raw: String): String = when (raw.lowercase()) {
-            "manual" -> "手工记的"
-            "order" -> "订单自动入账"
-            "refund" -> "退款"
-            else -> raw.ifBlank { "未知来源" }
-        }
+        /**
+         * 来源码 → 中文（卡片上要写人话）。
+         *
+         * ⚠️ 映射本体在 `core/LedgerSourceLabel.kt`（**唯一一份实现**）：派单员账本的扇形图
+         *    图例也用同一份。这里再写一遍 `when` 的话，同一类账会在两张界面上叫两个名字。
+         */
+        fun sourceLabel(raw: String): String = com.tapmoay.sorders.core.ledgerSourceLabel(raw)
     }
 }
 

@@ -92,7 +92,10 @@ object Modules {
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
         ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品（还原成原来的色）
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
-        ModuleEntry("账本管理", Routes.DISPATCH_LEDGER, Icons.Default.AccountBalanceWallet, color = MoneyOrange),       // 橙 · 账本
+        // ⛔ 这里**没有**「账本管理」那一格：它连同它下面那 8 件事一起搬到了工作台的
+        //    第二张卡片里（`dispatcherLedgerEntries`，用户 2026-09-20 点名）。留着这一格
+        //    就等于同一个东西有两个入口，而且这一格点进去只是"账本页的默认档位"——
+        //    用户真正要找的是下面 8 件里的**那一件**。
         // 「运费模板」「计费规则」原来挂在「派单作业」分组下，用户 2026-09-19 要求提成**两个独立图标**
         // （「去掉这个将里面的计费模板和计费规则，给移出来做一个 2 个单独的图标放在工作台里面」）。
         // 位置紧挨着「账本管理 / 司机运费结算」这一串**钱的入口**：它们回答的正是"这钱按什么算"。
@@ -168,6 +171,34 @@ object Modules {
         // ⚠️ AI 助手**不在这里**：它的入口是底部导航正中间那个凸起的圆钮（见 RoleHomeScreen）。
         // 放两处会让人以为是两个功能；它现在是"随时按一下"的入口，不该混在"进哪个模块"的网格里。
         // 例外见 shipperEntries：货主端只有 3 个 Tab，圆钮落不到正中，那边才改成网格图标。
+    )
+
+    /**
+     * 工作台第二张卡片「账本管理」里的 **8 格**（用户 2026-09-20 点名）。
+     *
+     * 原话：「干脆就在工作台里做 2 个卡片…卡片中间有一个提示词…就叫账本管理，然后将账本管理的
+     * 所有的 8 个模块全部拆成类似于工作台现在的一个图标的形式，放在一个卡片」。
+     * 这 8 件事原来挤在账本页顶部（**一行 4 个页签 + 一排 4 个工具按钮**），
+     * 而"账本管理"那一格点进去只是那一页的**默认档位** —— 用户真正要找的是这 8 件里的那一件。
+     *
+     * 4 类账 = **同一页的 4 个档位**（`Routes.dispatcherLedger(tab)`）；4 个工具各自有页面。
+     * ⛔ 别给 4 类账各建一个页面：同一套数据四份实现，改一处漏三处。
+     *
+     * 颜色：8 个**两两 RGB 欧氏距离 ≥60**（同屏不许撞色，单测 `ModulesEntryTest` 钉着）。
+     * 它们与上面那 16 格**刻意不撞**（数值都不同），但不去重算 16 格那套既有的接近色
+     * （那三只青本来就只差 29~48，是用户认可的既有配色，拿新尺子回溯判它没有意义）。
+     */
+    val dispatcherLedgerEntries: List<ModuleEntry> = listOf(
+        // ---- 4 类账（同一页的 4 个档位）----
+        ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = MoneyOrange),     // 橙 · 账本本体
+        ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF2E7D32L),           // 深绿 · 司机该拿多少
+        ModuleEntry("货主账", Routes.dispatcherLedger(2), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少
+        ModuleEntry("批发商账", Routes.dispatcherLedger(3), Icons.Default.Storefront, color = 0xFFB8860BL),             // 暗金 · 批发账户
+        // ---- 4 个工具（各自有页面）----
+        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),                 // 深紫
+        ModuleEntry("司机结算", Routes.DISPATCH_SETTLEMENTS, Icons.Default.Handshake, color = 0xFF7CB342L),            // 浅绿
+        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF1565C0L),                // 蓝
+        ModuleEntry("车辆台账", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF4E342EL),           // 深棕
     )
 
     // ===== 货主工作台 =====

@@ -282,15 +282,17 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Routes.DISPATCH_LEDGER) {
+        // 账本页支持 `?tab=` 直达某一类账（工作台那张「账本管理」卡片里的 4 格用它）。
+        // 4 类账是**同一页的四个档位**，所以这里一条路由带一个参数就够了，不要建四个页面。
+        composable(
+            route = Routes.DISPATCH_LEDGER + "?tab={tab}",
+            arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 }),
+        ) { entry ->
             DispatcherLedgerScreen(
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
-                onOpenReceipts = { navController.navigate(Routes.DISPATCH_RECEIPTS) },
-                onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },
-                onOpenExpenses = { navController.navigate(Routes.DISPATCH_EXPENSES) },
-                onOpenVehicles = { navController.navigate(Routes.DISPATCH_VEHICLES) },
+                initialTab = entry.arguments?.getInt("tab") ?: 0,
             )
         }
         composable(Routes.DISPATCH_RECEIPTS) { ReceiptsScreen(container = container, onBack = { navController.popBackStack() }) }

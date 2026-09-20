@@ -14,6 +14,7 @@ import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.repo.PageMeta
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.DatePresets
 import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -83,6 +84,24 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     var actionResult by mutableStateOf<String?>(null)
     var rangeFrom by mutableStateOf<String?>(null)
     var rangeTo by mutableStateOf<String?>(null)
+
+    // ⚠️ 下面这几个**必须声明在 `init { applyPreset(...) }` 之前**：Kotlin 的属性初始化与
+    //    init 块按**书写顺序**执行，写在 init 之后的话，init 里那句 `preset = …` 会抛
+    //    `MutableState.setValue … on a null object reference` —— **打开这一页就崩**
+    //    （2026-09-20 真机抓到的就是这一次）。判据：`_tools/qa/_check_vm_state_before_init.py`。
+
+    /** 当前选中的日期档位（[DatePresets.ROW] 里的一档，或「自定义」）。 */
+    var preset by mutableStateOf(DatePresets.THIS_MONTH)
+        private set
+
+    /** 「自定义」那一档的两端（用户在日期弹层里选的）。 */
+    var customFrom by mutableStateOf<String?>(null)
+        private set
+    var customTo by mutableStateOf<String?>(null)
+        private set
+
+    /** 图表类型：`line` 折线 / `bar` 条形 / `pie` 扇形。 */
+    var chartType by mutableStateOf(CHART_LINE)
 
     // ===== 账本分类：0=订单账 1=司机账 2=货主账 3=批发商账 =====
     var tab by mutableStateOf(0)
@@ -218,17 +237,8 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         }
     }
 
-    val periodStart: String get() = _periodRange().first
-    val periodEnd: String get() = _periodRange().second
-
-    private fun _periodRange(): Pair<String, String> {
-        val d = LocalDate.parse(chartAnchor)
-        return when (chartMode) {
-            "week" -> (d.minusDays((d.dayOfWeek.value - 1).toLong()).toString() to d.plusDays((7 - d.dayOfWeek.value).toLong()).toString())
-            "month" -> (d.withDayOfMonth(1).toString() to d.withDayOfMonth(d.lengthOfMonth()).toString())
-            else -> (d.toString() to d.toString())
-        }
-    }
+    val periodStart: String? get() = rangeFrom
+    val periodEnd: String? get() = rangeTo
 
     fun selectTab(i: Int) {
         tab = i
@@ -238,6 +248,9 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         expandedKey = null
         expandedOrderId = null
         expandedOrder = null
+        // 新档位不支持当前图（比如从司机账带着"折线"切到货主账）→ 落到它支持的第一个，
+        // 否则切换条上会出现一个"选中了但画不出来"的档
+        if (chartType !in chartTypes()) chartType = chartTypes().first()
         if (i != 0) loadAccounts()
     }
 
@@ -253,13 +266,16 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         expandedKey = null
         viewModelScope.launch {
             try {
-                val from = periodStart
-                val to = periodEnd
                 if (tab == 1) {
-                    driverAccounts = container.repo.freightSettlementRange(from + " 00:00:00", to + " 23:59:59").groups
+                    // ⚠️ 结算接口**必须**给 from/to（不给直接 400），所以「全部」那一档用一对
+                    //    宽到没有实际边界的端点：业务数据不可能早于 2000 年，也不会有 2099 年后的单。
+                    val f = rangeFrom ?: WIDE_FROM
+                    val t = rangeTo ?: WIDE_TO
+                    driverAccounts = container.repo.freightSettlementRange(f + " 00:00:00", t + " 23:59:59").groups
                 } else {
-                    if (tab == 2) shipperAccounts = container.repo.ledgerAccounts(from, to, "shipper")
-                    if (tab == 3) memberAccounts = container.repo.ledgerAccounts(from, to, "member")
+                    // 账户汇总接口的 from/to 可以省：省掉就是**真·全部**（不传一个假区间进去）
+                    if (tab == 2) shipperAccounts = container.repo.ledgerAccounts(rangeFrom, rangeTo, "shipper")
+                    if (tab == 3) memberAccounts = container.repo.ledgerAccounts(rangeFrom, rangeTo, "member")
                 }
             } catch (e: Exception) {
                 loadError = toApiException(e).message
@@ -312,11 +328,22 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
     var deleteTarget by mutableStateOf<LedgerEntryDto?>(null)
 
     init {
-        load()
+        // 默认档位 = **本月**（不是"今天"）：账本第一屏看一天，几乎什么都没有，
+        // 而"这个月一共多少"才是打开账本要问的第一句话。
+        applyPreset(DatePresets.THIS_MONTH)
         // 账本变动（送达自动记账/手动记账端联动）实时刷新
         viewModelScope.launch {
             container.realtimeHub.refreshLedger.collect { load() }
         }
+    }
+
+    private companion object {
+        /**
+         * 「全部」那一档给**结算接口**的边界（见 [loadAccounts]）。
+         * 账户汇总接口不需要它们 —— 那边省掉 from/to 就是真的不加条件。
+         */
+        const val WIDE_FROM = "2000-01-01"
+        const val WIDE_TO = "2099-12-31"
     }
 
     fun total(): Double = entries.sumOf { moneyToDouble(it.total) }
@@ -327,47 +354,82 @@ class DispatcherLedgerViewModel(private val container: AppContainer) : ViewModel
         load()
     }
 
-    // 时间导航（按日/按周/按月）+ 图表
-    var chartMode by mutableStateOf("day")
-    var chartAnchor by mutableStateOf(LocalDate.now().toString())
-    var chartType by mutableStateOf("line")
+    // 日期档位**不在这里算**：档位与它们的区间在 `ui/common/DatePresets`（唯一一份实现），
+    // 本页只把选中的那一档翻成 from/to。自己再写一遍 `when("本月")`，
+    // 就会出现"账本页的本月和订单筛选条的本月差几天"——而两边都看着对。
+    // （`preset` / `customFrom` / `customTo` / `chartType` 四个状态声明在**文件开头**：
+    //   init 块会写它们，写在 init 之后就是"打开这一页必崩"，原因见那边的注释。）
 
-    val periodText: String get() {
-        val d = LocalDate.parse(chartAnchor)
-        val (start, end) = when (chartMode) {
-            "week" -> d.minusDays((d.dayOfWeek.value - 1).toLong()) to d.plusDays((7 - d.dayOfWeek.value).toLong())
-            "month" -> d.withDayOfMonth(1) to d.withDayOfMonth(d.lengthOfMonth())
-            else -> d to d
-        }
-        return start.toString() + " 00:00:00~" + end.toString() + " 23:59:59"
+    /**
+     * 口径词 —— **跟着实际窗口走**（设计规范 §4.9）：选着"全部"却在标题上写"本月"，
+     * 就是对不上账的第一步。
+     */
+    val periodWord: String get() = when {
+        preset != DatePresets.CUSTOM -> preset
+        rangeFrom == null || rangeTo == null -> DatePresets.ALL
+        else -> rangeFrom!!.take(10).substring(5) + "~" + rangeTo!!.take(10).substring(5)
     }
 
-    fun applyMode(mode: String) {
-        chartMode = mode
-        val d = LocalDate.parse(chartAnchor)
-        val (from, to) = when (mode) {
-            "week" -> (d.minusDays((d.dayOfWeek.value - 1).toLong()).toString() to d.plusDays((7 - d.dayOfWeek.value).toLong()).toString())
-            "month" -> (d.withDayOfMonth(1).toString() to d.withDayOfMonth(d.lengthOfMonth()).toString())
-            else -> (d.toString() to d.toString())
-        }
+    /** 切档位（含「全部」：那一档**不带日期条件**）。 */
+    fun applyPreset(label: String) {
+        preset = label
+        val r = DatePresets.rangeOf(label, LocalDate.now())
+        applyRange(r?.first, r?.second)
+        if (tab != 0) loadAccounts()
+    }
+
+    /** 自定义区间（日期弹层回来的）。两头都没选 = 清掉区间，退回「全部」。 */
+    fun applyCustomRange(from: String?, to: String?) {
+        customFrom = from
+        customTo = to
+        preset = if (from == null && to == null) DatePresets.ALL else DatePresets.CUSTOM
         applyRange(from, to)
         if (tab != 0) loadAccounts()
     }
 
-    fun setAnchor(anchor: String) {
-        chartAnchor = anchor
-        applyMode(chartMode)  // applyMode 内部会刷新非订单账
+    /**
+     * 这一档 tab 有哪几种图可选（规则在 `LedgerCharts.chartTypesFor`，有单测）。
+     *
+     * ⚠️ 货主账 / 批发商账**没有折线**：`/ledger/accounts` 只回账户汇总，没有按天的数。
+     *    拿明细接口（`/ledger/entries`，一页最多 1000 条）去凑一条曲线，会在明细被截断时
+     *    画出一条**比上面合计小**的线 —— 同一屏两个数，比"少一种图"糟得多。
+     */
+    fun chartTypes(): List<String> = chartTypesFor(tab)
+
+    /** 当前选中档位的图表类型（切档位后原类型不支持时自动落到第一个）。 */
+    val chartTypeNow: String get() = if (chartType in chartTypes()) chartType else chartTypes().first()
+
+    /** 折线/条形要的**按天**序列（账户类没有按天的数 → 空）。 */
+    fun seriesForChart(): List<Pair<String, Double>> = when (tab) {
+        0 -> orderDailySeries(entries, rangeFrom, rangeTo)
+        1 -> driverDailySeries(visibleDriverGroups(), rangeFrom, rangeTo)
+        else -> emptyList()
     }
 
-    /** 按日汇总（图表 x 轴） */
-    val chartSeries: List<Pair<String, Double>> get() {
-        val map = LinkedHashMap<String, Double>()
-        entries.forEach { e ->
-            val key = (e.entryDate ?: "").take(10)
-            if (key.isNotBlank()) map[key] = (map[key] ?: 0.0) + moneyToDouble(e.total)
-        }
-        return map.entries.map { it.key to it.value }
+    /**
+     * 扇形/排行要的切片。
+     *
+     * ⚠️ 集合**跟着搜索走**（与仪表盘同一个）：图上一个数、仪表盘另一个数，
+     *    用户只会以为其中一个坏了。
+     */
+    fun slicesForChart(): List<Pair<String, Double>> = when (tab) {
+        0 -> topSlices(orderSourceTotals(entries))
+        1 -> topSlices(driverTotals(visibleDriverGroups()))
+        else -> topSlices(accountTotals(visibleAccountRows()))
     }
+
+    /** 条形图的数值与标签（账户类用"账户排行"当条形，图上会写明）。 */
+    fun barsForChart(): Pair<List<Float>, List<String>> {
+        val byDay = tab == 0 || tab == 1
+        val rows = if (byDay) seriesForChart() else slicesForChart()
+        // 标签：按天用 `09/20`（与折线同一份 dayLabel），账户用短名（长了会把旁边的挤掉）
+        val labels = if (byDay) rows.map { dayLabel(it.first) } else rows.map { shortLabel(it.first) }
+        return rows.map { it.second.toFloat() } to labels
+    }
+
+    /** 搜索过滤之后的司机组（图表与仪表盘**必须**是同一个集合）。 */
+    fun visibleDriverGroups(): List<FreightSettlementGroupDto> =
+        UserSearch.filter(driverAccounts, query, { it.driverName }, { it.driverPhone })
 
     fun load() {
         loading = entries.isEmpty()

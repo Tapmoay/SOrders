@@ -3,9 +3,7 @@ package com.tapmoay.sorders.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
@@ -14,13 +12,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.ui.common.RoleBadge
 import com.tapmoay.sorders.ui.nav.ModuleEntry
+import com.tapmoay.sorders.ui.nav.Modules
 import com.tapmoay.sorders.ui.nav.Role
 
-/** 工作台：图标网格（像手机桌面，每个图标=一个功能） */
+/**
+ * 工作台：**卡片 + 图标网格**（像手机桌面，每个图标=一个功能）。
+ *
+ * 2026-09-20 起派单端是**两张卡片**（用户原话：「干脆就在工作台里做 2 个卡片…卡片中间有一个
+ * 提示词…就叫账本管理，然后将账本管理的所有的 8 个模块全部拆成类似于工作台现在的一个图标的形式，
+ * 放在一个卡片」）：
+ *   · 第一张 = 全部模块（原来那一整屏）；
+ *   · 第二张 = 「账本管理」，装那 8 件事（4 类账 + 4 个工具），来源是
+ *     `Modules.dispatcherLedgerEntries`（**唯一一份清单**）。
+ * 货主/司机端仍然只有第一张（他们的账本是单页，没有这 8 件）。
+ */
 @Composable
 fun WorkbenchScreen(
     container: AppContainer,
@@ -28,89 +38,134 @@ fun WorkbenchScreen(
     entries: List<ModuleEntry>,
     onOpen: (String) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        // 欢迎条
-        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "工作台",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        when (role) {
-                            Role.SHIPPER -> "货主端 · 订单与账本"
-                            Role.DRIVER -> "司机端 · 任务与送达"
-                            Role.DISPATCHER -> "派单端 · 全量管理"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                    )
-                }
-                RoleBadge(role.key)
-            }
+    val ledgerEntries = if (role == Role.DISPATCHER) Modules.dispatcherLedgerEntries else emptyList()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { WelcomeBar(role) }
+        item { WorkbenchCard(title = null, entries = entries, onOpen = onOpen) }
+        if (ledgerEntries.isNotEmpty()) {
+            item { WorkbenchCard(title = "账本管理", entries = ledgerEntries, onOpen = onOpen) }
         }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(4),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+    }
+}
+
+/** 欢迎条（原来固定在网格上面；现在它是列表的第一项，滚动时会跟着走） */
+@Composable
+private fun WelcomeBar(role: Role) {
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            items(entries, key = { it.label + it.route }) { entry ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpen(entry.route) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // 有 gradient 的入口（目前只有 AI）用品牌渐变，其余用单色语义色。
-                    // 渐变必须走 background(brush) —— Surface 的 color 只吃单色，
-                    // 想用画刷就得自己铺一层底。
-                    if (entry.gradient.isEmpty()) {
-                        Surface(
-                            color = androidx.compose.ui.graphics.Color(entry.color),
-                            shape = MaterialTheme.shapes.large,
-                        ) {
-                            Icon(
-                                entry.icon,
-                                contentDescription = entry.label,
-                                tint = androidx.compose.ui.graphics.Color.White,
-                                modifier = Modifier.padding(13.dp).size(32.dp),
-                            )
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    brush = Brush.linearGradient(entry.gradient.map { androidx.compose.ui.graphics.Color(it) }),
-                                    shape = MaterialTheme.shapes.large,
-                                )
-                                .padding(13.dp),
-                        ) {
-                            Icon(
-                                entry.icon,
-                                contentDescription = entry.label,
-                                tint = androidx.compose.ui.graphics.Color.White,
-                                modifier = Modifier.size(32.dp),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        entry.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        maxLines = 1,
-                    )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "工作台",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    when (role) {
+                        Role.SHIPPER -> "货主端 · 订单与账本"
+                        Role.DRIVER -> "司机端 · 任务与送达"
+                        Role.DISPATCHER -> "派单端 · 全量管理"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                )
+            }
+            RoleBadge(role.key)
+        }
+    }
+}
+
+/** 一屏 4 列（与改造前的工作台同一列数：图标大小、字距都不用重新适应） */
+private const val GRID_COLUMNS = 4
+
+/**
+ * 一张工作台卡片：可选标题 + 4 列图标格。
+ *
+ * ⛔ 图标格只有 [WorkbenchTile] 一份实现 —— 第二张卡片要是照着抄一遍，
+ *    两处迟早长得不一样（同一个 App 里两种图标大小）。
+ * ⛔ 末行**补空位**（不满 4 个也要占满 4 列）：不补的话最后一行的图标会被拉宽，
+ *    与上面的格子对不齐（看着像排错了）。
+ */
+@Composable
+private fun WorkbenchCard(title: String?, entries: List<ModuleEntry>, onOpen: (String) -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 16.dp)) {
+            if (title != null) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(14.dp))
+            }
+            entries.chunked(GRID_COLUMNS).forEachIndexed { rowIndex, row ->
+                if (rowIndex > 0) Spacer(Modifier.height(20.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { entry -> WorkbenchTile(entry, onOpen, Modifier.weight(1f)) }
+                    repeat(GRID_COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
+    }
+}
+
+/** 一个图标格（图标 + 名字）。工作台两张卡片共用这一份。 */
+@Composable
+private fun WorkbenchTile(entry: ModuleEntry, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.clickable { onOpen(entry.route) },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // 有 gradient 的入口（目前只有 AI）用品牌渐变，其余用单色语义色。
+        // 渐变必须走 background(brush) —— Surface 的 color 只吃单色，想用画刷就得自己铺一层底。
+        if (entry.gradient.isEmpty()) {
+            Surface(
+                color = androidx.compose.ui.graphics.Color(entry.color),
+                shape = MaterialTheme.shapes.large,
+            ) {
+                Icon(
+                    entry.icon,
+                    contentDescription = entry.label,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.padding(13.dp).size(32.dp),
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .background(
+                        brush = Brush.linearGradient(entry.gradient.map { androidx.compose.ui.graphics.Color(it) }),
+                        shape = MaterialTheme.shapes.large,
+                    )
+                    .padding(13.dp),
+            ) {
+                Icon(
+                    entry.icon,
+                    contentDescription = entry.label,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            entry.label,
+            style = MaterialTheme.typography.labelMedium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
     }
 }
 

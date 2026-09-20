@@ -28,6 +28,7 @@ import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.repo.PageMeta
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.ChartPalette
 import com.tapmoay.sorders.ui.theme.MemberGold
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -46,13 +47,17 @@ fun DispatcherLedgerScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenOrder: (Long) -> Unit = {},
-    onOpenReceipts: () -> Unit = {},
-    onOpenSettlements: () -> Unit = {},
-    onOpenExpenses: () -> Unit = {},
-    onOpenVehicles: () -> Unit = {},
+    initialTab: Int = 0,
 ) {
     val vm: DispatcherLedgerViewModel = appViewModel { DispatcherLedgerViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
+    // 自定义日期弹层：状态必须在**函数体**这一层（弹层画在 Scaffold 外面，
+    // 声明在 Scaffold 的 content 里就出了作用域）
+    var showCustomRange by remember { mutableStateOf(false) }
+
+    // 从工作台那张「账本管理」卡片进来时直达某一类账（订单账/司机账/货主账/批发商账）。
+    // ⚠️ 只在**第一次**组合时切一次：每次重组都切的话，用户手动换了档位会被立刻拽回去。
+    LaunchedEffect(Unit) { if (initialTab != 0) vm.selectTab(initialTab) }
 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
@@ -81,14 +86,18 @@ fun DispatcherLedgerScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            // 4 类账的页签（订单账/司机账/货主账/批发商账）。**自成一页的那 8 件事不在这一页**
+            // —— 它们在工作台那张「账本管理」卡片里（`Modules.dispatcherLedgerEntries`），
+            // 这一页只管"看账"：日期档位 → 三种图 → 明细。
             LedgerTabBar(tab = vm.tab, onTab = { vm.selectTab(it) })
-            AccountToolsEntry(
-                onReceipts = onOpenReceipts,
-                onSettlements = onOpenSettlements,
-                onExpenses = onOpenExpenses,
-                onVehicles = onOpenVehicles,
-            )
-            Box(Modifier.weight(1f)) {
+            // 搜索框横跨整页（设计规范 §4.6）：只有账户类档位需要它，
+            // 订单账那一堆流水里没有"人"可搜。
+            if (vm.tab != 0) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    SearchField(value = vm.query, onValueChange = { vm.query = it })
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxHeight()) {
                 when {
                     vm.loading && vm.tab == 0 -> LoadingBox()
                     vm.accountsLoading && vm.tab != 0 -> LoadingBox()
@@ -96,9 +105,24 @@ fun DispatcherLedgerScreen(
                         ErrorView(vm.loadError.orEmpty(), onRetry = { if (vm.tab == 0) vm.load() else vm.loadAccounts() })
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        // ① 日期档位（第一格就是「全部」＝不带日期条件）
+                        item {
+                            DatePresetRow(
+                                selected = vm.preset,
+                                customFrom = vm.customFrom,
+                                customTo = vm.customTo,
+                                onPick = { p ->
+                                    if (p == DatePresets.CUSTOM) showCustomRange = true else vm.applyPreset(p)
+                                },
+                            )
+                        }
+                        // ② 统计图（折线/条形/扇形可切换）
+                        item { LedgerChartSwitch(vm) }
+                        item { LedgerChartCard(vm) }
+                        // ③ 明细（按款项：账户类是一行一个账户、订单账是一行一笔流水）
                         when (vm.tab) {
                             // ---- 司机账 / 货主账 / 批发商账：**一套仪表盘，一份实现** ----
                             //
@@ -126,7 +150,8 @@ fun DispatcherLedgerScreen(
                                 }
                                 val all = vm.accountRows()
                                 val visible = vm.visibleAccountRows()
-                                item { ReportTimeNav(mode = vm.chartMode, anchor = vm.chartAnchor, periodText = vm.periodText, onModeChange = { vm.applyMode(it) }, onAnchorChange = { vm.setAnchor(it) }) }
+                                // 时间档位与统计图在**所有档位共用**（上面那两条 item），
+                                // 这里只剩"这一类账自己的明细"：仪表盘 + 可展开的账户行
                                 item { LedgerDashboardCard(vm, label = label, color = color) }
                                 when {
                                     all.isEmpty() ->
@@ -178,41 +203,12 @@ fun DispatcherLedgerScreen(
                             // ---- 订单账 ----
                             else -> {
                                 item {
-                                    ReportTimeNav(
-                                        mode = vm.chartMode,
-                                        anchor = vm.chartAnchor,
-                                        periodText = vm.periodText,
-                                        onModeChange = { vm.applyMode(it) },
-                                        onAnchorChange = { vm.setAnchor(it) },
-                                    )
-                                }
-                                item {
-                                    SectionCard {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("账单趋势", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                            TextButton(onClick = { vm.chartType = if (vm.chartType == "line") "bar" else "line" }) {
-                                                Text(if (vm.chartType == "line") "条形图" else "折线图")
-                                            }
-                                        }
-                                        Spacer(Modifier.height(6.dp))
-                                        val cs = vm.chartSeries
-                                        if (cs.isEmpty()) {
-                                            ChartEmpty("该时段暂无账单")
-                                        } else {
-                                            val vals = cs.map { it.second.toFloat() }
-                                            val labels = cs.map { it.first.substring(5).replace("-", "/") }
-                                            if (vm.chartType == "line") LineChart(vals, labels, Color(MoneyOrange))
-                                            else BarChart(vals, labels, Color(MoneyOrange))
-                                        }
-                                    }
-                                }
-                                item {
                                     SectionCard {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Column(Modifier.weight(1f)) {
                                                 // 与另外三类账**同一个 KPI 版式**（仪表盘思维：钱单独一行）
                                                 KpiBlock(
-                                                    label = "订单账合计（当前时间范围）",
+                                                    label = "订单账合计（" + vm.periodWord + "）",
                                                     total = vm.total(),
                                                     stats = "共 " + vm.entries.size + " 笔流水" +
                                                         if (vm.entriesTruncated) "（只含已取到的）" else "",
@@ -230,14 +226,14 @@ fun DispatcherLedgerScreen(
                                     item { EmptyView("该时段暂无账目", Modifier.fillMaxWidth()) }
                                 } else {
                                     // 服务端只回了一页时**说出来**（判据是响应头 `X-Truncated`，
-                                    // 见 DispatcherLedgerViewModel）。⚠️ 上面那两张卡（趋势/合计）
-                                    // 是拿这一页在客户端算的 —— 不说的话"当前范围内合计"会被
+                                    // 见 DispatcherLedgerViewModel）。⚠️ 上面那两张卡（合计/趋势）
+                                    // 都是拿这一页在客户端算的 —— 不说的话"当前范围内合计"会被
                                     // 当成整段总额，而它其实只含看得见的这些行。
                                     if (vm.entriesTruncated) {
                                         item {
                                             TruncationNote(
                                                 vm.entriesLimit,
-                                                "更早的请用上方时间导航缩小范围；上面的合计与趋势只含已取到的这些行",
+                                                "更早的请用上方日期档位缩小范围；上面的合计与图只含已取到的这些行",
                                             )
                                         }
                                     }
@@ -260,6 +256,19 @@ fun DispatcherLedgerScreen(
                 }
             }
         }
+    }
+
+    // 自定义日期（与筛选条共用同一个弹层；只选一头点「应用」＝什么都不做）
+    if (showCustomRange) {
+        DateRangeDialog(
+            initialFrom = vm.customFrom,
+            initialTo = vm.customTo,
+            onDismiss = { showCustomRange = false },
+            onApply = { f, t ->
+                showCustomRange = false
+                vm.applyCustomRange(f, t)
+            },
+        )
     }
 
     // 新增记账弹窗
@@ -347,6 +356,89 @@ private fun LedgerTabBar(tab: Int, onTab: (Int) -> Unit) {
     }
 }
 
+/**
+ * 图表类型切换条：只列**这一档真的画得出来**的类型。
+ *
+ * 货主账 / 批发商账没有折线（接口只回账户汇总，见 `DispatcherLedgerViewModel.chartTypes`）——
+ * 与其给一个点了没反应的档，不如不给，并用一行小字说明为什么。
+ */
+@Composable
+private fun LedgerChartSwitch(vm: DispatcherLedgerViewModel) {
+    val types = vm.chartTypes()
+    SegmentedStatusTabs(
+        labels = types.map { chartTypeLabel(it) },
+        colors = types.map {
+            when (it) {
+                CHART_LINE -> Color(0xFF1E6FFF)
+                CHART_BAR -> Color(MgrGreen)
+                else -> Color(MoneyOrange)
+            }
+        },
+        selected = types.indexOf(vm.chartTypeNow).coerceAtLeast(0),
+        onSelect = { vm.chartType = types[it] },
+    )
+    if (types.size < CHART_TYPES_ALL.size) {
+        Text(
+            "这一类只有账户汇总、没有按天的数，所以给排行与构成两种图",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+    }
+}
+
+/**
+ * 统计图卡 —— 三种图共用一张卡，卡片只负责画。
+ *
+ * ⚠️ 图上的数**必须**与下面那行合计同源：这里一律取 VM 算好的序列/切片
+ *    （口径与取舍写在 `LedgerCharts.kt` 顶部），卡片自己不再加一遍。
+ * ⚠️ 订单账那一档要标出"只含已取到的"：合计与图都是拿**这一页流水**在客户端算的，
+ *    不说的话它会被当成整段时间的总额（服务端上限 1000 条）。
+ */
+@Composable
+private fun LedgerChartCard(vm: DispatcherLedgerViewModel) {
+    val title = when (vm.tab) {
+        0 -> "账单趋势"
+        1 -> "司机应得"
+        else -> "账户排行"
+    } + " · " + vm.periodWord
+    SectionCard {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        if (vm.tab == 0 && vm.entriesTruncated) {
+            Text(
+                "只含已取到的 " + vm.entries.size + " 笔（服务端上限 " + (vm.entriesLimit?.toString() ?: "未回报") + "）",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        when (vm.chartTypeNow) {
+            CHART_LINE -> {
+                val rows = vm.seriesForChart()
+                if (rows.isEmpty()) ChartEmpty("该时段暂无账单")
+                else LineChart(rows.map { it.second.toFloat() }, rows.map { dayLabel(it.first) }, Color(0xFF1E6FFF))
+            }
+            CHART_BAR -> {
+                val (values, labels) = vm.barsForChart()
+                if (values.isEmpty()) ChartEmpty("该时段暂无账单")
+                // 按天的条形用绿、账户排行用橙：图例说的"这是什么"应该和颜色一起变
+                else BarChart(values, labels, if (vm.tab == 0 || vm.tab == 1) Color(MgrGreen) else Color(MoneyOrange))
+            }
+            else -> {
+                val rows = vm.slicesForChart()
+                if (rows.isEmpty()) ChartEmpty("该时段暂无账单")
+                else PieChart(
+                    slices = rows.map { PieSlice(it.first, it.second.toFloat(), "¥" + formatMoney(it.second.toString())) },
+                    colors = ChartPalette.map { Color(it) },
+                    centerTitle = "合计",
+                    // 环心那个数取**切片之和**：图上每一块加起来必须正好等于中间那个数
+                    centerValue = "¥" + formatMoney(rows.sumOf { it.second }.toString()),
+                )
+            }
+        }
+    }
+}
+
 // ============================================================ 账本仪表盘
 //
 // 用户 2026-09-19 第二次拍板：「**所有的账本你可以一个仪表盘的思维进行去构建**」——
@@ -400,7 +492,8 @@ private fun LedgerDashboardCard(
     val searching = vm.query.isNotBlank()
     SectionCard {
         KpiBlock(
-            label = if (searching) "按「" + vm.query.trim() + "」筛出的合计" else label + "账合计（当前时间范围）",
+            // 口径词跟着窗口走（§4.9）：档位是「全部」时写"当前时间范围"会让人以为有个具体窗口
+            label = if (searching) "按「" + vm.query.trim() + "」筛出的合计" else label + "账合计（" + vm.periodWord + "）",
             total = d.total,
             stats = d.accounts.toString() + " 个账户 · 共 " + d.count + " 笔",
             // 过滤时把"全部是多少"一起说出来：不说的话用户会拿筛出的那个数当总额去对账
@@ -409,8 +502,8 @@ private fun LedgerDashboardCard(
                     formatMoney(all.sumOf { it.total }.toString()) + "（清空搜索可看全部）"
             } else null,
         )
-        Spacer(Modifier.height(12.dp))
-        SearchField(value = vm.query, onValueChange = { vm.query = it })
+        // ⚠️ 搜索框**不在这里**：它横跨整页、在左栏上面（设计规范 §4.6）——
+        //    两处各放一个就是同一屏两个搜索框、同一个状态，用户不知道该用哪个。
     }
 }
 
@@ -709,38 +802,3 @@ private fun LedgerRow(
     }
 }
 
-/** 账本工具入口行：客户收款 / 司机结算 / 开销管理 / 车辆台账（四账页签之外的新增工具） */
-@Composable
-private fun AccountToolsEntry(
-    onReceipts: () -> Unit,
-    onSettlements: () -> Unit,
-    onExpenses: () -> Unit,
-    onVehicles: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ToolChip(Icons.Default.Payments, "客户收款", MoneyOrange, onReceipts)
-        ToolChip(Icons.Default.Handshake, "司机结算", MgrGreen, onSettlements)
-        ToolChip(Icons.Default.Receipt, "开销管理", 0xFF00A2C7, onExpenses)
-        ToolChip(Icons.Default.LocalShipping, "车辆台账", 0xFF6950F5, onVehicles)
-    }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.ToolChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Long, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.weight(1f).height(52.dp),
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(icon, contentDescription = null, tint = androidx.compose.ui.graphics.Color(color), modifier = Modifier.size(20.dp))
-            Spacer(Modifier.height(2.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}

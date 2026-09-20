@@ -424,64 +424,37 @@ fun SoTextField(
 }
 
 /**
- * 通用日期范围筛选（订单/账本/库存流水复用）：全部/今天/近7天/本月 + 自定义起止日期。
+ * 通用日期范围筛选（订单/账本/库存流水复用）：档位胶囊 + 自定义起止日期。
  * 回调 onChange(dateFrom, dateTo)：null=不限；格式 YYYY-MM-DD。
+ *
+ * ⚠️ 档位与它们的区间在 `DatePresets`（**唯一一份实现**），胶囊那一行在 [DatePresetRow]。
+ *    自己在这里再写一遍 `when(档位)`，就会出现"账本页的本月和这里的本月差几天"。
+ * ⚠️ 状态在这个组件内部（筛选条用完就丢）；账本页要把它存进 ViewModel（换档要联动查询），
+ *    所以直接用 [DatePresetRow] + [DateRangeDialog]，不要用这个。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DateRangeFilter(onChange: (String?, String?) -> Unit, modifier: Modifier = Modifier) {
-    var preset by remember { mutableStateOf("全部") }
+    var preset by remember { mutableStateOf(DatePresets.ALL) }
     var customFrom by remember { mutableStateOf<String?>(null) }
     var customTo by remember { mutableStateOf<String?>(null) }
     var showDialog by remember { mutableStateOf(false) }
-    var showDatePicker by remember { mutableStateOf(false) }
-    var pickingField by remember { mutableStateOf("from") }
 
-    fun apply(p: String) {
-        preset = p
-        val today = LocalDate.now()
-        when (p) {
-            "全部" -> onChange(null, null)
-            "今天" -> onChange(today.toString(), today.toString())
-            "近7天" -> onChange(today.minusDays(6).toString(), today.toString())
-            "本月" -> onChange(today.withDayOfMonth(1).toString(), today.toString())
-        }
-    }
-
-    Row(modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("全部", "今天", "近7天", "本月").forEach { p ->
-            val selected = preset == p
-            Surface(
-                onClick = { apply(p) },
-                shape = CircleShape,
-                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                shadowElevation = if (selected) 0.dp else 1.dp,
-                modifier = Modifier.height(38.dp),
-            ) {
-                Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                    Text(p, style = MaterialTheme.typography.labelLarge)
-                }
+    DatePresetRow(
+        selected = preset,
+        customFrom = customFrom,
+        customTo = customTo,
+        onPick = { p ->
+            if (p == DatePresets.CUSTOM) {
+                showDialog = true
+            } else {
+                preset = p
+                val r = DatePresets.rangeOf(p, LocalDate.now())
+                onChange(r?.first, r?.second)
             }
-        }
-        val fromLocal = customFrom
-        val toLocal = customTo
-        val customLabel = if (fromLocal != null && toLocal != null)
-            fromLocal.substring(5) + "~" + toLocal.substring(5) else "自定义"
-        val customSelected = preset == "自定义"
-        Surface(
-            onClick = { showDialog = true },
-            shape = CircleShape,
-            color = if (customSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-            contentColor = if (customSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-            shadowElevation = if (customSelected) 0.dp else 1.dp,
-            modifier = Modifier.height(38.dp),
-        ) {
-            Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                Text(customLabel, style = MaterialTheme.typography.labelLarge)
-            }
-        }
-    }
+        },
+        modifier = modifier,
+    )
 
     if (showDialog) {
         DateRangeDialog(
@@ -489,12 +462,58 @@ fun DateRangeFilter(onChange: (String?, String?) -> Unit, modifier: Modifier = M
             initialTo = customTo,
             onDismiss = { showDialog = false },
             onApply = { f, t ->
-                preset = if (f == null && t == null) "全部" else "自定义"
+                preset = if (f == null && t == null) DatePresets.ALL else DatePresets.CUSTOM
                 customFrom = f
                 customTo = t
                 onChange(f, t)
             },
         )
+    }
+}
+
+/**
+ * 日期档位那一行（胶囊）—— **唯一一份实现**：订单/账本/库存流水的筛选条与派单员账本都用它。
+ *
+ * 状态由调用方持有（[selected] / [customFrom] / [customTo]，见 [DateRangeFilter] 与
+ * `DispatcherLedgerViewModel`）：账本页换一档要联动重新查询，所以它必须存在 ViewModel 里；
+ * 那几个筛选条 `remember` 就够。这一行只负责画。
+ */
+@Composable
+fun DatePresetRow(
+    selected: String,
+    customFrom: String?,
+    customTo: String?,
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        DatePresets.ROW.forEach { p ->
+            DatePill(label = p, selected = selected == p, onClick = { onPick(p) })
+        }
+        DatePill(
+            label = DatePresets.customLabel(customFrom, customTo),
+            selected = selected == DatePresets.CUSTOM,
+            onClick = { onPick(DatePresets.CUSTOM) },
+        )
+    }
+}
+
+@Composable
+private fun DatePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+        contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+        shadowElevation = if (selected) 0.dp else 1.dp,
+        modifier = Modifier.height(38.dp),
+    ) {
+        Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
@@ -775,6 +794,18 @@ data class RailItem(
     val label: String,
     /** 第二行小字（数量/金额/单数…）；null = 只有一行。 */
     val subtitle: String? = null,
+    /**
+     * 图标。**只有"这一列是页面级导航"时才给**（派单员账本那 8 格要"图标 + 文字"）；
+     * 分类/司机/地址来源那些不带 —— 它们本身就是有名字的类别，加图标只会让一列更花。
+     */
+    val icon: ImageVector? = null,
+    /** 图标语义色；null = 跟着选中态走（未选中用弱化色）。 */
+    val iconTint: Color? = null,
+    /**
+     * 分组标题：这一格的分组**与上一格不同**时，在它上面画一条小标题
+     * （账本的「账本 / 工具」——不分组的话用户分不清哪几格是切右边、哪几格是离开这一页）。
+     */
+    val section: String? = null,
 )
 
 /**
@@ -821,7 +852,7 @@ fun MasterRail(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                         color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = if (twoLine) 2 else 2,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (item.subtitle != null) {
