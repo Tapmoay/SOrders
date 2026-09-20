@@ -184,6 +184,23 @@
 
 ✅ **上一轮加的那条判据当场证明了自己**：这一轮我改完后端没重跑索引，`_check_endpoint_index_fresh.py` **立刻报红**（"端点索引已经过期"）——以前这件事没有任何检查在看（这一轮开工前的实测：把行号改成 999 也全绿）。重新生成后 50/50。
 
+### 第八轮：删掉一个"KDoc 承诺了、而从来没做过"的入口（`HintPrefs.resetAll`）
+
+`core/HintPrefs.kt::resetAll()` 的 KDoc 写着「全部归零（**设置页那个「重置界面提示」**）」，
+而那个入口**从来没有做过**：全仓搜 `resetAll` 只有它自己那一行声明，`ProfileScreen` 的「界面提示」块里
+只有一个「一直显示」开关。也就是一句"给用户看的说明"承诺了一个不存在的按钮。
+
+**为什么删方法而不是补按钮**：补按钮是**加一个功能**（要不要给用户一个"重置界面提示"的入口是你的决定，
+已列进待拍板）；而这一轮的目标是精简。删掉之后"想再看一遍那几句话"仍有两条路：
+① 上面的「一直显示」开关；② 清 App 数据（会连登录态一起丢）。原地留了一段注释写清来龙去脉，
+并写明**要补就补在 `ProfileScreen` 的「界面提示」块里，别只把方法加回来**。
+
+⚠️ 顺手记一个**检查的盲区**：这件事**没有任何检查会红** —— `_check_dead_code.py` 只查
+「文件内没人用的 import / **private** 声明」，而 `resetAll` 是 public（它当时正是为了让别的文件能调才 public）。
+"跨文件没人用的 public 声明"这一类（本轮与上一轮一共抓到 5 处半接线）目前**只能靠人读**。
+
+**验证**：`:app:compileEmuDebugKotlin` + `:app:testEmuDebugUnitTest` **BUILD SUCCESSFUL** · 装到 emulator-5556 启动 smoke 通过（`topResumedActivity=MainActivity`、无 FATAL）· `_check_all.py` **50/50**。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
