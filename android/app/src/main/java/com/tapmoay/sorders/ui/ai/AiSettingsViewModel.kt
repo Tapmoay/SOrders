@@ -269,7 +269,9 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         loadMemories()
         apiKeyInput = ai.keyStore.apiKey().orEmpty()
         hasStoredKey = apiKeyInput.isNotBlank()
-        val enabled = ai.keyStore.enabledTools()
+        // 默认值按角色给（派单员全开）——设置页必须与 `AiContainer.tools` 用**同一个判据**，
+        // 否则会出现"开关显示关着、其实能用"（或反过来）。
+        val enabled = ai.keyStore.enabledTools(ai.currentRole)
         tools.clear()
         // 按角色裁：货主不该看到"库存预警/司机跑车统计"这种他永远用不上的开关
         // （打开了也不生效 = "看起来有、其实没有"）。

@@ -14,6 +14,37 @@ import org.junit.Test
  */
 class AiEndpointRulesTest {
 
+    /**
+     * AI 工具的**默认开关按角色**（2026-09-20 用户：「派单员所有 AI 功能全都是默认开启」）。
+     *
+     * 这条以前埋在 `AiKeyStore.enabledTools()` 里（要 Context + SharedPreferences，只有真机能验），
+     * 抽成纯函数之后这里能把它钉住：派单员一个不漏；其余角色**不含**写工具。
+     */
+    @Test
+    fun `派单员默认全开、其余角色不含写工具`() {
+        val all = AiKeyStore.DEFAULT_ENABLED_TOOLS
+        assertEquals("派单员应当全部默认开", all, AiKeyStore.defaultEnabledTools(AiRole.DISPATCHER))
+        for (role in listOf(AiRole.SHIPPER, null)) {
+            val d = AiKeyStore.defaultEnabledTools(role)
+            assertTrue("非派单员不该默认开写工具：$role", AiTools.PREVIEW_WRITE !in d)
+            assertEquals("除写工具外应当都一样", all - AiKeyStore.OPT_IN_TOOLS, d)
+        }
+    }
+
+    @Test
+    fun `新增工具：派单员不排除、其余角色排除写工具`() {
+        assertEquals(
+            "派单员对新增工具不该有任何排除",
+            emptySet<String>(),
+            AiKeyStore.optInExclusion(AiRole.DISPATCHER),
+        )
+        assertEquals(
+            "非派单员要把写工具排除在「新增默认开」之外",
+            AiKeyStore.OPT_IN_TOOLS,
+            AiKeyStore.optInExclusion(AiRole.SHIPPER),
+        )
+    }
+
     @Test
     fun `发布包必须 https`() {
         assertNull(AiEndpointRules.error("https://api.deepseek.com/v1", debug = false))

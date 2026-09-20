@@ -142,7 +142,9 @@ class AiContainer(
     val tools: AiToolset by lazy {
         AiTools(
             repo = repo,
-            enabledNames = { keyStore.enabledTools() },
+            // ⚠️ 必须把**角色**传进去：默认值是按角色给的（派单员全开，
+            //    其余角色除写工具外全开）——见 `AiKeyStore.defaultEnabledTools`。
+            enabledNames = { keyStore.enabledTools(role()) },
             readModules = { keyStore.enabledReadModules() },
             allowCostProvider = { keyStore.costVisible() },
             rememberFact = { subject, fact -> rememberFact(subject, fact) },

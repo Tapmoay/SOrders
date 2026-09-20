@@ -464,7 +464,7 @@ def main() -> int:
     c.present(
         "「上次保存后新增的工具」按默认开处理（老用户升级后新功能不能静默失效）",
         ks,
-        r"brandNew = DEFAULT_ENABLED_TOOLS - seen - OPT_IN_TOOLS",
+        r"brandNew = DEFAULT_ENABLED_TOOLS - seen - optInExclusion\(role\)",
     )
     c.present("保存时刷新「见过的工具」清单", ks, r"KEY_TOOLS_SEEN, DEFAULT_ENABLED_TOOLS\.joinToString")
 
@@ -536,10 +536,26 @@ def main() -> int:
     for rel in ("AiWriteBasicHandlers.kt", "AiWriteOrderHandlers.kt"):
         c.absent(f"{rel} 里没有自己再写一遍金额上限", read(AI / rel), r'"1000000"')
 
-    # ---- 2d-8 默认关：老用户升级后不该凭空多出一个能改数据的 AI ----
-    c.present("新增的写工具必须由用户主动打开", ks, r"val OPT_IN_TOOLS: Set<String> = setOf\(AiTools\.PREVIEW_WRITE\)")
-    c.present("首装时它也是关的", ks, r"return DEFAULT_ENABLED_TOOLS - OPT_IN_TOOLS")
-    c.present("「新增默认开」这条规矩必须把它排除在外", ks, r"DEFAULT_ENABLED_TOOLS - seen - OPT_IN_TOOLS")
+    # ---- 2d-8 默认值：**按角色**（2026-09-20 用户改的口径）----
+    #
+    # 用户原话：「**派单员所有 AI 功能全都是默认开启**」。
+    # 所以原来那两条"一律默认关"的判据换成了按角色的判据，而**安全边界没变**：
+    #   · 写工具仍然只能通过 `preview_write` **申请**，落库要用户点确认卡；
+    #   · 非派单员（货主）仍然默认关——他升级后不该凭空多出一个会记账的 AI；
+    #   · 开关仍然在设置页里，随时能关。
+    c.present("写工具仍然走「主动申请」这一档（不是直接执行）", ks,
+              r"val OPT_IN_TOOLS: Set<String> = setOf\(AiTools\.PREVIEW_WRITE\)")
+    c.present("非派单员首装时写工具仍然是关的",
+              ks, r"else DEFAULT_ENABLED_TOOLS - OPT_IN_TOOLS")
+    c.present("**派单员首装全开**（用户 2026-09-20：「派单员所有 AI 功能全都是默认开启」）",
+              ks, r"if \(role == AiRole\.DISPATCHER\) DEFAULT_ENABLED_TOOLS")
+    c.present("「新增默认开」这条规矩：非派单员把写工具排除在外",
+              ks, r"DEFAULT_ENABLED_TOOLS - seen - optInExclusion\(role\)")
+    c.present("派单员对新增工具也不排除（否则新加的写动作对他装了没用）",
+              ks, r"if \(role == AiRole\.DISPATCHER\) emptySet\(\) else OPT_IN_TOOLS")
+    c.present("两个调用点都把角色传进去了（默认值按角色，不能只在一处生效）",
+              read(AI / "AiContainer.kt") + read(UI / "ai/AiSettingsViewModel.kt"),
+              r"enabledTools\(role\(\)\)|enabledTools\(ai\.currentRole\)")
     c.present("但它必须在默认集里（否则用户按了开关也不生效）", ks, r"AiTools\.PREVIEW_WRITE,")
 
     # ---- 2d-9 设置页要把「哪些会改数据」摊开 ----

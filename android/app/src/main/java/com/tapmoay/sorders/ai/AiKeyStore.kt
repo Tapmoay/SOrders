@@ -199,11 +199,12 @@ class AiKeyStore(
      * **有这个 key 但是空串** = 用户主动把 5 个开关全关了 → 必须返回空集。
      * （曾经这里用 `ifEmpty { 默认全开 }`，会把「全关」这件事悄悄变成「全开」。）
      */
-    fun enabledTools(): Set<String> {
+    fun enabledTools(role: AiRole? = null): Set<String> {
         if (!prefs.contains(KEY_TOOLS)) {
             markToolsSeen()
-            // 首装：除 [OPT_IN_TOOLS] 外全开——能改业务数据的工具不替用户做主。
-            return DEFAULT_ENABLED_TOOLS - OPT_IN_TOOLS
+            // 首装：按**角色**给默认值 —— 派单员全开，其余角色除写工具外全开。
+            // （2026-09-20 用户：「派单员所有 AI 功能全都是默认开启」。）
+            return defaultEnabledTools(role)
         }
         val saved = splitNames(prefs.getString(KEY_TOOLS, ""))
         // ⚠️ 「上次保存之后**新加**的工具」要按默认开处理。
@@ -219,7 +220,7 @@ class AiKeyStore(
         // 这一条一旦漏掉，`preview_write` 会绕过设置页开关直接可用——
         // 静默、无报错、也没有任何界面提示，正是最坏的那种 bug。
         val seen = splitNames(prefs.getString(KEY_TOOLS_SEEN, ""))
-        val brandNew = DEFAULT_ENABLED_TOOLS - seen - OPT_IN_TOOLS
+        val brandNew = DEFAULT_ENABLED_TOOLS - seen - optInExclusion(role)
         val effective = (saved + brandNew).intersect(DEFAULT_ENABLED_TOOLS)
         markToolsSeen()
         return effective
@@ -598,5 +599,36 @@ class AiKeyStore(
          *   但用户在设置页打开后能存下来、下次仍然生效。
          */
         val OPT_IN_TOOLS: Set<String> = setOf(AiTools.PREVIEW_WRITE)
+
+        /**
+         * 这个角色**首次使用**时默认开哪些工具（用户 2026-09-20 的决定）。
+         *
+         * 用户原话：「**派单员所有 AI 功能全都是默认开启**」。
+         * 所以派单员 = **全开**（含 [OPT_IN_TOOLS] 里的写工具）；其余角色仍按老规矩
+         * （除写工具外全开）。
+         *
+         * ### 为什么派单员可以默认全开（这不是把安全闸拆了）
+         * - 他本来就是**唯一**有写权限的角色：货主的动作白名单是
+         *   `AiWrites.SHIPPER_ACTIONS`（fail-closed），司机端连 AI 入口都没有；
+         * - "能改数据"这条路上还有**确认卡**：`preview_write` 只是**申请**，
+         *   真正落库要他本人在卡上点一下（`AiWriteService.execute` 的唯一调用点就是那个按钮）；
+         * - 开关仍然在设置页里，随时能关；关掉之后这一层照旧立刻生效。
+         *
+         * 判据写成**纯函数**是为了能被单测钉住（`AiToolsTest`）——
+         * 以前这段逻辑埋在 `enabledTools()` 里，只有真机能验。
+         */
+        fun defaultEnabledTools(role: AiRole?): Set<String> =
+            if (role == AiRole.DISPATCHER) DEFAULT_ENABLED_TOOLS
+            else DEFAULT_ENABLED_TOOLS - OPT_IN_TOOLS
+
+        /**
+         * 「新增的工具」自动开时，**要不要把它排除**。
+         *
+         * 非派单员：写工具不自动开（老用户升级后不该凭空多出一个会记账的 AI）。
+         * 派单员：什么都不排除 —— 用户要的就是"派单员所有 AI 功能全都默认开启"，
+         * 新加的写动作对他也应该装上就能用（仍然要过确认卡）。
+         */
+        fun optInExclusion(role: AiRole?): Set<String> =
+            if (role == AiRole.DISPATCHER) emptySet() else OPT_IN_TOOLS
     }
 }
