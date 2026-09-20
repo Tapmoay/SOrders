@@ -31,7 +31,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -47,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.tapmoay.sorders.core.HintPrefs
+import com.tapmoay.sorders.data.remote.dto.OrderProductDto
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -1084,5 +1084,59 @@ fun SearchField(
         shape = RoundedCornerShape(12.dp),
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * 「逐行填退货数量」那一块 —— 派单员（执行退货）与货主（申请退货）**共用这一份**。
+ *
+ * ### 为什么必须共用（2026-09-21 精简轮）
+ * 两个角色页面里这段原来是**逐字抄的两遍**（约 31 行）：每行显示「下单 / 货损 / 已退 / 可退」、
+ * 用 − / + 调数量、`+` 的上限就是 `maxReturnable(line)`。而这是**退货金额的入口** ——
+ * 「能退几件」算错一件，红冲金额与补回库存就跟着错（用户点名不许出错的那几块之一）。
+ * 只改一份的后果不会报错：**两个角色对同一张单会给出不同的可退数量**。
+ *
+ * ⚠️ 刻意**不**抽走的：引导语、两个按钮的措辞、以及下面的汇总行 ——
+ *   货主那边是「申请」（提交后库存账本都不变），派单员那边是「执行」，说明与措辞本来就该不同。
+ *   共用的是**逐行编辑器本身**（同一个操作、同一套上限），不是整张弹层。
+ */
+@Composable
+fun OrderReturnLines(
+    lines: List<OrderProductDto>,
+    returnQty: Map<Long, Int>,
+    /** 这一行最多能退几件（判据在各自的 ViewModel 里，与后端同一口径）。 */
+    maxReturnable: (OrderProductDto) -> Int,
+    onSetQty: (lineId: Long, qty: Int) -> Unit,
+) {
+    lines.forEach { line ->
+        val max = maxReturnable(line)
+        val qty = returnQty[line.id] ?: 0
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(line.productNameSnapshot, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    buildString {
+                        append("下单 ").append(line.quantity)
+                        if (line.damageQuantity > 0) append(" · 货损 ").append(line.damageQuantity)
+                        if (line.returnedQuantity > 0) append(" · 已退 ").append(line.returnedQuantity)
+                        append(" · 可退 ").append(max)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(
+                onClick = { onSetQty(line.id, qty - 1) },
+                enabled = qty > 0,
+            ) { Icon(Icons.Default.Remove, contentDescription = "减") }
+            Text(qty.toString(), style = MaterialTheme.typography.titleMedium)
+            IconButton(
+                onClick = { onSetQty(line.id, qty + 1) },
+                enabled = qty < max,
+            ) { Icon(Icons.Default.Add, contentDescription = "加") }
+        }
+    }
 }
 

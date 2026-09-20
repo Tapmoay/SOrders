@@ -34,6 +34,8 @@ COMPONENTS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/Com
 STATS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/LedgerPersonStats.kt"
 RETURN_RULES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/core/ReturnRules.kt"
 VM_ORDERS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherOrdersViewModel.kt"
+#: 货主端那一页（退货弹窗的另一个消费点）—— 2026-09-21 起与派单员端共用 `OrderReturnLines`
+SHIPPER_SCREEN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperOrdersScreen.kt"
 #: 账本展开行用的状态中文名（2026-09-21 补上「已退货」那一档；注入点钉在这儿）
 PEEK = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderPeek.kt"
 
@@ -135,6 +137,24 @@ CASES: list[tuple[str, Path, object]] = [
         "分摊的余数不落在最后一行（各商品未收加起来不等于订单欠款）",
         STATS,
         sub("i == lines.lastIndex -> arrears - allocated", "i == -1 -> arrears - allocated"),
+    ),
+    # 2026-09-21：逐行退货编辑器（下单/货损/已退/可退 + −/+）收进了
+    # `ui/common/Components.kt::OrderReturnLines` —— 原来派单员端与货主端**各抄了一遍**。
+    # 这条注入把货主端那份抄回去：编辑器出现两份（两边的可退数量可能各算各的），红线必须报红。
+    (
+        "货主端又抄了一份逐行退货编辑器（两个角色对同一张单可能给出不同的可退数量）",
+        SHIPPER_SCREEN,
+        sub(
+            "                        OrderReturnLines(\n"
+            "                            lines = order.orderProducts,\n"
+            "                            returnQty = vm.returnQty,\n"
+            "                            maxReturnable = { vm.maxReturnable(it) },\n"
+            "                            onSetQty = { id, qty -> vm.setReturnQty(id, qty) },\n"
+            "                        )",
+            "                        order.orderProducts.forEach { line ->\n"
+            "                            Text(\"下单 \" + line.quantity + \" · 可退 \" + vm.maxReturnable(line))\n"
+            "                        }",
+        ),
     ),
 ]
 

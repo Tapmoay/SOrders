@@ -280,8 +280,30 @@ def main() -> int:
     c.present("订单管理行上有「退货」按钮", screen, r'Text\("退货"\)')
     c.present("按钮的状态门取 RETURNABLE（点了必然被拒的按钮比没有更糟）", screen, r"order\.status in OrderStatusModel\.RETURNABLE")
     c.present("还有可退的量才给这个按钮", screen, r"vm\.hasReturnable\(order\)")
-    c.present("退货弹窗让用户逐行勾数量", screen, r"vm\.setReturnQty\(line\.id")
-    c.present("界面上的可退上限与后端同一份（vm.maxReturnable）", screen, r"vm\.maxReturnable\(line\)")
+    # ⚠️ 2026-09-21：这一段逐行编辑器（每行的 下单/货损/已退/可退 + −/+ 与上限）原来在
+    #    派单员与货主两个页面里**逐字抄了两遍**（约 31 行）。它是**退货金额的入口** ——
+    #    只改一份的后果是"两个角色对同一张单给出不同的可退数量"，而两边都不会报错。
+    #    现在收在 `ui/common/Components.kt::OrderReturnLines`，判据跟着改：
+    #    ① 编辑器只有一处；② **消费点从源码算**（谁页面上有 `vm.returnQty`，谁就必须用共用组件）；
+    #    ③ "· 可退"那行只许出现在一个文件里（再抄一份立刻红）。
+    lines_ui = read(ANDROID / "ui/common/Components.kt")
+    c.present("逐行退货编辑器只此一处（OrderReturnLines）", lines_ui, r"fun OrderReturnLines\(")
+    c.present("上限由调用方传进来（编辑器自己不重算）", lines_ui, r"enabled = qty < max")
+    c.present("退货弹窗逐行勾数量（走共用编辑器）", screen, r"onSetQty = \{ id, qty -> vm\.setReturnQty\(id, qty\) \}")
+    c.present("界面上的可退上限与后端同一份（vm.maxReturnable）", screen, r"maxReturnable = \{ vm\.maxReturnable\(it\) \}")
+    return_screens = [p for p in (ANDROID / "ui").rglob("*.kt") if "vm.returnQty" in read(p)]
+    c.ok(
+        f"有退货弹窗的页面都用同一份编辑器（从源码算到 {len(return_screens)} 个）",
+        len(return_screens) >= 2 and all("OrderReturnLines(" in read(p) for p in return_screens),
+        f"页面={[p.name for p in return_screens]}，"
+        f"没用的={[p.name for p in return_screens if 'OrderReturnLines(' not in read(p)]}",
+    )
+    dup_lines = [p.name for p in (ANDROID / "ui").rglob("*.kt") if "· 可退" in read(p)]
+    c.ok(
+        "「· 可退」那一行只许在一个文件里（再抄一份编辑器就会出现两处）",
+        len(dup_lines) == 1,
+        f"出现在 {dup_lines}",
+    )
     card = read(ANDROID / "ui/common/OrderCard.kt")
     c.present("下单人=货主 时不再重复画货主那一行", card, r"ordererIsShipper\(order\.contactBossName")
     c.present("那条判据只有一处实现（卡片与详情共用）", card, r"internal fun ordererIsShipper\(")

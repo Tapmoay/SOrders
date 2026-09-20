@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -224,37 +223,12 @@ fun ShipperOrdersScreen(
                             TextButton(onClick = { vm.returnAll() }) { Text("全部勾满") }
                             TextButton(onClick = { vm.returnNone() }) { Text("全清零") }
                         }
-                        order.orderProducts.forEach { line ->
-                            val max = vm.maxReturnable(line)
-                            val qty = vm.returnQty[line.id] ?: 0
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(line.productNameSnapshot, style = MaterialTheme.typography.bodyMedium)
-                                    Text(
-                                        buildString {
-                                            append("下单 ").append(line.quantity)
-                                            if (line.damageQuantity > 0) append(" · 货损 ").append(line.damageQuantity)
-                                            if (line.returnedQuantity > 0) append(" · 已退 ").append(line.returnedQuantity)
-                                            append(" · 可退 ").append(max)
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { vm.setReturnQty(line.id, qty - 1) },
-                                    enabled = qty > 0,
-                                ) { Icon(Icons.Default.Remove, contentDescription = "减") }
-                                Text(qty.toString(), style = MaterialTheme.typography.titleMedium)
-                                IconButton(
-                                    onClick = { vm.setReturnQty(line.id, qty + 1) },
-                                    enabled = qty < max,
-                                ) { Icon(Icons.Default.Add, contentDescription = "加") }
-                            }
-                        }
+                        OrderReturnLines(
+                            lines = order.orderProducts,
+                            returnQty = vm.returnQty,
+                            maxReturnable = { vm.maxReturnable(it) },
+                            onSetQty = { id, qty -> vm.setReturnQty(id, qty) },
+                        )
                         Spacer(Modifier.height(8.dp))
                         Text(
                             "一共申请退 " + vm.returnTotalQty() + " 件。派单员只能按这个数量退，不能改。",
