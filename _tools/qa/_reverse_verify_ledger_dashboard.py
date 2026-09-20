@@ -27,6 +27,8 @@ REPORT_HOME = ANDROID / "ui/dispatcher/ReportHome.kt"
 ENTRY_GRID = ANDROID / "ui/common/EntryGrid.kt"
 WORKBENCH = ANDROID / "ui/home/WorkbenchScreen.kt"
 MODULES = ANDROID / "ui/nav/Modules.kt"
+#: 共用组件（`DateFilterDialogs` 那份"两个弹层 + 状态机"住在它里面）
+COMPONENTS = ANDROID / "ui/common/Components.kt"
 NAVGRAPH = ANDROID / "ui/nav/NavGraph.kt"
 COLOR = ANDROID / "ui/theme/Color.kt"
 
@@ -76,6 +78,21 @@ MUTATIONS = [
         '        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),\n'
         '        ModuleEntry("司机结算", Routes.DISPATCH_SETTLEMENTS, Icons.Default.Handshake, color = 0xFF7CB342L),\n',
         "6 格里没有「司机结算」",
+    ),
+    # ---- 2026-09-21 精简轮：两个弹层的接线收进共用 host 之后，锚点搬到那儿 ----
+    (
+        "账本页不再走共用的 DateFilterDialogs（自己又抄一遍两个弹层）",
+        SCREEN,
+        "    DateFilterDialogs(\n",
+        "    DatePresetDialog(\n",
+        "药丸点开是档位清单（走共用的 DateFilterDialogs）",
+    ),
+    (
+        "共用的 host 里「自定义」那一档不再接着开区间弹层（点了自定义什么都不发生）",
+        COMPONENTS,
+        "if (label == DatePresets.CUSTOM) showCustom = true else onPickPreset(label)",
+        "if (label == DatePresets.CUSTOM) showCustom = false else onPickPreset(label)",
+        "「自定义」那一档接着开区间弹层",
     ),
     # ---- 第四轮（2026-09-20）：账本页的排版与那两处"直接去掉" ----
     (
@@ -150,22 +167,24 @@ MUTATIONS = [
     (
         "账本页又抄了一份自己的阶梯（两份迟早走散）",
         VM,
-        "        for (label in DatePresets.AUTO_LADDER) {\n            if (periodHasData(label)) {",
-        "        for (label in listOf(DatePresets.TODAY, DatePresets.YESTERDAY)) {\n            if (periodHasData(label)) {",
+        "        for (label in DatePresets.AUTO_LADDER) {\n",
+        "        for (label in listOf(DatePresets.TODAY, DatePresets.YESTERDAY)) {\n",
         "账本页读的是那一份共享阶梯",
     ),
     (
         "用户手动挑过档位之后，退档还会把他拽回去",
         VM,
-        "        if (userPickedPreset) return\n        for (label in AUTO_LADDER) {\n            if (periodHasData(label)) {\n",
-        "        for (label in AUTO_LADDER) {\n            if (periodHasData(label)) {\n",
+        "            if (!userPickedPreset) {\n"
+        "                switchPreset(DatePresets.pickWindow(DatePresets.AUTO_LADDER) { periodHasData(it) })\n"
+        "            }\n",
+        "            switchPreset(DatePresets.pickWindow(DatePresets.AUTO_LADDER) { periodHasData(it) })\n",
         "**用户自己挑过档位之后永不再自动改**",
     ),
     (
         "用户自己挑过档位之后，点某个人还会被他拽走（抢方向盘）",
         VM,
-        "        if (userPickedPreset) return\n        for (label in AUTO_LADDER) {\n            val r = DatePresets.rangeOf(label, LocalDate.now()) ?: continue\n",
-        "        for (label in AUTO_LADDER) {\n            val r = DatePresets.rangeOf(label, LocalDate.now()) ?: continue\n",
+        "    private suspend fun fallbackForPerson(key: String) {\n        if (userPickedPreset) return\n",
+        "    private suspend fun fallbackForPerson(key: String) {\n",
         "那个人退档与页面退档共用同一个开关",
     ),
     (

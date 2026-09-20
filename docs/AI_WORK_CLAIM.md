@@ -245,6 +245,28 @@
 进隔离区 30 天、用户不可见、**派单员可查可恢复**，到期才物理清理）。按"不可恢复"说，
 用户会以为删掉就没了 —— 与数据保留策略当场打架。改成「删除后订单进入回收站（30 天内可由派单员恢复）」。
 
+### 第十一轮：把「时间药丸的两个弹层」收成一份（全库最大的一块重复）
+
+**原来**：派单账本 / 货主账本 / 司机任务 / 司机运费 / 开销——**五个页面各写一遍**同样的两段
+（`if (showDatePresets) { DatePresetDialog(…) }` ＋ `if (showCustomRange) { DateRangeDialog(…) }`），
+共约 130 行。里面藏着一条最容易写错的规矩：**选中「自定义」要"先关档位清单、再开日期弹层"**
+（漏了或反了，表现是"点了自定义什么都没发生"，而只有用户点得到才发现）。五份副本＝这条规矩要改五次。
+
+| 我改的 | 内容 |
+| --- | --- |
+| `ui/common/Components.kt::DateFilterDialogs`（新） | 两个弹层 **＋ 它们的状态机**：调用方只给「药丸开没开」，第二层（自定义区间）的开关由它自己持有。⚠️ 第一个开关**仍然留在调用方**——账本页那份状态在 ViewModel 里、换档要联动重新查询，替它持有会把那条链切断（注释里写了） |
+| 五个页面 | 各删掉那两段（含自己的 `showCustomRange`），换成一次 `DateFilterDialogs(…)` 调用；`ExpensesScreen` 的 VM 里那个 `showCustomRange` 也删了，原地留注释说明"再想加回来先看那个函数" |
+| `_check_ledger_dashboard.py` / `_check_expense_page.py` | 锚点跟着搬到新位置，并**加了行为判据**（不放松）：页面必须真的调 `DateFilterDialogs(`；host 里确实开着档位清单；**「自定义」那一档必须接着开区间弹层**（这条是原来五份副本里最容易写错的） |
+| 两份反向验证 | 各加注入：页面不再走 host（又抄一遍）/ host 里两个弹层被拿走 / **host 里「自定义」不再开区间弹层** |
+
+**顺手修掉 3 条「从未被证明过」的判据**：`_reverse_verify_ledger_dashboard.py` 报 **30/33** ——
+3 条注入的替换串早就对不上源码（静默 SKIP），也就是说
+`_check_ledger_dashboard.py` 里「共享阶梯」「不许抢方向盘」这几条断言**一直没有敏感度证据**。
+按当前源码把 3 条注入全部重写 → **33/33**。（与第一轮修的 `OneShotSnackbar` 那条同一种病：
+**注入锚点会腐烂，而腐烂时它只是安静地跳过**。）
+
+**验证**：`_check_all.py` **50/50** · `_reverse_verify_ledger_dashboard.py` **33/33** · `_reverse_verify_expense_page.py` **17/17** · Android `assembleEmuDebug` + **913 单测 0 失败** · **真机走了一遍**（emulator-5556：工作台 → 账本管理 → 开销管理 → 点时间药丸 → 档位清单 11 档全在 → 点「自定义」→ **区间弹层真的打开了**，截图 `_archive/ui-01-datefilter-custom.png`）· 钱的对账 `39 项 / 确认缺陷 0 / 可疑 0`。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）

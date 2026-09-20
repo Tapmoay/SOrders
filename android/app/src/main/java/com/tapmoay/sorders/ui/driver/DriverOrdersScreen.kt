@@ -43,7 +43,6 @@ fun DriverOrdersScreen(
 ) {
     val vm: DriverOrdersViewModel = appViewModel { DriverOrdersViewModel(container) }
     var showDatePresets by remember { mutableStateOf(false) }
-    var showCustomRange by remember { mutableStateOf(false) }
 
     // 嵌入式：底部导航负责 tab 切换，同步 VM 选中态
     LaunchedEffect(tabIndex) {
@@ -144,27 +143,14 @@ fun DriverOrdersScreen(
         }
     }
 
-    // 档位清单（点顶栏那个药丸打开）：全部预设 + 自定义，当前那一档打勾
-    if (showDatePresets) {
-        DatePresetDialog(
-            selected = vm.preset,
-            customFrom = vm.customFrom,
-            customTo = vm.customTo,
-            onPick = { label ->
-                showDatePresets = false
-                // 「自定义」不由档位表给区间（它要选两头的日期）→ 直接开日期弹层
-                if (label == DatePresets.CUSTOM) showCustomRange = true else vm.applyPreset(label)
-            },
-            onDismiss = { showDatePresets = false },
-        )
-    }
-    // 自定义区间（日期弹层回来的）
-    if (showCustomRange) {
-        DateRangeDialog(
-            initialFrom = vm.customFrom,
-            initialTo = vm.customTo,
-            onDismiss = { showCustomRange = false },
-            onApply = { f, t -> vm.applyCustomRange(f, t) },
-        )
-    }
+    // 档位清单 + 自定义区间：两个弹层的状态机在 `DateFilterDialogs` 里（五个页面共用一份）
+    DateFilterDialogs(
+        showPresets = showDatePresets,
+        onDismissPresets = { showDatePresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = { vm.applyPreset(it) },
+        onApplyCustom = { f, t -> vm.applyCustomRange(f, t) },
+    )
 }

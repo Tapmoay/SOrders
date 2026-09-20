@@ -83,7 +83,10 @@ class ExpensesViewModel(private val container: AppContainer) : ViewModel() {
     var customTo by mutableStateOf<String?>(null)
         private set
     var showDatePresets by mutableStateOf(false)
-    var showCustomRange by mutableStateOf(false)
+
+    // ⛔ 这里原来还有一个 `showCustomRange`（自定义区间弹层的开关）：2026-09-21 精简轮把它
+    //    收进了 `ui/common/Components.kt::DateFilterDialogs`（五个页面共用那一份状态机）——
+    //    页面从来不需要读它，只需要"要不要画"。谁再想加回来，先看那个函数。
 
     /**
      * **窗口定下来了没有**（2026-09-21）。
@@ -369,29 +372,16 @@ fun ExpensesScreen(
         }
     }
 
-    if (vm.showDatePresets) {
-        DatePresetDialog(
-            selected = vm.preset,
-            customFrom = vm.customFrom,
-            customTo = vm.customTo,
-            onPick = { label ->
-                vm.showDatePresets = false
-                if (label == DatePresets.CUSTOM) vm.showCustomRange = true else vm.applyPreset(label)
-            },
-            onDismiss = { vm.showDatePresets = false },
-        )
-    }
-    if (vm.showCustomRange) {
-        DateRangeDialog(
-            initialFrom = vm.customFrom,
-            initialTo = vm.customTo,
-            onDismiss = { vm.showCustomRange = false },
-            onApply = { f, t ->
-                vm.showCustomRange = false
-                vm.applyCustomRange(f, t)
-            },
-        )
-    }
+    // 时间档位清单 + 自定义区间：两个弹层的状态机在 `DateFilterDialogs` 里（五个页面共用一份）
+    DateFilterDialogs(
+        showPresets = vm.showDatePresets,
+        onDismissPresets = { vm.showDatePresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = { vm.applyPreset(it) },
+        onApplyCustom = { f, t -> vm.applyCustomRange(f, t) },
+    )
     vm.detailTarget?.let { e ->
         ExpenseDetailDialog(
             e = e,

@@ -598,6 +598,71 @@ fun DatePresetDialog(
     )
 }
 
+/**
+ * 「时间药丸」的**两个弹层 + 它们之间的状态机** —— 五个页面共用这一份（2026-09-21 精简轮）。
+ *
+ * ## 原来是什么样
+ * 派单账本 / 货主账本 / 司机任务 / 司机运费 / 开销**各写一遍**同样的两段：
+ * `if (showDatePresets) { DatePresetDialog(…) }` ＋ `if (showCustomRange) { DateRangeDialog(…) }`，
+ * 一共约 130 行，而且里面藏着一条最容易写错的规矩 ——
+ * **选中「自定义」要"先关档位清单、再开日期弹层"**（顺序反了或漏了，表现是"点了自定义什么都没发生"）。
+ * 五份副本＝这条规矩要改五次，漏一处只有用户点得到才发现。
+ *
+ * ## 页面只需要记住一个开关
+ * ```kotlin
+ * var showPresets by remember { mutableStateOf(false) }
+ * DatePresetPill(label = vm.periodWord, onClick = { showPresets = true })
+ * DateFilterDialogs(
+ *     showPresets = showPresets,
+ *     onDismissPresets = { showPresets = false },
+ *     preset = vm.preset, customFrom = vm.customFrom, customTo = vm.customTo,
+ *     onPickPreset = vm::applyPreset, onApplyCustom = vm::applyCustomRange,
+ * )
+ * ```
+ * 第二个弹层（自定义区间）的开关**由这里自己持有**：页面从来不需要读它，只需要"要不要画"。
+ * ⚠️ [showPresets] 与 [onDismissPresets] 由调用方给（账本页那份状态在 ViewModel 里，
+ * 别的页面 `remember` 就够），所以这里**不替调用方持有第一个开关** —— 否则账本页换档
+ * 要联动重新查询的那条链就断了。
+ */
+@Composable
+fun DateFilterDialogs(
+    showPresets: Boolean,
+    onDismissPresets: () -> Unit,
+    preset: String,
+    customFrom: String?,
+    customTo: String?,
+    onPickPreset: (String) -> Unit,
+    onApplyCustom: (String?, String?) -> Unit,
+) {
+    var showCustom by remember { mutableStateOf(false) }
+
+    if (showPresets) {
+        DatePresetDialog(
+            selected = preset,
+            customFrom = customFrom,
+            customTo = customTo,
+            onPick = { label ->
+                onDismissPresets()
+                // 「自定义」不由档位表给区间（它要选两头日期）→ 接着开日期弹层。
+                // ⛔ 顺序不能反：先关清单、再开弹层，同一帧里切换不会闪。
+                if (label == DatePresets.CUSTOM) showCustom = true else onPickPreset(label)
+            },
+            onDismiss = onDismissPresets,
+        )
+    }
+    if (showCustom) {
+        DateRangeDialog(
+            initialFrom = customFrom,
+            initialTo = customTo,
+            onDismiss = { showCustom = false },
+            onApply = { f, t ->
+                showCustom = false
+                onApplyCustom(f, t)
+            },
+        )
+    }
+}
+
 @Composable
 private fun DatePill(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(

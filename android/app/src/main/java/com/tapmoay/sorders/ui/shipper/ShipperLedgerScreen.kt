@@ -70,7 +70,6 @@ fun ShipperLedgerScreen(
     // 两个弹层：档位清单（选哪一档）与自定义日期（选完区间）—— 都画在 Scaffold **外面**
     // （声明在它的 content 里就出了作用域）
     var showDatePresets by remember { mutableStateOf(false) }
-    var showCustomRange by remember { mutableStateOf(false) }
     // 侧边抽屉：**只给批发商**（他才有"人"可挑；普通货主连手势都不开）
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -143,33 +142,16 @@ fun ShipperLedgerScreen(
         }
     }
 
-    // 时间档位清单（点顶栏那个药丸打开）
-    if (showDatePresets) {
-        DatePresetDialog(
-            selected = vm.preset,
-            customFrom = vm.customFrom,
-            customTo = vm.customTo,
-            onPick = { label ->
-                showDatePresets = false
-                // 「自定义」不由档位表给区间（它要选两头日期）→ 直接开日期弹层
-                if (label == DatePresets.CUSTOM) showCustomRange = true else vm.applyPreset(label)
-            },
-            onDismiss = { showDatePresets = false },
-        )
-    }
-
-    // 自定义日期（只选一头点「应用」＝什么都不做，与别处同一套 Dialog）
-    if (showCustomRange) {
-        DateRangeDialog(
-            initialFrom = vm.customFrom,
-            initialTo = vm.customTo,
-            onDismiss = { showCustomRange = false },
-            onApply = { f, t ->
-                showCustomRange = false
-                vm.applyCustomRange(f, t)
-            },
-        )
-    }
+    // 时间档位清单 + 自定义区间：两个弹层的状态机在 `DateFilterDialogs` 里（五个页面共用一份）
+    DateFilterDialogs(
+        showPresets = showDatePresets,
+        onDismissPresets = { showDatePresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = { vm.applyPreset(it) },
+        onApplyCustom = { f, t -> vm.applyCustomRange(f, t) },
+    )
 
     // 核销弹层（整单 / 按商品）
     vm.settleTarget?.let { order -> SettleOrderDialog(vm, order) }

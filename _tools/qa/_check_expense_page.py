@@ -94,6 +94,8 @@ def main() -> int:
         "routes": read(ROUTES),
         "nav": read(NAVGRAPH),
         "picker": read(PICKER),
+        # 共用组件（`DateFilterDialogs` 那份"两个弹层 + 状态机"住在它里面）
+        "common_components": read(ANDROID / "ui/common/Components.kt"),
         "api": read(API),
         "cat_order": read(CAT_ORDER),
         "expenses_api": read(EXPENSES_API),
@@ -118,7 +120,12 @@ def main() -> int:
 
     # ---- ② 版式：时间药丸 + 共用左栏 + 底部两个按钮 ----
     c.present("右上角是**时间药丸**（与账本页同一个控件）", screen, r"DatePresetPill\(")
-    c.present("药丸点开是档位清单（同一份 DatePresets.ROW）", screen, r"DatePresetDialog\(")
+    # 2026-09-21 精简轮：五个页面那段「档位清单 + 自定义区间」的接线收进了
+    # `ui/common/Components.kt::DateFilterDialogs`（原来各抄一遍，约 130 行）。
+    # 锚点跟着搬：页面**真的调用**那份共用 host，"点开是档位清单"这条行为在 host 里。
+    c.present("药丸点开是档位清单（走共用的 DateFilterDialogs）", screen, r"DateFilterDialogs\(")
+    c.present("那份 host 里确实开着档位清单（行为没搬丢）",
+              files["common_components"], r"fun DateFilterDialogs\([\s\S]{0,1200}?DatePresetDialog\(")
     c.absent("不再铺那一行日期胶囊", screen, r"DatePresetRow\(")
     c.present("左栏走**共用**的分类栏（不是自己画的）", screen, r"CategoryRail\(")
     c.present("分类栏的实现只有一处（ProductPicker.kt）", files["picker"], r"internal fun CategoryRail\(")

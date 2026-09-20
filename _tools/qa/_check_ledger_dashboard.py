@@ -209,7 +209,15 @@ def main() -> int:
     # 展现形式**；选择人物我们用那种**侧边栏抽屉**，可以在那里寻找人物，点击人物就可以了」。
     c.present("时间是顶栏一个紧凑药丸", screen, r"DatePresetPill\(")
     c.absent("账本页不再铺那一行日期胶囊（9 档横着铺 = 用户说的「太复杂」）", screen, r"DatePresetRow\(")
-    c.present("药丸点开是档位清单", screen, r"DatePresetDialog\(")
+    # 2026-09-21 精简轮：五个页面那段「档位清单 + 自定义区间」的接线（约 130 行）收进了
+    # `ui/common/Components.kt::DateFilterDialogs`。锚点跟着搬，并且**不放松**：
+    # 页面必须真的调用那份共用 host，而"点开是档位清单""自定义要接着开区间弹层"这两条
+    # 行为都在 host 里逐条钉住（后者原来是五份副本里最容易写错的一处）。
+    c.present("药丸点开是档位清单（走共用的 DateFilterDialogs）", screen, r"DateFilterDialogs\(")
+    c.present("那份 host 里确实开着档位清单（行为没搬丢）",
+              components, r"fun DateFilterDialogs\([\s\S]{0,1200}?DatePresetDialog\(")
+    c.present("「自定义」那一档接着开区间弹层（顺序：先关清单、再开弹层）",
+              components, r"if \(label == DatePresets\.CUSTOM\) showCustom = true else onPickPreset\(label\)")
     c.present("药丸只有一份实现（ui/common/Components.kt）", components, r"fun DatePresetPill\(")
     c.present("档位清单也只有一份实现", components, r"fun DatePresetDialog\(")
     c.present("清单里画的是 DatePresets.ROW（档位表不抄第二份）",

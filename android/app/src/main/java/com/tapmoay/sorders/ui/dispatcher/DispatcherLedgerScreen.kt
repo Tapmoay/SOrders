@@ -70,7 +70,6 @@ fun DispatcherLedgerScreen(
     val snackbar = remember { SnackbarHostState() }
     // 两个弹层：自定义日期（选完区间）与档位清单（选哪一档）——都是**函数体这一层**的状态
     // （弹层画在 Scaffold 外面，声明在它的 content 里就出了作用域）
-    var showCustomRange by remember { mutableStateOf(false) }
     var showDatePresets by remember { mutableStateOf(false) }
     // 侧边抽屉：选人用（订单账没有"人"，所以那一边连手势都关掉）
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -193,33 +192,16 @@ fun DispatcherLedgerScreen(
         }
     }
 
-    // 时间档位清单（点顶栏那个药丸打开）
-    if (showDatePresets) {
-        DatePresetDialog(
-            selected = vm.preset,
-            customFrom = vm.customFrom,
-            customTo = vm.customTo,
-            onPick = { label ->
-                showDatePresets = false
-                // 「自定义」不由档位表给区间（它要选两头的日期）→ 直接开日期弹层
-                if (label == DatePresets.CUSTOM) showCustomRange = true else vm.applyPreset(label)
-            },
-            onDismiss = { showDatePresets = false },
-        )
-    }
-
-    // 自定义日期（只选一头点「应用」＝什么都不做）
-    if (showCustomRange) {
-        DateRangeDialog(
-            initialFrom = vm.customFrom,
-            initialTo = vm.customTo,
-            onDismiss = { showCustomRange = false },
-            onApply = { f, t ->
-                showCustomRange = false
-                vm.applyCustomRange(f, t)
-            },
-        )
-    }
+    // 时间档位清单 + 自定义区间：两个弹层的状态机在 `DateFilterDialogs` 里（五个页面共用一份）
+    DateFilterDialogs(
+        showPresets = showDatePresets,
+        onDismissPresets = { showDatePresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = { vm.applyPreset(it) },
+        onApplyCustom = { f, t -> vm.applyCustomRange(f, t) },
+    )
 
     // ⛔ 「记一笔账」的弹窗**不在这里了**（用户 2026-09-20 第七轮）：记账要**从商品库选商品**，
     //    而选品那一份 UI 是全屏底部弹层 —— 套在 `AlertDialog` 里就是两层 modal 窗口叠着。

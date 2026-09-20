@@ -26,6 +26,8 @@ NAVGRAPH = AND / "ui/nav/NavGraph.kt"
 API = ROOT / "backend/app/api/v1/expense_categories.py"
 CAT_ORDER = ROOT / "backend/app/services/category_order.py"
 MODEL = ROOT / "backend/app/models/expense.py"
+#: 共用组件（`DateFilterDialogs` 那份"两个弹层 + 状态机"住在它里面）
+COMPONENTS = AND / "ui/common/Components.kt"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词)
 MUTATIONS = [
@@ -141,6 +143,21 @@ MUTATIONS = [
         "        )\n",
         "",
         "「整份顺序」的判据只有一份",
+    ),
+    # ---- 2026-09-21 精简轮：两个弹层的接线收进共用 host 之后，锚点搬到那儿 ----
+    (
+        "开销页不再走共用的 DateFilterDialogs（自己又抄一遍两个弹层）",
+        SCREEN,
+        "    DateFilterDialogs(\n",
+        "    DatePresetDialog(\n",
+        "药丸点开是档位清单（走共用的 DateFilterDialogs）",
+    ),
+    (
+        "共用的 host 里两个弹层被拿走（页面调了它，但它什么都不画）",
+        COMPONENTS,
+        "fun DateFilterDialogs(\n",
+        "fun DateFilterDialogsRenamed(\n",
+        "那份 host 里确实开着档位清单",
     ),
 ]
 
