@@ -16,7 +16,8 @@
 2. **把它的退出码原样传出去**，并把「怎么修」写清楚。
 
 ⚠️ 反空转：生成器或文档不存在 → 直接红（而不是安静地什么都不查）。
-⚠️ 反向验证：`_tools/qa/_reverse_verify_endpoint_index.py`（把索引改坏 → 必须报红）。
+⚠️ 反向验证：`_tools/qa/_reverse_verify_generated_artifacts.py`（把索引改坏 → 必须报红；
+  它同时覆盖"AI 读目录过期""发现规则漏写法""`--only` 判据错位"三件事）。
 
 用法：python _tools/qa/_check_endpoint_index_fresh.py
 """

@@ -43,13 +43,38 @@ SKIP = {"_check_all.py", "_reverse_verify_all.py"}
 DEEP_ONLY = {"_reverse_verify_all.py"}
 
 
+def _code_only(src: str) -> str:
+    """去掉 Python 的注释与文档字符串（判据只看**代码**，不看我们自己的说明文字）。
+
+    ⚠️ 不剥的话，发现规则会被**散文**骗过去：`_reverse_verify_generated_artifacts.py` 的
+    docstring 里写了一句"实测：某某脚本用 `"--check" in sys.argv`"（那是在**说明**
+    `--check` 的另一种写法），结果它自己被当成"声明了 --check 的脚本"捡进了必跑清单 ——
+    52/52 里那一格就是它（实测踩到）。与仓库里"裸子串会被兄弟文案满足"是同一类毛病：
+    **判据必须锚在代码上**。
+    """
+    src = re.sub(r'"""[\s\S]*?"""', "", src)
+    src = re.sub(r"'''[\s\S]*?'''", "", src)
+    return re.sub(r"^[ \t]*#.*$", "", src, flags=re.M)
+
+
 def declares_check_flag(p: Path) -> bool:
-    """这个脚本声明了 `--check` 吗（自己从源码里看，不手写清单）。"""
+    """这个脚本声明了 `--check` 吗（自己从源码里看，不手写清单）。
+
+    ⚠️ **两种写法都要认**（2026-09-21 修的真实漏洞）：`argparse` 的
+    `add_argument("--check")`，以及更省事的 `"--check" in sys.argv`。
+    只认前者的后果实测过一次：`_tools/ai/_gen_ai_read_catalog.py` 用的是后者，
+    于是它**从来没进过必跑清单** —— 而它生成的两份产物（`docs/ai/ai_read_catalog.json` +
+    `AiReadCatalog.kt`）会随源码行号漂移，**50 个检查全绿也发现不了**。
+    教训与"清单是手写的"同一个形状：**发现规则本身也是一份判据，它漏了就等于没有**。
+    """
     try:
         src = io.open(p, encoding="utf-8", errors="replace").read()
     except OSError:
         return False
-    return bool(re.search(r'add_argument\(\s*"--check"', src))
+    code = _code_only(src)
+    if re.search(r'add_argument\(\s*"--check"', code):
+        return True
+    return bool(re.search(r'"--check"\s+in\s+sys\.argv', code))
 
 
 def needs_positional_arg(p: Path) -> bool:
@@ -106,29 +131,43 @@ def main() -> int:
     if refuse_if_injecting("这轮检查"):
         return 1
 
-    run, notes = discover()
+    run_all, notes = discover()
     if a.deep:
         rv = TOOLS / "ai" / "_reverse_verify_all.py"
         if rv.exists():
-            run.append(("deep", rv, []))
+            run_all.append(("deep", rv, []))
+
+    # ⚠️ **下限判据必须看全量清单**（2026-09-21 修）：`--only <子串>` 是"挑着跑"，
+    #    而下面那两条 8/3 的下限是"清单是不是过期了"的判据。原来先按 `--only` 过滤、再算数量，
+    #    于是**任何**子集都会掉到下限之下 → `--only` 永远报"清单过期了"、等于这个开关是坏的
+    #    （实测：`--only gen_ai_read_catalog` 只选中 1 个 → 当场非零退出）。
+    #    正确的关系是：**下限管全量，`--only` 只影响这次跑哪些**。
+    n_plain_all = sum(1 for g, _, _ in run_all if g == "check")
+    n_flag_all = sum(1 for g, _, _ in run_all if g == "--check")
+    if n_plain_all < 8 or n_flag_all < 3:
+        print(f"\n❌ 只认出 {n_plain_all} 个 `_check_*.py` / {n_flag_all} 个 `--check` 脚本——"
+              f"清单过期了（脚本改名或搬走了？）。这条命令的意义就是**不许漏跑**，停。")
+        return 1
+
+    run = run_all
     if a.only:
-        run = [(g, p, args) for g, p, args in run if a.only in str(p.relative_to(ROOT))]
+        # ⚠️ 用 `as_posix()`：Windows 上 `str(Path)` 是 `_tools\qa\x.py`，而人写子串时用 `/`
+        #    （文档里也是这么写的）→ 不归一化的话 `--only qa/_check_dead_code` 会安静地选中 0 个。
+        run = [(g, p, args) for g, p, args in run_all if a.only in p.relative_to(ROOT).as_posix()]
+        if not run:
+            print(f"❌ `--only {a.only}` 一份都没选中（全量清单里有 {len(run_all)} 份）——子串写错了？")
+            return 1
 
     n_plain = sum(1 for g, _, _ in run if g == "check")
     n_flag = sum(1 for g, _, _ in run if g == "--check")
-    print(f"共 {len(run)} 个检查脚本（`_check_*.py` {n_plain} 个 + 带 `--check` 的 {n_flag} 个）")
+    scope = f"；`--only {a.only}` 的子集（全量 {len(run_all)} 份）" if a.only else ""
+    print(f"共 {len(run)} 个检查脚本（`_check_*.py` {n_plain} 个 + 带 `--check` 的 {n_flag} 个）{scope}")
     for n in notes:
         print("  " + n)
     for g, p, args in run:
         print(f"  [{g}] {p.relative_to(ROOT)}" + (" " + " ".join(args) if args else ""))
     if a.list:
         return 0
-
-    # 数量判据：清单过期（改名/搬目录）时先喊，而不是安静地少跑一半。
-    if n_plain < 8 or n_flag < 3:
-        print(f"\n❌ 只认出 {n_plain} 个 `_check_*.py` / {n_flag} 个 `--check` 脚本——"
-              f"清单过期了（脚本改名或搬走了？）。这条命令的意义就是**不许漏跑**，停。")
-        return 1
 
     print()
     bad: list[tuple[str, str]] = []

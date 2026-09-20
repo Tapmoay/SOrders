@@ -379,6 +379,38 @@
 **下一轮第一件事**：给它加 `--check`，并把 `_check_endpoint_index_fresh.py` 推广成
 「**所有机器生成的文档都必须新鲜**」（端点索引 + AI 读目录 + 工具表 + 那几份 `.kt` 生成物）。
 
+### 第十五轮：把所有"机器生成的产物"纳入新鲜度判据（顺带修掉发现规则的两处漏与误）
+
+先盘清生成器清单（4 个），再逐个看"谁在看它"：
+
+| 产物 | 生成器 | 之前的状态 |
+| --- | --- | --- |
+| `08A_ENDPOINT_INDEX.md` | `backend/scripts/gen_endpoint_index.py --check` | 第三轮已补判据 ✓ |
+| `docs/ai/ai_read_catalog.json` + `AiReadCatalog.kt` | `_tools/ai/_gen_ai_read_catalog.py`（**早就有 `--check`**，用 `"--check" in sys.argv` 判断）| ⛔ **从来没被跑过** —— `_check_all.py` 的发现规则只认 `argparse` 那一种写法 |
+| `docs/ai/ai_toolmap.json` | `_tools/ai/_gen_ai_toolmap.py --check` | 在清单里 ✓ |
+| `res/raw/*.wav` | `_tools/media/_gen_new_order_clip.py` | 二进制素材：由 `_check_notify_guardrails.py` 按 wav 头与常量对账 ✓（**不需要"新鲜度"这个概念**，已写在注释里免得下一轮有人来补一个没意义的判据）|
+
+**修法（修在"发现规则"这一层，而不是只救一个脚本）**：
+
+1. **发现规则加宽**：也认 `"--check" in sys.argv` → 清单 50 → **51**，AI 读目录那条检查进来了。
+2. ⚠️ 加宽**当场踩到自己的坑**：我在新脚本的 docstring 里**提到**了那句写法（那是在说明"另一种写法"），
+   于是它自己被当成"声明了 `--check` 的脚本"捡进必跑清单 —— 52/52 里那一格就是它。
+   修法：**判据只看代码**（`_code_only` 先剥注释与文档字符串）。与仓库里
+   "裸子串会被兄弟文案满足"（`ORDER_RETURN\b`、`不能同时配`）是同一类毛病。
+3. ⚠️ 顺手撞出 `_check_all.py --only` **一直是坏的**（两个叠加的毛病）：
+   · 下限判据（`n_plain < 8`）在**过滤之后**算 → 任何窄子集都报"清单过期了"、非零退出；
+   · 过滤用 `str(Path)` 匹配，Windows 上是 `_tools\qa\x.py`，而文档教人写 `--only qa/x` → **静默选 0 个**。
+   两处都修好（下限看**全量**清单、路径按 `as_posix()` 归一），并补"选中 0 个"的明确报错。
+
+**反向验证**：把第三轮那份 `_reverse_verify_endpoint_index.py` **改名**为
+`_reverse_verify_generated_artifacts.py`（名字要如实：它现在管的是"产物新鲜度"这一整条线）
+并扩到 **6 条注入**：索引行号被改错 / 索引少一个端点行 / AI 读目录 JSON 行号过期 /
+`AiReadCatalog.kt` 被手改 / 发现规则退回只认 argparse（清单里必须看不到那条检查）/
+`--only` 判据退回过滤后（命令必须失败）→ **6/6 报红 + 四份被注入文件逐字节还原**。
+
+**验证**：`_check_all.py` **51/51** · `_reverse_verify_generated_artifacts.py` **6/6** ·
+`--only ai/_check_role_parity` 与 `--only qa/_check_dead_code` 都能用（各 1/1 通过）· 钱的对账不变。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
