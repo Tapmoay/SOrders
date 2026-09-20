@@ -28,6 +28,7 @@ from app.schemas.expense_category import (
     ExpenseCategoryReorder,
     ExpenseCategoryUpdate,
 )
+from app.services.category_order import ordered_ids
 from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/expense-categories", tags=["expense-categories"])
@@ -205,19 +206,8 @@ def reorder_categories(
     """
     rows = db.scalars(select(ExpenseCategory)).all()
     by_id = {r.id: r for r in rows}
-    ids = list(body.ids)
-    if len(set(ids)) != len(ids):
-        raise HTTPException(status_code=400, detail="顺序里有重复的分类，请重新排一次")
-    unknown = [i for i in ids if i not in by_id]
-    if unknown:
-        raise HTTPException(status_code=400, detail=f"顺序里有不存在的分类编号：{unknown}")
-    missing = [i for i in by_id if i not in set(ids)]
-    if missing:
-        names = "、".join(by_id[i].name for i in missing[:5])
-        raise HTTPException(
-            status_code=400,
-            detail=f"顺序里少了 {len(missing)} 个分类（{names}…）。请提交**完整**的分类顺序。",
-        )
+    # 整份顺序的校验四个名册共用一份（理由见 services/category_order.py）
+    ids = ordered_ids(by_id, body.ids)
     for idx, cid in enumerate(ids):
         by_id[cid].sort_order = idx
     write_log(

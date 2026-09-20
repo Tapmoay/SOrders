@@ -126,11 +126,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/expense-categories` | `list_categories` | `backend/app/api/v1/expense_categories.py:89` | 仅登录 + 体内仅允许:派单员 |
-| 2 | `POST /api/v1/expense-categories` | `create_category` | `backend/app/api/v1/expense_categories.py:111` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `PATCH /api/v1/expense-categories/{category_id}` | `update_category` | `backend/app/api/v1/expense_categories.py:147` | 仅登录 + 体内仅允许:派单员 |
-| 4 | `POST /api/v1/expense-categories/reorder` | `reorder_categories` | `backend/app/api/v1/expense_categories.py:194` | 仅登录 + 体内仅允许:派单员 |
-| 5 | `DELETE /api/v1/expense-categories/{category_id}` | `delete_category` | `backend/app/api/v1/expense_categories.py:236` | 仅登录 + 体内仅允许:派单员 |
+| 1 | `GET /api/v1/expense-categories` | `list_categories` | `backend/app/api/v1/expense_categories.py:90` | 仅登录 + 体内仅允许:派单员 |
+| 2 | `POST /api/v1/expense-categories` | `create_category` | `backend/app/api/v1/expense_categories.py:112` | 仅登录 + 体内仅允许:派单员 |
+| 3 | `PATCH /api/v1/expense-categories/{category_id}` | `update_category` | `backend/app/api/v1/expense_categories.py:148` | 仅登录 + 体内仅允许:派单员 |
+| 4 | `POST /api/v1/expense-categories/reorder` | `reorder_categories` | `backend/app/api/v1/expense_categories.py:195` | 仅登录 + 体内仅允许:派单员 |
+| 5 | `DELETE /api/v1/expense-categories/{category_id}` | `delete_category` | `backend/app/api/v1/expense_categories.py:226` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/api/v1/expenses.py` — 2 个
 
@@ -149,11 +149,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/freight-categories` | `list_categories` | `backend/app/api/v1/freight_categories.py:69` | 权限:ORDER_DISPATCH |
-| 2 | `POST /api/v1/freight-categories` | `create_category` | `backend/app/api/v1/freight_categories.py:82` | 权限:ORDER_DISPATCH |
-| 3 | `PATCH /api/v1/freight-categories/{category_id}` | `update_category` | `backend/app/api/v1/freight_categories.py:113` | 权限:ORDER_DISPATCH |
-| 4 | `POST /api/v1/freight-categories/reorder` | `reorder_categories` | `backend/app/api/v1/freight_categories.py:152` | 权限:ORDER_DISPATCH |
-| 5 | `DELETE /api/v1/freight-categories/{category_id}` | `delete_category` | `backend/app/api/v1/freight_categories.py:188` | 权限:ORDER_DISPATCH |
+| 1 | `GET /api/v1/freight-categories` | `list_categories` | `backend/app/api/v1/freight_categories.py:70` | 权限:ORDER_DISPATCH |
+| 2 | `POST /api/v1/freight-categories` | `create_category` | `backend/app/api/v1/freight_categories.py:83` | 权限:ORDER_DISPATCH |
+| 3 | `PATCH /api/v1/freight-categories/{category_id}` | `update_category` | `backend/app/api/v1/freight_categories.py:114` | 权限:ORDER_DISPATCH |
+| 4 | `POST /api/v1/freight-categories/reorder` | `reorder_categories` | `backend/app/api/v1/freight_categories.py:153` | 权限:ORDER_DISPATCH |
+| 5 | `DELETE /api/v1/freight-categories/{category_id}` | `delete_category` | `backend/app/api/v1/freight_categories.py:178` | 权限:ORDER_DISPATCH |
 
 ### `backend/app/api/v1/freight_settlement.py` — 1 个
 
@@ -234,41 +234,41 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/orders` | `list_orders` | `backend/app/api/v1/orders.py:237` | 仅登录 + 体内仅允许:派单员\|司机\|货主 |
-| 2 | `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders.py:399` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders.py:415` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
-| 4 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders.py:454` | 仅登录 |
-| 5 | `DELETE /api/v1/orders/{order_id}` | `delete_cancelled_order` | `backend/app/api/v1/orders.py:460` | 仅登录 + 体内权限:ORDER_DELETE_CANCELLED + 体内仅允许:派单员\|货主 |
-| 6 | `POST /api/v1/orders` | `create_order` | `backend/app/api/v1/orders.py:507` | 权限:ORDER_CREATE + 体内仅允许:派单员\|货主 |
-| 7 | `PATCH /api/v1/orders/{order_id}` | `update_order` | `backend/app/api/v1/orders.py:634` | 权限:ORDER_EDIT |
-| 8 | `PATCH /api/v1/orders/{order_id}/exception` | `patch_order_exception` | `backend/app/api/v1/orders.py:690` | 权限:ORDER_EDIT |
-| 9 | `POST /api/v1/orders/{order_id}/restore` | `restore_order` | `backend/app/api/v1/orders.py:731` | 仅登录 + 体内仅允许:派单员 |
-| 10 | `POST /api/v1/orders/{order_id}/address-image` | `upload_order_address_image` | `backend/app/api/v1/orders.py:760` | 仅登录 + 体内含角色判断（需读源码） |
-| 11 | `POST /api/v1/orders/{order_id}/delivery-photos` | `upload_delivery_photos` | `backend/app/api/v1/orders.py:871` | 权限:ORDER_UPLOAD_DELIVERY + 体内含角色判断（需读源码） |
-| 12 | `POST /api/v1/orders/{order_id}/complete-with-upload` | `complete_order_with_upload` | `backend/app/api/v1/orders.py:892` | 权限:ORDER_COMPLETE_DRIVER + 体内含角色判断（需读源码） |
-| 13 | `POST /api/v1/orders/{order_id}/driver-ack` | `driver_ack_view` | `backend/app/api/v1/orders.py:942` | 仅登录 + 体内仅允许:司机 |
-| 14 | `POST /api/v1/orders/{order_id}/driver-note` | `driver_append_internal_note` | `backend/app/api/v1/orders.py:985` | 权限:ORDER_INTERNAL_NOTE + 体内仅允许:派单员\|司机 |
-| 15 | `POST /api/v1/orders/{order_id}/navigation` | `fill_order_navigation` | `backend/app/api/v1/orders.py:1013` | 仅登录 + 体内仅允许:派单员\|司机 |
-| 16 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders.py:1135` | 权限:ORDER_DISPATCH |
-| 17 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders.py:1273` | 权限:ORDER_DISPATCH |
-| 18 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders.py:1325` | 权限:ORDER_DISPATCH |
-| 19 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders.py:1350` | 权限:ORDER_DISPATCH |
-| 20 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders.py:1508` | 权限:ORDER_COMPLETE_DRIVER |
-| 21 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders.py:1536` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
-| 22 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders.py:1583` | 权限:ORDER_RETURN |
-| 23 | `POST /api/v1/orders/{order_id}/pay` | `pay_order` | `backend/app/api/v1/orders.py:1707` | 权限:ORDER_EDIT |
-| 24 | `POST /api/v1/orders/{order_id}/charge` | `charge_order` | `backend/app/api/v1/orders.py:1733` | 权限:ORDER_EDIT |
-| 25 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders.py:1766` | 权限:ORDER_RECALL |
+| 1 | `GET /api/v1/orders` | `list_orders` | `backend/app/api/v1/orders.py:244` | 仅登录 + 体内仅允许:派单员\|司机\|货主 |
+| 2 | `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders.py:406` | 仅登录 + 体内仅允许:派单员 |
+| 3 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders.py:422` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
+| 4 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders.py:461` | 仅登录 |
+| 5 | `DELETE /api/v1/orders/{order_id}` | `delete_cancelled_order` | `backend/app/api/v1/orders.py:467` | 仅登录 + 体内权限:ORDER_DELETE_CANCELLED + 体内仅允许:派单员\|货主 |
+| 6 | `POST /api/v1/orders` | `create_order` | `backend/app/api/v1/orders.py:514` | 权限:ORDER_CREATE + 体内仅允许:派单员\|货主 |
+| 7 | `PATCH /api/v1/orders/{order_id}` | `update_order` | `backend/app/api/v1/orders.py:641` | 权限:ORDER_EDIT |
+| 8 | `PATCH /api/v1/orders/{order_id}/exception` | `patch_order_exception` | `backend/app/api/v1/orders.py:697` | 权限:ORDER_EDIT |
+| 9 | `POST /api/v1/orders/{order_id}/restore` | `restore_order` | `backend/app/api/v1/orders.py:738` | 仅登录 + 体内仅允许:派单员 |
+| 10 | `POST /api/v1/orders/{order_id}/address-image` | `upload_order_address_image` | `backend/app/api/v1/orders.py:767` | 仅登录 + 体内含角色判断（需读源码） |
+| 11 | `POST /api/v1/orders/{order_id}/delivery-photos` | `upload_delivery_photos` | `backend/app/api/v1/orders.py:878` | 权限:ORDER_UPLOAD_DELIVERY + 体内含角色判断（需读源码） |
+| 12 | `POST /api/v1/orders/{order_id}/complete-with-upload` | `complete_order_with_upload` | `backend/app/api/v1/orders.py:899` | 权限:ORDER_COMPLETE_DRIVER + 体内含角色判断（需读源码） |
+| 13 | `POST /api/v1/orders/{order_id}/driver-ack` | `driver_ack_view` | `backend/app/api/v1/orders.py:949` | 仅登录 + 体内仅允许:司机 |
+| 14 | `POST /api/v1/orders/{order_id}/driver-note` | `driver_append_internal_note` | `backend/app/api/v1/orders.py:992` | 权限:ORDER_INTERNAL_NOTE + 体内仅允许:派单员\|司机 |
+| 15 | `POST /api/v1/orders/{order_id}/navigation` | `fill_order_navigation` | `backend/app/api/v1/orders.py:1020` | 仅登录 + 体内仅允许:派单员\|司机 |
+| 16 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders.py:1142` | 权限:ORDER_DISPATCH |
+| 17 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders.py:1280` | 权限:ORDER_DISPATCH |
+| 18 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders.py:1332` | 权限:ORDER_DISPATCH |
+| 19 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders.py:1357` | 权限:ORDER_DISPATCH |
+| 20 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders.py:1515` | 权限:ORDER_COMPLETE_DRIVER |
+| 21 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders.py:1543` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
+| 22 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders.py:1590` | 权限:ORDER_RETURN |
+| 23 | `POST /api/v1/orders/{order_id}/pay` | `pay_order` | `backend/app/api/v1/orders.py:1748` | 权限:ORDER_EDIT |
+| 24 | `POST /api/v1/orders/{order_id}/charge` | `charge_order` | `backend/app/api/v1/orders.py:1774` | 权限:ORDER_EDIT |
+| 25 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders.py:1807` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/place_categories.py` — 5 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/place-categories` | `list_categories` | `backend/app/api/v1/place_categories.py:96` | 角色:dispatcher\|shipper |
-| 2 | `POST /api/v1/place-categories` | `create_category` | `backend/app/api/v1/place_categories.py:108` | 角色:dispatcher\|shipper |
-| 3 | `PATCH /api/v1/place-categories/{category_id}` | `update_category` | `backend/app/api/v1/place_categories.py:145` | 角色:dispatcher\|shipper |
-| 4 | `POST /api/v1/place-categories/reorder` | `reorder_categories` | `backend/app/api/v1/place_categories.py:193` | 角色:dispatcher\|shipper |
-| 5 | `DELETE /api/v1/place-categories/{category_id}` | `delete_category` | `backend/app/api/v1/place_categories.py:232` | 角色:dispatcher\|shipper |
+| 1 | `GET /api/v1/place-categories` | `list_categories` | `backend/app/api/v1/place_categories.py:97` | 角色:dispatcher\|shipper |
+| 2 | `POST /api/v1/place-categories` | `create_category` | `backend/app/api/v1/place_categories.py:109` | 角色:dispatcher\|shipper |
+| 3 | `PATCH /api/v1/place-categories/{category_id}` | `update_category` | `backend/app/api/v1/place_categories.py:146` | 角色:dispatcher\|shipper |
+| 4 | `POST /api/v1/place-categories/reorder` | `reorder_categories` | `backend/app/api/v1/place_categories.py:194` | 角色:dispatcher\|shipper |
+| 5 | `DELETE /api/v1/place-categories/{category_id}` | `delete_category` | `backend/app/api/v1/place_categories.py:221` | 角色:dispatcher\|shipper |
 
 ### `backend/app/api/v1/places.py` — 8 个
 
@@ -298,11 +298,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/product-categories` | `list_categories` | `backend/app/api/v1/product_categories.py:82` | 仅登录 |
-| 2 | `POST /api/v1/product-categories` | `create_category` | `backend/app/api/v1/product_categories.py:92` | 权限:PRODUCT_MANAGE |
-| 3 | `PATCH /api/v1/product-categories/{category_id}` | `update_category` | `backend/app/api/v1/product_categories.py:122` | 权限:PRODUCT_MANAGE |
-| 4 | `POST /api/v1/product-categories/reorder` | `reorder_categories` | `backend/app/api/v1/product_categories.py:166` | 权限:PRODUCT_MANAGE |
-| 5 | `DELETE /api/v1/product-categories/{category_id}` | `delete_category` | `backend/app/api/v1/product_categories.py:207` | 权限:PRODUCT_MANAGE |
+| 1 | `GET /api/v1/product-categories` | `list_categories` | `backend/app/api/v1/product_categories.py:83` | 仅登录 |
+| 2 | `POST /api/v1/product-categories` | `create_category` | `backend/app/api/v1/product_categories.py:93` | 权限:PRODUCT_MANAGE |
+| 3 | `PATCH /api/v1/product-categories/{category_id}` | `update_category` | `backend/app/api/v1/product_categories.py:123` | 权限:PRODUCT_MANAGE |
+| 4 | `POST /api/v1/product-categories/reorder` | `reorder_categories` | `backend/app/api/v1/product_categories.py:167` | 权限:PRODUCT_MANAGE |
+| 5 | `DELETE /api/v1/product-categories/{category_id}` | `delete_category` | `backend/app/api/v1/product_categories.py:197` | 权限:PRODUCT_MANAGE |
 
 ### `backend/app/api/v1/products.py` — 8 个
 
@@ -330,12 +330,12 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/return-requests` | `create_return_request` | `backend/app/api/v1/return_requests.py:182` | 权限:ORDER_RETURN_REQUEST |
-| 2 | `GET /api/v1/return-requests/mine` | `list_my_return_requests` | `backend/app/api/v1/return_requests.py:215` | 权限:ORDER_RETURN_REQUEST |
-| 3 | `POST /api/v1/return-requests/{request_id}/withdraw` | `withdraw_return_request` | `backend/app/api/v1/return_requests.py:248` | 权限:ORDER_RETURN_REQUEST |
-| 4 | `GET /api/v1/return-requests` | `list_return_requests` | `backend/app/api/v1/return_requests.py:268` | 权限:ORDER_RETURN |
-| 5 | `POST /api/v1/return-requests/{request_id}/reject` | `reject_return_request` | `backend/app/api/v1/return_requests.py:306` | 权限:ORDER_RETURN |
-| 6 | `POST /api/v1/return-requests/{request_id}/fulfill` | `fulfill_return_request` | `backend/app/api/v1/return_requests.py:326` | 权限:ORDER_RETURN |
+| 1 | `POST /api/v1/return-requests` | `create_return_request` | `backend/app/api/v1/return_requests.py:187` | 权限:ORDER_RETURN_REQUEST |
+| 2 | `GET /api/v1/return-requests/mine` | `list_my_return_requests` | `backend/app/api/v1/return_requests.py:220` | 权限:ORDER_RETURN_REQUEST |
+| 3 | `POST /api/v1/return-requests/{request_id}/withdraw` | `withdraw_return_request` | `backend/app/api/v1/return_requests.py:257` | 权限:ORDER_RETURN_REQUEST |
+| 4 | `GET /api/v1/return-requests` | `list_return_requests` | `backend/app/api/v1/return_requests.py:277` | 权限:ORDER_RETURN |
+| 5 | `POST /api/v1/return-requests/{request_id}/reject` | `reject_return_request` | `backend/app/api/v1/return_requests.py:317` | 权限:ORDER_RETURN |
+| 6 | `POST /api/v1/return-requests/{request_id}/fulfill` | `fulfill_return_request` | `backend/app/api/v1/return_requests.py:337` | 权限:ORDER_RETURN |
 
 ### `backend/app/api/v1/shipper.py` — 19 个
 
@@ -495,12 +495,12 @@ _（无重复注册）_
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:186` | ✅ |
 | `POST /api/v1/notifications/batch-delete` | `batch_delete_notifications` | `backend/app/api/v1/notifications.py:205` | ✅ |
 | `POST /api/v1/notifications/{notification_id}/read` | `mark_read` | `backend/app/api/v1/notifications.py:294` | ✅ |
-| `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders.py:454` | — |
+| `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders.py:461` | — |
 | `GET /api/v1/places` | `list_places` | `backend/app/api/v1/places.py:39` | — |
 | `POST /api/v1/places` | `create_place` | `backend/app/api/v1/places.py:60` | ✅ |
 | `POST /api/v1/places/{place_id}/use` | `use_place` | `backend/app/api/v1/places.py:91` | ✅ |
 | `GET /api/v1/places/{place_id}` | `get_place` | `backend/app/api/v1/places.py:124` | — |
-| `GET /api/v1/product-categories` | `list_categories` | `backend/app/api/v1/product_categories.py:82` | — |
+| `GET /api/v1/product-categories` | `list_categories` | `backend/app/api/v1/product_categories.py:83` | — |
 | `GET /api/v1/products/{product_id}` | `get_product` | `backend/app/api/v1/products.py:204` | — |
 | `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:54` | — |
 

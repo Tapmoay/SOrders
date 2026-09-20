@@ -31,6 +31,8 @@ AI_TOOLS = ROOT / "_tools" / "ai"
 GUARDRAILS = AI_TOOLS / "_check_ai_guardrails.py"
 
 PCAT_API = ROOT / "backend/app/api/v1/product_categories.py"
+#: 四个名册共用的「整份顺序」校验（2026-09-21 收口；reorder 的注入点跟着搬到这里）
+CAT_ORDER = ROOT / "backend/app/services/category_order.py"
 PCAT_MODEL = ROOT / "backend/app/models/product_category.py"
 PRODUCTS_API = ROOT / "backend/app/api/v1/products.py"
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
@@ -86,8 +88,13 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "reorder 不再要求整份（没提到的静默保持原序，两端各错一次）",
-        PCAT_API,
+        CAT_ORDER,
         lambda s: s.replace("    if missing:", "    if False:", 1),
+    ),
+    (
+        "reorder 端点不再走共用校验（自己拼一遍 ids，收口白做）",
+        PCAT_API,
+        lambda s: s.replace("    ids = ordered_ids(by_id, body.ids)", "    ids = list(body.ids)", 1),
     ),
     (
         "新建商品时不再自动把分类补进名册（刚建的分类跑到最后）",
@@ -264,8 +271,8 @@ CASES: list[tuple[str, Path, object]] = [
         "OneShotSnackbar 顺序反过来（先显示再消费 → 切页返回会重放）",
         COMPONENTS,
         lambda s: s.replace(
-            "        onConsumed()\n        hostState.showSnackbar(message)",
-            "        hostState.showSnackbar(message)\n        onConsumed()",
+            "        onConsumed()\n        scope.launch { hostState.showSnackbar(text) }",
+            "        scope.launch { hostState.showSnackbar(text) }\n        onConsumed()",
             1,
         ),
     ),

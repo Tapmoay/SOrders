@@ -3562,6 +3562,8 @@ def main() -> int:
 
     print("\n== 31. 商品分类名册 / 商品可见白名单 / 常用地点 / 一次性提示（v3.43）==")
     pcat_api = read(ROOT / "backend/app/api/v1/product_categories.py")
+    #: 四个名册（商品/地点/开销/运费）共用的「整份顺序」校验（2026-09-21 从四个端点收成一份）
+    cat_order_api = read(ROOT / "backend/app/services/category_order.py")
     pcat_model = read(ROOT / "backend/app/models/product_category.py")
     vis_schema = read(ROOT / "backend/app/schemas/product_visibility.py")
     vis_model = read(ROOT / "backend/app/models/product_visibility.py")
@@ -3598,8 +3600,13 @@ def main() -> int:
               r"if used:\s*\n\s*raise HTTPException\(\s*\n\s*status_code=400")
     # ⚠️ 锚"少了就拒绝"这个结构：不锚的话，reorder 可以只传一部分、
     #    没提到的那些静默保持原序 —— 两端各错一次而且看不出来。
-    c.present("reorder 要求**整份**顺序（少了就拒绝并点名）",
-              pcat_api, r"if missing:\s*\n\s*names = ")
+    # 2026-09-21：这段校验原来是四个名册端点各抄一遍，已收成 `services/category_order.py` 一份，
+    #    所以锚点分两处：①端点**真的调用**了那份共用校验（自己再拼一遍 ids 就红）；
+    #    ②判据本体（少了就拒绝并点名）在那份共用文件里。
+    c.present("reorder 要求**整份**顺序（商品分类端点调用共用校验，不自己再抄一遍）",
+              pcat_api, r"ids = ordered_ids\(by_id, body\.ids\)")
+    c.present("「整份顺序」的判据只有一份（少了就拒绝并点名）",
+              cat_order_api, r"if missing:\s*\n\s*names = ")
     c.present("新建商品时名册里没有的分类名**自动补进去**",
               products_api31, r"ensure_category\(db, body\.category or \"\"\)")
     # ⚠️ 锚"真的把名册顺序拼进去了"那一句：只锚函数签名的话，把消费 `ordered` 的那行删掉

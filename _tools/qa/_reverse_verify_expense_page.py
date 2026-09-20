@@ -24,6 +24,7 @@ CATS = AND / "ui/dispatcher/ExpenseCategoriesScreen.kt"
 LINK = AND / "core/ExpenseLink.kt"
 NAVGRAPH = AND / "ui/nav/NavGraph.kt"
 API = ROOT / "backend/app/api/v1/expense_categories.py"
+CAT_ORDER = ROOT / "backend/app/services/category_order.py"
 MODEL = ROOT / "backend/app/models/expense.py"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词)
@@ -120,6 +121,26 @@ MUTATIONS = [
         "        val next = moveItemTo(categories, { it.id }, id, position)",
         "        val next = categories",
         "排序复用商品那一份搬运逻辑",
+    ),
+    (
+        "排序不再走共用校验（端点自己拼一遍 ids，收口白做）",
+        API,
+        "    ids = ordered_ids(by_id, body.ids)",
+        "    ids = list(body.ids)",
+        "排序走共用的「整份顺序」校验",
+    ),
+    (
+        "共用校验里「少传了也要拒绝」这一条被删掉（只传一部分就静默错位）",
+        CAT_ORDER,
+        "    missing = [i for i in by_id if i not in set(ids)]\n"
+        "    if missing:\n"
+        '        names = "、".join(by_id[i].name for i in missing[:5])\n'
+        "        raise HTTPException(\n"
+        "            status_code=400,\n"
+        '            detail=f"顺序里少了 {len(missing)} 个分类（{names}…）。请提交**完整**的分类顺序。",\n'
+        "        )\n",
+        "",
+        "「整份顺序」的判据只有一份",
     ),
 ]
 

@@ -44,6 +44,8 @@ ROUTES = ANDROID / "ui/nav/Routes.kt"
 NAVGRAPH = ANDROID / "ui/nav/NavGraph.kt"
 PICKER = ANDROID / "ui/common/ProductPicker.kt"
 API = ROOT / "backend/app/api/v1/expense_categories.py"
+#: 四个名册共用的「整份顺序」校验（2026-09-21 从四个端点里收出来的一份）
+CAT_ORDER = ROOT / "backend/app/services/category_order.py"
 EXPENSES_API = ROOT / "backend/app/api/v1/expenses.py"
 ENUMS = ROOT / "backend/app/models/enums.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
@@ -93,6 +95,7 @@ def main() -> int:
         "nav": read(NAVGRAPH),
         "picker": read(PICKER),
         "api": read(API),
+        "cat_order": read(CAT_ORDER),
         "expenses_api": read(EXPENSES_API),
         "enums": read(ENUMS),
         "bootstrap": read(BOOTSTRAP),
@@ -147,7 +150,13 @@ def main() -> int:
     c.present("「主要关联」在这一页可改", cats, r"fun setLinkKind\(")
     c.present("改名会级联（后端同一事务里 UPDATE expenses）", files["api"], r"Expense\.__table__\.update\(\)\.where\(Expense\.category == old_name\)")
     c.present("删除还有开销挂着的分类 → 拒绝并说明几笔", files["api"], r"还有 \{used\} 笔开销挂在这个分类下")
-    c.present("排序要求**整份**提交", files["api"], r"请提交\*\*完整\*\*的分类顺序")
+    # 2026-09-21：这段校验原来是四个端点各抄一遍，已收成 `services/category_order.py` 一份。
+    # 断言跟着从"这个文件里有那句文案"改成"**这个端点真的调用了共用校验** + 文案在那份共用文件里"
+    # —— 老写法在收口之后会变成**假红**（文案搬走了），而假红会被下一个人改成更松的写法。
+    c.present("排序走共用的「整份顺序」校验（不是自己再抄一遍）",
+              files["api"], r"ordered_ids\(by_id, body\.ids\)")
+    c.present("「整份顺序」的判据只有一份（文案也在那一份里）",
+              files["cat_order"], r"请提交\*\*完整\*\*的分类顺序")
 
     # ---- ⑥ 后端：分类是自由字符串（枚举已删），新分类自动补名册 ----
     c.absent("`ExpenseCategory` 枚举已删（留着就会被当成「合法取值表」）", files["enums"], r"class ExpenseCategory\(")
