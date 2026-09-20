@@ -47,7 +47,9 @@ fun WorkbenchScreen(
         item { WelcomeBar(role) }
         item { WorkbenchCard(title = null, entries = entries, onOpen = onOpen) }
         if (ledgerEntries.isNotEmpty()) {
-            item { WorkbenchCard(title = "账本管理", entries = ledgerEntries, onOpen = onOpen) }
+            // ⚠️ 这张卡片**不写标题**（用户 2026-09-20：「去掉那个账本管理…那个字」）：
+            //    8 个格子自己说得清是什么，多一行字只是把卡片撑高。
+            item { WorkbenchCard(title = null, entries = ledgerEntries, onOpen = onOpen) }
         }
     }
 }

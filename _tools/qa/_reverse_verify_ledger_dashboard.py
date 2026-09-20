@@ -50,11 +50,11 @@ MUTATIONS = [
         "工作台渲染第二张卡片",
     ),
     (
-        "卡片标题写错（用户点名要「账本管理」）",
+        "又给账本那张卡片加回标题（用户要求去掉那几个字）",
         WORKBENCH,
-        'WorkbenchCard(title = "账本管理"',
-        'WorkbenchCard(title = "账本"',
-        "卡片标题就是",
+        "item { WorkbenchCard(title = null, entries = ledgerEntries, onOpen = onOpen) }",
+        'item { WorkbenchCard(title = "账本管理", entries = ledgerEntries, onOpen = onOpen) }',
+        "账本那张卡片不带标题",
     ),
     (
         "4 类账各建一个页面（不再走同一条带参数的路由）",

@@ -132,7 +132,14 @@ def main() -> int:
 
     # ---- ② 工作台第二张卡片 ----
     c.present("工作台渲染第二张卡片（账本那 8 格）", workbench, r"Modules\.dispatcherLedgerEntries")
-    c.present("卡片标题就是「账本管理」", workbench, r'"账本管理"')
+    # 这张卡片**不写标题**（用户 2026-09-20 后一句：「去掉那个账本管理…那个字」）：
+    # 8 个格子自己说得清是什么，多一行字只是把卡片撑高。
+    c.present(
+        "账本那张卡片不带标题（title = null，与第一张同一个渲染入口）",
+        workbench,
+        r"WorkbenchCard\(title = null, entries = ledgerEntries",
+    )
+    c.absent("卡片上不许再出现「账本管理」这几个字", workbench, r'"账本管理"')
     c.present("图标格只有一份实现（WorkbenchTile）", workbench, r"private fun WorkbenchTile\(")
     n_tile = len(re.findall(r"WorkbenchTile\(", workbench))
     c.ok(f"图标格实现处数正常（定义 1 + 调用 1，实测 {n_tile}）", n_tile == 2, f"实际 {n_tile}（抄了第二份？）")
