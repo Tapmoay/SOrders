@@ -339,6 +339,46 @@
 以及「**别硬杀它**」的三样后果（注入残留 / 注入锁没释放 → 所有检查拒绝出结论最长 30 分钟 /
 开跑前的快照不能直接还原 —— 会抹掉开跑后的改动）。
 
+### 第十四轮：把上一轮那把尺的**盲区**堵上，又抓出并修好 4 处腐烂 + 1 条恒绿断言
+
+上一轮新增的 `_scan_stale_anchors.py` 一开始只解析出 **266 个锚点**、还报"0 处腐烂"。
+这一轮先问了一句"**这尺自己量到了多少**"（仓库的老规矩：反空转），结果三处都是它自己的毛病：
+
+| 尺的病 | 症状 | 修法 |
+| --- | --- | --- |
+| 丢了**最简单**的锚点形状 | `(说明, 路径, "旧串", "新串", 期望)` 这种直接写字符串的元组没被认 | 第 3 项先按字符串取，再退回注入表达式 |
+| 路径常量只认**单层** | 脚本里常是 `SCREEN = ANDROID / "…"` 而 `ANDROID = ROOT / "…"` → 解析不出目标 | 改成**迭代到不动点**的解析 |
+| 把 Kotlin 的 `\|\|` 当正则交替 | `if (personKey == null \|\| tab == 1) return` **逐字存在**却被报成"腐烂" | 判据不能收 `\|`；且正则锚点失败时**再按字面量试一次**（两种都试，防假阳性）|
+
+**误报比漏报更贵**（它会让人去"修"一个本来正确的注入）——所以第三条我改了两次才定下来。
+修完覆盖率 **266 → 494 个锚点**，真腐烂 **3 → 4 处**（新增的 7 个候选里有 3 个是假阳性）：
+
+| 脚本 | 腐烂原因 | 修法（注入原意不变）|
+| --- | --- | --- |
+| `_reverse_verify_read_roles.py` | `roleProvider: () -> AiRole?` 长成了 `actorProvider: () -> AiActor?` | 锚点跟进，"默认不认角色 → 默认按派单员跑"的意思不变 |
+| 同上（第二条） | 闸门里多了一条 `(!it.memberOnly \|\| member)` | 只锚前半句 `k in it.roles &&` → 注入成 `true &&`（"等于没裁"）|
+| `_reverse_verify_role_parity.py` | 派单员那一支长成 `ALL.filter { (it.roles == null \|\| role in it.roles) && !it.memberOnly }` | 摘掉 `&& !it.memberOnly` 那半句 |
+| `_reverse_verify_user_search.py` | 那段 Kotlin 被格式化过：`{ it.username } },` 多了一个空格 | 锚点按现状改（**空格差异也会让注入静默失效**）|
+
+**第 4 处修好后暴露出一条恒绿断言**（`_check_role_parity.py`）：它的 docstring 明确写着
+"当初加这条判据就是为了抓住 `ALL.filter { !it.memberOnly } → ALL`"，
+**但代码演进时只把前半句（`roles`）钉住了，`memberOnly` 那半句被丢在一边** ——
+于是"派单员不再被 memberOnly 挡住"这个注入退出码 0、全绿。补上两条（派单员那支必须按
+`memberOnly` 过滤、货主那支也是）→ `_reverse_verify_role_parity.py` **5/5**，
+红线 15 → **16 项**。
+
+**验证**：`_scan_stale_anchors.py` 复跑 **0 处腐烂**（494 个锚点）· `_reverse_verify_read_roles` **7/7** ·
+`_reverse_verify_role_parity` **5/5** · `_reverse_verify_user_search` **25/25** · `_check_all.py` **50/50**。
+
+⚠️ **顺带发现另一处"没有任何人在看"的过期**：`docs/ai/ai_read_catalog.json` 也是**机器生成的**
+（每个读端点都记着 `文件:行号`），而我第二轮给 `ledger.py` 加日期窗口时它漂了（`84 → 109`、`149 → 162`）
+—— 50 个检查**全绿**，没有一条判据看它（与第三轮补的"端点索引过期"是同一类洞）。
+这一轮先把内容刷对：用生成器重跑，并**逐字节确认与干净生成一致**（`sha256` 相同 ——
+排除"反向验证时带着注入生成"的可能）。⛔ **判据还没补**：生成器 `_gen_ai_read_catalog.py`
+**没有 `--check`**、也不支持改输出路径，所以"哪天又漂了没人知道"这件事下次还会重演。
+**下一轮第一件事**：给它加 `--check`，并把 `_check_endpoint_index_fresh.py` 推广成
+「**所有机器生成的文档都必须新鲜**」（端点索引 + AI 读目录 + 工具表 + 那几份 `.kt` 生成物）。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）

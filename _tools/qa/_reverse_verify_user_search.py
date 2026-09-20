@@ -130,7 +130,9 @@ CASES: list[tuple[str, Path, object]] = [
             'placeholder = "搜司机姓名 / 手机号",',
             1,
         ).replace("com.tapmoay.sorders.core.UserSearch.filter(", "listOf(", 1).replace(
-            "        { it.fullName.ifBlank { it.username }},\n        { it.phone },\n    )", "    )", 1
+            # ⚠️ 2026-09-21 更新锚点：这段 Kotlin 后来被格式化过，`{ it.username } },`
+            #    多了一个空格（原来的锚点是 `}},`）——替换串对不上就等于**这条注入一直是空转的**。
+            "        { it.fullName.ifBlank { it.username } },\n        { it.phone },\n    )", "    )", 1
         ),
     ),
     (

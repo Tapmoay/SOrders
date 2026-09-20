@@ -68,15 +68,20 @@ MUTATIONS = [
     (
         "服务侧默认角色写成派单员（忘了传就按派单员跑）",
         SVC,
-        "private val roleProvider: () -> AiRole? = { null },",
-        "private val roleProvider: () -> AiRole? = { AiRole.DISPATCHER },",
+        # ⚠️ 2026-09-21 更新锚点：这一处后来从 `roleProvider: () -> AiRole?` 长成了
+        #    `actorProvider: () -> AiActor?`（要一起带 `memberShipper`，不然批发商会被当成普通货主）。
+        #    注入原意不变：**默认值从"不认角色"变成"按派单员跑"**。
+        "private val actorProvider: () -> AiActor? = { null },",
+        "private val actorProvider: () -> AiActor? = { AiActor(AiRole.DISPATCHER, false) },",
         "服务侧默认不认角色",
     ),
     (
         "角色闸门不按 roles 过滤（等于没裁）",
         READS,
-        "k in it.roles && it.action.substringBefore('.') in enabledModules",
-        "it.action.substringBefore('.') in enabledModules",
+        # ⚠️ 2026-09-21 更新锚点：闸门里后来多了一条 `(!it.memberOnly || member)`，
+        #    所以只锚前半句（`k in it.roles &&`）——注入原意（**等于没裁**）不变。
+        "k in it.roles &&",
+        "true &&",
         "按 roles 过滤",
     ),
     (

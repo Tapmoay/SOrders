@@ -49,8 +49,11 @@ CASES: list[tuple[str, Path, str, str]] = [
     (
         "派单员不再被 memberOnly 挡住（能动货主自己那本账）",
         WRITE,
-        "AiRole.DISPATCHER -> ALL.filter { !it.memberOnly }",
-        "AiRole.DISPATCHER -> ALL",
+        # ⚠️ 2026-09-21 更新锚点：派单员那一支后来长成
+        #    `ALL.filter { (it.roles == null || role in it.roles) && !it.memberOnly }`
+        #    （多了一层按动作 `roles` 的白名单）。注入原意不变：**把 memberOnly 那道挡板摘掉**。
+        "(it.roles == null || role in it.roles) && !it.memberOnly",
+        "(it.roles == null || role in it.roles)",
     ),
     (
         "货主白名单解析被注释干扰（`_show_role_caps` 的剥注释判据）",

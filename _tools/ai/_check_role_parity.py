@@ -545,6 +545,14 @@ def kotlin_rule_isomorphic() -> list[str]:
         src,
     ):
         problems.append("AiWrite.kt 里派单员那一条不再是「roles + memberOnly 过滤」")
+    # ⚠️ 2026-09-21 补：上面那条只钉了 `roles` 那半句，**`memberOnly` 那半句在代码演进时被丢了** ——
+    #    而这一段 docstring 里写的就是"当初加这条判据是为了抓住 `ALL.filter { !it.memberOnly } → ALL`"。
+    #    实测（`_reverse_verify_role_parity.py`）：把派单员那一支的 `&& !it.memberOnly` 摘掉，
+    #    退出码 0、全绿 —— 判据成了摆设。两半句必须**各钉各的**。
+    if not re.search(r"AiRole\.DISPATCHER -> ALL\.filter \{[\s\S]{0,200}?!it\.memberOnly", src):
+        problems.append("AiWrite.kt 里派单员那一条不再按 memberOnly 过滤（派单员能碰货主自己那本账）")
+    if not re.search(r"AiRole\.SHIPPER -> ALL\.filter \{[\s\S]{0,240}?it\.memberOnly", src):
+        problems.append("AiWrite.kt 里货主那一条不再过 memberOnly（普通货主会看见批发商专属动作）")
     if not re.search(
         r"AiRole\.SHIPPER -> ALL\.filter \{[\s\S]{0,200}?it\.id in SHIPPER_ACTIONS", src,
     ):

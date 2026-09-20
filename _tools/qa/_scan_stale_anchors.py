@@ -40,8 +40,12 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 ROOT = Path(__file__).resolve().parents[2]
 TARGET_EXTS = {".kt", ".py", ".json", ".md", ".vue", ".ts", ".ps1", ".xml"}
 
-#: 看着像正则的锚点（含这些转义/通配）→ 用 `re.search` 查，不按字面量查。
-_LOOKS_RE = re.compile(r"\\\(|\\s|\\d|\\w|\[\^|\.\*|\\n\\s|\|")
+#: 看着像正则的锚点（含这些**转义序列/字符类**）→ 优先用 `re.search` 查。
+#: ⚠️ 判据里**不能**收 `|`：Kotlin 的 `||`（或）到处都是，收了它就会把普通代码锚点
+#:    误判成正则 —— 实测踩到一次（`if (personKey == null || tab == 1) return` 明明逐字存在，
+#:    被当成正则后 `||` 成了"空分支"，匹配失败 → 报成"腐烂"）。**误报比漏报更贵**：
+#:    它会让人去"修"一个本来正确的注入。
+_LOOKS_RE = re.compile(r"\\\(|\\\)|\\s|\\d|\\w|\[\^|\.\*|\\\.|\\n\\s")
 
 
 def _join_str_parts(node: ast.AST) -> str | None:
@@ -58,30 +62,44 @@ def _join_str_parts(node: ast.AST) -> str | None:
 
 
 def _path_map(tree: ast.Module, script_dir: Path) -> dict[str, Path]:
-    """模块级 `NAME = ROOT / "…"` / `NAME = HERE / "…"` → 真实路径。"""
+    """模块级 `NAME = <已知基名> / "…"` → 真实路径（**迭代到不动点**）。
+
+    ⚠️ 必须迭代：脚本里的路径常量常是**派生链** ——
+    `ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"`、
+    然后 `SCREEN = ANDROID / "ui/dispatcher/DispatcherLedgerScreen.kt"`。
+    第一版只认"右式以 ROOT/HERE 打头"的那种，于是 41/65 份脚本"一个锚点都解析不出来"，
+    而输出照样写着"✅ 没发现腐烂" —— 这就是它自己文档里警告的**空转**。
+    """
     out: dict[str, Path] = {}
+    #: 两个"根"：仓库根与脚本自己的目录（各脚本里的写法不同，但语义都是这两个之一）
+    bases: dict[str, Path] = {"ROOT": ROOT, "HERE": script_dir}
+    assigns: list[tuple[str, ast.BinOp]] = []
     for node in tree.body:
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
-            continue
-        tgt = node.targets[0]
-        if not isinstance(tgt, ast.Name):
-            continue
-        val = node.value
-        if not isinstance(val, ast.BinOp) or not isinstance(val.op, ast.Div):
-            continue
-        # 找最左边的基名
-        base: ast.AST = val
-        while isinstance(base, ast.BinOp):
-            base = base.left
-        if not isinstance(base, ast.Name):
-            continue
-        rel = _join_str_parts(val)
-        if not rel:
-            continue
-        if base.id == "ROOT":
-            out[tgt.id] = ROOT / rel
-        elif base.id == "HERE":
-            out[tgt.id] = script_dir / rel
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            val = node.value
+            if isinstance(val, ast.BinOp) and isinstance(val.op, ast.Div):
+                assigns.append((node.targets[0].id, val))
+
+    for _ in range(6):        # 链最长也就三五层；固定 6 轮足够，且不会死循环
+        progressed = False
+        for name, val in assigns:
+            if name in out:
+                continue
+            base: ast.AST = val
+            while isinstance(base, ast.BinOp):
+                base = base.left
+            if not isinstance(base, ast.Name):
+                continue
+            root = bases.get(base.id) or out.get(base.id)
+            if root is None:
+                continue
+            rel = _join_str_parts(val)
+            if not rel:
+                continue
+            out[name] = root / rel
+            progressed = True
+        if not progressed:
+            break
     return out
 
 
@@ -149,7 +167,11 @@ def anchors_of(script: Path) -> list[tuple[str, bool, Path]]:
         target = _resolve_target(node.elts[1], pmap, script)
         if target is None:
             continue
-        anchor = _anchor_from_mutator(node.elts[2])
+        # 元组第 3 项有两种写法：**直接就是"旧串"**（最常见），或一个注入表达式
+        # （`sub("旧", …)` / `lambda s: s.replace("旧", …)`）。
+        # ⚠️ 重写时漏了前一种，于是 41/65 份脚本"一个锚点都解析不出来"、
+        #    而输出还写着"✅ 没发现腐烂" —— 这正是它自己文档里警告的**空转**。
+        anchor = _as_anchor(node.elts[2]) or _anchor_from_mutator(node.elts[2])
         if anchor is None:
             continue
         lit, is_re = anchor
@@ -169,13 +191,16 @@ def main() -> int:
     n_checked = 0
     stale: list[tuple[str, str, Path, bool]] = []
     cache: dict[Path, str] = {}
+    per_script: dict[str, int] = {}
 
     for s in scripts:
         try:
             items = anchors_of(s)
         except SyntaxError as e:
             print(f"  ⚠️ {s.name} 解析失败：{e}")
+            per_script[s.name] = 0
             continue
+        per_script[s.name] = len(items)
         for lit, is_re, target in items:
             n_anchor += 1
             if target in cache:
@@ -187,16 +212,27 @@ def main() -> int:
                 cache[target] = text
             n_checked += 1
             if is_re:
+                # 两种都试：**只要有一种能对上就算它活着**。正则锚点按字面量几乎不可能匹配，
+                # 所以这一条不会把"真的腐烂"洗白；反过来它能挡住"误判成正则"造成的假腐烂。
                 try:
                     alive = re.search(lit, text) is not None
                 except re.error:
-                    continue          # 正则本身写不通 → 不判（宁可漏报）
+                    alive = False
+                alive = alive or (lit.replace("\r\n", "\n") in text)
             else:
                 alive = lit.replace("\r\n", "\n") in text
             if not alive:
                 stale.append((s.name, lit[:70].replace("\n", "⏎"), target.relative_to(ROOT), is_re))
 
     print(f"扫到反向验证 {len(scripts)} 份；解析出锚点 {n_anchor} 个；能核对的 {n_checked} 个\n")
+    # 反空转：**一份都没解析出来**的脚本等于"没被这把尺量到" —— 必须点名列出来，
+    # 否则"0 处腐烂"会被读成"全部锚点都活着"（那是两件不同的事）。
+    empty = sorted(n for n, c in per_script.items() if c == 0)
+    if empty:
+        print(f"⚠️ 有 {len(empty)} 份脚本的锚点**一个都没解析出来**（形状不认识 → 这把尺量不到它们）：")
+        for n in empty:
+            print(f"   · {n}")
+        print()
     if n_checked < 150:
         print(f"⚠️ 只核对了 {n_checked} 个锚点（<150）——**解析覆盖率太低，这份报告的说服力不足**，"
               "别把它当成\"全部锚点都活着\"的证明。")

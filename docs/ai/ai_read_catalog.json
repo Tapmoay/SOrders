@@ -600,7 +600,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:149",
+   "at": "backend/app/api/v1/ledger.py:162",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -647,7 +647,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:84",
+   "at": "backend/app/api/v1/ledger.py:109",
    "auth": "仅登录 + 体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
@@ -725,7 +725,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:738",
+   "at": "backend/app/api/v1/ledger.py:739",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -772,7 +772,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:229",
+   "at": "backend/app/api/v1/ledger.py:230",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -939,7 +939,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:237",
+   "at": "backend/app/api/v1/orders.py:244",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -1085,7 +1085,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:399",
+   "at": "backend/app/api/v1/orders.py:406",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -1101,7 +1101,7 @@
    "module_cn": "地点分类",
    "method": "get",
    "path": "/api/v1/place-categories",
-   "at": "backend/app/api/v1/place_categories.py:96",
+   "at": "backend/app/api/v1/place_categories.py:97",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1174,7 +1174,7 @@
    "module_cn": "商品分类",
    "method": "get",
    "path": "/api/v1/product-categories",
-   "at": "backend/app/api/v1/product_categories.py:82",
+   "at": "backend/app/api/v1/product_categories.py:83",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -1368,7 +1368,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests/mine",
-   "at": "backend/app/api/v1/return_requests.py:216",
+   "at": "backend/app/api/v1/return_requests.py:220",
    "auth": "权限:ORDER_RETURN_REQUEST",
    "roles": [
     "shipper"
@@ -1415,7 +1415,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests",
-   "at": "backend/app/api/v1/return_requests.py:273",
+   "at": "backend/app/api/v1/return_requests.py:277",
    "auth": "权限:ORDER_RETURN",
    "roles": [
     "dispatcher"
