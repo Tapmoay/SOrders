@@ -54,17 +54,32 @@
 ## 改完必跑：一条命令跑完所有静态检查
 
 ```
-python _tools/qa/_check_all.py          # 全部静态检查（当前 34 个脚本，约一分钟）
-python _tools/qa/_check_all.py --deep   # 再加 48 份反向验证（几分钟，改红线时才要）
+python _tools/qa/_check_all.py          # 全部静态检查（当前 50 个脚本，约一分钟）
+python _tools/qa/_check_all.py --deep   # 再加全部反向验证（⚠️ **50 分钟以上**，跑时全场冻住）
 python _tools/qa/_check_all.py --list   # 只列清单不跑（看它到底都在查什么）
 ```
 
-> ⚠️ 上面这两个数字会随脚本增删变化（**清单是自己算的**，不手写）；
+**改红线/改被测代码时，别一上来就跑全量反向验证** —— 用它的子集模式（秒级到分钟级）：
+
+```
+python _tools/ai/_reverse_verify_all.py --list        # 列会跑哪些（66 份）
+python _tools/ai/_reverse_verify_all.py --changed     # 只跑「注入目标涉及本次改动文件」的
+python _tools/ai/_reverse_verify_all.py --only qa     # 只跑某个域（ai / qa / notify / fuzz）
+python _tools/ai/_reverse_verify_all.py --for backend/app/services/order_return.py
+```
+
+> ⚠️ 上面这些数字会随脚本增删变化（**清单是自己算的**，不手写）；
 > 以 `_check_all.py` 第一行打印的"共 N 个检查脚本"为准。
 
 ⚠️ **跑 `--deep`（反向验证）的时候不要改源码**：它会先拍快照，跑完把与快照不一致的文件写回去，
 并发做的修改会**被一起抹掉**（实测被抹掉过 15 个文件）。而并发的**检查**会自动拒绝出结论
 （`_airepo.refuse_if_injecting`：那一刻源码里带着注入的 bug，结论不可信）。
+
+⛔ **别硬杀它**（2026-09-21 实测代价）：被 kill 会留下三样 —— ① 注入没还原的文件（`git status` 能看见，
+`git checkout --` 还原）；② **没释放的注入锁**（`%TEMP%\dsh_reverse_verify.lock`）→ 接下来**所有检查
+都拒绝出结论**，最长 30 分钟；③ 开跑前的快照 `%TEMP%\dsh_rv_snapshot` —— ⚠️ **不要**直接跑
+`_recover_injections.py` 去"还原"它：那会按快照把**开跑之后**的改动一起抹掉（真实状态在 git 里）。
+正确做法：**删快照 + 删锁**。
 
 **为什么要有这一条**：这个仓库有过一次"红线红了整整一轮没人知道"——检查本身是对的，但**收尾清单是手写的**，新写的检查不在那张清单里。所以清单现在**自己算**（`_tools/*/_check_*.py` + 任何声明了 `--check` 的脚本），加一个新检查脚本不需要谁记得来登记。
 
