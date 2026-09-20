@@ -54,7 +54,7 @@ from app.models.enums import (
 from app.services.accounting_service import resolve_customer_for_order
 from app.services.inventory_service import restock_returned
 from app.services.operation_log_service import write_log
-from app.services.order_money import money_of
+from app.services.order_money import money_of, q2
 
 ZERO = Decimal("0")
 
@@ -83,10 +83,6 @@ class ReturnResult:
     fully_returned: bool
     restocked_lines: int
     warnings: list[str] = field(default_factory=list)
-
-
-def _q2(v: Decimal) -> Decimal:
-    return Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _line_amount(op: OrderProduct, qty: int) -> Decimal:
@@ -139,7 +135,7 @@ def _refund_amount(order: Order, db: Session, returned_now: Decimal) -> Decimal:
     """
     m = money_of(db, order)
     already_refundable = max(ZERO, m.settled - m.refunded)
-    return _q2(min(returned_now, already_refundable))
+    return q2(min(returned_now, already_refundable))
 
 
 def _reversal_row(
@@ -286,7 +282,7 @@ def return_order(
         )
 
     # 到分只做一次（按行取两位再求和会与账本红冲差一分，见 `_line_amount`）
-    returned_amount = _q2(returned_raw)
+    returned_amount = q2(returned_raw)
     refund = _refund_amount(order, db, returned_amount)
     if refund > 0:
         party_name = cust.name if cust else ((order.temp_shipper_name or "").strip() or "临时货主")

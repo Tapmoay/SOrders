@@ -172,6 +172,18 @@
 
 ⚠️ **同一族的另一半（待你拍板，不是 bug 修复）**：`LlmClient.STREAM_OPTIONS_UNSUPPORTED_NOTE`（"当前地址不接受 stream_options，已自动跳过，不影响回答"）**至今没接到界面上** —— 也就是说用户确实会看到"拿不到服务端用量"这个现象，但 App 不会解释。要不要在设置页给一段解释，是产品决定。
 
+### 第七轮：合并三处重复实现（都是"各写一遍、谁都不会报错"的那一类）
+
+| 收口 | 原来 | 收成 |
+| --- | --- | --- |
+| `api/v1/ledger.py::_apply_date_window` | `GET /ledger/entries` 与 `GET /ledger/accounts` **各抄一遍**同样的日期窗口（含两句中文报错，共 24 行） | 一处 + 两行调用。⚠️ 注释里写死**不许**换成 `deps.parse_date_range`：它返回 `datetime`，而这里比的是 `Date` 列，带时间的那一端会让闭区间悄悄变半开 |
+| `api/v1/orders.py::_reject_if_already_collected` | 内联重抄了一遍 "这张单收过钱没有" 的两条判据（`paid` + inbound 流水） | 改调 `_already_collected`。⚠️ `_already_collected` 的 docstring 一直写着"判据与 `[_reject_if_already_collected]` 同一套"——**注释在承诺一件代码没保证的事**：谁哪天改了 `paid` 与流水的取舍，另一边不会跟着动，而两边都不报错。现在这句话成真了 |
+| `services/order_return.py` | 自己定义了一份 `_q2`（与 `order_money.q2` 逐字相同）——**全项目第 5 份"两位小数 + ROUND_HALF_UP"** | 删掉，改用 `order_money.q2`（它本来就是"全项目统一两位小数"的归属处）。红线锚点与 2 条注入跟着改（`_q2(` → `q2(`），**没有改松** |
+
+**验证**：`pytest -q` **672 passed** · `_check_all.py` **50/50** · `_reverse_verify_order_return.py` **26/26 报红 + 11 个被碰文件逐字节还原** · 钱的对账与开工前**逐项一致**（`_fuzz_invariants` 39 项 / 确认缺陷 0 / 可疑 4 / 信息 1）。
+
+✅ **上一轮加的那条判据当场证明了自己**：这一轮我改完后端没重跑索引，`_check_endpoint_index_fresh.py` **立刻报红**（"端点索引已经过期"）——以前这件事没有任何检查在看（这一轮开工前的实测：把行号改成 999 也全绿）。重新生成后 50/50。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）

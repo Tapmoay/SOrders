@@ -1711,23 +1711,11 @@ def _reject_if_already_collected(db: Session, order: Order, what: str) -> None:
     - **指向这张单的收款流水**：`paid` 可能被别的路径改过（本轮修的就是"能改回去"这件事），
       而 `cash_flows(order_id=…, direction=in)` 是"钱真的进来过"的物证——它比标记可信。
     """
-    if order.paid:
-        collected = True
-    else:
-        # 标记可能被别的路径改过（本轮修的正是"能改回去"这件事）：再问一次"钱真的进来过吗"。
-        # `cash_flows(order_id=这张单, direction=in)` 是物证——比一个布尔标记可信。
-        from app.models import CashFlow
-
-        collected = (
-            db.scalars(
-                select(CashFlow).where(
-                    CashFlow.order_id == order.id,
-                    func.lower(CashFlow.direction) == "in",
-                )
-            ).first()
-            is not None
-        )
-    if not collected:
+    # ⛔ 判据**只算一处**（2026-09-21 精简轮收口）：上面 `_already_collected`。
+    #    这段原来在这里内联抄了一遍，而 `_already_collected` 的 docstring 一直写着
+    #    "判据与 [_reject_if_already_collected] 同一套" —— 注释在承诺一件代码没保证的事：
+    #    谁哪天改了 `paid` 与 inbound 流水的取舍，另一边不会跟着动，而**两边都不报错**。
+    if not _already_collected(db, order):
         return
     raise HTTPException(
         status_code=400,

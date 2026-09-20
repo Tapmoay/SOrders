@@ -54,7 +54,7 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "本次退货金额改回「按行取两位再求和」（四位单价下与账本红冲差一分，退现比账上多付）",
         RET,
-        sub("        returned_raw += line_amount", "        returned_raw += _q2(line_amount)"),
+        sub("        returned_raw += line_amount", "        returned_raw += q2(line_amount)"),
     ),
     (
         "红冲行绕开调用方传进来的金额、自己再算一遍（两边各算一遍＝差一分的土壤）",
@@ -82,7 +82,7 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "退现只留「不超过这次退的货值」这一条上限（客户只付过 300 却退 400 = 倒贴）",
         RET,
-        sub("return _q2(min(returned_now, already_refundable))", "return _q2(returned_now)"),
+        sub("return q2(min(returned_now, already_refundable))", "return q2(returned_now)"),
     ),
     ("退货时把 paid 改回 False（钱确实进来过，抹掉标记＝能再收一次）", RET, sub("order.returned_at = _now()", "order.paid = False\n    order.returned_at = _now()")),
     ("货损那几件也能退（同一批货既算损失又算回库）", RET, sub("- int(op.damage_quantity or 0) - int(op.returned_quantity or 0)", "- int(op.returned_quantity or 0)")),

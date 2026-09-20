@@ -149,8 +149,8 @@ def main() -> int:
     c.present("红冲行用**调用方传进来的**那个数（不自己再算一遍）",
               ret, r"_reversal_row\(db, order, op, qty, line_amount,")
     c.absent("本次退货金额**不许**按行取两位再求和（到分多取一次就是那 1 分）",
-             ret, r"_q2\(line_amount\)")
-    c.present("到分只在「整次退货」这一层做一次", ret, r"returned_amount = _q2\(returned_raw\)")
+             ret, r"q2\(line_amount\)")
+    c.present("到分只在「整次退货」这一层做一次", ret, r"returned_amount = q2\(returned_raw\)")
     reversal_body = re.search(r"def _reversal_row\(([\s\S]*?)\ndef return_order\(", ret)
     c.ok("解析到红冲行那一段（解析失效时先喊，别安静通过）", reversal_body is not None)
     c.absent("红冲行里不再出现第二种货值算法（单价 × 数量只有一处）",

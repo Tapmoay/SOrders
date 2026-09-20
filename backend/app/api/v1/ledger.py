@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import timedelta
+from datetime import date, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -38,6 +38,31 @@ from app.services.push_events import push_ledger_updated
 from app.services.soft_delete import strip_del_suffix
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
+
+
+def _apply_date_window(q, date_from: str | None, date_to: str | None):
+    """把 `?date_from&date_to` 收成 `entry_date` 的**闭区间**条件 —— 两个端点共用这一份。
+
+    ⚠️ 为什么收成一处（2026-09-21 精简轮）：`GET /ledger/entries` 与 `GET /ledger/accounts`
+    原来各抄了同样一段（含两句中文报错）。两份副本真正的代价不是"多十几行"，而是**它们会分叉**：
+    一端哪天改了容错（例如支持时间戳或放宽成半开区间），另一端还是老写法 —— 同一个 `?date_from`
+    在两个页面上表现不同，而它们在接口文档里是同一个参数。
+    ⛔ **不许**换成 `deps.parse_date_range`：它返回 `datetime`，而这里比的是 `Date` 列，
+       带上时间的那一端会变成"当天不算"（闭区间悄悄变半开）。
+    """
+    if date_from:
+        try:
+            start = date.fromisoformat(date_from[:10])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="开始日期格式无效") from None
+        q = q.where(Ledger.entry_date >= start)
+    if date_to:
+        try:
+            end = date.fromisoformat(date_to[:10])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="结束日期格式无效") from None
+        q = q.where(Ledger.entry_date <= end)
+    return q
 
 #: 单次导出最多包含多少笔流水（见 `create_export_job` 的说明）。
 #: 实测 85,474 行 → 39.77 秒 / 85,119 条 SQL / 峰值 RSS 469MB；20000 行约 9 秒、100MB 级。
@@ -92,8 +117,6 @@ def list_entries(
     limit: int | None = Query(None, ge=1, le=5000, description="返回条数上限（缺省=1000，最多 5000）"),
     offset: int = Query(0, ge=0, description="跳过前 N 条（翻页用）"),
 ) -> list[LedgerOut]:
-    from datetime import date as date_type
-
     role = user_role_key(current)
     # ⚠️ 只有**没进回收站**的订单的那份账（R13-R6）：与报表侧同一句，
     #    否则"账本"和"营业额"差一张已删单的钱（本机 2026-09 差 ¥4,600），两个页面都不报错。
@@ -118,18 +141,8 @@ def list_entries(
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
 
-    if date_from:
-        try:
-            df = date_type.fromisoformat(date_from[:10])
-            q = q.where(Ledger.entry_date >= df)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="开始日期格式无效") from None
-    if date_to:
-        try:
-            dt = date_type.fromisoformat(date_to[:10])
-            q = q.where(Ledger.entry_date <= dt)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="结束日期格式无效") from None
+    # 日期窗口：`entry_date` 闭区间 —— 与 `GET /ledger/entries` 共用 `_apply_date_window`
+    q = _apply_date_window(q, date_from, date_to)
 
     # ⚠️ **所有**查询都有缺省上限，并且把"是不是被截断了"如实写进响应头
     #    （2026-09-19 外部完整检查 C-4）。原来这条端点**没有 limit**：实测 85,474 行
@@ -157,21 +170,9 @@ def list_accounts(
     if user_role_key(current) != UserRole.DISPATCHER.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
 
-    from datetime import date as date_type
-
     q = visible_ledger_select()  # 同上：隔离区订单的账不算（R13-R6）
-    if date_from:
-        try:
-            df = date_type.fromisoformat(date_from[:10])
-            q = q.where(Ledger.entry_date >= df)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="开始日期格式无效") from None
-    if date_to:
-        try:
-            dt = date_type.fromisoformat(date_to[:10])
-            q = q.where(Ledger.entry_date <= dt)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="结束日期格式无效") from None
+    # 日期窗口：`entry_date` 闭区间 —— 与 `GET /ledger/entries` 共用 `_apply_date_window`
+    q = _apply_date_window(q, date_from, date_to)
 
     rows = list(db.scalars(q).all())
     buckets: dict[tuple, dict] = {}
