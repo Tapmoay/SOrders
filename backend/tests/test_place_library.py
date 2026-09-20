@@ -1,15 +1,17 @@
 """共享地点库 / 导航信息补全 / 商品分类 / 订单行单位（2026-09-18 新增）。
 
-这一份测试盯的是**用户看得见的三句话**能不能被证明：
+这一份测试盯的是**用户看得见的几句话**能不能被证明：
 1. 「司机到场补上的导航信息，货主下次下单能直接选到」；
 2. 「坐标相近（1 米）的会被合并成一条，不会越攒越多」；
-3. 「选品时选了"3 箱"，订单上就得是 3 箱」。
+3. 「选品时选了"3 箱"，订单上就得是 3 箱」；
+4. 「下单时选的地点，自动进我自己的地点库」（2026-09-20 加）。
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 
 from app.models import Order, Place, Product, ShipperLocation
@@ -574,12 +576,13 @@ def test_blank_name_is_not_stored_when_merging(db_session):
 
 
 def test_anonymous_place_is_rejected(client, token_dispatcher, db_session):
-    """**无名无址的点不许进共享库**（这张表全库共享，而且没有删除接口）。
+    """**无名无址的点不许进共享库**（这张表全库共享，一条垃圾记录所有人都得看着）。
 
-    为什么必须挡：共享地点库是大家一起看的一张表，**没有任何入口能删一条**。
-    于是"只有坐标、没有名字"的记录是**永久的**：它在每个人的列表里都显示成
-    「未命名地点」+ 空地址，谁也认不出、谁也清不掉。
+    为什么必须挡：共享地点库是大家一起看的一张表，无名无址的记录在每个人的列表里
+    都显示成「未命名地点」+ 空地址，谁也认不出。
     （开发库里真出现过——合同模糊测试往 `POST /places` 打了 5 次空名请求。）
+    注：2026-09-19 起删除改成了**软删**，所以现在删得掉了；但"入口就挡掉"仍然比
+    "先进去再让人删"对——一张全库共用的表，进来一条就是所有人都看见了一条。
     """
     h = auth_headers(token_dispatcher)
     r = client.post(
@@ -623,3 +626,166 @@ def test_navigation_is_logged(client, token_dispatcher, token_driver, users):
     ).json()
     rows = logs if isinstance(logs, list) else logs.get("items", [])
     assert any(x.get("action") == "ORDER_NAVIGATION_FILL" for x in rows), rows
+
+
+# ------------------------------------------- 下单选的地点自动进「我的地点」（2026-09-20）
+#
+# 用户原话：
+# > 只要用户下单他会选择地点，这个时候，我们就自动地把它添加到地点库当中。
+#
+# 这一组盯三句话（都能被证伪）：
+# 1. 下完单，**他自己的**「我的地点」里就有这一条，下次不用重选；
+# 2. **不动**全库共享的那张表 —— 那条路径有它自己的三个明确入口；
+# 3. 同一张单重试、同一个地址下十单，库里不会长出十条。
+
+SPOT_KEEP = (22.8000000, 114.3000000)
+SPOT_KEEP_DUP = (22.8100000, 114.3100000)
+SPOT_KEEP_PROXY = (22.8200000, 114.3200000)
+SPOT_KEEP_TEMP = (22.8300000, 114.3300000)
+TEXT_ADDR = "纯文字地址-科技园某栋 302"
+
+
+def _locations(client, token) -> list[dict]:
+    r = client.get("/api/v1/shipper/locations", headers=auth_headers(token))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _named(rows: list[dict], name: str) -> list[dict]:
+    return [x for x in rows if x["name"] == name]
+
+
+def test_order_address_enters_my_locations(client, token_shipper, token_dispatcher, db_session):
+    """货主自己下单（地图上选了点）→ 他自己那份地点库里就有这一条。"""
+    lat, lng = SPOT_KEEP
+    name = "自动进库-A 仓库"
+    created = _create_order(
+        client,
+        token_shipper,
+        None,
+        address_detail=name,
+        address_lat=str(lat),
+        address_lng=str(lng),
+    )
+
+    rows = _named(_locations(client, token_shipper), name)
+    assert len(rows) == 1, f"下单后「我的地点」该有这一条，实际 {rows}"
+    assert float(rows[0]["address_lat"]) == pytest.approx(lat, abs=1e-6)
+    assert float(rows[0]["address_lng"]) == pytest.approx(lng, abs=1e-6)
+
+    # ⛔ 共享库**不许**被顺手写一条：那张表全库共用，只有"派单员设为共享 / 下单页手点一下 /
+    #    司机到场补录"三个明确入口。下单自动往里灌等于绕开"只有派单员能把地点设为共享"。
+    assert db_session.scalars(select(Place).where(Place.name == name)).all() == [], (
+        "下单只进「我的地点」，不许动全库共享的那张表"
+    )
+
+    # 留痕：库里凭空多出一条，用户要能查出它是哪一单、谁加的
+    logs = client.get(
+        f"/api/v1/operation-logs?order_id={created['id']}",
+        headers=auth_headers(token_dispatcher),
+    ).json()
+    log_rows = logs if isinstance(logs, list) else logs.get("items", [])
+    assert any(x.get("action") == "PLACE_AUTO_ADDED" for x in log_rows), log_rows
+
+
+def test_same_address_ordered_twice_keeps_one_row(client, token_shipper):
+    """同一张单重试 / 同一个地址下十单 → **只留一条**（否则地点库会被订单灌满）。"""
+    lat, lng = SPOT_KEEP_DUP
+    name = "自动进库-B 仓库"
+    for _ in range(2):
+        _create_order(
+            client,
+            token_shipper,
+            None,
+            address_detail=name,
+            address_lat=str(lat),
+            address_lng=str(lng),
+        )
+    assert len(_named(_locations(client, token_shipper), name)) == 1
+
+
+def test_proxy_order_records_for_both_sides(client, token_dispatcher, token_shipper, users):
+    """代理下单：**下单人和货主两边都记**（用户 2026-09-20 选的口径）。
+
+    地点库按登录人隔离，只记一边的后果是确定的：另一边的人下次还得重新找这个地址。
+    """
+    lat, lng = SPOT_KEEP_PROXY
+    name = "自动进库-C 仓库"
+    _create_order(
+        client,
+        token_dispatcher,
+        users["shipper"].id,
+        address_detail=name,
+        address_lat=str(lat),
+        address_lng=str(lng),
+    )
+    assert len(_named(_locations(client, token_dispatcher), name)) == 1, (
+        "派单员下次代理下单要能直接选到"
+    )
+    assert len(_named(_locations(client, token_shipper), name)) == 1, "货主自己下单要能直接选到"
+
+
+def test_proxy_order_with_temp_shipper_only_records_operator(client, token_dispatcher):
+    """临时货主（没有账号）→ 只记下单人，且不能因为"没有货主"就整单失败。"""
+    lat, lng = SPOT_KEEP_TEMP
+    name = "自动进库-D 仓库"
+    _create_order(
+        client,
+        token_dispatcher,
+        None,
+        temp_shipper_name="临时货主甲",
+        address_detail=name,
+        address_lat=str(lat),
+        address_lng=str(lng),
+    )
+    assert len(_named(_locations(client, token_dispatcher), name)) == 1
+
+
+def test_text_only_order_address_is_remembered_once(client, token_shipper):
+    """没在地图上标点、手打了一行地址 → 也进库（不然下次还得重打），且**不重复**。
+
+    这一支没有坐标可算距离，判据只能是"名字与地址两行字一模一样"（`_find_text_location`）——
+    比"名字相同就算同一条"保守：每个货主都有一间叫「仓库」的房子。
+    """
+    for _ in range(2):
+        _create_order(client, token_shipper, None, address_detail=TEXT_ADDR)
+    rows = _named(_locations(client, token_shipper), TEXT_ADDR)
+    assert len(rows) == 1, f"纯文字地址也只该有一条，实际 {len(rows)}"
+    assert rows[0]["address_lat"] is None, "没有坐标就该是没有坐标（不许替用户编一个）"
+
+
+def test_order_without_any_address_adds_nothing(client, token_shipper):
+    """地址是空的单不该在地点库里留下一条谁也认不出的空记录。"""
+    before = len(_locations(client, token_shipper))
+    _create_order(client, token_shipper, None, address_detail="")
+    assert len(_locations(client, token_shipper)) == before
+
+
+def test_text_address_gets_coords_instead_of_a_second_row(
+    client, token_dispatcher, token_driver, users, db_session
+):
+    """先只有文字（下单时）、之后才拿到坐标（司机补导航）→ **补全那一条**，不是再长一条。
+
+    这是两条路径的交叉点，也是"我的地点库为什么会有两条一模一样记录"最容易发生的地方：
+    下单先记文字地址（`remember_order_address`），司机到场才补坐标（`ensure_shipper_location`）。
+    """
+    addr = "交叉点测试-某小区 5 号楼"
+    created = _create_order(client, token_dispatcher, users["shipper"].id, address_detail=addr)
+    oid = created["id"]
+    _assign(client, token_dispatcher, oid, users["driver"].id)
+    lat, lng = (22.8400000, 114.3400000)
+    r = client.post(
+        f"/api/v1/orders/{oid}/navigation",
+        json={"address_lat": lat, "address_lng": lng, "name": addr},
+        headers=auth_headers(token_driver),
+    )
+    assert r.status_code == 200, r.text
+
+    rows = db_session.scalars(
+        select(ShipperLocation).where(
+            ShipperLocation.shipper_id == users["shipper"].id,
+            ShipperLocation.name == addr,
+        )
+    ).all()
+    assert len(rows) == 1, f"该把原来那条补上坐标，不是再长一条，实际 {len(rows)} 条"
+    assert float(rows[0].address_lat) == pytest.approx(lat, abs=1e-6)

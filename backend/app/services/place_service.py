@@ -49,11 +49,16 @@ SAME_NAME_METERS = 30.0
 #: 给用户看的一句话规则（界面/提示词要用同一句，别各自表述）
 RULE_TEXT = f"坐标相差 {MERGE_METERS:g} 米内，或同名且相差 {SAME_NAME_METERS:g} 米内，算同一个地点"
 
-#: **同一个人**用到第几次，就自动帮他收进「我的地点」（用户 2026-09-18 选的口径）
+#: **同一个人**在列表里用到第几次，就自动帮他收进「我的地点」（用户 2026-09-18 选的口径）
 #:
 #: 为什么是 2 而不是 1：第一次可能是"看一眼 / 点错了"，第二次才说明这个位置他真常用；
-#: 而且这张表没有清理入口，阈值太低会把自己的地点库灌满只去过一次的地方。
+#: 阈值太低就会把自己的地点库灌满只点过一次的地方。
 #: 阈值只在这一处 —— 散开写的话"第几次算常用"会各处说法不一。
+#:
+#: ⚠️ 这个阈值只管**在列表里点选**这一条路径（`note_place_use`）。
+#:    **下过单**的地址是**第一次就进库**（`remember_order_address`，用户 2026-09-20）：
+#:    "在列表里点了一下"和"真的把货送过去了"是两种强弱不同的信号，
+#:    后者才是"这个位置我一定还会再用"。
 AUTO_ADD_AFTER = 2
 
 #: 纬度 1 度对应的米数（WGS84 平均值）。经度要再乘 cos(纬度)。
@@ -115,8 +120,9 @@ def note_place_use(db: Session, *, user: Any, place: Place) -> tuple[int, bool]:
     `ensure_shipper_location` —— 那个函数虽然也会去重，但每点一次就查一遍库是白费的，
     更要紧的是"重复调用"会让日志/行为看起来像"又加了一条"。
 
-    返回 `(次数, 本次是否刚加进他的地点库)`。调用方要把后一个布尔量**如实告诉用户**：
-    静默帮他改了自己的库，用户下次看到多出一条来源不明的记录只能猜。
+    返回 `(次数, 本次是否**真的新建了**一条)`。调用方要把后一个布尔量**如实告诉用户**：
+    静默帮他改了自己的库，用户下次看到多出一条来源不明的记录只能猜；
+    反过来，什么都没多出来却说"已加进你的地点库"同样是假话（见下面的 `created`）。
     """
     now = datetime.now(timezone.utc)
     row = db.scalars(
@@ -151,7 +157,7 @@ def note_place_use(db: Session, *, user: Any, place: Place) -> tuple[int, bool]:
     if role_key not in ("shipper", "dispatcher"):
         return row.use_count, False
 
-    ensure_shipper_location(
+    _, created = ensure_shipper_location(
         db,
         shipper_id=user.id,
         name=place.name,
@@ -160,7 +166,12 @@ def note_place_use(db: Session, *, user: Any, place: Place) -> tuple[int, bool]:
         lng=float(place.lng),
     )
     row.auto_added = True
-    return row.use_count, True
+    # ⚠️ 报回去的是 `created`（**真的新建了**），不是"阈值到了"。
+    #    2026-09-20 起"下过单的地址第一次就进库"（`remember_order_address`），
+    #    所以这里经常会发现他的库里**早就有这一条**（并进已有那条、条数没变）。
+    #    那时若回 `auto_added=true`，界面会说「已加进你的「我的地点」」而列表纹丝不动 ——
+    #    用户只能怀疑是自己看错了。
+    return row.use_count, created
 
 
 def _same_place_name(a: str, b: str) -> bool:
@@ -320,6 +331,47 @@ def upsert_place(
     return row, False
 
 
+def _find_known_location(
+    db: Session, *, shipper_id: int, name: str, detail_address: str
+) -> ShipperLocation | None:
+    """这一位的「我的地点」里，**已经记着这个地点**的那一条（用来"别重复建"）。
+
+    两条判据，命中即返回（都**不做模糊匹配** —— `_same_place_name` 的注释已经定了口径：
+    名字差一个字往往就是两个地方；而"名字完全一样、地址不同"的两个地方遍地都是）：
+    1. **地址原文完全一样**（非空）—— 一行地址就是一个地方，这条最硬；
+    2. **名字完全一样、且那一条还没有坐标** —— 给"只写了名字"的记录兜底。
+
+    第 2 条限定"还没有坐标"是有意的：它管的是"先只写了名字，后来才知道它在哪儿"，
+    不是"把两个同名的地方并成一个"。已经有坐标的那种，交给
+    `find_shipper_location_near` 按距离判（那才是唯一一处距离判据）。
+
+    软删掉的不算"已有"（同 `find_place_near`：否则新记录会并进一条看不见的行）。
+    """
+    clean_name = _clean(name, 128)
+    clean_detail = _clean(detail_address, 512)
+    if clean_detail:
+        row = db.scalars(
+            select(ShipperLocation).where(
+                ShipperLocation.shipper_id == shipper_id,
+                ShipperLocation.is_deleted.is_(False),
+                ShipperLocation.detail_address == clean_detail,
+            )
+        ).first()
+        if row is not None:
+            return row
+    if not clean_name:
+        return None
+    return db.scalars(
+        select(ShipperLocation).where(
+            ShipperLocation.shipper_id == shipper_id,
+            ShipperLocation.is_deleted.is_(False),
+            ShipperLocation.address_lat.is_(None),
+            ShipperLocation.address_lng.is_(None),
+            ShipperLocation.name == clean_name,
+        )
+    ).first()
+
+
 def ensure_shipper_location(
     db: Session,
     *,
@@ -337,12 +389,27 @@ def ensure_shipper_location(
 
     合并判据与共享库共用一份（`MERGE_METERS`）：这一个货主已经有同一地点时不再重复加一条，
     只把空的字段补上。返回 `(location, created)`。
+
+    ⚠️ 2026-09-20 起多了一条路：**先只写了文字、后来才拿到坐标**的那一条要**补全**而不是再长一条。
+    顺序是"下单先记文字地址（`remember_order_address`），司机到场补坐标（本函数）"，
+    缺了这一支的后果是同一个地点在货主库里躺着两条同名记录 ——
+    一条有坐标一条没有，列表上分不出哪条是哪条（这正是 2026-09-18 那条用例在防的事）。
     """
     existing = find_shipper_location_near(db, shipper_id, lat, lng, name=name)
     if existing is not None:
         _fill_blank(existing, "name", name)
         _fill_blank(existing, "detail_address", detail_address)
         return existing, False
+
+    known = _find_known_location(db, shipper_id=shipper_id, name=name, detail_address=detail_address)
+    if known is not None and known.address_lat is None and known.address_lng is None:
+        # 就是它：原来只有文字，现在知道它在哪儿了 → 把坐标补上（**不是**新建一条同名的）
+        known.address_lat = Decimal(str(round(lat, 7)))
+        known.address_lng = Decimal(str(round(lng, 7)))
+        _fill_blank(known, "name", name)
+        _fill_blank(known, "detail_address", detail_address)
+        db.flush()
+        return known, False
 
     row = ShipperLocation(
         shipper_id=shipper_id,
@@ -355,6 +422,85 @@ def ensure_shipper_location(
     db.add(row)
     db.flush()
     return row, True
+
+
+def remember_order_address(
+    db: Session,
+    *,
+    owner_ids: list[int | None],
+    name: str,
+    detail_address: str,
+    lat: float | None = None,
+    lng: float | None = None,
+) -> dict[str, list[int]]:
+    """把**这一单的收货地址**收进这几个人的「我的地点」（用户 2026-09-20）。
+
+    用户原话：
+    > 只要用户下单他会选择地点，这个时候，我们就自动地把它添加到地点库当中。
+
+    ## 为什么是「我的地点」，不是共享库
+    用户 2026-09-20 明确选了**「我的地点」**（每个人自己那份、只有本人能选）。
+    共享库仍然只有那三个明确入口：派单员「设为共享」/ 下单页手点一下存 / 司机到场补录 ——
+    那张表全库共用，自动往里灌等于绕开"只有派单员能把一个地点设为共享"这条规矩
+    （2026-09-19 定的）。
+
+    ## 代理下单为什么**两边都记**（用户 2026-09-20 选的）
+    地点库是按登录人隔离的。派单员代理下单时只记一边，另一边的人下次还得重选一遍：
+    记给货主 → 派单员下次代下单还得重新找这个地址；记给派单员 → 货主自己下单找不到它。
+    两边各一条的成本就是一次坐标比对，而地址本来就只有一处。
+
+    ## 两条判据（有坐标 / 只有文字）
+    - **有坐标** → 复用 `ensure_shipper_location`（1 米内、或同名 30 米内算同一处；
+      库里那条"只有文字、还没坐标"的记录会被**补上坐标**而不是再长一条）；
+    - **只有文字**（下单时没在地图上标点，手打了一行地址）→ 按 `_find_known_location`
+      去重。不让它进库等于"下次还得重打一遍"，而这种情况下没有任何距离可算，
+      只能按文字判、且只判"地址原文一模一样 / 名字一样且那条还没坐标"。
+
+    返回 `{"created_for": [...], "merged_for": [...]}`（user id）。调用方**必须**把
+    `created_for` 写进审计（`PLACE_AUTO_ADDED`）：用户下次看到自己库里多出一条，
+    得能查出是谁、因为哪一单加的。
+    """
+    out: dict[str, list[int]] = {"created_for": [], "merged_for": []}
+    clean_name = _clean(name, 128)
+    clean_detail = _clean(detail_address, 512)
+    # 无名无址：不进任何库。空行只会在用户的列表上变成一条谁也认不出的记录，
+    # 而它还会占着"我的地点"的第一屏（这正是共享库当初要挡在入口的那个形状）。
+    if not clean_name and not clean_detail:
+        return out
+
+    owners: list[int] = []
+    for oid in owner_ids:
+        if oid and oid not in owners:
+            owners.append(oid)
+
+    coords = (float(lat), float(lng)) if lat is not None and lng is not None else None
+    for owner_id in owners:
+        if coords is not None:
+            _, created = ensure_shipper_location(
+                db,
+                shipper_id=owner_id,
+                name=clean_name,
+                detail_address=clean_detail,
+                lat=coords[0],
+                lng=coords[1],
+            )
+        elif _find_known_location(
+            db, shipper_id=owner_id, name=clean_name, detail_address=clean_detail
+        ) is not None:
+            created = False
+        else:
+            db.add(
+                ShipperLocation(
+                    shipper_id=owner_id,
+                    name=clean_name,
+                    detail_address=clean_detail,
+                    image_urls="[]",
+                )
+            )
+            db.flush()
+            created = True
+        out["created_for" if created else "merged_for"].append(owner_id)
+    return out
 
 
 # ===========================================================================

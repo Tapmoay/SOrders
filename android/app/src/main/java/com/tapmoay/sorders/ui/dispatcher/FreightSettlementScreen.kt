@@ -1,10 +1,12 @@
 package com.tapmoay.sorders.ui.dispatcher
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -53,14 +55,20 @@ import java.math.BigDecimal
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FreightSettlementScreen(container: AppContainer, onBack: () -> Unit) {
+fun FreightSettlementScreen(
+    container: AppContainer,
+    onBack: () -> Unit,
+    /** 点开某一条明细 → 这一单的**原始订单**（订单详情页）。 */
+    onOpenOrder: (Long) -> Unit = {},
+) {
     val vm: FreightSettlementViewModel = appViewModel { FreightSettlementViewModel(container) }
+    var showRange by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { AppTopBar(title = "司机运费结算 · " + vm.month, onBack = onBack) },
+        topBar = { AppTopBar(title = "司机运费结算 · " + vm.periodLabel, onBack = onBack) },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            MonthPills(vm)
+            MonthPills(vm, onOpenRange = { showRange = true })
             val groups = vm.data?.groups ?: emptyList()
             when {
                 vm.loading && groups.isEmpty() ->
@@ -70,29 +78,50 @@ fun FreightSettlementScreen(container: AppContainer, onBack: () -> Unit) {
                 groups.isEmpty() ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            "本月暂无已送达且已计价的运费订单",
+                            vm.periodWord + "暂无已送达且已计价的运费订单",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                else -> SettlementBody(vm, groups)
+                else -> SettlementBody(vm, groups, onOpenOrder)
             }
         }
     }
+
+    // 「选一段时间看」用的弹层与订单/账本/库存那几页**同一份实现**（`DateRangeDialog`）
+    if (showRange) {
+        DateRangeDialog(
+            initialFrom = vm.rangeFrom,
+            initialTo = vm.rangeTo,
+            onDismiss = { showRange = false },
+            onApply = { f, t -> vm.applyRange(f, t) },
+        )
+    }
 }
 
-/** 上上月 / 上月 / 本月。 */
+/**
+ * 时间药丸：上上月 / 上月 / 本月 **+ 自定义区间**。
+ *
+ * 用户 2026-09-20：
+ * > 司机运费结账的那个工作台，他除了上个月上上个月，他还可以选择时间进行查看的。
+ *
+ * ⚠️ 自定义那一格显示的是**选中的那段日期**（`09-01~09-20`）而不是"自定义"三个字，
+ *    并且整行可横向滚动：跨年区间（`2025-12-01~2026-01-05`）比三个药丸加起来还宽，
+ *    塞不下时宁可让它滚，也不要挤成两行或把文字截掉（截掉的是"哪一段时间"本身）。
+ */
 @Composable
-private fun MonthPills(vm: FreightSettlementViewModel) {
+private fun MonthPills(vm: FreightSettlementViewModel, onOpenRange: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         listOf(-2 to "上上月", -1 to "上月", 0 to "本月").forEach { (delta, label) ->
             val target = java.time.LocalDate.now().plusMonths(delta.toLong())
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"))
-            val sel = vm.month == target
+            // 自定义区间亮着的时候，三个月份药丸都不该是选中态（它们现在说的不是同一段时间）
+            val sel = !vm.isCustomRange && vm.month == target
             Surface(
                 color = if (sel) Color(Accent).copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface,
                 shape = MaterialTheme.shapes.small,
@@ -103,6 +132,30 @@ private fun MonthPills(vm: FreightSettlementViewModel) {
                     style = MaterialTheme.typography.labelLarge,
                     color = if (sel) Color(Accent) else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+            }
+        }
+        val custom = vm.isCustomRange
+        Surface(
+            color = if (custom) Color(Accent).copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface,
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier.clickable(onClick = onOpenRange),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.DateRange,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = if (custom) Color(Accent) else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (custom) vm.periodLabel else "自定义",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (custom) Color(Accent) else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -119,7 +172,11 @@ private val Accent = 0xFFFF8A65L
  *    两栏之后"整个月一共要付多少"这件事没有别的地方能看到了（原来它在列表顶上那张卡上）。
  */
 @Composable
-private fun SettlementBody(vm: FreightSettlementViewModel, groups: List<FreightSettlementGroupDto>) {
+private fun SettlementBody(
+    vm: FreightSettlementViewModel,
+    groups: List<FreightSettlementGroupDto>,
+    onOpenOrder: (Long) -> Unit,
+) {
     val visible = UserSearch.filter(groups, vm.query, { it.driverName }, { it.driverPhone })
     // 选中的那位：换月份/搜索之后原来选的人可能不在了 → 回落到第一行，
     // 否则右边会停在一个左栏里根本没高亮的司机上（"我明明点了李四，右边是空的"）
@@ -131,7 +188,8 @@ private fun SettlementBody(vm: FreightSettlementViewModel, groups: List<FreightS
         Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
-                    "本月共 " + groups.size + " 位司机 · 应得合计",
+                    // 口径词跟着时间窗口走（自定义区间时说"本月"就是假话）
+                    vm.periodWord + "共 " + groups.size + " 位司机 · 应得合计",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -172,7 +230,7 @@ private fun SettlementBody(vm: FreightSettlementViewModel, groups: List<FreightS
                 } else if (selected == null) {
                     EmptyView("左边点一位司机看他的明细", Modifier.align(Alignment.Center))
                 } else {
-                    DriverDetail(selected)
+                    DriverDetail(selected, vm.periodWord, onOpenOrder)
                 }
             }
         }
@@ -184,7 +242,11 @@ internal fun driverKey(g: FreightSettlementGroupDto): String = "d|" + g.driverId
 
 /** 右栏：上面统计、下面明细。 */
 @Composable
-private fun DriverDetail(g: FreightSettlementGroupDto) {
+private fun DriverDetail(
+    g: FreightSettlementGroupDto,
+    periodWord: String,
+    onOpenOrder: (Long) -> Unit,
+) {
     // 统计块要的几个数：**全部从同一批明细算出来**，不另开口径。
     // 应得直接取组头的 `total`（后端 `driver_pay.pay_for_order` 逐单累加的结果）。
     val freightTotal = g.orders.mapNotNull { it.freightFee?.toBigDecimalOrNull() }.fold(BigDecimal.ZERO) { a, b -> a + b }
@@ -233,7 +295,11 @@ private fun DriverDetail(g: FreightSettlementGroupDto) {
                 Spacer(Modifier.height(10.dp))
                 // ⚠️ 「应得」和「货主运费」是**两个不同的数**，标签必须各写各的：
                 //    混起来就会出现"明细加起来 ≠ 上面那个数"（这一页的老毛病）。
-                Text("本月司机应得", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    periodWord + "司机应得",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "¥" + formatMoney(g.total.toString()),
@@ -271,14 +337,16 @@ private fun DriverDetail(g: FreightSettlementGroupDto) {
         }
         item {
             Text(
-                "价格明细（每单：司机应得 / 货主运费）",
+                "价格明细（每单：司机应得 / 货主运费）· 点一行看原始订单",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 2.dp, top = 2.dp),
             )
         }
         itemsIndexed(g.orders, key = { _, o -> o.orderId }) { _, o ->
-            SectionCard { SettlementOrderRow(o) }
+            // 明细行**可点**（2026-09-20 用户要求：「他的那个下面明细的订单卡片是可以点击的，
+            // 点击就是原始的订单信息」）—— 结算时看到一笔对不上，下一件事一定是翻原单。
+            SectionCard(Modifier.clickable { onOpenOrder(o.orderId) }) { SettlementOrderRow(o) }
         }
     }
 }
@@ -323,5 +391,13 @@ private fun SettlementOrderRow(o: FreightSettlementOrderDto) {
                 color = if (o.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFFF6B2C),
             )
         }
+        Spacer(Modifier.width(2.dp))
+        // 可点的东西要有**看得见**的提示：不然"这一行能点"只有试过的人知道
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

@@ -483,36 +483,72 @@ fun DateRangeFilter(onChange: (String?, String?) -> Unit, modifier: Modifier = M
     }
 
     if (showDialog) {
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text("选择日期范围") },
-            text = {
-                Column {
-                    TextButton(onClick = { pickingField = "from"; showDatePicker = true }) {
-                        Text("开始日期：" + (customFrom ?: "未选择"))
-                    }
-                    TextButton(onClick = { pickingField = "to"; showDatePicker = true }) {
-                        Text("结束日期：" + (customTo ?: "未选择"))
-                    }
-                }
+        DateRangeDialog(
+            initialFrom = customFrom,
+            initialTo = customTo,
+            onDismiss = { showDialog = false },
+            onApply = { f, t ->
+                preset = if (f == null && t == null) "全部" else "自定义"
+                customFrom = f
+                customTo = t
+                onChange(f, t)
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDialog = false
-                    val f = customFrom
-                    val t = customTo
-                    if (f != null && t != null) {
-                        preset = "自定义"
-                        onChange(f, t)
-                    } else if (f == null && t == null) {
-                        preset = "全部"
-                        onChange(null, null)
-                    }
-                }) { Text("应用") }
-            },
-            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("取消") } },
         )
     }
+}
+
+/**
+ * 「选一段日期」的弹层 —— **唯一实现**：通用筛选 [DateRangeFilter] 与司机运费结算页共用。
+ *
+ * [onApply] 只在**两头都选好**、或者**两头都没选**（= 清掉区间）时回调；
+ * 只选了一头就点「应用」＝什么都不做（半截区间在两边都不成立：一个没有起点或没有终点的窗口，
+ * 拿它去查询要么查全量、要么查出个空列表，两种都不是用户想要的）。
+ *
+ * ⚠️ 抽出来是因为 2026-09-20 司机运费结算页也要"选一段时间看" ——
+ *    再抄一份 `DatePickerDialog` 的后果是两处的"取消/应用"语义、日期换算各走各的，
+ *    而这类差异只有在某个页面表现不对时才会被发现。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DateRangeDialog(
+    initialFrom: String?,
+    initialTo: String?,
+    onDismiss: () -> Unit,
+    onApply: (String?, String?) -> Unit,
+) {
+    // 草稿态：选了不点「应用」就不算数（与弹层的通用语义一致）
+    var from by remember { mutableStateOf(initialFrom) }
+    var to by remember { mutableStateOf(initialTo) }
+    var pickingField by remember { mutableStateOf("from") }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择日期范围") },
+        text = {
+            Column {
+                TextButton(onClick = { pickingField = "from"; showDatePicker = true }) {
+                    Text("开始日期：" + (from ?: "未选择"))
+                }
+                TextButton(onClick = { pickingField = "to"; showDatePicker = true }) {
+                    Text("结束日期：" + (to ?: "未选择"))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val f = from
+                val t = to
+                when {
+                    f != null && t != null -> onApply(f, t)
+                    f == null && t == null -> onApply(null, null)
+                    // 只选了一头：不回调（见上面的注释），弹层照常关掉，用户能立刻重选
+                }
+                onDismiss()
+            }) { Text("应用") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 
     if (showDatePicker) {
         val dpState = rememberDatePickerState()
@@ -522,7 +558,7 @@ fun DateRangeFilter(onChange: (String?, String?) -> Unit, modifier: Modifier = M
                 TextButton(onClick = {
                     dpState.selectedDateMillis?.let { millis ->
                         val d = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                        if (pickingField == "from") customFrom = d.toString() else customTo = d.toString()
+                        if (pickingField == "from") from = d.toString() else to = d.toString()
                     }
                     showDatePicker = false
                 }) { Text("确定") }

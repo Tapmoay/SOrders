@@ -299,7 +299,14 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         composable(Routes.DISPATCH_VEHICLES) { VehicleManageScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.FREIGHT_TEMPLATES) { FreightTemplatesScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.DRIVER_BILLING_RULES) { DriverBillingRulesScreen(container = container, onBack = { navController.popBackStack() }) }
-        composable(Routes.FREIGHT_SETTLEMENT) { FreightSettlementScreen(container = container, onBack = { navController.popBackStack() }) }
+        composable(Routes.FREIGHT_SETTLEMENT) {
+            FreightSettlementScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                // 明细行点开的是**这一单的原始订单**（与司机端「我的账本」同一处落点）
+                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+            )
+        }
         composable(Routes.DRIVER_FREIGHT) {
             DriverFreightScreen(
                 container = container,

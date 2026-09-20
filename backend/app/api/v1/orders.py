@@ -504,6 +504,34 @@ def create_order(
         action=OperationAction.ORDER_CREATE,
         change_payload={"order_no": order.order_no},
     )
+    # 下单时把这一单的收货地址收进「我的地点」（用户 2026-09-20：「只要用户下单他会选择地点，
+    # 这个时候，我们就自动地把它添加到地点库当中」）。
+    # 代理下单**两边都记**（下单人 + 这单的货主）：地点库按登录人隔离，只记一边的话，
+    # 另一边的人下次还得重新找这个地址。判据与去重全在 `place_service.remember_order_address`。
+    saved = place_service.remember_order_address(
+        db,
+        owner_ids=[current.id, target_shipper_id],
+        name=body.address_detail,
+        detail_address=body.address_detail,
+        lat=float(body.address_lat) if body.address_lat is not None else None,
+        lng=float(body.address_lng) if body.address_lng is not None else None,
+    )
+    # 真的**新建**了才留痕：并进已有那条时什么都没变，多写一行日志只会让审计页变吵。
+    # 写的是 PLACE_AUTO_ADDED（与"常用共享地点自动进我的地点"同一个动作码），
+    # 这样"我的地点库里怎么多出一条"在操作日志里**只有一个地方**要查。
+    for owner_id in saved["created_for"]:
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=order.id,
+            action=OperationAction.PLACE_AUTO_ADDED,
+            change_payload={
+                "place_name": (body.address_detail or "").strip(),
+                "owner_id": owner_id,
+                "has_coords": body.address_lat is not None and body.address_lng is not None,
+                "note": "下单时把收货地址自动加进「我的地点」（判据见 place_service.remember_order_address）",
+            },
+        )
     if target_shipper_id is not None and body.contact_boss_phone.strip():
         upsert_boss_contact(db, target_shipper_id, body.contact_boss_phone.strip())
     db.commit()
@@ -905,8 +933,10 @@ def fill_order_navigation(
     place_name = (body.name or "").strip() or (order.address_detail or "").strip()
     detail = (body.detail_address or "").strip() or (order.address_detail or "").strip()
     # ⚠️ 名字与地址**不能都是空**：这张单会往**全库共享**的地点库里写一条，
-    #    而共享库**没有删除接口** —— 一条无名无址的记录是永久的，
-    #    在每个人的「共享地点」列表里都显示成「未命名地点」+ 空地址。
+    #    而共享库是全库共用的一张表 —— 一条无名无址的记录在每个人的「共享地点」
+    #    列表里都显示成「未命名地点」+ 空地址，谁也认不出是哪儿。
+    #    （2026-09-19 起删除改成了软删、只有派单员能删，所以现在"清得掉"了；
+    #    但入口挡掉仍然更好：进来一条就是**所有人**都看见了一条。）
     #    这里挡在入口，并给一句能照着做的中文（"起个名字"比"参数不合法"有用得多）。
     if not place_name and not detail:
         raise HTTPException(
