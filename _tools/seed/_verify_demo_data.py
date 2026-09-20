@@ -10,15 +10,26 @@
 5. **时间不规律但讲道理**：三个月每月都有单、早晚高峰看得出来、周日明显少；
 6. **钱对得上**：订单商品行合计 = 账本里订单来源的合计（同一批单只算一次）；
 7. **每类账都有数**：司机账 / 货主账 / 批发商账 / 报表都有非零数据；
-8. **照片是真的**：送达照片文件真的存在于 `static/`。
+8. **照片是真的**：送达照片文件真的存在于 `static/`；
+9. **派生日期跟着订单走**：凡是挂在订单上的行（账本/开销/现金流水/账单/库存流水），
+   日期必须等于那一单的业务日 —— **这张表清单是脚本自己算出来的**（所有带 `order_id` 的表），
+   漏一张就红（这一条是用一次真实事故换来的，见下面 ⑨ 的注释）；
+10. **三个开发登录账号自己也有数据**：真机上登的就是它们，空着等于这个模块没数据；
+11. **车型词表只有一套**：`small`/`large`/`trailer`（别的值在界面上显示「未设置车型」）；
+12. **消息中心不空**，而且消息都落在 30 天保留期内；
+13. **JSON 列里是真的 JSON 结构**（不是被当字符串塞进去的 `"[]"` —— 那会让读接口 500）。
 
 用法：python _tools/seed/_verify_demo_data.py
 """
 from __future__ import annotations
 
+import enum
+import json
+import os
 import re
 import sqlite3
 import sys
+import typing
 from collections import Counter
 from pathlib import Path
 
@@ -26,6 +37,65 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 
 ROOT = Path(__file__).resolve().parents[2]
 DB = ROOT / "backend/sorders.db"
+
+# ---- 枚举词表（第 ⑪ 条）用的模型元数据 ----------------------------------------
+# 为什么要引后端模型：枚举词表**只有一处真相**（`backend/app/models`），
+# 在这份脚本里手抄一张"哪个列认哪些值"的表，就一定会与后端走散
+# （而走散的后果是"读接口 500 而检查全绿"）。引不进来就让 ⑪ 红，不许静默跳过。
+sys.path.insert(0, str(ROOT / "backend"))
+os.environ.setdefault("DATABASE_URL", "sqlite:///./backend/sorders.db")
+ENUM_IMPORT_ERROR = ""
+ENUM_COLS: dict[tuple[str, str], tuple[set[str], str]] = {}
+VEHICLE_TYPE_VALUES: set[str] = set()
+
+
+def _load_enum_vocab() -> None:
+    """从模型元数据里算出「哪些列的取值有枚举约束」以及各自的合法值。"""
+    global ENUM_IMPORT_ERROR, ENUM_COLS, VEHICLE_TYPE_VALUES
+    try:
+        from sqlalchemy import Enum as SAEnum
+
+        from app.models import base as _basemod
+        import app.models  # noqa: F401  —— 让所有模型注册进元数据
+        from app.models import enums as _enums
+
+        base = _basemod.Base
+        classes = {m.class_.__name__: m.class_ for m in base.registry.mappers}
+        for nm in dir(_enums):
+            obj = getattr(_enums, nm)
+            if isinstance(obj, type) and issubclass(obj, enum.Enum):
+                classes[nm] = obj
+        VEHICLE_TYPE_VALUES = {str(e.value) for e in _enums.VehicleType}
+        for table in base.metadata.sorted_tables:
+            cls = next((m.class_ for m in base.registry.mappers if m.local_table is table), None)
+            try:
+                hints = typing.get_type_hints(cls, localns=classes) if cls is not None else {}
+            except Exception:                                          # noqa: BLE001
+                hints = {}
+            for col in table.columns:
+                if isinstance(col.type, SAEnum):
+                    # `Enum(XxxEnum)` 列存的是**成员名**
+                    ENUM_COLS[(table.name, col.name)] = ({str(x) for x in (col.type.enums or [])}, "成员名")
+                    continue
+                for a in typing.get_args(hints.get(col.name)):
+                    if isinstance(a, type) and issubclass(a, enum.Enum):
+                        # `String` + `Mapped[XxxEnum]` 列存的是**枚举值**
+                        ENUM_COLS[(table.name, col.name)] = ({str(e.value) for e in a}, "枚举值")
+                        break
+    except Exception as e:                                             # noqa: BLE001
+        ENUM_IMPORT_ERROR = f"{type(e).__name__}: {e}"
+
+
+def _all_columns() -> list[tuple[str, str]]:
+    c = sqlite3.connect(DB)
+    try:
+        return [(t[0], r[1]) for t in c.execute("select name from sqlite_master where type='table'")
+                for r in c.execute(f'pragma table_info("{t[0]}")')]
+    finally:
+        c.close()
+
+
+_load_enum_vocab()
 
 BAD_WORDS = re.compile(r"测试|压测|验证|样例|demo|probe|ttt|xxx|aaa|foo|bar123", re.I)
 fails: list[str] = []
@@ -131,10 +201,50 @@ def main() -> int:
     afternoon = sum(v for k, v in hours.items() if 14 <= k <= 17)
     ok(f"下单时间有早晚高峰（6-9 点 {early} 单、14-17 点 {afternoon} 单，其余 {sum(hours.values())-early-afternoon}）",
        early > 0 and afternoon > 0 and early + afternoon > sum(hours.values()) * 0.6)
+    # ⚠️ **id 必须与时间同向**：`GET /orders` 是 `order_by(Order.id.desc())`（列表按 id 排），
+    #    建单顺序与时间不一致时，真机上「待派池」第一张会是两个月前的单（看起来像没人管）。
+    inv = q("""select count(*) n from orders a join orders b on a.id < b.id
+               where a.created_at > b.created_at""")[0]["n"]
+    ok(f"订单 id 与下单时间同向（逆序对 {inv} 个）", inv == 0,
+       "列表按 id 倒序排，于是新单会排在老单后面")
+    # ⚠️ **"还在飞"的状态只在最近 10 天**：两个月前下的单不可能还挂在待派池里
+    stale = q("""select count(*) n from orders
+                 where status in ('PENDING_DISPATCH','DISPATCHED','ACCEPTED')
+                   and julianday('now','localtime') - julianday(order_date) > 10""")[0]["n"]
+    ok(f"待派/派单中/已接单都发生在最近 10 天内（超期 {stale} 单）", stale == 0,
+       "老单挂在那儿看起来就是「一批单没人管」")
+    # ⚠️ **单号形状与生产一致**：`SO{下单日}{10 位随机}`（`services/auth_service.py::gen_order_no`）
+    bad_no = q(r"""select order_no from orders
+                   where order_no not glob 'SO[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+                      or substr(order_no, 3, 8) <> replace(order_date, '-', '')""")
+    ok(f"单号形状是 SO+日期+10 位随机、且日期与下单日一致（不合 {len(bad_no)} 单）", not bad_no,
+       "；".join(r["order_no"] for r in bad_no[:3]))
     per_dow = q("select strftime('%w', order_date) d, count(*) n from orders group by d")
     dow = {int(r["d"]): r["n"] for r in per_dow}
     ok(f"周日明显少（周日 {dow.get(0,0)} 单 vs 其它日均 {sum(v for k,v in dow.items() if k) / 6:.0f} 单）",
        dow.get(0, 0) < sum(v for k, v in dow.items() if k) / 6)
+    # ⚠️ **尾部不能是空的**：第一版随机挑日子，最后 5 天只有 7 单（今天/昨天一单没有），
+    #    于是「账本 → 今天 / 昨天 / 前天」三个档位点下去全是空的、消息中心最新一条是三天前 ——
+    #    而这三个档位正是刚做完的功能，看起来就像坏了。
+    tail = {r["d"]: r["n"] for r in q(
+        "select order_date d, count(*) n from orders where order_date >= date('now','localtime','-2 day') group by d")}
+    ok(f"最近一单不是几天前的（{tail}）",
+       q("select count(*) n from orders where order_date >= date('now','localtime','-1 day')")[0]["n"] > 0,
+       "真机上「今天/昨天」两个日期档位会是空的")
+    ok(f"最近 3 天里至少 2 天有单（{tail}）", len(tail) >= 2, "尾部空档会让「最近」这类列表看起来没数据")
+    # ⚠️ 四个时刻必须按顺序：下单 → 派单 → 接单 → 送达，而且送达不能是未来
+    #    （第一版对"当天现造的单"没有这条约束：送达时间取 `min(…, 现在-1小时)`，
+    #     会把送达压到接单之前，订单详情上就是"送达早于接单"）。
+    bad_chain = q("""select id, order_no, substr(created_at,1,16) c, substr(dispatched_at,1,16) dp,
+                     substr(driver_acknowledged_at,1,16) ack, substr(delivered_at,1,16) dlv
+        from orders where status='DELIVERED' and (
+            dispatched_at < created_at
+            or (driver_acknowledged_at is not null and driver_acknowledged_at < dispatched_at)
+            or delivered_at < created_at
+            or (driver_acknowledged_at is not null and delivered_at < driver_acknowledged_at)
+            or delivered_at > datetime('now','localtime'))""")
+    ok(f"已送达单的四个时刻按顺序且不在未来（不合 {len(bad_chain)} 单）", not bad_chain,
+       "；".join(f"{r['order_no']} {r['c']}→{r['dp']}→{r['ack']}→{r['dlv']}" for r in bad_chain[:3]))
 
     # ---- ⑥⑦ 钱与各类账 ----
     n_deliv = q("select count(*) n from orders where status='DELIVERED'")[0]["n"]
@@ -176,6 +286,156 @@ def main() -> int:
     urls = [u for p in photos for u in re.findall(r"/static/[^\"]+", p or "")]
     missing = [u for u in urls if not (ROOT / "backend" / u.lstrip("/")).exists()]
     ok(f"送达照片真的存在（{len(urls)} 张，缺 {len(missing)} 张）", urls and not missing, "；".join(missing[:3]))
+
+    # ---- ⑨ 派生日期：挂在订单上的行，日期必须是那一单的业务日 ----
+    #
+    # ⚠️ 这一条是**用一次真实事故换来的**（2026-09-20）：第一版种子只把 `source='ORDER'` 的账本行
+    #    对齐回订单日，于是 6 条货损红冲账本 + 6 条货损开销 + 6 条货损现金流水 + 70 条库存流水
+    #    全留在"今天" —— 账本第一屏就是 6 条 09-20 的红冲行、库存流水按月份查是空的。
+    #    两处都不报错，界面上也看不出"是数据造错了"还是"这个月真的只有这些"。
+    #
+    # ⚠️ 表清单**自己算**（`pragma table_info` 里所有带 `order_id` 的表），绝不手写：
+    #    手写的清单漏一张表 = 这条检查根本不看它，而且没有人会发现。
+    #    新增一张带 `order_id` 的表时，要么在 [DERIVED] 里说清它的哪一列该跟着订单走，
+    #    要么在 [EXEMPT] 里写一句"它的日期不该跟着订单走"的理由。
+    ORDER_DAY = "date(coalesce(o.delivered_at, o.order_date))"
+    # 表: (跟着订单走的那一列, 粒度, 额外条件)
+    DERIVED = {
+        "ledgers": ("entry_date", "day", ""),
+        "expenses": ("exp_date", "day", ""),
+        "driver_bills": ("month", "month", ""),
+        # 收款流水的日子是**收款日**：客户 8 月才结 6 月的账，本来就该晚于送达日 ——
+        # 所以这条只认货损那一类（EXPENSE_LOSS）。
+        "cash_flows": ("flow_date", "day", "and x.biz_type = 'EXPENSE_LOSS'"),
+        # `created_at` 就是库存流水的业务时间（`GET /inventory/movements` 按它做日期过滤）
+        "inventory_movements": ("created_at", "day", ""),
+    }
+    EXEMPT = {
+        "operation_logs": "created_at 是「这条日志什么时候写的」（审计时刻），没有业务日期列，"
+                          "审计接口也不按日期过滤",
+        "order_products": "商品行没有业务日期列（它的日子就是订单的 order_date）",
+    }
+    with_oid: set[str] = set()
+    for t in [r["name"] for r in q("select name from sqlite_master where type='table'")]:
+        cols = [r["name"] for r in q(f'pragma table_info("{t}")')]
+        if "order_id" in cols and q(f'select count(*) n from "{t}" where order_id is not null')[0]["n"] > 0:
+            with_oid.add(t)
+    uncovered = with_oid - set(DERIVED) - set(EXEMPT)
+    ok(f"带 order_id 的表都被「派生日期」覆盖或写了理由（共 {sorted(with_oid)}）",
+       not uncovered, "没覆盖也没理由：" + "、".join(sorted(uncovered)))
+    # 防"清单被改坏 → 整条检查空转"：覆盖的表不能少于 4 张，EXEMPT 里也不许留已经不存在的表
+    ok(f"派生日期的覆盖清单不是空的（{len(DERIVED)} 张表 + {len(EXEMPT)} 条理由）",
+       len(DERIVED) >= 4 and len(EXEMPT) >= 1)
+    ok("EXEMPT 里的表都还在、还真的带 order_id（防化石）",
+       not (set(EXEMPT) - with_oid), "；".join(sorted(set(EXEMPT) - with_oid)))
+    for t, (col, gran, extra) in DERIVED.items():
+        w = 7 if gran == "month" else 10
+        bad = q(f"""select count(*) n from {t} x join orders o on o.id = x.order_id
+                    where substr(x.{col}, 1, {w}) <> substr({ORDER_DAY}, 1, {w}) {extra}""")[0]["n"]
+        total = q(f"select count(*) n from {t} where order_id is not null")[0]["n"]
+        ok(f"{t}.{col} 跟着订单走（{total} 行，不一致 {bad} 行）", bad == 0,
+           f"{bad} 行的日期不等于那一单的业务日")
+
+    # ---- ⑩ 三个开发登录账号必须有数据（真机上登的就是它们）----
+    need = {
+        "13800000001": ("DISPATCHER", {"shipper_locations": 1, "shipper_addresses": 1, "shipper_contacts": 1}),
+        "13800000002": ("SHIPPER", {"orders": 5, "ledgers": 3, "shipper_locations": 3,
+                                    "shipper_addresses": 2, "shipper_contacts": 3}),
+        "13800000003": ("DRIVER", {"orders": 3, "driver_bills": 1, "vehicles": 1}),
+    }
+    for phone, (role, wants) in need.items():
+        u = q("select id, role from users where phone=?", phone)
+        if not u:
+            ok(f"开发账号 {phone} 存在", False, "账号不在库里（_reset_dev_db 会留着它才对）")
+            continue
+        uid = u[0]["id"]
+        ok(f"开发账号 {phone} 的角色还是 {role}", u[0]["role"] == role, f"实际 {u[0]['role']}")
+        for what, least in wants.items():
+            # ⚠️ 司机看的单在 `driver_id` 上、货主看的单在 `shipper_id` 上 —— 不能一个映射套两个人
+            #    （第一版这里对司机号也查 `shipper_id`，于是"司机有 12 条账单、却报 0 单"，
+            #     报的是检查自己写错了，不是数据错了）。
+            where = {"driver_bills": "driver_id", "vehicles": "driver_id"}.get(what, "shipper_id")
+            if what == "orders" and role == "DRIVER":
+                where = "driver_id"
+            n = q(f"select count(*) n from {what} where {where}=?", uid)[0]["n"]
+            ok(f"  {phone} 的 {what} ≥ {least}（实际 {n}）", n >= least,
+               "这个账号在真机上是空的 —— 而验收用的就是它")
+
+    # ---- ⑪ 枚举词表：每一列的取值必须是这个列自己的枚举认的值 ----
+    #
+    # ⚠️ 这一条也是**用真机 500 换来的**（2026-09-20，三处）：
+    #    · `users.vehicle_type` 写中文「面包车」→ 界面上显示「未设置车型」；
+    #    · `expenses.category` 写中文「过路费」→ `GET /expenses` 500（`ExpenseOut` 要 `fuel`）；
+    #    · `driver_settlements.settle_type` 写大写 `PIECE` → `GET /driver-settlements` 500（要 `piece`）。
+    #    共同点：**写库一声不响，读接口才炸**，而界面上"到底哪个值合法"没有任何提示。
+    #
+    # ⚠️ 清单**自己算**，两种列都要认（它们存的形式不一样，这是最容易栽的地方）：
+    #    · `Enum(XxxEnum)` 列 → 存的是**成员名**（`col.type.enums` 给的就是名字）；
+    #    · `String(16)` + 注解 `Mapped[XxxEnum]` 列 → 存的是**枚举值**（`fuel`）；
+    #    注解要靠 `get_type_hints` 解，且要给它一个 localns（模型里 `User`/`Order` 是
+    #    `TYPE_CHECKING` 导入的，不给就解不开）。
+    name_pattern_cols = [c for c in _all_columns() if c[1] == "vehicle_type"]
+    ok("枚举词表能从后端模型元数据算出来（算不出来就得修，不许静默跳过）",
+       not ENUM_IMPORT_ERROR, ENUM_IMPORT_ERROR)
+    ok(f"枚举清单认得出来（注解列 {len(ENUM_COLS)} 个、按名字认的 vehicle_type 列 {len(name_pattern_cols)} 个）",
+       len(ENUM_COLS) >= 8 and len(name_pattern_cols) >= 3,
+       "一个都没扫到 = 这条检查在空转（该红而不是该绿）")
+    bad_vals: list[str] = []
+    for (tbl, colname), (allowed, kind) in sorted(ENUM_COLS.items()):
+        for r in q(f'select "{colname}" v, count(*) n from "{tbl}" '
+                   f'where "{colname}" is not null group by "{colname}"'):
+            if str(r["v"]) not in allowed:
+                bad_vals.append(f"{tbl}.{colname}={r['v']!r}×{r['n']}（{kind}，只认 {sorted(allowed)[:6]}…）")
+    for tbl, colname in name_pattern_cols:
+        for r in q(f'select "{colname}" v, count(*) n from "{tbl}" '
+                   f'where "{colname}" is not null and trim("{colname}") <> \'\' group by "{colname}"'):
+            if str(r["v"]) not in VEHICLE_TYPE_VALUES:
+                bad_vals.append(f"{tbl}.{colname}={r['v']!r}×{r['n']}（车型只认 {sorted(VEHICLE_TYPE_VALUES)}）")
+    ok(f"枚举列的取值都是这个枚举认的（坏值 {len(bad_vals)} 处）", not bad_vals,
+       "写库不报错、读接口 500；界面显示「未设置车型」这类就是这个原因：" + "；".join(bad_vals[:4]))
+
+    # ---- ⑬ JSON 列里必须是**真的 JSON 结构**，不能是被当字符串塞进去的 ----
+    #
+    # ⚠️ 这条是**真机 500 换来的**（2026-09-20）：种子把 `orders.delivery_photo_urls` 写成 `"[]"`
+    #    字符串，而它是 JSON 列 —— 存进去就是"一个字符串"，读出来 `OrderOut` 要 list，
+    #    `GET /orders?status=PENDING_DISPATCH` 整个端点 500（派单作业页直接打不开）。
+    #    ⚠️ 隔壁 `orders.image_urls` 是 **Text** 列、还带 `mode="before"` 的解析器，
+    #    所以那边写字符串是对的 —— 一列一个形状，不能照抄。
+    #    列清单**自己算**（`pragma table_info` 里声明成 JSON 的列），不手写。
+    json_cols = [(t, r["name"]) for t in [x["name"] for x in q("select name from sqlite_master where type='table'")]
+                 for r in q(f'pragma table_info("{t}")') if (r["type"] or "").upper() == "JSON"]
+    ok(f"库里认得 JSON 列（{len(json_cols)} 列：{'、'.join(t + '.' + c for t, c in json_cols)}）",
+       len(json_cols) >= 3, "一个 JSON 列都没扫到，说明这条检查是空转的")
+    poisoned: list[str] = []
+    for t, col in json_cols:
+        for r in q(f'select id, "{col}" v from "{t}" where "{col}" is not null'):
+            raw = r["v"]
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:                                        # noqa: BLE001
+                poisoned.append(f"{t}.{col}#{r['id']} 不是合法 JSON")
+                continue
+            if isinstance(parsed, str):
+                poisoned.append(f"{t}.{col}#{r['id']}={str(raw)[:20]}（存成了字符串）")
+    ok(f"JSON 列里存的是真结构而不是字符串（坏值 {len(poisoned)} 个）", not poisoned,
+       "；".join(poisoned[:4]))
+
+    # ---- ⑫ 消息中心 ----
+    n_msg = q("select count(*) n from notifications")[0]["n"]
+    ok(f"消息中心不是空的（{n_msg} 条）", n_msg > 0, "工作台的「消息中心」点进去会是一条都没有")
+    if n_msg:
+        old = q("select count(*) n from notifications where created_at < datetime('now','localtime','-30 day')")[0]["n"]
+        ok(f"消息都落在 30 天保留期内（超期 {old} 条）", old == 0,
+           "超期的会被 `data_retention` 在启动时物理清掉")
+        unread = q("select count(*) n from notifications where read_at is null")[0]["n"]
+        ok(f"有未读消息（{unread} 条未读 / {n_msg} 条）", 0 < unread < n_msg,
+           "全未读或全已读都不像真实使用过")
+        blank = q("select count(*) n from notifications where trim(coalesce(title,''))='' "
+                  "or trim(coalesce(content,''))=''")[0]["n"]
+        ok(f"每条消息都有标题与正文（空 {blank} 条）", blank == 0)
+        orphan_r = q("select count(*) n from notifications n where not exists "
+                     "(select 1 from users u where u.id = n.recipient_id)")[0]["n"]
+        ok(f"消息的收件人都在（失效 {orphan_r} 条）", orphan_r == 0)
 
     print("\n" + "=" * 60)
     if fails:

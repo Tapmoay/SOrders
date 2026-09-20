@@ -14,22 +14,31 @@
 3. **该填的都填**：电话、联系人、地址、单位、成本、库存、备注——空字段就是界面上一条横线；
 4. **时间不规律但也讲道理**：按业务日铺（早上与下午两个高峰、周日大多不发），
    单量有起伏（越近的月份越忙），不搞"每天正好 5 单"这种假规律；
-5. **走真实的业务函数**（`order_flow.assign_driver` / `complete_delivery`），
-   所以账本、司机账单、现金流水、库存流水都是**业务代码自己写出来的** ——
-   我在这里再编一遍，就一定会与线上算法走散（而这批数据是拿来验收的）。
+5. **走真实的业务函数**（`order_flow.assign_driver` / `complete_delivery` /
+   `message_center.publish_*`），所以账本、司机账单、现金流水、库存流水、消息
+   都是**业务代码自己写出来的** —— 我在这里再编一遍，就一定会与线上算法走散
+   （而这批数据是拿来验收的）；
+6. **日期取自业务时刻**：回放历史时，凡是"送达那一刻"派生出来的行（账本、账单、货损开销、
+   货损现金流水、库存流水）都要落回那一单的日子。漏一处，那一类数据就会全挤在今天那一个月，
+   而界面上看不出来"是数据造错了"还是"这个月真的只有这些"；
+7. **验收用的三个账号自己也要有数据**：数据分给了新造的 24 个货主 / 22 个司机，
+   而真机上登的是三个开发号 —— 它们必须是"有单、有账、有地址库"的正常账号；
+8. **列形状要对**：JSON 列给 list（给字符串 `"[]"` 会被原样存成字符串，读接口直接 500），
+   Text 列给 JSON 字符串 —— 同一个模型里这两种列是并存的（`delivery_photo_urls` vs `image_urls`）。
 
 ## 它造什么（默认近 90 天）
 
 | 类别 | 量 | 说明 |
 |---|---|---|
 | 商品分类 / 商品 | 6 / 36 | 生鲜配送的真实品类（水果/蔬菜/肉禽蛋/米面粮油/调味/酒水） |
-| 货主 / 批发商 | 24 / 8 | 门店、食堂、餐饮；批发商带专属价（`price_rules`） |
-| 司机 / 车辆 / 计费规则 | 22 / 14 / 6 | 计件 / 工资 / 提成 三档；车牌、车型 |
+| 货主 / 批发商 | 24 / 9 | 门店、食堂、餐饮；批发商带专属价（`price_rules`）；**含开发号货主** |
+| 司机 / 车辆 / 计费规则 | 22 / 14 / 6 | 计件 / 工资 / 提成 三档；车牌、车型；**含开发号司机**（队首，有车） |
 | 地点 / 线路 / 联系人 / 分组 | 60+ / 20 / 36 / 4 | 惠州·东莞一带的地名组合 |
 | 挂账单位 / 运费模板 | 6 / 8 | 按路线定价的价目表 |
 | 订单 | 默认 420 | 各状态都有；送达单会**自动**产生账本/账单/现金流水/库存流水 |
 | 送达照片 | 每张送达单 1 张 | 真的写到 `static/uploads/delivery/<id>/`，不是假 URL |
 | 手工流水 / 开销 / 司机结算单 | 18 / 30 / ~12 | 手工记账、六类开销、按月的结算单（草稿） |
+| 消息中心 | 最近 30 天 | 走真实的 `publish_*`（新单/派单/接单/送达/撤销），只把 Socket 推送换成空实现 |
 
 用法（**在 backend 目录下**）：
     python -m scripts.seed_demo_data            # 预览：只打印将要造什么
@@ -39,13 +48,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import random
 import sys
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import func, select, text, update
 
 sys.path.insert(0, ".")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
@@ -57,7 +67,9 @@ from app.models.driver_bill import DriverBill  # noqa: E402
 from app.models.driver_billing_rule import DriverBillingRule  # noqa: E402
 from app.models.driver_settlement import DriverSettlement  # noqa: E402
 from app.models.enums import (  # noqa: E402
+    DriverBillType,
     DriverBillStatus,
+    ExpenseCategory,
     LedgerSource,
     OrderStatus,
     SettlementStatus,
@@ -110,18 +122,30 @@ CATEGORIES = [
     ("酒水饮料", ["饮用纯净水", "橙汁饮料", "罐装凉茶", "珠江啤酒", "客家米酒", "原味豆奶"]),
 ]
 UNITS = ["箱", "件", "袋", "桶", "筐", "包"]
-VEHICLE_TYPES = ["面包车", "4.2米厢式货车", "6.8米货车", "三轮车"]
+# ⚠️ 车型**只有一套词表**：后端与 App 认的都是 `small`/`large`/`trailer`
+#    （`services/driver_pay._VEHICLE_TYPES`、`api/v1/vehicles.py::_VEHICLE_TYPES`、
+#     `api/v1/freight_templates.py::_VALID_VEHICLE`、`VehicleManageScreen.vehicleTypeLabel`），
+#    中文名只是**显示层**（小货车/大货车/挂车）。
+#    第一版这里写的是「面包车 / 4.2米厢式货车 / 6.8米货车 / 三轮车」——那是另一套词表，
+#    后果是三处**静默**的：22 位司机与 14 台车在真机上车型一栏全显示「未设置车型」、
+#    8 张运费模板的车型是后端不认的值、App 的新增/编辑表单存下去就 422。
+#    权重靠重复表达：小车最多、挂车最少（挂车只有 6.8 米以上才有）。
+VEHICLE_TYPES = ["small", "small", "large", "large", "trailer"]
 PLATE_PREFIX = ["粤L", "粤S", "粤B"]
-EXPENSE_TYPES = ["油费", "过路费", "车辆维修", "停车费", "员工餐费", "办公耗材", "通讯费", "装卸费"]
+# ⛔ 开销分类的**存储值**是枚举值（`ExpenseCategory`：fuel/repair/toll/parking/fine/insurance/other），
+#    中文名只是界面上的一层标签（`AccountToolsScreens.catLabel`）。
+#    第一版这里把中文标签当成了存储值 —— 写库一声不响，读的时候
+#    `ExpenseOut.category: ExpenseCategory` 校验失败，`GET /expenses` 整个端点 500。
+#    货损（loss）不在这里：它是送达时按货损件数自动记的（`accounting_service`）。
 EXPENSE_NOTES = {
-    "油费": ["仲恺加油站 92#", "江北中石化", "塘厦加气站", "常平服务区加油"],
-    "过路费": ["惠河高速", "潮莞高速", "博深高速", "长深高速"],
-    "车辆维修": ["换两条后胎", "刹车片保养", "空调加雪种", "年检代办", "换机油三滤"],
-    "停车费": ["信立农批月租", "樟木头市场临停", "龙岗园区停车"],
-    "员工餐费": ["仓库加班餐", "跟车午餐", "早班早餐"],
-    "办公耗材": ["打印纸与标签", "送货单印刷", "记号笔与胶带"],
-    "通讯费": ["月结话费", "对讲机电池"],
-    "装卸费": ["临时装卸工钱", "叉车租用"],
+    ExpenseCategory.FUEL: ["仲恺加油站 92#", "江北中石化", "塘厦加气站", "常平服务区加油"],
+    ExpenseCategory.TOLL: ["惠河高速", "潮莞高速", "博深高速", "长深高速"],
+    ExpenseCategory.REPAIR: ["换两条后胎", "刹车片保养", "空调加雪种", "年检代办", "换机油三滤"],
+    ExpenseCategory.PARKING: ["信立农批月租", "樟木头市场临停", "龙岗园区停车"],
+    ExpenseCategory.INSURANCE: ["交强险续保", "商业险续保", "承运人责任险"],
+    ExpenseCategory.FINE: ["违停罚单", "超载罚款"],
+    ExpenseCategory.OTHER: ["仓库加班餐", "跟车午餐", "早班早餐", "打印纸与标签", "送货单印刷",
+                            "月结话费", "对讲机电池", "临时装卸工钱", "叉车租用"],
 }
 ARREARS_UNITS = ["仲恺中学食堂", "信立农批市场管理处", "惠阳人民医院饭堂", "德赛工业园食堂",
                  "伯恩光学食堂", "TCL 液晶产业园食堂"]
@@ -284,24 +308,29 @@ def main() -> int:
     db.commit()
 
     rules: list[DriverBillingRule] = []
-    for nm, piece, rate, salary in [
-        ("按单计件 · 面包车", Decimal("22"), None, None),
-        ("按单计件 · 4.2米厢货", Decimal("45"), None, None),
-        ("按单计件 · 6.8米货车", Decimal("78"), None, None),
-        ("月薪司机 · 固定 6500", None, None, Decimal("6500")),
-        ("运费提成 8%", None, Decimal("8"), None),
-        ("运费提成 12%", None, Decimal("12"), None),
+    # 计件规则**带上车型**（`driver_billing_rules.vehicle_type`）：这是"这种车按这个价"的真实口径，
+    # 也让 `POST /driver-billing-rules/attach` 的「车型对不上」拦截有东西可拦（挂车的价挂不到小车上）。
+    # 月薪与提成规则不限车型（NULL = 都能挂）。
+    for nm, piece, rate, salary, vt in [
+        ("按单计件 · 小货车", Decimal("22"), None, None, "small"),
+        ("按单计件 · 大货车", Decimal("45"), None, None, "large"),
+        ("按单计件 · 挂车", Decimal("78"), None, None, "trailer"),
+        ("月薪司机 · 固定 6500", None, None, Decimal("6500"), None),
+        ("运费提成 8%", None, Decimal("8"), None, None),
+        ("运费提成 12%", None, Decimal("12"), None, None),
     ]:
-        rules.append(DriverBillingRule(name=nm, piece_amount=piece, commission_rate=rate, salary=salary))
+        rules.append(DriverBillingRule(name=nm, piece_amount=piece, commission_rate=rate,
+                                       salary=salary, vehicle_type=vt))
     db.add_all(rules)
     db.flush()
+    # 车型 → 计件规则，**唯一一份映射**（保证造不出"车型对不上"的挂载）
+    piece_by_vt = {"small": rules[0], "large": rules[1], "trailer": rules[2]}
 
     drivers: list[User] = []
     for i in range(22):
         nm = person(0.08)
         vt = rng.choice(VEHICLE_TYPES)
-        rule = rules[0] if vt == "面包车" else rules[1] if vt == "4.2米厢式货车" else \
-            rules[2] if vt == "6.8米货车" else rules[3]
+        rule = piece_by_vt[vt]
         if i in (5, 9, 16):                     # 三位月薪司机
             rule = rules[3]
         elif i in (3, 12, 19):                  # 三位提成司机
@@ -310,6 +339,25 @@ def main() -> int:
                             password_hash=pwd, is_active=True, vehicle_type=vt,
                             driver_rule_id=rule.id,
                             billing_mode="SALARY" if rule.salary else "PIECE"))
+    # ⚠️ **三个开发登录账号必须自己也有数据**（2026-09-20 真机发现的大洞）：
+    #    第一版把所有订单分给了新造的 24 个货主 / 22 个司机，于是换个账号登进去就是一片空白 ——
+    #    货主号 0 单 0 账本 0 地点、司机号 0 单 0 账单（派单员号靠"全局视图"看着是满的，
+    #    正好把这件事盖住了）。这份数据是拿来验收的，而验收用的就是这三个账号。
+    #    所以：货主号进批发商池（它 `is_member=1`，本来就该有专属价、批发商账、收款单），
+    #    司机号放在车队**队首**（车辆是按 `drivers[i % len]` 发的，站队首才有车）。
+    dev_shipper = db.query(User).filter(User.phone == "13800000002").one()
+    dev_driver = db.query(User).filter(User.phone == "13800000003").one()
+    # 占位名（Shipper/Driver/Dispatcher）本身就是"测试数据"的样子 —— 它会作为**商户名**
+    # 出现在账本、订单、消息中心里。只在还是占位名的时候改，改过（或用户自己起过名）就不碰。
+    for u, pretty in ((dispatcher, "陈国强"), (dev_shipper, "永盛食品"), (dev_driver, "李伟明")):
+        if u.full_name in ("Dispatcher", "Shipper", "Driver"):
+            u.full_name = pretty
+            u.username = pretty
+    dev_driver.vehicle_type = "small"           # 小车 → 挂小货车那一档（车型对得上）
+    dev_driver.billing_mode = "PIECE"
+    dev_driver.driver_rule_id = piece_by_vt["small"].id
+    drivers.insert(0, dev_driver)
+    members.append(dev_shipper)
     db.add_all(drivers)
     db.flush()
 
@@ -365,14 +413,32 @@ def main() -> int:
     contacts = [(person(0.45), l) for l in rng.sample(locs, 36)]
     for nm, l in contacts:
         db.add(ShipperContact(shipper_id=dispatcher.id, display_name=f"{nm}（{l.name}）", phone=phone()))
-    for s in rng.sample(shippers, 12):       # 货主侧也各有一两个自己的地点
-        for _ in range(rng.randint(1, 3)):
+    # 货主侧也各有一两个自己的地点。**开发号的货主固定 3 个**（第 0 个就是它）：
+    # 它是真机上要登进去验收的那个账号，地址库空着等于这个模块没数据。
+    for k, s in enumerate([dev_shipper] + rng.sample(shippers, 12)):
+        for _ in range(3 if k == 0 else rng.randint(1, 3)):
             detail, lat, lng = address()
             db.add(ShipperLocation(shipper_id=s.id, name=f"{s.full_name}{rng.choice(['仓库', '门店', '档口', '食堂'])}",
                                    detail_address=detail, address_lat=lat, address_lng=lng,
                                    remark="", image_urls="[]"))
+    db.flush()
+    # 开发号的货主还要有**线路与联系人**：地址与联系人页是三段（常用线路 / 联系人 / 地点），
+    # 只给地点的话另外两段在真机上还是空的 —— 而这一页正是要验收的。
+    own_dev = (db.query(ShipperLocation)
+               .filter(ShipperLocation.shipper_id == dev_shipper.id,
+                       ShipperLocation.is_deleted == False).all())   # noqa: E712
+    for i in range(2):
+        a, b = rng.sample(own_dev, 2)
+        db.add(ShipperAddress(shipper_id=dev_shipper.id, receiver_name=person(0.4), phone=phone(),
+                              detail_address=b.detail_address, address_lat=b.address_lat,
+                              address_lng=b.address_lng, origin_address=a.detail_address,
+                              origin_lat=a.address_lat, origin_lng=a.address_lng,
+                              remark="", is_default=(i == 0), image_urls="[]"))
+    for l in own_dev:
+        db.add(ShipperContact(shipper_id=dev_shipper.id,
+                              display_name=f"{person(0.45)}（{l.name}）", phone=phone()))
     db.commit()
-    print(f"  地点 {len(locs)}、线路 20、联系人 {len(contacts)}、地点分组 4")
+    print(f"  地点 {len(locs)} + 货主自有 {len(own_dev)}（开发号）、线路 20 + 2、联系人 {len(contacts)} + 3、地点分组 4")
 
     # ---------------------------------------------------------- ④ 批发商专属价
     n_price = 0
@@ -391,32 +457,51 @@ def main() -> int:
     weights = [1.0 + 0.9 * (i / len(days)) for i in range(len(days))]   # 越近越忙
     made = 0
     stat = {s: 0 for s in ("delivered", "cancelled", "pending", "dispatched", "accepted")}
-    seq = 0
     own_by_shipper: dict[int, list[ShipperLocation]] = {}
     for s in shippers + members:
         own = db.query(ShipperLocation).filter(ShipperLocation.shipper_id == s.id,
                                                ShipperLocation.is_deleted == False).all()  # noqa: E712
         if own:
             own_by_shipper[s.id] = own
-    while made < args.orders:
+
+    # ⚠️ **先把"哪天几单"展开成具体时刻、排好序，再照着建单**。顺序不是小事：
+    #    `GET /orders` 是 `order_by(Order.id.desc())`（列表按 id 排），所以 id 必须与时间同向，
+    #    **包括同一天内的先后**（只按"天"排序还不够：天内的下单时刻是随机的，
+    #    实测还有 895 个逆序对）。第一版是随机挑日子即时建单，于是 7 月的单拿到了比 9 月更大的 id，
+    #    真机上「派单作业 → 待派池」第一张是两个月前的单（看起来像一批单没人管）。
+    #
+    # ⚠️ 另外**最近 3 天各保底 3 单**：随机挑日子实测会把尾部挑空（09-16~09-20 一单都没有），
+    #    于是「账本 → 今天 / 昨天 / 前天」三个档位点下去全是空的、消息中心最新一条是三天前 ——
+    #    而这三个档位正是刚做完的功能，看起来就像坏了。
+    #    早于早上 8 点跑就退回一天（今天只铺**已经过去的时段**，还没到的时段不该有单）。
+    tail = days[-3:] if datetime.now().hour >= 8 else days[-4:-1]
+    plan: list[date] = [d for d in tail for _ in range(3)]
+    while len(plan) < args.orders:
         d = rng.choices(days, weights=weights, k=1)[0]
-        if d.weekday() == 6 and rng.random() < 0.8:      # 周日大多不发车
+        if d.weekday() == 6 and rng.random() < 0.8:          # 周日大多不发车
             continue
-        per_day = rng.choices([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], weights=[2, 5, 9, 12, 12, 10, 6, 3, 2, 1], k=1)[0]
+        plan += [d] * rng.choices([0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+                                  weights=[2, 5, 9, 12, 12, 10, 6, 3, 2, 1], k=1)[0]
+    # 单不能下在"现在"之后；留 30 分钟余量（送达时刻还在这之后）
+    cap = datetime.now() - timedelta(minutes=30)
+    slots = sorted(min(pick_time(d), cap - timedelta(minutes=rng.randint(0, 40)))
+                   for d in plan[: args.orders])
+    for i in range(1, len(slots)):                            # 严格递增（id 与时间同向）
+        if slots[i] <= slots[i - 1]:
+            slots[i] = slots[i - 1] + timedelta(minutes=1)
+    for created in slots:
+        d = created.date()
+        per_day = 1          # plan 已展开成一个个时刻：一个时刻建一单
         for _ in range(per_day):
-            if made >= args.orders:
-                break
-            created = pick_time(d)
-            if created >= datetime.now():
-                continue
             shipper = rng.choice(shippers + members)
             lines = rng.sample(products, rng.choices([1, 2, 3, 4, 5], weights=[38, 28, 18, 10, 6], k=1)[0])
             own = own_by_shipper.get(shipper.id)
             loc = rng.choice(own) if own and rng.random() < 0.7 else rng.choice(locs)
-            seq += 1
             route = rng.choice(ROUTES)
             payment = rng.choices(["arrears", "cash"], weights=[78, 22], k=1)[0]
-            o = Order(order_no=f"SO{created:%Y%m%d}{seq:06d}", status=OrderStatus.PENDING_DISPATCH,
+            # 单号形状与生产一致：`SO{下单日}{10 位随机}`（`services/auth_service.py::gen_order_no`）
+            o = Order(order_no=f"SO{created:%Y%m%d}{rng.randrange(10**10):010d}",
+                      status=OrderStatus.PENDING_DISPATCH,
                       shipper_id=shipper.id, order_date=created.date(),
                       created_at=created, updated_at=created,
                       delivery_description=rng.choice(["送到后门卸货", "走正门找收货员", "卸在一楼月台",
@@ -430,7 +515,13 @@ def main() -> int:
                       # 派单时勾了「收取现金」：司机送到就得当场收（这是派单动作上的标志，不是收款记录）
                       collect_cash=(payment == "cash"),
                       paid=False, is_exception=False,
-                      image_urls="[]", delivery_photo_urls="[]")
+                      # ⛔ `delivery_photo_urls` 是 **JSON 列**，必须给 list；
+                      #    给字符串 `"[]"` 会原样存成"一个字符串"，读的时候
+                      #    `OrderOut.delivery_photo_urls: list | None` 直接 500
+                      #    （真机实测：派单作业页 `GET /orders?status=PENDING_DISPATCH` 全挂）。
+                      #    隔壁 `image_urls` 是 Text 列、还带 `mode="before"` 的解析器，
+                      #    所以那边写成字符串是对的 —— 两列形状不同，别照抄。
+                      image_urls="[]", delivery_photo_urls=[])
             db.add(o)
             db.flush()
             for p in lines:
@@ -448,7 +539,12 @@ def main() -> int:
                                     cost_price_snapshot=p.cost_price))
             made += 1
 
-            roll = rng.random()
+            # ⚠️ **"还在飞"的状态只出现在最近 10 天**（待派 / 派单中 / 已接单）：
+            #    两个多月前下的单不可能到现在还挂在待派池里 —— 真机上那就是"一批单没人管"的假象
+            #    （第一版按比例随机铺，7 月的单也有待派的，滚到下面就看见）。
+            #    老单只可能是"已送达 / 已撤销"两档（0.72 : 0.08 的比例不变）。
+            fresh = (datetime.now() - created) <= timedelta(days=10)
+            roll = rng.random() if fresh else rng.uniform(0.0, 0.80)
             if roll < 0.72:                       # 已送达：账本/账单/现金流水由业务函数写
                 driver = rng.choice(drivers)
                 assign_driver(db, o, driver, dispatcher,
@@ -459,6 +555,19 @@ def main() -> int:
                 db.flush()
                 dlv = min(o.driver_acknowledged_at + timedelta(hours=rng.uniform(0.7, 9)),
                           datetime.now() - timedelta(hours=1))
+                # ⚠️ 当天现造的单会被上面那个 `now - 1 小时` 压到**下单之前**（"送达早于下单"）。
+                #    那就改成"下单后过一会儿送到"（`created` 留了 30 分钟余量，仍在过去）。
+                if dlv <= created:
+                    dlv = created + timedelta(minutes=rng.randint(5, 25))
+                # ⚠️ 当天现造的单会被上面那个 `now - 1 小时` 压回来：派单/接单时刻是"下单 + 几分钟"，
+                #    压过之后可能出现**送达早于接单**（真机上就是一条自相矛盾的订单）。
+                #    倒着修：送达不动，把派单/接单压到送达之前，且都不早于下单时刻。
+                #    先只**算**出来，写回放在 `complete_delivery` 之后（原因见下面那段注释）。
+                dsp, ack = o.dispatched_at, o.driver_acknowledged_at
+                if dlv <= ack:
+                    room = max(0, int((dlv - created).total_seconds() // 60))
+                    ack = max(created, dlv - timedelta(minutes=min(room // 2, 60)))
+                    dsp = max(created, ack - timedelta(minutes=min(room // 3, 30)))
                 o.delivered_at = dlv
                 dmg = None
                 if rng.random() < 0.035:          # 3.5% 有货损（果蔬磕碰是常事）
@@ -476,7 +585,14 @@ def main() -> int:
                 #    我们是在一次性回放三个月的历史，所以**送达时间要按回放的时间重设回去** ——
                 #    否则账本、司机账单、报表会全部挤在"今天"那一个月（第一版就是这样：
                 #    订单跨 6~9 月，账本 683 行全在 9 月）。只改时间，金额一个字都不动。
+                #
+                # ⛔ 这三个时刻必须在 `complete_delivery` **之后**写：它的第一件事是
+                #    `lock_order_row` → `db.refresh(order)`，会把**还没 flush 的内存改动整份丢掉**
+                #    （`dispatched_at` / `driver_acknowledged_at` 就属于这一类）。
+                #    第一版只给 `delivered_at` 补了这一步，于是"送达早于接单"的那一单漏了出来。
                 o.delivered_at = dlv
+                o.dispatched_at = dsp
+                o.driver_acknowledged_at = ack
                 o.updated_at = dlv
                 if rng.random() < 0.04:
                     o.is_exception = True
@@ -515,11 +631,13 @@ def main() -> int:
                       total=(p.default_unit_price * qty).quantize(Decimal("0.01")),
                       product_id=p.id, source=LedgerSource.MANUAL, note=rng.choice(LEDGER_NOTES)))
     for _ in range(30):
-        et = rng.choice(EXPENSE_TYPES)
+        et = rng.choice(list(EXPENSE_NOTES))
         db.add(Expense(exp_date=rng.choice(days), category=et,
                        amount=Decimal(rng.choice([80, 120, 180, 260, 350, 480, 620, 900, 1500, 2600, 3800, 5200])),
                        note=rng.choice(EXPENSE_NOTES[et]),
-                       driver_id=rng.choice(drivers).id if et in ("油费", "过路费", "车辆维修") else None,
+                       driver_id=rng.choice(drivers).id
+                       if et in (ExpenseCategory.FUEL, ExpenseCategory.TOLL, ExpenseCategory.REPAIR)
+                       else None,
                        operator_id=dispatcher.id))
     db.commit()
     print("  手工流水 18 笔、开销 30 笔")
@@ -532,17 +650,46 @@ def main() -> int:
     #     不补这一步，无论哪个月的单，账单全挤在当月，月度结算/报表根本测不了。
     #   · 收款必须走 `create_receipt`（不是直接写 `orders.paid`）：逐单核销会**逐单**生成
     #     现金流水，直接改 paid 就变成"钱收了、账上没有"。
+    # ⚠️ 下面这四句是**同一件事**：`complete_delivery` 那一串业务函数写的都是"此刻"（线上就该这样），
+    #    而我们是在一次性回放三个月的历史 —— 凡是**日期取自送达时刻**的行，都要按那一单的实际
+    #    送达时间重设回去，否则它们全部挤在今天那一个月，报表与日期筛选直接测不了。
+    #
+    #    这份清单**不是手写的**：`_tools/seed/_verify_demo_data.py` 会自己算出所有带 `order_id`
+    #    的表，凡是没被这里对齐、也没写书面理由的，验收时就红。第一版只对齐了 `source='ORDER'`
+    #    的账本行，于是 6 条货损红冲账本 + 6 条货损开销 + 6 条货损现金流水 + 70 条库存流水
+    #    全留在"今天"（真机上账本第一屏就是 6 条 09-20 的红冲行、库存流水按月份查是空的）。
     db.execute(text("""
         update driver_bills set month = (
             select substr(coalesce(o.delivered_at, o.order_date), 1, 7) from orders o where o.id = driver_bills.order_id
         ) where order_id is not null
     """))
-    # 账本那 673 行是 `ledger_sync` 在送达那一刻写的：它当时读到的 `delivered_at` 还是"现在"，
-    # 所以这里把**订单来源**的账本日期重新对齐回订单的送达日（手动记账的行不动）。
+    # 账本：订单来源（ORDER）与货损红冲（REFUND）都取那一单的业务日。
+    # 手工记账（MANUAL）没有 `order_id`，本来就不过这一句 —— 它的日子是种子自己铺的。
     db.execute(text("""
         update ledgers set entry_date = (
             select date(coalesce(o.delivered_at, o.order_date)) from orders o where o.id = ledgers.order_id
-        ) where source = 'ORDER' and order_id is not null
+        ) where order_id is not null
+    """))
+    # 开销：**只动挂在订单上的**（货损开销就是送达那一刻记的）；
+    # 另外六类开销（油费/过路费/办公耗材…）与订单无关，保持种子自己铺的日期。
+    db.execute(text("""
+        update expenses set exp_date = (
+            select date(coalesce(o.delivered_at, o.order_date)) from orders o where o.id = expenses.order_id
+        ) where order_id is not null
+    """))
+    # 现金流水：**只动货损那一类**。收款流水（RECEIPT_*）的日子是**收款日** ——
+    # "客户 8 月才结 6 月的账"本来就该晚于送达日，一起改会把这条真实业务改成 6 月收款。
+    db.execute(text("""
+        update cash_flows set flow_date = (
+            select date(coalesce(o.delivered_at, o.order_date)) from orders o where o.id = cash_flows.order_id
+        ) where order_id is not null and biz_type = 'EXPENSE_LOSS'
+    """))
+    # 库存流水：`created_at` 就是它的**业务时间**（`GET /inventory/movements` 正是按它做
+    # date_from/date_to 过滤），全留到今天的话"按月份查库存流水"永远是空的。
+    db.execute(text("""
+        update inventory_movements set created_at = (
+            select coalesce(o.delivered_at, o.created_at) from orders o where o.id = inventory_movements.order_id
+        ) where order_id is not null
     """))
     db.commit()
 
@@ -623,7 +770,8 @@ def main() -> int:
             if not bills:
                 continue
             db.add(DriverSettlement(driver_id=drv.id,
-                                    settle_type="PIECE" if drv.billing_mode != "SALARY" else "SALARY",
+                                    settle_type=DriverBillType.SALARY if drv.billing_mode == "SALARY"
+                                    else DriverBillType.PIECE,
                                     month=month, period_from=first,
                                     period_to=first.replace(day=28),
                                     amount=sum((b.amount for b in bills), Decimal("0")),
@@ -633,6 +781,68 @@ def main() -> int:
             n_set += 1
     db.commit()
     print(f"  司机结算单 {n_set} 张（草稿）")
+
+    # ---------------------------------------------------------- ⑨ 消息中心
+    #
+    # 为什么必须造：**消息中心是工作台上的一个模块**，而这份数据要"什么地方都不空"
+    # （用户 2026-09-20：「希望不要什么地方空掉了」）。第一版一条消息都没有。
+    #
+    # 走**真实的 `publish_*`**（`services/message_center.py`），不在这里 `db.add(Notification(...))`：
+    # 标题/正文/分类/`speech_important`/payload 的形状只有那一份实现，在脚本里再抄一遍，
+    # 改文案时就一定与线上走散（抄的这一份没人会想起来改）。
+    # 脚本里没有 Socket.IO 服务，所以只把"往外推"的那一个入口换成空实现 —— 落库那半是原样代码。
+    from app.models.notification import Notification  # noqa: E402
+    from app.services import message_center as mc  # noqa: E402
+
+    async def _no_push(*_a, **_kw) -> None:
+        return None
+
+    mc.emit_to_user = _no_push          # type: ignore[assignment]
+    mc.emit_unread_count = _no_push     # type: ignore[assignment]
+
+    def publish(fn, when, *fn_args) -> int:
+        """跑一条真实发布函数，再把刚写下的那几行的时间改回**它播报的那件事**发生的时刻。
+
+        `publish_*` 自己不写时间（`TimestampMixin` 默认填"此刻"），而我们在回放历史 ——
+        消息列表就是按时间排的，"派单消息显示今天、单子是六月的"是自相矛盾的。
+        """
+        before = db.scalar(select(func.max(Notification.id))) or 0
+        asyncio.run(fn(db, *fn_args))
+        rows = db.execute(select(Notification.id).where(Notification.id > before)).all()
+        if rows:
+            db.execute(update(Notification).where(Notification.id.in_([r[0] for r in rows]))
+                       .values(created_at=when, updated_at=when))
+            db.commit()
+        return len(rows)
+
+    # 只播**最近 30 天**的单：消息保留期就是 30 天（`data_retention.NOTIFICATION_RETENTION_DAYS`，
+    # 启动时与 `GET /notifications?days=` 都会物理清掉更早的），造三个月只会被清掉一部分，
+    # 反而让"消息条数"这件事变得没法解释。
+    recent = (db.query(Order).filter(Order.created_at >= datetime.now() - timedelta(days=30))
+              .order_by(Order.created_at).all())
+    n_msg = 0
+    for o in recent:
+        n_msg += publish(mc.publish_new_order_to_dispatchers, o.created_at, o.id)
+        if o.driver_id is None:
+            continue
+        n_msg += publish(mc.publish_order_assigned, o.dispatched_at or o.created_at, o.id)
+        if o.driver_acknowledged_at is not None and o.shipper_id:
+            n_msg += publish(mc.publish_driver_ack_shipper, o.driver_acknowledged_at,
+                             o.shipper_id, o.id)
+        if o.status == OrderStatus.DELIVERED and o.delivered_at is not None:
+            n_msg += publish(mc.publish_order_delivered, o.delivered_at, o.id)
+        elif o.status == OrderStatus.CANCELLED:
+            who = [u for u in (o.shipper_id, o.driver_id) if u]
+            n_msg += publish(mc.publish_order_cancelled_multi, o.cancelled_at or o.created_at, who, o.id)
+    # 已读状态要讲道理：两天前的都读过了，最近两天的留着未读（角标才有数可看）。
+    # 用 SQL 一句扫完，而不是逐条 `n.read_at = ...`（几百条逐条写太慢）。
+    db.execute(text("""
+        update notifications set read_at = datetime(created_at, '+1 hour')
+        where created_at < datetime('now', 'localtime', '-2 day')
+    """))
+    db.commit()
+    unread = db.scalar(text("select count(*) from notifications where read_at is null"))
+    print(f"  消息 {n_msg} 条（最近 30 天，其中未读 {unread} 条）")
 
     print("\n✅ 造数完成。建议接着看：")
     print("   真机「工作台 → 订单账 / 司机账 / 货主账 / 报表中心」，几个数应当互相对得上")
