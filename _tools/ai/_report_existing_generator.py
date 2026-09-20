@@ -1,8 +1,14 @@
-﻿import sys as _sys
+import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from _airepo import repo_root  # noqa: E402
-"""看仓库已有的 gen_endpoint_index.py 能产出什么，判断我的生成器是不是重复轮子。只读。"""
+"""看仓库已有的 gen_endpoint_index.py 能产出什么，判断我的生成器是不是重复轮子。只读。
+
+⚠️ **这是报告，不是检查**（2026-09-21 从 `_check_*` 改名）：一次性调研，永远退出 0，
+放必跑清单里是一格虚绿。端点索引"是不是过期了"现在有一条**真的**判据：
+`_tools/qa/_check_endpoint_index_fresh.py`（它调生成器自己的 `--check`）。
+⛔ 不要把它改回 `_check_*`：除非给它加一条真会红的判据。
+"""
 import re
 import sys
 from pathlib import Path

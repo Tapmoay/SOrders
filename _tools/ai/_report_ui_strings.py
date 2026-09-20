@@ -1,8 +1,11 @@
-﻿import sys as _sys
+import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from _airepo import repo_root  # noqa: E402
 """探针：安卓 UI 里的中文文案能不能自动抽取出来，用于生成"用户话术→入口"映射。
+
+⚠️ **这是报告，不是检查**（2026-09-21 从 `_check_*` 改名）：它统计素材量、永远退出 0。
+⛔ 不要把它改回 `_check_*`：除非给它加一条真会红的判据。
 
 背景（方案 v3.1 §6.4）：后端没有中文功能名（docstring 覆盖 24%、summary= 0 个、
 tags 全是英文 slug），中文只在 Android UI 里。本脚本量化"到底能抽多少"。只读。

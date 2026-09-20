@@ -1,8 +1,12 @@
-﻿import sys as _sys
+import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from _airepo import repo_root  # noqa: E402
 """自审：47 个只读端点里，哪些无法用 (module, action, params) 表达（G5 的可行性边界）。
+
+⚠️ **这是报告，不是检查**（2026-09-21 从 `_check_*` 改名）：一次性回答"这条路走不走得通"，
+永远退出 0；放必跑清单里是一格虚绿。读侧的硬判据在 `_read_coverage.py --check`。
+⛔ 不要把它改回 `_check_*`：除非给它加一条真会红的判据。
 
 分类：
   simple   纯 query 参数 -> 可直接转发

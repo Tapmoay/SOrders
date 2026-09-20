@@ -1,8 +1,15 @@
-﻿import sys as _sys
+import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from _airepo import repo_root  # noqa: E402
-"""校验 AI 工具映射产物：docstring 覆盖率 + 动作唯一性 + 与代码一致性抽查。只读。"""
+"""校验 AI 工具映射产物：docstring 覆盖率 + 动作唯一性 + 与代码一致性抽查。只读。
+
+⚠️ **这是报告，不是检查**（2026-09-21 从 `_check_*` 改名）：它只打印观察结果、永远退出 0，
+放在 `_check_all.py` 的必跑清单里就是**一格虚绿**。工具表真正的硬判据在
+`_check_ai_guardrails.py`（工具表与源码逐条对账）与 `_read_coverage.py --check` /
+`_write_coverage.py --check`（覆盖率与理由表）。
+⛔ 不要把它改回 `_check_*`：除非给它加一条真会红的判据。
+"""
 import json
 import sys
 from pathlib import Path

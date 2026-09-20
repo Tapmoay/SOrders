@@ -127,6 +127,37 @@
 
 **验证**：`:app:compileEmuDebugKotlin` **BUILD SUCCESSFUL** · `:app:testEmuDebugUnitTest` **913 项 / 0 失败 / 2 跳过**（与删除前一致＝这些文件确实没有任何测试依赖）· 装到 emulator-5556 并启动 smoke：`topResumedActivity=com.tapmoay.sorders/.MainActivity`、无崩溃日志 · `_check_all.py` **54/54**。
 
+### 第五轮：把「永远绿的检查」清出必跑清单 + 补一条真能红的判据
+
+**发现**：`54/54 全绿`这句话里有**虚格**。判据＝脚本里有没有一条非零退出的路径
+（`return 1` / `sys.exit(1...)` / `raise SystemExit`）：
+
+- 第一遍粗筛点名 9 个，**逐个复核后 4 个是我误判**（`return 1 if args.check else 0`、
+  `sys.exit(1 if bad else 0)`、`return rep.finish()` 这些写法我的正则漏了 ——
+  **误判比漏判更贵**：它会让人去"修"一个本来正确的检查，所以每条都读了源码才下结论）；
+- **真虚格 = 5 个**：`_check_toolmap_vs_08a.py`、`_check_toolmap.py`、`_check_read_surface.py`、
+  `_check_ui_strings.py`、`_check_existing_generator.py`。它们都是**一次性探查报告**
+  （打印结论后 `return 0`），被 `_check_` 前缀骗进了必跑清单。
+
+| 我改的 | 内容 |
+| --- | --- |
+| 5 个脚本 `git mv` 成 `_report_*.py` | 名字说实话 → `_check_all.py` 的清单自己算，立刻从 **54 → 49**（覆盖面一点没少：这 5 个本来就不会红）。每个文件的 docstring 里写明**这是报告不是检查**、判据其实在哪、`⛔ 不要改回 _check_*`（否则下一轮又有人为了"提高覆盖率"把它改回去） |
+| `docs/AI_ASSISTANT_PLAN_V3.md` | 4 处引用跟着改名 |
+| **`_tools/qa/_check_endpoint_index_fresh.py`（新，真能红）** | 补的那一格：`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` **是不是过期地图** |
+| `_tools/qa/_reverse_verify_endpoint_index.py`（新） | 2 条注入（行号改错 / 少一个端点行）→ 都报红 + 字节级还原检查 |
+
+**为什么补的是这一条**（不是随便挑的）：实测把索引里一处行号故意改成 `999`，**49/49 照样全绿** ——
+也就是"端点地图过期"这件事**当时没有任何检查在看**。而本轮我自己就撞过一次：
+给四个分类端点各删十几行后，索引里 **53 处行号立刻过期**，只有靠记得 AGENTS.md 那句话才发现它。
+判据不重写比对逻辑：这份文档的唯一作者 `backend/scripts/gen_endpoint_index.py` 自己就有 `--check`，
+这一条只负责把它跑起来、**把退出码原样传出去**。
+
+⚠️ **又踩一个坑并修掉**：反向验证脚本用 `read_text/write_text` 会做换行转换（LF↔CRLF），
+跑一遍就把整份文档的换行翻掉 —— 内容"还原了"，`git status` 里却多出一个整文件改动。
+新脚本一律**按字节读写**（`read_bytes/write_bytes`），并把"逐字节一致"写成还原判据。
+
+**验证**：`_check_all.py` **50/50**（49 个原有 + 这一条新的）· `_reverse_verify_endpoint_index.py` **2/2 注入报红 + 还原逐字节一致** · 故意改坏索引 → 新判据**当场红**（改回即绿）。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）

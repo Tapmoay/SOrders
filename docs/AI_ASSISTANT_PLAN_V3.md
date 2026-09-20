@@ -61,7 +61,7 @@
 | 唯一 path / 唯一 (method, path) | **88 / 126**（30 条路径挂多方法） | 双方独立计数一致 |
 | 已知重复路由 | `DELETE /api/v1/orders/{order_id}` → `orders.py:326`（生效）与 `:546`（**永不生效**） | 生成器**自动检出**，与 `08_CODE_LOCATOR.md` 记录一致 |
 
-**✅ 交叉验证（两个独立生成器、两种解析方法，结果吻合）**：`_check_toolmap_vs_08a.py` 把 08A（AST 生成、含授权列）与 `docs/ai/ai_toolmap.json`（我的行正则）逐条比对：
+**✅ 交叉验证（两个独立生成器、两种解析方法，结果吻合）**：`_report_toolmap_vs_08a.py` 把 08A（AST 生成、含授权列）与 `docs/ai/ai_toolmap.json`（我的行正则）逐条比对：
 
 | 对比 | 结果 |
 |---|---|
@@ -167,7 +167,7 @@
 | "哪个货要补货了" | 库存预警 | 工作台 → **库存管理**（红字=到红线） | — | 只读 |
 | "把货派给张师傅" | 派单 | 底部 **派单作业** → 待派池 | 订单、司机 | 写 |
 
-**✅ 素材量已量化（`_check_ui_strings.py` 可重跑）**：App 侧 **89 个 .kt 文件**里有 **812 条去重中文短文案**——`Text("…")` 字面量 442 处、`ModuleEntry` 24 个、`placeholder` 21 处、`label` 12 处。文案最多的文件：`ReportCenter.kt`(164)、`AccountToolsScreens.kt`(112)、`OrderDetailScreen.kt`(108)。
+**✅ 素材量已量化（`_report_ui_strings.py` 可重跑）**：App 侧 **89 个 .kt 文件**里有 **812 条去重中文短文案**——`Text("…")` 字面量 442 处、`ModuleEntry` 24 个、`placeholder` 21 处、`label` 12 处。文案最多的文件：`ReportCenter.kt`(164)、`AccountToolsScreens.kt`(112)、`OrderDetailScreen.kt`(108)。
 
 **结论**：
 - "**功能名 + UI 入口路径**"这两列 **可以半自动生成**（界面文案本来就存在，抽出来与后端动作对齐即可）；
@@ -264,7 +264,7 @@
 | `docs/ai/ai_toolmap.json` | ✅ **AI 工具白名单**（127 端点 / 22 模块；含 `counts` 自校验块；SHA256 可复现）<br>⚠️ 头部已注明"**端点事实以 08A 为准**，本文件不含参数与 alias，不可据此建参数白名单" |
 | `docs/ai/kb_skeleton.md` | ⚠️ **不可直接使用**——它是端点清单，缺"UI 入口路径"列；文件头已写明这一点与正确做法 |
 | `_gen_ai_toolmap.py` | ✅ 已按审查修 4 处：真 `--check`、`(method,path)` 唯一性校验（已自动检出 `DELETE /orders/{order_id}` 重复注册）、risk 改按"是否改状态"、删除死代码 `ACTION_OVERRIDE` |
-| `_check_toolmap.py` / `_check_read_surface.py` / `_check_existing_generator.py` | ✅ 校验脚本 |
+| `_report_toolmap.py` / `_report_read_surface.py` / `_report_existing_generator.py` | ✅ 一次性探查报告（2026-09-21 从 `_check_*` 改名：它们只打印结论、没有任何判据会红，放在必跑清单里是虚格） |
 | `_ai_p0_probe.py` | ✅ P0 测试工具（待改造成用你 6 个场景跑） |
 
 ---
@@ -715,7 +715,7 @@ read_data(action, name, q, from, to, status, limit, extra)
 1. **路径取错 → 真机 404**。生成脚本一开始用的是 AST 里 `@router.get("/summary")` 的那个路径，
    而它是**相对路由前缀**的（`@router.get("")` 更是空串）。结果 App 发出去的是
    `GET /api/v1/`，模型如实回报「read_data 整个暂不可用」。
-   修法：路径以 **toolmap**（已由 `_check_toolmap_vs_08a.py` 对过端点索引）为准，
+   修法：路径以 **toolmap**（已由 `_report_toolmap_vs_08a.py` 对过端点索引）为准，
    并要求它与源码里的相对路径**互为后缀**，否则生成就失败。
    同时把单测从"路径里不许有 `{}`"加强成"**必须以 `/api/v1/` 开头**"——原来的断言放过了空串。
 2. **`Query(None, alias=...)` 被判成必填**。生成脚本只读 `Query` 的**关键字**参数，
