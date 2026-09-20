@@ -105,6 +105,36 @@ MUTATIONS = [
         "    return set(BACKEND_ROLES)  # 故意：全给",
         None,
     ),
+    # ---- read_data 的公共筛选项只许有一份（2026-09-21）----
+    (
+        # 反向：把**没人读的那一份**又加回静态表（当年就是这么留着的）。
+        # 判据必须报红 —— 否则下一个人还会以为"两份都得改"。
+        "静态 SCHEMAS 里又长出一份 read_data 定义（没人读的第二份）",
+        TOOLS,
+        "                REMEMBER to buildJsonObject {",
+        "                READ_DATA to buildJsonObject {\n"
+        "                    put(\"type\", \"object\")\n"
+        "                    putJsonObject(\"properties\") {\n"
+        "                        putJsonObject(\"name\") {\n"
+        "                            put(\"type\", \"string\")\n"
+        "                            put(\"description\", \"要筛的具体**名字**（货主名/司机名/商品名/客户名/订单号）。\")\n"
+        "                        }\n"
+        "                    }\n"
+        "                },\n"
+        "                REMEMBER to buildJsonObject {",
+        "静态 SCHEMAS 里不许再有 read_data 的第二份定义",
+    ),
+    (
+        # 反向：把唯一的定义里某个**键名**改掉（描述串还在、计数还是 1，所以只钉描述的判据会绿）。
+        # ⚠️ 这条注入第一次跑是 MISS —— 它当场证明"只钉描述串"不够，于是补了键名判据（7 个键）。
+        "read_data 的筛选项键名被改（模型照抄的参数名错了，描述串却还在）",
+        TOOLS,
+        "                        putJsonObject(\"status\") {\n"
+        "                            put(\"type\", \"string\")\n",
+        "                        putJsonObject(\"statusX\") {\n"
+        "                            put(\"type\", \"string\")\n",
+        "read_data 的 7 个筛选参数键都在 readDataSpec 里",
+    ),
 ]
 
 

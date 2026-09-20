@@ -1518,6 +1518,51 @@ def main() -> int:
         block_between(tools, "private fun readDataSpec(", "private fun previewWriteSpec("),
         r"AiReadCatalog\.ACTIONS",
     )
+    # ---- read_data 的公共筛选项只许有一份（2026-09-21 精简轮）----
+    # 那 7 个参数（name/q/from/to/status/limit/extra）原来在 `AiTools.kt` 里**逐字抄了两遍**：
+    # 实例侧的动态 spec + companion 的静态表 `SCHEMAS`（各 43 行）。而 `specs` 里
+    # `READ_DATA -> readDataSpec(actor)` 是**显式分支**、`specOf`（唯一读 SCHEMAS 的地方）只在
+    # `else ->` 上 —— 也就是静态那份**一个读者都没有**（`readDataSpec` 那句注释还写着
+    # "参数部分与静态那份一致"，说明当年是**以为它还在用**才留着两份的）。已删。
+    # 判据三条（少一条都不够）：
+    #   ① 静态表里不许再有 read_data 的条目（否则又是一份没人读的定义）；
+    #   ② 那几条特征描述在全文件里**各只出现 1 次**（== 2 就是又抄了一遍；== 0 就是被删了）；
+    #   ③ 它们必须在 `readDataSpec` 里 —— 光数"只有一份"证明不了那一份**在能用的地方**。
+    c.absent(
+        "静态 SCHEMAS 里不许再有 read_data 的第二份定义（那份没人读）",
+        block_between(tools, "private val SCHEMAS", "private val DESCRIPTIONS"),
+        r"READ_DATA to buildJsonObject",
+    )
+    c.present(
+        "READ_DATA 走动态 spec（静态那份就是因此才没人读的）",
+        tools,
+        r"READ_DATA -> readDataSpec\(actor\)",
+    )
+    read_spec_body = block_between(tools, "private fun readDataSpec(", "private fun previewWriteSpec(")
+    common_filters = (
+        "要筛的具体",
+        "通用关键词（这个接口支持 q 时生效）",
+        "起始日期 YYYY-MM-DD（接口用",
+        "状态筛选（接口支持 status 时生效）",
+        "其它筛选条件的 JSON 字符串",
+    )
+    for s in common_filters:
+        c.ok(
+            f"read_data 的筛选项「{s[:12]}…」全文件只 1 处且在 readDataSpec 里",
+            tools.count(s) == 1 and s in read_spec_body,
+            f"全文件 {tools.count(s)} 次（2 = 又抄了一遍；0 = 被删了）、"
+            f"在 readDataSpec 里={s in read_spec_body}",
+        )
+    # ⚠️ 只钉描述串不够（2026-09-21 反向验证当场抓到）：把**键名**改掉（`status` → `statusX`）
+    #    描述串还在、计数还是 1，判据照样绿 —— 而模型拿到的参数名已经错了（它会照着 schema 拼参数）。
+    #    所以 7 个键名也逐个钉在 `readDataSpec` 里。
+    filter_keys = ("name", "q", "from", "to", "status", "limit", "extra")
+    missing_keys = [k for k in filter_keys if f'putJsonObject("{k}")' not in read_spec_body]
+    c.ok(
+        "read_data 的 7 个筛选参数键都在 readDataSpec 里（键名也是模型照抄的东西）",
+        not missing_keys,
+        f"缺：{missing_keys}",
+    )
     c.present("目录里每张表都带 roles", catalog_kt, r"val roles: Set<String>")
     c.present(
         "角色是从后端授权推导的（不是手抄）",

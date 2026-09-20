@@ -110,15 +110,6 @@ class AiTools(
      * @return 给模型/用户看的一句话；**null = 写入没成功**（功能被用户关了，或落盘失败）。
      */
     private val rememberFact: suspend (subject: String, fact: String) -> String? = { _, _ -> null },
-    /**
-     * 「写操作」的落点：**申请**执行一个会改动业务数据的操作（见 [AiWriteService]）。
-     *
-     * 注意签名里没有"确认"这个参数——**模型无法确认自己的申请**。它调用这个回调只会
-     * 拿到 [AiWriteOutcome.NeedConfirm]，真正执行只能由界面上的按钮触发
-     * （见 [AiWritePreviewStore] 的不变量 1）。
-     *
-     * 默认实现直接拒绝：没接线时宁可"不能写"，也不能悄悄放行。
-     */
     /** 当前登录角色：决定**动作清单**里给模型看哪些（执行侧的门在 AiWriteService 里）。 */
     private val roleProvider: () -> AiRole? = { AiRole.DISPATCHER },
     /**
@@ -132,6 +123,18 @@ class AiTools(
      *    真正的实现在 `AiContainer`（发货主之前先问一次 `users/me`）。
      */
     private val memberProvider: () -> Boolean = { false },
+    /**
+     * 「写操作」的落点：**申请**执行一个会改动业务数据的操作（见 [AiWriteService]）。
+     *
+     * 注意签名里没有"确认"这个参数——**模型无法确认自己的申请**。它调用这个回调只会
+     * 拿到 [AiWriteOutcome.NeedConfirm]，真正执行只能由界面上的按钮触发
+     * （见 [AiWritePreviewStore] 的不变量 1）。
+     *
+     * 默认实现直接拒绝：没接线时宁可"不能写"，也不能悄悄放行。
+     *
+     * ⚠️ 这段说明原来**挂错了参数**（2026-09-21 精简轮）：它写在 `roleProvider` 头上，
+     *    读代码的人会以为"角色决定模型能不能确认自己的申请"——注释挂错位置和写错内容一样会骗人。
+     */
     private val requestWrite: suspend (String, JsonObject) -> AiWriteOutcome =
         { _, _ -> AiWriteOutcome.Rejected("写操作功能当前不可用。") },
 ) : AiToolset {
@@ -189,7 +192,11 @@ class AiTools(
      *
      * 和 `preview_write` 同样的道理：静态 `SCHEMAS` 建在 companion 里，看不到实例上的角色，
      * 而"哪些表这个角色能读"是从后端授权推导出来的、每个角色都不一样。
-     * 参数部分（name/q/from/to/status/limit/extra）与静态那份一致，只是把 action 清单换掉。
+     *
+     * ⚠️ 参数部分（name/q/from/to/status/limit/extra）**只在这里有一份**（2026-09-21 精简轮）：
+     *    静态表 [SCHEMAS] 里原来还抄着一份 43 行的同样定义，而 `specs` 从来到不了
+     *    `specOf(READ_DATA)` —— 那份**一个读者都没有**，已删掉（红线盯着它不许回来）。
+     *    原文那句"与静态那份一致"正是留着两份的原因：**以为它还在用**。
      */
     private fun readDataSpec(actor: AiActor?): ToolSpec {
         val actions = AiReads.forRole(actor, readModules())
@@ -1024,64 +1031,13 @@ class AiTools(
                     }
                     putJsonArray("required") { add(JsonPrimitive("kind")) }
                 },
-                READ_DATA to buildJsonObject {
-                    put("type", "object")
-                    putJsonObject("properties") {
-                        putJsonObject("action") {
-                            put("type", "string")
-                            put("description", "要查哪张表，从下面清单里**原样照抄**一个（格式 模块.动作）：\n" +
-                                AiReadCatalog.ACTIONS.joinToString("\n") {
-                                    "- ${it.action}：${it.cn}" +
-                                        if (it.filterHint.isBlank()) "" else "〔可筛：${it.filterHint}〕"
-                                })
-                            putJsonArray("enum") { AiReadCatalog.ACTIONS.forEach { add(JsonPrimitive(it.action)) } }
-                        }
-                        putJsonObject("name") {
-                            put("type", "string")
-                            put("description", "要筛的具体**名字**（货主名/司机名/商品名/客户名/订单号）。" +
-                                "例如「城东水果批发的账本」传 name=城东水果批发。" +
-                                "注意：只传名字，**不要**传任何编号。")
-                        }
-                        putJsonObject("q") {
-                            put("type", "string")
-                            put("description", "通用关键词（这个接口支持 q 时生效），可搜名字/单号/手机号片段")
-                        }
-                        putJsonObject("from") {
-                            put("type", "string")
-                            put("description", "起始日期 YYYY-MM-DD（接口用 date_from/from/month 时都会自动对上）")
-                        }
-                        putJsonObject("to") {
-                            put("type", "string")
-                            put("description", "结束日期 YYYY-MM-DD")
-                        }
-                        putJsonObject("status") {
-                            put("type", "string")
-                            // ⚠️ 这里**不许举例子**（2026-09-19 审计）：原来写「如 PENDING_DISPATCH /
-                            //    DELIVERED / PAID」，而 PAID 根本不是订单状态（它是账单状态）——
-                            //    模型照着抄 → 422 → 被翻成"这个功能没上线"，用户彻底放弃这条路。
-                            //    合法取值由 App 侧按接口自己的 enum 校验（不合法会回一句带合法值的提示）。
-                            put(
-                                "description",
-                                "状态筛选（接口支持 status 时生效）。**取值必须用该接口自己的枚举**：" +
-                                    "订单是 PENDING_DISPATCH / DISPATCHED / ACCEPTED / DELIVERED / CANCELLED；" +
-                                    "账单是 open / settled；结算单是 draft / confirmed / paid / cancelled。" +
-                                    "不确定或用户没提，就**不要填**这个参数——填错会被后端拒掉。",
-                            )
-                        }
-                        putJsonObject("limit") {
-                            put("type", "integer")
-                            put("description", "最多返回几条，默认 $DEFAULT_ROWS，上限 $MAX_ROWS。" +
-                                "⚠️ 用户要「全部/所有/名单」时必须**一次设够**（例如 $MAX_ROWS），" +
-                                "不要只给一部分再让他「说一声继续」——他自己取不了，只能再问一遍")
-                        }
-                        putJsonObject("extra") {
-                            put("type", "string")
-                            put("description", "其它筛选条件的 JSON 字符串，键名必须是该接口声明的参数" +
-                                "（例如 {\"kind\":\"member\"} 或 {\"below_alert\":true}）。不确定就别填。")
-                        }
-                    }
-                    putJsonArray("required") { add(JsonPrimitive("action")) }
-                },
+                // ⛔ `read_data` **刻意不在这张表里**（2026-09-21 删掉了这一份）。
+                //    它的 action 清单按角色裁（见 [AiTools.readDataSpec]），而这张静态表在
+                //    companion 里**看不到实例上的角色** —— `specs` 里 `READ_DATA` 也从来不落到
+                //    `specOf` 上，于是这份 43 行的定义**一个读者都没有**。
+                //    留着它的唯一效果是：改参数时多一个"看起来也该改"的地方
+                //    （`readDataSpec` 那句注释当年就写着"参数部分与静态那份一致"）。
+                //    红线 `_check_ai_guardrails.py` 盯着它不许回来。
                 REMEMBER to buildJsonObject {
                     put("type", "object")
                     putJsonObject("properties") {
