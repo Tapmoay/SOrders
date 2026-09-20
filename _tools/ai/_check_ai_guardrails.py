@@ -745,24 +745,44 @@ def main() -> int:
         #    用 `search` 只会拿到第一处，后面的整块漏检——第一版就是这么写的，注入验证当场抓到）。
         for var in sorted(set(re.findall(r"\n\s+(?:details|detailLines) = (\w+),", src))):
             for m in re.finditer(
-                rf"\n\s+(?:val )?{re.escape(var)} = [^\n]*\n([\s\S]*?)\n\s+(?:return AiWriteOutcome|store\.offer\()",
+                rf"\n\s+(?:val )?{re.escape(var)} = [^\n]*\n([\s\S]*?)\n\s+(?:return AiWriteOutcome|store\.(?:offer|card)\()",
                 src,
             ):
                 cards.append(m.group(1))
+        # ⚠️ 2026-09-21：`summary = ` 到 `payload = ` 的区间会**提前收尾**——明细里只要有一个多行
+        #    表达式（它以"单独成行的 `)`"收尾），区间就在那儿断开，**后面整段明细从来没被扫过**。
+        #    实测：核销卡上 `add("（没有点名商品 = **整单核销**：这一单还欠的全收）")` 一直原样印在
+        #    屏幕上，而这条检查全程是绿的（这一轮把造卡收口时才撞出来）。
+        #    所以明细块按**花括号配对**再单独收一遍（配对器与 2e-③b 是同一份 [balanced_inside]）。
+        for m in re.finditer(r"\n\s+(?:details|detailLines) = buildList \{", src):
+            cards.append(balanced_inside(src, m.end() - 1))
         n_summary = len(re.findall(r"\n\s+summary = ", src))
         # ⚠️ 光比 `summary = ` 的个数是不够的：**改名会让分子分母一起变小**
         #    （2 张卡改名 1 张 → summary 1 个、区间 1 个，"相等"于是照样通过，
         #      而那一张卡的文案已经不再被扫了）。所以再拿**造卡的出口**当锚：
-        #    每张卡都必须经过 `store.offer(...)`，区间数不得少于它。
+        #    每张卡都必须经过 `store.card(...)`，区间数不得少于它。
+        #    ⚠️ 2026-09-21：那 17 处各写一遍的造卡收成了 `AiWritePreviewStore.card(...)` **一处**，
+        #       所以锚从 `store.offer(` 换成 `store.card(`——**不**写成"两者都算"：
+        #       都算的话，"有人绕开出口自己拼 offer"在计数里就看不出来了（下面第 4 条专门盯它）。
         #    ⚠️ 数它必须在**去掉注释**的源码上数：注释里引用一句 `store.offer(...)`
-        #       就会被算成一次调用，于是这条判据会莫名其妙地红（实测栽过一次）。
-        n_offers = len(re.findall(r"store\.offer\(", strip_comments(src)))
+        #       就会被算成一次调用，于是这条判据会莫名其妙地红（实测栽过**两次**：
+        #       2026-09-19 一次，2026-09-21 在一次性改写脚本里又栽了一次）。
+        src_nc = strip_comments(src)
+        n_offers = len(re.findall(r"store\.card\(", src_nc))
         md_files.append((p.name, len(cards), n_summary))
         c.ok(
             f"{p.name}: 卡片文案块都定位到了（区间 {len(intervals)}/{n_summary}，造卡出口 {n_offers} 个）",
             n_summary > 0 and len(intervals) == n_summary and len(intervals) >= n_offers,
-            f"summary 参数 {n_summary} 个、区间定位 {len(intervals)} 个、store.offer 调用 {n_offers} 个"
-            f"（另有 {len(cards) - len(intervals)} 块来自「先攒变量」那种写法）",
+            f"summary 参数 {n_summary} 个、区间定位 {len(intervals)} 个、store.card 调用 {n_offers} 个"
+            f"（另有 {len(cards) - len(intervals)} 块来自「先攒变量」/「明细块配对」那种写法）",
+        )
+        # ④ 造卡只有一处实现：谁都不许再自己拼 `store.offer(...)`
+        #    （标题与风险档位必须走 `AiWritePreviewStore.card` 的默认值，也就是动作登记表）。
+        raw_offer = len(re.findall(r"store\.offer\(", src_nc))
+        c.ok(
+            f"{p.name} 没有绕过造卡出口（自己拼 store.offer）",
+            raw_offer == 0,
+            f"发现 {raw_offer} 处自己拼的 store.offer —— 改用 store.card(actionId, summary, details, payload)",
         )
         bad = [s for blk in cards for s in string_literals(blk) if "**" in s or "__" in s]
         c.ok(f"{p.name} 的卡片文案里没有 Markdown 星号", not bad, f"例如 {bad[:1]}")
@@ -2272,8 +2292,8 @@ def main() -> int:
     if i_offer > 0:
         body = wsvc[i_offer : i_offer + 2500]
         c.ok(
-            "撤回走的是**造卡**（store.offer），不是直接 commit/execute",
-            "store.offer(" in body and "handler.commit(" not in body and ".execute(" not in body,
+            "撤回走的是**造卡**（store.card），不是直接 commit/execute",
+            "store.card(" in body and "handler.commit(" not in body and ".execute(" not in body,
             "撤回入口里出现了直接写库的调用——那就成了第二条写入口",
         )
         c.present("撤回也过角色门", body, r"if \(!AiWrites\.allows\(actorProvider\(\), plan\.actionId\)\)")

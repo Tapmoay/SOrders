@@ -2210,8 +2210,8 @@ class AiWriteService(
             null
         }.orEmpty()
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = plan.actionId,
+            store.card(
+                plan.actionId,
                 title = action.title,
                 risk = action.risk,
                 summary = plan.summary,

@@ -72,10 +72,8 @@ class ReorderProductCategoriesHandler(
         }
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "重排商品分类：${picked.size} 个分类",
                 detailLines = buildList {
                     add("改前的顺序：$current")
@@ -148,10 +146,8 @@ class ReorderPlaceCategoriesHandler(
         }
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "重排地点分组：${picked.size} 个分组",
                 detailLines = buildList {
                     add("⚠️ 只影响你自己的地址库（每个人管自己那一份）")
@@ -260,10 +256,8 @@ class ProductVisibilityHandler(
         }
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "商品可见范围：${user.label} → " + if (scope == "custom") {
                     "只给勾选的 ${picked.size} 个商品"
                 } else {

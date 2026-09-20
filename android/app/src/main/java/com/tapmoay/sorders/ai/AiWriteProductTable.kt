@@ -298,10 +298,8 @@ class ApplyProductTableHandler(
         details += "⚠️ 这是一行一行发出去的：中间某行被后端拒绝时，其余行仍然会执行，我会把失败的那几行列出来"
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "按表格新建商品：${parsed.rows.size} 个",
                 detailLines = details,
                 payload = buildJsonObject {

@@ -74,10 +74,8 @@ class ExpenseWriteHandler(
         val note = AiWriteArgs.text(AiWriteArgs.str(params, "note"), "备注")
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "支出：$cn ${AiWriteArgs.money(amount)} 元",
                 detailLines = buildList {
                     add("日期：$expDate")
@@ -150,10 +148,8 @@ class LedgerEntryWriteHandler(
         val note = AiWriteArgs.text(AiWriteArgs.str(params, "note"), "备注")
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "记账：$product $quantity 件，合计 ${AiWriteArgs.money(total)} 元",
                 detailLines = buildList {
                     add(

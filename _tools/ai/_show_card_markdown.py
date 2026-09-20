@@ -14,8 +14,11 @@ from _check_ai_guardrails import string_literals  # noqa: E402
 AI = repo_root() / "android/app/src/main/java/com/tapmoay/sorders/ai"
 
 # 两种造卡形状都要覆盖：
-#   · 手写处理器  `card(summary = …, details = buildList { … }, payload = …)`
-#   · 内联 offer  `store.offer(… summary = …, detailLines = buildList { … })`
+#   · 处理器的 `card(...)` 包装  `card(summary = …, details = buildList { … }, payload = …)`
+#   · 直接调 store（CRUD / 撤回 / 先攒变量那种）
+#     `store.card(actionId, summary = …, details = buildList { … }, payload = …)`
+#   ⚠️ v3.32 前后这里叫 `store.offer(… detailLines = …)`；2026-09-21 造卡收成一处后参数名统一
+#      成 `details`。两种参数名都还认（正则里 `(?:details|detailLines)`），免得漏扫。
 SUMMARY = r"\n\s+summary = ([\s\S]{0,300}?),\n\s+(?:details|detailLines) = "
 DETAILS = r"\n\s+(?:details|detailLines) = buildList \{(.*?)\n\s+\},\n\s+payload = "
 

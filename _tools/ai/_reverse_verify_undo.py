@@ -41,8 +41,9 @@ CASES: list[tuple[str, Path, object]] = [
         "撤回入口里直接写库（变成第二条写入口）",
         WSVC,
         lambda s: s.replace(
-            "        return AiWriteOutcome.NeedConfirm(\n            store.offer(",
-            "        handler.commit(plan.payload, \"x\")\n        return AiWriteOutcome.NeedConfirm(\n            store.offer(",
+            # ⚠️ 锚点跟着实现走（2026-09-21）：造卡收成了 `store.card(...)` 一处。
+            "        return AiWriteOutcome.NeedConfirm(\n            store.card(",
+            "        handler.commit(plan.payload, \"x\")\n        return AiWriteOutcome.NeedConfirm(\n            store.card(",
             1,
         ),
     ),

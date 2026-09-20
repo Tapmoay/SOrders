@@ -111,10 +111,8 @@ class SettleMyLedgerHandler(
         val method = methodOf(params)
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "核销：订单 $orderNo 的 ${AiWriteArgs.money(amount)} 元（${order.customer}）",
                 detailLines = buildList {
                     add("订单：$orderNo（$statusCn）")
@@ -134,7 +132,7 @@ class SettleMyLedgerHandler(
                         )
                     }
                     if (pickedNames.isEmpty()) {
-                        add("（没有点名商品 = **整单核销**：这一单还欠的全收）")
+                        add("（没有点名商品 = 整单核销：这一单还欠的全收）")
                     } else {
                         add("（按商品核销：只核上面这几样，其余还挂着）")
                     }
@@ -241,10 +239,8 @@ class RevokeMySettlementHandler(
         }
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "撤销核销：订单 $orderNo 的 ${target.amount} 元（${target.customer}）",
                 detailLines = buildList {
                     add("订单：$orderNo")

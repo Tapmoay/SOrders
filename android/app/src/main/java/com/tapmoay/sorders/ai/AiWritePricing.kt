@@ -133,10 +133,8 @@ class BatchPriceHandler(
         details += "⚠️ 这会覆盖这些批发商已有的专属价（没有专属价的会新建一条）"
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "批量调价：${changes.size} 条 · $direction",
                 detailLines = details,
                 payload = buildJsonObject {
@@ -330,10 +328,8 @@ class ApplyPriceTableHandler(
         details += "⚠️ 这是一行一行发出去的：万一中间某行被后端拒绝，其余行仍然会执行，我会把失败的那几行列给你"
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
+            store.card(
+                actionId,
                 summary = "按表格调价：${rows.size} 行 · ${planned.size} 条价格",
                 detailLines = details,
                 payload = buildJsonObject {

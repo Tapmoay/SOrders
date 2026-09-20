@@ -106,8 +106,8 @@ class CrudWriteHandler(
         )
 
         return AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = action.id,
+            store.card(
+                action.id,
                 title = action.title,
                 risk = action.risk,
                 summary = spec.headline(card),

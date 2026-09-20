@@ -281,6 +281,44 @@ class AiWritePreviewStore(
         }
     }
 
+    /**
+     * 造一张确认卡：**卡片标题与风险档位只在这一处取**（`AiWrites` 是唯一的动作登记表）。
+     *
+     * ### 为什么要有这个方法（2026-09-21 精简轮）
+     * 这句 `NeedConfirm(offer(actionId, title = AiWrites.titleOf(actionId), risk = AiWrites.byId(actionId)!!.risk, …))`
+     * 原来在 **17 处**各写了一遍：5 个处理器里逐字相同的 `card(...)` 包装 + 12 处内联
+     * `store.offer(...)`。17 份实现里任何一处写歪（标题不再来自登记表、风险档位手填、
+     * 忘了传 summary）都不会报错 —— 而卡片上的标题与"要不要二次确认"正是用户唯一看得见的东西。
+     *
+     * ⚠️ 参数名与数据类字段一致（`AiPendingWrite.detailLines`）：叫 `details` 会让
+     *    `_check_ai_guardrails.py` 里「`details = ` 的声明都定位到了」那条判据把**调用点的具名实参**
+     *    也数成一次声明（分母变大 → 误报），所以这里刻意不叫 `details`。
+     *
+     * [title] / [risk] 留了口子（默认仍从登记表取）：声明式 CRUD 与「撤回」那条路手里已经有一个
+     * `AiWriteAction` 对象，把它们传进来就与改动前一字不差。
+     *
+     * ⚠️ 返回的是**暂存区里的那张卡**（[AiPendingWrite]，与 [offer] 同型），不是 [AiWriteOutcome]：
+     *    调用点外面本来就包着 `return AiWriteOutcome.NeedConfirm(...)`，多包一层编译不过
+     *    （实测 13 处 `Argument type mismatch: actual type is 'AiWriteOutcome'`）。
+     */
+    fun card(
+        actionId: String,
+        summary: String,
+        detailLines: List<String>,
+        payload: JsonObject,
+        title: String = AiWrites.titleOf(actionId),
+        risk: AiWriteRisk = AiWrites.byId(actionId)!!.risk,
+        isUndo: Boolean = false,
+    ): AiPendingWrite = offer(
+        actionId = actionId,
+        title = title,
+        risk = risk,
+        summary = summary,
+        detailLines = detailLines,
+        payload = payload,
+        isUndo = isUndo,
+    )
+
     /** 当前所有未过期的待确认（界面按这个渲染卡片，最新的在最后）。 */
     fun list(): List<AiPendingWrite> = synchronized(lock) {
         pruneLocked()

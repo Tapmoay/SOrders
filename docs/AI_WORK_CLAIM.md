@@ -529,6 +529,49 @@ emulator-5556 启动 smoke 通过（`topResumedActivity=MainActivity`、无 FATA
 而不是因为"没人碰"而绿。同样地，第一版还把派单时的**赋值**当成违规（红线当场误报）：
 判据精确到"读"（`column_read` 用 `(?!\s*=(?!=))` 排除赋值左侧）。
 
+### 第二十轮：确认卡的「造卡」原来有 17 份实现（收成一处，并揪出一条一直没被扫到的星号）
+
+**形状**：这一句 —— `NeedConfirm(store.offer(actionId, title = AiWrites.titleOf(actionId), risk = AiWrites.byId(actionId)!!.risk, …))`
+—— 在 `android/.../ai/` 下写了 **17 遍**：5 个处理器里**逐字相同**的 `card(...)` 包装（各 12 行）+ 12 处内联
+`store.offer(...)`。卡片标题与风险档位（要不要二次确认）是用户唯一看得见的东西，17 份实现里任何一处写歪都不报错。
+
+**收法**：新增 `AiWritePreviewStore.card(actionId, summary, detailLines, payload, title = 登记表, risk = 登记表, isUndo = false)`
+**一处**（内部调 `offer`；`title`/`risk` 默认从 `AiWrites` 取）。5 个包装变成 4 行转调、12 处内联改调它；
+声明式 CRUD 与「撤回」手里已经有 `AiWriteAction` 对象，把 `action.title`/`action.risk` 作具名参数传进去 —— 与原来一字不差。
+
+**两个坑（写下来，免得下次重踩）**
+
+1. **返回类型必须是 `AiPendingWrite`**（暂存区那张卡），不是 `AiWriteOutcome`：内联调用点外面本来就包着
+   `return AiWriteOutcome.NeedConfirm(...)`，多包一层 ⇒ Kotlin 编译器当场报 **13 处**
+   `Argument type mismatch: actual type is 'AiWriteOutcome'`。
+   👉 这正是"机械化改写必须过编译器"的地方 —— 静态红线只做文本匹配，**看不出类型错误**。
+2. **参数名不能叫 `details`**：本想叫得更顺口，结果撞上另一条红线 ——「`details = ` 的声明都定位到了」
+   会把**调用点的具名实参**也数成一次声明（分母变大 → 4 个文件误报）。
+   定名 `detailLines`（= `AiPendingWrite.detailLines`），与数据类字段一致，也省掉一次全局改名。
+
+**顺手揪出的真缺陷（一直印在屏幕上）**：核销卡里那句
+`add("（没有点名商品 = **整单核销**：这一单还欠的全收）")` 会**原样显示星号**。
+它之所以从来没被扫到：卡片文案的区间是「`summary = ` 到 `payload = `」，而**明细里只要有一个多行表达式
+（以"单独成行的 `)`"收尾），区间就在那里提前收尾** —— 这一行之后的明细从未被扫过。
+修法：明细块按**花括号配对**再收一遍（与 2e-③b 同一份配对器），并把那句星号去掉；
+反向验证新增一条注入钉住它（旧扫描认不出、新扫描必须红）。
+
+**红线同步（换锚 + 新判据）**
+
+- 卡片锚从 `store.offer(` 换成 `store.card(`（**不**写成"两者都算"：都算就看不出"有人绕开出口"）；
+- 新增「每个文件里自己拼 `store.offer(` 的次数必须是 0」→ 14 条断言，红线 **1103 → 1117 项**；
+- 「撤回走的是造卡」那条断言随之改成 `store.card(`，`_reverse_verify_undo.py` 的注入锚点同步
+  （不同步的话它会**静默失效**：替换串匹配不上）；`_show_card_markdown.py` 注释与
+  `docs/AI_ASSISTANT_PLAN_V3.md` 的两处流程/判据说明同步。
+
+**验证**：`_check_ai_guardrails.py` **1117 项全绿** · `_reverse_verify_card_markdown.py` **15/15**（新增 2 条注入）·
+`_reverse_verify_undo.py` **13/13**（锚点同步后仍然会红）· `compileEmuDebugKotlin` **BUILD SUCCESSFUL**
+（第一版在这一点上失败，见坑 1）· Android 单测 **913 用例 / 0 失败** · `_check_all.py` **51/51**
+（⚠️ 其中真模型探针第一次跑是**外部网络** DNS 失败，重试即过 —— 不是代码问题，但结论要如实标注）。
+
+**净行数**：`android/.../ai/` 13 个文件 **+73 / −85（净 −12 行）**。⚠️ 行数不是这次的重点：17 处实现收成 1 处的
+价值在「**不可能各自走散**」，而这 17 处本来彼此只差两三行（所以别拿"省了多少行"当这类改动的理由）。
+
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 
 **用户需求（原话）**：「批发商……他要进行退货，他**可以直接在订单上**作退货。然后我们的那个派单员，

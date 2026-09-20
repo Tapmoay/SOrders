@@ -24,6 +24,8 @@ BASIC = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicHan
 SETTLE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteSettlementHandlers.kt"
 NOTIFY = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteNotificationHandlers.kt"
 PRICING = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWritePricing.kt"
+# 核销回调那条路（2026-09-21：它的明细块里藏着一处"旧扫描永远扫不到"的字面星号）
+SHIPPER = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteShipperLedgerHandlers.kt"
 SERVICE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt"
 # v3.44：撤回卡与「撤不回来」的理由也在确认卡上（`none(...)` / `AiInverse.lines` /
 # `restoreLines`），而这份文件**不匹配 `AiWrite*` 前缀**——真机上就是它印出了字面星号
@@ -166,6 +168,26 @@ MUTATIONS = [
         "                    Text(line, style = MaterialTheme.typography.bodySmall)\n"
         "                }",
         "卡片信息区不许退回「逐行画纯文本」",
+    ),
+    (
+        # ⚠️ 2026-09-21 找到的**扫描盲区**：`summary = ` 到 `payload = ` 的区间只要碰到一个
+        #    "单独成行的 `)`"就提前收尾，这一行之后的明细**从来没被扫过**。
+        #    核销卡这句 `**整单核销**` 就是这么一直印在屏幕上的（把造卡收口时才撞出来）。
+        #    这条注入钉住"明细块已改成花括号配对"——旧的区间扫描**认不出**它（漏检）。
+        "明细块里的 Markdown 星号（旧区间扫描因提前收尾而漏掉的那种形状）",
+        SHIPPER,
+        'add("（没有点名商品 = 整单核销：这一单还欠的全收）")',
+        'add("（没有点名商品 = **整单核销**：这一单还欠的全收）")',
+        "AiWriteShipperLedgerHandlers.kt 的卡片文案里没有 Markdown 星号",
+    ),
+    (
+        # 造卡收成一处之后新增的判据：谁都不许再自己拼 `store.offer(...)`
+        # （标题与风险档位会因此绕开动作登记表，而用户唯一看得见的就是这两样）。
+        "处理器绕过造卡出口，自己拼 store.offer（标题/风险档位绕开登记表）",
+        BASIC,
+        '            store.card(\n                actionId,\n                summary = "支出：',
+        '            store.offer(\n                actionId,\n                summary = "支出：',
+        "AiWriteBasicHandlers.kt 没有绕过造卡出口（自己拼 store.offer）",
     ),
 ]
 

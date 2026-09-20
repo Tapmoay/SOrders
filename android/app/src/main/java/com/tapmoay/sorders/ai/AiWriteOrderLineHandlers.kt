@@ -77,16 +77,10 @@ abstract class OrderLineWriteHandler(
         }
     }
 
+    /** 造卡只有一处实现（`AiWritePreviewStore.card`）：这里只把本处理器的 [actionId] 递进去。 */
     protected fun card(summary: String, details: List<String>, payload: JsonObject): AiWriteOutcome =
         AiWriteOutcome.NeedConfirm(
-            store.offer(
-                actionId = actionId,
-                title = AiWrites.titleOf(actionId),
-                risk = AiWrites.byId(actionId)!!.risk,
-                summary = summary,
-                detailLines = details,
-                payload = payload,
-            ),
+            store.card(actionId, summary = summary, detailLines = details, payload = payload),
         )
 
     protected fun orderLines(o: AiOrderRef): List<String> = buildList {
