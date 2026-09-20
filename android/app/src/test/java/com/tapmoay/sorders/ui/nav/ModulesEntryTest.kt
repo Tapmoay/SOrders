@@ -130,17 +130,20 @@ class ModulesEntryTest {
         }
     }
 
-    // ============================================================ 第二张卡片「账本管理」
+    // ============================================================ 「账本管理」入口页
     //
-    // 用户 2026-09-20：「干脆就在工作台里做 2 个卡片…卡片中间有一个提示词…就叫账本管理，
-    // 然后将账本管理的所有的 8 个模块全部拆成类似于工作台现在的一个图标的形式，放在一个卡片」。
+    // 用户 2026-09-20 改了**三轮**，最后一句把前两轮都推翻了（先是账本页左栏版、再是
+    // 工作台第二张卡片版），定稿是：
+    // 「首先，我们将**司机的账和司机结算**这 2 个东西**合并成一个**；然后订单账本，再加上
+    //  货主账本以及批发商账，还有客户收款以及开销管理，**合并成一个形式，就叫做账本管理**，
+    //  这个账本管理**类似于报表中心的形式**；然后车辆台账属于车辆管理，车辆管理直接放在桌面上」。
 
     @Test
-    fun `账本卡片正好 8 格，而且是 4 类账 + 4 个工具`() {
-        val e = Modules.dispatcherLedgerEntries
-        assertEquals("用户点名的就是这 8 件", 8, e.size)
+    fun `账本管理入口页正好 6 格，司机结算并进司机账、车辆台账去了工作台`() {
+        val e = Modules.ledgerHomeEntries
+        assertEquals("用户点名的就是这 6 件", 6, e.size)
         assertEquals(
-            listOf("订单账", "司机账", "货主账", "批发商账", "客户收款", "司机结算", "开销管理", "车辆台账"),
+            listOf("订单账", "司机账", "货主账", "批发商账", "客户收款", "开销管理"),
             e.map { it.label },
         )
         // 4 类账是**同一页的 4 个档位**（一条带参数的路由），不是四个页面
@@ -149,17 +152,44 @@ class ModulesEntryTest {
             (0..3).map { Routes.dispatcherLedger(it) },
             e.take(4).map { it.route },
         )
-        // 4 个工具各自有页面（点了就离开账本页）
+        // 两个工具各自有页面（点了就离开账本页）
         assertEquals(
-            listOf(Routes.DISPATCH_RECEIPTS, Routes.DISPATCH_SETTLEMENTS, Routes.DISPATCH_EXPENSES, Routes.DISPATCH_VEHICLES),
+            listOf(Routes.DISPATCH_RECEIPTS, Routes.DISPATCH_EXPENSES),
             e.drop(4).map { it.route },
         )
         assertEquals("入口不能重复", e.size, (e.map { it.label + it.route }).toSet().size)
+        // 用户点名"合并成一个"的那两处：结算不单独占一格、车辆台账改名去工作台
+        assertTrue("「司机结算」不该单独占一格", e.none { it.label == "司机结算" })
+        assertTrue("「车辆台账」的旧名不该还在（就是车辆管理）", e.none { it.label == "车辆台账" })
     }
 
     @Test
-    fun `账本卡片里的 8 格两两颜色分得开（同屏不许撞色）`() {
-        val e = Modules.dispatcherLedgerEntries
+    fun `工作台网格里有账本管理与车辆管理两格，且与入口页不重复`() {
+        val grid = Modules.dispatcherEntries
+        assertTrue("「账本管理」要在工作台网格里", grid.any { it.label == "账本管理" && it.route == Routes.LEDGER_HOME })
+        assertTrue(
+            "「车辆管理」要在工作台网格里（用户：直接放在桌面上）",
+            grid.any { it.label == "车辆管理" && it.route == Routes.DISPATCH_VEHICLES },
+        )
+        // ⛔ 入口页那 6 件不许在网格里再来一份（两个入口 = 用户以为丢了东西）
+        val dup = Modules.ledgerHomeEntries.map { it.label }.filter { l -> grid.any { it.label == l } }
+        assertTrue("同一批东西在网格和入口页各一份：$dup", dup.isEmpty())
+    }
+
+    @Test
+    fun `工作台那一格与入口页的图标不许和网格里别处撞色（完全同色）`() {
+        // 只判**完全相同**：网格里自己就有三只很接近的青（29~48），
+        // 拿更严的尺子回溯判它等于逼着改一堆用户早就认可的配色（同一条理由见下面那条 AI 的断言）。
+        val added = listOf("账本管理", "车辆管理")
+        val dup = Modules.dispatcherEntries
+            .filter { it.label in added }
+            .flatMap { n -> Modules.dispatcherEntries.filter { it.color == n.color && it.label != n.label }.map { n.label to it.label } }
+        assertTrue("新加的格子与邻居完全同色：$dup", dup.isEmpty())
+    }
+
+    @Test
+    fun `账本管理入口页 6 格两两颜色分得开（同屏不许撞色）`() {
+        val e = Modules.ledgerHomeEntries
         for (i in e.indices) {
             for (j in i + 1 until e.size) {
                 val d = colorGap(e[i].color, e[j].color)
@@ -172,17 +202,8 @@ class ModulesEntryTest {
     }
 
     @Test
-    fun `账本卡片不许和上面那张卡片撞色（同一个屏幕上）`() {
-        // 只判**完全相同**：上面那张卡片自己就有三只很接近的青（29~48），
-        // 拿更严的尺子回溯判它等于逼着改一堆用户早就认可的配色（同一条理由见下面那条 AI 的断言）。
-        val dup = Modules.dispatcherLedgerEntries
-            .flatMap { l -> Modules.dispatcherEntries.filter { it.color == l.color }.map { l.label to it.label } }
-        assertTrue("两张卡片里有完全同色的图标：$dup", dup.isEmpty())
-    }
-
-    @Test
-    fun `账本卡片里 8 个图标互不相同`() {
-        val icons = Modules.dispatcherLedgerEntries.map { it.icon.name }
-        assertEquals("同一张卡片里两格同图标 = 没标", icons.size, icons.toSet().size)
+    fun `账本管理入口页 6 个图标互不相同`() {
+        val icons = Modules.ledgerHomeEntries.map { it.icon.name }
+        assertEquals("同一页里两格同图标 = 没标", icons.size, icons.toSet().size)
     }
 }

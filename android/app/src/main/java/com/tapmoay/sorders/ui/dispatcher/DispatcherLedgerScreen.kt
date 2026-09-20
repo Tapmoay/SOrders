@@ -38,8 +38,12 @@ import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.moneyToDouble
 
 /**
- * 派单员账本管理：四类账（订单账/司机账/货主账/批发商账）。
+ * 派单员账本：四类账（订单账/司机账/货主账/批发商账）。
  * ①时间范围导航 ②趋势图 ③汇总金额 ④明细（订单可点击查看；账户可展开流水）。
+ *
+ * ⚠️ 这一页**只管看账**：账本管理那 6 件事的入口在工作台的「账本管理」入口页
+ * （`LedgerHomeScreen`）。这里保留的**唯一**一个额外入口是司机账档位里的「司机结算单」——
+ * 那是用户点名要"并进司机账"的那件事（见下面那条 item 的注释）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +51,7 @@ fun DispatcherLedgerScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenOrder: (Long) -> Unit = {},
+    onOpenSettlements: () -> Unit = {},
     initialTab: Int = 0,
 ) {
     val vm: DispatcherLedgerViewModel = appViewModel { DispatcherLedgerViewModel(container) }
@@ -118,6 +123,41 @@ fun DispatcherLedgerScreen(
                                     if (p == DatePresets.CUSTOM) showCustomRange = true else vm.applyPreset(p)
                                 },
                             )
+                        }
+                        // ①b **司机账**档位带一个「司机结算单」入口（用户 2026-09-20：
+                        //    「我们将司机的账和司机结算这 2 个东西**合并成一个**」）。
+                        //    合并的落点就是这里：司机账那一格里**没有第二个图标**，
+                        //    结算单从这一类账自己的页面上进 —— 两件事本来就是一笔钱的两头
+                        //    （司机账看"他该拿多少"，结算单看"这笔钱结了没"）。
+                        if (vm.tab == 1) {
+                            item {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = MaterialTheme.shapes.medium,
+                                    onClick = onOpenSettlements,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                                    ) {
+                                        Icon(Icons.Default.Handshake, contentDescription = null,
+                                            tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text("司机结算单", style = MaterialTheme.typography.titleSmall)
+                                            Text(
+                                                "按月给司机结算（草稿 → 确认 → 付款）",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        Icon(Icons.Default.ChevronRight,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
                         }
                         // ② 统计图（折线/条形/扇形可切换）
                         item { LedgerChartSwitch(vm) }

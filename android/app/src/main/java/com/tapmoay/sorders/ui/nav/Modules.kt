@@ -92,6 +92,13 @@ object Modules {
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
         ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品（还原成原来的色）
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
+        // 「账本管理」**回到工作台网格**（用户 2026-09-20 第二轮：那张卡片被推翻，工作台改回原来的样式）。
+        // 这一格点进去是**入口页**（`LedgerHomeScreen`，报表中心那种形式），里面 6 件事：
+        // 司机账（已并入司机结算）/ 订单账 / 货主账 / 批发商账 / 客户收款 / 开销管理。
+        // 颜色沿用「账本 = 橙」这条跨端同色约定（与货主端「我的账本」同色）。
+        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 橙 · 账本（跨端同色）
+        // ⛔ 这里**没有**「开销管理」那一格：它并进上面「账本管理」里了（用户点名要合并）。
+        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF48F0F0L),            // 亮青 · 车与车况（用户：「车辆管理直接放在桌面上」）
         // ⛔ 这里**没有**「账本管理」那一格：它连同它下面那 8 件事一起搬到了工作台的
         //    第二张卡片里（`dispatcherLedgerEntries`，用户 2026-09-20 点名）。留着这一格
         //    就等于同一个东西有两个入口，而且这一格点进去只是"账本页的默认档位"——
@@ -174,31 +181,29 @@ object Modules {
     )
 
     /**
-     * 工作台第二张卡片「账本管理」里的 **8 格**（用户 2026-09-20 点名）。
+     * 「账本管理」入口页（`LedgerHomeScreen`）里的 **6 格**（用户 2026-09-20 第二轮定稿）。
      *
-     * 原话：「干脆就在工作台里做 2 个卡片…卡片中间有一个提示词…就叫账本管理，然后将账本管理的
-     * 所有的 8 个模块全部拆成类似于工作台现在的一个图标的形式，放在一个卡片」。
-     * 这 8 件事原来挤在账本页顶部（**一行 4 个页签 + 一排 4 个工具按钮**），
-     * 而"账本管理"那一格点进去只是那一页的**默认档位** —— 用户真正要找的是这 8 件里的那一件。
+     * 原话：「首先，我们将**司机的账和司机结算这 2 个东西合并成一个**；然后订单账本，
+     * 再加上货主账本以及批发商账，还有客户收款以及开销管理，**合并成一个形式，就叫做账本管理**，
+     * 这个账本管理**类似于报表中心的形式**；然后车辆台账属于车辆管理，车辆管理直接放在桌面上」。
      *
-     * 4 类账 = **同一页的 4 个档位**（`Routes.dispatcherLedger(tab)`）；4 个工具各自有页面。
-     * ⛔ 别给 4 类账各建一个页面：同一套数据四份实现，改一处漏三处。
+     * 与上一版（工作台那张 8 格卡片）的差别，一条一条对着看：
+     * · **司机结算不再单独占一格** —— 并进「司机账」；入口在司机账那类账的页面上（`onOpenSettlements`）。
+     * · **开销管理并进来**（原来它在卡片里是第 7 格，现在在这里）。
+     * · **车辆台账搬去工作台**，改叫「车辆管理」（用户：「车辆台账就是车辆管理嘛」）。
      *
-     * 颜色：8 个**两两 RGB 欧氏距离 ≥60**（同屏不许撞色，单测 `ModulesEntryTest` 钉着）。
-     * 它们与上面那 16 格**刻意不撞**（数值都不同），但不去重算 16 格那套既有的接近色
-     * （那三只青本来就只差 29~48，是用户认可的既有配色，拿新尺子回溯判它没有意义）。
+     * 4 类账 = **同一页的 4 个档位**（`Routes.dispatcherLedger(tab)`）——
+     * ⛔ 别给它们各建一个页面：同一套数据四份实现，改一处漏三处。
      */
-    val dispatcherLedgerEntries: List<ModuleEntry> = listOf(
+    val ledgerHomeEntries: List<ModuleEntry> = listOf(
         // ---- 4 类账（同一页的 4 个档位）----
         ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = MoneyOrange),     // 橙 · 账本本体
-        ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF2E7D32L),           // 深绿 · 司机该拿多少
+        ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF2E7D32L),           // 深绿 · 司机该拿多少（含结算单）
         ModuleEntry("货主账", Routes.dispatcherLedger(2), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少
         ModuleEntry("批发商账", Routes.dispatcherLedger(3), Icons.Default.Storefront, color = 0xFFB8860BL),             // 暗金 · 批发账户
-        // ---- 4 个工具（各自有页面）----
+        // ---- 2 个工具（各自有页面）----
         ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),                 // 深紫
-        ModuleEntry("司机结算", Routes.DISPATCH_SETTLEMENTS, Icons.Default.Handshake, color = 0xFF7CB342L),            // 浅绿
         ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF1565C0L),                // 蓝
-        ModuleEntry("车辆台账", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF4E342EL),           // 深棕
     )
 
     // ===== 货主工作台 =====

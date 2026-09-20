@@ -26,9 +26,15 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val DISPATCH_DRIVERS = "dispatcher/drivers"
     const val DISPATCH_LEDGER = "dispatcher/ledger"
     /**
-     * 账本**某一类**的直达路由（工作台那张「账本管理」卡片里的 4 格用它）。
+     * 「账本管理」**入口页**（报表中心那种形式，2026-09-20 第二轮）：
+     * 工作台网格上那一格点进来是它，里面 6 件事（司机账/订单账/货主账/批发商账/客户收款/开销管理）。
+     * 它是**入口**，不是账本页本身（账本页仍然是 `DISPATCH_LEDGER`，只管看账）。
+     */
+    const val LEDGER_HOME = "dispatcher/ledger/home"
+    /**
+     * 账本**某一类**的直达路由（账本管理入口页里的 4 格用它）。
      *
-     * 4 类账是同一页的四个档位（`?tab=`），所以卡片上的四格不是四个页面 ——
+     * 4 类账是同一页的四个档位（`?tab=`），所以那 4 格不是四个页面 ——
      * 各自建一个页面就会出现"同一套数据四份实现"。
      */
     fun dispatcherLedger(tab: Int): String = DISPATCH_LEDGER + "?tab=" + tab

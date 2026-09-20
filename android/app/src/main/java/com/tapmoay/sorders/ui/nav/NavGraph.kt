@@ -24,6 +24,7 @@ import com.tapmoay.sorders.ui.dispatcher.SettlementsScreen
 import com.tapmoay.sorders.ui.dispatcher.VehicleManageScreen
 import com.tapmoay.sorders.ui.dispatcher.ArrearsUnitsScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherLedgerScreen
+import com.tapmoay.sorders.ui.dispatcher.LedgerHomeScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightSettlementScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightTemplatesScreen
 import com.tapmoay.sorders.ui.dispatcher.DriverBillingRulesScreen
@@ -282,7 +283,16 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onBack = { navController.popBackStack() },
             )
         }
-        // 账本页支持 `?tab=` 直达某一类账（工作台那张「账本管理」卡片里的 4 格用它）。
+        // 「账本管理」**入口页**（工作台网格上那一格）：报表中心那种形式，里面 6 件事。
+        // 它是入口，不是账本页本身 —— 账本页在下面那条 `?tab=` 的路由上（只管看账）。
+        composable(Routes.LEDGER_HOME) {
+            LedgerHomeScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpen = { route -> navController.navigate(route) },
+            )
+        }
+        // 账本页支持 `?tab=` 直达某一类账（账本管理入口页里的 4 格用它）。
         // 4 类账是**同一页的四个档位**，所以这里一条路由带一个参数就够了，不要建四个页面。
         composable(
             route = Routes.DISPATCH_LEDGER + "?tab={tab}",
@@ -292,6 +302,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+                // 司机账那一档里的「司机结算单」入口（用户 2026-09-20：司机账与司机结算**合并成一个**）
+                onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },
                 initialTab = entry.arguments?.getInt("tab") ?: 0,
             )
         }

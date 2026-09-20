@@ -23,13 +23,10 @@ import com.tapmoay.sorders.ui.nav.Role
 /**
  * 工作台：**卡片 + 图标网格**（像手机桌面，每个图标=一个功能）。
  *
- * 2026-09-20 起派单端是**两张卡片**（用户原话：「干脆就在工作台里做 2 个卡片…卡片中间有一个
- * 提示词…就叫账本管理，然后将账本管理的所有的 8 个模块全部拆成类似于工作台现在的一个图标的形式，
- * 放在一个卡片」）：
- *   · 第一张 = 全部模块（原来那一整屏）；
- *   · 第二张 = 「账本管理」，装那 8 件事（4 类账 + 4 个工具），来源是
- *     `Modules.dispatcherLedgerEntries`（**唯一一份清单**）。
- * 货主/司机端仍然只有第一张（他们的账本是单页，没有这 8 件）。
+ * ⚠️ **只有一张卡片**。2026-09-20 曾经短暂做过"派单端两张卡片"（第二张装账本那 8 件事），
+ * 当天就被用户推翻了：「派单员的那个工作台全部改一下，**改回原来的样式**」——
+ * 那 8 件事改成一个「账本管理」入口页（报表中心那种形式），已经收进 `dispatcherEntries` 里的一格。
+ * ⛔ 别再往这里加第二张卡片：网格能装下的东西，分成两张只会让用户在两块区域之间来回找。
  */
 @Composable
 fun WorkbenchScreen(
@@ -38,7 +35,6 @@ fun WorkbenchScreen(
     entries: List<ModuleEntry>,
     onOpen: (String) -> Unit,
 ) {
-    val ledgerEntries = if (role == Role.DISPATCHER) Modules.dispatcherLedgerEntries else emptyList()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -46,11 +42,6 @@ fun WorkbenchScreen(
     ) {
         item { WelcomeBar(role) }
         item { WorkbenchCard(title = null, entries = entries, onOpen = onOpen) }
-        if (ledgerEntries.isNotEmpty()) {
-            // ⚠️ 这张卡片**不写标题**（用户 2026-09-20：「去掉那个账本管理…那个字」）：
-            //    8 个格子自己说得清是什么，多一行字只是把卡片撑高。
-            item { WorkbenchCard(title = null, entries = ledgerEntries, onOpen = onOpen) }
-        }
     }
 }
 
