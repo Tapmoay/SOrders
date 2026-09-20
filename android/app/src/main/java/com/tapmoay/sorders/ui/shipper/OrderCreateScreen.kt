@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.HintPrefs
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
@@ -256,16 +257,22 @@ fun OrderCreateScreen(
                     }
                     if (vm.addressLat.isNullOrBlank()) {
                         Spacer(Modifier.height(8.dp))
+                        // 常驻一句"几个字"，后果交给 HintOnce（说三遍就不说了）
                         Text(
-                            "还没选地图坐标：司机拿到这单只能靠打电话问路。" +
-                                "点「地图选点」定位一下，或者从「地址库 → 共享地点」里挑一个别人标过的。",
+                            "还没选坐标",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFE6A23C),
                         )
+                        HintOnce(
+                            container.hintPrefs,
+                            "order.create.no_coord",
+                            "司机拿到这单只能靠打电话问路",
+                        )
                     } else {
                         // 有坐标 → 给一个**明确的一点**把坐标贡献进共享库。
-                        // 为什么必须手动点：共享库是全库共用、**没有删除接口**的表，
-                        // 一次误操作是永久的；而且"选了地图点"常常只是探索。
+                        // 为什么必须手动点：共享库是全库共用的一张表，一次误操作
+                        // 所有人都看得见（2026-09-19 起能改能删了，但"进来一条"本来就该是人点的）；
+                        // 而且"选了地图点"常常只是探索。
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Spacer(Modifier.height(8.dp))
@@ -280,7 +287,7 @@ fun OrderCreateScreen(
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        "这个位置已在共享地点库里",
+                                        "已在共享库里",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color(0xFF00B578),
                                     )
@@ -302,14 +309,14 @@ fun OrderCreateScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        "把这个位置存进共享地点库",
+                                        "存进共享地点库",
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.SemiBold,
                                     )
-                                    Text(
-                                        "下次同样的位置（包括别人送的单）直接拉坐标，不用各自再传一次",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    HintOnce(
+                                        container.hintPrefs,
+                                        "order.create.save_share",
+                                        "以后同样的位置，大家直接能用",
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
@@ -473,7 +480,7 @@ fun OrderCreateScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "拍摄现场位置照片或从相册选择，可多张（最多 9 张）",
+                        "拍照或相册 · 最多 9 张",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -771,8 +778,8 @@ private fun AddressPickerSheet(
                             item {
                                 SheetEmptyHint(
                                     if (kw.isBlank()) {
-                                        if (sel == "l") "地点库为空。司机到场帮你补的导航位置会出现在这里"
-                                        else "这个分组下还没有地点（在「地址与联系人」里给地点选个分组）"
+                                        if (sel == "l") "地点库为空"
+                                        else "这个分组下还没有地点"
                                     } else "没有匹配「$kw」的地点",
                                 )
                             }
@@ -885,13 +892,14 @@ private fun AddressPickerSheet(
     }
     publishTarget?.let { l ->
         ConfirmActionDialog(
+            hintPrefs = container.hintPrefs,
             title = "设为共享地址",
-            lines = listOf(
-                "把「${l.name.ifBlank { l.detailAddress.ifBlank { "这个地点" } }}」放进共享地点库。",
-                "放进去之后所有角色（货主、司机）下单时都能选到它。",
-                "你原来这条「我的地点」不会消失，两边各有一份。",
-                "坐标相近时会并进已有那一条，不会重复建一个点。",
-            ),
+            // 常驻只留"几个字"（用户 2026-09-20：最多 7~8 字）；解释性的话走 HintOnce，
+            // 出现三次就不再出现 —— 见 `ui/common/Components.kt::HintOnce`。
+            line = "所有角色都能选到它",
+            hintKey = "place.publish",
+            hint = "你原来的「我的地点」不会消失，两边各有一份",
+            target = l.name.ifBlank { l.detailAddress }.ifBlank { "这个地点" },
             confirmLabel = "设为共享",
             onConfirm = { onShareLocation(l) },
             onDismiss = { publishTarget = null },
@@ -899,12 +907,12 @@ private fun AddressPickerSheet(
     }
     demoteTarget?.let { p ->
         ConfirmActionDialog(
+            hintPrefs = container.hintPrefs,
             title = "撤销共享地址",
-            lines = listOf(
-                "把「${p.name.ifBlank { p.detailAddress }}」从共享库撤下来。",
-                "撤下来之后别人再也选不到它了。",
-                "它会被存进你自己的「我的地点」，以后只有你能选。",
-            ),
+            line = "别人再也选不到它",
+            hintKey = "place.demote",
+            hint = "它会存进你自己的「我的地点」，以后只有你能选",
+            target = p.name.ifBlank { p.detailAddress },
             confirmLabel = "撤销",
             onConfirm = { onDemotePlace(p.id) },
             onDismiss = { demoteTarget = null },
@@ -912,12 +920,12 @@ private fun AddressPickerSheet(
     }
     deleteTarget?.let { p ->
         ConfirmActionDialog(
+            hintPrefs = container.hintPrefs,
             title = "从共享库删除",
-            lines = listOf(
-                "把「${p.name.ifBlank { p.detailAddress }}」从共享库删掉。",
-                "这是所有人共用的那一张表：删掉之后每个人都选不到它了。",
-                "删错了可以恢复（软删，没真的抹掉）。只是不想让别人选、自己还想用的话，请点「撤销为我的地点」。",
-            ),
+            line = "每个人都选不到它了",
+            hintKey = "place.delete",
+            hint = "删错了可以恢复；只想自己留着，请用「撤销」",
+            target = p.name.ifBlank { p.detailAddress },
             confirmLabel = "删除",
             danger = true,
             onConfirm = { onDeletePlace(p.id) },
@@ -930,17 +938,27 @@ private fun AddressPickerSheet(
 private data class RowAction(val label: String, val onClick: () -> Unit)
 
 /**
- * 一个动作的确认框：标题 + **一句句把后果写出来** + 确认。
+ * 一个动作的确认框：**标题 + 一句后果 + 确认**。
  *
- * 为什么要有它（而不是直接执行）：共享库这张表是**全库共用**的，
- * 「撤销」和「删除」的差别在用户嘴里只差一个字，在库里差的是"别人还能不能选到它"。
- * 所以两句话都要写清楚，而且确认按钮的文案就是那个动作本身（「撤销」「删除」），
- * 不写成含糊的"确定"。
+ * 为什么要有它（而不是直接执行）：共享库那张表是全库共用的，「撤销」和「删除」在用户嘴里
+ * 只差一个字，在库里差的是"别人还能不能选到它" —— 所以确认按钮写的就是动作本身
+ * （「撤销」「删除」），不写成含糊的"确定"。
+ *
+ * 文案口径（用户 2026-09-20）：说清后果只留**一句话**（[line]）；
+ * 更细的解释（"原来那条会不会消失""删错了怎么办"）走 [HintOnce] ——
+ * 前三遍说清楚，之后不再占位置。以前这里是四行小字，用户的原话是"没必要，直接删掉就可以了"。
  */
 @Composable
 private fun ConfirmActionDialog(
+    hintPrefs: HintPrefs,
     title: String,
-    lines: List<String>,
+    /** 这一动作会改变什么的**一句话**（常驻，≤ 8 字左右）。 */
+    line: String,
+    /** 解释性补充的**永久身份**（见 `HintOnce` 的注释：改文案不该让用户重看三遍）。 */
+    hintKey: String,
+    hint: String,
+    /** 动的是哪一条（写进标题行，省得用户分不清点的是哪个地点）。 */
+    target: String,
     confirmLabel: String,
     danger: Boolean = false,
     onConfirm: () -> Unit,
@@ -951,9 +969,17 @@ private fun ConfirmActionDialog(
         title = { Text(title) },
         text = {
             Column {
-                lines.forEach {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
+                if (target.isNotBlank()) {
+                    Text(
+                        "「" + target + "」",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
                 }
+                Text(line, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(6.dp))
+                HintOnce(hintPrefs, hintKey, hint)
             }
         },
         confirmButton = {
@@ -1002,7 +1028,7 @@ private fun EditPlaceDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "改完所有角色下单时看到的都是新的。坐标不在这里改（位置不对就删掉重新录一个点）。",
+                    "所有角色都会看到新的。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1233,7 +1259,7 @@ fun LineEditDialog(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "单价由商品定价决定，下单时不能改；要改价请让派单员在「商品管理 / 批发商定价」里调整。",
+                    "价格由商品定价决定",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

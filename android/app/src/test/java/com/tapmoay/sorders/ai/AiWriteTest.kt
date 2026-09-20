@@ -160,6 +160,18 @@ class AiWriteTest {
             createdOrders += req
         }
 
+        /** 补导航（2026-09-20）：记下"用的是哪一个点的坐标"，用例靠它核对。 */
+        override suspend fun fillOrderNavigation(
+            orderId: Long,
+            lat: String,
+            lng: String,
+            name: String,
+            detail: String,
+        ) {
+            boom()
+            orderCalls += "fillNav:$orderId:$lat,$lng:$name"
+        }
+
         // ---- 订单第二批（v3.16：改单 / 异常 / 拆单 / 批量派单）----
         override suspend fun updateOrder(id: Long, fields: JsonObject) {
             boom()
@@ -378,6 +390,30 @@ class AiWriteTest {
         /** 共享地点库（全库共用）的名册 —— 与 `locationRows`（自己的地点库）是两份数据。 */
         var placeRows = listOf(AiName(1, "共享探针点"), AiName(2, "北京温榆河公园"))
         override suspend fun places() = placeRows.also { boom() }
+
+        /**
+         * 共享地点库的**完整记录**（补导航要它的坐标）：`id` 与 [placeRows] 对得上。
+         *
+         * 这一份存在的意义就是让"坐标只能从库里取"这条规矩**在单测里也能被证伪**：
+         * 用例改这里的坐标，补导航写进去的就该跟着变（而不是用了别处的数）。
+         */
+        var placePoints = listOf(
+            com.tapmoay.sorders.data.remote.dto.PlaceDto(
+                id = 1,
+                name = "共享探针点",
+                detailAddress = "探针路 1 号",
+                addressLat = "22.5000000",
+                addressLng = "114.0000000",
+            ),
+            com.tapmoay.sorders.data.remote.dto.PlaceDto(
+                id = 2,
+                name = "北京温榆河公园",
+                detailAddress = "高白路",
+                addressLat = "40.1000000",
+                addressLng = "116.6000000",
+            ),
+        )
+        override suspend fun placeById(id: Long) = placePoints.firstOrNull { it.id == id }.also { boom() }
         override suspend fun contacts() = contactRows.also { boom() }
         override suspend fun priceRules() = priceRuleRows.also { boom() }
 
@@ -1683,6 +1719,100 @@ class AiWriteTest {
         assertTrue(out.reason.contains("挂账单位"))
     }
 
+    // ============================================ 12b. 补导航（2026-09-20）
+
+    @Test
+    fun `补导航用的是共享地点库里那一条的坐标`() = runBlocking {
+        val r = Rig()
+        // 库里那个点是什么坐标，写进去的就该是什么坐标 —— 这是这条动作的全部意义。
+        // （用户 2026-09-20：「叫 AI 补上地点」；而模型全程碰不到经纬度。）
+        r.ds.placePoints = listOf(
+            com.tapmoay.sorders.data.remote.dto.PlaceDto(
+                id = 2,
+                name = "北京温榆河公园",
+                detailAddress = "高白路",
+                addressLat = "40.1234567",
+                addressLng = "116.7654321",
+            ),
+        )
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_FILL_NAV,
+                p("order" to "SOTEST2026091100230", "place" to "北京温榆河公园"),
+            ),
+        )
+        assertTrue(
+            "卡片必须把坐标写在脸上：${card.detailLines}",
+            card.detailLines.any { it.contains("40.1234567") },
+        )
+        r.svc.execute(card.token)
+        assertEquals(listOf("fillNav:61:40.1234567,116.7654321:北京温榆河公园"), r.ds.orderCalls)
+    }
+
+    @Test
+    fun `补导航不改地点名时用库里那个名字`() = runBlocking {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_FILL_NAV,
+                p("order" to "SOTEST2026091100230", "place" to "共享探针点"),
+            ),
+        )
+        r.svc.execute(card.token)
+        assertEquals(listOf("fillNav:61:22.5000000,114.0000000:共享探针点"), r.ds.orderCalls)
+    }
+
+    @Test
+    fun `已经有导航信息的单拒绝补导航`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.orders = listOf(
+            AiOrderRef(
+                61, "SOTEST2026091100230", "城东水果批发", "PENDING_DISPATCH", "地址", null, "320.00",
+                hasNav = true,
+            ),
+        )
+        val out = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_FILL_NAV,
+                p("order" to "SOTEST2026091100230", "place" to "共享探针点"),
+            ),
+        )
+        assertTrue("已经有导航信息", out.reason.contains("已经有导航信息"))
+    }
+
+    @Test
+    fun `共享库里没有这个地点就拒绝`() = runBlocking<Unit> {
+        val r = Rig()
+        val out = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_FILL_NAV,
+                p("order" to "SOTEST2026091100230", "place" to "不存在的地点"),
+            ),
+        )
+        assertTrue("共享地点", out.reason.contains("共享地点"))
+    }
+
+    @Test
+    fun `库里那条没有坐标时拒绝补导航`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.placePoints = listOf(
+            com.tapmoay.sorders.data.remote.dto.PlaceDto(
+                id = 1,
+                name = "共享探针点",
+                detailAddress = "探针路 1 号",
+                addressLat = "",
+                addressLng = "",
+            ),
+        )
+        val out = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_FILL_NAV,
+                p("order" to "SOTEST2026091100230", "place" to "共享探针点"),
+            ),
+        )
+        assertTrue("没有坐标", out.reason.contains("没有坐标"))
+    }
+
     @Test
     fun `挂账把单位名换成编号`() = runBlocking {
         val r = Rig()
@@ -2960,10 +3090,10 @@ class AiWriteTest {
         // 用户口径是「整个 App 的功能它都能做」，所以这条断言是**防止能力悄悄缩水**的。
         assertTrue("动作数不该少于 40（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size >= 40)
         // ⚠️ 上界只是"大概没重复"的粗判据，每加一批动作都得抬它一次（v3.36 加了 5 个计费规则动作，
-        //    2026-09-19 给「地点分组」加了 4 个）。
+        //    2026-09-19 给「地点分组」加了 4 个，2026-09-20 加了「补导航」1 个）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 99（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 99)
+        assertTrue("动作数不该多于 100（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 100)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",

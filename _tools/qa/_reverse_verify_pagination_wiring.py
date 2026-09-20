@@ -50,11 +50,15 @@ CASES: list[tuple[str, str, object]] = [
         ),
     ),
     (
-        "仓库层改成『条数等于上限就当还有更多』（猜，而不是读服务端说的）",
+        # 2026-09-20 更新锚点：截断的判据已经收敛到 `AppRepository.pageMeta()`（唯一一份），
+        # 不再有内联的 `resp.headers()["X-Truncated"] == "1"`。
+        # 注入的是"不再读服务端说的小于/等于上限"，改成永远说"没有更多"——
+        # 红线 `_check_page_truncation_wiring.py` 会红（列表页的『还有更多』再也亮不起来）。
+        "仓库层改成永远说『没有更多』（猜，而不是读服务端说的）",
         REPO,
         lambda s: s.replace(
-            'hasMore = resp.headers()["X-Truncated"] == "1",',
-            "hasMore = resp.body().orEmpty().size >= limit,",
+            '    parsePageMeta(headers()["X-Truncated"], headers()["X-Result-Limit"])',
+            "    PageMeta(hasMore = false, limit = null)",
             1,
         ),
     ),
@@ -83,8 +87,10 @@ CASES: list[tuple[str, str, object]] = [
         lambda s: s.replace("onClick = { vm.loadMore() }", "onClick = { }", 1),
     ),
     (
+        # 2026-09-20 更新锚点：两个响应头现在只在 `core/pagination.py::finish_page`
+        # 一处写（8 个列表端点共用），所以注入目标从 notifications.py 换成它。
         "后端只留截断位、不给上限值（客户端说不出『看到的是多少条』）",
-        BACKEND,
+        "backend/app/core/pagination.py",
         lambda s: s.replace('    response.headers["X-Result-Limit"] = str(limit)\n', "", 1),
     ),
     # ---- 2026-09-19 审计 H2 新增：CORS 暴露 + H5 列表页 ----

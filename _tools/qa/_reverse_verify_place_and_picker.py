@@ -38,6 +38,7 @@ PLACE_SCHEMA = ROOT / "backend/app/schemas/place.py"
 PLACE_SVC = ROOT / "backend/app/services/place_service.py"
 PLACE_API = ROOT / "backend/app/api/v1/places.py"
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
+ORDER_HANDLERS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteOrderHandlers.kt"
 ENUMS = ROOT / "backend/app/models/enums.py"
 COVERAGE = AI_TOOLS / "_write_coverage.py"
 MERGE_PROBE = ROOT / "_tools/qa/_probe_place_merge.py"
@@ -146,8 +147,8 @@ CASES: list[tuple[str, Path, object]] = [
         "共享库改成按人分区（「相同位置直接拉过来」就不成立了）",
         PLACE_API,
         lambda s: s.replace(
-            "    stmt = select(Place)\n",
-            "    stmt = select(Place).where(Place.created_by == current.id)\n",
+            "    stmt = select(Place).where(Place.is_deleted.is_(False))\n",
+            "    stmt = select(Place).where(Place.is_deleted.is_(False), Place.created_by == current.id)\n",
             1,
         ),
     ),
@@ -175,11 +176,15 @@ CASES: list[tuple[str, Path, object]] = [
         lambda s: s.replace('    ORDER_NAVIGATION_FILL = "ORDER_NAVIGATION_FILL"', "", 1),
     ),
     (
-        "AI 覆盖表里删掉「不做补导航」的理由（coverage 会红，说明理由表真的在管）",
-        COVERAGE,
+        # 2026-09-20：这条原来是「AI 覆盖表里删掉『不做补导航』的理由」——
+        # 现在补导航**有** AI 动作了（`orders.fill_nav`），理由表里那一条已经合法地删掉。
+        # 换成**新的不变式**：AI 补导航的坐标只能来自共享地点库那一条记录；
+        # 一旦改成从模型参数里取（模型就能编坐标），红线必须报红。
+        "AI 补导航改成用模型给的坐标（而不是库里那一条的坐标）",
+        ORDER_HANDLERS,
         lambda s: s.replace(
-            '    ("POST", "orders/{}/navigation"): "坐标类：经纬度是现场 GPS 测出来的事实，模型给不出、编一个会把司机带错（v3.41 永久排除）",\n',
-            "",
+            '                put("address_lat", point.addressLat.orEmpty())\n',
+            '                put("address_lat", AiWriteArgs.str(params, "lat").orEmpty())\n',
             1,
         ),
     ),
@@ -197,8 +202,8 @@ CASES: list[tuple[str, Path, object]] = [
         "`POST /places` 不再拦「无名无址」（往全库共享库里塞永久无名记录）",
         PLACE_SCHEMA,
         lambda s: s.replace(
-            '        if not (self.name or "").strip() and not (self.detail_address or "").strip():',
-            "        if False:",
+            "        err = place_service.identify_error(self.name, self.detail_address)\n",
+            "        err = None\n",
             1,
         ),
     ),

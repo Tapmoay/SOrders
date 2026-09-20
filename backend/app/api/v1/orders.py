@@ -672,12 +672,24 @@ async def upload_order_address_image(
     db: Session = Depends(get_db),
     file: UploadFile = File(...),
 ) -> Order:
-    """上传收货地址参考图（定位不清时辅助找路）。"""
-    order = db.get(Order, order_id)
-    if order is None:
-        raise HTTPException(status_code=404, detail="未找到对应记录")
+    """上传收货地址参考图（定位不清时辅助找路）。
+
+    **谁能传**（2026-09-20 扩容）：派单员 / 这单的货主 / **这单的司机**。
+    司机加进来是用户点名要的：「司机他也可以去上交补交照片，如果他到了地方没有照片的话，
+    他也可以补」—— 到了现场的人正是唯一拍得出"这个门口长什么样"的人。
+    （原来只放行前两个角色，司机在订单详情页连入口都没有，只能打电话问路。）
+
+    **照片会同时进「我的地点」**（`place_service.attach_order_photo`）：用户要的是
+    「照片跟地点是一样自动保存在库里的」—— 下次下单选到这个位置，图就在库里，
+    不用再让每个货主各拍一次。
+    """
+    order = _order_not_deleted_or_404(db.get(Order, order_id))
     rk = user_role_key(current)
-    if rk != UserRole.DISPATCHER.value and current.id != order.shipper_id:
+    if (
+        rk != UserRole.DISPATCHER.value
+        and current.id != order.shipper_id
+        and current.id != order.driver_id
+    ):
         raise HTTPException(status_code=403, detail="无权操作")
     from app.api.v1.products import ALLOWED_IMAGE_CT, _sniff_image_mime
 
@@ -715,6 +727,31 @@ async def upload_order_address_image(
         urls.append(url)
     order.image_urls = json.dumps(urls, ensure_ascii=False)
     order.address_image_url = urls[0] if urls else url
+    # 照片跟着**同一条判据、同一批人**进「我的地点」（用户 2026-09-20：
+    # 「照片跟地点是一样是自动保存在库里的」）。代理下单时两边都记 —— 与
+    # `remember_order_address` 完全同一批 owner，判据也只有 `place_service` 那一处。
+    # 司机传的图也进**货主**的库（司机自己没有"我的地点"这个概念）。
+    photo_owners = place_service.attach_order_photo(
+        db,
+        owner_ids=[current.id, order.shipper_id],
+        name=order.address_detail or "",
+        detail_address=order.address_detail or "",
+        url=url,
+        lat=float(order.address_lat) if order.address_lat is not None else None,
+        lng=float(order.address_lng) if order.address_lng is not None else None,
+    )
+    if photo_owners:
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=order.id,
+            action=OperationAction.PLACE_AUTO_ADDED,
+            change_payload={
+                "photo": url,
+                "owner_ids": photo_owners,
+                "note": "位置照片存进「我的地点」（判据见 place_service.attach_order_photo）",
+            },
+        )
     db.commit()
     db.refresh(order)
     return order

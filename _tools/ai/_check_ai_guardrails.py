@@ -75,6 +75,10 @@ READ_METHODS = {
     "driverBills", "driverSettlements", "monthlyFreight",
     # 地理编码：查的是**高德**，不碰 SOrders 后端，所以是读（v3.24）
     "geocode",
+    # 共享地点（2026-09-20「补导航」用）：`places` 是那张全库共用的地点名册（`GET /places`），
+    # `placeById` 是在它里面按编号取一条（拿坐标）。两个都是读 —— 补导航那个动作
+    # **写**的是 `fillOrderNavigation`（不在白名单里，默认受"prepare 里不许写"的约束）。
+    "places", "placeById",
 }
 
 
@@ -3348,14 +3352,22 @@ def main() -> int:
               r"异名 \+ 6\.7 米：不许并（否则吃掉隔壁那家）")
     c.present("真后端探针也验「同坐标异名仍并入」（坐标规则优先于名字）", merge_probe,
               r"同坐标（0\.89 米）异名：仍并入")
+    # ⚠️ 2026-09-20 起锚的是**新的短文案**：用户要求界面上"最多 7~8 个字"，
+    #    那一大段解释搬进了 `HintOnce`（只出现 3 次）。但**规矩没变** ——
+    #    用户按下去之前要知道发生什么，所以这句"会写哪三处"必须还在卡片/弹层上。
     c.present("补导航的说明写清「会写哪三处」（用户按下去之前要知道发生什么）",
-              read(UI / "order/OrderDetailScreen.kt"), r"按下确定后会做三件事")
-    # 模型给不出经纬度：这两个写端点必须留在「不做」清单里（否则 coverage 会红，
-    # 而"为了让它绿"去加一个编坐标的动作，会把司机导航到别的地方且看不出来）。
-    cov = read(ROOT / "_tools/ai/_write_coverage.py")
-    c.present("AI 不做补导航（坐标是现场 GPS 测出来的事实，模型给不出）", cov,
-              r'\("POST", "orders/\{\}/navigation"\): "坐标类')
-    c.present("AI 不做录共享地点（同上）", cov, r'\("POST", "places"\): "坐标类')
+              read(UI / "order/OrderDetailScreen.kt"), r"存三处：这单 / 货主库 / 共享库")
+    # ⚠️ 2026-09-20 这条**换了判据、没放宽**：以前是"AI 不做补导航"，现在是
+    #    "AI 可以补，但坐标只能从库里取"。锚两处：参数说明里"不要自己编坐标"，
+    #    以及 handler 里坐标来自 `ds.placeById(...)` 那一条（不是从模型参数里取）。
+    #    反向验证 `_reverse_verify_place_and_picker.py` 注入的正是后一处
+    #    （把 payload 的坐标改成 `AiWriteArgs.str(params, "lat")`）——
+    #    只锚"placeById 出现过"是拦不住它的：那句话可以留着、坐标从别处拿。
+    c.present("AI 补导航只能引用库里已有的坐标（模型不许编坐标）",
+              read(AI / "AiWrite.kt"), r"不要自己编坐标")
+    c.present("AI 补导航的坐标来自库里那一条（不是从模型参数里取）",
+              read(AI / "AiWriteOrderHandlers.kt"),
+              r'put\("address_lat", point\.addressLat\.orEmpty\(\)\)')
     c.present("共享地点库进了 AI 读目录的模块名册（否则生成器报「缺中文名」）",
               read(ROOT / "_tools/ai/_gen_ai_toolmap.py"), r'"places": "共享地点库"')
 

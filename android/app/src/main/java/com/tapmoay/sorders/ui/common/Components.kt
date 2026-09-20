@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.tapmoay.sorders.core.HintPrefs
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -727,6 +728,39 @@ fun FormErrorLine(text: String?, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.error,
         )
     }
+}
+
+/**
+ * 解释性提示：**最多出现 3 次**，第 4 次起再也不出现（用户 2026-09-20 定的规矩）。
+ *
+ * 用户原话：
+ * > 有些功能不需要说太多，只需要简单的一句话，大概字数最多是 7 到 8 个字就可以了…
+ * > 或者你可以这样子：第一次和第二次的时候它是出现在那里，下次再点击的时候它就不会有了…
+ * > 第四次就不会有了。
+ *
+ * 于是界面上的文字分两类，各归各的：
+ * - **常驻的数/标签/按钮** → 几个字（"地点名"「补导航」），给已经会的人看；
+ * - **解释"按下去会发生什么"的话** → 走这里，说三遍就够，之后让位给功能本身。
+ *
+ * ⚠️ [key] 是**永久身份**（`"order.nav_block"`），不是屏幕上那句话：
+ *    改文案不该让用户重新看三遍，换一句话也不该共用别人的额度。
+ * ⚠️ 计数在**进入这一次**就 +1（不是"停留时长"）：用户在三个页面之间来回切，
+ *    那就是三次"看到"——这也正是他要的"下次再点击就没有了"。
+ */
+@Composable
+fun HintOnce(prefs: HintPrefs, key: String, text: String, modifier: Modifier = Modifier) {
+    // 同步读（SharedPreferences）：合成时就要决定画不画（见 `HintPrefs` 的注释）
+    val show = remember(key) { prefs.hasLeft(key) }
+    LaunchedEffect(key) {
+        if (show) prefs.markSeen(key)
+    }
+    if (!show) return
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
 }
 
 /**

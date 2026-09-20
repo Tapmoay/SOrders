@@ -944,6 +944,90 @@ class BatchAssignOrderHandler(
     }
 }
 
+// ============================================================== 补导航（2026-09-20）
+
+/**
+ * 补导航信息：把**共享地点库里已有**的坐标写到一张还没有坐标的单上。
+ *
+ * ### 用户为什么要它（原话）
+ * > 同时派单员其实也可以对这些地点…叫 AI 补上地点，也可以叫 AI 补上照片。
+ *
+ * 派单员坐在电脑前，他没有坐标（那是到过现场的人测出来的）。所以这条路**不是**
+ * "让模型编一个坐标"，而是"让模型**指**库里哪一个点"—— 坐标由 App 从库里取。
+ * 这也正是当初把这个端点列进"永久不做"的原因，现在换了个入口把它打开了：
+ * **模型仍然一个经纬度都碰不到**。
+ *
+ * ### 三条硬约束（都在 prepare 里先核对，绝不"点了确认才报错"）
+ * 1. 这单**还没有坐标**：后端对已有坐标的单一律 400（错坐标比没坐标更危险），
+ *    所以卡片根本不弹，直接告诉用户"已经有了"；
+ * 2. 这单不能是已撤销的（撤销的单不需要导航）；
+ * 3. 用哪个点必须**说全**：对不上、对上多个都拒绝（`AiWriteArgs.strict`）——
+ *    「并到隔壁那家」的代价是司机照着跑，而且看不出来。
+ */
+class FillNavigationHandler(
+    ds: AiWriteDataSource,
+    store: AiWritePreviewStore,
+) : OrderWriteHandler(ds, store) {
+
+    override val actionId = AiWrites.ORDERS_FILL_NAV
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val order = resolveOrder(params)
+        requireStatus(order, OrderStatusModel.NOT_CANCELLED, "已撤销的单不需要补导航信息")
+        if (order.hasNav) {
+            throw AiWriteArgException(
+                "${order.orderNo} 已经有导航信息了 —— 这个动作**只补不改**" +
+                    "（把对的坐标改成错的，比没有坐标更糟）。位置不对的话，" +
+                    "请让派单员在地图上重新标一个点，不要在这条路上改。",
+            )
+        }
+
+        val wanted = AiWriteArgs.required(params, "place", "用共享地点库里的哪个地点？把地点名告诉我。")
+        val name = AiWriteArgs.strict(wanted, ds.places(), "共享地点")
+        // ⛔ 坐标**从库里取**（`placeById`），不是从参数里取 —— 模型说的话里没有任何数
+        val point = name?.let { ds.placeById(it.id) }
+        if (point == null || point.addressLat.isNullOrBlank() || point.addressLng.isNullOrBlank()) {
+            throw AiWriteArgException(
+                "共享地点库里的「$wanted」没有坐标，补不了导航。请让用户先在地图上标一个点" +
+                    "（下单时的「地图选点」或订单详情里的「补导航」都会把它存进共享库）。",
+            )
+        }
+        val placeName = AiWriteArgs.str(params, "name").orEmpty().trim().ifBlank { name.label }
+
+        return card(
+            summary = "补导航：${order.orderNo} → ${point.name.ifBlank { placeName }}",
+            details = buildList {
+                addAll(orderLines(order))
+                add("———— 用这个点的坐标 ————")
+                // 坐标写在脸上：用户核对的是这两个数，不是那句话
+                add("地点：${point.name.ifBlank { placeName }}")
+                if (point.detailAddress.isNotBlank()) add("地址：${point.detailAddress}")
+                add("坐标：${point.addressLat}, ${point.addressLng}")
+                add("———— 会写三处 ————")
+                add("这单的导航、货主的地点库、全库共享地点库")
+                add("⚠️ 写进去就撤不回来（没有「取消导航」这个动作）—— 核对好坐标再确定")
+            },
+            payload = buildJsonObject {
+                put("order_id", order.id)
+                put("address_lat", point.addressLat.orEmpty())
+                put("address_lng", point.addressLng.orEmpty())
+                put("name", placeName)
+                put("detail", point.detailAddress)
+            },
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        ds.fillOrderNavigation(
+            orderId = payload.reqLong("order_id"),
+            lat = payload.req("address_lat"),
+            lng = payload.req("address_lng"),
+            name = payload.str("name").orEmpty(),
+            detail = payload.str("detail").orEmpty(),
+        )
+    }
+}
+
 // ------------------------------------------------------------------ 小工具
 //
 // payload 取值（`str/req/reqLong/bool`）在 AiWriteMasterData.kt 里**只有一份**，

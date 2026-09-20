@@ -5,6 +5,7 @@ import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderProductLine
+import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest
 import com.tapmoay.sorders.data.repo.AppRepository
 import android.content.Context
@@ -119,6 +120,17 @@ interface AiWriteDataSource {
     suspend fun payOrder(orderId: Long)
     suspend fun chargeOrder(orderId: Long, arrearsUnitId: Long)
     suspend fun createOrder(req: OrderCreateRequest)
+
+    /**
+     * 补导航信息（2026-09-20）：把**共享地点库里已有**的坐标写到这单上。
+     *
+     * ⚠️ 坐标由 App 从库里取（[placeById]），**不是**模型给的 —— 这个端点以前被列在
+     * `_write_coverage` 的"坐标类：永久不做"里，就是因为"让模型传经纬度"本身是错的。
+     */
+    suspend fun fillOrderNavigation(orderId: Long, lat: String, lng: String, name: String, detail: String)
+
+    /** 共享地点库里那一条（补导航要它的坐标）。 */
+    suspend fun placeById(id: Long): PlaceDto?
 
     // ---- 订单（第二批：改单 / 异常 / 拆单 / 批量派单）----
     /** 部分更新订单（后端 PATCH 语义：**没带的键不会被改**）。 */
@@ -518,6 +530,7 @@ class RepoWriteDataSource(
                 }.setScale(2, RoundingMode.HALF_UP).toPlainString(),
                 collectCash = d.collectCash,
                 isException = d.isException,
+                hasNav = !d.addressLat.isNullOrBlank() && !d.addressLng.isNullOrBlank(),
             )
         }
 
@@ -566,6 +579,26 @@ class RepoWriteDataSource(
     override suspend fun createOrder(req: OrderCreateRequest) {
         repo.createOrder(req)
     }
+
+    override suspend fun fillOrderNavigation(
+        orderId: Long,
+        lat: String,
+        lng: String,
+        name: String,
+        detail: String,
+    ) {
+        repo.fillOrderNavigation(
+            orderId,
+            com.tapmoay.sorders.data.remote.dto.OrderNavigationBody(
+                addressLat = lat,
+                addressLng = lng,
+                name = name,
+                detailAddress = detail,
+            ),
+        )
+    }
+
+    override suspend fun placeById(id: Long): PlaceDto? = repo.placesAll().firstOrNull { it.id == id }
 
     override suspend fun updateOrder(id: Long, fields: JsonObject) {
         // 只把 handler 明确要改的键搬进 DTO——DTO 的默认值全是 null，等于"不改这一项"。
@@ -1771,6 +1804,7 @@ class AiWriteService(
             DeleteOrderLineHandler(ds, store),
             SoftDeleteOrderHandler(ds, store),
             RestoreOrderHandler(ds, store),
+            FillNavigationHandler(ds, store),
             SendNotificationHandler(ds, store),
             PriceChangeNotifyHandler(ds, store),
             MarkNotificationsReadHandler(ds, store),

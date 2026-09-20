@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -39,6 +40,9 @@ from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
 from app.models import Place, PlaceUserUsage, ShipperLocation
+# 图片张数上限与「我的地点」的出入参**同一个常量**（`schemas/text.py` 是叶子模块，
+# 引它不会成环）—— 两处各写一个 9，改了上限就会出现"界面允许传第 10 张、服务端悄悄丢"
+from app.schemas.text import MAX_IMAGES
 
 #: 坐标相差 ≤ 该米数 → 视为**同一个地点**，沿用已有行而不是新建（用户给的数字）
 MERGE_METERS = 1.0
@@ -424,6 +428,55 @@ def ensure_shipper_location(
     return row, True
 
 
+def _keep_for_owner(
+    db: Session,
+    *,
+    owner_id: int,
+    name: str,
+    detail_address: str,
+    coords: tuple[float, float] | None,
+) -> tuple[ShipperLocation, bool]:
+    """给这一位的「我的地点」里把这条地址放好：已经有就返回那一条，没有就建一条。
+
+    判据就那两条（不许在别处再写一遍）：
+    - **有坐标** → `ensure_shipper_location`（1 米内、或同名 30 米内算同一处；
+      库里那条"只有文字、还没坐标"的记录会被**补上坐标**而不是再长一条）；
+    - **只有文字** → `_find_known_location`（地址原文一模一样，或名字一样且那条还没坐标）。
+
+    返回 `(行, 是否新建)`。
+    """
+    if coords is not None:
+        return ensure_shipper_location(
+            db,
+            shipper_id=owner_id,
+            name=name,
+            detail_address=detail_address,
+            lat=coords[0],
+            lng=coords[1],
+        )
+    known = _find_known_location(db, shipper_id=owner_id, name=name, detail_address=detail_address)
+    if known is not None:
+        return known, False
+    row = ShipperLocation(
+        shipper_id=owner_id,
+        name=_clean(name, 128),
+        detail_address=_clean(detail_address, 512),
+        image_urls="[]",
+    )
+    db.add(row)
+    db.flush()
+    return row, True
+
+
+def _owners(owner_ids: list[int | None]) -> list[int]:
+    """去重 + 去掉 None，**保持顺序**（顺序决定日志里先写谁的）。"""
+    out: list[int] = []
+    for oid in owner_ids:
+        if oid and oid not in out:
+            out.append(oid)
+    return out
+
+
 def remember_order_address(
     db: Session,
     *,
@@ -449,13 +502,6 @@ def remember_order_address(
     记给货主 → 派单员下次代下单还得重新找这个地址；记给派单员 → 货主自己下单找不到它。
     两边各一条的成本就是一次坐标比对，而地址本来就只有一处。
 
-    ## 两条判据（有坐标 / 只有文字）
-    - **有坐标** → 复用 `ensure_shipper_location`（1 米内、或同名 30 米内算同一处；
-      库里那条"只有文字、还没坐标"的记录会被**补上坐标**而不是再长一条）；
-    - **只有文字**（下单时没在地图上标点，手打了一行地址）→ 按 `_find_known_location`
-      去重。不让它进库等于"下次还得重打一遍"，而这种情况下没有任何距离可算，
-      只能按文字判、且只判"地址原文一模一样 / 名字一样且那条还没坐标"。
-
     返回 `{"created_for": [...], "merged_for": [...]}`（user id）。调用方**必须**把
     `created_for` 写进审计（`PLACE_AUTO_ADDED`）：用户下次看到自己库里多出一条，
     得能查出是谁、因为哪一单加的。
@@ -468,38 +514,73 @@ def remember_order_address(
     if not clean_name and not clean_detail:
         return out
 
-    owners: list[int] = []
-    for oid in owner_ids:
-        if oid and oid not in owners:
-            owners.append(oid)
-
     coords = (float(lat), float(lng)) if lat is not None and lng is not None else None
-    for owner_id in owners:
-        if coords is not None:
-            _, created = ensure_shipper_location(
-                db,
-                shipper_id=owner_id,
-                name=clean_name,
-                detail_address=clean_detail,
-                lat=coords[0],
-                lng=coords[1],
-            )
-        elif _find_known_location(
-            db, shipper_id=owner_id, name=clean_name, detail_address=clean_detail
-        ) is not None:
-            created = False
-        else:
-            db.add(
-                ShipperLocation(
-                    shipper_id=owner_id,
-                    name=clean_name,
-                    detail_address=clean_detail,
-                    image_urls="[]",
-                )
-            )
-            db.flush()
-            created = True
+    for owner_id in _owners(owner_ids):
+        _, created = _keep_for_owner(
+            db,
+            owner_id=owner_id,
+            name=clean_name,
+            detail_address=clean_detail,
+            coords=coords,
+        )
         out["created_for" if created else "merged_for"].append(owner_id)
+    return out
+
+
+def _append_photo(row: ShipperLocation, url: str) -> bool:
+    """把一张图追加到这一行的 `image_urls`（**去重 + 上限**）。返回是否真的加上了。"""
+    try:
+        urls = [u for u in json.loads(row.image_urls or "[]") if isinstance(u, str)]
+    except Exception:
+        urls = []
+    if url in urls or len(urls) >= MAX_IMAGES:
+        return False
+    urls.append(url)
+    row.image_urls = json.dumps(urls, ensure_ascii=False)
+    # 旧字段始终 = 首图（`LocationOut` 把 `image_url` 并进 `image_urls[0]`，两边不能分叉）
+    row.image_url = urls[0]
+    return True
+
+
+def attach_order_photo(
+    db: Session,
+    *,
+    owner_ids: list[int | None],
+    name: str,
+    detail_address: str,
+    url: str,
+    lat: float | None = None,
+    lng: float | None = None,
+) -> list[int]:
+    """把刚上传的**位置照片**挂到这一单对应的「我的地点」那一条上（用户 2026-09-20）。
+
+    用户原话：
+    > 还有一个就是照片，他下单的时候，如果我上交了照片的话，呃那个跟地点是一样是自动保存在库里的。
+
+    所以照片和地址走**同一条判据、同一批人**（`_keep_for_owner` / `_owners`）：
+    谁的地点库会多出这个地点，照片就跟着进谁的库 —— 两处各判一次的话，
+    会出现"地点进去了、照片进了另一条"（同一个人在同一个位置有两条记录，一条有图一条没图）。
+    找不到对应地点时**顺手建一条**（照片本身就是"这个位置"的证据，不能因为库里还没有就丢掉）。
+
+    返回真的挂上了照片的 owner id（调用方写审计用）。
+    """
+    clean_url = (url or "").strip()
+    clean_name = _clean(name, 128)
+    clean_detail = _clean(detail_address, 512)
+    if not clean_url or (not clean_name and not clean_detail):
+        return []
+    coords = (float(lat), float(lng)) if lat is not None and lng is not None else None
+    out: list[int] = []
+    for owner_id in _owners(owner_ids):
+        row, _ = _keep_for_owner(
+            db,
+            owner_id=owner_id,
+            name=clean_name,
+            detail_address=clean_detail,
+            coords=coords,
+        )
+        if _append_photo(row, clean_url):
+            out.append(owner_id)
     return out
 
 

@@ -55,7 +55,16 @@ MODELS = ROOT / "backend/app/models"
 API = ROOT / "backend/app/api/v1"
 
 # 扫到的数量下限（清单过期/正则失效时先喊，而不是安静地什么都不查）
-MIN_MODELS = 6
+#
+# ⚠️ 2026-09-20：下限从 6 提到 **9 = 当前实际数量**（ArrearsUnit / DriverBillingRule /
+#    FreightTemplate / Place / PriceRule / Product(自声明) / ShipperAddress /
+#    ShipperContact / ShipperLocation）。原来写 6 的后果被反向验证当场照出来了：
+#    `_reverse_verify_soft_delete.py` 有一条"把三个模型的混合式软删声明全删掉"的注入，
+#    删完还剩 6 个 ≥ 6 → **红线不响**，也就是这条数量判据在空转
+#    （而那个注入代表的正是"有人把软删偷偷改回硬删"）。
+#    定成"等于当前数量"之后：少一个就要有人来解释（这正是数量判据的用法），
+#    多一个（新增软删模型）不用动它。
+MIN_MODELS = 9
 MIN_ENDPOINTS = 8
 MIN_PAIRS = 6
 

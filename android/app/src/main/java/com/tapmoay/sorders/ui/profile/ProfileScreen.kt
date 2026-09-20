@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.SystemUpdateAlt
@@ -20,6 +21,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +58,9 @@ fun ProfileScreen(    container: AppContainer,
     val vm: ProfileViewModel = appViewModel { ProfileViewModel(container) }
     val unread by container.realtimeHub.unreadCount.collectAsState()
     val context = LocalContext.current
+    // 「提示一直显示」的当前值：SharedPreferences 不是可观察状态，所以在这里持一份
+    // 供 Switch 用（开关本身就是唯一的写入口，不存在"别处改了这里不知道"的情况）。
+    var hintAlwaysOn by remember { mutableStateOf(container.hintPrefs.alwaysOn) }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -236,6 +242,40 @@ fun ProfileScreen(    container: AppContainer,
                         },
                         modifier = Modifier
                             .clickable(enabled = !ThemeMode.autoBySun) { ThemeMode.set(context, !ThemeMode.isDark) }
+                            .fillMaxWidth(),
+                    )
+                    HorizontalDivider()
+                    // 「提示一直显示」——App 里那些解释性的话默认**最多出现 3 次**就消失
+                    // （用户 2026-09-20：「第四次就不会有了」）；这个开关打开 = 不走那个机制、一直显示。
+                    // 默认**关**（他要的就是"默认关"），所以开关本身不需要解释文字，
+                    // 副标题只在打开时说一句"一直显示"，关着时说"说三次就不说了"。
+                    ListItem(
+                        headlineContent = { Text("提示一直显示") },
+                        supportingContent = {
+                            Text(if (hintAlwaysOn) "一直显示" else "说三次就不说了")
+                        },
+                        leadingContent = {
+                            TintedIcon(
+                                Icons.Default.Lightbulb,
+                                Color(0xFF00A2C8),
+                                size = 18.dp,
+                                container = 34.dp,
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = hintAlwaysOn,
+                                onCheckedChange = {
+                                    container.hintPrefs.alwaysOn = it
+                                    hintAlwaysOn = it
+                                },
+                            )
+                        },
+                        modifier = Modifier
+                            .clickable {
+                                container.hintPrefs.alwaysOn = !hintAlwaysOn
+                                hintAlwaysOn = !hintAlwaysOn
+                            }
                             .fillMaxWidth(),
                     )
                     HorizontalDivider()

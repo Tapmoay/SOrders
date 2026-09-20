@@ -470,7 +470,7 @@
    "module_cn": "订单/运费模板",
    "method": "get",
    "path": "/api/v1/freight-templates",
-   "at": "backend/app/api/v1/freight_templates.py:37",
+   "at": "backend/app/api/v1/freight_templates.py:133",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1064,7 +1064,7 @@
    "module_cn": "共享地点库",
    "method": "get",
    "path": "/api/v1/places",
-   "at": "backend/app/api/v1/places.py:38",
+   "at": "backend/app/api/v1/places.py:39",
    "auth": "仅登录",
    "roles": [
     "dispatcher",

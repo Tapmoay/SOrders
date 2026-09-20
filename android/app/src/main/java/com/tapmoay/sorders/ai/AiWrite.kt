@@ -417,6 +417,13 @@ data class AiOrderRef(
      * 而这两个动作恰恰都是围绕这个标记转的。
      */
     val isException: Boolean = false,
+    /**
+     * 这单**已经有导航坐标**了吗（"补导航"动作的前置条件）。
+     *
+     * 为什么要带上它：后端对已有坐标的单**一律 400**（错坐标比没坐标更危险），
+     * 而"点了确认才报错"就是白弹一张卡 —— 与状态门同一个道理，前置条件要在 [prepare] 里先核对。
+     */
+    val hasNav: Boolean = false,
 ) {
     /** 卡片上显示的中文状态（由 [status] 推出来，不再单独存一份）。 */
     val statusCn: String get() = statusLabel(status)
@@ -900,6 +907,9 @@ object AiWrites {
     const val ORDERS_DELETE_LINE = "orders.delete_line"
     const val ORDERS_SOFT_DELETE = "orders.soft_delete"
     const val ORDERS_RESTORE = "orders.restore"
+
+    // ---- 订单（第四批：补导航 = 引用共享地点库里已有的坐标）----
+    const val ORDERS_FILL_NAV = "orders.fill_nav"
 
     // ---- 账本（改/删流水、客户收款、补进账本）----
     const val LEDGER_UPDATE_ENTRY = "ledger.update_entry"
@@ -1558,6 +1568,38 @@ object AiWrites {
                 "到期系统会物理清理。派单员可对任意状态的单做这件事。",
             params = listOf(
                 AiWriteParam("order", "订单", required = true, hint = "必填，订单号；不确定就先查一下"),
+            ),
+        ),
+        // ------------------------------------------- 订单域·第四批（补地点，2026-09-20）
+        //
+        // 用户原话：「同时派单员其实也可以对这些地点…叫 AI 补上地点，也可以叫 AI 补上照片」。
+        //
+        // ⛔ **模型全程碰不到经纬度**：它只说"用共享地点库里的哪一个"（[AiWriteParam] 里
+        //    那一个名字），坐标由 App 从库里取出来（`AiWriteArgs.strict` 解析 → 库里那一条的
+        //    lat/lng）。所以「模型给不出坐标」这条老约束**没有被推翻**，而是绕开了：
+        //    以前这个端点被列在 `_write_coverage` 的"坐标类：永久不做"里，就是因为
+        //    "让模型传经纬度"这件事本身是错的；现在传的是**库里的编号**。
+        //    红线钉着这一条：`_check_ai_guardrails.py` 的「补导航只能引用已有的坐标」。
+        //
+        // 档位 MEDIUM：它只补这单的坐标（并顺手进地点库），不改状态、不推送；
+        // 但**写进去就撤不回来**（没有"取消导航"这个端点），所以卡片必须把
+        // "用的是哪个点、坐标是多少"写在脸上 —— 用户核对的是这两个数，不是那句话。
+        AiWriteAction(
+            id = ORDERS_FILL_NAV,
+            title = "补导航信息",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_ORDER,
+            blurb = "给一张**还没有坐标**的单补上导航信息：从**共享地点库**里挑一个已有的地点，" +
+                "把它的坐标写到这单上。会同时进这单、货主的地点库、全库共享地点库。" +
+                "已经有了坐标的单一律拒绝（不覆盖）。",
+            params = listOf(
+                AiWriteParam("order", "订单", required = true, hint = "必填，订单号；不确定就先查一下"),
+                AiWriteParam(
+                    "place", "用哪个地点", required = true,
+                    hint = "必填。**共享地点库里已有的地点名**（不是地址、不要自己编坐标）——" +
+                        "库里没有这个位置就让用户自己在地图上标，不要猜",
+                ),
+                AiWriteParam("name", "地点名", hint = "可选。写进地点库时用的名字；不填就用库里那个名字"),
             ),
         ),
         AiWriteAction(

@@ -1,10 +1,14 @@
 package com.tapmoay.sorders.ui.order
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +31,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.HintPrefs
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.dto.OrderDto
@@ -40,6 +45,7 @@ import com.tapmoay.sorders.util.*
 import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import android.graphics.Bitmap
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,6 +112,46 @@ fun OrderDetailScreen(
         takePicture.launch(uri)
     }
 
+    // ---- 位置图片（2026-09-20）----
+    //
+    // 用户原话：「还有一个就是司机他也可以去上交补交照片，如果他到了地方没有照片的话，
+    // 他也可以补」「可以进到订单的详情页面然后手动补详细地点和照片」。
+    // 所以入口就放在**收货信息卡**里（三个角色都看得到），谁能传由后端判
+    // （派单员 / 这单的货主 / **这单的司机**）—— 到过现场的人正是唯一拍得出"这个门口长什么样"的人。
+    // 传上去的图会**同时**进这一单对应的「我的地点」（后端 `attach_order_photo`）。
+    var showPlacePhotoSheet by remember { mutableStateOf(false) }
+
+    val placePhotoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
+    ) { uris ->
+        uris.forEachIndexed { i, uri ->
+            try {
+                val f = File(context.cacheDir, "place_" + System.currentTimeMillis() + "_" + i + ".jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    f.outputStream().use { output -> input.copyTo(output) }
+                }
+                vm.uploadPlacePhoto(f)
+            } catch (_: Exception) {
+                vm.error = "图片读取失败，请换一张"
+            }
+        }
+    }
+
+    val placePhotoCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
+        if (bmp != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val dir = File(context.cacheDir, "place_imgs").apply { mkdirs() }
+                    val f = File(dir, "cam_" + System.currentTimeMillis() + ".jpg")
+                    f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                    vm.uploadPlacePhoto(f)
+                } catch (_: Exception) {
+                    vm.error = "照片处理失败，请重试"
+                }
+            }
+        }
+    }
+
     // ⚠️ 「系统相机拍照不需要 CAMERA 权限」**只在清单没声明它时成立** —— 而清单已经不再声明它
     //    （2026-09-19 报告 P1-9 的根治：删掉 `AndroidManifest.xml` 里的 CAMERA 声明）。
     //    所以这里**不许**再加权限闸：真加了反而会让「拍照送达」永远打不开相机
@@ -139,6 +185,9 @@ fun OrderDetailScreen(
                 DetailBody(
                 order = vm.order!!,
                 role = role,
+                prefs = container.hintPrefs,
+                uploadingPlace = vm.uploadingPlace,
+                onAddPlacePhoto = { showPlacePhotoSheet = true },
                 acting = vm.acting,
                 uploading = vm.uploading,
                 onCancelClick = { vm.showCancelDialog = true },
@@ -185,6 +234,7 @@ fun OrderDetailScreen(
     }
     if (vm.showNavDialog) {
         NavigationFillDialog(
+            prefs = container.hintPrefs,
             addressText = vm.navDraftAddress,
             name = vm.navDraftName,
             onNameChange = { vm.navDraftName = it },
@@ -196,12 +246,34 @@ fun OrderDetailScreen(
         )
     }
 
+    // 选图用 AlertDialog（设计规范 §5：选择/确认弹窗一律 AlertDialog，如选图"拍照/相册"）
+    if (showPlacePhotoSheet) {
+        AlertDialog(
+            onDismissRequest = { showPlacePhotoSheet = false },
+            title = { Text("加位置图片") },
+            text = { Text("下一单的人也能看到") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPlacePhotoSheet = false
+                    container.locationManager.requestSingle()
+                    placePhotoCamera.launch(null)
+                }) { Text("拍照") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showPlacePhotoSheet = false
+                    placePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text("从相册选") }
+            },
+        )
+    }
+
     // 撤销二次确认
     if (vm.showCancelDialog) {
         AlertDialog(
             onDismissRequest = { vm.showCancelDialog = false },
             title = { Text("确认撤销订单？") },
-            text = { Text("撤销后订单进入「已撤销」状态，派单员将不再处理该订单。") },
+            text = { Text("撤销后派单员不再处理。") },
             confirmButton = {
                 TextButton(
                     onClick = { vm.cancel() },
@@ -217,7 +289,7 @@ fun OrderDetailScreen(
         AlertDialog(
             onDismissRequest = { vm.showDeleteDialog = false },
             title = { Text("删除订单？") },
-            text = { Text("删除后订单将移入隔离区（列表不再显示），30 天内派单员可为您恢复；30 天后彻底删除。确认删除吗？") },
+            text = { Text("删除后 30 天内可恢复。确认删除吗？") },
             confirmButton = {
                 TextButton(
                     onClick = { vm.delete(onBack) },
@@ -257,7 +329,7 @@ fun OrderDetailScreen(
             text = {
                 Column {
                     Text(
-                        "按份拆分数量（用 / 分隔，如 150/150 或 1/1 表示均分）",
+                        "按份拆分（用 / 分隔，如 150/150）",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -275,7 +347,7 @@ fun OrderDetailScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "拆分后原单撤销，生成多个待派单，可分别派给不同（或相同）司机。",
+                        "原单撤销，生成多张待派单。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -363,6 +435,9 @@ fun OrderDetailScreen(
 private fun DetailBody(
     order: OrderDto,
     role: Role,
+    prefs: HintPrefs,
+    uploadingPlace: Boolean,
+    onAddPlacePhoto: () -> Unit,
     acting: Boolean,
     uploading: Boolean,
     onCancelClick: () -> Unit,
@@ -440,18 +515,17 @@ private fun DetailBody(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                if (!order.addressImageUrl.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    AsyncImage(
-                        model = resolveStaticUrl(order.addressImageUrl),
-                        contentDescription = "地址参考图",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .clip(MaterialTheme.shapes.medium),
-                    )
-                }
+                // 位置图片：横排缩略图 + 「加图」（点缩略图看大图）。
+                // 以前这里只画 `addressImageUrl`（首图，150dp 大图）—— 多图上传之后
+                // 那张大图会永远只显示第一张，而其它几张谁也看不到；缩略图这一版
+                // 三个角色看到的是**同一组图**，也才点得开。
+                PlacePhotoStrip(
+                    urls = order.imageUrls.ifEmpty { listOfNotNull(order.addressImageUrl) },
+                    uploading = uploadingPlace,
+                    prefs = prefs,
+                    onAdd = onAddPlacePhoto,
+                    onPreview = onPhotoClick,
+                )
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(8.dp))
@@ -459,6 +533,7 @@ private fun DetailBody(
                     order = order,
                     role = role,
                     canFill = canFillNav,
+                    prefs = prefs,
                     onFillClick = onFillNavClick,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -871,6 +946,7 @@ private fun NavigationBlock(
     order: OrderDto,
     role: Role,
     canFill: Boolean,
+    prefs: HintPrefs,
     onFillClick: () -> Unit,
 ) {
     val hasCoords = !order.addressLat.isNullOrBlank() && !order.addressLng.isNullOrBlank()
@@ -913,12 +989,8 @@ private fun NavigationBlock(
                 )
             }
             Spacer(Modifier.height(2.dp))
-            Text(
-                "你到地方之后点一下「帮补导航」，把位置标下来。" +
-                    "标完货主的地点库会多一条、以后同样的位置大家都直接能用 —— 不用再打电话问路。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // 解释性的话走 HintOnce（出现三次就不再出现）；常驻只留按钮上那 7 个字
+            HintOnce(prefs, "order.nav_block", "到地方标一下位置，以后大家都直接能用")
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onFillClick,
@@ -927,7 +999,7 @@ private fun NavigationBlock(
             ) {
                 Icon(Icons.Default.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("我到了，帮补导航信息")
+                Text("我到了，补导航")
             }
         }
 
@@ -940,7 +1012,7 @@ private fun NavigationBlock(
             )
             Spacer(Modifier.width(6.dp))
             Text(
-                "没有导航信息（司机到场后可以帮你补上）",
+                "没有导航信息 · 司机到场后补上",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -948,9 +1020,70 @@ private fun NavigationBlock(
     }
 }
 
-/** 补导航确认框：把"这次会写哪三处"讲清楚，用户才知道自己按下去会发生什么。 */
+/**
+ * 收货位置的图片：**横排缩略图 + 一个「加图」**（点缩略图看大图）。
+ *
+ * 为什么三个角色都看得到、也都点得到「加图」：这一单的**货主**拍了门口、
+ * **司机**到了现场又补了一张"这个路口进来第三家" —— 照片是给**下一单**的人看的，
+ * 谁在场谁就该能加。真正拦人的是后端（派单员 / 这单的货主 / 这单的司机），
+ * 客户端这边不需要再判一遍"我是谁"（各角色的订单列表本来就只给得到自己的单）。
+ *
+ * 文案：常驻只有「加图」两个字，理由走 [HintOnce]（说三遍就不说了）——
+ * 用户 2026-09-20：「有些功能不需要说太多…大概字数最多是 7 到 8 个字」。
+ */
+@Composable
+private fun PlacePhotoStrip(
+    urls: List<String>,
+    uploading: Boolean,
+    prefs: HintPrefs,
+    onAdd: () -> Unit,
+    onPreview: (String) -> Unit,
+) {
+    Spacer(Modifier.height(8.dp))
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        urls.filter { it.isNotBlank() }.forEach { url ->
+            AsyncImage(
+                model = resolveStaticUrl(url),
+                contentDescription = "位置图片",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onPreview(url) },
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.size(72.dp).clickable(enabled = !uploading, onClick = onAdd),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (uploading) {
+                    CircularProgressIndicator(Modifier.size(20.dp))
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Text("加图", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+    }
+    HintOnce(prefs, "order.place_photo", "图会一起存进「我的地点」，下次下单能直接看到")
+}
+
+/**
+ * 补导航确认框。**文案只留"几个字"**（用户 2026-09-20：
+ * 「有些功能不需要说太多…大概字数最多是 7 到 8 个字」）；
+ * 需要解释的（"按下去会写哪三处""坐标相近会怎样"）走 [HintOnce]，出现三次就不再出现。
+ */
 @Composable
 private fun NavigationFillDialog(
+    prefs: HintPrefs,
     addressText: String,
     name: String,
     onNameChange: (String) -> Unit,
@@ -974,7 +1107,7 @@ private fun NavigationFillDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = onNameChange,
-                    label = { Text("地点名（货主地点库里显示的就是它）") },
+                    label = { Text("地点名") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -989,13 +1122,9 @@ private fun NavigationFillDialog(
                     )
                 }
                 Spacer(Modifier.height(10.dp))
-                Text(
-                    "按下确定后会做三件事：① 这一单从此有导航；② 存进货主自己的地点库，" +
-                        "他下次下单直接能选；③ 进全库共享地点库，别人送到同一个位置直接拉坐标。" +
-                        "坐标相近（1 米内、或同名且 30 米内）会自动并进已有地点，不会越攒越多。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("存三处：这单 / 货主库 / 共享库")
+                Spacer(Modifier.height(4.dp))
+                HintOnce(prefs, "order.nav_writes", "坐标相近会自动并成一个，不会越攒越多")
             }
         },
         confirmButton = {
@@ -1111,7 +1240,7 @@ private fun DeliverySheet(
             Text("送达凭证", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(4.dp))
             Text(
-                "拍摄送达照片（自动添加时间与地点水印），至少一张，可拍多张",
+                "送达照片 · 自动加水印",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1261,7 +1390,7 @@ private fun ChargeSheet(
             when {
                 loading -> LoadingBox()
                 units.isEmpty() -> Text(
-                    "暂无挂账单位，请先在「工作台 → 挂账单位」中添加",
+                    "暂无挂账单位（去工作台加）",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(vertical = 20.dp),

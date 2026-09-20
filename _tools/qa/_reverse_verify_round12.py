@@ -271,11 +271,14 @@ CASES: list[tuple[str, str, object, str]] = [
         "tests/test_audit_round15_guards.py::test_merge_renames_both_copies_and_survives_a_resync",
     ),
     (
+        # 2026-09-20 更新锚点：截断的两个响应头已经收敛到 `core/pagination.py::finish_page`
+        # （8 个列表端点共用），notifications.py 只剩一行 `finish_page(...)`。
+        # 注入 = 那行改回手写切片（回不到"回报截断"），pytest 那条必须红。
         "列表截断不再回报（第 201 条以前的消息在 App 里没有入口）",
         "backend/app/api/v1/notifications.py",
         lambda s: s.replace(
-            '    response.headers["X-Truncated"] = "1" if truncated else "0"\n',
-            "",
+            "    return finish_page(rows, limit, response)\n",
+            "    return rows[:limit]\n",
             1,
         ),
         "tests/test_audit_round15_guards.py::test_notification_list_reports_truncation_and_honours_limit",

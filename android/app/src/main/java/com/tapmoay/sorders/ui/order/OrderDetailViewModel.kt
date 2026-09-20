@@ -51,6 +51,9 @@ class OrderDetailViewModel(
     var pendingRawPhoto by mutableStateOf<String?>(null)
     var driverRemark by mutableStateOf("")
     var uploading by mutableStateOf(false)
+
+    /** 正在传**位置图片**（与送达凭证的 `uploading` 分开：两个按钮不互相禁用）。 */
+    var uploadingPlace by mutableStateOf(false)
     // 货损（选填，公司自担）：商品行 id → 货损数量；damageNote 订单备注
     val damageByProduct = mutableStateMapOf<Long, Int>()
     var damageNote by mutableStateOf("")
@@ -215,6 +218,31 @@ class OrderDetailViewModel(
 
     fun addCapturedPhoto(path: String) {
         capturedPhotos = capturedPhotos + path
+    }
+
+    /**
+     * 传一张**位置图片**（收货地址参考图）—— 货主 / 派单员 / **这单的司机**都能传。
+     *
+     * 用户 2026-09-20：
+     * > 还有一个就是司机他也可以去上交补交照片，如果他到了地方没有照片的话，他也可以补。
+     *
+     * 后端会**同时**把这张图挂到这一单对应的「我的地点」那一条上
+     * （`place_service.attach_order_photo`）：用户要的是"照片跟地点一样自动保存在库里"——
+     * 下次下单选到这个位置，图已经在库里，不用再让每个货主各拍一次。
+     */
+    fun uploadPlacePhoto(file: java.io.File) {
+        uploadingPlace = true
+        error = null
+        viewModelScope.launch {
+            try {
+                order = container.repo.uploadOrderAddressImage(orderId, file)
+                actionResult = "位置图片已保存"
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                uploadingPlace = false
+            }
+        }
     }
 
     fun removeCapturedPhoto(index: Int) {

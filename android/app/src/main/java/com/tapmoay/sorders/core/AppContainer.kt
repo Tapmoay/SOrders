@@ -24,6 +24,9 @@ class AppContainer(val context: Context) {
     /** 提醒设置（语音开关/重复次数/后台接收），同步可读——Socket 回调与服务里都要用 */
     val alertPrefs by lazy { AlertPrefs(appContext) }
 
+    /** 「这条界面提示已经出现过几次」——解释性的话最多出现 3 次，同步可读（合成时要判画不画） */
+    val hintPrefs by lazy { HintPrefs(appContext) }
+
     /** 系统通知出口（本 App 以前一条系统通知都不发，见 NotifyCenter 注释） */
     val notifyCenter by lazy { NotifyCenter(appContext, alertPrefs) }
 

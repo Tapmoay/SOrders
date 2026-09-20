@@ -52,7 +52,9 @@ SCRIPTS = _discover()
 # v3.42：新增 `_tools/qa/_reverse_verify_place_and_picker.py`（选品页分类/订单行单位/共享地点库）→ 27
 # v3.43：新增 `_tools/qa/_reverse_verify_catalog_and_scope.py`（分类名册/可见白名单/常用地点/提示条）→ 28
 # v3.44：新增 `_tools/ai/_reverse_verify_check_blindspots.py`（**检查自己的写法盲区**：跨行字段/单行 lambda）→ 29
-MIN_SCRIPTS = 29
+# 2026-09-20：新增 `_tools/qa/_reverse_verify_vm_init_order.py`（`init {}` 调用链会写到的状态
+#    必须声明在 init 之前 —— 真机崩过：打开「AI 助手 → 设置」NPE）→ 30
+MIN_SCRIPTS = 30
 
 
 def main() -> int:

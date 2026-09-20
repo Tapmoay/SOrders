@@ -153,6 +153,8 @@ data class OrderDto(
     @SerialName("exception_resolution") val exceptionResolution: String = "",
     @SerialName("payment_method") val paymentMethod: String = "cash",
     @SerialName("address_image_url") val addressImageUrl: String? = null,
+    /** 收货地址参考图（多图）；旧后端只有 [addressImageUrl]（首图）时这里是空的。 */
+    @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
     val paid: Boolean = false,
     @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
     @SerialName("arrears_unit_name") val arrearsUnitName: String? = null,

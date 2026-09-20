@@ -97,6 +97,19 @@ def main() -> int:
             with_trunc.append(p.name)
     ok("至少 2 个列表端点回报截断（notification + orders）", len(with_trunc) >= 2, f"实际 {len(with_trunc)}")
 
+    # ⛔ 走 `finish_page(` 的那些模块**自己不再写那两个头**（这是把 8 个端点收敛到
+    #    共享出口之后的新常态）—— 于是"头到底写没写"在上面的循环里是**看不见的**：
+    #    只看到"调了 finish_page"就放行。2026-09-20 反向验证当场照出了这个空转：
+    #    把 `X-Result-Limit` 从共享出口删掉，8 个列表端点一起哑掉（客户端再也说不出
+    #    "看到的是多少条"），上面那个循环照样全绿。
+    #    所以共享出口本身必须被**正面**钉一次。
+    page_core = (ROOT / "backend/app/core/pagination.py").read_text(encoding="utf-8")
+    page_code = code_only(page_core)
+    ok("共享出口 `finish_page` 真的写了 X-Truncated",
+       'response.headers["X-Truncated"]' in page_code)
+    ok("共享出口 `finish_page` 真的写了 X-Result-Limit（只有截断位说不出『看到的是多少条』）",
+       'response.headers["X-Result-Limit"]' in page_code)
+
     # ---- 2026-09-19 外部完整检查 §9.1：**扫描范围不许是手写的** ----
     #
     # 原来这一节只遍历"已经出现过 X-Truncated 的模块"，于是"从来没写过截断头的端点"

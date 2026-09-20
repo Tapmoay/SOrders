@@ -234,6 +234,22 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
     var editingFact by mutableStateOf("")
         private set
 
+    /**
+     * 「允许 AI 查看成本与毛利」（**默认关**）。
+     *
+     * 成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
+     * 所以这是用户的**数据外发决定**，升级不替他做。
+     * 打开之后 AI 才能读成本/毛利、查成本价历史、改成本价、记进货价。
+     *
+     * ⚠️ **必须声明在 `init { load() }` 之前**（理由见上面 `readModules` 的注释）：
+     *    这条是 2026-09-20 真机验证时**崩出来的**——`load()` 里要写 `costVisible`，
+     *    而它当时写在本文件后半段（init 之后）→ 委托字段还是 null →
+     *    `MutableState.setValue on a null object reference`，
+     *    **打开「AI 助手 → 设置」必崩**（连聊天页那个齿轮都进不去，
+     *    于是"打开 AI 写能力"这条路整条被堵死）。同一个坑这个文件里已经踩过两次。
+     */
+    var costVisible by mutableStateOf(false)
+
     init {
         load()
     }
@@ -279,15 +295,6 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         ai.keyStore.setMemoryEnabled(on)
         memoryEnabled = on
     }
-
-    /**
-     * 「允许 AI 查看成本与毛利」（**默认关**）。
-     *
-     * 成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
-     * 所以这是用户的**数据外发决定**，升级不替他做。
-     * 打开之后 AI 才能读成本/毛利、查成本价历史、改成本价、记进货价。
-     */
-    var costVisible by mutableStateOf(false)
 
     fun updateCostVisible(on: Boolean) {
         ai.keyStore.setCostVisible(on)
