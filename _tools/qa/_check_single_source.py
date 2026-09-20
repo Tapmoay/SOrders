@@ -21,6 +21,11 @@
 3. **指标实现只许一处**：`driver_performance`（准时率/平均送达/待结）只能出现在 `stats_service.py`；
    `reports.py` 只许调它。判据：`reports.py` 里不许出现 `ot_valid`、`freight_owed`、`pay_for_order(...).total`
    这类"自己再算一遍"的痕迹。
+4. **订单的计费模式只许从订单读**（2026-09-21）：`orders.driver_billing_mode_snapshot` 为空的是老单
+   （这一列 v3.36 才加），钱那一侧对它的口径是"有运费就算 PIECE"（`has_per_order_pay` + 两处 SQL），
+   而四个展示/门控点各自按**司机档案**再算一遍 → 同一张老单"账单按单结、界面看不见运费"。
+   判据：`resolve_billing_mode(` 只许出现在"问这个人现在怎么算钱"的地方（白名单带理由）；
+   凡是碰订单模式的文件，必须真的调 `has_per_order_pay(` / `order_mode(`。
 
 清单全部**从源码算出来**（白名单也写在这里，且每条要带理由），扫到的数量低于下限就报错（防空转）。
 
@@ -220,6 +225,67 @@ def main() -> int:
         if not call_re.search(src):
             fails.append(f"{name} 没有真的调用 pay_for_order（司机应得又有一份自己的算法）")
 
+    # ---- ④b 订单的计费模式只许从订单读（2026-09-21）----
+    # `orders.driver_billing_mode_snapshot` 为空的是**老单**（这一列 v3.36 才加）。钱那一侧对它的
+    # 口径早就定过：`has_per_order_pay` 与 `driver_bills` / `freight_settlement` 两处筛选都是
+    # "有运费就算 PIECE"。而四个展示/门控点（运费可见性、运费变更提醒、送达拍照义务、出参
+    # driver_billing_mode）各自抄了兜底 `快照 or resolve_billing_mode(车型, 计费)` —— 那算的是
+    # 司机**现在**的档案，于是同一张老单"账单按单给他结、界面上却看不见运费"，两边都不报错。
+    # 两条判据：① 这个兜底写法只许出现在"问这个人现在怎么算钱"的地方；
+    #          ② 凡是碰订单模式的文件，必须真的在调同源函数（只查 import 会漏，见 ④ 的教训）。
+    mode_allow = {
+        "services/driver_pay.py": "它就是那一处实现（人怎么算钱也从这儿问）",
+        "api/v1/users.py": "问的是「这个司机现在怎么算钱」（司机管理页那一列 / 建档默认值），不是某一张订单",
+    }
+    mode_sql_allow = {
+        "services/driver_pay.py": "实现本身",
+        "api/v1/freight_settlement.py": "按月份聚合的**纯 SQL 筛选**，Python 函数进不了 WHERE 子句",
+        "core/schema_bootstrap.py": "建列/改列（迁移），不做判断",
+        "models/order.py": "列定义",
+    }
+    mode_offenders: list[str] = []
+    mode_missing: list[str] = []
+    mode_files: list[str] = []
+    # ⚠️ 判据是"**调用**"，不是"出现过这个名字"：`models/user.py` 里那个 `def resolve_billing_mode(`
+    #    是定义本身（第一版把它当成了违规，红线当场误报）。
+    resolve_call = re.compile(r"(?<!def )resolve_billing_mode\(")
+    # 「谁在问这张单的模式」＝ 读那一列、或调那两个函数之一。收口之后**没人再直接读列**了，
+    # 所以第一版按列名数消费点是数不到人的（只剩写入侧一条）——判据跟着事实改。
+    mode_touch = ("driver_billing_mode_snapshot", "has_per_order_pay(", "order_mode(")
+    for f in py:
+        name = rel(f)
+        src = code_only(f.read_text(encoding="utf-8"))
+        if resolve_call.search(src) and name not in mode_allow:
+            mode_offenders.append(name)
+        if any(m in src for m in mode_touch):
+            if name in mode_sql_allow:
+                continue
+            mode_files.append(name)
+            if "has_per_order_pay(" not in src and "order_mode(" not in src:
+                mode_missing.append(name)
+    print(
+        f"④b 订单模式的消费点 {len(mode_files)} 个文件；绕过同源问司机档案 {len(mode_offenders)} 处；"
+        f"没调同源函数 {len(mode_missing)} 处"
+    )
+    if mode_offenders:
+        fails.append(
+            "这些地方又按**司机档案**算了一遍订单的计费模式（订单请走 "
+            "driver_pay.has_per_order_pay / order_mode）：" + "；".join(sorted(set(mode_offenders))[:5])
+        )
+    if mode_missing:
+        fails.append(
+            "这些文件在判「这一单按不按单拿钱」却没调 driver_pay 的那一处："
+            + "；".join(sorted(set(mode_missing))[:5])
+        )
+    # 反空转：消费点少到一定程度，说明这条判据已经没东西可查了
+    if len(mode_files) < 5:
+        fails.append(f"订单模式的消费点只扫到 {len(mode_files)} 个（<5）——判据在空转")
+    if len(mode_sql_allow) > 4:
+        fails.append(
+            f"「用不了 Python 函数」的白名单有 {len(mode_sql_allow)} 条（上限 4）——"
+            "变长说明有地方在绕开同源判据，请先问清楚为什么"
+        )
+
     # ---- ⑤ 白名单不许悄悄变长 ----
     # 白名单是"允许自己算日期"的唯一口子；它一旦变长，就说明有地方在绕开 business_time。
     # 数量判据不是万能药，但它能让"顺手加一行"变成一个**需要解释**的动作。
@@ -234,7 +300,7 @@ def main() -> int:
         for f in fails:
             print("   - " + f)
         return 1
-    print("\n✅ 时间、导出金额、司机绩效、司机应得 —— 四类算法都只有一处实现。")
+    print("\n✅ 时间、导出金额、司机绩效、司机应得、订单计费模式 —— 五类算法都只有一处实现。")
     return 0
 
 

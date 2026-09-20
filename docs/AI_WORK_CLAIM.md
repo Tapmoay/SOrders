@@ -449,6 +449,52 @@ emulator-5556 启动 smoke 通过（`topResumedActivity=MainActivity`、无 FATA
 
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
+### 第十八轮：同一张老单，读侧一个答案、钱侧另一个答案（又是"不报错"的那一类）
+
+**形状**：`orders.driver_billing_mode_snapshot` 是 v3.36 才加的列 —— **之前派出去的老单是 NULL**。
+钱那一侧对 NULL 的口径**早就定过**：`driver_pay.has_per_order_pay`（有运费就算 PIECE）+
+`driver_bills.py` / `freight_settlement.py` 两处筛选 `snapshot == 'PIECE' OR snapshot IS NULL`。
+而四个**展示/门控**消费点各自抄了一份兜底 `快照 or resolve_billing_mode(车型, 计费)` ——
+那算的是司机**现在**的档案。于是同一张老单可以同时是：
+
+| 消费点 | 原来的兜底 | 后果（两边都不报错） |
+| --- | --- | --- |
+| `order_response.apply_driver_view_gating`（运费可见性 + `freight_fee`） | 司机档案 | 账单按单给他结，**界面上却把运费藏起来** |
+| `order_response.enrich_order_out`（出参 `driver_billing_mode`，客户端照它显示） | 司机档案 | 同上，客户端也跟着一起藏 |
+| `message_center.publish_order_freight_updated` | 司机档案 | 运费改了**不提醒他**（他的钱变了，没人告诉他） |
+| `order_flow.complete_delivery` 的拍照义务 | 司机档案 | **免了拍照**，却在按单给他结账 |
+
+**修法**：兜底收成 `driver_pay.order_mode(order)` 一处（快照优先；NULL 走"有运费就算 PIECE"），
+`has_per_order_pay` 改成 `order_mode(order) == "PIECE"`，四个消费点全部改调它。
+顺带：`apply_driver_view_gating` **不再接收司机对象**（判据只该看订单；留个参数在那里等于暗示"司机档案也算"）；
+`freight_settlement.py` 里一个没人用的 `apply_driver_view_gating` import 删掉。
+
+⚠️ **这一轮改变了对老单的可见性**（写明，免得以后被当成回归）：快照为 NULL 且有运费的老单，现在**会**显示运费、
+**会**要求拍照、运费变更**会**发提醒 —— 与账单一致。受影响面 = v3.36 升级前派出、且仍在途的老单
+（生产上只剩历史尾部；而此前"按单结账却不显示运费"本身就是错的）。
+
+**这个字段此前一个测试都没有**（全仓 `freight_visible` **0 处断言**）—— 所以它走散了很久没人知道。
+新增 `backend/tests/test_driver_order_mode.py` **9 条**：老单必须看得见运费、工资制快照必须看不见
+（防"统一成永远可见"）、门控永远剥离货款、模式只由快照/老单口径决定、以及**走真接口**的端到端
+（司机 `GET /orders/{id}`：老单 `freight_visible=true`，改成 SALARY 后立刻藏起来）。
+
+**注入证明（行为层）**：把旧兜底写成**合法 Python** 注回 `apply_driver_view_gating` → 新测试 **2 failed**
+（`assert False is True`，正是"账单按单结、界面却把运费藏起来"）→ 还原后 **9 passed**。
+静态层：新红线 `_check_single_source.py` **④b**（`resolve_billing_mode(` 只许出现在"问这个人现在怎么算钱"的地方；
+碰订单模式的文件必须真的调同源函数）+ `_reverse_verify_single_source.py` **15/15**（新增 2 条注入：
+兜底写法回来 / 调了别的写法）。
+
+**红线自己的第一版两个方向都错了（反空转判据当场抓住）**：① 用"源码里出现过 `resolve_billing_mode(`"去查，
+把 `models/user.py` 的**函数定义**当成违规；② 按"列名"数消费点，而收口之后**没人再直接读那一列**了 →
+只数到 2 个，判据自己报「在空转」。现在按"谁在问这张单的模式"（读列 ∪ 调那两个函数）来数，并用后行断言排除 `def`。
+
+⛔ **踩到的坑（写给下一个做注入实验的人）**：注入之后用 `git checkout -- <file>` 还原，把那个文件**未提交的改动
+一起抹掉了**（它回到 HEAD 的旧实现）—— 本轮为此把 `order_response.py` 的改动重做了一遍。
+注入实验要用**自己的字节备份**（`Copy-Item` 到 `%TEMP%`）还原；`git checkout --` 只对**已提交**的文件安全。
+
+**验证**：`pytest -q` **683 passed**（674 + 新 9）· `_check_all.py` **51/51**（顺带抓到两份生成产物过期，已重生成）·
+`_reverse_verify_single_source.py` **15/15** · 钱的对账 `39 项 / 确认缺陷 0 / 可疑 0`。
+
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 
 **用户需求（原话）**：「批发商……他要进行退货，他**可以直接在订单上**作退货。然后我们的那个派单员，

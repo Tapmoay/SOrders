@@ -431,7 +431,7 @@
    "module_cn": "司机运费结算",
    "method": "get",
    "path": "/api/v1/freight-settlement",
-   "at": "backend/app/api/v1/freight_settlement.py:38",
+   "at": "backend/app/api/v1/freight_settlement.py:37",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机",
    "roles": [
     "dispatcher",

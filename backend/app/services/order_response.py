@@ -4,24 +4,26 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.rbac import user_role_key
 from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
-from app.models.user import resolve_billing_mode
 from app.schemas.order import OrderOut
+from app.services.driver_pay import has_per_order_pay, order_mode
 from app.services.order_money import OrderMoney, money_map, money_of
 
 
-def apply_driver_view_gating(data: dict, order: Order, driver: User) -> None:
+def apply_driver_view_gating(data: dict, order: Order) -> None:
     """司机视角门控（列表/详情共用）：
     1) 剥离订单明细的货款（单价/小计，司机无需看到货主货款）；
-    2) 运费仅按单计费（PIECE）司机可见；固定工资/未分类司机一律置 None。
-    可见性按派单时快照判定，司机换类型不影响历史订单。"""
-    mode = order.driver_billing_mode_snapshot or resolve_billing_mode(
-        driver.vehicle_type, driver.billing_mode
-    )
+    2) 运费仅「有按单应付」的单可见，否则置 None。
+
+    判据是**订单**上的模式（`driver_pay.has_per_order_pay`：快照优先，老单按钱那一侧的口径补），
+    所以这里刻意**不接收司机对象** —— 司机换车型/换规则不影响历史订单，
+    而"这一单他到底按不按单拿钱"只该有一个答案（账单怎么算，界面就怎么显示）。
+    """
+    per_order = has_per_order_pay(order)
     for lp in data.get("order_products", []):
         lp["unit_price"] = None
         lp["line_total"] = None
-    data["freight_visible"] = mode == "PIECE"
-    if mode != "PIECE":
+    data["freight_visible"] = per_order
+    if not per_order:
         data["freight_fee"] = None
 
 
@@ -41,9 +43,7 @@ def enrich_order_out(
         if du:
             data["driver_phone"] = du.phone
             data["driver_name"] = du.full_name or ""
-            data["driver_billing_mode"] = order.driver_billing_mode_snapshot or resolve_billing_mode(
-                du.vehicle_type, du.billing_mode
-            )
+            data["driver_billing_mode"] = order_mode(order)
     su = db.get(User, order.shipper_id) if order.shipper_id is not None else None
     if su is not None:
         data["shipper_name"] = su.full_name or su.phone or ""
@@ -69,10 +69,8 @@ def enrich_order_out(
         elif user_role_key(viewer) == UserRole.DISPATCHER.value:
             data["freight_visible"] = True
         elif user_role_key(viewer) == UserRole.DRIVER.value and order.driver_id is not None:
-            # 司机视角统一门控：剥离货款；运费按计费快照（回退当前模式）门控
-            du = du if du else db.get(User, order.driver_id)
-            if du is not None:
-                apply_driver_view_gating(data, order, du)
+            # 司机视角统一门控：剥离货款；运费按**这一单**的模式（快照优先，老单与账单同口径）
+            apply_driver_view_gating(data, order)
     return OrderOut(**data)
 
 

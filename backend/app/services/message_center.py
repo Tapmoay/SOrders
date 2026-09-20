@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models import Notification, Order, OrderReturnRequest, User
 from app.models.enums import UserRole
-from app.models.user import resolve_billing_mode
 from app.schemas.notification import NotificationOut
+from app.services.driver_pay import has_per_order_pay
 from app.services.message_push import emit_to_user
 
 
@@ -122,17 +122,16 @@ async def publish_order_assigned(db: Session, order_id: int) -> None:
 
 
 async def publish_order_freight_updated(db: Session, order_id: int) -> None:
-    """运费更新提醒：仅按单计费（PIECE）司机可见金额，固定工资司机不打扰。"""
+    """运费更新提醒：只发给「有按单应付」的单（`driver_pay.has_per_order_pay`，与账单同源）。"""
     order = db.get(Order, order_id)
     if order is None or order.driver_id is None:
         return
-    driver = db.get(User, order.driver_id)
-    if driver is None:
+    # 收件人必须存在（`create_message` 要写 recipient_id）
+    if db.get(User, order.driver_id) is None:
         return
-    mode = order.driver_billing_mode_snapshot or resolve_billing_mode(
-        driver.vehicle_type, driver.billing_mode
-    )
-    if mode != "PIECE":
+    # ⚠️ 模式只从**订单**读。原来这里按司机**当前**的车型/计费再算一遍 ——
+    #    同一张老单（快照为空）会"账单按单给他结，运费改了却不提醒他"。
+    if not has_per_order_pay(order):
         return
     ono = order.order_no
     fee = order.freight_fee

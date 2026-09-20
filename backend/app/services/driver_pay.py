@@ -335,13 +335,31 @@ def dispatch_mode(user, *, piece_override=None, rate_override=None) -> str:
     return snapshot_mode(user)
 
 
-def has_per_order_pay(order) -> bool:
-    """订单快照说这张单有没有按单应付（老单：PIECE 快照 = 有）。"""
+def order_mode(order) -> str:
+    """**这一张单**按什么模式读（PIECE = 有按单应付；SALARY = 只拿月薪）。
+
+    ### 为什么必须只有这一处
+    `driver_billing_mode_snapshot` 是 v3.36 才加的列，之前派出去的老单是 NULL ——
+    于是"读这张单是什么模式"就多了一问：老单怎么办？老单的答案**早就定过**
+    （`has_per_order_pay` 的注释 + `driver_bills` / `freight_settlement` 两处
+    `snapshot == 'PIECE' OR snapshot IS NULL` 的筛选）：**有运费就算有**，
+    因为那些单本来就出自"按运费全额"的时代。
+
+    但四个展示/门控消费点（`order_response` 的运费可见性、`message_center` 的运费变更提醒、
+    `order_flow` 的拍照义务）各自抄了一份兜底 `快照 or resolve_billing_mode(车型, 计费)`——
+    那算的是司机**现在**的档案，于是同一张老单会出现
+    「账单按单给他结、界面上却看不见运费」或「免了拍照，却在按单付钱」。两边都不报错。
+    所以兜底只留这里一处：**钱怎么说，读侧就怎么说**。
+    """
     mode = (getattr(order, "driver_billing_mode_snapshot", None) or "").upper()
     if mode:
-        return mode == "PIECE"
-    # 快照列是后来加的，老单为 NULL —— 兼容口径与 `freight_settlement` 一致：有价就算
-    return getattr(order, "freight_fee", None) is not None
+        return mode
+    return "PIECE" if getattr(order, "freight_fee", None) is not None else "SALARY"
+
+
+def has_per_order_pay(order) -> bool:
+    """订单快照说这张单有没有按单应付（老单：PIECE 快照 = 有）。"""
+    return order_mode(order) == "PIECE"
 
 
 def override_problem(rule: PayRule | None, *, piece_override=None, rate_override=None) -> str | None:

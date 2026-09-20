@@ -10,12 +10,12 @@ from app.core.business_time import business_today
 from app.core.rbac import user_role_key
 from app.models import Order, User
 from app.models.order import OrderProduct
-from app.models.user import resolve_billing_mode
 from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.services.accounting_service import post_delivery_accounting
 from app.services.driver_pay import (
     ZERO,
     dispatch_mode,
+    has_per_order_pay,
     money,
     override_problem,
     rule_of_user,
@@ -379,8 +379,10 @@ def complete_delivery(
     if order.driver_id != driver.id:
         raise ValueError("非本单指派司机，无法操作")
     if not delivery_photo_urls:
-        mode = order.driver_billing_mode_snapshot or resolve_billing_mode(driver.vehicle_type, driver.billing_mode)
-        if mode != "PIECE":
+        # 免拍照只给"这张单不按单拿钱"的（工资制）单，判据与账单一处：`driver_pay.has_per_order_pay`
+        # （快照优先，老单按钱那一侧的口径补）。原来这里按司机**现在**的车型/计费兜底 ——
+        # 同一张老单会"免了拍照、却在按单给他结账"。
+        if not has_per_order_pay(order):
             raise ValueError("请至少上传一张送达照片")
     # ⛔ 照片必须是**本系统送达上传端点**的产物（2026-09-19 全项目报告 L-14，低）：
     #    上面只判了"列表非空"，于是 `["x"]` 就算履行了拍照义务 —— 而这条义务的意义是

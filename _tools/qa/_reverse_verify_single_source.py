@@ -127,6 +127,26 @@ CASES: list[tuple[str, str, object]] = [
         "backend/app/api/v1/arrears.py",
         lambda s: s.replace(".deleted_at = utc_now_naive()", ".deleted_at = datetime.now()", 1),
     ),
+    # ---- ④b 订单的计费模式只许从订单读（2026-09-21）----
+    # 两条判据各注入一次：兜底写法回来（①）／调了别的写法（②）。
+    (
+        "司机视角门控又回去问司机档案（老单：账单按单结、界面看不见运费）",
+        "backend/app/services/order_response.py",
+        lambda s: s.replace(
+            "    per_order = has_per_order_pay(order)",
+            "    per_order = (order.driver_billing_mode_snapshot or resolve_billing_mode(None, None)) == \"PIECE\"",
+            1,
+        ),
+    ),
+    (
+        "运费变更提醒自己判模式（不调同源函数：同一张老单两边答案不同）",
+        "backend/app/services/message_center.py",
+        lambda s: s.replace(
+            "    if not has_per_order_pay(order):\n        return",
+            "    if (order.driver_billing_mode_snapshot or \"SALARY\") != \"PIECE\":\n        return",
+            1,
+        ),
+    ),
 ]
 
 

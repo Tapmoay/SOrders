@@ -10,7 +10,6 @@ from app.database import get_db
 from app.deps import get_current_user, require_permission
 from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
-from app.services.order_response import apply_driver_view_gating
 from app.services.order_response import enrich_order_out as _enrich  # noqa: F401
 from app.services.driver_pay import pay_for_order
 from app.services.soft_delete import strip_del_suffix

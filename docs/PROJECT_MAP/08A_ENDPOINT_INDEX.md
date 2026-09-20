@@ -159,7 +159,7 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/freight-settlement` | `freight_settlement` | `backend/app/api/v1/freight_settlement.py:38` | 仅登录 + 体内仅允许:派单员\|司机 |
+| 1 | `GET /api/v1/freight-settlement` | `freight_settlement` | `backend/app/api/v1/freight_settlement.py:37` | 仅登录 + 体内仅允许:派单员\|司机 |
 
 ### `backend/app/api/v1/freight_templates.py` — 6 个
 
