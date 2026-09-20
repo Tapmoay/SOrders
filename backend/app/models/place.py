@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin
@@ -61,6 +61,16 @@ class Place(Base, TimestampMixin, SoftDeleteMixin):
     # 首次录入来源订单（可空）：出了问题能顺着查回"是哪个司机在哪一单上标的"
     first_order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 位置照片（JSON 数组，与「我的地点」同一套：首图另存 `image_url`）。
+    #:
+    #: 用户 2026-09-20：「可以共享库也加上图片」。为什么必须有：这张表的用途就是
+    #: **让到过现场的人把"这个位置长什么样"留给下一个人** —— 只有坐标和一行文字时，
+    #: 司机照样得打电话问"哪个门口"。图片**只跟着已有的点走**（`attach_order_photo` 只挂到
+    #: 已存在的那一条上，不为照片新建共享点）：这张表全库共用，自动往里灌点会把别人的
+    #: 选点列表淹掉。
+    image_urls: Mapped[str] = mapped_column(Text, default="[]")
+    #: 首图（兼容旧客户端/旧读出方，与「我的地点」同一套约定：始终 = `image_urls[0]`）
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class PlaceUserUsage(Base, TimestampMixin):

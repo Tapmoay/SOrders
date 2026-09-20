@@ -31,11 +31,15 @@ CHECKREL = "_tools/qa/_check_background_tasks.py"
 
 CASES: list[tuple[str, str, object]] = [
     (
+        # 2026-09-20 更新锚点：账本导出任务现在**带一个打开的文件槽**（`slot`），
+        # 而 `background_tasks.add_task(...)` 挂的是 `run_ledger_export_job_with_slot`
+        # （`ledger.py:621`），不再直接挂 `run_ledger_export_job_task` ——
+        # 旧锚点改的是**没被 add_task 引用的那个函数**，所以红线当然不红（那是锚点过期，不是判据没牙）。
         "账本导出任务退回同步 def（R14-7 的真实形状：被丢进线程池 → 跨事件循环用 Redis）",
         WORKER,
         lambda s: s.replace(
-            "async def run_ledger_export_job_task(job_id: int) -> None:",
-            "def run_ledger_export_job_task(job_id: int) -> None:",
+            "async def run_ledger_export_job_with_slot(job_id: int, slot: IO[str] | None) -> None:",
+            "def run_ledger_export_job_with_slot(job_id: int, slot: IO[str] | None) -> None:",
             1,
         ),
     ),

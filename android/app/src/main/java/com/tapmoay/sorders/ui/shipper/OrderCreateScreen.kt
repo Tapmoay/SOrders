@@ -796,6 +796,9 @@ private fun AddressPickerSheet(
                                         if (l.isWarehouse) "仓库" else null,
                                     ).joinToString(" · ").ifBlank { "未分类" },
                                     hasCoords = !l.addressLat.isNullOrBlank(),
+                                    // 位置照片（2026-09-20）：有图就摆一行缩略图 ——
+                                    // 选点的时候"这个门口长什么样"比一行地址好认得多
+                                    photoUrl = l.imageUrls.firstOrNull() ?: l.imageUrl,
                                     onClick = { onPickLocation(l) },
                                     actions = if (canManagePlaces) {
                                         listOf(RowAction("设为共享地址") { publishTarget = l })
@@ -858,6 +861,9 @@ private fun AddressPickerSheet(
                                     // 来源是谁也不改变这个点能不能用），而它占着行里最醒目的一行小字。
                                     badge = null,
                                     hasCoords = true,
+                                    // 共享库的位置照片（2026-09-20 用户：「共享库也加上图片」）——
+                                    // 这一行是**全库共用**的，图越多，"下一个送货的人"越不容易找错门
+                                    photoUrl = p.imageUrls.firstOrNull() ?: p.imageUrl,
                                     onClick = { onPickPlace(p) },
                                     actions = if (canManagePlaces) {
                                         listOf(
@@ -1089,6 +1095,8 @@ private fun SheetRow(
     subtitle: String,
     badge: String?,
     hasCoords: Boolean,
+    /** 这个位置的照片（共享库/我的地点都可能有）；null = 不画。 */
+    photoUrl: String? = null,
     onClick: () -> Unit,
     /** 行尾 `⋮` 里的管理动作（**只有派单员**会给；空 = 不画那个按钮）。 */
     actions: List<RowAction> = emptyList(),
@@ -1102,6 +1110,17 @@ private fun SheetRow(
             .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // 位置照片：摆在最左边（比标题里的字先被看到）——选点时"这个门口长什么样"
+            // 是最省事的一条信息，而它只在有图时才占位置
+            if (!photoUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = com.tapmoay.sorders.util.resolveStaticUrl(photoUrl),
+                    contentDescription = "位置照片",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                )
+                Spacer(Modifier.width(8.dp))
+            }
             Icon(headIcon, contentDescription = null, tint = headColor, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text(

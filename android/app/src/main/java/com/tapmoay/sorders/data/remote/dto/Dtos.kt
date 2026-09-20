@@ -470,6 +470,10 @@ data class PlaceDto(
      * ⚠️ 只有 `POST /places` 的返回里有意义，列表接口恒为 false。
      */
     val merged: Boolean = false,
+    /** 位置照片（2026-09-20 用户：「共享库也加上图片」）——老后端没有这一项时是空列表。 */
+    @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
+    /** 首图（兼容旧读出方）。 */
+    @SerialName("image_url") val imageUrl: String? = null,
 )
 
 @Serializable

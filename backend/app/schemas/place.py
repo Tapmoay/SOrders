@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.geo import GeoInput
-from app.schemas.text import MAX_ADDRESS, MAX_NAME
+from app.schemas.text import MAX_ADDRESS, MAX_IMAGES, MAX_NAME
 from app.services import place_service
 
 #: `(0,0)` 哨兵的判据阈值 —— 与安卓侧 `core/SunLocation.isPlausible` 是同一个数。
@@ -102,6 +104,27 @@ class PlaceOut(BaseModel):
     address_lng: Decimal = Field(validation_alias=AliasChoices("address_lng", "lng"))
     source: str = "driver"
     use_count: int = 1
+    # 位置照片（2026-09-20 加：用户要「共享库也加上图片」）。
+    # ⚠️ JSON 列在旧数据里可能是 NULL —— `default_factory` 只兜字段缺失、不兜 None
+    #    （全项目同一条规矩，见 `_ImageUrlsMixin`）。校验器把 None 归一 []。
+    image_urls: list[str] = Field(default_factory=list, max_length=MAX_IMAGES)
+    # 首图（兼容旧读出方）：与 `image_urls[0]` 同源
+    image_url: str | None = None
+
+    @field_validator("image_urls", mode="before")
+    @classmethod
+    def _norm_images(cls, v: Any) -> list[str]:
+        """模型列是 JSON 字符串（或 None）；旧数据可能是 NULL → 一律归一成列表。"""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            try:
+                loaded = json.loads(v or "[]")
+            except Exception:
+                return []
+            return [x for x in loaded if isinstance(x, str)] if isinstance(loaded, list) else []
+        return v
+
     # 本次是"并入了已有地点"还是"新建了一个点"（只在本接口的返回里有意义；列表恒为 False）
     merged: bool = False
 

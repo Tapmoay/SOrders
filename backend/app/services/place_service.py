@@ -527,8 +527,13 @@ def remember_order_address(
     return out
 
 
-def _append_photo(row: ShipperLocation, url: str) -> bool:
-    """把一张图追加到这一行的 `image_urls`（**去重 + 上限**）。返回是否真的加上了。"""
+def _append_photo(row: Any, url: str) -> bool:
+    """把一张图追加到这一行的 `image_urls`（**去重 + 上限**）。返回是否真的加上了。
+
+    `row` 可以是 `ShipperLocation`（我的地点）或 `Place`（共享库）—— 两边字段名一样
+    （`image_urls` JSON + `image_url` 首图，2026-09-20 给共享库补了同名的两列），
+    所以照片这条路只有**这一份实现**。
+    """
     try:
         urls = [u for u in json.loads(row.image_urls or "[]") if isinstance(u, str)]
     except Exception:
@@ -542,6 +547,23 @@ def _append_photo(row: ShipperLocation, url: str) -> bool:
     return True
 
 
+def _carry_photos(src: Any, dst: Any) -> int:
+    """把一条记录上的照片**拷到另一条**上（去重）。返回拷过去几张。
+
+    用在「设为共享 / 撤销共享」这条线上：照片属于**这个位置**，
+    不该因为它在哪张表而丢掉（用户 2026-09-20：「可以共享库也加上图片」）。
+    """
+    try:
+        urls = [u for u in json.loads(getattr(src, "image_urls", None) or "[]") if isinstance(u, str)]
+    except Exception:
+        urls = []
+    n = 0
+    for u in urls:
+        if _append_photo(dst, u):
+            n += 1
+    return n
+
+
 def attach_order_photo(
     db: Session,
     *,
@@ -552,17 +574,22 @@ def attach_order_photo(
     lat: float | None = None,
     lng: float | None = None,
 ) -> list[int]:
-    """把刚上传的**位置照片**挂到这一单对应的「我的地点」那一条上（用户 2026-09-20）。
+    """把刚上传的**位置照片**挂到这一单对应的地点上（用户 2026-09-20）。
 
     用户原话：
     > 还有一个就是照片，他下单的时候，如果我上交了照片的话，呃那个跟地点是一样是自动保存在库里的。
+    > …可以共享库也加上图片。
 
-    所以照片和地址走**同一条判据、同一批人**（`_keep_for_owner` / `_owners`）：
-    谁的地点库会多出这个地点，照片就跟着进谁的库 —— 两处各判一次的话，
-    会出现"地点进去了、照片进了另一条"（同一个人在同一个位置有两条记录，一条有图一条没图）。
-    找不到对应地点时**顺手建一条**（照片本身就是"这个位置"的证据，不能因为库里还没有就丢掉）。
+    三件事，**同一条判据**：
+    1. 「我的地点」：谁的地盘会多出这个地点，照片就跟着进谁的（`_keep_for_owner` / `_owners`）——
+       两处各判一次的话会出现"地点进去了、照片进了另一条"（同一个人同一个位置两条记录，
+       一条有图一条没图）。找不到就**顺手建一条**（照片本身就是"这个位置"的证据）。
+    2. **共享库**：只挂到**已经存在**的那一条上（`find_place_near`，1 米/同名 30 米）。
+       ⛔ **不为照片新建共享点** —— 那张表全库共用、三种角色都看得到，
+       自动往里灌点会把别人的选点列表淹掉（这是"只有派单员能设为共享"那条规矩的另一面）。
+    3. 两条都走 `_append_photo`（去重 + 上限 9）。
 
-    返回真的挂上了照片的 owner id（调用方写审计用）。
+    返回真的挂上了照片的 owner id（调用方写审计用）；共享库那条挂没挂由 `place_id` 反映。
     """
     clean_url = (url or "").strip()
     clean_name = _clean(name, 128)
@@ -581,6 +608,11 @@ def attach_order_photo(
         )
         if _append_photo(row, clean_url):
             out.append(owner_id)
+    # 共享库：只在**已有**那个点时挂图（见上面第 2 条）
+    if coords is not None:
+        shared = find_place_near(db, coords[0], coords[1], name=clean_name)
+        if shared is not None:
+            _append_photo(shared, clean_url)
     return out
 
 
@@ -650,7 +682,7 @@ def share_location(db: Session, *, location: ShipperLocation, operator_id: int) 
         # 没有坐标的地点**进不了共享库**（那张表的唯一硬条件是坐标：它是给导航用的）。
         # 这条闸必须在写之前拦，否则会进去一条谁也导不到的点。
         raise ValueError("这个地点还没有坐标，先用「地图选点」定位一下，再设为共享地址")
-    return upsert_place(
+    place, merged = upsert_place(
         db,
         lat=float(location.address_lat),
         lng=float(location.address_lng),
@@ -659,6 +691,10 @@ def share_location(db: Session, *, location: ShipperLocation, operator_id: int) 
         source="dispatcher",
         created_by=operator_id,
     )
+    # 照片跟着这条位置走（2026-09-20：「共享库也加上图片」）——
+    # 设为共享之后，下一个司机在共享库里看到的就不只是坐标，还有"这个门口长什么样"。
+    _carry_photos(location, place)
+    return place, merged
 
 
 def delete_place(db: Session, place: Place) -> None:
@@ -698,5 +734,8 @@ def demote_place(db: Session, *, place: Place, operator_id: int) -> tuple[Shippe
         lat=float(place.lat),
         lng=float(place.lng),
     )
+    # 撤下来时照片跟着走（与 `share_location` 对称）：照片属于这个位置，
+    # 不该因为它在共享库还是私人库里而消失一个。
+    _carry_photos(place, loc)
     delete_place(db, place)
     return loc, created

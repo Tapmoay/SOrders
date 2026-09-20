@@ -3536,6 +3536,17 @@ def main() -> int:
               addr_screen, r'0 -> "搜线路：收货人 / 电话 / 地址"')
     c.present("本地过滤 + 共享地点段同时打后端（全库那部分本地没有）",
               ocs31, r"if \(sel == \"p\"\) onSearchPlaces\(it\.ifBlank \{ null \}\)")
+    # ⚠️ 2026-09-20 补：上面那两条只钉了"有搜索框"和"共享地点段打后端"，
+    #    **本地那两段有没有真的过滤**一直没人管 —— 反向验证
+    #    `_reverse_verify_catalog_and_scope.py` 把它照出来了（把过滤改成原样返回，
+    #    三条判据全绿）：于是用户搜"老王仓库"搜不到（而它就在「我的地点」里），
+    #    很自然地读成"没有这个地点"→ 再建一条重复的。
+    c.present("下单页地址库：本地两段（线路 / 我的地点）真的按关键词过滤",
+              ocs31,
+              r"val shownAddresses = remember\(addresses, kw\) \{\s*\n\s*if \(kw\.isBlank\(\)\) addresses\s*\n\s*else addresses\.filter \{")
+    c.present("下单页地址库：我的地点段也按关键词过滤（含分类段）",
+              ocs31,
+              r"val shownLocations = remember\(locations, sel, kw\) \{")
 
     # ---- ⑤ 一次性提示：先消费再显示 ----
     c.present("一次性提示只有一处实现（OneShotSnackbar）", comp31, r"fun OneShotSnackbar\(")

@@ -17,7 +17,7 @@ import io
 
 from sqlalchemy import select
 
-from app.models import ShipperLocation
+from app.models import Place, ShipperLocation
 from tests.conftest import auth_headers
 
 # 1x1 的合法 PNG —— 上传端点会 sniff 类型，不能拿假字节糊弄
@@ -111,3 +111,110 @@ def test_unrelated_driver_cannot_upload(client, token_dispatcher, token_driver, 
     assert up.status_code == 403, up.text
     rows = _loc(db_session, users["shipper"].id, name)
     assert rows and rows[0].image_urls in (None, "", "[]"), "被拒的请求不该动库"
+
+
+# --------------------------------------------------- 共享库也要有图（2026-09-20 用户追加）
+#
+# 用户原话：「可以共享库也加上图片」。
+# 三条规矩：① 只挂到**已经存在**的共享点上（不为照片新建共享点 —— 那张表全库共用）；
+#          ② 「设为共享」把私人的图带过去；③ 「撤销」把共享的图带回来。
+
+
+def _shared(db_session, name):
+    return db_session.scalars(select(Place).where(Place.name == name)).all()
+
+
+def test_photo_attaches_to_existing_shared_place(client, token_dispatcher, users, db_session):
+    """共享库里已经有同一个点时，上传的位置图也挂到**那一条**上（不新建点）。"""
+    lat, lng = 22.9500000, 114.4500000
+    name = "照片进共享-已有坐标"
+    # 先由派单员手工建一个共享点（唯一合法的新建入口）
+    r = client.post(
+        "/api/v1/places",
+        json={"name": name, "address_lat": str(lat), "address_lng": str(lng)},
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r.status_code == 201, r.text
+    before = len(_shared(db_session, name))
+    assert before == 1
+
+    created = _create_order(
+        client,
+        token_dispatcher,
+        users["shipper"].id,
+        address_detail=name,
+        address_lat=str(lat),
+        address_lng=str(lng),
+    )
+    assert _upload(client, token_dispatcher, created["id"]).status_code == 200
+
+    rows = _shared(db_session, name)
+    assert len(rows) == 1, f"不该为照片新建共享点：{len(rows)} 条"
+    assert rows[0].image_urls not in (None, "", "[]"), "共享库那条也该有这张图"
+
+
+def test_share_location_carries_photos_into_shared_library(
+    client, token_dispatcher, token_shipper, users, db_session
+):
+    """「设为共享」把「我的地点」那条的照片一起带进共享库；撤销时再带回来。"""
+    from app.models import ShipperLocation  # 局部导入：本文件其余用例不用它
+
+    name = "照片跟随-设为共享"
+    lat, lng = 22.9600000, 114.4600000
+    # 用**派单员**代理下单：这一条会落在**他自己的**「我的地点」里（"两边都记"那条规矩），
+    # 而"设为共享"只允许共享**自己库里**的地点（`POST /shipper/locations/{id}/share`）。
+    created = _create_order(
+        client,
+        token_dispatcher,
+        users["shipper"].id,
+        address_detail=name,
+        address_lat=str(lat),
+        address_lng=str(lng),
+    )
+    assert _upload(client, token_dispatcher, created["id"]).status_code == 200
+    loc = db_session.scalars(
+        select(ShipperLocation).where(
+            ShipperLocation.shipper_id == users["dispatcher"].id, ShipperLocation.name == name
+        )
+    ).first()
+    assert loc is not None and loc.image_urls not in (None, "", "[]")
+
+    # 派单员把它设为共享
+    r = client.post(
+        f"/api/v1/shipper/locations/{loc.id}/share", headers=auth_headers(token_dispatcher)
+    )
+    assert r.status_code in (200, 201), r.text
+    rows = _shared(db_session, name)
+    assert len(rows) == 1, rows
+    assert rows[0].image_urls not in (None, "", "[]"), "设为共享时照片要跟着走"
+
+    # 再撤销：图回到操作人（派单员）自己的「我的地点」
+    place_id = rows[0].id
+    r2 = client.post(f"/api/v1/places/{place_id}/demote", headers=auth_headers(token_dispatcher))
+    assert r2.status_code == 200, r2.text
+    back = db_session.scalars(
+        select(ShipperLocation).where(
+            ShipperLocation.shipper_id == users["dispatcher"].id, ShipperLocation.name == name
+        )
+    ).first()
+    assert back is not None and back.image_urls not in (None, "", "[]"), "撤销时照片要带回来"
+
+
+def test_places_list_exposes_image_urls(client, token_dispatcher, db_session):
+    """列表接口必须把 `image_urls` 出出去（否则界面拿不到图，等于存了没人看得见）。"""
+    name = "照片进共享-出参"
+    r = client.post(
+        "/api/v1/places",
+        json={
+            "name": name,
+            "address_lat": "22.9700000",
+            "address_lng": "114.4700000",
+        },
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+    rows = client.get("/api/v1/places?limit=200", headers=auth_headers(token_dispatcher)).json()
+    hit = [x for x in rows if x["id"] == pid]
+    assert hit and "image_urls" in hit[0], hit[:1]
+    assert hit[0]["image_urls"] == [], "没图时是空列表，不是 null（旧数据 NULL 也要归一）"

@@ -1068,6 +1068,20 @@ def _bootstrap_impl(engine: Engine) -> None:
                     msg = str(e).lower()
                     if not dup_ok or ("duplicate" not in msg and "already exists" not in msg):
                         raise
+        # 2026-09-20：共享库也要能存位置照片（用户：「可以共享库也加上图片」）。
+        # 与「我的地点」同一套列（`image_urls` JSON 数组 + `image_url` 首图兼容）。
+        pcols = {c["name"] for c in insp.get_columns("places")}
+        if "image_urls" not in pcols:
+            logger.warning("检测到旧库缺少 places.image_urls，正在补列（多图 JSON 数组）…")
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE places ADD COLUMN image_urls TEXT DEFAULT '[]'"))
+                except DBAPIError:
+                    conn.execute(text("ALTER TABLE places ADD COLUMN image_urls TEXT"))
+        if "image_url" not in pcols:
+            logger.warning("检测到旧库缺少 places.image_url，正在补列（首图，兼容旧读出方）…")
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE places ADD COLUMN image_url VARCHAR(512)"))
 
     # ---------- 商品可见范围开关（2026-09-18 v3.43） ----------
     #

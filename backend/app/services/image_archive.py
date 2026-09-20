@@ -38,6 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.order import Order
+from app.models.place import Place
 from app.models.product import Product
 from app.models.shipper import ShipperAddress, ShipperLocation
 
@@ -79,6 +80,11 @@ REFERENCED_IMAGE_COLUMNS: tuple[tuple[type, str, bool], ...] = (
     (ShipperLocation, "image_urls", True),
     (Order, "address_image_url", False),
     (Order, "image_urls", True),
+    # 共享地点库的照片（2026-09-20 用户：「可以共享库也加上图片」）。
+    # 它和「我的地点」那两列**同一套语义**：照片就是这个位置的身份，
+    # 谁在清理引用时漏掉它，就等于把"下一个送货的人唯一的线索"删了。
+    (Place, "image_url", False),
+    (Place, "image_urls", True),
 )
 
 #: 扩展名 → PIL 保存格式。**扩展名与写出的格式必须一致**（见模块头的说明）。

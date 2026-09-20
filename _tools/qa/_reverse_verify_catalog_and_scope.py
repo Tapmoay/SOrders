@@ -45,7 +45,12 @@ COMPONENTS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/Com
 MSG_SCREEN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/messages/MessagesScreen.kt"
 OCS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt"
 ADDR_SCREEN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt"
-WPVM = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/WholesalePricingViewModel.kt"
+# ⚠️ 2026-09-20：这个文件原来叫 `WholesalePricingViewModel.kt`，已改名为
+#    `PriceMatrixViewModel.kt`（批发商定价现在就是那张价格矩阵）。改名的后果是
+#    **这份反向验证直接 FileNotFoundError 崩掉**——脚本读不到文件时必须是"报红"，
+#    而它当时是抛异常退出（也算非零），所以 `--deep` 只是把它记成"不达标"。
+#    路径跟着改名走：不然这条用例会一直红着，而人要花时间去查"到底哪儿坏了"。
+WPVM = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/PriceMatrixViewModel.kt"
 
 SECTION = 31
 
@@ -228,15 +233,20 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     # ------------------------------------------------ ④ 选地点都能搜
     (
-        "下单页搜索框退回「只有共享地点那段才有」",
+        # 2026-09-20 更新锚点（这次连**注入的形状**一起换）：提示语已经挪出 `placeholder`，
+        # 所以"改提示语"不再代表"搜索退回只有共享地点那段"。
+        # 真正的缺陷形状是：**本地那两段不再过滤**（只有共享地点段（打后端）能搜）——
+        # 用户会很自然地读成"搜不到就是没有这个地点"，然后去新建一条重复的。
+        "下单页搜索框退回「只有共享地点那段才有」（本地两段不再过滤）",
         OCS,
         lambda s: s.replace(
-            'placeholder = when (tab) {\n'
-            '                        0 -> "搜收货人、电话或地址"\n'
-            '                        1 -> "搜地点名或地址"\n'
-            '                        else -> "搜地点名或地址（全库）"\n'
-            "                    },",
-            'placeholder = "搜地点名或地址",',
+            "    val shownAddresses = remember(addresses, kw) {\n"
+            "        if (kw.isBlank()) addresses\n"
+            "        else addresses.filter {\n"
+            "            it.receiverName.contains(kw, true) || it.phone.contains(kw) || it.detailAddress.contains(kw, true)\n"
+            "        }\n"
+            "    }",
+            "    val shownAddresses = remember(addresses, kw) { addresses }",
             1,
         ),
     ),
