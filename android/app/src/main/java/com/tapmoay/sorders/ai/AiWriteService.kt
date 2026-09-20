@@ -13,6 +13,7 @@ import com.tapmoay.sorders.ui.dispatcher.lineReceivableCents
 import com.tapmoay.sorders.ui.shipper.customerNameOf
 import com.tapmoay.sorders.ui.shipper.customerPhoneOf
 import com.tapmoay.sorders.ui.shipper.settledByLineCents
+import com.tapmoay.sorders.util.goodsTotalText
 import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
@@ -620,9 +621,8 @@ class RepoWriteDataSource(
                 status = d.status,
                 address = d.addressDetail.trim(),
                 driverLabel = d.driverName?.trim()?.takeIf { it.isNotEmpty() },
-                amount = d.orderProducts.fold(BigDecimal.ZERO) { acc, p ->
-                    acc.add(p.lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO)
-                }.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                // 商品行合计只有一处实现（`util/Money.kt::goodsTotalText`）——它也是收款页的判据
+                amount = d.goodsTotalText(),
                 collectCash = d.collectCash,
                 isException = d.isException,
                 hasNav = !d.addressLat.isNullOrBlank() && !d.addressLng.isNullOrBlank(),
@@ -1046,9 +1046,8 @@ class RepoWriteDataSource(
                 status = d.status,
                 address = d.addressDetail.trim(),
                 driverLabel = d.driverName?.trim()?.takeIf { it.isNotEmpty() },
-                amount = d.orderProducts.fold(BigDecimal.ZERO) { acc, p ->
-                    acc.add(p.lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO)
-                }.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                // 商品行合计只有一处实现（`util/Money.kt::goodsTotalText`）——它也是收款页的判据
+                amount = d.goodsTotalText(),
                 collectCash = d.collectCash,
                 isException = d.isException,
             )

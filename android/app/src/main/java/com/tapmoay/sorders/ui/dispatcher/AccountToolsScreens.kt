@@ -27,6 +27,7 @@ import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.util.goodsTotal
 import java.math.BigDecimal
 import java.time.LocalDate
 
@@ -164,10 +165,12 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
     /**
      * 一张订单的商品行合计（**定点**，两位小数）。
      *
-     * 本屏**唯一**的金额求和实现：明细行的 ¥ 与「合计 ¥」都走它，保证"显示的数 = 判据的数"。
+     * ⛔ 算法**只有一处**：`util/Money.kt::OrderDto.goodsTotal`（本屏不再自己写一遍，
+     * 2026-09-21 精简轮）。三处各写一遍时（AI 卡片 / 本屏明细 / 本屏合计），任何一处
+     * "顺手用 `Double`"或"忘了进位"都会让两边差一分钱，而**两个数看起来都对** ——
+     * 后果见 `goodsTotal` 的文档（多行/多单时永久收不了款）。
      */
-    fun orderTotal(o: OrderDto): BigDecimal =
-        o.orderProducts.fold(BigDecimal.ZERO) { a, p -> a.add(p.lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO) }
+    fun orderTotal(o: OrderDto): BigDecimal = o.goodsTotal()
 
     /**
      * 所选订单合计（**定点**）。

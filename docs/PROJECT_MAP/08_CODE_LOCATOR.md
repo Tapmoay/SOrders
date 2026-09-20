@@ -222,7 +222,7 @@ python -m scripts.code_map . --out map_full.txt      # 2026-09 实测：118 文�
 | 图表 / 报表时间导航 | `ui/common/Charts.kt` / `ReportTimeNav.kt` |
 | 高德选点 | `ui/common/AmapPicker.kt` |
 | ViewModel 工厂 | `ui/common/ViewModelFactory.kt` |
-| 金额格式化 | `util/Money.kt`（统一两位小数 `formatMoney`） |
+| 金额格式化**与算钱** | `util/Money.kt`：① `formatMoney`（**显示**：两位小数，`Double` + `%.2f`）② `trimMoneyZeros`（**可编辑的价框**：去尾零、不丢精度）③ **`OrderDto.goodsTotal()` / `goodsTotalText()` ＝ 订单商品行合计（定点）—— 全 App 只此一处**：AI 卡片上的订单金额、收款页明细行的 ¥ 与「合计 ¥」、以及**收款页的判据**都走它（2026-09-21 之前这三处各写了一遍）。⛔ 算钱**不许**用 `formatMoney`/`Double`（2026-09-19 报告 P0-4：`Double` 顺序累加与后端 `Decimal` 差一点，表现是**多行/多单时永久收不了款**）；红线 `_tools/qa/_check_single_source.py` **④c** 盯着（反向验证 `_reverse_verify_single_source.py`） |
 | 时间格式化 | `util/TimeFmt.kt` |
 | 高德 URI / 地理解析 | `util/AmapUri.kt` / `util/GeoResolver.kt` |
 | 导出 | `util/ExportUtil.kt` |

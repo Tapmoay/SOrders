@@ -293,6 +293,43 @@ def main() -> int:
                 "变长说明有地方在绕开同源判据，请先问清楚为什么"
             )
 
+    # ---- ④c Android 侧：订单商品行合计只许一处（2026-09-21）----
+    # 这个数（Σ 订单行 line_total，定点）原来在 Android 里写了**三遍**：AI 找单的两条路
+    # （`AiWriteService` 的 findOrders / findDeletedOrders）+ 收款页（`AccountToolsScreens.orderTotal`）。
+    # 而收款页拿它当**判据**：用户照抄填进去的金额必须与后端 `Decimal` 算出的数完全相等，
+    # 差一分就 400，表现是**多行/多单时永久收不了款**（2026-09-19 报告 P0-4：原来判据用
+    # `Double` 顺序累加，20 万次随机试验失配率 2 行 22.72% / 5 行 37.68%）。
+    # 判据：折点求和的**写法**全 Android 只许出现 1 次，且必须在 `util/Money.kt` 里
+    # （它就是那一处实现）；消费点（调 `goodsTotal` / `goodsTotalText`）不许消失。
+    ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
+    kt = sorted(ANDROID.rglob("*.kt"))
+    if len(kt) < 100:
+        print(f"❌ 只扫到 {len(kt)} 个 Kotlin 文件——判据在空转，停。")
+        return 1
+    fold_sites: list[str] = []
+    sum_callers: list[str] = []
+    for f in kt:
+        rel_kt = f.relative_to(ANDROID).as_posix()
+        src_kt = f.read_text(encoding="utf-8")
+        code_kt = code_only(src_kt)
+        # 只数**代码**里的折点求和（`p.lineTotal?.toBigDecimalOrNull()`）：注释里提到它不算
+        for m in re.finditer(r"[\w.]*lineTotal\?\.toBigDecimalOrNull\(\)", code_kt):
+            fold_sites.append(f"{rel_kt}:{code_kt[:m.start()].count(chr(10)) + 1}")
+        # 消费点 = **调**这两个函数的地方（定义它自己的那个文件不算）
+        if ("goodsTotal(" in code_kt or "goodsTotalText(" in code_kt) and "fun OrderDto.goodsTotal(" not in code_kt:
+            sum_callers.append(rel_kt)
+    print(f"④c Android 侧折点求和的写法 {len(fold_sites)} 处；调用同源函数 {len(sum_callers)} 个文件")
+    bad_fold = [s for s in fold_sites if not s.startswith("util/Money.kt:")]
+    if bad_fold:
+        fails.append(
+            "Android 里又自己折点求和了（订单商品行合计请走 util/Money.kt 的 goodsTotal）："
+            + "；".join(bad_fold[:5])
+        )
+    if len(fold_sites) != 1:
+        fails.append(f"折点求和的写法有 {len(fold_sites)} 处（应为 1 处：util/Money.kt）")
+    if len(sum_callers) < 2:
+        fails.append(f"只有 {len(sum_callers)} 个文件在调 goodsTotal（<2）——判据可能已空转")
+
     # ---- ⑤ 白名单不许悄悄变长 ----
     # 白名单是"允许自己算日期"的唯一口子；它一旦变长，就说明有地方在绕开 business_time。
     # 数量判据不是万能药，但它能让"顺手加一行"变成一个**需要解释**的动作。
@@ -307,7 +344,7 @@ def main() -> int:
         for f in fails:
             print("   - " + f)
         return 1
-    print("\n✅ 时间、导出金额、司机绩效、司机应得、订单计费模式 —— 五类算法都只有一处实现。")
+    print("\n✅ 时间、导出金额、司机绩效、司机应得、订单计费模式、Android 商品行合计 —— 六类算法都只有一处实现。")
     return 0
 
 

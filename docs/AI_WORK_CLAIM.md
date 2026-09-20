@@ -631,6 +631,45 @@ Android 单测 **913 用例 / 0 失败** · `_check_all.py` **51/51**
 工具清单还装不装得出来"只有真机能证明 —— 万一 `specs` 真会走到 `specOf(READ_DATA)`，
 那里是 `getValue` 会**直接抛**，表现就是整个 AI 不可用。
 
+### 第二十二轮：订单商品行合计在 Android 里写了三遍（其中一遍是**收款页的判据**）
+
+**形状**：Σ 订单行 `line_total`（定点）这段求和，在 Android 里有**三份**：
+
+| 位置 | 用途 |
+| --- | --- |
+| `ai/AiWriteService.kt::findOrders` | AI 确认卡上的「订单金额」（`AiOrderRef.amount`） |
+| `ai/AiWriteService.kt::findDeletedOrders` | 同上（回收站那条路） |
+| `ui/dispatcher/AccountToolsScreens.kt::orderTotal` | 收款页明细行的 ¥ 与「合计 ¥」，**以及收款页的判据** |
+
+收款页那处的 KDoc 自己就写着「写法与本仓库既有实现同源（`ai/AiWriteService.kt:473`）」——
+**作者知道有多份**，只是没地方收。而这三份必须给出同一个数：判据那一处要求用户照抄填进去的金额
+与后端 `Decimal` 算出的数**完全相等**，差一分就 400，表现是**多行/多单时永久收不了款**
+（2026-09-19 报告 P0-4：原来判据用 `Double` 顺序累加，20 万次随机试验失配率 2 行 22.72% / 5 行 37.68%）。
+
+**收法**：`util/Money.kt` 加 **`OrderDto.goodsTotal()`**（定点 `BigDecimal` 求和）与
+**`goodsTotalText()`**（两位小数 `HALF_UP` 字符串，AI 卡片要字面量时用）；三处改调它。
+`AccountToolsScreens.orderTotal` 保留原名但变成一行转调（本屏两个调用点不动）。
+⛔ 它的 KDoc 写清「**不许**拿 `formatMoney`/`Double` 算钱」：`formatMoney` 是**显示**口径。
+
+**顺手**：把「算钱 vs 显示」的区别钉进单测（`util/MoneyTest.kt` 新增 5 条）：
+① `0.1 + 0.2` 定点是 `0.30`；② 行金额为空当 0；③ `1.005` 按 `HALF_UP` 是 `1.01`；
+④ **P0-4 原型**：三行 `1063.56` 定点正好 `3190.68`（`Double` 顺序累加是 `3190.6799999999994`）；
+⑤ 只相加、不重算（行金额是后端算好的）。
+
+⚠️ 写测试时踩了一个坑，记下来：我原想钉「`formatMoney("1.005")` 会给出 1.00」来对比两种口径，
+**结果它是 1.01**（Java 的 `%.2f` 按最短十进制表示做 HALF_UP，不是按二进制精确值）。
+断言错在"我以为的 JDK 行为"上 —— 换成上面那个真正能体现差别的用例（`Double` 累加的长尾）。
+
+**红线**：`_tools/qa/_check_single_source.py` 新增 **④c**：Android 侧折点求和（`lineTotal?.toBigDecimalOrNull()`）
+全仓只许出现 **1** 处且必须在 `util/Money.kt`；调 `goodsTotal`/`goodsTotalText` 的文件 ≥2。
+反向验证 `_reverse_verify_single_source.py` **17/17**（新增一条注入：AI 卡片又自己折点求和）。
+定位表「金额格式化」那一行同步扩成「金额格式化**与算钱**」。
+
+**验证**：红线 ④c 绿（折点求和 **1** 处、消费点 **2** 个文件）· 反向验证 **17/17** ·
+Android 单测 **918 用例 / 0 失败**（新增 5 条）· `compileEmuDebugKotlin` 成功 · `_check_all.py` **51/51**
+（⚠️ 真模型探针本轮**连续两次**瞬时外部网络故障（`getaddrinfo failed` / `RemoteDisconnected`），
+第三次才过 —— 这个波动是检查依赖外部 LLM 端点带来的，不是代码问题，如实标注）。
+
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 
 **用户需求（原话）**：「批发商……他要进行退货，他**可以直接在订单上**作退货。然后我们的那个派单员，
