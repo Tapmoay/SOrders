@@ -1157,7 +1157,7 @@
    "module_cn": "批发商定价",
    "method": "get",
    "path": "/api/v1/price-rules",
-   "at": "backend/app/api/v1/price_rules.py:211",
+   "at": "backend/app/api/v1/price_rules.py:233",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",

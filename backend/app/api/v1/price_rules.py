@@ -110,6 +110,28 @@ def batch_price_rules(
 
     if not shippers or not products:
         raise HTTPException(status_code=400, detail="未找到批发商或商品，请先选择")
+    # ⚠️ **点名的对象必须真的存在、而且商品不能在回收站里**（2026-09-21 修的真实缺陷）：
+    #    在选品页/商品管理里，`is_deleted=True` 的商品**对谁都不显示**，下单也选不到它 ——
+    #    所以给这种商品写出来的价"对谁都不生效"，而返回与审计日志都写着"价格已设置"，
+    #    用户以为调过价了（这正是本仓列为最贵的一类：**静默无效**）。
+    #    批量动作**不做部分成功**（仓库既有纪律）：有一个对不上就整批拒绝、并点名是哪几个，
+    #    否则用户核对 N 行时看不出"少调了哪一个"。
+    if body.product_ids:
+        alive = {p.id for p in products if not p.is_deleted}
+        missing_p = [pid for pid in body.product_ids if pid not in alive]
+        if missing_p:
+            raise HTTPException(
+                status_code=400,
+                detail=f"这些商品不存在或已在回收站，先确认商品再调价（否则这条价对谁都不生效）：{missing_p}",
+            )
+    if body.shipper_ids:
+        found_s = {u.id for u in shippers}
+        missing_s = [sid for sid in body.shipper_ids if sid not in found_s]
+        if missing_s:
+            raise HTTPException(
+                status_code=400,
+                detail=f"这些账号不存在或不是批发商（专属价只对批发商有意义）：{missing_s}",
+            )
 
     # ⚠️ **服务端**必须有全表护栏（2026-09-19 审计 K5 复核后修）：
     #    这一行原来只写在客户端（`AiWritePricing.kt`），于是任何直接打接口的人
@@ -243,6 +265,19 @@ def create_price_rule(
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.PRICE_RULE_MANAGE)),
 ) -> PriceRuleOut:
+    # ⚠️ **先确认这两个对象真的在**（2026-09-21 修的真实缺陷）：这一条原来只查"这个货主+商品的
+    #    规则是不是已经存在"，完全没查**商品/货主本身存不存在**。后果是给一个不存在（或已软删）
+    #    的商品编号设价：接口 201、审计日志写着"价格已设置"，而那个商品在选品页/下单页**对谁都不显示**
+    #    （列表按 `is_deleted=False` 过滤）→ 这条价从写进去那一刻起就**对谁都不生效**，
+    #    而界面上看不出任何异常。宁可当场拒绝，也不许写一条"看起来设过了"的价。
+    product = db.get(Product, body.product_id)
+    if product is None or product.is_deleted:
+        raise HTTPException(
+            status_code=400,
+            detail="这个商品不存在或在回收站里，先确认商品再设价（否则这条价对谁都不生效）",
+        )
+    if db.get(User, body.shipper_id) is None:
+        raise HTTPException(status_code=400, detail="这个账号不存在，请先确认货主/批发商")
     # ⚠️ 这里**故意不过滤 is_deleted**：软删的行仍占着 (shipper_id, product_id) 唯一约束，
     # 所以再给这个货主设一次这个商品的价格必须**复活那一行**，而不是插一条新的
     # （插会直接撞唯一约束 500）。复活 = 用户表达的意思，也不需要恢复这个多余动作。

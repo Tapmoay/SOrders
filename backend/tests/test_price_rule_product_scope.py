@@ -190,3 +190,82 @@ def test_档位字段从入参出参里消失但数据库列保留() -> None:
     assert "tier_prices" in Product.__table__.columns, (
         "products.tier_prices 列被删了 —— 用户明确要求保留（不写迁移、不清数据）"
     )
+
+
+# ---------------------------------------------------------------- 点名的对象必须真的在（2026-09-21）
+#
+# 这两条守的是同一件事：**不许写出"对谁都不生效"的价**。
+# 真实场景是客户端缓存了一个已被删的商品编号、或 AI 按名字猜了一个编号 ——
+# 以前接口会 201、审计日志写"价格已设置"，而那个商品在选品页/下单页**对谁都不显示**
+# （列表按 `is_deleted=False` 过滤）→ 这条价从写进去那一刻起就没人用得到，
+# 界面上却看不出任何异常。这就是本仓列为最贵的一类：**静默无效**。
+
+
+@pytest.mark.dispatcher
+@pytest.mark.fast
+@pytest.mark.regression
+def test_给不存在或回收站里的商品设专属价会被拒(client: TestClient, token_dispatcher: str) -> None:
+    h = auth_headers(token_dispatcher)
+    sid = _mk_member(client, h, "设价对象校验批发商")
+
+    # ① 商品编号根本不存在
+    r = client.post(
+        "/api/v1/price-rules",
+        json={"shipper_id": sid, "product_id": 999_999_999, "special_unit_price": "8"},
+        headers=h,
+    )
+    assert r.status_code == 400, f"给不存在的商品设价应当被拒，实际 {r.status_code} {r.text[:200]}"
+    assert "商品" in str(r.json().get("detail", "")), r.text[:200]
+
+    # ② 商品存在、但已经进了回收站
+    pid = int(_mk_product(client, h, "会被删掉的商品", price="20")["id"])
+    assert client.delete(f"/api/v1/products/{pid}", headers=h).status_code in (200, 204)
+    r = client.post(
+        "/api/v1/price-rules",
+        json={"shipper_id": sid, "product_id": pid, "special_unit_price": "8"},
+        headers=h,
+    )
+    assert r.status_code == 400, f"给回收站里的商品设价应当被拒，实际 {r.status_code} {r.text[:200]}"
+
+    # ③ 账号编号不存在（专属价挂在一个人身上，人不在就没地方生效）
+    pid2 = int(_mk_product(client, h, "货主校验商品")["id"])
+    r = client.post(
+        "/api/v1/price-rules",
+        json={"shipper_id": 999_999_999, "product_id": pid2, "special_unit_price": "8"},
+        headers=h,
+    )
+    assert r.status_code == 400, f"给不存在的账号设价应当被拒，实际 {r.status_code} {r.text[:200]}"
+
+
+@pytest.mark.dispatcher
+@pytest.mark.fast
+@pytest.mark.regression
+def test_批量调价点名了不存在或已删的商品会整批被拒(client: TestClient, token_dispatcher: str) -> None:
+    """批量**不做部分成功**：一个对不上就整批拒绝，并且点名是哪几个。
+
+    只调一半的后果：用户在"共 N 条"的汇报里看不出少调了哪一个 —— 这正是本仓反复治的形状。
+    """
+    h = auth_headers(token_dispatcher)
+    sid = _mk_member(client, h, "批量设价校验批发商")
+    ok_pid = int(_mk_product(client, h, "批量里正常的商品", price="20")["id"])
+    dead_pid = int(_mk_product(client, h, "批量里被删的商品", price="20")["id"])
+    assert client.delete(f"/api/v1/products/{dead_pid}", headers=h).status_code in (200, 204)
+
+    r = client.post(
+        "/api/v1/price-rules/batch",
+        json={
+            "shipper_ids": [sid],
+            "product_ids": [ok_pid, dead_pid],
+            "mode": "fixed",
+            "value": "8",
+        },
+        headers=h,
+    )
+    assert r.status_code == 400, f"点名了回收站里的商品应当整批被拒，实际 {r.status_code} {r.text[:200]}"
+    detail = str(r.json().get("detail", ""))
+    assert str(dead_pid) in detail, f"报错要点名是哪个商品对不上，实际：{detail}"
+
+    # 整批被拒 = 连那个**正常**的商品也不许写价（不许部分成功）
+    after = client.get(f"/api/v1/price-rules?shipper_id={sid}&product_id={ok_pid}", headers=h)
+    assert after.status_code == 200, after.text
+    assert after.json() == [], f"整批被拒之后仍然写了价：{after.text[:200]}"
