@@ -104,6 +104,29 @@
 
 **验证**：`_check_all.py` **54/54** · `pytest -q` **672 passed** · `08A_ENDPOINT_INDEX.md` 重新生成（行号跟着 `reports.py` 的删除对齐）。
 
+### 第四轮：删掉 Android 死代码（3 个整文件 498 行 + 2 条到不了的路由）
+
+判据同样是**自己数的引用数**（`android/app/src` 含测试全扫，0 命中才算死）：
+
+| 删掉的 | 证据 |
+| --- | --- |
+| `ui/dispatcher/ReportScreens.kt`（333 行）| 零引用。它是 `ReportCenter.kt`（NavGraph 真正在用）的**旧平行实现** |
+| `ui/dispatcher/ReportViewModels.kt`（119 行）| 零引用 —— ⚠️ 它是**被上一条牵出来的**：`ReportScreens` 是它唯一的使用者（`ReportViewModel` + 营业额/商品/司机/异常四个子类整套作废）|
+| `ui/common/PlaceholderScreen.kt`（46 行）| 零引用（连一句注释/文档都没提它）|
+| `Routes.PROFILE` + NavGraph 里那个 composable | `Routes.PROFILE` 只出现 1 次＝它自己的注册；「我的」Tab 是 `RoleHomeScreen` **内嵌** `ProfileScreen(embedded=true)`，没有任何 `navigate(Routes.PROFILE)` |
+| `Routes.DISPATCH_POOL` + 对应 composable | 同上：派单首 Tab 是内嵌的 `DispatcherPoolScreen(embedded=true)` |
+| 随之孤儿化的 2 个 import（`ProfileScreen` / `DispatcherPoolScreen`）| 删完才看得见 |
+| `_tools/qa/_check_input_rules.py` 里那条指向 `ReportScreens.kt` 的豁免 | 它断言"豁免键必须命中真实存在的输入框（防化石）"——文件没了，条目必须同删 |
+
+⛔ **明确不删（这是本轮最重要的判断）**：`Routes.DISPATCH_SETTLEMENTS` + `SettlementsScreen` + `SettlementsViewModel`。
+它**确实点不到**（工作台那格「司机运费结算」指的是 `Routes.FREIGHT_SETTLEMENT`，另一页），但它是
+**全 UI 里唯一能「新建结算单 / 确认 / 付款 / 作废」的页面** —— 今天这四个动作**只有 AI 助手做得到**
+（`AiWriteSettlementHandlers` → `repo.createSettlement/settlementAction`）。
+按"引用数 0 就删"的机械判据删掉它，等于**把一个人点不到的能力彻底删掉**，
+而不是清理冗余。这是产品决策（补入口 vs 认定只由 AI 做），已列给用户拍板。
+
+**验证**：`:app:compileEmuDebugKotlin` **BUILD SUCCESSFUL** · `:app:testEmuDebugUnitTest` **913 项 / 0 失败 / 2 跳过**（与删除前一致＝这些文件确实没有任何测试依赖）· 装到 emulator-5556 并启动 smoke：`topResumedActivity=com.tapmoay.sorders/.MainActivity`、无崩溃日志 · `_check_all.py` **54/54**。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）

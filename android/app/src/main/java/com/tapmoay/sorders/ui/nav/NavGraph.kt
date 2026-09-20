@@ -34,7 +34,6 @@ import com.tapmoay.sorders.ui.dispatcher.FreightTemplatesScreen
 import com.tapmoay.sorders.ui.dispatcher.DriverBillingRulesScreen
 import com.tapmoay.sorders.ui.driver.DriverFreightScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherOrdersScreen
-import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherReturnRequestsScreen
 import com.tapmoay.sorders.ui.dispatcher.InventoryScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductCategoriesScreen
@@ -53,7 +52,6 @@ import com.tapmoay.sorders.ui.login.LoginScreen
 import com.tapmoay.sorders.ui.messages.MessagesScreen
 import com.tapmoay.sorders.ui.order.OrderDetailScreen
 import com.tapmoay.sorders.ui.profile.AlertSettingsScreen
-import com.tapmoay.sorders.ui.profile.ProfileScreen
 import com.tapmoay.sorders.ui.shipper.AddressScreen
 import com.tapmoay.sorders.ui.shipper.OrderCreateScreen
 import com.tapmoay.sorders.ui.shipper.ShipperLedgerScreen
@@ -128,15 +126,6 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
             RoleHomeScreen(
                 container = container,
                 onNavigate = { r -> navController.navigate(r) },
-            )
-        }
-        composable(Routes.PROFILE) {
-            ProfileScreen(
-                container = container,
-                onBack = { navController.popBackStack() },
-                onOpenMessages = { navController.navigate(Routes.MESSAGES) },
-                onOpenFreight = { navController.navigate(Routes.DRIVER_FREIGHT) },
-                onOpenAlerts = { navController.navigate(Routes.ALERT_SETTINGS) },
             )
         }
         composable(Routes.ALERT_SETTINGS) {
@@ -220,13 +209,6 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         }
         composable(Routes.DRIVER_ORDERS) {
             DriverOrdersScreen(
-                container = container,
-                onBack = { navController.popBackStack() },
-                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
-            )
-        }
-        composable(Routes.DISPATCH_POOL) {
-            DispatcherPoolScreen(
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },

@@ -92,9 +92,6 @@ EXCLUDED: dict[str, str] = {
         "异常处理说明的**备注框**，标题里那两个字只是举例文案（已电话联系司机重新派单）。"
         "里面要能写中文句子。"
     ),
-    "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportScreens.kt::解决说明（如：已电话联系司机重新派单）": (
-        "同上（报表中心那一页的同一处备注框）。"
-    ),
     "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt::搜线路：收货人 / 电话 / 地址": (
         "地址与联系人页的**搜索框**（搜线路/联系人），关键词里带「电话」而已。"
     ),

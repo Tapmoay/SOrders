@@ -3,7 +3,6 @@ package com.tapmoay.sorders.ui.nav
 object Routes {
     const val LOGIN = "login"
     const val HOME = "home"
-    const val PROFILE = "profile"
     /** 消息提醒设置（语音提醒/念几遍/关掉 App 也收单） */
     const val ALERT_SETTINGS = "settings/alerts"
     const val MESSAGES = "messages"
@@ -27,7 +26,6 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val DRIVER_ORDERS = "driver/orders"
 
     // 派单员
-    const val DISPATCH_POOL = "dispatcher/pool"
     const val DISPATCH_ORDERS = "dispatcher/orders"
     /**
      * 「退货申请」待办页（派单端，2026-09-21）：货主提的申请排队在这里。
