@@ -1908,6 +1908,17 @@ def main() -> int:
     c.present("换模型立刻落盘（不用再点保存）", vm, r"saveConfig\(ai\.currentConfig\(\)\.copy\(model = m, contextWindow = w\)\)")
     c.present("拉到的模型候选会存起来给顶栏用", settings_vm, r"saveModelCandidates")
     c.present("分段选择器是全 App 共用组件", read(UI / "common" / "Components.kt"), r"fun SegmentedPicker\(")
+    # ⚠️ 2026-09-21 修的真实缺陷，这一节原来**没有任何判据盯着它**：
+    #    设置页的「换地址后重新检测」原来只清了「不支持思考开关」那条记忆，而
+    #    `AiKeyStore.clearStreamOptionsUnsupported` 声明了却**从没人调**（它的 KDoc 还写着
+    #    "与 clearThinkingUnsupported 一起用于设置页的重新检测"）。后果是用户换到一个
+    #    **支持** `stream_options` 的地址、点了这个按钮，App 仍然永远跳过该参数 ——
+    #    拿不到服务端的 token 用量（上下文压缩只能改用本机估算），而界面上没有一个字解释。
+    c.present("「换地址后重新检测」把**两种**能力记忆一起清（thinking + stream_options）",
+              settings_vm,
+              r"clearThinkingUnsupported\(baseUrl\)\s*\n\s*ai\.keyStore\.clearStreamOptionsUnsupported\(baseUrl\)")
+    c.present("被清的那个方法真的存在（判据锚的符号不是凭空写的）",
+              read(AI / "AiKeyStore.kt"), r"fun clearStreamOptionsUnsupported\(")
 
     print("\n== 14. 写能力覆盖率：剩下的端点必须每一条都说得出「为什么不做」==")
     # 为什么要有这一节：覆盖率脚本自己是会跑的，但**没人会记得跑它**。

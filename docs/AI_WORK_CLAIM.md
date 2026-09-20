@@ -167,8 +167,10 @@
 
 **验证**：`_check_order_return.py` **104 → 106 项** · `_reverse_verify_order_return.py` **26/26 条注入报红**（含新增的"删掉 OrderPeek 里那一档"）+ 11 个被碰文件**逐字节还原** · Android `assembleEmuDebug` + **913 单测 0 失败** · 装到 emulator-5556 启动 smoke 通过、无崩溃 · `_check_all.py` **50/50**。
 
-⚠️ **诚实记一笔：第二个修复没有机器判据。** 原因：AI 设置页那一节（`_check_ai_guardrails.py §13`）目前没有反向验证宿主，而 `AiKeyStore` 走 Android `Context`、纯 JVM 单测打不进去。它现在只靠代码注释与这一行记录守着。下一轮二选一：
+⚠️ **诚实记一笔：第二个修复没有机器判据，原因与原因。** 原因：AI 设置页那一节（`_check_ai_guardrails.py §13`）目前没有反向验证宿主，而 `AiKeyStore` 走 Android `Context`、纯 JVM 单测打不进去。它现在只靠代码注释与这一行记录守着。下一轮二选一：
 ① 给 §13 建一份 `_reverse_verify_ai_settings.py`；② 做成通用判据「`AiKeyStore` 里每个"清能力记忆"的方法都必须被『重新检测』调用」（这条还能顺手抓住以后新增的同类半接线）。
+> ✅ **2026-09-21 已补上（第十轮）**：走了①——`_tools/ai/_reverse_verify_ai_settings.py`（3 条注入全报红），
+> 并在 §13 加了 2 条判据钉住"两种能力记忆一起清"。②那条通用判据没做（理由见第十轮）。
 
 ⚠️ **同一族的另一半（待你拍板，不是 bug 修复）**：`LlmClient.STREAM_OPTIONS_UNSUPPORTED_NOTE`（"当前地址不接受 stream_options，已自动跳过，不影响回答"）**至今没接到界面上** —— 也就是说用户确实会看到"拿不到服务端用量"这个现象，但 App 不会解释。要不要在设置页给一段解释，是产品决定。
 
@@ -216,6 +218,27 @@
 
 **结果**：`可疑 4 → 0`、`信息 1 → 5`，每条空转判据都自己说清"库里 `driver_settlements.status` 的真实取值是 `['draft']`"。
 **验证**：`_reverse_verify_fuzz_safety.py` **8 项全过**（4 条注入 + 前提 + 3 个方向）· `_check_all.py` **50/50** · 钱的对账仍是 `39 项 / 确认缺陷 0`（**可疑 0**）。
+
+### 第十轮：给 AI 设置页那一节补反向验证宿主（还上一轮欠的那笔）
+
+第一轮修的那个缺陷（「换地址后重新检测」只清了 thinking 记忆、`clearStreamOptionsUnsupported` 从没人调）
+当时**没有机器判据**，我在声明页里如实写了"下一轮补"。这一轮补上：
+
+| 我改的 | 内容 |
+| --- | --- |
+| `_check_ai_guardrails.py §13` | 新增 2 条判据：①「换地址后重新检测」把**两种**能力记忆一起清（正则要求两行相邻出现，少一行就红）；②被清的那个方法真的存在（防止判据锚一个凭空写的符号） |
+| `_tools/ai/_reverse_verify_ai_settings.py`（新） | **§13 原来没有反向验证宿主**（其它 `_reverse_verify_*.py` 各盯各自的节）——这也是那个缺陷能长期存在的间接原因。3 条注入：只清 thinking / 只清 stream_options / 把两句都删掉（按钮还在、点了什么都不做）→ 全部证明会让 §13 报红 |
+
+⚠️ **又踩一次换行坑（已写进脚本注释）**：`AiSettingsViewModel.kt` 是 **CRLF**，按 `\n` 写替换串时
+注入**静默失效**（三条注入全报"替换串过期了"，其实是换行对不上）。现在脚本按字节读写 + 记住文件的换行风格，
+并把"逐字节一致"写成还原判据。
+
+⛔ **没做的那个备选（②"通用判据：每个清能力记忆的方法都必须被调用"）**：它属于"跨文件没人用的 public 声明"
+这一类，而这类判据的误报面很大（本轮已知的同类：`AiActor`、若干 `data class` 的字段类型、
+以及 Compose 里靠约定使用的声明）——**一条误报多的检查会让人开始无视整个清单**。宁可用"逐个域配宿主"
+的办法（本轮 §13），也不做一条会吵的通用判据。这条判断写在这里，免得下一轮有人重开。
+
+**验证**：`_reverse_verify_ai_settings.py` **3/3 注入报红 + 逐字节还原** · `_check_ai_guardrails.py` **1102 项全过** · `_check_all.py` **50/50**。
 
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
