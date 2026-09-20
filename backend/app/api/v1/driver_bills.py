@@ -1,7 +1,7 @@
 """司机应付明细（按月）——账本 V2：送达自动生成 PIECE 单；月薪单手工/定时生成。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.business_time import business_local
@@ -12,11 +12,11 @@ from app.models import DriverBill, User
 from app.models.enums import DriverBillStatus, DriverBillType, OperationAction, UserRole
 from app.schemas.accounting_v2 import DriverBillGenerateBody, DriverBillOut
 from app.services.operation_log_service import write_log
-from app.services.operation_log_service import write_log
 from app.services.driver_pay import (
     has_per_order_pay,
     monthly_salary_of,
     pay_for_order,
+    per_order_pay_filter,
     rule_from_snapshot,
 )
 
@@ -191,12 +191,8 @@ def generate_bills(
             # 隔离区（软删）的单不生成应付：账单一旦生成就是一条要付钱记录，
             # 而那张单用户已经删掉了（"伪装删除"，行还在库里）。
             .where(Order.deleted_at.is_(None))
-            .where(
-                or_(
-                    func.upper(Order.driver_billing_mode_snapshot) == "PIECE",
-                    Order.driver_billing_mode_snapshot.is_(None),
-                )
-            )
+            # 与结算页同一处判据（`driver_pay.per_order_pay_filter`）：两张表必须对同一批单
+            .where(per_order_pay_filter())
         )
         if body.driver_id is not None:
             stmt = stmt.where(Order.driver_id == body.driver_id)

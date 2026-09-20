@@ -147,6 +147,18 @@ CASES: list[tuple[str, str, object]] = [
             1,
         ),
     ),
+    (
+        "SQL 侧又自己写了一遍模式判据（两处对空串给出相反答案：账单生成了、结算页不列它）",
+        "backend/app/api/v1/freight_settlement.py",
+        lambda s: s.replace(
+            "            per_order_pay_filter(),",
+            "            or_(\n"
+            "                func.upper(Order.driver_billing_mode_snapshot) == \"PIECE\",\n"
+            "                and_(Order.driver_billing_mode_snapshot.is_(None), Order.freight_fee.isnot(None)),\n"
+            "            ),",
+            1,
+        ),
+    ),
 ]
 
 

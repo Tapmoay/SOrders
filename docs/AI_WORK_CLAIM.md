@@ -495,6 +495,40 @@ emulator-5556 启动 smoke 通过（`topResumedActivity=MainActivity`、无 FATA
 **验证**：`pytest -q` **683 passed**（674 + 新 9）· `_check_all.py` **51/51**（顺带抓到两份生成产物过期，已重生成）·
 `_reverse_verify_single_source.py` **15/15** · 钱的对账 `39 项 / 确认缺陷 0 / 可疑 0`。
 
+### 第十九轮：SQL 侧还各写了一遍模式判据（**空串**上两边答案相反）
+
+承接上一轮。把"这一张单按不按单拿钱"收进 `driver_pay.order_mode` 之后，**SQL 侧那两处各写了一遍**
+同样的 `upper(快照) == 'PIECE' OR 快照 IS NULL`（`driver_bills` 的补单、`freight_settlement` 的结算页），
+而 Python 侧 `order_mode` 把**空串**也当"没写"（`snapshot or ""` → 落到老单分支）。于是对
+「快照 = 空串、有运费」这一行数据：
+
+| 侧 | 答案 | 后果 |
+| --- | --- | --- |
+| 钱（`has_per_order_pay` → 生成/补账单） | 有按单应付 | 账单**生成了** |
+| SQL（结算页） | 不是 PIECE | 结算页**不列它** → 派单员照着这一页付钱，永远付不到它 |
+
+两张表对不上、谁都不报错。这一列的历史数据里已经出现过小写、大写两种写法，空串是第三种。
+
+**收法**：新增 `driver_pay.per_order_pay_filter()`（SQL 版判据，与 `order_mode` 同一处），两处调用点改调它，
+`upper()` 比较、"NULL/空串都算没写"的理由全部搬进它的文档。两个文件因此各自少一个 `or_`/`and_`/`func` 导入；
+顺带删掉 `driver_bills.py` 里**重复了一行**的 `from app.services.operation_log_service import write_log`。
+
+**合同测试**（新，同一份 `test_driver_order_mode.py`）：一张 9×2 的取值矩阵
+（NULL / 空串 / 纯空白 / `PIECE` / `piece` / ` PIECE ` / `SALARY` / `salary` / `??` × 有价 / 无价）
+逐行比较 SQL 判据与 Python 判据的答案，**不许有一行不同**；再加一条走真接口的
+（`GET /freight-settlement` 必须列出这张空串老单）。注入旧的 SQL 写法（只认 NULL）→ **两条同时红**
+（矩阵报 `('', '50.00')`、接口报「结算页却不列它」）→ 还原 **11 passed**。
+
+**红线收紧**（`_check_single_source.py` ④b 重写）：① `resolve_billing_mode(` 只许出现在"问**这个人**"的地方；
+② 那一列**读**只许出现在 driver_pay（唯一读处）/ 列定义 / 建列三处；③ 反空转：三个入口函数必须都在 +
+消费点 ≥5。`_reverse_verify_single_source.py` **16/16**（新增 SQL 那条注入）。
+
+⚠️ **上一版判据被自己架空了（记下来）**：它要求"碰这一列的文件必须调同源函数"，
+而收口之后**没有任何文件再碰这一列**（读侧都去调函数、SQL 侧去调 filter）→ 那条规则恒绿。
+所以改成**绝对白名单**："这一列只许出现在这三个文件里" —— 判据要能因为"有人绕开"而红，
+而不是因为"没人碰"而绿。同样地，第一版还把派单时的**赋值**当成违规（红线当场误报）：
+判据精确到"读"（`column_read` 用 `(?!\s*=(?!=))` 排除赋值左侧）。
+
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 
 **用户需求（原话）**：「批发商……他要进行退货，他**可以直接在订单上**作退货。然后我们的那个派单员，

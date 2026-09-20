@@ -15,6 +15,9 @@
 2. 新单听快照的（SALARY 的单运费不许露出来）—— 防止"统一"成永远可见；
 3. 出参 `driver_billing_mode` 与门控判据同源（客户端也照它显示）。
 
+4. **SQL 与 Python 同答案**：`per_order_pay_filter`（SQL）与 `order_mode`（Python）逐行对齐
+   （取值矩阵：NULL / 空串 / 纯空白 / 大小写 / 带空格）—— 两处各写一遍时，空串的答案就相反。
+
 ⚠️ 在收口之前，`freight_visible` 这个字段**一个测试都没有**，所以它走散了很久没人知道。
 """
 
@@ -164,3 +167,83 @@ def test_挂在规则上的司机_老单也按单结(
     assert snapshot_mode(driver) == "PIECE", "规则里有按单应付 → 这张单按单结"
     old = SimpleNamespace(driver_billing_mode_snapshot=None, freight_fee=Decimal("500.00"))
     assert has_per_order_pay(old) is True, "老单与他的新单必须同一答案（旧模型会说是 SALARY）"
+
+
+# ---------------------------------------------------------------- ④ SQL 与 Python 同答案
+
+
+def test_SQL判据与Python判据对同一批取值同答案(db_session: Session) -> None:
+    """`per_order_pay_filter`（SQL）与 `order_mode`（Python）对**每一个**取值都必须同答案。
+
+    这是"一份判据、两种写法"的合同测试，也是这一轮真正的收获：原先 Python 把空串当"没写"
+    （`snapshot or ""`）、SQL 把空串当"写了但不是 PIECE"（`is_(None)`）—— 于是一张快照是空串、
+    有运费的单**账单会生成、结算页却不列它**，两张表对不上而谁都不报错。
+    """
+    from sqlalchemy import select as sa_select
+
+    from app.models import Order
+    from app.services.driver_pay import has_per_order_pay, per_order_pay_filter
+
+    tag = _uniq("MODE")
+    rows: list[Order] = []
+    for i, snap in enumerate((None, "", "   ", "PIECE", "piece", " PIECE ", "SALARY", "salary", "??")):
+        for fee in (None, Decimal("50.00")):
+            o = Order(
+                order_no=f"SO{uuid.uuid4().int % 10**18:018d}",
+                status=OrderStatus.DISPATCHED,
+                order_date=date(2026, 9, 21),
+                address_detail=f"{tag}-{i}-{1 if fee is not None else 0}",
+                driver_billing_mode_snapshot=snap,
+                freight_fee=fee,
+            )
+            db_session.add(o)
+            rows.append(o)
+    db_session.flush()
+
+    matched = set(
+        db_session.scalars(
+            sa_select(Order.id).where(Order.address_detail.like(f"{tag}-%"), per_order_pay_filter())
+        )
+    )
+    assert len(rows) == 18, "取值矩阵变了（每条都要有快照 × 运费两种）"
+    mismatch = [
+        (repr(o.driver_billing_mode_snapshot), str(o.freight_fee))
+        for o in rows
+        if (o.id in matched) is not has_per_order_pay(o)
+    ]
+    assert not mismatch, f"SQL 与 Python 对这些取值答案不同（快照, 运费）：{mismatch}"
+
+
+def test_结算页列出空串快照的老单(
+    client: TestClient, db_session: Session, users: dict, token_dispatcher: str
+) -> None:
+    """这张单的**账单会生成**（`has_per_order_pay` 为真）→ 结算页就必须列它。
+
+    空串是这一列历史数据里的第三种写法（另两种是大小写）。原来 SQL 只认 `IS NULL`，
+    于是这一张单**在结算页看不见**：派单员照着这一页付钱，永远不会付到它 ——
+    而账单页（另一个查询）算得出来，两张表对不上且谁都不报错。
+    """
+    from app.core.business_time import utc_now_naive
+
+    d = users["driver"]
+    o = Order(
+        order_no=f"SO{uuid.uuid4().int % 10**18:018d}",
+        status=OrderStatus.DELIVERED,
+        order_date=date(2026, 9, 21),
+        delivered_at=utc_now_naive(),
+        address_detail=_uniq("空串快照"),
+        driver_id=d.id,
+        freight_fee=Decimal("66.00"),
+        driver_billing_mode_snapshot="",  # 历史数据里的空串写法
+    )
+    db_session.add(o)
+    db_session.flush()
+
+    r = client.get(
+        "/api/v1/freight-settlement",
+        params={"from": "2000-01-01T00:00:00", "to": "2100-01-01T00:00:00"},
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r.status_code == 200, r.text
+    listed = {int(x["order_id"]) for g in r.json()["groups"] for x in g["orders"]}
+    assert o.id in listed, "这张单有按单应付（账单会生成），结算页却不列它 —— 两张表对不上"

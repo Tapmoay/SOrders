@@ -1,7 +1,7 @@
 """司机运费结算（派单员/司机）：按送达月份聚合已送达且计价的订单。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.business_time import to_utc_naive
@@ -11,7 +11,7 @@ from app.deps import get_current_user, require_permission
 from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
 from app.services.order_response import enrich_order_out as _enrich  # noqa: F401
-from app.services.driver_pay import pay_for_order
+from app.services.driver_pay import pay_for_order, per_order_pay_filter
 from app.services.soft_delete import strip_del_suffix
 
 router = APIRouter(prefix="/freight-settlement", tags=["freight-settlement"])
@@ -69,19 +69,9 @@ async def freight_settlement(
             # 隔离区（软删）的单**不进结算**：用户删掉一张错单之后，
             # 谁都不该再为它付运费——而删除是"伪装删除"，行还在库里。
             Order.deleted_at.is_(None),
-            # 计件(PIECE)司机全部列出（未定价=待定价可后补）；仅兼容旧单（快照空但有价）
-            #
-            # ⚠️ 用 `func.upper(...)` 比，不要写 `== "PIECE"`：
-            # 历史数据里这个快照列两种写法都出现过（AI 写小写、页面写大写），
-            # 精确比较会让"库里是小写 piece 的司机"**在结算页整批消失**——
-            # 而司机账单那边本来就用的是 upper()，于是同一批单在账单里算得出来、
-            # 在这里看不到，两张表对不上却谁都不报错。
-            # 写入侧已经归一（`models/user.py::normalize_billing_mode`），
-            # 这里放宽是为了让**存量数据**也显示正确。
-            or_(
-                func.upper(Order.driver_billing_mode_snapshot) == "PIECE",
-                and_(Order.driver_billing_mode_snapshot.is_(None), Order.freight_fee.isnot(None)),
-            ),
+            # 计件(PIECE)司机全部列出（未定价 = 待定价可后补），旧单（快照空但有价）也算 ——
+            # 判据只有一处：`driver_pay.per_order_pay_filter`（大小写/空串的坑都记在那儿）
+            per_order_pay_filter(),
         )
         .order_by(Order.delivered_at.desc())
     )

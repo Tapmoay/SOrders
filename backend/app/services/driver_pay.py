@@ -362,6 +362,36 @@ def has_per_order_pay(order) -> bool:
     return order_mode(order) == "PIECE"
 
 
+def per_order_pay_filter():
+    """**SQL 版**「这张单有按单应付」——与 [order_mode] 必须同答案（一份判据、两种写法）。
+
+    ### 为什么 SQL 侧也要收口
+    "这张单要不要按单给他算钱"在 SQL 里被写了两遍（`driver_bills` 的补单、`freight_settlement`
+    的结算页），而 Python 侧 `order_mode` 还把**空串**算作"没写"。同一批数据两边答案不同时，
+    表现是「结算页少列一张已经生成了账单的单」—— 两张表对不上，谁都不报错。
+    `backend/tests/test_driver_order_mode.py` 用一整张取值矩阵（NULL/空串/大小写/带空格）
+    钉住两边同答案。
+
+    ⚠️ 必须 `upper()` 之后比，不能写 `== "PIECE"`：历史数据里这一列小写、大写都出现过
+    （AI 写小写、页面写大写），精确比较会让"库里是小写 piece 的司机"在结算页**整批消失** ——
+    而账单那边用的是 upper()，于是同一批单在账单里算得出来、在这里看不到。
+    空串同理按"没写"读（写入侧已归一，见 `models/user.py::normalize_billing_mode`）。
+    """
+    from sqlalchemy import and_, func, or_
+
+    from app.models import Order
+
+    mode = func.upper(Order.driver_billing_mode_snapshot)
+    return or_(
+        mode == "PIECE",
+        and_(
+            # 老单：快照列是 v3.36 才加的，NULL 与空串都当"没写"（有价就算）
+            or_(Order.driver_billing_mode_snapshot.is_(None), mode == ""),
+            Order.freight_fee.isnot(None),
+        ),
+    )
+
+
 def override_problem(rule: PayRule | None, *, piece_override=None, rate_override=None) -> str | None:
     """派单员给这一单单独定的数**能不能真的生效**（不能生效就返回中文原因，None = 没问题）。
 
