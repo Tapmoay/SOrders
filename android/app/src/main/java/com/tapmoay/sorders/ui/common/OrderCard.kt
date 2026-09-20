@@ -28,6 +28,23 @@ import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.moneyToDouble
 import com.tapmoay.sorders.util.resolveStaticUrl
 
+/**
+ * 收货人 / 下单人这一行怎么显示（卡片与详情**共用这一份**）。
+ *
+ * 规则：`张三（13800000002）`；名字与电话缺一个就只显示有的那个；两个都没有 → `null`
+ * （调用方据此**不画那一行** —— 老单本来就没记过名字，画一条「收货人：-」是空的）。
+ */
+internal fun contactWho(name: String?, phone: String?): String? {
+    val n = name.orEmpty().trim()
+    val p = phone.orEmpty().trim()
+    return when {
+        n.isNotEmpty() && p.isNotEmpty() -> "$n（$p）"
+        n.isNotEmpty() -> n
+        p.isNotEmpty() -> p
+        else -> null
+    }
+}
+
 /** tinted 圆底图标（iOS 风格：12% 语义色圆底 + 同色图标，精致不裸奔） */
 @Composable
 fun TintedIcon(icon: ImageVector, tint: Color, size: Dp = 16.dp, container: Dp = 28.dp) {
@@ -106,6 +123,27 @@ fun OrderCard(
                             .size(44.dp)
                             .clip(MaterialTheme.shapes.small),
                     )
+                }
+            }
+
+            // 收货人与下单人（2026-09-20 用户要求：「卡片的信息要显示一个是收货人是谁、
+            // 一个是下单人是谁，电话号码都显示出来」）。与下面「司机」「货主」两行同一形状，
+            // 靠**标签**区分是谁；两者都没有的那一行不画（老单没记过名字）。
+            listOf(
+                "收货人" to contactWho(order.contactDongjiaName, order.contactDongjiaPhone),
+                "下单人" to contactWho(order.contactBossName, order.contactBossPhone),
+            ).forEach { (label, who) ->
+                if (who != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TintedIcon(Icons.Default.Person, MaterialTheme.colorScheme.tertiary, size = 14.dp, container = 26.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            label + "：" + who,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 

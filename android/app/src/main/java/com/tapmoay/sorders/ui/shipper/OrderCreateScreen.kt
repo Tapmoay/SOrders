@@ -370,6 +370,15 @@ fun OrderCreateScreen(
                 SectionCard {
                     Text("联系信息", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(10.dp))
+                    // 收货人：名称 + 电话。名称从**选中的线路**自动带出来（`applyAddress`），也能手改。
+                    OutlinedTextField(
+                        value = vm.dongjiaName,
+                        onValueChange = { vm.dongjiaName = it },
+                        label = { Text("收货人名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = vm.dongjiaPhone,
                         // 只让数字敲得进来（汉字/字母/符号在输入层就被丢掉），最多 12 位，
@@ -378,6 +387,15 @@ fun OrderCreateScreen(
                         label = { Text("收货人电话") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    // 下单人：名称 + 电话，进页面就按**当前登录账号**填好（`prefillOrderer`）。
+                    OutlinedTextField(
+                        value = vm.bossName,
+                        onValueChange = { vm.bossName = it },
+                        label = { Text("下单人名称") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(10.dp))

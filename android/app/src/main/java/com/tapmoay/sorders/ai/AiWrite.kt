@@ -1260,8 +1260,10 @@ object AiWrites {
                     hint = "可选。用户说了就填；没说就留空（他能在页面上补）",
                 ),
                 AiWriteParam("date", "下单日期", kind = AiWriteParamKind.DATE, hint = "YYYY-MM-DD；不填默认今天"),
-                AiWriteParam("phone_dongjia", "东家电话", hint = "可选"),
-                AiWriteParam("phone_boss", "老板电话", hint = "可选"),
+                AiWriteParam("name_dongjia", "收货人名称", hint = "可选。到现场接货的人叫什么"),
+                AiWriteParam("phone_dongjia", "收货人电话", hint = "可选"),
+                AiWriteParam("name_boss", "下单人名称", hint = "可选。下这一单的人叫什么"),
+                AiWriteParam("phone_boss", "下单人电话", hint = "可选"),
                 AiWriteParam("remark", "备注", hint = "可选，一句话"),
             ),
         ),
@@ -1318,7 +1320,7 @@ object AiWrites {
             title = "改单",
             risk = AiWriteRisk.MEDIUM,
             group = G_ORDER,
-            blurb = "改一张**还没送达**的订单的资料：送达说明、送货地址、东家电话、老板电话、备注、内部备注。" +
+            blurb = "改一张**还没送达**的订单的资料：送达说明、送货地址、收货人、下单人、备注、内部备注。" +
                 "只改你点名的那几项，其余原样。已送达/已撤销的单不能改。",
             params = listOf(
                 AiWriteParam(
@@ -1327,8 +1329,10 @@ object AiWrites {
                 ),
                 AiWriteParam("delivery", "送达说明", hint = "可选。送给客户/司机看的说明"),
                 AiWriteParam("address", "送货地址", hint = "可选。改完司机会按新地址跑"),
-                AiWriteParam("dongjia_phone", "东家电话", hint = "可选。收货方联系人电话"),
-                AiWriteParam("boss_phone", "老板电话", hint = "可选。下单方老板电话"),
+                AiWriteParam("dongjia_name", "收货人名称", hint = "可选。到现场接货的人叫什么"),
+                AiWriteParam("dongjia_phone", "收货人电话", hint = "可选。收货方联系人电话"),
+                AiWriteParam("boss_name", "下单人名称", hint = "可选。下这一单的人叫什么"),
+                AiWriteParam("boss_phone", "下单人电话", hint = "可选。下单方电话"),
                 AiWriteParam("remark", "备注", hint = "可选"),
                 AiWriteParam("internal_note", "内部备注", hint = "可选。只有内部能看"),
             ),

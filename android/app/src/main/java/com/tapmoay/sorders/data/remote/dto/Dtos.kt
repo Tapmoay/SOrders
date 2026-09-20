@@ -125,6 +125,10 @@ data class OrderDto(
     @SerialName("nav_source") val navSource: String? = null,
     @SerialName("contact_dongjia_phone") val contactDongjiaPhone: String = "",
     @SerialName("contact_boss_phone") val contactBossPhone: String = "",
+    /** 收货人名称（到现场接货的人）—— 与 [contactDongjiaPhone] 一一对应。空 = 老单没记过名字。 */
+    @SerialName("contact_dongjia_name") val contactDongjiaName: String = "",
+    /** 下单人名称（下这一单的人：货主本人 / 代下单的派单员）—— 与 [contactBossPhone] 一一对应。 */
+    @SerialName("contact_boss_name") val contactBossName: String = "",
     val remark: String = "",
     @SerialName("internal_notes") val internalNotes: String = "",
     @SerialName("driver_remark") val driverRemark: String = "",
@@ -266,6 +270,8 @@ data class OrderCreateRequest(
     val addressLng: String? = null,
     @SerialName("contact_dongjia_phone") val contactDongjiaPhone: String = "",
     @SerialName("contact_boss_phone") val contactBossPhone: String = "",
+    @SerialName("contact_dongjia_name") val contactDongjiaName: String = "",
+    @SerialName("contact_boss_name") val contactBossName: String = "",
     val remark: String = "",
     @SerialName("shipper_id") val shipperId: Long? = null,
     @SerialName("temp_shipper_name") val tempShipperName: String? = null,
@@ -279,6 +285,8 @@ data class OrderUpdateRequest(
     @SerialName("address_lng") val addressLng: String? = null,
     @SerialName("contact_dongjia_phone") val contactDongjiaPhone: String? = null,
     @SerialName("contact_boss_phone") val contactBossPhone: String? = null,
+    @SerialName("contact_dongjia_name") val contactDongjiaName: String? = null,
+    @SerialName("contact_boss_name") val contactBossName: String? = null,
     val remark: String? = null,
     @SerialName("internal_notes") val internalNotes: String? = null,
 )

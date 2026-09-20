@@ -462,7 +462,8 @@ internal object AiResources {
         idKey = "order_id",
         readKeys = setOf(
             "freight_fee", "delivery_description", "address_detail", "contact_dongjia_phone",
-            "contact_boss_phone", "remark", "internal_notes",
+            "contact_boss_phone", "contact_dongjia_name", "contact_boss_name",
+            "remark", "internal_notes",
             // 下面这些是**成对动作**要用的键（不是"改一个字段"，而是"再做另一件事"的原料）
             "internal_note", "driver_id", "collect_cash", "reason", "expected_before",
             // 逐单覆盖值（v3.37）：撤回派单后"照原样再派一次"必须把它们一起搬回去，
@@ -476,8 +477,10 @@ internal object AiResources {
             "driver_commission_rate" to "这一单单独定的提成比例",
             "delivery_description" to "送货说明",
             "address_detail" to "送达地址",
-            "contact_dongjia_phone" to "东家电话",
-            "contact_boss_phone" to "老板电话",
+            "contact_dongjia_phone" to "收货人电话",
+            "contact_boss_phone" to "下单人电话",
+            "contact_dongjia_name" to "收货人名称",
+            "contact_boss_name" to "下单人名称",
             "remark" to "备注",
             "internal_notes" to "内部备注",
             // 静默键也要有中文名：读不回来时它会以警告行的形式出现在卡上（见 ADDRESS 的同名处理）。
@@ -790,6 +793,8 @@ internal object AiRevertRead {
         put("address_detail", d.addressDetail)
         put("contact_dongjia_phone", d.contactDongjiaPhone)
         put("contact_boss_phone", d.contactBossPhone)
+        put("contact_dongjia_name", d.contactDongjiaName)
+        put("contact_boss_name", d.contactBossName)
         put("remark", d.remark)
         put("internal_notes", d.internalNotes)
         // ⚠️ 同一个字段在 assign 里叫 internal_note（另一套键名，见这个文件的说明）

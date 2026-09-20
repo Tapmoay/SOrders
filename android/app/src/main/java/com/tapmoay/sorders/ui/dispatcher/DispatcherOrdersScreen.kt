@@ -139,19 +139,32 @@ fun DispatcherOrdersScreen(
                 Column {
                     OutlinedTextField(vm.editAddress, { vm.editAddress = it }, label = { Text("收货地址") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(8.dp))
+                    // 收货人 / 下单人：名称 + 电话（与下单页同一套用词）。
                     // 两个电话都只让数字进来（规则唯一实现在 core/InputRules.kt）。
                     // ⚠️ 老单里可能存着"嘿嘿"这种旧数据（生产库里真有），它会原样显示在框里；
                     //    用户一动手就被过滤掉，不动手直接保存会被后端用中文挡回（见 saveEdit）。
                     OutlinedTextField(
+                        vm.editDongjiaName, { vm.editDongjiaName = it },
+                        label = { Text("收货人名称") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
                         vm.editDongjia, { vm.editDongjia = InputRules.phoneInput(it) },
-                        label = { Text("东家电话") }, singleLine = true,
+                        label = { Text("收货人电话") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
+                        vm.editBossName, { vm.editBossName = it },
+                        label = { Text("下单人名称") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
                         vm.editBoss, { vm.editBoss = InputRules.phoneInput(it) },
-                        label = { Text("老板电话") }, singleLine = true,
+                        label = { Text("下单人电话") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth(),
                     )

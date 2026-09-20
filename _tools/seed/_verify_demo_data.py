@@ -153,6 +153,11 @@ def main() -> int:
     ok("订单：地址/联系人都填了",
        q("select count(*) n from orders where trim(coalesce(address_detail,''))='' "
          "or trim(coalesce(contact_dongjia_phone,''))='' or trim(coalesce(contact_boss_phone,''))=''")[0]["n"] == 0)
+    # 收货人 / 下单人的**名称**（2026-09-20 加的字段）：卡片与详情就显示这两个名字，
+    # 空着界面上就是一条横线 —— 与上面那两个电话同一条规矩。
+    ok("订单：收货人名称/下单人名称都填了",
+       q("select count(*) n from orders where trim(coalesce(contact_dongjia_name,''))='' "
+         "or trim(coalesce(contact_boss_name,''))=''")[0]["n"] == 0)
     ok("订单：都有商品行",
        q("select count(*) n from orders o where not exists (select 1 from order_products p where p.order_id=o.id)")[0]["n"] == 0)
     ok("订单行：单价与金额都为正",

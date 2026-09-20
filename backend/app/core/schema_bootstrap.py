@@ -1007,6 +1007,33 @@ def _bootstrap_impl(engine: Engine) -> None:
                 if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                     raise
 
+    # ---------- 收货人 / 下单人的**名称**（2026-09-20 用户要求） ----------
+    #
+    # 用户原话：「这里分别再加 2 个信息，第一个是**收货人的名称**和**下单人的名称**……
+    # 那个卡片的信息会显示：一个是收货人是谁、一个是下单人是谁，详情也会显示这 2 个信息，
+    # 这边的电话号码都会显示出来」。
+    #
+    # 纯展示字段，不参与任何计算；与 `contact_dongjia_phone` / `contact_boss_phone`
+    # **一一对应**（dongjia=收货人、boss=下单人）。默认空串 = 老数据没有名字，
+    # 客户端按"没填"处理（不编一个默认名出来 —— 那会让人以为这单真的记了名字）。
+    for tbl, col, ddl in (
+        ("orders", "contact_dongjia_name",
+         "ALTER TABLE orders ADD COLUMN contact_dongjia_name VARCHAR(64) NOT NULL DEFAULT ''"),
+        ("orders", "contact_boss_name",
+         "ALTER TABLE orders ADD COLUMN contact_boss_name VARCHAR(64) NOT NULL DEFAULT ''"),
+    ):
+        if tbl not in insp.get_table_names():
+            continue
+        cols = {c["name"] for c in insp.get_columns(tbl)}
+        if col in cols:
+            continue
+        with engine.begin() as conn:
+            try:
+                conn.execute(text(ddl))
+            except DBAPIError as e:
+                if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                    raise
+
     # ---------- 地点的分类 + 仓库标记（2026-09-19 用户要求） ----------
     #
     # 用户原话：「关于**地点库的分类**，包括货主和派单员，他们都可以自行的添加分类，

@@ -321,8 +321,11 @@ class CreateOrderHandler(
         val lines = parseLines(params)
         val address = AiWriteArgs.text(AiWriteArgs.str(params, "address"), "送货地址")
         val date = AiWriteArgs.parseDate(AiWriteArgs.str(params, "date"), "date") ?: LocalDate.now()
-        val phoneDongjia = AiWriteArgs.text(AiWriteArgs.str(params, "phone_dongjia"), "东家电话", 32)
-        val phoneBoss = AiWriteArgs.text(AiWriteArgs.str(params, "phone_boss"), "老板电话", 32)
+        val phoneDongjia = AiWriteArgs.text(AiWriteArgs.str(params, "phone_dongjia"), "收货人电话", 32)
+        val phoneBoss = AiWriteArgs.text(AiWriteArgs.str(params, "phone_boss"), "下单人电话", 32)
+        // 收货人 / 下单人的**名称**（2026-09-20 加的两个字段，卡片与详情都会显示它们）
+        val nameDongjia = AiWriteArgs.text(AiWriteArgs.str(params, "name_dongjia"), "收货人名称", 64)
+        val nameBoss = AiWriteArgs.text(AiWriteArgs.str(params, "name_boss"), "下单人名称", 64)
         val remark = AiWriteArgs.text(AiWriteArgs.str(params, "remark"), "备注")
 
         // 送货地址换成坐标（高德地理编码，只读）。不查这一步的后果很具体：
@@ -353,8 +356,12 @@ class CreateOrderHandler(
                             "得自己再搜一遍地址。想准就把地址说得更完整（带上城市和区/路名）。",
                     )
                 }
-                if (phoneDongjia.isNotBlank()) add("东家电话：$phoneDongjia")
-                if (phoneBoss.isNotBlank()) add("老板电话：$phoneBoss")
+                if (nameDongjia.isNotBlank() || phoneDongjia.isNotBlank()) {
+                    add("收货人：" + listOf(nameDongjia, phoneDongjia).filter { it.isNotBlank() }.joinToString(" "))
+                }
+                if (nameBoss.isNotBlank() || phoneBoss.isNotBlank()) {
+                    add("下单人：" + listOf(nameBoss, phoneBoss).filter { it.isNotBlank() }.joinToString(" "))
+                }
                 if (remark.isNotBlank()) add("备注：$remark")
                 add("———— 建好后 ————")
                 add("新单进入「待派单」，需要再派单才会到司机手上")
@@ -370,6 +377,8 @@ class CreateOrderHandler(
                 }
                 put("contact_dongjia_phone", phoneDongjia)
                 put("contact_boss_phone", phoneBoss)
+                put("contact_dongjia_name", nameDongjia)
+                put("contact_boss_name", nameBoss)
                 put("remark", remark)
                 put(
                     "lines",
@@ -636,8 +645,10 @@ class UpdateOrderHandler(
     private fun changesOf(params: JsonObject): List<OrderChange> = listOf(
         Triple("delivery", "送达说明", "delivery_description"),
         Triple("address", "送货地址", "address_detail"),
-        Triple("dongjia_phone", "东家电话", "contact_dongjia_phone"),
-        Triple("boss_phone", "老板电话", "contact_boss_phone"),
+        Triple("dongjia_name", "收货人名称", "contact_dongjia_name"),
+        Triple("dongjia_phone", "收货人电话", "contact_dongjia_phone"),
+        Triple("boss_name", "下单人名称", "contact_boss_name"),
+        Triple("boss_phone", "下单人电话", "contact_boss_phone"),
         Triple("remark", "备注", "remark"),
         Triple("internal_note", "内部备注", "internal_notes"),
     ).mapNotNull { (param, cn, backendKey) ->
@@ -649,7 +660,8 @@ class UpdateOrderHandler(
         val fields = buildJsonObject {
             listOf(
                 "delivery_description", "address_detail", "contact_dongjia_phone",
-                "contact_boss_phone", "remark", "internal_notes",
+                "contact_boss_phone", "contact_dongjia_name", "contact_boss_name",
+                "remark", "internal_notes",
                 // 改了地址才带上坐标（prepare 已经保证"要改地址就一定查到了坐标"）
                 GEO_LAT, GEO_LNG,
             ).forEach { k -> payload.str(k)?.let { put(k, it) } }

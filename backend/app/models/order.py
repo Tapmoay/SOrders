@@ -42,6 +42,14 @@ class Order(Base, TimestampMixin):
 
     contact_dongjia_phone: Mapped[str] = mapped_column(String(32), default="")
     contact_boss_phone: Mapped[str] = mapped_column(String(32), default="")
+    # 两个联系人的**名称**（2026-09-20 用户要求：「加收货人的名称和下单人的名称……卡片与详情都显示」）。
+    # 口径与上面两个电话**一一对应**：dongjia=**收货人**（到现场接货的人）、boss=**下单人**
+    # （下这一单的人：货主账号本人，或代下单的派单员）。
+    # 为什么名称要单独存而不是每次去 join：收货人可能是没有账号的人（地址库里的 receiver_name），
+    # 下单人的姓名也可能事后被改 —— 已下的单要留住**当时**那个名字（与 `contact_*_phone`
+    # 同一个道理：这几列都是这一单的联系信息快照）。
+    contact_dongjia_name: Mapped[str] = mapped_column(String(64), default="")
+    contact_boss_name: Mapped[str] = mapped_column(String(64), default="")
     remark: Mapped[str] = mapped_column(Text, default="")
     internal_notes: Mapped[str] = mapped_column(Text, default="")
     driver_remark: Mapped[str] = mapped_column(Text, default="")

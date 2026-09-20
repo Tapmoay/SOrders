@@ -508,6 +508,12 @@ def main() -> int:
                                                        "提前 10 分钟打电话", "冷藏品请直接进冷库"]),
                       address_detail=loc.detail_address, address_lat=loc.address_lat,
                       address_lng=loc.address_lng, contact_dongjia_phone=phone(),
+                      # 收货人 = 到现场接货的那个人（真实业务里是店里/食堂的某个人，不是货主本人）；
+                      # 下单人 = 下这一单的人（这里是货主账号本人）。
+                      # ⛔ 两列都**必须填**：卡片与详情显示的就是这两个名字，空着界面上就是一条横线
+                      #    （`_verify_demo_data.py` 的「该填的都填」会拦）。
+                      contact_dongjia_name=person(0.4),
+                      contact_boss_name=shipper.full_name,
                       contact_boss_phone=shipper.phone,
                       remark=rng.choice(["", "", "尽量上午送到", "货要新鲜的", "上次少了两箱，这次点清", "带票据过来"]),
                       freight_fee=Decimal(route[2]) + Decimal(rng.choice([0, 0, 5, 10, 15])),

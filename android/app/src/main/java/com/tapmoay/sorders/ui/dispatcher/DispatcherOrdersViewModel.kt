@@ -38,6 +38,9 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
     var editAddress by mutableStateOf("")
     var editDongjia by mutableStateOf("")
     var editBoss by mutableStateOf("")
+    // 与两个电话一一对应的名称（2026-09-20 加）：dongjia=收货人、boss=下单人
+    var editDongjiaName by mutableStateOf("")
+    var editBossName by mutableStateOf("")
     var editRemark by mutableStateOf("")
     var editInternal by mutableStateOf("")
 
@@ -113,6 +116,8 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
         editAddress = o.addressDetail
         editDongjia = o.contactDongjiaPhone
         editBoss = o.contactBossPhone
+        editDongjiaName = o.contactDongjiaName
+        editBossName = o.contactBossName
         editRemark = o.remark
         editInternal = o.internalNotes
         showEditDialog = true
@@ -139,6 +144,8 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
                         addressDetail = editAddress.trim(),
                         contactDongjiaPhone = editDongjia.trim(),
                         contactBossPhone = editBoss.trim(),
+                        contactDongjiaName = editDongjiaName.trim(),
+                        contactBossName = editBossName.trim(),
                         remark = editRemark.trim(),
                         internalNotes = editInternal.trim(),
                     ),

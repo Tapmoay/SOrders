@@ -75,6 +75,10 @@ class OrderCreate(GeoInput):
     # 生产库这两列里真的有 `[嘿嘿] [刚刚好]` 这种值 —— 司机拿到单打不出去。
     contact_dongjia_phone: ContactPhone = Field("", max_length=MAX_PHONE)
     contact_boss_phone: ContactPhone = Field("", max_length=MAX_PHONE)
+    # 收货人 / 下单人的**名称**（与上面两个电话一一对应）。上限与列宽一致（`String(64)`）——
+    # 不给上限的话本地 SQLite 照收，生产 MySQL 会 `Data too long`（与备注同一类坑）。
+    contact_dongjia_name: str = Field("", max_length=64)
+    contact_boss_name: str = Field("", max_length=64)
     remark: str = Field("", max_length=MAX_TEXT)
     shipper_id: int | None = Field(
         default=None,
@@ -107,6 +111,8 @@ class OrderUpdate(GeoInput):
     # PATCH 语义：None = 不改这一项，所以这里用可选别名（它会放行 None）
     contact_dongjia_phone: OptionalContactPhone = Field(None, max_length=MAX_PHONE)
     contact_boss_phone: OptionalContactPhone = Field(None, max_length=MAX_PHONE)
+    contact_dongjia_name: str | None = Field(None, max_length=64)
+    contact_boss_name: str | None = Field(None, max_length=64)
     remark: str | None = Field(None, max_length=MAX_TEXT)
     internal_notes: str | None = Field(None, max_length=MAX_TEXT)
 
@@ -129,6 +135,9 @@ class OrderOut(BaseModel):
     nav_source: str | None = None
     contact_dongjia_phone: str
     contact_boss_phone: str
+    # 收货人 / 下单人的名称（老数据是空串 = 没记过名字，客户端按"没填"显示）
+    contact_dongjia_name: str = ""
+    contact_boss_name: str = ""
     remark: str
     internal_notes: str
     driver_remark: str

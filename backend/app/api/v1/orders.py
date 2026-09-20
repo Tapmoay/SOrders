@@ -236,6 +236,12 @@ def list_orders(
                     Order.address_detail.like(term),
                     driver_u.full_name.like(term),
                     driver_u.phone.like(term),
+                    # 收货人 / 下单人的名字与电话（2026-09-20）：派单员搜索走的是这一支，
+                    # 少了这两行就会出现"卡片上看得见名字、搜这个名字却搜不到"
+                    Order.contact_dongjia_name.like(term),
+                    Order.contact_boss_name.like(term),
+                    Order.contact_dongjia_phone.like(term),
+                    Order.contact_boss_phone.like(term),
                 )
             )
             .order_by(Order.created_at.desc())
@@ -299,6 +305,10 @@ def list_orders(
                 Order.delivery_description.like(term),
                 Order.contact_boss_phone.like(term),
                 Order.contact_dongjia_phone.like(term),
+                # 收货人/下单人的**名字**也一起搜（2026-09-20 加的那两列）：
+                # 卡片与详情上都写着这两个名字，搜不到就是"看得见却搜不着"
+                Order.contact_dongjia_name.like(term),
+                Order.contact_boss_name.like(term),
             )
         )
     if date_from or date_to:
@@ -492,6 +502,8 @@ def create_order(
         address_lng=body.address_lng,
         contact_dongjia_phone=body.contact_dongjia_phone,
         contact_boss_phone=body.contact_boss_phone,
+        contact_dongjia_name=body.contact_dongjia_name.strip(),
+        contact_boss_name=body.contact_boss_name.strip(),
         remark=body.remark,
         order_products=lines,
     )
@@ -533,7 +545,10 @@ def create_order(
             },
         )
     if target_shipper_id is not None and body.contact_boss_phone.strip():
-        upsert_boss_contact(db, target_shipper_id, body.contact_boss_phone.strip())
+        # 名字一起带上：这位下单人会在货主的联系人里出现，只有号码没有名字的话
+        # 货主下次看到的就是一条"来源不明的联系人"（`upsert_boss_contact` 只在原本没名字时补）。
+        upsert_boss_contact(db, target_shipper_id, body.contact_boss_phone.strip(),
+                            body.contact_boss_name.strip())
     db.commit()
     background_tasks.add_task(_bg_dispatcher_pending_pool)
     background_tasks.add_task(_bg_notify_new_order, order.id)
@@ -572,6 +587,10 @@ def update_order(
         order.contact_dongjia_phone = body.contact_dongjia_phone
     if body.contact_boss_phone is not None:
         order.contact_boss_phone = body.contact_boss_phone
+    if body.contact_dongjia_name is not None:
+        order.contact_dongjia_name = body.contact_dongjia_name
+    if body.contact_boss_name is not None:
+        order.contact_boss_name = body.contact_boss_name
     if body.remark is not None:
         order.remark = body.remark
     if body.internal_notes is not None:

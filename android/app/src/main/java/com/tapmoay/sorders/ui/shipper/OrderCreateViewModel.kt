@@ -68,6 +68,16 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var addressLng by mutableStateOf<String?>(null)
     var dongjiaPhone by mutableStateOf("")
     var bossPhone by mutableStateOf("")
+    /**
+     * 收货人 / 下单人的**名称**（2026-09-20 用户要求）。
+     *
+     * 自动填选的两条来源（各一处，别在界面里再判一次）：
+     * · **下单人** = 当前登录账号本人（货主 / 批发商 / 代下单的派单员都一样）→ [prefillOrderer]；
+     * · **收货人** = 选中的那条线路（`shipper_addresses.receiver_name`）→ [applyAddress]。
+     * 两个都是**可改**的普通输入框：自动填只是省一次输入，不是锁死。
+     */
+    var dongjiaName by mutableStateOf("")
+    var bossName by mutableStateOf("")
     var remark by mutableStateOf("")
     // 代理下单（派单员代下单）：shipperId=已注册货主；tempShipperName=临时货主（互斥）
     var shipperId by mutableStateOf<Long?>(null)
@@ -146,6 +156,15 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             val s = container.tokenStore.sessionFlow.first()
             myShipperId = s?.userId
             canManageSharedPlaces = s?.role == "dispatcher"
+            // 下单人自动填：取**账号资料**（`/users/me`）里的姓名与电话。
+            // ⛔ 不能用会话里的 `username` 当电话 —— 它不一定是手机号（种子/老数据里可能是人名），
+            //    填一个打不通的号比空着更糟。取不到就只填姓名（会话里有），电话留给用户自己填。
+            try {
+                val me = container.repo.me()
+                prefillOrderer(me.fullName.ifBlank { s?.fullName }, me.phone)
+            } catch (_: Exception) {
+                prefillOrderer(s?.fullName, null)
+            }
             loadPriceRulesFor(s?.userId)
         }
         // 预加载商品目录与地址库
@@ -412,8 +431,25 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         addressLat = a.addressLat
         addressLng = a.addressLng
         dongjiaPhone = a.phone
+        // ⚠️ 名字只在**这条线路真的填了收货人**时才覆盖：`receiver_name` 在老线路上可能是空的，
+        //    那种时候把用户刚敲进去的名字清掉，比"不自动填"更糟。电话沿用原来的行为不动。
+        if (a.receiverName.isNotBlank()) dongjiaName = a.receiverName
         showAddressSheet = false
         placeSaved = false
+    }
+
+    /**
+     * 把「下单人」自动填成**当前登录账号本人**（用户 2026-09-20：
+     * 「这个下单人会根据自己的账号来自动填选，比如是批发商或派单员，就自动填上去名称和电话号码」）。
+     *
+     * ⚠️ 两个"不覆盖"：字段已经有人填过就不动（`sessionFlow` 是 DataStore 冷流，
+     *    这个回填是**异步**落到界面上的，落下时用户可能已经在打字了）。
+     */
+    fun prefillOrderer(fullName: String?, phone: String?) {
+        val n = fullName.orEmpty().trim()
+        val p = phone.orEmpty().trim()
+        if (bossName.isBlank() && n.isNotEmpty()) bossName = n
+        if (bossPhone.isBlank() && p.isNotEmpty()) bossPhone = p
     }
 
     /**
@@ -544,6 +580,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                             addressLng = addressLng,
                             contactDongjiaPhone = dongjiaPhone.trim(),
                             contactBossPhone = bossPhone.trim(),
+                            contactDongjiaName = dongjiaName.trim(),
+                            contactBossName = bossName.trim(),
                             remark = remark.trim(),
                             shipperId = shipperId,
                             tempShipperName = tempShipperName,

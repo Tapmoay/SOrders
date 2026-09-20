@@ -539,39 +539,45 @@ private fun DetailBody(
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (order.contactDongjiaPhone.isNotBlank()) {
-                                val uri = android.net.Uri.parse("tel:" + order.contactDongjiaPhone.trim())
-                                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, uri))
+                // 收货人（可点击拨打）与下单人（2026-09-20 用户要求：「详情也会显示这 2 个信息，
+                // 这边的电话号码都会显示出来」）。名称与电话的拼接规则在 `contactWho`（卡片共用）。
+                contactWho(order.contactDongjiaName, order.contactDongjiaPhone)?.let { who ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (order.contactDongjiaPhone.isNotBlank()) {
+                                    val uri = android.net.Uri.parse("tel:" + order.contactDongjiaPhone.trim())
+                                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, uri))
+                                }
                             }
-                        }
-                        .padding(vertical = 6.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Call,
-                        contentDescription = null,
-                        tint = androidx.compose.ui.graphics.Color(0xFF00B578),
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "东家电话 " + order.contactDongjiaPhone.ifBlank { "-" },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        color = androidx.compose.ui.graphics.Color(0xFF0A6CFF),
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "点击拨打",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                            .padding(vertical = 6.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Call,
+                            contentDescription = null,
+                            tint = androidx.compose.ui.graphics.Color(0xFF00B578),
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "收货人 " + who,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = androidx.compose.ui.graphics.Color(0xFF0A6CFF),
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "点击拨打",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                if (order.contactBossPhone.isNotBlank()) InfoRow("老板电话", order.contactBossPhone)
+                contactWho(order.contactBossName, order.contactBossPhone)?.let { who ->
+                    InfoRow("下单人", who)
+                }
                 if (order.remark.isNotBlank()) InfoRow("备注", order.remark)
                 if (role == Role.DRIVER || role == Role.DISPATCHER) {
                     if (order.internalNotes.isNotBlank()) InfoRow("内部备注", order.internalNotes)
