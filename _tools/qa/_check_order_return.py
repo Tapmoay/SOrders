@@ -251,6 +251,19 @@ def main() -> int:
     c.absent("核销金额**不许手输**（后端要求逐分相等，手输必然对不上）", ui, r"SoTextField\(vm\.settleAmount")
     c.present("状态徽章里有「已退货」（否则界面直接印原始码 RETURNED）",
               read(ANDROID / "ui/common/Components.kt"), r'"RETURNED" -> \{[\s\S]{0,200}?label = "已退货"')
+    # ⚠️ 同一类 bug 的**第二处**（2026-09-21 修）：`OrderPeek.kt` 的状态中文名少过「已退货」，
+    #    后果一样 —— 账本展开行把原始码 `RETURNED` 直接印给用户。
+    #    判据**从 `OrderStatusModel.ALL` 算**（不手写 6 个状态名）：少一档就红，
+    #    以后后端加状态、客户端忘了补中文名，这里也会点名（这正是它当初漏掉的原因：没人算过总数）。
+    status_model = read(ANDROID / "core/OrderStatusModel.kt")
+    m_all = re.search(r"val ALL: List<String> = listOf\(([\s\S]*?)\)", status_model)
+    all_statuses = re.findall(r'"([A-Z_]+)"', m_all.group(1)) if m_all else []
+    c.ok(f"从 OrderStatusModel.ALL 解析出全部状态（{len(all_statuses)} 档；解析失效时先喊，别安静通过）",
+         len(all_statuses) >= 5, f"实际 {all_statuses}")
+    peek = read(ANDROID / "ui/common/OrderPeek.kt")
+    missing_label = [s for s in all_statuses if f'"{s}" ->' not in peek]
+    c.ok("OrderPeek 的状态中文名覆盖**全部**档（账本展开行少一档就直接印原始码）",
+         not missing_label, f"缺 {missing_label}")
     tabs = read(ANDROID / "ui/dispatcher/DispatcherOrdersViewModel.kt")
     c.present("订单管理有「已退货」页签", tabs, r'"RETURNED" to "已退货"')
     c.present("页签配色也加了第六档", read(ANDROID / "ui/common/SegmentedStatusTabs.kt"), r"已退货 · 棕橙")

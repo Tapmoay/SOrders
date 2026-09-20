@@ -34,6 +34,8 @@ COMPONENTS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/Com
 STATS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/LedgerPersonStats.kt"
 RETURN_RULES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/core/ReturnRules.kt"
 VM_ORDERS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherOrdersViewModel.kt"
+#: 账本展开行用的状态中文名（2026-09-21 补上「已退货」那一档；注入点钉在这儿）
+PEEK = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderPeek.kt"
 
 
 def sub(old: str, new: str, count: int = 1):
@@ -108,8 +110,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "并发下的欠款判定改回普通读（REPEATABLE READ 快照让两个请求都读到旧值）",
-        ACCT,
-        sub("money_map(db, list(locked.values()), lock=True)", "money_map(db, list(locked.values()))"),
+        ACCT,        sub("money_map(db, list(locked.values()), lock=True)", "money_map(db, list(locked.values()))"),
     ),
     ("已退货的单又能收款（货款已经红冲掉了）", ACCT, sub("if (o.status or \"\").upper() == OrderStatus.RETURNED.value:", "if False:")),
     # ---- 枚举 / 迁移 ----
@@ -118,6 +119,8 @@ CASES: list[tuple[str, Path, object]] = [
     # ---- 客户端 ----
     ("客户端退货状态门放宽到已退货（对退过的单再点退货）", STATUS_MODEL, sub('val RETURNABLE: Set<String> = setOf("DELIVERED")', 'val RETURNABLE: Set<String> = setOf("DELIVERED", "RETURNED")')),
     ("状态徽章删掉「已退货」分支（界面直接印原始码 RETURNED）", COMPONENTS, sub('"RETURNED" -> {', '"RETURNED_X" -> {')),
+    # 2026-09-21 补：账本展开行用的那份状态中文名原来少「已退货」一档（同样是直接印原始码）
+    ("账本展开行的「已退货」那一档被删（OrderPeek 里直接印原始码）", PEEK, sub('    "RETURNED" -> "已退货"', '    "RETURNED_X" -> "已退货"')),
     (
         "客户端上限不减已退数量（界面让填 3、后端只认 2）",
         RETURN_RULES,

@@ -142,5 +142,10 @@ fun orderStatusLabel(status: String): String = when (status) {
     "ACCEPTED" -> "已接单"
     "DELIVERED" -> "已送达"
     "CANCELLED" -> "已撤销"
+    // 已退货（2026-09-21 补）：这一档漏了太久 —— 账本展开行会把原始码 `RETURNED`
+    // 直接印给用户（与状态徽章当初漏它同一类，那边 2026-09-20 就补过并写明理由）。
+    // 判据：`_tools/qa/_check_order_return.py` 拿 `OrderStatusModel.ALL` 逐档核对，
+    // 少一档就红（不手写状态名，以后加状态也会被点名）。
+    "RETURNED" -> "已退货"
     else -> status
 }

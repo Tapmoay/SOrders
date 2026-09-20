@@ -159,9 +159,20 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         fetchModels()
     }
 
-    /** 重新检测能力：清掉记忆，下次提问时重新探一次（换地址后想恢复思考模式时用）。 */
+    /**
+     * 重新检测能力：清掉记忆，下次提问时重新探一次（换地址后想恢复思考模式 / 服务端用量时用）。
+     *
+     * ⚠️ **两种能力记忆都要清**（2026-09-21 修）：原来只清了「不支持思考开关」，
+     *    而「不接受 `stream_options`」那条留在了盘上 —— 后果是用户换到一个**支持**它的地址、
+     *    点了这个按钮，App 仍然永远跳过 `stream_options`（拿不到服务端的 token 用量，
+     *    上下文压缩只能改用本机估算），而且**界面上没有任何地方说得出来为什么**
+     *    （那句解释 `LlmClient.STREAM_OPTIONS_UNSUPPORTED_NOTE` 至今没接到界面上）。
+     *    `AiKeyStore.clearStreamOptionsUnsupported` 一直存在、KDoc 也写着"与
+     *    clearThinkingUnsupported 一起用于设置页的重新检测" —— 就是没人调它。
+     */
     fun recheckThinkingSupport() {
         ai.keyStore.clearThinkingUnsupported(baseUrl)
+        ai.keyStore.clearStreamOptionsUnsupported(baseUrl)
         thinkingUnsupported = false
         actionResult = "已清除该地址的能力记忆，下次提问会重新检测"
     }

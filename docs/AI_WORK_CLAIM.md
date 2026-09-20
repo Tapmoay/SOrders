@@ -158,6 +158,20 @@
 
 **验证**：`_check_all.py` **50/50**（49 个原有 + 这一条新的）· `_reverse_verify_endpoint_index.py` **2/2 注入报红 + 还原逐字节一致** · 故意改坏索引 → 新判据**当场红**（改回即绿）。
 
+### 第六轮：修两个用户可见的真 bug（都是"界面上说不清"的那一类）
+
+| bug | 后果 | 修法 |
+| --- | --- | --- |
+| `ui/common/OrderPeek.kt::orderStatusLabel` **少了「已退货」那一档** | 账本展开行把**原始码 `RETURNED`** 直接印给用户（与 2026-09-20 状态徽章漏它同一类，那边补过并写明理由，这一处漏了） | 补一档 + **判据从 `OrderStatusModel.ALL` 逐档核对**（不手写 6 个状态名 —— 当初漏它正是因为没人算过总数；以后后端加状态、客户端忘补中文名也会被点名） |
+| `ui/ai/AiSettingsViewModel.recheckThinkingSupport()` 只清了「不支持 thinking」的记忆 | 用户换到一个**支持** `stream_options` 的地址、点了「换地址后重新检测」，App 仍然**永远跳过** `stream_options`：拿不到服务端的 token 用量（上下文压缩只能改用本机估算），而界面上**没有一个字**解释为什么。`AiKeyStore.clearStreamOptionsUnsupported` 一直存在、KDoc 也写着"与 clearThinkingUnsupported 一起用于设置页的重新检测"—— 就是没人调它 | 两种能力记忆一起清 |
+
+**验证**：`_check_order_return.py` **104 → 106 项** · `_reverse_verify_order_return.py` **26/26 条注入报红**（含新增的"删掉 OrderPeek 里那一档"）+ 11 个被碰文件**逐字节还原** · Android `assembleEmuDebug` + **913 单测 0 失败** · 装到 emulator-5556 启动 smoke 通过、无崩溃 · `_check_all.py` **50/50**。
+
+⚠️ **诚实记一笔：第二个修复没有机器判据。** 原因：AI 设置页那一节（`_check_ai_guardrails.py §13`）目前没有反向验证宿主，而 `AiKeyStore` 走 Android `Context`、纯 JVM 单测打不进去。它现在只靠代码注释与这一行记录守着。下一轮二选一：
+① 给 §13 建一份 `_reverse_verify_ai_settings.py`；② 做成通用判据「`AiKeyStore` 里每个"清能力记忆"的方法都必须被『重新检测』调用」（这条还能顺手抓住以后新增的同类半接线）。
+
+⚠️ **同一族的另一半（待你拍板，不是 bug 修复）**：`LlmClient.STREAM_OPTIONS_UNSUPPORTED_NOTE`（"当前地址不接受 stream_options，已自动跳过，不影响回答"）**至今没接到界面上** —— 也就是说用户确实会看到"拿不到服务端用量"这个现象，但 App 不会解释。要不要在设置页给一段解释，是产品决定。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
