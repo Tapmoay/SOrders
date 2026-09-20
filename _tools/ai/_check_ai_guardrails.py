@@ -379,6 +379,7 @@ def main() -> int:
     sanitizer = read(AI / "AiAnswerSanitizer.kt")
     conv = read(AI / "AiConversation.kt")
     store = read(AI / "AiConversationStore.kt")
+    jsonstore = read(AI / "AiJsonStore.kt")   # 两个本地文件存储共用的唯一实现（2026-09-21 收口）
     md = read(AI / "AiMarkdown.kt")
     client = read(AI / "LlmClient.kt")
     keystore = read(AI / "AiKeyStore.kt")
@@ -1458,9 +1459,18 @@ def main() -> int:
     c.present("可按主体分组展示（设置页摊开给用户看）", mem, r"fun grouped\(")
     c.present("有总开关，且默认开", AI_join("AiKeyStore.kt"), r"fun memoryEnabled\(\): Boolean = prefs\.getBoolean\(KEY_MEMORY_ENABLED, true\)")
     c.present("落盘在 App 私有目录（不是外部存储）", mem_store, r"filesDir")
-    c.present("写盘是「先写临时文件再改名」（半截文件会丢掉用户教的东西）", mem_store, r"renameTo\(file\)")
-    c.present("坏文件改名留证，不静默覆盖", mem_store, r"quarantine\(\)")
-    c.present("任何异常都不抛（记忆存不下不该让聊天挂掉）", mem_store, r"fun save\(list: List<AiMemoryItem>\): Boolean = try")
+    # ⚠️ 2026-09-21：下面三条原来钉在 `AiMemoryStore.kt` 的实现体上，而那份实现已经和
+    #    `AiConversationStore` 一起收进了 `AiJsonStore`（两份各抄了一遍约 120 行）。
+    #    判据现在钉**共用的那一处**，并额外要求记忆存储**确实接到了它**——
+    #    否则"实现搬走了、记忆这边没接上"会变成一句静默失效（用户教的东西照样丢）。
+    c.present("记忆走的是共用的文件仓储（不是自己又写一遍）", mem_store, r"private val store = AiJsonStore\(")
+    c.present("写盘是「先写临时文件再改名」（半截文件会丢掉用户教的东西）", jsonstore, r"tmp\.renameTo\(file\)")
+    c.present("坏文件改名留证，不静默覆盖", jsonstore, r"\.bad-\$\{System\.currentTimeMillis\(\)\}")
+    c.present(
+        "任何异常都不抛（记忆存不下不该让聊天挂掉）",
+        jsonstore,
+        r"fun save\(list: List<T>\): Boolean = try \{",
+    )
     c.present("与对话历史同一条隐私边界（不上传）", mem_store, r"绝不上传服务器")
     c.present("注入必须写明「以用户这次说的为准」（记忆会过期）", mem, r"以用户这次说的为准")
     c.present("注入必须要求不要复述（用户知道自己教过什么）", mem, r"不要把这些内容念出来")
@@ -1649,7 +1659,7 @@ def main() -> int:
     c.present("有单对话消息数上限", conv, r"const val MAX_MESSAGES_PER_CONVERSATION")
     c.present("有盘上字节预算", conv, r"const val MAX_FILE_BYTES")
     c.present("encode 自带预算闸（走 fitToBudget）", conv, r"conversations = fitToBudget\(list\)")
-    c.present("写盘是「先写临时文件再改名」", store, r"renameTo\(file\)")
+    c.present("写盘是「先写临时文件再改名」（唯一实现在 AiJsonStore）", jsonstore, r"tmp\.renameTo\(file\)")
 
     print("\n== 5. 落盘链路确实接上了 ==")
     c.present("ViewModel 会调 store.save", vm, r"ai\.conversations\.save")
@@ -1658,7 +1668,22 @@ def main() -> int:
     # 这一条是一次真实丢历史事故的回归：
     # ViewModel 的 all 是异步读进来的，读进来之前落盘会把盘上原有对话覆盖成"只有当前这一段"。
     c.present("读盘完成前不落盘（防覆盖丢历史）", vm, r"if \(!loaded\)")
-    c.present("存储层也没读过盘时改合并", store, r"AiConversations\.mergeById\(readSilently\(\)")
+    # ⚠️ 2026-09-21：这条兜底与"先写临时文件再改名"原来钉在 `AiConversationStore.kt` 上，
+    #    而那份实现已经和 `AiMemoryStore` 一起收进了 `AiJsonStore`（两个 store 各抄了一遍
+    #    同样的约 120 行）。判据跟着挪，并**加了两条**"两个 store 都真的把合并函数接上了"——
+    #    只钉"某个文件里出现过某段字符串"会退化：实现改名/搬家之后判据仍绿，而那条兜底
+    #    可能压根没接上（这正是它当年守的那次丢历史事故的形状）。
+    c.present(
+        "存储层也没读过盘时改合并（唯一实现在 AiJsonStore）",
+        jsonstore,
+        r"if \(everLoaded\) list else merge\(readSilently\(\), list\)",
+    )
+    c.present("对话存储把合并函数接上了", store, r"merge = AiConversations::mergeById")
+    c.present(
+        "记忆存储把合并函数接上了",
+        AI_join("AiMemoryStore.kt"),
+        r"merge = \{ disk, mine -> mergeById\(disk, mine\) \}",
+    )
     c.present("合并函数存在且是纯逻辑", conv, r"fun mergeById\(")
 
     print("\n== 6. 界面上用户明确提过的几件事 ==")
