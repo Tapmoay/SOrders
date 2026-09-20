@@ -7,7 +7,7 @@
 
 ## 注入点怎么选（规矩：挑「旧检查不看的地方」）
 - 不是把常量改掉（那种一眼可见），而是把**语义**换掉：
-  `total=-line_total` → `total=line_total`（退货变成又卖一次）、
+  `total=-line_amount` → `total=line_amount`（退货变成又卖一次）、
   `min(returned_now, already_refundable)` → 只有第一个上限（倒贴）、
   `if part > m.arrears` → `if False`（超额核销）……
 - 客户端注入放在**别处不看**的判据上（上限公式、状态门、徽章中文名）。
@@ -47,8 +47,21 @@ def sub(old: str, new: str, count: int = 1):
 
 CASES: list[tuple[str, Path, object]] = [
     # ---- 账本红冲 ----
-    ("红冲行金额写成正数（退了货反而又多一笔营业额）", RET, sub("total=-line_total", "total=line_total")),
+    ("红冲行金额写成正数（退了货反而又多一笔营业额）", RET, sub("total=-line_amount", "total=line_amount")),
     ("红冲行挂了 REFUND（与货损那一行撞唯一约束）", RET, sub("source=LedgerSource.RETURN", "source=LedgerSource.REFUND")),
+    (
+        "本次退货金额改回「按行取两位再求和」（四位单价下与账本红冲差一分，退现比账上多付）",
+        RET,
+        sub("        returned_raw += line_amount", "        returned_raw += _q2(line_amount)"),
+    ),
+    (
+        "红冲行绕开调用方传进来的金额、自己再算一遍（两边各算一遍＝差一分的土壤）",
+        RET,
+        sub(
+            "_reversal_row(db, order, op, qty, line_amount, entry_date,",
+            "_reversal_row(db, order, op, qty, _line_amount(op, qty), entry_date,",
+        ),
+    ),
     (
         "红冲行改回读改写（并发两次退货丢掉一次）",
         RET,

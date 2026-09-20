@@ -405,3 +405,87 @@ def test_money_identity_holds_after_return_and_partial_receipt(
     assert total - returned == (settled - refunded) + arrears, (
         f"恒等式破了：应收 {total - returned} != 净已收 {settled - refunded} + 欠款 {arrears}"
     )
+
+
+def test_return_amount_is_one_number_even_with_four_decimal_prices(
+    client, token_dispatcher, token_shipper, token_driver, users, db_session
+):
+    """**四位单价**下，同一个响应体里的三个数必须是同一个数（2026-09-21 修：原来差 1 分）。
+
+    两行各 `unit_price=12.3456 × 1`（`order_products.unit_price` 是 `Numeric(14,4)`，
+    拆单会算出这种单价）。原来有两个算法各算一遍：
+
+    · 「本次退货金额」按行先取两位再求和 → **24.70**（并照这个数退现）；
+    · 账本红冲按行落四位，汇总再取两位 → **24.69**。
+
+    也就是 `POST /orders/{id}/return` 的响应里 `returned_amount` 与 `order.returned_amount`
+    不相等，退出去的真金白银比账上红冲的多一分，**而两边都不报错**。
+    """
+    from app.models import CashFlow, Ledger
+    from app.models.enums import CashFlowBizType, LedgerSource
+
+    h, hd = auth_headers(token_dispatcher), auth_headers(token_driver)
+    r = client.post(
+        "/api/v1/orders",
+        headers=auth_headers(token_shipper),
+        json={
+            "lines": [
+                {"product_name_snapshot": "四分单价甲", "quantity": 1, "unit_price": "12.3456",
+                 "line_total": "12.3456"},
+                {"product_name_snapshot": "四分单价乙", "quantity": 1, "unit_price": "12.3456",
+                 "line_total": "12.3456"},
+            ],
+            "delivery_description": "四位单价地址",
+            "address_detail": "四位单价地址",
+        },
+    )
+    assert r.status_code == 201, r.text
+    oid = int(r.json()["id"])
+
+    # 派单时勾「收取现金」→ 送达时 paid=True（现场收现金没有流水）→ 退货会走到退现分支
+    assigned = client.post(
+        f"/api/v1/orders/{oid}/assign",
+        json={"driver_id": users["driver"].id, "collect_cash": True},
+        headers=h,
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert client.post(f"/api/v1/orders/{oid}/driver-ack", headers=hd).status_code == 200
+    done = client.post(
+        f"/api/v1/orders/{oid}/complete",
+        json={"delivery_photo_urls": ["/static/uploads/delivery/probe.jpg"], "payment": "cash"},
+        headers=hd,
+    )
+    assert done.status_code == 200, done.text
+
+    lines = _lines_of(client, h, oid)
+    res = _return(client, h, oid, [(x["id"], 1) for x in lines])
+    assert res.status_code == 200, res.text
+    body = res.json()
+
+    db_session.expire_all()
+    red = (
+        db_session.query(Ledger)
+        .filter(Ledger.order_id == oid, Ledger.source == LedgerSource.RETURN)
+        .all()
+    )
+    assert len(red) == 2, f"两行各退一次，红冲行该是两条：{[(x.id, x.total) for x in red]}"
+    ledger_sum = -sum((Decimal(x.total) for x in red), Decimal("0"))
+    # ⚠️ 这是**前提**，不是结论：账本按行落四位（4 位列，退货要精确冲回卖出去的那笔）
+    assert ledger_sum == Decimal("24.6912"), f"前提不成立：账本红冲不是两行四位之和：{ledger_sum}"
+
+    # ★ 三个数一个都不能差：本次退货金额 = 累计已退（账本出的）= 实际退现 = 现金流水
+    assert Decimal(body["returned_amount"]) == Decimal("24.69"), body
+    assert Decimal(body["order"]["returned_amount"]) == Decimal(body["returned_amount"]), (
+        f"同一个响应体里两个数不一致：本次 {body['returned_amount']} "
+        f"/ 累计 {body['order']['returned_amount']}"
+    )
+    assert Decimal(body["refund_amount"]) == Decimal("24.69"), body
+    outs = (
+        db_session.query(CashFlow)
+        .filter(CashFlow.order_id == oid, CashFlow.biz_type == CashFlowBizType.REFUND_CUSTOMER)
+        .all()
+    )
+    assert [Decimal(x.amount) for x in outs] == [Decimal("24.69")], [str(x.amount) for x in outs]
+
+    detail = client.get(f"/api/v1/orders/{oid}", headers=h).json()
+    assert Decimal(detail["returned_amount"]) == Decimal("24.69"), detail["returned_amount"]

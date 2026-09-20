@@ -108,7 +108,7 @@ def main() -> int:
     c.present("MySQL 的 ledgers.source 枚举补 RETURN", bootstrap, r"'ORDER','MANUAL','REFUND','RETURN'")
 
     print("\n== 2. 退货服务：红冲 / 库存 / 退现 / 状态 ==")
-    c.present("红冲行金额为负（退货是减账，不是又一次收入）", ret, r"total=-line_total")
+    c.present("红冲行金额为负（退货是减账，不是又一次收入）", ret, r"total=-line_amount")
     c.present("红冲行数量为负", ret, r"quantity=-qty")
     c.present("红冲行成本快照为负（货回来了，COGS 一起冲回）", ret, r"cost_price_snapshot=-cost_total")
     c.present("红冲行来源是 RETURN（不是 REFUND）", ret, r"source=LedgerSource\.RETURN")
@@ -137,6 +137,25 @@ def main() -> int:
     c.present("整单退完的判据读**库里的真实值**（内存对象是旧的）", ret, r"select\(OrderProduct\.quantity, OrderProduct\.returned_quantity\)")
     c.present("退货留痕（写 ORDER_RETURN 审计）", ret, r"action=OperationAction\.ORDER_RETURN")
     c.present("金额两位小数走全项目同一个进位", ret, r'ROUND_HALF_UP')
+
+    # ---- 退货金额与账本红冲必须是**同一个数**（2026-09-21 修掉差 1 分的缺陷）----
+    # 四位单价下（`order_products.unit_price` 是 `Numeric(14,4)`，拆单会算出这种单价）：
+    # 两行各 12.3456 × 1 —— 按行先取两位再求和 = 24.70，账本按行落四位再汇总 = 24.69。
+    # 两个数印在**同一个响应体**里（`returned_amount` 与 `order.returned_amount`），
+    # 而退现按大的那个付出去：真金白银比账上红冲多一分，**两边都不报错**。
+    # 所以判据是"只算一处 + 到分只做一次"（数值由 `backend/tests/test_order_return.py` 那条钉着）：
+    c.present("这一行的退货货值只算一处（`_line_amount`）",
+              ret, r"line_amount = _line_amount\(op, qty\)")
+    c.present("红冲行用**调用方传进来的**那个数（不自己再算一遍）",
+              ret, r"_reversal_row\(db, order, op, qty, line_amount,")
+    c.absent("本次退货金额**不许**按行取两位再求和（到分多取一次就是那 1 分）",
+             ret, r"_q2\(line_amount\)")
+    c.present("到分只在「整次退货」这一层做一次", ret, r"returned_amount = _q2\(returned_raw\)")
+    reversal_body = re.search(r"def _reversal_row\(([\s\S]*?)\ndef return_order\(", ret)
+    c.ok("解析到红冲行那一段（解析失效时先喊，别安静通过）", reversal_body is not None)
+    c.absent("红冲行里不再出现第二种货值算法（单价 × 数量只有一处）",
+             code_only(reversal_body.group(1)) if reversal_body else "",
+             r"unit_price\s*\*\s*Decimal\(")
 
     print("\n== 3. 端点：权限、加锁、整单回滚 ==")
     c.present("退货端点存在", orders_api, r'@router\.post\("/\{order_id\}/return", response_model=OrderReturnOut\)')

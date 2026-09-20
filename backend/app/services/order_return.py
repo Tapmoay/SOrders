@@ -11,7 +11,12 @@
 1. **行级事实** `order_products.returned_quantity += n` —— 退货的底座；
 2. **账本红冲** `ledgers(source=RETURN)`：**售价冲减**（`total` 为负）+ **负成本快照**
    （货回来了 → COGS 同步冲回）。同一行多次退货**累加到同一行**（唯一约束
-   `(order_product_id, source)` 钉着，见 `LedgerSource.RETURN` 的注释）；
+   `(order_product_id, source)` 钉着，见 `LedgerSource.RETURN` 的注释）。
+   ⛔ **金额口径**：按行落**四位**（账本是 4 位列，退货要精确冲回卖出去的那笔），
+   到分**只在"整次退货"这一层做一次**；这一行的货值只算一处（`_line_amount`），
+   "本次退货金额"与账本红冲行必须是同一个数 —— 2026-09-21 修掉原来两边各算一遍、
+   四位单价下差 1 分的缺陷（按行取两位再求和 = 24.70，按行落四位再汇总 = 24.69，
+   而退现按大的那个付出去）；
 3. **库存回补** `inventory_service.restock_returned`（送达时实扣过，货真回来了）；
 4. **退现**（只有"这单已经结过账"才发生）：`cash_flows(OUT, biz_type=REFUND_CUSTOMER)`。
    退多少不是拍脑袋 —— 见下面 `_refund_amount` 的三条边界；
@@ -84,6 +89,33 @@ def _q2(v: Decimal) -> Decimal:
     return Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _line_amount(op: OrderProduct, qty: int) -> Decimal:
+    """本次退掉这一行的**货款**（4 位小数）—— 全流程只有这一处算它。
+
+    ## 为什么必须只有一处（2026-09-21 修的真实缺陷：差 1 分）
+
+    在这之前有两个算法各算一遍：
+
+    | 用在哪 | 规则 | 两行各 `unit_price=12.3456 × 1` |
+    |---|---|---|
+    | `ReturnResult.returned_amount`（→ 退现 → 响应体 → 站内信） | 按行先取**两位**再求和 | **24.70** |
+    | `ledgers(source=RETURN).total`（账本红冲） | 按行落**四位** | 24.6912 → 汇总取两位 **24.69** |
+
+    后果：同一个 `POST /orders/{id}/return` 的响应体里 `returned_amount`(24.70) 与
+    `order.returned_amount`(24.69) 不相等，而**两边都不报错**；
+    退现（真金白银）按 24.70 付，账上只红冲了 24.69 —— 一分钱对不上账。
+    `order_products.unit_price` 是 `Numeric(14,4)`（拆单会算出四位单价），所以这不是理论值。
+
+    ## 口径（账本是真相，只在"整次退货"这一层取两位）
+
+    · **按行落四位**：账本 `total` 就是 4 位列，退货要**精确冲回**卖出去的那笔；
+      在这里先取两位的话，卖 12.3456 只冲 12.35，那 0.0044 会永远留在应收里清不掉。
+    · **整次退货取两位**：退现是付现金，必须到分；而"到分"这个动作一次就够
+      （按行取两位再求和 = 多取了一次，正是上面那 1 分的来源）。
+    """
+    return ((op.unit_price or ZERO) * Decimal(qty)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
 def max_returnable(op: OrderProduct) -> int:
     """这一行**最多还能退几件** = 数量 − 货损 − 已退。
 
@@ -111,15 +143,23 @@ def _refund_amount(order: Order, db: Session, returned_now: Decimal) -> Decimal:
 
 
 def _reversal_row(
-    db: Session, order: Order, op: OrderProduct, qty: int, entry_date, customer_id: int | None
+    db: Session,
+    order: Order,
+    op: OrderProduct,
+    qty: int,
+    line_amount: Decimal,
+    entry_date,
+    customer_id: int | None,
 ) -> None:
     """写/累加这一行的退货红冲账本行（负数口径：数量、金额、成本快照全为负）。
 
     累加而不是新插一行：`ledgers` 有唯一约束 `(order_product_id, source)`，
     而"同一行分几次退"是真实场景（先退 2 件、过两天再退 3 件）。
+
+    ⚠️ [line_amount] 由调用方用 `_line_amount` 算好传进来 —— **不许在这里再算一遍**：
+       "本次退货金额"与账本红冲必须是同一个数，各算一遍就会差一分（见 `_line_amount`）。
     """
     unit_price = op.unit_price or ZERO
-    line_total = (unit_price * Decimal(qty)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     cost = op.cost_price_snapshot or ZERO
     cost_total = (cost * Decimal(qty)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
@@ -139,7 +179,7 @@ def _reversal_row(
                 product_name=op.product_name_snapshot,
                 quantity=-qty,
                 unit_price=unit_price,
-                total=-line_total,
+                total=-line_amount,
                 order_id=order.id,
                 order_product_id=op.id,
                 product_id=op.product_id,
@@ -159,7 +199,7 @@ def _reversal_row(
         .where(Ledger.id == row.id)
         .values(
             quantity=Ledger.quantity - qty,
-            total=Ledger.total - line_total,
+            total=Ledger.total - line_amount,
             cost_price_snapshot=Ledger.cost_price_snapshot - cost_total,
             # 日期跟着**最后一次**退货走（红冲行的金额是多次累加的，日期取最早那次会让人
             # 以为"钱是那天退的"；`orders.returned_at` 记的也是最后一次）
@@ -215,14 +255,16 @@ def return_order(
     entry_date = business_date(datetime.now(timezone.utc)) or order.order_date
     cust = resolve_customer_for_order(db, order)
     warnings: list[str] = []
-    returned_amount = ZERO
+    returned_raw = ZERO
     lines: list[tuple[OrderProduct, int]] = []
 
     for it in items:
         op = ops[it.order_product_id]
         qty = it.quantity
-        line_total = _q2((op.unit_price or ZERO) * Decimal(qty))
-        returned_amount += line_total
+        # ⚠️ 这一行的货值只在这里算一次，**同一个数**既进"本次退货金额"又进账本红冲行
+        #    （各算一遍就会差一分 —— 见 `_line_amount` 的表）。
+        line_amount = _line_amount(op, qty)
+        returned_raw += line_amount
         # ⛔ 已退数量走 **SQL 表达式**（`returned_quantity = returned_quantity + qty`），
         #    不许 `op.returned_quantity = op.returned_quantity + qty`：两次退货同时提交时，
         #    两边都读到同一个旧值、各自算新值，后写的把前一次盖掉 ——
@@ -234,7 +276,7 @@ def return_order(
             .values(returned_quantity=OrderProduct.returned_quantity + qty)
         )
         lines.append((op, qty))
-        _reversal_row(db, order, op, qty, entry_date, cust.id if cust else None)
+        _reversal_row(db, order, op, qty, line_amount, entry_date, cust.id if cust else None)
 
     restocked = restock_returned(db, order, lines, operator_id)
     if restocked < len(lines):
@@ -243,7 +285,8 @@ def return_order(
             "请到「库存管理」手工入库，或用「商品管理」确认它还在。"
         )
 
-    returned_amount = _q2(returned_amount)
+    # 到分只做一次（按行取两位再求和会与账本红冲差一分，见 `_line_amount`）
+    returned_amount = _q2(returned_raw)
     refund = _refund_amount(order, db, returned_amount)
     if refund > 0:
         party_name = cust.name if cust else ((order.temp_shipper_name or "").strip() or "临时货主")

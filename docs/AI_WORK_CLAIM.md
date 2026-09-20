@@ -50,6 +50,29 @@
 | `_tools/qa/_reverse_verify_catalog_and_scope.py` | 注入点搬到共用文件 + 新增 1 条；**顺手修掉一条早就过期的注入**（`OneShotSnackbar` 那条替换串早就不匹配源码，等于那一项一直没被证明过）→ 25/25 |
 | `_tools/qa/_scan_dup.py`（新，**报告工具**，不进 `_check_all`）| 跨文件重复块扫描（滑窗指纹 + 相邻窗口合并）。为什么要它：`_check_dead_code.py` 只看"没用的 import / 没人调的私有声明"，看不见"同一段逻辑在 4 个文件里各抄一遍"。⛔ 它**不做红线**：重复是一条连续谱，做成红线只会得到一条"永远红"的检查（＝没有检查）；用法是**精简前后各跑一次看组数**（当前基线：**33 组**）|
 
+### 第二轮：修掉退货金额「同一笔钱两个数」（差 1 分）
+
+**这是本轮唯一有可复现数值证据的钱的缺陷**（`order_products.unit_price` 是 `Numeric(14,4)`，
+拆单会算出四位单价，所以不是理论值）：
+
+| 用在哪 | 原规则 | 两行各 `12.3456 × 1` |
+| --- | --- | --- |
+| `ReturnResult.returned_amount`（→ 退现 → 响应体 → 站内信） | 按行先取**两位**再求和 | **24.70** |
+| `ledgers(source=RETURN).total`（账本红冲） | 按行落**四位**，汇总再取两位 | **24.69** |
+
+两个数印在**同一个** `POST /orders/{id}/return` 的响应体里（`returned_amount` 与
+`order.returned_amount`），而退现（真金白银）按 24.70 付出去、账上只红冲 24.69 —— **两边都不报错**。
+
+| 我改的 | 内容 |
+| --- | --- |
+| `services/order_return.py` | 新增 `_line_amount`（**这一行的退货货值只算一处**：按行落四位）；`_reversal_row` 改成**收调用方传进来的那个数**、不再自己算一遍；`returned_amount = _q2(returned_raw)` —— **到分只在"整次退货"这一层做一次**。账本的存储值（4 位）与历史数据**一个字节没动**，改的是"另外那份算法" |
+| `backend/tests/test_order_return.py` | 新增 `test_return_amount_is_one_number_even_with_four_decimal_prices`：四位单价 + 派单勾了收现金 → 断言 **本次退货金额 = 累计已退（账本出的）= 退现 = 现金流水**，并先把"账本红冲确实是 24.6912"当**前提**钉住 |
+| **敏感性实验** | 把 `returned_raw += line_amount` 注入回旧规则（`_q2(line_amount)`）→ 那条测试**当场红**，报 `assert Decimal('24.70') == Decimal('24.69')`；还原即绿。**先证明测试抓得住这个 bug，再说修好了** |
+| `_tools/qa/_check_order_return.py` | 新增 6 条判据（只算一处 / 红冲行用传进来的数 / 不许 `_q2(line_amount)` / 到分只做一次 / 红冲行里不许出现第二种货值算法）；**98 项 → 104 项** |
+| `_tools/qa/_reverse_verify_order_return.py` | 新增 2 条注入（改回按行取两位、红冲行绕开传入值自己算）＋修掉 2 处因改名而过期的替换串 → **25 条注入全部报红** |
+
+**验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **672 passed**（含新增那条）· `_reverse_verify_order_return.py` **25/25** · 账本存储值未变（`ledgers` 仍是 4 位列、原位）。
+
 **验证**：`_check_all.py` **54/54** · `cd backend && pytest -q` **671 passed** · `_reverse_verify_expense_page.py` **15/15** · `_reverse_verify_catalog_and_scope.py` **25/25** · `08A_ENDPOINT_INDEX.md` 已重新生成（192 端点，行号顺手对齐）。
 
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
