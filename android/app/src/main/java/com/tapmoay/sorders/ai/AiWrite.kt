@@ -200,6 +200,17 @@ data class AiPendingWrite(
     val summary: String,
     /** 卡片明细：日期、对象、备注等，逐行一个「标签：值」。 */
     val detailLines: List<String>,
+    /**
+     * 处理器自己写的那几行（**不含**暂存区统一追加的最后一行：撤回 / 撤不回来）。
+     *
+     * ### 为什么要把它们分开（2026-09-21 批量那一轮）
+     * 卡片最后那一行是由 [AiWritePreviewStore.offer] 按**动作**算出来的（[AiWrites.undoLineOf]
+     * 或 [AiRevert.undoCardLine]）。批量层要把每一条的明细复制到那张汇总卡上，
+     * 照抄 [detailLines] 就会把"会出现撤回"复制 N 遍 —— 而那句话对批量是**假的**
+     * （批量不挂撤回，见 [AiWrites.BATCH_UNDO_NOTE]）。
+     * 界面上仍然是 `detailLines`（一个字没变），这里只是**多留一份没被追加过的**。
+     */
+    val bodyLines: List<String> = detailLines,
     val payload: JsonObject,
     val createdAtMs: Long,
     val expiresAtMs: Long,
@@ -251,6 +262,14 @@ class AiWritePreviewStore(
          * 「⚠️ 这一步撤不回来」，和标题「撤回：…」互相打架（真机 E2E 抓到的原样）。
          */
         isUndo: Boolean = false,
+        /**
+         * true = **这一张卡是「批量」卡**（`AiWriteBatch.kt`，一次改多条）。
+         *
+         * 为什么最后一行要单独说：批量**不挂撤回**（一批 N 条要 N 份撤回快照，一张卡放不下），
+         * 而按 `actionId` 拼出来的那一行会印「执行后会出现一个「撤回」按钮」——
+         * 用户点完确认发现没有按钮，而卡片答应过有。
+         */
+        batch: Boolean = false,
     ): AiPendingWrite {
         synchronized(lock) {
             pruneLocked()
@@ -263,7 +282,11 @@ class AiWritePreviewStore(
             items.firstOrNull { it.actionId == actionId && it.payload == payload }?.let { return it }
 
             val at = now()
-            val lastLine = if (isUndo) AiRevert.undoCardLine(actionId) else AiWrites.undoLineOf(actionId)
+            val lastLine = when {
+                batch -> AiWrites.BATCH_UNDO_NOTE
+                isUndo -> AiRevert.undoCardLine(actionId)
+                else -> AiWrites.undoLineOf(actionId)
+            }
             val p = AiPendingWrite(
                 token = newToken(),
                 actionId = actionId,
@@ -271,6 +294,7 @@ class AiWritePreviewStore(
                 risk = risk,
                 summary = summary,
                 detailLines = detailLines + listOfNotNull(lastLine),
+                bodyLines = detailLines,
                 payload = payload,
                 createdAtMs = at,
                 expiresAtMs = at + ttlMs,
@@ -309,6 +333,7 @@ class AiWritePreviewStore(
         title: String = AiWrites.titleOf(actionId),
         risk: AiWriteRisk = AiWrites.byId(actionId)!!.risk,
         isUndo: Boolean = false,
+        batch: Boolean = false,
     ): AiPendingWrite = offer(
         actionId = actionId,
         title = title,
@@ -317,6 +342,7 @@ class AiWritePreviewStore(
         detailLines = detailLines,
         payload = payload,
         isUndo = isUndo,
+        batch = batch,
     )
 
     /** 当前所有未过期的待确认（界面按这个渲染卡片，最新的在最后）。 */
@@ -2197,6 +2223,19 @@ object AiWrites {
 
     /** 卡片最后一行：「这一步误操作了怎么办」。 */
     fun undoLineOf(id: String): String? = AiRevert.cardLine(id)
+
+    /**
+     * **批量卡**的最后一行（`AiWriteBatch.kt` 的卡专用）。
+     *
+     * 为什么不能沿用 [undoLineOf]：那一行会印「执行后会出现一个「撤回」按钮」，
+     * 而批量不挂撤回 —— 一批 N 条要 N 份"改前长什么样"的快照，一张卡上放不下。
+     * 照抄的后果是**卡片答应了一件做不到的事**（用户点完确认去找那个按钮）。
+     *
+     * ⚠️ 这句是给用户看的（Done 消息与卡片都直接渲染成 Text，不走 Markdown），
+     *    所以不带星号、不换行。红线 `_check_ai_guardrails.py` 有判据钉着它。
+     */
+    const val BATCH_UNDO_NOTE: String =
+        "⚠️ 这一批是一次改多条，不提供一键「撤回」。要退回去就跟我说，我按上面列的每一条逐条改回来。"
 
     /** 全部能一键撤回的动作 id（红线、文档、设置页都看这一份）。 */
     val UNDO_CAPABLE: Set<String> get() = AiRevert.CAPABLE

@@ -2616,9 +2616,10 @@ def main() -> int:
         r"detailLines = detailLines \+ listOfNotNull\(lastLine\)",
     )
     c.present(
-        "最后一行按「是不是撤回卡」二选一（撤回卡不许说「这一步撤不回来」）",
+        "最后一行按「撤回卡 / 批量卡 / 普通卡」三选一（撤回卡不许说「这一步撤不回来」，批量卡不许答应撤回）",
         wr,
-        r"val lastLine = if \(isUndo\) AiRevert\.undoCardLine\(actionId\) else AiWrites\.undoLineOf\(actionId\)",
+        r"val lastLine = when \{\s*\n\s*batch -> AiWrites\.BATCH_UNDO_NOTE\s*\n"
+        r"\s*isUndo -> AiRevert\.undoCardLine\(actionId\)\s*\n\s*else -> AiWrites\.undoLineOf\(actionId\)",
     )
     c.present("能撤回的动作会告诉用户执行完会出现「撤回」", revert_code, r"执行完那条消息上会出现「撤回」")
     c.present("撤不回来的动作会写明为什么", revert_code, r"⚠️ 这一步撤不回来：")
@@ -3989,6 +3990,114 @@ def main() -> int:
     c.present("账本管理页同样拆开了",
               read(UI / "dispatcher/DispatcherLedgerViewModel.kt"),
               r"var loadError by mutableStateOf<String\?>\(null\)")
+
+    # ================================================================ 32. 批量捷径
+    print("\n== 32. 批量捷径：一次改多条（一张卡、确认一次、逐条如实汇报）（v3.46）==")
+    batch_src = read(AI / "AiWriteBatch.kt")
+    svc32 = read(AI / "AiWriteService.kt")
+    w32 = read(AI / "AiWrite.kt")
+    tools32 = read(AI / "AiTools.kt")
+    loop32 = read(AI / "AiAgentLoop.kt")
+
+    # ---- ① 它是「装饰器」，不是一个另起的执行器（用户 2026-09-21 的插件式准则）----
+    c.present("批量层实现的是**同一个接口**（既有处理器一行都不用改）",
+              batch_src, r"class BatchWriteHandler\([\s\S]{0,300}?\) : AiWriteHandler")
+    c.present("接线只有一处：建表之后统一套一层", svc32, r"rawHandlers\.mapValues \{ \(id, h\) ->")
+    c.present("套的就是它", svc32, r"BatchWriteHandler\(a, h, store\)")
+    dup32 = [
+        p.name
+        for p in sorted(AI.glob("AiWrite*.kt"))
+        # ⚠️ 只看**代码**（注释里提一句"参数名见批量层"是好事，不该被这条判据当成第二处实现）
+        if p.name != "AiWriteBatch.kt" and "BATCH_ITEMS" in strip_comments(read(p))
+    ]
+    c.ok("批量参数名只在批量层里出现（不是每个处理器各认一遍）", not dup32, f"还有：{dup32}")
+
+    # ---- ② 批量**永远要确认** ----
+    # 自动执行档的处理器在 `prepare` 里就已经写库了（消息全标已读），放进批量＝预览阶段就写库
+    c.present("自动执行档在**调用内层之前**就被挡掉",
+              batch_src,
+              r"if \(action\.risk == AiWriteRisk\.AUTO_EXECUTABLE\) \{[\s\S]{0,300}?throw AiWriteArgException")
+    auto_pos = strip_comments(batch_src).find("AUTO_EXECUTABLE")
+    first_inner = strip_comments(batch_src).find("inner.prepare(item)")
+    c.ok(
+        "挡的位置在**第一次调用内层之前**（顺序错了这条判据就没意义）",
+        0 <= auto_pos < first_inner,
+        f"档位判断在 {auto_pos}、第一次调内层在 {first_inner}",
+    )
+    c.present("批量的卡照动作本身的档位（不偷偷降档）", batch_src, r"risk = action\.risk,")
+
+    # ---- ③ 参数与条数 ----
+    c.present("`items` 不是数组 → 拒绝", batch_src, r"`items` 要是一个数组")
+    c.present("空数组 → 拒绝", batch_src, r"`items` 是空的")
+    # ⛔ 用户 2026-09-21 拍板：「批量是没有上限的，批量是根据用户的范围来定的，他自己去定范围」
+    c.absent("**不设条数上限**（范围由用户自己定）",
+             batch_src, r"items\.size\s*>\s*[A-Za-z_]*MAX|MAX_BATCH_ITEMS")
+    c.present("摘要要写清**真实条数**", batch_src, r'summary = "批量\$\{action\.title\}：\$\{rows\.size\} 条"')
+
+    # ---- ④ 任何一条不合法 → 整批不发，并且指出第几条 ----
+    # 处理器按契约是**抛**的，批量层必须自己接住（否则用户不知道那是 20 条里的哪一条）
+    c.present("处理器抛的错补上「第几条」",
+              batch_src, r'throw AiWriteArgException\("第 \$\{i \+ 1\} 条：\$\{e\.message')
+    c.present("处理器返回 Rejected 的也补上",
+              batch_src, r'throw AiWriteArgException\("第 \$\{i \+ 1\} 条：\$\{out\.reason\}')
+
+    # ---- ⑤ 逐条执行、逐条汇报（都不许被"已完成"盖住）----
+    c.present("逐条执行，且每条一个幂等键", batch_src, r'inner\.commit\(item, "\$idempotencyKey-\$i"\)')
+    # ⚠️ 单条那条路也得把内层那句 `commitNote` 带出去：它是"按表格调价"报「10 行成功、2 行失败」
+    #    用的机制，装饰器不转发就等于把失败行又盖住了（两条既有单测当场抓到过这个漏转发）。
+    c.present("单条那条路转发内层的 commitNote（不许把失败行盖住）",
+              batch_src, r"note = inner\.commitNote\(\)")
+    c.present("失败的那几条要逐条记下来", batch_src, r'failed \+= "#\$\{i \+ 1\} " \+ brief\(e\)')
+    c.present("结果交给服务层拼进最终答复",
+              batch_src, r"override fun commitNote\(\): String\? = note\.also \{ note = null \}")
+    c.present("成功/失败条数都要说", batch_src, r"这一批 \$\{items\.size\} 条：成功 \$ok 条")
+    # ⚠️ 判据要**分别锚在两段代码里**：只写一句正则在整份文件里搜"取消原样抛"，
+    #    另一段里那一句就会满足它（反向验证实测：把 `commit` 里那段删掉，判据照样绿）。
+    prep_blk = block_between(batch_src, "override suspend fun prepare(", "override suspend fun commit(")
+    commit_blk = block_between(batch_src, "override suspend fun commit(", "override fun commitNote(")
+    for where, blk in (("预览", prep_blk), ("执行", commit_blk)):
+        c.present(f"{where}里取消原样抛（不当成「失败」吞掉）",
+                  blk, r"catch \(e: CancellationException\) \{\s*\n\s*throw e")
+    user_note = strip_comments(block_between(batch_src, "note = buildString {", "override fun commitNote"))
+    c.ok("逐条汇报是**给用户看的**（不许带 Markdown 星号）", bool(user_note.strip()) and "**" not in user_note)
+
+    # ---- ⑥ 卡片不许说假话：批量不挂撤回 ----
+    c.present("批量卡最后一行走批量专属那句", w32, r"batch -> AiWrites\.BATCH_UNDO_NOTE")
+    c.present("那句定义在动作表里（唯一一处）", w32, r"const val BATCH_UNDO_NOTE: String =")
+    m32 = re.search(r'const val BATCH_UNDO_NOTE: String =\s*\n?\s*"([^"]+)"', w32)
+    c.ok("那句是给用户看的（不许带 Markdown 星号）", bool(m32) and "**" not in m32.group(1),
+         f"实际：{m32.group(1)[:40] if m32 else '没找到'}")
+    c.present("批量卡最后一行**不是**单条那句「会出现撤回」",
+              w32, r"batch -> AiWrites\.BATCH_UNDO_NOTE\s*\n\s*isUndo ->")
+    rows_fn = strip_comments(block_between(batch_src, "private fun detailLines(", "private fun brief("))
+    c.ok("卡片明细是**给用户看的**（不许带 Markdown 星号）", bool(rows_fn.strip()) and "**" not in rows_fn)
+
+    # ---- ⑦ 一张卡列全部行（用户选的形态）----
+    c.present("条数不多时逐条一个小节", batch_src, r'"———— 第 \$\{i \+ 1\} 条 ————"')
+    c.present("条数多时每条压成一行（**不是**只列前 N 条）",
+              batch_src, r'rows\.mapIndexed \{ i, r -> "\$\{i \+ 1\}\. "')
+    c.present("压缩模式也要写清总条数", batch_src, r"共 \$\{rows\.size\} 条")
+    c.present("明细行用的是没被追加过的那份（不然「撤不回来」会被复制 N 遍）",
+              batch_src, r"r\.bodyLines")
+
+    # ---- ⑧ 不许偷走用户手里的卡；批量标记与退货明细不同名 ----
+    c.present("只取**这一次新登记**的卡（去重命中的那张是用户的）", batch_src, r"it\.token !in known")
+    c.present("批量标记是保留字（不是 `items`）", batch_src, r'const val BATCH_PAYLOAD = "_batch"')
+    c.present("执行侧认的是批量标记", batch_src, r"payload\[BatchWriteHandler\.BATCH_PAYLOAD\] is JsonArray")
+    params32 = "".join(read(p) for p in sorted(AI.glob("AiWrite*.kt")))
+    c.absent("没有任何写动作声明名为 `items` 的参数（那个名字归批量层）",
+             params32, r'AiWriteParam\(\s*"items"|param\s*=\s*"items"')
+
+    # ---- ⑨ 服务层那两处（批量不挂撤回、也不报"没挂上"）----
+    c.present("execute 认出批量 payload", svc32, r"val batched = isBatchPayload\(p\.payload\)")
+    c.present("批量不建撤回方案（`AiRevert.plan` 只认单条 payload）", svc32, r"val undo = if \(batched\) \{")
+    c.present("批量也不报「没能挂上撤回」", svc32, r"val broken = !batched &&")
+
+    # ---- ⑩ 模型得知道有这条路（不知道就等于没做）----
+    c.present("参数说明里教了 `items`", tools32, r"一次改多条（批量捷径）")
+    c.present("提示词里有一条「一次提交，不要一条条调」",
+              loop32, r"一次要改/要建好几条时，用「批量」一次提交")
+    c.present("提示词里也写明「范围由用户定、没有条数上限」", loop32, r"没有条数上限")
 
     print("\n" + "=" * 60)
     if c.fails:

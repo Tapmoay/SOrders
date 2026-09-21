@@ -13,6 +13,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -5403,6 +5404,71 @@ class AiWriteTest {
             assertTrue("$id 货主也要能用（改的是他自己的地址库）", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), id))
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))
         }
+    }
+
+    // ==================================================== 批量捷径（端到端：走**真的** AiWriteService）
+
+    /**
+     * 这一条与 `AiWriteBatchTest` 分工不同：那边测的是**装饰器本身**（假的处理器），
+     * 这一条走**真的** [AiWriteService]（真的动作表、真的角色门、真的暂存区、真的派生幂等键），
+     * 证明"接线接上了"——批量的 `items` 真的能从 `preview` 走到 `execute`，
+     * 而不是只有单测里那个手工 new 出来的装饰器能用。
+     */
+    @Test
+    fun `批量：一次调用写两条，一张卡确认一次、逐条落库`() = runBlocking {
+        val r = Rig()
+        val items = buildJsonObject {
+            putJsonArray(BatchWriteHandler.BATCH_ITEMS) {
+                add(expenseParams("note" to "第一趟"))
+                add(expenseParams("amount" to "120", "note" to "补胎"))
+            }
+        }
+        val card = ok(r.svc.preview(AiWrites.EXPENSES_CREATE, items))
+
+        // 一张卡（内层那两张单条卡被取走了），卡上逐条列着，摘要写着真实条数
+        assertEquals("批量记一笔支出：2 条", card.summary)
+        assertEquals(1, r.store.list().size)
+        assertTrue(card.detailLines.any { it.contains("第一趟") })
+        assertTrue(card.detailLines.any { it.contains("补胎") })
+
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        // 两条都落库，而且各自带**自己的**幂等键（不是同一条发两遍）
+        assertEquals(2, r.ds.expenses.size)
+        assertEquals(listOf("300.00", "120.00"), r.ds.expenses.map { it.first.amount })
+        assertEquals(listOf("ai-${card.token}-0", "ai-${card.token}-1"), r.ds.expenses.map { it.second })
+        // 逐条汇报写在最终答复里；批量不挂撤回（卡片上也这么写着）
+        assertTrue("没汇报逐条结果：${done.message}", done.message.contains("这一批 2 条：成功 2 条"))
+        assertNull("批量不该挂撤回按钮", done.undoToken)
+        assertEquals(AiWrites.BATCH_UNDO_NOTE, card.detailLines.last())
+    }
+
+    @Test
+    fun `批量：某一条名字对不上 → 整批不发，且指出是第几条`() = runBlocking {
+        val r = Rig()
+        val items = buildJsonObject {
+            putJsonArray(BatchWriteHandler.BATCH_ITEMS) {
+                add(p("product" to "红富士苹果", "price" to "10"))
+                add(p("product" to "查无此物", "price" to "11"))
+            }
+        }
+        val out = rejected(r.svc.preview(AiWrites.PRODUCTS_UPDATE, items))
+        assertTrue("要指出第几条：${out.reason}", out.reason.contains("第 2 条"))
+        assertEquals("一张卡都不许留", 0, r.store.list().size)
+        assertEquals("一条都不许写", 0, r.ds.masterCalls.size)
+    }
+
+    @Test
+    fun `批量：不用确认的那一档（消息全标已读）拒绝走批量`() = runBlocking {
+        val r = Rig()
+        val out = rejected(
+            r.svc.preview(
+                AiWrites.NOTIFICATIONS_READ_ALL,
+                buildJsonObject { putJsonArray(BatchWriteHandler.BATCH_ITEMS) { add(p()) } },
+            ),
+        )
+        assertTrue(out.reason.contains("不需要确认"))
+        // ⚠️ 最要紧的是这一条：它在 `prepare` 里就会写库，放进来等于**预览阶段就写库**
+        assertEquals("内层一次都不许被调用", 0, r.ds.readAllCalls)
     }
 
 }

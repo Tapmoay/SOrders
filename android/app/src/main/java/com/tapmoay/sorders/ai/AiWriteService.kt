@@ -2096,7 +2096,7 @@ class AiWriteService(
      * - **声明式**：规格里描述清楚就能跑的动作（主数据那批，26 个）。
      *   它们共用同一套校验和名字→编号，所以不会出现"某个动作忘了写金额上限"。
      */
-    private val handlers: Map<String, AiWriteHandler> = buildMap {
+    private val rawHandlers: Map<String, AiWriteHandler> = buildMap {
         listOf(
             NotificationsReadAllHandler(ds),
             ExpenseWriteHandler(ds, store),
@@ -2156,6 +2156,23 @@ class AiWriteService(
             val spec = a.crud ?: return@forEach
             put(a.id, CrudWriteHandler(a, spec, ds, store))
         }
+    }
+
+    /**
+     * **真正对外的那张表**：每个处理器外面套一层「批量装饰器」（`AiWriteBatch.kt`）。
+     *
+     * ### 为什么是"包一层"，而不是在每个处理器里加批量分支
+     * 用户 2026-09-21 定的准则：「**核心逻辑不要乱动**，其他的以插件的形式 ——
+     * **能调方法调方法、能继承就继承、能调 API 就调 API**」（`docs/CORE_AND_EXTENSION.md`）。
+     * 批量正好是外面那一层：它的 `prepare` 与 `commit` 都只是**逐条调用内层**，
+     * 50 多个处理器一行都不用改，以后新加的动作也自动有批量。
+     *
+     * ⚠️ 这一层**不动**"谁能调哪个动作"（那是 [AiWrites.allows]）、不动风险档、不动 token 链，
+     *    也不改单条那条路（payload 里没有批量标记时原样转发）。它只多认一个参数键：
+     *    `items`（见 [BatchWriteHandler.BATCH_ITEMS]）。
+     */
+    private val handlers: Map<String, AiWriteHandler> = rawHandlers.mapValues { (id, h) ->
+        AiWrites.byId(id)?.let { a -> BatchWriteHandler(a, h, store) } ?: h
     }
 
     /** 供红线检查与设置页确认「声明了这么多动作，就真的实现了这么多」。 */
@@ -2296,12 +2313,22 @@ class AiWriteService(
             //    "改类"= 同一个动作写回旧值、"删除"= 恢复动作、"成对"= 另一个动作。
             //    处理器那一层只要管好"怎么写下去"，不用再管"怎么退回来"。
             //    它只**读**现状、不写任何东西，所以不影响"prepare 不写库"那条红线。
-            val undo = try {
-                AiRevert.plan(ds, p.actionId, p.payload, p.summary)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
+            //
+            // ⚠️ 2026-09-21（批量）：**批量卡不挂撤回**（一批 N 条要 N 份"改前长什么样"的快照，
+            //    一张卡上放不下）。[AiRevert.plan] 只认**一条** payload，拿一批进去只会得到一个
+            //    错的方案或 null —— 所以这里根本不该问它。卡片最后一行早就写明了没有撤回
+            //    （[AiWrites.BATCH_UNDO_NOTE]），下面那句 `broken` 也因此不适用。
+            val batched = isBatchPayload(p.payload)
+            val undo = if (batched) {
                 null
+            } else {
+                try {
+                    AiRevert.plan(ds, p.actionId, p.payload, p.summary)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
             }
             // 由 token 派生出稳定幂等键：OkHttp 在连接失败时会自动重试 POST，
             // 带上它，后端将来实现幂等时才能识别出"这是同一次操作"而不是两笔。
@@ -2313,7 +2340,8 @@ class AiWriteService(
             // 卡片上答应过"会出现撤回"，结果没挂上——**必须说**。
             // 不然用户回头去点一个不存在的按钮，或者更糟：以为事情撤掉了。
             // 出现这种情况只有一个原因：写之前读不到那条记录（已被别人删掉/没权限）。
-            val broken = AiRevert.canRevert(p.actionId) && undo == null
+            // ⚠️ 批量不适用：它**本来就不提供撤回**（卡片上写着），那不是"没挂上"。
+            val broken = !batched && AiRevert.canRevert(p.actionId) && undo == null
             AiWriteOutcome.Done(
                 p.actionId,
                 p.title,
