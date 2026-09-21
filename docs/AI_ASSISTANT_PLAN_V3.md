@@ -5776,9 +5776,9 @@ paired(AiWrites.VEHICLE_SET_DRIVER, AiInverse(AiWrites.VEHICLE_SET_DRIVER, …))
 
 ### 61.6 判据与验收
 
-- 红线 `_tools/ai/_check_ai_guardrails.py` **§32 新增 38 项**（并顺手按新位置改写了 2 条旧锚点：
+- 红线 `_tools/ai/_check_ai_guardrails.py` **§32 新增 39 项**（并顺手按新位置改写了 2 条旧锚点：
   「造卡出口」与「最后一行三选一」——锚点搬位置而不是放松），全量 **1207 项全过**；
-- 反向验证 `_tools/ai/_reverse_verify_ai_batch.py` **18/18**（18 条注入各让对应判据报红）；
+- 反向验证 `_tools/ai/_reverse_verify_ai_batch.py` **19/19**（19 条注入各让对应判据报红）；
 - 单测 `AiWriteBatchTest` **15 例**（含"一张卡列全部行"、"任一条不合法整批不发并报第几条"、
   "内层命中已有的卡时不许把它删掉"、"批量卡最后一行不是单条那句"、"payload 里的 items 不会被当成批量"）；
 - **敏感性实验**（先证明测试抓得住，再声称修好了）：去掉"取走内层卡"→ 3 例红；
