@@ -31,6 +31,7 @@ from app.api.v1 import (
     shipper,
     shipper_ledger,
     stats,
+    system,
     users,
 )
 
@@ -72,3 +73,5 @@ api_router.include_router(driver_settlements.router)
 api_router.include_router(expenses.router)
 api_router.include_router(cash_flows.router)
 api_router.include_router(vehicles.router)
+# 系统级运行期配置（测试账号的默认 AI 配置，2026-09-21）：见 `api/v1/system.py`
+api_router.include_router(system.router)

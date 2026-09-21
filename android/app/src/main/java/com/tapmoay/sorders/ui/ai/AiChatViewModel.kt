@@ -491,6 +491,10 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
 
     init {
         viewModelScope.launch {
+            // ⚡ 测试账号的默认模型服务（2026-09-21）：用户自己没配过 key 时向服务端要一份。
+            //    ⚠️ 必须放在**画这一屏之前**：`configured` 决定界面显示"去设置"还是聊天框，
+            //    晚一步就会出现"进 AI 页先看到『去设置』、过一秒又变成能聊天"的闪动。
+            if (ai.ensureDefaultKey()) configured = ai.ready()
             val fromDisk = withContext(Dispatchers.IO) { ai.conversations.load() }
             all = fromDisk
             // 恢复最近一次对话：用户重新进来说「刚才那个问题」是常态，不该看到一片空白

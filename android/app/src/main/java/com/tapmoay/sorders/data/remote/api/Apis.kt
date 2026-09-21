@@ -1198,10 +1198,19 @@ interface AccountingApi {
     suspend fun createReceipt(@Body body: ReceiptCreateRequest): ReceiptDto
 }
 
-/** 系统：版本更新检测 */
+/** 系统：版本更新检测 + 测试账号的默认 AI 配置 */
 interface SystemApi {
     @GET("system/app-version")
     suspend fun appVersion(): AppVersionDto
+
+    /**
+     * 测试账号的默认模型服务（服务端 `.env` 提供）。
+     *
+     * ⚠️ 只有白名单手机号拿得到：非测试号 → **403**，服务端没配 key → **404**；
+     * 两种情况都要按"没有默认可用"处理（各自给一句人话，别把它当成网络错误重试）。
+     */
+    @GET("system/ai-default")
+    suspend fun aiDefault(): AiDefaultDto
 }
 
 /**

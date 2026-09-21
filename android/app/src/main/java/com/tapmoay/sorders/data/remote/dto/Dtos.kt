@@ -1034,6 +1034,22 @@ data class AppVersionDto(
     val versionCode: Int? = null,
 )
 
+/**
+ * **测试账号的默认 AI 配置**（服务端下发，2026-09-21 用户要求：
+ * 「只要是测试账号默认就跑，我们那个 api key」）。
+ *
+ * ⛔ 它落到这台手机上就是**明文**的：拿到测试账号的人能读到它 —— 这是用户已知的取舍
+ * （白名单只有 `1380000000X` 那几个测试号）。所以：
+ * · 只在「用户自己没配过 key」时才用（配过就永远用自己的，见 `AiContainer.ensureDefaultKey`）；
+ * · 绝不把它写进任何日志/界面文本（设置页只说"正在使用测试账号默认 Key"）。
+ */
+data class AiDefaultDto(
+    @SerialName("api_key") val apiKey: String = "",
+    @SerialName("base_url") val baseUrl: String = "",
+    @SerialName("model") val model: String = "",
+    @SerialName("note") val note: String = "",
+)
+
 // ===== Socket 事件 =====
 data class SocketEvent(
     val name: String,          // "realtime" / "notification" / "unread_count" / "sync"

@@ -326,4 +326,49 @@ class AiContainer(
 
     /** AI 功能是否已可用（有 key 才算）。 */
     fun ready(): Boolean = keyStore.hasKey()
+
+    /**
+     * **测试账号的默认模型服务**：用户自己没配过 key 时，向服务端要一份来用。
+     *
+     * ### 用户为什么要它（2026-09-21 原话）
+     * 「只要是测试账号默认就跑，我们那个 api key」——测试号每次换手机/模拟器/清数据
+     * 都要手填一次 key，太麻烦；白名单（`1380000000X`）的账号应当开箱可用。
+     *
+     * ### 三条规矩（每一条都有它的理由）
+     * 1. **只在用户自己没配过 key 时才用**（[AiKeyStore.hasKey] 为 false）：配过就永远用自己的 ——
+     *    否则"用户填了 key 却仍然发到公司的账号上"是最坏的一种行为（他的 key 白填、而账单走公司）。
+     * 2. **拿不到就当没有**（403 非测试号 / 404 服务端没配 / 网络不通）：静默返回 false，
+     *    **不弹错**——这不是用户操作引发的失败，他的 AI 仍然可以在设置页里自己配。
+     * 3. **不写日志、不显示 key 本身**：只把"正在用测试账号默认 Key"这个事实告诉界面。
+     *
+     * @return true = 这一次真的取到并写进去了（调用方据此刷新"已配置"状态）
+     */
+    suspend fun ensureDefaultKey(): Boolean {
+        if (keyStore.hasKey()) return false
+        val d = try {
+            repo.aiDefault()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return false // 403/404/断网都走这里：没有默认可用，不是错误
+        }
+        val key = d.apiKey.trim()
+        if (key.isEmpty()) return false
+        if (!keyStore.saveApiKey(key)) return false
+        // ⚠️ 顺序不能反：`saveApiKey` 内部会把"默认 key"标记清掉（用户自己保存的语义），
+        //    所以这里必须**在它之后**再置 true。
+        keyStore.markUsingDefaultKey(true)
+        // Base URL / 模型名只在服务端给了非空值时才覆盖（留空 = 沿用 App 自己的缺省，
+        // 也就是 `AiKeyStore.DEFAULT_BASE_URL` / `DEFAULT_MODEL`，两边本来就是同一套值）。
+        val cfg = currentConfig()
+        if (d.baseUrl.isNotBlank() || d.model.isNotBlank()) {
+            keyStore.saveConfig(
+                cfg.copy(
+                    baseUrl = d.baseUrl.ifBlank { cfg.baseUrl },
+                    model = d.model.ifBlank { cfg.model },
+                ),
+            )
+        }
+        return true
+    }
 }

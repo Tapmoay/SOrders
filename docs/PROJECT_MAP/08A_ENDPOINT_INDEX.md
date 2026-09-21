@@ -60,7 +60,7 @@
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
 
-## 全量端点（192 个，按文件分组）
+## 全量端点（193 个，按文件分组）
 
 
 ### `backend/app/api/v1/arrears.py` — 5 个
@@ -383,20 +383,26 @@
 | 7 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | `resolve_exception_order` | `backend/app/api/v1/stats.py:116` | 权限:STATS_READ |
 | 8 | `POST /api/v1/stats/export` | `post_stats_export` | `backend/app/api/v1/stats.py:164` | 权限:STATS_READ |
 
+### `backend/app/api/v1/system.py` — 1 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | 仅登录 |
+
 ### `backend/app/api/v1/users.py` — 10 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:54` | 仅登录 |
-| 2 | `GET /api/v1/users` | `list_users` | `backend/app/api/v1/users.py:59` | 权限:USER_MANAGE |
-| 3 | `POST /api/v1/users` | `create_user` | `backend/app/api/v1/users.py:86` | 权限:USER_MANAGE |
-| 4 | `GET /api/v1/users/{user_id}` | `get_user` | `backend/app/api/v1/users.py:135` | 仅登录 + 体内含角色判断（需读源码） |
-| 5 | `GET /api/v1/users/{user_id}/product-visibility` | `get_product_visibility` | `backend/app/api/v1/users.py:145` | 仅登录 + 体内含角色判断（需读源码） |
-| 6 | `PUT /api/v1/users/{user_id}/product-visibility` | `set_product_visibility` | `backend/app/api/v1/users.py:160` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
-| 7 | `PATCH /api/v1/users/{user_id}` | `update_user` | `backend/app/api/v1/users.py:220` | 仅登录 + 体内含角色判断（需读源码） |
-| 8 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | `swap_shipper_driver` | `backend/app/api/v1/users.py:314` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
-| 9 | `DELETE /api/v1/users/{user_id}` | `delete_user` | `backend/app/api/v1/users.py:338` | 权限:USER_MANAGE |
-| 10 | `POST /api/v1/users/{user_id}/restore` | `restore_user` | `backend/app/api/v1/users.py:369` | 权限:USER_MANAGE |
+| 1 | `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:54` | 仅登录 + 体内含角色判断（需读源码） |
+| 2 | `GET /api/v1/users` | `list_users` | `backend/app/api/v1/users.py:67` | 权限:USER_MANAGE |
+| 3 | `POST /api/v1/users` | `create_user` | `backend/app/api/v1/users.py:94` | 权限:USER_MANAGE |
+| 4 | `GET /api/v1/users/{user_id}` | `get_user` | `backend/app/api/v1/users.py:143` | 仅登录 + 体内含角色判断（需读源码） |
+| 5 | `GET /api/v1/users/{user_id}/product-visibility` | `get_product_visibility` | `backend/app/api/v1/users.py:153` | 仅登录 + 体内含角色判断（需读源码） |
+| 6 | `PUT /api/v1/users/{user_id}/product-visibility` | `set_product_visibility` | `backend/app/api/v1/users.py:168` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
+| 7 | `PATCH /api/v1/users/{user_id}` | `update_user` | `backend/app/api/v1/users.py:228` | 仅登录 + 体内含角色判断（需读源码） |
+| 8 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | `swap_shipper_driver` | `backend/app/api/v1/users.py:322` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
+| 9 | `DELETE /api/v1/users/{user_id}` | `delete_user` | `backend/app/api/v1/users.py:346` | 权限:USER_MANAGE |
+| 10 | `POST /api/v1/users/{user_id}/restore` | `restore_user` | `backend/app/api/v1/users.py:377` | 权限:USER_MANAGE |
 
 ### `backend/app/api/v1/vehicles.py` — 4 个
 
@@ -502,6 +508,6 @@ _（无重复注册）_
 | `GET /api/v1/places/{place_id}` | `get_place` | `backend/app/api/v1/places.py:124` | — |
 | `GET /api/v1/product-categories` | `list_categories` | `backend/app/api/v1/product_categories.py:83` | — |
 | `GET /api/v1/products/{product_id}` | `get_product` | `backend/app/api/v1/products.py:204` | — |
-| `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:54` | — |
+| `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | — |
 
 > ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **119** 个端点命中（占 61%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/orders.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/stats.py`、`backend/app/api/v1/users.py`。

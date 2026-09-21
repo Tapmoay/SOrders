@@ -796,6 +796,9 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun customers(kind: String? = null, q: String? = null) = api.accountingApi.listCustomers(kind, q)
 
     suspend fun checkUpdate() = api.systemApi.appVersion()
+
+    /** 测试账号的默认模型服务（服务端下发；非测试号 403、服务端没配 404）。 */
+    suspend fun aiDefault() = api.systemApi.aiDefault()
     suspend fun createCustomer(body: com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest) = api.accountingApi.createCustomer(body)
     suspend fun driverBills(driverId: Long? = null, month: String? = null, status: String? = null) =
         api.accountingApi.listDriverBills(driverId, month, status)

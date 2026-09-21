@@ -35,6 +35,22 @@ class Settings(BaseSettings):
     amap_key: str = ""
     amap_security_js_code: str = ""
 
+    # ---- 测试账号的默认 AI 配置（2026-09-21 用户要求）----
+    # 「只要是测试账号默认就跑，我们那个 api key」——测试号每次换手机/模拟器都要手填一次 key，
+    # 太麻烦；改成由**服务端下发**给白名单里的测试号。
+    #
+    # ⛔ **只写在服务器 `.env` 里**（600 权限），**绝不进仓库、也绝不进 APK**：
+    #    这个仓库是公开的，而 APK 就挂在 `http://8.145.40.22/apk` 上给任何人下载 ——
+    #    把 key 编进包里等于公开它（2026-09-19 已经吃过一次凭据进公开仓库的教训）。
+    # ⛔ 拿不到 key 时的行为必须是**干净的失败**（404），不许返回空串让客户端去猜。
+    ai_default_api_key: str = ""
+    ai_default_base_url: str = "https://api.deepseek.com"
+    ai_default_model: str = "deepseek-flash"
+    #: 哪些手机号算「测试账号」（**前缀匹配**）：用户的命名约定是 `1380000000X`
+    #: （1=派单员 / 2=货主 / 3=司机(固定工资) / 4=司机(挂车) / 5=普通货主…）。
+    #: 留空 = 这个能力**整体关闭**（谁都不许拿默认 key）。
+    ai_test_phone_prefix: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

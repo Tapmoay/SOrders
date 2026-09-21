@@ -319,7 +319,14 @@ fun AiSettingsScreen(
                 if (vm.hasStoredKey) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "已保存一个 Key（加密存在本机）。直接改上面的内容再点保存即可替换。",
+                        if (vm.usingDefaultKey) {
+                            // 如实说清这把 key 是哪来的（用户 2026-09-21：测试账号默认就跑）。
+                            // 不写的话他会以为是自己配过的；而且清掉之后 App 下次自检还会拿回来。
+                            "正在使用「测试账号默认 Key」（服务端下发，不是你自己填的）。" +
+                                "清掉它下次进这一页会自动拿回来；填上你自己的 Key 就会改用自己的。"
+                        } else {
+                            "已保存一个 Key（加密存在本机）。直接改上面的内容再点保存即可替换。"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

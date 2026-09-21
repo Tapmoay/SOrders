@@ -73,6 +73,16 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
     /** 明文只在内存里；落盘时走 Keystore 加密。UI 默认掩码显示。 */
     var apiKeyInput by mutableStateOf("")
 
+    /**
+     * 现在这把 key 是**服务端下发的测试账号默认 key**（不是用户自己填的）。
+     *
+     * 为什么要在界面上说：不说的话，用户换台手机打开 AI 就"已经有 key 了"，
+     * 他会以为是自己以前配过；而清掉它之后 App 下次自检又会拿回来（那是 [AiContainer.ensureDefaultKey]
+     * 的语义）—— 这两件事都得让他看得见。
+     */
+    var usingDefaultKey by mutableStateOf(false)
+        private set
+
     /** 是否允许「按你的使用习惯优化回答」（本机统计，默认开）。 */
     var habitEnabled by mutableStateOf(true)
         private set
@@ -270,6 +280,13 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         //    晚问一步就会按普通货主列给批发商看。放协程里异步问、问完只重刷那两份清单，
         //    不挡住这一屏先画出来。
         viewModelScope.launch {
+            // ⚡ 测试账号的默认模型服务（2026-09-21）：「只要是测试账号默认就跑，我们那个 api key」。
+            //    只在**用户自己没配过 key** 时才去要一份（配过就永远用自己的，见 ensureDefaultKey）。
+            if (ai.ensureDefaultKey()) {
+                apiKeyInput = ai.keyStore.apiKey().orEmpty()
+                hasStoredKey = apiKeyInput.isNotBlank()
+                usingDefaultKey = ai.keyStore.usingDefaultKey()
+            }
             ai.refreshMembership()
             reloadAbilityLists()
         }
@@ -286,6 +303,7 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         loadMemories()
         apiKeyInput = ai.keyStore.apiKey().orEmpty()
         hasStoredKey = apiKeyInput.isNotBlank()
+        usingDefaultKey = ai.keyStore.usingDefaultKey()
         // 默认值按角色给（派单员全开）——设置页必须与 `AiContainer.tools` 用**同一个判据**，
         // 否则会出现"开关显示关着、其实能用"（或反过来）。
         val enabled = ai.keyStore.enabledTools(ai.currentRole)

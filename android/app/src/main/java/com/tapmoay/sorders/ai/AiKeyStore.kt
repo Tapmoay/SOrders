@@ -73,6 +73,9 @@ class AiKeyStore(
      */
     fun saveApiKey(key: String): Boolean {
         val plain = key.trim()
+        // 用户自己保存/清空 key → 这个 key 不再是"服务端下发的默认 key"（自动下发那条路
+        // 会在保存之后自己再置 true，见 markUsingDefaultKey）。
+        markUsingDefaultKey(false)
         if (plain.isEmpty()) {
             clearApiKey()
             return true
@@ -110,7 +113,26 @@ class AiKeyStore(
 
     /** 只删密文，不动 Keystore 别名（下次保存会自动复用/重建）。 */
     fun clearApiKey() {
-        prefs.edit().remove(KEY_CIPHER).remove(KEY_IV).apply()
+        prefs.edit().remove(KEY_CIPHER).remove(KEY_IV).remove(KEY_USING_DEFAULT).apply()
+    }
+
+    /**
+     * 现在用的 Key 是不是**服务端下发的测试账号默认 Key**（不是用户自己填的）。
+     *
+     * 为什么要留这个标记：设置页要**如实告诉用户**这个 key 是哪来的 ——
+     * 不然他会以为是自己配过的（换手机后"怎么就有 key 了"），
+     * 而清掉它之后 App 下次自检又会拿回来（这是 [AiContainer.ensureDefaultKey] 的语义）。
+     */
+    fun usingDefaultKey(): Boolean = prefs.getBoolean(KEY_USING_DEFAULT, false)
+
+    /**
+     * 标记"当前 key 来自服务端默认配置"。
+     *
+     * ⚠️ [saveApiKey] 会**顺手清掉**它（用户自己保存 = 不再用默认的），
+     * 所以自动写入那条路必须是 `saveApiKey(...)` 之后**再**调本方法置 true（顺序反了就白写）。
+     */
+    fun markUsingDefaultKey(on: Boolean) {
+        prefs.edit().putBoolean(KEY_USING_DEFAULT, on).apply()
     }
 
     fun hasKey(): Boolean = apiKey()?.isNotBlank() == true
@@ -532,6 +554,8 @@ class AiKeyStore(
 
         private const val KEY_CIPHER = "api_key_cipher"
         private const val KEY_IV = "api_key_iv"
+        /** 当前 key 是不是服务端下发的测试账号默认 key（见 [usingDefaultKey]）。 */
+        private const val KEY_USING_DEFAULT = "api_key_from_server"
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_MODEL = "model"
         private const val KEY_TOOLS = "enabled_tools"

@@ -4099,6 +4099,47 @@ def main() -> int:
               loop32, r"一次要改/要建好几条时，用「批量」一次提交")
     c.present("提示词里也写明「范围由用户定、没有条数上限」", loop32, r"没有条数上限")
 
+    # ================================================================ 33. 测试账号默认模型服务
+    print("\n== 33. 测试账号的默认模型服务：key 只在服务端、三道门、用户自己配过就永远用自己的（v3.47）==")
+    sys_src = read(ROOT / "backend/app/api/v1/system.py")
+    cfg_src = read(ROOT / "backend/app/config.py")
+    router_src = read(ROOT / "backend/app/api/v1/router.py")
+    cont_src = read(AI / "AiContainer.kt")
+    ks_src = read(AI / "AiKeyStore.kt")
+    set_screen = read(UIAI / "AiSettingsScreen.kt")
+
+    # ---- ① key 的来源：只许来自服务端配置 ----
+    c.present("默认 key 由**配置**提供（`ai_default_api_key`），不是写死在代码里",
+              sys_src, r"settings\.ai_default_api_key")
+    c.absent("那个文件里没有任何 key 字面量", sys_src, r"sk-[A-Za-z0-9]{16,}")
+    for field in ("ai_default_api_key", "ai_default_base_url", "ai_default_model", "ai_test_phone_prefix"):
+        c.present(f"`config.py` 里有 `{field}`", cfg_src, rf"{field}: str = ")
+
+    # ---- ② 三道门 ----
+    c.present("端点要求**登录**（CurrentUser）", sys_src, r"def read_ai_default\(current: CurrentUser\)")
+    c.present("新模块挂上了路由（没挂 = 404）", router_src, r"api_router\.include_router\(system\.router\)")
+    c.present("**白名单**前缀匹配，且留空 = 这个能力整体关闭",
+              sys_src, r"if not prefix or not phone\.startswith\(prefix\):")
+    c.present("非白名单 → 403（如实说「不是测试账号」）", sys_src, r"status_code=403")
+    c.present("服务端没配 key → **404**（不许返回空串让客户端去猜）", sys_src, r"status_code=404")
+
+    # ---- ③ 客户端：只在用户自己没配过 key 时才用 ----
+    c.present("用户已配过 key → 直接返回，绝不用默认的",
+              cont_src, r"if \(keyStore\.hasKey\(\)\) return false")
+    c.present("拿不到就**静默**当没有（403/404/断网都不是「错误」）",
+              cont_src, r"return false // 403/404/断网都走这里")
+    # `saveApiKey` 会清掉那个标记 → 自动写入那条路必须在**它之后**再置 true（顺序反了就白写）
+    save_pos = cont_src.find("keyStore.saveApiKey(key)")
+    mark_call = cont_src.find("keyStore.markUsingDefaultKey(true)")
+    c.ok("先 `saveApiKey` 再 `markUsingDefaultKey(true)`（顺序反了标记会立刻被清掉）",
+         0 <= save_pos < mark_call, f"saveApiKey@{save_pos} mark@{mark_call}")
+    c.present("用户自己保存 key 时清掉「来自服务端」这个标记",
+              ks_src, r"markUsingDefaultKey\(false\)")
+    c.present("界面如实说明这把 key 是哪来的",
+              set_screen, r"正在使用「测试账号默认 Key」")
+    # 与 §2e 同一条纪律：设置页是普通 Text()，写 Markdown 星号会原样显示
+    no_md("设置页那句说明没有 Markdown 记号", set_screen)
+
     print("\n" + "=" * 60)
     if c.fails:
         print(f"❌ {len(c.fails)} 项不通过：")

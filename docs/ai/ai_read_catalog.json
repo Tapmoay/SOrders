@@ -1858,7 +1858,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:59",
+   "at": "backend/app/api/v1/users.py:67",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -1920,7 +1920,7 @@
    "method": "get",
    "path": "/api/v1/users/me",
    "at": "backend/app/api/v1/users.py:54",
-   "auth": "仅登录",
+   "auth": "仅登录 + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",
     "driver",
