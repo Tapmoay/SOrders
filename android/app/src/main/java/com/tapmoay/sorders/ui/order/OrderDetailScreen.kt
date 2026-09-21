@@ -638,25 +638,12 @@ private fun DetailBody(
                 Spacer(Modifier.height(10.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (role == Role.DRIVER) {
-                        // 司机：仅按单计费(PIECE)司机且已定价时显示运费；固定工资/未定价/货款一律不显示
-                        if (order.driverBillingMode == "PIECE" && order.freightVisible && order.freightFee != null) {
-                            Icon(Icons.Default.Payments, contentDescription = null, tint = Color(MoneyOrange), modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "运费",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                "¥" + formatMoney(order.freightFee),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                color = Color(MoneyOrange),
-                            )
-                        }
-                    } else {
+                // 司机端详情页**一律不画金额**（2026-09-21 用户定案，与订单卡片同一条规矩）：
+                //   原来这里对按单计费(PIECE)且已定价的单显示「运费 ¥…」，现在去掉。
+                //   钱只在「我的账单」里看（`ui/driver/DriverFreightScreen`）。
+                //   ⛔ 别加回来：判据 `_tools/qa/_check_driver_money.py`（含反向验证）。
+                if (role != Role.DRIVER) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "合计",
                             style = MaterialTheme.typography.titleMedium,

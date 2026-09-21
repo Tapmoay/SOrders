@@ -20,6 +20,74 @@
 
 ## 进行中
 
+### [2026-09-21 22:xx →] 会话：**安卓模拟器安装白PP并登录司机账号**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）· 第二轮
+
+**用户需求（原话）**：
+①「更改司机的配送规则…按固定工资的话他的卡片不显示任何的钱…**干脆以后就这样子搞：所有的司机都不显示
+金钱是多少**，但是按单计费或者按提成的话依然会在**我的账单**里显示——也就是说他只有在我的账单里才能
+看到这笔订单是多少钱，正常的订单是不会显示的」；
+②「我们采一个核心的准则就是**核心的逻辑代码是不要乱动、核心是不要变**，其他的就以**插件的形式**——
+能调方法调方法、能继承就继承、能调 API 就调 API」；
+③「给 AI 搞一个捷径：他既可以**批量操作**一些功能和数据，又可以对**单个**进行调整…如果他只能单个调整，
+他就要一个一个去调方法，这样也费 token」。
+（追问后用户拍板：批量**不设条数上限**、范围由用户自己定；**一张卡列全部行、确认一次**；
+核心区准则要**配一条机器判据**。）
+
+**A. 司机端不显示金额（我）**
+- 改 `ui/common/OrderCard.kt`（删掉司机分支的运费渲染）、`ui/order/OrderDetailScreen.kt`（删掉详情页司机运费块）
+- 新增 `_tools/qa/_check_driver_money.py` + `_tools/qa/_reverse_verify_driver_money.py`
+- ⛔ **不改**：钱的算法（`backend/app/services/driver_pay.py`、`order_money.py`）与后端司机视角门控
+  （`order_response.py::apply_driver_view_gating` —— 它同时管着"按单计费司机能不能直接完成"那条流程，
+  顺手删了会把流程改坏）；`ui/driver/DriverFreightScreen.kt`（我的账单，钱本来就该在这里显示）
+
+**B. 核心冻结 + 插件式扩展（我）**
+- 新增 `docs/CORE_AND_EXTENSION.md`（核心区清单 + 扩展点清单）、`_tools/qa/_core_files.txt`、
+  `_tools/qa/_check_core_freeze.py`、`_tools/qa/_reverse_verify_core_freeze.py`
+- 改 `AGENTS.md`（准则写进自动加载的入口）
+
+**C. AI 批量捷径（我）**
+- 新增 `ai/AiWriteBatch.kt`（**装饰器**：现有处理器一行不改）、
+  `android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteBatchTest.kt`、
+  `_tools/ai/_reverse_verify_ai_batch.py`
+- 改 `ai/AiWrite.kt`（动作表加"可批量"标记 + 批量卡最后一行说真话）、
+  `ai/AiWriteService.kt`（**唯一接线点**：handlers 外套一层 + 批量不挂单条撤回方案）、
+  `ai/AiRolePrompt.kt`（规则：一次说要改多条时必须一次调用）、
+  `_tools/ai/_check_ai_guardrails.py`（新增一节）+ AI 文档一节
+- ⛔ **不改**：任何一个既有处理器（批量层只**调**它们）、`_write_coverage.py` 覆盖口径（没有新端点）
+
+**明确不碰**：`backend/**`（这三条都不需要动后端）、`ui/dispatcher/*`、`ui/shipper/*`、`frontend/*`。
+
+**本轮唯一的核心改动**（格式见 `docs/CORE_AND_EXTENSION.md`；判据 `_tools/qa/_check_core_freeze.py`）：
+
+- 核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：批量要对**所有**动作生效，而"动作 id → 处理器"那张表只在这个文件里建；接线只有两条路，一是把 50 多个处理器各改一遍（正是准则禁止的），二是建表之后**统一套一层装饰器**（本轮选它，多 3 行）。另外 `execute` 里那两处判断要认批量 payload：批量不挂撤回方案（`AiRevert.plan` 只认单条 payload），也不该报"没能挂上撤回"。
+
+> **A/B/C ✅ 全部完成（2026-09-21 19:5x）**。落地的文件与上面那份清单**有两处偏差**：
+> ① 批量**没有**做成"动作表加可批量标记"，而是**对所有动作统一可用**（少一张要维护的清单）；
+> ② 也没有改 `ai/AiRolePrompt.kt` —— 那条规则放在了 `ai/AiAgentLoop.kt` 的提示词里
+> （紧挨着原来那条"批量操作前名单必须当场重查"，两条本来就该在一起）。
+>
+> **验证**：`_check_all.py` **55/55**（新增 2 个检查）· 红线 `_check_ai_guardrails.py` **1207 项**
+> （新增 §32 共 **39 项**，另按新位置改写 2 条旧锚点）· `pytest -q` **688 passed** ·
+> Android **991 用例 / 0 失败**（973 → +18：批量单测 15 + 端到端 3）· 反向验证
+> **ai_batch 19/19**、**core_freeze 9/9**、**driver_money 11/11**，另跑 `_reverse_verify_all.py --changed`
+> **13/13 份全过**。
+>
+> **真机（模拟器）实跑**：
+> ① **司机端不显示金额**：emulator-5558 司机登录后，已完成列表与订单详情**一个 ¥ 都没有**，
+> 而库里这两张单是 `PIECE + freight_fee=62/92`（**改动前必然显示 ¥62.00 / ¥92.00**，
+> 该司机名下这种单有 16 张）；同一账号的「我的账本」照旧显示 `合计 ¥44.00`、每单 `¥22.00`（计件/运费明细都在）。
+> ② **AI 批量**：emulator-5554（deepseek-flash 真模型）说「把这两张单标成异常」→ 模型**只用了一次**
+> 调用、弹**一张**卡：标题「标记异常」、摘要「**批量标记异常：2 条**」、逐条列 6 行明细、点一次确认 →
+> 结果如实回报「✅ 已完成：批量标记异常：2 条 / **这一批 2 条：成功 2 条，全部成功。**」，
+> 库里两张单 `is_exception=1`、`exception_reason='batch-e2e-test'`；随后用同样的方式「解除异常」
+> 再跑一遍（**第二个动作也走通了批量**），库里已复原为 `is_exception=0`。
+> ⚠️ 一处**已知限制（不是本轮引入的）**：三个 AVD 的 `hw.keyboard=no`，所以**宿主机键盘打不进中文**，
+> 真机 E2E 的中文输入只能靠 `_emulator_say.ps1`（需要模拟器开「剪贴板共享」，本机没开）；
+> 本轮改用 ASCII 指令（订单号是 ASCII）绕开，机制与语言无关。
+> ⚠️ 本地库里那两张单的 `exception_reason` 还留着 `batch-e2e-test` 这行字（`is_exception` 已是 0），
+> 属测试残留，下次重置本地库/灌数会一起清掉。
+
+
 ### [2026-09-21 12:2x →] 会话：**安卓模拟器安装白PP并登录司机账号**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **用户需求（原话）**：「ai它要具备读取手机的地点的能力因为 ai它是要具备所有功能…包括用户不是我们要去

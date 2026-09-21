@@ -237,7 +237,7 @@ fun OrderCard(
 
             Spacer(Modifier.height(10.dp))
 
-            // 行5：件数/时间 + 金额（橙色加粗，钱=橙）
+            // 行5：件数/时间 + 金额（橙色加粗，钱=橙）。⚠️ 司机端这一行**只有件数与时间**（没有金额）。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -260,23 +260,14 @@ fun OrderCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (driverMode) {
-                    // 司机视图：固定工资司机零金额（货款/运费/工资代金均不出现）；
-                    // 按单计费司机仅显示"已定价的运费"（未定价/货款一律不显示）
-                    if (order.freightVisible && order.freightFee != null) {
-                        // 卡片只显示金额+金钱符号（不写"运费"二字）；详情页可查看运费明细
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TintedIcon(Icons.Default.Payments, Color(MoneyOrange), size = 14.dp, container = 24.dp)
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                "¥" + formatMoney(order.freightFee),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(MoneyOrange),
-                            )
-                        }
-                    }
-                } else {
+                // 司机端订单卡片**一律不画金额**（2026-09-21 用户定案，原话：「干脆以后就这样子搞，
+                //   所有的司机都不显示金钱是多少」）：
+                //   原来自定义是「固定工资司机零金额；按单计费(PIECE)司机显示已定价的运费」，
+                //   现在**连按单计费那一档也去掉** —— 运费 / 工资 / 货款一概不出现。
+                //   司机想知道这一单他拿多少，只在「我的账单」（`ui/driver/DriverFreightScreen`）里看；
+                //   而那一页算的是**这一单司机应得多少**（`driver_pay` 一份口径），两处不会各说一个数。
+                //   ⛔ 别在这里"顺手加回来"：判据在 `_tools/qa/_check_driver_money.py`（有反向验证）。
+                if (!driverMode) {
                     Text(
                         "¥" + formatMoney(total.toString()),
                         style = MaterialTheme.typography.titleMedium,
