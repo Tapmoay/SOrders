@@ -34,6 +34,14 @@ class UserOut(BaseModel):
     #    → 送达时 `pay.total <= 0` **连账单都不生成**（2026-09-19 全项目报告 P0-3）。
     #    None = 非司机（这个字段对他没有意义）。
     pays_per_order: bool | None = None
+    # 「他**现在有没有按单的账要看**」—— 决定司机端「我的账单」那一格显不显示（2026-09-21 真机抓到）。
+    # ⛔ 与上面那个是**两件事**：`pays_per_order` 面向**以后派的单**（派单端要它决定运费框），
+    #    这一个面向**已经发生的钱**（当前按单 **或** 账上已有按单账单）。
+    #    判据在 `services/driver_pay.has_per_order_earnings`（钱的唯一口径处），客户端不许自己算：
+    #    只按 `pays_per_order` 判的后果是——被改成固定工资的司机，他那笔改规则之前攒下的
+    #    按单钱（prod 实测 ¥2024）在 App 里**再也看不到**（订单卡片已经不画任何金额了）。
+    #    None = 非司机或这次没查（客户端按 false 处理）。
+    has_per_order_earnings: bool | None = None
     created_at: datetime
 
 

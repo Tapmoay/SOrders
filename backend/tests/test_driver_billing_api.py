@@ -638,3 +638,64 @@ def test_模型层_规则的参数快照函数存在() -> None:
 def test_模型层_驱动规则关系是懒加载可用的(db_session) -> None:
     u = db_session.query(User).filter_by(phone="13800000003").first()
     assert hasattr(u, "driver_rule")
+
+
+# ------------------------------------------------- 「我的账单」入口的判据（2026-09-21 真机抓到）
+
+@pytest.mark.dispatcher
+@pytest.mark.driver
+@pytest.mark.integration
+def test_改成固定工资之后_账上的按单钱仍然要能对账(
+    client: TestClient, token_shipper: str, token_dispatcher: str
+) -> None:
+    """**真机抓到的洞**：司机端「我的账单」那一格原来只看"他现在按不按单拿钱"。
+
+    于是司机被改成固定工资之后那一格消失 —— 而他改规则**之前**攒下的按单账单还在
+    （prod 实测那位司机：92 笔 / ¥2024，本月 21 单 ¥462），而订单卡片从 2026-09-21 起
+    **一个金额都不画了** → 那笔钱在 App 里彻底看不见（接口 `GET /freight-settlement`
+    其实一条不少地返回）。
+
+    所以判据拆成两个字段，各管一头：
+    - `pays_per_order`：**以后派的单**按不按单算（派单端据此决定要不要弹运费框）；
+    - `has_per_order_earnings`：**他现在有没有按单的账要看**（司机端那一格据此显示）。
+    """
+    # ① 挂车司机（没有规则时按单计费）先真跑一单 → 产生一张**真的**按单账单
+    driver_id, token_driver = _mk_driver(client, token_dispatcher, vehicle="trailer")
+    _, bill = _deliver(
+        client, token_shipper, token_dispatcher, token_driver, driver_id, freight_fee="100.00"
+    )
+    assert Decimal(bill["amount"]) > 0, bill
+
+    me = client.get("/api/v1/users/me", headers=auth_headers(token_driver)).json()
+    assert me["pays_per_order"] is True, me
+    assert me["has_per_order_earnings"] is True, me
+
+    # ② 派单员把他挂成"只拿固定工资" → 入口那格**不能**跟着消失
+    rule = _mk_rule(client, token_dispatcher, salary="8000", piece_amount="0")
+    assert _attach(client, token_dispatcher, driver_id, rule["id"]).status_code == 200
+
+    me = client.get("/api/v1/users/me", headers=auth_headers(token_driver)).json()
+    assert me["pays_per_order"] is False, "以后派的单确实不按单算了（派单端不该再弹运费框）"
+    assert me["has_per_order_earnings"] is True, (
+        "账上还有按单账单，这一格必须留着 —— 否则他改规则之前攒下的那笔钱在 App 里再也看不到"
+    )
+
+
+@pytest.mark.dispatcher
+@pytest.mark.driver
+@pytest.mark.integration
+def test_一直拿固定工资没按单跑过的司机_没有我的账单入口(
+    client: TestClient, token_dispatcher: str
+) -> None:
+    """用户 2026-09-20 定的规则不能被上面那条推翻。
+
+    原话：「拿固定工资的司机不需要「我的账本」，所以他是没有的」——
+    判据是**他有没有按单的钱要对**：一直拿固定工资、从来没按单跑过 → 两个字段都是 false。
+    """
+    driver_id, token_driver = _mk_driver(client, token_dispatcher, vehicle="trailer")
+    rule = _mk_rule(client, token_dispatcher, salary="8000", piece_amount="0")
+    assert _attach(client, token_dispatcher, driver_id, rule["id"]).status_code == 200
+
+    me = client.get("/api/v1/users/me", headers=auth_headers(token_driver)).json()
+    assert me["pays_per_order"] is False, me
+    assert me["has_per_order_earnings"] is False, me

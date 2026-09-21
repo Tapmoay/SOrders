@@ -43,6 +43,7 @@ AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 CARD = AND / "ui/common/OrderCard.kt"
 DETAIL = AND / "ui/order/OrderDetailScreen.kt"
 FREIGHT = AND / "ui/driver/DriverFreightScreen.kt"
+PROFILE_SCREEN = AND / "ui/profile/ProfileScreen.kt"
 DRIVER_DIR = AND / "ui/driver"
 ORDER_RESPONSE = ROOT / "backend/app/services/order_response.py"
 DRIVER_PAY = ROOT / "backend/app/services/driver_pay.py"
@@ -156,6 +157,47 @@ def main() -> int:
          money_files == MONEY_ALLOWED_IN_DRIVER_DIR, f"实际：{sorted(money_files)}")
     c.ok(f"`ui/driver/` 扫到 {len(files)} 个文件（≥{MIN_DRIVER_FILES}，防目录被搬走时空转）",
          len(files) >= MIN_DRIVER_FILES, f"实际 {len(files)}")
+
+    # ============================================================ 9. 「我的账单」入口
+    # 2026-09-21 真机抓到的洞：入口原来只看"他现在按不按单拿钱"，于是被改成固定工资的司机
+    # 那一格消失，而他改规则**之前**攒下的按单账单还在（prod 实测 92 笔 / ¥2024）——
+    # 订单卡片又已经不画金额了，那笔钱在 App 里就彻底看不见。
+    print("\n== 9. 「我的账单」入口：有钱要对就显示（2026-09-21 真机补的）==")
+    dpay = read(DRIVER_PAY)
+    uschema = read(ROOT / "backend/app/schemas/user.py")
+    users_api = read(ROOT / "backend/app/api/v1/users.py")
+    dtos = read(AND / "data/remote/dto/Dtos.kt")
+
+    c.present("判据落在 `driver_pay`（钱的唯一口径处），不是散在接口里",
+              dpay, r"def has_per_order_earnings\(")
+    c.present("判据的两头都在：**当前按单** → 直接算有",
+              dpay, r'if snapshot_mode\(driver\) == "PIECE":\s*\n\s*return True')
+    c.present("另一头：**账上已有按单账单** → 也算有",
+              dpay, r"DriverBill\.bill_type")
+    # ⛔ 大小写必须归一：`DriverBillType.PIECE` 的值是小写 "piece"，MySQL 的 = 不区分大小写
+    #    （线上照样命中），而 SQLite 的 = **区分**大小写（本地永远查不到）——"线上对、本地空"。
+    c.present("账单类型比大小写归一（否则 SQLite 上永远查不到）",
+              dpay, r'func\.upper\(DriverBill\.bill_type\) == "PIECE"')
+    c.present("`/users/me` 真的把它算出填进出参",
+              users_api, r"out\.has_per_order_earnings = has_per_order_earnings\(db, current\)")
+    c.present("出参 schema 里有这个字段", uschema, r"has_per_order_earnings: bool \| None = None")
+    c.present("客户端 DTO 里有这个字段",
+              dtos, r'@SerialName\("has_per_order_earnings"\)')
+    c.present("客户端入口是**两个字段的或**（不是只看 paysPerOrder）",
+              read(PROFILE_SCREEN),
+              r"vm\.user\?\.paysPerOrder == true \|\| vm\.user\?\.hasPerOrderEarnings == true")
+    # ⛔ 别把两个概念合并：`pays_per_order` 是"以后派的单按不按单算"，派单端靠它决定运费框
+    c.present("`pays_per_order` 的原语义没被改（派单端还在用它决定运费框）",
+              users_api, r'out\.pays_per_order = snapshot_mode\(u\) == "PIECE"')
+    c.present("派单端仍然读 `paysPerOrder`",
+              read(AND / "ui/dispatcher/DispatcherPoolViewModel.kt"),
+              r"u\.paysPerOrder\?\.let \{ return it \}")
+    api_test = read(ROOT / "backend/tests/test_driver_billing_api.py")
+    c.present("后端有测试钉住『改成固定工资后仍要能对账』",
+              api_test, r"def test_改成固定工资之后_账上的按单钱仍然要能对账")
+    c.present("后端也有测试钉住『没按单跑过的纯固定工资司机仍然没有这一格』",
+              api_test, r"def test_一直拿固定工资没按单跑过的司机_没有我的账单入口")
+
 
     print("\n" + "=" * 60)
     if c.fails:

@@ -21,8 +21,14 @@ AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 CARD = AND / "ui/common/OrderCard.kt"
 DETAIL = AND / "ui/order/OrderDetailScreen.kt"
 FREIGHT = AND / "ui/driver/DriverFreightScreen.kt"
+PROFILE_SCREEN = AND / "ui/profile/ProfileScreen.kt"
+DTOS = AND / "data/remote/dto/Dtos.kt"
 DRIVER_DIR = AND / "ui/driver"
 ORDER_RESPONSE = ROOT / "backend/app/services/order_response.py"
+#: 2026-09-21 补的入口判据（「我的账单」那一格该不该出现）
+DRIVER_PAY = ROOT / "backend/app/services/driver_pay.py"
+USERS_API = ROOT / "backend/app/api/v1/users.py"
+USER_SCHEMA = ROOT / "backend/app/schemas/user.py"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词)
 MUTATIONS = [
@@ -93,6 +99,63 @@ MUTATIONS = [
         '"¥" + formatMoney(e.payTotal)',
         "e.payTotal",
         "我的账单逐单显示司机应得",
+    ),
+    # ---- 入口判据（2026-09-21 真机补的那 12 项）----
+    (
+        "入口判据退回旧的『只看当前模式』（改规则前攒下的按单钱又看不见了）",
+        DRIVER_PAY,
+        '    if snapshot_mode(driver) == "PIECE":\n        return True',
+        '    if snapshot_mode(driver) == "PIECE":\n        return False',
+        "判据的两头都在",
+    ),
+    (
+        "去掉『账上已有按单账单』那一头（只认当前按单）",
+        DRIVER_PAY,
+        "DriverBill.bill_type",
+        "DriverBill.month",
+        "另一头：**账上已有按单账单**",
+    ),
+    (
+        "账单类型比大小写不归一（SQLite 上永远查不到 → 本地绿、线上才碰巧对）",
+        DRIVER_PAY,
+        'func.upper(DriverBill.bill_type) == "PIECE"',
+        'DriverBill.bill_type == "PIECE"',
+        "大小写归一",
+    ),
+    (
+        "`/users/me` 不再算这个字段（客户端永远拿不到 → 退回旧判据）",
+        USERS_API,
+        "        out.has_per_order_earnings = has_per_order_earnings(db, current)\n",
+        "",
+        "`/users/me` 真的把它算出填进出参",
+    ),
+    (
+        "出参 schema 少了这个字段（静默不返回）",
+        USER_SCHEMA,
+        "    has_per_order_earnings: bool | None = None\n",
+        "",
+        "出参 schema 里有这个字段",
+    ),
+    (
+        "客户端 DTO 少了这个字段（反序列化永远为 null）",
+        DTOS,
+        '    @SerialName("has_per_order_earnings") val hasPerOrderEarnings: Boolean? = null,\n',
+        "",
+        "客户端 DTO 里有这个字段",
+    ),
+    (
+        "客户端入口退回『只看 paysPerOrder』（这一格又消失）",
+        PROFILE_SCREEN,
+        "vm.user?.paysPerOrder == true || vm.user?.hasPerOrderEarnings == true",
+        "vm.user?.paysPerOrder == true",
+        "客户端入口是**两个字段的或**",
+    ),
+    (
+        "把两个概念合并（顺手改掉 `pays_per_order` 的语义 → 派单端给工资制司机弹运费框）",
+        USERS_API,
+        'out.pays_per_order = snapshot_mode(u) == "PIECE"',
+        "out.pays_per_order = True",
+        "`pays_per_order` 的原语义没被改",
     ),
 ]
 

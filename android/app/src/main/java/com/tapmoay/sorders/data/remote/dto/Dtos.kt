@@ -83,6 +83,13 @@ data class UserDto(
     // 猜成工资制，于是运费框不显示、运费为空、提成算成 0 → 连账单都不生成（报告 P0-3）。
     // null = 老后端还没这个字段 → 退回兜底判据（与 `resolve_billing_mode` 一致）。
     @SerialName("pays_per_order") val paysPerOrder: Boolean? = null,
+    // 「他**现在有没有按单的账要看**」——司机端「我的账单」那一格显不显示（2026-09-21 真机抓到）。
+    // ⛔ 与上面那个不是一回事：`paysPerOrder` 管**以后派的单**（派单端用它决定运费框），
+    //    这一个管**已经发生的钱**。只按上面那个判的后果：司机被改成固定工资后，
+    //    他改规则之前攒下的按单钱（prod 实测 ¥2024）在 App 里**再也看不到** ——
+    //    订单卡片已经不画任何金额了，这一格是他唯一能对账的地方。
+    // null = 老后端还没这个字段 → 退回旧判据（只看 `paysPerOrder`）。
+    @SerialName("has_per_order_earnings") val hasPerOrderEarnings: Boolean? = null,
     @SerialName("created_at") val createdAt: String = "",
 )
 

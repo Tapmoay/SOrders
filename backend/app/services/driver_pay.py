@@ -322,6 +322,53 @@ def snapshot_mode(user) -> str:
     return resolve_billing_mode(getattr(user, "vehicle_type", None), getattr(user, "billing_mode", None))
 
 
+def has_per_order_earnings(db, driver) -> bool:
+    """他**有没有按单的钱**要对（当前按单计费，或账上已经有按单账单）。
+
+    ### 为什么需要这个（2026-09-21 真机上抓到的洞）
+    司机端「我的账单」那一格原来的判据是 `snapshot_mode(u) == "PIECE"` —— 也就是**只看他现在**
+    按不按单拿钱。真机上一测就露了：
+    prod 的司机 13800000003 被改成「月薪司机 · 固定 6500」之后那一格消失了，
+    可他账上躺着 **92 笔按单账单（¥2024，本月 21 单 ¥462、每单 ¥22）** —— 那是改规则**之前**
+    按单跑出来的钱，`GET /freight-settlement` 照样一条不少地返回。
+    于是这笔钱在 App 里**没有任何地方看得到**（订单卡片上那个 ¥77 是**货主运费**，
+    不是他应得；而用户 2026-09-21 已经明确要求司机端一个金额都不画）。
+
+    ### 两件事必须分开，别合并成一个布尔
+    - [snapshot_mode]（出参里的 `pays_per_order`）：**以后派的单**按不按单算 —— 派单端据此
+      决定要不要给这个司机弹运费框；
+    - 本函数：**他现在有没有按单的账要看** —— 司机端据此决定「我的账单」显不显示。
+
+    合并成一个的后果是其中之一必错：要么派单端给工资制司机弹运费框（填了也白填），
+    要么他的历史按单钱再也看不见。
+
+    判据 = **当前按单 或 账上存在按单账单**，所以：
+    - 一直拿固定工资、从来没按单跑过的司机 → False（用户 2026-09-20 定的：他不需要账本）；
+    - 被改成固定工资、但攒下过按单钱的司机 → True（这个函数存在的唯一理由）。
+    """
+    if snapshot_mode(driver) == "PIECE":
+        return True
+
+    from sqlalchemy import func, select
+
+    from app.models.driver_bill import DriverBill
+
+    n = db.scalar(
+        select(func.count())
+        .select_from(DriverBill)
+        .where(
+            DriverBill.driver_id == driver.id,
+            # ⚠️ **大小写必须归一**（`DriverBillType.PIECE` 的值是小写 `"piece"`，而生产库里
+            #    历史上也有大写的行）：MySQL 默认排序规则**大小写不敏感**，写 `== "PIECE"`
+            #    在线上照样命中；可 SQLite 的 `=` 是**区分大小写**的 —— 于是同一条判据
+            #    "线上对、本地永远查不到"，测试还会绿。这个仓库栽过完全相同的坑
+            #    （订单状态判据写成小写 → 永远扫 0 行、永远报绿）。
+            func.upper(DriverBill.bill_type) == "PIECE",
+        )
+    )
+    return bool(n)
+
+
 def dispatch_mode(user, *, piece_override=None, rate_override=None) -> str:
     """派单那一刻写进订单的模式快照（在 [snapshot_mode] 之上把逐单覆盖算进去）。
 

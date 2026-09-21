@@ -51,8 +51,16 @@ def _to_out(u: User, viewer: User) -> User:
 
 
 @router.get("/me", response_model=UserOut)
-def read_me(current: CurrentUser) -> UserOut:
-    return _to_out(current, current)
+def read_me(current: CurrentUser, db: Session = Depends(get_db)) -> UserOut:
+    out = _to_out(current, current)
+    # 「他现在有没有按单的账要看」（司机端「我的账单」入口的判据）：
+    # ⚠️ 只有在**自己的** /me 上算 —— 列表页不需要它，而它要查一次 driver_bills。
+    #    判据本身在 `driver_pay`（钱的唯一口径处），这里只负责把它填进出参。
+    if user_role_key(current) == UserRole.DRIVER.value:
+        from app.services.driver_pay import has_per_order_earnings
+
+        out.has_per_order_earnings = has_per_order_earnings(db, current)
+    return out
 
 
 @router.get("", response_model=list[UserOut])
