@@ -1092,7 +1092,7 @@ internal object AiWriteBasicData {
      */
     private val VEHICLE_KEYS = setOf("plate_no", "vehicle_type", "active")
 
-    /** 与 [AiWriteMasterData] 里的同名工厂是同一份写法（见那里的注释）。 */
+    /** 与 [AiWriteMasterData] 里的同名工厂**共用同一份推导**（[crudParams]，见那里的注释）。 */
     private fun crud(
         id: String,
         title: String,
@@ -1121,26 +1121,13 @@ internal object AiWriteBasicData {
         risk = risk,
         group = group,
         blurb = blurb,
-        params = targets.map {
-            AiWriteParam(it.param, it.cn, it.required, AiWriteParamKind.TEXT, it.hint)
-        } + fields.map {
-            AiWriteParam(it.name, it.cn, it.required, it.paramKind(), it.hint, it.enumValues)
-        },
+        params = crudParams(targets, fields),
         crud = CrudSpec(
             targets, fields, headline, details, commit, geocodeFrom, geocodeRequired, allowTargetOnly,
             alwaysIncludeTargets,
         ),
         undoOnly = undoOnly,
     )
-
-    private fun AiFieldSpec.paramKind(): AiWriteParamKind = when (type) {
-        AiFieldType.TEXT -> AiWriteParamKind.TEXT
-        AiFieldType.MONEY, AiFieldType.COUNT, AiFieldType.DELTA, AiFieldType.NON_NEGATIVE ->
-        AiWriteParamKind.NUMBER
-        AiFieldType.DATE -> AiWriteParamKind.DATE
-        AiFieldType.BOOL -> AiWriteParamKind.TEXT
-        AiFieldType.ENUM -> AiWriteParamKind.ENUM
-    }
 }
 
 /**

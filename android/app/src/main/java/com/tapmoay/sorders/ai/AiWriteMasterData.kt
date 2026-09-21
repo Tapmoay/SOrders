@@ -553,6 +553,7 @@ internal object AiWriteMasterData {
      *
      * 关键：**`params`（喂给模型的参数表）由规格推导出来**，不是另写一份。
      * 两份写法一定会走散，而走散的表现是"模型按清单传参、代码说不认识"。
+     * 推导本体在 [crudParams]（与 `AiWriteBasicData` 里那个同名工厂**共用同一份**）。
      */
     private fun crud(
         id: String,
@@ -571,22 +572,9 @@ internal object AiWriteMasterData {
         risk = risk,
         group = group,
         blurb = blurb,
-        params = targets.map {
-            AiWriteParam(it.param, it.cn, it.required, AiWriteParamKind.TEXT, it.hint)
-        } + fields.map {
-            AiWriteParam(it.name, it.cn, it.required, it.paramKind(), it.hint, it.enumValues)
-        },
+        params = crudParams(targets, fields),
         crud = CrudSpec(targets, fields, headline, details, commit),
     )
-
-    private fun AiFieldSpec.paramKind(): AiWriteParamKind = when (type) {
-        AiFieldType.TEXT -> AiWriteParamKind.TEXT
-        AiFieldType.MONEY, AiFieldType.COUNT, AiFieldType.DELTA, AiFieldType.NON_NEGATIVE ->
-        AiWriteParamKind.NUMBER
-        AiFieldType.DATE -> AiWriteParamKind.DATE
-        AiFieldType.BOOL -> AiWriteParamKind.TEXT
-        AiFieldType.ENUM -> AiWriteParamKind.ENUM
-    }
 }
 
 // ------------------------------------------------------------------ payload 取值

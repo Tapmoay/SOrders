@@ -963,6 +963,45 @@ data class CrudSpec(
     val alwaysIncludeTargets: Set<String> = emptySet(),
 )
 
+/**
+ * 声明式动作的**参数清单**：先目标实体（名字 → 编号），再普通字段。
+ *
+ * ### 为什么必须只有一份实现
+ * `AiWriteMasterData` 与 `AiWriteBasicData` 各有一个 `crud(...)` 工厂，原来各自抄了一遍
+ * 这段推导 + [AiFieldType] → [AiWriteParamKind] 的映射。它的产物**会贴给模型看**
+ * （[AiWrites.describeForModel] 里那句 `${p.kind.cn}`，例如「fee=运费（元）（必填，数字）」）——
+ * 两份走散之后，同一种字段类型在两组动作里就是**两种说法**，模型按一处写、另一处不认，
+ * 而**两边都不报错**（表现只是"参数传得不对"）。所以推导与映射都收在这里，工厂只调它。
+ *
+ * ⚠️ 目标的类型恒为 [AiWriteParamKind.TEXT]：模型给的是**名字**（"红富士苹果"），
+ * 编号由 App 自己解析（见 [AiTargetSpec]）——写成 NUMBER 会让它直接吐一个编号过来。
+ */
+internal fun crudParams(
+    targets: List<AiTargetSpec>,
+    fields: List<AiFieldSpec>,
+): List<AiWriteParam> =
+    targets.map { AiWriteParam(it.param, it.cn, it.required, AiWriteParamKind.TEXT, it.hint) } +
+        fields.map { AiWriteParam(it.name, it.cn, it.required, it.paramKind(), it.hint, it.enumValues) }
+
+/**
+ * [AiFieldType] → **给模型看的**参数类型。
+ *
+ * 刻意是粗的那一种（金额/数量/增减量/非负整数都只是"数字"）：细规则由 [AiWriteArgs]
+ * 按字段类型逐条校验（金额有 100 万上限、数量 ≥1、增减量允许负数…），
+ * 这里只负责让模型知道"这一格该填数字还是一段文字还是日期"。
+ *
+ * ⛔ 只有这一份（见 [crudParams]）：单测 `AiWriteParamsTest` 把 8 个字段类型逐个钉住，
+ * 红线 `_tools/ai/_check_ai_write_params.py` 钉住"全库只有一处映射 + 工厂都走 [crudParams]"。
+ */
+internal fun AiFieldSpec.paramKind(): AiWriteParamKind = when (type) {
+    AiFieldType.TEXT -> AiWriteParamKind.TEXT
+    AiFieldType.MONEY, AiFieldType.COUNT, AiFieldType.DELTA, AiFieldType.NON_NEGATIVE ->
+        AiWriteParamKind.NUMBER
+    AiFieldType.DATE -> AiWriteParamKind.DATE
+    AiFieldType.BOOL -> AiWriteParamKind.TEXT
+    AiFieldType.ENUM -> AiWriteParamKind.ENUM
+}
+
 /** 地理编码结果的 payload 键（[CrudSpec.geocodeFrom] 换出来的坐标写在这两个键上）。 */
 internal const val GEO_LAT = "address_lat"
 internal const val GEO_LNG = "address_lng"
