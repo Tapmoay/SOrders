@@ -264,13 +264,19 @@ def main() -> int:
     c.ok("`ORDER_LIST_LIMIT` 全库只有一处定义（原来两个 VM 各写一份 300）",
          sum(len(re.findall(r"const val ORDER_LIST_LIMIT", s)) for s in srcs.values()) == 1
          and "const val ORDER_LIST_LIMIT" in tabs_kt)
+    # 同一句写给用户的话**只能有一份**：这句话里点名的入口（右上角日期筛选、哪几档才有）
+    # 以后一定会变，两页各写一份就是"改一处漏一处"，而用户会照着提示去找。
+    c.ok("截断提示那句「还能怎么看到更早的」两页共用一份（`ORDER_TRUNCATION_HOW`）",
+         sum(len(re.findall(r"const val ORDER_TRUNCATION_HOW", s)) for s in srcs.values()) == 1
+         and "const val ORDER_TRUNCATION_HOW" in tabs_kt)
     for label, screen, vm in (
         ("派单员「订单管理」", disp_screen, disp_vm),
         ("货主「我的订单」", ship_screen, ship_vm),
     ):
         c.ok(f"{label}：截断判据还在（`maybeTruncated` 不许被删）", "maybeTruncated" in vm)
         c.ok(f"{label}：截断时**说出来**（走共用的 `TruncationNote`，不自己写措辞）",
-             "TruncationNote(" in screen and "limit = ORDER_LIST_LIMIT" in screen)
+             "TruncationNote(" in screen and "limit = ORDER_LIST_LIMIT" in screen
+             and "howToSeeMore = ORDER_TRUNCATION_HOW" in screen)
         c.ok(f"{label}：提示在 `items(` **之后**（= 列表最后一行，不再把第一张单推下去）",
              0 <= screen.find("items(") < screen.find("TruncationNote("),
              "回到顶部就是用户点名要删的那个「占位置」的提示")

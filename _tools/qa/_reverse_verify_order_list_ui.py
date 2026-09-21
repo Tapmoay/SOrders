@@ -208,6 +208,13 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "    {",
         "两个订单列表都继承了那个内核",
     ),
+    (
+        "㉓ 截断提示那句话又在页面上写死一份（以后改一处漏一处）",
+        SHIP_SCREEN,
+        "                                    howToSeeMore = ORDER_TRUNCATION_HOW,",
+        '                                    howToSeeMore = "要按时间找，用右上角的日期筛选",',
+        "货主「我的订单」：截断时**说出来**",
+    ),
 ]
 
 

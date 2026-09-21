@@ -211,7 +211,7 @@ fun ShipperOrdersScreen(
                             item(key = "truncated-note") {
                                 TruncationNote(
                                     limit = ORDER_LIST_LIMIT,
-                                    howToSeeMore = "要按时间找，用右上角的日期筛选（切到「已送达」或「已撤销」才会出现）",
+                                    howToSeeMore = ORDER_TRUNCATION_HOW,
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                 )
                             }

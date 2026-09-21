@@ -143,10 +143,28 @@ def main() -> int:
         all(re.search(r"if \((?:\w+\.)?\w*[Tt]runcated|if \(meta\?\.hasMore", s) for p, s in kts.items() if p in note_files),
         "无条件显示的提示等于没判据",
     )
+    # ⚠️ 2026-09-22：**同一句话被两个页面共用**时（`ui/common/OrderTabs.kt::ORDER_TRUNCATION_HOW`，
+    #    两个订单列表都传 `howToSeeMore = ORDER_TRUNCATION_HOW`），那句"点名了一个真入口"的话
+    #    就**不在页面文件里**了 —— 只按文件找关键词会把这次收编判成"文案没点名入口"（假红）。
+    #    所以这里**跟着引用查一次常量**：`howToSeeMore = X` 就把 X 的值拼回来再判。
+    #    ⛔ 这不是放松判据：页面上**写死**一句不含白名单词的话，照样红。
+    SHARED_CONST = re.compile(r'const val (\w+)\s*=\s*"([^"]*)"')
+    shared_vals: dict[str, str] = {}
+    for _s in kts.values():
+        for _m in SHARED_CONST.finditer(_s):
+            shared_vals[_m.group(1)] = _m.group(2)
+
+    def with_shared_text(src: str) -> str:
+        return re.sub(
+            r"howToSeeMore\s*=\s*(\w+)",
+            lambda m: m.group(0) + " " + shared_vals.get(m.group(1), ""),
+            src,
+        )
+
     ok(
         "文案不说做不到的话：提示必须点名一个**页面上真实存在**的入口",
         all(
-            any(k in s for k in (
+            any(k in with_shared_text(s) for k in (
                 "时间导航", "日期筛选", "搜索框", "导出", "别直接新建",
                 # ⚠️ 2026-09-20 收下「日期档位」：它与「日期筛选」指的是**同一行控件**
                 #    （`ui/common/Components.kt::DatePresetRow`：全部/今天/昨天/…/自定义），
