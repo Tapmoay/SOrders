@@ -76,6 +76,22 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 def parse_date_range(date_from: str | None, date_to: str | None):
     # 通用日期范围解析（订单/账本/库存流水等列表复用）：YYYY-MM-DD 起止，含当天。
     # 返回 (datetime | None, datetime | None)；非法格式抛 400。
+    #
+    # ⛔ **它不做任何时区换算**：返回的是"当地日的零点 / 当日末刻"（naive）。而库里的时间列
+    #    存的是 **UTC naive**（`core/business_time.py`）—— 所以**凡是拿它去比一个"时间戳列"
+    #    （`created_at` / `delivered_at` / …）的调用方，都必须自己过 `business_range_utc(...)`**；
+    #    只有比"日期列"（`order_date` / `entry_date`）才可以直接用。漏掉换算不会报错，
+    #    而是**静默差 8 小时**：「查 9-21」实际取到的是北京 9-21 08:00 ~ 9-22 08:00
+    #    （当天头 8 小时查不到、次日头 8 小时多进来），与审计 R12-M11 同族。
+    #
+    # 📋 **调用点清单（2026-09-21 逐个核过；改这里请一并复核）**
+    #    ① `orders.py::_apply_delivered_window`（`delivered_*` → `orders.delivered_at`）✅ 换算
+    #    ② `orders.py::list_orders` 的 `stmt` 路径（派单员+搜索词，`date_*` → `orders.created_at`）✅ 换算
+    #    ③ `orders.py::list_orders` 的 `q` 路径（其余角色，`date_*` → `orders.created_at`）✅ 换算
+    #    ④ `inventory.py::list_movements`（`date_*` → `inventory_movements.created_at`）✅ 换算
+    #    ⑤ `shipper_ledger.py::list_settlements`（`delivered_*` → `orders.delivered_at`）✅ 换算
+    #    ②③④ 是 2026-09-21 补的换算（原来三处都在直接比 UTC 列），
+    #    钉住它们的判据在 `backend/tests/test_date_window_business_day.py`。
     from datetime import date, datetime, time
     from fastapi import HTTPException
     df = dt = None

@@ -506,7 +506,7 @@
    "module_cn": "库存管理",
    "method": "get",
    "path": "/api/v1/inventory/summary",
-   "at": "backend/app/api/v1/inventory.py:172",
+   "at": "backend/app/api/v1/inventory.py:180",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -533,7 +533,7 @@
    "module_cn": "库存管理",
    "method": "get",
    "path": "/api/v1/inventory/movements",
-   "at": "backend/app/api/v1/inventory.py:25",
+   "at": "backend/app/api/v1/inventory.py:26",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -939,7 +939,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:244",
+   "at": "backend/app/api/v1/orders.py:246",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -1085,7 +1085,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:406",
+   "at": "backend/app/api/v1/orders.py:420",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"

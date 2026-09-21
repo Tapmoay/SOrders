@@ -147,6 +147,9 @@ def list_settlements(
     if not include_deleted:
         stmt = stmt.where(ShipperSettlement.is_deleted.is_(False))
     if delivered_from or delivered_to:
+        # ✅ 这一处**过了换算**（`business_range_utc`）：`delivered_from/to` 是业务当地日，
+        #    而 `Order.delivered_at` 存的是 UTC naive —— 直接比会让当地 00:00~08:00 送达的单
+        #    掉出窗口（与审计 R12-M11 同族）。
         df, dt = parse_date_range(delivered_from, delivered_to)
         if df is not None and dt is not None:
             lo, hi = business_range_utc(df.date(), dt.date())

@@ -233,6 +233,8 @@ def _apply_delivered_window(stmt, delivered_from: str | None, delivered_to: str 
     """
     if not delivered_from and not delivered_to:
         return stmt
+    # ✅ 这一处**过了换算**（`business_range_utc`）—— 它就是"正确形状"的样板：
+    #    `parse_date_range` 给的是当地日，必须换算成库里那种 UTC naive 再比。
     df, dt = parse_date_range(delivered_from, delivered_to)
     if df is None or dt is None:
         return stmt
@@ -306,11 +308,19 @@ def list_orders(
             .order_by(Order.created_at.desc())
         )
         if date_from or date_to:
+            # ⚠️ **必须过 `business_range_utc`**（与 `_apply_delivered_window` 同形）：
+            #    `date_from/date_to` 是**业务当地日**，而 `orders.created_at` 存的是 **UTC naive**。
+            #    第一版直接拿 `parse_date_range` 的当地零点去比 → 「查 9-21」实际取到的是
+            #    北京 9-21 08:00 ~ 9-22 08:00（当天头 8 小时的单查不到、次日头 8 小时的多进来），
+            #    界面上只是"少了几单"，看不出是时区错（与审计 R12-M11 同族）。
+            #    ⚠️ 这个端点有**两条互不相干的查询构造路径**（这条是"派单员 + 搜索词"用的 `stmt`，
+            #    下面还有一条给其余角色的 `q`）—— 两边的日期窗口**都要**换算，别只改一处。
             df, dt = parse_date_range(date_from, date_to)
+            lo, hi = business_range_utc((df or dt).date(), (dt or df).date())
             if df is not None:
-                stmt = stmt.where(Order.created_at >= df)
+                stmt = stmt.where(Order.created_at >= lo)
             if dt is not None:
-                stmt = stmt.where(Order.created_at <= dt)
+                stmt = stmt.where(Order.created_at < hi)
         if status_filter is not None:
             stmt = stmt.where(Order.status == status_filter)
         if unpriced:
@@ -390,11 +400,15 @@ def list_orders(
             )
         )
     if date_from or date_to:
+        # ⚠️ **必须过 `business_range_utc`** —— 与上面那条 `stmt` 路径同一件事、同一套换算
+        #    （这个端点两条路径各写一遍过滤条件，漏一条就是"某个角色查某天少几单"）。
+        #    窗口边界是**业务当地日**，而 `Order.created_at` 是 UTC naive，直接比会差 8 小时。
         df, dt = parse_date_range(date_from, date_to)
+        lo, hi = business_range_utc((df or dt).date(), (dt or df).date())
         if df is not None:
-            q = q.where(Order.created_at >= df)
+            q = q.where(Order.created_at >= lo)
         if dt is not None:
-            q = q.where(Order.created_at <= dt)
+            q = q.where(Order.created_at < hi)
     q = _apply_delivered_window(q, delivered_from, delivered_to)
 
     q = q.limit(effective_limit + 1)

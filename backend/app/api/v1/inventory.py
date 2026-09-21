@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
+from app.core.business_time import business_range_utc
 from app.core.pagination import finish_page
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -43,11 +44,18 @@ def list_movements(
     if product_id is not None:
         q = q.where(InventoryMovement.product_id == product_id)
     if date_from or date_to:
+        # ⚠️ **必须过 `business_range_utc`**：`date_from/date_to` 是**业务当地日**（东八区），
+        #    而 `inventory_movements.created_at` 存的是 **UTC naive**（`core/business_time.py`）。
+        #    第一版直接拿 `parse_date_range` 的当地零点去比 —— 于是「查 9-21」实际取到的是
+        #    **北京 9-21 08:00 ~ 9-22 08:00**：当天头 8 小时的流水查不到、次日头 8 小时的多进来，
+        #    而界面上只是"少了几条"，看不出来是时区错（与审计 R12-M11 同族）。
+        #    只给一侧时用另一侧补齐来算区间，但**只加被请求的那一侧**（开区间语义不变）。
         df, dt = parse_date_range(date_from, date_to)
+        lo, hi = business_range_utc((df or dt).date(), (dt or df).date())
         if df is not None:
-            q = q.where(InventoryMovement.created_at >= df)
+            q = q.where(InventoryMovement.created_at >= lo)
         if dt is not None:
-            q = q.where(InventoryMovement.created_at <= dt)
+            q = q.where(InventoryMovement.created_at < hi)
     return finish_page(list(db.scalars(q)), limit, response)
 
 
