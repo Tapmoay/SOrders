@@ -93,6 +93,13 @@ DISPATCH_RR_VM = (
     ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherReturnRequestsViewModel.kt"
 )
 RETURNS_VM_CORE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/ReturnRequestsViewModel.kt"
+#: 两端「退货申请」的页面（2026-09-21 第二轮收口：档位标签 / 定位说明 / 行首都收进 common）
+DISPATCH_RR_SCREEN = (
+    ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherReturnRequestsScreen.kt"
+)
+SHIPPER_RR_SCREEN = (
+    ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperReturnRequestsScreen.kt"
+)
 
 # 每一条都要**真的替换到**（原文出现次数 != 1 就报 SKIP，绝不当成通过）。
 # 元组 = (说明, 文件, 原文, 替换成, 期望被点出来的判据关键字)
@@ -268,6 +275,24 @@ MUTATIONS: list[tuple[str, Path, str, str, str]] = [
         "        if (initialFocusRequestId > 0L) tab = tabAllIndex",
         "        if (false) tab = tabAllIndex",
         "带定位进来先用「全部」档拉",
+    ),
+    # ⑭ 页面上的三小块（2026-09-21 第二轮收口）
+    (
+        "⑭ 派单端又把定位徽章抄回页面里（两端各说各的）",
+        DISPATCH_RR_SCREEN,
+        "        ReturnRequestsHeading(req = req, focused = focused)",
+        "        if (focused) { Text(\"消息里点进来的这一条\") }\n"
+        "        ReturnRequestsHeading(req = req, focused = focused)",
+        "定位徽章的文案只许在一个文件里",
+    ),
+    (
+        "⑭ 货主端又自己按下标算档位标签（两页顺序相反 → 张数挂到另一档上）",
+        SHIPPER_RR_SCREEN,
+        "                labels = returnTabLabels(SHIPPER_RETURN_TABS, vm.pendingCount),",
+        "                labels = SHIPPER_RETURN_TABS.mapIndexed { i, t ->\n"
+        "                    if (i == 0 && vm.pendingCount > 0) t.label + \" \" + vm.pendingCount else t.label\n"
+        "                },",
+        "两端页面不许自己算档位标签",
     ),
 ]
 

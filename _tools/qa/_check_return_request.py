@@ -789,6 +789,49 @@ def main() -> int:
         f"子类：{subclasses}",
     )
 
+    # ---------------------------------------------------------------- 8c. 客户端的页面也共用
+    print("\n== 8c. 客户端：两端页面上重复的那三小块也只许一处 ==")
+    # 上一轮收的是 VM 内核；这一轮收的是页面上的三段**逐字相同**的块：
+    # 档位标签、定位失败那一行说明、行首（定位徽章 + 订单号 + 状态）。
+    # 它们各自都有"必须两端一致"的理由，而且抄错的后果都很安静（标错档、徽章只有一边有）。
+    rr_ui = read(ANDROID / "ui/common/ReturnRequestsUi.kt")
+    c.present(
+        "档位标签只有一处，且按 **key** 判而不是按下标（两页档位顺序相反）",
+        rr_ui,
+        r'if \(t\.key == "pending" && pendingCount > 0\)',
+    )
+    c.present("定位失败的说明只有一处", rr_ui, r"fun ReturnRequestsFocusNotice\(")
+    c.present("行首（定位徽章 + 订单号 + 状态徽章）只有一处", rr_ui, r"fun ReturnRequestsHeading\(")
+    # 消费点**从源码算**：谁的行里画 `req.linesSummary`（两条退货申请列表），谁就必须用共用行首
+    rr_screens = sorted(
+        p.relative_to(ANDROID).as_posix()
+        for p in (ANDROID / "ui").rglob("*ReturnRequestsScreen.kt")
+        if "req.linesSummary" in read(p)
+    )
+    c.ok(
+        f"两端的行首都用共用组件（从源码算到 {len(rr_screens)} 个页面）",
+        len(rr_screens) >= 2
+        and all("ReturnRequestsHeading(" in read(ANDROID / s) for s in rr_screens),
+        f"页面={rr_screens}，"
+        f"没用的={[s for s in rr_screens if 'ReturnRequestsHeading(' not in read(ANDROID / s)]}",
+    )
+    own = [
+        s
+        for s in rr_screens
+        if "pendingCount > 0" in read(ANDROID / s) or "vm.focusNotice?.let" in read(ANDROID / s)
+    ]
+    c.ok("两端页面不许自己算档位标签、也不许自己画那一行定位说明", not own, f"自己写了的：{own}")
+    badge_dup = [
+        p.relative_to(ANDROID).as_posix()
+        for p in (ANDROID / "ui").rglob("*.kt")
+        if "消息里点进来的这一条" in read(p)
+    ]
+    c.ok(
+        "定位徽章的文案只许在一个文件里（抄一份就会两边各说各的）",
+        badge_dup == ["ui/common/ReturnRequestsUi.kt"],
+        f"出现在 {badge_dup}",
+    )
+
     # ---------------------------------------------------------------- 9. 反空转
     print("\n== 9. 反空转（清单被改坏时必须先喊，不许安静地全绿）==")
     c.ok(

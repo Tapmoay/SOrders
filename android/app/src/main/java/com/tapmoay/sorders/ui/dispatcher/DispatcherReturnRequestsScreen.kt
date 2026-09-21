@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -75,23 +74,15 @@ fun DispatcherReturnRequestsScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             SegmentedStatusTabs(
-                labels = DISPATCH_RETURN_TABS.mapIndexed { i, t ->
-                    if (i == 1 && vm.pendingCount > 0) t.label + " " + vm.pendingCount else t.label
-                },
+                labels = returnTabLabels(DISPATCH_RETURN_TABS, vm.pendingCount),
                 colors = RETURN_TODO_TAB_COLORS,
                 selected = vm.tab,
                 onSelect = { vm.selectTab(it) },
             )
             // 定位**没找到**时的一行说明（列表照常显示全部）。
             // ⛔ 不写成错误页/白屏：那会让派单员以为这一页坏了，而事实只是"这条申请不在这份列表里"。
-            vm.focusNotice?.let { msg ->
-                Text(
-                    msg,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                )
-            }
+            // 这一段与货主端**同一处实现**（`common/ReturnRequestsUi.kt`）。
+            ReturnRequestsFocusNotice(vm.focusNotice)
             Box(Modifier.fillMaxSize()) {
                 when {
                     vm.loading -> LoadingBox()
@@ -235,32 +226,9 @@ private fun ReturnTodoRow(
     focused: Boolean = false,
 ) {
     SectionCard(modifier = Modifier.clickable(onClick = onClick)) {
-        // 视觉标记：一枚小胶囊，写明"为什么它在最前面"——用户点完通知落进来时，
-        // 一眼要能确认"就是这一条"，而不是自己在几十行里找。
-        // ⚠️ 文案里不许出现 Markdown 星号（Text 不渲染 Markdown，会原样显示）。
-        if (focused) {
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(50),
-            ) {
-                Text(
-                    "消息里点进来的这一条",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "订单 #" + req.orderNo,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            ReturnRequestStatusChip(status = req.status, label = req.statusLabel)
-        }
+        // 行首（定位徽章 + 订单号 + 状态徽章）与货主端**同一处实现**：
+        // 那个徽章是用户"点通知进来后确认就是这一条"的唯一依据，两端必须同形。
+        ReturnRequestsHeading(req = req, focused = focused)
         Spacer(Modifier.height(6.dp))
         Text(
             "申请人：" + req.shipperName.ifBlank { "—" },
