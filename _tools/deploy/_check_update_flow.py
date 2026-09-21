@@ -145,6 +145,38 @@ check(
     "2026091501 * 10 = 20260915010 > Int.MAX(2147483647)",
 )
 
+# ── 5b. 版本号正规化（2026-09-21 用户要求「版本号做一个正规化的处理」）────────
+# 这一节钉的是"版本号只有一个说法"：产品版本（versionName）来自仓库根 VERSION、
+# 构建号（versionCode）保持日期式且由发布脚本算号。四条判据都要**能红**：
+#   ① 把 versionName 改回写死的 `1.0.0.<日期>` → 第一条红；
+#   ② 删掉 `--next-code`（回到"让发布者自己心算号"）→ 第二条红；
+#   ③ 上传文件名去掉构建号 → 第三条红（产品版本语义化之后同日第二个包会覆盖第一个）；
+#   ④ 把 -PapiBaseUrl 提示改回 http → 第四条红。
+_pub_early = text(PUBLISH)
+check(
+    "versionName 的缺省值来自仓库根 VERSION（不是写死的 1.0.0.<日期>）",
+    'rootProject.file("../VERSION")' in g and '"1.0.0." +' not in g,
+    "同一个产品出现「0.2.0」和「1.0.0.20260921」两个版本号，用户报版本时两边对不上；"
+    "backend/app/config.py 读的就是这个 VERSION 文件",
+)
+check(
+    "发布脚本能算出「这次该用哪个构建号」（--next-code）",
+    "--next-code" in _pub_early and "def next_code(" in _pub_early,
+    "日期式缺省值只给到「今天第 1 个包」，而一天会打两三个；让人心算就会撞闸，"
+    "而闸门原来只丢一句「请提高版本号」",
+)
+check(
+    "上传文件名带构建号（同日第二个包不会覆盖第一个）",
+    "sorders-{name}-{code}.apk" in _pub_early,
+    "versionName 语义化之后（0.2.0 这种）文件名会重复 → 覆盖线上包，--keep 也留不住历史",
+)
+check(
+    "打包提示里的 -PapiBaseUrl 是 https（不是 http）",
+    "PROD_API_BASE" in _pub_early and '-PapiBaseUrl=http://' not in _pub_early,
+    "发布包禁明文：network_security_config 是 cleartextTrafficPermitted=false，"
+    "SocketManager 在非 DEBUG 下拒绝非 https 长连接 —— 照 http 打包会「装得上但用不了」",
+)
+
 # ── 6. 服务端 .apk 的 Content-Type ──────────────────────────────────────
 mp = text(MAIN_PY)
 check(

@@ -40,7 +40,15 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 下载中的第二行字：速度 / 已下多少 / 还剩多久（见 UpdateProgress）。 */
     var downloadDetail by mutableStateOf("")
-    val currentVersion: String get() = BuildConfig.VERSION_NAME
+    /**
+     * 「关于与更新」那一行显示的版本：**产品版本 · 构建号**（如 `0.2.0 · 2026092102`）。
+     *
+     * 为什么要带上构建号（2026-09-21 用户要求「版本号做一个正规化的处理」）：
+     * 产品版本（`VERSION` 文件）是语义化的，一次产品版本里可能打了很多个包 ——
+     * 只显示 `0.2.0` 的话，"你装的是哪一个 0.2.0"这个问题在支持时回答不了；
+     * 而安卓判新旧、用户报障定位，靠的都是构建号（`versionCode`）。
+     */
+    val currentVersion: String get() = BuildConfig.VERSION_NAME + " · " + BuildConfig.VERSION_BUILD
 
     init {
         loadMe()

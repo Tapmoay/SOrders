@@ -36,8 +36,8 @@ python _tools/deploy/check_phone_apk.py --apk <要发出去的包>
 - 于是"忘了改地址"打出来的真机包，**装得上、打得开、看不出哪里不对**，
   只是登录一直转圈——因为它去连一个手机上根本不存在的主机。
 
-正确流程：`api_base_url=http://8.145.40.22` → `assemblePhoneDebug` → **把 local.properties 改回模拟器地址**
-（不改回去，以后打模拟器包会连生产）→ 用上面的脚本确认。
+正确流程：**不要改 `local.properties`**，打包时用 `-PapiBaseUrl=https://8.145.40.22` 覆盖
+（真机包必须是 **https**：发布包禁明文，见 §2.2）→ 用上面的脚本确认。
 
 ⚠️ 包里**另有** `http://10.0.2.2:8000` 是正常的：那是 `ApiEndpoint` 的模拟器兜底常量，
 真机上 `isEmulator()=false` 永远走不到。别去删它，也别把它当"打进包里的地址"。
@@ -84,33 +84,62 @@ productFlavors {
 > **还能更小吗**：能。真机全是 arm64 的话，`phone` flavor 只留 `arm64-v8a` → **约 38.6 MB**（−48%）。
 > 代价是 armeabi-v7a 的老机器会「应用未安装」。**需要先确认团队在用的手机型号再决定。**
 
-### 1.3 版本号：一套量纲，不許混用
+### 1.3 版本号：产品版本一个说法，构建号单调递增
+
+2026-09-21 用户要求「版本号做一个正规化的处理」。现在**分成两个号、各司其职**：
+
+| 号 | 是什么 | 从哪来 |
+| --- | --- | --- |
+| `versionName`（产品版本） | 给人看的语义化版本，如 **`0.2.0`** | **仓库根 `VERSION` 文件**（与 `backend/app/config.py`、前端 `package.json` 同源） |
+| `versionCode`（构建号） | 安卓唯一认的号，决定"装不装得上" | `yyyyMMdd * 100 + 当日序号`，例：`2026092101` = 2026-09-21 第 1 个包 |
 
 ```
-versionCode = yyyyMMdd * 100 + 当日序号     例：2026091501 = 2026-09-15 的第 1 次打包
+versionCode = yyyyMMdd * 100 + 当日序号
 ```
 
-支持 `-PappVersionCode=2026091502` 覆盖（同日第二个包）。
+**这次要发哪个包，不要自己算号**：
 
+```powershell
+python _tools/deploy/publish_apk.py --next-code
+# 线上      : versionName=1.0.0.20260919b versionCode=2026091902
+# 产品版本  : 0.2.0（仓库根 VERSION）
+# 这次用    : versionCode=2026092101
+# 打包与发布（两条命令照抄）：
+#   gradle -p android assemblePhoneRelease '-PappVersionName=0.2.0' '-PappVersionCode=2026092101' '-PapiBaseUrl=https://8.145.40.22'
+```
+
+它算的是 `max(线上号 + 1, 今天第 1 个号)` —— 两种情况都不会漏：跨天（用今天的新基数）
+和同日第二个包（用线上号 +1）。**手机上是 adb 手装的包不在线上清单里**，那种情况再加
+`--installed-code <那个包的 versionCode>`。
+
+> ⚠️ **`versionCode` 为什么不能一起语义化**：它必须塞进 int（上限 2147483647），
+> `2026092101` 已经用掉 20.26 亿。任何"由 0.2.0 推出的小数字"（比如 200001）都比它小
+> → 存量用户**装不上**（表现是「应用未安装」，没有任何日志）。所以只能继续日期式。
+>
 > ⚠️ **这里出过真事故**：`build.gradle.kts` 原来的缺省值是
 > `System.currentTimeMillis() / 1000`（秒级时间戳）。于是线上包是 **1789426316**，
 > 而本地一直显式传日期式 **2026091501** —— 两套量纲混着打。
-> 后打的包 versionCode 有可能反而更小，**安卓会直接拒绝安装**（"应用未安装"），
-> 而且不会有任何日志告诉用户为什么。注释当时还写着"缺省递增日期戳"，
-> **注释和代码说的不是一回事**——这也是它藏了这么久的原因。
+> 后打的包 versionCode 有可能反而更小，**安卓会直接拒绝安装**，而且不会有任何日志告诉用户为什么。
+> 注释当时还写着"缺省递增日期戳"，**注释和代码说的不是一回事**——这也是它藏了这么久的原因。
+
+⚠️ 产品版本语义化之后，**上传文件名必须带构建号**（`sorders-0.2.0-2026092101.apk`）：
+不带的话同一个 `0.2.0` 的第二个包会**覆盖**线上第一个包，而 `version.json` 里的 url 不变 ——
+看起来"发了新版"，实际旧包没了、`--keep` 也留不住历史。这一条有红线钉着。
 
 ### 1.4 构建命令
 
 ```powershell
 $env:JAVA_HOME='D:\APPS\AndroidStudio\jbr'; $env:ANDROID_HOME='D:\APPS\sdk'
-# 真机包（要推生产的就是它）
-& ".\_agent\gradle\gradle-8.9\bin\gradle.bat" -p android assemblePhoneDebug `
-    '-PappVersionName=1.0.0.20260915' '-PappVersionCode=2026091501'
-# 模拟器包
-& ".\_agent\gradle\gradle-8.9\bin\gradle.bat" -p android assembleEmuDebug '-PappVersionName=...' '-PappVersionCode=...'
+# 真机包（要推生产的就是它）—— 版本名/版本号用 --next-code 给的那两个值
+& ".\_agent\gradle\gradle-8.9\bin\gradle.bat" -p android assemblePhoneRelease `
+    '-PappVersionName=0.2.0' '-PappVersionCode=2026092101' '-PapiBaseUrl=https://8.145.40.22'
+# 模拟器包（版本号留空即用"今天第 1 个"缺省值）
+& ".\_agent\gradle\gradle-8.9\bin\gradle.bat" -p android assembleEmuDebug
 # 单测（flavor 之后任务名带 flavor）
 & ".\_agent\gradle\gradle-8.9\bin\gradle.bat" -p android testPhoneDebugUnitTest
 ```
+
+⚠️ 真机包的 `-PapiBaseUrl` **必须是 `https://`**（见 §2.2）。
 
 ⚠️ **必须用 Gradle 8.9**（`_agent/gradle/`）。Gradle 9.1.0 会报一堆假的 Kotlin 编译错误。
 ⚠️ `-P` 参数**整个加引号**，否则 PowerShell 会把 `=` 和后面的值拆开。
@@ -134,7 +163,8 @@ python _tools/deploy/publish_apk.py --note "修好应用内更新"
 
 ### 2.1 下载地址为什么要用 80 端口 + IP
 
-`url` 形如 `http://8.145.40.22/static/uploads/app/sorders-<版本名>.apk`：
+`url` 形如 `http://8.145.40.22/static/uploads/app/sorders-<产品版本>-<构建号>.apk`
+（例：`sorders-0.2.0-2026092101.apk`；**构建号必须在文件名里**，理由见 §1.3 最后一段）：
 
 - **80 而不是 8080**：8080 在部分公司网络/运营商侧会被挡，80 到处都通；
 - **IP 而不是域名**：不依赖手机上的 DNS（App 的 API 也是 IP 直连）。

@@ -17,6 +17,30 @@ val localProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
+// 产品版本（versionName）：**唯一来源 = 仓库根 `VERSION` 文件**（2026-09-21 用户要求「版本号做一个正规化的处理」）。
+// 为什么要跟它同源：`backend/app/config.py` 里 `product_version` 读的就是同一个文件，前端 package.json 也对齐它 ——
+// 而 App 这一侧原来自己编了一个 `1.0.0.<日期>`。同一个产品出现「0.2.0」和「1.0.0.20260921」两个版本号，
+// 用户报版本时两边对不上，是"哪个才是真版本"这种问题的根源。
+val productVersion: String = run {
+    val f = rootProject.file("../VERSION")
+    val line = if (f.exists()) f.readLines().firstOrNull { it.isNotBlank() }?.trim() else null
+    line?.takeIf { it.isNotEmpty() } ?: "0.0.0"
+}
+
+// 构建号（versionCode）：**日期式**「yyyyMMdd * 100 + 当日序号」，安卓只认它决定装不装。
+// ⚠️ 为什么产品版本语义化了、构建号却还是日期式：versionCode 必须塞进 int（上限 2147483647），
+//    `2026092101` 已经用掉 20.26 亿，**换任何一套"语义化推出的小数字"都会比它小** → 存量用户装不上
+//    （表现是「应用未安装」，没有任何日志）。所以这一项只能保持单调递增的日期式。
+// 当日第二个包：**不要让发布脚本的闸门来教你** —— `python _tools/deploy/publish_apk.py --next-code`
+//    会把该用的号算好并打出完整命令（它拿线上 version.json 的号 + 今天算）。
+// ⚠️ 缺省值不要再改回 System.currentTimeMillis()/1000 那种秒级时间戳：
+//    它和日期式**不同量纲**（1789426316 vs 2026091501），两种方案混着打，
+//    后打的包 versionCode 反而更小 → 安卓直接拒绝安装（"应用未安装"），
+//    对外表现就是用户报的「下载完成之后并没有更新」。
+//    2026-09-14 推到生产的那个包正是时间戳式（1789426316）。
+val buildCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull()
+    ?: (SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()).toInt() * 100 + 1)
+
 android {
     namespace = "com.tapmoay.sorders"
     compileSdk = 35
@@ -25,18 +49,11 @@ android {
         applicationId = "com.tapmoay.sorders"
         minSdk = 26
         targetSdk = 35
-        // 版本号统一「yyyyMMdd * 100 + 当日序号」：2026091501 = 2026-09-15 的第 1 次打包。
-        // 当日要打第二个包就显式覆盖 -PappVersionCode=2026091502。
-        //
-        // ⚠️ 缺省值不要再改回 System.currentTimeMillis()/1000 那种秒级时间戳：
-        //    它和日期式**不同量纲**（1789426316 vs 2026091501），两种方案混着打，
-        //    后打的包 versionCode 反而更小 → 安卓直接拒绝安装（"应用未安装"），
-        //    对外表现就是用户报的「下载完成之后并没有更新」。
-        //    2026-09-14 推到生产的那个包正是时间戳式（1789426316）。
-        versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull()
-            ?: (SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()).toInt() * 100 + 1)
-        versionName = (project.findProperty("appVersionName") as String?)
-            ?: ("1.0.0." + SimpleDateFormat("yyyyMMdd").format(Date()))
+        versionCode = buildCode
+        versionName = (project.findProperty("appVersionName") as String?) ?: productVersion
+        // 构建号也带上给界面用（「关于与更新」显示 `v0.2.0 · 2026092102`）：
+        // 只显示产品版本的话，支持时无法区分"同一个 0.2.0 的哪一次构建"。
+        buildConfigField("int", "VERSION_BUILD", "$buildCode")
 
         // 高德 Key：在 android/local.properties 配置 amap_key=xxx（高德开放平台 Android SDK Key）
         val amapKey = localProps.getProperty("amap_key") ?: ""

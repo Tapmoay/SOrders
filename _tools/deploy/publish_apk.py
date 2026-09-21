@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 HOST = "8.145.40.22"
@@ -39,6 +40,27 @@ URL_BASE = "http://8.145.40.22/static/uploads/app"
 API_VERSION_URL = "http://8.145.40.22/api/v1/system/app-version"
 
 ROOT = Path(__file__).resolve().parents[2]
+
+#: 打包时要烧进包里的**生产后端地址** —— 必须是 `https`。
+#: ⚠️ 2026-09-21 更正：原来的提示写的是 `http://8.145.40.22`，那是 2026-09-19 切 TLS **之前**留下的。
+#:    发布包有两道闸都禁明文 —— `res/xml/network_security_config.xml` 是
+#:    `cleartextTrafficPermitted="false"`、`SocketManager.connect` 在非 DEBUG 下直接拒绝非 https 的长连接。
+#:    所以照那个提示打出来的包**装得上、但每一个请求都失败**（用户看到的是"App 打不开"）。
+PROD_API_BASE = "https://8.145.40.22"
+
+
+def product_version() -> str:
+    """产品版本（versionName 的来源）：仓库根 `VERSION` 的第一行。
+
+    为什么读文件而不是在 gradle 里另写一个：`backend/app/config.py::product_version` 读的是同一个文件，
+    前端 `package.json` 也对齐它。三处同源，用户报版本时才对得上号。
+    """
+    f = ROOT / "VERSION"
+    if f.is_file():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                return line.strip()
+    return "0.0.0"
 
 
 def find_aapt2() -> str:
@@ -170,6 +192,31 @@ def baked_api_base_url(apk: Path | None = None) -> str:
     return m.group(1) if m else ""
 
 
+def today_base_code() -> int:
+    """今天第一个包的构建号：`yyyyMMdd * 100 + 1`（与 `android/app/build.gradle.kts` 的缺省值同源）。"""
+    return int(datetime.now().strftime("%Y%m%d")) * 100 + 1
+
+
+def next_code(old_code: int) -> int:
+    """该用的下一个构建号 = `max(线上号 + 1, 今天第一个号)`。
+
+    为什么要有它（2026-09-21 用户要求「版本号做一个正规化的处理」）：
+    日期式的缺省值**只给到"今天第 1 个包"**，而实际一天会打两三个包 ——
+    原来的流程是让发布者自己心算 `-PappVersionCode=2026092102`，算错就撞上下面那道闸，
+    而闸门只丢一句"请提高版本号"。这里把它变成**一个能直接照抄的数字**。
+    """
+    return max(old_code + 1, today_base_code())
+
+
+def rebuild_hint(code: int, name: str) -> str:
+    """打包命令（版本名与版本号都显式给，避免"包里的号"与"打算发的号"不是一回事）。"""
+    return (
+        f"  gradle -p android assemblePhoneRelease "
+        f"'-PappVersionName={name}' '-PappVersionCode={code}' '-PapiBaseUrl={PROD_API_BASE}'\n"
+        f"  python _tools/deploy/publish_apk.py --note \"...\""
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apk", type=Path, default=None)
@@ -179,9 +226,27 @@ def main() -> int:
     ap.add_argument("--installed-code", type=int, default=None,
                     help="用户手机上当前那个包的 versionCode（可选，多一道保险）")
     ap.add_argument("--keep", type=int, default=2, help="服务器上保留几个历史包")
+    ap.add_argument("--next-code", action="store_true",
+                    help="只算「这次该用哪个构建号」并打出完整命令，不读包、不上传")
     ap.add_argument("--dry-run", action="store_true",
                     help="只跑前置检查（后端地址 / versionCode 闸门），不上传不写 version.json")
     args = ap.parse_args()
+
+    # `--next-code`：**打包之前**就要能问（包里那个号是旧的，等它报错才知道要改号就晚了）。
+    if args.next_code:
+        online = online_version()
+        if not online:
+            raise SystemExit(
+                f"读不到线上 version.json，算不出下一个号（不能瞎猜：猜小了用户装不上）。\n"
+                f"      {API_VERSION_URL}")
+        old = int(online.get("versionCode") or 0)
+        nxt = next_code(old)
+        print(f"线上      : versionName={online.get('version') or '(无)'} versionCode={old}")
+        print(f"产品版本  : {product_version()}（仓库根 VERSION）")
+        print(f"这次用    : versionCode={nxt}")
+        print("打包与发布（两条命令照抄）：")
+        print(rebuild_hint(nxt, product_version()))
+        return 0
 
     apk = args.apk or default_apk()
     if not apk.is_file():
@@ -217,8 +282,8 @@ def main() -> int:
             raise SystemExit(
                 f"中止：这个包的后端地址是开发地址 {base_url}（命中 {', '.join(bad)}）。\n"
                 f"      装到真机上会连不上后端，用户看到的是「App 打不开」，不是「更新失败」。\n"
-                f"      修法：重新打包时用 -PapiBaseUrl=http://8.145.40.22 覆盖，例如\n"
-                f"        gradle -p android assemblePhoneRelease -PapiBaseUrl=http://8.145.40.22\n"
+                f"      修法：重新打包时用 -PapiBaseUrl={PROD_API_BASE} 覆盖，例如\n"
+                f"        gradle -p android assemblePhoneRelease -PapiBaseUrl={PROD_API_BASE}\n"
                 f"      （**不要去改** android/local.properties —— 改了要记得改回来，"
                 f"忘了就会让本地调试直接打在生产库上）")
 
@@ -239,18 +304,25 @@ def main() -> int:
     # ②③ 版本号两道闸。安卓安装器只认 versionCode；推一个不比线上大的包，
     #     用户下完只会看到"应用未安装"，而且**没有任何日志能告诉他为什么**。
     if old_code and code <= old_code:
+        nxt = next_code(old_code)
         raise SystemExit(
             f"中止：新包 versionCode={code} 不大于线上 {old_code}。\n"
-            f"      安卓会拒绝安装。请提高版本号后重新打包（-PappVersionCode=...）。")
+            f"      安卓会拒绝安装（用户下完只看到「应用未安装」，而且没有任何日志说明原因）。\n"
+            f"      这次该用的号是 **{nxt}**（= max(线上+1, 今天第 1 个号)）：\n"
+            + rebuild_hint(nxt, product_version()))
     if args.installed_code and code <= args.installed_code:
         raise SystemExit(
-            f"中止：新包 versionCode={code} 不大于用户手机上的 {args.installed_code}，装不上。")
+            f"中止：新包 versionCode={code} 不大于用户手机上的 {args.installed_code}，装不上。\n"
+            + rebuild_hint(next_code(max(old_code, args.installed_code)), product_version()))
 
-    remote_apk = f"{REMOTE_DIR}/sorders-{name}.apk"
+    # 包名带上构建号：**产品版本语义化之后（0.2.0 这种）文件名会重复**，
+    # 同日第二个包会覆盖线上第一个包 —— 而 version.json 里 url 不变，看起来"发了新版"，
+    # 实际拿到的是被覆盖后的新文件、旧包没了，--keep 也留不住历史。
+    remote_apk = f"{REMOTE_DIR}/sorders-{name}-{code}.apk"
     if args.dry_run:
         print(f"[dry-run] 前置检查都过了，本来会上传 {apk.name} → {remote_apk}")
         print(f"[dry-run] 本来会写 version.json：version={name} versionCode={code} "
-              f"url={URL_BASE}/sorders-{name}.apk")
+              f"url={URL_BASE}/sorders-{name}-{code}.apk")
         return 0
 
     print(f"上传中 : {apk.name} → {remote_apk}")
@@ -264,7 +336,7 @@ def main() -> int:
     ver = {
         "version": name,
         "versionCode": code,
-        "url": f"{URL_BASE}/sorders-{name}.apk",
+        "url": f"{URL_BASE}/sorders-{name}-{code}.apk",
         "size": size,
         "note": args.note or "",
     }

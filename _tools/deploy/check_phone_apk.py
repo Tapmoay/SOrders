@@ -37,7 +37,11 @@ LOCAL_PROPS = ROOT / "android/local.properties"
 
 # 打进真机包就是错的地址（模拟器专用）
 EMULATOR_HOSTS = ("http://10.0.2.2", "http://localhost", "http://127.0.0.1")
-PROD_HINT = "http://8.145.40.22"
+#: 打包时该烧进包里的生产地址 —— **必须 https**。
+#: ⚠️ 2026-09-21 更正：这里原来是 `http://8.145.40.22`（2026-09-19 切 TLS 之前留下的），
+#:    而发布包禁明文（network_security_config 的 cleartextTrafficPermitted=false +
+#:    SocketManager 非 DEBUG 下拒绝非 https 长连接）→ 照它打出来的包「装得上但用不了」。
+PROD_HINT = "https://8.145.40.22"
 
 
 def aapt2() -> Path:
