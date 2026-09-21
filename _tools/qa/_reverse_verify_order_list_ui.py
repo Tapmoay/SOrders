@@ -44,8 +44,8 @@ SHIP_VM = UI + "shipper/ShipperOrdersViewModel.kt"
 SHIP_SCREEN = UI + "shipper/ShipperOrdersScreen.kt"
 CARD_KT = UI + "common/OrderCard.kt"
 DETAIL_KT = UI + "order/OrderDetailScreen.kt"
+WINDOW_BASE = UI + "common/OrderWindowViewModel.kt"
 
-DEFAULT_LINE = 'private val DEFAULT_TAB = DISPATCH_TABS.indexOfFirst { it.key == "PENDING_DISPATCH" }'
 DEFAULT_WANT = "DISPATCH_TABS：缺省档 = 「派单中」（第 2 格，下标 1）"
 ITEMS_ANCHOR = "                        items(vm.orders, key = { it.id }) { order ->"
 
@@ -53,23 +53,23 @@ ITEMS_ANCHOR = "                        items(vm.orders, key = { it.id }) { orde
 INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "① 日期窗口退回「下标判据」（档位一重排就挂到别的档上，两边都不报错）",
-        DISP_VM,
-        "    val datedTab: Boolean get() = DISPATCH_TABS[tab].dated",
+        WINDOW_BASE,
+        "    val datedTab: Boolean get() = currentTab.dated",
         "    val datedTab: Boolean get() = tab == 3 || tab == 4",
         "全库没有 `tab == 3 || tab == 4` 这种下标判据了",
     ),
     (
-        "② 派单员默认档回到「全部」（用户明说默认不进全部）",
+        "② 派单员缺省档换成「已接单」（用户明说缺省不进全部、是派单中）",
         DISP_VM,
-        DEFAULT_LINE,
-        'private val DEFAULT_TAB = DISPATCH_TABS.indexOfFirst { it.key == null }',
+        'OrderWindowViewModel(container, DISPATCH_TABS, "PENDING_DISPATCH")',
+        'OrderWindowViewModel(container, DISPATCH_TABS, "ACCEPTED")',
         DEFAULT_WANT,
     ),
     (
-        "③ 默认档写死下标 0（下次重排就静默指到别的档上）",
+        "③ 缺省档给一个名册里**不存在**的状态名（下标算不出来 → 静默指错档）",
         DISP_VM,
-        DEFAULT_LINE,
-        "private val DEFAULT_TAB = 0",
+        'OrderWindowViewModel(container, DISPATCH_TABS, "PENDING_DISPATCH")',
+        'OrderWindowViewModel(container, DISPATCH_TABS, "ALL")',
         DEFAULT_WANT,
     ),
     (
@@ -156,21 +156,21 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         DISP_VM,
         '    OrderTab("PENDING_DISPATCH", "派单中"),',
         '    OrderTab("PENDING_DISPATCH", "派单中", dated = true),',
-        "DISPATCH_TABS：进行中的档（默认档 = PENDING_DISPATCH）**没有**时间控件",
+        "DISPATCH_TABS：进行中的档（缺省档 = PENDING_DISPATCH）**没有**时间控件",
     ),
     (
         "⑯ 不自动退档了（切进有窗口的档直接取数 = 今天没单就空着）",
-        DISP_VM,
-        "switchPreset(DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { periodHasData(it) })",
-        "load()",
-        "派单员：用共用的 `pickWindow` 挑窗口",
+        WINDOW_BASE,
+        "DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { label ->",
+        "DatePresets.pickWindow(listOf(DatePresets.ALL)) { label ->",
+        "自动挡的挑窗口只有一处",
     ),
     (
         "⑰ 手动挑过档位也不再记（下一轮盘点会把用户的选择顶掉）",
-        DISP_VM,
+        WINDOW_BASE,
         "        userPickedPreset = true\n        windowSettled = true // 用户已经表态 = 窗口就算定下来了",
         "        windowSettled = true // 用户已经表态 = 窗口就算定下来了",
-        "派单员：手动挑过档位就**永不自动改**",
+        "手动挑过档位就**永不自动改**",
     ),
     (
         "⑱ 盘点期间不挡屏（先闪一批上一档的单，就是用户报过的「闪两下」）",
@@ -182,24 +182,31 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "⑲ 本地再抄一份阶梯（两个页面迟早各退各的档）",
         DISP_VM,
-        'private val DEFAULT_TAB = DISPATCH_TABS.indexOfFirst { it.key == "PENDING_DISPATCH" }',
+        "class DispatcherOrdersViewModel(container: AppContainer) :",
         "private val ORDER_PRESET_LADDER = listOf(DatePresets.TODAY, DatePresets.YESTERDAY)\n"
-        'private val DEFAULT_TAB = DISPATCH_TABS.indexOfFirst { it.key == "PENDING_DISPATCH" }',
+        "class DispatcherOrdersViewModel(container: AppContainer) :",
         "共享的长阶梯只有一处定义",
     ),
     (
         "⑳ 自动退档不再看「用户已经手动挑过」（下一次切档就把他的选择顶掉）",
-        DISP_VM,
-        "if (DISPATCH_TABS[i].dated && !userPickedPreset) {",
-        "if (DISPATCH_TABS[i].dated) {",
-        "派单员：**每次**进带窗口的档位都重新找有单的那一段",
+        WINDOW_BASE,
+        "if (currentTab.dated && !userPickedPreset) {",
+        "if (currentTab.dated) {",
+        "**每次**进带窗口的档位都重新找有单的那一段",
     ),
     (
         "㉑ 退回「只挑一次」（真机抓到过：先点全部、再点已送达就停在空窗口上）",
+        WINDOW_BASE,
+        "if (currentTab.dated && !userPickedPreset) {",
+        "if (currentTab.dated && !userPickedPreset && !autoPickedPreset) {",
+        "没有「只挑一次」那个开关",
+    ),
+    (
+        "㉒ 子类不再继承共用内核（又要自己养一套档位+窗口状态机）",
         DISP_VM,
-        "if (DISPATCH_TABS[i].dated && !userPickedPreset) {",
-        "if (DISPATCH_TABS[i].dated && !userPickedPreset && !autoPickedPreset) {",
-        "派单员：没有「只挑一次」那个开关",
+        '    OrderWindowViewModel(container, DISPATCH_TABS, "PENDING_DISPATCH") {',
+        "    {",
+        "两个订单列表都继承了那个内核",
     ),
 ]
 

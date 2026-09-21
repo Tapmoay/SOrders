@@ -54,6 +54,7 @@ DISP_SCREEN = UI / "dispatcher/DispatcherOrdersScreen.kt"
 SHIP_VM = UI / "shipper/ShipperOrdersViewModel.kt"
 SHIP_SCREEN = UI / "shipper/ShipperOrdersScreen.kt"
 TABS_KT = COMMON / "OrderTabs.kt"
+WINDOW_BASE = COMMON / "OrderWindowViewModel.kt"
 CARD_KT = COMMON / "OrderCard.kt"
 COMPONENTS_KT = COMMON / "Components.kt"
 DETAIL_KT = UI / "order/OrderDetailScreen.kt"
@@ -68,8 +69,10 @@ EXPECTED_DEFAULT: dict[str, tuple[str, str]] = {
 #: 档位表（`val XXX_TABS = listOf(...)`）。⚠️ 结尾的 `\n)` 是**顶格**那个右括号 —— 两个表都这么写。
 ROSTER_RE = re.compile(r"val\s+(\w+_TABS)\s*=\s*listOf\(([\s\S]*?)\n\)")
 TAB_RE = re.compile(r'OrderTab\(\s*(null|"[A-Z_]+")\s*,\s*"([^"]*)"\s*(?:,\s*dated\s*=\s*(true|false)\s*)?\)')
-DEFAULT_RE = re.compile(r"private\s+val\s+DEFAULT_TAB\s*=\s*(\w+_TABS)\.indexOfFirst\s*\{\s*it\.key\s*==\s*(null|\"[A-Z_]+\")\s*\}")
-DATED_RE = re.compile(r"val\s+datedTab:\s*Boolean\s+get\(\)\s*=\s*(\w+_TABS)\[(\w+)\]\.dated")
+#: 子类把「本角色的档位表 + 缺省档的**状态名**」交给共用内核（⛔ 不是下标）。
+SUPER_RE = re.compile(r":\s*OrderWindowViewModel\(container,\s*(\w+_TABS),\s*\"([A-Z_]+)\"\)")
+#: 旧的「只看一个页面」的写法（收编之后不该再有）。
+DEFAULT_RE = re.compile(r"private\s+val\s+DEFAULT_TAB\s*=")
 #: 旧写法：拿**下标**判"这一档要不要日期窗口"。
 INDEX_JUDGE_RE = re.compile(r"\b(?:tab|selectedTab)\s*==\s*\d+\s*\|\|\s*(?:tab|selectedTab)\s*==\s*\d+")
 
@@ -95,7 +98,7 @@ def main() -> int:
     c = Checker()
 
     c.section("0. 反空转（文件搬走/被清空时先喊）")
-    for p in (DISP_VM, DISP_SCREEN, SHIP_VM, SHIP_SCREEN, TABS_KT, CARD_KT, COMPONENTS_KT, DETAIL_KT):
+    for p in (DISP_VM, DISP_SCREEN, SHIP_VM, SHIP_SCREEN, TABS_KT, CARD_KT, COMPONENTS_KT, DETAIL_KT, WINDOW_BASE):
         c.ok(f"{p.name} 在", p.exists())
     if c.fails:
         print("\n❌ 关键文件不在，后面的判据没有意义")
@@ -117,11 +120,12 @@ def main() -> int:
             if "OrderTab(" not in body:
                 continue
             rosters[name] = (path, parse_roster(body))
+    # 缺省档现在由**子类的构造参数**给共用内核（`OrderWindowViewModel(container, XXX_TABS, "KEY")`）——
+    # 从源码自己算出来，不手写 "DISPATCH_TABS/SHIPPER_TABS" 两个名字（2026-09-22 收编后改）。
     defaults: dict[str, tuple[str, str | None]] = {}
     for path, src in srcs.items():
-        for name, key in DEFAULT_RE.findall(src):
-            defaults[name] = (path.name, None if key == "null" else key.strip('"'))
-    dated_judges = {m[0]: (p, m[1]) for p, s in srcs.items() for m in DATED_RE.findall(s)}
+        for name, key in SUPER_RE.findall(src):
+            defaults[name] = (path.name, key)
 
     n_tab_literals = sum(len(re.findall(r"OrderTab\(", s)) for s in srcs.values())
     c.ok(f"从源码认出了 2 个档位表（实际 {len(rosters)}：{sorted(rosters)}）", len(rosters) >= 2)
@@ -160,20 +164,24 @@ def main() -> int:
              got_key == want_key and label == want_label and idx == 1,
              f"实际 key={got_key} label={label} 下标={idx}")
         c.ok(f"{name}：缺省档**不是**「全部」（用户：「默认是不会进入「全部」的」）", got_key is not None)
-        c.ok(f"{name}：缺省档按**状态名**算下标（写死 0/1 会在重排时静默指错档）",
-             re.search(rf"{name}\.indexOfFirst\s*\{{\s*it\.key\s*==", read(path)) is not None)
+        c.ok(f"{name}：缺省档写的是**状态名**（不是 0/1 —— 重排时会静默指错档）",
+             bool(re.search(rf"OrderWindowViewModel\(container,\s*{name},\s*\"[A-Z_]+\"\)", read(path))))
 
-    c.section("3. 日期窗口跟着档位自己走（不是下标）+ 哪几档有窗口")
-    for name in sorted(rosters):
-        judge = dated_judges.get(name)
-        c.ok(f"{name}：有 `val datedTab … = {name}[i].dated`", judge is not None,
-             "没有它，页面就只能拿下标判窗口")
-        # 判据与档位表**必须在同一个文件里**：分居两个文件的话，
-        # 「这张表的第 N 档带窗口」就变成了两处要对账的约定（改一处就静默错位）。
-        c.ok(f"{name}：判据与档位表在同一个文件里",
-             judge is not None and judge[0] == rosters[name][0],
-             f"档位表在 {rosters[name][0].name}，判据在 {judge[0].name if judge else '?'}")
-        tabs = rosters[name][1]
+    c.section("3. 档位 → 窗口的判据：共用内核 + 跟着档位自己走（不是下标）")
+    base_kt = read(WINDOW_BASE)
+    c.ok("共用的窗口内核只有一处定义（`ui/common/OrderWindowViewModel.kt`）",
+         sum(len(re.findall(r"abstract class OrderWindowViewModel\(", s)) for s in srcs.values()) == 1
+         and "abstract class OrderWindowViewModel(" in base_kt)
+    c.ok("窗口判据按**档位自己**的标记判、且在内核里（不写下标）",
+         "val datedTab: Boolean get() = currentTab.dated" in base_kt)
+    subclasses = sorted(p.name for p, s in srcs.items() if SUPER_RE.search(s))
+    c.ok(f"两个订单列表都继承了那个内核（识别到 {len(subclasses)} 个：{subclasses}）",
+         len(subclasses) >= 2)
+    c.ok("没有子类再自己养一份 `DEFAULT_TAB`（缺省档按状态名交给内核）",
+         not any(DEFAULT_RE.search(s) for s in srcs.values()))
+    for name, (path, tabs) in sorted(rosters.items()):
+        super_call = SUPER_RE.search(read(path))
+        c.ok(f"{name}：把「表 + 缺省档**状态名**」交给内核（⛔ 不是下标）", super_call is not None)
         c.ok(f"{name}：既有带窗口的档、也有不带的（否则药丸要么永远在、要么永远不在）",
              any(t[2] for t in tabs) and any(not t[2] for t in tabs),
              f"dated={[t[1] for t in tabs if t[2]]}")
@@ -184,7 +192,7 @@ def main() -> int:
         default_key = defaults.get(name, ("", None))[1]
         c.ok(f"{name}：「全部」**也有**时间筛选（找单最常用的入口，要找的单多半不在今天）",
              by_key.get(None, (None, "", False))[2] is True)
-        c.ok(f"{name}：进行中的档（默认档 = {default_key}）**没有**时间控件",
+        c.ok(f"{name}：进行中的档（缺省档 = {default_key}）**没有**时间控件",
              by_key.get(default_key, (None, "", True))[2] is False,
              "给「正在进行」套一层日期窗口 = 积压的老单不见了，而界面上一个字都不说")
     offenders = [str(p.relative_to(ROOT)) for p, s in srcs.items() if INDEX_JUDGE_RE.search(s)]
@@ -203,23 +211,26 @@ def main() -> int:
          and "ORDER_PRESET_LADDER" in presets_kt)
     for label, vm_path in (("派单员", DISP_VM), ("货主", SHIP_VM)):
         vm = read(vm_path)
-        c.ok(f"{label}：用共用的 `pickWindow` 挑窗口（不自己写 for 循环）",
-             "DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER)" in vm)
-        c.ok(f"{label}：探测与取数**同源**（同一个 `repo.orders`、同一套日期参数）",
-             re.search(r"suspend fun periodHasData\(label: String\)[\s\S]{0,1200}?\.orders\(", vm) is not None,
-             "换个接口猜「有没有单」，会退档到一档还是空的")
-        c.ok(f"{label}：手动挑过档位就**永不自动改**（`userPickedPreset = true` 出现在挑档的两条路上）",
-             vm.count("userPickedPreset = true") >= 2)
-        c.ok(f"{label}：盘点期间药丸写「…」（这时的任何档位名都是假话）",
-             'datedTab && !windowSettled -> "…"' in vm)
-        # ⚠️ 这一条是**真机当场抓出来的**（2026-09-22）：第一版照司机端抄了"整个页面只挑一次"
-        #    （`autoPickedPreset`），于是"先点「全部」（挑到今天）、再点「已送达」"就**不再挑了** ——
-        #    「已送达 + 今天没单」停在空列表上，正是用户要避免的画面。司机端能"只挑一次"是因为
-        #    它只有一个带窗口的档；这两个页面有 4 个。
-        c.ok(f"{label}：**每次**进带窗口的档位都重新找有单的那一段（且用户手动挑过就不再自动改）",
-             re.search(r"\.dated && !userPickedPreset", vm) is not None)
-        c.ok(f"{label}：没有「只挑一次」那个开关（真机会停在空窗口上）",
-             "autoPickedPreset" not in vm)
+        c.ok(f"{label}：`probeHasData` 真的接了 `repo.orders`（探测与取数同一个端点）",
+             re.search(r"override suspend fun probeHasData\(status: String\?, from: String, to: String\)"
+                       r": Boolean = try \{[\s\S]{0,600}?\.orders\(", vm) is not None,
+             "探测必须与取数同源，否则会退档到一档还是空的")
+        c.ok(f"{label}：取数走内核给的窗口（`windowRange()`），不是自己算日期",
+             re.search(r"val \(from, to\) = windowRange\(\)", vm) is not None)
+    c.ok("自动挡的挑窗口只有一处（内核里调共用 `pickWindow`）",
+         "DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER)" in base_kt)
+    c.ok("手动挑过档位就**永不自动改**（`userPickedPreset = true` 出现在挑档的两条路上）",
+         base_kt.count("userPickedPreset = true") >= 2)
+    c.ok("盘点期间药丸写「…」（这时的任何档位名都是假话）",
+         'datedTab && !windowSettled -> "…"' in base_kt)
+    # ⚠️ 下面这一条是**真机当场抓出来的**（2026-09-22）：第一版照司机端抄了"整个页面只挑一次"
+    #    （`autoPickedPreset`），于是"先点「全部」（挑到今天）、再点「已送达」"就**不再挑了** ——
+    #    「已送达 + 今天没单」停在空列表上，正是用户要避免的画面。司机端能"只挑一次"是因为
+    #    它只有一个带窗口的档；这两个页面各有 4 个。
+    c.ok("**每次**进带窗口的档位都重新找有单的那一段（且用户手动挑过就不再自动改）",
+         re.search(r"if \(currentTab\.dated && !userPickedPreset\)", base_kt) is not None)
+    c.ok("没有「只挑一次」那个开关（真机会停在空窗口上）",
+         "autoPickedPreset" not in base_kt)
     for label, screen in (("派单员「订单管理」", disp_screen), ("货主「我的订单」", ship_screen)):
         c.ok(f"{label}：盘点期间整页 loading（不许先闪一批上一档的单）",
              "vm.datedTab && !vm.windowSettled -> LoadingBox()" in screen)

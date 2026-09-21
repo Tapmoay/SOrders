@@ -20,6 +20,33 @@
 
 ## 进行中
 
+### [2026-09-22 08:0x →] 会话：**运费模板「新建」从弹窗改成底部抽屉（拉满到最上面）+ 表单走白卡无边框行**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户需求（原话）**：「把那个**运费模板**给搞一下 —— 运费模板**右上角**不是有 3 个（按钮）…是那个**新增模板**啊，
+**新增模板也按照我们的样式**进行来，但是他**不要使用弹窗**啊，**使用底部抽屉**，并且**底部抽屉是拉到最上面**。」
+
+**要动的**
+- `ui/dispatcher/FreightTemplatesScreen.kt`：`FreightTemplateDialog`（`AlertDialog` + `OutlinedTextField` + 3 个 `SoTextField`）
+  → `ModalBottomSheet`（`skipPartiallyExpanded = true` + 内容 `fillMaxHeight()` ＝ 一打开就拉满）
+  + `FormGroup` 白卡分组 + `FormInputRow` / `FormPickRow` 无边框行；错误落进抽屉（`FormErrorLine`）
+- `ui/dispatcher/FreightTemplatesViewModel.kt`：`showDialog` → `showSheet`；新增 `formError`
+  （原来校验/保存失败写的是页面级 `error` → 走的是**抽屉背后**的 snackbar，等于"点保存没反应"）
+- ⚠️ **交叉点（我改了共享的判据脚本，都是追加式）**：
+  1. `_tools/qa/_check_input_rules.py` —— `FIELD_NAMES` 追加 `FormInputRow` / `FormTextAreaRow`
+     ＋ `_titles` 认共用行的纯字符串 `label = "…"`。**这是一个真缺口**：全 App 正在把表单逐页搬到共用行上，
+     而共用行不在扫描名单里 → 那些框**从判据里直接消失**（一页换过去时顺手漏掉 `InputRules` 也不会报）。
+     追加后：扫到 110 → **132** 个框、认得出类别的 25 → **32**（电话 12 / 金额 20），全过；
+     新冒出来 1 条假阳性（下单页那个自由文本**备注**框，placeholder 里写了「到了先打电话」）已按脚本自己的
+     规矩写进 `EXCLUDED` 并给了理由。
+  2. `_tools/qa/_reverse_verify_input_rules.py` —— 修 **3 条陈旧锚点**：① `FIELD_NAMES` 那行（我改的）；
+     ②「商品售价」那条的注入点**跟着商品改版搬到了 `ProductFormScreen`**（旧锚点在已被删掉的编辑抽屉里）；
+     ③ 下单页行编辑弹窗那条的锚点从 `OutlinedTextField` 改成现在的 `FormInputRow`。
+     ②③ 是**别人改文件之后留在那儿的**（这条反向验证只在 `--deep` 里跑，所以一直没人发现）。
+     ⛔ 全程**没有改松任何判据**，只把注入点搬到代码现在真正在的地方。现在 **12/12 全过**。
+
+**明确不碰**：`ui/shipper/OrderCreateScreen.kt`、`ui/common/ProductForm*`、订单两页、`ui/common/FormRows.kt`
+（`FormGroup` / 那五种行**只调不改** —— 它们正是 `session-78ebd95c` 在维护的共用件）、`backend/**`。
+
 ### [2026-09-22 07:1x →] 会话：**「白卡规范」扫尾第一批：下单页 + `FormGroup` 收进共用零件**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 用户点头（「剩下的 67 处要不要我按页面扫」→「**y**」）。
@@ -42,38 +69,6 @@
   —— `session-83da1ad7` 的「账户管理卡片 + 抽屉去线框 + 底部抽屉底色」正在进行。
 - 其余（`DispatcherPoolScreen` 5 / `UsersManageScreen` 5 / `AiSettingsScreen` 4 / `ReportCenter` 2 / …）
   **等这两条线收工再扫**。
-
-### [2026-09-22 07:0x →] 会话：**账户管理卡片改版 + 新增/编辑抽屉去线框（改成白卡表单）+ 全 App 底部抽屉底色"去灰蓝"**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
-
-**用户需求（原话）**：「那你**更改一下账户管理的卡片样式**按照要求进行更改，同时他那个**新增的那个弹窗**也就
-**底部抽屉**呃也采用**不要使用那个线框**而是**用卡片的形式**；还有一点，为什么**每次底部抽屉弹出来那个颜色
-都是灰蓝灰蓝的**，不要啊，**改成底部灰（色）没关系，卡片一定要是白色的**，这样子就产生一个对比上去的，
-让人知道。」
-
-**根因（反编译证实，不是猜）**：「每次抽屉都是灰蓝」不是某一页写错了颜色，是 **M3 的默认值**：
-`ModalBottomSheet` 的容器色默认 = `BottomSheetDefaults.ContainerColor` →
-`SheetBottomTokens.DockedContainerColor` → `ColorSchemeKeyTokens.SurfaceContainerLow`
-（material3 **1.3.2** 的 `classes.jar` 里 `javap -c` 看到的常量池），
-而本项目 `ui/theme/Color.kt::SurfaceContainerLow = #EDEFF4`（B 比 R 高 7 → 就是那个"灰蓝"）。
-→ **改这一个 token 就等于改全 App 19 个底部抽屉**，而**不必**去动那 19 个调用点
-（它们有一半正是别人现在改的：`AddressScreen.kt` / `OrderDetailScreen.kt` / `ProductPicker.kt`…）。
-
-**文件清单**
-- 改：`ui/theme/Color.kt`（新增中性灰 `SheetSurface`）、`ui/theme/Theme.kt`（亮色 `surfaceContainerLow` 指向它）
-- 改：`ui/dispatcher/AccountManageScreen.kt`（列表卡重排 + 动作左/右分区 + 抽屉改成白卡表单）、
-  `ui/dispatcher/AccountManageViewModel.kt`（抽屉内的红字 + 保存失败不再顶掉整页）
-- 新增：红线 `_tools/qa/_check_account_manage_ui.py` + 反向验证 `_tools/qa/_reverse_verify_account_manage.py`
-- 同步：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§5.0 白卡规范补「底部抽屉底色」一条）、`08_CODE_LOCATOR.md`（账号管理那一行）
-- ⚠️ **交叉点（我动了别人的一个数字）**：这一页的描边输入框少了 3 处 → `_tools/qa/_check_form_panel_style.py`
-  的全局基线必须跟着降（它有一条"总数降下来就把基线降下来"的反向约束，不降会**反向报红**）。
-  我只跑它自己的 `--update` 重写 `_tools/qa/_form_panel_baseline.txt`（那一个数字），
-  **不碰**脚本本体与 `CONVERTED` 表（那一页 `session-78ebd95c` 正在改）。
-
-**明确不碰**：`ui/common/FormRows.kt`、`ui/shipper/AddressScreen.kt`、`ui/common/OrderCard.kt`、
-`ui/order/OrderDetailScreen.kt`、`ui/common/ProductCardKit.kt` / `ProductForm*`、
-`ui/dispatcher/DispatcherOrdersScreen.kt` / `ui/shipper/ShipperOrdersScreen.kt`、
-`_tools/qa/_check_form_panel_style.py`（脚本本体）、`backend/**`、钱的算法 ——
-上面这些是 `session-78ebd95c` / `session-faa17a77` 正在改的。
 
 ### [2026-09-22 06:4x →] 会话：**订单管理 / 我的订单：默认档位 + 右上角时间药丸 + 卡片动作分区（编辑在右、反向在左）+ 单号对齐可长按复制**（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
@@ -160,12 +155,53 @@
 > 然后 `AccountAction` 的 12 行换成一次调用）。⚠️ 两处的**圆底画法已经是共用的**（都走 `TintedIcon`），
 > 所以现在不会出现"两个页面两种圆角"。见设计系统 §4.2c。
 >
-> **⚠️ 没做（本轮只做用户点名的 7 条）**：`§4.15.5` 那条"默认窗口自动退档"（今天没单自动退到昨天…）
-> —— 用户这次只说了「时间默认的是今天」，而退档是"页面自己改用户窗口"的隐藏行为，
-> **要不要加等用户表态**；替代做法是"药丸常驻顶栏 + 空态指路"（真机验过能改档）。
+> **⚠️ 当时没做的那条，用户在第二轮点名要做 —— 见下面「第二轮」**：`§4.15.5` 那条"自动退档"
+> （今天没单自动退到昨天…）。第一轮我按"用户只说了默认今天"没做，用户当场把它说全了。
 
-**本轮暂定的做法**：档位只把**货主**那一列的「已接单」挪到第 2 格（派单员那列「派单中」本来就在第 2 格）；
-截断提示挪到列表底部；时间药丸默认 = 今天；要日期窗口的档位按**状态名**判（不写 `== 3 || == 4` 索引 —— 一重排就静默错位）。
+### 第二轮（2026-09-22 07:1x → 07:5x）：用户把"时间筛选适用哪些档位 + 自动挡"说全了
+
+**用户原话（第二轮）**：「那个只针对…像是**全部、已完成**的（才）要选择时间。对，**全部我们也要有
+时间的筛选**，他们是有那个**找订单的规则**，也就是**自动挡**，他需要做。但是比如说其他的…
+因为**派单中和已接单他属于正在进行**啊，所以他是**不会有选择时间**，他默认就是今天」
+
+**三条落地**（代码 + 判据 + 反向验证 + 真机）：
+1. **「全部」也要有日期窗口**（原来只有已送达/已撤销）；「已退货」同属终态，一并给上；
+2. **「派单中」「已接单」不给时间控件**（进行中的单本来就该全都在眼前；
+   给它们套窗口 = 积压的老单静默消失，界面上一个字都不说）；
+3. **自动挡（自动退档）**：进带窗口的档位先只**探测**哪一档有单
+   （今天→昨天→前天→这周→上周→近 7 天→本月→上月，都没有则不带日期条件），定下来
+   **只取一次数**（`windowSettled` 门挡住"闪两下"）；用户手动挑过**永不自动改**。
+
+**⚠️ 真机当场抓到我写错的一个行为（这条最值钱）**：第一版照司机端抄了"整个页面只挑一次"
+（`autoPickedPreset`），于是"先点「全部」（挑到「今天」）→ 再点「已送达」"就**不再挑了**，
+「已送达 + 今天没单」**停在空列表上** —— 正是用户要避免的画面。司机端那页能"只挑一次"是因为它
+**只有一个**带窗口的档，这两个页面各有 4 个。改成"**每次进带窗口的档位都重新找**"后真机复验：
+直接点「已送达」→ 药丸自己选中「昨天」且列表里有已送达的单；切回「全部」→ 自动回到「今天」。
+（顺带核过数据：窗口里的 `SO…0919` 那张单 `created_at` 是 UTC 09-19 18:30 = 北京 09-20 02:30，
+**业务日就是 09-20**，所以"昨天"挑对了；单号上的 09-19 是修复前的旧数据 —— 正是
+`auth_service.new_order_no` 注释里写的那类"凌晨下的单号日期是前一天"。）
+
+**⚠️ 顺手收掉我自己刚造出来的重复**：这两页的时间窗口状态机第一版是**一字不差抄了两遍**，
+仓库自己的 `_tools/qa/_scan_dup.py` 当场报出 5 组跨文件重复（两个 VM + 两个页面）。按本轮的目标
+（精简）与上一轮的同一套做法（`CategoryRosterViewModel`），收成抽象基类
+**`ui/common/OrderWindowViewModel.kt`**：基类持有 `tab` / `preset` / `customFrom` / `customTo` /
+`showDatePresets` / `windowSettled` / `userPickedPreset` / `datedTab` / `periodWord` /
+`windowRange` / `applyPreset` / `applyCustomRange` / `selectTab`（含自动挡）；两个子类只给
+「本角色的档位表 + 缺省档的**状态名** + `reload()` + `probeHasData()`」。
+⚠️ 司机端那条长阶梯也**搬进了 common**（`DatePresets.ORDER_PRESET_LADDER`，原来叫
+`DRIVER_PRESET_LADDER` 且只服务司机两页）—— 它自己的注释里就写着"真要合并时家应该安在 DatePresets"。
+司机任务/司机账单两页改成引用共享的那一条（那两个文件当时是干净的，改动只有一处引用 + 删掉本地那份）。
+
+**第二轮验收**：`_check_all.py` **63/63** · 红线 `_check_order_list_ui.py` **89 项** ·
+反向验证 `_reverse_verify_order_list_ui.py` **22/22**（新增 9 种注入：全部档不给窗口、
+给进行中的档加窗口、不自动退档、手动挑过不再记、盘点不挡屏、本地抄阶梯、
+自动退档不看手动标记、退回只挑一次、子类不继承内核）· Android 单测 **1032/0**（构建 2m5s）。
+真机：5554 派单员 + 5556 货主都装了同一个包，逐条复验（默认档、药丸、自动退档、空态指路、
+卡片左右分区、新增订单在底部、单号对齐、长按复制）。
+提交：`7871853`（行为修复）· 本轮收编 + 文档见下一条。
+
+**第二轮收编 + 文档**：`ui/common/OrderWindowViewModel.kt`（新）+ 两个 VM + 货主页（`vm.tab`）
++ 红线/反向验证重钉 + 设计系统 §4.15 第 7 条 + 定位表两行 + 这一页。
 
 ### [2026-09-21 22:4x → 24:0x] 会话：**商品管理改版：先出方案 → 落地第 1 期（参考 POS 的排版与组件复用）**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
@@ -2364,6 +2400,80 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-09-22 07:2x → 07:5x] 会话：**共用表单行补「图标 + 内嵌卡」、共享库改卡片、图片点开看大图**【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**用户需求（原话，四件事）**
+> ① 「现在的新卡片样式对应的**图标和（语）义色不能去掉**啊。**该有的还是得有的**」
+> ② 「你卡片是加出来的，但是里面的**线框**还是搞一下吧。也不说搞线框吧，而是说，在**内嵌卡片**——
+>   就是**卡片内嵌卡片**，就是每个选择就相当于一个、**每个输入相当于卡片**」
+> ③ 「那个**共享库**没有改…它属于跟**商品管理**类似的：**左边是分类选择**，右边是共享库…
+>   那个**不要用列表的形式**，也使用**卡片**的形式，就是**类似商品一样**…**重要的信息要优先显示**」
+> ④ 「**图片**啊，他要支持**预览**，点击图片支持预览…他那个照片，**他不知道他自己拍的怎么样**」
+
+**落地**
+- ① + ② 都在 `ui/common/FormRows.kt`：`FormRow` 及五个变体加 `icon` / `iconTint`
+  （原来 `OutlinedTextField(leadingIcon = …)` 里的图标与语义色**跟着搬过来**，一行都没省）；
+  **每一行自己就是一张内嵌卡**（`surfaceContainerLow` + 圆角 12、**不画边框**），分组仍是白卡
+  → 就是他要的"卡片内嵌卡片"。图标已补回 `AddressScreen`（16 行）与 `OrderCreateScreen`（8 行）。
+- ③ `OrderCreateScreen::SheetRow`（地址库抽屉三段**共用**的那一行）从平铺行 + 分隔线改成**白卡**；
+  照片 40 → **56dp**、标题升到 `titleMedium` 加粗（"重要信息优先"落在"照片更大、名字更重"上）。
+  ⛔ 三段一起改：只改共享地点会让同一个抽屉里三段长得不一样。
+- ④ 新增 `ui/common/ImagePreview.kt`（**全库唯一一处**）：全屏黑底 + 点任意处关闭 + 多张左右翻页 +
+  `n/N` 计数；收的是 **Coil 的 model（`Any`）**，所以**刚拍的本地 `File` 和已上传的 URL 都能预览**
+  —— 只收 URL 的话，"刚拍的那张"恰好成了唯一看不了的。已接：线路/地点图片条、下单页位置图片、共享库卡片图。
+- ⚠️ 顺带修掉一个**真机上才看得出的坑**：`AsyncImage` 加载中/失败时是透明的，而它在共享库卡片最左边
+  占着 56dp —— 没加载出来时整列卡片像"标题被居中"（其实左边空了一块）。现在那块加了浅底。
+
+**验收**：`_check_form_panel_style.py` 18/18 · `_reverse_verify_form_panel.py` 8/8 · 死代码 0 ·
+`_check_all.py` **62/63**（唯一那条红是**别人的** `FreightTemplatesScreen.kt:334`，
+那条线正在改那个文件，我一个字没碰）· 真机 5554 两屏
+（`19-改后-新增线路(图标回+内嵌卡)`、`20-改后-共享地点(卡片+大图)`）。
+⚠️ 中途被别人的半成品挡过一次编译（`FreightTemplatesScreen.kt` 的 `showSheet` 未解析，约 10 秒后他们自己修好）。
+
+**仍然没做**：白卡规范扫尾剩下的页面（`DispatcherPoolScreen` 5 / `UsersManageScreen` 5 /
+`AiSettingsScreen` 4 / …，基线 59 处）—— 等订单线与账户线收工再扫。
+
+
+### [2026-09-22 07:0x → 07:4x] 会话：**账户管理卡片改版 + 新增/编辑抽屉去线框 + 全 App 底部抽屉底色"去灰蓝"**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户需求（原话）**：「那你**更改一下账户管理的卡片样式**按照要求进行更改，同时他那个**新增的那个弹窗**也就
+**底部抽屉**呃也采用**不要使用那个线框**而是**用卡片的形式**；还有一点，为什么**每次底部抽屉弹出来那个颜色
+都是灰蓝灰蓝的**，不要啊，**改成底部灰（色）没关系，卡片一定要是白色的**，这样子就产生一个对比上去的，让人知道。」
+
+**根因（反编译证实，不是猜）**：「每次抽屉都是灰蓝」是 **M3 的默认值**，不是谁写错了一个颜色 ——
+`ModalBottomSheet` 的容器色默认 = `BottomSheetDefaults.ContainerColor` →
+`SheetBottomTokens.DockedContainerColor` → `ColorSchemeKeyTokens.SurfaceContainerLow`
+（material3 **1.3.2** 的 `classes.jar` 里 `javap -c` 看到的常量池），
+而本项目那个 token 是 `#EDEFF4`（B 通道比 R 高 7 → 就是那个"灰蓝"）。
+→ **改这一个 token ＝ 改全 App 19 个抽屉**，不必去动那 19 个调用点（其中一半正是别人在改的文件）。
+
+**结果**
+- 改：`ui/theme/Color.kt`（新增 `SheetSurface = #F0F0F0` 中性灰，并写清它管着哪件事）、
+  `ui/theme/Theme.kt`（亮色 `surfaceContainerLow = SheetSurface`；**暗色刻意不动** —— 亮暗的分层方向是反的）、
+  `ui/dispatcher/AccountManageScreen.kt`（列表卡重排 + 动作左/右分区 + 抽屉改成白卡表单）、
+  `ui/dispatcher/AccountManageViewModel.kt`（抽屉内那一行红字 + 保存失败不再顶掉整页）
+- 新增：红线 `_tools/qa/_check_sheet_form_pages.py`（**27 项**）+ 反向验证
+  `_tools/qa/_reverse_verify_sheet_form_pages.py`（**16/16**）+ 量像素工具 `_tools/qa/_px_probe.py`
+  （⚠️ 这两个脚本**当天晚些时候改了名**：原名 `_check_account_manage_ui.py` / `_reverse_verify_account_manage.py`；
+  运费模板的「新建」也搬进抽屉之后，它们管的是**一类页面**，名字得跟着走）
+- **真机（emulator-5558 借来当派单员，验完已登回司机 13800000003）**：
+  抽屉底色实测 **#F0F0F0**（B==R，中性）、卡片 **#FFFFFF** —— 同一条列扫描里一起量到的；
+  **对照 = 改前**：另一位会话今天早些时候截的「新增线路」抽屉
+  （`docs/screenshots/product-form-20260921/17-*.png`），同一条扫描量到的是 **#EDEFF4**。
+  ⛔ **我没碰过的页面也一样**：库存管理 → 出入库流水那个抽屉同样是 `#F0F0F0`（证明是"一处说了算"）。
+  功能：角色下拉（6 个角色、当前项带 ✓）✓ · 空表单保存 → 抽屉里出「请填写姓名」✓ ·
+  **手机号重复 → 抽屉里出「该手机号已存在」而列表原封不动**（改前会把整页顶成错误页）✓ ·
+  长按手机号 → 粘贴到搜索框得到 `13800000001`（剪贴板真的写进去了）✓ · 编辑回填姓名/手机号/角色 ✓
+- 验证：红线 **27/27** · 反向验证 **16/16** · `_check_all.py` **63/63** · Android 单测 **1032 / 0 失败**
+- 截图：`_archive/acct-01-list.png`（列表卡）/ `acct-03-sheet.png`（抽屉）/ `acct-04-dup-error.png`（重复手机号）/
+  `acct-05-longpress.png` / `acct-06-edit.png` / `acct-07-other-sheet.png`（**别的页面**的抽屉）
+- ⚠️ **交叉点**：`_tools/qa/_form_panel_baseline.txt` —— 这一页的描边输入框少了 3 处，
+  而 `session-78ebd95c` 的 `_check_form_panel_style.py` 有一条"总数降下来就必须把基线降下来"的反向约束；
+  他们随后自己跑了 `--update`（现在基线 67、总数也是 67）→ **已一致，我没有动那个文件**。
+- ⚠️ 给下一个人的话：`ui/common/FormRows.kt` 里**没有** `visualTransformation` 参数，
+  所以密码那一行是 `AccountManageScreen.kt` 里的私有 `AccountSecretRow`（底下仍然是共用的 `FormRow`，
+  形态不会长出第二种）。**第三处**再要密码行时把它提进 `FormRows.kt`（那时和那一轮的人对齐）。
 
 ### [2026-09-22 03:1x → 07:0x] 会话：**「分组一律白卡」定成规范（先落「新增线路」）+ 线路卡改成 A→B 主角**【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 

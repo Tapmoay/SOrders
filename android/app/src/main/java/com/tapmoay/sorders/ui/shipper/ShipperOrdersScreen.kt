@@ -79,7 +79,7 @@ fun ShipperOrdersScreen(
             SegmentedStatusTabs(
                 labels = SHIPPER_TABS.map { it.label },
                 colors = ORDER_TAB_COLORS,
-                selected = vm.selectedTab,
+                selected = vm.tab,
                 onSelect = { vm.selectTab(it) },
             )
             Box(Modifier.fillMaxSize()) {
@@ -94,7 +94,7 @@ fun ShipperOrdersScreen(
                         // 空态必须**指到右上角那个药丸**（司机端 2026-09-20 栽过同一个坑）：
                         // 默认档是「今天」，今天没单时这一页本来就该是空的，不指路会被当成"坏了"。
                         if (vm.datedTab && vm.periodWord != DatePresets.ALL) {
-                            "「" + vm.periodWord + "」没有" + SHIPPER_TABS[vm.selectedTab].label +
+                            "「" + vm.periodWord + "」没有" + SHIPPER_TABS[vm.tab].label +
                                 "的订单 —— 点右上角可以换一段时间"
                         } else {
                             "暂无订单"
