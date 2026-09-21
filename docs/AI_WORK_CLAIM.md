@@ -20,7 +20,226 @@
 
 ## 进行中
 
+### [2026-09-22 07:1x →] 会话：**「白卡规范」扫尾第一批：下单页 + `FormGroup` 收进共用零件**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+用户点头（「剩下的 67 处要不要我按页面扫」→「**y**」）。
+
+**这一批改了什么**
+- `ui/common/FormRows.kt`：**`FormGroup`（分组白卡）从 `AddressScreen` 的 private 实现收进共用零件**
+  （下单页也要同一个分组形态；各写一份就是"两个页面的组标题字号/间距不一样"）。
+  `AddressScreen.kt` 删掉自己那份，改调共用的那个（签名一致，调用点一行没动）。
+- `ui/shipper/OrderCreateScreen.kt`（**代理下单 / 货主下单共用的那一页**）：
+  「联系信息」5 个描边输入框 → 共用行（4 个 `FormInputRow` + 1 个 `FormTextAreaRow`「备注」）；
+  「改共享地点」弹窗 2 个 → 共用行；「商品信息」弹窗的「商品名称」→ 共用行。
+  ⛔ **数量步进器中间那个 96dp 小框故意没改**（它是紧凑控件、不是"标签 + 值"的一行；
+  全 App 同一个形态，见 `ProductPicker::QtyDialog`）—— 这类控件算进总数、但不在"表单分组"的范围内。
+- 基线 `_tools/qa/_form_panel_baseline.txt`：67 → **59 处 / 24 个文件**（`--update` 重写的那一个数字）。
+
+**⚠️ 这一批**故意**没动的（正面撞车，等对方收工）**
+- `DispatcherOrdersScreen.kt`(13 处) / `ShipperOrdersScreen.kt` / `OrderDetailScreen.kt`(7 处) / `OrderCard.kt`
+  —— `session-faa17a77` 的「订单管理 / 我的订单：默认档位 + 卡片动作分区」正在进行（他们列了这几个文件）；
+- `AccountManageScreen.kt`(3 处) / `AccountManageViewModel.kt` / `Color.kt` / `Theme.kt`
+  —— `session-83da1ad7` 的「账户管理卡片 + 抽屉去线框 + 底部抽屉底色」正在进行。
+- 其余（`DispatcherPoolScreen` 5 / `UsersManageScreen` 5 / `AiSettingsScreen` 4 / `ReportCenter` 2 / …）
+  **等这两条线收工再扫**。
+
+### [2026-09-22 07:0x →] 会话：**账户管理卡片改版 + 新增/编辑抽屉去线框（改成白卡表单）+ 全 App 底部抽屉底色"去灰蓝"**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户需求（原话）**：「那你**更改一下账户管理的卡片样式**按照要求进行更改，同时他那个**新增的那个弹窗**也就
+**底部抽屉**呃也采用**不要使用那个线框**而是**用卡片的形式**；还有一点，为什么**每次底部抽屉弹出来那个颜色
+都是灰蓝灰蓝的**，不要啊，**改成底部灰（色）没关系，卡片一定要是白色的**，这样子就产生一个对比上去的，
+让人知道。」
+
+**根因（反编译证实，不是猜）**：「每次抽屉都是灰蓝」不是某一页写错了颜色，是 **M3 的默认值**：
+`ModalBottomSheet` 的容器色默认 = `BottomSheetDefaults.ContainerColor` →
+`SheetBottomTokens.DockedContainerColor` → `ColorSchemeKeyTokens.SurfaceContainerLow`
+（material3 **1.3.2** 的 `classes.jar` 里 `javap -c` 看到的常量池），
+而本项目 `ui/theme/Color.kt::SurfaceContainerLow = #EDEFF4`（B 比 R 高 7 → 就是那个"灰蓝"）。
+→ **改这一个 token 就等于改全 App 19 个底部抽屉**，而**不必**去动那 19 个调用点
+（它们有一半正是别人现在改的：`AddressScreen.kt` / `OrderDetailScreen.kt` / `ProductPicker.kt`…）。
+
+**文件清单**
+- 改：`ui/theme/Color.kt`（新增中性灰 `SheetSurface`）、`ui/theme/Theme.kt`（亮色 `surfaceContainerLow` 指向它）
+- 改：`ui/dispatcher/AccountManageScreen.kt`（列表卡重排 + 动作左/右分区 + 抽屉改成白卡表单）、
+  `ui/dispatcher/AccountManageViewModel.kt`（抽屉内的红字 + 保存失败不再顶掉整页）
+- 新增：红线 `_tools/qa/_check_account_manage_ui.py` + 反向验证 `_tools/qa/_reverse_verify_account_manage.py`
+- 同步：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§5.0 白卡规范补「底部抽屉底色」一条）、`08_CODE_LOCATOR.md`（账号管理那一行）
+- ⚠️ **交叉点（我动了别人的一个数字）**：这一页的描边输入框少了 3 处 → `_tools/qa/_check_form_panel_style.py`
+  的全局基线必须跟着降（它有一条"总数降下来就把基线降下来"的反向约束，不降会**反向报红**）。
+  我只跑它自己的 `--update` 重写 `_tools/qa/_form_panel_baseline.txt`（那一个数字），
+  **不碰**脚本本体与 `CONVERTED` 表（那一页 `session-78ebd95c` 正在改）。
+
+**明确不碰**：`ui/common/FormRows.kt`、`ui/shipper/AddressScreen.kt`、`ui/common/OrderCard.kt`、
+`ui/order/OrderDetailScreen.kt`、`ui/common/ProductCardKit.kt` / `ProductForm*`、
+`ui/dispatcher/DispatcherOrdersScreen.kt` / `ui/shipper/ShipperOrdersScreen.kt`、
+`_tools/qa/_check_form_panel_style.py`（脚本本体）、`backend/**`、钱的算法 ——
+上面这些是 `session-78ebd95c` / `session-faa17a77` 正在改的。
+
+### [2026-09-22 06:4x →] 会话：**订单管理 / 我的订单：默认档位 + 右上角时间药丸 + 卡片动作分区（编辑在右、反向在左）+ 单号对齐可长按复制**（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
+
+**用户需求（原话）**：「派单员和货主批发商…他不是**我的订单**吗或者**订单管理**」
+① 「尤其是派单员，他上面写的…**近 30 条**这个提示删掉啊，他**占位置**了」；
+② 「他如果点**已送达**的话，他会有一个…那个**时间**，我们就**复用我们那些代码和形式**在**右上角**，那个有**预选也可以自定义时间**」；
+③ 「如果是进来的话，**默认是不会进入「全部」**的，默认是进入**「派单中」**；货主就是**已接单**的，货主他是**默认已接单**的，并且将那个**已接单往前一格排第 2 位置**」；
+④ 「货主的那个**时间也移到那上面去**」；
+⑤ 「他上面还有一个…**新建订单**，新建订单就先**放在下面**吧，放在**底下**」；
+⑥ 「假如像我们**派单员编辑**的话，一定是在**右边**的，而且他就是一个**笔**…**他要一个图标**，**稍微圈一下**；然后呢**异常**的话，就放置在**左边**而且**是最左边**。这样做的好区分，包括以后的那个只要涉及到**编辑**和其他的比如说**删除**等等，**编辑一定在右边**（因为我们的**惯用手是右手**，我们好编辑），但是比如说**相反的操作，就在左边**」；
+⑦ 「那个订单点击**详情**，那个**订单号**出现了**错位**…不要缩小一点，这样子就好看一点；同时我们那个**长按订单号是可以复制**」
+
+**文件清单**
+- **改**：`ui/dispatcher/DispatcherOrdersScreen.kt` + `DispatcherOrdersViewModel.kt`（默认档位 → 派单中；顶部那条截断提示挪到列表**底部**；右上角时间药丸；卡片动作分区）、
+  `ui/shipper/ShipperOrdersScreen.kt` + `ShipperOrdersViewModel.kt`（默认 → 已接单 + 已接单挪到第 2 格；时间药丸；「新增订单」从顶栏挪到底部；卡片动作分区）、
+  `ui/common/OrderCard.kt`（动作区分**左/右两栏**：新增 `leading` 槽）、
+  `ui/common/Components.kt`（新增**圈底图标动作** `CardActionIcon`；`TintedIcon` 补一个可选 `contentDescription`）、
+  `ui/order/OrderDetailScreen.kt`（单号独占一行 + **长按复制**）
+- **新增**：`ui/common/OrderTabs.kt`（档位模型 `OrderTab` + `dated` 标记 + `ORDER_LIST_LIMIT`，两个角色共用）、
+  `ui/common/Clipboard.kt`（`copyTextToClipboard`，全库唯一的剪贴板实现）、
+  红线 `_tools/qa/_check_order_list_ui.py`（68 项）+ 反向验证 `_tools/qa/_reverse_verify_order_list_ui.py`（13 种注入）
+- **同步**：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（**§4.2c 新规范：卡片动作左＝反向/右＝编辑**、§4.15 第 7 条、§5 三条偏好）、
+  `08_CODE_LOCATOR.md`（订单管理 / 我的订单两行重写 + 新增「订单详情页」一行 + 订单卡片那一行）、
+  `_tools/qa/_check_order_return.py`（档位表形状变了 → 锚点重钉）、`_tools/qa/_check_order_list_ui.py` 是新文件
+- **顺手**：`docs/PROJECT_MAP/09A_HINT_CATALOG.md` 重新生成了一次（它是 `_hint_inventory.py` 的产物，
+  唯一作者是脚本；**未提交** —— 那是提示统一化那条线的在途产物，见下面交叉点）
+
+**⚠️ 交叉点（别人未提交的改动，我一律原样保留）**
+- `DispatcherOrdersScreen.kt` / `ShipperOrdersScreen.kt` 上**各有 1 行**是「提示统一化」那条线（`83da1ad7`）的未提交改动
+  （`Text(` → `Hint(`，mtime 09-21 21:06）—— 我只动这两行**之外**的内容。
+- `ui/common/Components.kt` 上也有那条线的**真实未提交改动**（`FormErrorLine` 那一段，−29/+7 行，mtime 09-21）；
+  我加 `CardActionIcon` 的位置在 437 行附近、离它很远，属**追加式**改动，一个字都没动它那一段。
+- `ui/ai/AiChatScreen.kt`（真实改动 10/9 行）与 `ui/dispatcher/AccountManageScreen.kt`（1/1 行）同样是那条线的在途改动：
+  ⚠️ 我**故意没动这两个文件** —— 它们里面各有一份"复制到剪贴板"的旧实现
+  （AiChatScreen 的私有 `copyToClipboard`、AccountManage 的 `LocalClipboardManager`），
+  这一轮只把**新的家**建在 `ui/common/Clipboard.kt` 并让订单详情页用它；
+  **收编那两份留到它们那两轮落地之后**（现在动＝在别人正在改的文件上做非必要改动）。
+- `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` 在我编辑期间**被别人改过**（mtime 06:58，+148/−15）：
+  我重读了最新内容再插的 §4.2c 与 §4.15 第 7 条，没有覆盖别人的段落。
+- `docs/PROJECT_MAP/09A_HINT_CATALOG.md` 是**生成物**（唯一作者 `_hint_inventory.py`）：
+  它当时已经过期（其中 `AccountManageScreen.kt` 的**行号在我动手之前**就对不上），
+  我按脚本给的修法重新生成了一次；⚠️ **不提交它**（它还是那条线的未提交产物）。
+- `ui/common/OrderCard.kt` 与工作区内容**与 HEAD 逐字节相同**（司机线 `ea27fb2` 那轮已提交）；
+  `ui/order/OrderDetailScreen.kt` 的 `git diff` 是**整文件换行符差异**（1510/1510），内容无改动。
+  ⚠️ 「提示统一化」那条线的声明里把这两个文件写成「别人正在改 —— **要动先问用户**」→ **已问用户并得到点头**（见下）。
+
+**明确不碰**：`ui/common/Hints.kt` / `core/HintRound.kt` / `_tools/qa/_check_hints.py` / `_hint_inventory.py`（提示统一化那条线正在动）、
+商品线（`ui/common/ProductCardKit.kt` / `ProductsScreen.kt` / `ProductForm*` / `ProductBatch*` / `ProductSort*`）、
+`ui/profile/**`、`ui/driver/**`、`backend/**`、钱的算法（`order_money.py` / `order_pay.py` 一字不动 —— 本轮**不碰任何金额口径**）。
+
+**✅ 用户点头（2026-09-22 06:5x，原话照录）**
+- ① 可以动 `ui/common/OrderCard.kt` + `ui/order/OrderDetailScreen.kt`：「可以动这两个文件（推荐）」。
+- ② 截断提示：「挪到列表最底部（推荐）」（不静默删掉）。
+- ③ 默认档与时间档（**用户纠正了我第三问的默认值**）：「不行，默认的话**不是「全部」**——默认的是：
+  **派单员是「派单中」，货主和批发商他们是「已接单」**。而且**时间默认的是今天**」。
+  → 所以：默认档 = 派单中 / 已接单；**时间药丸默认档 = 今天**（不是「全部」）。
+  ⚠️ 跟着来的两条硬约束（司机端已经栽过一次，见 `08_CODE_LOCATOR.md` 司机任务那一行）：
+  **药丸与空态都不许藏在"列表非空"的分支里**（默认今天 + 今天没单 = 列表本来就是空的，
+  藏在空态里用户就换不了档了）；空列表时也必须能改档。
+
+> **✅ 做完了（2026-09-22 07:0x）。证据**
+>
+> **静态**：`_check_all.py` **62/62** · 新红线 `_check_order_list_ui.py` **68 项** ·
+> 反向验证 `_reverse_verify_order_list_ui.py` **13/13**（每种破坏各由一条判据抓住、逐字节还原、
+> 用时 7.6 秒 —— 远低于 `_reverse_verify_all.py` 的 60 秒上限）· Android 单测 **1032 用例 / 0 失败**。
+>
+> **真机（模拟器）**：5554 派单员 + 5556 货主，都装的是同一个包（`assembleEmuDebug`，07:00:19 编出，
+> 晚于最后一次源码改动 06:58:27）。逐条对照用户那 7 条：
+> ① 顶部那条截断提示**不在顶部**了（挪到列表最后一行）；② 点「已送达」→ **右上角出现「今天」药丸**，
+> 点开是「全部/今天/昨天/前天/这周/近 7 天/上周/本月/上月/近一年/自定义」（**预选 + 自定义**都在）；
+> ③ 派单员默认档 = **派单中**、货主默认档 = **已接单**（且已接单就在**第 2 格**）；
+> ④ 药丸在**顶栏**（空列表时也在 —— 真机上今天没已送达的单，空态写着
+> 「「今天」没有已送达的订单 —— 点右上角可以换一段时间」）；⑤ 货主「**新增订单**」在**底部一条栏**；
+> ⑥ 卡片 **异常（最左）· 撤回 · 退货 在左，编辑在右**，两处都是**圈底图标**；
+> ⑦ 详情页**单号独占一行**（20 个字符不再折行）、状态徽章落到第二行，
+> **长按单号 → 粘贴键把 `SO202609206660292708` 原样粘进搜索框**（剪贴板内容端到端验过）。
+> 截图归档在 `docs/screenshots/order-list-20260922/`（1~5）。
+>
+> **⚠️ 本轮新发现的一处重复（没动，下一轮收）**：`ui/dispatcher/AccountManageScreen.kt` 里
+> **另一个会话今天也实现了同一条左右规则**，自带一个 `private fun AccountAction(label, icon, tint, onClick)`
+> （圈底图标 **+ 文字**，也建在 `TintedIcon` 上）。它和本轮新增的 `CardActionIcon`（只有图标）
+> 是"同一个东西两份实现" —— 但那个文件正被别人改着（声明页里它有在途改动），
+> 所以我**只记录不动**：收编方式是一处小改（给 `CardActionIcon` 加一个可选 `label`，
+> 然后 `AccountAction` 的 12 行换成一次调用）。⚠️ 两处的**圆底画法已经是共用的**（都走 `TintedIcon`），
+> 所以现在不会出现"两个页面两种圆角"。见设计系统 §4.2c。
+>
+> **⚠️ 没做（本轮只做用户点名的 7 条）**：`§4.15.5` 那条"默认窗口自动退档"（今天没单自动退到昨天…）
+> —— 用户这次只说了「时间默认的是今天」，而退档是"页面自己改用户窗口"的隐藏行为，
+> **要不要加等用户表态**；替代做法是"药丸常驻顶栏 + 空态指路"（真机验过能改档）。
+
+**本轮暂定的做法**：档位只把**货主**那一列的「已接单」挪到第 2 格（派单员那列「派单中」本来就在第 2 格）；
+截断提示挪到列表底部；时间药丸默认 = 今天；要日期窗口的档位按**状态名**判（不写 `== 3 || == 4` 索引 —— 一重排就静默错位）。
+
+### [2026-09-21 22:4x → 24:0x] 会话：**商品管理改版：先出方案 → 落地第 1 期（参考 POS 的排版与组件复用）**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+> **状态：方案 + 第 1 期（P2 商品卡零件 / P7 新增编辑商品页 / P5 单位选择页）已做完并验证。**
+> 红线 32/32 · 反向验证 18/18 · 单测 1023·0 失败 · `_check_all.py` 只剩**别人文件上的一条**。
+> **没做完的（排在第 2/3 期）**：底部三格 + 批量操作 + 回收站、商品排序。
+> 文件清单见下面「落地那一期」一节；**`ProductsScreen.kt` / `ProductPicker.kt` / `Routes.kt` / `NavGraph.kt`
+> 我已改过，别人再动请先重读**。
+
+**用户需求（原话）**：「参考一下他的商品管理是怎么做的…他其实复用了很多的组件…我们参考他的样式和排版，
+**不要完全照抄他的所有的功能**，我们要用我们自己的…像这些我们都可以进行一个照抄或者说是一个参考。
+然后你给我一个参考的方案…给我看一下，然后我觉得不错了之后，我们再实际进行落地。」
+落地时的追加原话：「**底部栅格组排直接照抄**」「单位就是做到我们现在有的（那）档…只是抄他的那个**布局**的样式」
+「商品排序需要做…新开一轮」「这是他的新建商品的界面，我们也改一下我们的新建商品的界面——**不是很好看，也太乱了**」。
+
+核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：给 products 加 sort_order 列（商品排序要用），线上迁移只有这一个入口。
+
+**A. 方案（22:4x）**：`docs/plan-product-management.md`（拍板记录在 §7、实际交付在 §8）。
+
+**B. 落地第 1 期（23:0x–24:0x，零后端零数据库）**
+- 新增：`ui/common/ProductCardKit.kt`（缩略图/事实行/名称色/库存色/售价与库存格式化）、
+  `ui/common/FormRows.kt`（表单三种行）、`ui/common/Units.kt`、`ui/common/UnitPickerSheet.kt`、
+  `ui/common/CategoryPickerSheet.kt`、`ui/dispatcher/ProductFormScreen.kt` + `ProductFormViewModel.kt`
+  （纯函数 `productEdits` = **只发改动过的键**）、单测 `ProductFormDiffTest` + `UnitsTest`、
+  红线 `_tools/qa/_check_product_card_single_source.py` + 反向验证 `_reverse_verify_product_card.py`
+- 改：`ui/dispatcher/ProductsScreen.kt`（**那个编辑抽屉整段删掉**，-462/+52）、`ProductsViewModel.kt`
+  （表单状态搬走，-184/+18；加 `start()`）、`ui/common/ProductPicker.kt`、`ui/shipper/OrderCreateScreen.kt`、
+  `ui/dispatcher/BatchPriceSheets.kt`、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、
+  `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§4.1 指向零件 + **§5 两条例外**）、`08_CODE_LOCATOR.md`（两行新条目）
+- 真机（模拟器 5556 借来当派单员，用完已**还给货主账号**）走到：商品管理外观与改前一致 →
+  商品新增 = 参考图形态 → 单位 chips 页 → 分组单选页 → 保存成功 → 编辑时**只改名称，别人同时改的售价活下来了**。
+- **改前/改后截图对比已经补齐**（`git worktree` 单独编一份 HEAD 的旧包，装到 5556 截改前，再装回改后截同一屏）：
+  四张在 `docs/screenshots/product-form-20260921/`（4↔5 表单、6↔7 单位；0–3 是改后各屏）。
+- ⚠️ **真机抓到两个我自己的缺陷**（都已修）：① `FormInputRow` 点标签不聚焦（整行可点 + `FocusRequester`）；
+  ② 单位/分组选择页的"搜不到"两句写成了 `Hint` —— 那是**空态文案**，被总开关藏掉后整屏空白，
+  `_check_hints.py` 抓出来的，已改回 `Text`（并在 `_hint_inventory.OVERRIDE` 里记了一笔）。
+- 没做也刻意没做：库存管理页**没有**并进 `ProductCardKit`（它那块是库存状态块、不是商品缩略图）、
+  P5 去掉了"最近使用过的单位"（"库里已经在用的"是更好的来源）。
+
+**B2. 第二批（24:1x，用户看完第 1 期之后的反馈）**
+- **商品卡重排**（`ProductsScreen`）：图 52→88dp、第一行「图+名称+售价」、第二行「库存」、
+  第三行**三个等宽大按钮**（改价 / 沽清(上架) / 编辑）；**卡片上的 ⋮ 整个删掉**。
+- **⋮ 的三项搬进编辑页**（`ProductFormScreen` 新增「更多操作」卡：各批发商价格 / 成本价历史 / 删除商品）
+  → `ProductsViewModel` 里那套 `costHistory*` 与 `delete` 一起搬进 `ProductFormViewModel`；
+  `CostHistoryDialog` / `CostHistoryRow` 改成 `internal` 给编辑页复用。
+- **底栏三格**（分类管理 / **商品新增圆钮** / 批量操作）+ 顶栏新增「排序」。
+- **新页**：`ProductBatchScreen`（勾商品 + 改分组/沽清/上架/删除，逐条 + 逐条汇报）、
+  `ProductSortScreen`（长按拖动 / ↑置顶 / 完成逐条写 `sort_order`）。
+- **后端**：`products.sort_order` 列（模型 + schema + `schema_bootstrap` ALTER + `ORDER BY` 的 CASE）
+  + 回归测试 `backend/tests/test_product_sort_order.py`（3 例）。
+- 验证：`_check_all.py` **59/59** · Android 单测 **1023/0** · 后端 **693 passed** ·
+  真机四屏截图在 `docs/screenshots/product-form-20260921/`（8/9/10 三张是这一批的）。
+- 抓到并修掉：**`sort_order=0` 会排在 1 前面**（点置顶反而沉底，实测抓到）、
+  排序页说明句的位置错（被判成空态句）、`Color(Success)` 写法编译不过。
+- ⚠️ **下一批待做**：**回收站**（删除的界面恢复入口 —— 用户的硬规矩要求"手边有"，目前只有 AI 撤回卡）。
+
+**明确不碰**：`backend/**` 除 `products.py` / `product.py` / `schemas/product.py` / `schema_bootstrap.py`（已声明）之外没动；`_tools/ai/**` 没动；`ui/profile/**` 是那位会话的地方。
+
+⚠️ **两件给下一个人的事**：
+1. 「提示/说明统一化」那一轮（`session-83da1ad7`）的改动**仍然没有提交**，而它和这一轮改的页面在
+   同一个工作区里 —— 提交时**一起提交即可**（两轮在 `ProfileScreen.kt` 等处已经交织）。
+2. 我这一轮**没提交**（原因同上：`git add` 我的文件就会把别人未提交的改动一起带进来）。
+   落地清单与验证口径都在 `docs/plan-product-management.md §8`，提交时照着写 message 即可。
+
+**交叉点（我实际动过的不属于我的东西）**：`09A_HINT_CATALOG.md`（机器生成，按它自己印的修法重跑过两次）、
+`_tools/qa/_hint_inventory.py` 的 `OVERRIDE` 表（**只加了 2 条** ProductFormScreen 的解释句，
+带理由；另 2 条我原本以为是误判、后来发现是**空态句**，已撤掉并把代码改回 `Text`）。
+
 ### [2026-09-21 20:4x →] 会话：**界面「提示/说明」统一化 —— 取消"说三次就消失"、改成一个总开关 + 统一接口 + 书写规范**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+> **状态：✅ 全部完成（2026-09-21 22:3x）**。四个交付 + `ProfileScreen` 那三处都改完并验证过
+> （红线 29 项 / 反向验证 15/15 / 单测 1004·0 失败 / `_check_all.py` 57/57 / 真机两端实测）。
+> **本会话当前不再有进行中的改动** —— 别人可以放心动下面列出的任何文件。
+> 只剩两条「下一轮可做」：单位词表（`DIGIT_UNIT`）收紧、司机端真机复验（见文末）。
 
 **用户需求（原话）**：
 「从我们写一些像我用红色框框起来的那种**提示说明**，包括我们有个按钮也叫个「**提示**」按钮 ——
@@ -138,20 +357,26 @@
 - 截图 `_archive/hint-e2e-06-dispatcher-on.png` / `-07-dispatcher-off.png`。
 - 验完把 5556 **登回货主**（13800000002 永盛食品），开关留在「关」（＝冷启动后的默认样子）。
 
-**⏳ 预登记的补丁（`ProfileScreen` 一收工就照这个改，三处）**：
-1. **「提示」那一格的副标题**：`Text(if (hintAlwaysOn) "一直显示" else "说三次就不说了")` →
-   改成表达总开关的话（建议 `显示所有说明` / `不显示说明`，用户可改词），
-   并把上面那段讲"最多 3 次"的注释整段换掉；改完**删掉红线里的 `PENDING` 那条**。
-2. **调用的旧名字**：`container.hintPrefs.alwaysOn = …`（2 处）→ `setByUser(…)`；
-   之后 `HintPrefs.alwaysOn` 那个 `@Deprecated` 兼容壳才能删（删它之前先确认全仓没有别的调用点）。
-3. **用户红框圈的两行副标题**（这一页唯一还没走统一接口的解释句）：
-   `语音播报 / 后台接收新单`、`通知栏提醒 / 后台接收新单`（L198/L200）→ 改 `Hint(...)`，
-   并在 `_hint_inventory.OVERRIDE` 里各加一条「归 EXPLAIN」的理由
-   （它们现在被判成 DATA，是因为「新**单**」里的那个"单"命中了单位词表 —— 属于判据的已知保守侧）。
-   ⛔ **顺序不能反**：先加 OVERRIDE 会让红线立刻报"裸露的解释句"（那时文件还不许动）。
-   ⚠️ `SunClock.summary(...)`（`天黑切夜间，天亮切回白天` / `现在夜间 · 22:30 自动转白天 · 按定位`）
-   **保持 `Text` 不动**：自动模式开着时它渲染的是**当前状态**（几点切换、按定位还是估算），
-   属"用户必须随时看得见"的那一类 —— 这条是判断，已记在这里备查。
+**✅ 已改（2026-09-21 22:0x）—— 用户拍板「可以你现在就改吧，以为他已经停止活跃了」**：
+`ui/profile/ProfileScreen.kt` 按上面那张预登记清单**三处全改完**（改前重读了它 21:39 提交后的最新内容；
+对方的提交只动了 VERSION + 两个发版脚本 + 这个文件 14 行的滚动修复，与这三处不重叠）：
+1. 「提示」那一格：副标题 → **`显示所有说明` / `不显示说明`**，并把讲"最多 3 次"的注释整段换成新口径；
+   `container.hintPrefs.alwaysOn` → **`setByUser(...)`**；顺手**删掉本地镜像**
+   （`remember { mutableStateOf(prefs.alwaysOn) }`）—— 总开关本来就是 Compose 可观察状态，
+   再镜像一份就是"两处各有一个数"（同时清掉了随之悬空的 `remember`/`mutableStateOf` 两个 import，
+   是 `_check_dead_code.py` 抓出来的）。
+2. 「消息提醒」副标题（`语音播报 / 后台接收新单`、`通知栏提醒 / 后台接收新单`）→ **`Hint(...)`**，
+   并在 `_hint_inventory.OVERRIDE` 各加一条「归 EXPLAIN」的理由（判成 DATA 是"新**单**"命中单位词）。
+3. 「随日落自动切换」那一行**按状态分开渲染**：自动切换关着时那是"这个模式怎么工作"的**说明** → `Hint`；
+   开着时同一行是**当前状态**（几点转、按定位还是估算） → `Text`。
+   两句话都仍来自 `SunClock.summary`（✅ 没在页面里另抄一份文案）。
+4. `HintPrefs.alwaysOn` 那个 `@Deprecated` 兼容壳**已删除**（全仓已无调用点）；
+   红线里的 `PENDING` 那条也按设计**删掉了**（它命中不到就该红，逼人回来删 —— 现在删了）。
+- **真机复验（同一台 5556 货主）**：关 → `提示 · 不显示说明`、「消息提醒」「随日落」两行副标题**都隐藏**、
+  `仅前台接收`（运行时状态）**照旧在**；开 → 两行说明 + `显示所有说明` 全部回来。
+  截图 `_archive/hint-e2e-08-profile-on.png`。
+- 验证：编译 ✓ · 红线 **29 项** ✓ · 反向验证 **15/15** ✓ · `_hint_inventory --check` ✓ · 单测 1004/0 ✓ ·
+  `_check_all.py` **57/57**（那两处别人的红也已由他们修好）。
 
 **追加（2026-09-21 21:2x）—— 把行为契约抠成纯函数 + 单测**：
 - 新增 `core/HintRound.kt`（**纯函数状态机**，无 Android 依赖）：`onLogin` / `onAppStart` /
@@ -2101,6 +2326,12 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-09-22 03:0x | **商品外观做深**（我） | `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` | ⚠️ **三份机器生成的产物重跑了一遍**（不是我改的东西坏了，是**别人未提交的后端改动**让它们过期：`shipper.py` 挪了行号、`products.py` 挪了行号）：`08A` 与 `ai_read_catalog.json` 的差异**只有行号位移**（端点数 193 不变、角色不变，已逐行确认）；`09A` 是 `.kt` 文案条数变了。⛔ **没有手写这三个文件**，全部是脚本重生成的。另：本机后端已重启（`_check_backend_fresh` 转绿） |
+| 2026-09-22 03:0x | **商品外观做深**（我） | `ui/common/ProductCardKit.kt`、`ui/dispatcher/ProductsScreen.kt`、`ProductBatchScreen.kt`、`ProductSortScreen.kt`、`InventoryScreen.kt`、`BatchPriceSheets.kt`、`PriceMatrixScreen.kt`、`ui/common/ProductPicker.kt` | 都是商品管理这一条线**我自己**的文件（`ProductPicker.kt` 上次动它是 2026-09-20 的账本「记一笔账」那一轮，已收工；声明页上那一轮**没有**写"明确不碰"）。`ProductPicker.kt` 只改 `ProductRow` 一个函数 + 加一个私有事实构造器，其余一行未动 |
+| 2026-09-21 23:5x | **「我的」页改版**（我） | `ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`ui/home/RoleHomeScreen.kt`、`ui/theme/Color.kt` | **追加式/单点**改动：① `Routes.kt` +1 常量 `BASIC_SETTINGS`；② `NavGraph.kt` +1 个 `composable`；③ `RoleHomeScreen.kt` 两处 —— profile 那一 Tab 不吃 Scaffold 的**顶部** inset（否则深色头部画不到状态栏下面；其余 Tab 一行未动）、去掉已无处可用的 `onOpenMessages` 接线（「消息中心」那一行按用户要求删了）；④ `Color.kt` **只追加**两个头部颜色常量。四处改前都重读了最新内容 |
+| 2026-09-21 23:5x | **「我的」页改版**（我） | `_tools/ai/_check_ai_guardrails.py`、`_tools/ai/_check_notify_guardrails.py`、`_tools/ai/_reverse_verify_sun_theme.py`、`_tools/ai/_reverse_verify_notify.py` | ⚠️ **改的是别人功能线的红线/反向验证**（随日落 §21、消息提醒 §9）。**只把锚点搬到代码真正所在的位置，没有放宽任何判据**：`_check_ai_guardrails` 那两处 `profile` 变量改成"`ProfileScreen.kt` + `BasicSettingsScreen.kt` 拼起来"（随日落那一行搬进了「基础设置」子页）、`_check_notify_guardrails` 把"消息提醒点得进去"拆成两段（页面接 `onOpenAlerts` **且** 行组件真的把 `onClick` 接到 `clickable`，合起来不比原来那条单文件正则弱）、`_reverse_verify_sun_theme` 4 条注入改指新文件、`_reverse_verify_notify` 换锚点并**新增 1 条**注入（"行组件把 onClick 收下就丢"） |
+| 2026-09-21 22:2x | **提示/说明统一化**（我） | `AGENTS.md` | ⚠️ **共享入口文件**：只**插入一节**「给三台模拟器装包：用共享工具」（新工具 `_tools/qa/_install_all.py` 怎么用 + 用户定的前提"有人在干活就各装各的"），没有改动任何原有章节 |
+| 2026-09-21 22:0x | **提示/说明统一化**（我） | `ui/profile/ProfileScreen.kt` | ⚠️ **动了别人的文件**（司机线在改，用户 22:0x 拍板「可以你现在就改吧」）。改前重读了它 21:39 提交后的最新内容；**只改三处**：①「提示」那一格的副标题与注释（旧机制口径 → 总开关口径）、`alwaysOn` → `setByUser()`、删掉本地镜像；②「消息提醒」副标题 → `Hint`；③「随日落」那一行按 `autoBySun` 分 `Hint`/`Text`。另清掉随之悬空的 2 个 import（`_check_dead_code.py` 抓的）。**没动**它的滚动修复与其它任何一行 |
 | 2026-09-21 20:5x | **提示/说明统一化**（我） | `ui/common/Components.kt` | **摘掉** `HintOnce`（连同它那句"最多出现 3 次"的 KDoc），在原地留一段指路注释；顺手删掉随之失效的 `import ...core.HintPrefs`。函数搬进新文件 `ui/common/Hints.kt`（**同一个包**，所以 6 个调用点一行都没动）。这个文件别人也在改（药丸/弹层），我**只动了这一段**、改前已重读 |
 | 2026-09-21 20:5x | **提示/说明统一化**（我） | `core/HintPrefs.kt` | 整文件改写（"每条最多 3 次"的 per-key 计数 → 一个总开关 + 首次登录那一轮的状态机）。**没有别的会话在改它**（上一次动它的是「全库精简」第八轮，已收工） |
 | 2026-09-21 20:5x | **提示/说明统一化**（我） | `MainActivity.kt`、`ui/login/LoginViewModel.kt` | 各**追加**几行：根上提供 `LocalHints`、冷启动 `onAppStart()`、登录成功 `onLogin()`。没有动这两处原有的任何逻辑 |
@@ -2133,6 +2364,338 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-09-22 03:1x → 07:0x] 会话：**「分组一律白卡」定成规范（先落「新增线路」）+ 线路卡改成 A→B 主角**【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**用户需求（原话）**：「…只是用**线框**框起来的话太不美观了，而且也不够**醒目对比**，
+所以把他们改进这种**白色的卡片样式**…**这就是个设计规范，包括以后也是这样子啊，所有都要这样子去改**」
+「还有一点就是**线路的这个卡片这个样式不好**…**联系人啊，可以放在下面**，
+但是**线必须放在从 A 到 B**，然后那个**编辑和删除稍微放在左边**…**一上一下**的关系，
+**上面是删除、下面就是编辑**」
+→ ⚠️ 后半句他**当场改口**：「**啊说错了，说错了，那个编辑和删除不要在左边是在右边了**」
+（动作收在**右边**，仍然一上一下、上删除下编辑；左边那一条留给 A→B 轨道）
+
+**文件清单**
+- 改：`ui/shipper/AddressScreen.kt`（新增/编辑**线路**的抽屉改成 4 张白卡 + 共用表单行；
+  线路卡重排为「左：删除/编辑一上一下 · 右：起点→终点轨道 + 联系人在下面」）、
+  `ui/common/FormRows.kt`（+ `FormActionRow`「点进去做一件事」/ `FormTextAreaRow`「长文本上下排」）
+- 新增：红线 `_tools/qa/_check_form_panel_style.py` + 基线 `_tools/qa/_form_panel_baseline.txt`
+  + 反向验证 `_tools/qa/_reverse_verify_form_panel.py`
+- 同步：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（新规范）、`08_CODE_LOCATOR.md`（地址与联系人那一行）
+
+**⚠️ 交叉点**：`AddressScreen.kt` 里**别人有一处未提交的改动**（`Text` → `Hint`，提示统一化那条线，
+mtime 22:09）—— 我**原样保留**了它，只改我这两块；该文件没有任何会话在「进行中」里声明。
+
+**⚠️ 明确不碰**
+- 全库其余描边输入框（28 个文件）：这一轮**只落这一页** + 定规范 + 立**只许减不许增**的基线，
+  扫尾按页面分批（待改清单由红线脚本自己算，不手写）。
+- `backend/`、`ui/common/Hints.kt`、`core/HintRound.kt`、`_tools/qa/_check_hints.py`、
+  `_tools/qa/_hint_inventory.py`（提示统一化那条线正在动）。
+
+**结果**
+- **「新增线路」抽屉改成 4 张白卡 + 共用表单行**（联系人 / 起点 / 终点 / 线路图片+设为默认）；
+  同一页的**联系人**、**地点**两个抽屉一并改 → `AddressScreen.kt` 的描边输入框 **9 → 0**。
+- `ui/common/FormRows.kt` 补两种行：`FormTextAreaRow`（长文本：标签在上、值在下占满整宽 ——
+  地址塞不进右半栏）、`FormActionRow`（点进去做一件事，右边只有一个 `>`）。
+- **线路卡重排**：左边一整条 **起点 →（连线 + ↓）→ 终点** 轨道（终点加粗），联系人退到下面；
+  右侧一列 **上删除、下编辑**（⚠️ 用户先说了"放左边"、几分钟后当场改口"不要在左边、是在右边了"）。
+- **定成规范**：`06_DESIGN_SYSTEM.md` 新增 **§5.0「分组一律白卡，不许用描边框当分组」**；
+  另把用户对另一个会话说的「**编辑一定在右边、相反的操作在最左边**（惯用手是右手）」
+  也记进 §5（**横排**适用；竖排的一上一下不受它管 —— 两条规则管不同的轴）。
+- 判据 `_check_form_panel_style.py`（17 项：已改页面描边输入框必须 0 + 每种点名的共用行都还在用 +
+  **全库总数只许减不许增**，基线 `_form_panel_baseline.txt`）+ 反向验证 `_reverse_verify_form_panel.py` **8/8**。
+  ⚠️ 反向验证自己抓到两个**假绿**并已修：① 判据原写"用到两种以上共用行"→ 把其中一种换成自己写的照样绿，
+  改成"每一种点名的行都必须出现"；② 基线是**上限**，别人刚清理过就留下余量、注入一处顶不破它
+  → 反向验证开跑前先把基线收紧（跑完原样还原）。另：那条"改好了要降基线"从**报红**改成**只提示**
+  （多会话仓库里别人顺手清理一页就会红，红几次大家就把检查关掉 —— 本仓库踩过"永远红的检查=没有检查"）。
+- **验收**：`_check_all.py` **63/63** · 真机 5554 两屏（`16-` 线路卡 A→B + 右下删除/编辑、
+  `17-` 新增线路白卡分组）；并实测换成共用行之后**「收货联系人」那一行点开仍是原来的下拉**（菜单锚点没坏）。
+- ⚠️ **待改清单（脚本自己算的）**：全库还剩 **67 处**描边输入框 / 25 个文件（最重：
+  `DispatcherOrdersScreen.kt` 13、`OrderCreateScreen.kt` 9、`OrderDetailScreen.kt` 7…）。
+  规范从今天起对**新页面**生效，老页面按页面分批改（改完一页 `--update` 降基线）。
+- ⚠️ **交叉点**：另一个会话（`faa17a77`，订单管理那一轮，06:4x 起）**正在改** `DispatcherOrdersScreen.kt`，
+  我跑检查时被它的注入锁拦过一次（等它跑完即恢复）—— 我一个字节都没碰它的文件。
+
+
+### [2026-09-22 01:1x → 07:0x] 会话：**统一列表排序规则：常用度优先 + 先创建在前（跨端 / 跨模块）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）【已完成】
+
+**用户需求（原话）**：「我们那个**隐性规则**，它是**优先级第一**的，它的规则是**大于基础排序**的……
+**新建的在最前面只有第一天的时候有效**，第二天的时候它就会被优先级第一的规则给覆盖……
+**技术是按人来搞**……看请求吧，他请求要拉哪个列表……**所有的列表，包括列表的抓取以及列表的排序**，
+全按照我们这样的规则进行。」＋「机制你可以复用，但是得适配（看它完不完善；不完善就看能不能**两边都完全兼容**）」
+＋「**撞车的部分**（商品）你暂时就不要去搞了，等它做完你再**记牢**」。
+
+**规则（定案）**：挑东西的列表 = **① 常用度降序（按人）→ ② 先创建的在前（`id` 升序）**；
+⛔ **看记录的列表**（订单/账本/现金流/消息/审计/库存流水/账单/结算/退货申请）**必须最新在前**；
+分类类仍按用户手工 `sort_order`。商品**另加一层**：手工置顶/拖动排在常用度**前面**
+（手动拖是更硬的意愿；用户未反对，若要改一行即可）。
+
+**机制（复用 + 泛化，不另发明）**
+- 新表 `usage_counters(user_id, kind, target_id, use_count, last_used_at)`（`kind` 常量只有一处：
+  `services/usage_service.py`），旧表 `place_user_usage` 的数据由 `schema_bootstrap` **一次性迁入**
+  （表本身由 `create_all` 建；只在"新表为空"时搬，防重复翻倍），旧表保留为备份、不再读写；
+- `usage_service.record_usage()`：计数**由数据库自增**（照地点那套的规矩，防两部手机同时点丢一次）；
+- `usage_service.with_popularity()`：**排序的唯一实现**（`coalesce` 不能省 —— 漏了会让"没用过的行"
+  因为 NULL 沉到最后，与"先创建的在前"正好相反，而界面上只像"顺序有点怪"）。
+
+**12 个列表接上**：联系人 / 线路（默认优先→常用度→先创建）/ 我的地点 / **共享地点库（改成按我自己
+用过的次数，不再是全库次数）** / 商品 / 人（货主·批发商·司机）/ 客户 / 挂靠单位 / 车辆 / 司机计费规则 /
+批发商专属价 / 运费模板。
+
+**触发点（"真的用上了"才算，不是"点开看看"）**
+- 下单接口新增**可选** `contact_id / address_id / location_id` → 下单成功即记：联系人/线路/地点/每个商品；
+  代理下单时还记这位货主（⛔ 货主自己给自己下单**不记** —— 那是"我挑了我自己"，实测抓到的多余一行）；
+- 派单接口记一次「这个派单员常用这位司机」（记在**派单员**名下）；
+- App 侧：`OrderCreateRequest` 带这三个字段，VM 在**选线路/选我的地点**时记住 id、
+  **地图自己选点**时清掉（不许把上一次选的线路记到这一单头上）。
+
+**验证**：`_check_all.py` **60/60 全绿** ✓ · 新红线 `_tools/qa/_check_list_order.py` **46 项** ✓ ·
+反向验证 `_reverse_verify_list_order.py` **10/10 被抓** ✓ · **服务端 E2E**（真接口 + 真下单）：
+联系人 `37,38,39` → 用 39 下单 → **`39,37,38`** ✓、用量表出现 `contact 39 / product 1` ✓。
+
+⚠️ **反向验证当场抓到我红线里的一个洞**（值得记）：`model.id.asc()` 在 `usage_service.py` 里出现两次
+（"认不出人"的兜底分支 + 主排序分支），注入只改第一处 → 判据照样绿。已把判据收紧成
+"降序 + 升序必须**连在一起**"。**这就是"给新功能开一条后路"的价值**。
+
+**追加（2026-09-22 07:2x）：用户在「我的 → 基础设置」要了一个「重置计数」入口**（原话：
+「在我的基础设置里加一个**重置计数**」）。
+- 新增 `POST /usage/reset`（`backend/app/api/v1/usage.py` + `schemas/usage.py`）：**只清自己那几行**
+  （`user_id == current.id`），返回清掉的行数；**硬删**（派生统计、不做软删 —— 与"用户数据一律软删"
+  不冲突，但代价是**不可还原**，所以界面必须先说明再确认）。
+- App：`ui/profile/BasicSettingsScreen.kt` 第三格「重置计数」（黄色提醒语义 + 后果说明走 `Text`
+  **永不隐藏**）+ 复用 `DangerConfirmDialog` 确认框 + Snackbar 回执（**0 条也如实说**）。
+- 登记：`_write_coverage.EXCLUDED`（不做 AI 动作的理由）、`_gen_ai_toolmap.MODULE_CN`（中文名）、
+  `_check_audit_coverage.REASONS`（不写审计日志的理由）、`_hint_inventory.OVERRIDE`（那句副标题
+  属**警告类**，不许被「提示」开关藏掉）。
+- **真机验证（5554）**：那一格样式 ✓、确认框说清"只清你自己 + 没法还原" ✓、
+  **点完 `user=1` 的计数 0 行、`user=2` 的 3 行原样保留**（证明只清自己 ✓✓）、
+  回执弹出「本来就没有常用记录（列表一直是按创建顺序）」（0 条时的话术 ✓）。
+- 红线扩到 **53 项** + 反向验证 **13 条**（新增：重置改成清全表 / 去掉确认框 / 那一格被删）。
+
+**还剩一件（不影响使用）**
+1. ✅ **真机全链路已验**（2026-09-22 07:1x，**用户手点一单**）：订单 `#427` 与用量行
+   `user=1 kind=location target=2` **同一秒落库**（`22:30:30.751` / `.765`）→ 证明 App 真的把
+   "这一单用的是库里哪一条"送上来了；同单还记了 `kind=user target=2`（代下单挑的货主）与
+   `kind=product target=3`。随后派单员的「我的地点」顺序变成 **`2,1,3,4,5,6`**（刚用过的排第一、
+   其余按"先创建的在前"），他没用到过的联系人仍是 `1,2,3,4,5` ✓ —— **规则在界面上生效**。
+2. `place_user_usage` 与新表**暂时并存**（一个管"常用就自动进我的地点库"的阈值、一个管排序）——
+   合一那一刀要连着 3 条判据一起搬（`_check_counter_updates.py` / 两份 `_reverse_verify_*` 都指着它的代码形状）。
+
+**核心改动**：`backend/app/core/schema_bootstrap.py`（新表迁移；已在「进行中」写过那一行）。
+
+
+### [2026-09-22 02:0x → 03:0x] 会话：**商品外观做深：库存挪到售价下面 + 五处商品渲染收成一套零件**【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**用户需求（原话）**：「你还是把**库存**给移到**现在的那个售价的下面**啊，这样子**美观一点**」
+「像我们这样子的形式——比如说**右边是分类、它是个条**的，那个**商品**啊，它其实是**有点区别的**…
+你也**全部做深**吧，包括我们很多其他也是会**复用这些代码**的，或者说**继承**吧，
+我们也就是说**其他地方你也得改**，最好是采用（通）用的继承，**上次你改一个地方，它就其他跟着改了**。」
+
+**这一轮要做的两件事**
+1. **商品卡**：库存从"图片下面横跨整卡"改成**售价的正下方**（图右边那一列 = 名称 / 售价 / 库存）。
+2. **做深**：把"商品长什么样"收成**一套零件 + 一个事实构造器**，让**五处**渲染同一件商品的页面
+   （商品管理卡 / 库存页卡 / 批量操作行 / 商品排序行 / 选品行）都从**同一处**取
+   —— 下次再改"显示哪两个数字、什么顺序、什么颜色"，**只改一个地方**。
+   ⚠️ 这一条**推翻**了 `ProductCardKit.kt` 顶上原先写的「刻意不抽一张通用卡」：用户这一轮明确要求
+   抽（原文见上），所以改成"**零件 + 事实构造器共用、外壳各自组装**"，并把理由原地改写。
+
+**文件清单**
+- 改：`ui/common/ProductCardKit.kt`（+ `productFacts()` 事实构造器、+ `ProductLine` 行主体、
+  + 库存文案/配色归一）、`ui/dispatcher/ProductsScreen.kt`（卡片改版）、
+  `ui/dispatcher/ProductBatchScreen.kt`、`ui/dispatcher/ProductSortScreen.kt`、
+  `ui/common/ProductPicker.kt`、`ui/dispatcher/InventoryScreen.kt`（库存配色判据归一）、
+  `ui/dispatcher/PriceMatrixScreen.kt`（`parseColor` 换 `productNameColor`）
+- 改：红线 `_tools/qa/_check_product_card_single_source.py`（新增"五处必须走零件"判据）、
+  反向验证 `_tools/qa/_reverse_verify_product_card.py`
+- 同步：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§4.1/§4.2b）、
+  `docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/plan-product-management.md`（§10）
+
+**⚠️ 明确不碰（别人正在动）**
+- `backend/app/core/schema_bootstrap.py`、`backend/app/api/v1/shipper.py`、`backend/app/models/usage.py`、
+  `backend/app/services/usage_service.py`、`app/services/place_service.py`（`session-83da1ad7` 的
+  「统一列表排序规则 / usage_counters」正在进行）→ 这一轮**零后端改动**。
+- 提示体系：`ui/common/Hints.kt`、`core/HintRound.kt`、`_tools/qa/_check_hints.py`、`_hint_inventory.py`。
+- `ProductsScreen.kt` 的 List 排序口径（`session-83da1ad7` 已声明"等我这期收工后再纳入"）。
+
+**结果**
+- **库存已挪到售价的正下方**（卡片右列 = 名称 / 售价 / 库存），真机看过：
+  `docs/screenshots/product-form-20260921/11-改后-商品卡(库存挪到售价下面).png`。
+- **"做深"落地**：新增 `ProductLine`（行/卡主体，槽位式）+ `productFacts()`（**唯一一处**定
+  "显示哪两个数字、谁在前"）；**五个渲染商品的页面**（商品管理 / 批量操作 / 商品排序 / 选品 / 库存管理）
+  全部同源。顺带收掉三份第二实现：批量页与排序页各自手拼的 `"¥… · 库存 …"`、
+  库存页自己那一套**与商品卡不同**的库存配色（低库存红/缺货灰 vs 到报警线黄/断货红）、
+  `PriceMatrixScreen` 里第二份 `parseColor`、`BatchPriceSheets` 手拼且**不带单位**的售价。
+- 红线 `_check_product_card_single_source.py` **32 → 53 项**；反向验证 `_reverse_verify_product_card.py`
+  **18 → 26 种注入**（新增：某页改回本地实现、`productFacts` 里两条事实调个个儿、
+  排序行高度写回 64dp 把事实行裁掉、`parseColor` 长回来 —— 都必须红）。
+- ⚠️ **排序页行高 64 → 96dp**：行里多了一条事实行，64dp（减掉 `SectionCard` 两侧 16dp 内边距）
+  会**静默裁掉**库存那一行 —— 已加一条红线判据盯着这个数字。
+- ⚠️ **单测里抓到我自己的两处错**：① `parseColor("blue")` **不是坏值**（它能认颜色名，
+  会解析成纯蓝），我原来的注释拿它当"脏数据"的例子，错了；② 本工程开了
+  `unitTests.isReturnDefaultValues = true`，所以 `parseColor` 在 JVM 里是**返回 0 的桩**
+  —— "名称色"写不出有意义的断言单测（第一版单测红了，红的原因是桩不是代码）。
+  两条都写进了代码注释，并新增 `ProductCardKitTest`（9 例，盯库存配色/角标/事实顺序）。
+- **验收**：`_check_all.py` **59/59** · Android 单测 **1032 / 0 失败** · 真机 5554 五屏（`11-`…`15-`），
+  并在排序页真的长按拖动过一次（第 3 位拖到第 1 位，证明手势搬到 `bodyModifier` 后仍有效），
+  拖完**没点完成**、直接返回丢弃草稿，列表顺序未变（没给演示数据留痕）。
+- ⚠️ **顺手重生成的两份产物**（我自己零后端改动，是别人的未提交后端改动导致过期）：
+  `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json` —— 差异**只有行号位移**，
+  没有权限/端点变化；另重跑了 `_hint_inventory.py --md`。**本机后端已重启**（`_check_backend_fresh` 转绿）。
+
+
+
+### [2026-09-21 翌 00:4x → 01:0x] 会话：**「我的」页改版 · 第三版（动效改成手势果冻 + 短状态挪到右边）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）【已完成】
+
+**用户反馈（原话）**：「**压根就没有动效**，这个动效**就像是一个果冻一样**……整个的列表我就像往下滑，
+它可以**跟着我的动作做出反应**啊，**我刚滑了一下没有反应**啊」＋「那个『不显示说明』能不能**放在提示的后面**，
+**就不要做两排**……**基础设置**它下面那个说明也**改成放右边**，跟那个**版本号**一样，放在那边；
+**如果是详细说明的话，则就出现在下面**。」
+
+**两条改动**
+1. **果冻（`ui/profile/RowMotion.kt` 重写）**：⛔ 第一版把"跟随"挂在**滚动位置**上，两个后果 ——
+   ① 列表**装得下、滚不动**的机器上（5554 就是）**一点反应都没有**（用户实测的那个"没反应"就是这个）；
+   ② 能滚时又**停在那儿不回弹**。现在挂在**手势**上（`NestedScrollConnection.onPostScroll`，
+   只旁观不消费），松手由 `onPostFling` 用回弹弹簧（`dampingRatio = 0.4`）弹回 0。
+   **真机量像素**（按住拖 1000px）：首行 +30 / 第三行 +49 / 第四行 +59 / 末行 +68，
+   **头部 +0**（只有列表动），松手全部回 0 ✓ —— 就是用户要的「越往下面偏移量越大」。
+2. **排版规则**：**短状态靠右、与标题同一行；只有详细说明才另起一行**。
+   → 「提示」的「显示/不显示说明」挪到右边（和开关同一行）、「基础设置」的「外观 · 夜间模式」挪到右边；
+   「消息提醒」那句 `Hint`（详细说明）**仍留在下面**。红线把这条**双向**钉住了。
+
+**⚠️ 本轮抓到的第三个"静默失效"（值得全员知道）**
+`Modifier` 链**顺序反了**：`.verticalScroll(listScroll).nestedScroll(jelly.connection)` 等于把连接挂在
+滚动节点的**子级**上 —— **一个事件都收不到**。表现是"按住拖 1000px、量像素发现每行位移都是 +0"，
+**不报错、不崩溃、日志里什么都没有**。正确写法是 `.nestedScroll(...)` 在 `.verticalScroll(...)` **之前**。
+（判据已进红线 + 反向验证第 ⑯ 条。这也是为什么这一轮坚持"量像素"而不是"看截图觉得差不多"：
+前两版我都以为动效生效了。）
+
+**验证凭据**：编译 ✓ · 红线 `_check_profile_page.py` **51 项** ✓（新增：果冻必须挂手势、
+`nestedScroll` 必须在 `verticalScroll` 之前、短状态在右/详细说明在下**双向**、退出登录只弹框、
+确认框复用共用弹层）· 反向验证 `_reverse_verify_profile_page.py` **16/16 被抓** ✓ ·
+真机（5554）**像素级实测**果冻位移与回弹（无视频：用户说不用录）。
+
+
+### [2026-09-21 23:5x → 翌 00:4x] 会话：**「我的」页改版 · 第二版（按用户看图后的四条反馈）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）【已完成】
+
+**用户反馈（原话）**：「上面做的太窄了导致下面很空，**卡片要下来一点**；**退出登录不要放到中间**，
+做成跟其他形式一样——一色加图标然后加文字；**基础设置有个要移出来叫做提示提醒，那个不能放在里面**；
+还有一个就是整个消息列表**往下滑的时候越往下面偏移量越大**，稍微好看点的动效，往下滑他们有点反应，
+显得有趣，**不过（别）会太过呆板**。」随后补充：「他那个退出登录**不是点一下就直接退出**，
+为了防止误碰，会**弹出一个框**，四周圆角并且是长方形的，问是否确认，一个确认退出一个取消。」
+
+**四条改动**
+1. **头部加高**（`ProfileHeader.kt`：头像 56→68dp、下留白 26→60dp）：白卡因此落到接近参考图的位置，
+   下面那一大片空白明显收窄。数值旁边写了「⛔ 不要再压回 56/26」的原因。
+2. **退出登录改成与其它行同形的行**（语义色圆底图标 + 红字 + 左对齐，`showChevron = false` ——
+   它是**动作**不是"进下一页"，箭头会承诺一个不存在的页面），点一下**先弹确认框**
+   （复用 `ui/common/Components.kt::DangerConfirmDialog`，M3 弹窗本身就是四周圆角长方形；
+   ⛔ 没自己拼 AlertDialog）。文案里顺带说明"订单账本在服务器上不会丢"——这是个"看着危险其实不危险"的动作。
+3. **「提示」搬回第一层**（第一层因此变成**六行**）；`BasicSettingsScreen.kt` 只剩两个开关。
+4. **行动效** `ui/profile/RowMotion.kt`（新）：进页面时按序号**依次落位**（起点 6dp + 序号×4dp、
+   45ms 一档），滚动时**稍微落后**于内容（越往下越明显，上限 12dp）——正好是用户说的
+   「越往下面偏移量越大」+「有点反应但别太呆板」。三条工程约束写在文件注释里：
+   状态读只在 `graphicsLayer{}` 里（不触发滚动时重组）、**不用 `Modifier.offset`**（那会带着命中区
+   一起动、点击区域与眼睛对不上）、用标准 `animateFloatAsState`（系统动画倍率为 0 时直接跳终态）。
+
+**⚠️ 本轮踩到一个值得全员知道的坑（PowerShell 把源码写坏）**
+我用 `(Get-Content -Raw) -replace ... | Set-Content` 改了一个变量名，结果**整个文件被写坏**：
+PS 5.1 的 `Get-Content` 对**没有 BOM 的 UTF-8 文件按系统 ANSI(GBK) 解码**，
+中文全变乱码、并且有 **103 个换行被吃掉**（477 行 → 374 行，因为 UTF-8 三字节的尾字节与 `\n`
+被 GBK 当成一对无效双字节吞掉）。**这种损伤不可逆推**（丢的是字符的第三个字节，猜不回来）。
+→ 该文件已按我自己的编辑记录**整份重写**并重新编译通过；结论一个字没丢，但白花了十几分钟。
+⛔ **规矩**：这个仓库的源码一律用编辑工具改，**别用 PowerShell 的 `Get-Content`/`Set-Content` 往返**。
+
+**验证凭据（第二版）**：编译 ✓ · 新红线 `_check_profile_page.py` **43 项** ✓（新增：六行、行动效数量
+与行数一致、行数不能随手加减、「提示」不许在基础设置里、退出登录必须只弹框、确认框必须复用共用弹层）·
+反向验证 `_reverse_verify_profile_page.py` **12/12 被抓** ✓ · 真机（5554）：新版整页、
+**退出确认框**、以及**录了一段动效视频**（`_archive/profile-v2-motion.mp4`，
+临时 `wm size 1080x1500` 让它真的能滚，看完已 `wm size reset`）。
+
+
+### [2026-09-21 23:0x → 23:5x] 会话：**「我的」页改版：照参考图重做布局（深色头部 + 大圆角卡片列表 + 新增「基础设置」子页）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）【已完成】
+
+**用户需求（原话）**：「把我的按到他的这个样式进行修改，布局是抄他的…他有个叫什么基础设置，我们也要有基础设置，
+因为**我们按钮太多了，哪些是不怎么重要的，我们就放到基础设置当中**。然后**语言设置这个我们不需要**…
+**账号信息**这个可以有，但是没必要因为我们那个上面就会显示…**结算账户我们也不需要**…**关于我们的就是我们的那个版本更新**…
+然后还有我们**加一个退出登录**…**消息中心去掉**，因为我们已经在导航栏里有一个消息中心了，**这属于重复设计**。
+…（布局样式）**尤其（参考）他那个背景以及那个卡片的样式**。」
+
+**结果**：9 行 → **4 行 + 退出登录** + 1 个子页。
+- 头部 `ui/profile/ProfileHeader.kt`：深墨蓝渐变 + 同心弧纹（**矢量资源** `res/drawable/bg_profile_header_arcs.xml`，不是代码里 `Canvas` 画的）、
+  白圈头像、角色徽章（**实色填充 + 白字**，与参考图的「单店」同一形态）、姓名、`账号：…` + 描边标签；司机多一行计费规则（后端 `pay_summary`）
+- 列表：一张**大圆角白卡**（顶部 24dp），行 = 语义色圆角图标 + 标题 + 右侧当前值 + `>`；**不再用分隔线**（靠留白分行）
+- 第一层：我的账本〔仅司机·条件一字未改〕/ 消息提醒 / **基础设置**(新) / 关于与更新(点一下＝直接检查更新，两行合一) / 退出登录(红字居中)
+- 第二层 `ui/profile/BasicSettingsScreen.kt`（`Routes.BASIC_SETTINGS`）：随日落 / 夜间模式 / 提示 —— 三个开关**原样搬过去，逻辑一行未改**
+- ⛔ **删掉「消息中心」行**（用户明确：与底部导航重复）；⛔ **不做**语言设置 / 账号信息 / 结算账户
+
+**四个坑（都是本轮真机上抓到的，值得下一位先看）**
+1. **深色头部铺到状态栏下面 → 状态栏图标会全看不见**：主题按明暗设 `isAppearanceLightStatusBars = !darkTheme`，
+   浅色模式下把**深色**图标压在深墨蓝上（不报错！）。修法 = `ui/common/StatusBarIcons.kt::LightStatusBarIcons()`
+   （`DisposableEffect` 进来设白、**离开还原成主题口径**）。⚠️ 一开始我**只写了 import 没调用**，是 `_check_dead_code.py` 抓出来的。
+2. **头部必须固定不滚**：滚走之后状态栏又变浅、白图标照样看不见。所以是"头部固定 + 列表滚"（`weight(1f)`）。
+3. **行里"标题+右侧状态"要用 `Text(weight(1f))` + 非加权挂件**：我第一版写成
+   `Text(weight(1f, fill = false)) + Spacer(weight(1f))` → 两个加权项平分空间 → 右侧贴不到最右，
+   副标题被挤成两行（真机截图看出来的）。⚠️ 副标题因此挪到**标题行之下**，能独占整行宽度。
+4. **注释里写「Hint + 左括号」会让盘点脚本认出一个假调用**：`_hint_inventory.py` 按括号配对切调用点，
+   注释里一个不配平的左括号会把**后面**那一行的文案算到它头上 → 红线报"有一处 Hint 调用里没有解释句"，
+   而代码是对的（本轮就这样白查了一次）。已在 `ProfileScreen.kt` 原地写明。
+
+**验证凭据**：编译 ✓ · 单测 **1004 / 0 失败**（2 skipped）· 新红线 `_tools/qa/_check_profile_page.py` **33 项** ✓ ·
+反向验证 `_tools/qa/_reverse_verify_profile_page.py` **10/10 被抓** ✓ · `_check_all.py` **57/58 绿**
+（唯一红的 `_tools/ai/_audit_role_ai.py` 是**网络**：Clash 代理 `127.0.0.1:7899` 没开、`api.deepseek.com` 超时，与本轮无关）·
+真机（5554 派单员）：浅色/深色两张 + 子页一张 + **拨「提示」开关看副标题出现/消失**（证明开关从新家照样生效）。
+
+⚠️ **司机端（5558）与货主端（5556）本轮没装**：装包工具预检发现 `session-78ebd95c` 正在干活 →
+按用户定的规矩「他在干活就各装各的」，只装了 5554。司机那两处新增（头部计费规则行、我的账本行）**尚未真机复验**，
+等 5558 空出来补一眼（`python _tools/qa/_install_all.py --only 5558`）。
+
+**顺手修的工具缺陷**：`_install_all.py` 原来**自相矛盾** —— 预检在有人干活时打印"照规矩各装各的（--only）"，
+却仍然拒绝 `--only`。现在 `--only` 就是"各装各的"：**别人在干活只提醒不拦**（"有构建在跑"那条仍然拦，物理冲突），
+并把"进行中"门禁降级为提醒（它积压历史条目，当门禁会天天误报）。
+
+**交叉点**（改共享文件前都重读过最新内容，只做追加式/单点改动）：`ui/nav/Routes.kt`（+1 常量）、`ui/nav/NavGraph.kt`（+1 路由）、
+`ui/home/RoleHomeScreen.kt`（profile Tab 的 inset 一处；去掉已无用的 `onOpenMessages` 接线）、`ui/theme/Color.kt`（+2 颜色常量）。
+**别人的红线脚本我只搬锚点、没放宽判据**：`_tools/ai/_check_ai_guardrails.py`（§20/§21 两处 `profile` 改成"两个文件拼起来"）、
+`_tools/ai/_check_notify_guardrails.py`（"消息提醒点得进去"拆成两段：页面接 `onOpenAlerts` + 行组件真的装 `clickable`，
+**不比原来弱**）、`_tools/ai/_reverse_verify_sun_theme.py`（4 条注入改指 `BasicSettingsScreen.kt`）、
+`_tools/ai/_reverse_verify_notify.py`（注入锚点跟着接线走，并**新增 1 条**"行组件把 onClick 收下就丢"）。
+
+
+### [2026-09-21 22:2x] 会话：**给三台模拟器装包 + 登录 —— 抽成一个共享工具**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）【已完成】
+
+**用户需求（原话）**：「3 个模拟器一起重装 apk 并且登录的那个脚本……如果没有的话你写一个，
+然后**声明一下通知其他的工作人员**，也有一个工具大家以后都用这个工具更新 apk。
+但是有个前提：**假如某个人他正在干活的话，则就不需要调用这个脚本了，就各装各就行了**。」
+
+**查过：仓库里原先没有这个脚本**（`_tools/` 里没有任何 `adb install` 的调用）。
+
+**新增**：`_tools/qa/_install_all.py`（**共享工具**，一行命令跑完）：
+```
+python _tools/qa/_install_all.py            # 预检 → 构建一次 → 装三台 → 各自登录 → 汇报
+python _tools/qa/_install_all.py --precheck # 只看能不能用
+python _tools/qa/_install_all.py --only 5556 --no-build
+```
+它替掉四件手工最容易出错的事：**只构建一次**（三台装同一个包）、按端口对角色装
+（5554 派单员 / 5556 货主 / 5558 司机，**不是按端口排的**）、在登录页就自动登录
+（复用 `_emu_ui.py` 的按文字定位 —— 键盘弹出会改 y，坐标不能写死）、
+并核对**"这台登的是不是它该有的角色"**。
+
+**「有人在干活就别用」这个前提怎么落地（预检，`--force` 可强装）**：
+1. **别人正在跑 Gradle 构建** → 拒绝。判据用 `gradle --status` 看 `BUSY`。
+   ⚠️ 第一版是扫进程表里含 `gradle-8.9` 的命令行 —— **天天误报**（Gradle 守护进程常驻，
+   空闲时也在），这个工具就永远用不了。
+2. **别的 DSH 会话最近 6 分钟还在干活** → 拒绝。判据是**会话日志的 mtime**
+   （`~/.dsh/sessions/*/*/session.v2.jsonl.zstd`，正在跑的会话它就是"现在"）。
+   ⚠️ 为什么**不**拿声明页当判据：那里「进行中」积压了历史条目，实测一口气命中 7~10 条
+   （大半是早就做完的轮次），拿它做门禁等于天天拦路 —— 现在只当**参考**打印。
+   已知盲区：**人手工改代码**时这个信号看不出来（那没有会话日志）。
+
+**声明/通知**：`AGENTS.md` 新插入一节（每个会话启动都会读到），本文件「交叉点」也记了一笔。
+
+**实测（2026-09-21 22:2x，预检通过后真跑）**：构建一次 ✓ → **3/3 台就绪**：
+5554 当时停在登录页 → 自动登成派单员并核对通过（看到「派单作业」）；5556 已在登录态、
+角色对（「货主端 · 订单与账本」）；5558 已在登录态、角色对（「已完成」）。
+⚠️ 已知：**强装会把那台上正在被别人调试的包换掉** —— 所以才有上面那两条预检。
 
 
 ### [2026-09-21 12:1x → 12:2x] 会话：把后端发到生产（补上落后 72 个提交）【已完成】
