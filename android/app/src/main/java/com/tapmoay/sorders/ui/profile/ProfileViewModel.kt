@@ -123,8 +123,11 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
                 // 理由：安卓安装时只认 versionCode。若我们报「有新版本」而它的 versionCode
                 // 并不比本机大，用户下完只会看到系统安装失败——那比不提示更伤。
                 val theirCode = info.versionCode ?: 0
+                // ⚠️ 兜底比的是**产品版本名**（`BuildConfig.VERSION_NAME`），不是给界面看的那串
+                //    `currentVersion`（它带了构建号，如「0.2.0 · 2026092101」）——
+                //    拿显示串去比，服务端只写 `version` 时**永远不相等**，于是每次检查都报「有新版本」。
                 val isNewer = if (theirCode > 0) theirCode > BuildConfig.VERSION_CODE
-                else info.version != currentVersion
+                else info.version != BuildConfig.VERSION_NAME
                 if (!isNewer) {
                     updateMessage = "当前已是最新版本（v" + currentVersion + "）"
                     updateState = "latest"

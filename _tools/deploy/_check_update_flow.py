@@ -176,6 +176,12 @@ check(
     "发布包禁明文：network_security_config 是 cleartextTrafficPermitted=false，"
     "SocketManager 在非 DEBUG 下拒绝非 https 长连接 —— 照 http 打包会「装得上但用不了」",
 )
+check(
+    "更新判断的兜底分支比的是产品版本名，不是带构建号的显示串",
+    "info.version != BuildConfig.VERSION_NAME" in vm and "info.version != currentVersion" not in vm,
+    "`currentVersion` 从 2026-09-21 起是「0.2.0 · 2026092101」这种显示串；拿它去比服务端的 "
+    "`version`（只有 0.2.0）**永远不相等** → 每次「检查更新」都报有新版本",
+)
 
 # ── 6. 服务端 .apk 的 Content-Type ──────────────────────────────────────
 mp = text(MAIN_PY)
