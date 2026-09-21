@@ -26,6 +26,7 @@ CFG = ROOT / "backend/app/config.py"
 ROUTER = ROOT / "backend/app/api/v1/router.py"
 CONT = AI / "AiContainer.kt"
 SCREEN = UIAI / "AiSettingsScreen.kt"
+DTOS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词)
 MUTATIONS = [
@@ -100,6 +101,13 @@ MUTATIONS = [
         "正在使用「测试账号默认 Key」（服务端下发，不是你自己填的）。",
         "已保存一个 Key。",
         "界面如实说明这把 key 是哪来的",
+    ),
+    (
+        "DTO 少了 @Serializable（请求**根本发不出去**，而调用点把它当「拿不到」吞掉 → 功能全对就是不生效）",
+        DTOS,
+        "@Serializable\ndata class AiDefaultDto(",
+        "data class AiDefaultDto(",
+        "每个 data class 都有 @Serializable",
     ),
 ]
 

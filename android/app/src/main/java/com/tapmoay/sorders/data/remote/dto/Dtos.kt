@@ -1043,6 +1043,7 @@ data class AppVersionDto(
  * · 只在「用户自己没配过 key」时才用（配过就永远用自己的，见 `AiContainer.ensureDefaultKey`）；
  * · 绝不把它写进任何日志/界面文本（设置页只说"正在使用测试账号默认 Key"）。
  */
+@Serializable
 data class AiDefaultDto(
     @SerialName("api_key") val apiKey: String = "",
     @SerialName("base_url") val baseUrl: String = "",

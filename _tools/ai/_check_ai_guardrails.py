@@ -4140,6 +4140,26 @@ def main() -> int:
     # 与 §2e 同一条纪律：设置页是普通 Text()，写 Markdown 星号会原样显示
     no_md("设置页那句说明没有 Markdown 记号", set_screen)
 
+    # ---- ④ 每个 DTO 都必须 @Serializable（2026-09-21 真机实测踩到的）----
+    # 漏了它：kotlinx.serialization 在**发请求之前**就失败（converter 找不到序列化器），
+    # 于是 HTTP 请求根本没发出去 —— 而调用点在 `catch (_: Exception)` 里当"拿不到"吞掉，
+    # 表现是"功能全对、就是不生效"，日志里一个字都没有（本轮就是这么被真机 E2E 抓到的）。
+    dto_src = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt")
+    dto_lines = dto_src.splitlines()
+    no_ann = [
+        dto_lines[i].strip()[:50]
+        for i in range(1, len(dto_lines))
+        if dto_lines[i].lstrip().startswith("data class ") and dto_lines[i - 1].strip() != "@Serializable"
+    ]
+    # 例外只有"手工解析、不经 kotlinx.serialization"的那几个（键必须还在——防化石）
+    ALLOW_NO_ANN = {"data class SocketEvent(": "Socket 事件是手工解析的，不走 kotlinx.serialization"}
+    unexpected = [x for x in no_ann if x not in ALLOW_NO_ANN]
+    c.ok(f"Dtos.kt 里每个 data class 都有 @Serializable（漏了它 = 请求根本不发出去，且静默）"
+         f"—— {len(dto_lines)} 行里只有 {len(no_ann)} 个例外",
+         not unexpected, f"缺注解：{unexpected[:3]}")
+    for k in ALLOW_NO_ANN:
+        c.ok(f"例外仍在（{k.strip()[:30]}…）", k in no_ann, "那条已经加了注解 → 该把它从例外里删掉")
+
     print("\n" + "=" * 60)
     if c.fails:
         print(f"❌ {len(c.fails)} 项不通过：")
