@@ -41,6 +41,18 @@ fun DispatcherOrdersScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                actions = {
+                    // 时间药丸（2026-09-22）：只在**带日期窗口的档位**（已送达/已撤销）出现。
+                    // 用户原话：「他如果点**已送达**的话，他会有一个…那个**时间**，我们就**复用我们
+                    // 那些代码和形式**在**右上角**，那个有**预选也可以自定义时间**」——所以这里
+                    // 直接调共用的 `DatePresetPill` + `DateFilterDialogs`（账本/司机端同一套）。
+                    // ⚠️ 它必须待在**顶栏**：默认档是「今天」，今天没单时列表本来就是空的 ——
+                    //    把药丸藏进"列表非空"的分支里，用户就换不了档了
+                    //    （司机端 2026-09-20 栽过同一个坑，见 08_CODE_LOCATOR.md 司机任务那一行）。
+                    if (vm.datedTab) {
+                        DatePresetPill(label = vm.periodWord, onClick = { vm.showDatePresets = true })
+                    }
+                },
             )
         },
     ) { padding ->
@@ -62,7 +74,7 @@ fun DispatcherOrdersScreen(
                 FilledTonalButton(onClick = { vm.searchNow() }) { Text("搜索") }
             }
             SegmentedStatusTabs(
-                labels = DISPATCH_TABS.map { it.second },
+                labels = DISPATCH_TABS.map { it.label },
                 colors = ORDER_TAB_COLORS,
                 selected = vm.tab,
                 onSelect = { vm.selectTab(it) },
@@ -71,47 +83,42 @@ fun DispatcherOrdersScreen(
                 when {
                     vm.loading -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
-                    vm.orders.isEmpty() -> EmptyView("没有匹配的订单", Modifier.align(Alignment.Center))
+                    vm.orders.isEmpty() -> EmptyView(
+                        // 空态必须**指到右上角那个药丸**（司机端 2026-09-20 栽过同一个坑：
+                        // 「已完成」筛空后没有出路）：默认档是「今天」，今天没单时这一页
+                        // 本来就该是空的，不指路就会被当成"坏了"。
+                        if (vm.datedTab && vm.periodWord != DatePresets.ALL) {
+                            "「" + vm.periodWord + "」没有" + DISPATCH_TABS[vm.tab].label +
+                                "的订单 —— 点右上角可以换一段时间"
+                        } else {
+                            "没有匹配的订单"
+                        },
+                        Modifier.align(Alignment.Center),
+                    )
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                item {
-                    if (vm.tab == 3 || vm.tab == 4) {
-                        DateRangeFilter(onChange = vm::applyRange)
-                    }
-                    // 列表可能被服务端截断时说清楚（见 DispatcherOrdersViewModel.maybeTruncated）：
-                    // 「全部订单」只显示最近 300 条时，不说就等于让派单员以为"这单不存在"。
-                    if (vm.maybeTruncated) {
-                        Text(
-                            "只显示了最近 ${vm.orders.size} 条 —— 可能还有更早的订单没列出来。" +
-                                "要按时间找，请切到「按日期」筛选。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                }
                         items(vm.orders, key = { it.id }) { order ->
                             OrderCard(
                                 order = order,
                                 onClick = { onOpenOrder(order.id) },
                                 showDriver = true,
                                 showShipper = true,
-                                extra = {
-                                    IconButton(onClick = { vm.openEdit(order) }) {
-                                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
-                                    }
-                                    IconButton(onClick = { vm.openException(order) }) {
-                                        Icon(
-                                            if (order.isException) Icons.Default.Report else Icons.Default.WarningAmber,
-                                            contentDescription = "异常",
-                                            tint = if (order.isException) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
+                                // 卡片动作分区（2026-09-22 定的规范，见 `CardActionIcon`）：
+                                // **左＝反向/警示，右＝编辑**。位置的含义写在 `OrderCard` 的两个槽上。
+                                leading = {
+                                    // 异常：**最左边**（用户：「异常的话，就放置在左边而且是最左边」）。
+                                    // 形状改成"圈底图标"——原来那个 18dp 裸图标在信息很满的卡片上
+                                    // 几乎看不见，手指也不好找（用户原话：「他要一个图标啊，稍微圈一下」）。
+                                    CardActionIcon(
+                                        icon = if (order.isException) Icons.Default.Report else Icons.Default.WarningAmber,
+                                        contentDescription = "异常",
+                                        tint = if (order.isException) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
+                                        onClick = { vm.openException(order) },
+                                    )
+                                    // 撤回派单：**反向操作** → 左边（用户：「相反的操作，就在左边」）。
                                     // ⚠️ 状态门取 `OrderStatusModel.RECALLABLE`（后端 `recall_dispatch`
                                     //    允许 已派单 + 已接单）。原来只写 `== "ACCEPTED"`，
                                     //    于是**派错司机的第一时间撤不回来**：必须等司机先点接单，
@@ -123,17 +130,56 @@ fun DispatcherOrdersScreen(
                                     }
                                     // 退货（2026-09-20）：只有「已送达」且**还有可退的量**才给这个按钮 ——
                                     // 点了必然被拒的按钮比没有按钮更糟（用户会以为系统坏了）。
+                                    // 它也是**反向操作**（把卖出去的货收回来、账上红冲）→ 和撤回一起放左边。
                                     if (order.status in OrderStatusModel.RETURNABLE && vm.hasReturnable(order)) {
                                         TextButton(onClick = { vm.openReturn(order) }) { Text("退货") }
                                     }
                                 },
+                                extra = {
+                                    // 编辑：**一律在右边**（用户：「编辑一定在右边，因为我们的惯用手是
+                                    // 右手，我们好编辑」），且必须是"圈底的图标"而不是裸图标。
+                                    CardActionIcon(
+                                        icon = Icons.Default.Edit,
+                                        contentDescription = "编辑",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        onClick = { vm.openEdit(order) },
+                                    )
+                                },
                             )
+                        }
+                        // 列表被服务端截断时说清楚（见 DispatcherOrdersViewModel.maybeTruncated）：
+                        // 「全部订单」只显示最近 300 条时，不说就等于让派单员以为"这单不存在"。
+                        // ⚠️ 挂在**最后一行**（用户 2026-09-22：「这个提示删掉啊，**他占位置了**」）：
+                        //    它原来占着列表最上面、把第一张单推下去；挪到底部既不挡单，也没有把
+                        //    "这一页不是全部"静默掉 —— **只挪位置，不删信息**。
+                        //    措辞走共用那一份（`TruncationNote` / `truncationHint`），别在这页再写一遍。
+                        if (vm.maybeTruncated) {
+                            item(key = "truncated-note") {
+                                TruncationNote(
+                                    limit = ORDER_LIST_LIMIT,
+                                    howToSeeMore = "要按时间找，用右上角的日期筛选（切到「已送达」或「已撤销」才会出现）",
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+
+    // 时间药丸的两个弹层（档位清单 + 自定义区间）。状态机**只有一份**，别在这一页再写一遍
+    // `if (showPresets) … if (showCustom) …` —— 那条"选中自定义要先关清单、再开日期弹层"的规矩
+    // 抄错一次，表现就是"点了自定义什么都没发生"（`DateFilterDialogs` 的注释里写着）。
+    DateFilterDialogs(
+        showPresets = vm.showDatePresets,
+        onDismissPresets = { vm.showDatePresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = vm::applyPreset,
+        onApplyCustom = vm::applyCustomRange,
+    )
 
     // 编辑弹窗
     if (vm.showEditDialog) {
@@ -246,7 +292,7 @@ fun DispatcherOrdersScreen(
                 title = { Text("退货 " + order.orderNo) },
                 text = {
                     Column {
-                        Text(
+                        Hint(
                             "退回来的货会补回库存、账上按行红冲；这单如果已经收过钱，" +
                                 "退掉的那部分会自动记一笔退给客户的现金。",
                             style = MaterialTheme.typography.bodySmall,

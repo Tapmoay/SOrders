@@ -1,0 +1,34 @@
+package com.tapmoay.sorders.ui.common
+
+/**
+ * 订单列表顶栏那一排状态档位中的一档（派单员「订单管理」与货主「我的订单」**共用这一个模型**）。
+ *
+ * @param key 后端 `GET /orders?status=` 的取值；`null` = 「全部」（不带状态条件）
+ * @param label 顶栏上显示的中文
+ * @param dated 这一档带不带**日期窗口**（顶栏右上角那个时间药丸）
+ *
+ * ## [dated] 为什么必须跟着档位走、而不是在页面里写下标（2026-09-22）
+ *
+ * 原来两个页面都是拿**下标**判的：`if (selectedTab == 3 || selectedTab == 4)`。
+ * 这种写法在档位顺序被改动时**不会报错**，只会静默错位 —— 本轮把货主那列的「已接单」
+ * 从第 3 格挪到第 2 格（用户要求"往前一格排第 2 位置"），恰好没碰到 3/4；
+ * 下一次谁再挪一格，时间窗口就会挂到一个毫不相干的档位上：比如「全部」被按"今天"过滤，
+ * 用户看到的是"单丢了"，而代码里一个字都没变红。
+ *
+ * 所以窗口的有无跟着**档位自己**走，跟下标无关。
+ * 判据：`_tools/qa/_check_order_list_ui.py`（不许再出现 `== 3 || == 4` 这种下标判据）。
+ */
+data class OrderTab(val key: String?, val label: String, val dated: Boolean = false)
+
+/**
+ * 服务端 `GET /orders` 的缺省条数上限，与后端 `DEFAULT_LIST_LIMIT` 对齐（300）。
+ *
+ * 原来派单员与货主两个 ViewModel **各写了一份**（连同"与后端对齐"那句注释）：
+ * 数值要改时必然只改一处，而两边的表现会是"同一个后端、两个页面的截断点不一样"。
+ * 现在只有这一份，两个页面都用它判"这一页可能不是全部"。
+ *
+ * ⚠️ 判据是**推出来的**（`orders.size >= ORDER_LIST_LIMIT`），不是响应头 —— 订单列表走的是
+ *    `GET /orders` 的 `limit` 路径，页面上要不要换成读 `X-Truncated`（`pageMeta()`）是另一件事，
+ *    换的时候**三处一起换**（两个 VM + 这一行的注释）。
+ */
+const val ORDER_LIST_LIMIT = 300

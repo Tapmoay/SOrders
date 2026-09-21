@@ -12,25 +12,39 @@ import com.tapmoay.sorders.data.remote.dto.OrderProductDto
 import com.tapmoay.sorders.data.remote.dto.OrderReturnItem
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.DatePresets
+import com.tapmoay.sorders.ui.common.ORDER_LIST_LIMIT
+import com.tapmoay.sorders.ui.common.OrderTab
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
-data class OrderTab(val key: String?, val label: String)
-
+/**
+ * 货主 / 批发商「我的订单」顶栏那一排档位。
+ *
+ * ⚠️ 缺省档 = **「已接单」**（用户 2026-09-22：「**货主就是已接单的**，货主他是**默认已接单**的，
+ *    并且将那个**已接单往前一格排第 2 位置**」）。
+ * ⚠️ 下表**就是**那个"往前一格"的结果：默认档紧挨着「全部」，一进来视线就落在它上面。
+ *    下标一律按**状态名**现算（`DEFAULT_TAB`），别写 `1` —— 再挪一格就又错位了。
+ * ⚠️ `dated = true` 的两档才有右上角那个时间药丸（用户：「货主的那个**时间也移到那上面去**」）。
+ */
 val SHIPPER_TABS = listOf(
     OrderTab(null, "全部"),
-    OrderTab("PENDING_DISPATCH", "派单中"),
     OrderTab("ACCEPTED", "已接单"),
-    OrderTab("DELIVERED", "已送达"),
-    OrderTab("CANCELLED", "已撤销"),
+    OrderTab("PENDING_DISPATCH", "派单中"),
+    OrderTab("DELIVERED", "已送达", dated = true),
+    OrderTab("CANCELLED", "已撤销", dated = true),
     // 已退货（2026-09-20）：货主必须看得到这一档 —— 否则"送过的单被退掉了"只会从他的
     // 「已送达」里消失（筛选按状态走），而界面上一个字都不提这件事。
     OrderTab("RETURNED", "已退货"),
 )
 
+/** 进页面时选中哪一档：**「已接单」**（按状态名算下标，见上面那条注释）。 */
+private val DEFAULT_TAB = SHIPPER_TABS.indexOfFirst { it.key == "ACCEPTED" }
+
 class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() {
 
-    var selectedTab by mutableStateOf(0)
+    var selectedTab by mutableStateOf(DEFAULT_TAB)
     var orders by mutableStateOf<List<OrderDto>>(emptyList())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -38,8 +52,18 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
     var cancelTarget by mutableStateOf<OrderDto?>(null)
-    var dateFrom by mutableStateOf<String?>(null)
-    var dateTo by mutableStateOf<String?>(null)
+
+    // ---- 右上角的时间药丸（2026-09-22，与派单员那一份同形）----
+    // 只服务带日期窗口的那两档（`OrderTab.dated`），**默认档 = 今天**（用户：「时间默认的是今天」）。
+    // ⚠️ 必须声明在 `init` **之前**（Kotlin 按书写顺序初始化，写在 init 之后 init 里赋值会抛 NPE）。
+    //    判据：`_tools/qa/_check_vm_state_before_init.py`。
+    var preset by mutableStateOf(DatePresets.TODAY)
+        private set
+    var customFrom by mutableStateOf<String?>(null)
+        private set
+    var customTo by mutableStateOf<String?>(null)
+        private set
+    var showDatePresets by mutableStateOf(false)
 
     // ---- 退货申请（2026-09-21）：货主**只能申请**，派单员办理完库存与账本才变 ----
     /** 这一单**待处理**的退货申请（`orderId` → 申请）。有它就说明这张单不能再申请一次。 */
@@ -95,9 +119,40 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
         }
     }
 
-    fun applyRange(from: String?, to: String?) {
-        dateFrom = from
-        dateTo = to
+    /** 这一档要不要日期窗口 —— 按**档位自己**的标记判（不写下标，见 `OrderTab`）。 */
+    val datedTab: Boolean get() = SHIPPER_TABS[selectedTab].dated
+
+    /**
+     * 药丸上写的那几个字 —— **跟着实际窗口走**（设计规范 §4.9）：选着「今天」却在药丸上写「本月」，
+     * 就是"以为看的是今天的单、其实看的是本月"的第一步。
+     */
+    val periodWord: String
+        get() = if (preset == DatePresets.CUSTOM) DatePresets.customLabel(customFrom, customTo) else preset
+
+    /**
+     * 这一档这次实际要带的日期区间（两端 null = 不带日期条件）。
+     *
+     * ⚠️ **每次查询现算**（不在 init 里算一次存下来）：跨过零点之后「今天」还得是真的今天。
+     * ⚠️ 档位 → 区间的换算只有 `ui/common/DatePresets` 一份实现，这里**不重写** `when(档位)`。
+     */
+    private fun windowRange(): Pair<String?, String?> {
+        if (!datedTab) return null to null
+        if (preset == DatePresets.CUSTOM) return customFrom to customTo
+        val r = DatePresets.rangeOf(preset, LocalDate.now()) ?: return null to null
+        return r.first to r.second
+    }
+
+    /** 用户自己挑的档位（右上角药丸 → 档位清单）。 */
+    fun applyPreset(label: String) {
+        preset = label
+        load()
+    }
+
+    /** 自定义区间（日期弹层回来的）。两头都没选 = 退回「全部」（不带日期条件）。 */
+    fun applyCustomRange(from: String?, to: String?) {
+        customFrom = from
+        customTo = to
+        preset = if (from == null && to == null) DatePresets.ALL else DatePresets.CUSTOM
         load()
     }
 
@@ -116,8 +171,15 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
         loadJob = viewModelScope.launch {
             loading = orders.isEmpty()
             error = null
+            // 日期窗口只在带窗口的档位上生效（见 OrderTab.dated）：不带窗口的档位
+            // 连参数都不传，免得"看着是全部、其实是今天"。
+            val (from, to) = windowRange()
             try {
-                val list = container.repo.orders(status = SHIPPER_TABS[selectedTab].key, dateFrom = if (selectedTab == 3 || selectedTab == 4) dateFrom else null, dateTo = if (selectedTab == 3 || selectedTab == 4) dateTo else null)
+                val list = container.repo.orders(
+                    status = SHIPPER_TABS[selectedTab].key,
+                    dateFrom = from,
+                    dateTo = to,
+                )
                 orders = list
             } catch (e: Exception) {
                 error = toApiException(e).message
@@ -300,6 +362,3 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
         load()
     }
 }
-
-/** 服务端 `GET /orders` 的缺省条数上限（与后端 `DEFAULT_LIST_LIMIT` 对齐）。 */
-private const val ORDER_LIST_LIMIT = 300

@@ -41,11 +41,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import com.tapmoay.sorders.core.HintPrefs
 import com.tapmoay.sorders.data.remote.dto.OrderProductDto
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.Dp
@@ -433,6 +433,53 @@ fun SoTextField(
             }
         },
     )
+}
+
+/**
+ * **卡片上的「圈底图标」动作**（按钮形态，2026-09-22 定的规范：左＝反向/警示、右＝编辑）。
+ *
+ * ### 用户原话（他对着订单卡片说的）
+ * > 「假如像我们**派单员编辑**的话，一定是在**右边**的，而且他就是一个…**笔**啊，**这个不行**啊，
+ * >   他**要一个图标**啊，**稍微圈一下**；然后呢**异常**的话，就放置在**左边**而且**是最左边**。
+ * >   这样做的好区分，包括以后的那个只要涉及到**编辑**和其他的比如说**删除**等等，**编辑一定在右边**
+ * >   （因为我们的**惯用手是右手**，我们好编辑），但是比如说**相反的操作，就在左边**」
+ *
+ * 所以这一条是**规范**，不是这一页的临时样式：以后任何卡片上出现"编辑"就放右边、出现
+ * "撤销/删除/撤回/退货"就放左边。位置的含义在 `OrderCard` 的 `leading` / `extra` 两个槽上。
+ *
+ * ### 为什么长这样（而不是 `IconButton` 里塞一个 18dp 图标）
+ * 「这个不行」指的就是原来那个**裸图标**：它太轻，在一张信息很满的卡片上几乎看不见，
+ * 手指也不好找。现在给它一个圆底 —— 形状与卡片里那些**说明性**图标（`TintedIcon`）
+ * 是同一套语言（12% 语义色圆底 + 同色图标），一半描边一半实心看起来会像两个人拼的。
+ *
+ * 与 `TintedIcon` 的区别只有一点：**它可点**。所以 `enabled = false` 时把**圆底与图标一起**
+ * 压淡（只把图标变灰的话，那个圆底看起来仍然"可以点" —— 点了没反应是最贵的一类）。
+ */
+@Composable
+fun CardActionIcon(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    size: Dp = 18.dp,
+    container: Dp = 36.dp,
+) {
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClickLabel = contentDescription, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        TintedIcon(
+            icon = icon,
+            tint = if (enabled) tint else tint.copy(alpha = 0.45f),
+            size = size,
+            container = container,
+            contentDescription = contentDescription,
+        )
+    }
 }
 
 /**
@@ -926,37 +973,16 @@ fun FormErrorLine(text: String?, modifier: Modifier = Modifier) {
 }
 
 /**
- * 解释性提示：**最多出现 3 次**，第 4 次起再也不出现（用户 2026-09-20 定的规矩）。
+ * ⚠️ 原来的 `HintOnce` **搬走了**（2026-09-21，「提示/说明」统一化那一轮）。
  *
- * 用户原话：
- * > 有些功能不需要说太多，只需要简单的一句话，大概字数最多是 7 到 8 个字就可以了…
- * > 或者你可以这样子：第一次和第二次的时候它是出现在那里，下次再点击的时候它就不会有了…
- * > 第四次就不会有了。
+ * 它原来是"每条解释性提示最多出现 3 次"的渲染处；用户取消了那套机制，改成
+ * **一个总开关**（「我的 → 提示」）。新的唯一入口是 `ui/common/Hints.kt::Hint`，
+ * 机制与口径全在那个文件里；兼容壳 `HintOnce` 也搬到了那里（同一个 `ui.common` 包，
+ * 所以调用点一行都不用改）。
  *
- * 于是界面上的文字分两类，各归各的：
- * - **常驻的数/标签/按钮** → 几个字（"地点名"「补导航」），给已经会的人看；
- * - **解释"按下去会发生什么"的话** → 走这里，说三遍就够，之后让位给功能本身。
- *
- * ⚠️ [key] 是**永久身份**（`"order.nav_block"`），不是屏幕上那句话：
- *    改文案不该让用户重新看三遍，换一句话也不该共用别人的额度。
- * ⚠️ 计数在**进入这一次**就 +1（不是"停留时长"）：用户在三个页面之间来回切，
- *    那就是三次"看到"——这也正是他要的"下次再点击就没有了"。
+ * 留这段注释是因为"这个文件里原来有个 HintOnce"是很多注释引用过的事实，
+ * 直接删干净会让那些引用（`HintPrefs` / `AI_WORK_CLAIM.md`）变成悬空的。
  */
-@Composable
-fun HintOnce(prefs: HintPrefs, key: String, text: String, modifier: Modifier = Modifier) {
-    // 同步读（SharedPreferences）：合成时就要决定画不画（见 `HintPrefs` 的注释）
-    val show = remember(key) { prefs.hasLeft(key) }
-    LaunchedEffect(key) {
-        if (show) prefs.markSeen(key)
-    }
-    if (!show) return
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier,
-    )
-}
 
 /**
  * 两栏版式左边那一列（"篮子"）的一行。

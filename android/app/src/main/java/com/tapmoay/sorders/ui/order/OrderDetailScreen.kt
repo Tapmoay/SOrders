@@ -3,8 +3,10 @@ package com.tapmoay.sorders.ui.order
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -44,6 +46,7 @@ import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.util.*
 import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.graphics.Bitmap
 import java.io.File
@@ -431,6 +434,7 @@ fun OrderDetailScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DetailBody(
     order: OrderDto,
@@ -468,16 +472,56 @@ private fun DetailBody(
     ) {
         item {
             SectionCard {
+                // 单号那一行（2026-09-22）。
+                //
+                // ① **单号独占一行，不跟状态徽章挤**：单号是 `SO` + 8 位日期 + 10 位随机数
+                //    = **20 个字符**（`backend/app/services/auth_service.py::new_order_no`），
+                //    `titleLarge`（22sp）下大约 240dp 宽；同一行再放一个状态徽章就放不下了 ——
+                //    单号会被折到第二行，看起来就是"错位"。用户原话：
+                //    「那个订单**详情**…那个**订单号**啊出现了**错位**。哎**不要缩小**一点，
+                //      这样子就**好看一点**」 → 所以**不动字号**，改的是布局：
+                //    单号整行，状态徽章挪到下面那一行（跟「创建于 …」并列）。
+                // ② **长按复制**：单号是司机/货主**口头对单**用的标识（后端注释里写着），
+                //    不能选中复制就只能手抄 20 个字符。走共用那一份 `copyTextToClipboard`
+                //    （它顺带回答"还要不要自己弹提示"：Android 13+ 系统自己会弹，别叠两条）。
+                val ctx = LocalContext.current
+                var copied by remember { mutableStateOf(false) }
+                LaunchedEffect(copied) {
+                    if (copied) {
+                        delay(2000)
+                        copied = false
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("#" + order.orderNo, style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(4.dp))
+                    Text(
+                        "#" + order.orderNo,
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier
+                            .weight(1f)
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClickLabel = "复制单号",
+                                onLongClick = {
+                                    if (copyTextToClipboard(ctx, "单号", order.orderNo)) copied = true
+                                },
+                            ),
+                    )
+                    if (copied) {
                         Text(
-                            "创建于 " + formatDateTime(order.createdAt),
+                            "已复制",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "创建于 " + formatDateTime(order.createdAt),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
                     OrderStatusChip(order.status)
                 }
                 if (order.isException) {

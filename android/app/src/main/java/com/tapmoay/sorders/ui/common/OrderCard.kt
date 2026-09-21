@@ -69,7 +69,13 @@ internal fun ordererIsShipper(bossName: String?, shipperName: String?): Boolean 
 
 /** tinted 圆底图标（iOS 风格：12% 语义色圆底 + 同色图标，精致不裸奔） */
 @Composable
-fun TintedIcon(icon: ImageVector, tint: Color, size: Dp = 16.dp, container: Dp = 28.dp) {
+fun TintedIcon(
+    icon: ImageVector,
+    tint: Color,
+    size: Dp = 16.dp,
+    container: Dp = 28.dp,
+    contentDescription: String? = null,
+) {
     Box(
         modifier = Modifier
             .size(container)
@@ -77,7 +83,7 @@ fun TintedIcon(icon: ImageVector, tint: Color, size: Dp = 16.dp, container: Dp =
             .background(tint.copy(alpha = 0.12f)),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size))
     }
 }
 
@@ -94,6 +100,19 @@ fun OrderCard(
     showShipper: Boolean = false,
     driverMode: Boolean = false,
     highlight: Boolean = false,
+    /**
+     * 卡片底部动作行的**左半边**：反向 / 警示类动作（撤回派单、撤销订单、退货、异常标记…）。
+     *
+     * 用户 2026-09-22 定的规范（原话）：「假如像我们派单员**编辑**的话，一定是在**右边**的…
+     * 包括以后的那个只要涉及到**编辑**和其他的比如说**删除**等等，**编辑一定在右边**
+     * （因为我们的**惯用手是右手**，我们好编辑），但是比如说**相反的操作，就在左边**」；
+     * 「**异常**的话，就放置在**左边**而且**是最左边**」。
+     * → 结论：**左＝反向/警示，右＝[extra]＝编辑类**。别把这两个位置的含义改了。
+     *
+     * 默认空 = 与以前**一模一样**（原来只有 [extra] 一个槽，行为不变），所以其它调用点
+     * （司机端任务列表等）一行都不用改。
+     */
+    leading: @Composable RowScope.() -> Unit = {},
     extra: @Composable RowScope.() -> Unit = {},
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
@@ -276,10 +295,14 @@ fun OrderCard(
                     )
                 }
             }
+            // 底部动作行：**左＝反向/警示，右＝编辑**（位置的含义见上面 leading / extra 的说明）。
+            // 两栏都留着：只给 extra 时与以前完全一样（leading 默认空）。
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                leading()
+                Spacer(Modifier.weight(1f))
                 extra()
             }
         }

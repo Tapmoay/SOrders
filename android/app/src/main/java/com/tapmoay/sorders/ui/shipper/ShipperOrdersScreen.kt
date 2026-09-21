@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.MgrGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,22 +44,35 @@ fun ShipperOrdersScreen(
                     }
                 },
                 actions = {
-                    Button(
-                        onClick = onCreateOrder,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = com.tapmoay.sorders.ui.theme.MgrGreen.let { androidx.compose.ui.graphics.Color(it) },
-                            contentColor = androidx.compose.ui.graphics.Color.White,
-                        ),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(36.dp),
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("新增订单", style = MaterialTheme.typography.labelLarge)
+                    // 时间药丸（2026-09-22）：只在带日期窗口的档位（已送达/已撤销）出现。
+                    // 用户原话：「**货主的那个时间也移到那上面去**」——与派单员那一页同一套
+                    // （`DatePresetPill` + `DateFilterDialogs`，账本/司机端也在用）。
+                    // ⚠️ 顶栏常驻：默认档是「今天」，今天没单时列表本来就是空的 ——
+                    //    藏进"列表非空"的分支里用户就换不了档了（司机端 2026-09-20 栽过同一个坑）。
+                    if (vm.datedTab) {
+                        DatePresetPill(label = vm.periodWord, onClick = { vm.showDatePresets = true })
                     }
-                    Spacer(Modifier.width(8.dp))
                 },
             )
+        },
+        bottomBar = {
+            // 「新增订单」原在顶栏右上角，用户 2026-09-22 要求「新建订单就先**放在下面**吧，
+            // 放在**底下**」。用**整条底栏**而不是一个悬浮圆钮：这一页只有这一个主动作、整条更好按，
+            // 而且不会盖住列表最后一张卡（悬浮钮会压在卡片上）。
+            Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
+                Button(
+                    onClick = onCreateOrder,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(MgrGreen), contentColor = Color.White),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .height(48.dp),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("新增订单", style = MaterialTheme.typography.titleSmall)
+                }
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -72,33 +86,31 @@ fun ShipperOrdersScreen(
                 when {
                     vm.loading -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
-                    vm.orders.isEmpty() -> EmptyView("暂无订单", Modifier.align(Alignment.Center))
+                    vm.orders.isEmpty() -> EmptyView(
+                        // 空态必须**指到右上角那个药丸**（司机端 2026-09-20 栽过同一个坑）：
+                        // 默认档是「今天」，今天没单时这一页本来就该是空的，不指路会被当成"坏了"。
+                        if (vm.datedTab && vm.periodWord != DatePresets.ALL) {
+                            "「" + vm.periodWord + "」没有" + SHIPPER_TABS[vm.selectedTab].label +
+                                "的订单 —— 点右上角可以换一段时间"
+                        } else {
+                            "暂无订单"
+                        },
+                        Modifier.align(Alignment.Center),
+                    )
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                item {
-                    if (vm.selectedTab == 3 || vm.selectedTab == 4) {
-                        DateRangeFilter(onChange = vm::applyRange)
-                    }
-                    // 列表可能被服务端截断时说清楚（见 ShipperOrdersViewModel.maybeTruncated）
-                    if (vm.maybeTruncated) {
-                        Text(
-                            "只显示了最近 ${vm.orders.size} 条 —— 可能还有更早的订单没列出来。" +
-                                "要按时间找，请用上面的日期筛选。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                }
                         items(vm.orders, key = { it.id }) { order ->
                             OrderCard(
                                 order = order,
                                 onClick = { onOpenOrder(order.id) },
-                                extra = {
+                                // 卡片动作分区（2026-09-22 定的规范，见 `CardActionIcon`）：
+                                // 这一页的动作**全是反向/破坏类**（撤销订单、申请退货、撤回申请），
+                                // 所以**一个都不放右边** —— 右边那个位置留给"编辑"
+                                // （用户原话：「编辑一定在右边…相反的操作，就在左边」）。
+                                leading = {
                                     // 待派单/已派单（司机未接）可卡片直撤，不进详情。
                                     // 状态门取 `OrderStatusModel.CANCELLABLE`（后端 `cancel_pending` 同一对取值）。
                                     if (order.status in OrderStatusModel.CANCELLABLE) {
@@ -186,11 +198,37 @@ fun ShipperOrdersScreen(
                                 },
                             )
                         }
+                        // 列表被服务端截断时说清楚（见 ShipperOrdersViewModel.maybeTruncated）。
+                        // ⚠️ 挂在**最后一行**（用户 2026-09-22：「这个提示删掉啊，**他占位置了**」）：
+                        //    原来它占着列表最上面、把第一张单推下去；挪到底部既不挡单，也没有把
+                        //    "这一页不是全部"静默掉 —— **只挪位置，不删信息**。
+                        //    措辞走共用那一份（`TruncationNote`），别在这一页再写一遍。
+                        if (vm.maybeTruncated) {
+                            item(key = "truncated-note") {
+                                TruncationNote(
+                                    limit = ORDER_LIST_LIMIT,
+                                    howToSeeMore = "要按时间找，用右上角的日期筛选（切到「已送达」或「已撤销」才会出现）",
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+
+    // 时间药丸的两个弹层（档位清单 + 自定义区间）—— 状态机只有一份（`DateFilterDialogs`），
+    // 别在这一页再写一遍 `if (showPresets) … if (showCustom) …`。
+    DateFilterDialogs(
+        showPresets = vm.showDatePresets,
+        onDismissPresets = { vm.showDatePresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = vm::applyPreset,
+        onApplyCustom = vm::applyCustomRange,
+    )
 
     // 二次确认（防误触）
     vm.cancelTarget?.let { target ->
@@ -273,7 +311,7 @@ fun ShipperOrdersScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text(
+                    Hint(
                         "撤回不是删除：申请记录留着，派单员看得到你提过又撤了。" +
                             "撤回后可以重新申请（想改数量只能这么改）。",
                         style = MaterialTheme.typography.bodyMedium,
