@@ -108,9 +108,39 @@ object ApiClient {
         is HttpException -> {
             val body = e.response()?.errorBody()?.string()
             val detail = parseDetail(body)
-            ApiException(detail ?: ("请求失败(" + e.code() + ")"), code = e.code(), cause = e)
+            ApiException(httpMessage(e.code(), detail), code = e.code(), cause = e)
         }
         else -> ApiException(e.message ?: "未知错误", code = -1, cause = e)
+    }
+
+    /**
+     * HTTP 错误码 + 后端给的 `detail` → 一句**能照着判断**的中文。
+     *
+     * ### 为什么必须有它（2026-09-21 两次踩同一个坑）
+     * 原来这里直接把 `detail` 甩出去。于是：
+     * · 后端**路由不存在**时 FastAPI 回的是 `{"detail":"Not Found"}` → 屏幕上就是一行**英文**。
+     *   真事：手机上派单员「退货申请」显示红字 `Not Found`，用户读成"连接失败/没找到"，
+     *   而真相是"服务端还没发版"——排查方向被带偏了整整一轮。
+     * · 后端 **500** 时 `detail` 常常是空的 → 界面上没有可用信息，用户只能反复重试。
+     *   （`IOException` 那条才是真正的"网络连接失败"，两者必须分得开。）
+     *
+     * ### 规矩：后端自己写的中文一律原样透出
+     * 那些是**业务拒绝**（"这张退货申请已经办完了，不能办理"、"逐单核销需绑定订单"），
+     * 是用户唯一能照着改的话，翻译一遍只会变差。
+     */
+    internal fun httpMessage(code: Int, detail: String?): String {
+        val zh = detail?.takeIf { d -> d.any { it in '\u4e00'..'\u9fa5' } }
+        if (zh != null) return zh
+        return when {
+            code == 404 ->
+                "服务器上还没有这个功能（接口不存在，404）。" +
+                    "如果 App 是刚更新的，多半是服务端还没更新到这个版本。"
+            code >= 500 ->
+                "服务器出错了（$code），不是网络问题。请稍后重试；一直这样就把它告诉管理员。"
+            code == 401 || code == 403 -> "登录已失效或没有这个权限（$code），请重新登录后再试。"
+            !detail.isNullOrBlank() -> "请求失败（$code）：$detail"
+            else -> "请求失败（$code）"
+        }
     }
 
     /**
