@@ -88,6 +88,11 @@ MSG = ROOT / "backend/app/services/message_center.py"
 AI_RR = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteReturnRequest.kt"
 AI_WRITE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt"
 REPORT = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt"
+#: 两端「退货申请」的列表内核：消费点之一 + 唯一实现（2026-09-21 收口）
+DISPATCH_RR_VM = (
+    ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherReturnRequestsViewModel.kt"
+)
+RETURNS_VM_CORE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/ReturnRequestsViewModel.kt"
 
 # 每一条都要**真的替换到**（原文出现次数 != 1 就报 SKIP，绝不当成通过）。
 # 元组 = (说明, 文件, 原文, 替换成, 期望被点出来的判据关键字)
@@ -246,6 +251,23 @@ MUTATIONS: list[tuple[str, Path, str, str, str]] = [
         "                !it.memberOnly\n"
         "            }\n",
         "都按 roles 过滤",
+    ),
+    # ⑬ 客户端：两端共用一个列表内核（2026-09-21 收口）。
+    #    两条注入各打一条判据：① 子类自己又排一次定位；② 内核不再切到「全部」档。
+    (
+        "⑬ 派单员端又自己排一次定位（两端各一份实现，迟早分叉）",
+        DISPATCH_RR_VM,
+        "    /** 派单员看待办（`status=` 就是当前档位的 key）。 */",
+        "    private fun dupFocus(id: Long) = focusReturnRequestFirst(items, id)\n\n"
+        "    /** 派单员看待办（`status=` 就是当前档位的 key）。 */",
+        "定位规则只有内核在调",
+    ),
+    (
+        "⑬ 带定位进来不再切到「全部」档（已办完的那条必然找不到，界面却说\"没找到那条申请\"）",
+        RETURNS_VM_CORE,
+        "        if (initialFocusRequestId > 0L) tab = tabAllIndex",
+        "        if (false) tab = tabAllIndex",
+        "带定位进来先用「全部」档拉",
     ),
 ]
 

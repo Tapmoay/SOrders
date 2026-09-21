@@ -747,6 +747,48 @@ def main() -> int:
             "看 `AiWrites.SHIPPER_ACTIONS`",
         )
 
+    # ---------------------------------------------------------------- 8b. 客户端列表内核
+    print("\n== 8b. 客户端：两端（派单员待办 / 货主我的申请）共用一个列表内核 ==")
+    # 两个页面原来各写了约 90 行**逐字相同**的东西（档位 / 加载 / 定位 / 实时刷新）。
+    # 它们不是样式而是**规则**，抄两份的后果很具体：四条里有一条没跟上，就只有一个角色会犯，
+    # 另一个不会 —— 而"点消息进来定位不到那一条"这种毛病，用户只会觉得"这个 App 时灵时不灵"。
+    core_vm = read(ANDROID / "ui/common/ReturnRequestsViewModel.kt")
+    c.present("列表内核只有一处（抽象基类）", core_vm, r"abstract class ReturnRequestsViewModel\(")
+    c.present(
+        "带定位进来先用「全部」档拉（构造时）—— 否则已办完的那条在「待处理」里必然找不到",
+        core_vm,
+        r"if \(initialFocusRequestId > 0L\) tab = tabAllIndex",
+    )
+    c.present(
+        "VM 被复用时再次定位也切到「全部」档（applyFocus）",
+        core_vm,
+        r"if \(requestId > 0L\) tab = tabAllIndex",
+    )
+    # 定位规则（排到最前 + found 判据）只许内核调 —— 两个子类各调一次就是两份实现。
+    # ⚠️ 用后行断言排除**函数定义**那一行（`fun focusReturnRequestFirst(`）：
+    #    第一版把定义文件也算成"调用者"，当场误报（同一个坑在 `_check_single_source.py` 栽过一次）。
+    focus_callers = sorted(
+        p.relative_to(ANDROID).as_posix()
+        for p in (ANDROID / "ui").rglob("*.kt")
+        if re.search(r"(?<!fun )focusReturnRequestFirst\(", read(p))
+    )
+    c.ok(
+        "定位规则只有内核在调（两个子类不许自己再排一次）",
+        focus_callers == ["ui/common/ReturnRequestsViewModel.kt"],
+        f"实际调用它的文件：{focus_callers}",
+    )
+    # 消费点**从源码算**：两个角色的 VM 必须真的继承它（只钉"基类存在"会被绕开）
+    subclasses = sorted(
+        p.relative_to(ANDROID).as_posix()
+        for p in (ANDROID / "ui").rglob("*.kt")
+        if ": ReturnRequestsViewModel(" in read(p)
+    )
+    c.ok(
+        f"两个角色的 VM 都继承同一个内核（从源码算到 {len(subclasses)} 个）",
+        len(subclasses) >= 2,
+        f"子类：{subclasses}",
+    )
+
     # ---------------------------------------------------------------- 9. 反空转
     print("\n== 9. 反空转（清单被改坏时必须先喊，不许安静地全绿）==")
     c.ok(

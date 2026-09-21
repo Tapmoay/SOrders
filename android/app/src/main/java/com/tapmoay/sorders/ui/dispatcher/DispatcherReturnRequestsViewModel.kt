@@ -3,22 +3,19 @@ package com.tapmoay.sorders.ui.dispatcher
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.repo.toApiException
-import com.tapmoay.sorders.ui.common.RETURN_REQUEST_FOCUS_MISS
-import com.tapmoay.sorders.ui.common.focusReturnRequestFirst
-import kotlinx.coroutines.Job
+import com.tapmoay.sorders.ui.common.ReturnRequestsPage
+import com.tapmoay.sorders.ui.common.ReturnRequestsViewModel
+import com.tapmoay.sorders.ui.common.ReturnTab
 import kotlinx.coroutines.launch
 
 /** 派单端退货申请的两档：全部 / 待处理（`status=` 直接透给后端）。 */
-data class ReturnTodoTab(val key: String, val label: String)
-
 val DISPATCH_RETURN_TABS = listOf(
-    ReturnTodoTab("all", "全部"),
-    ReturnTodoTab("pending", "待处理"),
+    ReturnTab("all", "全部"),
+    ReturnTab("pending", "待处理"),
 )
 
 /**
@@ -46,38 +43,22 @@ private const val TAB_ALL = 0
  * （路由 `?focus=<申请单号>`，payload 里的 `request_id`）：那一条排到最前、打上标记、
  * 列表滚到它。拉回来的列表里没有它时**照常显示列表**，只在上面加一行说明 ——
  * ⛔ 不白屏、也不假装定位到了。
+ *
+ * ⚠️ 列表内核（档位 / 加载 / 定位 / 实时刷新）在 [ReturnRequestsViewModel]（2026-09-21 收口）：
+ *    它和货主那一页原来是**逐字抄的两遍**（约 90 行），而那四条是**规则**不是样式。
+ *    这一页只剩下"档位顺序 + 拉哪个接口 + 能做什么动作"。
  */
 class DispatcherReturnRequestsViewModel(
-    private val container: AppContainer,
-    /** 路由上带的 `?focus=`（0 = 从工作台那一格进来的，不定位任何一条）。 */
+    container: AppContainer,
     initialFocusRequestId: Long = 0L,
-) : ViewModel() {
-
-    /** 当前档位（`DISPATCH_RETURN_TABS` 的下标）。默认就是「待处理」——这一页本来就是待办页。 */
-    var tab by mutableStateOf(1)
-
-    var items by mutableStateOf<List<ReturnRequestDto>>(emptyList())
-
-    /** 待处理的张数（后端给的 `pending_count`）。 */
-    var pendingCount by mutableStateOf(0)
-
-    var loading by mutableStateOf(false)
-    var error by mutableStateOf<String?>(null)
-    var acting by mutableStateOf(false)
-
-    /** 要定位/高亮的那一张（0 = 没有）。列表里那一行据此打标记。 */
-    var focusRequestId by mutableStateOf(initialFocusRequestId)
-        private set
-
-    /**
-     * 定位**没找到**时给用户的一行说明（不是错误页：列表照常显示全部）。
-     * ⛔ 它必须说出来 —— 悄悄按普通列表显示，派单员会以为自己点错了消息。
-     */
-    var focusNotice by mutableStateOf<String?>(null)
-        private set
-
-    /** 一次性结果提示（Snackbar）：办理回执 / 驳回结果都走它，文案里带办理后的真实数字。 */
-    var actionResult by mutableStateOf<String?>(null)
+) : ReturnRequestsViewModel(
+    container = container,
+    initialFocusRequestId = initialFocusRequestId,
+    tabs = DISPATCH_RETURN_TABS,
+    tabAllIndex = TAB_ALL,
+    // 默认就是「待处理」—— 这一页本来就是待办页
+    defaultTabIndex = 1,
+) {
 
     /** 办理退货：二次确认的目标 */
     var fulfillTarget by mutableStateOf<ReturnRequestDto?>(null)
@@ -96,65 +77,10 @@ class DispatcherReturnRequestsViewModel(
     var rejectTarget by mutableStateOf<ReturnRequestDto?>(null)
     var rejectReason by mutableStateOf("")
 
-    private var loadJob: Job? = null
-
-    init {
-        // ⚠️ 带定位进来时**先用「全部」档拉**：那张申请可能已经被办理/驳回（已经不在
-        //    「待处理」里了），在待处理档里找必然落空 —— 那就变成"明明有这条，却告诉用户没找到"。
-        //    档位跟着切过去也是对的：用户看到的就是"全部"这一档。
-        if (initialFocusRequestId > 0L) tab = TAB_ALL
-        load()
-        // 货主新提一张申请时后端会推站内信（type = order.return_request），
-        // 走到这里待办列表自己就冒出来了 —— 派单员不用手动刷新
-        viewModelScope.launch {
-            container.realtimeHub.refreshOrders.collect { load() }
-        }
-    }
-
-    /**
-     * 屏幕进来时调一次（`LaunchedEffect(focusRequestId)`）。
-     *
-     * 正常情况下这个值与构造参数相同 —— 每次导航都会新建这个 ViewModel，于是这里什么都不做
-     * （不会多拉一次接口）。只有 ViewModel 被**复用**时才会真的重新定位，
-     * 这样"带 focus 进来一定定位"在两个分支上都成立，不靠"VM 一定是新的"这种假设。
-     */
-    fun applyFocus(requestId: Long) {
-        if (requestId == focusRequestId) return
-        focusRequestId = requestId
-        focusNotice = null
-        if (requestId > 0L) tab = TAB_ALL
-        load()
-    }
-
-    fun selectTab(index: Int) {
-        if (tab != index) {
-            tab = index
-            load()
-        }
-    }
-
-    fun load() {
-        loadJob?.cancel()
-        loadJob = viewModelScope.launch {
-            loading = items.isEmpty()
-            error = null
-            try {
-                val dto = container.repo.returnRequestTodo(status = DISPATCH_RETURN_TABS[tab].key)
-                val focused = focusReturnRequestFirst(dto.items, focusRequestId)
-                items = focused.items
-                pendingCount = dto.pendingCount
-                focusNotice = if (focusRequestId > 0L && !focused.found) {
-                    // 文案的唯一出处：`ui/common/ReturnRequestFocus.kt`（两页共用一句）
-                    RETURN_REQUEST_FOCUS_MISS
-                } else {
-                    null
-                }
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                loading = false
-            }
-        }
+    /** 派单员看待办（`status=` 就是当前档位的 key）。 */
+    override suspend fun fetchPage(statusKey: String): ReturnRequestsPage {
+        val dto = container.repo.returnRequestTodo(status = statusKey)
+        return ReturnRequestsPage(dto.items, dto.pendingCount)
     }
 
     // ---- 办理退货（★ 真的退货：库存/账本/退现/订单状态都在这一刻变）----

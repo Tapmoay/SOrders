@@ -11,9 +11,13 @@
 1. 从进程命令行里找出跑 `uvicorn` 且命令行含 `app.main` 的进程（Windows: CIM；Linux: /proc）；
 2. 比较"进程启动时间"与 `backend/app/**/*.py` 里**最新的 mtime**；
 3. 源码更新 → **红**（附上更新的那几个文件，便于判断是不是要紧）；
-4. 后端没在跑 → 通过 + 说明（这不是缺陷，只是"这条判据这次没东西可查"）。
+4. 后端没在跑 → 通过 + 说明（这不是缺陷，只是"这条判据这次没东西可查"）；
+5. ⛔ **读不到进程表**（PowerShell 起不来 / 返回非零 / 拿不到输出）→ **红**，并说清"这是没读成，不是没有后端"。
+   2026-09-21：原来这条会**崩**（`subprocess.run(...).stdout` 可能是 `None` → `AttributeError`），
+   而崩之前它会先落进第 4 条 —— 也就是**拿一次失败的测量给出绿结论**（收尾流程每次都是
+   "重启后端 + 立刻跑检查"，正好撞在这个窗口上）。现在两条路分开说。
 
-退出码：0=一致（或后端没跑）；1=后端比源码旧。
+退出码：0=一致（或后端确实没跑）；1=后端比源码旧，或没读成。
 """
 from __future__ import annotations
 
@@ -29,12 +33,20 @@ ROOT = Path(__file__).resolve().parents[2]
 BACKEND_APP = ROOT / "backend" / "app"
 
 
+class ProcessListUnreadable(RuntimeError):
+    """读不到进程表 —— **这不是"没有后端在跑"**，所以不许给绿结论（fail-closed）。"""
+
+
 def _python_files() -> list[Path]:
     return [p for p in BACKEND_APP.rglob("*.py") if "__pycache__" not in p.parts]
 
 
 def _uvicorn_processes() -> list[tuple[int, datetime, str]]:
-    """返回本机在跑的 uvicorn(app.main) 进程 [(pid, 启动时间, 命令行)]。"""
+    """返回本机在跑的 uvicorn(app.main) 进程 [(pid, 启动时间, 命令行)]。
+
+    ⛔ 读不到进程表时**抛 [ProcessListUnreadable]**，不许返回空表 ——
+       空表在这条判据里的含义是"后端没在跑"（green），而"没读成"与"没在跑"是两件事。
+    """
     out: list[tuple[int, datetime, str]] = []
     if sys.platform == "win32":
         ps = (
@@ -42,17 +54,27 @@ def _uvicorn_processes() -> list[tuple[int, datetime, str]]:
             "Select-Object ProcessId,CreationDate,CommandLine | ConvertTo-Json -Compress"
         )
         try:
-            raw = subprocess.run(
+            proc = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", ps],
                 capture_output=True, text=True, timeout=60,
-            ).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
-            return out
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ProcessListUnreadable(f"起不了 PowerShell：{type(e).__name__}: {e}") from e
+        # ⚠️ 这里**曾经**直接写 `.stdout.strip()`：实测拿到过 None（2026-09-21 收尾时崩了一次），
+        #    于是整个检查以 AttributeError 结束 —— 那不是结论，收尾清单上只看到一行报错。
+        if proc.stdout is None:
+            raise ProcessListUnreadable("PowerShell 没有输出（stdout 为空对象，不是空字符串）")
+        if proc.returncode != 0:
+            raise ProcessListUnreadable(
+                f"PowerShell 退出码 {proc.returncode}：{(proc.stderr or '').strip()[:200]}"
+            )
+        raw = proc.stdout.strip()
         import json
         try:
+            # ⚠️ 管道为空（本机没有 python.exe）时 `ConvertTo-Json` 什么都不打印 → 空串 → [] ✅
             data = json.loads(raw) if raw else []
-        except ValueError:
-            return out
+        except ValueError as e:
+            raise ProcessListUnreadable(f"进程表不是合法 JSON：{e}；原样输出：{raw[:200]}") from e
         if isinstance(data, dict):
             data = [data]
         for it in data:
@@ -101,7 +123,16 @@ def main() -> int:
     newest = max(files, key=lambda p: p.stat().st_mtime)
     newest_at = datetime.fromtimestamp(newest.stat().st_mtime)
 
-    procs = _uvicorn_processes()
+    try:
+        procs = _uvicorn_processes()
+    except ProcessListUnreadable as e:
+        # ⛔ fail-closed：读不到就给红，并说清"这是没读成，不是没有后端"
+        print("❌ 读不到本机进程表 —— **这不是「后端没在跑」，是这次没读成**，所以不敢给结论：")
+        print(f"   {e}")
+        print("   修法：重跑一次这条检查；持续失败时手工看一眼进程：")
+        print("     Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+              "Where-Object { $_.CommandLine -like '*uvicorn*' }")
+        return 1
     if not procs:
         print("✅ 本机没有在跑的后端（uvicorn app.main）—— 这条判据这次没东西可查。")
         print("   要跑实测探针（_tools/qa/_probe_*.py、真机联调）之前，请先起后端。")
