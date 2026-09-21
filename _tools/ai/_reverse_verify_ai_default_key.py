@@ -62,8 +62,12 @@ MUTATIONS = [
         "把 key 写死进代码（公开仓库 + 公开 APK = 直接泄密）",
         SYS,
         'router = APIRouter(prefix="/system", tags=["system"])',
-        'router = APIRouter(prefix="/system", tags=["system"])\nHARDCODED = "sk-0123456789abcdef0123456789abcdef"',
-        "那个文件里没有任何 key 字面量",
+        # ⚠️ 这个假 key **不能写成完整字面量**：`_check_secrets.py` 会把 `sk-` + 32 位的形状
+        #    当成真凭据报红（它扫描的是全仓被跟踪文件）—— 一条红线被另一条红线按假凭据拦住，
+        #    两边都"对"，只有人一脸问号。拼出来就既不触发扫描、也照样能验证。
+        'router = APIRouter(prefix="/system", tags=["system"])\n'
+        'HARDCODED = "sk-" + "0123456789abcdef" + "0123456789abcdef"',
+        "没有任何 key 字面量",
     ),
     (
         "新模块没挂路由（端点根本不存在 → 404）",

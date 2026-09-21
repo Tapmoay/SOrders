@@ -4111,7 +4111,13 @@ def main() -> int:
     # ---- ① key 的来源：只许来自服务端配置 ----
     c.present("默认 key 由**配置**提供（`ai_default_api_key`），不是写死在代码里",
               sys_src, r"settings\.ai_default_api_key")
-    c.absent("那个文件里没有任何 key 字面量", sys_src, r"sk-[A-Za-z0-9]{16,}")
+    # ⛔ 这个文件里**不许出现任何 key 字面量**，也不许把它拼出来。
+    #    三种形状一起拦：`"sk-…"`、`"sk-" + "…"`、以及任何 24 位以上的字母数字长串。
+    #    （外面还有 `_check_secrets.py` 扫全仓的凭据形状 —— 那一条已经因为本文件里的
+    #      假 key 报过一次红，所以反向验证的注入改成"拼出来的 32 位串"：两道判据各管一段，
+    #      谁也不去踩另一条红线。）
+    c.absent("那个文件里没有任何 key 字面量（也不许拼出来）",
+             sys_src, r'"sk-|\'sk-|"[A-Za-z0-9]{24,}"')
     for field in ("ai_default_api_key", "ai_default_base_url", "ai_default_model", "ai_test_phone_prefix"):
         c.present(f"`config.py` 里有 `{field}`", cfg_src, rf"{field}: str = ")
 
