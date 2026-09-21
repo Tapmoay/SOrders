@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.submittableIds
 import kotlinx.coroutines.launch
 /**
  * 地点分组管理（**每个人自己那一份**：货主和派单员各管各的）。
@@ -98,7 +99,8 @@ class PlaceCategoriesViewModel(private val container: AppContainer) : ViewModel(
     }
 
     private fun submit(next: List<PlaceCategoryDto>) {
-        val ids = next.map { it.id }
+        // 只提交名册里的行（规则与另外三个名册同一处：`ui/common/CategoryRoster.kt`）
+        val ids = submittableIds(next) { it.id }
         acting = true
         error = null
         viewModelScope.launch {

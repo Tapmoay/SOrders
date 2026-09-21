@@ -97,7 +97,7 @@ class FreightCategoriesViewModel(private val container: AppContainer) : ViewMode
         if (next === categories) return
         categories.clear()
         categories.addAll(next)
-        dirty = categories.map { it.id } != savedOrder
+        dirty = orderChanged(categories, savedOrder) { it.id }
     }
 
     fun moveBy(id: Long, steps: Int) {
@@ -108,14 +108,18 @@ class FreightCategoriesViewModel(private val container: AppContainer) : ViewMode
 
     fun revertOrder() {
         if (savedOrder.isEmpty()) return
-        val byId = categories.associateBy { it.id }
+        // ⚠️ 原来这里是"只按 savedOrder 重建"的那一版 —— 会把**保存之后新建的分类**从列表里丢掉
+        //    （后端还在，用户以为被删了）。开销/商品那两页一直是保留的，三页两种行为。
+        //    三条规则现在只有一处实现：`ui/common/CategoryRoster.kt`。
+        val back = revertedOrder(categories, savedOrder) { it.id }
         categories.clear()
-        categories.addAll(savedOrder.mapNotNull { byId[it] })
+        categories.addAll(back)
         dirty = false
     }
 
     fun saveOrder() {
-        val ids = categories.map { it.id }
+        // ⚠️ 只提交**名册里的**（id > 0）：名册外的那些后端不认识，带上就被整体拒绝
+        val ids = submittableIds(categories) { it.id }
         if (ids.isEmpty()) return
         busy = true
         error = null

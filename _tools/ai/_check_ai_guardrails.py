@@ -3730,7 +3730,7 @@ def main() -> int:
     c.present("下单页把名册顺序传给了选品页", ocs31, r"categoryOrder = vm\.categoryOrder")
     c.present("派单端能新建分类", cat_screen, r"onClick = \{ vm\.openCreate\(\) \}")
     c.present("排序是**本地草稿**、点「保存顺序」才提交（不每点一次发一次请求）",
-              cat_vm, r"dirty = categories\.map \{ it\.id \} != savedOrder")
+              cat_vm, r"dirty = orderChanged\(categories, savedOrder\) \{ it\.id \}")
     c.present("分类管理的失败提示走一次性提示条（不重放）",
               cat_screen, r"OneShotSnackbar\(snackbar, vm\.notice, onConsumed = \{ vm\.notice = null \}\)")
 

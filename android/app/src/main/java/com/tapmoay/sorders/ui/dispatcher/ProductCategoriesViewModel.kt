@@ -9,6 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.orderChanged
+import com.tapmoay.sorders.ui.common.revertedOrder
+import com.tapmoay.sorders.ui.common.submittableIds
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -138,7 +141,7 @@ class ProductCategoriesViewModel(private val container: AppContainer) : ViewMode
         if (next === categories) return // 没变（找不到 / 本来就在那儿）—— 别把状态写一遍
         categories.clear()
         categories.addAll(next)
-        dirty = categories.map { it.id } != savedOrder
+        dirty = orderChanged(categories, savedOrder) { it.id }
     }
 
     /** 拖动用：按"挪了几格"挪（正数往下）。 */
@@ -150,22 +153,24 @@ class ProductCategoriesViewModel(private val container: AppContainer) : ViewMode
 
     fun revertOrder() {
         if (savedOrder.isEmpty()) return
-        val byId = categories.associateBy { it.id }
-        val restored = savedOrder.mapNotNull { byId[it] }
-        // 保存顺序里可能有刚新建、还没刷进来的分类 —— 追到后面，不要丢
-        val extra = categories.filter { it.id !in savedOrder }
+        // 保存顺序里可能有刚新建、还没刷进来的分类 —— 追到后面，不要丢。
+        // 三条规则只有一处实现：`ui/common/CategoryRoster.kt`。
+        val back = revertedOrder(categories, savedOrder) { it.id }
         categories.clear()
-        categories.addAll(restored + extra)
+        categories.addAll(back)
         dirty = false
     }
 
     fun saveOrder() {
-        if (categories.isEmpty()) return
+        // ⚠️ 只提交**名册里的**（id > 0）：名册外的那些（开销名册里的"老数据"合成行）后端不认识，
+        //    带上就被整体拒绝。三页同一个规则：`ui/common/CategoryRoster.kt`。
+        val ids = submittableIds(categories) { it.id }
+        if (ids.isEmpty()) return
         busy = true
         error = null
         viewModelScope.launch {
             try {
-                val list = container.repo.reorderProductCategories(categories.map { it.id })
+                val list = container.repo.reorderProductCategories(ids)
                 categories.clear()
                 categories.addAll(list)
                 savedOrder = list.map { it.id }

@@ -153,7 +153,11 @@ def main() -> int:
 
     # ---- ⑤ 分类管理页：改名级联 / 删除拒绝 / 排序整份 ----
     c.present("排序复用商品那一份搬运逻辑（**一份实现**）", cats, r"moveItemTo\(")
-    c.present("保存顺序只提交名册内的（名册外的 id=0 不带上去）", cats, r"filter \{ it\.id > 0 \}\.map \{ it\.id \}")
+    # ⚠️ 2026-09-21：这条规则收进了 `ui/common/CategoryRoster.kt::submittableIds`（四个名册共用），
+    #    所以断言从"这一行出现过 `filter { it.id > 0 }`"改成"**这一页真的用了那份共用规则**"——
+    #    只钉写法会在实现搬家之后变成恒绿，而这条规则本身（名册外的 id=0 不许发过去）照样要有牙
+    #    （`_tools/qa/_check_category_roster.py` + 它的反向验证逐条注入盯着）。
+    c.present("保存顺序只提交名册内的（名册外的 id=0 不带上去，走共用规则）", cats, r"submittableIds\(categories\)")
     c.present("「主要关联」在这一页可改", cats, r"fun setLinkKind\(")
     c.present("改名会级联（后端同一事务里 UPDATE expenses）", files["api"], r"Expense\.__table__\.update\(\)\.where\(Expense\.category == old_name\)")
     c.present("删除还有开销挂着的分类 → 拒绝并说明几笔", files["api"], r"还有 \{used\} 笔开销挂在这个分类下")
