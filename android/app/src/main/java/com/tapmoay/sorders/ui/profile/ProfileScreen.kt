@@ -2,7 +2,9 @@ package com.tapmoay.sorders.ui.profile
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -84,7 +86,17 @@ fun ProfileScreen(    container: AppContainer,
             vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.loadMe() })
             else -> {
                 val u = vm.user
-                Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+                // ⚠️ **必须能滚**（2026-09-21 真机抓到）：这一列原来是一个**不可滚动**的 `Column`，
+                //    于是在"内容比屏幕高"的机器上（用户新手机 PDCM00：字体/显示比例比模拟器大）
+                //    最下面的「检查更新」「退出登录」被顶出屏幕且**滚不到** ——
+                //    表现是"退不了登录、也没法检查更新"，而且它**不是崩溃**，只是够不着。
+                //    触发点正是上面那格「我的账本」：多一行就把它顶出去了。
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp),
+                ) {
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(

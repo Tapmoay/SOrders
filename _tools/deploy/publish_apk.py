@@ -177,8 +177,17 @@ def baked_api_base_url(apk: Path | None = None) -> str:
     `BuildConfig.java` 时，原来按名字排序取第一份 = 取到 `phone/debug` 那份。于是
     「release 包里编译的是开发地址、而 debug 那份恰好写着生产地址」这种组合会被**放行**——
     那正是这道闸要拦的灾难。变体名直接从 APK 路径取（…/apk/phone/release/app-….apk）。
+
+    ⚠️ 2026-09-21 第二次修：`--apk` 指向**仓库之外**的产物时（发布 0.2.2 时为了避开另一个
+    会话未提交的改动，我在 `git worktree` 里打的包），原来固定去 `ROOT/android/...` 找，
+    读到的是**主检出里那份过期的** BuildConfig → 一个完全正确的真机包被判
+    「包里的后端地址是开发地址」而拒绝发布（同一份代码在 `check_phone_apk.py` 里也犯过，
+    两边一起修的）。现在：**先看包自己所在的那棵树**，找不到才退回主检出。
     """
-    base = ROOT / "android" / "app" / "build" / "generated" / "source" / "buildConfig"
+    project = ROOT / "android"
+    if apk is not None and len(apk.parents) > 6 and (apk.parents[6] / "app").is_dir():
+        project = apk.parents[6]
+    base = project / "app" / "build" / "generated" / "source" / "buildConfig"
     hits = sorted(base.rglob("BuildConfig.java"))
     if apk is not None:
         want = set(apk.parts[-3:-1])
