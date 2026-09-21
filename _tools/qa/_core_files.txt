@@ -1,0 +1,30 @@
+# SOrders **核心区**文件清单（2026-09-21 用户定准则：核心逻辑不要乱动、核心不要变）
+#
+# 「核心」＝**动一下就会让钱算错、状态走错、权限漏掉、或者历史数据变样**的那几处。
+# 其余一切（新功能 / 新页面 / 新动作 / 新端点 / 新检查）都按**插件式**扩展：
+#   能调方法就调方法、能继承就继承、能调 API 就调 API —— 见 docs/CORE_AND_EXTENSION.md。
+#
+# ## 规矩（改核心文件的人必须做的一件事）
+# 在 `docs/AI_WORK_CLAIM.md` 的「## 进行中」一节里写一行：
+#
+#     核心改动：<这个文件的路径> —— 为什么必须动核心：<一句话>
+#
+# ⛔ 没有这一行而工作区里又改了核心文件 → `python _tools/qa/_check_core_freeze.py` 当场报红。
+#    （判据只看**未提交**的改动：提交之后就进了 git 历史，那时声明页已经不是唯一记录了。）
+#
+# 格式：`路径|为什么它是核心（一句话）`；`#` 开头是注释，空行忽略。
+# ⛔ 不许为了让检查变绿而删条目：脚本里有一条"骨架判据"钉着必须存在的那些（`_SKELETON`）。
+
+backend/app/services/order_money.py|一张单的钱（已收 / 挂账 / 退货红冲 / 现场收现金）只有这一处口径
+backend/app/services/driver_pay.py|司机应得多少只有这一处实现（账单/结算页/绩效/报表四个消费点共用）
+backend/app/services/order_flow.py|订单状态迁移（派单 / 接单 / 送达 / 撤回）与模式快照的写入点
+backend/app/services/order_return.py|退货金额与账本红冲（同一笔钱不许出现两个数）
+backend/app/services/accounting_service.py|账本入账与欠款口径（谁的账挂在哪一边）
+backend/app/services/shipper_settle.py|货主核销 / 欠款（应收已收欠款三个数只有这一处）
+backend/app/services/order_response.py|订单出参口径 + 司机视角门控（哪些数不许下发给司机）
+backend/app/core/business_time.py|业务时区：库里一律 UTC naive，界面一律 +8（差 8 小时就是错账）
+backend/app/core/rbac.py|角色 → 权限点（谁能干什么）
+backend/app/deps.py|鉴权依赖（require_roles / 当前用户；漏一处就是越权）
+backend/app/models/enums.py|领域词汇表：状态 / 来源 / 审计动作码（全项目共用的取值）
+backend/app/core/schema_bootstrap.py|生产库结构变更（线上迁移的唯一入口）
+android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt|AI 写闸门：preview → 确认卡 → execute 的唯一写入口
