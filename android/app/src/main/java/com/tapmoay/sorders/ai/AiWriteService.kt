@@ -84,6 +84,32 @@ interface AiWriteDataSource {
      */
     suspend fun geocode(address: String): Pair<Double, Double>?
 
+    /**
+     * 把**地址类输入**解析成「要写进 payload 的地址文字 + 精确坐标」。
+     *
+     * ### 为什么在 `geocode` 之外还要有它（2026-09-21）
+     * 用户说「送到**我现在的位置**」时，模型手里没有地址 —— 它只有四个字 [AiLocation.HERE]。
+     * 而这条路上有两件事必须由 App 做完：
+     * 1. **取一次手机定位**（高德 GCJ-02 + 逆地理），拿到真实地址文字；
+     * 2. 把**精确坐标**一起写进 payload —— ⛔ **不许**走"文字→再地理编码"
+     *    （[geocode]）那一趟：地址文字是逆地理出来的，再正向查一次会**漂点**，
+     *    而用户要的是"和手动在地图上选点一样准"。
+     *
+     * 默认实现＝老行为（把文字交给高德换坐标），所以所有既有替身与调用方都不用改；
+     * 唯一多认一个句柄的是 [RepoWriteDataSource]（它手里才有定位提供者）。
+     *
+     * **只读**：查的是高德与本机定位，不碰 SOrders 后端（所以 `prepare` 里可以调）。
+     *
+     * @return null = 没解析出来（地址太模糊/没网/超时）。⚠️ 但「当前位置」拿不到时
+     *   **不返回 null，而是抛一句能照着改的中文**（见 [AiLocation.requireHere]）——
+     *   两种失败给用户的话完全不同：一个是"地址说得更完整些"，一个是"去开定位权限"。
+     *
+     * 默认实现**没有定位提供者**（单测的替身走这一条）：普通地址照常解析，
+     * 而「当前位置」会被当场拒掉 —— 这是 fail-closed 的方向（宁可说"读不到"，也不写四个字进去）。
+     */
+    suspend fun resolveAddress(text: String): AiPlace? =
+        AiLocation.resolveAddress(text, provider = null, geocode = { geocode(it) })
+
     /** 按关键词找订单（单号/货主/司机/地址，后端 `GET /orders?q=`）。 */
     suspend fun findOrders(query: String, limit: Int): List<AiOrderRef>
 
@@ -536,10 +562,27 @@ class RepoWriteDataSource(
      * 生产是 [AiContainer] 传进的 `applicationContext`，所以**真机上一定走定位**。
      */
     private val context: Context? = null,
+    /**
+     * 「当前位置」句柄的定位提供者（[AiLocation]）。
+     *
+     * null = 没有本机定位能力（单测）：这时用户在地址里写「当前位置」会**当场被拒**并拿到
+     * 一句"让他把地址说完整"，而不是写进去一个字面量「当前位置」。
+     */
+    private val locationProvider: () -> AiLocationProvider? = { null },
 ) : AiWriteDataSource {
 
     override suspend fun geocode(address: String): Pair<Double, Double>? =
         AiGeocode.lookup(context, address)
+
+    /**
+     * 「当前位置」句柄的**唯一解析点**（模型全程只写那四个字，见 [AiLocation.HERE]）。
+     *
+     * ⚠️ 放在数据源这一层而不是每个处理器里：地址类动作有三个入口（声明式的 `geocodeFrom`
+     * 那一族、下单、改单），各写一遍"认不认句柄"必然会漏掉一个 ——
+     * 漏掉的那个会把字面量「当前位置」写进地址库，**不报错**，而司机导航到一个叫"当前位置"的地方。
+     */
+    override suspend fun resolveAddress(text: String): AiPlace? =
+        AiLocation.resolveAddress(text, locationProvider(), geocode = { geocode(it) })
 
     /**
      * 司机名册。`note` 带上他**现在按什么算钱**（后端 `pay_summary_for` 生成的那句话）。

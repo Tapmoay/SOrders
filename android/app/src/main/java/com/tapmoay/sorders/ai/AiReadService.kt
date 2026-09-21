@@ -53,7 +53,9 @@ object AiReadPlanner {
     }
 
     fun plan(actionKey: String, args: JsonObject, today: LocalDate): Result {
-        val action = AiReadCatalog.find(actionKey)
+        // ⚠️ 查两处：编译期白名单（后端目录）+ 本机能力（`AiLocalReads`，没有后端端点所以不在目录里）。
+        //    漏掉后面那一处的症状是"模型照抄说明里的 action，却拿到一句『没有名为 X 的查询』"。
+        val action = AiReadCatalog.find(actionKey) ?: AiLocalReads.find(actionKey)
             ?: return Result.Bad(
                 "没有名为「$actionKey」的查询。可用的清单见本工具说明里的 action 取值，请照抄其中一个。",
             )
@@ -250,7 +252,9 @@ internal object AiJson {
  * 会随工具数下降。做成一个工具 + `action` 枚举，规格是常量级，白名单也更好守。
  *
  * ### 这个类绝不做的三件事（本项目的红线）
- * 1. **不接受任意 URL**：路径只能从 [AiReadCatalog]（编译期生成的 36 条）里查出来；
+ * 1. **不接受任意 URL**：路径只能从 [AiReadCatalog]（编译期生成的那几十条）里查出来；
+ *    本机能力（[AiLocalReads]）**路径为空**，走另一条分支、一个请求都不发 —— 两条路的共同点是
+ *    "action 必须来自编译期清单"，模型永远凑不出一个 URL 来；
  * 2. **不把编号给模型**：需要编号的筛选条件一律按**名字**在 App 侧解析（见 [resolveId]），
  *    返回体再过 [AiRowShaper] 剔一遍 `id` / `*_id`；
  * 3. **不悄悄改变语义**：模型给的筛选条件后端不认、或我们替它补了必填项，都要写进结果里。
@@ -262,7 +266,7 @@ class AiReadService(
      *
      * 做成**回调**而不是构造时快照：设置页一改，下一次提问立刻生效，不用重启 App。
      */
-    private val enabledModules: () -> Set<String> = { AiReadCatalog.modules().toSet() },
+    private val enabledModules: () -> Set<String> = { AiReads.allModules().toSet() },
     /**
      * 允许把成本 / 毛利给模型看吗（设置页那个开关，默认**关**）。
      *
@@ -278,13 +282,22 @@ class AiReadService(
      * ⚠️ 第二维（member）同理：默认 false = 按**普通货主**算，批发商专属那张表读不到。
      */
     private val actorProvider: () -> AiActor? = { null },
+    /**
+     * **本机能力**的定位提供者（`location.current`，见 [AiLocalReads]）。
+     *
+     * 与 [actorProvider] 同样做成回调：设置页/权限随时会变，每次执行时现读。
+     * 默认 **null = 没有本机能力**（单测、或没接 Context 的场景）——fail-closed：
+     * 拿不到就说"读不到"，而不是悄悄回一个空地址。
+     */
+    private val locationProvider: () -> AiLocationProvider? = { null },
 ) {
 
     /**
      * @return 直接能喂给模型的 JSON 字符串（失败时是 `{"error":"人话"}`）。
      */
     suspend fun read(actionKey: String, args: JsonObject, today: LocalDate = LocalDate.now()): String {
-        val action = AiReadCatalog.find(actionKey)
+        // 两处查找的理由同 [AiReadPlanner.plan]：后端目录（编译期白名单）+ 本机能力。
+        val action = AiReadCatalog.find(actionKey) ?: AiLocalReads.find(actionKey)
             ?: return err(
                 "没有名为「$actionKey」的查询。请照抄工具说明里列出的 action 取值。",
             )
@@ -303,6 +316,14 @@ class AiReadService(
         if (module !in enabledModules()) {
             return err("这类数据被用户在设置里关掉了。一句话告诉用户，不要编造数据。")
         }
+
+        // ---- 本机能力（`path` 空 = 没有后端端点，见 [AiLocalReads]）----
+        //
+        // 角色门与模块门**已经在上面过完了**，这里只负责"不去发那个不存在的请求"。
+        // ⛔ 两条不许动：① 不拼 URL、不碰 Retrofit；② 不进 [AiReadPlanner] ——
+        //    它整套是给后端查询参数用的（声明表、必填补齐、名字→编号），本机能力一条都不适用。
+        //    把本机能力塞进那个计划器，就会得到一句"这个查询不支持 limit"这种对用户毫无意义的拒绝。
+        if (action.path.isBlank()) return AiLocalReads.run(action, locationProvider())
 
         val plan = when (val r = AiReadPlanner.plan(actionKey, args, today)) {
             is AiReadPlanner.Result.Bad -> return err(r.message)

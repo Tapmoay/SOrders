@@ -42,9 +42,14 @@ class AiReadRoleTest {
         //    那时目录里没有一张表是"只给货主"的。加了 `shipper_ledger.list_settlements`
         //    （批发商自己那一本核销账，**派单员读它是 403**）之后，那条断言变成了假话。
         //    现在按目录自己算"应该拿到几张"——多一张少一张都会红。
-        val shipperOnly = AiReadCatalog.ACTIONS.filter { it.roles == setOf("shipper") }
+        //
+        // ⚠️ 2026-09-21：分母再换一次 —— 从「后端目录」换成 **`AiReads.allActions()`**
+        //    （目录 + 本机能力）：`location.current` 这类本机能力也给派单员，
+        //    还按目录算的话会因为差 1 条而红（而那是**对的**，不是 bug）。
+        val all = AiReads.allActions()
+        val shipperOnly = all.filter { it.roles == setOf("shipper") }
         assertEquals(
-            AiReadCatalog.ACTIONS.size - shipperOnly.size,
+            all.size - shipperOnly.size,
             AiReads.forRole(AiActor.byRole(AiRole.DISPATCHER)).size,
         )
         // 双向：**批发商货主**能拿到自己那一张（裁多了和裁少了都是能力缺失）。

@@ -172,7 +172,15 @@ class AiContainer(
         AiWriteService(
             // appContext 是给**高德地理编码**用的：AI 建的地址/地点/订单要自己换坐标，
             // 否则司机端的「高德导航」只会打开高德首页（详见 AiGeocode）。
-            RepoWriteDataSource(repo, selfId = { userIdKey() }, context = appContext),
+            //
+            // locationProvider 是给**「当前位置」句柄**用的（2026-09-21）：用户说"送到我现在的位置"时，
+            // 模型只写那四个字，真实地址与精确坐标由这一条取一次定位换上（详见 AiLocation）。
+            RepoWriteDataSource(
+                repo,
+                selfId = { userIdKey() },
+                context = appContext,
+                locationProvider = { locationProvider },
+            ),
             writes,
             // ⚠️ 两个 provider 缺一不可：角色决定"能不能"，member 决定"这一本账有没有"
             //    （见 AiActor 的注释：核销那三条只给批发商货主）。
@@ -180,6 +188,19 @@ class AiContainer(
             // 成本那两扇门唯一的开关（**按角色给默认值**：派单员默认开，见 `defaultCostVisible`）
             allowCost = { keyStore.costVisible(role()) },
         )
+    }
+
+    /**
+     * 「手机当前在哪」的**唯一装配点**（AI 读定位 `location.current` ＋ 地址类动作的「当前位置」句柄）。
+     *
+     * 为什么在容器里建：读能力（`AiTools`/`AiReadService`）与写能力（`RepoWriteDataSource`）
+     * 必须是**同一个**提供者 —— 两处各建一个的话，同一次提问里"读到的位置"和"写进去的位置"
+     * 可能是两次不同的定位，而界面上完全看不出来（卡片上印的还是读到的那个地址）。
+     *
+     * `lazy`：它内部的高德客户端按需才建，用户不碰"当前位置"就一个 SDK 客户端都不起。
+     */
+    private val locationProvider: AiLocationProvider by lazy {
+        AiLocation.AmapCurrentLocationProvider(appContext)
     }
 
     /** 6 个只读工具 + 2 个操作工具（记住 / 改数据）；两层开关都实时读 Keystore，设置页一改立刻生效。 */
@@ -195,6 +216,8 @@ class AiContainer(
             roleProvider = { role() },
             // 两维都要传：普通货主与批发商货主的工具说明/enum 不一样（见 AiActor）。
             memberProvider = { memberShipper },
+            // 本机能力（`location.current`）：与写侧**同一个**定位提供者，见上面那条注释。
+            locationProvider = { locationProvider },
             requestWrite = { actionId, params -> writeService.preview(actionId, params) },
         )
     }

@@ -34,7 +34,7 @@ import com.tapmoay.sorders.ai.AiKeyStore
 import com.tapmoay.sorders.ai.AiMemories
 import com.tapmoay.sorders.ai.AiMemoryItem
 import com.tapmoay.sorders.ai.AiProviders
-import com.tapmoay.sorders.ai.AiReadCatalog
+import com.tapmoay.sorders.ai.AiReads
 import com.tapmoay.sorders.ai.AiRolePrompt
 import com.tapmoay.sorders.ai.AiTools
 import com.tapmoay.sorders.ai.LlmClient
@@ -754,13 +754,15 @@ private fun CapabilitySheet(vm: AiSettingsViewModel, onDismiss: () -> Unit) {
                 }
             }
 
-            // 通用读取：`read_data` 把 36 张只读列表全开了（用户要求"所有列表都能读"），
+            // 通用读取：`read_data` 把只读列表全开了（用户要求"所有列表都能读"），
             // 但那不等于"用户希望 AI 什么都能看"。给一份**按模块**的清单，让他随时收窄。
+            // ⚠️ 数量取 `AiReads.allActions()`（后端表 + **本机能力**）：写死目录那一份的话，
+            //    「读手机定位」这类本机能力不会算进去，而这行字正是用户对"它能看多少"的唯一印象。
             Spacer(Modifier.height(16.dp))
             Text("可读的列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(2.dp))
             Text(
-                "共 ${AiReadCatalog.ACTIONS.size} 张只读列表，按模块开关。",
+                "共 ${AiReads.allActions().size} 张只读列表，按模块开关。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

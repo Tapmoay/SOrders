@@ -75,6 +75,7 @@ class CrudWriteHandler(
         }
 
         // ---- 3. 地址类动作：把地址文字换成坐标（高德地理编码，只读，不碰后端）----
+        // 例外是「当前位置」句柄：那一条取的是**手机定位**（真实地址 + 精确坐标，见 resolveAddress）。
         val geo = geocode(spec, ds, values)
 
         // ---- 4. payload 与摘要同源 ----
@@ -111,7 +112,7 @@ class CrudWriteHandler(
                 title = action.title,
                 risk = action.risk,
                 summary = spec.headline(card),
-                detailLines = spec.details(card) + listOfNotNull(geoNote(spec, geo)),
+                detailLines = spec.details(card) + listOfNotNull(geoNote(spec, geo.place), hereNote(geo)),
                 payload = payload,
             ),
         )
@@ -128,29 +129,43 @@ class CrudWriteHandler(
     }
 
     /**
-     * 把 [CrudSpec.geocodeFrom] 指的那个字段的文本交给高德换坐标，写进 `values`
+     * 一次地址解析的结果：[place] = 解析出来的地址（null = 没解析到），
+     * [fromHere] = 这一次用的是不是「当前位置」句柄（卡片上要把真实地址写出来，见 [hereNote]）。
+     */
+    private data class GeoOutcome(val place: AiPlace?, val fromHere: Boolean)
+
+    /**
+     * 把 [CrudSpec.geocodeFrom] 指的那个字段的文本解析成「地址文字 + 坐标」，写进 `values`
      * 的 [GEO_LAT]/[GEO_LNG]（于是**卡片和 payload 都能读到它**，不会分叉）。
      *
-     * 三档行为：
+     * 四档行为：
      * - 没配 `geocodeFrom` / 这次没填那个字段 → 什么都不做（例如"只改电话"）；
-     * - 定位到了 → 坐标进 payload；
-     * - 没定位到 → 新建类动作**照常弹卡**（地址本身是真的，只是地图上找不到，
-     *   卡片会写明）；改地址类动作（`geocodeRequired`）**当场拒绝**——见那条注释。
+     * - 普通地址 → 交高德地理编码（[AiWriteDataSource.resolveAddress] 的默认实现）；
+     * - **「当前位置」** → 取一次手机定位，拿到**真实地址文字 + 精确坐标**（不走"文字→再地理编码"，
+     *   那会漂点）。这一步失败会抛一句"去开定位权限"的中文，**不弹卡**；
+     * - 没解析到 → 新建类动作**照常弹卡**（地址本身是真的，只是地图上找不到，
+     *   卡片会写明）；改地址类动作（`geocodeRequired`）**当场拒绝**。
      */
     private suspend fun geocode(
         spec: CrudSpec,
         ds: AiWriteDataSource,
         values: LinkedHashMap<String, JsonElement>,
-    ): Pair<Double, Double>? {
-        val key = spec.geocodeFrom ?: return null
-        val param = spec.fields.firstOrNull { it.key == key }?.name ?: return null
-        val text = (values[param] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+    ): GeoOutcome {
+        val key = spec.geocodeFrom ?: return GeoOutcome(null, false)
+        val param = spec.fields.firstOrNull { it.key == key }?.name ?: return GeoOutcome(null, false)
+        val text = (values[param] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: return GeoOutcome(null, false)
 
-        val hit = ds.geocode(text)
-        if (hit != null) {
-            values[GEO_LAT] = JsonPrimitive(hit.first.toString())
-            values[GEO_LNG] = JsonPrimitive(hit.second.toString())
-            return hit
+        val fromHere = AiLocation.isHere(text)
+        val place = ds.resolveAddress(text)
+        if (place != null) {
+            // ⚠️ 地址那一格也要换成**解析出来的文字**：写进去的是"当前位置"这四个字的话，
+            //    地址库里、订单上、司机看到的就是这四个字（而且不会报任何错）。
+            //    卡片也是照 `values` 印的，所以两边仍然同源。
+            values[param] = JsonPrimitive(place.address)
+            values[GEO_LAT] = JsonPrimitive(place.lat.toString())
+            values[GEO_LNG] = JsonPrimitive(place.lng.toString())
+            return GeoOutcome(place, fromHere)
         }
         if (spec.geocodeRequired) {
             throw AiWriteArgException(
@@ -159,12 +174,25 @@ class CrudWriteHandler(
                     "请让用户把地址说得更完整（带上城市和区/路名），或者回 App 用地图选点改一次。",
             )
         }
-        return null
+        return GeoOutcome(null, fromHere)
+    }
+
+    /**
+     * 「当前位置」解析出来的**真实地址**必须写在卡上。
+     *
+     * ⛔ 不写的话卡片上只有四个字「当前位置」—— 而这张卡是这次写入**唯一的人工检查点**：
+     * 用户核对不了"到底要送到哪儿"，等他发现导航把人带错了地方，事情已经发生了。
+     */
+    private fun hereNote(geo: GeoOutcome): String? {
+        val place = geo.place ?: return null
+        if (!geo.fromHere) return null
+        return "🧭 这条地址用的是手机上当前的位置：${place.address}" +
+            "（坐标取自这次定位，不是把文字再查一遍）"
     }
 
     /** 新建类动作定位失败时，把后果**写在卡上**（不写在卡上的后果＝用户不知道的后果）。 */
-    private fun geoNote(spec: CrudSpec, geo: Pair<Double, Double>?): String? = when {
-        spec.geocodeFrom == null || geo != null -> null
+    private fun geoNote(spec: CrudSpec, place: AiPlace?): String? = when {
+        spec.geocodeFrom == null || place != null -> null
         else -> "⚠️ 这个地址没在地图上定位到，没存坐标：司机点「高德导航」时会落到高德首页，" +
             "得自己再搜一遍地址。想准就回 App 用地图选点改一次。"
     }

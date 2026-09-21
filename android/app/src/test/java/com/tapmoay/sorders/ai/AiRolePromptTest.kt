@@ -67,7 +67,10 @@ class AiRolePromptTest {
             assertTrue("货主能改的域「$g」必须出现在提示词里：\n$can", can.contains(g))
         }
         // 读能力：念出来的模块**正好**等于 AiReads.forRole 的模块集合（不多不少）
-        val want = AiReads.forRole(AiActor.byRole(AiRole.SHIPPER), AiReadCatalog.modules().toSet())
+        // ⚠️ 2026-09-21：分母换成 `AiReads.allModules()` —— `brief` 的默认参数就是它，
+        //    本机能力（`location` 读手机定位）也在里面；还用目录那一份算的话，这条会因为
+        //    提示词里多念了一个「location」而红（而那是**对的**，不是 bug）。
+        val want = AiReads.forRole(AiActor.byRole(AiRole.SHIPPER), AiReads.allModules().toSet())
             .map { it.action.substringBefore('.') }.distinct().sorted()
         val line = can.lines().first { it.startsWith("· 查数据") }
         val got = line.substringAfter("：").split("、").map { it.trim() }.sorted()

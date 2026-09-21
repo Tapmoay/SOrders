@@ -195,48 +195,43 @@ class AiKeyStore(
     /**
      * 用户启用的工具名集合。
      *
-     * 关键区分：**prefs 里没有这个 key** = 用户从没配过 → 默认全开；
-     * **有这个 key 但是空串** = 用户主动把 5 个开关全关了 → 必须返回空集。
+     * 关键区分：**prefs 里没有这个 key** = 用户从没配过 → 按角色给默认（[defaultEnabledTools]）；
+     * **有这个 key 但是空串** = 用户主动把开关全关了 → 必须返回空集。
      * （曾经这里用 `ifEmpty { 默认全开 }`，会把「全关」这件事悄悄变成「全开」。）
+     *
+     * ### ⛔ 读路径**只读**（2026-09-21 修的静默丢能力）
+     * 这里原来有两处 `markToolsSeen()` —— 读的时候顺手把"见过的清单"刷成**当前全集**。
+     * 后果是一个**没有任何报错**的能力丢失：新加的工具**第一次读**时按默认打开（对的），
+     * 可那个副作用已经把标记写成全集了，于是**下一次读**算出"没有新工具"，它又变回关的。
+     * 用户看到的是"新功能时有时无"，日志和单测都抓不到。
+     * 现在：合并规则收成纯函数 [Companion.resolveEnabledTools]（可单测、**不写盘**），
+     * "见过的清单"只在 [saveEnabledTools] 里刷新。
      */
     fun enabledTools(role: AiRole? = null): Set<String> {
         if (!prefs.contains(KEY_TOOLS)) {
-            markToolsSeen()
             // 首装：按**角色**给默认值 —— 派单员全开，其余角色除写工具外全开。
             // （2026-09-20 用户：「派单员所有 AI 功能全都是默认开启」。）
+            // ⛔ 这里**不许**顺手写"见过的清单"（那正是上面那条 bug 的根因）。
             return defaultEnabledTools(role)
         }
-        val saved = splitNames(prefs.getString(KEY_TOOLS, ""))
-        // ⚠️ 「上次保存之后**新加**的工具」要按默认开处理。
-        // 不做这一步的后果是静默的：老用户的 prefs 里没有新工具的名字，
-        // 下面的 intersect 会把它筛掉 → 升级后新功能**装了却没有任何反应**，
-        // 而用户完全不知道为什么（实测踩过：记忆功能就这样哑了一次）。
-        // 判据用"用户见过哪些工具"，而不是"当前集合里有没有"——后者区分不了
-        // "新增的" 和 "用户主动关掉的"。
-        //
-        // ⚠️ [OPT_IN_TOOLS] 是这条规矩的**唯一例外**，而且必须是例外：
-        // 「新增默认开」对只读工具是对的（多了个查询能力，最坏是答得不全），
-        // 对**能改业务数据**的工具是错的（老用户升级后不该凭空多出一个会记账的 AI）。
-        // 这一条一旦漏掉，`preview_write` 会绕过设置页开关直接可用——
-        // 静默、无报错、也没有任何界面提示，正是最坏的那种 bug。
-        val seen = splitNames(prefs.getString(KEY_TOOLS_SEEN, ""))
-        val brandNew = DEFAULT_ENABLED_TOOLS - seen - optInExclusion(role)
-        val effective = (saved + brandNew).intersect(DEFAULT_ENABLED_TOOLS)
-        markToolsSeen()
-        return effective
+        return resolveEnabledTools(
+            saved = splitNames(prefs.getString(KEY_TOOLS, "")),
+            // ⚠️ 键不存在 → 空串 → 下面 `takeIf` 把它变成 null = **旧数据**
+            //    （那份白名单是在"见过的清单"这个机制之前存的，见 [resolveEnabledTools] 第 2 条）。
+            //    键在但内容是空串同理：认不出"他见过什么"，别当成"他什么都没见过"——
+            //    那会把用户明确关掉的工具全打开。
+            seenAtSave = splitNames(prefs.getString(KEY_TOOLS_SEEN, "")).takeIf { it.isNotEmpty() },
+            role = role,
+        )
     }
 
     private fun splitNames(raw: String?): Set<String> =
         raw.orEmpty().split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
-    /** 记下"当前版本有哪些工具"——下次判断"哪些是新加的"就靠它。 */
-    private fun markToolsSeen() {
-        prefs.edit().putString(KEY_TOOLS_SEEN, DEFAULT_ENABLED_TOOLS.joinToString(",")).apply()
-    }
-
     fun saveEnabledTools(names: Set<String>) {
         // 保存时同步刷新"见过的清单"：用户既然在设置页看到了全部开关，
         // 那"没勾的"就是他主动关的，不该在下次被当成新增工具又打开。
+        // ⛔ **只有这一处**写它 —— 读路径写盘就是上面那个"新工具自己变回关的"的 bug。
         prefs.edit()
             .putString(KEY_TOOLS, names.joinToString(","))
             .putString(KEY_TOOLS_SEEN, DEFAULT_ENABLED_TOOLS.joinToString(","))
@@ -246,22 +241,45 @@ class AiKeyStore(
     // --------------------------------------------- 通用读工具：允许读哪些模块
 
     /**
-     * 允许 AI 读的模块（`read_data` 工具的二级开关，见 [AiReadCatalog.modules]）。
+     * 允许 AI 读的模块（`read_data` 工具的二级开关，见 [AiReads.allModules]）。
      *
      * 与 [enabledTools] 同一套约定：**没有这个键** = 用户从没配过 → 默认全开；
      * **有键但是空串** = 用户主动全关 → 必须返回空集（不能悄悄变回全开）。
+     *
+     * ### 老白名单要补上"他保存时还不存在的模块"（2026-09-21 用户拍板，原话）
+     * 「ai 它要具备读取手机的地点的能力……**这个权限给它开啊**」—— 更新完就该能用，
+     * ⛔ 不许让老用户自己去设置页里翻出那个新开关。判据是 [KEY_READ_MODULES_KNOWN]：
+     * **保存白名单时把"当时的全部模块"一起记下来**，于是"现在有、保存时没有"的就是新增的，
+     * 补回白名单；而用户**明确关掉的**（保存时就有、他没勾）永远补不回来。
+     *
+     * 规则本身是纯函数 [AiReads.resolveEnabled]（三条语义各有单测 —— 这一层只有
+     * SharedPreferences，测不动）。这里只负责读写两个键。
      */
     fun enabledReadModules(): Set<String> {
-        val all = AiReadCatalog.modules().toSet()
+        // ⚠️ 是 `AiReads.allModules()`（后端模块 + **本机能力**的模块），不是 `AiReadCatalog.modules()`：
+        //    后者没有 `location` 这个键，于是"读手机定位"会被筛掉。没配过开关时它就少了这一块。
+        val all = AiReads.allModules().toSet()
         if (!prefs.contains(KEY_READ_MODULES)) return all
-        val raw = prefs.getString(KEY_READ_MODULES, "").orEmpty()
-        val set = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-        // 过滤掉不认识的模块名（模型/后端改过名），但允许合法地「一个都不开」
-        return set.intersect(all)
+        return AiReads.resolveEnabled(
+            saved = splitNames(prefs.getString(KEY_READ_MODULES, "")),
+            // ⚠️ 这个键在 = 白名单是"带标记"存的（能精确算出保存之后新出现的模块）；
+            //    不在 = **旧数据** → 传 null，由纯函数只补"本机能力"这一类（理由写在那儿）。
+            knownAtSave = if (prefs.contains(KEY_READ_MODULES_KNOWN)) {
+                splitNames(prefs.getString(KEY_READ_MODULES_KNOWN, ""))
+            } else {
+                null
+            },
+        )
     }
 
     fun saveEnabledReadModules(names: Set<String>) {
-        prefs.edit().putString(KEY_READ_MODULES, names.joinToString(",")).apply()
+        prefs.edit()
+            .putString(KEY_READ_MODULES, names.joinToString(","))
+            // 记下"保存的这一刻，一共有哪些模块"——以后新增的模块靠它认出来（见 [enabledReadModules]）。
+            // ⚠️ 与 [saveEnabledTools] 里那句 `KEY_TOOLS_SEEN` 同一个手法：**保存**时刷新，
+            //    而不是读的时候顺手刷（读时刷会让"新加的按默认开"只生效一次）。
+            .putString(KEY_READ_MODULES_KNOWN, AiReads.allModules().joinToString(","))
+            .apply()
     }
 
     // ------------------------------------------------------------- 长期记忆
@@ -521,6 +539,15 @@ class AiKeyStore(
         /** 通用读工具允许的模块（见 [enabledReadModules]）。 */
         private const val KEY_READ_MODULES = "enabled_read_modules"
 
+        /**
+         * 保存那份模块白名单的**那一刻**一共有哪些模块（判据见 [enabledReadModules]）。
+         *
+         * ⚠️ 只存一个"版本号"是不够的：存全集才能算出"保存之后**新出现的**模块"，
+         * 以后再加模块时不用重复踩"老用户装了没反应"这个坑（版本号只能救当次那一个）。
+         * 键缺失 = 旧数据（那时还没有标记）。
+         */
+        private const val KEY_READ_MODULES_KNOWN = "enabled_read_modules_known"
+
         /** 思考强度（字符串键，明文存；不是机密）。 */
         private const val KEY_THINKING_LEVEL = "thinking_level"
 
@@ -636,6 +663,37 @@ class AiKeyStore(
          */
         fun optInExclusion(role: AiRole?): Set<String> =
             if (role == AiRole.DISPATCHER) emptySet() else OPT_IN_TOOLS
+
+        /**
+         * 「用户存过的那份工具白名单」要怎么算成这次生效的工具。**纯函数、且不碰任何存储**。
+         *
+         * ### 为什么必须收成一处纯函数（2026-09-21）
+         * 这段逻辑原来埋在 [enabledTools] 里，而且会在**读**的时候顺手 `markToolsSeen()`
+         * 把"见过的清单"刷成当前全集 —— 那是一个**没有任何报错**的能力丢失：
+         * 新加的工具第一次读按默认打开（对的），副作用却把标记写成全集，
+         * 于是**下一次读**算出"没有新工具"，它又变回关的（用户看到"新功能时有时无"）。
+         * 现在：⛔ 这里与 [enabledTools] **一个字节都不许写盘**；"见过的清单"只在
+         * [saveEnabledTools] 保存时刷新（与 `AiReads.resolveEnabled` 那个模块白名单同形）。
+         *
+         * ### 三条语义（单测逐条钉着）
+         * 1. `saved` 为空 → **空**。老约定：空串 = 用户主动把开关**全关了**，不能悄悄变回全开
+         *    （这条以前是假话：`brandNew` 会把它重新填满）；
+         * 2. `seenAtSave == null`（**旧数据**：那份白名单是在"见过的清单"这个机制之前存的）→
+         *    按 [DEFAULT_ENABLED_TOOLS] 算"他都见过"。没有标记就分不出"他关掉的"和"当时还不存在的"，
+         *    而把用户**明确关掉**的工具重新打开（其中就有能改数据的 [AiTools.PREVIEW_WRITE]）
+         *    比"暂时少一个新工具"严重得多 —— 他下次一进设置页保存就自愈。
+         *    （镜像决定见 `AiReads.resolveEnabled` 的第 2 条：那边同样只补"能确定是后加的"那一类。）
+         * 3. `seenAtSave` 有值 → 补「现在默认集 − 保存时已知 − 这个角色排除的」= **保存之后新出现的**。
+         *
+         * @param saved 用户保存的那份（已 trim；**空集 = 他主动全关**）
+         * @param seenAtSave 保存那一刻"见过"的全部工具；**null = 旧数据 / 认不出来**
+         */
+        fun resolveEnabledTools(saved: Set<String>, seenAtSave: Set<String>?, role: AiRole?): Set<String> {
+            if (saved.isEmpty()) return emptySet()
+            val seen = seenAtSave ?: DEFAULT_ENABLED_TOOLS
+            val brandNew = DEFAULT_ENABLED_TOOLS - seen - optInExclusion(role)
+            return (saved + brandNew).intersect(DEFAULT_ENABLED_TOOLS)
+        }
 
         /**
          * 「允许 AI 查看成本与毛利」**没设置过**时的默认值（纯函数，可单测）。

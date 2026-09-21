@@ -64,3 +64,4 @@ _test_tools/*.tgz
 # 两者都是"跑一次生一次"，进库只会让仓库变大，还会在每次 `git status` 里干扰视线。
 .schemathesis/
 backend/exports/
+android/.kotlin/

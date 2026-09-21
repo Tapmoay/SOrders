@@ -64,7 +64,7 @@ object AiRolePrompt {
      */
     fun brief(
         actor: AiActor?,
-        readModules: Set<String> = AiReadCatalog.modules().toSet(),
+        readModules: Set<String> = AiReads.allModules().toSet(),
     ): String {
         val role = actor?.role
         val identity = when (role) {
@@ -158,17 +158,18 @@ object AiRolePrompt {
      */
     fun settingsSummary(
         actor: AiActor?,
-        readModules: Set<String> = AiReadCatalog.modules().toSet(),
+        readModules: Set<String> = AiReads.allModules().toSet(),
     ): String {
         if (actor == null) {
             return "当前没认出你的角色，AI 现在查不到也改不了任何业务数据——去「我的」页面重新登录一次。"
         }
-        // ⚠️ 必须翻成中文名（`AiReadCatalog.MODULE_CN`）。这里原来是 `action.substringBefore('.')`，
+        // ⚠️ 必须翻成中文名（`AiReads.moduleCn`：后端模块查生成目录、本机模块查 `AiLocalReads`）。
+        //    这里原来是 `action.substringBefore('.')`，
         //    也就是把 `arrears`、`cash_flows`、`driver_settlements` 这些**内部模块码**整段印给用户看——
         //    21 个英文词堆成一段，用户既读不懂也记不住。这和「回答里不许出现内部编号」是同一条规矩，
         //    只是当时漏在了设置页上。
         val reads = AiReads.forRole(actor, readModules)
-            .map { a -> a.action.substringBefore('.').let { AiReadCatalog.MODULE_CN[it] ?: it } }
+            .map { a -> a.action.substringBefore('.').let { AiReads.moduleCn(it) } }
             .distinct()
         val groups = AiWrites.forModel(actor).map { it.group }.distinct()
         // 用户 2026-09-17：「能用一两句话解决的事情就不要说那么多话。」

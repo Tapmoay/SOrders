@@ -35,7 +35,7 @@ internal object AiWriteBasicData {
                 textField("receiver", "收货人", "必填，如「张三」", required = true, maxChars = 32)
                     .copy(key = "receiver_name"),
                 textField("phone", "电话", "收货人电话", maxChars = 20),
-                textField("address", "终点地址", "必填，如「XX 路 65 号」", required = true, maxChars = 200)
+                textField("address", "终点地址", "必填，如「XX 路 65 号」" + HERE_HINT, required = true, maxChars = 200)
                     .copy(key = "detail_address"),
                 textField("origin", "起点地址", "可选。这是一条线路时才有起点", maxChars = 200)
                     .copy(key = "origin_address"),
@@ -69,7 +69,7 @@ internal object AiWriteBasicData {
                 // ⚠️ 参数名**不能叫 `address`**：那是目标参数的键（"用哪条地址去搜"）。
                 // 撞名之后目标解析和字段校验会读同一个键 → **拿搜索词当新地址写进去**。
                 // 这个 bug 是单测抓到的（见 AiWriteTest.改地址只发改的那几项）。
-                textField("detail", "新终点地址", "不改就不填", maxChars = 200).copy(key = "detail_address"),
+                textField("detail", "新终点地址", "不改就不填" + HERE_HINT, maxChars = 200).copy(key = "detail_address"),
                 textField("origin", "新起点地址", "不改就不填", maxChars = 200).copy(key = "origin_address"),
                 textField("remark", "新备注", "不改就不填", maxChars = 200),
             ),
@@ -185,7 +185,7 @@ internal object AiWriteBasicData {
             blurb = "新增一个地点（纯地址，不含人）。地点可以自由组合成线路的起点/终点。",
             fields = listOf(
                 textField("name", "地点名", "必填，如「东仓库」", required = true, maxChars = 64),
-                textField("address", "详细地址", "必填", required = true, maxChars = 200)
+                textField("address", "详细地址", "必填" + HERE_HINT, required = true, maxChars = 200)
                     .copy(key = "detail_address"),
                 textField("remark", "备注", "可选", maxChars = 200),
             ),
@@ -206,7 +206,7 @@ internal object AiWriteBasicData {
             targets = listOf(targetLocation()),
             fields = listOf(
                 textField("name", "新地点名", "不改就不填", maxChars = 64),
-                textField("address", "新地址", "不改就不填", maxChars = 200).copy(key = "detail_address"),
+                textField("address", "新地址", "不改就不填" + HERE_HINT, maxChars = 200).copy(key = "detail_address"),
                 textField("remark", "新备注", "不改就不填", maxChars = 200),
                 // 「把这个地点归到那一类」（用户 2026-09-19 点名的例子）。
                 // ⚠️ 名字必须**已经在自己那一份分组名册里**（先读 place_categories.list_categories）——

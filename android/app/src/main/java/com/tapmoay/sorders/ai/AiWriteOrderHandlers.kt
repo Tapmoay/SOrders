@@ -508,7 +508,13 @@ class CreateOrderHandler(
         // 送货地址换成坐标（高德地理编码，只读）。不查这一步的后果很具体：
         // 司机在订单详情点「高德导航」时，[openAmapNavigation] 拿到空坐标会退化成
         // "打开高德首页"——**没有目的地**，司机得自己把地址再手打一遍。
-        val geo = if (address.isNotBlank()) ds.geocode(address) else null
+        //
+        // 例外是「当前位置」句柄：那一条取的是**手机定位**（真实地址 + 精确坐标，
+        // 见 `AiWriteDataSource.resolveAddress`）——拿不到会当场抛一句"去开定位权限"的中文。
+        val geo = if (address.isNotBlank()) ds.resolveAddress(address) else null
+        // 写进 payload 的地址文字：句柄要换成**解析出来的真实地址**
+        // （不换的话地址库里、订单上、司机看到的都是「当前位置」四个字，而且不会报错）。
+        val addressText = geo?.address ?: address
 
         val total = lines.fold(BigDecimal.ZERO) { acc, l ->
             acc.add(BigDecimal(l.unitPrice).multiply(BigDecimal(l.quantity)))
@@ -528,7 +534,13 @@ class CreateOrderHandler(
                 add("———— 商品明细 ————")
                 lines.forEach { l -> add("· ${l.name}  ${l.quantity} × ${l.unitPrice} 元 = ${l.lineTotal} 元") }
                 add("合计：${AiWriteArgs.money(total)} 元")
-                if (address.isNotBlank()) add("送货地址：$address") else add("送货地址：没填（可事后在页面上补）")
+                if (geo != null && AiLocation.isHere(address)) {
+                    add("送货地址（用手机上当前的位置）：$addressText")
+                } else if (address.isNotBlank()) {
+                    add("送货地址：$addressText")
+                } else {
+                    add("送货地址：没填（可事后在页面上补）")
+                }
                 if (address.isNotBlank() && geo == null) {
                     add(
                         "⚠️ 这个送货地址没在地图上定位到：司机点「高德导航」时会落到高德首页，" +
@@ -554,10 +566,10 @@ class CreateOrderHandler(
                     if (shipper == null) put("temp_shipper_name", shipperRaw)
                 }
                 put("order_date", date.toString())
-                put("address_detail", address)
+                put("address_detail", addressText)
                 geo?.let {
-                    put(GEO_LAT, it.first.toString())
-                    put(GEO_LNG, it.second.toString())
+                    put(GEO_LAT, it.lat.toString())
+                    put(GEO_LNG, it.lng.toString())
                 }
                 put("contact_dongjia_phone", phoneDongjia)
                 put("contact_boss_phone", phoneBoss)
@@ -791,7 +803,10 @@ class UpdateOrderHandler(
         // 语义，**传 null 清不掉旧坐标**，于是"只改地址文字"会留下**上一条地址的坐标**——
         // 司机点「高德导航」会被带到旧地址，而且没有任何提示。定位不到就**不弹卡**。
         val newAddress = changes.firstOrNull { it.key == "address_detail" }?.to?.takeIf { it.isNotBlank() }
-        val geo = newAddress?.let { ds.geocode(it) }
+        // 「当前位置」在这里换成**真实地址 + 精确坐标**（拿不到会抛一句"去开定位权限"的中文，不弹卡）
+        val geo = newAddress?.let { ds.resolveAddress(it) }
+        // 卡片与 payload 都要用**解析后**的地址：句柄那四个字写进订单等于把收货地址废了
+        val newAddressText = geo?.address
         if (newAddress != null && geo == null) {
             throw AiWriteArgException(
                 "「$newAddress」在地图上定位不到，这单的地址先不改。" +
@@ -799,21 +814,26 @@ class UpdateOrderHandler(
                     "请让用户把地址说得更完整（带上城市和区/路名），或者回 App 用地图选点改一次。",
             )
         }
+        // 逐项值：地址那一项用解析后的文字，其余原样
+        fun valueOf(c: OrderChange): String = if (c.key == "address_detail") newAddressText ?: c.to else c.to
 
         return card(
             summary = "改单：${order.orderNo}（改 ${changes.size} 项）",
             details = buildList {
                 addAll(orderLines(order))
                 add("———— 改动 ————")
-                changes.forEach { c -> add("${c.cn}：${c.from.ifBlank { "（空）" }} → ${c.to}") }
+                changes.forEach { c -> add("${c.cn}：${c.from.ifBlank { "（空）" }} → ${valueOf(c)}") }
+                if (newAddress != null && AiLocation.isHere(newAddress)) {
+                    add("🧭 送货地址用的是手机上当前的位置（坐标取自这次定位，司机导航直达）")
+                }
                 if (newAddress != null) add("（送货地址换了，司机的导航目的地会跟着换）")
             },
             payload = buildJsonObject {
                 put("order_id", order.id)
-                changes.forEach { c -> put(c.key, c.to) }
+                changes.forEach { c -> put(c.key, valueOf(c)) }
                 geo?.let {
-                    put(GEO_LAT, it.first.toString())
-                    put(GEO_LNG, it.second.toString())
+                    put(GEO_LAT, it.lat.toString())
+                    put(GEO_LNG, it.lng.toString())
                 }
             },
         )

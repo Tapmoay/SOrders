@@ -20,6 +20,76 @@
 
 ## 进行中
 
+### [2026-09-21 12:2x →] 会话：**安卓模拟器安装白PP并登录司机账号**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**用户需求（原话）**：「ai它要具备读取手机的地点的能力因为 ai它是要具备所有功能…包括用户不是我们要去
+手动选地点吗？它也可以去选地点，这个权限给它开啊」＋「我们的版本号做一个正规化的处理」＋「我们那个线上
+的数据做一个真实的处理就是做一个一堆的测试数据…大概是3到4个月的数据而且是每个月，每天每周都是不一样的
+是数量是有多有少」。
+
+**A. AI 读定位 + 按当前位置选点（我）**
+- 新增 `ai/AiLocalReads.kt`（**本机读能力的唯一声明处**：`location.current` 等；复用机器生成的
+  `ReadAction` 数据类，`path` 留空＝本机能力）＋ `ai/AiLocation.kt`（取一次定位 → 逆地理 → **只给地址文字**）
+- 新增测试 `android/app/src/test/.../ai/AiLocalReadsTest.kt`
+- 改 `ai/AiReads.kt`（本机能力并进 `forRole` / `describeForModel`）、`ai/AiReadService.kt`（本机能力的执行分支）、
+  `ai/AiWriteService.kt`（把「当前位置」句柄解析成真实地址+坐标）、`ai/AiWrite.kt`（地址类动作参数说明）、
+  `ai/AiContainer.kt`（注入定位提供者）
+- ⛔ **不改**机器生成的 `ai/AiReadCatalog.kt` 与 `_tools/ai/_gen_ai_read_catalog.py`（本机能力没有后端端点，
+  不进那份生成目录 —— 否则 `--check` 必红）；⛔ **模型全程仍然碰不到经纬度**（坐标只在 App 内部按句柄换）
+- 红线：`_tools/ai/_check_ai_guardrails.py` 追加判据；`_tools/ai/_probe_read_roles.py` 排除本机能力
+
+> **A ✅ 已完成**（子会话，2026-09-21 05:0x）。落地的文件与上面那份清单**基本一致**，两处偏差：
+> ① 写侧没有走 `AiWriteService.prepare` 手改 payload，而是收在 **`AiWriteDataSource.resolveAddress`**
+> 一处（三个地址入口——声明式 `geocodeFrom` 族 / 下单 / 改单——共用它，少一个入口就会把**字面量
+> 「当前位置」**写进地址库且不报错）；② 反向验证另开了 **`_tools/ai/_reverse_verify_local_reads.py`**
+> （9 条注入全红）。
+> **验证**：`_check_all.py` **53/53** · 红线 `_check_ai_guardrails.py` **1163/1163**（新增 33 项，
+> 段号 `== 2b-3.`、`== 2b-4.` 与工具那节的"读路径不许写盘"）· 单测 `AiLocalReadsTest` **24 例**
+> ＋ `AiEnabledToolsTest` **6 例**（含"输出里没有坐标键/小数坐标串"、"句柄一次地理编码都不走"、
+> "三种失败各给一句话且都不编地址"、"角色+模块两道门"、"老白名单补新模块的三条语义"、
+> "连着读两次，第二次新工具还在"）· 全量单测 `testEmuDebugUnitTest` **973 用例 / 0 失败** ·
+> `_gen_ai_read_catalog.py --check` 与 `_ai_doc_check.py` 绿 · `_write_coverage.py --check` 0 缺口 ·
+> 反向验证 `_reverse_verify_local_reads.py` **11/11**。
+>
+> **同日返工（父会话验收后提的第 4 条）**：用户拍板「**这个权限给它开啊**」→ 老白名单必须自动补上
+> 新模块，但**用户明确关掉的要记住是关**。做法与 `AiKeyStore.enabledTools` 那条"见过的清单"同源：
+> 保存白名单时把**当时的全部模块**一起记下来（新键 `enabled_read_modules_known`），读的时候
+> `saved ∪ (现在全集 − 保存时已知)`；标记缺失（旧数据）只补 `AiLocalReads.MODULES` 这一类。
+> 合并规则收成纯函数 **`AiReads.resolveEnabled`**（`AiKeyStore` 那层只有 SharedPreferences，测不动）。
+> ⚠️ 一处**刻意保守的偏差**：`saved` 为空时**不补**（老约定"空串 = 主动全关"；拿它当枚举去补
+> 等于把用户关掉的又打开，而这次关的是**隐私**）。
+> 敏感性实验（先证明测试抓得住）：把标记逻辑去掉 → 单测 `更新之后明确关掉手机定位，必须记住是关的`
+> **当场红**（报"他关掉的又自己开了：[…]"），按字节还原即绿。
+> ⚠️ 上面那条"顺带发现"**已在同一轮修掉**（父会话验收后提的第 ② 条）：用户原话
+> 「ai 它是要具备**所有功能**」，而那个 bug 让新加的工具**只有第一次读是开的** ——
+> 读的时候顺手 `markToolsSeen()` 把"见过的清单"刷成当前全集，第二次读就算出"没有新工具"，
+> 于是它又变回关的（静默、不报错）＝ AI 悄悄丢能力。改法：合并规则收成纯函数
+> **`AiKeyStore.resolveEnabledTools(saved, seenAtSave, role)`**（只读、可单测）；`enabledTools()`
+> **只读不写**（两处 `markToolsSeen()` 与那个私有函数都删了）；"见过的清单"只在
+> `saveEnabledTools` 保存时刷新（与 `saveEnabledReadModules` 同形）。
+> 语义：没配过 → 按角色默认；`seenAtSave` 有值 → 补"保存之后新出现的"（该角色排除的除外）；
+> **用户明确关掉的永远不自动开**。
+> ⚠️ 与上面"空集不补"同源的**第三处保守偏差**：`seenAtSave == null`（旧数据：那份白名单存于
+> "见过的清单"机制之前）时按"他都见过"算 —— 宁可暂时少给新工具（他进一次设置页保存就自愈），
+> 也不把用户明确关掉的工具又打开（其中有能改数据的 `preview_write`）。
+> 证据：单测 `AiEnabledToolsTest` **6 例**（含"连着读两次，第二次新工具还在"）＋红线 4 项
+> （读路径不许写盘 / 合并规则是那处纯函数 / 读侧走它 / 旧数据按"他都见过"算）＋反向验证 **11/11**。
+> ⚠️ **留给下一个人一条（与本轮无关，未改）**：`_probe_read_roles.py` 有 **1 条对不上** ——
+> `return_requests.list_my_return_requests` 在**派单员**下「实际 200 / 目录声明不可用」。
+> 原因是它挂在权限点 `ORDER_RETURN_REQUEST` 上，而 `rbac` 对派单员**一律放行**；目录的角色
+> 推导给的是 `['shipper']`。属退货申请那条线，父会话已说**由他单独找用户拍板**（我本轮没动它）。
+
+**B. 版本号正规化（我）**
+- `VERSION`（产品版本唯一来源，现 0.2.0）、`android/app/build.gradle.kts`（versionName 取 VERSION；
+  versionCode 保持日期式但**同日自动递增**）、`_tools/deploy/publish_apk.py`、`_tools/deploy/check_phone_apk.py`、
+  `_tools/deploy/_check_update_flow.py`、`docs/APP_UPDATE_AND_RELEASE.md`
+
+**C. 生产造数：3~4 个月真实感数据（我）**
+- `backend/scripts/seed_demo_data.py`（现 90 天 → 3~4 个月；月/周/日数量要有起伏）
+
+**明确不碰**：`ui/dispatcher/*`、`ui/common/*`、`ui/shipper/*`、`ui/driver/*`、`backend/app/*`
+（本轮不需要动它们）。另一个会话（`session-faa17a77`）最后提交在 09:03，现在没在写。
+
 ### [2026-09-21 03:1x →] 会话：**全库「精简 + 优化 + 修 bug」专项**（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
 **用户需求（原话）**：「删除掉冗余代码或者说是精简代码还有在逻辑方面上，我们是否可以再精简一点，
@@ -1782,6 +1852,52 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+
+### [2026-09-21 12:1x → 12:2x] 会话：把后端发到生产（补上落后 72 个提交）【已完成】
+
+**用户授权原话**：「我连接了手机调试你可以截图看一下什么问题」＋拍板「**发，先备份库再发**」。
+
+**问题（已查实）**：手机上派单员「退货申请」页显示红字 `Not Found`（截图
+`D:\AProjects\ppppppppppppp\logs\手机-现状.png`）。手机 App 连的是**生产 `https://8.145.40.22`**
+（logcat `SOrdersSock: CONNECTED to https://8.145.40.22`），而生产后端停在 `810cec9`
+（部署时间 **2026-09-19 16:32**），落后本地 `p` **72 个提交**：`GET /api/v1/return-requests`、
+`GET /api/v1/freight-categories` 在生产上都是 **404**，而 `orders` / `notifications` /
+`driver-billing-rules` 是 **401**（端点存在、只是没带 token）。App 把 404 的 `detail` 原样显示
+（`core/ApiClient.kt::parseDetail`），所以屏幕上就是那行英文 `Not Found` —— 用户读成"连接失败/没找到"。
+模拟器连的是本机后端 `10.0.2.2:8000`（`/proc/net/tcp` 证实），本机有这些端点 → **同一页在模拟器上完全正常**。
+**结论：代码没问题，是「App 发了新版、后端没发版」。**
+
+**做了什么（一行源码都没改）**：
+1. 前置闸门：`_check_secrets.py` 绿（跟踪文件无凭据）；`cd backend && pytest -q` → **685 passed**；
+   `git rev-list --count origin/new..p` = 36 且 `origin/new` 是 `p` 的祖先 → 可 fast-forward。
+2. 备份（在 `/root`）：`backup-sorders-deploy-20260921-1215.sql.gz`（gzip 校验通过、1082 行、14 条 INSERT）
+   ＋ `SOrders-backend-20260921-1215.tgz`（1.4M）。
+3. `git push origin p:new`（本地 `p` → 远端 `new`，`be84921..5794deb`）；
+   服务器 `git -C /opt/SOrders fetch && git merge --ff-only origin/new` → 到 `5794deb`。
+4. `systemctl restart sorders-api`：启动期 `schema_bootstrap` 迁移**全部成功**
+   （places.image_urls/image_url、order_products.returned_quantity、orders.returned_at、
+   `orders.status` 补 RETURNED、`ledgers.source` 补 RETURN、expenses.category 放宽到 32、
+   开销分类中文化并回填、orders.freight_category(_id)、driver_billing_rules.piece_mode），
+   `NRestarts=0`、`ActiveState=active`，**没有崩**。
+5. 验收：新端点全部从 404 变 **401**（存在）；真实派单员登录后
+   `return-requests?status=pending|all` → **200**、`freight-categories` → **200**、`orders` → **200**；
+   表 27 → **39**（order_return_requests/_lines、freight_categories、expense_categories、
+   place_categories、shipper_settlements、product_cost_history 都建出来了）；
+   原有数据一条没少（orders 9 / ledgers 7 / users 4）。
+6. **手机端实地验收**：`工作台 → 退货申请` → 「没有待处理的退货申请。」（不再是 `Not Found`），
+   截图 `logs/手机-退货申请-发版后.png`。
+
+**回滚路径（没用到）**：代码 `git -C /opt/SOrders checkout 810cec9` + `systemctl restart sorders-api`；
+数据用 `/root/backup-sorders-deploy-20260921-1215.sql.gz` 还原。
+
+**生产上没碰**：`.env`、`backend/.venv/`、`backend/uploads/`、`/etc/nginx/`（前三个 `.gitignore` 已忽略，
+`git merge` 不会动；nginx 这次不需要改）。
+
+**给下一个人的两条**：① ⚠️ **发版之后「生产 = `5794deb`」** —— 之后任何人在本地改的后端**都不会自动上线**，
+要再发一次（后端没有自动发布脚本，`_tools/deploy/` 只有 APK 那条链）。② 生产**只有 4 个账号 / 9 张单**，
+是演示冒烟实例，不是真实业务数据 —— 所以这次发版风险低，但也别拿它当"数据没问题"的证据。
+
+**交叉点**：本轮不改任何共享源码文件，无交叉。仅动了本文件（追加＋归档）。
 
 ### [2026-09-21 00:3x → 00:5x] 会话：修「订单列表 500」（freight_category NULL 毒化）【已完成】
 

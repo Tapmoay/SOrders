@@ -75,6 +75,12 @@ READ_METHODS = {
     "driverBills", "driverSettlements", "monthlyFreight",
     # 地理编码：查的是**高德**，不碰 SOrders 后端，所以是读（v3.24）
     "geocode",
+    # 「当前位置」句柄（2026-09-21）：认的也是**本机定位 + 高德**，一个后端请求都不发。
+    # ⚠️ 为什么必须在这一组里：`prepare` 里调它才拿得到真实地址与精确坐标（写进 payload 和卡片）；
+    #    判成"写"就只能把它挪出 prepare —— 那样卡片上印的会是字面量「当前位置」，
+    #    而司机导航到一个叫"当前位置"的地方（详见 `AiLocation`）。
+    #    真正写库的是各动作自己的 commit（那一条完全不受影响）。
+    "resolveAddress",
     # 共享地点（2026-09-20「补导航」用）：`places` 是那张全库共用的地点名册（`GET /places`），
     # `placeById` 是在它里面按编号取一条（拿坐标）。两个都是读 —— 补导航那个动作
     # **写**的是 `fillOrderNavigation`（不在白名单里，默认受"prepare 里不许写"的约束）。
@@ -491,6 +497,27 @@ def main() -> int:
         r"brandNew = DEFAULT_ENABLED_TOOLS - seen - optInExclusion\(role\)",
     )
     c.present("保存时刷新「见过的工具」清单", ks, r"KEY_TOOLS_SEEN, DEFAULT_ENABLED_TOOLS\.joinToString")
+
+    # ---- 2c-1 工具开关的读路径不许写盘（2026-09-21 修的静默丢能力）----
+    #
+    # `enabledTools()` 原来在**读**的时候顺手 `markToolsSeen()` 把"见过的清单"刷成当前全集：
+    # 新加的工具**只有第一次读是开的**，第二次读就算出"没有新工具"→ 又变回关的。
+    # 静默、不报错、日志里什么都没有 —— 而用户这一轮的原话正是
+    # 「ai 它是要具备**所有功能**」，那个 bug 恰好让 AI 悄悄丢能力。
+    # 判据两条：① 读路径那一段里**不许出现任何写盘**；② 合并规则收成一处纯函数（它也不写盘）。
+    c.absent(
+        "工具开关的读路径不许写盘（这就是「新加的工具过一会儿自己变回关的」的根因）",
+        block_between(ks, "fun enabledTools(", "fun saveEnabledTools("),
+        r"prefs\.edit\(|markToolsSeen\(",
+    )
+    c.present("白名单的合并规则收成一处纯函数（只读、可单测）",
+              ks, r"fun resolveEnabledTools\(saved: Set<String>, seenAtSave: Set<String>\?, role: AiRole\?\)")
+    c.present("读侧走那条纯函数（而不是在 enabledTools 里再算一遍）", ks, r"return resolveEnabledTools\(")
+    c.present(
+        "旧数据（认不出他见过什么）按「他都见过」算，不把他明确关掉的又打开",
+        ks,
+        r"val seen = seenAtSave \?: DEFAULT_ENABLED_TOOLS",
+    )
 
     # ============================================================== 2b/2e 写操作
     print("\n== 2d. 写数据：模型只能申请，落库必须由用户在界面上点 ==")
@@ -1592,6 +1619,96 @@ def main() -> int:
         r"没验成：探针退出码",
     )
 
+    # ---- 2b-3 本机能力：读手机定位 + 按当前位置选点（2026-09-21）----
+    #
+    # 用户原话：「ai 它要具备读取手机的地点的能力，因为 ai 它是要具备所有功能…包括用户不是我们
+    # 要去手动选地点吗？它也可以去选地点，**这个权限给它开啊**」。
+    #
+    # 这一族坏掉的五种方式**一种都不会报错**，所以逐条钉（每条都想清楚了"哪种改法会让它红"）：
+    #   ① 坐标泄漏进模型上下文（本仓第一条硬规矩）；
+    #   ② 本机能力混进机器生成的目录（生成器一跑就抹掉；`_probe_read_roles.py` 还会拿空路径打后端）；
+    #   ③ 它绕开角色或模块那两道门（定位是隐私，用户必须关得掉）；
+    #   ④ 句柄「当前位置」落到地理编码那条路（地址文字是逆地理出来的，再正向查一次会漂点）；
+    #   ⑤ 参数说明里承诺了句柄、动作却不解析它（字面量被写进地址库）。
+    print("\n== 2b-3. 本机能力（读手机定位）==")
+    local_reads = read(AI / "AiLocalReads.kt")
+    loc_kt = read(AI / "AiLocation.kt")
+    wcrud = read(AI / "AiWriteCrudHandlers.kt")
+    wbdata = read(AI / "AiWriteBasicData.kt")
+    c.present("本机能力有一处手写声明（不进机器生成的那份）", local_reads, r"object AiLocalReads")
+    c.present("靠 path 为空区分本机能力（不给 ReadAction 加字段：生成器一跑就没了）",
+              local_reads, r'path = "",')
+    c.absent("机器生成的目录里不许出现本机能力", catalog_kt, r"location\.current")
+    c.absent(
+        "生成器里也不许塞本机能力（它没有后端端点，`--check` 必红）",
+        read(Path(__file__).resolve().parent / "_gen_ai_read_catalog.py"),
+        r"location\.current",
+    )
+    c.present(
+        "实测对账脚本会挡掉「本机能力混进生成目录」（那种条目没有后端端点可打）",
+        read(Path(__file__).resolve().parent / "_probe_read_roles.py"),
+        r"本机能力不该出现在这份生成目录里",
+    )
+    # ① 坐标绝不进模型可见的输出
+    # ⚠️ 这三条走 `strip_comments`：判据是**代码**形状的，而这些文件的注释里恰好要写清
+    #    "为什么不用系统定位 / 为什么坐标不外泄"（连注释一起扫就会假红，假红迟早被人改松）。
+    c.absent("本机读能力那一份里不许出现经纬度（只回地址文字）",
+             strip_comments(local_reads), r"\blat\b|\blng\b|latitude|longitude")
+    c.present("执行侧认「path 为空」走本机分支（不拼 URL、不碰 Retrofit）",
+              reader, r"if \(action\.path\.isBlank\(\)\) return AiLocalReads\.run\(")
+    # ② 与后端表同一道门（角色 + 模块）
+    c.present("角色与模块的过滤只看合起来的那一份清单", reads, r"return allActions\(\)\.filter \{")
+    c.present("模块白名单含本机模块（否则开关根本不存在、能力被静默过滤掉）",
+              keystore, r"val all = AiReads\.allModules\(\)\.toSet\(\)")
+    c.present("设置页按同一份模块清单列开关", settings_vm, r"AiReads\.allModules\(\)\.filter \{ it in mine \}")
+    c.present("说明里标出「本机」（不标模型会拿它当一张地址表）", reads, r"〔本机")
+    # ③ 写侧：句柄的解析只有一处，且两条路都不许漂点
+    c.present("句柄的解析只有一处（三个地址入口共用同一条分叉）",
+              wsvc, r"AiLocation\.resolveAddress\(text, provider = null, geocode = \{ geocode\(it\) \}\)")
+    c.present("生产实现把定位提供者接进去",
+              wsvc, r"AiLocation\.resolveAddress\(text, locationProvider\(\), geocode = \{ geocode\(it\) \}\)")
+    c.present("先问权限再发起定位（没授权时高德一个回调都不会有）",
+              loc_kt, r"if \(!provider\.permitted\(\)\) throw AiWriteArgException\(NO_PERMISSION\)")
+    c.present("高德失败值 (0,0) 复用全仓唯一那份判据挡掉", loc_kt, r"SunLocation\.isPlausible\(p\.lat, p\.lng\)")
+    c.absent("导航坐标不许退到系统定位（WGS84 在国内差几百米，界面上看不出来）",
+             strip_comments(loc_kt), r"DeviceLocation")
+    c.present("一定有超时（高德回调不保证回来，卡住＝用户以为 AI 死了）",
+              loc_kt, r"withTimeoutOrNull\(TIMEOUT_MS\)")
+    c.present("串行：同一时刻只允许一次定位在飞", loc_kt, r"lock\.withLock")
+    c.present("先订阅再发起（SharedFlow 无 replay，反了就是每次都超时且不报错）",
+              loc_kt, r"CoroutineStart\.UNDISPATCHED")
+    c.absent("定位那一份不打日志（坐标不进日志）", strip_comments(loc_kt), r"Log\.[diwe]\(")
+    c.ok(
+        "地址类参数的提示里给了句柄（不写的话模型只会编一个地址）",
+        wbdata.count("+ HERE_HINT") >= 4,
+        f"实际 {wbdata.count('+ HERE_HINT')} 处",
+    )
+    # ④ 地址栏写的是解析后的那一份文字
+    c.present("句柄解析出来的真实地址要写在卡上（用户核对不了就等于没核对）",
+              wcrud, r"private fun hereNote\(")
+
+    # ---- 2b-4 老白名单要补上"他保存时还不存在的模块"（2026-09-21 用户拍板）----
+    #
+    # 用户原话：「ai 它要具备读取手机的地点的能力……**这个权限给它开啊**」——
+    # 更新完就该能用，⛔ 不许让老用户自己去设置页里翻出那个新开关。
+    # 三条语义由单测逐条钉着（`AiLocalReadsTest` ⑦ 那一节：默认开 / 老数据补上 / 明确关掉要记住）；
+    # 这里钉**源码形状** —— 少任何一条，"老用户装了没反应"就会静默复发
+    # （本仓在 `enabledTools` 上已经栽过一次：记忆功能就这样哑了）。
+    print("\n== 2b-4. 老白名单补新模块 ==")
+    c.present("合并规则收在一处纯函数（`AiKeyStore` 那层只有 SharedPreferences，测不动）",
+              reads, r"fun resolveEnabled\(saved: Set<String>, knownAtSave: Set<String>\?\)")
+    c.present("『保存之后新出现的模块』由标记算出来（= 现在全集 − 保存时已知）",
+              reads, r"knownAtSave\?\.let \{ all - it \}")
+    c.present("旧数据（没有标记）只补本机能力这一类（后端模块分不出关掉的与当时还没有的）",
+              reads, r"\?: AiLocalReads\.MODULES\.toSet\(\)")
+    c.present("空集按老约定当『全关』，不许被当成枚举去补新模块（否则是把用户关掉的又打开）",
+              reads, r"if \(saved\.isEmpty\(\)\) return emptySet\(\)")
+    c.present("保存白名单时记下『当时的全部模块』",
+              keystore, r'putString\(KEY_READ_MODULES_KNOWN, AiReads\.allModules\(\)\.joinToString\(","\)\)')
+    c.present("读白名单时把标记一起读出来（旧数据没有它 → null）",
+              keystore, r"knownAtSave = if \(prefs\.contains\(KEY_READ_MODULES_KNOWN\)\)")
+    c.present("读侧走那条纯函数（而不是自己 intersect 一份）", keystore, r"AiReads\.resolveEnabled\(")
+
 
     print("\n== 3. 最终答复必须过净化器 ==")
     c.present("思考过程过净化器", loop, r"AiEvent\.Reasoning\(AiAnswerSanitizer\.clean")
@@ -2261,10 +2378,20 @@ def main() -> int:
     c.present("拒绝的话必须说清会被带到上一版的位置去", crud_h, r"上一版")
     # ④ 新建类：定位失败写在卡上
     c.present("新建类定位失败时后果写在卡片上", crud_h, r"private fun geoNote\(")
-    c.present("订单的送货地址也换坐标", worder, r"val geo = if \(address\.isNotBlank\(\)\) ds\.geocode\(address\)")
+    # ⚠️ 2026-09-21 **锚点搬到新位置**（原判据找的是 `ds.geocode(address)`）：
+    #    订单的送货地址现在走 `resolveAddress` —— 它多认一个句柄「当前位置」（取手机定位，
+    #    真实地址 + 精确坐标一起回来，见 `AiLocation`）。判据的**原意不变**（"订单的送货地址也换坐标"），
+    #    只是换到了新的调用名上；⛔ 不是删掉它，删了这条就再没人守。
+    c.present("订单的送货地址也换坐标", worder, r"val geo = if \(address\.isNotBlank\(\)\) ds\.resolveAddress\(address\)")
     c.present("订单卡片写明导航会落到高德首页", worder, r"高德首页")
     # 订单 create 的坐标必须进 payload（漏了就是"查了但没发出去"）
-    c.present("订单 create 把坐标放进 payload", worder, r"put\(GEO_LAT, it\.first\.toString\(\)\)")
+    # ⚠️ 同上：`it.first` → `it.lat`（解析结果从 `Pair` 换成了带地址的 `AiPlace`）。
+    c.present("订单 create 把坐标放进 payload", worder, r"put\(GEO_LAT, it\.lat\.toString\(\)\)")
+    # 新增（2026-09-21）：地址栏写的必须是**解析后**的文字 —— 句柄那四个字写进订单
+    # 等于把收货地址废了（而且不报错：库里、单上、司机看到的都是「当前位置」）。
+    c.present("订单 create 写的是解析后的地址（不是「当前位置」四个字）",
+              worder, r'put\("address_detail", addressText\)')
+    c.absent("订单 create 不许把模型给的原文直接写进地址栏", worder, r'put\("address_detail", address\)')
     # 反向验证：改红线编号会红
     c.present(
         "这一节有反向验证脚本",

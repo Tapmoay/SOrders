@@ -12,7 +12,6 @@ import com.tapmoay.sorders.ai.AiMemories
 import com.tapmoay.sorders.ai.AiMemoryItem
 import com.tapmoay.sorders.ai.AiProvider
 import com.tapmoay.sorders.ai.AiProviders
-import com.tapmoay.sorders.ai.AiReadCatalog
 import com.tapmoay.sorders.ai.AiReads
 import com.tapmoay.sorders.ai.AiTools
 import com.tapmoay.sorders.ai.ChatMessage
@@ -489,16 +488,19 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         //    同一页的工具开关一直是按角色裁的（`AiTools.settingsItems(ai.currentActor)`），
         //    只有这一块漏了；`AiRolePrompt.settingsSummary` 又是裁过的，所以顶上的能力摘要
         //    和下面的列表会对不上（摘要说 12 类、列表列 21 个）。
-        val mine = AiReads.forRole(ai.currentActor, AiReadCatalog.modules().toSet())
+        val mine = AiReads.forRole(ai.currentActor, AiReads.allModules().toSet())
             .map { it.action.substringBefore('.') }
             .toSet()
-        AiReadCatalog.modules().filter { it in mine }.forEach { m ->
+        // ⚠️ 遍历的也是 `AiReads.allModules()`（含**本机能力**的模块）：`AiReadCatalog.modules()`
+        //    里没有 `location`，用它遍历的后果是"定位这个开关根本不存在" ——
+        //    而定位是全套读能力里最该给用户一个开关的那一个（隐私）。
+        AiReads.allModules().filter { it in mine }.forEach { m ->
             // 说明用「这个模块下有哪些表」，比写一句笼统的话有用得多
-            val hint = AiReadCatalog.actionsOf(m).joinToString("；") { it.cn.substringBefore("（") }
+            val hint = AiReads.actionsOf(m).joinToString("；") { it.cn.substringBefore("（") }
             readModules.add(
                 AiReadModuleToggle(
                     module = m,
-                    title = AiReadCatalog.MODULE_CN[m] ?: m,
+                    title = AiReads.moduleCn(m),
                     hint = hint,
                     enabled = m in on,
                 ),

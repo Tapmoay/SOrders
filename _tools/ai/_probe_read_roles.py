@@ -71,12 +71,22 @@ def main() -> int:
         return 2
 
     bad = 0
+    skipped = 0
     for role in ("dispatcher", "shipper", "driver"):
         tok = tokens[role]
         if not tok:
             continue
         print(f"\n== {role} ==")
         for a in sorted(cat["actions"], key=lambda x: x["action"]):
+            # ⚠️ **本机能力不该出现在这份生成目录里**（"读手机定位"这类查的是这台手机，
+            #    没有后端端点）：拿空路径去打后端只会得到 404，而下面 `reachable = code != 403`
+            #    会把 404 判成"门是通的" —— 于是一条本机能力被静默算成"后端读端点实测通过"。
+            #    它们的唯一声明处是 `android/.../ai/AiLocalReads.kt`（`path` 留空），
+            #    由 `_check_ai_guardrails.py` §2b-3 守着。这里**跳过**它们，不去发那个请求。
+            if not str(a.get("path", "")).startswith("/api/v1/"):
+                print(f"  -- {a.get('module')}.{a.get('action')} 跳过（本机能力，没有后端端点）")
+                skipped += 1
+                continue
             q = "&".join(f"{k}={v}" for k, v in DUMMY.items() if any(p["name"] == k for p in a["params"]))
             code = call(f"{args.base}{a['path']}" + (f"?{q}" if q else ""), tok)
             declared = role in a["roles"]
@@ -87,6 +97,8 @@ def main() -> int:
             name = f"{a['module']}.{a['action']}"
             print(f"  {flag}{name:44s} 实际 {code} / 声明 {'可用' if declared else '不可用'}")
     print()
+    if skipped:
+        print(f"（跳过了 {skipped} 条本机能力：没有后端端点可打 —— 见上面的说明）")
     if bad:
         print(f"❌ {bad} 条对不上：改 `_tools/ai/_gen_ai_read_catalog.py` 的角色推导，或修后端守卫。")
         return 1

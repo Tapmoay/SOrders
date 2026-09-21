@@ -124,6 +124,13 @@ class AiTools(
      */
     private val memberProvider: () -> Boolean = { false },
     /**
+     * **本机能力**的定位提供者（`read_data` 的 `location.current`，见 [AiLocalReads]）。
+     *
+     * 与 [memberProvider] 同样是回调：定位权限随时可能被系统撤掉，每次执行时现读。
+     * 默认 `null` = 这个环境没有定位能力（单测），效果是**如实说读不到**，不是编一个地址。
+     */
+    private val locationProvider: () -> AiLocationProvider? = { null },
+    /**
      * 「写操作」的落点：**申请**执行一个会改动业务数据的操作（见 [AiWriteService]）。
      *
      * 注意签名里没有"确认"这个参数——**模型无法确认自己的申请**。它调用这个回调只会
@@ -141,7 +148,7 @@ class AiTools(
 
     /** 通用「读列表」服务（`read_data` 工具的实现，见 [AiReadService]）。 */
     private val reader: AiReadService by lazy {
-        AiReadService(repo, readModules, allowCostProvider, { actor() })
+        AiReadService(repo, readModules, allowCostProvider, { actor() }, locationProvider)
     }
 
     /**

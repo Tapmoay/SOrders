@@ -1007,6 +1007,20 @@ internal const val GEO_LAT = "address_lat"
 internal const val GEO_LNG = "address_lng"
 
 /**
+ * 地址类参数**给模型的一句提示**：用户说的是"我现在在的地方"时，就填 [AiLocation.HERE] 那四个字。
+ *
+ * ### 为什么必须写在参数说明里
+ * 模型看不到 [CrudSpec.geocodeFrom]、也看不到 [AiLocation] —— 它只照参数说明写字。
+ * 不写这句，用户说「送到**我现在的位置**」时它只能编一个地址（或者说一句"我做不到"），
+ * 而这个能力明明已经在（2026-09-21 用户：「这个权限给它开啊」）。
+ *
+ * ⛔ **只有真的会解析这个句柄的参数才许带这句话**：带了却没解析的动作，会把字面量
+ *    「当前位置」写进地址库 —— 不报错，而司机导航到一个叫"当前位置"的地方。
+ *    判据钉在 `_check_ai_guardrails.py`（说了能填句柄的动作必须有 `geocodeFrom`）。
+ */
+internal val HERE_HINT = "；要用户**现在所在的地方**就填「${AiLocation.HERE}」四个字（别自己编地址）"
+
+/**
  * 写动作注册表（**编译期定死**，模型只能在这些里选）。
  *
  * ### 准入条件（三条全中才能加进来）
@@ -1463,7 +1477,7 @@ object AiWrites {
                 ),
                 AiWriteParam(
                     "address", "送货地址",
-                    hint = "可选。用户说了就填；没说就留空（他能在页面上补）",
+                    hint = "可选。用户说了就填；没说就留空（他能在页面上补）" + HERE_HINT,
                 ),
                 AiWriteParam("date", "下单日期", kind = AiWriteParamKind.DATE, hint = "YYYY-MM-DD；不填默认今天"),
                 AiWriteParam("name_dongjia", "收货人名称", hint = "可选。到现场接货的人叫什么"),
@@ -1534,7 +1548,7 @@ object AiWrites {
                     hint = "必填，订单号；不确定就先查一下",
                 ),
                 AiWriteParam("delivery", "送达说明", hint = "可选。送给客户/司机看的说明"),
-                AiWriteParam("address", "送货地址", hint = "可选。改完司机会按新地址跑"),
+                AiWriteParam("address", "送货地址", hint = "可选。改完司机会按新地址跑" + HERE_HINT),
                 AiWriteParam("dongjia_name", "收货人名称", hint = "可选。到现场接货的人叫什么"),
                 AiWriteParam("dongjia_phone", "收货人电话", hint = "可选。收货方联系人电话"),
                 AiWriteParam("boss_name", "下单人名称", hint = "可选。下这一单的人叫什么"),
