@@ -48,7 +48,7 @@ private val CATEGORY_ROW_HEIGHT = 68.dp
  * 原话：「商品分类的排序不是按个按钮进行排序。我们可以选择数字排序，比如说把这个编号
  * 0/1/2/3 进行排序，也可以长按这个卡片进行拖动，也就是长按显示进行拖动，进行手动排序」。
  *
- * 两种方式**共用同一处排序逻辑**（`ProductCategoriesViewModel.moveTo` ← `moveCategoryTo`）：
+ * 两种方式**共用同一处排序逻辑**（`ProductCategoriesViewModel.moveTo` ← `ui/common/CategoryRoster.kt::moveItemTo`）：
  * - **长按拖动**：按住行的名称区（或右边的 `⠿` 手柄）拖，划过半行就换位，
  *   松手前一直能拖回来；开始拖时有一次振动反馈（不然"到底抓住了没有"要靠眼睛猜）。
  * - **填数字**：左边那个序号框可以直接改成想去的位次（填 0 或超过总数会被夹到两端）。

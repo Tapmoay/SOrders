@@ -1,57 +1,14 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
-import com.tapmoay.sorders.data.repo.toApiException
-import com.tapmoay.sorders.ui.common.orderChanged
-import com.tapmoay.sorders.ui.common.revertedOrder
-import com.tapmoay.sorders.ui.common.submittableIds
+import com.tapmoay.sorders.ui.common.CategoryRosterViewModel
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
 
-/**
- * 把 [id] 那一项挪到第 [position] 位（**1-based**；0 与越界都夹到两端）。**纯函数，有单测。**
- *
- * 拖动与"填数字"两种排序**共用这一处** —— 两条路只是"目标位置"的来源不同，
- * 到位之后做的事一模一样。抽成顶层函数是为了能被单测直接调：
- * 藏在 ViewModel 里就只能靠模拟器点，而这里恰好是最容易写错一格的地方。
- *
- * ⚠️ 没变化时**原样返回同一个列表实例**（调用方靠这个判断要不要写回状态）。
- */
-/**
- * 「把第 N 位那一条抽出来插到第 M 位」—— **商品的分类与地点的分组共用这一份**。
- *
- * 用户 2026-09-19 要求地点分组直接复用商品分类管理那套排序：「你直接复用，或者直接复制
- * 商品管理的那个分类管理的代码就可以了」。**复制**会立刻变成两份会各自跑偏的代码，
- * 所以这里是把它泛化了一层：`idOf` 告诉它"这两条是不是同一条"，
- * 其余（下标换算、越界夹取、不变时原样返回）一字不改。
- *
- * 拖动与"填数字"两种排序也共用它 —— 两条路只是"目标位置"的来源不同，
- * 到位之后做的事一模一样。
- *
- * ⚠️ 没变化时**原样返回同一个列表实例**（调用方靠这个判断要不要写回状态 / 发请求）。
- */
-internal fun <T> moveItemTo(list: List<T>, idOf: (T) -> Long, id: Long, position: Int): List<T> {
-    val from = list.indexOfFirst { idOf(it) == id }
-    if (from < 0 || list.size < 2) return list
-    val to = (position - 1).coerceIn(0, list.lastIndex)
-    if (to == from) return list
-    return list.toMutableList().apply { add(to, removeAt(from)) }
-}
-
-/** 商品分类那一份（老调用点，语义不变）。 */
-internal fun moveCategoryTo(
-    list: List<ProductCategoryDto>,
-    id: Long,
-    position: Int,
-): List<ProductCategoryDto> = moveItemTo(list, { it.id }, id, position)
+// ⚠️ `moveItemTo`（四种排序方式共用的那一份）**已搬到 `ui/common/CategoryRoster.kt`**：
+//    它被四个名册页用着，却住在这个页面文件里 —— 共用规则不许寄生在某一页。
+//    老的商品专用包装 `moveCategoryTo` 随之删除（它只剩"给这一页换个参数写法"的作用）。
 
 /**
  * 拖动位移 → 要挪几格（正数往下）。**纯函数，有单测。**
@@ -81,164 +38,37 @@ internal fun dragSteps(offsetY: Float, rowHeightPx: Float): Int {
  * 理由：后端要求**整份顺序**（`ProductCategoryReorder` 的注释解释了为什么不做"上移一格"）。
  * 如果每拖一下就发一次请求，用户连拖三下就是三次全量重排 ——
  * 中间任何一次失败都会留下"顺序半新半旧"的状态，而屏幕上看起来只是"没动"。
+ *
+ * ⚠️ 那套状态机（拉名册 / 草稿排序 / 提交整份 / 建改名删）**已经不在这个文件里**：
+ * 它与开销、运费两页共用一份 `ui/common/CategoryRosterViewModel.kt`（原来三页各抄了约 45 行）。
+ * 这里只剩「这一页是什么」——拉哪个接口、提交到哪个接口。
  */
-class ProductCategoriesViewModel(private val container: AppContainer) : ViewModel() {
-
-    val categories = mutableStateListOf<ProductCategoryDto>()
-    var loading by mutableStateOf(true)
-    var busy by mutableStateOf(false)
-    /** 加载失败（留在页面上 + 重试），与一次性提示分开 —— 见 `PriceMatrixViewModel` 的说明。 */
-    var loadError by mutableStateOf<String?>(null)
-    var error by mutableStateOf<String?>(null)
-    var notice by mutableStateOf<String?>(null)
-
-    /** (id 或 null=新建, 当前名字) */
-    var editing by mutableStateOf<Pair<Long?, String>?>(null)
-    var deleting by mutableStateOf<ProductCategoryDto?>(null)
-
-    /** 顺序是否改过还没保存 */
-    var dirty by mutableStateOf(false)
-        private set
-
-    private var savedOrder: List<Long> = emptyList()
+class ProductCategoriesViewModel(container: AppContainer) :
+    CategoryRosterViewModel<ProductCategoryDto>(container) {
 
     init {
+        // ⚠️ 由**子类**来调：基类的 init 早于子类初始化，而 load() 在 Main.immediate 下
+        //    会同步跑到第一个挂起点（见基类文件头）。
         load()
     }
 
-    fun load() {
-        loading = categories.isEmpty()
-        loadError = null
-        viewModelScope.launch {
-            try {
-                val list = container.repo.productCategories()
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-            } catch (e: Exception) {
-                loadError = toApiException(e).message
-            } finally {
-                loading = false
-            }
-        }
+    override fun idOf(item: ProductCategoryDto) = item.id
+
+    override fun nameOf(item: ProductCategoryDto) = item.name
+
+    override suspend fun fetchAll() = container.repo.productCategories()
+
+    override suspend fun reorder(ids: List<Long>) = container.repo.reorderProductCategories(ids)
+
+    override suspend fun create(name: String) {
+        container.repo.createProductCategory(name)
     }
 
-    fun openCreate() {
-        editing = null to ""
+    override suspend fun rename(id: Long, name: String) {
+        container.repo.updateProductCategory(id, name = name)
     }
 
-    fun openRename(c: ProductCategoryDto) {
-        editing = c.id to c.name
-    }
-
-    /**
-     * 排序：把某一项挪到第 [position] 位（1-based；填 0 或越界会被夹到两端）。
-     * **数字排序与拖动都走这里**（见 `moveCategoryTo` 的注释）。
-     */
-    fun moveTo(id: Long, position: Int) {
-        val next = moveCategoryTo(categories, id, position)
-        if (next === categories) return // 没变（找不到 / 本来就在那儿）—— 别把状态写一遍
-        categories.clear()
-        categories.addAll(next)
-        dirty = orderChanged(categories, savedOrder) { it.id }
-    }
-
-    /** 拖动用：按"挪了几格"挪（正数往下）。 */
-    fun moveBy(id: Long, steps: Int) {
-        val idx = categories.indexOfFirst { it.id == id }
-        if (idx < 0) return
-        moveTo(id, idx + 1 + steps)
-    }
-
-    fun revertOrder() {
-        if (savedOrder.isEmpty()) return
-        // 保存顺序里可能有刚新建、还没刷进来的分类 —— 追到后面，不要丢。
-        // 三条规则只有一处实现：`ui/common/CategoryRoster.kt`。
-        val back = revertedOrder(categories, savedOrder) { it.id }
-        categories.clear()
-        categories.addAll(back)
-        dirty = false
-    }
-
-    fun saveOrder() {
-        // ⚠️ 只提交**名册里的**（id > 0）：名册外的那些（开销名册里的"老数据"合成行）后端不认识，
-        //    带上就被整体拒绝。三页同一个规则：`ui/common/CategoryRoster.kt`。
-        val ids = submittableIds(categories) { it.id }
-        if (ids.isEmpty()) return
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                val list = container.repo.reorderProductCategories(ids)
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-                notice = "顺序已保存"
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    fun submit(id: Long?, rawName: String) {
-        val name = rawName.trim()
-        if (name.isBlank()) {
-            error = "分类名不能为空"
-            return
-        }
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                if (id == null) {
-                    container.repo.createProductCategory(name)
-                    notice = "已新建分类「$name」"
-                } else {
-                    container.repo.updateProductCategory(id, name = name)
-                    notice = "已改名为「$name」"
-                }
-                editing = null
-                val list = container.repo.productCategories()
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    fun askDelete(c: ProductCategoryDto) {
-        deleting = c
-    }
-
-    fun confirmDelete(c: ProductCategoryDto) {
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                container.repo.deleteProductCategory(c.id)
-                deleting = null
-                notice = "已删除分类「${c.name}」"
-                val list = container.repo.productCategories()
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-            } catch (e: Exception) {
-                // 后端会因为"还有商品挂着"而拒绝 —— 那句话要原样给用户看（它带了数量）
-                error = toApiException(e).message
-                deleting = null
-            } finally {
-                busy = false
-            }
-        }
+    override suspend fun delete(id: Long) {
+        container.repo.deleteProductCategory(id)
     }
 }

@@ -18,15 +18,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 // 位次输入框的数字过滤走 `InputRules.intInput`（红线：手写 filter = 规则的一份副本）
 import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.data.remote.dto.FreightCategoryCreateRequest
 import com.tapmoay.sorders.data.remote.dto.FreightCategoryDto
-import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.data.remote.dto.FreightCategoryUpdateRequest
 import com.tapmoay.sorders.ui.common.*
-import kotlinx.coroutines.launch
 
 /**
  * 运费分类管理（2026-09-21 用户：「**他那个运费模板是有自己的一套分类的**，
@@ -42,157 +40,38 @@ import kotlinx.coroutines.launch
  * ⚠️ 这一页管的是**两件事共用的分类**：① 运费模板"算哪几类货"；② 司机计费规则"按分类定价"。
  *    所以每一行都写明"有几条价目、几份规则在用" —— 删之前要看得见。
  */
-class FreightCategoriesViewModel(private val container: AppContainer) : ViewModel() {
-
-    val categories = mutableStateListOf<FreightCategoryDto>()
-    var loading by mutableStateOf(true)
-        private set
-    var busy by mutableStateOf(false)
-        private set
-    var loadError by mutableStateOf<String?>(null)
-    var error by mutableStateOf<String?>(null)
-    var notice by mutableStateOf<String?>(null)
-
-    /** (id 或 null=新建, 当前名字) */
-    var editing by mutableStateOf<Pair<Long?, String>?>(null)
-    var deleting by mutableStateOf<FreightCategoryDto?>(null)
-
-    var dirty by mutableStateOf(false)
-        private set
-    private var savedOrder: List<Long> = emptyList()
+class FreightCategoriesViewModel(container: AppContainer) :
+    CategoryRosterViewModel<FreightCategoryDto>(container) {
 
     init {
+        // ⚠️ 由**子类**来调：基类的 init 早于子类初始化，而 load() 在 Main.immediate 下
+        //    会同步跑到第一个挂起点（见基类文件头）。
         load()
     }
 
-    fun load() {
-        loading = categories.isEmpty()
-        loadError = null
-        viewModelScope.launch {
-            try {
-                val list = container.repo.freightCategories()
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-            } catch (e: Exception) {
-                loadError = toApiException(e).message
-            } finally {
-                loading = false
-            }
-        }
+    override fun idOf(item: FreightCategoryDto) = item.id
+
+    override fun nameOf(item: FreightCategoryDto) = item.name
+
+    override suspend fun fetchAll() = container.repo.freightCategories()
+
+    override suspend fun reorder(ids: List<Long>) = container.repo.reorderFreightCategories(ids)
+
+    override suspend fun create(name: String) {
+        container.repo.createFreightCategory(FreightCategoryCreateRequest(name))
     }
 
-    fun openCreate() {
-        editing = null to ""
+    override suspend fun rename(id: Long, name: String) {
+        container.repo.updateFreightCategory(id, FreightCategoryUpdateRequest(name = name))
     }
 
-    fun openRename(c: FreightCategoryDto) {
-        editing = c.id to c.name
+    override suspend fun delete(id: Long) {
+        container.repo.deleteFreightCategory(id)
     }
 
-    /** 排序：把某一项挪到第 [position] 位（1-based；0/越界夹到两端）。填数字与上下移都走它。 */
-    fun moveTo(id: Long, position: Int) {
-        val next = moveItemTo(categories, { it.id }, id, position)
-        if (next === categories) return
-        categories.clear()
-        categories.addAll(next)
-        dirty = orderChanged(categories, savedOrder) { it.id }
-    }
-
-    fun moveBy(id: Long, steps: Int) {
-        val idx = categories.indexOfFirst { it.id == id }
-        if (idx < 0) return
-        moveTo(id, idx + 1 + steps)
-    }
-
-    fun revertOrder() {
-        if (savedOrder.isEmpty()) return
-        // ⚠️ 原来这里是"只按 savedOrder 重建"的那一版 —— 会把**保存之后新建的分类**从列表里丢掉
-        //    （后端还在，用户以为被删了）。开销/商品那两页一直是保留的，三页两种行为。
-        //    三条规则现在只有一处实现：`ui/common/CategoryRoster.kt`。
-        val back = revertedOrder(categories, savedOrder) { it.id }
-        categories.clear()
-        categories.addAll(back)
-        dirty = false
-    }
-
-    fun saveOrder() {
-        // ⚠️ 只提交**名册里的**（id > 0）：名册外的那些后端不认识，带上就被整体拒绝
-        val ids = submittableIds(categories) { it.id }
-        if (ids.isEmpty()) return
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                val list = container.repo.reorderFreightCategories(ids)
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-                notice = "顺序已保存"
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    fun submit(id: Long?, rawName: String) {
-        val name = rawName.trim()
-        if (name.isBlank()) {
-            error = "分类名不能为空"
-            return
-        }
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                if (id == null) {
-                    container.repo.createFreightCategory(
-                        com.tapmoay.sorders.data.remote.dto.FreightCategoryCreateRequest(name)
-                    )
-                    notice = "已新建分类「$name」"
-                } else {
-                    container.repo.updateFreightCategory(
-                        id,
-                        com.tapmoay.sorders.data.remote.dto.FreightCategoryUpdateRequest(name = name),
-                    )
-                    notice = "已改名为「$name」（价目和计费规则都是按编号挂的，不用改）"
-                }
-                editing = null
-                load()
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    fun askDelete(c: FreightCategoryDto) {
-        deleting = c
-    }
-
-    fun confirmDelete(c: FreightCategoryDto) {
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                container.repo.deleteFreightCategory(c.id)
-                deleting = null
-                notice = "已删除分类「${c.name}」"
-                load()
-            } catch (e: Exception) {
-                // 后端会因为"还有价目/规则挂着"而拒绝 —— 那句话带数量，原样给用户看
-                error = toApiException(e).message
-                deleting = null
-            } finally {
-                busy = false
-            }
-        }
-    }
+    /** 这一页**不需要**级联：价目与计费规则都按**编号**挂，改名天然安全 —— 提示里说明这一点。 */
+    override fun renamedNotice(name: String) =
+        "已改名为「$name」（价目和计费规则都是按编号挂的，不用改）"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -39,6 +39,9 @@ ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 SCREEN = ANDROID / "ui/dispatcher/ExpensesScreen.kt"
 CREATE = ANDROID / "ui/dispatcher/ExpenseCreateScreen.kt"
 CATS = ANDROID / "ui/dispatcher/ExpenseCategoriesScreen.kt"
+#: 名册页的四条规则（纯逻辑）与那套草稿状态机（2026-09-21 两轮分别收口）
+ROSTER_KT = ANDROID / "ui/common/CategoryRoster.kt"
+ROSTER_VM = ANDROID / "ui/common/CategoryRosterViewModel.kt"
 LINK = ANDROID / "core/ExpenseLink.kt"
 ROUTES = ANDROID / "ui/nav/Routes.kt"
 NAVGRAPH = ANDROID / "ui/nav/NavGraph.kt"
@@ -152,12 +155,17 @@ def main() -> int:
     c.present("纯函数有单测", files["test"], r"class ExpenseLinkTest")
 
     # ---- ⑤ 分类管理页：改名级联 / 删除拒绝 / 排序整份 ----
-    c.present("排序复用商品那一份搬运逻辑（**一份实现**）", cats, r"moveItemTo\(")
-    # ⚠️ 2026-09-21：这条规则收进了 `ui/common/CategoryRoster.kt::submittableIds`（四个名册共用），
-    #    所以断言从"这一行出现过 `filter { it.id > 0 }`"改成"**这一页真的用了那份共用规则**"——
-    #    只钉写法会在实现搬家之后变成恒绿，而这条规则本身（名册外的 id=0 不许发过去）照样要有牙
-    #    （`_tools/qa/_check_category_roster.py` + 它的反向验证逐条注入盯着）。
-    c.present("保存顺序只提交名册内的（名册外的 id=0 不带上去，走共用规则）", cats, r"submittableIds\(categories\)")
+    # 2026-09-21 精简轮（第一轮）：排序的**搬运**收进了 `ui/common/CategoryRoster.kt::moveItemTo`
+    #    （四个名册共用）；第二轮：整套草稿状态机（拉名册/草稿排序/提交整份/建改名删）也收进了
+    #    `ui/common/CategoryRosterViewModel.kt`。所以断言从"这一页里有 `moveItemTo(`"
+    #    改成"**这一页真的用了共用内核** + 那三条规则在共用文件里"——
+    #    钉页面里的写法会在实现搬家之后变成假红（假红会被下一个人改成更松的写法），
+    #    而规则本身照样有牙：`_tools/qa/_check_category_roster.py` + 它的 4 种注入反向验证。
+    c.present("排序与提交都交给共用内核（自己不写第二套状态机）",
+              cats, r":\s*CategoryRosterViewModel<ExpenseCategoryDto>\(")
+    c.present("搬运逻辑只有一处（四个名册共用）", read(ROSTER_KT), r"fun <T> moveItemTo\(")
+    c.present("保存顺序只提交名册内的（名册外的 id=0 不带上去，走共用规则）",
+              read(ROSTER_VM), r"submittableIds\(categories, ::idOf\)")
     c.present("「主要关联」在这一页可改", cats, r"fun setLinkKind\(")
     c.present("改名会级联（后端同一事务里 UPDATE expenses）", files["api"], r"Expense\.__table__\.update\(\)\.where\(Expense\.category == old_name\)")
     c.present("删除还有开销挂着的分类 → 拒绝并说明几笔", files["api"], r"还有 \{used\} 笔开销挂在这个分类下")

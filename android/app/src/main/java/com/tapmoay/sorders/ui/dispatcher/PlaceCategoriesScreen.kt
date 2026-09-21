@@ -34,7 +34,7 @@ import com.tapmoay.sorders.ui.theme.ShipperTeal
  * **按人分区** —— 货主和派单员各管自己地址库那一列。
  *
  * ## 排序
- * **两种方式共用一处逻辑**（`moveCategoryTo` 那一份，见 `VM.moveTo/move`）：
+ * **两种方式共用一处逻辑**（`ui/common/CategoryRoster.kt::moveItemTo` 那一份，见 `VM.moveTo/move`）：
  * 这里用的是"填第几位"（与商品分类管理页的输入框同一个语义），
  * 长按拖动的手势代码没有搬过来 —— 分组通常只有几个，数字框已经够用，
  * 而拖动那套（行高量尺 + 拖影 + 手势取消）在抽屉里还要再处理滚动冲突。

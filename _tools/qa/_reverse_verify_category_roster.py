@@ -1,25 +1,23 @@
 """反向验证 `_check_category_roster.py` 那条判据**真的会红**。
 
 ## 为什么要配反向验证
-「分类名册的三条规则只有一处」这条判据的坏法很单一：**判据自己写歪**（正则不匹配真实写法、
-清单写死成几个文件名）→ 恒绿。而它守的三种破坏都是**静默**的：
+这条判据守的是"名册页的规则与状态机各只有一处"。它的坏法有两种：**判据自己写歪**
+（清单写死成几个文件名、正则匹配不上真实写法）→ 恒绿；**只钉住了一半**
+（只查"页面里有没有自己写"，不查"搬到的那个共用文件里到底有没有"）→ 页面确实不写了，
+而共用文件里那三条规则**一条都不在**，检查照样绿。
 
 | 破坏 | 静默后果 |
 |---|---|
-| 「撤销排序」退回"只按 `savedOrder` 重建" | 保存之后新建的分类从列表里消失（后端还在，用户以为被删了） |
-| 提交编号退回 `categories.map { it.id }` | 名册外的合成行（`id == 0`）被一起发过去 → 后端整批拒绝，而顺序明明是对的 |
-| 「改过没有」退回内联比较 | 合成行永远在列表最后 → **保存成功后仍显示"未保存"** |
-
-这三条里前两条是**当年真实走散过**的两版（运费页 / 开销页之外的两页），第三条是三页共同的毛病。
+| 共用内核的「撤销」退回"只按 `savedOrder` 重建" | 保存之后新建的分类从列表里消失（后端还在，用户以为被删了）——**三页一起坏** |
+| 共用内核的提交退回 `categories.map { it.id }` | 名册外的合成行（`id == 0`）被一起发过去 → 后端整批拒绝，而顺序明明是对的 |
+| 共用内核的 `dirty` 退回内联比较 | 合成行永远在列表最后 → **保存成功后仍显示"未保存"** |
+| 某一页不再继承共用内核（自己拿回那套状态机） | 又会长出第二份状态机（商品页当年那份"就地重刷"就是这么来的） |
 
 ## 现场保护（复用公共机制，不另造一套）
 · `_airepo.refuse_if_injecting` —— 别人的反向验证正在跑时拒绝出结论；
 · `_airepo.lock_reverse_verify` —— 上锁期间并发的**检查**会拒绝出结论；
 · `_airepo.take_snapshot` / `restore_snapshot` —— 被杀在半路时的整目录兜底；
 · 每个文件另做**逐字节**还原，跑完自检 sha256（一个字节都不能变，换行风格原样带回）。
-
-⚠️ 跑完 `_check_backend_fresh.py` 会红（注入再还原会刷新 mtime，内容没变）——
-"跑完反向验证就重启后端"是本仓库明确保留的提醒。
 
 用法：python _tools/qa/_reverse_verify_category_roster.py
 """
@@ -48,33 +46,39 @@ HERE = Path(__file__).resolve().parent
 CHECK = HERE / "_check_category_roster.py"
 UI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui"
 
-EXPENSE = UI / "dispatcher/ExpenseCategoriesScreen.kt"
-FREIGHT = UI / "dispatcher/FreightCategoriesScreen.kt"
+BASE = UI / "common/CategoryRosterViewModel.kt"
 PRODUCT_VM = UI / "dispatcher/ProductCategoriesViewModel.kt"
 
 #: (说明, 文件, 原文, 替换成, 期望出现在失败清单里的关键字)
 MUTATIONS: list[tuple[str, Path, str, str, str]] = [
     (
-        "① 运费页的「撤销排序」退回当年那一版（只按 savedOrder 重建 → 丢掉保存后新建的分类）",
-        FREIGHT,
-        "        val back = revertedOrder(categories, savedOrder) { it.id }",
-        "        val byId = categories.associateBy { it.id }\n"
+        "① 共用内核的「撤销」退回当年那一版（只按 savedOrder 重建 → 三页一起丢新建项）",
+        BASE,
+        "        val back = revertedOrder(categories, savedOrder, ::idOf)",
+        "        val byId = categories.associateBy { idOf(it) }\n"
         "        val back = savedOrder.mapNotNull { byId[it] }",
-        "没走共用规则",
+        "少了「撤销回到已保存顺序且保住新建项」",
     ),
     (
-        "② 商品页的提交编号退回自己拼（名册外的合成行会被一起发过去 → 后端整批拒绝）",
-        PRODUCT_VM,
-        "        val ids = submittableIds(categories) { it.id }",
+        "② 共用内核的提交退回自己拼编号（名册外的合成行会被一起发过去）",
+        BASE,
+        "        val ids = submittableIds(categories, ::idOf)",
         "        val ids = categories.map { it.id }",
-        "没走 submittableIds",
+        "少了「提交只带名册内的行",
     ),
     (
-        "③ 开销页的「改过没有」退回内联比较（保存成功后仍显示未保存）",
-        EXPENSE,
-        "        dirty = orderChanged(categories, savedOrder) { it.id }",
+        "③ 共用内核的「改过没有」退回内联比较（保存成功后仍显示未保存）",
+        BASE,
+        "        dirty = orderChanged(categories, savedOrder, ::idOf)",
         "        dirty = categories.map { it.id } != savedOrder",
-        "又自己算了一遍",
+        "少了「「改过没有」的判据",
+    ),
+    (
+        "④ 商品页不再继承共用内核（自己拿回那套状态机 → 又会长出第二份）",
+        PRODUCT_VM,
+        "    CategoryRosterViewModel<ProductCategoryDto>(container) {",
+        "    ViewModel() {",
+        "继承共用内核的名册页只有",
     ),
 ]
 

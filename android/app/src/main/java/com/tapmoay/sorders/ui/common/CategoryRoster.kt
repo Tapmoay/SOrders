@@ -42,3 +42,24 @@ fun <T> revertedOrder(rows: List<T>, savedOrder: List<Long>, idOf: (T) -> Long):
     val extra = rows.filter { idOf(it) !in savedOrder }
     return restored + extra
 }
+
+/**
+ * 「把第 N 位那一条抽出来插到第 M 位」（**1-based**；0 与越界都夹到两端）。
+ *
+ * **四个名册页共用这一份**（开销 / 运费 / 商品 / 地点）：拖动、上下移按钮、填数字三条路
+ * 只是"目标位置"的来源不同，到位之后做的事一模一样。
+ *
+ * ⚠️ 没变化时**原样返回同一个列表实例**（`===` 可判）：调用方靠它决定要不要写回状态。
+ * 少了这个约定，点一下"上移"而它已经在第一位时也会被当成一次改动 → `dirty` 亮起来 →
+ * 用户看到「未保存」而其实什么都没发生。
+ *
+ * ⚠️ 它原来住在 `ui/dispatcher/ProductCategoriesViewModel.kt` 里（商品那一页的文件），
+ * 却被另外三页 import 着用 —— 名册规则一律放这里，别让共用规则寄生在某一页里。
+ */
+fun <T> moveItemTo(list: List<T>, idOf: (T) -> Long, id: Long, position: Int): List<T> {
+    val from = list.indexOfFirst { idOf(it) == id }
+    if (from < 0 || list.size < 2) return list
+    val to = (position - 1).coerceIn(0, list.lastIndex)
+    if (to == from) return list
+    return list.toMutableList().apply { add(to, removeAt(from)) }
+}

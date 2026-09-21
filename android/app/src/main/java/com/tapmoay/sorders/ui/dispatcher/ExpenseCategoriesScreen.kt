@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.ExpenseLink
@@ -44,129 +43,39 @@ import kotlinx.coroutines.launch
  * ⚠️ 名册外的分类（`id == 0`，老数据）**排在最后、不能改名/删除/排序** ——
  *    它名下的开销仍然照常显示（不在名册里 ≠ 那笔钱不存在）。
  */
-class ExpenseCategoriesViewModel(private val container: AppContainer) : ViewModel() {
-
-    val categories = mutableStateListOf<ExpenseCategoryDto>()
-    var loading by mutableStateOf(true)
-        private set
-    var busy by mutableStateOf(false)
-        private set
-    var loadError by mutableStateOf<String?>(null)
-    var error by mutableStateOf<String?>(null)
-    var notice by mutableStateOf<String?>(null)
-
-    /** (id 或 null=新建, 当前名字) */
-    var editing by mutableStateOf<Pair<Long?, String>?>(null)
-    var deleting by mutableStateOf<ExpenseCategoryDto?>(null)
-
-    var dirty by mutableStateOf(false)
-        private set
-    private var savedOrder: List<Long> = emptyList()
+class ExpenseCategoriesViewModel(container: AppContainer) :
+    CategoryRosterViewModel<ExpenseCategoryDto>(container) {
 
     init {
+        // ⚠️ 必须由**子类**来调：基类的 init 早于子类初始化，而 load() 在 Main.immediate 下
+        //    会同步跑到第一个挂起点（见基类文件头）。
         load()
     }
 
-    fun load() {
-        loading = categories.isEmpty()
-        loadError = null
-        viewModelScope.launch {
-            try {
-                val list = container.repo.expenseCategories()
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-            } catch (e: Exception) {
-                loadError = toApiException(e).message
-            } finally {
-                loading = false
-            }
-        }
+    override fun idOf(item: ExpenseCategoryDto) = item.id
+
+    override fun nameOf(item: ExpenseCategoryDto) = item.name
+
+    override suspend fun fetchAll() = container.repo.expenseCategories()
+
+    override suspend fun reorder(ids: List<Long>) = container.repo.reorderExpenseCategories(ids)
+
+    override suspend fun create(name: String) {
+        container.repo.createExpenseCategory(name)
     }
 
-    fun openCreate() {
-        editing = null to ""
+    override suspend fun rename(id: Long, name: String) {
+        container.repo.updateExpenseCategory(id, name = name)
     }
 
-    fun openRename(c: ExpenseCategoryDto) {
-        editing = c.id to c.name
+    override suspend fun delete(id: Long) {
+        container.repo.deleteExpenseCategory(id)
     }
 
-    /** 排序：把某一项挪到第 [position] 位（1-based；0/越界夹到两端）。填数字与上下移都走它。 */
-    fun moveTo(id: Long, position: Int) {
-        val next = moveItemTo(categories, { it.id }, id, position)
-        if (next === categories) return
-        categories.clear()
-        categories.addAll(next)
-        dirty = orderChanged(categories, savedOrder) { it.id }
-    }
+    /** 改名会**级联**改掉挂在这个分类下的开销 —— 提示里必须说出来（用户要能核对影响面）。 */
+    override fun renamedNotice(name: String) = "已改名为「$name」（挂在这个分类下的开销一起改了）"
 
-    fun moveBy(id: Long, steps: Int) {
-        val idx = categories.indexOfFirst { it.id == id }
-        if (idx < 0) return
-        moveTo(id, idx + 1 + steps)
-    }
-
-    fun revertOrder() {
-        if (savedOrder.isEmpty()) return
-        // 三条规则只有一处实现（`ui/common/CategoryRoster.kt`）：见那里的文件头
-        val back = revertedOrder(categories, savedOrder) { it.id }
-        categories.clear()
-        categories.addAll(back)
-        dirty = false
-    }
-
-    fun saveOrder() {
-        // ⚠️ 只提交**名册里的**（id > 0）：名册外的那些后端不认识，带上就被整体拒绝
-        val ids = submittableIds(categories) { it.id }
-        if (ids.isEmpty()) return
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                val list = container.repo.reorderExpenseCategories(ids)
-                categories.clear()
-                categories.addAll(list)
-                savedOrder = list.map { it.id }
-                dirty = false
-                notice = "顺序已保存"
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    fun submit(id: Long?, rawName: String) {
-        val name = rawName.trim()
-        if (name.isBlank()) {
-            error = "分类名不能为空"
-            return
-        }
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                if (id == null) {
-                    container.repo.createExpenseCategory(name)
-                    notice = "已新建分类「$name」"
-                } else {
-                    container.repo.updateExpenseCategory(id, name = name)
-                    notice = "已改名为「$name」（挂在这个分类下的开销一起改了）"
-                }
-                editing = null
-                load()
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    /** 改「这类开销卡片上突出哪一项」。 */
+    /** 这一页独有：改「这类开销卡片上突出哪一项」。 */
     fun setLinkKind(c: ExpenseCategoryDto, kind: String) {
         if (c.id <= 0 || c.linkKind == kind) return
         busy = true
@@ -178,29 +87,6 @@ class ExpenseCategoriesViewModel(private val container: AppContainer) : ViewMode
                 load()
             } catch (e: Exception) {
                 error = toApiException(e).message
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    fun askDelete(c: ExpenseCategoryDto) {
-        deleting = c
-    }
-
-    fun confirmDelete(c: ExpenseCategoryDto) {
-        busy = true
-        error = null
-        viewModelScope.launch {
-            try {
-                container.repo.deleteExpenseCategory(c.id)
-                deleting = null
-                notice = "已删除分类「${c.name}」"
-                load()
-            } catch (e: Exception) {
-                // 后端会因为"还有开销挂着"而拒绝 —— 那句话带数量，原样给用户看
-                error = toApiException(e).message
-                deleting = null
             } finally {
                 busy = false
             }

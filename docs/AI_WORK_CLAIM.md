@@ -905,6 +905,69 @@ Android 单测 **918 用例 / 0 失败**（新增 5 条）· `compileEmuDebugKot
 
 静态检查 52 → **53 个脚本，53/53 全绿**。
 
+### 第二十九轮：三个名册页各抄了一遍「草稿排序状态机」（收进 `common/CategoryRosterViewModel.kt`）
+
+上一轮收的是那三条**纯规则**；这一轮收**用它们的那套状态机**。开销 / 运费 / 商品三页各自
+写过一遍（每页约 45 行、共约 135 行）：`categories` 列表 + `loading/busy/loadError/error/notice/
+editing/deleting/dirty` + `load()` + `moveTo/moveBy/revertOrder/saveOrder` + `submit` +
+`askDelete/confirmDelete`。
+
+**为什么它不只是"重复的样板"**：三份**已经走散过**——商品页的「建 / 改名 / 删除」之后是
+**就地重刷**（自己 `clear`/`addAll`/`savedOrder`/`dirty`），另两页走 `load()`。就地那版
+**不清 `loadError`**：之前加载失败过一次的页面，成功建完一条之后仍然整页停在错误页上，
+用户看不到新建的东西。同一件事两种写法，谁都没报错。
+
+**收法**：新增 `ui/common/CategoryRosterViewModel.kt`（`abstract class CategoryRosterViewModel<T>`）——
+状态、`load/saveOrder/revertOrder/moveTo/moveBy/submit/askDelete/confirmDelete` 全在这里；
+子类只交代「这一页是什么」（`idOf` / `nameOf` / `fetchAll` / `reorder` / `create` / `rename` /
+`delete`，改名提示可用 `renamedNotice` 覆盖）。三页从 ~45 行降到 ~40 行**声明**（没有逻辑）。
+顺带把 `moveItemTo`（四个页面在用、却住在商品页文件里）搬进 `ui/common/CategoryRoster.kt`，
+并删掉只剩"换个参数写法"的商品专用包装 `moveCategoryTo`（它的唯一调用点已并入共用内核）。
+
+**两个必须写下来的坑**：
+1. ⚠️ **基类不在 `init` 里调 `load()`**，由子类写 `init { load() }`：基类 `init` 早于子类属性
+   初始化，而 `viewModelScope` 是 `Dispatchers.Main.immediate` —— `launch` 的协程体会
+   **同步**跑到第一个挂起点，那一刻子类还没准备好（本仓库在"语音播报只播一次"上踩过同一个坑）。
+2. ⚠️ `notice / error / loadError / editing / deleting` **必须保持公开可写**：UI 会写它们
+   （`OneShotSnackbar(onConsumed = { vm.notice = null })`、弹窗 `onDismiss = { vm.editing = null }`）。
+   只有 `dirty` 收成 `private set`（只有共用内核能算它）。
+
+**行为变化（一处，防御性的）**：商品页建/改名/删成功之后改走 `load()`（与另两页一致）——
+它会清掉之前的 `loadError` 并沿用 `loading` 判据。原来的就地重刷会把"上一次加载失败"的红页
+一直留着，看不到刚建好的分类。
+
+**新测试**：`ProductCategoriesOrderTest` 补一条「按哪个字段认同一条由 `idOf` 决定」（证明这份搬运
+与字段名无关，四个页面才敢共用）；原有 7 处断言从 `moveCategoryTo` 改为直接测泛化版
+`moveItemTo`。单测 938 → **939 / 0 失败**。
+
+**红线重钉**（`_tools/qa/_check_category_roster.py`）：判据现在算两件事——① 名册页 4 个（自己算：
+调 `repo.reorder*Categories(` 的 UI 文件），其中**草稿页 3 个**（继承 `CategoryRosterViewModel`）；
+② 草稿页里**不许**再出现那三条规则、共用内核里**三条必须都在**；③ 原来的三种内联写法扫描面从
+"名册页"放大到**整棵 `ui/`**（只排除规则本体文件）；④ 反空转下限 + 共用内核的三个抽象口子都在。
+反向验证 `_reverse_verify_category_roster.py` 改成 **4/4**：共用内核的撤销退回旧版 / 提交退回
+`categories.map { it.id }` / `dirty` 退回内联比较 / 某一页不再继承内核（各由不同判据抓住）。
+
+**顺手重钉的两条别人的锚点**（实现搬家后它们如实变红）：
+`_check_ai_guardrails.py` 的「排序是本地草稿」锚点移到共用内核；
+`_check_expense_page.py` 的两条断言从"这一页里有 `moveItemTo(` / `submittableIds(categories)`"
+改成"这一页真的继承共用内核 + 规则在共用文件里"（并写明为什么不能改松）。
+`_check_dead_code.py` 抓到两个文件里 5 条没用的 import（状态机搬走之后空出来的），已删。
+
+**真机**（模拟器 5556 = 派单员，本轮 APK）：开销管理 → 分类管理 → 点某行「下移」→
+「撤销改动 / 保存顺序」出现 → 点「保存顺序」→ 两个按钮消失（`dirty` 归零）→
+**到库里核对：`expense_categories` 的顺序真的翻了**（货损=0、其他=1，原来是反的）→
+再「上移」回去并保存一次 → **库里恢复原样**（其他=0、货损=1）。
+这条走的正是被收进共用内核的 `moveTo`/`moveBy` + `saveOrder`（本轮唯一需要写库的一条路），
+而且**顺序复原**，没有留下数据变化。
+
+**顺手修掉发布闸门的一个假红**（`_tools/deploy/check_phone_apk.py`）：它读 BuildConfig 时
+**写死** `phone/debug`，于是 `--apk` 指向 `phone/release` 时，拿 debug 变体的
+`http://10.0.2.2:8000` 去判 release 包 → **一个完全正确的真机包被判「连的是模拟器地址，重打」**，
+紧接着那句"dex 里找不到 10.0.2.2"又自相矛盾。现在变体**从包路径推**，两个方向都验过：
+release 包 ✅ 可以发、旧的 debug 包照样 ❌（真红还在）。
+
+静态检查 53/53 全绿。
+
 ### [2026-09-21 01:0x →] 会话：**退货申请（货主申请 → 派单员实际执行）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 
 **用户需求（原话）**：「批发商……他要进行退货，他**可以直接在订单上**作退货。然后我们的那个派单员，

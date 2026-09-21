@@ -58,6 +58,23 @@ def prop(name: str) -> str:
     return ""
 
 
+def variant_of(apk: Path) -> tuple[str, str] | None:
+    """从产物路径推变体：`.../outputs/apk/<flavor>/<build_type>/xxx.apk`。
+
+    ⚠️ 2026-09-21 修：这里原来**写死**读 `phone/debug` 的 BuildConfig，于是 `--apk` 指向
+    `phone/release` 时，它会拿 debug 变体的 `http://10.0.2.2:8000` 去判 release 包 →
+    **一个完全正确的真机包被判「连的是模拟器地址，重打」**，紧接着那句"dex 里找不到
+    10.0.2.2"又自相矛盾（因为它反过来是对的）。发布闸门上的假红最贵：下一个人会把判据改松。
+    """
+    parts = list(apk.parts)
+    if "apk" not in parts:
+        return None
+    i = len(parts) - 1 - parts[::-1].index("apk")
+    if i + 2 >= len(parts):
+        return None
+    return parts[i + 1], parts[i + 2]
+
+
 def build_config_url(flavor: str, build_type: str) -> tuple[str, Path | None]:
     hits = list((ROOT / "android/app/build/generated/source/buildConfig" / flavor / build_type)
                 .rglob("BuildConfig.java")) if (ROOT / "android/app/build/generated/source/buildConfig" / flavor / build_type).is_dir() else []
@@ -92,9 +109,16 @@ def main() -> int:
     print(f"  大小：{apk.stat().st_size / 1024 / 1024:.1f} MB")
 
     props_url = prop("api_base_url")
-    bc_url, bc_path = build_config_url("phone", "debug")
+    # 变体**从包路径推**（`--apk` 可以指 debug 也可以指 release），推不出来才退回 phone/debug
+    variant = variant_of(apk)
+    if variant is None:
+        flavor, build_type = "phone", "debug"
+        print(f"  ⚠️ 这个包的路径不像标准产物，按 {flavor}/{build_type} 读 BuildConfig")
+    else:
+        flavor, build_type = variant
+    bc_url, bc_path = build_config_url(flavor, build_type)
     print(f"  local.properties 里：{props_url or '（没写）'}")
-    print(f"  编译时 BuildConfig：{bc_url or '（找不到生成文件）'}")
+    print(f"  编译时 BuildConfig（{flavor}/{build_type}）：{bc_url or '（找不到生成文件）'}")
 
     bad = 0
     if any(props_url.startswith(h) for h in EMULATOR_HOSTS):

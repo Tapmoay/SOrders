@@ -3686,6 +3686,9 @@ def main() -> int:
     picker31 = read(UI / "common/ProductPicker.kt")
     cat_screen = read(UI / "dispatcher/ProductCategoriesScreen.kt")
     cat_vm = read(UI / "dispatcher/ProductCategoriesViewModel.kt")
+    # 2026-09-21 第二轮：草稿状态机收进了共用内核（三个名册页共用），
+    # 所以「本地草稿」这条判据的锚点跟着实现搬到这里（而不是留在商品页那个已经变薄的文件里）。
+    cat_vm_base = read(UI / "common/CategoryRosterViewModel.kt")
     comp31 = read(UI / "common/Components.kt")
     addr_screen = read(UI / "shipper/AddressScreen.kt")
     ocs31 = read(UI / "shipper/OrderCreateScreen.kt")
@@ -3730,7 +3733,7 @@ def main() -> int:
     c.present("下单页把名册顺序传给了选品页", ocs31, r"categoryOrder = vm\.categoryOrder")
     c.present("派单端能新建分类", cat_screen, r"onClick = \{ vm\.openCreate\(\) \}")
     c.present("排序是**本地草稿**、点「保存顺序」才提交（不每点一次发一次请求）",
-              cat_vm, r"dirty = orderChanged\(categories, savedOrder\) \{ it\.id \}")
+              cat_vm_base, r"dirty = orderChanged\(categories, savedOrder, ::idOf\)")
     c.present("分类管理的失败提示走一次性提示条（不重放）",
               cat_screen, r"OneShotSnackbar\(snackbar, vm\.notice, onConsumed = \{ vm\.notice = null \}\)")
 
