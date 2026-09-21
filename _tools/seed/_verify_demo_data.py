@@ -7,10 +7,17 @@
    账本的商品名与金额 —— 空字段在界面上就是一条横线；
 3. **不重号**：手机号互不相同、车牌互不相同、商品名互不相同、地点名不同；
 4. **不是批量复制**：同名同价的商品行不许成片出现；每个名字/地址的重复次数有上限；
-5. **时间不规律但讲道理**：三个月每月都有单、早晚高峰看得出来、周日明显少；
+5. **时间不规律但讲道理**：三个月每月都有单、早晚高峰看得出来、周日明显少。
+   ⚠️ 库里存的是 **UTC naive**（`core/business_time.py`），而"几个点下的单"是**业务当地**
+   的说法 —— 所以这一节的判据必须先把存储值换算回业务当地（`+8 小时`）再断言，
+   否则修好时区之后这里会**假红**（早高峰跑到 UTC 的 22-01 点去）；
+5b. **凌晨单的派生行不许挪到前一天**（`北京 00:00~08:00` 的单，UTC 已经是前一天）——
+   这条是"时间戳减 8 小时"必然带出来的坑，见 ⑨c；
 6. **钱对得上**：订单商品行合计 = 账本里订单来源的合计（同一批单只算一次）；
 7. **每类账都有数**：司机账 / 货主账 / 批发商账 / 报表都有非零数据；
-8. **照片是真的**：送达照片文件真的存在于 `static/`；
+8. **照片是真的、而且真的取得到**：送达照片文件存在于 **`backend/uploads/`**
+   （App 服务的那棵树 —— 不是 `static/`），并且对有本机后端的场景**真发一次 HTTP GET 判 200**
+   （只查"目录里有没有文件"会与种子犯同一个错、永远绿，这条是用一次实测换来的）；
 9. **派生日期跟着订单走**：凡是挂在订单上的行（账本/开销/现金流水/账单/库存流水），
    日期必须等于那一单的业务日 —— **这张表清单是脚本自己算出来的**（所有带 `order_id` 的表），
    漏一张就红（这一条是用一次真实事故换来的，见下面 ⑨ 的注释）；
@@ -19,10 +26,14 @@
 12. **消息中心不空**，而且消息都落在 30 天保留期内；
 13. **JSON 列里是真的 JSON 结构**（不是被当字符串塞进去的 `"[]"` —— 那会让读接口 500）。
 
-用法：python _tools/seed/_verify_demo_data.py
+用法：
+    python _tools/seed/_verify_demo_data.py                       # 默认查 backend/sorders.db
+    python _tools/seed/_verify_demo_data.py --db <另一个库>        # 查临时/副本库（不动开发库）
+    python _tools/seed/_verify_demo_data.py --base http://127.0.0.1:8000
 """
 from __future__ import annotations
 
+import argparse
 import enum
 import json
 import os
@@ -30,6 +41,8 @@ import re
 import sqlite3
 import sys
 import typing
+import urllib.error
+import urllib.request
 from collections import Counter
 from pathlib import Path
 
@@ -37,6 +50,11 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 
 ROOT = Path(__file__).resolve().parents[2]
 DB = ROOT / "backend/sorders.db"
+
+#: 照片那条 HTTP 判据打的本机后端（`--base` 可换）。
+#: 为什么要有它："文件在不在 `static/`"这种判据跟种子犯过同一个错（查错目录）→ 永远绿；
+#: 只有真发一次 `GET /static/uploads/delivery/<id>/<file>` 才知道 App 取图这条路是通的。
+DEFAULT_BASE = "http://127.0.0.1:8000"
 
 # ---- 枚举词表（第 ⑪ 条）用的模型元数据 ----------------------------------------
 # 为什么要引后端模型：枚举词表**只有一处真相**（`backend/app/models`），
@@ -99,6 +117,9 @@ _load_enum_vocab()
 
 BAD_WORDS = re.compile(r"测试|压测|验证|样例|demo|probe|ttt|xxx|aaa|foo|bar123", re.I)
 fails: list[str] = []
+#: 没法跑（而不是不达标）的判据 —— 例如照片 HTTP 那条要本机后端在场。必须**打出来**，
+#: 不许静默算通过（"永远绿"与"永远红"都是没有检查）。
+skipped: list[str] = []
 oks = 0
 
 
@@ -113,11 +134,24 @@ def ok(label: str, cond: bool, detail: str = "") -> None:
 
 
 def main() -> int:
+    global DB
+    ap = argparse.ArgumentParser(description="验收演示数据（只读）")
+    ap.add_argument("--db", default=str(DB),
+                    help="要验收的库（缺省 backend/sorders.db；给了它就不碰开发库）")
+    ap.add_argument("--base", default=DEFAULT_BASE,
+                    help=f"本机后端地址（照片 HTTP 判据用；缺省 {DEFAULT_BASE}）")
+    args = ap.parse_args()
+    DB = Path(args.db)
+    if not DB.exists():
+        print(f"❌ 找不到库：{DB}")
+        return 1
+
     c = sqlite3.connect(DB)
     c.row_factory = sqlite3.Row
     q = lambda sql, *a: c.execute(sql, a).fetchall()  # noqa: E731
 
-    print(f"库 {DB}（{DB.stat().st_size/1024/1024:.1f} MB）\n")
+    print(f"库 {DB}（{DB.stat().st_size/1024/1024:.1f} MB）")
+    print(f"本机后端 {args.base}（照片 HTTP 判据）\n")
 
     # ---- ① 脏字 ----
     hits: list[str] = []
@@ -201,17 +235,30 @@ def main() -> int:
        all(abs(float(r["quantity"]) * float(r["unit_price"]) - float(r["line_total"])) < 0.011 for r in o))
 
     # ---- ⑤ 时间 ----
+    #
+    # ⚠️ **库里存的是 UTC**（`core/business_time.py`），而"几点下的单"是业务当地的说法。
+    #    所以凡是按"时刻"看的判据都必须先把存储值 **+8 小时**换算回业务当地 ——
+    #    不换算的话，修好时区之后这里会假红（早高峰跑到 UTC 的 22-01 点去）。
+    #    按"日期"看的判据不用换算：`order_date` / `entry_date` 这类列本来就是业务日。
+    LOCAL_HOUR = "cast(substr(datetime(created_at, '+8 hours'), 12, 2) as int)"
     per_month = q("select substr(order_date,1,7) m, count(*) n from orders group by m order by m")
-    # 第一段是**半个多月**（窗口从今天往前推 90 天），所以它天然比整月少
+    # 第一段是**半个月**（窗口从今天往前推 N 天），所以它天然比整月少
     ok(f"每个月都有单：{[(r['m'], r['n']) for r in per_month]}",
        len(per_month) >= 4 and all(r["n"] >= 15 for r in per_month)
        and all(r["n"] >= 80 for r in per_month[1:-1]))
-    per_hour = q("select cast(substr(created_at,12,2) as int) h, count(*) n from orders group by h")
+    per_hour = q(f"select {LOCAL_HOUR} h, count(*) n from orders group by h")
     hours = {r["h"]: r["n"] for r in per_hour}
     early = sum(v for k, v in hours.items() if 6 <= k <= 9)
     afternoon = sum(v for k, v in hours.items() if 14 <= k <= 17)
-    ok(f"下单时间有早晚高峰（6-9 点 {early} 单、14-17 点 {afternoon} 单，其余 {sum(hours.values())-early-afternoon}）",
+    ok(f"下单时间有早晚高峰（业务当地 6-9 点 {early} 单、14-17 点 {afternoon} 单，"
+       f"其余 {sum(hours.values())-early-afternoon}）",
        early > 0 and afternoon > 0 and early + afternoon > sum(hours.values()) * 0.6)
+    # ⚠️ **存进去的是 UTC，所以别拿本机的墙上时间去比它**（`business_time` 记着这条老账：
+    #    以前 `GET /notifications?days=1` 就是这么少给 8 小时的）。UTC 的"现在" = SQLite 的
+    #    `datetime('now')`（**不带** `'localtime'`）。
+    n_future = q("select count(*) n from orders where delivered_at > datetime('now')")[0]["n"]
+    ok(f"送达时间不在未来（UTC 口径，超期 {n_future} 单）", n_future == 0,
+       "存的是 UTC，比之前必须先统一到 UTC")
     # ⚠️ **id 必须与时间同向**：`GET /orders` 是 `order_by(Order.id.desc())`（列表按 id 排），
     #    建单顺序与时间不一致时，真机上「待派池」第一张会是两个月前的单（看起来像没人管）。
     inv = q("""select count(*) n from orders a join orders b on a.id < b.id
@@ -219,9 +266,12 @@ def main() -> int:
     ok(f"订单 id 与下单时间同向（逆序对 {inv} 个）", inv == 0,
        "列表按 id 倒序排，于是新单会排在老单后面")
     # ⚠️ **"还在飞"的状态只在最近 10 天**：两个月前下的单不可能还挂在待派池里
+    #    ⚠️ 比的是**日期差**（`date('now','localtime')`），不是"带时分秒的现在" ——
+    #    后者会把"正好 10 天前那一整天"的单判成超期（10 天前 08:00 的单 vs 现在 09:00 →
+    #    差 10.04 天 > 10），而种子的界就是"10 天以内"（实测红 3 单，纯属判据自己越界）。
     stale = q("""select count(*) n from orders
                  where status in ('PENDING_DISPATCH','DISPATCHED','ACCEPTED')
-                   and julianday('now','localtime') - julianday(order_date) > 10""")[0]["n"]
+                   and julianday(date('now','localtime')) - julianday(order_date) > 10""")[0]["n"]
     ok(f"待派/派单中/已接单都发生在最近 10 天内（超期 {stale} 单）", stale == 0,
        "老单挂在那儿看起来就是「一批单没人管」")
     # ⚠️ **单号形状与生产一致**：`SO{下单日}{10 位随机}`（`services/auth_service.py::gen_order_no`）
@@ -246,6 +296,9 @@ def main() -> int:
     # ⚠️ 四个时刻必须按顺序：下单 → 派单 → 接单 → 送达，而且送达不能是未来
     #    （第一版对"当天现造的单"没有这条约束：送达时间取 `min(…, 现在-1小时)`，
     #     会把送达压到接单之前，订单详情上就是"送达早于接单"）。
+    #     ⚠️ "不在未来"那一条要用 **UTC 的现在**（`datetime('now')`，不带 `'localtime'`）：
+    #     四个时间戳存的是 UTC，拿本机墙上时间去比等于放松了 8 小时（旧写法就是这样，
+    #     于是"当天较晚的单看起来在未来"这个毛病它抓不到 —— 而 `n_future` 那条现在抓得到）。
     bad_chain = q("""select id, order_no, substr(created_at,1,16) c, substr(dispatched_at,1,16) dp,
                      substr(driver_acknowledged_at,1,16) ack, substr(delivered_at,1,16) dlv
         from orders where status='DELIVERED' and (
@@ -253,7 +306,7 @@ def main() -> int:
             or (driver_acknowledged_at is not null and driver_acknowledged_at < dispatched_at)
             or delivered_at < created_at
             or (driver_acknowledged_at is not null and delivered_at < driver_acknowledged_at)
-            or delivered_at > datetime('now','localtime'))""")
+            or delivered_at > datetime('now'))""")
     ok(f"已送达单的四个时刻按顺序且不在未来（不合 {len(bad_chain)} 单）", not bad_chain,
        "；".join(f"{r['order_no']} {r['c']}→{r['dp']}→{r['ack']}→{r['dlv']}" for r in bad_chain[:3]))
 
@@ -292,11 +345,50 @@ def main() -> int:
        q("select count(*) n from driver_settlements")[0]["n"] > 0,
        f"实际 {q('select count(*) n from driver_settlements')[0]['n']} 张")
 
-    # ---- ⑧ 照片 ----
-    photos = [r["delivery_photo_urls"] for r in q("select delivery_photo_urls from orders where delivery_photo_urls is not null")]
+    # ---- ⑧ 照片（文件在不在 + **真的取得回来吗**）----
+    #
+    # ⚠️ 这一条原来查的是 `backend/static/uploads/…` —— 正是**种子写错的那个目录**。
+    #    App 的服务端读的是 `backend/uploads/`（`app/main.py` 的 `/static/uploads/{path}`
+    #    路由 `base = Path("uploads")`，`api/v1/orders.py::UPLOAD_DIR = Path("uploads")/"delivery"`，
+    #    生产 nginx 也是 alias 到 `backend/uploads/`）。
+    #    "判据跟被检查对象犯同一个错" = 永远绿：实测每一张种子照片在 App 上都 404，而这条照样过。
+    #    所以现在两段一起判：① 文件真的在 `uploads/` 下；② 真发一次 HTTP GET 必须 200。
+    photos = [r["delivery_photo_urls"] for r in
+              q("select delivery_photo_urls from orders where delivery_photo_urls is not null")]
     urls = [u for p in photos for u in re.findall(r"/static/[^\"]+", p or "")]
-    missing = [u for u in urls if not (ROOT / "backend" / u.lstrip("/")).exists()]
-    ok(f"送达照片真的存在（{len(urls)} 张，缺 {len(missing)} 张）", urls and not missing, "；".join(missing[:3]))
+    # `/static/uploads/delivery/2/seed.jpg` → `backend/uploads/delivery/2/seed.jpg`
+    missing = [u for u in urls
+               if not (ROOT / "backend" / u.replace("/static/", "", 1).lstrip("/")).exists()]
+    ok(f"送达照片文件真的在 backend/uploads/ 下（{len(urls)} 张，缺 {len(missing)} 张）",
+       urls and not missing, "；".join(missing[:3]))
+
+    # ② HTTP 判据（这一条才是"App 取得到图"的证据）。抽样 8 张即可：路径规则是同一条。
+    #    ⚠️ 它需要**本机后端在场**；不在场就明确打 SKIP（不算通过也不算失败），
+    #    绝不静默算绿 —— 那正是这条判据第一版的毛病。
+    if not urls:
+        skipped.append("照片 HTTP 判据（库里没有任何照片 URL）")
+    else:
+        sample = urls[:8]
+        codes: list[tuple[str, int | None, str]] = []
+        for u in sample:
+            try:
+                req = urllib.request.Request(args.base.rstrip("/") + u, method="GET")
+                with urllib.request.urlopen(req, timeout=5) as resp:   # noqa: S310
+                    resp.read(64)
+                    codes.append((u, resp.status, ""))
+            except urllib.error.HTTPError as e:
+                codes.append((u, e.code, ""))
+            except Exception as e:                                     # noqa: BLE001
+                codes.append((u, None, f"{type(e).__name__}: {e}"[:60]))
+        unreachable = [x for x in codes if x[1] is None]
+        if unreachable:
+            skipped.append(f"照片 HTTP 判据（{args.base} 连不上：{unreachable[0][2]}）")
+        else:
+            bad = [x for x in codes if x[1] != 200]
+            ok(f"照片真能取回来（抽样 {len(sample)} 张走 {args.base}，非 200 的 {len(bad)} 张）",
+               not bad, "；".join(f"{u} → {code}" for u, code, _ in bad[:3]))
+            for u, code, _ in codes[:3]:                # 抽样明细打出来当证据
+                print(f"         {code}  {args.base.rstrip('/')}{u}")
 
     # ---- ⑨ 派生日期：挂在订单上的行，日期必须是那一单的业务日 ----
     #
@@ -309,22 +401,37 @@ def main() -> int:
     #    手写的清单漏一张表 = 这条检查根本不看它，而且没有人会发现。
     #    新增一张带 `order_id` 的表时，要么在 [DERIVED] 里说清它的哪一列该跟着订单走，
     #    要么在 [EXEMPT] 里写一句"它的日期不该跟着订单走"的理由。
-    ORDER_DAY = "date(coalesce(o.delivered_at, o.order_date))"
-    # 表: (跟着订单走的那一列, 粒度, 额外条件)
+    # ⚠️ **业务日 = UTC + 8 小时再取日期**（`core/business_time.business_date` 的口径）。
+    #    不许写 `date(coalesce(o.delivered_at, o.order_date))`：库里存的是 UTC，北京 06:30 的单
+    #    存进去是**前一天 22:30** —— 那样算出来的"订单日"本身就早一天，
+    #    整条判据跟着错，而它还照样显示绿（⑨c 专门钉这件事）。
+    ORDER_DAY = "date(coalesce(o.delivered_at, o.order_date), '+8 hours')"
+    # 表: (跟着订单走的那一列, 粒度, 额外条件, **这一列是"日期列"还是"UTC 时间戳列"**)
+    #
+    # ⚠️ 最后那个布尔值是 2026-09-21 补的，理由是这条判据当场抓到了自己的一个错：
+    #    `inventory_movements.created_at` 是**时间戳**（记的是"这一笔库存变动发生的时刻"，
+    #    与 `orders.delivered_at` 同一个值），库里存 UTC —— 直接拿它的**日期部分**去比业务日，
+    #    北京 06:30 的送达就会"差一天"（实测 82 行红）。判据错、还是数据错？
+    #    数据没错（它就该是那个 UTC 时刻，`GET /inventory/movements` 就是按时刻过滤的），
+    #    所以要**把这一列先换算成业务日再比**（`date(x.created_at, '+8 hours')`）。
+    #    而 `entry_date`/`exp_date`/`flow_date`/`month` 是**日期列**（业务日），直接比。
     DERIVED = {
         # ⚠️ 退货红冲行（`source='RETURN'`）**故意**不跟着订单走：它记的是"这次退货什么时候发生的"，
         #    而不是"这单什么时候送的"。把 9 月的退货记回 8 月 = 篡改 8 月的账（那个月的数字
         #    过两天自己变了，而没有任何人改过 8 月的任何一张单）。与"收款日"同一条道理。
-        "ledgers": ("entry_date", "day", "and x.source <> 'RETURN'"),
-        "expenses": ("exp_date", "day", ""),
-        "driver_bills": ("month", "month", ""),
+        "ledgers": ("entry_date", "day", "and x.source <> 'RETURN'", False),
+        "expenses": ("exp_date", "day", "", False),
+        "driver_bills": ("month", "month", "", False),
         # 收款流水的日子是**收款日**：客户 8 月才结 6 月的账，本来就该晚于送达日 ——
         # 所以这条只认货损那一类（EXPENSE_LOSS）。
-        "cash_flows": ("flow_date", "day", "and x.biz_type = 'EXPENSE_LOSS'"),
-        # `created_at` 就是库存流水的业务时间（`GET /inventory/movements` 按它做日期过滤）。
-        # 退货回补（`status='RETURNED'`）同理：货是退货那天回来的，不是送达那天。
-        "inventory_movements": ("created_at", "day", "and x.status <> 'RETURNED'"),
+        "cash_flows": ("flow_date", "day", "and x.biz_type = 'EXPENSE_LOSS'", False),
+        # `created_at` 是**时间戳**（= 这一单的送达时刻），所以先换算成业务日再比。
+        # 退货回补（`status='RETURNED'`）不跟着送达日：货是退货那天回来的。
+        "inventory_movements": ("created_at", "day", "and x.status <> 'RETURNED'", True),
     }
+    #: 这一行的业务日怎么取（日期列直接用；UTC 时间戳列先 +8 小时）
+    ROW_DAY = {t: (f"date(x.{c}, '+8 hours')" if ts else f"x.{c}")
+               for t, (c, _g, _e, ts) in DERIVED.items()}
     EXEMPT = {
         "operation_logs": "created_at 是「这条日志什么时候写的」（审计时刻），没有业务日期列，"
                           "审计接口也不按日期过滤",
@@ -361,13 +468,42 @@ def main() -> int:
        len(DERIVED) >= 4 and len(EXEMPT) >= 1)
     ok("EXEMPT 里的表都还在、还真的带 order_id（防化石）",
        not (set(EXEMPT) - with_oid), "；".join(sorted(set(EXEMPT) - with_oid)))
-    for t, (col, gran, extra) in DERIVED.items():
+    for t, (col, gran, extra, _ts) in DERIVED.items():
         w = 7 if gran == "month" else 10
         bad = q(f"""select count(*) n from {t} x join orders o on o.id = x.order_id
-                    where substr(x.{col}, 1, {w}) <> substr({ORDER_DAY}, 1, {w}) {extra}""")[0]["n"]
+                    where substr({ROW_DAY[t]}, 1, {w}) <> substr({ORDER_DAY}, 1, {w}) {extra}""")[0]["n"]
         total = q(f"select count(*) n from {t} where order_id is not null")[0]["n"]
         ok(f"{t}.{col} 跟着订单走（{total} 行，不一致 {bad} 行）", bad == 0,
            f"{bad} 行的日期不等于那一单的业务日")
+
+    # ---- ⑨c 凌晨单（业务当地 00:00~08:00）：存进去的 UTC 已经是**前一天** ----
+    #
+    # ⚠️ 这条是"时间戳减 8 小时"必然带出来的坑（用户 2026-09-21 点名要防）：
+    #    北京 06:30 的单，UTC 是**前一天 22:30**。凡是拿存下来的时间戳取 `.date()` 的地方，
+    #    都会把这批单的账本/账单**整批挪到前一天** —— 界面上完全看不出来。
+    #    判据分两步：① 先证明"这个坑真的存在于这份数据里"（否则下面那条是空转）；
+    #    ② 再断言这些单的派生行落在**它自己那一单的业务日**上。
+    EARLY = ("cast(substr(datetime(coalesce(o.delivered_at, o.order_date), '+8 hours'), 12, 2) "
+             "as int) < 8")
+    n_early = q(f"select count(*) n from orders o where {EARLY}")[0]["n"]
+    ok(f"这份数据里有凌晨单可验（业务当地 00:00~08:00 的单 {n_early} 张）", n_early > 0,
+       "一张都没有的话，下面那条判据会空转成「永远绿」")
+    shifted = q(f"""select count(*) n from orders o
+                    where {EARLY} and date(o.delivered_at) <> date(o.delivered_at, '+8 hours')""")[0]["n"]
+    ok(f"坑是真的（{shifted} 张凌晨单的 UTC 日期 ≠ 业务日）", shifted > 0,
+       "若为 0，说明这份数据里没有「存下来就跨天」的单 —— 判据证明不了什么")
+    n_early_rows = 0
+    for t, (col, gran, extra, _ts) in DERIVED.items():
+        w = 7 if gran == "month" else 10
+        rows = q(f"""select count(*) n from {t} x join orders o on o.id = x.order_id
+                     where {EARLY} {extra}""")[0]["n"]
+        bad = q(f"""select count(*) n from {t} x join orders o on o.id = x.order_id
+                    where {EARLY} and substr({ROW_DAY[t]}, 1, {w}) <> substr({ORDER_DAY}, 1, {w})
+                    {extra}""")[0]["n"]
+        n_early_rows += rows
+        ok(f"凌晨单的 {t}.{col} 仍落在它自己那一单的业务日（{rows} 行，不一致 {bad} 行）", bad == 0,
+           f"{bad} 行的日期被挪走了 —— 这就是「减 8 小时」带出来的那一天偏差")
+    ok(f"凌晨单确实产生了派生行（{n_early_rows} 行）", n_early_rows > 0)
 
     # ---- ⑩ 三个开发登录账号必须有数据（真机上登的就是它们）----
     need = {
@@ -457,7 +593,9 @@ def main() -> int:
     n_msg = q("select count(*) n from notifications")[0]["n"]
     ok(f"消息中心不是空的（{n_msg} 条）", n_msg > 0, "工作台的「消息中心」点进去会是一条都没有")
     if n_msg:
-        old = q("select count(*) n from notifications where created_at < datetime('now','localtime','-30 day')")[0]["n"]
+        # ⚠️ 消息的 `created_at` 也是 UTC（`TimestampMixin` + 种子过 `to_utc_naive`），
+        #    所以"30 天前"要用 **UTC 的现在**：`datetime('now')`，不带 `'localtime'`。
+        old = q("select count(*) n from notifications where created_at < datetime('now','-30 day')")[0]["n"]
         ok(f"消息都落在 30 天保留期内（超期 {old} 条）", old == 0,
            "超期的会被 `data_retention` 在启动时物理清掉")
         unread = q("select count(*) n from notifications where read_at is null")[0]["n"]
@@ -471,6 +609,12 @@ def main() -> int:
         ok(f"消息的收件人都在（失效 {orphan_r} 条）", orphan_r == 0)
 
     print("\n" + "=" * 60)
+    if skipped:
+        # ⚠️ 跳过必须**显式打出来**：一条"永远绿"的检查等于没有检查（这条判据的第一版就是
+        #    查错了目录、永远绿），而"永远红"的也一样 —— 没法跑的场景要让人看见它没跑。
+        print(f"⚠️ {len(skipped)} 项**跳过**（不是通过，请确认是不是真的没法跑）：")
+        for s in skipped:
+            print("   ~ " + s)
     if fails:
         print(f"❌ {len(fails)} 项不达标：")
         for f in fails:
