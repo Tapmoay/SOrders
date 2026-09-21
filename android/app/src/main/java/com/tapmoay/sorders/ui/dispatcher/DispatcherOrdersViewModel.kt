@@ -21,18 +21,19 @@ import java.time.LocalDate
  * ⚠️ 缺省档 = **「派单中」**（用户 2026-09-22 原话：「如果是进来的话，**默认是不会进入「全部」**的，
  *    默认是进入**「派单中」**」）。下标用**状态名**现算，不写 `0/1` —— 档位顺序改过
  *    （货主那列的「已接单」这一轮就挪了一格），写死的下标会把默认档悄悄指到别的档上。
- * ⚠️ `dated = true` 的两档才有右上角那个时间药丸（用户：「他如果点**已送达**的话，他会有一个…
- *    那个**时间**，我们就复用我们那些代码和形式在**右上角**」）。
+ * ⚠️ `dated = true` 的档才有右上角那个时间药丸：**「全部」也有**（用户：「对，**全部我们也要有
+ *    时间的筛选**」）——终态档（已送达/已撤销/已退货）都有；**「派单中」「已接单」没有**
+ *    （用户：「他属于**正在进行**啊，所以他是不会有选择时间」）。
  */
 val DISPATCH_TABS = listOf(
-    OrderTab(null, "全部"),
+    OrderTab(null, "全部", dated = true),
     OrderTab("PENDING_DISPATCH", "派单中"),
     OrderTab("ACCEPTED", "已接单"),
     OrderTab("DELIVERED", "已送达", dated = true),
     OrderTab("CANCELLED", "已撤销", dated = true),
     // 已退货（2026-09-20）：与「已撤销」**不是一回事**（撤销＝单没发生过，
     // 退货＝送了、入了账、事后货退回来了）。两者都有各自的页签，别合并成一档。
-    OrderTab("RETURNED", "已退货"),
+    OrderTab("RETURNED", "已退货", dated = true),
 )
 
 /** 进页面时选中哪一档：**「派单中」**（按状态名算下标，见上面那条注释）。 */
@@ -49,8 +50,8 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
     var tab by mutableStateOf(DEFAULT_TAB)
     var search by mutableStateOf("")
 
-    // ---- 右上角的时间药丸（2026-09-22）----
-    // 只服务带日期窗口的那两档（`OrderTab.dated`），**默认档 = 今天**
+    // ---- 右上角的时间药丸 + 「找订单的自动挡」（2026-09-22）----
+    // 只服务带日期窗口的档（`OrderTab.dated`：全部 / 已送达 / 已撤销 / 已退货），**默认档 = 今天**
     // （用户原话：「而且**时间默认的是今天**」）。
     // ⚠️ 下面这几项必须声明在 `init` **之前**（Kotlin 的属性初始化与 init 块按书写顺序执行，
     //    写在 init 之后的话 init 里那句赋值会抛 NPE —— 账本页 2026-09-20 真机栽过一次）。
@@ -62,6 +63,23 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
     var customTo by mutableStateOf<String?>(null)
         private set
     var showDatePresets by mutableStateOf(false)
+
+    /**
+     * **这一段窗口定下来了没有**（用户要的"找订单的自动挡"）。
+     *
+     * 用户原话：「他们是有那个**找订单的规则**，也就是**自动挡**，他需要做」。
+     * 做法与账本/司机端**同一套**（那 5 个页面早就这么做，见 `DatePresets.pickWindow` 的说明）：
+     * 先只**探测**哪一档有单（今天 → 昨天 → … → 上月），定下来之后**只取一次数** ——
+     * 不是"先按今天拉一次、空了再退档"（那样最坏要画三帧，用户 2026-09-21 报的"闪两下"）。
+     *
+     * ⚠️ 初值 `true`：默认档是「派单中」（进行中，没有日期窗口），一进来就该画；
+     *    只有切进**带窗口的档位**时才关闸（见 [selectTab]）。
+     */
+    var windowSettled by mutableStateOf(true)
+        private set
+
+    /** 用户**手动**挑过档位没有 —— 挑过就永不自动改（"默认"只在他还没表态时生效）。 */
+    private var userPickedPreset = false
 
     // 编辑弹窗
     var showEditDialog by mutableStateOf(false)
@@ -102,9 +120,14 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
     /**
      * 药丸上写的那几个字 —— **跟着实际窗口走**（设计规范 §4.9）：
      * 选着「今天」却在药丸上写「本月」，就是"以为看的是今天的单、其实看的是本月"的第一步。
+     * ⚠️ 还没盘点完 → 先写「…」：这时写任何档位都是假话（窗口还没定）。
      */
     val periodWord: String
-        get() = if (preset == DatePresets.CUSTOM) DatePresets.customLabel(customFrom, customTo) else preset
+        get() = when {
+            datedTab && !windowSettled -> "…"
+            preset == DatePresets.CUSTOM -> DatePresets.customLabel(customFrom, customTo)
+            else -> preset
+        }
 
     /**
      * 这一档这次实际要带的日期区间（两端 null = 不带日期条件）。
@@ -120,18 +143,52 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
         return r.first to r.second
     }
 
-    /** 用户自己挑的档位（右上角药丸 → 档位清单）。 */
+    /** 用户自己挑的档位（右上角药丸 → 档位清单）。**手动**：从此不再自动退档。 */
     fun applyPreset(label: String) {
-        preset = label
-        load()
+        userPickedPreset = true
+        windowSettled = true // 用户已经表态 = 窗口就算定下来了
+        switchPreset(label)
     }
 
     /** 自定义区间（日期弹层回来的）。两头都没选 = 退回「全部」（不带日期条件）。 */
     fun applyCustomRange(from: String?, to: String?) {
+        userPickedPreset = true
+        windowSettled = true // 同上：手输的窗口也算"用户已经表态"
         customFrom = from
         customTo = to
         preset = if (from == null && to == null) DatePresets.ALL else DatePresets.CUSTOM
         load()
+    }
+
+    /**
+     * 真正的换档（自动退档与手动换档都走这一条，**不许各写一份**）。
+     * ⚠️ 档位 → 区间的换算不在这里做：那是 `DatePresets.rangeOf` 的唯一职责（见 [windowRange]）。
+     */
+    private fun switchPreset(label: String) {
+        preset = label
+        load()
+    }
+
+    /**
+     * 这一档有没有单（**只探测、不动页面状态**）。
+     *
+     * 判据必须与页面自己的取数**同源**：同一个状态（`DISPATCH_TABS[tab].key`，可能是 null）+
+     * 同一套日期参数（都走 `DatePresets.rangeOf`）—— 换个接口去猜"有没有单"，
+     * 就会出现"退档到的那一档页面还是空的"。
+     * ⚠️ 探测失败（网络/权限）当"没单"处理：不能因为探测不通就把用户按在一个看不见的窗口上。
+     */
+    private suspend fun periodHasData(label: String): Boolean {
+        val r = DatePresets.rangeOf(label, LocalDate.now()) ?: return true
+        return try {
+            container.repo.orders(
+                status = DISPATCH_TABS[tab].key,
+                q = search.trim().ifBlank { null },
+                dateFrom = r.first,
+                dateTo = r.second,
+            ).isNotEmpty()
+        } catch (e: Exception) {
+            false
+        }
     }
 
 
@@ -168,8 +225,31 @@ class DispatcherOrdersViewModel(private val container: AppContainer) : ViewModel
     }
 
     fun selectTab(i: Int) {
-        if (tab != i) {
-            tab = i
+        if (tab == i) return
+        tab = i
+        // 切进**带日期窗口的档位**：先挑一个**真有单**的档位（今天→昨天→…→上月）。
+        // 这就是用户 2026-09-22 要的「找订单的规则，也就是**自动挡**」。
+        //
+        // ⚠️ **每次进带窗口的档位都要重新挑**（不是"整个页面只挑一次"）：第一版照司机端抄了
+        //    "只挑一次"，真机上当场抓到 —— 先点「全部」（挑到「今天」）、再点「已送达」就
+        //    **不再挑了**，于是「已送达 + 今天没单」停在空列表上，正是用户要避免的那个画面。
+        //    （司机端那页能"只挑一次"是因为它只有一个带窗口的档。）
+        // ⚠️ 但**用户手动挑过之后永不再自动改**（见 [applyPreset]）—— 那才是抢方向盘。
+        if (DISPATCH_TABS[i].dated && !userPickedPreset) {
+            // ⚠️ **先关闸**：盘点 + 取数跑完之前不画（否则屏幕上先是一批上一档的单、
+            //    再跳成这一档的 —— 与账本页那个"闪两下"同族毛病）。
+            windowSettled = false
+            viewModelScope.launch {
+                // ⚠️ **用户可能在探测期间自己挑了档位**（探测是网络请求）：那时再按阶梯结果换档
+                //    就是**抢方向盘** —— 与账本页/司机端同一条规矩。
+                if (!userPickedPreset) {
+                    switchPreset(DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { periodHasData(it) })
+                } else {
+                    load()
+                }
+                windowSettled = true
+            }
+        } else {
             load()
         }
     }

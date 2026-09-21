@@ -97,7 +97,7 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
                     // ⚠️ **用户可能在探测期间自己挑了档位**（探测是网络请求）：那时再按阶梯结果
                     //    换档就是**抢方向盘** —— 与账本页同一条规矩。
                     if (!userPickedPreset) {
-                        switchPreset(DatePresets.pickWindow(DRIVER_PRESET_LADDER) { periodHasData(it) })
+                        switchPreset(DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { periodHasData(it) })
                     } else {
                         load()
                     }
@@ -203,22 +203,7 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
 }
 
 /**
- * 司机端自动退档的阶梯（**这一份是唯一的**：司机任务页与「我的账本」共用它）：
- * 今天 → 昨天 → 前天 → 这周 → 上周 → 近 7 天 → 本月 → 上月（都没有时兜底「全部」）。
- *
- * 用户 2026-09-20 口述：「默认是看今天的，然后其次再往上推昨天、前天、这周，然后上周依次类推」。
- * ⚠️ 与账本页那条 `DispatcherLedgerViewModel.AUTO_LADDER`（今天/昨天/前天/近 7 天）**不同**：
- *    那是账本页当时的口径，这条按司机端这次的口述写全（含"这周 / 上周"）。
- *    两条阶梯服务的是不同的取数（账本看流水、司机端看已送达的单），所以暂不强行合并；
- *    真要合并时，家应该安在 `ui/common/DatePresets`（档位与区间的唯一实现处）。
+ * 司机端自动退档的阶梯 —— **家已经搬到 `ui/common/DatePresets.kt::ORDER_PRESET_LADDER`**
+ * （2026-09-22：派单员「订单管理」与货主「我的订单」也要"找订单的自动挡"，阶梯一旦有第二个
+ * 使用者，"谁抄了谁"就没人说得清。原来那份 `DRIVER_PRESET_LADDER` 已删除，直接引用共享的那条）。
  */
-internal val DRIVER_PRESET_LADDER = listOf(
-    DatePresets.TODAY,
-    DatePresets.YESTERDAY,
-    DatePresets.BEFORE_YESTERDAY,
-    DatePresets.THIS_WEEK,
-    DatePresets.LAST_WEEK,
-    DatePresets.LAST_7,
-    DatePresets.THIS_MONTH,
-    DatePresets.LAST_MONTH,
-)

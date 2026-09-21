@@ -265,10 +265,10 @@ def main() -> int:
     c.ok("OrderPeek 的状态中文名覆盖**全部**档（账本展开行少一档就直接印原始码）",
          not missing_label, f"缺 {missing_label}")
     tabs = read(ANDROID / "ui/dispatcher/DispatcherOrdersViewModel.kt")
-    # 2026-09-22 重钉：档位表从 `"RETURNED" to "已退货"`（Pair）换成了共用模型
-    # `OrderTab("RETURNED", "已退货")`（`ui/common/OrderTabs.kt`）—— 判据先**如实红了一次**
-    # （这正是它该做的），这里跟着新形状重钉；货主那一份同一形状（下一行）。
-    c.present("订单管理有「已退货」页签", tabs, r'OrderTab\("RETURNED", "已退货"\)')
+    # 2026-09-22 重钉（第二次）：档位模型加了一个 `dated = true` 尾巴（「已退货」也是终态、
+    # 也带日期窗口），所以锚点**不再带右括号** —— 只要求"这一档还在、标签还是这个中文"，
+    # 后面加不加参数都不该把这条判据弄红（这是"锚点腐烂"的典型形状）。
+    c.present("订单管理有「已退货」页签", tabs, r'OrderTab\("RETURNED", "已退货"')
     c.present("页签配色也加了第六档", read(ANDROID / "ui/common/SegmentedStatusTabs.kt"), r"已退货 · 棕橙")
     c.present("货主端也能筛到「已退货」", read(ANDROID / "ui/shipper/ShipperOrdersViewModel.kt"), r'OrderTab\("RETURNED"')
     h5 = read(FRONTEND / "constants/order.ts")

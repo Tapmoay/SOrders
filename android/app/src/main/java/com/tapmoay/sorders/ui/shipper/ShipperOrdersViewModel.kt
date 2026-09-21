@@ -26,17 +26,19 @@ import java.time.LocalDate
  *    并且将那个**已接单往前一格排第 2 位置**」）。
  * ⚠️ 下表**就是**那个"往前一格"的结果：默认档紧挨着「全部」，一进来视线就落在它上面。
  *    下标一律按**状态名**现算（`DEFAULT_TAB`），别写 `1` —— 再挪一格就又错位了。
- * ⚠️ `dated = true` 的两档才有右上角那个时间药丸（用户：「货主的那个**时间也移到那上面去**」）。
+ * ⚠️ `dated = true` 的档才有右上角那个时间药丸：**「全部」也有**（用户 2026-09-22：
+ *    「对，**全部我们也要有时间的筛选**」）—— 终态档（已送达/已撤销/已退货）都有；
+ *    **「已接单」「派单中」没有**（用户：「他属于**正在进行**啊，所以他是不会有选择时间」）。
  */
 val SHIPPER_TABS = listOf(
-    OrderTab(null, "全部"),
+    OrderTab(null, "全部", dated = true),
     OrderTab("ACCEPTED", "已接单"),
     OrderTab("PENDING_DISPATCH", "派单中"),
     OrderTab("DELIVERED", "已送达", dated = true),
     OrderTab("CANCELLED", "已撤销", dated = true),
     // 已退货（2026-09-20）：货主必须看得到这一档 —— 否则"送过的单被退掉了"只会从他的
     // 「已送达」里消失（筛选按状态走），而界面上一个字都不提这件事。
-    OrderTab("RETURNED", "已退货"),
+    OrderTab("RETURNED", "已退货", dated = true),
 )
 
 /** 进页面时选中哪一档：**「已接单」**（按状态名算下标，见上面那条注释）。 */
@@ -53,8 +55,8 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
     var actionResult by mutableStateOf<String?>(null)
     var cancelTarget by mutableStateOf<OrderDto?>(null)
 
-    // ---- 右上角的时间药丸（2026-09-22，与派单员那一份同形）----
-    // 只服务带日期窗口的那两档（`OrderTab.dated`），**默认档 = 今天**（用户：「时间默认的是今天」）。
+    // ---- 右上角的时间药丸 + 「找订单的自动挡」（2026-09-22，与派单员那一份同形）----
+    // 只服务带日期窗口的档（`OrderTab.dated`），**默认档 = 今天**（用户：「时间默认的是今天」）。
     // ⚠️ 必须声明在 `init` **之前**（Kotlin 按书写顺序初始化，写在 init 之后 init 里赋值会抛 NPE）。
     //    判据：`_tools/qa/_check_vm_state_before_init.py`。
     var preset by mutableStateOf(DatePresets.TODAY)
@@ -64,6 +66,20 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
     var customTo by mutableStateOf<String?>(null)
         private set
     var showDatePresets by mutableStateOf(false)
+
+    /**
+     * **这一段窗口定下来了没有**（用户要的"找订单的自动挡"）。
+     *
+     * 用户原话：「他们是有那个**找订单的规则**，也就是**自动挡**，他需要做」。
+     * 先只**探测**哪一档有单（今天 → 昨天 → … → 上月），定下来之后**只取一次数**
+     * （不是"先按今天拉一次、空了再退档"——那样最坏要画三帧，就是用户 2026-09-21 报的"闪两下"）。
+     * ⚠️ 初值 `true`：默认档是「已接单」（进行中，没有窗口），一进来就该画。
+     */
+    var windowSettled by mutableStateOf(true)
+        private set
+
+    /** 用户**手动**挑过档位没有 —— 挑过就永不自动改（"默认"只在他还没表态时生效）。 */
+    private var userPickedPreset = false
 
     // ---- 退货申请（2026-09-21）：货主**只能申请**，派单员办理完库存与账本才变 ----
     /** 这一单**待处理**的退货申请（`orderId` → 申请）。有它就说明这张单不能再申请一次。 */
@@ -113,8 +129,27 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
     }
 
     fun selectTab(index: Int) {
-        if (selectedTab != index) {
-            selectedTab = index
+        if (selectedTab == index) return
+        selectedTab = index
+        // 切进**带日期窗口的档位**：先挑一个**真有单**的档位（今天→昨天→…→上月）。
+        // 这就是用户 2026-09-22 要的「找订单的规则，也就是**自动挡**」。
+        // ⚠️ **每次进带窗口的档位都要重新挑**（不是"整个页面只挑一次"）：第一版照司机端抄了
+        //    "只挑一次"，真机上当场抓到 —— 先点「全部」（挑到「今天」）、再点「已送达」就
+        //    **不再挑了**，于是「已送达 + 今天没单」停在空列表上。
+        // ⚠️ 但**用户手动挑过之后永不再自动改**（见 [applyPreset]）—— 那才是抢方向盘。
+        if (SHIPPER_TABS[index].dated && !userPickedPreset) {
+            // ⚠️ **先关闸**：盘点 + 取数跑完之前不画（否则先闪一批上一档的单）。
+            windowSettled = false
+            viewModelScope.launch {
+                // ⚠️ 用户在探测期间自己挑了档位 → 不再按阶梯结果换档（不许抢方向盘）。
+                if (!userPickedPreset) {
+                    switchPreset(DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { periodHasData(it) })
+                } else {
+                    load()
+                }
+                windowSettled = true
+            }
+        } else {
             load()
         }
     }
@@ -125,9 +160,14 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
     /**
      * 药丸上写的那几个字 —— **跟着实际窗口走**（设计规范 §4.9）：选着「今天」却在药丸上写「本月」，
      * 就是"以为看的是今天的单、其实看的是本月"的第一步。
+     * ⚠️ 还没盘点完 → 先写「…」：这时写任何档位都是假话（窗口还没定）。
      */
     val periodWord: String
-        get() = if (preset == DatePresets.CUSTOM) DatePresets.customLabel(customFrom, customTo) else preset
+        get() = when {
+            datedTab && !windowSettled -> "…"
+            preset == DatePresets.CUSTOM -> DatePresets.customLabel(customFrom, customTo)
+            else -> preset
+        }
 
     /**
      * 这一档这次实际要带的日期区间（两端 null = 不带日期条件）。
@@ -142,18 +182,51 @@ class ShipperOrdersViewModel(private val container: AppContainer) : ViewModel() 
         return r.first to r.second
     }
 
-    /** 用户自己挑的档位（右上角药丸 → 档位清单）。 */
+    /** 用户自己挑的档位（右上角药丸 → 档位清单）。**手动**：从此不再自动退档。 */
     fun applyPreset(label: String) {
-        preset = label
-        load()
+        userPickedPreset = true
+        windowSettled = true // 用户已经表态 = 窗口就算定下来了
+        switchPreset(label)
     }
 
     /** 自定义区间（日期弹层回来的）。两头都没选 = 退回「全部」（不带日期条件）。 */
     fun applyCustomRange(from: String?, to: String?) {
+        userPickedPreset = true
+        windowSettled = true // 同上：手输的窗口也算"用户已经表态"
         customFrom = from
         customTo = to
         preset = if (from == null && to == null) DatePresets.ALL else DatePresets.CUSTOM
         load()
+    }
+
+    /**
+     * 真正的换档（自动退档与手动换档都走这一条，**不许各写一份**）。
+     * ⚠️ 档位 → 区间的换算不在这里做：那是 `DatePresets.rangeOf` 的唯一职责（见 [windowRange]）。
+     */
+    private fun switchPreset(label: String) {
+        preset = label
+        load()
+    }
+
+    /**
+     * 这一档有没有单（**只探测、不动页面状态**）。
+     *
+     * 判据必须与页面自己的取数**同源**：同一个状态（`SHIPPER_TABS[selectedTab].key`，可能是 null）+
+     * 同一套日期参数（都走 `DatePresets.rangeOf`）—— 换个接口去猜"有没有单"，
+     * 就会出现"退档到的那一档页面还是空的"。
+     * ⚠️ 探测失败（网络/权限）当"没单"处理：不能因为探测不通就把用户按在一个看不见的窗口上。
+     */
+    private suspend fun periodHasData(label: String): Boolean {
+        val r = DatePresets.rangeOf(label, LocalDate.now()) ?: return true
+        return try {
+            container.repo.orders(
+                status = SHIPPER_TABS[selectedTab].key,
+                dateFrom = r.first,
+                dateTo = r.second,
+            ).isNotEmpty()
+        } catch (e: Exception) {
+            false
+        }
     }
 
 

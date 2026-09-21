@@ -144,6 +144,63 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         '                                "的订单"',
         "派单员「订单管理」：空列表时文案指向右上角那个药丸",
     ),
+    (
+        "⑭ 「全部」不给了时间筛选（用户明说「全部我们也要有时间的筛选」）",
+        DISP_VM,
+        '    OrderTab(null, "全部", dated = true),',
+        '    OrderTab(null, "全部"),',
+        "DISPATCH_TABS：「全部」**也有**时间筛选",
+    ),
+    (
+        "⑮ 给「正在进行」的档也套上日期窗口（积压的老单会静默消失）",
+        DISP_VM,
+        '    OrderTab("PENDING_DISPATCH", "派单中"),',
+        '    OrderTab("PENDING_DISPATCH", "派单中", dated = true),',
+        "DISPATCH_TABS：进行中的档（默认档 = PENDING_DISPATCH）**没有**时间控件",
+    ),
+    (
+        "⑯ 不自动退档了（切进有窗口的档直接取数 = 今天没单就空着）",
+        DISP_VM,
+        "switchPreset(DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { periodHasData(it) })",
+        "load()",
+        "派单员：用共用的 `pickWindow` 挑窗口",
+    ),
+    (
+        "⑰ 手动挑过档位也不再记（下一轮盘点会把用户的选择顶掉）",
+        DISP_VM,
+        "        userPickedPreset = true\n        windowSettled = true // 用户已经表态 = 窗口就算定下来了",
+        "        windowSettled = true // 用户已经表态 = 窗口就算定下来了",
+        "派单员：手动挑过档位就**永不自动改**",
+    ),
+    (
+        "⑱ 盘点期间不挡屏（先闪一批上一档的单，就是用户报过的「闪两下」）",
+        DISP_SCREEN,
+        "                    vm.datedTab && !vm.windowSettled -> LoadingBox()\n",
+        "",
+        "派单员「订单管理」：盘点期间整页 loading",
+    ),
+    (
+        "⑲ 本地再抄一份阶梯（两个页面迟早各退各的档）",
+        DISP_VM,
+        'private val DEFAULT_TAB = DISPATCH_TABS.indexOfFirst { it.key == "PENDING_DISPATCH" }',
+        "private val ORDER_PRESET_LADDER = listOf(DatePresets.TODAY, DatePresets.YESTERDAY)\n"
+        'private val DEFAULT_TAB = DISPATCH_TABS.indexOfFirst { it.key == "PENDING_DISPATCH" }',
+        "共享的长阶梯只有一处定义",
+    ),
+    (
+        "⑳ 自动退档不再看「用户已经手动挑过」（下一次切档就把他的选择顶掉）",
+        DISP_VM,
+        "if (DISPATCH_TABS[i].dated && !userPickedPreset) {",
+        "if (DISPATCH_TABS[i].dated) {",
+        "派单员：**每次**进带窗口的档位都重新找有单的那一段",
+    ),
+    (
+        "㉑ 退回「只挑一次」（真机抓到过：先点全部、再点已送达就停在空窗口上）",
+        DISP_VM,
+        "if (DISPATCH_TABS[i].dated && !userPickedPreset) {",
+        "if (DISPATCH_TABS[i].dated && !userPickedPreset && !autoPickedPreset) {",
+        "派单员：没有「只挑一次」那个开关",
+    ),
 ]
 
 

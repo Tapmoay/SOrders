@@ -84,6 +84,10 @@ fun ShipperOrdersScreen(
             )
             Box(Modifier.fillMaxSize()) {
                 when {
+                    // ⚠️ 切进带日期窗口的档位那一瞬：窗口还在盘点（今天有没有单？没有就退到昨天…），
+                    //    这时屏幕上还挂着**上一档**的单 —— 不挡住就是"先闪一批别的单"。
+                    //    与账本页/司机端同一个门（2026-09-21 用户报的"闪两下"同族毛病）。
+                    vm.datedTab && !vm.windowSettled -> LoadingBox()
                     vm.loading -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
                     vm.orders.isEmpty() -> EmptyView(

@@ -163,7 +163,7 @@ def main() -> int:
         c.ok(f"{name}：缺省档按**状态名**算下标（写死 0/1 会在重排时静默指错档）",
              re.search(rf"{name}\.indexOfFirst\s*\{{\s*it\.key\s*==", read(path)) is not None)
 
-    c.section("3. 日期窗口跟着档位自己走（不是下标）")
+    c.section("3. 日期窗口跟着档位自己走（不是下标）+ 哪几档有窗口")
     for name in sorted(rosters):
         judge = dated_judges.get(name)
         c.ok(f"{name}：有 `val datedTab … = {name}[i].dated`", judge is not None,
@@ -177,8 +177,52 @@ def main() -> int:
         c.ok(f"{name}：既有带窗口的档、也有不带的（否则药丸要么永远在、要么永远不在）",
              any(t[2] for t in tabs) and any(not t[2] for t in tabs),
              f"dated={[t[1] for t in tabs if t[2]]}")
+        # ── 哪几档带窗口（用户 2026-09-22 把这条说全了）──
+        # 「那个只针对…像是**全部、已完成**的（才）要选择时间。对，**全部我们也要有时间的筛选**」
+        # 「但是比如说**派单中和已接单他属于正在进行**啊，所以他是**不会有选择时间**」
+        by_key = {t[0]: t for t in tabs}
+        default_key = defaults.get(name, ("", None))[1]
+        c.ok(f"{name}：「全部」**也有**时间筛选（找单最常用的入口，要找的单多半不在今天）",
+             by_key.get(None, (None, "", False))[2] is True)
+        c.ok(f"{name}：进行中的档（默认档 = {default_key}）**没有**时间控件",
+             by_key.get(default_key, (None, "", True))[2] is False,
+             "给「正在进行」套一层日期窗口 = 积压的老单不见了，而界面上一个字都不说")
     offenders = [str(p.relative_to(ROOT)) for p, s in srcs.items() if INDEX_JUDGE_RE.search(s)]
     c.ok("全库没有 `tab == 3 || tab == 4` 这种下标判据了", not offenders, f"还有：{offenders}")
+
+    c.section("3b. 「找订单的自动挡」：进来先找有单的那一段，手动挑过就永不自动改")
+    presets_kt = read(COMMON / "DatePresets.kt")
+    c.ok("共享的长阶梯只有一处定义（`DatePresets.ORDER_PRESET_LADDER`）",
+         sum(len(re.findall(r"val ORDER_PRESET_LADDER = listOf\(", s)) for s in srcs.values()) == 1
+         and "val ORDER_PRESET_LADDER = listOf(" in presets_kt)
+    c.ok("司机端也读共享的那一条（不再自己养一份 `DRIVER_PRESET_LADDER`）",
+         "DatePresets.ORDER_PRESET_LADDER" in read(UI / "driver/DriverOrdersViewModel.kt")
+         and not any("DRIVER_PRESET_LADDER" in s for s in srcs.values()))
+    c.ok("两条阶梯的差别是**故意的**（短的给「看账」、长的给「找单」）",
+         "val AUTO_LADDER = listOf(TODAY, YESTERDAY, BEFORE_YESTERDAY, LAST_7)" in presets_kt
+         and "ORDER_PRESET_LADDER" in presets_kt)
+    for label, vm_path in (("派单员", DISP_VM), ("货主", SHIP_VM)):
+        vm = read(vm_path)
+        c.ok(f"{label}：用共用的 `pickWindow` 挑窗口（不自己写 for 循环）",
+             "DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER)" in vm)
+        c.ok(f"{label}：探测与取数**同源**（同一个 `repo.orders`、同一套日期参数）",
+             re.search(r"suspend fun periodHasData\(label: String\)[\s\S]{0,1200}?\.orders\(", vm) is not None,
+             "换个接口猜「有没有单」，会退档到一档还是空的")
+        c.ok(f"{label}：手动挑过档位就**永不自动改**（`userPickedPreset = true` 出现在挑档的两条路上）",
+             vm.count("userPickedPreset = true") >= 2)
+        c.ok(f"{label}：盘点期间药丸写「…」（这时的任何档位名都是假话）",
+             'datedTab && !windowSettled -> "…"' in vm)
+        # ⚠️ 这一条是**真机当场抓出来的**（2026-09-22）：第一版照司机端抄了"整个页面只挑一次"
+        #    （`autoPickedPreset`），于是"先点「全部」（挑到今天）、再点「已送达」"就**不再挑了** ——
+        #    「已送达 + 今天没单」停在空列表上，正是用户要避免的画面。司机端能"只挑一次"是因为
+        #    它只有一个带窗口的档；这两个页面有 4 个。
+        c.ok(f"{label}：**每次**进带窗口的档位都重新找有单的那一段（且用户手动挑过就不再自动改）",
+             re.search(r"\.dated && !userPickedPreset", vm) is not None)
+        c.ok(f"{label}：没有「只挑一次」那个开关（真机会停在空窗口上）",
+             "autoPickedPreset" not in vm)
+    for label, screen in (("派单员「订单管理」", disp_screen), ("货主「我的订单」", ship_screen)):
+        c.ok(f"{label}：盘点期间整页 loading（不许先闪一批上一档的单）",
+             "vm.datedTab && !vm.windowSettled -> LoadingBox()" in screen)
 
     c.section("4. 时间药丸在**顶栏**（不许藏进列表，也不许回到横滑胶囊行）")
     for label, screen, is_dated in (

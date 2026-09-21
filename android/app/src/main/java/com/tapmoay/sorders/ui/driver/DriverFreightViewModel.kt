@@ -91,7 +91,7 @@ class DriverFreightViewModel(private val container: AppContainer) : ViewModel() 
         //    页面那边用 [windowSettled] 把"还没定下来"那一帧挡成 loading。
         viewModelScope.launch {
             if (!userPickedPreset) {
-                switchPreset(DatePresets.pickWindow(DRIVER_PRESET_LADDER) { periodHasData(it) })
+                switchPreset(DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { periodHasData(it) })
             } else {
                 load()
             }
