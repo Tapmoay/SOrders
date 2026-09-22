@@ -421,7 +421,12 @@ CN_DESC = {
     ),
     "orders.pending_dispatch_count": "待派单池还有多少单",
     "order_products.list_order_products": "订单商品行（按订单或商品查）",
-    "products.list_products": "商品列表（含库存、批发价档位）",
+    # ⚠️ 这条原来写的是「商品列表（含库存、**批发价档位**）」（2026-09-23 复核 A10）：
+    #    `ProductOut` 里**没有**批发价/档位字段（`products.tier_prices` 只活在模型与建表迁移里，
+    #    出参一个字都不下发，而这个概念 2026-09-19 已被用户拍板删掉）。
+    #    说明写着一个不存在的字段，模型就会照它回答"这个商品的批发价档位是…"，
+    #    或者以为不用再查价 —— 要给批发商报专属价必须走 `price_rules.list_price_rules`。
+    "products.list_products": "商品列表（含库存、单位、分类、售价；⚠️ 不含批发商专属价，那是另一张表）",
     "products.product_cost_history": (
         "商品成本价的历史（某段时间的成本价是多少、从什么时候到什么时候、是进货录的还是手改的）"
     ),

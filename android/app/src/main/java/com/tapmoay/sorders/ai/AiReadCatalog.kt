@@ -177,7 +177,7 @@ object AiReadCatalog {
         )),
         ReadAction("product_categories.list_categories", "商品分类名册（下单页左侧那一列的分组与显示顺序，带每类下有几个商品）", "/api/v1/product-categories", "", setOf("dispatcher", "driver", "shipper"), false, listOf(
         )),
-        ReadAction("products.list_products", "商品列表（含库存、批发价档位）", "/api/v1/products", "include_inactive", setOf("dispatcher", "shipper"), false, listOf(
+        ReadAction("products.list_products", "商品列表（含库存、单位、分类、售价；⚠️ 不含批发商专属价，那是另一张表）", "/api/v1/products", "include_inactive", setOf("dispatcher", "shipper"), false, listOf(
             ReadParam("include_inactive", "bool", false, emptyList(), false),
         )),
         ReadAction("products.product_cost_history", "商品成本价的历史（某段时间的成本价是多少、从什么时候到什么时候、是进货录的还是手改的）", "/api/v1/products/cost-history", "product_id、limit", setOf("dispatcher"), false, listOf(

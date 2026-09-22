@@ -14,6 +14,17 @@
    **要么**模块里有 `write_log(`，**要么**在下面的 [REASONS] 里有一条写清理由的豁免；
 2. 豁免表里的键必须仍是"真模块且真有写端点"（防化石：模块被删/改名后还挂在表上）；
 3. 数量判据：模块数 ≥ 15、有条数的模块 ≥ 10（清单过期/解析失效时先喊，而不是安静地少查一半）。
+4. ⭐ **"写了日志"不等于"这次提交留了痕"**（2026-09-23 补，来自全项目复核）：
+   `backend/app/**/*.py` 里，**凡是自己写了 `write_log(` 的函数**，其中每一处 `db.commit()`
+   之前都必须出现过 `write_log(`（按"上一处 commit 之后、这一处 commit 之前"这个区间找，
+   所以 `if/else` 两条分支各自提交能分别判断）。
+   - 为什么模块级判据不够：`price_rules.py::create_price_rule` 的**复活分支**
+     （给一个软删过的货主重新设价：同时把行从回收站复活 **且** 改了价）原来是
+     `改完 → db.commit() → return`，**一条日志都没有** —— 而模块里有 4 处 `write_log(`，
+     模块级判据全绿。真实后果：钱变了、审计页上查不到。
+   - 早期版本的写法（"commit 之后还有没有 log"）有 6 处假阳性：被 docstring 里那句
+     "调用方负责 `db.commit()`" 骗了。所以这里**先剥注释与文档字符串**再找。
+   - 确实不需要留痕的提交点写在 [TX_EXEMPT] 里，逐条写清理由；上限 2 条（多了说明闸门在放水）。
 
 用法：python _tools/qa/_check_audit_coverage.py
 """
@@ -64,6 +75,86 @@ REASONS: dict[str, str] = {
 
 WRITE_ROUTE = re.compile(r"@router\.(?:post|patch|put|delete)\(")
 
+#: **判据 ④** 用到的表：「提交了、但同一个函数里没有任何 `write_log`」的文件 → 理由。
+#: ⚠️ 空表是**正常状态**（现在的代码一处都没有）。往里加一条必须回答：
+#: "这次提交为什么不需要在审计页上留痕？" —— 答不上来就别加，去把日志补上。
+TX_EXEMPT: dict[str, str] = {}
+MAX_TX_EXEMPT = 2
+MIN_LOGGING_FUNCS = 20
+MIN_COMMITS_IN_LOGGING_FUNCS = 30
+
+FUNC_DEF = re.compile(r"^(?:async )?def (\w+)\s*\(")
+DB_COMMIT = re.compile(r"\bdb\.commit\(\)")
+WRITE_LOG = re.compile(r"\bwrite_log\(")
+
+
+def _strip_lines(lines: list[str]) -> list[str]:
+    """逐行剥掉注释与文档字符串（**保留行数**，否则报出来的行号会漂）。
+
+    ⚠️ 不剥就等着收假阳性：第一版判据把 `order_return.py` 等 6 处**文档字符串**里那句
+    "（调用方负责 `db.commit()`）" 当成了真提交 —— 6/8 的命中都是这么来的。
+    """
+    out: list[str] = []
+    in_doc: str | None = None
+    for ln in lines:
+        if in_doc is not None:
+            if in_doc in ln:
+                in_doc = None
+            out.append("")
+            continue
+        s = ln.strip()
+        if s.startswith('"""') or s.startswith("'''"):
+            q = s[:3]
+            if s.count(q) < 2:
+                in_doc = q
+            out.append("")
+            continue
+        out.append(re.sub(r"#.*$", "", ln))
+    return out
+
+
+def commits_without_log() -> tuple[list[tuple[str, str, int]], int, int]:
+    """扫 `backend/app/**/*.py`：**自己写了 `write_log(` 的函数**里，哪些 `db.commit()` 之前没有任何日志。
+
+    只看"自己写了日志的函数"：不写日志的模块本来就整块豁免（见 REASONS），
+    把它们一起算进来只会淹掉真信号（实测：不过滤是 100+ 条噪音，过滤后是 1 条真信号）。
+    返回 (命中列表, 扫过的写日志函数数, 这些函数里的 commit 数)。
+    """
+    hits: list[tuple[str, str, int]] = []
+    funcs = commits = 0
+    for f in sorted((ROOT / "backend/app").rglob("*.py")):
+        keep = _strip_lines(f.read_text(encoding="utf-8").splitlines())
+        rel = str(f.relative_to(ROOT))
+
+        def scan(name: str, seg: list[tuple[int, str]]) -> None:
+            nonlocal funcs, commits
+            if not any(WRITE_LOG.search(x) for _i, x in seg):
+                return
+            funcs += 1
+            prev = -1
+            for i, ln in seg:
+                if DB_COMMIT.search(ln):
+                    commits += 1
+                    if not any(WRITE_LOG.search(x) for j, x in seg if prev < j < i):
+                        hits.append((rel, name, i + 1))
+                    prev = i
+
+        name: str | None = None
+        seg: list[tuple[int, str]] = []
+        for i, ln in enumerate(keep):
+            m = FUNC_DEF.match(ln)
+            if m:
+                if name is not None:
+                    scan(name, seg)
+                name, seg = m.group(1), []
+                continue
+            if name is not None:
+                seg.append((i, ln))
+        if name is not None:
+            scan(name, seg)
+    return hits, funcs, commits
+
+
 
 def main() -> int:
     fails: list[str] = []
@@ -112,6 +203,30 @@ def main() -> int:
         fails.append(f"只认出 {len(modules)} 个写端点模块（<15）——判据可能已空转")
     if len(ok_modules) < 10:
         fails.append(f"只有 {len(ok_modules)} 个模块写了审计日志（<10）——判据可能已空转")
+
+    # ④ 提交了、但同一个函数里**没有任何** write_log（2026-09-23 补，来自全项目复核）
+    tx_hits, tx_funcs, tx_commits = commits_without_log()
+    print(f"\n④ 有日志的函数 {tx_funcs} 个 / 其中 {tx_commits} 处 db.commit()：「提交前没有留痕」{len(tx_hits)} 处")
+    for t_rel, t_fn, t_line in tx_hits:
+        mark = f"（豁免：{TX_EXEMPT[Path(t_rel).name][:20]}…）" if Path(t_rel).name in TX_EXEMPT else "❌ 没有理由"
+        print(f"   · {t_rel}:{t_line}  {t_fn}()  {mark}")
+    tx_unexplained = [h for h in tx_hits if Path(h[0]).name not in TX_EXEMPT]
+    if tx_unexplained:
+        fails.append(
+            "这些提交点之前没有任何审计日志（写业务数据必须能在审计页上回查）："
+            + "、".join(f"{rel}:{line}（{fn}）" for rel, fn, line in tx_unexplained)
+        )
+    tx_fossils = [n for n in TX_EXEMPT if not any(Path(h[0]).name == n for h in tx_hits)]
+    if tx_fossils:
+        fails.append("TX_EXEMPT 里的文件现在并没有这个问题（化石条目，请删掉）：" + "、".join(tx_fossils))
+    if len(TX_EXEMPT) > MAX_TX_EXEMPT:
+        fails.append(f"TX_EXEMPT 有 {len(TX_EXEMPT)} 条（上限 {MAX_TX_EXEMPT}）——这个口子开太大了")
+    if tx_funcs < MIN_LOGGING_FUNCS:
+        fails.append(f"只认出 {tx_funcs} 个写日志的函数（<{MIN_LOGGING_FUNCS}）——判据可能已空转")
+    if tx_commits < MIN_COMMITS_IN_LOGGING_FUNCS:
+        fails.append(
+            f"这些函数里只数到 {tx_commits} 处 db.commit()（<{MIN_COMMITS_IN_LOGGING_FUNCS}）——判据可能已空转"
+        )
 
     if fails:
         print("\n❌ 审计留痕不完整：")

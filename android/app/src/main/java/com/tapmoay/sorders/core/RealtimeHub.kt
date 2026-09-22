@@ -127,7 +127,7 @@ class RealtimeHub(private val container: AppContainer) {
                             if (PushTrust.isOrderEvent(ntype)) {
                                 container.notifyCenter.postOrder(PushTrust.orderIdOf(m), title, content)
                             } else {
-                                container.notifyCenter.postMessage(title, content)
+                                container.notifyCenter.postMessage(title, content, id)
                             }
                         }
                         if (ntype.startsWith("order.")) _refreshOrders.tryEmit(Unit)
@@ -162,7 +162,7 @@ class RealtimeHub(private val container: AppContainer) {
                     if (PushTrust.isOrderEvent(ntype)) {
                         container.notifyCenter.postOrder(orderId, title, content)
                     } else {
-                        container.notifyCenter.postMessage(title, content)
+                        container.notifyCenter.postMessage(title, content, id)
                     }
                 }
                 // 列表刷新仍按 `order.` 前缀（不用白名单）：后端将来加一个 order.* 事件时，

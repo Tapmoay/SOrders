@@ -20,7 +20,41 @@
 
 ## 进行中
 
-### [2026-09-22 23:2x →] 会话：**AI 报价必须绑「这个货主的价」**（建单 / 加行 / 账本记一笔三条路）+ 新功能 AI 能力对账（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-23 00:1x →] 会话：**全项目系统性复核 · 第 1 轮**（33 轮审计台账逐条复核 + 活体判据补牙 + M10）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**用户原话**：「你现在就是把整个项目的代码进行测试优化，以及逻辑上有没有存在错误…这个设计是否合理，
+还有 AI 的能力它是否都具备了？定个目标，一直干下去。」
+
+本轮基线（实测）：`_check_all.py` **77/77** · 后端 `pytest` **786 passed** · 安卓单测 BUILD SUCCESSFUL ·
+H5 `npm run build` 通过 · `_fuzz_invariants.py` 39 项 0 缺陷 · `_fuzz_authz.py` 30 项 0 缺陷。
+
+**改了什么（20 个文件，都不在核心清单里）**：
+
+1. **代码修复 9 条**：`backend/app/api/v1/price_rules.py`（M10 写价与审计拆两个事务；**复活分支一条日志都不写**；
+   批量范围不排除回收站商品）、`backend/app/services/push_events.py`（每次下单泄漏一个数据库会话）、
+   `backend/app/core/security.py`（compose/.env.example 的示例串补进弱密钥表）、
+   `android/.../ai/AiTools.kt` + `ai/AiWriteService.kt`（角色默认值 fail-open → **fail-closed**）、
+   `ui/order/OrderDetailScreen.kt`（动作失败不再整页顶掉内容）、
+   `core/NotifyCenter.kt` + `core/RealtimeHub.kt`（站内信一条一格通知，不再互相覆盖）、
+   `ai/AiWriteTest.kt`（两处显式写角色）、生成物 `ai/AiReadCatalog.kt` + `docs/ai/ai_read_catalog.json`（说明去伪）。
+2. **判据/探针补牙 4 处**：`_tools/qa/_check_audit_coverage.py`（新增判据 ④"提交了却没有任何日志"）+
+   它的反向验证（6 → **10 条注入**）、`_tools/qa/_check_secrets.py`（JWT 示例默认值**从仓库里数**）、
+   `_tools/fuzz/_fuzz_authz.py`（跨租户改用**真货主**、体内门槛不再一律跳过、新增"合法体试越权"一节）、
+   `_tools/ai/_check_ai_guardrails.py`（+6 项）与 `_tools/ai/_gen_ai_read_catalog.py`（读目录说明）。
+3. **重新生成的产物**（改源码后必须重跑）：`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、
+   `docs/PROJECT_MAP/09A_HINT_CATALOG.md`。⚠️ 后者的内容里**包含另一个会话已提交的文案改动**
+   （1338 → 1334 条）—— 那是从已提交源码**机械生成**出来的，我只是因为自己改了行号而重新生成了一次。
+4. **台账**：`_archive/audit/FINDINGS.md` 新增「第三十二轮」（该目录被 .gitignore 忽略，不进提交）。
+
+**验收数字（本轮实测）**：`_check_all.py` **77/77** · 后端 `pytest` **786 passed** · 安卓单测 BUILD SUCCESSFUL ·
+H5 `npm run build` 通过 · `_check_ai_guardrails.py` **1272 项** · 审计覆盖反向验证 **10/10** ·
+`_fuzz_invariants.py` 39 项 0 缺陷 · `_fuzz_authz.py` 35 项 0 缺陷（角色矩阵 254 → **296** 条断言，
+"体内门槛没测"从 55 个降到 25 个） · 活体复现"复活分支留痕"（`before 8.5000 → after 8.50` + note）。
+
+**明确不碰**：`docs/PROJECT_MAP/09A_HINT_CATALOG.md` 的**内容取舍**（只是重新生成，没改文案）。
+
+
+### [2026-09-22 23:2x → 23:5x] 会话：**AI 报价必须绑「这个货主的价」**（建单 / 加行 / 账本记一笔三条路）+ 新功能 AI 能力对账**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **用户原话**：「我们不是新增了很多的功能吗？尤其是那个预定单还有…供应商的那个收货款这些能力 AI 他都要具有…
 所有的操作，主要是人能操作的他都可以操作。而且再看一下… AI 在其他的基础工作，尤其是核心的业务工作上有没有出现错误，他做不了的」

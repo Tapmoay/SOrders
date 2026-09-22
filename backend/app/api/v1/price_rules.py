@@ -104,7 +104,13 @@ def batch_price_rules(
     if body.shipper_ids:
         qs = qs.where(User.id.in_(body.shipper_ids))
     shippers = list(db.scalars(qs).all())
-    qp = select(Product)
+    # ⚠️ 范围里**排除回收站里的商品**（2026-09-23 复核 K5-②）：原来是裸的 `select(Product)`，
+    #    于是「某批发商 × 全部商品」这种不点名商品的用法，会把价写到 `is_deleted=True` 的商品上 ——
+    #    那些商品在选品页/商品管理里对谁都不显示、下单也选不到，写出来的价**对谁都不生效**，
+    #    而返回与审计日志都写着"价格已设置"（本仓列为最贵的一类：静默无效）。
+    #    单条 `POST /price-rules` 早就拒这种商品（本文件上方那句"这个商品不存在或在回收站里"），
+    #    这里与它对齐。点名的商品仍由下面那段 `missing_p` 检查给出**指名道姓**的中文错误。
+    qp = select(Product).where(Product.is_deleted.is_(False))
     if body.product_ids:
         qp = qp.where(Product.id.in_(body.product_ids))
     products = list(db.scalars(qp).all())
@@ -219,7 +225,11 @@ def batch_price_rules(
                         after=price,
                     )
                 )
-    db.commit()
+    # ⚠️ 这里**不能**再 `db.commit()`（2026-09-23 复核 M10）：原来这一行就是"写价与审计
+    #    分成两个事务"的元凶 —— 下面那段注释写着"必须同一个事务"，正上方却先提交了一次。
+    #    后果：写价已落库、日志那次提交失败（进程被杀 / 库忙 / 约束冲突）→ **一笔查不到谁改的价格改动**，
+    #    而这恰恰是最需要追溯的一类改动（AI 的表格批量调价一次打几个请求，全靠日志把每一行还原）。
+    #    现在两步共用一个事务：日志写不下去，价也不会改（宁可失败，也不留无迹可查的改动）。
     # ⚠️ 审计必须和写入在**同一个事务**里：分开提交时，"写价成功但日志没落"会留下
     # 一笔无迹可查的价格改动，而这恰恰是最需要追溯的一类改动（AI 的表格批量调价
     # 一次会打好几个请求，全靠日志把每一行还原出来）。
@@ -297,9 +307,32 @@ def create_price_rule(
     if exists and not exists.is_deleted:
         raise HTTPException(status_code=400, detail="该货主与商品的价格规则已存在")
     if exists is not None:
+        # ⚠️ 这一段原来**一条日志都不写**（2026-09-23 全面复核抓到的：全后端 165 处 `db.commit()` 里，
+        #    "提交了、而同一个函数里根本没有留痕"的**唯一一处**就是这里）。
+        #    它一次改了两件事：① 把一行从回收站里**复活**（`is_deleted: True → False`）；
+        #    ② **改了价**（`special_unit_price` 旧值 → 新值）。
+        #    而"价格改动必须留痕"是这个项目已经定下的规矩（v3.21：单条新建/改价只在价真的变了时记）——
+        #    于是：给一个之前删过价的货主重新设价，钱变了、审计页上却什么都没有。
+        #    修法：取旧价当 `before`，日志与写入**共用一次提交**（这个分支下面只有一处 commit）。
+        before = exists.special_unit_price
         exists.is_deleted = False
         exists.deleted_at = None
         exists.special_unit_price = body.special_unit_price
+        db.flush()
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.PRICE_RULE_UPSERT,
+            change_payload={
+                "scope": "single",
+                "shipper": _name_of(db, body.shipper_id),
+                "product": _product_name_of(db, body.product_id),
+                "before": None if before is None else str(before),
+                "after": str(body.special_unit_price),
+                "note": "这一行原来在回收站里，这次设价把它复活了",
+            },
+        )
         db.commit()
         db.refresh(exists)
         return _rule_to_out(exists, db)

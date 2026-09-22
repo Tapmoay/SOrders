@@ -91,6 +91,98 @@ def tracked_files() -> list[str]:
     return [ln for ln in out.splitlines() if ln.strip()]
 
 
+# ---- JWT 默认值必须都在 `WEAK_JWT_SECRETS` 里（2026-09-23 补）----
+#
+# 由来：`docker-compose.yml` 里写的是 `${JWT_SECRET_KEY:-change-me-in-production-use-long-random-string}`。
+# 那是**仓库自带**的默认值：46 字符 ≥ `security.py::MIN_SECRET_LEN`(32)，也不在弱表里，
+# 于是"非空 + 长度够 + 不在弱表"三道判据**全部放行** —— 照着 compose 部署、又忘了设环境变量的人，
+# 会静默用一个人人可读的串签 token（谁都能伪造派单员身份），启动日志里看不出任何异常。
+#
+# 判据**不写死那条串**：从仓库里数。谁再往 compose / example / 文档里写一个新的"默认真值"，
+# 而没同步进 `WEAK_JWT_SECRETS`，这条检查立刻红 —— 不靠下一个人记得回来改表。
+SECURITY_PY = "backend/app/core/security.py"
+#: 一条正则覆盖四种写法（各自的坑都写在这里，免得下一个人改坏）：
+#:   · compose：`${JWT_SECRET_KEY:-value}` —— 值后面紧跟 `}`，且**外层捕获会连内层一起吃掉**，
+#:     所以下面还要把 `${NAME:-value}` 拆开只取 `value`；
+#:   · `.env.example`：`# JWT_SECRET_KEY=value`（**注释行也算**：取消注释就用上了）；
+#:   · yaml：`JWT_SECRET_KEY: value`；
+#:   · python：`jwt_secret_key: str = "value"` —— 中间那个 `: str` 是**类型注解**不是值，
+#:     不跳过的话第一个版本把 `str` 当成默认值报了出来（实测）。
+JWT_DEFAULT_RX = re.compile(
+    r"(?i)jwt_secret_key\s*"
+    r"(?::\s*[A-Za-z_][\w\[\]\.\|, ]*)?"   # 可选：python 注解 `: str` / `: SecretStr`
+    r"(?::-|[:=])"                         # compose 的 `:-`，或普通的 `:` / `=`
+    r"\s*([^\s#'}]+)"                      # 值（到空白 / # / `}` 为止；引号留给下面剥）
+)
+#: 测试里的值本来就该是可猜的（`conftest.py` 用固定串让单测可复现），不算默认值。
+JWT_DEFAULT_ALLOW = ("/test/", "test_", "conftest")
+#: 判据文件自己必须**包含这些形状的样文**（注释里就写着 `${JWT_SECRET_KEY:-…}`），
+#: 不跳过的话它每次都把自己报成"默认值不安全"。
+JWT_DEFAULT_SKIP_SELF = "qa/_check_secrets.py"
+
+
+def weak_jwt_secrets() -> set[str]:
+    """从 `security.py` 里解析 `WEAK_JWT_SECRETS`（**唯一事实来源**，不在这里另抄一份）。"""
+    try:
+        txt = (ROOT / SECURITY_PY).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    m = re.search(r"WEAK_JWT_SECRETS = frozenset\(\s*\{(.*?)\}\s*\)", txt, re.S)
+    return set(re.findall(r'"([^"]+)"', m.group(1))) if m else set()
+
+
+def jwt_default_problems(files: list[str]) -> tuple[list[str], int]:
+    weak = weak_jwt_secrets()
+    if len(weak) < 5:
+        return [f"解析不出 {SECURITY_PY} 的 WEAK_JWT_SECRETS（只认出 {len(weak)} 条）——这条判据在空转"], 0
+    fails: list[str] = []
+    seen = 0
+    for f in files:
+        norm = f.replace("\\", "/")
+        if any(a in norm for a in JWT_DEFAULT_ALLOW) or norm.endswith(JWT_DEFAULT_SKIP_SELF):
+            continue
+        p = ROOT / f
+        if not p.is_file():
+            continue
+        try:
+            txt = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "jwt_secret_key" not in txt.lower():
+            continue
+        for i, line in enumerate(txt.splitlines(), 1):
+            # ⚠️ `.py` 里的 `#` 是**散文**（security.py 的注释正好引用了 compose 那一行）；
+            #    而 `.env.example` / `.yml` 里 `#` 是**被注释掉的示例配置** —— 那恰恰是
+            #    "有人一取消注释就用上了"的东西，所以只对 .py 剥注释，别一刀切。
+            scan = line.split("#", 1)[0] if norm.endswith(".py") else line
+            if "jwt_secret_key" not in scan.lower():
+                continue
+            for m in JWT_DEFAULT_RX.finditer(scan):
+                val = m.group(1).strip().strip("\"'")
+                # `${JWT_SECRET_KEY:-value}` 的外层捕获会连内层一起吃掉 → 这里拆开取 value；
+                # 而 `${JWT_SECRET_KEY}`（没有 `:-`）是"必须由环境提供"，那才是安全的写法。
+                if val.startswith("${"):
+                    inner = val[2:]
+                    if ":-" not in inner:
+                        continue
+                    val = inner.split(":-", 1)[1].rstrip("}")
+                # 空值 / 尖括号占位 / 含中文的说明文字（`JWT_SECRET_KEY=长随机串` 是**指示**不是默认值）
+                if not val or val.startswith(("<", "{")) or not val.isascii():
+                    continue
+                seen += 1
+                if val not in weak:
+                    fails.append(
+                        f"{norm}:{i} JWT_SECRET_KEY 的默认值是「{val}」，"
+                        f"但它不在 security.py 的 WEAK_JWT_SECRETS 里 → 用这个默认值部署会被**静默采用**"
+                        f"（人人可读的串签 token）。要么加进 WEAK 表，要么改成占位符。"
+                    )
+    if seen == 0:
+        fails.append(
+            "一个 JWT_SECRET_KEY 的默认值都没扫到（docker-compose.yml 里本来就该有一个）——判据在空转"
+        )
+    return fails, seen
+
+
 def main() -> int:
     # ⚠️ **不要**在这里读命令行位置参数：`_check_all.py` 会把"要位置参数的脚本"当成工具排掉
     #    （那种脚本不带参数跑只会打印一行用法），于是这条检查就进不了"每次都要跑"的那一组。
@@ -152,6 +244,9 @@ def main() -> int:
                 continue   # 像版本号/编号，不算主机名
             ips.setdefault(m.group(1), f)
 
+    jwt_fails, jwt_seen = jwt_default_problems(files)
+    hits.extend(jwt_fails)
+
     if hits:
         print(f"❌ {len(hits)} 处可疑：")
         for h in hits:
@@ -162,6 +257,7 @@ def main() -> int:
         print(f"❌ 只读到 {scanned} 个被跟踪文件——清单过期了，这条检查在空转")
         return 1
     print("✅ 被跟踪的文件里没有已知凭据、也没有凭据形状的赋值")
+    print(f"✅ JWT 的 {jwt_seen} 处示例默认值都在 WEAK_JWT_SECRETS 里（照抄仓库部署也不会用上可猜密钥）")
     if ips:
         # 只警告不失败：IP 不是秘密，而这个仓库**是公开的**（匿名 ls-remote 能读到）。
         # 值不值得写进公开仓库由人判断，但至少别在不知情的情况下写进去。

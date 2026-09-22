@@ -155,9 +155,15 @@ def role_matrix(api: Api, rep: Report, decl: dict[str, dict],
         if "公开" in auth:
             continue
         if any(tag in auth for tag in ("体内", "需读源码")):
-            # 体内门槛要真实对象才走得到；用假 id 只会拿 404，测了也是假的
-            skipped_body_gate.append(key)
-            continue
+            # ⚠️ 这里原来**一律跳过** —— 于是 55 个"只有体内门槛"的端点一个都没测。
+            #    但"体内门槛"只在**路径参数指向一个真实对象**时才需要先查到对象：
+            #    像 `GET /cash-flows` 这种**没有路径参数**的端点，门槛必然当场执行，
+            #    用假 id 的说法对它根本不成立（2026-09-23 复核：手工逐条打过，
+            #    26 条断言全是 403，本来就该被这条判据自动盯着）。
+            #    所以只跳过"体内门槛 + 有路径参数"那一类，把没有路径参数的交回下面的常规对账。
+            if "{" in path:
+                skipped_body_gate.append(key)
+                continue
         allowed = set(info["roles"])
         if "权限:" in auth:
             # require_permission 对派单员一律放行（rbac.py 写死的最高业务权限）
@@ -208,20 +214,50 @@ SECOND: dict[str, str] = {}
 
 
 def second_shipper(api: Api, rep: Report) -> str | None:
-    """拿一个"别的货主"的身份：先用现成的开发账号，没有就让**派单员**建一个。
+    """拿一个"别的**货主**"的身份：先试现成账号（**核对角色**），没有就让**派单员**建一个。
 
-    ⚠️ 原来这里的兜底是"自己注册一个"——**2026-09-18 起注册端点已整体关闭**（用户要求），
-    所以改成走**唯一还存在的建号路径**：派单员 `POST /users`。
-    工具建的号必须留下痕迹（登记在 `SECOND["phone"]`）并在收尾时删掉（`cleanup_own_accounts`）。
+    ⚠️ 2026-09-23 复核抓到这条判据的一个真问题：原来的候选是
+    `("13800000004", "13800000005", "13800000006")`，而**谁先登录成功就用谁** ——
+    本机这三个号里只有 `13800000006` 存在，它是**司机**（王大力）。于是"跨租户"那一节
+    拿着司机 token 去做实验，还把它标成"第二个货主"：断言看着还在（司机当然也不该读别人的单），
+    但真正要问的"**货主 B 能不能看货主 A 的单**"从来没测过 —— 典型的
+    "判据看起来在查、其实查的是另一个角色"。
+    现在：登录成功之后必须 `GET /users/me` **核对角色**，不是货主就换下一个；
+    再加一条从库里找同角色账号的路（开发库里有 30+ 个演示货主），都没有才由派单员新建。
     """
     if "token" in SECOND:
         return SECOND["token"] or None
-    for phone in ("13800000004", "13800000005", "13800000006"):
+
+    def role_of(token: str) -> str:
+        r = api.get("/users/me", token, allow_denied=True)
+        if isinstance(r.body, dict):
+            return str(r.body.get("role") or "").strip().lower()
+        return ""
+
+    candidates = ["13800000004", "13800000005", "13800000006"]
+    # 从库里找现成的同角色账号（只读查询；账号是演示数据，口令统一 123321）
+    try:
+        rows = db_q(
+            "select phone from users where upper(role) = 'SHIPPER' "
+            "and phone not in ('13800000002') order by id limit 8"
+        )
+        candidates += [str(r["phone"]) for r in rows if r["phone"]]
+    except Exception:  # noqa: BLE001 - 查不到就只试写死的几个
+        pass
+    for phone in candidates:
         r = api.post("/auth/login", {"phone": phone, "password": "123321"}, allow_denied=True)
-        if r.is_2xx and isinstance(r.body, dict) and r.body.get("access_token"):
-            rep.info(f"用现成的第二个货主做跨租户试验：{phone}")
-            SECOND["token"] = r.body["access_token"]
-            return SECOND["token"]
+        if not (r.is_2xx and isinstance(r.body, dict) and r.body.get("access_token")):
+            continue
+        token = r.body["access_token"]
+        got = role_of(token)
+        if got != "shipper":
+            # ⚠️ 这里**不许**默默拿来用：角色不对就等于这一节没测
+            rep.info(f"跳过 {phone}：它是「{got or '未知'}」不是货主（以前这里就是这么拿司机当货主的）")
+            continue
+        rep.info(f"用现成的第二个货主做跨租户试验：{phone}")
+        SECOND["token"] = token
+        return token
+
     phone = "139" + str(uuid.uuid4().int)[:8]
     created = api.post(
         "/users",
@@ -231,10 +267,13 @@ def second_shipper(api: Api, rep: Report) -> str | None:
     if created.is_2xx:
         tok = api.post("/auth/login", {"phone": phone, "password": "123321"}, allow_denied=True)
         if tok.is_2xx and isinstance(tok.body, dict) and tok.body.get("access_token"):
-            SECOND["phone"] = phone
-            SECOND["token"] = tok.body["access_token"]
-            rep.info(f"派单员建了一个试验货主 {phone}（收尾会删掉）")
-            return SECOND["token"]
+            t2 = tok.body["access_token"]
+            if role_of(t2) == "shipper":
+                SECOND["phone"] = phone
+                SECOND["token"] = t2
+                rep.info(f"派单员建了一个试验货主 {phone}（收尾会删掉）")
+                return t2
+            rep.info(f"新建的 {phone} 角色核对不上，放弃（不让这一节拿错角色去测）")
     SECOND["token"] = ""
     return None
 
@@ -394,6 +433,76 @@ def idor(api: Api, rep: Report) -> None:
         rep.info(f"试验单 {order_id} 清理：{d.status}")
 
 
+#: 「体内门槛 **+ 带请求体**」的端点：`{"__probe__":1}` 这类垃圾体一律只会拿到 422 ——
+#: **FastAPI 的请求体校验排在处理器之前**，角色门槛有没有，422 里看不出来（矩阵会把它们
+#: 记成"无法判定"，那是诚实的，但等于没测）。所以这里给每个端点配一个**合法但无害**的体，
+#: 让门槛真的被走到；值里第二个元素写清"万一真建出来了，这个东西删得掉吗"。
+#: 未列进来的端点会被如实列进"没测"清单（下面那条 guard 盯着覆盖数）。
+VALID_BODIES: dict[str, tuple[dict, str]] = {
+    "POST /customers": ({"name": f"越权试验{MARK}"}, "散客档案，删得掉（DELETE /customers/{id}）"),
+    "POST /expense-categories": ({"name": f"越权试验{MARK}"}, "开销分类名册，删得掉"),
+    "POST /expense-categories/reorder": ({"ids": [1]}, "只改显示顺序，编号不存在时后端会拒"),
+    "POST /expenses": (
+        {"exp_date": "2026-01-01", "category": f"越权试验{MARK}", "amount": "1.00",
+         "note": f"越权试验{MARK}"},
+        "一笔开销；只有角色门槛真的漏了才会建出来",
+    ),
+    "POST /driver-settlements": (
+        {"driver_id": 0, "month": "2026-01", "note": f"越权试验{MARK}"},
+        "司机结算单（草稿，不做付款）；driver_id=0 只是个不存在的编号，门槛漏了也建不出真单",
+    ),
+}
+
+
+def body_gate_with_valid_body(api: Api, rep: Report, decl: dict[str, dict],
+                              ops: list[tuple[str, str, bool]]) -> None:
+    """带请求体的体内门槛：用**合法体**试越权（垃圾体只会 422，等于没测）。"""
+    rep.section("体内门槛 + 带请求体：合法体试越权")
+    tokens = api.all_roles()
+    checked = 0
+    untested: list[str] = []
+    for method, path, has_body in ops:
+        if not has_body or "{" in path:
+            continue
+        key = key_of(method, path)
+        info = decl.get(key)
+        if info is None or "公开" in info["auth"] or denied(method, path):
+            continue
+        if not any(tag in info["auth"] for tag in ("体内", "需读源码")):
+            continue
+        allowed = set(info["roles"])
+        if "权限:" in info["auth"]:
+            allowed.add("dispatcher")
+        if allowed >= set(ALL_ROLES) or not allowed:
+            continue
+        spec = VALID_BODIES.get(f"{method} {path}")
+        if spec is None:
+            untested.append(key)
+            continue
+        body, _why = spec
+        for role in ALL_ROLES:
+            if role in allowed:
+                continue
+            r = api.req(method, path, body, tokens[role], allow_denied=True)
+            checked += 1
+            if r.status < 400:
+                rep.bug(
+                    f"{ROLE_CN[role]}能用**合法请求体**调只给"
+                    + "/".join(ROLE_CN[x] for x in sorted(allowed))
+                    + f"的写端点：{method} {path}",
+                    f"源码声明「{info['auth']}」；实测 {r.evidence(200)}",
+                )
+    rep.guard("合法体探针真的发出去了（≥8 条）", checked >= 8, f"实际 {checked}")
+    if checked and not any(f.kind == "BUG" for f in rep.findings):
+        rep.ok(f"合法体试越权 {checked} 条全部被 403 挡下")
+    if untested:
+        rep.info(
+            f"{len(untested)} 个带请求体的体内门槛端点没有配合法体（**没测**）："
+            + "、".join(sorted(untested)[:10]),
+            "补一条进 VALID_BODIES 就能测；不补就只能算「无法判定」",
+        )
+
+
 def cleanup_own_accounts(api: Api, rep: Report) -> None:
     """工具自己注册出来的账号自己收掉（只删它登记在 SECOND["phone"] 里的那个）。"""
     phone = SECOND.get("phone")
@@ -424,6 +533,7 @@ def main() -> int:
     registration_closed(api, rep)
     tamper_behaviour(api, rep, ops)
     role_matrix(api, rep, decl, ops)
+    body_gate_with_valid_body(api, rep, decl, ops)
     body_gate_retest(api, rep)
     idor(api, rep)
     cleanup_own_accounts(api, rep)

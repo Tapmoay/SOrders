@@ -7,6 +7,9 @@
 - 清单空转（`api/v1/` 里一个模块都扫不到）。
 
 所以三种破坏各注入一次：**把日志拿掉**、**把模块塞进豁免表**、**把扫描目录指错**。
+（2026-09-23 又补了四种，针对**判据 ④**"提交了却没有任何 `write_log`"：把复活分支的日志拿掉、
+给没被命中的文件加豁免、把判据 ④ 的扫描根指错、以及**不再剥文档字符串**——最后这条证明
+"剥注释"那一步不是装饰：不剥的话 105 个写日志的函数里会冒出 6 处假阳性。）
 
 用法：python _tools/qa/_reverse_verify_audit_coverage.py
 """
@@ -66,6 +69,41 @@ CASES: list[tuple[str, str, object]] = [
         "扫描目录指错（一个模块都扫不到 → 判据空转）",
         "_tools/qa/_check_audit_coverage.py",
         lambda s: s.replace('API = ROOT / "backend/app/api/v1"', 'API = ROOT / "backend/app/api/v1/nope"', 1),
+    ),
+    # ---- 下面是**判据 ④**（提交了却没有任何 write_log）的四种破坏方式（2026-09-23 补）----
+    (
+        "「重新设价＝复活软删行」那条分支的日志又被拿掉（模块里还有 5 处 write_log，模块级判据照样绿）",
+        "backend/app/api/v1/price_rules.py",
+        lambda s: s.replace("        db.flush()\n        write_log(", "        db.flush()\n        _noop(", 1),
+    ),
+    (
+        "把豁免表当成万能口子（给一个**根本没被命中**的文件加豁免）",
+        "_tools/qa/_check_audit_coverage.py",
+        lambda s: s.replace(
+            "TX_EXEMPT: dict[str, str] = {}\n",
+            "TX_EXEMPT: dict[str, str] = {\n"
+            '    "arrears.py": "注入：假装这次提交不需要留痕",\n'
+            "}\n",
+            1,
+        ),
+    ),
+    (
+        "判据 ④ 的扫描根指错（扫不到任何函数 → 空转）",
+        "_tools/qa/_check_audit_coverage.py",
+        lambda s: s.replace(
+            'for f in sorted((ROOT / "backend/app").rglob("*.py")):',
+            'for f in sorted((ROOT / "backend/app/nope").rglob("*.py")):',
+            1,
+        ),
+    ),
+    (
+        "判据 ④ 不再剥文档字符串（会把「调用方负责 db.commit()」当成真提交 → 假阳性）",
+        "_tools/qa/_check_audit_coverage.py",
+        lambda s: s.replace(
+            "        keep = _strip_lines(f.read_text(encoding=\"utf-8\").splitlines())",
+            "        keep = f.read_text(encoding=\"utf-8\").splitlines()",
+            1,
+        ),
     ),
 ]
 

@@ -1560,6 +1560,12 @@ def main() -> int:
     c.present("按 roles 过滤（不是「全给」）", reads, r"k in it\.roles")
     c.present("认不出角色就返回空（fail-closed）", reads, r"val k = key\(actor\?\.role\) \?: return emptyList\(\)")
     c.present("服务侧默认不认角色（刻意不默认成派单员，免得忘了传还静悄悄放行）", reader, r"private val actorProvider: \(\) -> AiActor\? = \{ null \}")
+    # ⚠️ 2026-09-23：读侧这条默认值早就是 fail-closed（上面那条），而**写侧与工具清单**
+    #    两处还是 `{ AiRole.DISPATCHER }` —— 同一个仓库里同一条纪律只落了一半。
+    #    后果不是"少给能力"，而是"**多给**"：新加一个装配点忘了传 provider，拿到的是
+    #    权限最大的那个角色的清单与动作集，不报错、也没人会发现（fail-open 的经典形状）。
+    c.present("写侧默认也不认角色（与读侧同一条纪律）", wsvc, r"private val actorProvider: \(\) -> AiActor\? = \{ null \}")
+    c.present("工具清单默认也不认角色（忘了传时给空清单，不是给派单员的）", tools, r"private val roleProvider: \(\) -> AiRole\? = \{ null \}")
     c.present("读之前先问角色闸门", reader, r"if \(!AiReads\.allows\(role, action\.action, enabledModules\(\)\)\)")
     c.ok(
         "**角色检查排在发请求之前**（排在后面等于查完了才告诉他没权限）",
@@ -2315,10 +2321,19 @@ def main() -> int:
         r"\n    _log_price_changes\(",
     )
     c.ok(
-        "单条改价与删专属价也留痕（都是一次价格变动）",
-        price_api.count("OperationAction.PRICE_RULE_UPSERT") >= 4,
-        f"实际出现 {price_api.count('OperationAction.PRICE_RULE_UPSERT')} 次（批量 2 + 新建/改/删 3 应为 5）",
+        "单条改价 / 重新设价（复活）/ 删专属价也留痕（都是一次价格变动）",
+        price_api.count("OperationAction.PRICE_RULE_UPSERT") >= 6,
+        f"实际出现 {price_api.count('OperationAction.PRICE_RULE_UPSERT')} 次"
+        "（批量逐条 + 批量汇总 + 新建 + 复活重新设价 + 改 + 删 应为 6）",
     )
+    # ⚠️ 2026-09-23 复核抓到：`create_price_rule` 的**复活分支**（给一个软删过的货主重新设价）
+    #    原来改完价直接 `db.commit()` 就 return 了 —— 一条日志都没有，而它同时做了
+    #    "把那一行从回收站复活" 和 "改价" 两件事。上面那条计数判据当时写的是"应为 5"，
+    #    也就是说**判据自己也不知道还有第 6 条路**。改成 6 之外，再钉一条只看代码的断言：
+    c.present("复活分支把旧价取出来当 before（不然日志里看不出改前是多少）",
+              price_api, r"before = exists\.special_unit_price")
+    c.present("批量调价的范围排除回收站里的商品（否则写出来的价对谁都不生效）",
+              price_api, r"select\(Product\)\.where\(Product\.is_deleted\.is_\(False\)\)")
 
     print("\n== 17. 声明式字段的 key 覆盖：commit 不许按「参数名」去 payload 里取 ==")
     # ⚠️ 这一条来自真机实测抓到的**静默丢数据** bug：

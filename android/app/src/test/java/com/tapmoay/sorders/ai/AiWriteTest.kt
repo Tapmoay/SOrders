@@ -1124,7 +1124,7 @@ class AiWriteTest {
         var clock = 1_000L
         val ds = FakeDs()
         val store = AiWritePreviewStore(ttlMs = 5_000L, now = { clock })
-        val svc = AiWriteService(ds, store)
+        val svc = AiWriteService(ds, store, actorProvider = { AiActor.byRole(AiRole.DISPATCHER) })
 
         val card = ok(svc.preview(AiWrites.EXPENSES_CREATE, expenseParams()))
         clock += 5_001L
@@ -5031,7 +5031,7 @@ class AiWriteTest {
     fun `按表格调价：执行结果那句话是一次性的（不许残留到下一次）`() = runBlocking<Unit> {
         val ds = FakeDs()
         val store = AiWritePreviewStore()
-        val svc = AiWriteService(ds, store)
+        val svc = AiWriteService(ds, store, actorProvider = { AiActor.byRole(AiRole.DISPATCHER) })
         val card = ok(
             svc.preview(AiWrites.PRICE_RULES_APPLY_TABLE, p("rows" to "红富士苹果\t城东水果批发\t-10%")),
         )

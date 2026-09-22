@@ -84,7 +84,20 @@ async def push_order_cancelled_to_dispatchers(order_id: int) -> None:
 
 
 async def push_new_order_to_dispatchers(order_id: int) -> None:
-    await message_center.publish_new_order_to_dispatchers(SessionLocal(), order_id)
+    """新单通知派单员（站内信 + 实时推送）。
+
+    ⚠️ 这里原来是一行 `await message_center.publish_new_order_to_dispatchers(SessionLocal(), order_id)`
+    —— **没有 close**（2026-09-23 全项目复核抓到）。同一个文件里另外 12 个函数都是
+    `try/finally: db.close()`，只有这一处漏了，而它恰恰是**每次下单都会走**的那条路：
+    每建一张单就泄漏一个连接，生产 `pool_size=64 / max_overflow=32`，泄漏到上限之后
+    新请求只能等 `pool_timeout` 再报错 —— 表现是"跑了一阵之后下单开始 500"，
+    而那一刻离真正的成因（这里少一个 close）已经很远。
+    """
+    db = SessionLocal()
+    try:
+        await message_center.publish_new_order_to_dispatchers(db, order_id)
+    finally:
+        db.close()
 
 
 async def push_dispatcher_pending_pool_changed() -> None:

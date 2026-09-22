@@ -110,8 +110,18 @@ class AiTools(
      * @return 给模型/用户看的一句话；**null = 写入没成功**（功能被用户关了，或落盘失败）。
      */
     private val rememberFact: suspend (subject: String, fact: String) -> String? = { _, _ -> null },
-    /** 当前登录角色：决定**动作清单**里给模型看哪些（执行侧的门在 AiWriteService 里）。 */
-    private val roleProvider: () -> AiRole? = { AiRole.DISPATCHER },
+    /**
+     * 当前登录角色：决定**动作清单**里给模型看哪些（执行侧的门在 AiWriteService 里）。
+     *
+     * ⚠️ 默认值是 `null`（**fail-closed**，2026-09-23 改）——原来是 `{ AiRole.DISPATCHER }`。
+     *    那是个 fail-**open** 的默认：谁新加一个装配点（或写个忘了传 provider 的构造），
+     *    拿到的是**权限最大的那个角色的清单**，而且不会有任何报错。
+     *    认不出角色应该是"什么都别给"（与 `AiReadCatalog` 那条口径、以及旁边
+     *    [memberProvider] 的 `false` 默认值同一条纪律），不是"按派单员给"。
+     *    生产装配点 `AiContainer` 一直是显式传的，所以这个默认值只影响"忘了传"的情况 ——
+     *    而那正是它该挡的情况。
+     */
+    private val roleProvider: () -> AiRole? = { null },
     /**
      * **他是不是批发商货主**（`users.is_member=1`）。
      *

@@ -17,8 +17,18 @@ logger = logging.getLogger(__name__)
 #: 已知的**弱/公开**密钥：出现在仓库、文档、示例里的那些一律不认。
 #: 为什么要有这张表而不是"只判断空"：改配置的人最容易做的动作就是把它设回示例串
 #: （或者从 README 复制），而那一刻系统看起来"配好了"——这正是最难发现的状态。
+#:
+#: ⚠️ 2026-09-23 补两条**仓库自带的默认值**（这是 S1 家族里最后一个"配了却仍可猜"的口子）：
+#: `docker-compose.yml` 写的是 `${JWT_SECRET_KEY:-change-me-in-production-use-long-random-string}`，
+#: `.env.example` 写的是 `change-me-use-long-random-string` —— 两条都 ≥ `MIN_SECRET_LEN`(32)，
+#: 于是"非空 + 长度够 + 不在弱表"三道判据**全部放行**：照着 compose 部署、又忘了设环境变量的人，
+#: 会静默用一个人人可读的串签 token（谁都能伪造派单员身份），而日志里只有一句正常启动。
+#: 现在补齐判据、并且让 `_tools/qa/_check_secrets.py` **从仓库里数**还有没有新的示例默认值：
+#: 谁再往 example/compose 里写一个新的默认真值，那条检查立刻红（不靠人记得回来改这张表）。
 WEAK_JWT_SECRETS = frozenset(
     {
+        "change-me-in-production-use-long-random-string",
+        "change-me-use-long-random-string",
         "change-me-in-production-use-openssl-rand-hex-32",
         "change-me",
         "changeme",

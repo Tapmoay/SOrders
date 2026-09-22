@@ -2345,8 +2345,16 @@ class AiWriteService(
      * ⚠️ 第二维（`memberShipper`）不能省：普通货主与批发商货主的**手机上界面就不一样**，
      *    工具清单会按它裁；但"清单裁过"不等于"调不到" —— 模型可以凭上一轮的记忆
      *    写一个 `my_ledger.settle` 出来，所以执行前这一道必须同样按 member 判。
+     *
+     * ⚠️ 默认值是 `null`（**fail-closed**，2026-09-23 改）——原来是 `{ AiActor.byRole(AiRole.DISPATCHER) }`。
+     *    那是个 fail-**open** 的默认：任何忘了传 `actorProvider` 的装配点，拿到的是
+     *    **派单员**（权限最大的角色）的动作集，而且不会报错、也没有任何检查会发现。
+     *    "认不出角色 = 什么都不给"才是这门该有的缺省行为（与 [allowCost] 的 `false`、
+     *    以及 `AiReadCatalog` 那条"认不出角色＝一张表都不给"完全同一纪律）。
+     *    生产装配点 `AiContainer` 一直是显式传的；单测里要用哪个角色，就显式写哪个角色 ——
+     *    顺带把"这条测试其实依赖缺省值"这件事变成看得见的代码。
      */
-    private val actorProvider: () -> AiActor? = { AiActor.byRole(AiRole.DISPATCHER) },
+    private val actorProvider: () -> AiActor? = { null },
     /**
      * 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。
      *

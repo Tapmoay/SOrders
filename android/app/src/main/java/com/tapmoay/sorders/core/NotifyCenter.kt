@@ -102,8 +102,17 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
         notify(orderId?.toInt() ?: ORDER_FALLBACK_ID, n)
     }
 
-    /** 普通消息：静默进通知栏 */
-    fun postMessage(title: String, body: String) {
+    /**
+     * 普通消息：静默进通知栏。
+     *
+     * ⚠️ `notificationId` = **服务端那条站内信的 id**（2026-09-23 复核 H9 后加）。
+     *    在这之前这里写死一个常量：[MESSAGE_ID]（9200），于是**所有**普通消息共用通知栏里的
+     *    同一格 —— 后到的那条直接把前一条盖掉，用户永远只能看到最后一条
+     *    （"刚才是不是还有一条？"）。订单那条路（[postOrder]）早就按单号一格一条了，
+     *    消息这条路漏了同一个道理（见它上面那段注释）。
+     *    传 0 / 不传时退回常量那一格：老调用点与单测不受影响，但会退化成"只留最后一条"。
+     */
+    fun postMessage(title: String, body: String, notificationId: Long = 0L) {
         if (!canPost()) return
         ensureChannels()
         val n = NotificationCompat.Builder(context, NotifyChannels.MESSAGES)
@@ -114,7 +123,14 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
             .setAutoCancel(true)
             .setContentIntent(openApp(null))
             .build()
-        notify(MESSAGE_ID, n)
+        // 加一个远大于任何订单号/占位 id 的基数，保证与 [postOrder] 那一族**永不撞号**
+        // （撞号的表现是"消息把订单通知盖掉"，比原来更难查）；越界就退回常量那一格。
+        val id = if (notificationId in 1..MESSAGE_ID_MAX) {
+            (MESSAGE_ID_BASE + notificationId).toInt()
+        } else {
+            MESSAGE_ID
+        }
+        notify(id, n)
     }
 
     /** 前台服务的常驻通知。文案要能回答"它到底在干什么、怎么关掉" */
@@ -165,5 +181,9 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
 
         private const val ORDER_FALLBACK_ID = 9100
         private const val MESSAGE_ID = 9200
+        /** 站内信通知 id 的基数：远大于任何订单号与上面两个占位 id，保证两族不撞号。 */
+        private const val MESSAGE_ID_BASE = 10_000_000
+        /** 站内信 id 超过这个数就不加基数了（Int 溢出让两族重新撞到一起）。 */
+        private const val MESSAGE_ID_MAX = 1_000_000_000L
     }
 }

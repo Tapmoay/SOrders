@@ -171,9 +171,27 @@ fun OrderDetailScreen(
         )
         when {
             vm.loading -> LoadingBox()
-            vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
+            // ⚠️ 整页错误**只在还没有内容的时候**给（2026-09-23 复核 H5）：
+            //    原来是 `vm.error != null ->` 无条件优先，而 `vm.error` 不只是"加载失败"——
+            //    "撤销失败""拆单失败""图片读不出来"（本页 :102/:138/:152）都往它里面塞。
+            //    后果：用户点一下按钮，整页被换成 ErrorView + 重试按钮，**刚才在看的内容全没了**，
+            //    而他真正需要的信息（订单还在、只是这一步没成）被这句"重试"盖住。
+            //    现在：没内容 → 整页错误（这时候它确实没什么可显示的）；
+            //          有内容 → 走下面那两条横幅（本次刷新没成功 / 这个动作没成功）。
+            vm.order == null && vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
             vm.order == null -> EmptyView("订单不存在")
             else -> Column(Modifier.fillMaxSize()) {
+                // 「这个动作没成功」：与下面那条刷新提示同一个位置、同一种颜色，都不盖住内容
+                vm.error?.let { msg ->
+                    Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
                 // 「刷新失败但旧数据还在」→ 只提示一行，别把已经看到的内容换成整页错误
                 vm.refreshWarning?.let { w ->
                     Surface(color = MaterialTheme.colorScheme.errorContainer) {
