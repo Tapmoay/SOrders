@@ -18,7 +18,7 @@ from app.database import get_db
 from app.deps import CurrentUser
 from app.schemas.auth import LoginRequest, Token
 from app.services import login_guard
-from app.services.auth_service import authenticate_user
+from app.services.auth_service import authenticate_user, is_test_account, revoke_tokens_and_sockets
 from app.services.token_response import build_token_response
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -29,11 +29,30 @@ def _client_ip(request: Request) -> str | None:
     return getattr(getattr(request, "client", None), "host", None)
 
 
-def _login(db: Session, login_id: str, password: str, ip: str | None, request: Request) -> Token:
-    """两条登录端点共用：**拒明文** → 限流 → 校验 → 记账（成功清计数、失败累加）。
+def _login(
+    db: Session,
+    login_id: str,
+    password: str,
+    ip: str | None,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> Token:
+    """两条登录端点共用：**拒明文** → 限流 → 校验 → 记账（成功清计数、失败累加）→ 撤销旧会话。
 
     ⚠️ 第一道是 2026-09-19 外部完整检查 C-1 的修法第 5 步（见 `core/transport.py`）：
     携带凭据的端点**不收明文**。放在最前面是为了在任何 DB/限流逻辑之前就把它挡掉。
+
+    ⚠️ 最后那道**撤销旧会话**（2026-09-22 用户要求：「防止两部手机同时登一个账号……
+    只要是真实的账号的话，他**不能在两部手机上同时登录**」）：
+    非测试账号登录成功时，先把该账号**已经发出去的令牌全部作废、并把它的长连接断开**，
+    再签发这一次的令牌 —— 也就是**后来者顶掉先登的**（用户拍板选的这一种）。
+    被顶掉那台的表现：下一次请求 401 → 客户端 `clearSession()` → 跳登录页；
+    而且它**收不到推送了**（长连接同一入口断掉，见 `revoke_tokens_and_sockets` 的说明），
+    不会出现"已经下线还在收单"。
+
+    ⛔ **顺序**：`revoke` → `commit` → `build_token_response`。
+    反过来的话，新令牌带着一个**库里还没生效**的 `tv`，`deps.get_current_user` 会把它也判成失效 ——
+    用户刚登录完就"登录已失效"，而日志里什么异常都没有。
     """
     reject_plaintext_credentials(request)
     reason = login_guard.block_reason(login_id, ip)
@@ -45,6 +64,11 @@ def _login(db: Session, login_id: str, password: str, ip: str | None, request: R
         # 不区分"用户不存在"与"密码错误"（避免账号枚举），也不提示还能试几次
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     login_guard.note_success(login_id)
+
+    if not is_test_account(user.phone):
+        revoke_tokens_and_sockets(db, user, background_tasks, "账号在另一台设备登录")
+        db.commit()
+
     return build_token_response(user)
 
 
@@ -65,23 +89,27 @@ def logout(
     已经建起来的长连接不会因此断开，照样继续收推送。所以走
     `revoke_tokens_and_sockets`（作废 + 断开是同一个入口，不可能只做一半）。
     """
-    from app.services.auth_service import revoke_tokens_and_sockets
-
     revoke_tokens_and_sockets(db, current, background_tasks, "登出")
     db.commit()
     return {"ok": True, "note": "本账号已发出的登录令牌已全部作废，请重新登录"}
 
 
 @router.post("/login", response_model=Token)
-def login_json(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> Token:
-    return _login(db, (body.phone or "").strip(), body.password, _client_ip(request), request)
+def login_json(
+    body: LoginRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> Token:
+    return _login(db, (body.phone or "").strip(), body.password, _client_ip(request), request, background_tasks)
 
 
 @router.post("/token", response_model=Token)
 def login_form(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> Token:
     """OAuth2 兼容：username 字段填手机号。"""
-    return _login(db, (form_data.username or "").strip(), form_data.password, _client_ip(request), request)
+    return _login(db, (form_data.username or "").strip(), form_data.password, _client_ip(request), request, background_tasks)

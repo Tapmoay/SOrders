@@ -29,6 +29,42 @@ def authenticate_user(db: Session, login_id: str, password: str) -> User | None:
     return user
 
 
+#: **测试账号的号段**：`13800000001`~`13800000009`（＝我们在模拟器上一直用的这批号的形式）。
+#: 用户 2026-09-22 定的原话：「**也就是现在我们用的账号的形式全都自动豁免**。主要改变的就是**后面的尾号最多 9 个**」。
+#:
+#: ⚠️ 为什么要有一份**豁免名单**（而不是"所有账号一律单设备"）：
+#: 真机验收/多端联调**必须在两台设备上同时登同一个号**（派单端要两台对比、
+#: 或者一台派单员一台司机看同一条链路），一律限制等于把开发流程自己掐死。
+#: 真实账号（比如派单员 `15070334563`、以及库里那些司机/货主的真号）则一律受限。
+#:
+#: ⚠️ **和 `settings.ai_test_phone_prefix` 是两件事，别合并**（那个的消费点是
+#: `api/v1/system.py`，管的是"谁能用服务端默认 AI key"，**默认空＝整体关闭**，要 `backend/.env` 打开）：
+#: 把它拿来当豁免判据的话，「打开 AI 默认 key」这个动作会**顺手放宽登录限制**，
+#: 而这两件事没有任何关系 —— 那种耦合在界面上完全看不出来。
+#: 这里的号段是**写死的约定**（用户给的就是固定的号形式），不随环境变化。
+#:
+#: ⚠️ 判据只有这一处：登录时（`api/v1/auth.py::_login`）与红线都读它，
+#: 不许在别处再写一遍前缀判断 —— 各写一份的后果是"某个端把真实账号也放行了"，
+#: 而这在界面上完全看不出来（两台手机都能用，谁也不报错）。
+TEST_ACCOUNT_PHONE_PREFIX = "1380000000"
+TEST_ACCOUNT_TAIL_MAX = 9
+
+
+def is_test_account(phone: str | None) -> bool:
+    """这个手机号是不是**豁免单设备限制**的测试账号。
+
+    形式：`1380000000` + **一位**尾号（`1`~`9`）＝ 共 11 位。
+    ⛔ 不接受 `13800000000`（尾号 0 不在"最多 9 个"里）也不接受 `13800000010`（尾号两位数）——
+    判据故意写死成"前缀 + 一位 1~9"，比 `startswith` 严格：
+    后者会把 `13800000001234` 这种也放行，等于悄悄给真实账号开了后门。
+    """
+    p = (phone or "").strip()
+    if len(p) != len(TEST_ACCOUNT_PHONE_PREFIX) + 1 or not p.startswith(TEST_ACCOUNT_PHONE_PREFIX):
+        return False
+    tail = p[len(TEST_ACCOUNT_PHONE_PREFIX):]
+    return tail.isdigit() and 1 <= int(tail) <= TEST_ACCOUNT_TAIL_MAX
+
+
 def issue_token(user: User) -> str:
     role = user.role.value if isinstance(user.role, UserRole) else str(user.role)
     # `tv` = 签发时的 token_version。服务端撤销就靠它：改密码/停用/登出时库里 +1，

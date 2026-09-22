@@ -77,9 +77,9 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:52` | 仅登录 |
-| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:76` | **公开** |
-| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:81` | **公开** |
+| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | 仅登录 |
+| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` | **公开** |
+| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` | **公开** |
 
 ### `backend/app/api/v1/cash_flows.py` — 3 个
 
@@ -521,8 +521,8 @@ _（无重复注册）_
 
 | 方法与路径 | handler | 位置 |
 |---|---|---|
-| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:76` |
-| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:81` |
+| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` |
+| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` |
 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:183` |
 | `GET /health` | `health` | `backend/app/main.py:221` |
 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:230` |
@@ -534,7 +534,7 @@ _（无重复注册）_
 
 | 方法与路径 | handler | 位置 | 含 `current.id` |
 |---|---|---|---|
-| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:52` | — |
+| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | — |
 | `GET /api/v1/notifications/unread-count` | `unread_count` | `backend/app/api/v1/notifications.py:31` | ✅ |
 | `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:39` | ✅ |
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:190` | ✅ |
