@@ -39,6 +39,34 @@
 > ② 另有 25 个后端文件带**在途改动**。**我没有重启它**：`uvicorn` 无 `--reload`，一旦在途代码有语法/导入错，
 > 重启会把大家的本地后端一起弄挂（而旧进程里还留着能跑的那份）。**谁在改后端、谁来决定什么时候重启。**
 
+> ### ✅ 发版记录（2026-09-22 09:0x → 09:1x，`session-faa17a77`）
+>
+> **① 基线快照 `355c648`** —— 把三个会话累积的 **138 项**未提交改动一次性入库（**不含** `docs/screenshots/`）。
+> ⚠️ 这不是"顺手清工作区"，是**修一个真隐患**：我在 `748bea4` / `af90150` 两次提交里 `git add` 共享文件时，
+> 卷进了别的会话**「调用方」的那一半**，而**「定义方」还留在工作区**（新文件 `ui/common/Hints.kt`、
+> `ui/common/FormRows.kt`、`HintPrefs.visible`…）→ 后果：**HEAD 自 `748bea4` 起就编不过**
+> （在干净 worktree 里按 HEAD 打手机包，报 `Unresolved reference 'HintOnce' / 'FormInputRow' / 'FormRow' /
+> 'formError' / 'visible'`）。同一个病还有第二处：我提交的 `_check_adaptive_layout.py`（以及
+> `_check_order_list_ui.py`）都 `import _check_hints`，而 **`_check_hints.py` 一直没入库**
+> → **新克隆的仓库跑不了这些检查**。
+> ✅ **快照后已验证**：新 HEAD 在干净 worktree 里 `assemblePhoneRelease` **通过**（3m14s）。
+>
+> **② 手机包已发到线上**：`0.2.3 / versionCode 2026092201`（上一版是 `2026092105`），走
+> `_tools/deploy/publish_apk.py`：签名指纹与线上一致（存量用户可直接升级）、编译进去的是
+> `https://8.145.40.22`、非 debuggable、回读 `version.json` 与 APK 响应头都通过。
+> **包是按 HEAD 在干净 worktree（`D:\AProjects\ASDH\orders-rel-0.2.3`）里打的 → 不含任何在途改动。**
+> 桌面另留一份：`C:\Users\Optimistic\Desktop\SOrders\sorders-0.2.3-2026092201.apk`。
+>
+> **③ 后端不需要发（有据）**：生产当前在 `021543e`，而 `021543e..HEAD` 的 13 个提交里
+> **动过 `backend/` 的是 0 个**（只有 `android/ _tools/ docs/ VERSION`）→ 生产后端已是最新，**我没有去动它**。
+> 本机后端进程仍未重启（理由见上一条），所以 `_check_backend_fresh.py` **仍会红**，那不是新问题。
+>
+> **④ 给下一个要发版的人的教训**：`git add <共享文件>` 会把别人**半落地**的改动一起提交
+> （"调用方提交了、定义方还在工作区"），**HEAD 编不过这种事只有发版时才会撞上**。
+> 所以：① 提交共享文件前，先确认**它引用的东西也都在库里**（新文件尤其容易漏）；
+> ② 发版**必须在干净 worktree 里按 **commit** 打**（`git worktree add <dir> <commit>`），
+> 主检出里有 3 个会话的在途改动，直接打出来的包会把这些一起发给用户。
+
 ### [2026-09-22 08:4x → 09:2x] 会话：**小屏 / 大字号下的卡片塌陷：一行放不下时改「换行或滑动」，不缩字号、不截断**【已完成】（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
 **用户需求（原话）**：「所有卡片样式要根据手机的不同的大小来做一个适配……比如说就是正常的一种缩放吧，svg 啊的一种形式」；
