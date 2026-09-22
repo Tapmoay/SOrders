@@ -981,7 +981,7 @@
    "module_cn": "订单商品行",
    "method": "get",
    "path": "/api/v1/order-products",
-   "at": "backend/app/api/v1/order_products.py:72",
+   "at": "backend/app/api/v1/order_products.py:122",
    "auth": "权限:ORDER_READ_ALL",
    "roles": [
     "dispatcher"
@@ -1040,7 +1040,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:250",
+   "at": "backend/app/api/v1/orders.py:252",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -1186,7 +1186,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:424",
+   "at": "backend/app/api/v1/orders.py:426",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"

@@ -712,6 +712,9 @@ def update_order(
     order = db.scalars(select(Order).where(Order.id == order_id)).first()
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⚠️ 先锁再判（2026-09-23 第 6 轮）：上面那份是**可能过期**的对象，
+    #    而"判完到写之间"正是司机送达/撤销能挤进来的窗口（同 `order_products` 那一处）。
+    order = lock_order_row(db, order)
     if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
         raise HTTPException(status_code=400, detail="订单已结束，不可再编辑")
     before = {
@@ -1463,6 +1466,10 @@ def update_order_freight(
     order = db.scalars(select(Order).where(Order.id == order_id)).first()
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⚠️ 先锁再判（2026-09-23 第 6 轮，理由见 `order_products._locked_editable_order`）：
+    #    这里的判据是"已送达/已撤销/已退货就不许改运费"，而判完到写之间正好是送达能挤进来的窗口；
+    #    挤进来之后订单运费变了、司机账单却没跟着变 —— 又回到"同一笔钱两个数"。
+    order = lock_order_row(db, order)
     # 已退货也算"这单结束了"：司机账单在送达那一刻就按当时的规则快照生成好了，
     # 事后改运费不会动账单（改了个寂寞），而界面上会显示一个与账单不一致的数。
     if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
