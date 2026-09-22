@@ -20,7 +20,38 @@
 
 ## 进行中
 
-### [2026-09-23 00:1x →] 会话：**全项目系统性复核 · 第 1 轮**（33 轮审计台账逐条复核 + 活体判据补牙 + M10）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-23 00:3x →] 会话：**全项目系统性复核 · 第 2 轮**（上传防 OOM / 商品恢复还原 / 跨账号消息留痕 / 死代码 / 探针判据补牙）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**这一轮修的都是上一轮复核列出的"仍成立"条目**（台账「第三十二轮」那张表里的 G8 / K6 / A8 / H8 / A12）：
+
+| 条目 | 改了什么 |
+|---|---|
+| **G8** | 5 个上传端点全是"先 `await file.read()` 整包读进内存、下一行才判大小"→ 新增 `app/core/upload_read.py::read_limited`（只读「上限+1」字节），5 处全换；`files.py` / `orders.py`×2 / `products.py` / `shipper.py` |
+| **K6** | `restore_product` 原来**无条件**把商品设回上架 → 改成一、删除时把 `was_active` 记进 `PRODUCT_DELETE` 日志；二、恢复时从日志读回来；三、读不到就**保持下架**（fail-closed）。另把 `inventory.py` 的库存概览显式加上 `is_deleted.is_(False)`（它原来靠"删除会顺手下架"的副作用） |
+| **A8** | 派单员删/改**别人的**站内信原来**一条审计都不写** → 三处（delete / patch / batch-delete）在 `recipient_id != current.id` 时写 `NOTIFICATION_MODERATE`；**动自己的不记**（状态不是业务事实）。新动作码 + `ReportCenter.kt::actionLabel` 中文名 |
+| **H8** | 删掉从头到尾不存在的"撤销原因"：`OrderDetailViewModel.cancel(reason)` / `AppRepository.cancelOrder(orderId, reason)` / `OrderCancelBody`（全仓零引用） |
+| **A12** | `_probe_ai_safety.py` 的 C3 判据（间接注入）**从没用过 `a.tools`** → 模型真去 `preview_write` 申请写操作、再补一句"那只是数据里的字"也能绿灯。判据改成"轨迹里出现写工具即失败" |
+
+**新增判据 2 个、反向验证 2 个**（`_check_all.py` 自动发现 → **77 → 79**）：
+`_tools/qa/_check_upload_limits.py`（自己扫所有收 `UploadFile` 的函数；⚠️ 锚的是 **`await read_limited(`** ——
+漏 `await` 也报红，因为那正是我自己踩到的 500）+ 5 条注入；
+`_tools/ai/_check_probe_criteria.py`（**判据的判据**：给 6 条对抗判据喂构造答案，18 个断言）+ 3 条注入。
+
+**要改的文件**：`backend/app/{core/upload_read.py(新),api/v1/{files,orders,products,inventory,notifications}.py,
+models/enums.py,services/…}`、`android/…/{Dtos.kt,AppRepository.kt,OrderDetailViewModel.kt,ReportCenter.kt}`、
+`backend/tests/{test_product_restore_state.py(新),test_notification_cross_account_audit.py(新)}`、
+`_tools/qa/{_check_upload_limits.py(新),_reverse_verify_upload_limits.py(新),_check_audit_coverage.py}`、
+`_tools/ai/{_check_probe_criteria.py(新),_reverse_verify_probe_criteria.py(新),_probe_ai_safety.py}`、
+`docs/PROJECT_MAP/{08_CODE_LOCATOR.md,08A_ENDPOINT_INDEX.md(重生成)}`、`docs/ai/ai_read_catalog.json(重生成)`。
+
+⛔ **核心改动：`backend/app/models/enums.py`** —— 为什么必须动核心：新增审计动作码
+`NOTIFICATION_MODERATE` 只能加在领域词汇表里（A8 的跨账号改删要留痕，复用一个语义不合的动作码
+会让审计页把"处理他人消息"读成别的事）。
+
+**明确不碰**：`docs/PROJECT_MAP/09A_HINT_CATALOG.md` 的内容取舍（只是重新生成）。
+
+
+### [2026-09-23 00:1x → 00:3x] 会话：**全项目系统性复核 · 第 1 轮**（33 轮审计台账逐条复核 + 9 条修复 + 4 处判据补牙）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **用户原话**：「你现在就是把整个项目的代码进行测试优化，以及逻辑上有没有存在错误…这个设计是否合理，
 还有 AI 的能力它是否都具备了？定个目标，一直干下去。」

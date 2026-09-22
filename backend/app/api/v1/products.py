@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -9,9 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.business_time import utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
+from app.core.upload_read import MAX_IMAGE_BYTES, read_limited
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
-from app.models import Product, ProductCostHistory, User
+from app.models import OperationLog, Product, ProductCostHistory, User
 from app.models.enums import OperationAction, UserRole
 from app.api.v1.product_categories import ensure_category
 from app.schemas.product_visibility import product_visible_to, visible_product_ids
@@ -299,7 +301,10 @@ async def upload_product_image(
     if p is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
     ct = (file.content_type or "").split(";")[0].strip().lower()
-    raw = await file.read()
+    # ⚠️ 限量读（2026-09-23 复核 G8）：原来是 `await file.read()` 再判 4MB ——
+    #    "上限"挡的是读进来之后的处理，挡不住内存本身。
+    #    下面那句按前 32 字节嗅探类型仍然成立（我们本来就只读回了一小段）。
+    raw = await read_limited(file, MAX_IMAGE_BYTES, detail="图片过大（最大 4MB）")
     if ct not in ALLOWED_IMAGE_CT or ct in ("", "application/octet-stream"):
         sniffed = _sniff_image_mime(raw[:32])
         if sniffed:
@@ -309,8 +314,6 @@ async def upload_product_image(
             status_code=400,
             detail=f"不支持的图片类型：{(file.content_type or '') or '空'}（请使用 JPG/PNG/WebP）",
         )
-    if len(raw) > 4 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="图片过大（最大 4MB）")
     ext = Path(file.filename or "").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
         if ct == "image/png":
@@ -360,6 +363,11 @@ def delete_product(
     p = db.get(Product, product_id)
     if p is None or p.is_deleted:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⚠️ 先把"删除前它是不是上架的"记下来（2026-09-23 复核 K6）：删除会强制下架
+    #    （`is_active=False`），而恢复原来**无条件**把它设回上架 —— 于是"我当初是
+    #    刻意把它下架的，后来删掉，再恢复"会静默变成"它又回到货架上了"。
+    #    这条事实以前只在 `note` 里写了一句人话，机器读不回来，所以恢复只能猜。
+    was_active = bool(p.is_active)
     p.is_deleted = True
     p.deleted_at = utc_now_naive()
     p.is_active = False
@@ -372,10 +380,43 @@ def delete_product(
             "product_id": p.id,
             "name": p.name,
             "stock": p.stock,
+            # 恢复时要照它还原（见 `restore_product` / `_was_active_before_delete`）
+            "was_active": was_active,
             "note": "软删除（可恢复）；库存流水/订单/账本/专属价均未改动",
         },
     )
     db.commit()
+
+
+def _was_active_before_delete(db: Session, product_id: int) -> bool | None:
+    """这一次删除之前，这个商品是上架的吗 —— 从**审计日志**里读回来。
+
+    为什么不新加一列：`schema_bootstrap.py` 是核心区（加列要连带 MySQL 迁移），
+    而"删除前是什么状态"本来就是审计日志该记住的事实。以前那条 `PRODUCT_DELETE` 日志
+    只记了 id / 名字 / 库存，**唯独没记它当时是上架还是下架**，所以恢复只能无条件上架。
+
+    取值口径：扫最近 [LOOKBACK] 条 `PRODUCT_DELETE`，取**第一条属于这个商品**的
+    （= 最近一次删除；先删后恢复再来一轮也能对上）。
+    读不到（历史数据、日志已过保留期）→ `None`，由调用方按"不上架"处理（fail-closed：
+    宁可让用户手动上架一次，也不许把一个他刻意下架的商品悄悄放回货架）。
+    """
+    LOOKBACK = 500
+    rows = db.scalars(
+        select(OperationLog)
+        .where(OperationLog.action == OperationAction.PRODUCT_DELETE.value)
+        .order_by(OperationLog.id.desc())
+        .limit(LOOKBACK)
+    ).all()
+    for row in rows:
+        try:
+            payload = json.loads(row.change_content or "{}")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(payload, dict) and payload.get("product_id") == product_id:
+            if "was_active" not in payload:
+                return None  # 这条日志是加 was_active 之前写的 → 不知道，别猜
+            return bool(payload["was_active"])
+    return None
 
 
 @router.post("/{product_id}/restore", response_model=ProductOut)
@@ -384,21 +425,37 @@ def restore_product(
     current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
     db: Session = Depends(get_db),
 ) -> Product:
-    """把软删除的商品恢复回来（`DELETE /{id}` 的逆操作）。"""
+    """把软删除的商品恢复回来（`DELETE /{id}` 的逆操作）。
+
+    ⚠️ **恢复 = 还原，不是"顺手重新上架"**（2026-09-23 复核 K6）：
+    删除会强制下架，但"删除"和"下架"是两件事（用户可能先刻意下架、之后才删）。
+    所以这里把 `is_active` 还原成**删除前**的值（从那条 `PRODUCT_DELETE` 日志里读回来）；
+    读不到就**保持下架**（fail-closed）—— 宁可多一次手动上架，也不许把他刻意下架的商品
+    悄悄放回货架（那会让它在选品页/下单页重新出现，而他以为自己早就下架了）。
+    """
     p = db.get(Product, product_id)
     if p is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
     if not p.is_deleted:
         raise HTTPException(status_code=400, detail="这个商品没有被删除，不需要恢复")
+    was_active = _was_active_before_delete(db, product_id)
     p.is_deleted = False
     p.deleted_at = None
-    p.is_active = True
+    p.is_active = bool(was_active)  # None（读不到）→ 保持下架
     write_log(
         db,
         operator_id=current.id,
         order_id=None,
         action=OperationAction.PRODUCT_RESTORE,
-        change_payload={"product_id": p.id, "name": p.name},
+        change_payload={
+            "product_id": p.id,
+            "name": p.name,
+            "was_active": was_active,
+            "restored_active": p.is_active,
+            "note": "恢复只还原状态，不会把刻意下架的商品重新上架"
+            if not p.is_active
+            else "删除前它就是上架的，已一并还原",
+        },
     )
     db.commit()
     db.refresh(p)

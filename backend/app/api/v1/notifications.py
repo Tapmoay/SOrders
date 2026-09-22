@@ -10,7 +10,7 @@ from app.core.rbac import Permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
 from app.models import Notification, User
-from app.models.enums import UserRole
+from app.models.enums import OperationAction, UserRole
 from app.schemas.notification import (
     NotificationBatchDeleteBody,
     NotificationCreate,
@@ -19,6 +19,7 @@ from app.schemas.notification import (
 )
 from app.schemas.price_notify import PriceChangeNotifyBody
 from app.services.message_center import emit_notification, emit_unread_count
+from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -238,6 +239,26 @@ def batch_delete_notifications(
     else:
         dq = delete(Notification).where(Notification.recipient_id == target)
     result = db.execute(dq)
+    # ⚠️ **派单员动别人的消息必须留痕**（2026-09-23 复核 A8）：这个端点允许派单员带
+    #    `recipient_id` 清掉**任何账号**的消息（产品口径如此：消息中心是全局视图），
+    #    但在这之前它**一条审计都不写** —— 一次 `{"recipient_id": X, "all": true}` 就能
+    #    永久清空 X 的全部站内信，事后在审计页上查不到任何痕迹（"谁删的、删了多少"都不知道）。
+    #    动自己的消息仍然不记（那是状态不是业务事实，逐条记会把审计页淹掉，见 REASONS 那条口径）。
+    if target != current.id:
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.NOTIFICATION_MODERATE,
+            change_payload={
+                "act": "batch_delete",
+                "recipient_id": target,
+                "deleted": result.rowcount,
+                "scope": "all" if not body.ids else "ids",
+                "ids": list(body.ids or [])[:50],
+                "note": "派单员删除了**别人的**站内信（该账号自己的消息中心不再有这些条）",
+            },
+        )
     db.commit()
     background_tasks.add_task(_bg_emit_unread, target)
     return {"deleted": result.rowcount}
@@ -271,6 +292,23 @@ def update_notification(
         n.content = body.content
     if body.payload is not None:
         n.payload = body.payload
+    # 改**别人的**消息要留痕（同 batch-delete 那条理由）：正文被改过之后，
+    # 收件人看到的内容与后端当初发的那条已经不是一回事了，事后必须查得到是谁改的。
+    if n.recipient_id != current.id:
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.NOTIFICATION_MODERATE,
+            change_payload={
+                "act": "update",
+                "notification_id": n.id,
+                "recipient_id": n.recipient_id,
+                "fields": [k for k, v in (("title", body.title), ("content", body.content),
+                                          ("payload", body.payload)) if v is not None],
+                "note": "派单员改了**别人的**站内信正文",
+            },
+        )
     db.commit()
     db.refresh(n)
     return n
@@ -289,6 +327,23 @@ def delete_notification(
     if n.recipient_id != current.id and user_role_key(current) != UserRole.DISPATCHER.value:
         raise HTTPException(status_code=403, detail="无权访问")
     rid = n.recipient_id
+    # 删**别人的**消息要留痕（同上）。注意顺序：先把日志写进同一个事务，再删除那一行——
+    # 日志记的是"我删了谁的那条消息"，所以里面的字段要在 `db.delete(n)` **之前**取。
+    if rid != current.id:
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.NOTIFICATION_MODERATE,
+            change_payload={
+                "act": "delete",
+                "notification_id": n.id,
+                "recipient_id": rid,
+                "title": (n.title or "")[:64],
+                "type": n.type,
+                "note": "派单员删除了**别人的**一条站内信（不可恢复）",
+            },
+        )
     db.delete(n)
     db.commit()
     background_tasks.add_task(_bg_emit_unread, rid)

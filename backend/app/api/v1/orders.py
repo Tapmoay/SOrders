@@ -22,6 +22,7 @@ from app.api.v1.arrears import find_or_create_unit
 from app.core.business_time import business_range_utc, utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
+from app.core.upload_read import MAX_DELIVERY_PHOTO_BYTES, MAX_IMAGE_BYTES, read_limited
 from app.database import get_db
 from app.deps import CurrentUser, parse_date_range, require_permission
 from app.models import ArrearsUnit, Order, User
@@ -111,9 +112,10 @@ async def _save_delivery_uploads(order_id: int, files: list[UploadFile]) -> list
         ct = (f.content_type or "").split(";")[0].strip().lower()
         if ct not in ALLOWED_IMAGE_CT:
             raise HTTPException(status_code=400, detail=f"不支持的文件类型：{ct}")
-        raw = await f.read()
-        if len(raw) > 8 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="文件过大")
+        # ⚠️ 限量读（2026-09-23 复核 G8）：原来是无参数 `await f.read()` 再判 8MB ——
+        #    "上限"挡的是读进来之后的处理，挡不住内存本身；一次最多 20 张，成倍放大。
+        #    提示语保持原来那句「文件过大」不变（客户端已经熟悉它）。
+        raw = await read_limited(f, MAX_DELIVERY_PHOTO_BYTES, detail="文件过大")
         ext = Path(f.filename or "").suffix.lower()
         if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
             ext = ".jpg"
@@ -853,15 +855,14 @@ async def upload_order_address_image(
     from app.api.v1.products import ALLOWED_IMAGE_CT, _sniff_image_mime
 
     ct = (file.content_type or "").split(";")[0].strip().lower()
-    raw = await file.read()
+    # ⚠️ 限量读（2026-09-23 复核 G8）：原来是 `await file.read()` 再判 4MB
+    raw = await read_limited(file, MAX_IMAGE_BYTES, detail="图片过大（最大 4MB）")
     if ct not in ALLOWED_IMAGE_CT or ct in ("", "application/octet-stream"):
         sniffed = _sniff_image_mime(raw[:32])
         if sniffed:
             ct = sniffed
     if ct not in ALLOWED_IMAGE_CT:
         raise HTTPException(status_code=400, detail="不支持的图片类型（请使用 JPG/PNG/WebP）")
-    if len(raw) > 4 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="图片过大（最大 4MB）")
     ext = Path(file.filename or "").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
         ext = ".jpg"

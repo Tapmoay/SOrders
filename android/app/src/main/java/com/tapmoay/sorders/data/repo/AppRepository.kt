@@ -130,7 +130,14 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun createOrder(body: com.tapmoay.sorders.data.remote.dto.OrderCreateRequest) =
         api.orderApi.createOrder(body)
 
-    suspend fun cancelOrder(orderId: Long, reason: String = "") = api.orderApi.cancelOrder(orderId)
+    /**
+     * 撤销订单。
+     *
+     * ⚠️ 这里原来有个 `reason: String = ""` 形参（一路从 `OrderDetailViewModel.cancel(reason)` 传进来），
+     * 而 `api.orderApi.cancelOrder` **没有请求体**、后端 `cancel_order` 也不接收原因 ——
+     * 于是它被静默丢掉（`OrderCancelBody` 这个 DTO 全仓零引用）。2026-09-23 复核 H8 删除。
+     */
+    suspend fun cancelOrder(orderId: Long) = api.orderApi.cancelOrder(orderId)
 
     /**
      * **订单退货**（2026-09-20）：整单退 / 只退其中几个商品，都走这一条。

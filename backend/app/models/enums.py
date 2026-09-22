@@ -255,6 +255,12 @@ class OperationAction(str, enum.Enum):
     SUPPLIER_PAYMENT_CANCEL = "SUPPLIER_PAYMENT_CANCEL"
     #: 把撤掉的付款放回来。
     SUPPLIER_PAYMENT_RESTORE = "SUPPLIER_PAYMENT_RESTORE"
+    # 派单员动**别人的**站内信（2026-09-23 全项目复核 A8）。
+    # ⚠️ 只记"跨账号"那一种，不记"动自己的消息"：后者是状态不是业务事实，
+    #    逐条记会把审计页淹掉（一条群发就是几十行）—— 但**动别人的**必须留下痕迹：
+    #    一次 `POST /notifications/batch-delete {recipient_id: X, all: true}` 就能永久清空
+    #    X 的全部站内信，而在这之前它一条日志都不写，"谁删的、删了多少"事后无从查起。
+    NOTIFICATION_MODERATE = "NOTIFICATION_MODERATE"
 
 class CustomerKind(str, enum.Enum):
     REGISTERED = "registered"

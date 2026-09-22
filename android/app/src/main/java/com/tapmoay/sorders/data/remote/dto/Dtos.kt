@@ -479,8 +479,9 @@ data class OrderChargeBody(@SerialName("arrears_unit_id") val arrearsUnitId: Lon
 @Serializable
 data class OrderRecallBody(val reason: String)
 
-@Serializable
-data class OrderCancelBody(val reason: String = "")
+// ⛔ `OrderCancelBody` 已删除（2026-09-23 复核 H8）：撤销订单的接口**没有请求体**
+//    （`Apis.kt::cancelOrder` 只有 `@Path("orderId")`），后端 `cancel_order` 也不接收原因。
+//    这个 DTO 从加进来那天起就是**零引用**的，留着只会让人以为"撤销原因"是个已经做了的功能。
 
 @Serializable
 data class OrderExceptionBody(

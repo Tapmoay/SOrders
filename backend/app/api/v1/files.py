@@ -13,6 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
+from app.core.upload_read import MAX_SHEET_BYTES, read_limited
 from app.deps import require_roles
 from app.models import User
 from app.models.enums import UserRole
@@ -46,7 +47,17 @@ async def parse_sheet(
     这一点是刻意的——用户传的可能是有成本价的商品表，留副本就要回答
     "存哪、留多久、谁能下" 三个问题，而这三个问题在这里没有存在的必要。
     """
-    raw = await file.read()
+    # ⚠️ 先**限量读**（2026-09-23 复核 G8）：原来是无参数的 `await file.read()` ——
+    #    无论客户端传多大都先整包读进内存，再在 `parse_upload` 里判 8MB 上限。
+    #    也就是说"上限"只挡得住**已经吃进内存之后**的处理，挡不住内存本身：
+    #    一个 2GB 的 xlsx 会把进程撑到 OOM（生产 2 worker，一个被打死就掉一半容量）。
+    #    现在最多读「上限+1」字节，超了立刻拒绝 —— 内存占用与文件大小无关。
+    raw = await read_limited(
+        file,
+        MAX_SHEET_BYTES,
+        detail=f"文件超过 {MAX_SHEET_BYTES // 1024 // 1024}MB 的上限。"
+        "请先删掉用不到的列/行，或者拆成几个文件分次传。",
+    )
     try:
         parsed = parse_upload(file.filename or "", raw, max_rows=max_rows)
     except SheetParseError as e:

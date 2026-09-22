@@ -161,12 +161,22 @@ class OrderDetailViewModel(
         }
     }
 
-    fun cancel(reason: String = "") {
+    /**
+     * 撤销这一单。
+     *
+     * ⚠️ 这里原来有个 `reason: String = ""` 参数，一路传到 `repo.cancelOrder(orderId, reason)`
+     * —— 而**后端 `POST /orders/{id}/cancel` 根本不接收 reason**（`cancel_order` 只收 order_id），
+     * 图层上也没有任何地方让它填：弹窗正文只有一句「撤销后派单员不再处理。」。
+     * 也就是说"撤销原因"是个从头到尾都不存在的功能（`OrderCancelBody` 这个 DTO 全仓只有定义、零引用）。
+     * 2026-09-23 复核 H8 把它删掉了：留着它会让人以为"原因已经传下去了"。
+     * 真要做，就做成后端字段 + 界面输入框 + 审计留痕，而不是一个被静默丢掉的形参。
+     */
+    fun cancel() {
         acting = true
         error = null
         viewModelScope.launch {
             try {
-                order = container.repo.cancelOrder(orderId, reason)
+                order = container.repo.cancelOrder(orderId)
                 showCancelDialog = false
             } catch (e: Exception) {
                 error = toApiException(e).message

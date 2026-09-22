@@ -185,7 +185,17 @@ def inventory_summary(
     """库存概览：商品名 + 当前库存 + 在途占用量（派单中未送达，低库存排前）。"""
     from app.models import Order
 
-    q = select(Product).where(Product.is_active.is_(True)).order_by(Product.stock, Product.id)
+    # ⚠️ 显式排掉**回收站里的商品**（2026-09-23 复核 K6 的连带加固）：这里原来只按
+    #    `is_active` 过滤 —— 它之所以"够用"，是因为 `delete_product` 会**顺手把商品下架**。
+    #    也就是说这条可见性靠"另一个函数的副作用"维持着：哪天删除不再强制下架（或者有人
+    #    用别的路径把 `is_active` 设回 True），回收站里的商品就会**重新出现在库存页**上，
+    #    而商品管理页里根本看不到它（那边按 `is_deleted` 过滤）。判据不该依赖别的函数的副作用。
+    q = (
+        select(Product)
+        .where(Product.is_active.is_(True))
+        .where(Product.is_deleted.is_(False))
+        .order_by(Product.stock, Product.id)
+    )
     if below_alert:
         # 与 Android InventoryScreen 标红判断一致：阈值 > 0 且 库存 <= 阈值
         q = q.where(Product.low_stock_alert > 0).where(Product.stock <= Product.low_stock_alert)

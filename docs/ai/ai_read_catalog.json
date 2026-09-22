@@ -825,7 +825,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications",
-   "at": "backend/app/api/v1/notifications.py:39",
+   "at": "backend/app/api/v1/notifications.py:40",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -884,7 +884,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications/unread-count",
-   "at": "backend/app/api/v1/notifications.py:31",
+   "at": "backend/app/api/v1/notifications.py:32",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -1008,7 +1008,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:248",
+   "at": "backend/app/api/v1/orders.py:250",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -1154,7 +1154,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:422",
+   "at": "backend/app/api/v1/orders.py:424",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -1261,7 +1261,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products",
-   "at": "backend/app/api/v1/products.py:78",
+   "at": "backend/app/api/v1/products.py:80",
    "auth": "权限:ORDER_CREATE + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",
@@ -1289,7 +1289,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products/cost-history",
-   "at": "backend/app/api/v1/products.py:181",
+   "at": "backend/app/api/v1/products.py:183",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -1571,7 +1571,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/addresses",
-   "at": "backend/app/api/v1/shipper.py:66",
+   "at": "backend/app/api/v1/shipper.py:67",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1588,7 +1588,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/contacts",
-   "at": "backend/app/api/v1/shipper.py:211",
+   "at": "backend/app/api/v1/shipper.py:212",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1605,7 +1605,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/locations",
-   "at": "backend/app/api/v1/shipper.py:316",
+   "at": "backend/app/api/v1/shipper.py:318",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",

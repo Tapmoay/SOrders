@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
 from app.core.rbac import user_role_key
+from app.core.upload_read import MAX_IMAGE_BYTES, read_limited
 from app.api.v1.place_categories import ensure_place_category
 from app.database import get_db
 from app.deps import require_roles
@@ -285,7 +286,8 @@ async def upload_location_image(
     from app.api.v1.products import ALLOWED_IMAGE_CT, _sniff_image_mime
 
     ct = (file.content_type or "").split(";")[0].strip().lower()
-    raw = await file.read()
+    # ⚠️ 限量读（2026-09-23 复核 G8）：原来是 `await file.read()` 再判 4MB
+    raw = await read_limited(file, MAX_IMAGE_BYTES, detail="图片过大（最大 4MB）")
     if ct not in ALLOWED_IMAGE_CT or ct in ("", "application/octet-stream"):
         sniffed = _sniff_image_mime(raw[:32])
         if sniffed:

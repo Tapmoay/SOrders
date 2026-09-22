@@ -1056,6 +1056,7 @@ private fun actionLabel(action: String): String = when (action) {
     "SUPPLIER_PAYMENT_CREATE" -> "付供应商款"
     "SUPPLIER_PAYMENT_CANCEL" -> "撤销付款"
     "SUPPLIER_PAYMENT_RESTORE" -> "恢复付款"
+    "NOTIFICATION_MODERATE" -> "处理他人消息"
     "ORDER_LINE_ADD" -> "加一行商品"
     "ORDER_LINE_UPDATE" -> "改一行商品"
     "ORDER_LINE_DELETE" -> "删一行商品"
