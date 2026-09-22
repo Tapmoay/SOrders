@@ -12,6 +12,7 @@ from app.models.enums import UserRole
 from app.schemas.notification import NotificationOut
 from app.services.driver_pay import has_per_order_pay
 from app.services.message_push import emit_to_user
+from app.services.money_text import money_text
 
 
 def count_unread(db: Session, recipient_id: int) -> int:
@@ -135,8 +136,9 @@ async def publish_order_freight_updated(db: Session, order_id: int) -> None:
         return
     ono = order.order_no
     fee = order.freight_fee
+    # 正文给人看 → `money_text` 去尾零（`100.00 元` → `100 元`）；payload 里的结构化金额不动。
     content = (
-        f"订单 {ono} 运费已更新：{fee} 元。"
+        f"订单 {ono} 运费已更新：{money_text(fee)} 元。"
         if fee is not None
         else f"订单 {ono} 运费已清空（待定）。"
     )
@@ -425,7 +427,7 @@ async def publish_return_request_closed(
         title="退货申请已关闭（派单员直接退了货）",
         content=(
             f"订单 {ono} 的退货申请已自动关闭：派单员在订单管理里直接办了退货，"
-            f"退货金额 ¥{returned_amount}。{note}"
+            f"退货金额 ¥{money_text(returned_amount)}。{note}"
         ),
         payload=payload,
         speech_important=False,
@@ -555,7 +557,7 @@ async def publish_return_request_done(
     refund_note = ""
     try:
         if float(refund_amount or 0) > 0:
-            refund_note = f"，已退款 ¥{refund_amount}"
+            refund_note = f"，已退款 ¥{money_text(refund_amount)}"
     except (TypeError, ValueError):  # pragma: no cover - 出参异常时不要因此不发货主
         refund_note = ""
     payload = _return_request_payload(req, ono)
@@ -570,7 +572,7 @@ async def publish_return_request_done(
         title="退货已办理",
         content=(
             f"订单 {ono} 的退货申请已办理：{_return_request_parts(req)}，"
-            f"退货金额 ¥{returned_amount}{refund_note}。{tail}"
+            f"退货金额 ¥{money_text(returned_amount)}{refund_note}。{tail}"
         ),
         payload=payload,
         speech_important=False,

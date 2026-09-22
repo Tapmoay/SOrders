@@ -127,10 +127,14 @@ def notify_price_change(
     """派单员：价格变更后向选定货主发送站内通知并推送 Socket。"""
     out: list[Notification] = []
     type_label = "默认价" if body.price_type == "default" else "特殊价"
-    old_s = str(body.old_price) if body.old_price is not None else "—"
+    # 正文是**给人看的一句话** → 金额过 `money_text` 去尾零（`4.0500 → 4.05`、`5.00 → 5`）。
+    # ⚠️ 下面 payload 里那几个结构化价格**原样不动**：客户端要拿它们做展示与对比
+    #    （`ShipperPriceNoticeBar.vue` 读的就是 payload 的 old_price/new_price）。
+    old_s = money_text(body.old_price) if body.old_price is not None else "—"
+    new_s = money_text(body.new_price)
     title = f"商品价格调整：{body.product_name}"
     content = (
-        f"商品「{body.product_name}」的{type_label}已更新：{old_s} → {body.new_price}。"
+        f"商品「{body.product_name}」的{type_label}已更新：{old_s} → {new_s}。"
         f"如有疑问请联系派单员。"
     )
     for sid in body.shipper_ids:

@@ -43,11 +43,36 @@ class MoneyTest {
     }
 
     @Test
-    fun `formatMoney 仍然是两位小数的显示口径（两者不许混用）`() {
-        assertEquals("12.35", formatMoney("12.3456"))   // 显示用：四舍五入到两位
-        assertEquals("12.3456", trimMoneyZeros("12.3456")) // 编辑用：一位不少
-        assertEquals("12.50", formatMoney("12.5"))
+    fun `formatMoney 显示：末尾多余的 0 去掉，但有效位一位不许少`() {
+        // 用户 2026-09-22 给的三个例子（原话：「有零的全省」「56.77 是必须要有的，不能把七约掉」）
+        assertEquals("56.7", formatMoney("56.70"))
+        assertEquals("87", formatMoney("87.00"))
+        assertEquals("56.77", formatMoney("56.77"))
+        // 后端单价列是 Numeric(14,4)：显示只留两位（到分为止），再去尾零
+        assertEquals("12.35", formatMoney("12.3456"))
+        assertEquals("12.5", formatMoney("12.5000"))
+        assertEquals("10", formatMoney("10.0000"))
+        assertEquals("0", formatMoney("0.00"))
+        assertEquals("0.5", formatMoney("0.50"))
+        // 负零不是钱（`-0.001` 只去零会印成 `-0` → 界面上一行「¥-0」）
+        assertEquals("0", formatMoney("-0.001"))
+        assertEquals("-5.5", formatMoney("-5.50"))
+        // 坏值/缺失 → "0"（不是 "0.00"：界面上只印一个 0）
+        assertEquals("0", formatMoney(null))
+        assertEquals("0", formatMoney(""))
+        assertEquals("0", formatMoney("abc"))
+    }
+
+    @Test
+    fun `显示与编辑两个口径不许混用`() {
+        // 显示：到分为止（12.35）；编辑：四位一位不少（12.3456）——这 4 条一起看才是"不许混"的意思
+        assertEquals("12.35", formatMoney("12.3456"))
+        assertEquals("12.3456", trimMoneyZeros("12.3456"))
+        assertEquals("12.5", formatMoney("12.5"))
         assertEquals("12.5", trimMoneyZeros("12.5000"))
+        // ⛔ 反过来也不许：显示不能改用 trimMoneyZeros（那会把 12.3456 原样印到卡片上）
+        assertEquals("12.34", formatMoney("12.3400"))
+        assertEquals("12.34", trimMoneyZeros("12.3400"))
     }
 
     // ---------------------------------------------------------------- 订单商品行合计（唯一一处）

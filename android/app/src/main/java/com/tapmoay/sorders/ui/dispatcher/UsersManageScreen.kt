@@ -492,7 +492,7 @@ private fun UserManageCard(
                         val pay = u.paySummary.ifBlank {
                             when {
                                 !u.driverRuleName.isNullOrBlank() -> u.driverRuleName
-                                u.salary != null && u.salary != "0" -> "月工资 ¥" + u.salary
+                                u.salary != null && u.salary != "0" -> "月工资 ¥" + formatMoney(u.salary)
                                 else -> ""
                             }
                         }

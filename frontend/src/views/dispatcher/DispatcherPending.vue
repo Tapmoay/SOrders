@@ -54,6 +54,7 @@ import {
 } from '@/constants/order'
 import type { Order, OrderStatus } from '@/types/order'
 import { formatApiError } from '@/utils/apiError'
+import { formatMoney2 } from '@/utils/formatMoney'
 
 const router = useRouter()
 const dispatcherWorkbench = useDispatcherWorkbenchStore()
@@ -315,7 +316,9 @@ function fmtLineSub(line: EditLineFormState) {
   const q = parseInt(line.quantity, 10)
   const p = Number(String(line.unit_price).trim())
   if (!Number.isFinite(q) || !Number.isFinite(p)) return '—'
-  return (q * p).toFixed(2)
+  // ⚠️ 走全项目那一份显示口径（`utils/formatMoney`）—— 自己写 `toFixed(2)` 就多出一个口径，
+  //    页面上会出现「小计 56.70」而旁边的单价是「56.7」（2026-09-22 用户点名：有零的全省）。
+  return formatMoney2(q * p)
 }
 
 function openEdit(o: Order) {

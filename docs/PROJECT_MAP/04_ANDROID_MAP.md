@@ -32,7 +32,7 @@ ui/
   common/                              # AppTopBar/SectionCard/Chart/时间导航/页签/订单卡...
   theme/                               # Color(语义色)/Theme/Type
 util/
-  Money.kt (formatMoney 两位小数) / TimeFmt.kt / AmapUri.kt(导航直拉)
+  Money.kt (formatMoney 显示：到分为止+去尾零 / trimMoneyZeros 编辑用) / TimeFmt.kt / AmapUri.kt(导航直拉)
   GeoResolver.kt / Watermark.kt / ExportUtil.kt(导出xlsx存Download)
 ```
 
@@ -43,7 +43,7 @@ util/
   - 真机地址：`android/local.properties` → `api_base_url=http://<电脑IP>:8000`
 - **Repo 方法**：`container.repo.xxx()`（AppRepository 一行委托到 api.xxxApi.xxx）
 - **DTO 金额**：都是字符串，序列化走 `FlexibleStringSerializer`（后端 Decimal 可能是 "1104.5000"）
-- **格式化**：`formatMoney(s)` → 两位小数文本（util/Money.kt）
+- **格式化**：`formatMoney(s)` → 显示用文本（按分四舍五入后**去掉末尾多余的 0**：`56.7` / `87` / `56.77`；util/Money.kt）
 
 ## 3. 导航与路由（ui/nav/）
 

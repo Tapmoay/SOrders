@@ -42,7 +42,7 @@ import com.tapmoay.sorders.ui.common.TruncationNote
 import com.tapmoay.sorders.ui.theme.DangerRed
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
-import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.ui.common.Hint
 
 /**
@@ -251,7 +251,7 @@ internal fun PersonHeaderCard(vm: DispatcherLedgerViewModel) {
                 Spacer(Modifier.width(4.dp))
                 Text(
                     if (targets.isEmpty()) "这一段没有还没结清的单"
-                    else "核销全部（" + targets.size + " 单 · ¥" + vm.settleAllAmount() + "）"
+                    else "核销全部（" + targets.size + " 单 · ¥" + formatMoney(vm.settleAllAmount()) + "）"
                 )
             }
             Spacer(Modifier.height(4.dp))

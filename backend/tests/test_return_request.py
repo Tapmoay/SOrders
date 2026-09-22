@@ -223,7 +223,8 @@ def test_fulfill_returns_exactly_what_was_applied(
         .all()
     )
     assert notes, "办完了却没告诉货主"
-    assert "50.00" in (notes[-1].content or ""), notes[-1].content
+    # 金额末尾多余的 0 去掉（2026-09-22 用户定的显示口径）；这条正文是给**人**看的
+    assert "退货金额 ¥50" in (notes[-1].content or ""), notes[-1].content
 
 
 def test_full_return_through_request_sets_returned_status(
@@ -430,7 +431,7 @@ def test_direct_return_closes_the_pending_request(
         .all()
     )
     assert notes, "申请被自动关闭却没告诉货主"
-    assert "20.00" in (notes[-1].content or ""), notes[-1].content
+    assert "退货金额 ¥20" in (notes[-1].content or ""), notes[-1].content
     assert "与申请的一致" in (notes[-1].content or ""), notes[-1].content
 
     # ⑤ ⛔ 关闭它才是"退两遍"的堵法：再点办理必须被拒

@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.util.formatMoney
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -389,7 +390,7 @@ fun DispatcherPoolScreen(
                                     )
                                 }
                                 Text(
-                                    "¥" + t.fee,
+                                    "¥" + formatMoney(t.fee),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                     color = androidx.compose.ui.graphics.Color(0xFFFF9500),

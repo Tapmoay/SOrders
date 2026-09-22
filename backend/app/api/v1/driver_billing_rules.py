@@ -46,6 +46,7 @@ from app.schemas.driver_billing_rule import (
     validate_rule_params,
 )
 from app.services.driver_pay import PayRule, monthly_salary_of, rule_of_user, snapshot_mode
+from app.services.money_text import money_text
 from app.services.operation_log_service import write_log
 from app.services import usage_service
 
@@ -141,10 +142,13 @@ def _check_templates(db: Session, ids: list[int]) -> list[int]:
 
 
 def _template_briefs(db: Session, ids: list[int]) -> list[str]:
-    """勾的价目，一条一行：**路线 + 价格**（例：惠州江北 → 东莞樟木头 ¥62.00）。
+    """勾的价目，一条一行：**路线 + 价格**（例：惠州江北 → 东莞樟木头 ¥62）。
 
     为什么带价格：规则卡片要回答的是"这条规则跑一趟多少钱"，光有路线名答不上来；
     价格本来就在这批行里，顺手带上不额外查库。
+
+    ⚠️ 价格走 `money_text`（末尾多余的 0 去掉）：这是**给人看的一句话**，
+    不是值 —— 勾选时的判据与服务端算钱都在 `Decimal` 那一侧（2026-09-22 用户定的显示口径）。
     """
     if not ids:
         return []
@@ -152,7 +156,7 @@ def _template_briefs(db: Session, ids: list[int]) -> list[str]:
     by_id: dict[int, str] = {}
     for t in rows:
         label = t.name or ((t.from_place or "") + " → " + (t.to_place or ""))
-        by_id[t.id] = f"{label} ¥{t.fee:.2f}" if t.fee is not None else label
+        by_id[t.id] = f"{label} ¥{money_text(t.fee)}" if t.fee is not None else label
     return [by_id.get(i, f"#{i}") for i in ids]
 
 

@@ -11,6 +11,7 @@ import com.tapmoay.sorders.ui.common.ORDER_LIST_LIMIT
 import com.tapmoay.sorders.ui.common.ORDER_WINDOW_NO_LIMIT_WORD
 import com.tapmoay.sorders.ui.common.OrderTab
 import com.tapmoay.sorders.ui.common.OrderWindowViewModel
+import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -337,9 +338,9 @@ class DispatcherOrdersViewModel(container: AppContainer) :
                     returnNote.trim(),
                 )
                 actionResult = buildString {
-                    append("已退货 ¥").append(r.returnedAmount)
+                    append("已退货 ¥").append(formatMoney(r.returnedAmount))
                     if ((r.refundAmount.toDoubleOrNull() ?: 0.0) > 0.0) {
-                        append("，并退给客户 ¥").append(r.refundAmount)
+                        append("，并退给客户 ¥").append(formatMoney(r.refundAmount))
                     }
                     if (r.fullyReturned) append("（整单退完，订单已变为「已退货」）")
                     r.warnings.forEach { append("；").append(it) }

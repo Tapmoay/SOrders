@@ -24,6 +24,7 @@ import com.tapmoay.sorders.ui.common.DatePresets
 import com.tapmoay.sorders.ui.theme.MemberGold
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -873,7 +874,9 @@ class DispatcherLedgerViewModel(
                         settleMode = "itemized",
                     )
                 )
-                actionResult = "已核销 " + targets.size + " 单 ¥" + settleAllAmount()
+                // ⚠️ 这句话是**给人看的回执** → 金额过显示口径（`500.00` 印成 `500`）；
+                //    上面 `amount = settleAllAmount()` 那个是**发给后端的值**，一位不动。
+                actionResult = "已核销 " + targets.size + " 单 ¥" + formatMoney(settleAllAmount())
                 closeSettleAll()
                 loadPerson()
             } catch (e: Exception) {
@@ -911,7 +914,7 @@ class DispatcherLedgerViewModel(
                         settleMode = "itemized",
                     )
                 )
-                actionResult = "已核销 " + o.orderNo + " ¥" + settleAmount()
+                actionResult = "已核销 " + o.orderNo + " ¥" + formatMoney(settleAmount())
                 closeSettle()
                 loadPerson()
             } catch (e: Exception) {

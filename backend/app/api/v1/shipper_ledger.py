@@ -46,6 +46,7 @@ from app.schemas.shipper_settlement import (
     ShipperSettlementLineOut,
     ShipperSettlementOut,
 )
+from app.services.money_text import money_text
 from app.services.operation_log_service import write_log
 from app.services.order_money import q2
 from app.services.shipper_settle import lines_of_order, settle_blocker
@@ -209,7 +210,9 @@ def create_settlement(
             if amount > left:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"「{name}」还可核销 ¥{left}，不能核 ¥{amount}",
+                    # 这句话会原样弹给用户看（安卓侧明确"失败要把后端那句中文原样显示"）→
+                    # 金额过 `money_text` 去尾零；判据仍是上面那行 `amount > left`（`Decimal`）。
+                    detail=f"「{name}」还可核销 ¥{money_text(left)}，不能核 ¥{money_text(amount)}",
                 )
             picks.append((op.id, name, amount))
     else:

@@ -37,6 +37,8 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
+from app.services.money_text import money_text
+
 #: 金钱字段的上限（与 `schemas/money.py::MONEY_MAX` 同一个数：列宽 Numeric(12,2)）。
 #: 逐单覆盖值的上界判据要用它（见 `override_problem`）。
 MONEY_MAX = Decimal("9999999999.99")
@@ -130,29 +132,32 @@ class PayRule:
         ⚠️ 确认卡、账单说明、司机列表都调它：文案只写一遍，
         否则必然出现"卡片说每单 200、账单按 5% 算"这种前后不一致。
 
+        ⚠️ **金额一律过 `money_text`**（末尾多余的 0 去掉：`8000.00 元/月` → `8000 元/月`）——
+        这是"给人看的字"；判据与计算仍在 `money()`（`Decimal`）那一侧，两者不许互换。
+
         [category_names] 只在"按分类定价"时有意义（把分类名摆出来，否则用户只知道有几类）。
         """
         parts: list[str] = []
         if self.has_salary:
-            parts.append(f"固定工资 {money(self.salary)} 元/月")
+            parts.append(f"固定工资 {money_text(self.salary)} 元/月")
         if self.by_category_pay:
             names = category_names or {}
             detail = "、".join(
                 f"{names.get(int(cid), '分类' + str(cid))} "
-                + (f"{money(piece)} 元/单" if money(piece) > 0 else "")
+                + (f"{money_text(piece)} 元/单" if money(piece) > 0 else "")
                 + (" · " if money(piece) > 0 and money(rate) > 0 else "")
-                + (f"{_plain(rate)}%" if money(rate) > 0 else "")
+                + (f"{money_text(rate)}%" if money(rate) > 0 else "")
                 for cid, piece, rate in self.by_category
             )
             parts.append(f"按分类定价（{detail}）")
         elif self.piece_amount > 0:
-            parts.append(f"每{PIECE_UNIT_CN.get(self.piece_unit, '单')} {money(self.piece_amount)} 元")
+            parts.append(f"每{PIECE_UNIT_CN.get(self.piece_unit, '单')} {money_text(self.piece_amount)} 元")
         if self.commission_base in ("freight", "goods") and self.commission_rate > 0:
             scope = ""
             if self.commission_base == "goods" and self.commission_product_ids:
                 scope = f"（只算 {len(self.commission_product_ids)} 个指定商品）"
             parts.append(
-                f"{COMMISSION_BASE_CN[self.commission_base]}的 {_plain(self.commission_rate)}%{scope}"
+                f"{COMMISSION_BASE_CN[self.commission_base]}的 {money_text(self.commission_rate)}%{scope}"
             )
         return " + ".join(parts) if parts else "不计费"
 
@@ -284,7 +289,8 @@ def pay_summary_for(user, *, include_money: bool = True) -> str:
         return "按单计费：每单拿该单的运费（未挂规则）"
     sal = money(getattr(user, "salary", None))
     if sal > 0:
-        return f"固定工资 {sal} 元/月（未挂规则）" if include_money else "固定工资（未挂规则）"
+        # 判据仍用 `sal`（`Decimal`），印出来的是 `money_text`（去尾零）——两者职责不同。
+        return f"固定工资 {money_text(sal)} 元/月（未挂规则）" if include_money else "固定工资（未挂规则）"
     return "固定工资（月薪未设置，账单里不会出现他的工资单）"
 
 
@@ -474,7 +480,8 @@ def override_problem(rule: PayRule | None, *, piece_override=None, rate_override
     #    送达时还会带着这个数生成账单、结算单、现金流水——一条链全炸。
     #    这里补上界，与 `MoneyInput` 的 MONEY_MAX 同一个数（列宽 Numeric(12,2) 的上限）。
     if money(piece_override) > MONEY_MAX:
-        return f"这一单的司机金额不能超过 {MONEY_MAX} 元（金钱字段的上限）"
+        # 给人看的那句话过 `money_text`（判据仍是上面那行 `money(...) > MONEY_MAX`，`Decimal`）。
+        return f"这一单的司机金额不能超过 {money_text(MONEY_MAX)} 元（金钱字段的上限）"
     if rate_override is not None:
         if rule.commission_base == "none":
             return (
@@ -586,9 +593,6 @@ def rule_from_snapshot(raw: str | None) -> PayRule | None:
     )
 
 
-def _plain(v: Decimal) -> str:
-    """5.00 → '5'；5.50 → '5.5'（文案里不要出现 '5.00%' 这种机器味）。"""
-    s = str(money(v))
-    if "." in s:
-        s = s.rstrip("0").rstrip(".")
-    return s or "0"
+# ⚠️ 这里原来有个私有的 `_plain`（"5.00 → 5"，只管百分比），2026-09-22 与
+#    `services/money_text.py::money_text` 合成一处：去尾零这件事全后端只有那一份，
+#    金额与百分比不会再有第二种写法。

@@ -69,7 +69,8 @@ def test_新建规则返回一句话说明和挂载数(client: TestClient, token
         client, token_dispatcher,
         salary="0", piece_amount="300", commission_base="freight", commission_rate="5",
     )
-    assert body["summary"] == "每单 300.00 元 + 运费的 5%"   # 文案由后端生成，界面直接显示
+    # 文案由后端生成，界面直接显示 → 金额末尾多余的 0 去掉（2026-09-22 用户定的显示口径）
+    assert body["summary"] == "每单 300 元 + 运费的 5%"
     assert body["attached_count"] == 0
     assert body["is_deleted"] is False
 
@@ -198,7 +199,7 @@ def test_司机列表里能看出他按哪份规则算钱(client: TestClient, to
     me_after = next(u for u in after if u["id"] == driver_id)
     assert me_after["driver_rule_id"] == rule["id"]
     assert me_after["driver_rule_name"] == rule["name"]
-    assert me_after["pay_summary"] == "固定工资 6000.00 元/月 + 运费的 5%"
+    assert me_after["pay_summary"] == "固定工资 6000 元/月 + 运费的 5%"
 
 
 @pytest.mark.dispatcher
@@ -352,7 +353,7 @@ def test_改规则不动已经派出去的单_但影响之后派的单(
         json={"piece_amount": "900"},
     )
     assert upd.status_code == 200, upd.text
-    assert upd.json()["summary"] == "每单 900.00 元"
+    assert upd.json()["summary"] == "每单 900 元"
 
     client.post(f"/api/v1/orders/{oid}/driver-ack", headers=auth_headers(token_driver))
     client.post(

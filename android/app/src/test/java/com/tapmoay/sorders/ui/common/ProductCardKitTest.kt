@@ -22,15 +22,16 @@ class ProductCardKitTest {
     }
 
     @Test
-    fun `售价带上单位与两位小数`() {
+    fun `售价带上单位，金额末尾多余的 0 去掉`() {
+        // 用户 2026-09-22：「有零的全省」—— 25.00 就写 25（这个价卡在全 App 五处复用）
         val f = productPriceFact("25", "袋")
-        assertEquals("¥25.00/袋", f.value)
+        assertEquals("¥25/袋", f.value)
     }
 
     @Test
     fun `单位为空时退回件`() {
-        // 各页自己写 ifBlank 的话，同一件商品会出现「¥25.00/件」和「¥25.00/」两种
-        assertEquals("¥25.00/件", productPriceFact("25", "").value)
+        // 各页自己写 ifBlank 的话，同一件商品会出现「¥25/件」和「¥25/」两种
+        assertEquals("¥25/件", productPriceFact("25", "").value)
         assertEquals("30 件", productStockFact(30, 0, null).value)
     }
 

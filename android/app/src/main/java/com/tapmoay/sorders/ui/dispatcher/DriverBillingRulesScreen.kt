@@ -25,7 +25,7 @@ import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.DriverBillingRuleDto
-import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.common.Hint
 
 /**
@@ -192,8 +192,8 @@ private fun RuleCard(
                     Text(
                         "· " + row.name + "：" +
                             listOfNotNull(
-                                row.pieceAmount.takeIf { it != "0" && it != "0.00" }?.let { "每单 ¥" + it },
-                                row.commissionRate.takeIf { it != "0" && it != "0.00" }?.let { "提成 " + it + "%" },
+                                row.pieceAmount.takeIf { it != "0" && it != "0.00" }?.let { "每单 ¥" + formatMoney(it) },
+                                row.commissionRate.takeIf { it != "0" && it != "0.00" }?.let { "提成 " + formatMoney(it) + "%" },
                             ).joinToString(" + ").ifBlank { "（没定价）" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -10,6 +10,7 @@ import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.ReturnRequestsPage
 import com.tapmoay.sorders.ui.common.ReturnRequestsViewModel
 import com.tapmoay.sorders.ui.common.ReturnTab
+import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
 
 /** 派单端退货申请的两档：全部 / 待处理（`status=` 直接透给后端）。 */
@@ -105,9 +106,9 @@ class DispatcherReturnRequestsViewModel(
                 // 回执必须**如实**：退了多少钱、是整单还是部分退（部分退的话订单还是「已送达」）、
                 // 后端给的告警一条不落 —— 这几句话是派单员对外答复货主的依据。
                 actionResult = buildString {
-                    append("已退货 ¥").append(r.returned.returnedAmount)
+                    append("已退货 ¥").append(formatMoney(r.returned.returnedAmount))
                     val refund = r.returned.refundAmount.toDoubleOrNull() ?: 0.0
-                    if (refund > 0.0) append("，并退给客户 ¥").append(r.returned.refundAmount)
+                    if (refund > 0.0) append("，并退给客户 ¥").append(formatMoney(r.returned.refundAmount))
                     append(
                         if (r.returned.fullyReturned) {
                             "；整单退完，订单已变为「已退货」"

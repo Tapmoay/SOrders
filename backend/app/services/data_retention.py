@@ -36,6 +36,7 @@ from app.services.image_archive import (
     purge_orphan_images,
 )
 from app.services.ledger_export_paths import EXPORT_DIR, LEGACY_UPLOAD_EXPORTS
+from app.services.money_text import money_text
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,8 @@ def delete_orders_by_ids(db: Session, ids: list[int]) -> int:
     for bill in open_bills:
         bill.status = DriverBillStatus.CANCELLED
         bill.note = (bill.note or "").strip() + (
-            f"［订单已过 30 天隔离期被物理清理，应付明细随之作废；金额 {bill.amount} 元需人工复核］"
+            # 这句 `note` 是给**人**看的（派单员要照着这行人工复核）→ 金额过 `money_text` 去尾零。
+            f"［订单已过 30 天隔离期被物理清理，应付明细随之作废；金额 {money_text(bill.amount)} 元需人工复核］"
         )
     if open_bills:
         total = sum((b.amount or 0) for b in open_bills)
@@ -218,7 +220,7 @@ def _notify_bills_cancelled(db: Session, bills: list[DriverBill], total) -> None
     drivers = {int(b.driver_id): b for b in bills if b.driver_id is not None}
     body = (
         f"{len(bills)} 条司机应付明细因订单过了 30 天隔离期被物理清理而作废，"
-        f"合计 {total} 元，涉及订单 {order_ids[:10]}。"
+        f"合计 {money_text(total)} 元，涉及订单 {order_ids[:10]}。"
         "这些单的明细在界面上已不再显示，如需追溯请查审计日志。"
     )
     for driver_id in drivers:

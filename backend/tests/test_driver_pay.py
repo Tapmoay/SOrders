@@ -160,13 +160,25 @@ def test_小于一分的尾数按四舍五入进账单():
 # ---------------------------------------------------------------- 文案（界面/卡片/账单同源）
 
 def test_一句话说明把三件都说清楚():
+    # ⚠️ 金额末尾多余的 0 **去掉**（2026-09-22 用户定的显示口径：「有零的全省」）——
+    #    但只动末尾的 0：`8000.00 → 8000`、`2.5% → 2.5%`（比例里的 5 一位不少）。
     r = _rule(salary=Decimal("8000"), piece_amount=Decimal("200"), commission_base="freight", commission_rate=Decimal("5"))
-    assert r.describe() == "固定工资 8000.00 元/月 + 每单 200.00 元 + 运费的 5%"
+    assert r.describe() == "固定工资 8000 元/月 + 每单 200 元 + 运费的 5%"
 
 
 def test_每件与商品金额的说法():
-    assert _rule(piece_amount=Decimal("3"), piece_unit="item").describe() == "每件 3.00 元"
+    assert _rule(piece_amount=Decimal("3"), piece_unit="item").describe() == "每件 3 元"
     assert _rule(commission_base="goods", commission_rate=Decimal("2.5")).describe() == "商品金额的 2.5%"
+    # 小数位**有值**时一位不少（去尾零 ≠ 约掉）
+    assert _rule(piece_amount=Decimal("3.25"), piece_unit="item").describe() == "每件 3.25 元"
+
+
+def test_按分类定价那句话里的金额也去尾零():
+    r = _rule(
+        piece_mode="category",
+        by_category=((1, Decimal("120.00"), Decimal("5.00")), (2, Decimal("80.50"), Decimal("0"))),
+    )
+    assert r.describe({1: "日化", 2: "冻品"}) == "按分类定价（日化 120 元/单 · 5%、冻品 80.5 元/单）"
 
 
 def test_什么都不给的规则说明为不计费():

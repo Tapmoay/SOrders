@@ -146,11 +146,13 @@ data class ProductFact(
 )
 
 /**
- * 「售价」那一行 —— **钱的格式化只有这一处**（`¥` + 两位小数 + `/单位`）。
+ * 「售价」那一行 —— **钱的格式化只有这一处**（`¥` + [formatMoney] + `/单位`）。
  *
  * 单位走 [unitOrDefault]（空 → 「件」），所以调用方**不要**再自己 `ifBlank { "件" }`：
- * 各写一份的话，同一件商品在两个页面上会显示成「¥25.00/件」和「¥25.00/」（少了单位的那个
+ * 各写一份的话，同一件商品在两个页面上会显示成「¥25/件」和「¥25/」（少了单位的那个
  * 看起来像被截断了，而它其实是漏了兜底）。
+ *
+ * ⚠️ 金额末尾多余的 0 由 [formatMoney] 去掉（`25.00 → 25`，2026-09-22 用户定的显示口径）。
  */
 fun productPriceFact(price: String, unit: String?): ProductFact = ProductFact(
     icon = Icons.Default.Sell,

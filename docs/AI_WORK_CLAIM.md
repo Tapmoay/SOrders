@@ -20,45 +20,99 @@
 
 ## 进行中
 
-### [2026-09-22 10:0x →] 会话：**报表中心：时间控件换成「我们的药丸 + 档位清单」，并根掉「点商品经营会弹日历」**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+核心改动：backend/app/services/order_response.py —— 为什么必须动核心：新的「拨号」按钮拨的就是这条出参下发的 `driver_phone`，而司机账号软删后那一列存的是 `13800001234_del160`，原样下发＝给用户一个**打不通的号**（去尾只用于展示，口径仍是 `soft_delete.py` 一处）。
 
-**用户原话**：「那你就将他的**界面**进行一下处理。尤其是……那个**时间选择**按照我们**现在的要求**进行处理；
-而且点击**商品经营**的时候有时候会弹出**一个日历**吧，但是不知道是什么原因啊？这个也是个**小bug**，你解决一下。
-然后我们再**丰富**一下整个的报表中心。」
+核心改动：backend/app/models/enums.py —— 为什么必须动核心：预订单要三个**审计动作码**（`ORDER_TEMPLATE_UPSERT/DELETE/RESTORE`），而"审计动作码"这一类取值按项目规矩**只能定义在领域词汇表这一处**（`CORE_AND_EXTENSION.md` §3 的扩展点就是它）。预设单会变成真订单，所以"这条预设是谁建的/改的/删的"必须查得到。
 
-**① 日历那个 bug —— 已定位（有 adb 节点边界作证据）**
-`ui/common/ReportTimeNav.kt` 顶上那条「完整时段」是个**可点的 Surface**，点它开 M3 的
-`DatePickerDialog`（就是那个日历）。真机 dump 出来的节点是
-`[42,296][803,422]` —— **761×126 px 一整条可点区域**，正压在顶栏下面：
-用户想在那一带滚动/点东西（或者从入口页点「商品经营」卡片时手指落点与新页面重叠），
-**随时会弹出一个日历**。整棵树里只有 `ReportCenter.kt:98` 用它 → 这一版把它**整个删掉**。
+核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：它是 AI 写闸门（数据源 + 处理器注册表都在这个文件里），而"新增一个写域"的**唯一接线点**就在这儿（接口方法、`override` 实现、`snapshot` 分支、`rawHandlers` 注册各一处）；没有第二个地方可以加，所以插件式扩展也只能落在这里（新增内容全是追加，既有动作一行未动）。
 
-**② 时间按我们现在的要求来**（与账本/订单/司机账本同一套）
-顶栏右上角一个 `DatePresetPill`（写着当前档位）+ 点开是共用的 `DateFilterDialogs`
-（档位清单 + 自定义区间），页面里**不再铺任何时间胶囊行**、**不再直接弹系统日期选择器**。
-为此给报表两个端点补**可选**的 `date_from`/`date_to`（给了区间就按区间取数，没给还是 `mode`+`anchor`，
-老调用方与既有测试一行不用改）——这样六个页签**共用一个窗口口径**（现在营业纵览/商品经营走 mode+anchor、
-其余四个走 date_range，本来就是两套）。
+核心改动：backend/app/services/driver_pay.py —— 为什么必须动核心：司机「这单怎么给钱」那句话（`PayRule.describe()`）是**全项目唯一一处**生成它的地方（AI 确认卡 / 账单说明 / 司机列表三处共用），而它把金额印成「固定工资 8000.00 元/月」。本轮只在**文案**上去掉末尾多余的 0（顺手把原来只管百分比的私有 `_plain` 与它合成一处）；**钱的计算、进位、字段一行未动**。
+
+核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：收款被拒时那句"这次要核销 X 元，但它只欠 Y 元"是**用户照着改数字的唯一依据**（他要把金额改成 Y 再提交），而它印的是 `150.00 元`。本轮只把这句话里的两个插值过 `money_text`；**判据（`part > m.arrears`）、口径、字段一行未动**。
+
+### [2026-09-22 18:2x →] 会话：**金额显示：末尾多余的 0 一律去掉**（`56.70 → 56.7`、`87.00 → 87`，但 `56.77` 一位不少）（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
+
+**用户原话**：「把所有的那个关于金钱的那个显示…**有零的全省**…如果是 **56.7** 啊，就直接这样子，
+不要 56.70…包括 **87**…不要写 87.00 了…但是如果账单是 **56.77** 的话…**是必须要有的**，
+它不能直接把七给约掉了。」
+
+**判据（一句话，两件事不许混）**
+- **显示**（给人看的字）：先按**分**四舍五入（与今天完全一样），**再去掉末尾多余的 0 与光秃秃的小数点**。
+- **值**（进出接口 / 入库 / 判据 / 可编辑输入框）：**一位不动**。
+  ⛔ 混一次的后果与「编辑价框误用 `formatMoney`」（设计规范 §4.0）是同一类：用户没改价、价却变了。
+
+**改了什么**
+- **Android**：`util/Money.kt::formatMoney`（**157 处**金额显示的唯一漏斗）→ 去尾零；进位仍是原来的
+  `%.2f`（只在同一行加了 `Locale.US`，防默认语言把小数点印成逗号），所以**任何数字都不会变**，只少印几个 0。
+- **H5（旧版）**：`frontend/src/utils/formatMoney.ts::formatMoney2`（27 处）同样处理；顺手把
+  `DispatcherPending.vue` 里**自己写的那处 `toFixed(2)`** 收回漏斗（同口径不许有两份）。
+- **后端**（只动"生成给用户看的字"的地方）：新增 `core/money_text.py::money_text`（**唯一一处**），
+  5 个地方改调它 —— `driver_pay.describe()`（核心改动，见上）、`driver_billing_rules` 的价目摘要
+  （`惠州江北 → 东莞樟木头 ¥62.00` → `¥62`）、`notifications.price-notify` 的正文（旧价→新价）、
+  `message_center` 的退货/退款文案、`shipper_ledger` 那句 400 文案（`还可核销 ¥60，不能核 ¥100`）。
+- **AI 回复提示词**：`AiAgentLoop.kt` 第 6 条原来写着「金额保留两位小数」→ 改成新规则
+  （不然聊天里照旧 `¥87.00`，而"所有显示"里最大的一块正是 AI 的回复正文）。
+
+**⛔ 明确不动的（都是"值"，不是"显示"）**
+
+| 不动的东西 | 为什么 |
+| --- | --- |
+| 后端金额出参（`order_money.q2` / `suppliers._money` / 各种 `Decimal` 字段） | 是**值**：客户端还会再过一次 `formatMoney`；`backend/tests/test_supplier_payables.py` 等逐条钉着 `"1200.50"` |
+| `OrderDto.goodsTotalText()` | **收款页的判据**（要与后端 `Decimal` 完全相等），去零会动到"能不能收款" |
+| Excel 导出（`reports._money`） | 写进去的是**数字**单元格，Excel 本来就不显示多余的 0；改了反而与页面口径分叉 |
+| `core/InputRules.kt` 的金额输入框 | 用户**自己打的字**，不是显示 |
+| `trimMoneyZeros`（可编辑价框） | 它的活是"去零**但保四位精度**"，与 `formatMoney`（只留两位）本来就是两件事 |
+| **`ai/AiWriteArgs.money()`（AI 写入链路）** | 那份字符串**同时是发给后端的参数**，且下游有 `after == "0.00"`（付清了）、`fee == "0.00"`（免运费）这类**字符串比较** —— 去零会让这两句提示**静默不显示**。要动就得先把"卡片文字"与"参数"拆成两份，属于 AI 写链路的改造，不在本轮 |
 
 **文件清单**
-- **后端**：`app/api/v1/reports.py`（窗口只有一个入口 `_span(...)`；`build_turnover`/`build_products`
-  收可选 `span`；`turnover`/`products`/`export` 三个端点补可选 `date_from`/`date_to`）
-  ＋ 回归测试 `backend/tests/test_report_window.py`（同窗口两条路必须逐项相等）
-- **Android**：`ui/dispatcher/ReportCenterViewModel.kt`（窗口状态换成 `preset`/`customFrom`/`customTo`，
-  删掉 `mode`/`anchor`）、`ui/dispatcher/ReportCenter.kt`（顶栏药丸 + `DateFilterDialogs`）、
-  `ui/dispatcher/ReportFinance.kt`（`windowFor` 不再需要）、`data/remote/api/Apis.kt` +
-  `data/repo/AppRepository.kt`（两个查询参数）、单测 `ReportFinanceTest.kt`
-- **删**：`ui/common/ReportTimeNav.kt`（**零引用**了；留着下一个人还会把它装回去）
-- **检查**：`_tools/qa/_check_report_window.py` + 反向验证（本轮扩写：日历那块必须**不许回来**）
-- **文档**：`06_DESIGN_SYSTEM.md`（§4.15 第 9 条重写）、`08_CODE_LOCATOR.md`（报表中心那一行；
-  另外两处提到 `ReportTimeNav` 的行也要跟着改）、`DatePresets.kt` 的 KDoc 里那句"报表那套是另一件事"
-- **生成物**：`08A_ENDPOINT_INDEX.md`（reports.py 行号变了 → 重新生成）
 
-**明确不碰**：`ui/common/AmapPicker.kt`（`session-faa17a77` 在做卫星图层）、订单列表/卡片那一线、
-商品管理那一线（`session-78ebd95c`）、`backend/app/services/order_response.py`（另一个会话在改，
-后端进程的新鲜度红也归它）。
+| 文件 | 改动 |
+| --- | --- |
+| `android/.../util/Money.kt` | `formatMoney` 去尾零 + KDoc 写清"显示 vs 值" |
+| `android/.../ai/AiAgentLoop.kt` | 回复风格第 6 条 |
+| `frontend/src/utils/formatMoney.ts` | `formatMoney2` 去尾零 |
+| `frontend/src/views/dispatcher/DispatcherPending.vue` | 那处 `toFixed(2)` 收回漏斗 |
+| `backend/app/services/money_text.py` | **新增**：`money_text(v)` 唯一一处 |
+| `backend/app/services/driver_pay.py` | 核心改动（见上）：`describe()` 文案 + `override_problem` 那句上限 + 删掉私有 `_plain` |
+| `backend/app/services/accounting_service.py` | 核心改动（见上）：收款被拒那句里的两个金额 |
+| `backend/app/services/data_retention.py` | 司机账单作废 `note` + 那条站内信正文 |
+| `backend/app/api/v1/driver_billing_rules.py` | 价目摘要（`¥62.00` → `¥62`） |
+| `backend/app/api/v1/notifications.py` | 价格变更通知正文 |
+| `backend/app/services/message_center.py` | 运费变更 / 退货 / 退款三条文案 |
+| `backend/app/api/v1/shipper_ledger.py` | 那句 400 文案 |
+| `android/.../ui/dispatcher/DispatcherLedgerViewModel.kt` | 核销回执两处（`formatMoney`） |
+| `android/.../ui/dispatcher/DispatcherOrdersViewModel.kt` | 退货/退款回执两处 |
+| `android/.../ui/dispatcher/DispatcherReturnRequestsViewModel.kt` | 同上（办理退货那条线） |
+| `android/.../ui/dispatcher/DispatcherPoolScreen.kt` | 价目卡上的运费 |
+| `android/.../ui/dispatcher/DriverBillingRulesScreen.kt` | 按分类定价那两行（每单 ¥ / 提成 %） |
+| `android/.../ui/dispatcher/LedgerPersonScreen.kt` | 「核销全部（N 单 · ¥…）」 |
+| `android/.../ui/dispatcher/UsersManageScreen.kt` | 「月工资 ¥…」 |
+| `android/.../ui/common/ProductCardKit.kt` | KDoc（售价那一行的口径） |
+| `android/.../test/.../util/MoneyTest.kt` | 按用户给的三个例子钉死（含 `56.77` 一位不少） |
+| `android/.../test/.../ui/common/ProductCardKitTest.kt` | `¥25.00/袋` → `¥25/袋` |
+| `backend/tests/test_money_display.py` | **新增**：钉"显示去零 / 值不动"两侧 |
+| `backend/tests/test_driver_pay.py` | 三处断言跟着显示口径改（`8000.00 元/月` → `8000 元/月`）+ 新增按分类那条 |
+| `backend/tests/test_driver_billing_api.py` | 三处 `summary` 断言（`300.00` → `300`） |
+| `backend/tests/test_return_request.py` | 两处通知正文断言（`"50.00"` → `"退货金额 ¥50"`） |
+| `_tools/qa/_check_money_display.py` | **新增红线**（41 项：清单自己算 + 反向约束"值不许去零"） |
+| `_tools/qa/_reverse_verify_money_display.py` | **新增**反向验证（14 种注入） |
+| `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` | 新增 §4.1.1「金额的显示口径」+「显示 vs 值」那张表 |
+| `docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`04_ANDROID_MAP.md`、`docs/HINT_STYLE.md` | 三处"两位小数"改成新口径 |
 
-核心改动：backend/app/services/order_response.py —— 为什么必须动核心：新的「拨号」按钮拨的就是这条出参下发的 `driver_phone`，而司机账号软删后那一列存的是 `13800001234_del160`，原样下发＝给用户一个**打不通的号**（去尾只用于展示，口径仍是 `soft_delete.py` 一处）。
+**顺手修掉的 10 处"绕开漏斗"**（都是"把后端原始值直接印出来"这一类，用户看到的就是 `¥12.5000`／`¥500.00`）：
+核销回执 ×2（派单员账本）、退货/退款回执 ×4（订单管理 + 退货申请）、价目卡运费、按分类定价那两行、
+「核销全部（N 单 · ¥…）」、用户管理「月工资 ¥…」—— 由红线 §3 的"清单自己算"扫出来，
+**不是我先知道再补的**。
+
+**判据**：红线 `python _tools/qa/_check_money_display.py`（**41 项全绿**）+ 单测
+（安卓 `:app:testEmuDebugUnitTest` **1033 用例 / 0 失败**（在 HEAD 干净工作树里跑，见下）；
+`backend/tests/` **754 passed**）+ 反向验证
+`python _tools/qa/_reverse_verify_money_display.py`（**14/14**）。
+
+> ⚠️ 安卓单测为什么在**另一个工作树**里跑：`android/app/src/test/.../ai/AiWriteTest.kt`
+> 此刻被 `session-78ebd95c` 改到一半（`Unresolved reference 'supplierId'`，本机 78 行未提交），
+> 整个 test 源集编不过 —— 那不是我的文件，我没有碰它。
+> 于是 `git worktree add <HEAD> --detach` + 只拷我这四个文件进去跑，证明**我这部分**是绿的。
 
 ### [2026-09-22 12:0x →] 会话：**订单详情「拨打司机电话」——只有派单端有拨号按钮**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
@@ -106,6 +160,243 @@
 
 **明确不碰**：`ui/common/AmapPicker.kt`（`session-faa17a77` 在做卫星图层）、`ui/dispatcher/ReportCenter*.kt`
 + `ReportFinance*.kt`（`session-83da1ad7` 在做报表自动挡）、订单列表/订单卡片那一线、商品管理那一线。
+
+### [2026-09-22 12:3x →] 会话：**账本管理「支出 / 收入」区域 + AI 预选与预订单**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**用户原话（一次口述了 5 件事）**：「**在账本管理新建一个区域，这个区域就是支出和收入**……支出主要是
+**给供应商/厂商付尾款**、**买装备/设备**付的款、邮费等等；我记得**好像有个开销管理**吧，干脆把我们两个
+**整合在一起**。**收入**也要**跟现在的系统做一个合并**，但**具体的收入来源要明细一下** —— 这个系统
+其实做的**就是收入这一个环节**；然后**所有能力功能全部开放给 AI，并且给 AI 做一个后路**。还有**支持 AI
+去预选**（每次下单都要选商品选数量，可以让 AI 直接创建对应的商品和数量，方便直接下单），**甚至可以让
+AI 直接创建预定单** —— 就是**预设好的订单，参数没变直接下单**；所以**再增加一个「预定单」界面**，专门
+管理预设的订单，**这些也给 AI 全部开放**。这些功能**主要是给派单员做的**；**账本的那个统计，货主和
+批发商也做一下**。」
+
+**⚠️ 先纠正一处（我读到的现状，免得白做一遍）**
+- 「**开销管理**」**已经并进账本管理了**（2026-09-20 那一轮：`Modules.ledgerHomeEntries` 六格 =
+  订单账 / 司机账 / 货主账 / 批发商账 / 客户收款 / **开销管理**，工作台网格里已删掉这一格）。
+  所以「整合」剩下的活是：**把它从"并列一格"改成"支出那一块里的明细入口"**，而不是从零合并。
+- **系统里唯一的"收入"本来就是这个系统**（`cash_flows` 的 `direction=in`：`RECEIPT_CASH/TRANSFER/
+  ARREARS/PREPAID` + 批发商核销），**支出**除了 8 类开销还有 `PAYMENT_DRIVER/SALARY/DRIVER_ADVANCE/
+  **SUPPLIER**/TAX` + 退款 —— 其中 **`PAYMENT_SUPPLIER`（付供应商）枚举早就在，但没有任何写入方**。
+- 「收入来源明细」的现成口径：`GET /cash-flows/summary`（服务端算钱）+ `biz_type`。
+  ⛔ 不要在客户端对一页流水求和（实测少算 62%，审计 R 系列已定案）。
+
+**分期计划**（每一期独立可交付、都要过 `_check_all.py` + 新红线 + 反向验证）
+1. **账本管理「收支」页**：上半收入（按来源：订单收款/滚动收款/批发核销…）、下半支出
+   （按业务类型：司机结算/工资/预支/供应商/8 类开销/退款），点一行进各自明细；开销管理降为支出的明细入口。
+2. **支出侧补齐「供应商/厂商付款 + 采购设备」**（必要时给支出加"对方名称"，是否建供应商档案待拍板）。
+3. **AI 预选（商品 + 数量）**（复用 `ui/common/ProductPicker.kt`，AI 直接建商品与数量 → 下单页预填）。
+4. **「预订单」界面 + 预设订单模板**（后端新表 + CRUD + 全量 AI 动作与撤回后路）。
+5. **货主 / 批发商的账本统计**（各自视角，不是把派单员那份放开给他们看）。
+
+**本轮先做第 1 期**（其余等用户对三个问题的答复再排）。
+
+**文件清单（第 1 期）**
+- **后端**：`app/api/v1/cash_flows.py` 新增**只读**分组端点（按 `direction`+`biz_type` 分组求和，
+  金额在 SQL 侧算完）、`app/schemas/accounting_v2.py`（出参）、`backend/tests/test_cash_flow_breakdown.py`
+  - ⚠️ 只加**读**端点 ⇒ 不触发 `_write_coverage`；但要补 **AI 读能力**（`AiReadCatalog` 是机器生成的，
+    跑 `_tools/ai/_gen_ai_read_catalog.py`；改完必须跑 `_tools/ai/_probe_read_roles.py` 对账）
+- **Android**：新页 `ui/dispatcher/LedgerCashScreen.kt`(+`ViewModel`)（复用 `DatePresetPill` +
+  `DateFilterDialogs` + `MasterRail`/`CategoryRail` 观感）、`ui/nav/{Routes,NavGraph,Modules}.kt`、
+  `data/remote/api/Apis.kt` + `data/repo/AppRepository.kt`（追加式）
+- **检查**：`_tools/qa/_check_ledger_dashboard.py` 要改（它按手写清单断言账本管理正好 6 格）、
+  新增 `_tools/qa/_check_ledger_cash.py` + `_reverse_verify_ledger_cash.py`；
+  单测 `ui/nav/ModulesEntryTest.kt`（也按手写清单断言那 6 格）
+- **文档**：`docs/PROJECT_MAP/{06_DESIGN_SYSTEM,08_CODE_LOCATOR}.md`、`09A_HINT_CATALOG.md`（重跑）、
+  `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`（新端点 ⇒ 重跑 `gen_endpoint_index`）
+
+**明确不碰**：`ui/common/AmapPicker.kt`、`ui/dispatcher/ReportCenter*.kt` + `ReportFinance*.kt`
+（`session-83da1ad7` 报表线）、`ui/order/OrderDetailScreen.kt` 的卫星图层那一行（`session-faa17a77`）、
+`backend/app/services/order_response.py`（那一行的新鲜度红归我上一轮，见上一条）。
+
+**用户拍板了（2026-09-22 12:4x）**：①「预定单」= **订单模板**（商品+数量+货主+地址+运费预设好，
+点一下直接生成真订单；不是"预约送达时段"）；②支出里的供应商付款 → **建供应商/厂商档案**
+（跟客户一个量级：可挂账、可查还欠他多少、可分次付款）——这是一整套应付款，单开一期；
+③货主/批发商的账本统计 → **各自「我的账本」里补一段他自己的收支统计**（不是把派单员那份放开给他看）。
+
+---
+
+**▶ 第 2 期（13:5x →）：供应商 / 厂商档案 + 应付款（可挂账、查欠款、分次付款）**
+
+用户拍板口径（见上面第 ② 条）：**跟客户一个量级**的档案 —— 可挂账、可查还欠他多少、可分次付款。
+
+**已定案的设计（写在这里，免得下一个人重推一遍）**
+- **两个新表**：`suppliers`（档案：名称/联系人/电话/地址/备注 + 软删）、
+  `supplier_payables`（应付单：供应商 + 事由 + 金额 + 分类 + 日期 + 备注 + 软删）。
+- **付款不加表 —— 付款就是 `cash_flows` 的一行**（`direction=out` / `biz_type=PAYMENT_SUPPLIER` /
+  `party_type='supplier'` / `party_id=供应商` / `doc_id=应付单`）。理由：`cash_flows` 是**实际收付的唯一
+  写入点**（模型 docstring 原话），付款再造一张表就是同一笔钱两个地方记；而且这样**收支页自动就有它**
+  （期①那一页是按 `biz_type` 分组的），不需要在视图层再 union 一次。
+- **欠款只有一个口径**：`欠款 = Σ应付单金额 − Σ(alive 的付款流水)`，实现只有一处
+  （`services/supplier_service.py`）。⛔ 不许在端点里各写一遍 SUM。
+- **分次付款**＝同一张应付单下多行付款流水；**预付**（没有应付单的付款）不允许 ——
+  先建一张同额应付单再付（"一张单一个结论"，负数欠款在界面上没人能读对）。
+- ⚠️ **必须动核心：`backend/app/core/schema_bootstrap.py`** —— `cash_flows` 要加
+  `is_deleted` / `deleted_at` 两列（线上库结构变更的唯一入口）。用户定的硬规矩是
+  **所有删除一律软删 + 必须有恢复路径**，"撤销一笔付款"就必须能把那条流水藏起来再放回来。
+  ⚠️ 代价是**所有读 `cash_flows` 的地方都要补 `is_deleted` 过滤**（漏一处的后果是"欠款说没付、
+  收支说付了"，本项目最贵的一类错），所以这一期专门配一条红线**自己算出**读取处清单来钉。
+
+核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：`cash_flows` 要加软删两列（撤销付款的唯一实现方式），而线上库结构变更只有这一个入口。
+核心改动：backend/app/models/enums.py —— 为什么必须动核心：供应商/应付单/付款三组审计动作码要进领域词汇表，否则审计页只能显示原始码。
+核心改动：backend/app/services/order_money.py —— 为什么必须动核心：加了软删之后**每一处**读 `cash_flows` 的地方都要带 `is_deleted` 过滤，而这是"一张单的钱"的唯一口径（漏掉它＝同一笔钱两个答案）。今天不影响任何数（订单上的流水撤不了），留着是为了"读取处一律带这一句"这条不变量**没有例外** —— 有例外就要有例外名单，而例外名单一定会腐烂。
+核心改动：backend/app/api/v1/orders.py —— 为什么必须动核心：同上（`_already_collected` 读的是 `cash_flows` 的入账流水，"钱真的进来过"的物证也必须过滤已撤销的行）。
+
+**明确不碰**（同第 1 期，另外）：`ui/common/AmapPicker.kt`、`ui/dispatcher/ReportCenter*.kt` 里
+报表线（`session-83da1ad7`）正在改的行（我只在 `actionLabel` 那个 when 里追加分支）。
+
+---
+
+**✅ 第 1 期已完成（12:3x → 13:2x）：账本管理「收支」页**
+
+- **后端（只读端点，零核心改动）**：`GET /api/v1/cash-flows/breakdown` —— 按 `biz_type` 分组求和
+  （收入按来源、支出按去路），与 `/summary` **共用** `_scoped_stmt` 与 SQL 侧 `SUM`，所以
+  **分项之和恒等于汇总**（这条有回归测试钉着：`backend/tests/test_cash_flow_breakdown.py`，4 条）。
+  分组键与输出都 `lower()` 归一（老数据里有大写 `IN`）；`biz_type` 为空**照样占一行**（不并进"其他"）。
+- **AI 后路**：重新生成 `_gen_ai_toolmap.py` → `_gen_ai_read_catalog.py`（`CN_DESC` 里补了中文说明）
+  → `ai/AiReadCatalog.kt` 里多出 `cash_flows.cash_flow_breakdown`（角色 = dispatcher，与后端 403 一致）。
+  `_probe_read_roles.py` 跑过，唯一一条对不上的是 **`return_requests.list_my_return_requests`**
+  （对派单员实际 200、目录里写着不可用）—— **不是本轮引入的**（那文件没有未提交改动，
+  是 `session-83da1ad7` 2026-09-21 那条退货申请线的遗留），留给它那一线修，我没动。
+- **Android**：新页 `ui/dispatcher/LedgerCashScreen.kt`（净额卡 + 收入一组 + 支出一组，**一路一行**）
+  ＋ `LedgerCashDetailScreen.kt`（点一行进来的流水明细，**窗口由总览页带过去**，明细页刻意不带时间控件）；
+  入口页第 6 格「开销管理」→「**收支**」（`Modules.ledgerHomeEntries`），**开销管理变成支出卡底部的入口**
+  （路由 / 页面 / NavGraph 注册三样都还在，红线里有 4 条专门钉这件事）；
+  收支语义色 `CashIn`/`CashOut` 加进 `ui/theme/Color.kt`（`CashOut` 接的就是原「开销管理」那格蓝）；
+  中文名复用 `ReportFinance.bizLabel()`（唯一一份，⛔ 没抄第二份）。
+- **检查**：新增 `_tools/qa/_check_ledger_cash.py`（**61 项**）+ `_reverse_verify_ledger_cash.py`
+  （**16 种注入 → 17/17 全部成立**）；`_check_ledger_dashboard.py` 跟着改（6 格清单 + 新增 2 条断言，143 项全绿）；
+  `_app_feature_coverage.py` 的能力映射表把「开销管理」改成「收支」（读域补了「现金流水」）；
+  `09A_HINT_CATALOG.md` 重新生成。
+  ⚠️ **反向验证抓到我自己的一个空转判据**：原来那条"方向归一小写"数的是 `/summary` 里已有的两处
+  `func.lower(scoped.c.direction)`，把它改成 `scoped.c.direction` 判据**照样绿** —— 已改成只看新 handler
+  的函数体（第 3 条注入专门打它）。
+- **验证**：后端 `pytest -q` → **709 passed**；Android `:app:compileEmuDebugKotlin` +
+  `:app:testEmuDebugUnitTest` → BUILD SUCCESSFUL；`_check_all.py` → **70/70 全绿**。
+- **真机（5554 派单员）**：账本管理 → 收支 → 顶栏药丸切「全部」：
+  净额 ¥10846.00 = 收入 ¥11007.00（客户收款（转账）18 笔 ¥9949.60 + 客户收款（现金）6 笔 ¥1057.40）
+  − 支出 ¥161.00（货损 10 笔）—— **分项加起来与顶上那三个数分毫不差**；
+  点「客户收款（转账）」进明细 18 笔（带对方名、可点开订单）；支出卡底部「开销管理」**点得进去**。
+  截图 `docs/screenshots/ledger-cash-20260922/`（4 张）。
+- **顺手纠正一条旧结论**：上一轮我写"重启本机后端会让所有模拟器掉登录"——**错的**。
+  `backend/app/core/security.py::_fallback_secret` 把本地密钥**落盘**到 `backend/.jwt_secret.local`
+  并复用（注释里写明正是为了"本机开发不再一重启就掉登录"）。所以后端已重启两次（12:53 / 13:0x），
+  代价只有几秒，`_check_backend_fresh.py` 也随之转绿。
+
+**✅ 第 ④ 期完成（13:2x → 14:0x）：预订单 / 订单模板 —— 后端 + AI + 界面 + 真机验证**
+
+- **用户拍板**：「预订单」= **订单模板**（商品+数量+货主+地址+运费预设好，点一下生成真订单）——
+  于是它**不是**"状态叫草稿的订单"：真下单仍走 `POST /orders`，这条线一个字节都不碰订单状态机/库存/账本。
+- **后端（全新，零核心改动）**：新表 `order_templates`（`create_all` 自动建，**不需要动
+  `schema_bootstrap`**）+ `models/order_template.py` + `schemas/order_template.py` +
+  `api/v1/order_templates.py`（列表/新建/改/软删/恢复/记一次使用 六个端点，全部 `Permission.ORDER_EDIT`
+  = 只有派单员）+ 11 条回归测试 `backend/tests/test_order_templates.py`。
+  · 三个刻意的选择：**行里不存单价**（价格会变，存旧价＝几个月后按旧价下单）；
+    **`freight_fee` 空 ≠ 0**（不预设 / 免运费）；**列表按常用度**（`usage_service.KIND_ORDER_TEMPLATE`）。
+  · 后端 pytest：**720 passed**（含新的 11 条）。
+- **AI 全部开放（用户原话「这些也给 AI 全部开放」）**：4 个写动作（`order_templates.create/update/
+  delete/restore`）+ 1 个读动作；`create/update` 是**手写处理器**（要收一组「商品+数量」，声明式的
+  字段类型里没有数组 —— 与 `orders.create` 同一个处境）；撤回按资源表声明（改→写回旧值、删→恢复）。
+  ⛔ **「一键下单」不进 AI**：AI 要下单就用**已有的** `orders.create`，别把下单这条路抄第二遍。
+  · **顺带修好两条"手写清单"**（都是这轮踩出来的假红/漏判）：
+    ① `_check_ai_guardrails.py` 里 `basic20/master20` 写死了两个文件名 → 新域文件的动作与
+    `restoreAction` 全扫不到（报"恢复动作没注册"）；改成 glob 自己算。
+    ② 它的 `READ_METHODS` 白名单要加 `orderTemplates`（新读方法不登记就被当成"prepare 里写库"）。
+- **界面（14:0x → 14:2x，本轮补齐）**：`ui/dispatcher/OrderTemplatesScreen.kt`（说明卡 + 一张预设单一张白卡：
+  名字是主角、货主/送到/收货人/商品摘要/备注、"参考运费"、横排「删」在最左 + 「用这张下单」在右）+
+  `Modules.dispatcherEntries` 加一格「预订单」（靛蓝 0xFF3949AB，与网格里其余十几色两两距离 ≥60）+
+  `Routes.DISPATCH_ORDER_TEMPLATES` + NavGraph 注册 + **代理下单页 `?template={id}` 预填**
+  （`OrderCreateViewModel.prefillFromTemplate`：整份替换商品行、价格走 `priceFor` 现算、商品已下架就明说、
+  常用度记在**下单成功之后**）。删除是本页唯一写操作：二次确认 → 软删 → **snackbar 上带「撤回」**。
+- **检查（本轮新增）**：`_tools/qa/_check_order_templates.py`（**62 项**）+
+  `_reverse_verify_order_templates.py`（**17 种注入 → 18/18 全部成立**）。
+  ⚠️ **反向验证又抓到两条"判据不敏感"**（都改紧了）：① `ensure_alive` 那条只判"有没有"，
+  而"改"与"记一次使用"两条路各有一处 —— 删掉一处照样绿；改成**数它两处**。
+  ② `lines.clear()` 在整份 VM 上搜会被别处满足 —— 改成只看 `prefillFromTemplate` 的函数体。
+- **真机（5554 派单员，已装包实测）**：工作台 → 预订单 → 看到「永盛食品每周单 / 参考运费 ¥38.50 /
+  送到 … / 收货人 小张 … / 赣南脐橙×6、海南香蕉×6 / 备注 …」；点「用这张下单」→ 下单页
+  **商品两行预填好、单价是现算的**（赣南脐橙 ¥34.80×6=¥208.80、海南香蕉 ¥20.00×6=¥120.00，合计 ¥328.80）
+  + 地址与收货人一并带过来；点「删」→ 二次确认 → 列表空 + 空态文案 →
+  底部 snackbar「已删除…**撤回**」→ 点撤回**原样回来**。
+  截图 `docs/screenshots/order-templates-20260922/`（4 张）。
+  ⚠️ 顺手踩到并记下：**PowerShell 5.1 的 `Invoke-RestMethod` 发中文 body 会写成乱码**
+  （第一次建的那张预设单名字存成了乱码，已用 Python 改回）—— 与 AGENTS.md 里那条"别用 PowerShell
+  往返改中文"是同一类坑，**造测试数据也要用 Python**。
+
+- **总账**：后端 `pytest -q` **720 passed**；Android 编译 + **1035 个单测** BUILD SUCCESSFUL；
+  `_check_all.py` **71/71 全绿**（新增的那条红线也进了清单）；`_check_ai_guardrails` 1240/1240；
+  写/读覆盖率与撤回对账全绿；核心冻结 12/12。
+
+**第 ④ 期到此收工。还没开工的两件**：② 供应商/厂商档案 + 应付款（要动核心 `schema_bootstrap.py`）；
+⑤ 货主/批发商「我的账本」补收支统计。③ 的 AI 侧随本期已具备（AI 能建/改预设单），
+界面侧的"AI 预选"就是本期这条「预设单 → 带进下单页」的路。
+
+### [2026-09-22 18:2x →] 会话：**订单卡片「数量带单位」+ 商品明细「件数与金额分列右对齐」**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户原话**：「你改一下不管是派单员的那个，那个订单卡片还是货主的订单卡片还是司机的订单卡片……
+不是详情页嘛，是概要的那个订单卡片，它那个商品后面的数字**没有单位**啊，这个不行啊，**这是要有单位的**。
+还有一个**商品明细**……由于派单员，他这个商品明细后面是**有价格的没有做对齐**啊，就是**件与件数做对齐、
+价格与价格做个对齐**，他们都**放在右边的**……包括我们**货主**看到的也是一样的，他也要做一个对齐，
+就是**规整一点、美观一点**。」
+
+**改了什么**
+- `ui/common/OrderCard.kt`（**四张订单列表共用**：待派单池 / 订单管理 / 我的订单 / 司机任务）——
+  商品行的 `×6` → `×6 桶`（单位取 `orderProducts[].unit`，**空就不画**，与详情页同一条规矩：
+  老数据没填过单位，**不许编一个「件」出来**）；底部合计那行的「共 N 件」在**全单单位一致**时改用那个单位，
+  混装仍写「件」（混装本来就没有共同单位，逐行都写清楚才是准的）。
+- `ui/order/OrderDetailScreen.kt` 的「商品明细」——件数一列、金额一列各自**量出本单最宽的那一条**
+  （`Adaptive.kt::rememberTextWidth`，与全 App 同一把尺，不按字数猜），每行都用同一个宽度 + `TextAlign.End`，
+  于是**件数与件数右对齐、金额与金额右对齐**；货损徽章单独占一列（否则它一出现就把金额挤歪）。
+- `ui/common/OrderPeek.kt`（账本里点一行展开的订单小卡，派单员账本与货主账本各一处）——
+  同一形状的「名称 / ×数量 / ¥金额」行，同样补单位 + 分列右对齐。
+- **新增**：红线 `_tools/qa/_check_order_row_columns.py` + 反向验证 `_reverse_verify_order_row_columns.py`。
+- 文档：`docs/PROJECT_MAP/08_CODE_LOCATOR.md` 订单卡片那一行、`06_DESIGN_SYSTEM.md` 加一条。
+
+**交叉点（先记一笔）**
+- `ui/common/OrderCard.kt` 被两个会话挂着：`faa17a77` 06:4x 那条「订单管理 / 我的订单」条目**还留在「进行中」**
+  （但它对卡片的改动 mtime 08:49、`git status` 干净，实际已收工）；`78ebd95c` 12:3x 那条把
+  「订单列表/订单卡片那一线」写进了**明确不碰**。用户本轮**点名**让我改这一线 → 我接过来，
+  只做上面这三处，**不动卡片其余任何一行**（单号两种形态、动作分区、司机一律不画钱全部原样）。
+- 本机后端**不需要重启**：这三处全是客户端渲染，一个字节的后端/库结构都没动。
+
+**验证（静态全绿；真机待补 —— 见下面那条阻塞）**
+- **新增**红线 `_tools/qa/_check_order_row_columns.py`：**32 项全绿**（`_check_all.py` 已自动收进去，
+  现在共 72 个脚本）；反向验证 `_reverse_verify_order_row_columns.py`：**12/12 全部被抓到**。
+- ⚠️ **其中两条不是脚本写错，是判据真的不敏感**（反向验证逼出来的，都已改紧）：
+  ① 小卡那条原来只查「源码里有没有 `qtyWithUnit(lp…)`」，而那个串在小卡里出现**两次**
+     （量宽度那一处 + 画出来那一处）—— 把**画**的那处改回裸拼，判据照样绿；
+     改成钉住**画出来那一行**（尾部带 `style = qtyStyle,`）。
+  ② 更值钱的一条：原来只查「有没有量宽度」，没查「**量的是不是画的那一串**」——
+     注入「量宽度时偷偷把单位去掉」之后判据**照绿**，而真机上那一列会按「×6」的宽度去装「×6 桶」，
+     数字被那个固定宽度**裁掉**，屏幕上只是"看着有点挤"、一句报错都没有。
+     已补三条断言（件数的量/画同源、金额的量/画同源、小卡同理）。
+- 我改动**别人的一条红线**并同步改回（已在上面「交叉点」记明）：`_check_driver_money.py` 原来钉着
+  字面量 `" 件 · " + formatDateTime(order.createdAt)`，而这次那个字面量变成了
+  `sharedUnitOf(...) ?: DEFAULT_UNIT` → 锚点改成「单位来自 `sharedUnitOf` + 紧接着 `· 时间`」，
+  **意图一字不改**（这一行还在、且它后面没有钱）。改完它 **35/35 绿**，
+  它的反向验证 `_reverse_verify_driver_money.py` **19/19** 仍然全部成立。
+- `UnitsTest.kt` 新增 4 个用例（最要紧的一条：**空单位不许兜底成「件」**，与商品那一侧的
+  `unitOrDefault` 是两个规矩）—— ⚠️ **还没跑过**，原因见阻塞。
+- `_check_all.py` 里我这条 ✅ 32 项；其余红的是**别人的在途改动**（供应商/应付款那一线）：
+  `_app_feature_coverage` / `_check_ai_guardrails` / `_check_ai_write_params` / `_gen_ai_read_catalog` /
+  `_gen_ai_toolmap` / `_read_coverage` / `_check_core_freeze` / `_check_backend_fresh` /
+  `_check_endpoint_index_fresh` / `_check_list_order`。
+- `_hint_inventory.py` / `_check_hints.py` 因我的 `OrderDetailScreen.kt` 改动而红（提示目录行号漂移）→
+  **按它自己的生成脚本重跑**：`09A_HINT_CATALOG.md` 由 233 文件/1236 条 → **239 文件/1267 条**，
+  我这两条提示落在 `OrderDetailScreen.kt:1210` / `:1344`（与编译警告打出的行号一致），两条检查已绿。
+  注：重跑前那份文件在工作区里已经是「237 文件/1270 条」的旧生成物（不是 HEAD 的 233/1236）。
+
+**⚠️ 真机验收的阻塞（与我的改动无关，别记到我头上）**
+- 真机要看效果得有**新 APK**，而现在这棵树**编译不过**：另一个会话（`78ebd95c`）18:17 起在做
+  **供应商/应付款**那一线，`ui/dispatcher/SuppliersScreen.kt`（mtime 18:26:07）仍是坏的
+  （`Unresolved reference 'toApiException'` / `'askRestore'`、`ExplainerCard` 变成 private、
+  `host/actionLabel/onAction` 参数名对不上）。
+- **归属证据**：我最后一次 Kotlin 改动在 18:12，**18:13 的 `compileEmuDebugKotlin` 是 BUILD SUCCESSFUL**；
+  他们的供应商相关文件从 18:17:26（`Dtos.kt`）才开始动。
+- → 已挂一个后台任务（`%TEMP%\emuopen\wait_build_install.ps1`）：等
+  **「没有别的 JVM/Gradle 在跑」+「那个文件静默 ≥3 分钟」**两个门都开，才 compile → 打 APK →
+  装 5554 / 5556（**不碰 5558**）→ 跑单测；免得跟他们正在跑的构建撞车（两个 Gradle 撞一起会写坏 `build/`）。
 
 ### [2026-09-22 09:2x → 09:5x] 会话：**地图选点加「卫星」图层切换**【已完成】（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
@@ -2626,6 +2917,14 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-09-22 18:4x | **金额显示去尾零**（我） | `backend/app/services/order_money.py` | ⚠️ **这个文件不是我改的**，是 `session-78ebd95c` 的「账本管理·收支」线在给 `cash_flows` 加软删后补的 `is_deleted` 过滤（三条查询各加一个条件，本机未提交）。我**只读**过它。记在这里是因为：`_check_core_freeze.py` 曾因此报红「没声明 `order_money.py`」。⛔ 我**没有**替他们补声明（替别人声明等于把"谁动的核心"记成我动的）；约十分钟后**他们自己**补上了 `order_money.py` 与 `api/v1/orders.py` 两行 —— 那两行随本次提交一起进了 git（声明页是共享文件、整份入库，见下一条），`_check_core_freeze.py` 已转绿 |
+| 2026-09-22 18:5x | **金额显示去尾零**（我） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md` | **重新生成过，但故意不进本次提交**：它过期是因为 `SuppliersScreen.kt`（供应商线）行号位移 + 文案条数变了，而那是**别人未提交的源码**。把产物提交进去＝"提交了别人未提交代码的产物"，与当初那次「HEAD 编不过」（提交了调用方、没提交定义方）是同一类错。所以：产物留在工作区（本机 `_check_hints.py` 29/29、`_hint_inventory.py --check` 已转绿），**等他们连同源码一起提交** |
+| 2026-09-22 18:5x | **金额显示去尾零**（我） | `docs/AI_WORK_CLAIM.md`、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` | ⚠️ 这两个共享文件**整份入库**：里面同时含别的会话此刻写进去的内容（声明页有别人"把已完成条目从进行中搬走"的重排；设计规范有别人在 §5 一带追加的段落）。共享文档**无法逐行拆**（hunk 互相咬合），按本仓库既有惯例整份提交，在此记一笔 |
+| 2026-09-22 18:4x | **金额显示去尾零**（我） | `backend/app/services/driver_pay.py`、`backend/app/services/accounting_service.py` | 两个**核心文件**（见「进行中」那两行 `核心改动：`）：只在**文案**上把金额插值改成 `money_text`（去尾零），判据/口径/字段一行未动 |
+| 2026-09-22 13:0x | **账本管理「收支」页**（我） | `data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、`data/remote/dto/Dtos.kt` | 三个共享文件**纯追加**：各 +1 个方法/端点/DTO（`cashFlowBreakdown`），改前重读过最新内容。⚠️ `Apis.kt`/`AppRepository.kt` 同时被 `session-83da1ad7` 的报表线动过（`reports` 那两个查询参数）—— 两边改的是不同函数，`git diff` 里并存 |
+| 2026-09-22 13:0x | **账本管理「收支」页**（我） | `ai/AiReadCatalog.kt`、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`、`docs/ai/kb_skeleton.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` | ⛔ **全部是机器生成的产物**，不是我手写的：`_gen_ai_toolmap.py` → `_gen_ai_read_catalog.py`（`CN_DESC` 里补一行中文说明）→ `gen_endpoint_index` → `_hint_inventory.py --md`。⚠️ `AiReadCatalog.kt` 里另外那几行差异（`reports.*` 多两个日期参数）是 `session-83da1ad7` **未提交的源码**带来的，重生成时一并反映出来（没有抹掉它的改动）。⚠️ 第一次跑 `_gen_ai_toolmap.py` 时我把 `--out-dir` 写成了相对 `backend/` 的路径，产物落到了 `D:\AProjects\ASDH\docs\ai\`（**仓库外**）—— 已删除那两个文件与该空目录，并改成从仓库根跑 |
+| 2026-09-22 13:0x | **账本管理「收支」页**（我） | `backend/app/api/v1/cash_flows.py` | 只用**追加**的方式给文件末尾加了一个只读端点（没动 `list_cash_flows` / `cash_flow_summary` 一行）。本机后端已重启（12:53 / 13:0x 各一次）→ `_check_backend_fresh.py` 转绿；⚠️ **重启不会再踢掉任何人的登录**（密钥落盘复用，见上一条纠正） |
+| 2026-09-22 13:0x | **账本管理「收支」页**（我） | `_tools/ai/_app_feature_coverage.py` | 能力映射表里「开销管理」→「收支」（读域补「现金流水」）。不改就是**化石**：那个脚本会自己报"映射表里有「开销管理」，但 Modules.kt 里已经没有它了" |
 | 2026-09-22 12:0x | **订单详情「拨打司机电话」**（我） | `ui/order/OrderDetailScreen.kt` | ⚠️ **这个文件同时被"地图卫星图层"那一线改过**（`startSatellite = if (role.key == "driver") …`，见文件里 233 行附近，`session-faa17a77` 的活）。我是**外科式**改动：只在「收货信息」卡里把原来那行 `InfoRow("司机", …)` 换成 `DriverRow(...)`，并**在文件中间追加**一个私有 `DriverRow` 组件 —— 没有动它上面任何一行。改完两边都在（我改完重读过、`git diff` 里两条并存、`:app:compileEmuDebugKotlin` 通过） |
 | 2026-09-22 12:0x | **订单详情「拨打司机电话」**（我） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md` | **重新生成**（`_hint_inventory.py --md`，不是我手写的）：改 `OrderDetailScreen.kt` 让里面两条提示的行号 +90、文案计数 +4。⚠️ 生成前它与源码就已差 4 条（别人提交时没跟着重跑），diff 里只有行号与那 4 条计数 |
 | 2026-09-22 03:0x | **商品外观做深**（我） | `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` | ⚠️ **三份机器生成的产物重跑了一遍**（不是我改的东西坏了，是**别人未提交的后端改动**让它们过期：`shipper.py` 挪了行号、`products.py` 挪了行号）：`08A` 与 `ai_read_catalog.json` 的差异**只有行号位移**（端点数 193 不变、角色不变，已逐行确认）；`09A` 是 `.kt` 文案条数变了。⛔ **没有手写这三个文件**，全部是脚本重生成的。另：本机后端已重启（`_check_backend_fresh` 转绿） |
@@ -2667,7 +2966,61 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
-### [2026-09-22 09:4x → 10:0x] 会话：**报表中心「一打开全是 0」→ 接上自动挡（今天没数就往前退）**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+### [2026-09-22 10:0x → 11:0x] 会话：**报表中心：时间控件换成「我们的药丸 + 档位清单」，并根掉「点商品经营会弹日历」**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户原话**：「那你就将他的**界面**进行一下处理。尤其是……那个**时间选择**按照我们**现在的要求**进行处理；
+而且点击**商品经营**的时候有时候会弹出**一个日历**吧，但是不知道是什么原因啊？这个也是个**小bug**，你解决一下。
+然后我们再**丰富**一下整个的报表中心。」
+
+**① 那个日历：根因找到了（adb 节点边界作证），根也拔了**
+`ui/common/ReportTimeNav.kt` 顶上那条「完整时段」是个**可点的 Surface**，点它就开 M3 的 `DatePickerDialog`。
+真机 dump 出来的节点是 `[42,296][803,422]` —— **761×126 px 一整条可点区域**，正压在顶栏下面：
+在那一带随手一点（滚动、点东西、或者从入口页点卡片时手指落点与新页面重叠）就会弹出一个日历。
+整棵树只有 `ReportCenter.kt` 一处用它 → 这一版把它**连同文件一起删掉**（零引用）。
+真机复现/复验：在那一带点一下，**什么都不弹**（`_archive/rp-12-tap-old-nav-area.png`）。
+
+**② 时间按我们现在的要求来**：顶栏右上角一颗 `DatePresetPill`（写着当前档位：今天/昨天/本月/09-01~09-20…）
++ 点开是**共用的** `DateFilterDialogs`（档位清单 + 自定义区间）——与账本/订单/司机账本同一套、同一份实现。
+⛔ 报表页里不再有任何第二套时间控件（连那条时间胶囊行也没有）。
+为此给后端补了**可选** `date_from`/`date_to`（**区间优先**于 `mode`+`anchor`，窗口只有 `reports.py::_span(...)`
+一个入口，只给一头 → 400）——**六个页签从此共用一段窗口**；「近 7 天」「自定义」这两种窗口以前在报表里
+**根本表达不出来**，现在能用了。顺手修掉一处"同一窗口两条路两个数"：曲线粒度原来只看 `mode`
+（整月区间 + `mode=day` 会画成每小时一个点 vs 走 mode 的 30 个点）→ 现在由**窗口**决定。
+
+**真机证据（emulator-5554，包装于 11:0x、晚于最后一次源码改动）**
+- 进「营业纵览」→ 药丸写**昨天**、金额 **¥142.00 · 1 单**（自动从"今天"退到有数的那一档）；
+- 点药丸 → 我们的档位清单（全部/今天/**昨天 ✓**/前天/这周/近 7 天/上周/本月/上月/近一年/自定义）；
+- 选「本月」→ 商品经营 **¥21,414.10**、营业纵览 **¥21,345.60 · 100 单**（与后端接口逐项一致 ⇒ 六个页签同一段窗口）；
+- 选「自定义」→ 我们的 `DateRangeDialog`（选择日期范围）；
+- 在旧导航那一带点一下 → **什么都不弹**（以前弹日历）。
+截图：`_archive/rp-10-new-turnover.png`、`rp-11-new-products.png`、`rp-12-tap-old-nav-area.png`、
+`rp-13-preset-dialog.png`、`rp-14-this-month.png`、`rp-15-custom-range-dialog.png`。
+
+**证据（静态）**：`_check_all.py` **69/69 全绿**（含三份生成物重新生成：端点索引 / AI 读能力目录 / 提示目录）；
+新红线 `_check_report_window.py` **40/40**、反向验证 `_reverse_verify_report_window.py` **21/21**
+（每种破坏各由一条判据抓住、逐字节还原）；后端 `pytest -q` **709 passed / 0 failed**
+（新 `tests/test_report_window.py` 7 条 + 更新了 `test_audit_round25` 里那条"turnover 不认区间"的旧期望）；
+Android 单测：**我改完测试之后那一次全量跑是绿的**（`testEmuDebugUnitTest` BUILD SUCCESSFUL；
+`ReportFinanceTest` 改成新口径：档位→区间、半截自定义、全部、阶梯每档、有数判据）。
+⚠️ 最后一次改动只是把某个测试名里的 `**` 去掉（Windows 名字告警，正则在名字里），
+**之后没能再跑一次全量单测** —— 模块被**别的会话的在途改动**卡住了（
+`ui/dispatcher/LedgerCashDetailScreen.kt::CashOut` 未解析、`NavGraph.kt` 引用还不存在的
+`LedgerCashScreen` / `LedgerCashDetailScreen`，改到一半的账本现金明细页）。等他们收工再跑一次；
+本轮的 APK 与真机结论是在**他们动手之前**编出来的（12:4x，晚于我的最后一次源码改动）。
+
+**⚠️ 我重启了本机后端**（改的是 `reports.py`，而 App 现在**总是**发 `date_from/date_to` ——
+不重启的话后端会静默忽略这两个参数、按 mode 取数，"看着正常、窗口是错的"）。
+重启后**先验健康**：登录 / 报表 / 结算都通（`_check_backend_fresh.py` 也因此转绿）。
+
+**⚠️ 两处反空转自证（第一版判据都是假绿的）**
+① 「取一个函数体」那个辅助函数原来按"下一个 `\n}`"截，Kotlin 类成员是缩进的 → 一路吃到文件末尾，
+把探测换成别的接口判据照样绿；改成**配平花括号 + 继续吃 `catch/else`** 才抓住。
+② 反向验证里"曲线粒度只看 mode"那条注入，第一版锚点只写 `if start == end:` ——
+文件里 `_span_label` 也有这一句，于是打在了那一处上、判据照样绿；锚点带上下一行才抓住。
+
+**下一步（用户已点名）**：**丰富整个报表中心**（页面内容层面）。本轮的界面处理只做了"时间控件 + 布局归一"。
+
+### [2026-09-22 09:4x → 10:0x] 会话：**报表中心「一打开全是 0」→ 接上自动挡（今天没数就往前退）**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e））
 
 **用户原话**：「修一下**报告中心没有任何数据**的bug。」
 

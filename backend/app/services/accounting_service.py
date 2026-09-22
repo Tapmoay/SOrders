@@ -41,6 +41,7 @@ from app.schemas.accounting_v2 import (
     ShipperReceiptCreate,
 )
 from app.services.order_money import line_receivable, money_map
+from app.services.money_text import money_text
 
 #: 送达货损自动生成的那笔开销用哪个分类 —— **就是名册里的那个名字**（原来是枚举 `LOSS`）。
 #: 迁移会把老库里的 `loss` 翻成「货损」，所以这里写中文名与名册对得上。
@@ -359,7 +360,9 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
                 raise ValueError(f"订单 {o.order_no} 没有可以核销的金额（这一单已经全部退货了）")
             if part > m.arrears:
                 raise ValueError(
-                    f"订单 {o.order_no} 这次要核销 {part} 元，但它只欠 {m.arrears} 元"
+                    # 这句话会原样弹给用户（收款被拒的理由）→ 金额过 `money_text` 去尾零；
+                    # 判据仍是上面那行 `part > m.arrears`（`Decimal`），一个字都没动。
+                    f"订单 {o.order_no} 这次要核销 {money_text(part)} 元，但它只欠 {money_text(m.arrears)} 元"
                     "（差额来自已经收过的部分或退掉的货），不能超额收款。"
                 )
             per_order[oid] = part
