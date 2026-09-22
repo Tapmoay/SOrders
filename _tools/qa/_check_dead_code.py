@@ -42,6 +42,20 @@ IMPLICIT = {
     "contains", "get", "set", "rangeTo", "iterator",
 }
 
+#: ⚠️ **看起来没用、但删了编译不过**的 import —— 逐条写清理由，**按文件**登记
+#: （⛔ 不做全局豁免：那会把别处真正没用的同名 import 一起盖住）。
+#:
+#: 2026-09-22 实测（两次构建对照）：`ui/dispatcher/AccountManageScreen.kt` 删掉
+#: `androidx.compose.foundation.clickable` 之后，同一文件里
+#: `Modifier.combinedClickable(...)` 那一行**当场编译不过**：
+#: `e: … AccountManageScreen.kt:270:37 Unresolved reference 'clickable'`；
+#: 加回去 → `BUILD SUCCESSFUL`。那个文件里**一处 `.clickable(` 调用都没有** ——
+#: 也就是说 `combinedClickable` 的重载解析需要 `clickable` 留在作用域里，
+#: 而这条判据"简单名必须在正文里出现"看不出这件事（典型的假阳性）。
+NEEDED_DESPITE_UNUSED: dict[str, set[str]] = {
+    "ui/dispatcher/AccountManageScreen.kt": {"androidx.compose.foundation.clickable"},
+}
+
 #: 扫到的规模下限（路径写错/解析失效时先喊，而不是安静地什么都查不到）
 MIN_FILES = 100
 MIN_IMPORTS = 800
@@ -135,6 +149,8 @@ def check_file(p: Path) -> list[str]:
         full = m.group(1)
         name = full.split(".")[-1]
         if name in IMPLICIT:
+            continue
+        if full in NEEDED_DESPITE_UNUSED.get(p.relative_to(SRC).as_posix(), set()):
             continue
         if not re.search(r"\b" + re.escape(name) + r"\b", body):
             out.append(f"没被用到的 import：{full}")

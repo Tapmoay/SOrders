@@ -20,33 +20,6 @@
 
 ## 进行中
 
-### [2026-09-22 08:0x →] 会话：**运费模板「新建」从弹窗改成底部抽屉（拉满到最上面）+ 表单走白卡无边框行**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
-
-**用户需求（原话）**：「把那个**运费模板**给搞一下 —— 运费模板**右上角**不是有 3 个（按钮）…是那个**新增模板**啊，
-**新增模板也按照我们的样式**进行来，但是他**不要使用弹窗**啊，**使用底部抽屉**，并且**底部抽屉是拉到最上面**。」
-
-**要动的**
-- `ui/dispatcher/FreightTemplatesScreen.kt`：`FreightTemplateDialog`（`AlertDialog` + `OutlinedTextField` + 3 个 `SoTextField`）
-  → `ModalBottomSheet`（`skipPartiallyExpanded = true` + 内容 `fillMaxHeight()` ＝ 一打开就拉满）
-  + `FormGroup` 白卡分组 + `FormInputRow` / `FormPickRow` 无边框行；错误落进抽屉（`FormErrorLine`）
-- `ui/dispatcher/FreightTemplatesViewModel.kt`：`showDialog` → `showSheet`；新增 `formError`
-  （原来校验/保存失败写的是页面级 `error` → 走的是**抽屉背后**的 snackbar，等于"点保存没反应"）
-- ⚠️ **交叉点（我改了共享的判据脚本，都是追加式）**：
-  1. `_tools/qa/_check_input_rules.py` —— `FIELD_NAMES` 追加 `FormInputRow` / `FormTextAreaRow`
-     ＋ `_titles` 认共用行的纯字符串 `label = "…"`。**这是一个真缺口**：全 App 正在把表单逐页搬到共用行上，
-     而共用行不在扫描名单里 → 那些框**从判据里直接消失**（一页换过去时顺手漏掉 `InputRules` 也不会报）。
-     追加后：扫到 110 → **132** 个框、认得出类别的 25 → **32**（电话 12 / 金额 20），全过；
-     新冒出来 1 条假阳性（下单页那个自由文本**备注**框，placeholder 里写了「到了先打电话」）已按脚本自己的
-     规矩写进 `EXCLUDED` 并给了理由。
-  2. `_tools/qa/_reverse_verify_input_rules.py` —— 修 **3 条陈旧锚点**：① `FIELD_NAMES` 那行（我改的）；
-     ②「商品售价」那条的注入点**跟着商品改版搬到了 `ProductFormScreen`**（旧锚点在已被删掉的编辑抽屉里）；
-     ③ 下单页行编辑弹窗那条的锚点从 `OutlinedTextField` 改成现在的 `FormInputRow`。
-     ②③ 是**别人改文件之后留在那儿的**（这条反向验证只在 `--deep` 里跑，所以一直没人发现）。
-     ⛔ 全程**没有改松任何判据**，只把注入点搬到代码现在真正在的地方。现在 **12/12 全过**。
-
-**明确不碰**：`ui/shipper/OrderCreateScreen.kt`、`ui/common/ProductForm*`、订单两页、`ui/common/FormRows.kt`
-（`FormGroup` / 那五种行**只调不改** —— 它们正是 `session-78ebd95c` 在维护的共用件）、`backend/**`。
-
 ### [2026-09-22 07:1x →] 会话：**「白卡规范」扫尾第一批：下单页 + `FormGroup` 收进共用零件**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 用户点头（「剩下的 67 处要不要我按页面扫」→「**y**」）。
@@ -209,6 +182,49 @@
 **当场反向验证**：页面上写死一句不含入口词的话，它照旧红、还原即绿）。
 ⚠️ 本轮 `_check_all.py` 唯一那条红是 `_check_endpoint_index_fresh.py`（端点索引因**别人**后端
 在途改动而过期）—— 我一个后端文件都没动，没去重生成它（那是他们那条线的产物）。
+
+### 第三轮（2026-09-22 08:0x → 08:5x）：药丸"只显示"形态 + 收编账户管理那份圈底动作
+
+**用户原话①（药丸统一）**：「为了美观，而统一的话，你干脆给那个**已接单**和**派单中**也加一个
+图标，但是那个图标**无法选择**，他不会有列表，就是只有显示，今天一个图标然后还今天啊，
+就是也说这个信息提醒吧，但是他们点的格式**无法进行选择**的」
+**用户原话②（账户管理）**：「对账户管理那个你也做了去吧」（＝同意把那份 `AccountAction`
+收进 `CardActionIcon`）。
+
+**① 药丸两种形态**：
+- **每一档都画**药丸（顶栏形态统一）；**可按日期筛的档可点**（全部/已送达/已撤销/已退货），
+  **派单中/已接单"只显示"**：形态/位置/配色/圆角完全一样，但**不可点、也不画 ▾ 箭头**
+  （`DatePresetPill` 的 `onClick` 改成可空；在不能点的东西上画"点我"的记号＝把用户引到
+  一个点了没反应的地方）。
+- ⚠️ **那颗药丸上写的是「不限时间」，不是用户口述的「今天」** —— 这是本轮唯一一处
+  **没照字面做**的地方，理由是查过数据：那两档**不按日期筛**，本机实测**派单中 7 单跨
+  09-16~09-21、已接单 8 单跨 09-11~09-20（今天一单都没有）**；写「今天」就是屏幕上的一句假话，
+  而那颗药丸**点不开**，用户没法点开它去发现。形态统一做到了，词用的是实话。
+  ⛔ 判据拿 `DatePresets.ROW` 逐个核这个词（`DatePresets` 里新增的那个日期档位名一律不许用）。
+
+**② 收编账户管理那份圈底动作**：`CardActionIcon` 加可选参数 **`label`**
+（传了＝"圈底图标 + 文字"，不传＝卡片上那个纯图标动作），`AccountManageScreen` 里的
+`private fun AccountAction(...)` 缩成**一行委托**（`= CardActionIcon(…, label = label, size = 15.dp,
+container = 30.dp)`）。真机核对：那一页观感与改前**完全一样**（左＝删除/停用、右＝编辑）。
+⚠️ 顺手删的两个"没人用的 import"里有一个是**假阳性**：`androidx.compose.foundation.clickable`
+在这个文件里**一处调用都没有**，但删了之后 `Modifier.combinedClickable(...)` 当场编译不过
+（`Unresolved reference 'clickable'`，两次构建对照过）—— 给 `_check_dead_code.py` 加了一张
+**按文件登记**的例外表（`NEEDED_DESPITE_UNUSED`，逐条写理由；⛔ 不做全局豁免）。
+
+**⚠️ 真机上还核出一处规范反例、但没提交**：`FreightTemplatesScreen.kt` 的价目卡是
+「编辑 · 删除」，而规范是「左＝反向/警示、右＝编辑」。那 2 行我改了**又撤回**：
+那个文件正被另一个会话大改（对照 HEAD 有 270+ 行在途，且当时那一版直接编译不过），
+我的两行会被他们下一次整份写回覆盖，也会把他们的半成品卷进提交。
+现状与理由写在该文件那段注释里；等他们收工后再把「对调 + 判据」一起提交。
+
+**第三轮验收**：`_check_all.py` **64/64** · 红线 `_check_order_list_ui.py` **100 项** ·
+反向验证 `_reverse_verify_order_list_ui.py` **26/26**（新增：给进行中的档写日期档位名、
+给不可点那颗挂 onClick、账户管理又自己画一遍、子类不继承内核、本地抄阶梯…
+以及"药丸两种画法"那条 —— 它还当场抓出我自己判据的一个洞：只断言子串
+`DatePresetPill(label = word)` 的话，`…, onClick = …)` 也满足，已收紧成"没有 onClick 的那一次调用"）。
+真机（5554 派单员）：派单中＝「📅 不限时间」（无 ▾、点了没反应）、已送达＝「📅 前天 ⌄」（可点，
+自动挑档正确：模拟器时区跨了零点 → 今天 09-22 / 前天 09-20 正是那两张已送达单的业务日）、
+账户管理三张卡观感不变。
 
 ### [2026-09-21 22:4x → 24:0x] 会话：**商品管理改版：先出方案 → 落地第 1 期（参考 POS 的排版与组件复用）**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
@@ -2408,6 +2424,88 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-09-22 08:0x → 09:0x] 会话：**运费模板「新建」从弹窗改成底部抽屉（拉满到最上面）+ 表单走白卡无边框行**＋**顺手抓到并修掉 4 处端点 500**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户需求（原话）**：「把那个**运费模板**给搞一下 —— 运费模板**右上角**不是有 3 个（按钮）…是那个**新增模板**啊，
+**新增模板也按照我们的样式**进行来，但是他**不要使用弹窗**啊，**使用底部抽屉**，并且**底部抽屉是拉到最上面**。」
+（做完之后他又补了一句「地点库的卡片也要信息明确」→ **当场改口**：「哦我搞错了地点库，你不需要搞啊，
+接着搞你的就行了，**地点库是别人的工作**」→ 地点库那条**不在本轮**。）
+
+**结果**
+- 改：`ui/dispatcher/FreightTemplatesScreen.kt`：`FreightTemplateDialog`（`AlertDialog` + 1 个 `OutlinedTextField`
+  + 4 个 `SoTextField`）→ `ModalBottomSheet`（`skipPartiallyExpanded = true` ＋ 内容 `fillMaxHeight()`
+  ＝ 一打开就**拉满到最上面**）＋ `FormGroup` 三张白卡（线路与价格 / 算哪几类货 / 备注）＋
+  `FormInputRow` / `FormPickRow` 无边框行；错误落在抽屉里（`FormErrorLine`）
+- 改：同页 `ViewModel`：`showDialog` → `showSheet`；新增 `formError` —— 原来校验/保存失败写的是**页面级
+  `error`**，那是**抽屉背后的 snackbar**（抽屉是另一个窗口，正好盖住它）＝"点保存没反应"
+- **真机（emulator-5558 借来当派单员，验完已登回司机 13800000003）**：抽屉一打开**占满整屏**、
+  底色 `#F0F0F0` 中性灰 + 三张 `#FFFFFF` 白卡（`_px_probe.py` 沿列量出来的）；
+  空表单保存 → 抽屉里出「请填写价目名称…」；线路下拉从线路库选了 13 条里的一条；
+  **保存 → 库里有这一条**（`GET /freight-templates` 数到它，id=9）；卡片「删除」→ 确认 → 库里 8 条、
+  E2E 那条 0 条（软删）。截图 `_archive/freight-01-sheet.png`
+- 新增：红线 `_tools/qa/_check_sheet_form_pages.py`（**43 项**，名字从 `_check_account_manage_ui.py` 改过来
+  —— 它现在管**一类页面**：账户管理 + 运费模板 + 全 App 抽屉底色）＋ 反向验证 **24/24**
+
+**⚠️⚠️ 本轮抓到的真事故（不是这一轮的活儿，是我上一轮留下的）：4 个端点每次调用都 500**
+- 现象：真机上点「保存」→「网络连接失败：unexpected end of stream」，**列表永远是空的**
+- 根因：上一轮"挑东西的列表按常用度排"把 `with_popularity(stmt, Model, kind, <当前用户>)` 加到 12 个端点，
+  而 **4 个端点的用户参数叫 `_`（`_: User = Depends(...)`，"只要鉴权不要值"的老写法）或 `user`**，
+  复制粘贴过去就成了 `NameError: name 'current' is not defined`
+  → `arrears` / `driver_billing_rules` / `freight_templates` / `price_rules`
+- ⛔ **编译期看不出来、单测也没盖到**（`compileall` 只查语法；pytest 没打那几个端点）
+- 修法：3 处把形参改回 `current:`、`price_rules` 改用它的形参 `user`；
+  **真打四个端点验证：全部 HTTP 200**（原来是 500）
+- **新增红线 `_tools/qa/_check_usage_call_args.py`（37 项）**：`usage_service.*` 每一次调用的**裸标识符实参**
+  必须在所在函数里有定义（形参 / import / 模块级 / 前面赋过），＋ 两条防空转（调用数 ≥12、后端文件 ≥30）。
+  配套反向验证 `_reverse_verify_usage_call_args.py` **4/4**（含"把参数名改回 `_`"这一条原样复发）
+  - ⚠️ 判据第一版把**多行 import**（`from app.models.x import (\n    DriverBillingRule,\n)`）漏了 →
+    当场把 `DriverBillingRule` 判成"没定义"（**假阳性**）；假阳性比漏报更耗人，已修
+  - ⛔ 为什么不做成通用 linter：本机没装 `pyflakes`/`ruff`/`flake8`（实测 No module named ruff），
+    给项目加新依赖要用户拍板 —— 所以只钉这一类，并在脚本里写明
+
+**⚠️ 交叉点（都是"我的改动波及了别人的东西"，已同步）**
+1. `backend/tests/test_auth.py` + `test_product_sort_order.py` —— 上一轮的排序规则让这两条测试**红了**
+   （它们写的是老口径"没排过就按 id 倒序"）。按用户定的规则（常用度 → **先创建的在前**）改**测试**，
+   **没有改代码**；`test_auth` 那条把"id 倒序"的断言换成它自己的题目（q 为空时行为完全一致），
+   排序本身钉在 `_check_list_order.py`（53 项）与 `test_audit_round16_counters.py`。pytest **693 passed**
+2. `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` **重生成**（我改的参数名 + 别人新加的一个端点 → 193→194）
+3. `_tools/qa/_check_input_rules.py`：`FIELD_NAMES` 追加 `FormInputRow`/`FormTextAreaRow` ＋ `_titles` 认
+   共用行的纯字符串 `label = "…"`。**这是真缺口**：全 App 正把表单逐页搬到共用行，而共用行不在扫描名单里
+   → 那些框**从判据里直接消失**（换过去时顺手漏掉 `InputRules` 也不会报）。追加后 110→**132** 个框、
+   25→**32** 个认得出类别，全过；新冒出的 1 条假阳性（下单页自由文本**备注**框，placeholder 里写了
+   「到了先打电话」）按脚本自己的规矩写进 `EXCLUDED` 并给了理由
+4. `_tools/qa/_reverse_verify_input_rules.py`：修 **3 条陈旧锚点**（`FIELD_NAMES` 那行是我改的；另两条是
+   **别人改文件后留在那儿的** —— 商品售价的注入点随商品改版搬到了 `ProductFormScreen`、下单页那条的锚点
+   从 `OutlinedTextField` 变成了 `FormInputRow`）。这条反向验证只在 `--deep` 里跑所以一直没人发现。现 **12/12**
+5. ⚠️ **别人改了我这一页**（好事）：`AccountManageScreen.kt::AccountAction` 与订单卡的 `CardActionIcon`
+   被 `session-faa17a77` 收成了一个共用控件 → 我那条"圈底图标 + 文字"的判据原本钉的是实现名 `TintedIcon`，
+   **当场假红**。已改成钉**意图**（共用控件里必须有圈底图标 **且文字要真的传下去** `label = …`），
+   并补了注入 ㉔（把文字丢掉必须报红）—— 现在 **24/24**
+
+**⚠️ 追加（用户看到第一版之后：「你这个没改啊」）—— 他圈的是**列表页**，不是抽屉**
+- 他发来的截图把**右上角那三个按钮**（待定价 / 分类管理 / 新建）圈住、画箭头指到左下角三个空框
+- ⚠️ 起因之一：我上一轮**只改了「新建」里面那张表单**，列表页外观一点没动 —— 他不点「新建」就看不到变化；
+  而他截的那台（5554，标题被挤成「运费…」正是旧版三个按钮占位的样子）装的是我**更早一版**的包
+- 拍板（问他两问，都选了）：**「挪到底部做成三格，照抄商品管理」**
+  （左「分类管理」· 中「新建价目」语义色圆钮 · 右「待定价」），**左边分类栏本身不动**
+- 改：`FreightTemplatesScreen.kt` —— 顶栏 `actions` 整段删掉（只留标题与返回），
+  新增 `bottomBar = { FreightBottomBar(...) }`：`Surface(shadowElevation = 8.dp)` ＋
+  `navigationBarsPadding()` ＋ 左右 `FreightBottomCell`（**无边框**图标+文字）＋
+  中间 `FilledIconButton(52dp)` 用**运费模板的语义色深靛 `0xFF283593`**
+  （一色一功能：工作台那一格、卡片上的车图标同色；⛔ 不用钱的橙——同屏价格已是橙的）
+- ⚠️ **没有**去动 `ProductsScreen.kt` 那份（`ProductsBottomBar` / `BottomCell` 都是 private，
+  而且**别人的反向验证钉着这两个函数名**，动它就得连他们的注入锚点一起改）→ 先在这一页照抄一份，
+  注释里写明"**同一套形态的第二处**，第三页再提成 `ui/common/` 共用件（与 `FormGroup` 那次一样）"
+- **真机验证**：5558 与 **5554** 都装了新包，底栏三格都在；5554 的截图沿 y=2205 一行量到
+  **`#283593`**（中间那枚圆钮）✓。截图 `_archive/freight-02-bottombar.png`（5558）、
+  `freight-03-bottombar-5554.png`（5554）
+- 判据加到同一节（§6）：底栏三格在、顶栏没有 `actions`、中间是语义色圆钮、左右无边框格 →
+  `_check_sheet_form_pages.py` **47 项**；反向验证 **26/26**（新增 ㉕ 摘掉底栏、㉖ 圆钮换成描边按钮）
+
+**明确不碰**：`ui/shipper/OrderCreateScreen.kt`（`session-78ebd95c` 正在改）、`ui/common/FormRows.kt`
+（`FormGroup` / 那几种行**只调不改**）、订单两页、`ui/common/OrderCard.kt`、**地点库那一块**
+（用户当场确认那是别人的活）、钱的算法。
+
 ### [2026-09-22 07:5x → 08:0x] 会话：**线路卡主次倒过来（线路大、联系人小）+ 共享地点卡片去掉照片**【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **用户需求（原话）**
@@ -2426,9 +2524,17 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
   与那一份预览状态一起删掉，不留空线），地址行数上限 2 → **3** —— 地点信息重新占满整行。
   ⚠️ 照片**不是**彻底没了：表单里的图片条（线路/地点图片、下单页位置图片）点开看大图还在。
 
-**验收**：`_check_form_panel_style.py` **18/18** · `_check_product_card_single_source.py` **53/53** ·
-死代码 **0** · 编译 + `assembleEmuDebug` + 装到 5554 成功 · 真机截图
-`21-改后-线路卡(线路大-联系人小)`。
+- **地址库（选收货地址抽屉）的「线路」那一段是同一个毛病，一起改了**（用户第三轮，指着那一屏）：
+  「这个地点库…这个**线路**也做个改变啊，这样子不好啊，主要我们的（重要）信息是**线路**，
+  其次**联系人什么的都可以在下面放小一点**。而且他这个卡片是**可以做大一点**的」。
+  → `OrderCreateScreen::SheetRow` 多了一个 `origin`（只有线路有）：有起点时这一行主角变成
+  **起点 ○ → ↓ → 终点 📍（`titleMedium` 加粗、最多 3 行）**，**联系人 + 电话退到下面 `bodySmall` 灰字**；
+  右侧「有导航 + ⋮」抽成共用的 `SheetRowTrailing`（两种主体各抄一份迟早有一边忘了接）。
+  ⚠️ 上一版这一行的主角是**收货人姓名 + 电话**（大字）—— 和线路卡犯的是同一个错。
+
+**验收**：`_check_all.py` **64/64** · `_check_form_panel_style.py` **18/18** ·
+`_check_product_card_single_source.py` **53/53** · 死代码 **0** · 编译 + `assembleEmuDebug` +
+装到 5554 成功 · 真机截图 `21-改后-线路卡(线路大-联系人小)`、`22-改后-地址库线路(A到B大-联系人小)`。
 `_check_all.py` 现在有 **3 条红，全部是别人的在飞改动**（`_check_backend_fresh` 本机后端比他们的
 后端源码旧 · `08A` 端点索引过期 · `_check_page_truncation_wiring` 卡在**他们的** `ShipperOrdersScreen.kt`
 少了"出路关键词"）—— 我**没有**替他们重启后端/重生成索引（那几个文件他们正在改，动了会打断他们）。

@@ -45,6 +45,9 @@ SHIP_SCREEN = UI + "shipper/ShipperOrdersScreen.kt"
 CARD_KT = UI + "common/OrderCard.kt"
 DETAIL_KT = UI + "order/OrderDetailScreen.kt"
 WINDOW_BASE = UI + "common/OrderWindowViewModel.kt"
+TABS_KT = UI + "common/OrderTabs.kt"
+ACCT_SCREEN = UI + "dispatcher/AccountManageScreen.kt"
+FREIGHT_SCREEN = UI + "dispatcher/FreightTemplatesScreen.kt"
 
 DEFAULT_WANT = "DISPATCH_TABS：缺省档 = 「派单中」（第 2 格，下标 1）"
 ITEMS_ANCHOR = "                        items(vm.orders, key = { it.id }) { order ->"
@@ -75,14 +78,22 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "④ 货主的「已接单」挪回第 3 格（默认档就不在第 2 格了）",
         SHIP_VM,
-        '    OrderTab("ACCEPTED", "已接单"),\n    OrderTab("PENDING_DISPATCH", "派单中"),',
-        '    OrderTab("PENDING_DISPATCH", "派单中"),\n    OrderTab("ACCEPTED", "已接单"),',
+        '    OrderTab("ACCEPTED", "已接单", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),\n'
+        '    OrderTab("PENDING_DISPATCH", "派单中", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),',
+        '    OrderTab("PENDING_DISPATCH", "派单中", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),\n'
+        '    OrderTab("ACCEPTED", "已接单", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),',
         "SHIPPER_TABS：缺省档 = 「已接单」（第 2 格，下标 1）",
     ),
     (
         "⑤ 顶栏的时间药丸被拿掉（空列表时用户换不了档）",
         DISP_SCREEN,
-        "                        DatePresetPill(label = vm.periodWord, onClick = { vm.showDatePresets = true })",
+        "                    vm.pillWord?.let { word ->\n"
+        "                        if (vm.pillPickable) {\n"
+        "                            DatePresetPill(label = word, onClick = { vm.showDatePresets = true })\n"
+        "                        } else {\n"
+        "                            DatePresetPill(label = word)\n"
+        "                        }\n"
+        "                    }\n",
         "",
         "派单员「订单管理」：药丸在 `items(` **之前**",
     ),
@@ -154,9 +165,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "⑮ 给「正在进行」的档也套上日期窗口（积压的老单会静默消失）",
         DISP_VM,
-        '    OrderTab("PENDING_DISPATCH", "派单中"),',
+        '    OrderTab("PENDING_DISPATCH", "派单中", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),',
         '    OrderTab("PENDING_DISPATCH", "派单中", dated = true),',
-        "DISPATCH_TABS：进行中的档（缺省档 = PENDING_DISPATCH）**没有**时间控件",
+        "DISPATCH_TABS：进行中的档（缺省档 = PENDING_DISPATCH）**不按日期筛**",
     ),
     (
         "⑯ 不自动退档了（切进有窗口的档直接取数 = 今天没单就空着）",
@@ -214,6 +225,41 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "                                    howToSeeMore = ORDER_TRUNCATION_HOW,",
         '                                    howToSeeMore = "要按时间找，用右上角的日期筛选",',
         "货主「我的订单」：截断时**说出来**",
+    ),
+    (
+        "㉔ 「正在进行」那颗不可点的药丸上写了「今天」（屏幕上的一句假话，而它点不开）",
+        TABS_KT,
+        'const val ORDER_WINDOW_NO_LIMIT_WORD = "不限时间"',
+        'const val ORDER_WINDOW_NO_LIMIT_WORD = "今天"',
+        "「正在进行」那几档的药丸词都**不是日期档位名**",
+    ),
+    (
+        "㉕ 账户管理页又自己画一遍圈底图标（两份实现，下次改样式漏一页）",
+        ACCT_SCREEN,
+        "private fun AccountAction(\n"
+        "    label: String,\n"
+        "    icon: ImageVector,\n"
+        "    tint: Color,\n"
+        "    onClick: () -> Unit,\n"
+        ") = CardActionIcon(",
+        "private fun AccountAction(\n"
+        "    label: String,\n"
+        "    icon: ImageVector,\n"
+        "    tint: Color,\n"
+        "    onClick: () -> Unit,\n"
+        ") {\n"
+        "    Row(modifier = Modifier.clickable(onClick = onClick)) { TintedIcon(icon, tint) }\n"
+        "}\n"
+        "@Composable\n"
+        "private fun UnusedMarker(",
+        "账户管理页那份 `AccountAction` 只是**委托**",
+    ),
+    (
+        "㉖ 给「不可点」的那颗药丸也挂上 onClick（点了没反应的那种）",
+        SHIP_SCREEN,
+        "                            DatePresetPill(label = word)\n",
+        "                            DatePresetPill(label = word, onClick = { vm.showDatePresets = true })\n",
+        "货主「我的订单」：按 `pillPickable` 分两种画法",
     ),
 ]
 

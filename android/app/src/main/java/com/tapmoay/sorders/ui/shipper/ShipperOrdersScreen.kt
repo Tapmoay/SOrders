@@ -44,13 +44,19 @@ fun ShipperOrdersScreen(
                     }
                 },
                 actions = {
-                    // 时间药丸（2026-09-22）：只在带日期窗口的档位（已送达/已撤销）出现。
-                    // 用户原话：「**货主的那个时间也移到那上面去**」——与派单员那一页同一套
-                    // （`DatePresetPill` + `DateFilterDialogs`，账本/司机端也在用）。
-                    // ⚠️ 顶栏常驻：默认档是「今天」，今天没单时列表本来就是空的 ——
-                    //    藏进"列表非空"的分支里用户就换不了档了（司机端 2026-09-20 栽过同一个坑）。
-                    if (vm.datedTab) {
-                        DatePresetPill(label = vm.periodWord, onClick = { vm.showDatePresets = true })
+                    // 药丸（2026-09-22）：**每一档都画**，顶栏形态统一。
+                    // · 可按日期筛的档（全部/已送达/已撤销/已退货）→ **可点**；
+                    // · 「已接单」「派单中」（正在进行）→ **只显示**「不限时间」（没有 ▾、点不开）：
+                    //   用户原话「为了美观而统一…那个图标**无法选择**，他不会有列表，就是只有显示」，
+                    //   以及更早的「**货主的那个时间也移到那上面去**」。
+                    // ⚠️ 那两档**不按日期筛**，所以**不许写「今天」**（本机实测已接单 8 单跨
+                    //   09-11~09-20，今天一单都没有）。
+                    vm.pillWord?.let { word ->
+                        if (vm.pillPickable) {
+                            DatePresetPill(label = word, onClick = { vm.showDatePresets = true })
+                        } else {
+                            DatePresetPill(label = word)
+                        }
                     }
                 },
             )

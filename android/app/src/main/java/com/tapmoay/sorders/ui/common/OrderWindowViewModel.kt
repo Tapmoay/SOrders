@@ -88,6 +88,24 @@ abstract class OrderWindowViewModel(
         }
 
     /**
+     * 顶栏那颗药丸上写什么；`null` = 这一档**不画药丸**。
+     *
+     * · **按日期筛的档**（全部/已送达/已撤销/已退货）：写当前窗口（[periodWord]），药丸**可点**；
+     * · **"正在进行"那两档**（派单中/已接单）：写档位自己带的那个词（`OrderTab.windowWord`，
+     *   现在是「不限时间」），药丸**不可点** —— 它们不按日期筛，写个日期档位名就是假话
+     *   （用户第三轮要的是"**为了美观而统一**…那个图标**无法选择**，他不会有列表"）。
+     */
+    val pillWord: String?
+        get() = if (datedTab) periodWord else currentTab.windowWord
+
+    /**
+     * 这颗药丸**可不可点**：只有按日期筛的档位可以。
+     * ⚠️ 不可点的那一颗在 `DatePresetPill` 里**不画 ▾ 箭头**：
+     *    在不能点的东西上画一个"点我"的记号，就是把用户引到一个点了没反应的地方。
+     */
+    val pillPickable: Boolean get() = datedTab
+
+    /**
      * 这一档这次实际要带的日期区间（两端 null = 不带日期条件）。
      *
      * ⚠️ **每次查询现算**（不在 init 里算一次存起来）：跨过零点之后「今天」还应该是真的今天，

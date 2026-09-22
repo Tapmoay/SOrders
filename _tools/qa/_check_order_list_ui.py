@@ -68,7 +68,7 @@ EXPECTED_DEFAULT: dict[str, tuple[str, str]] = {
 
 #: 档位表（`val XXX_TABS = listOf(...)`）。⚠️ 结尾的 `\n)` 是**顶格**那个右括号 —— 两个表都这么写。
 ROSTER_RE = re.compile(r"val\s+(\w+_TABS)\s*=\s*listOf\(([\s\S]*?)\n\)")
-TAB_RE = re.compile(r'OrderTab\(\s*(null|"[A-Z_]+")\s*,\s*"([^"]*)"\s*(?:,\s*dated\s*=\s*(true|false)\s*)?\)')
+TAB_RE = re.compile(r'OrderTab\(\s*(null|"[A-Z_]+")\s*,\s*"([^"]*)"([^)]*)\)')
 #: 子类把「本角色的档位表 + 缺省档的**状态名**」交给共用内核（⛔ 不是下标）。
 SUPER_RE = re.compile(r":\s*OrderWindowViewModel\(container,\s*(\w+_TABS),\s*\"([A-Z_]+)\"\)")
 #: 旧的「只看一个页面」的写法（收编之后不该再有）。
@@ -79,9 +79,12 @@ INDEX_JUDGE_RE = re.compile(r"\b(?:tab|selectedTab)\s*==\s*\d+\s*\|\|\s*(?:tab|s
 
 def parse_roster(body: str) -> list[tuple[str | None, str, bool]]:
     out: list[tuple[str | None, str, bool]] = []
-    for raw_key, label, dated in TAB_RE.findall(body):
+    for raw_key, label, rest in TAB_RE.findall(body):
         key = None if raw_key == "null" else raw_key.strip('"')
-        out.append((key, label, dated == "true"))
+        # ⚠️ 只认 `rest` 里**有没有** `dated = true` —— 别把"后面没有别的具名参数"写进形状：
+        #    第一版的正则要求条目以 `dated = …` 收尾，于是加上 `windowWord = …` 之后
+        #    那两档直接从档位表里**消失**了（判据当场红了一片，这正是它该做的）。
+        out.append((key, label, re.search(r"dated\s*=\s*true", rest) is not None))
     return out
 
 
@@ -192,7 +195,7 @@ def main() -> int:
         default_key = defaults.get(name, ("", None))[1]
         c.ok(f"{name}：「全部」**也有**时间筛选（找单最常用的入口，要找的单多半不在今天）",
              by_key.get(None, (None, "", False))[2] is True)
-        c.ok(f"{name}：进行中的档（缺省档 = {default_key}）**没有**时间控件",
+        c.ok(f"{name}：进行中的档（缺省档 = {default_key}）**不按日期筛**（`dated` 必须为 false）",
              by_key.get(default_key, (None, "", True))[2] is False,
              "给「正在进行」套一层日期窗口 = 积压的老单不见了，而界面上一个字都不说")
     offenders = [str(p.relative_to(ROOT)) for p, s in srcs.items() if INDEX_JUDGE_RE.search(s)]
@@ -236,12 +239,9 @@ def main() -> int:
              "vm.datedTab && !vm.windowSettled -> LoadingBox()" in screen)
 
     c.section("4. 时间药丸在**顶栏**（不许藏进列表，也不许回到横滑胶囊行）")
-    for label, screen, is_dated in (
-        ("派单员「订单管理」", disp_screen, "vm.datedTab"),
-        ("货主「我的订单」", ship_screen, "vm.datedTab"),
-    ):
-        c.ok(f"{label}：药丸挂在 `if ({is_dated})` 之下（只有带窗口的档位才出现）",
-             f"if ({is_dated})" in screen)
+    for label, screen in (("派单员「订单管理」", disp_screen), ("货主「我的订单」", ship_screen)):
+        c.ok(f"{label}：药丸由 `vm.pillWord` 决定画不画（每一档都画 = 顶栏形态统一）",
+             "vm.pillWord?.let { word ->" in screen)
         c.ok(f"{label}：用的是共用那一份 `DatePresetPill`（不自造时间控件）",
              "DatePresetPill(" in screen)
         c.ok(f"{label}：药丸在 `items(` **之前**（顶栏 = 列表之前）",
@@ -251,14 +251,44 @@ def main() -> int:
              0 <= screen.find("actions = {") < screen.find("DatePresetPill("))
         c.ok(f"{label}：两个弹层走共用的 `DateFilterDialogs`（那条「先关清单再开弹层」的规矩只此一份）",
              "DateFilterDialogs(" in screen)
-        # 默认档是「今天」→ 今天没单时列表本来就该是空的。空态不指路，用户只会觉得"这一页坏了"
-        # （司机端 2026-09-20 就是这么被困住的：筛空之后没有出路）。
+        c.ok(f"{label}：旧的横滑胶囊行（`DateRangeFilter`）已经摘掉", "DateRangeFilter(" not in screen)
+        # 2026-09-22 第三轮：可按日期筛的档**可点**，正在进行那两档**只显示**（用户：「为了美观而
+        # 统一…那个图标**无法选择**，他不会有列表，就是只有显示」）。
+        c.ok(f"{label}：按 `pillPickable` 分两种画法（可点 / 只显示）",
+             "if (vm.pillPickable) {" in screen
+             and "DatePresetPill(label = word, onClick = { vm.showDatePresets = true })" in screen
+             # ⚠️ 这里要的是「**没有** onClick 的那一次调用」：只断言子串 `DatePresetPill(label = word)`
+             #    是不够的 —— 它同时是 `DatePresetPill(label = word, onClick = …)` 的前缀，
+             #    于是"给不可点那颗也挂上 onClick"这种改法照样绿（反向验证第 ㉖ 条当场抓出来的）。
+             and re.search(r"DatePresetPill\(label = word\)\s*\n", screen) is not None)
+        # 带窗口的档默认是「今天」→ 今天没单时列表本来就该是空的。空态不指路，用户只会觉得
+        # "这一页坏了"（司机端 2026-09-20 就是这么被困住的：筛空之后没有出路）。
         c.ok(f"{label}：空列表时文案指向右上角那个药丸",
              "点右上角可以换一段时间" in screen)
-        c.ok(f"{label}：旧的横滑胶囊行（`DateRangeFilter`）已经摘掉", "DateRangeFilter(" not in screen)
     n_range_filter_calls = sum(len(re.findall(r"(?<!fun )DateRangeFilter\(", s)) for s in srcs.values())
     c.ok(f"`DateRangeFilter` 还有真实调用者（>=1，实际 {n_range_filter_calls}）—— 别把它变成孤儿控件",
          n_range_filter_calls >= 1)
+    c.ok("不可点的那颗药丸**不画 ▾ 箭头**（`DatePresetPill` 按 onClick 是否为空判）",
+         "fun DatePresetPill(label: String, onClick: (() -> Unit)? = null" in components
+         and re.search(r"if \(onClick != null\) \{\s*\n\s*Icon\(Icons\.Default\.ArrowDropDown", components) is not None,
+         "在不能点的东西上画一个「点我」的记号 = 把用户引到一个点了没反应的地方")
+
+    c.section("4b. 「正在进行」那两档的药丸：只显示，而且写的必须是实话")
+    preset_words = set(re.findall(r'const val \w+ = "([^"]+)"', presets_kt))
+    c.ok(f"从 `DatePresets` 解析出档位词（{len(preset_words)} 个；解析失效时先喊）",
+         len(preset_words) >= 8, f"实际 {sorted(preset_words)}")
+    tab_consts = dict(re.findall(r'const val (\w+) = "([^"]+)"', tabs_kt))
+    frozen: dict[str, str] = {}
+    for name, (path, _tabs) in sorted(rosters.items()):
+        for m in re.finditer(r'OrderTab\((null|"[A-Z_]+"), "([^"]*)"[^)]*?windowWord = (\w+)\)', read(path)):
+            frozen[f"{name}/{m.group(2)}"] = tab_consts.get(m.group(3), m.group(3))
+    c.ok(f"认出了「只显示」的那几档（{sorted(frozen)}）", len(frozen) >= 2)
+    bad_words = {who: w for who, w in frozen.items() if w in preset_words}
+    c.ok("「正在进行」那几档的药丸词都**不是日期档位名**（写「今天」= 屏幕上的一句假话，"
+         "而且那颗药丸**点不开**，用户没法点开它去发现）",
+         not bad_words, f"有问题的：{bad_words}")
+    c.ok("那个词只有一处定义（`ORDER_WINDOW_NO_LIMIT_WORD`）",
+         sum(len(re.findall(r"const val ORDER_WINDOW_NO_LIMIT_WORD", s)) for s in srcs.values()) == 1)
 
     c.section("5. 截断提示挪到列表**最后一行**（不是删掉）")
     c.ok("`ORDER_LIST_LIMIT` 全库只有一处定义（原来两个 VM 各写一份 300）",
@@ -292,6 +322,22 @@ def main() -> int:
          and "fun CardActionIcon(" in components)
     c.ok("它复用了卡片既有的圆底画法（`TintedIcon`），没另画一个圆",
          re.search(r"fun CardActionIcon\([\s\S]{0,900}?TintedIcon\(", components) is not None)
+    # 2026-09-22：账户管理页原来自己养了一个 `AccountAction`（圈底图标 **+ 文字**），
+    # 与这个控件是同一件事的两份实现 —— 圆底画法本来就共用 `TintedIcon`，差别只在有没有那行字。
+    # 收成一个可选参数 `label`，那一页改成**委托**（用户点头：「对账户管理那个你也做了去吧」）。
+    acct_screen = read(UI / "dispatcher/AccountManageScreen.kt")
+    c.ok("共用控件支持「圈底图标 + 文字」形态（`label` 是可选参数）",
+         re.search(r"fun CardActionIcon\([\s\S]{0,600}?label: String\? = null,", components) is not None)
+    c.ok("账户管理页那份 `AccountAction` 只是**委托**给共用控件（不再自己画一遍圈底图标）",
+         re.search(r"private fun AccountAction\([\s\S]{0,700}?= CardActionIcon\(", acct_screen) is not None
+         and "label = label" in acct_screen,
+         "两份实现 = 下一次改样式（位置/形态）必然漏掉其中一页")
+    c.ok("账户管理页左右分区的原样保留（左＝删除/停用 · 右＝编辑）",
+         'AccountAction("删除"' in acct_screen and 'AccountAction("编辑"' in acct_screen)
+    # ⚠️ 2026-09-22 真机上还核出一处反例：`运费模板` 的价目卡是「编辑 · 删除」（与规范反着）。
+    #    那 2 行我改了，但**没有提交、也没有在这里加判据** —— 那个文件正被另一个会话大改
+    #    （对照 HEAD 有 270+ 行在途，而且当时那一版直接编译不过）。理由与现状写在
+    #    `FreightTemplatesScreen.kt` 那段注释里；等他们收工后再把「改动 + 判据」一起提交。
     c.ok("派单员页：编辑在右、异常在左（两处圈底图标）",
          disp_screen.count("CardActionIcon(") >= 2)
     c.ok("派单员页：编辑仍走 `vm.openEdit`、异常仍走 `vm.openException`（只是换了外壳）",

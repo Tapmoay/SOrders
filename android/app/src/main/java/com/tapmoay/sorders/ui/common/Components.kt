@@ -454,6 +454,15 @@ fun SoTextField(
  *
  * 与 `TintedIcon` 的区别只有一点：**它可点**。所以 `enabled = false` 时把**圆底与图标一起**
  * 压淡（只把图标变灰的话，那个圆底看起来仍然"可以点" —— 点了没反应是最贵的一类）。
+ *
+ * ### [label]：圈底图标 **+ 一行文字**（2026-09-22 收编「账户管理」那一份）
+ * 账户管理页原来自己养了一个 `AccountAction(label, icon, tint, onClick)`：同样是圈底图标，
+ * 但**右边配了一行字**。那个函数的 KDoc 写着为什么它要字：「这一页的用户是**派单员**
+ * （要一眼看清按下去会发生什么），只留一个图标会逼人靠猜」。
+ * 两份实现**圆底画法本来就是共用的**（都走 `TintedIcon`），差别只在有没有那行字 ——
+ * 所以收成一个可选参数：不传 [label] 就是卡片上那个纯图标动作（订单卡在用），
+ * 传了就是"圈底图标 + 文字"（账户管理在用）。⛔ 别再各写一份：
+ * 位置规范（左/右）与形态（圈底）都该只有一处实现，否则下一次改样式就会漏掉其中一页。
  */
 @Composable
 fun CardActionIcon(
@@ -463,22 +472,32 @@ fun CardActionIcon(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    label: String? = null,
     size: Dp = 18.dp,
     container: Dp = 36.dp,
 ) {
-    Box(
+    val shown = if (enabled) tint else tint.copy(alpha = 0.45f)
+    Row(
         modifier = modifier
-            .clip(CircleShape)
-            .clickable(enabled = enabled, onClickLabel = contentDescription, role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center,
+            // 有文字时热区是"图标 + 字"那一条（圆角矩形），没有文字时就是一个圆。
+            .clip(if (label == null) CircleShape else MaterialTheme.shapes.small)
+            .clickable(enabled = enabled, onClickLabel = contentDescription, role = Role.Button, onClick = onClick)
+            .padding(horizontal = if (label == null) 0.dp else 6.dp, vertical = if (label == null) 0.dp else 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         TintedIcon(
             icon = icon,
-            tint = if (enabled) tint else tint.copy(alpha = 0.45f),
+            tint = shown,
             size = size,
             container = container,
-            contentDescription = contentDescription,
+            // 有文字时**不**给图标单独的无障碍描述：TalkBack 会把文字念一遍，
+            // 再念一遍图标描述就是同一件事说两次。
+            contentDescription = if (label == null) contentDescription else null,
         )
+        if (label != null) {
+            Spacer(Modifier.width(5.dp))
+            Text(label, fontSize = 13.sp, color = shown)
+        }
     }
 }
 
@@ -570,17 +589,17 @@ fun DatePresetRow(
  *
  * 药丸放在**顶栏**：当前窗口**永远看得见** —— 这一页最容易搞错的就是口径词
  * （「本月」和「近 7 天」差的那几天没人说得清）。
+ *
+ * ## [onClick] 为 `null` = **只显示、不可点**（2026-09-22）
+ * 用户对订单列表那两档「正在进行」（派单中/已接单）的要求是「**为了美观而统一**…也加一个图标，
+ * 但是那个图标**无法选择**，他不会有列表，就是只有显示」—— 于是同一个药丸支持两种模式：
+ * 可点的（点开档位清单）与**只显示**的（形态、位置、配色、圆角**完全一样**）。
+ * ⚠️ 两种模式**只差一个 ▾ 箭头**：在不能点的东西上画一个"点我"的记号，
+ *    就是把用户引到一个点了没反应的地方（本仓库最贵的一类毛病）。
  */
 @Composable
-fun DatePresetPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shadowElevation = 1.dp,
-        modifier = modifier.padding(end = 12.dp).height(36.dp),
-    ) {
+fun DatePresetPill(label: String, onClick: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+    val content: @Composable () -> Unit = {
         Row(
             Modifier.padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -588,8 +607,31 @@ fun DatePresetPill(label: String, onClick: () -> Unit, modifier: Modifier = Modi
             Icon(Icons.Default.CalendarMonth, contentDescription = "时间", modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+            if (onClick != null) {
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
         }
+    }
+    val box = modifier.padding(end = 12.dp).height(36.dp)
+    val color = MaterialTheme.colorScheme.surface
+    val textColor = MaterialTheme.colorScheme.onSurface
+    if (onClick != null) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = color,
+            contentColor = textColor,
+            shadowElevation = 1.dp,
+            modifier = box,
+        ) { content() }
+    } else {
+        Surface(
+            shape = CircleShape,
+            color = color,
+            contentColor = textColor,
+            shadowElevation = 1.dp,
+            modifier = box,
+        ) { content() }
     }
 }
 

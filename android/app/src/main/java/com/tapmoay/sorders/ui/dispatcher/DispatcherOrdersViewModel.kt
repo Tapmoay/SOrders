@@ -8,6 +8,7 @@ import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.ORDER_LIST_LIMIT
+import com.tapmoay.sorders.ui.common.ORDER_WINDOW_NO_LIMIT_WORD
 import com.tapmoay.sorders.ui.common.OrderTab
 import com.tapmoay.sorders.ui.common.OrderWindowViewModel
 import kotlinx.coroutines.Job
@@ -19,16 +20,18 @@ import kotlinx.coroutines.launch
  * ⚠️ 缺省档 = **「派单中」**（用户 2026-09-22 原话：「如果是进来的话，**默认是不会进入「全部」**的，
  *    默认是进入**「派单中」**」）。下标用**状态名**现算，不写 `0/1` —— 档位顺序改过
  *    （货主那列的「已接单」这一轮就挪了一格），写死的下标会把默认档悄悄指到别的档上。
- * ⚠️ `dated = true` 的档才有右上角那个时间药丸：**「全部」也有**（用户：「对，**全部我们也要有
- *    时间的筛选**」）——终态档（已送达/已撤销/已退货）都有；**「派单中」「已接单」没有**
- *    （用户：「他属于**正在进行**啊，所以他是不会有选择时间」）。
+ * ⚠️ `dated = true` 的档才是**可按日期筛**的（药丸可点）：**「全部」也有**（用户：「对，**全部我们也要有
+ *    时间的筛选**」）——终态档（已送达/已撤销/已退货）都有；**「派单中」「已接单」不按日期筛**
+ *    （用户：「他属于**正在进行**啊，所以他是不会有选择时间」），但它们也有药丸 ——
+ *    只是**不可点**、上面写「不限时间」（用户第三轮：「为了美观而统一…那个图标**无法选择**，
+ *    他不会有列表，就是只有显示」）。⛔ 那两档**不许写「今天」**，理由见 `ORDER_WINDOW_NO_LIMIT_WORD`。
  * ⚠️ **缺省档与窗口那一套逻辑不在这里**：`tab` / `preset` / `selectTab` / 自动退档都在共用的
  *    `ui/common/OrderWindowViewModel`（构造时把这个表和缺省档的**状态名**交给它）。
  */
 val DISPATCH_TABS = listOf(
     OrderTab(null, "全部", dated = true),
-    OrderTab("PENDING_DISPATCH", "派单中"),
-    OrderTab("ACCEPTED", "已接单"),
+    OrderTab("PENDING_DISPATCH", "派单中", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),
+    OrderTab("ACCEPTED", "已接单", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),
     OrderTab("DELIVERED", "已送达", dated = true),
     OrderTab("CANCELLED", "已撤销", dated = true),
     // 已退货（2026-09-20）：与「已撤销」**不是一回事**（撤销＝单没发生过，
