@@ -60,6 +60,9 @@ class ProductUpdate(MoneyInput):
     unit: str | None = Field(None, max_length=32)
     category: str | None = Field(None, max_length=MAX_SHORT_NAME)
     low_stock_alert: int | None = Field(None, ge=0)
+    # 显示顺序（小的在前）。**只有"商品排序"那一个页面会写它**（逐条 PATCH），
+    # 新建成 0 = 没排过（列表里退回按 id 倒序，新的在前），与分类名册同一个口径。
+    sort_order: int | None = Field(None, ge=0, description="显示顺序，小的在前（0=没排过）")
 
     @field_validator("name_color", mode="before")
     @classmethod
@@ -94,6 +97,8 @@ class ProductOut(BaseModel):
     unit: str = "件"
     category: str = ""
     low_stock_alert: int = 0
+    # 商品列表里的显示顺序（小的在前；0/相同 = 没排过，此时按 id 倒序即"新的在前"）
+    sort_order: int = 0
 
 
 class ProductCostHistoryOut(BaseModel):

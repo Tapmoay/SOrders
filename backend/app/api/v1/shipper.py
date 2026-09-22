@@ -15,7 +15,7 @@ from app.core.rbac import user_role_key
 from app.api.v1.place_categories import ensure_place_category
 from app.database import get_db
 from app.deps import require_roles
-from app.services import place_service
+from app.services import place_service, usage_service
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import del_suffix, ensure_alive
 from app.models import OperationAction, ShipperAddress, ShipperContact, ShipperLocation, User
@@ -64,11 +64,15 @@ def _clear_defaults(db: Session, shipper_id: int, except_id: int | None = None) 
 
 @router.get("/addresses", response_model=list[AddressOut])
 def list_addresses(current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> list[ShipperAddress]:
-    rows = db.scalars(
+    # 排序（用户 2026-09-22 定的统一规则）：**常用度优先 → 先创建的在前**。
+    # ⚠️ "默认线路"仍在最前（那是用户**明确设过**的偏好，比"用过几次"更硬）；
+    #    它下面才轮到常用度、再然后是创建顺序。
+    stmt = (
         select(ShipperAddress)
         .where(ShipperAddress.shipper_id == current.id, ShipperAddress.is_deleted.is_(False))
-        .order_by(ShipperAddress.is_default.desc(), ShipperAddress.id.desc())
-    ).all()
+        .order_by(ShipperAddress.is_default.desc())
+    )
+    rows = db.scalars(usage_service.with_popularity(stmt, ShipperAddress, usage_service.KIND_ADDRESS, current)).all()
     return list(rows)
 
 
@@ -205,11 +209,12 @@ def set_default_address(address_id: int, current: ShipperOrDispatcher, db: Sessi
 
 @router.get("/contacts", response_model=list[ContactOut])
 def list_contacts(current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> list[ShipperContact]:
-    rows = db.scalars(
-        select(ShipperContact)
-        .where(ShipperContact.shipper_id == current.id, ShipperContact.is_deleted.is_(False))
-        .order_by(ShipperContact.id.desc())
-    ).all()
+    # 排序（2026-09-22 统一规则）：**常用度优先 → 先创建的在前**
+    # （用户原话：「我在下单的时候经常用到这个联系人或者批发商……用得越多越往前」）
+    stmt = select(ShipperContact).where(
+        ShipperContact.shipper_id == current.id, ShipperContact.is_deleted.is_(False)
+    )
+    rows = db.scalars(usage_service.with_popularity(stmt, ShipperContact, usage_service.KIND_CONTACT, current)).all()
     return list(rows)
 
 
@@ -309,11 +314,11 @@ async def upload_location_image(
 
 @router.get("/locations", response_model=list[LocationOut])
 def list_locations(current: ShipperOrDispatcher, db: Session = Depends(get_db)) -> list[ShipperLocation]:
-    rows = db.scalars(
-        select(ShipperLocation)
-        .where(ShipperLocation.shipper_id == current.id, ShipperLocation.is_deleted.is_(False))
-        .order_by(ShipperLocation.id.desc())
-    ).all()
+    # 排序（2026-09-22 统一规则）：**常用度优先 → 先创建的在前**
+    stmt = select(ShipperLocation).where(
+        ShipperLocation.shipper_id == current.id, ShipperLocation.is_deleted.is_(False)
+    )
+    rows = db.scalars(usage_service.with_popularity(stmt, ShipperLocation, usage_service.KIND_LOCATION, current)).all()
     return list(rows)
 
 

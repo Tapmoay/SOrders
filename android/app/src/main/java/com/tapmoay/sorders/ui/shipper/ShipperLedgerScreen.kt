@@ -33,6 +33,7 @@ import com.tapmoay.sorders.ui.dispatcher.centsToMoney
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 货主账本（**以订单为基础**，2026-09-20 用户第四轮口述）。
@@ -830,7 +831,7 @@ private fun SettleOrderDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
                         color = Color(ReceivableOrange),
                     )
                 }
-                Text(
+                Hint(
                     "只记在你自己这一本账上 —— 公司那边的账不会变。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,

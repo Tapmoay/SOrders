@@ -56,7 +56,13 @@ ROOT = repo_root()
 UI_DIR = ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "tapmoay" / "sorders" / "ui"
 
 #: 文本输入框的构造器名（`SoTextField` 是本项目自己的 iOS 风输入框，也必须有过滤）。
-FIELD_NAMES = ("OutlinedTextField", "SoTextField", "BasicTextField", "TextField")
+#:
+#: ⚠️ 2026-09-22 追加 `FormInputRow` / `FormTextAreaRow`：全 App 正在把表单**逐页**搬到
+#: `ui/common/FormRows.kt` 那套共用行上（「分组一律白卡」规范）。共用行**不在名单里**的后果
+#: 不是"少查几处"，而是**这个框直接从判据里消失** —— 一页把 `SoTextField` 换成 `FormInputRow`
+#: 时顺手漏掉 `InputRules`，检查会一声不吭（账户管理/运费模板/新增商品都已经搬过去了）。
+FIELD_NAMES = ("OutlinedTextField", "SoTextField", "BasicTextField", "TextField",
+               "FormInputRow", "FormTextAreaRow")
 
 #: 数量判据（清单自己算 → 先钉"算出来有多少"）。
 MIN_FIELDS_SCANNED = 25
@@ -104,6 +110,13 @@ EXCLUDED: dict[str, str] = {
         "司机编辑弹窗里的**只读下拉框**（`onValueChange = {}`，选规则用的），根本打不了字 ——"
         "标题里那个「费」是「计费规则」这个词自带的。2026-09-21 起这一格是"
         "「他怎么算钱」的**唯一入口**（老的两个框已删），所以标题必须留着那两个词。"
+    ),
+    "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt::备注": (
+        "下单页那个**自由文本备注框**（`FormTextAreaRow`）。它被认成电话框只因为"
+        "举例文案里写了「到了先**打电话**」—— 命中关键词的是 placeholder 里的例子，"
+        "不是这个框收什么。备注要能写中文句子，加数字过滤就废了。"
+        "（2026-09-22 把 `FormInputRow`/`FormTextAreaRow` 纳入扫描名单时，这一条是同批冒出来的；"
+        "同形的还有下面 `ReportCenter` 那条备注。）"
     ),
 }
 
@@ -199,6 +212,12 @@ def _titles(call: str) -> list[str]:
     """
     out: list[str] = []
     for m in re.finditer(r'label\s*=\s*\{\s*Text\(\s*"([^"]*)"', call):
+        out.append(m.group(1))
+    # `FormRows.kt` 那套共用行的标签是**纯字符串**（`label = "售价"`），不是 `label = { Text(…) }`。
+    # 只认第 1 种写法的话，共用行的标题会全空 → 它们虽然进了扫描名单，却一个都分不出类别
+    # （"金额框"变成"(无标题)"，判据照样空转）。
+    # ⚠️ 顺序在 placeholder 之前：共用行的标签才是这一行**是什么**，placeholder 只是举例文案。
+    for m in re.finditer(r'label\s*=\s*"([^"]*)"', call):
         out.append(m.group(1))
     for m in re.finditer(r'placeholder\s*=\s*"([^"]*)"', call):
         out.append(m.group(1))

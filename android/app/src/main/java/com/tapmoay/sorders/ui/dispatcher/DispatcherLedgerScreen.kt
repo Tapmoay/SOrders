@@ -94,12 +94,31 @@ fun DispatcherLedgerScreen(
         gesturesEnabled = vm.tab != 0,
         drawerContent = {
             ModalDrawerSheet {
+                // 抽屉本身是**共用零件**（`ui/common/PersonPicker.kt`）—— 2026-09-22 起
+                // 司机运费结算用的是**同一个**形态。每一行写什么（标题/副标题）是**调用方**的事：
+                // 零件只认 key/名字/副标题，**不认识账本、也不认识司机**。
                 PersonDrawer(
-                    vm = vm,
+                    title = "选择" + vm.kindLabel(),
+                    options = vm.drawerPersons().map { p ->
+                        PersonOption(
+                            key = p.key,
+                            title = p.title.ifBlank { p.phone ?: "未命名" + vm.kindLabel() },
+                            // 手机号是**同名不同人**唯一的分辨依据
+                            //（两个「张老板」在真机上就是两行一模一样的名字）
+                            subtitle = listOfNotNull(p.phone?.ifBlank { null }, "停用".takeIf { p.inactive })
+                                .joinToString(" · "),
+                        )
+                    },
+                    selectedKey = vm.personKey,
+                    query = vm.query,
+                    onQueryChange = { vm.query = it },
                     onPick = { key ->
                         vm.selectPersonKey(key)
                         scope.launch { drawer.close() }
                     },
+                    emptyText = UserSearch.noMatchText(vm.query) + vm.kindLabel(),
+                    allLabel = "全部（" + vm.accountRows().size + " 人）",
+                    allSubtitle = "看所有人在" + vm.periodWord + "的账",
                 )
             }
         },
@@ -134,7 +153,14 @@ fun DispatcherLedgerScreen(
                 // 人员那一行：**只在"人的账"里出现**（订单账那一堆流水里没有"人"可挑）
                 if (vm.tab != 0) {
                     PersonTriggerRow(
-                        vm = vm,
+                        icon = vm.kindIcon(),
+                        color = vm.kindColor(),
+                        label = "人员",
+                        value = if (vm.personKey == null) {
+                            "全部（" + vm.accountRows().size + " 人）"
+                        } else {
+                            vm.personTitle()
+                        },
                         onOpen = { vm.query = ""; scope.launch { drawer.open() } },
                     )
                 }
@@ -224,135 +250,6 @@ fun DispatcherLedgerScreen(
     if (vm.settleTarget != null) SettleOrderDialog(vm, onDismiss = { vm.closeSettle() })
     // 批量核销（点合计 → 核销全部，只有"进到某个人"时才给）
     if (vm.settleAllOpen) SettleAllDialog(vm, onDismiss = { vm.closeSettleAll() })
-}
-
-/**
- * 人员那一行：**页面上唯一一个"选人"的入口**（点开右侧抽屉）。
- *
- * 为什么不做成一排 chip（那是被否掉的那一版）：「假如司机多的话，那我要选该怎么去选呢？」
- * —— 一屏铺不下、还得左右滑；抽屉里能搜（姓名 / 手机号 / 后 4 位）能滚，选完自动关上。
- * ⚠️ 这一行**不写金额**：金额在下面的账户行上（同一份信息写两处，就一定会"两边对不上"）。
- */
-@Composable
-private fun PersonTriggerRow(vm: DispatcherLedgerViewModel, onOpen: () -> Unit) {
-    Surface(
-        onClick = onOpen,
-        color = MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TintedIcon(vm.kindIcon(), vm.kindColor(), size = 16.dp, container = 32.dp)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "人员",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    if (vm.personKey == null) "全部（" + vm.accountRows().size + " 人）" else vm.personTitle(),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Text("选择", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
-}
-
-/**
- * 侧边抽屉的内容：**搜索框 + 名单**（第一行永远是「全部」）。
- *
- * 「全部」放在最上面而不是藏起来：默认状态就是它，用户看完某个人要回到"所有人在这一段的账"
- * 时得有个明确的地方点。
- */
-@Composable
-private fun PersonDrawer(vm: DispatcherLedgerViewModel, onPick: (String?) -> Unit) {
-    val rows = vm.drawerPersons()
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "选择" + vm.kindLabel(),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(10.dp))
-        SearchField(value = vm.query, onValueChange = { vm.query = it })
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(Modifier.weight(1f)) {
-            item(key = "all") {
-                DrawerPersonRow(
-                    title = "全部（" + vm.accountRows().size + " 人）",
-                    subtitle = "看所有人在" + vm.periodWord + "的账",
-                    selected = vm.personKey == null,
-                    onClick = { onPick(null) },
-                )
-            }
-            if (rows.isEmpty()) {
-                item {
-                    Text(
-                        UserSearch.noMatchText(vm.query) + vm.kindLabel(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp),
-                    )
-                }
-            } else {
-                items(rows, key = { it.key }) { r ->
-                    DrawerPersonRow(
-                        title = r.title.ifBlank { r.phone ?: "未命名" + vm.kindLabel() },
-                        // 手机号是**同名不同人**唯一的分辨依据（两个「张老板」在真机上就是两行一样的名字）
-                        subtitle = listOfNotNull(r.phone?.ifBlank { null }, "停用".takeIf { r.inactive }).joinToString(" · "),
-                        selected = vm.personKey == r.key,
-                        onClick = { onPick(r.key) },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-    }
-}
-
-/** 抽屉里的一行（选中那行打勾 + 加粗）。 */
-@Composable
-private fun DrawerPersonRow(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-        }
-        if (selected) {
-            Icon(Icons.Default.Check, contentDescription = "当前选中", tint = MaterialTheme.colorScheme.primary)
-        }
-    }
 }
 
 /**

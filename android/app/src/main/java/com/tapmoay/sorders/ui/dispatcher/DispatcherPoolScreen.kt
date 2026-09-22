@@ -145,13 +145,22 @@ fun DispatcherPoolScreen(
                                 order = order,
                                 onClick = { if (vm.selectionMode) vm.toggleSelect(order.id) else onOpenOrder(order.id) },
                                 showShipper = true,
-                                extra = {
+                                // 卡片动作分区（2026-09-22 定的规范：**左＝反向/警示，右＝主操作/编辑**）。
+                                leading = {
                                     if (!vm.selectionMode) {
-                                        TextButton(onClick = { vm.openAssign(order.id) }) {
-                                            Text("派单")
-                                        }
+                                        // 撤销 = **反向操作** → 左边、而且是**最左边**
+                                        //（用户 2026-09-22「派单在右边，撤销在左边，而且是最左边」——
+                                        //  与"编辑一定在右边、相反的操作就在左边"是同一条规范）。
                                         TextButton(onClick = { vm.openCancel(order.id) }) {
                                             Text("撤销", color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                },
+                                extra = {
+                                    if (!vm.selectionMode) {
+                                        // 派单 = 这一页的**主操作** → 右边（惯用手是右手，够得着）
+                                        TextButton(onClick = { vm.openAssign(order.id) }) {
+                                            Text("派单")
                                         }
                                     }
                                 },

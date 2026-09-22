@@ -57,6 +57,12 @@ def _uvicorn_processes() -> list[tuple[int, datetime, str]]:
             proc = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", ps],
                 capture_output=True, text=True, timeout=60,
+                # ⚠️ **必须显式给编码**：`text=True` 不给编码时按"系统首选编码"解（本机 zh-CN = GBK），
+                #    而这一层的 PowerShell 输出实际是 UTF-8（控制台 65001）—— 于是**非 ASCII 字节一出现，
+                #    整个检查就以 `UnicodeDecodeError` 结束**（实测：byte 0xb0 ... illegal multibyte）。
+                #    那不是结论，是"这条检查今天没跑"。给 UTF-8 + errors=replace：
+                #    这条检查只关心命令里有没有 `uvicorn` / `app.main`（纯 ASCII），汉字解坏了也不影响判断。
+                encoding="utf-8", errors="replace",
             )
         except (OSError, subprocess.SubprocessError) as e:
             raise ProcessListUnreadable(f"起不了 PowerShell：{type(e).__name__}: {e}") from e

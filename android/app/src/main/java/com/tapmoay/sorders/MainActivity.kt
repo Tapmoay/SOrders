@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import com.tapmoay.sorders.core.ApiEndpoint
 import com.tapmoay.sorders.core.AppContainer
@@ -16,6 +17,7 @@ import com.tapmoay.sorders.core.NewOrderPlayer
 import com.tapmoay.sorders.core.NotifyCenter
 import com.tapmoay.sorders.core.PushTrust
 import com.tapmoay.sorders.core.Session
+import com.tapmoay.sorders.ui.common.LocalHints
 import com.tapmoay.sorders.ui.nav.AppRoot
 import com.tapmoay.sorders.ui.theme.AutoSunThemeEffect
 import com.tapmoay.sorders.ui.theme.SOrdersTheme
@@ -34,6 +36,9 @@ class MainActivity : ComponentActivity() {
             }.start()
         }
         val container = (application as SOrdersApp).container
+        // 「提示/说明」总开关的**冷启动**那一步：上一轮若是"首次登录那一轮"（见 HintPrefs 的 KDoc），
+        // 到这里把它关上 —— 用户要的就是「首次登录开一轮，之后就默认关闭」。
+        container.hintPrefs.onAppStart()
         // 通知渠道在**启动时就建**：渠道要存在过，系统设置页里才看得到、用户才能单独调它
         container.notifyCenter.ensureChannels()
         consumeIntent(intent, container, "onCreate")
@@ -57,7 +62,12 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    AppRoot(container, initialSession)
+                    // 「提示/说明」的**唯一那一份**开关从这里提供下去（见 `ui/common/Hints.kt`）。
+                    // 提供在**根**上而不是各页面自己拿：拨一下开关要立刻影响所有已经打开的页面；
+                    // 各页面各拿一份的话，用户会看到"我明明关了它还在"。
+                    CompositionLocalProvider(LocalHints provides container.hintPrefs) {
+                        AppRoot(container, initialSession)
+                    }
                 }
             }
         }

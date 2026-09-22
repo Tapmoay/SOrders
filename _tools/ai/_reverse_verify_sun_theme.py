@@ -34,7 +34,10 @@ ROOT = repo_root()
 SUN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/core/SunClock.kt"
 THEME = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/theme/Theme.kt"
 AUTO_UI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/theme/AutoSunTheme.kt"
-PROFILE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileScreen.kt"
+# ⚠️ 2026-09-21：「随日落」那一行从 `ProfileScreen.kt` 搬进了「我的 → 基础设置」子页
+#    （用户要求"按钮太多、不重要的放进基础设置"）。下面 4 条注入**一起**改指 `BasicSettingsScreen.kt`
+#    —— 注入打不中的话，这些条目会从"在验证"变成**假绿灯**（脚本只报"锚点没命中"，不会自己去找新位置）。
+BASIC = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/BasicSettingsScreen.kt"
 MAIN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/MainActivity.kt"
 SUN_LOC = ROOT / "android/app/src/main/java/com/tapmoay/sorders/core/SunLocation.kt"
 AMAP = ROOT / "android/app/src/main/java/com/tapmoay/sorders/core/AmapLocationManager.kt"
@@ -138,7 +141,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "界面不传 located（按定位和按时区估算说成一样 = 骗人）",
-        PROFILE,
+        BASIC,
         lambda s: s.replace("located = SunLocation.hasFix(),", "located = true,", 1),
     ),
     (
@@ -158,23 +161,23 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "自动模式下那个开关不再置灰（用户以为能手动改）",
-        PROFILE,
+        BASIC,
         lambda s: s.replace("enabled = !ThemeMode.autoBySun", "enabled = true"),
     ),
     (
-        "「我的」页面那一行被拿掉（三端都没有入口）",
-        PROFILE,
-        lambda s: s.replace('Text("随日落自动切换")', 'Text("日落自动")', 1),
+        "「基础设置」里那一行被拿掉（三端都没有入口）",
+        BASIC,
+        lambda s: s.replace('"随日落自动切换"', '"日落自动"', 1),
     ),
     (
         "右侧那行字不再走纯函数（自己拼时间 = 没单测）",
-        PROFILE,
+        BASIC,
         lambda s: s.replace(
             "SunClock.summary(\n"
-            "                                    ThemeMode.autoBySun,\n"
-            "                                    SunClock.stateHere(),\n"
-            "                                    located = SunLocation.hasFix(),\n"
-            "                                )",
+            "                                ThemeMode.autoBySun,\n"
+            "                                SunClock.stateHere(),\n"
+            "                                located = SunLocation.hasFix(),\n"
+            "                            )",
             '"天黑切夜间，天亮切回白天"',
             1,
         ),

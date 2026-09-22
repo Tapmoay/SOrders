@@ -111,6 +111,9 @@ ROUTES = ANDROID / "ui/nav/Routes.kt"
 NAVGRAPH = ANDROID / "ui/nav/NavGraph.kt"
 CHARTS = ANDROID / "ui/common/Charts.kt"
 COMPONENTS = ANDROID / "ui/common/Components.kt"
+#: 选人那一套零件（页面上那一行入口 + 侧边抽屉）—— 2026-09-22 收成**一份**：
+#: 账本页与司机运费结算页共用。锚点跟着搬到这里，**不放松**（见下面的断言）。
+PERSON_PICKER = ANDROID / "ui/common/PersonPicker.kt"
 PRESETS = ANDROID / "ui/common/DatePresets.kt"
 COLOR = ANDROID / "ui/theme/Color.kt"
 
@@ -171,6 +174,7 @@ def main() -> int:
     routes = read(ROUTES)
     navgraph = read(NAVGRAPH)
     components = read(COMPONENTS)
+    person_picker = read(PERSON_PICKER)
     presets = read(PRESETS)
 
     # ---- ① 账本页：**一类账一页**（页内没有导航），排版 = 搜索 → 时间 → 人 → 图 → 数据 ----
@@ -230,8 +234,10 @@ def main() -> int:
     c.present("人员那一行真的会渲染（条件就是「不是订单账」，没有别的开关）",
               screen, r"if \(vm\.tab != 0\) \{\s*PersonTriggerRow\(")
     c.absent("选人不是一排 chip（横向滑那一版被否过：人多了根本选不过来）", screen, r"LazyRow|FilterChip")
+    c.present("账本页用的是**共用**那个抽屉（`ui/common/PersonPicker.kt`，与司机结算页同一形态）",
+              screen, r"ModalDrawerSheet \{[\s\S]{0,600}?PersonDrawer\(")
     c.present("抽屉里有自己的搜索框（人多了才找得到）",
-              screen, r"fun PersonDrawer\([\s\S]{0,700}?SearchField\(")
+              person_picker, r"fun PersonDrawer\([\s\S]{0,1200}?SearchField\(")
     c.present("选中一个人就关抽屉（不留在那儿挡着账）", screen, r"scope\.launch \{ drawer\.close\(\) \}")
     c.present("抽屉里那份名单走唯一实现 UserSearch.filter", vm, r"UserSearch\.filter\(accountRows\(\), query")
     c.present("抽屉里的搜索**不改页面上的合计**（关掉抽屉后那个数必须是所有人）",

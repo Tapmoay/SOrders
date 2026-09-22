@@ -92,7 +92,11 @@ private val LightColors = lightColorScheme(
     onSurface = OnSurfaceLight,
     surfaceVariant = SurfaceVariantLight,
     onSurfaceVariant = OnSurfaceVariantLight,
-    surfaceContainerLow = SurfaceContainerLow,
+    // ⚠️ 这一行不是"随手挑一个灰"：M3 的 ModalBottomSheet 容器默认读的就是 surfaceContainerLow
+    //    （BottomSheetDefaults.ContainerColor → SheetBottomTokens.DockedContainerColor，
+    //     反编译 material3 1.3.2 确认）→ **改这一行 = 改全 App 19 个底部抽屉的底色**。
+    //    为什么必须是中性灰、为什么不能是白，见 Color.kt::SheetSurface 那段。
+    surfaceContainerLow = SheetSurface,
     surfaceContainer = SurfaceContainer,
     surfaceContainerHigh = SurfaceContainerHigh,
     outline = OutlineLight,

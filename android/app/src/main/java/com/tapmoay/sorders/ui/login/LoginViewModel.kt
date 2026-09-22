@@ -39,6 +39,10 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
                     fullName = "",
                 )
                 container.tokenStore.save(session)
+                // 「提示/说明」总开关：**这台设备上的第一次登录**把说明打开一轮
+                // （用户 2026-09-21 拍板的 A 案：「首次登录那一轮默认开，之后自动变关，可手动打开」）。
+                // 之后每次登录都是空操作 —— 判据在 `core/HintPrefs.kt::onLogin` 里，不在这里。
+                container.hintPrefs.onLogin()
                 container.socketManager.connect(
                     com.tapmoay.sorders.core.ApiEndpoint.baseUrl,
                     token.access_token,

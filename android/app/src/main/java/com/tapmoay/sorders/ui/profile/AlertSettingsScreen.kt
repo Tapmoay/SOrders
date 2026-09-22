@@ -200,6 +200,12 @@ fun AlertSettingsScreen(
                     ListItem(
                         headlineContent = { Text("系统未限制后台运行") },
                         supportingContent = {
+                            // ⛔ 这里是 `Text` 而不是 `Hint`（2026-09-21 复核后的结论）：
+                            //    「已确认：锁屏 / 关掉 App 后仍会接收并播报」是**设置结果的状态回执** ——
+                            //    用户来这一页就是为了看这一句，关掉「提示」开关不该把它一起关掉。
+                            //    它曾被迁移工具误改成 `Hint`（那时复核表还没建），已改回。
+                            //    判据见 `_tools/qa/_check_hints.py`：**一次 Hint 调用里至少要有一段解释句**，
+                            //    纯状态/数据的调用会被红线抓出来。
                             Text(
                                 "已确认：锁屏 / 关掉 App 后仍会接收并播报",
                                 style = MaterialTheme.typography.bodySmall,

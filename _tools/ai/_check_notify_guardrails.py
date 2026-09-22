@@ -151,6 +151,9 @@ def main() -> int:
     detail_vm = strip_comments(read(SRC / "ui/order/OrderDetailViewModel.kt"))
     pool_vm = strip_comments(read(SRC / "ui/dispatcher/DispatcherPoolViewModel.kt"))
     profile = strip_comments(read(SRC / "ui/profile/ProfileScreen.kt"))
+    # 2026-09-21：「我的」页改成共用行组件（`ui/profile/ProfileRow.kt`）之后，
+    # "点得动"这件事跨了两个文件，所以下面把它也读进来（判据拆两段，见 §9）。
+    profile_row = strip_comments(read(SRC / "ui/profile/ProfileRow.kt"))
     test = read(TEST)
 
     # ---- §1 权限与清单（少一条，功能就是静默失效） ----
@@ -367,10 +370,20 @@ def main() -> int:
     c.present("单号从 payload 或顶层取（两处都认）", realtime, r"private fun orderIdOf")
 
     # ---- §9 设置页与「我的」入口 ----
-    # ⚠️ 判据必须钉在**接线上**，不能只找名字：把 `.clickable(onClick = onOpenAlerts)`
-    #    改成 `.clickable { }` 之后，"onOpenAlerts" 这个名字在参数表和导航回调里还在，
-    #    只找名字的写法照样通过——反向验证第一次就是这样漏掉这条注入的。
-    c.present("「我的」有消息提醒入口且真的能点进去", profile, r"clickable\(onClick = onOpenAlerts\)")
+    # ⚠️ 判据必须钉在**接线上**，不能只找名字：把接线改成空 lambda 之后，
+    #    "onOpenAlerts" 这个名字在参数表和导航回调里还在，只找名字的写法照样通过
+    #    ——反向验证第一次就是这样漏掉这条注入的。
+    # 2026-09-21：「我的」页改成共用行组件（`ProfileRow`）之后，接线跨了两个文件，
+    #    所以这条判据拆成**两段，两段都钉在接线代码上**（不比原来那条弱）：
+    #      ① 这一页确实把消息提醒那一行接到了 `onOpenAlerts`；
+    #      ② 共用行组件真的把 `onClick` 接到了 `clickable` 上（不是收下参数就丢掉）。
+    #    ⛔ 只留 ① 会退化成"找名字"（参数收下不装 clickable 也通过）。
+    c.present("「我的」有消息提醒入口且接到了 onOpenAlerts", profile, r"onClick = onOpenAlerts")
+    c.present("共用行组件真的把 onClick 接到 clickable 上（不是收下就丢）",
+              # ⚠️ 锚点认两种写法：2026-09-22 起这一行改成 `indication = null` 的 clickable
+              #    （用户要求"点一下不要那个水波纹"），**本意没变**：onClick 必须真的接到
+              #    clickable 上、不许收下参数就丢。只认旧写法 → 下次按规范改就平白报红。
+              profile_row, r"clickable\(\s*(?:interactionSource[\s\S]{0,140}?)?onClick = onClick")
     c.present("入口右侧显示当前状态（用户不用进去看）", profile, r"fun alertSummary")
     c.present(
         "入口副标题也按角色说（对货主/派单员写「语音播报」＝承诺一件不会发生的事）",

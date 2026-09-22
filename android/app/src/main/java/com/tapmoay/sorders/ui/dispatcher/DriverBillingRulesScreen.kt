@@ -25,7 +25,8 @@ import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.DriverBillingRuleDto
-import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 司机计费规则模板（派单员）。
@@ -298,7 +299,7 @@ private fun RuleDialog(vm: DriverBillingRulesViewModel) {
                     height = 38.dp,
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(
+                Hint(
                     "选了车型 = 这份规则只能挂给那种车的司机（挂错了后端会拦）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

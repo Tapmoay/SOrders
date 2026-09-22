@@ -30,6 +30,7 @@ import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.Success
 import kotlinx.coroutines.launch
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 车辆管理（v3.44）——**司机与车辆的绑定在这里落地**。
@@ -507,8 +508,8 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("启用", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "停用后这辆车还在台账里（车牌会出现在记账/油耗的历史记录里，所以不提供删除），只是不再派活给它。",
+                        Hint(
+                            "停用后不再派活；车牌要留在历史记录里，所以不给删。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -627,7 +628,7 @@ internal fun VehiclePickerSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("给「$driverName」配车", style = MaterialTheme.typography.titleLarge)
-                    Text(
+                    Hint(
                         "一辆车同时只能归一个司机。选了别人名下的车 = 改挂过来。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

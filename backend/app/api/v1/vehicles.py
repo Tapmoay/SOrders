@@ -35,6 +35,7 @@ from app.models import User, Vehicle
 from app.models.enums import OperationAction, UserRole
 from app.schemas.accounting_v2 import VehicleCreate, VehicleDriverSet, VehicleOut, VehicleUpdate
 from app.services.operation_log_service import write_log
+from app.services import usage_service
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 
@@ -155,7 +156,9 @@ def _log_upsert(db: Session, current: User, v: Vehicle, op: str, changes: list[s
 @router.get("", response_model=list[VehicleOut])
 def list_vehicles(current: CurrentUser, db: Session = Depends(get_db)) -> list[VehicleOut]:
     _must_dispatcher(current)
-    return [_out(db, v) for v in db.scalars(select(Vehicle).order_by(Vehicle.id.desc()))]
+    # 2026-09-22 统一规则：常用度 → 先创建的在前
+    q = usage_service.with_popularity(select(Vehicle), Vehicle, usage_service.KIND_VEHICLE, current)
+    return [_out(db, v) for v in db.scalars(q)]
 
 
 @router.post("", response_model=VehicleOut)

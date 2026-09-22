@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * **地点分组管理**（用户 2026-09-19）：「管理分组是一个新的界面吧，像商品管理的分组一样，
@@ -75,8 +76,8 @@ fun PlaceCategoriesPanel(
                 enabled = !vm.acting && vm.draftName.isNotBlank(),
             )
         }
-        Text(
-            "分组只影响你自己的地址库（左栏那一列），别人看不到也改不到。顺序就是左栏里从上到下的顺序。",
+        Hint(
+            "只影响你自己的左栏分组，别人看不到；顺序就是左栏的顺序。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp),

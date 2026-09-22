@@ -399,6 +399,12 @@ data class OrderProductUpdateRequest(
 )
 
 @Serializable
+data class UsageResetDto(
+    /** 这次清掉了几行（0 = 本来就没有）。界面**如实说数量**，别只说"重置成功"。 */
+    val deleted: Int = 0,
+)
+
+@Serializable
 data class OrderCreateRequest(
     val lines: List<OrderProductLine>,
     @SerialName("order_date") val orderDate: String? = null,
@@ -415,6 +421,13 @@ data class OrderCreateRequest(
     val remark: String = "",
     @SerialName("shipper_id") val shipperId: Long? = null,
     @SerialName("temp_shipper_name") val tempShipperName: String? = null,
+    // ── 「这一单用的是库里哪一条」（2026-09-22 统一列表排序规则）────────────────
+    // 后端靠它记一次"常用度"（用得越多，那条在列表里越靠前）。
+    // ⚠️ 三个都是可空的：手输地址 / 地图选点 / 老版本没有 id —— 那种情况照常下单，只是不计分。
+    // ⛔ 别把它们改成必填（后端也是可选；改了会让"没从库里选"的人下不了单）。
+    @SerialName("contact_id") val contactId: Long? = null,
+    @SerialName("address_id") val addressId: Long? = null,
+    @SerialName("location_id") val locationId: Long? = null,
 )
 
 @Serializable
@@ -861,6 +874,11 @@ data class ProductDto(
      */
     val category: String = "",
     @SerialName("low_stock_alert") val lowStockAlert: Int = 0,
+    /**
+     * 商品列表里的显示顺序（小的在前；**0/相同 = 没排过**，此时退回按 id 倒序即"新的在前"）。
+     * 2026-09-21 加：之前顺序恒为"最新建的排最前"，一个分类里几十个商品时用户没法调。
+     */
+    @SerialName("sort_order") val sortOrder: Int = 0,
 )
 
 // ===== 商品分类名册 =====

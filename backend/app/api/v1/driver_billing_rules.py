@@ -47,6 +47,7 @@ from app.schemas.driver_billing_rule import (
 )
 from app.services.driver_pay import PayRule, monthly_salary_of, rule_of_user, snapshot_mode
 from app.services.operation_log_service import write_log
+from app.services import usage_service
 
 router = APIRouter(prefix="/driver-billing-rules", tags=["driver-billing-rules"])
 
@@ -242,11 +243,16 @@ def _get_or_404(db: Session, rule_id: int) -> DriverBillingRule:
 @router.get("", response_model=list[DriverBillingRuleOut])
 def list_rules(
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+    # ⚠️ 参数名必须是 `current`：下面 `with_popularity(..., current)` 要用它（原来写的是 `_`）。
+    # 同批踩到的还有 arrears / freight_templates / price_rules 三处，见 `_check_py_undefined.py`。
+    current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     vehicle_type: str | None = Query(None),
     deleted_only: bool = Query(False, description="只看回收站里的（删错了要能找回来）"),
 ) -> list[DriverBillingRuleOut]:
-    q = select(DriverBillingRule).order_by(DriverBillingRule.id.desc())
+    # 2026-09-22 统一规则：常用度 → 先创建的在前
+    q = usage_service.with_popularity(
+        select(DriverBillingRule), DriverBillingRule, usage_service.KIND_BILLING_RULE, current
+    )
     q = q.where(DriverBillingRule.is_deleted.is_(True) if deleted_only else DriverBillingRule.is_deleted.is_(False))
     if vehicle_type:
         q = q.where(DriverBillingRule.vehicle_type == vehicle_type)

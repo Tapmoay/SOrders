@@ -25,6 +25,7 @@ import com.tapmoay.sorders.data.remote.dto.FreightCategoryCreateRequest
 import com.tapmoay.sorders.data.remote.dto.FreightCategoryDto
 import com.tapmoay.sorders.data.remote.dto.FreightCategoryUpdateRequest
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 运费分类管理（2026-09-21 用户：「**他那个运费模板是有自己的一套分类的**，
@@ -113,7 +114,7 @@ fun FreightCategoriesScreen(container: AppContainer, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
-                    Text(
+                    Hint(
                         "这一套分类是「运费模板」与「司机计费规则」共用的：价目挂哪几类货、「按分类定价」"
                             + "按哪几类给司机算钱，都看它。顺序 = 运费模板页左边那一列的顺序。",
                         style = MaterialTheme.typography.bodySmall,

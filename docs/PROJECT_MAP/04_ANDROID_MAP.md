@@ -84,7 +84,8 @@ util/
 | 司机任务 | ui/driver/DriverOrdersScreen.kt | DriverOrdersViewModel.kt |
 | 司机账本 | ui/driver/DriverFreightScreen.kt | DriverFreightViewModel.kt |
 | 消息中心 | ui/messages/MessagesScreen.kt | MessagesViewModel.kt |
-| 我的 | ui/profile/ProfileScreen.kt | ProfileViewModel.kt |
+| 我的 | ui/profile/ProfileScreen.kt（＋ `ProfileHeader.kt` 深墨蓝头部 / `ProfileRow.kt` 共用行 / `RowMotion.kt` 行动效） | ProfileViewModel.kt |
+| 基础设置（「我的」第二层） | ui/profile/BasicSettingsScreen.kt（随日落 / 白天夜间——直接读 `ThemeMode`） | — |
 
 ## 5. 构建与运行
 

@@ -39,7 +39,9 @@ import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesPanel
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesViewModel
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.ShipperTeal
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
@@ -54,6 +56,8 @@ fun OrderCreateScreen(
     proxyMode: Boolean = false,
 ) {
     val vm: OrderCreateViewModel = appViewModel { OrderCreateViewModel(container) }
+    // 图片预览（位置参考图）：点缩略图看大图，见 ui/common/ImagePreview.kt
+    val preview = rememberImagePreview()
     var showShipperPicker by remember { mutableStateOf(false) }
     var showImageSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -170,8 +174,11 @@ fun OrderCreateScreen(
                             Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // 名称色判据只有一处（`productNameColor`，见 ui/common/ProductCardKit.kt）：
+                            // 原来这里是内联的 `parseColor(x ?: "#1565C0")`，**没有 try/catch** ——
+                            // 库里一个脏颜色值会让整页下单崩掉。
                             val pc = vm.products.firstOrNull { it.id == line.productId }?.let {
-                                androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(it.nameColor ?: "#1565C0"))
+                                productNameColor(it.nameColor)
                             } ?: MaterialTheme.colorScheme.onSurface
                             TintedIcon(Icons.Default.Inventory2, pc, size = 16.dp, container = 36.dp)
                             Spacer(Modifier.width(10.dp))
@@ -339,13 +346,21 @@ fun OrderCreateScreen(
                             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            vm.draftAddressImages.forEach { imgPath ->
+                            vm.draftAddressImages.forEachIndexed { i, imgPath ->
                                 Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp))) {
                                     AsyncImage(
                                         model = File(imgPath),
                                         contentDescription = "位置参考图",
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+                                        // 点图 = 看大图（用户 2026-09-22：「他不知道他自己拍的怎么样」）。
+                                        // ⚠️ 这里传的是**本地 File**（刚拍还没上传）—— 预览组件收的是
+                                        //    Coil 的 model（`Any`），所以本地图和远程图都能看。
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                preview.open(vm.draftAddressImages.map { File(it) }, i)
+                                            },
                                     )
                                     Box(
                                         Modifier.align(Alignment.TopEnd).padding(3.dp).size(20.dp)
@@ -363,55 +378,54 @@ fun OrderCreateScreen(
                 }
             }
 
-            // 联系与备注
+            // 联系与备注（2026-09-22：改成**共用表单行**，白卡里不画边框、值本身就是占位符）
             item {
-                SectionCard {
-                    Text("联系信息", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(10.dp))
+                FormGroup(icon = Icons.Default.Contacts, title = "联系信息", tint = Color(MgrGreen)) {
                     // 收货人：名称 + 电话。名称从**选中的线路**自动带出来（`applyAddress`），也能手改。
-                    OutlinedTextField(
+                    FormInputRow(
+                        label = "收货人名称",
                         value = vm.dongjiaName,
                         onValueChange = { vm.dongjiaName = it },
-                        label = { Text("收货人名称") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "从线路带出，可改",
+                        icon = Icons.Default.Person,
+                        iconTint = Color(MgrGreen),
                     )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
+                    FormInputRow(
+                        label = "收货人电话",
                         value = vm.dongjiaPhone,
                         // 只让数字敲得进来（汉字/字母/符号在输入层就被丢掉），最多 12 位，
                         // 并给数字键盘。规则唯一实现在 core/InputRules.kt。
                         onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },
-                        label = { Text("收货人电话") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "请输入手机号",
+                        keyboardType = KeyboardType.Phone,
+                        icon = Icons.Default.Phone,
+                        iconTint = Color(0xFF00B578),
                     )
-                    Spacer(Modifier.height(10.dp))
                     // 下单人：名称 + 电话，进页面就按**当前登录账号**填好（`prefillOrderer`）。
-                    OutlinedTextField(
+                    FormInputRow(
+                        label = "下单人名称",
                         value = vm.bossName,
                         onValueChange = { vm.bossName = it },
-                        label = { Text("下单人名称") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "默认当前账号",
+                        icon = Icons.Default.Person,
+                        iconTint = Color(0xFF1E6FFF),
                     )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
+                    FormInputRow(
+                        label = "下单人电话",
                         value = vm.bossPhone,
                         onValueChange = { vm.bossPhone = InputRules.phoneInput(it) },
-                        label = { Text("下单人电话（可选）") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "选填",
+                        keyboardType = KeyboardType.Phone,
+                        icon = Icons.Default.Phone,
+                        iconTint = Color(0xFF00B578),
                     )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
+                    FormTextAreaRow(
+                        label = "备注",
                         value = vm.remark,
                         onValueChange = { vm.remark = it },
-                        label = { Text("备注（可选）") },
-                        minLines = 2,
-                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "选填，例如「到了先打电话」",
+                        icon = Icons.Default.Notes,
+                        iconTint = Color(0xFF8A8A8E),
                     )
                 }
             }
@@ -424,6 +438,9 @@ fun OrderCreateScreen(
             item { Spacer(Modifier.height(8.dp)) }
         }
     }
+
+    // 图片预览（点缩略图之后那个全屏黑底弹层）
+    preview.Show()
 
     // 外卖式全屏选品页（货主下单 / 代理下单共用同一个组件）
     if (vm.showProductPicker) {
@@ -784,6 +801,8 @@ private fun AddressPickerSheet(
                                     title = a.receiverName.ifBlank { "未填收货人" },
                                     phone = a.phone,
                                     subtitle = a.detailAddress,
+                                    // 「主角是线路」：起点有就画成 A → B（2026-09-22 第三轮）
+                                    origin = a.originAddress,
                                     badge = if (a.isDefault) "默认线路" else null,
                                     hasCoords = !a.addressLat.isNullOrBlank(),
                                     onClick = { onPickAddress(a) },
@@ -1032,21 +1051,23 @@ private fun EditPlaceDialog(
         onDismissRequest = onDismiss,
         title = { Text("改共享地点") },
         text = {
+            // 弹窗本身就是一张白面，里面照样走共用行（不画第二个框）—— 2026-09-22 规范
             Column {
-                OutlinedTextField(
+                FormInputRow(
+                    label = "名称",
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("名称") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "如「一号仓」",
+                    icon = Icons.Default.Label,
+                    iconTint = Color(ShipperTeal),
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
+                FormTextAreaRow(
+                    label = "地址",
                     value = address,
                     onValueChange = { address = it },
-                    label = { Text("地址") },
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "写清楚门牌 / 园区 / 楼栋",
+                    icon = Icons.Default.Place,
+                    iconTint = Color(MoneyOrange),
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -1111,39 +1132,79 @@ private fun SheetRow(
     subtitle: String,
     badge: String?,
     hasCoords: Boolean,
-    /** 这个位置的照片（共享库/我的地点都可能有）；null = 不画。 */
+    /** 这个位置的照片；**当前不在卡片上显示**（见下面那条注释），参数留着是为了不动三段调用点。 */
     photoUrl: String? = null,
+    /** 线路的**起点**（只有"线路"那一段有）。非空时这一行的主角变成「起点 → 终点」。 */
+    origin: String? = null,
     onClick: () -> Unit,
     /** 行尾 `⋮` 里的管理动作（**只有派单员**会给；空 = 不画那个按钮）。 */
     actions: List<RowAction> = emptyList(),
 ) {
     val headColor = if (isPlace) Color(0xFF00A2C7) else Color(0xFF1E6FFF)
     val headIcon = if (isPlace) Icons.Default.Place else Icons.Default.Person
+    // ⛔ 2026-09-22 用户：「那个**共享库**…那个**不要用列表的形式**，也使用**卡片**的形式，
+    //    就是**类似商品一样**…而且那个共享库那个卡片形式要改一下，**重要的信息要优先显示**」。
+    // 所以这一行不再是一条平铺的行，而是**一张白卡**（圆角 + 极轻阴影，与商品卡同一套观感）；
+    // 「重要的信息优先」落在两处：**照片更大**（40 → 56dp，选点时"这个门口长什么样"最省事）、
+    // 名称用 `titleMedium` 加粗（比地址重一档）。
+    // ⚠️ 这一行是三段（线路 / 我的地点 / 共享地点）**共用**的：只把共享地点改成卡片，
+    //    同一个抽屉里三段会长得不一样 —— 那种"半页改了"比没改更像坏了。
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
+    ) {
     Column(
         Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // 位置照片：摆在最左边（比标题里的字先被看到）——选点时"这个门口长什么样"
-            // 是最省事的一条信息，而它只在有图时才占位置
-            if (!photoUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = com.tapmoay.sorders.util.resolveStaticUrl(photoUrl),
-                    contentDescription = "位置照片",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
-                )
-                Spacer(Modifier.width(8.dp))
+        if (!isPlace) {
+            // ---- 线路那一段：**主角是"从哪到哪"**（用户 2026-09-22 第三轮，指着这一屏说的：
+            //      「这个地点库…这个线路也做个改变啊，这样子不好啊，主要我们的（重要）信息是**线路**，
+            //       其次联系人什么的那个信息都可以**在下面放小一点**。而且他这个卡片是**可以做大一点**的」）
+            //      ⛔ 上一版这一行的主角是**收货人姓名 + 电话**（大字），地址缩在第二行小字里 ——
+            //        和线路卡犯的是同一个错（主次说反了），所以这里跟 `AddressScreen::AddressCard`
+            //        同一套版式：起点 →（↓）→ 终点大字，联系人退到下面小字。
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    // 起点 →（共用连接线）→ 终点：三处用的是同一份 `RouteRail`
+                    RouteRail(origin = origin, dest = subtitle)
+                }
+                SheetRowTrailing(hasCoords = hasCoords, actions = actions)
             }
+            // 联系人 = 次要信息，放下面、小一点
+            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                if (!phone.isNullOrBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF00B578), modifier = Modifier.size(11.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+                if (badge != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(badge, style = MaterialTheme.typography.labelSmall, color = Color(0xFF8455E6))
+                }
+            }
+        } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(headIcon, contentDescription = null, tint = headColor, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text(
                 title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 // 地点加粗（用户点名）；人只用颜色区分，不再加粗，否则两段又一样重
-                fontWeight = if (isPlace) FontWeight.Bold else FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = headColor,
                 maxLines = 1,
                 // ⚠️ 标题**从尾部省略**（`StartEllipsis`），不是从头部。
@@ -1174,39 +1235,7 @@ private fun SheetRow(
                     maxLines = 1,
                 )
             }
-            if (hasCoords) {
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "有导航",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF00B578),
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            // 管理动作收进 `⋮`（设计规范 §4.2：卡片上的动作三个以上就收进 `⋮`）。
-            // ⛔ 不要把它们平铺成文字按钮：共享库那一行已经有「改名称/撤销/删除」三个，
-            //    平铺会把整行的排版压垮，而"删除"混在里面也更容易被误点。
-            if (actions.isNotEmpty()) {
-                var open by remember { mutableStateOf(false) }
-                Box {
-                    IconButton(onClick = { open = true }, modifier = Modifier.size(30.dp)) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "更多操作",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                        actions.forEach { a ->
-                            DropdownMenuItem(
-                                text = { Text(a.label) },
-                                onClick = { open = false; a.onClick() },
-                            )
-                        }
-                    }
-                }
-            }
+            SheetRowTrailing(hasCoords = hasCoords, actions = actions)
         }
         if (subtitle.isNotBlank()) {
             Spacer(Modifier.height(3.dp))
@@ -1214,7 +1243,10 @@ private fun SheetRow(
                 subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                // ⚠️ 2026-09-22 从 2 行放宽到 **3 行**：地址就是这一行的主体信息，
+                //    卡片可以高一点，但**地址不许被省略**（用户：「很多信息由于显示图片
+                //    导致了他那个地点的信息被丢失了」—— 根因是图占了 56dp、地址只剩两行）。
+                maxLines = 3,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
@@ -1226,8 +1258,52 @@ private fun SheetRow(
                 color = Color(0xFF8455E6),
             )
         }
+        }
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+/**
+ * 卡片右侧那一小撮：[有导航] + `⋮` 管理菜单（线路与地点两段共用）。
+ *
+ * 抽出来是因为 2026-09-22 之后这一行有了**两种主体**（线路 / 地点），
+ * 右侧这一撮完全一样 —— 抄两份的话，"⋮ 里的动作"迟早会有一边忘了接。
+ */
+@Composable
+private fun SheetRowTrailing(hasCoords: Boolean, actions: List<RowAction>) {
+    if (hasCoords) {
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "有导航",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF00B578),
+            fontWeight = FontWeight.Bold,
+        )
+    }
+    // 管理动作收进 `⋮`（设计规范 §4.2：卡片上的动作三个以上就收进 `⋮`）。
+    // ⛔ 不要把它们平铺成文字按钮：共享库那一行已经有「改名称/撤销/删除」三个，
+    //    平铺会把整行的排版压垮，而"删除"混在里面也更容易被误点。
+    if (actions.isNotEmpty()) {
+        var open by remember { mutableStateOf(false) }
+        Box {
+            IconButton(onClick = { open = true }, modifier = Modifier.size(30.dp)) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "更多操作",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                actions.forEach { a ->
+                    DropdownMenuItem(
+                        text = { Text(a.label) },
+                        onClick = { open = false; a.onClick() },
+                    )
+                }
+            }
+        }
+    }
 }
 
 
@@ -1261,12 +1337,13 @@ fun LineEditDialog(
         title = { Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
         text = {
             Column {
-                OutlinedTextField(
+                FormInputRow(
+                    label = "商品名称",
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("商品名称") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "商品名",
+                    icon = Icons.Default.Inventory2,
+                    iconTint = Color(0xFF8455E6),
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1274,6 +1351,9 @@ fun LineEditDialog(
                     FilledTonalIconButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }) {
                         Icon(Icons.Default.Remove, contentDescription = "减")
                     }
+                    // ⚠️ 数量那个小框**不**走 FormRows：它不是"一行标签 + 值"，
+                    //    是步进器中间的紧凑控件（全 App 同一个形态，见 `ProductPicker::QtyDialog`）。
+                    //    这类控件**算进**描边输入框的总数、但不算"表单分组里的框"（判据里写明了）。
                     OutlinedTextField(
                         value = qty.toString(),
                         onValueChange = { v -> qty = InputRules.intInput(v, 4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },

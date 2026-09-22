@@ -44,6 +44,7 @@ from app.models.product_category import ProductCategory
 from app.models.product_visibility import UserProductVisibility
 from app.models.shipper import ShipperAddress, ShipperContact, ShipperLocation
 from app.models.shipper_settlement import ShipperSettlement, ShipperSettlementLine
+from app.models.usage import UsageCounter
 from app.models.user import User
 
 __all__ = [
@@ -94,6 +95,7 @@ __all__ = [
     "ShipperSettlement",
     "ShipperSettlementLine",
     "User",
+    "UsageCounter",
     "UserProductVisibility",
     "UserRole",
     "ReceiptSettleMode",

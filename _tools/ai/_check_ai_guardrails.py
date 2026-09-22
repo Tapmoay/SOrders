@@ -1877,7 +1877,11 @@ def main() -> int:
     #   ② `ThemeMode.isDark` 原来只在内存里，切了夜间模式**杀掉 App 就变回白天**。
     main_act = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/MainActivity.kt")
     theme = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/theme/Theme.kt")
-    profile = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileScreen.kt")
+    # ⚠️ 2026-09-21：白天/夜间那两个开关搬进了「我的 → 基础设置」子页（`BasicSettingsScreen.kt`），
+    #    所以这一组"设置页"判据也**同时看两个文件**（否则会变成"永远找不到"）。
+    profile = (read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileScreen.kt")
+               + "\n"
+               + read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/BasicSettingsScreen.kt"))
     app = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/SOrdersApp.kt")
     c.present("根节点铺主题背景（否则没画底的页面露出窗口白）",
               main_act, r"color = MaterialTheme\.colorScheme\.background")
@@ -2885,7 +2889,13 @@ def main() -> int:
     sun_test = read(ROOT / "android/app/src/test/java/com/tapmoay/sorders/core/SunClockTest.kt")
     auto_ui = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/theme/AutoSunTheme.kt")
     theme = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/theme/Theme.kt")
-    profile = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileScreen.kt")
+    # ⚠️ 2026-09-21：「随日落」这一行搬进了「我的 → 基础设置」子页（`ui/profile/BasicSettingsScreen.kt`，
+    #    用户要求"按钮太多、不重要的放进基础设置"）。所以这一组判据要**同时看两个文件** ——
+    #    只盯 `ProfileScreen.kt` 的话下面 5 条会从"在检查"变成"永远找不到"。
+    #    （用户没让删的东西，判据也不许悄悄失效：位置变了、判据就得跟着搬。）
+    profile = (read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileScreen.kt")
+               + "\n"
+               + read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/profile/BasicSettingsScreen.kt"))
     main_act = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/MainActivity.kt")
 
     c.absent("判定里不许出现 Android 依赖（否则单测跑不起来）", sun, r"import android\.")
@@ -2992,7 +3002,13 @@ def main() -> int:
               profile, r"SunClock\.summary\([\s\S]{0,400}?located = SunLocation\.hasFix\(\)")
     c.present("走落盘入口，不直接写内存", profile, r"ThemeMode\.setAuto\(context,")
     c.absent("页面里不许直接写 autoBySun", strip_comments(profile), r"autoBySun\s*=[^=]")
-    manual_hits = profile.count("enabled = !ThemeMode.autoBySun")
+    # 「自动开着时手动开关必须失效」这一条，现在是**两处各管一半**：
+    #   ① 开关自己：`enabled = !ThemeMode.autoBySun`；
+    #   ② 整行：`onClick = if (ThemeMode.autoBySun) null else { … }`（共用行组件 `ProfileRow`
+    #      收到 `onClick = null` 就**不装** clickable，所以"整行点不动"这件事仍然成立）。
+    # 两种写法表达的是同一件事，判据按**两处都得有**来数（换写法可以，少一处不行）。
+    manual_hits = (profile.count("enabled = !ThemeMode.autoBySun")
+                   + profile.count("onClick = if (ThemeMode.autoBySun) null"))
     c.ok("自动模式下那个开关是禁用的（开关 + 整行，两处都要）", manual_hits >= 2, f"命中 {manual_hits} 次")
 
     n_tests = len(re.findall(r"@Test", sun_test))
@@ -3698,8 +3714,15 @@ def main() -> int:
              place_api, r"Place\.created_by == current\.id")
     c.absent("共享库列表不按人分区（也不许用 created_by 当过滤条件）",
              place_api, r"\.where\([^)]*created_by")
-    c.present("列表按「用过多少次」倒序（常用的排前面）",
-              place_api, r"order_by\(Place\.use_count\.desc\(\), Place\.id\.desc\(\)\)")
+    # ⚠️ 2026-09-22 用户定的规则改了这里的口径：「**技术是按人来搞**」——
+    #    原来排的是 `places.use_count`（**全库**次数 =「大家都去过这儿」），
+    #    现在走全项目共用的那一个排序入口（`services/usage_service.with_popularity`），
+    #    读的是**我自己**用过几次（`usage_counters`，kind=place）。
+    #    判据是**双向**的：既要有新写法，也不许再回到全库次数（那条仍然是"别人常去"的意思）。
+    c.present("列表按「我自己用过多少次」排（常用的排前面）",
+              place_api, r"with_popularity\(stmt, Place, usage_service\.KIND_PLACE, current\)")
+    c.absent("不许再用全库次数排序（那是「大家都去过」，不是「我常用」）",
+             strip_comments(place_api), r"order_by\(Place\.use_count\.desc\(\)")
     c.present("合并判据**只有一处**（1 米常量 + 同名 30 米常量都在服务里）",
               place_svc, r"MERGE_METERS = 1\.0")
     c.present("同名漂移常量也在同一处", place_svc, r"SAME_NAME_METERS = 30\.0")

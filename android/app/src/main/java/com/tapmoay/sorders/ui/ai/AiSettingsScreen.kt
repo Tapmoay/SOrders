@@ -48,6 +48,7 @@ import com.tapmoay.sorders.ui.common.SegmentedPicker
 import com.tapmoay.sorders.ui.common.appViewModel
 import com.tapmoay.sorders.ui.theme.AiBlue
 import com.tapmoay.sorders.ui.theme.Success
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 「派单员 AI 助手」设置页。
@@ -108,8 +109,8 @@ fun AiSettingsScreen(
                     Icon(Icons.Default.Lock, contentDescription = null, tint = accent)
                     Spacer(Modifier.width(10.dp))
                     Column {
-                        Text(
-                            "API Key 只保存在你这台手机上（系统级加密），不会上传到服务器；模型费用由你的 key 承担。",
+                        Hint(
+                            "API Key 加密存在本机、不上传；费用你自己承担。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -139,7 +140,7 @@ fun AiSettingsScreen(
             SectionCard {
                 Text("模型配置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
-                Text(
+                Hint(
                     "先点一个服务商，地址会自动填好并去拉模型列表；拉到之后点一个模型名，再保存。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -169,9 +170,9 @@ fun AiSettingsScreen(
                 // 命中预设 → 显示该厂商最容易踩的坑；没命中 → 说明是自定义地址
                 val provider = vm.currentProvider()
                 Spacer(Modifier.height(4.dp))
-                Text(
+                Hint(
                     provider?.note
-                        ?: "自定义地址：请确认它是 OpenAI 兼容的 /chat/completions 接口。",
+                        ?: "自定义地址须是 OpenAI 兼容的 /chat/completions。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -187,7 +188,7 @@ fun AiSettingsScreen(
                     value = vm.baseUrl,
                     onValueChange = { vm.onBaseUrlChange(it) },
                     label = { Text("Base URL") },
-                    supportingText = { Text("OpenAI 兼容接口地址，例如 https://api.deepseek.com") },
+                    supportingText = { Hint("OpenAI 兼容地址，例：https://api.deepseek.com") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
@@ -318,7 +319,7 @@ fun AiSettingsScreen(
                 )
                 if (vm.hasStoredKey) {
                     Spacer(Modifier.height(4.dp))
-                    Text(
+                    Hint(
                         if (vm.usingDefaultKey) {
                             // 如实说清这把 key 是哪来的（用户 2026-09-21：测试账号默认就跑）。
                             // 不写的话他会以为是自己配过的；而且清掉之后 App 下次自检还会拿回来。
@@ -338,7 +339,7 @@ fun AiSettingsScreen(
                 // 思考强度：关 / 低 / 中 / 高（原来是一个开关，现在分档）
                 Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Text("思考强度", style = MaterialTheme.typography.bodyLarge)
-                    Text(
+                    Hint(
                         "关：直接答，最快最省（实测同一问题 token 约为开的一半）；" +
                             "低/中/高：越往上越想得全，也越慢越贵。默认「中」。",
                         style = MaterialTheme.typography.bodySmall,
@@ -359,7 +360,7 @@ fun AiSettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     // 如实标注：分级在部分端点上会被静默忽略（本项目实测过）
-                    Text(
+                    Hint(
                         "注：部分模型只支持「开/关」、会把强度分档当没看见；「关」是确定生效的。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -511,7 +512,7 @@ fun AiSettingsScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("按我的使用习惯优化", style = MaterialTheme.typography.bodyLarge)
-                        Text(
+                        Hint(
                             // ⚠️ 这里是普通 Text，不渲染 Markdown——写 **粗体** 会把星号原样显示出来
                             // （实测踩过）。要强调就用中文引号。
                             "记下你常问什么、常用哪个时间范围，在「你没说清楚时」当作默认值。" +
@@ -550,8 +551,8 @@ fun AiSettingsScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("记住我教给你的事", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            // ⚠️ 这里是普通 Text，不渲染 Markdown——别写 **粗体**（会原样显示星号）
+                        Hint(
+                            // ⚠️ 这里是 `Hint`，不渲染 Markdown——别写 **粗体**（会原样显示星号）
                             "你对它说「记住：城东水果批发是月结」，它就存下来，下次问到时直接用。" +
                                 "全程只存在这台手机上，不上传。",
                             style = MaterialTheme.typography.bodySmall,
@@ -644,8 +645,8 @@ fun AiSettingsScreen(
                 }
             }
 
-            Text(
-                "提示：填完记得点「保存」（思考强度与上下文窗口也靠保存生效），再点「测试连接」确认 key 可用。" +
+            Hint(
+                "先点「保存」才生效，再点「测试连接」验证。" +
                     "测试只发一句「你好」，开启思考时会多花一点额度。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -721,7 +722,7 @@ private fun CapabilitySheet(vm: AiSettingsViewModel, onDismiss: () -> Unit) {
         ) {
             Text("AI 能用的能力", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            Text(
+            Hint(
                 "关掉哪个，它就查不到或做不了那一类事。默认全开。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

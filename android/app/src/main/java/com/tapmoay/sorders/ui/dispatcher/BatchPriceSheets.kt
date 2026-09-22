@@ -44,8 +44,8 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.ui.common.SoTextField
-import com.tapmoay.sorders.ui.theme.MoneyOrange
-import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.ui.common.productNameColor
+import com.tapmoay.sorders.ui.common.productPriceFact
 
 /**
  * 批量调价底部抽屉（两个场景共用同一组件）：
@@ -170,7 +170,12 @@ fun BatchPriceSheet(
                 Text("暂无商品（可在商品管理中新增）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 products.forEach { p ->
-                    val pc = Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0"))
+                    // 名称色判据只有一处（`productNameColor`，见 ui/common/ProductCardKit.kt）
+                    val pc = productNameColor(p.nameColor)
+                    // 售价文案与格式化也只有一处（`productPriceFact`）：原来这里是自己拼的
+                    // `"¥" + formatMoney(…)` —— 而且那版**不带单位**，与商品卡上的
+                    // 「¥25.00/袋」对不上（同一件商品在这张表里少了一截，看着像被截断）。
+                    val pf = productPriceFact(p.defaultUnitPrice, p.unit)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -181,7 +186,7 @@ fun BatchPriceSheet(
                             selProducts = if (p.id in selProducts) selProducts - p.id else selProducts + p.id
                         })
                         Text(p.name, style = MaterialTheme.typography.bodyMedium, color = pc, maxLines = 1, modifier = Modifier.weight(1f))
-                        Text("¥" + formatMoney(p.defaultUnitPrice), style = MaterialTheme.typography.bodySmall, color = Color(MoneyOrange))
+                        Text(pf.value, style = MaterialTheme.typography.bodySmall, color = pf.color)
                     }
                 }
             }

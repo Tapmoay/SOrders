@@ -28,6 +28,7 @@ from app.schemas.place import PlaceCreate, PlaceDemoteOut, PlaceOut, PlaceUpdate
 from app.services import place_service
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import ensure_alive
+from app.services import usage_service
 
 router = APIRouter(prefix="/places", tags=["places"])
 
@@ -52,7 +53,12 @@ def list_places(
     # 常用在前（use_count 是"有多少人沿用/录过这个点"），同频次按新近
     # 多取一行判截断（2026-09-19 外部完整检查 §9.1）：共享库会一直长，
     # 不说"还有更多"的话用户会以为"这个点大家都没录过"。
-    stmt = stmt.order_by(Place.use_count.desc(), Place.id.desc()).limit(limit + 1)
+    # 2026-09-22 统一规则：**按我自己的常用度** → 先创建的在前。
+    # ⚠️ 这里原来是 `Place.use_count`（**全库**次数 =「大家都去过这儿」）——用户定的口径是
+    #    「按人来搞」，所以改成「我自己用过几次」（`usage_counters`，kind=place）。
+    #    全库 `places.use_count` 仍然在写（它管「这条坐标被并入过几次」），只是不再拿来排序。
+    stmt = usage_service.with_popularity(stmt, Place, usage_service.KIND_PLACE, current)
+    stmt = stmt.limit(limit + 1)
     return finish_page(list(db.scalars(stmt).all()), limit, response)
 
 

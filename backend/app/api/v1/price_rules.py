@@ -20,6 +20,7 @@ from app.schemas.price_rule import (
 )
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import ensure_alive
+from app.services import usage_service
 from datetime import datetime
 
 router = APIRouter(prefix="/price-rules", tags=["price-rules"])
@@ -247,7 +248,13 @@ def list_price_rules(
 
     两个筛选是**并列 AND**（同时给就是"这个批发商的这个商品"），都不给 = 这个角色能看的全部。
     """
-    q = select(PriceRule).where(PriceRule.is_deleted.is_(False)).order_by(PriceRule.id.desc())
+    # 2026-09-22 统一规则：常用度 → 先创建的在前
+    # ⚠️ 这里的用户参数叫 `user`（不是 `current`）—— 常用度要按**谁在看**算，
+    #    所以实参得跟着这个函数的形参名走（写错了就是每次调用都 500，编译期看不出来）。
+    q = usage_service.with_popularity(
+        select(PriceRule).where(PriceRule.is_deleted.is_(False)),
+        PriceRule, usage_service.KIND_PRICE_RULE, user,
+    )
     # 批发商（货主）只读自己的专属价，用于下单时展示实际价格；派单员可看全部
     if user_role_key(user) == "shipper":
         q = q.where(PriceRule.shipper_id == user.id)

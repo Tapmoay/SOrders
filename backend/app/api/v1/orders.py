@@ -18,6 +18,7 @@ from fastapi import (
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
+from app.api.v1.arrears import find_or_create_unit
 from app.core.business_time import business_range_utc, utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
@@ -70,6 +71,7 @@ from app.services.order_money import money_map
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services.order_return import OrderReturnError, ReturnItem, return_order
 from app.services import order_return_request as return_request_svc
+from app.services import usage_service
 from app.services.push_events import (
     push_new_order_to_dispatchers,
     push_dispatcher_pending_pool_changed,
@@ -642,6 +644,26 @@ def create_order(
         # 货主下次看到的就是一条"来源不明的联系人"（`upsert_boss_contact` 只在原本没名字时补）。
         upsert_boss_contact(db, target_shipper_id, body.contact_boss_phone.strip(),
                             body.contact_boss_name.strip())
+    # ---- 「常用的排前面」的计数（用户 2026-09-22 定的统一列表排序规则）--------------
+    # 记的是**这一单真用上了哪些库里的行**：选中的联系人 / 线路 / 我的地点 / 每一个商品，
+    # 代理下单时还有这位货主。排序规则本身（常用度 → 先创建的在前）在
+    # `services/usage_service.with_popularity`，**唯一一处**。
+    # ⚠️ 只记"我这单用过的"，不是"点开看过"：这样列表往前靠的东西，都是**真的用过**的。
+    for kind, target in (
+        (usage_service.KIND_CONTACT, body.contact_id),
+        (usage_service.KIND_ADDRESS, body.address_id),
+        (usage_service.KIND_LOCATION, body.location_id),
+    ):
+        usage_service.record_usage(db, user=current, kind=kind, target_id=target)
+    # 货主得是**派单员挑的**才算"常用货主"：货主自己给自己下单时 `target_shipper_id == current.id`，
+    # 记下来只会让他自己那张"人"的计数自增（他对人列表没兴趣，也不该影响别人看到的排序）——
+    # 实测抓到的多余一行 `kind=user, target=自己`（2026-09-22）。
+    if target_shipper_id is not None and target_shipper_id != current.id:
+        usage_service.record_usage(
+            db, user=current, kind=usage_service.KIND_USER, target_id=target_shipper_id
+        )
+    for ln in body.lines:
+        usage_service.record_usage(db, user=current, kind=usage_service.KIND_PRODUCT, target_id=ln.product_id)
     db.commit()
     background_tasks.add_task(_bg_dispatcher_pending_pool)
     background_tasks.add_task(_bg_notify_new_order, order.id)
@@ -1333,6 +1355,9 @@ def assign_order(
         order.freight_fee = body.freight_fee
     if body.collect_cash is not None:
         order.collect_cash = body.collect_cash
+    # 派单记一次「这个派单员常用这位司机」（2026-09-22 统一规则：挑人的列表也按常用度排）。
+    # ⚠️ 记在**派单员**名下（`current`）：常用度是"**我**挑谁挑得多"，与司机本人的行为无关。
+    usage_service.record_usage(db, user=current, kind=usage_service.KIND_USER, target_id=body.driver_id)
     db.commit()
     background_tasks.add_task(_bg_push_assigned, body.driver_id, order.id)
     background_tasks.add_task(_bg_dispatcher_pending_pool)
@@ -1784,9 +1809,16 @@ def charge_order(
     # ⚠️ 已收款的单**不许改回挂账**（2026-09-19 审计 R14-2）：收款侧唯一的防重判据就是 `paid`，
     #    把 paid 改回 False 等于给这张单**重新开了一次收款窗口**（收款单与现金流水都还在）。
     _reject_if_already_collected(db, order, "改回挂账")
-    unit = db.get(ArrearsUnit, body.arrears_unit_id)
-    if unit is None:
-        raise HTTPException(status_code=404, detail="挂账单位不存在")
+    # ⚠️ 2026-09-22「挂账时**自动添加**挂账单位」（用户原话：「假如有个订单，他没有结账，
+    #    **直接点击挂账**，这个**挂账单位是自动添加的**」）：
+    #    给了名字、名册里没有 → 就地建一个（`find_or_create_unit`，**与"新增挂账单位"
+    #    同一份实现**：同一条审计、同一套软删/恢复语义）。给了 id 仍以 id 为准。
+    if body.arrears_unit_id is not None:
+        unit = db.get(ArrearsUnit, body.arrears_unit_id)
+        if unit is None:
+            raise HTTPException(status_code=404, detail="挂账单位不存在")
+    else:
+        unit = find_or_create_unit(db, body.arrears_unit_name, current)
     order.payment_method = "arrears"
     order.paid = False
     order.arrears_unit_id = unit.id

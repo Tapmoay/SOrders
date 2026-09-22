@@ -174,9 +174,11 @@ private fun PriceRow(
     SectionCard {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val c = t.nameColor?.let { raw ->
-                    runCatching { Color(android.graphics.Color.parseColor(raw)) }.getOrNull()
-                } ?: MaterialTheme.colorScheme.primary
+                // 名称色判据只有一处（`ui/common/ProductCardKit.kt::productNameColor`）：
+                // 原来这里是**第二份** `parseColor` 写法。它用 `runCatching` 兜住了异常，
+                // 但"坏值退成什么颜色"与商品卡那一套并不一致 —— 同一条脏数据，
+                // 在商品卡上是物流蓝、在这一页是主色。批发商本来就没有名称色，仍退主色。
+                val c = t.nameColor?.let { productNameColor(it) } ?: MaterialTheme.colorScheme.primary
                 TintedIcon(Icons.Default.Inventory2, c, size = 20.dp, container = 40.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {

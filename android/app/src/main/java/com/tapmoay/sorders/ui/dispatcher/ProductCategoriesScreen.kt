@@ -147,7 +147,7 @@ fun ProductCategoriesScreen(
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp),
                     )
                     Spacer(Modifier.height(4.dp))
-                    Text(
+                    Hint(
                         // ⚠️ 界面文案里**不许写 Markdown**（`_check_ai_guardrails.py` 有一条红线扫 ui/**）：
                         //    用户在屏幕上看到的是**字面的星号**，不是加粗 —— 这条第一版就是写错的。
                         "改顺序：按住一行长按拖动，或直接改左边的序号。",

@@ -12,6 +12,7 @@ from app.models import Customer, Order, User
 from app.models.enums import CustomerKind, OperationAction, UserRole
 from app.schemas.accounting_v2 import CustomerCreate, CustomerMergeBody, CustomerOut
 from app.services.operation_log_service import write_log
+from app.services import usage_service
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -29,7 +30,10 @@ def list_customers(
     q: str | None = Query(None, description="名称/电话模糊（电话后 4 位也行）"),
 ) -> list[CustomerOut]:
     _require_dispatcher(current)
-    stmt = select(Customer).order_by(Customer.id.desc())
+    # 2026-09-22 统一规则：常用度 → 先创建的在前
+    stmt = usage_service.with_popularity(
+        select(Customer), Customer, usage_service.KIND_CUSTOMER, current
+    )
     if kind:
         stmt = stmt.where(Customer.kind == kind)
     # 与账号名册同一份实现（客户档案是"人的另一个视角"，两边口径不许分叉）

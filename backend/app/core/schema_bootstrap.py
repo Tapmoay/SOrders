@@ -91,6 +91,31 @@ def _bootstrap_impl(engine: Engine) -> None:
     Base.metadata.create_all(bind=engine, checkfirst=True)
 
     insp = inspect(engine)
+
+    # ---------- 通用「使用次数」表（2026-09-22：统一列表排序规则） ----------
+    # 表本身由上面那行 `create_all` 建好（`models/usage.py::UsageCounter`），
+    # 这里只把**旧表 `place_user_usage` 的数据搬过去**（那 5 列装的就是 kind='place' 的同一件事）：
+    # 不搬的话，老用户的"常用地点"计数会从 0 重新开始 —— 表现是**"我常用的地点突然不排前面了"**，
+    # 而且没有任何报错（排序是静默的）。
+    # ⛔ 只在**新表为空**时搬一次（重复搬会把计数翻倍）；旧表**保留为备份、之后不再读写**。
+    if "place_user_usage" in insp.get_table_names() and "usage_counters" in insp.get_table_names():
+        with engine.begin() as conn:
+            n_new = conn.execute(text("SELECT COUNT(*) FROM usage_counters")).scalar() or 0
+            n_old = conn.execute(text("SELECT COUNT(*) FROM place_user_usage")).scalar() or 0
+            if n_new == 0 and n_old > 0:
+                logger.warning(
+                    "检测到旧库的 place_user_usage 有 %s 行，正在迁进 usage_counters（kind=place）…", n_old
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO usage_counters "
+                        "(user_id, kind, target_id, use_count, last_used_at, auto_added, created_at, updated_at) "
+                        "SELECT user_id, 'place', place_id, use_count, last_used_at, auto_added, "
+                        "COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP) "
+                        "FROM place_user_usage"
+                    )
+                )
+
     # ---------- 司机分类计费迁移（2026-09） ----------
     if "users" in insp.get_table_names():
         col_names = {c["name"] for c in insp.get_columns("users")}
@@ -988,6 +1013,10 @@ def _bootstrap_impl(engine: Engine) -> None:
     # - `orders.nav_source`：导航信息是下单带的还是司机到场补录的（货主端那句提示必须是真的）。
     for tbl, col, ddl in (
         ("products", "category", "ALTER TABLE products ADD COLUMN category VARCHAR(32) NOT NULL DEFAULT ''"),
+        # 商品显示顺序（2026-09-21，用户：「那个排序你没加啊」）。
+        # 默认 0 = 没排过 —— 全是 0 时列表顺序与加这一列之前**一字不差**（在售优先 + id 倒序），
+        # 所以老库补上这一列不会有任何可见变化；用户去「商品排序」页排过之后才生效。
+        ("products", "sort_order", "ALTER TABLE products ADD COLUMN sort_order INTEGER DEFAULT 0"),
         (
             "order_products",
             "unit_snapshot",

@@ -1,49 +1,34 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductCostHistoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.common.*
-import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProductPurple
 import com.tapmoay.sorders.ui.theme.QuickPriceGreen
 import com.tapmoay.sorders.util.formatDateTime
-import com.tapmoay.sorders.util.formatMoney
-import com.tapmoay.sorders.util.resolveStaticUrl
 import com.tapmoay.sorders.util.trimMoneyZeros
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,12 +36,20 @@ fun ProductsScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenCategories: () -> Unit = {},
-    /** 打开「各批发商价格」（价格矩阵的"按商品"方向）。 */
-    onOpenPricing: (Long) -> Unit = {},
+    /** 打开「批量操作」页（底栏第三格）。 */
+    onOpenBatch: () -> Unit = {},
+    /** 打开「商品排序」页（顶栏右上角；用户 2026-09-21：「那个排序你没加啊」）。 */
+    onOpenSort: () -> Unit = {},
+    /**
+     * 打开**新增 / 编辑商品页**（`productId = null` → 新增）。
+     *
+     * 2026-09-21 起商品表单是**单独一页**（`Routes.PRODUCT_FORM`），不再是这一页里的抽屉：
+     * 表单状态也跟着搬去了 `ProductFormViewModel` —— 这一页不再背一份"正在编辑的草稿"。
+     */
+    onOpenForm: (Long?) -> Unit = {},
 ) {
     val vm: ProductsViewModel = appViewModel { ProductsViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
-    val context = LocalContext.current
     /**
      * 快捷改价（卡片右侧「改价」）：non-null = 弹窗开着。
      *
@@ -66,27 +59,18 @@ fun ProductsScreen(
     var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }
     /** 成本价历史弹窗（`⋮ → 成本价历史`）：状态在 VM 里（要拉数据），这里只读它。 */
 
+    // ⚠️ **加载放在这里、不放在 VM 的 init**：从「新增/编辑商品」那一页 `popBackStack()` 回来时
+    //    这一屏会重新进组合，`LaunchedEffect(Unit)` 会再跑一次 —— 刚存的那个商品立刻出现在列表里。
+    //    写在 init 里就只在第一次创建 VM 时拉一次，回来看到的是**没有刚存那个**的旧列表
+    //    （用户会以为没存上，然后再建一个 → 同名商品）。
+    LaunchedEffect(Unit) { vm.start() }
+
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
     // 失败**必须**看得见：这个页面的错误以前只在"列表为空"时才渲染成整页 ErrorView，
     // 于是列表有数据时的上下架/删除失败**界面上毫无变化**——用户以为点漏了，反复点。
     // ⚠️ 消费的是**动作错误**（vm.error）；加载错误走 vm.loadError（它还要驱动整页 ErrorView）。
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
-
-    // 相册选图 → 拷贝到缓存 → 交给 VM
-    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            try {
-                val f = File(context.cacheDir, "product_img_" + System.currentTimeMillis() + ".jpg")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    f.outputStream().use { output -> input.copyTo(output) }
-                }
-                vm.draftImageLocal = f.absolutePath
-            } catch (_: Exception) {
-                vm.error = "图片读取失败，请重试"
-            }
-        }
-    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -104,9 +88,25 @@ fun ProductsScreen(
                 //     那个 + 把它改成商品新增…两个导航栏做得美观一点」）：
                 //    悬浮球压在列表最后一张卡上、顶栏按钮又和返回键挤在一行，
                 //    两个动作各在一个角上，视线要跑两趟。
+                // ✅ 2026-09-21 顶栏**重新有了一个按钮**：「排序」——
+                //    它与底栏那三个不是一类：那三个是"日常增改"，排序是"偶尔调一次次序"，
+                //    而且它有自己的一整页（`Routes.PRODUCT_SORT`）。放顶栏不会与底栏抢位置。
+                actions = {
+                    TextButton(onClick = onOpenSort) {
+                        Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("排序")
+                    }
+                },
             )
         },
-        bottomBar = { ProductsBottomBar(onCategories = onOpenCategories, onAdd = { vm.openCreate() }) },
+        bottomBar = {
+            ProductsBottomBar(
+                onCategories = onOpenCategories,
+                onAdd = { onOpenForm(null) },
+                onBatch = onOpenBatch,
+            )
+        },
     ) { padding ->
         // 分类清单与当前选中的分类：**与选品页同一套实现**
         // （`categoryTabs` / `categoryOf` / `CategoryRail` 都在 `ui/common/ProductPicker.kt` 里，
@@ -182,12 +182,9 @@ fun ProductsScreen(
                                     ProductCard(
                                         p = p,
                                         acting = vm.acting,
-                                        onEdit = { vm.openEdit(p) },
+                                        onEdit = { onOpenForm(p.id) },
                                         onToggle = { vm.toggleActive(p) },
-                                        onDelete = { vm.delete(p) },
-                                        onOpenPricing = { onOpenPricing(p.id) },
                                         onQuickPrice = { quickPriceFor = p },
-                                        onCostHistory = { vm.openCostHistory(p) },
                                     )
                                 }
                             }
@@ -209,338 +206,16 @@ fun ProductsScreen(
         )
     }
 
-    // 成本价历史（只读）：这个商品的价格从什么时候到什么时候是多少
-    vm.costHistoryFor?.let { p ->
-        CostHistoryDialog(
-            p = p,
-            rows = vm.costHistory,
-            loading = vm.costHistoryLoading,
-            onDismiss = { vm.costHistoryFor = null },
-        )
-    }
+    // ⛔ 成本价历史的弹窗**搬去编辑页**了（用户 2026-09-21：「那 3 点的这个功能到编辑里面去」）：
+    //    卡片右上角那个「⋮」已经删掉，它里面的三项（各批发商价格 / 成本价历史 / 删除）
+    //    现在是 `ProductFormScreen` 里的三行。这一页不再持有 `costHistory*` 那三个状态，
+    //    也**不许**在这里挂第二次（红线 `_check_product_card_single_source.py` 盯着）。
+}
 
-    // 新增/编辑 下拉抽屉（基础信息 / 价格 / 库存）
-    if (vm.showDialog) {
-        ModalBottomSheet(
-            onDismissRequest = { vm.showDialog = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 32.dp),
-            ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (vm.editing == null) "新增商品" else "编辑商品",
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = { vm.showDialog = false }) {
-                            Icon(Icons.Default.Close, contentDescription = "关闭")
-                        }
-                    }
-
-                    // ---- 基础信息 ----
-                    SectionCard {
-                        Text("基础信息", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = vm.draftName, onValueChange = { vm.draftName = it },
-                            label = { Text("商品名称（必填）") },
-                            singleLine = true, modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(10.dp))
-
-                        // 商品图片
-                        Text("商品图片（可选）", style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            val local = vm.draftImageLocal
-                            val remote = if (vm.editing != null && local == null) vm.editing?.imageUrl else null
-                            Box(
-                                Modifier
-                                    .size(96.dp)
-                                    .clip(MaterialTheme.shapes.medium)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .clickable { pickImage.launch("image/*") },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                when {
-                                    local != null -> AsyncImage(
-                                        model = File(local),
-                                        contentDescription = "商品图",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium),
-                                    )
-                                    remote != null -> AsyncImage(
-                                        model = resolveStaticUrl(remote),
-                                        contentDescription = "商品图",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium),
-                                    )
-                                    else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.AddAPhoto, contentDescription = null)
-                                        Spacer(Modifier.height(2.dp))
-                                        Text("选图", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "支持相册选图，自动压缩为 jpg 上传",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                if (local != null || remote != null) {
-                                    Spacer(Modifier.height(4.dp))
-                                    TextButton(onClick = { vm.draftImageLocal = null }, contentPadding = PaddingValues(0.dp)) {
-                                        Text("移除图片")
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-
-                        Text("名称颜色", style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            vm.colorOptions.forEach { (hex, _) ->
-                                Box(
-                                    Modifier
-                                        .size(26.dp)
-                                        .background(Color(android.graphics.Color.parseColor(hex)), CircleShape)
-                                        .clickable { vm.draftColor = hex },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (vm.draftColor == hex) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(14.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("上架销售", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            Switch(checked = vm.draftActive, onCheckedChange = { vm.draftActive = it })
-                        }
-                        Text(
-                            if (vm.editing != null)
-                                "下架后货主下单时不可选，但已有订单不受影响"
-                            else
-                                "新建默认上架；关闭开关则保存后货主不可见",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-
-                    // ---- 价格与批发价 ----
-                    SectionCard {
-                        Text("价格", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = vm.draftPrice,
-                                // 单价规则（唯一实现在 core/InputRules.kt）：只数字 + 至多一个小数点。
-                                // ⚠️ 用 priceInput（**4 位小数**）而不是 moneyInput（2 位）：库里
-                                //    `products.default_unit_price` 是 `Numeric(14,4)`，用 2 位会把
-                                //    "12.3456 元"这种本来定得了的价**悄悄截掉**（用户只会发现第四位打不进去）。
-                                //    原来那句 `isDigit() || c == '.'` 能敲出 `1.2.3`，toDoubleOrNull() 得 null。
-                                onValueChange = { vm.draftPrice = InputRules.priceInput(it) },
-                                label = { Text("默认售价（必填）") },
-                                singleLine = true, modifier = Modifier.weight(1f),
-                            )
-                            OutlinedTextField(
-                                value = vm.draftCost,
-                                onValueChange = { vm.draftCost = InputRules.priceInput(it) },
-                                label = { Text("成本价（选填）") },
-                                singleLine = true, modifier = Modifier.weight(1f),
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "成本价用于报表计算毛利率，留空按 0 计",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-
-                        Spacer(Modifier.height(8.dp))
-                        // ⛔ **这里原来有一段「批发价（可选，可多档）」**（批发价一/二/三 + 添加按钮），
-                        //    2026-09-19 用户拍板**整个概念删掉**。
-                        //    理由（用户原话）：「同一个商品，这个批发商的价格和那个批发商的价格是不一样的，
-                        //    保证操作与逻辑匹配」——而商品上那几个"批发价档位"**下单时谁都不照它走**
-                        //    （下单只认按（批发商×商品）存的专属价，或商品默认售价），
-                        //    它只在"批量调价"和"定价页下拉"里当预设值。一个看起来像批发价、
-                        //    实际不生效的字段，就是最典型的"操作与逻辑不匹配"。
-                        //    批发商的价格现在只有一个入口：商品卡「⋮ → 各批发商价格」
-                        //    （或批发商管理「定价」），两处都是**真的会生效**的那个价。
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-
-                    // ---- 库存 ----
-                    SectionCard {
-                        Text("库存", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(4.dp))
-                        SoTextField(
-                            value = vm.draftStock,
-                            onValueChange = { vm.draftStock = InputRules.intInput(it, 7) },
-                            placeholder = if (vm.editing == null) "初始库存（选填）" else "当前库存（由出入库流水维护）",
-                            enabled = vm.editing == null,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        // 单位：标准紧凑下拉（点击展开常驻列表，点选自动回填）
-                        var unitExpanded by remember { mutableStateOf(false) }
-                        ExposedDropdownMenuBox(expanded = unitExpanded, onExpandedChange = { unitExpanded = it }) {
-                            OutlinedTextField(
-                                value = vm.draftUnit,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("单位") },
-                                placeholder = { Text("请选择单位") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unitExpanded) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                    focusedLabelColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    cursorColor = MaterialTheme.colorScheme.primary,
-                                ),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            )
-                            ExposedDropdownMenu(expanded = unitExpanded, onDismissRequest = { unitExpanded = false }) {
-                                listOf("件", "个", "块", "包", "箱", "桶", "袋", "捆", "瓶", "盒", "盘", "斤", "公斤", "吨", "米", "车").forEach { u ->
-                                    DropdownMenuItem(
-                                        text = { Text(u, maxLines = 1) },
-                                        onClick = { vm.draftUnit = u; unitExpanded = false },
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        // 分类：**从名册里选**（用户 2026-09-19：「他要选择类别的商品分类」）。
-                        // 原来这里是"自由填 + 一排可点的小块"，两个毛病：
-                        // ① 设计规范 §5 写明了「下拉一律 ExposedDropdownMenuBox 点选回填，
-                        //    **不要**用 chips 替代下拉」—— 那是用户早就否决过的做法；
-                        // ② 自由填能造出只差一个空格的同名分类，下单页左侧因此多出一格，
-                        //    而列表上看不出差别（旧注释也承认这一点，所以才补了那些小块）。
-                        // 名册里没有想要的分类时走最后一项「＋ 新建分类…」—— 不把新建这条路堵死。
-                        var catExpanded by remember { mutableStateOf(false) }
-                        var newCatDialog by remember { mutableStateOf(false) }
-                        ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = it }) {
-                            OutlinedTextField(
-                                value = vm.draftCategory.trim().ifBlank { "未分类" },
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("商品分类（选填）") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                    focusedLabelColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    cursorColor = MaterialTheme.colorScheme.primary,
-                                ),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            )
-                            ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("未分类") },
-                                    onClick = { vm.draftCategory = ""; catExpanded = false },
-                                )
-                                vm.categories.forEach { c ->
-                                    DropdownMenuItem(
-                                        // 带上"这一类下有几个商品"：改分类时能看出哪个是主力分类
-                                        text = {
-                                            Text(
-                                                c.name + if (c.productCount > 0) "（${c.productCount} 个商品）" else "",
-                                                maxLines = 1,
-                                            )
-                                        },
-                                        onClick = { vm.draftCategory = c.name; catExpanded = false },
-                                    )
-                                }
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("＋ 新建分类…") },
-                                    onClick = { catExpanded = false; newCatDialog = true },
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "分类决定下单页「选择商品」左侧怎么分组；留空会归到「未分类」。" +
-                                "顺序在「分类管理」里排。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                        if (newCatDialog) {
-                            NewCategoryDialog(
-                                busy = vm.acting,
-                                onConfirm = { name ->
-                                    vm.createCategoryAndSelect(name) { newCatDialog = false }
-                                },
-                                onDismiss = { newCatDialog = false },
-                            )
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        SoTextField(
-                            value = vm.draftAlert,
-                            onValueChange = { vm.draftAlert = InputRules.intInput(it, 7) },
-                            placeholder = "库存报警阈值（低于该值提醒，0=不报警）",
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (vm.editing != null) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "初始库存仅在新建时填写；后续请到「库存管理」做出入库",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
-                        }
-                    }
-
-                    vm.error?.let {
-                        Spacer(Modifier.height(8.dp))
-                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-
-                    Spacer(Modifier.height(14.dp))
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = { vm.showDialog = false },
-                            enabled = !vm.acting,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("取消") }
-                        Button(
-                            onClick = { vm.save() },
-                            enabled = !vm.acting,
-                            modifier = Modifier.weight(1.4f),
-                        ) {
-                            Text(if (vm.acting) "保存中…" else "保存")
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-            }
-        }
-    }
+// ⛔ 这里原来还有 `if (vm.showDialog) { ModalBottomSheet { … } }` —— 商品的新增/编辑抽屉。
+// 2026-09-21 它换成了**单独一页**（`Routes.PRODUCT_FORM` → `ProductFormScreen`）：
+// 参考图就是整页，而且这一页要进二级选择页（单位 / 分组），抽屉里再叠弹层是两层 modal 压着。
+// 表单状态（那份"正在编辑的草稿"）也跟着搬去了 `ProductFormViewModel`。
 
 /**
  * 商品管理的**底部导航栏**：左边「分类管理」、右边「商品新增」（用户 2026-09-19 要求）。
@@ -565,47 +240,101 @@ fun ProductsScreen(
  * ⛔ 不要用钱的橙：同屏「售价」那个数字已经是橙的，会撞色（用户当天刚为这件事改过一次）。
  */
 @Composable
-private fun ProductsBottomBar(onCategories: () -> Unit, onAdd: () -> Unit) {
+private fun ProductsBottomBar(onCategories: () -> Unit, onAdd: () -> Unit, onBatch: () -> Unit) {
     Surface(shadowElevation = 8.dp) {
         Row(
             Modifier
                 .fillMaxWidth()
                 // 底部系统导航条留白：这一栏不是 M3 的 NavigationBar，不会自己处理 insets
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedButton(
+            // 左右两格：**无边框的「图标 + 文字」**（不是描边按钮）——
+            // 参考图那一栏就是这么分主次的：描边按钮摆三个会变成三个并排的框。
+            BottomCell(
+                icon = Icons.Default.Category,
+                label = "分类管理",
                 onClick = onCategories,
-                modifier = Modifier.weight(1f).height(56.dp),
-                shape = MaterialTheme.shapes.medium,
-                border = BorderStroke(1.5.dp, Color(ProductPurple)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(ProductPurple)),
+                modifier = Modifier.weight(1f),
+            )
+            // 中间：**语义色圆钮 + 文字**（照参考图；主操作居中，单手拇指够得着）
+            Column(
+                Modifier.weight(1f).clickable(onClick = onAdd).padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("分类管理", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                FilledIconButton(
+                    onClick = onAdd,
+                    modifier = Modifier.size(52.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color(ProductPurple),
+                        contentColor = Color.White,
+                    ),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "商品新增", modifier = Modifier.size(26.dp))
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "商品新增",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(ProductPurple),
+                )
             }
-            PrimaryActionButton(
-                text = "商品新增",
-                onClick = onAdd,
-                icon = Icons.Default.Add,
-                containerColor = Color(ProductPurple),
-                modifier = Modifier.weight(1.4f),
+            BottomCell(
+                icon = Icons.Default.Checklist,
+                label = "批量操作",
+                onClick = onBatch,
+                modifier = Modifier.weight(1f),
             )
         }
     }
 }
 
+/** 底栏左右那两格：图标 + 文字，**没有边框**（用户 2026-09-21：「底部栅格组排直接照抄」）。 */
+@Composable
+private fun BottomCell(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.clickable(onClick = onClick).padding(vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 /**
- * 商品卡：**一眼看完"卖多少钱、还剩多少"**，动作收进右上角「⋮」、快捷改价在它下面。
+ * 商品卡：**一眼看完"卖多少钱、还剩多少"**，三个动作在卡片底部（改价 / 沽清 / 编辑）。
  *
- * ## 为什么三个按钮收进菜单（用户 2026-09-19）
- * 原话：「红色框的也就是右边 3 个按钮太占位置了，把在保证按钮性的同时，又让他不占位子」。
- * 三个动作各占一个 `IconButton` 的宽度、横着排，把**商品名和关键数字挤成两行灰字**——
- * 而那正是这一页真正要看的。收进 `DropdownMenu` 之后：动作一个没少
- * （可发现性靠标准的「⋮」），腾出来的整条右边都还给信息。
+ * ## 外观全部来自共用零件（`ui/common/ProductCardKit.kt`）
+ * 这一页**只负责"这一页有哪些动作、点开哪一页"**：图、名称色、售价行、库存行、
+ * 两行的先后、库存的颜色，一行都不在这里 —— 另外四个渲染商品的页面用的是同一套
+ * （用户 2026-09-21 第二轮：「其他地方你也得改，最好是采用（通）用的继承，
+ * 上次你改一个地方，它就其他跟着改了」）。
+ * ⚠️ 想改"卡片上显示什么"→ 改那个文件；**不要**在这一页里手拼字符串（红线盯着）。
+ *
+ * ## 那三个按钮为什么在卡片底部而不是右上角「⋮」（用户 2026-09-21）
+ * 上一版是「⋮ → 下拉菜单」（那是用户 2026-09-19 定的：三个 `IconButton` 横排把
+ * 商品名和数字挤成两行灰字）。这一轮用户改主意了，原话：
+ * 「**改价**那个也是个**很大的按钮**，还有一个**沽清、也就是下架**，还有一个**编辑**，3 个」
+ * 「**那 3 个点啊，就到编辑里面选** —— 那 3 点的这个功能到编辑里面去」。
+ * 所以⋮整个删掉、三个动作摊成**一排等宽大按钮**（好点、看得见），
+ * 原来藏在⋮里的三项（各批发商价格 / 成本价历史 / 删除商品）搬进**编辑页**。
  *
  * ## 信息为什么用"图标 + 语义色"（用户 2026-09-19）
  * 原话：「那些信息是在商品管理中非常重要的，不一定非要等编辑才能看得到，
@@ -629,140 +358,117 @@ private fun ProductCard(
     acting: Boolean,
     onEdit: () -> Unit,
     onToggle: () -> Unit,
-    onDelete: () -> Unit,
-    onOpenPricing: () -> Unit,
     onQuickPrice: () -> Unit,
-    onCostHistory: () -> Unit,
 ) {
-    var menu by remember { mutableStateOf(false) }
-
     SectionCard {
-        Row(verticalAlignment = Alignment.Top) {
-            // 商品图
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (p.imageUrl != null) {
-                    AsyncImage(
-                        model = resolveStaticUrl(p.imageUrl),
-                        contentDescription = p.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Icon(
-                        Icons.Default.Inventory2,
-                        contentDescription = null,
-                        tint = Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
-                    )
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        p.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color(android.graphics.Color.parseColor(p.nameColor ?: "#1565C0")),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (!p.isActive) {
-                        Spacer(Modifier.width(6.dp))
-                        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
-                            Text(
-                                "已下架",
-                                style = MaterialTheme.typography.labelMedium,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                            )
-                        }
-                    }
-                }
-                ProductFacts(p)
-            }
-            // 右侧一列：上面是「⋮」菜单，**下面是空的 —— 放一个「改价」快捷入口**。
-            //
-            // 用户 2026-09-19 的原话：「商品右上角不是有 3 个点吗？那是我们的正常设置。
-            // 我们在它的下面，因为下面比较空嘛，在下面再加一个改价，这个改价就是改默认的售价，
-            // 方便嘛、快捷」。
-            //
-            // 为什么值得单独做：改售价是**最高频的日常操作**（进价一变就要改），
-            // 而原来必须先点「⋮ → 编辑」打开整个抽屉、滚到价格那一段、改完再保存。
-            // 现在一步到位，而且**只 PATCH 这一个字段**（不会碰到别的字段）。
-            // 位置也刚好：这一列本来只有顶部一个 ⋮，下面全是空白，加它不会让卡片变高。
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(46.dp)) {
-                Box {
-                    IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(20.dp))
-                    }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("各批发商价格") },
-                            leadingIcon = { Icon(Icons.Default.Sell, contentDescription = null, tint = Color(MoneyOrange)) },
-                            onClick = { menu = false; onOpenPricing() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (p.isActive) "下架" else "上架") },
-                            leadingIcon = {
-                                Icon(
-                                    if (p.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = null,
-                                    tint = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
-                                )
-                            },
-                            onClick = { menu = false; onToggle() },
-                        )
-                        // 成本价历史（用户 2026-09-19 要的溯源能力）：这个价从什么时候到什么时候是多少。
-                        // 只读 —— 改价只有两个入口（这里下面那个快捷改价改售价；成本价在编辑页/进货时改）。
-                        DropdownMenuItem(
-                            text = { Text("成本价历史") },
-                            leadingIcon = {
-                                Icon(Icons.Default.History, contentDescription = null, tint = Color(QuickPriceGreen))
-                            },
-                            onClick = { menu = false; onCostHistory() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("编辑") },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                            onClick = { menu = false; onEdit() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        },
-                        onClick = { menu = false; onDelete() },
-                    )
-                }
-                }
-                // 「改价」：只改默认售价（用户要的快捷入口，见上面那段注释）
-                //
-                // ⚠️ 颜色用**低饱和绿** `QuickPriceGreen`（用户 2026-09-19 第二次点名这个按钮：
-                //    「你商品页面那个改价的那个图标颜色呀，不要用紫色，用绿色，是那种低饱和的绿色」）。
-                //    上一版是商品管理的模块紫 —— 而这一页**同屏已经有两处紫**了
-                //    （底部导航栏的「商品新增 / 分类管理」），三处紫会让人以为它们是同一类动作。
-                //    而钱的橙更不行：旁边「售价」那个数字就是橙的，那是第一版就撞过的色。
-                Column(
-                    Modifier
-                        .clip(MaterialTheme.shapes.small)
-                        .clickable(enabled = !acting, onClick = onQuickPrice)
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        Icons.Default.CurrencyYuan,
-                        contentDescription = "改价",
-                        tint = Color(QuickPriceGreen),
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text("改价", style = MaterialTheme.typography.labelSmall, color = Color(QuickPriceGreen))
-                }
-            }
+        // ---- 大图 + 名称 + **售价** + **库存**（库存在售价的正下方）----
+        // 用户 2026-09-21 第一轮：「图片要大一点、卡片大点…售价在上面的」；
+        // 第二轮：「你还是把**库存**给移到**现在的那个售价的下面**啊，这样子**美观一点**」
+        //          （原来是"图片下面横跨整卡"，读起来要先横着跳一次、再竖着找一次）。
+        //
+        // ⛔ 这一段**没有一个字是这一页自己写的**：图 / 名称色 / 事实 / 两行的先后
+        //    全部来自 `ui/common/ProductCardKit.kt`（`ProductLine` + `productFacts`）。
+        //    另外四个页面（库存 / 批量 / 排序 / 选品）同源 —— 下次改"显示哪两个数字、什么顺序"，
+        //    改的是那个文件里的 `productFacts`，不是这一页。
+        // 「已沽清」角标也是**共用的那一个**（`ProductSoldOutBadge`）：这一轮之前
+        // 卡片上写「已沽清」（灰底）、选品页写「已下架」（红字）—— 同一个状态两个词两种颜色。
+        val soldOut: (@Composable () -> Unit)? = if (p.isActive) null else ({ ProductSoldOutBadge() })
+        ProductLine(
+            name = p.name,
+            nameColor = p.nameColor,
+            facts = productFacts(p.defaultUnitPrice, p.unit, p.stock, p.lowStockAlert),
+            thumb = {
+                ProductThumb(
+                    imageUrl = p.imageUrl,
+                    nameColor = p.nameColor,
+                    size = 88.dp,
+                    shape = MaterialTheme.shapes.medium,
+                )
+            },
+            badge = soldOut,
+        )
+
+        Spacer(Modifier.height(10.dp))
+
+        // ---- 第三行：三个等宽大按钮（用户 2026-09-21：「改价…也是个很大的按钮，
+        //      还有一个沽清、还有一个编辑」）----
+        //
+        // ⛔ 这一版**把右上角的「⋮」整个删掉了**：用户要求那三点里的功能
+        //    （各批发商价格 / 成本价历史 / 删除）搬进**编辑页**，卡片上只留这三个动作。
+        //    （原来那套"三个以上收进 ⋮"是用户 2026-09-19 定的；这一轮他改了主意，
+        //     设计规范 §4.2 已同步改成"卡片上是几个明确的动作按钮、其余进编辑页"。）
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CardAction(
+                label = "改价",
+                icon = Icons.Default.CurrencyYuan,
+                color = Color(QuickPriceGreen),
+                enabled = !acting,
+                onClick = onQuickPrice,
+                modifier = Modifier.weight(1f),
+            )
+            CardAction(
+                label = if (p.isActive) "沽清" else "上架",
+                icon = if (p.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                color = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
+                enabled = !acting,
+                onClick = onToggle,
+                modifier = Modifier.weight(1f),
+            )
+            CardAction(
+                label = "编辑",
+                icon = Icons.Default.Edit,
+                color = Color(ProductPurple),
+                filled = true,
+                enabled = !acting,
+                onClick = onEdit,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * 商品卡底部的一个动作按钮：**三个等宽**、图标 + 文字（用户 2026-09-21 要求"很大的按钮"）。
+ *
+ * [filled] = 实底（主操作，卡片上只有「编辑」用它）；其余是描边。
+ * 颜色仍按**语义**给：改价=低饱和绿（用户 2026-09-19 点名要的）、沽清=红、上架=绿、编辑=模块紫。
+ */
+@Composable
+private fun CardAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    filled: Boolean = false,
+    enabled: Boolean = true,
+) {
+    if (filled) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.height(46.dp),
+            shape = MaterialTheme.shapes.medium,
+            colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
+            contentPadding = PaddingValues(horizontal = 4.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.height(46.dp),
+            shape = MaterialTheme.shapes.medium,
+            border = BorderStroke(1.5.dp, color),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
+            contentPadding = PaddingValues(horizontal = 4.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
@@ -783,7 +489,7 @@ private fun ProductCard(
  *    不标出来用户会拿它去对账。
  */
 @Composable
-private fun CostHistoryDialog(
+internal fun CostHistoryDialog(
     p: ProductDto,
     rows: List<ProductCostHistoryDto>,
     loading: Boolean,
@@ -830,7 +536,7 @@ private fun CostHistoryDialog(
 }
 
 @Composable
-private fun CostHistoryRow(h: ProductCostHistoryDto, unit: String) {
+internal fun CostHistoryRow(h: ProductCostHistoryDto, unit: String) {
     val live = h.effectiveTo == null
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -924,91 +630,14 @@ private fun QuickPriceDialog(
     )
 }
 
-/**
- * 商品卡上那两个数字（图标 + 语义色），**一个一行**。
- *
- * ## 为什么一个一行（用户 2026-09-19）
- * 原话：「那个库存……在成本价的后面，这个不要有，他们全在成本价的下面」——
- * 原来用 `FlowRow` 流式排列，`成本 ¥0.00` 短的时候 `库存` 会被挤到**同一行**、
- * 长的时候又自己换行，于是**每张卡长得都不一样**（列表看起来是毛的）。
- * 现在固定一行一个：既不会出现"这个挤一起、那个换行"，数字也**在竖直方向对齐成一列**，
- * 扫一列价格比扫一片流式文本快得多。
- *
- * ## 为什么没有「成本」（同一天用户要求）
- * 原话：「商品管理界面不要有成本价的显示，成本价是要在编辑里面才会有」。
- * 成本是**内部数**，不参与对客户报价，放在每天扫的列表里只是噪音；
- * 要看/要改都在「⋮ → 编辑」，进货时也能顺手改（见库存页的「进货价」）。
- */
-@Composable
-private fun ProductFacts(p: ProductDto) {
-    val unit = p.unit.ifBlank { "件" }
-    Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Fact(Icons.Default.Sell, "售价", "¥" + formatMoney(p.defaultUnitPrice) + "/" + unit, Color(MoneyOrange))
-        Fact(Icons.Default.Inventory2, "库存", "${p.stock} $unit", stockColor(p))
-    }
-}
+// ⛔ 这里原来定义着商品卡上那两个数字（`ProductFacts(p)` / `Fact(...)` / `stockColor(p)`）。
+//
+// 2026-09-21 全部收进 `ui/common/ProductCardKit.kt` —— 因为"售价怎么拼""库存什么颜色"
+// 这两件事在商品管理页与选品页**各有一份**，而"名称色的兜底值"全库一度有 **5 份**。
+// 「为什么一个一行」「为什么成本不在卡上」（设计规范 §4.1）那两段理由也一起搬了过去：
+// **改卡片上显示什么之前，先读那个文件顶上的说明。**
 
-@Composable
-private fun Fact(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, color: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(13.dp))
-        Spacer(Modifier.width(3.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(3.dp))
-        Text(
-            value,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = color,
-            maxLines = 1,
-        )
-    }
-}
-
-/** 库存的颜色 = 状态：0 红（断货）、≤ 报警阈值 黄、其余用库存管理的语义色。 */
-private fun stockColor(p: ProductDto): Color = when {
-    p.stock <= 0 -> Color(0xFFE53935)
-    p.lowStockAlert > 0 && p.stock <= p.lowStockAlert -> Color(0xFFFFB300)
-    else -> Color(0xFF00BCD4)
-}
-
-/**
- * 商品编辑页里"就地新建分类"的小弹窗。
- *
- * 与「分类管理」页那个 [ProductCategoriesScreen] 里的新建是同一件事，但**不共用**那个弹窗：
- * 那一页还要解释"改名会级联改商品"，这里只要一个名字。重复的是一个 12 行的输入框，
- * 而抽公共组件要给它加三个用不上的参数 —— 不值。
- */
-@Composable
-private fun NewCategoryDialog(
-    busy: Boolean,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var name by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("新建分类") },
-        text = {
-            Column {
-                SoTextField(
-                    value = name,
-                    onValueChange = { name = it.take(8) },
-                    placeholder = "分类名，如 饮料 / 粮油 / 日化",
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "建好后会自动选中它。顺序到「分类管理」里排。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = !busy && name.isNotBlank(), onClick = { onConfirm(name) }) {
-                Text(if (busy) "提交中…" else "新建并选中")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
+// ⛔ 这里原来还有一个 private 的 `NewCategoryDialog`（只有那个抽屉在用）。
+// 2026-09-21 抽屉改成单独一页之后，它换成 `ui/common/CategoryPickerSheet.kt` 里的
+// `CategoryNameDialog`（**名册页与选择页共用的那一份**）—— 商品表单里那个
+// 「新建分组」走的就是它，见 `ProductFormScreen` 的分类选择页。

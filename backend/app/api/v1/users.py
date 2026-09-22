@@ -22,6 +22,7 @@ from app.schemas.user import UserCreate, UserOut, UserUpdate
 from app.services.soft_delete import del_suffix
 from app.services.operation_log_service import write_log
 from app.services.auth_service import revoke_tokens_and_sockets
+from app.services import usage_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -76,7 +77,11 @@ def list_users(
 ) -> list[User]:
     # 多取一行判截断（2026-09-19 外部完整检查 §9.1）：账号列表超过 100 时界面不说，
     # 派单员会以为"没有这个账号"再去建一个（而同号会撞唯一约束）。
-    stmt = select(User).order_by(User.id.desc()).offset(skip).limit(limit + 1)
+    # 2026-09-22 统一规则：**常用度 → 先创建的在前**（用户：「拉批发商或普通货主……
+    # 先按称谓分好类，再按常用的顺序排」——分组由调用方按 `is_member` 做，这里只管顺序）
+    stmt = usage_service.with_popularity(
+        select(User), User, usage_service.KIND_USER, current
+    ).offset(skip).limit(limit + 1)
     if role is not None:
         stmt = stmt.where(User.role == role)
     if is_member is not None:

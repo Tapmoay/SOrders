@@ -27,6 +27,7 @@ import com.tapmoay.sorders.data.remote.dto.ExpenseCategoryDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
 import kotlinx.coroutines.launch
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 开销分类管理（2026-09-20 用户第六轮：「开销分类……也有个分类管理」）。
@@ -133,7 +134,7 @@ fun ExpenseCategoriesScreen(container: AppContainer, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
-                    Text(
+                    Hint(
                         "顺序 = 开销页左边那一列的顺序；「主要关联」决定开销卡片上突出哪一项"
                             + "（比如燃油选「车辆」，卡片上就显示车牌）。",
                         style = MaterialTheme.typography.bodySmall,
@@ -239,7 +240,7 @@ private fun ExpenseCategoryRow(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                Text(
+                Hint(
                     if (c.id == 0L) "老数据里的分类名，改不了也排不了序；它名下的开销照常显示"
                     else "共 " + c.expenseCount + " 笔 · 卡片突出：" + ExpenseLink.label(c.linkKind),
                     style = MaterialTheme.typography.bodySmall,

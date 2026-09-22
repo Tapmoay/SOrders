@@ -1,0 +1,4 @@
+58
+# 「分组一律白卡」的待改基线（只许减不许增）。
+# 改好一页就跑 `python _tools/qa/_check_form_panel_style.py --update` 把它降下来。
+# 生成时间见 git；文件清单由脚本自己算，不手写。

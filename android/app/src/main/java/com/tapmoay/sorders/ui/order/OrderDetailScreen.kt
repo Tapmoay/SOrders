@@ -378,6 +378,9 @@ fun OrderDetailScreen(
             loading = vm.loadingUnits,
             units = vm.arrearsUnits,
             onPick = { unit -> vm.charge(unit.id) },
+            // 就地新建（用户 2026-09-22：「直接点击挂账，这个挂账单位是**自动添加**的」）
+            onCreate = { name -> vm.chargeNewUnit(name) },
+            acting = vm.acting,
             onDismiss = { vm.showChargeSheet = false },
         )
     }
@@ -543,6 +546,8 @@ private fun DetailBody(
                 SectionTitle(Icons.Default.Place, Color(ShipperTeal), "收货信息")
                 Spacer(Modifier.height(10.dp))
                 val ctx = LocalContext.current
+                // 下单人那一行点了之后**先确认再拨**（见下面那段注释）
+                var confirmCallBoss by remember { mutableStateOf(false) }
                 Row(verticalAlignment = Alignment.Top) {
                     Icon(
                         Icons.Default.Place,
@@ -611,16 +616,59 @@ private fun DetailBody(
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = androidx.compose.ui.graphics.Color(0xFF0A6CFF),
                         )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "点击拨打",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        // ⛔ 这里原来右边还有一句「点击拨打」。用户 2026-09-22：「那个**点击拨打**那个提示
+                        //    可以**去掉**，不需要啊，因为他这个已经**蓝色亮起来**了，人家就知道可以拨打」。
                     }
                 }
+                // 下单人：**也能拨**，但**不直接拨**（用户 2026-09-22：「点击拨打下单人不是点一下就立马
+                // 可以拨打，而是他有个**弹窗确认**『是否确认拨打』，可以取消」）—— 下单人常常就在旁边，
+                // 误点一下就拨出去不礼貌；收货人是"货要送到的人"，那一行仍然一点就拨。
+                // 电话号码那一段是**绿色小字**（用户：「样式不要变，但是颜色变一下，变成（一）点绿色」）。
                 contactWho(order.contactBossName, order.contactBossPhone)?.let { who ->
-                    InfoRow("下单人", who)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = order.contactBossPhone.isNotBlank()) { confirmCallBoss = true }
+                            .padding(vertical = 6.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = null,
+                            tint = androidx.compose.ui.graphics.Color(0xFF00B578),
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("下单人", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text(
+                            who,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = androidx.compose.ui.graphics.Color(0xFF00B578),
+                        )
+                    }
+                    // 确认弹窗（不是一点就拨）：下单人常常就在旁边，误点一下不礼貌
+                    if (confirmCallBoss) {
+                        AlertDialog(
+                            onDismissRequest = { confirmCallBoss = false },
+                            title = { Text("确认拨打") },
+                            text = {
+                                Text(
+                                    (order.contactBossName.orEmpty().ifBlank { "下单人" }) +
+                                        "：" + order.contactBossPhone,
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    confirmCallBoss = false
+                                    val uri = android.net.Uri.parse("tel:" + order.contactBossPhone.trim())
+                                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, uri))
+                                }) { Text("拨打") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { confirmCallBoss = false }) { Text("取消") }
+                            },
+                        )
+                    }
                 }
                 if (order.remark.isNotBlank()) InfoRow("备注", order.remark)
                 if (role == Role.DRIVER || role == Role.DISPATCHER) {
@@ -1415,6 +1463,9 @@ private fun ChargeSheet(
     loading: Boolean,
     units: List<com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto>,
     onPick: (com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto) -> Unit,
+    /** 就地新建一个单位并挂上（"自动添加"：名字不在名册里也照样能挂）。 */
+    onCreate: (String) -> Unit,
+    acting: Boolean,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -1427,6 +1478,26 @@ private fun ChargeSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
+            // ⚠️ 名册里没有那个单位时**不用先退出去建**（用户 2026-09-22：
+            //    「直接点击挂账，这个挂账单位是**自动添加**的」）：
+            //    在这里写个名字就能建出来并挂上 —— 两个动作（建 + 挂）分开写审计，
+            //    所以建成功、挂失败时那句话要说清"单位已建好，再点一次即可"（见 VM）。
+            var newName by remember { mutableStateOf("") }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SoTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    placeholder = "名册里没有？写个名字，直接建 + 挂",
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                TextButton(
+                    onClick = { onCreate(newName) },
+                    enabled = !acting && newName.isNotBlank(),
+                ) { Text(if (acting) "处理中…" else "新建并挂账") }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(6.dp))
             when {
                 loading -> LoadingBox()
                 units.isEmpty() -> Text(

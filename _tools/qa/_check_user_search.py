@@ -62,6 +62,9 @@ USER_SEARCH_PY = APP / "core/user_search.py"
 COMPONENTS_KT = ANDROID / "ui/common/Components.kt"
 LEDGER_SCREEN = ANDROID / "ui/dispatcher/DispatcherLedgerScreen.kt"
 LEDGER_VM = ANDROID / "ui/dispatcher/DispatcherLedgerViewModel.kt"
+#: 选人那一套零件（页面上那一行入口 + 侧边抽屉）：2026-09-22 从账本页搬进 `ui/common/`，
+#: 账本页与司机运费结算页共用 —— 所以"抽屉里那个搜索框"的锚点也搬到了这里。
+PERSON_PICKER = ANDROID / "ui/common/PersonPicker.kt"
 
 #: 名册页（用户点名的两个 + 同一支实现的另两个）：它们的搜索**必须**打到服务端。
 ROSTER_VMS = [
@@ -147,12 +150,23 @@ def person_search_boxes(src: str) -> list[str]:
     两类都算：
     · `SearchField(` 调用 —— 共享组件本身就是"按人搜索"那一份（提示语与清空按钮同源）；
     · 提示语里**同时**提人和号码、且**不提地址**的框（含引用 `UserSearch.HINT` 的写法）。
+
+    ⚠️ **窗口必须在下一个 `label =` / `placeholder =` 处截断**（2026-09-22 加）：
+    原来取 `placeholder =` 之后 **240 个字符**里的所有字符串字面量，于是
+    `FormInputRow(label = "收货人电话", …, placeholder = "从线路带出，可改")` 里那个
+    **label** 落进了**上一个** placeholder 的窗口 → 被误判成"按人搜索框"→ 整条检查假红
+    （实测踩过：把下单页改成共用行之后这条检查红了，而那一页根本没有搜索框）。
+    截断之后"`placeholder = when { … }`"那种跨行写法照样认（它中间没有别的 label）。
     """
     out: list[str] = []
     if re.search(r"(?<!fun )SearchField\(", src):
         out.append("SearchField")
     for m in _PLACEHOLDER_AT.finditer(src):
-        for qm in _QUOTED.finditer(src[m.end(): m.end() + 240]):
+        window = src[m.end(): m.end() + 240]
+        cut = re.search(r"\b(?:label|placeholder)\s*=", window)
+        if cut:
+            window = window[: cut.start()]
+        for qm in _QUOTED.finditer(window):
             text = qm.group(1)
             if re.search(_ADDRESS_WORD, text):
                 continue  # 地址搜索是**另一条规则**（见 [_ADDRESS_WORD] 的说明）
@@ -329,8 +343,10 @@ def main() -> int:
         )
     ls = kts[LEDGER_SCREEN]
     ok(
-        "账本有仪表盘卡（KpiBlock）与一个搜索框（SearchField，在侧边抽屉里）",
-        "KpiBlock(" in ls and "SearchField(" in ls,
+        "账本有仪表盘卡（KpiBlock），选人走**侧边抽屉**，抽屉里那个搜索框是共用的那一份",
+        "KpiBlock(" in ls and "PersonDrawer(" in ls and "SearchField(" in kts[PERSON_PICKER],
+        "抽屉（含里面的搜索框）是 ui/common/PersonPicker.kt 里的**一份**实现；"
+        "账本页必须调它 —— 各写一份就是「改一处漏一处」",
     )
     # 三类账共用**一份**行渲染：`LedgerAccountRow` 只有一处定义 + 一处调用，
     # 而"这一类账叫什么/什么颜色/什么图标"在 VM 的 `kind*` 三处（不再散在页面的 when 里）。

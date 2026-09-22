@@ -17,6 +17,7 @@ from app.api.v1.product_categories import ensure_category
 from app.schemas.product_visibility import product_visible_to, visible_product_ids
 from app.schemas.product import ProductCostHistoryOut, ProductCreate, ProductOut, ProductUpdate
 from app.services import cost_history
+from app.services import usage_service
 from app.services.cost_history import record_cost
 from app.services.operation_log_service import write_log
 
@@ -90,8 +91,23 @@ def list_products(
         include_inactive = False
     q = select(Product).where(Product.is_deleted.is_(False)).order_by(
         case((Product.is_active.is_(True), 0), else_=1),
-        Product.id.desc(),
+        # ⚠️ 顺序 = 在售优先 → **排过序的在前**（小的在前）→ **没排过的排最后**（按 id 倒序，新的在前）。
+        #
+        # ⛔ 那个 `sort_order == 0` 的 CASE **不是多余的**，它是这一列的正确性所在：
+        #    0 = "没排过"（列默认值），而 1 是"排在第 1 位"。只写 `sort_order ASC` 的话，
+        #    **0 会排在 1 前面** —— 于是用户在排序页点「置顶」（写 1）反而把它
+        #    沉到所有没排过的商品**后面**（实测抓到的：置顶之后前三个变成 36/35/33，
+        #    被置顶的 34 直接不见了）。
+        #    加了这个 CASE 之后：排过的一律在前、没排过的按 id 倒序殿后；
+        #    而"全是 0"（老库、没碰过排序）时这一项恒等，列表与加这一列之前**一字不差**。
+        case((Product.sort_order == 0, 1), else_=0),
+        Product.sort_order.asc(),
     )
+    # 再按 2026-09-22 的统一规则：**常用度 → 先创建的在前**（`id` 升序，见 usage_service）。
+    # ⚠️ 它排在**手工排序之后**是有意的：置顶/拖动是用户**明确摆**出来的位置（"我就要它在这儿"），
+    #    比"用过几次"更硬的意愿；常用度只在"都没手工排过"的那一批里决定先后。
+    #    ⛔ 上一版的 `Product.id.desc()`（新的在前）由这一行取代 —— 用户定的基础序是"先创建的在前"。
+    q = usage_service.with_popularity(q, Product, usage_service.KIND_PRODUCT, current)
     if not include_inactive:
         q = q.where(Product.is_active.is_(True))
     # 白名单（v3.43）：`custom` 的货主只看到勾选的那些。`None` = 不受限。

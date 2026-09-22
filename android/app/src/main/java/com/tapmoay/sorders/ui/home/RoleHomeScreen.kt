@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.tapmoay.sorders.core.AlertService
@@ -231,7 +232,22 @@ fun RoleHomeScreen(
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        // ⚠️ 「我的」这一 Tab 的深色头部要**画到状态栏下面**（用户 2026-09-21 给的参考图那种
+        //    "深色顶"，见 `ui/profile/ProfileHeader.kt`），所以它**不吃** Scaffold 的**顶部** inset
+        //    —— 改由 `ProfileHeader` 自己吃（`WindowInsets.statusBars`，只让内容让开、背景铺上去）。
+        //    不这么做的话头部会被顶下来，上面留一条页面底色的浅灰带，「深色顶」的观感就没了。
+        //    ⛔ 其余 Tab **一行都不变**（照旧吃完整 padding），它们的 AppBar 依赖这个顶部 inset。
+        val contentPad = if (tabs[tabIdx].content == "profile") {
+            PaddingValues(
+                start = padding.calculateStartPadding(LocalLayoutDirection.current),
+                top = 0.dp,
+                end = padding.calculateEndPadding(LocalLayoutDirection.current),
+                bottom = padding.calculateBottomPadding(),
+            )
+        } else {
+            padding
+        }
+        Box(Modifier.fillMaxSize().padding(contentPad)) {
             when (tabs[tabIdx].content) {
                 "dispatch" -> DispatcherPoolScreen(
                     container = container,
@@ -264,12 +280,9 @@ fun RoleHomeScreen(
                 else -> ProfileScreen(
                     container = container,
                     onBack = {},
-                    onOpenMessages = {
-                        val msgIdx = tabs.indexOfFirst { it.content == "messages" }
-                        if (msgIdx >= 0) selectedTab = msgIdx else onNavigate(Routes.MESSAGES)
-                    },
                     onOpenFreight = { onNavigate(Routes.DRIVER_FREIGHT) },
                     onOpenAlerts = { onNavigate(Routes.ALERT_SETTINGS) },
+                    onOpenBasicSettings = { onNavigate(Routes.BASIC_SETTINGS) },
                     embedded = true,
                 )
             }

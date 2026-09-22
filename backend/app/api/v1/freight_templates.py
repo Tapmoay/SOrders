@@ -35,6 +35,7 @@ from app.schemas.freight_template import (
 from app.services.freight_pricing import Quote, quote_for
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import ensure_alive
+from app.services import usage_service
 
 router = APIRouter(prefix="/freight-templates", tags=["freight-templates"])
 
@@ -209,11 +210,16 @@ def _set_categories(db: Session, t: FreightTemplate, category_ids: list[int]) ->
 @router.get("", response_model=list[FreightTemplateOut])
 def list_templates(
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+    # ⚠️ 参数名必须是 `current`：下面 `with_popularity(..., current)` 要用它（原来写的是 `_`）。
+    current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     vehicle_type: str | None = Query(None),
 ) -> list[FreightTemplateOut]:
+    # 先按线路归拢（同一线路的挨着），再按 2026-09-22 统一规则：常用度 → 先创建的在前
     q = select(FreightTemplate).where(FreightTemplate.is_deleted.is_(False)).order_by(
-        FreightTemplate.route_id.is_(None), FreightTemplate.route_id, FreightTemplate.id
+        FreightTemplate.route_id.is_(None), FreightTemplate.route_id
+    )
+    q = usage_service.with_popularity(
+        q, FreightTemplate, usage_service.KIND_FREIGHT_TEMPLATE, current
     )
     if vehicle_type:
         q = q.where(FreightTemplate.vehicle_type == vehicle_type)

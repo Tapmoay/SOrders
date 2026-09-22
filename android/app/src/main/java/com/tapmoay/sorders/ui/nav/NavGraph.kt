@@ -36,7 +36,10 @@ import com.tapmoay.sorders.ui.driver.DriverFreightScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherOrdersScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherReturnRequestsScreen
 import com.tapmoay.sorders.ui.dispatcher.InventoryScreen
+import com.tapmoay.sorders.ui.dispatcher.ProductBatchScreen
+import com.tapmoay.sorders.ui.dispatcher.ProductSortScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductCategoriesScreen
+import com.tapmoay.sorders.ui.dispatcher.ProductFormScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductsScreen
 import com.tapmoay.sorders.ui.dispatcher.UserPool
 import com.tapmoay.sorders.ui.dispatcher.ReportCenterScreen
@@ -52,6 +55,7 @@ import com.tapmoay.sorders.ui.login.LoginScreen
 import com.tapmoay.sorders.ui.messages.MessagesScreen
 import com.tapmoay.sorders.ui.order.OrderDetailScreen
 import com.tapmoay.sorders.ui.profile.AlertSettingsScreen
+import com.tapmoay.sorders.ui.profile.BasicSettingsScreen
 import com.tapmoay.sorders.ui.shipper.AddressScreen
 import com.tapmoay.sorders.ui.shipper.OrderCreateScreen
 import com.tapmoay.sorders.ui.shipper.ShipperLedgerScreen
@@ -130,6 +134,13 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         }
         composable(Routes.ALERT_SETTINGS) {
             AlertSettingsScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        // 基础设置（「我的」第二层）：随日落 / 夜间模式 / 提示
+        composable(Routes.BASIC_SETTINGS) {
+            BasicSettingsScreen(
                 container = container,
                 onBack = { navController.popBackStack() },
             )
@@ -260,8 +271,35 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 container = container,
                 onBack = { navController.popBackStack() },
                 onOpenCategories = { navController.navigate(Routes.PRODUCT_CATEGORIES) },
-                // 「这个商品卖给每家批发商多少钱」——价格矩阵的另一个方向（2026-09-19 新增）
-                onOpenPricing = { pid -> navController.navigate(Routes.priceByProduct(pid)) },
+                // 新增（null）/ 编辑某一个：**单独一页**，存好之后回退，
+                // 列表页的 `LaunchedEffect(Unit)` 会重新拉一次，所以刚存的立刻看得到。
+                onOpenForm = { pid -> navController.navigate(Routes.productForm(pid)) },
+                // 底栏第三格「批量操作」（2026-09-21，用户点名要的三格之一）
+                onOpenBatch = { navController.navigate(Routes.PRODUCT_BATCH) },
+                // 顶栏右上角「排序」→ 商品排序页（用户：「那个排序你没加啊」）
+                onOpenSort = { navController.navigate(Routes.PRODUCT_SORT) },
+            )
+        }
+        composable(Routes.PRODUCT_BATCH) {
+            ProductBatchScreen(container = container, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.PRODUCT_SORT) {
+            ProductSortScreen(container = container, onBack = { navController.popBackStack() })
+        }
+        // 新增 / 编辑商品：一条路由两个用法（`?productId=` 缺省 = 新增）。
+        // ⚠️ 与「账本 4 类账」同一个套路：**同一页的两个档位就一条路由**，不要建两个页面。
+        composable(
+            route = Routes.PRODUCT_FORM + "?productId={productId}",
+            arguments = listOf(navArgument("productId") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            val pid = entry.arguments?.getLong("productId") ?: 0L
+            ProductFormScreen(
+                container = container,
+                productId = if (pid > 0L) pid else null,
+                onBack = { navController.popBackStack() },
+                // 「各批发商价格」现在是编辑页里的一行（原来在商品卡的 ⋮ 菜单里，
+                // 用户 2026-09-21 要求把 ⋮ 的功能搬进编辑页）
+                onOpenPricing = { id -> navController.navigate(Routes.priceByProduct(id)) },
             )
         }
         composable(Routes.PRODUCT_CATEGORIES) {

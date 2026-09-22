@@ -134,10 +134,25 @@ class AccountManageViewModel(
     var draftPassword by mutableStateOf("")
     var draftRoleKey by mutableStateOf(AccountRoleKind.SHIPPER.key)
 
-    // 必填校验错误（非空 = 红边 + 提示）
+    // 必填校验错误（非空 = 抽屉里那一行红字；2026-09-22 之前是"红边 + supportingText"，
+    // 而新的表单行是无边框的，没有"边"可红 —— 所以错误必须**自己说出来**，
+    // 每一句都得能独立读懂是哪一栏错了）
     var nameError by mutableStateOf<String?>(null)
     var phoneError by mutableStateOf<String?>(null)
     var passwordError by mutableStateOf<String?>(null)
+
+    /**
+     * 保存失败时**服务端**回的那一句（如手机号已存在）。
+     *
+     * ⚠️ 它刻意**不**写进页面级的 [error]：那个状态会把整页换成「一句话 + 重试」（`ErrorView`），
+     * 于是"保存被拦下"在用户眼里就成了"**整页账号全没了**"，而真正的红字还画在抽屉背后被盖住
+     * （同一个坑 2026-09-21 在「新增地点」上踩过，见 `Components.kt::FormErrorLine` 的注释）。
+     * → 表单的错误必须和表单**同生共死**：画在抽屉里、[validate] 一跑就清掉。
+     */
+    var saveError by mutableStateOf<String?>(null)
+
+    /** 抽屉里那一行红字（字段校验与保存失败合成一句，顺序 = 用户从上往下填的顺序）。 */
+    val formError: String? get() = nameError ?: phoneError ?: passwordError ?: saveError
 
     // 删除确认
     var deleting by mutableStateOf<UserDto?>(null)
@@ -171,9 +186,7 @@ class AccountManageViewModel(
         draftPhone = ""
         draftPassword = ""
         draftRoleKey = AccountRoleKind.SHIPPER.key
-        nameError = null
-        phoneError = null
-        passwordError = null
+        clearSheetErrors()
         showSheet = true
     }
 
@@ -183,20 +196,29 @@ class AccountManageViewModel(
         draftPhone = u.phone
         draftPassword = ""
         draftRoleKey = AccountRoleKind.fromDto(u).key
-        nameError = null
-        phoneError = null
-        passwordError = null
+        clearSheetErrors()
         showSheet = true
     }
 
-    /** 校验必填项；全过返回 true（红边提示由各 error 状态承载） */
+    /** 打开抽屉时把上一轮的红字清干净（错误跟着表单走，不留到下一次）。 */
+    private fun clearSheetErrors() {
+        nameError = null
+        phoneError = null
+        passwordError = null
+        saveError = null
+    }
+
+    /** 校验必填项；全过返回 true（红字由 [formError] 承载） */
     fun validate(): Boolean {
-        nameError = if (draftName.trim().isEmpty()) "必填信息" else null
+        saveError = null
+        // 三句话都写成"能独立读懂"的：抽屉里只有**一行**红字，
+        // 原来的"必填信息"在这里会变成一句不知道指哪一栏的话。
+        nameError = if (draftName.trim().isEmpty()) "请填写姓名" else null
         // 手机号格式走唯一实现（原来这里手抄了一遍"11 位 + 以 1 开头"，
         // 而**同一个 App 的账号管理页**抄的是另一份 —— 两份口径迟早会分叉）
         phoneError = InputRules.mobileError(draftPhone)
         passwordError = when {
-            draftPassword.isEmpty() -> if (editing != null) null else "必填信息"
+            draftPassword.isEmpty() -> if (editing != null) null else "请设置密码（至少 6 位）"
             draftPassword.length < 6 -> "密码至少 6 位"
             else -> null
         }
@@ -258,7 +280,8 @@ class AccountManageViewModel(
                 showSheet = false
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // 保存失败 → **抽屉里**那一行红字（不是页面级 error：那会把整页列表顶掉）
+                saveError = toApiException(e).message
             } finally {
                 acting = false
             }

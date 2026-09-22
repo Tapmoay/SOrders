@@ -292,11 +292,18 @@ MUTATIONS = [
         "AppRoot 消费单号并跳转",
     ),
     (
-        "「我的」里的消息提醒入口点不动了",
+        "「我的」里的消息提醒入口接线被摘掉（点不动了）",
         SRC / "ui/profile/ProfileScreen.kt",
-        "                            .clickable(onClick = onOpenAlerts)",
-        "                            .clickable { }",
-        "「我的」有消息提醒入口且真的能点进去",
+        "onClick = onOpenAlerts,",
+        "onClick = null,",
+        "「我的」有消息提醒入口且接到了 onOpenAlerts",
+    ),
+    (
+        "共用行组件把 onClick 收下就丢（所有设置行都点不动，界面看着一切正常）",
+        SRC / "ui/profile/ProfileRow.kt",
+        ".then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)",
+        ".then(Modifier)",
+        "共用行组件真的把 onClick 接到 clickable 上（不是收下就丢）",
     ),
     (
         "试听按钮改名（用户找不到「确认听得见」的那个按钮）",

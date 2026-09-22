@@ -22,6 +22,7 @@ import com.tapmoay.sorders.data.remote.dto.InventoryMovementDto
 import com.tapmoay.sorders.data.remote.dto.InventorySummaryItemDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatDateTime
+import com.tapmoay.sorders.ui.common.Hint
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,7 +108,7 @@ fun InventoryScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(4.dp))
-                        Text(
+                        Hint(
                             "填了就把这一批的进货价记下来（毛利率按入库的平均进货价算），" +
                                 "并把商品成本价更新成它；不填只改库存。",
                             style = MaterialTheme.typography.bodySmall,
@@ -266,24 +267,39 @@ private fun InventoryBody(vm: InventoryViewModel) {
     }
 }
 
+/**
+ * 库存页的卡：**左边语义色图标块、右边名称 + 库存事实 + 状态角标，下面一整行两个按钮**。
+ *
+ * ## ⛔ 这一页的"商品外观"也归 `ui/common/ProductCardKit.kt` 管
+ * 用户 2026-09-21（第二轮）：「其他地方你也得改，最好是采用（通）用的继承，
+ * 上次你改一个地方，它就其他跟着改了」。所以这一轮把**判据**全部搬进零件：
+ * 库存的配色（[productStockColor]）、库存那一行怎么拼（[productStockFact]）、
+ * 占用那一行（[productReservedFact]）、状态角标几时出现（[ProductStockBadge]）。
+ *
+ * ⚠️ 搬之前这里自己判了一套**不一样**的颜色：低库存写红 `#FF4D4F`、
+ * 缺货写灰 `#8A8A8E`、正常数字写深青 `#007A8A` —— 而商品卡那边是
+ * 到报警线黄 `#FFB300`、断货红 `#E53935`、正常 `#00BCD4`。
+ * 同一件商品在两页**颜色不一样**（缺货在卡上是红的、在这里是灰的），
+ * 这正是"改一个地方、另一个不跟着"的典型后果。
+ *
+ * ⚠️ **不能整页换成 [ProductLine]**：这一页手里的 DTO（`InventorySummaryItemDto`）
+ * 只有商品名/库存/单位/报警线/占用 —— **没有图、没有名称色、没有售价**，
+ * 所以这里画不出"和商品卡一模一样"的一张卡。要那样就得让后端在库存汇总里
+ * 多发 `image_url` / `name_color` / `default_unit_price` 三个字段（这一轮没做，
+ * 因为本轮是零后端改动；需要的话单独起一轮）。
+ */
 @Composable
 private fun StockCard(
     s: InventorySummaryItemDto,
     onInbound: () -> Unit,
     onOutbound: () -> Unit,
 ) {
-    val low = s.lowStockAlert > 0 && s.stock <= s.lowStockAlert
-    val out = s.stock <= 0
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // 语义色图标块：正常=库存管理蓝青#00BCD4；低库存=红#FF4D4F；缺货=灰#8A8A8E
+            // 图标块：颜色跟着**共用判据**走（正常=库存管理蓝青、到报警线=黄、断货=红）
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = when {
-                    low -> Color(0xFFFF4D4F)
-                    out -> Color(0xFF8A8A8E)
-                    else -> Color(0xFF00BCD4)
-                },
+                color = productStockColor(s.stock, s.lowStockAlert),
             ) {
                 Icon(
                     Icons.Default.Inventory2,
@@ -302,34 +318,17 @@ private fun StockCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "库存 " + s.stock + " " + s.unit,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            low -> Color(0xFFFF4D4F)
-                            out -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> Color(0xFF007A8A)
-                        },
+                // 库存与占用都是"事实"，走同一个零件（一个一行、图标 + 标签 + 值）
+                ProductFacts(
+                    listOfNotNull(
+                        productStockFact(s.stock, s.lowStockAlert, s.unit),
+                        if (s.reserved > 0) productReservedFact(s.reserved, s.unit) else null,
                     )
-                    if (s.reserved > 0) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "-" + s.reserved,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFF6B2C),
-                        )
-                    }
-                }
+                )
             }
             // 状态角标放**名称那一行**（不是按钮那一行）：它说的是"这个商品现在怎么样"，
             // 和库存数字是一件事；和按钮挤在一起会被当成按钮的一部分。
-            when {
-                low -> StockBadge("低库存", Color(0xFFFF4D4F), Color(0xFFFFE8E8))
-                out -> StockBadge("缺货", Color(0xFF8A8A8E), Color(0xFFEFEFEF))
-            }
+            ProductStockBadge(s.stock, s.lowStockAlert)
         }
         Spacer(Modifier.height(10.dp))
         // ⚠️ 出入库两个按钮**另起一行**（原来是塞在同一行的最右边）：
@@ -357,19 +356,6 @@ private fun StockCard(
                 Text("入库")
             }
         }
-    }
-}
-
-/** 库存状态角标（低库存 / 缺货）—— 一直只在这两种状态下出现，正常时不占位置。 */
-@Composable
-private fun StockBadge(text: String, fg: Color, bg: Color) {
-    Surface(color = bg, shape = MaterialTheme.shapes.small) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            color = fg,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-        )
     }
 }
 

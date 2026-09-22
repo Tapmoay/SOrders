@@ -5,6 +5,11 @@ object Routes {
     const val HOME = "home"
     /** 消息提醒设置（语音提醒/念几遍/关掉 App 也收单） */
     const val ALERT_SETTINGS = "settings/alerts"
+    /**
+     * 基础设置（2026-09-21 新增）：「我的」页的**第二层** —— 随日落 / 夜间模式 / 提示，
+     * 三个**纯显示偏好**。用户原话：「我们按钮太多了，哪些是不怎么重要的，我们就放到基础设置当中」。
+     */
+    const val BASIC_SETTINGS = "settings/basic"
     const val MESSAGES = "messages"
 
     // 货主
@@ -63,7 +68,38 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     /** 商品分类管理（新建/改名/调顺序）——下单页左侧那一列的顺序就是它。 */
     const val PRODUCT_CATEGORIES = "dispatcher/product-categories"
 
+    /**
+     * **新增 / 编辑商品 = 单独一页**（2026-09-21，商品管理改版第 1 期）。
+     *
+     * 为什么不是原来那个底部抽屉：① 参考图（POS 的新增商品）就是整页；
+     * ② 用户自己后来定了「新增开销 = 单独一页，「就相当于新增订单一样」」；
+     * ③ 这一页要进**二级选择页**（单位 / 分组），抽屉里再叠弹层就是两层 modal 压着。
+     *
+     * `?productId=` 缺省 = 新增。参数名的拼法**只有 [productForm] 这一处**
+     * （`NavGraph.kt` 的 `navArgument("productId")` 认的就是它）。
+     */
+    const val PRODUCT_FORM = "dispatcher/products/form"
+
+    /** `productId = null` → 新增；非空 → 编辑那一个。 */
+    fun productForm(productId: Long? = null): String =
+        if (productId != null && productId > 0L) "$PRODUCT_FORM?productId=$productId" else PRODUCT_FORM
+
     const val INVENTORY = "dispatcher/inventory"
+    /**
+     * **批量操作**（2026-09-21，底栏第三格 —— 用户原话：「右边那个**批量操作**」）。
+     *
+     * 只做商品管理里真有的动作：**改分组 / 沽清 / 上架 / 删除**；执行是**逐条**调已有接口
+     * （不新增后端端点），结果逐条汇报。⛔ 没有"批量改库存"（库存只能走出入库流水）。
+     */
+    const val PRODUCT_BATCH = "dispatcher/products/batch"
+
+    /**
+     * **商品排序**（2026-09-21，用户：「那个排序你没加啊」）。
+     *
+     * 从上到下 = 商品管理页里的顺序；拖动或「置顶↑」调，点「完成」逐条写
+     * `PATCH /products/{id} {sort_order}`（第 1 行写 1、第 2 行写 2 …；0 保留给"没排过"）。
+     */
+    const val PRODUCT_SORT = "dispatcher/products/sort"
     const val ARREARS_UNITS = "dispatcher/arrears"
     const val FREIGHT_TEMPLATES = "dispatcher/freight-templates"
     /** 运费分类管理（2026-09-21）：运费模板与计费规则**共用**的一套分类。 */

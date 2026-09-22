@@ -126,7 +126,7 @@ fun ShipperReturnRequestsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text(
+                    Hint(
                         "撤回不是删除：申请记录留着，派单员看得到你提过又撤了。" +
                             "撤回后可以重新申请（想改数量只能这么改）。",
                         style = MaterialTheme.typography.bodyMedium,

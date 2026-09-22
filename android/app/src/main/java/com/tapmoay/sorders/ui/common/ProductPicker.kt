@@ -10,8 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -20,17 +20,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatMoney
-import com.tapmoay.sorders.util.resolveStaticUrl
 
 /**
  * 外卖式的**全屏选品页**（货主下单 / 派单员代理下单共用同一个）。
@@ -396,121 +393,92 @@ private fun ProductRow(
     pickedQty: Int,
     onAdd: () -> Unit,
 ) {
-    val unit = product.unit.ifBlank { "件" }
-    val color = remember(product.nameColor) { parseNameColor(product.nameColor) }
+    val unit = unitOrDefault(product.unit)
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // 商品图；没有图就用名称色块 + 图标（与商品管理页同一套观感）
-            Box(
-                Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (!product.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = resolveStaticUrl(product.imageUrl),
-                        contentDescription = product.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Box(Modifier.fillMaxSize().background(color), contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Inventory2,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp),
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    product.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = color,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+        // ⛔ 行主体是**共用的那一个**（`ProductCardKit::ProductLine`）：图是缩略图槽、
+        //    ＋按钮是后置槽、售价那行来自 `productPriceFact`（钱的格式化唯一一处）。
+        //    ⚠️ 这一页**只给售价、不给库存**：货主也在看这一页（下单），
+        //    内部库存不露给客户 —— "显示哪几条事实"是**业务口径**，各页自己挑（见零件文件顶上）。
+        ProductLine(
+            name = product.name,
+            nameColor = product.nameColor,
+            facts = listOfNotNull(
+                productPriceFact(price, product.unit),
+                if (pickedQty > 0) pickedFact(pickedQty, unit) else null,
+            ),
+            modifier = Modifier.padding(10.dp),
+            dense = true,
+            // 商品图：**缩略图那一份零件**，这一页用 `solid = true`
+            //（名称色实底 + 白图标）—— 它是"挑东西"，色块帮着扫；
+            // 管理列表那一页是浅灰底 + 名称色图标（安静，不盖数字）。
+            thumb = {
+                ProductThumb(
+                    imageUrl = product.imageUrl,
+                    nameColor = product.nameColor,
+                    size = 56.dp,
+                    solid = true,
                 )
-                Spacer(Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "¥" + formatMoney(price),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(MoneyOrange),
-                    )
-                    Text(
-                        " / " + unit,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!product.isActive) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "已下架",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-                if (pickedQty > 0) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "已选 $pickedQty $unit",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF00A56E),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            // 圆形「＋」（外卖 App 的通用形态）；已选过就显示数量角标
-            Box {
-                FilledIconButton(
-                    onClick = onAdd,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (pickedQty > 0) Color(0xFF00A56E) else Color(0xFF1E6FFF),
-                        contentColor = Color.White,
-                    ),
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        if (pickedQty > 0) Icons.Default.Check else Icons.Default.Add,
-                        contentDescription = if (pickedQty > 0) "已选，点此修改" else "添加",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                if (pickedQty > 0) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 6.dp, y = (-6).dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFFF4D4F))
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
+            },
+            badge = if (product.isActive) null else ({ ProductSoldOutBadge() }),
+            trailing = {
+                // 圆形「＋」（外卖 App 的通用形态）；已选过就显示数量角标
+                Box {
+                    FilledIconButton(
+                        onClick = onAdd,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (pickedQty > 0) Color(0xFF00A56E) else Color(0xFF1E6FFF),
+                            contentColor = Color.White,
+                        ),
+                        modifier = Modifier.size(36.dp),
                     ) {
-                        Text(
-                            pickedQty.toString(),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
+                        Icon(
+                            if (pickedQty > 0) Icons.Default.Check else Icons.Default.Add,
+                            contentDescription = if (pickedQty > 0) "已选，点此修改" else "添加",
+                            modifier = Modifier.size(20.dp),
                         )
                     }
+                    if (pickedQty > 0) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 6.dp, y = (-6).dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFF4D4F))
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        ) {
+                            Text(
+                                pickedQty.toString(),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
-            }
-        }
+            },
+        )
     }
 }
+
+/**
+ * 「已选 N 袋」也是这一行的一条**事实**（同一个零件画、同一个行距）。
+ *
+ * ⚠️ 它**留在选品页**、不进 `ProductCardKit`：它说的是"**这一次挑选**"，
+ * 不是商品本身的属性（另外四个页面没有"已选"这回事）。零件给的是
+ * 「事实怎么画」这一条版式，**[ProductFact] 这个数据结构是公开的、
+ * 谁都可以为"自己那一页的概念"造一条** —— 前提是别去改"商品本身该显示什么"。
+ */
+private fun pickedFact(qty: Int, unit: String): ProductFact = ProductFact(
+    icon = Icons.Default.CheckCircle,
+    label = "已选",
+    value = "$qty $unit",
+    color = Color(0xFF00A56E),
+)
 
 // ---------------------------------------------------------------- 数量
 
@@ -560,7 +528,7 @@ fun QtyDialog(
                 productName,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = parseNameColor(productColor),
+                color = productNameColor(productColor),
                 fontWeight = FontWeight.Bold,
             )
         },
@@ -639,12 +607,10 @@ private fun StepButton(
     }
 }
 
-/** 商品名颜色（`#RRGGBB`）；坏值时退回主题色，不让用户看到一片黑或崩溃。 */
-internal fun parseNameColor(raw: String?): Color = try {
-    Color(android.graphics.Color.parseColor(raw ?: "#1565C0"))
-} catch (_: Exception) {
-    Color(0xFF1565C0)
-}
+// ⛔ 这里原来定义着 `parseNameColor(raw)`（选品页自己的"名称色"判据）。
+// 2026-09-21 收进 `ui/common/ProductCardKit.kt::productNameColor` —— 同一件事当时全库有
+// **5 份**（这里一份 + 商品管理页 2 处 + 代理下单页 + 批量调价页各一份内联写法），
+// 而且其中 4 份**没有 try/catch**：库里一个脏颜色值就能让整页崩。
 
 /** 关闭按钮（右上角），选品页与其它全屏弹层共用同一形态。 */
 @Composable

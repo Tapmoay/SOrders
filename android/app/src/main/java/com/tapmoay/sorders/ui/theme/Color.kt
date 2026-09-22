@@ -77,6 +77,36 @@ val OnSurfaceVariantLight = Color(0xFF3B404A)
 val SurfaceContainerLow = Color(0xFFEDEFF4)
 val SurfaceContainer = Color(0xFFE6E9F0)
 val SurfaceContainerHigh = Color(0xFFDDE1EA)
+
+/**
+ * **底部抽屉的面** —— 全 App 所有 `ModalBottomSheet` 的底色（2026-09-22）。
+ *
+ * ## 为什么要单独给它一个 token
+ * 用户的原话是：「为什么**每次**底部抽屉弹出来那个颜色都是**灰蓝灰蓝**的？不要啊。
+ * 改成底部灰（色）没关系，**卡片一定要是白色的** —— 这样子就产生一个对比，让人知道。」
+ *
+ * ⚠️ 它原来**根本没有被谁指定过**：M3 的 `ModalBottomSheet` 容器默认色是
+ * `BottomSheetDefaults.ContainerColor` → `SheetBottomTokens.DockedContainerColor`
+ * → `ColorSchemeKeyTokens.SurfaceContainerLow`（反编译 material3 **1.3.2** 的 `classes.jar`
+ * 的常量池看到的，`javap -c` 打出来的就是这条链）。
+ * 也就是说：**`Theme.kt` 里那一行 `surfaceContainerLow = SheetSurface` 就是全 App
+ * 19 个底部抽屉的底色**，而它当时的值 `#EDEFF4` 的 B 通道比 R 高 7 ——
+ * 冷暖上一眼就能看出偏蓝，正是用户说的"灰蓝"。
+ *
+ * ## 为什么是"中性灰"而不是白
+ * 抽屉里的东西是**白色卡片**（`SectionCard` / 表单分组）。抽屉自己再刷成白的，
+ * 白卡就糊在白的面上、一点都不"跳"，用户要的"对比，让人知道"就没了。
+ * 所以这里取**纯中性**（R=G=B，冷暖不偏）+ **比白低一档**：卡是纯白、面是这层灰，两层才分得开。
+ * ⛔ 别再往这个值里加蓝（哪怕 2~3 个点）：那正是这一轮被用户点名的那件事，
+ * 判据 `_tools/qa/_check_sheet_form_pages.py` 会当场报红（它直接比 B 与 R）。
+ *
+ * ## 为什么暗色不动
+ * 暗色下抽屉读的是 `SurfaceContainerLowDark = #1A1B20`，本来就是"深灰"，
+ * 没有用户说的那个"灰蓝"观感；而且亮暗两套的**分层方向是相反的**
+ * （亮＝白卡浮在灰上，暗＝亮一点的灰浮在黑上），照搬一个值会把暗色的分层弄没。
+ */
+val SheetSurface = Color(0xFFF0F0F0)
+
 val OutlineLight = Color(0xFF7A7F8C)
 val OutlineVariantLight = Color(0xFFCFD4E0)
 val Success = Color(0xFF00A56E)          // 成功绿（亮）
@@ -116,3 +146,14 @@ val SurfaceContainerHighDark = Color(0xFF292A31)
 val OutlineDark = Color(0xFF8E9099)
 val OutlineVariantDark = Color(0xFF44464F)
 val SuccessDark = Color(0xFF81C784)
+
+// ===== 「我的」页头部：深墨蓝（用户 2026-09-21 给的参考图的「背景」）=====
+//
+// 参考图那种「深色顶 + 白色大圆角卡」的观感，取**同一族**的深墨蓝：顶部更深、往下略提亮，
+// 下端接我们自己的 NavBlue 家族（不是照抄它的黑灰，也不是我们平时的亮蓝）。
+//
+// ⚠️ 两个模式**共用同一组值**（头部在暗色下不跟着变浅）—— 但下端必须**比暗色页面底
+//    `BackgroundDark #0E1014` 亮**，否则暗色模式下头部和页面糊成一片，
+//    与 2026-09-18 那次「卡片和背景同色、信息丢失」是同一类事故。
+val ProfileHeaderTop = Color(0xFF131A2B)
+val ProfileHeaderBottom = Color(0xFF22304F)

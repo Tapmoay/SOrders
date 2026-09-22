@@ -45,6 +45,13 @@ class Product(Base, TimestampMixin):
     category: Mapped[str] = mapped_column(String(32), default="", index=True)
     # 库存报警阈值：库存 <= 该值视为低库存（0=不报警）
     low_stock_alert: Mapped[int] = mapped_column(Integer, default=0)
+    # 显示顺序（**小的在前**）：商品列表里用户自己排的次序。
+    # ⚠️ 2026-09-21 加的（用户：「那个排序你没加啊」）：在这之前列表顺序是
+    # `is_active desc, id desc` —— **最新建的永远排最前**，一个分类里几十个商品时，
+    # 最常用的老商品会沉到最底下，而用户没有任何办法调它。
+    # 语义与「分类名册」的 `sort_order` 一致：0/相同值 = 没排过，此时退回按 id 倒序（新的在前）。
+    # ⚠️ 老库缺这一列，靠 `core/schema_bootstrap.py` 的 ALTER 补（那个文件是线上迁移的唯一入口）。
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, index=True)
     # 软删除：删除 = 打标记（可 restore），不再物理删除。
     # ⚠️ 为什么必须软删（v3.26 修）：物理删除时 `inventory_movements` 会被
     #    `cascade="all, delete-orphan"` **整批删掉**（而订单行/账本只是解除外键），

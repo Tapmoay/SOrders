@@ -31,6 +31,7 @@ import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 账号管理（司机 / 货主 / 批发商三池共用一个界面）。
@@ -327,7 +328,7 @@ fun UsersManageScreen(
                         // 单独一个弹层更好报错（后端会因为"这不是司机账号"而拒绝，那句话要原样给用户看）。
                         if (vm.editing != null) {
                             Spacer(Modifier.height(8.dp))
-                            Text(
+                            Hint(
                                 "配车请在卡片上的「配车 / 换车」里改 —— 一辆车同时只能归一个司机，" +
                                     "绑错了那边会明确告诉你是谁名下的。",
                                 style = MaterialTheme.typography.bodySmall,
@@ -603,7 +604,7 @@ private fun ProductVisibilityBlock(
     Column {
         Text("商品可见范围", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(2.dp))
-        Text(
+        Hint(
             "决定他在「选择商品」里能看到哪些商品。默认不限制。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

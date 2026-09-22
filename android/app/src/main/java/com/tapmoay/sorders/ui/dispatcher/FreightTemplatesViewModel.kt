@@ -52,7 +52,8 @@ class FreightTemplatesViewModel(private val container: AppContainer) : ViewModel
     var tab by mutableStateOf(FREIGHT_TAB_ALL)
 
     // ---- 新建/编辑草稿 ----
-    var showDialog by mutableStateOf(false)
+    /** 新建 / 编辑那条**底部抽屉**开着没有（2026-09-22 从居中弹窗改成抽屉）。 */
+    var showSheet by mutableStateOf(false)
     var editing by mutableStateOf<FreightTemplateDto?>(null)
     var draftName by mutableStateOf("")
     var draftRouteId by mutableStateOf<Long?>(null)
@@ -60,6 +61,16 @@ class FreightTemplatesViewModel(private val container: AppContainer) : ViewModel
     var draftFee by mutableStateOf("")
     var draftRemark by mutableStateOf("")
     var draftCategoryIds by mutableStateOf<Set<Long>>(emptySet())
+
+    /**
+     * 抽屉里那一行红字（校验没过，或保存被服务端退回）。
+     *
+     * ⚠️ 刻意**不**写进页面级的 [error]：那个走的是**抽屉背后**的 snackbar，
+     * 而抽屉是另一个窗口、正好把它盖住 —— 表现就是"点了保存**没有任何反应**"。
+     * 同一个坑 2026-09-21 在「新增地点」上踩过（见 `Components.kt::FormErrorLine` 的注释），
+     * 规矩是：**表单的错误必须和表单同生共死**（画在抽屉里、[openCreate]/[openEdit] 时清掉）。
+     */
+    var formError by mutableStateOf<String?>(null)
 
     var deleteTarget by mutableStateOf<FreightTemplateDto?>(null)
 
@@ -118,7 +129,8 @@ class FreightTemplatesViewModel(private val container: AppContainer) : ViewModel
         draftRemark = ""
         // 在某一类下点「新建」时，默认就挂这一类（用户十有八九是在给这一类加价目）
         draftCategoryIds = categories.firstOrNull { it.name == tab }?.let { setOf(it.id) } ?: emptySet()
-        showDialog = true
+        formError = null
+        showSheet = true
     }
 
     fun openEdit(t: FreightTemplateDto) {
@@ -129,7 +141,8 @@ class FreightTemplatesViewModel(private val container: AppContainer) : ViewModel
         draftFee = t.fee
         draftRemark = t.remark
         draftCategoryIds = t.categoryIds.toSet()
-        showDialog = true
+        formError = null
+        showSheet = true
     }
 
     fun toggleCategory(id: Long) {
@@ -139,15 +152,15 @@ class FreightTemplatesViewModel(private val container: AppContainer) : ViewModel
 
     fun save() {
         if (draftName.trim().isEmpty()) {
-            error = "请填写模板名称（比如「蔬菜 · 城南 → 城北」）"
+            formError = "请填写价目名称（比如「蔬菜 · 城南 → 城北」）"
             return
         }
         if (draftRouteId == null) {
-            error = "请选一条线路（价目是按路线定价的）—— 线路在「地址与联系人」里维护"
+            formError = "请选一条线路（价目是按路线定价的）—— 线路在「地址与联系人」里维护"
             return
         }
         acting = true
-        error = null
+        formError = null
         viewModelScope.launch {
             try {
                 val body = FreightTemplateRequest(
@@ -163,10 +176,11 @@ class FreightTemplatesViewModel(private val container: AppContainer) : ViewModel
                 if (cur == null) container.repo.createFreightTemplate(body)
                 else container.repo.updateFreightTemplate(cur.id, body)
                 actionResult = if (cur == null) "价目已创建" else "价目已更新"
-                showDialog = false
+                showSheet = false
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // 保存失败 → **抽屉里**那一行红字（不是页面级 error：那会走抽屉背后的 snackbar）
+                formError = toApiException(e).message
             } finally {
                 acting = false
             }

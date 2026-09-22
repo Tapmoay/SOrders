@@ -30,6 +30,7 @@ import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * **运费待定价**（2026-09-21 用户：「没有匹配到就没有计费、没有定价……这个订单就得我们那个
@@ -359,7 +360,7 @@ fun UnpricedOrdersScreen(container: AppContainer, onBack: () -> Unit, onOpenOrde
                         }
                     }
                     if (vm.draftSaveTemplate) {
-                        Text(
+                        Hint(
                             "存好之后会自动勾进这位司机的计费规则（价目归规则，不绑司机）—— " +
                                 "他还没挂规则的话，会提示你去给他挂一份再勾上。",
                             style = MaterialTheme.typography.bodySmall,

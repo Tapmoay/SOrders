@@ -146,8 +146,14 @@ def main() -> int:
               rf'class OrderUpdateRequest[\s\S]{{0,1200}}?@SerialName\("{RECEIVER}"\)[\s\S]{{0,200}}?@SerialName\("{ORDERER}"\)')
 
     # ---- ⑤ Android：下单页两个输入框 + 两条自动填来源 ----
-    c.present("下单页有「收货人名称」输入框", screen, r'label = \{ Text\("收货人名称"\) \}')
-    c.present("下单页有「下单人名称」输入框", screen, r'label = \{ Text\("下单人名称"\) \}')
+    # ⚠️ 锚点要认**两种形态**：2026-09-22 起这一页走共用表单行（`FormInputRow(label = "收货人名称")`），
+    #    原来是 `OutlinedTextField(label = { Text("收货人名称") })`。判据的**本意**是
+    #    "这两个字段在这一页上真的存在"，不是"它必须长成一个描边输入框" —— 只认旧形态的话，
+    #    下一个人按规范改成共用行就会**平白报红**，然后他会把这条判据删掉。
+    c.present("下单页有「收货人名称」输入框", screen,
+              r'label = (?:"收货人名称"|\{ Text\("收货人名称"\) \})')
+    c.present("下单页有「下单人名称」输入框", screen,
+              r'label = (?:"下单人名称"|\{ Text\("下单人名称"\) \})')
     c.present("下单人按**账号资料**自动填（不是拿 username 当电话）", vm,
               r"repo\.me\(\)[\s\S]{0,200}?prefillOrderer\(")
     c.absent("自动填没有把会话里的 username 当电话用", vm, r"prefillOrderer\([^)]*username")
@@ -162,7 +168,10 @@ def main() -> int:
     c.present("卡片上有「收货人」这一行", card, r'"收货人" to contactWho\(order\.contactDongjiaName, order\.contactDongjiaPhone\)')
     c.present("卡片上有「下单人」这一行", card, r'"下单人" to contactWho\(order\.contactBossName, order\.contactBossPhone\)')
     c.present("详情页有「收货人」", detail, r'"收货人 " \+ who')
-    c.present("详情页有「下单人」", detail, r'InfoRow\("下单人", who\)')
+    # ⚠️ 锚点认两种形态：2026-09-22 起详情页那一行不再是 `InfoRow("下单人", who)`
+    #    （改成可点击拨打、电话绿色、点了先弹确认，所以自己画了一行）。
+    #    判据的**本意**是"详情页上真的有『下单人』这一行"，不是"它必须用 InfoRow 画"。
+    c.present("详情页有「下单人」", detail, r'("下单人"|InfoRow\("下单人", who\))')
 
     # ---- ⑦ 用词统一：旧词「东家电话 / 老板电话」在任何界面与 AI 目录里都不许再出现 ----
     for name, text in (("下单页", screen), ("编辑订单弹窗", disp_screen), ("订单详情", detail),

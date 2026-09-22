@@ -13,6 +13,7 @@ from app.services.soft_delete import del_suffix, ensure_alive
 from app.models import ArrearsUnit, Order, User
 from app.models.enums import OperationAction
 from app.schemas.arrears import ArrearsUnitCreate, ArrearsUnitOut, ArrearsUnitUpdate
+from app.services import usage_service
 from datetime import datetime
 
 router = APIRouter(prefix="/arrears-units", tags=["arrears-units"])
@@ -21,10 +22,18 @@ router = APIRouter(prefix="/arrears-units", tags=["arrears-units"])
 @router.get("", response_model=list[ArrearsUnitOut])
 def list_units(
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission(Permission.LEDGER_EDIT)),
+    # ⚠️ 参数名必须是 `current`：下面 `with_popularity(..., current)` 要用它
+    # （原来这里写的是 `_` —— 依赖只用来做鉴权、值没人用）。2026-09-22 改成常用度排序时
+    # 加了这个实参，`_` 与 `current` 对不上 → 每次调这个端点都 500（`NameError`），
+    # 而**编译期看不出来**（真打到端点才炸）。
+    current: User = Depends(require_permission(Permission.LEDGER_EDIT)),
 ) -> list[ArrearsUnit]:
     rows = db.scalars(
-        select(ArrearsUnit).where(ArrearsUnit.is_deleted.is_(False)).order_by(ArrearsUnit.id.desc())
+        # 2026-09-22 统一规则：常用度 → 先创建的在前
+        usage_service.with_popularity(
+            select(ArrearsUnit).where(ArrearsUnit.is_deleted.is_(False)),
+            ArrearsUnit, usage_service.KIND_ARREARS_UNIT, current,
+        )
     )
     return list(rows)
 
@@ -40,7 +49,15 @@ def create_unit(
         select(ArrearsUnit).where(ArrearsUnit.name == name, ArrearsUnit.is_deleted.is_(False))
     ).first():
         raise HTTPException(status_code=400, detail="挂账单位名称已存在")
-    u = ArrearsUnit(name=name, phone=body.phone.strip(), remark=body.remark.strip())
+    u = _insert_unit(db, name, body.phone, body.remark, operator)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+def _insert_unit(db: Session, name: str, phone: str, remark: str, operator: User) -> ArrearsUnit:
+    """新建一行挂账单位 + 写审计（**建单位的唯一实现**，见 [find_or_create_unit]）。"""
+    u = ArrearsUnit(name=name, phone=phone.strip(), remark=remark.strip())
     db.add(u)
     db.flush()
     # ⚠️ 挂账单位是**钱挂在谁名下**这件事（2026-09-19 审计 R14-1）：原来四个写端点
@@ -53,9 +70,38 @@ def create_unit(
         action=OperationAction.ARREARS_UNIT_UPSERT,
         change_payload={"unit_id": u.id, "name": u.name, "phone": u.phone, "scope": "create"},
     )
-    db.commit()
-    db.refresh(u)
     return u
+
+
+def find_or_create_unit(db: Session, raw_name: str, operator: User) -> ArrearsUnit:
+    """按名字**找或建**一个挂账单位 —— 「挂账时自动添加」的唯一实现（2026-09-22）。
+
+    用户原话：「我们这个挂账有个联动：假如有个订单，他没有结账，**直接点击挂账**，
+    这个**挂账单位是自动添加的**」。
+    所以挂账那条路不再要求"先建好单位再回来挂"，名字对得上就复用、对不上就地建一个。
+
+    ⚠️ **软删过的不许再插一行**：`arrears_units.name` 上有唯一索引，而删除是软删
+    （用户定的硬规矩）—— 直接 INSERT 会撞唯一索引（500），表现是"这个名字永远用不了"。
+    所以这里先按名字（**连软删的一起**）找：活着就复用、躺回收站里就**放回来**（这也正是
+    "删除一律软删 + 要有恢复路径"该有的样子）。
+    """
+    name = raw_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="挂账单位名不能为空")
+    existing = db.scalars(select(ArrearsUnit).where(ArrearsUnit.name == name)).first()
+    if existing is not None:
+        if existing.is_deleted:
+            existing.is_deleted = False
+            existing.deleted_at = None
+            write_log(
+                db,
+                operator_id=operator.id,
+                order_id=None,
+                action=OperationAction.ARREARS_UNIT_UPSERT,
+                change_payload={"unit_id": existing.id, "name": existing.name, "scope": "restore"},
+            )
+        return existing
+    return _insert_unit(db, name, "", "", operator)
 
 
 @router.patch("/{unit_id}", response_model=ArrearsUnitOut)

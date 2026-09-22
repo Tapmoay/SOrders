@@ -66,6 +66,20 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var addressDetail by mutableStateOf("")
     var addressLat by mutableStateOf<String?>(null)
     var addressLng by mutableStateOf<String?>(null)
+    /**
+     * 这一单用的是**库里哪一条**（2026-09-22 统一列表排序规则：常用度要能排出来）。
+     *
+     * 用户原话：「我在下单的时候经常用到这个联系人或者批发商……**用得越多越往前**」。
+     * 后端靠随单带上来的 id 记一次常用度 —— 没有 id 就**计不了分**（而这是静默的：
+     * 界面上一切照常，只是那条记录永远不往前）。
+     *
+     * 三条边界（都在 [applyAddress] / [applyLocation] / [applyPicked] 里落）：
+     * · 选了**线路** → 记线路 id（收货人是从这条线路带出来的）；
+     * · 选了**我的地点** → 记地点 id；
+     * · **地图上自己选点 / 手输地址** → 两个都清空（那不是库里的哪一条）。
+     */
+    var pickedAddressId by mutableStateOf<Long?>(null)
+    var pickedLocationId by mutableStateOf<Long?>(null)
     var dongjiaPhone by mutableStateOf("")
     var bossPhone by mutableStateOf("")
     /**
@@ -422,6 +436,10 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         addressLat = lat.toString()
         addressLng = lng.toString()
         addressDetail = address
+        // 地图上自己选的点**不是**库里的哪一条 → 两个 id 都清掉（不许把上一次选的线路
+        // 记到这一次头上：那会把"常用度"记到一条这次根本没用过的记录上）
+        pickedAddressId = null
+        pickedLocationId = null
         showMapPicker = false
         placeSaved = false
     }
@@ -434,6 +452,11 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         // ⚠️ 名字只在**这条线路真的填了收货人**时才覆盖：`receiver_name` 在老线路上可能是空的，
         //    那种时候把用户刚敲进去的名字清掉，比"不自动填"更糟。电话沿用原来的行为不动。
         if (a.receiverName.isNotBlank()) dongjiaName = a.receiverName
+        // 记下"这一单用的是哪条线路"：下单时随单交给后端记一次常用度
+        // （用户 2026-09-22：「下单时经常用到的联系人……用得越多越往前」）。
+        // ⚠️ 手输地址 / 地图选点不会走到这里 —— 那种情况 `picked*Id` 保持为空，后端就不计分。
+        pickedAddressId = a.id
+        pickedLocationId = null
         showAddressSheet = false
         placeSaved = false
     }
@@ -503,6 +526,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         addressDetail = l.detailAddress.ifBlank { l.name }
         addressLat = l.addressLat
         addressLng = l.addressLng
+        // 记下"这一单用的是我地点库里的哪一条"（下单时交给后端记常用度）
+        pickedLocationId = l.id
+        pickedAddressId = null
         showAddressSheet = false
         placeSaved = false
     }
@@ -585,6 +611,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                             remark = remark.trim(),
                             shipperId = shipperId,
                             tempShipperName = tempShipperName,
+                            // 「这一单用的是库里哪一条」→ 后端据此记常用度（列表排序用）
+                            addressId = pickedAddressId,
+                            locationId = pickedLocationId,
                         )
                         val created = container.repo.createOrder(body)
                         draftAddressImages.forEach { path ->

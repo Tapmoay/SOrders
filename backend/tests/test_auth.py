@@ -145,7 +145,12 @@ def test_list_users_q_searches_name_and_phone(
     base = client.get("/api/v1/users", headers=h)
     assert base.status_code == 200, base.text
     base_ids = [u["id"] for u in base.json()]
-    assert base_ids == sorted(base_ids, reverse=True)  # 仍按 id desc
+    # ⚠️ 这里**不再断言 id 倒序**：2026-09-22 起名册走**统一排序规则**
+    #    ——「常用度（谁被选得多）→ 先创建的在前」，谁在前取决于**库里有没有使用记录**，
+    #    而这条测试的库是共享的（别的用例可能用过其中几个账号），按 id 判必然假红。
+    #    排序规则本身钉在两处：红线 `_tools/qa/_check_list_order.py`（53 项）
+    #    与 `tests/test_audit_round16_counters.py`（计数由库自增）。
+    #    这条测试只管它自己的题目：**不传 q / q 为空白串时行为完全一致**。
     assert users["shipper"].id in base_ids
 
     # .strip() 后为空 → 不筛：与不传 q 完全等价

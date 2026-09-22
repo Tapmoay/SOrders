@@ -4,14 +4,11 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
-import com.tapmoay.sorders.data.remote.api.ProductCreateRequest
 import com.tapmoay.sorders.data.remote.api.ProductUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
-import com.tapmoay.sorders.data.remote.dto.ProductCostHistoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.launch
-import java.io.File
 
 class ProductsViewModel(private val container: AppContainer) : ViewModel() {
     var products by mutableStateOf<List<ProductDto>>(emptyList())
@@ -35,46 +32,22 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 
-    var showDialog by mutableStateOf(false)
-    var editing by mutableStateOf<ProductDto?>(null)
-    var draftName by mutableStateOf("")
-    var draftPrice by mutableStateOf("")
-    var draftCost by mutableStateOf("")
-    var draftStock by mutableStateOf("")
-    var draftUnit by mutableStateOf("")
-    /** 商品分类：选品页左侧的分组名（空 = 未分类）。 */
-    var draftCategory by mutableStateOf("")
-    var draftAlert by mutableStateOf("")
-    var draftColor by mutableStateOf("#1565C0")
-    var draftActive by mutableStateOf(true)
-    /** 本地已选图片路径（保存时上传）；null=未换图 */
-    var draftImageLocal by mutableStateOf<String?>(null)
-
     /**
-     * 成本价历史（商品卡 `⋮ → 成本价历史`）：non-null = 那个商品的弹窗开着。
+     * 这一屏每次进组合时拉一次（页面里是 `LaunchedEffect(Unit) { vm.start() }`）。
      *
-     * 用户 2026-09-19：「保留成本价，还保留这个成本价存在的时间，从什么时候开始变、
-     * 从什么时候结束，精确到小时和分钟，这样子我们就能方便且精确地算出来在这段时间的毛利率」。
-     * 数据是**只读**的（成本价的改动只能在编辑页/进货时发生），所以这里只有加载，没有写。
+     * ⚠️ **加载不放在 `init`**：从「新增/编辑商品」那一页 `popBackStack()` 回来时这一屏会重新进组合，
+     *    `LaunchedEffect(Unit)` 会再跑一次 —— 刚存的那个商品立刻出现在列表里。
+     *    写在 `init` 里就只在第一次创建 VM 时拉一次，回来看到的是**没有刚存那个**的旧列表
+     *    （用户会以为没存上，然后再建一个 → 建出同名商品）。
+     *    与账本「记一笔账」、开销「新增开销」两处是同一个套路。
+     *
+     * ## 表单状态搬走了（2026-09-21 商品管理改版第 1 期）
+     * 这个 VM 里原来还有一整份"正在编辑的草稿"（`draftName` / `draftPrice` / … 11 个字段）、
+     * `openCreate` / `openEdit` / `save` 与 `colorOptions` —— 它们跟着商品表单一起
+     * 搬去了 `ProductFormViewModel`（表单现在是**单独一页**，有自己的路由与生命周期）。
+     * 列表页不该背着一份草稿，也不该在返回时被重组碰到它。
      */
-    var costHistoryFor by mutableStateOf<ProductDto?>(null)
-    var costHistory by mutableStateOf<List<ProductCostHistoryDto>>(emptyList())
-    /** 历史单独一个 loading：它不该把整页顶成 LoadingBox（商品列表已经是好的） */
-    var costHistoryLoading by mutableStateOf(false)
-
-    val colorOptions = listOf(
-        "#1565C0" to "物流蓝",
-        "#2E7D32" to "绿",
-        "#C62828" to "红",
-        "#F9A825" to "黄",
-        "#6A1B9A" to "紫",
-        "#00838F" to "青",
-        "#EF6C00" to "橙",
-        "#5D4037" to "棕",
-        "#37474F" to "灰",
-    )
-
-    init {
+    fun start() {
         load()
     }
 
@@ -89,158 +62,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
                 loadError = toApiException(e).message
             } finally {
                 loading = false
-            }
-        }
-    }
-
-    fun openCreate() {
-        editing = null
-        draftName = ""
-        draftPrice = ""
-        draftCost = ""
-        draftStock = ""
-        draftUnit = ""
-        draftCategory = ""
-        draftAlert = ""
-        draftColor = "#1565C0"
-        draftActive = true
-        draftImageLocal = null
-        showDialog = true
-    }
-
-    fun openEdit(p: ProductDto) {
-        editing = p
-        draftName = p.name
-        draftPrice = com.tapmoay.sorders.util.formatMoney(p.defaultUnitPrice)
-        draftCost = com.tapmoay.sorders.util.formatMoney(p.costPrice)
-        draftStock = if (p.stock > 0) p.stock.toString() else ""
-        draftUnit = p.unit
-        draftCategory = p.category
-        draftAlert = if (p.lowStockAlert > 0) p.lowStockAlert.toString() else ""
-        draftColor = p.nameColor ?: "#1565C0"
-        draftActive = p.isActive
-        draftImageLocal = null
-        showDialog = true
-    }
-
-    fun save() {
-        if (draftName.isBlank()) {
-            error = "请填写商品名称"
-            return
-        }
-        if (draftPrice.toDoubleOrNull() == null) {
-            error = "请输入正确的售价"
-            return
-        }
-        if (draftCost.isNotBlank() && draftCost.toDoubleOrNull() == null) {
-            error = "请输入正确的成本价"
-            return
-        }
-        if (draftStock.isNotBlank() && draftStock.toIntOrNull() == null) {
-            error = "库存请输入整数"
-            return
-        }
-        val cost = draftCost.trim().ifBlank { "0" }
-        val stock = draftStock.trim().ifBlank { null }?.toIntOrNull()
-
-        acting = true
-        error = null
-        viewModelScope.launch {
-            try {
-                val cur = editing
-                // ⚠️ 新增时必须**接住 createProduct 返回的 id**（2026-09-19 审计）：
-                //    原来返回的 ProductDto（含新 id）被直接丢掉，上传图片时改成
-                //    `products().firstOrNull { it.name == 草稿名 }?.id` —— 而 `products.name`
-                //    **没有唯一约束、创建也不查重**，于是"库里已有同名商品"时那个 id 指向**旧商品**：
-                //    新商品没图、旧商品被打上新图，两边都不报错。
-                val createdId: Long
-                val localImage = draftImageLocal          // 先取快照，别在挂起点之后再读可变状态
-                if (cur == null) {
-                    createdId = container.api.productApi.createProduct(
-                        ProductCreateRequest(
-                            name = draftName.trim(),
-                            defaultUnitPrice = draftPrice.trim(),
-                            costPrice = cost,
-                            nameColor = draftColor,
-                            stock = stock,
-                            unit = draftUnit.trim().ifBlank { null },
-                            category = draftCategory.trim(),
-                            lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),
-                        )
-                    ).id
-                } else {
-                    createdId = cur.id
-                    container.api.productApi.updateProduct(
-                            cur.id,
-                            ProductUpdateRequest(
-                                name = draftName.trim(),
-                                defaultUnitPrice = draftPrice.trim(),
-                                costPrice = cost,
-                                nameColor = draftColor,
-                                isActive = draftActive,
-                                unit = draftUnit.trim().ifBlank { null },
-                                category = draftCategory.trim(),
-                                lowStockAlert = draftAlert.trim().ifBlank { null }?.toIntOrNull(),
-                            ),
-                        )
-                }
-                // 图片上传用**上面接住的那个 id**（不再按名字去全表猜）。
-                // ⚠️ 也不再在挂起点之后读 `draftImageLocal!!`（2026-09-19 审计）：用户可以在
-                //    "商品已经建好、图片还没传完"这段时间点「移除图片」把状态改成 null，
-                //    那一刻 `!!` 抛 NPE → 被下面的 `catch (Exception)` 收成"未知错误"、
-                //    `showDialog = false` 被跳过 → **商品其实已建成，界面却说未知错误、弹窗不关**，
-                //    用户再点一次保存就建出第二条同名商品。
-                val imagePath = localImage
-                if (imagePath != null) {
-                    val f = File(imagePath)
-                    if (f.exists()) container.repo.uploadProductImage(createdId, f)
-                }
-                actionResult = if (cur == null) "商品已新增" else "商品已更新"
-                showDialog = false
-                load()
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                acting = false
-            }
-        }
-    }
-
-    /**
-     * 就地新建一个分类，并**选中它**（商品编辑页的分类下拉里那个「＋ 新建分类…」）。
-     *
-     * 为什么不让用户直接手打分类名（原来那样）：
-     * 手打能造出只差一个空格的"同名"分类，下单页左侧就多出一格，而列表上看不出差别。
-     * 新建这条路不能堵死（派单员建商品时才发现缺一个分类是常事），所以要有一个**明确**的入口。
-     *
-     * ⚠️ 重名（后端 409）时**直接选中已有的那个**：用户想要的是"归类到这个名字"，
-     *    而不是"再建一个"。报错让他自己回去找那一条，是把后端的一句话变成了他的一次往返。
-     */
-    fun createCategoryAndSelect(rawName: String, onDone: () -> Unit) {
-        val name = rawName.trim().take(8)
-        if (name.isBlank()) {
-            error = "分类名不能为空"
-            return
-        }
-        acting = true
-        error = null
-        viewModelScope.launch {
-            try {
-                try {
-                    container.repo.createProductCategory(name)
-                    actionResult = "已新建分类「$name」"
-                } catch (e: Exception) {
-                    val msg = toApiException(e).message.orEmpty()
-                    if (!msg.contains("已经存在")) throw e
-                    actionResult = "已经有分类「$name」了，直接用它"
-                }
-                categories = container.repo.productCategories()
-                draftCategory = name
-                onDone()
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                acting = false
             }
         }
     }
@@ -275,30 +96,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /**
-     * 打开某个商品的**成本价历史**（只读）。
-     *
-     * 为什么单独拉一次而不是跟着商品列表下发：这段历史只在有人点开时才需要，
-     * 而商品列表是每次进页面都拉 —— 挂在列表上会让每页多背几百行没人看的数据。
-     */
-    fun openCostHistory(p: ProductDto) {
-        costHistoryFor = p
-        costHistory = emptyList()
-        costHistoryLoading = true
-        viewModelScope.launch {
-            try {
-                costHistory = container.repo.productCostHistory(p.id)
-            } catch (e: Exception) {
-                // 拉失败要**说出来**，不能显示成"这个商品没有成本记录"——
-                // 那两句是完全不同的结论（一句是网络问题，一句是账实不符）
-                error = toApiException(e).message
-                costHistoryFor = null
-            } finally {
-                costHistoryLoading = false
-            }
-        }
-    }
-
     fun toggleActive(p: ProductDto) {
         viewModelScope.launch {
             try {
@@ -313,18 +110,6 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun delete(p: ProductDto) {
-        acting = true
-        viewModelScope.launch {
-            try {
-                container.api.productApi.deleteProduct(p.id)
-                actionResult = "商品已删除"
-                load()
-            } catch (e: Exception) {
-                error = toApiException(e).message
-            } finally {
-                acting = false
-            }
-        }
-    }
+    // ⛔ 删除搬去编辑页了（用户 2026-09-21：⋮ 里的功能进编辑页）——
+    //    现在只有 `ProductFormViewModel.delete()` 一处会删商品。
 }

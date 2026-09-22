@@ -94,6 +94,7 @@ import com.tapmoay.sorders.ui.common.appViewModel
 import com.tapmoay.sorders.ui.theme.AiBlue
 import com.tapmoay.sorders.ui.theme.aiBrandBrush
 import kotlinx.coroutines.launch
+import com.tapmoay.sorders.ui.common.Hint
 
 // ===== 本页自定义尺寸（老人友好：正文 17sp、次要信息 14sp、可点区域 ≥ 48dp）=====
 private val MessageTextSize = 17.sp
@@ -1001,7 +1002,7 @@ private fun ModelSwitchSheet(
                 // 说明挪到按钮下面一行小字，反而更好读。
                 Text("完整设置", fontSize = 16.sp)
             }
-            Text(
+            Hint(
                 "里面可以填 API Key、开关工具、拉取模型列表。",
                 fontSize = 12.5.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1260,7 +1261,7 @@ private fun BranchBar() {
             )
         }
         Spacer(Modifier.height(4.dp))
-        Text(
+        Hint(
             "这段对话是从历史里分叉出来的，原对话仍在「历史」里",
             fontSize = TraceTextSize,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1540,7 +1541,7 @@ private fun EditingBanner(onCancel: () -> Unit) {
     ) {
         Icon(Icons.Default.Edit, contentDescription = null, tint = AiAccent, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(6.dp))
-        Text(
+        Hint(
             "正在编辑这条消息：发送后会重新回答，这条之后的对话会被撤掉",
             fontSize = 12.5.sp,
             color = MaterialTheme.colorScheme.onSurface,
@@ -1659,7 +1660,7 @@ private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (
         // 与派单端的"我是派单助手"对称（用户 2026-09-15 指出标签要改）。
         Text(if (isDispatcher) "我是派单助手" else "我是货主助手", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
-        Text(
+        Hint(
             if (isDispatcher) {
                 "用大白话问我：某个数是多少、谁跑得最多、哪些货要补、账单导成表格。\n点下面的问题可以直接试。"
             } else {
@@ -1671,7 +1672,7 @@ private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(10.dp))
-        Text(
+        Hint(
             "左上角「历史」里能看到以前问过的对话",
             style = MaterialTheme.typography.bodyMedium,
             color = AiAccent,
@@ -1727,8 +1728,8 @@ private fun NotConfiguredCard(onOpenSettings: () -> Unit, onRecheck: () -> Unit)
                 Text("还没配置模型 API Key", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                "填好模型地址、Key 和模型名就能开始提问。Key 只保存在这台手机上，不会上传到服务器。",
+            Hint(
+                "填好地址、Key、模型名即可提问；Key 只存在本机。",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2127,8 +2128,8 @@ private fun AttachPanel(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
             when {
-                !hasPhotoAccess -> Text(
-                    "允许访问相册后，这里会直接列出最近拍的照片，点一下就挂上。下面的三个入口不受影响。",
+                !hasPhotoAccess -> Hint(
+                    "允许相册后这里会列出最近的照片，点一下挂上；下面三个入口不受影响。",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.outline,
                 )

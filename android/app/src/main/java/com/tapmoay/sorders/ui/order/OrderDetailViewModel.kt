@@ -293,6 +293,49 @@ class OrderDetailViewModel(
         }
     }
 
+    /**
+     * 挂账到**一个还不存在的单位名** —— 就地建一个再挂上（用户 2026-09-22 要的"自动添加"）。
+     *
+     * 用户原话：「我们这个挂账有个联动：假如有个订单，他没有结账，**直接点击挂账**，
+     * 这个**挂账单位是自动添加的**」。
+     *
+     * ⚠️ **两步而不是一步**（先建单位、再挂账）：两个动作各自都有审计（`ARREARS_UNIT_UPSERT`
+     * 与 `ORDER_CHARGE`），出问题时能看出是"建单位那步失败"还是"挂账那步失败"；
+     * 而"一步完成"要新开后端契约，收益只有省一次往返。
+     * ⚠️ **建成功、挂失败**时必须让用户看见：这时单位已经建出来了（列表里已经有了），
+     * 所以那句话要写清"单位已建好，重新点一次挂账即可"，而不是一句笼统的失败。
+     */
+    fun chargeNewUnit(rawName: String) {
+        val name = rawName.trim()
+        if (name.isEmpty()) {
+            error = "请先写一个挂账单位名"
+            return
+        }
+        // 名册里已经有同名的 → 不重复建，直接用它挂（与后端 `find_or_create_unit` 同口径）
+        arrearsUnits.firstOrNull { it.name == name }?.let { charge(it.id); return }
+        acting = true
+        viewModelScope.launch {
+            try {
+                val created = container.repo.createArrearsUnit(
+                    com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest(name = name),
+                )
+                arrearsUnits = container.repo.arrearsUnits()
+                try {
+                    order = container.repo.chargeOrder(orderId, created.id)
+                    actionResult = "已挂账到「" + created.name + "」（单位是新建的）"
+                    showChargeSheet = false
+                } catch (e: Exception) {
+                    error = "单位「" + created.name + "」已建好，但挂账没成功：" +
+                        toApiException(e).message + "（再点一次挂账，从名册里选它）"
+                }
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
     // ---- 司机/派单员：给没有坐标的订单补导航信息 ----
     //
     // 为什么入口开在订单详情而不是列表：这是**到场之后**做的动作，

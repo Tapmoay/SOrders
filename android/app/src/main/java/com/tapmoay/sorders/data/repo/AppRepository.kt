@@ -797,6 +797,14 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun checkUpdate() = api.systemApi.appVersion()
 
+    /**
+     * 清空**我自己**的常用计数（「我的 → 基础设置 → 重置计数」），返回清掉的行数。
+     *
+     * 为什么把行数带回来：界面要如实说"清掉了 N 条"。只说"重置成功"的话，
+     * 用户分不清"真的清了 20 条"和"本来就没有、什么都没发生"（后者更可能是点错了地方）。
+     */
+    suspend fun resetUsage(): Int = api.usageApi.reset().deleted
+
     /** 测试账号的默认模型服务（服务端下发；非测试号 403、服务端没配 404）。 */
     suspend fun aiDefault() = api.systemApi.aiDefault()
     suspend fun createCustomer(body: com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest) = api.accountingApi.createCustomer(body)

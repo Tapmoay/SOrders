@@ -1,95 +1,96 @@
 package com.tapmoay.sorders.core
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 /**
- * 「这条界面提示已经出现过几次」—— 用户 2026-09-20 定的规矩：
+ * 界面「提示/说明」的**唯一开关** —— 本类只做两件事：**落盘**与**对外暴露可观察状态**；
+ * 三条行为决定（首次登录开一轮 / 冷启动关 / 手拨过不再自动改）在 [HintRound] 里，
+ * 那是纯函数、有单测（`HintRoundTest`）。
  *
- * > 有些功能不需要说太多…大概字数最多是 7 到 8 个字就可以了…
- * > 或者你可以这样子：第一次和第二次的时候它是出现在那里，下次再点击的时候它就不会有了…
- * > 第四次就不会有了。
+ * ## 为什么把旧机制删了
+ * 旧规矩（用户 2026-09-20）是：每条解释性的话**最多出现 3 次**，第 4 次起再也不出现
+ * （`MAX_TIMES` + 每条一个计数器 + `markSeen`）。用户 2026-09-21 的原话：
  *
- * 所以凡是**解释性**的话（"按下去会写哪三处""这个库是怎么来的""删了还能不能恢复"），
- * 都不该永远钉在界面上：前 [MAX_TIMES] 次说清楚，之后让位给功能本身。
- * 常驻的文字只留"几个字"—— 那句话是给**已经会的人**看的，不是每次都重新教一遍。
+ * > 「这个按钮的机制是这样子的：**每三次只展现三次，三次看见之后他就自动消失**。
+ * >  **我们取消这个机制**，改成**一个按钮开关** —— 打开就打开**所有的提示相关的内容**，
+ * >  关闭就关闭**所有的提示**，就按我们正常的按钮进行显示。」
  *
- * 为什么用 SharedPreferences 而不是项目里别处的 DataStore（与 [AlertPrefs] 同一个理由）：
- * 这一读发生在**合成时**（`HintOnce` 要先知道"画不画"再决定渲染什么），
- * 而 DataStore 只有挂起读 —— 为了决定一句话画不画而起协程读盘，
- * 会出现"先画一帧再消失"（闪一下比不显示更难受）。
+ * 所以现在**没有"每条各算各的"**这件事了：一个开关管全部。
+ * ⛔ 那套 per-key 计数（`seen` / `markSeen` / `hasLeft` / `MAX_TIMES`）**已删除**；
+ * `SharedPreferences("hints")` 里遗留的旧计数**不清理、只是不再读**（清数据是另一件事，
+ * 而且升级用户不该因为几个残留整数出任何异常）。
+ *
+ * ## 口径
+ * - 开关的默认值：**每台安装一次**（与夜间模式那些偏好同级），不是"每个账号一次"——
+ *   同一台设备换账号登录不会又弹一轮；
+ * - 读是**本机同步读**（SharedPreferences），与 `AlertPrefs` 同一个理由：这一读发生在**合成时**
+ *   （决定一句话画不画），而 DataStore 只有挂起读 —— 为了一句话画不画而起协程读盘，
+ *   会出现"先画一帧再消失"；
+ * - 状态是 Compose **可观察**的，而且只有**一份**：设置页写它、各页面读它。
+ *   分成"设置页一份、页面各一份"的话，用户会看到"我明明关了它还在"。
  */
 class HintPrefs(context: Context) {
 
     private val sp = context.applicationContext.getSharedPreferences("hints", Context.MODE_PRIVATE)
 
-    /**
-     * 内存里的"上一次记账"时刻（只活在本进程里，不进盘）：
-     * 用来把**同一次进入**里的重复合成挡掉（见 [markSeen] 的注释）。
-     */
-    private val lastMarked = mutableMapOf<String, Long>()
+    private var _state by mutableStateOf(load())
 
-    /** 这个提示已经出现过几次（没出现过 = 0）。 */
-    fun seen(key: String): Int = sp.getInt(key, 0)
+    /** 总开关当前状态。**组合里读它会订阅**（开关一拨，所有页面立刻跟着变）。 */
+    val visible: Boolean get() = _state.visible
 
-    /**
-     * 记一次"真的显示出来了"。
-     *
-     * ⚠️ **同一次进入里只记一次**（[GUARD_MS] 之内重复调用不算）：Compose 会把
-     *    `LazyColumn` 的 item 回收再合成（页面上那几个提示就贴在卡片里），
-     *    重新合成会让 `LaunchedEffect` 再跑一遍 —— 不设这道闸的话"第 4 次才消失"
-     *    会变成"第 3 次就没了"（**真机实测**：订单详情页里位置图片那条提示在第 3 次进入时
-     *    就已经不显示，而同页的补导航提示正常 1/2/3 显示、第 4 次消失 —— 两条唯一的差别
-     *    就是它们所在的合成块被回收的时机）。
-     *
-     * 闸设的是**时间**而不是"页面身份"：`HintOnce` 拿不到"这是第几次进入这一页"
-     *    （那是导航层的事），而"同一次进入"在时间上必然挨得很近（毫秒级）。
-     */
-    fun markSeen(key: String) {
-        val now = System.currentTimeMillis()
-        if (now - (lastMarked[key] ?: 0L) < GUARD_MS) return
-        lastMarked[key] = now
-        sp.edit().putInt(key, seen(key) + 1).apply()
+    /** 从盘上还原状态（含老安装的迁移口径，见 [HintRound.fromLegacy]）。 */
+    private fun load(): HintRound.State = HintRound.State(
+        visible = sp.getBoolean(KEY_VISIBLE, sp.getBoolean(LEGACY_ALWAYS_ON, false)),
+        // 老安装（存在旧那个「一直显示」开关的键）＝ 第一轮早就走过了，⛔ 不补一轮
+        roundShown = sp.getBoolean(KEY_FIRST_ROUND_DONE, sp.contains(LEGACY_ALWAYS_ON)),
+        autoOffPending = sp.getBoolean(KEY_AUTO_OFF_PENDING, false),
+    )
+
+    /** 落盘 + 刷新可观察状态。**唯一的写入口**，别处不许直接改 `_state`。 */
+    private fun apply(next: HintRound.State) {
+        if (next == _state) return
+        _state = next
+        sp.edit()
+            .putBoolean(KEY_VISIBLE, next.visible)
+            .putBoolean(KEY_FIRST_ROUND_DONE, next.roundShown)
+            .putBoolean(KEY_AUTO_OFF_PENDING, next.autoOffPending)
+            .apply()
     }
 
     /**
-     * 「提示一直显示」—— 打开后**不走**"最多三次"这个机制（用户 2026-09-20：
-     * 「有个按钮在我的里面…可以常开，默认是关闭的。常开的意思是就不会走这个机制，就是一直显示」）。
-     *
-     * 默认 **关**：大多数用户在第三遍之后就不需要再被教了；留这个开关是给
-     * "想不起来当初那句话是怎么说的"的人（以及演示/验收时）。
+     * **第一次登录**时调（`ui/login/LoginViewModel.kt` 登录成功那一步）。
+     * 只有这台设备上的第一次会做什么；之后每次登录都是空操作。
      */
-    var alwaysOn: Boolean
-        get() = sp.getBoolean(ALWAYS_ON, false)
-        set(v) = sp.edit().putBoolean(ALWAYS_ON, v).apply()
-
-    /** 还有没有额度（还有 ⇒ 这一次进入仍然显示）。[alwaysOn] 打开时永远有。 */
-    fun hasLeft(key: String): Boolean = alwaysOn || seen(key) < MAX_TIMES
+    fun onLogin() = apply(HintRound.onLogin(_state))
 
     /**
-     * ⛔ 这里**删掉了一个 `resetAll()`**（2026-09-21 精简轮）。
-     *
-     * 它的 KDoc 写着「全部归零（设置页那个「重置界面提示」）」，而那个入口**从来没有做过** ——
-     * 全仓搜 `resetAll` 只有它自己那一行声明（`ProfileScreen` 的「界面提示」块里只有一个
-     * 「一直显示」开关，没有重置）。也就是说：一句"给用户看的说明"承诺了一个不存在的按钮，
-     * 而**没有任何检查会红**（`_check_dead_code.py` 只查文件内没人用的 private 声明，
-     * 这个方法是 public）。
-     *
-     * 为什么是删方法而不是补按钮：补按钮是**加一个功能**（要不要给用户一个"重置界面提示"的
-     * 入口，是用户的决定，已列进待拍板）。删掉之后"想再看一遍那几句话"仍然有两条路：
-     * ① 上面的「一直显示」开关；② 清 App 数据（会连登录态一起丢）。
-     * 要补入口的话，**在 `ProfileScreen` 的「界面提示」块里加**，别只把方法加回来。
+     * **每次冷启动**时调（`MainActivity.onCreate`）。上一轮是"首次登录那一轮"的话，
+     * 到这里把它关上 —— 这就是用户说的「之后就默认关闭」。
      */
+    fun onAppStart() = apply(HintRound.onAppStart(_state))
+
+    /** **用户自己拨了开关**（设置页那一格）。动过之后再也不自动改。 */
+    fun setByUser(on: Boolean) = apply(HintRound.setByUser(_state, on))
+
+    // ⛔ 原来这里有个 `@Deprecated var alwaysOn`（兼容壳）：`ProfileScreen` 那一格在用它，
+    //    而那个文件当时正被另一会话改（见 `docs/AI_WORK_CLAIM.md` 的「交叉点」）。
+    //    2026-09-21 用户拍板「可以你现在就改吧」→ 设置页改用 `visible` / `setByUser()`，
+    //    全仓再没有调用点，**壳已删除**（留着它就是"两种写法都行"的开始）。
 
     companion object {
-        /** 一条解释性提示最多出现几次（用户给的数字：**第 4 次起不再出现**）。 */
-        const val MAX_TIMES = 3
+        /** 总开关：true = 显示所有解释句。 */
+        private const val KEY_VISIBLE = "visible"
 
-        /**
-         * 同一次进入里的重复记账闸（毫秒）。合成是毫秒级的，2 秒足够宽；
-         * 而"退出去再进来"通常也要 1~2 秒以上，不会被它吃掉。
-         */
-        const val GUARD_MS = 2000L
+        /** 「首次登录那一轮」是否已经走过（走过就不再自动打开）。 */
+        private const val KEY_FIRST_ROUND_DONE = "first_round_done"
 
-        private const val ALWAYS_ON = "always_on"
+        /** 待自动关：首次登录那一轮开着，下一次冷启动要把它关上。 */
+        private const val KEY_AUTO_OFF_PENDING = "auto_off_pending"
+
+        /** 旧机制留下的键（旧那个「一直显示」开关）。**只读一次做迁移，不再写**。 */
+        private const val LEGACY_ALWAYS_ON = "always_on"
     }
 }

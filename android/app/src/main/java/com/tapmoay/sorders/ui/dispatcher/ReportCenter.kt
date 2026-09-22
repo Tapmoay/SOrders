@@ -29,7 +29,8 @@ import com.tapmoay.sorders.data.remote.dto.OperationLogDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.saveExportFile
-import java.time.LocalDate
+import java.time.LocalDate
+import com.tapmoay.sorders.ui.common.Hint
 
 /** 报表页（从入口页进入）：顶部时间导航 + 主题内容 + 导出 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -813,7 +814,7 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
                     AuditChip("改状态", counts[AuditKind.STATE] ?: 0, auditFilter == AuditKind.STATE) { auditFilter = AuditKind.STATE }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(
+                Hint(
                     "排序：改钱/删数据/账号权限 → 改状态 → 其它，同级按时间倒序",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -39,6 +39,10 @@ CHECK_REL = "_tools/qa/_check_input_rules.py"
 ORDER_CREATE = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt"
 USERS_MANAGE = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt"
 PRODUCTS = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt"
+#: 2026-09-22：商品的"默认售价"这个框**搬家了** —— 商品管理改版第 1 期把编辑抽屉整段删掉、
+#: 换来一页 `ProductFormScreen`（那一页用的是共用表单行 `FormInputRow`）。注入点要跟着搬，
+#: 否则这条反向验证只会打一句"锚点变了"（它拦不住任何东西，却看着像在拦）。
+PRODUCT_FORM = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormScreen.kt"
 INVENTORY = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/InventoryScreen.kt"
 ORDER_DETAIL = "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
 ARREARS = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ArrearsUnitsScreen.kt"
@@ -68,13 +72,13 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "商品售价退回手写的 isDigit + 点号过滤（`1.2.3` 又能敲进来）",
-        PRODUCTS,
+        PRODUCT_FORM,
         lambda s: s.replace(
-            "onValueChange = { vm.draftPrice = InputRules.priceInput(it) },",
-            "onValueChange = { vm.draftPrice = it.filter { c -> c.isDigit() || c == '.' } },",
+            "onValueChange = { vm.price = InputRules.priceInput(it) },",
+            "onValueChange = { vm.price = it.filter { c -> c.isDigit() || c == '.' } },",
             1,
         ),
-        "默认售价",
+        "售价",
     ),
     (
         "数量框退回手写 isDigit 过滤（**位置参数**那条路，第一版检查漏的就是它）",
@@ -131,7 +135,8 @@ CASES: list[tuple[str, str, object, str]] = [
         "解析器被改坏（一个框都扫不到）→ 必须自己报「判据空转」而不是全绿",
         CHECK_REL,
         lambda s: s.replace(
-            'FIELD_NAMES = ("OutlinedTextField", "SoTextField", "BasicTextField", "TextField")',
+            'FIELD_NAMES = ("OutlinedTextField", "SoTextField", "BasicTextField", "TextField",\n'
+            '               "FormInputRow", "FormTextAreaRow")',
             'FIELD_NAMES = ("ZzzNotAComposable",)',
             1,
         ),
@@ -141,9 +146,10 @@ CASES: list[tuple[str, str, object, str]] = [
         "下单页的行编辑弹窗又把「单价」输入框加回来（货主又能自己定价）",
         ORDER_CREATE,
         lambda s: s.replace(
-            '                OutlinedTextField(\n                    value = name,\n'
-            '                    onValueChange = { name = it },\n'
-            '                    label = { Text("商品名称") },',
+            '                FormInputRow(\n'
+            '                    label = "商品名称",\n'
+            '                    value = name,\n'
+            '                    onValueChange = { name = it },',
             '                OutlinedTextField(\n'
             '                    value = initial.price,\n'
             '                    onValueChange = {},\n'
@@ -151,9 +157,10 @@ CASES: list[tuple[str, str, object, str]] = [
             '                    singleLine = true,\n'
             '                    modifier = Modifier.fillMaxWidth(),\n'
             '                )\n'
-            '                OutlinedTextField(\n                    value = name,\n'
-            '                    onValueChange = { name = it },\n'
-            '                    label = { Text("商品名称") },',
+            '                FormInputRow(\n'
+            '                    label = "商品名称",\n'
+            '                    value = name,\n'
+            '                    onValueChange = { name = it },',
             1,
         ),
         "不许改价",

@@ -789,6 +789,8 @@ data class ProductUpdateRequest(
     /** 传空串 = 清成"未分类"；传 null = 不改（PATCH 部分更新语义）。 */
     val category: String? = null,
     @SerialName("low_stock_alert") val lowStockAlert: Int? = null,
+    /** 显示顺序（小的在前）。**只有「商品排序」页会写它**，一次一个商品（逐条 PATCH）。 */
+    @SerialName("sort_order") val sortOrder: Int? = null,
 )
 
 interface ArrearsApi {
@@ -1198,11 +1200,21 @@ interface AccountingApi {
     suspend fun createReceipt(@Body body: ReceiptCreateRequest): ReceiptDto
 }
 
+/**
+ * 常用度（列表排序规则）：**只有一个动作 —— 把我自己的计数清空**（2026-09-22）。
+ *
+ * 用户在「我的 → 基础设置」里点「重置计数」时调它（界面先弹确认框）。
+ * ⛔ 后端只清**当前登录人**的行 —— 这个接口没有"清别人"的口子（见 `api/v1/usage.py`）。
+ */
+interface UsageApi {
+    @POST("usage/reset")
+    suspend fun reset(): UsageResetDto
+}
+
 /** 系统：版本更新检测 + 测试账号的默认 AI 配置 */
 interface SystemApi {
     @GET("system/app-version")
     suspend fun appVersion(): AppVersionDto
-
     /**
      * 测试账号的默认模型服务（服务端 `.env` 提供）。
      *

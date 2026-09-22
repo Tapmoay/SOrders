@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「我的」页深色头部的**背景纹路**：同心弧（用户 2026-09-21 给的参考图那种"深色底上的浅纹路"）。
+
+  ⚠️ 为什么是**资源**而不是在 `ProfileHeader.kt` 里用 `Canvas` 画：
+     本仓库有一条守卫（`_tools/qa/_check_ledger_dashboard.py`）——「**自己画的图只许在
+     `ui/common/Charts.kt`**」，它扫全树找 `Canvas(`。它的来历是真事故（账本页自己画折线/条形，
+     于是全项目出现第二份图表实现）。一段**背景装饰**画在页面文件里会**撞上这条守卫**，
+     而把 `ProfileHeader.kt` 加进白名单等于在一个页面文件上开了"可以自己画图"的口子
+     —— 下一个会话就可能在那儿画一张真的图。所以走矢量资源：不碰守卫，也是这类纹路本来的做法。
+
+  几何（viewport 360×150 ≈ 头部在手机上的宽高比）：圆心放在**右上角外面**
+  （`cx = 360×1.02, cy = −150×0.26`），半径 78 起、每圈 +48，共 6 圈。
+  用法是 `ContentScale.Crop`（**不拉伸**，只裁）——拉伸会把圆压成椭圆，
+  而裁切在各种屏宽上留下的都是"几道平缓的弧"，正是参考图那个观感。
+  白色 alpha 0x0F（≈5.9%）：它的作用是让一大块纯色不显得空，**不是**当装饰看。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="360dp"
+    android:height="150dp"
+    android:viewportWidth="360"
+    android:viewportHeight="150">
+
+    <path
+        android:pathData="M289.2,-39 a78,78 0 1,0 156,0 a78,78 0 1,0 -156,0"
+        android:strokeColor="#0FFFFFFF"
+        android:strokeWidth="1.4" />
+    <path
+        android:pathData="M241.2,-39 a126,126 0 1,0 252,0 a126,126 0 1,0 -252,0"
+        android:strokeColor="#0FFFFFFF"
+        android:strokeWidth="1.4" />
+    <path
+        android:pathData="M193.2,-39 a174,174 0 1,0 348,0 a174,174 0 1,0 -348,0"
+        android:strokeColor="#0FFFFFFF"
+        android:strokeWidth="1.4" />
+    <path
+        android:pathData="M145.2,-39 a222,222 0 1,0 444,0 a222,222 0 1,0 -444,0"
+        android:strokeColor="#0FFFFFFF"
+        android:strokeWidth="1.4" />
+    <path
+        android:pathData="M97.2,-39 a270,270 0 1,0 540,0 a270,270 0 1,0 -540,0"
+        android:strokeColor="#0FFFFFFF"
+        android:strokeWidth="1.4" />
+    <path
+        android:pathData="M49.2,-39 a318,318 0 1,0 636,0 a318,318 0 1,0 -636,0"
+        android:strokeColor="#0FFFFFFF"
+        android:strokeWidth="1.4" />
+</vector>

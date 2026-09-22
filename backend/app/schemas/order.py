@@ -89,6 +89,21 @@ class OrderCreate(GeoInput):
         default=None,
         description="派单员代下单时可指定归属货主；不指定则订单暂无货主，可后续再关联。货主本人下单勿传。",
     )
+    # ── 「下单时点的是库里哪一条」（2026-09-22 统一列表排序规则要用）────────────────
+    # 用户 2026-09-22：「我在下单的时候经常用到这个联系人……**用得越多越往前**」。
+    # 要让"常用度"能排出来，服务端必须知道**点的是哪一条**；而本接口原来只收解析后的
+    # 文字/电话（`address_detail` / `contact_*_phone`），**认不出库里是哪一行**，所以计不了数。
+    # ⚠️ 三个都是**可选**：老客户端不带 → 一切照旧（只是这一单不计入常用度），
+    #    ⛔ 不许改成必填（老版本 App 会当场下单失败）。
+    contact_id: int | None = Field(
+        default=None, ge=1, description="从「联系人」库里选的那一条（不计分时可不传）"
+    )
+    address_id: int | None = Field(
+        default=None, ge=1, description="从「常用线路」库里选的那一条（不计分时可不传）"
+    )
+    location_id: int | None = Field(
+        default=None, ge=1, description="从「我的地点」库里选的那一条（不计分时可不传）"
+    )
     temp_shipper_name: str | None = Field(
         default=None,
         max_length=128,
@@ -228,9 +243,16 @@ class OrderOut(BaseModel):
 
 
 class OrderChargeBody(BaseModel):
-    """派单员：把订单记到挂账单位名下。"""
+    """派单员：把订单记到挂账单位名下。
 
-    arrears_unit_id: int
+    ⚠️ 2026-09-22：`arrears_unit_id` 与 `arrears_unit_name` **二选一** ——
+    名字那条是"挂账时**自动添加**"（用户：「假如有个订单…**直接点击挂账**，
+    这个**挂账单位是自动添加的**」）：名字在名册里就复用、不在就地建一个。
+    两个都给时**以 id 为准**（旧调用点一个字节都不用改）。
+    """
+
+    arrears_unit_id: int | None = None
+    arrears_unit_name: str = Field(default="", max_length=100)
 
 
 class OrderExceptionBody(BaseModel):

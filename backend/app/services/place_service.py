@@ -39,6 +39,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
+from app.services import usage_service
 from app.models import Place, PlaceUserUsage, ShipperLocation
 # 图片张数上限与「我的地点」的出入参**同一个常量**（`schemas/text.py` 是叶子模块，
 # 引它不会成环）—— 两处各写一个 9，改了上限就会出现"界面允许传第 10 张、服务端悄悄丢"
@@ -126,6 +127,14 @@ def note_place_use(db: Session, *, user: Any, place: Place) -> tuple[int, bool]:
     反过来，什么都没多出来却说"已加进你的地点库"同样是假话（见下面的 `created`）。
     """
     now = datetime.now(timezone.utc)
+    # ⚠️ 2026-09-22：**同时**记进通用的「使用次数」表（`usage_counters`，kind=place）——
+    #    共享地点库的**列表排序**现在读的是它（"按我自己的常用度"，用户定的口径）。
+    #    这一行不能少：少了它，那个列表的次数永远是 0，排序退化成"先创建的在前"，
+    #    而且**看不出来**（列表照常显示，只是不再有你自己的常用度）。
+    #    ⛔ 与下面 `PlaceUserUsage` 的那份计数**暂时并存**（那份管"常用就自动进我的地点库"的阈值）：
+    #      两者合一（把旧表退休、阈值也读新表）是下一刀，要连着 3 条判据一起搬
+    #      （`_check_counter_updates.py` / 两份 `_reverse_verify_*` 都指着这里的代码形状）。
+    usage_service.record_usage(db, user=user, kind=usage_service.KIND_PLACE, target_id=place.id, now=now)
     row = db.scalars(
         select(PlaceUserUsage).where(
             PlaceUserUsage.user_id == user.id, PlaceUserUsage.place_id == place.id
