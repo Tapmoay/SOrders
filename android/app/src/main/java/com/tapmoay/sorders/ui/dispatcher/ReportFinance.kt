@@ -1,5 +1,8 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.common.DatePresets
+import java.time.LocalDate
+
 /**
  * 报表中心里那些**纯映射**：页签 → 导出 kind、后端枚举 → 中文、资金方向 → 收/支。
  *
@@ -13,6 +16,63 @@ package com.tapmoay.sorders.ui.dispatcher
  * 而不是散在某个 Composable 里的 `when`（那些写错了没有任何东西会响）。
  */
 internal object ReportFinance {
+
+    /**
+     * 报表接口那两个**历史参数**（`mode` + `date`）在 App 里固定送的值。
+     *
+     * ⚠️ 2026-09-22 起页面上的窗口是**一段明确区间**（`date_from`/`date_to`），后端两个都给时
+     * **区间优先**（`reports.py::_span` 一处判）。但这两个参数在签名里仍是必填（还有别的调用方、
+     * 还有既有测试走 `mode`+`anchor`），所以这里送一对**不起作用**的值，
+     * 而不是让每个调用点各写一遍字面量。
+     */
+    const val LEGACY_MODE = "day"
+
+    /**
+     * 「全部」在这一页落成的区间起点（见 VM 的 `windowOf`）。
+     *
+     * 报表两个端点必须给一段窗口（给不出"不带日期条件"那种），而档位表里的「全部」
+     * 就是"看所有数据" —— 用 `2000-01-01 ~ 今天` 落它：库里的数据都在这段里，
+     * 所以药丸上写「全部」与画出来的数字**是同一件事**。
+     * ⛔ 不许悄悄换成"近一年"那种更窄的窗口 —— 那就是口径词与窗口不一致。
+     */
+    const val ALL_FROM = "2000-01-01"
+
+    /**
+     * 档位 → 这一次要看的 `(from, to)` —— **报表六个页签共用这一处**（页面、导出、探测都用它）。
+     *
+     * 三条规矩：
+     * 1. **自定义**两头都给了才用那一段（只给一头是弹层的半成品状态，见下）；
+     * 2. 其余档位一律问 `DatePresets.rangeOf`（**档位与区间的唯一实现** —— 报表这边不另算一遍，
+     *    否则「本月」在报表是整月、在账本是 1 日到今天，两个页面两个口径）；
+     * 3. 「全部」这种**不带日期条件的档位**（`rangeOf` 返回 null）落成 [ALL_FROM] ~ 今天：
+     *    报表两个端点必须给一段窗口，而这一段覆盖了库里所有数据 —— 药丸上写「全部」
+     *    与画出来的数字仍然是同一件事。
+     *
+     * ⚠️ 半截自定义（只选了一头）**不该发生**（弹层只在两头都有时才回调）。真发生了就按
+     *    **最宽**的窗口看：报表宁可多算，也⛔不许悄悄少算一段 —— 少算的那几天页面上看不出来。
+     */
+    fun windowOf(preset: String, customFrom: String?, customTo: String?, today: LocalDate): Pair<String, String> {
+        if (preset == DatePresets.CUSTOM && customFrom != null && customTo != null) {
+            return customFrom to customTo
+        }
+        return DatePresets.rangeOf(preset, today) ?: (ALL_FROM to today.toString())
+    }
+
+    /**
+     * 这一段**有没有数**（自动挡的判据）。
+     *
+     * ⚠️ 判据必须与页面自己的取数**同源**：报表这一页的窗口是**页面级**的（六个页签共用一段），
+     * 所以"这段有没有业务"由「营业纵览」那份营业额来说 —— 探测打的就是
+     * `GET /reports/turnover`（页面第一屏自己要打的那个接口）、用的就是**同一段区间**
+     * （`date_from`/`date_to`），不是另找一个便宜的近似接口
+     * （那会变成"探到了、进去还是空"，正是 2026-09-22 那个 bug 的翻版）。
+     *
+     * 两个数任一非零就算有数：`total_orders` 是窗口内已送达单数，`total_amount` 是营业额。
+     * 只认单数会在"有营业额但单数统计口径变了"时误判，只认金额会在"0 元单"上误判。
+     */
+    fun hasData(totalOrders: Int, totalAmount: String): Boolean =
+        totalOrders > 0 || (totalAmount.toDoubleOrNull() ?: 0.0) != 0.0
+
 
     /**
      * 报表页签 → 后端导出的 `kind`。
@@ -29,39 +89,6 @@ internal object ReportFinance {
         3 -> "customers"
         4 -> "finance"
         else -> "audit"
-    }
-
-    /**
-     * 这个页签导出时要不要用**日期区间**（而不是 mode+anchor）。
-     *
-     * 与页面上的取数口径一致：
-     * - 营业纵览 / 商品经营：按 `mode`（日/周/月）+ `anchor` 看窗口，页面上就是那个时间段；
-     * - 司机绩效 / 客户经营 / 资金收支：页面上用的是 dateRange（那个时间段）；
-     * - 异常与审计：页面上**固定近 30 天**（没有时间导航），导出也必须是同一段，
-     *   否则"我看到的"和"我导出的"是两个区间。
-     */
-    fun usesDateRange(tab: Int): Boolean = tab in 2..5
-
-    /**
-     * 报表的时间窗口：`mode`（day/week/month）+ `anchor` → 起止日期（含首含尾）。
-     *
-     * ⚠️ **唯一真相**（2026-09-19 审计）：以前"标题"和"取数窗口"是**两处各写一遍**的，
-     * 而且写法不同 —— 标题写整月/整周（`2026-09-01 ~ 2026-09-30`），取数只到**锚点当天**
-     * （`2026-09-01 ~ 2026-09-05`）。于是 9/5 打开报表：标题写整月、数字只含 5 天；
-     * 9/20 打开则少掉后面 10 天的收支。而同一屏的「营业纵览」营业额走的是后端整月窗口 →
-    * **同一页两个时间段**，页面上完全看不出来。
-     * 现在两边都调这一个函数，写错了单测会红。
-     */
-    fun rangeFor(mode: String, anchor: String): Pair<String, String> {
-        val d = java.time.LocalDate.parse(anchor)
-        return when (mode) {
-            "week" -> {
-                val s = d.minusDays((d.dayOfWeek.value - 1).toLong())
-                s.toString() to s.plusDays(6).toString()
-            }
-            "month" -> d.withDayOfMonth(1).toString() to d.withDayOfMonth(d.lengthOfMonth()).toString()
-            else -> d.toString() to d.toString()
-        }
     }
 
     /**

@@ -2,8 +2,8 @@
  "generated_by": "_gen_ai_read_catalog.py",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 62,
-  "listed": 46,
+  "read_endpoints": 69,
+  "listed": 52,
   "missing_handler": []
  },
  "actions": [
@@ -25,12 +25,49 @@
   },
   {
    "module": "cash_flows",
+   "action": "cash_flow_breakdown",
+   "cn": "现金流水",
+   "module_cn": "现金流水",
+   "method": "get",
+   "path": "/api/v1/cash-flows/breakdown",
+   "at": "backend/app/api/v1/cash_flows.py:122",
+   "auth": "仅登录 + 体内仅允许:派单员",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "date_from",
+     "arg": "date_from",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_to",
+     "arg": "date_to",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "cash_flows",
    "action": "cash_flow_summary",
    "cn": "现金流水",
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows/summary",
-   "at": "backend/app/api/v1/cash_flows.py:70",
+   "at": "backend/app/api/v1/cash_flows.py:76",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -107,7 +144,7 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows",
-   "at": "backend/app/api/v1/cash_flows.py:46",
+   "at": "backend/app/api/v1/cash_flows.py:52",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -933,6 +970,22 @@
    "skipped_params": []
   },
   {
+   "module": "order_templates",
+   "action": "list_templates",
+   "cn": "预订单",
+   "module_cn": "预订单",
+   "method": "get",
+   "path": "/api/v1/order-templates",
+   "at": "backend/app/api/v1/order_templates.py:161",
+   "auth": "权限:ORDER_EDIT",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [],
+   "skipped_params": []
+  },
+  {
    "module": "orders",
    "action": "list_orders",
    "cn": "订单/派单",
@@ -1257,7 +1310,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:413",
+   "at": "backend/app/api/v1/reports.py:468",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1294,7 +1347,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:353",
+   "at": "backend/app/api/v1/reports.py:406",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1316,6 +1369,26 @@
      "arg": "anchor",
      "type": "date",
      "required": true,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_from",
+     "arg": "date_from",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_to",
+     "arg": "date_to",
+     "type": "date",
+     "required": false,
      "enum": [],
      "is_id": false,
      "is_path": false,
@@ -1331,7 +1404,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:340",
+   "at": "backend/app/api/v1/reports.py:391",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1357,6 +1430,26 @@
      "is_id": false,
      "is_path": false,
      "desc": ""
+    },
+    {
+     "name": "date_from",
+     "arg": "date_from",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_to",
+     "arg": "date_to",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
     }
    ],
    "skipped_params": []
@@ -1368,8 +1461,8 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests/mine",
-   "at": "backend/app/api/v1/return_requests.py:220",
-   "auth": "权限:ORDER_RETURN_REQUEST",
+   "at": "backend/app/api/v1/return_requests.py:261",
+   "auth": "权限:ORDER_RETURN_REQUEST + 角色:shipper",
    "roles": [
     "shipper"
    ],
@@ -1415,7 +1508,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests",
-   "at": "backend/app/api/v1/return_requests.py:277",
+   "at": "backend/app/api/v1/return_requests.py:320",
    "auth": "权限:ORDER_RETURN",
    "roles": [
     "dispatcher"
@@ -1508,12 +1601,69 @@
   },
   {
    "module": "shipper_ledger",
+   "action": "ledger_summary",
+   "cn": "我的账本",
+   "module_cn": "我的账本",
+   "method": "get",
+   "path": "/api/v1/shipper-ledger/summary",
+   "at": "backend/app/api/v1/shipper_ledger.py:170",
+   "auth": "角色:shipper",
+   "roles": [
+    "shipper"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "delivered_from",
+     "arg": "delivered_from",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "delivered_to",
+     "arg": "delivered_to",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "customer_name",
+     "arg": "customer_name",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "customer_phone",
+     "arg": "customer_phone",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "shipper_ledger",
    "action": "list_settlements",
    "cn": "我的账本",
    "module_cn": "我的账本",
    "method": "get",
    "path": "/api/v1/shipper-ledger/settlements",
-   "at": "backend/app/api/v1/shipper_ledger.py:122",
+   "at": "backend/app/api/v1/shipper_ledger.py:284",
    "auth": "角色:shipper",
    "roles": [
     "shipper"
@@ -1844,6 +1994,147 @@
       "quantity",
       "amount"
      ],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "suppliers",
+   "action": "list_payables",
+   "cn": "供应商/应付款",
+   "module_cn": "供应商/应付款",
+   "method": "get",
+   "path": "/api/v1/supplier-payables",
+   "at": "backend/app/api/v1/suppliers.py:267",
+   "auth": "权限:LEDGER_EDIT",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "supplier_id",
+     "arg": "supplier_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "only_open",
+     "arg": "only_open",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "suppliers",
+   "action": "list_payments",
+   "cn": "供应商/应付款",
+   "module_cn": "供应商/应付款",
+   "method": "get",
+   "path": "/api/v1/supplier-payments",
+   "at": "backend/app/api/v1/suppliers.py:399",
+   "auth": "权限:LEDGER_EDIT",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "supplier_id",
+     "arg": "supplier_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "payable_id",
+     "arg": "payable_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_from",
+     "arg": "date_from",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_to",
+     "arg": "date_to",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "suppliers",
+   "action": "list_suppliers",
+   "cn": "供应商/应付款",
+   "module_cn": "供应商/应付款",
+   "method": "get",
+   "path": "/api/v1/suppliers",
+   "at": "backend/app/api/v1/suppliers.py:136",
+   "auth": "权限:LEDGER_EDIT",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
      "is_id": false,
      "is_path": false,
      "desc": ""

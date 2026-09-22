@@ -63,6 +63,19 @@ READ_METHODS = {
     "drivers", "vehicles", "searchShippers", "products", "arrearsUnits",
     "users", "addresses", "locations", "contacts", "priceRules",
     "freightTemplates", "customers", "members", "salaryDrivers",
+    # 预订单名册（2026-09-22）：改/删预设单之前要按**名字**把它读回来（`GET /order-templates`）。
+    # 它是读 —— 真正写库的是 createOrderTemplate / updateOrderTemplate / deleteOrderTemplate
+    # （那三个不在白名单里，默认受"prepare 里不许写"的约束）。
+    "orderTemplates",
+    # 供应商 / 厂商 + 应付款 + 付款记录（2026-09-22）：三个都是**读**。
+    # ⚠️ `supplierPayables` 尤其重要：付款那张卡的**全部价值**就是预览时算出
+    #    "这张单还差多少 → 付完还差多少"，而那两个数只有把应付单读回来才拿得到 ——
+    #    判成"写"就只能把它挪出 prepare，那样卡片上印的会是"付款：永盛食品"这种
+    #    用户核对不了的标题（而钱付出去撤不回来）。
+    #    真正写库的是 createSupplier / updateSupplier / deleteSupplier / createSupplierPayable /
+    #    updateSupplierPayable / deleteSupplierPayable / paySupplierPayable /
+    #    cancelSupplierPayment / restoreSupplier*（那九个不在白名单里，默认受约束）。
+    "suppliers", "supplierPayables", "supplierPayments",
     # 商品分类名册 / 商品可见范围（v3.43）：改分类、设白名单之前都要先把现状读回来
     "productCategories", "productVisibility",
     # 地点分组名册（2026-09-19）：**按人分区**的那一份，建/改/删/重排之前先读回来，
@@ -749,7 +762,13 @@ def main() -> int:
     md_files = []
     for p in sorted(AI.glob("AiWrite*.kt")):
         src = read(p)
-        if "summary = " not in src:
+        # ⚠️ 预筛必须与下面**数数的那个正则同形**（都是 `\n\s+summary = `）：
+        #    用宽松的 `"summary = " in src` 预筛，会把"只在 KDoc/正文里提了一句
+        #    `summary = …`、自己一张卡都没有"的文件也拉进来 —— 于是它 n_summary=0，
+        #    被报成"卡片文案块没定位到"（**假红**）。2026-09-22 实测撞到：
+        #    `AiWriteArgs.kt` 的 KDoc 里写了一句 `summary = …`，那条检查当场红，
+        #    而它跟卡片文案一个字的关系都没有。假红的下场是这个检查被无视。
+        if not re.search(r"\n\s+summary = ", src):
             continue
         # ⚠️⚠️ v3.32 第三次栽在同一个坑上：这一次的清单不是"文件"而是**形状**。
         #    这条检查原来是按"details 长什么样"去正则匹配的（`buildList { }` 一种），
@@ -2476,8 +2495,16 @@ def main() -> int:
     undo = read(AI / "AiUndo.kt")
     revert = read(AI / "AiRevert.kt")
     resources = read(AI / "AiResources.kt")
-    basic20 = read(AI / "AiWriteBasicData.kt")
-    master20 = read(AI / "AiWriteMasterData.kt")
+    # ⚠️ 2026-09-22（预订单那一轮）：这两行原来是**写死的两个文件名**，于是新加的域文件
+    #    （`AiWriteOrderTemplates.kt`）里的动作与 `restoreAction(...)` **一个都扫不到** ——
+    #    表现是「资源挂了不存在的动作 / 恢复动作没注册」这类**假红**，
+    #    而真正漏注册的那个动作会被它一起放过（这比红更糟）。
+    #    本仓库栽过 6 次同类问题，规矩是：**"要检查哪些文件"的清单一律让脚本自己算**。
+    #    所以这里改成 glob：所有声明过 `AiWriteAction(` 的 `AiWrite*.kt`。
+    #    ⛔ 别再往这里手写文件名。
+    _domain_files = sorted(p for p in AI.glob("AiWrite*.kt") if "AiWriteAction(" in read(p))
+    basic20 = "\n".join(read(p) for p in _domain_files)
+    master20 = ""
     c.present("撤回方案有专门的类型与暂存区", undo, r"data class AiUndoPlan")
     c.present(
         "撤回 token 一次性（取走即删）",

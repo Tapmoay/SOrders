@@ -123,9 +123,14 @@ CANVAS_ALLOW = {
     "util/Watermark.kt": "导出图片上的水印，不是图表",
 }
 
-#: 「账本管理」入口页里的 6 格（顺序即显示顺序）。用户 2026-09-20 第二轮定稿：
-#: 司机账**并入司机结算**、开销管理**并进来**、车辆台账**搬去工作台**。
-LEDGER_TILES = ["订单账", "司机账", "货主账", "批发商账", "客户收款", "开销管理"]
+#: 「账本管理」入口页里的 7 格（顺序即显示顺序）。
+#: 用户 2026-09-20 第二轮定稿了 6 格（司机账**并入司机结算**、开销管理**并进来**、
+#: 车辆台账**搬去工作台**）；2026-09-22 加第 7 格「供应商/应付」——
+#: 用户原话「支出主要是**给某个供应商或者说是厂商支付尾款**……**购买一个装备或者说是设备**……
+#: 比如说类似**邮费**啊」，拍板口径是"跟客户一个量级的档案"（可挂账、可查还欠多少、可分次付款）。
+#: ⚠️ 它**不是**把「收支」那一格顶掉：那一格是**日记账**（一笔一笔的流水），
+#:    这一格是**往来账**（欠谁多少、分几次付清）—— 两件事、两个页面，两边都通。
+LEDGER_TILES = ["订单账", "司机账", "货主账", "批发商账", "客户收款", "收支", "供应商/应付"]
 
 #: 亮度家族带（B 66-100）之外的**既有**格子 → 理由。只用来拦新增的，不回溯判老的。
 BAND_EXEMPT = {
@@ -364,12 +369,24 @@ def main() -> int:
             len(re.findall(r"Routes\.dispatcherLedger\(", body)) == 4,
             "少于 4 条",
         )
-        for r in ("Routes.DISPATCH_RECEIPTS", "Routes.DISPATCH_EXPENSES"):
+        for r in ("Routes.DISPATCH_RECEIPTS", "Routes.DISPATCH_CASH"):
             c.present(f"两个工具之一走 {r}", body, re.escape(r))
         c.absent("6 格里没有「司机结算」（并进司机账了）", body, r'"司机结算"')
         c.absent("6 格里没有「车辆台账」（它去工作台了）", body, r'"车辆台账"')
+        # 2026-09-22 用户：「我记得好像有个开销管理吧，干脆把我们两个**整合在一起**」——
+        # 开销管理从"并列一格"降成「收支 → 支出」里的明细入口（它自己那一页与路由都还在，
+        # 见下面 ⑦）。
+        c.absent("6 格里不再并列一格「开销管理」（并进「收支」了）", body, r'"开销管理"')
+        c.present("「收支」那一格指向它自己那一页", body, r'ModuleEntry\("收支", Routes\.DISPATCH_CASH')
         icons = re.findall(r"Icons\.Default\.(\w+)", body)
-        c.ok(f"6 个图标互不相同（实测 {len(set(icons))} 种）", len(set(icons)) == len(icons) == 6, f"{icons}")
+        # ⚠️ 条数不再写死 `== 6`：这个数会随格子增删变化（2026-09-22 加了「供应商/应付」），
+        #    写死之后每加一格都要来这里改一次数字 —— 而那正是"手写清单"的腐烂方式。
+        #    判据改成"**与 LEDGER_TILES 的条数一致 + 两两不同**"：清单本身仍是唯一出处。
+        c.ok(
+            f"{len(LEDGER_TILES)} 个图标互不相同（实测 {len(set(icons))} 种）",
+            len(set(icons)) == len(icons) == len(LEDGER_TILES),
+            f"{icons}",
+        )
         # 同屏不许撞色：6 格两两 RGB 欧氏距离 ≥60
         cols = [(m[0], m[1]) for m in re.findall(r'ModuleEntry\("([^"]+)"[\s\S]{0,200}?color = (MoneyOrange|0xFF[0-9A-Fa-f]{6}L)', body)]
         hexes = []
@@ -383,7 +400,7 @@ def main() -> int:
                 d = sum((int(a[k:k + 2], 16) - int(b[k:k + 2], 16)) ** 2 for k in (0, 2, 4)) ** 0.5
                 if d < 60:
                     bad_pairs.append(f"{hexes[i][0]}×{hexes[j][0]}={d:.0f}")
-        c.ok(f"6 格配色两两距离 ≥60（不合 {len(bad_pairs)} 对）", not bad_pairs, "、".join(bad_pairs))
+        c.ok(f"{len(LEDGER_TILES)} 格配色两两距离 ≥60（不合 {len(bad_pairs)} 对）", not bad_pairs, "、".join(bad_pairs))
     c.present("路由函数 dispatcherLedger(tab) 存在", routes, r"fun dispatcherLedger\(tab: Int\)")
     c.present("入口页路由 LEDGER_HOME 存在", routes, r'const val LEDGER_HOME = "dispatcher/ledger/home"')
     c.present("入口页在 NavGraph 注册了", navgraph, r"composable\(Routes\.LEDGER_HOME\)")

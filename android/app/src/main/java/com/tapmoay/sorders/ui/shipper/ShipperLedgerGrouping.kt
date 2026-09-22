@@ -14,8 +14,8 @@ import com.tapmoay.sorders.ui.dispatcher.moneyCents
  *
  * | 数 | 谁欠谁 | 从哪来 |
  * | --- | --- | --- |
- * | [LedgerTotals.dispatcherArrearsCents] | **我欠总分销商** | 后端算好的 `arrears_amount` 逐单相加（[orderArrearsCents]），**客户端不重算** |
- * | [LedgerCustomer.owedCents] | **我的货主欠我** | 各行「货款 − 我已核销」之和（[lineRemainingCents]） |
+ * | 顶上那张卡（货款 / 已付 / 还欠 · 应收 / 已收 / 待收） | **我 ↔ 公司** 与 **我 ↔ 我的下游** | **服务端** `GET /shipper-ledger/summary`（见下面那段"没有这一段合计了"） |
+ * | [LedgerCustomer.owedCents] | **我的货主欠我** | 各行「货款 − 我已核销」之和（[lineRemainingCents]），**按人分组**用 |
  *
  * ## 归属谁（哪个货主）
  * 用户原话：「他下单，有时候他会填**下单人**是谁……或者**收货人**也是货主（他批发商的货主）」。
@@ -26,6 +26,15 @@ import com.tapmoay.sorders.ui.dispatcher.moneyCents
  * 「这一行还能收多少」= `ui/dispatcher/LedgerPersonStats.kt::lineReceivableCents`
  * （与后端 `order_money.line_receivable` 同一个公式）。**这里不另写一份**：
  * 两边算得不一样时，界面上的合计会和提交后后端算出的数对不上，用户只会以为被吞了钱。
+ *
+ * ## ⛔ 这里**没有**「这一段合计」了（2026-09-22 删掉）
+ * 原来有一个 `ledgerTotals(orders, settlements)`：把**当前这一页**订单的
+ * `arrears_amount` / 货款 / 已核销加起来当"这一段合计"。那个形状是错的 ——
+ * 这一页是**带 limit 的一页**（`LEDGER_PAGE_LIMIT`），单子一多合计就**偏小**，
+ * 而卡片上写着"这一段"（期① 审计里"客户端求和少算 62%"是同一个形状：同一个数两个答案）。
+ * 顶上那张卡的数现在**一律取服务端**：`GET /shipper-ledger/summary`
+ * （见 `ShipperLedgerViewModel.summary`，红线 `_tools/qa/_check_shipper_ledger_stats.py`）。
+ * ⛔ 别再往这个文件里加"把一页数据加起来的合计函数"—— 要合计就加端点。
  */
 
 /** 归属人为空时的那一档（**不编名字**：编一个会让用户以为这单真的记了人）。 */
@@ -150,36 +159,6 @@ fun groupByCustomer(
             )
         }
         .sortedWith(compareByDescending<LedgerCustomer> { it.owedCents }.thenBy { it.name })
-}
-
-/** 顶部那张卡上的四个数（**当前筛选下**的，不是历史总额）。 */
-data class LedgerTotals(
-    val orders: Int,
-    /** 我欠总分销商（后端 `arrears_amount` 逐单相加）。 */
-    val dispatcherArrearsCents: Long,
-    /** 货款合计（我该向下游收的）。 */
-    val goodsCents: Long,
-    /** 其中已经收回来多少。 */
-    val settledCents: Long,
-    /** 其中还欠我多少。 */
-    val owedCents: Long,
-    /** 其中已经结清的单数（欠款 ≤ 0）。 */
-    val clearedOrders: Int,
-)
-
-/** 当前筛选下的合计。 */
-fun ledgerTotals(orders: List<OrderDto>, settlements: List<ShipperSettlementDto>): LedgerTotals {
-    val settled = settledByLineCents(settlements)
-    val goods = orders.sumOf { orderGoodsCents(it) }
-    val owed = orders.sumOf { orderRemainingCents(it, settled) }
-    return LedgerTotals(
-        orders = orders.size,
-        dispatcherArrearsCents = orders.sumOf { orderArrearsCents(it) },
-        goodsCents = goods,
-        settledCents = goods - owed,
-        owedCents = owed,
-        clearedOrders = orders.count { orderRemainingCents(it, settled) <= 0L },
-    )
 }
 
 /**

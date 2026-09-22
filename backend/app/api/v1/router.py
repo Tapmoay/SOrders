@@ -20,6 +20,8 @@ from app.api.v1 import (
     notifications,
     operation_logs,
     order_products,
+    order_templates,
+    suppliers,
     orders,
     place_categories,
     places,
@@ -49,6 +51,12 @@ api_router.include_router(shipper.router)
 # 谁都不写谁 —— 见 `api/v1/shipper_ledger.py` 开头。
 api_router.include_router(shipper_ledger.router)
 api_router.include_router(orders.router)
+# 预订单 / 订单模板（2026-09-22 用户要求：「预设好的订单，参数没有变直接下单」）。
+# 它自己不生成订单 —— 真下单仍走上面那条 `orders.router`。
+api_router.include_router(order_templates.router)
+# 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求：「给供应商付尾款」「采购设备」「邮费」）。
+# 付款不是新表 —— 它就是 `cash_flows` 里 `biz_type=PAYMENT_SUPPLIER` 的一行，见 `api/v1/suppliers.py` 开头。
+api_router.include_router(suppliers.router)
 # 退货申请（2026-09-21）：货主**申请** → 派单员**实际执行**。与 `orders.router` 里那条
 # `POST /orders/{id}/return`（唯一的执行路径）是两件事，见 `api/v1/return_requests.py` 开头。
 api_router.include_router(return_requests.router)

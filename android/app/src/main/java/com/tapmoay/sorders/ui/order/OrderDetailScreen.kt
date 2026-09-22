@@ -776,6 +776,35 @@ private fun DetailBody(
             SectionCard {
                 SectionTitle(Icons.Default.Inventory2, Color(ProductPurple), "商品明细")
                 Spacer(Modifier.height(10.dp))
+                // ── 两列（件数 / 金额）的宽度：**本单里最宽的那一条说了算** ──
+                // 用户 2026-09-22：「商品明细……后面是有价格的**没有做对齐**啊，就是**件与件数做对齐、
+                // 价格与价格做个对齐**，他们都**放在右边的**」（货主那边同一句话）。
+                // 做法：每一行都用**同一个宽度** + 右对齐，于是两个数各自成一列；
+                // 宽度是量出来的（`Adaptive.kt::rememberTextWidth`，与全 App 同一把尺），不按字数猜。
+                // ⚠️ 它只能在组合期、且**不在条件分支里**调；`fold` / `forEach` 是 inline 所以能放进去，
+                //    **`map` 不是 inline、别用**（见 Adaptive.kt 的说明）。所以下面全部走 fold。
+                val qtyStyle = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                )
+                val moneyStyle = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                )
+                val damageStyle = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                )
+                val qtyW = order.orderProducts.fold(0.dp) { acc, l ->
+                    maxOf(acc, rememberTextWidth("×" + qtyWithUnit(l.quantity, l.unit), qtyStyle))
+                }
+                val moneyW = order.orderProducts.fold(0.dp) { acc, l ->
+                    maxOf(acc, rememberTextWidth("¥" + formatMoney(l.lineTotal), moneyStyle))
+                }
+                // 货损那一格也**单独占一列**：它一出现就会把这行的金额往左挤 ——
+                // 不占列的话，"有货损的那一行"金额就和别的行对不齐了（正是要修的那件事）。
+                // ⚠️ 这里对**每一行都量**（哪怕这一行没货损）：`remember` 的槽位数必须与行数一致。
+                val damageW = order.orderProducts.fold(0.dp) { acc, l ->
+                    maxOf(acc, rememberTextWidth(damageLabel(l.damageQuantity, l.unit), damageStyle))
+                }
+                val hasDamage = order.orderProducts.any { it.damageQuantity > 0 }
                 order.orderProducts.forEachIndexed { i, line ->
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -790,28 +819,35 @@ private fun DetailBody(
                         )
                         Text(
                             // 单位是下单时定格的（选品弹窗里能改）；老数据为空 → 只显示件数，
-                            // **不编一个"件"出来**（编了就成了"系统说的"，而实际没人填过）
-                            "×" + line.quantity + (if (line.unit.isBlank()) "" else " " + line.unit),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            // **不编一个"件"出来**（编了就成了"系统说的"，而实际没人填过）。
+                            // 拼法只有一处：`Units.kt::qtyWithUnit`（订单卡片走的也是它）。
+                            "×" + qtyWithUnit(line.quantity, line.unit),
+                            style = qtyStyle,
                             color = androidx.compose.ui.graphics.Color(0xFF8455E6),
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.width(qtyW),
                         )
                         Spacer(Modifier.width(12.dp))
                         if (role != Role.DRIVER) {
                             Text(
                                 "¥" + formatMoney(line.lineTotal),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                style = moneyStyle,
                                 color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(moneyW),
                             )
                         }
-                        if (line.damageQuantity > 0) {
+                        if (hasDamage) {
+                            // ⚠️ 用 hasDamage（**整单**判据）而不是 line.damageQuantity > 0：
+                            //    这一格得**每一行都占住**，否则没货损的那几行金额会贴到最右边、
+                            //    与有货损的那几行错开一列。
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "货损 " + line.damageQuantity + " 件",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                if (line.damageQuantity > 0) damageLabel(line.damageQuantity, line.unit) else "",
+                                style = damageStyle,
                                 color = Color(MoneyOrange),
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(damageW),
                             )
                         }
                     }

@@ -433,6 +433,28 @@ data class AiPriceProduct(val id: Long, val name: String, val defaultPrice: Stri
 
 /** 一条已有的批发商专属价（原始三列，批量调价用它 join 出当前生效价）。 */
 data class AiPriceRuleRow(val shipperId: Long, val productId: Long, val price: String)
+
+/**
+ * 一张应付单的**钱现状**（2026-09-22，供应商付款要在预览时算出"付完还差多少"）。
+ *
+ * 为什么不能复用 [AiName]：付款是全 App 第二个"我要先把结果算给你看"的动作
+ * （第一个是批量调价，见 [AiPriceProduct]），而算结果需要的是**金额**，名字只用于展示。
+ *
+ * ⚠️ 四个金额都是**后端算好的字符串**（口径只有一处：`backend/app/services/supplier_service.py`）。
+ *    客户端一个减法都不做 —— 那会变成第二个口径。
+ * ⚠️ 必须是 `public`：它是 `AiWriteDataSource`（public 接口）的返回类型，
+ *    `internal` 会让接口暴露一个更窄的类型，Kotlin 直接编译不过。
+ */
+data class AiSupplierPayable(
+    val id: Long,
+    /** 挂在哪一个供应商名下（付款那条路要"在这一个供应商名下"找单据）。 */
+    val supplierId: Long,
+    val title: String,
+    val amount: String,
+    val paid: String,
+    val unpaid: String,
+    val paymentCount: Int,
+)
 /** 名册里的一条：**有编号，也有名字**。名字是唯一允许离开 App 的那一半。 */
 data class AiName(
     val id: Long,
@@ -1203,9 +1225,39 @@ object AiWrites {
     const val ARREARS_UNIT_CREATE = "arrears_unit.create"
     const val ARREARS_UNIT_UPDATE = "arrears_unit.update"
     const val ARREARS_UNIT_DELETE = "arrears_unit.delete"
+    // 预订单 / 订单模板（2026-09-22 用户要求「AI 直接创建预定单」）。
+    // 「一键下单」不是这里面的动作：它是界面动作（读预设单 → 走已有的 `orders.create`）。
+    const val ORDER_TEMPLATE_CREATE = "order_templates.create"
+    const val ORDER_TEMPLATE_UPDATE = "order_templates.update"
+    const val ORDER_TEMPLATE_DELETE = "order_templates.delete"
+    const val ORDER_TEMPLATE_RESTORE = "order_templates.restore"
     const val FREIGHT_TEMPLATE_CREATE = "freight_template.create"
     const val FREIGHT_TEMPLATE_UPDATE = "freight_template.update"
     const val FREIGHT_TEMPLATE_DELETE = "freight_template.delete"
+
+    // ---- 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求，账本管理「支出」那一块）----
+    //
+    // 用户原话：「支出主要是**给某个供应商或者说是厂商支付尾款**……**购买一个装备或者说是设备**……
+    // 比如说类似**邮费**啊」；拍板口径：**跟客户一个量级的档案**（可挂账、可查还欠多少、可分次付款）。
+    //
+    // 十一个动作分三条线（档案 / 应付单 / 付款），每条线各有 `restore`（撤回路径专用）。
+    // ⛔ 三条线**不合**成一个大动作：它们的对象、风险、卡片要核对的东西都不一样 ——
+    //    「改档案电话」和「把钱付出去」并成一个动作，风险只能取最高档，
+    //    用户会很快学会无视那张红牌（`AiWriteRisk` 那一节的理由）。
+    const val SUPPLIER_CREATE = "supplier.create"
+    const val SUPPLIER_UPDATE = "supplier.update"
+    const val SUPPLIER_DELETE = "supplier.delete"
+    const val SUPPLIER_RESTORE = "supplier.restore"
+    const val SUPPLIER_PAYABLE_CREATE = "supplier_payable.create"
+    const val SUPPLIER_PAYABLE_UPDATE = "supplier_payable.update"
+    const val SUPPLIER_PAYABLE_DELETE = "supplier_payable.delete"
+    const val SUPPLIER_PAYABLE_RESTORE = "supplier_payable.restore"
+    //: **真正把钱写出去**的那一个（HIGH）：会写一行资金流水，账本「收支」立刻看得到。
+    const val SUPPLIER_PAYMENT_PAY = "supplier_payment.pay"
+    //: **撤销一笔付款**（软删那一行流水，可恢复）。⛔ 不复用 pay：方向相反的两个结论，
+    //: 审计页上必须一眼分得出"这笔钱付出去了"和"这笔钱其实不算"。
+    const val SUPPLIER_PAYMENT_CANCEL = "supplier_payment.cancel"
+    const val SUPPLIER_PAYMENT_RESTORE = "supplier_payment.restore"
     const val VEHICLE_CREATE = "vehicle.create"
     const val VEHICLE_UPDATE = "vehicle.update"
 
@@ -1285,6 +1337,15 @@ object AiWrites {
     const val G_RETURN_REQUEST = "退货申请"
     const val G_LEDGER = "账目"
     /**
+     * 供应商 / 厂商与应付款（2026-09-22）。
+     *
+     * 单独一个域而不是并进 [G_LEDGER]：`G_LEDGER` 是**日记账**（一笔一笔的收支流水：
+     * 记支出、客户收款、账本记一笔…），而这一域是**往来账**（欠谁多少、分几次付清）。
+     * 用户在设置页上是照着"我要干的那件事"找动作的，"付供应商尾款"不该混在
+     * "记一笔油费"中间 —— 那两件事的记录对象、核对方式、后果都不一样。
+     */
+    const val G_SUPPLIER = "供应商/应付款"
+    /**
      * 货主自己那一本账（批发商给下游货主核销）。
      *
      * 单独一个域而不是并进 [G_LEDGER]：`G_LEDGER` 是**公司账**（派单员写的），
@@ -1330,7 +1391,11 @@ object AiWrites {
     val ALL: List<AiWriteAction>
         get() = MANUAL + AiWriteMasterData.ALL + AiWriteBasicData.ALL +
             AiWritePricing.ACTIONS + AiWriteSettlements.ACTIONS +
-            AiWriteShipperLedger.ACTIONS + AiWriteReturnRequest.ACTIONS
+            AiWriteShipperLedger.ACTIONS + AiWriteReturnRequest.ACTIONS +
+            // 预订单 / 订单模板（2026-09-22 用户要求「AI 直接创建预定单」）
+            AiWriteOrderTemplates.ACTIONS +
+            // 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求「给供应商付尾款」）
+            AiWriteSuppliers.ACTIONS
 
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(

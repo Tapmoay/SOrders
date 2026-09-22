@@ -87,6 +87,8 @@ object ApiClient {
             notificationApi = retrofit.create(NotificationApi::class.java),
             productApi = retrofit.create(ProductApi::class.java),
             arrearsApi = retrofit.create(ArrearsApi::class.java),
+            orderTemplateApi = retrofit.create(OrderTemplateApi::class.java),
+            supplierApi = retrofit.create(SupplierApi::class.java),
             inventoryApi = retrofit.create(InventoryApi::class.java),
             priceRuleApi = retrofit.create(PriceRuleApi::class.java),
             freightTemplateApi = retrofit.create(FreightTemplateApi::class.java),
@@ -214,6 +216,9 @@ data class ApiBundle(
     val notificationApi: NotificationApi,
     val productApi: ProductApi,
     val arrearsApi: ArrearsApi,
+    /** 预订单（订单模板，2026-09-22）。 */
+    val orderTemplateApi: OrderTemplateApi,
+    val supplierApi: SupplierApi,
     val inventoryApi: InventoryApi,
     val priceRuleApi: PriceRuleApi,
     val freightTemplateApi: FreightTemplateApi,

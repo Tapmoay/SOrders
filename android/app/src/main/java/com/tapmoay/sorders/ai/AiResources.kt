@@ -12,9 +12,13 @@ import com.tapmoay.sorders.data.remote.dto.NotificationDto
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductRow
+import com.tapmoay.sorders.data.remote.dto.OrderTemplateDto
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.ProductVisibilityDto
+import com.tapmoay.sorders.data.remote.dto.SupplierDto
+import com.tapmoay.sorders.data.remote.dto.SupplierPayableDto
+import com.tapmoay.sorders.data.remote.dto.SupplierPaymentDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import kotlinx.serialization.json.JsonArray
@@ -666,6 +670,152 @@ internal object AiResources {
         read = { ds, id -> ds.snapshot("notification", id) },
     )
 
+    /**
+     * 预订单 / 订单模板（2026-09-22 用户要求）。
+     *
+     * 它为什么需要撤回：预设单**会变成真订单** —— 一张被人改过的预设单会让以后每一次
+     * 「一键下单」都按改后的参数生成，而界面上完全看不出来。所以"改错了要能一键改回来"。
+     *
+     * ⚠️ `create` 不在这张表里（与全项目其他资源同形）：**新建的撤回 = 删掉它**，
+     *    由 [AiRevert] 的默认路径处理，不需要在这里声明。
+     */
+    private val ORDER_TEMPLATE = AiResource(
+        key = "order_template",
+        cn = "预设单",
+        idKey = "template_id",
+        readKeys = setOf("name", "shipper_id", "address", "freight_fee", "remark"),
+        labels = mapOf(
+            "name" to "预设单名",
+            "shipper_id" to "货主",
+            "address" to "送货地址",
+            "freight_fee" to "预设运费",
+            "remark" to "备注",
+        ),
+        moneyKeys = setOf("freight_fee"),
+        actions = listOf(
+            update(AiWrites.ORDER_TEMPLATE_UPDATE),
+            delete(AiWrites.ORDER_TEMPLATE_DELETE),
+            paired(
+                AiWrites.ORDER_TEMPLATE_RESTORE,
+                AiInverse(AiWrites.ORDER_TEMPLATE_DELETE, mapOf("template_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        read = { ds, id -> ds.snapshot("order_template", id) },
+        restore = AiInverse(AiWrites.ORDER_TEMPLATE_RESTORE, mapOf("target_id" to AiRevert.ID)),
+    )
+
+    /**
+     * 供应商 / 厂商档案（2026-09-22 用户要求「给供应商付尾款」，拍板口径是"跟客户一个量级的档案"）。
+     *
+     * 撤回怎么成立：改资料是"字段值变了"（框架按写之前的现场 patch 回去）；
+     * 删除是伪装删除，走 `/{id}/restore`。
+     */
+    private val SUPPLIER = AiResource(
+        key = "supplier",
+        cn = "供应商",
+        idKey = "supplier_id",
+        readKeys = setOf("name", "contact_name", "phone", "address", "remark"),
+        labels = mapOf(
+            "name" to "名称",
+            "contact_name" to "联系人",
+            "phone" to "电话",
+            "address" to "地址",
+            "remark" to "备注",
+        ),
+        actions = listOf(
+            update(AiWrites.SUPPLIER_UPDATE),
+            delete(AiWrites.SUPPLIER_DELETE),
+            paired(
+                AiWrites.SUPPLIER_RESTORE,
+                AiInverse(AiWrites.SUPPLIER_DELETE, mapOf("supplier_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        read = { ds, id -> ds.snapshot("supplier", id) },
+        restore = AiInverse(AiWrites.SUPPLIER_RESTORE, mapOf("target_id" to AiRevert.ID)),
+    )
+
+    /**
+     * 应付单（**欠这个供应商的一笔钱**）。
+     *
+     * ⚠️ 撤回一张"新建的应付单"= 删掉它（框架的默认路径，不在这张表里声明）；
+     * 撤回一次"改动"= 把事由/金额/日期写回旧值。
+     * 撤回一次"删除"= `/{id}/restore` 放回来。
+     */
+    private val SUPPLIER_PAYABLE = AiResource(
+        key = "supplier_payable",
+        cn = "应付款",
+        idKey = "payable_id",
+        readKeys = setOf("title", "category", "amount", "doc_date", "remark"),
+        labels = mapOf(
+            "title" to "这笔账是什么",
+            "category" to "用途分类",
+            "amount" to "应付总额",
+            "doc_date" to "单据日期",
+            "remark" to "备注",
+        ),
+        moneyKeys = setOf("amount"),
+        actions = listOf(
+            update(AiWrites.SUPPLIER_PAYABLE_UPDATE),
+            delete(AiWrites.SUPPLIER_PAYABLE_DELETE),
+            paired(
+                AiWrites.SUPPLIER_PAYABLE_RESTORE,
+                AiInverse(AiWrites.SUPPLIER_PAYABLE_DELETE, mapOf("payable_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        read = { ds, id -> ds.snapshot("supplier_payable", id) },
+        restore = AiInverse(AiWrites.SUPPLIER_PAYABLE_RESTORE, mapOf("target_id" to AiRevert.ID)),
+    )
+
+    /**
+     * 一笔付款（就是 `cash_flows` 里 `PAYMENT_SUPPLIER` 的那一行）。
+     *
+     * ### 只有"撤销 ↔ 恢复"这一对，**付款本身不在这里**
+     * 付款（`supplier_payment.pay`）写的是**新的一行流水**，编号在写之前不存在 ——
+     * 挂不上"撤回"按钮。它的撤回走另一条已经存在的路：**撤销付款**（`cancel`），
+     * 那是"把这笔钱收回来"，卡片上写着这件事（见 `AiWriteSuppliers` 的 blurb）。
+     * 这一条与 `SHIPPER_SETTLEMENT` 是同一个形状（撤销/恢复成对，正向不挂撤回）。
+     *
+     * ### 为什么"撤销付款"的撤回是"恢复"而不是"再付一次"
+     * 撤销是**软删那一行流水**（用户定的硬规矩：删除一律软删 + 必须有恢复路径），
+     * 所以放回来要走 `/{id}/restore`。⛔ 不许"再付一笔同样的钱" ——
+     * 那会写出**第二行**流水，而第一行还躺在回收站里：账上从此有两笔钱，
+     * 一笔真的、一笔是假的，谁也不敢删。
+     */
+    private val SUPPLIER_PAYMENT = AiResource(
+        key = "supplier_payment",
+        cn = "付款记录",
+        idKey = "payment_id",
+        readKeys = setOf("amount", "pay_date", "channel", "remark"),
+        labels = mapOf(
+            "amount" to "付款金额",
+            "pay_date" to "付款日期",
+            "channel" to "付款方式",
+            "remark" to "备注",
+        ),
+        moneyKeys = setOf("amount"),
+        actions = listOf(
+            paired(
+                AiWrites.SUPPLIER_PAYMENT_CANCEL,
+                AiInverse(
+                    AiWrites.SUPPLIER_PAYMENT_RESTORE,
+                    mapOf("target_id" to AiRevert.ID),
+                    lines = listOf(
+                        "把刚撤掉的那一笔付款放回来（后台是伪装删除：流水行还在，逐字段照搬）",
+                        "放回来之后「还欠他多少」会重新减掉这一笔，账本「收支」里也重新算上它",
+                        "两边一起变，不会出现「欠款说没付、收支说付了」",
+                    ),
+                ),
+                idKey = "flow_id",
+            ),
+        ),
+        // 成对动作的撤回**不需要读现场**（参数只有主键，`AiRevert.plan` 里那道判据会跳过读），
+        // 而这一条被撤掉之后本来就躺在回收站里、按常规列表读不到 —— 所以如实返回 null。
+        read = { _, _ -> null },
+    )
+
     /** 全部资源。红线与单测按它逐个核对（键是否齐全、动作是否都有归属）。 */
     val TABLE: List<AiResource> = listOf(
         ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, FREIGHT_TEMPLATE, DRIVER_RULE,
@@ -673,6 +823,9 @@ internal object AiResources {
         PLACE,
         ORDER, ORDER_LINE, LEDGER_ENTRY, NOTIFICATION,
         SHIPPER_SETTLEMENT,
+        ORDER_TEMPLATE,
+        // 供应商 / 厂商 + 应付款 + 付款（2026-09-22）
+        SUPPLIER, SUPPLIER_PAYABLE, SUPPLIER_PAYMENT,
     )
 }
 
@@ -749,6 +902,69 @@ internal object AiRevertRead {
         put("from_place", d.fromPlace)
         put("to_place", d.toPlace)
         put("fee", d.fee)
+        put("remark", d.remark)
+    }
+
+    /**
+     * 预设单的现场（2026-09-22）。
+     *
+     * ⚠️ 两个"空值"要小心处理：
+     * · **货主为空时不写这个键** —— 撤回是"把旧值塞回同一条写路径"，而 `explicitNulls=false`
+     *   会把 null 丢掉；写一个空键反而会让撤回什么都没做。
+     *   （"原本就没货主"与"改完变成没货主"两种情况都不需要写回：前者不用改，后者由界面上那次
+     *    编辑直接完成，撤回要还原的是**改之前**那一份。）
+     * · **运费为空时同样不写** —— 同一条理由；空值在更新请求里发不出去。
+     */
+    fun orderTemplate(d: OrderTemplateDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        d.shipperId?.let { put("shipper_id", it) }
+        put("address", d.address)
+        d.freightFee?.let { put("freight_fee", it) }
+        put("remark", d.remark)
+    }
+
+    /**
+     * 供应商档案的现场（2026-09-22）。
+     *
+     * 五个键全是**可写回**的（后端 PATCH 收得下空串），所以不需要 `nullableWritable`
+     * 那种申明 —— "原来就是空的"与"改成空的"都写空串，语义一致。
+     */
+    fun supplier(d: SupplierDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        put("contact_name", d.contactName)
+        put("phone", d.phone)
+        put("address", d.address)
+        put("remark", d.remark)
+    }
+
+    /**
+     * 应付单的现场。
+     *
+     * ⚠️ `amount` 写回的是**应付总额**（不是"还差"）：撤回一次"改金额"要还原的是
+     * 改之前那个总额。而"还差多少"是算出来的、不是存下来的，写回去也没有意义。
+     * ⚠️ 后端会拦住"金额改到比已付还小"：真出现这种情况，撤回那一步会如实报错
+     * （而不是静默改成一个错的数）。
+     */
+    fun supplierPayable(d: SupplierPayableDto): JsonObject = buildJsonObject {
+        put("title", d.title)
+        put("category", d.category)
+        put("amount", d.amount)
+        put("doc_date", d.docDate)
+        put("remark", d.remark)
+    }
+
+    /**
+     * 一笔付款的现场。
+     *
+     * ⚠️ 这三个键**只用于展示**：付款记录的撤回是**成对动作**（撤销 ↔ 恢复），
+     * 参数只有主键，`AiRevert.plan` 会跳过"读现场"那一步（见 `SUPPLIER_PAYMENT` 的说明）。
+     * 那为什么还要有它？因为**红线会逐个资源对账**："这条资源有没有读法" ——
+     * 没有读法的资源在撤回链第二步会退化成"撤不回来"，所以它必须真的读得回来。
+     */
+    fun supplierPayment(d: SupplierPaymentDto): JsonObject = buildJsonObject {
+        put("amount", d.amount)
+        put("pay_date", d.payDate)
+        put("channel", d.channel)
         put("remark", d.remark)
     }
 

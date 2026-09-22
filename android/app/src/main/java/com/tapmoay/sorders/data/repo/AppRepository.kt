@@ -80,6 +80,24 @@ class AppRepository(private val api: ApiBundle) {
         limit = limit,
     ).pageRows()
 
+    /**
+     * 「我的账本」顶上那段**收支统计**（窗口与列表同一套）。
+     *
+     * ⛔ 这一页的合计**必须**走它，不许拿上面那页订单自己加：列表带 limit，
+     *    单子一多客户端加出来的合计就偏小（"同一个数两个答案"）。
+     */
+    suspend fun myLedgerSummary(
+        deliveredFrom: String? = null,
+        deliveredTo: String? = null,
+        customerName: String? = null,
+        customerPhone: String? = null,
+    ) = api.shipperLedgerApi.ledgerSummary(
+        deliveredFrom = deliveredFrom,
+        deliveredTo = deliveredTo,
+        customerName = customerName,
+        customerPhone = customerPhone,
+    )
+
     /** 核销一笔（`lines` 留空 = 整单）。 */
     suspend fun createMySettlement(body: com.tapmoay.sorders.data.remote.api.ShipperSettlementCreateRequest) =
         api.shipperLedgerApi.createSettlement(body)
@@ -550,6 +568,59 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun restoreArrearsUnit(id: Long) = api.arrearsApi.restoreArrearsUnit(id)
 
+    // ---- 预订单 / 订单模板（2026-09-22）----
+    //
+    // ⚠️ 这里**没有"从预设单下单"的方法**：一键下单 = 读这张预设单 → 走已有的 `createOrder`
+    //    （与手工下单同一条路）。多一条下单路径 = 状态核对/库存/账本口径抄第二遍。
+    suspend fun orderTemplates() = api.orderTemplateApi.listTemplates()
+    suspend fun createOrderTemplate(body: com.tapmoay.sorders.data.remote.dto.OrderTemplateCreateRequest) =
+        api.orderTemplateApi.createTemplate(body)
+    suspend fun updateOrderTemplate(id: Long, body: com.tapmoay.sorders.data.remote.dto.OrderTemplateUpdateRequest) =
+        api.orderTemplateApi.updateTemplate(id, body)
+    suspend fun deleteOrderTemplate(id: Long) = api.orderTemplateApi.deleteTemplate(id)
+    suspend fun restoreOrderTemplate(id: Long) = api.orderTemplateApi.restoreTemplate(id)
+    /** 记一次「用这张预设单下了单」（常用度计数）。 */
+    suspend fun useOrderTemplate(id: Long) = api.orderTemplateApi.useTemplate(id)
+
+    // ---- 供应商 / 厂商档案 + 应付款（2026-09-22）----
+    //
+    // ⚠️ 这里**没有"欠款"的计算**：三个数（应付合计/已付/还欠）全部由后端算好
+    //    （`unpaid_total` 等）。仓储层再减一遍就等于第二个口径 —— 两个口径迟早会不一样，
+    //    而界面上没有任何办法分辨该信哪个。
+    suspend fun suppliers(includeDeleted: Boolean = false) = api.supplierApi.listSuppliers(includeDeleted)
+    suspend fun supplier(id: Long) = api.supplierApi.getSupplier(id)
+    suspend fun createSupplier(body: com.tapmoay.sorders.data.remote.dto.SupplierCreateRequest) =
+        api.supplierApi.createSupplier(body)
+    suspend fun updateSupplier(id: Long, body: com.tapmoay.sorders.data.remote.dto.SupplierUpdateRequest) =
+        api.supplierApi.updateSupplier(id, body)
+    suspend fun deleteSupplier(id: Long) = api.supplierApi.deleteSupplier(id)
+    suspend fun restoreSupplier(id: Long) = api.supplierApi.restoreSupplier(id)
+
+    suspend fun supplierPayables(supplierId: Long, onlyOpen: Boolean = false) =
+        api.supplierApi.listPayables(supplierId = supplierId, onlyOpen = onlyOpen)
+    suspend fun allSupplierPayables(includeDeleted: Boolean = false) =
+        api.supplierApi.listPayables(includeDeleted = includeDeleted)
+    suspend fun createSupplierPayable(
+        supplierId: Long,
+        body: com.tapmoay.sorders.data.remote.dto.SupplierPayableCreateRequest,
+    ) = api.supplierApi.createPayable(supplierId, body)
+    suspend fun updateSupplierPayable(
+        id: Long,
+        body: com.tapmoay.sorders.data.remote.dto.SupplierPayableUpdateRequest,
+    ) = api.supplierApi.updatePayable(id, body)
+    suspend fun deleteSupplierPayable(id: Long) = api.supplierApi.deletePayable(id)
+    suspend fun restoreSupplierPayable(id: Long) = api.supplierApi.restorePayable(id)
+
+    suspend fun supplierPayments(supplierId: Long? = null, payableId: Long? = null, includeDeleted: Boolean = false) =
+        api.supplierApi.listPayments(supplierId = supplierId, payableId = payableId, includeDeleted = includeDeleted)
+    suspend fun paySupplierPayable(
+        payableId: Long,
+        body: com.tapmoay.sorders.data.remote.dto.SupplierPaymentCreateRequest,
+    ) = api.supplierApi.payPayable(payableId, body)
+    /** **撤销一笔付款**（软删那一行流水）。 */
+    suspend fun cancelSupplierPayment(flowId: Long) = api.supplierApi.cancelPayment(flowId)
+    suspend fun restoreSupplierPayment(flowId: Long) = api.supplierApi.restorePayment(flowId)
+
     suspend fun inventorySummary() = api.inventoryApi.summary()
 
     /**
@@ -759,9 +830,26 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun freightSettlement(month: String) = api.freightSettlementApi.settlement(month)
     suspend fun freightSettlementRange(from: String, to: String) = api.freightSettlementApi.settlementRange(from, to)
 
-    suspend fun turnoverReport(mode: String, date: String) = api.reportApi.turnover(mode, date)
+    /**
+     * 营业纵览 / 商品经营。
+     *
+     * ⚠️ `dateFrom`/`dateTo` 成对给 = **按这一段区间取数**（页面上的档位药丸走这条）；
+     * 不给就走老的 `mode` + `date`。两个都给时**区间优先**（后端一处判）。
+     * 六个页签必须传**同一段**，否则同一屏会出现两个时间段。
+     */
+    suspend fun turnoverReport(
+        mode: String,
+        date: String,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ) = api.reportApi.turnover(mode, date, dateFrom, dateTo)
 
-    suspend fun productReport(mode: String, date: String) = api.reportApi.products(mode, date)
+    suspend fun productReport(
+        mode: String,
+        date: String,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ) = api.reportApi.products(mode, date, dateFrom, dateTo)
 
     suspend fun driverPerformance(dateFrom: String, dateTo: String) =
         api.reportApi.driverPerformance(dateFrom, dateTo)
@@ -869,6 +957,17 @@ class AppRepository(private val api: ApiBundle) {
     /** 资金流水汇总（流入/流出/净额/笔数）——**金额只信服务端**。 */
     suspend fun cashFlowSummary(dateFrom: String? = null, dateTo: String? = null) =
         api.accountingApi.cashFlowSummary(dateFrom = dateFrom, dateTo = dateTo)
+
+    /**
+     * 收支**分项**（收入按来源、支出按去路各一路一行）——账本管理「收支」页那两段。
+     *
+     * 与 [cashFlowSummary] 的关系：汇总给三个数，它给"每一路分别多少"。
+     * 两者在后端**共用同一套筛选与同一个 SQL 侧求和**，所以分项加起来必然等于汇总——
+     * ⛔ 别再在客户端算一遍（那正是 2026-09-19 那次少算 62% 的形状）。
+     */
+    suspend fun cashFlowBreakdown(dateFrom: String? = null, dateTo: String? = null) =
+        api.accountingApi.cashFlowBreakdown(dateFrom = dateFrom, dateTo = dateTo)
+
     suspend fun vehicles() = api.accountingApi.listVehicles()
     suspend fun createVehicle(body: com.tapmoay.sorders.data.remote.dto.VehicleCreateRequest) = api.accountingApi.createVehicle(body)
     /** 改车辆（只传要改的键）。解绑司机**不走这里**，见 [setVehicleDriver]。 */

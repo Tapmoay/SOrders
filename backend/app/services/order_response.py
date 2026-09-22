@@ -7,6 +7,7 @@ from app.models.enums import OrderStatus, UserRole
 from app.schemas.order import OrderOut
 from app.services.driver_pay import has_per_order_pay, order_mode
 from app.services.order_money import OrderMoney, money_map, money_of
+from app.services.soft_delete import strip_del_suffix
 
 
 def apply_driver_view_gating(data: dict, order: Order) -> None:
@@ -41,7 +42,15 @@ def enrich_order_out(
     if order.driver_id:
         du = db.get(User, order.driver_id)
         if du:
-            data["driver_phone"] = du.phone
+            # ⚠️ **去软删后缀**：`DELETE /users/{id}` 会把 `phone` 改写成 `原值_del{id}`
+            #    （`services/soft_delete.py::del_suffix`，为了把号码释放给新账号用），
+            #    而这个司机早先拉过的单还挂着他的 `driver_id` —— 直接下发就是把
+            #    `13800001234_del160` 印在订单详情上，而详情页那一行现在带**拨号按钮**
+            #    （2026-09-22 用户要的"拨打司机电话"）：拿去拨就是一个打不通的号。
+            #    同一处理已在两处做过（`api/v1/ledger.py`、`api/v1/freight_settlement.py`），
+            #    这里是第三个消费点 —— 口径只有 `strip_del_suffix` 一处。
+            #    注意只用于**展示**：库里那一列存的就是带后缀的值，别拿去尾后的值做等值查询。
+            data["driver_phone"] = strip_del_suffix(du.phone) or None
             data["driver_name"] = du.full_name or ""
             data["driver_billing_mode"] = order_mode(order)
     su = db.get(User, order.shipper_id) if order.shipper_id is not None else None

@@ -294,6 +294,21 @@ MUTATIONS: list[tuple[str, Path, str, str, str]] = [
         "                },",
         "两端页面不许自己算档位标签",
     ),
+    # ⑮ 「货主那一半」的角色门（2026-09-22 补：光有权限点挡不住派单员）
+    (
+        "⑮ 「我的申请」又只挂权限点（派单员实际调得到 → 声明与实现分叉、对账检查永远红）",
+        API_FILE,
+        "    _shipper_gate: ShipperOnly = None,  # noqa: RUF013 — FastAPI 依赖，用不到它的值\n    order_id: int | None = Query(None, description=\"只看这一张单的申请\"),",
+        "    order_id: int | None = Query(None, description=\"只看这一张单的申请\"),",
+        "显式挂着货主专用角色门",
+    ),
+    (
+        "⑯ 货主专用的角色门被定义成「谁都行」（等于没挂）",
+        API_FILE,
+        "ShipperOnly = Annotated[User, Depends(require_roles(UserRole.SHIPPER))]",
+        "ShipperOnly = Annotated[User, Depends(require_permission(Permission.ORDER_RETURN_REQUEST))]",
+        "模块里定义了货主专用的角色门",
+    ),
 ]
 
 

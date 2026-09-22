@@ -1463,6 +1463,8 @@ def _already_collected(db: Session, order: Order) -> bool:
             select(CashFlow).where(
                 CashFlow.order_id == order.id,
                 func.lower(CashFlow.direction) == "in",
+                # 已撤销的流水不算"钱真的进来过"（2026-09-22 起 `cash_flows` 有软删）
+                CashFlow.is_deleted.is_(False),
             )
         ).first()
         is not None

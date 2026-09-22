@@ -319,10 +319,75 @@ internal fun targetPlace() = AiTargetSpec(
     lookup = { ds, _ -> ds.places() },
 )
 
+/**
+ * 预订单（订单模板，2026-09-22）：**按名字**找那一张预设单。
+ *
+ * 模型拿不到内部编号（第一条硬规矩），所以"改/删哪一张"只能靠用户嘴里的名字。
+ * 名册由 `ds.orderTemplates()` 现拉（⛔ 不缓存：刚建的预设单立刻要用得上）。
+ */
+internal fun targetOrderTemplate(required: Boolean = false) = AiTargetSpec(
+    param = "template", cn = "预设单", key = "template_id",
+    hint = "预设单的名字（在「预订单」页面上能看到全部预设单）",
+    lookup = { ds, _ -> ds.orderTemplates() },
+    required = required,
+)
+
 internal fun targetContact() = AiTargetSpec(
     param = "contact", cn = "联系人", key = "contact_id",
     hint = "联系人姓名或手机号",
     lookup = { ds, _ -> ds.contacts() },
+)
+
+/**
+ * 供应商 / 厂商（2026-09-22）：**按名字**找那一个档案。
+ *
+ * 模型拿不到内部编号（第一条硬规矩），所以"改/删哪一个"只能靠用户嘴里的名字。
+ * 名册由 `ds.suppliers()` 现拉（⛔ 不缓存：刚建的供应商立刻要用得上）。
+ */
+internal fun targetSupplier(required: Boolean = false) = AiTargetSpec(
+    param = "supplier", cn = "供应商/厂商", key = "supplier_id",
+    hint = "对方的名字（在账本管理 → 供应商/厂商页能看到全部档案）",
+    lookup = { ds, _ -> ds.suppliers() },
+    required = required,
+)
+
+/**
+ * 应付单（**欠这个供应商的一笔钱**）。
+ *
+ * ⚠️ 名册是 `ds.supplierPayables(null)`（全部），而每一条的 `label` 拼成
+ * **「供应商名 · 事由」**：事由是用户自己写的（「9 月货款」），两个供应商各有一张叫
+ * 「货款」的单是常态。把供应商名拼进 label 之后，用户说「永盛的 9 月货款」
+ * 或只说「9 月货款」都能命中；真撞名时 `AiWriteArgs.strict` 会要求消歧义
+ * （那句消歧义话术里带着候选）—— 比"猜一个"安全。
+ *
+ * ⚠️ 与「给供应商付款」那个动作**不一样**：那一个手写处理器收的是
+ * **供应商 + 事由两个参数**，在**这一个供应商名下**找（语义更准，`pay` 是钱的动作，
+ * 宁可比别的动作多问一句）。声明式这里只能给一个参数，所以拼名册。
+ */
+internal fun targetSupplierPayable(required: Boolean = false) = AiTargetSpec(
+    param = "payable", cn = "哪一笔应付款", key = "payable_id",
+    hint = "应付单上的事由（如「9 月货款」）；系统里有同名事由时带上供应商名字",
+    // `AiTargetSpec.lookup` 只收名册（`List<AiName>`），所以这里把结构化的那条映射成名册：
+    // 名字里带上"还差多少"，用户核对时一眼看得出是哪一张。
+    lookup = { ds, _ ->
+        ds.supplierPayables(null).map {
+            AiName(it.id, it.title, note = "应付 ${it.amount}，还差 ${it.unpaid}")
+        }
+    },
+    required = required,
+)
+
+/**
+ * 一笔已有的付款记录（撤销时要用）。
+ *
+ * 名册里的 `label` 拼的是「供应商 · 事由 · 金额（日期）」—— 因为**付款记录没有天然名字**，
+ * 用户嘴里的说法就是这几项。`note` 带上"这张单还差多少"，让用户核对得出是哪一笔。
+ */
+internal fun targetSupplierPayment(required: Boolean = false) = AiTargetSpec(
+    param = "payment", cn = "付款记录", key = "payment_id",
+    hint = "哪一笔付款：说得出供应商名字 + 事由 + 金额（或日期）就行",
+    lookup = { ds, _ -> ds.supplierPayments() },
+    required = required,
 )
 
 internal fun textField(name: String, cn: String, hint: String, required: Boolean = false, maxChars: Int = 200) =

@@ -211,6 +211,13 @@ class OperationAction(str, enum.Enum):
     # 他手填一个数，并（可选）把这条路线+价目**沉淀**成模板。这是一个改钱的动作，
     # 必须能回答"这单的运费是谁定的、什么时候定的、当时说了什么"。
     ORDER_FREIGHT_PRICE = "ORDER_FREIGHT_PRICE"
+    # 预订单 / 订单模板（2026-09-22 用户要求：「预设好的订单，参数没有变直接下单」）。
+    # 它自己不生成订单（下单仍走 `POST /orders`），但**预设单会变成真订单** ——
+    # 所以"这条预设是谁建的、谁改的、谁删的"必须查得到：一张被人改过的预设单
+    # 会让以后每一次"一键下单"都按改后的参数生成，而界面上完全看不出来。
+    ORDER_TEMPLATE_UPSERT = "ORDER_TEMPLATE_UPSERT"
+    ORDER_TEMPLATE_DELETE = "ORDER_TEMPLATE_DELETE"
+    ORDER_TEMPLATE_RESTORE = "ORDER_TEMPLATE_RESTORE"
     # 批发商自记账核销（2026-09-20 用户要求）：他向下游货主收钱时在自己账本上核销。
     # ⛔ 这本账**不写** cash_flows / orders.paid / ledgers（见 `models/shipper_settlement.py`），
     #    所以 operation_logs 是**唯一**能回答"这笔核销谁在什么时候记的、撤的"的地方 ——
@@ -220,6 +227,28 @@ class OperationAction(str, enum.Enum):
     SHIPPER_SETTLE_CREATE = "SHIPPER_SETTLE_CREATE"
     SHIPPER_SETTLE_REVOKE = "SHIPPER_SETTLE_REVOKE"
     SHIPPER_SETTLE_RESTORE = "SHIPPER_SETTLE_RESTORE"
+    # 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求「给供应商付尾款」「采购设备」「邮费」）。
+    # ⛔ 这一组**必须**留痕，而且是本项目里最该留痕的一组之一：它同时决定了
+    #    「我们还欠他多少」（应付单）与「钱什么时候出去的」（付款流水）。
+    #    档案改名不影响历史（欠款按 `supplier_id` 挂，不按名字），但**改金额**会 —— 那是钱。
+    #
+    # 拆三组（档案 / 应付单 / 付款）而不是一组：审计页上要能分开回答
+    # 「这个供应商是谁建的、名字谁改的」（主数据）、
+    # 「这笔欠款是谁录的、金额谁改的」（单据）、
+    # 「这笔钱谁付的、谁撤的」（钱）。合成一个，三件事会混成一团，而它们的严重程度完全不同。
+    SUPPLIER_UPSERT = "SUPPLIER_UPSERT"
+    SUPPLIER_DELETE = "SUPPLIER_DELETE"
+    SUPPLIER_RESTORE = "SUPPLIER_RESTORE"
+    SUPPLIER_PAYABLE_UPSERT = "SUPPLIER_PAYABLE_UPSERT"
+    SUPPLIER_PAYABLE_DELETE = "SUPPLIER_PAYABLE_DELETE"
+    SUPPLIER_PAYABLE_RESTORE = "SUPPLIER_PAYABLE_RESTORE"
+    #: 付一笔款（写一行 `cash_flows` OUT）。钱真的出去了，单独一个码。
+    SUPPLIER_PAYMENT_CREATE = "SUPPLIER_PAYMENT_CREATE"
+    #: **撤销**一笔付款（软删那一行流水）。⛔ 不复用 `SUPPLIER_PAYMENT_CREATE`：
+    #: 「这笔钱付出去了」和「这笔钱其实不算」是相反的结论，审计页必须一眼分得出。
+    SUPPLIER_PAYMENT_CANCEL = "SUPPLIER_PAYMENT_CANCEL"
+    #: 把撤掉的付款放回来。
+    SUPPLIER_PAYMENT_RESTORE = "SUPPLIER_PAYMENT_RESTORE"
 
 class CustomerKind(str, enum.Enum):
     REGISTERED = "registered"

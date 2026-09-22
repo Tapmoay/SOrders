@@ -20,7 +20,33 @@
 `_tools/ai/_gen_ai_read_catalog.py` 是从**权限点**反推"谁能读这张表"的；
 一个端点同时伺候两个角色，反推出来的角色集合就会多一个（AI 侧跟着获得越权读取能力）。
 拆开之后每个端点的角色集合都是确定的，AI 读能力清单自动就是对的。
+
+## ⚠️ 光有权限点**挡不住派单员**（2026-09-22 补）
+
+`require_permission` 里有一句「派单员为最高业务权限……一律放行」（`core/rbac.py`），
+所以上面那三个"货主自己那一半"的端点，**派单员实际是能调到的**：
+`GET /return-requests/mine` 对他返回 `200 + 空列表`（他名下没有申请）。
+
+实测（本机 2026-09-22，三个角色各打一遍）：
+
+| 角色 | `GET /mine` | `POST /return-requests` |
+| --- | --- | --- |
+| 货主 | 200（自己的申请） | 400「这不是你的订单」（那不是他的单） |
+| 派单员 | **200 空列表** ← 声明说"不可用"，实际通 | 400「这不是你的订单」 |
+| 司机 | 403 | 403 |
+
+**不影响任何数与判断**（不泄露、不给错数），但它让
+`_tools/ai/_probe_read_roles.py` **永远红着**一条（"声明不可用 / 实际 200"）——
+而"永远红的检查 ＝ 没有检查"是这个仓库明确定成最坏的一类。更麻烦的是它埋了个陷阱：
+下一个人为了让检查变绿，最省事的做法是把读目录改成"派单员可用"，
+那会给派单员的 AI 多出一个**必然没用**的读动作（他从没当过货主，永远答"没有"）。
+
+所以：**三个"货主那一半"的端点一律显式加 `require_roles(UserRole.SHIPPER)`**，
+并保留权限点（读能力目录仍从权限点推导，两边从此一致）。
+扛这件事的红线是 `_tools/qa/_check_return_request.py` 的 §4c。
 """
+
+from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -29,8 +55,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.pagination import finish_page
 from app.core.rbac import Permission
 from app.database import get_db
-from app.deps import CurrentUser, require_permission
+from app.deps import CurrentUser, require_permission, require_roles
 from app.models import Order, OrderReturnRequest, ReturnRequestStatus, User
+from app.models.enums import UserRole
 from app.schemas.order import OrderReturnOut
 from app.schemas.return_request import (
     ReturnRequestCreateBody,
@@ -183,12 +210,26 @@ def _load_order_locked(db: Session, order_id: int) -> Order:
 # --------------------------------------------------------------------------- 货主端
 
 
+#: **货主自己那一半**的三个端点（申请 / 我的申请 / 撤回）都要挂的那道**角色门**。
+#:
+#: ⚠️ 为什么权限点不够、还要显式卡角色：`require_permission` 对派单员**一律放行**
+#:    （`core/rbac.py::role_has_permission` 的头一句），于是派单员实际能调到这三个端点
+#:    —— `/mine` 对他返回 200 + 空列表，"声明说不可用、实际通"，`_probe_read_roles.py`
+#:    因此永远红着一条（详见模块头那段「光有权限点挡不住派单员」）。
+#:
+#: ⚠️ 与 `require_permission(Permission.ORDER_RETURN_REQUEST)` **一起用**（不是替换）：
+#:    权限点是"申请权在货主那一格"的声明，AI 读能力目录与端点索引都从它推导；
+#:    角色门负责把派单员那道超级权限关掉。少任何一半都会分叉。
+ShipperOnly = Annotated[User, Depends(require_roles(UserRole.SHIPPER))]
+
+
 @router.post("", response_model=ReturnRequestOut, status_code=status.HTTP_201_CREATED)
 def create_return_request(
     body: ReturnRequestCreateBody,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_RETURN_REQUEST)),
+    _shipper_gate: ShipperOnly = None,  # noqa: RUF013 — FastAPI 依赖，用不到它的值
 ) -> ReturnRequestOut:
     """**货主申请退货**（数量＝他想退多少，不会真的退）。
 
@@ -221,6 +262,7 @@ def list_my_return_requests(
     response: Response,
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_RETURN_REQUEST)),
+    _shipper_gate: ShipperOnly = None,  # noqa: RUF013 — FastAPI 依赖，用不到它的值
     order_id: int | None = Query(None, description="只看这一张单的申请"),
     status_filter: str = Query("all", alias="status", description="pending / all"),
     limit: int = Query(200, ge=1, le=500),
@@ -258,6 +300,7 @@ def withdraw_return_request(
     request_id: int,
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_RETURN_REQUEST)),
+    _shipper_gate: ShipperOnly = None,  # noqa: RUF013 — FastAPI 依赖，用不到它的值
 ) -> ReturnRequestOut:
     """货主撤回自己的申请（**不是删除**：记录留着，派单员看得到"他提过又撤了"）。"""
     req = _load_request(db, request_id, lock=True)

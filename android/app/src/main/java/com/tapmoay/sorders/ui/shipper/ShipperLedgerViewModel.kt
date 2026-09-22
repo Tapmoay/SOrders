@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.OrderStatusModel
+import com.tapmoay.sorders.data.remote.api.ShipperLedgerSummaryDto
 import com.tapmoay.sorders.data.remote.api.ShipperSettlementCreateRequest
 import com.tapmoay.sorders.data.remote.api.ShipperSettlementDto
 import com.tapmoay.sorders.data.remote.api.ShipperSettlementLineRequest
@@ -120,6 +121,16 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
 
     /** 我记下的核销（含已撤销的；钱的计算只看没撤销的那些，见 [ShipperLedgerGrouping]）。 */
     var settlements by mutableStateOf<List<ShipperSettlementDto>>(emptyList())
+        private set
+
+    /**
+     * **这一段他自己的收支统计**（2026-09-22 用户要求）—— **服务端算的**。
+     *
+     * ⛔ 它的三个数必须走端点，**不许**拿 [orders] 自己加：那一页是带 limit 的一页，
+     *    单子一多客户端加出来的合计就偏小，而卡片上写着"这一段"（"同一个数两个答案"）。
+     *    这一条有红线钉着（`_tools/qa/_check_shipper_ledger_stats.py`）。
+     */
+    var summary by mutableStateOf<ShipperLedgerSummaryDto?>(null)
         private set
 
     /** 这一页不是全部（响应头 `X-Truncated`）：上面的合计只含取到的这些行。 */
@@ -321,13 +332,23 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
         drawerQuery = text
     }
 
-    /** 抽屉里点了某个货主 → 只看他；再点一次同一个 = 回到全部。 */
+    /**
+     * 抽屉里点了某个货主 → 只看他；再点一次同一个 = 回到全部。
+     *
+     * ⚠️ **换人必须重取统计**（[load]）：顶上那张卡的数现在是**服务端算的**
+     *    （`GET /shipper-ledger/summary?customer_name=…`），换人**不会**让它自己变
+     *    —— 2026-09-22 真机实测抓到过：标题写着「这一段 · 江玉兰」，数字还是全部那 14 单的。
+     *    （原来那张卡是客户端把这一页加起来，所以换人不取数也"看着对"。）
+     *    红线 `_check_shipper_ledger_stats.py` 有一条专门钉这件事。
+     */
     fun selectCustomer(key: String?) {
         selectedCustomerKey = if (key != null && key == selectedCustomerKey) null else key
+        load()
     }
 
     fun clearCustomer() {
         selectedCustomerKey = null
+        load()
     }
 
     fun onKeywordChange(text: String) {
@@ -375,11 +396,20 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
                 } else {
                     emptyList()
                 }
-                // 换窗口/换数据之后，选中的那个人可能已经不在这段里了 → 回到「全部」，
-                // 否则页面会停在"某某人这一段没有单"的空屏上（而他其实只是没在这段下单）
+                // ⚠️ 顺序要紧：先把"那个人还在这段里吗"判掉（见下），再取统计 ——
+                //    否则会用**已经不在这一段的那个人**去筛，卡上出现"全部"却只有 0 单。
                 selectedCustomerKey?.let { k ->
                     if (orders.isNotEmpty() && allCustomers.none { it.key == k }) selectedCustomerKey = null
                 }
+                // 顶上那段**收支统计**：同一窗口 + **同一个下游货主**（侧边抽屉选中的人）。
+                // ⚠️ 必须与下面那些按人分组的行**同源**（同窗口、同一个人），否则卡上的数会与
+                //    那个人名下的行对不上 —— 那一页栽过一次同类问题（见 [totals] 的注释）。
+                summary = container.repo.myLedgerSummary(
+                    deliveredFrom = rangeFrom,
+                    deliveredTo = rangeTo,
+                    customerName = summaryCustomerName(),
+                    customerPhone = summaryCustomerPhone(),
+                )
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {
@@ -387,6 +417,19 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
             }
         }
     }
+
+    /**
+     * 统计要按哪个下游货主筛（null = 全部）。
+     *
+     * ⚠️ 名字与电话**必须成对**传：服务端的判据是"名字 + 电话"（与 [customerKeyOf] 同一个键）
+     *    —— 只传名字会把两个同名的货主并成一个（"他的欠款翻倍、另一个人的不见了"，两边都不报错）。
+     * ⚠️ 「未指定货主」那一档不过滤：它是"老单没记收货人"，不是一个真的人。
+     */
+    private fun summaryCustomerName(): String? =
+        selectedCustomer?.name?.takeIf { it.isNotBlank() && it != UNSET_CUSTOMER }
+
+    private fun summaryCustomerPhone(): String? =
+        if (summaryCustomerName() == null) null else selectedCustomer?.phone.orEmpty()
 
     // ---------------------------------------------------------------- 派生（纯函数算）
 
@@ -419,17 +462,13 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
         get() = selectedCustomerKey?.let { k -> allCustomers.firstOrNull { it.key == k } }
 
     /**
-     * 顶部那张卡：这一段（**当前选中的人**）的四个数。
+     * 顶卡片上的数 = **服务端的收支统计**（[summary]，在 [load] 里取）。
      *
-     * ⚠️ 从抽屉里选中某个人之后，卡上的数**跟着他走**（与派单员账本"进到某个人"那一层同一口径）：
-     *    否则屏幕上会出现"人员行写着柯志强、合计却是全部 2 单的 222.20"——
-     *    两个数各自都对，可摆在一起就是假的（用户会以为柯志强欠了 222.20）。
+     * ⛔ 这里原来有一份客户端求和（`ledgerTotals`：把这一页订单的 `arrears_amount` 加起来）。
+     *    它的形状是"拿一页数据当全部" —— 列表一带 limit（`LEDGER_PAGE_LIMIT`），
+     *    单子多的那一段**合计就偏小**，而卡片上写着"这一段"（期① 审计里"客户端求和少算 62%"
+     *    是同一个形状：同一个数两个答案，两边都不报错）。现在整条删掉，只留服务端那一个来源。
      */
-    val totals: LedgerTotals
-        get() = ledgerTotals(
-            if (selectedCustomerKey == null) orders else (customers.firstOrNull()?.orders ?: emptyList()),
-            settlements,
-        )
 
     /** 已撤销的核销（界面上那个「已撤销」折叠区）。 */
     val revoked: List<ShipperSettlementDto> get() = settlements.filter { it.isDeleted }

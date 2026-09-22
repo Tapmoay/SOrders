@@ -8,10 +8,10 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.*
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.DatePresets
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 
 class ReportCenterViewModel(
     private val container: AppContainer,
@@ -19,9 +19,32 @@ class ReportCenterViewModel(
 ) : ViewModel() {
 
     var tab by mutableStateOf(initialTab.coerceIn(0, 5))
-    var mode by mutableStateOf("day")
-    var anchor by mutableStateOf(LocalDate.now().toString())
+
+    /**
+     * 时间**档位**（`DatePresets` 那一套：今天 / 昨天 / 前天 / 这周 / 上周 / 近 7 天 / 本月 / 上月 /
+     * 近一年 / 自定义）——顶栏右上角那颗药丸上写的就是它，点开是共用的档位清单。
+     *
+     * ⚠️ 2026-09-22 之前这里是 `mode`（day/week/month）+ `anchor`（锚点日）：
+     * 页面里铺一条「完整时段 + 按日/按周/按月」的导航，**点那条时段会直接弹系统日历**
+     * （用户：「点击商品经营的时候有时候会弹出一个日历吧……这个也是个**小bug**」——
+     * 那条可点区域的实测尺寸是 761×126 px，正压在顶栏下面，随手一点就弹）。
+     * 换成档位之后：**页面里没有时间控件**，只有顶栏那颗药丸 + 我们的弹层。
+     */
+    var preset by mutableStateOf(DatePresets.TODAY)
+    var customFrom by mutableStateOf<String?>(null)
+    var customTo by mutableStateOf<String?>(null)
+
     var loading by mutableStateOf(false)
+
+    /**
+     * 时间窗口**定下来没有**（`DatePresets.pickWindow` 的配套门）。
+     *
+     * 为 `false` 时页面**整页 loading、连那颗药丸都不画** —— 一次都不许画错窗口
+     * （用户 2026-09-21：「它会**闪两下**再跳到「前天」……闪两下已经不行了」）。
+     */
+    var windowSettled by mutableStateOf(false)
+        private set
+
     var error by mutableStateOf<String?>(null)
     var chartType by mutableStateOf("line")
 
@@ -69,24 +92,21 @@ class ReportCenterViewModel(
 
     val pendingExceptionCount: Int get() = exceptions.count { it.exceptionResolvedAt == null }
 
-    /** 完整时段标题（参考截图起止时间样式）。窗口与 [dateRange] **同一个函数**，不许各写一遍。 */
-    val periodText: String get() {
-        val (start, end) = ReportFinance.rangeFor(mode, anchor)
-        val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-        return LocalDate.parse(start).atStartOfDay().format(fmt) + "~" +
-            LocalDate.parse(end).atTime(LocalTime.MAX).format(fmt)
-    }
+    /** 药丸上的字：档位名（自定义时写那一段日期：`09-01~09-20`）。 */
+    val periodLabel: String
+        get() = if (preset == DatePresets.CUSTOM) {
+            DatePresets.customLabel(customFrom, customTo)
+        } else {
+            preset
+        }
 
     /**
-     * 往来账日期窗口（账本账户 / 挂账 / 资金收支 / 开销 / 司机绩效 / 导出的 date_from~date_to）。
-     *
-     * ⚠️ **必须与 [periodText] 同一段**（2026-09-19 审计）：原来这里 month 只到**锚点当天**
-     * （`9/5` → `2026-09-01 ~ 2026-09-05`），而标题写的是整个月 `2026-09-01 ~ 2026-09-30`。
-     * 后果：9/5 打开报表，标题写整月、数字只含 5 天；9/20 打开则少掉后面 10 天的收支 ——
-     * 而同一屏的「营业纵览」营业额走的是后端整月窗口，**同一页两个时间段**。
-     * 已过去的月份取整月没有副作用（未来那几天本来就没有数据）。
+     * 这一次要看的窗口 `(from, to)` —— **六个页签共用这一处**（页面、导出、探测都用它）。
+     * 算法在 [ReportFinance.windowOf]（纯函数 + 单测）：自定义用那段区间，其余档位问
+     * `DatePresets.rangeOf`，「全部」落成 `2000-01-01~今天`。
      */
-    val dateRange: Pair<String, String> get() = ReportFinance.rangeFor(mode, anchor)
+    val dateRange: Pair<String, String>
+        get() = ReportFinance.windowOf(preset, customFrom, customTo, LocalDate.now())
 
     /** 筛选后的商品明细（按当前排序） */
     val filteredProducts: List<ProductReportItemDto> get() {
@@ -101,6 +121,79 @@ class ReportCenterViewModel(
     }
 
     init {
+        // 「异常与审计」这一页**没有时间导航**（固定近 30 天）→ 没有窗口要定，直接就画。
+        if (tab == 5) {
+            windowSettled = true
+            load()
+        } else {
+            settleWindowThenLoad()
+        }
+    }
+
+    /**
+     * **先把窗口定下来，再取那一次数**（用户 2026-09-21：「闪两下已经不行了，不美观，且占用性能」）。
+     *
+     * 这条规矩本来只长在"看账/看订单"的页面上，**报表中心当时漏了** —— 于是它一直写死
+     * 「按日 + 今天」：今天只要还没有已送达的单，一进去整页都是
+     * 「¥0.00 / 0 单 / 毛利 0 行 / 收款率 0%」。用户 2026-09-22 报的就是这个：
+     * > 修一下**报告中心没有任何数据**的bug。
+     *
+     * 阶梯用仓库里那条长的（[DatePresets.ORDER_PRESET_LADDER]：今天→昨天→前天→这周→上周→近 7 天→本月→上月），
+     * 一档一档**探测**（打的就是本页第一屏自己要打的那个接口、用的就是那一档的区间），
+     * 第一个有数的就是它。全都没数 → 保持默认（今天），把"真没有"如实画出来。
+     */
+    private fun settleWindowThenLoad() {
+        viewModelScope.launch {
+            val today = LocalDate.now()
+            val picked = DatePresets.pickWindow(DatePresets.ORDER_PRESET_LADDER) { label ->
+                val span = DatePresets.rangeOf(label, today) ?: return@pickWindow false
+                windowHasData(span.first, span.second)
+            }
+            // 都没数时 `pickWindow` 给的是「全部」→ 保持默认（今天），把"真没有"如实画出来
+            if (picked != DatePresets.ALL) preset = picked
+            windowSettled = true
+            load()
+        }
+    }
+
+    /**
+     * 这一段有没有数（探测）。
+     *
+     * ⚠️ 判据必须与页面自己的取数**同源**：探测打的就是本页第一屏要打的那个接口
+     * （`GET /reports/turnover`）、用的就是**同一段区间**（`date_from`/`date_to`）。
+     * 换个便宜的近似接口 = "探到了、进去还是空"，正是上一轮那个 bug 的翻版。
+     * ⚠️ 网络/接口出错一律当"这一档没数"继续往后退：**不能因为一次失败把整页卡在 loading 上**。
+     * ⚠️ 协程被取消时**原样抛出**（把 `CancellationException` 当成业务失败吞掉，
+     *    会接着往下做一件用户已经不要的事）。
+     */
+    private suspend fun windowHasData(from: String, to: String): Boolean = try {
+        val r = container.repo.turnoverReport(ReportFinance.LEGACY_MODE, from, from, to)
+        ReportFinance.hasData(r.totalOrders, r.totalAmount)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
+     * 用户自己挑了档位（今天 / 昨天 / … / 自定义）。
+     *
+     * ⚠️ 名字**不能**叫 `setPreset` 之外的 `setXxx(与某个 var 同名)`：`var preset` 的属性 setter
+     *    在 JVM 上就是 `setPreset(String)`，再写一个同名的 `fun setPreset` 会编译报
+     *    `Platform declaration clash`（运费结算页的 `pickMonth`、上一版的 `pickMode` 都是这个坑）。
+     */
+    fun applyPreset(label: String) {
+        preset = label
+        load()
+    }
+
+    /** 用户自己选了一段自定义区间（两头都给了才算；两头都没选 = 清掉，与账本页同一套语义）。 */
+    fun applyCustomRange(from: String?, to: String?) {
+        if (from != null && to != null) {
+            preset = DatePresets.CUSTOM
+            customFrom = from
+            customTo = to
+        }
         load()
     }
 
@@ -111,8 +204,8 @@ class ReportCenterViewModel(
             try {
                 when (tab) {
                     0 -> {
-                        turnover = container.repo.turnoverReport(mode, anchor)
                         val (f, t) = dateRange
+                        turnover = container.repo.turnoverReport(ReportFinance.LEGACY_MODE, f, f, t)
                         shipperAccounts = container.repo.ledgerAccounts(f, t, "shipper")
                         memberAccounts = container.repo.ledgerAccounts(f, t, "member")
                         // 「异常订单数」这一行原来读的是"异常页签加载出来的列表"，而那只在切到
@@ -124,14 +217,17 @@ class ReportCenterViewModel(
                             today.minusDays(30).toString(), today.toString(),
                         )
                     }
-                    1 -> products = container.repo.productReport(mode, anchor)
+                    1 -> {
+                        val (f, t) = dateRange
+                        products = container.repo.productReport(ReportFinance.LEGACY_MODE, f, f, t)
+                    }
                     2 -> {
                         // ⚠️ 取数窗口必须与**标题/导出**同源（2026-09-19 审计 R13-R2）：
                         //    这里原来自己算了一遍（`month -> d.withDayOfMonth(1) to d`，即 1 号到**锚点当天**），
-                        //    而标题与导出走 `ReportFinance.rangeFor`（整月）。锚点选 8/15 时，
-                        //    页面按 8/1~8/15 取数（16 单）、标题写"8 月"、导出给整月（34 单）——
-                        //    同一个页面两个数，用户对不上账。窗口只留一处实现（`rangeFor`）。
-                        val (from, to) = ReportFinance.rangeFor(mode, anchor)
+                        //    而标题与导出走整月。锚点选 8/15 时，页面按 8/1~8/15 取数（16 单）、
+                        //    标题写"8 月"、导出给整月（34 单）—— 同一个页面两个数，用户对不上账。
+                        //    现在六个页签共用 `dateRange` 这一处。
+                        val (from, to) = dateRange
                         drivers = container.repo.driverPerformance(from, to)
                     }
                     3 -> {
@@ -177,10 +273,11 @@ class ReportCenterViewModel(
     /**
      * 导出当前报表为 Excel（保存到系统下载目录），返回保存路径；失败返回 null。
      *
-     * ⚠️ 页签→kind 与"要不要日期区间"的映射在 [ReportFinance] 里（纯函数 + 单测）。
-     * 这两处**都错过一次**，而且都不会报错：
-     * 前者会导出一张"名字对、内容错"的表（客户经营的文件里装着异常审计），
-     * 后者会让导出的时间段和页面上显示的不是同一段。
+     * ⚠️ 页签→kind 的映射在 [ReportFinance] 里（纯函数 + 单测）—— 它**错过一次**：
+     * 导出一张"名字对、内容错"的表（客户经营的文件里装着异常审计），导出还提示"成功"。
+     * ⚠️ 2026-09-22 起 `date_from/date_to` 对**六个 kind 全生效**（后端 `reports.py::_span` 一处判），
+     *    所以这里不再按页签挑"要不要给区间" —— **给的就是页面上那一段**，
+     *    否则"我看到的"和"我导出的"又会是两个区间（这类错页面上看不出来）。
      */
     fun exportCurrent(onDone: (ByteArray?) -> Unit) {
         if (exporting) return
@@ -188,20 +285,19 @@ class ReportCenterViewModel(
         viewModelScope.launch {
             val kind = ReportFinance.exportKind(tab)
             // 异常与审计页固定看近 30 天（那个页面没有时间导航），导出必须跟着同一段走
-            val range = if (tab == 5) {
+            val (from, to) = if (tab == 5) {
                 val today = LocalDate.now()
                 today.minusDays(30).toString() to today.toString()
             } else {
                 dateRange
             }
-            val withRange = ReportFinance.usesDateRange(tab)
             try {
                 val bytes = container.repo.exportReport(
                     kind = kind,
-                    mode = mode,
-                    date = anchor,
-                    dateFrom = if (withRange) range.first else null,
-                    dateTo = if (withRange) range.second else null,
+                    mode = ReportFinance.LEGACY_MODE,
+                    date = from,
+                    dateFrom = from,
+                    dateTo = to,
                 ).bytes()
                 onDone(bytes)
             } catch (e: Exception) {

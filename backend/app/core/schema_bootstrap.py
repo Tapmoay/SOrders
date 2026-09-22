@@ -1433,3 +1433,43 @@ def _bootstrap_impl(engine: Engine) -> None:
                 )
             except DBAPIError:
                 logger.debug("piece_mode 回填跳过")
+
+    # ---------- 资金流水的软删（2026-09-22，供应商应付款那一期）----------
+    #
+    # 用户定死的硬规矩是「**所有删除一律软删 + 必须有恢复路径**」，而 `cash_flows`
+    # 在这之前是**只增不删**的：钱付出去撤不回来（`cancel_settlement` 只允许作废草稿）。
+    # 而"给供应商付尾款"天然会录错（金额打错、付错供应商），没有回头路就只能再写一笔
+    # 反向的钱 —— 账上从此多出一对谁也不敢删的行，而且"这笔到底算不算"要靠人去读备注。
+    #
+    # 两列都是**默认值可空/有默认**的，所以对已有行是安全的：
+    # `is_deleted` 默认 0（历史流水全是"活着"的，口径与迁移前**一字不差**）、
+    # `deleted_at` 默认 NULL。
+    #
+    # ⚠️ 加了这两列之后，**所有从 cash_flows 取数的地方都要带 `is_deleted = 0`**
+    #    （漏一处 = 同一笔钱两个答案，两边都不报错）。
+    #    判据在 `_tools/qa/_check_supplier_payables.py`：它**自己扫**出读取处清单再逐处断言。
+    if "cash_flows" in tables:
+        flow_cols = {c["name"] for c in insp.get_columns("cash_flows")}
+        with engine.begin() as conn:
+            for col, ddl_type in (("is_deleted", "BOOLEAN NOT NULL DEFAULT 0"), ("deleted_at", "DATETIME")):
+                if col in flow_cols:
+                    continue
+                try:
+                    conn.execute(text(f"ALTER TABLE cash_flows ADD COLUMN {col} {ddl_type}"))
+                    logger.warning("补列：cash_flows.%s", col)
+                except DBAPIError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        continue
+                    raise
+            # 索引只为"回收站里翻一下"和"过滤掉已删的"服务；重复执行会报 duplicate，忽略即可。
+            try:
+                conn.execute(text("CREATE INDEX ix_cash_flows_is_deleted ON cash_flows (is_deleted)"))
+            except DBAPIError:
+                logger.debug("cash_flows.is_deleted 索引已存在")
+            # ⛔ 回填必须写 0 而不是留 NULL：`is_deleted IS NULL` 在
+            #    `WHERE is_deleted = 0` 下**不成立**，历史流水会整体从账上消失。
+            try:
+                conn.execute(text("UPDATE cash_flows SET is_deleted = 0 WHERE is_deleted IS NULL"))
+            except DBAPIError:
+                logger.debug("cash_flows.is_deleted 回填跳过")

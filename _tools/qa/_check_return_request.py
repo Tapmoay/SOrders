@@ -453,6 +453,33 @@ def main() -> int:
             "签名里没找到" if sig else "没解析到签名",
         )
 
+    # ---------------------------------------------------------------- 4c. 货主那一半必须**显式卡角色**
+    #
+    # ⚠️ 为什么权限点不够（2026-09-22 实测）：`require_permission` 对派单员**一律放行**
+    #    （`core/rbac.py::role_has_permission` 头一句），于是这三个"货主自己那一半"的端点
+    #    派单员实际调得到 —— `GET /mine` 返回 `200 + 空列表`（他名下没有申请）。
+    #    后果不是"泄露"也不是"错数"，而是**声明与实现分叉**：
+    #    `_tools/ai/_probe_read_roles.py` 永远红着一条，而下一个人为了让检查变绿，
+    #    最省事的做法是把 AI 读目录改成"派单员可用" —— 那会给派单员的 AI 一个
+    #    **必然没用**的读动作（他从没当过货主，永远答"没有"）。
+    #    所以三个端点都必须挂 `ShipperOnly`（`Annotated[User, Depends(require_roles(SHIPPER))]`）。
+    c.present("模块里定义了货主专用的角色门 ShipperOnly",
+              api, r"ShipperOnly = Annotated\[\s*\n?\s*User,\s*Depends\(require_roles\(UserRole\.SHIPPER\)\)\s*\n?\s*\]")
+    for name in ("create_return_request", "list_my_return_requests", "withdraw_return_request"):
+        sig = sigs.get(name, "")
+        c.ok(
+            f"端点 {name}() 显式挂着货主专用角色门（光有权限点挡不住派单员）",
+            "ShipperOnly" in sig,
+            "签名里没找到 ShipperOnly" if sig else "没解析到签名",
+        )
+    for name in ("list_return_requests", "reject_return_request", "fulfill_return_request"):
+        sig = sigs.get(name, "")
+        c.ok(
+            f"派单端端点 {name}() **不挂**货主门（他自己那一半要能干活）",
+            bool(sig) and "ShipperOnly" not in sig,
+            "派单端端点被挂上了货主门 —— 派单员会按不了" if sig else "没解析到签名",
+        )
+
     # ---------------------------------------------------------------- 5. 消息双向（3 跳）
     print("\n== 5. 消息双向：endpoint → push_events → message_center 三跳逐跳接通 ==")
     bg = sorted(set(re.findall(r"background_tasks\.add_task\(\s*(_bg_notify_\w+)", api_c)))

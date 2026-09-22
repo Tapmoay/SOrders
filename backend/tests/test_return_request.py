@@ -522,9 +522,18 @@ def test_shipper_sees_only_own_requests_and_cannot_withdraw_others(
     line = _lines_of(client, h, oid)[0]
     rid = _apply(client, token_shipper, oid, [(line["id"], 1)]).json()["id"]
 
-    # 派单员也去调"我的申请" → 他不该看到货主那条（这个端点按 shipper_id 过滤）
-    mine_as_dispatcher = client.get("/api/v1/return-requests/mine", headers=h).json()
-    assert all(x["id"] != rid for x in mine_as_dispatcher["items"]), mine_as_dispatcher
+    # 派单员也去调"我的申请" → **403**（这个端点是"货主自己那一半"，见下面那段注释）。
+    #
+    # ⚠️ 2026-09-22 收紧（原来是"200 + 一个不含他的空列表"）：`require_permission` 对派单员
+    #    **一律放行**，所以只挂权限点时他实际调得到，只是名单是空的 ——
+    #    "声明说不可用、实际通"，`_tools/ai/_probe_read_roles.py` 因此**永远红着**一条，
+    #    而下一个人为了让那条检查变绿，最省事的做法是把 AI 读目录改成"派单员可用"
+    #    （那会给派单员的 AI 一个**必然没用**的读动作：他从没当过货主，永远答"没有"）。
+    #    现在三个"货主那一半"的端点都显式挂了 `require_roles(SHIPPER)`，声明与实现一致。
+    mine_as_dispatcher = client.get("/api/v1/return-requests/mine", headers=h)
+    assert mine_as_dispatcher.status_code == 403, (
+        f"派单员不该读得到「我的申请」：{mine_as_dispatcher.status_code} {mine_as_dispatcher.text[:200]}"
+    )
 
     # 司机撤别人的申请 → 403
     assert client.post(f"/api/v1/return-requests/{rid}/withdraw", headers=hd).status_code == 403

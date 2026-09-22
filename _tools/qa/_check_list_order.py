@@ -64,6 +64,11 @@ PICK_LISTS: dict[str, tuple[str, str, str]] = {
     "KIND_FREIGHT_TEMPLATE": ("freight_templates.py", "with_popularity(", "运费模板"),
     "KIND_BILLING_RULE": ("driver_billing_rules.py", "with_popularity(", "司机计费规则"),
     "KIND_PRICE_RULE": ("price_rules.py", "with_popularity(", "批发商专属价"),
+    # 预订单（2026-09-22）：用过哪张预设单下单，它就往前排（`POST /order-templates/{id}/use` 记的）。
+    "KIND_ORDER_TEMPLATE": ("order_templates.py", "with_popularity(", "预设单"),
+    # 供应商 / 厂商（2026-09-22）：**记账时最常打交道的那几个**排前面 ——
+    # 记账点有三处（建/改应付单、付款、翻他的账），都调 `_touch`（同一个 kind，⛔ 不许分叉）。
+    "KIND_SUPPLIER": ("suppliers.py", "with_popularity(", "供应商 / 厂商（账本管理 → 供应商/应付）"),
 }
 
 # ── 看记录的列表：**必须最新在前**，⛔ 不许套用常用度（每条写清为什么）──

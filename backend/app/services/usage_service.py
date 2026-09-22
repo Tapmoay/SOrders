@@ -37,6 +37,11 @@ KIND_VEHICLE = "vehicle"                    # 车辆
 KIND_FREIGHT_TEMPLATE = "freight_template"  # 运费模板
 KIND_BILLING_RULE = "billing_rule"          # 司机计费规则
 KIND_PRICE_RULE = "price_rule"              # 批发商专属价
+#: 预订单 / 订单模板（order_templates）：`POST /order-templates/{id}/use` 记一次"用它下了单"。
+KIND_ORDER_TEMPLATE = "order_template"
+#: 供应商 / 厂商（suppliers）：记一次"给这个供应商建了应付单/付了款/查了他"。
+#: ⚠️ 记账点只有一处（`api/v1/suppliers.py::_touch`），别在几个端点里各记一次不同 kind。
+KIND_SUPPLIER = "supplier"
 
 
 def _kind_key(kind: Any) -> str:

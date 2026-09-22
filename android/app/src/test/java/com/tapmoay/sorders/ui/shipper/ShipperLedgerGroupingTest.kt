@@ -133,13 +133,18 @@ class ShipperLedgerGroupingTest {
     }
 
     @Test
-    fun `合计里 我欠总分销商取后端给的数 客户端不重算`() {
-        val o1 = order(1, "罗伟东", lines = listOf(line(11, "白菜", 10, "10")), arrears = "100")
-        val o2 = order(2, "李老板", lines = listOf(line(21, "萝卜", 3, "20")), arrears = "60")
-        val t = ledgerTotals(listOf(o1, o2), emptyList())
-        assertEquals(16000L, t.dispatcherArrearsCents)
-        assertEquals(2, t.orders)
-        assertEquals(0, t.clearedOrders)
+    fun `归谁：收货人优先 空则下单人 再空进未指定`() {
+        // ⚠️ 这一条**替代**了原来那条「合计里 我欠总分销商取后端给的数 客户端不重算」：
+        //    那个客户端求和（`ledgerTotals`）2026-09-22 已经**删掉**了 —— 它拿一页数据当全部，
+        //    列表一带 limit 就偏小；顶上那张卡现在一律取服务端 `GET /shipper-ledger/summary`。
+        //    所以这里改成钉**分组键**（服务端按人筛时用的是同一套回退，见
+        //    `api/v1/shipper_ledger.py::_customer_name_expr`）。
+        val o1 = order(1, "罗伟东", "13500000001", lines = emptyList())
+        val o2 = order(2, "", "", boss = "李老板", lines = emptyList())
+        val o3 = order(3, "", "", boss = "", lines = emptyList())
+        assertEquals("罗伟东|13500000001", customerKeyOf(o1))
+        assertEquals("李老板|", customerKeyOf(o2))
+        assertEquals(UNSET_CUSTOMER + "|", customerKeyOf(o3))
     }
 
     @Test
@@ -166,10 +171,13 @@ class ShipperLedgerGroupingTest {
     fun `某人已结清的单不再算欠 但仍在明细里`() {
         val o = order(1, "罗伟东", lines = listOf(line(11, "白菜", 10, "10")))
         val s = settle(101, 1, "100", listOf(11L to "100"))
+        // 收齐了就不再欠，**但那一单仍然留在明细里**（账本要看得到它发生过）；
+        // 「还没结清的单数」也跟着归零。
+        // ⚠️ 这里用不带 message 的 `assertEquals`（Kotlin 对 JUnit4 的
+        //    `assertEquals(long, long, String)` 会报"没有可用重载"）—— 说明写在注释里。
         val g = groupByCustomer(listOf(o), listOf(s)).single()
         assertEquals(0L, g.owedCents)
-        assertEquals(0, g.unsettledOrders)
         assertEquals(1, g.orders.size)
-        assertTrue(ledgerTotals(listOf(o), listOf(s)).clearedOrders == 1)
+        assertEquals(0, g.unsettledOrders)
     }
 }

@@ -103,8 +103,14 @@ def main() -> int:
     c.present("注释里点了判据脚本的名字（『别加回来』要指路，否则没人找得到这条检查）",
               card, r"⛔ 别在这里\"顺手加回来\"：判据在 `_tools/qa/_check_driver_money\.py`")
     # 判据的兜底：这张卡至少还在画"件数/时间"，别为了删金额把整行删空
+    # ⚠️ 2026-09-22 起「合计」那一行的单位不再是写死的「件」：全单同一个单位时写真单位
+    #    （「共 6 桶」），混装才退回口语的「件」—— 见 `Units.kt::sharedUnitOf`。
+    #    所以锚点从字面量 `" 件 · "` 改成「单位来自 sharedUnitOf + 紧接着是 · 时间」，
+    #    **意图一字不改**：这一行还在、且它后面没有钱（钱那一支仍是 `if (!driverMode)`）。
     c.present("卡片仍然画件数与时间（那一行没被整行删掉）",
-              card, r"\" 件 · \" \+ formatDateTime\(order\.createdAt\)")
+              card,
+              r"sharedUnitOf\(order\.orderProducts\.map \{ it\.unit \}\)"
+              r"[\s\S]{0,160}?\" · \" \+ formatDateTime\(order\.createdAt\)")
 
     print("\n== 2. 订单详情：司机那一支不画钱，剩下的运费只在派单员那一块 ==")
     c.absent("详情页不再按 `driverBillingMode == \"PIECE\"` 给司机显示运费",

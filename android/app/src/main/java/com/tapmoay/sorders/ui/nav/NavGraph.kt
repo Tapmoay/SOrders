@@ -27,6 +27,12 @@ import com.tapmoay.sorders.ui.dispatcher.ArrearsUnitsScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherLedgerScreen
 import com.tapmoay.sorders.ui.dispatcher.LedgerCreateScreen
 import com.tapmoay.sorders.ui.dispatcher.LedgerHomeScreen
+import com.tapmoay.sorders.ui.dispatcher.LedgerCashScreen
+import com.tapmoay.sorders.ui.dispatcher.LedgerCashDetailScreen
+import com.tapmoay.sorders.ui.dispatcher.OrderTemplatesScreen
+// 供应商 / 厂商档案 + 一个供应商的账（2026-09-22）
+import com.tapmoay.sorders.ui.dispatcher.SupplierDetailScreen
+import com.tapmoay.sorders.ui.dispatcher.SuppliersScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightSettlementScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightCategoriesScreen
 import com.tapmoay.sorders.ui.dispatcher.UnpricedOrdersScreen
@@ -172,12 +178,30 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onCreated = { navController.popBackStack() },
             )
         }
-        composable(Routes.DISPATCH_ORDER_CREATE) {
+        // 代理下单页支持 `?template=` —— 从「预订单」页点「用这张下单」进来时，
+        // 商品与数量（以及货主/地址/收货人/备注）按那张预设单预填；**参数仍然可改**。
+        // ⚠️ 默认 0 = 没有预设单（普通进法），老入口一行都不用改。
+        composable(
+            route = Routes.DISPATCH_ORDER_CREATE + "?template={template}",
+            arguments = listOf(navArgument("template") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
             OrderCreateScreen(
                 container = container,
                 onBack = { navController.popBackStack() },
                 onCreated = { navController.popBackStack() },
                 proxyMode = true,
+                prefillTemplateId = entry.arguments?.getLong("template") ?: 0L,
+            )
+        }
+        // 「预订单」管理页（2026-09-22 用户要求「专门去管理预设的订单」）。
+        // ⛔ 这一页**不生成订单**：它只把参数带进上面的下单页。
+        composable(Routes.DISPATCH_ORDER_TEMPLATES) {
+            OrderTemplatesScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onPlaceOrder = { t ->
+                    navController.navigate(Routes.DISPATCH_ORDER_CREATE + "?template=" + t.id)
+                },
             )
         }
         composable(
@@ -382,6 +406,67 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         }
         composable(Routes.DISPATCH_RECEIPTS) { ReceiptsScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.DISPATCH_SETTLEMENTS) { SettlementsScreen(container = container, onBack = { navController.popBackStack() }) }
+        // 「收支」（2026-09-22）：账本管理入口页那一格 —— 收入按来源、支出按去路各一路一行。
+        // 「开销管理」从这一页的支出卡底部进（它不再与这一页并列占一格）。
+        composable(Routes.DISPATCH_CASH) {
+            LedgerCashScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenDetail = { direction, biz, from, to ->
+                    navController.navigate(
+                        Routes.DISPATCH_CASH_DETAIL +
+                            "?direction=" + direction + "&biz=" + biz +
+                            "&from=" + from.orEmpty() + "&to=" + to.orEmpty(),
+                    )
+                },
+                onOpenExpenses = { navController.navigate(Routes.DISPATCH_EXPENSES) },
+                onOpenSuppliers = { navController.navigate(Routes.DISPATCH_SUPPLIERS) },
+            )
+        }
+        // 「供应商 / 厂商」档案页（2026-09-22）：账本管理入口页那一格 +「收支」页支出卡底部。
+        // 拍板口径是"跟客户一个量级的档案"：可挂账、可查还欠多少、可分次付款。
+        composable(Routes.DISPATCH_SUPPLIERS) {
+            SuppliersScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenDetail = { id -> navController.navigate(Routes.supplierDetail(id)) },
+            )
+        }
+        // 一个供应商的账（编号走查询参数，见 `Routes.DISPATCH_SUPPLIER_DETAIL`）。
+        composable(
+            route = Routes.DISPATCH_SUPPLIER_DETAIL + "?supplierId={supplierId}",
+            arguments = listOf(navArgument("supplierId") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            val id = entry.arguments?.getLong("supplierId") ?: 0L
+            if (id > 0) {
+                SupplierDetailScreen(
+                    container = container,
+                    supplierId = id,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+        }
+        // 某一类流水的明细。窗口四个参数都由总览页带过来（⛔ 不在这里再挑一次时间）。
+        composable(
+            route = Routes.DISPATCH_CASH_DETAIL + "?direction={direction}&biz={biz}&from={from}&to={to}",
+            arguments = listOf(
+                navArgument("direction") { type = NavType.StringType; defaultValue = "out" },
+                navArgument("biz") { type = NavType.StringType; defaultValue = "" },
+                navArgument("from") { type = NavType.StringType; defaultValue = "" },
+                navArgument("to") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            LedgerCashDetailScreen(
+                container = container,
+                direction = entry.arguments?.getString("direction") ?: "out",
+                bizType = entry.arguments?.getString("biz").orEmpty(),
+                // 空串 = 「全部」那一档（查询参数传不了 null，所以两边都认这一条）
+                dateFrom = entry.arguments?.getString("from").orEmpty().ifBlank { null },
+                dateTo = entry.arguments?.getString("to").orEmpty().ifBlank { null },
+                onBack = { navController.popBackStack() },
+                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+            )
+        }
         // 开销管理（2026-09-20 重写）：分类栏 + 时间药丸 + 卡片；底部两个按钮各去一页。
         composable(Routes.DISPATCH_EXPENSES) {
             ExpensesScreen(

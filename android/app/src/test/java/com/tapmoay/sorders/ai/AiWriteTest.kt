@@ -506,6 +506,16 @@ class AiWriteTest {
         /** 每次写操作记一行「动作:参数」，断言用。 */
         val masterCalls = mutableListOf<String>()
 
+        /** 预订单（2026-09-22）：名册默认空（见下面对 `orderTemplates()` 的override）。 */
+        var orderTemplateRows = emptyList<AiName>()
+        val orderTemplateCalls = mutableListOf<String>()
+
+        // ---- 供应商 / 厂商档案 + 应付款（2026-09-22）----
+        var supplierRows = emptyList<AiName>()
+        var payableRows = emptyList<AiSupplierPayable>()
+        var paymentRows = emptyList<AiName>()
+        val supplierCalls = mutableListOf<String>()
+
         override suspend fun users(query: String) = users.also { boom() }
 
         override suspend fun usersOfRole(query: String, role: String) =
@@ -794,6 +804,72 @@ class AiWriteTest {
         override suspend fun deleteArrearsUnit(id: Long) {
             boom()
             masterCalls += "deleteArrearsUnit:$id"
+        }
+
+        // ---- 预订单 / 订单模板（2026-09-22）----
+        //
+        // ⚠️ 名册默认**空**：单测里没有预设单 = 按名字找不到（这正是"改/删一张不存在的预设单"
+        //    那条路该有的样子）。要测"找得到"的用例自己往 `orderTemplateRows` 里塞。
+        override suspend fun orderTemplates() = orderTemplateRows.also { boom() }
+        override suspend fun createOrderTemplate(fields: JsonObject) = rec("createOrderTemplate", fields)
+        override suspend fun updateOrderTemplate(id: Long, fields: JsonObject) {
+            boom()
+            orderTemplateCalls += "updateOrderTemplate:$id:${fields.toString()}"
+        }
+        override suspend fun deleteOrderTemplate(id: Long) {
+            boom()
+            orderTemplateCalls += "deleteOrderTemplate:$id"
+        }
+        override suspend fun restoreOrderTemplate(id: Long) {
+            boom()
+            orderTemplateCalls += "restoreOrderTemplate:$id"
+        }
+
+        // ---- 供应商 / 厂商档案 + 应付款（2026-09-22）----
+        //
+        // ⚠️ 三个名册默认**空**：单测里没有供应商 = 按名字找不到（这正是"改/删一个不存在的
+        //    供应商""给不存在的人付款"那几条路该有的样子）。要测"找得到"的用例自己往
+        //    `supplierRows` / `payableRows` / `paymentRows` 里塞。
+        override suspend fun suppliers() = supplierRows.also { boom() }
+        override suspend fun supplierPayables(supplierId: Long?) =
+            (if (supplierId == null) payableRows else payableRows.filter { it.supplierId == supplierId })
+                .also { boom() }
+
+        override suspend fun supplierPayments() = paymentRows.also { boom() }
+        override suspend fun createSupplier(fields: JsonObject) = rec("createSupplier", fields)
+        override suspend fun updateSupplier(id: Long, fields: JsonObject) {
+            boom()
+            supplierCalls += "updateSupplier:$id:${fields.toString()}"
+        }
+        override suspend fun deleteSupplier(id: Long) {
+            boom()
+            supplierCalls += "deleteSupplier:$id"
+        }
+        override suspend fun restoreSupplier(id: Long) {
+            boom()
+            supplierCalls += "restoreSupplier:$id"
+        }
+        override suspend fun createSupplierPayable(fields: JsonObject) = rec("createSupplierPayable", fields)
+        override suspend fun updateSupplierPayable(id: Long, fields: JsonObject) {
+            boom()
+            supplierCalls += "updateSupplierPayable:$id:${fields.toString()}"
+        }
+        override suspend fun deleteSupplierPayable(id: Long) {
+            boom()
+            supplierCalls += "deleteSupplierPayable:$id"
+        }
+        override suspend fun restoreSupplierPayable(id: Long) {
+            boom()
+            supplierCalls += "restoreSupplierPayable:$id"
+        }
+        override suspend fun paySupplierPayable(fields: JsonObject) = rec("paySupplierPayable", fields)
+        override suspend fun cancelSupplierPayment(flowId: Long) {
+            boom()
+            supplierCalls += "cancelSupplierPayment:$flowId"
+        }
+        override suspend fun restoreSupplierPayment(flowId: Long) {
+            boom()
+            supplierCalls += "restoreSupplierPayment:$flowId"
         }
         override suspend fun createFreightTemplate(fields: JsonObject) = rec("createFreightTemplate", fields)
         override suspend fun updateFreightTemplate(id: Long, fields: JsonObject) {
@@ -3229,10 +3305,13 @@ class AiWriteTest {
         // 用户口径是「整个 App 的功能它都能做」，所以这条断言是**防止能力悄悄缩水**的。
         assertTrue("动作数不该少于 40（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size >= 40)
         // ⚠️ 上界只是"大概没重复"的粗判据，每加一批动作都得抬它一次（v3.36 加了 5 个计费规则动作，
-        //    2026-09-19 给「地点分组」加了 4 个，2026-09-20 加了「补导航」1 个与「订单退货」1 个）。
+        //    2026-09-19 给「地点分组」加了 4 个，2026-09-20 加了「补导航」1 个与「订单退货」1 个，
+        //    2026-09-22 给「预订单」加了 4 个：建/改/删/恢复预设单 —— 120；
+        //    2026-09-22 当天又给「供应商/应付款」加了 11 个：档案/应付单/付款三条线各四个
+        //    减去付款那条线的「撤销付款」—— 131）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 110（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 110)
+        assertTrue("动作数不该多于 131（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 131)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -3266,7 +3345,7 @@ class AiWriteTest {
             "卡片上要看得到 4.5 → 3.83：${card.detailLines}",
             card.detailLines.any { it.contains("4.5") && it.contains("3.83") },
         )
-        // 没有专属价的那个批发商按**商品默认价** 5.00 算
+        // 没有专属价的那个批发商按**商品默认价** 5 算
         assertTrue(
             "卡片上要看得到 5 → 4.25：${card.detailLines}",
             card.detailLines.any { it.contains("5") && it.contains("4.25") },

@@ -32,6 +32,7 @@
 |---|---|---|---|---|
 | `list_cash_flows` | 只读 | `GET /api/v1/cash-flows` |  |  |
 | `cash_flow_summary` | 只读 | `GET /api/v1/cash-flows/summary` | **服务端**汇总流入/流出/净额（与列表同一套筛选）。 |  |
+| `cash_flow_breakdown` | 只读 | `GET /api/v1/cash-flows/breakdown` | 按**钱的来路 / 去处**分组求和（账本管理「收支」页那两段：收入来源明细 + 支出明细）。 |  |
 
 ## 客户（`customers`）
 
@@ -172,6 +173,17 @@
 | `update_order_product` | 写 | `PATCH /api/v1/order-products/{line_id}` |  |  |
 | `delete_order_product` | 写 | `DELETE /api/v1/order-products/{line_id}` |  |  |
 
+## 预订单（`order_templates`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_templates` | 只读 | `GET /api/v1/order-templates` | 这一页的预设单：**常用的在前，其次先建的在前**（2026-09-22 统一列表规则）。 |  |
+| `create_template` | 写 | `POST /api/v1/order-templates` |  |  |
+| `update_template` | 写 | `PATCH /api/v1/order-templates/{template_id}` |  |  |
+| `use_template` | 写 | `POST /api/v1/order-templates/{template_id}/use` | 记一次"用这张预设单下了单"（**常用度计数的唯一写入点**）。 |  |
+| `delete_template` | 写 | `DELETE /api/v1/order-templates/{template_id}` | 伪装删除（用户定的硬规矩：一律软删 + 手边有恢复入口）。 |  |
+| `restore_template` | 写 | `POST /api/v1/order-templates/{template_id}/restore` | 把删掉的预设单放回来（`DELETE /{id}` 的逆操作）。 |  |
+
 ## 订单/派单（`orders`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -265,7 +277,7 @@
 |---|---|---|---|---|
 | `turnover_report` | 只读 | `GET /api/v1/reports/turnover` |  |  |
 | `product_report` | 只读 | `GET /api/v1/reports/products` |  |  |
-| `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` |  |  |
+| `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` | 导出里的金额写成**数字**（不是文本），保留两位小数。 |  |
 | `export_report` | 只读 | `GET /api/v1/reports/export` | 报表 Excel 导出（内存流 xlsx）。 |  |
 
 ## 退货申请（`return_requests`）
@@ -307,6 +319,7 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
+| `ledger_summary` | 只读 | `GET /api/v1/shipper-ledger/summary` | 「我的账本」顶上那段**收支统计**（2026-09-22 用户要求：账本的统计对货主与批发商也做）。 |  |
 | `list_settlements` | 只读 | `GET /api/v1/shipper-ledger/settlements` |  |  |
 | `create_settlement` | 写 | `POST /api/v1/shipper-ledger/settlements` | 核销一笔：**整单**（`lines` 留空）或**按商品**（给要核的那几行）。 |  |
 | `delete_settlement` | 写 | `DELETE /api/v1/shipper-ledger/settlements/{settlement_id}` | **撤掉核销**（软删：行留着，`POST /{id}/restore` 逐字段放回来）。 |  |
@@ -324,6 +337,32 @@
 | `get_exception_orders` | 只读 | `GET /api/v1/stats/exception-orders` |  |  |
 | `resolve_exception_order` | 写 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | 派单员解决异常：填写解决说明，订单标记已解决。 |  |
 | `post_stats_export` | 只读 | `POST /api/v1/stats/export` |  |  |
+
+## 供应商/应付款（`suppliers`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_suppliers` | 只读 | `GET /api/v1/suppliers` | 供应商列表（默认不含回收站）。 |  |
+| `create_supplier` | 写 | `POST /api/v1/suppliers` |  |  |
+| `get_supplier` | 只读 | `GET /api/v1/suppliers/{supplier_id}` |  |  |
+| `update_supplier` | 写 | `PATCH /api/v1/suppliers/{supplier_id}` |  |  |
+| `delete_supplier` | 写 | `DELETE /api/v1/suppliers/{supplier_id}` |  |  |
+| `restore_supplier` | 写 | `POST /api/v1/suppliers/{supplier_id}/restore` |  |  |
+| `list_payables` | 只读 | `GET /api/v1/supplier-payables` | 应付单列表（按单据日期倒序 —— 这是"看记录"，不是挑名册）。 |  |
+| `create_payable` | 写 | `POST /api/v1/suppliers/{supplier_id}/payables` | 给某个供应商挂一笔应付（欠他的钱）。**这一步不动钱** —— 付的时候才动。 |  |
+| `update_payable` | 写 | `PATCH /api/v1/supplier-payables/{payable_id}` |  |  |
+| `delete_payable` | 写 | `DELETE /api/v1/supplier-payables/{payable_id}` |  |  |
+| `restore_payable` | 写 | `POST /api/v1/supplier-payables/{payable_id}/restore` |  |  |
+| `list_payments` | 只读 | `GET /api/v1/supplier-payments` | 付款记录列表（默认只看**没被撤销**的）。 |  |
+| `pay_payable` | 写 | `POST /api/v1/supplier-payables/{payable_id}/payments` | **付一笔款**（分次付款：同一张单可以付很多次，每次一行资金流水）。 |  |
+| `cancel_payment` | 写 | `DELETE /api/v1/supplier-payments/{flow_id}` | **撤销一笔付款**（软删那一行资金流水）。 |  |
+| `restore_payment` | 写 | `POST /api/v1/supplier-payments/{flow_id}/restore` | 把撤销掉的付款放回来。 |  |
+
+## 重置常用计数（`usage`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `reset_usage` | 写 | `POST /api/v1/usage/reset` | 清空**我自己的**常用计数（列表回到「先创建的在前」）。 |  |
 
 ## 司机/货主/批发商/账号（`users`）
 

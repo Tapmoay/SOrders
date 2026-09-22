@@ -1674,6 +1674,235 @@ data class CashFlowDto(
     @SerialName("order_id") val orderId: Long? = null,
 )
 
+/**
+ * 收支**分项**（`GET /cash-flows/breakdown`）——账本管理「收支」页上那两段。
+ *
+ * 与 [CashFlowSummaryDto] 的分工：汇总回答"一共进了多少、出了多少"，
+ * 它回答"**每一路**分别多少"（客户收款/挂账结清/油费/司机运费/付供应商…）。
+ *
+ * ⚠️ 金额全部是**服务端在库里算完**的，`income`/`expense` 两组加起来必然等于
+ * `incomeTotal`/`expenseTotal`（后端同一套筛选 + 同一个 SQL 求和）：
+ * ⛔ 客户端不要再按 `bizType` 自己分类求和 —— 那会同时踩"列表被截断"和"分类口径走散"两个坑。
+ *
+ * 中文名不在这一层翻：`ReportFinance.bizLabel()` 是唯一那一份（后端只给枚举名）。
+ */
+@Serializable
+data class CashFlowBreakdownDto(
+    val income: List<CashFlowBreakdownRowDto> = emptyList(),
+    val expense: List<CashFlowBreakdownRowDto> = emptyList(),
+    @SerialName("income_total") @Serializable(with = FlexibleStringSerializer::class) val incomeTotal: String = "0",
+    @SerialName("expense_total") @Serializable(with = FlexibleStringSerializer::class) val expenseTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) val net: String = "0",
+    val count: Int = 0,
+)
+
+/** 收支分项里的一路：`bizType`（枚举名）+ 金额 + 笔数。 */
+@Serializable
+data class CashFlowBreakdownRowDto(
+    @SerialName("biz_type") val bizType: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    val count: Int = 0,
+)
+
+/**
+ * 预订单（订单模板）里的一行货 —— **只有商品与数量**。
+ *
+ * ⛔ **没有单价**：价格会变，预设一个旧价就会在几个月后按旧价生成订单，而界面上看不出来。
+ * 金额一律在下单那一刻按商品价（有批发商专属价就用专属价）算 —— 与手工下单同一处口径。
+ * `name`/`unit` 是**显示用快照**：商品改名或下架之后，预设单里仍要看得见"当时选的是哪一个"。
+ */
+@Serializable
+data class OrderTemplateLineDto(
+    @SerialName("product_id") val productId: Long? = null,
+    val name: String = "",
+    val unit: String = "",
+    val qty: Int = 1,
+)
+
+/**
+ * 预订单（`GET /order-templates`）：把"以后还要照这样再下一遍"的那一单存下来。
+ *
+ * ⚠️ `freightFee` 是 `String?`：**null = 不预设**（下单时按运费规则算），
+ * `"0.00"` = 明确的免运费 —— 两个意思不一样，界面上也要分开写。
+ */
+@Serializable
+data class OrderTemplateDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("shipper_id") val shipperId: Long? = null,
+    @SerialName("shipper_name") val shipperName: String? = null,
+    @SerialName("origin_address") val originAddress: String = "",
+    val address: String = "",
+    @SerialName("receiver_name") val receiverName: String = "",
+    @SerialName("receiver_phone") val receiverPhone: String = "",
+    @SerialName("freight_fee") val freightFee: String? = null,
+    val remark: String = "",
+    val lines: List<OrderTemplateLineDto> = emptyList(),
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
+data class OrderTemplateCreateRequest(
+    val name: String,
+    @SerialName("shipper_id") val shipperId: Long? = null,
+    @SerialName("origin_address") val originAddress: String = "",
+    val address: String = "",
+    @SerialName("receiver_name") val receiverName: String = "",
+    @SerialName("receiver_phone") val receiverPhone: String = "",
+    /** `null` = 不预设运费；`"0"` = 免运费。 */
+    @SerialName("freight_fee") val freightFee: String? = null,
+    val remark: String = "",
+    val lines: List<OrderTemplateLineDto> = emptyList(),
+)
+
+/**
+ * 改预设单（`PATCH /order-templates/{id}`）：**只传要改的键**。
+ *
+ * ⚠️ 两处传不了"清空"（`explicitNulls = false`，null 会被序列化丢掉）：
+ * **清空货主**与**把运费改回「不预设」** 请走页面上的编辑（AI 那条路同样受这条限制，
+ * 它的动作说明里已经如实写了）。要清空时用 `clearShipper` 这个显式开关 —— 见下。
+ */
+@Serializable
+data class OrderTemplateUpdateRequest(
+    val name: String? = null,
+    @SerialName("shipper_id") val shipperId: Long? = null,
+    @SerialName("origin_address") val originAddress: String? = null,
+    val address: String? = null,
+    @SerialName("receiver_name") val receiverName: String? = null,
+    @SerialName("receiver_phone") val receiverPhone: String? = null,
+    @SerialName("freight_fee") val freightFee: String? = null,
+    val remark: String? = null,
+    /** `null` = 不改商品行；给了就**整份换掉**。 */
+    val lines: List<OrderTemplateLineDto>? = null,
+    /**
+     * 显式清空货主（改成「下单时再选」）。
+     *
+     * 为什么要一个开关而不是传 `shipper_id = null`：后者会被 `explicitNulls = false` 丢掉，
+     * 于是"清空货主"这个操作**永远发不出去**，而界面看起来一切正常。
+     * 后端认这个键：`{"clear_shipper": true}` → `shipper_id = null`。
+     */
+    @SerialName("clear_shipper") val clearShipper: Boolean = false,
+)
+
+// ===== 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求）=====
+//
+// 用户原话：「支出主要是**给某个供应商或者说是厂商支付尾款**……**购买一个装备或者说是设备**……
+// 比如说类似**邮费**啊」；拍板口径：**跟客户一个量级的档案**（可挂账、可查还欠多少、可分次付款）。
+//
+// ⚠️ 三个数（应付合计 / 已付 / 还欠）**全部由后端算好**（`payable_total`/`paid_total`/`unpaid_total`）。
+//    客户端一个减法都不做：欠款的口径只有一处（`services/supplier_service.py`），
+//    界面上再减一遍就等于第二个口径 —— 哪天两边不一样，谁都不知道该信哪个。
+
+@Serializable
+data class SupplierDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("contact_name") val contactName: String = "",
+    val phone: String = "",
+    val address: String = "",
+    val remark: String = "",
+    /** 这三个是**字符串金额**（两位小数），与全项目金额出参同一套写法。 */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("payable_total")
+    val payableTotal: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("paid_total")
+    val paidTotal: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("unpaid_total")
+    val unpaidTotal: String = "0.00",
+    /** 还挂着的应付单张数（卡片上写「N 笔未结清」）。 */
+    @SerialName("open_payables") val openPayables: Int = 0,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
+data class SupplierCreateRequest(
+    val name: String,
+    @SerialName("contact_name") val contactName: String = "",
+    val phone: String = "",
+    val address: String = "",
+    val remark: String = "",
+)
+
+/**
+ * 改供应商（`PATCH /suppliers/{id}`）：**只传要改的键**，没传的后端不动。
+ *
+ * ⚠️ `null` 会在序列化时被丢掉（`explicitNulls = false`），所以"清空某一项"要传**空串**
+ * —— 后端把这些字段的 `""` 当作"清掉"，与"没传"是两件事。
+ */
+@Serializable
+data class SupplierUpdateRequest(
+    val name: String? = null,
+    @SerialName("contact_name") val contactName: String? = null,
+    val phone: String? = null,
+    val address: String? = null,
+    val remark: String? = null,
+)
+
+@Serializable
+data class SupplierPayableDto(
+    val id: Long,
+    @SerialName("supplier_id") val supplierId: Long = 0,
+    @SerialName("supplier_name") val supplierName: String = "",
+    val title: String = "",
+    val category: String = "货款",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0.00",
+    @SerialName("doc_date") val docDate: String = "",
+    val remark: String = "",
+    /** 已付 / 还差（后端算好，见文件头的说明）。 */
+    @Serializable(with = FlexibleStringSerializer::class) val paid: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val unpaid: String = "0.00",
+    @SerialName("payment_count") val paymentCount: Int = 0,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
+data class SupplierPayableCreateRequest(
+    @SerialName("supplier_id") val supplierId: Long,
+    val title: String,
+    val category: String = "货款",
+    /** 应付**总额**，字符串金额（后端 `MoneyInput` 收字符串与数字两种）。 */
+    val amount: String,
+    @SerialName("doc_date") val docDate: String,
+    val remark: String = "",
+)
+
+@Serializable
+data class SupplierPayableUpdateRequest(
+    val title: String? = null,
+    val category: String? = null,
+    val amount: String? = null,
+    @SerialName("doc_date") val docDate: String? = null,
+    val remark: String? = null,
+)
+
+/**
+ * 一笔付款（`GET /supplier-payments`）。
+ *
+ * ⚠️ `id` 是**资金流水那一行的编号**（`cash_flows.id`）—— 付款不是另一张表，
+ * 它就是账本流水（`biz_type=PAYMENT_SUPPLIER`）。所以"撤销一笔付款"撤销的是那一行流水。
+ */
+@Serializable
+data class SupplierPaymentDto(
+    val id: Long,
+    @SerialName("supplier_id") val supplierId: Long = 0,
+    @SerialName("supplier_name") val supplierName: String = "",
+    @SerialName("payable_id") val payableId: Long = 0,
+    @SerialName("payable_title") val payableTitle: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0.00",
+    @SerialName("pay_date") val payDate: String = "",
+    val channel: String = "cash",
+    val remark: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+@Serializable
+data class SupplierPaymentCreateRequest(
+    val amount: String,
+    @SerialName("pay_date") val payDate: String,
+    /** `cash` / `transfer` / `wechat` / `bank`（与司机结算同一套取值）。 */
+    val channel: String = "cash",
+    val remark: String = "",
+)
+
 @Serializable
 data class VehicleCreateRequest(
     @SerialName("plate_no") val plateNo: String,

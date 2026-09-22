@@ -88,6 +88,11 @@ MODULE_CN: dict[str, str] = {
     "freight_categories": "运费分类",
     "driver_billing_rules": "司机计费规则",
     "arrears": "挂账单位",
+    # 预订单 / 订单模板（2026-09-22）：中文名与 App 里那一格同名（能力按模块认领时才对得上）。
+    "order_templates": "预订单",
+    # 供应商 / 厂商 + 应付款（2026-09-22）：中文名与 App 里那一格
+    # （`Modules.ledgerHomeEntries` 的「供应商/应付」）同名 —— 能力按模块认领时才对得上。
+    "suppliers": "供应商/应付款",
     "driver_settlements": "司机结算单",
     "driver_bills": "司机账单",
     "freight_settlement": "司机运费结算",

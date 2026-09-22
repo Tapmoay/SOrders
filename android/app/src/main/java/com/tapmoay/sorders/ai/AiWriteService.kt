@@ -490,9 +490,51 @@ interface AiWriteDataSource {
     suspend fun createArrearsUnit(fields: JsonObject)
     suspend fun updateArrearsUnit(id: Long, fields: JsonObject)
     suspend fun deleteArrearsUnit(id: Long)
+
+    // ---- 预订单 / 订单模板（2026-09-22）----
+
+    /** 预设单名册（改/删预设单时先按**名字**找到那一张；编号不进模型上下文）。 */
+    suspend fun orderTemplates(): List<AiName>
+    suspend fun createOrderTemplate(fields: JsonObject)
+    suspend fun updateOrderTemplate(id: Long, fields: JsonObject)
+    suspend fun deleteOrderTemplate(id: Long)
+    suspend fun restoreOrderTemplate(id: Long)
     suspend fun createFreightTemplate(fields: JsonObject)
     suspend fun updateFreightTemplate(id: Long, fields: JsonObject)
     suspend fun deleteFreightTemplate(id: Long)
+
+    // ---- 供应商 / 厂商档案 + 应付款（2026-09-22）----
+    //
+    // ⚠️ 三个名册的用途各不相同，别互相顶：
+    // · [suppliers] = 档案名册（改/删供应商、付款时先认人）；
+    // · [supplierPayables] = 应付单名册。`supplierId = null` 是**全部**（声明式那条路
+    //   只能给一个参数，所以靠「供应商名 · 事由」拼出来的 label 去匹配），
+    //   给了编号就是"这一个供应商名下"（付款那条路，语义更准）；
+    // · [supplierPayments] = **已有的付款记录**（撤销付款时先找到那一笔）。
+
+    /** 供应商档案名册（按名字找那一个档案；编号不进模型上下文）。 */
+    suspend fun suppliers(): List<AiName>
+
+    /** 应付单名册：`null` = 全部（label 是「供应商名 · 事由」）。 */
+    suspend fun supplierPayables(supplierId: Long?): List<AiSupplierPayable>
+
+    /** 付款记录名册（撤销付款用；label 是「供应商 · 事由 · 金额（日期）」）。 */
+    suspend fun supplierPayments(): List<AiName>
+
+    suspend fun createSupplier(fields: JsonObject)
+    suspend fun updateSupplier(id: Long, fields: JsonObject)
+    suspend fun deleteSupplier(id: Long)
+    suspend fun restoreSupplier(id: Long)
+    suspend fun createSupplierPayable(fields: JsonObject)
+    suspend fun updateSupplierPayable(id: Long, fields: JsonObject)
+    suspend fun deleteSupplierPayable(id: Long)
+    suspend fun restoreSupplierPayable(id: Long)
+    /** **付一笔款**（钱真的出去：会写一行资金流水）。 */
+    suspend fun paySupplierPayable(fields: JsonObject)
+
+    /** **撤销一笔付款**（软删那一行流水，可恢复）。参数是**资金流水的编号**。 */
+    suspend fun cancelSupplierPayment(flowId: Long)
+    suspend fun restoreSupplierPayment(flowId: Long)
 
     // ---- 司机计费规则（v3.36）----
 
@@ -1728,6 +1770,75 @@ class RepoWriteDataSource(
 
     override suspend fun deleteArrearsUnit(id: Long) = repo.deleteArrearsUnit(id)
 
+    // ---- 预订单 / 订单模板（2026-09-22）----
+
+    override suspend fun orderTemplates(): List<AiName> =
+        repo.orderTemplates().map { AiName(it.id, it.name) }
+
+    override suspend fun createOrderTemplate(fields: JsonObject) {
+        repo.createOrderTemplate(
+            com.tapmoay.sorders.data.remote.dto.OrderTemplateCreateRequest(
+                name = fields.req("name"),
+                shipperId = fields.str("shipper_id")?.toLongOrNull(),
+                address = fields.str("address").orEmpty(),
+                receiverName = fields.str("receiver_name").orEmpty(),
+                receiverPhone = fields.str("receiver_phone").orEmpty(),
+                freightFee = fields.str("freight_fee"),
+                remark = fields.str("remark").orEmpty(),
+                lines = fields.orderTemplateLines(),
+            ),
+        )
+    }
+
+    override suspend fun updateOrderTemplate(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateOrderTemplate 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateOrderTemplate(
+            id,
+            com.tapmoay.sorders.data.remote.dto.OrderTemplateUpdateRequest(
+                name = fields.str("name"),
+                shipperId = fields.str("shipper_id")?.toLongOrNull(),
+                address = fields.str("address"),
+                receiverName = fields.str("receiver_name"),
+                receiverPhone = fields.str("receiver_phone"),
+                // ⚠️ 空串（＝"不预设"）**不要**当成一个值发出去：后端把空串也当"不预设"，
+                //    但发出去会覆盖掉原有的预设运费 —— 模型没提这一项时就不该动它。
+                freightFee = fields.str("freight_fee")?.takeIf { it.isNotBlank() },
+                remark = fields.str("remark"),
+                // 只有 payload 里真给了 lines 才换（给了就整份换掉）
+                lines = if (fields.containsKey("lines")) fields.orderTemplateLines() else null,
+                // ⚠️ **非空默认值字段必须显式回填**（判据 `_check_ai_dto_defaults.py`）：
+                //    漏掉它，Kotlin 的默认值会被序列化成"要清空货主"发出去 ——
+                //    而模型只是想改个备注。默认 false = 不动货主。
+                clearShipper = false,
+            ),
+        )
+    }
+
+    override suspend fun deleteOrderTemplate(id: Long) = repo.deleteOrderTemplate(id)
+
+    override suspend fun restoreOrderTemplate(id: Long) {
+        // 返回值（恢复后的那条）这一层用不上：撤回走的是"同一条写路径，把旧值塞回去"
+        repo.restoreOrderTemplate(id)
+    }
+
+    /**
+     * payload 里的 `lines` → DTO 行。
+     *
+     * ⚠️ 这里的键名是**处理器拼好的 payload 键**（`product_id`/`qty`），不是模型参数名
+     * （模型传的是 `product`/`quantity`，那一步在 `OrderTemplateWriteHandler` 里做完了）。
+     * 两套名字混用的后果是"卡片上写着 6 样货、请求里一行都没有"。
+     */
+    private fun JsonObject.orderTemplateLines(): List<com.tapmoay.sorders.data.remote.dto.OrderTemplateLineDto> =
+        (this["lines"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { el ->
+            val o = el as? JsonObject ?: return@mapNotNull null
+            com.tapmoay.sorders.data.remote.dto.OrderTemplateLineDto(
+                productId = o.str("product_id")?.toLongOrNull(),
+                name = o.str("name").orEmpty(),
+                unit = o.str("unit").orEmpty(),
+                qty = o.str("qty")?.toIntOrNull() ?: 1,
+            )
+        } ?: emptyList()
+
     override suspend fun createFreightTemplate(fields: JsonObject) {
         repo.createFreightTemplate(
             com.tapmoay.sorders.data.remote.dto.FreightTemplateRequest(
@@ -1759,6 +1870,148 @@ class RepoWriteDataSource(
     }
 
     override suspend fun deleteFreightTemplate(id: Long) = repo.deleteFreightTemplate(id)
+
+    // ---- 供应商 / 厂商档案 + 应付款（2026-09-22）----
+
+    override suspend fun suppliers(): List<AiName> = repo.suppliers().map { AiName(it.id, it.name) }
+
+    /**
+     * 应付单名册。
+     *
+     * `supplierId = null` 时 label 拼成 **「供应商名 · 事由」**：声明式那条路（改/删应付单）
+     * 只能给一个参数，而事由是用户自己写的（「9 月货款」），所以必须把供应商名一起拼进去
+     * 才认得出用户说的是哪一张。给了编号时（付款那条路）就只用事由 ——
+     * 那时候"哪一个供应商"已经由供应商参数确定了。
+     *
+     * `note` 带上"还差多少"：用户核对时真正要看的就是这个数。
+     */
+    override suspend fun supplierPayables(supplierId: Long?): List<AiSupplierPayable> {
+        val rows = if (supplierId == null) repo.allSupplierPayables() else repo.supplierPayables(supplierId)
+        return rows.map {
+            AiSupplierPayable(
+                id = it.id,
+                supplierId = it.supplierId,
+                title = if (supplierId == null && it.supplierName.isNotBlank()) {
+                    "${it.supplierName} · ${it.title}"
+                } else {
+                    it.title
+                },
+                amount = it.amount,
+                paid = it.paid,
+                unpaid = it.unpaid,
+                paymentCount = it.paymentCount,
+            )
+        }
+    }
+
+    /**
+     * 付款记录名册：label 拼「供应商 · 事由 · 金额（日期）」。
+     *
+     * 付款记录**没有天然名字** —— 用户嘴里的说法就是这几项，所以 label 就是那几项。
+     * 拼成一条之后 `AiWriteArgs.strict` 的"包含"匹配才认得出「永盛那笔 800」。
+     */
+    override suspend fun supplierPayments(): List<AiName> = repo.supplierPayments().map {
+        AiName(
+            id = it.id,
+            label = listOf(it.supplierName, it.payableTitle, "${it.amount} 元")
+                .filter { s -> s.isNotBlank() }.joinToString(" · ") +
+                if (it.payDate.isNotBlank()) "（${it.payDate}）" else "",
+            note = if (it.remark.isNotBlank()) "备注：${it.remark}" else null,
+        )
+    }
+
+    override suspend fun createSupplier(fields: JsonObject) {
+        repo.createSupplier(
+            com.tapmoay.sorders.data.remote.dto.SupplierCreateRequest(
+                name = fields.req("name"),
+                contactName = fields.str("contact_name").orEmpty(),
+                phone = fields.str("phone").orEmpty(),
+                address = fields.str("address").orEmpty(),
+                remark = fields.str("remark").orEmpty(),
+            ),
+        )
+    }
+
+    override suspend fun updateSupplier(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateSupplier 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateSupplier(
+            id,
+            com.tapmoay.sorders.data.remote.dto.SupplierUpdateRequest(
+                name = fields.str("name"),
+                contactName = fields.str("contact_name"),
+                phone = fields.str("phone"),
+                address = fields.str("address"),
+                remark = fields.str("remark"),
+            ),
+        )
+    }
+
+    override suspend fun deleteSupplier(id: Long) = repo.deleteSupplier(id)
+
+    override suspend fun restoreSupplier(id: Long) {
+        // 返回值（恢复后的那条）这一层用不上：撤回走的是"同一条写路径，把旧值塞回去"
+        repo.restoreSupplier(id)
+    }
+
+    override suspend fun createSupplierPayable(fields: JsonObject) {
+        repo.createSupplierPayable(
+            fields.reqLong("supplier_id"),
+            com.tapmoay.sorders.data.remote.dto.SupplierPayableCreateRequest(
+                supplierId = fields.reqLong("supplier_id"),
+                title = fields.req("title"),
+                category = fields.str("category") ?: "货款",
+                amount = fields.req("amount"),
+                docDate = fields.str("doc_date") ?: java.time.LocalDate.now().toString(),
+                remark = fields.str("remark").orEmpty(),
+            ),
+        )
+    }
+
+    override suspend fun updateSupplierPayable(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateSupplierPayable 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateSupplierPayable(
+            id,
+            com.tapmoay.sorders.data.remote.dto.SupplierPayableUpdateRequest(
+                title = fields.str("title"),
+                category = fields.str("category"),
+                amount = fields.str("amount"),
+                docDate = fields.str("doc_date"),
+                remark = fields.str("remark"),
+            ),
+        )
+    }
+
+    override suspend fun deleteSupplierPayable(id: Long) = repo.deleteSupplierPayable(id)
+
+    override suspend fun restoreSupplierPayable(id: Long) {
+        repo.restoreSupplierPayable(id)
+    }
+
+    /**
+     * 付一笔款。
+     *
+     * ⚠️ `channel` 与 `pay_date` **必须回填**：`SupplierPaymentCreateRequest` 的默认值
+     * （`cash` / 今天是 Kotlin 侧默认）在 `explicitNulls=false` 的序列化下会被**发出去**
+     * —— 那样"模型没提付款方式"就会静默变成"现金"。这里的两项都是
+     * `SupplierPaymentWriteHandler` **显式算好**放进 payload 的（缺一个就是漏了一处）。
+     */
+    override suspend fun paySupplierPayable(fields: JsonObject) {
+        repo.paySupplierPayable(
+            fields.reqLong("payable_id"),
+            com.tapmoay.sorders.data.remote.dto.SupplierPaymentCreateRequest(
+                amount = fields.req("amount"),
+                payDate = fields.req("pay_date"),
+                channel = fields.str("channel") ?: "cash",
+                remark = fields.str("remark").orEmpty(),
+            ),
+        )
+    }
+
+    override suspend fun cancelSupplierPayment(flowId: Long) = repo.cancelSupplierPayment(flowId)
+
+    override suspend fun restoreSupplierPayment(flowId: Long) {
+        repo.restoreSupplierPayment(flowId)
+    }
 
     override suspend fun createVehicle(fields: JsonObject) {
         repo.createVehicle(
@@ -1987,6 +2240,22 @@ class RepoWriteDataSource(
             "place" -> repo.placesAll().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.place(it)) }
             "contact" -> repo.contacts().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.contact(it)) }
             "arrears_unit" -> repo.arrearsUnits().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.arrearsUnit(it)) }
+            // 预设单：拉列表再挑（后端没有单取端点）。挑不到 = null，**不编造**。
+            "order_template" ->
+                repo.orderTemplates().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.orderTemplate(it)) }
+            // 供应商 / 应付款 / 付款记录（2026-09-22）：同样拉列表再挑。
+            // ⚠️ 三张都**必须包含回收站里的行**（`includeDeleted = true`）：
+            //    撤回一个"恢复"动作时要读的正是那条已经从名册里消失的记录 ——
+            //    不带上它，撤回链的第二步会读不到现场而退化成"撤不回来"。
+            "supplier" ->
+                repo.suppliers(includeDeleted = true).firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.supplier(it)) }
+            "supplier_payable" ->
+                repo.allSupplierPayables(includeDeleted = true).firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.supplierPayable(it)) }
+            "supplier_payment" ->
+                repo.supplierPayments(includeDeleted = true).firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.supplierPayment(it)) }
             "freight_template" ->
                 repo.freightTemplates().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.freightTemplate(it)) }
             "driver_rule" ->
@@ -2149,6 +2418,15 @@ class AiWriteService(
             // 货主自己那一本账（批发商核销 / 撤销；恢复走声明式那个 restoreAction）
             SettleMyLedgerHandler(ds, store),
             RevokeMySettlementHandler(ds, store),
+            // 预订单（2026-09-22）：create / update 要收一组"商品 + 数量"，声明式的字段类型里
+            // 没有数组，所以这两个是手写处理器（与 `orders.create` 同一个处境、同一个解法）。
+            // ⛔ delete 与 restore 走声明式（`crud` 那两个），不要在这里再注册一遍。
+            OrderTemplateWriteHandler(AiWrites.ORDER_TEMPLATE_CREATE, ds, store),
+            OrderTemplateWriteHandler(AiWrites.ORDER_TEMPLATE_UPDATE, ds, store),
+            // 供应商付款（2026-09-22）：**唯一一个把钱写出去的动作**，所以是手写处理器
+            // （卡片要写"还差多少 → 付完还差多少"，声明式拿不到这两个数）。
+            // ⛔ 其余十个（档案/应付单的增改删、撤销付款、三个 restore）走声明式。
+            SupplierPaymentWriteHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 
         // 声明式：凡是带 crud 规格的动作，一律由通用处理器执行

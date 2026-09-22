@@ -68,4 +68,44 @@ class UnitsTest {
         assertTrue(filterUnits(listOf("件", "箱"), "提").isEmpty())
         assertFalse(UNIT_PRESETS.contains("提"))
     }
+
+    // ================================================================ 订单行上的「数量 + 单位」
+
+    @Test
+    fun `数量后面要带单位（订单卡片与商品明细共用这一份拼法）`() {
+        assertEquals("6 桶", qtyWithUnit(6, "桶"))
+        assertEquals("1 箱", qtyWithUnit(1, "箱"))
+        assertEquals("12 件", qtyWithUnit(12, "件"))
+        assertEquals("单位两侧有空格也归一", "6 桶", qtyWithUnit(6, "  桶 "))
+    }
+
+    @Test
+    fun `老单没填过单位时只给数字 —— 绝不替它编一个「件」`() {
+        // ⚠️ 这一条是本文件里最要紧的一条：`unitOrDefault`（商品那一侧）对空值是兜底成「件」的，
+        //   而订单行是**下单那一刻的快照**。这里若跟着兜底成「件」，
+        //   一张从没人填过单位的单会显示成「×6 件」—— 那是**系统编出来的事实**，
+        //   而且看起来完全正常（用户会拿它去对货）。
+        assertEquals("6", qtyWithUnit(6, ""))
+        assertEquals("6", qtyWithUnit(6, null))
+        assertEquals("6", qtyWithUnit(6, "   "))
+        assertEquals("商品那一侧的兜底不许泄漏到订单行上", "件", unitOrDefault(null))
+        assertFalse(qtyWithUnit(1, "").contains("件"))
+    }
+
+    @Test
+    fun `整单共同单位：全一样才给，混装或有一条没填就是 null`() {
+        assertEquals("桶", sharedUnitOf(listOf("桶", "桶", "桶")))
+        assertEquals("取到共同单位时先归一空格", "桶", sharedUnitOf(listOf(" 桶 ", "桶")))
+        assertEquals("混装没有共同单位", null, sharedUnitOf(listOf("桶", "箱")))
+        assertEquals("有一条没填就不能替整单说话", null, sharedUnitOf(listOf("桶", "")))
+        assertEquals("空的单没有单位", null, sharedUnitOf(emptyList()))
+        assertEquals("全都没填同样不算", null, sharedUnitOf(listOf(null, null)))
+    }
+
+    @Test
+    fun `货损数量跟它那一行的单位走（6 桶的单货损 3 桶，不是 3 件）`() {
+        assertEquals("货损 3 桶", damageLabel(3, "桶"))
+        assertEquals("货损 1 箱", damageLabel(1, "箱"))
+        assertEquals("老数据没单位时只给数字", "货损 3", damageLabel(3, ""))
+    }
 }

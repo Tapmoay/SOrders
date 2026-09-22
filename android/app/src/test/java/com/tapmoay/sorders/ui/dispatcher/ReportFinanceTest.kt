@@ -3,11 +3,13 @@ package com.tapmoay.sorders.ui.dispatcher
 import com.tapmoay.sorders.data.remote.dto.ProductReportDto
 import com.tapmoay.sorders.data.remote.dto.ProductReportItemDto
 import com.tapmoay.sorders.data.remote.dto.TurnoverReportDto
+import com.tapmoay.sorders.ui.common.DatePresets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 /**
  * 报表中心的三个纯映射（[ReportFinance]）。
@@ -41,16 +43,6 @@ class ReportFinanceTest {
     fun `越界页签兜到 audit，不会崩`() {
         assertEquals("audit", ReportFinance.exportKind(6))
         assertEquals("audit", ReportFinance.exportKind(-1))
-    }
-
-    @Test
-    fun `只有后四个页签按日期区间导出`() {
-        assertFalse(ReportFinance.usesDateRange(0))
-        assertFalse(ReportFinance.usesDateRange(1))
-        assertTrue(ReportFinance.usesDateRange(2))
-        assertTrue(ReportFinance.usesDateRange(3))
-        assertTrue(ReportFinance.usesDateRange(4))
-        assertTrue(ReportFinance.usesDateRange(5))
     }
 
     // ---------------------------------------------------------- 毛利公式
@@ -158,15 +150,66 @@ class ReportFinanceTest {
     }
 
     @Test
-    fun `时间窗口：整月就是整月、整周就是整周（不许只到锚点当天）`() {
-        // 2026-09-19 审计：标题与取数窗口原来是**两处各写一遍**，而且写法不同 ——
-        // 标题写整月 `2026-09-01 ~ 2026-09-30`，取数只到锚点当天 `2026-09-01 ~ 2026-09-05`。
-        // 结果 9/5 打开报表：标题写整月、数字只含 5 天；9/20 打开则少掉后面 10 天的收支。
-        // 现在两边都走 rangeFor，这里把它钉死。
-        assertEquals("2026-09-01" to "2026-09-30", ReportFinance.rangeFor("month", "2026-09-19"))
-        assertEquals("2026-02-01" to "2026-02-28", ReportFinance.rangeFor("month", "2026-02-10"))
-        // 2026-09-19 是周六 → 本周一 09-14、周日 09-20
-        assertEquals("2026-09-14" to "2026-09-20", ReportFinance.rangeFor("week", "2026-09-19"))
-        assertEquals("2026-09-19" to "2026-09-19", ReportFinance.rangeFor("day", "2026-09-19"))
+    fun `时间窗口：档位 → (from, to)，报表自己不另算一遍区间（2026-09-22 换口径）`() {
+        // 2026-09-22 之前报表是 `mode`(day/week/month) + `anchor`，窗口由报表自己算；
+        // 现在整页是一段**明确区间**，与账本/订单页共用 `DatePresets.rangeOf` 那一份实现 ——
+        // 各算一遍的下场是「本月」在报表是整月、在账本是 1 日到今天，两个页面两个口径。
+        val today = LocalDate.of(2026, 9, 22) // 周二
+        assertEquals("2026-09-22" to "2026-09-22", ReportFinance.windowOf("今天", null, null, today))
+        assertEquals("2026-09-21" to "2026-09-21", ReportFinance.windowOf("昨天", null, null, today))
+        // 这周 = 本周一 ~ 今天；上周 = 上周一 ~ 上周日（与 DatePresets 同一套）
+        assertEquals("2026-09-21" to "2026-09-22", ReportFinance.windowOf("这周", null, null, today))
+        assertEquals("2026-09-14" to "2026-09-20", ReportFinance.windowOf("上周", null, null, today))
+        // ⚠️「近 7 天」以前在报表里**表达不出来**（只有日/周/月三档）——现在它就是一个区间，能用了
+        assertEquals("2026-09-16" to "2026-09-22", ReportFinance.windowOf("近 7 天", null, null, today))
+        assertEquals("2026-09-01" to "2026-09-22", ReportFinance.windowOf("本月", null, null, today))
+        assertEquals("2026-08-01" to "2026-08-31", ReportFinance.windowOf("上月", null, null, today))
+    }
+
+    @Test
+    fun `自定义区间用它自己那一段；半截自定义落到最宽的窗口（宁可多算不许少算）`() {
+        val today = LocalDate.of(2026, 9, 22)
+        assertEquals(
+            "2026-08-01" to "2026-08-20",
+            ReportFinance.windowOf(DatePresets.CUSTOM, "2026-08-01", "2026-08-20", today),
+        )
+        // 只选了一头（弹层的半成品状态，正常不会回调到这里）→ 按**全部**看：
+        // 报表宁可多算，也不许悄悄少算一段 —— 少算的那几天页面上完全看不出来
+        assertEquals(
+            ReportFinance.ALL_FROM to "2026-09-22",
+            ReportFinance.windowOf(DatePresets.CUSTOM, "2026-08-01", null, today),
+        )
+    }
+
+    @Test
+    fun `「全部」落成一段覆盖所有数据的区间（报表端点必须给一段窗口）`() {
+        val today = LocalDate.of(2026, 9, 22)
+        val (from, to) = ReportFinance.windowOf(DatePresets.ALL, null, null, today)
+        assertEquals(ReportFinance.ALL_FROM, from)
+        assertEquals("2026-09-22", to)
+        assertTrue("起点必须早于库里的任何数据（2025 年才开始用）", from < "2025-01-01")
+    }
+
+    @Test
+    fun `自动挡那一串档位在报表里每一档都能落成区间（没有表达不出来的了）`() {
+        val today = LocalDate.of(2026, 9, 22)
+        DatePresets.ORDER_PRESET_LADDER.forEach { label ->
+            val (from, to) = ReportFinance.windowOf(label, null, null, today)
+            assertTrue("$label 的窗口起止反了：$from~$to", from <= to)
+            assertTrue("$label 的窗口必须含今天或落在今天之前：$from~$to", to <= "2026-09-22")
+        }
+    }
+
+    @Test
+    fun `有数的判据：单数或金额任一非零才算有数`() {
+        // 页面原来是**写死的「按日 + 今天」**：今天没有已送达的单时整页 ¥0.00 / 0 单，
+        // 用户 2026-09-22 报的就是「报告中心没有任何数据」。
+        assertFalse(ReportFinance.hasData(0, "0"))
+        assertFalse(ReportFinance.hasData(0, "0.00"))
+        assertTrue(ReportFinance.hasData(1, "0"))
+        assertTrue(ReportFinance.hasData(0, "21345.60"))
+        // 认不出来的金额串**不许**当成"有数"（那会让页面停在一个空窗口上，等于 bug 没修）
+        assertFalse(ReportFinance.hasData(0, ""))
+        assertFalse(ReportFinance.hasData(0, "abc"))
     }
 }

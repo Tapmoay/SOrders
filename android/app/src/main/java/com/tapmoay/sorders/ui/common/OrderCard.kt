@@ -255,7 +255,10 @@ fun OrderCard(
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                "×" + op.quantity,
+                                // 数量后面**要带单位**（用户 2026-09-22：「商品后面的数字没有单位啊……
+                                // 这是要有单位的」）。单位是下单那一刻定格的（`unit_snapshot`），
+                                // 老单没填过就只给数字 —— 拼法只有一处：`Units.kt::qtyWithUnit`。
+                                "×" + qtyWithUnit(op.quantity, op.unit),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(ProductPurple),
@@ -293,7 +296,11 @@ fun OrderCard(
                         color = if (highlight) Color(DangerRed) else Color(ProductPurple),
                     )
                     Text(
-                        " 件 · " + formatDateTime(order.createdAt),
+                        // 合计后面那个单位：全单同一个单位时才敢写它（「共 6 桶」），
+                        // 混装（6 桶 + 3 箱）本来就没有共同单位 → 退回口语的「件」。
+                        // 判据只有一处：`Units.kt::sharedUnitOf`。
+                        " " + (sharedUnitOf(order.orderProducts.map { it.unit }) ?: DEFAULT_UNIT) +
+                            " · " + formatDateTime(order.createdAt),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

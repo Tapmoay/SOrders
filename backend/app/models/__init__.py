@@ -37,6 +37,7 @@ from app.models.notification import Notification
 from app.models.operation_log import OperationLog
 from app.models.order import Order, OrderProduct
 from app.models.order_return_request import OrderReturnRequest, OrderReturnRequestLine
+from app.models.order_template import OrderTemplate
 from app.models.place import Place, PlaceUserUsage
 from app.models.place_category import PlaceCategory
 from app.models.product import PriceRule, Product, ProductCostHistory
@@ -44,6 +45,7 @@ from app.models.product_category import ProductCategory
 from app.models.product_visibility import UserProductVisibility
 from app.models.shipper import ShipperAddress, ShipperContact, ShipperLocation
 from app.models.shipper_settlement import ShipperSettlement, ShipperSettlementLine
+from app.models.supplier import Supplier, SupplierPayable
 from app.models.usage import UsageCounter
 from app.models.user import User
 
@@ -81,6 +83,7 @@ __all__ = [
     "OrderProduct",
     "OrderReturnRequest",
     "OrderReturnRequestLine",
+    "OrderTemplate",
     "OrderStatus",
     "Place",
     "PlaceUserUsage",
@@ -94,6 +97,8 @@ __all__ = [
     "ShipperLocation",
     "ShipperSettlement",
     "ShipperSettlementLine",
+    "Supplier",
+    "SupplierPayable",
     "User",
     "UsageCounter",
     "UserProductVisibility",

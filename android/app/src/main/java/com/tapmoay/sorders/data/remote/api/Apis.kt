@@ -811,6 +811,122 @@ interface ArrearsApi {
 }
 
 /**
+ * 预订单（订单模板，2026-09-22）：「预设好的订单，参数没有变直接下单」。
+ *
+ * ⚠️ 这里**没有"从预设单下单"的端点**：一键下单 = 客户端读这张预设单 → 走已有的
+ * `POST /orders`（与手工下单同一条路）。多开一个"下单端点"就是把下单这条路抄第二遍。
+ * `use` 只记一次"用它下过单"（列表按常用度排序用）。
+ */
+interface OrderTemplateApi {
+    @GET("order-templates")
+    suspend fun listTemplates(): List<OrderTemplateDto>
+
+    @POST("order-templates")
+    suspend fun createTemplate(@Body body: OrderTemplateCreateRequest): OrderTemplateDto
+
+    @PATCH("order-templates/{templateId}")
+    suspend fun updateTemplate(
+        @Path("templateId") templateId: Long,
+        @Body body: OrderTemplateUpdateRequest,
+    ): OrderTemplateDto
+
+    /** 伪装删除（可 `restore` 放回来）。 */
+    @DELETE("order-templates/{templateId}")
+    suspend fun deleteTemplate(@Path("templateId") templateId: Long)
+
+    @POST("order-templates/{templateId}/restore")
+    suspend fun restoreTemplate(@Path("templateId") templateId: Long): OrderTemplateDto
+
+    /** 记一次「用这张预设单下了单」（常用度计数，⛔ 不改预设单本身）。 */
+    @POST("order-templates/{templateId}/use")
+    suspend fun useTemplate(@Path("templateId") templateId: Long): OrderTemplateDto
+}
+
+/**
+ * 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求）。
+ *
+ * ### 为什么付款挂在**应付单**下面
+ * 用户要的是「给某个供应商**支付尾款**」——尾款的前提是"有一张单、上面写着应付多少、
+ * 已经付了多少"。所以付款的路径是 `POST /supplier-payables/{id}/payments`
+ * （一张单可以付很多次＝**分次付款**），而不是"给供应商打一笔钱"。
+ *
+ * ### ⛔ 付款不是新表：它就是一行资金流水
+ * 后端把付款写成 `cash_flows` 的一行（`biz_type=PAYMENT_SUPPLIER`），所以账本「收支」页
+ * 自动就有它，不需要在视图层再拼一次。**撤销付款＝软删那一行流水**（可 `restore` 放回来）。
+ */
+interface SupplierApi {
+    /** 供应商列表（默认不含回收站）。`includeDeleted=true` 是回收站。 */
+    @GET("suppliers")
+    suspend fun listSuppliers(@Query("include_deleted") includeDeleted: Boolean = false): List<SupplierDto>
+
+    @GET("suppliers/{supplierId}")
+    suspend fun getSupplier(@Path("supplierId") supplierId: Long): SupplierDto
+
+    @POST("suppliers")
+    suspend fun createSupplier(@Body body: SupplierCreateRequest): SupplierDto
+
+    @PATCH("suppliers/{supplierId}")
+    suspend fun updateSupplier(
+        @Path("supplierId") supplierId: Long,
+        @Body body: SupplierUpdateRequest,
+    ): SupplierDto
+
+    /** 伪装删除（可 `restore` 放回来）。⛔ 名下有应付单时后端会拒绝。 */
+    @DELETE("suppliers/{supplierId}")
+    suspend fun deleteSupplier(@Path("supplierId") supplierId: Long)
+
+    @POST("suppliers/{supplierId}/restore")
+    suspend fun restoreSupplier(@Path("supplierId") supplierId: Long): SupplierDto
+
+    @GET("supplier-payables")
+    suspend fun listPayables(
+        @Query("supplier_id") supplierId: Long? = null,
+        @Query("include_deleted") includeDeleted: Boolean = false,
+        @Query("only_open") onlyOpen: Boolean = false,
+    ): List<SupplierPayableDto>
+
+    @POST("suppliers/{supplierId}/payables")
+    suspend fun createPayable(
+        @Path("supplierId") supplierId: Long,
+        @Body body: SupplierPayableCreateRequest,
+    ): SupplierPayableDto
+
+    @PATCH("supplier-payables/{payableId}")
+    suspend fun updatePayable(
+        @Path("payableId") payableId: Long,
+        @Body body: SupplierPayableUpdateRequest,
+    ): SupplierPayableDto
+
+    @DELETE("supplier-payables/{payableId}")
+    suspend fun deletePayable(@Path("payableId") payableId: Long)
+
+    @POST("supplier-payables/{payableId}/restore")
+    suspend fun restorePayable(@Path("payableId") payableId: Long): SupplierPayableDto
+
+    /** 付款记录（默认只看没被撤销的；`includeDeleted=true` 看回收站）。 */
+    @GET("supplier-payments")
+    suspend fun listPayments(
+        @Query("supplier_id") supplierId: Long? = null,
+        @Query("payable_id") payableId: Long? = null,
+        @Query("include_deleted") includeDeleted: Boolean = false,
+    ): List<SupplierPaymentDto>
+
+    /** **付一笔款**（分次付款：同一张单可以付很多次）。金额不许超过还差。 */
+    @POST("supplier-payables/{payableId}/payments")
+    suspend fun payPayable(
+        @Path("payableId") payableId: Long,
+        @Body body: SupplierPaymentCreateRequest,
+    ): SupplierPaymentDto
+
+    /** **撤销一笔付款**（软删那一行流水，可 `restore` 放回来）。 */
+    @DELETE("supplier-payments/{flowId}")
+    suspend fun cancelPayment(@Path("flowId") flowId: Long)
+
+    @POST("supplier-payments/{flowId}/restore")
+    suspend fun restorePayment(@Path("flowId") flowId: Long): SupplierPaymentDto
+}
+
+/**
  * `GET /inventory/movements` 一页取多少条 —— **后端的上限就是 500**（`Query(100, le=500)`）。
  *
  * ⚠️ 取满上限只是"这一页尽量大"，**不等于"全部"**：该端点现在回报 `X-Truncated` /
@@ -994,11 +1110,29 @@ interface DriverBillingRuleApi {
 }
 
 interface ReportApi {
+    /**
+     * 营业纵览。
+     *
+     * ⚠️ 2026-09-22：`date_from`/`date_to` **成对给 = 按这一段区间取数**（页面上的档位药丸走这条：
+     * 今天/昨天/近 7 天/本月/上月/自定义都是一段区间，六个页签共用同一段）；不给就是老口径
+     * `mode` + `date`。两个都给时**区间优先**（后端 `reports.py::_span` 一处判）。
+     */
     @GET("reports/turnover")
-    suspend fun turnover(@Query("mode") mode: String, @Query("date") date: String): TurnoverReportDto
+    suspend fun turnover(
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): TurnoverReportDto
 
+    /** 商品经营（窗口口径与 [turnover] **完全一致**，否则同一屏两个时间段）。 */
     @GET("reports/products")
-    suspend fun products(@Query("mode") mode: String, @Query("date") date: String): ProductReportDto
+    suspend fun products(
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): ProductReportDto
 
     @GET("stats/driver-performance")
     suspend fun driverPerformance(
@@ -1165,6 +1299,18 @@ interface AccountingApi {
         @Query("date_to") dateTo: String? = null,
     ): CashFlowSummaryDto
 
+    /**
+     * 收支**分项**（账本管理「收支」页那两段）：每一路钱分别多少。
+     *
+     * 与 `cash-flows/summary` 同源（后端共用筛选 + SQL 侧求和），所以分项之和必然等于汇总；
+     * ⛔ 客户端不许自己按 `biz_type` 分类求和 —— 那会同时踩"截断"和"分类口径"两个坑。
+     */
+    @GET("cash-flows/breakdown")
+    suspend fun cashFlowBreakdown(
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): CashFlowBreakdownDto
+
     @GET("vehicles")
     suspend fun listVehicles(): List<VehicleDto>
 
@@ -1279,7 +1425,50 @@ interface ShipperLedgerApi {
 
     @POST("shipper-ledger/settlements/{settlementId}/restore")
     suspend fun restoreSettlement(@Path("settlementId") settlementId: Long): ShipperSettlementDto
+
+    /**
+     * **这一段他自己的收支统计**（2026-09-22 用户要求：账本的统计对货主与批发商也做）。
+     *
+     * ⛔ 为什么不能让客户端把订单列表加起来：那个列表是**带 limit 的一页**，
+     *    单子一多合计就**偏小**（期① 审计里"客户端求和少算 62%"是同一个形状）。
+     *    `orders` 也是**窗口内的全量单数**，不是取到的那一页。
+     *
+     * ⚠️ 窗口按**订单送达日**（与上面那条同一套），`customer_name/customer_phone`
+     *    与客户端分组键（`ShipperLedgerGrouping.customerKeyOf`）是**同一套回退**：
+     *    只传名字、不传电话会把两个同名的下游货主并成一个。
+     */
+    @GET("shipper-ledger/summary")
+    suspend fun ledgerSummary(
+        @Query("delivered_from") deliveredFrom: String? = null,
+        @Query("delivered_to") deliveredTo: String? = null,
+        @Query("customer_name") customerName: String? = null,
+        @Query("customer_phone") customerPhone: String? = null,
+    ): ShipperLedgerSummaryDto
 }
+
+/**
+ * 「我的账本」顶上那段收支统计（`GET /shipper-ledger/summary`）。
+ *
+ * 两边的数**方向相反、绝不互相写**：
+ * · `payable/paid/unpaid` = **我该付给公司的**（货款 / 已付 / 还欠）；
+ * · `receivable/received/unreceived` = **我该向下游收的**（货款 / 已收 / 待收）。
+ */
+@Serializable
+data class ShipperLedgerSummaryDto(
+    /** 这一段（同一窗口、同一个可选下游货主）一共几单 —— **全量**，不是列表那一页。 */
+    val orders: Int = 0,
+    @SerialName("cleared_orders") val clearedOrders: Int = 0,
+    /** 我该付的：货款合计（不含运费 —— 运费是公司与司机之间的账）。 */
+    @Serializable(with = FlexibleStringSerializer::class) val payable: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val paid: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val unpaid: String = "0.00",
+    /** 我该收的（只有批发商有真数）。 */
+    @Serializable(with = FlexibleStringSerializer::class) val receivable: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val received: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val unreceived: String = "0.00",
+    val settlements: Int = 0,
+    @SerialName("is_member") val isMember: Boolean = false,
+)
 
 @Serializable
 data class ShipperSettlementLineDto(

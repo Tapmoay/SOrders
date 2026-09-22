@@ -42,6 +42,43 @@ const val DEFAULT_UNIT = "件"
 fun unitOrDefault(raw: String?): String = raw?.trim().orEmpty().ifBlank { DEFAULT_UNIT }
 
 /**
+ * 「件数 + 单位」怎么拼（**全 App 唯一一份**，订单卡片 / 商品明细 / 账本小卡都走它）。
+ *
+ * 用户 2026-09-22（对着概要订单卡片）：「它那个**商品后面的数字没有单位**啊，这个不行啊，
+ * **这是要有单位的**」。
+ *
+ * ⚠️ 与 [unitOrDefault] 的**区别是故意的**，别把两个合并：
+ *  · [unitOrDefault] 用在**商品本身**上（商品卡、库存、定价）——那儿"没填过单位"与"单位是件"
+ *    在业务上是同一件事，所以兜底成「件」；
+ *  · 这里用在**订单行快照**上：`order_products.unit_snapshot` 是**下单那一刻定格**的，
+ *    老单可能真的没填过。那时**只给数字、不编一个「件」出来** —— 编了就成了"系统说的"，
+ *    而实际没人填过（详情页那条规矩的原文：「老数据为空 → 只显示件数，**不编一个"件"出来**」）。
+ */
+fun qtyWithUnit(quantity: Int, rawUnit: String?): String {
+    val u = rawUnit?.trim().orEmpty()
+    return if (u.isEmpty()) quantity.toString() else "$quantity $u"
+}
+
+/**
+ * 整单**共同的单位**；只要有一条没填、或几条填得不一样 → `null`（＝没有共同单位）。
+ *
+ * 用途只有一个：订单卡片底部那句合计（「共 6 **桶** · 09-22 06:30」）。一单全是桶时写「桶」才是实话；
+ * 混装（6 桶 + 3 箱）时那个合计数**本来就没有共同单位**，此时调用方退回口语的「件」——
+ * ⛔ 不要为了让这里能返回一个值而把"混装"当成"都是件"。
+ */
+fun sharedUnitOf(rawUnits: List<String?>): String? {
+    val cleaned = rawUnits.map { it?.trim().orEmpty() }
+    if (cleaned.isEmpty() || cleaned.any { it.isEmpty() }) return null
+    return cleaned.distinct().singleOrNull()
+}
+
+/**
+ * 「货损 N 件/桶」怎么拼。货损数量与下单数量**同一个刻度**（`damage_quantity <= quantity`），
+ * 所以单位就该跟着**那一行**走 —— 一行是"6 桶"、货损却写"3 件"是把同一批货说成两种东西。
+ */
+fun damageLabel(quantity: Int, rawUnit: String?): String = "货损 " + qtyWithUnit(quantity, rawUnit)
+
+/**
  * 单位选择页里要摆出来的那些单位，**顺序即展示顺序**。
  *
  * 规则（三条，都有单测）：

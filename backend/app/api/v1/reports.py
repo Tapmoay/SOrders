@@ -3,7 +3,7 @@
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -51,6 +51,43 @@ def _label(d: date, mode: str) -> str:
     return f"{d.month}-{d.day}"
 
 
+def _span_label(start: date, end: date) -> str:
+    """给了**明确区间**时那个标签（`9-1~9-20` / 整天 `9-18` / 整月 `2026-09月`）。
+
+    与 `_label(d, mode)` 同一套写法：整月仍然写成 `2026-09月`（导出的表头读它），
+    其余一律写成一段区间 —— 用户看到"这两个数"时必须能从标题上认出是哪一段。
+    """
+    if start == end:
+        return f"{start.month}-{start.day}"
+    if start.day == 1 and (start + timedelta(days=32)).replace(day=1) - timedelta(days=1) == end:
+        return f"{start.year}-{start.month:02d}月"
+    return f"{start.month}-{start.day}~{end.month}-{end.day}"
+
+
+def _span(
+    mode: str,
+    anchor: date,
+    date_from: date | None,
+    date_to: date | None,
+) -> tuple[date, date]:
+    """这一次报表要看的窗口 —— **后端唯一的入口**（接口与导出都走它）。
+
+    给了 `date_from` + `date_to` 就用它（App 的档位药丸走这条：今天/昨天/近 7 天/本月/上月/自定义
+    都是**一段区间**，六个页签共用同一段）；没给就还是老的 `mode` + `anchor`
+    （`day`/`week`/`month`，既有调用方与既有测试一行都不用改）。
+
+    ⚠️ **只给一头 → 400**，不许"猜另一头"：半截窗口要么查全量要么查出空列表，
+       两种都不是用户想要的（App 侧那条规矩同理：`DateRangeDialog` 只选一头时"应用"什么都不做）。
+    """
+    if (date_from is None) != (date_to is None):
+        raise HTTPException(status_code=400, detail="date_from 与 date_to 必须同时给")
+    if date_from is not None and date_to is not None:
+        if date_to < date_from:
+            raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+        return date_from, date_to
+    return _window(mode, anchor)
+
+
 def _range_dates(start: date, end: date) -> list[date]:
     out, cur = [], start
     while cur <= end:
@@ -84,10 +121,15 @@ def load_delivered(db: Session) -> list[Order]:
     )
 
 
-def build_turnover(db: Session, mode: str, anchor: date) -> dict:
-    """营业纵览聚合（含成本/毛利/货损/资金/撤销/挂账单位），供接口与导出复用。"""
+def build_turnover(db: Session, mode: str, anchor: date, *, span: tuple[date, date] | None = None) -> dict:
+    """营业纵览聚合（含成本/毛利/货损/资金/撤销/挂账单位），供接口与导出复用。
+
+    [span] 非空 = 这一段明确区间（App 的档位药丸走这条）；空 = 老口径 `mode` + `anchor`。
+    两种走法**共用下面这一整段聚合**（`start`/`end` 是唯一的差别）——
+    分成两份实现的下场是"同一个窗口两条路两个数"，而页面上看不出来。
+    """
     d = anchor
-    start, end = _window(mode, anchor)
+    start, end = span if span else _window(mode, anchor)
     days = _range_dates(start, end)
     orders = load_delivered(db)
     # ⚠️ 一页/一期的**钱**先一次算完（`order_money`：4 条分组查询，与订单条数无关）：
@@ -194,7 +236,13 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
             arrears_total += mm.arrears
             uname = (o.arrears_unit_name or "").strip() or "未分配挂账单位"
             arrears_map[uname] = arrears_map.get(uname, Decimal("0")) + mm.arrears
-    if mode == "day":
+    # 曲线的粒度：**单日按小时铺、跨天按天铺**。
+    # ⚠️ 2026-09-22：这里原来只看 `mode`（`mode == "day"` → 每小时一个点）。
+    #    而 App 现在发的是一段区间（`span`），`mode` 只剩"没给区间时"的老口径 ——
+    #    于是"整月区间 + mode=day"会被画成**每小时一个点**：同一段时间，
+    #    走 mode 是 30 个点、走区间是 24 个点，两边都"看着有理"（本文件的新测试当场抓到）。
+    #    粒度必须由**窗口本身**决定，而不是由请求里那个已经不作数的参数决定。
+    if start == end:
         series = [
             ReportSeriesItem(
                 label=f"{h:02d}时",
@@ -223,7 +271,7 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
         )
     ) or 0
     return {
-        "period_label": _label(d, mode),
+        "period_label": _span_label(start, end) if span else _label(d, mode),
         "total_amount": total_amount,
         "total_orders": total_orders,
         "total_freight": total_freight,
@@ -248,10 +296,13 @@ def build_turnover(db: Session, mode: str, anchor: date) -> dict:
     }
 
 
-def build_products(db: Session, mode: str, anchor: date) -> dict:
-    """商品经营聚合（含成本/货损），供接口与导出复用。"""
+def build_products(db: Session, mode: str, anchor: date, *, span: tuple[date, date] | None = None) -> dict:
+    """商品经营聚合（含成本/货损），供接口与导出复用。
+
+    [span] 的含义与 [build_turnover] 一致（两页必须**同一个窗口口径**）。
+    """
     d = anchor
-    start, end = _window(mode, anchor)
+    start, end = span if span else _window(mode, anchor)
     # 成本口径与营业纵览**同一处**（`services/cost_basis.py`）：两页的毛利必须对得上
     basis = CostBasis(db, start, end)
     agg: dict[str, ProductReportItem] = {}
@@ -305,7 +356,7 @@ def build_products(db: Session, mode: str, anchor: date) -> dict:
                 item.damage_amount += amt
     items = sorted(agg.values(), key=lambda x: -x.amount)
     return {
-        "period_label": _label(d, mode),
+        "period_label": _span_label(start, end) if span else _label(d, mode),
         "total_qty": total_qty,
         "total_amount": total_amount,
         "items": items,
@@ -342,9 +393,11 @@ def turnover_report(
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     mode: str = Query("day", pattern="^(day|week|month)$"),
     anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（与 date_to 成对给，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
 ) -> TurnoverReportOut:
-    d = anchor
-    data = build_turnover(db, mode, d)
+    span = _span(mode, anchor, date_from, date_to)
+    data = build_turnover(db, mode, anchor, span=span)
     data.pop("_window", None)
     return TurnoverReportOut(**{**data, "period_label": data["period_label"]})
 
@@ -355,9 +408,11 @@ def product_report(
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
     mode: str = Query("day", pattern="^(day|week|month)$"),
     anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（与 date_to 成对给，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
 ) -> ProductReportOut:
-    d = anchor
-    data = build_products(db, mode, d)
+    span = _span(mode, anchor, date_from, date_to)
+    data = build_products(db, mode, anchor, span=span)
     data.pop("_window", None)
     return ProductReportOut(**data)
 
@@ -464,16 +519,11 @@ def export_report(
     #    `turnover-report-2026-09-18.xlsx`、内容却是 09-01~09-30。对账/存档时按文件名找回来
     #    会拿到一份"名字与内容不符"的凭证（2026-09-19 第二轮外部检查 R2-4；
     #    第十一轮报过一次，第十五轮只修了另外四个 kind，这两个漏了）。
-    # ⚠️ 判据必须跟着**每种 kind 真实取数的那一套**走，不能无脑把区间抽到最上面：
-    #    `date_from/date_to` 只对 drivers/customers/finance/audit 生效（见函数签名说明），
-    #    对 turnover/products 是**被忽略**的 —— 无脑抽上去会让
-    #    `kind=turnover&date_from=…` 变成"名字写区间、内容按 mode 的窗口"，那还是两个口径。
-    if kind in ("turnover", "products"):
-        s, e = _window(mode, d)
-    elif date_from and date_to:
-        s, e = date_from, date_to
-    else:
-        s, e = _window(mode, d)
+    # ⚠️ 2026-09-22（报表时间控件换成档位药丸那一轮）：**六个 kind 现在都认 `date_from/date_to`**
+    #    （`turnover`/`products` 也收下了），所以这一段的判据收成**一个** `_span(...)` ——
+    #    与页面上、与下面 `build_*` 用的是**同一个窗口**。原来那段"turnover/products 一律按 mode"
+    #    的分支留着就又会分叉（App 现在发的就是区间）。
+    s, e = _span(mode, d, date_from, date_to)
     range_label = f"{s}_{e}" if s != e else str(s)
     wb = Workbook()
 
@@ -485,9 +535,9 @@ def export_report(
         return wb.create_sheet(title)
 
     if kind == "turnover":
-        data = build_turnover(db, mode, d)
+        data = build_turnover(db, mode, d, span=(s, e))
         ws = next_sheet("营业纵览")
-        ws.append(["营业纵览", f"{mode} {_label(d, mode)}", f"金额口径：已送达未撤销"])
+        ws.append(["营业纵览", _span_label(s, e), "金额口径：已送达未撤销"])
         ws.append(["营业金额", _money(data["total_amount"]), "订单数", data["total_orders"], "单均价", _money(data["avg_order"])])
         ws.append([
             # 口径同「司机运费结算」页：按计费规则应付（不是订单上的运费）——审计 R12-M2
@@ -510,9 +560,9 @@ def export_report(
         for u in data["arrears_units"]:
             ws.append([u.name, _money(u.amount)])
     elif kind == "products":
-        data = build_products(db, mode, d)
+        data = build_products(db, mode, d, span=(s, e))
         ws = next_sheet("商品经营")
-        ws.append(["商品经营", f"{mode} {_label(d, mode)}"])
+        ws.append(["商品经营", _span_label(s, e)])
         # ⚠️ 毛利的两侧必须**同一批行**（2026-09-19 审计第十七轮）：这里原来用
         #    "Σ 有成本行的**全额**金额 − cost_total" 当表头毛利 → 与营业纵览
         #    （cost_covered_amount − cost_total）差 ¥282（本机 11,071.00 vs 10,789.00），
@@ -628,7 +678,13 @@ def export_report(
             flows = list(
                 db.scalars(
                     select(CashFlow)
-                    .where(CashFlow.flow_date >= s, CashFlow.flow_date <= e)
+                    # ⛔ 导出的数与页面上的数必须是同一批行：已撤销的流水两边都不算
+                    #    （2026-09-22 起 `cash_flows` 有软删，见 `models/cash_flow.py` 文件头）。
+                    .where(
+                        CashFlow.flow_date >= s,
+                        CashFlow.flow_date <= e,
+                        CashFlow.is_deleted.is_(False),
+                    )
                     .order_by(CashFlow.flow_date.desc())
                 )
             )

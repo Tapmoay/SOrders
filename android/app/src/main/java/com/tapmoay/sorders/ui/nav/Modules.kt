@@ -84,6 +84,10 @@ object Modules {
     //    分组那套机制本身也已删除（见 [ModuleEntry] 的注释：三端 children 全空 = 死路）。
     val dispatcherEntries: List<ModuleEntry> = listOf(
         ModuleEntry("代理下单", Routes.DISPATCH_ORDER_CREATE, Icons.Default.AddCircleOutline, color = MgrGreen),       // 绿 · 下单（与货主端下单同色）
+        // 「预订单」（2026-09-22 用户要求「专门去管理预设的订单」）：预设好的订单 ——
+        // 点「用这张下单」把商品与数量带进下单页。它**不生成订单**，所以与「代理下单」是两格。
+        // 颜色取靛蓝：与网格里已有的十几个语义色两两距离 ≥60（判据在同名单测里）。
+        ModuleEntry("预订单", Routes.DISPATCH_ORDER_TEMPLATES, Icons.Default.BookmarkAdded, color = 0xFF3949ABL),
         ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = ShipperTeal),                        // 湖蓝 · 地址
         ModuleEntry("订单管理", Routes.DISPATCH_ORDERS, Icons.Default.ReceiptLong, color = ProgressYellow),            // 黄 · 订单流转
         // 退货申请（2026-09-21）：货主（含批发商）在订单上**只能申请**，**这里才是实际执行** ——
@@ -211,7 +215,22 @@ object Modules {
         ModuleEntry("批发商账", Routes.dispatcherLedger(3), Icons.Default.Storefront, color = 0xFFB8860BL),             // 暗金 · 批发账户
         // ---- 2 个工具（各自有页面）----
         ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),                 // 深紫
-        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF1565C0L),                // 蓝
+        // 「收支」（2026-09-22 用户要求）：**收入按来源、支出按去路**各一路一行。
+        // ⚠️ 它顶掉的是原来那一格「开销管理」—— 这不是"删了一个模块"，是用户点名要的**整合**：
+        //    「我记得好像有个开销管理吧，干脆把我们两个**整合在一起**」。
+        //    开销管理**照旧进得去**（`Routes.DISPATCH_EXPENSES` 还注册着、开销分类管理也在），
+        //    入口挪到了「收支 → 支出」那张卡的底部 —— 谁要把它加回这一页，先看这条注释。
+        //    颜色沿用它的蓝（0xFF1565C0）：账本管理里"支出"这一块用户认的就是这个色。
+        ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF1565C0L),                     // 蓝
+        // 「供应商 / 应付款」（2026-09-22 用户要求）：支出那一块的另一半 ——
+        // 收支页是**日记账**（一笔一笔的流水），这一格是**往来账**（欠谁多少、分几次付清）。
+        // ⚠️ 两个入口都通（这里一格 + 收支页支出卡底部一条），因为用户说的就是
+        //    "支出主要是给某个供应商付尾款"——他既可能从"账本管理"直接找，也可能从"支出"里找。
+        // 图标用 Factory（厂商/供应商就是它）——⛔ 别用 Storefront：那一格「批发商账」已经在用，
+        //    判据 `_check_ledger_dashboard.py` 会当场报红（"6 个图标互不相同"实测 7 种）。
+        // 颜色：**深玫红 0xFFAD1457**。与这一页已有的 5 个色最近距离 125（判据要求 ≥60）——
+        //    原来试的深靛蓝 0xFF283593 与「客户收款」的紫只差 47，肉眼分不出（当场报红）。
+        ModuleEntry("供应商/应付", Routes.DISPATCH_SUPPLIERS, Icons.Default.Factory, color = 0xFFAD1457L),          // 深玫红
     )
 
     // ===== 货主工作台 =====

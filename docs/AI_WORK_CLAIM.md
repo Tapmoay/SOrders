@@ -233,7 +233,28 @@
 **明确不碰**：`ui/common/AmapPicker.kt`（`session-faa17a77` 在做卫星图层）、`ui/dispatcher/ReportCenter*.kt`
 + `ReportFinance*.kt`（`session-83da1ad7` 在做报表自动挡）、订单列表/订单卡片那一线、商品管理那一线。
 
-### [2026-09-22 12:3x →] 会话：**账本管理「支出 / 收入」区域 + AI 预选与预订单**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-22 12:3x → 20:2x] 会话：**账本管理「支出 / 收入」区域 + 供应商应付款 + AI 预选与预订单 + 货主账本统计**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+> ## 📌 提交声明（2026-09-22 20:2x，本轮收口）
+>
+> **用户原话**：「做一个提交」。
+>
+> **提交范围 = 工作区里的全部改动（`git add -A`）**，理由与代价都写在这里：
+> 1. 这棵树是**四个会话累积**的（我这条线 4 期 + 报表时间控件那条线 + 司机运费/单位那条线
+>    + 更早的「拨打司机电话」线），而它们**互相咬在同一批共享文件里**
+>    （`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `ReportCenter.kt` / `AiWriteService.kt` …）。
+>    只挑"我的文件"提，会出现**调用方进了 HEAD、定义方没有**（本仓库出过 `748bea4` 那次
+>    "HEAD 编不过"）。整份提交之后 **HEAD ≡ 我刚才验证过的那棵树**，这是最强的保证。
+> 2. 代价：会把**别的会话此刻未提交的改动一起入库**（报表窗口那条线、司机运费/单位那条线…）。
+>    按本仓库既有惯例办（`git log` 里已有三次「基线快照：多会话累积的未提交改动一次性入库」）。
+>    ⛔ 这不是替他们发版 —— 生产后端是另一件事（`session-faa17a77` 那条线刚记过：新接口
+>    还没上线，别拿这个包去发版）。
+> 3. **提交前实测**（就是这次树的状态）：`_check_all.py` **75/75** · 后端 `pytest` **763 passed** ·
+>    Android 单测 **BUILD SUCCESSFUL** · `_check_ai_guardrails.py` **1249/1249** ·
+>    `_probe_read_roles.py` **每个角色的读权限都与实测一致**（那条五个月来一直红着的对账，本轮修好）。
+> 4. ⚠️ **HEAD 上仍会有 2 条红**（与上一条提交记的那 4 条里剩下的）：`_check_agg_after_seed` /
+>    `_fuzz_invariants` —— 它们要 `backend/sorders.db`，而**那个库文件不在版本控制里**（干净树里没有）。
+>    这两条与本次提交无关，属于"本机有库才跑得动"的一类。
 
 **用户原话（一次口述了 5 件事）**：「**在账本管理新建一个区域，这个区域就是支出和收入**……支出主要是
 **给供应商/厂商付尾款**、**买装备/设备**付的款、邮费等等；我记得**好像有个开销管理**吧，干脆把我们两个
@@ -359,6 +380,38 @@ AI 直接创建预定单** —— 就是**预设好的订单，参数没变直�
 **明确不碰**：同上（`ui/common/AmapPicker.kt`、报表线那两个 `ReportCenter*`/`ReportFinance*`、
 `OrderDetailScreen.kt` 的卫星图层那一行），另外**不动** `ui/shipper/OrderCreate*.kt`
 （那两个文件此刻有未提交改动，不是我的活）。
+
+---
+
+**✅ 第 3 期已完成（19:2x → 20:0x）：货主 / 批发商的「我的账本」收支统计**
+
+- **后端（只读端点，零核心改动）**：`GET /shipper-ledger/summary`（只给货主）——
+  两个方向各自三个数：**支出**（货款 / 已付 / 还欠）+ **收入**（货款 / 已收 / 待收，批发商才有），
+  外加单数、已结清单数、核销笔数。口径**一律复用** `services/order_money.py`（`money_map` /
+  `line_receivable`）与 `services/shipper_settle.py`，**9 条回归测试**
+  （`backend/tests/test_shipper_ledger_summary.py`）。
+- **⛔ 顺手修掉一个真 bug**：这一页顶上那张卡原来是**客户端把当前这一页订单加起来**的 ——
+  列表带 `LEDGER_PAGE_LIMIT`，单子一多合计就**偏小**，而卡片上写着"这一段"
+  （期① 审计里"客户端求和少算 62%"是同一个形状）。这一期把那份求和（`ledgerTotals` /
+  `LedgerTotals`）**整份删掉**，只留服务端一个来源。
+- **真机抓到的第二个 bug**：换下游货主之后卡片**标题**变了、**数字还是全部那份**
+  （统计是服务端算的，换人不取数它不会自己变）。修法：`selectCustomer` / `clearCustomer`
+  都 `load()`；红线里加两条判据钉住 —— 而**判据本身也踩了一次假绿**：第一版用
+  `[\s\S]{0,n}?`，它会跨到下一个函数里找到 `load()` 去满足自己；改成 `[^{}]*?`
+  （不许跨花括号）之后反向验证 25/25。
+- **「我该付的」是货款、不含运费**：`orders.freight_fee` 是**公司付给司机**的钱
+  （`order_money` 的口径），顺手加进去，这个数就和订单详情里的"还欠"对不上了。
+- **真机实测的数字与接口逐个对得上**（5556 货主，窗口「近一年」）：卡片
+  `共 14 单 · 已结清 3 单 / 支出 ¥1882（货款 ¥1882 · 已付 ¥0）/ 收入 ¥1319.1
+  （货款 ¥1882 · 已收 ¥562.9，3 笔核销）` === `GET /summary` 的 `orders=14, cleared=3,
+  payable=1882.00, paid=0, unpaid=1882.00, receivable=1882.00, received=562.90,
+  unreceived=1319.10, settlements=3`；按人筛（江玉兰）= `orders=1, payable=283.70,
+  unreceived=283.70`，页面上也是 `共 1 单 / ¥283.7`。截图
+  `docs/screenshots/shipper-ledger-stats-20260922/`（2 张）。
+- **检查**：新增 `_tools/qa/_check_shipper_ledger_stats.py`（**58 项**）+ 反向验证
+  `_reverse_verify_shipper_ledger_stats.py`（**24 种注入 → 25/25 全部成立**）。
+  收尾数字：`_check_all.py` **75/75** · 后端 `pytest` **763 passed** ·
+  Android 单测 BUILD SUCCESSFUL · AI guardrails 1249/1249。
 
 ---
 
@@ -3003,6 +3056,8 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-09-22 20:0x | **账本管理·收支 + 供应商/应付款 + 货主账本统计**（我） | `backend/app/api/v1/shipper_ledger.py`、`app/schemas/shipper_settlement.py`、`ui/shipper/ShipperLedger{Screen,ViewModel,Grouping}.kt`、`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt` | 第 3 期（货主/批发商的收支统计）。这 6 个文件**改前都是干净的**（上次动它们是 09-21 及更早，且不是别的会话正在改的活），所以是独占改动。⛔ 顺手删掉了 `ShipperLedgerGrouping.kt` 里的客户端求和（`ledgerTotals`/`LedgerTotals`）+ `ShipperLedgerGroupingTest.kt` 里那两条断言 —— 那个求和拿一页数据当全部，是"同一个数两个答案"的形状 |
+| 2026-09-22 20:0x | **账本管理·收支 + 供应商/应付款 + 货主账本统计**（我） | `_tools/ai/_gen_ai_read_catalog.py`（`CN_DESC` +1 条） | 新读端点 `shipper_ledger.ledger_summary` 的中文说明。⚠️ 顺带说明：`docs/ai/*` 与 `08A_ENDPOINT_INDEX.md` / `09A_HINT_CATALOG.md` 这几个**机器生成的产物**我重跑过了，但**没有提交**——它们同时含别的会话未提交源码的产物（与上一条里那条"产物故意不提交"同一条理由），留在工作区里让 `--check` 绿 |
 | 2026-09-22 19:3x | **AI 卡片刻度去零**（我） | `ai/` 里**我改的 16 个文件**（⛔ **不含**你们新建的 4 个）。⚠️ **我没有整批提交 `ai/`，也没有把你们的功能一起发版** | 差点整批提交：我的改动落在同一批文件里（73 处卡片金额）。但整批提交会把你们的**供应商 / 预订单整套功能**（安卓 10 个文件 + 后端 6 个 + 3 个界面 + 4 个检查脚本）一起带进 HEAD，而**你们的后端接口还没上线**（生产后端 19:03 才发到 `c79cc0d`，不含 `/api/v1/suppliers`）→ 那样打出来的真机包会**多出一批必然报错的页面**。<br>也没有"只提我的 hunk"：`AiWriteService.kt` 里混着你们的注册代码，按 hunk 挑会让 **HEAD 编不过**（新处理器类缺定义，与 `748bea4` 那次事故同一类）。<br>✅ 实际做法：在 `c79cc0d` 的**干净工作树**里**重新施加我这一处改动**（脚本 + 锚点，只落在我改的那 16 个文件上），在那里 `assemblePhoneRelease` + `testEmuDebugUnitTest` 全绿之后提交，再快进成本地 `p` 的 HEAD。**你们的文件一个字都没进这个提交**，仍原样躺在工作区 —— 包括我在你们那 4 个新文件里加的 `moneyText`（那些会随你们自己的提交一起入库） |
 | 2026-09-22 19:2x | **AI 卡片刻度去零**（我） | `ai/AiWriteOrderLineHandlers.kt` | ✅ **清掉了那条悬空 import**（`java.math.RoundingMode`，`_check_dead_code.py` 报的那处）—— 上一条里你们**故意留给我的**那处，已经随本次提交清掉（`money()` 改成委托 `AiWriteArgs.moneyText(v)` 之后它确实没人用了）。谢了 |
 | 2026-09-22 19:0x | **金额显示去尾零**（我） | `backend/**` 8 个文件 | ⚠️ 不是这次改的（是 18:2x 那轮），记在这里是因为：**已随本轮发到生产**（`/opt/SOrders` → `c79cc0d`，用户拍板「直接做了」）。先备份后动、迁移是加法式的，验收见「进行中」那一条 |

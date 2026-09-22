@@ -145,7 +145,7 @@ def money_map(db: Session, orders: list[Order], *, lock: bool = False) -> dict[i
         refund: dict[int, Decimal] = {}
         flow_rows = db.execute(
             select(CashFlow.order_id, CashFlow.direction, CashFlow.biz_type, CashFlow.amount)
-            .where(CashFlow.order_id.in_(ids))
+            .where(CashFlow.order_id.in_(ids), CashFlow.is_deleted.is_(False))
             .with_for_update()
         ).all()
         for oid, direction, biz, amount in flow_rows:
@@ -160,6 +160,12 @@ def money_map(db: Session, orders: list[Order], *, lock: bool = False) -> dict[i
             CashFlow.amount,
             CashFlow.order_id.in_(ids),
             func.lower(CashFlow.direction) == "in",
+            # ⛔ 已撤销的流水不参与任何金额（2026-09-22 `cash_flows` 加了软删之后）。
+            #    今天能走到这里的流水都是订单上的（`order_id` 非空），而"撤销"目前只发生在
+            #    供应商付款（`order_id` 恒为空）上 —— 也就是说这一句**今天不影响任何数**。
+            #    留着它的理由是"读取处一律带这一句"这条不变量：留例外就要有一张例外名单，
+            #    而例外名单一定会腐烂（本项目栽过 6 次）。哪天订单收款也能撤，这里就已经对了。
+            CashFlow.is_deleted.is_(False),
         )
         refund = _group_sum(
             db,
@@ -168,6 +174,7 @@ def money_map(db: Session, orders: list[Order], *, lock: bool = False) -> dict[i
             CashFlow.order_id.in_(ids),
             func.lower(CashFlow.direction) == "out",
             CashFlow.biz_type == CashFlowBizType.REFUND_CUSTOMER,
+            CashFlow.is_deleted.is_(False),
         )
 
     out: dict[int, OrderMoney] = {}

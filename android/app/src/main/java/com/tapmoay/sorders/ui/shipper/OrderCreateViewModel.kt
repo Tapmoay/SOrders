@@ -358,6 +358,86 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         loadPriceRulesFor(id ?: myShipperId)
     }
 
+    // ============================================================ 预订单（预设单）预填
+
+    /**
+     * 这一单是从哪张预设单预填来的（0 / null = 不是）。
+     *
+     * 只有两个用途：① 下单成功后记一次常用度（见 [submit]）；② 界面据此说一句"已按预设单填好"。
+     * ⛔ 它**不参与下单请求**：预设单只是一个"预填模板"，下单参数就是屏幕上那些值
+     * （用户改了什么就以什么为准 —— 这正是用户说的"参数没有变直接下单"的反面：
+     * 参数**可以**变，改了照新值下）。
+     */
+    var appliedTemplateId by mutableStateOf<Long?>(null)
+        private set
+
+    /**
+     * 按预设单 `id` 预填这一单（「预订单」页点「用这张下单」时调一次）。
+     *
+     * ### 三件事必须按这个顺序做
+     * 1. **先把商品库拉回来**：预设单里**没有单价**（价格会变，存旧价＝几个月后按旧价下单），
+     *    价格要按"这一单对这个货主的实际价"现算 —— 那一份口径只有一处（[priceFor]）。
+     *    商品库没到就填行，价格栏会一片空白（而用户会以为预设单没存价格，其实是我们没算）。
+     * 2. **商品行整份替换**（不是追加）：从预设单进来就是"照这张单来"，
+     *    追加会让上一次没提交干净的行混在里面（多订一样货，而界面上看不出来）。
+     * 3. **货主先设**：`setShipper` 会去拉这个货主的专属价，顺序反了会先按默认价算一遍。
+     *
+     * @param onDone 失败时给一句中文原因（界面用一次性提示显示）；成功给 null。
+     */
+    fun prefillFromTemplate(id: Long, onDone: (String?) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                if (products.isEmpty()) {
+                    products = container.repo.products()
+                }
+                val t = container.repo.orderTemplates().firstOrNull { it.id == id }
+                if (t == null) {
+                    onDone("这张预设单已经不在了（可能刚被删掉）")
+                    return@launch
+                }
+                if (t.shipperId != null) setShipper(t.shipperId, null)
+                if (t.address.isNotBlank()) {
+                    addressDetail = t.address
+                    // 预设单里存的是**地址文字**，不是库里哪一条 → 两个 id 都清掉
+                    // （留着上一次的 id 会让后端把常用度记到别的地址头上）
+                    pickedAddressId = null
+                    pickedLocationId = null
+                }
+                if (t.receiverName.isNotBlank()) dongjiaName = t.receiverName
+                if (t.receiverPhone.isNotBlank()) dongjiaPhone = t.receiverPhone
+                if (t.remark.isNotBlank()) remark = t.remark
+
+                val missing = ArrayList<String>()
+                lines.clear()
+                t.lines.forEach { ln ->
+                    val p = products.firstOrNull { it.id == ln.productId }
+                    if (p == null) missing += ln.name.ifBlank { "（未命名商品）" }
+                    lines.add(
+                        LineDraft(
+                            productId = ln.productId,
+                            // 商品还在库里就用**当前**名字（预设单里那份是显示用快照）
+                            name = p?.name ?: ln.name,
+                            quantity = ln.qty,
+                            price = p?.let { priceFor(it) } ?: "",
+                            unit = p?.unit?.ifBlank { null } ?: ln.unit.ifBlank { "件" },
+                        ),
+                    )
+                }
+                appliedTemplateId = t.id
+                toast = buildString {
+                    append("已按预设单「").append(t.name).append("」填好商品与数量，请核对后再提交")
+                    if (missing.isNotEmpty()) {
+                        // ⛔ 不静默：商品下架/删掉的那几行价格是空的，必须说出来
+                        append("（").append(missing.joinToString("、")).append(" 已不在商品库，价格要自己填）")
+                    }
+                }
+                onDone(null)
+            } catch (e: Exception) {
+                onDone(toApiException(e).message)
+            }
+        }
+    }
+
     /** 按下单主体（选择的货主，否则当前登录人）加载其专属价格规则 */
     fun loadPriceRulesFor(sid: Long?) {
         if (sid == null) {
@@ -623,6 +703,12 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                             }
                         }
                         success = true
+                        // 「用这张预设单下了单」→ 记一次常用度（列表按它往前排）。
+                        // ⚠️ 记在**下单成功之后**、不是点「用这张下单」的时候：点了又退出去的不算，
+                        //    否则列表会按"谁点开过"排序（而用户要的是"我常用哪一张"）。
+                        appliedTemplateId?.let { tid ->
+                            runCatching { container.repo.useOrderTemplate(tid) }
+                        }
                         onDone()
                     } catch (e: Exception) {
                         error = toApiException(e).message

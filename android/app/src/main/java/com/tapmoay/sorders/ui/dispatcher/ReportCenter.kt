@@ -29,7 +29,7 @@ import com.tapmoay.sorders.data.remote.dto.OperationLogDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.saveExportFile
-import java.time.LocalDate
+import java.time.LocalDate
 import com.tapmoay.sorders.ui.common.Hint
 
 /** 报表页（从入口页进入）：顶部时间导航 + 主题内容 + 导出 */
@@ -44,6 +44,8 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
     val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; else -> "异常与审计" }
+    // 时间药丸那两个弹层的开关：**只记这一个**（自定义区间那个开关由 `DateFilterDialogs` 自己持有）
+    var showPresets by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -52,6 +54,15 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                 title = title,
                 onBack = onBack,
                 actions = {
+                    // 时间：**顶栏右上角一颗药丸**（与账本/订单/司机账本同一套）。
+                    // ⚠️ 2026-09-22 换掉了页内那条 `ReportTimeNav`：它顶上"完整时段"那一块是个
+                    //    **可点的 Surface**（实测 761×126 px，正压在顶栏下面），点它就弹系统日历 ——
+                    //    用户报的「点击商品经营的时候有时候会弹出一个日历」就是它。
+                    //    现在页面里**没有任何时间控件**：只有这颗药丸 + 我们的档位清单/区间弹层。
+                    //    窗口没定下来之前**连药丸都不画**（先画一版"今天"再跳 = 用户点名的「闪两下」）。
+                    if (vm.tab != 5 && vm.windowSettled) {
+                        DatePresetPill(label = vm.periodLabel, onClick = { showPresets = true })
+                    }
                     TextButton(onClick = { vm.load() }) {
                         Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(2.dp))
@@ -61,7 +72,8 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                         onClick = {
                             vm.exportCurrent { bytes ->
                                 if (bytes != null) {
-                                    val fn = title + "-" + vm.anchor + ".xlsx"
+                                    val (f, t) = vm.dateRange
+                                    val fn = title + "-" + f + "_" + t + ".xlsx"
                                     val path = saveExportFile(context, bytes, fn)
                                     scope.launch { snackbar.showSnackbar(if (path != null) "已导出：" + path else "导出失败：无法保存文件") }
                                 }
@@ -78,32 +90,43 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            if (vm.tab != 5) {
-                ReportTimeNav(
-                    mode = vm.mode,
-                    anchor = vm.anchor,
-                    periodText = vm.periodText,
-                    onModeChange = { vm.mode = it; vm.load() },
-                    onAnchorChange = { vm.anchor = it; vm.load() },
-                )
-            } else {
+            if (vm.tab == 5) {
+                // 这一页**没有时间控件**（固定近 30 天）——说明必须写这一页自己的事。
+                // 原来这里印的是「资金流水（按日/周/月切换上方时间）」：那是**资金收支**那一页的说法，
+                // 印在「异常与审计」上既不对（这一页不是资金流水）、也把人往一个不存在的地方指。
                 Text(
-                    "资金流水（按日/周/月切换上方时间）",
+                    "这个页面固定看近 30 天：上面是待处理异常，下面是最近的操作日志",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-            }
-            when (vm.tab) {
-                0 -> TurnoverTab(vm)
-                1 -> ProductTab(vm)
-                2 -> DriverTab(vm)
-                3 -> CustomerTab(vm)
-                4 -> FinanceTab(vm)
-                else -> ExceptionTab(vm)
+                ExceptionTab(vm)
+            } else if (!vm.windowSettled) {
+                LoadingBox(Modifier.weight(1f))
+            } else {
+                when (vm.tab) {
+                    0 -> TurnoverTab(vm)
+                    1 -> ProductTab(vm)
+                    2 -> DriverTab(vm)
+                    3 -> CustomerTab(vm)
+                    else -> FinanceTab(vm)
+                }
             }
         }
     }
+
+    // 时间那一颗药丸的弹层：档位清单 + 自定义区间（**与账本/订单/司机账本同一份实现**，
+    // 五个页面共用 `DateFilterDialogs` —— 里面那条"先关清单、再开区间弹层"的顺序也共用）。
+    // 窗口没定下来之前药丸都没画，这里自然也不会开。
+    DateFilterDialogs(
+        showPresets = showPresets,
+        onDismissPresets = { showPresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = { vm.applyPreset(it) },
+        onApplyCustom = { f, t -> vm.applyCustomRange(f, t) },
+    )
 
     vm.resolveTarget?.let { t ->
         AlertDialog(
@@ -1016,6 +1039,23 @@ private fun actionLabel(action: String): String = when (action) {
     // 派单员直接退了货 → 那张申请被自动关闭（2026-09-21 用户拍板的那条规则）。
     // 与「订单退货」分开：审计页上要能回答"这张申请为什么没被办理就结束了"。
     "ORDER_RETURN_REQUEST_CLOSE" -> "退货申请自动关闭"
+    // 预订单 / 订单模板（2026-09-22）：预设单会变成真订单 ——「这条预设是谁建的/改的/删的」
+    // 必须查得到，所以三个动作码各有各的中文名（⛔ 审计页上不许出现原始码）。
+    "ORDER_TEMPLATE_UPSERT" -> "建/改预设单"
+    "ORDER_TEMPLATE_DELETE" -> "删预设单"
+    "ORDER_TEMPLATE_RESTORE" -> "恢复预设单"
+    // 供应商 / 厂商 + 应付款（2026-09-22）：这一组同时决定"欠他多少"和"钱什么时候出去的"，
+    // 所以九个动作码各有各的中文名（⛔ 审计页上不许出现原始码）。
+    // 拆开而不是合成三个：审计页要能一眼分出「改了档案」/「改了欠款金额」/「把钱付出去了」。
+    "SUPPLIER_UPSERT" -> "建/改供应商"
+    "SUPPLIER_DELETE" -> "删供应商"
+    "SUPPLIER_RESTORE" -> "恢复供应商"
+    "SUPPLIER_PAYABLE_UPSERT" -> "建/改应付款"
+    "SUPPLIER_PAYABLE_DELETE" -> "删应付款"
+    "SUPPLIER_PAYABLE_RESTORE" -> "恢复应付款"
+    "SUPPLIER_PAYMENT_CREATE" -> "付供应商款"
+    "SUPPLIER_PAYMENT_CANCEL" -> "撤销付款"
+    "SUPPLIER_PAYMENT_RESTORE" -> "恢复付款"
     "ORDER_LINE_ADD" -> "加一行商品"
     "ORDER_LINE_UPDATE" -> "改一行商品"
     "ORDER_LINE_DELETE" -> "删一行商品"

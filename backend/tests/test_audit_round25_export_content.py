@@ -563,12 +563,23 @@ def test_turnover_and_products_export_filenames_follow_the_real_window(client, t
     )
     assert fn5 == "customers-report-2026-09-01_2026-09-05.xlsx", f"按区间导出的文件名错了：{fn5}"
 
-    # ⚠️ `date_from/date_to` 对 turnover/products **不生效**（内容按 mode+anchor 取数），
-    #    所以名字也只能写那个窗口 —— 无脑把区间抽到最上面会造出反过来的"名字/内容不符"
-    fn6, _ = _export(
+    # ⚠️ 2026-09-22 更新（报表时间控件换成"档位药丸"那一轮）：**六个 kind 现在都认区间**。
+    #    以前 `date_from/date_to` 对 turnover/products 不起作用，所以上面那条"名字跟真实区间走"
+    #    只能拿 mode 的窗口来比；现在页面发的就是区间（`ReportFinance.windowOf`），
+    #    区间**优先于 mode+anchor** —— 于是这里的正确期望变成：**名字 = 传进去的那一段**，
+    #    内容也跟着那一段（不再是"名字写区间、内容按 mode"）。
+    fn6, content6 = _export(
         client, h, kind="turnover", mode="month", date="2026-09-18",
         date_from="2026-09-01", date_to="2026-09-03",
     )
-    assert fn6 == "turnover-report-2026-09-01_2026-09-30.xlsx", (
-        f"turnover 的名字跟着被忽略的参数走了（内容仍是整月）：{fn6}"
+    assert fn6 == "turnover-report-2026-09-01_2026-09-03.xlsx", (
+        f"turnover 的文件名没跟（现在生效的）区间走：{fn6}"
+    )
+    labels6 = [row[0] for row in _data_rows(_sheet(content6, "营业纵览"), min_row=9) if isinstance(row[0], str)]
+    assert "9-4" not in labels6 and "9-3" in labels6, (
+        f"内容没按这段区间取数（三天窗口里出现了区间外的日子）：{labels6}"
+    )
+    # 区间优先也体现在表头：写的是那一段，而不是「month 2026-09月」
+    assert _sheet(content6, "营业纵览").cell(1, 2).value == "9-1~9-3", (
+        _sheet(content6, "营业纵览").cell(1, 2).value
     )

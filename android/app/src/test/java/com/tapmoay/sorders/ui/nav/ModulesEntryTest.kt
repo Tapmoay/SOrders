@@ -137,13 +137,21 @@ class ModulesEntryTest {
     // 「首先，我们将**司机的账和司机结算**这 2 个东西**合并成一个**；然后订单账本，再加上
     //  货主账本以及批发商账，还有客户收款以及开销管理，**合并成一个形式，就叫做账本管理**，
     //  这个账本管理**类似于报表中心的形式**；然后车辆台账属于车辆管理，车辆管理直接放在桌面上」。
+    //
+    // ⚠️ 2026-09-22 用户又改了一处：**「开销管理」并进新的「收支」**，不再与它并列占一格 ——
+    //    「我记得好像有个开销管理吧，干脆把我们两个**整合在一起**」。
+    //    所以第 6 格现在是「收支」（收入按来源、支出按去路），开销管理从**支出那张卡底部**进。
+    // ⚠️ 2026-09-22 同一天又加了一格：**「供应商/应付」**（第 7 格）——
+    //    用户原话「支出主要是**给某个供应商或者说是厂商支付尾款**……**购买一个装备或者说是设备**……
+    //    比如说类似**邮费**啊」，拍板口径是"跟客户一个量级的档案"。
+    //    它不是把「收支」顶掉：那一格是日记账（一笔一笔的流水），这一格是往来账（欠谁多少）。
 
     @Test
-    fun `账本管理入口页正好 6 格，司机结算并进司机账、车辆台账去了工作台`() {
+    fun `账本管理入口页正好 7 格，司机结算并进司机账、车辆台账去了工作台`() {
         val e = Modules.ledgerHomeEntries
-        assertEquals("用户点名的就是这 6 件", 6, e.size)
+        assertEquals("用户点名的就是这 7 件", 7, e.size)
         assertEquals(
-            listOf("订单账", "司机账", "货主账", "批发商账", "客户收款", "开销管理"),
+            listOf("订单账", "司机账", "货主账", "批发商账", "客户收款", "收支", "供应商/应付"),
             e.map { it.label },
         )
         // 4 类账是**同一页的 4 个档位**（一条带参数的路由），不是四个页面
@@ -152,15 +160,23 @@ class ModulesEntryTest {
             (0..3).map { Routes.dispatcherLedger(it) },
             e.take(4).map { it.route },
         )
-        // 两个工具各自有页面（点了就离开账本页）
+        // 三个工具各自有页面（点了就离开账本页）
         assertEquals(
-            listOf(Routes.DISPATCH_RECEIPTS, Routes.DISPATCH_EXPENSES),
+            listOf(Routes.DISPATCH_RECEIPTS, Routes.DISPATCH_CASH, Routes.DISPATCH_SUPPLIERS),
             e.drop(4).map { it.route },
         )
         assertEquals("入口不能重复", e.size, (e.map { it.label + it.route }).toSet().size)
         // 用户点名"合并成一个"的那两处：结算不单独占一格、车辆台账改名去工作台
         assertTrue("「司机结算」不该单独占一格", e.none { it.label == "司机结算" })
         assertTrue("「车辆台账」的旧名不该还在（就是车辆管理）", e.none { it.label == "车辆台账" })
+        // 2026-09-22：开销管理**整合进「收支」**（不再并列占一格）
+        assertTrue("「开销管理」不该再并列占一格（并进「收支」了）", e.none { it.label == "开销管理" })
+        assertTrue("「收支」必须有自己那一页", e.any { it.label == "收支" && it.route == Routes.DISPATCH_CASH })
+        // 2026-09-22：供应商/应付是**独立一格**（不是"收支"里的一条），因为它自己有档案与付款两页
+        assertTrue(
+            "「供应商/应付」必须有自己那一页",
+            e.any { it.label == "供应商/应付" && it.route == Routes.DISPATCH_SUPPLIERS },
+        )
     }
 
     @Test
@@ -171,7 +187,7 @@ class ModulesEntryTest {
             "「车辆管理」要在工作台网格里（用户：直接放在桌面上）",
             grid.any { it.label == "车辆管理" && it.route == Routes.DISPATCH_VEHICLES },
         )
-        // ⛔ 入口页那 6 件不许在网格里再来一份（两个入口 = 用户以为丢了东西）
+        // ⛔ 入口页那 7 件不许在网格里再来一份（两个入口 = 用户以为丢了东西）
         val dup = Modules.ledgerHomeEntries.map { it.label }.filter { l -> grid.any { it.label == l } }
         assertTrue("同一批东西在网格和入口页各一份：$dup", dup.isEmpty())
     }

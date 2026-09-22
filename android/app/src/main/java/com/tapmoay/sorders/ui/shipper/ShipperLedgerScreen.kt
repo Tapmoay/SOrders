@@ -321,7 +321,9 @@ private fun CustomerDrawer(vm: ShipperLedgerViewModel, onPick: (String?) -> Unit
             item {
                 DrawerCustomerRow(
                     title = "全部（" + vm.allCustomers.size + " 人）",
-                    subtitle = "欠我 ¥" + formatMoney(centsToMoney(vm.totals.owedCents)),
+                    // ⚠️ 这里用**服务端的合计**（`summary.unreceived`），不是把这一页的行加起来：
+                    //    列表带 limit，客户端求和会偏小（见 TotalsCard 的说明）。
+                    subtitle = "欠我 ¥" + formatMoney(vm.summary?.unreceived ?: "0"),
                     selected = vm.selectedCustomerKey == null,
                     onClick = { onPick(null) },
                 )
@@ -377,99 +379,107 @@ private fun DrawerCustomerRow(
 }
 
 
-/** 顶部合计卡：第一段是「我欠总分销商」；批发商再多一段「我的货主欠我」。 */
+/**
+ * 顶部那张卡 = **这一段他自己的收支统计**（2026-09-22 用户要求：「账本的那个统计，货主和批发商也做一下」）。
+ *
+ * ## 两个方向
+ * · **支出 · 我该付的**：这一段我下的这些单 —— 货款 / 已付 / 还欠（欠的是**公司/总分销商**）；
+ * · **收入 · 我该收的**：只有**批发商**才有 —— 货款 / 已收 / 待收（收的是**他的下游货主**）。
+ *
+ * ⛔ **两个方向的数一个字节都不互相写**（后端 `shipper-ledger` 从不写 `orders.paid`）——
+ *    所以下面那本账怎么核销，"我该付的"都不会变。这一条在卡片上也要看得出来（两段之间画分隔线）。
+ *
+ * ⛔ **所有数字都取服务端**（`GET /shipper-ledger/summary`）。原来这里是客户端把这一页订单
+ *    加起来 —— 列表一带 limit，单子多的那一段**合计就偏小**，而卡片上写着"这一段"。
+ *    （"客户端求和"这件事本项目栽过一次：账本那页实测少算 62%，见 `CashFlowSummaryDto` 的注释。）
+ *
+ * ⚠️ **「我该付的」是货款，不含运费**：运费是公司与司机之间的账（`order_money` 的口径）。
+ *    用户核对的是订单详情里那个"还欠"，两边必须是同一个数。
+ */
 @Composable
 private fun TotalsCard(vm: ShipperLedgerViewModel) {
-    val t = vm.totals
+    val s = vm.summary
     SectionCard {
-        if (vm.isMember) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "我欠总分销商",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "¥" + formatMoney(centsToMoney(t.dispatcherArrearsCents)),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(PayableRed),
-                    )
-                }
-                Text(
-                    "共 " + t.orders + " 单",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "这是公司（派单员）那边的账：我下的这些单还没结给他们的钱。",
+                vm.selectedCustomer?.let { "这一段 · " + it.name } ?: "这一段",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                // ⚠️ 这是**数据**（带值），留 `Text`；下面那段"你是给自己下单…"才是解释句、走 `Hint`
+                //    —— 判据 `_check_hints.py` 明确要拦「关掉提示顺手把数据也关了」。
+                if (s == null) {
+                    ""
+                } else {
+                    "共 " + s.orders + " 单" +
+                        if (s.clearedOrders > 0) " · 已结清 " + s.clearedOrders + " 单" else ""
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
+        }
 
+        Spacer(Modifier.height(6.dp))
+        // ---- 支出：我该付的（两种货主都有）----
+        Text(
+            "支出 · 我该付的",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "¥" + formatMoney(s?.unpaid ?: "0"),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color(PayableRed),
+        )
+        Text(
+            "货款 ¥" + formatMoney(s?.payable ?: "0") + " · 已付 ¥" + formatMoney(s?.paid ?: "0"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (s?.isMember == true) {
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "我的货主欠我",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "¥" + formatMoney(centsToMoney(t.owedCents)),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(ReceivableOrange),
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        "货款 ¥" + formatMoney(centsToMoney(t.goodsCents)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        "已收 ¥" + formatMoney(centsToMoney(t.settledCents)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
+            // ---- 收入：我该收的（只有批发商有）----
             Text(
-                t.orders.toString() + " 单里已结清 " + t.clearedOrders + " 单 —— 核销只记在你自己这一本，" +
-                    "公司那边的账不会跟着变。",
+                "收入 · 我该收的",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "¥" + formatMoney(s.unreceived),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(ReceivableOrange),
+            )
+            Text(
+                "货款 ¥" + formatMoney(s.receivable) + " · 已收 ¥" + formatMoney(s.received) +
+                    if (s.settlements > 0) "（" + s.settlements + " 笔核销）" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            Hint(
+                "两段互不影响：下面那本账怎么核销，「我该付的」一分钱都不会变" +
+                    "（核销只记在你自己这一本，公司那边的账不会跟着变）。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
         } else {
-            Column {
-                Text(
-                    "欠总分销商",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "¥" + formatMoney(centsToMoney(t.dispatcherArrearsCents)),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(PayableRed),
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "这一段共 " + t.orders + " 单，货款 ¥" + formatMoney(centsToMoney(t.goodsCents)) +
-                        "；已结清 " + t.clearedOrders + " 单。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
+            Spacer(Modifier.height(4.dp))
+            // ⚠️ 这一段是**纯解释**（不带任何值）→ 走 `Hint`；「已结清 N 单」那个数在右上角
+            //    （那一条是 `Text`）。两句混在一次 `Hint` 里的话，关掉提示会把那个数一起关掉
+            //    —— 判据 `_check_hints.py` 的 §2 专门拦这件事。
+            Hint(
+                // ⚠️ 措辞刻意避开"单/元/次/月"这类**单位字**：分类器把带单位的句子当**数据**
+                //    （判据 `_hint_inventory.py::DIGIT_UNIT`），而数据是不许被提示开关藏掉的。
+                //    这句话是纯解释（删掉它用户照样能把事做完）。
+                "这里只有你欠公司的这一边：你自己卖货收回来的钱不经过本系统。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
         }
     }
 }

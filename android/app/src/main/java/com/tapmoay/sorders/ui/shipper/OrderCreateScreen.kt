@@ -54,8 +54,20 @@ fun OrderCreateScreen(
     onBack: () -> Unit,
     onCreated: () -> Unit,
     proxyMode: Boolean = false,
+    /**
+     * 从「预订单」页点「用这张下单」进来时带的那张预设单（0 = 不是从预设单进来的）。
+     *
+     * ⚠️ 预填**只发生一次**（key = 这个 id）：把用户改过的值再冲回去是最坏的一种"聪明" ——
+     *    他改完数量、按提交之前界面又跳一下。
+     */
+    prefillTemplateId: Long = 0L,
 ) {
     val vm: OrderCreateViewModel = appViewModel { OrderCreateViewModel(container) }
+    LaunchedEffect(prefillTemplateId) {
+        if (prefillTemplateId > 0L) {
+            vm.prefillFromTemplate(prefillTemplateId) { err -> if (err != null) vm.error = err }
+        }
+    }
     // 图片预览（位置参考图）：点缩略图看大图，见 ui/common/ImagePreview.kt
     val preview = rememberImagePreview()
     var showShipperPicker by remember { mutableStateOf(false) }

@@ -1,6 +1,5 @@
 package com.tapmoay.sorders.ui.common
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.data.remote.dto.OrderDto
@@ -94,10 +94,21 @@ fun OrderPeek(
                     }
                     // 商品行：账本上一行是"某个商品 × 数量"，这里把整单的商品一起给出来，
                     // 才能回答"这一笔在这张单里处于什么位置"。
+                    // 两列宽度按**本单最宽的那一条**量出来（与详情页同一把尺）：
+                    // 数量与数量右对齐、金额与金额右对齐（用户 2026-09-22 点名的那个"没做对齐"）。
+                    // ⚠️ 只能 fold、不能 map —— `rememberTextWidth` 是 @Composable（见 Adaptive.kt）。
+                    val qtyStyle = MaterialTheme.typography.bodySmall
+                    val moneyStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                    val qtyW = order.orderProducts.fold(0.dp) { acc, lp ->
+                        maxOf(acc, rememberTextWidth("×" + qtyWithUnit(lp.quantity, lp.unit), qtyStyle))
+                    }
+                    val moneyW = order.orderProducts.fold(0.dp) { acc, lp ->
+                        maxOf(acc, rememberTextWidth("¥" + formatMoney(lp.lineTotal), moneyStyle))
+                    }
                     order.orderProducts.forEach { lp ->
                         Row(
                             Modifier.fillMaxWidth().padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
                                 lp.productNameSnapshot,
@@ -106,16 +117,22 @@ fun OrderPeek(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            Spacer(Modifier.width(10.dp))
                             Text(
-                                "×" + lp.quantity,
-                                style = MaterialTheme.typography.bodySmall,
+                                // 数量带单位（`unit_snapshot` 为空的老单只给数字，不编「件」）
+                                "×" + qtyWithUnit(lp.quantity, lp.unit),
+                                style = qtyStyle,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(qtyW),
                             )
+                            Spacer(Modifier.width(10.dp))
                             Text(
                                 "¥" + formatMoney(lp.lineTotal),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
+                                style = moneyStyle,
                                 color = Color(MoneyOrange),
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(moneyW),
                             )
                         }
                     }

@@ -15,7 +15,14 @@ object Routes {
     // 货主
     const val SHIPPER_ORDERS = "shipper/orders"
     const val ORDER_CREATE = "shipper/order/create"
-const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
+    const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
+    /**
+     * 「预订单」管理页（2026-09-22 用户要求：「专门去管理预设的订单」）。
+     *
+     * ⛔ 这一页**不生成订单**：点「用这张下单」只是带参跳 `DISPATCH_ORDER_CREATE?template={id}`，
+     * 最后由下单页那个按钮走 `POST /orders`（与手工下单同一条路）。
+     */
+    const val DISPATCH_ORDER_TEMPLATES = "dispatcher/order-templates"
     const val ORDER_DETAIL = "order/{orderId}/detail"
     const val ADDRESSES = "shipper/addresses"
     const val SHIPPER_LEDGER = "shipper/ledger"
@@ -55,6 +62,9 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
      * 各自建一个页面就会出现"同一套数据四份实现"。
      */
     fun dispatcherLedger(tab: Int): String = DISPATCH_LEDGER + "?tab=" + tab
+
+    /** 一个供应商的账（`?supplierId=`）—— 编号拼进查询串只有这一处，别在页面里手拼。 */
+    fun supplierDetail(supplierId: Long): String = DISPATCH_SUPPLIER_DETAIL + "?supplierId=" + supplierId
     /**
      * 账本「**记一笔账**」= 单独一页（用户 2026-09-20 第七轮）。
      *
@@ -118,6 +128,36 @@ const val DISPATCH_ORDER_CREATE = "dispatcher/order/create"
     const val DISPATCH_RECEIPTS = "dispatcher/receipts"
     const val DISPATCH_SETTLEMENTS = "dispatcher/settlements"
     const val DISPATCH_EXPENSES = "dispatcher/expenses"
+    /**
+     * 「收支」（2026-09-22 用户要求）：账本管理入口页那一格 —— 收入按**来源**、支出按**去路**，
+     * 各一路一行（客户收款/挂账结清/油费/司机运费/付供应商…），点一行进那一类的流水明细。
+     *
+     * ⛔ 「开销管理」不再与它并列占一格（用户：「干脆把我们两个**整合在一起**」）：
+     *    支出那张卡底部就是去 `DISPATCH_EXPENSES` 的入口，功能一个没少。
+     */
+    const val DISPATCH_CASH = "dispatcher/cash"
+    /**
+     * 「供应商 / 厂商」档案页（2026-09-22 用户要求「给供应商付尾款」「采购设备」「邮费」）。
+     *
+     * 拍板口径是**跟客户一个量级的档案**：可挂账、可查还欠多少、可分次付款。
+     * 它在账本管理入口页上占一格（支出那一块），「收支」页支出卡底部也有一条入口。
+     */
+    const val DISPATCH_SUPPLIERS = "dispatcher/suppliers"
+    /**
+     * 一个供应商的账（`?supplierId=`）：几笔应付、每笔付了多少、每笔付款什么时候付的。
+     *
+     * ⚠️ 编号走**查询参数**而不是路径段（与 `DISPATCH_LEDGER + "?tab="` 同一条约定）：
+     *    这一页没有"只有编号才能进来"的意思，查询串也让 `Routes.supplierDetail(id)` 一处拼得出来。
+     */
+    const val DISPATCH_SUPPLIER_DETAIL = "dispatcher/suppliers/detail"
+    /**
+     * 「收支」里点某一路进来的**流水明细**（`?direction=&biz=&from=&to=`）。
+     *
+     * ⚠️ 四个都是**查询参数**、且**窗口由总览页带过来**：在这里重新挑一次时间，
+     *    看到的明细会与刚才那一路的合计对不上，用户只会以为账错了。
+     * ⚠️ 查询串本身在 `NavGraph` 里拼（与 `DISPATCH_LEDGER + "?tab="` 同一条约定）。
+     */
+    const val DISPATCH_CASH_DETAIL = "dispatcher/cash/detail"
     /** 新增开销：**单独一页**（用户 2026-09-20：「就相当于新增订单一样」）。 */
     const val EXPENSE_CREATE = "dispatcher/expenses/create"
     /** 开销分类管理（与商品分类管理同一套规矩）。 */

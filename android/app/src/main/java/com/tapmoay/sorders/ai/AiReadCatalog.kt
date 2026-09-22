@@ -47,6 +47,10 @@ object AiReadCatalog {
     val ACTIONS: List<ReadAction> = listOf(
         ReadAction("arrears.list_units", "挂账单位列表", "/api/v1/arrears-units", "", setOf("dispatcher"), false, listOf(
         )),
+        ReadAction("cash_flows.cash_flow_breakdown", "收支分项（收入按来源、支出按去路，每路带金额与笔数）", "/api/v1/cash-flows/breakdown", "date_from、date_to", setOf("dispatcher"), false, listOf(
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
+        )),
         ReadAction("cash_flows.cash_flow_summary", "现金收支汇总（按期合计流入/流出）", "/api/v1/cash-flows/summary", "direction、biz_type、party_type、party_id、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("direction", "str", false, emptyList(), false),
             ReadParam("biz_type", "str", false, emptyList(), false),
@@ -143,6 +147,8 @@ object AiReadCatalog {
         ReadAction("order_products.list_order_products", "订单商品行（按订单或商品查）", "/api/v1/order-products", "order_id", setOf("dispatcher"), false, listOf(
             ReadParam("order_id", "int", true, emptyList(), true),
         )),
+        ReadAction("order_templates.list_templates", "预订单（预设好的订单：货主/地址/运费/商品与数量）", "/api/v1/order-templates", "", setOf("dispatcher"), false, listOf(
+        )),
         ReadAction("orders.list_orders", "订单列表（可按状态/日期/货主名/司机名筛选）", "/api/v1/orders", "status(PENDING_DISPATCH|DISPATCHED|ACCEPTED|DELIVERED|CANCELLED|RETURNED)、q、shipper_id、temp_shipper_name、unpri", setOf("dispatcher", "driver", "shipper"), false, listOf(
             ReadParam("status", "Literal", false, listOf("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED", "DELIVERED", "CANCELLED", "RETURNED"), false),
             ReadParam("q", "str", false, emptyList(), false),
@@ -180,13 +186,17 @@ object AiReadCatalog {
             ReadParam("date_from", "date", true, emptyList(), false),
             ReadParam("date_to", "date", true, emptyList(), false),
         )),
-        ReadAction("reports.product_report", "商品报表（销量、货损）", "/api/v1/reports/products", "mode、date", setOf("dispatcher"), false, listOf(
+        ReadAction("reports.product_report", "商品报表（销量、货损）", "/api/v1/reports/products", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("mode", "str", false, emptyList(), false),
             ReadParam("date", "date", true, emptyList(), false),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
         )),
-        ReadAction("reports.turnover_report", "营业报表（营业额/成本/毛利，按日期范围）", "/api/v1/reports/turnover", "mode、date", setOf("dispatcher"), false, listOf(
+        ReadAction("reports.turnover_report", "营业报表（营业额/成本/毛利，按日期范围）", "/api/v1/reports/turnover", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("mode", "str", false, emptyList(), false),
             ReadParam("date", "date", true, emptyList(), false),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
         )),
         ReadAction("return_requests.list_my_return_requests", "我（货主）自己提过的退货申请：待派单员处理的、已办完的、被驳回的（含驳回原因）", "/api/v1/return-requests/mine", "order_id、status、limit", setOf("shipper"), false, listOf(
             ReadParam("order_id", "int", false, emptyList(), true),
@@ -203,6 +213,12 @@ object AiReadCatalog {
         ReadAction("shipper.list_contacts", "联系人库", "/api/v1/shipper/contacts", "", setOf("dispatcher", "shipper"), false, listOf(
         )),
         ReadAction("shipper.list_locations", "地点库", "/api/v1/shipper/locations", "", setOf("dispatcher", "shipper"), false, listOf(
+        )),
+        ReadAction("shipper_ledger.ledger_summary", "我的收支统计（这一段我该付给公司的：货款/已付/还欠；批发商另有一边：我该向下游货主收的货款/已收/待收）", "/api/v1/shipper-ledger/summary", "delivered_from、delivered_to、customer_name、customer_phone", setOf("shipper"), false, listOf(
+            ReadParam("delivered_from", "str", false, emptyList(), false),
+            ReadParam("delivered_to", "str", false, emptyList(), false),
+            ReadParam("customer_name", "str", false, emptyList(), false),
+            ReadParam("customer_phone", "str", false, emptyList(), false),
         )),
         ReadAction("shipper_ledger.list_settlements", "我（批发商）给下游货主收钱的核销记录 —— **自己那一本账**，与派单员记录的公司账是两笔钱；可按订单、按送达日窗口查，`include_deleted=true` 能看到已撤销的那些", "/api/v1/shipper-ledger/settlements", "order_id、delivered_from、delivered_to、include_deleted、limit、offset", setOf("shipper"), true, listOf(
             ReadParam("order_id", "int", false, emptyList(), true),
@@ -240,6 +256,21 @@ object AiReadCatalog {
             ReadParam("granularity", "Literal", false, listOf("month", "year"), false),
             ReadParam("metric", "Literal", false, listOf("quantity", "amount"), false),
         )),
+        ReadAction("suppliers.list_payables", "应付单（欠某个供应商的每一笔钱：事由、应付总额、已付、还差、付过几次）", "/api/v1/supplier-payables", "supplier_id、include_deleted、only_open", setOf("dispatcher"), false, listOf(
+            ReadParam("supplier_id", "int", false, emptyList(), true),
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
+            ReadParam("only_open", "bool", false, emptyList(), false),
+        )),
+        ReadAction("suppliers.list_payments", "付款记录（给供应商付过的每一笔：金额、日期、方式，以及它挂在哪张应付单上）", "/api/v1/supplier-payments", "supplier_id、payable_id、date_from、date_to、include_deleted", setOf("dispatcher"), false, listOf(
+            ReadParam("supplier_id", "int", false, emptyList(), true),
+            ReadParam("payable_id", "int", false, emptyList(), true),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
+        )),
+        ReadAction("suppliers.list_suppliers", "供应商/厂商名册（含各自还欠多少、累计应付与已付）", "/api/v1/suppliers", "include_deleted", setOf("dispatcher"), false, listOf(
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
+        )),
         ReadAction("users.list_users", "账号/人员列表（货主、司机、批发商、内部账号，可按角色与关键词筛）", "/api/v1/users", "role(shipper|driver|dispatcher)、is_member、q、limit", setOf("dispatcher"), false, listOf(
             ReadParam("role", "Literal", false, listOf("shipper", "driver", "dispatcher"), false),
             ReadParam("is_member", "bool", false, emptyList(), false),
@@ -275,6 +306,7 @@ object AiReadCatalog {
         "notifications" to "消息通知",
         "operation_logs" to "操作日志",
         "order_products" to "订单商品行",
+        "order_templates" to "预订单",
         "orders" to "订单/派单",
         "place_categories" to "地点分类",
         "places" to "共享地点库",
@@ -286,6 +318,7 @@ object AiReadCatalog {
         "shipper" to "地址与联系人",
         "shipper_ledger" to "我的账本",
         "stats" to "统计口径",
+        "suppliers" to "供应商/应付款",
         "users" to "司机/货主/批发商/账号",
         "vehicles" to "车辆管理",
     )
