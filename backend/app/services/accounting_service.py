@@ -136,6 +136,70 @@ def generate_piece_bill(db: Session, order: Order, operator_id: int | None = Non
     return bill
 
 
+class BillAlreadySettledError(Exception):
+    """这张单的司机应付明细**已经进过结算单**（SETTLED）→ 钱已经定死，不许再改。"""
+
+
+def resync_open_piece_bill(
+    db: Session, order: Order, operator_id: int | None = None
+) -> dict | None:
+    """订单的**运费**变了之后，把那张**还没结算**的按单应付明细跟着改过来 → 改动说明。
+
+    ### 为什么必须有这一处（2026-09-23 第 6 轮实测的分叉）
+    「待定价」这条路上有一个真实顺序：派单员**忘了定价** → 司机照常送达 →
+    这张单出现在「待定价」页（`GET /orders?unpriced=true` 刻意把 DELIVERED 也算进来，
+    因为不这样它就永远收不到钱）→ 派单员在那页给它定价。
+
+    而送达那一刻 `post_delivery_accounting` 已经按**当时的运费（None）**生成了一张应付明细：
+
+    | 谁 | 数 |
+    |---|---|
+    | `driver_bills.amount`（明细，结算单按它收钱） | 规则里的每单 300 → **300** |
+    | 绩效页 `freight_owed` / 运费结算页（按 `driver_pay.pay_for_order(order)` 现算） | 300 + 运费 1000 的 5% → **350** |
+
+    **同一笔钱两个数，两个页面都不报错**（`price-freight` 当时返回 200）。
+    这正是 `test_driver_money_reconciliation.py` 明令禁止的形状（"三方对账"）。
+
+    ### 判据
+    - 明细**不存在** → 什么都不做（没按单应付的工资制司机本来就没有这张单）；
+    - 明细是 `OPEN` → 按 `pay_for_order(order)` 重算 `amount` 与"怎么算出来的"那行 note；
+    - 明细是 `SETTLED`（已进结算单）/`CANCELLED` → **抛 [BillAlreadySettledError]**，
+      调用方转 400。钱已经定死之后再改运费，只会让账单、结算单、结算页三处对不上。
+
+    ⚠️ 金额**只算一处**：这里不自己乘比例，一律走 `driver_pay.pay_for_order`（红线 §22）。
+    """
+    bill = db.scalars(
+        select(DriverBill).where(
+            DriverBill.order_id == order.id,
+            DriverBill.bill_type == DriverBillType.PIECE,
+        )
+    ).first()
+    if bill is None:
+        return None
+    if bill.status == DriverBillStatus.SETTLED:
+        raise BillAlreadySettledError(
+            "这张单的司机应付明细已经进过结算单了（钱已经定死）。"
+            "改运费会让账单、结算单、结算页三处对不上 —— 请先在结算那边处理那张单。"
+        )
+    if bill.status == DriverBillStatus.CANCELLED:
+        return {"driver_bill_id": bill.id, "skipped": "这张应付明细已作废，不动它"}
+    rule = rule_from_snapshot(getattr(order, "driver_rule_snapshot", None))
+    pay = pay_for_order(order)
+    before = bill.amount
+    bill.amount = pay.total
+    if rule is not None:
+        bill.note = (f"规则「{rule.name}」：" + _pay_note(pay, rule))[:250]
+        bill.rule_id = rule.rule_id
+        bill.rule_name = rule.name
+        bill.piece_amount = pay.piece
+        bill.commission_amount = pay.commission
+    # ⚠️ 这里**不新写一条操作日志**（金额改动由调用方那次操作的日志带上，见 `price_freight`）：
+    #    `operation_logs.action` 是 MySQL 上的枚举列，为"顺带改了一行"新加一个审计码
+    #    要连着改 `enums.py` + `schema_bootstrap` 迁移 + 审计页中文名（三处核心）。
+    #    调用方本来就要记一条日志，把这次改动放进它自己的 payload 里，来源一样查得到。
+    return {"driver_bill_id": bill.id, "before": str(before), "after": str(bill.amount), "changed": before != bill.amount}
+
+
 def _pay_note(pay, rule) -> str:
     """账单上那行"怎么算出来的"（例：`每单 300.00 + 运费 1000.00 的 8% = 80.00`）。
 

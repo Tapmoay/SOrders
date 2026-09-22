@@ -66,9 +66,11 @@ from app.services.order_flow import (
     cancel_pending,
     complete_delivery,
     ensure_order_date,
+    lock_order_row,
     recall_dispatch,
 )
 from app.services.order_money import money_map
+from app.services.accounting_service import BillAlreadySettledError, resync_open_piece_bill
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services.order_return import OrderReturnError, ReturnItem, return_order
 from app.services import order_return_request as return_request_svc
@@ -1219,8 +1221,26 @@ def price_freight(
     order = db.scalars(select(Order).where(Order.id == order_id)).first()
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⚠️ 先锁再判（2026-09-23 第 6 轮）：手边这份 order 可能是**旧状态**，
+    #    而下面那道门 + 写运费是"读状态 → 判断 → 写"，并发下会看运气（同 `order_products`）。
+    order = lock_order_row(db, order)
     if order.status == OrderStatus.CANCELLED:
         raise HTTPException(status_code=400, detail="这一单已经撤销了，不用再定价")
+    # ⛔ **已送达/已退货的单只能"补上还没定的那个数"，不能再改价**（2026-09-23 第 6 轮）：
+    #    这条口径本来就在隔壁那个端点（`update_order_freight`：「已送达/已撤销/已退货后锁定 ——
+    #    事后改运费不会动账单（改了个寂寞），而界面上会显示一个与账单不一致的数」），
+    #    但**同一个字段有两个写入端点、两套状态规则** → 那道锁在这里被绕过去了。
+    #    而"忘了定价就送达"是真实顺序（送达那一刻 `post_delivery_accounting` 已经按当时的运费
+    #    生成了一张应付明细），所以这条路上**必须留一个口子**——只是这个口子只许**填空白**，
+    #    不许改已经定过的数；填完之后那张还没结算的明细由 `resync_open_piece_bill` 跟着改。
+    finished = order.status in (OrderStatus.DELIVERED, OrderStatus.RETURNED)
+    if finished and order.freight_fee is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="这一单已经送达/已退货，而且已经定过运费了。已送达的单运费是锁定的"
+                   "（事后改运费不会动司机账单，只会在两个页面上显示两个数）；"
+                   "确实要改就先处理司机结算那边。",
+        )
 
     before = {
         "freight_fee": str(order.freight_fee) if order.freight_fee is not None else None,
@@ -1315,6 +1335,16 @@ def price_freight(
             saved["rule_not_linked"] = "这一单的司机还没挂计费规则，价目已存好但要有人在他的规则里勾上才会自动带价"
         db.flush()
 
+    # ⚠️ 送达之后才补上运费 → 那张**还没结算**的司机应付明细必须跟着改（2026-09-23 第 6 轮，
+    #    实测分叉：明细 300 而结算页/绩效页按新运费重算成 350，两个数都不报错）。
+    #    已进过结算单的（SETTLED）→ 拒绝这次定价：钱已经定死，改了只会三处对不上。
+    bill_resync: dict | None = None
+    if order.status == OrderStatus.DELIVERED:
+        try:
+            bill_resync = resync_open_piece_bill(db, order, current.id)
+        except BillAlreadySettledError as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=str(e)) from e
     write_log(
         db,
         operator_id=current.id,
@@ -1328,6 +1358,9 @@ def price_freight(
                 "freight_category": order.freight_category or "",
             },
             "saved": saved,
+            # 有它才能回答"这张账单的金额为什么变了"（明细行本身不另写一条日志，理由见
+            # `resync_open_piece_bill` 的说明）
+            **({"driver_bill": bill_resync} if bill_resync else {}),
         },
     )
     db.commit()
