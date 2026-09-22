@@ -233,6 +233,9 @@ fun OrderDetailScreen(
             initialLng = vm.order?.addressLng?.toDoubleOrNull(),
             onPicked = { lat, lng, address -> vm.openNavDialog(lat, lng, address) },
             onDismiss = { vm.showNavPicker = false },
+            // 图层：**司机那一侧起步就是标准地图**（用户 2026-09-22：「但是司机的导航是标准地图」）；
+            // 派单员那一侧跟着"上次选过的那个"（默认卫星，见 AmapMapHolder.satellite）。
+            startSatellite = if (role.key == "driver") false else AmapMapHolder.satellite,
         )
     }
     if (vm.showNavDialog) {
@@ -433,6 +436,64 @@ fun OrderDetailScreen(
                 modifier = Modifier.fillMaxSize().clickable { previewUrl = null },
                 contentScale = ContentScale.Fit,
             )
+        }
+    }
+}
+
+/**
+ * 订单详情「收货信息」卡里的**司机**一行：名字（主角）+ 电话（次要小字）+ 右侧「拨号」按钮。
+ *
+ * ## 由来（用户 2026-09-22）
+ * 「加一个功能就是在订单详情的界面当中可以拨打司机电话……这个功能显示**只会在派单端里**，
+ * 其他人是没有的，也就是点击一个**拨号按钮**，它**自动弹到那个拨号界面**，然后可以拨号打电话给司机」。
+ *
+ * ## 三个决定
+ * 1. **按钮只在 `onDial != null` 时存在**（＝派单端 + 号码能拨）。传 null 就整颗不画 ——
+ *    调用点负责判，这里不重复判角色（这一层只回答"长什么样"）。
+ * 2. **`ACTION_DIAL` 而不是 `ACTION_CALL`**：前者只把号码填进系统拨号盘、由用户自己按最后那一下，
+ *    **不需要 `CALL_PHONE` 权限**，也不会误触就拨出去。⛔ 别改成 `ACTION_CALL`：
+ *    那要申请权限，而且"点一下就拨出去"正是用户在下单人那一行为什么要求先弹确认的理由。
+ * 3. **信息在左、按钮贴最右、同排**（设计规范 §4.16.7）—— 按钮单独占一行会让卡片白白高一行。
+ *    图标用 `DriveEta` + `MgrGreen`（司机管理的语义色），与上面「收货人」「下单人」两行的图标同形；
+ *    号码是**次要信息**（`bodySmall` 灰），主角是"这单谁在拉"（与线路卡主次同一条口径）。
+ */
+@Composable
+private fun DriverRow(name: String, phone: String, onDial: (() -> Unit)?) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+    ) {
+        Icon(
+            Icons.Default.DriveEta,
+            contentDescription = null,
+            tint = Color(MgrGreen),
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "司机 " + name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (phone.isNotBlank()) {
+                Text(
+                    phone,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (onDial != null) {
+            FilledTonalButton(
+                onClick = onDial,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+            ) {
+                Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("拨号")
+            }
         }
     }
 }
@@ -674,8 +735,40 @@ private fun DetailBody(
                 if (role == Role.DRIVER || role == Role.DISPATCHER) {
                     if (order.internalNotes.isNotBlank()) InfoRow("内部备注", order.internalNotes)
                 }
+                // 司机那一行（2026-09-22 用户：「加一个功能就是在订单详情的界面当中**可以拨打司机电话**……
+                // 这个功能显示**只会在派单端里，其他人是没有的**，也就是点击一个**拨号按钮**，
+                // 它**自动弹到那个拨号界面**，然后可以拨号打电话给司机」）。
+                //
+                // ① **拨号按钮只给派单端**：收货人/下单人那两行是"记着这个人是谁"，谁都能看；
+                //    司机是对派单员的一个**动作**（"问问他到哪了"）—— 货主自己会跟司机联系，
+                //    司机更不需要打给自己。⛔ 别把按钮放宽到所有角色。
+                // ② 号码**不是能拨的形状**时（空号、或司机账号进了回收站之后后端下发的
+                //    `13800001234_del160` 这种带软删后缀的值）不给按钮：一个点不动的按钮比
+                //    没有按钮更糟，用户会以为是 App 坏了。判据复用 `InputRules`（**不自己写一份
+                //    电话规则**）：`phoneError` 管"太短/空"，`PHONE_MAX` 管"多出来的尾巴"。
+                // ③ 按钮与信息**同排、贴最右**（设计规范 §4.16.7：`Row { 信息 weight(1f); 按钮们 }`，
+                //    别让按钮单独占一行、也别用裸 `IconButton`）。
                 if (!order.driverName.isNullOrBlank()) {
-                    InfoRow("司机", order.driverName + (order.driverPhone?.let { " " + it } ?: ""))
+                    val driverPhone = order.driverPhone.orEmpty().trim()
+                    val dialable = driverPhone.length <= InputRules.PHONE_MAX &&
+                        InputRules.phoneError(driverPhone) == null
+                    DriverRow(
+                        name = order.driverName.orEmpty(),
+                        phone = driverPhone,
+                        onDial = if (role == Role.DISPATCHER && dialable) {
+                            {
+                                // `ACTION_DIAL`（不是 `ACTION_CALL`）：只把号码填进系统拨号盘、
+                                // 由用户自己按最后那一下 —— 不需要 CALL_PHONE 权限，也不会误触就拨出去
+                                // （收货人/下单人那两处同理）。
+                                ctx.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_DIAL,
+                                        android.net.Uri.parse("tel:" + driverPhone),
+                                    )
+                                )
+                            }
+                        } else null,
+                    )
                 }
             }
         }

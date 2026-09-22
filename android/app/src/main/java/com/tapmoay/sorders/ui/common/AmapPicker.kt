@@ -79,13 +79,16 @@ internal object AmapMapHolder {
     private var roadOverlay: TileOverlay? = null
 
     /**
-     * 当前图层：`true` = 卫星（叠路网注记），`false` = 标准。
+     * **默认图层 = 卫星**（用户 2026-09-22 定：「默认做成卫星地图，然后再是可以切换成标准地图」）；
+     * `true` = 卫星（叠路网注记），`false` = 标准。
      *
      * 放在这里而不是弹层里，是因为**地图实例本身就是单例**（见上面那段的生命周期说明）——
-     * 于是"用户选过卫星"这件事天然跟着地图走，重开弹层不用再点一次。
-     * ⚠️ 只记在进程内，**App 重启后回到标准**（要跨重启保留得落 DataStore，那是另一件事）。
+     * 于是"用户把图层切成过标准"这件事跟着地图走，重开弹层不用再点一次。
+     * ⚠️ 只记在进程内，**App 重启后回到默认（卫星）**（要跨重启保留得落 DataStore，那是另一件事）。
+     * ⚠️ 司机那一侧**不看这个值**：调用方（订单详情页）显式传 `startSatellite = false`，
+     *    见 [AmapPickerDialog] 的同名参数。
      */
-    var satellite: Boolean = false
+    var satellite: Boolean = true
 
     fun get(context: android.content.Context): MapView {
         mv?.let { return it }
@@ -109,8 +112,11 @@ internal object AmapMapHolder {
      *    不会把地图变成空白（所以不构成致命依赖）。
      * ⚠️ 只在「打开弹层」与「用户点切换」时调用；**不要放进 `onCameraChange`**（每拖一次地图
      *    就加一个图层，拖动几次之后地图上会叠好几层）。
+     *
+     * ⚠️ 图层**当参数传进来**、而不是在里面读 [satellite]：司机那一侧要"起步就是标准"，
+     *    读全局的话会跟"用户上次选过卫星"打架（那种 bug 表现为"司机这边怎么又变卫星了"）。
      */
-    fun applyMapType(aMap: AMap) {
+    fun applyMapType(aMap: AMap, satellite: Boolean) {
         try {
             aMap.mapType = if (satellite) AMap.MAP_TYPE_SATELLITE else AMap.MAP_TYPE_NORMAL
         } catch (_: Exception) {
@@ -137,6 +143,11 @@ fun AmapPickerDialog(
     initialLng: Double?,
     onPicked: (lat: Double, lng: Double, address: String) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * 打开时的图层：默认**卫星**（用户 2026-09-22）；司机那一侧由调用方传 `false`（标准图）。
+     * 放在最后一个参数位，是为了不动前三个调用点已经写好的位置参数。
+     */
+    startSatellite: Boolean = AmapMapHolder.satellite,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -156,12 +167,12 @@ fun AmapPickerDialog(
     // 地图载体：全程单例（规避 9.8.3 onDestroy 在 Android 16 arm64 上 native 崩溃）
     val mapView = remember { AmapMapHolder.get(context.applicationContext) }
     val aMap = remember { mapView.map }
-    // 图层：默认标准；用户点过「卫星」之后跟着地图实例记住（见 AmapMapHolder.satellite 的说明）
-    var satellite by remember { mutableStateOf(AmapMapHolder.satellite) }
-    // 每次打开恢复地图渲染 + 把上次选的图层重新应用一遍
+    // 图层：起步值由调用方给（默认卫星；司机那一侧是标准）；用户切过之后会被记住
+    var satellite by remember { mutableStateOf(startSatellite) }
+    // 每次打开恢复地图渲染 + 把起步图层应用一遍
     androidx.compose.runtime.LaunchedEffect(Unit) {
         try { mapView.onResume() } catch (_: Exception) {}
-        AmapMapHolder.applyMapType(aMap)
+        AmapMapHolder.applyMapType(aMap, satellite)
     }
 
     /** 相机跳转（无动画）：选点以相机中心为准（屏幕中央箭头指示，微信式） */
@@ -342,7 +353,7 @@ fun AmapPickerDialog(
                             onClick = {
                                 satellite = !satellite
                                 AmapMapHolder.satellite = satellite
-                                AmapMapHolder.applyMapType(aMap)
+                                AmapMapHolder.applyMapType(aMap, satellite)
                             },
                             shape = MaterialTheme.shapes.small,
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),

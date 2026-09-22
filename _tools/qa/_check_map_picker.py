@@ -36,6 +36,9 @@ from _airepo import refuse_if_injecting  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 UI_DIR = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui"
 PICKER = UI_DIR / "common/AmapPicker.kt"
+DETAIL = UI_DIR / "order/OrderDetailScreen.kt"      # 司机/派单员「我到了，补导航」
+CREATE = UI_DIR / "shipper/OrderCreateScreen.kt"    # 下单
+ADDR = UI_DIR / "shipper/AddressScreen.kt"          # 地址与联系人
 
 #: 除弹层自己以外，还有谁在用它（下单 / 地址与联系人 / 订单详情导航）。
 EXPECTED_CALLERS = 3
@@ -75,6 +78,18 @@ def main() -> int:
     c.ok("按钮文案两档都在（写「将要切到的那个」）", '"卫星"' in src and '"标准"' in src)
     c.ok("选择写回共用持有者（地图实例是单例，重开弹层要能记住）",
          "AmapMapHolder.satellite = satellite" in src)
+    c.ok("⛔**默认图层 = 卫星**（用户 2026-09-22：「不要……默认做成卫星地图，然后再是可以切换成标准地图」）",
+         re.search(r"var satellite: Boolean = true", src) is not None)
+
+    # ── 2b. 司机那一侧起步是标准（同一页里派单员仍是卫星）────────────────────
+    c.section("2b. 司机那一侧起步 = **标准地图**（用户：「但是司机的导航是标准地图」）")
+    detail = strip_comments(read(DETAIL))
+    c.ok("订单详情页**显式**传 `startSatellite`、且按角色判 driver（不拿「上次那个」给司机）",
+         re.search(r"startSatellite\s*=[\s\S]{0,120}?\"driver\"", detail) is not None)
+    c.ok("下单页不传（用默认＝卫星）", "startSatellite" not in strip_comments(read(CREATE)))
+    c.ok("地址与联系人页不传（用默认＝卫星）", "startSatellite" not in strip_comments(read(ADDR)))
+    c.ok("图层是**当参数传**进去的（不在持有者里读全局 —— 否则司机会被「上次选的卫星」顶掉）",
+         "fun applyMapType(aMap: AMap, satellite: Boolean)" in src)
 
     # ── 3. ⛔ 瓦片必须 https ────────────────────────────────────────────────
     c.section("3. ⛔ 瓦片地址必须 https（http 会被网络策略静默拦掉，只表现为「没有路名」）")

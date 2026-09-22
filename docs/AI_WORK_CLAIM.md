@@ -20,37 +20,54 @@
 
 ## 进行中
 
-### [2026-09-22 09:4x →] 会话：**报表中心「一打开全是 0」→ 接上自动挡（今天没数就往前退）**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+核心改动：backend/app/services/order_response.py —— 为什么必须动核心：新的「拨号」按钮拨的就是这条出参下发的 `driver_phone`，而司机账号软删后那一列存的是 `13800001234_del160`，原样下发＝给用户一个**打不通的号**（去尾只用于展示，口径仍是 `soft_delete.py` 一处）。
 
-**用户原话**：「修一下**报告中心没有任何数据**的bug。」
+### [2026-09-22 12:0x →] 会话：**订单详情「拨打司机电话」——只有派单端有拨号按钮**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
-**复现（真机 5554，2026-09-22，有截图）**：工作台 → 报表中心 → 营业纵览，窗口写着
-`2026-09-22 00:00:00~2026-09-22 23:59:59`（**按日 + 今天**）→ 实际营业金额 ¥0.00、订单数 0 单、
-毛利 0/0 行、收款率 0%；点一下「按月」立刻变成 **¥21,345.60 · 100 单 · 毛利 ¥4,896.60**（与司机结算页的
-应得合计 ¥2,821.00 对得上）。
-后端侧同一现象：`GET /reports/turnover?mode=day&date=2026-09-22` → 0；
-`mode=month&date=2026-09-22` → 21345.60。**⇒ 不是接口坏了，是默认窗口落在"今天"、而今天还没有已送达的单。**
+**用户原话**：「啊加一个功能就是在订单详情的界面当中。**可以拨打司机电话**，这个功能，这个显示啊，
+这个功能显示**只会在派单端里其他人是没有的**，也就是点击一个**拨号按钮**，它这个自动啊**弹到那个
+拨号界面**然后，它可以拨号打电话给司机。」
 
-**修法**：接上仓库里**已有的**那条规矩（`DatePresets.pickWindow` + `DatePresets.ORDER_PRESET_LADDER`
-+ `windowSettled` 门 + 「先探测、再取数」），把档位映射成报表的 `(mode, anchor)`——
-「近 7 天」报表三档（按日/按周/按月）表达不出来，显式跳过并写明理由。
+**改了什么**
+- `ui/order/OrderDetailScreen.kt`：新增 `DriverRow`（司机名字是主角、电话是次要小字、右边一颗
+  「拨号」`FilledTonalButton`，图标 `DriveEta` + `MgrGreen` 语义色），替换原来那行
+  `InfoRow("司机", 名字 + 电话)`。**按钮只在派单端**（`onDial = if (role == Role.DISPATCHER && dialable)`）；
+  ⚠️ **只有按钮**是派单端的，**司机是谁这一行本身三个角色都画**（与订单卡片 `showCard.showDriver`
+  只在派单员列表为 true 不冲突：卡片那边是另一件事，本轮没动它）。
+- 三个决定都写进了代码注释：① `ACTION_DIAL`（**不是** `ACTION_CALL`：后者要 `CALL_PHONE` 权限、
+  有权限就一碰就拨出去）；② 号码**不是能拨的形状就不画按钮**（空号 / 软删后缀那种），
+  判据复用 `core/InputRules.kt`（**没有自己写第二份电话规则**）；③ 按钮与信息**同排、贴最右**
+  （设计规范 §4.16.7），不另起一行。
+- **后端（核心改动，见上）**：`services/order_response.py` 下发 `driver_phone` 前过 `strip_del_suffix`。
 
 **文件清单**
-- **改**：`ui/dispatcher/ReportFinance.kt`（纯映射 `windowFor` + `hasData`）、
-  `ui/dispatcher/ReportCenterViewModel.kt`（探测 + `windowSettled` 门 + `setMode/setAnchor`）、
-  `ui/dispatcher/ReportCenter.kt`（门；**顺手修掉异常与审计页那句写错的说明** —— 它印的是
-  「资金流水（按日/周/月切换上方时间）」，而那一页既不是资金流水、也没有时间导航）、
-  `android/app/src/test/.../ReportFinanceTest.kt`（新纯函数的单测）
-- **新增**：红线 `_tools/qa/_check_report_window.py` + 反向验证 `_reverse_verify_report_window.py`
-- **同步**：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§4.15 补一条：报表中心也接上自动挡）、
-  `08_CODE_LOCATOR.md`（报表中心那一行）
+- **改**：`ui/order/OrderDetailScreen.kt`、`backend/app/services/order_response.py`（核心）、
+  `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§5 新偏好一条）、`08_CODE_LOCATOR.md`（订单详情页那一行）、
+  `09A_HINT_CATALOG.md`（重新生成，见下）
+- **新增**：`backend/tests/test_order_driver_phone.py`、红线 `_tools/qa/_check_order_driver_call.py`（25 项）
+  + 反向验证 `_tools/qa/_reverse_verify_order_driver_call.py`（13 种注入，14/14 全成立）
+- ⚠️ `09A_HINT_CATALOG.md` 我**重新生成过**（`_hint_inventory.py --md`）：改 `OrderDetailScreen.kt`
+  会让里面两条提示的行号漂移。生成前它就与源码差 4 条文案（不是我造成的，diff 里能看到只有行号 +4 条计数）。
 
-**明确不碰**：`ui/common/AmapPicker.kt`（`session-faa17a77` 在做卫星图层）、订单列表/订单卡片那一线、
-商品管理那一线（`session-78ebd95c`）、**后端（本轮零后端改动）**。
+**验证（都跑过）**
+- 后端 `python -m pytest -q` → **698 passed**（含新用例；它反向验过：把 `strip_del_suffix` 换回
+  `du.phone` 时报 `'13900009999_del4' != '13900009999'`）。
+- `python _tools/qa/_check_all.py` → **68/69**，唯一红的是 `_check_backend_fresh.py`，**是我这一行造成的**（见下）。
+- **真机 5554（派单员）**：订单管理 → 已接单 → `#SO202609209743205820`，司机那一行显示
+  「司机 庄志强 / 13512266575 / 拨号」；点「拨号」→ 系统拨号盘打开且**已填好 1351-226-6575**
+  （`ACTION_DIAL`，最后那一下由用户自己按）。截图存 `docs/screenshots/driver-call-20260922/`。
+- ⚠️ **没做**：货主端/司机端那两台的真机截图（那两个模拟器上另有会话在干活，不抢）。
+  "其他人没有这颗按钮"目前由红线里 `role == Role.DISPATCHER` 的精确判据 + 2 条专门注入守着。
 
-> ⚠️ **跨会话告知（本机后端）**：09:3x 时原后端进程（PID 31584）**已经不在了**（`/api/v1` 直接连接被拒），
-> 我起了一个新的（`uvicorn app.main:app --host 0.0.0.0 --port 8000`）—— **起来是好的**：
-> `_check_backend_fresh.py` 绿、报表/结算/账本接口实测都通。谁要再重启，请照 `faa17a77` 那条提醒办。
+**⚠️ 本机后端我没重启（请下一个要用后端实测的人决定）**
+- `_check_backend_fresh.py` 现在报红，**原因是我的 `order_response.py`**（进程 12:07:20 启动，
+  我的文件 12:16:26 改过）⇒ **这一行改动目前没在本机后端生效**，只有重启才生效。
+- 不重启的理由：`uvicorn` 没 `--reload`，重启会让**所有**模拟器的登录态失效（`session-83da1ad7`
+  正在跑报表实测、`session-8f0f77a0` 那一线也在动）。而这一行是**纯展示**改动，只在"司机账号已软删"
+  的老单上才有区别 —— 不影响本轮功能（拨号按钮完全在客户端）。
+
+**明确不碰**：`ui/common/AmapPicker.kt`（`session-faa17a77` 在做卫星图层）、`ui/dispatcher/ReportCenter*.kt`
++ `ReportFinance*.kt`（`session-83da1ad7` 在做报表自动挡）、订单列表/订单卡片那一线、商品管理那一线。
 
 ### [2026-09-22 09:2x → 09:5x] 会话：**地图选点加「卫星」图层切换**【已完成】（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
@@ -82,6 +99,21 @@
 - ⚠️ **画面没验成**：这台模拟器**没有 DNS/默认路由**（`ping www.baidu.com` 都失败），
   所以**标准地图本身也是空白网格**（不是我的改动造成的）—— 瓦片一直取不到，真机（有网）才会出图。
   **要确认卫星影像好不好看，得在你的手机上点一下。**
+
+**第二轮（同日，用户看完第一版后定的默认值）**：原话「不要那个地方**默认做成卫星地图**，然后再是
+**可以切换成标准地图**，**但是司机的导航是标准地图**」。→ 改动：
+- `AmapMapHolder.satellite` 初值 `false → **true**`（**默认卫星**）；
+- 图层改成**当参数传进** `applyMapType(aMap, satellite)`（原先在里面读全局）；
+- `AmapPickerDialog` 新增 `startSatellite: Boolean = AmapMapHolder.satellite`（**放在参数表最后**，
+  不动前三个调用点已经写好的位置参数）；
+- **订单详情页显式传** `startSatellite = if (role.key == "driver") false else AmapMapHolder.satellite`
+  → **司机那一侧起步就是标准图**（同一页里派单员仍是卫星／上次选过的那个）；
+- ⚠️ 澄清一处：司机点的「高德导航」按钮走 `util/AmapUri.kt::openAmapNavigation` —— **唤起外部高德 App**，
+  App 这边的图层设置管不到它；司机**在 App 内**用到的地图就是「我到了，补导航」这个弹层（已按上一条改）。
+- 真机：**派单员侧验过** —— 打开地图弹层时按钮显示「标准」＝当前正处在**卫星**（模拟器 5554）。
+  ⚠️ **司机侧没在模拟器上验**：5558 那台当前登的是**派单员**账号（`_install_all` 只报「已登录」、
+  没报「角色对」），我没有去改别人的登录态；这条规则由红线 §2b + 反向验证第 ⑦ 条钉着。
+- 判据 21 → **26 项**，反向验证 5 → **7 条**；全量检查 **68/69**（唯一那条红是本机后端没重启）。
 
 **明确不碰**：`ui/shipper/OrderCreateScreen.kt` 与商品管理那一线（`session-78ebd95c` 在改）、
 运费结算/抽屉那一线（`session-83da1ad7` 在改）、后端任何代码。
@@ -2551,6 +2583,8 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-09-22 12:0x | **订单详情「拨打司机电话」**（我） | `ui/order/OrderDetailScreen.kt` | ⚠️ **这个文件同时被"地图卫星图层"那一线改过**（`startSatellite = if (role.key == "driver") …`，见文件里 233 行附近，`session-faa17a77` 的活）。我是**外科式**改动：只在「收货信息」卡里把原来那行 `InfoRow("司机", …)` 换成 `DriverRow(...)`，并**在文件中间追加**一个私有 `DriverRow` 组件 —— 没有动它上面任何一行。改完两边都在（我改完重读过、`git diff` 里两条并存、`:app:compileEmuDebugKotlin` 通过） |
+| 2026-09-22 12:0x | **订单详情「拨打司机电话」**（我） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md` | **重新生成**（`_hint_inventory.py --md`，不是我手写的）：改 `OrderDetailScreen.kt` 让里面两条提示的行号 +90、文案计数 +4。⚠️ 生成前它与源码就已差 4 条（别人提交时没跟着重跑），diff 里只有行号与那 4 条计数 |
 | 2026-09-22 03:0x | **商品外观做深**（我） | `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` | ⚠️ **三份机器生成的产物重跑了一遍**（不是我改的东西坏了，是**别人未提交的后端改动**让它们过期：`shipper.py` 挪了行号、`products.py` 挪了行号）：`08A` 与 `ai_read_catalog.json` 的差异**只有行号位移**（端点数 193 不变、角色不变，已逐行确认）；`09A` 是 `.kt` 文案条数变了。⛔ **没有手写这三个文件**，全部是脚本重生成的。另：本机后端已重启（`_check_backend_fresh` 转绿） |
 | 2026-09-22 03:0x | **商品外观做深**（我） | `ui/common/ProductCardKit.kt`、`ui/dispatcher/ProductsScreen.kt`、`ProductBatchScreen.kt`、`ProductSortScreen.kt`、`InventoryScreen.kt`、`BatchPriceSheets.kt`、`PriceMatrixScreen.kt`、`ui/common/ProductPicker.kt` | 都是商品管理这一条线**我自己**的文件（`ProductPicker.kt` 上次动它是 2026-09-20 的账本「记一笔账」那一轮，已收工；声明页上那一轮**没有**写"明确不碰"）。`ProductPicker.kt` 只改 `ProductRow` 一个函数 + 加一个私有事实构造器，其余一行未动 |
 | 2026-09-21 23:5x | **「我的」页改版**（我） | `ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`ui/home/RoleHomeScreen.kt`、`ui/theme/Color.kt` | **追加式/单点**改动：① `Routes.kt` +1 常量 `BASIC_SETTINGS`；② `NavGraph.kt` +1 个 `composable`；③ `RoleHomeScreen.kt` 两处 —— profile 那一 Tab 不吃 Scaffold 的**顶部** inset（否则深色头部画不到状态栏下面；其余 Tab 一行未动）、去掉已无处可用的 `onOpenMessages` 接线（「消息中心」那一行按用户要求删了）；④ `Color.kt` **只追加**两个头部颜色常量。四处改前都重读了最新内容 |
@@ -2589,6 +2623,42 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-09-22 09:4x → 10:0x] 会话：**报表中心「一打开全是 0」→ 接上自动挡（今天没数就往前退）**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户原话**：「修一下**报告中心没有任何数据**的bug。」
+
+**根因（先复现，再改）**：报表页**写死「按日 + 今天」**。真机 5554（2026-09-22）：
+营业纵览窗口写着 `2026-09-22 00:00:00~2026-09-22 23:59:59` → 实际营业金额 ¥0.00、订单数 0 单、
+毛利 0/0 行、收款率 0%；点一下「按月」立刻变成 **¥21,345.60 · 100 单 · 毛利 ¥4,896.60**。
+后端侧同一现象：`GET /reports/turnover?mode=day&date=2026-09-22` → 0；`mode=month` → 21345.60。
+**⇒ 不是接口坏了，是默认窗口落在"今天"、而今天还没有已送达的单**（别的页面早就接上了自动挡，报表中心漏了）。
+
+**改完是什么样（真机逐条对过）**
+- 进「营业纵览」→ 自动退到 **2026-09-21（昨天，那一档有 ¥142.00）**：金额 ¥142.00 · 1 单 · 单均价 ¥142.00 ·
+  司机运费 ¥45.00 · 毛利 ¥34.00 · 挂账未收 ¥142.00（`_archive/rp-05-settled.png`）；
+  没数才继续往后退，一路到「上月」；全都没数就保持今天（如实画"真没有"）。
+- **窗口没定下来之前整页 loading、连时间导航都不画**：点进「营业纵览」的那一帧只有顶栏 + loading
+  （`_archive/rp-04-gate.png`）—— 用户点名的「闪两下」不会出现。
+- 顺手修掉「异常与审计」页那句**写错的说明**：它原来印「资金流水（按日/周/月切换上方时间）」，
+  而那一页既不是资金流水、也没有时间导航；现在是「这个页面固定看近 30 天：上面是待处理异常，
+  下面是最近的操作日志」（真机截图里那句话 + 23 单异常都在）。
+
+**证据**
+- 静态：新红线 `_check_report_window.py` **25/25**、反向验证 `_reverse_verify_report_window.py` **13/13**
+  （每种破坏各由一条判据抓住、逐字节还原）；`_check_all.py` **67/69**——两个红都不是本轮的：
+  ① `_check_backend_fresh.py`（`backend/app/services/order_response.py` 12:16 被**别的会话**改过、
+  后端进程 12:07 启动 —— 按 `faa17a77` 的提醒，**谁改后端谁决定何时重启**，我没动）；
+  ②（本轮已修）`_check_hints.py`/`_hint_inventory.py`：目录按脚本重新生成后转绿。
+- 单测：`ReportFinanceTest` 16 条（新增 4 条：自动挡映射、近 7 天返回 null、阶梯每档要么能映射、
+  有数判据）；全量 **1036 用例 / 0 失败**。
+- 真机：`_archive/rp-04-gate.png`（门）、`rp-05-settled.png`（自动退档后的营业纵览）。
+
+**⚠️ 反空转自证（第一版判据是假绿的，已修）**：`_check_report_window.py` 里那个"取一个函数体"的
+辅助函数原来按"下一个 `\n}`"截 —— Kotlin 的类成员是缩进的，`\n}` 只匹配最外层那个收尾花括号，
+于是"取探测函数"实际吃到了文件末尾（`load()` 里也有 `repo.turnoverReport(`）：
+**把探测换成别的接口，判据照样绿**。改成**配平花括号 + 继续吃 `catch`/`else` 段**之后，
+13 种注入才全部被抓到。这条正好是《永远绿的检查 = 没有检查》那一类。
 
 ### [2026-09-22 09:0x → 09:2x] 会话：**司机运费结算改成「侧边抽屉选人 + 顶栏右上角月份」＋ 选人抽屉收成一份共用零件**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 

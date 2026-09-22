@@ -58,7 +58,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "③ `applyMapType` 挪进相机回调（每拖一次地图就叠一层瓦片）",
         PICKER,
         "                                if (!alive) return\n                                position?.let { p ->\n",
-        "                                if (!alive) return\n                                AmapMapHolder.applyMapType(aMap)\n"
+        "                                if (!alive) return\n                                AmapMapHolder.applyMapType(aMap, satellite)\n"
         "                                position?.let { p ->\n",
         "经持有者调用 `applyMapType` 恰好 2 处",
     ),
@@ -75,6 +75,20 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "            try { mapView.onPause() } catch (_: Exception) {}\n",
         "            try { mapView.onPause(); mapView.onDestroy() } catch (_: Exception) {}\n",
         "没有 `onDestroy`",
+    ),
+    (
+        "⑥ 默认图层被改回标准（用户 2026-09-22 明说：默认卫星、可切标准）",
+        PICKER,
+        "    var satellite: Boolean = true\n",
+        "    var satellite: Boolean = false\n",
+        "⛔**默认图层 = 卫星**",
+    ),
+    (
+        "⑦ 司机那一侧不再强制标准（拿「上次选过的卫星」给司机）",
+        "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt",
+        '            startSatellite = if (role.key == "driver") false else AmapMapHolder.satellite,\n',
+        "            startSatellite = AmapMapHolder.satellite,\n",
+        "订单详情页**显式**传 `startSatellite`",
     ),
 ]
 
