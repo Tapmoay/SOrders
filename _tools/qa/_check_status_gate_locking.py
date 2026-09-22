@@ -172,6 +172,18 @@ def main() -> int:
         gate_at = helper.find("_order_allows_line_edit(")
         c.ok("它先取锁、再判状态", 0 <= lock_at < gate_at,
              f"锁在 {lock_at}、判据在 {gate_at} —— 顺序反了")
+        # ⚠️ 光有锁不够（2026-09-23 实测）：`lock_order_row` 在 SQLite 上只是"重新查一次"，
+        #    查出来的仍是**本事务开始那一刻的快照** —— 真并发下那条缝照样走得通
+        #    （实测修完锁之后仍落成「账本 322.4 vs 订单行 362.7」）。所以要求**两道都在**：
+        #    锁（MySQL 上互斥）+ 条件 UPDATE 占位（SQLite / MySQL 都原子）。
+        c.ok("它还有一道与数据库无关的原子占位（条件 UPDATE 改 orders）",
+             bool(re.search(r"db\.execute\(\s*update\(Order\)", helper)),
+             "只有 `lock_order_row` 的话，SQLite 本机这条路还是能挤进去（实测过）")
+        c.ok("占位的 WHERE 里带着状态判据（改到 0 行就出局）",
+             bool(re.search(r"Order\.status\.in_\(LINE_EDITABLE_STATUSES\)", helper)),
+             "条件 UPDATE 的 WHERE 里没有状态判据 = 改了但没判")
+        c.ok("被拒时先 `db.rollback()` 再报错（不留半截事务）",
+             "db.rollback()" in helper, "占位失败之后必须先回滚再抛 400")
     endpoints = ["create_order_product", "update_order_product", "delete_order_product"]
     bodies = {n: code_only(b) for n, b in functions(src)}
     for ep in endpoints:

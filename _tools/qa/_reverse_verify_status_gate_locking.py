@@ -40,6 +40,15 @@ CASES: list[tuple[str, Path, str, str, str]] = [
         "先取锁、再判状态",
     ),
     (
+        "只留锁、把原子占位拿掉（SQLite 上那条缝又回来了 —— 实测会落成账本≠订单行）",
+        PROD,
+        "    claimed = db.execute(\n        update(Order)\n        .where(\n"
+        "            Order.id == order.id,\n            Order.status.in_(LINE_EDITABLE_STATUSES),",
+        "    claimed = db.execute(\n        update(Order)\n        .where(\n"
+        "            Order.id == order.id,\n            Order.status.in_((OrderStatus.PENDING_DISPATCH,)),",
+        "与数据库无关的原子占位",
+    ),
+    (
         "写端点绕开那道门（自己读了订单对象就判状态）",
         PROD,
         "    order = _locked_editable_order(db, op.order_id)\n    if body.product_id is not None:",
