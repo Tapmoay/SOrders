@@ -20,24 +20,6 @@
 
 ## 进行中
 
-### [2026-09-22 22:2x →] 会话：**代理下单的「下单人」必须是货主**（不许留派单员自己）+ **「拨打司机电话」放开给批发商**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
-
-**用户原话**：「不是说下单吗？下单会**自动填入下单的人的名称和电话号码**，户主和批发商没关系，因为他们是**自己下**嘛。但是这里有一点要注意的就是**派单员，他是代理下单**啊，所以他**不能填写自己的名称和电话号码**，他要填的是**自动填选的是货主的**……**选择货主之后，他写的货主的信息就会自动地填入进去**，也就是名称和电话号码。还有一个就是我们那个……派单员，他是**可以拨打司机电话**的，包括啊或者**批发商也是可以拨打司机电话**的……他在那**详情页面**是有个选项的啊，拨打司机电话，**只有这两个人能看得到，司机是没有这个的**。」
-
-**改什么（两块）**
-
-1. **代理下单时「下单人」跟着货主走**（现状是错的：进页面就把**派单员自己**的姓名+电话填进去，之后选了货主也不会变）：
-   · 判据收成**一处**：`ui/shipper/OrdererPrefill.kt::ordererContactFor(...)` —— 货主自下单＝自己；派单员＝**选中的那位货主**；临时货主＝只填姓名、电话留空（库里没有他的号）；**一个都没选＝空，绝不回落成派单员自己**。配 JVM 单测。
-   · `OrderCreateViewModel`：`proxyMode` 时**不预填自己**；`setShipper` 里重算（含「临时货主」那一支要把**上一位货主的电话清掉** —— 留着就是把别人的号记到这一单上）；名册还没拉回来时（预订单 / 带参直达这一页）**单取一次那位货主**（`repo.userById`）并带**回包校验**防串号。
-   · 后端**兜底**（`api/v1/orders.py::create_order`）：代理下单且「下单人」**没传**时，用这位货主的姓名/电话补上（老版本 App、以及 AI 的 `name_boss`/`phone_boss` 本来就是可选参数）。⛔ 只在**空**的时候补：派单员明确写了"下单人是王老板"（接电话的不是账号持有人）时一个字都不许改。
-   · ⚠️ 连带修：`services/shipper_contact_service.py::upsert_boss_contact` 会把**货主自己**记成他自己的联系人（货主自下单那条路**今天**就一直在这么干）—— 下单人变成货主之后这一点会被立刻放大，所以加一道"自己不入自己的联系人"。**存量脏行不动**（只停住增长）。
-2. **「拨打司机电话」＝派单员 + 批发商**（`is_member` 的货主）：判据收成 `ui/common/DriverCall.kt::canDialDriver(role, memberShipper)`（配 JVM 单测），详情页 `onDial` 的开关改调它。⛔ **普通货主与司机仍然不给按钮**（用户只放开了批发商这一档，别顺手放宽成"所有货主"）。
-3. 配套：`_tools/qa/_check_contact_names.py` 与 `_tools/qa/_check_order_driver_call.py` 两条红线的**前提**跟着改（旧话术「下单人＝当前登录账号」「只在派单端」已作废），两份反向验证同步；设计规范 §5 那条偏好与定位表两行同步重写。
-
-**明确不碰**：`ui/dispatcher/OrderTemplate*.kt`、`OrderTemplateCategoriesScreen.kt`、`OrderTemplateFormScreen.kt`、`_check_order_templates.py`（另一个会话 `session-78ebd95c` 正在改）；`ui/common/ProductPicker.kt`、`Apis.kt`、`Dtos.kt`、`AppRepository.kt`、`NavGraph.kt`、`Routes.kt`、`ReportCenter.kt` 一律不动 —— 本轮**不加端点、不加路由**，一个共享文件都不用改。
-
-⚠️ 我改的 `ui/shipper/OrderCreateViewModel.kt` / `OrderCreateScreen.kt` 正是 `session-78ebd95c` 声明"只读、复用 `priceFor`"的那两个文件：**不动它的 `priceFor` / 报价闸门那三条时序**，只动「下单人」这一处，并在「交叉点」记一笔。
-
 ### [2026-09-22 19:0x →] 会话：**AI 卡片上的金额也去零**（`moneyText` / `money` 拆开）+ **后端已发到生产**（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
 **用户原话**：「可以可以这两件事直接做了」—— 指上一轮结尾我请他拍板的两件。
@@ -3069,6 +3051,9 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-09-22 23:1x | （我） | ⚠️ **`session-78ebd95c` 的提交 `7ab1a32` 把我这一轮的 4 份文档一起提交了** | 它 `git add` 的范围覆盖了 `docs/`：`docs/AI_WORK_CLAIM.md`（我的 进行中 条目 + 交叉点三行）、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§5 拨号那条偏好）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`（「收货人与下单人」「订单详情页」两行）、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` 都被卷进它那个提交。**代码一行没被卷走**（`orders.py` / `OrderDetail*` / `OrderCreate*` / 两条红线 / 两个新文件仍在我的工作区）。后果只有一个：README 之外的人看 git 历史时，那几个文档块会挂在"预订单"那条提交下。⚠️ 08A 那份它提交的是**我改 `orders.py` 之前**生成的版本（`update_order` 在 677 行），我这轮重新生成过（702 行），所以工作区里它又是 ` M` —— 以工作区那份为准 |
+| 2026-09-22 23:0x | （我） | `_tools/qa/_install_all.py --only 5554/5556/5558` 装了三台 | ⚠️ 预检说 `session-78ebd95c` 正在干活（规矩是"各装各的"），但本轮要验的角色分布在**三台**上（派单员/批发商货主/司机），所以逐台 `--only` 装的。**装的是同一个工作区编出来的包**（含它未提交的预订单改动），不是"把别人的机器刷成我的版本"；另外第一次构建时它的 `OrderTemplatesScreen.kt` 正引用着没 import 的 `ShipperTeal`/`MoneyOrange`（编译失败），等它自己修好后重试才装上（我的代码从头到尾没动过那个文件） |
+| 2026-09-22 22:5x | （我） | 本机后端重启过一次（端口 8000，PID 27596 → 2144） | `_check_backend_fresh.py` 报"跑的是旧代码"（我 22:31 改了 `orders.py` / `shipper_contact_service.py`，进程是 22:27 起的）→ 停掉旧进程、起了一个新的；随后 22:50 又有别的会话起了一个（PID 2144，比我最后一次后端改动新，`_check_backend_fresh` 转绿）。⚠️ 没跑反向验证时不许重启到旧代码上，否则端到端结论不作数 |
 | 2026-09-22 22:2x | **代理下单「下单人」跟着货主走 + 拨司机电话放开给批发商**（我） | `ui/shipper/OrderCreateViewModel.kt`、`ui/shipper/OrderCreateScreen.kt`、`ui/order/OrderDetailScreen.kt`、`ui/order/OrderDetailViewModel.kt`、后端 `api/v1/orders.py`、`services/shipper_contact_service.py` | 这 6 个文件改前 `git status` 都是干净的（`OrderCreate*` 被 `session-78ebd95c` 声明为"只读"；`OrderDetail*` 上一条是**我自己** 21:0x 那轮的已提交改动）。改动都是**局部**：VM 只动 `init` 的预填 + `setShipper` 一支 + 两个新私有方法；`OrderCreateScreen` 只改「下单人名称」的 `placeholder` 与它上面三行注释；`OrderDetailScreen` 只改 `DriverRow` 的 `onDial` 开关与注释；后端只在 `create_order` 加**填空**兜底 + 联系人服务加一道自我保护 |
 | 2026-09-22 22:2x | （我） | ⛔ **共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `ProductPicker.kt` / `ReportCenter.kt`）一个都没动** | 本轮不加端点、不加路由、不加 AI 动作：货主名册本来就在 `GET /users?role=shipper` 的 `UserDto` 里（带 `phone` 与 `full_name`），司机电话后端**本来就下发给所有角色**（`order_response.py` 只门控货款与运费）。所以 `session-78ebd95c` 正在写的那几个共享文件我一个字都不用碰 |
 | 2026-09-22 22:2x | （我） | `_tools/qa/_check_contact_names.py`、`_tools/qa/_check_order_driver_call.py` + 两份 `_reverse_verify_*` | ⚠️ 动的是**共享的检查脚本**：这两条红线的**前提**被用户这一轮的口述改掉了（「下单人＝当前登录账号」「拨号只在派单端」都已作废），锚点跟着实现搬家并**加严**（新增"一个货主都没选时绝不回落成派单员自己""普通货主与司机仍然不给按钮"两条判据）；反向验证的注入点同步 |
@@ -3137,6 +3122,52 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-09-22 22:2x → 23:1x] 会话：**代理下单的「下单人」必须是货主**（不许留派单员自己）+ **「拨打司机电话」放开给批发商**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户原话**：「不是说下单吗？下单会**自动填入下单的人的名称和电话号码**，户主和批发商没关系，因为他们是**自己下**嘛。但是这里有一点要注意的就是**派单员，他是代理下单**啊，所以他**不能填写自己的名称和电话号码**，他要填的是**自动填选的是货主的**……**选择货主之后，他写的货主的信息就会自动地填入进去**，也就是名称和电话号码。还有一个就是我们那个……派单员，他是**可以拨打司机电话**的，包括啊或者**批发商也是可以拨打司机电话**的……他在那**详情页面**是有个选项的啊，拨打司机电话，**只有这两个人能看得到，司机是没有这个的**。」
+
+**口径拍板（我问、用户选）**：「只有这两个人」按字面办 —— **批发商**（`users.is_member` 的货主）才给拨号按钮，**普通货主不给**（"所有货主"那一档没选）。
+
+#### 一、代理下单的「下单人」＝这一单的货主
+
+- **判据只有一处**：`ui/shipper/OrdererPrefill.kt::ordererContactFor(...)`（货主自下单＝自己；派单员＝**选中的那位货主**；临时货主＝只填姓名、电话留空；**一个都没选＝空，绝不回落成派单员自己**）+ JVM 单测 `OrdererPrefillTest`（10 例）。
+- `OrderCreateViewModel`：`proxyMode` 时**不预填自己**；`setShipper` → `applyOrdererFromShipper`（临时货主那一支**清掉上一位的电话**；名册没拉回来时 `repo.userById` 单取 + 回包校验防串号）；落笔只有 `writeOrderer` 一处。
+- 后端**兜底** `api/v1/orders.py::create_order`：只有**代理下单**且**两栏都空**时才用这位货主的姓名/电话补（老版本 App / AI 的 `name_boss`·`phone_boss` 本来就是可选参数）。⛔ 只空一栏不补 —— 名称与电话是同一个人，拆开拼会造出一个不存在的下单人。
+- ⚠️ 连带修 `services/shipper_contact_service.py::upsert_boss_contact`：不加"自己不入自己的联系人"，代理下单兜底之后**每一次**都会给货主长出一条指向他自己的联系人（货主自下单那条路今天就在这么干）。存量脏行不动（本机实测 0 行）。
+- 用例 `backend/tests/test_order_boss_contact.py`（7 例：兜底 / 不覆盖手写 / 只空一栏不补 / 自下单不补 / 不记自己 / 别人照记）。
+
+#### 二、「拨打司机电话」＝派单员 + 批发商
+
+- 判据只有一处：`ui/common/DriverCall.kt::canDialDriver(role, memberShipper)`（+ `DriverCallTest` 5 例）；详情页 `onDial` 的开关改调它，`memberShipper` 由 `OrderDetailViewModel.isMemberShipper`（取 `/users/me`，**取不到＝不给**）经 `DetailBody` 传下去（会话里没有 `is_member`）。
+- ⛔ 普通货主与司机**仍然不给按钮**；「司机是谁 + 电话」那一行三个角色都照旧画（门只落在动作上）。
+
+#### 三、验收（都是跑出来的，不是"应该没问题"）
+
+| 项 | 结果 |
+|---|---|
+| `python _tools/qa/_check_all.py` | **76/76** 通过 |
+| `pytest -q`（backend） | **786 passed** |
+| Kotlin 单测（两个新类） | DriverCallTest 5/5、OrdererPrefillTest 10/10（0 失败） |
+| 反向验证 `_reverse_verify_contact_names.py` | **26/26**（顺手修了 3 条**早就 SKIP 的化石注入**：`OutlinedTextField` / `InfoRow("下单人")` / `prefillOrderer` 三处锚点早就不存在了 —— 永远红的检查＝没有检查） |
+| 反向验证 `_reverse_verify_order_driver_call.py` | **24/24** |
+| 真后端 + 真开发库（不经 App） | 代理下单不带下单人 → `永盛食品 / 13800000002`；带了别人 → 一字不改；只带姓名 → 不补；临时货主 → 不补；货主自下单 → 联系人条数不变、没有"自己"那条 |
+| **真机 5554 派单员** | 进「代理下单」→ 页面上**没有**陈国强 / 13800000001（0 个节点）；选「永盛食品」→ `下单人名称＝永盛食品`（y=1488）、`下单人电话＝13800000002`（y=1637） |
+| **真机 5556 批发商**（永盛食品，`is_member=1`） | 订单详情：`司机 李伟明 / 13800000003 /` **有「拨号」** |
+| **真机 5556 同一账号临时置 `is_member=0`** | 同一张单：司机那一行还在、**没有「拨号」**（验完已还原 `is_member=1`，再开一次按钮回来） |
+| **真机 5558 司机** | 同一张单：`司机 李伟明 / 13800000003 /` **没有「拨号」** |
+| **真机 5554 派单员**（回归） | 另一张已送达单：`司机 刘兆丰 / 13761671592 /` **有「拨号」**（派单端这颗按钮没被改掉） |
+
+截图：`_archive/bossfill-01-5554-empty.png`、`_archive/bossfill-02-5554-filled.png`、
+`_archive/drivercall-01-5556-member.png`、`_archive/drivercall-02-5556-nonmember.png`、
+`_archive/drivercall-03-5558-driver.png`、`_archive/drivercall-04-5554-dispatcher.png`。
+
+⚠️ 真机上为了验"普通货主"这一档，**临时**把 `users.id=2`（永盛食品）的 `is_member` 置 0 又置回 1（开发库）；
+探针造的 5 张单（428~432，地址写着「探针地址（可删）」）已**撤回/软删**清干净，三台设备已回到各自角色。
+
+**明确不碰（做到了）**：`ui/dispatcher/OrderTemplate*.kt`、`OrderTemplateCategoriesScreen/FormScreen.kt`、`_check_order_templates.py`（`session-78ebd95c` 的活）—— 一行未动；`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `ProductPicker.kt` / `ReportCenter.kt` 一个字节未改（本轮不加端点、不加路由）。
+⚠️ 只**读**了 `OrderCreateViewModel.kt` / `OrderCreateScreen.kt` 里 `priceFor` 与报价闸门那三条时序，一个字节没动。
+
 ### [2026-09-22 21:4x → 22:3x] 会话：**预订单＝模板：分类（左分类 / 右订单）+ 页面新建与编辑 + 「它是什么」改走提示**【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **结论（真机逐条验过，截图在 `docs/screenshots/order-template-v2-20260922/`）**

@@ -1,10 +1,10 @@
-"""反向验证：把「司机电话只有派单端能拨」那条红线逐条弄坏，看它**真的会红**。
+"""反向验证：把「司机电话只有派单员与批发商能拨」那条红线逐条弄坏，看它**真的会红**。
 
 为什么这块必须反向验证：这条规则坏掉的方式**全部不报错、不崩**——
-放开角色门只是货主那边多一颗按钮；改成 `ACTION_CALL` 只是"点一下就直接拨出去"
-（而且要权限，没申请时是**点一下什么都不发生**）；去掉可拨性判断只是某张老单上多一颗
-**拨不出去的**按钮；后端把软删后缀原样下发更是连界面都不变（`13800001234_del160`
-读起来只像"号码存脏了"）。用户是按着那颗按钮打电话的人，这些都得由机器守着。
+放开角色门只是普通货主那边多一颗按钮；把判据就地抄一遍只是"以后改一处漏一处"；
+改成 `ACTION_CALL` 只是"点一下就直接拨出去"（而且要权限，没申请时是**点一下什么都不发生**）；
+去掉可拨性判断只是某张老单上多一颗**拨不出去的**按钮；后端把软删后缀原样下发更是连界面都不变
+（`13800001234_del160` 读起来只像"号码存脏了"）。用户是按着那颗按钮打电话的人，这些都得由机器守着。
 
 用法：python _tools/qa/_reverse_verify_order_driver_call.py    # 全部报红 → 退出码 0
 """
@@ -19,29 +19,93 @@ HERE = Path(__file__).resolve().parent
 CHECK = HERE / "_check_order_driver_call.py"
 
 DETAIL = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
+DETAIL_VM = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailViewModel.kt"
+DRIVER_CALL = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/DriverCall.kt"
+GATE_TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/common/DriverCallTest.kt"
 ORDER_RESPONSE = ROOT / "backend/app/services/order_response.py"
 BACKEND_TEST = ROOT / "backend/tests/test_order_driver_phone.py"
 DESIGN = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 LOCATOR = ROOT / "docs/PROJECT_MAP/08_CODE_LOCATOR.md"
 
 #: 调用点那一段里被注入的那一行（多处注入共用，改它一处即可）
-GATE = "onDial = if (role == Role.DISPATCHER && dialable) {"
+GATE = "onDial = if (canDialDriver(role, memberShipper) && dialable) {"
+
+#: 把「我是不是批发商」喂给 `DetailBody` 的那一行
+MEMBER_WIRE = "memberShipper = vm.isMemberShipper,"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词)
 MUTATIONS = [
     (
-        "把「只给派单端」那道门放开（货主/司机也多一颗拨号按钮 —— 用户明说过「其他人是没有的」）",
+        "把「谁能拨」那道门整个放开（普通货主/司机也多一颗拨号按钮 —— 用户明说过"
+        "「只有这两个人，司机是没有这个的」）",
         DETAIL,
         GATE,
         "onDial = if (dialable) {",
-        "拨号按钮只在派单端",
+        "拨号按钮走的是共用判据",
+    ),
+    (
+        "忘了把「我是不是批发商」接进判据（批发商白名单形同不存在）",
+        DETAIL,
+        GATE,
+        "onDial = if (canDialDriver(role, false) && dialable) {",
+        "拨号按钮走的是共用判据",
+    ),
+    (
+        "忘了把「我是不是批发商」传下去（`DetailBody` 里恒为 false，批发商那颗按钮永远不出现）",
+        DETAIL,
+        MEMBER_WIRE,
+        "memberShipper = false,",
+        "传进 `DetailBody`",
+    ),
+    (
+        "在页面里**就地再写一遍**角色判断（不调 `canDialDriver`：以后改口径只改一处、另一处照旧）",
+        DETAIL,
+        GATE,
+        "onDial = if (role == Role.DISPATCHER && dialable) {",
+        "没有**就地写的角色判断",
     ),
     (
         "去掉可拨性判断（老单上多一颗拨不出去的按钮，用户以为 App 坏了）",
         DETAIL,
         GATE,
-        "onDial = if (role == Role.DISPATCHER) {",
+        "onDial = if (canDialDriver(role, vm.isMemberShipper)) {",
         "能拨的形状就不给按钮",
+    ),
+    (
+        "别处又冒出一份判据实现（两份判据必然分叉）",
+        DETAIL,
+        "import com.tapmoay.sorders.ui.common.*\n",
+        "import com.tapmoay.sorders.ui.common.*\n\n"
+        "private fun canDialDriver(role: Role) = role == Role.DISPATCHER\n",
+        "只有一处定义",
+    ),
+    (
+        "判据本体放宽成「所有货主」（批发商那一档被淹掉，普通货主也拿到动作）",
+        DRIVER_CALL,
+        "role == Role.SHIPPER && memberShipper",
+        "role == Role.SHIPPER",
+        "批发商放行",
+    ),
+    (
+        "判据本体把司机也算进去（他多一颗「打给自己」的按钮）",
+        DRIVER_CALL,
+        "role == Role.DISPATCHER || (role == Role.SHIPPER && memberShipper)",
+        "role == Role.DISPATCHER || role == Role.DRIVER || (role == Role.SHIPPER && memberShipper)",
+        "司机不在",
+    ),
+    (
+        "单测被改宽（普通货主那一条断言翻成 true —— 判据被放宽就没人拦了）",
+        GATE_TEST,
+        "assertFalse(canDialDriver(Role.SHIPPER, memberShipper = false))",
+        "assertTrue(canDialDriver(Role.SHIPPER, memberShipper = false))",
+        "单测盯着「普通货主不给」",
+    ),
+    (
+        "`is_member` 取不到时默认**给**（一次 `/users/me` 抖动，普通货主就拿到按钮）",
+        DETAIL_VM,
+        "runCatching { container.repo.me().isMember }.getOrDefault(false)",
+        "runCatching { container.repo.me().isMember }.getOrDefault(true)",
+        "取不到时默认",
     ),
     (
         "客户端自己写一份电话校验（与 core/InputRules.kt 分叉）",
@@ -88,7 +152,7 @@ MUTATIONS = [
         "有定义有调用",
     ),
     (
-        "顺手把整行藏给非派单端（用户只说了**按钮**只给派单端，司机是谁三个角色都看）",
+        "顺手把整行藏给非派单端（用户只说了**按钮**给谁；司机是谁这一行三个角色都看）",
         DETAIL,
         "                if (!order.driverName.isNullOrBlank()) {\n                    val driverPhone",
         "                if (role == Role.DISPATCHER && !order.driverName.isNullOrBlank()) {\n"
@@ -117,11 +181,25 @@ MUTATIONS = [
         "指路到本判据",
     ),
     (
+        "设计规范里把放宽的边界抹掉（「只有这两个人」变成一句含糊的「其他角色」）",
+        DESIGN,
+        "⛔ **普通货主与司机不给按钮**",
+        "⛔ **其他角色不给按钮**",
+        "普通货主与司机不给",
+    ),
+    (
         "定位表「订单详情页」那一行不再指路判据（改了核心文件却不更新地图）",
         LOCATOR,
         "判据 `_tools/qa/_check_order_driver_call.py` |",
         "判据（脚本名待补） |",
         "定位表的「订单详情页」那一行",
+    ),
+    (
+        "定位表那行退回旧口径「只有派单端能拨」（下一轮以为批发商不该有）",
+        LOCATOR,
+        "**司机那一行：只有派单员与批发商能拨**",
+        "**司机那一行：只有派单端能拨**",
+        "只有派单员与批发商能拨",
     ),
 ]
 

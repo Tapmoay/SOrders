@@ -30,6 +30,16 @@ class OrderDetailViewModel(
     var refreshWarning by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
 
+    /**
+     * 当前登录人是不是**批发商**（`users.is_member` 的货主）——「拨打司机电话」那一档要用它。
+     *
+     * 为什么要单独取一次 `/users/me`：会话（`core/TokenStore.kt::Session`）里只有角色 / 姓名 /
+     * 电话，**没有 `is_member`**，而"批发商"在这里是**权限**（那颗拨号按钮给不给他），不能靠猜。
+     * ⚠️ 取不到时保持 `false` ＝ **不给**：拿不准的动作就不递出去（真门还在后端，这里只决定画不画）。
+     */
+    var isMemberShipper by mutableStateOf(false)
+        private set
+
     // 货主撤销
     var showCancelDialog by mutableStateOf(false)
 
@@ -122,6 +132,10 @@ class OrderDetailViewModel(
 
     init {
         load()
+        // 「我是不是批发商」——只给「拨打司机电话」那颗按钮用（判据 `ui/common/DriverCall.kt`）。
+        viewModelScope.launch {
+            isMemberShipper = runCatching { container.repo.me().isMember }.getOrDefault(false)
+        }
         // 状态变化（接单/送达/派单等）自动刷新详情页，无需手动刷新
         viewModelScope.launch {
             container.realtimeHub.refreshOrders.collect { load() }

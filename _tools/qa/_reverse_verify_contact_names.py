@@ -26,9 +26,12 @@ MODEL = BACKEND / "models/order.py"
 BOOTSTRAP = BACKEND / "core/schema_bootstrap.py"
 SCHEMA = BACKEND / "schemas/order.py"
 API = BACKEND / "api/v1/orders.py"
+CONTACT_SVC = BACKEND / "services/shipper_contact_service.py"
+BACKEND_TEST = ROOT / "backend/tests/test_order_boss_contact.py"
 DTO = ANDROID / "data/remote/dto/Dtos.kt"
 CREATE_SCREEN = ANDROID / "ui/shipper/OrderCreateScreen.kt"
 CREATE_VM = ANDROID / "ui/shipper/OrderCreateViewModel.kt"
+ORDERER_PREFILL = ANDROID / "ui/shipper/OrdererPrefill.kt"
 CARD = ANDROID / "ui/common/OrderCard.kt"
 DETAIL = ANDROID / "ui/order/OrderDetailScreen.kt"
 AI_CATALOG = ANDROID / "ai/AiWrite.kt"
@@ -46,9 +49,9 @@ MUTATIONS = [
         "创建订单时不写这两个名称（下单填了也进不去）",
         API,
         "        contact_dongjia_name=body.contact_dongjia_name.strip(),\n"
-        "        contact_boss_name=body.contact_boss_name.strip(),\n",
+        "        contact_boss_name=boss_name,\n",
         "",
-        "创建路径把两个名称写进",
+        "创建路径把两个名称",
     ),
     (
         "PATCH 不认这两个名称（派单员编辑订单时改了没变）",
@@ -81,16 +84,12 @@ MUTATIONS = [
         "OrderDto 收这两个名称",
     ),
     (
+        # ⚠️ 2026-09-22 修：锚点原来是 `OutlinedTextField(...)`，而这一页早就改成了共用表单行
+        #    （`FormInputRow`）→ 注入变成 [SKIP]，也就是说这条**一直没在验**（永远红的检查＝没有检查）。
         "下单页少了「下单人名称」输入框",
         CREATE_SCREEN,
-        "                    OutlinedTextField(\n"
-        "                        value = vm.bossName,\n"
-        "                        onValueChange = { vm.bossName = it },\n"
-        '                        label = { Text("下单人名称") },\n'
-        "                        singleLine = true,\n"
-        "                        modifier = Modifier.fillMaxWidth(),\n"
-        "                    )\n",
-        "",
+        '                        label = "下单人名称",\n',
+        '                        label = "次要联系人名称",\n',
         "下单页有「下单人名称」输入框",
     ),
     (
@@ -103,8 +102,8 @@ MUTATIONS = [
     (
         "自动填拿会话里的 username 当电话（那可能是人名，打不通）",
         CREATE_VM,
-        "prefillOrderer(me.fullName.ifBlank { s?.fullName }, me.phone)",
-        "prefillOrderer(me.fullName.ifBlank { s?.fullName }, s?.username)",
+        "prefillOrdererFromSelf(me.fullName.ifBlank { s?.fullName }, me.phone)",
+        "prefillOrdererFromSelf(me.fullName.ifBlank { s?.fullName }, s?.username)",
         "自动填没有把会话里的 username 当电话",
     ),
     (
@@ -123,10 +122,14 @@ MUTATIONS = [
         "只有一份实现",
     ),
     (
+        # ⚠️ 2026-09-22 修：锚点原来是 `InfoRow("下单人", who)`，而详情页那一行早就改成
+        #    "可点击拨打 + 点击先弹确认"的自绘行 → 注入变成 [SKIP]（同上面那条，一直没在验）。
         "详情页又用回旧词「老板电话」（与下单页/卡片/AI 不一致）",
         DETAIL,
-        '                    InfoRow("下单人", who)\n',
-        '                    InfoRow("老板电话", who)\n',
+        '                        Text("下单人", style = MaterialTheme.typography.bodyMedium, '
+        "modifier = Modifier.weight(1f))\n",
+        '                        Text("老板电话", style = MaterialTheme.typography.bodyMedium, '
+        "modifier = Modifier.weight(1f))\n",
         "订单详情里没有旧词",
     ),
     (
@@ -143,6 +146,91 @@ MUTATIONS = [
         '         "ALTER TABLE orders ADD COLUMN contact_dongjia_name VARCHAR(64) NOT NULL DEFAULT \'\'"),\n',
         "",
         "schema_bootstrap 能给旧库补上 contact_dongjia_name",
+    ),
+    # ===== 第二轮（2026-09-22）：「下单人」＝这一单的货主 =====
+    (
+        "⛔ 代理下单**一位货主都没选**时回落成当前登录账号（又变成「派单员下的单」）",
+        ORDERER_PREFILL,
+        '    val s = shipper ?: return OrdererContact("", "")',
+        "    val s = shipper ?: return OrdererContact(ownName.orEmpty().trim(), ownPhone.orEmpty().trim())",
+        "绝不回落成当前登录账号",
+    ),
+    (
+        "⛔ 临时货主也编一个电话出来（库里没有他的号 → 编出来只能是别人的）",
+        ORDERER_PREFILL,
+        '    if (temp.isNotEmpty()) return OrdererContact(temp, "")',
+        '    if (temp.isNotEmpty()) return OrdererContact(temp, "13800000000")',
+        "电话留空",
+    ),
+    (
+        "判据被判了两份实现（两个入口必然分叉：改一处漏一处）",
+        ORDERER_PREFILL,
+        "fun ordererContactFor(\n",
+        "fun ordererContactFor2(\n",
+        "只有一处实现",
+    ),
+    (
+        "代理下单时又把**派单员自己**预填进去（`if (!proxyMode)` 那道门没了）",
+        CREATE_VM,
+        "            if (!proxyMode) {\n",
+        "            if (true) {\n",
+        "代理下单**不预填自己**",
+    ),
+    (
+        "换了货主不重算下单人（下单人留着上一位的姓名 + 电话 → 打过去是别人）",
+        CREATE_VM,
+        "        if (proxyMode) applyOrdererFromShipper(id)\n",
+        "",
+        "换货主时重算下单人",
+    ),
+    (
+        "名册里查不到时不去单取（用预订单/带参直达进这一页时下单人是空的）",
+        CREATE_VM,
+        "            val u = runCatching { container.repo.userById(id) }.getOrNull() ?: return@launch\n",
+        "            val u = runCatching { container.repo.me() }.getOrNull() ?: return@launch\n",
+        "单取一位货主",
+    ),
+    (
+        "异步回包不带校验（这期间换了货主 → 下单人被写成上一位）",
+        CREATE_VM,
+        "            if (proxyMode && shipperId == id && tempShipperName == null) {\n",
+        "            if (true) {\n",
+        "异步回包带校验",
+    ),
+    (
+        "后端兜底只在**一栏**空时就补（名字写王老板、电话却是货主账号那个号）",
+        API,
+        "        if not boss_name and not boss_phone:\n",
+        "        if True:\n",
+        "两栏都空",
+    ),
+    (
+        "后端**货主自己下单也补**（把「客户端明明填了空」悄悄盖成货主）",
+        API,
+        "    if target_shipper is not None and target_shipper.id != current.id:\n",
+        "    if target_shipper is not None:\n",
+        "只有**代理下单**才兜底",
+    ),
+    (
+        "⛔ 把货主自己记成他自己的联系人（每下一次单就长一条「我自己」）",
+        CONTACT_SVC,
+        "    if own_phone and own_phone.strip() == phone:\n",
+        "    if False:\n",
+        "不进他自己的联系人名册",
+    ),
+    (
+        "后端用例被删掉（兜底这条路再也没人验）",
+        BACKEND_TEST,
+        "def test_代理下单只带一栏时不补另一栏(client, users, token_dispatcher):\n",
+        "def test_代理下单只带一栏时不补另一栏_v2(client, users, token_dispatcher):\n",
+        "用例钉着「两栏都空才补」",
+    ),
+    (
+        "后端用例被改成空跑（`is not None` 等于什么都没验）",
+        BACKEND_TEST,
+        '    assert only_name["contact_boss_phone"] == ""\n',
+        '    assert only_name["contact_boss_phone"] is not None\n',
+        "用例真的在断言",
     ),
 ]
 

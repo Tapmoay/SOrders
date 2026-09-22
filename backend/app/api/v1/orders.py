@@ -541,16 +541,21 @@ def create_order(
     role = user_role_key(current)
     target_shipper_id: int | None
     order_temp_shipper_name: str | None = None
+    #: 这一单**为谁下的**（临时货主 / 未指定时是 None）。
+    #: 「下单人」的兜底要用它 —— 见下面那一段注释（用户 2026-09-22 的口径）。
+    target_shipper: User | None = None
     if role == UserRole.SHIPPER.value:
         if body.shipper_id is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="货主下单无需指定货主")
         target_shipper_id = current.id
+        target_shipper = current
     elif role == UserRole.DISPATCHER.value:
         if body.shipper_id is not None:
             su = db.get(User, body.shipper_id)
             if su is None or user_role_key(su) != UserRole.SHIPPER.value:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效的货主")
             target_shipper_id = body.shipper_id
+            target_shipper = su
         elif body.temp_shipper_name:
             target_shipper_id = None
             order_temp_shipper_name = body.temp_shipper_name
@@ -561,6 +566,24 @@ def create_order(
             )
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色不能创建订单")
+
+    # ── 「下单人」= 这一单的**货主**（用户 2026-09-22：「派单员，他是**代理下单**啊，所以他
+    #    **不能填写自己的名称和电话号码**，他要填的是**自动填选的是货主的**……他**选择货主之后**，
+    #    他写的货主的信息就会**自动地填入进去**，也就是名称和电话号码」）────────────────────
+    # App 在"选中货主"那一刻就把这两栏填好了（判据 `OrdererPrefill.kt::ordererContactFor`），
+    # 这里补的是**没带上**的那几个调用方：老版本 App、以及 AI 下单（动作的 `name_boss` /
+    # `phone_boss` 本来就是可选参数）。⛔ **只在两栏都空的时候补**：派单员手写的"下单人是王老板"
+    # （接电话的人不是账号持有人）是真实场景，一个字都不许改；而**只空一栏**时也不补 ——
+    # 名称与电话是**同一个人**的两个字段，拆开拼（名字写王老板、电话却是货主账号那个号）
+    # 会造出一个"张冠李戴"的下单人，界面上看不出来。
+    # ⛔ **货主自己下单不走这一段**（`target_shipper.id == current.id`）：那一路客户端填的就是
+    # 他自己的账号资料，与这里同源 —— 补一遍只会把"客户端明明填了空"这种状态悄悄盖掉。
+    boss_name = body.contact_boss_name.strip()
+    boss_phone = body.contact_boss_phone.strip()
+    if target_shipper is not None and target_shipper.id != current.id:
+        if not boss_name and not boss_phone:
+            boss_name = (target_shipper.full_name or "").strip()
+            boss_phone = (target_shipper.phone or "").strip()
 
     # 白名单（v3.43）：货主自己下单时，**不许**把看不到的商品塞进单里。
     # 为什么必须在这一层挡：选品页把商品藏起来只是"看不到"，
@@ -596,9 +619,9 @@ def create_order(
         address_lat=body.address_lat,
         address_lng=body.address_lng,
         contact_dongjia_phone=body.contact_dongjia_phone,
-        contact_boss_phone=body.contact_boss_phone,
+        contact_boss_phone=boss_phone,
         contact_dongjia_name=body.contact_dongjia_name.strip(),
-        contact_boss_name=body.contact_boss_name.strip(),
+        contact_boss_name=boss_name,
         remark=body.remark,
         order_products=lines,
     )
@@ -639,11 +662,13 @@ def create_order(
                 "note": "下单时把收货地址自动加进「我的地点」（判据见 place_service.remember_order_address）",
             },
         )
-    if target_shipper_id is not None and body.contact_boss_phone.strip():
+    if target_shipper_id is not None and boss_phone:
         # 名字一起带上：这位下单人会在货主的联系人里出现，只有号码没有名字的话
         # 货主下次看到的就是一条"来源不明的联系人"（`upsert_boss_contact` 只在原本没名字时补）。
-        upsert_boss_contact(db, target_shipper_id, body.contact_boss_phone.strip(),
-                            body.contact_boss_name.strip())
+        # ⚠️ 用的是**兜底之后**的 `boss_*`（不是 `body.contact_boss_*`）：代理下单没带下单人时，
+        #    这里记的就该是那位货主的姓名/电话 —— 与订单上写的是同一个人。
+        # ⛔ "下单人就是货主自己"时由 `upsert_boss_contact` 挡掉（别让他出现在自己的联系人里）。
+        upsert_boss_contact(db, target_shipper_id, boss_phone, boss_name)
     # ---- 「常用的排前面」的计数（用户 2026-09-22 定的统一列表排序规则）--------------
     # 记的是**这一单真用上了哪些库里的行**：选中的联系人 / 线路 / 我的地点 / 每一个商品，
     # 代理下单时还有这位货主。排序规则本身（常用度 → 先创建的在前）在

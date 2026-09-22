@@ -211,6 +211,9 @@ fun OrderDetailScreen(
                 onSplitClick = { vm.openSplitDialog() },
                 onDirectCompleteClick = { p -> vm.completeDirect({ onBack() }, p) },
                 canFillNav = vm.canFillNavigation(role.key),
+                // 「我是不是批发商」——只给「拨打司机电话」那颗按钮用（判据 `ui/common/DriverCall.kt`）。
+                // 会话里没有 `is_member`，只能从 `/users/me` 取（拿不到时是 false ＝ 不给）。
+                memberShipper = vm.isMemberShipper,
                 onFillNavClick = {
                     // 先预热定位：地图一打开就落在司机当前所在处，少拖一次
                     container.locationManager.requestSingle()
@@ -443,13 +446,15 @@ fun OrderDetailScreen(
 /**
  * 订单详情「收货信息」卡里的**司机**一行：名字（主角）+ 电话（次要小字）+ 右侧「拨号」按钮。
  *
- * ## 由来（用户 2026-09-22）
+ * ## 由来（用户 2026-09-22，两轮）
  * 「加一个功能就是在订单详情的界面当中可以拨打司机电话……这个功能显示**只会在派单端里**，
  * 其他人是没有的，也就是点击一个**拨号按钮**，它**自动弹到那个拨号界面**，然后可以拨号打电话给司机」。
+ * → 本轮放宽：「派单员……**包括啊或者批发商也是可以拨打司机电话**的……**只有这两个人**能看得到，
+ * **司机是没有这个的**」。
  *
  * ## 三个决定
- * 1. **按钮只在 `onDial != null` 时存在**（＝派单端 + 号码能拨）。传 null 就整颗不画 ——
- *    调用点负责判，这里不重复判角色（这一层只回答"长什么样"）。
+ * 1. **按钮只在 `onDial != null` 时存在**（＝`ui/common/DriverCall.kt::canDialDriver` 放行 + 号码能拨）。
+ *    传 null 就整颗不画 —— 调用点负责判，这里不重复判角色（这一层只回答"长什么样"）。
  * 2. **`ACTION_DIAL` 而不是 `ACTION_CALL`**：前者只把号码填进系统拨号盘、由用户自己按最后那一下，
  *    **不需要 `CALL_PHONE` 权限**，也不会误触就拨出去。⛔ 别改成 `ACTION_CALL`：
  *    那要申请权限，而且"点一下就拨出去"正是用户在下单人那一行为什么要求先弹确认的理由。
@@ -527,6 +532,13 @@ private fun DetailBody(
     /** 司机/派单员：这单还没有坐标 → 可以到场补上 */
     canFillNav: Boolean = false,
     onFillNavClick: () -> Unit = {},
+    /**
+     * 看这一页的人是不是**批发商**（`users.is_member` 的货主）——「谁能拨司机电话」要用它。
+     *
+     * 传的是**事实**（我是不是批发商），判断留在用它的那一行（`canDialDriver(role, memberShipper)`）：
+     * 会话里没有 `is_member`，这一页自己取不到（见 `OrderDetailViewModel.isMemberShipper`）。
+     */
+    memberShipper: Boolean = false,
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
     LazyColumn(
@@ -735,13 +747,15 @@ private fun DetailBody(
                 if (role == Role.DRIVER || role == Role.DISPATCHER) {
                     if (order.internalNotes.isNotBlank()) InfoRow("内部备注", order.internalNotes)
                 }
-                // 司机那一行（2026-09-22 用户：「加一个功能就是在订单详情的界面当中**可以拨打司机电话**……
-                // 这个功能显示**只会在派单端里，其他人是没有的**，也就是点击一个**拨号按钮**，
-                // 它**自动弹到那个拨号界面**，然后可以拨号打电话给司机」）。
+                // 司机那一行（2026-09-22 用户两轮口述：「加一个功能就是在订单详情的界面当中
+                // **可以拨打司机电话**……这个功能显示**只会在派单端里**，其他人是没有的」
+                // → 本轮放宽：「派单员……**包括啊或者批发商也是可以拨打司机电话**的……
+                // **只有这两个人**能看得到，**司机是没有这个的**」）。
                 //
-                // ① **拨号按钮只给派单端**：收货人/下单人那两行是"记着这个人是谁"，谁都能看；
-                //    司机是对派单员的一个**动作**（"问问他到哪了"）—— 货主自己会跟司机联系，
-                //    司机更不需要打给自己。⛔ 别把按钮放宽到所有角色。
+                // ① **"谁能拨"的判据只有一处**：`ui/common/DriverCall.kt::canDialDriver`
+                //    （派单员 + **批发商**）。⛔ 别在这一行里再写一遍角色判断，更别顺手放宽成"所有货主"。
+                //    这一行本身（司机是谁 + 电话）三个角色都看得到 —— 它同时是"这单谁在拉"的记账信息，
+                //    所以门只落在**动作**（那颗按钮）上，不落在这一行上。
                 // ② 号码**不是能拨的形状**时（空号、或司机账号进了回收站之后后端下发的
                 //    `13800001234_del160` 这种带软删后缀的值）不给按钮：一个点不动的按钮比
                 //    没有按钮更糟，用户会以为是 App 坏了。判据复用 `InputRules`（**不自己写一份
@@ -755,7 +769,7 @@ private fun DetailBody(
                     DriverRow(
                         name = order.driverName.orEmpty(),
                         phone = driverPhone,
-                        onDial = if (role == Role.DISPATCHER && dialable) {
+                        onDial = if (canDialDriver(role, memberShipper) && dialable) {
                             {
                                 // `ACTION_DIAL`（不是 `ACTION_CALL`）：只把号码填进系统拨号盘、
                                 // 由用户自己按最后那一下 —— 不需要 CALL_PHONE 权限，也不会误触就拨出去

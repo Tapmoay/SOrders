@@ -454,12 +454,18 @@ fun OrderCreateScreen(
                         icon = Icons.Default.Phone,
                         iconTint = Color(0xFF00B578),
                     )
-                    // 下单人：名称 + 电话，进页面就按**当前登录账号**填好（`prefillOrderer`）。
+                    // 下单人：名称 + 电话。**填谁由角色决定，不要在这里再判一次**（判据在
+                    // `OrdererPrefill.kt::ordererContactFor`）：
+                    // · 货主 / 批发商自己下单 → 进页面就按**账号资料**填好（`prefillOrdererFromSelf`）；
+                    // · **派单员代理下单** → 跟着**选中的那位货主**走（`setShipper` → `applyOrdererFromShipper`），
+                    //   一位都没选时这里是空的（用户 2026-09-22：「他不能填写自己的名称和电话号码，
+                    //   他要填的是自动填选的是货主的」）。所以占位文案也随角色变 —— 不然派单员会以为
+                    //   "这里本来就该是空的"，然后手打一个自己的名字进去。
                     FormInputRow(
                         label = "下单人名称",
                         value = vm.bossName,
                         onValueChange = { vm.bossName = it },
-                        placeholder = "默认当前账号",
+                        placeholder = if (vm.proxyMode) "选择货主后自动填入" else "默认当前账号",
                         icon = Icons.Default.Person,
                         iconTint = Color(0xFF1E6FFF),
                     )
@@ -467,7 +473,9 @@ fun OrderCreateScreen(
                         label = "下单人电话",
                         value = vm.bossPhone,
                         onValueChange = { vm.bossPhone = InputRules.phoneInput(it) },
-                        placeholder = "选填",
+                        // 临时货主（未注册）库里没有号码，那一支要派单员自己填 —— 文案说"选货主后自动填"
+                        // 而不是"必填"，避免把"可以留空"说成"必须填"。
+                        placeholder = if (vm.proxyMode) "选货主后自动填入" else "选填",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
                         iconTint = Color(0xFF00B578),

@@ -124,11 +124,15 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var dongjiaPhone by mutableStateOf("")
     var bossPhone by mutableStateOf("")
     /**
-     * 收货人 / 下单人的**名称**（2026-09-20 用户要求）。
+     * 收货人 / 下单人的**名称**（2026-09-20 用户要求；下单人的来源 2026-09-22 第二轮改过）。
      *
      * 自动填选的两条来源（各一处，别在界面里再判一次）：
-     * · **下单人** = 当前登录账号本人（货主 / 批发商 / 代下单的派单员都一样）→ [prefillOrderer]；
-     * · **收货人** = 选中的那条线路（`shipper_addresses.receiver_name`）→ [applyAddress]。
+     * · **收货人** = 选中的那条线路（`shipper_addresses.receiver_name`）→ [applyAddress]；
+     * · **下单人** = **这一单的货主** → 判据只有一处
+     *   （`OrdererPrefill.kt::ordererContactFor`，⚠️ 别在这里再写一遍）：
+     *   货主 / 批发商自己下单＝他自己（[prefillOrdererFromSelf]，走 `/users/me`）；
+     *   **派单员代理下单＝选中的那位货主**（[applyOrdererFromShipper]，⚠️ 选了谁就是谁，
+     *   一位都没选时**留空** —— ⛔ 绝不留派单员自己的姓名/电话）。
      * 两个都是**可改**的普通输入框：自动填只是省一次输入，不是锁死。
      */
     var dongjiaName by mutableStateOf("")
@@ -222,19 +226,33 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var canManageSharedPlaces by mutableStateOf(false)
         private set
 
+    /**
+     * 这一页是不是**代理下单**（登录角色是派单员）。
+     *
+     * 它只决定一件事，但那件事很要紧：**「下单人」不许填成派单员自己**
+     * （用户 2026-09-22：「派单员，他是代理下单啊，所以他不能填写自己的名称和电话号码，
+     * 他要填的是自动填选的是货主的」）。判据只有一处（`OrdererPrefill.kt`），
+     * 这个标记只是"该走哪一支"。界面也用它换一句占位文案。
+     */
+    var proxyMode by mutableStateOf(false)
+        private set
+
     init {
         viewModelScope.launch {
             val s = container.tokenStore.sessionFlow.first()
             myShipperId = s?.userId
-            canManageSharedPlaces = s?.role == "dispatcher"
-            // 下单人自动填：取**账号资料**（`/users/me`）里的姓名与电话。
-            // ⛔ 不能用会话里的 `username` 当电话 —— 它不一定是手机号（种子/老数据里可能是人名），
-            //    填一个打不通的号比空着更糟。取不到就只填姓名（会话里有），电话留给用户自己填。
-            try {
-                val me = container.repo.me()
-                prefillOrderer(me.fullName.ifBlank { s?.fullName }, me.phone)
-            } catch (_: Exception) {
-                prefillOrderer(s?.fullName, null)
+            proxyMode = s?.role == "dispatcher"
+            canManageSharedPlaces = proxyMode
+            // 代理下单**不预填自己**：等 `setShipper` 选了货主再填那位货主的（见 [applyOrdererFromShipper]）。
+            if (!proxyMode) {
+                // 货主 / 批发商自己下单：下单人＝他自己，取**账号资料**（`/users/me`）的姓名与电话。
+                // ⛔ 不能用会话里的 `username` 当电话（种子/老数据里可能是人名 → 填一个打不通的号）。
+                try {
+                    val me = container.repo.me()
+                    prefillOrdererFromSelf(me.fullName.ifBlank { s?.fullName }, me.phone)
+                } catch (_: Exception) {
+                    prefillOrdererFromSelf(s?.fullName, null)
+                }
             }
             loadPriceRulesFor(s?.userId)
         }
@@ -412,7 +430,37 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     fun setShipper(id: Long?, tempName: String?) {
         shipperId = id
         tempShipperName = tempName?.trim()?.ifBlank { null }
+        // 「下单人」跟着货主走（用户 2026-09-22：「他选择货主之后，他写的货主的信息就会
+        // 自动地填入进去，也就是名称和电话号码」）—— 代理下单这一路上这是**唯一**的填法。
+        if (proxyMode) applyOrdererFromShipper(id)
         loadPriceRulesFor(id ?: myShipperId)
+    }
+
+    /**
+     * 把「下单人」换成 [id] 这位货主（**代理下单专用**）。
+     *
+     * ⚠️ 名册里查不到就**去后端单取一个**：`shippers` 只在打开"选择货主"弹窗时才拉
+     *    （[loadShippers]），而「用预订单下单」是**带参直达**这一页的（[prefillFromTemplate]）
+     *    —— 那条路上名册可能还是空的，静默不填的表现就是"下单人又空了"，而这一轮要修的正是它。
+     * ⚠️ 先按**手上有的**写一次（查不到就写空）：宁可空着，也绝不能留着**上一位**货主的电话
+     *    —— 那是一串看起来很正常的号码，司机到了现场打过去是**别人**。
+     */
+    private fun applyOrdererFromShipper(id: Long?) {
+        if (id == null) {
+            // 临时货主那一支（或什么都没选）：名字从临时货主来，电话留空。
+            writeOrderer(ordererContactFor(null, null, proxyMode = true, shipper = null, tempShipperName = tempShipperName))
+            return
+        }
+        val cached = shippers.firstOrNull { it.id == id }
+        writeOrderer(ordererContactFor(null, null, proxyMode = true, shipper = cached, tempShipperName = null))
+        if (cached != null) return
+        viewModelScope.launch {
+            val u = runCatching { container.repo.userById(id) }.getOrNull() ?: return@launch
+            // 这期间用户可能又换了货主 / 改成临时货主了 —— 只认"还是这一个 id"的回包（防串号）
+            if (proxyMode && shipperId == id && tempShipperName == null) {
+                writeOrderer(ordererContactFor(null, null, proxyMode = true, shipper = u, tempShipperName = null))
+            }
+        }
     }
 
     // ============================================================ 预订单（预设单）预填
@@ -706,17 +754,29 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /**
-     * 把「下单人」自动填成**当前登录账号本人**（用户 2026-09-20：
-     * 「这个下单人会根据自己的账号来自动填选，比如是批发商或派单员，就自动填上去名称和电话号码」）。
+     * 把「下单人」自动填成 [fullName] / [phone]（＝**当前登录账号本人**）。
      *
+     * ⚠️ 只有**货主自己下单**那一支会走到这里（代理下单走 [applyOrdererFromShipper]：
+     *    派单员不许把自己的姓名/电话留在这一单上）。
      * ⚠️ 两个"不覆盖"：字段已经有人填过就不动（`sessionFlow` 是 DataStore 冷流，
      *    这个回填是**异步**落到界面上的，落下时用户可能已经在打字了）。
      */
-    fun prefillOrderer(fullName: String?, phone: String?) {
-        val n = fullName.orEmpty().trim()
-        val p = phone.orEmpty().trim()
-        if (bossName.isBlank() && n.isNotEmpty()) bossName = n
-        if (bossPhone.isBlank() && p.isNotEmpty()) bossPhone = p
+    fun prefillOrdererFromSelf(fullName: String?, phone: String?) {
+        writeOrderer(
+            ordererContactFor(fullName, phone, proxyMode = false, shipper = null, tempShipperName = null),
+            onlyWhenBlank = true,
+        )
+    }
+
+    /**
+     * 写「下单人」两栏 —— **唯一**的落笔点（[prefillOrdererFromSelf] 与 [applyOrdererFromShipper] 都走它）。
+     *
+     * @param onlyWhenBlank 只在空栏时填。账号预填那一支要它（异步回包别盖掉用户刚打的字）；
+     *   换货主那一支**不要**它 —— 换了货主还留着上一位的姓名/电话，就是一张归属错人的单。
+     */
+    private fun writeOrderer(c: OrdererContact, onlyWhenBlank: Boolean = false) {
+        if (!onlyWhenBlank || bossName.isBlank()) bossName = c.name
+        if (!onlyWhenBlank || bossPhone.isBlank()) bossPhone = c.phone
     }
 
     /**
