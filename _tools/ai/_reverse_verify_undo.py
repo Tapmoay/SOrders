@@ -50,9 +50,16 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "撤回快照挪到 commit 之后（写下去之后才抓，抓到的已经是新值）",
         WSVC,
+        # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已腐烂）：2026-09-21 批量那一轮
+        #    在快照前面插了 `val batched = isBatchPayload(p.payload)` 与
+        #    `if (batched) null else try { … }` —— 原来那句单行 `val undo = try {` 已经不在了。
+        #    注入表达的意思没变：**在抓快照之前先 commit 一次**（快照就抓不到"改前"）。
         lambda s: s.replace(
-            "            val undo = try {\n                AiRevert.plan(ds, p.actionId, p.payload, p.summary)",
-            "            handler.commit(p.payload, \"ai-\" + token)\n            val undo = try {\n                AiRevert.plan(ds, p.actionId, p.payload, p.summary)",
+            "            val batched = isBatchPayload(p.payload)\n"
+            "            val undo = if (batched) {\n",
+            "            handler.commit(p.payload, \"ai-\" + token)\n"
+            "            val batched = isBatchPayload(p.payload)\n"
+            "            val undo = if (batched) {\n",
             1,
         ),
     ),

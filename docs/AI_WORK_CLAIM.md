@@ -20,7 +20,68 @@
 
 ## 进行中
 
-### [2026-09-23 01:2x →] 会话：**全项目系统性复核 · 第 4 轮**（并发实测：抓到两条动钱的并发缺陷 + 一条无 CAS 的状态跃迁）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-23 02:0x →] 会话：**全项目系统性复核 · 第 5 轮**（AI 能力补齐：三份分类名册 + 一条"反向验证的锚点还找得到吗"的元检查）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+用户这一轮的口径没变：「**所有的操作，主要是人能操作的他都可以操作**」。上一轮复核列出的
+「AI 写覆盖 147 个端点 / 还有 12 个『分类名册』端点写在 EXCLUDED 里」就是这条口径下的缺口 ——
+当初写那 12 条理由（"分类名册是界面配置，用户自己在分类管理页上调"）时，AI 手上一条名册动作都没有；
+按用户的口径它不是"不需要"，而是**能力缺失**。
+
+**① 三份名册一共 12 个写动作 + 2 组读能力补齐**（开销分类 / 运费分类 / 预订单分类，各 建·改名·删·重排）
+- 复用既有扩展点，**零后端改动**（后端三个 Out schema 早就带 `expense_count` / `template_count` /
+  `rule_count`，卡片直接拿它说"这一类下挂着几笔"，不用新端点）；
+- 重排那三张卡与商品分类/地点分组**共用一份实现**（`AiWriteCatalogHandlers.kt::reorderRoster`，
+  本轮把原来两份抄写抽出来）；
+- 三份名册都是**派单员专属** → 刻意**不进** `SHIPPER_ACTIONS`（fail-closed）。
+- `_write_coverage.py` 147 个写端点：**127 已覆盖 / 20 有书面理由 / 0 真缺口**；
+  `_read_coverage.py` 60 个无参 GET 端点：56 有读动作 + 4 条书面理由 + 0 没交代。
+
+**② 单测当场抓到三处（含我自己刚写出来的两个缺陷）**
+| 断言 | 抓到什么 |
+|---|---|
+| `重排分类：卡片把新顺序整个列出来` | 抽共用实现时把摘要写成了 `"重排…：3 个"`（**量词被抹平**，原来是「3 个分类」）→ `unit` 参数跟着名册走 |
+| `每一个动作都必须回答误操作了怎么办` | 三个新重排动作**既不能撤回、也没写为什么** → `AiRevert.UNDO_NONE` 各写一句（单测给"共用"设了上限：同一条理由最多覆盖 2 个动作，而三份名册的后果各不相同，所以逐条写） |
+| `动作总数与域覆盖` | 上界 131 早就是个"大概没重复"的粗判据 → 抬到 143 并把每一批的来源写进注释 |
+
+**③ 顺手抓到的一个真缺陷（没有任何检查在管）：卡片里那句「先读一次 XXX」**
+重排卡的 `readHint` 我写成了 `expense_categories.list_expense_categories`，而目录里真名是
+`expense_categories.list_categories`（**自己拼的名字**）。后果很隐蔽：卡片照印，模型照着调一个
+**不存在的读动作**，然后开始猜名字 —— 用户看到"它怎么老读错"，日志里一条异常都没有。
+`readHint` 这个词在 1277 项判据里**一次都没出现过** → 新增红线 **§35**（3 项，现 1280 项）+
+反向验证 `_reverse_verify_read_hints.py`（3 条注入）。
+
+**④ 一条元检查：`_check_reverse_verify_anchors.py`（新的第 80 个检查）**
+反向验证靠「把源码里某段原文换成 bug」来证明红线有牙，**原文一变它就静默 SKIP**。
+全量跑一遍 50 分钟、平时用 `--changed` 只挑子集 → **没人动过的**文件的陈旧锚点永远挑不中。
+这条检查**静态核对** 98 份脚本的 1023 条锚点（一两秒），当场点出 6 条已经腐烂的：
+
+| 腐烂的锚点 | 从什么时候起恒 SKIP |
+|---|---|
+| `_reverse_verify_round12.py` ×2（逐单金额上界 / 挂账未收） | 提示语过 `money_text`、以及本轮第 3 轮给 `reports.py` 加窗口预过滤 |
+| `_reverse_verify_vm_init_order.py`（带参调用那条，实测 **[MISS]**：注入只做了一半） | 账本 VM 的 init 改成"先盘点、再取数" |
+| `_reverse_verify_notify.py`（共用行组件收下 onClick 就丢） | 2026-09-22「点一下不要水波纹」把那一行改成多行 |
+| `_reverse_verify_expense_page.py`（**锚点 + 期望文案两头都腐烂**） | 排序草稿状态机收进 `CategoryRosterViewModel` |
+| `_reverse_verify_freight_pricing.py`（`Text(` → `Hint(`） | 提示语统一走 Hint |
+| `_reverse_verify_input_rules.py`（缩进 12→4，**半腐烂**：还红得起来所以更不容易被发现） | `QuantityStepper` 搬出嵌套块 |
+| `_reverse_verify_undo.py`（撤回快照那条） | 2026-09-21 批量那轮在快照前插了 `batched` 判断 |
+
+⚠️ **顺带修掉 `--changed` 的一处静默漏选**：它原来只做"整条相对路径是不是脚本的子串"，
+而很多脚本把目录与文件名**拆成两个常量**写（`AI = ROOT / "…/ai"` + `WSVC = AI / "AiWriteService.kt"`）
+→ 改 `AiWriteService.kt` **选不中** `_reverse_verify_undo.py`（那条锚点就是这么烂掉的）。
+现在补一条**文件名匹配**：宁可多选（多跑几份只是慢），漏选才是要命的。
+
+**要改的文件**：`android/.../ai/{AiWrite.kt,AiWriteBasicData.kt,AiWriteCatalogHandlers.kt,AiWriteService.kt,AiResources.kt,AiRevert.kt,AiReadCatalog.kt(重生成)}`、
+`android/app/src/test/.../ai/AiWriteTest.kt`、`_tools/ai/{_write_coverage,_read_coverage,_app_feature_coverage,_check_ai_guardrails,_gen_ai_read_catalog,_gen_ai_toolmap,_reverse_verify_all,_reverse_verify_undo,_reverse_verify_notify,_reverse_verify_read_hints(新)}.py`、
+`_tools/qa/{_check_reverse_verify_anchors(新),_reverse_verify_anchor_audit(新),_reverse_verify_round12,_reverse_verify_vm_init_order,_reverse_verify_expense_page,_reverse_verify_freight_pricing,_reverse_verify_input_rules}.py`、
+`docs/ai/{ai_toolmap.json,ai_read_catalog.json,kb_skeleton.md}(重生成)`、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`_archive/audit/FINDINGS.md`。
+
+**验收数字**：`_check_all.py` **80/80**（新增第 80 个检查） · 后端 pytest **795 passed** ·
+Android 单测 **1078 passed / 0 failed**（其中 3 条是这轮先红后修的） ·
+红线 **1280 项** · 锚点审计 **1023/1023** · 它自己的反向验证 **6/6** · §35 反向验证 **3/3** ·
+被修锚点的六份反向验证 **12/12 + 30/30 + 4/4 + 17/17 + 23/23 + 19/19 + 26/26 + 45/45**。
+
+
+### [2026-09-23 01:2x → 02:0x] 会话：**全项目系统性复核 · 第 4 轮**（并发实测：抓到两条动钱的并发缺陷 + 一条无 CAS 的状态跃迁）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 `HANDOVER.md` 的另一条空白：「并发压力测试：只有针对性的并发注入，没有『多用户混跑』的压测」。
 这一轮补的是**更窄但更容易出真事故**的一层：**同一张单 / 同一笔钱被同时动手两次**。

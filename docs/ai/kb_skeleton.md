@@ -72,6 +72,7 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/expense-categories` | 开销分类名册（按显示顺序）。**仅派单员**（开销这一块本来就只有他能看）。 |  |
 | `create_category` | 写 | `POST /api/v1/expense-categories` |  |  |
 | `update_category` | 写 | `PATCH /api/v1/expense-categories/{category_id}` | 改名 / 改顺序 / 改"突出哪一项"。**改名会级联改掉挂在它下面的开销**（同一事务）。 |  |
 | `reorder_categories` | 写 | `POST /api/v1/expense-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前。 |  |
@@ -94,6 +95,7 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/freight-categories` | 运费分类名册（按显示顺序）。运费模板页与计费规则页共用这一份。 |  |
 | `create_category` | 写 | `POST /api/v1/freight-categories` |  |  |
 | `update_category` | 写 | `PATCH /api/v1/freight-categories/{category_id}` | 改名 / 改顺序。**不需要级联**：两条线都按编号关联（见模块注释第 1 条）。 |  |
 | `reorder_categories` | 写 | `POST /api/v1/freight-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前（**必须覆盖全部现存分类**，见模块注释第 3 条）。 |  |

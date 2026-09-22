@@ -87,11 +87,15 @@ object AiReadCatalog {
             ReadParam("month", "str", false, emptyList(), false),
             ReadParam("status", "str", false, emptyList(), false),
         )),
+        ReadAction("expense_categories.list_categories", "开销分类名册（「开销管理」左栏那一列的名字与顺序，带每类下有**几笔开销**；⚠️ 改名会级联改掉挂在这一类下的开销记录）", "/api/v1/expense-categories", "", setOf("dispatcher"), false, listOf(
+        )),
         ReadAction("expenses.list_expenses", "支出记录", "/api/v1/expenses", "category、driver_id、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("category", "str", false, emptyList(), false),
             ReadParam("driver_id", "int", false, emptyList(), true),
             ReadParam("date_from", "date", false, emptyList(), false),
             ReadParam("date_to", "date", false, emptyList(), false),
+        )),
+        ReadAction("freight_categories.list_categories", "运费分类名册（「哪几类货」那张配置表：名字、顺序，带每类下挂着**几条价目**与**几份计费规则**；⚠️ 还有价目/规则挂着时不许删）", "/api/v1/freight-categories", "", setOf("dispatcher"), false, listOf(
         )),
         ReadAction("freight_settlement.freight_settlement", "司机运费结算（按司机聚合，含订单明细）", "/api/v1/freight-settlement", "month、from、to", setOf("dispatcher", "driver"), false, listOf(
             ReadParam("month", "str", false, emptyList(), false),
@@ -300,7 +304,9 @@ object AiReadCatalog {
         "driver_billing_rules" to "司机计费规则",
         "driver_bills" to "司机账单",
         "driver_settlements" to "司机结算单",
+        "expense_categories" to "开销分类",
         "expenses" to "费用",
+        "freight_categories" to "运费分类",
         "freight_settlement" to "司机运费结算",
         "freight_templates" to "订单/运费模板",
         "inventory" to "库存管理",

@@ -169,9 +169,12 @@ CASES: list[tuple[str, str, object, str]] = [
         "选品弹层里冒出一个「价格」输入框（下单链路又能改价）",
         PRODUCT_PICKER,
         lambda s: s.replace(
-            '            var qty by remember { mutableStateOf(initialQty.coerceAtLeast(1)) }',
-            '            var qty by remember { mutableStateOf(initialQty.coerceAtLeast(1)) }\n'
-            '            var p by remember { mutableStateOf(price) }',
+            # ⚠️ 缩进跟着实现走（2026-09-23 静态审计抓到：这一格原来写 12 个空格，
+            #    而 `QuantityStepper` 已经不在嵌套块里了）—— 原文对不上时 `.replace` 静默不生效，
+            #    这条注入就只剩下一半（另一处 Column 锚点还在，所以它还红得起来、更不容易被发现）。
+            '    var qty by remember { mutableStateOf(initialQty.coerceAtLeast(1)) }',
+            '    var qty by remember { mutableStateOf(initialQty.coerceAtLeast(1)) }\n'
+            '    var p by remember { mutableStateOf(price) }',
             1,
         ).replace(
             '            Column {\n                Row(verticalAlignment = Alignment.CenterVertically) {\n'

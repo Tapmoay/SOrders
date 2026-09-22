@@ -157,9 +157,12 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "逐单金额的上界判据被拿掉（1e20 又能落库）",
         "backend/app/services/driver_pay.py",
+        # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已腐烂）：那句提示语后来过了
+        #    `money_text(MONEY_MAX)`（给人看的数字统一格式化），中间还插了一行注释。
         lambda s: s.replace(
             "    if money(piece_override) > MONEY_MAX:\n"
-            "        return f\"这一单的司机金额不能超过 {MONEY_MAX} 元（金钱字段的上限）\"\n",
+            "        # 给人看的那句话过 `money_text`（判据仍是上面那行 `money(...) > MONEY_MAX`，`Decimal`）。\n"
+            "        return f\"这一单的司机金额不能超过 {money_text(MONEY_MAX)} 元（金钱字段的上限）\"\n",
             "",
             1,
         ),
@@ -240,9 +243,15 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "「挂账未收」又加上 payment_method 那一条（两处口径再次分叉）",
         "backend/app/api/v1/reports.py",
+        # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已腐烂）：下面那句 `paid.is_(False)`
+        #    后面多了"与 load_delivered 同一个窗口预过滤"的注释 + `*delivered_span_sql(...)`
+        #    （2026-09-23 容量实测那一轮的加速改动）。
+        #    这里只锚**那一行**（全库唯一）—— 注入要表达的是"多一条 payment_method 判据"，
+        #    与它后面跟什么无关，把整段括号尾巴写进锚点只会让它跟着实现一起烂。
         lambda s: s.replace(
-            "                Order.paid.is_(False),\n            )\n        )\n    )\n    unit_map",
-            "                Order.payment_method == \"arrears\",\n                Order.paid.is_(False),\n            )\n        )\n    )\n    unit_map",
+            "                Order.paid.is_(False),\n",
+            "                Order.payment_method == \"arrears\",\n"
+            "                Order.paid.is_(False),\n",
             1,
         ),
         "tests/test_audit_round13_guards.py::test_arrears_definitions_agree",

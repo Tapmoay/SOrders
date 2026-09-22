@@ -63,6 +63,12 @@ READ_METHODS = {
     "drivers", "vehicles", "searchShippers", "products", "arrearsUnits",
     "users", "addresses", "locations", "contacts", "priceRules",
     "freightTemplates", "customers", "members", "salaryDrivers",
+    # 三张配置名册的列表读（2026-09-23）：`GET /expense-categories` / `GET /freight-categories` /
+    # `GET /order-template-categories` 都是**读**（真正写库的是 create/update/delete/reorder
+    # 那四个方法，它们不在白名单里，默认受"prepare 里不许写"的约束）。
+    # ⚠️ 与 `productCategories` / `placeCategories` 是同一种情况：重排要整份名册、
+    #    "改名/删除前报出影响面"也要先把名册读回来，所以它们**必须**能在 prepare 里调。
+    "expenseCategories", "freightCategories", "orderTemplateCategories",
     # 预订单名册（2026-09-22）：改/删预设单之前要按**名字**把它读回来（`GET /order-templates`）。
     # 它是读 —— 真正写库的是 createOrderTemplate / updateOrderTemplate / deleteOrderTemplate
     # （那三个不在白名单里，默认受"prepare 里不许写"的约束）。
@@ -4355,6 +4361,44 @@ def main() -> int:
         "**两个**构造点都填了它（漏一个就有一种查单方式绑不到价）",
         wsvc_c.count("shipperId = d.shipperId") >= 2,
         f"实际 {wsvc_c.count('shipperId = d.shipperId')} 处",
+    )
+
+    # ---- 35. 卡片叫模型「先读一次 XXX」时，那个 XXX 必须是**真的读动作**（2026-09-23）----
+    #
+    # 缘起：给三份分类名册补 AI 能力时，重排卡的 `readHint` 我写成了
+    # `expense_categories.list_expense_categories` —— 而目录里真名是
+    # `expense_categories.list_categories`（**不许自己拼**）。后果很隐蔽：
+    # 卡片上那句「先读一次 X 拿名册」照样印出来，模型照着调一个**不存在的读动作**，
+    # 只拿到一句工具不存在，然后开始猜名字 —— 用户看到的是"它怎么老读错"。
+    # 当时**一条检查都没拦**（`readHint` 这个词在 1277 项判据里一次都没出现过）。
+    #
+    # 判据：`readHint = "…"` 那一格必须能在机器生成的读目录里逐字找到，
+    # 而且那份目录里得**真的有这个动作**（不是"模块名 + 我自己拼的后缀"）。
+    print("\n== 35. 卡片里的「先读一次 XXX」必须指向真的读动作（v3.49）==")
+    catalog_kt = read(AI / "AiReadCatalog.kt")
+    local_kt = read(AI / "AiLocalReads.kt")
+    hint_files = sorted(AI.glob("AiWrite*.kt"))
+    hints: list[tuple[str, str]] = []
+    for f in hint_files:
+        for m in re.finditer(r'readHint\s*=\s*"([^"]+)"', strip_comments(read(f))):
+            hints.append((f.name, m.group(1)))
+    catalog_ids = set(re.findall(r'ReadAction\(\s*"([^"]+)"', catalog_kt))
+    catalog_ids |= set(re.findall(r'ReadAction\(\s*"([^"]+)"', local_kt))
+    c.ok(
+        f"扫到 {len(hint_files)} 份写处理器、{len(hints)} 处 readHint（少说明正则失效了）",
+        len(hint_files) >= 8 and len(hints) >= 5,
+        f"文件 {len(hint_files)} 份 / readHint {len(hints)} 处",
+    )
+    c.ok(
+        "读目录里认得出动作（认不出说明目录生成器换了形状）",
+        len(catalog_ids) >= 50,
+        f"只认出 {len(catalog_ids)} 个读动作",
+    )
+    bad_hints = [(f, h) for f, h in hints if h not in catalog_ids]
+    c.ok(
+        "每一处 readHint 都指向目录里真实存在的读动作（不许自己拼名字）",
+        not bad_hints,
+        f"对不上的：{bad_hints[:4]}",
     )
 
     print("\n" + "=" * 60)

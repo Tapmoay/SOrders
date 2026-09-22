@@ -118,11 +118,18 @@ MUTATIONS = [
         "列表页的按钮去新增页",
     ),
     (
-        "分类管理页不再复用商品那一份搬运逻辑（各写一份）",
+        # ⚠️ 2026-09-23 静态审计抓到这条**两头都腐烂了**（锚点 + 期望文案）：
+        #    排序的草稿状态机后来收进了 `ui/common/CategoryRosterViewModel.kt`，
+        #    这一页里那句 `val next = moveItemTo(...)` 早就不在页面上了 ——
+        #    而判据也跟着改成了「这一页真的用了共用内核」（不再钉页面里的写法）。
+        #    所以注入改成"不再继承共用内核、自己写第二套状态机"，期望文案同步成现在那条。
+        "分类管理页不再复用共用内核（自己写第二套状态机）",
         CATS,
-        "        val next = moveItemTo(categories, { it.id }, id, position)",
-        "        val next = categories",
-        "排序复用商品那一份搬运逻辑",
+        "class ExpenseCategoriesViewModel(container: AppContainer) :\n"
+        "    CategoryRosterViewModel<ExpenseCategoryDto>(container) {",
+        "class ExpenseCategoriesViewModel(container: AppContainer) :\n"
+        "    ViewModel() {",
+        "排序与提交都交给共用内核",
     ),
     (
         "排序不再走共用校验（端点自己拼一遍 ids，收口白做）",

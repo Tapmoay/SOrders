@@ -301,8 +301,22 @@ MUTATIONS = [
     (
         "共用行组件把 onClick 收下就丢（所有设置行都点不动，界面看着一切正常）",
         SRC / "ui/profile/ProfileRow.kt",
-        ".then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)",
-        ".then(Modifier)",
+        # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已经腐烂）：
+        #    2026-09-22 用户要求「点一下不要那个水波纹」之后，这一行从单行三元式
+        #    改成了多行 + `indication = null` 的 clickable。红线那一侧当时跟着改了锚点，
+        #    **这一侧没改** → 从那天起这条注入恒为 SKIP（45 条里少查一条，而没人发现）。
+        "            .then(\n"
+        "                if (onClick != null) {\n"
+        "                    Modifier.clickable(\n"
+        "                        interactionSource = remember { MutableInteractionSource() },\n"
+        "                        indication = null,\n"
+        "                        onClick = onClick,\n"
+        "                    )\n"
+        "                } else {\n"
+        "                    Modifier\n"
+        "                },\n"
+        "            )",
+        "            .then(Modifier)",
         "共用行组件真的把 onClick 接到 clickable 上（不是收下就丢）",
     ),
     (

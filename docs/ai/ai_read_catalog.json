@@ -2,8 +2,8 @@
  "generated_by": "_gen_ai_read_catalog.py",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 70,
-  "listed": 53,
+  "read_endpoints": 72,
+  "listed": 55,
   "missing_handler": []
  },
  "actions": [
@@ -405,6 +405,22 @@
    "skipped_params": []
   },
   {
+   "module": "expense_categories",
+   "action": "list_categories",
+   "cn": "开销分类",
+   "module_cn": "开销分类",
+   "method": "get",
+   "path": "/api/v1/expense-categories",
+   "at": "backend/app/api/v1/expense_categories.py:90",
+   "auth": "仅登录 + 体内仅允许:派单员",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [],
+   "skipped_params": []
+  },
+  {
    "module": "expenses",
    "action": "list_expenses",
    "cn": "费用",
@@ -459,6 +475,22 @@
      "desc": ""
     }
    ],
+   "skipped_params": []
+  },
+  {
+   "module": "freight_categories",
+   "action": "list_categories",
+   "cn": "运费分类",
+   "module_cn": "运费分类",
+   "method": "get",
+   "path": "/api/v1/freight-categories",
+   "at": "backend/app/api/v1/freight_categories.py:70",
+   "auth": "权限:ORDER_DISPATCH",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [],
    "skipped_params": []
   },
   {

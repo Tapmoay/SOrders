@@ -953,6 +953,70 @@ class AiWriteTest {
             masterCalls += "reorderPlaceCategories:${ids.joinToString(",")}"
         }
 
+        // ---- 开销 / 运费 / 预订单三份分类名册（2026-09-23 按"人能操作的 AI 都要能操作"补齐）----
+        // ⚠️ 三份都照上面那两份的形状写：读那一格 `also { boom() }`（读接口在撤回/重命名卡片
+        //    里也要用到，不该顺手写库），写那一格先 `boom()` 再记账（证明它真的调了数据源）。
+        var expenseCategoryRows = listOf(
+            AiName(91, "加油", note = "4 笔开销"),
+            AiName(92, "修车"),
+        )
+
+        override suspend fun expenseCategories() = expenseCategoryRows.also { boom() }
+        override suspend fun createExpenseCategory(fields: JsonObject) = rec("createExpenseCategory", fields)
+        override suspend fun updateExpenseCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updateExpenseCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deleteExpenseCategory(id: Long) {
+            boom()
+            masterCalls += "deleteExpenseCategory:$id"
+        }
+        override suspend fun reorderExpenseCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderExpenseCategories:${ids.joinToString(",")}"
+        }
+
+        var freightCategoryRows = listOf(
+            AiName(93, "日杂", note = "2 条价目 + 1 份规则"),
+            AiName(94, "生鲜"),
+        )
+
+        override suspend fun freightCategories() = freightCategoryRows.also { boom() }
+        override suspend fun createFreightCategory(fields: JsonObject) = rec("createFreightCategory", fields)
+        override suspend fun updateFreightCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updateFreightCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deleteFreightCategory(id: Long) {
+            boom()
+            masterCalls += "deleteFreightCategory:$id"
+        }
+        override suspend fun reorderFreightCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderFreightCategories:${ids.joinToString(",")}"
+        }
+
+        var orderTemplateCategoryRows = listOf(
+            AiName(95, "常送", note = "3 张预设单"),
+            AiName(96, "临时"),
+        )
+
+        override suspend fun orderTemplateCategories() = orderTemplateCategoryRows.also { boom() }
+        override suspend fun createOrderTemplateCategory(fields: JsonObject) =
+            rec("createOrderTemplateCategory", fields)
+        override suspend fun updateOrderTemplateCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updateOrderTemplateCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deleteOrderTemplateCategory(id: Long) {
+            boom()
+            masterCalls += "deleteOrderTemplateCategory:$id"
+        }
+        override suspend fun reorderOrderTemplateCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderOrderTemplateCategories:${ids.joinToString(",")}"
+        }
+
         /** 某个货主当前的可见范围（默认值照后端：`all` = 不限制）。 */
         var visibility = AiVisibility("all", emptyList())
 
@@ -3318,10 +3382,11 @@ class AiWriteTest {
         //    2026-09-19 给「地点分组」加了 4 个，2026-09-20 加了「补导航」1 个与「订单退货」1 个，
         //    2026-09-22 给「预订单」加了 4 个：建/改/删/恢复预设单 —— 120；
         //    2026-09-22 当天又给「供应商/应付款」加了 11 个：档案/应付单/付款三条线各四个
-        //    减去付款那条线的「撤销付款」—— 131）。
+        //    减去付款那条线的「撤销付款」—— 131；
+        //    2026-09-23 给三份「分类名册」（开销/运费/预订单）各加 4 个：建/改名/删/重排 —— 143）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 131（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 131)
+        assertTrue("动作数不该多于 143（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 143)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",

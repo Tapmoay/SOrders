@@ -366,6 +366,86 @@ internal object AiResources {
         ),
     )
 
+    // ============================ 另外三张配置名册（2026-09-23 补齐 AI 能力覆盖）============
+    //
+    // 三张都**只有派单员**（后端那几组端点都是派单员权限），都与商品分类同一套做法：
+    // 名册没有软删（后端 `delete_category` 就是 `db.delete(row)`），所以删除的撤回是
+    // **按原名重建一格**（名字和位置都能照原样写回去，能删就说明本来没有东西挂着）。
+    // ⚠️ 代价只有一个、必须写在卡上：**新的那一行编号和原来不一样**。
+
+    /** 开销分类名册。改名的撤回会把 `link_kind`（卡片突出哪一项）一起写回去。 */
+    private val EXPENSE_CATEGORY = AiResource(
+        key = "expense_category",
+        cn = "开销分类",
+        idKey = "category_id",
+        readKeys = setOf("name", "sort_order", "link_kind"),
+        labels = mapOf(
+            "name" to "分类名",
+            "sort_order" to "顺序（第几位）",
+            "link_kind" to "卡片上突出哪一项",
+        ),
+        actions = listOf(
+            update(AiWrites.EXPENSE_CATEGORY_UPDATE),
+            delete(AiWrites.EXPENSE_CATEGORY_DELETE),
+        ),
+        read = { ds, id -> ds.snapshot("expense_category", id) },
+        restore = AiInverse(
+            AiWrites.EXPENSE_CATEGORY_CREATE,
+            mapOf("name" to "name", "sort_order" to "sort_order", "link_kind" to "link_kind"),
+            lines = listOf("名字、位置和「突出哪一项」都照删之前那一行写回去（走的还是「新建开销分类」那个动作）"),
+        ),
+        restoreLines = listOf(
+            "按原来的名字和位置重建一格：开销分类名册没有回收站，删掉的那一行是真没了",
+            "⚠️ 重建出来的是新的一行，编号和原来不一样（能删就说明本来没有开销挂在它下面）",
+        ),
+    )
+
+    /** 运费分类名册（「哪几类货」那张配置表）。 */
+    private val FREIGHT_CATEGORY = AiResource(
+        key = "freight_category",
+        cn = "运费分类",
+        idKey = "category_id",
+        readKeys = setOf("name", "sort_order"),
+        labels = mapOf("name" to "分类名", "sort_order" to "顺序（第几位）"),
+        actions = listOf(
+            update(AiWrites.FREIGHT_CATEGORY_UPDATE),
+            delete(AiWrites.FREIGHT_CATEGORY_DELETE),
+        ),
+        read = { ds, id -> ds.snapshot("freight_category", id) },
+        restore = AiInverse(
+            AiWrites.FREIGHT_CATEGORY_CREATE,
+            mapOf("name" to "name", "sort_order" to "sort_order"),
+            lines = listOf("名字和位置都照删之前那一行写回去（走的还是「新建运费分类」那个动作）"),
+        ),
+        restoreLines = listOf(
+            "按原来的名字和位置重建一格：运费分类名册没有回收站，删掉的那一行是真没了",
+            "⚠️ 重建出来的是新的一行，编号和原来不一样（能删就说明本来没有价目/规则挂着）",
+        ),
+    )
+
+    /** 预订单分类名册。 */
+    private val ORDER_TEMPLATE_CATEGORY = AiResource(
+        key = "order_template_category",
+        cn = "预订单分类",
+        idKey = "category_id",
+        readKeys = setOf("name", "sort_order"),
+        labels = mapOf("name" to "分类名", "sort_order" to "顺序（第几位）"),
+        actions = listOf(
+            update(AiWrites.ORDER_TEMPLATE_CATEGORY_UPDATE),
+            delete(AiWrites.ORDER_TEMPLATE_CATEGORY_DELETE),
+        ),
+        read = { ds, id -> ds.snapshot("order_template_category", id) },
+        restore = AiInverse(
+            AiWrites.ORDER_TEMPLATE_CATEGORY_CREATE,
+            mapOf("name" to "name", "sort_order" to "sort_order"),
+            lines = listOf("名字和位置都照删之前那一行写回去（走的还是「新建预订单分类」那个动作）"),
+        ),
+        restoreLines = listOf(
+            "按原来的名字和位置重建一格：预订单分类名册没有回收站，删掉的那一行是真没了",
+            "⚠️ 重建出来的是新的一行，编号和原来不一样（能删就说明本来没有预设单挂着）",
+        ),
+    )
+
     /** 车辆（改车牌/车型/启用标记；换司机是另一个动作）。 */
     private val VEHICLE = AiResource(
         key = "vehicle",
@@ -826,6 +906,8 @@ internal object AiResources {
         ORDER_TEMPLATE,
         // 供应商 / 厂商 + 应付款 + 付款（2026-09-22）
         SUPPLIER, SUPPLIER_PAYABLE, SUPPLIER_PAYMENT,
+        // 另外三张配置名册（2026-09-23：AI 能建/改名/排序/删，所以撤回也要有归属）
+        EXPENSE_CATEGORY, FREIGHT_CATEGORY, ORDER_TEMPLATE_CATEGORY,
     )
 }
 
@@ -1012,6 +1094,35 @@ internal object AiRevertRead {
 
     /** 地点分组（与商品分类**同一个口径**：卡片上的"第几位"从 1 数，进 payload 的 `sort_order` 从 0 数）。 */
     fun placeCategory(d: com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        put("sort_order", JsonPrimitive(d.sortOrder + 1))
+    }
+
+    /**
+     * 开销分类（另外三张配置名册之一，2026-09-23）。
+     *
+     * ⚠️ 这里多一个 `link_kind`：它是这个分类**唯一**的"非名字"属性（卡片上突出显示哪一项），
+     * 撤回时要一起写回去 —— 漏了它，撤回之后的分类名字对了、突出项却留在改后的样子，
+     * 而那种差异在名册页上要逐行点开才看得出来。
+     */
+    fun expenseCategory(d: com.tapmoay.sorders.data.remote.dto.ExpenseCategoryDto): JsonObject =
+        buildJsonObject {
+            put("name", d.name)
+            put("sort_order", JsonPrimitive(d.sortOrder + 1))
+            put("link_kind", d.linkKind)
+        }
+
+    /** 运费分类（同一口径：卡片"第几位"从 1 数）。 */
+    fun freightCategory(d: com.tapmoay.sorders.data.remote.dto.FreightCategoryDto): JsonObject =
+        buildJsonObject {
+            put("name", d.name)
+            put("sort_order", JsonPrimitive(d.sortOrder + 1))
+        }
+
+    /** 预订单分类（同一口径）。 */
+    fun orderTemplateCategory(
+        d: com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryDto,
+    ): JsonObject = buildJsonObject {
         put("name", d.name)
         put("sort_order", JsonPrimitive(d.sortOrder + 1))
     }

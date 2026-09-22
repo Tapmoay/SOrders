@@ -1309,6 +1309,36 @@ object AiWrites {
     const val PLACE_CATEGORY_DELETE = "place_category.delete"
     const val PLACE_CATEGORY_REORDER = "place_category.reorder"
 
+    // ---- 另外三张**配置名册**：开销分类 / 运费分类 / 预订单分类（2026-09-23 补齐 AI 能力覆盖）
+    //
+    // 这三张名册原来在 `_write_coverage.py` 里挂着「不做」的理由（"分类名册是界面配置，
+    // 用户在分类管理页上调"）。2026-09-23 复核时按用户那条硬规矩收回：
+    // **「人能操作、AI 就要能操作」**（用户 2026-09-22 原话：「所有的操作，主要是人能操作的
+    // 他都可以操作」）—— 界面上分类管理页能做的四件事（建/改名/排序/删），AI 都要有。
+    //
+    // ⚠️ 三条**必须写在卡片上**的后果（这也是当初那条"不做"理由真正担心的东西）：
+    //   ① **改名会级联**：开销分类改名 → 挂在这一类下的开销记录跟着改名；
+    //      预订单分类改名 → 挂着的预设单跟着改名（后端同一个事务里做）。
+    //      所以改名的卡上必须写出"这一类下有 N 笔开销 / N 张预设单"。
+    //   ② **删之前要看挂着多少**：三张名册在后端都会拒绝"还有东西挂着"的删除，
+    //      并把数量写在报错里 —— 卡片上要先把那个数摆出来（别让用户点完确认才吃一个错）。
+    //   ③ **排序是整份提交**（名册里每一格都要出现一次，少一个后端整份拒绝），
+    //      所以"重排"是手写动作，卡片要把改前改后两份顺序都列出来。
+    // ⚠️ 三组都**只有派单员**（后端这几个端点全是派单员权限）；不进 [SHIPPER_ACTIONS]
+    //    就是默认不给货主（fail-closed）。
+    const val EXPENSE_CATEGORY_CREATE = "expense_category.create"
+    const val EXPENSE_CATEGORY_UPDATE = "expense_category.update"
+    const val EXPENSE_CATEGORY_DELETE = "expense_category.delete"
+    const val EXPENSE_CATEGORY_REORDER = "expense_category.reorder"
+    const val FREIGHT_CATEGORY_CREATE = "freight_category.create"
+    const val FREIGHT_CATEGORY_UPDATE = "freight_category.update"
+    const val FREIGHT_CATEGORY_DELETE = "freight_category.delete"
+    const val FREIGHT_CATEGORY_REORDER = "freight_category.reorder"
+    const val ORDER_TEMPLATE_CATEGORY_CREATE = "order_template_category.create"
+    const val ORDER_TEMPLATE_CATEGORY_UPDATE = "order_template_category.update"
+    const val ORDER_TEMPLATE_CATEGORY_DELETE = "order_template_category.delete"
+    const val ORDER_TEMPLATE_CATEGORY_REORDER = "order_template_category.reorder"
+
     // ---- 共享地点库的管理（2026-09-19：用户要求 AI 也要会这一套）----
     //
     // 用户原话：「再给派单端的 AI 去增加这些功能，比如说**更改共享地址的名称**，
@@ -1370,6 +1400,12 @@ object AiWrites {
     const val G_CATEGORY = "商品分类"
     /** 地点分组（**按人分区**：每个人管自己地址库左栏那一列）。 */
     const val G_PLACE_CATEGORY = "地点分组"
+    /** 开销分类名册（决定「这笔钱算哪一类」，改名会级联改掉挂着的开销）。 */
+    const val G_EXPENSE_CATEGORY = "开销分类"
+    /** 运费分类名册（决定「这类货走哪条价目」）。 */
+    const val G_FREIGHT_CATEGORY = "运费分类"
+    /** 预订单分类名册（决定「我这几张常用的单分成哪几类」）。 */
+    const val G_ORDER_TEMPLATE_CATEGORY = "预订单分类"
     /** 共享地点（**全库共用**那一张表：改一条，所有人的选点列表都跟着变）。 */
     const val G_PLACE = "共享地点"
     const val G_PRICE = "批发商定价"
@@ -2101,6 +2137,62 @@ object AiWrites {
                     "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
                     hint = "必填。按想要的先后顺序**写全所有分组名**，用「、」或逗号隔开" +
                         "（如「常送小区、工地」）。先读一次 place_categories.list_categories " +
+                        "拿到当前名册，一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
+                ),
+            ),
+        ),
+
+        // ------------------------------------------ 开销 / 运费 / 预订单分类（整份重排）
+        //
+        // 与上面两张名册的"重排"同形（手写而**不是**声明式：输入是一整份顺序，后端少一个就 400）。
+        // 三张都**只有派单员**（后端那几个端点都是派单员权限）。
+        AiWriteAction(
+            id = EXPENSE_CATEGORY_REORDER,
+            title = "重排开销分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_EXPENSE_CATEGORY,
+            blurb = "把开销分类在「开销管理」左栏里的先后顺序一次换掉。" +
+                "**必须给全**：名册里的分类一个都不能漏（后端少一个就整份拒绝）。" +
+                "它只改显示顺序，一笔开销算哪一类都不动。",
+            params = listOf(
+                AiWriteParam(
+                    "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
+                    hint = "必填。按想要的先后顺序**写全所有分类名**，用「、」或逗号隔开" +
+                        "（如「油费、维修、过路费」）。先读一次 expense_categories.list_expense_categories " +
+                        "拿到当前名册，一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
+                ),
+            ),
+        ),
+        AiWriteAction(
+            id = FREIGHT_CATEGORY_REORDER,
+            title = "重排运费分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_FREIGHT_CATEGORY,
+            blurb = "把运费分类（「哪几类货」那张配置表）的先后顺序一次换掉。" +
+                "**必须给全**：名册里的分类一个都不能漏（后端少一个就整份拒绝）。" +
+                "它只改显示顺序，一条价目/计费规则挂在哪一类都不动。",
+            params = listOf(
+                AiWriteParam(
+                    "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
+                    hint = "必填。按想要的先后顺序**写全所有分类名**，用「、」或逗号隔开。" +
+                        "先读一次 freight_categories.list_freight_categories 拿到当前名册，" +
+                        "一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
+                ),
+            ),
+        ),
+        AiWriteAction(
+            id = ORDER_TEMPLATE_CATEGORY_REORDER,
+            title = "重排预订单分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_ORDER_TEMPLATE_CATEGORY,
+            blurb = "把预订单分类在「预订单」页左栏里的先后顺序一次换掉。" +
+                "**必须给全**：名册里的分类一个都不能漏（后端少一个就整份拒绝）。" +
+                "它只改显示顺序，一张预设单归在哪一类都不动。",
+            params = listOf(
+                AiWriteParam(
+                    "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
+                    hint = "必填。按想要的先后顺序**写全所有分类名**，用「、」或逗号隔开。" +
+                        "先读一次 order_template_categories.list_order_template_categories " +
                         "拿到当前名册，一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
                 ),
             ),

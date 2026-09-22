@@ -102,17 +102,29 @@ def _select(scripts: list[tuple[Path, str]], *, only: str | None, paths: list[st
 
     判据是**从脚本源码里找目标路径字面量**（`--for` / `--changed`）——
     那些脚本本来就是靠字面量改文件的，所以它自己就写着目标路径，不用另外维护映射表。
+
+    ⚠️ 2026-09-23 修的一处**静默漏选**（它让锚点腐烂藏了一整天）：
+    原来只做"**整条相对路径**是不是这个脚本的子串"。可是很多脚本是**把目录和文件名拆成两个
+    常量**写的（`AI = ROOT / "…/ai"` + `WSVC = AI / "AiWriteService.kt"`）——
+    整条路径从来不会原样出现，于是改了 `AiWriteService.kt` 也选不中 `_reverse_verify_undo.py`，
+    而那份脚本里那条"撤回快照挪到 commit 之后"的锚点**早就腐烂了**（2026-09-21 批量那轮
+    在快照前插了一句，锚点就对不上了），一直没被发现 —— 直到静态审计 `_check_reverse_verify_anchors.py`
+    把它点出来（那条检查是**解析 AST**，不吃"拆常量"这套）。
+    所以这里补一条**文件名匹配**：宁可多选（多跑几份只是慢），**漏选才是要命的**
+    （漏选的表现是"这条反向验证通过了"，而它其实一条注入都没做）。
     """
     if only:
         return [(d, n) for d, n in scripts if only in f"{d.name}/{n}"]
     if paths:
+        want = [p.replace("\\", "/") for p in paths if p]
+        names = {p.rsplit("/", 1)[-1] for p in want if "." in p.rsplit("/", 1)[-1]}
         picked: list[tuple[Path, str]] = []
         for d, n in scripts:
             try:
                 src = (d / n).read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            if any(p and p in src for p in paths):
+            if any(p in src for p in want) or any(nm in src for nm in names):
                 picked.append((d, n))
         return picked
     return list(scripts)

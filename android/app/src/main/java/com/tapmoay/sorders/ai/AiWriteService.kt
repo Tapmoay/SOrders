@@ -474,6 +474,39 @@ interface AiWriteDataSource {
     suspend fun deletePlaceCategory(id: Long)
     suspend fun reorderPlaceCategories(ids: List<Long>)
 
+    // ---- 另外三张**配置名册**：开销分类 / 运费分类 / 预订单分类（2026-09-23 补齐能力覆盖）----
+    //
+    // 这三张原来挂着「不做」的理由（"分类名册是界面配置，用户在分类管理页上调"）。
+    // 按用户那条硬规矩「人能操作、AI 就要能操作」收回来：界面上分类管理页能做的四件事
+    // （建 / 改名 / 排序 / 删），AI 都要有。
+    //
+    // ⚠️ 三张的 `note` 都带"这一类下挂着多少东西"：**改名会级联改掉它们**、
+    //    **删除会被后端拒绝**（数量就写在报错里）—— 那个数字必须上卡。
+
+    /** 开销分类名册；`note` = 这一类下有几笔开销 + 卡片突出哪一项。 */
+    suspend fun expenseCategories(): List<AiName>
+
+    suspend fun createExpenseCategory(fields: JsonObject)
+    suspend fun updateExpenseCategory(id: Long, fields: JsonObject)
+    suspend fun deleteExpenseCategory(id: Long)
+    suspend fun reorderExpenseCategories(ids: List<Long>)
+
+    /** 运费分类名册；`note` = 这一类下挂着几条价目、几份计费规则。 */
+    suspend fun freightCategories(): List<AiName>
+
+    suspend fun createFreightCategory(fields: JsonObject)
+    suspend fun updateFreightCategory(id: Long, fields: JsonObject)
+    suspend fun deleteFreightCategory(id: Long)
+    suspend fun reorderFreightCategories(ids: List<Long>)
+
+    /** 预订单分类名册；`note` = 这一类下有几张预设单。 */
+    suspend fun orderTemplateCategories(): List<AiName>
+
+    suspend fun createOrderTemplateCategory(fields: JsonObject)
+    suspend fun updateOrderTemplateCategory(id: Long, fields: JsonObject)
+    suspend fun deleteOrderTemplateCategory(id: Long)
+    suspend fun reorderOrderTemplateCategories(ids: List<Long>)
+
     /** 整份替换某个货主/批发商的可见范围（后端同一个事务里换开关 + 换明细）。 */
     suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>)
 
@@ -2170,6 +2203,157 @@ class RepoWriteDataSource(
         repo.reorderProductCategories(ids)
     }
 
+    // ---- 另外三张配置名册（开销 / 运费 / 预订单分类，2026-09-23 补齐 AI 能力覆盖）----
+    //
+    // ⚠️ 三张的 `note` 都带"这一类下挂着多少东西"：**改名会级联改掉它们**、
+    //    **删除会被后端拒绝**（数量就写在报错里）—— 那是用户判断影响面的唯一依据。
+    // ⚠️ 位置（第 N 位）与商品/地点分组同一条规矩：**先按"排在最后"建出来，再走 reorder 挪过去**。
+    //    直接写 `sort_order = N-1` 是绝对值：后端不会把别人往后挤，于是"排第 1 位"会与
+    //    现有第 1 位撞值、按 id 排序后落到别处，而卡片上明确承诺了「1 = 最前面」。
+
+    override suspend fun expenseCategories(): List<AiName> = repo.expenseCategories().map {
+        AiName(
+            it.id, it.name,
+            note = buildString {
+                append(if (it.expenseCount > 0) "${it.expenseCount} 笔开销" else "还没有开销")
+                append("，卡片突出显示：").append(linkKindCn(it.linkKind))
+            },
+        )
+    }
+
+    override suspend fun freightCategories(): List<AiName> = repo.freightCategories().map {
+        AiName(
+            it.id, it.name,
+            note = if (it.templateCount > 0 || it.ruleCount > 0) {
+                "${it.templateCount} 条价目、${it.ruleCount} 份计费规则"
+            } else {
+                "这一类下还没有价目/规则"
+            },
+        )
+    }
+
+    override suspend fun orderTemplateCategories(): List<AiName> =
+        repo.orderTemplateCategories().map {
+            AiName(it.id, it.name, note = if (it.templateCount > 0) "${it.templateCount} 张预设单" else null)
+        }
+
+    override suspend fun createExpenseCategory(fields: JsonObject) {
+        val created = repo.createExpenseCategory(
+            name = fields.req("name"),
+            // ⚠️ 不传 = 后端默认 "none"（不突出任何一项）；这个仓储方法**没有** sortOrder，
+            //    位置要走 reorder 挪（与商品/地点分组同一条规矩，见 moveExpenseCategoryTo）。
+            linkKind = fields.str("link_kind") ?: "none",
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveExpenseCategoryTo(created.id, it) }
+    }
+
+    private suspend fun moveExpenseCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.expenseCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        ids.add((position1Based - 1).coerceIn(0, ids.size), id)
+        repo.reorderExpenseCategories(ids)
+    }
+
+    override suspend fun updateExpenseCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateExpenseCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateExpenseCategory(
+            id,
+            name = fields.str("name"),
+            linkKind = fields.str("link_kind"),
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveExpenseCategoryTo(id, it) }
+    }
+
+    override suspend fun deleteExpenseCategory(id: Long) {
+        repo.deleteExpenseCategory(id)
+    }
+
+    override suspend fun reorderExpenseCategories(ids: List<Long>) {
+        repo.reorderExpenseCategories(ids)
+    }
+
+    override suspend fun createFreightCategory(fields: JsonObject) {
+        val created = repo.createFreightCategory(
+            com.tapmoay.sorders.data.remote.dto.FreightCategoryCreateRequest(
+                name = fields.req("name"),
+                sortOrder = null,
+            ),
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveFreightCategoryTo(created.id, it) }
+    }
+
+    private suspend fun moveFreightCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.freightCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        ids.add((position1Based - 1).coerceIn(0, ids.size), id)
+        repo.reorderFreightCategories(ids)
+    }
+
+    override suspend fun updateFreightCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateFreightCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateFreightCategory(
+            id,
+            com.tapmoay.sorders.data.remote.dto.FreightCategoryUpdateRequest(
+                name = fields.str("name"),
+                sortOrder = null,
+            ),
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveFreightCategoryTo(id, it) }
+    }
+
+    override suspend fun deleteFreightCategory(id: Long) {
+        repo.deleteFreightCategory(id)
+    }
+
+    override suspend fun reorderFreightCategories(ids: List<Long>) {
+        repo.reorderFreightCategories(ids)
+    }
+
+    override suspend fun createOrderTemplateCategory(fields: JsonObject) {
+        val created = repo.createOrderTemplateCategory(
+            com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryCreateRequest(
+                name = fields.req("name"),
+                sortOrder = null,
+            ),
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveOrderTemplateCategoryTo(created.id, it) }
+    }
+
+    private suspend fun moveOrderTemplateCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.orderTemplateCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        ids.add((position1Based - 1).coerceIn(0, ids.size), id)
+        repo.reorderOrderTemplateCategories(ids)
+    }
+
+    override suspend fun updateOrderTemplateCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateOrderTemplateCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateOrderTemplateCategory(
+            id,
+            com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryUpdateRequest(
+                name = fields.str("name"),
+                sortOrder = null,
+            ),
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveOrderTemplateCategoryTo(id, it) }
+    }
+
+    override suspend fun deleteOrderTemplateCategory(id: Long) {
+        repo.deleteOrderTemplateCategory(id)
+    }
+
+    override suspend fun reorderOrderTemplateCategories(ids: List<Long>) {
+        repo.reorderOrderTemplateCategories(ids)
+    }
+
+    /** 「卡片上突出哪一项」的中文（开销分类专用，与后端 `LINK_KINDS` 逐值对齐）。 */
+    private fun linkKindCn(kind: String): String = when (kind) {
+        "vehicle" -> "车辆"
+        "driver" -> "司机"
+        "order" -> "订单"
+        else -> "不突出"
+    }
+
     override suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>) {
         repo.setProductVisibility(userId, scope, productIds)
     }
@@ -2244,6 +2428,16 @@ class RepoWriteDataSource(
                 repo.productCategories().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.productCategory(it)) }
             "place_category" ->
                 repo.placeCategories().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.placeCategory(it)) }
+            // 另外三张配置名册（2026-09-23）：与上面两张同一种做法（拉列表再挑，后端没有单取）。
+            "expense_category" ->
+                repo.expenseCategories().firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.expenseCategory(it)) }
+            "freight_category" ->
+                repo.freightCategories().firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.freightCategory(it)) }
+            "order_template_category" ->
+                repo.orderTemplateCategories().firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.orderTemplateCategory(it)) }
             "vehicle" -> repo.vehicles().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.vehicle(it)) }
             "product_visibility" ->
                 repo.productVisibility(id).let { AiBefore(id, AiRevertRead.productVisibility(it)) }
@@ -2439,6 +2633,11 @@ class AiWriteService(
             CancelSettlementHandler(ds, store),
             ReorderProductCategoriesHandler(ds, store),
             ReorderPlaceCategoriesHandler(ds, store),
+            // 三张配置名册的重排（2026-09-23 补齐）：与上面两个**共用同一份实现**
+            // （`AiWriteCatalogHandlers.kt::reorderRoster`），各自只提供名词/名册/往哪提交。
+            ReorderExpenseCategoriesHandler(ds, store),
+            ReorderFreightCategoriesHandler(ds, store),
+            ReorderOrderTemplateCategoriesHandler(ds, store),
             ProductVisibilityHandler(ds, store),
             // 货主自己那一本账（批发商核销 / 撤销；恢复走声明式那个 restoreAction）
             SettleMyLedgerHandler(ds, store),

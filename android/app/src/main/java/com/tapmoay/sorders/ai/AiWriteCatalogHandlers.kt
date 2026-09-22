@@ -24,6 +24,78 @@ import kotlinx.serialization.json.put
  */
 
 /**
+ * 「整份重排一张命名名册」的**唯一一份**实现。
+ *
+ * ### 为什么抽出来（2026-09-23 补齐三张名册时）
+ * 这张名册的重排动作一共五张（商品分类 / 地点分组 / 开销分类 / 运费分类 / 预订单分类），
+ * 它们的逻辑**一模一样**：读名册 → 逐个严格对上名字 → 查有没有漏（后端要求整份）→
+ * 弹一张"改前 / 改后"的卡 → 提交整份编号。
+ * 抄五遍的下场和本项目其它地方一样：**改一处漏四处**，而且"漏了谁"那句人话会在五个地方各写一遍。
+ * 所以这里只留一份，五个处理器各自只提供"名词、名册、往哪提交、几句额外的提示"。
+ *
+ * ### 三条不变量（原来两份实现里的规矩，一条都没放松）
+ * 1. **对不上就拒绝**：名字要用 [AiWriteArgs.strict] 唯一命中，对不上/对上多个都抛（带候选名字）；
+ * 2. **漏一个也拒绝**：后端要求整份顺序，少一个就 400 —— 在弹卡之前挡住，
+ *    并把少了哪几个说清楚（让模型能一次改对，而不是让用户点一次确认再吃一个错）；
+ * 3. **卡片要能核对**：改前那份、改后逐行那份都要列出来——"顺序已调整"这句话没有信息量。
+ */
+private suspend fun reorderRoster(
+    ds: AiWriteDataSource,
+    store: AiWritePreviewStore,
+    actionId: String,
+    cn: String,
+    // ⚠️ **量词要跟着名册走**（"3 个分类" / "3 个分组"）：抽共用实现时把它写死成"个"
+    //    会让商品分类那张卡的摘要从「重排商品分类：3 个分类」变成「…3 个」——
+    //    单测 `重排分类：卡片把新顺序整个列出来` 当场抓住（**共用不等于把话也抹平**）。
+    unit: String,
+    pool: List<AiName>,
+    raw: String,
+    readHint: String,
+    whereCn: String,
+    extraLines: List<String> = emptyList(),
+): AiWriteOutcome {
+    val current = pool.joinToString("、") { it.label }
+    val picked = ArrayList<AiName>(pool.size)
+    for (name in splitNames(raw)) {
+        val hit = AiWriteArgs.strict(name, pool, cn)
+            ?: throw AiWriteArgException("「$name」在 ${cn} 名册里没对上，请核对名字。")
+        if (picked.any { it.id == hit.id }) {
+            throw AiWriteArgException(
+                "顺序里「${hit.label}」出现了两次。每个 ${cn} 只能出现一次，请重新排一遍。",
+            )
+        }
+        picked += hit
+    }
+    val missing = pool.filter { p -> picked.none { it.id == p.id } }
+    if (missing.isNotEmpty()) {
+        throw AiWriteArgException(
+            "这份顺序里少了 ${missing.size} 个 ${cn}：${missing.joinToString("、") { it.label }}。" +
+                "后端要求一次提交**完整**的顺序（少一个都整份拒绝），" +
+                "请把名册里的 ${cn} 一个不漏地按顺序写全（当前名册：$current）。先读一次 $readHint 拿名册。",
+        )
+    }
+    return AiWriteOutcome.NeedConfirm(
+        store.card(
+            actionId,
+            summary = "重排${cn}：${picked.size} 个${unit}",
+            detailLines = buildList {
+                addAll(extraLines)
+                add("改前的顺序：$current")
+                add("改后的顺序（$whereCn 从上到下就是这个顺序）：")
+                picked.forEachIndexed { i, n ->
+                    val count = n.note?.let { "（$it）" }.orEmpty()
+                    add("${i + 1}. ${n.label}$count")
+                }
+                add("只改显示顺序：谁归在哪一格都不动")
+            },
+            payload = buildJsonObject {
+                put("category_ids", JsonArray(picked.map { JsonPrimitive(it.id) }))
+            },
+        ),
+    )
+}
+
+/**
  * 重排商品分类（整份顺序一次提交）。
  *
  * ### 为什么卡上要把新顺序整个列出来
@@ -46,50 +118,15 @@ class ReorderProductCategoriesHandler(
         if (pool.isEmpty()) {
             throw AiWriteArgException("商品分类名册还是空的，先把要用的分类建出来再排顺序。")
         }
-        val current = pool.joinToString("、") { it.label }
-
-        // 逐个严格对上：对不上、对上多个，都由 [AiWriteArgs.strict] 抛出去（并给候选名字）。
-        val picked = ArrayList<AiName>(pool.size)
-        for (name in splitNames(raw)) {
-            val hit = AiWriteArgs.strict(name, pool, "商品分类")
-                ?: throw AiWriteArgException("分类「$name」没对上，请核对名字。")
-            if (picked.any { it.id == hit.id }) {
-                throw AiWriteArgException(
-                    "顺序里「${hit.label}」出现了两次。每个分类只能出现一次，请重新排一遍。",
-                )
-            }
-            picked += hit
-        }
-        // ⚠️ 后端要求**整份**顺序。少了就整份拒绝（不是"没提到的保持原序"），
-        //    所以这里也要在弹卡之前挡住，并把少了哪几个说清楚——让模型能一次改对。
-        val missing = pool.filter { p -> picked.none { it.id == p.id } }
-        if (missing.isNotEmpty()) {
-            throw AiWriteArgException(
-                "这份顺序里少了 ${missing.size} 个分类：${missing.joinToString("、") { it.label }}。" +
-                    "后端要求一次提交**完整**的顺序（少一个都整份拒绝），" +
-                    "请把名册里的分类一个不漏地按顺序写全（当前名册：$current）。",
-            )
-        }
-
-        return AiWriteOutcome.NeedConfirm(
-            store.card(
-                actionId,
-                summary = "重排商品分类：${picked.size} 个分类",
-                detailLines = buildList {
-                    add("改前的顺序：$current")
-                    add("改后的顺序（下单页左侧从上到下就是这个顺序）：")
-                    picked.forEachIndexed { i, n ->
-                        val count = n.note?.let { "（$it）" }.orEmpty()
-                        add("${i + 1}. ${n.label}$count")
-                    }
-                    add("只改显示顺序：一件商品挂在哪个分类下都不动")
-                },
-                payload = buildJsonObject {
-                    put("category_ids", JsonArray(picked.map { JsonPrimitive(it.id) }))
-                },
-            ),
-        )
+        return preview(pool, raw)
     }
+
+    private suspend fun preview(pool: List<AiName>, raw: String): AiWriteOutcome =
+        reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "商品分类", unit = "分类",
+            pool = pool, raw = raw, readHint = "product_categories.list_categories",
+            whereCn = "下单页左侧那一列",
+        )
 
     override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
         val ids = (payload["category_ids"] as? JsonArray).orEmpty()
@@ -123,46 +160,11 @@ class ReorderPlaceCategoriesHandler(
         if (pool.isEmpty()) {
             throw AiWriteArgException("你还没有地点分组，先用「新建地点分组」建出来再排顺序。")
         }
-        val current = pool.joinToString("、") { it.label }
-
-        val picked = ArrayList<AiName>(pool.size)
-        for (name in splitNames(raw)) {
-            val hit = AiWriteArgs.strict(name, pool, "地点分组")
-                ?: throw AiWriteArgException("分组「$name」没对上，请核对名字。")
-            if (picked.any { it.id == hit.id }) {
-                throw AiWriteArgException(
-                    "顺序里「${hit.label}」出现了两次。每个分组只能出现一次，请重新排一遍。",
-                )
-            }
-            picked += hit
-        }
-        val missing = pool.filter { p -> picked.none { it.id == p.id } }
-        if (missing.isNotEmpty()) {
-            throw AiWriteArgException(
-                "这份顺序里少了 ${missing.size} 个分组：${missing.joinToString("、") { it.label }}。" +
-                    "后端要求一次提交**完整**的顺序（少一个都整份拒绝），" +
-                    "请把名册里的分组一个不漏地按顺序写全（当前名册：$current）。",
-            )
-        }
-
-        return AiWriteOutcome.NeedConfirm(
-            store.card(
-                actionId,
-                summary = "重排地点分组：${picked.size} 个分组",
-                detailLines = buildList {
-                    add("⚠️ 只影响你自己的地址库（每个人管自己那一份）")
-                    add("改前的顺序：$current")
-                    add("改后的顺序（地址库左栏从上到下就是这个顺序）：")
-                    picked.forEachIndexed { i, n ->
-                        val count = n.note?.let { "（$it）" }.orEmpty()
-                        add("${i + 1}. ${n.label}$count")
-                    }
-                    add("只改显示顺序：一个地点归在哪一组都不动")
-                },
-                payload = buildJsonObject {
-                    put("category_ids", JsonArray(picked.map { JsonPrimitive(it.id) }))
-                },
-            ),
+        return reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "地点分组", unit = "分组",
+            pool = pool, raw = raw, readHint = "place_categories.list_categories",
+            whereCn = "地址库左栏",
+            extraLines = listOf("⚠️ 只影响你自己的地址库（每个人管自己那一份）"),
         )
     }
 
@@ -170,6 +172,104 @@ class ReorderPlaceCategoriesHandler(
         val ids = (payload["category_ids"] as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
         ds.reorderPlaceCategories(ids)
+    }
+}
+
+/**
+ * 重排**开销分类**（整份顺序一次提交）。
+ *
+ * 2026-09-23 补齐「人能操作、AI 就要能操作」时新增的三张名册之一。
+ * 与商品分类同形，唯一的差别是名册里那一列决定的是"这笔钱算哪一类"。
+ */
+class ReorderExpenseCategoriesHandler(
+    private val ds: AiWriteDataSource,
+    private val store: AiWritePreviewStore,
+) : AiWriteHandler {
+
+    override val actionId = AiWrites.EXPENSE_CATEGORY_REORDER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val raw = AiWriteArgs.required(
+            params, "order",
+            "整份顺序：把开销分类名**一个不漏**地按想要的先后写全（用「、」隔开）",
+        )
+        val pool = ds.expenseCategories()
+        if (pool.isEmpty()) {
+            throw AiWriteArgException("开销分类名册还是空的，先把要用的分类建出来再排顺序。")
+        }
+        return reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "开销分类", unit = "分类",
+            pool = pool, raw = raw, readHint = "expense_categories.list_categories",
+            whereCn = "开销管理左栏",
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val ids = (payload["category_ids"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+        ds.reorderExpenseCategories(ids)
+    }
+}
+
+/** 重排**运费分类**（整份顺序一次提交）：名册决定"这类货走哪条价目/计费规则"。 */
+class ReorderFreightCategoriesHandler(
+    private val ds: AiWriteDataSource,
+    private val store: AiWritePreviewStore,
+) : AiWriteHandler {
+
+    override val actionId = AiWrites.FREIGHT_CATEGORY_REORDER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val raw = AiWriteArgs.required(
+            params, "order",
+            "整份顺序：把运费分类名**一个不漏**地按想要的先后写全（用「、」隔开）",
+        )
+        val pool = ds.freightCategories()
+        if (pool.isEmpty()) {
+            throw AiWriteArgException("运费分类名册还是空的，先把要用的分类建出来再排顺序。")
+        }
+        return reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "运费分类", unit = "分类",
+            pool = pool, raw = raw, readHint = "freight_categories.list_categories",
+            whereCn = "运费分类那一栏",
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val ids = (payload["category_ids"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+        ds.reorderFreightCategories(ids)
+    }
+}
+
+/** 重排**预订单分类**（整份顺序一次提交）：名册决定"我这几张常用的单分成哪几类"。 */
+class ReorderOrderTemplateCategoriesHandler(
+    private val ds: AiWriteDataSource,
+    private val store: AiWritePreviewStore,
+) : AiWriteHandler {
+
+    override val actionId = AiWrites.ORDER_TEMPLATE_CATEGORY_REORDER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val raw = AiWriteArgs.required(
+            params, "order",
+            "整份顺序：把预订单分类名**一个不漏**地按想要的先后写全（用「、」隔开）",
+        )
+        val pool = ds.orderTemplateCategories()
+        if (pool.isEmpty()) {
+            throw AiWriteArgException("预订单分类名册还是空的，先把要用的分类建出来再排顺序。")
+        }
+        return reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "预订单分类", unit = "分类",
+            pool = pool, raw = raw, readHint = "order_template_categories.list_categories",
+            whereCn = "预订单页左栏",
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val ids = (payload["category_ids"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+        ds.reorderOrderTemplateCategories(ids)
     }
 }
 

@@ -72,9 +72,19 @@ CASES: list[tuple[str, str, object, str]] = [
         "init 调一个**带参数**的方法，而那个方法（隔一层）写到声明在后面的状态"
         "—— 老判据只跟无参调用、只看直接调用的那一个函数体，这就漏了（2026-09-20 真机又崩一次）",
         LEDGER_VM,
+        # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已腐烂）：账本 VM 的 init 后来改成
+        #    "先盘点、再取数"（`switchPreset(DatePresets.pickWindow(...))` 包在 launch 里），
+        #    原来那句 `applyPreset(DatePresets.THIS_MONTH)` 已经不在 init 里了 →
+        #    注入的第一格静默不生效 → 这条注入只做了一半，判据当然不红（实测 [MISS]）。
+        #    现在锚在 init 块里那个**带参数**的调用上（`_probeLate(1)` 就插在它后面）。
         lambda s: s.replace(
-            "        applyPreset(DatePresets.THIS_MONTH)",
-            "        applyPreset(DatePresets.THIS_MONTH)\n        _probeLate(1)",
+            "            if (!userPickedPreset) {\n"
+            "                switchPreset(DatePresets.pickWindow(DatePresets.AUTO_LADDER) { periodHasData(it) })\n"
+            "            }\n",
+            "            if (!userPickedPreset) {\n"
+            "                switchPreset(DatePresets.pickWindow(DatePresets.AUTO_LADDER) { periodHasData(it) })\n"
+            "            }\n"
+            "            _probeLate(1)\n",
             1,
         )
         .replace(

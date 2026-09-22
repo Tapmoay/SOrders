@@ -613,6 +613,236 @@ internal object AiWriteBasicData {
             },
         ) { ds, p -> ds.deletePlaceCategory(p.reqLong("category_id")) },
 
+        // ---------------------------------------------------- 开销分类名册（2026-09-23 补齐）
+        //
+        // 名册决定「这笔钱算哪一类」，也决定开销卡片上**突出显示哪一项关联**
+        // （`link_kind`：vehicle/driver/order/none）。改名会级联改掉挂在这一类下的开销
+        // （后端同一个事务里做），所以卡片上必须写出"这一类下有 N 笔开销"。
+        crud(
+            id = AiWrites.EXPENSE_CATEGORY_CREATE,
+            title = "新建开销分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_EXPENSE_CATEGORY,
+            blurb = "在开销分类名册里加一格（「开销管理」左栏就是它）。" +
+                "它只决定「怎么归类、什么顺序、卡片上突出哪一项」，不改任何一笔已记的开销。",
+            fields = listOf(
+                textField("name", "分类名", "必填，如「油费」「过路费」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+                enumField(
+                    "link", "突出显示", "可选：开销卡片上突出哪一项关联（不填 = 不突出）",
+                    values = EXPENSE_LINK_KINDS,
+                    aliases = mapOf(
+                        "车辆" to "vehicle", "司机" to "driver", "订单" to "order",
+                        "不突出" to "none", "无" to "none",
+                    ),
+                    key = "link_kind",
+                ).copy(required = false),
+            ),
+            headline = { c -> "新建开销分类：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    c.str("link")?.let { "卡片上突出：$it（记开销时那一项会显示得更醒目）" },
+                    "只加一格分类，不改任何一笔已经记过的开销",
+                )
+            },
+        ) { ds, p -> ds.createExpenseCategory(p) },
+
+        crud(
+            id = AiWrites.EXPENSE_CATEGORY_UPDATE,
+            title = "改开销分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_EXPENSE_CATEGORY,
+            blurb = "改一个开销分类的名字/顺序/突出项。只填要改的那一项。" +
+                "⚠️ 改名会级联：挂在这一类下的开销记录会跟着改成新名字（后端同一个事务里做）。",
+            targets = listOf(targetExpenseCategory()),
+            fields = listOf(
+                textField("name", "新分类名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+                enumField(
+                    "link", "突出显示", "不改就不填：开销卡片上突出哪一项关联",
+                    values = EXPENSE_LINK_KINDS,
+                    aliases = mapOf(
+                        "车辆" to "vehicle", "司机" to "driver", "订单" to "order",
+                        "不突出" to "none", "无" to "none",
+                    ),
+                    key = "link_kind",
+                ).copy(required = false),
+            ),
+            headline = { c -> "改开销分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let {
+                        "⚠️ 这一类下有 $it——改名会把这些开销记录的分类一起改过去（后端同一个事务）"
+                    },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                    c.str("link")?.let { "卡片上突出改成：$it" },
+                    "顺序只改这一个分类的值；要让整份顺序干净，用「重排开销分类」一次提交整份",
+                )
+            },
+        ) { ds, p -> ds.updateExpenseCategory(p.reqLong("category_id"), p.pick(EXPENSE_CATEGORY_KEYS)) },
+
+        crud(
+            id = AiWrites.EXPENSE_CATEGORY_DELETE,
+            title = "删除开销分类",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_EXPENSE_CATEGORY,
+            blurb = "从开销分类名册里删掉一格。还有开销挂在这一类下时后端会拒绝，并告诉你还有几笔" +
+                "——先把那些开销改成别的分类（或给这一格改个名）再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。",
+            targets = listOf(targetExpenseCategory()),
+            headline = { c -> "删除开销分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这一类下有 $it" },
+                    "还有开销挂着时后端会拒绝，并告诉你有几笔：先把那些开销改成别的分类",
+                    "删掉不影响已经记过的开销本身（它们只是分类名不再是名册里的一格）",
+                )
+            },
+        ) { ds, p -> ds.deleteExpenseCategory(p.reqLong("category_id")) },
+
+        // ---------------------------------------------------- 运费分类名册（2026-09-23 补齐）
+        //
+        // 「哪几类货」这张配置表：价目（运费模板）与计费规则都按它分类。改名不级联任何东西，
+        // 但**删除**会被后端拒绝（还有价目/规则挂着），所以 `note` 要带上两个数字。
+        crud(
+            id = AiWrites.FREIGHT_CATEGORY_CREATE,
+            title = "新建运费分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_FREIGHT_CATEGORY,
+            blurb = "在运费分类名册里加一格（「哪几类货」这张配置表）。" +
+                "它只决定「怎么分类、什么顺序」，不改任何一条价目或计费规则。",
+            fields = listOf(
+                textField("name", "分类名", "必填，如「冻品」「干货」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+            ),
+            headline = { c -> "新建运费分类：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    "只加一格分类，不改任何一条价目或计费规则",
+                )
+            },
+        ) { ds, p -> ds.createFreightCategory(p) },
+
+        crud(
+            id = AiWrites.FREIGHT_CATEGORY_UPDATE,
+            title = "改运费分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_FREIGHT_CATEGORY,
+            blurb = "改一个运费分类的名字，或者把它排到别的位置。只填要改的那一项。" +
+                "改名**不会**动已经挂好的价目/规则（它们按名字匹配，后端同事务里一起改）。",
+            targets = listOf(targetFreightCategory()),
+            fields = listOf(
+                textField("name", "新分类名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+            ),
+            headline = { c -> "改运费分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这一类下挂着 $it" },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                )
+            },
+        ) { ds, p -> ds.updateFreightCategory(p.reqLong("category_id"), p.pick(ROSTER_KEYS)) },
+
+        crud(
+            id = AiWrites.FREIGHT_CATEGORY_DELETE,
+            title = "删除运费分类",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_FREIGHT_CATEGORY,
+            blurb = "从运费分类名册里删掉一格。还有价目/计费规则挂在这一类下时后端会拒绝，" +
+                "并把数量告诉你——先把那些改到别的分类再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。",
+            targets = listOf(targetFreightCategory()),
+            headline = { c -> "删除运费分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这一类下挂着 $it" },
+                    "还有价目/规则挂着时后端会拒绝，并告诉你还有几条",
+                    "删掉不影响已经派过的单（运费是派单时定的快照）",
+                )
+            },
+        ) { ds, p -> ds.deleteFreightCategory(p.reqLong("category_id")) },
+
+        // ---------------------------------------------------- 预订单分类名册（2026-09-23 补齐）
+        //
+        // 「我这几张常用的单分成哪几类」。改名会级联改掉挂在这一类下的预设单，
+        // 删除会被后端拒绝（还有预设单挂着）—— 两件事都要在卡上写出数量。
+        crud(
+            id = AiWrites.ORDER_TEMPLATE_CATEGORY_CREATE,
+            title = "新建预订单分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_ORDER_TEMPLATE_CATEGORY,
+            blurb = "在预订单分类名册里加一格（「预订单」页左栏就是它）。" +
+                "它只决定「怎么分组、什么顺序」，不改任何一张预设单。",
+            fields = listOf(
+                textField("name", "分类名", "必填，如「老客户常单」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+            ),
+            headline = { c -> "新建预订单分类：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    "只加一格分类，不改任何一张预设单",
+                )
+            },
+        ) { ds, p -> ds.createOrderTemplateCategory(p) },
+
+        crud(
+            id = AiWrites.ORDER_TEMPLATE_CATEGORY_UPDATE,
+            title = "改预订单分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_ORDER_TEMPLATE_CATEGORY,
+            blurb = "改一个预订单分类的名字，或者把它排到别的位置。只填要改的那一项。" +
+                "⚠️ 改名会级联：挂在这一类下的预设单会跟着改成新名字（后端同一个事务里做）。",
+            targets = listOf(targetOrderTemplateCategory()),
+            fields = listOf(
+                textField("name", "新分类名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+            ),
+            headline = { c -> "改预订单分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let {
+                        "⚠️ 这一类下有 $it——改名会把这些预设单的分类一起改过去（后端同一个事务）"
+                    },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                )
+            },
+        ) { ds, p -> ds.updateOrderTemplateCategory(p.reqLong("category_id"), p.pick(ROSTER_KEYS)) },
+
+        crud(
+            id = AiWrites.ORDER_TEMPLATE_CATEGORY_DELETE,
+            title = "删除预订单分类",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_ORDER_TEMPLATE_CATEGORY,
+            blurb = "从预订单分类名册里删掉一格。还有预设单挂在这一类下时后端会拒绝，" +
+                "并把数量告诉你——先把那些预设单改到别的分类再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。",
+            targets = listOf(targetOrderTemplateCategory()),
+            headline = { c -> "删除预订单分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这一类下有 $it" },
+                    "还有预设单挂着时后端会拒绝，并告诉你有几张",
+                    "删掉不影响已经下过的单（预设单本身一张都不会被删）",
+                )
+            },
+        ) { ds, p -> ds.deleteOrderTemplateCategory(p.reqLong("category_id")) },
+
         // ------------------------------------------------------------ 车辆
         crud(
             id = AiWrites.VEHICLE_CREATE,
@@ -982,6 +1212,37 @@ internal object AiWriteBasicData {
     /** 地点分组进 payload 的键（改分组时只传点名的那几个）。 */
     private val PLACE_CATEGORY_KEYS = setOf("name", "sort_order")
 
+    // ---------------------------------------------------------- 另外三张配置名册（2026-09-23）
+    //
+    // ⚠️ 三张都**只有派单员**（后端那几组端点全是派单员权限）。
+    // ⚠️ `note` 里带的都是"这一类下挂着多少东西"：**改名会级联改掉它们**、**删除会被后端拒绝**
+    //    （数量就写在报错里）—— 那个数字是用户判断影响面的唯一依据，必须上卡。
+
+    /** 开销分类（按名字找）。`note` = 这一类下有几笔开销。 */
+    private fun targetExpenseCategory() = AiTargetSpec(
+        param = "category", cn = "开销分类", key = "category_id",
+        hint = "分类名（「开销管理」左栏那一列的格子名，如「油费」）",
+        lookup = { ds, _ -> ds.expenseCategories() },
+    )
+
+    /** 运费分类（按名字找）。`note` = 这一类下挂着几条价目/规则。 */
+    private fun targetFreightCategory() = AiTargetSpec(
+        param = "category", cn = "运费分类", key = "category_id",
+        hint = "分类名（「哪几类货」那张配置表里的名字，如「冻品」）",
+        lookup = { ds, _ -> ds.freightCategories() },
+    )
+
+    /** 预订单分类（按名字找）。`note` = 这一类下有几张预设单。 */
+    private fun targetOrderTemplateCategory() = AiTargetSpec(
+        param = "category", cn = "预订单分类", key = "category_id",
+        hint = "分类名（「预订单」页左栏那一列的格子名，如「老客户常单」）",
+        lookup = { ds, _ -> ds.orderTemplateCategories() },
+    )
+
+    /** 三张名册的部分更新体（只传点名的那几项）。 */
+    private val ROSTER_KEYS = setOf("name", "sort_order")
+    private val EXPENSE_CATEGORY_KEYS = setOf("name", "sort_order", "link_kind")
+
     /** 共享地点进 payload 的键（**没有坐标**：改坐标等于把导航指到别处，见 AiWrite.kt）。 */
     private val PLACE_KEYS = setOf("name", "detail_address")
 
@@ -1143,4 +1404,13 @@ internal object AiWriteBasicData {
  * 的 `sortOrder + 1`（撤回是把快照**原样写回 payload**，两边口径不一致就会差一位）。
  */
 internal fun positionToSortOrder(position: Int): Int = position - 1
+
+/**
+ * 开销分类的「卡片上突出哪一项」——与后端 `models/expense_category.py::LINK_KINDS` 逐值对齐。
+ *
+ * ⚠️ 放在**顶层**而不是 `object AiWriteBasicData` 里：它要在 `ALL` 那份动作清单**初始化时**
+ *    就被用到（`enumField(values = EXPENSE_LINK_KINDS)`），而对象内部的属性按声明顺序初始化 ——
+ *    写在 `ALL` 后面会直接编译不过（"must be initialized"，实测踩到）。
+ */
+private val EXPENSE_LINK_KINDS = listOf("none", "vehicle", "driver", "order")
 
