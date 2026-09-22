@@ -12,7 +12,7 @@ from app.models.enums import OperationAction, OrderStatus
 from app.schemas.order import OrderProductCreate, OrderProductOut, OrderProductUpdate
 from app.services.inventory_service import resync_reservations
 from app.services.operation_log_service import write_log
-from app.services.order_flow import resolve_line_total
+from app.services.order_flow import lock_order_row, resolve_line_total
 
 router = APIRouter(prefix="/order-products", tags=["order-products"])
 
@@ -55,6 +55,15 @@ def _resync_stock_if_assigned(db: Session, order: Order, operator_id: int) -> in
     """
     if order.dispatched_at is None:
         return 0
+    # ⚠️ **终态的单一条预占都不许补**（2026-09-23 第 6 轮）：这一列的判据原来是
+    #    "派过单没有"，而 `dispatched_at` 在送达后**不会清掉**（撤回才会清，见 `recall_dispatch`）。
+    #    于是"已送达的单被改了明细"（并发窗口里够得着，见 `_locked_editable_order`）会走到这里，
+    #    按新行补出 RESERVED 流水 —— 那张单的货早就 `auto_stock_commit` 扣过了，
+    #    这些流水没有任何人会消费，只会在「在途占用」里**永久**挂着（用户按它决定要不要补货）。
+    #    状态判据与上面那道门同源（`_order_allows_line_edit`），这里再钉一次：门是给人看的，
+    #    这一行是给"万一还有人从别的路径调进来"兜底的。
+    if not _order_allows_line_edit(order):
+        return 0
     # 重算期间把订单行锁住（MySQL 上是 `SELECT … FOR UPDATE`，SQLite 忽略）：
     # `resync_reservations` 是"按当前行算目标值 → 与本单现有 RESERVED 流水对账 → 补差额"，
     # 两个并发的行编辑会各自读到同一份"现有值"、各写同一个差额 → 预占翻倍 → 送达**多扣**。
@@ -66,6 +75,47 @@ def _resync_stock_if_assigned(db: Session, order: Order, operator_id: int) -> in
 def _order_allows_line_edit(order: Order) -> bool:
     """派单员修正明细：待派单与已接单（运输中）均可编辑；已送达/已撤销不可。"""
     return order.status in (OrderStatus.PENDING_DISPATCH, OrderStatus.DISPATCHED, OrderStatus.ACCEPTED)
+
+
+def _locked_editable_order(db: Session, order_id: int) -> Order:
+    """**取锁 + 重读**之后再把订单交回给调用方（改明细前的唯一入口）。
+
+    ### 为什么不能直接 `db.get(Order, …)` 再判（2026-09-23 第 6 轮，实测复现）
+    三个写端点原来都是「`db.get` 读一份 → `_order_allows_line_edit(order)` → 写」。
+    `db.get` 拿的是**身份映射里那份**，它可能是这一轮请求更早（或上一个请求）读到的旧值；
+    而司机送达走的是另一条路：条件 UPDATE 抢占 `ACCEPTED → DELIVERED`，
+    抢到之后**立刻按当时的订单行写账本**（`ledger_sync`，一行一条、按 `order_product_id` 幂等）。
+
+    并发窗口因此是：
+
+    | 时刻 | 派单员（改明细） | 司机（送达） |
+    |---|---|---|
+    | T1 | 读到"已接单" ✔ 放行 | |
+    | T2 | | 抢占成功 → 订单=已送达、账本按**改前**的行金额写入 |
+    | T3 | 写入新的数量/金额（没人再拦） | |
+
+    终态是**「已送达」的单，行金额是新的、账本金额是旧的** —— 两个数各说各的，
+    而没有任何地方会报错（收款按账本、毛利按订单行）。这一轮的单测
+    `test_stale_status_must_not_let_line_edit_through` 就是先把这一刻摆出来：
+    修之前那个 PATCH 返回 **200**。
+
+    修法与派单/接单/送达/撤回那几处**同一个手法**（不新造轮子）：`lock_order_row` 在
+    MySQL 上是 `SELECT … FOR UPDATE`（送达那边的 CAS 会与它互斥，谁先谁后都能自洽），
+    SQLite 上退化成"重新查一次"，两边都保证**判据挂在库里这一刻的真实值上**。
+
+    ⚠️ 顺序要紧：**先锁再判**。先判后锁的话，从"判完"到"拿到锁"之间那道缝还在。
+    """
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=400, detail="订单数据异常")
+    order = lock_order_row(db, order)
+    if not _order_allows_line_edit(order):
+        raise HTTPException(
+            status_code=400,
+            detail=f"当前订单状态（{order.status.value if hasattr(order.status, 'value') else order.status}）"
+                   "不可编辑商品明细；已送达/已撤销的单请用「退货」或让派单员重新开单。",
+        )
+    return order
 
 
 @router.get("", response_model=list[OrderProductOut])
@@ -87,11 +137,9 @@ def create_order_product(
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_PRODUCT_EDIT)),
 ) -> OrderProduct:
-    order = db.get(Order, body.order_id)
-    if order is None:
+    if db.get(Order, body.order_id) is None:
         raise HTTPException(status_code=404, detail="订单不存在")
-    if not _order_allows_line_edit(order):
-        raise HTTPException(status_code=400, detail="当前订单状态不可编辑商品明细")
+    order = _locked_editable_order(db, body.order_id)
     try:
         lt = resolve_line_total(body.unit_price, body.quantity, body.line_total)
     except ValueError as e:
@@ -160,8 +208,8 @@ def update_order_product(
     order = db.get(Order, op.order_id)
     if order is None:
         raise HTTPException(status_code=400, detail="订单数据异常")
-    if not _order_allows_line_edit(order):
-        raise HTTPException(status_code=400, detail="当前订单状态不可编辑商品明细")
+    # ⚠️ 先锁再判（理由见 `_locked_editable_order`）：手边这份 order 可能是旧状态
+    order = _locked_editable_order(db, op.order_id)
     if body.product_id is not None:
         _check_product_ref(db, body.product_id)
     # ⚠️ 只改数量或只改单价时，行金额必须**跟着重算**；两个都给了也要核对一致性
@@ -215,8 +263,8 @@ def delete_order_product(
     order = db.get(Order, op.order_id)
     if order is None:
         raise HTTPException(status_code=400, detail="订单数据异常")
-    if not _order_allows_line_edit(order):
-        raise HTTPException(status_code=400, detail="当前订单状态不可编辑商品明细")
+    # ⚠️ 先锁再判（理由见 `_locked_editable_order`）
+    order = _locked_editable_order(db, op.order_id)
     oid = op.order_id
     db.delete(op)
     if order:
