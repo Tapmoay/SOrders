@@ -240,13 +240,37 @@ def main() -> int:
        reports_py.count("date_from: date | None = Query(None") >= 3,
        "营业纵览 / 商品经营 / 导出 —— 少一个就会出现「页面按区间、那个端点按 mode」")
     ok("两个 build_* 都收 `span` 并且**共用同一段聚合**",
-       reports_py.count("span: tuple[date, date] | None = None") == 2
-       and reports_py.count("span if span else _window(mode, anchor)") == 2)
+       reports_py.count("span: tuple[date, date] | None = None") >= 2
+       and reports_py.count("span if span else _window(mode, anchor)") == 2,
+       "（`load_delivered` 也收 span，所以这里用 >= 2；真正要守的是那两个 build_* 的共用写法）")
     ok("导出也走同一个 `_span(`（文件名与内容同一段）",
        re.search(r"s, e = _span\(mode, d, date_from, date_to\)", reports_py) is not None)
     ok("曲线的粒度由**窗口**决定（不再只看 mode）",
        re.search(r"if start == end:\s*\n\s*series = \[", reports_py) is not None,
        "只看 mode 的话：整月区间 + mode=day 会画成每小时一个点")
+
+    # ---- ⑤b 窗口必须**下推到 SQL**（2026-09-23 容量实测补）----
+    #
+    # 由来：`load_delivered` 原来无条件把**全库已送达单连行**读进内存，再由函数体按窗口丢掉 ——
+    # "看一天的报表，也要把三年历史全查一遍"。实测（2 万单副本库）：
+    # `mode=day` 2298ms / `mode=month` 2332ms（**看不出窗口差别**，因为瓶颈不在窗口）；
+    # 加上窗口预过滤后 76ms / 280ms，且 10 个窗口的响应体与改前**逐字节一致**。
+    # 这条判据守的是"别哪天又有人把 span 去掉"——那不会有任何报错，只会让报表随历史线性变慢。
+    print("\n⑤b 窗口下推到 SQL（读的行数只与窗口有关，与全库历史无关）")
+    ok("有 `delivered_span_sql(` 这个唯一翻译点（业务日区间 → UTC 半开区间）",
+       re.search(r"def delivered_span_sql\(", reports_py) is not None)
+    # ⚠️ 只看**调用点**（`(?<!def )`）：不加这个否定环视会把函数定义本身也数进来
+    #    （`def load_delivered(db: Session, *, span: …)` —— 第一次就是这么假红的）。
+    calls = re.findall(r"(?<!def )load_delivered\(db([^)]*)\)", reports_py)
+    ok("每个 `load_delivered(db…` 调用点都传了 `span=`",
+       bool(calls) and all("span=" in c for c in calls),
+       f"实际调用点：{calls}")
+    ok("至少在两处调用（营业纵览 + 商品经营）", len(calls) >= 2, f"实际 {len(calls)} 处")
+    ok("挂账汇总（`build_arrears_summary` 自己那条查询）也带窗口",
+       "*delivered_span_sql(start, end)" in reports_py)
+    ok("循环里那句 `ds < start or ds > end` 仍然在（SQL 侧只是预过滤，权威判据在 Python 侧）",
+       reports_py.count("ds < start or ds > end") >= 3,
+       f"实际出现 {reports_py.count('ds < start or ds > end')} 次")
 
     # ---- ⑥ 单测把新规矩钉住 ----
     print("\n⑥ 单测：新口径各有人钉")

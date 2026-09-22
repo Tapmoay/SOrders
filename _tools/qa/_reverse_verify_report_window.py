@@ -180,6 +180,27 @@ CASES: list[tuple[str, Path, object]] = [
         REPORTS_PY,
         lambda s: s.replace("s, e = _span(mode, d, date_from, date_to)", "s, e = _window(mode, d)", 1),
     ),
+    # ---- ⑤b 窗口下推到 SQL（2026-09-23 容量实测补）----
+    (
+        "营业纵览又把全库已送达单读进内存（span 被摘掉 → 报表随历史线性变慢）",
+        REPORTS_PY,
+        lambda s: s.replace("orders = load_delivered(db, span=(start, end))", "orders = load_delivered(db)", 1),
+    ),
+    (
+        "商品经营那一路的 span 被摘掉（只留一处也会让那一页慢）",
+        REPORTS_PY,
+        lambda s: s.replace("for o in load_delivered(db, span=(start, end)):", "for o in load_delivered(db):", 1),
+    ),
+    (
+        "挂账汇总那条自己写的查询丢了窗口条件",
+        REPORTS_PY,
+        lambda s: s.replace("                *delivered_span_sql(start, end),\n", "", 1),
+    ),
+    (
+        "窗口翻译函数被改名/删掉（调用点就成了未定义名）",
+        REPORTS_PY,
+        lambda s: s.replace("def delivered_span_sql(", "def _delivered_span_sql_x(", 1),
+    ),
     # ---- ⑥ 单测不是摆设 ----
     (
         "「半截自定义落到最宽窗口」那条单测被删掉",

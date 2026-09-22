@@ -21,6 +21,7 @@
 | 3 | **本机凭据文件** | `C:\Users\Optimistic\.sorders\`（`dev-credentials.md`、`prod-db-credentials.txt`、`rotate_db_password.sh`） | 交付机器前整个目录删掉（它本来就在仓库外，不会随代码走） |
 | 4 | **服务器上的凭据文件** | `/root/.sorders-db-credentials.txt`（600）、`/opt/SOrders/.env`（600） | **保留**（生产要跑）；只确认权限是 600、且 `.env` 不在任何备份/公开目录里 |
 | 5 | **模拟器与测试工具** | `_tools/`（含 `_archive/` 里的探针、`_tools/fuzz/`、`_tools/ai/_probe_*.py`）；`_archive/` 是 gitignored | 交付时不带走（`_tools/` 是开发/审计工具，跟着仓库走没风险，但别放进交付包） |
+| 5b | **容量测试用的大库与副本后端**（2026-09-23 新增） | `_tools/perf/_perf_seed.py` 生成的 `_agent/perf/perf.db`（2 万单 / 23MB，**`_agent/` 与 `*.db` 都在 .gitignore 里**）、以及指向它的第二个后端（`DATABASE_URL=sqlite:///…/perf.db` + `--port 8001`） | 交付时删掉 `_agent/perf/` 即可（就是一份开发库的放大副本，含测试账号与演示数据）。⚠️ 量完**记得把 8001 那个后端停掉**：它比源码旧会让 `_check_backend_fresh.py` 一直报红（见该脚本注释） |
 | 6 | **测试数据**（`SOTEST…` 订单、`验证-*` 地点、`probe-*` 共享地点、`测试收货地址`） | 本机 `backend/sorders.db`；生产库**曾经**清过一次（`/root/backup-testdata-20260904.sql`） | 生产库上线前再清一次：订单号 `LIKE 'SOTEST%'`、地点名 `LIKE '验证-%' OR LIKE 'probe-%'`、地址含「测试收货地址」 |
 | 7 | **App 里存的会话/登录态** | 每台模拟器/真机的 `shared_prefs/session`、`ai`（加密） | 交付前 `adb shell pm clear com.tapmoay.sorders`，或让用户自己退出登录 |
 | 8 | **公开仓库本身的历史** | `Tapmoay/SOrders` 历史里有：生产 IP、SSH 私钥**路径**、`_tools/deploy/` 的发布流程、**已失效**的旧库口令 | 已评估过：旧的库口令**已轮换失效**，不必改写历史；IP/路径属"知情即可"级别。若客户要求私有，把仓库转私有即可（代码本身没有现役凭据） |

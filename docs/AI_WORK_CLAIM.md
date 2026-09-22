@@ -20,7 +20,38 @@
 
 ## 进行中
 
-### [2026-09-23 00:3x →] 会话：**全项目系统性复核 · 第 2 轮**（上传防 OOM / 商品恢复还原 / 跨账号消息留痕 / 死代码 / 探针判据补牙）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-23 01:0x →] 会话：**全项目系统性复核 · 第 3 轮**（性能与容量第一次实测 + 报表十倍提速）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+`HANDOVER.md` 把「性能与容量」列为**一次都没测过**的第一条空白。这一轮做掉一半（单用户 / 本机 SQLite / 2 万单副本）。
+
+**新增两个量尺（`_tools/perf/`，都是常驻工具）**：
+- `_perf_seed.py`：复制开发库 + 放大到 2 万单（`_agent/perf/perf.db`，⛔ 只写 `_agent/` 下的副本）。
+  ⚠️ 造完必须过 `_fuzz_invariants` —— **第一版当场被它抓出一个造数缺陷**（库存流水写死 -1）。
+- `_perf_probe.py`：对 `--port 8001` 那个副本后端量 25 个热端点（中位/极值/响应体 + 分档警戒线）。
+
+**抓到的真缺陷（改前）**：报表三件套在 2 万单上 **1.5~2.3 秒**，而且 `mode=day`(2298ms) 与
+`mode=month`(2332ms) **几乎一样** ⇒ 瓶颈不在窗口，在"读了多少行"：
+`load_delivered()` 无条件把**全库已送达单连行**读进内存、再在 Python 里按窗口丢掉
+（数据保留 3 年 ⇒ 代价随时间线性长；页面与导出走同一段聚合）。
+
+**修法（只加速、不改数）**：新增 `delivered_span_sql()`（业务日区间 → UTC 半开区间，与循环里
+那句 `ds < start or ds > end` 同口径的**等价预过滤**），`load_delivered(db, span=…)` +
+两个 `build_*` + 挂账查询各带窗口。结果：day **2298→76ms**、month **2332→280ms**、
+商品 1965→36ms、欠款 1664→99ms；**10 个窗口的响应体与改前逐字节一致**（10/10）。
+
+**判据**：`_check_report_window.py` 新增 ⑤b 节 5 项（每个 `load_delivered` 调用点必须带 span 等），
+反向验证 **21 → 25 种注入**。
+
+**要改的文件**：`backend/app/api/v1/reports.py`、`_tools/qa/_check_report_window.py`、
+`_tools/qa/_reverse_verify_report_window.py`、`_tools/perf/{_perf_seed,_perf_probe}.py`(新)、
+`docs/PROJECT_MAP/{08_CODE_LOCATOR.md,09_DEV_ONLY_INDEX.md,08A_ENDPOINT_INDEX.md(重生成)}`、
+`docs/ai/ai_read_catalog.json(重生成)`。
+
+**验收数字**：`_check_all.py` **79/79** · 后端 pytest **793 passed** · `_perf_probe.py` **25/25 在警戒线内**
+（最大中位 337ms）· `_reverse_verify_report_window.py` **25/25**。
+
+
+### [2026-09-23 00:3x → 01:0x] 会话：**全项目系统性复核 · 第 2 轮**（上传防 OOM / 商品恢复还原 / 跨账号消息留痕 / 死代码 / 探针判据补牙）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **这一轮修的都是上一轮复核列出的"仍成立"条目**（台账「第三十二轮」那张表里的 G8 / K6 / A8 / H8 / A12）：
 

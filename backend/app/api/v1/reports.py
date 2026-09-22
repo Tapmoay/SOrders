@@ -96,8 +96,30 @@ def _range_dates(start: date, end: date) -> list[date]:
     return out
 
 
-def load_delivered(db: Session) -> list[Order]:
+def delivered_span_sql(start: date, end: date) -> tuple:
+    """把「业务当地日闭区间」翻译成 `delivered_at`（UTC naive）的**半开区间**条件。
+
+    ⚠️ 这不是第二套口径，而是 `business_date()` 那套判据在 SQL 侧的**等价前置过滤**：
+    `core/business_time.business_range_utc(start, end)` 给出的 `[start 当地 00:00, end+1 当地 00:00)`
+    与循环里那句 `ds < start or ds > end` 覆盖的是**同一批时刻**（半开 / 闭区间只是写法差别）。
+
+    ### 为什么必须加它（2026-09-23 容量实测，见 `_tools/perf/`）
+    `load_delivered` 原来是**无条件把全库已送达单连行一起读进内存**，再由函数体按窗口丢掉 ——
+    也就是说**看一天的报表，也要把三年历史全查一遍**。实测（2 万单的副本库）：
+    `mode=day` 与 `mode=month` 的耗时都是 **2.3 秒左右**（同一条 2.2~2.5s、看不出窗口差别），
+    而数据保留策略是 **3 年** —— 这个代价随时间线性长，且页面与导出走的是同一段聚合。
+    加了窗口过滤之后，读的行数只与窗口有关、与全库历史无关。
+    """
+    lo, hi = business_range_utc(start, end)
+    return Order.delivered_at >= lo, Order.delivered_at < hi
+
+
+def load_delivered(db: Session, *, span: tuple[date, date] | None = None) -> list[Order]:
     """全部已送达订单（按送达时间排序）；由各报表按窗口过滤，减少重复查询。
+
+    [span] 非空 = 只读这一段业务日区间内的单（**调用方已经知道窗口时一定要传**，
+    否则就是把全库历史读进内存再丢掉，见 [delivered_span_sql]）。
+    循环里那句 `ds < start or ds > end` 仍然保留 —— 它才是权威判据，SQL 侧只是同口径的预过滤。
 
     ### 为什么必须排掉软删（隔离区）的单
     `DELETE /orders/{id}` 是**伪装删除**（进隔离区 30 天，可恢复），用户界面上已经看不到了。
@@ -106,19 +128,19 @@ def load_delivered(db: Session) -> list[Order]:
     后果是"删掉的那张单还在营业额、毛利、货损、司机应付里"：
     用户删掉一张错单，报表上的数字**一分都不减**，而他会以为删干净了。
     """
-    return list(
-        db.scalars(
-            select(Order)
-            .options(selectinload(Order.order_products))
-            .where(
-                Order.status == OrderStatus.DELIVERED,
-                Order.delivered_at.isnot(None),
-                # 隔离区里的单不算数（列可能不存在于极老的库里时由 schema_bootstrap 补齐）
-                Order.deleted_at.is_(None),
-            )
-            .order_by(Order.delivered_at)
+    q = (
+        select(Order)
+        .options(selectinload(Order.order_products))
+        .where(
+            Order.status == OrderStatus.DELIVERED,
+            Order.delivered_at.isnot(None),
+            # 隔离区里的单不算数（列可能不存在于极老的库里时由 schema_bootstrap 补齐）
+            Order.deleted_at.is_(None),
         )
     )
+    if span is not None:
+        q = q.where(*delivered_span_sql(span[0], span[1]))
+    return list(db.scalars(q.order_by(Order.delivered_at)))
 
 
 def build_turnover(db: Session, mode: str, anchor: date, *, span: tuple[date, date] | None = None) -> dict:
@@ -131,7 +153,7 @@ def build_turnover(db: Session, mode: str, anchor: date, *, span: tuple[date, da
     d = anchor
     start, end = span if span else _window(mode, anchor)
     days = _range_dates(start, end)
-    orders = load_delivered(db)
+    orders = load_delivered(db, span=(start, end))
     # ⚠️ 一页/一期的**钱**先一次算完（`order_money`：4 条分组查询，与订单条数无关）：
     #    本期营业额要**减掉退货红冲**、已收要含现场收现金、挂账要减掉已收与退货 ——
     #    这三件事原来各自用 `paid` + `line_total` 现算，加了"部分核销"与"退货"之后
@@ -316,7 +338,7 @@ def build_products(db: Session, mode: str, anchor: date, *, span: tuple[date, da
     cost_covered_amount = Decimal("0")
     cost_avg_lines = 0
     cost_snapshot_lines = 0
-    for o in load_delivered(db):
+    for o in load_delivered(db, span=(start, end)):
         ds = business_date(o.delivered_at)
         if ds is None or ds < start or ds > end:
             continue
@@ -441,6 +463,10 @@ def build_arrears_summary(db: Session, start: date, end: date) -> list[dict]:
                 #    schema 里 `arrears_total` 的注释写的就是"挂账未收（paid=False）"——
                 #    判据只有一处实现，才不会再走散。
                 Order.paid.is_(False),
+                # ⚠️ 与 `load_delivered` 同一个窗口预过滤（2026-09-23 容量实测）：
+                #    这一段原来也是全库读进内存再按窗口丢。挂账页与营业纵览共用同一批单，
+                #    两边的窗口口径必须一模一样（下面循环里那句 `ds < start or ds > end` 仍是权威判据）。
+                *delivered_span_sql(start, end),
             )
         )
     )
