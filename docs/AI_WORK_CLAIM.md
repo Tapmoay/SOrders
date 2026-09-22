@@ -20,86 +20,6 @@
 
 ## 进行中
 
-### [2026-09-22 19:3x →] 会话：**同一账号不许两台手机同时登录（测试号段豁免）+ 建一个真实派单员 15070334563**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
-
-**用户原话**：「派单员他是**没有名称**的，就是他的名称就是**派单员**，但是他不同派单员的主要区别是**他的电话号码不同**。
-然后你再**增加一个真实的派单员**，电话号码 **15070334563**，**123321 是所有账号的初始密码**。
-而且你还做一个叫什么**防止两部手机同时登一个账号**，**测试账号除外** —— 只要是真实的账号的话，
-他**不能在两部手机上同时登录**。」
-**用户拍板（19:4x）**：① 第二台登录时**后来者顶掉先登的**（先登那台失效）；
-② 测试账号＝**现在我们在用的这批号的形式**（`13800000001`~`13800000009`，尾号最多 9）**全部自动豁免**；
-③ 15070334563 建在**生产库**。
-
-**改什么（后端 3 个文件；前端一行都不用改）**
-- **机制是现成的**：`auth_service.py::revoke_tokens_and_sockets`（`token_version` +1 让该账号已发的令牌全失效
-  **＋ 断开那条长连接**）＋ `deps.get_current_user` 里已有的 `tv` 校验 —— 所以这条需求只要
-  **在登录成功时先撤销旧会话、再签发新令牌**，不用动 `deps.py`（**核心清单里的文件一个都不动**）。
-- `backend/app/services/auth_service.py`：新增 `is_test_account(phone)` —— **豁免判据只有这一处**。
-- `backend/app/api/v1/auth.py::_login`：加 `BackgroundTasks`；登录成功后（非豁免账号）
-  `revoke_tokens_and_sockets(...)` → `db.commit()` → 再 `build_token_response(user)`。
-  ⚠️ 顺序不能反：先 commit 再签发，否则新令牌带着库里还没生效的 `tv`，**用户会被自己的登录挡在门外**。
-- 新增 `backend/tests/test_single_session.py`、红线 `_tools/qa/_check_single_session.py` + 反向验证。
-- 文档：`08_CODE_LOCATOR.md` 的登录/鉴权那一行。
-- 新账号 `15070334563`（`full_name=派单员`、`username=手机号`、密码 `123321`、角色 派单员）走
-  **`POST /api/v1/users`**（`auth.py` 写明「账号只有这一条创建路径」），**不手工插库**。
-
-**明确不碰**：`backend/app/deps.py`（核心：`tv` 校验已经在那儿，我只**用**它）、
-`app/core/schema_bootstrap.py`（本方案**不加列** —— 豁免按手机号段判，不建 `is_test`）、
-以及别人正在改的 `order_response.py` / `ReportCenter*.kt` / `AiWrite*.kt` / `SuppliersScreen.kt`。
-
-**进展（19:3x → 20:1x，代码与本机验证已完成）**
-- 代码：`app/services/auth_service.py`（`is_test_account` + `TEST_ACCOUNT_PHONE_PREFIX`/`TAIL_MAX`）、
-  `app/api/v1/auth.py::_login`（加 `background_tasks`；`revoke_tokens_and_sockets` → `db.commit()`
-  → `build_token_response`）。**核心清单里的文件一个没动**（`deps.py` 一行未改）。
-  ⚠️ 发现并**主动避开**一个坑：`config.py` 里已有一个 `ai_test_phone_prefix`（管"谁能用服务端默认 AI key"，
-  本机 `.env` 设的就是 `1380000000`）—— 拿它当豁免判据会很自然地写出来，但那样"打开 AI 默认 key"
-  会**顺手放宽登录限制**，所以另立常量并在注释里写明为什么不复用。
-- 测试：`backend/tests/test_single_session.py` **9 项全过**；全量 `pytest -q` **772 passed**。
-- 红线 `_tools/qa/_check_single_session.py` **20 项**（`_check_all.py` 自动收录，现共 **76** 个脚本）
-  + 反向验证 `_reverse_verify_single_session.py` **9/9 全部抓到**。
-  ⚠️ 其中一条注入自己烂了（`deps.py` 那行实际是 4 空格缩进，我锚点写了 8 空格 → 空转），已改成正则带缩进。
-- 本机**接口层**实测（`15900000009` 本机验证号，非豁免）：第一台 200 → 第二台登录后
-  **第一台 401**（被顶）、第二台 200；豁免号 `13800000001` 两台**都还是 200**；打错密码**不踢人**。
-- **真机双设备实测**：5554 先登 `15900000009` → 5558 后登同一个号 → **5554 自动回到登录页**
-  （走的是服务端 `session_revoked` 推送 + 401 两条路，无需人工操作），5558 正常在用；
-  再用**测试号** `13800000001` 在 5554/5558 各登一次 → **两台都留着**（豁免生效）。
-  截图 `_archive/singlelogin-01..03-*.png`。三台设备已复位（5554 派单员`13800000001` /
-  5556 货主`13800000002` / 5558 司机`13800000003`）。
-- **生产建号已完成**：`15070334563` / `full_name=派单员` / `DISPATCHER`，生产库 **id=182**，
-  审计 `operation_logs` id=23201（`USER_CREATE`，operator_id=1）。
-  ⚠️ 没走 HTTP 接口 —— 生产已经打开 `reject_plaintext_credentials`（明文登录返回 **426**），
-  443 安全组没放行；改为在服务器上用**它自己的代码**建（`hash_password` + `write_log`），
-  并用 `authenticate_user(db, "15070334563", "123321")` **自证**（真号 ok / 错密码被拒）。
-- ⚠️ **还没做的**：这段代码**没有部署到生产** —— 所以在生产上，`15070334563` 目前**不受**单设备限制。
-  部署要先把本轮改动提交并推 `origin p:new`（faa17a77 19:03 刚用同一条路发过一版），**等用户拍板**。
-- 顺手修掉一条**本就红的**生成物：`08A_ENDPOINT_INDEX.md` 过期（我这轮改了 `auth.py` 的行号，
-  别人新端点早就在索引里了）→ 按它自己的脚本重跑，diff 只有我这三个端点的行号漂移。
-- 本机后端**已按规矩重启**（我改的就是后端，所以由我决定何时重启）：这会顺带让别人的后端改动一起生效。
-- 工具教训（已写进记忆）：判"有没有人在跑 Gradle"不能扫进程表（守护进程常驻，第一版白等 40 分钟），
-  要读 `gradle --status` 的 `BUSY`；含中文的 `.ps1` 无 BOM 会被 PS 5.1 按 ANSI 读而语法报错。
-
-**▶ 部署到生产（用户 20:2x 拍板：「可以可以部署到生产」）**
-⚠️ **这一推会把本地领先 `origin/new` 的 5 个提交一起发上去**（`p:new` 是共享集成分支，
-服务器走 `merge --ff-only`，所以「只发我那一个提交」在这个流程里做不到）：
-- `c6dd988` AI 卡片上的金额也去零（faa17a77）
-- `0b48489` / `bf7822f` 声明页补记（faa17a77）
-- `d7d2439` 基线快照：账本 / **供应商应付款** / 预订单 / 货主账本统计 + 退货申请角色守卫对齐（78ebd95c）
-- `569a23d` 下单报价必须绑到货主的价（预订单/换货主时批发商专属价被跳过）+ 订单详情「加图」→「补地点图」
-- **我这一条**（单设备登录 + 豁免）
-这 4 条是别人**已提交**、并在声明页写明「HEAD 已等于验证过的树」的状态。发布前闸门：
-`_check_all.py` **76/76 绿** · `_check_secrets.py` 干净 · `cd backend && pytest -q` **772 passed**（exit 0）。
-发布动作与对账（表数 / users / orders / ledgers / NRestarts）记在下面。
-
-核心改动：backend/app/services/order_response.py —— 为什么必须动核心：新的「拨号」按钮拨的就是这条出参下发的 `driver_phone`，而司机账号软删后那一列存的是 `13800001234_del160`，原样下发＝给用户一个**打不通的号**（去尾只用于展示，口径仍是 `soft_delete.py` 一处）。
-
-核心改动：backend/app/models/enums.py —— 为什么必须动核心：预订单要三个**审计动作码**（`ORDER_TEMPLATE_UPSERT/DELETE/RESTORE`），而"审计动作码"这一类取值按项目规矩**只能定义在领域词汇表这一处**（`CORE_AND_EXTENSION.md` §3 的扩展点就是它）。预设单会变成真订单，所以"这条预设是谁建的/改的/删的"必须查得到。
-
-核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：它是 AI 写闸门（数据源 + 处理器注册表都在这个文件里），而"新增一个写域"的**唯一接线点**就在这儿（接口方法、`override` 实现、`snapshot` 分支、`rawHandlers` 注册各一处）；没有第二个地方可以加，所以插件式扩展也只能落在这里（新增内容全是追加，既有动作一行未动）。
-
-核心改动：backend/app/services/driver_pay.py —— 为什么必须动核心：司机「这单怎么给钱」那句话（`PayRule.describe()`）是**全项目唯一一处**生成它的地方（AI 确认卡 / 账单说明 / 司机列表三处共用），而它把金额印成「固定工资 8000.00 元/月」。本轮只在**文案**上去掉末尾多余的 0（顺手把原来只管百分比的私有 `_plain` 与它合成一处）；**钱的计算、进位、字段一行未动**。
-
-核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：收款被拒时那句"这次要核销 X 元，但它只欠 Y 元"是**用户照着改数字的唯一依据**（他要把金额改成 Y 再提交），而它印的是 `150.00 元`。本轮只把这句话里的两个插值过 `money_text`；**判据（`part > m.arrears`）、口径、字段一行未动**。
-
 ### [2026-09-22 19:0x →] 会话：**AI 卡片上的金额也去零**（`moneyText` / `money` 拆开）+ **后端已发到生产**（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
 **用户原话**：「可以可以这两件事直接做了」—— 指上一轮结尾我请他拍板的两件。
@@ -3196,6 +3116,104 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-09-22 19:3x → 21:4x] 会话：**同一账号不许两台手机同时登录（测试号段豁免）+ 真实派单员 15070334563 已建生产**；**本轮代码已部署到生产**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户原话**：「派单员他是**没有名称**的，就是他的名称就是**派单员**，但是他不同派单员的主要区别是**他的电话号码不同**。
+然后你再**增加一个真实的派单员**，电话号码 **15070334563**，**123321 是所有账号的初始密码**。
+而且你还做一个叫什么**防止两部手机同时登一个账号**，**测试账号除外** —— 只要是真实的账号的话，
+他**不能在两部手机上同时登录**。」
+**用户拍板（19:4x）**：① 第二台登录时**后来者顶掉先登的**（先登那台失效）；
+② 测试账号＝**现在我们在用的这批号的形式**（`13800000001`~`13800000009`，尾号最多 9）**全部自动豁免**；
+③ 15070334563 建在**生产库**。
+
+**改什么（后端 3 个文件；前端一行都不用改）**
+- **机制是现成的**：`auth_service.py::revoke_tokens_and_sockets`（`token_version` +1 让该账号已发的令牌全失效
+  **＋ 断开那条长连接**）＋ `deps.get_current_user` 里已有的 `tv` 校验 —— 所以这条需求只要
+  **在登录成功时先撤销旧会话、再签发新令牌**，不用动 `deps.py`（**核心清单里的文件一个都不动**）。
+- `backend/app/services/auth_service.py`：新增 `is_test_account(phone)` —— **豁免判据只有这一处**。
+- `backend/app/api/v1/auth.py::_login`：加 `BackgroundTasks`；登录成功后（非豁免账号）
+  `revoke_tokens_and_sockets(...)` → `db.commit()` → 再 `build_token_response(user)`。
+  ⚠️ 顺序不能反：先 commit 再签发，否则新令牌带着库里还没生效的 `tv`，**用户会被自己的登录挡在门外**。
+- 新增 `backend/tests/test_single_session.py`、红线 `_tools/qa/_check_single_session.py` + 反向验证。
+- 文档：`08_CODE_LOCATOR.md` 的登录/鉴权那一行。
+- 新账号 `15070334563`（`full_name=派单员`、`username=手机号`、密码 `123321`、角色 派单员）走
+  **`POST /api/v1/users`**（`auth.py` 写明「账号只有这一条创建路径」），**不手工插库**。
+
+**明确不碰**：`backend/app/deps.py`（核心：`tv` 校验已经在那儿，我只**用**它）、
+`app/core/schema_bootstrap.py`（本方案**不加列** —— 豁免按手机号段判，不建 `is_test`）、
+以及别人正在改的 `order_response.py` / `ReportCenter*.kt` / `AiWrite*.kt` / `SuppliersScreen.kt`。
+
+**进展（19:3x → 20:1x，代码与本机验证已完成）**
+- 代码：`app/services/auth_service.py`（`is_test_account` + `TEST_ACCOUNT_PHONE_PREFIX`/`TAIL_MAX`）、
+  `app/api/v1/auth.py::_login`（加 `background_tasks`；`revoke_tokens_and_sockets` → `db.commit()`
+  → `build_token_response`）。**核心清单里的文件一个没动**（`deps.py` 一行未改）。
+  ⚠️ 发现并**主动避开**一个坑：`config.py` 里已有一个 `ai_test_phone_prefix`（管"谁能用服务端默认 AI key"，
+  本机 `.env` 设的就是 `1380000000`）—— 拿它当豁免判据会很自然地写出来，但那样"打开 AI 默认 key"
+  会**顺手放宽登录限制**，所以另立常量并在注释里写明为什么不复用。
+- 测试：`backend/tests/test_single_session.py` **9 项全过**；全量 `pytest -q` **772 passed**。
+- 红线 `_tools/qa/_check_single_session.py` **20 项**（`_check_all.py` 自动收录，现共 **76** 个脚本）
+  + 反向验证 `_reverse_verify_single_session.py` **9/9 全部抓到**。
+  ⚠️ 其中一条注入自己烂了（`deps.py` 那行实际是 4 空格缩进，我锚点写了 8 空格 → 空转），已改成正则带缩进。
+- 本机**接口层**实测（`15900000009` 本机验证号，非豁免）：第一台 200 → 第二台登录后
+  **第一台 401**（被顶）、第二台 200；豁免号 `13800000001` 两台**都还是 200**；打错密码**不踢人**。
+- **真机双设备实测**：5554 先登 `15900000009` → 5558 后登同一个号 → **5554 自动回到登录页**
+  （走的是服务端 `session_revoked` 推送 + 401 两条路，无需人工操作），5558 正常在用；
+  再用**测试号** `13800000001` 在 5554/5558 各登一次 → **两台都留着**（豁免生效）。
+  截图 `_archive/singlelogin-01..03-*.png`。三台设备已复位（5554 派单员`13800000001` /
+  5556 货主`13800000002` / 5558 司机`13800000003`）。
+- **生产建号已完成**：`15070334563` / `full_name=派单员` / `DISPATCHER`，生产库 **id=182**，
+  审计 `operation_logs` id=23201（`USER_CREATE`，operator_id=1）。
+  ⚠️ 没走 HTTP 接口 —— 生产已经打开 `reject_plaintext_credentials`（明文登录返回 **426**），
+  443 安全组没放行；改为在服务器上用**它自己的代码**建（`hash_password` + `write_log`），
+  并用 `authenticate_user(db, "15070334563", "123321")` **自证**（真号 ok / 错密码被拒）。
+- ⚠️ **还没做的**：这段代码**没有部署到生产** —— 所以在生产上，`15070334563` 目前**不受**单设备限制。
+  部署要先把本轮改动提交并推 `origin p:new`（faa17a77 19:03 刚用同一条路发过一版），**等用户拍板**。
+- 顺手修掉一条**本就红的**生成物：`08A_ENDPOINT_INDEX.md` 过期（我这轮改了 `auth.py` 的行号，
+  别人新端点早就在索引里了）→ 按它自己的脚本重跑，diff 只有我这三个端点的行号漂移。
+- 本机后端**已按规矩重启**（我改的就是后端，所以由我决定何时重启）：这会顺带让别人的后端改动一起生效。
+- 工具教训（已写进记忆）：判"有没有人在跑 Gradle"不能扫进程表（守护进程常驻，第一版白等 40 分钟），
+  要读 `gradle --status` 的 `BUSY`；含中文的 `.ps1` 无 BOM 会被 PS 5.1 按 ANSI 读而语法报错。
+
+**▶ 部署到生产（用户 20:2x 拍板：「可以可以部署到生产」）**
+⚠️ **这一推会把本地领先 `origin/new` 的 5 个提交一起发上去**（`p:new` 是共享集成分支，
+服务器走 `merge --ff-only`，所以「只发我那一个提交」在这个流程里做不到）：
+- `c6dd988` AI 卡片上的金额也去零（faa17a77）
+- `0b48489` / `bf7822f` 声明页补记（faa17a77）
+- `d7d2439` 基线快照：账本 / **供应商应付款** / 预订单 / 货主账本统计 + 退货申请角色守卫对齐（78ebd95c）
+- `569a23d` 下单报价必须绑到货主的价（预订单/换货主时批发商专属价被跳过）+ 订单详情「加图」→「补地点图」
+- **我这一条**（单设备登录 + 豁免）
+这 4 条是别人**已提交**、并在声明页写明「HEAD 已等于验证过的树」的状态。发布前闸门：
+`_check_all.py` **76/76 绿** · `_check_secrets.py` 干净 · `cd backend && pytest -q` **772 passed**（exit 0）。
+发布动作与对账（表数 / users / orders / ledgers / NRestarts）记在下面。
+
+**▶ 已发布（21:41 → 21:43，用户拍板「可以可以部署到生产」）**
+- 提交：`8a04965`（我这条）；工作区提交后**干净**（0 个未提交文件）。
+- 闸门（发布前）：`_check_all.py` **76/76 绿** · `_check_secrets.py` 干净 · `pytest -q` **772 passed（exit 0）**。
+- 备份（`/root`）：`backup-sorders-deploy-20260922-2141.sql.gz`（521K，`gzip -t` 通过）
+  ＋ `SOrders-backend-20260922-2141.tgz`；**回滚点 = `c79cc0d`**。
+- 推：`git push origin p:new`（`c79cc0d..8a04965`，走 `-c http.proxy= -c http.sslBackend=schannel`）
+  → 服务器 `git fetch && git merge --ff-only origin/new` → `systemctl restart sorders-api`。
+- **对账**：服务 `active` / **NRestarts=0** · 启动日志无 Traceback · 表 **40 → 43**
+  （`suppliers`、`supplier_payables` 等，= d7d2439 的迁移**跑成功了**）·
+  users **60** / orders **2402** / ledgers **4648**（与发布前一致，一条没少）· `/health` **200** ·
+  服务器上 `auth_service.py` 有 `def is_test_account`、`auth.py:68` 有 `if not is_test_account(user.phone):`。
+- **生产端到端实测**（直连 `127.0.0.1:8000` —— ⚠️ 生产的"拒明文"只看 `X-Forwarded-Proto`，
+  不经 nginx 的调用不受 426 限制，所以能这么验）：
+  真实号 `15070334563` 第一台 200 → 第二台登录后**第一台 401**、第二台 200；
+  豁免号 `13800000001` 两台**都 200**；拿真实号打错密码 401 且**已登录那台不受影响**。
+- ⚠️ **还没做的**：**APK 没重新发**。我这轮的订单卡片（数量带单位 / 分列右对齐）以及别人
+  `d7d2439` 里的 Android 部分，**真机用户还没有** —— 要等一次 `publish_apk.py`（另问用户）。
+
+核心改动：backend/app/services/order_response.py —— 为什么必须动核心：新的「拨号」按钮拨的就是这条出参下发的 `driver_phone`，而司机账号软删后那一列存的是 `13800001234_del160`，原样下发＝给用户一个**打不通的号**（去尾只用于展示，口径仍是 `soft_delete.py` 一处）。
+
+核心改动：backend/app/models/enums.py —— 为什么必须动核心：预订单要三个**审计动作码**（`ORDER_TEMPLATE_UPSERT/DELETE/RESTORE`），而"审计动作码"这一类取值按项目规矩**只能定义在领域词汇表这一处**（`CORE_AND_EXTENSION.md` §3 的扩展点就是它）。预设单会变成真订单，所以"这条预设是谁建的/改的/删的"必须查得到。
+
+核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：它是 AI 写闸门（数据源 + 处理器注册表都在这个文件里），而"新增一个写域"的**唯一接线点**就在这儿（接口方法、`override` 实现、`snapshot` 分支、`rawHandlers` 注册各一处）；没有第二个地方可以加，所以插件式扩展也只能落在这里（新增内容全是追加，既有动作一行未动）。
+
+核心改动：backend/app/services/driver_pay.py —— 为什么必须动核心：司机「这单怎么给钱」那句话（`PayRule.describe()`）是**全项目唯一一处**生成它的地方（AI 确认卡 / 账单说明 / 司机列表三处共用），而它把金额印成「固定工资 8000.00 元/月」。本轮只在**文案**上去掉末尾多余的 0（顺手把原来只管百分比的私有 `_plain` 与它合成一处）；**钱的计算、进位、字段一行未动**。
+
+核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：收款被拒时那句"这次要核销 X 元，但它只欠 Y 元"是**用户照着改数字的唯一依据**（他要把金额改成 Y 再提交），而它印的是 `150.00 元`。本轮只把这句话里的两个插值过 `money_text`；**判据（`part > m.arrears`）、口径、字段一行未动**。
+
 ### [2026-09-22 20:5x → 21:0x] 会话：**下单报价必须绑到货主的价**（预订单/换货主时专属价被跳过）+ 订单详情「加图」→「补地点图」**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **结论（真机 before/after 各一份，数字逐位对过）**
