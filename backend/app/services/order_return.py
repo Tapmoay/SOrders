@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.business_time import business_date
@@ -266,11 +266,32 @@ def return_order(
         #    两边都读到同一个旧值、各自算新值，后写的把前一次盖掉 ——
         #    货退了两批、账上只红冲一批，且谁都不报错
         #    （红线 `_tools/qa/_check_counter_updates.py` 钉着，与 `auto_stock_commit` 同一条理由）。
-        db.execute(
+        #
+        # ⚠️⚠️ **上限也必须写进同一条 SQL**（2026-09-23 并发实测抓到的真缺陷，动钱）：
+        #    上面那个 `if it.quantity > cap:` 是**读-判断-写**，而并发退货的窗口正好卡在这里 ——
+        #    3 个请求各自读到 `returned_quantity=0`、各自通过上限检查，然后三条 SQL 表达式各自 +1。
+        #    实测（`_tools/perf/_concurrency_probe.py`）：**一件货退成 3 件**
+        #    （`returned_quantity=3` 而 `quantity=1`）、账本红冲 −45 元（货值只有 15 元）、
+        #    现金流水多出 3 笔退款 —— 也就是说"SQL 表达式"只解决了**丢更新**，
+        #    解决不了"总量越过上限"。而这张单的状态没有变（部分退货仍是 DELIVERED），
+        #    所以订单级的 CAS 拦不住它，必须在这一行上判。
+        #    判据：**改到 1 行的人继续**；改不到 = 可退数量刚刚被另一笔退货用掉了。
+        res = db.execute(
             update(OrderProduct)
-            .where(OrderProduct.id == op.id)
-            .values(returned_quantity=OrderProduct.returned_quantity + qty)
+            .where(
+                OrderProduct.id == op.id,
+                func.coalesce(OrderProduct.quantity, 0)
+                - func.coalesce(OrderProduct.damage_quantity, 0)
+                - func.coalesce(OrderProduct.returned_quantity, 0)
+                >= qty,
+            )
+            .values(returned_quantity=func.coalesce(OrderProduct.returned_quantity, 0) + qty)
         )
+        if res.rowcount != 1:
+            raise OrderReturnError(
+                f"「{op.product_name_snapshot}」的可退数量刚刚被另一笔退货用掉了，"
+                "请刷新这张单再试（这一次没有退任何东西，也没有退款）"
+            )
         lines.append((op, qty))
         _reversal_row(db, order, op, qty, line_amount, entry_date, cust.id if cust else None)
 

@@ -21,9 +21,10 @@ session），多线程下 SQLite 连接直接 `InterfaceError: bad parameter or 
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
-from sqlalchemy import text, update
+from sqlalchemy import func, select, text, update
 from starlette.testclient import TestClient
 
 from app.models import Order
@@ -166,3 +167,152 @@ def test_double_itemized_receipt_sequential_records_money_once(
     assert rows.status_code == 200, rows.text
     hits = [x for x in rows.json() if oid in (x.get("order_ids") or [])]
     assert len(hits) == 1, f"同一张单落了 {len(hits)} 条收款记录（钱多记）：{hits}"
+
+
+def test_return_quantity_cap_is_enforced_by_the_update_itself(db_session, users) -> None:
+    """退货的「这一行最多还能退几件」必须写进**那条 UPDATE 的 where** 里。
+
+    为什么不能只测"顺序双击两次退货"（那条测试本项目早就有）：
+    顺序双击在**修复前**也是 400 —— Python 侧那句 `if it.quantity > max_returnable(op)` 挡得住。
+    真正漏掉的是**并发**：三个请求各自读到 `returned_quantity=0`、各自通过那句检查，
+    然后三条 `returned_quantity = returned_quantity + qty` 各自 +1（SQL 表达式只防丢更新，
+    不防越过上限）。2026-09-23 并发实测的后果：**一件货退成 3 件**、
+    账本红冲 −45 元（货值 15 元）、多出 3 笔退款流水。
+
+    所以这里直接钉**判据本身**（与上面 `test_conditional_claim_is_atomic_on_this_db` 同一手法）：
+    同样的 where 连续执行两次，第二次必须改不到行。
+    """
+    from app.models import OrderProduct
+
+    order = Order(
+        order_no="RET-CAP-1",
+        status=OrderStatus.DELIVERED,
+        shipper_id=users["shipper"].id,
+        order_date=date.today(),
+    )
+    db_session.add(order)
+    db_session.flush()
+    line = OrderProduct(
+        order_id=order.id,
+        product_name_snapshot="一件货",
+        quantity=1,
+        unit_price=Decimal("15"),
+        line_total=Decimal("15"),
+    )
+    db_session.add(line)
+    db_session.commit()
+
+    def claim(qty: int) -> int:
+        res = db_session.execute(
+            update(OrderProduct)
+            .where(
+                OrderProduct.id == line.id,
+                func.coalesce(OrderProduct.quantity, 0)
+                - func.coalesce(OrderProduct.damage_quantity, 0)
+                - func.coalesce(OrderProduct.returned_quantity, 0)
+                >= qty,
+            )
+            .values(returned_quantity=func.coalesce(OrderProduct.returned_quantity, 0) + qty)
+        )
+        db_session.commit()
+        return res.rowcount
+
+    assert claim(1) == 1, "第一次退这一件必须成功"
+    assert claim(1) == 0, (
+        "第二次必须改不到行（否则并发下同一件货会被退两次、退两份钱）——"
+        "上限判据必须在那条 UPDATE 的 where 里，不能只在 Python 里读一遍"
+    )
+    db_session.expire_all()
+    assert int(db_session.get(OrderProduct, line.id).returned_quantity or 0) == 1
+
+    # 同上：测试库按 worker 共享，自己造的行自己收掉
+    db_session.query(OrderProduct).filter(OrderProduct.order_id == order.id).delete()
+    db_session.query(Order).filter(Order.id == order.id).delete()
+    db_session.commit()
+
+
+def test_supplier_payment_cap_is_enforced_by_the_conditional_update(db_session, users) -> None:
+    """供应商付款的「不许超过还差的」也必须由**那条条件 UPDATE 的 WHERE** 判定。
+
+    为什么不是"读一遍余额再判断"：付款写的是**一行新的 `cash_flows`**，没有行可以像订单那样
+    CAS（`paid=false→true`），于是"已付合计 + 这次 ≤ 应付"只能在**语句里**求值 ——
+    做法是把应付单那一行当互斥量（`update(SupplierPayable) … .where(余额够)`），
+    由数据库的写锁串行化。2026-09-23 并发实测的后果：一张 1000 元的应付单**付出去 3000**。
+
+    这里钉三个事实：够 → 改得到；不够 → 改不到；付掉一部分之后剩下的额度按**新的已付**算。
+    """
+    from app.models import CashFlow, Supplier, SupplierPayable
+    from app.models.enums import CashFlowBizType, CashFlowDirection
+
+    # ⚠️ 用自己的供应商（不用 id=1）：测试库按 worker 共享，占用别人的行会连带把
+    #    别的用例打红（见文件末尾的清理段）。
+    supplier = Supplier(name="并发付款上限供应商")
+    db_session.add(supplier)
+    db_session.flush()
+    payable = SupplierPayable(
+        supplier_id=supplier.id,
+        title="并发付款上限",
+        category="货款",
+        amount=Decimal("100.00"),
+        doc_date=date.today(),
+    )
+    db_session.add(payable)
+    db_session.commit()
+    pid = payable.id
+
+    def claim(amt: Decimal) -> int:
+        paid_sub = (
+            select(func.coalesce(func.sum(CashFlow.amount), 0))
+            .where(
+                CashFlow.party_type == "supplier",
+                CashFlow.direction == CashFlowDirection.OUT,
+                CashFlow.biz_type == CashFlowBizType.PAYMENT_SUPPLIER,
+                CashFlow.doc_id == pid,
+                CashFlow.is_deleted.is_(False),
+            )
+            .scalar_subquery()
+        )
+        res = db_session.execute(
+            update(SupplierPayable)
+            .where(
+                SupplierPayable.id == pid,
+                SupplierPayable.is_deleted.is_(False),
+                SupplierPayable.amount - paid_sub >= amt,
+            )
+            .values(updated_at=datetime.now(timezone.utc).replace(tzinfo=None))
+        )
+        db_session.commit()
+        return res.rowcount
+
+    assert claim(Decimal("60")) == 1, "余额够时必须改得到行（否则正常付款会被误拒）"
+    # 模拟"第一笔 60 已经落库"（真实路径由 pay_supplier 插这一行）
+    db_session.add(
+        CashFlow(
+            flow_date=date.today(),
+            direction=CashFlowDirection.OUT,
+            amount=Decimal("60"),
+            party_type="supplier",
+            party_id=supplier.id,
+            party_name=supplier.name,
+            channel="cash",
+            biz_type=CashFlowBizType.PAYMENT_SUPPLIER,
+            doc_id=pid,
+            note="测试：已付 60",
+        )
+    )
+    db_session.commit()
+
+    assert claim(Decimal("60")) == 0, (
+        "已付 60 之后再付 60 必须改不到行（100 − 60 = 40 < 60）——"
+        "这就是并发下第二个请求被挡住的那道闸"
+    )
+    assert claim(Decimal("40")) == 1, "剩下的 40 必须还能付"
+
+    # ⚠️ **必须自己收干净**：测试库是**按 worker 共享**的（`sorders_test_<worker>.db`），
+    #    第一版拿 `supplier_id=1` 建单又没删，直接把 `test_建一个供应商档案` 里
+    #    "新供应商三列都是 0" 的断言打红了（应付 100 / 已付 60）——测试之间互相污染的
+    #    表现是"一个毫不相干的用例红了"，比这条测试自己失败难查得多。
+    db_session.query(CashFlow).filter(CashFlow.doc_id == pid).delete()
+    db_session.query(SupplierPayable).filter(SupplierPayable.id == pid).delete()
+    db_session.delete(supplier)
+    db_session.commit()

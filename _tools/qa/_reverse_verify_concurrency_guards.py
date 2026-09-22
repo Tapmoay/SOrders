@@ -61,6 +61,18 @@ CAS_FAIL = (
     "    if claimed.rowcount != 1:\n"
     "        db.rollback()"
 )
+#: 拆单那次占位（2026-09-23 并发实测补）。
+#: ⚠️ **锚点必须与派单那次区分开**：派单的 CAS 前 5 行和它**一模一样**
+#:    （同一个 `update(Order)` / `Order.status == PENDING_DISPATCH` 条件），
+#:    第一版直接拿那 5 行当锚、`count=1` 替换 → 打中的是**派单**那一处，
+#:    拆单的注入其实没生效，红线自然不红（反向验证当场标成"MISS/空转"）。
+#:    现在锚到"它以 CANCELLED + cancelled_at 收尾"这个只有拆单才有的形状。
+SPLIT_CAS = (
+    "            Order.status == OrderStatus.PENDING_DISPATCH,\n"
+    "            Order.deleted_at.is_(None),\n"
+    "        )\n"
+    "        .values(status=OrderStatus.CANCELLED, cancelled_at=_now())\n"
+)
 
 CASES: list[tuple[str, Path, object]] = [
     (
@@ -90,6 +102,21 @@ CASES: list[tuple[str, Path, object]] = [
         "送达少了条件 UPDATE 占位（实测：同一张单生成两条 60 元账单）",
         FLOW,
         lambda s: s.replace(COMPLETE_CAS, "    claimed = None", 1),
+    ),
+    (
+        "拆单少了条件 UPDATE 占位（并发实测：靠子单号唯一约束兜底，报的是「重名了、换一个」）",
+        FLOW,
+        lambda s: s.replace(SPLIT_CAS, "    claimed = None\n", 1),
+    ),
+    (
+        "拆单又把状态写成无条件赋值（多一条绕过占位的路）",
+        FLOW,
+        lambda s: s.replace(
+            "    auto_stock_release(db, order, operator.id)",
+            "    order.status = OrderStatus.CANCELLED\n"
+            "    auto_stock_release(db, order, operator.id)",
+            1,
+        ),
     ),
     (
         "占位失败却不回滚就往下走（rowcount=0 也当成功）",
@@ -156,7 +183,24 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "逐单核销占位抢不到也往下走（rowcount 不检查＝没占位）",
         ACCT,
-        lambda s: s.replace("        if claimed.rowcount != len(order_ids):", "        if False:"),
+        # ⚠️ 锚点带上下文（2026-09-23）：只写 `if claimed.rowcount != len(order_ids):` 的话，
+        #    判据被**滚动收款**那一支同形的 `!= len(settling)` 喂饱 → 注入后照样绿。
+        lambda s: s.replace(
+            "            .where(Order.id.in_(order_ids), Order.paid.is_(False))\n"
+            "            .values(\n"
+            "                paid=True,\n"
+            '                payment_method="cash" if body.method in ("cash", "transfer", "wechat") else "arrears",\n'
+            "            )\n"
+            "        )\n"
+            "        if claimed.rowcount != len(order_ids):",
+            "            .where(Order.id.in_(order_ids), Order.paid.is_(False))\n"
+            "            .values(\n"
+            "                paid=True,\n"
+            '                payment_method="cash" if body.method in ("cash", "transfer", "wechat") else "arrears",\n'
+            "            )\n"
+            "        )\n"
+            "        if False:",
+        ),
     ),
     (
         "逐单核销占位的原子性测试被删掉",

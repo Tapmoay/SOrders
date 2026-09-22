@@ -206,7 +206,17 @@ def main() -> int:
              api_stripped, r"[-+]\s*paid\b")
 
     # ---- ④ 四条"宁可拒绝也不猜" ----
-    c.present("付款不许超过还差", svc, r"if amt > left:")
+    c.present("付款不许超过还差（提前告知那两句）", svc, r"if amt > left:")
+    # ⚠️ 但那两句是**读-判断-写**，而付款写的是**一行新的 cash_flows**（没有行可以 CAS）：
+    #    三个并发的付款请求各自读到"已付 0、还差 1000"，各自插 1000 ——
+    #    2026-09-23 并发实测：一张 1000 元的应付单**付出去 3000**（三条资金流水）。
+    #    真闸门是"把应付单那一行当互斥量、把余额判据放进 WHERE"的条件 UPDATE。
+    c.present("真闸门是条件 UPDATE（余额判据在 WHERE 里，由数据库串行化）",
+              svc, r"update\(SupplierPayable\)[\s\S]{0,400}?SupplierPayable\.amount - paid_sub >= amt")
+    c.present("已付合计用**统一的付款判据**算（不是端点里自己 SUM）",
+              svc, r"paid_sub = \(\s*\n\s*select\(func\.coalesce\(func\.sum\(CashFlow\.amount\), 0\)\)[\s\S]{0,200}?_paid_filter\(")
+    c.present("抢不到行 → 回滚 + 说清「刚刚被另一笔付款用掉了/付清了」",
+              svc, r"if claimed\.rowcount != 1:[\s\S]{0,400}?db\.rollback\(\)[\s\S]{0,200}?刚刚被另一笔付款")
     c.present("付清了不许再付（说清应付/已付）", svc, r"已经付清了")
     # ⚠️ 这三条**必须看函数体**，不能只看"函数在不在"：反向验证抓到的第一个假绿就是这里 ——
     #    `def soft_delete_payable` 存在、而里面那句 `if n: raise` 被改成 `n = 0`，

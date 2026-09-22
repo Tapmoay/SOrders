@@ -284,6 +284,32 @@ def split_order(
     if not lines:
         raise ValueError("订单无商品明细，无法拆分")
 
+    # ⚠️ **原子占位**（2026-09-23 并发实测补；与 `assign_driver` / `cancel_pending` /
+    #    `recall_dispatch` / `complete_delivery` 同一手法）。
+    #
+    #    这里原来是本文件里**最后一处**"先读状态、再无条件赋值"的跃迁：
+    #    并发实测（`_tools/perf/_concurrency_probe.py`）拿 3 个线程同时点拆单，
+    #    结果是"1 个成功 + 1 个 409 + 1 个 400"——第二个请求之所以没拆成，
+    #    靠的不是状态机，而是子单 `order_no` 的**唯一约束**兜底，报出来的话是
+    #    「已经有一条一模一样的记录了（同名/同号/同电话不能重复），请换一个再试」：
+    #    用户只是双击了一下按钮，却被告知"重名了、换一个"。
+    #    更要紧的是：唯一约束只挡得住**同一批子单号**的重复，它挡不住任何"以后新增的
+    #    拆分副作用"（比如先扣库存再建子单的顺序一变，第一次的副作用就留下来了）。
+    #    所以抢占必须发生在**建子单之前**：抢不到 = 已经有人拆/派/撤了，报一句人话。
+    claimed = db.execute(
+        update(Order)
+        .where(
+            Order.id == order.id,
+            Order.status == OrderStatus.PENDING_DISPATCH,
+            Order.deleted_at.is_(None),
+        )
+        .values(status=OrderStatus.CANCELLED, cancelled_at=_now())
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError("这张单刚刚被别的操作改过（可能已被派单/撤销/拆分），请刷新后再试")
+    db.refresh(order)
+
     # 逐行预先算好"这一行的 N 份各多少件"，保证合计 == 原数量
     alloc: list[list[int]] = [allocate_split_quantities(int(lp.quantity or 0), parts) for lp in lines]
 
@@ -332,8 +358,8 @@ def split_order(
             )
         db.add(child)
         created.append(child)
-    order.status = OrderStatus.CANCELLED
-    order.cancelled_at = _now()
+    # ⚠️ 状态与 `cancelled_at` **已经由上面那次条件 UPDATE 写好**（不要再赋值一次：
+    #    多一处无条件赋值就多一条绕过占位的路，而且 `_now()` 会写成第二个时刻）。
     auto_stock_release(db, order, operator.id)
     order.internal_notes = (order.internal_notes or "").strip() + chr(10) + "[拆分] 已拆分为 " + str(len(parts)) + " 单"
     write_log(

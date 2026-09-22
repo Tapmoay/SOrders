@@ -117,7 +117,12 @@ def main() -> int:
         ret, r"update\(Ledger\)[\s\S]{0,200}?values\(",
     )
     c.present("累加走 SQL 表达式（读改写会在并发下丢掉一次退货）", ret, r"quantity=Ledger\.quantity - qty")
-    c.present("已退数量也走 SQL 表达式", ret, r"returned_quantity=OrderProduct\.returned_quantity \+ qty")
+    # ⚠️ 写法 2026-09-23 变过（并发实测）：从 `returned_quantity=OrderProduct.returned_quantity + qty`
+    #    改成带 `coalesce` 的版本，因为**同一条 UPDATE 的 where 里还要放上限判据**，
+    #    而历史行可能是 NULL（`NULL + qty` 还是 NULL，那种行的退货会被静默丢掉）。
+    #    判据锚的是"用 SQL 表达式自增"这件事本身，不是某一种写法。
+    c.present("已退数量也走 SQL 表达式",
+              ret, r"returned_quantity=func\.coalesce\(OrderProduct\.returned_quantity, 0\) \+ qty")
     c.absent(
         "不许把已退数量读出来再写回（lost update）",
         code_only(ret),
@@ -161,6 +166,15 @@ def main() -> int:
     c.present("退货端点存在", orders_api, r'@router\.post\("/\{order_id\}/return", response_model=OrderReturnOut\)')
     c.present("权限点是 ORDER_RETURN", orders_api, r"require_permission\(Permission\.ORDER_RETURN\)")
     c.present("取单时锁行（两个退货同时进来会各自算通过）", orders_api, r"select\(Order\)[\s\S]{0,120}?\.where\(Order\.id == order_id\)[\s\S]{0,40}?\.with_for_update\(\)")
+    # ⚠️ 行锁不够（SQLite 直接忽略它），**每一行的退货上限**必须写进那条 UPDATE 的 where 里
+    #    （2026-09-23 并发实测抓到的真缺陷，动钱）：三个并发退货各自读到 `returned_quantity=0`、
+    #    各自通过 Python 侧那句 `if it.quantity > max_returnable(op)`，然后三条 SQL 表达式各自 +1 ——
+    #    实测**一件货退成 3 件**、账本红冲 −45 元（货值 15 元）、多出 3 笔退款流水。
+    #    计数器用 SQL 表达式只解决"丢更新"，解决不了"总量越过上限"。
+    c.present("行级退货上限写在那条 UPDATE 的 where 里（并发下同一件货不能退两次）",
+              ret, r"update\(OrderProduct\)[\s\S]{0,400}?func\.coalesce\(OrderProduct\.quantity, 0\)[\s\S]{0,200}?func\.coalesce\(OrderProduct\.returned_quantity, 0\)[\s\S]{0,80}?>=\s*qty")
+    c.present("改不到行（可退数量被抢走）要中止并给中文原因、这一次不退款",
+              ret, r"if res\.rowcount != 1:[\s\S]{0,120}?raise OrderReturnError\([\s\S]{0,200}?没有退任何东西")
     c.present("被拒时回滚（红冲写了一半而库存没回补最难查）", orders_api, r"except OrderReturnError as e:\s*\n\s*db\.rollback\(\)")
     c.present("只有派单员有退货权限（货主不给）", rbac, r'"dispatcher": frozenset\([\s\S]{0,900}?Permission\.ORDER_RETURN')
     # ⚠️ 判据必须取**货主那一段**再找：拿 `rbac.split('"driver"')[0]` 切的话，

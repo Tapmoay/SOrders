@@ -31,7 +31,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
@@ -169,6 +169,44 @@ def pay_supplier(
                 f"付款金额 {amt} 超过了这张单还差的 {left}（应付 {q2(Decimal(payable.amount))}，已付 {paid}）；"
                 "要付这么多就另建一张应付单（预付款在这里没有位置）"
             ),
+        )
+    # ⚠️ **上面那两句只是"提前告知"，真正的闸门在这一句**（2026-09-23 并发实测抓到的真缺陷）：
+    #    付款写的是**一行新的 `cash_flows`**，没有行可以像订单那样 CAS（`paid=false→true`），
+    #    所以"已付合计 + 这次 ≤ 应付"这个判据必须**和占位写在同一个语句里**，
+    #    否则它就是典型的"读-判断-写"：三个并发的付款请求各自读到"已付 0、还差 1000"，
+    #    各自插一行 1000 —— 实测一张 1000 元的应付单**付出去 3000**（三条资金流水）。
+    #    做法与全项目其它地方同一条纪律：**条件 UPDATE 占位**，只不过这里的"行"是应付单本身，
+    #    条件里放的是"还差的钱够不够"（子查询在语句执行时求值，由数据库的写锁串行化；
+    #    MySQL 的加锁读、SQLite 的写锁，两种库上都成立）。
+    paid_sub = (
+        select(func.coalesce(func.sum(CashFlow.amount), 0))
+        .where(*_paid_filter(CashFlow.doc_id == payable.id))
+        .scalar_subquery()
+    )
+    claimed = db.execute(
+        update(SupplierPayable)
+        .where(
+            SupplierPayable.id == payable.id,
+            SupplierPayable.is_deleted.is_(False),
+            SupplierPayable.amount - paid_sub >= amt,
+        )
+        .values(updated_at=utc_now_naive())
+    )
+    if claimed.rowcount != 1:
+        # 抢不到 = 就在刚才这一瞬间，这笔钱被另一笔付款用掉了（或整张单被付清）
+        paid_now = payable_paid(db, payable.id)
+        left_now = unpaid_of(payable, paid_now)
+        db.rollback()
+        if left_now <= ZERO:
+            raise HTTPException(
+                status_code=400,
+                detail=f"「{payable.title}」刚刚被另一笔付款付清了（应付 {q2(Decimal(payable.amount))}，"
+                       f"已付 {paid_now}），这一次没有付出去任何钱",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"这张单还差的钱刚刚被另一笔付款用掉了，现在只剩 {left_now} 可付"
+                   f"（你要付 {amt}）；请刷新后按剩下的金额再付",
         )
     note = f"{payable.title}（第 {payable_payment_count(db, payable.id) + 1} 次付款）"
     if remark.strip():

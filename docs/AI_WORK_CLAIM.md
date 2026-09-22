@@ -20,6 +20,44 @@
 
 ## 进行中
 
+### [2026-09-23 01:2x →] 会话：**全项目系统性复核 · 第 4 轮**（并发实测：抓到两条动钱的并发缺陷 + 一条无 CAS 的状态跃迁）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+`HANDOVER.md` 的另一条空白：「并发压力测试：只有针对性的并发注入，没有『多用户混跑』的压测」。
+这一轮补的是**更窄但更容易出真事故**的一层：**同一张单 / 同一笔钱被同时动手两次**。
+新增 `_tools/perf/_concurrency_probe.py`（11 个场景，Barrier 对齐起跑线；判据是"恰好一个成功 +
+副作用只发生一次"，SQLite 锁冲突单独计数不当缺陷）。
+
+- 核心改动：`backend/app/services/order_return.py` —— 为什么必须动核心：退货是**动钱**的路径（账本红冲 + 客户退款 + 回补库存），它的行级上限判据必须与那条 UPDATE 写在同一个语句里，否则并发下同一件货能退两次、退两份钱（实测 3 个并发请求把 1 件货退成 3 件）。
+- 核心改动：`backend/app/services/order_flow.py` —— 为什么必须动核心：拆单是订单**状态跃迁**（待派单 → 撤销 + 建 N 张子单），占位必须发生在建子单之前；晚一步就只能靠子单号唯一约束兜底（用户双击一下会收到「重名了、换一个再试」）。
+
+**抓到的三条（前两条是钱）：**
+
+| 场景 | 改前实测 | 改法 |
+|---|---|---|
+| **并发退货** | 3 个请求同时退同一行各退满 → **全成功**：`returned_quantity=3` 而 `quantity=1`、账本红冲 **−45 元**（货值 15）、3 笔退款流水 | 上限判据写进那条 UPDATE 的 WHERE（`quantity − damage − returned ≥ qty`），改不到行就中止且**这一次不退款** |
+| **并发供应商付款** | 一张 1000 元应付单 3 个并发全额付款 → **全成功：付出去 3000**、3 条资金流水 | 付款写的是**新行**（没有行可 CAS）→ 把应付单那一行当互斥量：`update(SupplierPayable).where(amount − 已付子查询 ≥ amt)` |
+| **并发拆单** | 1 成功 + **409「已经有一条一模一样的记录了…请换一个再试」**（用户只是双击了一下；拦住第二次的是子单号唯一约束，不是状态机） | 与派单/撤销/送达同一手法：抢占发生在**建子单之前**，抢不到报"这张单刚刚被别的操作改过（可能已被派单/撤销/拆分）" |
+
+**判据补牙（4 处，其中 2 处是"看起来在查、其实没查"）**：
+① `_check_order_return.py` +2 项（110 → **112**）、`_reverse_verify_order_return.py` 27 → **29** 条注入；
+② `_check_supplier_payables.py` +3 项（142 → **145**）、反向验证 23 → **25** 条；
+③ `_check_ai_guardrails.py` §25 +2 项（1274 → **1275**）、`_reverse_verify_concurrency_guards.py` 15 → **18** 条注入；
+④ 顺手修掉两条**空转**的旧判据：派单 CAS 的正则被新加的拆单 CAS 喂饱（注入后照样绿）、
+逐单核销的 rowcount 判据被滚动收款那一支同形语句喂饱。
+
+**要改的文件**：`backend/app/services/{order_return,order_flow,supplier_service}.py`、
+`backend/tests/test_concurrent_delivery_money.py`、`_tools/perf/_concurrency_probe.py`(新)、
+`_tools/qa/{_check_order_return,_reverse_verify_order_return,_check_supplier_payables,_reverse_verify_supplier_payables,_reverse_verify_concurrency_guards}.py`、
+`_tools/ai/_check_ai_guardrails.py`。
+
+**验收数字**：`_check_all.py` **79/79** · 后端 pytest **795 passed** · 并发探针 **11/11 恰好一个成功** ·
+四条反向验证 **18/18 + 29/29 + 25/25 + 25/25**。
+
+⚠️ **过程记录（值得下一个人看）**：我第一次跑 `_reverse_verify_concurrency_guards.py` 时**前台超时被强杀**，
+留下了一处没还原的注入（`test_paid_claim_is_atomic_on_this_db` 被改名成 `_disabled_paid_claim`）——
+是红线当场报红才发现的。AGENTS.md 里那句「别硬杀它」这次是**实测代价**，不是提醒。
+
+
 ### [2026-09-23 01:0x →] 会话：**全项目系统性复核 · 第 3 轮**（性能与容量第一次实测 + 报表十倍提速）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 `HANDOVER.md` 把「性能与容量」列为**一次都没测过**的第一条空白。这一轮做掉一半（单用户 / 本机 SQLite / 2 万单副本）。

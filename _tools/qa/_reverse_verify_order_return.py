@@ -74,8 +74,10 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "已退数量改回读改写（同一行能被退超量）",
         RET,
+        # ⚠️ 锚点 2026-09-23 跟着源码变过：那次并发修复把 `values(...)` 换成了带 coalesce 的
+        #    版本（同一条 UPDATE 的 where 里还要放上限判据），旧锚点直接"替换串过期"。
         sub(
-            "values(returned_quantity=OrderProduct.returned_quantity + qty)",
+            "values(returned_quantity=func.coalesce(OrderProduct.returned_quantity, 0) + qty)",
             "values(returned_quantity=int(op.returned_quantity or 0) + qty)",
         ),
     ),
@@ -90,6 +92,23 @@ CASES: list[tuple[str, Path, object]] = [
     ("货损那几件也能退（同一批货既算损失又算回库）", RET, sub("- int(op.damage_quantity or 0) - int(op.returned_quantity or 0)", "- int(op.returned_quantity or 0)")),
     ("退货不留痕（审计里查不出谁退的）", RET, sub("action=OperationAction.ORDER_RETURN", "action=OperationAction.ORDER_UPDATE")),
     ("端点取单不加锁（两个退货请求各自算通过）", ORDERS_API, sub(".where(Order.id == order_id)\n        .with_for_update()", ".where(Order.id == order_id)")),
+    # ---- 行级上限（2026-09-23 并发实测抓到的真缺陷：一件货退成 3 件）----
+    (
+        "行级上限又只剩 Python 侧那一句（并发下同一件货能被退两次、退两份钱）",
+        RET,
+        sub(
+            "                func.coalesce(OrderProduct.quantity, 0)\n"
+            "                - func.coalesce(OrderProduct.damage_quantity, 0)\n"
+            "                - func.coalesce(OrderProduct.returned_quantity, 0)\n"
+            "                >= qty,\n",
+            "",
+        ),
+    ),
+    (
+        "改不到行也往下走（上限形同虚设：照样写红冲、照样退款）",
+        RET,
+        sub("        if res.rowcount != 1:\n            raise OrderReturnError(", "        if False:\n            raise OrderReturnError("),
+    ),
     # ---- 按商品核销 ----
     (
         "按商品核销不校验行归属（拿 A 单的行核销 B 单的额度）",

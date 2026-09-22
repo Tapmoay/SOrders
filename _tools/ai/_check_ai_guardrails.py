@@ -3403,12 +3403,23 @@ def main() -> int:
     # 各加了一条 `Order.deleted_at.is_(None)`（隔离区的单不许派/不许送达），
     # `.where(` 于是变成多行——**判据锚的是"这条条件在不在"，不是"它写在第几行"**。
     c.present("派单是条件 UPDATE 占位（SQLite 也生效，不靠行锁）",
-              flow, r"\.where\([\s\S]{0,200}?Order\.status == OrderStatus\.PENDING_DISPATCH")
+              flow, r"update\(Order\)[\s\S]{0,300}?Order\.status == OrderStatus\.PENDING_DISPATCH[\s\S]{0,300}?\.values\(status=OrderStatus\.DISPATCHED, driver_id=driver\.id")
     c.present("送达是条件 UPDATE 占位（SQLite 也生效，不靠行锁）",
               flow, r"\.where\([\s\S]{0,200}?Order\.status == OrderStatus\.ACCEPTED")
     # 隔离区的单不许被这两个跃迁碰到（R13-D1：读侧 404、写侧也必须拒绝）
     c.present("派单/送达的 CAS 都带「隔离区的单不算」（deleted_at is None）",
               flow, r"Order\.status == OrderStatus\.ACCEPTED,[\s\S]{0,200}?Order\.deleted_at\.is_\(None\)")
+    # ⚠️ 拆单也是状态跃迁（待派单 → 撤销 + 建 N 张子单），它原来是本文件里**最后一处**
+    #    "先读状态、再无条件赋值"的跃迁（2026-09-23 并发实测抓到）：
+    #    3 个线程同时点拆单时，第二个人之所以没拆成，靠的是子单 `order_no` 的**唯一约束**兜底，
+    #    报出来的是「已经有一条一模一样的记录了…请换一个再试」——用户只是双击了一下。
+    #    现在抢占发生在**建子单之前**（抢不到就报"已被派单/撤销/拆分"）。
+    c.present("拆单也是条件 UPDATE 占位（抢占要在建子单之前）",
+              flow, r"Order\.status == OrderStatus\.PENDING_DISPATCH,[\s\S]{0,200}?\.values\(status=OrderStatus\.CANCELLED, cancelled_at=_now\(\)\)")
+    c.present("拆单占位抢不到要回滚 + 中文原因（不是靠子单号唯一约束兜底）",
+              flow, r"if claimed\.rowcount != 1:\s*\n\s*db\.rollback\(\)\s*\n\s*raise ValueError\(\"这张单刚刚被别的操作改过（可能已被派单/撤销/拆分）")
+    c.absent("拆单里不再有「无条件写状态」那一行（多一处赋值就多一条绕过占位的路）",
+             flow, r"order\.status = OrderStatus\.CANCELLED")
     c.present("占位失败（rowcount≠1）要回滚并给出中文原因，不能继续往下走",
               flow, r"if claimed\.rowcount != 1:\s*\n\s*db\.rollback\(\)")
     # 锁不住 ≠ 崩：并发下 refresh 会抛 InvalidRequestError，必须退化成"重新查一次"
@@ -3439,8 +3450,12 @@ def main() -> int:
     c.present("逐单核销也用条件 UPDATE 占位（SQLite 也生效，不靠行锁）",
               acct, r"\.where\(Order\.id\.in_\(\w+\), Order\.paid\.is_\(False\)\)")
     # 只钉"有个 UPDATE"不够：抢不到行（rowcount 少）却继续往下走等于没占位。
-    c.present("占位抢不到（rowcount 少）要回滚并给中文原因",
-              acct, r"if claimed\.rowcount != len\(\w+\):\s*\n\s*db\.rollback\(\)")
+    # ⚠️ 这里必须**把 rowcount 检查钉在逐单核销那一处**（2026-09-23 反向验证抓到空转）：
+    #    原来只写 `if claimed.rowcount != len\(\w+\):` —— 而滚动收款那一支的形状一模一样
+    #    （`!= len(settling)`），于是把**逐单核销**的 rowcount 检查改成 `if False:` 之后，
+    #    判据被另一处的 `len(settling)` 喂饱，照样绿。
+    c.present("逐单核销占位抢不到（rowcount 少）要回滚并给中文原因",
+              acct, r"Order\.id\.in_\(order_ids\), Order\.paid\.is_\(False\)\)[\s\S]{0,300}?if claimed\.rowcount != len\(order_ids\):\s*\n\s*db\.rollback\(\)")
     # 收款流水必须"逐单写自己那一份"：写 None 会 500（NOT NULL），
     # 写全额则 N 张单就是 N 倍钱（滚动收款曾经就是这样）。
     c.present("逐单核销按每张单各自那部分写流水（不是每张都写全额）",
