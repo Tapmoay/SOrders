@@ -316,21 +316,52 @@ fun SectionCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.
 private fun badgeColors(lightBg: Color, lightFg: Color, darkBg: Color, darkFg: Color): Pair<Color, Color> =
     if (ThemeMode.isDark) darkBg to darkFg else lightBg to lightFg
 
-/** 角色徽章 */
+/**
+ * 角色的**唯一色源**：胶囊上的名字 + 亮/暗两档强调色。
+ *
+ * ## 为什么单独抽出来（2026-09-22）
+ * 工作台头部右边那颗胶囊用的就是**同一个角色色**（`ui/home/WorkbenchScreen.kt`）。
+ * 颜色留在 [RoleBadge] 里、头部再抄一份，就是"换个角色色要改两处"的分叉形状——
+ * 而且分叉了**看不出来**（两个淡色差一点点，谁都说不清哪个是对的）。
+ *
+ * ## 为什么只剩两档色（原来的"粉彩底"没了）
+ * 2026-09-22 用户把工作台角色胶囊的形态定成「**细描边 + 透明底 + 同色字**」
+ * （照他给的 POS 截图里那颗描边胶囊，去掉下拉三角），所以底色那四个值随之退休。
+ * 暗色不是"把亮色调暗"，而是换成同色相的**亮**色（理由同 [badgeColors]）。
+ */
+internal data class RolePalette(val label: String, val light: Color, val dark: Color)
+
+internal fun rolePaletteOf(role: String): RolePalette = when (role) {
+    "shipper" -> RolePalette("货主", Color(0xFF005A78), Color(0xFF8FDCF0))
+    "driver" -> RolePalette("司机", Color(0xFF00624A), Color(0xFF8FE0C0))
+    "dispatcher" -> RolePalette("派单员", Color(0xFF0A4DAF), Color(0xFFA8C8FF))
+    else -> RolePalette(role, Color(0xFF44464F), Color(0xFFC7C9D1))
+}
+
+/**
+ * 角色胶囊：**细描边 + 透明底 + 同色字**（2026-09-22 用户定的形态）。
+ *
+ * 用户原话（对着 POS 的绿色头部那张截图）：「货主的标签放在右边，并且以他的那个**管理员的形式**
+ * ……一个圆圈的**虚线进行框住**，但是我们**不需要那个三角**」。
+ * ⚠️ 图一那颗「管理者」实测是**细实线**（1px 白描边，我放大看过），所以这里取细实线 ——
+ *    真要虚线，把 `border` 换成自绘 `drawBehind` 即可（判据里留了这条出口）。
+ * ⛔ 不带下拉三角：我们没有"可切换的身份"（切账号在「我的」里）。
+ */
 @Composable
 fun RoleBadge(role: String) {
-    val label: String
-    /** `[亮底, 亮字, 暗底, 暗字]` */
-    val p: List<Color>
-    when (role) {
-        "shipper" -> { label = "货主"; p = listOf(Color(0xFFD6F3FA), Color(0xFF005A78), Color(0xFF0B3644), Color(0xFF8FDCF0)) }
-        "driver" -> { label = "司机"; p = listOf(Color(0xFFD5F5E9), Color(0xFF00624A), Color(0xFF0B3A2C), Color(0xFF8FE0C0)) }
-        "dispatcher" -> { label = "派单员"; p = listOf(Color(0xFFDBE9FF), Color(0xFF0A4DAF), Color(0xFF12294F), Color(0xFFA8C8FF)) }
-        else -> { label = role; p = listOf(Color(0xFFE1E2EC), Color(0xFF44464F), Color(0xFF2A2C33), Color(0xFFC7C9D1)) }
-    }
-    val (bg, fg) = badgeColors(p[0], p[1], p[2], p[3])
-    Surface(color = bg, shape = CircleShape) {
-        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+    val p = rolePaletteOf(role)
+    val accent = if (ThemeMode.isDark) p.dark else p.light
+    Surface(
+        color = Color.Transparent,
+        shape = CircleShape,
+        border = BorderStroke(1.dp, accent),
+    ) {
+        Text(
+            text = p.label,
+            color = accent,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+        )
     }
 }
 

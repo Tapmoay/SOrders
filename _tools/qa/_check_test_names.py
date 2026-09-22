@@ -1,6 +1,12 @@
 """找一个 Windows 上会炸掉 Kotlin 编译的**测试函数名**。
 
 Kotlin 的反引号函数名会原样变成 class 文件名，而 Windows 文件名不许出现 `" < > : | ? * / \\`。
+
+⚠️ **点号（`.`）也非法**（2026-09-22 真编译踩到）：名字里写「用户第 1.1 条」那样带小数点的编号，
+Kotlin 直接报 `Name contains illegal characters: ..`（只把它当文件名看是看不出来的 ——
+`.` 在 Windows 文件名里合法，**是 JVM 的方法名规则**禁止它）。同一批还禁 `;`（JVM 规范
+§4.2.1 的 unqualified name 不许有 `. ; [ /`），所以这里一起查。
+
 本项目已经踩过两次：`fun 反引号…"现在归谁"…反引号()` → `InvalidPathException: Illegal char <">`，
 报错信息里只有一串谜语（class 名被 GBK 打印成乱码），完全看不出"是函数名里的引号"。
 
@@ -22,8 +28,10 @@ from _airepo import repo_root  # noqa: E402
 
 ROOT = repo_root()
 BAD = set('"<>:|?*/\\')
-# 反引号包住的名字里，冒号（含全角）是**允许**的——它在 Windows 文件名里不合法吗？
-# `：`（全角）合法，`:`（半角）不合法。本项目的中文用例名一律用全角冒号，所以只查半角。
+#: JVM 的方法名规则（§4.2.1）另外禁这 4 个字符 —— 它们**在 Windows 文件名里合法**，
+#: 所以只按"文件名"想会漏掉；`. ` 是实测炸过的那个（名字里写「1.1」这种编号）。
+#: ⚠️ 全角冒号 `：` 合法（中文用例名一律用它），所以这里只放半角。
+BAD_JVM = set(".;[]")
 NAME_RE = re.compile(r"\bfun\s+`([^`]*)`")
 
 
@@ -36,7 +44,7 @@ def main() -> int:
             for m in NAME_RE.finditer(line):
                 n += 1
                 name = m.group(1)
-                hit = sorted({c for c in name if c in BAD})
+                hit = sorted({c for c in name if c in BAD or c in BAD_JVM})
                 if hit:
                     bad.append(f"{p.relative_to(ROOT)}:{i} 名字里有 {hit} → {name}")
     print(f"扫了 {len(files)} 个测试文件、{n} 个反引号函数名")

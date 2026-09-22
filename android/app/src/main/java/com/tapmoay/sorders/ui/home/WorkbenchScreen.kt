@@ -95,31 +95,64 @@ fun WorkbenchScreen(
     }
 }
 
-/** 欢迎条（原来固定在网格上面；现在它是列表的第一项，滚动时会跟着走） */
+/**
+ * 工作台头部左边那条文案（**一行**）—— 判据只有这一处。
+ *
+ * ## 由来（用户 2026-09-22，对着他给的 POS 截图）
+ * > 「这次做的样式它是**比较长，且扁**的，就是**能用一行的概括就概括**……他要展出的信息是什么？
+ * > **货主的标签 + 工作台**，也就是说「**工作台 · 订单与账本**」在**左边**，然后**货主的标签
+ * > 放在右边**」。
+ *
+ * 所以原来的两行（标题「工作台」+ 副标题「货主端 · 订单与账本」）**合成一条**，
+ * 并且把与右边胶囊重复的那一端（「货主端 / 司机端 / 派单端」）去掉 —— 角色已经由胶囊说了。
+ *
+ * ⛔ **司机端走不到这里**：`Modules.bottomTabs(Role.DRIVER)` 是 进行中 / 已完成 / 消息 / 我的，
+ * 没有工作台 Tab（用户 2026-09-22 第 1.1 条：「有一个**单是不需要做的，那就是司机**」——
+ * 他要的正是"司机那端根本没有这个形态"）。留这一支是因为 `when` 必须穷尽；
+ * ⛔ **别为了它给司机加一个工作台 Tab**。
+ */
+fun workbenchHeaderText(role: Role): String = when (role) {
+    Role.SHIPPER -> "工作台 · 订单与账本"
+    Role.DISPATCHER -> "工作台 · 全量管理"
+    Role.DRIVER -> "工作台 · 任务与送达"
+}
+
+/**
+ * 欢迎条：**一行**（左边一条文案 + 右边一颗描边角色胶囊）。
+ *
+ * ## 2026-09-22 用户改的形态（两轮）
+ * 他先给了一张 POS 的绿色头部（左边「单店 乐丰1」、右边「管理者 ▾」+ 扫码 + 带红点的铃铛），
+ * 说「将图二的 ui 形式**参考图一**的 ui 形式进行修改，**淡出一点**，就是**不要照抄图一的**」；
+ * 我出了方案之后他定了三条：
+ * 1. **长而扁、一行概括**（原来是三行卡，约 96dp → 现在一行，约 50dp）；
+ * 2. 信息就两项：「工作台 · 订单与账本」在左、**角色胶囊在右**；
+ * 3. 胶囊照图一那颗「管理者」的形态（**描边、不要那个下拉三角**）。
+ *
+ * ⛔ **图一里这些东西一个都不抄**：铃铛（用户：「**未读的那个不需要**，因为我们在**导航栏
+ * 已经有了**」）、扫码（我们本来就没有扫码；商品管理那轮已明确不抄条码）、下拉三角
+ * （「不需要那个三角」）、满饱和**通栏**（保持浅色内缩卡，也不碰状态栏图标明暗 ——
+ * 那是「我的」那一页深色头部的事，见 `ui/home/RoleHomeScreen.kt` 里那段说明）。
+ *
+ * ⚠️ **一行放不下时不许缩字号、不许截断**（设计规范 §4.19）：系统字号调大之后
+ * 「工作台 · 订单与账本」会自然**折到第二行**（`maxLines = 2`、**没有** `Ellipsis`），
+ * 卡片跟着长高一点 —— 而不是把字切掉。可伸缩的文本**必须显式 `weight(1f)`**
+ * （§4.19 的第二条教训：不写的话它会去吃宽度、把右边那颗胶囊挤瘪）。
+ */
 @Composable
 private fun WelcomeBar(role: Role) {
     Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "工作台",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    when (role) {
-                        Role.SHIPPER -> "货主端 · 订单与账本"
-                        Role.DRIVER -> "司机端 · 任务与送达"
-                        Role.DISPATCHER -> "派单端 · 全量管理"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                )
-            }
+            Text(
+                workbenchHeaderText(role),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 2,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(10.dp))
             RoleBadge(role.key)
         }
     }
