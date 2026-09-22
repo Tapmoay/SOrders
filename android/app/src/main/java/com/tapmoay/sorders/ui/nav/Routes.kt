@@ -23,6 +23,19 @@ object Routes {
      * 最后由下单页那个按钮走 `POST /orders`（与手工下单同一条路）。
      */
     const val DISPATCH_ORDER_TEMPLATES = "dispatcher/order-templates"
+    /**
+     * 新建 / 编辑一张预订单（2026-09-22 用户：「**还可以新建一个订单**」）。
+     *
+     * ⚠️ 与 [DISPATCH_ORDER_TEMPLATES] 一样：它**不生成订单**，只是把"常用那一单"存下来。
+     * 带参写法只有 [orderTemplateForm] 一处（`templateId` 为空 = 新建）。
+     */
+    const val DISPATCH_ORDER_TEMPLATE_FORM = "dispatcher/order-template-form?templateId={templateId}"
+    /**
+     * 预订单分类管理（2026-09-22）：预订单页左边那一列的名字与顺序。
+     *
+     * 形制与商品/开销/运费三个名册页一样（建 / 改名**级联** / 排序整份 / 删除有挂账时拒绝）。
+     */
+    const val DISPATCH_ORDER_TEMPLATE_CATEGORIES = "dispatcher/order-template-categories"
     const val ORDER_DETAIL = "order/{orderId}/detail"
     const val ADDRESSES = "shipper/addresses"
     const val SHIPPER_LEDGER = "shipper/ledger"
@@ -93,6 +106,19 @@ object Routes {
     /** `productId = null` → 新增；非空 → 编辑那一个。 */
     fun productForm(productId: Long? = null): String =
         if (productId != null && productId > 0L) "$PRODUCT_FORM?productId=$productId" else PRODUCT_FORM
+
+    /**
+     * 新建 / 编辑一张预订单：**带参的拼法只有这一处**（`templateId = null` → 新建）。
+     *
+     * 与 [productForm] 同一个套路：⛔ 别在导航调用点上自己拼字符串 ——
+     * 拼错一个键名就是"点了编辑却打开了新建页"，而两边都不报错。
+     */
+    fun orderTemplateForm(templateId: Long? = null): String =
+        if (templateId != null && templateId > 0L) {
+            "dispatcher/order-template-form?templateId=$templateId"
+        } else {
+            "dispatcher/order-template-form?templateId=0"
+        }
 
     const val INVENTORY = "dispatcher/inventory"
     /**

@@ -1023,6 +1023,14 @@ def _bootstrap_impl(engine: Engine) -> None:
             "ALTER TABLE order_products ADD COLUMN unit_snapshot VARCHAR(32) NOT NULL DEFAULT ''",
         ),
         ("orders", "nav_source", "ALTER TABLE orders ADD COLUMN nav_source VARCHAR(16)"),
+        # 预订单的分类名（2026-09-22 用户：「这个模板我们是要做一个分类的…左边是分类管理，
+        # 右边就是订单」）。空串 = 未分类，老数据全在这一档。
+        # ⚠️ 存**名字**而不是编号（与 `products.category` 同一个做法），所以名册改名必须级联。
+        (
+            "order_templates",
+            "category",
+            "ALTER TABLE order_templates ADD COLUMN category VARCHAR(32) NOT NULL DEFAULT ''",
+        ),
     ):
         if tbl not in insp.get_table_names():
             continue
@@ -1239,6 +1247,39 @@ def _bootstrap_impl(engine: Engine) -> None:
                     logger.warning("商品分类名册已回填 %s 个分类（按在用的商品数排序）", len(rows))
         except DBAPIError:
             logger.debug("商品分类名册回填跳过（表可能刚建或字段不同）")
+
+    # ---------- 预订单分类名册（2026-09-22 用户要求） ----------
+    # `order_template_categories` 表由 `create_all` 建；这里做**存量回填**：
+    # 老库里 `order_templates.category` 可能已经有名字（比如别的路径写进去的、或从 AI 建的），
+    # 名册是空的话左栏那一列会**一格都不显示**，用户以为分类没了。
+    # 回填口径与商品分类一字不差：把已经在用的分类名收进名册，按用到的预设单数从多到少排。
+    if "order_template_categories" in insp.get_table_names() and "order_templates" in insp.get_table_names():
+        rows: list = []
+        try:
+            with engine.connect() as conn:
+                existing = conn.execute(text("SELECT COUNT(*) FROM order_template_categories")).scalar() or 0
+            if existing == 0:
+                with engine.begin() as conn:
+                    rows = conn.execute(
+                        text(
+                            "SELECT TRIM(category) AS c, COUNT(*) AS n FROM order_templates "
+                            "WHERE category IS NOT NULL AND TRIM(category) <> '' "
+                            "GROUP BY TRIM(category) ORDER BY n DESC, c ASC"
+                        )
+                    ).fetchall()
+                    for idx, (name, _n) in enumerate(rows):
+                        conn.execute(
+                            text(
+                                "INSERT INTO order_template_categories "
+                                "(name, sort_order, created_at, updated_at) "
+                                "VALUES (:n, :s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                            ),
+                            {"n": name, "s": idx},
+                        )
+                if rows:
+                    logger.warning("预订单分类名册已回填 %s 个分类（按在用的预设单数排序）", len(rows))
+        except DBAPIError:
+            logger.debug("预订单分类名册回填跳过（表可能刚建或字段不同）")
 
     # ---------- 退货（2026-09-20 用户要求） ----------
     #

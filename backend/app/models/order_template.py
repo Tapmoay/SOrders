@@ -48,6 +48,12 @@ class OrderTemplate(Base, TimestampMixin, SoftDeleteMixin):
     #: （软删的表用裸编号 + 自己校验，避免级联把历史改样）。
     shipper_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
+    #: 分类名（`order_template_categories.name`；**空串 = 未分类**）。
+    #: ⚠️ 存**名字**而不是编号，与 `products.category` 同一套做法 —— 于是左栏那一份判据
+    #:    （`ProductPicker.categoryTabsOf` / `categoryNameOf`）能直接复用到这一页；
+    #:    代价是**名册改名必须级联**（见 `api/v1/order_template_categories.py` 的 update）。
+    category: Mapped[str] = mapped_column(String(32), default="", index=True)
+
     origin_address: Mapped[str] = mapped_column(String(256), default="")
     address: Mapped[str] = mapped_column(String(256), default="")
     receiver_name: Mapped[str] = mapped_column(String(64), default="")

@@ -30,6 +30,8 @@ from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
+# 「名册里没有的分类名 → 补进名册」只有这一份实现（与商品那一侧同一个做法）
+from app.api.v1.order_template_categories import ensure_category
 from app.models import OrderTemplate, User
 from app.models.enums import OperationAction, UserRole
 from app.schemas.order_template import (
@@ -43,7 +45,6 @@ from app.services import usage_service
 from app.services.operation_log_service import write_log
 from app.services.order_money import q2
 from app.services.soft_delete import del_suffix, ensure_alive
-
 router = APIRouter(prefix="/order-templates", tags=["order-templates"])
 
 #: 预设运费的合理区间（与全项目金额边界同一口径，`Numeric(12,2)`）。
@@ -125,6 +126,7 @@ def _out(row: OrderTemplate, names: dict[int, str]) -> OrderTemplateOut:
         name=row.name,
         shipper_id=row.shipper_id,
         shipper_name=names.get(int(row.shipper_id)) if row.shipper_id else None,
+        category=row.category or "",
         origin_address=row.origin_address or "",
         address=row.address or "",
         receiver_name=row.receiver_name or "",
@@ -162,19 +164,36 @@ def list_templates(
     # ⚠️ 参数名必须是 `current`：下面 `with_popularity(..., current)` 要用它
     # （这个坑在 `arrears.py` 踩过一次：写成 `_` 时**编译期看不出来**，打到端点才 500）。
     current: User = Depends(require_permission(Permission.ORDER_EDIT)),
+    #: 回收站视图（用户定的硬规矩：删除一律软删 + **界面上要有一个手边的恢复入口**）。
+    #: 不加这个参数的话，软删的预设单只能靠删完那一下的 snackbar「撤回」——
+    #: 手一滑点掉、或者过一会儿才想起来，就再也找不回来了。
+    deleted_only: bool = False,
     db: Session = Depends(get_db),
 ) -> list[OrderTemplateOut]:
-    """这一页的预设单：**常用的在前，其次先建的在前**（2026-09-22 统一列表规则）。"""
-    rows = list(
-        db.scalars(
-            usage_service.with_popularity(
-                select(OrderTemplate).where(OrderTemplate.is_deleted.is_(False)),
-                OrderTemplate,
-                usage_service.KIND_ORDER_TEMPLATE,
-                current,
+    """这一页的预设单：**常用的在前，其次先建的在前**（2026-09-22 统一列表规则）。
+
+    `deleted_only=true` 时给的是**回收站**里那几张（按删的时间倒序，不算常用度 ——
+    回收站要的是"我刚删的那张在最上面"）。
+    """
+    if deleted_only:
+        rows = list(
+            db.scalars(
+                select(OrderTemplate)
+                .where(OrderTemplate.is_deleted.is_(True))
+                .order_by(OrderTemplate.deleted_at.desc(), OrderTemplate.id.desc())
             )
         )
-    )
+    else:
+        rows = list(
+            db.scalars(
+                usage_service.with_popularity(
+                    select(OrderTemplate).where(OrderTemplate.is_deleted.is_(False)),
+                    OrderTemplate,
+                    usage_service.KIND_ORDER_TEMPLATE,
+                    current,
+                )
+            )
+        )
     names = _shipper_names(db, rows)
     return [_out(r, names) for r in rows]
 
@@ -186,9 +205,13 @@ def create_template(
     operator: User = Depends(require_permission(Permission.ORDER_EDIT)),
 ) -> OrderTemplateOut:
     _check_shipper(db, body.shipper_id)
+    category = (body.category or "").strip()[:32]
+    # 名册里没有的分类名 → 补进名册（与商品那一侧同一条：不让派单员"先建分类再建预设单"）
+    ensure_category(db, category)
     tpl = OrderTemplate(
         name=body.name.strip(),
         shipper_id=body.shipper_id,
+        category=category,
         origin_address=body.origin_address.strip(),
         address=body.address.strip(),
         receiver_name=body.receiver_name.strip(),
@@ -207,6 +230,7 @@ def create_template(
         change_payload={
             "template_id": tpl.id,
             "name": tpl.name,
+            "category": tpl.category or "",
             "scope": "create",
             "lines": len(tpl.lines or []),
         },
@@ -233,6 +257,7 @@ def update_template(
     before = {
         "name": tpl.name,
         "shipper_id": tpl.shipper_id,
+        "category": tpl.category or "",
         "address": tpl.address,
         "freight_fee": None if tpl.freight_fee is None else str(q2(Decimal(tpl.freight_fee))),
         "lines": len(tpl.lines or []),
@@ -241,6 +266,13 @@ def update_template(
 
     if body.name is not None:
         tpl.name = body.name.strip()
+    # ⚠️ 分类走 `model_fields_set`：**空串是一个真实操作**（"移到未分类"），
+    #    用 `is not None` 判的话它会被当成"没传"，而界面上看不出来
+    #    （与 `freight_fee`、`shipper_id` 同一条理由）。
+    if "category" in sent:
+        new_cat = (body.category or "").strip()[:32]
+        ensure_category(db, new_cat)
+        tpl.category = new_cat
     # `shipper_id` 走 model_fields_set：**键出现就按给的值写**（null = 清空 → 下单时再选）。
     # `clear_shipper` 是给客户端的显式开关（Android 的 `explicitNulls=false` 会把 null 丢掉，
     # 没有它"清空货主"永远发不出去）。
@@ -278,6 +310,7 @@ def update_template(
             "after": {
                 "name": tpl.name,
                 "shipper_id": tpl.shipper_id,
+                "category": tpl.category or "",
                 "address": tpl.address,
                 "freight_fee": None if tpl.freight_fee is None else str(q2(Decimal(tpl.freight_fee))),
                 "lines": len(tpl.lines or []),

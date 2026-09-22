@@ -2,8 +2,8 @@
  "generated_by": "_gen_ai_read_catalog.py",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 69,
-  "listed": 52,
+  "read_endpoints": 70,
+  "listed": 53,
   "missing_handler": []
  },
  "actions": [
@@ -970,13 +970,29 @@
    "skipped_params": []
   },
   {
+   "module": "order_template_categories",
+   "action": "list_categories",
+   "cn": "预订单分类",
+   "module_cn": "预订单分类",
+   "method": "get",
+   "path": "/api/v1/order-template-categories",
+   "at": "backend/app/api/v1/order_template_categories.py:86",
+   "auth": "权限:ORDER_EDIT",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [],
+   "skipped_params": []
+  },
+  {
    "module": "order_templates",
    "action": "list_templates",
    "cn": "预订单",
    "module_cn": "预订单",
    "method": "get",
    "path": "/api/v1/order-templates",
-   "at": "backend/app/api/v1/order_templates.py:161",
+   "at": "backend/app/api/v1/order_templates.py:163",
    "auth": "权限:ORDER_EDIT",
    "roles": [
     "dispatcher"

@@ -34,6 +34,9 @@ class OrderTemplateLine(BaseModel):
 class OrderTemplateCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
     shipper_id: int | None = None
+    #: 分类名（`order_template_categories.name`；**空串 = 未分类**，允许）。
+    #: ⚠️ 名册里没有的名字**不是错误** —— 端点会把它补进名册（与商品那一侧同一条）。
+    category: str = Field(default="", max_length=32)
     origin_address: str = Field(default="", max_length=256)
     address: str = Field(default="", max_length=256)
     receiver_name: str = Field(default="", max_length=64)
@@ -50,6 +53,9 @@ class OrderTemplateUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=64)
     shipper_id: int | None = None
+    #: 分类名。⚠️ **空串是"移到未分类"**（一个真实操作），所以它走 `model_fields_set`
+    #: （与 `freight_fee`、`shipper_id` 同一条：`None` = 不改这一项）。
+    category: str | None = Field(None, max_length=32)
     origin_address: str | None = Field(None, max_length=256)
     address: str | None = Field(None, max_length=256)
     receiver_name: str | None = Field(None, max_length=64)
@@ -72,6 +78,8 @@ class OrderTemplateOut(BaseModel):
     shipper_id: int | None = None
     #: 货主名（由端点补上；`shipper_id` 为空时也是空）
     shipper_name: str | None = None
+    #: 分类名（空串 = 未分类）。前端左栏那一列按它分组。
+    category: str = ""
     origin_address: str = ""
     address: str = ""
     receiver_name: str = ""

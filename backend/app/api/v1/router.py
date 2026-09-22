@@ -21,6 +21,7 @@ from app.api.v1 import (
     operation_logs,
     order_products,
     order_templates,
+    order_template_categories,
     suppliers,
     orders,
     place_categories,
@@ -54,6 +55,9 @@ api_router.include_router(orders.router)
 # 预订单 / 订单模板（2026-09-22 用户要求：「预设好的订单，参数没有变直接下单」）。
 # 它自己不生成订单 —— 真下单仍走上面那条 `orders.router`。
 api_router.include_router(order_templates.router)
+# 预订单分类名册（2026-09-22）：预订单页左栏那一列（用户：「左边是分类管理…右边就是订单」），
+# 与商品/开销/运费分类同一套规矩，见 `api/v1/order_template_categories.py` 开头。
+api_router.include_router(order_template_categories.router)
 # 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求：「给供应商付尾款」「采购设备」「邮费」）。
 # 付款不是新表 —— 它就是 `cash_flows` 里 `biz_type=PAYMENT_SUPPLIER` 的一行，见 `api/v1/suppliers.py` 开头。
 api_router.include_router(suppliers.router)

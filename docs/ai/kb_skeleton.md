@@ -23,7 +23,7 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `logout` | 写 | `POST /api/v1/auth/logout` | 登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）+ 断开长连接。 |  |
-| `login_json` | 写 | `POST /api/v1/auth/login` | OAuth2 兼容：username 字段填手机号。 |  |
+| `login_json` | 写 | `POST /api/v1/auth/login` |  |  |
 | `login_form` | 写 | `POST /api/v1/auth/token` | OAuth2 兼容：username 字段填手机号。 |  |
 
 ## 现金流水（`cash_flows`）
@@ -172,6 +172,16 @@
 | `get_order_product` | 只读 | `GET /api/v1/order-products/{line_id}` |  |  |
 | `update_order_product` | 写 | `PATCH /api/v1/order-products/{line_id}` |  |  |
 | `delete_order_product` | 写 | `DELETE /api/v1/order-products/{line_id}` |  |  |
+
+## 预订单分类（`order_template_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/order-template-categories` | 预订单分类名册（按显示顺序）。预订单页左栏与分类管理页共用这一份。 |  |
+| `create_category` | 写 | `POST /api/v1/order-template-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/order-template-categories/{category_id}` | 改名 / 改顺序。**改名会级联改掉挂在它下面的预设单**（同一事务，见模块注释第 1 条）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/order-template-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前（**必须覆盖全部现存分类**，见模块注释第 3 条）。 |  |
+| `delete_category` | 写 | `DELETE /api/v1/order-template-categories/{category_id}` | 删除分类名册里的一行。**还有预设单挂着时拒绝**（告诉有几张）。 |  |
 
 ## 预订单（`order_templates`）
 

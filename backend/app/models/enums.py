@@ -218,6 +218,12 @@ class OperationAction(str, enum.Enum):
     ORDER_TEMPLATE_UPSERT = "ORDER_TEMPLATE_UPSERT"
     ORDER_TEMPLATE_DELETE = "ORDER_TEMPLATE_DELETE"
     ORDER_TEMPLATE_RESTORE = "ORDER_TEMPLATE_RESTORE"
+    # 预订单分类名册（2026-09-22 用户要求：预订单"也要做一个分类，左边分类管理、右边订单"）。
+    # 与商品/开销/运费三个名册同一套规矩。改一个分类名或顺序会**级联改掉那些预设单**，
+    # 所以要能回答"这个分类是谁建的、谁改的、谁删的、谁排的顺序"。
+    ORDER_TEMPLATE_CATEGORY_UPSERT = "ORDER_TEMPLATE_CATEGORY_UPSERT"
+    ORDER_TEMPLATE_CATEGORY_DELETE = "ORDER_TEMPLATE_CATEGORY_DELETE"
+    ORDER_TEMPLATE_CATEGORY_REORDER = "ORDER_TEMPLATE_CATEGORY_REORDER"
     # 批发商自记账核销（2026-09-20 用户要求）：他向下游货主收钱时在自己账本上核销。
     # ⛔ 这本账**不写** cash_flows / orders.paid / ledgers（见 `models/shipper_settlement.py`），
     #    所以 operation_logs 是**唯一**能回答"这笔核销谁在什么时候记的、撤的"的地方 ——

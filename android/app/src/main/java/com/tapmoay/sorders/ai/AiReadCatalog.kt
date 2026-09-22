@@ -147,6 +147,8 @@ object AiReadCatalog {
         ReadAction("order_products.list_order_products", "订单商品行（按订单或商品查）", "/api/v1/order-products", "order_id", setOf("dispatcher"), false, listOf(
             ReadParam("order_id", "int", true, emptyList(), true),
         )),
+        ReadAction("order_template_categories.list_categories", "预订单分类名册（预订单页左侧那一列的分组与显示顺序，带每类下挂着几张预设单）", "/api/v1/order-template-categories", "", setOf("dispatcher"), false, listOf(
+        )),
         ReadAction("order_templates.list_templates", "预订单（预设好的订单：货主/地址/运费/商品与数量）", "/api/v1/order-templates", "", setOf("dispatcher"), false, listOf(
         )),
         ReadAction("orders.list_orders", "订单列表（可按状态/日期/货主名/司机名筛选）", "/api/v1/orders", "status(PENDING_DISPATCH|DISPATCHED|ACCEPTED|DELIVERED|CANCELLED|RETURNED)、q、shipper_id、temp_shipper_name、unpri", setOf("dispatcher", "driver", "shipper"), false, listOf(
@@ -306,6 +308,7 @@ object AiReadCatalog {
         "notifications" to "消息通知",
         "operation_logs" to "操作日志",
         "order_products" to "订单商品行",
+        "order_template_categories" to "预订单分类",
         "order_templates" to "预订单",
         "orders" to "订单/派单",
         "place_categories" to "地点分类",

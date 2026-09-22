@@ -189,3 +189,127 @@ def test_只有派单员能管预设单(client, token_shipper, token_driver):
         h = auth_headers(tok)
         assert client.get(BASE, headers=h).status_code == 403
         assert client.post(BASE, json={"name": "越权"}, headers=h).status_code == 403
+
+
+# ============================================================ 分类名册（2026-09-22 用户要求）
+#
+# 用户原话：「这个模板我们是要**做一个分类**的 —— 也是一样的，**左边是分类管理**，
+# 就是**复用**嘛，复用那些**商品管理**的形式；**我右边就是订单**」。
+#
+# 四条判据，每条都是"不报错但会错"的形状（与商品分类那份一字不差）：
+# ① 改名**必须级联**（不级联＝那些预设单全变未分类，而两边都不报错）；
+# ② 删除还有预设单挂着 → **拒绝**（不"顺手改成未分类"：那是悄悄改数据）；
+# ③ 排序**整份**提交（少传的排哪儿没有答案）；
+# ④ 建预设单时带了一个名册外的分类名 → **自动补进名册**（不然要先建分类再建单）。
+
+CATS = "/api/v1/order-template-categories"
+
+
+def _cat_names(client, h) -> list[str]:
+    return [c["name"] for c in client.get(CATS, headers=h).json()]
+
+
+def test_预设单带分类_名册里没有就自动补进去(client, token_dispatcher):
+    h = auth_headers(token_dispatcher)
+    t = _mk(client, h, "带分类的预设单", category="每周固定单")
+    assert t["category"] == "每周固定单"
+    assert "每周固定单" in _cat_names(client, h), "名册里没有的分类名要自动补进名册（排到最后）"
+    # 列表那条路回来也要一样
+    row = next(r for r in client.get(BASE, headers=h).json() if r["id"] == t["id"])
+    assert row["category"] == "每周固定单"
+
+
+def test_分类改名会级联改掉挂着的预设单_连回收站里那几张也改(client, token_dispatcher):
+    h = auth_headers(token_dispatcher)
+    alive = _mk(client, h, "在用的预设单", category="旧分类名")
+    dead = _mk(client, h, "要进回收站的预设单", category="旧分类名")
+    assert client.delete(f"{BASE}/{dead['id']}", headers=h).status_code == 204
+    cid = next(c["id"] for c in client.get(CATS, headers=h).json() if c["name"] == "旧分类名")
+
+    r = client.patch(f"{CATS}/{cid}", json={"name": "新分类名"}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["template_count"] == 1, "计数只数**没进回收站**的（软删那张不该拦住删分类）"
+
+    def cat_of(tid: int) -> str:
+        return next(x["category"] for x in client.get(BASE, headers=h).json() if x["id"] == tid)
+
+    assert cat_of(alive["id"]) == "新分类名", "改名必须级联改掉挂着的预设单（不级联＝全变未分类且不报错）"
+    # ⚠️ 回收站里那张也要改：不然恢复回来时它挂的是一个名册里已经没有的分类名
+    from app.models import OrderTemplate
+
+    assert client.post(f"{BASE}/{dead['id']}/restore", headers=h).status_code == 200
+    assert cat_of(dead["id"]) == "新分类名"
+
+
+def test_删除还有预设单挂着的分类_被拒绝并报数(client, token_dispatcher):
+    h = auth_headers(token_dispatcher)
+    t = _mk(client, h, "挂着分类的预设单", category="不能删的分类")
+    cid = next(c["id"] for c in client.get(CATS, headers=h).json() if c["name"] == "不能删的分类")
+    r = client.delete(f"{CATS}/{cid}", headers=h)
+    assert r.status_code == 400, r.text
+    assert "1 张预设单" in r.json()["detail"], "要说清还有几张挂着（用户照着改）"
+    assert "不能删的分类" in _cat_names(client, h), "被拒之后分类要还在"
+    # 把那张预设单挪走（移到未分类）之后就能删了
+    assert client.patch(f"{BASE}/{t['id']}", json={"category": ""}, headers=h).status_code == 200
+    assert client.delete(f"{CATS}/{cid}", headers=h).status_code == 204
+    assert "不能删的分类" not in _cat_names(client, h)
+
+
+def test_分类移动到未分类_空串是一个真实操作(client, token_dispatcher):
+    """⚠️ 空串 = 未分类。它必须**发得出去**（用 `is not None` 判的话会被当成"没传"，
+    而界面上看不出来 —— 与 `freight_fee`、`shipper_id` 同一条理由）。"""
+    h = auth_headers(token_dispatcher)
+    t = _mk(client, h, "要挪出分类的预设单", category="临时分类")
+    r = client.patch(f"{BASE}/{t['id']}", json={"category": ""}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["category"] == "", "空串要真的写进去（＝未分类）"
+
+
+def test_分类排序必须整份提交(client, token_dispatcher):
+    """只传一部分的话，"没提到的那些排哪儿"没有答案 —— 后端明确拒绝并点名少了哪些。
+
+    ⚠️ 测试库在同一次运行里是**累积的**（别的用例也建过分类），所以这里一律按
+    "当前这一份名册"整份提交（把两张换个位置），⛔ 不能手写一个只有两条的 ids。
+    """
+    h = auth_headers(token_dispatcher)
+    _mk(client, h, "排序用预设单", category="排序A")
+    _mk(client, h, "排序用预设单2", category="排序B")
+    all_cats = client.get(CATS, headers=h).json()
+    ids = [c["id"] for c in all_cats]
+    mine = [c for c in all_cats if c["name"] in ("排序A", "排序B")]
+    assert len(mine) == 2
+    partial = client.post(f"{CATS}/reorder", json={"ids": [mine[0]["id"]]}, headers=h)
+    assert partial.status_code == 400, "少传的必须被拒（不猜它们排哪儿）"
+    assert "少了" in partial.json()["detail"]
+    swapped = list(ids)
+    i, j = swapped.index(mine[0]["id"]), swapped.index(mine[1]["id"])
+    swapped[i], swapped[j] = swapped[j], swapped[i]
+    full = client.post(f"{CATS}/reorder", json={"ids": swapped}, headers=h)
+    assert full.status_code == 200, full.text
+    got = _cat_names(client, h)
+    assert got.index("排序B") < got.index("排序A"), "整份提交之后顺序要真的换过来"
+
+
+def test_分类是只有派单员能管的内部口径(client, token_shipper, token_driver):
+    for tok in (token_shipper, token_driver):
+        h = auth_headers(tok)
+        assert client.get(CATS, headers=h).status_code == 403, "货主/司机那一侧连预订单页都没有"
+        assert client.post(CATS, json={"name": "越权分类"}, headers=h).status_code == 403
+
+
+def test_回收站列表只看得到删掉的那几张(client, token_dispatcher):
+    """用户定的硬规矩：删除一律软删 + **界面上要有一个手边的恢复入口**。
+
+    ⚠️ 只有删完那一下的 snackbar「撤回」是不够的：手一滑点掉、或者过一会儿才想起来，
+    就再也找不回来了（这一页的「回收站」就是这个入口）。
+    """
+    h = auth_headers(token_dispatcher)
+    alive = _mk(client, h, "还在用的预设单")
+    dead = _mk(client, h, "进回收站的预设单")
+    assert client.delete(f"{BASE}/{dead['id']}", headers=h).status_code == 204
+    bin_ids = [r["id"] for r in client.get(f"{BASE}?deleted_only=true", headers=h).json()]
+    assert dead["id"] in bin_ids and alive["id"] not in bin_ids
+    # 恢复之后它从回收站消失、回到正常列表
+    assert client.post(f"{BASE}/{dead['id']}/restore", headers=h).status_code == 200
+    assert dead["id"] not in [r["id"] for r in client.get(f"{BASE}?deleted_only=true", headers=h).json()]
+    assert dead["id"] in _ids(client, h)

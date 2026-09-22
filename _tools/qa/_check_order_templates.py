@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _check_pagination_wiring import strip_comments  # noqa: E402
 
 ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
+COMMON = ANDROID / "ui/common"
 API = ROOT / "backend/app/api/v1/order_templates.py"
 MODEL = ROOT / "backend/app/models/order_template.py"
 SCHEMA = ROOT / "backend/app/schemas/order_template.py"
@@ -43,6 +44,13 @@ TEST = ROOT / "backend/tests/test_order_templates.py"
 SCREEN = ANDROID / "ui/dispatcher/OrderTemplatesScreen.kt"
 CREATE_VM = ANDROID / "ui/shipper/OrderCreateViewModel.kt"
 CREATE_SCREEN = ANDROID / "ui/shipper/OrderCreateScreen.kt"
+# 「新建 / 编辑预订单」= 单独一页（2026-09-22 用户：「还可以新建一个订单」）
+FORM_SCREEN = ANDROID / "ui/dispatcher/OrderTemplateFormScreen.kt"
+# 预订单分类名册（2026-09-22 用户：「左边是分类管理…右边就是订单」）
+CAT_API = ROOT / "backend/app/api/v1/order_template_categories.py"
+CAT_MODEL = ROOT / "backend/app/models/order_template_category.py"
+CAT_SCHEMA = ROOT / "backend/app/schemas/order_template_category.py"
+CATS_SCREEN = ANDROID / "ui/dispatcher/OrderTemplateCategoriesScreen.kt"
 ROUTES = ANDROID / "ui/nav/Routes.kt"
 NAV = ANDROID / "ui/nav/NavGraph.kt"
 MODULES = ANDROID / "ui/nav/Modules.kt"
@@ -81,7 +89,8 @@ class Checker:
 def main() -> int:
     c = Checker()
     for p in (API, MODEL, SCHEMA, TEST, SCREEN, CREATE_VM, CREATE_SCREEN, ROUTES, NAV, MODULES,
-              AI_DECL, AI_HANDLER, AI_RES, AI_SVC, COVERAGE, ENDPOINTS, DESIGN, LOCATOR):
+              AI_DECL, AI_HANDLER, AI_RES, AI_SVC, COVERAGE, ENDPOINTS, DESIGN, LOCATOR,
+              CAT_API, CAT_MODEL, CAT_SCHEMA, CATS_SCREEN, FORM_SCREEN):
         if not p.exists():
             print(f"❌ 文件不存在：{p}")
             return 1
@@ -98,6 +107,11 @@ def main() -> int:
     ai_decl = strip_comments(read(AI_DECL))
     ai_handler = strip_comments(read(AI_HANDLER))
     ai_res = strip_comments(read(AI_RES))
+    cat_api = strip_comments(read(CAT_API))
+    cat_model = strip_comments(read(CAT_MODEL))
+    cat_schema = read(CAT_SCHEMA)
+    cats_screen = strip_comments(read(CATS_SCREEN))
+    form_src = strip_comments(read(FORM_SCREEN))
 
     # ---- ① 后端：六个端点、只有派单员、软删 + 恢复 ----
     # ⚠️ 模式里**不能带结尾的 `)`**：这些装饰器后面还有 `response_model=…` / `status_code=…`
@@ -174,13 +188,19 @@ def main() -> int:
         c.absent(f"这一页**不许**出现建单调用（{bad}）—— 下单只有一条路", screen, re.escape(bad))
 
     # ---- ⑦ 界面：撤回在手边、说明如实 ----
-    c.present("删除二次确认（危险操作）", screen, r"AlertDialog\(")
+    c.present("删除二次确认（危险操作，走共用的危险确认件）", screen, r"DangerConfirmDialog\(")
     c.present("删完给「撤回」（用户定的硬规矩：手边要有撤销入口）",
               screen, r'actionLabel = "撤回"')
     c.present("撤回走 restore 那条路", screen, r"fun restoreLastDeleted\(")
-    c.present("说明卡里如实写了「不含单价」", screen, r"预设单不含单价")
-    c.present("说明卡里如实写了「运费只是参考」（下单接口根本不收运费）",
-              screen, r"预设运费只是参考值")
+    # ⚠️ 2026-09-22 第二轮：这句"不含单价"的说明**从列表页搬到了表单页**（用户要求把
+    #    「预设单是什么」那张常驻解释卡改成提示的形式）——**事实本身不许丢**，所以改成
+    #    "在表单页里必须还在"。运费那句同理。
+    c.present("「不含单价」这条事实还在（落点＝新建/编辑表单页）", form_src, r"预设单不含单价")
+    c.present("「运费只是参考」这条事实还在（下单接口根本不收运费）",
+              form_src, r"预设运费只是参考值")
+    c.present("列表页那句解释走 `Hint`（总开关能关掉，不是常驻说明卡）", screen, r"Hint\(")
+    c.absent("列表页不再有那张常驻解释卡（用户：「这个解释没必要…绑到提示当中」）",
+             screen, r"预设单是什么")
 
     # ---- ⑧ 预填：一次、整份替换、价格走唯一口径、常用度记在下单成功 ----
     # ⚠️ 这一段**只看 `prefillFromTemplate` 的函数体**：整个 VM 里还有别的地方会碰 `lines`,
@@ -227,9 +247,13 @@ def main() -> int:
     c.present("撤回按资源表声明（改→写回旧值 / 删→恢复）",
               ai_res, r'AiWrites\.ORDER_TEMPLATE_RESTORE,\s*\n?\s*AiInverse\(AiWrites\.ORDER_TEMPLATE_DELETE')
     c.present("读能力被 App 模块认领（否则用户在界面上看不到它）",
-              read(COVERAGE), r'"预订单": \(\["预订单"\]')
+              read(COVERAGE), r'"预订单": \(')
     c.present("端点索引里有它（文档不许过期）",
               read(ENDPOINTS), r"GET /api/v1/order-templates")
+    c.present("分类名册那一条读能力也被同一格认领",
+              read(COVERAGE), r'"预订单分类"')
+    c.present("端点索引里有分类名册",
+              read(ENDPOINTS), r"GET /api/v1/order-template-categories")
     c.absent("AI 那边**没有**「从预设单下单」的动作（下单走已有的 orders.create）",
              ai_decl, r'id = "order_templates\.create_order"')
 
@@ -318,9 +342,88 @@ def main() -> int:
     c.absent("旧注释里那句「回退默认价是少赚」必须消失（对谈好价的批发商是多收钱，不是少赚）",
              vm, r"回退到默认价是")
 
+    # ---- ⑫ 预订单＝模板：分类名册 + 页面新建/编辑 + 回收站（2026-09-22 第二轮）----
+    # 用户原话：「**怎么不能新建一个预订单呢**？…这个预订单就**相当于一个模板**，
+    # 而且这个模板我们是要**做一个分类**的 —— 也是一样的，**左边是分类管理**…**我右边就是订单**，
+    # 我们可以**删除**、可以**编辑**、可以**用这个单下单**，还可以**新建一个订单**。」
+    for verb in (
+        r'@router\.get\(""',
+        r'@router\.post\(""',
+        r'@router\.patch\("/\{category_id\}"',
+        r'@router\.post\("/reorder"',
+        r'@router\.delete\("/\{category_id\}"',
+    ):
+        c.present(f"分类名册端点存在（{verb}）", cat_api, verb)
+    c.present("名册表名与字段（与商品分类同一套：name 唯一 + sort_order）",
+              cat_model, r'__tablename__ = "order_template_categories"')
+    c.present("分类存**名字**在预设单上（不是编号）", model, r"category: Mapped\[str\]")
+    c.present("改名**级联**改掉挂着的预设单（同一事务，UPDATE order_templates）",
+              cat_api, r"OrderTemplate\.__table__\.update\(\)[\s\S]{0,120}?\.values\(category=body\.name\)")
+    c.present("级联**不带 is_deleted 过滤**（回收站里那几张一起改，否则恢复回来挂着一个不存在的分类名）",
+              cat_api, r"级联\*\*不带")
+    c.present("删除还有预设单挂着 → 拒绝并报数",
+              cat_api, r"还有 \{used\} 张预设单挂在这个分类下")
+    c.present("排序走五个名册共用的那一份判据", cat_api, r"ordered_ids\(by_id, body\.ids\)")
+    c.present("建预设单时名册外的分类名自动补进名册",
+              api, r"ensure_category\(db, category\)")
+    c.present("预设单改分类时也补名册（键出现就写＝空串能真的移到未分类）",
+              api, r'if "category" in sent:[\s\S]{0,160}?ensure_category\(')
+    c.present("回收站视图（软删的进得去、能恢复 —— 用户定硬规矩）",
+              api, r"deleted_only")
+    c.present("分类名册出参带「挂着几张预设单」", cat_schema, r"template_count: int = 0")
+
+    # 界面：左分类 / 右订单 / 底栏三格 / 新建与编辑去同一张表单页 / 回收站
+    c.present("左栏用**共用那一份**分类导航条", screen, r"CategoryRail\(")
+    c.present("分档判据也是共用的那一份（不自己再写一份）", screen, r"categoryTabsOf\(")
+    c.present("卡片上有「编辑」", screen, r'Text\("编辑"\)')
+    c.present("卡片上仍然有「用这张下单」", screen, r'Text\("用这张下单"\)')
+    c.present("底栏有「分类管理」入口", screen, r'"分类管理"')
+    c.present("底栏中间是「新建预订单」（语义色圆钮）", screen, r'"新建预订单"')
+    c.present("底栏有「回收站」（snackbar 会飘走，飘走之后得有地方找回来）", screen, r'"回收站"')
+    c.present("底栏自己处理底部安全区（它不是 M3 NavigationBar）", screen, r"navigationBarsPadding\(\)")
+    c.present("回收站里能恢复", screen, r'Text\("恢复"\)')
+    c.present("列表页的分类名册与列表**一起刷**（只刷一半会造出「这个分类下还没有预设单」）",
+              screen, r"orderTemplates\(deletedOnly = showTrash\)[\s\S]{0,200}?orderTemplateCategories\(\)")
+    c.present("路由常量：表单页", routes, r'DISPATCH_ORDER_TEMPLATE_FORM')
+    c.present("路由常量：分类管理页", routes, r'DISPATCH_ORDER_TEMPLATE_CATEGORIES')
+    c.present("带参拼法只有一处（路由助手）", routes, r"fun orderTemplateForm\(")
+    c.present("NavGraph 注册了表单页", nav, r"composable\(\s*\n?\s*route = Routes\.DISPATCH_ORDER_TEMPLATE_FORM")
+    c.present("NavGraph 注册了分类管理页", nav, r"composable\(Routes\.DISPATCH_ORDER_TEMPLATE_CATEGORIES\)")
+    c.present("「编辑」与「新建」去的是同一张表单页",
+              nav, r"onOpenForm = \{ id -> navController\.navigate\(Routes\.orderTemplateForm\(id\)\) \}")
+
+    # 表单页：共用表单行、**不报价**、不存价
+    for row in ("FormGroup(", "FormInputRow(", "FormPickRow(", "FormActionRow(", "FormTextAreaRow("):
+        c.present(f"表单页用共用件 {row}", form_src, re.escape(row))
+    c.present("表单页的选品**不报价**（预订单里根本没有价，画个价出来会让人以为存下来了）",
+              form_src, r"showPrice = false")
+    c.present("表单页不自己算专属价（那是下单页唯一那一处 priceFor 的口径）",
+              form_src, r"priceFor = \{ it\.defaultUnitPrice \}")
+    c.present("表单页不发单价（行里只有商品/名称/单位/数量）",
+              form_src, r"OrderTemplateLineDto\(\s*\n?\s*productId = it\.productId")
+    c.present("空运费发得出去（＝把参考运费改回「不预设」）", form_src, r"freightFee = feeText")
+    c.present("清空货主走显式开关（Android 的 explicitNulls=false 会把 null 丢掉）",
+              form_src, r"clearShipper = shipperId == null")
+    c.present("编辑时按 id 载入", form_src, r"fun start\(templateId: Long\?\)")
+    c.present("分类下拉里**补上当前值**（名册里没有它时也要显示出来，否则一保存就悄悄改了分类）",
+              form_src, r"if \(cur\.isNotEmpty\(\) && cur !in opts\) opts \+= cur")
+    # 选品页的"不报价"模式：三处都要跟着变，只有一处改=界面上半价半不价
+    picker = strip_comments(read(COMMON / "ProductPicker.kt"))
+    c.present("选品页有 showPrice 开关", picker, r"showPrice: Boolean = true")
+    c.present("不报价时**行上那条价格事实整条不画**（传空串进去会渲染成 ¥0）",
+              picker, r"if \(price\.isBlank\(\)\) null else productPriceFact\(")
+    c.present("不报价时底部汇总显示件数而不是金额", picker, r'共 " \+ picked\.values\.sumOf \{ it\.qty \} \+ " 件"')
+
+    # 分类管理页（第 5 个名册）：必须继承共用内核、改名要说清级联
+    c.present("分类管理页继承共用的名册内核", cats_screen, r":\s*\n?\s*CategoryRosterViewModel<")
+    c.present("它真的在调 reorder 那条路（判据：名册页清单自己算得出来）",
+              cats_screen, r"repo\.reorderOrderTemplateCategories\(")
+    c.present("改名提示要说清「挂着的预设单也跟着改了」（这一套是按名字归属的）",
+              cats_screen, r"挂在这个分类下的预设单也跟着改了")
+
     total = c.passes + len(c.fails)
-    if total < 45:
-        print(f"❌ 只跑了 {total} 项（<45）—— 判据在空转，停。")
+    if total < 60:
+        print(f"❌ 只跑了 {total} 项（<60）—— 判据在空转，停。")
         return 1
     if c.fails:
         print(f"❌ 预订单红线不通过（{c.passes}/{total}）：")

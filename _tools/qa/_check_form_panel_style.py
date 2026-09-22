@@ -55,6 +55,10 @@ CONVERTED = {
         "新增/编辑线路·联系人·地点（2026-09-22）",
         ["FormInputRow", "FormTextAreaRow", "FormPickRow", "FormActionRow", "FormSwitchRow"],
     ),
+    "ui/dispatcher/OrderTemplateFormScreen.kt": (
+        "新建/编辑预订单（2026-09-22 用户：「还可以新建一个订单」）",
+        ["FormInputRow", "FormTextAreaRow", "FormPickRow", "FormActionRow"],
+    ),
 }
 
 #: 表单那几种零件（少一个就红：判据不能因为"零件被删了"而空转）

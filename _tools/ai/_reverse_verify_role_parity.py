@@ -25,6 +25,8 @@ AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
 WRITE = AI / "AiWrite.kt"
 SHIPPER_LEDGER = AI / "AiWriteShipperLedger.kt"
 CAPS = ROOT / "_tools/ai/_show_role_caps.py"
+SERVICE = AI / "AiWriteService.kt"
+TPL_HANDLERS = AI / "AiWriteOrderTemplateHandlers.kt"
 
 #: (名字, 文件, 原串, 换成什么) —— 每个都是**一种真实的破坏方式**。
 CASES: list[tuple[str, Path, str, str]] = [
@@ -60,6 +62,26 @@ CASES: list[tuple[str, Path, str, str]] = [
         CAPS,
         "    src = strip_comments((AI / \"AiWrite.kt\").read_text(encoding=\"utf-8\"))",
         "    src = (AI / \"AiWrite.kt\").read_text(encoding=\"utf-8\")",
+    ),
+    # ---- 参数式处理器那条路（2026-09-22 补的第三种写法）----
+    # ⚠️ 这两条的注入点必须**旧判据不看的那个位置**，否则证明不了新路真的在起作用：
+    #    动作声明块（`id = ORDER_TEMPLATE_CREATE,`）一个字都不动，只动**注册点**与**类体**。
+    (
+        "参数式处理器的注册点被改名（动作与实现失联 → 检查必须报缺口，而不是静默看不见）",
+        SERVICE,
+        # ⚠️ 必须**两条一起改**：注册点与类体是"读同一个类"的，只改 CREATE 那一条时
+        #    UPDATE 那条注册仍然带着整个类体（体里两个 `ds.` 调用都在），于是
+        #    `POST /order-templates` 会被 UPDATE 那个动作顺手覆盖 —— 注入就抓不住了（实测）。
+        "            OrderTemplateWriteHandler(AiWrites.ORDER_TEMPLATE_CREATE, ds, store),\n"
+        "            OrderTemplateWriteHandler(AiWrites.ORDER_TEMPLATE_UPDATE, ds, store),",
+        "            RenamedWriteHandler(AiWrites.ORDER_TEMPLATE_CREATE, ds, store),\n"
+        "            RenamedWriteHandler(AiWrites.ORDER_TEMPLATE_UPDATE, ds, store),",
+    ),
+    (
+        "参数式处理器的类体里把 ds 调用摘掉（动作挂着、实现没了）",
+        TPL_HANDLERS,
+        "ds.createOrderTemplate(payload)",
+        "// ds.createOrderTemplate(payload)",
     ),
 ]
 

@@ -78,6 +78,14 @@ fun ProductPickerSheet(
     onRetry: () -> Unit = {},
     /** 只挑一件：再挑一件是**换掉**而不是累加（见文件头 `single` 的说明）。 */
     single: Boolean = false,
+    /**
+     * **要不要报价**（默认 true ＝ 下单页那套，一个字都不变）。
+     *
+     * 预订单（订单模板）传 false：那一页选商品**根本不会存价**（预设单只存"哪几样、各多少"，
+     * 金额在下单那一刻按商品价现算）。在"不入库的价格"上画一个数 —— 哪怕它此刻是对的 ——
+     * 用户也会以为它被存下来了；而它其实取决于"下单时选的货主"，与这张模板无关。
+     */
+    showPrice: Boolean = true,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // 全屏高度：用户要的就是"底部窗口直接拉到最顶处"
@@ -94,6 +102,7 @@ fun ProductPickerSheet(
             modifier = Modifier.fillMaxHeight(0.94f),
             categoryOrder = categoryOrder,
             single = single,
+            showPrice = showPrice,
         )
     }
 }
@@ -113,6 +122,8 @@ fun ProductPickerBody(
     onRetry: () -> Unit = {},
     /** 只挑一件（见 [ProductPickerSheet] 的 `single`）：再挑一件是**换掉**。 */
     single: Boolean = false,
+    /** 要不要报价（见 [ProductPickerSheet] 的 `showPrice`）。false = 只挑"哪几样、各多少"。 */
+    showPrice: Boolean = true,
 ) {
     var keyword by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ALL_CATEGORY) }
@@ -211,7 +222,9 @@ fun ProductPickerBody(
                             items(visible, key = { it.id }) { p ->
                                 ProductRow(
                                     product = p,
-                                    price = priceFor(p),
+                                    // ⚠️ 不报价时传空串：`ProductRow` 只在非空时画那一行价
+                                    //    （预订单那边的选品就是这个模式，见 `showPrice` 的说明）
+                                    price = if (showPrice) priceFor(p) else "",
                                     pickedQty = picked[p.id]?.qty ?: 0,
                                     onAdd = { editing = p },
                                 )
@@ -243,12 +256,24 @@ fun ProductPickerBody(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        "¥" + formatMoney(total.toString()),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(MoneyOrange),
-                    )
+                    // ⚠️ **不报价的调用方**（预订单）显示件数而不是金额：那个页面里的价
+                    //    **根本不会入库**（预设单只存"哪几样、各多少"），画一个金额出来
+                    //    只会让人以为它被存下来了。见 `showPrice` 的说明。
+                    if (showPrice) {
+                        Text(
+                            "¥" + formatMoney(total.toString()),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(MoneyOrange),
+                        )
+                    } else {
+                        Text(
+                            "共 " + picked.values.sumOf { it.qty } + " 件",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
             Button(
@@ -280,7 +305,7 @@ fun ProductPickerBody(
             productName = p.name,
             productColor = p.nameColor,
             initialQty = exist?.qty ?: 1,
-            price = priceFor(p),
+            price = if (showPrice) priceFor(p) else "",
             onConfirm = { qty ->
                 // ⚠️ 单选模式（账本「记一笔账」）：先清空再放下这一件 —— 再挑一件是**换掉**。
                 //    不清空的话用户会挑出"两件商品、账上却只记了一件"，而界面看着完全正常。
@@ -290,7 +315,7 @@ fun ProductPickerBody(
                     name = p.name,
                     qty = qty,
                     unit = unit,
-                    price = priceFor(p),
+                    price = if (showPrice) priceFor(p) else "",
                     nameColor = p.nameColor,
                     imageUrl = p.imageUrl,
                 )
@@ -408,7 +433,9 @@ private fun ProductRow(
             name = product.name,
             nameColor = product.nameColor,
             facts = listOfNotNull(
-                productPriceFact(price, product.unit),
+                // ⚠️ `price.isBlank()` 时**这一行事实整条不画**（预订单那种"不报价"的调用方）：
+                //    直接传空串进去会渲染成「¥0/件」—— 一个凭空造出来的价。
+                if (price.isBlank()) null else productPriceFact(price, product.unit),
                 if (pickedQty > 0) pickedFact(pickedQty, unit) else null,
             ),
             modifier = Modifier.padding(10.dp),
@@ -562,14 +589,18 @@ fun QtyDialog(
                 Spacer(Modifier.height(14.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("小计", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    Text(
-                        "¥" + formatMoney(((price.toDoubleOrNull() ?: 0.0) * qty).toString()),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(MoneyOrange),
-                    )
+                // ⚠️ 不报价时（预订单）连"小计"都不画：它算出来的那个数**不会入库**，
+                //    画出来就是在暗示"这个价会被存下来"。见 [ProductPickerSheet] 的 `showPrice`。
+                if (price.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("小计", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text(
+                            "¥" + formatMoney(((price.toDoubleOrNull() ?: 0.0) * qty).toString()),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(MoneyOrange),
+                        )
+                    }
                 }
             }
         },

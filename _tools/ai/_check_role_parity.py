@@ -346,6 +346,9 @@ _HANDLER = re.compile(r"override\s+val\s+actionId\s*=\s*AiWrites\.([A-Z][A-Z0-9_
 _NEXT_TOP_LEVEL = re.compile(r"\n(?:internal\s+|private\s+)?(?:class|object|fun|val)\s")
 _DS_CALL = re.compile(r"\bds\.(\w+)\s*\(")
 
+#: 反空转计数器：参数式处理器认出了几条 `ds.` 关联（[param_handlers] 写，main 里断言）。
+PARAM_HANDLER_PAIRS: list[int] = [0]
+
 
 def action_ds_fns() -> dict[str, set[str]]:
     """动作常量名 → 它最终调的 `ds.<函数>` 名。
@@ -393,6 +396,48 @@ def action_ds_fns() -> dict[str, set[str]]:
             nxt = _NEXT_TOP_LEVEL.search(rest)
             add(m.group(1), rest[: nxt.start()] if nxt else rest)
     out.pop("", None)
+    return out
+
+
+def param_handlers() -> dict[str, set[str]]:
+    """**参数式处理器**：动作常量 → 它调到的 `ds.<函数>`。
+
+    有些处理器把动作 id 当**构造参数**收，而不是写成 `override val actionId = AiWrites.X`：
+
+        OrderTemplateWriteHandler(AiWrites.ORDER_TEMPLATE_CREATE, ds, store)   // 注册点
+        internal class OrderTemplateWriteHandler(
+            override val actionId: String, …,          // ← 不是常量赋值，[action_ds_fns] 的 ② 认不出
+        ) { … ds.createOrderTemplate(payload) … }
+
+    所以它的动作↔实现关联**只存在于注册点那一个实参上**：先按 `XxxHandler(AiWrites.Y, …)`
+    找出（类名, 常量）对，再去那份"类名 → 类体"索引里取实现体，最后从体里抽 `ds.` 调用。
+
+    ⚠️ 为什么必须认这种写法（2026-09-22 踩的）：预订单的「建/改预设单」就是这个形状，
+    它们**一直有 AI 动作**；但在"预订单页只能看/删/去下单"的年代，`POST /order-templates`
+    不在「手机上能做」那一侧，所以判据一直是绿的。页面第一次能新建/编辑（UI 开始调
+    `repo.createOrderTemplate`）当场报成**假缺口** —— 而按这个检查的话术，下一个人会去
+    `EXCLUDED` 里写一条"不做"的理由，那是一条**假话**。
+    """
+    bodies: dict[str, str] = {}
+    for f in sorted(AI.glob("AiWrite*.kt")):
+        s = strip_kt_comments(f.read_text(encoding="utf-8"))
+        for m in re.finditer(r"\bclass\s+(\w+)\b", s):
+            rest = s[m.end():]
+            nxt = _NEXT_TOP_LEVEL.search(rest)
+            bodies[m.group(1)] = rest[: nxt.start()] if nxt else rest
+
+    out: dict[str, set[str]] = {}
+    for f in sorted(AI.glob("AiWrite*.kt")):
+        s = strip_kt_comments(f.read_text(encoding="utf-8"))
+        for m in re.finditer(r"\b(\w+Handler)\s*\(\s*AiWrites\.([A-Z][A-Z0-9_]*)", s):
+            body = bodies.get(m.group(1))
+            if not body:
+                continue
+            fns = _DS_CALL.findall(body)
+            if fns:
+                out.setdefault(m.group(2), set()).update(fns)
+    # 反空转：一条都认不出说明注册点的写法又变了（那时这条判据会静默退回"看不见"）
+    PARAM_HANDLER_PAIRS[0] = sum(len(v) for v in out.values())
     return out
 
 
@@ -476,6 +521,12 @@ def ai_role_endpoints(role: str, member: bool) -> dict[str, set[str]]:
     """
     consts, whitelist = action_consts()
     ds_by_const = action_ds_fns()
+    # ⚠️ **两种处理器的结果要并起来**（2026-09-22）：`action_ds_fns` 认的是"动作定义块里
+    #    就写了 `ds.x(...)`"，而参数式处理器把调用写在**类体**里、关联只在注册点上
+    #    （见 [param_handlers]）。少了这一句，那批动作在派单员那一侧会被算成"没有实现"
+    #    —— 表现就是一条**假缺口**（"手机上能做、AI 没能力"）。
+    for const, fns in param_handlers().items():
+        ds_by_const.setdefault(const, set()).update(fns)
     impl = impl_repo_methods()
     repo2ep = repo_methods()
     member_only = member_only_from_source()
@@ -616,6 +667,12 @@ def main() -> int:
     ok("货主白名单解析没空转", len(whitelist) >= 20, f"只解析出 {len(whitelist)} 个")
     ok("资源表的「删↔恢复」配对解析没空转", len(pairs_by_id) >= 6,
        f"只解析出 {len(pairs_by_id)} 对（少于 6 对说明 AiResources.kt 的写法变了）")
+    # ⚠️ 参数式处理器（`XxxHandler(AiWrites.Y, …)`）那条路**必须真的认出东西**：
+    #    认不出时它静默退回"看不见那些动作"，于是报出来的是一批**假缺口**
+    #    （2026-09-22 预订单的建/改就是这样冒出来的）。
+    ai_role_endpoints("dispatcher", False)   # 跑一遍把计数器填上
+    ok("参数式处理器解析没空转", PARAM_HANDLER_PAIRS[0] >= 2,
+       f"只认出 {PARAM_HANDLER_PAIRS[0]} 条 ds 关联（下限 2：预订单的建/改就是这种形状）")
     # ⓪ 检查脚本建模的那两条规则，必须与 Kotlin 源码**逐字一致**（见 kotlin_rule_isomorphic）
     for p in kotlin_rule_isomorphic():
         ok("检查脚本与 AiWrite.kt 的角色规则同构", False, p)

@@ -1731,6 +1731,8 @@ data class OrderTemplateDto(
     val name: String = "",
     @SerialName("shipper_id") val shipperId: Long? = null,
     @SerialName("shipper_name") val shipperName: String? = null,
+    /** 分类名（空串 = 未分类）。左栏那一列按它分组。 */
+    val category: String = "",
     @SerialName("origin_address") val originAddress: String = "",
     val address: String = "",
     @SerialName("receiver_name") val receiverName: String = "",
@@ -1745,6 +1747,8 @@ data class OrderTemplateDto(
 data class OrderTemplateCreateRequest(
     val name: String,
     @SerialName("shipper_id") val shipperId: Long? = null,
+    /** 分类名（空串 = 未分类）。名册里没有的名字后端会补进名册。 */
+    val category: String = "",
     @SerialName("origin_address") val originAddress: String = "",
     val address: String = "",
     @SerialName("receiver_name") val receiverName: String = "",
@@ -1766,6 +1770,11 @@ data class OrderTemplateCreateRequest(
 data class OrderTemplateUpdateRequest(
     val name: String? = null,
     @SerialName("shipper_id") val shipperId: Long? = null,
+    /**
+     * 分类名。⚠️ **空串 = 移到未分类**，是一个真实操作，所以它照发（不要用 null 表达）——
+     * 后端按 `model_fields_set` 判：键出现就写，空串就是"清空分类"。
+     */
+    val category: String? = null,
     @SerialName("origin_address") val originAddress: String? = null,
     val address: String? = null,
     @SerialName("receiver_name") val receiverName: String? = null,
@@ -1783,6 +1792,36 @@ data class OrderTemplateUpdateRequest(
      */
     @SerialName("clear_shipper") val clearShipper: Boolean = false,
 )
+
+// ===== 预订单分类名册（2026-09-22 用户要求）=====
+//
+// 用户原话：「这个模板我们是要**做一个分类**的 —— 也是一样的，**左边是分类管理**，就是**复用**嘛，
+// 复用那些**商品管理**的形式；**我右边就是订单**」。
+// 与商品/开销/运费三个名册同一套形状（`name` + `sortOrder`），改名会**级联**改掉挂着的预设单。
+
+@Serializable
+data class OrderTemplateCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 有几张预设单挂在这一类（删之前要让用户看见"还有几张在用"）。 */
+    @SerialName("template_count") val templateCount: Int = 0,
+)
+
+@Serializable
+data class OrderTemplateCategoryCreateRequest(
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+)
+
+@Serializable
+data class OrderTemplateCategoryUpdateRequest(
+    val name: String? = null,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+)
+
+@Serializable
+data class OrderTemplateCategoryReorderRequest(val ids: List<Long>)
 
 // ===== 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求）=====
 //

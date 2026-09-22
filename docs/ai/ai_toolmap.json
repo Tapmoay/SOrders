@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 210,
-    "read": 69,
-    "write": 141,
-    "unique_paths": 152,
-    "unique_method_path": 210,
+    "endpoints": 215,
+    "read": 70,
+    "write": 145,
+    "unique_paths": 155,
+    "unique_method_path": 215,
     "shadowed_routes": []
   },
   "modules": {
@@ -70,7 +70,7 @@
           "path": "/api/v1/auth/token",
           "handler": "login_form",
           "doc": "OAuth2 兼容：username 字段填手机号。",
-          "at": "backend/app/api/v1/auth.py:81"
+          "at": "backend/app/api/v1/auth.py:108"
         },
         {
           "action": "login_json",
@@ -78,8 +78,8 @@
           "method": "post",
           "path": "/api/v1/auth/login",
           "handler": "login_json",
-          "doc": "OAuth2 兼容：username 字段填手机号。",
-          "at": "backend/app/api/v1/auth.py:76"
+          "doc": "",
+          "at": "backend/app/api/v1/auth.py:98"
         },
         {
           "action": "logout",
@@ -88,7 +88,7 @@
           "path": "/api/v1/auth/logout",
           "handler": "logout",
           "doc": "登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）+ 断开长连接。",
-          "at": "backend/app/api/v1/auth.py:52"
+          "at": "backend/app/api/v1/auth.py:76"
         }
       ]
     },
@@ -775,6 +775,56 @@
         }
       ]
     },
+    "order_template_categories": {
+      "cn": "预订单分类",
+      "actions": [
+        {
+          "action": "list_categories",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/order-template-categories",
+          "handler": "list_categories",
+          "doc": "预订单分类名册（按显示顺序）。预订单页左栏与分类管理页共用这一份。",
+          "at": "backend/app/api/v1/order_template_categories.py:86"
+        },
+        {
+          "action": "create_category",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/order-template-categories",
+          "handler": "create_category",
+          "doc": "",
+          "at": "backend/app/api/v1/order_template_categories.py:101"
+        },
+        {
+          "action": "delete_category",
+          "risk": "write",
+          "method": "delete",
+          "path": "/api/v1/order-template-categories/{category_id}",
+          "handler": "delete_category",
+          "doc": "删除分类名册里的一行。**还有预设单挂着时拒绝**（告诉有几张）。",
+          "at": "backend/app/api/v1/order_template_categories.py:209"
+        },
+        {
+          "action": "reorder_categories",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/order-template-categories/reorder",
+          "handler": "reorder_categories",
+          "doc": "整份顺序一次提交：`ids[0]` 排最前（**必须覆盖全部现存分类**，见模块注释第 3 条）。",
+          "at": "backend/app/api/v1/order_template_categories.py:184"
+        },
+        {
+          "action": "update_category",
+          "risk": "write",
+          "method": "patch",
+          "path": "/api/v1/order-template-categories/{category_id}",
+          "handler": "update_category",
+          "doc": "改名 / 改顺序。**改名会级联改掉挂在它下面的预设单**（同一事务，见模块注释第 1 条）。",
+          "at": "backend/app/api/v1/order_template_categories.py:138"
+        }
+      ]
+    },
     "order_templates": {
       "cn": "预订单",
       "actions": [
@@ -785,7 +835,7 @@
           "path": "/api/v1/order-templates",
           "handler": "list_templates",
           "doc": "这一页的预设单：**常用的在前，其次先建的在前**（2026-09-22 统一列表规则）。",
-          "at": "backend/app/api/v1/order_templates.py:161"
+          "at": "backend/app/api/v1/order_templates.py:163"
         },
         {
           "action": "create_template",
@@ -794,7 +844,7 @@
           "path": "/api/v1/order-templates",
           "handler": "create_template",
           "doc": "",
-          "at": "backend/app/api/v1/order_templates.py:183"
+          "at": "backend/app/api/v1/order_templates.py:202"
         },
         {
           "action": "delete_template",
@@ -803,7 +853,7 @@
           "path": "/api/v1/order-templates/{template_id}",
           "handler": "delete_template",
           "doc": "伪装删除（用户定的硬规矩：一律软删 + 手边有恢复入口）。",
-          "at": "backend/app/api/v1/order_templates.py:317"
+          "at": "backend/app/api/v1/order_templates.py:350"
         },
         {
           "action": "restore_template",
@@ -812,7 +862,7 @@
           "path": "/api/v1/order-templates/{template_id}/restore",
           "handler": "restore_template",
           "doc": "把删掉的预设单放回来（`DELETE /{id}` 的逆操作）。",
-          "at": "backend/app/api/v1/order_templates.py:350"
+          "at": "backend/app/api/v1/order_templates.py:383"
         },
         {
           "action": "update_template",
@@ -821,7 +871,7 @@
           "path": "/api/v1/order-templates/{template_id}",
           "handler": "update_template",
           "doc": "",
-          "at": "backend/app/api/v1/order_templates.py:220"
+          "at": "backend/app/api/v1/order_templates.py:244"
         },
         {
           "action": "use_template",
@@ -830,7 +880,7 @@
           "path": "/api/v1/order-templates/{template_id}/use",
           "handler": "use_template",
           "doc": "记一次\"用这张预设单下了单\"（**常用度计数的唯一写入点**）。",
-          "at": "backend/app/api/v1/order_templates.py:293"
+          "at": "backend/app/api/v1/order_templates.py:326"
         }
       ]
     },

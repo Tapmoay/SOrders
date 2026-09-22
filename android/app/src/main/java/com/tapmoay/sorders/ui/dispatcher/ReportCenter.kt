@@ -1136,6 +1136,10 @@ private fun actionLabel(action: String): String = when (action) {
     "FREIGHT_CATEGORY_UPSERT" -> "改运费分类"
     "FREIGHT_CATEGORY_DELETE" -> "删运费分类"
     "FREIGHT_CATEGORY_REORDER" -> "调运费分类顺序"
+    // 预订单分类名册（2026-09-22）：预订单页左栏那一列（改名会级联改掉挂着的预设单）
+    "ORDER_TEMPLATE_CATEGORY_UPSERT" -> "改预订单分类"
+    "ORDER_TEMPLATE_CATEGORY_DELETE" -> "删预订单分类"
+    "ORDER_TEMPLATE_CATEGORY_REORDER" -> "调预订单分类顺序"
     // 派单员手动定价：这一单没匹配到价目 → 他手填了运费（可顺带沉淀成价目）
     "ORDER_FREIGHT_PRICE" -> "手动定价运费"
     // 批发商自己那一本账（2026-09-20）：他给下游货主核销 / 撤销 / 恢复。

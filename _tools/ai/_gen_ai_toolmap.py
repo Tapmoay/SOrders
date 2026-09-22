@@ -90,6 +90,10 @@ MODULE_CN: dict[str, str] = {
     "arrears": "挂账单位",
     # 预订单 / 订单模板（2026-09-22）：中文名与 App 里那一格同名（能力按模块认领时才对得上）。
     "order_templates": "预订单",
+    # 预订单分类名册（2026-09-22）：预订单页左栏那一列的名字与顺序。
+    # ⚠️ 中文名要与 `_tools/ai/_app_feature_coverage.py` 里「预订单」那一格的读列**对得上**
+    #    （能力按模块认领时靠它），所以这里写「预订单分类」而不是"预设单分类"。
+    "order_template_categories": "预订单分类",
     # 供应商 / 厂商 + 应付款（2026-09-22）：中文名与 App 里那一格
     # （`Modules.ledgerHomeEntries` 的「供应商/应付」）同名 —— 能力按模块认领时才对得上。
     "suppliers": "供应商/应付款",

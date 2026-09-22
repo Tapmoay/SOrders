@@ -818,8 +818,9 @@ interface ArrearsApi {
  * `use` 只记一次"用它下过单"（列表按常用度排序用）。
  */
 interface OrderTemplateApi {
+    /** `deletedOnly=true` = 回收站（软删的那几张；默认 false ＝ 正常列表，老调用点一个字不改）。 */
     @GET("order-templates")
-    suspend fun listTemplates(): List<OrderTemplateDto>
+    suspend fun listTemplates(@Query("deleted_only") deletedOnly: Boolean = false): List<OrderTemplateDto>
 
     @POST("order-templates")
     suspend fun createTemplate(@Body body: OrderTemplateCreateRequest): OrderTemplateDto
@@ -840,6 +841,30 @@ interface OrderTemplateApi {
     /** 记一次「用这张预设单下了单」（常用度计数，⛔ 不改预设单本身）。 */
     @POST("order-templates/{templateId}/use")
     suspend fun useTemplate(@Path("templateId") templateId: Long): OrderTemplateDto
+
+    // ---- 预订单分类名册（2026-09-22 用户要求「左边是分类管理…右边就是订单」）----
+    // 与商品/开销/运费三个名册同一套规矩（改名级联、删除有挂账拒绝、排序整份提交）。
+    @GET("order-template-categories")
+    suspend fun listOrderTemplateCategories(): List<OrderTemplateCategoryDto>
+
+    @POST("order-template-categories")
+    suspend fun createOrderTemplateCategory(
+        @Body body: OrderTemplateCategoryCreateRequest,
+    ): OrderTemplateCategoryDto
+
+    @PATCH("order-template-categories/{categoryId}")
+    suspend fun updateOrderTemplateCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: OrderTemplateCategoryUpdateRequest,
+    ): OrderTemplateCategoryDto
+
+    @DELETE("order-template-categories/{categoryId}")
+    suspend fun deleteOrderTemplateCategory(@Path("categoryId") categoryId: Long)
+
+    @POST("order-template-categories/reorder")
+    suspend fun reorderOrderTemplateCategories(
+        @Body body: OrderTemplateCategoryReorderRequest,
+    ): List<OrderTemplateCategoryDto>
 }
 
 /**

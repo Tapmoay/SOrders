@@ -29,6 +29,8 @@ import com.tapmoay.sorders.ui.dispatcher.LedgerCreateScreen
 import com.tapmoay.sorders.ui.dispatcher.LedgerHomeScreen
 import com.tapmoay.sorders.ui.dispatcher.LedgerCashScreen
 import com.tapmoay.sorders.ui.dispatcher.LedgerCashDetailScreen
+import com.tapmoay.sorders.ui.dispatcher.OrderTemplateCategoriesScreen
+import com.tapmoay.sorders.ui.dispatcher.OrderTemplateFormScreen
 import com.tapmoay.sorders.ui.dispatcher.OrderTemplatesScreen
 // 供应商 / 厂商档案 + 一个供应商的账（2026-09-22）
 import com.tapmoay.sorders.ui.dispatcher.SupplierDetailScreen
@@ -202,7 +204,29 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onPlaceOrder = { t ->
                     navController.navigate(Routes.DISPATCH_ORDER_CREATE + "?template=" + t.id)
                 },
+                onManageCategories = { navController.navigate(Routes.DISPATCH_ORDER_TEMPLATE_CATEGORIES) },
+                // 卡片上的「编辑」与底栏的「新建」去**同一张表单页**（id 空 = 新建）——
+                // 用户 2026-09-22：「可以删除、可以编辑、可以用这个单下单，**还可以新建一个订单**」。
+                onOpenForm = { id -> navController.navigate(Routes.orderTemplateForm(id)) },
             )
+        }
+        composable(
+            route = Routes.DISPATCH_ORDER_TEMPLATE_FORM,
+            arguments = listOf(navArgument("templateId") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            val tid = entry.arguments?.getLong("templateId") ?: 0L
+            OrderTemplateFormScreen(
+                container = container,
+                templateId = if (tid > 0L) tid else null,
+                onBack = { navController.popBackStack() },
+                // 存完回预订单页；那一页每次进来都会重拉列表与分类名册（`vm.load()`），
+                // 所以刚建的这一张当场就在列表里。
+                onSaved = { navController.popBackStack() },
+            )
+        }
+        // 预订单分类管理（2026-09-22）：预订单页左栏那一列的名字与顺序。
+        composable(Routes.DISPATCH_ORDER_TEMPLATE_CATEGORIES) {
+            OrderTemplateCategoriesScreen(container = container, onBack = { navController.popBackStack() })
         }
         composable(
             route = Routes.ORDER_DETAIL,

@@ -572,7 +572,7 @@ class AppRepository(private val api: ApiBundle) {
     //
     // ⚠️ 这里**没有"从预设单下单"的方法**：一键下单 = 读这张预设单 → 走已有的 `createOrder`
     //    （与手工下单同一条路）。多一条下单路径 = 状态核对/库存/账本口径抄第二遍。
-    suspend fun orderTemplates() = api.orderTemplateApi.listTemplates()
+    suspend fun orderTemplates(deletedOnly: Boolean = false) = api.orderTemplateApi.listTemplates(deletedOnly)
     suspend fun createOrderTemplate(body: com.tapmoay.sorders.data.remote.dto.OrderTemplateCreateRequest) =
         api.orderTemplateApi.createTemplate(body)
     suspend fun updateOrderTemplate(id: Long, body: com.tapmoay.sorders.data.remote.dto.OrderTemplateUpdateRequest) =
@@ -581,6 +581,22 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun restoreOrderTemplate(id: Long) = api.orderTemplateApi.restoreTemplate(id)
     /** 记一次「用这张预设单下了单」（常用度计数）。 */
     suspend fun useOrderTemplate(id: Long) = api.orderTemplateApi.useTemplate(id)
+
+    // 预订单分类名册（2026-09-22）：与商品/开销/运费分类同一套规矩，
+    // ⚠️ 纯转发，**一个字节的判断都不在这里做**（判据在后端：改名级联、删除拒绝、整份顺序）。
+    suspend fun orderTemplateCategories() = api.orderTemplateApi.listOrderTemplateCategories()
+    suspend fun createOrderTemplateCategory(
+        body: com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryCreateRequest,
+    ) = api.orderTemplateApi.createOrderTemplateCategory(body)
+    suspend fun updateOrderTemplateCategory(
+        id: Long,
+        body: com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryUpdateRequest,
+    ) = api.orderTemplateApi.updateOrderTemplateCategory(id, body)
+    suspend fun deleteOrderTemplateCategory(id: Long) = api.orderTemplateApi.deleteOrderTemplateCategory(id)
+    suspend fun reorderOrderTemplateCategories(ids: List<Long>) =
+        api.orderTemplateApi.reorderOrderTemplateCategories(
+            com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryReorderRequest(ids)
+        )
 
     // ---- 供应商 / 厂商档案 + 应付款（2026-09-22）----
     //
