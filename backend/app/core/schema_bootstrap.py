@@ -1252,7 +1252,10 @@ def _bootstrap_impl(engine: Engine) -> None:
     # `order_template_categories` 表由 `create_all` 建；这里做**存量回填**：
     # 老库里 `order_templates.category` 可能已经有名字（比如别的路径写进去的、或从 AI 建的），
     # 名册是空的话左栏那一列会**一格都不显示**，用户以为分类没了。
-    # 回填口径与商品分类一字不差：把已经在用的分类名收进名册，按用到的预设单数从多到少排。
+    # 回填口径：把**还在用**的分类名收进名册，按用到的预设单数从多到少排。
+    # ⚠️ **必须带 `is_deleted = 0`**（2026-09-22 真机抓到的）：不带的话，一张进了回收站的
+    #    预设单会把它的分类名又拉回名册里 —— 用户刚把那个分类删掉、**重启一次它又回来了**。
+    #    （商品分类那一段没带这个条件，是同一类隐患；这里按"在用"这个明文口径先做对。）
     if "order_template_categories" in insp.get_table_names() and "order_templates" in insp.get_table_names():
         rows: list = []
         try:
@@ -1263,7 +1266,7 @@ def _bootstrap_impl(engine: Engine) -> None:
                     rows = conn.execute(
                         text(
                             "SELECT TRIM(category) AS c, COUNT(*) AS n FROM order_templates "
-                            "WHERE category IS NOT NULL AND TRIM(category) <> '' "
+                            "WHERE category IS NOT NULL AND TRIM(category) <> '' AND is_deleted = 0 "
                             "GROUP BY TRIM(category) ORDER BY n DESC, c ASC"
                         )
                     ).fetchall()

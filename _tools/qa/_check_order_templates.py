@@ -246,8 +246,10 @@ def main() -> int:
               ai_decl, r"params = crudParams\(targets, fields\)")
     c.present("撤回按资源表声明（改→写回旧值 / 删→恢复）",
               ai_res, r'AiWrites\.ORDER_TEMPLATE_RESTORE,\s*\n?\s*AiInverse\(AiWrites\.ORDER_TEMPLATE_DELETE')
+    # ⚠️ 判据要看到**认领的内容**（`["预订单"…]`），不只看键名：只看键名的话"把读列清空"
+    #    这种破坏照样绿（反向验证当场抓到过）。
     c.present("读能力被 App 模块认领（否则用户在界面上看不到它）",
-              read(COVERAGE), r'"预订单": \(')
+              read(COVERAGE), r'"预订单": \(\s*\n?\s*\["预订单"')
     c.present("端点索引里有它（文档不许过期）",
               read(ENDPOINTS), r"GET /api/v1/order-templates")
     c.present("分类名册那一条读能力也被同一格认领",
@@ -258,9 +260,13 @@ def main() -> int:
              ai_decl, r'id = "order_templates\.create_order"')
 
     # ---- ⑩ 文档指针 ----
-    c.ok("设计规范里写了预订单那一条规矩（并指路本判据）",
-         "预订单" in read(DESIGN) and "_check_order_templates.py" in read(DESIGN),
-         "缺一条：预订单的规矩 + 指路到本文件")
+    # ⚠️ 判据要**同时**要求"指路本判据"与"指路后端那一半"：只要求前者的那次被反向验证抓到了
+    #    （我的新小节里也提到了本判据的文件名 → 注入把原来那一句换掉之后，判据照样绿＝空转）。
+    design = read(DESIGN)
+    c.ok("设计规范里写了预订单那一条规矩（并指路本判据 + 指路后端那一半）",
+         "预订单" in design and "_check_order_templates.py" in design
+         and "api/v1/order_templates.py" in design,
+         "缺一条：预订单的规矩 + 指路到本文件与后端那个文件")
     loc = read(LOCATOR)
     c.ok("定位表里指到了预订单（并点名本判据）",
          "预订单" in loc and "_check_order_templates.py" in loc,
@@ -371,6 +377,11 @@ def main() -> int:
     c.present("回收站视图（软删的进得去、能恢复 —— 用户定硬规矩）",
               api, r"deleted_only")
     c.present("分类名册出参带「挂着几张预设单」", cat_schema, r"template_count: int = 0")
+    # ⚠️ 回填**必须过滤软删行**（2026-09-22 真机抓到）：一张进了回收站的预设单，它的
+    #    `category` 还写着那个名字 —— 不过滤的话"刚删掉的分类、重启一次又回来了"。
+    bootstrap = read(ROOT / "backend/app/core/schema_bootstrap.py")
+    c.present("回填只收**在用**的分类名（软删行不算）",
+              bootstrap, r"FROM order_templates \"\s*\n?\s*\"WHERE category IS NOT NULL AND TRIM\(category\) <> '' AND is_deleted = 0")
 
     # 界面：左分类 / 右订单 / 底栏三格 / 新建与编辑去同一张表单页 / 回收站
     c.present("左栏用**共用那一份**分类导航条", screen, r"CategoryRail\(")
@@ -420,6 +431,44 @@ def main() -> int:
               cats_screen, r"repo\.reorderOrderTemplateCategories\(")
     c.present("改名提示要说清「挂着的预设单也跟着改了」（这一套是按名字归属的）",
               cats_screen, r"挂在这个分类下的预设单也跟着改了")
+
+    # ---- ⑬ 卡片要有语义色/图标/加粗；分类排序要**卡片式拖动**（2026-09-22 用户第三轮）----
+    # 用户原话①：「卡片的样式不明确，我们需要**加一些语义色和图标**啊，这些**排版**要拍好一点，
+    #           **重要信息就稍微加粗**」。
+    # 用户原话②：「分类管理的排序**不是点击上上下下这种**」—— 要像商品列表排序那样**可以拖动**。
+    c.present("卡片用共用的**事实行**观感（图标 + 标签 + 值各一行）",
+              screen, r"TemplateFactRow\(")
+    c.present("事实行逐条给了图标与**图标的**语义色", screen, r"TemplateFactRow\(Icons\.Default\.Folder")
+    c.present("卡片顶部是语义色圆底图标（不是裸图标）", screen, r"TintedIcon\(Icons\.Default\.BookmarkAdded")
+    # ⚠️ 两条是用户 2026-09-22 第二轮**明确纠正**的（别改回去）：
+    #   ① 「文字就不需要加颜色了，这样的反而显得太花了」→ 语义色只给图标；
+    #   ② 「文字往右边，不要在一起」→ 标签贴左、值贴右（中间 `weight(1f)` 撑开）。
+    c.present("值靠右 + 长值能被截断（`weight(1f)` 与 `TextAlign.End` 一起才算对）",
+              screen, r"modifier = Modifier\.weight\(1f\),\s*\n\s*textAlign = TextAlign\.End")
+    # ⚠️ 判据查代码、不查那句注释：`screen` 是**剥过注释的**源码（`strip_comments`），
+    #    写成"找那句 `// ⚠️ 不加颜色`"会永远找不到（第一版就这么写的，当场红了）。
+    c.present("值**不上色**（用 onSurface，强调靠加粗）",
+              screen, r"value,\s*\n?[\s\S]{0,240}?color = MaterialTheme\.colorScheme\.onSurface")
+    c.absent("⛔ 事实行的值不许再染成语义色（那一版被点名「太花」）",
+             screen, r"value,[\s\S]{0,80}?color = tint")
+    c.present("名字是加粗的主角", screen, r'Text\(\s*\n?\s*t\.name,[\s\S]{0,120}?fontWeight = FontWeight\.Bold')
+    c.present("钱的语义色取主题那一份（MoneyOrange），⛔ 不在页面里另写十六进制",
+              screen, r"import com\.tapmoay\.sorders\.ui\.theme\.MoneyOrange")
+    c.present("货主的语义色同样取主题（ShipperTeal）",
+              screen, r"import com\.tapmoay\.sorders\.ui\.theme\.ShipperTeal")
+    c.present("分类管理页的计数文字也不上色",
+              cats_screen, r"labelMedium,[\s\S]{0,320}?color = MaterialTheme\.colorScheme\.onSurface")
+    # 分类排序：拖动那套必须**真的在**（长按手势 + 位移换算 + 稳定 key + 固定行高）
+    c.present("分类管理页是**长按拖动**排序（不是上下按钮）",
+              cats_screen, r"detectDragGesturesAfterLongPress\(")
+    c.present("拖动位移换算走共用那一份", cats_screen, r"dragSteps\(dragOffset, rowPx\)")
+    c.present("换位走共用的搬运实现", cats_screen, r"vm\.moveBy\(c\.id, steps\)")
+    c.present("拖动时给了稳定 key（不给会被销毁 → 手势被取消，真机踩过）", cats_screen, r"key\(c\.id\)")
+    c.present("拖动行是**固定高度**（位移→格数靠它算）", cats_screen, r"height\(CATEGORY_ROW_HEIGHT\)")
+    c.present("另给了「置顶↑」快捷键", cats_screen, r'Icon\(Icons\.Default\.VerticalAlignTop')
+    c.present("顺序仍是**本地草稿**：点「保存顺序」才提交", cats_screen, r"vm\.saveOrder\(\)")
+    c.absent("⛔ 不许再有「上移/下移」按钮（用户点名不要这种）", cats_screen, r"KeyboardArrowUp|onUp\b")
+    c.absent("⛔ 也不许再有「位次」输入框（那一版就是被点名换掉的）", cats_screen, r'"位次"')
 
     total = c.passes + len(c.fails)
     if total < 60:

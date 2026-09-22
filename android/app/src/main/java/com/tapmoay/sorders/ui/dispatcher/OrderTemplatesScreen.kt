@@ -1,11 +1,9 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -16,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -24,6 +24,9 @@ import com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryDto
 import com.tapmoay.sorders.data.remote.dto.OrderTemplateDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
+// 语义色取主题里那一份（⛔ 不在页面里另写十六进制）：ShipperTeal = 货主/湖蓝、MoneyOrange = 钱/金橙。
+import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
 
@@ -321,28 +324,7 @@ private fun TrashList(vm: OrderTemplatesViewModel) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(list, key = { it.id }) { t ->
-                SectionCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.DeleteOutline, contentDescription = null,
-                            modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(t.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                goodsText(t),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        TextButton(onClick = { vm.restore(t) }) {
-                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("恢复")
-                        }
-                    }
-                }
+                TrashRow(t, onRestore = { vm.restore(t) })
             }
         }
     }
@@ -429,8 +411,24 @@ private fun TemplatesBottomCell(
 /**
  * 一张预设单。
  *
- * 版式（与全项目一致）：**名字是主角**、次要信息是小灰字；动作横排 ——
- * 「删」在**最左**（相反操作）、「编辑」与「用这张下单」在**右**（主操作在最右，右手够得着）。
+ * ## 版式（2026-09-22 用户第二轮：「卡片的样式不明确，需要**加一些语义色和图标**，
+ * 这些**排版**要拍好一点，**重要信息就稍微加粗**」）
+ *
+ * 照全项目"事实行"那一份零件（`ui/common/ProductCardKit.kt::ProductFact(s)`）：
+ * **图标 + 小灰标签 + 加粗的语义色值**，一个一行。于是这一张卡自带层次：
+ *
+ * | 信息 | 图标 | 语义色 |
+ * | --- | --- | --- |
+ * | 分类 | `Folder` | **靛蓝**（预订单功能色，与工作台那一格同色） |
+ * | 货主 | `Person` | **湖蓝**（与「货主管理」同色） |
+ * | 送到 | `Place` | **蓝**（与派单作业/地址同色） |
+ * | 收货人 | `Badge` | **绿**（与送达同色） |
+ * | 商品 | `Inventory2` | **紫**（与「商品管理」同色） |
+ * | 参考运费 | `Payments` | **金橙**（钱只有这一个色） |
+ *
+ * ⛔ 一色一功能：别把上面几个改成同一个色（那样"扫一眼"就没用了），
+ *   也别用橙色表达非钱的东西。
+ * 动作横排：「删」在**最左**（相反操作），「编辑 / 用这张下单」在**右**（主操作最右，右手够得着）。
  */
 @Composable
 private fun TemplateCard(
@@ -442,45 +440,58 @@ private fun TemplateCard(
 ) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Default.BookmarkAdded, contentDescription = null,
-                modifier = Modifier.size(20.dp), tint = Color(TemplateBlue),
-            )
-            Spacer(Modifier.width(8.dp))
+            // 圆底 + 语义色图标（iOS 风那种"精致不裸奔"，全项目共用的 `TintedIcon`）
+            TintedIcon(Icons.Default.BookmarkAdded, Color(TemplateBlue), size = 20.dp, container = 40.dp)
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(t.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                // 名字是主角：加粗 + 大一号
                 Text(
-                    t.shipperName?.takeIf { it.isNotBlank() } ?: "货主：下单时再选",
+                    t.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                // ⚠️ 名字下面**不再重复写货主**（第一版写了一句「货主：下单时再选」，而下面
+                //    事实行里已经有一条「货主」——同一件事写两遍是纯噪音）。
+                Text(
+                    if (t.lines.isEmpty()) "还没选商品" else "共 " + t.lines.size + " 样货",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text(
-                if (t.freightFee == null) "运费不预设" else "参考运费 ¥" + formatMoney(t.freightFee),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (category != null) {
-            Spacer(Modifier.height(4.dp))
-            CategoryChip(category)
-        }
-        if (t.address.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            InfoRow("送到", t.address)
-        }
-        if (t.receiverName.isNotBlank() || t.receiverPhone.isNotBlank()) {
-            InfoRow("收货人", (t.receiverName + " " + t.receiverPhone).trim())
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            goodsText(t),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        if (t.remark.isNotBlank()) {
-            InfoRow("备注", t.remark)
         }
         Spacer(Modifier.height(8.dp))
+        // 事实行：**图标带语义色，文字一律不上色**，值靠右（2026-09-22 用户第二轮修正：
+        // 「文字就不需要加颜色了，这样反而显得太花了」+「文字往右边，不要在一起」）。
+        // ⛔ 所以这里**没有**用 `ui/common` 那份 `ProductFacts`：那一份把"值"也染成语义色
+        //    （商品卡上一屏只有两个数字，染色是对的），而这一页一屏六行，六种颜色就花了。
+        //    共用的东西是**观感**（图标 + 标签 + 值各一行、值靠右），不是那个染色的实现。
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            category?.let { TemplateFactRow(Icons.Default.Folder, "分类", it, Color(TemplateBlue)) }
+            TemplateFactRow(
+                Icons.Default.Person, "货主",
+                t.shipperName?.takeIf { it.isNotBlank() } ?: "下单时再选",
+                Color(ShipperTeal),
+            )
+            if (t.address.isNotBlank()) {
+                TemplateFactRow(Icons.Default.Place, "送到", t.address, Color(0xFF1E6FFF), maxLines = 2)
+            }
+            val receiver = (t.receiverName + " " + t.receiverPhone).trim()
+            if (receiver.isNotBlank()) {
+                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF00B578))
+            }
+            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFF8455E6))
+            TemplateFactRow(
+                Icons.Default.Payments, "参考运费",
+                if (t.freightFee == null) "不预设" else "¥" + formatMoney(t.freightFee),
+                Color(MoneyOrange),
+            )
+        }
+        if (t.remark.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            InfoRow("备注", t.remark)
+        }
+        Spacer(Modifier.height(10.dp))
         // ⚠️ 三个动作挤在一行（1080px 的屏）：次要的两个用**文字按钮**（不带图标）。
         //    第一版三个都带图标，真机上「用这张下单」直接被挤出屏幕**看不见**（实测 dump 到）——
         //    而它恰恰是这一页的主操作。主操作仍然是右边那个实底按钮（右手够得着）。
@@ -497,19 +508,77 @@ private fun TemplateCard(
     }
 }
 
-/** 卡片上那个分类小标签（未分类就不画：空标签是纯噪音）。 */
+/** 回收站里的那一行也带语义色与图标（与在用的卡片同一套观感，只是动作换成「恢复」）。 */
 @Composable
-private fun CategoryChip(name: String) {
-    Surface(
-        color = Color(TemplateBlue).copy(alpha = 0.12f),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color(TemplateBlue).copy(alpha = 0.35f)),
-    ) {
+private fun TrashRow(t: OrderTemplateDto, onRestore: () -> Unit) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TintedIcon(
+                Icons.Default.DeleteOutline,
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                size = 18.dp,
+                container = 40.dp,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(t.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(
+                    goodsText(t),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onRestore) {
+                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("恢复")
+            }
+        }
+    }
+}
+
+/**
+ * 一张卡上的一行事实：**图标（带语义色）+ 标签（小灰字）+ 值（靠右、不上色、加粗）**。
+ *
+ * ⚠️ 两条是用户 2026-09-22 第二轮明确纠正的，别改回去：
+ * 1. **文字不上色**（原话：「文字就不需要加颜色了，这样的反而显得太花了」）——
+ *    语义色只留给**图标**；值得强调的用**加粗**，不是用颜色。
+ * 2. **值靠右**（原话：「文字往右边，不要在一起」）—— 标签贴左、值贴右，
+ *    中间用 `weight(1f)` 撑开；⛔ 别写成"图标+标签+值挤在左边"那种。
+ */
+@Composable
+private fun TemplateFactRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    tint: Color,
+    /** 最多几行。**地址给 2 行**（一行放不下就省略，而"送到哪"是这张卡第二重要的信息）。 */
+    maxLines: Int = 1,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(6.dp))
         Text(
-            name,
-            style = MaterialTheme.typography.labelMedium,
-            color = Color(TemplateBlue),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            // ⚠️ **不加颜色**：这一页一屏六行，六种颜色就花了（用户点名）。
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            // ⚠️ `weight(1f)` + `TextAlign.End` 是**两件事一起**才对的：
+            //    · 靠右是用户要的（「文字往右边」）；
+            //    · `weight` 是长值能被截断而不是把标签挤出去（红线
+            //      `_check_adaptive_layout.py`：`maxLines=1 + Ellipsis` 却不给 weight 的算"新增"）。
+            //    第一版用 `Spacer(weight)` 撑开、值本身不给 weight —— 正好踩在那条红线上。
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

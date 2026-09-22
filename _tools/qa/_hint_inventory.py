@@ -249,6 +249,8 @@ OVERRIDE: dict[tuple[str, str], tuple[str, str]] = {
     ("OrderTemplateCategoriesScreen.kt", "顺序 = 预订单页左边那一列"): (
         "EXPLAIN", "名册页的说明（顺序从哪来 + 改名会级联改掉挂着的预设单）；"
                    "判成 DATA 是「预订单」里的「单」命中单位词表"),
+    ("OrderTemplateCategoriesScreen.kt", "改名会连带改掉挂着的预设单"): (
+        "EXPLAIN", "同一页的第二句说明（改名级联 + 删除前要先挪走）；同上被「预设单」误伤"),
 }
 
 # ⚠️ **已知的系统性偏差（先记下来，别顺手改）**：`DIGIT_UNIT` 里的单位词

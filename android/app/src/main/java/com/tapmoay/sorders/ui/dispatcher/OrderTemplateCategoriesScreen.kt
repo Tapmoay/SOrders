@@ -1,26 +1,33 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BookmarkAdded
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
-// 位次输入框的数字过滤走 `InputRules.intInput`（红线：手写 filter = 规则的一份副本）
-import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryDto
 import com.tapmoay.sorders.data.remote.dto.OrderTemplateCategoryUpdateRequest
@@ -91,6 +98,12 @@ fun OrderTemplateCategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     OneShotSnackbar(snackbar, vm.notice, onConsumed = { vm.notice = null })
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
+    // 拖动状态（与「商品排序」页、商品分类管理页同一套：长按 → 位移换算成格数 → 到半行就换位）
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var dragOffset by remember { mutableStateOf(0f) }
+    val haptic = LocalHapticFeedback.current
+    val rowPx = with(LocalDensity.current) { CATEGORY_ROW_HEIGHT.toPx() }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -113,42 +126,79 @@ fun OrderTemplateCategoriesScreen(container: AppContainer, onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        when {
-            vm.loading -> LoadingBox(Modifier.padding(padding))
-            vm.loadError != null -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
-            else -> LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item {
-                    Hint(
-                        "顺序 = 预订单页左边那一列分类的顺序。改名会连带改掉挂着的预设单（同一次提交里改完），"
-                            + "删除要先把挂着的预设单改成别的分类。",
-                        style = MaterialTheme.typography.bodySmall,
-                        // 强调色用预订单功能的语义色（与工作台那一格、预订单页的图标同色）
-                        color = Color(TemplateIndigo),
-                    )
-                }
-                items(vm.categories, key = { it.id }) { c ->
-                    OrderTemplateCategoryRow(
-                        c = c,
-                        position = vm.categories.indexOf(c) + 1,
-                        busy = vm.busy,
-                        onMoveTo = { vm.moveTo(c.id, it) },
-                        onUp = { vm.moveBy(c.id, -1) },
-                        onDown = { vm.moveBy(c.id, 1) },
-                        onRename = { vm.openRename(c) },
-                        onDelete = { vm.askDelete(c) },
-                    )
-                }
-                if (vm.dirty) {
-                    item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { vm.revertOrder() }, enabled = !vm.busy) { Text("撤销改动") }
-                            Button(onClick = { vm.saveOrder() }, enabled = !vm.busy) { Text("保存顺序") }
-                        }
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // 顺序是**本地草稿**，点「保存顺序」才提交（照商品排序/商品分类管理那两页）：
+            // 连拖几下只产生一次请求，也不会"拖一步发一次、中途失败顺序半新半旧"。
+            if (vm.dirty) {
+                Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("顺序改过了，记得保存", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        TextButton(enabled = !vm.busy, onClick = { vm.saveOrder() }) { Text("保存顺序") }
+                        TextButton(enabled = !vm.busy, onClick = { vm.revertOrder() }) { Text("撤销") }
                     }
+                }
+            }
+            when {
+                vm.loading -> LoadingBox()
+                vm.loadError != null -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
+                else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    // ⚠️ 这两句放在 `when` **外面**（一直看得见）：第一版放进去被判成空态句，
+                    //    而且说明书本来就不该藏在"有数据"那一支里。
+                    Hint(
+                        "顺序 = 预订单页左边那一列分类的顺序。按住一行长按拖动，或点右边的 ↑ 置顶。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(TemplateIndigo),
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                    )
+                    Hint(
+                        "改名会连带改掉挂着的预设单（同一次提交里改完）；删除要先把挂着的预设单改成别的分类。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                    )
+                    vm.categories.forEachIndexed { idx, c ->
+                        // ⚠️ `key(c.id)` **不是可选的**（真机上踩出来的）：不给稳定 key 的话
+                        //    Compose 按位置复用节点，被拖那一行的 `pointerInput` 会随节点销毁
+                        //    → 手势被取消，表现是"长按拖了半天只挪一格就自己松手"。
+                        key(c.id) {
+                            OrderTemplateCategoryRow(
+                                index = idx,
+                                c = c,
+                                busy = vm.busy,
+                                dragging = draggingId == c.id,
+                                dragOffset = if (draggingId == c.id) dragOffset else 0f,
+                                onDragStart = {
+                                    draggingId = c.id
+                                    dragOffset = 0f
+                                    // 抓住了给一次手感反馈：没有它，用户不知道长按是否生效
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                onDrag = { dy ->
+                                    dragOffset += dy
+                                    val steps = dragSteps(dragOffset, rowPx)
+                                    if (steps != 0) {
+                                        vm.moveBy(c.id, steps)
+                                        // 换过位之后把"已消耗的位移"减掉，剩下的继续攒
+                                        dragOffset -= steps * rowPx
+                                    }
+                                },
+                                onDragEnd = {
+                                    draggingId = null
+                                    dragOffset = 0f
+                                },
+                                onTop = { vm.moveTo(c.id, 1) },
+                                onRename = { vm.openRename(c) },
+                                onDelete = { vm.askDelete(c) },
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Spacer(Modifier.height(24.dp))
                 }
             }
         }
@@ -192,56 +242,122 @@ fun OrderTemplateCategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     }
 }
 
-/** 名册里的一行：位次框 + 名字 + "有几张预设单挂着" + 上下移 + 改名/删除。 */
+/**
+ * 名册里的一行：**序号 + 语义色圆底图标 + 名字（加粗）+ 挂着几张预设单**，
+ * 右边是「置顶↑」+ 拖动把手 + 改名 / 删除。
+ *
+ * ## 换过一版（2026-09-22 用户第二轮）
+ * 用户原话：「分类管理中的排序**不是点击上上下下这种**」—— 第一版是"位次输入框 + ↑/↓ 按钮"
+ * （照运费分类那一页抄的）。现在与**商品排序页**（`ProductSortScreen`）、**商品分类管理页**
+ * （`ProductCategoriesScreen`）同一形态：**长按整行拖动**（+ 一个「置顶↑」快捷键），
+ * 搬运逻辑是同两份共用件（`ui/common/CategoryRoster.kt::moveItemTo`、`dragSteps`）。
+ *
+ * ⚠️ 行高必须**固定**（拖动的"位移 → 挪几格"靠它算）：[CATEGORY_ROW_HEIGHT] 改之前先用
+ *    真机截图确认行内没被切（商品排序页那次是从 64dp 抬到 96dp 才不裁的）。
+ */
 @Composable
 private fun OrderTemplateCategoryRow(
+    index: Int,
     c: OrderTemplateCategoryDto,
-    position: Int,
     busy: Boolean,
-    onMoveTo: (Int) -> Unit,
-    onUp: () -> Unit,
-    onDown: () -> Unit,
+    dragging: Boolean,
+    dragOffset: Float,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onTop: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    var posText by remember(c.id, position) { mutableStateOf(position.toString()) }
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // ⚠️ 位次框用 `SoTextField`（本项目的 iOS 风输入框）**不是**运费页那个描边输入框：
-            //    全库描边输入框"只许减不许增"（基线 `_tools/qa/_form_panel_baseline.txt`），
-            //    新页面加一个就会把那页又变回"一堆矩形框浮在灰底上"。
-            SoTextField(
-                value = posText,
-                // ⚠️ 数字过滤走 `InputRules`（手写 filter 就是规则的一份副本，见红线）
-                onValueChange = { v ->
-                    val digits = InputRules.intInput(v, 3)
-                    posText = digits
-                    digits.toIntOrNull()?.let(onMoveTo)
-                },
-                placeholder = "位次",
-                keyboardType = KeyboardType.Number,
-                modifier = Modifier.width(64.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(c.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                // 只有这一个计数（运费那页有"价目 / 计费规则"两个）——
-                // 它是删除前的唯一判据，所以挂在每一行上，删之前看得见。
+    SectionCard(
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .height(CATEGORY_ROW_HEIGHT)
+            .graphicsLayer {
+                translationY = dragOffset
+                if (dragging) {
+                    scaleX = 1.02f
+                    scaleY = 1.02f
+                }
+            },
+    ) {
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            // 拖动区：序号 + 图标 + 名字/计数（**不挂整行** —— 右边那几个按钮要留着自己的点击）
+            Row(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(c.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { onDragStart() },
+                            onDrag = { change, drag -> change.consume(); onDrag(drag.y) },
+                            onDragEnd = { onDragEnd() },
+                            onDragCancel = { onDragEnd() },
+                        )
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    "预设单 " + c.templateCount + " 张",
-                    style = MaterialTheme.typography.bodySmall,
+                    (index + 1).toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(28.dp),
                 )
+                Spacer(Modifier.width(6.dp))
+                // 语义色圆底图标：与预订单页左栏、工作台那一格同色
+                TintedIcon(Icons.Default.Folder, Color(TemplateIndigo), size = 20.dp, container = 40.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(c.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+                    // 只有这一个计数（运费那页有"价目 / 计费规则"两个）——
+                    // 它是删除前的唯一判据，所以挂在每一行上，删之前看得见。
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.BookmarkAdded, contentDescription = null,
+                            tint = Color(TemplateIndigo), modifier = Modifier.size(13.dp),
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            "预设单",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            c.templateCount.toString() + " 张",
+                            style = MaterialTheme.typography.labelMedium,
+                            // ⚠️ **文字不上色**（用户 2026-09-22 第二轮：「文字就不需要加颜色了，
+                            //    这样的反而显得太花了」）—— 语义色只给图标，强调靠加粗。
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
-            IconButton(onClick = onUp, enabled = !busy) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上移") }
-            IconButton(onClick = onDown, enabled = !busy) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下移") }
-            IconButton(onClick = onRename, enabled = !busy) { Icon(Icons.Default.Edit, contentDescription = "改名") }
+            IconButton(onClick = onTop, enabled = !busy) {
+                Icon(Icons.Default.VerticalAlignTop, contentDescription = "置顶", tint = Color(TemplateIndigo))
+            }
+            Icon(
+                Icons.Default.DragHandle,
+                contentDescription = "长按拖动排序",
+                tint = MaterialTheme.colorScheme.outline,
+            )
+            IconButton(onClick = onRename, enabled = !busy) {
+                Icon(Icons.Default.Edit, contentDescription = "改名")
+            }
             IconButton(onClick = onDelete, enabled = !busy) {
                 Icon(Icons.Default.DeleteOutline, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
             }
         }
     }
 }
+
+/**
+ * 名册行的**固定**高度（拖动的"位移 → 挪几格"靠它算，所以不能自适应）。
+ * 内容高 = 名字 24 + 计数 18 + 卡内边距 32 ≈ 74，留到 88 免得被裁（真机截图确认过）。
+ */
+private val CATEGORY_ROW_HEIGHT = 88.dp
 
 /**
  * 预订单功能的语义色：**靛蓝**（与工作台那一格、预订单页的图标同色）。
