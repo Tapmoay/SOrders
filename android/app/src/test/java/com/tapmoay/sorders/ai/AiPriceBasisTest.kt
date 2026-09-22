@@ -119,8 +119,21 @@ class AiPriceBasisTest {
         val note = b.mismatchNote(BigDecimal("20.00"), b.of(cityEast, apple))!!
         assertTrue("要写出**系统价**：$note", note.contains("10"))
         assertTrue("要写出**卡片上按多少算**：$note", note.contains("20"))
-        assertTrue("要说清这个价是哪一种：$note", note.contains("这个货主的专属价"))
-        assertTrue("要让它去问用户，而不是默默建单：$note", note.contains("先跟他核对"))
+        assertTrue("要说清这个价是哪一种：$note", note.contains("专属价"))
+        assertTrue("要让它去问用户，而不是默默建单：$note", note.contains("先跟用户核对"))
+    }
+
+    /**
+     * ⚠️ 这句话**有长度预算**，超了就会被切掉半行（2026-09-22 真机截图抓到的）。
+     *
+     * 卡片明细区是 `heightIn(max = 200.dp)` + 内部滚动（`AiChatScreen` 里那个 `CardInfoTable`
+     * 调用点），而建单卡本来就有 5 行（货主/日期/商品明细/货/合计）。第一版这句话 3 行、
+     * 整块顶到 ~210dp，于是**最后一行被裁掉一半**（用户只会觉得"卡片坏了"，而内容其实只是需要滚一下）。
+     */
+    @Test
+    fun `这句话不许长到被明细区裁掉（两行以内）`() {
+        val note = basis().mismatchNote(BigDecimal("20.00"), basis().of(cityEast, apple))!!
+        assertTrue("实际 ${note.length} 字：$note", note.length <= 52)
     }
 
     @Test

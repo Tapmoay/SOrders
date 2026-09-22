@@ -57,8 +57,11 @@ internal class AiPriceBasis internal constructor(
         /** **显示**口径（卡片文字）：去掉末尾多余的 0。 */
         val display: String get() = AiWriteArgs.moneyText(value)
 
-        /** 卡片上那句"是哪一种价"。 */
+        /** 卡片上那句"是哪一种价"（单价那一行还放得下，所以写全）。 */
         val basisCn: String get() = if (fromSpecial) "这个货主的专属价" else "商品库的默认价"
+
+        /** 同上，**短写**（只给 [mismatchNote] 那种已经写不下的一行用）。 */
+        val basisCnShort: String get() = if (fromSpecial) "专属价" else "默认价"
     }
 
     /**
@@ -84,13 +87,18 @@ internal class AiPriceBasis internal constructor(
      *
      * ⚠️ 这句话同时是给**模型**看的：它写明了"先跟用户核对"，模型据此回头问一句，
      *    而不是默默按自己填的数建单。
+     *
+     * ⚠️ **长度是有预算的**（2026-09-22 真机截图抓到的）：卡片明细区是
+     *    `heightIn(max = 200.dp)` + 内部滚动（见 `AiChatScreen.CardInfoTable` 的调用点），
+     *    这张卡本来就有 5 行（货主/日期/商品明细/货/合计）。第一版这句话有 3 行，
+     *    整块内容顶到 ~210dp → **最后一行被切掉半行**（用户会以为卡片坏了）。
+     *    所以：**只写两个数和"去核对"**，那两种价的说明用短写（[Price.basisCnShort]）。
      */
     fun mismatchNote(typed: BigDecimal, system: Price?): String? {
         if (system == null) return null
         if (typed.compareTo(system.value) == 0) return null
-        return "⚠️ 这个货主对这件货的价是 ${system.display} 元（${system.basisCn}），" +
-            "卡上按 ${AiWriteArgs.moneyText(typed)} 元算 —— 用户没让你改价就先跟他核对按哪个；" +
-            "他确实要按 ${AiWriteArgs.moneyText(typed)} 元算就走这张卡。"
+        return "⚠️ 这个货主的价是 ${system.display} 元（${system.basisCnShort}），" +
+            "卡上按 ${AiWriteArgs.moneyText(typed)} 元算 —— 没让你改价就先跟用户核对按哪个"
     }
 
     companion object {

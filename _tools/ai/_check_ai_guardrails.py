@@ -4297,9 +4297,16 @@ def main() -> int:
         f"账本={wbasic_c.count('.mismatchNote(')}",
     )
     c.present(
-        "提示里写着「先跟他核对按哪个」（模型据此回去问一句，而不是默默按自己填的数建单）",
+        "提示里写着「先跟用户核对按哪个」（模型据此回去问一句，而不是默默按自己填的数建单）",
         price_kt,
-        r"先跟他核对按哪个",
+        r"先跟用户核对按哪个",
+    )
+    c.ok(
+        "提示**两行以内**（明细区上限 200dp，第一版 3 行时真机上被裁掉半行）",
+        "note.length <= 52" in read(
+            ROOT / "android/app/src/test/java/com/tapmoay/sorders/ai/AiPriceBasisTest.kt"
+        ),
+        "单测里那条长度预算不见了 —— 文案一长又会被裁，而界面上只表现为「卡片坏了」",
     )
     c.present(
         "工具说明书写明「用户没报过价就别自己填」",
