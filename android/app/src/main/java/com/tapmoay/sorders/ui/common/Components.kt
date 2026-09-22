@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -57,66 +58,88 @@ import com.tapmoay.sorders.ui.theme.SuccessDark
 import com.tapmoay.sorders.ui.theme.ThemeMode
 import com.tapmoay.sorders.util.formatMoney
 
+/**
+ * 状态徽章的**内容**（图标 / 中文名 / 四色）。
+ *
+ * 抽成**纯函数**是为了让宽度判定也能拿到中文名 —— 状态 → 中文名只许有**这一份**实现
+ * （两份迟早对不上，而"徽章上直接印出 `RETURNED` 原始码"就是这么来的）。
+ */
+private data class StatusBadge(val icon: ImageVector, val label: String, val p: List<Color>)
+
+private fun statusBadge(status: String): StatusBadge = when (status) {
+    "DISPATCHED" -> StatusBadge(
+        Icons.Default.Flag, "已派单",
+        // `[亮底, 亮字, 暗底, 暗字]`——**必须全是 Color**，混进 String 会被推成 `List<Any>` 而编译不过。
+        listOf(Color(0xFFFFE8C2), Color(0xFF8A5300), Color(0xFF4A3200), Color(0xFFFFD9A0)),
+    )
+    "PENDING_DISPATCH" -> StatusBadge(
+        Icons.Default.Schedule, "派单中",
+        listOf(Color(0xFFFFF1C6), Color(0xFF7A5900), Color(0xFF463800), Color(0xFFFFE08A)),
+    )
+    "ACCEPTED" -> StatusBadge(
+        Icons.Default.LocalShipping, "已接单",
+        listOf(Color(0xFFD6E3FF), Color(0xFF0F4690), Color(0xFF14335E), Color(0xFFBBD3FF)),
+    )
+    "DELIVERED" -> StatusBadge(
+        Icons.Default.CheckCircle, "已送达",
+        listOf(Color(0xFFD9F0DA), Success, Color(0xFF0E3A28), SuccessDark),
+    )
+    "CANCELLED" -> StatusBadge(
+        Icons.Default.Close, "已撤销",
+        listOf(Color(0xFFF1E4E4), Color(0xFF8C4040), Color(0xFF3A2626), Color(0xFFE0B0B0)),
+    )
+    // 已退货（2026-09-20）：⛔ 这一档**必须**有中文名与配色 ——
+    // 落到下面的 `else` 分支上，徽章里会直接印出 `RETURNED` 这个原始码。
+    // 配色是"货回来了、钱退了"的橙棕，与「已撤销」的灰红分得开（一个是没发生过、一个是发生过又退回来）。
+    "RETURNED" -> StatusBadge(
+        Icons.AutoMirrored.Filled.AssignmentReturn, "已退货",
+        listOf(Color(0xFFFFE3D2), Color(0xFF8A3B00), Color(0xFF43230F), Color(0xFFFFC9A8)),
+    )
+    else -> StatusBadge(
+        Icons.Default.Info, status,
+        listOf(Color(0xFFE1E2EC), Color(0xFF44464F), Color(0xFF2A2C33), Color(0xFFC7C9D1)),
+    )
+}
+
+/** 徽章里文字的样式：**测量与渲染共用这一份**（各写一处就会出现"量出来的宽度和画出来的不一样"）。 */
+@Composable
+private fun chipLabelStyle(): TextStyle =
+    MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+
+/**
+ * 徽章里除文字以外的固定占宽：内边距 10×2 + 图标 14 + 图标与文字的间隔 4 = 38dp。
+ *
+ * ⚠️ 改 [OrderStatusChip] 里那几个数（内边距 / 图标尺寸 / 间隔）**必须同步改这里** ——
+ * 红线 `_tools/qa/_check_adaptive_layout.py` 会拿源码里那几个数对着这个值核。
+ */
+internal val ORDER_CHIP_CHROME_DP = 38.dp
+
+/**
+ * 徽章的**实测**宽度。给「单号和徽章还放不放得下同一行」这类判定用（见 `Adaptive.kt`）。
+ *
+ * 为什么要量而不是给个常数：徽章宽度 = 中文名宽度 + 38dp，而中文名宽度随**系统字号**变
+ * （老用户把字体调大，徽章就变宽）—— 用常数会在那种手机上把判定算错。
+ */
+@Composable
+internal fun orderStatusChipWidth(status: String): Dp =
+    rememberTextWidth(statusBadge(status).label, chipLabelStyle()) + ORDER_CHIP_CHROME_DP
+
 /** 订单状态徽章（三通道：图标 + 颜色 + 文字；老人/色弱均有兜底） */
 @Composable
 fun OrderStatusChip(status: String) {
-    val icon: ImageVector
-    val label: String
-    /** `[亮底, 亮字, 暗底, 暗字]`——**必须全是 Color**，混进 String 会被推成 `List<Any>` 而编译不过。 */
-    val p: List<Color>
-    when (status) {
-        "DISPATCHED" -> {
-            icon = Icons.Default.Flag
-            label = "已派单"
-            p = listOf(Color(0xFFFFE8C2), Color(0xFF8A5300), Color(0xFF4A3200), Color(0xFFFFD9A0))
-        }
-        "PENDING_DISPATCH" -> {
-            icon = Icons.Default.Schedule
-            label = "派单中"
-            p = listOf(Color(0xFFFFF1C6), Color(0xFF7A5900), Color(0xFF463800), Color(0xFFFFE08A))
-        }
-        "ACCEPTED" -> {
-            icon = Icons.Default.LocalShipping
-            label = "已接单"
-            p = listOf(Color(0xFFD6E3FF), Color(0xFF0F4690), Color(0xFF14335E), Color(0xFFBBD3FF))
-        }
-        "DELIVERED" -> {
-            icon = Icons.Default.CheckCircle
-            label = "已送达"
-            p = listOf(Color(0xFFD9F0DA), Success, Color(0xFF0E3A28), SuccessDark)
-        }
-        "CANCELLED" -> {
-            icon = Icons.Default.Close
-            label = "已撤销"
-            p = listOf(Color(0xFFF1E4E4), Color(0xFF8C4040), Color(0xFF3A2626), Color(0xFFE0B0B0))
-        }
-        // 已退货（2026-09-20）：⛔ 这一档**必须**有中文名与配色 ——
-        // 落到下面的 `else` 分支上，徽章里会直接印出 `RETURNED` 这个原始码。
-        // 配色是"货回来了、钱退了"的橙棕，与「已撤销」的灰红分得开（一个是没发生过、一个是发生过又退回来）。
-        "RETURNED" -> {
-            icon = Icons.AutoMirrored.Filled.AssignmentReturn
-            label = "已退货"
-            p = listOf(Color(0xFFFFE3D2), Color(0xFF8A3B00), Color(0xFF43230F), Color(0xFFFFC9A8))
-        }
-        else -> {
-            icon = Icons.Default.Info
-            label = status
-            p = listOf(Color(0xFFE1E2EC), Color(0xFF44464F), Color(0xFF2A2C33), Color(0xFFC7C9D1))
-        }
-    }
-    val (bg, fg) = badgeColors(p[0], p[1], p[2], p[3])
+    val badge = statusBadge(status)
+    val (bg, fg) = badgeColors(badge.p[0], badge.p[1], badge.p[2], badge.p[3])
     Surface(color = bg, shape = CircleShape) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
-            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(14.dp))
+            Icon(badge.icon, contentDescription = null, tint = fg, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(4.dp))
             Text(
-                text = label,
+                text = badge.label,
                 color = fg,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
+                style = chipLabelStyle(),
             )
         }
     }

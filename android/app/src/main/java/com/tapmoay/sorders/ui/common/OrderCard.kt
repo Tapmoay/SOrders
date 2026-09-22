@@ -127,16 +127,35 @@ fun OrderCard(
         shadowElevation = 2.dp,
     ) {
         Column(Modifier.padding(16.dp)) {
-            // 行1：单号（加粗）+ 状态徽章（彩色）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "#" + order.orderNo,
-                    style = if (highlight) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                OrderStatusChip(order.status)
+            // 行1：单号（加粗）+ 状态徽章（彩色）。
+            // 单号是 21 位的长串：窄屏 / 系统大字号下它和徽章挤不进同一行时，**宁可让单号独占一行、
+            // 徽章右对齐到下一行**，也不许把单号折成「…31271」+「78」那种吊一个尾巴的样子
+            // （更不许缩小字号、不许截断 —— 规则与官方出处见 `Adaptive.kt`）。
+            val numberStyle = (if (highlight) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall)
+                .copy(fontWeight = FontWeight.Bold)
+            val orderNumber = "#" + order.orderNo
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val onOneLine =
+                    rememberTextWidth(orderNumber, numberStyle) + orderStatusChipWidth(order.status) <= maxWidth
+                if (onOneLine) {
+                    // 放得下 = 与以前**逐像素相同**（单号吃剩余宽度、徽章贴右）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            orderNumber,
+                            style = numberStyle,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OrderStatusChip(order.status)
+                    }
+                } else {
+                    Column {
+                        Text(orderNumber, style = numberStyle, color = MaterialTheme.colorScheme.onSurface)
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                            OrderStatusChip(order.status)
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(10.dp))
 

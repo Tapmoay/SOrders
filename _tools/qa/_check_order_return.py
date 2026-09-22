@@ -250,7 +250,7 @@ def main() -> int:
     c.present("「全部勾上」是把每行勾满（不是第二条提交路径）", ui, r"vm\.pickAllSettleLines\(\)")
     c.absent("核销金额**不许手输**（后端要求逐分相等，手输必然对不上）", ui, r"SoTextField\(vm\.settleAmount")
     c.present("状态徽章里有「已退货」（否则界面直接印原始码 RETURNED）",
-              read(ANDROID / "ui/common/Components.kt"), r'"RETURNED" -> \{[\s\S]{0,200}?label = "已退货"')
+              read(ANDROID / "ui/common/Components.kt"), r'"RETURNED" -> StatusBadge\([\s\S]{0,200}?"已退货"')
     # ⚠️ 同一类 bug 的**第二处**（2026-09-21 修）：`OrderPeek.kt` 的状态中文名少过「已退货」，
     #    后果一样 —— 账本展开行把原始码 `RETURNED` 直接印给用户。
     #    判据**从 `OrderStatusModel.ALL` 算**（不手写 6 个状态名）：少一档就红，

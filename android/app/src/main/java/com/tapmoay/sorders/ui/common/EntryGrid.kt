@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,8 +56,13 @@ fun EntryCardGrid(
     onOpen: (EntryCard) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 列数按屏宽算：**手机（< 480dp）恒为 2 列 —— 外观与以前逐像素相同**，只有平板才加列。
+    // 为什么不用 GridCells.Adaptive(minSize)：它在窄屏（320dp）会掉到 **1 列**，
+    // 那就是"小屏整体样式变了"，正好违反用户定的那条（规则与出处见 `Adaptive.kt`）；
+    // 而"给平板加列"是官方的分层网格思路（同样在 Adaptive.kt 里记了出处）。
+    val columns = maxOf(2, LocalConfiguration.current.screenWidthDp / 160)
     LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+        columns = GridCells.Fixed(columns),
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),

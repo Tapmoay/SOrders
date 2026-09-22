@@ -447,6 +447,10 @@ private fun ExpenseCard(e: ExpenseDto, onDetail: () -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // ⚠️ 这一行**必须**有 weight：这里是"可伸缩的那个"，右边日期是"必须保宽的固定项"。
+                    // 漏掉它的后果（2026-09-22 真机截图，411dp 下就能看见）：长单号把日期挤成一条缝，
+                    // 一个 `2026-09-19` 被折成 `202` / `6-0` / `9-1` / `9` 四行。
+                    modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
             }

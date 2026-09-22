@@ -120,7 +120,7 @@ CASES: list[tuple[str, Path, object]] = [
     ("审计动作码 ORDER_RETURN 被删（App 侧的中文名表也对不上了）", ENUMS, sub('ORDER_RETURN = "ORDER_RETURN"', 'ORDER_RETURN_X = "ORDER_RETURN"')),
     # ---- 客户端 ----
     ("客户端退货状态门放宽到已退货（对退过的单再点退货）", STATUS_MODEL, sub('val RETURNABLE: Set<String> = setOf("DELIVERED")', 'val RETURNABLE: Set<String> = setOf("DELIVERED", "RETURNED")')),
-    ("状态徽章删掉「已退货」分支（界面直接印原始码 RETURNED）", COMPONENTS, sub('"RETURNED" -> {', '"RETURNED_X" -> {')),
+    ("状态徽章删掉「已退货」分支（界面直接印原始码 RETURNED）", COMPONENTS, sub('"RETURNED" -> StatusBadge(', '"RETURNED_X" -> StatusBadge(')),
     # 2026-09-21 补：账本展开行用的那份状态中文名原来少「已退货」一档（同样是直接印原始码）
     ("账本展开行的「已退货」那一档被删（OrderPeek 里直接印原始码）", PEEK, sub('    "RETURNED" -> "已退货"', '    "RETURNED_X" -> "已退货"')),
     (

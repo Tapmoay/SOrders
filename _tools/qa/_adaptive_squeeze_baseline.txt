@@ -1,0 +1,25 @@
+# 基线：`Text(maxLines = 1, overflow = TextOverflow.Ellipsis)` 却没给 `weight` 的**存量**处数。
+# 由 `python _tools/qa/_check_adaptive_layout.py --update` 生成；只比**处数**、不比行号
+# （行号会腐烂，处数不会）。⛔ 只许往下减：涨一处就红 —— 这类文本会去挤它后面的兄弟，
+# 真机上表现为「日期被折成四行」「电话被挤成一条缝」，而两边都不报错。
+#
+# 格式：  <相对 android/app/src/main/java/com/tapmoay/sorders 的路径>  <处数>
+
+ui/ai/AiChatScreen.kt 7
+ui/common/CategoryPickerSheet.kt 1
+ui/common/Components.kt 1
+ui/common/FormRows.kt 2
+ui/common/PersonPicker.kt 2
+ui/dispatcher/AccountManageScreen.kt 1
+ui/dispatcher/AccountToolsScreens.kt 2
+ui/dispatcher/DispatcherLedgerScreen.kt 1
+ui/dispatcher/DriverBillingRulesScreen.kt 1
+ui/dispatcher/ExpensesScreen.kt 1
+ui/dispatcher/FreightPricingScreens.kt 1
+ui/dispatcher/FreightSettlementScreen.kt 4
+ui/dispatcher/FreightTemplatesScreen.kt 4
+ui/dispatcher/InventoryScreen.kt 1
+ui/dispatcher/ProductCategoriesScreen.kt 1
+ui/dispatcher/ProductsScreen.kt 4
+ui/driver/DriverFreightScreen.kt 1
+ui/profile/ProfileHeader.kt 1
