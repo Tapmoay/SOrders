@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.util.formatMoney
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -92,6 +93,24 @@ object AiWriteArgs {
     }
 
     fun money(v: BigDecimal): String = v.setScale(2, RoundingMode.HALF_UP).toPlainString()
+
+    /**
+     * **卡片文字 / 给模型看的话**里的金额 —— 显示口径：去掉末尾多余的 0
+     * （`56.70 → 56.7`、`87.00 → 87`，但 `56.77` 一位不少；用户 2026-09-22 定的）。
+     *
+     * ⛔ **[money] 与 [moneyText] 的分工不许混**（这是本轮最要紧的一条）：
+     * - [money] = **值**：进 payload、或者拿去跟别的字符串比（`after == "0.00"` 判"付清了"）。
+     *   两位小数是**接口形状**，去零会改变它；更要命的是那些 `== "0.00"` 的字符串比较会**静默不成立**
+     *   （表现：「付清了」「免运费」那两句提示再也不显示，而界面上一切正常）。
+     * - [moneyText] = **给人看的字**：只出现在**卡片文字**（摘要行与明细行）与抛给模型的中文里。
+     *
+     * 两个重载（`BigDecimal` / 后端下发的 `String?`）都走全 App 唯一那份显示口径
+     * `util/Money.kt::formatMoney` —— 这里**不重写**去零逻辑。
+     */
+    fun moneyText(v: BigDecimal): String = formatMoney(v.toPlainString())
+
+    /** 后端下发的金额字符串（`Numeric(12,2)` 序列化成 `"1200.00"` 那种）→ 卡片上的写法。 */
+    fun moneyText(raw: String?): String = formatMoney(raw)
 
     /**
      * 解析**数量/件数类整数**参数（台账数量、库存增减、拆单份数…）。

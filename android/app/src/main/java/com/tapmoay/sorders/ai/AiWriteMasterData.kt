@@ -57,7 +57,7 @@ internal object AiWriteMasterData {
             headline = { c -> "新增商品：${c.str("name")}" },
             details = { c ->
                 buildList {
-                    add("默认单价：${c.str("price") ?: "0.00"} 元")
+                    add("默认单价：${AiWriteArgs.moneyText(c.str("price"))} 元")
                     if (c.str("unit") != null) add("单位：${c.str("unit")}")
                     if (c.str("stock") != null) add("初始库存：${c.str("stock")}")
                     if (c.str("alert") != null) add("库存报警阈值：${c.str("alert")}")
@@ -187,13 +187,13 @@ internal object AiWriteMasterData {
                 moneyField("price", "专属单价（元）", "只传数字", required = true, key = "special_unit_price"),
             ),
             headline = { c ->
-                "设专属价：${c.ref("shipper")?.label} · ${c.ref("product")?.label} → ${c.str("price")} 元"
+                "设专属价：${c.ref("shipper")?.label} · ${c.ref("product")?.label} → ${AiWriteArgs.moneyText(c.str("price"))} 元"
             },
             details = { c ->
                 listOf(
                     "批发商：${c.ref("shipper")?.label}",
                     "商品：${c.ref("product")?.label}",
-                    "专属单价：${c.str("price")} 元",
+                    "专属单价：${AiWriteArgs.moneyText(c.str("price"))} 元",
                     "只影响这一个批发商看到的价格；别人的价格不变",
                 )
             },
@@ -211,11 +211,11 @@ internal object AiWriteMasterData {
             fields = listOf(
                 moneyField("price", "新专属单价（元）", "只传数字", required = true, key = "special_unit_price"),
             ),
-            headline = { c -> "改专属价：${c.ref("rule")?.label} → ${c.str("price")} 元" },
+            headline = { c -> "改专属价：${c.ref("rule")?.label} → ${AiWriteArgs.moneyText(c.str("price"))} 元" },
             details = { c ->
                 listOf(
                     "这一条现在是：${c.ref("rule")?.label}",
-                    "改成：${c.str("price")} 元",
+                    "改成：${AiWriteArgs.moneyText(c.str("price"))} 元",
                 )
             },
         ) { ds, p ->

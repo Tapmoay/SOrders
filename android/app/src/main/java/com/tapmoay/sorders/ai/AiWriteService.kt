@@ -1307,7 +1307,7 @@ class RepoWriteDataSource(
         //    于是确认卡上出现了「城东水果批发 AI测试果篮 = 11.5000」——金额栏里出现四位小数，
         //    用户会怀疑这个数是不是没对齐（真机实测看到的）。
         //    这里只格式化**展示**用的那一份；批量调价算 before→after 用的原始值不动。
-        val price = it.specialUnitPrice.toBigDecimalOrNull()?.let { v -> AiWriteArgs.money(v) }
+        val price = it.specialUnitPrice.toBigDecimalOrNull()?.let { v -> AiWriteArgs.moneyText(v) }
             ?: it.specialUnitPrice
         AiName(it.id, "$who $what = $price")
     }

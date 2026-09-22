@@ -164,13 +164,13 @@ class GenerateDriverBillsHandler(
         }.setScale(2, RoundingMode.HALF_UP)
 
         return card(
-            summary = "生成工资单：$month · ${pending.size} 人 · 合计 ${AiWriteArgs.money(total)} 元",
+            summary = "生成工资单：$month · ${pending.size} 人 · 合计 ${AiWriteArgs.moneyText(total)} 元",
             details = buildList {
                 add("月份：$month")
                 add("类型：月薪单（固定工资司机）")
                 add("做法：按每位司机的月薪各建一张账单；该月已有的会被跳过（幂等）")
                 add("———— 将新建 ${pending.size} 张 ————")
-                pending.take(MAX_LISTED).forEach { add("· ${it.label}：${it.salary} 元") }
+                pending.take(MAX_LISTED).forEach { add("· ${it.label}：${AiWriteArgs.moneyText(it.salary)} 元") }
                 if (pending.size > MAX_LISTED) add("…… 还有 ${pending.size - MAX_LISTED} 人，未逐条列出")
                 if (skipped > 0) add("该月已有工资单的 $skipped 人会被跳过")
                 // ⚠️ 这一行是拿源码读出来的事实，不是推测（driver_bills.py 只有 GET 与 POST /generate）：
@@ -226,7 +226,7 @@ class GenerateDriverBillsHandler(
         return card(
             summary = "生成运费账单：$month · " +
                 (if (named != null) named.label else "${todo.size} 位司机") +
-                " · 补 ${AiWriteArgs.money(deltaTotal)} 元",
+                " · 补 ${AiWriteArgs.moneyText(deltaTotal)} 元",
             details = buildList {
                 add("月份：$month")
                 add("类型：运费单（按单计费：一张已送达的单 -> 一张账单）")
@@ -235,12 +235,12 @@ class GenerateDriverBillsHandler(
                 add("———— 会补多少 ————")
                 todo.take(MAX_LISTED).forEach { r ->
                     add(
-                        "· ${r.f.driverLabel}：应结 ${AiWriteArgs.money(r.owed)} 元（${r.f.count} 张单），" +
-                            "已生成 ${AiWriteArgs.money(r.billed)} 元 → 补 ${AiWriteArgs.money(r.delta)} 元（至多 ${r.candidates} 张）",
+                        "· ${r.f.driverLabel}：应结 ${AiWriteArgs.moneyText(r.owed)} 元（${r.f.count} 张单），" +
+                            "已生成 ${AiWriteArgs.moneyText(r.billed)} 元 → 补 ${AiWriteArgs.moneyText(r.delta)} 元（至多 ${r.candidates} 张）",
                     )
                 }
                 if (todo.size > MAX_LISTED) add("…… 还有 ${todo.size - MAX_LISTED} 位司机，未逐条列出")
-                add("本次共补：${AiWriteArgs.money(deltaTotal)} 元")
+                add("本次共补：${AiWriteArgs.moneyText(deltaTotal)} 元")
                 add("张数写「至多」是因为该月未定价的单不会补（它们没有金额可入账）")
                 add("⚠️ 司机账单生成后没有删除入口（App 里翻不到「删账单」），月份请再核对一遍")
                 add("司机端能看到自己的这些账单")
@@ -324,7 +324,7 @@ class CreateSettlementHandler(
         }.setScale(2, RoundingMode.HALF_UP)
 
         return card(
-            summary = "生成结算单：${driver.label} $month ${typeLabel(type)} ${AiWriteArgs.money(total)} 元",
+            summary = "生成结算单：${driver.label} $month ${typeLabel(type)} ${AiWriteArgs.moneyText(total)} 元",
             details = buildList {
                 add("司机：${driver.label}")
                 add("月份：$month")
@@ -332,7 +332,7 @@ class CreateSettlementHandler(
                 add("———— 汇总这些待结算账单（${open.size} 张）————")
                 open.take(MAX_LISTED).forEach { add("· " + it.label()) }
                 if (open.size > MAX_LISTED) add("…… 还有 ${open.size - MAX_LISTED} 张，未逐条列出")
-                add("合计：${AiWriteArgs.money(total)} 元（金额由后端按上面这些账单汇总，不能手改）")
+                add("合计：${AiWriteArgs.moneyText(total)} 元（金额由后端按上面这些账单汇总，不能手改）")
                 add("———— 生成之后 ————")
                 add("这是一张草稿：还没有锁住任何账单，可以作废")
                 add("要真正结掉，后面还有两步：确认（锁账单）→ 付款（写资金流水）")
@@ -445,11 +445,11 @@ class ConfirmSettlementHandler(
             .filter { it.status.equals("open", true) && it.driverId == s.driverId }
 
         return card(
-            summary = "确认结算单：${s.driverLabel} ${s.month} ${s.typeLabel()} ${s.amount} 元",
+            summary = "确认结算单：${s.driverLabel} ${s.month} ${s.typeLabel()} ${AiWriteArgs.moneyText(s.amount)} 元",
             details = buildList {
                 add("司机：${s.driverLabel}")
                 add("月份：${s.month}　类型：${s.typeLabel()}")
-                add("金额：${s.amount} 元")
+                add("金额：${AiWriteArgs.moneyText(s.amount)} 元")
                 add("状态：${s.statusLabel()} → 已确认")
                 add("———— 会锁住的账单（${bills.size} 张）————")
                 if (bills.isEmpty()) {
@@ -506,16 +506,16 @@ class PaySettlementHandler(
         }
 
         return card(
-            summary = "结算单付款：${s.driverLabel} ${s.month} ${s.typeLabel()} ${s.amount} 元（${methodLabel(method)}）",
+            summary = "结算单付款：${s.driverLabel} ${s.month} ${s.typeLabel()} ${AiWriteArgs.moneyText(s.amount)} 元（${methodLabel(method)}）",
             details = buildList {
                 add("司机：${s.driverLabel}")
                 add("月份：${s.month}　类型：${s.typeLabel()}")
-                add("付款金额：${s.amount} 元")
+                add("付款金额：${AiWriteArgs.moneyText(s.amount)} 元")
                 add("付款方式：${methodLabel(method)}" + if (raw == null || raw.isEmpty()) "（用户没说，按默认现金）" else "")
                 if (s.orderCount > 0) add("对应的运费单：${s.orderCount} 张")
                 add("状态：${s.statusLabel()} → 已付款")
                 add("———— 会写进去的东西 ————")
-                add("一条资金流水（支出）：${s.amount} 元，付款方式记在流水上")
+                add("一条资金流水（支出）：${AiWriteArgs.moneyText(s.amount)} 元，付款方式记在流水上")
                 add("⚠️ 付款撤不回来（没有反付款接口）：付错了只能在账上另记一笔冲回")
             },
             payload = buildJsonObject {
@@ -562,11 +562,11 @@ class CancelSettlementHandler(
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val s = resolveSettlement(params)
         return card(
-            summary = "作废结算单：${s.driverLabel} ${s.month} ${s.typeLabel()} ${s.amount} 元",
+            summary = "作废结算单：${s.driverLabel} ${s.month} ${s.typeLabel()} ${AiWriteArgs.moneyText(s.amount)} 元",
             details = buildList {
                 add("司机：${s.driverLabel}")
                 add("月份：${s.month}　类型：${s.typeLabel()}")
-                add("金额：${s.amount} 元")
+                add("金额：${AiWriteArgs.moneyText(s.amount)} 元")
                 add("状态：${s.statusLabel()} → 已作废")
                 add("———— 作废之后 ————")
                 add("这张草稿作废，列表里会留下一条「已作废」的记录")

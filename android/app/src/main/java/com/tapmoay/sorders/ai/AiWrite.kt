@@ -639,7 +639,7 @@ data class AiOrderLine(
     val unitPrice: String,
     val lineTotal: String,
 ) {
-    fun label(): String = "$product × $quantity（${unitPrice} 元/件，合计 $lineTotal 元）"
+    fun label(): String = "$product × $quantity（${AiWriteArgs.moneyText(unitPrice)} 元/件，合计 ${AiWriteArgs.moneyText(lineTotal)} 元）"
 }
 
 /**

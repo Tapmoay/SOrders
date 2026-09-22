@@ -67,7 +67,7 @@ abstract class LedgerWriteHandler(
 
             pool.isEmpty() -> throw AiWriteArgException(
                 "没找到摘要像「$keyword」的流水" +
-                    (date?.let { "（$it 那天）" } ?: "") + (amount?.let { "（${AiWriteArgs.money(it)} 元）" } ?: "") + "。" +
+                    (date?.let { "（$it 那天）" } ?: "") + (amount?.let { "（${AiWriteArgs.moneyText(it)} 元）" } ?: "") + "。" +
                     "这几天的流水里有这些，请让用户挑一条：\n" +
                     all.take(AiWriteArgs.MAX_CANDIDATES).joinToString("\n") { "· " + it.label() },
                 candidates = all.take(AiWriteArgs.MAX_CANDIDATES).map { it.label() },
@@ -89,7 +89,7 @@ abstract class LedgerWriteHandler(
         add("日期：${e.date.ifBlank { "（无）" }}")
         add("摘要：${e.product.ifBlank { "（无）" }}")
         if (e.shipper.isNotBlank()) add("货主：${e.shipper}")
-        add("金额：${e.total} 元")
+        add("金额：${AiWriteArgs.moneyText(e.total)} 元")
         add("来源：${AiLedgerRef.sourceLabel(e.source)}")
         if (e.note.isNotBlank()) add("备注：${e.note}")
         if (e.orderNo != null) add("⚠️ 这一行是订单 ${e.orderNo} 入账来的")
@@ -128,7 +128,9 @@ class UpdateLedgerEntryHandler(
 
         val changes = buildList {
             newOf(params, "new_amount", "合计金额")?.let {
-                add(Change("合计金额", entry.total, AiWriteArgs.money(it), "total", it.toPlainString()))
+                // ⚠️ `from` 也是**给人看的字**（卡片上「320 → 288」的左半边）→ 同样过显示口径；
+                //    `value`（第 5 个参数）才是进 payload 的值，保持后端原始形状。
+                add(Change("合计金额", AiWriteArgs.moneyText(entry.total), AiWriteArgs.moneyText(it), "total", it.toPlainString()))
             }
             // ⚠️ 数量必须按**整数**解析（2026-09-19 审计抓到的真缺陷）：
             //    原来这里复用了 `newOf`（内部是 `parseMoney` → 一定补两位小数），
@@ -141,7 +143,7 @@ class UpdateLedgerEntryHandler(
                 add(Change("数量", "", it.toString(), "quantity", it.toString()))
             }
             newOf(params, "new_unit_price", "单价")?.let {
-                add(Change("单价", "", AiWriteArgs.money(it), "unit_price", it.toPlainString()))
+                add(Change("单价", "", AiWriteArgs.moneyText(it), "unit_price", it.toPlainString()))
             }
             AiWriteArgs.parseDate(AiWriteArgs.str(params, "new_date"), "new_date")?.let {
                 add(Change("日期", entry.date, it.toString(), "entry_date", it.toString()))
@@ -221,7 +223,7 @@ class DeleteLedgerEntryHandler(
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val entry = resolveEntry(params)
         return card(
-            summary = "删账本流水：${entry.date} ${entry.product} ${entry.total} 元",
+            summary = "删账本流水：${entry.date} ${entry.product} ${AiWriteArgs.moneyText(entry.total)} 元",
             details = buildList {
                 addAll(entryLines(entry))
                 add("———— 删掉之后 ————")
@@ -305,18 +307,18 @@ class CreateReceiptHandler(
                 .setScale(2, java.math.RoundingMode.HALF_UP)
             if (sum.compareTo(amount) != 0) {
                 throw AiWriteArgException(
-                    "逐单核销必须**全额**：这几张单合计 ${AiWriteArgs.money(sum)} 元，" +
-                        "而收款金额是 ${AiWriteArgs.money(amount)} 元，两边对不上（后端也会拒）。" +
+                    "逐单核销必须**全额**：这几张单合计 ${AiWriteArgs.moneyText(sum)} 元，" +
+                        "而收款金额是 ${AiWriteArgs.moneyText(amount)} 元，两边对不上（后端也会拒）。" +
                         "请让用户确认金额，或者不要点名订单（那就是一笔滚动收款，不核销到单上）。",
                 )
             }
         }
 
         return card(
-            summary = "记客户收款：${customer!!.label} ${AiWriteArgs.money(amount)} 元",
+            summary = "记客户收款：${customer!!.label} ${AiWriteArgs.moneyText(amount)} 元",
             details = buildList {
                 add("客户：${customer.label}")
-                add("收款金额：${AiWriteArgs.money(amount)} 元")
+                add("收款金额：${AiWriteArgs.moneyText(amount)} 元")
                 add("收款方式：${methodLabel(method)}")
                 add("收款日期：$date")
                 if (note.isNotBlank()) add("备注：$note")
@@ -333,7 +335,7 @@ class CreateReceiptHandler(
                     add("所以它会计入「资金收支」的流入，但不会改变任何订单的已收/未收")
                 } else {
                     add("———— 核销到这些单（逐单核销）————")
-                    orders.forEach { add("· ${it.label()}｜${it.amount} 元") }
+                    orders.forEach { add("· ${it.label()}｜${AiWriteArgs.moneyText(it.amount)} 元") }
                     add("这些订单会被标记成已收；这几张单必须都属于这个客户（后端会校验）")
                 }
             },

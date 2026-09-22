@@ -56,6 +56,9 @@ LOOP_KT = "android/app/src/main/java/com/tapmoay/sorders/ai/AiAgentLoop.kt"
 TEST_KT = "android/app/src/test/java/com/tapmoay/sorders/util/MoneyTest.kt"
 RULES_KT = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DriverBillingRulesScreen.kt"
 PENDING_VUE = "frontend/src/views/dispatcher/DispatcherPending.vue"
+SHIPPER_LEDGER_KT = "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteShipperLedgerHandlers.kt"
+SUPPLIER_KT = "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteSupplierHandlers.kt"
+REVERT_KT = "android/app/src/main/java/com/tapmoay/sorders/ai/AiRevert.kt"
 
 #: (说明, 文件, 原文, 替换成, 期望出现在失败清单里的关键字)
 INJECTIONS: list[tuple[str, str, str, str, str]] = [
@@ -157,6 +160,34 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "function fmtLineSub(line: EditLineFormState) {",
         "function fmtLineSub(line: EditLineFormState) {\n  const probe = (0).toFixed(2)",
         "`toFixed(2)` 只允许在 `formatMoney.ts` 里",
+    ),
+    (
+        "⑮ ⛔ 把一个**进 payload** 的金额也改成去零（接口形状变了 + 下游 `== \"0.00\"` 会静默失效）",
+        SHIPPER_LEDGER_KT,
+        'put("amount", AiWriteArgs.money(amount))',
+        'put("amount", AiWriteArgs.moneyText(amount))',
+        "`AiWriteArgs.money(` 剩下的",
+    ),
+    (
+        "⑯ 哨兵比较被改成去零后的写法（「付清了」那句会静默不显示）",
+        SUPPLIER_KT,
+        'if (after == "0.00") "（这一笔付清了）"',
+        'if (AiWriteArgs.moneyText(after) == "0") "（这一笔付清了）"',
+        "哨兵比较还在",
+    ),
+    (
+        "⑰ 撤回卡的金额自己写 `setScale(2)`（第二份口径）",
+        REVERT_KT,
+        "            formatMoney(raw)",
+        "            raw.toBigDecimal().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()",
+        "撤回卡的金额也走同一份显示口径",
+    ),
+    (
+        "⑱ `moneyText` 被改成自己写两位小数（卡片又变回 `8.00`）",
+        ARG_KT,
+        "fun moneyText(v: BigDecimal): String = formatMoney(v.toPlainString())",
+        "fun moneyText(v: BigDecimal): String = v.setScale(2, RoundingMode.HALF_UP).toPlainString()",
+        "它复用全 App 那份显示口径",
     ),
 ]
 

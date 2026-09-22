@@ -172,10 +172,10 @@ class PriceChangeNotifyHandler(
             } ?: "default"
 
         return card(
-            summary = "发价格变更通知：${product.name} → ${AiWriteArgs.money(newPrice)} 元（${shippers.size} 个货主）",
+            summary = "发价格变更通知：${product.name} → ${AiWriteArgs.moneyText(newPrice)} 元（${shippers.size} 个货主）",
             details = buildList {
                 add("商品：${product.name}")
-                add("价格：${oldPrice?.let { AiWriteArgs.money(it) } ?: "—"} → ${AiWriteArgs.money(newPrice)} 元")
+                add("价格：${oldPrice?.let { AiWriteArgs.moneyText(it) } ?: "—"} → ${AiWriteArgs.moneyText(newPrice)} 元")
                 add("价格类型：${if (priceType == "default") "默认价" else "专属价"}")
                 add("———— 通知这些人 ————")
                 shippers.take(10).forEach { add("· ${it.label}") }

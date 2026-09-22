@@ -107,7 +107,7 @@ class BatchPriceHandler(
         }
 
         val direction = when {
-            fixed != null -> "统一设为 ${AiWriteArgs.money(fixed)} 元"
+            fixed != null -> "统一设为 ${AiWriteArgs.moneyText(fixed)} 元"
             // adjust 与 fixed 二选一，这里 adjust 一定非空；用 requireNotNull 而不是 !! 是为了
             // 万一将来有人改坏了这个约束，错误信息能说清楚是哪里坏的。
             else -> {
@@ -126,7 +126,7 @@ class BatchPriceHandler(
         details += "幅度：$direction"
         details += "———— 逐条改动 ————"
         changes.take(MAX_LISTED).forEach { c ->
-            details += "· ${c.shipper} ${c.product}：${AiWriteArgs.money(c.before)} → ${AiWriteArgs.money(c.after)}" +
+            details += "· ${c.shipper} ${c.product}：${AiWriteArgs.moneyText(c.before)} → ${AiWriteArgs.moneyText(c.after)}" +
                 if (c.hadRule) "" else "（原来按通用价）"
         }
         if (changes.size > MAX_LISTED) details += "…… 还有 ${changes.size - MAX_LISTED} 条，未逐条列出"
@@ -314,7 +314,7 @@ class ApplyPriceTableHandler(
         if (valueCaveat != null) details += "读法：$valueCaveat"
         details += "———— 逐行改动 ————"
         planned.take(MAX_LISTED).forEach { c ->
-            details += "· 第 ${c.lineNo} 行 ${c.shipperLabel} ${c.productName}：${AiWriteArgs.money(c.before)} → ${AiWriteArgs.money(c.after)}" +
+            details += "· 第 ${c.lineNo} 行 ${c.shipperLabel} ${c.productName}：${AiWriteArgs.moneyText(c.before)} → ${AiWriteArgs.moneyText(c.after)}" +
                 if (c.mode == AiPriceTable.Mode.ADJUST) {
                     "（${if (c.value.signum() < 0) "降" else "涨"} ${c.value.abs().stripTrailingZeros().toPlainString()}%）"
                 } else {

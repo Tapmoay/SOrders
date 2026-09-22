@@ -418,7 +418,7 @@ internal object AiWriteBasicData {
                     c.line("from_place", "起点"),
                     c.line("to_place", "终点"),
                     c.str("vehicle_type")?.let { "车型：${vehicleCn(it)}" },
-                    "运费：${c.str("fee")} 元",
+                    "运费：${AiWriteArgs.moneyText(c.str("fee"))} 元",
                 )
             },
         ) { ds, p -> ds.createFreightTemplate(p) },

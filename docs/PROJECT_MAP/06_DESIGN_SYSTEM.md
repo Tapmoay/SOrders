@@ -164,6 +164,9 @@
   价目摘要、价格变更通知正文、退货/退款文案、收款被拒那句、订单清理的作废说明）；
 - AI 回复正文：提示词第 6 条写的是同一条规则（`ai/AiAgentLoop.kt`）—— 代码改了提示词不改，
   聊天里照旧 `¥87.00`。
+- **AI 确认卡 / 撤回卡的文字**（2026-09-22 第二轮）：`ai/AiWriteArgs.kt::moneyText`（两个重载：
+  `BigDecimal` / 后端下发的 `String?`），内部就是 `formatMoney`（**没有第二份去零实现**）；
+  撤回卡那边是 `AiRevertJson.textOf(money = true)`，同样走 `formatMoney`。卡片上 81 处金额全过它。
 
 #### ⛔ 显示 vs 值：两件事，混一次就是**不报错**的那类事故
 
@@ -173,12 +176,18 @@
 | --- | --- |
 | `OrderDto.goodsTotalText()`（收款页判据 + AI 卡片字面量） | 那个数永远与后端 `Decimal` 对不上 → **多行/多单时永久收不了款**（P0-4） |
 | 后端金额出参（`order_money.q2` / `suppliers._money` / 各 `Decimal` 字段） | `backend/tests/test_supplier_payables.py` 逐条钉着 `"1200.50"`，客户端还会再过一次显示口径 |
-| 写回后端的 payload（含 **`ai/AiWriteArgs.money()`**） | AI 卡片那串金额同时是发出去的参数，下游还有 `== "0.00"`（付清了/免运费）的字符串比较 → 去零会让那两句提示**静默不显示** |
+| 写回后端的 payload（**`ai/AiWriteArgs.money()`**、各 `put("amount"/"price"/"value", …)`） | 那是发出去的参数；下游还有 `== "0.00"`（付清了/免运费）的字符串比较 → 去零会让那两句提示**静默不显示** |
 | 可编辑价框的预填（`trimMoneyZeros`） | 用户没改价、价却真的变了 |
 | `core/InputRules` 的金额输入框 | 那是**用户自己打的字**，不是显示 |
 
-判据：`_tools/qa/_check_money_display.py`（**41 项**，含"清单自己算"：扫界面里每一处 `¥`、
-扫后端每一条 `¥{…}` 与 `{…} 元`）+ 反向验证 `_reverse_verify_money_display.py`（**14 种注入**，
+**AI 层的分工怎么钉住**（这是"显示 vs 值"最容易混的一处）：全 `ai/` 目录里
+`AiWriteArgs.money(` **只许剩 6 处**，且每一处都必须是「值」的形态（`put("price"/"value"/"amount", …)`
+或 `val amount/fee = …`）—— 红线 `_check_money_display.py` §3b 逐行扫出来；
+反向验证里有一条专门注入"把 `put("amount", …)` 也改成去零"。
+
+判据：`_tools/qa/_check_money_display.py`（**54 项**，含"清单自己算"：扫界面里每一处 `¥`、
+扫后端每一条 `¥{…}` 与 `{…} 元`、扫 `ai/` 里每一处 `AiWriteArgs.money(`）+
+反向验证 `_reverse_verify_money_display.py`（**18 种注入**，
 含"顺手把 `goodsTotalText` 也去零"这一种）。
 
 ### 4.2 卡片上的动作：三个就一排等宽大按钮，其余进「编辑」页（2026-09-21 改）

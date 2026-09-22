@@ -78,7 +78,7 @@ abstract class OrderWriteHandler(
         add("货主：${o.shipper.ifBlank { "（未填）" }}")
         add("当前状态：${o.statusCn}")
         if (o.address.isNotBlank()) add("送货地址：${o.address}")
-        if (o.amount != "0.00") add("订单金额：${o.amount} 元")
+        if (o.amount != "0.00") add("订单金额：${AiWriteArgs.moneyText(o.amount)} 元")
         if (o.driverLabel != null) add("当前司机：${o.driverLabel}")
     }
 
@@ -158,11 +158,11 @@ class AssignOrderHandler(
                 add("司机：${driver.label}")
                 add("他现在的计费规则：${driver.note?.takeIf { it.isNotBlank() } ?: "没挂规则（按老口径：计件=全额运费）"}")
                 add(
-                    if (freight != null) "司机运费：${AiWriteArgs.money(freight)} 元"
+                    if (freight != null) "司机运费：${AiWriteArgs.moneyText(freight)} 元"
                     else "司机运费：不填（保持待定，可事后在页面上补录）",
                 )
-                pieceAmount?.let { add("这一单单独定价：${AiWriteArgs.money(it)} 元（不走规则里的每单金额）") }
-                commissionRate?.let { add("这一单单独定提成：${AiWriteArgs.money(it)}%（提成基数仍按上面的规则）") }
+                pieceAmount?.let { add("这一单单独定价：${AiWriteArgs.moneyText(it)} 元（不走规则里的每单金额）") }
+                commissionRate?.let { add("这一单单独定提成：${AiWriteArgs.moneyText(it)}%（提成基数仍按上面的规则）") }
                 if (collectCash != null) {
                     add(if (collectCash) "收款方式：司机送达时收现金" else "收款方式：送达后挂账")
                 } else {
@@ -343,20 +343,20 @@ class ReturnOrderHandler(
 
         return card(
             summary = "退货：${order.orderNo} · ${picked.sumOf { it.second }} 件 · " +
-                "${AiWriteArgs.money(amount)} 元",
+                "${AiWriteArgs.moneyText(amount)} 元",
             details = buildList {
                 addAll(orderLines(order))
                 add("———— 退回 ————")
                 picked.forEach { (line, qty) ->
                     add(
-                        "· ${line.name}  $qty × ${line.unitPrice} 元 = " +
-                            "${AiWriteArgs.money(BigDecimal(line.unitPrice).multiply(BigDecimal(qty)).setScale(2, RoundingMode.HALF_UP))} 元",
+                        "· ${line.name}  $qty × ${AiWriteArgs.moneyText(line.unitPrice)} 元 = " +
+                            "${AiWriteArgs.moneyText(BigDecimal(line.unitPrice).multiply(BigDecimal(qty)).setScale(2, RoundingMode.HALF_UP))} 元",
                     )
                     add("    ${line.label()}")
                 }
-                add("合计：${AiWriteArgs.money(amount)} 元")
+                add("合计：${AiWriteArgs.moneyText(amount)} 元")
                 add("———— 会发生什么 ————")
-                add("账本按这几行红冲（营业额减 ${AiWriteArgs.money(amount)} 元）")
+                add("账本按这几行红冲（营业额减 ${AiWriteArgs.moneyText(amount)} 元）")
                 add("退回来的货补回库存")
                 add("这单如果已经收过钱：自动记一笔退给客户的现金（金额按「收过多少、退过多少」由系统算）")
                 add(
@@ -523,7 +523,7 @@ class CreateOrderHandler(
         return card(
             summary = "新建订单：" +
                 (if (selfOrder) "你自己" else shipper?.label ?: "$shipperRaw（临时货主）") + " · " +
-                "${lines.size} 种商品 · 合计 ${AiWriteArgs.money(total)} 元",
+                "${lines.size} 种商品 · 合计 ${AiWriteArgs.moneyText(total)} 元",
             details = buildList {
                 add(
                     if (selfOrder) "货主：你自己（货主给自己下单，不用指定货主）"
@@ -532,8 +532,8 @@ class CreateOrderHandler(
                 )
                 add("下单日期：$date")
                 add("———— 商品明细 ————")
-                lines.forEach { l -> add("· ${l.name}  ${l.quantity} × ${l.unitPrice} 元 = ${l.lineTotal} 元") }
-                add("合计：${AiWriteArgs.money(total)} 元")
+                lines.forEach { l -> add("· ${l.name}  ${l.quantity} × ${AiWriteArgs.moneyText(l.unitPrice)} 元 = ${AiWriteArgs.moneyText(l.lineTotal)} 元") }
+                add("合计：${AiWriteArgs.moneyText(total)} 元")
                 if (geo != null && AiLocation.isHere(address)) {
                     add("送货地址（用手机上当前的位置）：$addressText")
                 } else if (address.isNotBlank()) {
@@ -675,11 +675,11 @@ class FreightWriteHandler(
         )
 
         return card(
-            summary = "改司机运费：${order.orderNo} → ${AiWriteArgs.money(freight)} 元",
+            summary = "改司机运费：${order.orderNo} → ${AiWriteArgs.moneyText(freight)} 元",
             details = buildList {
                 addAll(orderLines(order))
                 add("———— 改成 ————")
-                add("司机运费：${AiWriteArgs.money(freight)} 元" + if (freight.signum() == 0) "（不收运费）" else "")
+                add("司机运费：${AiWriteArgs.moneyText(freight)} 元" + if (freight.signum() == 0) "（不收运费）" else "")
             },
             payload = buildJsonObject {
                 put("order_id", order.id)
@@ -708,7 +708,7 @@ class PayOrderHandler(
         requireStatus(order, OrderStatusModel.NOT_CANCELLED, "已撤销的单不能收款")
 
         return card(
-            summary = "收款：${order.orderNo} · ${order.amount} 元",
+            summary = "收款：${order.orderNo} · ${AiWriteArgs.moneyText(order.amount)} 元",
             details = buildList {
                 addAll(orderLines(order))
                 add("———— 记成 ————")
@@ -740,7 +740,7 @@ class ChargeOrderHandler(
         val unit = AiWriteArgs.strict(unitName, ds.arrearsUnits(), "挂账单位")
 
         return card(
-            summary = "挂账：${order.orderNo} · ${order.amount} 元 → ${unit!!.label}",
+            summary = "挂账：${order.orderNo} · ${AiWriteArgs.moneyText(order.amount)} 元 → ${unit!!.label}",
             details = buildList {
                 addAll(orderLines(order))
                 add("———— 记成 ————")
@@ -1030,7 +1030,7 @@ class SplitOrderHandler(
                     val share = if (weight == 0) BigDecimal.ZERO else total
                         .multiply(BigDecimal(w))
                         .divide(BigDecimal(weight), 2, RoundingMode.HALF_UP)
-                    add("第 ${i + 1} 单：占 $w 份（约 ${AiWriteArgs.money(share)} 元，单号加后缀 -${i + 1}）")
+                    add("第 ${i + 1} 单：占 $w 份（约 ${AiWriteArgs.moneyText(share)} 元，单号加后缀 -${i + 1}）")
                 }
                 add("商品数量按 ${parts.joinToString(":")} 的比例分到各子单，除不尽的余数归第 1 单")
                 add("原单会变成「已撤销」留痕——撤不回来，要合并只能重新建单")
@@ -1126,7 +1126,7 @@ class BatchAssignOrderHandler(
             details = buildList {
                 add("———— 这些单 ————")
                 orders.forEach { add("· ${it.label()}") }
-                add("合计金额：${AiWriteArgs.money(sum)} 元")
+                add("合计金额：${AiWriteArgs.moneyText(sum)} 元")
                 add("———— 派给 ————")
                 add("司机：${driver.label}")
                 if (freight != null) {

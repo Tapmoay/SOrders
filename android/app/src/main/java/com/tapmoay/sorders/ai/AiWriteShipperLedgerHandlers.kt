@@ -113,7 +113,7 @@ class SettleMyLedgerHandler(
         return AiWriteOutcome.NeedConfirm(
             store.card(
                 actionId,
-                summary = "核销：订单 $orderNo 的 ${AiWriteArgs.money(amount)} 元（${order.customer}）",
+                summary = "核销：订单 $orderNo 的 ${AiWriteArgs.moneyText(amount)} 元（${order.customer}）",
                 detailLines = buildList {
                     add("订单：$orderNo（$statusCn）")
                     add(
@@ -123,9 +123,9 @@ class SettleMyLedgerHandler(
                     add("———— 这一笔核的是 ————")
                     picked.forEach { l ->
                         add(
-                            "· ${l.name}：${AiWriteArgs.money(l.remaining)} 元" +
+                            "· ${l.name}：${AiWriteArgs.moneyText(l.remaining)} 元" +
                                 if (l.settled > BigDecimal.ZERO) {
-                                    "（这一样原本 ${AiWriteArgs.money(l.receivable)}，已核销过 ${AiWriteArgs.money(l.settled)}）"
+                                    "（这一样原本 ${AiWriteArgs.moneyText(l.receivable)}，已核销过 ${AiWriteArgs.moneyText(l.settled)}）"
                                 } else {
                                     ""
                                 }
@@ -136,7 +136,7 @@ class SettleMyLedgerHandler(
                     } else {
                         add("（按商品核销：只核上面这几样，其余还挂着）")
                     }
-                    add("本次合计：${AiWriteArgs.money(amount)} 元 · 收款方式：$method")
+                    add("本次合计：${AiWriteArgs.moneyText(amount)} 元 · 收款方式：$method")
                     add("———— 这一笔不碰什么 ————")
                     addAll(SETTLE_LINES)
                 },
@@ -226,7 +226,7 @@ class RevokeMySettlementHandler(
         val pool = amountWant?.let { a -> all.filter { it.amount.toBigDecimalOrNull()?.compareTo(a) == 0 } } ?: all
         val target = when {
             pool.isEmpty() -> throw AiWriteArgException(
-                "订单 $orderNo 记过的核销里没有 ${AiWriteArgs.money(amountWant!!)} 元那一笔。这几笔是：" +
+                "订单 $orderNo 记过的核销里没有 ${AiWriteArgs.moneyText(amountWant!!)} 元那一笔。这几笔是：" +
                     all.joinToString("；") { it.label() } + "。请让用户指认是哪一笔。",
                 candidates = all.map { it.label() },
             )
@@ -241,7 +241,7 @@ class RevokeMySettlementHandler(
         return AiWriteOutcome.NeedConfirm(
             store.card(
                 actionId,
-                summary = "撤销核销：订单 $orderNo 的 ${target.amount} 元（${target.customer}）",
+                summary = "撤销核销：订单 $orderNo 的 ${AiWriteArgs.moneyText(target.amount)} 元（${target.customer}）",
                 detailLines = buildList {
                     add("订单：$orderNo")
                     add("这笔核销：${target.label()}")

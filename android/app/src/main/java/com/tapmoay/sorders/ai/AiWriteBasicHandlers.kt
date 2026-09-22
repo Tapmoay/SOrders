@@ -76,7 +76,7 @@ class ExpenseWriteHandler(
         return AiWriteOutcome.NeedConfirm(
             store.card(
                 actionId,
-                summary = "支出：$cn ${AiWriteArgs.money(amount)} 元",
+                summary = "支出：$cn ${AiWriteArgs.moneyText(amount)} 元",
                 detailLines = buildList {
                     add("日期：$expDate")
                     if (driver != null) add("司机：${driver.label}")
@@ -150,13 +150,13 @@ class LedgerEntryWriteHandler(
         return AiWriteOutcome.NeedConfirm(
             store.card(
                 actionId,
-                summary = "记账：$product $quantity 件，合计 ${AiWriteArgs.money(total)} 元",
+                summary = "记账：$product $quantity 件，合计 ${AiWriteArgs.moneyText(total)} 元",
                 detailLines = buildList {
                     add(
                         if (shipper != null) "记账对象：${shipper.label}（系统里的货主）"
                         else "记账对象：$shipperRaw（系统里没有这个名字，将按「临时客户」记）",
                     )
-                    add("数量：$quantity × 单价 ${AiWriteArgs.money(unitPrice)} 元")
+                    add("数量：$quantity × 单价 ${AiWriteArgs.moneyText(unitPrice)} 元")
                     add("日期：$entryDate")
                     if (note.isNotBlank()) add("备注：$note")
                 },

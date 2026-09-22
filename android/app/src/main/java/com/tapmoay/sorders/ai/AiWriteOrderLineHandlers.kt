@@ -5,7 +5,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.math.BigDecimal
-import java.math.RoundingMode
 
 /**
  * 订单域的第三批：**商品行**（加/改/删）与**回收站**（移入/恢复）。
@@ -87,11 +86,11 @@ abstract class OrderLineWriteHandler(
         add("订单号：${o.orderNo}")
         add("货主：${o.shipper.ifBlank { "（未填）" }}")
         add("当前状态：${o.statusCn}")
-        add("当前金额：${o.amount} 元")
+        add("当前金额：${AiWriteArgs.moneyText(o.amount)} 元")
     }
 
-    /** 金额加减（两位小数）。 */
-    protected fun money(v: BigDecimal): String = v.setScale(2, RoundingMode.HALF_UP).toPlainString()
+    /** 卡片上写金额（**显示**口径：去尾零）。⛔ 要进 payload 的金额请用 `AiWriteArgs.money`（两位小数）。 */
+    protected fun money(v: BigDecimal): String = AiWriteArgs.moneyText(v)
 
     protected fun amountOf(o: AiOrderRef): BigDecimal = o.amount.toBigDecimalOrNull() ?: BigDecimal.ZERO
 
@@ -152,7 +151,7 @@ class AddOrderLineHandler(
                 add("单价：${money(unitPrice)} 元/件" + if (typed == null) "（按商品库的默认价取的）" else "")
                 add("小计：${money(lineTotal)} 元")
                 add("———— 金额变化 ————")
-                add("订单金额：${order.amount} → ${money(amountOf(order).add(lineTotal))} 元")
+                add("订单金额：${AiWriteArgs.moneyText(order.amount)} → ${money(amountOf(order).add(lineTotal))} 元")
             },
             payload = buildJsonObject {
                 put("order_id", order.id)
@@ -214,9 +213,9 @@ class UpdateOrderLineHandler(
                 add("商品：${line.product}${if (newName != null) " → $newName" else ""}")
                 if (newQty != null) add("数量：${line.quantity} → $newQty")
                 if (newPrice != null) add("单价：${line.unitPrice} → ${money(newPrice)}")
-                add("小计：${line.lineTotal} → ${money(newTotal)} 元")
+                add("小计：${AiWriteArgs.moneyText(line.lineTotal)} → ${money(newTotal)} 元")
                 add("———— 金额变化 ————")
-                add("订单金额：${order.amount} → ${money(amountOf(order).subtract(oldTotal).add(newTotal))} 元")
+                add("订单金额：${AiWriteArgs.moneyText(order.amount)} → ${money(amountOf(order).subtract(oldTotal).add(newTotal))} 元")
             },
             payload = buildJsonObject {
                 put("line_id", line.id)
@@ -263,7 +262,7 @@ class DeleteOrderLineHandler(
                 add("———— 删掉这一行 ————")
                 add("商品：${line.label()}")
                 add("———— 金额变化 ————")
-                add("订单金额：${order.amount} → ${money(left)} 元")
+                add("订单金额：${AiWriteArgs.moneyText(order.amount)} → ${money(left)} 元")
                 if (empty) {
                     add("⚠️ 这是最后一行商品：删完这张订单就没有货了（订单本身还在）")
                 }

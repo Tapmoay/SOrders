@@ -438,9 +438,9 @@ class AiWriteTest {
 
         // ---- 消息（v3.19）----
         var notificationRows = listOf(
-            AiNotificationRef(801, "商品价格调整：红富士苹果", "已更新：4.5 → 5.0", "2026-09-15T10:00:00", false),
+            AiNotificationRef(801, "商品价格调整：红富士苹果", "已更新：4.5 → 5", "2026-09-15T10:00:00", false),
             AiNotificationRef(802, "订单已送达", "SO123 已送达", "2026-09-15T09:00:00", true),
-            AiNotificationRef(803, "商品价格调整：皇冠梨", "已更新：3.0 → 3.5", "2026-09-14T10:00:00", false),
+            AiNotificationRef(803, "商品价格调整：皇冠梨", "已更新：3 → 3.5", "2026-09-14T10:00:00", false),
         )
 
         /** 消息域写操作记一行，断言用。 */
@@ -1289,7 +1289,7 @@ class AiWriteTest {
         val card = ok(
             r.svc.preview(AiWrites.EXPENSES_CREATE, expenseParams("vehicle" to "豫A12345", "note" to "跑了趟临市")),
         )
-        assertTrue(card.summary.contains("300.00"))
+        assertTrue(card.summary.contains("300 元"))
 
         r.svc.execute(card.token)
         val (req, _) = r.ds.expenses.single()
@@ -1308,7 +1308,7 @@ class AiWriteTest {
                 p("shipper" to "城东水果批发", "product" to "红富士苹果", "quantity" to "3", "unit_price" to "5.5"),
             ),
         )
-        assertTrue(card.summary.contains("16.50"))
+        assertTrue(card.summary.contains("16.5 元"))
         r.svc.execute(card.token)
         assertEquals("16.50", r.ds.entries.single().total)
     }
@@ -1500,7 +1500,7 @@ class AiWriteTest {
     fun `派单卡片要写出这个司机现在按什么算钱`() = runBlocking {
         val r = Rig()
         // 逐单定额/定比例只有在他挂着规则时才生效——看不见规则就是闭着眼睛点确认
-        r.ds.driverNote = "每单 500.00 元 + 运费的 5%"
+        r.ds.driverNote = "每单 500 元 + 运费的 5%"
         val card = ok(r.svc.preview(AiWrites.ORDERS_ASSIGN, p("order" to "SOTEST2026091100230", "driver" to "王建国")))
         assertTrue(
             card.detailLines.toString(),
@@ -1529,7 +1529,7 @@ class AiWriteTest {
         )
         assertTrue(
             card.detailLines.toString(),
-            card.detailLines.any { it.contains("这一单单独定价") && it.contains("300.00") },
+            card.detailLines.any { it.contains("这一单单独定价") && it.contains("300 元") },
         )
         assertTrue(
             card.detailLines.toString(),
@@ -1761,7 +1761,7 @@ class AiWriteTest {
                 createParams("城东水果批发", lineJson(Triple("红富士苹果", 3, "5.5"), Triple("皇冠梨", 2, "4"))),
             ),
         )
-        assertTrue(card.summary.contains("24.50")) // 3×5.5 + 2×4
+        assertTrue(card.summary.contains("24.5 元")) // 3×5.5 + 2×4
         r.svc.execute(card.token)
 
         val req = r.ds.createdOrders.single()
@@ -2840,8 +2840,8 @@ class AiWriteTest {
 
         val undoCard = ok(r.svc.offerUndo(undoToken!!))
         // 卡片必须写清"改成多少"（用户核对的就是这一行），而不是一句"改回原样"
-        assertTrue("撤回卡要写清会改成什么：${undoCard.detailLines}", undoCard.detailLines.any { it.contains("撤回到 8.00") })
-        assertTrue("撤回卡要写清现在是什么：${undoCard.detailLines}", undoCard.detailLines.any { it.contains("12.00") })
+        assertTrue("撤回卡要写清会改成什么：${undoCard.detailLines}", undoCard.detailLines.any { it.contains("撤回到 8") })
+        assertTrue("撤回卡要写清现在是什么：${undoCard.detailLines}", undoCard.detailLines.any { it.contains("：12 → 撤回到 8") })
         assertEquals("点撤回还没写任何东西", 0, r.ds.masterCalls.size)
 
         // 点确认 → 走的是**同一个动作**（products.update），带的是旧值
@@ -2885,8 +2885,8 @@ class AiWriteTest {
         val undoCard = ok(r.svc.offerUndo(done.undoToken!!))
         val warn = undoCard.detailLines.firstOrNull { it.contains("盖掉") }
         assertNotNull("这条被人改过就必须说：${undoCard.detailLines}", warn)
-        assertTrue("要说清现在是多少：$warn", warn!!.contains("15.00"))
-        assertTrue("也要说清撤回会写成多少：$warn", warn.contains("8.00"))
+        assertTrue("要说清现在是多少：$warn", warn!!.contains("现在是 15"))
+        assertTrue("也要说清撤回会写成多少：$warn", warn.contains("撤回会写成 8"))
         assertEquals("提醒不是拦截：撤回照样能点", 0, r.ds.masterCalls.size)
     }
 
@@ -2909,7 +2909,7 @@ class AiWriteTest {
         // 卡片上的金额按两位小数写（「撤回到 8.00」而不是「撤回到 8.0000」）
         assertTrue(
             "金额要写成 8.00：${undoCard.detailLines}",
-            undoCard.detailLines.any { it.contains("撤回到 8.00") && !it.contains("8.0000") },
+            undoCard.detailLines.any { it.contains("撤回到 8") && !it.contains("8.0000") },
         )
     }
 
@@ -3263,13 +3263,13 @@ class AiWriteTest {
         assertTrue(card.summary.contains("降 15%"))
         // 卡片必须逐条列出 before → after —— 用户核对的就是这串数字
         assertTrue(
-            "卡片上要看得到 4.50 → 3.83：${card.detailLines}",
-            card.detailLines.any { it.contains("4.50") && it.contains("3.83") },
+            "卡片上要看得到 4.5 → 3.83：${card.detailLines}",
+            card.detailLines.any { it.contains("4.5") && it.contains("3.83") },
         )
         // 没有专属价的那个批发商按**商品默认价** 5.00 算
         assertTrue(
-            "卡片上要看得到 5.00 → 4.25：${card.detailLines}",
-            card.detailLines.any { it.contains("5.00") && it.contains("4.25") },
+            "卡片上要看得到 5 → 4.25：${card.detailLines}",
+            card.detailLines.any { it.contains("5") && it.contains("4.25") },
         )
         r.svc.execute(card.token)
         assertEquals(listOf("batchPrice:[31, 32]:[41]:adjust:null:-15"), r.ds.masterCalls)
@@ -3319,7 +3319,7 @@ class AiWriteTest {
         val card = ok(
             r.svc.preview(AiWrites.PRICE_RULES_BATCH, p("product" to "红富士苹果", "price" to "6")),
         )
-        assertTrue(card.summary.contains("统一设为 6.00 元"))
+        assertTrue(card.summary.contains("统一设为 6 元"))
         r.svc.execute(card.token)
         assertEquals(listOf("batchPrice:[31, 32]:[41]:fixed:6.00:null"), r.ds.masterCalls)
     }
@@ -3839,8 +3839,8 @@ class AiWriteTest {
         )
         assertTrue("卡片要说清拆成几单：${card.summary}", card.summary.contains("3 单"))
         // 320 元按 5:3:2 → 160 / 96 / 64
-        assertTrue(card.detailLines.any { it.contains("约 160.00 元") })
-        assertTrue(card.detailLines.any { it.contains("约 96.00 元") })
+        assertTrue(card.detailLines.any { it.contains("约 160 元") })
+        assertTrue(card.detailLines.any { it.contains("约 96 元") })
         assertTrue(card.detailLines.any { it.contains("撤不回来") })
         r.svc.execute(card.token)
         assertEquals("split:61:5,3,2", r.ds.orderCalls.single())
@@ -3882,7 +3882,7 @@ class AiWriteTest {
         // 逐行列出，用户才能核对"是不是这些"
         assertTrue(card.detailLines.any { it.contains("SOTEST2026091100230") })
         assertTrue(card.detailLines.any { it.contains("SOTEST2026091300228") })
-        assertTrue(card.detailLines.any { it.contains("合计金额：420.00 元") })
+        assertTrue(card.detailLines.any { it.contains("合计金额：420 元") })
         r.svc.execute(card.token)
         assertEquals("batchAssign:61,63:11:null:true", r.ds.orderCalls.single())
     }
@@ -3940,7 +3940,7 @@ class AiWriteTest {
             ),
         )
         assertTrue("卡片要写清是这一行：${card.summary}", card.summary.contains("红富士苹果"))
-        assertTrue(card.detailLines.any { it.contains("320.00") && it.contains("288.00") })
+        assertTrue(card.detailLines.any { it.contains("320 → 288") })
         r.svc.execute(card.token)
         assertEquals("updateLedger:201:{\"entry_id\":201,\"total\":\"288.00\"}", r.ds.ledgerCalls.single())
     }
@@ -4059,7 +4059,7 @@ class AiWriteTest {
                 p("customer" to "老王果行", "amount" to "500", "orders" to "SOTEST2026091100230"),
             ),
         )
-        assertTrue("要把两边金额都说清楚：${out.reason}", out.reason.contains("320.00") && out.reason.contains("500.00"))
+        assertTrue("要把两边金额都说清楚：${out.reason}", out.reason.contains("320 元") && out.reason.contains("500 元"))
         assertEquals(0, r.ds.ledgerCalls.size)
     }
 
@@ -4105,7 +4105,7 @@ class AiWriteTest {
         )
         assertTrue(card.summary.contains("＋红富士苹果 × 2"))
         assertTrue("要说明单价是从商品库取的：${card.detailLines}", card.detailLines.any { it.contains("默认价") })
-        assertTrue("要算金额：${card.detailLines}", card.detailLines.any { it.contains("320.00 → 330.00") })
+        assertTrue("要算金额：${card.detailLines}", card.detailLines.any { it.contains("320 → 330") })
         r.svc.execute(card.token)
         assertEquals("addLine:61:红富士苹果:2:5.00", r.ds.lineCalls.single())
     }
@@ -4146,7 +4146,7 @@ class AiWriteTest {
             ),
         )
         assertTrue(card.detailLines.any { it.contains("数量") && it.contains("5 → 3") })
-        assertTrue(card.detailLines.any { it.contains("320.00 → 192.00") })
+        assertTrue(card.detailLines.any { it.contains("320 → 192") })
         r.svc.execute(card.token)
         assertTrue(r.ds.lineCalls.single().contains("\"quantity\":\"3\""))
     }
@@ -4187,7 +4187,7 @@ class AiWriteTest {
             ),
         )
         assertTrue("要警告这是最后一行：${card.detailLines}", card.detailLines.any { it.contains("最后一行") })
-        assertTrue(card.detailLines.any { it.contains("320.00 → 0.00") })
+        assertTrue(card.detailLines.any { it.contains("320 → 0") })
         r.svc.execute(card.token)
         assertEquals("deleteLine:901", r.ds.lineCalls.single())
     }
@@ -4303,7 +4303,7 @@ class AiWriteTest {
                 p("product" to "红富士苹果", "to" to "全部批发商", "old_price" to "4.5", "new_price" to "5", "price_type" to "special"),
             ),
         )
-        assertTrue(card.detailLines.any { it.contains("4.50 → 5.00") })
+        assertTrue(card.detailLines.any { it.contains("4.5 → 5") })
         assertTrue(card.detailLines.any { it.contains("专属价") })
         val joined = card.detailLines.joinToString("｜")
         assertTrue("两个批发商都要列出来：$joined", joined.contains("城东水果批发") && joined.contains("明辉食品商行"))
@@ -4404,9 +4404,9 @@ class AiWriteTest {
                 p("month" to "2026-09", "type" to "salary"),
             ),
         )
-        assertEquals("生成工资单：2026-09 · 2 人 · 合计 11000.00 元", card.summary)
-        assertTrue(card.detailLines.any { it.contains("王建国：4500.00 元") })
-        assertTrue(card.detailLines.any { it.contains("赵德海：6500.00 元") })
+        assertEquals("生成工资单：2026-09 · 2 人 · 合计 11000 元", card.summary)
+        assertTrue(card.detailLines.any { it.contains("王建国：4500 元") })
+        assertTrue(card.detailLines.any { it.contains("赵德海：6500 元") })
         // 卡片必须把"撤不回来"写在明面上（账单没有删除接口，这是读源码确认的事实）。
         assertTrue(card.detailLines.any { it.contains("没有删除入口") })
 
@@ -4424,7 +4424,7 @@ class AiWriteTest {
                 p("month" to "2026-09", "type" to "salary", "driver" to "赵德海"),
             ),
         )
-        assertEquals("生成工资单：2026-09 · 1 人 · 合计 6500.00 元", card.summary)
+        assertEquals("生成工资单：2026-09 · 1 人 · 合计 6500 元", card.summary)
         assertFalse(card.detailLines.any { it.contains("王建国") })
         r.svc.execute(card.token)
         assertEquals("generateBills:14:2026-09:salary", r.ds.settleCalls.single())
@@ -4443,7 +4443,7 @@ class AiWriteTest {
                 p("month" to "2026-09", "type" to "salary"),
             ),
         )
-        assertEquals("生成工资单：2026-09 · 1 人 · 合计 6500.00 元", card.summary)
+        assertEquals("生成工资单：2026-09 · 1 人 · 合计 6500 元", card.summary)
         assertTrue(card.detailLines.any { it.contains("已有工资单的 1 人会被跳过") })
     }
 
@@ -4537,11 +4537,11 @@ class AiWriteTest {
                 p("month" to "2026-09", "type" to "piece", "driver" to "王建国"),
             ),
         )
-        assertEquals("生成运费账单：2026-09 · 王建国 · 补 40.00 元", card.summary)
+        assertEquals("生成运费账单：2026-09 · 王建国 · 补 40 元", card.summary)
         val row = card.detailLines.single { it.startsWith("· 王建国") }
-        assertTrue(row.contains("应结 70.00 元"))
-        assertTrue(row.contains("已生成 30.00 元"))
-        assertTrue(row.contains("补 40.00 元"))
+        assertTrue(row.contains("应结 70 元"))
+        assertTrue(row.contains("已生成 30 元"))
+        assertTrue(row.contains("补 40 元"))
         // 张数只能给上界：未定价的单不会补。卡片必须写明，否则用户拿张数对账会对不上。
         assertTrue(row.contains("至多 3 张"))
         assertTrue(card.detailLines.any { it.contains("未定价") })
@@ -4557,10 +4557,10 @@ class AiWriteTest {
         val card = ok(
             r.svc.preview(AiWrites.SETTLEMENTS_GENERATE_BILLS, p("month" to "2026-09", "type" to "piece")),
         )
-        assertEquals("生成运费账单：2026-09 · 2 位司机 · 补 95.00 元", card.summary)
+        assertEquals("生成运费账单：2026-09 · 2 位司机 · 补 95 元", card.summary)
         assertTrue(card.detailLines.any { it.startsWith("· 王建国") })
         assertTrue(card.detailLines.any { it.startsWith("· 王建军") })
-        assertTrue(card.detailLines.any { it.contains("本次共补：95.00 元") })
+        assertTrue(card.detailLines.any { it.contains("本次共补：95 元") })
         r.svc.execute(card.token)
         assertEquals("generateBills:-:2026-09:piece", r.ds.settleCalls.single())
     }
@@ -4618,7 +4618,7 @@ class AiWriteTest {
             ),
         )
         // 默认 type=piece：王建国该月两张 open 的运费单 30 + 40
-        assertEquals("生成结算单：王建国 2026-09 运费单 70.00 元", card.summary)
+        assertEquals("生成结算单：王建国 2026-09 运费单 70 元", card.summary)
         assertTrue(card.detailLines.any { it.contains("SOTEST2026091100230") })
         assertTrue(card.detailLines.any { it.contains("SOTEST2026091200229") })
         assertTrue(card.detailLines.any { it.contains("不能手改") })
@@ -4663,7 +4663,7 @@ class AiWriteTest {
                 p("driver" to "王建国", "month" to "2026-08", "type" to "salary"),
             ),
         )
-        assertEquals("生成结算单：王建国 2026-08 工资单 4500.00 元", card.summary)
+        assertEquals("生成结算单：王建国 2026-08 工资单 4500 元", card.summary)
         r.svc.execute(card.token)
         assertEquals("createSettlement:11:salary:2026-08", r.ds.settleCalls.single())
     }
@@ -4679,7 +4679,7 @@ class AiWriteTest {
                 p("driver" to "王建国", "month" to "2026-09"),
             ),
         )
-        assertEquals("确认结算单：王建国 2026-09 运费单 70.00 元", card.summary)
+        assertEquals("确认结算单：王建国 2026-09 运费单 70 元", card.summary)
         assertTrue(card.detailLines.any { it.contains("锁住的账单（2 张）") })
         assertTrue(card.detailLines.any { it.contains("确认后不能作废") })
         assertTrue(card.detailLines.any { it.contains("付款是下一步") })
@@ -4733,7 +4733,7 @@ class AiWriteTest {
                 p("driver" to "王建国", "month" to "2026-09"),
             ),
         )
-        assertEquals("结算单付款：王建国 2026-09 运费单 70.00 元（现金）", card.summary)
+        assertEquals("结算单付款：王建国 2026-09 运费单 70 元（现金）", card.summary)
         assertTrue(card.detailLines.any { it.contains("按默认现金") })
         assertTrue(card.detailLines.any { it.contains("资金流水（支出）") })
         assertTrue(card.detailLines.any { it.contains("撤不回来") })
@@ -4767,7 +4767,7 @@ class AiWriteTest {
                 p("driver" to "王建国", "month" to "2026-09"),
             ),
         )
-        assertEquals("作废结算单：王建国 2026-09 运费单 70.00 元", card.summary)
+        assertEquals("作废结算单：王建国 2026-09 运费单 70 元", card.summary)
         assertTrue(card.detailLines.any { it.contains("不会解锁任何账单") })
         r.svc.execute(card.token)
         assertEquals("settlementAction:951:cancel:cash", r.ds.settleCalls.single())
@@ -4864,9 +4864,9 @@ class AiWriteTest {
         )
         assertEquals("按表格调价：2 行 · 2 条价格", card.summary)
         // 红富士苹果在城东水果批发那里已有 4.50 的专属价 → -10% = 4.05
-        assertTrue(card.detailLines.any { it.contains("城东水果批发 红富士苹果：4.50 → 4.05") })
+        assertTrue(card.detailLines.any { it.contains("城东水果批发 红富士苹果：4.5 → 4.05") })
         // 皇冠梨没写过专属价 → 按默认价 4.00
-        assertTrue(card.detailLines.any { it.contains("明辉食品商行 皇冠梨：4.00 → 3.80") })
+        assertTrue(card.detailLines.any { it.contains("明辉食品商行 皇冠梨：4 → 3.8") })
         assertTrue(card.detailLines.any { it.contains("降 10%") })
 
         val out = r.svc.execute(card.token)

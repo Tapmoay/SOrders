@@ -276,7 +276,7 @@ class ApplyProductTableHandler(
         details += "———— 逐行新建 ————"
         parsed.rows.take(MAX_LISTED).forEach { r ->
             val bits = buildList {
-                add("单价 ${r.price?.let { AiWriteArgs.money(it) } ?: "0.00"} 元")
+                add("单价 ${r.price?.let { AiWriteArgs.moneyText(it) } ?: "0.00"} 元")
                 r.unit?.let { add("单位 $it") }
                 r.stock?.let { add("初始库存 $it") }
                 r.alert?.let { add("报警阈值 $it") }

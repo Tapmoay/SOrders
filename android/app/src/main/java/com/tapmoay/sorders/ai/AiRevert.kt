@@ -1,5 +1,7 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.util.formatMoney
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -782,7 +784,7 @@ object AiRevert {
  * @param silent 跟着写回但**不单独占一行**的派生键（如地址的经纬度——它跟着地址文字走）。
  *   `labels.keys + silent` 必须正好等于 [readKeys]（单测钉着），否则就有键在静默地进/出。
  * @param frozen 写下去就回不来的键 → 为什么。它会变成撤回卡上的一行警告。
- * @param moneyKeys 这个资源里是**金额**的键（撤回卡上按两位小数写）。
+ * @param moneyKeys 这个资源里是**金额**的键（撤回卡上按显示口径写：去尾零）。
  *   只对手写动作有意义——声明式动作的字段规格里已经有 [AiFieldType.MONEY] 了。
  * @param read 读回现场：给一个主键，把这条记录现在的值读回来（键名与各动作 payload 一致）。
  *   读不到（已经删了 / 没权限）返回 null = 这一条撤不回来，**如实说，不假装**。
@@ -958,7 +960,7 @@ class AiInverse(
  * 撤回卡上怎么把一个 JSON 值写成**给人看的字**，以及"取负"这一种逆运算。
  *
  * ### 为什么单独一个对象（而不是散在几处）
- * 这些规则只有一处实现：卡片上写的是 `12.00 → 撤回到 10.00`，如果两个地方各写一份
+ * 这些规则只有一处实现：卡片上写的是 `12 → 撤回到 10`，如果两个地方各写一份
  * `textOf`，迟早出现一个地方把 `JsonPrimitive("true")` 印成 `"true"`（带引号）。
  * ⚠️ 名字不能叫 `AiJson`——读路径那边已经有一个同名对象（[AiReadService.kt] 里，
  * 负责宽松解析模型返回的 JSON），两个都叫 `AiJson` 是编译期的重复声明。
@@ -967,12 +969,13 @@ internal object AiRevertJson {
     /**
      * 值 → 卡片上给人看的字（去掉 JSON 引号）。
      *
-     * @param money true = 按两位小数显示。
+     * @param money true = 这是**金额**（按显示口径写：`56.70 → 56.7`、`87.00 → 87`）。
      *
      * ### 为什么数字要"规整"一下（真机踩出来的）
      * 后端把 `Decimal` 列读出来是 `12.0000` 这种带四位小数的字符串，而 App 写进去的是
      * `12.00`。直接 print 到卡片上，用户看到的是「撤回到 5.0000」——难看，而且会让人
-     * 以为系统记了个奇怪的值。所以数字一律规整（去尾零；金额补足两位）。
+     * 以为系统记了个奇怪的值。所以数字一律规整：非金额去掉末尾的 0（`2.5000 → 2.5`），
+     * 金额走全 App 唯一那份显示口径（`util/Money.kt::formatMoney`：到分为止 + 去尾零）。
      */
     fun textOf(e: JsonElement?, money: Boolean = false): String {
         if (e == null || e is JsonNull) return "（空）"
@@ -981,7 +984,7 @@ internal object AiRevertJson {
         if (p.isString && raw.toBigDecimalOrNull() == null) return raw
         val n = raw.toBigDecimalOrNull() ?: return raw
         return if (money) {
-            n.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()
+            formatMoney(raw)
         } else {
             n.stripTrailingZeros().let { if (it.scale() < 0) it.setScale(0) else it }.toPlainString()
         }

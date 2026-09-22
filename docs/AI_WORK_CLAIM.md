@@ -30,6 +30,60 @@
 
 核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：收款被拒时那句"这次要核销 X 元，但它只欠 Y 元"是**用户照着改数字的唯一依据**（他要把金额改成 Y 再提交），而它印的是 `150.00 元`。本轮只把这句话里的两个插值过 `money_text`；**判据（`part > m.arrears`）、口径、字段一行未动**。
 
+### [2026-09-22 19:0x →] 会话：**AI 卡片上的金额也去零**（`moneyText` / `money` 拆开）+ **后端已发到生产**（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
+
+**用户原话**：「可以可以这两件事直接做了」—— 指上一轮结尾我请他拍板的两件。
+
+#### 一、后端发到生产（补上落后 2 个提交：`355c648` 基线快照 + `c79cc0d` 金额显示）
+
+- **前置闸门**：`_check_secrets.py` 绿 · `cd backend && pytest -q` **754 passed** ·
+  `origin/new` 是本地 HEAD 的祖先（可 fast-forward，待推 **26** 个提交）。
+- **备份**（`/root`）：`backup-sorders-deploy-20260922-1903.sql.gz`（533KB，`gzip -t` 通过）
+  ＋ `SOrders-backend-20260922-1903.tgz`（1.29M）。
+- **发**：`git push origin p:new`（`9e47bc4..c79cc0d`）→ 服务器 `fetch && merge --ff-only origin/new`
+  → 到 `c79cc0d` → `systemctl restart sorders-api`：**NRestarts=0 / ActiveState=active**，
+  启动期迁移**全部成功**（`place_user_usage` 2 行 → `usage_counters`；`products.sort_order` 列已加）。
+- **验收**：表 39 → **40**；orders **2402** / users **59** / ledgers **4648**（一条没少）；
+  并且**在生产上真跑了一遍新代码**（prod 自己的 venv）：
+  `.venv/bin/python -c '…'` → `56.7 87 56.77`、「固定工资 8000 元/月 + 每单 200 元」。
+- ⚠️ **生产不再是"9 张单的演示实例"了**（现 2402 单 / 59 账号）→ 这次按**真库**对待：
+  先备份再动；待发的迁移是**加法式**的（新表 + 一列默认 0），没有破坏性 DDL。
+- **回滚路径（没用到）**：`git -C /opt/SOrders checkout 021543e` + 重启；数据用那份 `sql.gz`。
+- ⚠️ 本机后端**没有**重启（共享进程，别的会话在跑）—— 本轮后端改动**只影响文案**，
+  本机验证走 `pytest`（754 passed），不依赖那个进程。
+
+#### 二、AI 卡片上的金额也去零（73 处：拆成"显示"与"值"两个函数）
+
+- **新增** `AiWriteArgs.moneyText(...)`（两个重载：`BigDecimal` / 后端下发的 `String?`）——
+  内部就是 `formatMoney`，**没有第二份去零实现**。
+- **改法**：`AiWriteArgs.money(` → `moneyText(` **42 处**（机械替换，脚本自己核对不变量）＋
+  卡片上直接印后端原始字符串的 **40 处**（逐条列表，锚点命中数不足即报错退出）＋
+  `AiRevertJson.textOf(money = true)` 改走 `formatMoney`（撤回卡）。
+- ⛔ **不动的 6 处**（它们是"值"）：`put("price"/"value"/"amount", money(…))` ×4、
+  `val amount = money(amountValue)`、`val fee = feeRaw?.let { money(…) }` —— 红线里钉成**不变量**。
+- ⛔ **哨兵比较一个都没动**：`after == "0.00"`（付清了）、`fee == "0.00"`（免运费）、
+  `o.amount != "0.00"` —— 去零会让这三句提示**静默不显示**（界面上一切正常，最难查），
+  所以比较留在两位小数那一侧，只把**印出来的那个数**过 `moneyText`。
+- ⚠️ 我自己的一个 bug：批量脚本里 `f'${{M(…)}}'` 把占位符写成了**字面量** `M(` →
+  **编译器逐行报出 40 处**（`Unresolved reference 'M'`），另用一条替换修好。
+
+**判据与验证**
+- 红线 `_tools/qa/_check_money_display.py` 新增 **§3b**：**54 项全绿**（含"清单自己算"：
+  `ai/` 里 `AiWriteArgs.money(` 只许剩 6 处且**每处形态必须是「值」**、三处哨兵比较必须在、
+  `moneyText` ≥ 60 处）。
+- 反向验证 `_reverse_verify_money_display.py` **18/18**（新增 4 条：把 `put("amount", …)` 也改成去零 /
+  哨兵比较改成去零写法 / 撤回卡自己 `setScale(2)` / `moneyText` 自己写两位小数）。
+- 安卓单测 **1040 用例 / 0 失败**。过程值得记：先 **28 条红**，逐条看完**全是显示断言**
+  （`70.00 → 70`），**没有一条是 payload** —— 这正是"值那一侧没被碰到"的证据；
+  改断言用了一条**安全规则**：只改含 `元` / `→` / `撤回到` 的字符串字面量（payload 断言里
+  永远不含这几个字），裸数字的 9 处手工改。
+  其中一条根因是 `Change(cn, from, to, key, value)` 的 **`from`**（卡片上「320 → 288」的左半边）
+  也是给人看的字，一起过了显示口径。
+- `_check_ai_guardrails.py` **1249 项全绿**。⚠️ 中途出现过一条**假红**：我在 `moneyText` 的 KDoc 里
+  写了 `summary = …`，把 `AiWriteArgs.kt` 拉进了"造卡文件"清单（它一张卡都没有 → `n_summary=0`）——
+  **另一个会话当场把那条检查的预筛改成与计数同形**（注释里记的就是这次），重跑全绿。
+  这就是"假红的下场是这个检查被无视"那条教训的现场版。
+
 ### [2026-09-22 18:2x →] 会话：**金额显示：末尾多余的 0 一律去掉**（`56.70 → 56.7`、`87.00 → 87`，但 `56.77` 一位不少）（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
 **用户原话**：「把所有的那个关于金钱的那个显示…**有零的全省**…如果是 **56.7** 啊，就直接这样子，
@@ -248,6 +302,86 @@ AI 直接创建预定单** —— 就是**预设好的订单，参数没变直�
 
 ---
 
+**▶ 第 3 期（19:2x →）：货主 / 批发商的「我的账本」补他自己的收支统计**（用户第 ⑥ 条）
+
+用户拍板口径（见上面第 ③ 条）：**各自「我的账本」里补一段他自己的收支统计**
+（⛔ 不是把派单员那份「收支」放开给他们看）。
+
+**已定案的设计（写在这里，免得下一个人重推一遍）**
+- **一个新端点（只读）**：`GET /shipper-ledger/summary?delivered_from&delivered_to&customer_name&customer_phone`
+  —— 只给货主（`require_roles(SHIPPER)`，普通货主与批发商都能用）。返回他自己这一段的两个方向：
+  - **支出（我该付的）**：`payable`（订单金额 − 已退）/ `paid`（净已收）/ `unpaid`（`arrears_amount` 之和）
+    + 单数 + 已结清单数。口径**直接复用** `services/order_money.py`（一张单的钱只有那一处实现）。
+  - **收入（我该收的，只对批发商有真数）**：`receivable`（货款）/ `received`（他记的核销）/ `unreceived`
+    + 核销笔数。口径复用 `services/shipper_settle.py` 与 `order_money.line_receivable`。
+- **⛔ 为什么必须服务端算**：这一页的订单列表是**带 limit 的一页**（`LEDGER_PAGE_LIMIT`），
+  现在那张合计卡是**客户端把这一页加起来** —— 单子多到截断时它就会**偏小**，
+  而页面上还写着"这一段合计"。这正是期① 审计里那个"客户端求和少算 62%"的同一个形状。
+  所以这一期把那张卡的数**换成服务端算的**，并顺手删掉客户端那份求和（`ledgerTotals`）。
+- **卡片形状**：一张卡、两个方向（【支出·我该付的】/【收入·我该收的】），各自
+  「大字（还欠 / 待收）+ 应付·已付 / 应收·已收 + 笔数」。普通货主只画支出那一边
+  （他是给自己下单，系统里没有他的进账 —— 那句解释走 `Hint`）。
+- **跟着侧边抽屉选中的人走**：服务端的 `customer_name`/`customer_phone` 必须与客户端分组键
+  （`customerKeyOf` = 收货人名+电话，空则下单人，再空「未指定货主」）**同一套回退**，
+  否则"人员行写着某人、合计却是全部"就会回来（那一页的 KDoc 里记着它栽过一次）。
+
+**文件清单（第 3 期）**
+- **后端**：`app/api/v1/shipper_ledger.py` 新增**只读** `GET /summary`、`app/schemas/shipper_settlement.py`
+  （出参）、回归测试 `backend/tests/test_shipper_ledger_summary.py`
+  ⚠️ 只加**读**端点 ⇒ 不触发 `_write_coverage`；但要补 **AI 读能力**（重跑
+  `_gen_ai_toolmap.py --out-dir docs/ai` → `_gen_ai_read_catalog.py`，再跑 `_probe_read_roles.py` 对账）
+- **Android**：`ui/shipper/ShipperLedgerViewModel.kt`（取 summary）+ `ShipperLedgerScreen.kt`
+  （合计卡改写成「收支统计」两个方向）、`ShipperLedgerGrouping.kt`（删掉客户端那份求和）、
+  `data/remote/{api/Apis.kt,dto/Dtos.kt}` + `data/repo/AppRepository.kt`（追加式）
+- **检查**：新增 `_tools/qa/_check_shipper_ledger_stats.py` + `_reverse_verify_shipper_ledger_stats.py`；
+  单测 `ShipperLedgerGroupingTest.kt` 里那两条 `ledgerTotals` 断言跟着删（它已经不是口径了）
+- **文档**：`docs/PROJECT_MAP/{06_DESIGN_SYSTEM,08_CODE_LOCATOR}.md`、`08A_ENDPOINT_INDEX.md`（重跑）、
+  `09A_HINT_CATALOG.md`（重跑）
+
+**明确不碰**：同上（`ui/common/AmapPicker.kt`、报表线那两个 `ReportCenter*`/`ReportFinance*`、
+`OrderDetailScreen.kt` 的卫星图层那一行），另外**不动** `ui/shipper/OrderCreate*.kt`
+（那两个文件此刻有未提交改动，不是我的活）。
+
+---
+
+**✅ 第 2 期已完成（13:5x → 19:1x）：供应商 / 厂商档案 + 应付款（可挂账、查欠款、分次付款）**
+
+- **两个新表 + 一个核心列的扩展**：`suppliers`（档案，名字唯一 + 软删，删除时 `del_suffix` 释放名字）、
+  `supplier_payables`（应付单：事由/分类/金额/单据日期）。⛔ **付款不是第三张表** —— 它就是
+  `cash_flows` 的一行（`direction=out` / `biz_type=PAYMENT_SUPPLIER` / `party_type='supplier'` /
+  `party_id=供应商` / `doc_id=应付单`）。代价是 `cash_flows` 要加 `is_deleted`/`deleted_at`
+  （核心改动：`schema_bootstrap.py` 迁移 + `models/cash_flow.py` 挂 `SoftDeleteMixin`）。
+- **欠款只有一个口径**：`services/supplier_service.py`（`supplier_totals` / `payable_paid` /
+  `balance_of`）。端点上、界面上都不许再减一遍 —— 红线里有两条专门扫这件事。
+- **十五条端点**（全部 `LEDGER_EDIT`＝只有派单员）：档案增改删恢复 · 应付单增改删恢复 ·
+  付款列表/付款/撤销/恢复。**26 条回归测试**（`backend/tests/test_supplier_payables.py`）——
+  其中最关键的一条是「撤销一笔付款 → 欠款变回来 **且** 账本「收支」里也不再算它」（两边一起变）。
+- **四条宁可拒绝也不猜**：付清了不许再付 / 付款不许超过还差 / 有活着的付款时不许删应付单 /
+  有应付单时不许删供应商；改金额不许改到比已付小。
+- **AI 十一条写动作 + 三组读能力 + 撤回后路**：`AiWriteSuppliers.kt`（声明式 9 + 手写付款 1 +
+  三个 `restoreAction`）、`AiWriteSupplierHandlers.kt`（**付款必须手写**：卡片要算
+  「现在还差 → 付完还差」，声明式拿不到那两个数；卡片上还必须写「钱真的出去了」）、
+  `AiResources.kt` 三个资源（付款的「撤销 ↔ 恢复」成对声明；⛔ 撤销**不许**写成"再付一笔"）。
+  `_write_coverage` / `_app_feature_coverage` / `_check_role_parity` / `_check_action_labels` /
+  `_check_list_order`（`KIND_SUPPLIER`）/ guardrails 的读白名单全部补齐。
+- **Android**：`ui/dispatcher/SuppliersScreen.kt`（档案列表 + 新增/改/删/撤回/回收站）、
+  `ui/dispatcher/SupplierDetailScreen.kt`（一个供应商的账：应付单 + 付款记录 + 挂账 + 付款 + 撤销）、
+  账本管理入口页**第 7 格「供应商/应付」**（深玫红 `0xFFAD1457` + `Factory` 图标 —— 第一版用深靛蓝
+  与「客户收款」的紫只差 47，被 `_check_ledger_dashboard.py` 当场拦下）+ 「收支」页支出卡底部
+  第二条入口；表单走 `ui/common/FormRows.kt`（不是 `OutlinedTextField`）、解释句走 `Hint(...)`。
+- **检查**：新增 `_tools/qa/_check_supplier_payables.py`（**142 项**，其中一条**自己算出**
+  「读 `cash_flows` 的文件清单」再逐处断言 `is_deleted` 过滤，⛔ 不许手写清单）+
+  `_reverse_verify_supplier_payables.py`（**22 种注入 → 23/23 全部成立**）。
+- **收尾数字**：`_check_all.py` **74/74** · Android 单测 **1040 passed** · guardrails **1249/1249** ·
+  `_write_coverage` 0 真缺口 · 反向验证 23/23。
+- **真机（5554 派单员）**：账本管理 →「供应商/应付」→ 列表显示「还欠 ¥700.5 / 1 笔应付」→
+  进详情 → 「付款」弹层默认填还差、并算出「付完之后还差 ¥0（这一笔付清）」→ 故意填 999 时
+  **当场拦住**（红字 + 按钮不可点）→ 确认付款 → 还欠变 ¥0 / 「已付清」→ 「撤销」→ 还欠变回
+  ¥700.5 且 snackbar 上有「撤回」→ 点「撤回」→ 原样回来（欠款、流水行、分 2 次都对）。
+  截图在 `docs/screenshots/supplier-payables-20260922/`（7 张）。
+
+---
+
 **✅ 第 1 期已完成（12:3x → 13:2x）：账本管理「收支」页**
 
 - **后端（只读端点，零核心改动）**：`GET /api/v1/cash-flows/breakdown` —— 按 `biz_type` 分组求和
@@ -331,72 +465,6 @@ AI 直接创建预定单** —— 就是**预设好的订单，参数没变直�
 **第 ④ 期到此收工。还没开工的两件**：② 供应商/厂商档案 + 应付款（要动核心 `schema_bootstrap.py`）；
 ⑤ 货主/批发商「我的账本」补收支统计。③ 的 AI 侧随本期已具备（AI 能建/改预设单），
 界面侧的"AI 预选"就是本期这条「预设单 → 带进下单页」的路。
-
-### [2026-09-22 18:2x →] 会话：**订单卡片「数量带单位」+ 商品明细「件数与金额分列右对齐」**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
-
-**用户原话**：「你改一下不管是派单员的那个，那个订单卡片还是货主的订单卡片还是司机的订单卡片……
-不是详情页嘛，是概要的那个订单卡片，它那个商品后面的数字**没有单位**啊，这个不行啊，**这是要有单位的**。
-还有一个**商品明细**……由于派单员，他这个商品明细后面是**有价格的没有做对齐**啊，就是**件与件数做对齐、
-价格与价格做个对齐**，他们都**放在右边的**……包括我们**货主**看到的也是一样的，他也要做一个对齐，
-就是**规整一点、美观一点**。」
-
-**改了什么**
-- `ui/common/OrderCard.kt`（**四张订单列表共用**：待派单池 / 订单管理 / 我的订单 / 司机任务）——
-  商品行的 `×6` → `×6 桶`（单位取 `orderProducts[].unit`，**空就不画**，与详情页同一条规矩：
-  老数据没填过单位，**不许编一个「件」出来**）；底部合计那行的「共 N 件」在**全单单位一致**时改用那个单位，
-  混装仍写「件」（混装本来就没有共同单位，逐行都写清楚才是准的）。
-- `ui/order/OrderDetailScreen.kt` 的「商品明细」——件数一列、金额一列各自**量出本单最宽的那一条**
-  （`Adaptive.kt::rememberTextWidth`，与全 App 同一把尺，不按字数猜），每行都用同一个宽度 + `TextAlign.End`，
-  于是**件数与件数右对齐、金额与金额右对齐**；货损徽章单独占一列（否则它一出现就把金额挤歪）。
-- `ui/common/OrderPeek.kt`（账本里点一行展开的订单小卡，派单员账本与货主账本各一处）——
-  同一形状的「名称 / ×数量 / ¥金额」行，同样补单位 + 分列右对齐。
-- **新增**：红线 `_tools/qa/_check_order_row_columns.py` + 反向验证 `_reverse_verify_order_row_columns.py`。
-- 文档：`docs/PROJECT_MAP/08_CODE_LOCATOR.md` 订单卡片那一行、`06_DESIGN_SYSTEM.md` 加一条。
-
-**交叉点（先记一笔）**
-- `ui/common/OrderCard.kt` 被两个会话挂着：`faa17a77` 06:4x 那条「订单管理 / 我的订单」条目**还留在「进行中」**
-  （但它对卡片的改动 mtime 08:49、`git status` 干净，实际已收工）；`78ebd95c` 12:3x 那条把
-  「订单列表/订单卡片那一线」写进了**明确不碰**。用户本轮**点名**让我改这一线 → 我接过来，
-  只做上面这三处，**不动卡片其余任何一行**（单号两种形态、动作分区、司机一律不画钱全部原样）。
-- 本机后端**不需要重启**：这三处全是客户端渲染，一个字节的后端/库结构都没动。
-
-**验证（静态全绿；真机待补 —— 见下面那条阻塞）**
-- **新增**红线 `_tools/qa/_check_order_row_columns.py`：**32 项全绿**（`_check_all.py` 已自动收进去，
-  现在共 72 个脚本）；反向验证 `_reverse_verify_order_row_columns.py`：**12/12 全部被抓到**。
-- ⚠️ **其中两条不是脚本写错，是判据真的不敏感**（反向验证逼出来的，都已改紧）：
-  ① 小卡那条原来只查「源码里有没有 `qtyWithUnit(lp…)`」，而那个串在小卡里出现**两次**
-     （量宽度那一处 + 画出来那一处）—— 把**画**的那处改回裸拼，判据照样绿；
-     改成钉住**画出来那一行**（尾部带 `style = qtyStyle,`）。
-  ② 更值钱的一条：原来只查「有没有量宽度」，没查「**量的是不是画的那一串**」——
-     注入「量宽度时偷偷把单位去掉」之后判据**照绿**，而真机上那一列会按「×6」的宽度去装「×6 桶」，
-     数字被那个固定宽度**裁掉**，屏幕上只是"看着有点挤"、一句报错都没有。
-     已补三条断言（件数的量/画同源、金额的量/画同源、小卡同理）。
-- 我改动**别人的一条红线**并同步改回（已在上面「交叉点」记明）：`_check_driver_money.py` 原来钉着
-  字面量 `" 件 · " + formatDateTime(order.createdAt)`，而这次那个字面量变成了
-  `sharedUnitOf(...) ?: DEFAULT_UNIT` → 锚点改成「单位来自 `sharedUnitOf` + 紧接着 `· 时间`」，
-  **意图一字不改**（这一行还在、且它后面没有钱）。改完它 **35/35 绿**，
-  它的反向验证 `_reverse_verify_driver_money.py` **19/19** 仍然全部成立。
-- `UnitsTest.kt` 新增 4 个用例（最要紧的一条：**空单位不许兜底成「件」**，与商品那一侧的
-  `unitOrDefault` 是两个规矩）—— ⚠️ **还没跑过**，原因见阻塞。
-- `_check_all.py` 里我这条 ✅ 32 项；其余红的是**别人的在途改动**（供应商/应付款那一线）：
-  `_app_feature_coverage` / `_check_ai_guardrails` / `_check_ai_write_params` / `_gen_ai_read_catalog` /
-  `_gen_ai_toolmap` / `_read_coverage` / `_check_core_freeze` / `_check_backend_fresh` /
-  `_check_endpoint_index_fresh` / `_check_list_order`。
-- `_hint_inventory.py` / `_check_hints.py` 因我的 `OrderDetailScreen.kt` 改动而红（提示目录行号漂移）→
-  **按它自己的生成脚本重跑**：`09A_HINT_CATALOG.md` 由 233 文件/1236 条 → **239 文件/1267 条**，
-  我这两条提示落在 `OrderDetailScreen.kt:1210` / `:1344`（与编译警告打出的行号一致），两条检查已绿。
-  注：重跑前那份文件在工作区里已经是「237 文件/1270 条」的旧生成物（不是 HEAD 的 233/1236）。
-
-**⚠️ 真机验收的阻塞（与我的改动无关，别记到我头上）**
-- 真机要看效果得有**新 APK**，而现在这棵树**编译不过**：另一个会话（`78ebd95c`）18:17 起在做
-  **供应商/应付款**那一线，`ui/dispatcher/SuppliersScreen.kt`（mtime 18:26:07）仍是坏的
-  （`Unresolved reference 'toApiException'` / `'askRestore'`、`ExplainerCard` 变成 private、
-  `host/actionLabel/onAction` 参数名对不上）。
-- **归属证据**：我最后一次 Kotlin 改动在 18:12，**18:13 的 `compileEmuDebugKotlin` 是 BUILD SUCCESSFUL**；
-  他们的供应商相关文件从 18:17:26（`Dtos.kt`）才开始动。
-- → 已挂一个后台任务（`%TEMP%\emuopen\wait_build_install.ps1`）：等
-  **「没有别的 JVM/Gradle 在跑」+「那个文件静默 ≥3 分钟」**两个门都开，才 compile → 打 APK →
-  装 5554 / 5556（**不碰 5558**）→ 跑单测；免得跟他们正在跑的构建撞车（两个 Gradle 撞一起会写坏 `build/`）。
 
 ### [2026-09-22 09:2x → 09:5x] 会话：**地图选点加「卫星」图层切换**【已完成】（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
@@ -2917,6 +2985,17 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-09-22 19:3x | **AI 卡片刻度去零**（我） | `ai/` 里**我改的 16 个文件**（⛔ **不含**你们新建的 4 个）。⚠️ **我没有整批提交 `ai/`，也没有把你们的功能一起发版** | 差点整批提交：我的改动落在同一批文件里（73 处卡片金额）。但整批提交会把你们的**供应商 / 预订单整套功能**（安卓 10 个文件 + 后端 6 个 + 3 个界面 + 4 个检查脚本）一起带进 HEAD，而**你们的后端接口还没上线**（生产后端 19:03 才发到 `c79cc0d`，不含 `/api/v1/suppliers`）→ 那样打出来的真机包会**多出一批必然报错的页面**。<br>也没有"只提我的 hunk"：`AiWriteService.kt` 里混着你们的注册代码，按 hunk 挑会让 **HEAD 编不过**（新处理器类缺定义，与 `748bea4` 那次事故同一类）。<br>✅ 实际做法：在 `c79cc0d` 的**干净工作树**里**重新施加我这一处改动**（脚本 + 锚点，只落在我改的那 16 个文件上），在那里 `assemblePhoneRelease` + `testEmuDebugUnitTest` 全绿之后提交，再快进成本地 `p` 的 HEAD。**你们的文件一个字都没进这个提交**，仍原样躺在工作区 —— 包括我在你们那 4 个新文件里加的 `moneyText`（那些会随你们自己的提交一起入库） |
+| 2026-09-22 19:2x | **AI 卡片刻度去零**（我） | `ai/AiWriteOrderLineHandlers.kt` | ✅ **清掉了那条悬空 import**（`java.math.RoundingMode`，`_check_dead_code.py` 报的那处）—— 上一条里你们**故意留给我的**那处，已经随本次提交清掉（`money()` 改成委托 `AiWriteArgs.moneyText(v)` 之后它确实没人用了）。谢了 |
+| 2026-09-22 19:0x | **金额显示去尾零**（我） | `backend/**` 8 个文件 | ⚠️ 不是这次改的（是 18:2x 那轮），记在这里是因为：**已随本轮发到生产**（`/opt/SOrders` → `c79cc0d`，用户拍板「直接做了」）。先备份后动、迁移是加法式的，验收见「进行中」那一条 |
+| 2026-09-22 19:1x | **账本管理·收支 + 供应商/应付款**（我） | `_tools/ai/_check_ai_guardrails.py`（第二处改动） | ⚠️ **修的是检查自己的脆弱点，不是放宽判据**：扫"卡片文案块"那段用宽松的 `"summary = " in src` 做预筛、却用 `\n\s+summary = ` 数数 —— 于是"只在 KDoc 里提了一句 `summary = …`、自己一张卡都没有"的文件被拉进来，报成"卡片文案块没定位到"（**假红**）。是金额去尾零那条线在 `AiWriteArgs.kt` 的 KDoc 里写了那句 `summary = …` 暴露的（它们 19:1x 刚提交 `c79cc0d`）。修法：**预筛与计数器同形**。假红的下场是这个检查被无视，所以必须修 |
+| 2026-09-22 19:1x | **账本管理·收支 + 供应商/应付款**（我） | ⛔ **明确没动**：`ai/AiWriteOrderLineHandlers.kt` | 它现在有一个**悬空 import**（`java.math.RoundingMode`）—— 正是 `_check_dead_code.py` 报的那 1 处，也是 `_check_all.py` 现在**唯一**的红。但那是**金额去尾零那条线正在改的文件**（未提交、mtime 19:09，而且 19:17 它还在干活），按本项目规矩"别人正在改的文件不要同时改"，我**一行都没碰**：留着归它们清（对它们是一行删除，对我是抢别人的文件） |
+| 2026-09-22 19:0x | **账本管理·收支 + 供应商/应付款**（我） | `data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`data/repo/AppRepository.kt`、`core/ApiClient.kt` | 四个共享文件**纯追加**：`SupplierApi`（15 个端点）/ 6 个 DTO / 15 个仓储方法 / composite 里一行 `supplierApi`。改前都重读过最新内容（`Apis.kt` 同时被运费结算那条线动过 —— 改的是不同 interface，`git diff` 里并存） |
+| 2026-09-22 19:0x | **账本管理·收支 + 供应商/应付款**（我） | `ai/AiWrite.kt`、`ai/AiWriteCrudHandlers.kt`、`ai/AiResources.kt`、`ai/AiRevert.kt`、`ai/AiWriteService.kt`（核心） | 十一条动作 id + 一个域标签「供应商/应付款」+ 三个 `targetXxx` + 三个撤回资源 + `AiSupplierPayable` 类型 + 一条 `UNDO_NONE` 理由。⚠️ `AiRevert.kt`/`AiWriteTest.kt` 上一轮是 `session-83da1ad7` 的退货申请线在动（现在没在写它）；`AiWriteService.kt` 是**核心**（已在「进行中」写了声明行），新增内容全是追加 |
+| 2026-09-22 19:1x | **账本管理·收支 + 供应商/应付款**（我） | `ui/dispatcher/ReportCenter.kt` | ⚠️ 这个文件是报表线（`session-83da1ad7`）的地盘：我只在 `actionLabel` 那个 `when` 里**追加 9 个分支**（供应商三组动作码的中文名），没动它别的任何一行 —— 上一条 期① 也是同一做法 |
+| 2026-09-22 19:1x | **账本管理·收支 + 供应商/应付款**（我） | `_tools/ai/_check_ai_guardrails.py`、`_tools/ai/_app_feature_coverage.py`、`_tools/ai/_gen_ai_toolmap.py`、`_tools/ai/_gen_ai_read_catalog.py`、`_tools/qa/_check_list_order.py`、`_tools/qa/_check_ledger_dashboard.py` | ⚠️ **动的是共享的检查脚本**（不是放宽判据）：读方法白名单 +3、读能力认领 +1 组、`MODULE_CN` +1、`CN_DESC` +3、`PICK_LISTS` +1 个 kind、`LEDGER_TILES` 6→7。另把 `_check_ledger_dashboard.py` 里那两处**写死的 `== 6`** 改成按 `LEDGER_TILES` 算（"手写清单"的第 7 次复发点） |
+| 2026-09-22 19:1x | **账本管理·收支 + 供应商/应付款**（我） | `android/app/src/test/.../ai/AiWriteTest.kt` | `FakeDs` += 15 个 override + 4 个装配字段；动作数上界 120→131（带上理由）。⚠️ 上一轮它是退货申请线在动 |
+| 2026-09-22 19:1x | **账本管理·收支 + 供应商/应付款**（我） | `docs/ai/{ai_toolmap.json,kb_skeleton.md,ai_read_catalog.json}`、`ai/AiReadCatalog.kt`、`docs/PROJECT_MAP/{08A_ENDPOINT_INDEX,09A_HINT_CATALOG}.md` | ⛔ **全是机器生成的产物**，不是我手写的：`gen_endpoint_index` → `_gen_ai_toolmap.py --out-dir docs/ai` → `_gen_ai_read_catalog.py` → `_hint_inventory.py --md`。⚠️ 跑 `_gen_ai_toolmap.py` **必须带 `--out-dir docs/ai`**（不带就只打印不写文件，而 stdout 看着像成功了 —— 期① 与期② 各踩一次） |
 | 2026-09-22 18:4x | **金额显示去尾零**（我） | `backend/app/services/order_money.py` | ⚠️ **这个文件不是我改的**，是 `session-78ebd95c` 的「账本管理·收支」线在给 `cash_flows` 加软删后补的 `is_deleted` 过滤（三条查询各加一个条件，本机未提交）。我**只读**过它。记在这里是因为：`_check_core_freeze.py` 曾因此报红「没声明 `order_money.py`」。⛔ 我**没有**替他们补声明（替别人声明等于把"谁动的核心"记成我动的）；约十分钟后**他们自己**补上了 `order_money.py` 与 `api/v1/orders.py` 两行 —— 那两行随本次提交一起进了 git（声明页是共享文件、整份入库，见下一条），`_check_core_freeze.py` 已转绿 |
 | 2026-09-22 18:5x | **金额显示去尾零**（我） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md` | **重新生成过，但故意不进本次提交**：它过期是因为 `SuppliersScreen.kt`（供应商线）行号位移 + 文案条数变了，而那是**别人未提交的源码**。把产物提交进去＝"提交了别人未提交代码的产物"，与当初那次「HEAD 编不过」（提交了调用方、没提交定义方）是同一类错。所以：产物留在工作区（本机 `_check_hints.py` 29/29、`_hint_inventory.py --check` 已转绿），**等他们连同源码一起提交** |
 | 2026-09-22 18:5x | **金额显示去尾零**（我） | `docs/AI_WORK_CLAIM.md`、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` | ⚠️ 这两个共享文件**整份入库**：里面同时含别的会话此刻写进去的内容（声明页有别人"把已完成条目从进行中搬走"的重排；设计规范有别人在 §5 一带追加的段落）。共享文档**无法逐行拆**（hunk 互相咬合），按本仓库既有惯例整份提交，在此记一笔 |
@@ -2965,6 +3044,64 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-09-22 18:2x → 19:2x] 会话：**订单卡片「数量带单位」+ 商品明细「件数与金额分列右对齐」**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**结论（三端都真机验过）**：概要订单卡片的商品行现在是 `×6 筐` 这种**带单位**的数量；
+卡片底部合计在**全单同一单位**时写那个单位（`共 6 筐`）、**混装**退回口语的「件」（`共 11 件`）；
+订单详情「商品明细」的件数与金额**各自成一列、右对齐**，货损单独占一列。
+
+**用户原话（对着概要卡片）**：「商品后面的数字**没有单位**啊，这个不行啊，**这是要有单位的**」；
+「商品明细……**没有做对齐**啊，就是**件与件数做对齐、价格与价格做个对齐**，他们都**放在右边的**」；
+「包括我们**货主**看到的也是一样的」。
+
+**落点**
+- `ui/common/Units.kt`：新增 `qtyWithUnit` / `sharedUnitOf` / `damageLabel` —— **拼法只有这一处**。
+  ⛔ 空单位**不兜底成「件」**：订单行是 `unit_snapshot`（下单那一刻的快照），
+  与商品那一侧的 `unitOrDefault`（空→「件」）**是两条规矩、别合并** —— 编一个出来就是"系统说了一个没人填过的事实"。
+- `ui/common/OrderCard.kt`（**四张列表同一张卡**：待派单池 / 订单管理 / 我的订单 / 司机任务）：商品行 + 合计那行。
+- `ui/order/OrderDetailScreen.kt` 的「商品明细」（派单员 + 货主）：两列宽度＝**本单最宽的那一条**
+  （`Adaptive.kt::rememberTextWidth` 实测，**只能 fold/forEach，map 不是 inline**）+ `TextAlign.End`；
+  货损格按**整单**判据 `hasDamage` 占位（否则没货损的那几行金额会与有货损的错开一列）。
+- `ui/common/OrderPeek.kt`（账本里点一行展开的小卡，派单员账本 + 货主账本）。
+- 文档：`06_DESIGN_SYSTEM.md` 新增 **§4.20**；`08_CODE_LOCATOR.md` 订单卡片那一行；
+  `09A_HINT_CATALOG.md` 按**它自己的生成脚本**重跑（233 文件/1236 条 → **239/1267**，
+  我这两条提示落在 `OrderDetailScreen.kt:1210` / `:1344`，与编译警告的行号一致）。
+
+**验证**
+- 新增红线 `_tools/qa/_check_order_row_columns.py` **32 项全绿**（`_check_all.py` 自动收录，现共 **72** 个脚本）；
+  反向验证 `_reverse_verify_order_row_columns.py` **12/12 全部抓到**。
+  ⚠️ 其中两条是**反向验证逼出来的真缺陷**（判据不敏感，不是脚本写错），都已改紧：
+  ① 小卡那条只查「源码里有没有 `qtyWithUnit(lp…)`」，而这个串在小卡里出现**两次**（量宽度 + 画出来）——
+     把**画**的那处改回裸拼照样绿 → 改成钉住「画出来那一行」；
+  ② 更值钱的：原来只查「有没有量宽度」、**没查「量的是不是画的那一串」** —— 注入"量宽度时偷偷去掉单位"后
+     判据照绿，而真机上那一列会按「×6」的宽度去装「×6 筐」，数字被固定宽度**裁掉**，
+     屏幕上只是"看着有点挤"、**一句报错都没有**。已补三条断言（件数 / 金额 / 小卡）。
+- `UnitsTest.kt` 新增 4 个用例（最要紧：**空单位不许兜底成「件」**）：**11 tests / 0 failures**。
+- 单测全量 **1040 tests / 2 failed** —— 两条都在 `ai/AiWriteTest.kt`（批发商降价卡、改流水卡），
+  是另两条线的**在途改动**，与本次无关（我的 `UnitsTest` 全过）。
+- 改动**别人的一条红线**并同步改回：`_check_driver_money.py` 原先钉着字面量 `" 件 · " + formatDateTime(...)`
+  （正是我动的那一行）→ 锚点改成「单位来自 `sharedUnitOf` + 紧接着 `· 时间`」，**意图一字不改**；
+  改完它 **35/35 绿**，其反向验证 `_reverse_verify_driver_money.py` **19/19** 仍成立。
+
+**真机验收（截图 `_archive/orderrow-01..05-*.png`）**
+- **5554 派单员**：待派单池 `红富士苹果 ×6 筐` + **`共 6 筐 · 09-21 22:30`**、`赣南脐橙 ×1 袋` / `共 1 袋`；
+  已接单 `清远土鸡 ×6 桶` + `八角 ×5 筐` → **`共 11 件`**（混装）。
+  详情「商品明细」按**节点像素**验：`×6 桶` 与 `×5 筐` 右边界同为 **x=833**，`¥63.6` / `¥102.5` 同为 **x=996**。
+- **5556 货主**：`花生油 ×1 桶` / `荷兰豆 ×10 件` / `八角 ×1 筐` → **`共 12 件`**；
+  详情三行右边界同为 **x=857**（件数）/ **x=996**（金额），且**两列的节点宽度本身就是固定的**
+  （`×1 桶` 与 `×10 件` 都是 138px、`¥148` 与 `¥24.1` 都是 107px）—— 这才叫"列"，不是"碰巧对齐"。
+- **5558 司机**：先把 5558 从**派单员切回司机**（13800000003；我上一轮临时登成派单员的，现已还原成约定）。
+  装新包后同一张单从 `×3` / `×2`（旧包，没单位）变成 **`×3 筐` / `×4 筐`、`共 7 筐`** 与 `×2 件`，
+  且**一个金额都没有**（司机规则仍成立）；详情 `×3 筐` / `×4 筐` 右边界同为 x=964、**0 个金额节点**。
+  → 这台顺带成了"新旧包对照"：同一张单、同一台设备，装包前后差的就是这次改的东西。
+  ⚠️ 5558 是**故意最后装**的（先用 5554/5556 验），所以它一度显示旧渲染 —— 不是 bug。
+
+**当时留的阻塞已解除**：`78ebd95c` 的 `SuppliersScreen.kt` 在 19:12 前后恢复可编译；
+后台任务按「gradle `--status` 不 BUSY + 那个文件静默 ≥3 分钟」两个门自动编译 →
+打 APK（19:12:32）→ 装 5554 / 5556 → 再单独装 5558。
+⚠️ 顺带一条工具教训：**判断"有没有人在跑 Gradle"不能扫进程表**（守护进程常驻，永远为真 ——
+第一版脚本因此白等 40 分钟），要用 `gradle --status` 里的 `BUSY`（与 `_install_all.py::gradle_busy` 同一条规矩）。
+
 
 ### [2026-09-22 10:0x → 11:0x] 会话：**报表中心：时间控件换成「我们的药丸 + 档位清单」，并根掉「点商品经营会弹日历」**【已完成】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 

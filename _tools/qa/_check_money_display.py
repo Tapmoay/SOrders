@@ -232,9 +232,16 @@ def main() -> int:
     q2_fn = _py_fun_body(strip_comments(read(BACKEND / "services/order_money.py")), "q2")
     c.ok("后端 `q2` 仍 quantize 到 0.01 + ROUND_HALF_UP",
          'quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)' in q2_fn)
-    sup = strip_comments(read(BACKEND / "api/v1/suppliers.py"))
-    c.ok("供应商三个出参仍是 `:.2f` 字符串（接口出参＝值）",
-         'def _money(v: Decimal | None) -> str:' in sup and ":.2f" in sup)
+    sup_path = BACKEND / "api/v1/suppliers.py"
+    if sup_path.exists():
+        sup = strip_comments(read(sup_path))
+        c.ok("供应商三个出参仍是 `:.2f` 字符串（接口出参＝值）",
+             'def _money(v: Decimal | None) -> str:' in sup and ":.2f" in sup)
+    else:
+        # ⚠️ 这个文件属于另一个会话**未提交**的域（供应商/应付款）。红线不该因为
+        #    "别人还没提交"而崩掉（换一份 checkout 就跑不了 = 检查白写），所以这里**跳过并说明**，
+        #    而不是算成"通过"（算通过就成了永远绿的假判据）。
+        print("  [--]   供应商出参文件不在（那个域还没提交）→ 这一条**跳过**，不算通过")
     rules = strip_comments(read(ANDROID / "core/InputRules.kt"))
     c.ok("金额**输入框**仍是「至多两位小数」（用户自己打的字不是显示）",
          "MONEY_DECIMALS" in rules and "take(maxDecimals)" in rules)
@@ -271,6 +278,59 @@ def main() -> int:
         if not any(snip in code for lines in all_code.values() for _, code in lines)
     ]
     c.ok(f"放行表里每条都还命中得到（防化石：{len(stale)} 条已失效）", not stale, "；".join(stale))
+
+    # ── 3b. AI 层：卡片文字去尾零，进 payload 的仍是两位小数 ────────────────
+    c.section("3b. AI 层：`moneyText`（卡片文字）与 `money`（值）的分工不许混")
+    arg_kt = strip_comments(read(ANDROID / "ai/AiWriteArgs.kt"))
+    c.ok("`AiWriteArgs.moneyText` 在（两个重载：BigDecimal / 后端下发的 String?）",
+         "fun moneyText(v: BigDecimal)" in arg_kt and "fun moneyText(raw: String?)" in arg_kt)
+    c.ok("它复用全 App 那份显示口径（**不重写**去零逻辑）",
+         "fun moneyText(v: BigDecimal): String = formatMoney(v.toPlainString())" in arg_kt
+         and "fun moneyText(raw: String?): String = formatMoney(raw)" in arg_kt)
+    c.ok("KDoc 写明了「`== \"0.00\"` 那段字符串比较会静默不成立」这条危险",
+         '== "0.00"' in read(ANDROID / "ai/AiWriteArgs.kt"))
+    # 清单自己算：全 ai/ 目录里，`AiWriteArgs.money(` 只许出现在"值"的形态上
+    money_sites = [
+        (p.relative_to(ROOT).as_posix(), i, code.strip())
+        for p in sorted((ANDROID / "ai").glob("*.kt"))
+        for i, code in _code_lines(read(p))
+        if "AiWriteArgs.money(" in code
+    ]
+    value_forms = ('put("price", ', 'put("value", ', 'put("amount", ',
+                   "val amount = AiWriteArgs.money(amountValue)",
+                   "val fee = feeRaw?.let { AiWriteArgs.money(")
+    wrong = [f"{f}:{i} → {code[:90]}" for f, i, code in money_sites
+             if not any(v in code for v in value_forms)]
+    # ⚠️ **不数个数**：`AiWriteArgs.money(` 的处数会随着别的域新增处理器而变（每加一个域就多一两处
+    #    「值」），钉死个数等于"谁加功能谁红"。真正的判据是**形态**：剩下的每一处都必须是「值」。
+    #    下界 4 是防"有人把值也全改成去零、于是这条判据空转"。
+    c.ok(f"`AiWriteArgs.money(` 剩下的 {len(money_sites)} 处**每一处都是「值」的形态**"
+         f"（进 payload / 参与比较），没有一处是印在卡片上的",
+         4 <= len(money_sites) <= 12 and not wrong,
+         f"实际 {len(money_sites)} 处；形态不对的：" + "；".join(wrong[:6]))
+    n_text = sum(read(p).count("AiWriteArgs.moneyText(") for p in (ANDROID / "ai").glob("*.kt"))
+    c.ok(f"卡片文字走 `moneyText` >= 40 处（实际 {n_text}，防「定义了没人用」或被改回去）", n_text >= 40)
+    # ⛔ 哨兵比较：去零会让这几句提示**静默不显示**，所以比较必须留在两位小数那一侧。
+    #    ⚠️ 其中两处在另一个会话**还没提交**的域里（供应商/预付款、预订单）—— 文件不在就**跳过并说明**，
+    #       而不是让整个红线崩掉（崩了就"换一份 checkout 跑不了"＝检查白写）。
+    SENTINELS = (
+        ("ai/AiWriteSupplierHandlers.kt", 'if (after == "0.00") "（这一笔付清了）"'),
+        ("ai/AiWriteOrderTemplateHandlers.kt", 'fee == "0.00" -> "0 元（免运费）"'),
+        ("ai/AiWriteOrderHandlers.kt", 'if (o.amount != "0.00")'),
+    )
+    n_sent = 0
+    for f, sentinel in SENTINELS:
+        p = ANDROID / f
+        if not p.exists():
+            print(f"  [--]   哨兵比较「{sentinel[:26]}…」跳过（{f.split('/')[-1]} 不在：那个域还没提交）")
+            continue
+        n_sent += 1
+        c.ok(f"哨兵比较还在（{f}）：{sentinel[:38]}…", sentinel in read(p))
+    # 防退化：一个都没查到就说明这条判据在空转（`>= 1` 而不是 3 —— 别的域没提交时本来就只剩 1 个）
+    c.ok(f"哨兵比较至少查到了文件（实际 {n_sent} 个；主工作区里是 3 个）", n_sent >= 1)
+    revert_kt = strip_comments(read(ANDROID / "ai/AiRevert.kt"))
+    c.ok("撤回卡的金额也走同一份显示口径（不自己 `setScale(2)`）",
+         "formatMoney(raw)" in revert_kt and "n.setScale(2, java.math.RoundingMode.HALF_UP)" not in revert_kt)
 
     # ── 4. 清单自己算：后端"给人看的字"都必须过 money_text ─────────────────
     c.section("4. 清单自己算：后端生成给用户看的文案必须过 `money_text`")
