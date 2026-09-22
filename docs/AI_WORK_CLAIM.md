@@ -20,6 +20,44 @@
 
 ## 进行中
 
+### [2026-09-22 10:0x →] 会话：**报表中心：时间控件换成「我们的药丸 + 档位清单」，并根掉「点商品经营会弹日历」**（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**用户原话**：「那你就将他的**界面**进行一下处理。尤其是……那个**时间选择**按照我们**现在的要求**进行处理；
+而且点击**商品经营**的时候有时候会弹出**一个日历**吧，但是不知道是什么原因啊？这个也是个**小bug**，你解决一下。
+然后我们再**丰富**一下整个的报表中心。」
+
+**① 日历那个 bug —— 已定位（有 adb 节点边界作证据）**
+`ui/common/ReportTimeNav.kt` 顶上那条「完整时段」是个**可点的 Surface**，点它开 M3 的
+`DatePickerDialog`（就是那个日历）。真机 dump 出来的节点是
+`[42,296][803,422]` —— **761×126 px 一整条可点区域**，正压在顶栏下面：
+用户想在那一带滚动/点东西（或者从入口页点「商品经营」卡片时手指落点与新页面重叠），
+**随时会弹出一个日历**。整棵树里只有 `ReportCenter.kt:98` 用它 → 这一版把它**整个删掉**。
+
+**② 时间按我们现在的要求来**（与账本/订单/司机账本同一套）
+顶栏右上角一个 `DatePresetPill`（写着当前档位）+ 点开是共用的 `DateFilterDialogs`
+（档位清单 + 自定义区间），页面里**不再铺任何时间胶囊行**、**不再直接弹系统日期选择器**。
+为此给报表两个端点补**可选**的 `date_from`/`date_to`（给了区间就按区间取数，没给还是 `mode`+`anchor`，
+老调用方与既有测试一行不用改）——这样六个页签**共用一个窗口口径**（现在营业纵览/商品经营走 mode+anchor、
+其余四个走 date_range，本来就是两套）。
+
+**文件清单**
+- **后端**：`app/api/v1/reports.py`（窗口只有一个入口 `_span(...)`；`build_turnover`/`build_products`
+  收可选 `span`；`turnover`/`products`/`export` 三个端点补可选 `date_from`/`date_to`）
+  ＋ 回归测试 `backend/tests/test_report_window.py`（同窗口两条路必须逐项相等）
+- **Android**：`ui/dispatcher/ReportCenterViewModel.kt`（窗口状态换成 `preset`/`customFrom`/`customTo`，
+  删掉 `mode`/`anchor`）、`ui/dispatcher/ReportCenter.kt`（顶栏药丸 + `DateFilterDialogs`）、
+  `ui/dispatcher/ReportFinance.kt`（`windowFor` 不再需要）、`data/remote/api/Apis.kt` +
+  `data/repo/AppRepository.kt`（两个查询参数）、单测 `ReportFinanceTest.kt`
+- **删**：`ui/common/ReportTimeNav.kt`（**零引用**了；留着下一个人还会把它装回去）
+- **检查**：`_tools/qa/_check_report_window.py` + 反向验证（本轮扩写：日历那块必须**不许回来**）
+- **文档**：`06_DESIGN_SYSTEM.md`（§4.15 第 9 条重写）、`08_CODE_LOCATOR.md`（报表中心那一行；
+  另外两处提到 `ReportTimeNav` 的行也要跟着改）、`DatePresets.kt` 的 KDoc 里那句"报表那套是另一件事"
+- **生成物**：`08A_ENDPOINT_INDEX.md`（reports.py 行号变了 → 重新生成）
+
+**明确不碰**：`ui/common/AmapPicker.kt`（`session-faa17a77` 在做卫星图层）、订单列表/卡片那一线、
+商品管理那一线（`session-78ebd95c`）、`backend/app/services/order_response.py`（另一个会话在改，
+后端进程的新鲜度红也归它）。
+
 核心改动：backend/app/services/order_response.py —— 为什么必须动核心：新的「拨号」按钮拨的就是这条出参下发的 `driver_phone`，而司机账号软删后那一列存的是 `13800001234_del160`，原样下发＝给用户一个**打不通的号**（去尾只用于展示，口径仍是 `soft_delete.py` 一处）。
 
 ### [2026-09-22 12:0x →] 会话：**订单详情「拨打司机电话」——只有派单端有拨号按钮**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
@@ -153,7 +191,12 @@
 > `_tools/deploy/publish_apk.py`：签名指纹与线上一致（存量用户可直接升级）、编译进去的是
 > `https://8.145.40.22`、非 debuggable、回读 `version.json` 与 APK 响应头都通过。
 > **包是按 HEAD 在干净 worktree（`D:\AProjects\ASDH\orders-rel-0.2.3`）里打的 → 不含任何在途改动。**
-> 桌面另留一份：`C:\Users\Optimistic\Desktop\SOrders\sorders-0.2.3-2026092201.apk`。
+> 桌面另留一份：`C:\Users\Optimistic\Desktop\SOrders\sorders-0.2.3-2026092202.apk`（**已换成最新那个**，
+> 旧的 2026092201 删掉了，免得装错）。
+>
+> **②b 同日又发一版：`versionCode 2026092202`** —— 把**地图选点的卫星图层**带上。
+> 为什么要再发：线上那个 2026092201 是**地图改动之前**打的，只更新到它的人打开地图会**找不到那颗「卫星」按钮**
+> （表现就像"你们说做了、但我这儿没有"）。同样在干净 worktree 里按 commit 打、同一把签名、同样的回读校验。
 >
 > **③ 后端不需要发（有据）**：生产当前在 `021543e`，而 `021543e..HEAD` 的 13 个提交里
 > **动过 `backend/` 的是 0 个**（只有 `android/ _tools/ docs/ VERSION`）→ 生产后端已是最新，**我没有去动它**。
