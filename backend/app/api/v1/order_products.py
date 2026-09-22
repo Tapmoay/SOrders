@@ -1,9 +1,10 @@
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
@@ -74,7 +75,16 @@ def _resync_stock_if_assigned(db: Session, order: Order, operator_id: int) -> in
 
 def _order_allows_line_edit(order: Order) -> bool:
     """派单员修正明细：待派单与已接单（运输中）均可编辑；已送达/已撤销不可。"""
-    return order.status in (OrderStatus.PENDING_DISPATCH, OrderStatus.DISPATCHED, OrderStatus.ACCEPTED)
+    return order.status in LINE_EDITABLE_STATUSES
+
+
+#: 可以改明细的状态（**只有这一处**：Python 判据与上面那条条件 UPDATE 的 WHERE 共用它）。
+#: 分两处写会出现"改一个忘一个"——而两次判据不一致时，宽的那一处就是漏洞。
+LINE_EDITABLE_STATUSES = (
+    OrderStatus.PENDING_DISPATCH,
+    OrderStatus.DISPATCHED,
+    OrderStatus.ACCEPTED,
+)
 
 
 def _locked_editable_order(db: Session, order_id: int) -> Order:
@@ -104,6 +114,20 @@ def _locked_editable_order(db: Session, order_id: int) -> Order:
     SQLite 上退化成"重新查一次"，两边都保证**判据挂在库里这一刻的真实值上**。
 
     ⚠️ 顺序要紧：**先锁再判**。先判后锁的话，从"判完"到"拿到锁"之间那道缝还在。
+
+    ### ⚠️ 光有 `lock_order_row` 还不够（本机真并发实测又抓到一次）
+    `lock_order_row` 在 **SQLite 上退化成"重新查一次"**，而重新查出来的仍是**本事务开始那一刻
+    的快照** —— 于是"派单员先读到、司机后提交"这条缝在本机依然走得通：
+    2026-09-23 用 `_tools/perf/_concurrency_probe.py --only line-vs-complete` 打真后端，
+    修完这一版之后**仍然**落成「账本 322.4 vs 订单行 362.7」（1 处对不上）。
+    所以这里再加一道**与数据库无关**的原子占位（本项目在派单/接单/送达/撤回上用的同一手法）：
+
+        UPDATE orders SET updated_at=<now> WHERE id=? AND status IN (可编辑) AND deleted_at IS NULL
+
+    改到 1 行的人才能继续，改到 0 行的人立刻出局。**为什么写 `updated_at`**：
+    这条语句需要一个"真的会变"的列才会被 MySQL 记成 changed=1（写同一个值会被算成 0 行，
+    而按 0 行出局＝把正常编辑也挡了）；`updated_at` 本来就该在"这单被动过"时前进，
+    仓库里也已经有同样的用法（`supplier_service.py` 的付款占位就是 `.values(updated_at=utc_now_naive())`）。
     """
     order = db.get(Order, order_id)
     if order is None:
@@ -114,6 +138,21 @@ def _locked_editable_order(db: Session, order_id: int) -> Order:
             status_code=400,
             detail=f"当前订单状态（{order.status.value if hasattr(order.status, 'value') else order.status}）"
                    "不可编辑商品明细；已送达/已撤销的单请用「退货」或让派单员重新开单。",
+        )
+    claimed = db.execute(
+        update(Order)
+        .where(
+            Order.id == order.id,
+            Order.status.in_(LINE_EDITABLE_STATUSES),
+            Order.deleted_at.is_(None),
+        )
+        .values(updated_at=utc_now_naive())
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="这张单刚刚被改过（可能已送达/已撤销），请刷新后看看当前状态再改明细。",
         )
     return order
 

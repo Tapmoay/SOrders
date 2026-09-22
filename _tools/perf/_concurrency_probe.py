@@ -117,13 +117,20 @@ def main() -> int:
     print(f"被测后端 {args.base}    库 {args.db}    {n} 个并发\n" + "-" * 104)
 
     def report(label: str, ok: int, other: int, busy: int, notes: list[str], expect: str,
-               extra: str = "") -> bool:
+               extra: str = "", expect_one: bool = True) -> bool:
+        """`expect_one=False` 用于**跨接口**那两个场景：两个请求本来就是两个人的活儿，
+        都成功是正常的 —— 判据是终态自洽（金额/状态对得上），不是"只有一个赢家"。
+        """
         good = ok == 1
-        if ok >= 2:
-            bugs.append(f"{label}：**{ok} 个请求同时成功**（应当只有一个）—— 业务守卫没拦住")
-        elif ok == 0:
-            risks.append(f"{label}：一个都没成功（并发下全被拒）—— 可能是守卫过严或环境锁冲突")
-        verdict = "✓ 恰好一个成功" if good else ("❌ 多个成功" if ok >= 2 else "? 一个都没成功")
+        if expect_one:
+            if ok >= 2:
+                bugs.append(f"{label}：**{ok} 个请求同时成功**（应当只有一个）—— 业务守卫没拦住")
+            elif ok == 0:
+                risks.append(f"{label}：一个都没成功（并发下全被拒）—— 可能是守卫过严或环境锁冲突")
+            verdict = "✓ 恰好一个成功" if good else ("❌ 多个成功" if ok >= 2 else "? 一个都没成功")
+        else:
+            verdict = ("✓ 两个都成功（跨接口，允许）" if ok == 2
+                       else f"✓ 只有 {ok} 个成功（另一个被状态门挡住）")
         print(f"{label:38} 成功 {ok} / 被拒 {other} / 锁冲突 {busy}   {verdict}   {expect}")
         if extra:
             print(f"{'':38} 库内：{extra}")
@@ -131,7 +138,7 @@ def main() -> int:
             print(f"{'':38} 拒绝理由样例：{'；'.join(notes[:3])[:110]}")
         records.append(dict(label=label, ok=ok, rejected=other, busy=busy, expect=expect,
                             extra=extra, notes=notes[:5]))
-        return good
+        return good if expect_one else True
 
     # ---------------------------------------------------------------- ① 并发派单
     if not args.only or args.only == "assign":
@@ -400,6 +407,75 @@ def main() -> int:
             if lg > lg0 + 1:
                 bugs.append(f"并发退货：红冲行多了 {lg - lg0} 批（同一批货退了两次）")
 
+    # ------------------------------------------------- ⑫ 并发「改明细 vs 送达」（跨接口）
+    #
+    # ⚠️ 这一条与前 11 条**判据不同**：那两个请求**都有可能是合法的**（改明细与送达本来
+    #    就是两个人各自的活儿），所以"恰好一个成功"不是判据。判据是**终态自洽**：
+    #    已送达的单，账本每一行的金额必须等于它对应的订单行金额
+    #    （`ledger_sync` 是按 `order_product_id` 一行一条写的，这里是同一个数）。
+    #
+    # 2026-09-23 第 6 轮实测：改端点的状态门读的是**身份映射里那份可能是旧值的对象**，
+    # 于是"派单员 T1 读到已接单放行 → 司机 T2 抢占送达并按**改前**的行金额写账本 →
+    # 派单员 T3 写入新金额"这条缝会落成"行金额新的、账本金额旧的"。
+    # 确定性复现与修法见 `backend/tests/test_line_edit_race_guard.py`；
+    # 这里补的是**真并发**下的观测（本机 SQLite 可能以锁冲突收场，那不算缺陷、单独计数）。
+    if not args.only or args.only == "line-vs-complete":
+        row = db_q(
+            "select o.id, u.phone, op.id as line_id, op.quantity "
+            "from orders o join users u on u.id = o.driver_id "
+            "join order_products op on op.order_id = o.id "
+            "where o.status='ACCEPTED' and o.deleted_at is null and u.is_active=1 "
+            "order by o.id desc limit 1"
+        )
+        if row:
+            oid, phone = row[0]["id"], row[0]["phone"]
+            lid, qty = row[0]["line_id"], int(row[0]["quantity"])
+            tok_d = api.post("/auth/login", {"phone": phone, "password": "123321"},
+                             allow_denied=True)
+            tok = tok_d.body["access_token"] if tok_d.is_2xx else drv
+            barrier = threading.Barrier(2)
+            out2: list = [None, None]
+
+            def racer2(i: int) -> None:
+                barrier.wait()
+                if i == 0:
+                    out2[i] = api.req("PATCH", f"/order-products/{lid}", {"quantity": qty + 1},
+                                      disp, allow_denied=True)
+                else:
+                    out2[i] = api.req("POST", f"/orders/{oid}/complete",
+                                      {"payment": "arrears", "driver_remark": "并发探针",
+                                       "delivery_photo_urls": [
+                                           f"/static/uploads/delivery/{oid}/probe.jpg"]},
+                                      tok, allow_denied=True)
+
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                list(ex.map(racer2, range(2)))
+            ok, other, busy, notes = summarize(out2)
+            d = db_q("select status from orders where id=?", (oid,))[0]
+            # 判据：已送达 → 账本行金额必须 == 对应订单行金额（按 order_product_id 对齐）
+            mism = db_q(
+                "select l.id as ledger_id, l.total as ledger_total, op.line_total as line_total "
+                "from ledgers l join order_products op on op.id = l.order_product_id "
+                "where l.order_id=? and l.source='ORDER' "
+                "and round(l.total,2) <> round(op.line_total,2)", (oid,),
+            )
+            reserved = one("mv", "select count(*) from inventory_movements "
+                                 "where order_id=? and status='RESERVED'", (oid,))
+            fives = [r for r in out2 if not isinstance(r, Exception) and r.is_5xx]
+            report(f"并发「改明细 vs 送达」单#{oid} 行#{lid}", ok, other, busy, notes,
+                   "期望：无 500；若已送达，账本金额 == 订单行金额、且没有多余的预占",
+                   f"status={d['status']}、账本与订单行对不上的 {len(mism)} 处、"
+                   f"该单 RESERVED 流水 {reserved} 条",
+                   expect_one=False)
+            if fives:
+                bugs.append(f"并发「改明细 vs 送达」：出现 {len(fives)} 个 5xx")
+            if mism:
+                bugs.append(
+                    f"并发「改明细 vs 送达」：送达之后账本与订单行**对不上**（{len(mism)} 处，"
+                    f"例：账本 {mism[0]['ledger_total']} vs 订单行 {mism[0]['line_total']}）——"
+                    "两个数各说各的，收款按账本、毛利按订单行"
+                )
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(records, ensure_ascii=False, indent=1), encoding="utf-8")
     print("-" * 104)
@@ -415,7 +491,8 @@ def main() -> int:
         print(f"\n⚠️ {len(risks)} 条需要人看一眼（不算缺陷）：")
         for r in risks:
             print("   - " + r)
-    print(f"\n✅ {len(records)} 个并发场景：每个都恰好一个成功，副作用没有重复。")
+    print(f"\n✅ {len(records)} 个并发场景全部通过："
+          "同动作重复提交的都**恰好一个成功**，跨接口场景的**终态自洽**（金额对得上、副作用没有重复）。")
     return 0
 
 
