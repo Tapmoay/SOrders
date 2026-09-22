@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -148,6 +149,35 @@ fun OrderCreateScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+        // ⚠️ **一次性提示（`vm.toast`）必须在这里也画一遍**（2026-09-22）：它原来只有
+        //    「地址抽屉 → 已存进共享库」那一小块里画，于是"已按预设单填好商品与数量""某件商品
+        //    已不在商品库""已撤销/已删除"这些话**根本没有机会被看见**（真机 dump 证实：
+        //    点了「用这张下单」屏幕上找不到那句提示）。放在页面顶部 + 一个 ✕，用户看得到、也能收掉。
+        vm.toast?.let { msg ->
+            item {
+                Surface(
+                    color = Color(0xFFFFF7E6),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFF0D9A8)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.padding(start = 12.dp, top = 8.dp, end = 4.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF8A6D1F),
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { vm.dismissToast() }) {
+                            Icon(Icons.Default.Close, contentDescription = "关掉这条提示", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
         if (proxyMode) {
             item {
                 SectionCard {
@@ -176,6 +206,17 @@ fun OrderCreateScreen(
                         Text("商品明细", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         Text(
                             vm.lines.size.toString() + "/10 组",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // ⚠️ **报价依据要写在这里**（2026-09-22 用户报的错价）：价算错了界面上看不出来
+                    //    —— 20 和 10 都只是一个"看起来正常的价"。这句话跟着当前货主与专属价实时变，
+                    //    用户在按提交之前就能看出走的是默认价还是谈好的专属价。
+                    //    它是**状态**（不是解释），所以用 Text、不走 Hint 总开关。
+                    vm.priceBasisText().takeIf { it.isNotBlank() }?.let { basis ->
+                        Text(
+                            basis,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

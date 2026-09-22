@@ -10,6 +10,7 @@ import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.dto.*
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.PickedLine
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -59,6 +60,46 @@ fun mergePickedIntoLines(existing: List<LineDraft>, picked: List<PickedLine>): L
     return if (merged.size > MAX_ORDER_LINES) null else merged
 }
 
+/**
+ * 把清单里每一行的单价**按"现在的价"重算一遍**（**纯函数**，有测试盯着 —— `RepriceLinesTest`）。
+ *
+ * ## 为什么必须重算（2026-09-22 用户报的错价，真机上量到 20 而谈好的是 10）
+ *
+ * 下单页的单价**没有任何人能改**（行编辑弹窗只有商品名与数量，见 `LineEditDialog`），
+ * 每一行的价都是按"这一单对**这个**货主的价"（`priceFor`）算出来的。而那份价是
+ * **异步**取回来的，于是有两个窗口会算错，且**两边都不报错**：
+ *
+ * · **预订单预填**：`setShipper` 刚发起请求就紧接着算行价 → `priceFor` 那一下
+ *   `priceRulesShipper` 还对不上主体 → 走"回退默认价"分支 → 批发商谈好的专属价被跳过；
+ * · **先挑商品、后换货主**：行上留着**上一个货主**的专属价（报价串号）。
+ *
+ * 所以"规则到齐 / 主体换了"时要统一重算一次 —— 而不是只在挑商品那一刻算一次。
+ *
+ * ⚠️ 只重算**商品还在商品库里**的行（[priceOf] 返回 null = 这件商品已不在库，价留空，
+ *    由调用方如实说出来）；数量、单位、名称一律不碰。
+ * ⚠️ 这条重算**不会覆盖任何人的输入**：单价在这个页面上根本不可编辑（有红线钉着
+ *    `_tools/qa/_check_input_rules.py` 的 `NO_PRICE_EDIT_FILES`）。
+ *
+ * @return 新清单 + 改动了几行（0 = 一行都没变）
+ */
+fun repriceLines(
+    lines: List<LineDraft>,
+    priceOf: (Long) -> String?,
+): Pair<List<LineDraft>, Int> {
+    var changed = 0
+    val out = lines.map { ln ->
+        val pid = ln.productId
+        val np = if (pid == null) null else priceOf(pid)
+        if (np == null || np == ln.price) {
+            ln
+        } else {
+            changed++
+            ln.copy(price = np)
+        }
+    }
+    return out to changed
+}
+
 class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
 
     val lines: SnapshotStateList<LineDraft> = mutableStateListOf()
@@ -105,6 +146,12 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var myShipperId by mutableStateOf<Long?>(null)
     var priceRules by mutableStateOf<Map<Long, PriceRuleDto>>(emptyMap())
     var priceRulesShipper by mutableStateOf<Long?>(null)
+    /**
+     * 在飞的"专属价"请求（**预订单预填必须等它**，见 [awaitPriceRules]）。
+     *
+     * 没有它就只能靠"请求比下一行代码快"这个假设，而那个假设在真机上是**不成立**的。
+     */
+    private var priceRulesJob: Job? = null
     var addresses by mutableStateOf<List<AddressDto>>(emptyList())
     /** 我自己的地点库（纯地点，含坐标）——司机补录过的坐标会进这里，下次下单直接可选 */
     var locations by mutableStateOf<List<LocationDto>>(emptyList())
@@ -155,6 +202,16 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var savingPlace by mutableStateOf(false)
     /** 一次性提示（"已存进共享地点库"这类）；界面显示完自己清掉 */
     var toast by mutableStateOf<String?>(null)
+
+    /**
+     * 收掉那条一次性提示（界面右上角的 ✕）。
+     *
+     * 为什么要有它：`toast` 是**一个槽位**、写进去就一直在，直到下一句话把它替换掉。
+     * 页面顶部那条横幅要是不能关，预填那句话就会一直挂在屏幕上（用户改完商品它还挂在那儿）。
+     */
+    fun dismissToast() {
+        toast = null
+    }
     /**
      * 我能不能管共享库（改/撤销/删除共享地址、把我的地点设为共享）。
      *
@@ -407,6 +464,12 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                 if (t.receiverPhone.isNotBlank()) dongjiaPhone = t.receiverPhone
                 if (t.remark.isNotBlank()) remark = t.remark
 
+                // ⚠️ **等这个货主的专属价到齐再填行**（2026-09-22 用户报的错价就出在这一步）：
+                //    `setShipper` 只是**发起**取数，紧接着去算行价必定命中"规则还没到"的回退分支
+                //    —— 批发商谈好的 10 元被跳过、按默认价 20 元填上，而**已经填好的行不会**
+                //    因为规则随后到达而重算。所以这不是优化，是这条链路成立的前提。
+                awaitPriceRules()
+
                 val missing = ArrayList<String>()
                 lines.clear()
                 t.lines.forEach { ln ->
@@ -427,9 +490,17 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                 toast = buildString {
                     append("已按预设单「").append(t.name).append("」填好商品与数量，请核对后再提交")
                     if (missing.isNotEmpty()) {
-                        // ⛔ 不静默：商品下架/删掉的那几行价格是空的，必须说出来
-                        append("（").append(missing.joinToString("、")).append(" 已不在商品库，价格要自己填）")
+                        // ⛔ 不静默：商品下架/删掉的那几行**没有价**，必须说出来。
+                        // ⛔ 而且**不许**写成"价格要自己填"（2026-09-22 修）：下单页根本没有单价输入框
+                        //    （红线 `_check_input_rules.py::NO_PRICE_EDIT_FILES`），那是一条用户
+                        //    照做不了的假话 —— 他能做的只有删掉这一行，或让派单员把商品恢复回来。
+                        append("（").append(missing.joinToString("、"))
+                            .append(" 已不在商品库，这一行删掉才能下单）")
                     }
+                    // ⛔ **报价依据不写在这里**（2026-09-22 真机抓到）：横幅是一句话的**回执**，
+                    //    写完就定住了，而"按谁的价算"是**实时状态**（换了货主就变）。
+                    //    两处都写 → 同屏会同时出现"按商品默认售价"与"按「永盛食品」的专属价"
+                    //    两句互相打架的话。它只有一处：商品明细下面那行（[priceBasisText]）。
                 }
                 onDone(null)
             } catch (e: Exception) {
@@ -438,11 +509,48 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 按下单主体（选择的货主，否则当前登录人）加载其专属价格规则 */
+    /**
+     * 这一批商品的**报价依据**（一句话；商品明细那里常驻显示，预填提示也复用这一句）。
+     *
+     * 为什么要有它（2026-09-22 用户报的错价）：价**算错了界面上看不出来** ——
+     * 20 和 10 都只是一个"看起来正常的价"。把依据写在用户正在看的那个位置，
+     * 他在按提交之前就能看出这次走的是默认价还是谈好的专属价，不必去比对记忆里的数字。
+     * （原来这句只挂在预填的 `toast` 上，而那个 toast 的**唯一渲染点在地址抽屉的
+     *  "已存进共享库"那一小块里** —— 也就是说用户实际上从来没看见过它。）
+     *
+     * ⛔ 它是**数据/状态**（跟着当前主体与规则实时变），所以界面用 `Text` 显示、
+     *    不走 `Hint` 那个总开关 —— 关掉提示不该把"这批货按谁的价算"一起关掉。
+     */
+    fun priceBasisText(): String {
+        if (lines.isEmpty()) return ""
+        val who = shippers.firstOrNull { it.id == shipperId }?.fullName ?: "这个货主"
+        val subject = shipperId ?: myShipperId
+        if (subject != null && priceRulesShipper != subject) {
+            // 还没拿到 ≠ 没有专属价：这一句是"正在进行"，不是结论（提交那道闸门也在等它）
+            return if (shipperId != null) "价格正在核对（还没拿到「$who」的专属价）" else "价格正在核对…"
+        }
+        if (shipperId == null) return "价格按商品默认售价"
+        val special = lines.count { ln -> ln.productId?.let { priceRules[it] != null } == true }
+        return when {
+            special == 0 -> "价格按商品默认售价"
+            special == lines.size -> "价格按「$who」的专属价"
+            else -> "其中 $special 行按「$who」的专属价，其余按默认售价"
+        }
+    }
+
+    /**
+     * 按下单主体（选择的货主，否则当前登录人）加载其专属价格规则。
+     *
+     * ⚠️ **拿到规则之后必须重算清单里已有的行**（[repriceFromRules]）：单价只在"挑商品的那一刻"
+     *    算一次的话，先挑后换货主会把**上一个货主**的价留在行上（2026-09-22 用户报的那类错价）。
+     */
     fun loadPriceRulesFor(sid: Long?) {
         if (sid == null) {
+            priceRulesJob = null
             priceRules = emptyMap()
             priceRulesShipper = null
+            // 主体成了"没有价规则的人"（临时货主 / 会话还没读到）→ 行上留着的专属价必须放掉
+            repriceFromRules()
             return
         }
         // ⚠️ 换主体时**先把上一次的规则清掉**（2026-09-19 审计）：`priceRules` 是异步加载的，
@@ -454,27 +562,83 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             priceRules = emptyMap()
             priceRulesShipper = null
         }
-        viewModelScope.launch {
-            try {
-                // 只取**这个下单主体**的专属价（服务端筛，不是拉全表再 filter —— 2026-09-19 修）：
-                // 原来这里每换一次主体就要下载所有批发商 × 所有商品的价格。
-                val loaded = container.repo.priceRules(sid).associateBy { it.productId }
-                // 请求回来时主体又被换过就别写了（`priceRulesShipper` 已经指到新主体）
-                if (shipperId == sid || (shipperId == null && myShipperId == sid)) {
-                    priceRules = loaded
-                    priceRulesShipper = sid
-                }
-            } catch (_: Exception) {
-                loadingProducts = false   // 失败也要收尾，别让界面永远停在"加载中"
-            }
+        priceRulesJob = viewModelScope.launch {
+            // 只取**这个下单主体**的专属价（服务端筛，不是拉全表再 filter —— 2026-09-19 修）：
+            // 原来这里每换一次主体就要下载所有批发商 × 所有商品的价格。
+            applyPriceRules(sid, fetchPriceRules(sid))
         }
+    }
+
+    /**
+     * 拉某个下单主体的专属价 —— **唯一一份取数**（[loadPriceRulesFor] 与预订单预填共用）。
+     *
+     * @return **null = 没拿到**（网络失败）。⛔ 失败**不许**退化成"空 map"：那等于对外宣称
+     *   "这个货主没有专属价"，而真相是"我们还不知道" —— 两者在钱上的后果完全相反
+     *   （前者按默认价下单＝对谈好价的批发商**多收钱**）。
+     */
+    private suspend fun fetchPriceRules(sid: Long): Map<Long, PriceRuleDto>? = try {
+        container.repo.priceRules(sid).associateBy { it.productId }
+    } catch (_: Exception) {
+        loadingProducts = false   // 失败也要收尾，别让界面永远停在"加载中"
+        null
+    }
+
+    /**
+     * 把拉到的那份规则落到状态上（**唯一写入点**）。
+     *
+     * @param loaded null = 没拿到 → **什么都不写**（`priceRulesShipper` 保持"未知"，
+     *   提交那道闸门就会拦住这一单，而不是按默认价把单发出去）。
+     */
+    private fun applyPriceRules(sid: Long, loaded: Map<Long, PriceRuleDto>?) {
+        // 请求回来时主体又被换过就别写了（`priceRulesShipper` 已经指到新主体）
+        if (shipperId != sid && !(shipperId == null && myShipperId == sid)) return
+        if (loaded == null) return
+        priceRules = loaded
+        priceRulesShipper = sid
+        repriceFromRules()
+    }
+
+    /**
+     * 等"当前下单主体的专属价"**到齐**——预订单预填必须在填行之前等它。
+     *
+     * 不等的话就是在赌"请求比这一行代码快"：`setShipper` 只是**发起**取数，
+     * 紧接着读 `priceFor` 拿到的必然是"规则还没到"的回退价（默认价），
+     * 而已经填好的行**不会**因为规则随后到达而重新算 —— 这就是用户量到的那个错价。
+     *
+     * 等完"是不是真的拿到了"不用返回值往外传：界面看 [priceBasisText]（它会如实说"正在核对"），
+     * 钱则由 [submit] 那道闸门把住。
+     */
+    private suspend fun awaitPriceRules() {
+        priceRulesJob?.join()
+        val subject = shipperId ?: myShipperId ?: return
+        if (priceRulesShipper != subject) applyPriceRules(subject, fetchPriceRules(subject))
+    }
+
+    /**
+     * 把清单里已有的行按**当前主体的价**重算一遍（唯一实现是纯函数 [repriceLines]）。
+     *
+     * 两处调用它：① 规则到齐 / 主体换了（[applyPriceRules]）；② 主体成了没有规则的人
+     * （临时货主、清空选择 —— 与账本记账页同一条教训：不重算就会停在上一个货主的价上）。
+     */
+    private fun repriceFromRules() {
+        val (next, changed) = repriceLines(lines) { pid ->
+            products.firstOrNull { it.id == pid }?.let { priceFor(it) }
+        }
+        if (changed == 0) return
+        lines.clear()
+        lines.addAll(next)
     }
 
     /**
      * 选择商品时的实际单价：有批发商专属价用特价，否则默认售价。
      *
-     * ⚠️ 只认**当前下单主体**那份规则：`priceRulesShipper` 对不上就回退默认价
-     * （回退到默认价是"少赚"，用错人的专属价是"报错价"，两害相权）。
+     * ⚠️ 只认**当前下单主体**那份规则：`priceRulesShipper` 对不上就回退默认价。
+     *    ⛔ 但要说清这个回退的**真实含义**（2026-09-22 改口，旧注释写的是"少赚"，那是错的）：
+     *    `priceRulesShipper` 对不上**不等于**"这个货主没有专属价"，而是"**我们还不知道**"。
+     *    对谈好了专属价的批发商按默认价报价，是**多收他的钱** —— 不是少赚。
+     *    所以这个回退只在"规则在路上"的窗口里出现，并且有两道兜底：
+     *    ① 规则到齐时 [repriceFromRules] 把已填好的行重算回来；
+     *    ② 一直没到（网络失败）时 [submit] 的报价闸门**拒绝下单**。
      */
     fun priceFor(p: ProductDto): String {
         val subject = shipperId ?: myShipperId
@@ -651,6 +815,13 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
 
     fun submit(onDone: () -> Unit) {
         val nameBlank = lines.any { it.name.isBlank() }
+        /**
+         * 没有价的那一行（商品已不在商品库 = 预设单里那件货后来下架/删掉了）。
+         *
+         * ⛔ 不能让这种行发出去：后端 `unit_price` 是数字，空字符串会变成一个**用户看不懂的
+         *    422 结构体**；而且页面上根本没有填价的地方（见 [priceSourceNote] 那段注释）。
+         */
+        val noPrice = lines.firstOrNull { it.price.isBlank() }
         // 电话格式先在这一侧挡一道：这两个框现在只让数字进来（`InputRules.phoneInput`），
         // 但"位数不够"过滤挡不住（用户可能刚输了一半就点提交）。在这里拦下来，
         // 用户看到的是**立刻**的中文提示，而不是等服务端 422 转一圈。
@@ -660,6 +831,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         when {
             lines.isEmpty() -> error = "请至少添加一组商品"
             nameBlank -> error = "商品名称不能为空"
+            noPrice != null -> error = "「${noPrice.name}」没有价格（这件商品已不在商品库），先删掉这一行再提交"
             phoneError != null -> error = phoneError
             else -> {
                 submitting = true
@@ -670,6 +842,17 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                         if (s?.role == "dispatcher" && shipperId == null && tempShipperName.isNullOrBlank()) {
                             error = "请选择货主或填写临时货主姓名"
                             submitting = false
+                            return@launch
+                        }
+                        // ⚠️ **报价闸门**：还没拿到"这个下单主体的价"就不许下单（2026-09-22）。
+                        //    回退到默认价对"谈好了专属价的批发商"＝**多收他的钱**，而且订单/小票/
+                        //    账本三处会一致地错（事后无从发现）—— 静默错钱比挡一下严重得多。
+                        //    挡的同时**再拉一次**，用户再点一下就成了（失败时 `priceRulesShipper`
+                        //    停在"未知"，所以这一条不会因为一次网络抖动永久卡住）。
+                        val subject = shipperId ?: myShipperId ?: s?.userId
+                        if (subject != null && priceRulesShipper != subject) {
+                            loadPriceRulesFor(subject)
+                            error = "价格还没拿到（网络慢或断了），请再点一次提交"
                             return@launch
                         }
                         val body = OrderCreateRequest(

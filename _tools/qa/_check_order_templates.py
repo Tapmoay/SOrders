@@ -13,6 +13,12 @@
    而且商品行必须**整份替换**（追加会把上次没提交干净的行混进来 = 多订一样货）。
 5. **价格不走唯一那份口径**：预填时的单价必须走下单页的 `priceFor`（按货主专属价算），
    不许自己再写一遍"取 defaultUnitPrice"。
+   ⚠️ **2026-09-22 补（真机错价）**：光"走了 `priceFor`"还不够 —— 专属价是**异步**取回来的，
+   在它到齐之前算出来的行价必然是默认价，而**已经填好的行不会**被重算。
+   所以还有三条：**预填先等价到齐再填行** · **价到齐/换货主后重算已有的行** ·
+   **价没拿到就不许下单**（回退默认价对谈好价的批发商＝多收钱，静默错钱）。
+   （旧版本只钉了字面上有没有 `priceFor(`，所以带着这个 bug 一路全绿 —— 教训：判据要钉**时序**，
+   不是钉**字面**。）
 6. **常用度记在"点开"而不是"下单成功"**：那样列表会按"谁点开过"排序（用户要的是"我常用哪一张"）。
 7. **AI 那一头漏登记**：四个写动作、一个读动作都要进目录/工具清单，读能力还要被某个 App 模块认领
    （否则用户从界面上根本看不到这个功能 —— `_app_feature_coverage` 会红）。
@@ -186,7 +192,24 @@ def main() -> int:
               strip_comments(read(CREATE_SCREEN)), r"LaunchedEffect\(prefillTemplateId\)")
     c.present("商品行**整份替换**（lines.clear()）", prefill, r"lines\.clear\(\)")
     c.present("单价走唯一那份口径（priceFor：按货主专属价算）", prefill, r"priceFor\(it\)")
-    c.present("商品已不在库里时**说出来**（不静默留空价）", prefill, r"已不在商品库，价格要自己填")
+    c.present("商品已不在库里时**说出来**（不静默留空价）",
+              prefill, r"已不在商品库，这一行删掉才能下单")
+    # ⛔ 而且**不许**再让用户"自己填价"：下单页没有单价输入框（红线
+    #    `_check_input_rules.py::NO_PRICE_EDIT_FILES`），那是一句用户照做不了的假话（2026-09-22 修）。
+    c.absent("不再让用户去填一个页面上根本不存在的框", prefill, r"价格要自己填")
+    # ⚠️ **顺序**才是这个 bug 的根：专属价是异步取的，`setShipper` 只是**发起**请求，
+    #    紧接着算行价拿到的必然是"规则还没到"的回退价（默认价），而后来的规则**不会**
+    #    重算已经填好的行 —— 用户量到的就是 20 而不是谈好的 10。
+    # ⚠️ 用 `find` 不用 `index`：少了任一边要**报红**，不是让这条检查自己崩掉
+    #    （崩掉时没有任何 [FAIL] 行，反向验证会把它读成"红线没抓到"，把注入放过去 —— 真发生过）。
+    i_await, i_price = prefill.find("awaitPriceRules()"), prefill.find("priceFor(it)")
+    c.ok("预填**先等这个货主的专属价到齐**再算行价",
+         i_await >= 0 and i_price >= 0 and i_await < i_price,
+         "顺序必须是 setShipper → awaitPriceRules() → priceFor；反了这个 bug 就回来了")
+    # ⛔ **报价依据只有一处**（2026-09-22 真机抓到）：横幅是"回执"（写完就定住），
+    #    报价依据是**实时状态**（换货主就变）。两处都写 → 同屏上同时出现
+    #    "按商品默认售价"和"按「永盛食品」的专属价"两句互相打架的话。
+    c.absent("预填横幅里**不许**再写一遍报价依据（会与商品明细那行打架）", prefill, r"priceBasisText\(")
     c.present("先把商品库拉回来再填行（不然价格一片空白）",
               prefill, r"if \(products\.isEmpty\(\)\) \{\s*\n\s*products = container\.repo\.products\(\)")
     c.present("货主先设（setShipper 会拉专属价，顺序反了会先按默认价算）",
@@ -218,6 +241,82 @@ def main() -> int:
     c.ok("定位表里指到了预订单（并点名本判据）",
          "预订单" in loc and "_check_order_templates.py" in loc,
          "改这一块的人应当能从定位表找到本文件")
+
+    # ---- ⑪ 报价必须绑到「这个货主的价」：异步取价的**时序**（2026-09-22 真机错价补的）----
+    # ⚠️ 旧的第 ⑤ 组只钉了"字面上有没有 `priceFor(`"—— 而**带着这个 bug 它一路全绿**：
+    #    代码确实走了 `priceFor`，只是走得太早（专属价还在路上，`priceFor` 回退默认价）。
+    #    所以这一节钉的是**顺序**与**缺价时的行为**，不是字面。
+
+    def body_of(sig: str) -> str:
+        m = re.search(re.escape(sig) + r"([\s\S]*?)\n    \}\n", vm)
+        return m.group(1) if m else ""
+
+    fetch_body = body_of("private suspend fun fetchPriceRules(")
+    apply_body = body_of("private fun applyPriceRules(")
+    await_body = body_of("private suspend fun awaitPriceRules(")
+    load_body = body_of("fun loadPriceRulesFor(")
+    submit_body = body_of("fun submit(")
+    price_body = body_of("fun priceFor(")
+    c.ok("取到这几段的函数体（取不到下面就是在空转）",
+         all(len(b) > 60 for b in (fetch_body, apply_body, await_body, load_body, submit_body, price_body)),
+         f"长度={[len(b) for b in (fetch_body, apply_body, await_body, load_body, submit_body)]}")
+
+    c.present("重算是一个**纯函数**（唯一实现，能被单测直接调）",
+              vm, r"fun repriceLines\([\s\S]{0,160}?priceOf: \(Long\) -> String\?,")
+    c.present("规则落地是**唯一写入点**", vm, r"private fun applyPriceRules\(")
+    c.present("落完规则就**重算已有的行**（先挑商品、后换货主 → 行上留着上一个货主的价）",
+              apply_body, r"repriceFromRules\(\)")
+    c.present("换主体时先清掉上一份规则（报价串号）", load_body, r"if \(priceRulesShipper != sid\)")
+    c.present("主体成了「没有规则的人」（临时货主/清空）也要重算", load_body, r"repriceFromRules\(\)")
+    c.present("取数是 suspend（要能被预填 await）", vm, r"private suspend fun fetchPriceRules\(")
+    c.present("取数失败**返回 null**（＝「不知道」，不是「没有专属价」）",
+              fetch_body, r"catch \(_: Exception\) \{[\s\S]{0,300}?\n\s+null\b")
+    c.absent("失败**不许**退化成空 map（那等于宣称「这个货主没有专属价」，会按默认价把单发出去）",
+             fetch_body, r"emptyMap\(\)")
+    c.present("没拿到（null）就什么都不写：`priceRulesShipper` 保持「未知」",
+              apply_body, r"if \(loaded == null\) return")
+    c.present("预填等的那一下：join 在飞的请求 + 兜底补一次",
+              await_body, r"priceRulesJob\?\.join\(\)[\s\S]{0,200}?if \(priceRulesShipper != subject\)")
+    c.present("等完「到底拿到没有」不用返回值往外传：界面看 `priceBasisText`、钱由提交闸门把住",
+              await_body, r"applyPriceRules\(subject, fetchPriceRules\(subject\)\)")
+    c.present("提交那道**报价闸门**：还没拿到这个主体的价就不许下单",
+              submit_body, r"if \(subject != null && priceRulesShipper != subject\)")
+    c.present("被闸门挡下时**顺手再拉一次**（用户再点一下就能成，不会永久卡住）",
+              submit_body, r"loadPriceRulesFor\(subject\)")
+    c.present("提示是中文且说清了怎么办",
+              submit_body, r'error = "价格还没拿到（网络慢或断了），请再点一次提交"')
+    c.present("没有价的那一行**挡住**（后端 unit_price 是数字，空串只会变成一个看不懂的 422）",
+              submit_body, r"noPrice != null -> error = ")
+    c.present("报价依据是**状态**（跟着主体与规则实时变），不是写死的一句",
+              vm, r"fun priceBasisText\(\)")
+    c.present("它真的去看了专属价规则（不是一律说「按商品默认售价」）",
+              body_of("fun priceBasisText("), r"priceRules\[it\] != null")
+    c.present("没拿到价时说的是「正在核对」，不是「默认价」（两者对钱的后果正好相反）",
+              body_of("fun priceBasisText("), r"价格正在核对")
+    c.present("拿到专属价时说的是「按「X」的专属价」",
+              body_of("fun priceBasisText("), r"价格按「\$who」的专属价")
+    screen_src = strip_comments(read(CREATE_SCREEN))
+    n_basis_sites = len(re.findall(r"vm\.priceBasisText\(\)", screen_src))
+    c.ok(f"界面**真的画了**它，而且只有 {n_basis_sites} 处（不画＝死文案；两处＝同屏两句打架的话）",
+         n_basis_sites == 1, "报价依据必须恰好有一个渲染点")
+    # ⚠️ 这一条是 2026-09-22 真机 dump 抓到的：`vm.toast` 原来**只有**地址抽屉里那一个渲染点，
+    #    于是"已按预设单填好""某件商品已不在商品库"这些话用户**根本看不到**（等于没有反馈）。
+    n_toast_sites = len(re.findall(r"vm\.toast\?\.let", screen_src))
+    c.ok(f"一次性提示有 {n_toast_sites} 个渲染点（下限 2：地址抽屉 + 页面顶部横幅）",
+         n_toast_sites >= 2, "只有一个渲染点 = 大部分提示用户看不见")
+    c.present("顶部横幅能收掉（不然预填那句话会一直挂在屏幕上）", vm, r"fun dismissToast\(\)")
+    c.present("横幅上的 ✕ 接的就是它", screen_src, r"vm\.dismissToast\(\)")
+
+    # 单测：清单**自己算**（glob 出这个包下的测试，谁调了 `repriceLines` 就认谁）
+    tests_dir = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/shipper"
+    test_files = sorted(tests_dir.glob("*Test.kt"))
+    reprice_tests = [p for p in test_files if "repriceLines(" in strip_comments(read(p))]
+    c.ok(f"重算有单测盯着（这个包 {len(test_files)} 份测试里 {len(reprice_tests)} 份调了它，下限 1）",
+         len(reprice_tests) >= 1, "没有测试的纯函数 = 下一个人改坏了也没人知道")
+    n_cases = sum(len(re.findall(r"@Test", read(p))) for p in reprice_tests)
+    c.ok(f"重算的用例 {n_cases} 条（下限 5）", n_cases >= 5, "用例太少等于没测")
+    c.absent("旧注释里那句「回退默认价是少赚」必须消失（对谈好价的批发商是多收钱，不是少赚）",
+             vm, r"回退到默认价是")
 
     total = c.passes + len(c.fails)
     if total < 45:

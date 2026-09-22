@@ -7,6 +7,11 @@
 · 把"没填运费"当成 0 → 每张预设单都成了免运费单（一键下单时钱就少收了）；
 · 预填不整份替换（改成追加）→ 上一次没提交干净的行混进来 = **多订一样货**；
 · 预填价格自己写一遍（不走 `priceFor`）→ 批发商的专属价被跳过，报价串号；
+· **价还在路上就把行价算定了**（预填不等取数回来）→ 谈好的专属价被跳过，按默认价下单（2026-09-22 真机错价）；
+· **规则到齐后不重算已填好的行** / **取数失败被当成"这个货主没有专属价"** / **没拿到价也照样提交**
+  → 三件都是"报了错价而**两边都不报错**"，事后无从发现；
+· **报价依据那句话不画在界面上**（或不再看专属价规则）→ 用户没有任何办法看出这次走的是默认价还是谈好的价；
+· **一次性提示只剩地址抽屉里那一个渲染点** → "已按预设单填好""某件商品已不在商品库"这些话**等于没有反馈**；
 · 常用度记在"点开"而不是"下单成功" → 列表排序变成"谁点开过"；
 · 撤回按钮没了 → 删了就再也找不回来（用户定的硬规矩是"手边要有撤销入口"）。
 
@@ -28,6 +33,7 @@ SCHEMA = ROOT / "backend/app/schemas/order_template.py"
 TEST = ROOT / "backend/tests/test_order_templates.py"
 SCREEN = ANDROID / "ui/dispatcher/OrderTemplatesScreen.kt"
 CREATE_VM = ANDROID / "ui/shipper/OrderCreateViewModel.kt"
+CREATE_SCREEN = ANDROID / "ui/shipper/OrderCreateScreen.kt"
 NAV = ANDROID / "ui/nav/NavGraph.kt"
 MODULES = ANDROID / "ui/nav/Modules.kt"
 AI_RES = ANDROID / "ai/AiResources.kt"
@@ -112,6 +118,72 @@ MUTATIONS = [
         'price = p?.let { priceFor(it) } ?: "",',
         'price = p?.defaultUnitPrice ?: "",',
         "单价走唯一那份口径",
+    ),
+    (
+        "预填**不等专属价到齐**就算行价（专属价还在路上 → 行价按默认价算定，谈好的价被跳过）",
+        CREATE_VM,
+        "                awaitPriceRules()",
+        "",
+        "预填**先等这个货主的专属价到齐**再算行价",
+    ),
+    (
+        "报价依据在预填横幅里又写了一遍（同屏出现两句互相打架的价：横幅说默认价、明细说专属价）",
+        CREATE_VM,
+        '                    append("已按预设单「").append(t.name).append("」填好商品与数量，请核对后再提交")',
+        '                    append("已按预设单「").append(t.name).append("」填好商品与数量，请核对后再提交")'
+        '.append(priceBasisText())',
+        "预填横幅里**不许**再写一遍报价依据",
+    ),
+    (
+        "报价依据不再看专属价规则（一律说「按商品默认售价」＝这句话就废了）",
+        CREATE_VM,
+        "        val special = lines.count { ln -> ln.productId?.let { priceRules[it] != null } == true }",
+        "        val special = 0",
+        "它真的去看了专属价规则",
+    ),
+    (
+        "顶部横幅被删（提示又变成只有地址抽屉里才画 = 用户看不见）",
+        CREATE_SCREEN,
+        "        vm.toast?.let { msg ->",
+        "        null?.let { msg ->",
+        "一次性提示有",
+    ),
+    (
+        "规则到齐后**不重算已有的行**（先挑商品、后换货主 → 行上留着上一个货主的价）",
+        CREATE_VM,
+        "        priceRules = loaded\n        priceRulesShipper = sid\n        repriceFromRules()",
+        "        priceRules = loaded\n        priceRulesShipper = sid",
+        "落完规则就**重算已有的行**",
+    ),
+    (
+        "取数失败被当成「这个货主没有专属价」（＝按默认价把单发出去，谈好价的批发商被多收钱）",
+        CREATE_VM,
+        "    } catch (_: Exception) {\n"
+        "        loadingProducts = false   // 失败也要收尾，别让界面永远停在\"加载中\"\n"
+        "        null\n"
+        "    }",
+        "    } catch (_: Exception) {\n"
+        "        loadingProducts = false   // 失败也要收尾，别让界面永远停在\"加载中\"\n"
+        "        emptyMap()\n"
+        "    }",
+        "失败**不许**退化成空 map",
+    ),
+    (
+        "提交那道报价闸门被删（还没拿到价也照发：默认价成了实际成交价）",
+        CREATE_VM,
+        "                        val subject = shipperId ?: myShipperId ?: s?.userId\n"
+        "                        if (subject != null && priceRulesShipper != subject) {",
+        "                        val subject = shipperId ?: myShipperId ?: s?.userId\n"
+        "                        if (false) {",
+        "提交那道**报价闸门**",
+    ),
+    (
+        "没有价的那一行也放出去（商品已不在库，后端收到空单价 → 用户看到一个看不懂的 422）",
+        CREATE_VM,
+        '            noPrice != null -> error = "「${noPrice.name}」没有价格'
+        '（这件商品已不在商品库），先删掉这一行再提交"\n',
+        "",
+        "没有价的那一行**挡住**",
     ),
     (
         "常用度记在别的地方（列表会按「谁点开过」排序）",
