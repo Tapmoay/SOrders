@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -52,6 +54,9 @@ import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
 import com.amap.api.maps.model.CameraPosition
 import com.amap.api.maps.model.LatLng
+import com.amap.api.maps.model.TileOverlay
+import com.amap.api.maps.model.TileOverlayOptions
+import com.amap.api.maps.model.UrlTileProvider
 import com.amap.api.services.core.LatLonPoint
 import com.amap.api.services.geocoder.GeocodeQuery
 import com.amap.api.services.geocoder.GeocodeSearch
@@ -59,6 +64,7 @@ import com.amap.api.services.geocoder.RegeocodeQuery
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.SunLocation
 import com.tapmoay.sorders.util.GeoResolver
+import java.net.URL
 
 /**
  * 高德地图选点弹层：地图可拖动选点（微信式中心图钉）+ 搜索框（POI 联想）+ 定位当前位置 + 逆地理地址。
@@ -70,6 +76,16 @@ import com.tapmoay.sorders.util.GeoResolver
  */
 internal object AmapMapHolder {
     private var mv: MapView? = null
+    private var roadOverlay: TileOverlay? = null
+
+    /**
+     * 当前图层：`true` = 卫星（叠路网注记），`false` = 标准。
+     *
+     * 放在这里而不是弹层里，是因为**地图实例本身就是单例**（见上面那段的生命周期说明）——
+     * 于是"用户选过卫星"这件事天然跟着地图走，重开弹层不用再点一次。
+     * ⚠️ 只记在进程内，**App 重启后回到标准**（要跨重启保留得落 DataStore，那是另一件事）。
+     */
+    var satellite: Boolean = false
 
     fun get(context: android.content.Context): MapView {
         mv?.let { return it }
@@ -77,6 +93,40 @@ internal object AmapMapHolder {
             MapView(context.applicationContext).apply { onCreate(null) }.also { mv = it }
         } catch (_: Exception) {
             MapView(context).apply { onCreate(null) }
+        }
+    }
+
+    /**
+     * 应用图层选择：卫星 = SDK 的卫星影像 **+ 另叠一层「路网 + 注记」瓦片**。
+     *
+     * 为什么还要叠那一层：`AMap.MAP_TYPE_SATELLITE` 在 9.8.3 上**只有影像、没有路名与门牌**，
+     * 而选点恰恰要靠路名确认「是不是这个门、这条巷子」——尤其是厂区/仓库那种一片屋顶的地方。
+     *
+     * ⚠️ 瓦片地址必须 **https**：本包 `res/xml/network_security_config.xml` 是
+     *    `cleartextTrafficPermitted="false"`，http 瓦片在真机上会被**静默**拦掉
+     *    （界面不报错，只是路名永远不出现 —— 这种"看起来没坏"的错最难查）。
+     * ⚠️ 它只是**注记层**：这个地址哪天失效，卫星影像照常显示、只是没有路名，
+     *    不会把地图变成空白（所以不构成致命依赖）。
+     * ⚠️ 只在「打开弹层」与「用户点切换」时调用；**不要放进 `onCameraChange`**（每拖一次地图
+     *    就加一个图层，拖动几次之后地图上会叠好几层）。
+     */
+    fun applyMapType(aMap: AMap) {
+        try {
+            aMap.mapType = if (satellite) AMap.MAP_TYPE_SATELLITE else AMap.MAP_TYPE_NORMAL
+        } catch (_: Exception) {
+            return
+        }
+        try {
+            if (roadOverlay == null) {
+                roadOverlay = aMap.addTileOverlay(
+                    TileOverlayOptions().tileProvider(object : UrlTileProvider(256, 256) {
+                        override fun getTileUrl(x: Int, y: Int, zoom: Int): URL =
+                            URL("https://wprd0${(x + y) % 4 + 1}.is.autonavi.com/appmaptile?style=8&x=$x&y=$y&z=$zoom")
+                    })
+                )
+            }
+            roadOverlay?.isVisible = satellite
+        } catch (_: Exception) {
         }
     }
 }
@@ -106,9 +156,12 @@ fun AmapPickerDialog(
     // 地图载体：全程单例（规避 9.8.3 onDestroy 在 Android 16 arm64 上 native 崩溃）
     val mapView = remember { AmapMapHolder.get(context.applicationContext) }
     val aMap = remember { mapView.map }
-    // 每次打开恢复地图渲染
+    // 图层：默认标准；用户点过「卫星」之后跟着地图实例记住（见 AmapMapHolder.satellite 的说明）
+    var satellite by remember { mutableStateOf(AmapMapHolder.satellite) }
+    // 每次打开恢复地图渲染 + 把上次选的图层重新应用一遍
     androidx.compose.runtime.LaunchedEffect(Unit) {
         try { mapView.onResume() } catch (_: Exception) {}
+        AmapMapHolder.applyMapType(aMap)
     }
 
     /** 相机跳转（无动画）：选点以相机中心为准（屏幕中央箭头指示，微信式） */
@@ -281,6 +334,37 @@ fun AmapPickerDialog(
                                 }
                             }
                         })
+                    }
+                    // 图层切换（用户 2026-09-22 点名要卫星图）：放地图**右上角**，不挡中心图钉与定位按钮。
+                    // 文案写**将要切到的那个**（当前是标准 → 显示「卫星」），与高德/微信的图层按钮一致。
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                        Surface(
+                            onClick = {
+                                satellite = !satellite
+                                AmapMapHolder.satellite = satellite
+                                AmapMapHolder.applyMapType(aMap)
+                            },
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                            shadowElevation = 2.dp,
+                            modifier = Modifier.padding(10.dp),
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    if (satellite) Icons.Default.Map else Icons.Default.Layers,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (satellite) "标准" else "卫星",
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
+                        }
                     }
                     // 底部居中定位按钮
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
