@@ -104,8 +104,9 @@ abstract class OrderLineWriteHandler(
 /**
  * 加一行商品。
  *
- * 单价不给就按**商品库里的默认价**补——但要在卡片上写明"这是按商品库取的"，
- * 让用户有机会改。商品库里没有这个名字时**不去猜价**，而是让用户给一个。
+ * 单价不给就按**这个订单货主的价**补（专属价优先、否则商品库的默认价 —— 口径在 [AiPriceBasis]），
+ * 卡片上写明这是哪一种价，让用户有机会改。商品库里没有这个名字时**不去猜价**，而是让用户给一个。
+ * 用户/模型给了价但与系统价不一致时，卡片把**两个数**都摆出来（只提示不拦：当场改价是真实业务）。
  */
 class AddOrderLineHandler(
     ds: AiWriteDataSource,
@@ -123,21 +124,27 @@ class AddOrderLineHandler(
         )
         if (qty <= 0) throw AiWriteArgException("件数要大于 0。")
 
-        val typed = AiWriteArgs.str(params, "unit_price")
-        // 用户没给价就按**商品库的默认价**补；库里没有这个商品就**不猜价**。
-        val known = if (typed == null) {
-            ds.productPrices().firstOrNull { it.name.trim().equals(product.trim(), ignoreCase = true) }
-        } else {
-            null
+        val typed = AiWriteArgs.str(params, "unit_price")?.let {
+            AiWriteArgs.parseMoney(it, "unit_price", mustPositive = false)
         }
+        // 报价绑**这个订单的货主**：专属价优先、否则商品默认价（口径只有一处，见 [AiPriceBasis]）。
+        // ⛔ 原来这里取的是"商品库的默认价"，**这个单的货主是谁根本没看** —— 批发商谈好的专属价
+        //    会被整条跳过（2026-09-22 查出来的真缺陷，与 569a23d 修界面那次同一个病：
+        //    用户原话「商品的价格都跟他货主配置的价格进行绑定」）。
+        val basis = AiPriceBasis.load(ds)
+        val productId = ds.productPrices()
+            .firstOrNull { it.name.trim().equals(product.trim(), ignoreCase = true) }
+            ?.id
+        val system = productId?.let { basis.of(order.shipperId, it) }
         val unitPrice: BigDecimal = when {
-            typed != null -> AiWriteArgs.parseMoney(typed, "unit_price", mustPositive = false)
-            known != null -> known.defaultPrice.toBigDecimalOrNull()
-                ?: throw AiWriteArgException("商品库里取不到「$product」的默认价，请让用户直接说一件多少钱。")
-
-            else -> throw AiWriteArgException(
+            typed != null -> typed
+            system != null -> system.value
+            // 商品库里没有这个商品 → **不猜价**，让用户给一个（与原来同一句话）
+            productId == null -> throw AiWriteArgException(
                 "商品库里没有叫「$product」的商品，我也没法猜单价。请让用户说一件多少钱。",
             )
+
+            else -> throw AiWriteArgException("商品库里取不到「$product」的价，请让用户直接说一件多少钱。")
         }
         val lineTotal = unitPrice.multiply(BigDecimal(qty))
 
@@ -148,8 +155,15 @@ class AddOrderLineHandler(
                 add("———— 加这一行 ————")
                 add("商品：$product")
                 add("数量：$qty 件")
-                add("单价：${money(unitPrice)} 元/件" + if (typed == null) "（按商品库的默认价取的）" else "")
+                add(
+                    "单价：${money(unitPrice)} 元/件" +
+                        if (typed == null && system != null) "（${system.basisCn}）" else "",
+                )
                 add("小计：${money(lineTotal)} 元")
+                // 给了价但与**这个货主的价**不一致：把两边都摆到卡片上。
+                // 只提示不拦 —— 派单员当场改价是真实业务（"这批便宜 5 毛"）；但模型也可能只是没查
+                // 专属价就照着默认价填了一个数，这一行就是让它回去跟用户核对的。
+                typed?.let { t -> basis.mismatchNote(t, system)?.let { add(it) } }
                 add("———— 金额变化 ————")
                 add("订单金额：${AiWriteArgs.moneyText(order.amount)} → ${money(amountOf(order).add(lineTotal))} 元")
             },

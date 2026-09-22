@@ -546,6 +546,18 @@ data class AiOrderRef(
      * 而"点了确认才报错"就是白弹一张卡 —— 与状态门同一个道理，前置条件要在 [prepare] 里先核对。
      */
     val hasNav: Boolean = false,
+    /**
+     * 这单的货主编号（`null` = 临时货主，或者老后端没下发这个字段）。
+     *
+     * 为什么卡片视图要带上它（2026-09-22）：**报价必须绑这个货主的价**（专属价优先、否则商品默认价），
+     * 而"加一行商品"这条路原来只拿得到一个货主**名字** —— 名字既认不出重名，
+     * 也查不出他谈好的专属价，于是那一行只能退回商品库的默认价（真缺陷，见 [AiPriceBasis]）。
+     *
+     * ⚠️ 加新字段一律**追加在最后**（这个类在测试里有十几处**位置参数**调用：
+     *    插在中间会把后面的字段整体顶掉一位，其中形状恰好相同的那几处**编译得过**、
+     *    而 status 与 address 悄悄换了位置）。要读它请用名字。
+     */
+    val shipperId: Long? = null,
 ) {
     /** 卡片上显示的中文状态（由 [status] 推出来，不再单独存一份）。 */
     val statusCn: String get() = statusLabel(status)
@@ -1454,8 +1466,9 @@ object AiWrites {
                     hint = "整数，不填默认 1",
                 ),
                 AiWriteParam(
-                    "unit_price", "单价（元）", required = true, kind = AiWriteParamKind.NUMBER,
-                    hint = "必填，只传数字",
+                    "unit_price", "单价（元）", kind = AiWriteParamKind.NUMBER,
+                    hint = "可选，只传数字。**不填就按这个货主的价算**（专属价优先、否则商品默认价）——" +
+                        "用户没报过价就别自己填；填了但与他的价不一样，卡片会把两个数都写出来",
                 ),
                 AiWriteParam(
                     "entry_date", "发生日期", kind = AiWriteParamKind.DATE,
@@ -1564,7 +1577,10 @@ object AiWrites {
                 AiWriteParam(
                     "lines", "商品明细", required = true, kind = AiWriteParamKind.TEXT,
                     hint = "必填，**数组**：[{\"product\":\"红富士苹果\",\"quantity\":3,\"unit_price\":5.5}, ...]" +
-                        "（最多 10 行；product 传商品名，quantity 和 unit_price 只传数字）",
+                        "（最多 10 行；product 传商品名，quantity 和 unit_price 只传数字）。" +
+                        "unit_price **可以不填**：不填就按**这个货主的价**算（他跟你有专属价就用专属价，" +
+                        "否则商品默认价）—— 用户没报过价就别自己填，" +
+                        "填了但与他的价不一样，卡片会把两个数都写出来让你回去核对。",
                 ),
                 AiWriteParam(
                     "address", "送货地址",
@@ -1837,7 +1853,8 @@ object AiWrites {
                 AiWriteParam("quantity", "几件", required = true, kind = AiWriteParamKind.NUMBER, hint = "必填，整数"),
                 AiWriteParam(
                     "unit_price", "单价（元）", kind = AiWriteParamKind.NUMBER,
-                    hint = "可选。不填就按商品库里的默认价；填了要以用户说的为准",
+                    hint = "可选。不填就按**这个订单货主的价**算（他跟你有专属价就用专属价，否则商品库默认价）；" +
+                        "填了要以用户说的为准 —— 但与他的价不一样时卡片会把两个数都写出来",
                 ),
             ),
         ),

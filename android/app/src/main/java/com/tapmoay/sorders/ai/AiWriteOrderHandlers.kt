@@ -495,7 +495,9 @@ class CreateOrderHandler(
             )
         }
 
-        val lines = parseLines(params)
+        // 报价绑**这个货主**：代理下单绑他（`shipper.id`），货主自己下单绑**他自己**
+        // （后端对货主不收 shipper_id，见上面那段；界面那条同源口径是 `subject = shipperId ?: myShipperId`）。
+        val lines = parseLines(params, shipperId = if (selfOrder) ds.currentUserId() else shipper?.id)
         val address = AiWriteArgs.text(AiWriteArgs.str(params, "address"), "送货地址")
         val date = AiWriteArgs.parseDate(AiWriteArgs.str(params, "date"), "date") ?: LocalDate.now()
         val phoneDongjia = AiWriteArgs.text(AiWriteArgs.str(params, "phone_dongjia"), "收货人电话", 32)
@@ -532,8 +534,15 @@ class CreateOrderHandler(
                 )
                 add("下单日期：$date")
                 add("———— 商品明细 ————")
-                lines.forEach { l -> add("· ${l.name}  ${l.quantity} × ${AiWriteArgs.moneyText(l.unitPrice)} 元 = ${AiWriteArgs.moneyText(l.lineTotal)} 元") }
+                lines.forEach { l ->
+                    add(
+                        "· ${l.name}  ${l.quantity} × ${AiWriteArgs.moneyText(l.unitPrice)} 元 = " +
+                            "${AiWriteArgs.moneyText(l.lineTotal)} 元${l.priceNote}",
+                    )
+                }
                 add("合计：${AiWriteArgs.moneyText(total)} 元")
+                // 与**这个货主的价**不一致时把两个数都摆出来（见 [AiPriceBasis.mismatchNote]）
+                lines.forEach { l -> l.priceWarn?.let { add(it) } }
                 if (geo != null && AiLocation.isHere(address)) {
                     add("送货地址（用手机上当前的位置）：$addressText")
                 } else if (address.isNotBlank()) {
@@ -607,6 +616,10 @@ class CreateOrderHandler(
         val quantity: Int,
         val unitPrice: String,
         val lineTotal: String,
+        /** 卡片上紧跟"单价"的那句（这个价是从哪来的）。 */
+        val priceNote: String,
+        /** 给了价但与**这个货主的价**不一致时的提示；一致/查不到价时为 null。 */
+        val priceWarn: String?,
     )
 
     /**
@@ -615,8 +628,14 @@ class CreateOrderHandler(
      * 商品名会去商品表里查（**严格**：查不到就拒绝）。
      * 不做成"查不到就当自由文本商品"——那样会建出一张系统里根本不存在的商品的单，
      * 库存扣不了、报表里也会多出一个只出现过一次的商品名。
+     *
+     * ### 报价（2026-09-22 修的真缺陷）
+     * `unit_price` 从**必填**改成**可选**：不填就按**这个货主**的价补
+     * （专属价优先、否则商品默认价 —— 口径只有一处，见 [AiPriceBasis]），
+     * 不再逼着模型自己编一个数（它编出来的通常是商品库默认价，批发商谈好的专属价就被跳过了）。
+     * 填了但与系统价不一致 → 卡片把两个数都摆出来（只提示不拦：当场改价是真实业务）。
      */
-    private suspend fun parseLines(params: JsonObject): List<Line> {
+    private suspend fun parseLines(params: JsonObject, shipperId: Long?): List<Line> {
         val raw = params["lines"] as? JsonArray
             ?: throw AiWriteArgException(
                 "缺少 lines：这单要下什么货？要传一个数组，" +
@@ -626,6 +645,8 @@ class CreateOrderHandler(
         if (raw.size > MAX_LINES) throw AiWriteArgException("一张单最多 $MAX_LINES 行商品，收到 ${raw.size} 行。")
 
         val catalog = ds.products()
+        // 一次拉齐专属价 + 商品默认价，这一整张卡的各行都查这一份（不再逐行发请求）
+        val basis = AiPriceBasis.load(ds)
 
         return raw.mapIndexed { i, el ->
             val obj = el as? JsonObject
@@ -633,13 +654,31 @@ class CreateOrderHandler(
             val name = AiWriteArgs.required(obj, "product", "第 ${i + 1} 行是哪个商品？")
             val product = AiWriteArgs.strict(name, catalog, "商品")
             val qty = AiWriteArgs.str(obj, "quantity")?.let { AiWriteArgs.parseQuantity(it) } ?: 1
-            val price = AiWriteArgs.parseMoney(AiWriteArgs.str(obj, "unit_price"), "第 ${i + 1} 行的 unit_price", mustPositive = false)
+            val typedRaw = AiWriteArgs.str(obj, "unit_price")
+            val typed = typedRaw?.let {
+                AiWriteArgs.parseMoney(it, "第 ${i + 1} 行的 unit_price", mustPositive = false)
+            }
+            val system = basis.of(shipperId, product!!.id)
+            val price: BigDecimal = when {
+                typed != null -> typed
+                system != null -> system.value
+                else -> throw AiWriteArgException(
+                    "第 ${i + 1} 行（${product.label}）没给 unit_price，商品库里也查不到它的价 —— " +
+                        "请让用户说一件多少钱，不要自己编。",
+                )
+            }
             Line(
-                productId = product!!.id,
+                productId = product.id,
                 name = product.label,
                 quantity = qty,
                 unitPrice = price.toPlainString(),
                 lineTotal = price.multiply(BigDecimal(qty)).setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                priceNote = when {
+                    typed != null -> ""
+                    system != null -> "（${system.basisCn}）"
+                    else -> ""
+                },
+                priceWarn = typed?.let { t -> basis.mismatchNote(t, system) },
             )
         }
     }

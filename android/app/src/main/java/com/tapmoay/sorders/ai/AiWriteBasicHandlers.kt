@@ -117,7 +117,12 @@ class ExpenseWriteHandler(
     }
 }
 
-/** 账本记一笔。MEDIUM 档。 */
+/**
+ * 账本记一笔。MEDIUM 档。
+ *
+ * 单价不给就按**这个货主的价**补（专属价优先、否则商品默认价，见 [AiPriceBasis]）；
+ * 给了价但与系统价不一致时，卡片把两个数都摆出来。
+ */
 class LedgerEntryWriteHandler(
     private val ds: AiWriteDataSource,
     private val store: AiWritePreviewStore,
@@ -140,7 +145,26 @@ class LedgerEntryWriteHandler(
         )
 
         val quantity = AiWriteArgs.str(params, "quantity")?.let { AiWriteArgs.parseQuantity(it) } ?: 1
-        val unitPrice = AiWriteArgs.parseMoney(AiWriteArgs.str(params, "unit_price"), "unit_price", mustPositive = false)
+        val typed = AiWriteArgs.str(params, "unit_price")?.let {
+            AiWriteArgs.parseMoney(it, "unit_price", mustPositive = false)
+        }
+        // 报价同样绑**这个货主**的价（专属价优先、否则商品默认价）—— 界面「账本记一笔」那一页
+        // 也是这么算的（`LedgerCreateScreen.priceFor`）。⛔ 既不认"模型给的数就是结论"，
+        // 也不拿商品默认价当结论：两条都会让账本上的价与这个货主的实际价对不上（见 [AiPriceBasis]）。
+        val basis = AiPriceBasis.load(ds)
+        val productId = ds.productPrices()
+            .firstOrNull { it.name.trim().equals(product.trim(), ignoreCase = true) }
+            ?.id
+        val system = productId?.let { basis.of(shipper?.id, it) }
+        val unitPrice = typed ?: system?.value ?: throw AiWriteArgException(
+            // 账本这一笔的"货"**允许不在商品库里**（临时客户、口头记一笔是真实业务），
+            // 所以这里不是拒绝，而是**要一个价**：库里查不到价时绝不编一个。
+            if (productId == null) {
+                "商品库里没有叫「$product」的商品，我也没法猜单价。请让用户说一件多少钱。"
+            } else {
+                "商品库里取不到「$product」的价，请让用户直接说一件多少钱。"
+            },
+        )
         val total = unitPrice.multiply(java.math.BigDecimal(quantity))
             .setScale(2, java.math.RoundingMode.HALF_UP)
         val entryDate = AiWriteArgs.parseDate(AiWriteArgs.str(params, "entry_date"), "entry_date")
@@ -156,7 +180,12 @@ class LedgerEntryWriteHandler(
                         if (shipper != null) "记账对象：${shipper.label}（系统里的货主）"
                         else "记账对象：$shipperRaw（系统里没有这个名字，将按「临时客户」记）",
                     )
-                    add("数量：$quantity × 单价 ${AiWriteArgs.moneyText(unitPrice)} 元")
+                    add(
+                        "数量：$quantity × 单价 ${AiWriteArgs.moneyText(unitPrice)} 元" +
+                            if (typed == null && system != null) "（${system.basisCn}）" else "",
+                    )
+                    // 给的价与**这个货主的价**不一致：两个数都摆出来（只提示不拦）
+                    typed?.let { t -> basis.mismatchNote(t, system)?.let { add(it) } }
                     add("日期：$entryDate")
                     if (note.isNotBlank()) add("备注：$note")
                 },

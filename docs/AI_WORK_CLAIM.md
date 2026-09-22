@@ -20,6 +20,70 @@
 
 ## 进行中
 
+### [2026-09-22 23:2x →] 会话：**AI 报价必须绑「这个货主的价」**（建单 / 加行 / 账本记一笔三条路）+ 新功能 AI 能力对账（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**用户原话**：「我们不是新增了很多的功能吗？尤其是那个预定单还有…供应商的那个收货款这些能力 AI 他都要具有…
+所有的操作，主要是人能操作的他都可以操作。而且再看一下… AI 在其他的基础工作，尤其是核心的业务工作上有没有出现错误，他做不了的」
+
+#### 一、先对账（结论）：两条新线的 AI 能力**是齐的**
+
+- 预订单：`order_templates.*` 建/改/删/恢复 + 读表 2 组（`order_templates.list_templates` /
+  `order_template_categories.list_categories`）；「用这张下单」按设计**不生成订单**（AI 走 `orders.create`）。
+- 供应商/应付款：11 条动作（档案 3+恢复、应付单 3+恢复、付款 pay/cancel/restore）+ 读表 3 组。
+- 存量判据：写覆盖 0 真缺口 · 角色对齐 17 项绿 · AI 红线 1249 项绿 · 读覆盖 0 条没交代。
+  → 「有没有」这一层没问题，**问题在"对不对"**（下面这条）。
+
+#### 二、查出的真缺陷：AI 三条"按商品报价"的路，**一条都没绑货主生效价**
+
+- `orders.create`：`lines[].unit_price` 是**必填**，模型必须自己编一个价（`parseMoney(null)` 直接抛
+  「缺少 unit_price」），卡片只把它显示出来 —— 不查这个货主有没有专属价。
+- `orders.add_line`：没给单价时兜底取**商品库默认价**（`AiWriteOrderLineHandlers.kt:128`），
+  而这个订单的货主是谁**根本没看**。
+- `ledger.create_entry`：`unit_price` 同样必填、同样不绑。
+- **为什么这是钱算错而不是"少个提示"**：后端**不重算价** —— `order_products.py::create_order_product`
+  直接收 `body.unit_price`，`order_flow.build_order_products` 同理。所以绑价**全是客户端责任**，
+  界面那份唯一口径是 `OrderCreateViewModel.priceFor` / `LedgerCreateScreen.priceFor`
+  （专属价优先、`priceRulesShipper` 对不上就回退默认价，并挡住下单直到价格已知）。
+  **569a23d 修的正是界面这一半，AI 这一半一直没人管，也没有任何判据管它**
+  （红线里 `unit_price` 那几条全是"批量调价"语境的）。
+  后果与用户上次报的那个 bug 一模一样：批发商谈好 10 元，AI 建出来的单按 20 元。
+- 附带发现（不是缺陷、但要记）：**订单商品行的增/改/删三个端点在界面里一个调用点都没有**
+  （`createOrderProduct`/`updateOrderProduct`/`deleteOrderProduct` 只有 `AiWriteService.kt` 在调）
+  → 这三件事**只有 AI 能做**：方向与"AI 不许越权"相反，是"AI 比人多"。本轮只报告，不动它。
+
+#### 三、改法（新增一份口径，不碰核心逻辑）
+
+1. **新增** `ai/AiEffectivePrice.kt`：`AiPriceBasis.load(ds)` 一次拉齐专属价 + 商品默认价，
+   `of(shipperId, productId)` = **专属价优先、否则默认价**（两边都没有 → `null`＝不知道价，绝不拿 0 顶）；
+   `mismatchNote()` 出"与他的价不一致"那句统一提示。
+2. `orders.create`：`lines[].unit_price` 改成**可选**（不填就按货主生效价补，不再逼模型编价）；
+   填了但与系统价不一致 → 卡片同时写明**两边的数**与**这个价是从哪来的**。
+3. `orders.add_line`：兜底从"商品库默认价"改成**该订单货主的生效价**，卡片如实写是哪一种价。
+   `update_line` **没动**：改价本身就是用户点名的动作，卡片已经写着 `原价 → 新价`
+   （在每一条合法的"改价"上都弹一句"与他的价不一致"＝噪音，会让人学会无视它）。
+4. `ledger.create_entry`：`unit_price` 可选 + 同一条不一致提示。
+5. `AiOrderRef` 加 `shipperId`（**追加在字段末尾**：这个类在测试里有十几处**位置参数**调用，
+   插在中间会把 status/address 整体顶掉一位，形状恰好相同的那几处**编译得过**）；
+   数据源加 `currentUserId()`（货主给自己下单时，专属价要按他自己那份算 —— 界面
+   `subject = shipperId ?: myShipperId` 同一条口径）。
+   ⚠️ 这两处落在核心文件 `AiWriteService.kt` 里，所以上面那行「核心改动」说的是它们：
+   只加一个字段与一个只读函数，**preview → 确认卡 → execute 的闸门逻辑一行没动**。
+
+**验证**：`_check_ai_guardrails.py` 新增 **§34（18 项）** + 新反向验证
+`_tools/ai/_reverse_verify_ai_price_basis.py`（**6 种注入**都让 §34 点出那一条，还原逐字节一致）
+＋ 单测 `AiPriceBasisTest`（14 例）＋ 全量 `_check_all.py` 76/76 ＋ Android 单测 **1072 例 0 失败**。
+
+**顺手修掉的两处**：① `AiWriteArgs.money(` 的形态判据把我在新文件里的**死属性** `Price.raw`
+抓了出来 —— 它没有任何消费点，删掉（消费者直接用 `BigDecimal` + `toPlainString()`）；
+② 新增 `.kt` 让 `09A_HINT_CATALOG.md` 过期 → 重新生成。
+
+核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：AI 写闸门的数据源要能回答「我是谁」和「这单是谁的」，否则报价绑不到货主；只加一个字段与一个只读函数，preview→确认卡→execute 的闸门逻辑一行不改
+
+**本会话明确不碰**：其他会话正在改的文件（当前工作树干净、无并发改动）；`backend/**` 一行不改
+（后端不重算价是既定设计，改它等于动核心钱口径）；上面那条"AI 比人多"的商品行入口。
+
+---
+
 ### [2026-09-22 19:0x →] 会话：**AI 卡片上的金额也去零**（`moneyText` / `money` 拆开）+ **后端已发到生产**（DSH `session-faa17a77-515b-4bcb-bd47-fddae0129342`）
 
 **用户原话**：「可以可以这两件事直接做了」—— 指上一轮结尾我请他拍板的两件。

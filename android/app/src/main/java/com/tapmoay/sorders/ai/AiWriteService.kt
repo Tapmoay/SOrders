@@ -258,6 +258,16 @@ interface AiWriteDataSource {
     suspend fun currentRoleKey(): String?
 
     /**
+     * 当前登录人的编号（认不出返回 null）。
+     *
+     * ⚠️ 为什么光有 [currentRoleKey] 不够（2026-09-22）：**货主给自己下单**时后端不收 `shipper_id`
+     *    （`create_order` 对他就是 `target_shipper_id = current.id`），而专属价挂在**他本人**这个编号下。
+     *    只认角色不认人，批发商自己下单时 AI 就只能按商品默认价报价 —— 他谈好的那套专属价被整条跳过。
+     *    界面那条同源口径正是这么写的：`OrderCreateViewModel` 的 `subject = shipperId ?: myShipperId`。
+     */
+    suspend fun currentUserId(): Long?
+
+    /**
      * 我账本上的一张单（按**完整单号**查）：带逐行"还可核销多少"。
      *
      * 为什么按单号而不是"给一串候选让模型挑"：核销是**钱**，挑错单就是记到别人头上，
@@ -703,6 +713,8 @@ class RepoWriteDataSource(
                 id = d.id,
                 orderNo = d.orderNo,
                 shipper = d.shipperName?.trim().orEmpty().ifBlank { d.tempShipperName?.trim().orEmpty() },
+                // 报价要绑这个货主（专属价优先）——只有名字查不出专属价，所以编号必须带上
+                shipperId = d.shipperId,
                 status = d.status,
                 address = d.addressDetail.trim(),
                 driverLabel = d.driverName?.trim()?.takeIf { it.isNotEmpty() },
@@ -891,6 +903,9 @@ class RepoWriteDataSource(
     override suspend fun isMemberShipper(): Boolean = repo.me().isMember
 
     override suspend fun currentRoleKey(): String? = repo.me().role
+
+    /** 与 [currentRoleKey] 同一个来源（`users/me`），只是要的是编号（报价绑货主时用它）。 */
+    override suspend fun currentUserId(): Long? = repo.me().id
 
     override suspend fun mySettleOrder(orderNo: String): AiSettleOrder? {
         val want = AiWriteArgs.normCode(orderNo)
@@ -1128,6 +1143,8 @@ class RepoWriteDataSource(
                 id = d.id,
                 orderNo = d.orderNo,
                 shipper = d.shipperName?.trim().orEmpty().ifBlank { d.tempShipperName?.trim().orEmpty() },
+                // 报价要绑这个货主（专属价优先）——只有名字查不出专属价，所以编号必须带上
+                shipperId = d.shipperId,
                 status = d.status,
                 address = d.addressDetail.trim(),
                 driverLabel = d.driverName?.trim()?.takeIf { it.isNotEmpty() },

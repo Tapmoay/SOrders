@@ -337,6 +337,16 @@ class AiWriteTest {
 
         override suspend fun currentRoleKey(): String? = roleKey
 
+        /**
+         * 当前登录人的**编号**（`users/me` 的 id）。
+         *
+         * 报价要绑货主（2026-09-22）之后它就有了用处：**货主给自己下单**时后端不收 `shipper_id`，
+         * 而专属价挂在他本人这个编号下 —— 所以这里给的就是"他"这个批发商的编号。
+         */
+        var meId: Long? = 31
+
+        override suspend fun currentUserId(): Long? = meId
+
         override suspend fun mySettleOrder(orderNo: String): AiSettleOrder? =
             settleOrders.firstOrNull { it.orderNo.contains(orderNo.trim(), ignoreCase = true) }
                 .also { boom() }

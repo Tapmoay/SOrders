@@ -113,6 +113,12 @@ READ_METHODS = {
     #    这条会把它误报成写调用；而真按"写"处理，就只能把角色分叉挪走 ——
     #    那会让货主的 AI 下单重新去调 `GET /users`（对他是 403，实测过）。
     "currentRoleKey",
+    # 「这一次是谁在用」的**编号**——同样只发 `GET /users/me`，纯读（2026-09-22）。
+    # ⚠️ 为什么要它、为什么必须在 prepare 里读：**货主给自己下单**时后端不收 `shipper_id`，
+    #    而专属价挂在**他本人**这个编号下（界面那条同源口径是 `subject = shipperId ?: myShipperId`）。
+    #    不读它就只能按商品默认价报价 → 批发商自己下单时，他谈好的整套专属价被静默跳过。
+    #    真正写库的一个都不在这里（下单是 `createOrder`，不在白名单里，默认受约束）。
+    "currentUserId",
     # 退货申请（2026-09-21）：三个处理器都要在**发卡之前**把"这一单有没有待处理的申请"读回来
     # （`GET /return-requests?order_id=` / `GET /return-requests/mine`），判据与后端
     # "一张单同时只允许一条待处理申请"同源。它是**读**；
@@ -4215,6 +4221,104 @@ def main() -> int:
          not unexpected, f"缺注解：{unexpected[:3]}")
     for k in ALLOW_NO_ANN:
         c.ok(f"例外仍在（{k.strip()[:30]}…）", k in no_ann, "那条已经加了注解 → 该把它从例外里删掉")
+
+    # ---- 34. AI 的报价必须绑「这个货主的价」（2026-09-22 查出来的真缺陷）----
+    #
+    # 用户定的规则只有一条：「只要是商品的价格都跟他货主配置的价格进行绑定……没有绑定就走默认的价格。」
+    # 而后端**不重算价**（`order_products.py` 直接收 `body.unit_price`），所以绑价全是客户端责任。
+    # 界面那一半在 569a23d 修过（`OrderCreateViewModel.priceFor`），**AI 这一半一直没人管**：
+    # 建单/账本逼着模型自己编一个价、加行直接取"商品库默认价"（连这单的货主都不看）——
+    # 后果就是用户上次报的那个 bug：批发商谈好 10 元，AI 建出来的单按 20 元。
+    print("\n== 34. AI 报价必须绑「这个货主的价」：建单 / 加行 / 账本记一笔（v3.48）==")
+    price_kt = strip_comments(read(AI / "AiEffectivePrice.kt"))
+    wline = strip_comments(read(AI / "AiWriteOrderLineHandlers.kt"))
+    worder_c = strip_comments(worder)
+    wbasic_c = strip_comments(wbasic)
+    wsvc_c = strip_comments(wsvc)
+    wr_c = strip_comments(wr)
+
+    # ① 口径只有一处：专属价优先、否则商品默认价
+    c.present("报价口径只有一处（AiPriceBasis）", price_kt, r"internal class AiPriceBasis")
+    c.present(
+        "生效价＝**这个货主的专属价**优先",
+        price_kt,
+        r"special\[shipperId to productId\]\?\.let \{ return Price\(it, fromSpecial = true\) \}",
+    )
+    c.present(
+        "没有专属价才退回商品默认价",
+        price_kt,
+        r"return defaults\[productId\]\?\.let \{ Price\(it, fromSpecial = false\) \}",
+    )
+    c.present(
+        "价读不出来算「不知道价」而不是 0（0 会被当成「这件货不要钱」）",
+        price_kt,
+        r"raw\.trim\(\)\.takeIf \{ it\.isNotEmpty\(\) \}",
+    )
+
+    # ② 三条路都真的接上了（口径存在但没人用 = 白写）
+    c.present(
+        "建单按**这个货主**的价补（代理下单＝他；货主自下单＝他自己）",
+        worder_c,
+        r"parseLines\(params, shipperId = if \(selfOrder\) ds\.currentUserId\(\) else shipper\?\.id\)",
+    )
+    c.present(
+        "建单的 unit_price 变成可选（不再逼模型自己编一个价）",
+        worder_c,
+        r"val typedRaw = AiWriteArgs\.str\(obj, \"unit_price\"\)",
+    )
+    c.present("建单没给价就用生效价", worder_c, r"system != null -> system\.value")
+    c.present("加行按**这个订单货主**的价补", wline, r"basis\.of\(order\.shipperId, it\)")
+    c.absent(
+        "加行不再拿「商品库默认价」当兜底（就是这次修掉的那个缺陷）",
+        wline,
+        r"known\.defaultPrice",
+    )
+    c.present("账本记一笔也绑货主", wbasic_c, r"basis\.of\(shipper\?\.id, it\)")
+    c.ok(
+        "三条路都真的 load 了这个口径（少一条 = 那条路又回去自己算价）",
+        worder_c.count("AiPriceBasis.load(") + wline.count("AiPriceBasis.load(")
+        + wbasic_c.count("AiPriceBasis.load(") >= 3,
+        f"建单={worder_c.count('AiPriceBasis.load(')} 加行={wline.count('AiPriceBasis.load(')} "
+        f"账本={wbasic_c.count('AiPriceBasis.load(')}",
+    )
+
+    # ③ 给了价但与系统价不一致：卡片必须把两个数都摆出来（**只提示不拦**：
+    #    派单员当场改价是真实业务；但模型也可能只是没查专属价就照着默认价填了一个数）
+    c.present(
+        "不一致的提示口径只有一处（mismatchNote）",
+        price_kt,
+        r"fun mismatchNote\(typed: BigDecimal, system: Price\?\): String\?",
+    )
+    c.ok(
+        "三个消费点都接了它（少一个 = 那条路上用户看不出来价不对）",
+        worder_c.count(".mismatchNote(") >= 1 and wline.count(".mismatchNote(") >= 1
+        and wbasic_c.count(".mismatchNote(") >= 1,
+        f"建单={worder_c.count('.mismatchNote(')} 加行={wline.count('.mismatchNote(')} "
+        f"账本={wbasic_c.count('.mismatchNote(')}",
+    )
+    c.present(
+        "提示里写着「先跟他核对按哪个」（模型据此回去问一句，而不是默默按自己填的数建单）",
+        price_kt,
+        r"先跟他核对按哪个",
+    )
+    c.present(
+        "工具说明书写明「用户没报过价就别自己填」",
+        wr_c,
+        r"用户没报过价就别自己填",
+    )
+
+    # ④ 「我是谁」与「这单是谁的」—— 报价绑货主的两块地基
+    c.present(
+        "数据源能回答「我是谁」（货主自下单要按他自己那份专属价，界面同源口径 subject=…）",
+        wsvc_c,
+        r"suspend fun currentUserId\(\): Long\?",
+    )
+    c.present("卡片视图带上了这单的货主编号", wr_c, r"val shipperId: Long\? = null,")
+    c.ok(
+        "**两个**构造点都填了它（漏一个就有一种查单方式绑不到价）",
+        wsvc_c.count("shipperId = d.shipperId") >= 2,
+        f"实际 {wsvc_c.count('shipperId = d.shipperId')} 处",
+    )
 
     print("\n" + "=" * 60)
     if c.fails:
