@@ -231,13 +231,20 @@ def test_窗口按送达日(client, token_shipper, token_dispatcher, users):
 
 
 def test_回收站里的单不算(client, token_shipper, token_dispatcher, users):
-    """软删的单要真实地退出统计（他连列表都进不去，钱却还算在他头上就是两套账）。"""
+    """软删的单要真实地退出统计（他连列表都进不去，钱却还算在他头上就是两套账）。
+
+    ⚠️ 2026-09-24 第 20 轮（D12-F3）：这条用例原先是**货主自己删**的，而货主现在
+    只能删「已撤销」的单（用户 2026-09-21 定的规矩：删掉一张已送达的单 = 把那笔应收
+    从自己账上抹掉）。这条用例要验的是**账本聚合**（软删的单不进统计），不是"谁能删"，
+    所以这里改成由**派单员**删（他仍然可以删任意状态）—— 意图不变，且顺带把
+    "谁能删"那条规矩留给 `test_in_flight_order_delete_guard.py` 去钉。
+    """
     h = auth_headers(token_shipper)
     disp_h = auth_headers(token_dispatcher)
     name, phone = _next_customer("F")
     oid = _delivered_order(client, h, users, disp_h=disp_h, dongjia=name, dongjia_phone=phone)
     assert _summary(client, h, customer_name=name, customer_phone=phone)["payable"] == "80.00"
-    assert client.delete(f"/api/v1/orders/{oid}", headers=h).status_code in (200, 204)
+    assert client.delete(f"/api/v1/orders/{oid}", headers=disp_h).status_code in (200, 204)
     after = _summary(client, h, customer_name=name, customer_phone=phone)
     assert after["payable"] == "0.00", "进了回收站的单不该还算进「我该付的」"
     assert after["orders"] == 0
