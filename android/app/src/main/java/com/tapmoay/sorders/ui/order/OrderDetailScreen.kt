@@ -1024,7 +1024,11 @@ private fun DetailBody(
                         }
                         Button(
                             onClick = onChargeClick,
-                            enabled = !acting,
+                            // ⛔ 已收款的单不许再挂账（后端 `_reject_if_already_collected` 会拒）——
+                            //    判据与 AI 侧共用 `OrderStatusModel.canChargeToArrears`，
+                            //    理由是"界面给的按钮点了必然失败"（2026-09-23 真机实测抓到）。
+                            enabled = !acting &&
+                                OrderStatusModel.canChargeToArrears(order.paid, order.settledAmount),
                             modifier = Modifier.weight(1f),
                         ) {
                             Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(18.dp))

@@ -756,6 +756,8 @@ class RepoWriteDataSource(
                 collectCash = d.collectCash,
                 isException = d.isException,
                 hasNav = !d.addressLat.isNullOrBlank() && !d.addressLng.isNullOrBlank(),
+                paid = d.paid,
+                settledAmount = d.settledAmount,
             )
         }
 
@@ -1185,6 +1187,8 @@ class RepoWriteDataSource(
                 amount = d.goodsTotalText(),
                 collectCash = d.collectCash,
                 isException = d.isException,
+                paid = d.paid,
+                settledAmount = d.settledAmount,
             )
         }
 

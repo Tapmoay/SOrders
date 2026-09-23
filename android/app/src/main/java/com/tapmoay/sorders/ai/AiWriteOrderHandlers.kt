@@ -774,6 +774,17 @@ class ChargeOrderHandler(
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
         requireStatus(order, OrderStatusModel.NOT_CANCELLED, "已撤销的单不能挂账")
+        // ⛔ 已收款的单不许改回挂账（后端 `_reject_if_already_collected` 会 400）。
+        //    判据与界面那一半**共用** `OrderStatusModel.canChargeToArrears`：
+        //    AI 侧原来只判了状态，于是会弹一张**注定失败**的确认卡 ——
+        //    照着卡点确认，用户看到的是红字报错（2026-09-23 真机实测抓到同一个缺口）。
+        if (!OrderStatusModel.canChargeToArrears(order.paid, order.settledAmount)) {
+            throw AiWriteArgException(
+                "这单已经收过款了（已收 ${AiWriteArgs.moneyText(order.settledAmount)} 元），" +
+                    "不能改回挂账 —— 把已收的钱改成欠款，等于重新开一次收款窗口。" +
+                    "请如实告诉用户，不要改去动别的单。",
+            )
+        }
 
         val unitName = AiWriteArgs.required(params, "unit", "挂到哪个单位名下？把单位名字告诉我。")
         val unit = AiWriteArgs.strict(unitName, ds.arrearsUnits(), "挂账单位")

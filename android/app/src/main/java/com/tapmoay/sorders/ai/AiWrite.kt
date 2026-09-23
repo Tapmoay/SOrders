@@ -558,6 +558,18 @@ data class AiOrderRef(
      *    而 status 与 address 悄悄换了位置）。要读它请用名字。
      */
     val shipperId: Long? = null,
+    /**
+     * 这单**收过款吗**（后端 `order.paid`）。
+     *
+     * 为什么卡片要带它（2026-09-23 真机实测抓到）：`orders.charge`（挂账）动的是"钱收没收到"，
+     * 而**已收款的单不许改回挂账**（后端 `_reject_if_already_collected` 直接 400）。
+     * 前置条件必须在 [AiWriteHandler.prepare] 里先核对 —— 否则用户在卡片上点确认，
+     * 看到的是一句红字「这张单已经收过款了，不能改回挂账」，而卡片本身写着"将挂账到 X"。
+     * 判据与界面那一半**共用** `OrderStatusModel.canChargeToArrears`（一处实现、两处消费）。
+     */
+    val paid: Boolean = false,
+    /** 已收金额（与 `OrderDto.settledAmount` 同一口径）——`paid` 之外的**物证**。 */
+    val settledAmount: String = "0",
 ) {
     /** 卡片上显示的中文状态（由 [status] 推出来，不再单独存一份）。 */
     val statusCn: String get() = statusLabel(status)

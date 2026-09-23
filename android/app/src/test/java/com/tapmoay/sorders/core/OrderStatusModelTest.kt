@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -84,5 +85,29 @@ class OrderStatusModelTest {
         assertEquals(setOf("DISPATCHED"), OrderStatusModel.ACKABLE)
         assertEquals(setOf("ACCEPTED"), OrderStatusModel.COMPLETABLE)
         assertEquals(emptySet<String>(), OrderStatusModel.ACKABLE intersect OrderStatusModel.COMPLETABLE)
+    }
+
+    /**
+     * 「已收款 → 挂账」必须关上（2026-09-23 真机实测抓到：界面那一半没修）。
+     *
+     * 后端 `_reject_if_already_collected` 会 400，而界面/AI 两侧原来都没前置核 ——
+     * 于是已收现金的单上「挂账」按钮一直可点、点下去一句红字。
+     * 这里钉的是**判据本身的真值表**（离线、毫秒级），与后端的两次判据同构：
+     * `paid` 标记 **或** 已收金额 > 0 的物证。
+     */
+    @Test
+    fun `已收款（标记或物证）不许再挂账`() {
+        // 标记说了算：paid=true 时，即使金额是 0（老数据/别的路径改过）也要关上
+        assertFalse(OrderStatusModel.canChargeToArrears(paid = true, settledAmount = "0"))
+        // 物证说了算：paid 被改回 false，但这一单上真的进过钱 → 仍然关上
+        assertFalse(OrderStatusModel.canChargeToArrears(paid = false, settledAmount = "69.60"))
+        // 正常未收款：开着
+        assertTrue(OrderStatusModel.canChargeToArrears(paid = false, settledAmount = "0"))
+        assertTrue(OrderStatusModel.canChargeToArrears(paid = false, settledAmount = "0.00"))
+        // 老后端没下发这个字段（null）→ 按"没进过钱"读，别把功能整个关掉
+        assertTrue(OrderStatusModel.canChargeToArrears(paid = false, settledAmount = null))
+        // 脏数据（不是数字）→ 同上，按 0 读（宁可给按钮，也别凭一个解析失败就锁死功能）
+        assertTrue(OrderStatusModel.canChargeToArrears(paid = false, settledAmount = ""))
+        assertTrue(OrderStatusModel.canChargeToArrears(paid = false, settledAmount = "abc"))
     }
 }

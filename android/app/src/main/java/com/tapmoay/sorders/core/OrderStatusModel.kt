@@ -114,4 +114,25 @@ object OrderStatusModel {
      * 它必须**至少覆盖** [ACKABLE] ∪ [COMPLETABLE]，否则司机进不了"接单"或"送达"这两帧。
      */
     val DRIVER_OPEN: List<String> = listOf("DISPATCHED", "ACCEPTED")
+
+    /**
+     * 能不能把这单**挂账到单位名下**（与状态无关，判的是"钱收没收到"）。
+     *
+     * 后端 `orders.charge_order` → `_reject_if_already_collected(db, order, "改回挂账")`：
+     * **已经收过款的单不许改回挂账** —— 收款侧唯一的防重判据就是 `paid`，
+     * 把它改回 False 等于给这张单**重新开了一次收款窗口**（收款单与收款流水都还在），
+     * 再核销一次就是"资金流入 2×、营业额 1×"，两个口径永久分叉（2026-09-19 审计 R14-2）。
+     *
+     * ### 为什么这条要单独拎出来（2026-09-23 真机实测抓到的）
+     * 后端那一半当时就修了（拒绝 + 一句中文原因），**界面那一半没修**：
+     * `OrderDetailScreen` 的「挂账」按钮只判 `!acting`，于是在一张**已收现金**的单上
+     * 一直是可点的，点下去必然 400「这张单已经收过款了，不能改回挂账」——
+     * 后端文档里写着这个缺口，但"界面给的按钮点了必然失败"这件事一直留在线上。
+     * AI 侧同一处也漏（`ChargeOrderHandler.prepare` 只判了状态）→ 会弹一张注定失败的确认卡。
+     *
+     * 判据与后端**同一套**：`paid` 是标记，而 [settledAmount] > 0（这张单上真的有过进账）
+     * 是物证 —— 标记可能被别的路径改过，物证不会。⛔ 两处（界面 / AI）都走这一个函数。
+     */
+    fun canChargeToArrears(paid: Boolean, settledAmount: String?): Boolean =
+        !paid && (settledAmount?.toDoubleOrNull() ?: 0.0) <= 0.0
 }
