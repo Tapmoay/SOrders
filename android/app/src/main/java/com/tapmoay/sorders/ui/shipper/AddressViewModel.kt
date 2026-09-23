@@ -15,6 +15,9 @@ import com.tapmoay.sorders.data.remote.dto.ContactUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.LocationCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.ContactFillMode
+import com.tapmoay.sorders.ui.common.ReceiverContact
+import com.tapmoay.sorders.ui.common.fillReceiver
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -94,6 +97,27 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     /** 这个地点是不是仓库（**只有派单员**能改，见后端 `api/v1/shipper.py`）。 */
     var locIsWarehouse by mutableStateOf(false)
 
+    /**
+     * 地点表单里**绑定的联系人**（用户 2026-09-24：「可以通过地点来绑定联系人，
+     * 就大家选择地点之后，自动填入对应的联系人」）。
+     *
+     * ⚠️ 与线路的 `draftName`/`draftPhone` **同一口径：存快照串、不存联系人 id**
+     * （后端 `shipper_locations.contact_name/contact_phone` 也是两个串）。
+     * ⛔ 只有「我的地点」能绑人，**共享地点库（`places`）不能** —— 那张表全库共用。
+     */
+    var locContactName by mutableStateOf("")
+    var locContactPhone by mutableStateOf("")
+
+    /**
+     * 「选择联系人」弹层正在给谁挑：`"line"` = 线路表单的收货人；`"loc"` = 地点表单绑定的联系人。
+     * null = 没开。**一份实现两处消费**（同一个弹层、同一条回填判据）。
+     */
+    var contactPickTarget by mutableStateOf<String?>(null)
+
+    /** 弹层里那次「新建联系人」的失败原因 / 在飞标记（与表单的 `formError` 分开：它不在抽屉里）。 */
+    var pickerError by mutableStateOf<String?>(null)
+    var creatingContact by mutableStateOf(false)
+
     /** 当前登录人能不能标仓库 —— 货主看不到那个开关（后端也会拦，这里只是不给他点一个必然报错的东西）。 */
     var canMarkWarehouse by mutableStateOf(false)
     var locImageUploading by mutableStateOf(false)
@@ -172,8 +196,76 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     /** 线路表单选择联系人（快照姓名+电话，换人重选即可） */
     fun selectContact(c: ContactDto) {
         draftContactId = c.id
-        draftName = c.displayName
-        draftPhone = c.phone
+        // 回填判据只有一份（`ui/common/ContactFill.kt::fillReceiver`）：
+        // 挑了一个人 = **整对替换**（只换一半会拼出一个不存在的人）。
+        val f = fillReceiver(ReceiverContact(draftName, draftPhone), c.displayName, c.phone, ContactFillMode.PICKED)
+        draftName = f.name
+        draftPhone = f.phone
+        pickerError = null
+    }
+
+    /**
+     * 打开「选择联系人」弹层，[target] 决定挑完填哪一份（见 [contactPickTarget]）。
+     *
+     * ⚠️ 先刷一遍名册：用户可能刚在「联系人」那一段加过人，而这里是另一个抽屉。
+     */
+    fun openContactPickerFor(target: String) {
+        contactPickTarget = target
+        pickerError = null
+        viewModelScope.launch { try { contacts = container.repo.contacts() } catch (_: Exception) {} }
+    }
+
+    /** 弹层里挑了一位 → 按 [contactPickTarget] 落到对应那一份草稿上，然后关掉弹层。 */
+    fun applyPickedContact(c: ContactDto) {
+        when (contactPickTarget) {
+            "loc" -> {
+                val f = fillReceiver(
+                    ReceiverContact(locContactName, locContactPhone),
+                    c.displayName,
+                    c.phone,
+                    ContactFillMode.PICKED,
+                )
+                locContactName = f.name
+                locContactPhone = f.phone
+            }
+            else -> selectContact(c)
+        }
+        contactPickTarget = null
+    }
+
+    /**
+     * 弹层里**就地新建**一个联系人 → 存完直接用上（不跳回「联系人」那一段重来一遍）。
+     *
+     * 与 [saveContact] 是同一条电话规则（`core/InputRules.kt::phoneError`）+ 同一个后端端点；
+     * 分开一个入口只是因为**落点不同**：那个落进联系人列表，这个落进当前正在填的那份草稿。
+     */
+    fun createContactAndPick(name: String, phone: String) {
+        val p = phone.trim()
+        InputRules.phoneError(p, required = true)?.let {
+            pickerError = it
+            return
+        }
+        if (creatingContact) return
+        creatingContact = true
+        pickerError = null
+        viewModelScope.launch {
+            try {
+                val created = container.repo.createContact(ContactCreateRequest(phone = p, displayName = name.trim()))
+                contacts = container.repo.contacts()
+                applyPickedContact(created)
+                load()
+            } catch (e: Exception) {
+                // 同号已存在（后端 409）：用户要的是"用这个人"，不是"再建一条"
+                val existing = contacts.firstOrNull { it.phone.trim() == p }
+                if (existing != null) {
+                    applyPickedContact(existing)
+                } else {
+                    pickerError = toApiException(e).message ?: "联系人没存上，请重试"
+                }
+            } finally {
+                creatingContact = false
+            }
+        }
     }
 
     fun openPicker(target: String) {
@@ -197,6 +289,11 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         draftDetail = l.detailAddress
         draftLat = l.addressLat
         draftLng = l.addressLng
+        // 这个地点**绑了联系人** → 顺带把线路的收货人带出来（用户 2026-09-24：
+        // 「可以通过地点来绑定联系人」）。**有值才覆盖**：没绑人的地点不许把已经选好的联系人清掉。
+        val f = fillReceiver(ReceiverContact(draftName, draftPhone), l.contactName, l.contactPhone, ContactFillMode.BROUGHT)
+        draftName = f.name
+        draftPhone = f.phone
         // 地点有图 → 线路图片自动带图（多张全带）
         if (l.imageUrls.isNotEmpty() || !l.imageUrl.isNullOrBlank()) {
             draftImageUrls = l.imageUrls.ifEmpty { listOfNotNull(l.imageUrl) }
@@ -373,6 +470,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         locImageUrls = emptyList(); locImageUploading = false
         locCategory = ""
         locIsWarehouse = false
+        locContactName = ""; locContactPhone = ""
         formError = null
         showLocationDialog = true
     }
@@ -388,6 +486,10 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         locImageUrls = l.imageUrls.ifEmpty { listOfNotNull(l.imageUrl) }
         locCategory = l.category
         locIsWarehouse = l.isWarehouse
+        // ⚠️ 联系人**必须回填**：地点保存走的是"整份回传"（`LocationCreateRequest` 同时用于
+        //    POST 与 PATCH），不回填的话"改个地点名字"就把绑定静默清掉了。
+        locContactName = l.contactName
+        locContactPhone = l.contactPhone
         locImageUploading = false
         formError = null
         showLocationDialog = true
@@ -466,6 +568,10 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                     //    他编辑自己的地点不会影响仓库标记（那些点也不是他的）。
                     //    请求体是"整体替换"语义，不回填就等于"改个地点名顺手取消了仓库标记"。
                     isWarehouse = canMarkWarehouse && locIsWarehouse,
+                    // 地点绑定的联系人（2026-09-24）—— 与线路 `receiver_name`/`phone` 同一口径：
+                    // 存快照串。空串 = 解绑。**整份回传**，所以打开编辑时必须已回填（见 openLocationEdit）。
+                    contactName = locContactName.trim(),
+                    contactPhone = locContactPhone.trim(),
                     imageUrls = locImageUrls,
                 )
                 val cur = editingLocation

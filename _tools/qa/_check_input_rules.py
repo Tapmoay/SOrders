@@ -118,6 +118,13 @@ EXCLUDED: dict[str, str] = {
         "（2026-09-22 把 `FormInputRow`/`FormTextAreaRow` 纳入扫描名单时，这一条是同批冒出来的；"
         "同形的还有下面 `ReportCenter` 那条备注。）"
     ),
+    "android/app/src/main/java/com/tapmoay/sorders/ui/common/ContactPickerSheet.kt::搜索姓名或手机号": (
+        "「选择联系人」弹层的**搜索框**（2026-09-24 新增）：它一次要搜**两样**——"
+        "姓名（中文）与手机号。走 `InputRules.phoneInput` 会把汉字**在输入层就丢掉**，"
+        "于是「王」这一类姓名一个字都打不进去、搜索直接失效；"
+        "而它本来也不是「收一个号码」的框（号码由下面那个「新建联系人」对话框收，那一处走 InputRules）。"
+        "命中电话关键词只因为 placeholder 里写了「手机号」。"
+    ),
 }
 
 

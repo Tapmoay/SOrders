@@ -76,11 +76,12 @@ object AiReadCatalog {
             ReadParam("vehicle_type", "str", false, emptyList(), false),
             ReadParam("deleted_only", "bool", false, emptyList(), false),
         )),
-        ReadAction("driver_bills.list_driver_bills", "司机账单", "/api/v1/driver-bills", "driver_id、month、status、bill_type", setOf("dispatcher", "driver"), false, listOf(
+        ReadAction("driver_bills.list_driver_bills", "司机账单", "/api/v1/driver-bills", "driver_id、month、status、bill_type、include_deleted", setOf("dispatcher", "driver"), false, listOf(
             ReadParam("driver_id", "int", false, emptyList(), true),
             ReadParam("month", "str", false, emptyList(), false),
             ReadParam("status", "str", false, emptyList(), false),
             ReadParam("bill_type", "str", false, emptyList(), false),
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
         )),
         ReadAction("driver_settlements.list_settlements", "司机结算记录", "/api/v1/driver-settlements", "driver_id、month、status", setOf("dispatcher", "driver"), false, listOf(
             ReadParam("driver_id", "int", false, emptyList(), true),

@@ -87,10 +87,16 @@ internal object AiResources {
         key = "location",
         cn = "地点",
         idKey = "location_id",
-        readKeys = setOf("name", "detail_address", "remark", "category", GEO_LAT, GEO_LNG),
+        readKeys = setOf(
+            "name", "detail_address", "remark", "category", GEO_LAT, GEO_LNG,
+            // 地点绑定的收货联系人（2026-09-24）：**必须读回来**，否则 AI 改一次地点名，
+            // 撤回卡手里没有旧值 → 绑定的联系人回不去（而 `updateLocation` 是整体替换语义）。
+            "contact_name", "contact_phone",
+        ),
         labels = mapOf(
             "name" to "地点名", "detail_address" to "地址", "remark" to "备注",
             "category" to "分组",
+            "contact_name" to "收货联系人", "contact_phone" to "收货电话",
             GEO_LAT to "纬度", GEO_LNG to "经度",
         ),
         silent = setOf(GEO_LAT, GEO_LNG),
@@ -953,6 +959,9 @@ internal object AiRevertRead {
         put("name", d.name)
         put("detail_address", d.detailAddress)
         put("remark", d.remark)
+        // 地点绑定的收货联系人（2026-09-24）：进快照，撤回时才能把旧值写回去
+        put("contact_name", d.contactName)
+        put("contact_phone", d.contactPhone)
         text(GEO_LAT, d.addressLat)
         text(GEO_LNG, d.addressLng)
     }

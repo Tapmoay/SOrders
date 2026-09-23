@@ -9,7 +9,10 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.dto.*
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.PickedLine
+import com.tapmoay.sorders.ui.common.ReceiverContact
+import com.tapmoay.sorders.ui.common.fillReceiver
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -161,6 +164,32 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var locations by mutableStateOf<List<LocationDto>>(emptyList())
     /** 共享地点库（全库共用；司机到场补录的坐标在这里） */
     var places by mutableStateOf<List<PlaceDto>>(emptyList())
+
+    /**
+     * 联系人名册（**按登录人隔离**：货主与派单员各有一份自己的）——
+     * 下单页「从联系人里选」那一屏的数据。
+     *
+     * 用户 2026-09-24：「加一个在选择下单的时候**可以选择联系人**，就不用每次要手动填入了」。
+     * ⚠️ 只在**打开那一屏时**拉（[openContactSheet]），不像商品目录那样进页面就拉：
+     * 大多数人下单是"从线路/地点带出收货人"，用不到这份名册。
+     */
+    var contacts by mutableStateOf<List<ContactDto>>(emptyList())
+    var showContactSheet by mutableStateOf(false)
+
+    /** 名册在飞 / 取数失败的原因。失败**必须说出来**：空白列表与"你还没建过联系人"长得一模一样。 */
+    var loadingContacts by mutableStateOf(false)
+    var contactsError by mutableStateOf<String?>(null)
+
+    /**
+     * 「新建联系人」那一次提交失败的原因（与 [contactsError] **分开**）。
+     *
+     * 两件事分开的理由：取数失败要替掉右边那一整列（没有列表可看），而新建失败只是那一下没成 ——
+     * 列表本身好好的，把它也换成一句报错，用户会以为"联系人全没了"。
+     */
+    var contactSaveError by mutableStateOf<String?>(null)
+
+    /** 正在提交「新建联系人」（重复点会建出两条同号记录，后端会 409）。 */
+    var savingContact by mutableStateOf(false)
 
     /** 地点分类名册（**自己那一份**）：地址库左栏自定义分类那一截按它排。 */
     var placeCategories by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto>>(emptyList())
@@ -825,11 +854,110 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    // ===== 联系人（用户 2026-09-24：「可以选择联系人，就不用每次要手动填入了」）=====
+
+    /**
+     * 打开「选择联系人」并把名册刷一遍。
+     *
+     * ⚠️ 为什么每次打开都刷（与 [reloadAddressLibrary] 同一个理由）：VM 挂在路由上随页面复用，
+     * 只在 `init` 拉一次的话，用户刚在「地址与联系人」里加的人**这里挑不到** ——
+     * 而"挑不到"与"你还没建过这个人"在界面上长得一模一样。
+     */
+    fun openContactSheet() {
+        showContactSheet = true
+        loadContacts()
+    }
+
+    fun loadContacts() {
+        if (loadingContacts) return
+        loadingContacts = true
+        contactsError = null
+        viewModelScope.launch {
+            try {
+                contacts = container.repo.contacts()
+            } catch (e: Exception) {
+                contactsError = toApiException(e).message ?: "联系人加载失败"
+            } finally {
+                loadingContacts = false
+            }
+        }
+    }
+
+    /**
+     * 挑了一位联系人 → 收货人两栏**整对替换**。
+     *
+     * 判据在 `ui/common/ContactFill.kt::fillReceiver`（**唯一一份**，有单测）：
+     * 挑的是"这个人"，只换一半会拼出一个不存在的人（名字是上一位、电话是这一位的，
+     * 而司机照着这个名字找到的是另一个人）。
+     */
+    fun pickReceiver(c: ContactDto) {
+        val f = fillReceiver(
+            ReceiverContact(dongjiaName, dongjiaPhone),
+            c.displayName,
+            c.phone,
+            ContactFillMode.PICKED,
+        )
+        dongjiaName = f.name
+        dongjiaPhone = f.phone
+        showContactSheet = false
+        contactsError = null
+    }
+
+    /**
+     * 把这次的收货人**存进联系人名册**（弹层底部那个「新建联系人」）→ 存完直接选中他。
+     *
+     * 这个入口的意义就是"下次不用再打一遍"：第一次给某个人送货时总得输一次号码，
+     * 输完顺手存下来，第二次就只是挑一下。**不自动存**（每次下单悄悄往名册里塞人，
+     * 半年后名册里全是打过一次的电话，真正的常用联系人反而找不到了）。
+     */
+    fun saveReceiverAsContact(name: String, phone: String) {
+        val p = phone.trim()
+        InputRules.phoneError(p, required = true)?.let {
+            contactSaveError = it
+            return
+        }
+        if (savingContact) return
+        savingContact = true
+        contactSaveError = null
+        viewModelScope.launch {
+            try {
+                val created = container.repo.createContact(ContactCreateRequest(phone = p, displayName = name.trim()))
+                contacts = container.repo.contacts()
+                pickReceiver(created)
+            } catch (e: Exception) {
+                // 同号重复时后端 409。用户要的是"用这个人"，不是"再建一条"——
+                // 名册里已经有同号的那位，直接挑他，别把一句报错丢给他去自己找。
+                val msg = toApiException(e).message.orEmpty()
+                val existing = contacts.firstOrNull { it.phone.trim() == p }
+                if (existing != null) {
+                    pickReceiver(existing)
+                    toast = "「${existing.displayName.ifBlank { existing.phone }}」已经在联系人里了，直接选了他"
+                } else {
+                    contactSaveError = msg.ifBlank { "联系人没存上，请重试" }
+                }
+            } finally {
+                savingContact = false
+            }
+        }
+    }
+
     /** 从「我的地点库」选终点（B 点）：带坐标时一并填上，这才叫"导航信息"。 */
     fun applyLocation(l: LocationDto) {
         addressDetail = l.detailAddress.ifBlank { l.name }
         addressLat = l.addressLat
         addressLng = l.addressLng
+        // 这个地点**绑了联系人**时顺带把收货人两栏带出来（用户 2026-09-24：「可以通过地点来
+        // 绑定联系人，就大家选择地点之后，自动填入对应的联系人」）。
+        // ⚠️ 规矩是**有值才覆盖**（`ContactFillMode.BROUGHT`）：没绑人的地点不许把用户
+        //    刚敲好的名字/电话清掉 —— 他选这个地点只是为了填地址。
+        val c = fillReceiver(
+            ReceiverContact(dongjiaName, dongjiaPhone),
+            l.contactName,
+            l.contactPhone,
+            ContactFillMode.BROUGHT,
+        )
+        dongjiaName = c.name
+        dongjiaPhone = c.phone
         // 记下"这一单用的是我地点库里的哪一条"（下单时交给后端记常用度）
         pickedLocationId = l.id
         pickedAddressId = null
@@ -842,6 +970,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         addressDetail = p.detailAddress.ifBlank { p.name }
         addressLat = p.addressLat
         addressLng = p.addressLng
+        // ⛔ 共享地点**不带联系人**（也不许带）：`places` 是**全库共用**的一张表 ——
+        //    司机补录的坐标所有人都会选到，往它上面绑一个人的电话等于给所有人换了默认收货人。
+        //    所以那张表根本没有这两个字段，绑定只存在于「我的地点」（`shipper_locations`）。
         showAddressSheet = false
         // 本来就是从共享库拉的，不用再存一次
         placeSaved = true

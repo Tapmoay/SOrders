@@ -182,17 +182,26 @@ internal object AiWriteBasicData {
             title = "新增地点",
             risk = AiWriteRisk.MEDIUM,
             group = AiWrites.G_ADDRESS,
-            blurb = "新增一个地点（纯地址，不含人）。地点可以自由组合成线路的起点/终点。",
+            blurb = "新增一个地点（纯地址，不含人）。地点可以自由组合成线路的起点/终点。" +
+                "**可以顺带绑一个联系人**：绑了之后，下单时选中这个地点会自动带出收货人姓名与电话。",
             fields = listOf(
                 textField("name", "地点名", "必填，如「东仓库」", required = true, maxChars = 64),
                 textField("address", "详细地址", "必填" + HERE_HINT, required = true, maxChars = 200)
                     .copy(key = "detail_address"),
                 textField("remark", "备注", "可选", maxChars = 200),
+                // 地点绑定的联系人（用户 2026-09-24：「可以通过地点来绑定联系人，就大家选择地点之后，
+                // 自动填入对应的联系人」）。两个都选填，但**电话要与姓名配对**才有意义。
+                textField("contact_name", "收货联系人姓名", "可选。这个地点以后谁收货", maxChars = 64),
+                textField("contact_phone", "收货联系人电话", "可选，与姓名配对（司机照着它打电话）", maxChars = 20),
             ),
             headline = { c -> "新增地点：${c.str("name")}" },
             details = { c ->
                 listOf("地点名：${c.str("name")}", "地址：${c.str("detail_address")}") +
-                    listOfNotNull(c.str("remark")?.let { "备注：$it" })
+                    listOfNotNull(
+                        c.str("remark")?.let { "备注：$it" },
+                        c.str("contact_name")?.let { "收货联系人：$it" },
+                        c.str("contact_phone")?.let { "收货电话：$it" },
+                    )
             },
             geocodeFrom = "detail_address",
         ) { ds, p -> ds.createLocation(p) },
@@ -202,12 +211,16 @@ internal object AiWriteBasicData {
             title = "改地点",
             risk = AiWriteRisk.MEDIUM,
             group = AiWrites.G_ADDRESS,
-            blurb = "改一个地点的名字或地址。",
+            blurb = "改一个地点的名字或地址。**不填的项一律不动**（包括这个地点绑的收货联系人）。",
             targets = listOf(targetLocation()),
             fields = listOf(
                 textField("name", "新地点名", "不改就不填", maxChars = 64),
                 textField("address", "新地址", "不改就不填" + HERE_HINT, maxChars = 200).copy(key = "detail_address"),
                 textField("remark", "新备注", "不改就不填", maxChars = 200),
+                // 地点绑定的联系人（2026-09-24）：**不填 = 不动**，清空请让用户在页面上做
+                // （`AiWriteArgs` 的文本项拿不到"我要把它清掉"这个意图，传空串与不传是两回事）。
+                textField("contact_name", "收货联系人姓名", "不改就不填", maxChars = 64),
+                textField("contact_phone", "收货联系人电话", "不改就不填", maxChars = 20),
                 // 「把这个地点归到那一类」（用户 2026-09-19 点名的例子）。
                 // ⚠️ 名字必须**已经在自己那一份分组名册里**（先读 place_categories.list_categories）——
                 //    对不上会被拒绝并给出候选，**不会**顺手新建一个（那样一个错别字就多出一格分组）。
@@ -225,6 +238,8 @@ internal object AiWriteBasicData {
                     c.line("detail_address", "地址改成"),
                     c.line("remark", "备注改成"),
                     c.line("category", "归到分组"),
+                    c.line("contact_name", "收货联系人改成"),
+                    c.line("contact_phone", "收货电话改成"),
                 )
             },
             geocodeFrom = "detail_address",
@@ -1335,7 +1350,13 @@ internal object AiWriteBasicData {
         "receiver_name", "phone", "detail_address", "origin_address", "remark", GEO_LAT, GEO_LNG,
     )
     private val CONTACT_KEYS = setOf("display_name", "phone")
-    private val LOCATION_KEYS = setOf("name", "detail_address", "remark", "category", GEO_LAT, GEO_LNG)
+    private val LOCATION_KEYS = setOf(
+        "name", "detail_address", "remark", "category", GEO_LAT, GEO_LNG,
+        // 地点绑定的联系人（2026-09-24 用户要求：「可以通过地点来绑定联系人」）。
+        // 见 `AiWriteService.updateLocation`：这两个键没点名时**回填原值**，
+        // 不回填就等于"AI 改个地点名把绑定清了"（界面上只显示"已改地点"）。
+        "contact_name", "contact_phone",
+    )
     private val UNIT_KEYS = setOf("name", "phone", "remark")
     private val TEMPLATE_KEYS = setOf("from_place", "to_place", "fee", "remark")
     /** 分类的部分更新体（`sort_order` 在这里是**从 1 数**的位置，换算见 [positionField]）。 */

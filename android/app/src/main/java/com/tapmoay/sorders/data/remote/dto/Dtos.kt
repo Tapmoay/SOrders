@@ -575,6 +575,15 @@ data class LocationDto(
     val category: String = "",
     /** 是不是仓库（**只有派单员能标**）。送到仓库的单按"货进来了"处理（自动入库）。 */
     @SerialName("is_warehouse") val isWarehouse: Boolean = false,
+    /**
+     * 这个地点默认的联系人（收货人）—— 用户 2026-09-24：「**可以通过地点来绑定联系人**，
+     * 就大家选择地点之后，自动填入对应的联系人」。
+     *
+     * ⚠️ 与线路（[AddressDto] 的 `receiverName` / `phone`）**同一口径**：存的是**快照串**，
+     * 不是联系人名册的外键（名册里删人/改名都不动它）。空串 = 这个地点没绑人。
+     */
+    @SerialName("contact_name") val contactName: String = "",
+    @SerialName("contact_phone") val contactPhone: String = "",
     @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("created_at") val createdAt: String = "",
@@ -702,6 +711,15 @@ data class LocationCreateRequest(
     val category: String = "",
     /** 只在**派单员**的请求里有意义；货主传 true 会被后端 403。 */
     @SerialName("is_warehouse") val isWarehouse: Boolean = false,
+    /**
+     * 这个地点绑定的联系人（收货人）。空串 = 不绑 / 解绑。
+     *
+     * ⚠️ 这个 DTO **同时用于 POST 与 PATCH**（`AppRepository.updateLocation` 走的也是它），
+     * 也就是"整份回传"语义：编辑地点时界面必须先把已有的联系人**回填进草稿**，
+     * 否则保存一次就把绑定清掉了（界面上完全看不出来）。
+     */
+    @SerialName("contact_name") val contactName: String = "",
+    @SerialName("contact_phone") val contactPhone: String = "",
     @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
 )
 

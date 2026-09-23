@@ -1718,6 +1718,9 @@ class RepoWriteDataSource(
                 remark = fields.str("remark").orEmpty(),
                 addressLat = fields.str(GEO_LAT),
                 addressLng = fields.str(GEO_LNG),
+                // 地点绑定的联系人（2026-09-24）：下单选中这个地点时会自动带出收货人两栏
+                contactName = fields.str("contact_name").orEmpty(),
+                contactPhone = fields.str("contact_phone").orEmpty(),
             ),
         )
     }
@@ -1762,6 +1765,11 @@ class RepoWriteDataSource(
                 //    而界面上只会显示「已改地点」，用户看不出分组没了。
                 category = cat,
                 isWarehouse = cur.isWarehouse,
+                // ⛔ 地点绑定的联系人同样要**回填原值**（理由与上面分类、仓库标记一模一样）：
+                //    AI 只说了"改个地点名"，不回填就等于把收货人绑定**静默清掉** ——
+                //    而界面上只会显示「已改地点」。
+                contactName = fields.str("contact_name") ?: cur.contactName,
+                contactPhone = fields.str("contact_phone") ?: cur.contactPhone,
                 imageUrls = cur.imageUrls,
             ),
         )

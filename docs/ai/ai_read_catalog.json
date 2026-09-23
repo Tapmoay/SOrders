@@ -352,6 +352,16 @@
      "is_id": false,
      "is_path": false,
      "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
     }
    ],
    "skipped_params": []
@@ -1229,7 +1239,7 @@
    "module_cn": "共享地点库",
    "method": "get",
    "path": "/api/v1/places",
-   "at": "backend/app/api/v1/places.py:41",
+   "at": "backend/app/api/v1/places.py:53",
    "auth": "仅登录",
    "roles": [
     "dispatcher",

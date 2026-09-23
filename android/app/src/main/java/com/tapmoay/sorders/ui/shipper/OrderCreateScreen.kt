@@ -453,6 +453,15 @@ fun OrderCreateScreen(
                         icon = Icons.Default.Phone,
                         iconTint = Color(0xFF00B578),
                     )
+                    // 从联系人名册里挑一位（用户 2026-09-24：「可以选择联系人，就不用每次要
+                    // 手动填入了」）。放在这两栏**下面**而不是各挂一颗行尾小图标：
+                    // 它是"一次填两栏"的动作，挂在其中一栏上会读成"只填那一栏"。
+                    FormActionRow(
+                        label = "从联系人里选收货人",
+                        onClick = { vm.openContactSheet() },
+                        icon = Icons.Default.Contacts,
+                        iconTint = Color(MgrGreen),
+                    )
                     // 下单人：名称 + 电话。**填谁由角色决定，不要在这里再判一次**（判据在
                     // `OrdererPrefill.kt::ordererContactFor`）：
                     // · 货主 / 批发商自己下单 → 进页面就按**账号资料**填好（`prefillOrdererFromSelf`）；
@@ -541,6 +550,22 @@ fun OrderCreateScreen(
             onRestorePlace = { vm.restorePlace(it) },
             recentlyDeleted = vm.recentlyDeletedPlace,
             onDismiss = { vm.showAddressSheet = false },
+        )
+    }
+
+    // 选联系人（收货人）：用户 2026-09-24「加一个在选择下单的时候可以选择联系人，
+    // 就不用每次要手动填入了」。挑完是**整对替换**（判据在 `ContactFill.fillReceiver`）。
+    if (vm.showContactSheet) {
+        ContactPickerSheet(
+            contacts = vm.contacts,
+            loading = vm.loadingContacts,
+            error = vm.contactsError,
+            onRetry = { vm.loadContacts() },
+            creating = vm.savingContact,
+            createError = vm.contactSaveError,
+            onCreate = { name, phone -> vm.saveReceiverAsContact(name, phone) },
+            onPick = { vm.pickReceiver(it) },
+            onDismiss = { vm.showContactSheet = false },
         )
     }
 

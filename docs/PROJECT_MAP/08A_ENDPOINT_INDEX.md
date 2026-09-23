@@ -113,7 +113,7 @@
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
 | 1 | `GET /api/v1/driver-bills` | `list_driver_bills` | `backend/app/api/v1/driver_bills.py:41` | 仅登录 + 体内仅允许:派单员\|司机 |
-| 2 | `POST /api/v1/driver-bills/generate` | `generate_bills` | `backend/app/api/v1/driver_bills.py:104` | 仅登录 + 体内仅允许:派单员 |
+| 2 | `POST /api/v1/driver-bills/generate` | `generate_bills` | `backend/app/api/v1/driver_bills.py:132` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/api/v1/driver_settlements.py` — 3 个
 
@@ -277,10 +277,10 @@
 | 19 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders.py:1510` | 权限:ORDER_DISPATCH |
 | 20 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders.py:1694` | 权限:ORDER_COMPLETE_DRIVER |
 | 21 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders.py:1722` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
-| 22 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders.py:1769` | 权限:ORDER_RETURN |
-| 23 | `POST /api/v1/orders/{order_id}/pay` | `pay_order` | `backend/app/api/v1/orders.py:1915` | 权限:ORDER_EDIT |
-| 24 | `POST /api/v1/orders/{order_id}/charge` | `charge_order` | `backend/app/api/v1/orders.py:1957` | 权限:ORDER_EDIT |
-| 25 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders.py:1997` | 权限:ORDER_RECALL |
+| 22 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders.py:1777` | 权限:ORDER_RETURN |
+| 23 | `POST /api/v1/orders/{order_id}/pay` | `pay_order` | `backend/app/api/v1/orders.py:1923` | 权限:ORDER_EDIT |
+| 24 | `POST /api/v1/orders/{order_id}/charge` | `charge_order` | `backend/app/api/v1/orders.py:1974` | 权限:ORDER_EDIT |
+| 25 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders.py:2017` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/place_categories.py` — 5 个
 
@@ -296,14 +296,14 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/places` | `list_places` | `backend/app/api/v1/places.py:41` | 仅登录 |
-| 2 | `POST /api/v1/places` | `create_place` | `backend/app/api/v1/places.py:75` | 仅登录 |
-| 3 | `POST /api/v1/places/{place_id}/use` | `use_place` | `backend/app/api/v1/places.py:106` | 仅登录 |
-| 4 | `GET /api/v1/places/{place_id}` | `get_place` | `backend/app/api/v1/places.py:139` | 仅登录 |
-| 5 | `PATCH /api/v1/places/{place_id}` | `update_place` | `backend/app/api/v1/places.py:179` | 角色:dispatcher |
-| 6 | `POST /api/v1/places/{place_id}/demote` | `demote_place` | `backend/app/api/v1/places.py:220` | 角色:dispatcher |
-| 7 | `DELETE /api/v1/places/{place_id}` | `delete_place` | `backend/app/api/v1/places.py:258` | 角色:dispatcher |
-| 8 | `POST /api/v1/places/{place_id}/restore` | `restore_place` | `backend/app/api/v1/places.py:287` | 角色:dispatcher |
+| 1 | `GET /api/v1/places` | `list_places` | `backend/app/api/v1/places.py:53` | 仅登录 |
+| 2 | `POST /api/v1/places` | `create_place` | `backend/app/api/v1/places.py:87` | 仅登录 |
+| 3 | `POST /api/v1/places/{place_id}/use` | `use_place` | `backend/app/api/v1/places.py:118` | 仅登录 |
+| 4 | `GET /api/v1/places/{place_id}` | `get_place` | `backend/app/api/v1/places.py:151` | 仅登录 |
+| 5 | `PATCH /api/v1/places/{place_id}` | `update_place` | `backend/app/api/v1/places.py:191` | 角色:dispatcher |
+| 6 | `POST /api/v1/places/{place_id}/demote` | `demote_place` | `backend/app/api/v1/places.py:232` | 角色:dispatcher |
+| 7 | `DELETE /api/v1/places/{place_id}` | `delete_place` | `backend/app/api/v1/places.py:270` | 角色:dispatcher |
+| 8 | `POST /api/v1/places/{place_id}/restore` | `restore_place` | `backend/app/api/v1/places.py:299` | 角色:dispatcher |
 
 ### `backend/app/api/v1/price_rules.py` — 6 个
 
@@ -376,12 +376,12 @@
 | 11 | `POST /api/v1/shipper/locations/image` | `upload_location_image` | `backend/app/api/v1/shipper.py:281` | 角色:dispatcher\|shipper |
 | 12 | `GET /api/v1/shipper/locations` | `list_locations` | `backend/app/api/v1/shipper.py:318` | 角色:dispatcher\|shipper |
 | 13 | `POST /api/v1/shipper/locations` | `create_location` | `backend/app/api/v1/shipper.py:328` | 角色:dispatcher\|shipper |
-| 14 | `PATCH /api/v1/shipper/locations/{location_id}` | `update_location` | `backend/app/api/v1/shipper.py:357` | 角色:dispatcher\|shipper |
-| 15 | `DELETE /api/v1/shipper/locations/{location_id}` | `delete_location` | `backend/app/api/v1/shipper.py:404` | 角色:dispatcher\|shipper |
-| 16 | `POST /api/v1/shipper/locations/{location_id}/share` | `share_location` | `backend/app/api/v1/shipper.py:415` | 角色:dispatcher |
-| 17 | `POST /api/v1/shipper/locations/{location_id}/restore` | `restore_location` | `backend/app/api/v1/shipper.py:461` | 角色:dispatcher\|shipper |
-| 18 | `DELETE /api/v1/shipper/contacts/{contact_id}` | `delete_contact` | `backend/app/api/v1/shipper.py:476` | 角色:dispatcher\|shipper |
-| 19 | `POST /api/v1/shipper/contacts/{contact_id}/restore` | `restore_contact` | `backend/app/api/v1/shipper.py:490` | 角色:dispatcher\|shipper |
+| 14 | `PATCH /api/v1/shipper/locations/{location_id}` | `update_location` | `backend/app/api/v1/shipper.py:361` | 角色:dispatcher\|shipper |
+| 15 | `DELETE /api/v1/shipper/locations/{location_id}` | `delete_location` | `backend/app/api/v1/shipper.py:413` | 角色:dispatcher\|shipper |
+| 16 | `POST /api/v1/shipper/locations/{location_id}/share` | `share_location` | `backend/app/api/v1/shipper.py:424` | 角色:dispatcher |
+| 17 | `POST /api/v1/shipper/locations/{location_id}/restore` | `restore_location` | `backend/app/api/v1/shipper.py:470` | 角色:dispatcher\|shipper |
+| 18 | `DELETE /api/v1/shipper/contacts/{contact_id}` | `delete_contact` | `backend/app/api/v1/shipper.py:485` | 角色:dispatcher\|shipper |
+| 19 | `POST /api/v1/shipper/contacts/{contact_id}/restore` | `restore_contact` | `backend/app/api/v1/shipper.py:499` | 角色:dispatcher\|shipper |
 
 ### `backend/app/api/v1/shipper_ledger.py` — 5 个
 
@@ -553,10 +553,10 @@ _（无重复注册）_
 | `POST /api/v1/notifications/batch-delete` | `batch_delete_notifications` | `backend/app/api/v1/notifications.py:210` | ✅ |
 | `POST /api/v1/notifications/{notification_id}/read` | `mark_read` | `backend/app/api/v1/notifications.py:353` | ✅ |
 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders.py:494` | — |
-| `GET /api/v1/places` | `list_places` | `backend/app/api/v1/places.py:41` | — |
-| `POST /api/v1/places` | `create_place` | `backend/app/api/v1/places.py:75` | ✅ |
-| `POST /api/v1/places/{place_id}/use` | `use_place` | `backend/app/api/v1/places.py:106` | ✅ |
-| `GET /api/v1/places/{place_id}` | `get_place` | `backend/app/api/v1/places.py:139` | — |
+| `GET /api/v1/places` | `list_places` | `backend/app/api/v1/places.py:53` | — |
+| `POST /api/v1/places` | `create_place` | `backend/app/api/v1/places.py:87` | ✅ |
+| `POST /api/v1/places/{place_id}/use` | `use_place` | `backend/app/api/v1/places.py:118` | ✅ |
+| `GET /api/v1/places/{place_id}` | `get_place` | `backend/app/api/v1/places.py:151` | — |
 | `GET /api/v1/product-categories` | `list_categories` | `backend/app/api/v1/product_categories.py:83` | — |
 | `GET /api/v1/products/{product_id}` | `get_product` | `backend/app/api/v1/products.py:222` | — |
 | `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | — |

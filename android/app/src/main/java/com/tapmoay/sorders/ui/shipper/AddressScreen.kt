@@ -54,7 +54,6 @@ fun AddressScreen(
     onBack: () -> Unit,
 ) {
     val vm: AddressViewModel = appViewModel { AddressViewModel(container) }
-    var showContactMenu by remember { mutableStateOf(false) }
     var startLocMenu by remember { mutableStateOf(false) }
     var endLocMenu by remember { mutableStateOf(false) }
     var imageTarget by remember { mutableStateOf("loc") }
@@ -275,35 +274,40 @@ fun AddressScreen(
                 // ⛔ 判据 `_tools/qa/_check_form_panel_style.py`：这一页的 `OutlinedTextField` 必须是 0。
 
                 // ① 联系人
+                // 2026-09-24 改：挑选入口从这里的**下拉菜单**换成全 App 同一个「选择联系人」弹层
+                // （`ui/common/ContactPickerSheet.kt`）—— 下拉在人一多时滚不完、也搜不了，
+                // 而下单页刚加的正是那个弹层；两处必须是同一份实现，否则同一个联系人
+                // 在一处挑得到、在另一处挑不到。
+                // 同时把名称/电话两栏**显式摊出来**：老做法只能"从名册挑一个"，
+                // 线路里本来就存着的那位（名册里没有他）在编辑时既看不见、也保不住。
                 FormGroup(icon = Icons.Default.Person, title = "联系人", tint = Color(ShipperTeal)) {
-                    ExposedDropdownMenuBox(expanded = showContactMenu, onExpandedChange = { showContactMenu = it }) {
-                        FormPickRow(
-                            label = "收货联系人",
-                            value = if (vm.draftContactId != null) vm.draftName + " " + vm.draftPhone else "",
-                            placeholder = "请选择联系人",
-                            // 图标与语义色跟着搬（2026-09-22 用户：「图标和语义色不能去掉」）
-                            icon = Icons.Default.Person,
-                            iconTint = Color(ShipperTeal),
-                            onClick = { showContactMenu = true },
-                            modifier = Modifier.menuAnchor(),
-                        )
-                        ExposedDropdownMenu(expanded = showContactMenu, onDismissRequest = { showContactMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("＋ 新增联系人", color = MaterialTheme.colorScheme.primary) },
-                                onClick = { showContactMenu = false; vm.openContactDialog(fromLine = true) },
-                            )
-                            if (vm.contacts.isEmpty()) {
-                                DropdownMenuItem(text = { Text("暂无联系人，请先新增联系人") }, onClick = { showContactMenu = false })
-                            } else {
-                                vm.contacts.forEach { c ->
-                                    DropdownMenuItem(
-                                        text = { Text(c.displayName.ifBlank { "联系人" } + " " + c.phone) },
-                                        onClick = { vm.selectContact(c); showContactMenu = false },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    FormPickRow(
+                        label = "收货联系人",
+                        value = boundContactLabel(vm.draftName, vm.draftPhone),
+                        placeholder = "请选择联系人",
+                        // 图标与语义色跟着搬（2026-09-22 用户：「图标和语义色不能去掉」）
+                        icon = Icons.Default.Person,
+                        iconTint = Color(ShipperTeal),
+                        onClick = { vm.openContactPickerFor("line") },
+                    )
+                    FormInputRow(
+                        label = "收货人名称",
+                        value = vm.draftName,
+                        onValueChange = { vm.draftName = it },
+                        placeholder = "从联系人带出，可改",
+                        icon = Icons.Default.Person,
+                        iconTint = Color(ShipperTeal),
+                    )
+                    FormInputRow(
+                        label = "收货人电话",
+                        value = vm.draftPhone,
+                        // 规则唯一实现在 core/InputRules.kt（与下单页那两个电话框同一条）
+                        onValueChange = { vm.draftPhone = InputRules.phoneInput(it) },
+                        placeholder = "请输入手机号",
+                        keyboardType = KeyboardType.Phone,
+                        icon = Icons.Default.Phone,
+                        iconTint = Color(0xFF00B578),
+                    )
                 }
 
                 // ② 起点（可选）
@@ -526,6 +530,37 @@ fun AddressScreen(
                         iconTint = Color(MoneyOrange),
                     )
                 }
+                // ---- 白卡 1b：这个地点默认谁收货 ----
+                // 用户 2026-09-24：「可以通过地点来绑定联系人，就大家选择地点之后，
+                // 自动填入对应的联系人」。⛔ 只有「我的地点」能绑 —— 共享地点库（`places`）
+                // 是全库共用的，往它上面绑电话等于给所有人换了默认收货人。
+                FormGroup(icon = Icons.Default.Contacts, title = "这个地点的联系人", tint = Color(ShipperTeal)) {
+                    FormPickRow(
+                        label = "从联系人里选",
+                        value = boundContactLabel(vm.locContactName, vm.locContactPhone),
+                        placeholder = "未绑定",
+                        icon = Icons.Default.Person,
+                        iconTint = Color(ShipperTeal),
+                        onClick = { vm.openContactPickerFor("loc") },
+                    )
+                    FormInputRow(
+                        label = "联系人名称",
+                        value = vm.locContactName,
+                        onValueChange = { vm.locContactName = it },
+                        placeholder = "选填",
+                        icon = Icons.Default.Person,
+                        iconTint = Color(ShipperTeal),
+                    )
+                    FormInputRow(
+                        label = "联系人电话",
+                        value = vm.locContactPhone,
+                        onValueChange = { vm.locContactPhone = InputRules.phoneInput(it) },
+                        placeholder = "选填",
+                        keyboardType = KeyboardType.Phone,
+                        icon = Icons.Default.Phone,
+                        iconTint = Color(0xFF00B578),
+                    )
+                }
                 // ---- 白卡 2：图片 + 备注 ----
                 SectionCard {
                     ImageStrip(
@@ -555,6 +590,21 @@ fun AddressScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+
+    // ---- 选择联系人（线路表单 / 地点表单**共用这一份**弹层）----
+    vm.contactPickTarget?.let { target ->
+        ContactPickerSheet(
+            contacts = vm.contacts,
+            title = if (target == "loc") "选择这个地点的联系人" else "选择收货联系人",
+            creating = vm.creatingContact,
+            // ⚠️ `error` 留空：这一页的取数失败由整页的 `loadError` 说（`vm.load()` 里），
+            //    弹层里再报一次就会把"列表好好的、只是新建没成"变成"联系人全没了"。
+            createError = vm.pickerError,
+            onCreate = { name, phone -> vm.createContactAndPick(name, phone) },
+            onPick = { vm.applyPickedContact(it) },
+            onDismiss = { vm.contactPickTarget = null; vm.pickerError = null },
+        )
     }
 
     // ---- 地图选点（终点/起点/地点）----
@@ -849,6 +899,20 @@ private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Uni
             Column(Modifier.weight(1f)) {
                 Text(l.name.ifBlank { "地点" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(l.detailAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                // 绑了联系人的地点要在地点卡上**看得见**：不写这一行，用户只能靠"下单时会不会带出来"猜
+                // （而卡片上没有任何线索）。没绑就整行不画，不留一个空标签。
+                if (hasBoundContact(l.contactName, l.contactPhone)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Person, null, Modifier.size(13.dp), tint = Color(ShipperTeal))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            boundContactLabel(l.contactName, l.contactPhone),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(ShipperTeal),
+                            maxLines = 1,
+                        )
+                    }
+                }
                 if (l.remark.isNotBlank()) {
                     Text(l.remark, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
