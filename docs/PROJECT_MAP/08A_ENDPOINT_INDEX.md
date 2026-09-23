@@ -314,7 +314,7 @@
 | 3 | `POST /api/v1/price-rules` | `create_price_rule` | `backend/app/api/v1/price_rules.py:280` | 权限:PRICE_RULE_MANAGE |
 | 4 | `GET /api/v1/price-rules/{rule_id}` | `get_price_rule` | `backend/app/api/v1/price_rules.py:365` | 权限:PRICE_RULE_MANAGE |
 | 5 | `PATCH /api/v1/price-rules/{rule_id}` | `update_price_rule` | `backend/app/api/v1/price_rules.py:384` | 权限:PRICE_RULE_MANAGE |
-| 6 | `DELETE /api/v1/price-rules/{rule_id}` | `delete_price_rule` | `backend/app/api/v1/price_rules.py:433` | 权限:PRICE_RULE_MANAGE |
+| 6 | `DELETE /api/v1/price-rules/{rule_id}` | `delete_price_rule` | `backend/app/api/v1/price_rules.py:452` | 权限:PRICE_RULE_MANAGE |
 
 ### `backend/app/api/v1/product_categories.py` — 5 个
 

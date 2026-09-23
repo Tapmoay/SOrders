@@ -394,7 +394,20 @@ def update_price_rule(
     #    改它只会得到一句「已完成」+ 一条价格变动日志，而批发商看到的价格**一个字都没变**。
     #    （要重新启用这条价：`POST /price-rules` 传同一个（批发商+商品）会复活它。）
     ensure_alive(pr, "批发商专属价", "POST /price-rules 重新设一次这个价（会复活这一行）")
+    # ⛔ 改归属也要走 create 那两道校验 + **必须留痕**（2026-09-24 第 23 轮 F12-1）：
+    #    归属就是"这条批发价算谁的" —— 批发商成交价读的就是这一行，改错了是**钱**上的事。
+    #    原来这里三处都不对：
+    #    ① `body.shipper_id` 指向一个**不存在**的账号照样 200 → 这条价从此对谁都不生效，
+    #       却仍占着 (shipper_id, product_id) 那个唯一槽位（别人再也设不进这个商品的价），
+    #       而 `create` 是查过这个的；
+    #    ② 只改归属、不改价时 `before != pr.special_unit_price` 为假 → **一条日志都没有**
+    #       （审计页事后查不出"这条价原来归谁"）；
+    #    ③ 那个 `if` 恰好是 `_check_audit_coverage.py` 第 ② 条判据看不见的形状
+    #       （它只问"commit 之前文本上有没有 `write_log(`"，停在同一函数里就算过）。
+    moved_from: str | None = None
     if body.shipper_id is not None and body.shipper_id != pr.shipper_id:
+        if db.get(User, body.shipper_id) is None:
+            raise HTTPException(status_code=400, detail="这个账号不存在，请先确认货主/批发商")
         dup = db.scalars(
             select(PriceRule).where(
                 PriceRule.shipper_id == body.shipper_id,
@@ -404,25 +417,31 @@ def update_price_rule(
         ).first()
         if dup is not None:
             raise HTTPException(status_code=400, detail="目标货主已存在该商品的特价")
+        moved_from = _name_of(db, pr.shipper_id)
         pr.shipper_id = body.shipper_id
     before = pr.special_unit_price
     if body.special_unit_price is not None:
         pr.special_unit_price = body.special_unit_price
-    if before != pr.special_unit_price:
-        # ⚠️ 只在价格**真的变了**时记日志：把"只改了别的字段"也记成一次调价，
+    if before != pr.special_unit_price or moved_from is not None:
+        # ⚠️ 只在**真的变了**时记日志：把"只改了别的字段"也记成一次调价，
         # 会让审计页被无意义的行淹没（那一页只显示最近 60 条）。
+        # 但"换了归属"和"改了价"一样是实质变动 —— 所以这里是 `or moved_from is not None`。
+        payload = {
+            "scope": "single",
+            "shipper": _name_of(db, pr.shipper_id),
+            "product": _product_name_of(db, pr.product_id),
+            "before": None if before is None else str(before),
+            "after": str(pr.special_unit_price),
+        }
+        if moved_from is not None:
+            payload["moved_from"] = moved_from
+            payload["note"] = "这条专属价的归属改了（原来算在别人头上）"
         write_log(
             db,
             operator_id=current.id,
             order_id=None,
             action=OperationAction.PRICE_RULE_UPSERT,
-            change_payload={
-                "scope": "single",
-                "shipper": _name_of(db, pr.shipper_id),
-                "product": _product_name_of(db, pr.product_id),
-                "before": None if before is None else str(before),
-                "after": str(pr.special_unit_price),
-            },
+            change_payload=payload,
         )
     db.commit()
     db.refresh(pr)
