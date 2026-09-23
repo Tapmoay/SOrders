@@ -166,7 +166,10 @@ def test_还挂着司机时不许删_并说出还有几个人(client: TestClient
 
     r = client.delete(f"/api/v1/driver-billing-rules/{rule['id']}", headers=auth_headers(token_dispatcher))
     assert r.status_code == 400
-    assert "1 个司机" in r.json()["detail"]
+    # ⚠️ 2026-09-24 第 21 轮：文案从「还有 N 个**司机**」改成「还有 N 个**账号**」——
+    #    闸门不再按 `role == DRIVER` 数（改角色就能绕过它，见 C6-2），
+    #    所以这句话也不能再说"司机"（被数到的可能是个已经被改成货主的账号）。
+    assert "1 个账号" in r.json()["detail"]
 
     # 解挂之后才能删；删了还能从回收站拿回来（撤回底线）
     assert _attach(client, token_dispatcher, driver_id, None).status_code == 200

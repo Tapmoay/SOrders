@@ -105,8 +105,27 @@ def test_已经收过款的单不许再点现场收款(client, db_session, users
 
 
 def test_挂着人的规则改角色也不许删(client, db_session, users, token_dispatcher):
-    """改一次角色就能删掉「还挂着司机」的规则（C6-2）—— 闸门要按 `driver_rule_id` 数。"""
+    """改一次角色就能删掉「还挂着司机」的规则（C6-2）—— 闸门要按 `driver_rule_id` 数。
+
+    ⚠️ 用**新建的**司机账号，不动夹具里那个共享司机：测试库跨用例保留，
+    把共享司机的角色改成货主会让后面几十条用例一起红（第一次跑就是 8 条失败）。
+    """
+    from app.models import User
+
     h = auth_headers(token_dispatcher)
+    phone = f"139{uuid.uuid4().hex[:8]}"
+    driver = User(
+        phone=phone,
+        full_name="删规则闸门探针司机",
+        username=phone,
+        password_hash="x",
+        role="DRIVER",
+        is_active=True,
+    )
+    db_session.add(driver)
+    db_session.commit()
+    did = int(driver.id)
+
     r = client.post(
         "/api/v1/driver-billing-rules",
         json={"name": f"删规则闸门探针-{uuid.uuid4().hex[:6]}", "piece_amount": "78"},
@@ -116,12 +135,12 @@ def test_挂着人的规则改角色也不许删(client, db_session, users, toke
     rid = r.json()["id"]
     assert client.post(
         "/api/v1/driver-billing-rules/attach",
-        json={"driver_id": users["driver"].id, "rule_id": rid},
+        json={"driver_id": did, "rule_id": rid},
         headers=h,
     ).status_code == 200
 
-    # 把司机改成货主（这一步**不会**清掉 driver_rule_id）
-    r = client.patch(f"/api/v1/users/{users['driver'].id}", json={"role": "shipper"}, headers=h)
+    # 把这个司机改成货主（这一步**不会**清掉 driver_rule_id）
+    r = client.patch(f"/api/v1/users/{did}", json={"role": "shipper"}, headers=h)
     if r.status_code != 200:
         import pytest
 
@@ -132,3 +151,4 @@ def test_挂着人的规则改角色也不许删(client, db_session, users, toke
         f"把司机改成货主之后规则被删掉了（HTTP {d.status_code}）—— "
         "改回司机他就会继续按这份**已删的规则**算钱，而规则列表里看不见它"
     )
+    assert "个账号挂着" in d.json()["detail"], d.json().get("detail")
