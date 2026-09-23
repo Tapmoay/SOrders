@@ -12,8 +12,10 @@ if len(raw) > 4 * 1024 * 1024:          # ← 然后才判"太大"
 
 这种写法的"上限"挡的是**读进内存之后**的处理，**挡不住内存本身**：客户端传一个 2GB 的 xlsx，
 进程先被撑到 OOM（生产 2 个 worker，一个被打死就掉一半容量），然后才轮到那句"文件过大"。
-生产前面有 nginx `client_max_body_size 32m` 兜着，所以外部能打到的最大是 32MB；
-但**本机直连 uvicorn 时没有任何上限**，而 AI 的附件通道正好走这条路。
+生产前面本该由 nginx `client_max_body_size` 兜着（外部能打到的最大就是它）；
+⚠️ 2026-09-24 实测**那一层当时是空的**（生产 `grep -rn client_max_body_size /etc/nginx/` 0 命中，
+nginx 用内置默认 1m）—— 现在由判据 ⑤ 对账，不再是"假设它在那儿"。
+本机直连 uvicorn 时没有任何上限，而 AI 的附件通道正好走这条路。
 
 正确写法只有一个：`app/core/upload_read.py::read_limited(file, limit)` ——
 `file.read(limit + 1)`：内存占用恒定 ≤ 上限+1，多读的那 1 字节只用来分辨
@@ -26,7 +28,10 @@ if len(raw) > 4 * 1024 * 1024:          # ← 然后才判"太大"
 3. 判据本身也不许被掏空：`upload_read.py` 里必须有 `read(limit + 1)` 与那句越界 raise，
    否则"所有调用点都合规"就是一句空话（调一个不设防的函数也叫合规）；
 4. 豁免表不许变化石（键必须仍是"上传相关函数"）、不许变长、理由不许是占位符；
-5. 数量判据：上传相关函数 ≥ 5 个、直接限量读的 ≥ 4 个（解析失效/清单过期时先喊）。
+5. 数量判据：上传相关函数 ≥ 5 个、直接限量读的 ≥ 4 个（解析失效/清单过期时先喊）；
+6. **nginx 那一半也要对账**（2026-09-24 第 22 轮 F5-1）：`deploy/nginx/snippets/`
+   的 `location /api/` 必须显式写 `client_max_body_size`，且 **≥ 后端声明的最宽上限** ——
+   少了它 nginx 用内置默认 1m，司机多张送达照会拿到 413 HTML（见判据 ⑤ 的注释）。
 
 用法：python _tools/qa/_check_upload_limits.py
 """
@@ -180,6 +185,54 @@ def main() -> int:
         fails.append(f"只认出 {len(funcs)} 个上传相关函数（<{MIN_UPLOAD_FUNCS}）——判据可能已空转")
     if len(limited) < MIN_LIMITED_FUNCS:
         fails.append(f"只有 {len(limited)} 个是限量读（<{MIN_LIMITED_FUNCS}）——判据可能已空转")
+
+    # ⑤ **nginx 那一层也要真的放行**（2026-09-24 第 22 轮 F5-1）
+    #    本文件开头那句"生产前面有 nginx client_max_body_size 32m 兜着"当时**是假的**：
+    #    生产 `grep -rn client_max_body_size /etc/nginx/` **0 命中**，nginx 1.20.1 用内置默认
+    #    **1m**，而后端这边声明的是 4 MB / 8 MB —— 两边都不报错，只在真正上传时炸：
+    #    司机一次多张送达照（长边 2560 + q85，单张常 >1MB）拿到 **413 HTML**，
+    #    uvicorn 根本收不到请求，App 只显示「请求失败（413）」。
+    #    所以"后端声明能收多少"必须与"nginx 真的放行多少"对账 —— 这是同一件事的两半。
+    SNIPPET = ROOT / "deploy/nginx/snippets/sorders-api-locations.conf"
+    snippet = SNIPPET.read_text(encoding="utf-8") if SNIPPET.exists() else ""
+    if not snippet:
+        fails.append(f"{SNIPPET.relative_to(ROOT)} 不存在 —— nginx 那一半无从对账")
+    else:
+        api_block = re.search(r"location /api/ \{(.*?)\n\}", snippet, re.S)
+        if api_block is None:
+            fails.append("snippets 里找不到 `location /api/ {…}` 块（判据失配，先修判据）")
+        else:
+            m = re.search(r"client_max_body_size\s+(\d+)([kKmM]);", api_block.group(1))
+            if m is None:
+                fails.append(
+                    "`location /api/` 里没有 `client_max_body_size` —— "
+                    "nginx 会用内置默认 **1m**，而后端声明的是 4/8 MB："
+                    "司机多张送达照会拿到 413 HTML（uvicorn 收不到请求）"
+                )
+            else:
+                value = int(m.group(1))
+                nginx_bytes = value * 1024 if m.group(2).lower() == "k" else value * 1024 * 1024
+                # 后端声明的最宽的那个上限（⚠️ 必须把 `* 1024 * 1024` 算进去：
+                #   只捕那个乘数是 4/8 这样的"MB 数"，而 nginx 那边是字节 ——
+                #   单位不统一时 `1m < 8` 为假，判据会在配置真的缺了的时候照样全绿）
+                widths = [
+                    int(mm.group(1)) * 1024 * (1024 if mm.group(2) else 1)
+                    for mm in re.finditer(
+                        r"MAX_\w+_BYTES\s*=\s*(\d+)\s*\*\s*1024(\s*\*\s*1024)?", guard
+                    )
+                ]
+                if not widths:
+                    fails.append("upload_read.py 里读不出上限（判据失配，先修判据）")
+                elif nginx_bytes < max(widths):
+                    fails.append(
+                        f"nginx 只放行 {nginx_bytes // (1024 * 1024)} MB，而后端声明能收 "
+                        f"{max(widths) // (1024 * 1024)} MB —— 超出的部分会被 nginx 挡成 413 HTML"
+                    )
+                else:
+                    print(
+                        f"   · nginx `location /api/` 放行 {nginx_bytes // (1024 * 1024)} MB ≥ "
+                        f"后端最大上限 {max(widths) // (1024 * 1024)} MB ✓"
+                    )
 
     if fails:
         print("\n❌ 上传读取不设防：")

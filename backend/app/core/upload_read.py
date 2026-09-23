@@ -5,8 +5,11 @@
 复核发现**5 个上传端点全是同一个形状**：先 `raw = await file.read()` 把整个请求体读进内存，
 下一行才 `if len(raw) > 8 * 1024 * 1024: raise ...`。也就是说"上限"挡的是**读进内存之后**的处理，
 **挡不住内存本身** —— 客户端传一个 2GB 的 xlsx，进程先被撑到 OOM，然后才轮到那句"文件过大"。
-（生产前面有 nginx `client_max_body_size 32m` 兜着，所以外部能打到的最大是 32MB；
- 本机直连 uvicorn 时没有任何上限，而 AI 的附件通道正好走这条路。）
+（外部本该由 nginx `client_max_body_size` 兜着；⚠️ 2026-09-24 第 22 轮 F5-1 实测**那一层当时是空的**
+ —— 生产的 `/etc/nginx/` 里 `client_max_body_size` 0 命中、nginx 用内置默认 1m，而这边声明的是
+ 4/8 MB，司机多张送达照会拿到 413 HTML。仓库侧的 `deploy/nginx/snippets/sorders-api-locations.conf`
+ 已补上并把"两边对账"写进 `_tools/qa/_check_upload_limits.py` 判据 ⑤；
+ **生产机上那一行仍待部署**。本机直连 uvicorn 时没有任何上限，而 AI 的附件通道正好走这条路。）
 
 ## 判据
 
