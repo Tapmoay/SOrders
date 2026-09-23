@@ -34,6 +34,7 @@
 | E2 | `uploads/delivery/{order_id}/` 不是这一单独占：订单清理按 id 整目录删会删掉共享地点库还在用的地址图（不可恢复）；另一头孤儿文件谁都不删 | 第 18 轮 B7-1/B7-2 | `dad490e` |
 | E3 | 列表入参纪律三件：`%`/`_` 不当通配符、`limit`/`skip` 补下界、反序日期窗口一律 400 | C9-1/2/4 | `150fd4c` |
 | E4 | `DISPATCHED` 补档位（两个 App）+ 第 7 色 + 红线新增「每个 `OrderStatus` 至少落在一个档位里」 | C11-1（高） | `b0a1ff2` |
+| E5 | ① 治理**只有整轮没失败才记「今天已完成」** + 文件级四步补 `try`/记 `-1`；② 导出任务的归属闸**收成一处**（下载那一份对派单员是空条件 → 跨派单员可拖走整本账）；③ **审计导出的「时间」列原来印 UTC**（第 18 轮时区族的第 5 处） | C3-3 / C7-2 | `fef18ca` |
 
 **改哪些文件**：`backend/app/services/{driver_pay,data_retention,image_archive}.py`、
 `backend/app/models/driver_billing_rule.py`、`backend/app/schemas/driver_billing_rule.py`、
@@ -45,9 +46,11 @@
 Android `ui/{dispatcher/DispatcherOrdersViewModel,shipper/ShipperOrdersViewModel,common/SegmentedStatusTabs}.kt`、
 `docs/DOMAIN_MODEL.md`、`docs/{AI_WORK_CLAIM,PROJECT_MAP/08A_ENDPOINT_INDEX}.md`、`docs/ai/ai_read_catalog.json` + `AiReadCatalog.kt`。
 
-**验收**：`_check_all` 88/88；后端新增 34 条用例全过；6 份反向验证全绿（23/23、4/4、28/28、25/25、26/26、16/16）。
-⚠️ **Android 单测未跑**：另一个会话正在跑 Gradle（两个 Gradle 撞一起会把 `build/` 的 class 写坏，`AGENTS.md` 明令）
-→ E4 的 3 处 Kotlin 改动未经编译验证，下一轮第一件事补上。
+**验收**：`_check_all` 88/88；后端**全量 877 passed**（本轮新增 34 条）；
+Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL** —— 而且这一跑**当场拦下一处真错**：
+E4 在 `SegmentedStatusTabs.kt` 的块注释里写成「已退货 / 斜杠 / 加粗的已派单」，而 Kotlin 的块注释
+**会嵌套**（那一串等于又开一层注释、永远等不到配对的收尾）→ `Syntax error: Unclosed comment`，
+**静态检查一条都没看出来**；6 份反向验证全绿（23/23、4/4、28/28、25/25、26/26、16 条）。
 
 核心改动：backend/app/services/driver_pay.py —— 为什么必须动核心：它是"司机这一单拿多少"的**唯一实现**，`has_per_order_pay` 是送达生不生成账单的开关（错一处就是钱静默消失）。
 核心改动：backend/app/services/data_retention.py —— 为什么必须动核心：它是**历史数据变样的唯一入口**，这一轮改了"物理删单时哪些图片文件能删"。
