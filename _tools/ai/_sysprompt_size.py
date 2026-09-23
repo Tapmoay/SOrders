@@ -71,4 +71,14 @@ print(f"  AiReadCatalog.kt      ≈ {reads:>5} token（按角色裁出来的只�
 print(f"  AiWrite*.kt           ≈ {writes:>5} token（写动作清单与参数说明）")
 print(f"  每轮固定开销合计      ≈ {total + reads + writes:>5} token（还没算你的对话历史）")
 print()
-print("对照：AiContext.FALLBACK_WINDOW = 128k，压缩阈值 40% ≈ 51k。")
+# ⛔ 2026-09-24 第 22 轮 F1 实测：上面这三个数**是高估**，别拿它做成本判断。
+#    原因是 `dir_literals` 扫的是 `AiWrite*.kt` **20 个文件里的全部字符串字面量** ——
+#    卡片文案、报错话术、提示语全算进去了，而真正进提示词的只有
+#    `AiWrites.describeForModel()` 拼出来的那一份（其余是运行时才拼给人看的）。
+#    实测（派单员、全部工具开启）真实值 ≈20384 token，本脚本报 ≈55813（**高估 2.7 倍**）。
+#    要真实数字请看 Android 单测 `AiWritePromptTest`：它渲染**真实的那份字符串**并打印字符数
+#    （2026-09-24 实测：整份 20766 字符，其中本轮新带上的参数约束 1846 字符）。
+print("⚠️ 上面是**粗估且偏高**（把 20 个文件里的全部字面量都算了进去）——")
+print("   真实值以 Android 单测 `AiWritePromptTest` 打印的为准（它渲染的是真正发给模型的那份字）。")
+print()
+print("对照：AiContext 走固定预算（见 AiContext.kt 里 v3.34 那条注释），本脚本的「压缩阈值」一行已过时。")

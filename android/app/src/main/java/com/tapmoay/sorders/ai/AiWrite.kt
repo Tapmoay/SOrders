@@ -2463,6 +2463,29 @@ object AiWrites {
                                 "${p.name}=${p.cn}（$flag，${p.kind.cn}$en）"
                             },
                         )
+                        // ⛔ 参数的 `hint` 原来**一句都没进上下文**（2026-09-24 第 22 轮 F1-D3）：
+                        //    约束只在模型**已经做错之后**由报错回显 —— 而回显的前提是
+                        //    用户点了确认、系统真的拒了一次。
+                        //    最危险的就是钱的语义：`order_templates.freight_fee` 的
+                        //    「**不填＝不预设**；填 0 才是免运费」，模型只看到「（可选，数字）」，
+                        //    于是用户说「不用预设运费」→ 它传 0 → **这张预设单真的变成免运费**。
+                        //
+                        //    这里**只带钱的项**（`NUMBER`），别的都不带（省上下文）：
+                        //    · `NUMBER` 的 hint 写的是**语义歧义**（freight_fee 的空与 0、
+                        //      commission_rate 的「规则里没有提成项后端会拒绝」）——
+                        //      写错是静默改钱或白弹一张必然失败的卡；
+                        //    · 必填的**文本**项（如「预设单名」）的 hint 基本在复述参数名
+                        //      （"必填"本身已经渲染成「（必填，文本）」）。实测（派单员、全工具开启）：
+                        //      必填 ∪ 钱的项 = **7255 字符**（说明书撑到 26182），
+                        //      只带钱的项 = **1846 字符**（说明书 20766）—— 差了近 4 倍。
+                        //      `AiWritePromptTest` 把这两个数钉在上限里。
+                        val notes = a.params.filter {
+                            it.hint.isNotBlank() && it.kind == AiWriteParamKind.NUMBER
+                        }
+                        if (notes.isNotEmpty()) {
+                            append("\n  ")
+                            append(notes.joinToString("；") { "${it.name}：${it.hint.take(HINT_IN_PROMPT)}" })
+                        }
                     }
                 }
             }
@@ -2473,4 +2496,13 @@ object AiWrites {
 
     /** 模型可传的动作 id 列表，用于在描述里给出精确的 enum。 */
     val idList: List<String> get() = ids
+
+    /**
+     * 参数约束进提示词时**每条最多多少个字**（安全阀，不是主要手段）。
+     *
+     * 主要手段是**只带钱的项**（见 [describeForModel]：实测 1846 字符 / 说明书 20766）。
+     * hint 是写给读源码的人看的，里面常有整段"为什么这么定"的理由（那本该是注释）；
+     * 万一以后有人写出一条 300 字的 hint，这个上限保证它不会把说明书顶爆。
+     */
+    const val HINT_IN_PROMPT = 100
 }
