@@ -323,6 +323,15 @@ INVARIANTS: tuple[Invariant, ...] = (
         "把当天的整套治理一起停摆）。⚠️ 这三处引用**现在是空的** → 这条判据暂时没有发言权（N/A），"
         "一旦开始用退货/核销就会自动生效",
     ),
+    Invariant(
+        "AA", "退现流水的对象名写成了「临时货主」（可这单明明是注册货主的）",
+        "SELECT COALESCE(SUM(CASE WHEN c.party_name = '临时货主' THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM cash_flows c JOIN orders o ON o.id = c.order_id"
+        " WHERE c.biz_type = 'REFUND_CUSTOMER' AND o.shipper_id IS NOT NULL",
+        "**同一笔钱两个名字**：资金收支里那笔退现写着「临时货主」，而账本/订单页写着货主本人。"
+        "根因是「注册货主**不一定有**客户档案行」（生产 34 个货主账号里 2 个没有）——"
+        "第 15 轮真机 E2E 抓到并修成共用口径 `order_shipper_label`。⚠️ 生产上目前还没有过退现（命中范围 0）",
+    ),
 )
 
 

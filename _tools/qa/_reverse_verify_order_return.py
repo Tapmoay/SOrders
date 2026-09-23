@@ -28,6 +28,7 @@ RET = ROOT / "backend/app/services/order_return.py"
 ACCT = ROOT / "backend/app/services/accounting_service.py"
 ENUMS = ROOT / "backend/app/models/enums.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
+LGR = ROOT / "backend/app/services/ledger_response.py"
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
 STATUS_MODEL = ROOT / "android/app/src/main/java/com/tapmoay/sorders/core/OrderStatusModel.kt"
 COMPONENTS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/Components.kt"
@@ -142,6 +143,18 @@ CASES: list[tuple[str, Path, object]] = [
      BOOTSTRAP, sub('values = ",".join(f"\'{v}\'" for v in column.type.enums)',
                     'values = ",".join(f"\'{v}\'" for v in column.type.enums[:-1])')),
     ("审计动作码 ORDER_RETURN 被删（App 侧的中文名表也对不上了）", ENUMS, sub('ORDER_RETURN = "ORDER_RETURN"', 'ORDER_RETURN_X = "ORDER_RETURN"')),
+    # ---- 退现那一行的对象名（2026-09-23 第 15 轮，真机 E2E 抓到）----
+    (
+        "退现的对象名回退成「临时货主」兜底（注册货主 + 无客户档案时把账说成临时货主的）",
+        RET,
+        sub('party_name=order_shipper_label(db, order),',
+            'party_name=(cust.name if cust else ((order.temp_shipper_name or "").strip() or "临时货主")),'),
+    ),
+    (
+        "共用的对象名口径被删（`order_shipper_label` 改名）",
+        LGR,
+        sub("def order_shipper_label(", "def _order_shipper_label_x("),
+    ),
     # ---- 客户端 ----
     ("客户端退货状态门放宽到已退货（对退过的单再点退货）", STATUS_MODEL, sub('val RETURNABLE: Set<String> = setOf("DELIVERED")', 'val RETURNABLE: Set<String> = setOf("DELIVERED", "RETURNED")')),
     ("状态徽章删掉「已退货」分支（界面直接印原始码 RETURNED）", COMPONENTS, sub('"RETURNED" -> StatusBadge(', '"RETURNED_X" -> StatusBadge(')),

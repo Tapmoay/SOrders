@@ -26,6 +26,31 @@ def _shipper_name(row: Ledger, user: User | None) -> str | None:
     return name or None
 
 
+def order_shipper_label(db: Session, order: Order) -> str:
+    """**这一单的货主叫什么**（钱的行上那个"对象"字段用它，2026-09-23 第 15 轮补）。
+
+    ### 与 `_shipper_name` **同一条规矩**，只是输入是订单而不是账本行
+    注册货主（`order.shipper_id` 有值）→ **人名/手机号/`货主#编号`**；
+    临时货主（无账号）→ 下单时那句称呼；两者都没有 → `临时货主`。
+
+    ### 为什么必须有它（真机 E2E 抓到的）
+    退款那一行的对象名原来写的是
+    `cust.name if cust else ((order.temp_shipper_name or "").strip() or "临时货主")` ——
+    而 `cust`（客户档案行）**不是每个注册货主都有**（生产 34 个货主账号里 32 个有）。
+    于是「注册货主 + 没有客户档案」这一类单**退现时对象名会写成「临时货主」**：
+    资金收支里那一笔看着像是给了一个没账号的临时客户的退款，而同一张单在账本/订单页上
+    写着「永盛食品」——**同一笔钱两个名字**，与本文件 `_shipper_name` 那条注释里
+    「宁可给个编号，也不要把注册货主的账说成临时货主的」是同一件事。
+    """
+    if order.shipper_id is not None:
+        user = db.get(User, order.shipper_id)
+        if user is None:
+            return f"货主#{order.shipper_id}"
+        return user.full_name or user.phone or f"货主#{order.shipper_id}"
+    name = (order.temp_shipper_name or "").strip()
+    return name or "临时货主"
+
+
 def _to_out(row: Ledger, order: Order | None, user: User | None = None) -> LedgerOut:
     """把一行账本 + 它关联的订单（可能没有）拼成出参。**唯一**拼装处。"""
     order_no: str | None = None

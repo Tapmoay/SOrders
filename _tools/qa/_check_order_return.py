@@ -105,6 +105,7 @@ def main() -> int:
     orders_api = read(BACKEND / "api/v1/orders.py")
     inv = read(BACKEND / "services/inventory_service.py")
     rbac = read(BACKEND / "core/rbac.py")
+    lgr = read(BACKEND / "services/ledger_response.py")
     tests = read(ROOT / "backend/tests/test_order_return.py")
 
     print("== 1. 枚举与迁移（漏一个就是「本机好好的、生产一按退货就 500」）==")
@@ -159,6 +160,16 @@ def main() -> int:
     c.present("退现上限还受「已收 − 已退现」限制（不许倒贴）", ret, r"max\(ZERO, m\.settled - m\.refunded\)")
     c.present("退现写 REFUND_CUSTOMER 流出", ret, r"biz_type=CashFlowBizType\.REFUND_CUSTOMER")
     c.present("退现方向是 OUT", ret, r"direction=CashFlowDirection\.OUT")
+    # ⛔ 退现那一行的**对象名**必须是这笔钱的货主（2026-09-23 第 15 轮，真机 E2E 抓到）：
+    #    原来写的是 `cust.name if cust else (… or "临时货主")`，而"注册货主但没有客户档案"
+    #    （生产 34 个货主账号里 2 个）会退成「临时货主」→ 资金收支与账本**同一笔钱两个名字**。
+    #    现在走共用口径 `ledger_response.order_shipper_label`（与账本出参 `_shipper_name` 同一条规矩）。
+    c.present("退现的对象名走共用口径（注册货主→人名/手机号）", ret,
+              r"party_name=order_shipper_label\(db, order\)")
+    c.absent("退现那一块**不许**再出现「临时货主」兜底（那会把注册货主说成临时货主）",
+             code_only(ret), r'"临时货主"')
+    c.present("对象名的实现与账本出参同源（那条规矩本仓库早就写过）", lgr,
+              r"def order_shipper_label\(")
     c.absent("退货**不许**把 paid 改回 False（钱确实进来过）", code_only(ret), r"\.paid\s*=")
     c.present("只有已送达的单能退", ret, r"order\.status != OrderStatus\.DELIVERED")
     c.present("整单退完才进 RETURNED", ret, r"order\.status = OrderStatus\.RETURNED")

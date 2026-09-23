@@ -53,6 +53,7 @@ from app.models.enums import (
 )
 from app.services.accounting_service import resolve_customer_for_order
 from app.services.inventory_service import restock_returned
+from app.services.ledger_response import order_shipper_label
 from app.services.operation_log_service import write_log
 from app.services.order_money import money_of, q2
 
@@ -306,7 +307,10 @@ def return_order(
     returned_amount = q2(returned_raw)
     refund = _refund_amount(order, db, returned_amount)
     if refund > 0:
-        party_name = cust.name if cust else ((order.temp_shipper_name or "").strip() or "临时货主")
+        # ⛔ 对象名走**共用口径**（`ledger_response.order_shipper_label`）：注册货主 → 人名/手机号，
+        #    临时货主 → 那句称呼。原来这里写的是 `cust.name if cust else (… or "临时货主")`，
+        #    而"注册货主但没有客户档案"（生产 34 个货主账号里 2 个）会退成「临时货主」——
+        #    同一笔钱在资金收支与账本上两个名字（2026-09-23 真机 E2E 抓到）。
         db.add(
             CashFlow(
                 flow_date=entry_date,
@@ -314,7 +318,7 @@ def return_order(
                 amount=refund,
                 party_type="customer",
                 party_id=cust.id if cust else None,
-                party_name=party_name,
+                party_name=order_shipper_label(db, order),
                 channel="cash",
                 biz_type=CashFlowBizType.REFUND_CUSTOMER,
                 order_id=order.id,
