@@ -20,6 +20,48 @@
 
 ## 进行中
 
+### [2026-09-24 09:2x → ] 会话：**全项目系统性复核 · 第 25 轮**（第 8 次并行渗透：**再换 10 个全新区域**；统一修 R9-1…R9-3）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**并行渗透（第 8 批区域，见 `_archive/audit/round25/README.md`）**：AI 确认卡「预备↔提交」契约 /
+库存与预占守恒 / 客户·挂账单位·临时货主归属 / 预设单→下单字段保真 / 报表格可回溯性 /
+司机计费快照与历史不变性 / 时间戳语义 / 错误路径的事务边界 / AI 读表上限全量对账 /
+商品可见性白名单。10 个子代理已派出，报告落 `_archive/audit/round25/`。
+
+**本轮同时修第 24 轮队列的前三项**：
+
+| # | 改了什么 | 来源报告 | 提交 |
+| --- | --- | --- | --- |
+| R9-1 | **「地点」这张 AI 读表整条坏掉**：`AiReadService` 的截断探针发 `limit+1=201`，而 `places.MAX_LIST=200` → **422**（三角色全中，"一问地点就报错"）。修法：提到 500（与 `/users`/`/products` 同档）；**新判据** `_check_ai_read_limits.py` 断言**运行期** OpenAPI 的 `maximum > MAX_ROWS`（不能读 AST 字面量：`le=MAX_LIST` 是常量名，`ast.literal_eval` 只会得到 None，这正是骗过所有人的原因） | 第 24 轮 04-P1 + 第 25 轮 09 区的判据建议 | 见下 |
+| R9-2 | **一张永不过期的票据原来能用**：`decode_token` 没要求 `exp`，而 python-jose 只在票据带 `exp` 时才校验过期（实测自签无 exp 票据 → `GET /orders` **200**）→ "24 小时"只是签发习惯、密钥一泄就是永久票。修法 `options={"require_exp": True}`。⚠️ 第一版按 PyJWT 写成 `require: ["exp"]` **不报错也不生效**（两套库选项名不同、不认识的键被静默忽略），是新用例照出来的 | 第 24 轮 07-F4 | 见下 |
+| R9-3 | **同一个月同一名司机三个数**：账单页 9 笔 ¥198（**零订单级过滤**）/ 结算能结的 6 笔 ¥132（外加"订单未软删"）/ 运费结算页 4 单 ¥88（外加 `status=DELIVERED`）。修法：`/driver-bills` 缺省与结算侧**同一条判据**，`include_deleted=true` 仍可查 | 第 24 轮 08-D2 | 见下 |
+
+⛔ **R9-3 只修了软删那一半**：剩下的 ¥44 是**整单退货的单司机还算不算钱** —— 第 25 轮 06 区明确
+「动 D2 前先拍板方向」（`order_return.py` 的设计是"不复原司机账单"，而结算页/绩效页/报表导出三处
+按 0 算）。已挂进下面的「待拍板」。
+
+**判据（本轮新增 3 条 + 1 个测试文件）**：`_tools/qa/_check_ai_read_limits.py`（运行期 OpenAPI，
+12 个端点全绿）、`backend/tests/test_token_expiry_required.py`（3 条，含"正常票据照旧可用"的反空转）、
+`backend/tests/test_driver_bill_recycled_scope.py`（2 条，含"孤儿账单不被误伤"）。
+
+**验收**：`pytest tests` 全量 **915 passed**；`-k place` 50 passed；
+`_check_ai_read_limits.py` 12/12 端点可接住探针；`_check_all.py` 这一轮的红**仍全部来自另一个会话**
+（见下）。
+
+⚠️ **本机后端这一轮没有重启**（所以 `/places` 的 500 在运行实例上还没生效）：另一个会话正在改
+`backend/app/core/schema_bootstrap.py`（**启动迁移**）与 `shipper.py` 等，重启会把**他们还没写完的迁移**
+跑在本地库上。我在进程内用 `app.openapi()` 验了运行期 schema（`/places` 已 `maximum=500`），
+下一次重启自然生效。
+
+**明确不碰**（另一个会话正在改）：`backend/app/api/v1/shipper.py`、`backend/app/core/schema_bootstrap.py`、
+`backend/app/models/shipper.py`、`backend/app/schemas/shipper.py`、
+`android/.../{Apis.kt,AppRepository.kt,Dtos.kt,AiWriteService.kt,AiWriteBasicData.kt,ui/shipper/*}`。
+
+**待拍板（本轮新挂的两条）**：
+1. **整单退货的单，司机那笔应付还算不算？**（结算页/绩效页/报表导出按 0，账单页照付；
+   本机 4 张未软删退货单，逐 (司机,月) 全库差 **¥167.00**）——第 25 轮 06 区建议先拍板再动 D2 的剩余部分。
+2. **送到仓库的单退货时不回补库存**（`restock_room` 判 0，而货退回了货主、库存本该 −q）——
+   第 25 轮 02 区标为业务口径，不是代码 bug。
+
 ### [2026-09-24 07:4x → ] 会话：**模拟器 554 货主账本改造**（用户第 5 轮新增功能：**选联系人 / 地点·线路绑联系人 / 单位换算**）【进行中】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
 
 用户原话（2026-09-24，一条消息里三个需求 + 一条纪律要求）：

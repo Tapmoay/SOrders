@@ -1,14 +1,14 @@
 """司机应付明细（按月）——账本 V2：送达自动生成 PIECE 单；月薪单手工/定时生成。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.business_time import business_local
 from app.core.rbac import user_role_key
 from app.database import get_db
 from app.deps import CurrentUser
-from app.models import DriverBill, User
+from app.models import DriverBill, Order, User
 from app.models.enums import DriverBillStatus, DriverBillType, OperationAction, UserRole
 from app.schemas.accounting_v2 import DriverBillGenerateBody, DriverBillOut
 from app.services.operation_log_service import write_log
@@ -45,13 +45,42 @@ def list_driver_bills(
     month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
     status: str | None = Query(None),
     bill_type: str | None = Query(None),
+    include_deleted: bool = Query(
+        False, description="含「订单已进回收站」的账单（对账/审计用；缺省不显示）"
+    ),
 ) -> list[DriverBillOut]:
+    """司机账单列表。
+
+    ⛔ 缺省要把「订单已经进回收站」的账单据掉（2026-09-24 第 25 轮；第 24 轮 08 区 D2 实测）：
+    这个接口原来一个订单级的过滤都没有，于是**同一个月同一名司机有三个数**：
+
+    | 页面 | 数字（本机实测，司机 3 / 2026-09） | 它自己的判据 |
+    | --- | --- | --- |
+    | 本接口（账单驱动） | 9 笔 **¥198** | 只看 `driver_bills`，不看订单 |
+    | 结算单能结的（`accounting_service.create_settlement`） | 6 笔 **¥132** | 外加 `订单未软删` |
+    | 运费结算页（`/freight-settlement`，订单驱动） | 4 单 **¥88** | 外加 `status=DELIVERED`（整单退货的单是 RETURNED，被排掉） |
+
+    第一行与第二行的差**正好是"订单已被软删"的那几笔** —— 而结算页那句注释写得很清楚：
+    「口径统一到**页面看得见的单才结得掉**：软删单的账单留给保留任务作废」
+    （`accounting_service.py` 把这条写成了 `or_(order_id is None, Order.deleted_at is None)`）。
+    账单页现在与它**同一条判据**（同一句话、同一处 `or_`），要留痕就传 `include_deleted=true`。
+
+    ⚠️ 第三行与第二行的差是**另一件事**（整单退货的单：司机跑了这一趟，那笔应付还算不算），
+    那是**产品决策**，不该由这里顺手改 —— 已在声明页的「待拍板」里挂着，附样本数字。
+    """
     role = user_role_key(current)
     if role != UserRole.DISPATCHER.value and role != UserRole.DRIVER.value:
         raise HTTPException(status_code=403, detail="仅派单员/司机可查看")
     if role == UserRole.DRIVER.value:
         driver_id = current.id
-    stmt = select(DriverBill).order_by(DriverBill.month.desc(), DriverBill.id.desc())
+    stmt = (
+        select(DriverBill)
+        # `outerjoin`：`order_id` 为空的历史孤儿账单仍按原样处理（那是另一条已知问题，见台账 D2）
+        .outerjoin(Order, Order.id == DriverBill.order_id)
+        .order_by(DriverBill.month.desc(), DriverBill.id.desc())
+    )
+    if not include_deleted:
+        stmt = stmt.where(or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)))
     if driver_id is not None:
         stmt = stmt.where(DriverBill.driver_id == driver_id)
     if month:
@@ -67,7 +96,6 @@ def list_driver_bills(
         if r.driver_id not in names:
             u = db.get(User, r.driver_id)
             names[r.driver_id] = (u.full_name or u.phone or "") if u else ""
-        from app.models import Order
 
         order_no = ""
         if r.order_id:
@@ -184,7 +212,6 @@ def generate_bills(
         return created
     else:
         # PIECE 补单：该月送达、有"按单应付"、运费非空的订单
-        from app.models import Order
         from app.models.enums import OrderStatus
 
         # ⚠️ 补单的金额也走 `pay_for_order`（规则 + 订单快照），不再直接抄 freight_fee。

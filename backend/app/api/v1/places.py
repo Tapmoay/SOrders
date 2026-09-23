@@ -34,7 +34,19 @@ from app.services import usage_service
 router = APIRouter(prefix="/places", tags=["places"])
 
 #: 列表最多回多少条。共享库会一直长，不设上限的话货主换个地址要滚几百屏。
-MAX_LIST = 200
+#:
+#: ⛔ 2026-09-24 第 25 轮（第 24 轮 04 区 P1）：这个数原来是 **200**，而 AI 侧
+#:    `AiTools.MAX_ROWS` **也是 200**，`AiReadService` 判断"还有没有更多"的办法是
+#:    **多要一行**（`limit + 1` = 201）—— 于是 `GET /places?limit=201` 直接 **422**
+#:    （`le=200`），"地点"这张读表在 AI 那条路上**整条坏掉**：
+#:    模型一问地点就先吃一个 422，用户看到的是"这个功能没上线"。
+#:    实测：`?limit=201` → `422 {"detail":"条数：不能大于 200","ctx":{"le":"200"}}`；
+#:    `?limit=200` → 200 / 64 行 / `X-Result-Limit:200`。
+#:    改成 500 与其它列表端点（`/users`、`/products`、`/inventory/movements`、
+#:    `/return-requests` 都是 500）**同一档**，`limit+1` 的探针才走得通。
+#:    ⚠️ 判据：全后端 `limit` 的 `le` 必须 **> AI 的 MAX_ROWS**（否则探针必然 422）——
+#:    这一轮把全量对账交给第 8 批 09 区那份报告，修完按它的清单加一条静态判据。
+MAX_LIST = 500
 
 
 @router.get("", response_model=list[PlaceOut])

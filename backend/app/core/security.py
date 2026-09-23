@@ -145,8 +145,34 @@ def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None
 
 
 def decode_token(token: str) -> dict[str, Any]:
+    """验签并解析票据。
+
+    ⛔ `require=["exp"]` **不能省**（2026-09-24 第 25 轮；第 24 轮 07 区 F4 实测）：
+    PyJWT 只在**票据带了 `exp` 时**才校验过期 —— 一张**没有 `exp` 声明**的票据
+    原来会一路通过（实测：用本机密钥签一个只有 sub/role 的票据 → `GET /api/v1/orders` **200**）。
+    也就是说"24 小时过期"只是 `create_access_token` 的习惯，**不是服务端策略**：
+    密钥一旦泄露（仓库公开过、生产 `.env` 里也躺过默认串），攻击者可以签一张**永不过期**的票，
+    而系统里没有任何一处能看出来（票据也没有 `iat`/`jti` 可供追溯）。
+
+    `require=["exp"]` 之后，缺 `exp` 的票据直接抛 `MissingRequiredClaimError`
+    → `deps.get_current_user` 一律按 401 处理（与过期同一种答复）。
+    ⚠️ 它**不会**影响任何正常登录签发的票据 —— `create_access_token` 一直带 `exp`
+    （实测 claims：`['exp','role','sub','tv']`），所以这条只是把"策略"补上。
+    ⚠️ 选项名是 **`require_exp`**，不是 PyJWT 那套 `require: ["exp"]`（2026-09-24 第 25 轮实测踩到）：
+    本项目用的是 **`python-jose`**（`from jose import jwt`），它的 `options` 是
+    `{verify_signature, verify_exp, verify_aud, verify_iat, verify_nbf, verify_iss, verify_sub,
+    verify_jti, require_*, leeway}` —— **不认识的键被静默忽略**。
+    所以写成 PyJWT 的 `{"require": ["exp"]}` 时：不报错、不生效、测试照样 200（我第一次就是这么写的，
+    是那条新用例把它照出来的）。这也是一条通用教训：**判据要对着真正在用的库写**。
+    """
     settings = get_settings()
-    return jwt.decode(token, get_jwt_secret(), algorithms=[settings.jwt_algorithm])
+    return jwt.decode(
+        token,
+        get_jwt_secret(),
+        algorithms=[settings.jwt_algorithm],
+        # 缺 exp 的票据直接拒（jose 的选项名是 require_exp）
+        options={"require_exp": True, "verify_exp": True},
+    )
 
 
 def safe_decode_token(token: str) -> dict[str, Any] | None:
