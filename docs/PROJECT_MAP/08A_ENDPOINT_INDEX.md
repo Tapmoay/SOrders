@@ -387,11 +387,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/shipper-ledger/summary` | `ledger_summary` | `backend/app/api/v1/shipper_ledger.py:170` | 角色:shipper |
-| 2 | `GET /api/v1/shipper-ledger/settlements` | `list_settlements` | `backend/app/api/v1/shipper_ledger.py:284` | 角色:shipper |
-| 3 | `POST /api/v1/shipper-ledger/settlements` | `create_settlement` | `backend/app/api/v1/shipper_ledger.py:329` | 角色:shipper |
-| 4 | `DELETE /api/v1/shipper-ledger/settlements/{settlement_id}` | `delete_settlement` | `backend/app/api/v1/shipper_ledger.py:451` | 角色:shipper |
-| 5 | `POST /api/v1/shipper-ledger/settlements/{settlement_id}/restore` | `restore_settlement` | `backend/app/api/v1/shipper_ledger.py:483` | 角色:shipper |
+| 1 | `GET /api/v1/shipper-ledger/summary` | `ledger_summary` | `backend/app/api/v1/shipper_ledger.py:214` | 角色:shipper |
+| 2 | `GET /api/v1/shipper-ledger/settlements` | `list_settlements` | `backend/app/api/v1/shipper_ledger.py:328` | 角色:shipper |
+| 3 | `POST /api/v1/shipper-ledger/settlements` | `create_settlement` | `backend/app/api/v1/shipper_ledger.py:373` | 角色:shipper |
+| 4 | `DELETE /api/v1/shipper-ledger/settlements/{settlement_id}` | `delete_settlement` | `backend/app/api/v1/shipper_ledger.py:509` | 角色:shipper |
+| 5 | `POST /api/v1/shipper-ledger/settlements/{settlement_id}/restore` | `restore_settlement` | `backend/app/api/v1/shipper_ledger.py:558` | 角色:shipper |
 
 ### `backend/app/api/v1/stats.py` — 8 个
 

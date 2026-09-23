@@ -314,6 +314,36 @@ def main() -> int:
              # 拿已收款的单当总数，才能说清"在这些单里一张都没犯"。
              "select count(*) from orders where paid = 1", limit=lim)
 
+    # ---------------------------------------------------------------- 批发商自记账核销
+    #
+    # ⚠️ 2026-09-23 第 16 轮新增（**这条是一个真缺陷的判据化**）：
+    #    批发商那本账（他向下游货主收的钱）算「还可核销」用的是**普通 SELECT**，而且
+    #    `POST /shipper-ledger/settlements/{id}/restore` **一个上限判据都没有** ——
+    #    于是"核销 → 撤销 → 再核销一遍 → 把撤掉的那笔恢复回来"就能把同一笔钱记两遍
+    #    （已收 160、应收 80），而两个数都不报错。修法见
+    #    `backend/tests/test_shipper_settle_ceiling.py` 与 `_tools/qa/_check_shipper_settle_ceiling.py`。
+    #    判据放在**库这一层**：这样将来任何一个新的写入口（包括 AI、脚本、手改）再犯都会被抓到。
+    #
+    # ⚠️ 为什么比的是 `line_total`（当时卖出去的货值）而**不是**「现在的应收」：
+    #    退货会让**已经记好的**核销显得"超过应收"（钱早收了、货后来退了 —— 那是他该退给
+    #    下游的钱，是合法业务形态），所以"≤ 应收"这条会假红。
+    #    "≤ 当时卖出去的货值"才是恒真的那条；更紧的判据要在核销时把当时的应收**存下来**
+    #    （见 `_archive/audit/FINDINGS.md` 待拍板第 21 条）。
+    rep.section("批发商自记账核销（他自己向下游收的那本账）")
+    _settle_sum = (
+        "(select round(coalesce(sum(x.amount), 0), 2) from shipper_settlement_lines x "
+        "join shipper_settlements sx on sx.id = x.settlement_id "
+        "where x.order_product_id = l.order_product_id and sx.is_deleted = 0)"
+    )
+    check_ic(rep, "某一行的核销合计超过了它的货值（同一笔钱被记了两遍）",
+             "select l.order_id, l.order_product_id, op.product_name_snapshot, "
+             f"{_settle_sum} got, round(coalesce(op.line_total, 0), 2) want "
+             "from shipper_settlement_lines l "
+             "join shipper_settlements s on s.id = l.settlement_id "
+             "join order_products op on op.id = l.order_product_id "
+             f"where s.is_deleted = 0 and {_settle_sum} > round(coalesce(op.line_total, 0), 2) + 0.005",
+             "select count(*) from shipper_settlements where is_deleted = 0", limit=lim)
+
     # ---------------------------------------------------------------- 结算单
     rep.section("司机结算单")
     check_ic(rep, "已结算账单没有挂结算单号",

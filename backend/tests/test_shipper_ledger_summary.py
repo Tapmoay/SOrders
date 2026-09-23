@@ -107,8 +107,13 @@ def _summary(client, h, **params) -> dict:
     return r.json()
 
 
-def test_普通货主只有支出侧_三个数自洽(client, token_shipper, token_dispatcher, users):
+def test_普通货主只有支出侧_三个数自洽(client, token_shipper, token_dispatcher, users, db_session):
     """应付 = 已付 + 还欠（订单出参那个恒等式的同一套数）；普通货主收入侧恒为 0。"""
+    # ⚠️ 开发货主账号被别的用例（`member` fixture）提成过批发商，**用例之间共用一张库** ——
+    #    这条断言依赖"他此刻是普通货主"，所以必须自己显式退回，不能靠"我的文件排在前面"
+    #    （2026-09-23 第 16 轮：新加的文件名字母序更靠前，这条就红了 —— 判据本身是对的）。
+    users["shipper"].is_member = False
+    db_session.commit()
     h = auth_headers(token_shipper)
     disp_h = auth_headers(token_dispatcher)
     name, phone = _next_customer("A")

@@ -90,7 +90,7 @@ def one(table: str, sql: str, params: tuple = ()) -> int:
     return int(db_q(sql, params)[0][0])
 
 
-CASES: list[str] = ["assign", "ack", "complete", "cancel", "receipt", "stock"]
+CASES: list[str] = ["assign", "ack", "complete", "cancel", "receipt", "stock", "settle"]
 
 
 def main() -> int:
@@ -475,6 +475,84 @@ def main() -> int:
                     f"例：账本 {mism[0]['ledger_total']} vs 订单行 {mism[0]['line_total']}）——"
                     "两个数各说各的，收款按账本、毛利按订单行"
                 )
+
+    # ------------------------------------------------- ⑬ 并发核销（批发商自己那本账）
+    #
+    # 2026-09-23 第 16 轮新增。这张单上"还可核销 = 行应收 − 已核销"原来是**普通 SELECT**
+    # 读出来的：两个请求同时读到"还可核销 100"就都能通过上限校验，各记 100 ——
+    # 账面上"已收"变成 200、"待收"变成 −100，而**两边都不报错**。
+    # 派单员那份收款（`accounting_service.create_receipt`）早就用加锁读治过这一类错，
+    # 这本账漏了（这一轮补上，见 `backend/tests/test_shipper_settle_ceiling.py`）。
+    #
+    # 判据两条：① 最多一个请求真的记进去；② 库里的 Σ **不许超过那一行的货值**。
+    # ②是**不依赖环境**的那一条（本机 SQLite 用锁冲突收场时也照样能判）。
+    if not args.only or args.only == "settle":
+        row = db_q(
+            "select o.id, u.phone, "
+            "(select coalesce(sum(l.amount), 0) from shipper_settlement_lines l "
+            " join shipper_settlements s on s.id = l.settlement_id "
+            " where l.order_id = o.id and s.is_deleted = 0) settled "
+            "from orders o join users u on u.id = o.shipper_id "
+            "where u.is_member = 1 and u.role = 'SHIPPER' and o.status = 'DELIVERED' "
+            "and o.deleted_at is null and exists (select 1 from order_products op "
+            "where op.order_id = o.id and coalesce(op.line_total, 0) > 0) "
+            "order by settled asc, o.id desc limit 1"
+        )
+        if row:
+            oid, phone = row[0]["id"], row[0]["phone"]
+            tok_s = api.post("/auth/login", {"phone": phone, "password": "123321"},
+                             allow_denied=True)
+            tok = tok_s.body["access_token"] if tok_s.is_2xx else ship
+            s0 = one("ss", "select count(*) from shipper_settlements s join orders o on o.id = s.order_id "
+                           "where s.shipper_id = (select shipper_id from orders where id=?) "
+                           "and s.is_deleted = 0", (oid,))
+            results = fire(api, n, "POST", "/shipper-ledger/settlements", {"order_id": oid}, tok)
+            ok, other, busy, notes = summarize(results)
+            s1 = one("ss", "select count(*) from shipper_settlements s join orders o on o.id = s.order_id "
+                           "where s.shipper_id = (select shipper_id from orders where id=?) "
+                           "and s.is_deleted = 0", (oid,))
+            # 库内判据：**这一单**任何一行的"已核销合计"超过了它的货值（line_total）
+            # → 同一笔钱记了两遍。
+            # ⚠️ 必须**只看这一单**：开发库里有一批 2026-09-20 留下的历史重复行（那正是本轮
+            #    抓到的缺陷留下的），全局查会把它们算到这次并发头上（假红）。
+            # ⚠️ 比的是 **line_total**（当时卖出去的货值）而不是"现在的应收"：退货会让应收变小，
+            #    而钱早就收过了（那是他该退给下游的，合法）—— 见 FINDINGS 待拍板第 21 条。
+            settle_over = db_q(
+                "select l.order_id, l.order_product_id, op.product_name_snapshot, "
+                "(select round(coalesce(sum(x.amount), 0), 2) from shipper_settlement_lines x "
+                " join shipper_settlements sx on sx.id = x.settlement_id "
+                " where x.order_product_id = l.order_product_id and sx.is_deleted = 0) got, "
+                "round(coalesce(op.line_total, 0), 2) want "
+                "from shipper_settlement_lines l "
+                "join shipper_settlements s on s.id = l.settlement_id "
+                "join order_products op on op.id = l.order_product_id "
+                "where s.is_deleted = 0 and l.order_id = ? and "
+                "(select round(coalesce(sum(x.amount), 0), 2) from shipper_settlement_lines x "
+                " join shipper_settlements sx on sx.id = x.settlement_id "
+                " where x.order_product_id = l.order_product_id and sx.is_deleted = 0) "
+                "> round(coalesce(op.line_total, 0), 2) + 0.005",
+                (oid,),
+            )
+            same_order = db_q(
+                "select count(*) c from shipper_settlements where order_id = ? and is_deleted = 0",
+                (oid,),
+            )[0]["c"]
+            report(f"并发核销 单#{oid}（{n} 下同时核销整单）", ok, other, busy, notes,
+                   "期望：最多一个记进去（其余被上限挡住）、库里 Σ 不超过货值",
+                   f"该批发商活着的核销单 {s0}→{s1} 笔、这一单 {same_order} 笔、"
+                   f"超货值的行 {len(settle_over)} 处")
+            if same_order > 1:
+                bugs.append(
+                    f"并发核销：这一单被记了 {same_order} 笔（应当只有一笔能收）—— 上限校验没锁住"
+                )
+            if settle_over:
+                b = settle_over[0]
+                bugs.append(
+                    f"并发核销：{b['product_name_snapshot']} 记了 {b['got']} 而货值只有 {b['want']}"
+                    "（同一笔钱被记了两遍）"
+                )
+        else:
+            print("? 名册里没有「批发商货主 + 已送达且未核销」的单，跳过并发核销这一条")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(records, ensure_ascii=False, indent=1), encoding="utf-8")

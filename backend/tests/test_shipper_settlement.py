@@ -167,7 +167,14 @@ def test_over_collect_is_rejected(client, db_session, users, token_dispatcher, t
 
 
 def test_revoke_then_restore(client, db_session, users, token_dispatcher, token_shipper, member):
-    """撤掉核销 = **软删**（行留着）；撤销后金额回到未收，restore 原样放回来。"""
+    """撤掉核销 = **软删**（行留着）；撤销后金额回到未收，restore 原样放回来。
+
+    ⚠️ **2026-09-23 第 16 轮改过这条断言**（原来它把这个缺陷钉成了"设计如此"）：
+    原来这里"撤销 → 再核销一遍 → 把那笔恢复回来"断言的也是 **200 成功**，
+    于是同一笔 80 被记了两遍（已收 160 / 应收 80），而两个数都不报错。
+    恢复是要**重算上限**的：位置已经被后面那笔占掉时必须以 400 拒绝并说清怎么办
+    —— 逐条判据在 `tests/test_shipper_settle_ceiling.py`（含"还有余量时照旧可以"的反面用例）。
+    """
     h = auth_headers(token_dispatcher)
     oid = _delivered_order(client, h, users)
     sid = client.post(BASE, json={"order_id": oid}, headers=auth_headers(token_shipper)).json()["id"]
@@ -190,13 +197,18 @@ def test_revoke_then_restore(client, db_session, users, token_dispatcher, token_
     again = client.post(BASE, json={"order_id": oid}, headers=auth_headers(token_shipper))
     assert again.status_code == 201 and again.json()["amount"] == "80.00"
 
-    # 把撤掉的那笔也恢复回来 → 这一单重新变成"收齐了"
+    # ⛔ 把撤掉的那笔恢复回来：这一单的 80 已经被"again"那笔收掉了，放回来就是多收 80
     back = client.post(f"{BASE}/{sid}/restore", headers=auth_headers(token_shipper))
-    assert back.status_code == 200, back.text
-    assert back.json()["is_deleted"] is False
-    assert len(back.json()["lines"]) == 2
+    assert back.status_code == 400, "同一笔钱不许被记两遍：恢复必须重算上限"
+    assert "还可核销" in back.json()["detail"]
+
+    # 先撤掉"again"那笔，再恢复最早那笔 —— 这才是用户真正想要的那条路，必须走得通
+    assert client.delete(f"{BASE}/{again.json()['id']}", headers=auth_headers(token_shipper)).status_code == 204
+    ok = client.post(f"{BASE}/{sid}/restore", headers=auth_headers(token_shipper))
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["is_deleted"] is False and len(ok.json()["lines"]) == 2
     full = client.post(BASE, json={"order_id": oid}, headers=auth_headers(token_shipper))
-    assert full.status_code == 400  # 两笔都在 → 已收齐
+    assert full.status_code == 400  # 这一单真的收齐了
 
 
 def test_settlement_does_not_touch_dispatcher_books(

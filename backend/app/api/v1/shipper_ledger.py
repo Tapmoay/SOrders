@@ -31,7 +31,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.business_time import business_range_utc, utc_now_naive
@@ -49,8 +49,14 @@ from app.schemas.shipper_settlement import (
 )
 from app.services.money_text import money_text
 from app.services.operation_log_service import write_log
+from app.services.order_flow import lock_order_row
 from app.services.order_money import line_receivable, money_map, q2
-from app.services.shipper_settle import lines_of_order, settle_blocker
+from app.services.shipper_settle import (
+    CeilingBreach,
+    lines_of_order,
+    over_settled_lines,
+    settle_blocker,
+)
 
 router = APIRouter(prefix="/shipper-ledger", tags=["shipper-ledger"])
 
@@ -91,6 +97,44 @@ def _own_order(db: Session, current: User, order_id: int) -> Order:
     if order is None or order.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="订单不存在")
     return order
+
+
+def _locked_order(db: Session, order: Order) -> Order:
+    """**先锁订单行再算钱**（并发核销在同一张单上排队，见 `settle_blocker` 上面那段注释）。
+
+    ⚠️ 必须用**返回的那个对象**：`lock_order_row` 在锁不住时会退化成"重新查一次"，
+        手上那份可能已经失效（`order_flow.lock_order_row` 的注释记着那次实测）。
+    """
+    try:
+        return lock_order_row(db, order)
+    except ValueError as e:  # 并发期间这一行真的没了（另一个请求删/撤了它）
+        raise HTTPException(status_code=404, detail="订单不存在") from e
+
+
+def _breach_detail(b: CeilingBreach) -> str:
+    """写完之后发现**记超了** → 给用户一句能照着做的中文（不是"操作失败"）。
+
+    这一句对应的是**并发**那一档：有人同时也在核销这一单，两边各自算了一遍"还可核销"。
+    所以话术是"刷新后重试"，而不是"你填错了"。
+    """
+    return (
+        f"「{b.name}」还可核销 ¥{money_text(b.receivable)}，"
+        f"刚记的这一笔会把它记到 ¥{money_text(b.settled)}（多 ¥{money_text(b.over)}）"
+        "—— 可能有人同时在核销这一单，请刷新后重试"
+    )
+
+
+def _restore_breach_detail(b: CeilingBreach) -> str:
+    """恢复一笔撤销过的核销时**位置已经被占了** → 说清"先撤掉后面那一笔"。
+
+    用户看得到的路径：核销 → 撤销 → 又重新核销了一遍 → 想把自己撤错的那笔放回来。
+    直接 200 的话，这一单会被记两遍（已收 160、应收 80），而**两边都不报错**。
+    """
+    return (
+        f"「{b.name}」还可核销 ¥{money_text(b.receivable)}，"
+        f"放回这笔 ¥{money_text(b.wanted)} 会多收 ¥{money_text(b.over)}"
+        " —— 先撤掉撤销之后又记的那一笔，再恢复"
+    )
 
 
 def _assemble(
@@ -336,14 +380,21 @@ def create_settlement(
     金额**由服务端算**：`lines` 留空时每行按「还可核销」全额；给了行就按给的行，
     但**一行都不许超过它还可核销的数**（超收会把"他还欠我多少"算成负数，
     而负数在下游客户的账上没有人认领）。
+
+    ## 并发（2026-09-23 第 16 轮补）
+    这是"**读一个数 → 判断 → 写**"的形态，所以两道防线都要有：
+    ① 先 `lock_order_row` 把这一单锁住，**再**用加锁读重算「还可核销」——
+       同一张单的两个并发核销在这里排队，后到的那个读到的是"还可核销 0"；
+    ② 写完 `flush` 之后再算一次（`over_settled_lines`）：真超了就**整笔回滚** + 400。
+       这一道不依赖行锁（SQLite 上 `FOR UPDATE` 会被忽略），所以它是兜底的那一道。
     """
     _require_member(current)
-    order = _own_order(db, current, body.order_id)
+    order = _locked_order(db, _own_order(db, current, body.order_id))
     blocker = settle_blocker(order)
     if blocker:
         raise HTTPException(status_code=400, detail=blocker)
 
-    pairs = lines_of_order(db, order)
+    pairs = lines_of_order(db, order, lock=True)
     by_line = {op.id: (op, left) for op, left in pairs}
 
     picks: list[tuple[int, str, Decimal]] = []  # (order_product_id, 商品名, 本次核销金额)
@@ -421,6 +472,13 @@ def create_settlement(
     ]
     for line in lines:
         db.add(line)
+    # 防线②：把这一笔连同库里已有的（含**别的请求刚提交的**）一起再算一遍。
+    # ⚠️ 必须 `flush` 之后再算：不然算的是"这一笔还没写进去"的那个数，等于什么都没验。
+    db.flush()
+    breaches = over_settled_lines(db, order, lock=True)
+    if breaches:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=_breach_detail(breaches[0]))
 
     # 钱动了必须留痕（与人工操作同形）：这本账**不写** cash_flows / orders.paid，
     # 所以 operation_logs 是唯一能回答"这笔核销谁在什么时候记的"的地方。
@@ -453,16 +511,33 @@ def delete_settlement(
     current: ShipperOnly,
     db: Session = Depends(get_db),
 ) -> None:
-    """**撤掉核销**（软删：行留着，`POST /{id}/restore` 逐字段放回来）。"""
+    """**撤掉核销**（软删：行留着，`POST /{id}/restore` 逐字段放回来）。
+
+    ⚠️ 撤销用的是**条件 UPDATE**（`WHERE is_deleted = 0`），不是"读到没有 → 再写"：
+        连点两下 / 两个请求同时撤同一笔时，只有一个能改成 1，另一个 `rowcount=0` 会被拒。
+        少了这一句的后果是**审计日志写两条**（这本账只有日志能回查，重复的日志会让人
+        以为撤过两次、或者以为还有第二笔钱）。
+    """
     _require_member(current)
     s = db.get(ShipperSettlement, settlement_id)
     if s is None or s.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="这笔核销记录不存在")
-    if s.is_deleted:
-        raise HTTPException(status_code=400, detail="这笔核销已经撤掉了，不用再撤")
     order = db.get(Order, s.order_id)
-    s.is_deleted = True
-    s.deleted_at = utc_now_naive()
+    now = utc_now_naive()
+    # 条件 UPDATE：判据与写入**在同一个语句里**（SQLite 上没有行锁，只有这种写法才真的防重）
+    changed = db.execute(
+        update(ShipperSettlement)
+        .where(
+            ShipperSettlement.id == settlement_id,
+            ShipperSettlement.shipper_id == current.id,
+            ShipperSettlement.is_deleted.is_(False),
+        )
+        .values(is_deleted=True, deleted_at=now)
+    ).rowcount
+    if changed != 1:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="这笔核销已经撤掉了，不用再撤")
+    db.refresh(s)
     write_log(
         db,
         operator_id=current.id,
@@ -485,16 +560,61 @@ def restore_settlement(
     current: ShipperOnly,
     db: Session = Depends(get_db),
 ) -> ShipperSettlementOut:
-    """把撤掉的核销放回来（`DELETE` 的逆操作）。"""
+    """把撤掉的核销放回来（`DELETE` 的逆操作）。
+
+    ## ⛔ 放回来之前必须重算上限（2026-09-23 第 16 轮抓到的真缺陷）
+    用户看得到的路径：**核销 → 撤销 → 又重新核销了一遍 → 发现自己撤错了，想把那笔放回来**。
+    原来这里**一个上限判据都没有**，于是两笔都活着：这一单被记了 160，而它的应收只有 80
+    —— 两个数都不报错，用户要到自己对账时才发现下游那本账上多了一笔钱。
+
+    所以：先锁订单行，再把"要放回来的那几行"当作**即将记进去**算一遍
+    （`over_settled_lines(extra=…)`），超了就以 400 说明「先撤掉后面又记的那一笔」；
+    放行之后再 `flush` 并复查一次（防线②，不依赖行锁）。
+    """
     _require_member(current)
     s = db.get(ShipperSettlement, settlement_id)
     if s is None or s.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="这笔核销记录不存在")
     if not s.is_deleted:
         raise HTTPException(status_code=400, detail="这笔核销没有被撤销，不需要恢复")
-    s.is_deleted = False
-    s.deleted_at = None
+
     order = db.get(Order, s.order_id)
+    if order is not None:
+        order = _locked_order(db, order)
+        # 这一笔当初覆盖的那几行（父记录被撤 = 它们此刻都不算活着）
+        extra: dict[int, Decimal] = {}
+        for ln in db.scalars(
+            select(ShipperSettlementLine).where(
+                ShipperSettlementLine.settlement_id == settlement_id
+            )
+        ).all():
+            key = int(ln.order_product_id)
+            extra[key] = q2(extra.get(key, Decimal("0")) + Decimal(ln.amount or 0))
+        breaches = over_settled_lines(db, order, extra=extra, lock=True)
+        if breaches:
+            raise HTTPException(status_code=400, detail=_restore_breach_detail(breaches[0]))
+
+    # 条件 UPDATE（与撤销对称）：连点两下 / 两个请求同时恢复时只有一个能改成 0
+    changed = db.execute(
+        update(ShipperSettlement)
+        .where(
+            ShipperSettlement.id == settlement_id,
+            ShipperSettlement.shipper_id == current.id,
+            ShipperSettlement.is_deleted.is_(True),
+        )
+        .values(is_deleted=False, deleted_at=None)
+    ).rowcount
+    if changed != 1:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="这笔核销没有被撤销，不需要恢复")
+    db.flush()
+    if order is not None:
+        # 防线②：放行之后再看一眼库里这一刻的真数（并发下"另一个恢复请求"也会走到这里）
+        breaches = over_settled_lines(db, order, lock=True)
+        if breaches:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=_restore_breach_detail(breaches[0]))
+    db.refresh(s)
     write_log(
         db,
         operator_id=current.id,

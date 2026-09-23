@@ -332,6 +332,27 @@ INVARIANTS: tuple[Invariant, ...] = (
         "根因是「注册货主**不一定有**客户档案行」（生产 34 个货主账号里 2 个没有）——"
         "第 15 轮真机 E2E 抓到并修成共用口径 `order_shipper_label`。⚠️ 生产上目前还没有过退现（命中范围 0）",
     ),
+    Invariant(
+        "AB", "批发商那本账把同一笔钱记了两遍（某行的核销合计超过了它的货值）",
+        # bad = 记超了的行数；total = **真的检查了多少行**（未撤销的核销行）——
+        # 与 Z 同一个口径：不能把"检查项数"当 total，那等于永远有发言权。
+        "SELECT COALESCE(SUM(CASE WHEN t.got > t.want + 0.005 THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM (SELECT"
+        "          (SELECT COALESCE(SUM(x.amount),0) FROM shipper_settlement_lines x"
+        "             JOIN shipper_settlements sx ON sx.id = x.settlement_id"
+        "            WHERE x.order_product_id = l.order_product_id AND sx.is_deleted = 0) AS got,"
+        "          COALESCE(op.line_total,0) AS want"
+        "        FROM shipper_settlement_lines l"
+        "        JOIN shipper_settlements s ON s.id = l.settlement_id"
+        "        JOIN order_products op ON op.id = l.order_product_id"
+        "       WHERE s.is_deleted = 0) t",
+        "第 16 轮修的就是这条：这本账算「还可核销」用普通 SELECT 读快照，而恢复端点"
+        "`POST /shipper-ledger/settlements/{id}/restore` **一个上限判据都没有** ——"
+        "「核销 → 撤销 → 再核销一遍 → 把撤掉的那笔恢复回来」就能把同一笔钱记两遍"
+        "（本机开发库上真的留下了 2 行这种数据）。判据比的是 `line_total`（当时卖出去的货值）"
+        "而**不是**「现在的应收」：退货会让应收变小，那是他该退给下游的、合法；"
+        "⚠️ 生产上还没有用过这本账（命中范围 0）时这条没有发言权",
+    ),
 )
 
 
