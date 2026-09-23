@@ -20,6 +20,32 @@
 
 ## 进行中
 
+### [2026-09-23 08:2x →] 会话：**全项目系统性复核 · 第 7 轮**（同一字段的多个写入点必须同源：挂账单位指向被抓到"钱收了还指着单位"）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+这一轮接着第 6 轮的线索往下查：**把"同一字段有多个写入点"当一条检索线**
+（先用脚本盘出 `orders.paid` / `payment_method` / `arrears_unit_id` / `is_exception` /
+`deleted_at` / `collect_cash` 各自的写入点，再逐个看它们的守卫是不是同一套）。
+
+- 核心改动：`backend/app/api/v1/orders.py` —— 为什么必须动核心：它写 `orders.paid` / `payment_method` / `arrears_unit_id` 这一组"钱收到没有"的字段，而这一组有**三个写入点**（送达 / 现场收款确认 / 挂账），其中只有 `pay_order` 会清挂账指向 —— 送达那条路漏了，于是「派单员先点挂账 → 司机按收取现金送达」会落成 `paid=True` 却还指着挂账单位的自相矛盾单。
+- 核心改动：`backend/app/api/v1/arrears.py` —— 为什么必须动核心：`delete_unit` 的拦人判据数的是"所有指着这个单位的订单"（**不看 paid**），于是上一行那个自相矛盾的单会让这个单位**永远删不掉**，而界面上没有"改挂账单位"的入口（用户照那句话去处理也解不开）。
+
+**抓到的那一处（确定性复现）**：见 `backend/tests/test_arrears_unit_pointer.py` 第一条 ——
+修之前实测 `paid=True / payment_method=cash / arrears_unit_id=1`。
+修法：**收到钱就清挂账指向**（与 `pay_order` 同源）；挂账送达保持不动（派单员指定的单位是有效信息）；
+`delete_unit` 的判据回到本意（**还挂着账 `paid=False` 的才拦**），只剩历史指向的不拦但把条数写进审计日志。
+
+**判据化**（放在**库这一层**，不是代码形状那一层）：`_tools/fuzz/_fuzz_invariants.py` 新增一条
+「**已收款（paid=1）却还指着挂账单位 = 0 行**」——这样**任何**写入点再犯都会被抓到。
+检查项 39 → 40；反向验证（把缺陷种进一份副本库）实测命中「✗ 缺陷 … 1 行（共 20 行）」。
+作用域取"已收款的单"而不是"指着单位的单"：后者在两个集合都空时会退化成"判据空转"的告警。
+
+**要改的文件**：`backend/app/api/v1/{orders,arrears}.py`、`backend/tests/test_arrears_unit_pointer.py`(新)、
+`_tools/fuzz/_fuzz_invariants.py`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`(重生成)、定位表。
+
+⚠️ **与别的会话的交集（08:14 那个提交）**：另一个会话（`session-62576f1f…`）在 `_tools/map/` 下加
+奥维离线瓦片的抓取工具，**明确不碰 backend/android/frontend**，与这一轮零交集；本轮提交一律
+**按显式路径 add**（不再 `git add -A`），避免把别人的半成品扫进来。
+
 ### [2026-09-23 08:0x →] 会话：**地图选点接入离线高清瓦片（奥维「谷歌高清卫星图」）**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **目标**：把用户手上的奥维离线瓦片（`D:\APPS\map\310\`，【谷歌】高清卫星图，1.84 GB，z09~z16）
