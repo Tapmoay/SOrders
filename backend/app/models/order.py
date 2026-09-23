@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -16,6 +16,19 @@ if TYPE_CHECKING:
 
 class Order(Base, TimestampMixin):
     __tablename__ = "orders"
+
+    #: 报表/导出那一族查询的索引：它们全是
+    #: `status='DELIVERED' AND deleted_at IS NULL AND delivered_at ∈ [窗口)`。
+    #: ⚠️ 为什么必须有（2026-09-23 第 9 轮，**在生产 MySQL 上用 EXPLAIN ANALYZE 实测**）：
+    #: 没有它时优化器走 `Table scan on o`（读全表 2402 行），而 `delivered_at` 上的窗口
+    #: **一点都没少读** —— 也就是说第 3 轮那个"窗口预过滤"只减少了**内存里的行**，
+    #: 从库里读出来的行数没变；代价随 3 年保留策略线性增长（正是第 3 轮要治的病）。
+    #: 与之对照：待派池那条查询走了 `ix_orders_status_created`、账本那条走了
+    #: `ix_ledgers_entry_date` 的 covering index —— 只有报表这一族缺索引。
+    #: 老库由 `core/schema_bootstrap.py` 补（SQLite 新库由 create_all 直接建出来）。
+    __table_args__ = (
+        Index("ix_orders_status_delivered", "status", "delivered_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     order_no: Mapped[str] = mapped_column(String(32), unique=True, index=True)

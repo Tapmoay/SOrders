@@ -40,7 +40,12 @@
    `CancellationException` 原样抛出；没有时间控件的页签（异常与审计）不参与。
 5. **后端认区间**：`/reports/turnover`、`/reports/products`、`/reports/export` 都收
    `date_from`/`date_to`，且窗口只有一个入口 `_span(...)`（半截窗口 400）。
-6. 反空转：文件/函数/关键字块找不到时先报错，而不是安静通过。
+6. **窗口下推到 SQL，且窗口列有索引可用**：`delivered_span_sql` 是唯一翻译点（业务日 → UTC
+   半开区间），每个 `load_delivered` 调用点都传 `span=`；`orders` 上有 `(status, delivered_at)`
+   复合索引（模型 + 老库补建两处），条件写的是**裸列比较**。
+   ⚠️ 生产 `EXPLAIN ANALYZE`（2026-09-23）实测：没有那个索引时这一族查询是 `Table scan on o`
+   —— 窗口预过滤只省了**内存里的行**，从库里读的行一点没少。
+7. 反空转：文件/函数/关键字块找不到时先报错，而不是安静通过。
 
 ⚠️ 注入式反向验证（改坏 → 本脚本必须红）：
    `_tools/qa/_reverse_verify_report_window.py`。
@@ -69,6 +74,8 @@ SCREEN = ANDROID / "ui/dispatcher/ReportCenter.kt"
 PRESETS = ANDROID / "ui/common/DatePresets.kt"
 TIME_NAV = ANDROID / "ui/common/ReportTimeNav.kt"
 REPORTS_PY = ROOT / "backend/app/api/v1/reports.py"
+ORDER_MODEL = ROOT / "backend/app/models/order.py"
+BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
 TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt"
 
 fails: list[str] = []
@@ -271,6 +278,32 @@ def main() -> int:
     ok("循环里那句 `ds < start or ds > end` 仍然在（SQL 侧只是预过滤，权威判据在 Python 侧）",
        reports_py.count("ds < start or ds > end") >= 3,
        f"实际出现 {reports_py.count('ds < start or ds > end')} 次")
+
+    # ---- ⑤c 窗口列必须**有索引可用**（2026-09-23 第 9 轮，生产 EXPLAIN ANALYZE 实测补）----
+    #
+    # 由来：把生产库当证据源逐条量三条热点查询，**只有报表这一族没有索引** ——
+    # `status='DELIVERED' AND deleted_at IS NULL AND delivered_at ∈ [窗口)` 在生产上走
+    # `Table scan on o`（rows=2402，全表），也就是说 ⑤b 那个窗口预过滤**只省了内存里的行**，
+    # 从库里读出来的行数一点没少；而待派池走了 `ix_orders_status_created`、
+    # 账本窗口走了 `ix_ledgers_entry_date` 的 covering index。
+    # 这条判据守的是"别哪天把索引删了/把裸列比较改成套函数的写法"—— 那不会有任何报错，
+    # 只会让报表随历史（保留 3 年）线性变慢，正是 ⑤b 要治的病。
+    print("\n⑤c 窗口列必须有索引可用（生产实测：没有它时报表窗口是全表扫）")
+    model = read(ORDER_MODEL)
+    boot = read(BOOTSTRAP)
+    ok("orders 模型里声明了 (status, delivered_at) 复合索引（新库 create_all 直接建出来）",
+       re.search(r'Index\(\s*"ix_orders_status_delivered"\s*,\s*"status"\s*,\s*"delivered_at"\s*\)', model) is not None,
+       "（列顺序要紧：status 是等值条件、delivered_at 是范围条件，反了就用不上范围）")
+    ok("老库（生产 MySQL）由 schema_bootstrap 补建（create_all 不会给已存在的表加索引）",
+       re.search(r"ADD INDEX ix_orders_status_delivered \(status, delivered_at\)", boot) is not None)
+    ok("补建之前有 `SHOW INDEX …` 幂等守卫（不然每次启动都 ALTER 一次）",
+       re.search(r"SHOW INDEX FROM orders WHERE Key_name = 'ix_orders_status_delivered'", boot) is not None)
+    ok("窗口翻译必须是**裸列**比较（`func.date(...)`/`CAST(...)` 一律让索引失效）",
+       re.search(r"return Order\.delivered_at >= lo, Order\.delivered_at < hi", reports_py) is not None,
+       "生产 `EXPLAIN` 看的是条件里那列本身，不在列上套函数才走得到索引")
+    ok("窗口列就是索引的第二列（`delivered_at`，与 ⑤b 的 `delivered_span_sql` 同源）",
+       "delivered_at" in reports_py[reports_py.find("def delivered_span_sql("):][:900]
+       and "delivered_at" in model[model.find("ix_orders_status_delivered"):][:120])
 
     # ---- ⑥ 单测把新规矩钉住 ----
     print("\n⑥ 单测：新口径各有人钉")

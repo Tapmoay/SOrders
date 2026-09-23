@@ -27,6 +27,8 @@ FINANCE = ANDROID / "ui/dispatcher/ReportFinance.kt"
 VM = ANDROID / "ui/dispatcher/ReportCenterViewModel.kt"
 SCREEN = ANDROID / "ui/dispatcher/ReportCenter.kt"
 REPORTS_PY = ROOT / "backend/app/api/v1/reports.py"
+ORDER_MODEL = ROOT / "backend/app/models/order.py"
+BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
 TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt"
 
 CASES: list[tuple[str, Path, object]] = [
@@ -200,6 +202,45 @@ CASES: list[tuple[str, Path, object]] = [
         "窗口翻译函数被改名/删掉（调用点就成了未定义名）",
         REPORTS_PY,
         lambda s: s.replace("def delivered_span_sql(", "def _delivered_span_sql_x(", 1),
+    ),
+    # ---- ⑤c 窗口列必须有索引可用（2026-09-23 生产 EXPLAIN ANALYZE 实测补）----
+    (
+        "报表窗口索引被删掉（模型里不声明 → 新库也没这个索引，报表回到全表扫）",
+        ORDER_MODEL,
+        lambda s: s.replace(
+            '        Index("ix_orders_status_delivered", "status", "delivered_at"),\n',
+            "",
+            1,
+        ),
+    ),
+    (
+        "索引列顺序写反（(delivered_at, status)：范围条件在前，status 那一段就用不上了）",
+        ORDER_MODEL,
+        lambda s: s.replace(
+            'Index("ix_orders_status_delivered", "status", "delivered_at")',
+            'Index("ix_orders_status_delivered", "delivered_at", "status")',
+            1,
+        ),
+    ),
+    (
+        "老库（生产 MySQL）不再补建索引（新库有、线上没有 → 两套环境计划不同）",
+        BOOTSTRAP,
+        lambda s: s.replace(
+            "                        conn.execute(text(\n"
+            "                            \"ALTER TABLE orders ADD INDEX ix_orders_status_delivered (status, delivered_at)\"\n"
+            "                        ))\n",
+            "",
+            1,
+        ),
+    ),
+    (
+        "窗口条件套上函数（`func.date(delivered_at)` 写法：索引当场失效，没人会报错）",
+        REPORTS_PY,
+        lambda s: s.replace(
+            "    return Order.delivered_at >= lo, Order.delivered_at < hi",
+            "    return func.date(Order.delivered_at) >= lo, func.date(Order.delivered_at) < hi",
+            1,
+        ),
     ),
     # ---- ⑥ 单测不是摆设 ----
     (

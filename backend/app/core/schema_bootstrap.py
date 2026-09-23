@@ -517,6 +517,25 @@ def _bootstrap_impl(engine: Engine) -> None:
                         ))
                 except DBAPIError as e:
                     logger.warning("orders 复合索引创建跳过: %s", e)
+                # 复合索引 (status, delivered_at)：**报表/导出那一族**的窗口过滤（2026-09-23 第 9 轮）。
+                # ⚠️ 为什么在生产上才看得出（实测）：那一族查询是
+                #    `status='DELIVERED' AND deleted_at IS NULL AND delivered_at ∈ [窗口)`，
+                #    没有这个索引时 MySQL 的优化器走 `Table scan on o` —— 读全表的行数**与窗口无关**
+                #    （`EXPLAIN ANALYZE` 实测 2402 行全读），第 3 轮加的窗口预过滤只省了内存。
+                #    同一批实测里，待派池走了 `ix_orders_status_created`、账本窗口走了
+                #    `ix_ledgers_entry_date` 的 covering index —— 缺的只有报表这一族。
+                #    MySQL 8 建二级索引是 ONLINE DDL（不锁表），本表 2.4k 行瞬间完成。
+                try:
+                    idx_rows = conn.execute(text(
+                        "SHOW INDEX FROM orders WHERE Key_name = 'ix_orders_status_delivered'"
+                    )).fetchall()
+                    if not idx_rows:
+                        conn.execute(text(
+                            "ALTER TABLE orders ADD INDEX ix_orders_status_delivered (status, delivered_at)"
+                        ))
+                        logger.warning("已补建报表窗口索引 ix_orders_status_delivered（status, delivered_at）")
+                except DBAPIError as e:
+                    logger.warning("orders 报表窗口索引创建跳过: %s", e)
 
         ocols = {c["name"] for c in insp.get_columns("orders")}
         if "address_image_url" not in ocols:
