@@ -71,7 +71,7 @@
 | 2 | `POST /api/v1/arrears-units` | `create_unit` | `backend/app/api/v1/arrears.py:42` | 权限:LEDGER_EDIT |
 | 3 | `PATCH /api/v1/arrears-units/{unit_id}` | `update_unit` | `backend/app/api/v1/arrears.py:108` | 权限:LEDGER_EDIT |
 | 4 | `DELETE /api/v1/arrears-units/{unit_id}` | `delete_unit` | `backend/app/api/v1/arrears.py:153` | 权限:LEDGER_EDIT |
-| 5 | `POST /api/v1/arrears-units/{unit_id}/restore` | `restore_unit` | `backend/app/api/v1/arrears.py:203` | 权限:LEDGER_EDIT |
+| 5 | `POST /api/v1/arrears-units/{unit_id}/restore` | `restore_unit` | `backend/app/api/v1/arrears.py:222` | 权限:LEDGER_EDIT |
 
 ### `backend/app/api/v1/auth.py` — 3 个
 
@@ -275,12 +275,12 @@
 | 17 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders.py:1378` | 权限:ORDER_DISPATCH |
 | 18 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders.py:1433` | 权限:ORDER_DISPATCH |
 | 19 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders.py:1458` | 权限:ORDER_DISPATCH |
-| 20 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders.py:1622` | 权限:ORDER_COMPLETE_DRIVER |
-| 21 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders.py:1650` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
-| 22 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders.py:1697` | 权限:ORDER_RETURN |
-| 23 | `POST /api/v1/orders/{order_id}/pay` | `pay_order` | `backend/app/api/v1/orders.py:1843` | 权限:ORDER_EDIT |
-| 24 | `POST /api/v1/orders/{order_id}/charge` | `charge_order` | `backend/app/api/v1/orders.py:1869` | 权限:ORDER_EDIT |
-| 25 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders.py:1909` | 权限:ORDER_RECALL |
+| 20 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders.py:1642` | 权限:ORDER_COMPLETE_DRIVER |
+| 21 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders.py:1670` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
+| 22 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders.py:1717` | 权限:ORDER_RETURN |
+| 23 | `POST /api/v1/orders/{order_id}/pay` | `pay_order` | `backend/app/api/v1/orders.py:1863` | 权限:ORDER_EDIT |
+| 24 | `POST /api/v1/orders/{order_id}/charge` | `charge_order` | `backend/app/api/v1/orders.py:1889` | 权限:ORDER_EDIT |
+| 25 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders.py:1929` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/place_categories.py` — 5 个
 

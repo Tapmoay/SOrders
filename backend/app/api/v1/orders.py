@@ -1587,9 +1587,29 @@ def _apply_complete_payment(db, order, payment: str | None) -> str | None:
     else:
         order.payment_method = "arrears"
         order.paid = False
-    if (order.paid, order.payment_method) == before:
+    # ⛔ **收到钱的单必须把"挂账单位"那根指向清掉**（2026-09-23 第 7 轮实测）：
+    #    同一个字段（`orders.paid` / `payment_method`）有三个写入点，而只有 `pay_order`
+    #    （现场收款确认）会顺手清 `arrears_unit_id`；送达这条路一直没清。于是这条顺序
+    #    ——「派单员先点挂账 → 司机按**收取现金**送达」——会落成一个自相矛盾的单：
+    #    `paid=True / payment_method=cash` 却仍然指着「某某挂账单位」，界面上那张单
+    #    还写着挂账单位，而挂账单位页/导出按 `paid=False` 过滤，两处说法不一致。
+    #    更要紧的是 **`delete_unit` 会因此永远删不掉那个单位**：
+    #    它数的是"所有 `arrears_unit_id` 指向它的订单"（不看 paid），于是那句
+    #    「该单位名下已有 N 笔挂账订单，无法删除」说的是一笔**早就收了现金**的单 ——
+    #    而界面上没有"改挂账单位"的入口，用户按这句话去处理也解不开（死结）。
+    #    与 `pay_order` 同源：钱一收到，挂账指向就该消失。
+    if order.paid and order.arrears_unit_id is not None:
+        cleared = order.arrears_unit_name or ""
+        order.arrears_unit_id = None
+        order.arrears_unit_name = ""
+    else:
+        cleared = ""
+    if (order.paid, order.payment_method) == before and not cleared:
         return None
-    return f"送达收款处理：paid {before[0]} → {order.paid}，方式 {before[1] or '—'} → {order.payment_method or '—'}"
+    return (
+        f"送达收款处理：paid {before[0]} → {order.paid}，方式 {before[1] or '—'} → {order.payment_method or '—'}"
+        + (f"；同时清掉挂账单位「{cleared}」（这一单是现场收现金，不再挂着它）" if cleared else "")
+    )
 
 
 def _apply_complete_payment_logged(db, order, payment: str | None, operator_id: int) -> None:

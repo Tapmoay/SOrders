@@ -161,13 +161,26 @@ def delete_unit(
     # ⚠️ 引用的**每一处**都要数（2026-09-19 审计）：原来只数订单，于是删掉一个单位之后，
     #    `customers.arrears_unit_id` 与 `shipper_receipts.arrears_unit_id` 会留下**指向已删单位的孤儿**。
     #    两列都是裸 Integer（没有外键），数据库不会拦、界面上也看不出来。
+    #
+    # ⚠️ 2026-09-23 第 7 轮：订单那一份**只看"还没收到钱"的**（`paid=False`）。
+    #    原来不分已收/未收，于是「派单员先点挂账 → 司机按收取现金送达」留下的那根陈旧指向
+    #    （送达那条路当时没清 `arrears_unit_id`，见 `orders._apply_complete_payment`）
+    #    会让这个单位**永远删不掉**，而那句「该单位名下已有 N 笔挂账订单」说的其实是一笔
+    #    早就收了现金的单 —— 界面上又没有"改挂账单位"的入口，用户照这句话去处理也解不开。
+    #    判据回到它本来的意思：**还挂着账（没收回钱）的订单才拦**。
     used = db.scalar(
         select(func.count())
         .select_from(Order)
-        .where(Order.arrears_unit_id == unit_id)
+        .where(Order.arrears_unit_id == unit_id, Order.paid.is_(False))
     )
     if used:
         raise HTTPException(status_code=400, detail=f"该单位名下已有 {used} 笔挂账订单，无法删除")
+    # 只是"历史指向"（钱已经收到了）的那些：不拦，但要如实记一笔，别让人以为一个引用都没有。
+    stale = db.scalar(
+        select(func.count())
+        .select_from(Order)
+        .where(Order.arrears_unit_id == unit_id)
+    ) or 0
     from app.models import Customer, ShipperReceipt
 
     cust_used = db.scalar(
@@ -194,7 +207,13 @@ def delete_unit(
         operator_id=operator.id,
         order_id=None,
         action=OperationAction.ARREARS_UNIT_DELETE,
-        change_payload={"unit_id": u.id, "name": original_name, "note": "伪装删除，可 restore 恢复"},
+        change_payload={
+            "unit_id": u.id,
+            "name": original_name,
+            "note": "伪装删除，可 restore 恢复",
+            # 查日志时能回答"这一单为什么允许删"：这些订单只是**历史指向**（钱已经收到了）
+            **({"collected_orders_still_pointing": stale} if stale else {}),
+        },
     )
     db.commit()
 
