@@ -162,7 +162,7 @@ MUTATIONS = [
     (
         "后端把库里的原样值直接下发（软删后缀 `_del160` 落在拨号按钮底下）",
         ORDER_RESPONSE,
-        'data["driver_phone"] = strip_del_suffix(du.phone) or None',
+        'data["driver_phone"] = dialable_phone(du)',
         'data["driver_phone"] = du.phone',
         "原样值直接下发",
     ),

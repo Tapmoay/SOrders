@@ -224,12 +224,15 @@ def main() -> int:
     c.ok("`core/InputRules.kt` 还在（上面那条 import 指得到东西）", INPUT_RULES.exists())
 
     print("\n== 6. 后端：下发的司机号码必须是**能拨的** ==")
-    c.present("`driver_phone` 过 `strip_del_suffix`（软删后缀去尾）",
-              orsp, r'data\["driver_phone"\] = strip_del_suffix\(du\.phone\)')
+    # ⚠️ 2026-09-24 第 20 轮（D9-F3）：口径从 `strip_del_suffix(du.phone)` 收成了
+    #    `soft_delete.dialable_phone(du)` —— 多了一条判据：**活账号带 `_del` 后缀 = 号码已被
+    #    别人抢走 → 不给号码**（否则拨号键会打给与这一单无关的人）。判据跟着改口径，不放宽。
+    c.present("`driver_phone` 过共用口径 `dialable_phone`（软删去尾 / 活账号被抢号时不给号）",
+              orsp, r'data\["driver_phone"\] = dialable_phone\(du\)')
     c.absent("没有再把库里的原样值直接下发（`= du.phone`）",
              orsp, r'data\["driver_phone"\] = du\.phone\b')
-    c.present("去尾用的是共用实现（`services/soft_delete.py`）",
-              orsp, r"from app\.services\.soft_delete import strip_del_suffix")
+    c.present("用的是共用实现（`services/soft_delete.py`）",
+              orsp, r"from app\.services\.soft_delete import dialable_phone")
 
     print("\n== 7. 配套：用例 / 规范 / 定位表（改了却没跟上 = 下一轮没人知道）==")
     c.ok("后端有用例钉住这条出参", BACKEND_TEST.exists(), f"缺 {BACKEND_TEST.name}")

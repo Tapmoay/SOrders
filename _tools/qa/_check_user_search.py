@@ -394,9 +394,11 @@ def main() -> int:
         "row.phone" in ls and "未注册账号" in ls,
     )
     ok(
-        "软删账号的手机号**真的**去尾再下发（不是只 import 了工具）",
-        "strip_del_suffix(u.phone)" in read(APP / "api/v1/ledger.py")
-        and "def strip_del_suffix(" in read(APP / "services/soft_delete.py"),
+        # ⚠️ 2026-09-24 第 20 轮（D9-F3）：口径收成 `soft_delete.dialable_phone(u)` ——
+        #    它比 `strip_del_suffix` 多一条判据：**活账号带 `_del` 后缀 = 号码已被别人抢走 → 不给号**。
+        "软删账号的手机号**真的**过共用口径再下发（不是只 import 了工具）",
+        "dialable_phone(u)" in read(APP / "api/v1/ledger.py")
+        and "def dialable_phone(" in read(APP / "services/soft_delete.py"),
     )
 
     print("\n" + "=" * 60)

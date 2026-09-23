@@ -794,7 +794,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:788",
+   "at": "backend/app/api/v1/ledger.py:789",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -841,7 +841,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:265",
+   "at": "backend/app/api/v1/ledger.py:266",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"

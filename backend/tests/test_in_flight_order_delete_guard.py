@@ -60,15 +60,49 @@ def test_shipper_cannot_delete_exception_order_that_is_still_in_flight(
     assert got.status_code == 200, "司机仍然要能看到这张单"
 
 
-def test_shipper_can_still_delete_delivered_and_cancelled(
-    client, users, token_dispatcher, token_shipper
-):
-    """对照：终态（已撤销）仍然可以删 —— 别把正当需求一起堵死。"""
+def test_shipper_can_still_delete_cancelled(client, users, token_dispatcher, token_shipper):
+    """对照：终态（**已撤销**）仍然可以删 —— 别把正当需求一起堵死。"""
     h = auth_headers(token_dispatcher)
     oid = _mk_order(client, h, users["shipper"].id)
     assert client.post(f"/api/v1/orders/{oid}/cancel", headers=h).status_code == 200
     r = client.delete(f"/api/v1/orders/{oid}", headers=auth_headers(token_shipper))
     assert r.status_code in (200, 204), r.text
+
+
+def test_shipper_cannot_delete_delivered(client, users, token_dispatcher, token_shipper, token_driver):
+    """⛔ 货主**不许**删自己「已送达」的单（2026-09-24 第 20 轮 D12-F3）。
+
+    用户 2026-09-21 的原话：「他**不能删他的订单**……**除非是那个已撤销的订单信息**」。
+    这条规矩当时只落在 AI 侧（`SHIPPER_AI_DELETABLE = {CANCELLED}`）——同一个动作
+    AI 拒绝、界面放行。而放行的代价是**钱**：`shipper_ledger` 的「我该付的」按
+    `deleted_at is None` 聚合，货主删掉一张已送达的单 = 自己把那笔应收从账上抹掉，
+    派单员按货主账催收永远看不到。
+
+    ⚠️ 这条用例**原来钉的是相反的行为**（`test_shipper_can_still_delete_delivered_and_cancelled`
+    同时断言"已送达也能删"）—— 判据钉错了侧，与用户在 2026-09-21 明确表达的规矩相反。
+    """
+    h = auth_headers(token_dispatcher)
+    oid = _mk_order(client, h, users["shipper"].id)
+    assert client.post(
+        f"/api/v1/orders/{oid}/assign",
+        json={"driver_id": users["driver"].id, "freight_fee": "20"},
+        headers=h,
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/orders/{oid}/driver-ack", headers=auth_headers(token_driver)
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/orders/{oid}/complete",
+        json={"delivery_photo_urls": ["/static/uploads/delivery/probe-del-guard.jpg"]},
+        headers=auth_headers(token_driver),
+    ).status_code == 200
+
+    r = client.delete(f"/api/v1/orders/{oid}", headers=auth_headers(token_shipper))
+    assert r.status_code == 400, (
+        f"货主把自己「已送达」的单删掉了（HTTP {r.status_code}）—— 那笔应收会从货主账上消失，"
+        "而用户 2026-09-21 明确说过「除非是那个已撤销的订单信息」"
+    )
+    assert "已撤销" in r.json()["detail"], r.json().get("detail")
 
 
 def test_dispatcher_can_still_delete_any_state(client, users, token_dispatcher):

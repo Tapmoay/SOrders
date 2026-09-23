@@ -228,12 +228,16 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "软删后缀不再去掉（给用户看一个打不通的号）",
         PY_LEDGER,
-        lambda s: s.replace("b[\"phone\"] = (strip_del_suffix(u.phone) or None) if u else None", "b[\"phone\"] = (u.phone or None) if u else None", 1),
+        lambda s: s.replace('b["phone"] = dialable_phone(u) if u else None', 'b["phone"] = (u.phone or None) if u else None', 1),
     ),
     (
+        # ⚠️ 2026-09-24 第 20 轮：判据从 `strip_del_suffix(` 改成了 `dialable_phone(`（共用口径，
+        #    多一条"活账号带后缀不给号"的判据）→ 注入目标跟着换，否则这条注入变成恒 SKIP
+        #    （反向验证自己会告诉你不许这样 —— 它第一版就是报"没有报红"）。`strip_del_suffix`
+        #    仍在 `dialable_phone` 里被调用，所以它被删掉时**也**要红（两处都钉）。
         "去尾工具本身被删掉（逆运算没地方放）",
         PY_SOFT,
-        lambda s: s.replace("def strip_del_suffix(", "def strip_del_suffix_removed(", 1),
+        lambda s: s.replace("def dialable_phone(", "def _dialable_phone_removed(", 1),
     ),
 ]
 

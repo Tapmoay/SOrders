@@ -518,13 +518,27 @@ def delete_cancelled_order(
         #    「删除订单」→ 一删，单子进回收站 → 司机端列表里它直接消失（`GET /orders` 对司机
         #    过滤 `deleted_at`）→ **司机拿着打不开的单跑车，到现场发现单子没了、也拿不到钱**。
         #    现在：异常单必须**先撤销/撤回**（把状态变成终态）才能删。
-        if order.status not in (OrderStatus.CANCELLED, OrderStatus.DELIVERED):
+        #
+        # ⛔ 2026-09-24 第 20 轮（D12-F3）：**已送达也收掉了** —— 用户 2026-09-21 的规矩是
+        #    「他不能删他的订单……除非是那个**已撤销**的订单信息」，而这条当时**只落在 AI 侧**
+        #    （`AiWriteOrderLineHandlers.kt` 的 `SHIPPER_AI_DELETABLE = {CANCELLED}`）——
+        #    同一个动作在 AI 那里被拒、在界面上放行，两个答案。
+        #    为什么必须收：`shipper_ledger` 的「我该付的」按 `deleted_at is None` 聚合
+        #    （`shipper_ledger.py:248-253`）—— 货主把自己一张**已送达**的单删掉，
+        #    那笔应收就从他那一页消失，派单员按货主账催收永远看不到（钱凭空少一笔）。
+        if order.status != OrderStatus.CANCELLED:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    "仅已送达/已撤销订单可删除。这是一张进行中的订单"
-                    + ("（已标异常）" if bool(order.is_exception) else "")
-                    + "，请先走撤销或撤回，再删除。"
+                    "货主只能删除**已撤销**的订单。"
+                    + (
+                        "这是一张已送达的订单：那笔货款已经入账，删掉会让账上看不见它；"
+                        "如有异议请联系派单员处理退货。"
+                        if order.status == OrderStatus.DELIVERED
+                        else "这是一张进行中的订单"
+                        + ("（已标异常）" if bool(order.is_exception) else "")
+                        + "，请先走撤销或撤回，再删除。"
+                    )
                 ),
             )
     if order.deleted_at is not None:

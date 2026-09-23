@@ -73,11 +73,15 @@ object OrderStatusModel {
      * ⛔ 「异常」**不是**通行证（2026-09-19 审计）：原来后端那个 `and not is_exception`
      * 让被标过异常的在途单也能删 —— 一删，司机端列表里它直接消失，
      * 司机拿着打不开的单跑车，到现场发现单子没了、也拿不到钱。
-     * 这是**后端授权的上限**（界面订单详情页的 `canDelete` 用它）；
-     * ⚠️ AI 侧比它**更严**，见 [SHIPPER_AI_DELETABLE] —— 两处不要混，理由写在那边。
+     * ⛔ 2026-09-24 第 20 轮（D12-F3）：**「已送达」也收掉了** —— 用户 2026-09-21 的规矩是
+     * 「他不能删他的订单……除非是那个**已撤销**的订单信息」，而它当时只落在 AI 侧
+     * （见 [SHIPPER_AI_DELETABLE]）。人工这条路放行的后果是**钱**：`shipper_ledger`
+     * 的「我该付的」按 `deleted_at is None` 聚合，货主删掉自己一张已送达的单，
+     * 那笔应收就从货主账页消失、派单员按它催收永远看不到。
+     * 现在**界面与 AI 同一条线**：货主只删「已撤销」。
      * **派单员不适用**（他能删任意状态，含待派单）。
      */
-    val SHIPPER_DELETABLE: Set<String> = setOf("CANCELLED", "DELIVERED")
+    val SHIPPER_DELETABLE: Set<String> = setOf("CANCELLED")
 
     /**
      * **AI** 能替货主删的状态 —— 比界面**更严**：只认「已撤销」。
