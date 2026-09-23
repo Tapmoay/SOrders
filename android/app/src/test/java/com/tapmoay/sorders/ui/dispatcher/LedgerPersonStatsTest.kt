@@ -68,6 +68,35 @@ class LedgerPersonStatsTest {
     }
 
     @Test
+    fun `行应收与后端同一顺序_先相减再取分`() {
+        // ⛔ 2026-09-24 第 21 轮 E4-1：这一条是"永久收不了款"的确证。
+        //    单价 0.5050（4 位小数、列是 Numeric(14,4)）× 2 件 → 行金额 1.01 → 退 1 件：
+        //    · 后端 `order_money.line_receivable` = 先相减再取分 → **0.51**
+        //    · 客户端原来是两边**各自先取分**再相减 → 1.01 − round(0.5050) = 1.01 − 0.51 → 0.50
+        //    于是核销时后端判「收款金额 0.50 与所选订单合计 0.51 不一致」→ 这笔款永远收不了
+        //    （0.5~20 元区间有 23400 个"单价×数量×退货数"组合会命中，不是孤立点）。
+        val l = OrderProductDto(
+            id = 1,
+            productNameSnapshot = "探针货",
+            quantity = 2,
+            unitPrice = "0.5050",
+            lineTotal = "1.01",
+            unit = "件",
+            returnedQuantity = 1,
+        )
+        assertEquals(
+            "行应收必须与后端同顺序（先相减再取分）：1.01 − 0.5050 = 0.505 → 0.51",
+            51L,
+            lineReceivableCents(l),
+        )
+    }
+
+    @Test
+    fun `没退货时行应收就是行金额`() {
+        assertEquals(101L, lineReceivableCents(line("探针货", 2, "0.5050", id = 1)))
+    }
+
+    @Test
     fun `各商品的未收加起来精确等于订单欠款`() {
         // 应收 50 + 40 = 90，实欠 30（收过 60）→ 按比例摊：苹果 30×50/90、梨 吃掉余数
         val o = order(

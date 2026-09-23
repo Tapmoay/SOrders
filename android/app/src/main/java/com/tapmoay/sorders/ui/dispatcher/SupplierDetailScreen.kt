@@ -51,6 +51,18 @@ class SupplierDetailViewModel(private val container: AppContainer, private val s
     var loadError by mutableStateOf<String?>(null)
     var actionResult by mutableStateOf<String?>(null)
 
+    /**
+     * 有写请求**正在飞**（2026-09-24 第 22 轮：这一页原来连这个字段都没有）。
+     *
+     * ⛔ 为什么必须有：`pay()`（确认付款）的弹层**只在响应回来后**才关，而按钮的 `enabled`
+     *    只判"金额合法"。于是在"分次付款"这条路上（1000 的应付单先付 300）连点两下 =
+     *    **两笔 300 都过账**：后端那道 CAS 只拦"累计不超应付总额"，恰好放行分次付款。
+     *    保持默认全额时第二次才会被拦成"已经付清了" —— 也就是说**恰恰是分次付款的用户会双付**。
+     *    同页「挂一笔应付」连点两下则是欠款翻倍。
+     */
+    var acting by mutableStateOf(false)
+        private set
+
     /** 刚撤销掉的那一笔付款（给「撤回」用）。 */
     var lastCancelled by mutableStateOf<SupplierPaymentDto?>(null)
         private set
@@ -82,6 +94,8 @@ class SupplierDetailViewModel(private val container: AppContainer, private val s
 
     /** 挂一笔应付（欠他多少）。**这一步不动钱**。 */
     fun createPayable(title: String, category: String, amount: String, docDate: String, remark: String, onDone: () -> Unit) {
+        if (acting) return          // 连点两下 = 欠款翻倍（见 [acting] 的说明）
+        acting = true
         viewModelScope.launch {
             try {
                 container.repo.createSupplierPayable(
@@ -96,12 +110,16 @@ class SupplierDetailViewModel(private val container: AppContainer, private val s
                 load()
             } catch (e: Exception) {
                 actionResult = toApiException(e).message
+            } finally {
+                acting = false
             }
         }
     }
 
     /** 付一笔款。⚠️ 金额超过"还差"时后端会拒绝（那句话原样给用户看）。 */
     fun pay(p: SupplierPayableDto, amount: String, payDate: String, channel: String, remark: String, onDone: () -> Unit) {
+        if (acting) return          // 连点两下 = 真出两笔钱（见 [acting] 的说明）
+        acting = true
         viewModelScope.launch {
             try {
                 container.repo.paySupplierPayable(
@@ -113,6 +131,8 @@ class SupplierDetailViewModel(private val container: AppContainer, private val s
                 load()
             } catch (e: Exception) {
                 actionResult = toApiException(e).message
+            } finally {
+                acting = false
             }
         }
     }
@@ -240,6 +260,7 @@ fun SupplierDetailScreen(container: AppContainer, supplierId: Long, onBack: () -
             onSave = { title, category, amount, docDate, remark ->
                 vm.createPayable(title, category, amount, docDate, remark) { addingPayable = false }
             },
+            acting = vm.acting,
         )
     }
     paying?.let { p ->
@@ -249,6 +270,7 @@ fun SupplierDetailScreen(container: AppContainer, supplierId: Long, onBack: () -
             onSave = { amount, date, channel, remark ->
                 vm.pay(p, amount, date, channel, remark) { paying = null }
             },
+            acting = vm.acting,
         )
     }
 }
@@ -379,6 +401,8 @@ private fun PayableEditorDialog(
     supplierName: String,
     onDismiss: () -> Unit,
     onSave: (title: String, category: String, amount: String, docDate: String, remark: String) -> Unit,
+    /** 有写请求正在飞 → 「挂上」禁用（见 `SupplierDetailViewModel.acting`）。 */
+    acting: Boolean = false,
 ) {
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
@@ -424,7 +448,9 @@ private fun PayableEditorDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = title.isNotBlank() && amount.isNotBlank(),
+                // ⚠️ 2026-09-24 第 22 轮：`enabled` 必须同时判"请求在不在飞" ——
+                //    弹层只在**响应回来后**才关，不判的话连点两下就是两笔应付（欠款翻倍）。
+                enabled = title.isNotBlank() && amount.isNotBlank() && !acting,
                 onClick = { onSave(title.trim(), category, amount.trim(), docDate.trim(), remark.trim()) },
             ) { Text("挂上") }
         },
@@ -443,6 +469,8 @@ private fun PayDialog(
     p: SupplierPayableDto,
     onDismiss: () -> Unit,
     onSave: (amount: String, payDate: String, channel: String, remark: String) -> Unit,
+    /** 有写请求正在飞 → 确认按钮禁用（见 `SupplierDetailViewModel.acting`）。 */
+    acting: Boolean = false,
 ) {
     // 默认填"还差多少"（最常见的用法是把它付清）；用户改成小数就是分次付款
     var amount by remember { mutableStateOf(p.unpaid) }
@@ -516,7 +544,10 @@ private fun PayDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = typed != null && typed.signum() > 0 && !over,
+                // ⚠️ 2026-09-24 第 22 轮：`!acting` 不是装饰 —— 这条弹层只在响应回来后才关，
+                //    而"分次付款"（1000 先付 300）连点两下 = **两笔 300 都过账**
+                //    （后端那道 CAS 只拦"累计不超应付总额"）。
+                enabled = typed != null && typed.signum() > 0 && !over && !acting,
                 onClick = { onSave(amount.trim(), payDate.trim(), channel, remark.trim()) },
             ) { Text("确认付款") }
         },

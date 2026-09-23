@@ -51,10 +51,17 @@ data class ProductStat(
  *    拿它当应收，退过货的单会被按原价收钱。
  */
 fun lineReceivableCents(p: OrderProductDto): Long {
-    val total = moneyCents(p.lineTotal)
-    val unit = BigDecimal(p.unitPrice ?: "0")
-    val returned = unit.multiply(BigDecimal(p.returnedQuantity)).setScale(2, RoundingMode.HALF_UP)
-    return total - moneyCents(returned.toPlainString())
+    // ⛔ **先在 Decimal 里相减、最后才取分**（2026-09-24 第 21 轮 E4-1 实测）：
+    //    原来两边**各自先取分**再相减 —— `moneyCents(lineTotal)` 与
+    //    `moneyCents(unit × returnedQty)`，而后端 `order_money` 是"先相减再取分"。
+    //    单价 0.5050 × 2 件 → 行金额 1.01 → 退 1 件：后端算出 **0.51**、这里算出 **0.50**，
+    //    于是核销时后端判"收款金额 0.50 与所选订单合计 0.51 不一致" → **这笔款永远收不了**
+    //    （0.5~20 元区间有 23400 个"单价×数量×退货数"组合会命中，不是孤立点）。
+    //    顺序必须与后端逐字一致：**只有一处口径**（`order_money.line_receivable`）。
+    val total = p.lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val unit = p.unitPrice?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val returned = unit.multiply(BigDecimal(p.returnedQuantity))
+    return moneyCents((total - returned).toPlainString())
 }
 
 /** 金额字符串 → **分**（四舍五入到分，与后端 `q2` 同一个进位方式）。 */
