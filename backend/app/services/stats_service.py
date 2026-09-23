@@ -95,6 +95,18 @@ def load_orders_by_delivered_at(
     return list(db.scalars(q).unique().all())
 
 
+#: 看板那条曲线最多画几条（**只是画图的限制**）。
+#: ⚠️ 2026-09-24 第 20 轮 D11-4：导出**也**调 `shipper_product_chart`，于是"看板导出 → 货主商品"
+#:    这张表**静默只导前 12 名**（整个导出家族里唯一一处静默截断，文件里一个字都没说）。
+#:    曲线限 12 条是合理的（屏幕上画不下），所以这里不动它，而是在**导出侧**把这件事
+#:    如实写进文件（`stats_export.build_stats_export_bytes` 会读它）。
+#: ⛔ 2026-09-24 第 26 轮：它原来写在 `shipper_product_chart` **函数体里**（局部名），
+#:    而导出侧写的是 `stats_service.shipper_product_chart.TOP_PRODUCTS`（把函数当模块用）
+#:    → `AttributeError` → **`POST /stats/export` 必 500**（第 25 轮 05 区 F6 实测；
+#:    App 恰好没有调用点，所以一直没人发现）。同名同值提到模块级，只是让"从外面读得到"成真。
+TOP_PRODUCTS = 12
+
+
 def shipper_product_chart(
     db: Session,
     date_from: date,
@@ -125,9 +137,15 @@ def shipper_product_chart(
     #: ⚠️ 2026-09-24 第 20 轮 D11-4：导出**也**调这个函数，于是"看板导出 → 货主商品"
     #:    这张表**静默只导前 12 名**（整个导出家族里唯一一处静默截断，文件里一个字都没说）。
     #:    曲线限 12 条是合理的（屏幕上画不下），所以这里不动它，而是在**导出侧**把这件事
-    #:    如实写进文件（`stats_export.build_stats_export_bytes` 会读 `TOP_PRODUCTS`）。
-    TOP_PRODUCTS = 12
-    top_names = sorted(product_totals.keys(), key=lambda x: product_totals[x], reverse=True)[:TOP_PRODUCTS]
+    #:    如实写进文件（`stats_export.build_stats_export_bytes` 会读 [TOP_PRODUCTS]）。
+    #: ⛔ 2026-09-24 第 26 轮：它**从局部变量提成了模块常量**（第 25 轮 05 区 F6 实测）——
+    #:    导出侧写的是 `stats_service.shipper_product_chart.TOP_PRODUCTS`（把函数当模块用），
+    #:    而这里原来是个**函数内的局部名** → `AttributeError` → **`POST /stats/export` 必 500**
+    #:    （App 恰好没有调用点，所以一直没人发现；AI 的 export_sheet 也不打这个端点）。
+    #:    同名同值，只是把"能不能从外面读到"这件事变成真的。
+    top_names = sorted(product_totals.keys(), key=lambda x: product_totals[x], reverse=True)[
+        :TOP_PRODUCTS
+    ]
 
     periods = sorted({p for (p, _) in acc.keys()})
     if not periods:

@@ -47,6 +47,14 @@ from app.services.money_text import money_text
 #: 迁移会把老库里的 `loss` 翻成「货损」，所以这里写中文名与名册对得上。
 DAMAGE_EXPENSE_CATEGORY = "货损"
 
+#: `cash_flows.party_type` 里"客户"那个取值 —— **唯一一处字面量**（2026-09-24 第 26 轮）。
+#: 客户的资金流水就是靠 `party_type='customer' + party_id` 归属的，而按客户筛钱的地方
+#: 有两处：本模块写它（收款）、`api/v1/customers.py` 读它（客户合并要把流水搬过去）。
+#: 两边各写一次字面量时，"合并漏搬"这类缺陷的判据就会**在另一侧静默失效**
+#: （第 25 轮 03 区 F1 正是这个形状）。`order_return.py` 里还有一处同值字面量（退货退现），
+#: 那一处与"钱只算一处"的收口一起再改。
+PARTY_CUSTOMER = "customer"
+
 from app.services.driver_pay import (
     has_per_order_pay,
     pay_for_order,
@@ -505,7 +513,7 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
     common = {
         "flow_date": body.received_at,
         "direction": CashFlowDirection.IN,
-        "party_type": "customer",
+        "party_type": PARTY_CUSTOMER,
         "party_id": cust.id,
         "party_name": cust.name,
         "channel": "wechat" if body.method == "wechat" else ("bank" if body.method == "transfer" else "cash"),

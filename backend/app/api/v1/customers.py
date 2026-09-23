@@ -11,6 +11,7 @@ from app.deps import CurrentUser
 from app.models import Customer, Order, User
 from app.models.enums import CustomerKind, OperationAction, UserRole
 from app.schemas.accounting_v2 import CustomerCreate, CustomerMergeBody, CustomerOut
+from app.services.accounting_service import PARTY_CUSTOMER
 from app.services.operation_log_service import write_log
 from app.services import usage_service
 
@@ -131,12 +132,17 @@ def merge_customers(
             )
     moved_receipts = 0
     moved_ledgers = 0
+    moved_flows = 0
     renamed_orders = 0
     for mid in merge_ids:
         m = db.get(Customer, mid)
         if m is None:
-            continue
-        from app.models import Ledger, ShipperReceipt
+            # ⛔ 不存在的编号**当场拒绝**（2026-09-24 第 26 轮；第 25 轮 03 区 F5）：
+            #    原来 `continue` —— 于是"合并一个打错的编号"照样 200、照样写一条
+            #    `CUSTOMER_MERGE` 审计（看起来像合并成功了），重复提交还会在审计页上
+            #    留下两条一模一样的"合并成功"。合并是**改钱的归属**，宁可 404 说清楚。
+            raise HTTPException(status_code=404, detail=f"要合并的客户不存在（编号 {mid}），请确认后重试")
+        from app.models import CashFlow, Ledger, ShipperReceipt
 
         ledgers = list(db.scalars(select(Ledger).where(Ledger.customer_id == mid)))
         for lg in ledgers:
@@ -149,6 +155,27 @@ def merge_customers(
         for r in receipts:
             r.customer_id = keep.id
         moved_receipts += len(receipts)
+        # ②b ⛔ **真正记钱的那张表**：`cash_flows.party_id`（2026-09-24 第 26 轮；第 25 轮 03 区 F1）。
+        #    客户的钱有三个键（档案 id / `orders.shipper_id` / `temp_shipper_name`），而
+        #    「这个客户收了多少、退了多少」在**资金流水**里是按 `party_type='customer' + party_id`
+        #    筛的（`GET /cash-flows/summary?party_type=customer&party_id=`）。
+        #    上面 ①②③ 三处都搬了，唯独这张表**全后端 0 处更新** —— 合并之后：
+        #    按保留客户筛，被并客户那几笔**永远少一份**（本机实测：customer 流水 income
+        #    ¥11007.00 / 26 行，按 `party_id=7` 筛得 ¥3755.60、`party_id=8` 得 ¥3080.10），
+        #    而 `party_name` 还写着**已被删掉的那个客户名**（档案都删了，名字还在）。
+        #    于是"把钱并到一起"这个合并的**本来目的**在资金流水这一侧根本不会发生。
+        flows = list(db.scalars(
+            select(CashFlow).where(
+                CashFlow.party_type == PARTY_CUSTOMER,
+                CashFlow.party_id == mid,
+            )
+        ))
+        for cf in flows:
+            cf.party_id = keep.id
+            # 名字是快照串：跟着搬，否则流水上印着一个已经不存在的人
+            if (cf.party_name or "").strip() == (m.name or "").strip():
+                cf.party_name = keep.name
+        moved_flows += len(flows)
         # ③ 临时货主（无账号）的账本行按**名字**归集（`list_accounts` 就是这么聚合的），
         #    合并时名字不改 → 用户做合并的主要目的（把两笔账并到一起）根本不会发生。
         old_name = (m.name or "").strip()
@@ -189,6 +216,9 @@ def merge_customers(
             "merged_ids": merge_ids,
             "moved_ledgers": moved_ledgers,
             "moved_receipts": moved_receipts,
+            # 资金流水也搬了多少行（2026-09-24 第 26 轮）：这张表按 `party_id` 记客户的钱，
+            # 不留痕的话"合并之后按客户筛少一笔"在审计页上查不出来。
+            "moved_cash_flows": moved_flows,
             # 临时货主改名影响到的**订单行数**也要留痕：不然"合并之后报表里那个名字还是旧名"
             # 这件事在审计页上查不出来（2026-09-19 审计 R14-4）
             "renamed_orders": renamed_orders,

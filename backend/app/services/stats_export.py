@@ -49,7 +49,7 @@ def build_stats_export_bytes(db: Session, body: StatsExportBody) -> bytes:
         #    导出沿用它，于是文件里静默少了其余商品（整个导出家族里唯一一处静默截断）。
         #    曲线限 12 条是画布的限制，导出不是；在没改成"导出全量"之前，
         #    必须让拿文件的人一眼看到这句话（否则他会拿这 12 行当全部去对账）。
-        if len(series) >= stats_service.shipper_product_chart.TOP_PRODUCTS:
+        if len(series) >= stats_service.TOP_PRODUCTS:
             append_text_row(ws, [
                 f"⚠️ 本表只列了金额/数量最高的前 {len(series)} 个商品（按指标排序），"
                 "不是全部商品；需要完整清单请用「报表中心 → 商品」或导出 kind=products。"
