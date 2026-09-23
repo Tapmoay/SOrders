@@ -1725,9 +1725,17 @@ def cancel_order(
     current: CurrentUser,
     db: Session = Depends(get_db),
 ) -> OrderOut:
-    order = db.scalars(select(Order).where(Order.id == order_id)).first()
-    if order is None:
-        raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⛔ 隔离区（回收站）里的单**不许撤销**（2026-09-24 第 24 轮并行渗透 03-F1）：
+    #    这是第 5 条写路径，而 R13-D1 当年只补了送达/上传凭证/追加备注/派单四条。
+    #    漏掉它的后果是**两个角色两种答案**：货主 `GET /orders/{id}` 是 404、
+    #    `?deleted_only=true` 是 403（他在界面上根本看不到这张单），
+    #    可是同一个 id 发 `POST /cancel` 却会成功 —— 一张他看不见的单被改成「已撤销」，
+    #    还会推一条「已撤销」通知给他（点进去 404）。本机库内实测有 22 行
+    #    `deleted_at IS NOT NULL AND shipper_id=2 AND status IN (待派单, 已派单)` 满足这个前提。
+    #    用 `_order_not_deleted_or_404` 与那四条写路径同一个判据、同一句答复。
+    order = _order_not_deleted_or_404(
+        db.scalars(select(Order).where(Order.id == order_id)).first()
+    )
     role = user_role_key(current)
     if role == UserRole.SHIPPER.value:
         if order.shipper_id is None or order.shipper_id != current.id:
@@ -1933,7 +1941,16 @@ def pay_order(
     也就是说"收款方式说现金、欠款说 700"——同一张单两个答案。判据与"改回挂账"那条**同一处**
     （[_reject_if_already_collected]，只看 `paid` + 指向这张单的 inbound 流水）。
     """
-    order = _payment_scoped_order(order_id, db)
+    # ⛔ 先**锁住这一行再读**（2026-09-24 第 24 轮并行渗透 01-D1）：
+    #    `pay`（写 `paid=True`）与 `charge`（写 `paid=False`）原来都是"普通 SELECT → 判断 →
+    #    无条件赋值"，**一处锁都没取**。两个请求交错时：charge 读到 `paid=False` 的旧快照，
+    #    再把 `paid` 写回 False —— 于是 `pay` 的那次收款在所有口径里归零
+    #    （`pay_order` 按设计**不写收款单、不写流水**，它只改标记），
+    #    两道防重门（`o.paid` 与 `m.arrears<=0`）双双放行 → **同一笔钱可以再收一次**：
+    #    第二张收款单 + 第二条现金流水，资金流入 2×。
+    #    本机只读 SQL 已证"钱收过、账上一笔流水都没有"是既成事实（`orders.id=449`）。
+    #    取锁之后 `_reject_if_already_collected` 读到的就是提交后的新值，判据才真的生效。
+    order = lock_order_row(db, _payment_scoped_order(order_id, db))
     _reject_if_already_collected(db, order, "再确认一次现场收款")
     order.payment_method = "cash"
     order.paid = True
@@ -1961,7 +1978,10 @@ def charge_order(
     current: User = Depends(require_permission(Permission.ORDER_EDIT)),
 ) -> OrderOut:
     """派单员：订单挂账到挂账单位名下。仅派单员界面可用。"""
-    order = _payment_scoped_order(order_id, db)
+    # ⛔ 与 `pay_order` 同一处竞争、同一种修法（2026-09-24 第 24 轮并行渗透 01-D1）：
+    #    这条路径把 `paid` 写回 False，等于**给这张单重新开一次收款窗口** ——
+    #    所以"先锁再判"必须两边都做：只锁一边的话，被写坏的那一边照样发生。
+    order = lock_order_row(db, _payment_scoped_order(order_id, db))
     # ⚠️ 已收款的单**不许改回挂账**（2026-09-19 审计 R14-2）：收款侧唯一的防重判据就是 `paid`，
     #    把 paid 改回 False 等于给这张单**重新开了一次收款窗口**（收款单与现金流水都还在）。
     _reject_if_already_collected(db, order, "改回挂账")
