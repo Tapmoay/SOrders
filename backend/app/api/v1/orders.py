@@ -1917,8 +1917,24 @@ def pay_order(
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_EDIT)),
 ) -> OrderOut:
-    """派单员：现场收款确认（货到付款）。仅派单员界面可用。"""
+    """派单员：现场收款确认（货到付款）。仅派单员界面可用。
+
+    ⛔ **已经收过款的单不许再点"现场收款确认"**（2026-09-24 第 20 轮并行渗透 C1-2 + D5-②）：
+    这条路径原来只写 `payment_method='cash' / paid=True / arrears_unit_id=None` ——
+    **不写收款单、不写现金流水**。于是"已经核销过一部分"的单（`paid=True`、
+    `payment_method` 仍是 `arrears`、`money_map` 按核销流水算出已收 100、还欠 700）上再点一次：
+
+    | 谁 | 看到的 |
+    | --- | --- |
+    | 界面/AI 卡片 | 「收款：¥800」→ 点确认 → 「已完成」 |
+    | 库里 | `paid=True`、**一笔新进账都没有**；`arrears_unit_id` 被清空 → 这单从挂账单位账上**消失** |
+    | 挂账名单 | 它已被 `paid=True` 排除 → 那 700 元**没人再追** |
+
+    也就是说"收款方式说现金、欠款说 700"——同一张单两个答案。判据与"改回挂账"那条**同一处**
+    （[_reject_if_already_collected]，只看 `paid` + 指向这张单的 inbound 流水）。
+    """
     order = _payment_scoped_order(order_id, db)
+    _reject_if_already_collected(db, order, "再确认一次现场收款")
     order.payment_method = "cash"
     order.paid = True
     order.arrears_unit_id = None

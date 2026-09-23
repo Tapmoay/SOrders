@@ -389,17 +389,24 @@ def delete_rule(
     current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
 ) -> None:
     r = _get_or_404(db, rule_id)
+    # ⛔ 闸门按 **`driver_rule_id`** 数，**不许**再叠 `role == DRIVER`
+    #    （2026-09-24 第 20 轮并行渗透 C6-2）：原来那一句让"改一次角色"就能绕过闸门 ——
+    #    `PATCH /users/{id} {"role": "shipper"}` **不会**清掉 `driver_rule_id`
+    #    （`users.py` 的更新路径只写 role），于是：
+    #      ① 把挂着规则的司机改成货主 → 闸门数到 0 个司机 → **规则删得掉**；
+    #      ② 再改回司机 → 司机页照旧显示「每单 78 元」，`order_flow` 把这份**已删的规则**
+    #         写进新订单快照，送达按它结账（而规则列表里看不见它）。
+    #    这个仓库已经栽过一次同形的（`models/user.py::normalize_billing_mode` 那段注释），
+    #    判据要按"**谁还指着它**"数，而不是按"他现在是什么角色"数。
     attached = db.scalar(
-        select(func.count())
-        .select_from(User)
-        .where(User.driver_rule_id == r.id, User.role == UserRole.DRIVER.value)
+        select(func.count()).select_from(User).where(User.driver_rule_id == r.id)
     ) or 0
     # 还挂着司机就不许删：删掉之后那些司机**悄悄退回老口径**（计件=全额运费），
     # 而"悄悄改了 3 个人的工资算法"是这次改造里最不能接受的一种失败。
     if attached:
         raise HTTPException(
             status_code=400,
-            detail=f"还有 {attached} 个司机挂着这份规则，先给他们换掉或解挂再删",
+            detail=f"还有 {attached} 个账号挂着这份规则，先给他们换掉或解挂再删",
         )
     r.is_deleted = True
     r.deleted_at = utc_now_naive()

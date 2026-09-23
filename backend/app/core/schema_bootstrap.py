@@ -917,12 +917,18 @@ def _bootstrap_impl(engine: Engine) -> None:
         with engine.begin() as conn:
             for tbl, col in (("users", "billing_mode"), ("orders", "driver_billing_mode_snapshot")):
                 try:
-                    r = conn.execute(
-                        text(
-                            f"UPDATE {tbl} SET {col} = UPPER({col}) "
-                            f"WHERE {col} IS NOT NULL AND {col} <> UPPER({col})"
-                        )
-                    )
+                    # ⛔ **比较必须是二进制口径**（2026-09-24 第 20 轮并行渗透 D2-1）：
+                    #    MySQL 的列排序规则是 `utf8mb4_unicode_ci`（**大小写不敏感**），
+                    #    于是 `col <> UPPER(col)` 对 `'piece'` 恒为**假** —— 这段"存量归一"
+                    #    **从上线起一次都没生效过**（生产实测 `SELECT v, v<>UPPER(v) …` → ne=0），
+                    #    而本机 SQLite 的 `BINARY` 比对会命中 → **本地永远测不出来**。
+                    #    `COLLATE utf8mb4_bin` 让 MySQL 按字节比，与 SQLite 行为对齐；
+                    #    SQLite 不认 COLLATE 子句，所以按方言二选一（两边的**判据是同一句**）。
+                    if engine.dialect.name == "mysql":
+                        mism = f"{col} COLLATE utf8mb4_bin <> UPPER({col}) COLLATE utf8mb4_bin"
+                    else:
+                        mism = f"{col} <> UPPER({col})"
+                    r = conn.execute(text(f"UPDATE {tbl} SET {col} = UPPER({col}) WHERE {col} IS NOT NULL AND {mism}"))
                     if r.rowcount:
                         logger.warning("计费方式归一：%s.%s 修正了 %s 行（小写 → 大写）", tbl, col, r.rowcount)
                 except DBAPIError:
