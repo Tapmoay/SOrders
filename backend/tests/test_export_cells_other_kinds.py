@@ -390,7 +390,10 @@ def test_drivers_export_matches_driver_performance_cells(
             assert row[2] == ("" if rate is None else round(rate, 4)), (row, d)
             assert row[3] == round(d["photo_upload_rate"] or 0.0, 4), (row, d)
             avg = d["avg_delivery_seconds"]
-            assert row[4] == ("" if avg is None else round(avg / 60, 1)), (row, d)
+            # ⚠️ 2026-09-24 第 21 轮（D11-5）：分钟保留 **2** 位（原来 1 位）——
+            #    `/stats/export` 的「司机绩效」与这张表是同一个数，两份导出必须逐格一致；
+            #    1 位会把 9358.8 秒印成 156.0、2 位是 155.98（同一份数据的两个值就是 8 分钟误差）。
+            assert row[4] == ("" if avg is None else round(avg / 60, 2)), (row, d)
             assert row[5] == (d["billing_mode"] or ""), (row, d)
             owed = d["freight_owed"]
             if d["billing_mode"] == "SALARY":

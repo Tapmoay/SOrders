@@ -70,9 +70,11 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "金额列写成文本（用户在 Excel 里 SUM 得 0）",
         REPORTS,
+        # ⚠️ 2026-09-24 第 21 轮：裸 `ws.append(` 全部换成了 `append_text_row(ws, `（公式注入防护，
+        #    D7-1）→ 锚点跟着改（**不放宽**：仍然是把金额包成 `str(...)` 让它变文本）。
         lambda s: s.replace(
-            'ws.append([it.product_name, it.qty, it.order_count, _money(it.amount),',
-            'ws.append([it.product_name, it.qty, it.order_count, str(it.amount),',
+            'append_text_row(ws, [it.product_name, it.qty, it.order_count, _money(it.amount),',
+            'append_text_row(ws, [it.product_name, it.qty, it.order_count, str(it.amount),',
             1,
         ),
     ),
