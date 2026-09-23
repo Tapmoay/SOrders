@@ -166,18 +166,30 @@ def main() -> int:
     #    「每一次改动要提交 git」—— 提交之后第 3 条必然全绿（实测就是这么绕过去的）。
     #    这里按**提交里的文件名**再查一次，与第 3 条互补：一个管"动手前声明"，
     #    一个管"事后至少留下过一行理由"。
+    #
+    # ⛔ 2026-09-24 第 24 轮（第 22 轮 F6 报的"判据被历史掏空"）：原来这里在**整份 5800 行**
+    #    的声明页里搜 `核心改动：<路径>` —— 而那份页面里躺着 39 行历史声明，
+    #    于是**下次动 `driver_pay.py` 会因为两个月前那行自动变绿**（正是这段注释上面
+    #    记着的那次事故的形状，换了个地方又长回来）。
+    #    现在只认**这次提交自己的条目**（正文里提到 HEAD 短哈希的那些），
+    #    没有就退到**最新那一条**（声明是往前追加的，最新条目就是"正在进行的那一轮"）。
     head_files = [
         ln.strip() for ln in git("show", "--name-only", "--pretty=format:", "HEAD").splitlines()
         if ln.strip()
     ]
     head_core = [p for p in head_files if p in set(paths)]
-    decl_all = DECL.findall(read(CLAIM))
+    head_hash = git("rev-parse", "--short", "HEAD").strip()
+    blocks = [b for b in re.split(r"(?m)^###\s", read(CLAIM))[1:]]
+    own = [b for b in blocks if head_hash and head_hash in b] or blocks[:1]
+    decl_own = [d for b in own for d in DECL.findall(b)]
     print(f"  HEAD 改了 {len(head_files)} 个文件；其中核心区 {len(head_core)} 个：{head_core}")
-    missing_head = [p for p in head_core if not any(p in d for d in decl_all)]
+    print(f"  本次提交自己的声明条目 {len(own)} 个（HEAD={head_hash}），里面 {len(decl_own)} 行 `核心改动：`")
+    missing_head = [p for p in head_core if not any(p in d for d in decl_own)]
     c.ok(
-        "HEAD 提交里改过的核心文件，声明页里有一行 `核心改动：<路径>`（提交后再补也算）",
+        "HEAD 提交里改过的核心文件，**本次提交自己那一轮**的声明里有一行 `核心改动：<路径>`"
+        "（提交后再补也算；翻旧账不算）",
         not missing_head,
-        f"没有理由：{missing_head}（补一行到「进行中」，写清为什么必须动核心）",
+        f"没有理由：{missing_head}（在最新那条声明里补一行，写清为什么必须动核心）",
     )
 
     print("\n== 5. 最近碰过核心区的提交（只报，不判红）==")
