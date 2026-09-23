@@ -72,12 +72,23 @@ def enrich_order_out(
     data["refunded_amount"] = m.refunded
     data["arrears_amount"] = m.arrears
     if viewer is not None:
-        if user_role_key(viewer) == UserRole.SHIPPER.value:
+        role = user_role_key(viewer)
+        if role == UserRole.SHIPPER.value:
             data["internal_notes"] = ""
+            # ⛔ **货主不该看到「公司付给司机多少」**（2026-09-23 第 17 轮并行渗透抓到）：
+            #    原来这里把 `freight_visible` 置 True，而 `freight_fee` / `driver_billing_mode`
+            #    照旧原样下发 —— 实测货主读自己的单与派单员**逐字节相同**。
+            #    界面上这一块本来就是**派单员专属**（`ui/order/OrderDetailScreen.kt:970-971`
+            #    按 `role == DISPATCHER` 判），AI 的行格式化也把它原样带出去
+            #    （`ai/AiResources.kt`）—— 也就是说：界面上藏住了、接口与 AI 都没藏。
+            #    这是**公司的成本**（他卖货给客户，运费是公司付给司机的钱），露出去了等于把毛利给了客户。
+            #    口径与司机视角那条**同一个位置**（[apply_driver_view_gating]）：都是"这一块不该给他"。
+            data["freight_visible"] = False
+            data["freight_fee"] = None
+            data["driver_billing_mode"] = None
+        elif role == UserRole.DISPATCHER.value:
             data["freight_visible"] = True
-        elif user_role_key(viewer) == UserRole.DISPATCHER.value:
-            data["freight_visible"] = True
-        elif user_role_key(viewer) == UserRole.DRIVER.value and order.driver_id is not None:
+        elif role == UserRole.DRIVER.value and order.driver_id is not None:
             # 司机视角统一门控：剥离货款；运费按**这一单**的模式（快照优先，老单与账单同口径）
             apply_driver_view_gating(data, order)
     return OrderOut(**data)

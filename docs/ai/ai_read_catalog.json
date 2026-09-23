@@ -669,7 +669,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:162",
+   "at": "backend/app/api/v1/ledger.py:173",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -716,7 +716,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:109",
+   "at": "backend/app/api/v1/ledger.py:120",
    "auth": "仅登录 + 体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
@@ -794,7 +794,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:739",
+   "at": "backend/app/api/v1/ledger.py:750",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -841,7 +841,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:230",
+   "at": "backend/app/api/v1/ledger.py:241",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -1358,7 +1358,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:494",
+   "at": "backend/app/api/v1/reports.py:506",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1395,7 +1395,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:428",
+   "at": "backend/app/api/v1/reports.py:440",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1452,7 +1452,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:413",
+   "at": "backend/app/api/v1/reports.py:425",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"

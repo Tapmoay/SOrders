@@ -594,6 +594,9 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
     }
 
     fun askRevoke(s: ShipperSettlementDto) {
+        // ⚠️ 打开弹层先清掉上一次的失败原因（`settleError` 是**这一族弹层共用**的错误位，
+        //    见文件头"表单的错误必须和表单同生共死"那条规矩）
+        settleError = null
         revokeTarget = s
     }
 
@@ -611,7 +614,10 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
                 revokeTarget = null
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // ⛔ 2026-09-23 真机抓到：这里原来是 `error = …`（**页面级**），而确认弹层盖在
+                //    页面上面 → 撤销失败时用户一个字都看不到，只会一直点「确认撤销」。
+                //    后端那句中文（例如"这笔核销已经撤掉了，不用再撤"）必须画在**弹层里**。
+                settleError = toApiException(e).message
             } finally {
                 acting = false
             }
@@ -619,6 +625,7 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
     }
 
     fun askRestore(s: ShipperSettlementDto) {
+        settleError = null
         restoreTarget = s
     }
 
@@ -636,7 +643,9 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
                 restoreTarget = null
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // ⛔ 同上（真机实测那一次就是这条路径）：后端拒了恢复（"还可核销 ¥0，放回这笔
+                //    ¥120 会多收 ¥120 —— 先撤掉撤销之后又记的那一笔"），界面上**一个字都没有**。
+                settleError = toApiException(e).message
             } finally {
                 acting = false
             }

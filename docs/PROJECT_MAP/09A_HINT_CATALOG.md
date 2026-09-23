@@ -53,8 +53,8 @@
 | 32 | 派单员 | 31 | `SuppliersScreen.kt:320` | · 「还欠」由服务端算（撤销一笔付款，这个数会立刻变回去）\n |
 | 33 | 派单员 | 30 | `DriverBillingRulesScreen.kt:303` | 选了车型 = 这份规则只能挂给那种车的司机（挂错了后端会拦） |
 | 34 | 派单员 | 30 | `InventoryScreen.kt:112` | 填了就把这一批的进货价记下来（毛利率按入库的平均进货价算）， |
-| 35 | 货主 | 30 | `ShipperLedgerScreen.kt:465` | 两段互不影响：下面那本账怎么核销，「我该付的」一分钱都不会变 |
-| 36 | 货主 | 30 | `ShipperLedgerScreen.kt:479` | 这里只有你欠公司的这一边：你自己卖货收回来的钱不经过本系统。 |
+| 35 | 货主 | 30 | `ShipperLedgerScreen.kt:471` | 两段互不影响：下面那本账怎么核销，「我该付的」一分钱都不会变 |
+| 36 | 货主 | 30 | `ShipperLedgerScreen.kt:485` | 这里只有你欠公司的这一边：你自己卖货收回来的钱不经过本系统。 |
 | 37 | 共用 | 29 | `AiChatScreen.kt:1545` | 正在编辑这条消息：发送后会重新回答，这条之后的对话会被撤掉 |
 | 38 | 派单员 | 29 | `VehicleManageScreen.kt:632` | 一辆车同时只能归一个司机。选了别人名下的车 = 改挂过来。 |
 | 39 | 派单员 | 28 | `ExpenseCategoriesScreen.kt:244` | 老数据里的分类名，改不了也排不了序；它名下的开销照常显示 |
@@ -69,7 +69,7 @@
 | 48 | 派单员 | 25 | `ProductFormScreen.kt:199` | 新建默认上架；关闭开关则保存后货主下单时看不到它。 |
 | 49 | 派单员 | 25 | `UsersManageScreen.kt:608` | 决定他在「选择商品」里能看到哪些商品。默认不限制。 |
 | 50 | 派单员 | 25 | `VehicleManageScreen.kt:512` | 停用后不再派活；车牌要留在历史记录里，所以不给删。 |
-| 51 | 货主 | 25 | `ShipperLedgerScreen.kt:845` | 只记在你自己这一本账上 —— 公司那边的账不会变。 |
+| 51 | 货主 | 25 | `ShipperLedgerScreen.kt:851` | 只记在你自己这一本账上 —— 公司那边的账不会变。 |
 | 52 | 共用 | 24 | `AiSettingsScreen.kt:650` | 测试只发一句「你好」，开启思考时会多花一点额度。 |
 | 53 | 共用 | 24 | `AiSettingsScreen.kt:726` | 关掉哪个，它就查不到或做不了那一类事。默认全开。 |
 | 54 | 派单员 | 23 | `FreightPricingScreens.kt:365` | 他还没挂规则的话，会提示你去给他挂一份再勾上。 |
@@ -79,7 +79,7 @@
 | 58 | 派单员 | 21 | `DispatcherReturnRequestsScreen.kt:142` | 按这张申请实际退货：库存和账本在这一刻才变 |
 | 59 | 货主 | 21 | `ShipperOrdersScreen.kt:326` | 撤回后可以重新申请（想改数量只能这么改）。 |
 | 60 | 货主 | 21 | `ShipperReturnRequestsScreen.kt:131` | 撤回后可以重新申请（想改数量只能这么改）。 |
-| 61 | 派单员 | 20 | `DispatcherOrdersScreen.kt:307` | 退掉的那部分会自动记一笔退给客户的现金。 |
+| 61 | 派单员 | 20 | `DispatcherOrdersScreen.kt:311` | 退掉的那部分会自动记一笔退给客户的现金。 |
 | 62 | 共用 | 18 | `AiChatScreen.kt:1676` | 左上角「历史」里能看到以前问过的对话 |
 | 63 | 共用 | 18 | `OrderDetailScreen.kt:1246` | 到地方标一下位置，以后大家都直接能用 |
 | 64 | 共用 | 18 | `OrderDetailScreen.kt:1388` | 坐标相近会自动并成一个，不会越攒越多 |

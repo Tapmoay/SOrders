@@ -134,6 +134,72 @@ def auto_stock_release(db: Session, order: Order, operator_id: int) -> int:
     return n
 
 
+def _by_product(db: Session, order_id: int, *, statuses: tuple[str, ...], negate: bool = False) -> dict[int, int]:
+    """这一单**每个商品**在给定状态上的流水合计（`negate=True` 时取负号）。
+
+    只查 `source="ORDER"` 那条线（`warehouse.py` 的到仓入库是**另一条独立线**，
+    它自己也要用，所以单独取）。
+
+    ⚠️ `negate`：`COMMITTED` 存的是**负数**（出库实扣），取负号才变回"扣了多少件"这个正数口径
+    —— 与 `order_money` 里"退货红冲行存负数、取负号变回已退金额"是同一个写法。
+    """
+    rows = db.execute(
+        select(
+            InventoryMovement.product_id,
+            func.coalesce(func.sum(InventoryMovement.change), 0),
+        )
+        .where(
+            InventoryMovement.order_id == order_id,
+            InventoryMovement.source == "ORDER",
+            InventoryMovement.status.in_(statuses),
+        )
+        .group_by(InventoryMovement.product_id)
+    ).all()
+    out: dict[int, int] = {}
+    for pid, total in rows:
+        if pid is None:
+            continue
+        v = int(total or 0)
+        out[int(pid)] = -v if negate else v
+    return out
+
+
+def restock_room(db: Session, order: Order, product_ids: list[int]) -> dict[int, int]:
+    """这一单**每个商品还能回补多少件**（2026-09-23 第 17 轮并行渗透抓到的缺陷）。
+
+    ## 原来错在哪
+    回补是无条件的 `stock += qty`，而**实扣**的判据是"派单那一刻为哪些行真的写出了
+    RESERVED 流水"（`auto_stock_commit` 只遍历流水，从不读订单行）。
+    两次解析（派单时 vs 退货时）一旦分叉，退货就是**只加不减**：
+
+    · 手输商品名下单 → 派单时解析不出商品 → 该行**零预占** → 送达时一件不扣 → 事后退货 `+qty`；
+    · 出库线落地之前送达的老单（本机 353 张零 ORDER 线的已送达单，**现在仍然可以退货**）；
+    · 到仓入库单：送达时 `WAREHOUSE +N` 与订单线 `−N` **净 0**（用户要的"独立计算线"），
+      退货再 `+q` 就是**净增**。
+
+    本机实证虚增 20 件（单 7/13/15/394/419 = +1/+2/+13/+3/+1），而流水上那一行写着
+    「订单退货回库 +N」，看起来完全合理 —— 盘库只能发现"少了"，发现不了"多了"。
+
+    ## 口径（三句话）
+        还能回补 = 这一单这一商品**实扣过的**（`ORDER` 且 `COMMITTED`，取正数）
+                 − 送达时**已经入过库的**（`WAREHOUSE` 那条线，独立计算线）
+                 − 之前**已经回补过的**（`ORDER` 且 `RETURNED`）
+        小于 0 按 0（宁可少回补、不许凭空多）
+        没实扣过就回补 0：调用方会把它写进 `warnings`，用户看得到"这一次没有回补"
+    """
+    ids = [int(i) for i in product_ids if i]
+    if not ids:
+        return {}
+    deducted = _by_product(db, order.id, statuses=("COMMITTED",), negate=True)
+    inbound = _by_product(db, order.id, statuses=("WAREHOUSE",))
+    already = _by_product(db, order.id, statuses=("RETURNED",))
+    out: dict[int, int] = {}
+    for pid in ids:
+        room = deducted.get(pid, 0) - inbound.get(pid, 0) - already.get(pid, 0)
+        out[pid] = room if room > 0 else 0
+    return out
+
+
 def restock_returned(db: Session, order: Order, lines: list[tuple[OrderProduct, int]], operator_id: int) -> int:
     """订单**退货**：把退回来的货加回库存（返回写了几条流水）。
 
@@ -147,23 +213,34 @@ def restock_returned(db: Session, order: Order, lines: list[tuple[OrderProduct, 
     ⚠️ 判据是"送到客户手里的好货"：`lines` 里的数量由调用方（`order_return`）按
     `quantity − damage_quantity` 上限校验过 —— **货损那部分不许回补**，
     它已经在送达时按成本计进损失账了，再回补就是同一批货算两遍。
+
+    ⛔ **回补必须以"这一单真的扣过多少"封顶**（2026-09-23 第 17 轮，见 [restock_room]）：
+    不加这个上限时，零实扣的单（手输商品名、老单、到仓入库单）退货就是**凭空 +N**。
     """
+    pairs = [(op, qty) for op, qty in lines if qty > 0]
+    if not pairs:
+        return 0
+    # 先把每行解析成商品（解析不出来的照旧如实跳过），再按商品算"还能回补多少"
+    resolved = [(op, qty, _resolve_product(db, op)) for op, qty in pairs]
+    room = restock_room(db, order, [int(p.id) for _, _, p in resolved if p is not None])
     n = 0
-    for op, qty in lines:
-        if qty <= 0:
-            continue
-        prod = _resolve_product(db, op)
+    for _op, qty, prod in resolved:
         if prod is None:
             # 商品已删/改名 → 回补不了。**如实跳过**（调用方把这一条写进返回值的提示里），
             # 不许把数量记到别的商品头上。
             continue
+        allowed = min(int(qty), room.get(int(prod.id), 0))
+        if allowed <= 0:
+            # 这一单这一商品**一件都没实扣过**（或已经回补完了）→ 回补就是凭空加库存。
+            # 跳过（调用方按 `restocked < len(lines)` 给出提示），**不许**照单加。
+            continue
         db.execute(
-            update(Product).where(Product.id == prod.id).values(stock=func.coalesce(Product.stock, 0) + qty)
+            update(Product).where(Product.id == prod.id).values(stock=func.coalesce(Product.stock, 0) + allowed)
         )
         db.add(
             InventoryMovement(
                 product_id=prod.id,
-                change=qty,
+                change=allowed,
                 note="订单退货回库",
                 operator_id=operator_id,
                 source="ORDER",
@@ -172,6 +249,7 @@ def restock_returned(db: Session, order: Order, lines: list[tuple[OrderProduct, 
                 status="RETURNED",
             )
         )
+        room[int(prod.id)] = room.get(int(prod.id), 0) - allowed
         n += 1
     return n
 

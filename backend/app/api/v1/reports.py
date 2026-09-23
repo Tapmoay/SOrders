@@ -345,11 +345,23 @@ def build_products(db: Session, mode: str, anchor: date, *, span: tuple[date, da
         for lp in o.order_products:
             name = lp.product_name_snapshot or "未命名商品"
             item = agg.setdefault(name, ProductReportItem(product_name=name))
-            item.qty += lp.quantity
-            item.amount += lp.line_total or Decimal("0")
+            # ⛔ **数量与金额一律按净额**（2026-09-23 第 17 轮并行渗透抓到：这里原来是**毛额**，
+            #    于是"商品毛利"这个词在同一份导出里有两个数 —— 营业纵览 sheet ¥4,896.60、
+            #    商品经营 sheet ¥4,911.10，差额随退货量线性放大，老板按哪个都对不上）。
+            #    两条口径必须与 `build_turnover` 的循环**逐行同源**：
+            #    · 整行退完且无货损 → `continue`（那一行不进商品经营，也不进毛利）；
+            #    · 数量取 `quantity − returned_quantity`、金额取 `line_receivable`（行金额 − 退掉那部分）、
+            #      成本按净件数算 —— 与那边第 217/228/232 行一字不差。
+            #    判据：`tests/test_report_gross_profit_one_source.py`（两个端点同窗口逐项相等）。
+            net_qty = int(lp.quantity or 0) - int(lp.returned_quantity or 0)
+            if net_qty <= 0 and (lp.damage_quantity or 0) <= 0:
+                continue
+            net_amount = line_receivable(lp)
+            item.qty += max(0, net_qty)
+            item.amount += net_amount
             item.order_count += 1
-            total_qty += lp.quantity
-            total_amount += lp.line_total or Decimal("0")
+            total_qty += max(0, net_qty)
+            total_amount += net_amount
             total_lines += 1
             cost, basis_src = basis.of(lp.product_id, lp.cost_price_snapshot)
             if cost > 0:
@@ -359,10 +371,10 @@ def build_products(db: Session, mode: str, anchor: date, *, span: tuple[date, da
                 #    只累计成本、收入侧却用全额，等于"没成本的行按 0 成本、100% 毛利进账"。
                 #    本机实测：商品页/导出的表头毛利 11,071.00，而营业纵览（正确口径）是 10,789.00；
                 #    唯一那个混合组 ttt 印出 327.50（正确 45.50，差 7.2 倍）。
-                item.covered_amount += lp.line_total or Decimal("0")
-                cost_covered_amount += lp.line_total or Decimal("0")
-                cost_total += cost * Decimal(lp.quantity)
-                item.cost += cost * Decimal(lp.quantity)
+                item.covered_amount += net_amount
+                cost_covered_amount += net_amount
+                cost_total += cost * Decimal(max(0, net_qty))
+                item.cost += cost * Decimal(max(0, net_qty))
                 if basis_src == SNAPSHOT:
                     cost_snapshot_lines += 1
                 else:

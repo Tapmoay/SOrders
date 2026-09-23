@@ -92,7 +92,14 @@ def test_finance_export_uses_case_insensitive_direction():
 
 
 def test_gross_profit_only_counts_rows_with_cost_snapshot():
-    """毛利 = 有成本快照那批行的收入 − 那批行的成本；两侧必须同一批行。"""
+    """毛利 = 有成本快照那批行的收入 − 那批行的成本；两侧必须同一批行。
+
+    ⚠️ 2026-09-23（第 17 轮）改过这条断言：原来钉的是 `cost_covered_amount += lp.line_total`
+    （**毛额**），而营业纵览那一侧一直用的是净额（`line_receivable`，扣掉退货）——
+    两处相差 ¥19.90 那一类缺陷正是被这条断言"钉住"的（它把错的那一侧写进了判据）。
+    现在两侧同源：商品经营也走 `net_amount = line_receivable(lp)` 与 `max(0, net_qty)`，
+    逐项相等的**行为**判据在 `tests/test_report_gross_profit_one_source.py`。
+    """
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
@@ -100,7 +107,15 @@ def test_gross_profit_only_counts_rows_with_cost_snapshot():
     schema = (root / "app/schemas/reports.py").read_text(encoding="utf-8")
 
     assert "cost_covered_amount" in schema
-    assert "cost_covered_amount += lp.line_total" in reports
+    assert "cost_covered_amount += net_amount" in reports
+    assert "net_amount = line_receivable(lp)" in reports, (
+        "收入侧必须是净额（行金额 − 退掉那部分），与营业纵览同源"
+    )
+    # 反例：不许再退回"毛额进毛利"（那是被治掉的那个缺陷的形状）
+    assert "cost_covered_amount += lp.line_total" not in reports
+    assert "cost_total += cost * Decimal(lp.quantity)" not in reports, (
+        "成本必须按净件数算，不能按原数量"
+    )
     # 导出里的毛利必须用"参与计算的收入"，不能用全部营业额
     assert 'data["cost_covered_amount"] - data["cost_total"]' in reports
     assert 'data["total_amount"] - data["cost_total"]' not in reports

@@ -233,6 +233,8 @@ fun DispatcherOrdersScreen(
                     OutlinedTextField(vm.editRemark, { vm.editRemark = it }, label = { Text("备注") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(vm.editInternal, { vm.editInternal = it }, label = { Text("内部备注（司机/派单可见）") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                    // 失败原因画在**弹层里**（页面级 error 被弹层盖住，2026-09-23 真机抓到）
+                    FormErrorLine(vm.dialogError)
                 }
             },
             confirmButton = { TextButton(onClick = { vm.saveEdit() }, enabled = !vm.acting) { Text("保存") } },
@@ -256,6 +258,7 @@ fun DispatcherOrdersScreen(
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    FormErrorLine(vm.dialogError)
                 }
             },
             confirmButton = {
@@ -287,6 +290,7 @@ fun DispatcherOrdersScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    FormErrorLine(vm.dialogError)
                 }
             },
             confirmButton = { TextButton(onClick = { vm.confirmException() }, enabled = !vm.acting) { Text("登记") } },
@@ -337,6 +341,8 @@ fun DispatcherOrdersScreen(
                             minLines = 2,
                             modifier = Modifier.fillMaxWidth(),
                         )
+                        // 退货失败的原因必须画在这里（页面级 error 被弹层盖住）
+                        FormErrorLine(vm.dialogError)
                     }
                 },
                 confirmButton = {

@@ -36,6 +36,8 @@ from app.services.ledger_sync import (
 from app.services.operation_log_service import write_log
 from app.services.push_events import push_ledger_updated
 from app.services.soft_delete import strip_del_suffix
+#: 「订单明细能不能改」的唯一判据（与订单侧共用一份状态清单，不许在账本侧再抄一遍）
+from app.api.v1.order_products import LINE_EDITABLE_STATUSES
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
 
@@ -93,8 +95,17 @@ def _reject_if_order_closed(db: Session, row: Ledger, *, wants_detail: bool, wha
     order = db.get(Order, row.order_id)
     if order is None:
         return
-    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED):
-        state = "已送达" if order.status == OrderStatus.DELIVERED else "已撤销"
+    # ⛔ 判据与"订单明细能不能改"**同一处**（2026-09-23 第 17 轮并行渗透抓到：这里原来是
+    #    手写的两个状态，注释却声称复用订单侧判据 —— 于是 `RETURNED` 漏在外面：
+    #    已退货的单那一行 ORDER 账本还能改，改完 `ledger_sync` 会**回写订单行金额**
+    #    （`ledger_sync.py:113-115`），破了「同一笔钱一个数」这条不变式）。
+    #    写成 import 而不是再抄一遍状态清单：清单只有一处，加了新状态这里自动跟上。
+    if order.status not in LINE_EDITABLE_STATUSES:
+        state = {
+            OrderStatus.DELIVERED: "已送达",
+            OrderStatus.CANCELLED: "已撤销",
+            OrderStatus.RETURNED: "已退货",
+        }.get(order.status, "已完成")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(

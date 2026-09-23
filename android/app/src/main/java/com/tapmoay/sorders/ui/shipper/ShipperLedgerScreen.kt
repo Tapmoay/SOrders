@@ -159,6 +159,8 @@ fun ShipperLedgerScreen(
     // 这一单已经记了哪几笔（可从这里撤销）
     vm.settlementListTarget?.let { order -> OrderSettlementsDialog(vm, order) }
     // 撤销 / 恢复二次确认
+    // ⚠️ 两个弹层都带 `error`：失败原因是**后端那句中文**，必须画在弹层里面
+    //    （2026-09-23 真机抓到过：写到页面级 error 时弹层把它盖住，用户一个字都看不到）
     vm.revokeTarget?.let { s ->
         DangerConfirmDialog(
             title = "撤销这笔核销？",
@@ -168,6 +170,7 @@ fun ShipperLedgerScreen(
             confirmText = "确认撤销",
             onConfirm = { vm.confirmRevoke() },
             onDismiss = { vm.cancelRevoke() },
+            error = vm.settleError,
         )
     }
     vm.restoreTarget?.let { s ->
@@ -175,10 +178,13 @@ fun ShipperLedgerScreen(
             onDismissRequest = { vm.cancelRestore() },
             title = { Text("恢复这笔核销？") },
             text = {
-                Text(
-                    "订单 #" + (s.orderNo ?: "") + " 的 ¥" + formatMoney(s.amount) +
-                        " 会重新算成「已收」。"
-                )
+                Column {
+                    Text(
+                        "订单 #" + (s.orderNo ?: "") + " 的 ¥" + formatMoney(s.amount) +
+                            " 会重新算成「已收」。"
+                    )
+                    FormErrorLine(vm.settleError)
+                }
             },
             confirmButton = { TextButton(onClick = { vm.confirmRestore() }) { Text("确认恢复") } },
             dismissButton = { TextButton(onClick = { vm.cancelRestore() }) { Text("取消") } },

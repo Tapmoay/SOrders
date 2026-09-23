@@ -415,7 +415,14 @@ fun PrimaryActionButton(
     }
 }
 
-/** 危险操作确认框：居中弹窗 + 红色确认钮（首次执行弹，重复执行走 ConfirmMemory 免弹） */
+/**
+ * 危险操作确认框：居中弹窗 + 红色确认钮（首次执行弹，重复执行走 ConfirmMemory 免弹）
+ *
+ * ⚠️ **`error` 是 2026-09-23 真机补的**（第 16 轮）：这一类弹层以前只在"确认"前出现，
+ * 失败原因却写进**页面级** `error` —— 而页面级错误在这块弹层**下面**，用户看到的是
+ * "弹层一直在、点了没反应"（真机实测：核销的「恢复」被后端 400 拒了两次，
+ * 界面上一个字都没出现）。表单类弹层的错误必须画在**弹层自己**里面（见 [FormErrorLine]）。
+ */
 @Composable
 fun DangerConfirmDialog(
     title: String,
@@ -423,11 +430,17 @@ fun DangerConfirmDialog(
     confirmText: String = "确认",
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    error: String? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, style = MaterialTheme.typography.titleMedium) },
-        text = { Text(message, style = MaterialTheme.typography.bodyMedium) },
+        text = {
+            Column {
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+                FormErrorLine(error)
+            }
+        },
         confirmButton = {
             Button(
                 onClick = onConfirm,

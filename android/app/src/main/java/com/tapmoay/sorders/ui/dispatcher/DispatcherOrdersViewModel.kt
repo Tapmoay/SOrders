@@ -49,6 +49,22 @@ class DispatcherOrdersViewModel(container: AppContainer) :
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 
+    /**
+     * **弹层里**的失败原因（2026-09-23 真机抓到）。
+     *
+     * ⛔ 这四个弹层（编辑/撤回/异常/退货）原来把失败写成页面级 [error]，而页面级错误在
+     * `DispatcherOrdersScreen` 里被渲染成**整页 ErrorView**、并且被弹层**盖在下面** ——
+     * 用户的感受是"点了保存没反应，一关弹层发现整个列表变成了错误页"。
+     * 后端那句中文（例如"仅「待派单」状态可编辑明细"）必须画在弹层**里面**。
+     * 页面级 [error] 只留给"这一页的数据没加载出来"。
+     */
+    var dialogError by mutableStateOf<String?>(null)
+
+    /** 打开任一弹层前清掉上一次的失败原因（弹层与它的错误同生共死）。 */
+    private fun clearDialogError() {
+        dialogError = null
+    }
+
     var search by mutableStateOf("")
 
     // 编辑弹窗
@@ -161,6 +177,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
         editBossName = o.contactBossName
         editRemark = o.remark
         editInternal = o.internalNotes
+        clearDialogError()
         showEditDialog = true
     }
 
@@ -195,7 +212,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
                 showEditDialog = false
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                dialogError = toApiException(e).message
             } finally {
                 acting = false
             }
@@ -206,13 +223,14 @@ class DispatcherOrdersViewModel(container: AppContainer) :
     fun openRecall(o: OrderDto) {
         recallOrderId = o.id
         recallReason = ""
+        clearDialogError()
         showRecallDialog = true
     }
 
     fun confirmRecall() {
         val oid = recallOrderId ?: return
         if (recallReason.isBlank()) {
-            error = "请填写撤回原因"
+            dialogError = "请填写撤回原因"
             return
         }
         acting = true
@@ -223,7 +241,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
                 showRecallDialog = false
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                dialogError = toApiException(e).message
             } finally {
                 acting = false
             }
@@ -236,6 +254,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
         exceptionReason = o.exceptionReason
         exceptionResolution = o.exceptionResolution
         expectedBefore = o.expectedDeliverBefore?.take(16) ?: ""
+        clearDialogError()
         showExceptionDialog = true
     }
 
@@ -255,7 +274,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
                 showExceptionDialog = false
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                dialogError = toApiException(e).message
             } finally {
                 acting = false
             }
@@ -287,6 +306,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
         returnTarget = o
         returnQty = o.orderProducts.associate { it.id to maxReturnable(it) }
         returnNote = ""
+        clearDialogError()
         showReturnDialog = true
     }
 
@@ -325,11 +345,11 @@ class DispatcherOrdersViewModel(container: AppContainer) :
         val items = o.orderProducts
             .mapNotNull { line -> (returnQty[line.id] ?: 0).takeIf { it > 0 }?.let { line.id to it } }
         if (items.isEmpty()) {
-            error = "请至少勾一个要退的商品（数量大于 0）"
+            dialogError = "请至少勾一个要退的商品（数量大于 0）"
             return
         }
         returnSubmitting = true
-        error = null
+        dialogError = null
         viewModelScope.launch {
             try {
                 val r = container.repo.returnOrder(
@@ -349,7 +369,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
                 returnTarget = null
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                dialogError = toApiException(e).message
             } finally {
                 returnSubmitting = false
             }
@@ -362,5 +382,6 @@ class DispatcherOrdersViewModel(container: AppContainer) :
         showRecallDialog = false
         showExceptionDialog = false
         showReturnDialog = false
+        clearDialogError()
     }
 }

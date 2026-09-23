@@ -272,6 +272,18 @@ def update_user(
     if body.role is not None and is_dispatcher:
         u.role = body.role
     if body.is_active is not None and is_dispatcher:
+        # ⛔ **「启用」不是「恢复」**（2026-09-23 第 17 轮并行渗透抓到）：
+        #    删号时 `phone`/`username` 被加了 `_del{id}` 后缀（为了把号码释放给新账号），
+        #    而登录按号码**精确匹配** —— 于是"点启用 → 界面说已启用 → 人拿原号码登不进去"，
+        #    两边都不报错。这里直接拦住并指路（恢复入口是 `POST /users/{id}/restore`）。
+        if body.is_active is True and _is_deleted_account(u):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "这个账号在回收站里（删号时手机号已经释放给别的账号用了），"
+                    "「启用」不会把手机号还回来 —— 请用「恢复」把它放回来"
+                ),
+            )
         u.is_active = body.is_active
         # 停用一个账号 → **已发出的令牌立刻失效 + 断开长连接**（2026-09-19 审计）：
         # 在这之前 `deps` 只查 `is_active`，而 JWT 是自包含的，所以停用只挡住"下一次登录"，
@@ -310,6 +322,12 @@ def update_user(
     changes = [
         {"field": k, "from": before[k], "to": after[k]} for k in before if before[k] != after[k]
     ]
+    # ⛔ **改密码必须留痕**（2026-09-23 第 17 轮并行渗透抓到）：`before` 快照里**没有** password，
+    #    所以"只改密码"这种请求 `changes` 是空的 → **一行日志都不写**。
+    #    而这是身份级动作（派单员能重置任何人含另一个派单员的密码），
+    #    事后必须能回答"谁在什么时候改了谁的密码"。⛔ 只记"改了"，**绝不记密码本身**。
+    if body.password is not None:
+        changes.append({"field": "password", "from": "（不记录）", "to": "已重置"})
     if changes:
         write_log(
             db,
@@ -342,27 +360,57 @@ def swap_shipper_driver(
         u.role = UserRole.SHIPPER
     else:
         raise HTTPException(status_code=400, detail="仅支持货主与司机身份切换")
+    # ⛔ **身份互换必须留痕**（2026-09-23 第 17 轮并行渗透抓到：这个函数原来一行日志都没有，
+    #    而 AI 侧有一张 HIGH 确认卡直调它）。改角色会改变他能看到的数据范围与账目归属，
+    #    是身份级动作 —— 与 `PATCH /users` 改 role 同一个审计码（`USER_UPDATE`）。
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.USER_UPDATE,
+        change_payload={
+            "user_id": u.id,
+            "username": u.username,
+            "changes": [{"field": "role", "from": rk, "to": user_role_key(u)}],
+            "note": "货主↔司机身份互换",
+        },
+    )
     db.commit()
     db.refresh(u)
     return _to_out(u, current)
 
 
+def _is_deleted_account(u: User) -> bool:
+    """这个账号在回收站里吗（删号时号码/用户名被加了 `_del{id}` 后缀）。
+
+    判据与 `delete_user` / `soft_delete.del_suffix` **同一处口径**：只看后缀，
+    不看 `is_active` —— 停用与删除是两件事（停用的账号号码是好的，启用就该能登录）。
+    """
+    return str(u.phone or "").endswith(f"_del{u.id}") or str(u.username or "").endswith(f"_del{u.id}")
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
+    background_tasks: BackgroundTasks,
     current: User = Depends(require_permission(Permission.USER_MANAGE)),
     db: Session = Depends(get_db),
 ) -> None:
     u = db.get(User, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    if u.is_active is False and str(u.phone or "").endswith(f"_del{u.id}"):
+    if u.is_active is False and _is_deleted_account(u):
         raise HTTPException(status_code=400, detail="这个账号已经删过了")
     orig_phone, orig_username = u.phone, u.username
     u.is_active = False
     # 释放手机号/用户名（允许用同号重新建号），数据仍保留可追溯
     u.phone = del_suffix(u.phone, u.id, 32)   # 列宽 String(32)：先截断再拼，别再让它撞 Data too long
     u.username = del_suffix(u.username, u.id, 32)   # 列宽 String(32)
+    # ⛔ **删号也要撤销会话**（2026-09-23 第 17 轮并行渗透抓到）：`auth_service` 的注释写着
+    #    "三个撤销点都调这一个入口"，而 `DELETE /users/{id}` 是**第四个**、当时漏了 ——
+    #    后果是被删账号的手机上那条 socket 长连接继续收推送（站内信正文、单号、账本），
+    #    而 HTTP 侧因为 `deps` 查 `is_active` 才挡住。丢手机/离职场景里这正是最要紧的一下。
+    revoke_tokens_and_sockets(db, u, background_tasks, "账号被删除")
     write_log(
         db,
         operator_id=current.id,
@@ -381,6 +429,7 @@ def delete_user(
 @router.post("/{user_id}/restore", response_model=UserOut)
 def restore_user(
     user_id: int,
+    background_tasks: BackgroundTasks,
     current: User = Depends(require_permission(Permission.USER_MANAGE)),
     db: Session = Depends(get_db),
 ) -> User:
@@ -409,6 +458,10 @@ def restore_user(
         u.username = u.username[: -len(suffix)]
         restored.append("用户名")
     u.is_active = True
+    # ⛔ **恢复也要撤销会话**（2026-09-23 第 17 轮并行渗透抓到）：`deps` 只查
+    #    `is_active` + 令牌版本，所以"删除前签发、当时还没过期"的令牌会在恢复的**那一刻复活**
+    #    （删号并不作废令牌）—— 撤销一次版本号，旧令牌就永久作废、只能重新登录。
+    revoke_tokens_and_sockets(db, u, background_tasks, "账号被恢复")
     write_log(
         db,
         operator_id=current.id,

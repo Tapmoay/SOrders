@@ -153,7 +153,16 @@ def main() -> int:
         r"op\.returned_quantity\s*=\s*[^\n=]*op\.returned_quantity",
     )
     c.present("库存回补走唯一一处实现", ret, r"restock_returned\(db, order, lines, operator_id\)")
-    c.present("库存回补用 SQL 表达式自增", inv, r"values\(stock=func\.coalesce\(Product\.stock, 0\) \+ qty\)")
+    # ⚠️ 2026-09-23 第 17 轮改：回补量从 `qty` 变成 `allowed`（= min(退货数, 这一单**真的扣过**的））。
+    #    原来这条断言把 `+ qty` 写进判据里 —— 于是它一边替"无条件回补"背书，一边在有人
+    #    加上限时**报红**（正是它挡在正确修法前面）。判据要钉的是"用 SQL 表达式自增、不许
+    #    Python 读改写"，不是那个变量的名字。
+    c.present("库存回补用 SQL 表达式自增（量取封顶后的 allowed）",
+              inv, r"values\(stock=func\.coalesce\(Product\.stock, 0\) \+ allowed\)")
+    c.present("回补量以「这一单真的扣过多少」封顶（唯一实现 restock_room）",
+              inv, r"def restock_room\(db: Session, order: Order, product_ids: list\[int\]\)")
+    c.present("封顶口径：实扣 − 到仓入库 − 已回补",
+              inv, r"deducted\.get\(pid, 0\) - inbound\.get\(pid, 0\) - already\.get\(pid, 0\)")
     c.present("库存流水记 RETURNED 状态", inv, r'status="RETURNED"')
     c.present("货损那几件不许退（上限减掉 damage_quantity）", ret, r"- int\(op\.damage_quantity or 0\) - int\(op\.returned_quantity or 0\)")
     c.present("退现上限 = 这次退掉的货值", ret, r"min\(returned_now, already_refundable\)")
