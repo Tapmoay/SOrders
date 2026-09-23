@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.date_window import ensure_date_order
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
@@ -36,6 +37,7 @@ def get_shipper_product_chart(
     _: User = Depends(require_permission(Permission.STATS_READ)),
     db: Session = Depends(get_db),
 ) -> ShipperProductChartOut:
+    ensure_date_order(date_from, date_to)
     cats, series = stats_service.shipper_product_chart(
         db, date_from, date_to, granularity, metric
     )
@@ -55,6 +57,7 @@ def get_shipper_activity(
     _: User = Depends(require_permission(Permission.STATS_READ)),
     db: Session = Depends(get_db),
 ) -> ShipperActivityOut:
+    ensure_date_order(date_from, date_to)
     data = stats_service.shipper_activity(db, shipper_id, date_from, date_to)
     return ShipperActivityOut.model_validate(data)
 
@@ -67,6 +70,7 @@ def get_product_drilldown(
     _: User = Depends(require_permission(Permission.STATS_READ)),
     db: Session = Depends(get_db),
 ) -> list[DrilldownOrderItem]:
+    ensure_date_order(date_from, date_to)
     rows = stats_service.product_drilldown(db, product_name, date_from, date_to)
     return [DrilldownOrderItem.model_validate(r) for r in rows]
 
@@ -78,6 +82,7 @@ def get_driver_performance(
     _: User = Depends(require_permission(Permission.STATS_READ)),
     db: Session = Depends(get_db),
 ) -> DriverPerformanceOut:
+    ensure_date_order(date_from, date_to)
     rows = stats_service.driver_performance(db, date_from, date_to)
     label = f"{date_from.isoformat()} ~ {date_to.isoformat()}"
     return DriverPerformanceOut(
@@ -93,6 +98,7 @@ def get_shipper_performance(
     _: User = Depends(require_permission(Permission.STATS_READ)),
     db: Session = Depends(get_db),
 ) -> ShipperPerformanceOut:
+    ensure_date_order(date_from, date_to)
     rows = stats_service.shipper_performance(db, date_from, date_to)
     label = f"{date_from.isoformat()} ~ {date_to.isoformat()}"
     return ShipperPerformanceOut(
@@ -108,6 +114,7 @@ def get_exception_orders(
     _: User = Depends(require_permission(Permission.STATS_READ)),
     db: Session = Depends(get_db),
 ) -> list[ExceptionOrderItem]:
+    ensure_date_order(date_from, date_to)
     rows = stats_service.exception_orders(db, date_from, date_to)
     return [ExceptionOrderItem.model_validate(r) for r in rows]
 

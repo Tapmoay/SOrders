@@ -27,6 +27,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import utc_now_naive
+from app.core.date_window import ensure_date_order
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
@@ -410,6 +411,7 @@ def list_payments(
     ⚠️ 付款记录**就是** `cash_flows` 里 `biz_type=PAYMENT_SUPPLIER` 的那些行 ——
        账本「收支」页看的也是同一批行（同一笔钱不可能有两个来源）。
     """
+    ensure_date_order(date_from, date_to)
     stmt = (
         select(CashFlow)
         .where(

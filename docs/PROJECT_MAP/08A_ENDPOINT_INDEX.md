@@ -343,10 +343,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/reports/turnover` | `turnover_report` | `backend/app/api/v1/reports.py:426` | 权限:ORDER_DISPATCH |
-| 2 | `GET /api/v1/reports/products` | `product_report` | `backend/app/api/v1/reports.py:441` | 权限:ORDER_DISPATCH |
-| 3 | `GET /api/v1/reports/arrears-summary` | `arrears_summary` | `backend/app/api/v1/reports.py:507` | 权限:ORDER_DISPATCH |
-| 4 | `GET /api/v1/reports/export` | `export_report` | `backend/app/api/v1/reports.py:537` | 权限:ORDER_DISPATCH |
+| 1 | `GET /api/v1/reports/turnover` | `turnover_report` | `backend/app/api/v1/reports.py:436` | 权限:ORDER_DISPATCH |
+| 2 | `GET /api/v1/reports/products` | `product_report` | `backend/app/api/v1/reports.py:451` | 权限:ORDER_DISPATCH |
+| 3 | `GET /api/v1/reports/arrears-summary` | `arrears_summary` | `backend/app/api/v1/reports.py:517` | 权限:ORDER_DISPATCH |
+| 4 | `GET /api/v1/reports/export` | `export_report` | `backend/app/api/v1/reports.py:548` | 权限:ORDER_DISPATCH |
 
 ### `backend/app/api/v1/return_requests.py` — 6 个
 
@@ -397,34 +397,34 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/stats/shipper-product-chart` | `get_shipper_product_chart` | `backend/app/api/v1/stats.py:31` | 权限:STATS_READ |
-| 2 | `GET /api/v1/stats/shipper-activity` | `get_shipper_activity` | `backend/app/api/v1/stats.py:51` | 权限:STATS_READ |
-| 3 | `GET /api/v1/stats/product-drilldown` | `get_product_drilldown` | `backend/app/api/v1/stats.py:63` | 权限:STATS_READ |
-| 4 | `GET /api/v1/stats/driver-performance` | `get_driver_performance` | `backend/app/api/v1/stats.py:75` | 权限:STATS_READ |
-| 5 | `GET /api/v1/stats/shipper-performance` | `get_shipper_performance` | `backend/app/api/v1/stats.py:90` | 权限:STATS_READ |
-| 6 | `GET /api/v1/stats/exception-orders` | `get_exception_orders` | `backend/app/api/v1/stats.py:105` | 权限:STATS_READ |
-| 7 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | `resolve_exception_order` | `backend/app/api/v1/stats.py:116` | 权限:STATS_READ |
-| 8 | `POST /api/v1/stats/export` | `post_stats_export` | `backend/app/api/v1/stats.py:164` | 权限:STATS_READ |
+| 1 | `GET /api/v1/stats/shipper-product-chart` | `get_shipper_product_chart` | `backend/app/api/v1/stats.py:32` | 权限:STATS_READ |
+| 2 | `GET /api/v1/stats/shipper-activity` | `get_shipper_activity` | `backend/app/api/v1/stats.py:53` | 权限:STATS_READ |
+| 3 | `GET /api/v1/stats/product-drilldown` | `get_product_drilldown` | `backend/app/api/v1/stats.py:66` | 权限:STATS_READ |
+| 4 | `GET /api/v1/stats/driver-performance` | `get_driver_performance` | `backend/app/api/v1/stats.py:79` | 权限:STATS_READ |
+| 5 | `GET /api/v1/stats/shipper-performance` | `get_shipper_performance` | `backend/app/api/v1/stats.py:95` | 权限:STATS_READ |
+| 6 | `GET /api/v1/stats/exception-orders` | `get_exception_orders` | `backend/app/api/v1/stats.py:111` | 权限:STATS_READ |
+| 7 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | `resolve_exception_order` | `backend/app/api/v1/stats.py:123` | 权限:STATS_READ |
+| 8 | `POST /api/v1/stats/export` | `post_stats_export` | `backend/app/api/v1/stats.py:171` | 权限:STATS_READ |
 
 ### `backend/app/api/v1/suppliers.py` — 15 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/suppliers` | `list_suppliers` | `backend/app/api/v1/suppliers.py:136` | 权限:LEDGER_EDIT |
-| 2 | `POST /api/v1/suppliers` | `create_supplier` | `backend/app/api/v1/suppliers.py:157` | 权限:LEDGER_EDIT |
-| 3 | `GET /api/v1/suppliers/{supplier_id}` | `get_supplier` | `backend/app/api/v1/suppliers.py:183` | 权限:LEDGER_EDIT |
-| 4 | `PATCH /api/v1/suppliers/{supplier_id}` | `update_supplier` | `backend/app/api/v1/suppliers.py:195` | 权限:LEDGER_EDIT |
-| 5 | `DELETE /api/v1/suppliers/{supplier_id}` | `delete_supplier` | `backend/app/api/v1/suppliers.py:233` | 权限:LEDGER_EDIT |
-| 6 | `POST /api/v1/suppliers/{supplier_id}/restore` | `restore_supplier` | `backend/app/api/v1/suppliers.py:249` | 权限:LEDGER_EDIT |
-| 7 | `GET /api/v1/supplier-payables` | `list_payables` | `backend/app/api/v1/suppliers.py:267` | 权限:LEDGER_EDIT |
-| 8 | `POST /api/v1/suppliers/{supplier_id}/payables` | `create_payable` | `backend/app/api/v1/suppliers.py:287` | 权限:LEDGER_EDIT |
-| 9 | `PATCH /api/v1/supplier-payables/{payable_id}` | `update_payable` | `backend/app/api/v1/suppliers.py:319` | 权限:LEDGER_EDIT |
-| 10 | `DELETE /api/v1/supplier-payables/{payable_id}` | `delete_payable` | `backend/app/api/v1/suppliers.py:364` | 权限:LEDGER_EDIT |
-| 11 | `POST /api/v1/supplier-payables/{payable_id}/restore` | `restore_payable` | `backend/app/api/v1/suppliers.py:381` | 权限:LEDGER_EDIT |
-| 12 | `GET /api/v1/supplier-payments` | `list_payments` | `backend/app/api/v1/suppliers.py:399` | 权限:LEDGER_EDIT |
-| 13 | `POST /api/v1/supplier-payables/{payable_id}/payments` | `pay_payable` | `backend/app/api/v1/suppliers.py:435` | 权限:LEDGER_EDIT |
-| 14 | `DELETE /api/v1/supplier-payments/{flow_id}` | `cancel_payment` | `backend/app/api/v1/suppliers.py:460` | 权限:LEDGER_EDIT |
-| 15 | `POST /api/v1/supplier-payments/{flow_id}/restore` | `restore_payment` | `backend/app/api/v1/suppliers.py:485` | 权限:LEDGER_EDIT |
+| 1 | `GET /api/v1/suppliers` | `list_suppliers` | `backend/app/api/v1/suppliers.py:137` | 权限:LEDGER_EDIT |
+| 2 | `POST /api/v1/suppliers` | `create_supplier` | `backend/app/api/v1/suppliers.py:158` | 权限:LEDGER_EDIT |
+| 3 | `GET /api/v1/suppliers/{supplier_id}` | `get_supplier` | `backend/app/api/v1/suppliers.py:184` | 权限:LEDGER_EDIT |
+| 4 | `PATCH /api/v1/suppliers/{supplier_id}` | `update_supplier` | `backend/app/api/v1/suppliers.py:196` | 权限:LEDGER_EDIT |
+| 5 | `DELETE /api/v1/suppliers/{supplier_id}` | `delete_supplier` | `backend/app/api/v1/suppliers.py:234` | 权限:LEDGER_EDIT |
+| 6 | `POST /api/v1/suppliers/{supplier_id}/restore` | `restore_supplier` | `backend/app/api/v1/suppliers.py:250` | 权限:LEDGER_EDIT |
+| 7 | `GET /api/v1/supplier-payables` | `list_payables` | `backend/app/api/v1/suppliers.py:268` | 权限:LEDGER_EDIT |
+| 8 | `POST /api/v1/suppliers/{supplier_id}/payables` | `create_payable` | `backend/app/api/v1/suppliers.py:288` | 权限:LEDGER_EDIT |
+| 9 | `PATCH /api/v1/supplier-payables/{payable_id}` | `update_payable` | `backend/app/api/v1/suppliers.py:320` | 权限:LEDGER_EDIT |
+| 10 | `DELETE /api/v1/supplier-payables/{payable_id}` | `delete_payable` | `backend/app/api/v1/suppliers.py:365` | 权限:LEDGER_EDIT |
+| 11 | `POST /api/v1/supplier-payables/{payable_id}/restore` | `restore_payable` | `backend/app/api/v1/suppliers.py:382` | 权限:LEDGER_EDIT |
+| 12 | `GET /api/v1/supplier-payments` | `list_payments` | `backend/app/api/v1/suppliers.py:400` | 权限:LEDGER_EDIT |
+| 13 | `POST /api/v1/supplier-payables/{payable_id}/payments` | `pay_payable` | `backend/app/api/v1/suppliers.py:437` | 权限:LEDGER_EDIT |
+| 14 | `DELETE /api/v1/supplier-payments/{flow_id}` | `cancel_payment` | `backend/app/api/v1/suppliers.py:462` | 权限:LEDGER_EDIT |
+| 15 | `POST /api/v1/supplier-payments/{flow_id}/restore` | `restore_payment` | `backend/app/api/v1/suppliers.py:487` | 权限:LEDGER_EDIT |
 
 ### `backend/app/api/v1/system.py` — 1 个
 

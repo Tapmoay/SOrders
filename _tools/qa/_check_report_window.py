@@ -64,6 +64,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 #: 复用兄弟红线里剥 Kotlin 注释的实现（保留行号），不抄第二份。
 from _check_pagination_wiring import strip_comments  # noqa: E402
+from _check_single_source import code_only  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
@@ -242,7 +243,15 @@ def main() -> int:
     span = span[:span.find("\ndef ", 10)] if "\ndef " in span[10:] else span
     ok("只给一头 → 400（不许猜另一头）", re.search(r"必须同时给|只有一头|成对", span) is not None
        or "date_from 与 date_to 必须同时给" in reports_py)
-    ok("结束早于开始 → 400", "结束日期不能早于开始日期" in reports_py)
+    #    顺序这条改判「有没有走那一处同源实现」（2026-09-24 第 22 轮）：原来这里认的是
+    #    reports.py 自己那句「结束日期不能早于开始日期」，而全项目另外三处（deps /
+    #    date_window / ledger）说的是「开始日期不能晚于结束日期」—— 同一件事两句话。
+    #    现在两种写法都算不通过：只认 `ensure_date_order(`，逼它别再抄第二份文案。
+    #    ⚠️ 负向那一半必须只看**代码**：本轮把旧文案写进了 reports.py 的注释里（说明为什么删掉它），
+    #    而注释里提一句旧文案并不等于又抄了一份——用 `code_only` 把注释换成等长空格再判。
+    ok("结束早于开始 → 400（走 `core/date_window.py::ensure_date_order`，不自己抄一句）",
+       "ensure_date_order(date_from, date_to)" in span
+       and "结束日期不能早于开始日期" not in code_only(reports_py))
     ok("turnover / products 两个端点都收 date_from/date_to",
        reports_py.count("date_from: date | None = Query(None") >= 3,
        "营业纵览 / 商品经营 / 导出 —— 少一个就会出现「页面按区间、那个端点按 mode」")

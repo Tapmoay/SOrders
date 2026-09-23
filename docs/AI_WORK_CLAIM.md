@@ -20,6 +20,47 @@
 
 ## 进行中
 
+### [2026-09-24 02:0x → ] 会话：**全项目系统性复核 · 第 23 轮**（**第 6 批 12 份渗透报告的统一修**：先修 R7 两条，其余按序推进）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**这一轮的输入**是第 22 轮派出的 12 个子代理留下的 12 份报告（`_archive/audit/round22/01..12-*.md`，
+`_archive/` 不在 git 里）。本轮**不再派新的渗透**，先把它们统一修掉——用户定的是
+「我先读这些 md、去重排序、一次性做整体修改与验证」。
+
+| # | 改了什么 | 来源报告 | 提交 |
+| --- | --- | --- | --- |
+| R7-1 | **「日期反了」在聚合端点上是静默空集**：同一个反序区间，列表端点回 400、`/stats/*` 六个 + `/reports/arrears-summary` + `/supplier-payments` + `/freight-settlement` 回 **200 + 空集**，而报表中心把**同一段日期**发给所有这些端点 → 同一页上「营业纵览」报红字、「司机绩效/客户经营/异常与审计」显示"没有数据"。修法=`core/date_window.py` 新增 `ensure_date_order()`（与 `date_window()` 同口径同文案），9 个端点接入；`reports.py::_span` 里那句自己抄的「结束日期不能早于开始日期」也收掉 | 第 22 轮 F8-1 | 见下 |
+| R7-2 | **「已撤销订单」KPI 漏排软删**（全后端唯一一处漏的 Order 聚合）：派单员能删任意状态（含已撤销），删完这一格不减少 → 与明细越差越多。本机实测当时差 0（26 张软删单里 0 张 CANCELLED）→ 潜伏缺陷 | 第 22 轮 F8-2 | 见下 |
+| R7-3 | **AI 把退货明细写成字符串 = 静默整单退货**（`as? JsonArray` 拿不到就当"留空"）：账本整单红冲 + 库存全量回补 + 自动退款 + 订单转「已退货」，而两边都不报错。修法=形状不对/空数组一律拒绝并告诉它该写成什么；`PARAMS_HINT` 里"数组只许出现在 orders.create"那句也补上 `orders.return` | 第 22 轮 F1-D4 | 见下 |
+
+**判据（本轮新增/加强）**：`backend/tests/test_date_order_guard.py` —— 候选清单**从路由表自己算**
+（带 `date_from`+`date_to` 的 GET 端点逐个打反序，数量下限 9），另配**反空转**用例：
+把 `ensure_date_order` monkeypatch 成空实现后这些端点必须**不再** 400（证明 400 是那道闸门给的，
+而不是碰巧被别的校验拦下）。Android 侧 `AiWriteTest` 新增 3 条（字符串 / 空数组 / 真留空仍整单退货）。
+
+**顺带修掉的两处**（都是这一轮实测撞见的，不是报告里的）：
+① `core/query_text.py` 的 docstring 里写了一个反斜杠后面跟反引号 → Python 3.12+ 每次编译本模块
+都报 `SyntaxWarning: invalid escape sequence`，把两个生成脚本的输出都染了一行警告；
+② 端点索引与 AI 读目录按新行号重生成（`08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`）。
+
+⛔ **还没修（同一批报告里，按序推进）**：F1-D3（`hint` 从不进模型上下文 —— `freight_fee` 的
+「不填≠填 0」模型看不到）、F1-D1/D2（两条工具 description 常量手写派单员口径）、
+F7-1（订单出参没有「订单金额」）、F11-1（删价目不清计费规则引用 → 规则永远存不了）、
+F12-1（`PATCH /price-rules` 改归属零审计）、F5-1（生产 nginx 缺 `client_max_body_size`）、
+F9（N+1 族）、F10（通知有效性）、F3（近 30 天窗口 31 天）、F4（ORDER BY 无 id 兜底）、F6（纪律判据）。
+
+**改哪些文件**：`backend/app/core/date_window.py`、`backend/app/core/query_text.py`（注释）、
+`backend/app/api/v1/{stats,reports,suppliers,freight_settlement}.py`、
+`backend/tests/test_date_order_guard.py`（新）、`_tools/qa/_check_report_window.py`、
+`android/.../ai/AiWriteOrderHandlers.kt`、`android/.../ai/AiTools.kt`、
+`android/app/src/test/.../ai/AiWriteTest.kt`、两份生成物（端点索引 / AI 读目录）。
+
+**明确不碰**：`android/.../data/remote/api/Apis.kt`、`.../data/repo/AppRepository.kt`、
+`.../ui/dispatcher/DispatcherLedgerViewModel.kt`（另有一个会话正在改，工作区里那三个 ` M` 不是我的）。
+
+**验收**：`_check_all.py` **88/88**；后端 `pytest tests` **892 passed**（含新增 4 条）；
+Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL**（`AiWriteTest` 298 条 0 失败）；
+本机后端已重启到当前代码（`_check_backend_fresh.py` 绿）；`_audit_role_ai.py` 13 条真模型探针全过。
+
 ### [2026-09-24 01:4x → ] 会话：**全项目系统性复核 · 第 22 轮**（第 6 次并行渗透：**再换 12 个全新区域**；统一修 R6：两处钱）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **并行渗透（第 6 批区域，见 `_archive/audit/round22/README.md`）**：AI 系统提示词与工具描述本身 /

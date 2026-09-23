@@ -1368,7 +1368,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:507",
+   "at": "backend/app/api/v1/reports.py:517",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1405,7 +1405,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:441",
+   "at": "backend/app/api/v1/reports.py:451",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1462,7 +1462,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:426",
+   "at": "backend/app/api/v1/reports.py:436",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1798,7 +1798,7 @@
    "module_cn": "统计口径",
    "method": "get",
    "path": "/api/v1/stats/driver-performance",
-   "at": "backend/app/api/v1/stats.py:75",
+   "at": "backend/app/api/v1/stats.py:79",
    "auth": "权限:STATS_READ",
    "roles": [
     "dispatcher"
@@ -1835,7 +1835,7 @@
    "module_cn": "统计口径",
    "method": "get",
    "path": "/api/v1/stats/exception-orders",
-   "at": "backend/app/api/v1/stats.py:105",
+   "at": "backend/app/api/v1/stats.py:111",
    "auth": "权限:STATS_READ",
    "roles": [
     "dispatcher"
@@ -1872,7 +1872,7 @@
    "module_cn": "统计口径",
    "method": "get",
    "path": "/api/v1/stats/product-drilldown",
-   "at": "backend/app/api/v1/stats.py:63",
+   "at": "backend/app/api/v1/stats.py:66",
    "auth": "权限:STATS_READ",
    "roles": [
     "dispatcher"
@@ -1919,7 +1919,7 @@
    "module_cn": "统计口径",
    "method": "get",
    "path": "/api/v1/stats/shipper-activity",
-   "at": "backend/app/api/v1/stats.py:51",
+   "at": "backend/app/api/v1/stats.py:53",
    "auth": "权限:STATS_READ",
    "roles": [
     "dispatcher"
@@ -1966,7 +1966,7 @@
    "module_cn": "统计口径",
    "method": "get",
    "path": "/api/v1/stats/shipper-performance",
-   "at": "backend/app/api/v1/stats.py:90",
+   "at": "backend/app/api/v1/stats.py:95",
    "auth": "权限:STATS_READ",
    "roles": [
     "dispatcher"
@@ -2003,7 +2003,7 @@
    "module_cn": "统计口径",
    "method": "get",
    "path": "/api/v1/stats/shipper-product-chart",
-   "at": "backend/app/api/v1/stats.py:31",
+   "at": "backend/app/api/v1/stats.py:32",
    "auth": "权限:STATS_READ",
    "roles": [
     "dispatcher"
@@ -2066,7 +2066,7 @@
    "module_cn": "供应商/应付款",
    "method": "get",
    "path": "/api/v1/supplier-payables",
-   "at": "backend/app/api/v1/suppliers.py:267",
+   "at": "backend/app/api/v1/suppliers.py:268",
    "auth": "权限:LEDGER_EDIT",
    "roles": [
     "dispatcher"
@@ -2113,7 +2113,7 @@
    "module_cn": "供应商/应付款",
    "method": "get",
    "path": "/api/v1/supplier-payments",
-   "at": "backend/app/api/v1/suppliers.py:399",
+   "at": "backend/app/api/v1/suppliers.py:400",
    "auth": "权限:LEDGER_EDIT",
    "roles": [
     "dispatcher"
@@ -2180,7 +2180,7 @@
    "module_cn": "供应商/应付款",
    "method": "get",
    "path": "/api/v1/suppliers",
-   "at": "backend/app/api/v1/suppliers.py:136",
+   "at": "backend/app/api/v1/suppliers.py:137",
    "auth": "权限:LEDGER_EDIT",
    "roles": [
     "dispatcher"

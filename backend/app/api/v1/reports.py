@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.business_time import business_date, business_local, business_range_utc, local_stamp
 from app.services.ledger_scope import visible_ledger_select
+from app.core.date_window import ensure_date_order
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
@@ -83,8 +84,11 @@ def _span(
     if (date_from is None) != (date_to is None):
         raise HTTPException(status_code=400, detail="date_from 与 date_to 必须同时给")
     if date_from is not None and date_to is not None:
-        if date_to < date_from:
-            raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+        # ⚠️ 顺序这条判据**不在本文件里再写一遍**（2026-09-24 第 22 轮）：原来这里是
+        #    「结束日期不能早于开始日期」，而 `deps`/`date_window`/账本那几处是
+        #    「开始日期不能晚于结束日期」—— 同一件事两句话，用户在不同页面收到的提示不一样。
+        #    现在全项目只有 `core/date_window.py::ensure_date_order` 一处。
+        ensure_date_order(date_from, date_to)
         return date_from, date_to
     return _window(mode, anchor)
 
@@ -291,6 +295,12 @@ def build_turnover(db: Session, mode: str, anchor: date, *, span: tuple[date, da
             Order.cancelled_at.isnot(None),
             Order.cancelled_at >= c_start,
             Order.cancelled_at < c_end,
+            # ⚠️ 必须排**隔离区（软删）**的单（2026-09-24 第 22 轮 F8-2）：这里是全后端唯一
+            #    漏了这一条的 Order 聚合（同文件 `load_delivered` 有）。删除是"伪装删除"，
+            #    行还在库里 —— 而派单员**任意状态都能删**（含已撤销），于是"删掉一张撤销单"
+            #    之后这张 KPI 不跟着少：数与明细对不上，且越删差得越多。
+            #    本机实测当时差 0（26 张软删单里 0 张 CANCELLED）→ 是**潜伏**缺陷，不是不存在。
+            Order.deleted_at.is_(None),
         )
     ) or 0
     return {
@@ -510,6 +520,7 @@ def arrears_summary(
     date_from: date = Query(..., description="YYYY-MM-DD"),
     date_to: date = Query(..., description="YYYY-MM-DD"),
 ) -> list[dict]:
+    ensure_date_order(date_from, date_to)
     start = date_from
     end = date_to
     return build_arrears_summary(db, start, end)

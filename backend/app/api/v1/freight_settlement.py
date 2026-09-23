@@ -49,6 +49,11 @@ async def freight_settlement(
             end = datetime.fromisoformat(to)
         except ValueError:
             raise HTTPException(status_code=400, detail="from/to 须为 ISO 时间格式")
+        # ⚠️ 顺序反了要**当场拒绝**（2026-09-24 第 22 轮 F8-1）：`from>to` 时 SQL 恒不命中，
+        #    于是这一页显示"这段时间没有应付"—— 而结算页是"该给司机多少钱"的页面，
+        #    空列表会被读成"确实不用付"。同族的 `/reports/turnover` 等端点回 400。
+        if start > end:
+            raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
     elif month:
         start, end = await _month_range(month)
     else:

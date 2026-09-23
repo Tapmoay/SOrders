@@ -45,3 +45,28 @@ def date_window(date_from: str | None, date_to: str | None) -> tuple[date | None
     if start is not None and end is not None and start > end:
         raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
     return start, end
+
+
+def ensure_date_order(date_from: date | None, date_to: date | None) -> None:
+    """两个**已经是 `date` 对象**的查询参数 → 顺序反了就 400（与 [date_window] 同口径、同一句文案）。
+
+    ## 为什么还要有第二个函数（2026-09-24 第 22 轮 F8 实测）
+    上面 [date_window] 管的是"端点在函数体里自己 `fromisoformat`"那一族（账本/资金流水/开销）。
+    聚合端点的参数是 **FastAPI 直接解析成 `date` 的**（`date_from: date = Query(...)`），
+    格式错由它回 422 —— 但**顺序没人管**，于是同一个"日期反了"的输入：
+
+    - `/orders`、`/inventory/movements`、`/reports/turnover`、`/ledger/accounts`、
+      `/cash-flows/summary`、`/expenses` → **400**；
+    - `/stats/*`（6 个）、`/reports/arrears-summary`、`/freight-settlement`、
+      `/supplier-payments` → **200 + 空集**，`/stats/driver-performance` 还把反序区间
+      当合法区间回显（`period_label:"2026-09-30 ~ 2026-09-01"`）。
+
+    后果不是"少看几条"：报表中心把同一段日期发给这些端点，于是**营业纵览报红字、
+    司机绩效/客户经营/异常与审计显示"没有数据"** —— 同一页上四个格子对同一段时间给出
+    两种结论。日期选择器"先点晚、再点早"是日常操作，所以这条必须显式拦。
+
+    调用点由 `backend/tests/test_date_window_business_day.py` 从**路由表自己算**
+    （带 `date_from`+`date_to` 的端点逐个打反序），所以新加聚合端点漏了会被测试抓住。
+    """
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
