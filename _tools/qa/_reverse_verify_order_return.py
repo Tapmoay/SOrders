@@ -135,7 +135,12 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     ("已退货的单又能收款（货款已经红冲掉了）", ACCT, sub("if (o.status or \"\").upper() == OrderStatus.RETURNED.value:", "if False:")),
     # ---- 枚举 / 迁移 ----
-    ("MySQL 的 orders.status 枚举不再补 RETURNED（生产一退货就 500）", BOOTSTRAP, sub("'DELIVERED','CANCELLED','RETURNED'", "'DELIVERED','CANCELLED'")),
+    # ⚠️ 2026-09-23 第 10 轮：取值清单改成**从模型生成**（`enum_repair_ddl`），所以注入点从
+    #    "改字面量" 挪到 "让生成器漏掉那个值" —— 效果一样（老库补不到 RETURNED → 一退货就 500），
+    #    但钉的是现在这条实现路径。
+    ("MySQL 的 orders.status 枚举不再补 RETURNED（生产一退货就 500）",
+     BOOTSTRAP, sub('values = ",".join(f"\'{v}\'" for v in column.type.enums)',
+                    'values = ",".join(f"\'{v}\'" for v in column.type.enums[:-1])')),
     ("审计动作码 ORDER_RETURN 被删（App 侧的中文名表也对不上了）", ENUMS, sub('ORDER_RETURN = "ORDER_RETURN"', 'ORDER_RETURN_X = "ORDER_RETURN"')),
     # ---- 客户端 ----
     ("客户端退货状态门放宽到已退货（对退过的单再点退货）", STATUS_MODEL, sub('val RETURNABLE: Set<String> = setOf("DELIVERED")', 'val RETURNABLE: Set<String> = setOf("DELIVERED", "RETURNED")')),

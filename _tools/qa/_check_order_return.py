@@ -45,6 +45,17 @@ BACKEND = ROOT / "backend/app"
 ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 FRONTEND = ROOT / "frontend/src"
 
+#: 生成器要从**真模型**取（2026-09-23 第 10 轮）：退回那一列的老库补全是它生成的。
+sys.path.insert(0, str(ROOT / "backend"))
+import app.models  # noqa: E402,F401  —— 注册全部模型
+from app.core.schema_bootstrap import enum_repair_ddl  # noqa: E402
+from app.models.base import Base as _Base  # noqa: E402
+
+
+def _enum_column(table_name: str, column_name: str):
+    """从 metadata 取一列（判据不手抄取值清单：清单就是模型里的那一份）。"""
+    return _Base.metadata.tables[table_name].c[column_name]
+
 
 def read(p: Path) -> str:
     if not p.exists():
@@ -104,8 +115,20 @@ def main() -> int:
     c.present("订单上有退货时间", order_model, r"returned_at: Mapped\[datetime \| None\]")
     c.present("旧库补 order_products.returned_quantity", bootstrap, r"ALTER TABLE order_products ADD COLUMN returned_quantity")
     c.present("旧库补 orders.returned_at", bootstrap, r"ALTER TABLE orders ADD COLUMN returned_at")
-    c.present("MySQL 的 orders.status 枚举补 RETURNED", bootstrap, r"'DELIVERED','CANCELLED','RETURNED'")
-    c.present("MySQL 的 ledgers.source 枚举补 RETURN", bootstrap, r"'ORDER','MANUAL','REFUND','RETURN'")
+    # ⚠️ 2026-09-23 第 10 轮：这两条原来钉的是 bootstrap 里**手写的** ENUM 字面量
+    #    （`'DELIVERED','CANCELLED','RETURNED'` / `'ORDER','MANUAL','REFUND','RETURN'`）——
+    #    而那份手写清单本身就是过期的：同一个文件里攒了四句，其中两句少了 RETURNED / RETURN
+    #    （写一个缺的值就是 MySQL 直接拒绝 = 2026-09-04 那两次 500 的形状）。
+    #    现在取值清单从模型生成（`_enum_columns()` + `enum_repair_ddl`），所以判据改成
+    #    "自愈在 + 走生成器 + **调用生成器**看它到底生成了什么"，而不是去文件里找字符串。
+    c.present("MySQL 枚举自愈：按模型补全（唯一清单）", bootstrap, r"for \w+, \w+ in _enum_columns\(\):")
+    c.present("MySQL 枚举自愈：走生成器、不手抄字面量", bootstrap, r"conn\.execute\(text\(enum_repair_ddl\(")
+    for label, table, column, must in (
+        ("旧库 orders.status 会被补到含 RETURNED（已退货）", "orders", "status", "RETURNED"),
+        ("旧库 ledgers.source 会被补到含 RETURN（退货红冲）", "ledgers", "source", "RETURN"),
+    ):
+        ddl = enum_repair_ddl(table, _enum_column(table, column))
+        c.ok(f"{label} —— 生成出来的 DDL 里带着它", f"'{must}'" in ddl, ddl)
 
     print("\n== 2. 退货服务：红冲 / 库存 / 退现 / 状态 ==")
     c.present("红冲行金额为负（退货是减账，不是又一次收入）", ret, r"total=-line_amount")

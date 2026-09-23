@@ -13,6 +13,60 @@ from app.models.base import Base
 logger = logging.getLogger(__name__)
 
 
+def _enum_columns() -> list[tuple[str, object]]:
+    """模型里所有 `Enum` 列 → `[(表名, 列对象)]`，顺序稳定（按表名/列名排）。
+
+    ⚠️ 这是"枚举列的清单"**唯一**的一份 —— 从 SQLAlchemy metadata 算出来（与 `create_all`
+    同一个源头）。2026-09-23 第 10 轮之前，这个清单在 `schema_bootstrap` 里被**手写了四份**
+    `MODIFY COLUMN … ENUM(…)` 字面量，其中两份是过期的（少了 `RETURNED` / `RETURN`）——
+    见下面 [enum_repair_ddl] 那段注释。
+    """
+    from sqlalchemy import Enum as SAEnum
+
+    out: list[tuple[str, object]] = []
+    for table_name, table in Base.metadata.tables.items():
+        for col in table.columns:
+            if isinstance(col.type, SAEnum):
+                out.append((table_name, col))
+    return sorted(out, key=lambda pair: (pair[0], pair[1].name))  # type: ignore[attr-defined]
+
+
+def enum_repair_ddl(table_name: str, column: object) -> str:
+    """给一列枚举生成"按模型补全取值"的 DDL（**纯函数**：单测与生产探针都调它）。
+
+    例：
+        ALTER TABLE `orders` MODIFY COLUMN `status`
+        ENUM('PENDING_DISPATCH','DISPATCHED','ACCEPTED','DELIVERED','CANCELLED','RETURNED') NOT NULL
+
+    为什么是"生成"而不是"再抄一份字面量"（2026-09-23 第 10 轮）：
+    老库的枚举列可能缺后来新增的取值，而 MySQL 里写一个不在枚举里的值**直接报错** ——
+    这正是 2026-09-04 那两次生产 500（`orders.status` 缺 `DISPATCHED` → 派单 100% 500；
+    `ledgers.source` 缺 `REFUND` / `RETURN` → 货损完成、退货红冲 500）。原来的修法是手写
+    `ALTER TABLE … MODIFY COLUMN … ENUM(…)`，结果同一个文件里攒了**四**句、两句已经过期：
+    老库 4 态启动时先被过期那句改成 5 态、再被后面那句补到 6 态 —— 结果碰巧是对的，
+    但**只要有人删掉/挪动后面那句，列就会被改成缺值的版本**，又是一次静默 500。
+    现在取值清单来自模型，结构上不可能漂移。
+
+    只带 `NULL`/`NOT NULL`（取模型的 `nullable`）与"字面量型"的 `DEFAULT` / `COMMENT`；
+    ⛔ 不去 `information_schema` 抄旧定义 —— 那正是"第二份清单"的来源；
+    表达式型默认值（如 `DEFAULT (UUID())`）刻意**不猜**，宁可少带一个默认值也不改语义。
+    """
+    from sqlalchemy import Enum as SAEnum
+
+    assert isinstance(column.type, SAEnum)  # type: ignore[attr-defined]
+    values = ",".join(f"'{v}'" for v in column.type.enums)  # type: ignore[attr-defined]
+    parts = [
+        f"ALTER TABLE `{table_name}` MODIFY COLUMN `{column.name}` ENUM({values})",  # type: ignore[attr-defined]
+        "NULL" if column.nullable else "NOT NULL",  # type: ignore[attr-defined]
+    ]
+    server_default = getattr(column, "server_default", None)
+    if server_default is not None and getattr(server_default, "is_scalar", False):
+        parts.append(f"DEFAULT '{server_default.arg}'")
+    if getattr(column, "comment", None):
+        parts.append("COMMENT '" + str(column.comment).replace("'", "''") + "'")
+    return " ".join(parts)
+
+
 def _sqlite_shipper_id_is_notnull(pragma_rows: list) -> bool:
     for row in pragma_rows:
         if len(row) >= 4 and row[1] == "shipper_id" and row[3] == 1:
@@ -492,20 +546,11 @@ def _bootstrap_impl(engine: Engine) -> None:
                     conn.execute(text("ALTER TABLE orders MODIFY COLUMN shipper_id INT NULL"))
                 except DBAPIError as e:
                     logger.warning("orders.shipper_id 可空迁移跳过: %s", e)
-                # 旧库 orders.status 枚举缺少 DISPATCHED（历史版本只有 4 态）→ 派单接口 500
-                try:
-                    col_type = conn.execute(text(
-                        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
-                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'status'"
-                    )).scalar()
-                    if col_type and "DISPATCHED" not in col_type:
-                        logger.warning("检测到旧库 orders.status 枚举缺少 DISPATCHED，正在修复…")
-                        conn.execute(text(
-                            "ALTER TABLE orders MODIFY COLUMN status "
-                            "ENUM('PENDING_DISPATCH','DISPATCHED','ACCEPTED','DELIVERED','CANCELLED') NOT NULL"
-                        ))
-                except DBAPIError as e:
-                    logger.warning("orders.status 枚举修复跳过: %s", e)
+                # 旧库 orders.status 枚举缺值（历史版本只有 4 态）→ 派单接口 500。
+                # ⚠️ 这里**不再**自己写一份 `MODIFY COLUMN … ENUM(…)` 字面量：那正是
+                #    2026-09-23 第 10 轮抓到"过期清单"的地方（这一份少了 RETURNED，而后半段
+                #    还有一份带 RETURNED 的 —— 两句都对不上的时候谁都不报错）。
+                #    现在统一由后面的"枚举列自愈"按模型生成，见 `enum_repair_ddl`。
                 # 复合索引 (status, created_at)：待派池/列表查询加速，防万级积压全表扫
                 try:
                     idx_rows = conn.execute(text(
@@ -663,19 +708,9 @@ def _bootstrap_impl(engine: Engine) -> None:
                     conn.execute(text("ALTER TABLE ledgers MODIFY COLUMN shipper_id INT NULL"))
                 except DBAPIError as e:
                     logger.warning("ledgers.shipper_id 可空迁移跳过: %s", e)
-                # 旧库 ledgers.source 枚举缺少 REFUND（货损成本回冲）→ 货损完成单 500
-                try:
-                    src_type = conn.execute(text(
-                        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
-                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ledgers' AND COLUMN_NAME = 'source'"
-                    )).scalar()
-                    if src_type and "REFUND" not in src_type:
-                        logger.warning("检测到旧库 ledgers.source 枚举缺少 REFUND，正在修复…")
-                        conn.execute(text(
-                            "ALTER TABLE ledgers MODIFY COLUMN source ENUM('ORDER','MANUAL','REFUND') NOT NULL"
-                        ))
-                except DBAPIError as e:
-                    logger.warning("ledgers.source 枚举修复跳过: %s", e)
+                # 旧库 ledgers.source 枚举缺值（货损成本回冲 / 退货红冲）→ 完成单 500。
+                # ⚠️ 同上一处：这里原来手写的那份字面量少了 RETURN，已删掉；取值清单统一由
+                #    后面的"枚举列自愈"按模型生成（见 `enum_repair_ddl`）。
         elif dialect == "sqlite":
             from app.models.ledger import Ledger
 
@@ -1339,34 +1374,50 @@ def _bootstrap_impl(engine: Engine) -> None:
                 else:
                     raise
     if dialect == "mysql":
+        # ---------- 枚举列自愈（2026-09-23 第 10 轮：**取值清单只有一份 —— 从模型生成**）----------
+        #
+        # 为什么必须有：MySQL 里往枚举列写一个不在枚举里的值**直接报错**。老库那一列可能停在
+        # 更早的取值集合上，于是"新加了一个状态/来源"就变成线上 500 —— 2026-09-04 那两次事故
+        # （`orders.status` 缺 DISPATCHED → 派单 100% 500；`ledgers.source` 缺 REFUND/RETURN →
+        # 货损完成与退货红冲 500）就是这个形状。
+        #
+        # ⚠️ 为什么从"手写字面量"改成"生成"：这一族修复原来在**同一个文件里手写了四句**
+        #    `MODIFY COLUMN … ENUM(…)`，而其中两句是**过期的**（`orders.status` 少 RETURNED、
+        #    `ledgers.source` 少 RETURN）。老库 4 态启动时先被过期那句改成 5 态、再被后面那句
+        #    补到 6 态 —— 结果碰巧对，但**删掉/挪动后面那句就会把列改成缺值的版本**，
+        #    而且一条报错都不会有（写缺的值时才 500，可能是几天以后）。现在清单来自
+        #    `Base.metadata`（与 `create_all` 同一个源头），漂移在结构上不可能发生。
+        #
+        # 三层判据钉着它（都不需要人记得）：
+        #   ① 结构：`_tools/qa/_check_enum_drift.py` —— bootstrap 里**不许再出现手写的
+        #      `MODIFY COLUMN … ENUM(…)` 字面量**，且自愈循环必须覆盖模型里每一个枚举列；
+        #   ② 文本：`backend/tests/test_enum_repair_ddl.py` —— 逐列断言生成出来的 DDL
+        #      （含 `orders.status` 那句的全文），改动必须是故意的；
+        #   ③ 真机：`_tools/qa/_probe_prod_readonly.py --validate-ddl` —— 在生产那台 MySQL 上
+        #      用**临时表**造一个"旧枚举 + 已有数据"，跑这句生成出来的 DDL，验"新值写得进、
+        #      老数据不丢"。
         with engine.begin() as conn:
-            # orders.status 枚举补 RETURNED（已退货）
-            try:
-                st_type = conn.execute(text(
-                    "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
-                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'status'"
-                )).scalar()
-                if st_type and "RETURNED" not in st_type:
-                    logger.warning("检测到旧库 orders.status 枚举缺少 RETURNED，正在修复…")
-                    conn.execute(text(
-                        "ALTER TABLE orders MODIFY COLUMN status "
-                        "ENUM('PENDING_DISPATCH','DISPATCHED','ACCEPTED','DELIVERED','CANCELLED','RETURNED') NOT NULL"
-                    ))
-            except DBAPIError as e:
-                logger.warning("orders.status 枚举补 RETURNED 跳过: %s", e)
-            # ledgers.source 枚举补 RETURN（退货红冲）
-            try:
-                src_type = conn.execute(text(
-                    "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
-                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ledgers' AND COLUMN_NAME = 'source'"
-                )).scalar()
-                if src_type and "RETURN" not in src_type:
-                    logger.warning("检测到旧库 ledgers.source 枚举缺少 RETURN，正在修复…")
-                    conn.execute(text(
-                        "ALTER TABLE ledgers MODIFY COLUMN source ENUM('ORDER','MANUAL','REFUND','RETURN') NOT NULL"
-                    ))
-            except DBAPIError as e:
-                logger.warning("ledgers.source 枚举补 RETURN 跳过: %s", e)
+            for table_name, column in _enum_columns():
+                try:
+                    live = conn.execute(
+                        text(
+                            "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+                            "WHERE TABLE_SCHEMA = DATABASE() "
+                            "AND TABLE_NAME = :t AND COLUMN_NAME = :c"
+                        ),
+                        {"t": table_name, "c": column.name},  # type: ignore[attr-defined]
+                    ).scalar()
+                    if not live:
+                        continue  # 这张表/列还不存在 —— 新库由 create_all 建，天然是全集
+                    missing = [v for v in column.type.enums if f"'{v}'" not in live]  # type: ignore[attr-defined]
+                    if not missing:
+                        continue
+                    logger.warning(
+                        "检测到旧库 %s.%s 枚举缺少 %s，按模型补全…", table_name, column.name, missing  # type: ignore[attr-defined]
+                    )
+                    conn.execute(text(enum_repair_ddl(table_name, column)))
+                except DBAPIError as e:
+                    logger.warning("%s.%s 枚举补全跳过: %s", table_name, column.name, e)  # type: ignore[attr-defined]
 
     # ---------- 开销分类名册（2026-09-20 用户要求「开销分类也有个分类管理」） ----------
     #

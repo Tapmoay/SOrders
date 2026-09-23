@@ -54,8 +54,13 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+#: 仓库根与后端目录：两段"代码 ↔ 线上库"的对账要 import `app.*`（枚举清单、生成的 DDL）。
+ROOT = Path(__file__).resolve().parents[2]
+BACKEND = ROOT / "backend"
 
 #: 生产机（阿里云）。用密钥登录，和 `_tools/deploy/publish_apk.py` 同一把钥匙、同一个写法。
 HOST = "8.145.40.22"
@@ -290,6 +295,69 @@ PROFILE_SQL = (
 )
 
 
+def enum_drift_section(have_enums: bool = True) -> tuple[list[str], list[str]]:
+    """**代码里的枚举 ↔ 线上库的 `COLUMN_TYPE`** 对账（返回 失败 / 备注 两个清单）。
+
+    为什么这条必须查线上库：MySQL 里往枚举列写一个**不在枚举里**的值是**直接报错** ——
+    2026-09-04 那两次生产 500 就是这个形状（`orders.status` 缺 `DISPATCHED` → 派单 100% 500；
+    `ledgers.source` 缺 `REFUND` → 货损完成 500）。而**本地怎么测都是对的**：
+    开发库是 SQLite（没有 ENUM）、测试库是 `create_all` 现建的（天然是全集）——
+    只有线上那台 MySQL 才知道那一列到底有没有跟上代码。
+
+    两个方向都要查：
+    - **线上缺**（代码有、库里没有）→ 写它就 500 → **判红**；
+    - **线上多**（库里有、代码没有）→ 读出来 SQLAlchemy 认不出这个值 → 一样是 500 → **判红**。
+      （要"退役"一个取值必须先迁数据再改列，所以线上多出来就是没做完的迁移。）
+
+    枚举列的清单**从模型 metadata 算**（`_enum_columns()`），不手写；
+    本地那一侧由 `_tools/qa/_check_enum_drift.py` 盯着。
+    """
+    fails: list[str] = []
+    notes: list[str] = []
+    try:
+        sys.path.insert(0, str(BACKEND))
+        import app.models  # noqa: F401
+        from app.core.schema_bootstrap import _enum_columns
+
+        cols = [(t, c.name, [str(v) for v in c.type.enums]) for t, c in _enum_columns()]
+    except Exception as e:  # pragma: no cover - 环境问题要如实报出来，不能静默跳过
+        print(f"  [FAIL] 读不到模型里的枚举列（{e}）—— 这一段就没在查，别当它绿了")
+        return [f"读不到模型枚举列：{e}"], notes
+    if not cols:
+        print("  [FAIL] 模型里一个枚举列都没盘到 —— 这一段是空转的")
+        return ["枚举列清单为空"], notes
+
+    print(f"  代码里有 {len(cols)} 个枚举列；逐列问线上库的 `COLUMN_TYPE`")
+    for table, column, values in cols:
+        run = remote_sql(
+            "SELECT COLUMN_TYPE FROM information_schema.COLUMNS"
+            f" WHERE TABLE_SCHEMA = '{DB_NAME}' AND TABLE_NAME = '{table}'"
+            f" AND COLUMN_NAME = '{column}';"
+        )
+        raw = run.out.strip() if run.ok else ""
+        if not raw:
+            fails.append(f"{table}.{column}：线上没有这一列（表/列改名了？）")
+            print(f"  [FAIL] {table}.{column}：线上没有这一列")
+            continue
+        inner = raw[raw.find("(") + 1:raw.rfind(")")]
+        live = [x.strip().strip("'") for x in inner.split(",")]
+        missing = [v for v in values if v not in live]
+        extra = [v for v in live if v not in values]
+        if not missing and not extra:
+            print(f"  [OK]   {table}.{column} —— 线上 {len(live)} 个取值与代码一致")
+        else:
+            if missing:
+                fails.append(f"{table}.{column}：线上缺 {missing} —— 写这些值直接 500")
+                print(f"  [FAIL] {table}.{column} 线上缺 {missing}（{len(live)}/{len(values)}）"
+                      f" ← 2026-09-04 那两次 500 的形状")
+            if extra:
+                fails.append(f"{table}.{column}：线上多出 {extra} —— 读这些行会 500（迁移没做完）")
+                print(f"  [FAIL] {table}.{column} 线上多出 {extra}（代码认不出这个取值）")
+    if len(cols) < 5:
+        notes.append(f"枚举列只有 {len(cols)} 个（少于预期的 5 个）—— 是不是有模型没注册进来？")
+    return fails, notes
+
+
 @dataclass
 class Run:
     """一次远端查询的结果。"""
@@ -430,15 +498,21 @@ def main() -> int:
             fails.append(f"{q.key} 没走 {q.expect_index}（计划里 {'Table scan' if scanned else '换了别的路径'}）")
             print(f"  [FAIL] {q.key} 没走 {q.expect_index}")
 
-    # ---- ④ 补丁里的 DDL 语法预演（`--validate-ddl`，用**会话级临时表**，不碰任何真实表）----
+    # ---- ④ 枚举漂移（代码 ↔ 线上库）----
+    print("\n④ 枚举漂移：代码里的取值 ↔ 线上库的 `COLUMN_TYPE`（本地怎么测都测不出这一条）")
+    enum_fails, enum_notes = enum_drift_section()
+    fails += enum_fails
+    notes += enum_notes
+
+    # ---- ⑤ 补丁里的 DDL 语法预演（`--validate-ddl`，用**会话级临时表**，不碰任何真实表）----
     if validate_ddl:
-        print("\n④ `--validate-ddl`：把 bootstrap 那段 DDL 在一张**临时表**上演一遍"
+        print("\n⑤ `--validate-ddl`：把 bootstrap 那段 DDL 在一张**临时表**上演一遍"
               "（会话一断自动消失、`SHOW TABLES` 看不见、与 `orders` 无关）")
         fails += validate_ddl_on_temp_table(have)
 
-    # ---- ⑤ 硬性要求（部署后跑 `--expect-index` 确认）----
+    # ---- ⑥ 硬性要求（部署后跑 `--expect-index` 确认）----
     if expect_index:
-        print("\n⑤ `--expect-index`：报表窗口索引必须已存在且被优化器用上")
+        print("\n⑥ `--expect-index`：报表窗口索引必须已存在且被优化器用上")
         idx = have.get("ix_orders_status_delivered")
         if idx != "status,delivered_at":
             fails.append("ix_orders_status_delivered 不存在或列序不对（服务重启后 bootstrap 应该建出来）")
@@ -446,8 +520,8 @@ def main() -> int:
         else:
             print("  [OK]   ix_orders_status_delivered 存在且列序正确")
 
-    # ---- ⑥ 体检上下文（只报告）----
-    print("\n⑥ 体检上下文（这些数决定上面每条的发言权；只报告，不判红）")
+    # ---- ⑦ 体检上下文（只报告）----
+    print("\n⑦ 体检上下文（这些数决定上面每条的发言权；只报告，不判红）")
     run = remote_sql(PROFILE_SQL + ";")
     for r in rows(run.out):
         if len(r) >= 2:
@@ -585,6 +659,107 @@ def validate_ddl_on_temp_table(have: dict[str, str]) -> list[str]:
         fails.append(f"索引建出来列序不对：{order}")
         print(f"  [FAIL] 索引列序不对：{order}")
     print(f"      · `status` 用的是 orders 的真实类型：{cols['status'][:120]}")
+    print("      · 临时表已 DROP（会话级，本就没进过任何真实表）")
+    fails += validate_enum_repair_on_temp_table()
+    return fails
+
+
+def validate_enum_repair_on_temp_table() -> list[str]:
+    """把**生成出来的**枚举补全 DDL 拿真 MySQL 演一遍：新值写得进、老数据不丢。
+
+    这是"枚举列自愈"那一整条链路的真机证据（本机是 SQLite，验不了）：
+    临时表先造成**旧枚举**（少最后一个取值，模拟老库），塞一行已有数据，
+    跑一句 `enum_repair_ddl(...)` **生成出来的** DDL（⛔ 不是手抄一份），然后：
+    ① 列的定义里出现了全部取值；② 那一行老数据还在、值没变；③ 用**新增的那个取值**再插一行 ——
+    这一步正是 2026-09-04 生产 500 的形状（写一个不在枚举里的值），能插进去才算真的修好了。
+    """
+    fails: list[str] = []
+    try:
+        sys.path.insert(0, str(BACKEND))
+        import app.models  # noqa: F401
+        from app.core.schema_bootstrap import enum_repair_ddl
+        from app.models.order import Order
+
+        col = Order.__table__.c.status
+        values = [str(v) for v in col.type.enums]
+    except Exception as e:
+        print(f"  [FAIL] 取不到 `orders.status` 的枚举定义（{e}）—— 这一段没在查")
+        return [f"取不到 orders.status 枚举：{e}"]
+
+    old_values = values[:-1]
+    new_value = values[-1]
+    temp = "_dsh_enum_repair_check"
+    ddl = enum_repair_ddl(temp, col)          # ← 生成器给的 DDL，原样拿去执行
+    sql = (
+        f"DROP TEMPORARY TABLE IF EXISTS {temp};\n"
+        f"CREATE TEMPORARY TABLE {temp} (\n"
+        f"  id INT NOT NULL PRIMARY KEY,\n"
+        f"  status ENUM({','.join(chr(39) + v + chr(39) for v in old_values)}) NOT NULL\n"
+        ");\n"
+        f"INSERT INTO {temp} (id, status) VALUES (1, '{old_values[-1]}');\n"
+        f"{ddl};\n"
+        f"INSERT INTO {temp} (id, status) VALUES (2, '{new_value}');\n"
+        "SELECT 'MARK', 'rows';\n"
+        f"SELECT id, status FROM {temp} ORDER BY id;\n"
+        "SELECT 'MARK', 'type';\n"
+        # ⚠️ 临时表**不在 information_schema 里**（会话级，数据字典看不见）—— 只能 `SHOW COLUMNS`。
+        f"SHOW COLUMNS FROM {temp} LIKE 'status';\n"
+        f"DROP TEMPORARY TABLE {temp};\n"
+        "SELECT 'MARK', 'done';\n"
+    )
+    # ⚠️ 与索引那段同理：这里也有 DDL（只作用于临时表），所以绕过只读自检 ——
+    #    语句全部写死在上面这段里，不接收任何外部输入。
+    p = subprocess.run(
+        [*SSH_BASE, REMOTE_MYSQL],
+        input=sql,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+    )
+    if p.returncode != 0:
+        print(f"  [FAIL] 枚举补全预演失败：{p.stderr.strip()[:400]}")
+        return [f"枚举补全 DDL 预演失败：{p.stderr.strip()[:200]}"]
+
+    phase, kept, live_type, done = "?", None, None, False
+    for line in p.stdout.splitlines():
+        f = line.split("\t")
+        if f[:2] == ["MARK", "rows"]:
+            phase = "rows"
+            continue
+        if f[:2] == ["MARK", "type"]:
+            phase = "type"
+            continue
+        if f[:2] == ["MARK", "done"]:
+            done = True
+            continue
+        if not line.strip():
+            continue
+        if phase == "rows" and len(f) >= 2:
+            if f[0] == "1":
+                kept = f[1]                      # 老数据：值必须一字不变
+            elif f[0] == "2":
+                print(f"  [OK]   新增取值 `{new_value}` 能写进去了（这就是当年 500 的那一步）")
+        elif phase == "type":
+            # `SHOW COLUMNS` 的列：Field / Type / Null / Key / Default / Extra
+            if len(f) >= 2 and f[0] == "status":
+                live_type = f[1]
+
+    if not done:
+        fails.append("枚举补全预演没跑到最后（中间报错了）")
+        print("  [FAIL] 预演没跑完")
+    elif kept != old_values[-1]:
+        fails.append(f"补全之后老数据变了：{kept!r} ≠ {old_values[-1]!r}")
+        print(f"  [FAIL] 补全之后老数据变了：{kept!r}")
+    else:
+        print(f"  [OK]   补全之后老数据还在且值没变（status={kept!r}）")
+    if live_type and all(f"'{v}'" in live_type for v in values):
+        print(f"  [OK]   补全后的列定义含全部 {len(values)} 个取值")
+    else:
+        fails.append(f"补全之后的列定义不对：{live_type!r}")
+        print(f"  [FAIL] 补全之后的列定义不对：{live_type!r}")
+    print(f"      · 生成器给的 DDL：{ddl[:160]}")
     print("      · 临时表已 DROP（会话级，本就没进过任何真实表）")
     return fails
 
