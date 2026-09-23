@@ -52,8 +52,8 @@ CASES: list[tuple[str, str, object]] = [
         "在别处（ledger.py）自建事件循环",
         LEDGER,
         lambda s: s.replace(
-            "async def _bg_push_ledger_shipper(shipper_id: int) -> None:",
-            "async def _bg_push_ledger_shipper(shipper_id: int) -> None:\n"
+            "async def _bg_push_ledger_shipper(shipper_id: int | None, driver_id: int | None = None) -> None:",
+            "async def _bg_push_ledger_shipper(shipper_id: int | None, driver_id: int | None = None) -> None:\n"
             "    import asyncio\n"
             "    asyncio.new_event_loop()  # 注入：自建事件循环\n",
             1,

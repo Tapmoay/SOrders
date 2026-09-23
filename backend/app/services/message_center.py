@@ -396,9 +396,49 @@ async def publish_new_order_to_dispatchers(db: Session, order_id: int) -> None:
         await emit_notification(n)
 
 
-async def publish_ledger_updated_event(shipper_id: int) -> None:
-    """仅实时刷新账本列表（不额外落库，避免每条编辑一条消息）。"""
-    await emit_realtime(shipper_id, {"type": "ledger.updated"})
+async def publish_ledger_updated_event(
+    shipper_id: int | None = None,
+    *,
+    driver_id: int | None = None,
+    dispatchers: bool = False,
+) -> None:
+    """仅实时刷新账本列表（不额外落库，避免每条编辑一条消息）。
+
+    ## 为什么收件人不只是货主（2026-09-24 第 20 轮并行渗透 C12-2）
+    这个事件原来**只发给货主**（`emit_realtime(shipper_id, …)`），而客户端那边
+    **三个角色**都在订阅 `ledger.updated` → `refreshLedger`：
+      · 货主「我的账本」（`ShipperLedgerViewModel`）；
+      · **司机「我的运费」**（`DriverFreightViewModel.kt:85`）—— 送达/改运费之后那一页的
+        金额不变，且界面上没有任何提示；
+      · **派单员「账本管理」**（`DispatcherLedgerViewModel.kt:444`）—— 记账/核销之后
+        他自己那一页也停在旧数字。
+    也就是说"信号发出去了但没人收、收的人等的是另一个信号"—— 两边都不报错。
+
+    ⛔ 不许改成"给所有人广播"：账本是**按人**的东西，收件人必须是
+    「这本账的主人 + 这一单的司机 + 派单员」这三类。
+    """
+    targets: set[int] = set()
+    if shipper_id:
+        targets.add(int(shipper_id))
+    if driver_id:
+        targets.add(int(driver_id))
+    if dispatchers:
+        from app.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            targets.update(
+                int(u)
+                for u in db.scalars(
+                    select(User.id).where(
+                        User.role == UserRole.DISPATCHER.value, User.is_active.is_(True)
+                    )
+                )
+            )
+        finally:
+            db.close()
+    for uid in sorted(targets):
+        await emit_realtime(uid, {"type": "ledger.updated"})
 
 
 async def publish_return_request_closed(

@@ -55,8 +55,30 @@ async def push_driver_ack_shipper(shipper_id: int, order_id: int) -> None:
         db.close()
 
 
-async def push_ledger_updated(shipper_id: int) -> None:
-    await message_center.publish_ledger_updated_event(shipper_id)
+async def push_order_edited_to_driver(driver_id: int, order_id: int) -> None:
+    """改单（地址 / 联系人电话 / 配送说明）→ 让司机那一页自己重拉（2026-09-24 第 20 轮 C12-3）。
+
+    ⛔ 事件**不带负载**：客户端一律重拉服务端权威数据（`RealtimeHub.kt` 的既定做法），
+    所以不存在"推送里的地址是旧的"这种可能。
+    """
+    await message_center.emit_realtime(driver_id, {"type": "order.updated", "order_id": order_id})
+
+
+async def push_ledger_updated(
+    shipper_id: int | None = None,
+    *,
+    driver_id: int | None = None,
+    dispatchers: bool = False,
+) -> None:
+    """账本/钱变动 → 让**相关的人**的账本页自己刷新（见 `publish_ledger_updated_event` 的说明）。
+
+    ⚠️ 2026-09-24 第 20 轮并行渗透 C12-2：原来只有 `shipper_id` 一个收件人，
+    而客户端有**三个角色**在订阅这个信号（货主账本 / 司机运费 / 派单员账本管理）——
+    司机与派单员那两个页面**永远收不到**，界面停在旧数字且不报错。
+    """
+    await message_center.publish_ledger_updated_event(
+        shipper_id, driver_id=driver_id, dispatchers=dispatchers
+    )
 
 
 async def push_order_delivered_to_dispatchers(order_id: int) -> None:

@@ -88,6 +88,7 @@ from app.services.push_events import (
     push_order_assigned,
     push_order_cancelled,
     push_order_delivered,
+    push_order_edited_to_driver,
     push_order_revoked,
     push_order_to_shipper,
     push_navigation_filled,
@@ -201,6 +202,11 @@ async def _bg_notify_return_request_closed(request_id: int, amount: str, note: s
 
 async def _bg_notify_new_order(order_id: int) -> None:
     await push_new_order_to_dispatchers(order_id)
+
+
+async def _bg_notify_order_edited(driver_id: int, order_id: int) -> None:
+    """改单（地址/联系人/配送说明）→ 让司机那一页自己重拉（2026-09-24 第 20 轮 C12-3）。"""
+    await push_order_edited_to_driver(driver_id, order_id)
 
 
 def _orders_response(
@@ -713,6 +719,7 @@ def create_order(
 def update_order(
     order_id: int,
     body: OrderUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.ORDER_EDIT)),
 ) -> OrderOut:
@@ -762,6 +769,14 @@ def update_order(
         change_payload={"before": before, "after": after},
     )
     db.commit()
+    # ⚠️ **改单必须推**（2026-09-24 第 20 轮并行渗透 C12-3）：这条路径原来一个推送都不发
+    #    （同文件的派单 `:1440`、送达 `:1681`、撤销 `:1725`、撤回 `:1965` 都排了推送）。
+    #    而它改的是**地址 / 收货人与下单人的电话 / 配送说明** —— 这条路径在
+    #    「已派单 / 已接单」时是允许的（上面的状态门只挡终态），也就是说它**就是给在途的单用的**：
+    #    客户在电话里改了地址 → 派单员改完 → 司机那一页还是旧地址，且断线重连也补不回
+    #    （重连只回补通知表、不带订单负载）。司机拿着旧地址跑一趟的成本是真实发生的。
+    if order.driver_id:
+        background_tasks.add_task(_bg_notify_order_edited, order.driver_id, order.id)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")

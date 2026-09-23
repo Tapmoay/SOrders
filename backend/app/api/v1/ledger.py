@@ -92,8 +92,13 @@ MAX_EXPORT_ROWS = 20_000
 EXPORT_DAILY_QUOTA = 20
 
 
-async def _bg_push_ledger_shipper(shipper_id: int) -> None:
-    await push_ledger_updated(shipper_id)
+async def _bg_push_ledger_shipper(shipper_id: int | None, driver_id: int | None = None) -> None:
+    """账本变动 → 通知「这本账的主人 + 这一单的司机 + 派单员」三类人刷新（2026-09-24 第 20 轮）。
+
+    ⚠️ 收件人原来只有货主一个，而客户端三个角色都在订阅 `ledger.updated`
+    → 司机「我的运费」与派单员「账本管理」永远不刷新（界面上没有任何提示）。
+    """
+    await push_ledger_updated(shipper_id, driver_id=driver_id, dispatchers=True)
 
 
 def _reject_if_order_closed(db: Session, row: Ledger, *, wants_detail: bool, what: str) -> None:
@@ -709,6 +714,7 @@ def download_export_job(
 @router.post("/receipts", response_model=ShipperReceiptOut)
 def create_receipt_endpoint(
     body: ShipperReceiptCreate,
+    background_tasks: BackgroundTasks,
     current: CurrentUser,
     db: Session = Depends(get_db),
 ) -> ShipperReceiptOut:
@@ -721,6 +727,25 @@ def create_receipt_endpoint(
         r = create_receipt(db, body, current.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    # 收件人要在 commit **之前**算好（commit 之后对象就过期了，而这段推送是后台任务）。
+    #   · `shipper_uid`：客户档案对应的**登录账号**（临时客户没有账号 → None）；
+    #   · `driver_uid`：这一批订单的司机（多个司机时取第一个够用了 —— 事件只带"刷新"语义）。
+    shipper_uid: int | None = None
+    driver_uid: int | None = None
+    try:
+        from app.models import Customer, Order
+
+        customer = db.get(Customer, r.customer_id) if r.customer_id else None
+        shipper_uid = customer.user_id if customer is not None else None
+        oids = [int(x) for x in (body.order_ids or [])]
+        if oids:
+            driver_uid = db.scalar(
+                select(Order.driver_id)
+                .where(Order.id.in_(oids), Order.driver_id.isnot(None))
+                .limit(1)
+            )
+    except Exception:  # 推送的收件人算不出来不该影响"钱已经记好了"这件事
+        pass
     # 钱动了必须留痕（2026-09-19 审计）：这条路径会写 `shipper_receipts` + `cash_flows`
     # 并把订单标成已收款，以前**一条 operation_logs 都没有** —— 事后问"这笔钱谁录的"答不上来。
     # 与写入**同一事务**提交：日志写不进去就一起回滚，不留"钱记了、痕迹没有"的中间态。
@@ -744,6 +769,12 @@ def create_receipt_endpoint(
     from app.models import Customer
 
     c = db.get(Customer, r.customer_id)
+    # ⚠️ **核销之后必须推**（2026-09-24 第 20 轮并行渗透 C12-1）：这条路径原来**没有任何推送**
+    #    （同文件的手工记账 `:352` 是有的）—— 派单员在柜台核销了一笔，货主手机上零事件，
+    #    「我的账本」还画着「欠 ¥192.60」，而**断线重连也补不回**（重连只回补通知表）。
+    #    收件人 = 这本账的主人（客户档案对应的登录账号）+ 这一单的司机（送达/收款都影响他的账）
+    #    + 派单员（账本管理页）。
+    background_tasks.add_task(_bg_push_ledger_shipper, shipper_uid, driver_uid)
     return ShipperReceiptOut(
         id=r.id, customer_id=r.customer_id, amount=r.amount, method=r.method,
         received_at=r.received_at, order_ids=r.order_ids, settle_mode=r.settle_mode,
