@@ -20,6 +20,35 @@
 
 ## 进行中
 
+### [2026-09-24 00:0x → ] 会话：**全项目系统性复核 · 第 19 轮**（第 3 次并行渗透：**换 12 个全新区域**；统一修**上一轮排队未做的高价值缺陷**）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**并行渗透（第 3 批区域，见 `_archive/audit/round19/README.md`）**：钱的三方对账 / AI 能力对账（目标②）/
+后台治理任务与调度 / 认证与会话安全 / 模板体系 / 车辆挂靠司机主数据 / 导出与下载链路 /
+异常吞噬与错误兜底 / 查询参数与筛选口径 / 商品与分类主数据闭环 / App 自查口径 vs 后端真源 /
+实时链路与重连。
+
+**本轮统一修改（计划，按域一次改完）**
+| # | 改什么 | 来源 |
+| --- | --- | --- |
+| D1 | `piece_unit="order_price"`（「拿这一单的钱」，AI 是唯一入口）→ `has_per_order_pay` 为假 → 送达**不生成账单、不报错**；同一份规则 `order_pay` 却返回全额运费 | 第 18 轮 B2-1（高·钱） |
+| D2 | 订单物理清理按 id **整目录删** `uploads/delivery/{oid}/`，而"补地址图"的 URL 已写进共享地点库 → 到期删掉仍在被引用的照片；另一头 delivery 孤儿文件**没有任何清理路径** | 第 18 轮 B7-1/B7-2（高·数据不可恢复） |
+| D3 | `GET /orders` 逐单 2 次 `db.get(User)`（300 单 = 553 条 users SQL）→ 批量取人（`money_map` 那种写法） | 第 18 轮 B10-1（高·性能） |
+| D4 | `GET /driver-bills` **完全没有 limit** + 逐行 `db.get(Order)` → 补 limit + `finish_page` + 一次 `IN` 批量取单号（并接上 App 的截断提示） | 第 18 轮 B10-2（高·性能） |
+| D5 | 绩效族 5 个端点「全部」窗口各 2.3~2.5s：`stats_service.load_delivered_orders` 没拿到第 3 轮给 `reports.load_delivered` 加的窗口下推 | 第 18 轮 B10-3（高·性能） |
+| D6 | `CREATE INDEX IF NOT EXISTS` 在 MySQL 是语法错、被 `"syntax"` 分支静默吞掉；`uq_customers_tmp_phone` 每次启动 DROP 掉**活着的**同名唯一索引；16 条模型声明的索引在生产不存在 | 第 18 轮 B8-D1/D2/D4（中·生产差异） |
+| D7 | 保留治理把"已经了结的凭证"也当拦路凭证 → 有退货/核销历史的单**永远**不会被清理 | 第 18 轮 B11-1（中·须连带处理两个 NOT NULL 外键） |
+
+**改哪些文件（计划）**：`backend/app/services/{driver_pay,order_response,stats_service,data_retention,image_archive}.py`、
+`backend/app/api/v1/{orders,driver_bills}.py`、`backend/app/core/{schema_bootstrap,pagination}.py`、
+`backend/tests/`（新增 3~4 个用例文件）、`_tools/qa/{_check_image_refs,_check_pagination_wiring,
+_check_driver_money,_check_report_window}.py`、Android `data/{remote/api/Apis.kt,remote/dto/Dtos.kt,repo/AppRepository.kt}`
++ 司机账单页。
+
+核心改动：backend/app/services/driver_pay.py —— 为什么必须动核心：它是"司机这一单拿多少"的**唯一实现**，`has_per_order_pay` 是送达生不生成账单的开关（错一处就是钱静默消失）。
+核心改动：backend/app/services/order_response.py —— 为什么必须动核心：它是订单出参装配的唯一入口，这一轮要把逐单 `db.get(User)` 改成批量传字典（口径不变，取数方式变）。
+核心改动：backend/app/services/data_retention.py —— 为什么必须动核心：它是**历史数据变样的唯一入口**，这一轮要改"物理删单时哪些图片文件能删"与"哪些凭证算拦路"。
+核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：它是**生产库结构变更的唯一入口**，这一轮要修三处 DDL 守卫（两条索引永远建不出来 / 每次启动 DROP 活着的唯一索引 / 模型声明的索引在生产缺失）。
+
 ### [2026-09-23 23:2x → ] 会话：**全项目系统性复核 · 第 18 轮**（第 2 次并行渗透：**12 个子代理换一批新区域**；统一修**时区同一族 3 处 + 客户端 3 处**，并把两个"能抓到缺陷却没人跑"的审计脚本接进必跑清单）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **并行渗透（第 2 批区域，见 `_archive/audit/round18/README.md`）**：AI 对话链路 / 司机计费与结算 /

@@ -35,6 +35,8 @@ MAIN_PY = ROOT / "backend/app/main.py"
 VAL_ERR = ROOT / "backend/app/core/validation_errors.py"
 ORDER_SCHEMA = ROOT / "backend/app/schemas/order.py"
 TEXT_SCHEMA = ROOT / "backend/app/schemas/text.py"
+RULE_SCHEMA = ROOT / "backend/app/schemas/driver_billing_rule.py"
+RULE_MODEL = ROOT / "backend/app/models/driver_billing_rule.py"
 SHIPPER_SCHEMA = ROOT / "backend/app/schemas/shipper.py"
 BILL_MODEL = ROOT / "backend/app/models/driver_bill.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
@@ -189,6 +191,31 @@ CASES: list[tuple[str, Path, object, str]] = [
             "        if not any(model.__name__.endswith(s) for s in INPUT_SUFFIX):\n            continue",
             "        if True:\n            continue", 1),
         "text_audit_guard",
+    ),
+    # ---------------- 合法取值装得下吗（2026-09-24 第 19 轮） ----------------
+    #
+    # 真实咬过的一次：`piece_unit` 列与入参都是 8，而合法取值 `order_price` 有 11 个字符
+    # —— 「拿这一单的钱」这条能力从上线起就没成功过（请求 422、列也存不下）。
+    # 上面那一大段只比"声明 ≤ 列宽"，两边一致就放过，所以这三条注入专门打新加的那一问。
+    (
+        "文本审计：合法取值清单里最长的值装不下列宽（`piece_unit` 退回 String(8)）",
+        RULE_MODEL,
+        lambda s: s.replace("piece_unit: Mapped[str] = mapped_column(String(16)",
+                            "piece_unit: Mapped[str] = mapped_column(String(8)", 1),
+        "text_audit",
+    ),
+    (
+        "文本审计：入参上界装不下合法取值（`piece_unit` 的 max_length 退回 8）",
+        RULE_SCHEMA,
+        lambda s: s.replace('piece_unit: str = Field("order", max_length=16)',
+                            'piece_unit: str = Field("order", max_length=8)', 1),
+        "text_audit",
+    ),
+    (
+        "文本审计：bootstrap 的列宽自愈循环被删掉（老库永远停在窄列上）",
+        BOOTSTRAP,
+        lambda s: s.replace("def width_repair_ddl(", "def _disabled_width_repair_ddl(", 1),
+        "text_audit",
     ),
 ]
 

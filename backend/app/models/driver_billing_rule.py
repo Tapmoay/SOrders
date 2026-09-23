@@ -35,7 +35,13 @@ class DriverBillingRule(Base, TimestampMixin, SoftDeleteMixin):
     salary: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     # ② 每单/每车（或每件）固定金额
     piece_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
-    piece_unit: Mapped[str] = mapped_column(String(8), default="order")  # order / item
+    #: `order`（每单/每车固定数）/ `order_price`（**拿这一单的钱**，金额由派单时定）/ `item`（每件）。
+    #: ⚠️ 宽度必须 ≥ 11（`order_price` 是 11 个字符）：原来这里是 `String(8)`，
+    #:    而 `String(8)` 连**合法取值都装不下** —— 于是「拿这一单的钱」这条规则
+    #:    在 schema 层就被 422 拒掉（`piece_unit 最多 8 个字符，当前 11 个`），
+    #:    连库都写不进去（2026-09-24 第 19 轮实测）。取值清单在 `services/driver_pay.PIECE_UNITS`，
+    #:    宽度对不对得上由 `_tools/qa/_audit_text_fields.py` 的"合法取值装得下吗"一节把关。
+    piece_unit: Mapped[str] = mapped_column(String(16), default="order")  # order / order_price / item
     #: 每单金额怎么定：`uniform` = 所有单统一（用下面的 `piece_amount` / `commission_rate`）；
     #: `category` = **按运费分类**逐类定价（金额在 `driver_billing_rule_categories` 里）。
     #: 用户 2026-09-21：「按单计费有两种规则：所有单统一价/统一提成，或者按分类匹配」。

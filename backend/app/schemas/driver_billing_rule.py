@@ -103,7 +103,10 @@ class DriverBillingRuleCreate(MoneyInput):
     vehicle_type: str | None = Field(None, max_length=16)
     salary: Decimal = Decimal("0")
     piece_amount: Decimal = Decimal("0")
-    piece_unit: str = Field("order", max_length=8)
+    #: `order` / `order_price`（拿这一单的钱，11 个字符）/ `item`。
+    #: ⚠️ 上界**必须 ≥ 11**：原来写 8，于是「拿这一单的钱」连请求都进不来（422
+    #:    `piece_unit 最多 8 个字符，当前 11 个`）—— 那条能力等于从来没存在过（2026-09-24 第 19 轮实测）。
+    piece_unit: str = Field("order", max_length=16)
     #: uniform（所有单统一）或 category（按运费分类）
     piece_mode: str = Field("uniform", max_length=16)
     #: 按分类定价表（只在 piece_mode=category 时有意义）
@@ -138,7 +141,8 @@ class DriverBillingRuleUpdate(MoneyInput):
     vehicle_type: str | None = Field(None, max_length=16)
     salary: Decimal | None = None
     piece_amount: Decimal | None = None
-    piece_unit: str | None = Field(None, max_length=8)
+    #: 同 Create：上界 ≥ 11（`order_price`），否则改不出「拿这一单的钱」。
+    piece_unit: str | None = Field(None, max_length=16)
     piece_mode: str | None = Field(None, max_length=16)
     #: None = 不动；[] = 清空（PATCH 语义与 driver_ids 那类字段一致）
     categories: list[RuleCategoryIn] | None = None

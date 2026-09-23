@@ -114,8 +114,22 @@ class PayRule:
         ⚠️ **按分类定价时也必须算"有"**：否则派单时模式快照会写成 SALARY，
         `has_per_order_pay(order)` 于是返回 False —— 送达时**连账单都不生成**，
         那笔钱静默消失（这一条是本文件反复强调的同一个坑）。
+
+        ⚠️ **「拿这一单的钱」（`piece_unit="order_price"`）同理，2026-09-24 第 19 轮补**：
+        它是三件里唯一"金额不在规则上、而由这一单自己决定"的一件
+        （`order_pay` 里 `piece = 这一单的运费`），所以上面那三个判据**一个都不占**：
+        `piece_amount` 必须是 0（`validate_rule_params` 拦着"拿这一单的钱时不要再填固定每单金额"）、
+        `piece_mode` 是 uniform、提成通常也没配。漏掉它的后果与"按分类定价"那次一字不差：
+        派单快照写 SALARY → 送达 `generate_piece_bill` 早退 → **不生成账单、不报错、不写日志**，
+        而同一张单的 `pay_for_order()` 照样算出全额运费（钱在算法里是有的，只是没人收）。
+        `backend/tests/test_driver_order_price_pay.py` 走真链路钉住它。
+
+        ⛔ 加第四件（比如按里程）时，**这里也必须能自己声明"有按单应付"**：
+        这个属性是送达生不生成账单的**唯一开关**，漏一件 = 那一件对应的钱永远不落账。
         """
         if self.by_category_pay:
+            return True
+        if self.piece_unit == "order_price":
             return True
         if self.piece_amount > 0:
             return True
@@ -150,6 +164,12 @@ class PayRule:
                 for cid, piece, rate in self.by_category
             )
             parts.append(f"按分类定价（{detail}）")
+        elif self.piece_unit == "order_price":
+            # ⚠️ 「拿这一单的钱」**不能**落到下面那条 `piece_amount > 0` 分支去 ——
+            #    它的 `piece_amount` 按定义就是 0，于是原来这里什么都不追加，
+            #    整句话退化成「不计费」：一份"每单拿全额运费"的规则被印成"一分钱都不给"。
+            #    司机管理页那一列读的就是这句话（`pay_summary_for`），账单/确认卡也读它。
+            parts.append("每单拿这一单的钱（金额由派单时定）")
         elif self.piece_amount > 0:
             parts.append(f"每{PIECE_UNIT_CN.get(self.piece_unit, '单')} {money_text(self.piece_amount)} 元")
         if self.commission_base in ("freight", "goods") and self.commission_rate > 0:
@@ -159,7 +179,19 @@ class PayRule:
             parts.append(
                 f"{COMMISSION_BASE_CN[self.commission_base]}的 {money_text(self.commission_rate)}%{scope}"
             )
-        return " + ".join(parts) if parts else "不计费"
+        if parts:
+            return " + ".join(parts)
+        # 一分钱都没算出来时，不许只说"不计费"：要分清「本来就不给钱」（纯空规则）
+        # 与「配漏了一件、看着像配好了」（2026-09-24 第 19 轮）。
+        # 后者在本机库里就有真实行（名叫「运费提成 8%」而 `commission_base=none`，
+        # 是校验上线之前录进去的），它挂在两个司机身上 —— 界面上只有一句"不计费"，
+        # 谁也看不出是"没选提成基数"。
+        if self.commission_rate > 0 and self.commission_base == "none":
+            return (
+                f"不计费：填了提成比例 {money_text(self.commission_rate)}% 却没选提成基数"
+                "（选上「按运费」或「按商品金额」才会生效）"
+            )
+        return "不计费"
 
 
 @dataclass(frozen=True)

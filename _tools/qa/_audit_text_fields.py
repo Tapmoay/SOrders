@@ -166,6 +166,115 @@ def item_bound(ann: object) -> int | None:
     return None
 
 
+# --------------------------------------------------------------- 合法取值装得下吗
+#
+# 2026-09-24 第 19 轮新增。上面那一大段查的是"**声明**的上界 ≤ 列宽"——两边一致就放过。
+# 而真实咬过的一次里两边**完全一致**、却都太小：
+#   `driver_billing_rules.piece_unit` 声明 `String(8)`、入参 `max_length=8`，
+#   而合法取值清单 `driver_pay.PIECE_UNITS` 里的 `order_price`（「拿这一单的钱」）是 **11** 个字符。
+#   于是那条能力从上线起就没成功过：请求先被 422 拦（`piece_unit 最多 8 个字符，当前 11 个`），
+#   就算绕过 schema 也存不进列（MySQL 截断/1406）。
+#   ⇒ 判据必须再多问一句：**最长的那个合法取值，装得进声明的宽度吗？**
+#
+# 清单**自己算**（不手写字段名）：扫 `app/` 下所有模块级常量，名字以
+# `_UNITS/_BASES/_MODES/_TYPES/_KINDS` 结尾且值是"字符串元组"的，就是一份取值清单；
+# 由名字反推它描述的字段名（`PIECE_UNITS` → `piece_unit`），再去问列宽与入参上界。
+_VALUE_SUFFIXES = {
+    "UNITS": "unit",
+    "BASES": "base",
+    "MODES": "mode",
+    "TYPES": "type",
+    "KINDS": "kind",
+    "SOURCES": "source",
+}
+
+
+def legal_value_registries() -> dict[str, tuple[str, list[str]]]:
+    """`{字段名: (常量名, [取值…])}` —— 从 `app/` 下的模块级字符串元组常量算出来。"""
+    import importlib
+    import pkgutil
+
+    out: dict[str, tuple[str, list[str]]] = {}
+    try:
+        import app as app_pkg
+    except Exception:  # pragma: no cover - 导入不了 app 时下面的数量判据会报空转
+        return out
+    for mod in pkgutil.walk_packages(app_pkg.__path__, app_pkg.__name__ + "."):
+        try:
+            m = importlib.import_module(mod.name)
+        except Exception:  # 导入有副作用的模块（脚本、CLI）直接跳过
+            continue
+        for name, value in list(vars(m).items()):
+            if not name.isupper() or "_" not in name:
+                continue
+            parts = name.lstrip("_").split("_")
+            single = _VALUE_SUFFIXES.get(parts[-1])
+            if single is None or len(parts) < 2:
+                continue
+            if not isinstance(value, (tuple, list)) or len(value) < 2:
+                continue
+            if not all(isinstance(v, str) and v for v in value):
+                continue
+            field = "_".join(parts[:-1]).lower() + "_" + single
+            out.setdefault(field, (name, list(value)))
+    return out
+
+
+def legal_value_gaps(
+    tables: dict[str, dict[str, int | None]],
+    declared: dict[str, int],
+) -> tuple[list[str], list[str], int]:
+    """`(装不进的, 说明文字, 查过的清单数)`。
+
+    `declared` = 入参字段名 → 声明的 `max_length`（取最小值：最严的那一处在最前面拦）。
+    """
+    widths: dict[str, tuple[str, int]] = {}
+    for table, cols in tables.items():
+        for col, w in cols.items():
+            if w and (col not in widths or w > widths[col][1]):
+                widths[col] = (table, w)
+    bad: list[str] = []
+    notes: list[str] = []
+    regs = legal_value_registries()
+    for field, (const, values) in sorted(regs.items()):
+        longest = max(values, key=len)
+        need = len(longest)
+        hit = False
+        if field in widths:
+            table, w = widths[field]
+            if need > w:
+                bad.append(
+                    f"{const} 里的 '{longest}'（{need} 字）装不进 {table}.{field} 的 String({w})"
+                    " —— 这个取值存不进去（MySQL 截断/1406，本机 SQLite 不拦）"
+                )
+                hit = True
+            else:
+                notes.append(f"{const} → {table}.{field} String({w}) ≥ {need} ✓")
+        if field in declared:
+            d = declared[field]
+            if need > d:
+                bad.append(
+                    f"{const} 里的 '{longest}'（{need} 字）超过入参 {field} 的 max_length={d}"
+                    " —— 请求会先被 422 拦掉，这条能力等于不存在"
+                )
+                hit = True
+        if not hit and field not in widths and field not in declared:
+            notes.append(f"{const} → 找不到同名字段（跳过：{field}）")
+    return bad, notes, len(regs)
+
+
+def bootstrap_selfheals_widths() -> tuple[bool, str]:
+    """bootstrap 里有没有"按模型放宽列宽"的自愈循环（否则老库永远停在窄列上）。
+
+    `create_all(checkfirst=True)` 不给已存在的表改列宽 —— 所以"模型里改宽了"这件事
+    **必须**有一次显式的 `ALTER`，否则本机/单测全绿而线上照旧。
+    """
+    src = (BACKEND / "app" / "core" / "schema_bootstrap.py").read_text(encoding="utf-8")
+    need = ("def _string_columns(", "def width_repair_ddl(", "_string_columns()", "width_repair_ddl(table_name")
+    missing = [n for n in need if n not in src]
+    return (not missing), ("缺：" + "、".join(missing) if missing else "")
+
+
 def main() -> int:
     # ⛔ `--check` = **进必跑清单的凭据**（2026-09-23 第 18 轮补）：`_check_all.py` 的清单自己算
     #    （`_check_*.py` 或声明了 `--check` 的脚本），而这个脚本叫 `_audit_*` 又没有 `--check`
@@ -178,6 +287,7 @@ def main() -> int:
     patterned: list[str] = []
     tensor: list[str] = []
     ok: list[str] = []
+    declared: dict[str, int] = {}
     n_fields = 0
 
     for model in all_models():
@@ -200,6 +310,11 @@ def main() -> int:
                 ok.append(f"{where}（豁免：{EXEMPT[name]}）")
                 continue
             limit = bound_of(field)
+            if limit is not None:
+                # 同一字段在多个入参里出现时取**最严**的那个（460 行那句 `piece_unit max_length=8`
+                # 就是在 Create/Update 两处各写一遍的，只要有一处窄就拦得住）。
+                if name not in declared or limit < declared[name]:
+                    declared[name] = limit
             pat = pattern_of(field)
             if limit is None and pat:
                 # 全锚定的 pattern（^…$）= 只接受那几种写法，长度天然有界（枚举值）
@@ -247,20 +362,38 @@ def main() -> int:
         for w in gaps:
             print(f"  ✗ {w}")
 
+    # ---- 合法取值装得下吗（2026-09-24 第 19 轮）----
+    narrow, notes, n_regs = legal_value_gaps(tables, declared)
+    heal_ok, heal_why = bootstrap_selfheals_widths()
+    print(f"\n取值清单（模块级字符串元组，清单自己算）：{n_regs} 份")
+    if show_all:
+        for w in notes:
+            print(f"  ✓ {w}")
+    if narrow:
+        print("\n最长的合法取值装不进声明的宽度（这个取值根本存不进去/传不进来）：")
+        for w in narrow:
+            print(f"  ✗ {w}")
+    print(f"  {'✓' if heal_ok else '✗'} bootstrap 有按模型放宽列宽的自愈循环"
+          + ("" if heal_ok else f" —— {heal_why}（老库会一直停在窄列上，本机看不出来）"))
+
     # 反空转：判据必须真的扫到了东西，否则"全绿"什么也不能证明
     if n_fields < 50 or not ok:
         print(f"\n⛔ 判据空转：只扫到 {n_fields} 个字段 / 有界 {len(ok)} 个——先修这个脚本。")
         return 3
-    bad = len(gaps) + len(too_big) + len(tensor)
+    if n_regs < 3:
+        print(f"\n⛔ 取值清单只认出 {n_regs} 份（下限 3）——解析器失配了，不是项目里没有取值清单。")
+        return 3
+    bad = len(gaps) + len(too_big) + len(tensor) + len(narrow) + (0 if heal_ok else 1)
     if check and not show_all:
         # 必跑模式下只印一行结论（`_check_all.py` 把每个脚本的输出收进一张表）
         print(
             f"{'✅' if not bad else '❌'} 文本/取值字段 {n_fields} 个：有界 {len(ok)}"
             f"、pattern 限定 {len(patterned)}、没上界 {len(gaps)}、超列宽 {len(too_big)}、"
-            f"列表无条数上界 {len(tensor)}"
+            f"列表无条数上界 {len(tensor)}、取值装不下 {len(narrow)}、列宽自愈循环 {'有' if heal_ok else '缺'}"
         )
         return 2 if bad else 0
-    return 2 if (gaps or too_big or tensor) else 0
+    return 0 if not bad else 2
+
 
 if __name__ == "__main__":
     sys.exit(main())

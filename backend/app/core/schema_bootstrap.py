@@ -13,6 +13,57 @@ from app.models.base import Base
 logger = logging.getLogger(__name__)
 
 
+def _string_columns(max_width: int = 255) -> list[tuple[str, object]]:
+    """模型里所有**定宽** `String(N)` 列 → `[(表名, 列对象)]`，顺序稳定。
+
+    ⚠️ 清单同样从 `Base.metadata` 算出来，不手写（与 [_enum_columns] 同一条理由）。
+    只收 `length <= max_width` 的：`Text`（`length=None`）与 `LONGTEXT` 本来不拦长度，
+    对它们做 `MODIFY` 只会白白重建一次表。
+    """
+    from sqlalchemy import String as SAString
+
+    out: list[tuple[str, object]] = []
+    for table_name, table in Base.metadata.tables.items():
+        for col in table.columns:
+            if isinstance(col.type, SAString) and 0 < (col.type.length or 0) <= max_width:
+                out.append((table_name, col))
+    return sorted(out, key=lambda pair: (pair[0], pair[1].name))  # type: ignore[attr-defined]
+
+
+def width_repair_ddl(table_name: str, column: object) -> str:
+    """给一列**定宽字符串**生成"按模型放宽到声明宽度"的 DDL（纯函数：单测与生产探针都调它）。
+
+    例：
+        ALTER TABLE `driver_billing_rules` MODIFY COLUMN `piece_unit` VARCHAR(16) NOT NULL DEFAULT 'order'
+
+    ## 为什么需要它（2026-09-24 第 19 轮实测）
+    `create_all(checkfirst=True)` **不会给已存在的表改列宽**（也不会加索引，见同族缺陷 D4）——
+    于是"模型里把宽度从 8 改成 16"在老库上**等于什么都没发生**：本机 SQLite 的 VARCHAR
+    宽度根本不拦，本地/单测/探针一路绿，生产 MySQL 却照旧 `Data too long` 或者悄悄截断。
+
+    这一族已经真实咬过一次：`driver_billing_rules.piece_unit` 声明 `String(8)`，而合法取值里
+    的 `order_price`（「拿这一单的钱」）是 **11** 个字符 —— 那条能力从上线起就**从来没成功过**
+    （schema 层 422、列宽层截断，两道都过不去）。所以宽度不再靠人记得改，
+    而是每次启动按模型对账一次：**只放宽、不缩窄**（缩窄会在有数据时截断历史值）。
+
+    只带 `NULL`/`NOT NULL`（取模型的 `nullable`）与**字面量型** `DEFAULT`：
+    表达式型默认值（如 `DEFAULT (UUID())`）刻意不猜 —— 宁可少带一个默认值，也不改语义。
+    """
+    from sqlalchemy import String as SAString
+
+    assert isinstance(column.type, SAString)  # type: ignore[attr-defined]
+    parts = [
+        f"ALTER TABLE `{table_name}` MODIFY COLUMN `{column.name}`"  # type: ignore[attr-defined]
+        f" VARCHAR({int(column.type.length)})",  # type: ignore[attr-defined]
+        "NULL" if column.nullable else "NOT NULL",  # type: ignore[attr-defined]
+    ]
+    default = getattr(column, "default", None)
+    arg = getattr(default, "arg", None)
+    if arg is not None and not callable(arg) and isinstance(arg, str | int | float):
+        parts.append(f"DEFAULT '{arg}'")
+    return " ".join(parts)
+
+
 def _enum_columns() -> list[tuple[str, object]]:
     """模型里所有 `Enum` 列 → `[(表名, 列对象)]`，顺序稳定（按表名/列名排）。
 
@@ -1418,6 +1469,38 @@ def _bootstrap_impl(engine: Engine) -> None:
                     conn.execute(text(enum_repair_ddl(table_name, column)))
                 except DBAPIError as e:
                     logger.warning("%s.%s 枚举补全跳过: %s", table_name, column.name, e)  # type: ignore[attr-defined]
+
+        # ---------- 列宽自愈（2026-09-24 第 19 轮：**宽度也只剩模型一份**）----------
+        #
+        # 与上面枚举那一段同一个形状、同一条理由：`create_all(checkfirst=True)` 不给已存在的表
+        # 改列宽，所以"模型里写 String(16)"在老库上等于没写。真实咬过的一次：
+        # `driver_billing_rules.piece_unit` 是 `String(8)`，而合法取值 `order_price`
+        # （「拿这一单的钱」）有 **11** 个字符 —— 那条规则既建不出来（schema 422）也存不进去，
+        # 而"每单拿这一单的钱"这条能力在文档、AI 工具说明、界面文案里都写着。
+        # ⛔ 只放宽、不缩窄：缩窄会在有数据的那一列上截断历史值（那是**静默改数据**）。
+        with engine.begin() as conn:
+            for table_name, column in _string_columns():
+                try:
+                    live = conn.execute(
+                        text(
+                            "SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS "
+                            "WHERE TABLE_SCHEMA = DATABASE() "
+                            "AND TABLE_NAME = :t AND COLUMN_NAME = :c"
+                        ),
+                        {"t": table_name, "c": column.name},  # type: ignore[attr-defined]
+                    ).scalar()
+                    if live is None:
+                        continue  # 这张表/列还不存在 —— 新库由 create_all 建，天然是声明宽度
+                    want = int(column.type.length)  # type: ignore[attr-defined]
+                    if int(live) >= want:
+                        continue
+                    logger.warning(
+                        "检测到旧库 %s.%s 列宽偏窄（%s < %s），按模型放宽…",
+                        table_name, column.name, live, want,  # type: ignore[attr-defined]
+                    )
+                    conn.execute(text(width_repair_ddl(table_name, column)))
+                except DBAPIError as e:
+                    logger.warning("%s.%s 列宽放宽跳过: %s", table_name, column.name, e)  # type: ignore[attr-defined]
 
     # ---------- 开销分类名册（2026-09-20 用户要求「开销分类也有个分类管理」） ----------
     #
