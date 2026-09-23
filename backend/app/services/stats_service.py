@@ -121,7 +121,13 @@ def shipper_product_chart(
     product_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for (period, pname), val in acc.items():
         product_totals[pname] += val
-    top_names = sorted(product_totals.keys(), key=lambda x: product_totals[x], reverse=True)[:12]
+    #: 看板那条曲线最多画几条（**只是画图的限制**）。
+    #: ⚠️ 2026-09-24 第 20 轮 D11-4：导出**也**调这个函数，于是"看板导出 → 货主商品"
+    #:    这张表**静默只导前 12 名**（整个导出家族里唯一一处静默截断，文件里一个字都没说）。
+    #:    曲线限 12 条是合理的（屏幕上画不下），所以这里不动它，而是在**导出侧**把这件事
+    #:    如实写进文件（`stats_export.build_stats_export_bytes` 会读 `TOP_PRODUCTS`）。
+    TOP_PRODUCTS = 12
+    top_names = sorted(product_totals.keys(), key=lambda x: product_totals[x], reverse=True)[:TOP_PRODUCTS]
 
     periods = sorted({p for (p, _) in acc.keys()})
     if not periods:

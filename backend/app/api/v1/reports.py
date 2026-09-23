@@ -20,6 +20,7 @@ from app.schemas.reports import ProductReportItem, ProductReportOut, ReportArrea
 from app.services.cost_basis import SNAPSHOT, CostBasis
 from app.services.driver_pay import has_per_order_pay, pay_for_order
 from app.services.order_money import line_receivable, money_map
+from app.services.sheet_text import append_text_row
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -575,9 +576,9 @@ def export_report(
     if kind == "turnover":
         data = build_turnover(db, mode, d, span=(s, e))
         ws = next_sheet("营业纵览")
-        ws.append(["营业纵览", _span_label(s, e), "金额口径：已送达未撤销"])
-        ws.append(["营业金额", _money(data["total_amount"]), "订单数", data["total_orders"], "单均价", _money(data["avg_order"])])
-        ws.append([
+        append_text_row(ws, ["营业纵览", _span_label(s, e), "金额口径：已送达未撤销"])
+        append_text_row(ws, ["营业金额", _money(data["total_amount"]), "订单数", data["total_orders"], "单均价", _money(data["avg_order"])])
+        append_text_row(ws, [
             # 口径同「司机运费结算」页：按计费规则应付（不是订单上的运费）——审计 R12-M2
             "司机运费支出(按计费规则应付)", _money(data["total_freight"]),
             "商品毛利(仅算得出成本的行)",
@@ -585,45 +586,45 @@ def export_report(
             _money(data["cost_covered_amount"] - data["cost_total"]),
             _cost_basis_note(data),
         ])
-        ws.append(["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), "已收", _money(data["collected"])])
-        ws.append(["挂账未收", _money(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
-        ws.append([])
-        ws.append(["时间", "单数", "金额", "运费"])
+        append_text_row(ws, ["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), "已收", _money(data["collected"])])
+        append_text_row(ws, ["挂账未收", _money(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
+        append_text_row(ws, [])
+        append_text_row(ws, ["时间", "单数", "金额", "运费"])
         for pt in data["series"]:
             # ⚠️ 循环变量刻意不叫 `s`：`s`/`e` 是上面算好的**导出区间**（文件名与内容同源），
             #    拿 `s` 当循环变量会把它盖掉 —— 而这里恰好是"营业纵览"分支，改名零风险。
-            ws.append([pt.label, pt.orders, _money(pt.amount), _money(pt.freight)])
-        ws.append([])
-        ws.append(["挂账未收单位TOP"])
+            append_text_row(ws, [pt.label, pt.orders, _money(pt.amount), _money(pt.freight)])
+        append_text_row(ws, [])
+        append_text_row(ws, ["挂账未收单位TOP"])
         for u in data["arrears_units"]:
-            ws.append([u.name, _money(u.amount)])
+            append_text_row(ws, [u.name, _money(u.amount)])
     elif kind == "products":
         data = build_products(db, mode, d, span=(s, e))
         ws = next_sheet("商品经营")
-        ws.append(["商品经营", _span_label(s, e)])
+        append_text_row(ws, ["商品经营", _span_label(s, e)])
         # ⚠️ 毛利的两侧必须**同一批行**（2026-09-19 审计第十七轮）：这里原来用
         #    "Σ 有成本行的**全额**金额 − cost_total" 当表头毛利 → 与营业纵览
         #    （cost_covered_amount − cost_total）差 ¥282（本机 11,071.00 vs 10,789.00），
         #    而逐行列更离谱：用的是 `amount − cost` 老公式，合计回到修复前那个错数 72,177.75。
-        ws.append(["销售总额", _money(data["total_amount"]), "总件数", data["total_qty"],
+        append_text_row(ws, ["销售总额", _money(data["total_amount"]), "总件数", data["total_qty"],
                    "商品毛利(仅算得出成本的行)",
                    _money((data["cost_covered_amount"] or Decimal("0")) - (data["cost_total"] or Decimal("0")))])
-        ws.append(["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), _cost_basis_note(data)])
-        ws.append([])
-        ws.append(["商品", "件数", "单数", "金额", "参与毛利的金额", "毛利", "货损件数", "货损金额"])
+        append_text_row(ws, ["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"]), _cost_basis_note(data)])
+        append_text_row(ws, [])
+        append_text_row(ws, ["商品", "件数", "单数", "金额", "参与毛利的金额", "毛利", "货损件数", "货损金额"])
         for it in data["items"]:
             cov = it.covered_amount or Decimal("0")
             # 算不出成本的行**不进毛利**（写"—"，不是写一个看起来像毛利的大数）
             gross = _money(cov - it.cost) if (it.covered_lines or 0) > 0 else "—"
-            ws.append([it.product_name, it.qty, it.order_count, _money(it.amount), _money(cov), gross, it.damage_qty, _money(it.damage_amount)])
+            append_text_row(ws, [it.product_name, it.qty, it.order_count, _money(it.amount), _money(cov), gross, it.damage_qty, _money(it.damage_amount)])
     elif kind in ("drivers", "customers", "finance", "audit"):
         # `s`/`e` 与文件名已经按同一套规则算好（见函数开头）——这里不许再算一遍
         if kind == "drivers":
             from app.services.stats_service import driver_performance
 
             ws = next_sheet("司机绩效")
-            ws.append(["司机绩效", f"{s} ~ {e}"])
-            ws.append(["司机", "完成单量", "准时率", "拍照率", "平均送达分钟", "计费方式", "待结运费"])
+            append_text_row(ws, ["司机绩效", f"{s} ~ {e}"])
+            append_text_row(ws, ["司机", "完成单量", "准时率", "拍照率", "平均送达分钟", "计费方式", "待结运费"])
             # ⚠️ 这一块原来自己又写了一遍算法，于是三处与页面不是同一件事（2026-09-19 审计 R13-R5）：
             #    ① 「平均送达分钟」写死 `""` → 所有行、所有月份恒空；
             #    ② 准时率分母只算**有 `expected_deliver_before`** 的单，而页面按 models 的口径
@@ -635,13 +636,13 @@ def export_report(
                 rate = row["on_time_rate"]
                 avg_sec = row["avg_delivery_seconds"]
                 owed = row["freight_owed"]
-                ws.append(
+                append_text_row(ws, 
                     [
                         row["driver_name"],
                         row["completed_count"],
                         "" if rate is None else round(rate, 4),
                         round(row["photo_upload_rate"] or 0.0, 4),
-                        "" if avg_sec is None else round(avg_sec / 60, 1),
+                        "" if avg_sec is None else round(avg_sec / 60, 2),
                         row["billing_mode"] or "",
                         # ⚠️ 待结运费必须是**数字**（2026-09-19 第二轮外部检查 R2-3(exp)）：
                         #    `stats_service.driver_performance` 这一格给的是**字符串**
@@ -660,7 +661,7 @@ def export_report(
             from app.models import User
 
             ws = next_sheet("客户经营")
-            ws.append(["客户账汇总", f"{s} ~ {e}"])
+            append_text_row(ws, ["客户账汇总", f"{s} ~ {e}"])
             # 货主账/批发商账（复用 ledger accounts 逻辑的简化：按流水聚合）
             # ⚠️ 隔离区（软删）订单的那份账不算（R13-R6）：与营业纵览同一句，否则
             #    "客户经营"的订货总额会比"营业额"多出一张已删单的钱（本机差 ¥4,600）。
@@ -699,18 +700,18 @@ def export_report(
                     b = temp_bucket.setdefault(name, {"name": name, "count": 0, "total": Decimal("0")})
                 b["count"] += 1
                 b["total"] += r.total or Decimal("0")
-            ws.append(["类别", "客户", "笔数", "总额"])
+            append_text_row(ws, ["类别", "客户", "笔数", "总额"])
             for b in sorted(shipper_buckets.values(), key=lambda x: -x["total"]):
-                ws.append(["货主", b["name"], b["count"], _money(b["total"])])
+                append_text_row(ws, ["货主", b["name"], b["count"], _money(b["total"])])
             for b in sorted(temp_bucket.values(), key=lambda x: -x["total"]):
-                ws.append(["临时货主", b["name"], b["count"], _money(b["total"])])
+                append_text_row(ws, ["临时货主", b["name"], b["count"], _money(b["total"])])
             for b in sorted(member_buckets.values(), key=lambda x: -x["total"]):
-                ws.append(["批发商", b["name"], b["count"], _money(b["total"])])
-            ws.append([])
-            ws.append(["挂账未收 TOP"])
-            ws.append(["单位", "笔数", "金额"])
+                append_text_row(ws, ["批发商", b["name"], b["count"], _money(b["total"])])
+            append_text_row(ws, [])
+            append_text_row(ws, ["挂账未收 TOP"])
+            append_text_row(ws, ["单位", "笔数", "金额"])
             for g in build_arrears_summary(db, s, e):
-                ws.append([g["name"], g["count"], _money(g["amount"])])
+                append_text_row(ws, [g["name"], g["count"], _money(g["amount"])])
         elif kind == "finance":
             ws = next_sheet("资金收支")
             flows = list(
@@ -728,38 +729,44 @@ def export_report(
             )
             income = sum((f.amount for f in flows if str(f.direction).lower() == "in"), Decimal("0"))
             expense = sum((f.amount for f in flows if str(f.direction).lower() == "out"), Decimal("0"))
-            ws.append(["资金收支", f"{s} ~ {e}"])
-            ws.append(["流入", _money(income), "流出", _money(expense), "净额", _money(income - expense)])
-            ws.append([])
-            ws.append(["日期", "方向", "金额", "对象", "渠道", "类型", "备注"])
+            append_text_row(ws, ["资金收支", f"{s} ~ {e}"])
+            append_text_row(ws, ["流入", _money(income), "流出", _money(expense), "净额", _money(income - expense)])
+            append_text_row(ws, [])
+            append_text_row(ws, ["日期", "方向", "金额", "对象", "渠道", "类型", "备注"])
             for f in flows:
-                ws.append([f.flow_date.isoformat(),
+                append_text_row(ws, [f.flow_date.isoformat(),
                            "收入" if str(f.direction).lower() == "in" else "支出",
                            _money(f.amount), f.party_name or "", f.channel, f.biz_type, f.note])
-            ws.append([])
-            ws.append(["开销分类"])
-            ws.append(["分类", "金额"])
+            append_text_row(ws, [])
+            append_text_row(ws, ["开销分类"])
+            append_text_row(ws, ["分类", "金额"])
             exp_rows = list(db.scalars(select(Expense).where(Expense.exp_date >= s, Expense.exp_date <= e)))
             cat_map: dict[str, Decimal] = {}
             for x in exp_rows:
                 cat_map[x.category] = cat_map.get(x.category, Decimal("0")) + x.amount
             for cat, amt in sorted(cat_map.items(), key=lambda kv: -kv[1]):
-                ws.append([cat, _money(amt)])
+                append_text_row(ws, [cat, _money(amt)])
         elif kind == "audit":
             from app.models import OperationLog
 
             ws = next_sheet("异常与审计")
             from app.services import stats_service
             ex = stats_service.exception_orders(db, s, e)
-            ws.append(["异常订单", f"{s} ~ {e}"])
-            ws.append(["订单号", "货主", "司机", "异常原因", "处理结果", "解决时间"])
+            append_text_row(ws, ["异常订单", f"{s} ~ {e}"])
+            append_text_row(ws, ["订单号", "货主", "司机", "异常原因", "处理结果", "解决时间"])
             for o in ex:
-                ws.append([
+                append_text_row(ws, [
                     o["order_no"], o["shipper_name"] or "", o["driver_name"] or "",
                     o["exception_reason"], o["exception_resolution"],
-                    o["exception_resolved_at"].isoformat() if o["exception_resolved_at"] else "",
+                    # ⚠️ 同一张 sheet 里两个时间列必须是**同一个口径**（2026-09-24 第 20 轮 D3-F3）：
+                    #    这一列原来 `isoformat()` 印的是 **UTC naive**，而下面「敏感操作日志」的
+                    #    时间列（第 19 轮修的）印的是**当地时刻** —— 实测同一件事能同时出现
+                    #    `2026-09-21T11:50:01.206089`（上）与 `2026-09-21 19:50`（下），
+                    #    差 8 小时，看的人会以为导出的窗口错了。口径只有 `business_time.local_stamp`。
+                    local_stamp(o["exception_resolved_at"], fmt="%Y-%m-%d %H:%M")
+                    if o["exception_resolved_at"] else "",
                 ])
-            ws.append([])
+            append_text_row(ws, [])
             # ⛔ 「敏感操作日志」原来**完全不看区间**（就是 `order_by(id.desc()).limit(200)`）：
             #    导出一份"09-01 的审计报告"，里面躺着的却是**库里最新**的 200 条日志（可能是 09-18 的）。
             #    审计凭证"名字写着 A、内容是 B"比"少给几条"严重得多——看的人会以为那就是当天的全部动作。
@@ -779,8 +786,8 @@ def export_report(
                 note += f"（区间内共 {total} 条，这里只列了最近 {len(logs)} 条）"
             else:
                 note += f"（共 {total} 条）"
-            ws.append(["敏感操作日志", note])
-            ws.append(["时间", "操作", "内容"])
+            append_text_row(ws, ["敏感操作日志", note])
+            append_text_row(ws, ["时间", "操作", "内容"])
             for log in logs:
                 # ⚠️ 印**当地时刻**（2026-09-24 第 19 轮）：这一列原来直接 `created_at.isoformat()`，
                 #    而 `created_at` 存的是 **UTC naive** —— 东八区当地 00:00~08:00 的动作会被印成
@@ -788,7 +795,7 @@ def export_report(
                 #    躺着一行 `2026-09-23T16:29`，看的人会以为这条动作不属于这一天、
                 #    或者怀疑导出窗口没生效。口径只有一处：`business_time.local_stamp`
                 #    （第 18 轮为"印给人看的时间戳"建的那个入口）；这里要带年份，所以显式给 fmt。
-                ws.append([
+                append_text_row(ws, [
                     local_stamp(log.created_at, fmt="%Y-%m-%d %H:%M") if log.created_at else "",
                     log.action,
                     log.change_content or "",

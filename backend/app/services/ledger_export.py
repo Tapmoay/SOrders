@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Ledger, Order, User
 from app.services.ledger_scope import visible_ledger_select
+from app.services.sheet_text import append_text_row
 from app.services.ledger_export_paths import (
     EXPORT_DIR,
     LEGACY_UPLOAD_EXPORTS,
@@ -67,37 +68,12 @@ def build_ledger_rows(
 def _append_text_row(ws, cells: list) -> None:
     """写一行；**字符串一律强制成文本节点**（以 `=` 开头的值不许变成活公式）。
 
-    ### 缺陷现场（2026-09-19 第二轮外部检查 R2-1）
-    原来这里是 `ws.append([...])`，而 openpyxl 把"以 `=` 开头的字符串"写成**公式节点**。
-    本机实测（openpyxl 3.1.5，读产物里的 `xl/worksheets/sheet1.xml` 而不是看对象属性）：
-
-    | 写法 | 产物里的节点 |
-    | --- | --- |
-    | `ws.append(["=1+1"])` | `<c r="A1"><f>1+1</f><v></v></c>` ← **活公式** |
-    | 强制 `data_type='s'` 后同一个值 | `<c r="A1" t="inlineStr"><is><t>=1+1</t></is></c>` ← 文本 |
-
-    这张表里用户可控的格子有：货主名、**订单说明**（`Order.delivery_description`，
-    货主下单时自己填的）、商品名、订单号、备注。任何一处以 `=` 开头，
-    导出的 xlsx 在别人的 Excel 里就是公式（`=HYPERLINK(...)` 一类可以直接外联）。
-    顺带实测：`+` / `-` / `@` / 前导 Tab / 前导 CR 开头的值**本来**就是
-    `t="inlineStr"` 文本（CSV 时代的那张危险前缀表在 xlsx 上不成立，
-    因为 xlsx 的单元格类型是显式写死的），唯一能变成活公式的入口就是 `=`。
-
-    ### 为什么用"强制类型"而不是"加前导 `'` 或空格"
-    前导引号/空格是 CSV 的业界做法，代价是**改动了数据本身**：格子里多一个字符，
-    复制出去、再导回来都是脏的。xlsx 的类型是显式的，设一次 `data_type='s'`
-    就能既不执行公式、又**一字不改**原值：逐字节对比过改前/改后的产物，
-    同一个值写出的 `<c>` 节点完全一致（含中文、空格、Tab/CR 的 `xml:space="preserve"`），
-    **唯一变化的格子就是 `=` 开头的那些**（`<f>` → `<is><t>`）——
-    所以这份改动没有"极少数值要付出代价"这一档。
-
-    ⚠️ 只对 `str` 生效：数量/单价/总价是**真数值列**，必须继续能被 Excel 求和
-    （司机绩效那列"待结运费"是同一个道理，见 `api/v1/reports.py` 的 R2-3）。
+    ⚠️ 2026-09-24 第 20 轮（D7-1）：实现搬到了 `services/sheet_text.py`，因为
+    `api/v1/reports.py` 的六个 kind 与 `services/stats_export.py` 原来**没有抄这份防护**
+    （报表导出里全是裸 `ws.append`）—— 同一条规矩一个仓库里两份实现，迟早就分叉。
+    这里保留这个名字只是为了不动本文件里的 15 个调用点。
     """
-    ws.append(cells)
-    for c in ws[ws.max_row]:
-        if isinstance(c.value, str):
-            c.data_type = "s"
+    append_text_row(ws, cells)
 
 
 def write_excel(
@@ -155,8 +131,31 @@ def _ascii_cell(s: str, max_len: int = 80) -> str:
 
 
 def write_pdf(path: Path, rows: list[Ledger], shipper_label: str, date_from: date, date_to: date) -> None:
-    """横向 PDF 表格（ASCII 安全；含中文字段以 ? 代替，Excel 导出保留原文）。"""
+    """横向 PDF 表格。
+
+    ⛔ **这条路已经关掉了**（2026-09-24 第 20 轮 D11-1）：fpdf2 的核心字体 Helvetica 只支持
+    Latin-1，`_ascii_cell` 会把所有中文换成 `?`（实测 `'水东芥菜' → '????'`），
+    而任务照样落 `DONE` 并发下载链接 —— 用户打开才知道是废纸。创建任务那一侧现在直接 400
+    （`api/v1/ledger.py::create_export_job` 里那条"PDF 导出暂时关闭"）。
+    这里再兜一层：**只要内容里有非 ASCII 就抛错**，让任务落 `FAILED` 并带上能读懂的原因
+    （而不是悄悄产出一份 `?` 文件）—— 历史遗留的 pending 任务也会走到这里。
+
+    要重新打开这条路，需要：① 一个可嵌入的 CJK 字体（`pdf.add_font(...)`）；
+    ② 删掉 `create_export_job` 里那条 400；③ 把 `_ascii_cell` 换成真正的中文排版。
+    """
     from fpdf import FPDF
+
+    for r in rows:
+        if any(ord(ch) > 127 for ch in (r.product_name or "") + (r.unit or "")):
+            raise ValueError(
+                "PDF 导出里的中文无法渲染（服务器没有内嵌中文字体，商品名会变成「?」）。"
+                "请改用 Excel 导出。"
+            )
+    if any(ord(ch) > 127 for ch in shipper_label or ""):
+        raise ValueError(
+            "PDF 导出里的中文无法渲染（服务器没有内嵌中文字体，货主名会变成「?」）。"
+            "请改用 Excel 导出。"
+        )
 
     pdf = FPDF(orientation="L")
     pdf.set_auto_page_break(auto=True, margin=15)

@@ -586,6 +586,25 @@ def create_export_job(
     if body.date_from > body.date_to:
         raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
 
+    # ⛔ **PDF 暂时关掉**（2026-09-24 第 20 轮并行渗透 D11-1，高）：
+    #    `ledger_export.write_pdf` 用的是 fpdf2 的核心字体 Helvetica，**只支持 Latin-1**，
+    #    于是所有中文被 `encode("ascii", "replace")` 换成 `?` —— 实测
+    #    `'水东芥菜' → '????'`、`'永盛食品' → '????'`、标题 `'Ledger ???? 2026-09-01 ~ …'`，
+    #    商品整列不可读。而任务照样落 `DONE` + 发一条带下载链接的站内信
+    #    —— **用户必须打开才知道那是一张废纸**，还白吃一次配额（20 次/日）。
+    #    本机只装了 fpdf2（没有 reportlab 的 CID 中文字体），仓库里也没有可嵌入的中文字体文件，
+    #    所以"能不能正确渲染"这件事没有一行代码能解决 —— 那就**如实拒绝**，而不是产出一个假产物。
+    #    等哪天有字体了（`fpdf.add_font(...)` + 一个 CJK TTF），把这三行删掉即可。
+    if str(getattr(body.export_format, "value", body.export_format)) == "pdf":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "PDF 导出暂时关闭：服务器没有内嵌中文字体，导出里的商品名/货主名会全部变成「?」，"
+                "那份文件没法用（还要占掉你今天的导出次数）。请选 **Excel**——内容一字不差，"
+                "而且能被 Excel 直接求和、筛选。"
+            ),
+        )
+
     # ---- 闸 3：先算这次要导多少笔（与导出侧同一句 `visible_ledger_select`，口径不许分叉）----
     rows_in_range = int(
         db.scalar(
