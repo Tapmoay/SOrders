@@ -299,6 +299,20 @@ def main() -> int:
     check_ic(rep, "多单核销的资金流水金额不为空（历史口径：多单不写金额）",
              "select id, doc_id, amount from cash_flows where biz_type like '%receipt%' "
              "and id in (select id from cash_flows where amount is not null)", None, limit=lim, kind="info")
+    # ⚠️ 2026-09-23 第 7 轮新增（**这条是一个真缺陷的判据化**）：
+    #    `orders.paid` / `payment_method` / `arrears_unit_id` 有三个写入点
+    #    （送达 / 现场收款确认 / 挂账），而送达那条路原来不清挂账指向，于是
+    #    「派单员先点挂账 → 司机按**收取现金**送达」会落成 paid=True 却还指着挂账单位。
+    #    后果不止"数据不干净"：`arrears.py::delete_unit` 数的是"所有指着它的订单"（不看 paid），
+    #    于是那个单位**永远删不掉**，而拦人的那句话说的是"已有 N 笔挂账订单"——其实早就收了现金。
+    #    判据放在**库这一层**（而不是代码形状那一层）：这样任何写入点再犯都会被抓到。
+    check_ic(rep, "已收款（paid=1）却还指着挂账单位",
+             "select id, order_no, status, paid, payment_method, arrears_unit_id, arrears_unit_name "
+             "from orders where paid = 1 and arrears_unit_id is not null",
+             # 「总数」= **已收款的单**（这条判据的作用域），不是"指着单位的单"：
+             # 拿后者当总数时，一个刚清空过的库里两边都是 0，会退化成一句"判据空转"的告警；
+             # 拿已收款的单当总数，才能说清"在这些单里一张都没犯"。
+             "select count(*) from orders where paid = 1", limit=lim)
 
     # ---------------------------------------------------------------- 结算单
     rep.section("司机结算单")
