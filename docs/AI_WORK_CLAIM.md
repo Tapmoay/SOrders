@@ -20,6 +20,32 @@
 
 ## 进行中
 
+### [2026-09-24 01:0x → ] 会话：**全项目系统性复核 · 第 21 轮**（第 5 次并行渗透：**再换 12 个全新区域**；统一修 R4~R5）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**并行渗透（第 5 批区域，见 `_archive/audit/round21/README.md`）**：测试自身的健康度 / 字段级出参裁剪 /
+快照 vs 实时矩阵 / 舍入与分位 / 保留承诺×实现×生产证据 / 批量与多步端点的「停在中间」/
+同一用户两端同时操作 / 词汇表一致性 / Android 输入层 / Android 交互层 / 缓存与失效 /「首次使用」路径。
+**12/12 全部交付**（约 48 条确认缺陷、7 条高），逐条台账进 `_archive/audit/FINDINGS.md` 第五十一轮。
+
+| # | 改了什么 | 来源 | 提交 |
+| --- | --- | --- | --- |
+| R4 | 导出的**文件本身**能不能用：① 六个 kind + 看板导出的**活公式**（`=` 开头文本被写成 `<f>`）→ 提成 `services/sheet_text.append_text_row` 唯一实现，`reports.py` 45 处 + `stats_export.py` 10 处改走它；② 账本 **PDF 是一张废纸**（fpdf2 核心字体只支持 Latin-1，商品名全变 `?`，任务却落 DONE + 发下载链接）→ 创建时如实 400 + `write_pdf` 兜底抛错；③ 看板导出**静默只导 TOP 12** → 文件里写明；④ 同一张 sheet 两个时间列差 8 小时 → 都走 `local_stamp`；⑤ 两份「司机绩效」列序/单位不同（分钟 vs **秒**，差 60 倍）→ 逐列对齐 | 第 20 轮 D7-1/D11-1/4/5、D3-F3 | `3da314a` |
+| R5 | 两条钱路的闸门：① `POST /orders/{id}/pay` 补「已收过款」门（原来能在一张已核销的单上再点一次 → 界面说收 ¥800、**库里一笔进账都没有**，还把该单从挂账单位账上摘掉）；② 删计费规则的闸门改成按 `driver_rule_id` 数（原来按 `role == DRIVER` → **改一次角色就能删掉还挂着人的规则**，再改回来他继续按这份已删规则算钱）；③ 存量「计费方式归一」在 MySQL 的 `utf8mb4_unicode_ci` 下 `<> UPPER(col)` **恒为假** → 这段从上线起一次都没生效，加 `COLLATE utf8mb4_bin` | 第 20 轮 C1-2/D5-②、C6-2、D2-1 | `e1014c8`（+ `65177f7`、`2082ab0` 收尾） |
+
+**改哪些文件**：`backend/app/services/{sheet_text(new),ledger_export,stats_export,stats_service}.py`、
+`backend/app/api/v1/{reports,ledger,orders,driver_billing_rules}.py`、`backend/app/core/schema_bootstrap.py`、
+`backend/tests/{test_export_local_time,test_money_gates_pay_and_rule}.py`（新）+
+`test_driver_billing_api.py`、`test_export_cells_other_kinds.py`（两条钉旧形状的断言）；
+`_tools/ai/{_check_ai_guardrails}.py`、`_tools/qa/_reverse_verify_export_cells.py`；
+`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json` + `AiReadCatalog.kt`。
+
+**验收**：`_check_all` **88/88**；后端全量 **888 passed**（本轮新增 4 条）；
+`_reverse_verify_export_cells` **13/13**；`_check_ai_guardrails` **1280 项全过**。
+（真机 E2E：本轮没有新增真机项 —— 改动集中在后端导出/闸门，第 20 轮的「已派单」档位已在 5554 上验过。）
+
+核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：它是**生产库结构变更的唯一入口**，
+这一轮修的是"存量数据归一"那句 SQL 在 MySQL 排序规则下**恒不生效**（`COLLATE utf8mb4_bin`）。
+
 ### [2026-09-24 00:4x → ] 会话：**全项目系统性复核 · 第 20 轮**（第 4 次并行渗透：**再换 12 个全新区域**；统一修 R1~R3 + 真机证据）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **并行渗透（第 4 批区域，见 `_archive/audit/round20/README.md`）**：权限矩阵静态对账（222 个端点）/
