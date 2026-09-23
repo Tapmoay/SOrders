@@ -42,6 +42,10 @@ val SHIPPER_TABS = listOf(
     // 已退货（2026-09-20）：货主必须看得到这一档 —— 否则"送过的单被退掉了"只会从他的
     // 「已送达」里消失（筛选按状态走），而界面上一个字都不提这件事。
     OrderTab("RETURNED", "已退货", dated = true),
+    // 已派单（**DISPATCHED**，2026-09-24 第 19 轮补）：同派单端 —— 这一档原来一个档位都没有，
+    // 货主看不到"我已经派出去、司机还没接"的单（本机实测他名下有 1 张），于是会**重复下单**。
+    // ⚠️ 与「派单中」（PENDING_DISPATCH，还没派司机）是两个状态。
+    OrderTab("DISPATCHED", "已派单", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),
 )
 
 class ShipperOrdersViewModel(container: AppContainer) :

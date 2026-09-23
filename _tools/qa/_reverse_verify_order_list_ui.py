@@ -177,6 +177,20 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "自动挡的挑窗口只有一处",
     ),
     (
+        "⑲ 把「已派单」那一档删掉（DISPATCHED 又变成一个入口都没有 —— 派错司机看不见也撤不回）",
+        DISP_VM,
+        '    OrderTab("DISPATCHED", "已派单", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),\n',
+        "",
+        "DISPATCH_TABS：每个订单状态都有档位",
+    ),
+    (
+        "⑳ 货主那列同样把「已派单」删掉（他看不到自己已派出去的单 → 会重复下单）",
+        SHIP_VM,
+        '    OrderTab("DISPATCHED", "已派单", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),\n',
+        "",
+        "SHIPPER_TABS：每个订单状态都有档位",
+    ),
+    (
         "⑰ 手动挑过档位也不再记（下一轮盘点会把用户的选择顶掉）",
         WINDOW_BASE,
         "        userPickedPreset = true\n        windowSettled = true // 用户已经表态 = 窗口就算定下来了",

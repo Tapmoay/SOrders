@@ -38,6 +38,15 @@ val DISPATCH_TABS = listOf(
     // 已退货（2026-09-20）：与「已撤销」**不是一回事**（撤销＝单没发生过，
     // 退货＝送了、入了账、事后货退回来了）。两者都有各自的页签，别合并成一档。
     OrderTab("RETURNED", "已退货", dated = true),
+    // 已派单（**DISPATCHED**，2026-09-24 第 19 轮补）：这一档原来**一个档位都没有** ——
+    // 而本项目的领域文档（`docs/DOMAIN_MODEL.md:22-23`）写着「`DISPATCHED` 不是过渡态，
+    // 它会停留……每个客户端都必须有入口列出它，否则『派错司机』这件事既看不见也撤不回」。
+    // 实测代价（本机库只读）：7 张「已派单、司机未接单」的单在**任何具名档位里都查不到**
+    // （最老那张卡了 12 天），唯一落点「全部」被自动挡钉在"今天"→ 真正看不见。
+    // ⚠️ 它和「派单中」（PENDING_DISPATCH，还没司机）是**两个状态**，不能合并。
+    // ⚠️ `dated = false`：它是"正在进行"的一档（与「派单中」「已接单」同类）——
+    //    列表不按日期筛，药丸写「不限时间」（⛔ 不许写「今天」，理由见 `OrderTab.windowWord`）。
+    OrderTab("DISPATCHED", "已派单", windowWord = ORDER_WINDOW_NO_LIMIT_WORD),
 )
 
 class DispatcherOrdersViewModel(container: AppContainer) :

@@ -8,8 +8,11 @@
 
 ### 1.1 状态枚举
 
-**五个**取值（真源：`backend/app/models/enums.py::OrderStatus`；客户端任何一处少一档，
-都会让那一档订单在界面上"查无此单"——静态红线 `_tools/qa/_check_client_contract.py` 逐值对账）。
+**六个**取值（真源：`backend/app/models/enums.py::OrderStatus`；客户端任何一处少一档，
+都会让那一档订单在界面上"查无此单"——静态红线 `_tools/qa/_check_client_contract.py` 逐值对账，
+另有 `_tools/qa/_check_order_list_ui.py` 断言「**每个状态至少落在一个档位里**」）。
+（⚠️ 2026-09-24 第 19 轮改：这里原来写「五个」，实际早就是六个 —— `RETURNED` 漏登记，
+而这一页正是"少一档 = 界面上查无此单"的判据出处。）
 
 | 状态代码 | 展示名 | 说明 |
 |----------|--------|------|
@@ -18,6 +21,7 @@
 | `ACCEPTED` | 已接单 | 司机已确认接单，可配送、可报货损、可提交送达 |
 | `DELIVERED` | 已送达 | 司机完成且至少上传一张送达照（挂车/整车可按计费规则免照片） |
 | `CANCELLED` | 已撤销 | 终态，货主或派单员撤销（**仅派单中/已派单**，司机接单后不可撤销） |
+| `RETURNED` | 已退货 | 终态，**整单**退完（部分退货仍留在 `DELIVERED` 并打「部分退货」标记）；退货红冲账本与应收（2026-09-20 用户拍板新增） |
 
 > ⚠️ **`DISPATCHED` 不是过渡态，它会停留**：司机没点「确认接单」之前，订单一直停在这一档。
 > 所以每个客户端都必须有入口列出它，否则"派错司机"这件事既看不见也撤不回。
@@ -36,8 +40,10 @@ stateDiagram-v2
   DISPATCHED --> CANCELLED: 货主或派单员撤销（司机未接单）
   ACCEPTED --> DELIVERED: 司机完成订单
   ACCEPTED --> PENDING_DISPATCH: 派单员撤回派单
+  DELIVERED --> RETURNED: 整单退货
   DELIVERED --> [*]
   CANCELLED --> [*]
+  RETURNED --> [*]
 ```
 
 | 自 | 事件 | 至 | 执行者 |
@@ -50,7 +56,9 @@ stateDiagram-v2
 | `DISPATCHED` | 撤销 | `CANCELLED` | 货主 / 派单员 |
 | `ACCEPTED` | 撤回派单 | `PENDING_DISPATCH` | 派单员 |
 | `ACCEPTED` | 完成订单 | `DELIVERED` | 司机 |
+| `DELIVERED` | **整单退货**（货主申请 → 派单员办理，或派单员直连退货） | `RETURNED` | 派单员 |
 | `PENDING_DISPATCH` / `DISPATCHED` | 拆分（原单撤销、生成多张子单） | `CANCELLED` + 多张 `PENDING_DISPATCH` | 派单员 |
+| `RETURNED` / `CANCELLED` / `DELIVERED` | 删除（**软删**进回收站 30 天，可恢复） | 不变（`deleted_at` 置位） | 派单员 / 货主（仅自己的终态单） |
 
 **每档允许的动作**（真源＝后端状态门，客户端集合与它逐值对账）：
 

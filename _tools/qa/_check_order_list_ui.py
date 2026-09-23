@@ -151,6 +151,30 @@ def main() -> int:
     c.ok("档位表每一档都写着 `dated = ...`（缺省 false；要日期窗口的必须显式写）",
          all("dated" in s for p, s in srcs.items() if "OrderTab(" in s) and "dated: Boolean = false" in tabs_kt)
 
+    c.section("1b. 每个订单状态都至少落在一个档位里（清单从后端枚举算，2026-09-24 第 19 轮）")
+    # ⛔ 为什么必须自己算：`docs/DOMAIN_MODEL.md:22-23` 写着「`DISPATCHED` 不是过渡态，它会停留……
+    #    每个客户端都必须有入口列出它，否则『派错司机』这件事既看不见也撤不回」，
+    #    而**两个 App 的档位表里都一个 `DISPATCHED` 档都没有**（实测 7 张单在所有具名档位里查不到、
+    #    唯一落点「全部」被自动挡钉在"今天"）。当时两条红线都绿着：
+    #    `_check_client_contract.py` 认"客户端**认识**这个状态"（详情页里有 `== "DISPATCHED"`），
+    #    本节原来只钉缺省档文案 —— **没有任何一条断言"这一档有没有入口"**。
+    #    所以这里从 `models/enums.py` 把取值读出来，逐个问两个档位表。
+    enum_src = read(ROOT / "backend/app/models/enums.py")
+    # 取到下一个 `class` 为止（这个枚举里有注释块与 docstring，长度不固定 —— 写死 600 字会失配）。
+    m = re.search(r"class OrderStatus\([\s\S]*?(?=\nclass )", enum_src)
+    statuses = re.findall(r'^\s{4}([A-Z_]+)\s*=\s*"', m.group(0), re.M) if m else []
+    c.ok(f"从后端枚举算出订单状态 {len(statuses)} 个（下限 5，防正则失配后空转）",
+         len(statuses) >= 5, f"实际 {statuses}")
+    #: 故意**不进任何档位**的状态 + 为什么（空 = 每一个都必须有档位）。
+    NO_TAB_NEEDED: dict[str, str] = {}
+    for name, (path, tabs) in sorted(rosters.items()):
+        keys = {t[0] for t in tabs}
+        orphaned = [s for s in statuses if s not in keys and s not in NO_TAB_NEEDED]
+        c.ok(f"{name}：每个订单状态都有档位（{len(statuses)} 个状态，{len(tabs)} 档）",
+             not orphaned,
+             f"这些状态**一个入口都没有**：{orphaned} —— 它会停留在这一档，"
+             f"用户在任何具名档位里都找不到它（'{'、'.join(orphaned)}'）")
+
     c.section("2. 缺省档 + 「全部」的位置（用户点名的两条）")
     for name, (path, tabs) in sorted(rosters.items()):
         keys = [t[0] for t in tabs]
