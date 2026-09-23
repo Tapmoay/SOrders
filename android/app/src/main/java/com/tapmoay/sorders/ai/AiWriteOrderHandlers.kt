@@ -2,6 +2,8 @@ package com.tapmoay.sorders.ai
 
 import com.tapmoay.sorders.core.OrderStatusModel
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -408,14 +410,40 @@ class ReturnOrderHandler(
      *
      * ⚠️ 整单退货**不是另一条路径**：它就是"每一行都填满"，走同一套上限校验。
      *    多一个 `all=true` 开关就多一条绕过上限的路（后端 `OrderReturnBody` 也没有这个开关）。
+     *
+     * ## ⛔ 「不是数组」必须拒绝，不许当成"留空"（2026-09-24 第 22 轮 F1-D4）
+     * 原来是 `params["lines"] as? JsonArray`，拿不到就当留空 —— 于是模型把明细写成
+     * **一个字符串**（`"lines": "苹果 2 件"`，或把数组 `toString()` 成 `"[{...}]"`）时，
+     * `as?` 静默给 null，这一单就变成**整单退货**：账本整单红冲 + 库存全量回补 +
+     * 自动退款 + 订单转「已退货」。用户说"退 2 件苹果"，系统把整单退了，而**两边都不报错**。
+     * 唯一拦阻只剩确认卡上把每行列出来——把一笔钱的走向押在"用户会逐行核对"上，不算闸门。
+     *
+     * 所以三条分开：**键不在 / 是 null** → 留空（整单退货，卡上逐行写着）；
+     * **是空数组** → 拒绝（空明细没有意义，要整单退货就该完全不传）；**是别的形状** → 拒绝。
      */
     private suspend fun parseItems(
         params: JsonObject,
         available: List<AiReturnableLine>,
     ): List<Pair<AiReturnableLine, Int>> {
-        val raw = params["lines"] as? JsonArray
-        if (raw == null || raw.isEmpty()) {
+        val node = params["lines"]
+        val raw = node as? JsonArray
+        if (raw == null) {
+            if (node != null && node !is JsonNull) {
+                throw AiWriteArgException(
+                    "退货明细 lines 必须写成**数组**，形如 " +
+                        "[{\"product\":\"红富士苹果\",\"quantity\":2}]（最多 $MAX_ITEMS 行）；" +
+                        "这次收到的是${shapeOf(node)}。" +
+                        "⛔ 不要把明细拼成一个字符串 —— 那会被当成「没填明细」，也就是**整单退货**，" +
+                        "而用户想要的可能只是退其中两件。",
+                )
+            }
             return available.map { it to it.maxReturnable }
+        }
+        if (raw.isEmpty()) {
+            throw AiWriteArgException(
+                "退货明细 lines 是**空数组**：要么把要退的每一行写出来，" +
+                    "要么**完全不传 lines**（不传＝整单退货，卡片上会逐行列出来）。",
+            )
         }
         if (raw.size > MAX_ITEMS) {
             throw AiWriteArgException("一次最多退 $MAX_ITEMS 种商品，收到 ${raw.size} 种。")
@@ -440,6 +468,19 @@ class ReturnOrderHandler(
             out += line to qty
         }
         return out
+    }
+
+    /**
+     * 一句话说清"模型这次给的到底是什么形状"（拒绝入参时用）。
+     *
+     * 为什么要说形状：模型看不到自己的 JSON，只看到一句"必须写成数组"时，
+     * 它下一轮**很可能原样再发一遍**。告诉它"这次收到的是一个字符串"，它才改得动。
+     */
+    private fun shapeOf(node: JsonElement): String = when (node) {
+        is JsonArray -> "一个数组"
+        is JsonObject -> "一个对象（要用数组把每一行括起来：`[{…},{…}]`）"
+        is JsonNull -> "空值"
+        else -> "一个字符串或数字（明细只能放在数组里，不能被拼成一段文字）"
     }
 
     private companion object {

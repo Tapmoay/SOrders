@@ -3784,6 +3784,61 @@ class AiWriteTest {
         assertTrue(r.ds.fulfilledReturns.isEmpty() && r.ds.rejectedReturns.isEmpty())
     }
 
+    // ============================== 退货明细的**形状**（2026-09-24 第 22 轮 F1-D4）
+    // 背景：原来解析是 `params["lines"] as? JsonArray`，拿不到就当"留空" —— 于是模型把明细
+    // 写成**一个字符串**（把数组 toString 了，或干脆写成「苹果 2 件」）时静默变成
+    // **整单退货**：账本整单红冲 + 库存全量回补 + 自动退款 + 订单转「已退货」，
+    // 而两边都不报错。这一组就是钉住"形状不对必须拒绝"。
+
+    /** 造一个 `lines` 不是数组的入参（`p()` 只能放字符串，这里要放任意 JsonElement）。 */
+    private fun returnParamsWith(lines: JsonElement): JsonObject = buildJsonObject {
+        put("order", "SOTEST2026091100230")
+        put("lines", lines)
+    }
+
+    @Test
+    fun `退货明细写成字符串会被拒绝，而不是静默退掉整单`() = runBlocking<Unit> {
+        val r = Rig().withReturnableOrder()
+        val why = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_RETURN,
+                // 模型把数组 toString() 成了字符串 —— 这正是历史上会被当成"整单退货"的形状
+                returnParamsWith(JsonPrimitive("[{\"product\":\"红富士苹果\",\"quantity\":2}]")),
+            ),
+        ).reason
+        assertTrue("要说清必须写成数组：$why", why.contains("数组"))
+        assertTrue("要告诉它这次收到的是什么形状（它看不到自己的 JSON）：$why", why.contains("字符串"))
+        assertTrue("要提醒这个形状曾经会被当成整单退货：$why", why.contains("整单退货"))
+        assertTrue("必须一张卡都不发", r.ds.orderCalls.isEmpty())
+    }
+
+    @Test
+    fun `退货明细是空数组也会被拒绝`() = runBlocking<Unit> {
+        val r = Rig().withReturnableOrder()
+        val why = rejected(
+            r.svc.preview(AiWrites.ORDERS_RETURN, returnParamsWith(JsonArray(emptyList()))),
+        ).reason
+        assertTrue("要说清是空数组、并给出两条出路：$why", why.contains("空数组"))
+        assertTrue("要告诉它不传 lines 才是整单退货：$why", why.contains("完全不传"))
+        assertTrue("必须一张卡都不发", r.ds.orderCalls.isEmpty())
+    }
+
+    @Test
+    fun `退货明细完全不传仍然是整单退货（这条不许被上面两条改坏）`() = runBlocking<Unit> {
+        val r = Rig().withReturnableOrder()
+        val card = ok(
+            r.svc.preview(AiWrites.ORDERS_RETURN, p("order" to "SOTEST2026091100230")),
+        )
+        val text = card.detailLines.joinToString("\n")
+        assertTrue("整单退货要在卡片上写明退哪样、退多少：$text", text.contains("红富士苹果"))
+        // ⚠️ 卡上的钱走 `moneyText`（显示口径，末尾 0 全省）——所以是「50 元」不是「50.00 元」
+        assertTrue("整单退货的合计要写在卡上：$text", text.contains("合计：50 元"))
+        assertTrue("要有一段「退回」把行列出来：$text", text.contains("退回"))
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        // 替身把退货调用记成 `orderCalls` 里的一行（`return:<单号>:<行id>x<数量>`）
+        assertEquals(listOf("return:61:71x5"), r.ds.orderCalls)
+    }
+
     @Test
     fun `越权：派单员看不见申请退货，货主看不见办理驳回`() {
         val dispatcher = AiActor.byRole(AiRole.DISPATCHER)
