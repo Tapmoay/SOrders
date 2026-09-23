@@ -128,8 +128,8 @@ python -m pytest tests/ -q          # 2026-09-14 实测：35 passed
 这类缺陷只在**真库**里表现为两个数对不上，接口一律 200。所以有一条常驻的**生产只读体检**：
 
 ```powershell
-python _tools/qa/_probe_prod_readonly.py                    # 19 条库级不变式 + 3 条热点查询的 EXPLAIN ANALYZE + 索引清单
-python _tools/qa/_probe_prod_readonly.py --validate-ddl     # 把 schema_bootstrap 那段 DDL 在会话级临时表上演一遍
+python _tools/qa/_probe_prod_readonly.py                    # 19 条库级不变式 + 枚举漂移 + 3 条热点查询的 EXPLAIN ANALYZE + 索引清单
+python _tools/qa/_probe_prod_readonly.py --validate-ddl     # 把 schema_bootstrap 那两段 DDL（索引 / 枚举补全）在会话级临时表上演一遍
 python _tools/qa/_probe_prod_readonly.py --expect-index     # 部署后硬性确认报表窗口索引存在且被优化器用上
 python _tools/qa/_probe_prod_readonly.py --sql              # 只打印会发出去的 SQL（不连服务器，审计用）
 ```

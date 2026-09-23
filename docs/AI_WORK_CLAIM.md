@@ -20,6 +20,63 @@
 
 ## 进行中
 
+### [2026-09-23 18:4x → 19:2x] 会话：**全项目系统性复核 · 第 10 轮**（**枚举列不许漂移**：立判据当轮就抓到两处过期清单 —— 同一个文件里手写了四份 `MODIFY COLUMN … ENUM(…)`，两份少了 `RETURNED`/`RETURN`）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+第 9 轮在生产库上量计划，这一轮顺着"线上库与代码是不是同一套口径"往下查**枚举列**。
+
+**一、为什么这一列值得单独立一条判据（有真事故）**
+
+MySQL 里往枚举列写一个**不在枚举里**的值是**直接报错**。2026-09-04 那两次生产 500 就是这个形状：
+`orders.status` 缺 `DISPATCHED` → **派单 100% 500**；`ledgers.source` 缺 `REFUND` → 货损完成 500。
+当时的修法是在 `schema_bootstrap` 里手写 `ALTER TABLE … MODIFY COLUMN … ENUM(…)`。
+而**本地怎么测都是对的**：开发库是 SQLite（没有 ENUM）、测试库是 `create_all` 现建的（天然是全集）。
+
+**二、判据立起来的当轮就抓到两处过期清单**
+
+盘出模型里 5 个枚举列（`orders.status` 6 值 / `ledgers.source` 4 值 / `users.role` 3 值 /
+`ledger_export_jobs.status` 4 值 / `ledger_export_jobs.format` 2 值），再解析 bootstrap 里**所有**
+`MODIFY COLUMN … ENUM(…)`（走 AST 取字符串常量，注释与文档字符串不算代码）：
+
+**同一个文件里手写了四句**，其中两句已经过期 ——
+`orders` 段那句是 5 值（少 `RETURNED`）、`ledgers` 段那句是 3 值（少 `RETURN`），
+而文件后半段还有两句带全的。它们谁都不报错：老库 4 态启动时，先被过期那句改成 5 态、
+再被后面那句补到 6 态 —— **结果碰巧是对的，但删掉/挪动后面那句就会把列改成缺值的版本**，
+而且真正的报错发生在几天后某个人点"退回"的那一刻。
+
+**修法：取值清单只剩一份 —— 从模型生成**
+- `_enum_columns()`：枚举列清单从 `Base.metadata` 算（与 `create_all` 同一个源头），不手写；
+- `enum_repair_ddl(table, column)`：**纯函数**，生成 `ALTER TABLE … MODIFY COLUMN … ENUM(…)`，
+  带模型的 `NULL/NOT NULL`、可选的标量 `DEFAULT` 与 `COMMENT`；表达式型默认值刻意不猜；
+- bootstrap 里的自愈循环：逐列问线上 `COLUMN_TYPE`，缺哪个值就按模型补全（删掉原来四句硬编码）；
+- 顺带覆盖到全部 5 列（原来只修 2 列）—— 等于把"新增枚举列时没人想老库"这条也堵了。
+
+**三层判据钉着（都不需要人记得）**
+| 层 | 位置 | 钉什么 |
+|---|---|---|
+| 结构 | `_tools/qa/_check_enum_drift.py`（+15 项） | bootstrap 里**不许再出现手写 ENUM 字面量**；自愈循环必须遍历唯一清单；**调用生成器**逐列断言每个取值都在、`NULL/NOT NULL` 跟着模型；探针里那段"代码 ↔ 线上库"对账必须在（防"两边都以为对方在查"） |
+| 文本 | `backend/tests/test_enum_repair_ddl.py`（5 例） | 逐列生成的全文 + `orders.status` 那句的**逐字**断言（改动必须故意）+ 非枚举列不许进来 |
+| 真机 | `_probe_prod_readonly.py --validate-ddl` | 在生产 MySQL 的**临时表**上造"旧枚举 + 已有数据"，跑**生成出来的**那句 DDL：新增取值写得进、老数据不丢、列定义补全 |
+| 线上 | `_probe_prod_readonly.py` ④（常驻，只读） | 逐列问线上 `COLUMN_TYPE`：**线上缺**（写就 500）与**线上多**（读就 500）两个方向都判红 |
+
+- 核心改动：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：它是**线上库结构变更的唯一入口**，
+  枚举列补全就发生在启动路径上（那两句过期的字面量也在这里）。把四句手写清单换成
+  `_enum_columns()` + `enum_repair_ddl()` 生成，覆盖面从 2 列变成 5 列。
+- 顺带修一处**判据化石**：`_check_order_return.py` 原来钉的是那两句手写字面量（"
+  `'DELIVERED','CANCELLED','RETURNED'` 在不在文件里"）—— 实现一改它就红。现在改成
+  钉"自愈在 + 走生成器 + **调用生成器**看它生成了什么"，`_reverse_verify_order_return.py`
+  的注入点也跟着从"改字面量"挪到"让生成器漏掉那个值"（29 条注入复跑全绿）。
+
+**实测数字**：`_check_all.py` **83/83**（+1 脚本）· 枚举红线 **15 项** + 反向验证 **8/8** ·
+`_check_order_return.py` **114 项** + 其反向验证 **29/29** · 生产库：5 列枚举**代码与线上完全一致**、
+`--validate-ddl` 的枚举预演三条断言全过（写入新值 / 老数据不变 / 列定义补全）·
+后端 `pytest` **811 passed**（+5：`tests/test_enum_repair_ddl.py`）。
+
+**要改的文件**：`backend/app/core/schema_bootstrap.py`、
+`_tools/qa/{_check_enum_drift,_reverse_verify_enum_drift,_check_order_return,_reverse_verify_order_return,_probe_prod_readonly}.py`、
+`backend/tests/test_enum_repair_ddl.py`(新)、`docs/PROJECT_MAP/05_TESTING.md`、定位表。
+
+**不碰**：其他会话正在改的 `android/`、`frontend/`、`Apis.kt/Dtos.kt/AppRepository.kt` 一律不动。
+
 ### [2026-09-23 10:1x → 19:0x] 会话：**全项目系统性复核 · 第 9 轮**（**拿生产库当证据**：19 条库级不变式 + `EXPLAIN ANALYZE` 逐条量 → 报表那族查询缺索引，窗口预过滤只省了内存没省 IO）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 前 8 轮都在本机（SQLite + 单测 + 模拟器）。这一轮换一个**只有真库能给的证据源**：
