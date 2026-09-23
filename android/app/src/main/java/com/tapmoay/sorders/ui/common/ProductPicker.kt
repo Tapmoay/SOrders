@@ -12,7 +12,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatMoney
@@ -40,16 +38,18 @@ import com.tapmoay.sorders.util.formatMoney
  * - 点「＋」弹**只填数量**的小窗（用户 2026-09-19 改的，理由见下面那段）；
  * - 可以一次挑好几件，底部汇总「已选 N 种 · 合计 ¥X」再一起加入清单。
  *
- * ## 为什么小窗里**没有单位了**（2026-09-19 用户要求）
- * 原话：「那个单位不要出现啊，他是默认是已经配好了的只要填数量就可以了。那个单位是
+ * ## 小窗里的单位：**只显示、不给改**（2026-09-19 定，2026-09-23 补上"显示"）
+ * 用户 2026-09-19 的原话：「那个单位不要出现啊，他是默认是已经配好了的只要填数量就可以了。那个单位是
  * 派单员在设置的时候会给这个商品设置单位，货主去下单的时候他是不能去更改单位的不然
  * 会出现认知判断错误」。
  *
- * 所以单位的**唯一来源是商品库**（`products.unit`，派单员在「商品管理」里设的）。
- * 下单的人（货主 / 代理下单的派单员）都没有选它的入口 ——
- * 一个能改的字段就是一个会被改错的字段：同一件货这次记"3 箱"、下次记"3 件"，
- * 库存与对账按单位分组时就成了两行，而且**两边都不报错**。
- * 小窗里因此只剩数量，单位跟着商品走（`QtyDialog` 连参数都不收单位了）。
+ * ⚠️ 那条禁的是**能改的入口**（一个能改的字段就是一个会被改错的字段：同一件货这次记"3 箱"、
+ * 下次记"3 件"，库存与对账按单位分组时就成了两行，而且**两边都不报错**）——
+ * 不是"不许看见单位"。所以 2026-09-23 用户圈着标题右边那块空地说
+ * 「放在最右边…那个显示单位也就这个商品的单位」时，做法是：
+ * **单位只读地显示在标题行最右边**（`UnitTag`），`QtyDialog` 收一个 `unit` 只为显示，
+ * **不回传、没有输入框**。单位的唯一来源仍然是商品库（`products.unit`，派单员在
+ * 「商品管理」里设的），下单的人（货主 / 代理下单的派单员）手上依旧没有选它的入口。
  *
  * ## 分类从哪来
  * `products.category`（商品管理里维护）。三种情况都要能优雅显示：
@@ -299,13 +299,16 @@ fun ProductPickerBody(
     editing?.let { p ->
         val exist = picked[p.id]
         // 单位**不由用户给**：取商品库里的（派单员在商品管理里设的），空则退回「件」。
-        // 见文件头「为什么小窗里没有单位了」。
-        val unit = p.unit.ifBlank { "件" }
+        // ⚠️ 这里的 `unitOrDefault` 是"商品那一侧"的兜底（空 → 「件」）—— 与订单行快照
+        //    那条 `qtyWithUnit`（空就只给数字、不编一个「件」）是**两条规矩**，别合并，
+        //    见 `Units.kt` 顶上那段。传进小窗只为**显示**在标题右边，不回传。
+        val unit = unitOrDefault(p.unit)
         QtyDialog(
             productName = p.name,
             productColor = p.nameColor,
             initialQty = exist?.qty ?: 1,
             price = if (showPrice) priceFor(p) else "",
+            unit = unit,
             onConfirm = { qty ->
                 // ⚠️ 单选模式（账本「记一笔账」）：先清空再放下这一件 —— 再挑一件是**换掉**。
                 //    不清空的话用户会挑出"两件商品、账上却只记了一件"，而界面看着完全正常。
@@ -529,12 +532,19 @@ data class PickedLine(
 }
 
 /**
- * **只填数量**的小窗（2026-09-19 起这里没有单位了）。
+ * **只填数量**的小窗（2026-09-19 起这里没有"选单位"的入口）。
  *
  * 为什么不给选单位：单位是派单员在「商品管理」里给商品设好的，下单的人改它只会改错 ——
- * 详见文件头「为什么小窗里没有单位了」。商品名不用填（从目录里选的），所以标题就是商品名。
+ * 详见文件头「小窗里的单位：只显示、不给改」。商品名不用填（从目录里选的），所以标题就是商品名。
  *
- * [onConfirm] 只回数量；单位由调用方从商品库取。
+ * [unit] **只用来显示**（标题行最右边那个小标签），不回传：单位跟着商品走，
+ * `onConfirm` 只回数量。空串 = 不显示（调用方已经用 `unitOrDefault` 兜过一次）。
+ *
+ * ## 版式（2026-09-23 用户点名改的那一版）
+ * 一行标题（商品名在左、**单位在最右**）+ 一行「数量 + 步进器」+ 一条分隔线 + 一行「小计」。
+ * 步进器与数量判据都在 `ui/common/QtyStepper.kt`（**唯一一份**：下单页那个行编辑弹窗
+ * `LineEditDialog` 用的是同一个）。原来这里自己画过一份"淡蓝实心圆 + 92dp 框"，
+ * 与下单页那份（灰紫圆 + 96dp 框）已经不是同一个形态了。
  */
 @Composable
 fun QtyDialog(
@@ -545,55 +555,49 @@ fun QtyDialog(
     onConfirm: (Int) -> Unit,
     onDismiss: () -> Unit,
     onRemove: (() -> Unit)? = null,
+    unit: String = "",
 ) {
     var qty by remember { mutableStateOf(initialQty.coerceAtLeast(1)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                productName,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = productNameColor(productColor),
-                fontWeight = FontWeight.Bold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    productName,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = productNameColor(productColor),
+                    fontWeight = FontWeight.Bold,
+                    // 名字吃剩余宽度、单位贴最右（名字长到换行时单位也仍然在右边那一列）
+                    modifier = Modifier.weight(1f),
+                )
+                // ⚠️ 用户 2026-09-23 圈出来的就是这块空位：「放在最右边…那个显示单位
+                //    也就这个商品的单位」。只读标签，见 `UnitTag` 的注释。
+                UnitTag(unit, modifier = Modifier.padding(start = 10.dp))
+            }
         },
         text = {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    StepButton(Icons.Default.Remove, "减", enabled = qty > 1) {
-                        qty = (qty - 1).coerceAtLeast(1)
-                    }
-                    OutlinedTextField(
-                        value = qty.toString(),
-                        onValueChange = { v ->
-                            // 只留数字（原来手写的 isDigit 过滤是规则的一份副本）
-                            qty = InputRules.intInput(v, 4).toIntOrNull()?.coerceIn(1, 9999) ?: 1
-                        },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E6FFF),
-                        ),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                        ),
-                        modifier = Modifier.width(92.dp),
-                    )
-                    StepButton(Icons.Default.Add, "加", enabled = qty < 9999) {
-                        qty = (qty + 1).coerceAtMost(9999)
-                    }
+                    Text("数量", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(Modifier.width(12.dp))
+                    // 整组随对话框宽度拉伸（数字框居中，`+` 永远不会被长数量挤出去）
+                    QtyStepper(qty = qty, onQtyChange = { qty = it }, modifier = Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(14.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 // ⚠️ 不报价时（预订单）连"小计"都不画：它算出来的那个数**不会入库**，
                 //    画出来就是在暗示"这个价会被存下来"。见 [ProductPickerSheet] 的 `showPrice`。
                 if (price.isNotBlank()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("小计", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text(
+                            "小计",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
                         Text(
                             "¥" + formatMoney(((price.toDoubleOrNull() ?: 0.0) * qty).toString()),
                             style = MaterialTheme.typography.titleMedium,
@@ -619,24 +623,9 @@ fun QtyDialog(
     )
 }
 
-@Composable
-private fun StepButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    FilledTonalIconButton(
-        onClick = onClick,
-        enabled = enabled,
-        colors = IconButtonDefaults.filledTonalIconButtonColors(
-            containerColor = Color(0xFFE8F2FF),
-            contentColor = Color(0xFF1E6FFF),
-        ),
-    ) {
-        Icon(icon, contentDescription = label)
-    }
-}
+// ⛔ 这里原来有一个 `StepButton`（`FilledTonalIconButton` 淡蓝实心圆）。
+// 2026-09-23 收进 `ui/common/QtyStepper.kt` 的 `QtyStepper` —— 同一组东西当时全库有
+// **两份**（这里一份 + 下单页行编辑弹窗一份），而且两边的配色、框宽、数字对齐都不一样。
 
 // ⛔ 这里原来定义着 `parseNameColor(raw)`（选品页自己的"名称色"判据）。
 // 2026-09-21 收进 `ui/common/ProductCardKit.kt::productNameColor` —— 同一件事当时全库有

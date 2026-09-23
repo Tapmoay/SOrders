@@ -11,7 +11,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1395,7 +1394,18 @@ fun LineEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                // 单位与选品页那个数量小窗同规格：**只读**显示在最右边（不给改，见函数头注释）
+                UnitTag(initial.unit, modifier = Modifier.padding(start = 10.dp))
+            }
+        },
         text = {
             Column {
                 FormInputRow(
@@ -1408,32 +1418,35 @@ fun LineEditDialog(
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("数量", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    FilledTonalIconButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }) {
-                        Icon(Icons.Default.Remove, contentDescription = "减")
-                    }
+                    Text("数量", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(Modifier.width(12.dp))
                     // ⚠️ 数量那个小框**不**走 FormRows：它不是"一行标签 + 值"，
-                    //    是步进器中间的紧凑控件（全 App 同一个形态，见 `ProductPicker::QtyDialog`）。
+                    //    是步进器中间的紧凑控件 —— 与选品页那个数量小窗**同一个零件**
+                    //    （`ui/common/QtyStepper.kt`，2026-09-23 收成一份；这句话以前只是愿望，
+                    //    两边其实是各写一遍、配色与对齐都不一样）。
                     //    这类控件**算进**描边输入框的总数、但不算"表单分组里的框"（判据里写明了）。
-                    OutlinedTextField(
-                        value = qty.toString(),
-                        onValueChange = { v -> qty = InputRules.intInput(v, 4).toIntOrNull()?.coerceIn(1, 9999) ?: 1 },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1E6FFF)),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.width(96.dp),
-                    )
-                    FilledTonalIconButton(onClick = { qty = (qty + 1).coerceAtMost(9999) }) {
-                        Icon(Icons.Default.Add, contentDescription = "加")
-                    }
+                    QtyStepper(qty = qty, onQtyChange = { qty = it }, modifier = Modifier.weight(1f))
                 }
+                Spacer(Modifier.height(14.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(10.dp))
-                Text(
-                    "小计 ¥" + formatMoney((initial.price.toDoubleOrNull()?.times(qty) ?: 0.0).toString()),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "小计",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // 「钱」的语义色全 App 同色（账本/报表/小计都是 MoneyOrange）——
+                    // 这里原来用的是 `primary`，与选品页那个小窗的小计不是一个颜色。
+                    Text(
+                        "¥" + formatMoney((initial.price.toDoubleOrNull()?.times(qty) ?: 0.0).toString()),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(MoneyOrange),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
                 Text(
                     "价格由商品定价决定",
                     style = MaterialTheme.typography.bodySmall,
