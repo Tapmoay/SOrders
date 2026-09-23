@@ -38,7 +38,17 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from app.core.business_time import business_today
-from app.models import DriverBill, InventoryMovement, Ledger, OperationLog, Order, OrderProduct, Place, Product
+from app.models import (
+    CashFlow,
+    DriverBill,
+    InventoryMovement,
+    Ledger,
+    OperationLog,
+    Order,
+    OrderProduct,
+    Place,
+    Product,
+)
 from tests.conftest import auth_headers
 
 CENTS = Decimal("0.01")
@@ -75,16 +85,17 @@ def _mk_product(client: TestClient, h: dict[str, str], *, cost: str) -> dict:
     return r.json()
 
 
-def _mk_driver(client: TestClient, h: dict[str, str]) -> tuple[int, str]:
-    """专用司机（不污染 fixture 里那个司机 —— 给他挂规则会改变同一轮其它用例的行为）。"""
+def _mk_driver(client: TestClient, h: dict[str, str], **extra) -> tuple[int, str]:
+    """专用司机（不污染 fixture 里那个司机 —— 给他挂规则会改变同一轮其它用例的行为）。
+
+    `**extra` 直接进建号请求（例如 `billing_mode="SALARY", salary="5000"` 造一个工资制司机）。
+    """
     import uuid
 
     phone = "13" + uuid.uuid4().hex[:9].translate(str.maketrans("abcdef", "012345"))
-    r = client.post(
-        "/api/v1/users",
-        json={"phone": phone, "password": "pass12345", "full_name": "导出对账专用司机", "role": "driver"},
-        headers=h,
-    )
+    body = {"phone": phone, "password": "pass12345", "full_name": "导出对账专用司机", "role": "driver"}
+    body.update(extra)
+    r = client.post("/api/v1/users", json=body, headers=h)
     assert r.status_code in (200, 201), r.text
     driver_id = int(r.json()["id"])
     r = client.post("/api/v1/auth/login", json={"phone": phone, "password": "pass12345"})
@@ -143,6 +154,29 @@ def _rows_after(ws, header_row: int) -> list[list]:
     return out
 
 
+def _cols(ws, row: int, n: int) -> list:
+    """按**列号**取一行前 n 格（空值/空串都保留）。
+
+    ⚠️ 为什么不能用"有值才取"的 `_cells` 去比固定列的表：某一格是空串时那一行会比表头短，
+    按下标取值就 `IndexError`（全量跑时被别的用例留下的"异常原因为空"的单抓到了）。
+    固定列的表一律用这个；"末尾列本来就没写"的行才用 `_cells`。
+    """
+    return [ws.cell(row=row, column=i + 1).value for i in range(n)]
+
+
+def _rows_cols(ws, header_row: int, n: int) -> list[list]:
+    """表头下面每一行按列号取前 n 格，直到**整行都空**为止。"""
+    out: list[list] = []
+    row = header_row + 1
+    while row <= ws.max_row:
+        vals = _cols(ws, row, n)
+        if all(v is None for v in vals):
+            break
+        out.append(vals)
+        row += 1
+    return out
+
+
 def _cleanup(db: Session, order_ids: list[int], product_ids: list[int]) -> None:
     """把自己造的探针数据清掉（这个库是多个用例共用的，留着会影响别人的绝对值断言）。"""
     if not order_ids and not product_ids:
@@ -150,6 +184,9 @@ def _cleanup(db: Session, order_ids: list[int], product_ids: list[int]) -> None:
     if order_ids:
         db.execute(update(Place).where(Place.first_order_id.in_(order_ids)).values(first_order_id=None))
         db.execute(delete(DriverBill).where(DriverBill.order_id.in_(order_ids)))
+        # ⚠️ 现金流水也要删：收现金的单会写一条 `cash_flows`，而它挂着 `order_id` 外键 ——
+        #    不先删它，下面那句 `DELETE FROM orders` 会 IntegrityError（第 12 轮实测踩到）。
+        db.execute(delete(CashFlow).where(CashFlow.order_id.in_(order_ids)))
         db.execute(delete(Ledger).where(Ledger.order_id.in_(order_ids)))
         db.execute(delete(OperationLog).where(OperationLog.order_id.in_(order_ids)))
         db.execute(delete(InventoryMovement).where(InventoryMovement.order_id.in_(order_ids)))
@@ -290,7 +327,7 @@ def test_export_cells_match_api_for_the_same_window(
         # ④ 曲线那一段：表头 + 逐行（时间/单数/金额/运费）——**行数从表里数出来**
         series_head_row = next(row for row in range(1, ws.max_row + 1) if _cells(ws, row)[:1] == ["时间"])
         assert _cells(ws, series_head_row) == ["时间", "单数", "金额", "运费"], _cells(ws, series_head_row)
-        got_series = _rows_after(ws, series_head_row)
+        got_series = _rows_cols(ws, series_head_row, 4)
         assert len(got_series) == len(t["series"]), (
             f"导出写了 {len(got_series)} 行、接口给了 {len(t['series'])} 行"
         )
@@ -322,7 +359,7 @@ def test_export_cells_match_api_for_the_same_window(
         assert _cells(ws, item_head_row) == [
             "商品", "件数", "单数", "金额", "参与毛利的金额", "毛利", "货损件数", "货损金额",
         ], _cells(ws, item_head_row)
-        got_items = [_cells(ws, item_head_row + i) for i in range(1, len(p["items"]) + 1)]
+        got_items = _rows_cols(ws, item_head_row, 8)
         assert len(got_items) == len(p["items"])
         saw_dash = False
         for row, item in zip(got_items, p["items"]):
@@ -386,7 +423,7 @@ def test_export_filename_and_series_cover_a_multi_day_window(
     assert _cells(ws, 1)[1] == _span_label(frm, today), _cells(ws, 1)
 
     head_row = next(row for row in range(1, ws.max_row + 1) if _cells(ws, row)[:1] == ["时间"])
-    got = _rows_after(ws, head_row)
+    got = _rows_cols(ws, head_row, 4)
     assert len(got) == len(series), f"导出的曲线 {len(got)} 行、接口 {len(series)} 行"
     for row, item in zip(got, series):
         assert row[0] == item["label"], (row, item)

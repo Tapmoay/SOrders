@@ -90,12 +90,62 @@ CASES: list[tuple[str, Path, object]] = [
         REPORTS,
         lambda s: s.replace('for pt in data["series"]:', 'for pt in data["series"][:1]:', 1),
     ),
+    # ---- 第 12 轮补的四个 kind（finance / customers / drivers / audit）----
+    (
+        "资金收支不再过滤被撤销的流水（`is_deleted` 漏一处 = 同一笔钱两个答案）",
+        REPORTS,
+        lambda s: s.replace("                        CashFlow.is_deleted.is_(False),\n", "", 1),
+    ),
+    (
+        "净额写成「流入 + 流出」（符号反了 —— 这一格看着也像个正常数）",
+        REPORTS,
+        lambda s: s.replace(
+            '"净额", _money(income - expense)])', '"净额", _money(income + expense)])', 1
+        ),
+    ),
+    (
+        "流水明细的金额写成文本（Excel 里 SUM 得 0）",
+        REPORTS,
+        lambda s: s.replace(
+            '_money(f.amount), f.party_name or ""', 'str(f.amount), f.party_name or ""', 1
+        ),
+    ),
+    (
+        "客户经营不再过滤隔离区（软删单的账又被算进来 —— R13-R6）",
+        REPORTS,
+        lambda s: s.replace(
+            "visible_ledger_select()\n                    .where(Ledger.entry_date >= s)",
+            "select(Ledger)\n                    .where(Ledger.entry_date >= s)",
+            1,
+        ),
+    ),
+    (
+        "司机的「待结运费」写成文本（`SUM` 那一列得 0；R2-3(exp) 那个毛病）",
+        REPORTS,
+        lambda s: s.replace(
+            '"工资制" if row["billing_mode"] == "SALARY" else (_money(owed) if owed else 0),',
+            '"工资制" if row["billing_mode"] == "SALARY" else (str(_money(owed)) if owed else 0),',
+            1,
+        ),
+    ),
+    (
+        "审计导出的日志块又不看区间（导 09-01 的报告里躺着别天的日志）",
+        REPORTS,
+        lambda s: s.replace(
+            "lo, hi = business_range_utc(s, e)",
+            "lo, hi = business_range_utc(s - timedelta(days=3650), e)",
+            1,
+        ),
+    ),
 ]
+
+#: 这两份用例共同构成"导出逐格 == 接口"这条判据（第 11 轮 turnover/products，第 12 轮另外四个 kind）。
+TEST_FILES = ("tests/test_export_cells_match_api.py", "tests/test_export_cells_other_kinds.py")
 
 
 def run_test() -> tuple[int, str]:
     p = subprocess.run(
-        [sys.executable, "-m", "pytest", TEST_REL, "-q", "--no-header", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", *TEST_FILES, "-q", "--no-header", "-p", "no:cacheprovider"],
         capture_output=True,
         text=True,
         encoding="utf-8",
