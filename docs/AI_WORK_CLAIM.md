@@ -20,6 +20,78 @@
 
 ## 进行中
 
+### [2026-09-23 10:1x → 19:0x] 会话：**全项目系统性复核 · 第 9 轮**（**拿生产库当证据**：19 条库级不变式 + `EXPLAIN ANALYZE` 逐条量 → 报表那族查询缺索引，窗口预过滤只省了内存没省 IO）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+前 8 轮都在本机（SQLite + 单测 + 模拟器）。这一轮换一个**只有真库能给的证据源**：
+生产 MySQL（只读，不改数据、不重启服务、不动 `schema_bootstrap` 之外的任何东西）。
+
+**一、19 条库级不变式在生产库上全量核对（全部 `bad = 0`，且每条都带上命中范围）**
+
+把前几轮定下来的钱/状态/时区/软删口径写成 SQL 断言，逐条跑真库：
+已收款却还指着挂账单位 0/16、库存为负 0/37、`RESERVED` 遗留 0/2、行金额 ≠ 数量×单价 0/5267、
+重复账单 0/1515、已送达无账本 0/2091、已送达无送达时间 0/2091、撤销单无撤销时间 0/270、
+待派单已有司机 0/17、已送达又有撤销时间 0/2091、账本日期 ≠ 业务日 0/4570、
+逐单核销收款单绑未 `paid` 单 0/8、收款单绑不存在订单 0/12、账单金额 ≤ 0 0/1515、
+流水金额 ≤ 0 0/72、结算单金额 ≠ 明细合计 0/0、运费为负 0/2400、行数量/金额异常 0/5267、
+`paid=1` 无收款凭证 0/16。
+⚠️ "0 行"只有在**命中范围非 0** 时才算证据（表是空的也会是 0 行）——每条都打出了分母。
+
+**二、`EXPLAIN ANALYZE` 逐条量三条热点查询 → 抓到一条真缺陷**
+
+| 查询 | 生产实际计划 |
+|---|---|
+| 报表窗口（`status='DELIVERED' AND delivered_at ∈ [窗口)`） | **`Table scan on o`（rows=2402）** ← 没有走任何索引 |
+| 待派池（`status='PENDING_DISPATCH'` 按创建倒序） | `ix_orders_status_created`（reverse index lookup） |
+| 账本窗口（`entry_date ∈ [窗口)`） | `ix_ledgers_entry_date`（covering index range scan） |
+
+也就是说：第 3 轮加的"窗口预过滤"（`delivered_span_sql`）**只减少了进内存的行，没减少从库里读的行**
+—— 计划里窗口条件没进索引，仍然是全表扫；代价随 3 年保留策略线性长。本机 2 万单副本库实测：
+改前 `status` 单列索引（一天 7.2ms / 一月 8.2ms）→ 改后 `(status, delivered_at)` 复合索引
+（一天 **0.0ms** / 一月 **2.6ms**），且响应体逐字节不变（那 10 个窗口的比对脚本还留着）。
+
+- 核心改动：`backend/app/models/order.py` —— 为什么必须动核心：它是 `orders` 表结构的**定义处**，
+  报表/导出那一族查询的索引必须与模型一起声明（否则 `create_all` 出来的新库没有它、老库有它，
+  两套环境计划不同）。加 `Index("ix_orders_status_delivered", "status", "delivered_at")`。
+- 核心改动：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：**线上库结构变更的唯一入口**
+  （生产是 MySQL，`create_all` 不会给已存在的表补索引）。照 `ix_orders_status_created` 那段的老写法
+  加一个 MySQL-only 的 `SHOW INDEX … ix_orders_status_delivered` 幂等守卫 + `ALTER TABLE orders ADD INDEX`。
+
+**三、把"窗口字段必须有索引"变成判据**（否则下一个人删掉索引不会有任何报错，只会慢慢变慢）
+`_check_report_window.py` 加 ⑤c：窗口列（`delivered_at`）必须**参与**一个复合索引，且
+`delivered_span_sql` 生成的条件必须是**裸列比较**（`Order.delivered_at >= lo`，写成
+`func.date(...)` / `CAST(...)` 会让索引失效）；模型与 bootstrap 两处都要有，配反向验证注入。
+另加单测 `backend/tests/test_report_window_index.py`（**看结果不看文本**：`tmp_path` 里建一份全新的库，
+问 SQLite 索引在不在、列序对不对、是不是复合的 —— 刻意不用 `.test_dbs/` 那份模板，
+`create_all(checkfirst=True)` 对已存在的表整表跳过，拿它断言等于在断言上个版本的库）。
+
+**四、生产只读体检工具**：`_tools/qa/_probe_prod_readonly.py`（可复用：19 条不变式 + 三条
+`EXPLAIN ANALYZE` + 索引存在性。⛔ 全程只读——只有 `SELECT` / `EXPLAIN` / `SHOW`，
+不带任何 `UPDATE/DELETE/ALTER`，也不重启服务）。
+
+**五、bootstrap 那段 DDL 的"部署前验证"**（本机做不到，所以借生产那台 MySQL 当语法编译器）：
+`schema_bootstrap` 的 DDL 外面包着 `try/except DBAPIError: logger.warning(...)` ——
+**写错了不会有任何报错**，只会每次启动多一行 warning、索引永远不存在；而本机开发库是 SQLite
+（没有 `SHOW INDEX`、没有 `ADD INDEX` 这种语法）验不了。所以给探针加了 `--validate-ddl`：
+把**同样那两句**在一张 `CREATE TEMPORARY TABLE` 上演一遍（会话级：连上就建、断开就消失、
+`SHOW TABLES` 看不见、与 `orders` 无关），列类型**从 `orders` 的真实定义抄过来**。实测通过：
+守卫建之前 0 行、`ADD INDEX (status, delivered_at)` 成功且列序 1=status / 2=delivered_at；
+`status` 的真实类型是 `enum('PENDING_DISPATCH','DISPATCHED','ACCEPTED','DELIVERED','CANCELLED','RETURNED')`。
+（踩到一个 MySQL 语法坑：`SHOW INDEX` **不能当派生表** —— `SELECT … FROM (SHOW INDEX …) g` 直接 1064，
+只能按顺序发、用 `MARK` 行分段认领结果。）
+
+**要改的文件**：`backend/app/models/order.py`、`backend/app/core/schema_bootstrap.py`、
+`backend/tests/test_report_window_index.py`(新)、
+`_tools/qa/{_check_report_window,_reverse_verify_report_window,_probe_prod_readonly}.py`、
+`docs/PROJECT_MAP/{05_TESTING,08_CODE_LOCATOR}.md`、`_archive/audit/FINDINGS.md`(gitignore)。
+
+**不碰**：其他会话正在改的 `android/`、`frontend/`、`Apis.kt/Dtos.kt/AppRepository.kt` 一律不动。
+
+**验收数字**：`_check_all.py` **82/82**（82 个脚本，清单自算）· 报表时间红线 **50 项**（+5，新增 ⑤c）
+· 其反向验证 **29/29**（+4 注入：索引被删 / 列序写反 / 老库不补建 / 窗口条件套函数）·
+后端 `pytest` **806 passed**（+2：新单测 `test_report_window_index.py`）·
+生产只读体检 **19/19 条不变式有发言权且 0 违规** + `--validate-ddl` 两条断言通过 ·
+生产 `EXPLAIN` 现状仍是 `Table scan`（索引补丁待下次重启由 bootstrap 生效，之后跑 `--expect-index` 收口）。
+
 ### [2026-09-23 08:5x →] 会话：**全项目系统性复核 · 第 8 轮**（把"同一字段多写入点必须交代"泛化成常驻判据，当轮抓到第三处：`internal_notes`）（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 第 6·7 轮各抓到一处"同一个字段、不同的人各写各的"（`freight_fee` / `arrears_unit_id`）。

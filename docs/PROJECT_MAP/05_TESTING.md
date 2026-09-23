@@ -115,6 +115,32 @@ python -m pytest tests/ -q          # 2026-09-14 实测：35 passed
 > 与文档的关系：这两处失败都**印证**了 [`08_CODE_LOCATOR.md`](08_CODE_LOCATOR.md) 的记载
 > （五态状态机、"接单是唯一不在 `order_flow.py` 的状态转移"）——说明是**测试落后于文档与代码**，不是文档写错。
 
+### 四层证据各管一段（2026-09-23 第 9 轮定；"哪一层能证明什么"要分清）
+
+| 层 | 命令 | 能证明 | **证明不了** |
+|---|---|---|---|
+| 静态红线 | `python _tools/qa/_check_all.py` | 代码形状/口径有没有被改坏（**82 个脚本**，清单自算） | 运行时行为 |
+| 反向验证 | `python _tools/ai/_reverse_verify_all.py --changed` | 红线**不是空转**（注入真缺陷必须报红） | 线上数据 |
+| 单测 | `cd backend && python -m pytest -q` | 接口/钱/状态机的行为 | 真实并发、真实数据形状 |
+| 库内不变式 | `python _tools/fuzz/_fuzz_invariants.py`（本机库）<br>`python _tools/qa/_probe_prod_readonly.py`（**生产库，只读**） | **数据自己自不自洽**（两个数有没有各说各的）| 代码逻辑对不对（数据干净不代表逻辑对） |
+
+⚠️ **第 4 层不能只在本地跑**：本机是 SQLite、数据是自己造的干净数据；"已收款却还指着挂账单位"
+这类缺陷只在**真库**里表现为两个数对不上，接口一律 200。所以有一条常驻的**生产只读体检**：
+
+```powershell
+python _tools/qa/_probe_prod_readonly.py                    # 19 条库级不变式 + 3 条热点查询的 EXPLAIN ANALYZE + 索引清单
+python _tools/qa/_probe_prod_readonly.py --validate-ddl     # 把 schema_bootstrap 那段 DDL 在会话级临时表上演一遍
+python _tools/qa/_probe_prod_readonly.py --expect-index     # 部署后硬性确认报表窗口索引存在且被优化器用上
+python _tools/qa/_probe_prod_readonly.py --sql              # 只打印会发出去的 SQL（不连服务器，审计用）
+```
+
+- ⛔ 它只发 `SELECT` / `EXPLAIN ANALYZE` / `SHOW`，脚本自己过一遍写关键字正则（命中就拒绝执行）；
+  **不重启服务、不跑迁移、不改一行数据**。凭据只在服务器侧读，本地不留不打印。
+- 每条不变式都报「违规行数 **/ 命中范围**」——`0` 只有在范围 > 0 时才算证据（表是空的也会是 0 行），
+  范围不够就报 `N/A`。第 9 轮正是靠这条抓到一条**判据自己写错**（按"账单盖没盖结算章"判结算单，
+  而生产上 51 张全是 draft → 51/51 假红）。
+- ⚠️ 它**不进** `_check_all.py`（那要连生产）；脚本名不是 `_check_*`、也刻意不声明 `--check`。
+
 ---
 
 ## 8. 建议的回归测试清单（大规模测试用）
