@@ -86,8 +86,8 @@ MUTATIONS = [
     (
         "勾了不存在的价目也收下（那条规则永远匹配不到运价）",
         RULES_API,
-        '    missing = [i for i in uniq if i not in found]\n    if missing:\n        raise HTTPException(status_code=400, detail=f"勾的价目里有对不上的编号：{missing}")',
-        "    missing = []",
+        '    missing = [i for i in uniq if i not in found and i not in stale]\n    if missing:',
+        "    missing = []\n    if missing:",
         "勾了不存在的价目会被拒",
     ),
     (

@@ -101,12 +101,12 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/driver-billing-rules` | `list_rules` | `backend/app/api/v1/driver_billing_rules.py:248` | 权限:ORDER_DISPATCH |
-| 2 | `POST /api/v1/driver-billing-rules` | `create_rule` | `backend/app/api/v1/driver_billing_rules.py:267` | 权限:ORDER_DISPATCH |
-| 3 | `PUT /api/v1/driver-billing-rules/{rule_id}` | `update_rule` | `backend/app/api/v1/driver_billing_rules.py:313` | 权限:ORDER_DISPATCH |
-| 4 | `DELETE /api/v1/driver-billing-rules/{rule_id}` | `delete_rule` | `backend/app/api/v1/driver_billing_rules.py:386` | 权限:ORDER_DISPATCH |
-| 5 | `POST /api/v1/driver-billing-rules/{rule_id}/restore` | `restore_rule` | `backend/app/api/v1/driver_billing_rules.py:418` | 权限:ORDER_DISPATCH |
-| 6 | `POST /api/v1/driver-billing-rules/attach` | `attach_rule` | `backend/app/api/v1/driver_billing_rules.py:445` | 权限:USER_MANAGE |
+| 1 | `GET /api/v1/driver-billing-rules` | `list_rules` | `backend/app/api/v1/driver_billing_rules.py:280` | 权限:ORDER_DISPATCH |
+| 2 | `POST /api/v1/driver-billing-rules` | `create_rule` | `backend/app/api/v1/driver_billing_rules.py:299` | 权限:ORDER_DISPATCH |
+| 3 | `PUT /api/v1/driver-billing-rules/{rule_id}` | `update_rule` | `backend/app/api/v1/driver_billing_rules.py:345` | 权限:ORDER_DISPATCH |
+| 4 | `DELETE /api/v1/driver-billing-rules/{rule_id}` | `delete_rule` | `backend/app/api/v1/driver_billing_rules.py:424` | 权限:ORDER_DISPATCH |
+| 5 | `POST /api/v1/driver-billing-rules/{rule_id}/restore` | `restore_rule` | `backend/app/api/v1/driver_billing_rules.py:456` | 权限:ORDER_DISPATCH |
+| 6 | `POST /api/v1/driver-billing-rules/attach` | `attach_rule` | `backend/app/api/v1/driver_billing_rules.py:483` | 权限:USER_MANAGE |
 
 ### `backend/app/api/v1/driver_bills.py` — 2 个
 
@@ -166,12 +166,12 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/freight-templates` | `list_templates` | `backend/app/api/v1/freight_templates.py:211` | 权限:ORDER_DISPATCH |
-| 2 | `POST /api/v1/freight-templates` | `create_template` | `backend/app/api/v1/freight_templates.py:243` | 权限:ORDER_DISPATCH |
-| 3 | `PUT /api/v1/freight-templates/{template_id}` | `update_template` | `backend/app/api/v1/freight_templates.py:293` | 权限:ORDER_DISPATCH |
-| 4 | `DELETE /api/v1/freight-templates/{template_id}` | `delete_template` | `backend/app/api/v1/freight_templates.py:355` | 权限:ORDER_DISPATCH |
-| 5 | `POST /api/v1/freight-templates/{template_id}/restore` | `restore_template` | `backend/app/api/v1/freight_templates.py:386` | 权限:ORDER_DISPATCH |
-| 6 | `GET /api/v1/freight-templates/quote` | `quote_freight` | `backend/app/api/v1/freight_templates.py:433` | 权限:ORDER_DISPATCH |
+| 1 | `GET /api/v1/freight-templates` | `list_templates` | `backend/app/api/v1/freight_templates.py:220` | 权限:ORDER_DISPATCH |
+| 2 | `POST /api/v1/freight-templates` | `create_template` | `backend/app/api/v1/freight_templates.py:252` | 权限:ORDER_DISPATCH |
+| 3 | `PUT /api/v1/freight-templates/{template_id}` | `update_template` | `backend/app/api/v1/freight_templates.py:302` | 权限:ORDER_DISPATCH |
+| 4 | `DELETE /api/v1/freight-templates/{template_id}` | `delete_template` | `backend/app/api/v1/freight_templates.py:364` | 权限:ORDER_DISPATCH |
+| 5 | `POST /api/v1/freight-templates/{template_id}/restore` | `restore_template` | `backend/app/api/v1/freight_templates.py:427` | 权限:ORDER_DISPATCH |
+| 6 | `GET /api/v1/freight-templates/quote` | `quote_freight` | `backend/app/api/v1/freight_templates.py:474` | 权限:ORDER_DISPATCH |
 
 ### `backend/app/api/v1/inventory.py` — 3 个
 

@@ -123,8 +123,23 @@ def _check_categories(db: Session, items: list[dict]) -> list[dict]:
     return items
 
 
-def _check_templates(db: Session, ids: list[int]) -> list[int]:
-    """勾的价目必须真的存在（软删的不算）：勾一条不存在的价目 = 这条规则永远匹配不到运价。"""
+def _check_templates(
+    db: Session, ids: list[int], *, existing: set[int] | None = None
+) -> list[int]:
+    """勾的价目必须真的存在（软删的不算）：勾一条不存在的价目 = 这条规则永远匹配不到运价。
+
+    ## `existing`：**已经挂在这份规则上的编号放行**（2026-09-24 第 23 轮 F11-1）
+    那种编号是**从这份规则自己的出参抄回来的**（App 的草稿 `r.templateIds` 整份回传），
+    而价目选择器只列**活**价目 → 用户**根本没法取消勾选它**。原来一律拒收的后果是
+    这条规则**永远保存不了**（连改个备注都 400），报错里只有一个编号、界面上没有对应行。
+
+    所以：放行，但**不写进链接表**（幽灵在保存那一刻被顺手清掉），
+    并在卡片上写明「已删除，不再算钱」（见 `_template_briefs`）。
+    ⛔ 新**加**一个已删编号照旧拒绝 —— 那才是真正的错。
+
+    ⚠️ 这个 docstring 是普通字符串：引用别的函数请写成 `name`（反斜杠 + 方括号会被 Python 3.12+
+    报 `SyntaxWarning: invalid escape sequence`，第 22 轮刚在 `core/query_text.py` 栽过一次）。
+    """
     if not ids:
         return []
     uniq = list(dict.fromkeys(int(i) for i in ids))
@@ -135,10 +150,19 @@ def _check_templates(db: Session, ids: list[int]) -> list[int]:
             )
         ).all()
     )
-    missing = [i for i in uniq if i not in found]
+    stale = set(existing or ())
+    missing = [i for i in uniq if i not in found and i not in stale]
     if missing:
-        raise HTTPException(status_code=400, detail=f"勾的价目里有对不上的编号：{missing}")
-    return uniq
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"勾的价目里有对不上的编号：{missing} —— "
+                f"{'；'.join(_template_briefs(db, missing))}。"
+                "这些价目已经删掉了（或编号打错了），请换成还在的价目；"
+                "如果它本来就在这条规则上，直接保存即可（保存时会自动去掉）。"
+            ),
+        )
+    return [i for i in uniq if i in found]
 
 
 def _template_briefs(db: Session, ids: list[int]) -> list[str]:
@@ -149,6 +173,11 @@ def _template_briefs(db: Session, ids: list[int]) -> list[str]:
 
     ⚠️ 价格走 `money_text`（末尾多余的 0 去掉）：这是**给人看的一句话**，
     不是值 —— 勾选时的判据与服务端算钱都在 `Decimal` 那一侧（2026-09-22 用户定的显示口径）。
+
+    ⛔ 已删除的价目要**如实标出来**（2026-09-24 第 23 轮 F11-1）：原来它长得和活价目一模一样
+    （卡上照旧印着路线与价格），而钱早就不按它算了 —— 那是"卡片上写着 62 元、
+    实际这单进待定价"的骗人卡。删掉的那条也可能是**历史遗留**（本轮起删除已被挡住，
+    但库里已有的链接还在），所以这一支不能删掉。
     """
     if not ids:
         return []
@@ -156,7 +185,10 @@ def _template_briefs(db: Session, ids: list[int]) -> list[str]:
     by_id: dict[int, str] = {}
     for t in rows:
         label = t.name or ((t.from_place or "") + " → " + (t.to_place or ""))
-        by_id[t.id] = f"{label} ¥{money_text(t.fee)}" if t.fee is not None else label
+        if t.is_deleted:
+            by_id[t.id] = f"{label}（**已删除**，不再算钱；保存这条规则时会去掉它）"
+        else:
+            by_id[t.id] = f"{label} ¥{money_text(t.fee)}" if t.fee is not None else label
     return [by_id.get(i, f"#{i}") for i in ids]
 
 
@@ -331,7 +363,13 @@ def update_rule(
     if "categories" in patch:
         merged["categories"] = _check_categories(db, patch["categories"] or [])
     if "template_ids" in patch:
-        merged["template_ids"] = _check_templates(db, patch["template_ids"] or [])
+        merged["template_ids"] = _check_templates(
+            db,
+            patch["template_ids"] or [],
+            # 现有链接里的编号一律放行：它们是从本规则出参抄回来的（选择器只列活价目，
+            # 用户没法取消勾选），放行+清理由是唯一能走出死结又不静默改钱的路径。
+            existing={int(x.template_id) for x in (getattr(r, "template_rows", None) or [])},
+        )
     err = validate_rule_params(merged)
     if err:
         raise HTTPException(status_code=400, detail=err)

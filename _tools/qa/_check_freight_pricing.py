@@ -172,6 +172,13 @@ def main() -> int:
     c.present("没勾价目的规则在卡片上是**红字提示**（否则用户看不出这条规则还没配好）",
               files["kt_rule"], r"还没勾价目 —— 派给这个司机的单会进")
     c.present("勾了不存在的价目会被拒", files["rules_api"], r"勾的价目里有对不上的编号")
+    #     ⚠️ 光有那句话不够（2026-09-24 第 23 轮 F11-1）：判据还得钉住**放行的边界** ——
+    #    已挂在本规则上的编号放行（App 草稿整份回传、选择器只列活价目 → 用户取消不掉），
+    #    新加的才拒。少了这一条，`missing` 被改成 `[]`（谁都收）也照样绿。
+    c.present("勾了不存在的价目会被拒（放行的只有「本来就在这份规则上」的编号）",
+              files["rules_api"], r"missing = \[i for i in uniq if i not in found and i not in stale\]")
+    c.present("删价目时挡住「还被规则勾着」（否则规则卡骗人 + 规则再也保存不了）",
+              files["tpl_api"], r"正被计费规则[\s\S]{0,80}?勾着，不能删")
     c.present("模板出参带「被哪几份规则用着」", files["tpl_api"], r"_rule_names\(db")
     c.present("App 有选品页那种价目选择器（左分类 + 全选本分类）",
               files["kt_rule"], r"全选本分类")

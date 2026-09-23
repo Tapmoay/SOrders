@@ -23,7 +23,16 @@ from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import require_permission
-from app.models import FreightCategory, FreightTemplate, FreightTemplateCategory, FreightTemplateDriver, ShipperAddress, User
+from app.models import (
+    DriverBillingRule,
+    DriverBillingRuleTemplate,
+    FreightCategory,
+    FreightTemplate,
+    FreightTemplateCategory,
+    FreightTemplateDriver,
+    ShipperAddress,
+    User,
+)
 from app.models.enums import OperationAction, UserRole
 from app.schemas.freight_template import (
     FreightQuoteCandidate,
@@ -365,6 +374,38 @@ def delete_template(
     # ⚠️ 分类绑定（`freight_template_categories`）**跟着删掉**：那张表不软删，
     #    留着的话"这个分类还有几条价目挂着"会把一条已经不存在的价目算进去 ——
     #    于是分类永远删不掉，而界面上根本看不到是它挡着。
+    #
+    # ⛔ 计费规则的绑定（`driver_billing_rule_templates`）**不能跟着删，也不能不管**
+    #    （2026-09-24 第 23 轮 F11-1，实测三连后果）：
+    #    ① 那条规则的卡照旧印着这条价目（`_template_briefs` 不排软删）——看着像还算钱，
+    #       而 `freight_pricing` 已经把它排除 → **这条路线所有单进「待定价」**；
+    #    ② 那条规则**再也保存不了**：`_check_templates` 拒收软删价目，而 App 的选择器
+    #       只列活价目 → 那一行**没法取消勾选**，报错还只有编号（界面无对应行）；
+    #    ③ 规则若还挂着司机，规则本身也不许删 → 只能先恢复价目才解得开这个死结。
+    #    口径与"规则还挂着司机时不许删规则"一致：**先说清谁在用，再让用户自己去解开**。
+    refs = db.scalars(
+        select(DriverBillingRule)
+        .join(
+            DriverBillingRuleTemplate,
+            DriverBillingRuleTemplate.rule_id == DriverBillingRule.id,
+        )
+        .where(
+            DriverBillingRuleTemplate.template_id == t.id,
+            DriverBillingRule.is_deleted.is_(False),
+        )
+    ).all()
+    if refs:
+        names = "、".join(f"「{r.name}」" for r in refs[:5])
+        more = "" if len(refs) <= 5 else f" 等 {len(refs)} 份规则"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"这条价目正被计费规则{names}{more}勾着，不能删。"
+                "请先在那条规则里去掉它（或删掉那条规则），再删这条价目 —— "
+                "直接删掉的话，那条规则会照旧显示这条价目、却不再按它算钱，"
+                "而且以后再也保存不了。"
+            ),
+        )
     for row in db.scalars(
         select(FreightTemplateCategory).where(FreightTemplateCategory.template_id == t.id)
     ).all():
