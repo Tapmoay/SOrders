@@ -7,7 +7,7 @@ from app.models.enums import OrderStatus, UserRole
 from app.schemas.order import OrderOut
 from app.services.driver_pay import has_per_order_pay, order_mode
 from app.services.order_money import OrderMoney, money_map, money_of
-from app.services.soft_delete import strip_del_suffix
+from app.services.soft_delete import dialable_phone
 
 
 def apply_driver_view_gating(data: dict, order: Order) -> None:
@@ -48,9 +48,11 @@ def enrich_order_out(
             #    `13800001234_del160` 印在订单详情上，而详情页那一行现在带**拨号按钮**
             #    （2026-09-22 用户要的"拨打司机电话"）：拿去拨就是一个打不通的号。
             #    同一处理已在两处做过（`api/v1/ledger.py`、`api/v1/freight_settlement.py`），
-            #    这里是第三个消费点 —— 口径只有 `strip_del_suffix` 一处。
-            #    注意只用于**展示**：库里那一列存的就是带后缀的值，别拿去尾后的值做等值查询。
-            data["driver_phone"] = strip_del_suffix(du.phone) or None
+            #    这里是第三个消费点 —— 口径只有一处：`soft_delete.dialable_phone`。
+            #    ⚠️ 2026-09-24 第 20 轮（D9-F3）：**活账号带后缀 = 那号码已经不是他的**
+            #    （恢复时撞号，`users.restore_user` 保留后缀）→ 那种账号**不给号码**，
+            #    否则拨号键会把派单员接到抢走这个号的另一个人那里。
+            data["driver_phone"] = dialable_phone(du)
             data["driver_name"] = du.full_name or ""
             data["driver_billing_mode"] = order_mode(order)
     su = db.get(User, order.shipper_id) if order.shipper_id is not None else None

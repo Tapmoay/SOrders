@@ -12,7 +12,7 @@ from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
 from app.services.order_response import enrich_order_out as _enrich  # noqa: F401
 from app.services.driver_pay import pay_for_order, per_order_pay_filter
-from app.services.soft_delete import strip_del_suffix
+from app.services.soft_delete import dialable_phone
 
 router = APIRouter(prefix="/freight-settlement", tags=["freight-settlement"])
 
@@ -101,7 +101,8 @@ async def freight_settlement(
         )
         driver = driver_by_id.get(driver_id) if driver_id else None
         if driver is not None and not g["driver_phone"]:
-            g["driver_phone"] = strip_del_suffix(driver.phone) or None
+            # 可拨号码的唯一口径（活账号带 `_del` 后缀 = 号码已被别人抢走 → 不给号码）
+            g["driver_phone"] = dialable_phone(driver)
         if driver is not None and not g["driver_name"]:
             g["driver_name"] = driver.full_name or driver.phone or ""
             g["driver_active"] = bool(getattr(driver, "is_active", True))

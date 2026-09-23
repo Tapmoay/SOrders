@@ -35,7 +35,7 @@ from app.services.ledger_sync import (
 )
 from app.services.operation_log_service import write_log
 from app.services.push_events import push_ledger_updated
-from app.services.soft_delete import strip_del_suffix
+from app.services.soft_delete import dialable_phone
 from app.core.date_window import date_window
 #: 「订单明细能不能改」的唯一判据（与订单侧共用一份状态清单，不许在账本侧再抄一遍）
 from app.api.v1.order_products import LINE_EDITABLE_STATUSES
@@ -234,8 +234,9 @@ def list_accounts(
             )
             if not b["name"]:
                 b["name"] = (u.full_name or u.phone or f"货主#{r.shipper_id}") if u else f"货主#{r.shipper_id}"
-                # 手机号去软删后缀（`13800001234_del160` → `13800001234`）：给用户看的是一个能拨的号
-                b["phone"] = (strip_del_suffix(u.phone) or None) if u else None
+                # 手机号去软删后缀（`13800001234_del160` → `13800001234`）：给用户看的是一个能拨的号。
+                # ⚠️ 唯一口径在 `soft_delete.dialable_phone`：**活账号带后缀 = 号码已不是他的** → 不给号。
+                b["phone"] = dialable_phone(u) if u else None
                 b["is_active"] = bool(getattr(u, "is_active", True)) if u else False
         else:
             if kind == "member":

@@ -441,6 +441,13 @@ def restore_user(
     这里**把后缀去掉**还原。冲突处理：如果那个号码已经被别人注册了，
     只恢复账号与身份、**保留现在的号码**，并把这件事写在返回里——
     硬抢回来会把另一个账号顶掉，那是更大的错。
+
+    ⚠️ 2026-09-24 第 20 轮（D9-F3 / C6-1）：两条分支原来**不对称** ——
+    `phone` 撞了会保留后缀、`username` 撞了**直接崩**（撞唯一索引 → 整次恢复回滚，
+    而"建号默认 username = phone"让这条路必然被走到）。现在两支同形：都保留后缀 + 记冲突。
+    ⚠️ 顺带一条更隐蔽的：保留 `_del` 后缀的**活账号**，它的号码**已经不是他的了** ——
+    出参那边统一走 `soft_delete.dialable_phone`（那种账号**不给号码**），
+    否则订单详情的拨号键会把派单员接给抢走这个号的另一个人。
     """
     u = db.get(User, user_id)
     if u is None:
@@ -457,8 +464,17 @@ def restore_user(
         else:
             conflicts.append(f"手机号 {want} 已经被别的账号占用，保留了当前的 {u.phone}")
     if isinstance(u.username, str) and u.username.endswith(suffix):
-        u.username = u.username[: -len(suffix)]
-        restored.append("用户名")
+        want_u = u.username[: -len(suffix)]
+        taken_u = db.scalars(select(User).where(User.username == want_u, User.id != u.id)).first()
+        if taken_u is None:
+            u.username = want_u
+            restored.append("用户名")
+        else:
+            # ⛔ **不查冲突就 Mandatory 去后缀 = 撞唯一索引 → 整次恢复回滚**（2026-09-24 第 20 轮 D9）：
+            #    建号的默认 `username = phone`，所以"删号 → 同号建新号 → 恢复旧号"必然撞。
+            #    撞了之后的正确处理与手机号那一支**同形**：保留带后缀的值 + 如实记冲突，
+            #    而不是把整次恢复炸掉（用户真正想要的"把这个人放回来"就永远做不到）。
+            conflicts.append(f"用户名 {want_u} 已经被别的账号占用，保留了当前的 {u.username}")
     u.is_active = True
     # ⛔ **恢复也要撤销会话**（2026-09-23 第 17 轮并行渗透抓到）：`deps` 只查
     #    `is_active` + 令牌版本，所以"删除前签发、当时还没过期"的令牌会在恢复的**那一刻复活**

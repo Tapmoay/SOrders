@@ -44,6 +44,29 @@ def strip_del_suffix(value: str | None) -> str:
     return _DEL_TAIL.sub("", (value or "").strip())
 
 
+def dialable_phone(user) -> str | None:
+    """这个账号的**可拨号码**（`None` = 别给拨号入口）。
+
+    ## 三种情形（2026-09-24 第 20 轮并行渗透 D9-F3）
+    | 账号状态 | 库里的值 | 该显示什么 |
+    | --- | --- | --- |
+    | 活着、号码没有后缀 | `13800001234` | 原号码 |
+    | **软删**（号码被让出去了） | `13800001234_del160` | **去掉后缀**：历史订单上还要看得出"这单是谁拉的" |
+    | **活着、却带后缀**（恢复时撞号） | `13800001234_del160` | **不给号码** |
+
+    最后一行是本函数存在的理由：那种账号是"恢复回来时号码已经被别人抢走"的产物
+    （`api/v1/users.py::restore_user` 保留后缀、只恢复身份）。此时 `strip_del_suffix`
+    去尾得到的 `13800001234` 是**别人的号码** —— 订单详情上那颗拨号键会打给
+    一个与这一单毫无关系的人。宁可没有号码，也不能给一个错的号码。
+    """
+    raw = (getattr(user, "phone", None) or "").strip()
+    if not raw:
+        return None
+    if _DEL_TAIL.search(raw) and getattr(user, "is_active", True):
+        return None
+    return strip_del_suffix(raw) or None
+
+
 def ensure_alive(row, what: str, restore_hint: str) -> None:
     """这一行是不是**已经进了回收站**；是就 400 拒绝，并把"怎么恢复"写清楚。
 
