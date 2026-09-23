@@ -43,6 +43,29 @@ from app.api.v1.order_products import LINE_EDITABLE_STATUSES
 router = APIRouter(prefix="/ledger", tags=["ledger"])
 
 
+def _ensure_export_job_visible(job, current) -> None:
+    """导出任务的**归属闸 —— 只有这一处**（查询与下载共用）。
+
+    ## 为什么必须收成一处（2026-09-24 第 19 轮实测）
+    两个端点原来各写一份，而**下载那一份对派单员是空的**：
+    `elif role == DISPATCHER: if not role_has_permission(role, LEDGER_EDIT): 403` ——
+    而 `core/rbac.py:145-147` 对派单员**任何权限点恒返回 True**（"派单员为最高业务权限"），
+    于是那道闸永远放行。同一个任务：`GET /export-jobs/{id}` 对派单员 B 是 403，
+    `GET /export-jobs/{id}/download` 却 200 —— 他能把**另一个派单员给别的货主导出的整本账**拖走。
+    （原来那句注释还写着"归属校验与 `get_export_job` 同一套"，与代码相反：
+    下一个维护者会以为已经校验过了。）
+
+    ## 口径
+    只有两种人能碰：**这个任务是他建的**（`created_by_id`）或**这本账就是他的**（`shipper_id`）。
+    ⛔ 别在这里写 `role_has_permission(...)` —— 对派单员它是恒真的，等于没写。
+    """
+    role = user_role_key(current)
+    if role not in (UserRole.SHIPPER.value, UserRole.DISPATCHER.value):
+        raise HTTPException(status_code=403, detail="无权访问")
+    if job.created_by_id != current.id and job.shipper_id != current.id:
+        raise HTTPException(status_code=403, detail="无权访问")
+
+
 def _apply_date_window(q, date_from: str | None, date_to: str | None):
     """把 `?date_from&date_to` 收成 `entry_date` 的**闭区间**条件 —— 两个端点共用这一份。
 
@@ -639,15 +662,7 @@ def get_export_job(
     job = db.get(LedgerExportJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    role = user_role_key(current)
-    if role == UserRole.SHIPPER.value:
-        if job.created_by_id != current.id or job.shipper_id != current.id:
-            raise HTTPException(status_code=403, detail="无权访问")
-    elif role == UserRole.DISPATCHER.value:
-        if job.created_by_id != current.id:
-            raise HTTPException(status_code=403, detail="无权访问")
-    else:
-        raise HTTPException(status_code=403, detail="无权访问")
+    _ensure_export_job_visible(job, current)
     return job
 
 
@@ -664,7 +679,11 @@ def download_export_job(
     `ledger_{货主id}_{任务id}.xlsx` 这种可枚举的小整数 → 任何能访问公网的人不需要账号
     就能把每个货主的完整账本拖走，且不留登录痕迹。现在：
       ① 产物写在 `exports/`（不在公开的 `uploads/` 之下）；
-      ② 只有本端点能取，归属校验与 `get_export_job` **同一套**（货主只能下自己的、派单员可下全部）。
+      ② 只有本端点能取，归属校验 = `_ensure_export_job_visible`（与查询端点**同一处**）。
+
+    ⛔ 2026-09-24 第 19 轮：这里原来自己写了一份，而那一份**对派单员是空的**
+    （`role_has_permission(role, …)` 对派单员恒真）→ 同一个任务查询 403、下载 200，
+    派单员 B 能把派单员 A 给别的货主导出的整本账拖走。现在两处共用一个判据。
     """
     from fastapi.responses import FileResponse
 
@@ -673,15 +692,7 @@ def download_export_job(
     job = db.get(LedgerExportJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    role = user_role_key(current)
-    if role == UserRole.SHIPPER.value:
-        if job.created_by_id != current.id or job.shipper_id != current.id:
-            raise HTTPException(status_code=403, detail="无权访问")
-    elif role == UserRole.DISPATCHER.value:
-        if not role_has_permission(role, Permission.LEDGER_EDIT):
-            raise HTTPException(status_code=403, detail="无权访问")
-    else:
-        raise HTTPException(status_code=403, detail="无权访问")
+    _ensure_export_job_visible(job, current)
 
     # ⚠️ `file_path` 里存的是**产物文件名**（老数据可能是一条 URL，[find_export_file] 兼容两种）。
     #    这里原来读的是 `job.download_url` —— **模型上根本没有这个属性**，于是任何下载都 500

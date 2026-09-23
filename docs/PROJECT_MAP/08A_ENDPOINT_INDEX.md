@@ -185,19 +185,19 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/ledger/entries` | `list_entries` | `backend/app/api/v1/ledger.py:116` | 仅登录 + 体内仅允许:派单员\|货主 |
-| 2 | `GET /api/v1/ledger/accounts` | `list_accounts` | `backend/app/api/v1/ledger.py:169` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `GET /api/v1/ledger/temp-shipper-names` | `list_temp_shipper_names` | `backend/app/api/v1/ledger.py:237` | 仅登录 + 体内仅允许:派单员 |
-| 4 | `POST /api/v1/ledger/sync-from-delivered-orders` | `sync_ledger_from_delivered_orders` | `backend/app/api/v1/ledger.py:267` | 权限:LEDGER_EDIT |
-| 5 | `POST /api/v1/ledger/entries` | `create_entry` | `backend/app/api/v1/ledger.py:282` | 权限:LEDGER_EDIT |
-| 6 | `GET /api/v1/ledger/entries/{entry_id}` | `get_entry` | `backend/app/api/v1/ledger.py:353` | 仅登录 + 体内仅允许:派单员\|货主 |
-| 7 | `PATCH /api/v1/ledger/entries/{entry_id}` | `update_entry` | `backend/app/api/v1/ledger.py:372` | 权限:LEDGER_EDIT |
-| 8 | `DELETE /api/v1/ledger/entries/{entry_id}` | `delete_entry` | `backend/app/api/v1/ledger.py:477` | 权限:LEDGER_EDIT |
-| 9 | `POST /api/v1/ledger/export-jobs` | `create_export_job` | `backend/app/api/v1/ledger.py:524` | 仅登录 + 体内权限:LEDGER_EDIT + 体内仅允许:派单员\|货主 |
-| 10 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:634` | 仅登录 + 体内仅允许:派单员\|货主 |
-| 11 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:655` | 仅登录 + 体内权限:LEDGER_EDIT + 体内仅允许:派单员\|货主 |
-| 12 | `POST /api/v1/ledger/receipts` | `create_receipt_endpoint` | `backend/app/api/v1/ledger.py:699` | 仅登录 + 体内仅允许:派单员 |
-| 13 | `GET /api/v1/ledger/receipts` | `list_receipts` | `backend/app/api/v1/ledger.py:746` | 仅登录 + 体内仅允许:派单员 |
+| 1 | `GET /api/v1/ledger/entries` | `list_entries` | `backend/app/api/v1/ledger.py:139` | 仅登录 + 体内仅允许:派单员\|货主 |
+| 2 | `GET /api/v1/ledger/accounts` | `list_accounts` | `backend/app/api/v1/ledger.py:192` | 仅登录 + 体内仅允许:派单员 |
+| 3 | `GET /api/v1/ledger/temp-shipper-names` | `list_temp_shipper_names` | `backend/app/api/v1/ledger.py:260` | 仅登录 + 体内仅允许:派单员 |
+| 4 | `POST /api/v1/ledger/sync-from-delivered-orders` | `sync_ledger_from_delivered_orders` | `backend/app/api/v1/ledger.py:290` | 权限:LEDGER_EDIT |
+| 5 | `POST /api/v1/ledger/entries` | `create_entry` | `backend/app/api/v1/ledger.py:305` | 权限:LEDGER_EDIT |
+| 6 | `GET /api/v1/ledger/entries/{entry_id}` | `get_entry` | `backend/app/api/v1/ledger.py:376` | 仅登录 + 体内仅允许:派单员\|货主 |
+| 7 | `PATCH /api/v1/ledger/entries/{entry_id}` | `update_entry` | `backend/app/api/v1/ledger.py:395` | 权限:LEDGER_EDIT |
+| 8 | `DELETE /api/v1/ledger/entries/{entry_id}` | `delete_entry` | `backend/app/api/v1/ledger.py:500` | 权限:LEDGER_EDIT |
+| 9 | `POST /api/v1/ledger/export-jobs` | `create_export_job` | `backend/app/api/v1/ledger.py:547` | 仅登录 + 体内权限:LEDGER_EDIT + 体内仅允许:派单员\|货主 |
+| 10 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:657` | 仅登录 |
+| 11 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:670` | 仅登录 |
+| 12 | `POST /api/v1/ledger/receipts` | `create_receipt_endpoint` | `backend/app/api/v1/ledger.py:710` | 仅登录 + 体内仅允许:派单员 |
+| 13 | `GET /api/v1/ledger/receipts` | `list_receipts` | `backend/app/api/v1/ledger.py:757` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/api/v1/notifications.py` — 10 个
 
@@ -474,7 +474,7 @@
 
 | 权限点 | 端点数 | 端点 |
 |---|---|---|
-| `LEDGER_EDIT` | 26 | `GET /api/v1/arrears-units`<br>`POST /api/v1/arrears-units`<br>`PATCH /api/v1/arrears-units/{unit_id}`<br>`DELETE /api/v1/arrears-units/{unit_id}`<br>`POST /api/v1/arrears-units/{unit_id}/restore`<br>`POST /api/v1/ledger/sync-from-delivered-orders`<br>`POST /api/v1/ledger/entries`<br>`PATCH /api/v1/ledger/entries/{entry_id}`<br>`DELETE /api/v1/ledger/entries/{entry_id}`<br>`POST /api/v1/ledger/export-jobs`（体内条件判断）<br>`GET /api/v1/ledger/export-jobs/{job_id}/download`（体内条件判断）<br>`GET /api/v1/suppliers`<br>`POST /api/v1/suppliers`<br>`GET /api/v1/suppliers/{supplier_id}`<br>`PATCH /api/v1/suppliers/{supplier_id}`<br>`DELETE /api/v1/suppliers/{supplier_id}`<br>`POST /api/v1/suppliers/{supplier_id}/restore`<br>`GET /api/v1/supplier-payables`<br>`POST /api/v1/suppliers/{supplier_id}/payables`<br>`PATCH /api/v1/supplier-payables/{payable_id}`<br>`DELETE /api/v1/supplier-payables/{payable_id}`<br>`POST /api/v1/supplier-payables/{payable_id}/restore`<br>`GET /api/v1/supplier-payments`<br>`POST /api/v1/supplier-payables/{payable_id}/payments`<br>`DELETE /api/v1/supplier-payments/{flow_id}`<br>`POST /api/v1/supplier-payments/{flow_id}/restore` |
+| `LEDGER_EDIT` | 25 | `GET /api/v1/arrears-units`<br>`POST /api/v1/arrears-units`<br>`PATCH /api/v1/arrears-units/{unit_id}`<br>`DELETE /api/v1/arrears-units/{unit_id}`<br>`POST /api/v1/arrears-units/{unit_id}/restore`<br>`POST /api/v1/ledger/sync-from-delivered-orders`<br>`POST /api/v1/ledger/entries`<br>`PATCH /api/v1/ledger/entries/{entry_id}`<br>`DELETE /api/v1/ledger/entries/{entry_id}`<br>`POST /api/v1/ledger/export-jobs`（体内条件判断）<br>`GET /api/v1/suppliers`<br>`POST /api/v1/suppliers`<br>`GET /api/v1/suppliers/{supplier_id}`<br>`PATCH /api/v1/suppliers/{supplier_id}`<br>`DELETE /api/v1/suppliers/{supplier_id}`<br>`POST /api/v1/suppliers/{supplier_id}/restore`<br>`GET /api/v1/supplier-payables`<br>`POST /api/v1/suppliers/{supplier_id}/payables`<br>`PATCH /api/v1/supplier-payables/{payable_id}`<br>`DELETE /api/v1/supplier-payables/{payable_id}`<br>`POST /api/v1/supplier-payables/{payable_id}/restore`<br>`GET /api/v1/supplier-payments`<br>`POST /api/v1/supplier-payables/{payable_id}/payments`<br>`DELETE /api/v1/supplier-payments/{flow_id}`<br>`POST /api/v1/supplier-payments/{flow_id}/restore` |
 | `NOTIFICATION_MANAGE` | 2 | `POST /api/v1/notifications/price-notify`<br>`POST /api/v1/notifications` |
 | `OPERATION_LOG_READ` | 2 | `GET /api/v1/operation-logs`<br>`GET /api/v1/operation-logs/{log_id}` |
 | `ORDER_CANCEL_DISPATCHER` | 1 | `POST /api/v1/orders/{order_id}/cancel`（体内条件判断） |
@@ -537,7 +537,7 @@ _（无重复注册）_
 | `GET /health` | `health` | `backend/app/main.py:221` |
 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:230` |
 
-### 3. 仅登录、且检测不到任何角色/权限约束：15 个
+### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 
 > 这些端点的准入范围**在本表里看不出来**——约束（如果有）在函数体里按参数或 `current.id` 过滤。
 > 反过来说：**这一节是「该去读源码」的清单**，不是「谁都能调」的清单。
@@ -545,6 +545,8 @@ _（无重复注册）_
 | 方法与路径 | handler | 位置 | 含 `current.id` |
 |---|---|---|---|
 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | — |
+| `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:657` | — |
+| `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:670` | — |
 | `GET /api/v1/notifications/unread-count` | `unread_count` | `backend/app/api/v1/notifications.py:32` | ✅ |
 | `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:40` | ✅ |
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:191` | ✅ |
@@ -560,4 +562,4 @@ _（无重复注册）_
 | `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | — |
 | `POST /api/v1/usage/reset` | `reset_usage` | `backend/app/api/v1/usage.py:34` | ✅ |
 
-> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **126** 个端点命中（占 56%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/stats.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。
+> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **124** 个端点命中（占 55%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/stats.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。

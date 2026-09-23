@@ -485,7 +485,19 @@ def run_daily_retention(db: Session) -> dict[str, int]:
             # （2026-09-19 生产实测，journal 里两条"治理完成"）。任务幂等，但没必要。
             return {"skipped_same_day": 1}
         r = _run_daily_retention_locked(db)
-        _mark_ran_today()
+        # ⚠️ **只有整轮没失败才记"今天已跑"**（2026-09-24 第 19 轮）：原来无条件写，
+        #    于是某一步失败（`r[name] == -1`）也被记成"今天完成了" ——
+        #    另一个 worker 当天再进来会直接走 `{"skipped_same_day": 1}`，
+        #    那一步**当天彻底不重试**（而它可能只是磁盘一时忙/一张图格式怪）。
+        #    现在失败就不落标记：下一个 worker（或下次重启）会再跑一轮。
+        #    ⛔ 幂等由各步自己保证（删已删的行、压已压的图都是 no-op），重跑是安全的。
+        if not any(v == -1 for v in r.values()):
+            _mark_ran_today()
+        else:
+            logger.warning(
+                "本轮治理有步骤失败（%s），**不记『今天已完成』** —— 让下一个进程/重启后再试一次",
+                [k for k, v in r.items() if v == -1],
+            )
         return r
 
 
@@ -512,9 +524,22 @@ def _run_daily_retention_locked(db: Session) -> dict[str, int]:
             r[name] = -1
     db.commit()
     # ---- 以下是**文件级**清理：与上面的事务分开（失败不该把 DB 那几步一起回滚）----
-    r["images_archived"] = archive_images_older_than(days=365)
-    r["compressed_orphans_purged"] = purge_orphan_compressed()
-    r["exports_purged"] = purge_old_export_files()
-    # ⚠️ 放在 DB 那几步**之后**：它要按"库里还引用着哪些 URL"来判，必须看到本轮删完之后的真实引用集。
-    r["orphan_images_purged"] = purge_orphan_images(db)
+    #
+    # ⚠️ 这四步原来**连 `try` 都没有**（2026-09-24 第 19 轮）：数据库那三步有 savepoint + 记 -1，
+    #    而这里任何一步抛异常（磁盘忙、一张图格式怪、导出目录被占）会**直接冒到 `main.py`**，
+    #    于是**后面几步当天全不跑**，而且没人能从返回值看出少了哪一步 —— 与"失败被记成
+    #    今天已完成"合起来就是"这一步可能永远不再执行"。现在四步各自兜住、各自记 -1，
+    #    与上面三步同形（调用方/日志能指出是哪一步）。
+    for name, step in (
+        ("images_archived", lambda: archive_images_older_than(days=365)),
+        ("compressed_orphans_purged", purge_orphan_compressed),
+        ("exports_purged", purge_old_export_files),
+        # ⚠️ 放在 DB 那几步**之后**：它要按"库里还引用着哪些 URL"来判，必须看到本轮删完之后的真实引用集。
+        ("orphan_images_purged", lambda: purge_orphan_images(db)),
+    ):
+        try:
+            r[name] = step()
+        except Exception:
+            logger.exception("数据治理的文件级步骤失败，跳过它继续跑后面的：%s", name)
+            r[name] = -1
     return r

@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
 
-from app.core.business_time import business_date, business_local, business_range_utc
+from app.core.business_time import business_date, business_local, business_range_utc, local_stamp
 from app.services.ledger_scope import visible_ledger_select
 from app.core.rbac import Permission
 from app.database import get_db
@@ -782,7 +782,17 @@ def export_report(
             ws.append(["敏感操作日志", note])
             ws.append(["时间", "操作", "内容"])
             for log in logs:
-                ws.append([log.created_at.isoformat() if log.created_at else "", log.action, log.change_content or ""])
+                # ⚠️ 印**当地时刻**（2026-09-24 第 19 轮）：这一列原来直接 `created_at.isoformat()`，
+                #    而 `created_at` 存的是 **UTC naive** —— 东八区当地 00:00~08:00 的动作会被印成
+                #    **前一天**的时间（导出的窗口却是"业务当地日"）：一份"09-24 的审计报告"里
+                #    躺着一行 `2026-09-23T16:29`，看的人会以为这条动作不属于这一天、
+                #    或者怀疑导出窗口没生效。口径只有一处：`business_time.local_stamp`
+                #    （第 18 轮为"印给人看的时间戳"建的那个入口）；这里要带年份，所以显式给 fmt。
+                ws.append([
+                    local_stamp(log.created_at, fmt="%Y-%m-%d %H:%M") if log.created_at else "",
+                    log.action,
+                    log.change_content or "",
+                ])
 
     buf = BytesIO()
     wb.save(buf)

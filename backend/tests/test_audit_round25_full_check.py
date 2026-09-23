@@ -220,7 +220,18 @@ def test_orphan_images_purged_but_referenced_ones_kept(tmp_path, monkeypatch, db
     缺陷现场（2026-09-19 外部完整检查 C-6）：唯一清理路径只覆盖
     `uploads/delivery/{order_id}`，`uploads/locations/` 下**一行删除代码都没有**
     —— 实测 42 个文件跑完整条治理链前后不变，是全系统唯一永久且无限的堆积路径。
+
+    ⚠️ 2026-09-24 第 19 轮改（E2）：`delivery/` 现在**也按引用清**（原来那三条
+    "只写盘、不建引用"的路让这个目录只增不减）。所以这一条用例跟着改成**按引用**分：
+      · 被订单 `delivery_photo_urls` 声明的送达凭证 → 必须保住（这就是"凭证不可删"的本意）；
+      · 谁都不引用的 delivery 文件（司机传了没走完配送 / 业务回滚留下的）→ 现在该被清掉。
+    原来那句 `assert delivery_photo.is_file()` 钉的是**旧行为**，而它构造的那个文件
+    **恰恰没有任何引用** —— 判据钉错了侧（第 17/18 轮同形的第二次）。
     """
+    from datetime import date as _date
+
+    from app.models import Order
+    from app.models.enums import OrderStatus
     from app.models.shipper import ShipperLocation
     from app.services import image_archive as ia
 
@@ -232,8 +243,9 @@ def test_orphan_images_purged_but_referenced_ones_kept(tmp_path, monkeypatch, db
     used_loc = up / "locations" / "used.jpg"
     orphan_loc = up / "locations" / "orphan.jpg"
     orphan_prod = up / "products" / "7" / "orphan.jpg"
-    delivery_photo = up / "delivery" / "42" / "evidence.jpg"
-    for f in (used_loc, orphan_loc, orphan_prod, delivery_photo):
+    delivery_photo = up / "delivery" / "42" / "evidence.jpg"      # 被订单声明 → 保护
+    orphan_delivery = up / "delivery" / "42" / "abandoned.jpg"    # 谁都不引用 → 该清
+    for f in (used_loc, orphan_loc, orphan_prod, delivery_photo, orphan_delivery):
         f.write_bytes(b"\xff\xd8\xff\xe0fake")
         _backdate(f, 30)
 
@@ -247,16 +259,30 @@ def test_orphan_images_purged_but_referenced_ones_kept(tmp_path, monkeypatch, db
             is_deleted=True,
         )
     )
+    # 送达凭证：由**订单行**声明（`delivery_photo_urls` 是它唯一的归属来源）
+    db_session.add(
+        Order(
+            order_no="SO-ORPHAN-PURGE-1",
+            shipper_id=users["shipper"].id,
+            status=OrderStatus.DELIVERED,
+            order_date=_date(2026, 9, 10),
+            delivery_photo_urls=["/static/uploads/delivery/42/evidence.jpg"],
+        )
+    )
     db_session.flush()
 
     monkeypatch.chdir(tmp_path)
     removed = ia.purge_orphan_images(db_session, days=7)
 
-    assert removed == 2, f"应当只删两张无引用的（实际 {removed}）"
+    assert removed == 3, f"应当删三张无引用的（实际 {removed}）"
     assert used_loc.is_file(), "还被引用的图**绝对不能删**"
     assert not orphan_loc.exists(), "无人引用的地址图应当清掉"
     assert not orphan_prod.exists(), "无人引用的商品图应当清掉"
-    assert delivery_photo.is_file(), "送达凭证有自己的按单清理路径，这条扫描不许碰它"
+    assert delivery_photo.is_file(), "被订单声明的送达凭证**绝对不能删**（货损/纠纷的唯一影像证据）"
+    assert not orphan_delivery.exists(), (
+        "谁都不引用的 delivery 文件应当清掉 —— 否则这个目录只增不减"
+        "（司机拿了 URL 没走完配送 / 业务回滚但文件已落盘，本机实测 534 个文件 0 个被引用）"
+    )
 
 
 def test_orphan_purge_respects_grace_period(tmp_path, monkeypatch, db_session):
