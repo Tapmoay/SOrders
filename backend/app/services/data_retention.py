@@ -34,6 +34,7 @@ from app.models.shipper_settlement import ShipperSettlement
 from app.models.user import User
 from app.services.image_archive import (
     archive_images_older_than,
+    protected_image_urls,
     purge_orphan_compressed,
     purge_orphan_images,
 )
@@ -272,15 +273,41 @@ def delete_orders_by_ids(db: Session, ids: list[int]) -> int:
     #    第 201 张起，订单行已经删了、**没有任何东西再引用那些文件**，
     #    于是送达照片（本系统最大一类文件）永久残留在磁盘上（2026-09-19 审计 R12-M7）。
     #    口径改成与批量上限同源：这一轮删了哪些单，就清哪些单的目录。
+    #
+    # ⚠️⚠️ 但"这个目录里的文件都属于这张单"是**错的**（2026-09-24 第 19 轮 H 级）：
+    #    `uploads/delivery/{order_id}/` 同时装着**地址参考图**（`POST /orders/{id}/address-image`），
+    #    而那种图的 URL 会被写进**共享地点库** `places.image_urls` 与上传人/货主的
+    #    `shipper_locations.image_urls`（`services/place_service.attach_order_photo`）——
+    #    地名册三种角色都看得到。整目录删 = 把**别人还在用的那张照片**物理删掉，
+    #    地点缩略图永久白图且不可恢复（原图已 unlink），而这是"到期必然发生"的。
+    #    所以删之前先算一次"库里还有谁引用着"，被引用的一律留下；
+    #    订单行自己在上面已经删了，于是剩下的引用**必定来自别的表**（地点/共享库/别的单）。
+    #    留了文件就不 rmdir（目录空着也无害，下一轮治理会再判一次）。
+    keep = protected_image_urls(db)
+    held_back = 0
     for oid in ids:
         try:
             d = Path("uploads") / "delivery" / str(oid)
             if d.is_dir():
                 for f in d.iterdir():
+                    if not f.is_file():
+                        continue
+                    url = f"/static/uploads/delivery/{oid}/{f.name}"
+                    if url in keep:
+                        held_back += 1
+                        continue
                     f.unlink(missing_ok=True)
-                d.rmdir()
+                try:
+                    d.rmdir()          # 还有被引用的照片时删不掉（非空）—— 这正是我们要的
+                except OSError:
+                    pass
         except Exception:
             logger.warning("清理订单图片目录失败 orders=%s", oid, exc_info=True)
+    if held_back:
+        logger.warning(
+            "订单到期清理：%s 张照片仍在被别处引用（地点库/共享库），**保留不删**（涉及订单 id=%s）",
+            held_back, ids[:10],
+        )
     return len(ids)
 
 

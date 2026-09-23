@@ -90,6 +90,17 @@ REFERENCED_IMAGE_COLUMNS: tuple[tuple[type, str, bool], ...] = (
 #: 扩展名 → PIL 保存格式。**扩展名与写出的格式必须一致**（见模块头的说明）。
 _FORMAT_BY_SUFFIX = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}
 
+#: 送达凭证（`orders.delivery_photo_urls`，JSON 数组）。
+#:
+#: ⚠️ 它**故意不进** [REFERENCED_IMAGE_COLUMNS]：送达照片的生命周期绑在订单上，
+#: 订单行还在就一张都不动（那是货损/纠纷的唯一影像证据），而"按引用扫"会让
+#: 某次引用写坏直接变成"删掉凭证"。
+#: 但反过来——清理 `uploads/delivery/` 里**没人引用**的孤儿文件时，它必须是**保护集**：
+#: 少了它，"刚送完的单的照片"在 `ORPHAN_IMAGE_GRACE_DAYS` 之后就会被当成孤儿删掉
+#: （2026-09-24 第 19 轮：`purge_orphan_images` 原来根本不扫 delivery，所以这一半是
+#: 从"永远不删"直接跳到"删掉在用的"的边界上，必须一次把两边都写对）。
+DELIVERY_PHOTO_COLUMNS: tuple[tuple[type, str], ...] = ((Order, "delivery_photo_urls"),)
+
 
 def _save_kwargs(fmt: str) -> dict:
     if fmt == "JPEG":
@@ -194,13 +205,37 @@ def purge_orphan_compressed() -> int:
 
 
 def referenced_image_urls(db: Session) -> set[str]:
-    """库里**还在引用**的全部图片 URL（含软删行）。
+    """库里**还在引用**的全部图片 URL（含软删行）——[REFERENCED_IMAGE_COLUMNS] 那一份清单。
 
     ⚠️ 软删行必须算进来（`shipper_addresses` / `shipper_locations` 有回收站 + 恢复端点）：
     按 `is_deleted` 过滤会让"删掉又恢复"的地点永久丢图——而那是**不可恢复**的。
+
+    ⛔ 送达凭证**不在这里**（见 [DELIVERY_PHOTO_COLUMNS] 与 [delivery_photo_urls]）：
+    要"连凭证一起保护"的地方请用 [protected_image_urls]。
     """
+    return _collect_urls(db, REFERENCED_IMAGE_COLUMNS)
+
+
+def delivery_photo_urls(db: Session) -> set[str]:
+    """所有订单声明的送达照片 URL（`orders.delivery_photo_urls`，含软删/隔离区的单）。"""
+    return _collect_urls(db, DELIVERY_PHOTO_COLUMNS)
+
+
+def protected_image_urls(db: Session) -> set[str]:
+    """**清理 `uploads/` 下文件时必须保护**的全部 URL = 通用引用清单 + 送达凭证。
+
+    一处实现，两个调用方（`purge_orphan_images` 与 `delete_orders_by_ids`）——
+    分头各写一遍的话，删文件的两条路会各保护一半（那是**不可恢复**的那种错）。
+    """
+    return referenced_image_urls(db) | delivery_photo_urls(db)
+
+
+def _collect_urls(db: Session, columns: tuple[tuple[type, str], ...]) -> set[str]:
+    """给定 `(模型, 列名, 是否 JSON 数组)` 清单 → 库里出现的全部 URL。"""
     out: set[str] = set()
-    for model, col, is_list in REFERENCED_IMAGE_COLUMNS:
+    for spec in columns:
+        model, col = spec[0], spec[1]
+        is_list = spec[2] if len(spec) > 2 else True   # delivery_photo_urls 是 JSON 数组
         for (value,) in db.execute(select(getattr(model, col))).all():
             if not value:
                 continue
@@ -233,19 +268,29 @@ def purge_orphan_images(db: Session, days: int = ORPHAN_IMAGE_GRACE_DAYS) -> int
     时间是错的尺子：图存进库之后就一直有用（地点可能两年没人碰但要能从订单里点开）。
     判据只能是"还有没有任何一行指着它"。
 
-    ### 为什么**不含** `delivery/`
-    送达照片是货损/纠纷的唯一影像证据，它们的生命周期**绑在订单上**：
-    `delete_orders_by_ids` 已经按订单 id 精确清理（订单行还在就一张都不动）。
-    把它改写成"按引用扫"会让"某次引用写坏"直接变成"删掉凭证"，风险明显更大。
+    ### `delivery/` 从"永远不删"改成"按引用清"（2026-09-24 第 19 轮）
+    原来这里明确**排除** delivery，理由写的是"订单行还在就一张都不动"。
+    那句话对**送达凭证**成立，对**同一个目录里的地址参考图**不成立 —— 而且它只覆盖了
+    "订单被物理清理"那一条路，另外三条路（司机调 `POST /orders/{id}/delivery-photos`
+    拿了 URL 没走完配送、`complete-with-upload` 业务校验失败回滚但文件已落盘、
+    一次多选里第 N 张类型不对而前 N-1 张已落盘）产生的文件**谁都不删**：
+    本机实测 `uploads/delivery` 534 个文件、被 `orders.*` 任何一列引用的 **0** 个，
+    其中还有 1 个目录的订单行**早已不存在**（订单清理时按旧批次上限漏掉了它）。
+
+    所以现在 delivery 也按引用清，但保护集**多一类**：`orders.delivery_photo_urls`
+    （送达凭证）——见 [DELIVERY_PHOTO_COLUMNS]。少它的后果是把**刚送完的单的照片**
+    在宽限期之后删掉（不可恢复），那比"磁盘多占一点"严重得多。
 
     `days` 是宽限期（见 `ORPHAN_IMAGE_GRACE_DAYS`）：只删"早就没人引用"的，
     不碰"刚上传、用户正在填表单"的。
     """
-    keep = referenced_image_urls(db)
+    keep = protected_image_urls(db)
     cutoff = time.time() - days * 86400
     uploads = Path("uploads")
     removed = 0
-    for sub in ("locations", "products"):
+    # ⚠️ 三个子目录走**同一段扫描逻辑**（原来 locations/products 在这里、delivery 在
+    #    `data_retention.delete_orders_by_ids` 里，两份判据分头演进迟早分叉）。
+    for sub in ("locations", "products", "delivery"):
         base = uploads / sub
         if not base.is_dir():
             continue
@@ -266,5 +311,5 @@ def purge_orphan_images(db: Session, days: int = ORPHAN_IMAGE_GRACE_DAYS) -> int
             except OSError:
                 logger.warning("清理无引用图片失败：%s", f, exc_info=True)
     if removed:
-        logger.info("清理无引用图片 %s 个（locations/products，宽限 %s 天）", removed, days)
+        logger.info("清理无引用图片 %s 个（locations/products/delivery，宽限 %s 天）", removed, days)
     return removed

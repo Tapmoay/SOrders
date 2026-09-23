@@ -42,18 +42,30 @@ RETENTION = ROOT / "backend" / "app" / "services" / "data_retention.py"
 MIN_URL_COLUMNS = 8
 MIN_REGISTRY_ROWS = 6
 
-#: 故意**不**进清理判据清单的列：键 = "模型.列名"，值 = 为什么。
+#: 故意**不**进通用清理判据清单的列：键 = "模型.列名"，值 = 为什么。
+#:
+#: ⚠️ 2026-09-24 第 19 轮改：`Order.delivery_photo_urls` 原来靠这条排除"不保护"，
+#:    而那一版的 `purge_orphan_images` **根本不扫** `uploads/delivery/`，所以"不保护"当时
+#:    等于"不清理"（暂时无害）。现在 delivery 也按引用清了，于是它必须进
+#:    `image_archive.DELIVERY_PHOTO_COLUMNS`（送达凭证的保护集）——排除**只**表示
+#:    "不进通用清单"，不再表示"没人保护它"。下面第 4 条判据正面钉住这件事。
 EXCLUDED: dict[str, str] = {
     "Order.delivery_photo_urls": (
-        "送达照片是货损/纠纷的唯一影像证据，生命周期绑在订单上："
-        "delete_orders_by_ids 已按订单 id 精确清理（订单行还在就一张都不动）。"
-        "改成按引用扫会让'某次引用写坏'直接变成'删掉凭证'，风险明显更大。"
+        "送达照片是货损/纠纷的唯一影像证据，生命周期绑在订单上：**通用**清单"
+        "（REFERENCED_IMAGE_COLUMNS）里不收它，改由 `DELIVERY_PHOTO_COLUMNS` 单独保护，"
+        "订单物理清理时也只按 id 精确处理（见 data_retention.delete_orders_by_ids）。"
+        "⛔ 但它**不许**变成「没人保护」：清理 `uploads/delivery/` 的孤儿文件时，"
+        "它必须是保护集的一部分（否则刚送完的单的照片会在宽限期后被删）。"
     ),
 }
 
 _CLASS_RE = re.compile(r"^class\s+(\w+)\s*\(", re.M)
 _ATTR_RE = re.compile(r"^    (\w+)\s*:\s*Mapped\[", re.M)
 _REGISTRY_RE = re.compile(r"^\s*\(\s*(\w+)\s*,\s*\"(\w+)\"\s*,\s*(True|False)\s*\)\s*,", re.M)
+#: 送达凭证保护清单里**必须真的有** `(Order, "delivery_photo_urls", …)` 这一对（看内容，不看名字）。
+_DELIVERY_REGISTRY_RE = re.compile(
+    r"DELIVERY_PHOTO_COLUMNS[^=]*=\s*\(\s*\(\s*Order\s*,\s*\"delivery_photo_urls\"\s*\)", re.S
+)
 
 
 def _read(p: Path) -> str:
@@ -137,6 +149,34 @@ def main() -> int:
         errs.append(
             "`data_retention.run_daily_retention` 里没有调用 `purge_orphan_images` —— "
             "判据再全也没人执行，`uploads/locations/` 照样永远堆积。"
+        )
+
+    # ---- 2026-09-24 第 19 轮：**删文件的两条路都必须被约束** ----
+    #
+    # 原来这份检查只喂 `purge_orphan_images`，对 `delete_orders_by_ids`（订单物理清理时
+    # 按 id **整目录删** delivery）毫无约束 —— 而那条路才是唯一会"删掉别人还在用的图"的
+    # （同一个目录里既有送达凭证、又有被共享地点库引用的地址参考图）。三条：
+    #   ① delivery 必须真的被按引用扫（`purge_orphan_images` 的目录清单里有它）；
+    #   ② 送达凭证必须有**自己的保护清单**（`DELIVERY_PHOTO_COLUMNS`），别只在注释里；
+    #   ③ 订单物理清理必须先问一次保护集（`protected_image_urls(`）。
+    arch = _read(ARCHIVE)
+    if '"delivery"' not in arch.split("def purge_orphan_images", 1)[-1]:
+        errs.append(
+            "`purge_orphan_images` 没有扫描 `delivery/` —— 只写盘不建引用的那些文件"
+            "（司机拿了 URL 没走完配送 / 业务回滚但文件已落盘）谁都不删，磁盘只增不减。"
+        )
+    if not _DELIVERY_REGISTRY_RE.search(arch):
+        # ⚠️ 判据必须看**内容**，不能只看名字：反向验证第一次注入的就是"把那个元组清空"，
+        #    而"名字还在、`delivery_photo_urls` 这个词还在（函数名里就有）"照样满足
+        #    `in arch` —— 于是它绿着，而照片会被删。所以这里要求元组里**真的有那一对**。
+        errs.append(
+            "`image_archive.DELIVERY_PHOTO_COLUMNS` 里没有 `Order.delivery_photo_urls` —— "
+            "给 delivery 做「按引用清」而不同时保护送达凭证 = 删掉刚送完的单的照片（不可恢复）。"
+        )
+    if "protected_image_urls(" not in ret:
+        errs.append(
+            "`data_retention.delete_orders_by_ids` 没有先取一次保护集（`protected_image_urls(`）—— "
+            "它是「按 id 整目录删」的那一条路：同目录里的地址参考图会被一起物理删除，不可恢复。"
         )
 
     if errs:
