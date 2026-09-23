@@ -71,6 +71,23 @@ class AiWritePromptTest {
     }
 
     @Test
+    fun `工具说明不许手抄域清单（按角色算出来的那份才算数）`() {
+        // `AiTools.kt` 里的两条 `description` 常量曾经手抄过"域清单"与"共 36 张表"，
+        // 而真实清单是**按角色算出来的**：派单员 16 个域 / 货主 5 个域，
+        // 抄的那七个域里有五个货主一个动作都没有 → 货主问「你能改什么」会被告知能改库存与账号
+        // （2026-09-24 第 22 轮 F1-D1/D2）。域名只在 `AiWrite*.kt` 里定义，
+        // 所以"工具说明里出现 `【域】`"就等价于"又抄了一份"。
+        val src = java.io.File("src/main/java/com/tapmoay/sorders/ai/AiTools.kt").readText()
+        val leaked = AiWrites.groups.filter { src.contains("【$it】") }
+        assertTrue("工具说明里又手抄了域清单：$leaked（域清单必须现算，见 AiWrites.describeForModel）", leaked.isEmpty())
+        assertTrue(
+            "两条说明都要把模型指向**按角色算出来的**那份清单",
+            src.contains("按你的角色") && src.contains("以 action 参数的说明为准"),
+        )
+        assertTrue("写侧那条也要说清「清单里没有的就是做不了」", src.contains("清单里没有的操作就是做不了"))
+    }
+
+    @Test
     fun `说明书体积有上限（防下次顺手全带上）`() {
         val actor = AiActor.byRole(AiRole.DISPATCHER)
         // 带进上下文的那些约束一共占多少字符（≈ 这次新增的固定开销）
