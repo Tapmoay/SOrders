@@ -225,11 +225,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/order-products` | `list_order_products` | `backend/app/api/v1/order_products.py:122` | 权限:ORDER_READ_ALL |
-| 2 | `POST /api/v1/order-products` | `create_order_product` | `backend/app/api/v1/order_products.py:135` | 权限:ORDER_PRODUCT_EDIT |
-| 3 | `GET /api/v1/order-products/{line_id}` | `get_order_product` | `backend/app/api/v1/order_products.py:191` | 权限:ORDER_READ_ALL |
-| 4 | `PATCH /api/v1/order-products/{line_id}` | `update_order_product` | `backend/app/api/v1/order_products.py:199` | 权限:ORDER_PRODUCT_EDIT |
-| 5 | `DELETE /api/v1/order-products/{line_id}` | `delete_order_product` | `backend/app/api/v1/order_products.py:255` | 权限:ORDER_PRODUCT_EDIT |
+| 1 | `GET /api/v1/order-products` | `list_order_products` | `backend/app/api/v1/order_products.py:161` | 权限:ORDER_READ_ALL |
+| 2 | `POST /api/v1/order-products` | `create_order_product` | `backend/app/api/v1/order_products.py:174` | 权限:ORDER_PRODUCT_EDIT |
+| 3 | `GET /api/v1/order-products/{line_id}` | `get_order_product` | `backend/app/api/v1/order_products.py:230` | 权限:ORDER_READ_ALL |
+| 4 | `PATCH /api/v1/order-products/{line_id}` | `update_order_product` | `backend/app/api/v1/order_products.py:238` | 权限:ORDER_PRODUCT_EDIT |
+| 5 | `DELETE /api/v1/order-products/{line_id}` | `delete_order_product` | `backend/app/api/v1/order_products.py:294` | 权限:ORDER_PRODUCT_EDIT |
 
 ### `backend/app/api/v1/order_template_categories.py` — 5 个
 

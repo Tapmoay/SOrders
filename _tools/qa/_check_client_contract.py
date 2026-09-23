@@ -23,6 +23,8 @@
    - `allowed = (…)`：`order_flow.cancel_pending` / `recall_dispatch`
    - `if order.status != OrderStatus.X`：`assign_driver` / `driver_ack_view` / `complete_delivery`
    - `return order.status in (…)`：`order_products._order_allows_line_edit`
+     （2026-09-23 起**也认** `return order.status in <具名常量>`：那三个状态提成了
+     `LINE_EDITABLE_STATUSES`，与原子占位的 `WHERE` 共用一份）
    - `if order.status in (…): raise`：`update_order` / `update_order_freight` → 允许 = ENUM 减去它
    - `if order.status == OrderStatus.X: raise`：`_payment_scoped_order` → 允许 = ENUM 减去它
 3. 客户端声明的集合（H5 `constants/order.ts` / App `core/OrderStatusModel.kt`）与 2 **逐值相等**；
@@ -153,6 +155,32 @@ def _members(text: str) -> set[str]:
     return set(re.findall(r"OrderStatus\.([A-Z_]+)", text))
 
 
+def kt_body(src: str, signature: str) -> str:
+    """Kotlin 函数的函数体（按花括号配平从 `signature` 往后取，注释已剥掉）。
+
+    ⚠️ 为什么需要它（2026-09-23 第 6 轮，反向验证抓到）：`priceFor` 那条判据原来写成
+    **"整个文件里出现过 `priceRulesShipper != subject`"** —— 而同一个形状在提交闸门、
+    `alertSummary` 里还有两处，于是**把 `priceFor` 里那道守卫整个删掉，这条判据照样绿**
+    （反向验证报 MISS：注入进去了、红线没红）。判据必须钉在**那个函数体**上，
+    不然它会一直被别处的同形语句喂饱。
+    """
+    i = src.find(signature)
+    if i < 0:
+        return ""
+    brace = src.find("{", i)
+    if brace < 0:
+        return ""
+    depth = 0
+    for j in range(brace, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[brace + 1 : j]
+    return src[brace + 1 :]
+
+
 def _tuple_after(body: str, head: str) -> set[str] | None:
     m = re.search(head + r"\s*\(([^)]*)\)", body)
     return None if m is None else _members(m.group(1))
@@ -182,9 +210,28 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
 
     body = body_of(ORDER_PRODUCTS, "_order_allows_line_edit")
     m = re.search(r"return\s+order\.status\s+in\s*\(([^)]*)\)", body)
-    if m is None:
-        raise KeyError("order_products._order_allows_line_edit 里没解析出 `return order.status in (…)`")
-    gates["LINE_EDITABLE"] = (_members(m.group(1)), "order_products::_order_allows_line_edit")
+    if m is not None:
+        members = _members(m.group(1))
+        src = "order_products::_order_allows_line_edit::return order.status in (…)"
+    else:
+        # ⚠️ 2026-09-23 第 6 轮：那三个状态被提成了**具名常量** `LINE_EDITABLE_STATUSES`
+        #    （Python 判据与上面那条原子占位的 `WHERE` 共用它 —— 两处各写一遍会出现
+        #    "改一个忘一个"，而两次判据不一致时宽的那一处就是漏洞）。
+        #    所以这里也要认新写法：从常量定义里取值，而不是硬失败或者跳过。
+        m2 = re.search(r"return\s+order\.status\s+in\s+([A-Z_]+)", body)
+        if m2 is None:
+            raise KeyError(
+                "order_products._order_allows_line_edit 里既没解析出 `return order.status in (…)`，"
+                "也没解析出 `return order.status in <常量名>`"
+            )
+        const = m2.group(1)
+        full = ORDER_PRODUCTS.read_text(encoding="utf-8", errors="replace")
+        m3 = re.search(rf"^{const}\s*=\s*\(([^)]*)\)", full, re.M)
+        if m3 is None:
+            raise KeyError(f"order_products 里找不到常量 {const} 的定义（它被改名/搬走了？）")
+        members = _members(m3.group(1))
+        src = f"order_products::{const}"
+    gates["LINE_EDITABLE"] = (members, src)
 
     for name, func in (("EDITABLE", "update_order"), ("FREIGHT_EDITABLE", "update_order_freight")):
         body = body_of(ORDERS_API, func)
@@ -527,8 +574,18 @@ def main() -> int:
     if app_create.exists():
         kt = strip_js(app_create.read_text(encoding="utf-8"))
         ok("App 下单 ViewModel 按专属价报价", "specialUnitPrice" in kt and "priceFor" in kt)
+        # ⚠️ 判据钉在 **`priceFor` 的函数体**里（2026-09-23 第 6 轮修）：
+        #    原来写成"整个文件里出现过 `priceRulesShipper != subject`" —— 同一个形状在
+        #    提交闸门与 `alertSummary` 里还有两处，于是**把 `priceFor` 里那道守卫整段删掉
+        #    这条判据照样绿**（反向验证报 MISS 抓到的）。
+        pf = kt_body(kt, "fun priceFor(")
         ok("App 下单 ViewModel 有「这份价属于谁」的守卫（防报价串号）",
-           re.search(r"priceRulesShipper\s*!=\s*subject", kt) is not None)
+           bool(pf) and re.search(r"priceRulesShipper\s*!=\s*subject", pf) is not None,
+           "判据看的是 `fun priceFor(` 的函数体 —— 别处出现同形语句不算")
+        ok("守卫生效时**回退默认价**（不是继续用上一份专属价）",
+           bool(pf) and re.search(r"priceRulesShipper\s*!=\s*subject\)\s*return\s+\w+\.defaultUnitPrice", pf)
+           is not None,
+           f"priceFor 里没看到「守卫 → 回退默认价」这一对（实际：{pf.strip()[:80]!r}）")
     else:
         fails.append("找不到 App 下单 ViewModel（改名了？判据要跟着改，不许静默跳过）")
         print("  [FAIL] 找不到 android/.../ui/shipper/OrderCreateViewModel.kt")

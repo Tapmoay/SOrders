@@ -981,7 +981,7 @@
    "module_cn": "订单商品行",
    "method": "get",
    "path": "/api/v1/order-products",
-   "at": "backend/app/api/v1/order_products.py:122",
+   "at": "backend/app/api/v1/order_products.py:161",
    "auth": "权限:ORDER_READ_ALL",
    "roles": [
     "dispatcher"
