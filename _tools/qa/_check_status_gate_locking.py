@@ -28,16 +28,24 @@
 - **B. 明细编辑的门只有一处**：`_order_allows_line_edit` 的调用点必须落在
   `_locked_editable_order`（取锁 + 重读后的那个对象）里，或写在下面的 `ALLOW` 表里带理由；
   三个写端点（新建/改/删明细）必须都走 `_locked_editable_order`。
-- **C. 同一个字段的写入端点必须同源**：`orders.freight_fee` 有两个写入端点
-  （`update_order_freight` / `price_freight`），**两套状态规则**就是被绕过的那道锁
-  （实测：一个写着"已送达后锁定"，另一个只挡了 CANCELLED）。凡是写 `order.freight_fee =` 的函数
-  必须调 `lock_order_row`，或在 `ALLOW` 里写明理由。
-- **D. 兜底下限**：认出的锁调用点 / 写运费函数 / 明细写端点少于下限就先喊 ——
-  清单过期时**先报错**，不许安静地什么都不查（本项目栽过 5 次的形状）。
+- **C. 同一个字段有多个写入点时，这个字段必须有交代**（2026-09-23 第 8 轮从"只盯运费"泛化）：
+  先**盘点** `orders.<字段> =` 的赋值点（剥注释、`=(?!=)`、按 (字段, 文件, 函数) 去重），
+  凡是 ≥2 个写入点的字段，要么每个写入点自己取锁 / 有 CAS 占位 / 交给会取锁的函数，
+  要么在 `SAME_FIELD_REASONS` 里按**字段**写一句"为什么这些写入点不会分叉"。
+  为什么泛化：这一条是从**两次实测缺陷**里长出来的（第 6 轮 `freight_fee` 两个端点两套状态规则 →
+  送达后还能定价，账单 300 而结算页 350；第 7 轮 `arrears_unit_id` 三个写入点只有 `pay_order` 清指向 →
+  "先挂账 + 按现金送达"落成 `paid=True` 却指着挂账单位 → 那个单位永远删不掉）。
+  泛化当轮就抓到**第三处**：`internal_notes` 是"读出来拼一段写回去"的累计文本，
+  而 `driver_append_internal_note` 没取锁 → 两个并发追加会吃掉前一段（另一个写入点
+  `assign_driver` 早就锁了）。
+- **D. 兜底下限 + 理由表防化石**：认出的锁调用点 / 多写入点字段 / 明细写端点少于下限就先喊；
+  `ALLOW` 与 `SAME_FIELD_REASONS` 里的键必须还对应着真实位置（本项目在覆盖率那张 EXCLUDED 表上栽过）。
 
 ⚠️ **刻意不做的**：没有写成"凡是按状态判断的端点都必须取锁" ——
 那会把 20 多处**只读**或**安全方向**的判据（"已撤销的单不用再补导航"之类）一起打红，
 而永远红的检查等于没有检查（这条教训写在 `_check_vm_state_before_init.py` 的模块注释里）。
+同样地，C 也**不要求**"多写入点必须取锁"：那会把一堆本来就该幂等/同事务的写入点打红；
+它要求的是**这个字段有交代**（取锁，或者一句能站得住的理由）。
 
 用法：python _tools/qa/_check_status_gate_locking.py
 """
@@ -56,7 +64,7 @@ BACKEND = ROOT / "backend" / "app"
 
 #: 兜底下限（低于它说明扫描/切块逻辑坏了，先喊而不是"零问题全绿"）。
 MIN_LOCKS = 3
-MIN_FREIGHT_WRITERS = 2
+MIN_MULTI_FIELDS = 4
 MIN_LINE_ENDPOINTS = 3
 
 #: `_order_allows_line_edit` 允许出现的调用点（键 = 文件名 + 函数名），**没有理由的一律报红**。
@@ -70,8 +78,58 @@ ALLOW_LINE_GATE: dict[tuple[str, str], str] = {
     ),
 }
 
-#: 写 `order.freight_fee` 却不必取锁的（键 = 文件名 + 函数名），理由必写。
-ALLOW_FREIGHT_WRITER: dict[tuple[str, str], str] = {}
+#: **同一个字段的多个写入点**按字段写的理由（键 = `orders` 上的字段名）：回答
+#: 「这些写入点为什么不会分叉」。⛔ 写不出理由的，就该像第 6·7 轮那两处一样去修，
+#: 而不是在这里补一句"没事"。
+SAME_FIELD_REASONS: dict[str, str] = {
+    # ---- 收款状态那一组：三个写入点（送达 / 现场收款确认 / 挂账）----
+    "paid": (
+        "三个写入点写的是**同一个事实**（这笔钱收到没有），而且只有两种终态：收了 / 挂着。"
+        "送达那一路由调用方 `complete_delivery` 的 CAS（ACCEPTED→DELIVERED）把住，"
+        "`pay_order` 与 `charge_order` 各自走 `_payment_scoped_order` + `_reject_if_already_collected`；"
+        "并发点相反的两个按钮时终态必是二者之一（不会有半截），且**都不写金额**"
+        "（收款单与现金流水在 `create_receipt` 那条路上）—— 所以这里不存在'两个数'。"
+    ),
+    "payment_method": (
+        "与 `paid` 同一次赋值、同一组终态（`cash` / `arrears`），没有第三个写入点能只改其中一个："
+        "三个函数都是把 `paid` 与 `payment_method` 一起写的（第 7 轮把送达那一路也统一了）。"
+    ),
+    "arrears_unit_id": (
+        "第 7 轮刚统一过：**收到钱就清掉、挂账就设上**（`_apply_complete_payment` / `pay_order` / "
+        "`charge_order` 三处同源）。它不是「钱收没收到」的判据（那看 `paid`），而是「这笔账归哪个单位」"
+        "的指向，所以只要与 `paid` 一致就不会分叉 —— 而这一致性有**库级不变式**兜着："
+        "`_fuzz_invariants.py` 的「已收款却还指着挂账单位 = 0 行」。"
+    ),
+    "arrears_unit_name": (
+        "与 `arrears_unit_id` 同一组：名字是**下单那一刻的快照**（报表按名字分组，不 join 名册），"
+        "三处写入点都与 id 一起写、一起清（同上一条）。"
+    ),
+    # ---- 异常标记那一组：标记 / 解除 ----
+    "is_exception": (
+        "标记与解除是**同一个标记的两个方向**，两处都走 `ORDER_EXCEPTION` 审计，"
+        "并发时终态是「标着」或「解除了」之一。这一组字段（含下面三条）在两侧都是**成组维护**的："
+        "重新登记异常时会把上一次的解决说明与解决时间一起清掉（2026-09-19 审计修过），"
+        "所以不会出现「标着异常、却带着旧的解决时间」那种半截状态"
+        "（那会让异常单永远不出现在待处理里）。"
+    ),
+    "exception_reason": (
+        "与 `is_exception` 同一次写入：标记时写原因、解除时保留原因为「异常订单」，见上一条。"
+    ),
+    "exception_resolution": (
+        "解除那一路用 `note or 原值`（**只在给了说明时覆盖**），标记那一路把它清空 —— "
+        "两条路径都保证「有说明 ⟺ 已解除」，见 `is_exception` 那条。"
+    ),
+    "exception_resolved_at": (
+        "只在「解除」那条路径写时间、在「重新标记」时清空（`patch_order_exception` 里那一句），"
+        "两处合起来保证「非空 ⟺ 这条异常已经解决」。"
+    ),
+    # ---- 软删 ----
+    "deleted_at": (
+        "订单的隔离状态**只有这一列**（没有独立的 `is_deleted`）：软删写时间戳、恢复写 NULL，"
+        "两个动作互逆、终态只有两种；恢复那道门还要求 `deleted_at is not None`（不在隔离区就 404）。"
+        "所以并发时后写者胜也只会得到「删了」或「恢复了」之一，不存在半截标记 —— 无需取锁。"
+    ),
+}
 
 STATUS_CMP = re.compile(r"\bstatus\s*(?:!=|==|not in|in)\b")
 FUN_DEF = re.compile(r"^(?:async\s+)?def\s+(\w+)\s*\(", re.M)
@@ -126,7 +184,6 @@ def main() -> int:
     c = Checker()
 
     lock_sites: list[tuple[str, str, str]] = []      # (文件, 函数, 函数体**代码**)
-    freight_writers: list[tuple[str, str, str]] = []
     gate_sites: list[tuple[str, str]] = []
     for f in py_files():
         src = read(f)
@@ -134,13 +191,10 @@ def main() -> int:
             code = code_only(body)
             if "lock_order_row(" in code:
                 lock_sites.append((f.name, name, code))
-            if re.search(r"\border\.freight_fee\s*=", code):
-                freight_writers.append((f.name, name, code))
             if "_order_allows_line_edit(" in code and "def _order_allows_line_edit" not in code:
                 gate_sites.append((f.name, name))
 
-    print(f"扫到 .py {len(py_files())} 个；锁调用点 {len(lock_sites)} 处、"
-          f"写订单运费的函数 {len(freight_writers)} 个、明细状态门 {len(gate_sites)} 处")
+    print(f"扫到 .py {len(py_files())} 个；锁调用点 {len(lock_sites)} 处、明细状态门 {len(gate_sites)} 处")
 
     print("\n== A. 先锁再判（`lock_order_row` 必须在第一处状态比较之前）==")
     for fname, name, body in lock_sites:
@@ -192,18 +246,54 @@ def main() -> int:
              "它自己读了订单对象再判状态 —— 并发下会放行已送达/已撤销的单")
     c.ok(f"明细写端点不少于 {MIN_LINE_ENDPOINTS} 个", len(bodies) >= 0)
 
-    print("\n== C. 同一个字段的写入端点必须同源（`orders.freight_fee`）==")
+    print("\n== C. 同一个字段有多个写入点时，这个字段必须有交代（取锁 / 或者书面理由）==")
     # 「会取锁的函数」= 自己调了 `lock_order_row` 的那些；调用它们**也算**取到了锁
     # （例：`assign_order` 把运费交给 `assign_driver`，而后者先锁行再判 + 条件 UPDATE 占位）。
     lockers = {name for _, name, _ in lock_sites}
-    for fname, name, body in freight_writers:
-        why = ALLOW_FREIGHT_WRITER.get((fname, name))
-        delegates = sorted(n for n in lockers if n != name and re.search(rf"\b{n}\s*\(", body))
-        ok = bool(why) or "lock_order_row(" in body or bool(delegates)
-        c.ok(f"{fname}::{name} 写运费前取了锁（或交给会取锁的 {delegates or '—'}）", ok,
-             "同一个字段有两个写入端点、两套状态规则时，严的那一端会被绕过（实测过）")
-    c.ok(f"写运费的函数不少于 {MIN_FREIGHT_WRITERS} 个（少说明正则失效）",
-         len(freight_writers) >= MIN_FREIGHT_WRITERS, f"实际 {len(freight_writers)} 个")
+    # 盘点：`orders.<字段> =`（已剥注释、`=(?!=)` 排除 `==`），**按 (字段, 文件, 函数) 去重**。
+    # ⚠️ 这一条是从**两次实测缺陷**里长出来的（第 6 轮 `freight_fee`：两个端点两套状态规则 →
+    #    送达后还能定价，账单 300 而结算页 350；第 7 轮 `arrears_unit_id`：三个写入点只有
+    #    `pay_order` 清指向 → "先挂账 + 按现金送达"落成 paid=True 却指着挂账单位 →
+    #    `delete_unit` 永远删不掉那个单位）。两次都是"同一个字段、不同的人各写各的"。
+    #
+    # 判据刻意**不**要求"多写入点必须取锁"：那会把一堆本来就该幂等/同事务的写入点打红，
+    # 而永远红的检查等于没有检查。要求的是**这个字段有交代**：
+    #   (a) 每个写入点自己取锁 / 条件是「有 CAS 占位」/ 或者把活交给会取锁的函数；**或**
+    #   (b) 在下面 `SAME_FIELD_REASONS` 里按**字段**写一句"为什么这些写入点不会分叉"。
+    # 没有 (a) 也没有 (b) → 报红（并且理由表要防化石）。
+    field_writers: dict[str, list[tuple[str, str, str]]] = {}
+    for f in py_files():
+        for name, body in functions(read(f)):
+            code = code_only(body)
+            if not re.search(r"\border\.[a-z_]+\s*=(?!=)", code):
+                continue
+            for m in re.finditer(r"\border\.([a-z_]+)\s*=(?!=)", code):
+                sites = field_writers.setdefault(m.group(1), [])
+                if not any(fn == f.name and nm == name for fn, nm, _ in sites):
+                    sites.append((f.name, name, code))
+    multi = {k: v for k, v in sorted(field_writers.items()) if len(v) >= 2}
+    print(f"  盘出 orders 上 {len(field_writers)} 个字段有赋值点，其中**多写入点** {len(multi)} 个：")
+    for field, sites in multi.items():
+        tag = "（已交代）" if field in SAME_FIELD_REASONS else ""
+        print(f"    · orders.{field}{tag}：{'、'.join(f'{fn}::{nm}' for fn, nm, _ in sites)}")
+    c.ok(f"多写入点字段不少于 {MIN_MULTI_FIELDS} 个（少说明盘点失效）",
+         len(multi) >= MIN_MULTI_FIELDS, f"实际 {len(multi)} 个")
+    for field, sites in multi.items():
+        reason = SAME_FIELD_REASONS.get(field)
+        if reason:
+            c.ok(f"orders.{field} 有交代：{reason[:34]}…", len(reason) >= 20,
+                 "理由太短，等于没写（要能回答『这些写入点为什么不会分叉』）")
+            continue
+        for fn, nm, body in sites:
+            delegates = sorted(n for n in lockers if n != nm and re.search(rf"\b{n}\s*\(", body))
+            has_cas = bool(re.search(r"db\.execute\(\s*update\(", body))
+            c.ok(
+                f"orders.{field} ← {fn}::{nm} 取锁 / 有 CAS / 或在理由表里",
+                "lock_order_row(" in body or has_cas or bool(delegates),
+                f"这个写入点既没取锁、也没有条件 UPDATE 占位（也没交给会取锁的 {delegates or '—'}），"
+                f"字段 `{field}` 又没在 `SAME_FIELD_REASONS` 里写理由 —— 同一个字段的多个写入点"
+                f"不同源时，口径宽的那一个就是漏洞（第 6·7 轮各栽过一次）",
+            )
 
     print("\n== D. 允许表不许有化石（写过的理由必须还对应一个真实位置）==")
     # ⚠️ 理由表最容易变成"看起来处理过了、其实那条早就不存在了"（本项目在覆盖率那张
@@ -211,9 +301,9 @@ def main() -> int:
     seen_line = set(gate_sites)
     fossils_line = sorted(k for k in ALLOW_LINE_GATE if k not in seen_line)
     c.ok("明细状态门的允许表没有化石", not fossils_line, f"已经不存在：{fossils_line}")
-    seen_freight = {(fn, nm) for fn, nm, _ in freight_writers}
-    fossils_freight = sorted(k for k in ALLOW_FREIGHT_WRITER if k not in seen_freight)
-    c.ok("写运费的允许表没有化石", not fossils_freight, f"已经不存在：{fossils_freight}")
+    fossils_same = sorted(k for k in SAME_FIELD_REASONS if k not in multi)
+    c.ok("同源理由表没有化石（那个字段已经不是多写入点了）", not fossils_same,
+         f"已经不存在：{fossils_same}")
 
     print("\n" + "=" * 60)
     if c.fails:

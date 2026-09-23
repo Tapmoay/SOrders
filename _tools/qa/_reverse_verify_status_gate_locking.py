@@ -64,7 +64,7 @@ CASES: list[tuple[str, Path, str, str, str]] = [
         "        raise HTTPException(status_code=400, detail=\"这一单已经撤销了，不用再定价\")",
         "    if order.status == OrderStatus.CANCELLED:\n"
         "        raise HTTPException(status_code=400, detail=\"这一单已经撤销了，不用再定价\")",
-        "写运费前取了锁",
+        "orders.freight_fee ← orders.py::price_freight",
     ),
     (
         "别处又冒出一个直接判状态的地方（没登记理由就是绕过那道门）",
@@ -76,12 +76,39 @@ CASES: list[tuple[str, Path, str, str, str]] = [
         "是允许的状态门调用点",
     ),
     (
-        "允许表里塞一条化石（那个位置早就不存在了）",
+        "理由表里塞一条化石（那个字段已经不是多写入点了）",
         CHECK,
-        "ALLOW_FREIGHT_WRITER: dict[tuple[str, str], str] = {}",
-        "ALLOW_FREIGHT_WRITER: dict[tuple[str, str], str] = {\n"
-        "    (\"orders.py\", \"早就删掉的函数\"): \"化石\",\n}",
+        "SAME_FIELD_REASONS: dict[str, str] = {",
+        "SAME_FIELD_REASONS: dict[str, str] = {\n"
+        "    \"早就删掉的字段\": \"化石化石化石化石化石化石化石化石化石化石化石\",",
         "没有化石",
+    ),
+    (
+        "某个多写入点字段的理由被删掉（而它又没取锁）",
+        CHECK,
+        '    "paid": (\n        "三个写入点写的是**同一个事实**',
+        '    "paid__X": (\n        "三个写入点写的是**同一个事实**',
+        "orders.paid ←",
+    ),
+    (
+        "理由写得太短（等于没写）",
+        CHECK,
+        '    "exception_reason": (\n'
+        '        "与 `is_exception` 同一次写入：标记时写原因、解除时保留原因为「异常订单」，见上一条。"\n'
+        "    ),",
+        '    "exception_reason": "没事",',
+        "理由太短",
+    ),
+    (
+        "新加一个没人交代的多写入点字段（两个函数各写一处，谁都没取锁也没理由）",
+        ORDERS,
+        ['    order.exception_reason = body.exception_reason or ""\n',
+         "    if body.internal_notes is not None:\n        order.internal_notes = body.internal_notes\n"],
+        ['    order.exception_reason = body.exception_reason or ""\n'
+         "    order.zzz_probe_field = 1\n",
+         "    if body.internal_notes is not None:\n        order.internal_notes = body.internal_notes\n"
+         "        order.zzz_probe_field = 2\n"],
+        "orders.zzz_probe_field",
     ),
     (
         "锁调用点的数量下限失守（扫描坏了却不喊）",
@@ -89,6 +116,13 @@ CASES: list[tuple[str, Path, str, str, str]] = [
         "MIN_LOCKS = 3",
         "MIN_LOCKS = 999",
         "锁调用点不少于",
+    ),
+    (
+        "多写入点的盘点下限失守（盘点逻辑坏了却不喊）",
+        CHECK,
+        "MIN_MULTI_FIELDS = 4",
+        "MIN_MULTI_FIELDS = 999",
+        "多写入点字段不少于",
     ),
 ]
 
@@ -116,12 +150,22 @@ def main() -> int:
         original_bytes = originals[path]
         crlf = b"\r\n" in original_bytes
         plain = original_bytes.decode("utf-8").replace("\r\n", "\n")
-        if plain.count(old) != 1:
-            fails.append(f"{label}：注入没生效（原文出现 {plain.count(old)} 次，请更新本脚本）")
+        # `old`/`new` 可以是**一串**替换（一次注入要在两个函数里各加一行时用它 ——
+        # 例："新加一个没人交代的多写入点字段"必须让那个字段真的有两个写入点）。
+        olds = old if isinstance(old, list) else [old]
+        news = new if isinstance(new, list) else [new]
+        data = plain
+        ok_anchor = len(olds) == len(news)
+        for o, nw in zip(olds, news):
+            if data.count(o) != 1:
+                ok_anchor = False
+                break
+            data = data.replace(o, nw, 1)
+        if not ok_anchor:
+            fails.append(f"{label}：注入没生效（某个原文不是恰好出现 1 次，请更新本脚本）")
             print(f"  [SKIP] {label}")
             continue
         try:
-            data = plain.replace(old, new, 1)
             path.write_bytes((data.replace("\n", "\r\n") if crlf else data).encode("utf-8"))
             code, out = run_check()
         finally:

@@ -1066,6 +1066,12 @@ def driver_append_internal_note(
     if role not in (UserRole.DRIVER.value, UserRole.DISPATCHER.value):
         raise HTTPException(status_code=403, detail="无权操作")
     order = _order_not_deleted_or_404(db.scalars(select(Order).where(Order.id == order_id)).first())
+    # ⚠️ **先取锁再改这一段文本**（2026-09-23 第 8 轮）：这一行是"读出来 → 拼一段 → 写回去"
+    #    （`internal_notes` 是**累计文本**，不是单值字段）。两个并发追加（司机与派单员各写一条，
+    #    或同一个人两个设备）会各自读到同一份旧文本、各自拼一段再写回 → **后写的那一段把前一段
+    #    整条吃掉**，而两边都收到 200。这条红线（`_check_status_gate_locking.py` 的"多写入点必须同源"）
+    #    把 `internal_notes` 盘出来时才看见：另一个写入点 `assign_driver` 早就锁了，这里漏了。
+    order = lock_order_row(db, order)
     if role == UserRole.DRIVER.value:
         if order.driver_id != current.id:
             raise HTTPException(status_code=403, detail="无权操作")
@@ -1119,6 +1125,11 @@ def fill_order_navigation(
     if role not in (UserRole.DRIVER.value, UserRole.DISPATCHER.value):
         raise HTTPException(status_code=403, detail="仅司机或派单员可以补导航信息")
     order = _get_order_scoped(order_id, current, db)
+    # ⚠️ **先取锁再判"要不要补"**（2026-09-23 第 8 轮）：下面那道门是"还没有坐标才让补"，
+    #    而它读的是手边这份对象；`PATCH /orders/{id}`（改地址，已取锁）与它写的是**同一组字段**
+    #    （`address_detail` / `address_lat` / `address_lng`）。不同源时口径宽的那一个就是漏洞：
+    #    派单员刚把地址改对、司机这一下补录又把它盖回他现场选的那个点。
+    order = lock_order_row(db, order)
     if order.deleted_at is not None:
         raise HTTPException(status_code=400, detail="这张订单在回收站里，不能补导航信息")
     if order.address_lat is not None and order.address_lng is not None:
