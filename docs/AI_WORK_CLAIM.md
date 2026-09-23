@@ -92,7 +92,7 @@ driver_billing_rules,freight_templates,price_rules}.py`、`backend/app/core/{dat
 核心改动：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：线上库给已有表**补列的唯一入口**
 （`shipper_locations.contact_name/contact_phone` 两列；新表 `unit_conversions` 由 `create_all` 自动建，不走这里）。
 
-### [2026-09-24 07:4x → ] 会话：**全项目系统性复核 · 第 24 轮**（第 7 次并行渗透：**再换 12 个全新区域**；统一修 R8）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-24 07:4x → 09:1x] 会话：**全项目系统性复核 · 第 24 轮**（第 7 次并行渗透：**再换 12 个全新区域**；统一修 R8-1…R8-4，5 个提交）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **并行渗透（第 7 批区域，见 `_archive/audit/round24/README.md`）**：并发与幂等（双层）/
 软删四件套完整性矩阵 / 权限矩阵机器对账（全端点 × 3 角色）/ 分页与截断完整性 /
@@ -184,8 +184,23 @@ F5-2/3/4（201-upsert 静默改名、400 把英文参数名印上屏、HEAD 405�
 `_tools/ai/_sysprompt_size.py`、`deploy/nginx/snippets/sorders-api-locations.conf`、
 两份生成物（端点索引 / AI 读目录）。
 
-**明确不碰**：`android/.../data/remote/api/Apis.kt`、`.../data/repo/AppRepository.kt`、
-`.../ui/dispatcher/DispatcherLedgerViewModel.kt`（另有一个会话正在改，工作区里那三个 ` M` 不是我的）。
+**验收**：`pytest tests` 全量 **910 passed**（本轮新增 3 个测试文件共 9 条用例）；Android
+`AiRowShaperTest` BUILD SUCCESSFUL；`_check_status_gate_locking.py` **54 项**（新增的两个锁点自动进清单）、
+`_check_core_freeze.py` **43 项**、`_check_soft_delete_guards.py`、`_check_ps1_encoding.py`、
+`_check_report_window.py`、`_check_freight_pricing.py`、`_check_upload_limits.py` 全绿；
+`_reverse_verify_soft_delete.py` **5/5**。
+
+⚠️ **这一轮 `_check_all.py` 有 8 项红，全部来自另一个会话正在改的东西**（会话 `session-83d…`：
+新增 `ContactPickerSheet.kt`/`ContactFill.kt`、`LOCATION_UPDATE` 的新键、`shipper.py` 的新端点
+→ 端点索引与 hint 目录过期、构建时锁住文件）。**我这一轮没有去重生成那两份产物、也没重启本机后端**：
+它们取决于对方**还没写完**的代码，现在重生成等于把半个状态固化，还会和他们的重生成撞车
+（`AGENTS.md` 第 2 条：别人正在改的文件不要同时改）。我这一轮**没有碰**他们的任何文件
+（工作区里那 15 个 ` M` 与 4 个 `??` 都是他们的）。
+
+**明确不碰**：`android/.../{Apis.kt,AppRepository.kt,Dtos.kt,AiWriteService.kt,AiWriteBasicData.kt,
+ui/dispatcher/DispatcherLedgerViewModel.kt,ui/shipper/*}`、
+`backend/app/api/v1/shipper.py`、`backend/app/core/schema_bootstrap.py`、
+`backend/app/models/shipper.py`、`backend/app/schemas/shipper.py`（另一个会话正在改）。
 
 **验收**：`_check_all.py` **88/88**；后端 `pytest tests` **892 passed**（本轮新增 10 条用例，
 分文件跑过 3/3、3/3、51、16）；Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL**
