@@ -20,6 +20,63 @@
 
 ## 进行中
 
+### [2026-09-23 22:3x → ] 会话：**全项目系统性复核 · 第 17 轮**（用户定的新工作方式：**先派 12 个子代理并行渗透 → 各自写 md → 我统一读、统一改**；本轮已落地第一批 6 处整体修改）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**为什么改成这个方式**（用户原话）：「你可以首先规划好要探索的区域…派至少 8 个子代理去测试…
+他们返回来的结果写进 md 文档当中保存起来，然后你在阅读他们的文档统一做整体上的修改、测试、验证。
+这样子我们就节省了每次发现一个 bug 修得一些重复的操作」。
+
+**已做**：12 个子代理并行只读渗透，报告落在 `_archive/audit/round17/`（01~12，共 ~60 条结论，
+含「逐条缺陷 + 我看过但确认没问题的 + 我没看完的部分」三段，`_archive/` 按仓库既有约定被 gitignore，
+是本地工作区产物，与 `FINDINGS.md` / `HANDOVER.md` 同一档）。计划与分工见 `round17/README.md`。
+
+**本轮统一修改（第一批 6 处，都是"同一件事散在多处 / 判据钉错了侧"那一类）**
+| # | 改了什么 | 来源 |
+| --- | --- | --- |
+| B1 | **商品毛利两个数**：商品经营那条循环改用净额（`line_receivable` / `max(0, net_qty)`），与营业纵览逐项同源 | A7-1（高） |
+| B2 | **退货回库只加不减**：`restock_room` 以"实扣 − 到仓入库 − 已回补"封顶（本机虚增 20 件的那种路径） | A6-1/2（高） |
+| B3 | 账本侧「单子结束了不许改钱」的手写清单**少了 `RETURNED`** → 改成与订单明细共用 `LINE_EDITABLE_STATUSES` | A6-3 |
+| B4 | 账号生命周期：**删号/恢复都撤销会话**（+ 断长连接）、**「启用」不是「恢复」**（拦住并指路）、**改密码与货主↔司机互换留痕** | A3-2 / A12-1/2 |
+| B5 | **弹层里的失败原因被页面级 error 盖住**（真机抓到）：销货账本「撤销/恢复」+ 派单员订单管理四个弹层 | 真机 E2E + A10-2 |
+| B6 | **货主不该读到「公司付给司机的运费」与司机计费**（出参口径收窄） | A1-1 |
+
+**改哪些文件**
+- `backend/app/api/v1/reports.py`、`backend/app/services/inventory_service.py`、
+  `backend/app/api/v1/ledger.py`、`backend/app/api/v1/users.py`、`backend/app/services/order_return.py`
+- `backend/tests/`：`test_report_gross_profit_one_source.py`、`test_return_restock_capped.py`、
+  `test_ledger_closed_gate.py`、`test_user_lifecycle_audit.py`、`test_order_response_shipper_freight.py`（均新增）、
+  `test_audit_round2_guards.py`（把钉住"毛额"的那条断言改成净额）
+- `_tools/qa/_check_order_return.py`（回补形状那条判据原来钉着 `+ qty` —— 它正在挡正确修法）
+- Android：`ui/common/Components.kt`（`DangerConfirmDialog` 加可选 `error`）、
+  `ui/shipper/ShipperLedgerScreen.kt` + `ShipperLedgerViewModel.kt`、
+  `ui/dispatcher/DispatcherOrdersScreen.kt` + `DispatcherOrdersViewModel.kt`
+
+核心改动：backend/app/services/order_response.py —— 为什么必须动核心：它是**订单出参装配的唯一入口**
+（司机视角门控、货主视角裁剪都在这里），而"公司付给司机多少"这一块原来是**界面上藏、接口与 AI 都没藏**
+（实测货主读自己的单与派单员逐字节相同）—— 收窄只能改这一处。
+
+### [2026-09-23 22:2x → 23:0x] 会话：**全项目系统性复核 · 第 16 轮**（逐域核对「钱」的第五处：**批发商那本账** —— 同一笔钱能被记两遍：**恢复路径已经复现**、**并发路径完全没设防**）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**为什么查这一域**：钱的口径在本项目一共有五处（订单应收/已收 `order_money`、司机应付 `driver_pay`、
+公司收款的防重算 `accounting_service`、退货红冲 `order_return`、**批发商自记账 `shipper_settle`**）。
+前四处都治过"同一笔钱被记两遍"，**只有第五处没治**：它的守卫是"还可核销 = 行应收 − 已核销"，
+而这个数**是普通 SELECT 读出来的**（没有行锁），恢复端点 `POST /settlements/{id}/restore`
+**连上限检查都没有**。
+
+**改哪些文件（本轮）**
+- `backend/app/services/shipper_settle.py`（**核心区**：加锁读 + 上限判据只有这一处）
+- `backend/app/api/v1/shipper_ledger.py`（核销先锁订单行；恢复前重算上限）
+- `backend/tests/test_shipper_settle_ceiling.py`（新）、`backend/tests/test_shipper_settlement.py`（那条把
+  "恢复出一笔多收"当正常的断言要改 —— 它现在是**绿的**，正是它把这个缺陷钉成了"设计如此"）
+- `_tools/fuzz/_fuzz_invariants.py`（加一条库级不变式：Σ 未撤销核销行 ≤ 行应收）
+- `_tools/perf/_concurrency_probe.py`（加第 ⑬ 条：并发核销）
+- `_tools/qa/_check_shipper_settle_ceiling.py`（新红线）+ `_tools/qa/_reverse_verify_shipper_settle_ceiling.py`（新反向验证）
+- 真机 E2E：5556 货主端「我的账本」核销 / 撤销 / 恢复
+
+核心改动：backend/app/services/shipper_settle.py —— 为什么必须动核心：它是批发商那本账
+「应收 / 已核销 / 还可核销」的**唯一实现**（界面上的数与提交时的上限校验都读它），
+这一轮要把"读这个数"变成**加锁读**、并把上限判据补成**恢复路径也要过**的那一道。
+
 ### [2026-09-23 21:3x → 22:1x] 会话：**全项目系统性复核 · 第 15 轮**（真机走通**退货全链路**：货主申请 → 派单员办理 → 红冲/回库/退现；顺带抓到「退现那一行的对象名把注册货主写成临时货主」）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **一、真机走通退货全链路（三个角色、三台设备）**
