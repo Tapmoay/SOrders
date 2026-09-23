@@ -156,4 +156,6 @@ python _tools/qa/_probe_prod_readonly.py --sql              # 只打印会发出
 9. **库存/商品/价格**：商品增改、批价档、批量调价、库存流水
 10. **消息**：Socket 实时刷新、消息中心
 11. **导出**：账本导出租（异步任务）、报表导出（同步 xlsx）→ ⚠️ **xlsx 要逐格与接口对账**
-    （判据在 `backend/tests/test_export_cells_match_api.py`，反向验证 `_tools/qa/_reverse_verify_export_cells.py`）
+    （六个 kind 全覆盖：`backend/tests/test_export_cells_match_api.py` 管 turnover/products，
+    `test_export_cells_other_kinds.py` 管 finance/customers/drivers/audit；
+    反向验证 `_tools/qa/_reverse_verify_export_cells.py`，13 条注入）
