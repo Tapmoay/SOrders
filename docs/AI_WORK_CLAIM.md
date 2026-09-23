@@ -20,6 +20,39 @@
 
 ## 进行中
 
+### [2026-09-24 00:4x → ] 会话：**全项目系统性复核 · 第 20 轮**（第 4 次并行渗透：**再换 12 个全新区域**；统一修 R1~R3 + 真机证据）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**并行渗透（第 4 批区域，见 `_archive/audit/round20/README.md`）**：权限矩阵静态对账（222 个端点）/
+数据库迁移与老库兼容 / 时间口径全量 sweep / 每个「待办」的可见性 / AI 卡片承诺 vs 落库结果 /
+多 worker 与多进程语义 / 出参序列化与类型边界 / 错误文案的可操作性 / 唯一约束×软删×复用 /
+真机 E2E 扫尾规划 / 导出产物往返可读性 / 订单四条结束路径的交叉。**12/12 全部交付**，
+约 51 条确认缺陷 / 7 条高，逐条台账进 `_archive/audit/FINDINGS.md` 第五十轮。
+
+| # | 改了什么 | 来源 | 提交 |
+| --- | --- | --- | --- |
+| R1 | 钱动了**只有货主一个人**收到刷新（司机「我的运费」与派单员「账本管理」订阅的就是那个信号却永远收不到）；**核销端点一个推送都不发**；**改单一个推送都不发**（而它正是给在途单用的） | 第 20 轮 C12-1/2/3（3 高） | `60ba8cd` |
+| R2 | 账号恢复的**半条记录**：`username` 撞索引 → 整次恢复回滚（老账号永久放不回来）；`phone` 撞号 → 活账号带着**别人的号码**，而订单出参无条件去 `_del` 后缀 → **拨号键打给抢走号码的那个人** | 第 20 轮 D9-F3 / 第 19 轮 C6-1 | `eba47c1` |
+| R3 | 货主删自己「已送达」的单 = **自己把欠款从账上抹掉**（`shipper_ledger` 按 `deleted_at is None` 聚合）—— 判据（后端 + Android + 一条用例）原来**同时钉着相反的行为** | 第 20 轮 D12-F3 | `d9a50d7`、`5b67eea` |
+
+**真机 E2E（第 19 轮欠的那一次）**：`python _tools/qa/_install_all.py --only 5554` 装包 → 派单员订单管理
+顶栏出现第 7 档 **「已派单」** → 点进去列出**库里那 7 张**（含卡了 12 天的 09-11 那张）。
+证据：`_agent/e2e/round20-dispatched-tab-01.png`、`-02.png` + `uiautomator` dump。
+⚠️ 实测坑：`_agent/_e2e.py` 的 serial 必须写 `emulator-5554`（写 `5554` **静默无效且退出码仍是 0**）。
+
+**改哪些文件**：`backend/app/services/{message_center,push_events,soft_delete,order_response}.py`、
+`backend/app/api/v1/{ledger,orders,users,freight_settlement}.py`、
+`backend/tests/{test_ledger_push_recipients,test_user_restore_conflicts}.py`（新）+
+`test_in_flight_order_delete_guard.py`、`test_shipper_ledger_summary.py`（两条钉错侧的用例）；
+`android/.../core/OrderStatusModel.kt`；`_tools/qa/{_check_order_driver_call,_check_user_search,
+_reverse_verify_order_driver_call,_reverse_verify_user_search,_reverse_verify_background_tasks}.py`；
+`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json` + `AiReadCatalog.kt`。
+
+**验收**：`_check_all` 88/88；后端全量 **884 passed**；Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL**；
+`_reverse_verify_{order_driver_call,user_search}` 24/24 与 25/25；`_check_reverse_verify_anchors` 1122 条全在。
+
+核心改动：backend/app/services/order_response.py —— 为什么必须动核心：它是**订单出参装配的唯一入口**，
+这一轮把司机电话号码的口径收成 `soft_delete.dialable_phone`（活账号带 `_del` 后缀 = 号码已被别人抢走 → 不给号）。
+
 ### [2026-09-24 00:0x → ] 会话：**全项目系统性复核 · 第 19 轮**（第 3 次并行渗透：**换 12 个全新区域**；统一修 E1~E4）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **并行渗透（第 3 批区域，见 `_archive/audit/round19/README.md`）**：钱的三方对账 / AI 能力对账（目标②）/
