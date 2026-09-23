@@ -339,6 +339,10 @@ def create_location(
         address_lng=body.address_lng,
         category=_clean_category(body.category),
         is_warehouse=_may_mark_warehouse(current) and body.is_warehouse,
+        # 地点绑定的联系人（用户 2026-09-24）：与线路的 receiver_name/phone 同一口径 ——
+        # 存快照串，名册（shipper_contacts）只是"给用户挑一个人"的来源，不做外键。
+        contact_name=body.contact_name,
+        contact_phone=body.contact_phone,
     )
     # 顺手建分类：用户在"保存地点"时直接敲一个新分类名 = 他就是在建分类。
     # 放在 flush 之前不影响；名册里已经有了就什么都不做。
@@ -390,6 +394,11 @@ def update_location(
         if body.is_warehouse and not _may_mark_warehouse(current):
             raise HTTPException(status_code=403, detail="只有派单员可以把地点设为仓库")
         loc.is_warehouse = body.is_warehouse
+    # 地点绑定的联系人（2026-09-24）：None = 不改，"" = 解绑（与线路那套 PATCH 语义一致）
+    if body.contact_name is not None:
+        loc.contact_name = body.contact_name
+    if body.contact_phone is not None:
+        loc.contact_phone = body.contact_phone
     # 多图：显式传 image_urls 用新列表；旧客户端传 image_url 单图兼容
     if body.image_urls is not None:
         _apply_images(loc, body.image_urls)

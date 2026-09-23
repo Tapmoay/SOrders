@@ -124,6 +124,12 @@ class LocationCreate(GeoInput):
     category: str = Field(default="", max_length=32)
     #: 是不是仓库。**只有派单员**能置 true（见 api/v1/shipper.py）；货主传 true 会被忽略并提示。
     is_warehouse: bool = False
+    #: 这个地点默认的联系人（收货人）。用户 2026-09-24：「**可以通过地点来绑定联系人**…
+    #: 选择地点之后，自动填入对应的联系人」。
+    #: ⚠️ 与线路（[AddressCreate].receiver_name / phone）**同一口径**：存快照串、不存外键；
+    #:   电话走 `app/core/phone.py` 的**同一条**规则（7~12 位数字），不在这里另写一遍。
+    contact_name: str = Field(default="", max_length=128)
+    contact_phone: ContactPhone = Field(default="", max_length=32)
     image_urls: list[Url] = Field(default_factory=list, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
     image_url: str | None = Field(None, max_length=MAX_URL)
@@ -139,6 +145,9 @@ class LocationUpdate(GeoInput):
     category: str | None = Field(None, max_length=32)
     #: None = 不改（只有派单员能改）
     is_warehouse: bool | None = None
+    #: None = 不改；"" = 解绑（与地址/线路那套 PATCH 语义一致）
+    contact_name: str | None = Field(None, max_length=128)
+    contact_phone: OptionalContactPhone = Field(None, max_length=32)
     # None = 不修改；[] = 清空
     image_urls: list[Url] | None = Field(None, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
@@ -159,6 +168,9 @@ class LocationOut(_ImageUrlsMixin):
     #  还要在行上标出"这是我的仓"。
     category: str = ""
     is_warehouse: bool = False
+    #: 这个地点绑定的联系人（收货人）：空串 = 没绑。下单页选中这个地点时按它回填收货人两栏。
+    contact_name: str = ""
+    contact_phone: str = ""
     created_at: datetime
 
 

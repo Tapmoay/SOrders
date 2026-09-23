@@ -441,6 +441,25 @@ def _bootstrap_impl(engine: Engine) -> None:
                         pass
                     else:
                         raise
+        # ---------- 地点绑定的联系人（2026-09-24：选择地点后自动填入对应的联系人） ----------
+        # 与线路（`shipper_addresses.receiver_name/phone`）同一口径：**存快照串、不存外键** ——
+        # 名册里删掉一个人不该让某个地点的收货人凭空消失（那一单要照着这个人打电话）。
+        # 两列都是 VARCHAR，所以两种方言同一句 DDL（TEXT 才需要分开写：MySQL 的 TEXT 不许有 DEFAULT）。
+        for col, ddl in (
+            ("contact_name", "VARCHAR(128) DEFAULT ''"),
+            ("contact_phone", "VARCHAR(32) DEFAULT ''"),
+        ):
+            if col not in lcols:
+                logger.warning("检测到旧库缺少 shipper_locations.%s，正在补列（地点绑定的联系人）…", col)
+                with engine.begin() as conn:
+                    try:
+                        conn.execute(text(f"ALTER TABLE shipper_locations ADD COLUMN {col} {ddl}"))
+                    except DBAPIError as e:
+                        msg = str(e).lower()
+                        if "duplicate" in msg or "already exists" in msg:
+                            pass
+                        else:
+                            raise
     # ---------- 库存流水订单联动迁移（2026-09） ----------
     if "inventory_movements" in insp.get_table_names():
         mcols = {c["name"] for c in insp.get_columns("inventory_movements")}

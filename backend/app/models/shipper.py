@@ -72,5 +72,19 @@ class ShipperLocation(Base, TimestampMixin, SoftDeleteMixin):
     #  不一定只能选一个，可以选好多个」）。送到仓库的单按"货进来了"处理（自动入库，
     #  见 `services/warehouse.py`）。**只有派单员能改**（`api/v1/shipper.py` 里判）。
     is_warehouse: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    #: 这个地点默认的联系人（收货人）——
+    #: 用户 2026-09-24：「同时再给他添加个功能就是**可以通过地点来绑定联系人**，
+    #: 就大家选择地点之后，自动填入对应的联系人」。
+    #:
+    #: ⛔ **与线路（[ShipperAddress].receiver_name / phone）同一口径：存快照串、不存外键**。
+    #: 两件事别混：名册（[ShipperContact]）回答的是"我认识哪些人"，这里回答的是
+    #: "送到这个地点通常谁收货"。挂外键的后果是名册里删掉一个人（或改个名），
+    #: 某个地点的收货人就跟着消失/改名 —— 而那一单要照着这个人打电话。
+    #: 线路那边存的就是串，两处必须同形，否则下单页带出联系人的那一段要分两套写法。
+    #:
+    #: ⚠️ 只有「我的地点」（本表）能绑人；**共享地点库（`places`）不绑** —— 那张表全库共用
+    #:    （司机补录的坐标大家都能选），绑一个人的电话等于给所有人都换了默认收货人。
+    contact_name: Mapped[str] = mapped_column(String(128), default="")
+    contact_phone: Mapped[str] = mapped_column(String(32), default="")
 
     shipper: Mapped["User"] = relationship()
