@@ -20,7 +20,7 @@
 
 ## 进行中
 
-### [2026-09-24 02:0x → ] 会话：**全项目系统性复核 · 第 23 轮**（**第 6 批 12 份渗透报告的统一修**：先修 R7 两条，其余按序推进）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-24 02:0x → 07:3x] 会话：**全项目系统性复核 · 第 23 轮**（**第 6 批 12 份渗透报告的统一修**：R7-1…R7-8 全做完，7 个提交）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **这一轮的输入**是第 22 轮派出的 12 个子代理留下的 12 份报告（`_archive/audit/round22/01..12-*.md`，
 `_archive/` 不在 git 里）。本轮**不再派新的渗透**，先把它们统一修掉——用户定的是
@@ -30,36 +30,54 @@
 | --- | --- | --- | --- |
 | R7-1 | **「日期反了」在聚合端点上是静默空集**：同一个反序区间，列表端点回 400、`/stats/*` 六个 + `/reports/arrears-summary` + `/supplier-payments` + `/freight-settlement` 回 **200 + 空集**，而报表中心把**同一段日期**发给所有这些端点 → 同一页上「营业纵览」报红字、「司机绩效/客户经营/异常与审计」显示"没有数据"。修法=`core/date_window.py` 新增 `ensure_date_order()`（与 `date_window()` 同口径同文案），9 个端点接入；`reports.py::_span` 里那句自己抄的「结束日期不能早于开始日期」也收掉 | 第 22 轮 F8-1 | 见下 |
 | R7-2 | **「已撤销订单」KPI 漏排软删**（全后端唯一一处漏的 Order 聚合）：派单员能删任意状态（含已撤销），删完这一格不减少 → 与明细越差越多。本机实测当时差 0（26 张软删单里 0 张 CANCELLED）→ 潜伏缺陷 | 第 22 轮 F8-2 | 见下 |
-| R7-3 | **AI 把退货明细写成字符串 = 静默整单退货**（`as? JsonArray` 拿不到就当"留空"）：账本整单红冲 + 库存全量回补 + 自动退款 + 订单转「已退货」，而两边都不报错。修法=形状不对/空数组一律拒绝并告诉它该写成什么；`PARAMS_HINT` 里"数组只许出现在 orders.create"那句也补上 `orders.return` | 第 22 轮 F1-D4 | 见下 |
+| R7-3 | **AI 把退货明细写成字符串 = 静默整单退货**（`as? JsonArray` 拿不到就当"留空"）：账本整单红冲 + 库存全量回补 + 自动退款 + 订单转「已退货」，而两边都不报错。修法=形状不对/空数组一律拒绝并告诉它该写成什么；`PARAMS_HINT` 里"数组只许出现在 orders.create"那句也补上 `orders.return` | 第 22 轮 F1-D4 | `c562eeb` |
+| R7-4 | **删价目把计费规则锁死又骗人**：规则卡照旧印着已删价目（实际已不算钱）→ 该路线所有单进「待定价」；而规则**再也保存不了**（400 只有编号、选择器只列活价目 → 取消不掉）；规则挂人时规则也不许删 → 死结。修法=删除侧挡住并点名哪份规则 + 卡片标「已删除，不再算钱」+ `_check_templates(existing=…)` 放行"本来就在这份规则上"的编号但不写进链接表（保存那刻清掉） | 第 22 轮 F11-1 | `eb24440` |
+| R7-5 | **批发商专属价能静默换主人**：`PATCH {"shipper_id":5}` → 200、归属 A→B、`operation_logs` **0 行**；改到不存在的账号也 200（该价从此对谁都不生效，却仍占 `(货主,商品)` 唯一槽位）。修法=目标账号必须存在（与 `create` 同口径）+ 归属变了必留痕（`moved_from`） | 第 22 轮 F12-1 | `a9a387c` |
+| R7-6 | **参数约束一句都没进模型上下文**：169 条 hint 只在"已经做错"之后由报错回显 —— 最危险的是 `freight_fee` 的「不填＝不预设；填 0＝免运费」（模型只看到「可选，数字」→ 用户说"不用预设运费"→ 传 0 → **真的变成免运费**）。修法=带上**钱的项**的 hint，实测 1846 字符（说明书 20766）；只带「必填∪钱的项」要 7255 字符（26182）→ 差近 4 倍，所以闸门只认钱的项 | 第 22 轮 F1-D3 | `5765f60` |
+| R7-7 | **工具说明手抄域清单与表名**：写侧抄了 7 个域（**货主一个动作都没有的有 5 个**）→ 货主问「你能改什么」会被告知能改库存与账号；读侧写「共 36 张」而实际派单员 53 / 货主 16；`status` 取值漏 `RETURNED`。修法=两条说明都改指向"按你的角色算出来的那份" | 第 22 轮 F1-D1/D2 | `0e5f096` |
+| R7-8 | **生产 nginx 只放行 1 MB 而后端声明 8 MB**：`location /api/` 没写 `client_max_body_size` → 实测 1000 字节 404（到 uvicorn）对 1.2 MB **413 HTML**；司机送达照（2560px/q85、一次多张）传不上 → 订单完不成、运费与账本都不生成。修法=配置补 `32m` + 新判据把"后端最宽上限"与 nginx 实际放行对账（两次 dry-run 验过） | 第 22 轮 F5-1 | `45f6207` |
 
-**判据（本轮新增/加强）**：`backend/tests/test_date_order_guard.py` —— 候选清单**从路由表自己算**
-（带 `date_from`+`date_to` 的 GET 端点逐个打反序，数量下限 9），另配**反空转**用例：
-把 `ensure_date_order` monkeypatch 成空实现后这些端点必须**不再** 400（证明 400 是那道闸门给的，
-而不是碰巧被别的校验拦下）。Android 侧 `AiWriteTest` 新增 3 条（字符串 / 空数组 / 真留空仍整单退货）。
+**判据（本轮新增/加强）**：`backend/tests/test_date_order_guard.py`（候选清单**从路由表自己算**，
+另配**反空转**用例：把闸门 monkeypatch 成空实现后这些端点必须**不再** 400）、
+`backend/tests/test_billing_rule_template_refs.py`、`backend/tests/test_price_rule_ownership.py`、
+Android `AiWriteTest` +3 条、`AiWritePromptTest`（新，5 条：钱的语义必须在**那个动作自己的段落里**、
+必填前置条件、可选文本 hint 不许进上下文、说明书体积上限、工具说明不许手抄域清单）、
+`_check_upload_limits.py` 判据⑤、`_check_freight_pricing.py` +2 条（把放行边界钉在那一行代码上）。
 
-**顺带修掉的两处**（都是这一轮实测撞见的，不是报告里的）：
+**顺带修掉的三处**（都是这一轮实测撞见的，不是报告里的）：
 ① `core/query_text.py` 的 docstring 里写了一个反斜杠后面跟反引号 → Python 3.12+ 每次编译本模块
 都报 `SyntaxWarning: invalid escape sequence`，把两个生成脚本的输出都染了一行警告；
-② 端点索引与 AI 读目录按新行号重生成（`08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`）。
+② 端点索引与 AI 读目录按新行号重生成（`08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`）；
+③ 本机后端重启到当前代码（三次）。
 
-⛔ **还没修（同一批报告里，按序推进）**：F1-D3（`hint` 从不进模型上下文 —— `freight_fee` 的
-「不填≠填 0」模型看不到）、F1-D1/D2（两条工具 description 常量手写派单员口径）、
-F7-1（订单出参没有「订单金额」）、F11-1（删价目不清计费规则引用 → 规则永远存不了）、
-F12-1（`PATCH /price-rules` 改归属零审计）、F5-1（生产 nginx 缺 `client_max_body_size`）、
-F9（N+1 族）、F10（通知有效性）、F3（近 30 天窗口 31 天）、F4（ORDER BY 无 id 兜底）、F6（纪律判据）。
+⛔ **还没修（同一批报告里，已排序）**：F7-1（订单出参没有「订单金额」→ AI 答"这单多少钱"会答 0）、
+F7-3（「欠款」三条路三个数）、F3（"近 30 天"窗口实际 31 天）、F4（`ORDER BY` 无 id 兜底 + 跨库精度/可空性）、
+F6（纪律判据：5 个含中文 .ps1 缺 BOM + 反空转下限太低 + 文档脱节三处）、F9（N+1 族）、
+F10（通知有效性：84/762 指向被回收的单、结算与规则改动从不通知）、
+F2（拆单丢 `freight_fee`/`collect_cash`、车型×计费方式矛盾）、F12-2（解除异常两条路两个终态）、
+F5-2/3/4（201-upsert 静默改名、400 把英文参数名印上屏、HEAD 405）。
 
-**改哪些文件**：`backend/app/core/date_window.py`、`backend/app/core/query_text.py`（注释）、
-`backend/app/api/v1/{stats,reports,suppliers,freight_settlement}.py`、
-`backend/tests/test_date_order_guard.py`（新）、`_tools/qa/_check_report_window.py`、
-`android/.../ai/AiWriteOrderHandlers.kt`、`android/.../ai/AiTools.kt`、
-`android/app/src/test/.../ai/AiWriteTest.kt`、两份生成物（端点索引 / AI 读目录）。
+⛔ **要用户拍板**：生产机上补 nginx `client_max_body_size` + `nginx -s reload`（生产写操作）；
+以及第 22 轮起就挂着的**生产部署**（`sorders-api` 自 2026-09-23 08:58 未重启，仍在跑第 13/19 轮之前的
+`data_retention.py`/`image_archive.py`）。
+
+**改哪些文件**：`backend/app/core/{date_window,query_text,upload_read}.py`、
+`backend/app/api/v1/{stats,reports,suppliers,freight_settlement,driver_billing_rules,freight_templates,price_rules}.py`、
+`backend/tests/{test_date_order_guard,test_billing_rule_template_refs,test_price_rule_ownership}.py`（三个新）、
+`android/.../ai/{AiWrite,AiWriteOrderHandlers,AiTools}.kt`、
+`android/app/src/test/.../ai/{AiWriteTest,AiWritePromptTest}.kt`、
+`_tools/qa/{_check_report_window,_check_freight_pricing,_reverse_verify_freight_pricing,_check_upload_limits}.py`、
+`_tools/ai/_sysprompt_size.py`、`deploy/nginx/snippets/sorders-api-locations.conf`、
+两份生成物（端点索引 / AI 读目录）。
 
 **明确不碰**：`android/.../data/remote/api/Apis.kt`、`.../data/repo/AppRepository.kt`、
 `.../ui/dispatcher/DispatcherLedgerViewModel.kt`（另有一个会话正在改，工作区里那三个 ` M` 不是我的）。
 
-**验收**：`_check_all.py` **88/88**；后端 `pytest tests` **892 passed**（含新增 4 条）；
-Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL**（`AiWriteTest` 298 条 0 失败）；
-本机后端已重启到当前代码（`_check_backend_fresh.py` 绿）；`_audit_role_ai.py` 13 条真模型探针全过。
+**验收**：`_check_all.py` **88/88**；后端 `pytest tests` **892 passed**（本轮新增 10 条用例，
+分文件跑过 3/3、3/3、51、16）；Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL**
+（`AiWriteTest` 298 条、`AiWritePromptTest` 5 条、全量 908 条 0 失败）；
+`_reverse_verify_freight_pricing.py` **23/23**；本机后端已重启到当前代码（`_check_backend_fresh.py` 绿）；
+`_audit_role_ai.py` 13 条真模型探针全过。
 
 ### [2026-09-24 01:4x → ] 会话：**全项目系统性复核 · 第 22 轮**（第 6 次并行渗透：**再换 12 个全新区域**；统一修 R6：两处钱）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
