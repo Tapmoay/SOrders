@@ -393,7 +393,13 @@ fun ProfileScreen(
     if (vm.updateState == "confirm" && vm.latest != null) {
         AlertDialog(
             onDismissRequest = { vm.updateState = "idle" },
-            title = { Text("发现新版本 v" + vm.latest?.version) },
+            // ⚠️ **两行都要带构建号**（2026-09-23 用户报障：只显示 `0.2.3` 时，
+            //    「发现新版本 v0.2.3」与「当前版本：v0.2.3 · 2026092204」看着一模一样，
+            //    他读成"让我重装当前版本"）。判新旧本来就是 `versionCode`，就把它显示出来。
+            //    口径只有一处：`UpdateProgress.versionLabel`（有单测）。
+            title = {
+                Text("发现新版本 v" + UpdateProgress.versionLabel(vm.latest?.version, vm.latest?.versionCode))
+            },
             text = {
                 Column {
                     Text("当前版本：v" + vm.currentVersion)

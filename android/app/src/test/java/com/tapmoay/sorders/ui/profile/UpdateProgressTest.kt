@@ -69,4 +69,34 @@ class UpdateProgressTest {
         assertNull(UpdateProgress.stalledHint(29))
         assertEquals("已 45 秒没有新数据，网络可能断了", UpdateProgress.stalledHint(45))
     }
+
+    /**
+     * 版本号显示口径（2026-09-23 用户报障）。
+     *
+     * 用户原话：「他一直显示啊？**重安装当前版本**，但是你已经推送回新版本了，可**版本号的问题**嘛，
+     * **0.2.3 版本号并没有发生改变**啊，因为上个版本号也是这样子的」。
+     *
+     * ⚠️ 关键那条是「**同一天打的两个包**」：产品版本都是 `0.2.3`，只有构建号不同 ——
+     * 这正是原来两行看着一模一样、被读成"重装当前版本"的场景。
+     */
+    @Test
+    fun versionLabelCarriesTheBuildNumber() {
+        assertEquals("0.2.4 · 2026092302", UpdateProgress.versionLabel("0.2.4", 2026092302))
+        // ⚠️ 同一个产品版本的两个包：**只有构建号不同**，不显示它就分不出来
+        assertEquals("0.2.3 · 2026092302", UpdateProgress.versionLabel("0.2.3", 2026092302))
+        assertEquals("0.2.3 · 2026092204", UpdateProgress.versionLabel("0.2.3", 2026092204))
+    }
+
+    @Test
+    fun versionLabelNeverInventsAVersionOrAZeroBuild() {
+        // 服务端没写 version（老后端/半截 version.json）→ 兜一句人话，⛔ 不是拼出半个 "v"
+        assertEquals("未知版本", UpdateProgress.versionLabel(null, 0))
+        assertEquals("未知版本", UpdateProgress.versionLabel("   ", null))
+        // 老后端没有 versionCode → **不拼 0**（"新版本是第 0 号"比不显示更糟）
+        assertEquals("0.2.4", UpdateProgress.versionLabel("0.2.4", null))
+        assertEquals("0.2.4", UpdateProgress.versionLabel("0.2.4", 0))
+        assertEquals("0.2.4", UpdateProgress.versionLabel("0.2.4", -1))
+        // 两端空白归一，别显示成 "0.2.4  · 2026092302"
+        assertEquals("0.2.4 · 2026092302", UpdateProgress.versionLabel(" 0.2.4 ", 2026092302))
+    }
 }

@@ -183,6 +183,39 @@ check(
     "`version`（只有 0.2.0）**永远不相等** → 每次「检查更新」都报有新版本",
 )
 
+# ── 5c. 版本号的**显示**口径：两行都要带构建号（2026-09-23 用户报障）──────────
+# 用户原话：「安装包的版本推送是不是有问题啊？他一直显示啊？**重安装当前版本**，但是你已经推送回
+# 新版本了，可**版本号的问题**嘛，**0.2.3 版本号并没有发生改变**啊，因为上个版本号也是这样子的」。
+# 根因：产品版本（`VERSION`）一天里打几个包都不变，变的只有构建号；而那个确认弹窗原来只显示
+# 服务端的 `version`，旁边「当前版本」却是带构建号的显示串 → 两行看着一模一样。
+_profile_screen = text(SCREEN)
+check(
+    "确认弹窗的标题带上构建号（否则「发现新版本 v0.2.3」与「当前版本 v0.2.3 · …」分不出来）",
+    "UpdateProgress.versionLabel(vm.latest?.version, vm.latest?.versionCode)" in _profile_screen,
+    "用户 2026-09-23 原话：「他一直显示啊？重安装当前版本……0.2.3 版本号并没有发生改变啊」——"
+    "同一天的两个包产品版本都是 0.2.3，只有构建号不同，不显示它就是一句读不出新旧的提示",
+)
+check(
+    "当前版本那一行仍然带构建号（两边口径一致才比得出来）",
+    '"当前版本：v" + vm.currentVersion' in _profile_screen,
+)
+_progress = text(PROGRESS)
+check(
+    "显示口径只有一处实现（`UpdateProgress.versionLabel`，纯函数可单测）",
+    _progress.count("fun versionLabel(") == 1,
+    "两处各拼一次 → 改一处漏一处，而弹窗上两个版本号对不齐时用户只会得出「版本号没变」",
+)
+check(
+    "老后端没有 versionCode 时**不拼 0**（拼出去等于说「新版本是第 0 号」）",
+    "code != null && code > 0" in _progress,
+)
+_upd_test = text(ROOT / "android" / "app" / "src" / "test" / "java" / "com" / "tapmoay"
+                 / "sorders" / "ui" / "profile" / "UpdateProgressTest.kt")
+check(
+    "有单测钉着这条显示口径（含「同一天两个包只差构建号」那种）",
+    'UpdateProgress.versionLabel("0.2.3", 2026092302)' in _upd_test,
+)
+
 # ── 6. 服务端 .apk 的 Content-Type ──────────────────────────────────────
 mp = text(MAIN_PY)
 check(
