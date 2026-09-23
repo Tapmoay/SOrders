@@ -10,8 +10,10 @@
 2. **索引到底在不在、优化器走没走** —— 本机 SQLite 的 `EXPLAIN QUERY PLAN` 与 MySQL 是两套
    优化器。本机"加了窗口过滤就快了"在 MySQL 上可能根本不成立（第 9 轮实测就是这样：
    窗口条件没进任何索引，报表那一族查询在生产上是 **`Table scan on o`**，读全表 2402 行）。
-3. **线上数据和仓库代码是不是同一套口径** —— 比如"结算单金额必须等于它列的司机账单合计"，
-   只有拿真库那 51 张 draft 单去比才知道有没有分叉。
+3. **线上数据和仓库代码是不是同一套口径** —— 枚举列的取值（第 10 轮就在这儿抓到代码里
+   手写了两份过期清单）、结算单金额与账单合计、收款单金额与订单行合计。
+4. **补丁里那些 DDL 真的能在 MySQL 上跑吗** —— `schema_bootstrap` 的 DDL 外面包着
+   `try/except DBAPIError: logger.warning(...)`，写错了不会有任何报错（见 `--validate-ddl`）。
 
 ## 只读保证（本脚本的第一条纪律）
 
@@ -24,15 +26,19 @@
 ## 用法
 
 ```
-python _tools/qa/_probe_prod_readonly.py                # 19 条库级不变式 + 三条热点查询的计划 + 索引清单
+python _tools/qa/_probe_prod_readonly.py                # 21 条库级不变式 + 枚举漂移 + 三条热点查询的计划 + 索引清单
 python _tools/qa/_probe_prod_readonly.py --expect-index # 额外**硬性**要求报表窗口索引存在且被用上（部署后跑这个）
-python _tools/qa/_probe_prod_readonly.py --validate-ddl # 把 bootstrap 那两句 DDL 在**会话级临时表**上演一遍
+python _tools/qa/_probe_prod_readonly.py --validate-ddl # 把 bootstrap 那两段 DDL（索引 / 枚举补全）在**会话级临时表**上演一遍
 python _tools/qa/_probe_prod_readonly.py --sql          # 只打印会发出去的 SQL（审计用，不连服务器）
 ```
 
+⚠️ 21 条 = **19 条单表内自洽**（钱/状态/时区/软删）+ **2 条跨表合计**（订单行合计 ↔ ORDER 账本合计、
+逐单核销收款单 ↔ 绑定订单的行金额合计；第 12 轮补 —— 前 19 条量的都是"一张表自己对不对"，
+这两条量的才是"两处记同一笔钱的地方对不对得上"）。
+
 ⚠️ 唯一的例外是 `--validate-ddl`：它会 `CREATE/ALTER/DROP TEMPORARY TABLE`，但作用对象是
-**会话级临时表**（连上就建、断开就消失、`SHOW TABLES` 看不见、与 `orders` 无关），列类型从
-`orders` 的真实定义抄过来。为什么值得破这个例：`schema_bootstrap` 的 DDL 外面包着
+**会话级临时表**（连上就建、断开就消失、`SHOW TABLES` 看不见、与真实表无关），列类型从
+真实表的定义抄过来。为什么值得破这个例：`schema_bootstrap` 的 DDL 外面包着
 `try/except DBAPIError: logger.warning(...)`，**写错了不会有任何报错**，只会每次启动多一行 warning、
 索引永远不存在 —— 而本机是 SQLite，验不了 MySQL 语法。默认不跑这一段。
 
@@ -238,6 +244,28 @@ INVARIANTS: tuple[Invariant, ...] = (
         " AND JSON_CONTAINS(r.order_ids, CAST(o.id AS JSON))) = 0 THEN 1 ELSE 0 END),0), COUNT(*)"
         "  FROM orders o WHERE o.paid = 1",
         "标记成已收款必须有凭据（流水或收款单）；只有标记的话账实不符且查不回去",
+    ),
+    # ---- 跨表合计（2026-09-23 第 12 轮补）：前 19 条量的都是"单表内自洽"，
+    #      这两条量的是"**两处记同一笔钱的地方对不对得上**"—— 才是用户会拿去做决定的数 ----
+    Invariant(
+        "T", "已送达/已退货的单：ORDER 账本合计 ≠ 订单行合计",
+        "SELECT COALESCE(SUM(CASE WHEN ABS(op.total - lg.total) > 0.01 THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM (SELECT o.id AS oid, COALESCE(SUM(p.line_total),0) AS total FROM orders o"
+        "          JOIN order_products p ON p.order_id = o.id"
+        "         WHERE o.status IN ('DELIVERED','RETURNED') GROUP BY o.id) op"
+        "  JOIN (SELECT l.order_id AS oid, COALESCE(SUM(l.total),0) AS total FROM ledgers l"
+        "         WHERE l.source = 'ORDER' GROUP BY l.order_id) lg ON lg.oid = op.oid",
+        "营业额 = Σ 订单行金额，而账本是逐行照着 line_total 写的（`ledger_sync`）—— 两边不等就是"
+        "「同一笔钱两个数」：账本页与报表/营业额会对不上（改行金额、补行、删行三条路都可能造成）",
+    ),
+    Invariant(
+        "U", "逐单核销的收款单金额 ≠ 它绑的那些订单的行金额合计",
+        "SELECT COALESCE(SUM(CASE WHEN ABS(r.amount - (SELECT COALESCE(SUM(p.line_total),0)"
+        " FROM JSON_TABLE(r.order_ids, '$[*]' COLUMNS(oid INT PATH '$')) jt"
+        " JOIN order_products p ON p.order_id = jt.oid)) > 0.01 THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM shipper_receipts r WHERE r.settle_mode = 'itemized'",
+        "逐单核销的规矩就是「金额必须等于所选订单的行金额合计」（后端也这么拦）—— 不等说明钱与单"
+        "对不上（多收/少收，而且核销不回去）",
     ),
 )
 
