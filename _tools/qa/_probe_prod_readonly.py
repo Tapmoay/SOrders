@@ -60,6 +60,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
@@ -267,6 +268,61 @@ INVARIANTS: tuple[Invariant, ...] = (
         "逐单核销的规矩就是「金额必须等于所选订单的行金额合计」（后端也这么拦）—— 不等说明钱与单"
         "对不上（多收/少收，而且核销不回去）",
     ),
+    # ---- 保留承诺（2026-09-23 第 13 轮补）：用户 2026-09-04 拍板的 3 年 / 30 天 / 1 年
+    #      是**对用户的承诺**，而"承诺有没有被执行"只有真库能回答：
+    #      代码里那个每日循环只要哪天不跑了，数据就会无限期留着，而**一条报错都不会有**。
+    #      ⚠️ 判据必须是「保留期 + 一个运行周期」：每日任务在两次运行之间天然会留下
+    #      「刚过期但还没轮到」的行（实测：今天 00:58 UTC 跑过一轮，最老的一条是 08-24 01:01 UTC
+    #      —— 比截止线晚 3 分钟，完全正常）。写死 30 天会天天假红。
+    Invariant(
+        "V", "站内信超过「保留 30 天 + 1 天运行周期」",
+        "SELECT COALESCE(SUM(CASE WHEN n.created_at < UTC_TIMESTAMP() - INTERVAL 31 DAY"
+        " THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM notifications n",
+        "消息保留 30 天（与消息中心一致）—— `data_retention.purge_expired_notifications` 每天跑；"
+        "超了说明那个每日循环没在跑（数据只会越留越多）",
+    ),
+    Invariant(
+        "W", "隔离区（软删）超过「30 天 + 1 天」还没被物理清理",
+        "SELECT COALESCE(SUM(CASE WHEN o.deleted_at < UTC_TIMESTAMP() - INTERVAL 31 DAY"
+        " THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM orders o WHERE o.deleted_at IS NOT NULL",
+        "软删只隔离 30 天（派单员可恢复），到期物理清理 —— 超了说明清理没跑，"
+        "而回收站里那些单会一直占着库存/账单口径",
+    ),
+    Invariant(
+        "X", "业务数据超过「保留 3 年 + 1 天」还没清",
+        "SELECT COALESCE(SUM(CASE WHEN o.created_at < UTC_TIMESTAMP() - INTERVAL 3 YEAR"
+        " - INTERVAL 1 DAY THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM orders o",
+        "订单/账本/日志一律 3 年（用户拍板）—— 超期还在说明 `purge_expired_data` 没跑",
+    ),
+    Invariant(
+        "Y", "账本 / 操作日志 / 现金流水超过「保留 3 年 + 1 天」还没清",
+        "SELECT COALESCE(SUM(CASE WHEN old_rows < UTC_TIMESTAMP() - INTERVAL 3 YEAR"
+        " - INTERVAL 1 DAY THEN 1 ELSE 0 END),0), COUNT(*)"
+        "  FROM (SELECT l.created_at AS old_rows FROM ledgers l"
+        "        UNION ALL SELECT g.created_at FROM operation_logs g"
+        "        UNION ALL SELECT c.created_at FROM cash_flows c) t",
+        "同上：这三张表也归 `purge_expired_data` 管（逐表各有一段），漏一张就是那一张无限期留着",
+    ),
+    Invariant(
+        "Z", "物理清理留下了悬空引用（指着已经不存在的单/订单行）",
+        # bad = 悬空引用条数；total = **真的检查了多少行**（三处引用加起来）——
+        # ⛔ 不能把"检查项数"当 total，那等于永远有发言权（第一版就是那么写的）。
+        "SELECT (SELECT COUNT(*) FROM orders o WHERE o.parent_order_id IS NOT NULL"
+        "          AND NOT EXISTS (SELECT 1 FROM orders p WHERE p.id = o.parent_order_id))"
+        "     + (SELECT COUNT(*) FROM order_return_requests r"
+        "          WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.id = r.order_id))"
+        "     + (SELECT COUNT(*) FROM shipper_settlement_lines l"
+        "          WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.id = l.order_id)),"
+        "       (SELECT COUNT(*) FROM orders WHERE parent_order_id IS NOT NULL)"
+        "     + (SELECT COUNT(*) FROM order_return_requests)"
+        "     + (SELECT COUNT(*) FROM shipper_settlement_lines)",
+        "第 13 轮修的就是这条：清理订单时漏解外键 → 悬空引用（而 InnoDB 会在下一次删单时直接抛错，"
+        "把当天的整套治理一起停摆）。⚠️ 这三处引用**现在是空的** → 这条判据暂时没有发言权（N/A），"
+        "一旦开始用退货/核销就会自动生效",
+    ),
 )
 
 
@@ -386,6 +442,100 @@ def enum_drift_section(have_enums: bool = True) -> tuple[list[str], list[str]]:
     return fails, notes
 
 
+def retention_runtime_section() -> tuple[list[str], list[str]]:
+    """**保留治理「真的在跑吗」**：journal + 文件目录（2026-09-23 第 13 轮补）。
+
+    上面那几条不变式（V/W/X/Y）量的是"库里有没有超期数据"—— 它们能证明"没超期"，
+    但证明不了"任务在跑"（一个从没跑过的库同样是 0 超期数据）。这一节补上另一半：
+
+    ① **journal 里有「数据保留治理完成」**（`main._retention_loop` 每次跑完都打一行，
+       带各步删除量）→ 超过 2 天没有新记录就判红：那说明循环没在跑（或启动即崩）；
+    ② **导出产物目录**里没有超过 30 天的文件（`purge_old_export_files` 管的是磁盘，
+       不在库里，上面那些 SQL 一条都查不到它）；
+    ③ **图片目录**里没有超过 1 年的**原图**（`archive_images_older_than` 负责压缩）。
+
+    ⚠️ ②③ 在没有数据的机器上是 0 命中 —— 那**不算通过**，按"没有发言权"如实报出来。
+    """
+    fails: list[str] = []
+    notes: list[str] = []
+
+    run = remote_sh(
+        "journalctl -u sorders-api.service --no-pager", timeout=180
+    )
+    if not run.ok:
+        fails.append(f"读不到 systemd journal（{run.err.strip()[:120]}）—— 这一段没在查")
+        print(f"  [FAIL] 读不到 journal：{run.err.strip()[:160]}")
+    else:
+        lines = [l for l in run.out.splitlines() if "数据保留治理完成" in l]
+        if not lines:
+            fails.append("journal 里**一条**「数据保留治理完成」都没有 —— 那个每日循环从没跑成过")
+            print("  [FAIL] journal 里一条治理记录都没有（每日循环没在跑）")
+        else:
+            last = lines[-1]
+            print(f"  [OK]   journal 里有 {len(lines)} 条治理记录；最近一条：")
+            print(f"      {last[-190:]}")
+            m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", last)
+            if m:
+                # journal 的时间戳是**服务器本地时间**（生产是东八区）
+                stamp = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=timezone(timedelta(hours=8))
+                )
+                age_h = (datetime.now(timezone.utc) - stamp).total_seconds() / 3600
+                if age_h > 48:
+                    fails.append(f"最近一次治理是 {age_h:.1f} 小时前（> 48h）—— 每日循环看起来停了")
+                    print(f"  [FAIL] 最近一次治理在 {age_h:.1f} 小时前（超过 48 小时）")
+                else:
+                    print(f"  [OK]   最近一次治理在 {age_h:.1f} 小时前（每天一次，正常）")
+
+    # ⚠️ 两个目录都查：`ledger_export_paths.EXPORT_DIR = Path("exports")`（相对进程 cwd）
+    #    与历史产物目录 `uploads/exports`。**目录不存在 = 这台机器从没导出过**，
+    #    那是"没有发言权"，不是"查不了"（第一版把这两种情况混成一句话了）。
+    for label, path in (
+        ("导出产物 exports/", "/opt/SOrders/backend/exports"),
+        ("历史导出产物 uploads/exports/", "/opt/SOrders/backend/uploads/exports"),
+    ):
+        total = remote_sh(f"find {path} -type f", timeout=120)
+        if not total.ok:
+            if "No such file or directory" in total.err:
+                notes.append(f"{label} 目录不存在（这台机器从没导出过）→ 没有发言权")
+                print(f"  [--]   {label} 目录不存在（从没导出过）")
+            else:
+                fails.append(f"{label} 查不了：{total.err.strip()[:120]}")
+                print(f"  [FAIL] {label} 查不了：{total.err.strip()[:120]}")
+            continue
+        n_total = len([l for l in total.out.splitlines() if l.strip()])
+        stale = remote_sh(f"find {path} -type f -mtime +30", timeout=120)
+        n_stale = len([l for l in stale.out.splitlines() if l.strip()])
+        if n_total == 0:
+            notes.append(f"{label} 是空的 → 「30 天清导出产物」这条没有发言权")
+            print(f"  [--]   {label} 是空的（没有发言权）")
+        elif n_stale:
+            fails.append(f"{label} 里有 {n_stale} 个超过 30 天的产物（承诺是 30 天）")
+            print(f"  [FAIL] {label} 里 {n_stale} 个文件超过 30 天")
+        else:
+            print(f"  [OK]   {label} {n_total} 个文件，没有超过 30 天的")
+
+    old_images = remote_sh(
+        "find /opt/SOrders/backend/uploads -type f -mtime +365", timeout=180
+    )
+    if not old_images.ok:
+        notes.append("查不了图片目录")
+        print(f"  [--]   图片目录查不了：{old_images.err.strip()[:100]}")
+    else:
+        pics_total = remote_sh("find /opt/SOrders/backend/uploads/delivery -type f")
+        n_pics = len([l for l in pics_total.out.splitlines() if l.strip()])
+        stale = [l for l in old_images.out.splitlines() if l.strip()]
+        if n_pics == 0:
+            notes.append("图片目录里一个文件都没有 → 「原图 1 年后压缩」这条没有发言权")
+            print("  [--]   图片目录是空的（没有发言权）")
+        elif stale:
+            notes.append(f"有 {len(stale)} 个原图超过 1 年 —— 若线上服务在跑，说明压图那一步没执行")
+            print(f"  [--]   {len(stale)} 个原图超过 1 年（保留承诺是 1 年后压缩，值得看一眼）")
+        else:
+            print(f"  [OK]   送达图片 {n_pics} 个，没有超过 1 年的原图")
+    return fails, notes
+
+
 @dataclass
 class Run:
     """一次远端查询的结果。"""
@@ -410,6 +560,62 @@ def remote_sql(sql: str, *, timeout: int = 180) -> Run:
         timeout=timeout,
     )
     return Run(p.returncode == 0, p.stdout, p.stderr)
+
+
+#: 只读 shell：允许的命令前缀（**清单自己算不了，所以写成白名单 + 自检**）。
+SH_ALLOWED_PREFIXES = ("find ", "ls ", "cat ", "stat ", "du ", "wc ", "journalctl ")
+
+#: 拼接 / 重定向 / 命令替换 / 明显会写东西的命令：一律拒绝。
+#: ⚠️ `|` 刻意**允许**（管道只传 stdout，读 journal 要靠它）；但管道右边若出现下面这些词也会被拦。
+SH_FORBIDDEN = re.compile(
+    r"[;><`]|\$\(|&&|\b(rm|mv|cp|dd|tee|truncate|chmod|chown|kill|systemctl|mysql|python)\b",
+    re.IGNORECASE,
+)
+
+
+def remote_sh(cmd: str, *, timeout: int = 120) -> Run:
+    """在服务器上跑一条**只读**命令（`find`/`ls`/`journalctl` …）。
+
+    为什么需要它：有几条"承诺有没有被执行"的证据不在数据库里 —— 导出产物目录的 mtime、
+    图片目录里有没有超过 1 年的原图、systemd journal 里有没有「数据保留治理完成」。
+    ⛔ 与 SQL 那条同理：白名单 + 危险字符正则，**在发出去之前**拦。
+    """
+    if not cmd.startswith(SH_ALLOWED_PREFIXES):
+        return Run(False, "", f"⛔ 只允许只读命令（{'/'.join(SH_ALLOWED_PREFIXES)}）：{cmd[:60]}")
+    hit = SH_FORBIDDEN.search(cmd)
+    if hit:
+        return Run(False, "", f"⛔ shell 里出现 `{hit.group(0)}` —— 拒绝执行")
+    p = subprocess.run(
+        [*SSH_BASE, cmd],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    return Run(p.returncode == 0, p.stdout, p.stderr)
+
+
+def guard_selftest() -> list[str]:
+    """自检：两条"只读"守卫**真的在拦**（否则"这个工具不会误写生产"就只是注释里的一句话）。
+
+    每次运行都跑（几微秒），失败直接退出 —— 这是本项目对"只读工具"的一贯要求：
+    纪律要能被判据证明，而不是靠人记得。
+    """
+    fails: list[str] = []
+    if FORBIDDEN.search("UPDATE orders SET paid = 1") is None:
+        fails.append("SQL 守卫拦不住 UPDATE")
+    if FORBIDDEN.search("SELECT COUNT(*) FROM orders") is not None:
+        fails.append("SQL 守卫把正常查询也当写语句了（那会让这个工具没法用）")
+    if remote_sh("rm -rf /tmp/x").ok or not remote_sh("rm -rf /tmp/x").err:
+        fails.append("shell 守卫拦不住 `rm`")
+    if remote_sh("ls /tmp; rm -rf /tmp/x").ok:
+        fails.append("shell 守卫拦不住 `;` 拼接")
+    if remote_sh("ls /opt/SOrders > /tmp/x").ok:
+        fails.append("shell 守卫拦不住重定向")
+    if not remote_sh("ls /tmp").ok and remote_sh("ls /tmp").err.startswith("⛔"):
+        fails.append("shell 守卫把 `ls` 也拦了（那这个工具就没法用了）")
+    return fails
 
 
 def rows(out: str) -> list[list[str]]:
@@ -451,6 +657,14 @@ def main() -> int:
 
     fails: list[str] = []
     notes: list[str] = []
+
+    # ---- ⓪ 只读守卫自检（纪律要能被判据证明，而不是靠人记得）----
+    guard_fails = guard_selftest()
+    if guard_fails:
+        print("❌ 只读守卫自检没过（在发任何请求之前就停）：")
+        for f in guard_fails:
+            print("   - " + f)
+        return 1
 
     # ---- ① 19 条库级不变式 ----
     print("① 库级不变式（每条都报「违规行数 / 命中范围」：范围是 0 的话这条判据没有发言权）")
@@ -548,8 +762,14 @@ def main() -> int:
         else:
             print("  [OK]   ix_orders_status_delivered 存在且列序正确")
 
-    # ---- ⑦ 体检上下文（只报告）----
-    print("\n⑦ 体检上下文（这些数决定上面每条的发言权；只报告，不判红）")
+    # ---- ⑦ 保留治理「真的在跑吗」（journal + 磁盘目录）----
+    print("\n⑦ 保留治理的执行证据：journal 里有治理记录吗、磁盘上有没有超期产物")
+    rt_fails, rt_notes = retention_runtime_section()
+    fails += rt_fails
+    notes += rt_notes
+
+    # ---- ⑧ 体检上下文（只报告）----
+    print("\n⑧ 体检上下文（这些数决定上面每条的发言权；只报告，不判红）")
     run = remote_sql(PROFILE_SQL + ";")
     for r in rows(run.out):
         if len(r) >= 2:

@@ -27,4 +27,5 @@ backend/app/core/rbac.py|角色 → 权限点（谁能干什么）
 backend/app/deps.py|鉴权依赖（require_roles / 当前用户；漏一处就是越权）
 backend/app/models/enums.py|领域词汇表：状态 / 来源 / 审计动作码（全项目共用的取值）
 backend/app/core/schema_bootstrap.py|生产库结构变更（线上迁移的唯一入口）
+backend/app/services/data_retention.py|**历史数据变样的唯一入口**：物理删单（连带账本/日志/库存流水/图片）、30 天隔离清理、3 年清理、压图。漏解一个外键就会让当天的整套治理全部停摆（2026-09-23 第 13 轮实测）
 android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt|AI 写闸门：preview → 确认卡 → execute 的唯一写入口

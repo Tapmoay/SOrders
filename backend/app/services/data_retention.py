@@ -27,8 +27,10 @@ from app.models.ledger import Ledger
 from app.models.notification import Notification
 from app.models.operation_log import OperationLog
 from app.models.order import Order, OrderProduct
+from app.models.order_return_request import OrderReturnRequest
 from app.models.place import Place
 from app.models.product import ProductCostHistory
+from app.models.shipper_settlement import ShipperSettlement
 from app.models.user import User
 from app.services.image_archive import (
     archive_images_older_than,
@@ -118,6 +120,73 @@ def _single_runner():
         lock_file.close()
 
 
+def _orders_with_blocking_docs(db: Session, ids: list[int]) -> list[int]:
+    """这些单**还有凭证/单据指着它** → 不做物理清理（返回它们的 id）。
+
+    ### 为什么必须有这一条（2026-09-23 第 13 轮：把"指向 orders 的外键"逐个盘了一遍）
+
+    `orders` 上有 **9 个外键**指着它，而 `delete_orders_by_ids` 原来只解开了 5 个
+    （`places.first_order_id` 置空 + `driver_bills` 作废 + `ledgers`/`operation_logs`/
+    `inventory_movements`/`order_products` 删除）。漏掉的四个里，`orders.parent_order_id`
+    是可空自引用（现在置空），另外三个是 **NOT NULL**：
+
+    | 表 | 是什么 | 漏掉的后果 |
+    |---|---|---|
+    | `order_return_requests` | 货主提的**退货申请**（带办理/驳回记录） | 删单时 InnoDB 抛 `IntegrityError` |
+    | `shipper_settlements` | 货主/批发商的**核销凭证**（"这笔钱收到了"） | 同上 |
+    | `shipper_settlement_lines` | 上面那张凭证的逐商品明细 | 同上 |
+
+    ⚠️ **后果不是"这一单删不掉"，而是"当天的治理全部停摆"**：异常一路冒到
+    `main._retention_sync` 被吞成一行日志 + `db.rollback()` —— 于是当天的 3 年清理、
+    消息清理、图片归档、导出产物清理**全部不执行，而且每天重复失败**
+    （2026-09-19 审计 R12 那一类，当时是 `places.first_order_id`）。
+
+    ⛔ 为什么不直接把这些凭证删掉：它们是**钱的凭证**（核销单）与**客户的诉求**
+    （退货申请），删了就再也复核不了 —— 与 R12-H4 给司机账单定的口径一致
+    （"已结算的账单保留不动，那是已经付过的钱，删掉才是真的毁账"）。
+    所以这里的选择是：**这一单不做物理清理**，写日志 + 给派单员发站内信
+    （钱/单据的事必须有人能在界面上看见），由人去界面上处理掉那张凭证后再让它过期。
+
+    ⚠️ 代价要说清：这些单会**超过 30 天还在回收站里**。那是"承诺的例外"，
+    不是静默失败 —— 探针里那条「隔离区超过 30 天 + 1 天」的不变式会把它报出来。
+    """
+    blocked: set[int] = set()
+    for want in (OrderReturnRequest, ShipperSettlement):
+        rows = db.execute(
+            select(want.order_id).where(want.order_id.in_(ids)).distinct()
+        ).all()
+        blocked.update(int(r[0]) for r in rows)
+    return sorted(blocked)
+
+
+def _notify_orders_not_purged(db: Session, ids: list[int]) -> None:
+    """把"这些单没被物理清理、为什么"写成**站内信**（给派单员）。
+
+    同 `_notify_bills_cancelled` 的理由：只写日志等于没人看得见 ——
+    单还躺在回收站里、账还占着口径，而界面上没有任何提示。
+    """
+    body = (
+        f"{len(ids)} 张订单已过 30 天隔离期，但**没有被物理清理**：它们上面还挂着"
+        "退货申请或货主核销凭证，清掉单会把凭证一起毁掉。"
+        f"涉及订单 id={ids[:10]}。请在「订单回收站」里先处理掉那些凭证（或恢复该单）。"
+    )
+    dispatchers = db.scalars(
+        select(User).where(User.role == UserRole.DISPATCHER.value, User.is_active.is_(True))
+    ).all()
+    for u in dispatchers:
+        db.add(
+            Notification(
+                recipient_id=u.id,
+                category="reminder",
+                type="order_purge_blocked",
+                title="有订单因凭证未处理而没有被清理",
+                content=body,
+                speech_important=True,
+                payload={"order_ids": ids[:50]},
+            )
+        )
+
+
 def delete_orders_by_ids(db: Session, ids: list[int]) -> int:
     """物理删除订单及明细、关联账本/操作日志，并清理其图片文件目录。
 
@@ -138,9 +207,28 @@ def delete_orders_by_ids(db: Session, ids: list[int]) -> int:
     if not ids:
         return 0
     ids = list(dict.fromkeys(int(i) for i in ids))
+    # ⓪ 还有凭证/单据指着的单：**不做物理清理**（外键 NOT NULL，删凭证等于毁账）。
+    #    详见 `_orders_with_blocking_docs`：漏了这一条不是"删不掉这一单"，
+    #    而是当天的整套治理全部停摆（异常被吞、每天重复失败）。
+    blocked = _orders_with_blocking_docs(db, ids)
+    if blocked:
+        logger.warning(
+            "订单到期清理：%s 张单还有退货申请/核销凭证，**跳过物理清理**（id=%s）",
+            len(blocked), blocked[:10],
+        )
+        _notify_orders_not_purged(db, blocked)
+        ids = [i for i in ids if i not in set(blocked)]
+        if not ids:
+            return 0
     # ① 解开外键（否则整轮保留任务停摆）
     db.execute(
         update(Place).where(Place.first_order_id.in_(ids)).values(first_order_id=None)
+    )
+    # ⚠️ 拆单的子单指着父单（`orders.parent_order_id`，自引用外键）：父单被物理清理时
+    #    必须先把子单那根指向解开 —— 否则同样是 IntegrityError → 当天治理全停。
+    #    子单本身是独立可用的单（金额、账本、账单都是自己的），置空不影响任何口径。
+    db.execute(
+        update(Order).where(Order.parent_order_id.in_(ids)).values(parent_order_id=None)
     )
     # ② 还开着的司机应付明细 → 作废（保住"没有单就不该有人能付这笔钱"）
     open_bills = list(
@@ -375,11 +463,26 @@ def run_daily_retention(db: Session) -> dict[str, int]:
 
 
 def _run_daily_retention_locked(db: Session) -> dict[str, int]:
-    r = {
-        "soft_deleted_purged": purge_soft_deleted_orders(db),
-        "expired_purged": purge_expired_data(db),
-        "notifications_purged": purge_expired_notifications(db),
-    }
+    r: dict[str, int] = {}
+    # ⚠️ **每一步各自一个 savepoint**（2026-09-23 第 13 轮）：整套治理是"一个事务 + 最后
+    #    一次 commit"，于是**任何一步抛异常都会让当天的全部清理一起回滚**（而且每天重复失败）——
+    #    2026-09-19 审计 R12 就是因为 `places.first_order_id` 那个外键，让"3 年清理、消息清理、
+    #    图片归档"一起停摆。现在一步失败只丢那一步：记 -1（调用方与 journal 能看出是哪一步），
+    #    其余照跑。⚠️ `begin_nested` 在 MySQL/SQLite 上都是 SAVEPOINT（不需要额外配置）。
+    for name, step in (
+        ("soft_deleted_purged", purge_soft_deleted_orders),
+        ("expired_purged", purge_expired_data),
+        ("notifications_purged", purge_expired_notifications),
+    ):
+        try:
+            with db.begin_nested():
+                r[name] = step(db)
+        except Exception:
+            logger.exception(
+                "数据治理的这一步失败了，跳过它继续跑后面的（一步失败不该让当天全部清理停摆）：%s", name
+            )
+            db.rollback()
+            r[name] = -1
     db.commit()
     # ---- 以下是**文件级**清理：与上面的事务分开（失败不该把 DB 那几步一起回滚）----
     r["images_archived"] = archive_images_older_than(days=365)
