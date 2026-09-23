@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.util
 
 import com.tapmoay.sorders.data.remote.dto.OrderDto
+import com.tapmoay.sorders.data.remote.dto.OrderProductDto
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.Locale
@@ -72,9 +73,21 @@ fun trimMoneyZeros(raw: String?): String {
  * 要下发给模型/写进卡片时用 [goodsTotalText]（两位小数）。
  */
 fun OrderDto.goodsTotal(): BigDecimal =
-    orderProducts.fold(BigDecimal.ZERO) { acc, p ->
-        acc.add(p.lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO)
-    }
+    orderProducts.fold(BigDecimal.ZERO) { acc, p -> acc.add(p.lineTotalValue()) }
+
+/**
+ * 一行商品的**行金额**（定点）—— `line_total` 那个字符串 → [BigDecimal] 的**唯一一处**。
+ *
+ * 为什么单独抽出来（2026-09-24 第 22 轮）：这两个消费者必须从同一个串里读出**同一个数**，
+ * 而它们各自去 parse 一次字符串时，任何一边"顺手换个进位方式"就会让两边差一分：
+ * ① [goodsTotal]（Σ 各行 ＝ 界面上的「订单金额」，同时是收款页的判据）；
+ * ② 账本页的行应收（`ui/dispatcher/LedgerPersonStats.kt::lineReceivableCents`：
+ *    `行金额 − 单价 × 已退数量`，与后端 `order_money.line_receivable` 同一个式子）。
+ *
+ * 空串 / 不是数字 → 0（`null` 在这里的含义是"没有行金额"，不是"金额未知"）。
+ */
+fun OrderProductDto.lineTotalValue(): BigDecimal =
+    lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO
 
 /**
  * [goodsTotal] 的**两位小数字符串**形态：AI 卡片那些"要一个字面量"的地方用它。

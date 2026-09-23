@@ -33,15 +33,25 @@ AI 输出里的钱与日期 / 聚合与统计的归属过滤 / N+1 与 SQL 条�
 
 **改哪些文件**：Android `ui/dispatcher/SupplierDetailScreen.kt`（VM 加 `acting` + 两个弹层加 `acting` 参数 +
 两处 `enabled` 判它）、`ui/dispatcher/LedgerPersonStats.kt`（行应收改成"先相减再取分"）、
+`util/Money.kt`（新增 `lineTotalValue()`：`line_total` 那个串 → 定点的 parse 全 App 只有这一处）、
 `app/src/test/.../LedgerPersonStatsTest.kt`（新增 2 条：`0.5050` 那个组合必须算出 51 分）。
 
 **验收**：Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL**；`LedgerPersonStatsTest` **11 条全过**
 （测试报告 XML 里能看到新用例名）。⛔ 这两条**没有真机复现**（连点付款会真写出两笔钱）。
 
+⚠️ **收尾时又补了一处同源整理（`util/Money.kt`）**：`_check_single_source.py` ④c 报
+`ui/dispatcher/LedgerPersonStats.kt` 在"自己折点求和"——它的判据是**行金额那个串的 parse 只许一处**。
+R6 改动把 `p.lineTotal?.toBigDecimalOrNull()` 写进了行应收的算式，于是全 App 变成 2 处。
+修法不是放宽判据，而是把 parse 抽成 `util/Money.kt::lineTotalValue()`（`goodsTotal` 与行应收共用同一个数）
+→ 判据回到"1 处且在 `util/Money.kt`"。同轮 `_check_hints.py` 报的目录过期（R6 让
+`SupplierDetailScreen.kt` 行号漂了）已重跑 `_hint_inventory.py --md`；`_check_core_freeze.py` 报的
+"`核心改动：无（…）` 这一行没写为什么"已改成带理由的写法（后端核心区确实一行未碰）。
+
 ⚠️ **诚实取舍**：本会话上下文接近上限 → 第六批 12 份渗透报告**已落盘**，但它们的统一修排在下一轮；
 本轮只交付 R6（两条独立的钱）。第五十一轮列的界面/并发/判据缺口清单同样顺延。
 
-核心改动：无（R6 只动 Android，不碰后端核心区）。
+核心改动：无 —— 为什么没有：R6 与 ④c 那处同源整理都只动 Android（供应商付款弹层的 in-flight 闸、
+行金额那个串的 parse 收成一处），后端核心区（钱 / 状态机 / 权限 / 时区 / 写闸门）一行未碰。
 
 ### [2026-09-24 01:0x → ] 会话：**全项目系统性复核 · 第 21 轮**（第 5 次并行渗透：**再换 12 个全新区域**；统一修 R4~R5）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 

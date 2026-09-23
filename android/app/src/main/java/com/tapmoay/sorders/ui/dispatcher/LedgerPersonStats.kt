@@ -2,6 +2,7 @@ package com.tapmoay.sorders.ui.dispatcher
 
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductDto
+import com.tapmoay.sorders.util.lineTotalValue
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -58,7 +59,9 @@ fun lineReceivableCents(p: OrderProductDto): Long {
     //    于是核销时后端判"收款金额 0.50 与所选订单合计 0.51 不一致" → **这笔款永远收不了**
     //    （0.5~20 元区间有 23400 个"单价×数量×退货数"组合会命中，不是孤立点）。
     //    顺序必须与后端逐字一致：**只有一处口径**（`order_money.line_receivable`）。
-    val total = p.lineTotal?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+    //    行金额那个串也只许在一处 parse（`util/Money.kt::lineTotalValue`）——
+    //    它同时喂「订单金额」与这里的行应收，两边各自 parse 就会出现上面那种一分钱的分叉。
+    val total = p.lineTotalValue()
     val unit = p.unitPrice?.toBigDecimalOrNull() ?: BigDecimal.ZERO
     val returned = unit.multiply(BigDecimal(p.returnedQuantity))
     return moneyCents((total - returned).toPlainString())
