@@ -20,7 +20,42 @@
 
 ## 进行中
 
-### [2026-09-23 22:3x → ] 会话：**全项目系统性复核 · 第 17 轮**（用户定的新工作方式：**先派 12 个子代理并行渗透 → 各自写 md → 我统一读、统一改**；本轮已落地第一批 6 处整体修改）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+### [2026-09-23 23:2x → ] 会话：**全项目系统性复核 · 第 18 轮**（第 2 次并行渗透：**12 个子代理换一批新区域**；统一修**时区同一族 3 处 + 客户端 3 处**，并把两个"能抓到缺陷却没人跑"的审计脚本接进必跑清单）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**并行渗透（第 2 批区域，见 `_archive/audit/round18/README.md`）**：AI 对话链路 / 司机计费与结算 /
+订单行×五条线一致性 / 客户与定价 / 地址地点线路 / API 契约 / 文件与静态资源 / 数据库层与生产差异 /
+审计日志 / 性能与容量 / 跨角色端到端状态机 / 表单校验与输入边界。
+（3 个子代理写报告前耗尽上下文 → 其中 2 个已重派补交，1 个已产出报告。）
+
+**本轮统一修改（第二批）**
+| # | 改了什么 | 来源 |
+| --- | --- | --- |
+| C1 | 绩效兜底 SLA 从 **UTC 日末**改成**当地日末**（原来每天白送 8 小时宽限：本机准时率 82.3% 应为 30.9%） | A2-1（中） |
+| C2 | 结算付款的 `cash_flows.flow_date` 改用 `business_date(paid_at)`（当地 00:00~08:00 付款记到前一天/上一月） | A2-2（中） |
+| C3 | 订单上的时间戳（`internal_notes` 的 `[司机 …]`/`[派单指派 …]`）改按**当地时刻**印（新增唯一实现 `business_time.local_stamp`） | A2-3（中） |
+| C4 | 安卓三处把时间戳原样印 UTC（`take(16)`/`substring(0,10)`）→ 走 `formatDateTime` / 新增的 `formatInstantDay` | A2-4（中） |
+| C5 | 月薪单生成的"存在性检查"改成**加锁读**（MySQL RR 下普通 SELECT 读快照 → 工资付两遍） | A5-2（高·仅 MySQL） |
+| C6 | 两个审计脚本进必跑清单（`--check`）：`_audit_money_fields.py`、`_audit_text_fields.py` —— 它们一直能报红却没人跑 | A8-2 / B2-4 / B12 |
+| C7 | 顺带修掉它们报的 2+4 条：`RuleCategoryIn`/`MovementCreate` 继承 `MoneyInput`（1e20 曾能过校验）、`receiver_phone` 声明 32>列宽 20 改 20、`link_kind` 补 `max_length=16` | A8-2（中） |
+| C8 | 红线补三种日期形状（`datetime.combine(业务日, time(...), tzinfo=utc)`、`某时间戳.date()`）+ 2 条反向验证注入（19/19 成立） | A2 的"判据缺口" |
+| C9 | fuzz 不变式的**终态清单**从模型算（原来手写、漏 `RETURNED`、还含一个不存在的 `RECALLED`） | B11 |
+
+**改哪些文件**：`backend/app/core/business_time.py`、`services/stats_service.py`、
+`services/accounting_service.py`、`services/order_flow.py`、`api/v1/orders.py`、`api/v1/driver_bills.py`、
+`schemas/{inventory,driver_billing_rule,order_template,expense_category}.py`、
+`backend/tests/test_timezone_family.py`（新）、`_tools/qa/{_check_single_source,_reverse_verify_single_source,
+_audit_money_fields,_audit_text_fields}.py`、`_tools/fuzz/_fuzz_invariants.py`、
+Android `util/TimeFmt.kt` + `ui/dispatcher/{DispatcherLedgerScreen,LedgerPersonScreen,AccountToolsScreens}.kt`。
+
+核心改动：backend/app/core/business_time.py —— 为什么必须动核心：它是全项目**时区口径的唯一实现**，
+这一轮要新增"印给人看的时间戳"那一个入口（`local_stamp`）—— 两处把 UTC 印进订单数据的地方
+（`order_flow.assign_driver` 与 `orders.add_note`）必须共用它，否则下次还会各写一遍。
+核心改动：backend/app/services/order_flow.py —— 为什么必须动核心：派单时的 `internal_notes`
+前缀是**写进订单数据、事后不可改**的时间戳，它印错就是历史记录错（同一个 `local_stamp`）。
+核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：结算付款写的是
+**资金流水的业务日期**（`cash_flows.flow_date`），它是资金收支报表与导出按日/按月聚合的分母。
+
+### [2026-09-23 22:3x → 23:0x] 会话：**全项目系统性复核 · 第 17 轮**（用户定的新工作方式：**先派 12 个子代理并行渗透 → 各自写 md → 我统一读、统一改**；本轮已落地第一批 6 处整体修改）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **为什么改成这个方式**（用户原话）：「你可以首先规划好要探索的区域…派至少 8 个子代理去测试…
 他们返回来的结果写进 md 文档当中保存起来，然后你在阅读他们的文档统一做整体上的修改、测试、验证。
