@@ -143,9 +143,10 @@ object AiReadCatalog {
         )),
         ReadAction("notifications.unread_count", "未读消息数", "/api/v1/notifications/unread-count", "", setOf("dispatcher", "driver", "shipper"), false, listOf(
         )),
-        ReadAction("operation_logs.list_operation_logs", "操作日志（谁在什么时候改了什么）", "/api/v1/operation-logs", "order_id、operator_id、limit", setOf("dispatcher"), false, listOf(
+        ReadAction("operation_logs.list_operation_logs", "操作日志（谁在什么时候改了什么）", "/api/v1/operation-logs", "order_id、operator_id、skip、limit", setOf("dispatcher"), false, listOf(
             ReadParam("order_id", "int", false, emptyList(), true),
             ReadParam("operator_id", "int", false, emptyList(), true),
+            ReadParam("skip", "int", false, emptyList(), false),
             ReadParam("limit", "int", false, emptyList(), false),
         )),
         ReadAction("order_products.list_order_products", "订单商品行（按订单或商品查）", "/api/v1/order-products", "order_id", setOf("dispatcher"), false, listOf(
@@ -277,10 +278,11 @@ object AiReadCatalog {
         ReadAction("suppliers.list_suppliers", "供应商/厂商名册（含各自还欠多少、累计应付与已付）", "/api/v1/suppliers", "include_deleted", setOf("dispatcher"), false, listOf(
             ReadParam("include_deleted", "bool", false, emptyList(), false),
         )),
-        ReadAction("users.list_users", "账号/人员列表（货主、司机、批发商、内部账号，可按角色与关键词筛）", "/api/v1/users", "role(shipper|driver|dispatcher)、is_member、q、limit", setOf("dispatcher"), false, listOf(
+        ReadAction("users.list_users", "账号/人员列表（货主、司机、批发商、内部账号，可按角色与关键词筛）", "/api/v1/users", "role(shipper|driver|dispatcher)、is_member、q、skip、limit", setOf("dispatcher"), false, listOf(
             ReadParam("role", "Literal", false, listOf("shipper", "driver", "dispatcher"), false),
             ReadParam("is_member", "bool", false, emptyList(), false),
             ReadParam("q", "str", false, emptyList(), false),
+            ReadParam("skip", "int", false, emptyList(), false),
             ReadParam("limit", "int", false, emptyList(), false),
         )),
         ReadAction("users.read_me", "当前登录账号自己的资料", "/api/v1/users/me", "", setOf("dispatcher", "driver", "shipper"), false, listOf(

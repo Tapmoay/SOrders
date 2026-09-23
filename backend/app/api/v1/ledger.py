@@ -36,6 +36,7 @@ from app.services.ledger_sync import (
 from app.services.operation_log_service import write_log
 from app.services.push_events import push_ledger_updated
 from app.services.soft_delete import strip_del_suffix
+from app.core.date_window import date_window
 #: 「订单明细能不能改」的唯一判据（与订单侧共用一份状态清单，不许在账本侧再抄一遍）
 from app.api.v1.order_products import LINE_EDITABLE_STATUSES
 
@@ -51,18 +52,13 @@ def _apply_date_window(q, date_from: str | None, date_to: str | None):
     在两个页面上表现不同，而它们在接口文档里是同一个参数。
     ⛔ **不许**换成 `deps.parse_date_range`：它返回 `datetime`，而这里比的是 `Date` 列，
        带上时间的那一端会变成"当天不算"（闭区间悄悄变半开）。
+    ✅ 但**校验**必须与它同口径：`core.date_window.date_window()` 负责"格式错 400、
+       顺序反了 400"（2026-09-24 第 19 轮补：这一段原来只查格式，反序会安静地返回空集）。
     """
-    if date_from:
-        try:
-            start = date.fromisoformat(date_from[:10])
-        except ValueError:
-            raise HTTPException(status_code=400, detail="开始日期格式无效") from None
+    start, end = date_window(date_from, date_to)
+    if start is not None:
         q = q.where(Ledger.entry_date >= start)
-    if date_to:
-        try:
-            end = date.fromisoformat(date_to[:10])
-        except ValueError:
-            raise HTTPException(status_code=400, detail="结束日期格式无效") from None
+    if end is not None:
         q = q.where(Ledger.entry_date <= end)
     return q
 
@@ -761,10 +757,13 @@ def list_receipts(
     stmt = select(ShipperReceipt).order_by(ShipperReceipt.received_at.desc(), ShipperReceipt.id.desc())
     if customer_id is not None:
         stmt = stmt.where(ShipperReceipt.customer_id == customer_id)
-    if date_from:
-        stmt = stmt.where(ShipperReceipt.received_at >= date_from)
-    if date_to:
-        stmt = stmt.where(ShipperReceipt.received_at <= date_to)
+    # 日期窗口：`received_at` 也是 `Date` 列 → 同一处校验（格式错 400、**反序也 400**）。
+    # 这一条原来只把值塞进 WHERE：`date_from > date_to` 会安静地返回 0 条（2026-09-24 第 19 轮）。
+    r_start, r_end = date_window(date_from, date_to)
+    if r_start is not None:
+        stmt = stmt.where(ShipperReceipt.received_at >= r_start)
+    if r_end is not None:
+        stmt = stmt.where(ShipperReceipt.received_at <= r_end)
     rows = list(db.scalars(stmt).all())
     from app.models import Customer
 

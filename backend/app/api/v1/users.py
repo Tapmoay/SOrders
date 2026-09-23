@@ -72,8 +72,10 @@ def list_users(
     role: UserRole | None = Query(None),
     is_member: bool | None = Query(None, description="会员筛选（is_member=true 取高级货主）"),
     q: str | None = Query(None, description="按姓名或手机号模糊搜索（手机号后 4 位也行）"),
-    skip: int = 0,
-    limit: int = Query(100, le=500),
+    # ⚠️ `ge` 不是装饰（2026-09-24 第 19 轮）：`?limit=-5` 在 SQLite 上是**不限量**
+    #    （实测 `?q=%` 已经是"全部 59 个账号"，再来一个负 limit 就是整表下发），生产 MySQL 直接 500。
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
 ) -> list[User]:
     # 多取一行判截断（2026-09-19 外部完整检查 §9.1）：账号列表超过 100 时界面不说，
     # 派单员会以为"没有这个账号"再去建一个（而同号会撞唯一约束）。

@@ -20,18 +20,23 @@
 
 from sqlalchemy import func, or_
 
+from app.core.query_text import LIKE_ESCAPE, like_pattern
+
 
 def name_or_phone_like(name_col, phone_col, kw: str | None):
     """「姓名 or 手机号 子串命中」的 SQL 谓词；`kw` 为空时返回 `None`（= 不加条件）。
 
     调用点必须自己判 `None`（不加条件），**不要**去构造一个恒真谓词 ——
     那样"搜索条件生效了没有"在 `filters_used` 之类的回报里就说不清了。
+
+    ⚠️ pattern 必须过 `like_pattern()`（2026-09-24 第 19 轮）：直接 `f"%{term}%"` 的话，
+    用户在搜索框打一个 `%` 就是"不加条件"—— 实测 `GET /users?q=%25` 返回**全部 59 个账号**。
     """
-    term = (kw or "").strip().lower()
-    if not term:
+    like = like_pattern(kw)
+    if like is None:
         return None
-    like = f"%{term}%"
+    term = like.lower()          # 手机号可能带英文后缀（软删的 `_del160`），大小写对齐见模块注释
     return or_(
-        func.lower(func.coalesce(name_col, "")).like(like),
-        func.lower(func.coalesce(phone_col, "")).like(like),
+        func.lower(func.coalesce(name_col, "")).like(term, escape=LIKE_ESCAPE),
+        func.lower(func.coalesce(phone_col, "")).like(term, escape=LIKE_ESCAPE),
     )

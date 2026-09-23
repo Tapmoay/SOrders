@@ -66,10 +66,10 @@ MUTATIONS = [
     (
         "搜索只改了非派单员那一支（派单员搜收货人名字搜不到）",
         API,
-        "                    Order.contact_dongjia_name.like(term),\n"
-        "                    Order.contact_boss_name.like(term),\n"
-        "                    Order.contact_dongjia_phone.like(term),\n"
-        "                    Order.contact_boss_phone.like(term),\n",
+        "                    Order.contact_dongjia_name.like(term, escape=LIKE_ESCAPE),\n"
+        "                    Order.contact_boss_name.like(term, escape=LIKE_ESCAPE),\n"
+        "                    Order.contact_dongjia_phone.like(term, escape=LIKE_ESCAPE),\n"
+        "                    Order.contact_boss_phone.like(term, escape=LIKE_ESCAPE),\n",
         "",
         "搜单的每条 OR 分支",
     ),

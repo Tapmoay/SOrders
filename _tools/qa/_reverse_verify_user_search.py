@@ -72,7 +72,7 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "后端谓词改成等值比较（「后 4 位」再也搜不到）",
         PY_RULE,
-        lambda s: s.replace('like = f"%{term}%"', "like = term", 1),
+        lambda s: s.replace("like = like_pattern(kw)", "like = kw", 1),
     ),
     (
         "账号名册退回就地手搓谓词（不再走 user_search）",

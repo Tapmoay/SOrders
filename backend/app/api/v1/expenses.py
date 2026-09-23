@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.date_window import date_window
 from app.core.rbac import user_role_key
 from app.database import get_db
 from app.deps import CurrentUser
@@ -33,10 +34,13 @@ def list_expenses(
         stmt = stmt.where(Expense.category == category)
     if driver_id is not None:
         stmt = stmt.where(Expense.driver_id == driver_id)
-    if date_from:
-        stmt = stmt.where(Expense.exp_date >= date_from)
-    if date_to:
-        stmt = stmt.where(Expense.exp_date <= date_to)
+    # ⚠️ 同 `cash_flows`：日期窗口的校验只有一处（`core.date_window`），顺序反了必须 400，
+    #    不许安静地返回空集 —— 界面会显示「这段时间没有开销」，那是错的（2026-09-24 第 19 轮）。
+    start, end = date_window(date_from, date_to)
+    if start is not None:
+        stmt = stmt.where(Expense.exp_date >= start)
+    if end is not None:
+        stmt = stmt.where(Expense.exp_date <= end)
     rows = list(db.scalars(stmt).all())
     names: dict[int, str] = {}
     order_nos: dict[int, str] = {}

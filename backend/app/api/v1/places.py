@@ -15,6 +15,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.core.pagination import finish_page
+from app.core.query_text import LIKE_ESCAPE, like_pattern
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -47,9 +48,17 @@ def list_places(
     # ⛔ 只看没删的（`SoftDeleteMixin`）：删掉的行不该出现在任何人的选点列表里
     stmt = select(Place).where(Place.is_deleted.is_(False))
     keyword = (q or "").strip()
-    if keyword:
-        like = f"%{keyword}%"
-        stmt = stmt.where(or_(Place.name.like(like), Place.detail_address.like(like)))
+    like = like_pattern(keyword)
+    if like is not None:
+        # ⚠️ pattern 必须过 `like_pattern()` 并带 `escape=`（2026-09-24 第 19 轮）：
+        #    直接 `f"%{keyword}%"` 的话，用户打一个 `%` 就是"不加条件"—— 实测
+        #    `GET /places?q=%25` 返回**全表 64 条**（他会以为"搜索没生效"，其实是我把通配符收了）。
+        stmt = stmt.where(
+            or_(
+                Place.name.like(like, escape=LIKE_ESCAPE),
+                Place.detail_address.like(like, escape=LIKE_ESCAPE),
+            )
+        )
     # 常用在前（use_count 是"有多少人沿用/录过这个点"），同频次按新近
     # 多取一行判截断（2026-09-19 外部完整检查 §9.1）：共享库会一直长，
     # 不说"还有更多"的话用户会以为"这个点大家都没录过"。

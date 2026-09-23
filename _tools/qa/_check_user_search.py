@@ -207,7 +207,10 @@ def main() -> int:
     py_rule = read(USER_SEARCH_PY)
     ok(
         "后端规则在 app/core/user_search.py，且用 `%...%` 子串匹配（后 4 位据此天然命中）",
-        "def name_or_phone_like(" in py_rule and 'like = f"%{term}%"' in py_rule,
+        # ⚠️ 2026-09-24 第 19 轮：通配符拼装收进了 `core/query_text.like_pattern()`
+        #    （原来这里直接拼 `f"%{term}%"`，`%`/`_` 不转义 → `?q=%` 等于不加条件，
+        #    实测整表下发）。判据跟着改：**子串匹配的语义没变**，只是挪了一处实现。
+        "def name_or_phone_like(" in py_rule and "like_pattern(kw)" in py_rule,
         "写成等值比较的话「后 4 位」这条需求直接失效",
     )
     consumers: list[str] = []

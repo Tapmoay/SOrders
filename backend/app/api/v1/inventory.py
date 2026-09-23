@@ -28,8 +28,11 @@ def list_movements(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
     product_id: int | None = Query(None),
-    limit: int = Query(100, le=500),
-    offset: int = Query(0),
+    # ⚠️ `ge` 不是装饰（2026-09-24 第 19 轮实测）：SQLite 的 `LIMIT -5` 意思是**不限量**，
+    #    于是 `?limit=-5` 返回「全表减 5 行」+ `X-Truncated:1` + `X-Result-Limit:-5`；
+    #    生产 MySQL 同请求直接 500（`LIMIT -5` 语法错）。AI 读目录也把 `limit` 给了模型。
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     date_from: str | None = Query(None, description="YYYY-MM-DD（含当天）"),
     date_to: str | None = Query(None, description="YYYY-MM-DD（含当天）"),
 ) -> list[InventoryMovement]:

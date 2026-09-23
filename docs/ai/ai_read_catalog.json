@@ -30,7 +30,7 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows/breakdown",
-   "at": "backend/app/api/v1/cash_flows.py:122",
+   "at": "backend/app/api/v1/cash_flows.py:127",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -67,7 +67,7 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows/summary",
-   "at": "backend/app/api/v1/cash_flows.py:76",
+   "at": "backend/app/api/v1/cash_flows.py:81",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -144,7 +144,7 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows",
-   "at": "backend/app/api/v1/cash_flows.py:52",
+   "at": "backend/app/api/v1/cash_flows.py:57",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -427,7 +427,7 @@
    "module_cn": "费用",
    "method": "get",
    "path": "/api/v1/expenses",
-   "at": "backend/app/api/v1/expenses.py:21",
+   "at": "backend/app/api/v1/expenses.py:22",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -575,7 +575,7 @@
    "module_cn": "库存管理",
    "method": "get",
    "path": "/api/v1/inventory/summary",
-   "at": "backend/app/api/v1/inventory.py:180",
+   "at": "backend/app/api/v1/inventory.py:183",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -669,7 +669,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:173",
+   "at": "backend/app/api/v1/ledger.py:169",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -716,7 +716,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:120",
+   "at": "backend/app/api/v1/ledger.py:116",
    "auth": "仅登录 + 体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
@@ -794,7 +794,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:750",
+   "at": "backend/app/api/v1/ledger.py:746",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -841,7 +841,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:241",
+   "at": "backend/app/api/v1/ledger.py:237",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -962,6 +962,16 @@
      "desc": ""
     },
     {
+     "name": "skip",
+     "arg": "skip",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
      "name": "limit",
      "arg": "limit",
      "type": "int",
@@ -1040,7 +1050,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:252",
+   "at": "backend/app/api/v1/orders.py:253",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -1186,7 +1196,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:426",
+   "at": "backend/app/api/v1/orders.py:433",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -1219,7 +1229,7 @@
    "module_cn": "共享地点库",
    "method": "get",
    "path": "/api/v1/places",
-   "at": "backend/app/api/v1/places.py:40",
+   "at": "backend/app/api/v1/places.py:41",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -2232,6 +2242,16 @@
      "name": "q",
      "arg": "q",
      "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "skip",
+     "arg": "skip",
+     "type": "int",
      "required": false,
      "enum": [],
      "is_id": false,

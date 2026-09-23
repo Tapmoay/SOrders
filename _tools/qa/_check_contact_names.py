@@ -191,7 +191,9 @@ def main() -> int:
     # ⚠️ 这一条是踩出来的：`GET /orders?q=` 对派单员与非派单员走两条不同的 OR 分支，
     #    第一版只改了一支 → 派单员搜"收货人名字"搜不到（卡片上明明写着）。
     blocks = [m.group(1) for m in re.finditer(r"or_\(([\s\S]{0,1500}?)\)\s*\n", api)
-              if "order_no.like(term)" in m.group(1)]
+              # ⚠️ 2026-09-24 第 19 轮：`.like(term)` 变成 `.like(term, escape=LIKE_ESCAPE)`
+              #    （`%`/`_` 要转义，见 `core/query_text`）→ 锚点跟着放宽到 `order_no.like(term`。
+              if "order_no.like(term" in m.group(1)]
     missing = [i for i, b in enumerate(blocks) if RECEIVER + ".like" not in b or ORDERER + ".like" not in b]
     c.ok(f"搜单的每条 OR 分支都认得这两个名字（共 {len(blocks)} 条分支）",
          len(blocks) >= 2 and not missing, f"有 {len(missing)} 条分支没带名字（分支号 {missing}）")

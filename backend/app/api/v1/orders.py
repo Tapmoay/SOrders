@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, aliased, selectinload
 from app.api.v1.arrears import find_or_create_unit
 from app.core.business_time import business_range_utc, local_stamp, utc_now_naive
 from app.core.pagination import finish_page
+from app.core.query_text import LIKE_ESCAPE, like_pattern
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.core.upload_read import MAX_DELIVERY_PHOTO_BYTES, MAX_IMAGE_BYTES, read_limited
 from app.database import get_db
@@ -288,7 +289,10 @@ def list_orders(
     if role == UserRole.DISPATCHER.value and qtrim:
         shipper_u = aliased(User)
         driver_u = aliased(User)
-        term = f"%{qtrim}%"
+        # ⚠️ pattern 必须过 `like_pattern()`（2026-09-24 第 19 轮）：直接 `f"%{qtrim}%"` 的话
+        #    用户打一个 `%` 就是"不加条件"—— 实测 `GET /orders?q=%25&limit=5000` 返回**全部 426 张单**。
+        term = like_pattern(qtrim)
+        assert term is not None          # 上面已判过 qtrim 非空
         stmt = (
             select(Order)
             .outerjoin(shipper_u, Order.shipper_id == shipper_u.id)
@@ -296,19 +300,19 @@ def list_orders(
             .options(selectinload(Order.order_products))
             .where(
                 or_(
-                    Order.order_no.like(term),
-                    shipper_u.full_name.like(term),
-                    shipper_u.phone.like(term),
-                    Order.temp_shipper_name.like(term),
-                    Order.address_detail.like(term),
-                    driver_u.full_name.like(term),
-                    driver_u.phone.like(term),
+                    Order.order_no.like(term, escape=LIKE_ESCAPE),
+                    shipper_u.full_name.like(term, escape=LIKE_ESCAPE),
+                    shipper_u.phone.like(term, escape=LIKE_ESCAPE),
+                    Order.temp_shipper_name.like(term, escape=LIKE_ESCAPE),
+                    Order.address_detail.like(term, escape=LIKE_ESCAPE),
+                    driver_u.full_name.like(term, escape=LIKE_ESCAPE),
+                    driver_u.phone.like(term, escape=LIKE_ESCAPE),
                     # 收货人 / 下单人的名字与电话（2026-09-20）：派单员搜索走的是这一支，
                     # 少了这两行就会出现"卡片上看得见名字、搜这个名字却搜不到"
-                    Order.contact_dongjia_name.like(term),
-                    Order.contact_boss_name.like(term),
-                    Order.contact_dongjia_phone.like(term),
-                    Order.contact_boss_phone.like(term),
+                    Order.contact_dongjia_name.like(term, escape=LIKE_ESCAPE),
+                    Order.contact_boss_name.like(term, escape=LIKE_ESCAPE),
+                    Order.contact_dongjia_phone.like(term, escape=LIKE_ESCAPE),
+                    Order.contact_boss_phone.like(term, escape=LIKE_ESCAPE),
                 )
             )
             .order_by(Order.created_at.desc())
@@ -391,18 +395,21 @@ def list_orders(
     #    用户问「SO202609186557849472 这单送到哪了」，答的是**另一张单**的地址与金额。
     #    作用域不变（货主只在自己的单里搜、司机只在自己的任务里搜），所以放开是安全的。
     if qtrim and role != UserRole.DISPATCHER.value:
-        term = f"%{qtrim}%"
+        # ⚠️ pattern 必须过 `like_pattern()`（2026-09-24 第 19 轮）：直接 `f"%{qtrim}%"` 的话
+        #    用户打一个 `%` 就是"不加条件"—— 实测 `GET /orders?q=%25&limit=5000` 返回**全部 426 张单**。
+        term = like_pattern(qtrim)
+        assert term is not None          # 上面已判过 qtrim 非空
         q = q.where(
             or_(
-                Order.order_no.like(term),
-                Order.address_detail.like(term),
-                Order.delivery_description.like(term),
-                Order.contact_boss_phone.like(term),
-                Order.contact_dongjia_phone.like(term),
+                Order.order_no.like(term, escape=LIKE_ESCAPE),
+                Order.address_detail.like(term, escape=LIKE_ESCAPE),
+                Order.delivery_description.like(term, escape=LIKE_ESCAPE),
+                Order.contact_boss_phone.like(term, escape=LIKE_ESCAPE),
+                Order.contact_dongjia_phone.like(term, escape=LIKE_ESCAPE),
                 # 收货人/下单人的**名字**也一起搜（2026-09-20 加的那两列）：
                 # 卡片与详情上都写着这两个名字，搜不到就是"看得见却搜不着"
-                Order.contact_dongjia_name.like(term),
-                Order.contact_boss_name.like(term),
+                Order.contact_dongjia_name.like(term, escape=LIKE_ESCAPE),
+                Order.contact_boss_name.like(term, escape=LIKE_ESCAPE),
             )
         )
     if date_from or date_to:

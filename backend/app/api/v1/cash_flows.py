@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.core.date_window import date_window
 from app.core.pagination import finish_page
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -41,10 +42,14 @@ def _scoped_stmt(
         stmt = stmt.where(CashFlow.party_type == party_type)
     if party_id is not None:
         stmt = stmt.where(CashFlow.party_id == party_id)
-    if date_from:
-        stmt = stmt.where(CashFlow.flow_date >= date_from)
-    if date_to:
-        stmt = stmt.where(CashFlow.flow_date <= date_to)
+    # ⚠️ 日期窗口走**唯一**那一处校验（2026-09-24 第 19 轮）：格式错 400、**顺序反了也 400**。
+    #    原来这两行只把值直接塞进 WHERE —— `date_from > date_to` 会安静地返回 0 条，
+    #    界面上就是「这段时间没有流水、流入 0」（而资金流水页正是对账要看的页）。
+    start, end = date_window(date_from, date_to)
+    if start is not None:
+        stmt = stmt.where(CashFlow.flow_date >= start)
+    if end is not None:
+        stmt = stmt.where(CashFlow.flow_date <= end)
     return stmt
 
 

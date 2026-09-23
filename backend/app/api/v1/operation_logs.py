@@ -34,8 +34,10 @@ def list_operation_logs(
     _: User = Depends(require_permission(Permission.OPERATION_LOG_READ)),
     order_id: int | None = Query(None),
     operator_id: int | None = Query(None),
-    skip: int = 0,
-    limit: int = Query(200, le=1000),
+    # ⚠️ `ge` 不是装饰（2026-09-24 第 19 轮实测）：`?limit=-5` 在 SQLite 上是**不限量**
+    #    （实测返回全表 986 行减 5），生产 MySQL 直接 500；`skip=-3` 同理。
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
 ) -> list[OperationLogOut]:
     q = (
         select(OperationLog)
