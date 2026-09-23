@@ -20,6 +20,59 @@
 
 ## 进行中
 
+### [2026-09-23 20:3x → 21:2x] 会话：**全项目系统性复核 · 第 14 轮**（**真机 E2E**：派单(收现金) → 挂账 → 司机收现金送达；真机上抓到「已收款的单，挂账按钮还是亮的、点了必然 400」）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+这一轮回到**真机**（前三轮都是静态/单测/生产库）。三台模拟器都在跑、没有别的会话在动。
+
+**一、真机走通了「派单(勾收现金) → 挂账 → 司机收取现金送达」全链路**
+
+| 步骤 | 在哪做的 | 证据 |
+|---|---|---|
+| 建单 + 建挂账单位 | API（准备现场） | `SO202609236915706551`（¥69.6，货主 永盛食品） |
+| 派单 + **勾「收取现金」** | **5554 派单员真机**（`CheckBox checked=true` → 确认派单） | `collect_cash=true`、`driver_id=3 李伟明`（按单计件 每单 22 元） |
+| **挂账**到单位 | **5554 真机**「挂账」→ 选「德赛工业园食堂」 | `payment_method=arrears / paid=false / arrears_unit_id=4`（**且 `collect_cash` 仍是 true**） |
+| 接单 + **收取现金**送达 | **5558 司机真机**（「确认接单」→ 两个按钮里点「收取现金」） | `status=DELIVERED / paid=true / payment_method=cash` |
+
+**第 7 轮那处修复的第一次真机证据**：送达后 `arrears_unit_id` 被清成 `NULL`、`arrears_unit_name=''`、
+`arrears_amount=0.00` —— 派单员的订单详情上那一格也从「未收款」变成「**已收款**」，
+并且**不再显示「挂账 · 德赛工业园食堂」**（真机截图 `_agent/e2e/e2e-dispatcher-paid-cash.png`）。
+库内逐项对账：账本一行 `source=ORDER total=69.6`（= 订单行 69.6 ✓）、司机账单 22.00（规则 每单计件·小货车 ✓）、
+送达通知四条（货主/派单员/司机）✓。
+
+**二、真机上抓到一个真缺陷：派单员订单详情里「挂账」按钮在已收款的单上仍然可点**
+
+送达之后界面上明明写着「已收款」，而同一行的「挂账」按钮**还是亮的**：
+`OrderDetailScreen` 只判了 `!acting`，而后端 `charge_order` 会 400
+（`_reject_if_already_collected`：已收款的单不许改回挂账 —— 收款侧唯一的防重判据就是 `paid`）。
+⚠️ **后端自己的文档里写着这个缺口**（"App 上这张已送达单的「挂账」按钮一直是可点的
+（`OrderDetailScreen` 只判 `!acting`）"），2026-09-19 审计 R14-2 只修了后端那一半。
+AI 侧同样漏：`ChargeOrderHandler.prepare` 只判了状态 → 会弹一张**注定失败**的确认卡。
+
+**修法（一处实现、三处消费）**
+- 新增 `OrderStatusModel.canChargeToArrears(paid, settledAmount)`：判据与后端同一套
+  （`paid` 标记 **或** 这张单上真的有过进账的物证）；
+- `OrderDetailScreen` 的「挂账」按钮 `enabled` 走它（不再是 `!acting`）；
+- `ChargeOrderHandler.prepare` 走它（前置条件先核对，别弹注定失败的卡）；
+- 为此给 `AiOrderRef` **追加**两个字段（`paid` / `settledAmount`，按注释要求**加在最后**）并在两处构造点都填上。
+
+**三、判据 + 反向验证**：`_tools/qa/_check_paid_actions.py`（13 项）——
+后端仍拒（防化石）、客户端判据只有一份、界面用它、AI 用它、`AiOrderRef` 真的带了那两个字段
+（少填一处 → 那条路上的 AI 永远以为没收过款）。反向验证 **6/6**：
+摘掉界面判据 / AI 不核对 / 判据删掉 `paid` 那一半 / 后端不再拒 / `AiOrderRef` 少带字段 / 两处构造点只填一处。
+单测 `OrderStatusModelTest` 新增一条真值表（标记说了算 / 物证说了算 / null 与脏数据按"没进过钱"读）。
+
+**要改的文件**：`android/.../core/OrderStatusModel.kt`、`ui/order/OrderDetailScreen.kt`、
+`ai/AiWriteOrderHandlers.kt`、`ai/AiWrite.kt`、`ai/AiWriteService.kt`、
+`android/app/src/test/.../OrderStatusModelTest.kt`、
+`_tools/qa/{_check_paid_actions,_reverse_verify_paid_actions}.py`(新)、定位表、台账。
+
+**不碰**：后端这一轮**零改动**（那一半 2026-09-19 就修好了）。
+
+**验收数字**：`_check_all.py` **85/85**（+1 脚本）· Android 单测 `testPhoneDebugUnitTest`
+**1089 个用例 / 0 失败**（BUILD SUCCESSFUL）· 新红线 **13 项** + 反向验证 **6/6** ·
+真机链路三台设备全程截图与库内逐项对账 · 修好后**重新构建并安装到 5554**，
+那张已收款的单上「挂账」按钮实测 `enabled="false"`（修复前是可点的）。
+
 ### [2026-09-23 20:1x → 20:5x] 会话：**全项目系统性复核 · 第 13 轮**（**物理清理订单少解了 3 个外键 → 会让当天的整套后台治理全部停摆**；顺带把「保留承诺真的在执行吗」变成生产判据）**【已完成】**（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 第 11·12 轮查出口（导出逐格），这一轮查**数据保留这条承诺的另一半**：清理到底做没做、做不做得成。
