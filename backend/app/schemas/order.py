@@ -201,14 +201,25 @@ class OrderOut(BaseModel):
     # 为什么要带到订单出参上：账本页要按**订单**显示"这单多少、收了多少、还欠多少"，
     # 而这三个数只有后端算得对（现场收现金没有流水、退货红冲在账本行上、部分核销不留标记）。
     # 客户端各攒一遍就会出现"账本页说欠 700、订单详情说欠 1000"，且两边都不报错。
+    #
+    # ⛔ `goods_amount` 是 2026-09-24 第 24 轮补的（第 22 轮 F7-1）：在这之前出参里
+    #    **根本没有"订单金额"这个字段** —— 界面上的那个数是客户端自己 Σ 商品行 `line_total`
+    #    （`ui/order/OrderDetailScreen.kt` / `ui/common/OrderCard.kt`），而 AI 的行整形把
+    #    `order_products` 折成 `order_products_count` → 模型手里只剩 returned/settled/refunded/arrears
+    #    四个钱。用户问「这单多少钱」，它只能拿 `arrears_amount` 顶替 → **答成 0 元/已结清**
+    #    （实测 `SO202607283850318087`：行合计 293.20，而 `arrears_amount` 是 `"0.00"`）。
+    #    「人能看到的数，AI 必须也能拿到」是用户定的口径，所以这个数必须由后端给。
+    goods_amount: Decimal | None = None  # 订单金额 = Σ 商品行 line_total（**不随退货变**）
     returned_amount: Decimal = Decimal("0")  # 已退金额（正数）
     settled_amount: Decimal = Decimal("0")  # 已收（含现场收现金）
     refunded_amount: Decimal = Decimal("0")  # 已退给客户的现金（REFUND_CUSTOMER）
     arrears_amount: Decimal = Decimal("0")  # 欠款（< 0 = 预收）
-    # ⚠️ 界面上写"还欠多少"就用 `arrears_amount`，**不要**自己拿 `订单金额 − settled_amount`：
+    # ⚠️ 界面上写"还欠多少"就用 `arrears_amount`，**不要**自己拿 `goods_amount − settled_amount`：
     #    退货红冲与退现都不在 `settled_amount` 里，减出来的数会偏大。
     #    恒等式（`tests/test_order_return.py` 钉着）：
-    #    `订单金额 − returned_amount == (settled_amount − refunded_amount) + arrears_amount`
+    #    `goods_amount − returned_amount == (settled_amount − refunded_amount) + arrears_amount`
+    # ⚠️ 司机视角下 `goods_amount` 是 **None**（与商品行的 `line_total` 同一条规矩：
+    #    货款不是他该看的数，见 `services/order_response.py::apply_driver_view_gating`）。
 
     @field_validator("image_urls", mode="before")
     @classmethod

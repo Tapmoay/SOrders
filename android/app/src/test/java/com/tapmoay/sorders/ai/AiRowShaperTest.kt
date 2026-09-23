@@ -109,4 +109,25 @@ class AiRowShaperTest {
         assertTrue(v != null && v.isNotEmpty())
         assertNull("纯数组没有标量视图", AiRowShaper.scalarView(Json.parseToJsonElement("[1,2]")))
     }
+
+    @Test
+    fun orderGoodsAmountReachesTheModel() {
+        // ⛔ 「订单金额」必须能到模型手里（2026-09-24 第 24 轮 R8-1，来源第 22 轮 F7-1）：
+        //    在这之前订单出参里**没有这个字段**，而 `order_products` 被折成 `_count`，
+        //    于是模型手里只剩 returned/settled/refunded/arrears 四个钱 ——
+        //    问「这单多少钱」只能拿欠款顶替，一张已结清的单会被答成 **0 元**。
+        //    整形这一步对金额是**放行**的（只有 id / 成本 / 毛利在剔除名单里）。
+        val row = obj(
+            """{"order_no":"SO1","goods_amount":"293.20","arrears_amount":"0.00",
+               "settled_amount":"293.20","order_products":[{"a":1},{"a":2}]}""",
+        )
+        val shaped = AiRowShaper.shape(row)
+        assertEquals("\"293.20\"", shaped["goods_amount"].toString())
+        assertEquals("\"0.00\"", shaped["arrears_amount"].toString())
+        assertEquals("2", shaped["order_products_count"].toString())
+        assertFalse(
+            "整形不许把订单金额当成敏感字段剔掉：${shaped.keys}",
+            AiRowShaper.isHiddenField("goods_amount"),
+        )
+    }
 }

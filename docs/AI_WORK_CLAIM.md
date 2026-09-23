@@ -20,6 +20,98 @@
 
 ## 进行中
 
+### [2026-09-24 07:4x → ] 会话：**模拟器 554 货主账本改造**（用户第 5 轮新增功能：**选联系人 / 地点·线路绑联系人 / 单位换算**）【进行中】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+用户原话（2026-09-24，一条消息里三个需求 + 一条纪律要求）：
+> 「给户主也加一个在选择下单的时候**可以选择联系人**就不用每次要手动填入了。同时再给他添加个功能
+> 就是**可以通过地点来绑定联系人**就大家选择地点之后，自动填入对应的联系人。呃包括这个功能，我们的
+> **派单员**，它也要具有这个功能也可以通过**地点或者是线路**去绑定联系人，呃货主他也可以通过线路绑定
+> 联系人都是可以的。不过一般线路，它是自动的会需要填入联系人的。到时候你看着办。然后我们再加一个
+> 功能叫做**自动换算单位**比如说我们有个单位叫一车，但是这一车如果是去拉沙子的话，大概是八方。所以
+> 就说**一车是等于 8 方**……这换算单位啊，我们就把它加在那个**添加单位的那个页面**当中，添加单位那里
+> 再加个按钮可以说**添加单位换算**，那个按钮点进去，就是一个**新的弹窗**就可以在那里设置新的单位换算
+> 了。然后我们再计算的时候或者是算账的时候会自动启动换算的功能，比如说我下的十车，会有 **2 个数据**
+> 第一个是 10 车，第 2 个则是 80 方。」
+
+**要做什么（三件，按依赖顺序做，一件一个提交）**：
+
+**① 联系人可以被挑，也可以绑在「地点 / 线路」上（派单员与货主同一套）**
+
+- 现状：下单页「联系信息」的收货人名称/电话**只能手打**；只有**线路**（`shipper_addresses.receiver_name/phone`）
+  会在选中时自动带出（`OrderCreateViewModel.applyAddress`），**地点**（`shipper_locations`）一个联系人字段都没有。
+- 做法：① 下单页「收货人」那两栏加一个「从联系人里选」的动作入口 → **新控件 `ui/common/ContactPickerSheet.kt`**
+  （按登录人隔离的 `shipper_contacts` 名册，可搜索、可就地新建），选完一次回填**名称 + 电话**两栏；
+  ② **`shipper_locations` 加 `contact_name` / `contact_phone` 两列**（与线路的 `receiver_name`/`phone`
+  **同一口径：存快照串，不存外键**），地点表单里能绑定联系人 → 下单页选中这个地点时自动带出；
+  ③ 线路表单选联系人**也改走同一个 sheet**（原来是个 `DropdownMenu`，人一多就滚不完）—— 一份实现。
+- ⛔ **共享地点（`places`）不绑人**：那张表**全库共用**（司机补录的坐标大家都能选），绑了会影响所有人，
+  而且它本来就没有归属人。这条写进代码注释与文档，并由判据钉住"共享地点分支不许读联系人字段"。
+- ⛔ 回填规矩只有一处（纯函数 + 单测）：**有值才覆盖、空值不清空**（与 `applyAddress` 现在那条规矩同源）——
+  "把用户刚敲进去的名字清掉"比"不自动填"更糟。
+
+**② 单位换算（一车 = 8 方）—— 新表 + 新页 + 数量双档显示**
+
+- 新表 `unit_conversions`（`from_unit` / `to_unit` / `factor` / `remark` / `created_by` + 软删 mixin）：
+  五个端点 `GET /unit-conversions`、`POST`、`PATCH /{id}`、`DELETE /{id}`（**软删**）、`POST /{id}/restore`
+  （用户 2026-09-20 的硬规矩：**所有删除一律软删 + 界面上要有一个手边的恢复入口**）。
+- 管理页 `ui/common/UnitConversionsScreen.kt`（派单员与货主**各有一格入口**：「添加单位换算」这个按钮
+  用户点名要放在**单位选择页**（`UnitPickerSheet`）里，而那个页面只有派单员到得了，所以另开一格
+  工作台入口给货主）+ 新增/编辑弹窗**一份实现**，两处共用。
+- 数量双档：`ui/common/Units.kt` 加**纯函数** `convertedQty(...)`（只做**一跳**换算：一车=8方；
+  链式（车→方→袋）**第一版明确不做**，要防环要选路径，是另一件事），落点 = 已经在用 `qtyWithUnit`
+  的那几处（下单页商品行 / 订单卡片 / 订单详情明细 / 账本小卡），显示成「10 车 ≈ 80 方」。
+- ⛔ **钱一个字节都不动**：换算只作用于**数量**的显示，单价、行金额、账本、报表全按原单位算
+  （"按方计价"是另一件事：那会同时动价格口径与成本，需要用户单独拍板）。这一条写进代码注释 + 红线。
+- ⛔ 两条冲突判据（后端一处实现 + 测试）：① 同一个 `(from,to)` 不许两份；② **反向对也不许同时存在**
+  （`1车=8方` 与 `1方=0.2车` 并存时同一批货会有两个互相矛盾的数）。用户口径不一时**拒绝并说清**，不自动改数。
+
+**③ 声明与收尾**：本页 + 定位表两行（地址与联系人 / 商品单位）+ 设计系统新小节 + 提示目录重生成 +
+每件配**红线脚本 + 反向验证**（本项目规矩：新红线必须配反向验证，否则证明不了判据真的会红）。
+
+**改哪些文件（预计）**：
+- 后端：`app/models/{shipper,unit_conversion(新)}.py`、`app/models/__init__.py`、`app/models/enums.py`（**追加**审计码）、
+  `app/schemas/{shipper,unit_conversion(新)}.py`、`app/api/v1/{shipper,unit_conversions(新)}.py`、路由注册处、
+  `app/core/schema_bootstrap.py`（**核心**：给 `shipper_locations` 补两列）、`backend/tests/test_unit_conversion*.py`。
+- Android：`ui/common/{ContactPickerSheet(新),ContactFill(新),UnitConversionsScreen(新),UnitConversionsViewModel(新),
+  UnitConversionDialog(新),Units.kt,UnitPickerSheet.kt,OrderCard.kt,OrderPeek.kt}`、
+  `ui/shipper/{OrderCreateScreen,OrderCreateViewModel,AddressScreen,AddressViewModel}.kt`、
+  `ui/order/OrderDetailScreen.kt`、`ui/dispatcher/ReportCenter.kt`（审计码中文名）、
+  `ui/nav/{Routes,Modules,NavGraph}.kt`、`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、
+  `data/remote/dto/Dtos.kt`、`app/src/test/.../{ContactFillTest,UnitConversionTest}.kt`。
+- 判据：`_tools/qa/{_check_contact_binding,_check_unit_conversion}.py` + `_tools/qa/_reverse_verify_*.py`（各一）。
+
+**明确不碰**（第 24 轮会话正在改）：`backend/app/api/v1/{stats,reports,suppliers,freight_settlement,
+driver_billing_rules,freight_templates,price_rules}.py`、`backend/app/core/{date_window,query_text,upload_read}.py`、
+`backend/app/services/order_response.py`、`backend/app/schemas/order.py`、`_tools/qa/_check_core_freeze.py`、
+`_tools/qa/_check_soft_delete_guards.py`、`_tools/ai/_emulator_say.ps1`、`scripts/*.ps1`。
+
+**交叉点（共享文件，只做追加式改动）**：`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、
+`data/remote/dto/Dtos.kt`、`app/models/enums.py`、`ui/dispatcher/ReportCenter.kt` —— 动之前重读最新内容，
+只在文件**末尾/对应分节末尾**追加，不改别人已写的行；每次改完在本节记一笔。
+
+核心改动：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：线上库给已有表**补列的唯一入口**
+（`shipper_locations.contact_name/contact_phone` 两列；新表 `unit_conversions` 由 `create_all` 自动建，不走这里）。
+
+### [2026-09-24 07:4x → ] 会话：**全项目系统性复核 · 第 24 轮**（第 7 次并行渗透：**再换 12 个全新区域**；统一修 R8）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**并行渗透（第 7 批区域，见 `_archive/audit/round24/README.md`）**：并发与幂等（双层）/
+软删四件套完整性矩阵 / 权限矩阵机器对账（全端点 × 3 角色）/ 分页与截断完整性 /
+表格导入解析边界 / 上传与静态目录 / 会话与鉴权纵深 / 司机端全流程状态 /
+业务日与账期归属 / 舍入与精度累积 / 审计日志内容质量 / 启动与迁移健壮性。
+12 个子代理已全部派出，报告落 `_archive/audit/round24/`。
+
+**本轮同时修第 6 批的剩余项（按严重度）**：
+
+| # | 改了什么 | 来源报告 |
+| --- | --- | --- |
+| R8-1 | **订单出参没有「订单金额」**：模型手里只有 returned/settled/refunded/arrears 四个钱，没有总额（界面上的「订单金额」是客户端 Σ 商品行 `line_total`，而 AI 的行整形把 `order_products` 折成 `_count`）→ 问「这单多少钱」只能拿 `arrears_amount` 顶替，答成 0 元/已结清 | 第 22 轮 F7-1 |
+
+核心改动：`backend/app/services/order_response.py` —— 为什么必须动核心：**订单出参口径 + 司机视角门控都在这一处**，
+新增的 `goods_amount` 必须与既有的四个钱同源（`order_money`）、并且必须进司机那条门（否则把刚剥掉的
+货款又从"总额"漏回去）。
+核心改动：`backend/app/schemas/order.py` —— 为什么必须动核心：出参字段的**唯一声明处**（加字段就是改出参口径），
+恒等式注释挂在同一个位置。
+
 ### [2026-09-24 02:0x → 07:3x] 会话：**全项目系统性复核 · 第 23 轮**（**第 6 批 12 份渗透报告的统一修**：R7-1…R7-8 全做完，7 个提交）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **这一轮的输入**是第 22 轮派出的 12 个子代理留下的 12 份报告（`_archive/audit/round22/01..12-*.md`，

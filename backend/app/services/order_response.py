@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -23,6 +25,27 @@ def apply_driver_view_gating(data: dict, order: Order) -> None:
     for lp in data.get("order_products", []):
         lp["unit_price"] = None
         lp["line_total"] = None
+    # ⛔ 这一单的**五个钱**一起归一（2026-09-24 第 24 轮；第 22 轮 F7-1 的一半 + 本轮 08 区 D1）：
+    #    上面刚把每行的 `line_total` 置空（"司机无需看到货主货款"），可是
+    #    ① 本轮新加的 `goods_amount` 就是那些行之和 → 不剥等于换个地方又发一遍；
+    #    ② `arrears_amount`（欠款）**同样是货款**：一张没收款、没退货的单，
+    #       欠款恰好等于货款全额（本轮实测：司机能读到的 19 张单里 17 张如此，
+    #       例如 2×30+3×20 的单 `arrears_amount=120.00`，与派单员的 `goods_amount` 一个数）；
+    #       `settled_amount` / `returned_amount` 同理能反推出货款。
+    #    所以司机视角下：`goods_amount` = None（客户端本来就是可空 String），
+    #    另外四个 **= 0**（`OrderDto` 里它们是非空 `String`，发 `null` 会让客户端反序列化失败
+    #    —— 那个"发 null"的口子是给 `unit_price`/`line_total`/`freight_fee` 留的）。
+    #    ⚠️ 这里 0 的语义是「这一块不给你」，不是"真的没欠"；司机端界面与逻辑对这五个数
+    #    **零引用**（`grep -rn "arrearsAmount\|settledAmount\|returnedAmount\|refundedAmount"
+    #    android/app/src/main/java/com/tapmoay/sorders/ui/` 只命中派单员/货主页，
+    #    订单详情里那排「现场支付/挂账」按钮在 `if (role == Role.DISPATCHER)` 里面）。
+    #    接单/送达/收现金都不需要它：司机那三个数字（该收多少现金）界面上从来没显示过
+    #    （`OrderDetailScreen.kt` 的 "收取现金（N 张）" 只有张数）。
+    data["goods_amount"] = None
+    data["settled_amount"] = Decimal("0")
+    data["returned_amount"] = Decimal("0")
+    data["refunded_amount"] = Decimal("0")
+    data["arrears_amount"] = Decimal("0")
     data["freight_visible"] = per_order
     if not per_order:
         data["freight_fee"] = None
@@ -69,6 +92,9 @@ def enrich_order_out(
     # 这一单的钱：口径只有 `services/order_money.py` 一处（退货红冲、部分核销、现场收现金
     # 三件事都在这三个数里体现，客户端不许自己再加一遍）
     m = money or money_of(db, order)
+    # 订单金额（Σ 商品行 line_total）：界面上的「订单金额」就是它，而在这之前**出参里没有它**
+    # —— 客户端自己 Σ、AI 拿不到（第 22 轮 F7-1：问"这单多少钱"只能拿 arrears 顶替 → 答成 0 元）。
+    data["goods_amount"] = m.total
     data["returned_amount"] = m.returned
     data["settled_amount"] = m.settled
     data["refunded_amount"] = m.refunded
