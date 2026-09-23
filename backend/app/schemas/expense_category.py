@@ -28,7 +28,10 @@ class ExpenseCategoryCreate(BaseModel):
     # 不传 = 排到最后（服务端算 max+1，**不是 0** —— 0 会抢在第一个前面）
     sort_order: int | None = Field(None, description="显示顺序，小的在前；不传=排到最后")
     #: 卡片上突出哪一项（vehicle/driver/order/none）；不传 = none
-    link_kind: str = Field("none", description="卡片上突出哪一项：vehicle/driver/order/none")
+    # ⚠️ `max_length=16` 与列宽一致（`expense_categories.link_kind` 是 `String(16)`）：
+    #    取值本身由 `link_ok` 限死在 `LINK_KINDS` 里，但**声明上界**也要写 —— 本机 SQLite
+    #    照收超长、生产 MySQL `Data too long`（2026-09-23 第 18 轮 `_audit_text_fields.py` 报的）。
+    link_kind: str = Field("none", max_length=16, description="卡片上突出哪一项：vehicle/driver/order/none")
 
     @field_validator("name", mode="before")
     @classmethod
@@ -44,7 +47,7 @@ class ExpenseCategoryCreate(BaseModel):
 class ExpenseCategoryUpdate(BaseModel):
     name: str | None = Field(None, max_length=MAX_SHORT_NAME)
     sort_order: int | None = None
-    link_kind: str | None = None
+    link_kind: str | None = Field(None, max_length=16)  # 与列宽一致（说明见 Create 那处）
 
     @field_validator("name", mode="before")
     @classmethod

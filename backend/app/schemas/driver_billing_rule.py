@@ -116,8 +116,15 @@ class DriverBillingRuleCreate(MoneyInput):
     remark: str = Field("", max_length=MAX_TEXT)
 
 
-class RuleCategoryIn(BaseModel):
-    """一条「分类 → 每单金额/比例」。"""
+class RuleCategoryIn(MoneyInput):
+    """一条「分类 → 每单金额/比例」。
+
+    ⚠️ 必须继承 `MoneyInput`（2026-09-23 第 18 轮并行渗透 A8-2 / B2-4）：它原来是个**裸 `BaseModel`**，
+    而 `MoneyInput` 的校验器只遍历**自己这一个模型**的字段、注释里也写明"嵌套模型不在这里判" ——
+    于是 `categories[].piece_amount = 1e20` 能同时过 Pydantic 与 `validate_rule_params`：
+    本机 SQLite 照收，生产 `Numeric(12,2)` 写入时 500（"数值超出可保存范围"）。
+    `_tools/qa/_audit_money_fields.py` 一直能报这一条，只是它不在必跑清单里（同轮已补 `--check`）。
+    """
 
     category_id: int
     piece_amount: Decimal = Decimal("0")

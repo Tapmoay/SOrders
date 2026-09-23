@@ -693,7 +693,13 @@ def pay_settlement(db: Session, s: DriverSettlement, method: str, operator_id: i
     db.refresh(s)
     db.add(
         CashFlow(
-            flow_date=(s.paid_at).date(),
+            # ⛔ **日期列一律按业务当地日**（2026-09-23 第 18 轮并行渗透 A2-2 抓到）：
+            #    这里原来是 `(s.paid_at).date()` —— `paid_at` 是 UTC naive，于是当地
+            #    00:00~08:00 点「标记已付款」会把现金支出记到**前一天**（跨月时进错月份），
+            #    而 `flow_date` 是 DATE 列、`cash_flows?date_from/to` 与资金收支报表都按它筛。
+            #    全项目其它四处（结算收款/供应商付款/退货退现/手工记账）都走 `business_date(...)`
+            #    或人填日期 —— 这一处是唯一的异类。
+            flow_date=business_date(s.paid_at),
             direction=CashFlowDirection.OUT,
             amount=s.amount,
             party_type="driver",

@@ -24,6 +24,24 @@ CHECK = ROOT / "_tools/qa/_check_single_source.py"
 
 CASES: list[tuple[str, str, object]] = [
     (
+        "⛔ 2026-09-23 第 18 轮补：绩效的兜底 SLA 又按 **UTC 日末**算（每天白送 8 小时宽限）",
+        "backend/app/services/stats_service.py",
+        lambda s: s.replace(
+            "    return business_day_start_utc(od + timedelta(days=1))",
+            "    return datetime.combine(od, time(23, 59, 59), tzinfo=timezone.utc).replace(tzinfo=None)",
+            1,
+        ),
+    ),
+    (
+        "⛔ 2026-09-23 第 18 轮补：结算付款的日期列又用 `paid_at.date()`（UTC 日，凌晨记到前一天）",
+        "backend/app/services/accounting_service.py",
+        lambda s: s.replace(
+            "            flow_date=business_date(s.paid_at),",
+            "            flow_date=(s.paid_at).date(),",
+            1,
+        ),
+    ),
+    (
         "报表又自己算日期（`delivered_at.date()` 回到分桶里）",
         "backend/app/api/v1/reports.py",
         lambda s: s.replace(

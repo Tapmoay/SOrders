@@ -65,7 +65,14 @@ def scalar_types(ann: object) -> set[object]:
 
 
 def main() -> int:
+    # ⛔ `--check` = **进必跑清单的凭据**（2026-09-23 第 18 轮补）。
+    #    `_tools/qa/_check_all.py` 的清单是**自己算**的：`_check_*.py` 或任何声明了 `--check` 的脚本。
+    #    本脚本名字是 `_audit_*` 又没有 `--check` —— 于是它**一直不在必跑清单里**，
+    #    而它报的两条（`RuleCategoryIn.piece_amount` / `MovementCreate.unit_cost` 无上界）
+    #    就这样在眼皮底下躺了整轮：**能抓到缺陷的检查没人跑 = 没有检查**。
+    #    子代理 B2/B12 都是先手动跑了它才发现"它早就能报红"。
     show_all = "--all" in sys.argv
+    check = "--check" in sys.argv
     gaps: list[str] = []
     protected: list[str] = []
     for model in all_models():
@@ -82,6 +89,16 @@ def main() -> int:
             (protected if (inherits or has_own_bound) else gaps).append(where)
 
     total = len(gaps) + len(protected)
+    if check and not show_all:
+        # 必跑模式下只印结论一行（`_check_all.py` 会把每个脚本的输出收进一张表，
+        # 39 行字段清单会把别的检查挤出屏幕）
+        print(
+            f"{'✅' if not gaps else '❌'} 金额入参字段 {total} 个，其中 {len(gaps)} 个没有上界"
+            + ("" if not gaps else "："
+               + "、".join(g.split(".")[-1] for g in gaps[:3])
+               + ("…" if len(gaps) > 3 else ""))
+        )
+        return 2 if gaps else 0
     print(f"金额语义的入参字段 {total} 个（模型清单由 pydantic 自己算，不手写）")
     if show_all:
         for w in protected:

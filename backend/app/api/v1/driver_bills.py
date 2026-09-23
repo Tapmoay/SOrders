@@ -132,12 +132,19 @@ def generate_bills(
             #    修法：先把司机行锁住（MySQL 上是 `SELECT … FOR UPDATE`，SQLite 忽略），
             #    同一个月薪单的生成因此串行，第二个人进来时 `exists` 已经查得到。
             db.execute(select(User.id).where(User.id == d.id).with_for_update())
+            # ⛔ **锁住了行还不够，判据本身也要加锁读**（2026-09-23 第 18 轮并行渗透 A5-2）：
+            #    MySQL 的 REPEATABLE READ 下，**普通 SELECT 读的是事务开始那一刻的快照** ——
+            #    第一个请求插完提交之后，第二个请求（即使已经拿到行锁）用普通 SELECT 仍然
+            #    看不到那一行，于是照样插第二张月薪单（工资付两遍）。
+            #    加锁读永远读**最新已提交值**，与 `order_money.money_map(lock=True)` 同一个手法。
             exists = db.scalars(
-                select(DriverBill).where(
+                select(DriverBill)
+                .where(
                     DriverBill.driver_id == d.id,
                     DriverBill.bill_type == DriverBillType.SALARY,
                     DriverBill.month == body.month,
                 )
+                .with_for_update()
             ).first()
             if exists is not None:
                 continue

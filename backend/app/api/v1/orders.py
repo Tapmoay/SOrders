@@ -19,7 +19,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.api.v1.arrears import find_or_create_unit
-from app.core.business_time import business_range_utc, utc_now_naive
+from app.core.business_time import business_range_utc, local_stamp, utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.core.upload_read import MAX_DELIVERY_PHOTO_BYTES, MAX_IMAGE_BYTES, read_limited
@@ -1075,9 +1075,14 @@ def driver_append_internal_note(
     if role == UserRole.DRIVER.value:
         if order.driver_id != current.id:
             raise HTTPException(status_code=403, detail="无权操作")
-        prefix = f"[司机 {datetime.now(timezone.utc).strftime('%m-%d %H:%M')}] "
+        # ⛔ 时间戳按**业务当地时刻**印（`local_stamp` 的唯一实现）：
+        #    这里原来是 `datetime.now(timezone.utc).strftime(...)` —— 当地 09-21 07:10 写的备注
+        #    在单子上印成 `[司机 09-20 23:10]`（连日期都跨），而这段文本一旦写进
+        #    `internal_notes` 就**再也改不了**（累计文本、历史不可追溯）——
+        #    用户拿它跟司机对时间时，两边说的不是同一天（2026-09-23 第 18 轮并行渗透 A2-3）。
+        prefix = f"[司机 {local_stamp()}] "
     else:
-        prefix = f"[派单 {datetime.now(timezone.utc).strftime('%m-%d %H:%M')}] "
+        prefix = f"[派单 {local_stamp()}] "
     order.internal_notes = (order.internal_notes or "").strip()
     if order.internal_notes:
         order.internal_notes += "\n"

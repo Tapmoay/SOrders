@@ -167,7 +167,11 @@ def item_bound(ann: object) -> int | None:
 
 
 def main() -> int:
+    # ⛔ `--check` = **进必跑清单的凭据**（2026-09-23 第 18 轮补）：`_check_all.py` 的清单自己算
+    #    （`_check_*.py` 或声明了 `--check` 的脚本），而这个脚本叫 `_audit_*` 又没有 `--check`
+    #    → 它报的 4 条（2 条超列宽 + 2 条无上界）**一直没人跑**（子代理手动跑才发现）。
     show_all = "--all" in sys.argv
+    check = "--check" in sys.argv
     tables = table_columns()
     gaps: list[str] = []
     too_big: list[str] = []
@@ -247,8 +251,16 @@ def main() -> int:
     if n_fields < 50 or not ok:
         print(f"\n⛔ 判据空转：只扫到 {n_fields} 个字段 / 有界 {len(ok)} 个——先修这个脚本。")
         return 3
+    bad = len(gaps) + len(too_big) + len(tensor)
+    if check and not show_all:
+        # 必跑模式下只印一行结论（`_check_all.py` 把每个脚本的输出收进一张表）
+        print(
+            f"{'✅' if not bad else '❌'} 文本/取值字段 {n_fields} 个：有界 {len(ok)}"
+            f"、pattern 限定 {len(patterned)}、没上界 {len(gaps)}、超列宽 {len(too_big)}、"
+            f"列表无条数上界 {len(tensor)}"
+        )
+        return 2 if bad else 0
     return 2 if (gaps or too_big or tensor) else 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

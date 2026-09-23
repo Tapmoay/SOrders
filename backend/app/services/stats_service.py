@@ -8,14 +8,24 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.core.business_time import business_range_utc
+from app.core.business_time import business_day_start_utc, business_range_utc
 from app.models import DriverSettlement, Order, OrderProduct, User
 from app.models.enums import OrderStatus, SettlementStatus
 from app.services.driver_pay import has_per_order_pay, pay_for_order, snapshot_mode
 
 
 def _end_of_order_date(od: date) -> datetime:
-    return datetime.combine(od, time(23, 59, 59), tzinfo=timezone.utc)
+    """下单日**当天的当地日末**（转成库里那个 UTC naive 口径）。
+
+    ⛔ 原来是 `datetime.combine(od, time(23,59,59), tzinfo=timezone.utc)` —— 那是**UTC 日末**，
+    而 `order_date` 是**业务当地日**（`business_today`）：两者差 8 小时，于是"当天送达"的兜底
+    SLA 实际给到了**当地次日 07:59:59**，每天白送 8 小时宽限。
+    本机实测（356 张已送达单、100% 走这条兜底）：准时率 **82.3%**，按当地日末算只有 **30.9%**
+    （差 183 单）—— 而这个数字直接进司机绩效与导出（2026-09-23 第 18 轮并行渗透 A2-1 抓到）。
+
+    修法与全项目其它窗口同源：`business_day_start_utc(次日)` 就是当地日末的 UTC 时刻。
+    """
+    return business_day_start_utc(od + timedelta(days=1))
 
 
 def _on_time_delivered(o: Order) -> bool | None:

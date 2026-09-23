@@ -66,7 +66,25 @@ DATE_PATTERNS = [
     r"\.cancelled_at\.date\(\)",
     r"\.created_at\.date\(\)",
     r"func\.date\(",
+    # ⛔ 2026-09-23 第 18 轮并行渗透补：上面五种形状漏掉了另外三类，而**同族缺陷全落在缺口里**
+    #    （A2 抓到 4 条：绩效 SLA 的 UTC 日末、结算付款的 `flow_date`、内部备注的时间戳、
+    #    以及客户端三处 `take(16)`）：
+    #    ⑥ `datetime.combine(某业务日, time(...), tzinfo=utc)` —— 把**当地日**当成 UTC 日末
+    #       （每天白送 8 小时宽限：本机准时率 82.3% 应为 30.9%）；
+    #    ⑦ `某个时间戳.date()` —— 从**时间戳**推**日期列**（当地时间 00:00~08:00 会记到前一天）；
+    #       `delivered_at` 已经在上面的白名单机制里，这里补的是**别的**时间戳列
+    #       （`paid_at` / `settled_at` / `deleted_at` …：写 DATE 列时必须过 `business_date`）。
+    r"datetime\.combine\(\s*[^,]+,\s*time\(",
+    #    ⚠️ 中间的 `\)?` 不能省：实际写法常常是 `(s.paid_at).date()`（带括号），
+    #    第一版没写它 —— 注入 `flow_date=(s.paid_at).date()` 时判据**照样绿**（反向验证当场抓到）。
+    r"\.(?!delivered_at|cancelled_at|created_at)[a-z_]+_at\)?\.date\(\)",
 ]
+
+#: 允许"从时间戳推日期"的地方 → 理由（按文件名）。
+#: ⚠️ 与 `DATE_ALLOW` 同一套机制：白名单要写理由，**不许为了变绿而掏空清单**。
+DATE_STAMP_ALLOW: dict[str, str] = {
+    "core/business_time.py": "`business_date` 自己的实现（唯一那一处换算）",
+}
 
 #: 「现在」的裸写法 —— 一律不许（R14-9，2026-09-19 审计）。
 #:
@@ -140,7 +158,10 @@ def main() -> int:
             for m in re.finditer(pat, src):
                 line_no = src[: m.start()].count("\n") + 1
                 hits.append(f"{name}:{line_no} {m.group(0)}")
-    bad = [h for h in hits if h.split(":")[0] not in DATE_ALLOW]
+    bad = [
+        h for h in hits
+        if h.split(":")[0] not in DATE_ALLOW and h.split(":")[0] not in DATE_STAMP_ALLOW
+    ]
     for h in hits:
         print(f"     · {h}{'（白名单）' if h.split(':')[0] in DATE_ALLOW else ''}")
     # 反空转：`business_time` 必须真的被用在一批地方——否则"没人自己算日期"是因为**没人算日期**，

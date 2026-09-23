@@ -3,8 +3,10 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.money import MoneyInput
 
-class MovementCreate(BaseModel):
+
+class MovementCreate(MoneyInput):
     product_id: int
     # 正数入库 / 负数出库，不得为 0
     change: int = Field(..., ge=-1_000_000, le=1_000_000)

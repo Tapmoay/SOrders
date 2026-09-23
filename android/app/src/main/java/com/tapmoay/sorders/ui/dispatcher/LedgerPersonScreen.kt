@@ -42,6 +42,7 @@ import com.tapmoay.sorders.ui.common.TruncationNote
 import com.tapmoay.sorders.ui.theme.DangerRed
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.ui.common.Hint
 
@@ -311,7 +312,8 @@ private fun PersonOrderCard(
                     // 状态徽章走**全项目唯一那一份**（`OrderStatusChip`）——它同时给"已退货"这一档
                     // 中文名与配色；在这里自己写一个 when，就会出现"账本页显示 RETURNED"这种原始码
                     com.tapmoay.sorders.ui.common.OrderStatusChip(order.status)
-                    order.deliveredAt?.take(16)?.replace("T", " ")?.let {
+                    // ⚠️ 时间戳必须换算到当地（`formatDateTime`）：直接 `take(16)` = UTC，真机早 8 小时
+                    formatDateTime(order.deliveredAt).ifBlank { null }?.let {
                         Spacer(Modifier.width(8.dp))
                         Text(
                             it,

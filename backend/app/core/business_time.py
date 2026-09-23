@@ -94,3 +94,18 @@ def utc_now_naive() -> datetime:
       运费模板/司机计费规则/地址写的是 `datetime.now()`，30 天隔离期因此**早 8 小时**到期。
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def local_stamp(dt: datetime | None = None, *, fmt: str = "%m-%d %H:%M") -> str:
+    """**印给人看**的时间戳（业务当地时刻），缺省 `MM-DD HH:MM`。
+
+    ## 为什么必须走这一处（2026-09-23 第 18 轮并行渗透 A2-3）
+    有两处把时间戳**写进订单数据里**（`internal_notes` 的 `[司机 09-20 23:10]` / `[派单指派 …]`），
+    用的却是 `datetime.now(timezone.utc)` —— 当地 09-21 07:10 写的备注，单子上印着 `09-20 23:10`
+    （连日期都跨了），而这段文本**一旦写进 `orders.internal_notes` 就再也改不了**
+    （那是累计文本，历史不可追溯）。用户拿它跟司机对时间时，两边说的不是同一天。
+
+    ⛔ 与 `utc_now_naive()` 的分工：那个是"拿去和库里比"的值，这个是"印给人看"的字。
+    两者**不许混用**（拿这个去比时间列 = 又是 8 小时偏差；拿那个去印 = 用户看到 UTC）。
+    """
+    return business_local(dt if dt is not None else utc_now_naive()).strftime(fmt)

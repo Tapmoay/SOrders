@@ -6,7 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import InvalidRequestError as SaInvalidRequest
 from sqlalchemy.orm import Session
 
-from app.core.business_time import business_today
+from app.core.business_time import business_today, local_stamp
 from app.core.rbac import user_role_key
 from app.models import Order, User
 from app.models.order import OrderProduct
@@ -195,8 +195,10 @@ def assign_driver(
     order.driver_acknowledged_at = None
     auto_stock_out(db, order, operator.id)
     if internal_note and internal_note.strip():
-        ts = _now().strftime("%m-%d %H:%M")
-        prefix = f"[派单指派 {ts}] "
+        # ⛔ 时间戳按**业务当地时刻**印（`local_stamp` 唯一实现）：原来 `_now()` 是 UTC，
+        #    当地 09-21 07:10 派单写的备注在单子上印成 `[派单指派 09-20 23:10]` ——
+        #    而这段文本写进 `internal_notes` 后不可改（2026-09-23 第 18 轮 A2-3）。
+        prefix = f"[派单指派 {local_stamp(_now())}] "
         order.internal_notes = (order.internal_notes or "").strip()
         if order.internal_notes:
             order.internal_notes += "\n"

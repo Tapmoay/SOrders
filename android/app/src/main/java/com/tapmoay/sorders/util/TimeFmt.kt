@@ -60,4 +60,23 @@ fun parseBackendInstant(iso: String): OffsetDateTime =
 
 fun formatDateCN(iso: String?): String = iso?.take(10) ?: ""
 
+/**
+ * 后端**时刻**（带时分秒的 naive UTC）→ 当地 `MM-dd`。
+ *
+ * ⛔ 与 [formatDateCN] 的分工（2026-09-23 第 18 轮并行渗透 A2-4）：
+ * · [formatDateCN] 只用于**日期列**（`entry_date` / `exp_date` / `order_date`）——
+ *   那些值本身就是当地日、没有时区可换算，`take(10)` 就是对的；
+ * · 这个函数只用于**时间戳列**（`delivered_at` / `paid_at` / `created_at`）——
+ *   直接 `take(10)` / `take(16)` 印出来的是 **UTC**：真机上比墙上时间早 8 小时，
+ *   当地 00:00~08:00 的那些行还会**跨到前一天**（而模拟器时区恰好是 UTC，永远看不见）。
+ */
+fun formatInstantDay(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String {
+    if (iso.isNullOrBlank()) return ""
+    return runCatching {
+        DateTimeFormatter.ofPattern("MM-dd").format(parseBackendInstant(iso).atZoneSameInstant(zone))
+    }.getOrElse {
+        iso.take(10)
+    }
+}
+
 fun today(): String = LocalDate.now().toString()

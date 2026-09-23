@@ -40,8 +40,11 @@ class OrderTemplateCreate(BaseModel):
     origin_address: str = Field(default="", max_length=256)
     address: str = Field(default="", max_length=256)
     receiver_name: str = Field(default="", max_length=64)
-    # 电话规则在 `app/core/phone.py`（空 = 没填）
-    receiver_phone: OptionalContactPhone = Field(None, max_length=32)
+    # 电话规则在 `app/core/phone.py`（空 = 没填）。
+    # ⚠️ `max_length` 必须 ≤ 列宽（`order_templates.receiver_phone` 是 `String(20)`）：
+    #    原来写 32 —— 比列还宽的上界等于没有上界（本机 SQLite 照收，生产 MySQL `Data too long`）。
+    #    `_tools/qa/_audit_text_fields.py` 一直在报这一条（2026-09-23 第 18 轮把它接进必跑清单）。
+    receiver_phone: OptionalContactPhone = Field(None, max_length=20)
     #: `null` = 不预设运费；`0` = 免运费（两件事，见模型文件头）
     freight_fee: str | None = Field(None, max_length=16)
     remark: str = Field(default="", max_length=256)
@@ -59,7 +62,8 @@ class OrderTemplateUpdate(BaseModel):
     origin_address: str | None = Field(None, max_length=256)
     address: str | None = Field(None, max_length=256)
     receiver_name: str | None = Field(None, max_length=64)
-    receiver_phone: OptionalContactPhone = Field(None, max_length=32)
+    # ⚠️ ≤ 列宽 20（同 Create 那一处的说明）
+    receiver_phone: OptionalContactPhone = Field(None, max_length=20)
     freight_fee: str | None = Field(None, max_length=16)
     remark: str | None = Field(None, max_length=256)
     lines: list[OrderTemplateLine] | None = Field(None, max_length=MAX_LINES)

@@ -26,6 +26,7 @@ import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.util.formatInstantDay
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.goodsTotal
 import java.math.BigDecimal
@@ -420,7 +421,10 @@ fun SettlementsScreen(container: AppContainer, onBack: () -> Unit) {
                         } else if (s.status == "confirmed") {
                             Button(onClick = { vm.act(s, "pay") }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(MgrGreen))) { Text("标记已付款") }
                         } else {
-                            Text(s.paidAt?.let { "已付 " + it.substring(0, 10) } ?: statusLabel(s.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            // ⚠️ `paid_at` 是**时间戳**（naive UTC）→ 必须换算到当地再印日期：
+                            //    直接 `substring(0,10)` 印的是 UTC 日，当地凌晨付款会显示成**前一天**
+                            //    （日期列才该用 `formatDateCN`，见 `util/TimeFmt.kt` 的分工）
+                            Text(s.paidAt?.let { "已付 " + formatInstantDay(it) } ?: statusLabel(s.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

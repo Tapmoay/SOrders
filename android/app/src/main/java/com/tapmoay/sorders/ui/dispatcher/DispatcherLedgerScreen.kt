@@ -27,6 +27,7 @@ import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProductPurple
+import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
 
@@ -481,7 +482,9 @@ private fun DriverOrderLines(
             Column(Modifier.weight(1f)) {
                 Text(o.orderNo, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    listOfNotNull(o.deliveredAt?.take(16)?.replace("T", " "), o.deliveryDescription.ifBlank { null }, o.addressDetail.ifBlank { null }).joinToString(" · "),
+                    // ⚠️ 时间戳走 `formatDateTime`（统一换算到当地）：直接 `take(16)` 印出来的是
+                    //    **UTC**，真机上早 8 小时、当地凌晨那几单还会跨到前一天（模拟器是 UTC 看不见）
+                    listOfNotNull(formatDateTime(o.deliveredAt).ifBlank { null }, o.deliveryDescription.ifBlank { null }, o.addressDetail.ifBlank { null }).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,

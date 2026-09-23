@@ -117,6 +117,32 @@ def _idle_reason(total_sql: str | None) -> str | None:
     )
 
 
+def _line_editable_statuses() -> list[str]:
+    """从**源码**读出「这单还能改明细」的状态清单（`order_products.py::LINE_EDITABLE_STATUSES`）。
+
+    ## 为什么是读源码而不是手写/import
+    · **不许手写**：这一轮修掉的就是手写清单的腐烂 —— 原来那条判据写的是
+      `upper(o.status) in ('CANCELLED','DELIVERED','RECALLED')`：漏了真在用的 `RETURNED`，
+      还留着一个**在 `OrderStatus` 里根本不存在**的 `RECALLED`（那个分支永远为假，看着像覆盖了）。
+      本项目已经栽过 5 次"手写清单"，这是第 6 次。
+    · **不 import 后端**：本脚本是"拿 SQL 直接查库"的独立工具，`import app.*` 会连带建引擎、
+      把与 `SORDERS_DB` 无关的东西读进来（而且它要能在没装好后端依赖的机器上跑）。
+
+    读不到就**硬失败**（判据在空转比没有判据更糟），并且要求至少 3 个状态（清单被掏空也报错）。
+    """
+    src = (ROOT / "backend/app/api/v1/order_products.py").read_text(encoding="utf-8")
+    m = re.search(r"LINE_EDITABLE_STATUSES\s*=\s*\((.*?)\)", src, re.S)
+    if not m:
+        raise SystemExit(
+            "❌ 读不到 `LINE_EDITABLE_STATUSES`（订单明细可编辑状态的唯一实现）—— "
+            "判据会空转，停。（它改名/搬家了就更新 _fuzz_invariants._line_editable_statuses）"
+        )
+    vals = re.findall(r"OrderStatus\.([A-Z_]+)", m.group(1))
+    if len(vals) < 3:
+        raise SystemExit(f"❌ `LINE_EDITABLE_STATUSES` 只解析出 {len(vals)} 个状态（<3）—— 清单被掏空了？")
+    return vals
+
+
 def check_ic(rep: Report, title: str, bad_sql: str, total_sql: str | None = None,
              detail_sql: str | None = None, limit: int = 5, kind: str = "BUG") -> None:
     """通用一条：`bad_sql` 返回坏行（可为 id+说明），`total_sql` 返回检查总数。
@@ -423,10 +449,19 @@ def main() -> int:
     check_ic(rep, "库存为负（超卖）", 
              "select id, name, stock from products where is_deleted=0 and stock < 0",
              "select count(*) from products where is_deleted=0", limit=lim, kind="risk")
+    # ⚠️ 2026-09-23 第 18 轮（B11 子代理指出）：这里原来是**手写**的状态列表，而且里面有一个
+    #    `'RECALLED'` —— 那个状态在 `OrderStatus` 里**根本不存在**（撤回派单是把单改回
+    #    `PENDING_DISPATCH`，不是新的终态）。手写清单的两种腐烂形态在这一个字符串上全齐了：
+    #    ① 漏了真在用的 `RETURNED`（已退货的单若还挂着 RESERVED，这条判据看不见）；
+    #    ② 留着一个不存在的值（那个分支永远为假，看着像覆盖了）。
+    #    现在从**源码**算：**预占还活着的状态** = 「这单还能改明细」那几个
+    #    （唯一清单 `order_products.py::LINE_EDITABLE_STATUSES`）；不在这几个里 = 已终结、
+    #    不该再挂着 RESERVED。
+    _live = ",".join(f"'{s}'" for s in _line_editable_statuses())
     check_ic(rep, "预占流水没有对应的撤销/实扣（订单已终结但仍 RESERVED）",
              "select m.id, m.order_id, m.change, m.status from inventory_movements m "
              "join orders o on o.id = m.order_id "
-             "where upper(m.status)='RESERVED' and upper(o.status) in ('CANCELLED', 'DELIVERED', 'RECALLED')",
+             f"where upper(m.status)='RESERVED' and o.status not in ({_live})",
              "select count(*) from inventory_movements where upper(status)='RESERVED'", limit=lim)
 
     # ---------------------------------------------------------------- 状态机一致性
