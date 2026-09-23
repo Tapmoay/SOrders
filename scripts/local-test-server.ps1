@@ -1,4 +1,4 @@
-# 本地测试：启动 SOrders API（FastAPI + Socket.IO），默认 http://127.0.0.1:8000
+﻿# 本地测试：启动 SOrders API（FastAPI + Socket.IO），默认 http://127.0.0.1:8000
 # 用法：在仓库根目录执行  .\scripts\local-test-server.ps1
 # 依赖：已安装 backend/requirements.txt；仓库根目录 .env 中 DATABASE_URL 等
 

@@ -1,4 +1,4 @@
-# 将仓库内便携 Node.js（若已解压到 .tools）加入当前会话 PATH，便于 npm / Vite 找到 node。
+﻿# 将仓库内便携 Node.js（若已解压到 .tools）加入当前会话 PATH，便于 npm / Vite 找到 node。
 # 用法：在 PowerShell 中先执行：  . D:\...\SOrders\scripts\set-dev-path.ps1
 
 $root = Split-Path $PSScriptRoot -Parent

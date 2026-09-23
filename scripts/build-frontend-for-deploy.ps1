@@ -1,4 +1,4 @@
-# 生产前端构建：在仓库根目录使用与 Vite 一致的 envDir（根目录 .env 中 VITE_*）
+﻿# 生产前端构建：在仓库根目录使用与 Vite 一致的 envDir（根目录 .env 中 VITE_*）
 # 用法：在仓库根目录执行  .\scripts\build-frontend-for-deploy.ps1
 
 $ErrorActionPreference = "Stop"
