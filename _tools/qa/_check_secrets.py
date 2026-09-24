@@ -131,6 +131,11 @@ def weak_jwt_secrets() -> set[str]:
     return set(re.findall(r'"([^"]+)"', m.group(1))) if m else set()
 
 
+#: 「值由环境提供」的形状：$NAME / ${NAME} / ${NAME:-默认}（后者由上面那段拆开处理）。
+#: 单独成常量是为了让它**可被反向验证直接引用**，而不是埋在函数体里的一句正则。
+ENV_REF_RX = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$")
+
+
 def jwt_default_problems(files: list[str]) -> tuple[list[str], int]:
     weak = weak_jwt_secrets()
     if len(weak) < 5:
@@ -166,8 +171,16 @@ def jwt_default_problems(files: list[str]) -> tuple[list[str], int]:
                     if ":-" not in inner:
                         continue
                     val = inner.split(":-", 1)[1].rstrip("}")
-                # 空值 / 尖括号占位 / 含中文的说明文字（`JWT_SECRET_KEY=长随机串` 是**指示**不是默认值）
+                # 空值 / 尖括号占位 / 含中文的说明文字（JWT_SECRET_KEY=长随机串 是**指示**不是默认值）
                 if not val or val.startswith(("<", "{")) or not val.isascii():
+                    continue
+                # ⚠️ **变量引用不是默认值**（2026-09-24 补）：JWT_SECRET_KEY=$DRILL_SECRET 这样的写法
+                #    把值交给环境提供，文件里**没有**任何可猜的字面量 —— 与上面已经放行的
+                #    ${JWT_SECRET_KEY}（那行注释写着"必须由环境提供，那才是安全的写法"）是同一条理由，
+                #    只是少了花括号。实测由来：整改阶段 2 的恢复演练脚本里 JWT_SECRET_KEY=$DRILL_SECRET
+                #    （演练时现生成的一把临时密钥）被这条判据当成"弱默认值"报了 3 处假红 ——
+                #    而假红会让人学会无视这条检查（本项目 §15）。
+                if ENV_REF_RX.match(val):
                     continue
                 seen += 1
                 if val not in weak:
