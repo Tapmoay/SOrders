@@ -27,7 +27,7 @@ MODEL = ANDROID / "core/OrderStatusModel.kt"
 SCREEN = ANDROID / "ui/order/OrderDetailScreen.kt"
 HANDLERS = ANDROID / "ai/AiWriteOrderHandlers.kt"
 AIWRITE = ANDROID / "ai/AiWrite.kt"
-SERVICE = ANDROID / "ai/AiWriteService.kt"
+SERVICE = ANDROID / "ai/AiWriteDataSource.kt"
 
 CASES: list[tuple[str, Path, object]] = [
     (

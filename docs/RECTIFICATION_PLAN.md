@@ -308,3 +308,22 @@ _archive/frontend-H5-归档-20260925/，历史里可恢复）；判据侧按「*
    仓库侧提交的是**围绕它的判断与 CI 改动**（gate.yml / 判据 / 基线采集 / README），**不是一份 git 删除记录**。
 ② `_check_ci_workflows.py` 没能拦住①：它核对 `run:` 里的**仓库内路径**，而 `cd frontend` 这种**相对目录**不在它的正则口径里 ——
    列为该检查的已知盲区（下一轮补：`cd <目录>` 也要查目录存在）。
+
+
+### 4.7 §11 第 3 步完成：数据源也搬出 AiWriteService.kt（2026-09-25 第 32 轮）
+
+`RepoWriteDataSource`（1935 行，真去调 AppRepository 的那一层）→ `ai/AiWriteDataSource.kt`（同一个包、一个字符没改）。
+于是 `AiWriteService.kt` 只剩**写闸门**那一块职责（约 300 行），三块职责现在是三个文件：
+`AiWriteService.kt`（写闸门）+ `AiWriteDataSource.kt`（数据源）+ `AiWriteJson.kt`（payload → DTO）。
+
+按第 39 轮试做时钉下的清单执行，**先判据、后搬迁**：
+① 判据改读并集：_check_ai_guardrails（wsvc）、_check_paid_actions、_check_supplier_payables、_check_contact_binding、
+   _check_order_templates（AI_SVC 只用于存在性清单）、_check_role_parity / _check_ai_declarative_crud（文件名单加新文件）；
+② 搬 1935 行；③ 8 条锚点重指（7 份脚本；_reverse_verify_undo.py 拆 WSVC / WSVC_MAIN 两个常量）；
+④ 清 15 条变死的 import；hint 目录 254 → 255 个 .kt 重跑。
+
+**证据**：Kotlin 编译 BUILD SUCCESSFUL；_check_ai_guardrails 1280/1280；_check_all 99/99；锚点 1079/1079；
+七份受影响的反向验证逐份真跑全绿（undo 13 条 / dto_defaults 3 / paid_actions 6 / single_source 19 / billing 16 / local_reads 11 / ai_price_basis 6）。
+
+⚠️ 如实记：这一次没有再回退 —— 上一轮之所以回退，是因为「按单文件读」的判据只找到一半（_check_paid_actions 那处没有统一常量）。
+这次先把 7 处读点全部改完再搬，一次过。

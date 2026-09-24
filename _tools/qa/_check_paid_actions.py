@@ -34,6 +34,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ai"))
+from _airepo import ai_write_source  # noqa: E402
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -110,7 +113,9 @@ def main() -> int:
     ref = ref[:ref.find("\n) {") + 4] if "\n) {" in ref else ref
     ok("`AiOrderRef` 有 `paid`", re.search(r"\bval paid: Boolean", ref) is not None)
     ok("`AiOrderRef` 有 `settledAmount`", re.search(r"\bval settledAmount: String", ref) is not None)
-    service = read(ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt")
+    # ⚠️ 2026-09-25（报告 §11 第 3 步）：数据源（RepoWriteDataSource）已从 AiWriteService.kt 拆出去 ——
+    #    判据要读这一族的**并集**（ai/AiWrite*.kt），否则拆完就看不到那些代码了。
+    service = ai_write_source(ROOT)
     n = len(re.findall(r"paid = d\.paid,", service))
     ok(f"两处构造点都填了它（实际 {n} 处 ≥ 2）", n >= 2, "少填一处 → 那条路上的 AI 永远以为没收过款")
 

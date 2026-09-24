@@ -553,7 +553,9 @@ def main() -> int:
     # ============================================================== 2b/2e 写操作
     print("\n== 2d. 写数据：模型只能申请，落库必须由用户在界面上点 ==")
     wr = AI_join("AiWrite.kt")
-    wsvc = AI_join("AiWriteService.kt")
+    # ⚠️ 2026-09-25（报告 §11 第 3 步）：写闸门那一族已经拆成多个文件（数据源/DTO 各一份），
+    #    所以这里读**并集**（ai/AiWrite*.kt）—— 只读 AiWriteService.kt 会看不到搬走的那 1935 行。
+    wsvc = ai_write_source(ROOT)
     wargs = AI_join("AiWriteArgs.kt")
     wbasic = AI_join("AiWriteBasicHandlers.kt")
     worder = AI_join("AiWriteOrderHandlers.kt")

@@ -31,7 +31,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
 WR = AI / "AiWrite.kt"
-WSVC = AI / "AiWriteService.kt"
+WSVC = AI / "AiWriteDataSource.kt"
+#: 写闸门本体（报告 11 第 3 步把数据源拆去 AiWriteDataSource.kt，剩下的判定逻辑还在 AiWriteService.kt）
+WSVC_MAIN = AI / "AiWriteService.kt"
 REVERT = AI / "AiRevert.kt"
 RESOURCES = AI / "AiResources.kt"
 PRODUCT_PY = ROOT / "backend/app/api/v1/products.py"
@@ -39,7 +41,7 @@ PRODUCT_PY = ROOT / "backend/app/api/v1/products.py"
 CASES: list[tuple[str, Path, object]] = [
     (
         "撤回入口里直接写库（变成第二条写入口）",
-        WSVC,
+        WSVC_MAIN,
         lambda s: s.replace(
             # ⚠️ 锚点跟着实现走（2026-09-21）：造卡收成了 `store.card(...)` 一处。
             "        return AiWriteOutcome.NeedConfirm(\n            store.card(",
@@ -49,7 +51,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "撤回快照挪到 commit 之后（写下去之后才抓，抓到的已经是新值）",
-        WSVC,
+        WSVC_MAIN,
         # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已腐烂）：2026-09-21 批量那一轮
         #    在快照前面插了 `val batched = isBatchPayload(p.payload)` 与
         #    `if (batched) null else try { … }` —— 原来那句单行 `val undo = try {` 已经不在了。

@@ -185,7 +185,7 @@ CASES: list[tuple[str, str, object]] = [
         # 反向：AI 卡片又自己折点求和（收款页那个判据与卡片上的数从此各算一遍，
         # 任何一处改了口径都不会报错，只会"差一分"）。
         "AI 卡片又自己折点求和（与收款页的判据各算一遍）",
-        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt",
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt",
         lambda s: s.replace(
             "                amount = d.goodsTotalText(),",
             "                amount = d.orderProducts.fold(BigDecimal.ZERO) { acc, p ->\n"

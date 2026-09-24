@@ -19,7 +19,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 
 ROOT = Path(__file__).resolve().parents[2]
 CHECK = ROOT / "_tools/qa/_check_ai_dto_defaults.py"
-SVC = "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt"
+SVC = "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt"
 DTOS = "android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt"
 
 CASES: list[tuple[str, str, object]] = [

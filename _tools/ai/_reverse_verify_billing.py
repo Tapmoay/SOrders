@@ -33,7 +33,7 @@ BILLS = ROOT / "backend/app/api/v1/driver_bills.py"
 SETTLE = ROOT / "backend/app/api/v1/freight_settlement.py"
 STATS = ROOT / "backend/app/services/stats_service.py"
 FLOW = ROOT / "backend/app/services/order_flow.py"
-Wsvc = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt"
+Wsvc = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt"
 WHAND = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteOrderHandlers.kt"
 AIRES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiResources.kt"
 

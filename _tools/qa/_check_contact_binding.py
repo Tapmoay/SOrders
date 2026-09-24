@@ -43,7 +43,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
 from _check_product_card_single_source import strip_comments  # noqa: E402
-from _airepo import refuse_if_injecting  # noqa: E402
+from _airepo import ai_write_source, refuse_if_injecting  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
@@ -335,7 +335,8 @@ def main() -> int:
     )
 
     # ---- 9. AI 改地点也必须回填（否则模型说"改个名字"= 静默解绑）----
-    ai_body = fn_body(code(AI_SVC), "override suspend fun updateLocation(")
+    # 2026-09-25（报告 11 第 3 步）：数据源已拆去 AiWriteDataSource.kt —— 读这一族的并集。
+    ai_body = fn_body(ai_write_source(ROOT), "override suspend fun updateLocation(")
     c.ok(
         "AI 改地点时回填已绑的联系人（`?: cur.contactName`）",
         "?: cur.contactName" in ai_body and "?: cur.contactPhone" in ai_body,

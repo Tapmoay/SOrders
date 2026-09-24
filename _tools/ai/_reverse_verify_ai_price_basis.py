@@ -13,7 +13,7 @@
 ⚠️ 用 `io.open(..., newline="")` 读写：`Path.read_text` 会把 CRLF 折成 LF，
    于是"还原"写回去的其实已经不是原来的字节了（本仓库为这个坑付过代价）。
 ⚠️ 锚点里的 `\\n` 一律按**这个文件自己的行尾**展开：本仓库两种行尾都有
-   （`AiWriteOrderLineHandlers.kt` / `AiWriteBasicHandlers.kt` 是 CRLF，`AiWriteService.kt` 是 LF），
+   （`AiWriteOrderLineHandlers.kt` / `AiWriteBasicHandlers.kt` 是 CRLF，`AiWriteDataSource.kt` 是 LF），
    写死 `\\n` 会让 CRLF 文件上的锚点一个都找不到 —— 而"找不到"只报 SKIP，
    看起来像通过了，其实那几条注入什么都没验证。
 """
@@ -35,7 +35,7 @@ CHECK = ROOT / "_tools/ai/_check_ai_guardrails.py"
 LINE = AI / "AiWriteOrderLineHandlers.kt"
 ORDER = AI / "AiWriteOrderHandlers.kt"
 BASIC = AI / "AiWriteBasicHandlers.kt"
-SVC = AI / "AiWriteService.kt"
+SVC = AI / "AiWriteDataSource.kt"
 PRICE = AI / "AiEffectivePrice.kt"
 
 #: (用例名, 文件, 原文锚点, 注入成什么, 期望红线点出的那一条, 替换第几处)

@@ -63,7 +63,7 @@ UI = AND / "ui"
 
 #: AI 侧的实现文件（`ds.<函数>` 的真身在这里，里面调 `repo.<方法>`）。
 IMPL_FILES = (
-    "AiWriteService.kt",
+    "AiWriteService.kt", "AiWriteDataSource.kt", "AiWriteJson.kt",
     "AiWriteCrudHandlers.kt",
     "AiWriteOrderHandlers.kt",
     "AiWriteOrderLineHandlers.kt",

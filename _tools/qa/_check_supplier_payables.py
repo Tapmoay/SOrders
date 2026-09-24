@@ -33,6 +33,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import ai_write_source  # noqa: E402
 from _check_pagination_wiring import strip_comments  # noqa: E402
 
 BACKEND = ROOT / "backend/app"
@@ -154,7 +156,9 @@ def main() -> int:
     ai_decl = read(AI_DECL)
     ai_handler = read(AI_HANDLER)
     ai_res = read(AI_RES)
-    ai_svc = read(AI_SVC)
+    # ⚠️ 2026-09-25（报告 §11 第 3 步）：数据源（RepoWriteDataSource）已拆去 ai/AiWriteDataSource.kt ——
+    #    这一族要读**并集**（ai/AiWrite*.kt），只读 AiWriteService.kt 就看不到搬走的那 1935 行。
+    ai_svc = ai_write_source(ROOT)
     ai_crud = read(AI_CRUD)
     aw = read(AW)
 

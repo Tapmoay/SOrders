@@ -20,6 +20,24 @@
 
 ## 进行中
 
+### [2026-09-25 10:0x → ] 会话：**架构整改 · 第 32 轮：阶段 9 §11 第 3 步 —— 数据源（1935 行）也搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】
+
+核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：报告 §11 要求按职责拆文件，本轮把 `RepoWriteDataSource`（1935 行，真去调 AppRepository 的那一层）整块搬去 `ai/AiWriteDataSource.kt`（同一个包、一个字符没改；Kotlin 编译 BUILD SUCCESSFUL；写闸门的判定逻辑一行未动）
+
+这是 §11 的第 3 步（第 2 步搬走的是 66 行 DTO 转换 → `AiWriteJson.kt`）。搬完 AiWriteService.kt 只剩**写闸门**那一块职责，
+文件从 2301 行降到约 300 行；三块职责现在是三个文件。
+
+**按第 39 轮试做时钉下的清单执行**（那次因为发现「按单文件读」的判据不止一处而回退保绿）：
+① 判据先改读并集：`_check_ai_guardrails.py`（wsvc）、`_check_paid_actions.py`、`_check_supplier_payables.py`、`_check_contact_binding.py`、
+   `_check_order_templates.py`（AI_SVC 只用于存在性清单）、`_check_role_parity.py` / `_check_ai_declarative_crud.py`（文件名单里加上新文件）；
+② 再搬 1935 行 → `ai/AiWriteDataSource.kt`；③ 8 条反向验证锚点重指（7 份脚本 + `_reverse_verify_undo.py` 拆成两个常量：写闸门 2 条用 `WSVC_MAIN`）；
+④ 清掉 15 条变死的 import；重跑 hint 目录（254 → 255 个 .kt）。
+
+**证据**：Kotlin 编译 `BUILD SUCCESSFUL`；`_check_ai_guardrails.py` **1280/1280**（并集读法让「搬文件」对判据不可见）；
+`_check_all.py` **99/99 全绿**；`_check_reverse_verify_anchors.py` **1079 条注入原文全部还在**；七份受影响的反向验证逐份真跑（结果见本轮收尾）。
+
+**明确不碰**：写闸门（preview → 确认卡 → execute）的判定逻辑；`core/rbac.py` 的矩阵。
+
 ### [2026-09-25 09:0x → ] 会话：**架构整改 · 第 30 轮：§9 五个读侧权限点全部接上（用户拍板）**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】
 
 核心改动：backend/app/deps.py —— 为什么必须动核心：新增 require_any_permission（读侧「任一即可」的鉴权依赖），并把 orders_query / ledger / notifications 的读端点接上那 5 个权限点；这是 §9「权限矩阵必须真的在执行」的唯一入口，漏一处就是越权或误拦。

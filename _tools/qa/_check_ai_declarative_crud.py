@@ -28,6 +28,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import ai_write_source  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
@@ -35,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
 SPEC_FILES = ("AiWriteBasicData.kt", "AiWriteMasterData.kt", "AiWritePricing.kt",
               "AiWriteSettlementHandlers.kt")
-IMPL_FILES = ("AiWriteService.kt", "AiWriteCrudHandlers.kt", "AiWriteOrderHandlers.kt",
+IMPL_FILES = ("AiWriteService.kt", "AiWriteDataSource.kt", "AiWriteJson.kt", "AiWriteCrudHandlers.kt", "AiWriteOrderHandlers.kt",
               "AiWriteOrderLineHandlers.kt", "AiWriteLedgerHandlers.kt",
               "AiWriteNotificationHandlers.kt")
 
@@ -152,7 +154,7 @@ def main() -> int:
     ok("卡片如实写出「同号会沿用」的规则", "沿用" in cust)
 
     print("\n③ 分类「排第 N 位」必须走 reorder（只写绝对值会撞车）")
-    svc = strip_kt((AI / "AiWriteService.kt").read_text(encoding="utf-8"))
+    svc = strip_kt(ai_write_source(ROOT))
     for fn in ("createProductCategory", "updateProductCategory"):
         m = re.search(rf"override suspend fun {re.escape(fn)}\(.*?\n    \}}", svc, re.S)
         body = m.group(0) if m else ""

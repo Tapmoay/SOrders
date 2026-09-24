@@ -40,7 +40,7 @@ LOCAL = AI / "AiLocalReads.kt"
 SVC = AI / "AiReadService.kt"
 READS = AI / "AiReads.kt"
 KEYSTORE = AI / "AiKeyStore.kt"
-WSVC = AI / "AiWriteService.kt"
+WSVC = AI / "AiWriteDataSource.kt"
 WORDER = AI / "AiWriteOrderHandlers.kt"
 CATALOG = AI / "AiReadCatalog.kt"
 
