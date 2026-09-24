@@ -131,14 +131,30 @@ async def test_the_old_sync_thread_shape_really_breaks_the_loop_affine_connectio
 
 # ------------------------------- 主判据：推送发生在**调用方的**事件循环上
 @pytest.mark.asyncio
-async def test_export_push_runs_on_the_calling_event_loop(db_session, users, monkeypatch):
-    """把生产条件搬进单测：一条「只能在建立它的那个循环里用」的连接。
+async def test_export_push_goes_through_the_outbox_on_the_calling_event_loop(
+    db_session, users, monkeypatch
+):
+    """把生产条件搬进单测：**同事务**落库 + 推送发生在**调用方的**事件循环上。
 
-    真 Redis / socket.io 连接就是这样：谁建的谁才能 await 它。
+    ⚠️ 2026-09-25（整改报告 §10）之后，导出完成的推送**不再由后台任务直接做**：它随「导出完成」
+    通知一起写进事务发件箱（同一个事务 —— 通知回滚，事件也不存在），由 worker 在应用自己的
+    事件循环里派发。这条测试因此盯四件事：
+
+      ① 「导出完成」通知落库、payload 里带下载地址；
+      ② 发件箱里**确实**有那两条事件，`notifications.created` 带的是**通知编号**而不是快照
+         （处理器按编号重取当前那一行，见 `message_center.emit_notification_by_id`）；
+      ③ 用**真实派发表**（`app.main._outbox_deliver`）派发时，推送发生在调用方这个事件循环上
+         —— 真 Redis / socket.io 连接就是这样：谁建的谁才能 await 它，换一个循环必炸；
+      ④ 任务仍是「完成」、产物文件名真的落库。
+
+    ⛔ 为什么必须用**真实派发表**：自己写一个 `deliver` 等于把「派发表登记对了没有」从判据里
+    挖掉 —— 而漏登记的后果正是发件箱要治的那类静默（事件被重试到放弃，业务侧一点异常都没有）。
     """
     from starlette.background import BackgroundTasks
 
-    from app.models import LedgerExportJob, Notification
+    from app.core import outbox
+    from app.main import _outbox_deliver
+    from app.models import LedgerExportJob, Notification, OutboxEvent
     from app.models.export_job import ExportJobStatus
     from app.services import ledger_export_worker as worker
     from app.services import message_center
@@ -159,9 +175,11 @@ async def test_export_push_runs_on_the_calling_event_loop(db_session, users, mon
                 "Task got Future attached to a different loop（注入：跨事件循环复用连接）"
             )
 
-    # 推送链路上所有能到 socket 的出口都换成这条假连接
+    # 推送链路上所有能到 socket 的出口都换成这条假连接。
+    # ⚠️ 只换 `message_center` 这一处了：导出完成这条链路现在**只**经它推（派发表 →
+    #    `emit_notification_by_id` → `emit_notification` → 这里的 `emit_to_user`），
+    #    后台任务那一层已经不认识 socket（§10）。
     monkeypatch.setattr(message_center, "emit_to_user", loop_affine_emit, raising=True)
-    monkeypatch.setattr(worker, "emit_to_user", loop_affine_emit, raising=True)
 
     # 走**真实的** Starlette 后台任务调度（同步函数走线程池，协程在主循环 await）
     tasks = BackgroundTasks()
@@ -172,23 +190,7 @@ async def test_export_push_runs_on_the_calling_event_loop(db_session, users, mon
     done = db_session.get(LedgerExportJob, job_id)
     name = done.file_path
     try:
-        # ① 推送必须发生过（而且是在调用方那个循环上）
-        assert seen, "导出完成的推送一次都没发生"
-        off_loop = [e for e, ok in seen if not ok]
-        assert not off_loop, f"这些推送跑到了别的事件循环上（跨循环用连接，生产必炸）：{off_loop}"
-        assert ("notification", True) in seen, f"没有推 notification 事件：{seen}"
-
-        # ② 任务状态必须是「完成」，而且**产物文件名真的落库了**
-        assert done.status == ExportJobStatus.DONE, (
-            f"导出被翻成了 {done.status}（error={done.error_message!r}）——"
-            "推送失败不许改任务状态，文件其实已经生成好了"
-        )
-        assert name, "任务标成完成却没有产物文件名"
-        from app.services.ledger_export_paths import EXPORT_DIR
-
-        assert (Path(EXPORT_DIR) / name).exists(), f"产物文件不存在：{EXPORT_DIR}/{name}"
-
-        # ③ 「导出完成」通知必须落库，且 payload 里带着下载地址
+        # ① 「导出完成」通知必须落库，且 payload 里带着下载地址
         n = (
             db_session.query(Notification)
             .filter(Notification.recipient_id == shipper.id, Notification.type == "ledger_export")
@@ -198,22 +200,53 @@ async def test_export_push_runs_on_the_calling_event_loop(db_session, users, mon
         assert n is not None, "导出完成的通知没有落库"
         assert n.payload and n.payload.get("download_url"), f"通知里没有下载地址：{n.payload}"
         assert str(job_id) in str(n.payload.get("export_job_id")), n.payload
+
+        # ② 事件与通知**同一批**落进发件箱（这一条就是"永不丢失"的全部保证）
+        rows = {e.event_type: e for e in db_session.query(OutboxEvent).all()}
+        assert "notifications.created" in rows, f"通知事件没有进发件箱：{sorted(rows)}"
+        assert rows["notifications.created"].payload_dict().get("notification_id") == n.id, (
+            "事件必须带**通知编号**（处理器按编号重取当前那一行），实际："
+            f"{rows['notifications.created'].payload_dict()}"
+        )
+        assert "ledger.updated" in rows, f"账本刷新事件没有进发件箱：{sorted(rows)}"
+
+        # ③ 真实派发表 + 调用方循环 → 推送必须发生，且不在别的循环上
+        await outbox.drain(_outbox_deliver)
+        assert seen, "导出完成的推送一次都没发生（事件进了发件箱却没人派发？）"
+        off_loop = [e for e, ok in seen if not ok]
+        assert not off_loop, f"这些推送跑到了别的事件循环上（跨循环用连接，生产必炸）：{off_loop}"
+        assert ("notification", True) in seen, f"没有推 notification 事件：{seen}"
+
+        # ④ 任务状态必须是「完成」，而且**产物文件名真的落库了**
+        assert done.status == ExportJobStatus.DONE, (
+            f"导出被翻成了 {done.status}（error={done.error_message!r}）——"
+            "推送失败不许改任务状态，文件其实已经生成好了"
+        )
+        assert name, "任务标成完成却没有产物文件名"
+        from app.services.ledger_export_paths import EXPORT_DIR
+
+        assert (Path(EXPORT_DIR) / name).exists(), f"产物文件不存在：{EXPORT_DIR}/{name}"
     finally:
         _cleanup_export(name)
 
 
 # ------------------------------- 安全性判据：推送炸了不许把成功的导出改成失败
 @pytest.mark.asyncio
-async def test_push_failure_does_not_flip_a_successful_export_to_failed(
-    db_session, users, monkeypatch
-):
-    """R14-7 的第二半：通知已经落库、文件已经生成，推送失败只是"少推一次"。"""
+async def test_push_failure_only_leaves_the_event_for_retry(db_session, users, monkeypatch):
+    """R14-7 的第二半 + §10 的第一半：推送炸了，导出仍是「完成」，事件留在发件箱里等重试。
+
+    ⚠️ 比原来更硬：推送现在**够不着**导出任务了（两者已经不同层），而失败本身也不会丢 ——
+    事件留在 `outbox_events` 里、`attempts` 加一、`last_error` 有话说，worker 到点重试。
+    这正是「数据库成功 → 后台任务恰好挂了 → 事件永远丢失」那条病的反面。
+    """
     from starlette.background import BackgroundTasks
 
-    from app.models import LedgerExportJob
+    from app.core import outbox
+    from app.main import _outbox_deliver
+    from app.models import LedgerExportJob, OutboxEvent, OutboxStatus
     from app.models.export_job import ExportJobStatus
     from app.services import ledger_export_worker as worker
-    from app.services import message_center
+    from app.services import message_center, push_events
 
     shipper = users["shipper"]
     job = _make_job(db_session, shipper.id)
@@ -223,7 +256,7 @@ async def test_push_failure_does_not_flip_a_successful_export_to_failed(
         raise RuntimeError("推送链路整个挂了")
 
     monkeypatch.setattr(message_center, "emit_to_user", always_explode, raising=True)
-    monkeypatch.setattr(worker, "emit_to_user", always_explode, raising=True)
+    monkeypatch.setattr(push_events, "push_ledger_updated", always_explode, raising=True)
 
     tasks = BackgroundTasks()
     tasks.add_task(worker.run_ledger_export_job_task, job_id)
@@ -237,6 +270,22 @@ async def test_push_failure_does_not_flip_a_successful_export_to_failed(
             f"推送失败把成功的导出翻成了 {done.status}：{done.error_message!r}"
         )
         assert done.error_message in (None, ""), "推送失败不该写进 error_message"
+
+        # 派发一次（推送必定抛）→ 事件必须留在队列里，而且留了痕
+        await outbox.drain(_outbox_deliver)
+        db_session.expire_all()
+        row = (
+            db_session.query(OutboxEvent)
+            .filter(OutboxEvent.event_type == "notifications.created")
+            .order_by(OutboxEvent.id.desc())
+            .first()
+        )
+        assert row is not None, "通知事件没有进发件箱 —— 那推送失败就真的丢了"
+        assert row.attempts >= 1, f"失败没有被记成一次尝试：attempts={row.attempts}"
+        assert row.last_error, "失败没有留 last_error（排障时看不到为什么没发出去）"
+        assert row.status == OutboxStatus.PENDING.value, (
+            f"推送失败的事件被标成了 {row.status} —— 它必须留在队列里等重试"
+        )
     finally:
         _cleanup_export(name)
 

@@ -4,22 +4,19 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, IO
+from typing import IO
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app.core import outbox
 from app.core.business_time import utc_now_naive
 from app.database import SessionLocal
 from app.models import LedgerExportJob, Notification
 from app.models.export_job import ExportFormat, ExportJobStatus
-from app.schemas.notification import NotificationOut
 from app.services.ledger_export import run_ledger_export_file
 from app.services.ledger_export_paths import download_url
-from app.services.message_center import emit_unread_count
-from app.services.message_push import emit_to_user
-from app.services.push_events import push_ledger_updated
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +128,8 @@ def reap_stale_job(db: Session, job) -> None:
         db.refresh(job)
 
 
-def run_ledger_export_job_sync(job_id: int) -> dict[str, Any] | None:
-    """**同步**部分：生成产物文件 + 落库「导出完成」通知，返回推送所需的纯数据。
+def run_ledger_export_job_sync(job_id: int) -> None:
+    """**同步**部分：生成产物文件 + 落库「导出完成」通知 + 把要推的事件写进事务发件箱。
 
     ⛔ 这个函数只允许在**线程**里跑（Starlette 用 `run_in_threadpool` 跑同步后台任务），
        所以它**绝不碰事件循环**：既不 `asyncio.run`，也不 await 任何东西。
@@ -147,6 +144,11 @@ def run_ledger_export_job_sync(job_id: int) -> dict[str, Any] | None:
     生产配了 Redis（`SOCKET_REDIS_URL`）→ 每一次导出都会这样，等于功能不可用。
 
     推送因此被拆到 `run_ledger_export_job_task`（async，主循环里 await）。
+
+    ⚠️ **2026-09-25（整改报告 §10）**：这一层现在**不再直接推**了 —— 事件随通知一起写进
+    事务发件箱，由 worker 在应用自己的事件循环里派发。「在地板这一侧推」与「在发件箱里推」
+    是两件事：前者一旦进程在 commit 与推送之间重启就永远丢了（而库里一切正常、没人发现），
+    后者至少一次重试（失败留 `last_error`，`/metrics` 的 `sorders_outbox_failed` 看得见）。
     """
     db = SessionLocal()
     try:
@@ -195,42 +197,37 @@ def run_ledger_export_job_sync(job_id: int) -> dict[str, Any] | None:
             },
         )
         db.add(n)
+        # ⚠️ 先 flush 拿到 `n.id`：事件负载里**只带编号**（处理器按编号重新取当前那一行再推，
+        #    塞快照就等于两处状态 —— 改了消息之后推出去的还是旧的，见
+        #    `message_center.emit_notification_by_id` 的说明）。
+        db.flush()
+        # ⛔ 通知与它的事件**同一个事务**（整改报告 §10）：`outbox.enqueue` 自己不 commit，
+        #    所以"通知写进去了、事件没写进去"这种半边状态不存在。
+        #    2026-09-25 之前这里是**直接推**（`emit_to_user` + `emit_unread_count` +
+        #    `push_ledger_updated`），而推送落在通知 commit **之后**：进程在这中间重启/被回收，
+        #    用户就永远收不到「导出完成」（消息中心里那条还在，但没人会去翻），
+        #    而库里一切正常、没有任何地方报错 —— 正是报告点名的
+        #    「数据库成功 → 后台任务恰好挂了 → 事件永远丢失」。
+        outbox.enqueue(db, "notifications.created", {"notification_id": n.id})
+        # 账本页 / 司机运费页 / 派单员账本那一格都订阅这个信号（三个角色，
+        # 见 `push_events.push_ledger_updated` 的说明）—— 导出会改变账本页能看到的东西。
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": shipper_id})
         db.commit()
-        db.refresh(n)
-        # 在这里就序列化成纯 JSON：线程结束时会话就关了，ORM 对象到了主循环里是 detached，
-        # 再 `model_validate(n)` 只会 DetachedInstanceError。
-        return {
-            "job_id": job.id,
-            "recipient_id": n.recipient_id,
-            "notification": NotificationOut.model_validate(n).model_dump(mode="json"),
-            "shipper_id": shipper_id,
-        }
     except Exception:  # noqa: BLE001
         db.rollback()
         logger.warning("账本导出完成，但写「导出完成」通知失败：job_id=%s", job_id, exc_info=True)
-        return None
     finally:
         db.close()
 
 
 async def run_ledger_export_job_task(job_id: int) -> None:
-    """后台任务入口：重活丢线程，推送回**主事件循环** await。
+    """后台任务入口：只把重活丢进线程，不做任何推送。
 
     必须是 `async def` —— Starlette 的 `BackgroundTasks` 对同步函数走线程池、
-    对协程函数直接在事件循环里 await，只有后者能安全地使用主循环里建的 socket/redis 连接。
+    对协程函数直接在事件循环里 await；这个纪律由 `_check_background_tasks.py` 钉着，
+    **与本层推不推送无关**（推送已经搬进事务发件箱，由 worker 在应用自己的事件循环里派发）。
     """
-    info = await run_in_threadpool(run_ledger_export_job_sync, job_id)
-    if info is None:
-        return
-    # 推送失败只记日志：产物与通知都已经落库，用户刷新消息中心就能拿到下载链接。
-    try:
-        await emit_to_user(
-            info["recipient_id"], "notification", {"notification": info["notification"]}
-        )
-        await emit_unread_count(info["recipient_id"])
-        await push_ledger_updated(info["shipper_id"])
-    except Exception:  # noqa: BLE001
-        logger.warning("账本导出完成的 socket 推送失败（不影响下载）：job_id=%s", job_id, exc_info=True)
+    await run_in_threadpool(run_ledger_export_job_sync, job_id)
 
 
 async def run_ledger_export_job_with_slot(job_id: int, slot: IO[str] | None) -> None:
