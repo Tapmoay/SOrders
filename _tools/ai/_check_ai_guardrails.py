@@ -19,7 +19,13 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _airepo import reports_source, orders_api_source, refuse_if_injecting, repo_root  # noqa: E402
+from _airepo import (  # noqa: E402
+    ai_write_source,
+    orders_api_source,
+    refuse_if_injecting,
+    repo_root,
+    reports_source,
+)
 
 ROOT = repo_root()
 AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
@@ -3184,9 +3190,9 @@ def main() -> int:
     c.present("挂载回答了「误操作了怎么办」（撤不回来 + 手工怎么退）",
               read(AI / "AiRevert.kt"), r"none\(\s*\n\s*listOf\(AiWrites\.DRIVER_RULE_ATTACH\)")
     c.present("AI 能读到规则名册（按名字挂载的前提）",
-              read(AI / "AiWriteService.kt"), r"override suspend fun driverRules\(\)")
+              ai_write_source(ROOT), r"override suspend fun driverRules\(\)")
     c.present("撤回现场读得回来（资源快照有 driver_rule 分支）",
-              read(AI / "AiWriteService.kt"), r'"driver_rule" ->')
+              ai_write_source(ROOT), r'"driver_rule" ->')
 
     # 测试：钱必须被端到端钉住（纯函数单测证明不了"送达那一刻真调了它"）
     c.present("纯函数单测存在（三件怎么组合、快照、校验）",
@@ -3200,7 +3206,7 @@ def main() -> int:
     rule_py = read(ROOT / "backend/app/schemas/driver_billing_rule.py")
     order_model = read(ROOT / "backend/app/models/order.py")
     orders_api = orders_api_source(ROOT)
-    wsvc22 = read(AI / "AiWriteService.kt")
+    wsvc22 = ai_write_source(ROOT)
     # AI 侧这三条只钉"逐单参数真的走完了全程"：声明（模型看得到）→ 卡片（用户看得到）
     # → payload/实参（真的传给了后端）。只钉声明的话，参数会变成"卡片上写着、请求里没有"。
     c.present("AI 派单声明了逐单金额参数（模型看得到）", read(AI / "AiWrite.kt"), r'"piece_amount"')
@@ -4104,7 +4110,7 @@ def main() -> int:
     # ================================================================ 32. 批量捷径
     print("\n== 32. 批量捷径：一次改多条（一张卡、确认一次、逐条如实汇报）（v3.46）==")
     batch_src = read(AI / "AiWriteBatch.kt")
-    svc32 = read(AI / "AiWriteService.kt")
+    svc32 = ai_write_source(ROOT)
     w32 = read(AI / "AiWrite.kt")
     tools32 = read(AI / "AiTools.kt")
     loop32 = read(AI / "AiAgentLoop.kt")

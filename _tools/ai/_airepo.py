@@ -233,6 +233,32 @@ def module_key(stem: str) -> str:
 REPORTS_MODULES = ("api/v1/reports.py", "services/reports_service.py")
 
 
+#: AI 写链路（写闸门）的**家族文件名**。整改报告 §11「客户端按职责拆，不是按行数拆」——
+#: 与 orders.py / reports.py 两次搬迁同形：**先让判据读并集，再搬代码**。
+#: ⛔ 顺序不能反：先搬代码而没有并集口径，每搬一块就要改一打判据，改漏一个就是"静默不查"。
+#: 这里用 glob（`ai/AiWrite*.kt`）而不是写死清单：拆出来的新文件**自动**进并集，
+#: 不需要谁记得来登记（这与"清单要自己算"是同一条规矩）。
+AI_WRITE_MAIN = "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt"
+
+
+def ai_write_source(root: Path | None = None) -> str:
+    """AI 写链路那一族源码的**并集**（按文件名排序，段间带文件注释，便于报错时定位）。
+
+    目前只有 `AiWriteService.kt` 一份，所以今天它的返回值＝那一份的内容（**行为零变化**）；
+    §11 拆出来的 `AiWrite*.kt` 会自动并进来。
+    ⚠️ 只跳过**还不存在**的文件；主文件 `AiWriteService.kt` 不在时说明路径写错了，照旧报错。
+    """
+    base = (root or ROOT) / "android" / "app" / "src" / "main" / "java" / "com" / "tapmoay" / "sorders" / "ai"
+    main = (root or ROOT) / AI_WRITE_MAIN
+    if not main.is_file():
+        raise FileNotFoundError("找不到 AI 写链路主文件：" + str(main))
+    parts = [
+        "# ===== " + p.name + " =====" + chr(10) + p.read_text(encoding="utf-8", errors="replace")
+        for p in sorted(base.glob("AiWrite*.kt"))
+    ]
+    return (chr(10) * 2).join(parts)
+
+
 def reports_source(root: Path | None = None) -> str:
     """报表的源码**并集**（缺哪一份就跳过哪一份）。
 
