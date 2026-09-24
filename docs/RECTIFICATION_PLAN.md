@@ -24,6 +24,10 @@
 
 ## 1. 执行表
 
+> **逐条对账与复现命令见 [RECTIFICATION_ACCEPTANCE.md](RECTIFICATION_ACCEPTANCE.md)**（**生成物**，由 `python _tools/qa/_gen_acceptance.py --full --out docs/RECTIFICATION_ACCEPTANCE.md` 重跑）：
+> 报告每一节 → 落地产物 → 一条能重跑的命令 → **命令自己打印出来的结论行**，外加如实列出的「还没做的」。
+> 下面这张表是**人写的叙事与当时的现场**（含踩坑与取舍），数字以那一页和命令输出为准。
+
 | 阶段 | 报告章节 | 做什么 | 改业务逻辑 | 状态 | 证据 |
 |---|---|---|---|---|---|
 | 0 | §2 | 建立真实基线（本地 + 生产，只读采集） | 否 | **已完成** | `docs/BASELINE.md`、`_tools/baseline/_capture_baseline.py`、**改造前**快照 `_tools/baseline/before/2026-09-24/baseline.json` |
