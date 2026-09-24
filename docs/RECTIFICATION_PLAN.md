@@ -355,3 +355,23 @@ GitHub Actions 立刻触发两条：Gate（三层闸门）与 Tests (Parallel)�
   —— 改前备份 `/root/sorders-api-locations.conf.bak-20260925`；`nginx -t` 通过后 `systemctl reload nginx`。
 
 **证据（当场 curl）**：`/static/uploads/exports/` → **403**；`/health` → **200**（reload 没伤到服务）。
+
+
+### CI 常闸在干净检出里的 4 处红 —— 诊断与待修（2026-09-25 第 33 轮）
+
+**方法**：`git clone . $env:TEMP\ci_sim` 后用同一个 `_check_all.py` 跑一遍 —— 这比猜 CI 快得多，
+而且直接指出「哪些判据依赖了本机才有的东西」（本地怎么跑都绿）。
+
+干净检出里剩 4 条红（本地 99/99）：
+
+① `_tools/fuzz/_fuzz_invariants.py`：要 `backend/sorders.db`（本机开发库，**不在 git 里**）→ 干净检出直接报「找不到数据库」。
+   修法：缺库时**响亮跳过**（打印一行 + 退出 0），与 `_check_agg_after_seed` 同款。
+② `_tools/qa/_check_reverse_verify_anchors.py`：1 条死锚点 —— `_reverse_verify_shipper_settle_ceiling.py` 的 ㉖ 那条注入打的是
+   `_archive/audit/FINDINGS.md`（**不进 git** 的本机底稿）。修法：把那条注入从脚本里删掉（它的主体不在仓库里，做不成红线）。
+③④ `_check_list_order.py` / `_check_profile_page.py`：**同一条断言**在干净检出里红 ——
+   「那一行只弹确认框、不直接退（onClick 里不许出现 vm.logout）」。**本地绿、CI 红**，怀疑是**换行符**：
+   这两条断言都是**按字符窗口**切 `ProfileScreen.kt`（不是按行），而本机工作区是 CRLF、Linux 检出是 LF → 窗口边界错位、
+   切出来的片段里恰好带上了 `vm.logout`。修法：切片前先归一换行（或整段按行处理）——
+   ⛔ 这正是报告 §18 说的「等价性验证」要防的东西：**判据自己依赖了平台**。
+
+以上三条是下一轮的第一件事（①②各一行、③④是同一个修法）。
