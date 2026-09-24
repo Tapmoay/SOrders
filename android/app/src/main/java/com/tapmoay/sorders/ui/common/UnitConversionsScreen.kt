@@ -72,21 +72,29 @@ fun UnitConversionsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    item {
-                        Hint(
-                            "设一条「1 车 = 8 方」这样的换算之后，下单、订单、账本里的数量会同时显示两个单位" +
-                                "（10 车 ≈ 80 方）。金额不受影响，仍按原来的单位算。",
-                        )
-                    }
                     if (vm.rows.isEmpty()) {
                         item { EmptyView("还没有设过单位换算，点右下角新增") }
-                    }
-                    items(vm.rows, key = { it.id }) { row ->
-                        ConversionCard(
-                            row = row,
-                            onEdit = { vm.openEdit(row) },
-                            onDelete = { vm.delete(row) },
-                        )
+                    } else {
+                        // ⚠️ 这一句是**解释句**（`Hint` 管），而且必须写在 `else` 分支里：
+                        //    `_hint_inventory.looks_empty_state(...)` 会看这句话前面 600 字里
+                        //    最后一次 `isEmpty()`，后面**没有 `} else`** 时它就把这句判成
+                        //    空态句（EMPTY）—— 而空态句不该走 `Hint`，`_check_hints.py` 当场报
+                        //    「一次 Hint 调用里一段解释句都没有」。放在 else 里既让它保持解释句
+                        //    的身份，语义也更贴：**有换算可看时才解释**（一条都没有时，
+                        //    上面那句空态文案已经把该说的说完了）。
+                        item {
+                            Hint(
+                                "设一条「1 车 = 8 方」这样的换算之后，下单、订单、账本里的数量会同时显示两个单位" +
+                                    "（10 车 ≈ 80 方）。金额不受影响，仍按原来的单位算。",
+                            )
+                        }
+                        items(vm.rows, key = { it.id }) { row ->
+                            ConversionCard(
+                                row = row,
+                                onEdit = { vm.openEdit(row) },
+                                onDelete = { vm.delete(row) },
+                            )
+                        }
                     }
                     if (vm.deleted.isNotEmpty()) {
                         item {

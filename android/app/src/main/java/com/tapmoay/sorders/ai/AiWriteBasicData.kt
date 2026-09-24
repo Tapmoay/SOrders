@@ -416,7 +416,7 @@ internal object AiWriteBasicData {
             id = AiWrites.UNIT_CONVERSION_CREATE,
             title = "新增单位换算",
             risk = AiWriteRisk.MEDIUM,
-            group = AiWrites.G_PRODUCT,
+            group = AiWrites.G_UNIT_CONVERSION,
             blurb = "设一条单位换算（例如 1 车 = 8 方）。设好之后下单、订单、账本里的数量会同时" +
                 "显示两个单位（10 车 ≈ 80 方）。**金额不受影响**，仍按原来的单位算。",
             fields = listOf(
@@ -437,9 +437,12 @@ internal object AiWriteBasicData {
 
         crud(
             id = AiWrites.UNIT_CONVERSION_UPDATE,
-            title = "改单位换算",
+            // ⚠️ 这个标题**不能**写成「改单位换算」：派单员有一个专属动作叫「改单」，
+            //    而提示词里"派单员专属的标题不许出现在货主清单里"是**按子串**判的
+            //    （`AiRolePromptTest`）——「改单」正好是「改单位换算」的前两个字。
+            title = "编辑单位换算",
             risk = AiWriteRisk.MEDIUM,
-            group = AiWrites.G_PRODUCT,
+            group = AiWrites.G_UNIT_CONVERSION,
             blurb = "改一条单位换算的单位名或换算率。**只填要改的那几项**，没填的不动。",
             targets = listOf(targetUnitConversion()),
             fields = listOf(
@@ -463,7 +466,7 @@ internal object AiWriteBasicData {
             id = AiWrites.UNIT_CONVERSION_DELETE,
             title = "删除单位换算",
             risk = AiWriteRisk.HIGH,
-            group = AiWrites.G_PRODUCT,
+            group = AiWrites.G_UNIT_CONVERSION,
             blurb = "删掉一条单位换算。删掉之后那些数量**只显示原来的单位**（不再显示 80 方）。" +
                 "（删错了可以撤回）",
             targets = listOf(targetUnitConversion()),
@@ -1256,7 +1259,7 @@ internal object AiWriteBasicData {
         },
         // 单位换算（2026-09-24）：删掉的那条在名册里解析不到，所以模型看不到这个动作；
         // 撤回卡拿着确定编号来恢复它。
-        restoreAction("单位换算", AiWrites.UNIT_CONVERSION_RESTORE, AiWrites.G_PRODUCT) { ds, id ->
+        restoreAction("单位换算", AiWrites.UNIT_CONVERSION_RESTORE, AiWrites.G_UNIT_CONVERSION) { ds, id ->
             ds.restoreUnitConversion(id)
         },
     )

@@ -1418,6 +1418,14 @@ object AiWrites {
     const val G_MY_LEDGER = "我的账本"
     const val G_MSG = "消息"
     const val G_PRODUCT = "商品"
+    /**
+     * 单位换算（2026-09-24 用户要求：一车 = 8 方）。
+     *
+     * ⚠️ **单独一个域**，不塞进「商品」：货主也能改换算（用户点名了「我们的**货主**和派单员」），
+     * 而提示词里那一行是照 `group` 念的 —— 塞进「商品」会让货主的能力清单写成
+     * 「商品：新增单位换算…」，读起来像"货主能改商品"（他改不了）。
+     */
+    const val G_UNIT_CONVERSION = "单位换算"
     const val G_CATEGORY = "商品分类"
     /** 地点分组（**按人分区**：每个人管自己地址库左栏那一列）。 */
     const val G_PLACE_CATEGORY = "地点分组"
@@ -2308,6 +2316,14 @@ object AiWrites {
         LOCATION_CREATE,
         LOCATION_UPDATE,
         LOCATION_DELETE,
+        // 单位换算（2026-09-24 用户要求：一车 = 8 方）——「我们的**货主**和派单员，
+        // 他可以自动的设置单位」：货主端工作台上就有那一格，所以他的助手也要能做。
+        // ⚠️ 不进白名单 = 货主的 AI 看不见这四个动作（默认 fail-closed），
+        //    而手机上点得到 → `_check_role_parity.py` 会当场报一条**缺口**。
+        UNIT_CONVERSION_CREATE,
+        UNIT_CONVERSION_UPDATE,
+        UNIT_CONVERSION_DELETE,
+        UNIT_CONVERSION_RESTORE,
         // 地点分组（2026-09-19）：它是**按人分区**的 —— 货主管的是自己地址库左栏那一列，
         // 与「地点增删改」是同一件事的另一半（新建地点时要选归到哪一组）。
         // 商品分类则**不在这里**：那是全店一份（派单员维护、所有人下单看到同一列）。
