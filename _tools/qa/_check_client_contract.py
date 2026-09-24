@@ -54,7 +54,10 @@ ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend/app"
 ENUMS = BACKEND / "models/enums.py"
 ORDER_FLOW = BACKEND / "services/order_flow.py"
+#: orders 由多个模块组成（2026-09-24 阶段 4 纯搬迁），判据要看**并集**：见 _airepo.orders_api_source
 ORDERS_API = BACKEND / "api/v1/orders.py"
+#: 付款家族（_payment_scoped_order 等）2026-09-24 阶段 4 搬去了 orders_payment.py
+ORDERS_PAY = BACKEND / "api/v1/orders_payment.py"
 ORDER_PRODUCTS = BACKEND / "api/v1/order_products.py"
 ENDPOINT_GEN = ROOT / "backend/scripts/gen_endpoint_index.py"
 
@@ -240,7 +243,7 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
             raise KeyError(f"orders.{func} 里没解析出 `if order.status in (…): raise`")
         gates[name] = (enum - _members(m.group(1)), f"orders.{func}::status in (…) → raise")
 
-    body = body_of(ORDERS_API, "_payment_scoped_order")
+    body = body_of(ORDERS_PAY, "_payment_scoped_order")
     # 两种写法都认：单值的 `== OrderStatus.X`（原来那种）与多值的 `in (A, B)`。
     # ⚠️ 2026-09-20 加退货时合并成了 `in (CANCELLED, RETURNED)` —— 只认单值时这里会硬失败
     #    （"形状变了，判据跟不上"），而如果当时改成"两种都不认就跳过"，这条红线就静默没了。

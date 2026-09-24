@@ -135,7 +135,9 @@ def main(argv: list[str] | None = None) -> int:
         "证据：`_tools/qa/_api_contract_snapshot.py --diff <搬之前> <搬之后>` 契约零差异。\n\n"
         "⚠️ 本模块**自己声明** `router`：按文件解析的 AST 工具（端点索引 / AI 能力表）靠这一行算 URL 前缀。\n"
         '"""'
-        + "\n\n" + import_block(imports, moved) + "\n"
+        # ⚠️ 剪裁要连 router_line 一起看：`APIRouter` 只出现在那一行里，
+        #    只按 moved 剪会把 `from fastapi import APIRouter` 剪掉（实测：新模块一 import 就 NameError）。
+        + "\n\n" + import_block(imports, moved + "\n" + router_line) + "\n"
         + (f"from app.api.v1.{common} import {common_names[0]}" if len(common_names) == 1 else
            (f"from app.api.v1.{common} import (" + ", ".join(common_names) + ")") if common_names else "")
         + "\n\n" + router_line + "\n\n\n" + moved.rstrip() + "\n"

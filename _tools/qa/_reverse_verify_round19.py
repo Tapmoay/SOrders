@@ -24,6 +24,9 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 
 ROOT = Path(__file__).resolve().parents[2]
 ORDERS = "backend/app/api/v1/orders.py"
+#: 付款家族（_already_collected / _apply_complete_payment*）2026-09-24 阶段 4 搬去了这里 ——
+#: 下面两条注入的锚点落在那一族函数体里。
+ORDERS_PAY = "backend/app/api/v1/orders_payment.py"
 LEDGER = "backend/app/api/v1/ledger.py"
 SYNC = "backend/app/services/ledger_sync.py"
 ACCT = "backend/app/services/accounting_service.py"
@@ -33,7 +36,7 @@ GUARDS = "tests/test_audit_round19_ledger_receipts.py"
 CASES: list[tuple[str, str, object, str]] = [
     (
         "送达又把『已经收过款』的单抹回未收（同一笔钱能被收两次）",
-        ORDERS,
+        ORDERS_PAY,
         lambda s: s.replace(
             "    if _already_collected(db, order):\n"
             "        if payment == \"cash\":\n"
@@ -51,7 +54,7 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "已收款时司机报『收现金』又放行（重复收款）",
-        ORDERS,
+        ORDERS_PAY,
         lambda s: s.replace(
             "    if _already_collected(db, order):\n",
             "    if False:\n",

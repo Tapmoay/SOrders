@@ -22,7 +22,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-
 ROOT = Path(__file__).resolve().parents[2]
 CHECK = ROOT / "_tools" / "qa" / "_check_paid_actions.py"
 ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
-ORDERS = ROOT / "backend/app/api/v1/orders.py"
+ORDERS = ROOT / "backend/app/api/v1/orders_payment.py"   # 2026-09-24 阶段 4：pay/charge 搬去了这里
 MODEL = ANDROID / "core/OrderStatusModel.kt"
 SCREEN = ANDROID / "ui/order/OrderDetailScreen.kt"
 HANDLERS = ANDROID / "ai/AiWriteOrderHandlers.kt"

@@ -120,7 +120,9 @@ def test_收款与挂账两条路都先取锁再判() -> None:
     （看起来无害：单线程行为一模一样），所以这里把它钉住 ——
     与 `_tools/qa/_check_status_gate_locking.py` 的 A 节同一个主张。
     """
-    from app.api.v1 import orders as mod
+    # ⚠️ 2026-09-24 整改阶段 4：pay_order / charge_order 从 `orders.py` 纯搬迁到 `orders_payment.py`
+    #    （判据一个字没改，只跟着搬家）。
+    from app.api.v1 import orders_payment as mod
 
     for fn in (mod.pay_order, mod.charge_order):
         src = inspect.getsource(fn)

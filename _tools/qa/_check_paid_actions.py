@@ -65,7 +65,7 @@ def read(p: Path) -> str:
 
 
 def main() -> int:
-    orders = read(BACKEND_ORDERS)
+    orders = read(BACKEND_ORDERS) + read(BACKEND_ORDERS.parent / "orders_payment.py")   # charge/pay 在 2026-09-24 阶段 4 搬去了那边
     model = read(MODEL)
     screen = read(SCREEN)
     handlers = read(AI_HANDLERS)
