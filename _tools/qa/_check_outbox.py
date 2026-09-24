@@ -178,6 +178,32 @@ def main() -> int:
     want("outbox_stats" in metrics_src, "指标取自 outbox_stats（口径一处）",
          "⛔ 指标没走 outbox_stats —— 又出现了第二处统计口径")
 
+    # ---- 8. 生产者与处理器必须对得上（★ 这条是"切生产者"那一步的护栏） ----
+    #    从源码里收集所有 `outbox.enqueue(db, "事件类型"`，每个类型都必须在派发表里登记。
+    #    漏登记的后果不是报错而是**那条事件被 worker 一直标记失败**（重试 5 次后放弃），
+    #    而业务侧一切正常 —— 正是发件箱要治的那类"静默"。
+    APP = ROOT / "backend" / "app"
+    enqueued: dict[str, list[str]] = {}
+    for p in sorted(APP.rglob("*.py")):
+        if "__pycache__" in str(p):
+            continue
+        src = read(p)
+        for m in re.finditer(r"outbox\.enqueue\(\s*[^,]+,\s*\"([^\"]+)\"", src):
+            enqueued.setdefault(m.group(1), []).append(p.relative_to(APP).as_posix())
+    want(bool(enqueued), "盘到 " + str(len(enqueued)) + " 种被入队的事件类型（"
+         + "、".join(sorted(enqueued)) + "）",
+         "一处 outbox.enqueue 都没有 —— 边界立了但没人用（生产者还没切）")
+    deliver_src = body_of(main_src, "_outbox_deliver")
+    unhandled = sorted(t for t in enqueued if ("event_type == \"" + t + "\"") not in deliver_src)
+    want(not unhandled, "每种入队的事件类型都在派发表里登记了处理器",
+         "⛔ 这些事件类型有人入队、没人处理：" + str(unhandled)
+         + " —— worker 会把它们一次次标记失败（重试到放弃），而业务侧一点异常都看不到")
+    want("orders.assigned" in enqueued, "派单那条链路已经切成发件箱（orders.assigned）",
+         "⛔ 没有任何地方入队 orders.assigned —— 派单推送还挂在 background task 上")
+    want("_bg_push_assigned" not in read(ROOT / "backend" / "app" / "api" / "v1" / "orders_assignment.py"),
+         "派单端点里不再直接推（后台任务那条路已撤）",
+         "⛔ orders_assignment 里还留着 _bg_push_assigned —— 一条链路两套投递（发件箱 + 后台任务）")
+
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),
          "只跑了 " + str(total) + " 条判据（< " + str(MIN_RULES) + "）—— 检查可能空转了")

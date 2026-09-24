@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from app.core import outbox
 from app.core.business_time import utc_now_naive
 from app.models import OutboxEvent, OutboxStatus
+from tests.conftest import auth_headers
 
 
 def _clear(db) -> None:
@@ -146,6 +147,43 @@ def test_payload_survives_null_and_bad_json(db_session):
     assert row.payload_dict() == {}
     row.payload = "[1, 2]"   # 不是 dict 也不是
     assert row.payload_dict() == {}
+
+
+def test_assigning_an_order_enqueues_the_event_in_the_same_transaction(
+    client, token_dispatcher, token_shipper, users, db_session
+):
+    """**派单那条链路已经切成发件箱**（报告 §10 第一个生产者）。
+
+    这里走真实接口：响应照旧 200；而那条推送不再是"提交之后 add_task"，而是与派单
+    **同一个事务**写进 `outbox_events`（由 worker 派发、失败会重试）。
+    """
+    _clear(db_session)
+    line = {
+        "product_name_snapshot": "发件箱探针",
+        "quantity": 1,
+        "unit_price": "10.00",
+        "line_total": "10.00",
+    }
+    created = client.post(
+        "/api/v1/orders",
+        headers=auth_headers(token_shipper),
+        json={"lines": [line], "delivery_description": "发件箱地址", "address_detail": "发件箱地址"},
+    )
+    assert created.status_code == 201, created.text
+    oid = int(created.json()["id"])
+
+    assigned = client.post(
+        f"/api/v1/orders/{oid}/assign",
+        json={"driver_id": users["driver"].id},
+        headers=auth_headers(token_dispatcher),
+    )
+    assert assigned.status_code == 200, assigned.text
+
+    db_session.expire_all()
+    rows = [x for x in _rows(db_session) if x.event_type == "orders.assigned"]
+    assert len(rows) == 1, [x.event_type for x in _rows(db_session)]
+    assert rows[0].payload_dict() == {"driver_id": users["driver"].id, "order_id": oid}
+    assert rows[0].status == OutboxStatus.PENDING.value, "入队之后就该是待发（由 worker 发）"
 
 
 def test_outbox_stats_counts_by_status(db_session):

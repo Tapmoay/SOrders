@@ -256,12 +256,12 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders_assignment.py:56` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
-| 2 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders_assignment.py:95` | 权限:ORDER_DISPATCH |
-| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:264` | 权限:ORDER_DISPATCH |
-| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:319` | 权限:ORDER_DISPATCH |
-| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:344` | 权限:ORDER_DISPATCH |
-| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:386` | 权限:ORDER_RECALL |
+| 1 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders_assignment.py:55` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
+| 2 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders_assignment.py:96` | 权限:ORDER_DISPATCH |
+| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:265` | 权限:ORDER_DISPATCH |
+| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:323` | 权限:ORDER_DISPATCH |
+| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:348` | 权限:ORDER_DISPATCH |
+| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:390` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/orders_delivery.py` — 6 个
 

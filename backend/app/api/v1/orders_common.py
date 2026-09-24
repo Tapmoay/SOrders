@@ -34,7 +34,6 @@ from app.services.push_events import (
     push_order_cancelled_to_dispatchers,
     push_ledger_updated,
     push_order_freight_updated,
-    push_order_assigned,
     push_order_cancelled,
     push_order_delivered,
     push_order_edited_to_driver,
@@ -99,10 +98,6 @@ def _get_order_scoped(order_id: int, current: User, db: Session) -> Order:
     if role not in (UserRole.SHIPPER.value, UserRole.DRIVER.value, UserRole.DISPATCHER.value):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
     return order
-
-
-async def _bg_push_assigned(driver_id: int, order_id: int) -> None:
-    await push_order_assigned(driver_id, order_id)
 
 
 async def _bg_freight_updated(order_id: int) -> None:

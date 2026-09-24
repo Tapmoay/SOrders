@@ -113,10 +113,14 @@ def test_dialect_ddl_is_explicit_for_both_engines():
 def test_first_run_registers_baseline(tmp_path: Path):
     """真实 `migrations/` 目录：第一次跑应当把基线登记成版本 1，并把文件校验和写进去。"""
     engine = _engine(tmp_path)
+    # ⚠️ 期望值**从目录算**，不写死 `[1]`（2026-09-24 加了 002 之后，写死的那版当场红）：
+    #    这条用例要证明的是「第一次跑 = 把仓库里现有的迁移按序全部登记」，
+    #    而不是「仓库里永远只有 001」。
+    expected = [m.version for m in discover(MIGRATIONS_DIR)]
     report = run_migrations(engine, directory=MIGRATIONS_DIR)
-    assert [a["version"] for a in report["applied"]] == [1], report
+    assert [a["version"] for a in report["applied"]] == expected, report
     assert report["failed"] is None
-    assert current_version(engine) == 1
+    assert current_version(engine) == max(expected)
     with engine.begin() as conn:
         row = conn.execute(text(f"SELECT name, checksum FROM {VERSION_TABLE} WHERE version = 1")).one()
     assert row[0] == "baseline"
@@ -130,7 +134,8 @@ def test_second_run_is_a_noop(tmp_path: Path):
     with engine.begin() as conn:
         before = conn.execute(text(f"SELECT applied_at FROM {VERSION_TABLE} WHERE version = 1")).scalar()
     report = run_migrations(engine, directory=MIGRATIONS_DIR)
-    assert report["applied"] == [] and report["skipped"] == [1], report
+    expected = [m.version for m in discover(MIGRATIONS_DIR)]
+    assert report["applied"] == [] and report["skipped"] == expected, report
     with engine.begin() as conn:
         after = conn.execute(text(f"SELECT applied_at FROM {VERSION_TABLE} WHERE version = 1")).scalar()
     assert before == after, "第二次跑把 applied_at 改了 —— 说明它其实重跑了一遍"
@@ -238,7 +243,8 @@ def test_cli_runs_for_real(tmp_path: Path):
                         cwd=backend, capture_output=True, encoding="utf-8", errors="replace",
                         timeout=120)
     assert st.returncode == 0, st.stderr
-    assert "当前版本：1" in st.stdout, st.stdout
+    top = max(m.version for m in discover(MIGRATIONS_DIR))   # 同样从目录算（别写死版本号）
+    assert f"当前版本：{top}" in st.stdout, st.stdout
     assert db.exists()
 
 

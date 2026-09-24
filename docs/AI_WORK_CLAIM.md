@@ -20,6 +20,30 @@
 
 ## 进行中
 
+### [2026-09-24 23:4x → ] 会话：**架构整改 · 第 13 轮：阶段 6 §10 —— 切换第一个生产者（派单推送）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**做了什么**：把「派单推送」这条链路从 background task 改成事务发件箱 ——
+`api/v1/orders_assignment.py` 的**单条派单**与**批量派单**两处，原来是
+`db.commit()` 之后 `background_tasks.add_task(_bg_push_assigned, …)`（提交成功、推送丢了就永远没了，
+而库里一切正常），现在是 **commit 之前** `outbox.enqueue(db, "orders.assigned", {"driver_id":…, "order_id":…})`。
+`_bg_push_assigned` 这个只为它存在的助手连同它的 import 一起删掉 —— **一条链路不许两套投递**。
+
+**行为**：事件由 worker 派发给 `push_events.push_order_assigned`（与原来同一个函数）——
+区别只是从"尽力而为"变成"至少一次 + 失败退避重试 + 放弃时留 last_error"。⛔ 刻意**不传 dedupe_key**：
+派单是"再派一次就该再响一次"，重复投递由客户端兜（App 侧按 order_id 有 60 秒去重窗口）。
+
+**证据**：
+- 新用例走**真实接口**（货主建单 → 派单员派单 → 断言 `outbox_events` 里恰好一条 `orders.assigned`、
+  负载 `{driver_id, order_id}`、状态 `pending`）；发件箱用例 10 条全绿；
+- 该域红线 `_check_notify_guardrails.py` **117/117**、`_check_status_gate_locking.py` **55/55**；
+- 判据补强：`_check_outbox.py` 从源码收集所有 `outbox.enqueue` 的事件类型，逐个核对**派发表里有没有处理器**
+  （27 条）。反向验证：把 `orders.assigned` 的处理器撤掉 → 当场红「有人入队、没人处理」。
+
+**顺手修的连带项**：加了 002 迁移之后，三条迁移用例里写死的「只有 001」当场红 —— 改成**从目录算**
+（`discover()` 推导期望值），这才是它们本来该有的形状（下次加 003 不用再改一遍）。
+
+**本轮没碰**：其余推送链路（送达 / 撤回 / 账本 / 退货申请 / 消息中心…）仍是 background task，下一轮继续逐条切。
+
 ### [2026-09-24 23:3x → ] 会话：**架构整改 · 第 12 轮：阶段 6 §10 —— 事务发件箱（边界 + worker + 判据）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **报告点名的病**：`数据库成功 → 后台任务恰好挂了 → 事件永远丢失`。现在的形状是「业务操作 → 数据库 →

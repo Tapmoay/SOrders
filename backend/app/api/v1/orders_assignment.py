@@ -43,11 +43,10 @@ from app.api.v1.orders_common import (
     _bg_dispatcher_pending_pool,
     _bg_freight_updated,
     _bg_notify_new_order,
-    _bg_push_assigned,
     _bg_push_revoked,
     _bg_push_shipper_recalled,
 )
-from app.api.v1.orders_common import (_bg_push_assigned, _bg_freight_updated, _bg_push_revoked, _bg_push_shipper_recalled, _bg_dispatcher_pending_pool, _bg_notify_new_order)
+from app.core import outbox
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -80,9 +79,11 @@ def batch_assign_orders(
             assign_driver(db, order, driver, current, body.internal_note)
             if body.collect_cash is not None:
                 order.collect_cash = body.collect_cash
+            # ⚠️ 派单推送走**事务发件箱**（整改报告 §10）：事件与这次 commit **同一个事务** ——
+            #    以前是 commit 之后再 add_task，后台任务挂了这条推送就永远没了，而库里一切正常。
+            outbox.enqueue(db, "orders.assigned", {"driver_id": body.driver_id, "order_id": oid})
             db.commit()
             results.append(BatchAssignResultItem(order_id=oid, success=True, detail=None))
-            background_tasks.add_task(_bg_push_assigned, body.driver_id, oid)
         except ValueError as e:
             db.rollback()
             results.append(BatchAssignResultItem(order_id=oid, success=False, detail=str(e)))
@@ -306,8 +307,11 @@ def assign_order(
     # 派单记一次「这个派单员常用这位司机」（2026-09-22 统一规则：挑人的列表也按常用度排）。
     # ⚠️ 记在**派单员**名下（`current`）：常用度是"**我**挑谁挑得多"，与司机本人的行为无关。
     usage_service.record_usage(db, user=current, kind=usage_service.KIND_USER, target_id=body.driver_id)
+    # ⚠️ 派单推送走**事务发件箱**（整改报告 §10）：与下面这次 commit 同一个事务。
+    #    题外话：这里**刻意不去重**（不传 dedupe_key）—— 派单是"再派一次就该再响一次"，
+    #    而重复投递由客户端兜着（App 侧按 order_id 有 60 秒去重窗口，见 core/NewOrderAlert.kt）。
+    outbox.enqueue(db, "orders.assigned", {"driver_id": body.driver_id, "order_id": order.id})
     db.commit()
-    background_tasks.add_task(_bg_push_assigned, body.driver_id, order.id)
     background_tasks.add_task(_bg_dispatcher_pending_pool)
     full = load_order_for_response(db, order.id)
     if full is None:
