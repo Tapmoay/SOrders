@@ -9,7 +9,11 @@
 2. 口令对了才是 Prometheus 文本（外部监控要能直接抓）；
 3. **计数与库里的行数一致**，窗口是**业务当地日**（不是 UTC 日 —— 差 8 小时就是"日报显示昨天的数"）；
 4. 回收站里的单（软删）不算；
-5. 报告点名但当前算不出来的 4 个指标必须**如实列出来**，而不是悄悄少几个数。
+5. 报告点名但当前算不出来的指标必须**如实列出来**，而不是悄悄少几个数；
+6. **反过来也要钉**：一旦前置条件做完了，它就必须从「算不出来」挪进真指标 ——
+   `push_success` / `push_failure` 原来挂在那边，理由是「要等 §10 的事务发件箱落地」；
+   发件箱 2026-09-25 落地，于是它们成了 `sorders_push_success_today` / `sorders_push_failure_today`。
+   一条**过期的「算不出来」**，轻则让人以为还缺东西，重则有人照着它去凑一个假数。
 
 ⚠️ 断言一律用"前后差值"，不用绝对值：同一个 worker 的测试库是共享的，别的前置用例留下的行会漂。
 """
@@ -25,6 +29,7 @@ from app.core.metrics import NOT_TRACKED, render_prometheus, snapshot
 from app.main import fastapi_app, settings
 from app.models.enums import OrderStatus
 from app.models.order import Order
+from app.models.outbox import OutboxEvent, OutboxStatus
 
 
 def _values(db: Session) -> dict[str, int]:
@@ -83,6 +88,37 @@ def test_soft_deleted_orders_are_not_counted(db_session: Session):
     _seed(db_session, deleted=True)
     after = _values(db_session)["sorders_orders_created_today"]
     assert after - before == 1
+
+
+def _seed_outbox(db: Session, *, status: str, sent: bool = False) -> OutboxEvent:
+    """造一条发件箱事件（`mark_failed` 不写 sent_at —— 拿 sent_at 去数失败永远是 0）。"""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    row = OutboxEvent(
+        event_type="orders.created",
+        payload="{}",
+        status=status,
+        attempts=1,
+        sent_at=now if sent else None,
+        next_attempt_at=now,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def test_push_metrics_come_from_the_outbox(db_session: Session):
+    """报告点名、原来「算不出来」的两个：§10 发件箱落地后它们成了真指标。
+
+    两个窗口的口径不一样（见 `metrics.snapshot` 的注释）：success 看 sent_at、failure 看 created_at。
+    """
+    before = _values(db_session)
+    _seed_outbox(db_session, status=OutboxStatus.SENT.value, sent=True)
+    _seed_outbox(db_session, status=OutboxStatus.FAILED.value)
+    after = _values(db_session)
+    assert after["sorders_push_success_today"] - before["sorders_push_success_today"] == 1
+    assert after["sorders_push_failure_today"] - before["sorders_push_failure_today"] == 1
+    assert "push_success" not in NOT_TRACKED, "它已经能算了 —— 还挂在「算不出来」表里就是过期说明"
+    assert "push_failure" not in NOT_TRACKED, "同上"
 
 
 def test_metrics_are_rendered_for_scrapers(db_session: Session):

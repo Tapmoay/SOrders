@@ -15,9 +15,15 @@
 
 ## 报告点名 10 个指标，这里如实分成两类
 
-能算的 7 个 → 真指标（每个都写明数据来源，可复核）；算不出的 4 个**不编数**，
-在 `NOT_TRACKED` 里写清"为什么现在算不出来、它该长在哪里"。
+能算的 **9 个** → 真指标（每个都写明数据来源，可复核）；算不出的 **2 个**（都是 AI 那两个）
+**不编数**，在 `NOT_TRACKED` 里写清"为什么现在算不出来、它该长在哪里"。
 **宁可空着并说明，也不要给一个看起来正常的假数** —— 假数会让"外部监控"从保障变成误报源。
+
+⚠️ **"算不出来"这句话是会过期的**：`push_success` / `push_failure` 原来就挂在这张表上，
+理由是"要等 §10 的事务发件箱落地"；发件箱 2026-09-25 落地（`outbox_events`）之后它们
+**就成了真指标**（`sorders_push_success_today` / `sorders_push_failure_today`）。
+每做完一个前置条件都要回头看这张表一眼：一条过期的"算不出来"，轻则让下一个人以为还缺东西，
+重则有人照着它去**凑一个假数**（那正是本模块最反对的事）。
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ from app.models.driver_settlement import DriverSettlement
 from app.models.enums import OrderStatus
 from app.models.ledger import Ledger
 from app.models.order import Order
+from app.models.outbox import OutboxEvent, OutboxStatus
 
 
 @dataclass(frozen=True)
@@ -49,9 +56,7 @@ class Metric:
 #: 报告点名、但**当前算不出来**的指标 —— 每条都写清原因与它该有的位置。
 #: ⛔ 不要用"近似值"填空：push_success 与"发出去的通知条数"不是一回事。
 NOT_TRACKED: dict[str, str] = {
-    "push_success": "推送成败没有落点 —— socketio.emit 之后谁也不记录结果；"
-    "它该补在报告 §10 的 Outbox（事务发件箱）里，而不是在这里凑一个近似值",
-    "push_failure": "同上：emit 失败只在日志里一闪而过，没有可数的落点（Outbox 落地后补）",
+
     "AI_calls": "模型跑在 App 里（后端没有 AI 代理端点），服务端只看到普通业务请求 ——"
     "要采它得先加一条客户端上报（阶段 7 / 8 的后续）",
     "AI_write_confirmed": "AI 写入走的是普通业务端点 + App 侧确认卡；后端动作码里"
@@ -114,6 +119,24 @@ def snapshot(db: Session) -> list[Metric]:
             "今天入账的账本流水条数",
             _count(db, Ledger, Ledger.created_at >= start),
             "ledgers.created_at",
+        ),
+        # ---- 报告点名的 push_success / push_failure（2026-09-25：§10 发件箱落地后**能算了**）----
+        # ⚠️ 两个窗口的口径**不一样**，这里写明免得被当成"同一件事两个数"：
+        #    success 看 sent_at（今天**发出去**的），failure 看 created_at（今天**产生**、且已被放弃的）——
+        #    `mark_failed` 不写 sent_at（它压根没发出去），拿 sent_at 去数失败永远是 0。
+        Metric(
+            "sorders_push_success_today",
+            "今天推送成功的事件数（原报告的 push_success；来源＝发件箱已发状态）",
+            _count(db, OutboxEvent, OutboxEvent.status == OutboxStatus.SENT.value,
+                   OutboxEvent.sent_at >= start),
+            "outbox_events.sent_at",
+        ),
+        Metric(
+            "sorders_push_failure_today",
+            "今天被放弃的推送事件数（原报告的 push_failure；≠0 就是有人得去看 last_error）",
+            _count(db, OutboxEvent, OutboxEvent.status == OutboxStatus.FAILED.value,
+                   OutboxEvent.created_at >= start),
+            "outbox_events.created_at",
         ),
         Metric(
             "sorders_outbox_pending",
