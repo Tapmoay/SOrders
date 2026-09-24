@@ -20,6 +20,27 @@
 
 ## 进行中
 
+### [2026-09-25 07:0x → ] 会话：**架构整改 · 第 27 轮：阶段 9 §11 第 2 步 —— 第一块职责搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】
+
+核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：报告 §11 第 2 步按职责拆文件，本轮把尾部 66 行「payload JSON → 请求 DTO」整块搬去新文件 AiWriteJson.kt（同一个包、一个字符没改；判据读并集，红线不受影响；Kotlin 编译 BUILD SUCCESSFUL）
+
+报告 §11 的四条判据在本文件上：多职责 ✓、多修改者 ✓（4 个会话改过它）、多测试边界 ✓（AiWriteTest.kt 5237 行 + 6 份反向验证）、多生命周期 ✗ → 拆。
+本轮搬走的是**最独立的那一块**：toExpenseRequest / toLedgerRequest / toOrderCreateRequest + 三个取值助手（pStr / pLong / pReqStr）→ 新文件 ai/AiWriteJson.kt。
+
+**搬迁纪律（本项目付过学费的那条）**：判据**先读并集、再搬代码**（上一轮 _airepo.ai_write_source() 已就位）。所以搬完之后：
+_check_ai_guardrails.py **1280/1280**（对判据「不可见」）、_check_reverse_verify_anchors.py **1147/1147**（这一族没有锚点落在这块上）。
+AiWriteService.kt 原地只留一段指路注释（写明搬去哪、以及「只改锚点、不动判据」的规矩）。
+
+**等价性证据**（报告 §18「重构要有等价性验证」）：gradle -p android compileEmuDebugKotlin → **BUILD SUCCESSFUL**；
+_check_all.py → **100/100**。⚠️ 两处连带都被检查当场抓到、当场修掉：
+① 多了一个 .kt → 09A_HINT_CATALOG.md 的「扫了 253 个文件」过期（重跑 _hint_inventory.py --md）；
+② 搬走之后 AiWriteService.kt 有 3 条 import 没人用了 → _check_dead_code.py 报红（删掉 OrderProductLine / JsonPrimitive / contentOrNull）。
+
+**下一步**：另两块（RepoWriteDataSource 约 1950 行 / AiWriteService 写闸门约 380 行）继续拆（建议先搬数据源，它不动写闸门的判定逻辑）；
+另外 AI_join("AiWriteService.kt")（**剥注释**那条路）要单独给并集版。
+
+**明确不碰**：AiWriteService.kt 里的**写闸门判定逻辑**（preview → 确认卡 → execute）—— 本次只搬纯 DTO 转换那一块。
+
 ### [2026-09-25 06:0x → 06:3x] 会话：**架构整改 · 第 26 轮：阶段 9 §11 第 1 步 —— AI 写链路判据改读「并集」+ 职责清点**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `a1f9d46`】
 
 **报告 §11 的原话**：「不是为了整洁而拆」——只有「多个职责 / 多个修改者 / 多个生命周期 / 多个测试边界」才拆，「文件变小不等于架构变好」。
