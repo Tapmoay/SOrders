@@ -72,6 +72,14 @@ interface AiWriteDataSource {
     suspend fun priceRules(): List<AiName>
 
     /**
+     * 单位换算表（**全库共用**那一份，"1 车 = 8 方"）—— 改/删换算时的目标池。
+     *
+     * 它的"名字"就是那行等式本身（`1 车 = 8 方`）：换算没有别的自然名字，
+     * 而用户嘴里说的正是这行等式（「把一车八方改成十方」）。
+     */
+    suspend fun unitConversions(): List<AiName>
+
+    /**
      * 把一段地址文字换成坐标（高德地理编码）。
      *
      * 为什么数据源要暴露"地理编码"这么一件看起来不像数据的事：
@@ -533,6 +541,14 @@ interface AiWriteDataSource {
     suspend fun createArrearsUnit(fields: JsonObject)
     suspend fun updateArrearsUnit(id: Long, fields: JsonObject)
     suspend fun deleteArrearsUnit(id: Long)
+
+    // ---- 单位换算（2026-09-24：一车 = 8 方）----
+    // 判据在后端 `services/unit_conversion.py`：这里的四个方法只负责转发
+    // （客户端再写一遍"能不能建"就会与后端走散，而两个数都不报错）。
+    suspend fun createUnitConversion(fields: JsonObject)
+    suspend fun updateUnitConversion(id: Long, fields: JsonObject)
+    suspend fun deleteUnitConversion(id: Long)
+    suspend fun restoreUnitConversion(id: Long)
 
     // ---- 预订单 / 订单模板（2026-09-22）----
 
@@ -1832,6 +1848,42 @@ class RepoWriteDataSource(
 
     override suspend fun deleteArrearsUnit(id: Long) = repo.deleteArrearsUnit(id)
 
+    // ---- 单位换算（2026-09-24：一车 = 8 方）----
+    //
+    // ⚠️ 换算率按**字符串**进出（后端是 `Numeric(14,4)`）：走 Double 会让 `0.1` 变成
+    //    `0.1000000000000000055…`，而它是印在订单上的数（与金额同一个理由）。
+
+    override suspend fun unitConversions(): List<AiName> =
+        // "名字"就是那行等式本身：换算没有别的自然名字，用户嘴里说的也正是它
+        // （「把一车八方改成十方」）。被删掉的换成 `deletedOnly` 那一份（撤回时要读现场）。
+        repo.unitConversions().map { AiName(it.id, "1 ${it.fromUnit} = ${it.factor} ${it.toUnit}") }
+
+    override suspend fun createUnitConversion(fields: JsonObject) {
+        repo.createUnitConversion(
+            com.tapmoay.sorders.data.remote.api.UnitConversionCreateRequest(
+                fromUnit = fields.req("from_unit"),
+                toUnit = fields.req("to_unit"),
+                factor = fields.req("factor"),
+                remark = fields.str("remark").orEmpty(),
+            ),
+        )
+    }
+
+    override suspend fun updateUnitConversion(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateUnitConversion 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateUnitConversion(
+            id,
+            com.tapmoay.sorders.data.remote.api.UnitConversionUpdateRequest(
+                fromUnit = fields.str("from_unit"),
+                toUnit = fields.str("to_unit"),
+                factor = fields.str("factor"),
+                remark = fields.str("remark"),
+            ),
+        )
+    }
+
+    override suspend fun deleteUnitConversion(id: Long) = repo.deleteUnitConversion(id)
+
     // ---- 预订单 / 订单模板（2026-09-22）----
 
     override suspend fun orderTemplates(): List<AiName> =
@@ -2401,6 +2453,10 @@ class RepoWriteDataSource(
         repo.restoreArrearsUnit(id)
     }
 
+    override suspend fun restoreUnitConversion(id: Long) {
+        repo.restoreUnitConversion(id)
+    }
+
     override suspend fun restoreFreightTemplate(id: Long) {
         repo.restoreFreightTemplate(id)
     }
@@ -2463,6 +2519,13 @@ class RepoWriteDataSource(
             "place" -> repo.placesAll().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.place(it)) }
             "contact" -> repo.contacts().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.contact(it)) }
             "arrears_unit" -> repo.arrearsUnits().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.arrearsUnit(it)) }
+            // 单位换算：拉列表再挑（后端没有单取端点）。
+            // ⚠️ 撤回一个"恢复"要读的正是那条已经从名册里消失的记录，所以**两份都查**：
+            //    活着的读不到就去回收站里找（`deletedOnly = true`）。
+            "unit_conversion" ->
+                (repo.unitConversions() + repo.unitConversions(deletedOnly = true))
+                    .firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.unitConversion(it)) }
             // 预设单：拉列表再挑（后端没有单取端点）。挑不到 = null，**不编造**。
             "order_template" ->
                 repo.orderTemplates().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.orderTemplate(it)) }

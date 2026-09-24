@@ -463,6 +463,12 @@ CN_DESC = {
     ),
     "expenses.list_expenses": "支出记录",
     "arrears.list_units": "挂账单位列表",
+    # 单位换算（2026-09-24 用户要求：一车 = 8 方）。换算表**全库共用**，货主与派单员都能读
+    # （同一张单在两个角色那儿必须是同一个数）。
+    "unit_conversions.list_conversions": (
+        "单位换算表（例如「1 车 = 8 方」）。看数量时用它换算出第二个单位；"
+        "全库共用一份，改它要慎"
+    ),
     "driver_bills.list_driver_bills": "司机账单",
     "driver_settlements.list_settlements": "司机结算记录",
     "freight_settlement.freight_settlement": "司机运费结算（按司机聚合，含订单明细）",

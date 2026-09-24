@@ -206,14 +206,14 @@ object AiReadCatalog {
             ReadParam("date_from", "date", false, emptyList(), false),
             ReadParam("date_to", "date", false, emptyList(), false),
         )),
-        ReadAction("return_requests.list_my_return_requests", "我（货主）自己提过的退货申请：待派单员处理的、已办完的、被驳回的（含驳回原因）", "/api/v1/return-requests/mine", "order_id、status、limit", setOf("shipper"), false, listOf(
+        ReadAction("return_requests.list_my_return_requests", "我（货主）自己提过的退货申请：待派单员处理的、已办完的、被驳回的（含驳回原因）", "/api/v1/return-requests/mine", "order_id、status(all|pending|done|rejected|withdrawn)、limit", setOf("shipper"), false, listOf(
             ReadParam("order_id", "int", false, emptyList(), true),
-            ReadParam("status", "str", false, emptyList(), false),
+            ReadParam("status", "Literal", false, listOf("all", "pending", "done", "rejected", "withdrawn"), false),
             ReadParam("limit", "int", false, emptyList(), false),
         )),
-        ReadAction("return_requests.list_return_requests", "待派单员处理的退货申请（货主提的、还没办的）：谁提的、要退哪几样、各几件", "/api/v1/return-requests", "order_id、status、limit", setOf("dispatcher"), false, listOf(
+        ReadAction("return_requests.list_return_requests", "待派单员处理的退货申请（货主提的、还没办的）：谁提的、要退哪几样、各几件", "/api/v1/return-requests", "order_id、status(all|pending|done|rejected|withdrawn)、limit", setOf("dispatcher"), false, listOf(
             ReadParam("order_id", "int", false, emptyList(), true),
-            ReadParam("status", "str", false, emptyList(), false),
+            ReadParam("status", "Literal", false, listOf("all", "pending", "done", "rejected", "withdrawn"), false),
             ReadParam("limit", "int", false, emptyList(), false),
         )),
         ReadAction("shipper.list_addresses", "地址与线路库", "/api/v1/shipper/addresses", "", setOf("dispatcher", "shipper"), false, listOf(
@@ -279,6 +279,9 @@ object AiReadCatalog {
         ReadAction("suppliers.list_suppliers", "供应商/厂商名册（含各自还欠多少、累计应付与已付）", "/api/v1/suppliers", "include_deleted", setOf("dispatcher"), false, listOf(
             ReadParam("include_deleted", "bool", false, emptyList(), false),
         )),
+        ReadAction("unit_conversions.list_conversions", "单位换算表（例如「1 车 = 8 方」）。看数量时用它换算出第二个单位；全库共用一份，改它要慎", "/api/v1/unit-conversions", "deleted_only", setOf("dispatcher", "shipper"), false, listOf(
+            ReadParam("deleted_only", "bool", false, emptyList(), false),
+        )),
         ReadAction("users.list_users", "账号/人员列表（货主、司机、批发商、内部账号，可按角色与关键词筛）", "/api/v1/users", "role(shipper|driver|dispatcher)、is_member、q、skip、limit", setOf("dispatcher"), false, listOf(
             ReadParam("role", "Literal", false, listOf("shipper", "driver", "dispatcher"), false),
             ReadParam("is_member", "bool", false, emptyList(), false),
@@ -331,6 +334,7 @@ object AiReadCatalog {
         "shipper_ledger" to "我的账本",
         "stats" to "统计口径",
         "suppliers" to "供应商/应付款",
+        "unit_conversions" to "单位换算",
         "users" to "司机/货主/批发商/账号",
         "vehicles" to "车辆管理",
     )

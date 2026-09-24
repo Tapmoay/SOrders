@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.core
 
 import com.tapmoay.sorders.data.remote.dto.SocketEvent
+import com.tapmoay.sorders.ui.common.UnitConv
 import com.tapmoay.sorders.ui.nav.Role
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,10 +74,19 @@ class RealtimeHub(private val container: AppContainer) {
                         s.token,
                         lastNotificationId.value,
                     )
+                    // 单位换算（一车 = 8 方，2026-09-24）：**登录/恢复会话时拉一次**。
+                    // 为什么放在这里：订单卡片、订单明细、账本小卡、下单页四处都要它，
+                    // 而它们都没有"载入完成"这个共同点 —— 谁先打开就先显示"10 车 ≈ 80 方"，
+                    // 晚打开的那一页不该显示成另一个样子。失败**静默**（换算只是多显示一个数，
+                    // 它不该让任何列表变成错误页），下一次登录还会再试。
+                    scope.launch { runCatching { UnitConv.ensure(container.repo) } }
                 } else {
                     userId = null
                     container.socketManager.disconnect()
                     _unreadCount.value = 0
+                    // 退出登录：把换算表也清掉（它是全库共用的一份，但**不该跨账号留着** ——
+                    // 换个人登录时沿用上一个人的缓存，就会在别人的单上继续显示换算）
+                    UnitConv.clear()
                     // 退出登录 / 未登录：**把回补游标清掉**（R14-13 的落盘带来的必然要求）。
                     // 游标是「本机这个人已经收到哪儿」的进度；换一个账号登录时若沿用上一个人的
                     // 游标，新账号那些 id 更小的未读消息会被后端全部过滤掉（比"补最旧的 200 条"更糟：

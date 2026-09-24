@@ -326,6 +326,31 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun restoreContact(id: Long) = api.shipperApi.restoreContact(id)
 
+    // ---- 单位换算（一车 = 8 方，2026-09-24 用户要求）----
+    //
+    // 用户原话：「我们的**货主和派单员**，他可以自动的设置单位，比如说一车等于 8 方……
+    // 我下的十车，会有 2 个数据：第一个是 10 车，第 2 个则是 80 方。」
+    //
+    // ⚠️ 换算表是**全库共用**的（不按人分区）：货主下的单与派单员看的同一张单必须是同一个数。
+    // ⚠️ 判据全在后端（`services/unit_conversion.py`）：这里的四个方法只是转发，
+    //    前端**不**再写一遍"能不能建"（写了就会与后端走散，而两个数都不报错）。
+    suspend fun unitConversions(deletedOnly: Boolean = false) =
+        api.unitConversionsApi.listUnitConversions(deletedOnly)
+
+    suspend fun createUnitConversion(
+        body: com.tapmoay.sorders.data.remote.api.UnitConversionCreateRequest,
+    ) = api.unitConversionsApi.createUnitConversion(body)
+
+    suspend fun updateUnitConversion(
+        id: Long,
+        body: com.tapmoay.sorders.data.remote.api.UnitConversionUpdateRequest,
+    ) = api.unitConversionsApi.updateUnitConversion(id, body)
+
+    suspend fun deleteUnitConversion(id: Long) = api.unitConversionsApi.deleteUnitConversion(id)
+
+    /** 把删掉的换算放回来（`DELETE` 的逆操作）。冲突时后端会 409 并点名挡住它的那一条。 */
+    suspend fun restoreUnitConversion(id: Long) = api.unitConversionsApi.restoreUnitConversion(id)
+
     // ---- 共享地点库（导航信息）----
     /**
      * 全库共享的导航坐标（**不按人分区**，三种角色共用一张表）**一页**。

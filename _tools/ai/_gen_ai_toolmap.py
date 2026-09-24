@@ -111,6 +111,10 @@ MODULE_CN: dict[str, str] = {
     # 一直在报"缺中文名"的那个模块（AI 附件的表格解析）——补上，否则 --check 永远红，
     # 而"永远红的检查 = 没有检查"（本仓库栽过一次：红了 12 轮没人管）。
     "files": "AI 附件解析",
+    # 单位换算（2026-09-24 用户要求：一车 = 8 方）。
+    # ⚠️ 中文名与 App 工作台那一格**同名**（`Modules.kt` 的「单位换算」）——
+    #    能力按模块认领时靠它对齐（`_app_feature_coverage.py` 的映射表也是这个名字）。
+    "unit_conversions": "单位换算",
 }
 
 ROUTE_RE = re.compile(

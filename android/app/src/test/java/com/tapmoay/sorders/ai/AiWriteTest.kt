@@ -520,6 +520,10 @@ class AiWriteTest {
         var orderTemplateRows = emptyList<AiName>()
         val orderTemplateCalls = mutableListOf<String>()
 
+        /** 单位换算（2026-09-24）：名册默认空（见下面对 `unitConversions()` 的 override）。 */
+        var unitConversionRows = emptyList<AiName>()
+        val unitConversionCalls = mutableListOf<String>()
+
         // ---- 供应商 / 厂商档案 + 应付款（2026-09-22）----
         var supplierRows = emptyList<AiName>()
         var payableRows = emptyList<AiSupplierPayable>()
@@ -814,6 +818,25 @@ class AiWriteTest {
         override suspend fun deleteArrearsUnit(id: Long) {
             boom()
             masterCalls += "deleteArrearsUnit:$id"
+        }
+
+        // ---- 单位换算（一车 = 8 方，2026-09-24）----
+        //
+        // ⚠️ 名册默认**空**：单测里没设过换算 = 按那行等式找不到（这正是"改/删一条不存在的换算"
+        //    该有的样子）。要测"找得到"的用例自己往 `unitConversionRows` 里塞。
+        override suspend fun unitConversions() = unitConversionRows.also { boom() }
+        override suspend fun createUnitConversion(fields: JsonObject) = rec("createUnitConversion", fields)
+        override suspend fun updateUnitConversion(id: Long, fields: JsonObject) {
+            boom()
+            unitConversionCalls += "updateUnitConversion:$id:${fields.toString()}"
+        }
+        override suspend fun deleteUnitConversion(id: Long) {
+            boom()
+            unitConversionCalls += "deleteUnitConversion:$id"
+        }
+        override suspend fun restoreUnitConversion(id: Long) {
+            boom()
+            unitConversionCalls += "restoreUnitConversion:$id"
         }
 
         // ---- 预订单 / 订单模板（2026-09-22）----

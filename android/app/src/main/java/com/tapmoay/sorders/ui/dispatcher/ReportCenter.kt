@@ -1149,6 +1149,11 @@ private fun actionLabel(action: String): String = when (action) {
     "SHIPPER_SETTLE_CREATE" -> "批发商核销（向他的货主收钱）"
     "SHIPPER_SETTLE_REVOKE" -> "撤销批发商核销"
     "SHIPPER_SETTLE_RESTORE" -> "恢复批发商核销"
+    // 单位换算（2026-09-24 用户要求：一车 = 8 方）。换算率是**全库共用**的一个数，
+    // 改一下所有单位的显示口径就变了 —— 没有中文名，审计页上只会印出原始码。
+    "UNIT_CONVERSION_UPSERT" -> "新增/修改单位换算"
+    "UNIT_CONVERSION_DELETE" -> "删除单位换算"
+    "UNIT_CONVERSION_RESTORE" -> "恢复单位换算"
     else -> action
 }
 

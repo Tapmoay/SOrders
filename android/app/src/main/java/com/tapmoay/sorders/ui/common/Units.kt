@@ -1,5 +1,7 @@
 package com.tapmoay.sorders.ui.common
 
+import com.tapmoay.sorders.data.remote.api.UnitConversionDto
+
 /**
  * 商品单位的**唯一一份词表** + "选择列表怎么排"的**唯一一份算法**。
  *
@@ -107,4 +109,54 @@ fun filterUnits(units: List<String>, keyword: String): List<String> {
     val k = keyword.trim()
     if (k.isEmpty()) return units
     return units.filter { it.contains(k, ignoreCase = true) }
+}
+
+// ===== 单位换算的**显示**（2026-09-24 用户要求：一车 = 8 方）=====
+//
+// 用户原话：「我们再加一个功能叫做**自动换算单位**……一车是等于 8 方……
+// 我下的十车，会有 **2 个数据**：第一个是 10 车，第 2 个则是 80 方。」
+//
+// ⛔ **只作用于数量的显示，钱一个字节都不动**（单价、行金额、账本、报表全按原来的单位算）。
+//    "按方计价"是另一件事：它会同时动价格口径与成本，需要单独拍板。
+// ⛔ **只做一跳**（`1 车 = 8 方`）：链式（车→方→袋）要防环、要选路径，是另一件事
+//    （后端 `services/unit_conversion.py` 的文件头也写了这条）。
+
+/**
+ * 换算后的数量（`"80 方"`）；**没有这个单位的换算时返回 `null`**（调用方退回原样显示）。
+ *
+ * 判据本身（一个源单位只能一条、换算率 > 0 等）在**后端**；这里只做"照它算一遍并显示"。
+ */
+fun convertedQty(
+    quantity: Int,
+    rawUnit: String?,
+    conversions: List<UnitConversionDto>,
+): String? {
+    val u = rawUnit?.trim().orEmpty()
+    if (u.isEmpty()) return null
+    val hit = conversions.firstOrNull { it.fromUnit.trim().equals(u, ignoreCase = true) } ?: return null
+    val to = hit.toUnit.trim()
+    if (to.isEmpty()) return null
+    // ⚠️ 用 BigDecimal 不用 Double：`10 × 8` 用浮点会得到 79.99999999999999 这种数，
+    //    而这是要印在订单上的数（与金额同一个理由）。
+    val factor = hit.factor.trim().toBigDecimalOrNull() ?: return null
+    if (factor.signum() <= 0) return null
+    val value = factor.multiply(java.math.BigDecimal(quantity)).stripTrailingZeros().toPlainString()
+    return "$value $to"
+}
+
+/**
+ * 「10 车 ≈ 80 方」—— 数量那一格的**唯一写法**（有换算才带后半截）。
+ *
+ * ⛔ 空单位**不兜底成「件」**（与 [qtyWithUnit] 同一条规矩）：老单的 `unit_snapshot` 可能真的没填过，
+ * 编一个单位出来就成了"系统说的"。没有换算时**原样退回** [qtyWithUnit]。
+ */
+fun qtyWithUnitConverted(
+    quantity: Int,
+    rawUnit: String?,
+    conversions: List<UnitConversionDto>,
+): String {
+    val base = qtyWithUnit(quantity, rawUnit)
+    val converted = convertedQty(quantity, rawUnit, conversions) ?: return base
+    // `≈` 不是「=」：换算率是用户自己填的（"大概八方"），写成等号等于替用户担保那个数。
+    return "$base ≈ $converted"
 }

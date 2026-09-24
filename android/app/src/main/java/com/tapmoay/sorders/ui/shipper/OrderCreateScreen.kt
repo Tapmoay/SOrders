@@ -70,6 +70,10 @@ fun OrderCreateScreen(
     }
     // 图片预览（位置参考图）：点缩略图看大图，见 ui/common/ImagePreview.kt
     val preview = rememberImagePreview()
+    // 单位换算（一车 = 8 方）：清单里那一行要写「10 车 ≈ 80 方」（用户 2026-09-24）。
+    // 全 App 一份（`UnitConv`）；下单页是**最可能用到**它的地方，所以进来就确保拉过一次。
+    val conversions by UnitConv.rows.collectAsState()
+    LaunchedEffect(Unit) { UnitConv.ensure(container.repo) }
     var showShipperPicker by remember { mutableStateOf(false) }
     var showImageSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -246,7 +250,14 @@ fun OrderCreateScreen(
                                     Text("单价 ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("¥" + formatMoney(line.price), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = Color(MoneyOrange))
                                     Text("  ·  数量 ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(line.quantity.toString() + " " + line.unit, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E6FFF))
+                                    // 设过单位换算时带后半截（「10 车 ≈ 80 方」，用户 2026-09-24）。
+                                    // 拼法只有一处：`Units.kt::qtyWithUnitConverted`。
+                                    Text(
+                                        qtyWithUnitConverted(line.quantity, line.unit, conversions),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF1E6FFF),
+                                    )
                                 }
                             }
                             Column(horizontalAlignment = Alignment.End) {

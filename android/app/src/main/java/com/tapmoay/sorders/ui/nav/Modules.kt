@@ -18,6 +18,7 @@ import com.tapmoay.sorders.ui.theme.NavBlue
 import com.tapmoay.sorders.ui.theme.ProductPurple
 import com.tapmoay.sorders.ui.theme.ReportIndigo
 import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.ui.theme.UnitConvRose
 
 /**
  * 工作台图标入口：**一格 = 一个页面**（`route` 即导航路由）。
@@ -100,6 +101,11 @@ object Modules {
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
         ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品（还原成原来的色）
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
+        // 单位换算（2026-09-24 用户要求：「一车是等于 8 方」）。
+        // 紧挨着商品/库存两格：它管的是"这件货怎么计量"，与那两块是同一族的事。
+        // ⚠️ 用户点名要的按钮在「请选择单位」页里（派单员从商品编辑才到得了），
+        //    所以另开这一格 —— 货主也要能自己设（他原话：「我们的货主和派单员，他可以自动的设置单位」）。
+        ModuleEntry("单位换算", Routes.UNIT_CONVERSIONS, Icons.Default.SwapHoriz, color = UnitConvRose),                // 洋红紫 · 一车=8方
         // 「账本管理」**回到工作台网格**（用户 2026-09-20 第二轮：那张卡片被推翻，工作台改回原来的样式）。
         // 这一格点进去是**入口页**（`LedgerHomeScreen`，报表中心那种形式），里面 6 件事：
         // 司机账（已并入司机结算）/ 订单账 / 货主账 / 批发商账 / 客户收款 / 开销管理。
@@ -248,6 +254,12 @@ object Modules {
         // ⚠️ 位置是**唯一可选的那一格**：本文件的两条单测钉着「消息中心」必须在第 4 格
         //    （`shipperEntries[4]`）、「AI 助手」必须在最后一格 —— 所以插在消息中心与 AI 之间。
         ModuleEntry("退货申请", Routes.SHIPPER_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),
+        // 单位换算（2026-09-24）：**货主自己也能设**（用户原话：「我们的**货主**和派单员，
+        // 他可以自动的设置单位，比如说一车等于 8 方」）—— 派单员那一侧还有第二个入口
+        // （商品编辑 →「请选择单位」页里的「添加单位换算」按钮），这里这一格是两端都有的。
+        // ⚠️ 必须插在「退货申请」与「AI 助手」之间：本文件的两条单测钉着
+        //    `shipperEntries[4]` 是消息中心、AI 必须是最后一格。
+        ModuleEntry("单位换算", Routes.UNIT_CONVERSIONS, Icons.Default.SwapHoriz, color = UnitConvRose),
         // AI 助手放**最后一格**（用户 2026-09-15 明确要求：不要第一个）。
         // 理由站得住：这一排前 5 格是"货主日常办的事"（看单/下单/地址/账本/消息），
         // 顺序本身就是在教他怎么用；AI 是"这些事都能用嘴说"的另一条路，垫底不抢主流程，

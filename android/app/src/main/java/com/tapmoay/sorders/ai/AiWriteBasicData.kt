@@ -407,6 +407,76 @@ internal object AiWriteBasicData {
             },
         ) { ds, p -> ds.deleteArrearsUnit(p.reqLong("unit_id")) },
 
+        // -------------------------------------------------------- 单位换算（一车 = 8 方）
+        // 用户 2026-09-24：「我们再加一个功能叫做自动换算单位……一车是等于 8 方」。
+        // 用户对 AI 说的典型一句是「帮我设一下一车等于八方」——界面上没有哪个入口是这句话的
+        // 自然落点（要么在商品编辑的「请选择单位」页里、要么在工作台那一格），
+        // 所以这四个动作就是"给 AI 开的后路"。
+        crud(
+            id = AiWrites.UNIT_CONVERSION_CREATE,
+            title = "新增单位换算",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_PRODUCT,
+            blurb = "设一条单位换算（例如 1 车 = 8 方）。设好之后下单、订单、账本里的数量会同时" +
+                "显示两个单位（10 车 ≈ 80 方）。**金额不受影响**，仍按原来的单位算。",
+            fields = listOf(
+                textField("from_unit", "从这个单位", "必填，如「车」", required = true, maxChars = 16),
+                textField("to_unit", "换算成哪个单位", "必填，如「方」", required = true, maxChars = 16),
+                textField("factor", "等于多少个", "必填，只传数字（如 8）。**不要带单位、不要写算式**", required = true, maxChars = 16),
+                textField("remark", "备注", "可选，如「沙子按 8 方算」", maxChars = 200),
+            ),
+            headline = { c -> "新增单位换算：1 ${c.str("from_unit")} = ${c.str("factor")} ${c.str("to_unit")}" },
+            details = { c ->
+                listOf(
+                    "1 ${c.str("from_unit")} = ${c.str("factor")} ${c.str("to_unit")}",
+                    "设好之后数量会同时显示两个单位（例如「10 车 ≈ 80 方」）",
+                    "⛔ 金额不受影响：单价、账本、报表仍按原来的单位算",
+                ) + listOfNotNull(c.str("remark")?.let { "备注：$it" })
+            },
+        ) { ds, p -> ds.createUnitConversion(p) },
+
+        crud(
+            id = AiWrites.UNIT_CONVERSION_UPDATE,
+            title = "改单位换算",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_PRODUCT,
+            blurb = "改一条单位换算的单位名或换算率。**只填要改的那几项**，没填的不动。",
+            targets = listOf(targetUnitConversion()),
+            fields = listOf(
+                textField("from_unit", "从这个单位", "不改就不填", maxChars = 16),
+                textField("to_unit", "换算成哪个单位", "不改就不填", maxChars = 16),
+                textField("factor", "等于多少个", "不改就不填，只传数字", maxChars = 16),
+                textField("remark", "备注", "不改就不填", maxChars = 200),
+            ),
+            headline = { c -> "改单位换算：${c.ref("conversion")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    c.line("from_unit", "从这个单位改成"),
+                    c.line("to_unit", "换算成改成"),
+                    c.line("factor", "换算率改成"),
+                    c.line("remark", "备注改成"),
+                )
+            },
+        ) { ds, p -> ds.updateUnitConversion(p.reqLong("conversion_id"), p.pick(UNIT_CONVERSION_KEYS)) },
+
+        crud(
+            id = AiWrites.UNIT_CONVERSION_DELETE,
+            title = "删除单位换算",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_PRODUCT,
+            blurb = "删掉一条单位换算。删掉之后那些数量**只显示原来的单位**（不再显示 80 方）。" +
+                "（删错了可以撤回）",
+            targets = listOf(targetUnitConversion()),
+            headline = { c -> "删除单位换算：${c.ref("conversion")?.label}" },
+            details = {
+                listOf(
+                    "换算：${it.ref("conversion")?.label}",
+                    "删掉之后数量只显示原来的单位；已经下过的单不受影响（数量本身没变）",
+                    "删错了可以在「单位换算」页的「已删除」里恢复，也可以用撤回",
+                )
+            },
+        ) { ds, p -> ds.deleteUnitConversion(p.reqLong("conversion_id")) },
+
         // -------------------------------------------------------- 运费模板
         crud(
             id = AiWrites.FREIGHT_TEMPLATE_CREATE,
@@ -1184,6 +1254,11 @@ internal object AiWriteBasicData {
         restoreAction("计费规则", AiWrites.DRIVER_RULE_RESTORE, AiWrites.G_USER) { ds, id ->
             ds.restoreDriverRule(id)
         },
+        // 单位换算（2026-09-24）：删掉的那条在名册里解析不到，所以模型看不到这个动作；
+        // 撤回卡拿着确定编号来恢复它。
+        restoreAction("单位换算", AiWrites.UNIT_CONVERSION_RESTORE, AiWrites.G_PRODUCT) { ds, id ->
+            ds.restoreUnitConversion(id)
+        },
     )
 
     // -------------------------------------------------------------- 小工具
@@ -1193,6 +1268,23 @@ internal object AiWriteBasicData {
         hint = "挂账单位的名字",
         lookup = { ds, _ -> ds.arrearsUnits() },
     )
+
+    /**
+     * 单位换算（按**那行等式**找）。
+     *
+     * 换算没有别的自然名字 —— 用户嘴里说的就是这行等式（「把一车八方改成十方」），
+     * 所以 `AiName` 的 label 也是它（见 `AiWriteService.unitConversions`）。
+     * ⛔ 别改成"车"这种单边名字：库里允许 `1 车 = 8 方` 与 `1 方 = 50 袋` 同时存在，
+     *    只报一个单位名时用户看不出改的是哪一条。
+     */
+    private fun targetUnitConversion() = AiTargetSpec(
+        param = "conversion", cn = "单位换算", key = "conversion_id",
+        hint = "那行等式（如「1 车 = 8 方」）",
+        lookup = { ds, _ -> ds.unitConversions() },
+    )
+
+    /** 改单位换算时进 payload 的键（只传点名的那几个 → 后端 PATCH 的部分更新语义）。 */
+    private val UNIT_CONVERSION_KEYS = setOf("from_unit", "to_unit", "factor", "remark")
 
     private fun targetFreightTemplate() = AiTargetSpec(
         param = "template", cn = "运费模板", key = "template_id",

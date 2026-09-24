@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 217,
-    "read": 72,
-    "write": 145,
-    "unique_paths": 155,
-    "unique_method_path": 217,
+    "endpoints": 222,
+    "read": 73,
+    "write": 149,
+    "unique_paths": 158,
+    "unique_method_path": 222,
     "shadowed_routes": []
   },
   "modules": {
@@ -47,7 +47,7 @@
           "path": "/api/v1/arrears-units/{unit_id}/restore",
           "handler": "restore_unit",
           "doc": "把删掉的挂账单位恢复回来（DELETE /{id} 的逆操作）。",
-          "at": "backend/app/api/v1/arrears.py:203"
+          "at": "backend/app/api/v1/arrears.py:222"
         },
         {
           "action": "update_unit",
@@ -102,7 +102,7 @@
           "path": "/api/v1/cash-flows/breakdown",
           "handler": "cash_flow_breakdown",
           "doc": "按**钱的来路 / 去处**分组求和（账本管理「收支」页那两段：收入来源明细 + 支出明细）。",
-          "at": "backend/app/api/v1/cash_flows.py:122"
+          "at": "backend/app/api/v1/cash_flows.py:127"
         },
         {
           "action": "cash_flow_summary",
@@ -111,7 +111,7 @@
           "path": "/api/v1/cash-flows/summary",
           "handler": "cash_flow_summary",
           "doc": "**服务端**汇总流入/流出/净额（与列表同一套筛选）。",
-          "at": "backend/app/api/v1/cash_flows.py:76"
+          "at": "backend/app/api/v1/cash_flows.py:81"
         },
         {
           "action": "list_cash_flows",
@@ -120,7 +120,7 @@
           "path": "/api/v1/cash-flows",
           "handler": "list_cash_flows",
           "doc": "",
-          "at": "backend/app/api/v1/cash_flows.py:52"
+          "at": "backend/app/api/v1/cash_flows.py:57"
         }
       ]
     },
@@ -134,7 +134,7 @@
           "path": "/api/v1/customers",
           "handler": "list_customers",
           "doc": "",
-          "at": "backend/app/api/v1/customers.py:26"
+          "at": "backend/app/api/v1/customers.py:27"
         },
         {
           "action": "create_customer",
@@ -143,7 +143,7 @@
           "path": "/api/v1/customers",
           "handler": "create_customer",
           "doc": "",
-          "at": "backend/app/api/v1/customers.py:47"
+          "at": "backend/app/api/v1/customers.py:48"
         },
         {
           "action": "merge_customers",
@@ -152,7 +152,7 @@
           "path": "/api/v1/customers/merge",
           "handler": "merge_customers",
           "doc": "",
-          "at": "backend/app/api/v1/customers.py:88"
+          "at": "backend/app/api/v1/customers.py:89"
         }
       ]
     },
@@ -166,7 +166,7 @@
           "path": "/api/v1/driver-billing-rules",
           "handler": "list_rules",
           "doc": "",
-          "at": "backend/app/api/v1/driver_billing_rules.py:248"
+          "at": "backend/app/api/v1/driver_billing_rules.py:280"
         },
         {
           "action": "attach_rule",
@@ -175,7 +175,7 @@
           "path": "/api/v1/driver-billing-rules/attach",
           "handler": "attach_rule",
           "doc": "把规则挂到司机身上；`rule_id=null` = 解挂（他退回老口径）。",
-          "at": "backend/app/api/v1/driver_billing_rules.py:438"
+          "at": "backend/app/api/v1/driver_billing_rules.py:483"
         },
         {
           "action": "create_rule",
@@ -184,7 +184,7 @@
           "path": "/api/v1/driver-billing-rules",
           "handler": "create_rule",
           "doc": "",
-          "at": "backend/app/api/v1/driver_billing_rules.py:267"
+          "at": "backend/app/api/v1/driver_billing_rules.py:299"
         },
         {
           "action": "delete_rule",
@@ -193,7 +193,7 @@
           "path": "/api/v1/driver-billing-rules/{rule_id}",
           "handler": "delete_rule",
           "doc": "",
-          "at": "backend/app/api/v1/driver_billing_rules.py:386"
+          "at": "backend/app/api/v1/driver_billing_rules.py:424"
         },
         {
           "action": "restore_rule",
@@ -202,7 +202,7 @@
           "path": "/api/v1/driver-billing-rules/{rule_id}/restore",
           "handler": "restore_rule",
           "doc": "把删掉的规则恢复回来（撤回底线：删错了要能原样回来）。",
-          "at": "backend/app/api/v1/driver_billing_rules.py:411"
+          "at": "backend/app/api/v1/driver_billing_rules.py:456"
         },
         {
           "action": "update_rule",
@@ -211,7 +211,7 @@
           "path": "/api/v1/driver-billing-rules/{rule_id}",
           "handler": "update_rule",
           "doc": "",
-          "at": "backend/app/api/v1/driver_billing_rules.py:313"
+          "at": "backend/app/api/v1/driver_billing_rules.py:345"
         }
       ]
     },
@@ -224,7 +224,7 @@
           "method": "get",
           "path": "/api/v1/driver-bills",
           "handler": "list_driver_bills",
-          "doc": "",
+          "doc": "司机账单列表。",
           "at": "backend/app/api/v1/driver_bills.py:41"
         },
         {
@@ -234,7 +234,7 @@
           "path": "/api/v1/driver-bills/generate",
           "handler": "generate_bills",
           "doc": "SALARY：对指定司机（或全部薪资司机，含已停用）生成当月月薪单（幂等）；PIECE：该月已送达未生成的补单（幂等）。",
-          "at": "backend/app/api/v1/driver_bills.py:104"
+          "at": "backend/app/api/v1/driver_bills.py:132"
         }
       ]
     },
@@ -330,7 +330,7 @@
           "path": "/api/v1/expenses",
           "handler": "list_expenses",
           "doc": "",
-          "at": "backend/app/api/v1/expenses.py:21"
+          "at": "backend/app/api/v1/expenses.py:22"
         },
         {
           "action": "create_expense",
@@ -339,7 +339,7 @@
           "path": "/api/v1/expenses",
           "handler": "create_expense",
           "doc": "",
-          "at": "backend/app/api/v1/expenses.py:79"
+          "at": "backend/app/api/v1/expenses.py:83"
         }
       ]
     },
@@ -431,7 +431,7 @@
           "path": "/api/v1/freight-templates",
           "handler": "list_templates",
           "doc": "",
-          "at": "backend/app/api/v1/freight_templates.py:211"
+          "at": "backend/app/api/v1/freight_templates.py:220"
         },
         {
           "action": "create_template",
@@ -440,7 +440,7 @@
           "path": "/api/v1/freight-templates",
           "handler": "create_template",
           "doc": "",
-          "at": "backend/app/api/v1/freight_templates.py:243"
+          "at": "backend/app/api/v1/freight_templates.py:252"
         },
         {
           "action": "delete_template",
@@ -449,7 +449,7 @@
           "path": "/api/v1/freight-templates/{template_id}",
           "handler": "delete_template",
           "doc": "",
-          "at": "backend/app/api/v1/freight_templates.py:355"
+          "at": "backend/app/api/v1/freight_templates.py:364"
         },
         {
           "action": "restore_template",
@@ -458,7 +458,7 @@
           "path": "/api/v1/freight-templates/{template_id}/restore",
           "handler": "restore_template",
           "doc": "把删掉的运费模板恢复回来（DELETE /{id} 的逆操作）。",
-          "at": "backend/app/api/v1/freight_templates.py:386"
+          "at": "backend/app/api/v1/freight_templates.py:427"
         },
         {
           "action": "update_template",
@@ -467,7 +467,7 @@
           "path": "/api/v1/freight-templates/{template_id}",
           "handler": "update_template",
           "doc": "",
-          "at": "backend/app/api/v1/freight_templates.py:293"
+          "at": "backend/app/api/v1/freight_templates.py:302"
         }
       ]
     },
@@ -481,7 +481,7 @@
           "path": "/api/v1/inventory/summary",
           "handler": "inventory_summary",
           "doc": "库存概览：商品名 + 当前库存 + 在途占用量（派单中未送达，低库存排前）。",
-          "at": "backend/app/api/v1/inventory.py:180"
+          "at": "backend/app/api/v1/inventory.py:183"
         },
         {
           "action": "list_movements",
@@ -499,7 +499,7 @@
           "path": "/api/v1/inventory/movements",
           "handler": "create_movement",
           "doc": "手工出入库：**判据与加减在同一条 SQL 里**（2026-09-19 审计）。",
-          "at": "backend/app/api/v1/inventory.py:63"
+          "at": "backend/app/api/v1/inventory.py:66"
         }
       ]
     },
@@ -513,7 +513,7 @@
           "path": "/api/v1/ledger/export-jobs",
           "handler": "create_export_job",
           "doc": "建一个账本导出任务（异步生成，完成后发站内信带下载链接）。",
-          "at": "backend/app/api/v1/ledger.py:517"
+          "at": "backend/app/api/v1/ledger.py:553"
         },
         {
           "action": "download_export_job",
@@ -522,7 +522,7 @@
           "path": "/api/v1/ledger/export-jobs/{job_id}/download",
           "handler": "download_export_job",
           "doc": "下载导出的账本文件（**带鉴权**）。",
-          "at": "backend/app/api/v1/ledger.py:648"
+          "at": "backend/app/api/v1/ledger.py:695"
         },
         {
           "action": "get_entry",
@@ -531,7 +531,7 @@
           "path": "/api/v1/ledger/entries/{entry_id}",
           "handler": "get_entry",
           "doc": "",
-          "at": "backend/app/api/v1/ledger.py:346"
+          "at": "backend/app/api/v1/ledger.py:382"
         },
         {
           "action": "get_export_job",
@@ -540,7 +540,7 @@
           "path": "/api/v1/ledger/export-jobs/{job_id}",
           "handler": "get_export_job",
           "doc": "",
-          "at": "backend/app/api/v1/ledger.py:627"
+          "at": "backend/app/api/v1/ledger.py:682"
         },
         {
           "action": "list_accounts",
@@ -549,7 +549,7 @@
           "path": "/api/v1/ledger/accounts",
           "handler": "list_accounts",
           "doc": "派单员账本账户汇总：货主账 / 批发商账（按流水累计 + 笔数）。",
-          "at": "backend/app/api/v1/ledger.py:162"
+          "at": "backend/app/api/v1/ledger.py:197"
         },
         {
           "action": "list_entries",
@@ -558,7 +558,7 @@
           "path": "/api/v1/ledger/entries",
           "handler": "list_entries",
           "doc": "",
-          "at": "backend/app/api/v1/ledger.py:109"
+          "at": "backend/app/api/v1/ledger.py:144"
         },
         {
           "action": "list_receipts",
@@ -567,7 +567,7 @@
           "path": "/api/v1/ledger/receipts",
           "handler": "list_receipts",
           "doc": "",
-          "at": "backend/app/api/v1/ledger.py:739"
+          "at": "backend/app/api/v1/ledger.py:808"
         },
         {
           "action": "list_temp_shipper_names",
@@ -576,7 +576,7 @@
           "path": "/api/v1/ledger/temp-shipper-names",
           "handler": "list_temp_shipper_names",
           "doc": "派单员：曾出现过的临时货主称呼（账本或订单），用于快捷筛选；订单送达时已自动入账，无需「创建账本」。",
-          "at": "backend/app/api/v1/ledger.py:230"
+          "at": "backend/app/api/v1/ledger.py:266"
         },
         {
           "action": "create_entry",
@@ -585,7 +585,7 @@
           "path": "/api/v1/ledger/entries",
           "handler": "create_entry",
           "doc": "",
-          "at": "backend/app/api/v1/ledger.py:275"
+          "at": "backend/app/api/v1/ledger.py:311"
         },
         {
           "action": "create_receipt_endpoint",
@@ -594,7 +594,7 @@
           "path": "/api/v1/ledger/receipts",
           "handler": "create_receipt_endpoint",
           "doc": "客户收款单（逐单核销默认）：绑定订单并标记 paid=1；生成资金流水。",
-          "at": "backend/app/api/v1/ledger.py:692"
+          "at": "backend/app/api/v1/ledger.py:735"
         },
         {
           "action": "delete_entry",
@@ -603,7 +603,7 @@
           "path": "/api/v1/ledger/entries/{entry_id}",
           "handler": "delete_entry",
           "doc": "",
-          "at": "backend/app/api/v1/ledger.py:470"
+          "at": "backend/app/api/v1/ledger.py:506"
         },
         {
           "action": "sync_ledger_from_delivered_orders",
@@ -612,7 +612,7 @@
           "path": "/api/v1/ledger/sync-from-delivered-orders",
           "handler": "sync_ledger_from_delivered_orders",
           "doc": "按历史已送达订单补全/刷新账本（幂等）。仅派单员。",
-          "at": "backend/app/api/v1/ledger.py:260"
+          "at": "backend/app/api/v1/ledger.py:296"
         },
         {
           "action": "update_entry",
@@ -621,7 +621,7 @@
           "path": "/api/v1/ledger/entries/{entry_id}",
           "handler": "update_entry",
           "doc": "派单员：订单自动同步行与手动行均可改明细；修改订单来源行时会尝试回写对应订单明细。",
-          "at": "backend/app/api/v1/ledger.py:365"
+          "at": "backend/app/api/v1/ledger.py:401"
         }
       ]
     },
@@ -730,7 +730,7 @@
           "path": "/api/v1/operation-logs/{log_id}",
           "handler": "get_operation_log",
           "doc": "",
-          "at": "backend/app/api/v1/operation_logs.py:58"
+          "at": "backend/app/api/v1/operation_logs.py:60"
         },
         {
           "action": "list_operation_logs",
@@ -753,7 +753,7 @@
           "path": "/api/v1/order-products/{line_id}",
           "handler": "get_order_product",
           "doc": "",
-          "at": "backend/app/api/v1/order_products.py:143"
+          "at": "backend/app/api/v1/order_products.py:230"
         },
         {
           "action": "list_order_products",
@@ -762,7 +762,7 @@
           "path": "/api/v1/order-products",
           "handler": "list_order_products",
           "doc": "",
-          "at": "backend/app/api/v1/order_products.py:72"
+          "at": "backend/app/api/v1/order_products.py:161"
         },
         {
           "action": "create_order_product",
@@ -771,7 +771,7 @@
           "path": "/api/v1/order-products",
           "handler": "create_order_product",
           "doc": "",
-          "at": "backend/app/api/v1/order_products.py:85"
+          "at": "backend/app/api/v1/order_products.py:174"
         },
         {
           "action": "delete_order_product",
@@ -780,7 +780,7 @@
           "path": "/api/v1/order-products/{line_id}",
           "handler": "delete_order_product",
           "doc": "",
-          "at": "backend/app/api/v1/order_products.py:207"
+          "at": "backend/app/api/v1/order_products.py:294"
         },
         {
           "action": "update_order_product",
@@ -789,7 +789,7 @@
           "path": "/api/v1/order-products/{line_id}",
           "handler": "update_order_product",
           "doc": "",
-          "at": "backend/app/api/v1/order_products.py:151"
+          "at": "backend/app/api/v1/order_products.py:238"
         }
       ]
     },
@@ -912,7 +912,7 @@
           "path": "/api/v1/orders/{order_id}",
           "handler": "get_order",
           "doc": "软删除订单 → 进入隔离区 30 天（用户不可见；派单员可恢复；到期物理清理）。",
-          "at": "backend/app/api/v1/orders.py:479"
+          "at": "backend/app/api/v1/orders.py:494"
         },
         {
           "action": "list_orders",
@@ -921,7 +921,7 @@
           "path": "/api/v1/orders",
           "handler": "list_orders",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:250"
+          "at": "backend/app/api/v1/orders.py:259"
         },
         {
           "action": "pending_dispatch_count",
@@ -930,7 +930,7 @@
           "path": "/api/v1/orders/pending-dispatch-count",
           "handler": "pending_dispatch_count",
           "doc": "派单工作台：当前「派单中」订单数量，用于底部 Tab / 铃铛角标。",
-          "at": "backend/app/api/v1/orders.py:424"
+          "at": "backend/app/api/v1/orders.py:439"
         },
         {
           "action": "assign_order",
@@ -939,7 +939,7 @@
           "path": "/api/v1/orders/{order_id}/assign",
           "handler": "assign_order",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:1342"
+          "at": "backend/app/api/v1/orders.py:1430"
         },
         {
           "action": "batch_assign_orders",
@@ -948,7 +948,7 @@
           "path": "/api/v1/orders/batch-assign",
           "handler": "batch_assign_orders",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:440"
+          "at": "backend/app/api/v1/orders.py:455"
         },
         {
           "action": "cancel_order",
@@ -957,7 +957,7 @@
           "path": "/api/v1/orders/{order_id}/cancel",
           "handler": "cancel_order",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:1610"
+          "at": "backend/app/api/v1/orders.py:1722"
         },
         {
           "action": "charge_order",
@@ -966,7 +966,7 @@
           "path": "/api/v1/orders/{order_id}/charge",
           "handler": "charge_order",
           "doc": "派单员：订单挂账到挂账单位名下。仅派单员界面可用。",
-          "at": "backend/app/api/v1/orders.py:1829"
+          "at": "backend/app/api/v1/orders.py:1974"
         },
         {
           "action": "complete_order",
@@ -975,7 +975,7 @@
           "path": "/api/v1/orders/{order_id}/complete",
           "handler": "complete_order",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:1582"
+          "at": "backend/app/api/v1/orders.py:1694"
         },
         {
           "action": "complete_order_with_upload",
@@ -984,7 +984,7 @@
           "path": "/api/v1/orders/{order_id}/complete-with-upload",
           "handler": "complete_order_with_upload",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:961"
+          "at": "backend/app/api/v1/orders.py:1002"
         },
         {
           "action": "create_order",
@@ -993,7 +993,7 @@
           "path": "/api/v1/orders",
           "handler": "create_order",
           "doc": "创建订单，初始状态为派单中（PENDING_DISPATCH）。",
-          "at": "backend/app/api/v1/orders.py:532"
+          "at": "backend/app/api/v1/orders.py:561"
         },
         {
           "action": "delete_cancelled_order",
@@ -1002,7 +1002,7 @@
           "path": "/api/v1/orders/{order_id}",
           "handler": "delete_cancelled_order",
           "doc": "软删除订单 → 进入隔离区 30 天（用户不可见；派单员可恢复；到期物理清理）。",
-          "at": "backend/app/api/v1/orders.py:485"
+          "at": "backend/app/api/v1/orders.py:500"
         },
         {
           "action": "driver_ack_view",
@@ -1011,7 +1011,7 @@
           "path": "/api/v1/orders/{order_id}/driver-ack",
           "handler": "driver_ack_view",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:1011"
+          "at": "backend/app/api/v1/orders.py:1052"
         },
         {
           "action": "driver_append_internal_note",
@@ -1020,7 +1020,7 @@
           "path": "/api/v1/orders/{order_id}/driver-note",
           "handler": "driver_append_internal_note",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:1054"
+          "at": "backend/app/api/v1/orders.py:1095"
         },
         {
           "action": "fill_order_navigation",
@@ -1029,7 +1029,7 @@
           "path": "/api/v1/orders/{order_id}/navigation",
           "handler": "fill_order_navigation",
           "doc": "**司机到场后给这单补上导航信息**（订单原本没有坐标时才能补）。",
-          "at": "backend/app/api/v1/orders.py:1082"
+          "at": "backend/app/api/v1/orders.py:1134"
         },
         {
           "action": "patch_order_exception",
@@ -1038,7 +1038,7 @@
           "path": "/api/v1/orders/{order_id}/exception",
           "handler": "patch_order_exception",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:760"
+          "at": "backend/app/api/v1/orders.py:801"
         },
         {
           "action": "pay_order",
@@ -1047,7 +1047,7 @@
           "path": "/api/v1/orders/{order_id}/pay",
           "handler": "pay_order",
           "doc": "派单员：现场收款确认（货到付款）。仅派单员界面可用。",
-          "at": "backend/app/api/v1/orders.py:1803"
+          "at": "backend/app/api/v1/orders.py:1923"
         },
         {
           "action": "price_freight",
@@ -1056,7 +1056,7 @@
           "path": "/api/v1/orders/{order_id}/price-freight",
           "handler": "price_freight",
           "doc": "派单员**手动定价**：没匹配到价目的单，由人给一个数。",
-          "at": "backend/app/api/v1/orders.py:1204"
+          "at": "backend/app/api/v1/orders.py:1261"
         },
         {
           "action": "recall_order",
@@ -1065,7 +1065,7 @@
           "path": "/api/v1/orders/{order_id}/recall",
           "handler": "recall_order",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:1869"
+          "at": "backend/app/api/v1/orders.py:2017"
         },
         {
           "action": "restore_order",
@@ -1074,7 +1074,7 @@
           "path": "/api/v1/orders/{order_id}/restore",
           "handler": "restore_order",
           "doc": "派单员：从隔离区恢复订单（软删除后 30 天内可恢复）。",
-          "at": "backend/app/api/v1/orders.py:801"
+          "at": "backend/app/api/v1/orders.py:842"
         },
         {
           "action": "return_order_endpoint",
@@ -1083,7 +1083,7 @@
           "path": "/api/v1/orders/{order_id}/return",
           "handler": "return_order_endpoint",
           "doc": "**订单退货**（2026-09-20 用户要求）。",
-          "at": "backend/app/api/v1/orders.py:1657"
+          "at": "backend/app/api/v1/orders.py:1777"
         },
         {
           "action": "split_order_endpoint",
@@ -1092,7 +1092,7 @@
           "path": "/api/v1/orders/{order_id}/split",
           "handler": "split_order_endpoint",
           "doc": "把待派单拆分为 N 个子单（按比例拆分件数），分别派单。",
-          "at": "backend/app/api/v1/orders.py:1397"
+          "at": "backend/app/api/v1/orders.py:1485"
         },
         {
           "action": "update_order",
@@ -1101,7 +1101,7 @@
           "path": "/api/v1/orders/{order_id}",
           "handler": "update_order",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:704"
+          "at": "backend/app/api/v1/orders.py:733"
         },
         {
           "action": "update_order_freight",
@@ -1110,7 +1110,7 @@
           "path": "/api/v1/orders/{order_id}/freight",
           "handler": "update_order_freight",
           "doc": "派单员补录/修改司机运费（送达/撤销/退货后锁定；传 null 清空回待定）。",
-          "at": "backend/app/api/v1/orders.py:1422"
+          "at": "backend/app/api/v1/orders.py:1510"
         },
         {
           "action": "upload_delivery_photos",
@@ -1119,7 +1119,7 @@
           "path": "/api/v1/orders/{order_id}/delivery-photos",
           "handler": "upload_delivery_photos",
           "doc": "",
-          "at": "backend/app/api/v1/orders.py:940"
+          "at": "backend/app/api/v1/orders.py:981"
         },
         {
           "action": "upload_order_address_image",
@@ -1128,7 +1128,7 @@
           "path": "/api/v1/orders/{order_id}/address-image",
           "handler": "upload_order_address_image",
           "doc": "上传收货地址参考图（定位不清时辅助找路）。",
-          "at": "backend/app/api/v1/orders.py:830"
+          "at": "backend/app/api/v1/orders.py:871"
         }
       ]
     },
@@ -1192,7 +1192,7 @@
           "path": "/api/v1/places/{place_id}",
           "handler": "get_place",
           "doc": "",
-          "at": "backend/app/api/v1/places.py:130"
+          "at": "backend/app/api/v1/places.py:151"
         },
         {
           "action": "list_places",
@@ -1201,7 +1201,7 @@
           "path": "/api/v1/places",
           "handler": "list_places",
           "doc": "",
-          "at": "backend/app/api/v1/places.py:40"
+          "at": "backend/app/api/v1/places.py:53"
         },
         {
           "action": "create_place",
@@ -1210,7 +1210,7 @@
           "path": "/api/v1/places",
           "handler": "create_place",
           "doc": "往共享地点库加一个点；**坐标 ≤1 米内已有点时并入那一条**（不新建重复行）。",
-          "at": "backend/app/api/v1/places.py:66"
+          "at": "backend/app/api/v1/places.py:87"
         },
         {
           "action": "delete_place",
@@ -1219,7 +1219,7 @@
           "path": "/api/v1/places/{place_id}",
           "handler": "delete_place",
           "doc": "从共享库**删掉**一个地点（只有派单员）—— **软删**，`POST /places/{id}/restore` 能拿回来。",
-          "at": "backend/app/api/v1/places.py:249"
+          "at": "backend/app/api/v1/places.py:270"
         },
         {
           "action": "demote_place",
@@ -1228,7 +1228,7 @@
           "path": "/api/v1/places/{place_id}/demote",
           "handler": "demote_place",
           "doc": "**撤销**一个共享地址 → 降为**操作人自己**的普通地点（叫「我的地点」）。",
-          "at": "backend/app/api/v1/places.py:211"
+          "at": "backend/app/api/v1/places.py:232"
         },
         {
           "action": "restore_place",
@@ -1237,7 +1237,7 @@
           "path": "/api/v1/places/{place_id}/restore",
           "handler": "restore_place",
           "doc": "把删掉的共享地点**原样放回来**（`DELETE /places/{id}` 的逆操作，只有派单员）。",
-          "at": "backend/app/api/v1/places.py:278"
+          "at": "backend/app/api/v1/places.py:299"
         },
         {
           "action": "update_place",
@@ -1246,7 +1246,7 @@
           "path": "/api/v1/places/{place_id}",
           "handler": "update_place",
           "doc": "改共享地址的名称 / 地址（**只有派单员**）。",
-          "at": "backend/app/api/v1/places.py:170"
+          "at": "backend/app/api/v1/places.py:191"
         },
         {
           "action": "use_place",
@@ -1255,7 +1255,7 @@
           "path": "/api/v1/places/{place_id}/use",
           "handler": "use_place",
           "doc": "记一次\"我用了这个共享地点\"；**同一个人用到第 2 次就自动收进他自己的地点库**。",
-          "at": "backend/app/api/v1/places.py:97"
+          "at": "backend/app/api/v1/places.py:118"
         }
       ]
     },
@@ -1305,7 +1305,7 @@
           "path": "/api/v1/price-rules/{rule_id}",
           "handler": "delete_price_rule",
           "doc": "",
-          "at": "backend/app/api/v1/price_rules.py:433"
+          "at": "backend/app/api/v1/price_rules.py:452"
         },
         {
           "action": "update_price_rule",
@@ -1454,8 +1454,8 @@
           "method": "get",
           "path": "/api/v1/reports/arrears-summary",
           "handler": "arrears_summary",
-          "doc": "导出里的金额写成**数字**（不是文本），保留两位小数。",
-          "at": "backend/app/api/v1/reports.py:494"
+          "doc": "",
+          "at": "backend/app/api/v1/reports.py:517"
         },
         {
           "action": "export_report",
@@ -1464,7 +1464,7 @@
           "path": "/api/v1/reports/export",
           "handler": "export_report",
           "doc": "报表 Excel 导出（内存流 xlsx）。",
-          "at": "backend/app/api/v1/reports.py:524"
+          "at": "backend/app/api/v1/reports.py:548"
         },
         {
           "action": "product_report",
@@ -1473,7 +1473,7 @@
           "path": "/api/v1/reports/products",
           "handler": "product_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:428"
+          "at": "backend/app/api/v1/reports.py:451"
         },
         {
           "action": "turnover_report",
@@ -1482,7 +1482,7 @@
           "path": "/api/v1/reports/turnover",
           "handler": "turnover_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:413"
+          "at": "backend/app/api/v1/reports.py:436"
         }
       ]
     },
@@ -1495,7 +1495,7 @@
           "method": "get",
           "path": "/api/v1/return-requests/mine",
           "handler": "list_my_return_requests",
-          "doc": "**我的**退货申请（货主端列表打标记、看驳回理由、撤回都读它）。",
+          "doc": "",
           "at": "backend/app/api/v1/return_requests.py:261"
         },
         {
@@ -1504,8 +1504,8 @@
           "method": "get",
           "path": "/api/v1/return-requests",
           "handler": "list_return_requests",
-          "doc": "**派单员待办**：谁申请了退货、要退哪几样、各几件、什么时候提的。",
-          "at": "backend/app/api/v1/return_requests.py:320"
+          "doc": "",
+          "at": "backend/app/api/v1/return_requests.py:330"
         },
         {
           "action": "create_return_request",
@@ -1523,7 +1523,7 @@
           "path": "/api/v1/return-requests/{request_id}/fulfill",
           "handler": "fulfill_return_request",
           "doc": "**派单员照这张申请实际退货** —— 货主申请的终点，也是库存/账本唯一会发生变动的时刻。",
-          "at": "backend/app/api/v1/return_requests.py:380"
+          "at": "backend/app/api/v1/return_requests.py:395"
         },
         {
           "action": "reject_return_request",
@@ -1532,7 +1532,7 @@
           "path": "/api/v1/return-requests/{request_id}/reject",
           "handler": "reject_return_request",
           "doc": "派单员驳回（**必带理由**：这是货主唯一能拿到的答复）。",
-          "at": "backend/app/api/v1/return_requests.py:360"
+          "at": "backend/app/api/v1/return_requests.py:375"
         },
         {
           "action": "withdraw_return_request",
@@ -1541,7 +1541,7 @@
           "path": "/api/v1/return-requests/{request_id}/withdraw",
           "handler": "withdraw_return_request",
           "doc": "货主撤回自己的申请（**不是删除**：记录留着，派单员看得到\"他提过又撤了\"）。",
-          "at": "backend/app/api/v1/return_requests.py:299"
+          "at": "backend/app/api/v1/return_requests.py:309"
         }
       ]
     },
@@ -1618,7 +1618,7 @@
           "path": "/api/v1/shipper/contacts/{contact_id}",
           "handler": "delete_contact",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:476"
+          "at": "backend/app/api/v1/shipper.py:485"
         },
         {
           "action": "delete_location",
@@ -1627,7 +1627,7 @@
           "path": "/api/v1/shipper/locations/{location_id}",
           "handler": "delete_location",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:404"
+          "at": "backend/app/api/v1/shipper.py:413"
         },
         {
           "action": "restore_address",
@@ -1645,7 +1645,7 @@
           "path": "/api/v1/shipper/contacts/{contact_id}/restore",
           "handler": "restore_contact",
           "doc": "把删掉的联系人恢复回来（DELETE /contacts/{id} 的逆操作）。",
-          "at": "backend/app/api/v1/shipper.py:490"
+          "at": "backend/app/api/v1/shipper.py:499"
         },
         {
           "action": "restore_location",
@@ -1654,7 +1654,7 @@
           "path": "/api/v1/shipper/locations/{location_id}/restore",
           "handler": "restore_location",
           "doc": "把删掉的地点恢复回来（DELETE /locations/{id} 的逆操作）。",
-          "at": "backend/app/api/v1/shipper.py:461"
+          "at": "backend/app/api/v1/shipper.py:470"
         },
         {
           "action": "set_default_address",
@@ -1672,7 +1672,7 @@
           "path": "/api/v1/shipper/locations/{location_id}/share",
           "handler": "share_location",
           "doc": "把「我的地点」里的一个地点**设为共享地址**（进全库共用的那张表）。**只有派单员**。",
-          "at": "backend/app/api/v1/shipper.py:415"
+          "at": "backend/app/api/v1/shipper.py:424"
         },
         {
           "action": "update_address",
@@ -1699,7 +1699,7 @@
           "path": "/api/v1/shipper/locations/{location_id}",
           "handler": "update_location",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:357"
+          "at": "backend/app/api/v1/shipper.py:361"
         },
         {
           "action": "upload_location_image",
@@ -1731,7 +1731,7 @@
           "path": "/api/v1/shipper-ledger/summary",
           "handler": "ledger_summary",
           "doc": "「我的账本」顶上那段**收支统计**（2026-09-22 用户要求：账本的统计对货主与批发商也做）。",
-          "at": "backend/app/api/v1/shipper_ledger.py:170"
+          "at": "backend/app/api/v1/shipper_ledger.py:214"
         },
         {
           "action": "list_settlements",
@@ -1740,7 +1740,7 @@
           "path": "/api/v1/shipper-ledger/settlements",
           "handler": "list_settlements",
           "doc": "",
-          "at": "backend/app/api/v1/shipper_ledger.py:284"
+          "at": "backend/app/api/v1/shipper_ledger.py:328"
         },
         {
           "action": "create_settlement",
@@ -1749,7 +1749,7 @@
           "path": "/api/v1/shipper-ledger/settlements",
           "handler": "create_settlement",
           "doc": "核销一笔：**整单**（`lines` 留空）或**按商品**（给要核的那几行）。",
-          "at": "backend/app/api/v1/shipper_ledger.py:329"
+          "at": "backend/app/api/v1/shipper_ledger.py:373"
         },
         {
           "action": "delete_settlement",
@@ -1758,7 +1758,7 @@
           "path": "/api/v1/shipper-ledger/settlements/{settlement_id}",
           "handler": "delete_settlement",
           "doc": "**撤掉核销**（软删：行留着，`POST /{id}/restore` 逐字段放回来）。",
-          "at": "backend/app/api/v1/shipper_ledger.py:451"
+          "at": "backend/app/api/v1/shipper_ledger.py:509"
         },
         {
           "action": "restore_settlement",
@@ -1767,7 +1767,7 @@
           "path": "/api/v1/shipper-ledger/settlements/{settlement_id}/restore",
           "handler": "restore_settlement",
           "doc": "把撤掉的核销放回来（`DELETE` 的逆操作）。",
-          "at": "backend/app/api/v1/shipper_ledger.py:483"
+          "at": "backend/app/api/v1/shipper_ledger.py:558"
         }
       ]
     },
@@ -1781,7 +1781,7 @@
           "path": "/api/v1/stats/driver-performance",
           "handler": "get_driver_performance",
           "doc": "",
-          "at": "backend/app/api/v1/stats.py:75"
+          "at": "backend/app/api/v1/stats.py:79"
         },
         {
           "action": "get_exception_orders",
@@ -1790,7 +1790,7 @@
           "path": "/api/v1/stats/exception-orders",
           "handler": "get_exception_orders",
           "doc": "",
-          "at": "backend/app/api/v1/stats.py:105"
+          "at": "backend/app/api/v1/stats.py:111"
         },
         {
           "action": "get_product_drilldown",
@@ -1799,7 +1799,7 @@
           "path": "/api/v1/stats/product-drilldown",
           "handler": "get_product_drilldown",
           "doc": "",
-          "at": "backend/app/api/v1/stats.py:63"
+          "at": "backend/app/api/v1/stats.py:66"
         },
         {
           "action": "get_shipper_activity",
@@ -1808,7 +1808,7 @@
           "path": "/api/v1/stats/shipper-activity",
           "handler": "get_shipper_activity",
           "doc": "",
-          "at": "backend/app/api/v1/stats.py:51"
+          "at": "backend/app/api/v1/stats.py:53"
         },
         {
           "action": "get_shipper_performance",
@@ -1817,7 +1817,7 @@
           "path": "/api/v1/stats/shipper-performance",
           "handler": "get_shipper_performance",
           "doc": "",
-          "at": "backend/app/api/v1/stats.py:90"
+          "at": "backend/app/api/v1/stats.py:95"
         },
         {
           "action": "get_shipper_product_chart",
@@ -1826,7 +1826,7 @@
           "path": "/api/v1/stats/shipper-product-chart",
           "handler": "get_shipper_product_chart",
           "doc": "",
-          "at": "backend/app/api/v1/stats.py:31"
+          "at": "backend/app/api/v1/stats.py:32"
         },
         {
           "action": "post_stats_export",
@@ -1835,7 +1835,7 @@
           "path": "/api/v1/stats/export",
           "handler": "post_stats_export",
           "doc": "",
-          "at": "backend/app/api/v1/stats.py:164"
+          "at": "backend/app/api/v1/stats.py:171"
         },
         {
           "action": "resolve_exception_order",
@@ -1844,7 +1844,7 @@
           "path": "/api/v1/stats/exception-orders/{order_id}/resolve",
           "handler": "resolve_exception_order",
           "doc": "派单员解决异常：填写解决说明，订单标记已解决。",
-          "at": "backend/app/api/v1/stats.py:116"
+          "at": "backend/app/api/v1/stats.py:123"
         }
       ]
     },
@@ -1858,7 +1858,7 @@
           "path": "/api/v1/suppliers/{supplier_id}",
           "handler": "get_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:183"
+          "at": "backend/app/api/v1/suppliers.py:184"
         },
         {
           "action": "list_payables",
@@ -1867,7 +1867,7 @@
           "path": "/api/v1/supplier-payables",
           "handler": "list_payables",
           "doc": "应付单列表（按单据日期倒序 —— 这是\"看记录\"，不是挑名册）。",
-          "at": "backend/app/api/v1/suppliers.py:267"
+          "at": "backend/app/api/v1/suppliers.py:268"
         },
         {
           "action": "list_payments",
@@ -1876,7 +1876,7 @@
           "path": "/api/v1/supplier-payments",
           "handler": "list_payments",
           "doc": "付款记录列表（默认只看**没被撤销**的）。",
-          "at": "backend/app/api/v1/suppliers.py:399"
+          "at": "backend/app/api/v1/suppliers.py:400"
         },
         {
           "action": "list_suppliers",
@@ -1885,7 +1885,7 @@
           "path": "/api/v1/suppliers",
           "handler": "list_suppliers",
           "doc": "供应商列表（默认不含回收站）。",
-          "at": "backend/app/api/v1/suppliers.py:136"
+          "at": "backend/app/api/v1/suppliers.py:137"
         },
         {
           "action": "cancel_payment",
@@ -1894,7 +1894,7 @@
           "path": "/api/v1/supplier-payments/{flow_id}",
           "handler": "cancel_payment",
           "doc": "**撤销一笔付款**（软删那一行资金流水）。",
-          "at": "backend/app/api/v1/suppliers.py:460"
+          "at": "backend/app/api/v1/suppliers.py:462"
         },
         {
           "action": "create_payable",
@@ -1903,7 +1903,7 @@
           "path": "/api/v1/suppliers/{supplier_id}/payables",
           "handler": "create_payable",
           "doc": "给某个供应商挂一笔应付（欠他的钱）。**这一步不动钱** —— 付的时候才动。",
-          "at": "backend/app/api/v1/suppliers.py:287"
+          "at": "backend/app/api/v1/suppliers.py:288"
         },
         {
           "action": "create_supplier",
@@ -1912,7 +1912,7 @@
           "path": "/api/v1/suppliers",
           "handler": "create_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:157"
+          "at": "backend/app/api/v1/suppliers.py:158"
         },
         {
           "action": "delete_payable",
@@ -1921,7 +1921,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}",
           "handler": "delete_payable",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:364"
+          "at": "backend/app/api/v1/suppliers.py:365"
         },
         {
           "action": "delete_supplier",
@@ -1930,7 +1930,7 @@
           "path": "/api/v1/suppliers/{supplier_id}",
           "handler": "delete_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:233"
+          "at": "backend/app/api/v1/suppliers.py:234"
         },
         {
           "action": "pay_payable",
@@ -1939,7 +1939,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}/payments",
           "handler": "pay_payable",
           "doc": "**付一笔款**（分次付款：同一张单可以付很多次，每次一行资金流水）。",
-          "at": "backend/app/api/v1/suppliers.py:435"
+          "at": "backend/app/api/v1/suppliers.py:437"
         },
         {
           "action": "restore_payable",
@@ -1948,7 +1948,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}/restore",
           "handler": "restore_payable",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:381"
+          "at": "backend/app/api/v1/suppliers.py:382"
         },
         {
           "action": "restore_payment",
@@ -1957,7 +1957,7 @@
           "path": "/api/v1/supplier-payments/{flow_id}/restore",
           "handler": "restore_payment",
           "doc": "把撤销掉的付款放回来。",
-          "at": "backend/app/api/v1/suppliers.py:485"
+          "at": "backend/app/api/v1/suppliers.py:487"
         },
         {
           "action": "restore_supplier",
@@ -1966,7 +1966,7 @@
           "path": "/api/v1/suppliers/{supplier_id}/restore",
           "handler": "restore_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:249"
+          "at": "backend/app/api/v1/suppliers.py:250"
         },
         {
           "action": "update_payable",
@@ -1975,7 +1975,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}",
           "handler": "update_payable",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:319"
+          "at": "backend/app/api/v1/suppliers.py:320"
         },
         {
           "action": "update_supplier",
@@ -1984,7 +1984,57 @@
           "path": "/api/v1/suppliers/{supplier_id}",
           "handler": "update_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:195"
+          "at": "backend/app/api/v1/suppliers.py:196"
+        }
+      ]
+    },
+    "unit_conversions": {
+      "cn": "单位换算",
+      "actions": [
+        {
+          "action": "list_conversions",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/unit-conversions",
+          "handler": "list_conversions",
+          "doc": "换算表。`deleted_only=true` 时给的是**回收站**（恢复入口要用它，不许只藏在 AI 撤回卡里）。",
+          "at": "backend/app/api/v1/unit_conversions.py:62"
+        },
+        {
+          "action": "create_conversion",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/unit-conversions",
+          "handler": "create_conversion",
+          "doc": "新增一条换算。四类不合法的输入由判据给中文；**被删过的同一条会被放回来**（见文件头）。",
+          "at": "backend/app/api/v1/unit_conversions.py:80"
+        },
+        {
+          "action": "delete_conversion",
+          "risk": "write",
+          "method": "delete",
+          "path": "/api/v1/unit-conversions/{conversion_id}",
+          "handler": "delete_conversion",
+          "doc": "删掉一条换算（**伪装删除**：行留着，可 `POST /unit-conversions/{id}/restore` 放回来）。",
+          "at": "backend/app/api/v1/unit_conversions.py:212"
+        },
+        {
+          "action": "restore_conversion",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/unit-conversions/{conversion_id}/restore",
+          "handler": "restore_conversion",
+          "doc": "把删掉的换算放回来（`DELETE` 的逆操作）。",
+          "at": "backend/app/api/v1/unit_conversions.py:235"
+        },
+        {
+          "action": "update_conversion",
+          "risk": "write",
+          "method": "patch",
+          "path": "/api/v1/unit-conversions/{conversion_id}",
+          "handler": "update_conversion",
+          "doc": "改一条换算（单位名或换算率）。`None` = 不改这一项。",
+          "at": "backend/app/api/v1/unit_conversions.py:157"
         }
       ]
     },
@@ -2012,7 +2062,7 @@
           "path": "/api/v1/users/{user_id}/product-visibility",
           "handler": "get_product_visibility",
           "doc": "某个货主/批发商能看到哪些商品（白名单）。派单员在用户编辑页回显它。",
-          "at": "backend/app/api/v1/users.py:158"
+          "at": "backend/app/api/v1/users.py:160"
         },
         {
           "action": "get_user",
@@ -2021,7 +2071,7 @@
           "path": "/api/v1/users/{user_id}",
           "handler": "get_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:148"
+          "at": "backend/app/api/v1/users.py:150"
         },
         {
           "action": "list_users",
@@ -2048,7 +2098,7 @@
           "path": "/api/v1/users",
           "handler": "create_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:99"
+          "at": "backend/app/api/v1/users.py:101"
         },
         {
           "action": "delete_user",
@@ -2057,7 +2107,7 @@
           "path": "/api/v1/users/{user_id}",
           "handler": "delete_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:351"
+          "at": "backend/app/api/v1/users.py:395"
         },
         {
           "action": "restore_user",
@@ -2066,7 +2116,7 @@
           "path": "/api/v1/users/{user_id}/restore",
           "handler": "restore_user",
           "doc": "把删掉的账号恢复回来（`DELETE /{id}` 的逆操作）。",
-          "at": "backend/app/api/v1/users.py:382"
+          "at": "backend/app/api/v1/users.py:432"
         },
         {
           "action": "set_product_visibility",
@@ -2075,7 +2125,7 @@
           "path": "/api/v1/users/{user_id}/product-visibility",
           "handler": "set_product_visibility",
           "doc": "整份设置某个货主/批发商的可见商品（**白名单**：勾了的才给他看）。",
-          "at": "backend/app/api/v1/users.py:173"
+          "at": "backend/app/api/v1/users.py:175"
         },
         {
           "action": "swap_shipper_driver",
@@ -2084,7 +2134,7 @@
           "path": "/api/v1/users/{user_id}/swap-shipper-driver",
           "handler": "swap_shipper_driver",
           "doc": "货主 ↔ 司机身份切换（派单员操作）。派单员账号不可切换。",
-          "at": "backend/app/api/v1/users.py:327"
+          "at": "backend/app/api/v1/users.py:347"
         },
         {
           "action": "update_user",
@@ -2093,7 +2143,7 @@
           "path": "/api/v1/users/{user_id}",
           "handler": "update_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:233"
+          "at": "backend/app/api/v1/users.py:235"
         }
       ]
     },

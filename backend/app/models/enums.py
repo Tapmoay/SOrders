@@ -224,6 +224,13 @@ class OperationAction(str, enum.Enum):
     ORDER_TEMPLATE_CATEGORY_UPSERT = "ORDER_TEMPLATE_CATEGORY_UPSERT"
     ORDER_TEMPLATE_CATEGORY_DELETE = "ORDER_TEMPLATE_CATEGORY_DELETE"
     ORDER_TEMPLATE_CATEGORY_REORDER = "ORDER_TEMPLATE_CATEGORY_REORDER"
+    # 单位换算（2026-09-24 用户要求：「一车是等于 8 方……我们计算的时候或者算账的时候
+    # 会自动启动换算的功能，我下的十车会有 2 个数据：10 车、80 方」）。
+    # 要留痕的理由：换算率是**全库共用**的一个数，改一下所有单位的显示口径就变了
+    # （而且它是"看起来像系统算的"那种数 —— 没有日志就没人能回答是谁把 8 改成了 10）。
+    UNIT_CONVERSION_UPSERT = "UNIT_CONVERSION_UPSERT"
+    UNIT_CONVERSION_DELETE = "UNIT_CONVERSION_DELETE"
+    UNIT_CONVERSION_RESTORE = "UNIT_CONVERSION_RESTORE"
     # 批发商自记账核销（2026-09-20 用户要求）：他向下游货主收钱时在自己账本上核销。
     # ⛔ 这本账**不写** cash_flows / orders.paid / ledgers（见 `models/shipper_settlement.py`），
     #    所以 operation_logs 是**唯一**能回答"这笔核销谁在什么时候记的、撤的"的地方 ——

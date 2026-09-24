@@ -1540,3 +1540,66 @@ data class ShipperSettlementCreateRequest(
     /** `ai` = AI 助手确认卡。 */
     val source: String = "app",
 )
+
+// ===== 单位换算（一车 = 8 方）=====
+
+/**
+ * 一条单位换算：`1 [fromUnit] = [factor] [toUnit]`。
+ *
+ * 用户 2026-09-24：「我们再加一个功能叫做**自动换算单位**……一车是等于 8 方……
+ * 我下的十车，会有 **2 个数据**：第一个是 10 车，第 2 个则是 80 方。」
+ *
+ * ⚠️ `factor` 用 [FlexibleStringSerializer]（后端是 `Numeric(14,4)`，Pydantic v2 序列化成字符串，
+ * 老后端可能是数字）—— 与金额、坐标同一套接法。**不用 Double**：换算结果要显示，
+ * 浮点会让"10 车"变成 `79.99999999999999`。
+ */
+@Serializable
+data class UnitConversionDto(
+    val id: Long,
+    @SerialName("from_unit") val fromUnit: String = "",
+    @SerialName("to_unit") val toUnit: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val factor: String = "0",
+    val remark: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    /** 只有回收站里那一批非空（`deleted_only=true`）。 */
+    @SerialName("deleted_at") val deletedAt: String? = null,
+)
+
+@Serializable
+data class UnitConversionCreateRequest(
+    @SerialName("from_unit") val fromUnit: String,
+    @SerialName("to_unit") val toUnit: String,
+    /** 传字符串（避免 Double 把 0.1 变成 0.1000000000000000055…）。 */
+    val factor: String,
+    val remark: String = "",
+)
+
+/** 部分更新：`null` = 这一项不改。 */
+@Serializable
+data class UnitConversionUpdateRequest(
+    @SerialName("from_unit") val fromUnit: String? = null,
+    @SerialName("to_unit") val toUnit: String? = null,
+    val factor: String? = null,
+    val remark: String? = null,
+)
+
+interface UnitConversionsApi {
+    /** 换算表（**全库共用**）。`deletedOnly=true` 时给的是**回收站**。 */
+    @GET("unit-conversions")
+    suspend fun listUnitConversions(@Query("deleted_only") deletedOnly: Boolean = false): List<UnitConversionDto>
+
+    @POST("unit-conversions")
+    suspend fun createUnitConversion(@Body body: UnitConversionCreateRequest): UnitConversionDto
+
+    @PATCH("unit-conversions/{id}")
+    suspend fun updateUnitConversion(
+        @Path("id") id: Long,
+        @Body body: UnitConversionUpdateRequest,
+    ): UnitConversionDto
+
+    @DELETE("unit-conversions/{id}")
+    suspend fun deleteUnitConversion(@Path("id") id: Long)
+
+    @POST("unit-conversions/{id}/restore")
+    suspend fun restoreUnitConversion(@Path("id") id: Long): UnitConversionDto
+}

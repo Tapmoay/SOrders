@@ -1,6 +1,8 @@
 package com.tapmoay.sorders.ui.common
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +36,11 @@ import androidx.compose.ui.unit.dp
  * @param current 这个商品**现在**的单位（默认选中它；它在不在列表里由 `unitChoices` 保证）
  * @param inUse 商品库里**已经在用**的单位（各页面从自己的商品目录去重得到，见 [unitsInUse]）
  * @param onPick 点「确定」时回传选中的单位（点「取消」不回传）
+ * @param onAddConversion 非空时底部出现「添加单位换算」——**用户 2026-09-24 点名要的那颗按钮**：
+ *   > 「添加单位那里再加个按钮可以说**添加单位换算**，那个按钮点进去，就是一个**新的弹窗**
+ *   >  就可以在那里设置新的单位换算了。」
+ *   回传是"请打开那个弹窗"，弹窗本体是 [UnitConversionDialog]（**一份实现**，管理页也用同一个）。
+ * @param conversionCount 已经设过几条换算（画在按钮上：一眼看出"我有没有设过"）。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -42,6 +49,8 @@ fun UnitPickerSheet(
     inUse: List<String> = emptyList(),
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
+    onAddConversion: (() -> Unit)? = null,
+    conversionCount: Int = 0,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val units = remember(current, inUse) { unitChoices(current, inUse) }
@@ -110,6 +119,19 @@ fun UnitPickerSheet(
             }
 
             Spacer(Modifier.height(18.dp))
+            // 「添加单位换算」（2026-09-24 用户点名）：单位与换算是两件事，但它们在用户嘴里是
+            // 同一句话（「一车如果是去拉沙子的话大概是八方」）—— 挑单位的时候顺手就能设。
+            if (onAddConversion != null) {
+                OutlinedButton(
+                    onClick = onAddConversion,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    Icon(Icons.Default.SwapHoriz, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (conversionCount > 0) "添加单位换算（已设 $conversionCount 条）" else "添加单位换算")
+                }
+                Spacer(Modifier.height(10.dp))
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = onDismiss,

@@ -1249,6 +1249,15 @@ object AiWrites {
     const val ARREARS_UNIT_CREATE = "arrears_unit.create"
     const val ARREARS_UNIT_UPDATE = "arrears_unit.update"
     const val ARREARS_UNIT_DELETE = "arrears_unit.delete"
+    // 单位换算（2026-09-24 用户要求：「一车是等于 8 方」）。用户对 AI 说的典型一句是
+    // 「帮我设一下一车等于八方」——**没有任何界面入口是这句口令的自然落点**（要么在商品编辑里、
+    // 要么在工作台那一格），所以这四个动作就是"给 AI 开的后路"。
+    // ⛔ 判据（空单位 / 两边同名 / 换算率 ≤ 0 / 一个源单位只能一条 / 反向对不许并存）全在后端
+    //    `services/unit_conversion.py`：模型说错了由后端那句中文拒绝，客户端不重写一遍。
+    const val UNIT_CONVERSION_CREATE = "unit_conversion.create"
+    const val UNIT_CONVERSION_UPDATE = "unit_conversion.update"
+    const val UNIT_CONVERSION_DELETE = "unit_conversion.delete"
+    const val UNIT_CONVERSION_RESTORE = "unit_conversion.restore"
     // 预订单 / 订单模板（2026-09-22 用户要求「AI 直接创建预定单」）。
     // 「一键下单」不是这里面的动作：它是界面动作（读预设单 → 走已有的 `orders.create`）。
     const val ORDER_TEMPLATE_CREATE = "order_templates.create"

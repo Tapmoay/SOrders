@@ -57,7 +57,7 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
-| `list_driver_bills` | 只读 | `GET /api/v1/driver-bills` |  |  |
+| `list_driver_bills` | 只读 | `GET /api/v1/driver-bills` | 司机账单列表。 |  |
 | `generate_bills` | 写 | `POST /api/v1/driver-bills/generate` | SALARY：对指定司机（或全部薪资司机，含已停用）生成当月月薪单（幂等）；PIECE：该月已送达未生成的补单（幂等）。 |  |
 
 ## 司机结算单（`driver_settlements`）
@@ -289,7 +289,7 @@
 |---|---|---|---|---|
 | `turnover_report` | 只读 | `GET /api/v1/reports/turnover` |  |  |
 | `product_report` | 只读 | `GET /api/v1/reports/products` |  |  |
-| `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` | 导出里的金额写成**数字**（不是文本），保留两位小数。 |  |
+| `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` |  |  |
 | `export_report` | 只读 | `GET /api/v1/reports/export` | 报表 Excel 导出（内存流 xlsx）。 |  |
 
 ## 退货申请（`return_requests`）
@@ -297,9 +297,9 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `create_return_request` | 写 | `POST /api/v1/return-requests` | **货主申请退货**（数量＝他想退多少，不会真的退）。 |  |
-| `list_my_return_requests` | 只读 | `GET /api/v1/return-requests/mine` | **我的**退货申请（货主端列表打标记、看驳回理由、撤回都读它）。 |  |
+| `list_my_return_requests` | 只读 | `GET /api/v1/return-requests/mine` |  |  |
 | `withdraw_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/withdraw` | 货主撤回自己的申请（**不是删除**：记录留着，派单员看得到"他提过又撤了"）。 |  |
-| `list_return_requests` | 只读 | `GET /api/v1/return-requests` | **派单员待办**：谁申请了退货、要退哪几样、各几件、什么时候提的。 |  |
+| `list_return_requests` | 只读 | `GET /api/v1/return-requests` |  |  |
 | `reject_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/reject` | 派单员驳回（**必带理由**：这是货主唯一能拿到的答复）。 |  |
 | `fulfill_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/fulfill` | **派单员照这张申请实际退货** —— 货主申请的终点，也是库存/账本唯一会发生变动的时刻。 |  |
 
@@ -369,6 +369,16 @@
 | `pay_payable` | 写 | `POST /api/v1/supplier-payables/{payable_id}/payments` | **付一笔款**（分次付款：同一张单可以付很多次，每次一行资金流水）。 |  |
 | `cancel_payment` | 写 | `DELETE /api/v1/supplier-payments/{flow_id}` | **撤销一笔付款**（软删那一行资金流水）。 |  |
 | `restore_payment` | 写 | `POST /api/v1/supplier-payments/{flow_id}/restore` | 把撤销掉的付款放回来。 |  |
+
+## 单位换算（`unit_conversions`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_conversions` | 只读 | `GET /api/v1/unit-conversions` | 换算表。`deleted_only=true` 时给的是**回收站**（恢复入口要用它，不许只藏在 AI 撤回卡里）。 |  |
+| `create_conversion` | 写 | `POST /api/v1/unit-conversions` | 新增一条换算。四类不合法的输入由判据给中文；**被删过的同一条会被放回来**（见文件头）。 |  |
+| `update_conversion` | 写 | `PATCH /api/v1/unit-conversions/{conversion_id}` | 改一条换算（单位名或换算率）。`None` = 不改这一项。 |  |
+| `delete_conversion` | 写 | `DELETE /api/v1/unit-conversions/{conversion_id}` | 删掉一条换算（**伪装删除**：行留着，可 `POST /unit-conversions/{id}/restore` 放回来）。 |  |
+| `restore_conversion` | 写 | `POST /api/v1/unit-conversions/{conversion_id}/restore` | 把删掉的换算放回来（`DELETE` 的逆操作）。 |  |
 
 ## 重置常用计数（`usage`）
 

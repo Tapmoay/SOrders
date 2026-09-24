@@ -153,7 +153,34 @@ vs 后端 `Σ line_receivable`/`arrears` → **退过货的单永久收不了款
 2. **送到仓库的单退货时不回补库存**（`restock_room` 判 0，而货退回了货主、库存本该 −q）——
    第 25 轮 02 区标为业务口径，不是代码 bug。
 
-### [2026-09-24 07:4x → ] 会话：**模拟器 554 货主账本改造**（用户第 5 轮新增功能：**选联系人 / 地点·线路绑联系人 / 单位换算**）【进行中】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+### [2026-09-24 07:4x → 11:5x] 会话：**模拟器 554 货主账本改造**（用户第 5 轮新增功能：**选联系人 / 地点·线路绑联系人 / 单位换算**）【已完成·① ② 都落地，剩 1 条红线待修】（DSH `session-83da1ad7-e539-4d60-9412-b46a9a9dc48e`）
+
+**收尾（2026-09-24 11:5x）**：两件都做完了，各自红线 + 反向验证都在。
+
+| 交付 | 提交 | 验收 |
+| --- | --- | --- |
+| ① 后端：地点绑联系人（两列快照串 + 线上补列 + 6 例） | `abcad97` | `pytest tests/test_location_contact.py` **6/6** |
+| ① Android：下单页能挑联系人 + 地点/线路都能绑（`ContactFill` 唯一判据 + `ContactPickerSheet` 唯一弹层 + AI 回填） | `6f31534` | `ContactFillTest` **10/10**；红线 `_check_contact_binding.py` **41 项**、反向验证 **18/18** |
+| ② 单位换算（一车 = 8 方）：新表 + 五端点 + 管理页 + 两处入口 + 数量双档显示 + AI 四动作 | 本提交 | 后端 `pytest tests/test_unit_conversion*.py` **41/41**；Android `UnitConversionDisplayTest` **11/11**；红线 `_check_unit_conversion.py` **62 项**、反向验证 **21/21** |
+
+**Android 全量单测 930 条 / 0 失败**（`testPhoneDebugUnitTest`：74 个测试类）。
+
+⛔ **一条红线还没过（如实记）**：`_tools/ai/_check_role_parity.py` 报
+「缺口：POST/PATCH/DELETE unit-conversions…」——我查到了它坏在哪一层，但**没修完**：
+`api_endpoints()` / `repo_methods()` / `action_ds_fns()` 三层都已正确解析出这四个动作与端点
+（实跑验证过），只剩 `impl_repo_methods()`（`ds 函数名 → repo 方法名`，从
+`RepoWriteDataSource` 的 override 体里解析）没把 `createUnitConversion/update…/delete…/restore…`
+解出来。**能力本身是有的**（`_write_coverage.py --check` 已把这四个端点算作"有 AI 动作"、
+`AiWriteTest` 298 条全过、写侧四个动作在 `AiWriteBasicData.kt` 里声明齐）——
+所以这是一条**假缺口**（检查的解析器漏了这一批 override），下一轮修解析器或找到它跳过的原因。
+⚠️ 没有把它塞进 `EXCLUDED` 表凑绿：那张表写的是"不做"的理由，而这里是**做了但检查没认出来**，
+塞进去等于用一句假话把一条真检查关掉。
+
+⛔ **另有一条不是我造成的红**：`_check_test_names.py` 报
+`android/.../util/MoneyTest.kt:119` 的用例名里有 `/`（那文件**当前被另一个会话改着**，
+`git status` 里是 ` M`，我一行没碰）。`_check_backend_fresh.py` 仍然是红的
+（本机开发后端还跑着别人上一轮之前的代码；⚠️ 重启它会让**所有**模拟器的登录态失效，
+而且会影响正在用它的另一个会话，所以本轮没重启）。
 
 用户原话（2026-09-24，一条消息里三个需求 + 一条纪律要求）：
 > 「给户主也加一个在选择下单的时候**可以选择联系人**就不用每次要手动填入了。同时再给他添加个功能

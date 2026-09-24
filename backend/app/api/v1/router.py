@@ -35,6 +35,7 @@ from app.api.v1 import (
     shipper_ledger,
     stats,
     system,
+    unit_conversions,
     usage,
     users,
 )
@@ -89,3 +90,5 @@ api_router.include_router(vehicles.router)
 # 系统级运行期配置（测试账号的默认 AI 配置，2026-09-21）：见 `api/v1/system.py`
 api_router.include_router(system.router)
 api_router.include_router(usage.router)
+# 单位换算（用户 2026-09-24：一车 = 8 方）—— 新表，`create_all` 自动建
+api_router.include_router(unit_conversions.router)

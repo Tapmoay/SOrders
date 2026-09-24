@@ -14,6 +14,7 @@ import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.DEFAULT_PRODUCT_NAME_COLOR
 import com.tapmoay.sorders.ui.common.DEFAULT_UNIT
+import com.tapmoay.sorders.ui.common.UnitConv
 import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.launch
 import java.io.File
@@ -268,6 +269,42 @@ class ProductFormViewModel(
     var showCostHistory by mutableStateOf(false)
     var costHistory by mutableStateOf<List<ProductCostHistoryDto>>(emptyList())
     var costHistoryLoading by mutableStateOf(false)
+
+    // ---- 「添加单位换算」那个弹窗（2026-09-24 用户点名：从「请选择单位」页里点进去）----
+    //
+    // ⚠️ 判据（空单位 / 两边同名 / 换算率 ≤ 0 / 一个源单位只能一条 / 反向对不许并存）全在后端
+    //    `services/unit_conversion.py`：这里**不重写一遍**，只把后端那句中文原样显示在弹窗里。
+    var savingConv by mutableStateOf(false)
+
+    /** 弹窗里那句话（后端的拒绝）。成功时由调用方关窗，这里不参与。 */
+    var formConvError by mutableStateOf<String?>(null)
+
+    /**
+     * 就地建一条单位换算（在商品的单位选择页里）。
+     *
+     * 成功时回调（调用方顺手把这个商品的单位设成 `from_unit` 并关掉两层弹层）；
+     * 失败时把后端那句话放进 [formConvError] —— **不关窗、不清空他填的内容**（他要照着改）。
+     */
+    fun createUnitConversion(
+        body: com.tapmoay.sorders.data.remote.api.UnitConversionCreateRequest,
+        onDone: () -> Unit,
+    ) {
+        if (savingConv) return
+        savingConv = true
+        formConvError = null
+        viewModelScope.launch {
+            try {
+                container.repo.createUnitConversion(body)
+                // 全 App 那一份立刻刷新（订单卡片上马上就能看到"10 车 ≈ 80 方"）
+                runCatching { container.repo.unitConversions() }.onSuccess { UnitConv.accept(it) }
+                onDone()
+            } catch (e: Exception) {
+                formConvError = toApiException(e).message
+            } finally {
+                savingConv = false
+            }
+        }
+    }
 
     fun openCostHistory() {
         val id = productId ?: return

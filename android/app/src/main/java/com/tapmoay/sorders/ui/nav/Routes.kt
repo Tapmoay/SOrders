@@ -137,6 +137,16 @@ object Routes {
      */
     const val PRODUCT_SORT = "dispatcher/products/sort"
     const val ARREARS_UNITS = "dispatcher/arrears"
+    /**
+     * **单位换算**（一车 = 8 方，2026-09-24 用户要求）。
+     *
+     * 用户原话：「我们再加一个功能叫做**自动换算单位**……一车是等于 8 方……
+     * 我下的十车，会有 **2 个数据**：第一个是 10 车，第 2 个则是 80 方。」
+     *
+     * ⚠️ 路由不带 `dispatcher/` 前缀：这一页**货主与派单员都有**（用户点名了那两个角色），
+     * 与 `ADDRESSES` 同一个做法（两端的「地址与联系人」也是同一条路由）。
+     */
+    const val UNIT_CONVERSIONS = "unit-conversions"
     const val FREIGHT_TEMPLATES = "dispatcher/freight-templates"
     /** 运费分类管理（2026-09-21）：运费模板与计费规则**共用**的一套分类。 */
     const val FREIGHT_CATEGORIES = "dispatcher/freight-categories"

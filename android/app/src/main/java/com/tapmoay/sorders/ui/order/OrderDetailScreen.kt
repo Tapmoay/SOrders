@@ -808,6 +808,9 @@ private fun DetailBody(
             SectionCard {
                 SectionTitle(Icons.Default.Inventory2, Color(ProductPurple), "商品明细")
                 Spacer(Modifier.height(10.dp))
+                // 单位换算（一车 = 8 方）：**全 App 一份**（`UnitConv`）。设过换算时数量那一格写
+                // 「×10 车 ≈ 80 方」（用户 2026-09-24：「我下的十车，会有 2 个数据」）。
+                val conversions by UnitConv.rows.collectAsState()
                 // ── 两列（件数 / 金额）的宽度：**本单里最宽的那一条说了算** ──
                 // 用户 2026-09-22：「商品明细……后面是有价格的**没有做对齐**啊，就是**件与件数做对齐、
                 // 价格与价格做个对齐**，他们都**放在右边的**」（货主那边同一句话）。
@@ -825,7 +828,7 @@ private fun DetailBody(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 )
                 val qtyW = order.orderProducts.fold(0.dp) { acc, l ->
-                    maxOf(acc, rememberTextWidth("×" + qtyWithUnit(l.quantity, l.unit), qtyStyle))
+                    maxOf(acc, rememberTextWidth("×" + qtyWithUnitConverted(l.quantity, l.unit, conversions), qtyStyle))
                 }
                 val moneyW = order.orderProducts.fold(0.dp) { acc, l ->
                     maxOf(acc, rememberTextWidth("¥" + formatMoney(l.lineTotal), moneyStyle))
@@ -853,7 +856,9 @@ private fun DetailBody(
                             // 单位是下单时定格的（选品弹窗里能改）；老数据为空 → 只显示件数，
                             // **不编一个"件"出来**（编了就成了"系统说的"，而实际没人填过）。
                             // 拼法只有一处：`Units.kt::qtyWithUnit`（订单卡片走的也是它）。
-                            "×" + qtyWithUnit(line.quantity, line.unit),
+                            // 2026-09-24 起设过换算时再带后半截（「×10 车 ≈ 80 方」），
+                            // 量列宽与渲染用**同一个函数**（不同的话右对齐当场错位）。
+                            "×" + qtyWithUnitConverted(line.quantity, line.unit, conversions),
                             style = qtyStyle,
                             color = androidx.compose.ui.graphics.Color(0xFF8455E6),
                             textAlign = TextAlign.End,

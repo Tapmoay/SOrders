@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -117,6 +119,9 @@ fun OrderCard(
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
     val totalQty = order.orderProducts.sumOf { it.quantity }
+    // 单位换算（一车 = 8 方）：**全 App 一份**（`UnitConv`），四张列表共用这一张卡片。
+    // 没设过换算时它是空表 → 显示与原样**逐字相同**（"还没拉到"也不会少显示什么）。
+    val conversions by UnitConv.rows.collectAsState()
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -258,7 +263,11 @@ fun OrderCard(
                                 // 数量后面**要带单位**（用户 2026-09-22：「商品后面的数字没有单位啊……
                                 // 这是要有单位的」）。单位是下单那一刻定格的（`unit_snapshot`），
                                 // 老单没填过就只给数字 —— 拼法只有一处：`Units.kt::qtyWithUnit`。
-                                "×" + qtyWithUnit(op.quantity, op.unit),
+                                //
+                                // 2026-09-24 起再带**换算**：设过「1 车 = 8 方」时这一格写
+                                // 「×10 车 ≈ 80 方」（用户：「我下的十车，会有 2 个数据」）。
+                                // 换算表是**全库共用的一份**（`UnitConv`），四个列表页共用这一张卡片。
+                                "×" + qtyWithUnitConverted(op.quantity, op.unit, conversions),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(ProductPurple),

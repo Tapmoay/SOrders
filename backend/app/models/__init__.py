@@ -47,6 +47,7 @@ from app.models.product_visibility import UserProductVisibility
 from app.models.shipper import ShipperAddress, ShipperContact, ShipperLocation
 from app.models.shipper_settlement import ShipperSettlement, ShipperSettlementLine
 from app.models.supplier import Supplier, SupplierPayable
+from app.models.unit_conversion import UnitConversion
 from app.models.usage import UsageCounter
 from app.models.user import User
 
@@ -101,6 +102,7 @@ __all__ = [
     "ShipperSettlementLine",
     "Supplier",
     "SupplierPayable",
+    "UnitConversion",
     "User",
     "UsageCounter",
     "UserProductVisibility",

@@ -81,6 +81,11 @@ fun ProductFormScreen(
     LaunchedEffect(vm.closeRequested) { if (vm.closeRequested) onBack() }
 
     var showUnitPicker by remember { mutableStateOf(false) }
+    // 「添加单位换算」那个弹窗（2026-09-24 用户点名的那颗按钮点出来的）
+    var showUnitConvDialog by remember { mutableStateOf(false) }
+    // 已设的换算：按钮上要写"已设 N 条"，候选单位也要带上它们（一份来源，见 UnitConverts.kt）
+    val conversions by UnitConv.rows.collectAsState()
+    LaunchedEffect(Unit) { UnitConv.ensure(container.repo) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
@@ -313,8 +318,33 @@ fun ProductFormScreen(
     if (showUnitPicker) {
         UnitPickerSheet(
             current = vm.unit,
+            // 已设的换算条数（画在按钮上）——「我到底设过没有」一眼能看出来
+            conversionCount = conversions.size,
             onPick = { vm.unit = it; showUnitPicker = false },
+            // 用户 2026-09-24：「添加单位那里再加个按钮可以说添加单位换算，那个按钮点进去，
+            // 就是一个新的弹窗就可以在那里设置新的单位换算了。」
+            onAddConversion = { showUnitConvDialog = true; vm.formConvError = null },
             onDismiss = { showUnitPicker = false },
+        )
+    }
+
+    // 「添加单位换算」那个**新弹窗**（与「单位换算」管理页共用同一份实现）。
+    // ⚠️ 建完之后顺手把这个商品的单位选成 `from_unit`：用户是从"改这个商品的单位"进来的，
+    //    他刚设的 `1 车 = 8 方` 说的就是这个商品按车计 —— 建完还把单位留在原处会让人再点一次。
+    if (showUnitConvDialog) {
+        UnitConversionDialog(
+            initial = null,
+            inUse = unitsInUse(conversions.flatMap { listOf(it.fromUnit, it.toUnit) }),
+            saving = vm.savingConv,
+            error = vm.formConvError,
+            onSave = { body ->
+                vm.createUnitConversion(body) {
+                    showUnitConvDialog = false
+                    vm.unit = body.fromUnit
+                    showUnitPicker = false
+                }
+            },
+            onDismiss = { showUnitConvDialog = false },
         )
     }
 

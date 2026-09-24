@@ -69,6 +69,7 @@ import com.tapmoay.sorders.ui.shipper.OrderCreateScreen
 import com.tapmoay.sorders.ui.shipper.ShipperLedgerScreen
 import com.tapmoay.sorders.ui.shipper.ShipperOrdersScreen
 import com.tapmoay.sorders.ui.shipper.ShipperReturnRequestsScreen
+import com.tapmoay.sorders.ui.common.UnitConversionsScreen
 
 @Composable
 fun AppRoot(container: AppContainer, initialSession: Session?) {
@@ -358,6 +359,10 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         }
         composable(Routes.ARREARS_UNITS) {
             ArrearsUnitsScreen(container = container, onBack = { navController.popBackStack() })
+        }
+        // 单位换算（一车 = 8 方，2026-09-24）——**货主与派单员共有**这一页（同一条路由）
+        composable(Routes.UNIT_CONVERSIONS) {
+            UnitConversionsScreen(container = container, onBack = { navController.popBackStack() })
         }
         composable(Routes.MEMBERS) {
             UsersManageScreen(

@@ -13,6 +13,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -99,8 +101,11 @@ fun OrderPeek(
                     // ⚠️ 只能 fold、不能 map —— `rememberTextWidth` 是 @Composable（见 Adaptive.kt）。
                     val qtyStyle = MaterialTheme.typography.bodySmall
                     val moneyStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                    // 单位换算（一车 = 8 方）：量列宽与渲染**必须用同一个函数**，
+                    // 否则"10 车 ≈ 80 方"会比量出来的宽度长，右对齐当场错位。
+                    val conversions by UnitConv.rows.collectAsState()
                     val qtyW = order.orderProducts.fold(0.dp) { acc, lp ->
-                        maxOf(acc, rememberTextWidth("×" + qtyWithUnit(lp.quantity, lp.unit), qtyStyle))
+                        maxOf(acc, rememberTextWidth("×" + qtyWithUnitConverted(lp.quantity, lp.unit, conversions), qtyStyle))
                     }
                     val moneyW = order.orderProducts.fold(0.dp) { acc, lp ->
                         maxOf(acc, rememberTextWidth("¥" + formatMoney(lp.lineTotal), moneyStyle))
@@ -119,8 +124,9 @@ fun OrderPeek(
                             )
                             Spacer(Modifier.width(10.dp))
                             Text(
-                                // 数量带单位（`unit_snapshot` 为空的老单只给数字，不编「件」）
-                                "×" + qtyWithUnit(lp.quantity, lp.unit),
+                                // 数量带单位（`unit_snapshot` 为空的老单只给数字，不编「件」）；
+                                // 设过换算时再带后半截（「×10 车 ≈ 80 方」）。
+                                "×" + qtyWithUnitConverted(lp.quantity, lp.unit, conversions),
                                 style = qtyStyle,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.End,

@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ai
 
 import com.tapmoay.sorders.data.remote.api.PriceRuleDto
+import com.tapmoay.sorders.data.remote.api.UnitConversionDto
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto
 import com.tapmoay.sorders.data.remote.dto.ContactDto
@@ -168,6 +169,36 @@ internal object AiResources {
         ),
         read = { ds, id -> ds.snapshot("arrears_unit", id) },
         restore = AiInverse(AiWrites.ARREARS_UNIT_RESTORE, mapOf("target_id" to AiRevert.ID)),
+    )
+
+    /**
+     * 单位换算（一车 = 8 方，2026-09-24）。
+     *
+     * `idKey = "conversion_id"`：AI 的改/删动作按**那行等式**找到这一条
+     * （换算没有别的自然名字），编号从这里进 payload。
+     * `readKeys` 必须与 [AiRevertRead.unitConversion] 写出去的键**逐字相同** ——
+     * 少一个键的后果是"撤回读到了、写回去时取不到"，而那种错不报错。
+     */
+    private val UNIT_CONVERSION = AiResource(
+        key = "unit_conversion",
+        cn = "单位换算",
+        idKey = "conversion_id",
+        readKeys = setOf("from_unit", "to_unit", "factor", "remark"),
+        labels = mapOf(
+            "from_unit" to "从这个单位", "to_unit" to "换算成",
+            "factor" to "换算率", "remark" to "备注",
+        ),
+        actions = listOf(
+            update(AiWrites.UNIT_CONVERSION_UPDATE),
+            delete(AiWrites.UNIT_CONVERSION_DELETE),
+            paired(
+                AiWrites.UNIT_CONVERSION_RESTORE,
+                AiInverse(AiWrites.UNIT_CONVERSION_DELETE, mapOf("conversion_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        read = { ds, id -> ds.snapshot("unit_conversion", id) },
+        restore = AiInverse(AiWrites.UNIT_CONVERSION_RESTORE, mapOf("target_id" to AiRevert.ID)),
     )
 
     private val FREIGHT_TEMPLATE = AiResource(
@@ -904,7 +935,7 @@ internal object AiResources {
 
     /** 全部资源。红线与单测按它逐个核对（键是否齐全、动作是否都有归属）。 */
     val TABLE: List<AiResource> = listOf(
-        ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, FREIGHT_TEMPLATE, DRIVER_RULE,
+        ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, UNIT_CONVERSION, FREIGHT_TEMPLATE, DRIVER_RULE,
         PRODUCT, PRICE_RULE, PRODUCT_CATEGORY, PLACE_CATEGORY, VEHICLE, PRODUCT_VISIBILITY, USER,
         PLACE,
         ORDER, ORDER_LINE, LEDGER_ENTRY, NOTIFICATION,
@@ -986,6 +1017,20 @@ internal object AiRevertRead {
     fun arrearsUnit(d: ArrearsUnitDto): JsonObject = buildJsonObject {
         put("name", d.name)
         put("phone", d.phone)
+        put("remark", d.remark)
+    }
+
+    /**
+     * 单位换算的可撤回字段（2026-09-24：一车 = 8 方）。
+     *
+     * ⚠️ 四个键**一个都不能少**，而且键名必须是 payload 键（不是 DTO 的驼峰名）：
+     * 撤回是"把这份快照原样写回同一条写路径"，键名写错的表现是**撤回卡点了没反应**
+     * （`updateUnitConversion` 里 `fields.str("from_unit")` 取到 null = 不改这一项）。
+     */
+    fun unitConversion(d: UnitConversionDto): JsonObject = buildJsonObject {
+        put("from_unit", d.fromUnit)
+        put("to_unit", d.toUnit)
+        put("factor", d.factor)
         put("remark", d.remark)
     }
 
