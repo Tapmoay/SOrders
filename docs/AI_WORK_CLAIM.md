@@ -20,6 +20,24 @@
 
 ## 进行中
 
+### [2026-09-24 14:0x → 14:3x] 会话：**全项目系统性复核 · 第 32 轮**（第 8 批报告统一修续：R11-5）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+| # | 改了什么 | 来源 | 提交 |
+| --- | --- | --- | --- |
+| R11-5 | **卡死的导出任务永远停在「导出中」**：worker 先 commit `PROCESSING` 再干活，进程在两步之间重启就永远停在那个状态，而**全后端没有第二个收割者**（`PROCESSING` 的唯一写入点就是它）→ 客户端轮询 60×2s 后静默放弃。修法=`GET /ledger/export-jobs/{id}` **读时收敛**（`reap_stale_job`：超 15 分钟且非终态 → 条件 UPDATE 成 `failed` + 一句能照做的原因），**不引入后台线程**（该模块刻意不用清理循环）；判据比的是应用时钟 `created_at` vs `utc_now_naive()`，**不用库端时钟**（生产 `SET time_zone` 失败只 warning） | 第 25 轮 08-1 | `385d792` |
+
+**验收**：`pytest tests/test_stale_export_job_reaped.py tests/test_bill_unmatched_category_trace.py`
+→ **4 passed**（含反空转：刚建 1 分钟的仍是 `processing`、已完成的仍是 `done`）。
+
+⚠️ **全量 `pytest tests` 这一轮跑不了，原因在另一个会话**：他们正在写的
+`backend/app/models/unit_conversion.py:49` 用了 `UniqueConstraint` 却没 import（`NameError`）
+→ `import app.models` 失败 → 收集不到用例（他们上一轮刚修好 `app.core.time`，这轮换了一个）。
+我**没有碰**那个文件；下一轮开头补跑全量。
+
+**下一轮队列**：① 补跑全量 pytest（等他们把 import 补上）；② AI 那半边的收款项（`AiWrite*.kt`）；
+③ AI 改预设单后商品明细/收货人撤不回来（25-04-A1）；④ 回收站界面零入口（24-02）；
+⑤ 报表中心一个数据格都点不动 + 同商品两样数（25-05）；⑥ AI 撤回对空串旧值静默不回退（25-01-F1）。
+
 ### [2026-09-24 13:3x → 13:5x] 会话：**全项目系统性复核 · 第 31 轮**（还第 30 轮欠的永久测试：R11-4）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 | # | 改了什么 | 来源 | 提交 |
