@@ -20,6 +20,36 @@
 
 ## 进行中
 
+### [2026-09-24 10:4x → 11:2x] 会话：**全项目系统性复核 · 第 27 轮**（第 8 批报告统一修续：R10-3/R10-4）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+| # | 改了什么 | 来源 | 提交 |
+| --- | --- | --- | --- |
+| R10-3 | **退货申请的 `?status=` 静默当"全部"**：两个端点把 `status` 声明成自由字符串、过滤只判 `pending` → `?status=rejected` **200 + 全部**（与 `all` 逐字相同，实测 13 条）→ 模型把含 done/withdrawn 的全部申请讲成"都被驳回了"。修法=`Literal[...]` 闭集（别的取值 422），顺带把 enum 带进 AI 读目录（生成器只认 `Literal`，实测目录里现在有 2 组五档 enum） | 第 25 轮 09-② | `c59d9f8` |
+| R10-4 | **我上一轮那个测试往共享库插了非法枚举值**（`biz_type="RECEIPT_CUSTOMER"` 不存在）→ `GET /cash-flows` 序列化即 `ResponseValidationError`，实测把整批带成 **20 failed / 683 errors**（我第一反应误判成"另一个会话的在改代码"，查了才确认是自己插的脏行）；改成 `RECEIPT_CASH` 后全量绿。顺带把客户合并换归属从"逐行改"改成**批量 UPDATE**（回收站里的流水也要搬；且不落在"求和取数必须带 is_deleted"那条判据的作用域里） | 自查 | `a9a4865` |
+
+**验收（本轮把上一轮欠的那一步补上了）**：`pytest tests` 全量 **962 passed**；
+`tests/test_customer_merge_cash_flows.py` **2 passed**（第 26 轮那处修复的正式判据）、
+`tests/test_return_request_status_filter.py` **4 passed**；`_check_supplier_payables.py` **145/145**；
+`_gen_ai_read_catalog.py --check` 目录与源码一致（56 个列表端点）。
+
+⚠️ **本轮 `_check_all` 仍有 7 项红，全部来自另一个会话在改的东西**（他们新增的
+`unit_conversions` 端点还没有 AI 动作 → `_check_role_parity`；他们的新 hint 让目录过期 →
+`_check_hints`/`_hint_inventory`；他们改的单位选择让 `_check_order_row_columns` 红；
+本机后端旧代码 → `_check_backend_fresh`）。**我这一轮没有去重生成 hint 目录、也没重启后端**
+（那两件事都取决于他们还没写完的东西），也没碰他们任何文件。
+
+⚠️ **全量 pytest 需要绕过他们的半成品**：`tests/conftest.py` 要 `from app.main import app`，
+而他们的 `app/api/v1/unit_conversions.py:27` 引用**不存在**的 `app.core.time`
+→ 一条用例都收集不到。**我没有改他们的文件**，而是在 `%TEMP%` 放了一个 pytest 插件
+（`-p r27_shim`）把那个名字补成 `business_time.utc_now_naive` 再跑。正确修法仍是他们改导入路径。
+
+**下一轮队列（第 8 批剩下，按严重度）**：① 收款判据 Σ`line_total` vs 后端
+`Σ line_receivable`/`arrears` → **退过货的单永久收不了款**（24-10-F1）；② 按分类定价 + 没分类
+= 0 元且全链路无声（25-06-1）；③ AI 改预设单后商品明细/收货人撤不回来（25-04-A1）；
+④ 回收站界面零入口（24-02）；⑤ 报表中心一个数据格都点不动 + 同商品两样数（25-05-F1/F2）；
+⑥ 到仓入库不含货损且早于货损落库（25-02-D1）；⑦ AI 撤回对空串旧值静默不回退（25-01-F1）；
+⑧ 异步导出任务永远停在 PROCESSING（25-08-1）。
+
 ### [2026-09-24 10:2x → ] 会话：**全项目系统性复核 · 第 26 轮**（**第 8 批 10 份报告的统一修**：R10-1/R10-2；本轮不派新渗透）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **这一轮的输入**是第 25 轮派出的 10 个子代理留下的 10 份报告（`_archive/audit/round25/01..10-*.md`）。
