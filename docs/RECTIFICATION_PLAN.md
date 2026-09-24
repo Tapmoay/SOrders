@@ -375,3 +375,19 @@ GitHub Actions 立刻触发两条：Gate（三层闸门）与 Tests (Parallel)�
    ⛔ 这正是报告 §18 说的「等价性验证」要防的东西：**判据自己依赖了平台**。
 
 以上三条是下一轮的第一件事（①②各一行、③④是同一个修法）。
+
+
+### 干净检出 4 处红已全部修掉（2026-09-25 第 34 轮）
+
+**判据：`git clone . $env:TEMP\ci_sim` 后跑 `_check_all.py` → 99/99**（这就是 CI 的环境：没有本机库、没有 `_archive/`、
+换行符按检出规则）。四处修的分别是：
+
+① `_tools/fuzz/_fuzz_invariants.py`：缺本机开发库（不进 git）时**响亮跳过**；
+② `_tools/qa/_reverse_verify_shipper_settle_ceiling.py`：删掉 ㉖ 那条打 `_archive/audit/FINDINGS.md` 的注入
+   （主体不在仓库里 → 在 CI 上永远是死锚点）＋ 对应判据缺底稿时响亮跳过；
+③④ `_check_profile_page.py` 与 `_check_list_order.py`：两条断言都**写死了换行符/按字符窗口切**，
+   本机（CRLF 或 LF）与 CI 检出结论相反 —— 前者改成**按行取那一块**，后者改成 `\s*\r?\n\s*`，都与换行无关。
+
+⛔ 这一类缺陷值得单独记：**判据自己依赖了平台**（换行符 / 本机才有的文件），本地怎么跑都绿，
+第一次真跑 CI 才暴露 —— 正是报告 §18「等价性验证」要防的东西。
+**复现手法**（下次几十秒就能查完）：`git clone . <临时目录>` → 在克隆里跑同一份 `_check_all.py`。
