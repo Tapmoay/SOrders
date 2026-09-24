@@ -44,11 +44,14 @@ class Sandbox:
 
     def append(self, p: Path, text: str) -> None:
         self._keep(p)
-        p.write_bytes(self.saved[p] + text.encode("utf-8"))
+        # ⚠️ 拼接的必须是**当前内容**，不是保存的基线 —— 第一版写的是 `self.saved[p] + text`，
+        #    于是在"先 strip、再 append"的注入里，**append 把 strip 抹掉了**（声明又回到「进行中」，
+        #    注入于是恒不红；2026-09-25 实测抓到）。`saved` 只当还原点用。
+        p.write_bytes(p.read_bytes() + text.encode("utf-8"))
 
     def replace(self, p: Path, old: str, new: str) -> None:
         self._keep(p)
-        text = self.saved[p].decode("utf-8")
+        text = p.read_text(encoding="utf-8")   # 同上：当前内容
         assert text.count(old) == 1, f"{p.name}: 原文出现 {text.count(old)} 次，无法唯一替换"
         p.write_bytes(text.replace(old, new).encode("utf-8"))
 
@@ -62,6 +65,25 @@ class Sandbox:
     def decl_in_progress(self, line: str) -> None:
         """把声明插进「进行中」一节的开头（判据只认这一节）。"""
         self.replace(CLAIM, "## 进行中\n", "## 进行中\n\n" + line)
+
+    def strip_declarations(self) -> None:
+        """把声明页里**已有的**、关于这个核心文件的声明行全部删掉。
+
+        ⚠️ 2026-09-25 实测（两条注入同时变 MISS）：判据第 3 条问的是「**未提交**的核心改动有没有声明」，
+        而声明页里会**长期留着**历史声明行 —— 只要那个核心文件以前被谁声明过一次，
+        "改了核心却一个字都没声明"这个前提就**永远不成立**了，注入于是再也不红。
+        所以注入必须先把自己要证伪的前提造出来：清掉已有声明，再改核心。
+        """
+        self._keep(CLAIM)
+        text = self.saved[CLAIM].decode("utf-8")
+        kept = [
+            ln
+            for ln in text.splitlines(keepends=True)
+            if ("核心改动：" + CORE_REL) not in ln and ("核心改动：`" + CORE_REL + "`") not in ln
+        ]
+        stripped = "".join(kept)
+        assert stripped != text, "声明页里没有关于 " + CORE_REL + " 的声明，这条注入的前提不成立"
+        CLAIM.write_bytes(stripped.encode("utf-8"))
 
     def restore(self) -> None:
         for p, raw in self.saved.items():
@@ -78,11 +100,14 @@ def run_check() -> tuple[int, str]:
 
 
 def s_touch_only(sb: Sandbox) -> None:
+    # ⚠️ 先清掉历史声明：否则"没声明"这个前提不成立（见 strip_declarations 的说明）
+    sb.strip_declarations()
     sb.touch_core()
 
 
 def s_decl_in_done_section(sb: Sandbox) -> None:
     """声明写了，但写在文件**末尾**（「已完成」那一节里）——等于没声明。"""
+    sb.strip_declarations()
     sb.touch_core()
     sb.append(CLAIM, "\n" + DECL_GOOD)
 

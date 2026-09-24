@@ -41,7 +41,7 @@ python _tools/backup/_drill_local.py
 | `_backup.sh` | 生产机 | 备份库（+上传文件）→ 当场校验 → 写 `manifest.json` / `SHA256SUMS` → 保留期清理 |
 | `_restore.sh` | 生产机 | 恢复到一个**指定库**；默认拒绝碰生产库；恢复前校验产物完整性 |
 | `_drill.sh` | 生产机 | 恢复演练四阶段：恢复 → 库内不变式 → 启动隔离实例 → 真 token 打只读端点 |
-| `_check_backup.py` | 本地/CI | 这套体系**自己的**静态判据（50 条，进 `_check_all.py` 自动跑） |
+| `_check_backup.py` | 本地/CI | 这套体系**自己的**静态判据（54 条，进 `_check_all.py` 自动跑） |
 | `_tools/ops/_prodssh.py` | 本地 | 生产主机 / 密钥 / 路径的**唯一一处**定义，其余脚本一律 import |
 
 ## 备份产物长什么样
@@ -126,6 +126,6 @@ systemctl restart sorders-api && journalctl -u sorders-api -n 50 --no-pager
 2. **备份失败要留痕**：任何中途失败都在目录里写 `.FAILED`，恢复时一律拒绝它。
 3. **备份要当场自证**：`gzip -t` + `sha256sum -c` + 与 manifest 对行数。
 4. **生产库有门**：`_restore.sh` 不认 `--i-know` 就只肯写演练库。
-5. **这套东西自己也要被检查**：`python _tools/backup/_check_backup.py --check`（50 条判据，
+5. **这套东西自己也要被检查**：`python _tools/backup/_check_backup.py --check`（54 条判据，
    已经在 `_check_all.py` 的必跑组里 —— 新增检查脚本加个 `--check` 就自动进组）。
 

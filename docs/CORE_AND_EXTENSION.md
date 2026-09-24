@@ -64,8 +64,8 @@
 ## §4 判据与自检
 
 ```
-python _tools/qa/_check_core_freeze.py                 # 核心冻结（7 项）
-python _tools/qa/_reverse_verify_core_freeze.py        # 证明它真的会红（6 条注入）
+python _tools/qa/_check_core_freeze.py                 # 核心冻结（39 项）
+python _tools/qa/_reverse_verify_core_freeze.py        # 证明它真的会红（注入条数以它自己打印的为准）
 python _tools/qa/_check_driver_money.py                # 司机端不显示金额（23 项，本轮新增）
 python _tools/ai/_check_ai_guardrails.py               # AI 红线（含批量的那一节）
 ```

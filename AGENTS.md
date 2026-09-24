@@ -81,7 +81,7 @@ python _tools/backup/_install.py                                  # 把脚本/�
 ```
 
 - 口径与现场手册：[_tools/backup/README.md](_tools/backup/README.md)；这套东西**自己的**判据：
-  `python _tools/backup/_check_backup.py --check`（55 条，已进 `_check_all.py` 必跑组）。
+  `python _tools/backup/_check_backup.py --check`（54 条，已进 `_check_all.py` 必跑组）。
 - ⛔ **恢复默认不碰生产库**：`_restore.sh` 不带 `--i-know` 只肯往 `sorders_drill_*` 里恢复。
 - ⛔ **发布前先备份**：报告的原话是「不能 deploy 完了才想起来好像以前有个 mysqldump」。
 - 生产事实（主机/密钥/路径）只写在 `_tools/ops/_prodssh.py` 一处，其余脚本一律 import。
