@@ -223,22 +223,23 @@ vs 后端 `Σ line_receivable`/`arrears` → **退过货的单永久收不了款
 
 **Android 全量单测 930 条 / 0 失败**（`testPhoneDebugUnitTest`：74 个测试类）。
 
-⛔ **一条红线还没过（如实记）**：`_tools/ai/_check_role_parity.py` 报
-「缺口：POST/PATCH/DELETE unit-conversions…」——我查到了它坏在哪一层，但**没修完**：
-`api_endpoints()` / `repo_methods()` / `action_ds_fns()` 三层都已正确解析出这四个动作与端点
-（实跑验证过），只剩 `impl_repo_methods()`（`ds 函数名 → repo 方法名`，从
-`RepoWriteDataSource` 的 override 体里解析）没把 `createUnitConversion/update…/delete…/restore…`
-解出来。**能力本身是有的**（`_write_coverage.py --check` 已把这四个端点算作"有 AI 动作"、
-`AiWriteTest` 298 条全过、写侧四个动作在 `AiWriteBasicData.kt` 里声明齐）——
-所以这是一条**假缺口**（检查的解析器漏了这一批 override），下一轮修解析器或找到它跳过的原因。
-⚠️ 没有把它塞进 `EXCLUDED` 表凑绿：那张表写的是"不做"的理由，而这里是**做了但检查没认出来**，
-塞进去等于用一句假话把一条真检查关掉。
+⚠️ **上一轮我在这里写的诊断是错的，已更正（2026-09-24 12:0x）**：`_tools/ai/_check_role_parity.py`
+报的那条「缺口：POST/PATCH/DELETE unit-conversions…」**不是检查的解析器坏了，是一个真的能力缺口**。
+我当时只查到 `impl_repo_methods()` 那一层就下了"假缺口"的结论；这一轮把缺口列表**按角色分开**看
+才看清：**派单员那一侧是好的、只有货主那一侧缺** —— 那正是 `AiWrites.SHIPPER_ACTIONS` 在起作用的地方
+（`forRole`：派单员＝全部减 memberOnly，货主＝白名单）。四个动作没进白名单 = 货主的 AI 根本拿不到
+它们（默认 fail-closed），而手机点得到 → 检查报得**完全正确**。
+修法：四条动作补进白名单 + 给它们**单独一个能力域**「单位换算」（借用「商品」会让货主的能力清单
+写成"商品：新增单位换算"，读起来像他能改商品）+ 标题「改单位换算」改成「编辑单位换算」
+（派单员有个专属动作叫「改单」，而那条用例是**按子串**判的）。现在 **17/17 全过**。
+⚠️ 教训写在这里：**缺口列表必须按角色分开看** —— 只看总数会把它当成检查的毛病，而它是真缺口。
 
-⛔ **另有一条不是我造成的红**：`_check_test_names.py` 报
-`android/.../util/MoneyTest.kt:119` 的用例名里有 `/`（那文件**当前被另一个会话改着**，
-`git status` 里是 ` M`，我一行没碰）。`_check_backend_fresh.py` 仍然是红的
-（本机开发后端还跑着别人上一轮之前的代码；⚠️ 重启它会让**所有**模拟器的登录态失效，
-而且会影响正在用它的另一个会话，所以本轮没重启）。
+⚠️ `_check_test_names.py` 那条（`MoneyTest.kt:119` 用例名里有 `/`）**已经不由我这一侧负责**：
+那文件是另一个会话在改，最新一轮 `_check_all.py` 里它已经不红了（他们修掉了）。
+✅ **现在 `_check_all.py` = 91/92**，唯一红的是 `_check_backend_fresh.py`
+（本机开发后端还跑着更早的代码；⚠️ 重启它会让**所有**模拟器的登录态失效，
+而且会影响正在用它的另一个会话，所以本轮没重启 —— 这两个功能的端点/字段已经由
+`pytest`（真 TestClient 走完整 app）与 930+ 条 Android 单测覆盖，**真机 E2E 留到能重启后端时做**）。
 
 用户原话（2026-09-24，一条消息里三个需求 + 一条纪律要求）：
 > 「给户主也加一个在选择下单的时候**可以选择联系人**就不用每次要手动填入了。同时再给他添加个功能
