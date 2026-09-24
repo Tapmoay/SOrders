@@ -5,7 +5,7 @@
 ## 环境要求
 
 - **后端**：Python 3.12+，MySQL 8，Redis（可选但推荐）
-- **前端**：Node.js 20+（用于构建与开发）
+- ~~**前端**：Node.js 20+~~ 旧版 H5 前端**已归档**（2026-09-25 用户拍板），见下面那一节
 
 ## 快速开始（本地开发）
 
@@ -58,40 +58,16 @@ python scripts/seed_dev_users.py
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. 前端
+### 3. 前端（已归档）
 
-**方式 A：系统已安装 Node.js 20+**
+2026-09-25 用户拍板：旧版 H5 前端（frontend/，Vue3 + Vite）**正式归档、已从仓库删除**。
+理由：它是三端里最初始的网页版，**没有任何部署引用**（_tools/deploy/ 与 nginx 都搜不到 frontend/dist），
+线上没人访问；留着它却继续在 CI 里跑构建，就是报告 §14 说的「旧系统，但又像新系统」。
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- 归档副本（本机、不进 git）：_archive/frontend-H5-归档-20260925/
+- 代码本体可从 git 历史取回
+- 连带改动：gate.yml 的 frontend-build 作业删掉；若干判据里的 H5 那一半停用（见 docs/RECTIFICATION_PLAN.md §4.2）
 
-**方式 B：便携 Node（无需管理员，已解压到仓库 `.tools/`）**
-
-1. 从 [Node 20 Windows x64 zip](https://nodejs.org/dist/v20.18.1/node-v20.18.1-win-x64.zip) 解压到 `SOrders/.tools/node-v20.18.1-win-x64/`（与 `node.exe` 同级有 `npm.cmd`）。
-2. 在 **当前 PowerShell 会话** 先执行（或把该路径永久加入用户 PATH）：
-
-```powershell
-# 在仓库根目录执行
-. .\scripts\set-dev-path.ps1
-cd frontend
-npm install
-npm run dev
-```
-
-若未解压便携包，也可使用 `winget install OpenJS.NodeJS.LTS --source winget`（需 UAC 同意）。
-
-**说明**：`npm install` 时请将 **Node 安装目录放在 PATH 最前**，否则 `esbuild` 等脚本会找不到 `node`（错误：`node 不是内部或外部命令`）。
-
-生产构建（输出静态文件到 `frontend/dist`）：
-
-```bash
-npm run build
-```
-
-将 `dist` 目录部署到 Nginx 或其它静态托管；生产环境请配置 `VITE_API_BASE_URL` 指向线上 API 根路径（含 `/api/v1`），详见 `.env.example`。
 
 ## API 文档（OpenAPI / Swagger）
 

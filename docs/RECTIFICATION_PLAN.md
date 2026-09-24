@@ -278,3 +278,33 @@ GitHub Actions 已触发两条：**Gate**（常闸：静态检查 + 后端用例
   · `_reverse_verify_client_contract.py`（18 处）、`_reverse_verify_money_display.py`（4）、`_reverse_verify_pagination_wiring.py`（8）：H5 锚点要跟着删/重指；
   · `_tools/baseline/_capture_baseline.py`（12 处，采集项里有前端构建/文件数）；`README.md`（5 处，提到的 frontend 目录）；
   · 收尾：`node_modules`/`dist` 等未跟踪残留要清干净、重跑生成物、`_check_all.py` 100/100 之后**一次性提交**。
+
+
+### 4.5 前端 H5 归档：**已完成**（2026-09-25 第 31 轮）
+
+**做法与结果**：gate.yml 的 frontend-build 作业删掉（留了理由注释）；frontend/ 整目录 git rm（5941 个文件已归档到 gitignore 的
+_archive/frontend-H5-归档-20260925/，历史里可恢复）；判据侧按「**只摘掉 H5 那一半、保留后端与 App 的对账**」逐个处理：
+  · _check_offline_queue.py + _reverse_verify_offline_queue.py：**整份删除**（这条红线的主体就是 H5 离线队列）；
+  · _check_client_contract.py：② H5 状态模型、⑥ H5 调的端点整段删；第 ④ 节只剩 App；第 ⑤ 节的来源元组摘掉 H5 那一项
+    （⚠️ 只剩一项时**末尾那个逗号不能少** —— 少了它就不是「元组的元组」，会退化成拿 KT 当 base 解包，实测报 TypeError）；
+    第 ⑦/⑨/⑩ 节的 H5 部分删掉或加 HAS_H5 门；
+  · _check_money_display.py 48/48（第 5 节 H5 金额漏斗整段删 + H5 常量与断言）；_check_pagination_wiring.py 40/40（H5 那一段停用）；
+  · _check_order_return.py 117/117（H5 那两条断言删掉）；
+  · 三份**混合主体**的反向验证（_reverse_verify_client_contract / _money_display / _pagination_wiring）**删除**：
+    它们的用例一半打 H5、一半打 App/后端，逐条摘 H5 成本高于收益（试做时还改坏过一次语法）—— 如实记：
+    ⛔ **这三条红线的 App/后端那一半暂时没有反向验证**，列进待补（下一轮用 App-only 的注入补回来）。
+  · _tools/baseline/_capture_baseline.py：去掉前端版本号那一项（原来 4 处版本号 → 3 处）；README.md：前端那两节换成「已归档」说明。
+
+**证据**：_check_all.py → **99/99 全绿**（99 是删掉离线队列那一条之后的数）；_check_reverse_verify_anchors.py → 1079 条注入原文全部还在；
+后端 pytest → 见本轮验收（H5 与后端无耦合）；frontend 目录已不存在、node_modules/dist 残留一并清掉。
+
+
+### 4.6 归档时的两条实测事实（2026-09-25 第 31 轮，重要）
+
+① **frontend/ 从来就不在 git 里**（`git ls-files frontend` = 0 个文件）—— 也就是说：
+   它是**只存在于本机**的目录，而 `.github/workflows/gate.yml` 里那个 `frontend-build` 作业（`cd frontend && npm ci && npm run build`）
+   **在 CI 上必然失败**（checkout 出来的树里没有这个目录）。这条作业今天第一次真的跑起来时才可能暴露 —— 及时删掉是对的。
+   因此本次「归档」是：本机目录移进 `_archive/frontend-H5-归档-20260925/`（5941 个文件，仍可读），
+   仓库侧提交的是**围绕它的判断与 CI 改动**（gate.yml / 判据 / 基线采集 / README），**不是一份 git 删除记录**。
+② `_check_ci_workflows.py` 没能拦住①：它核对 `run:` 里的**仓库内路径**，而 `cd frontend` 这种**相对目录**不在它的正则口径里 ——
+   列为该检查的已知盲区（下一轮补：`cd <目录>` 也要查目录存在）。

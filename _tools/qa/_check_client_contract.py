@@ -68,7 +68,11 @@ ORDERS_LIFECYCLE = BACKEND / "api/v1/orders_lifecycle.py"
 ORDER_PRODUCTS = BACKEND / "api/v1/order_products.py"
 ENDPOINT_GEN = ROOT / "backend/scripts/gen_endpoint_index.py"
 
+#: ⚠️ 2026-09-25：frontend/（旧版 H5）已按用户拍板归档 —— 下面每一块涉及 H5 的判据都在 HAS_H5 里：
+#: 目录不在就整块跳过（而不是读不到文件当场崩）；后端↔App 那一半照旧在跑。
+#: 为什么不直接删：万一以后重新启用 H5，把目录放回去就能立刻恢复这些对账。
 FE_SRC = ROOT / "frontend/src"
+HAS_H5 = (ROOT / "frontend").is_dir()
 FE_CONST = FE_SRC / "constants/order.ts"
 FE_TYPES = FE_SRC / "types/order.ts"
 FE_API_DIR = FE_SRC / "api"
@@ -294,7 +298,8 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
 
 
 def fe_const_set(name: str) -> set[str]:
-    src = strip_js(FE_CONST.read_text(encoding="utf-8"))
+    if HAS_H5:  # ⚠️ frontend/ 已归档：这一块跳过（见计划表 §4.2）
+        src = strip_js(FE_CONST.read_text(encoding="utf-8"))
     m = re.search(rf"export const {name}[^=]*=\s*\[([^\]]*)\]", src)
     if m is None:
         raise KeyError(f"constants/order.ts 里找不到 {name}")
@@ -394,36 +399,7 @@ def main() -> int:
     for name, (vals, how) in gates.items():
         print(f"  · {name:16s} = {sorted(vals)}   ← {how}")
 
-    print("\n② H5（frontend/）的状态模型")
-    fe_types = strip_js(FE_TYPES.read_text(encoding="utf-8"))
-    m = re.search(r"export type OrderStatus\s*=(.*?)(?:\n\n|\nexport |\ninterface )", fe_types, re.S)
-    fe_union = set(re.findall(r"'([A-Z_]+)'", m.group(1))) if m else set()
-    if m is None:
-        fails.append("types/order.ts 里找不到 `export type OrderStatus =`")
-    ok(f"H5 types/order.ts::OrderStatus 与后端逐值一致（{len(enum)} 档）", fe_union == enum,
-       f"少 {sorted(enum - fe_union)}、多 {sorted(fe_union - enum)}" if fe_union != enum else "")
-
-    fe_labels = strip_js(FE_CONST.read_text(encoding="utf-8"))
-    m = re.search(r"ORDER_STATUS_LABEL[^{]*\{(.*?)\n\}", fe_labels, re.S)
-    keys = set(re.findall(r"^\s*([A-Z_]+)\s*:", m.group(1), re.M)) if m else set()
-    ok("H5 ORDER_STATUS_LABEL 覆盖每一档（少一档界面直接印 undefined）", keys == enum,
-       f"少 {sorted(enum - keys)}" if keys != enum else "")
-
-    m = re.search(r"orderStatusTagType(.*?)\n\}", fe_labels, re.S)
-    cases = set(re.findall(r"case '([A-Z_]+)':", m.group(1))) if m else set()
-    ok("H5 orderStatusTagType 覆盖每一档（少一档标签没有颜色）", cases == enum,
-       f"少 {sorted(enum - cases)}" if cases != enum else "")
-
-    for name, backend in (("CANCELLABLE_STATUSES", "CANCELLABLE"), ("RECALLABLE_STATUSES", "RECALLABLE")):
-        try:
-            got = fe_const_set(name)
-        except KeyError as e:
-            fails.append(str(e))
-            print(f"  [FAIL] {e}")
-            continue
-        ok(f"H5 {name} == 后端 {backend}", got == gates[backend][0],
-           f"H5 {sorted(got)} vs 后端 {sorted(gates[backend][0])}")
-
+    # H5 状态模型那一节随 frontend/ 归档整段删掉（计划表 4.2）；后端与 App 的对账在下一节。
     print("\n③ App（android/）的状态模型")
     try:
         kt_all = kt_set("ALL")
@@ -465,14 +441,9 @@ def main() -> int:
         "shipper": gates["CANCELLABLE"][0] | {"DELIVERED"},
     }
     for role, need in required.items():
-        fe_codes, _fe_models, fe_unf, n = scan_group(FE_SRC / "views" / role, FE_PATTERNS, (".ts", ".vue"))
-        comp_codes, _cm, comp_unf, _cn = scan_group(FE_SRC / "components", FE_PATTERNS, (".vue",))
-        fe_codes |= comp_codes
-        fe_unf = fe_unf or comp_unf
-        ok(f"H5 扫到 {role} 目录（>=1 个文件，防路径写错后空转）", n >= 1, f"实际 {n}")
-        covered = fe_codes | (enum if fe_unf else set())
-        ok(f"H5 {role} 有入口到达 {sorted(need)}（有「全部」入口视为全覆盖）",
-           covered >= need, f"只覆盖 {sorted(fe_codes)}，缺 {sorted(need - covered)}")
+        # ⚠️ 2026-09-25：H5 那一半随 frontend/ 归档删掉（计划表 §4.2）——
+        #    这一段原来先扫 H5 的 views/components，再扫 App 的 ui/<role>；现在只剩 App 那一半。
+        kbase = KT / "ui" / role
 
         kbase = KT / "ui" / role
         k_codes, k_models, k_unf, kn = scan_group(kbase, KT_PATTERNS, (".kt",))
@@ -490,8 +461,11 @@ def main() -> int:
 
     print("\n⑤ 客户端不许出现枚举以外的订单状态字面量")
     bad: list[str] = []
-    for base, pats, exts in ((FE_SRC, FE_STATUS_COMPARE, (".ts", ".vue")),
-                             (KT, KT_STATUS_COMPARE, (".kt",))):
+    # ⚠️ 2026-09-25：H5 那一项已摘掉（frontend/ 归档，计划表 §4.2）—— 只剩 App；
+    #    ⛔ 注意末尾那个逗号：只有一项时没有它就不是"元组的元组"，会退化成拿 KT 当 base 解包。
+    for base, pats, exts in (
+        (KT, KT_STATUS_COMPARE, (".kt",)),
+    ):
         for p in sorted(base.rglob("*")):
             if not p.is_file() or p.suffix not in exts:
                 continue
@@ -503,47 +477,20 @@ def main() -> int:
     ok("客户端的状态字面量都在后端枚举里（旧四态/拼错的码会在这里红）", not bad,
        "；".join(sorted(set(bad))[:8]))
 
-    print("\n⑥ H5 调的端点必须真实存在")
-    try:
-        bpaths = {norm_path(p) for p in backend_paths()}
-    except Exception as e:  # noqa: BLE001
-        bpaths = set()
-        fails.append(f"算不出后端端点表：{e}")
-    calls: list[tuple[str, str]] = []
-    for p in sorted(FE_API_DIR.glob("*.ts")):
-        src = strip_js(p.read_text(encoding="utf-8"))
-        for meth, url in re.findall(
-            r"http\.(get|post|patch|put|delete)\s*(?:<[^>]*>)?\(\s*[`'\"]([^`'\"]+)", src
-        ):
-            # H5 写的是**相对 baseURL** 的路径（baseURL 已含 /api/v1），补上前缀才是真路由。
-            full = url if url.startswith("/api/") else FE_API_BASE + url
-            calls.append((f"{p.name} {meth.upper()}", full))
-    ok("H5 api/ 下扫到 >=10 处调用（清单自己算，防解析失效后空转）", len(calls) >= 10, f"实际 {len(calls)}")
-    if bpaths:
-        missing = [
-            f"{who} → {url}" for who, url in calls
-            if norm_path(url) not in bpaths
-            and not any(norm_path(url).startswith(k) for k in PATH_ALLOW)
-        ]
-        ok(f"H5 调用的 {len(calls)} 处端点都在后端路由表里", not missing, "；".join(missing[:8]))
-
+    # H5 调的端点那一节随 frontend/ 归档整段删掉（计划表 4.2）。
     print("\n⑦ 「退出登录」必须真的让服务端作废令牌")
-    fe_auth = strip_js((FE_API_DIR / "auth.ts").read_text(encoding="utf-8"))
-    fe_store = strip_js((FE_SRC / "stores/auth.ts").read_text(encoding="utf-8"))
-    ok("H5 api/auth.ts 有 logout()（打后端 /auth/logout）",
-       re.search(r"export async function logout\(", fe_auth) is not None and "/auth/logout" in fe_auth)
-    ok("H5 会话 store 真的调它（只清 localStorage 的『假登出』会在这里红）",
-       re.search(r"apiLogout\(\)", fe_store) is not None)
+    # H5 那两条（api/auth.ts 有 logout / store 真的调它）随 frontend/ 归档删掉。
 
     print("\n⑧ 界面不许把「后端原始值」直接印给用户")
     # (a) 状态码：`{{ ex.status }}` / `:value="o.status"` 这种直接把枚举码摆到用户眼前
     raw_status: list[str] = []
-    for p in sorted(FE_SRC.rglob("*.vue")):
-        src = strip_js(p.read_text(encoding="utf-8", errors="replace"))
-        for m in re.finditer(
-            r"\{\{\s*([\w.]*\.status)\s*\}\}|:value=\"([\w.]*\.status)\"", src
-        ):
-            raw_status.append(f"{p.relative_to(ROOT)} → {m.group(1) or m.group(2)}")
+    if HAS_H5:  # ⚠️ frontend/ 已归档：这一块跳过（见计划表 §4.2）
+        for p in (sorted(FE_SRC.rglob("*.vue")) if HAS_H5 else []):   # H5 已归档则零次
+            src = strip_js(p.read_text(encoding="utf-8", errors="replace"))
+            for m in re.finditer(
+                r"\{\{\s*([\w.]*\.status)\s*\}\}|:value=\"([\w.]*\.status)\"", src
+            ):
+                raw_status.append(f"{p.relative_to(ROOT)} → {m.group(1) or m.group(2)}")
     ok("界面不直接把订单状态码印出来（要过 ORDER_STATUS_LABEL / statusLabel 之类的映射）",
        not raw_status, "；".join(raw_status[:6]))
 
@@ -564,19 +511,20 @@ def main() -> int:
        len(money_fields) >= 10, f"实际 {len(money_fields)}")
     money_pat = re.compile(r"\b(" + "|".join(sorted(money_fields)) + r")\b")
     raw_money: list[str] = []
-    for p in sorted(FE_SRC.rglob("*.vue")):
-        src = strip_js(p.read_text(encoding="utf-8", errors="replace"))
-        for m in re.finditer(
-            r"\{\{\s*([^}]+?)\s*\}\}|:value=\"([^\"]*)\"|:title=\"([^\"]*)\""
-            r"|:label=\"([^\"]*)\"|:text=\"([^\"]*)\"",
-            src,
-        ):
-            expr = next((g for g in m.groups() if g), "")
-            if "formatMoney" in expr or "money(" in expr:
-                continue
-            hit = money_pat.search(expr)
-            if hit:
-                raw_money.append(f"{p.relative_to(ROOT)} → {hit.group(1)}")
+    if HAS_H5:  # ⚠️ frontend/ 已归档：这一块跳过（见计划表 §4.2）
+        for p in (sorted(FE_SRC.rglob("*.vue")) if HAS_H5 else []):   # H5 已归档则零次
+            src = strip_js(p.read_text(encoding="utf-8", errors="replace"))
+            for m in re.finditer(
+                r"\{\{\s*([^}]+?)\s*\}\}|:value=\"([^\"]*)\"|:title=\"([^\"]*)\""
+                r"|:label=\"([^\"]*)\"|:text=\"([^\"]*)\"",
+                src,
+            ):
+                expr = next((g for g in m.groups() if g), "")
+                if "formatMoney" in expr or "money(" in expr:
+                    continue
+                hit = money_pat.search(expr)
+                if hit:
+                    raw_money.append(f"{p.relative_to(ROOT)} → {hit.group(1)}")
     allowed = [x for x in raw_money if any(a in x for a in MONEY_RAW_ALLOW)]
     bad_money = [x for x in raw_money if x not in allowed]
     ok("界面上的金额字段都过了 formatMoney2（否则印出 `12.5000` 这种服务端精度）",
@@ -587,20 +535,9 @@ def main() -> int:
     # 「批发商（货主）只读自己的专属价，**用于下单时展示实际价格**」。
     # 下单页不去读它 → 批发商按**零售价**成交（谁也不会发现，直到对账）。
     # 清单自己算：谁调 `createOrder(` 谁就是下单页。
-    fe_create = [
-        p for p in sorted(FE_SRC.rglob("*.vue"))
-        if re.search(r"\bcreateOrder\(", p.read_text(encoding="utf-8"))
-    ]
-    ok("扫到 >=1 个 H5 下单页（清单自己算，防路径写错后空转）", len(fe_create) >= 1, f"实际 {len(fe_create)}")
-    for p in fe_create:
-        src = strip_js(p.read_text(encoding="utf-8"))
-        ok(f"{p.name} 读了批发商专属价（`/price-rules`）",
-           "fetchPriceRules(" in src and "special_unit_price" in src)
-        ok(f"{p.name} 单价真的按专属价算（不是只加载了不用）",
-           re.search(r"unit_price\s*=\s*priceForProduct\(", src) is not None)
-        # ⚠️ 换主体必须清空：异步加载晚一步回来就会拿甲的价给乙下单
-        ok(f"{p.name} 换下单主体时清掉上一份专属价（防报价串号）",
-           re.search(r"priceRulesSubject\.value\s*!==\s*subject", src) is not None)
+    # ⚠️ 2026-09-25：原来这里先扫 H5 的下单页（谁调 createOrder( 谁就是），
+    #    再扫 App 的 OrderCreateViewModel —— H5 那一半随 frontend/ 归档删掉（计划表 §4.2），
+    #    下面只剩 App 那一半（后端 /price-rules 的存在理由与它一并对账）。
     app_create = KT / "ui/shipper/OrderCreateViewModel.kt"
     if app_create.exists():
         kt = strip_js(app_create.read_text(encoding="utf-8"))
@@ -626,8 +563,10 @@ def main() -> int:
     # （`ledger.py`：挂了会被当日订单账重复计入），只把它写进审计日志当线索。
     # 所以界面上选了单号时，必须如实说明"这笔账不会挂到那张单上" ——
     # 否则用户会以为钱挂到了那单上（界面上确实显示了单号）。
-    ledger_vue = FE_SRC / "views/dispatcher/DispatcherLedger.vue"
-    if ledger_vue.exists():
+    if HAS_H5:  # ⚠️ frontend/ 已归档：这一块跳过（见计划表 §4.2）
+        # H5 已归档（计划表 4.2）：目录不在时下面那条 if 直接不成立。
+        ledger_vue = FE_SRC / "views/dispatcher/DispatcherLedger.vue"
+    if HAS_H5 and ledger_vue.exists():
         src = strip_js(ledger_vue.read_text(encoding="utf-8"))
         picks_order = "showOrderPick = true" in src
         ok("账本手工记账确实提供「关联订单」选择（判据的前提）", picks_order)
@@ -639,8 +578,10 @@ def main() -> int:
            and "不会挂到订单上" in src
            and re.search(r'v-if="manualForm\.order_id\s*!=\s*null"', src) is not None)
     else:
-        fails.append("找不到 DispatcherLedger.vue（改名了？判据要跟着改，不许静默跳过）")
-        print("  [FAIL] 找不到 frontend/src/views/dispatcher/DispatcherLedger.vue")
+        if HAS_H5:
+            fails.append("找不到 DispatcherLedger.vue（改名了？判据要跟着改，不许静默跳过）")
+        if HAS_H5:
+            print("  [FAIL] 找不到 frontend/src/views/dispatcher/DispatcherLedger.vue（H5 已归档则不该出现）")
 
     print("\n" + "=" * 60)
     if fails:

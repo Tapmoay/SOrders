@@ -179,35 +179,9 @@ def main() -> int:
         "没暴露：" + "、".join(missing_expose) + "（跨源时浏览器读不到 → 客户端只能当成『没截断』）",
     )
 
-    print("\nH5（frontend/）：列表页要看得出「服务端截断了」")
-    fe_api = FE_SRC / "api/orders.ts"
-    ots = strip_comments(fe_api.read_text(encoding="utf-8"))
-    ok("接口层读了 X-Truncated（旧 H5 只取 data，从不看截断头）", "x-truncated" in ots.lower())
-    ok("接口层读了 X-Result-Limit（说不出『看到的是多少条』）", "x-result-limit" in ots.lower())
-    ok("接口层把两者包成一页返回（OrdersPage）",
-       "interface OrdersPage" in ots and "truncated" in ots and "limit" in ots)
-    # 逐页对账：凡是**列出订单/消息**的页面或组件，必须把 truncated 渲染出来。
-    # 文件名从源码算：调用了分页接口 `.vue` 就是"列表界面"（views 与 components 都算，
-    # 消息中心是 `components/MessageCenterPopup.vue` —— 只扫 views 会漏掉它）。
-    list_views = [
-        p for p in sorted(FE_SRC.rglob("*.vue"))
-        if re.search(
-            r"fetchOrdersPage\(|fetchOrdersByStatuses\(|fetchNotificationsPage\(",
-            p.read_text(encoding="utf-8"),
-        )
-    ]
-    ok("扫到 >=5 个 H5 列表界面（清单自己算，防路径写错后空转）", len(list_views) >= 5, f"实际 {len(list_views)}")
-    for p in list_views:
-        src = p.read_text(encoding="utf-8")
-        rel = p.relative_to(ROOT)
-        # ① 真的从 page 取值（只声明一个恒为 false 的 ref = 提示条永远不出现，
-        #    而"提到过 truncated 这个词"照样成立 —— 反向验证抓到过一次）
-        ok(f"{rel.name} 把服务端的截断位真的取回来（truncated.value = …）",
-           re.search(r"truncated\.value\s*=", src) is not None)
-        # ② 真的渲染出来，且**有话说**（`truncatedText` 或一条 text=）
-        ok(f"{rel.name} 渲染了截断说明（v-if=\"truncated\" + text）",
-           re.search(r'v-if="truncated"', src) is not None
-           and ("truncatedText" in src or re.search(r':?text="', src) is not None))
+    # ⚠️ 2026-09-25：H5（frontend/）那一段**停用删掉** —— 按用户拍板前端 H5 已归档
+    #    （见计划表 §4.2）。后端与安卓两侧的分页截断判据不受影响。
+    print("\nH5（frontend/）：已归档，这一段不再判（见计划表 §4.2）")
 
     print("\n客户端：消息列表的整条链路")
     body: dict[str, str] = {}

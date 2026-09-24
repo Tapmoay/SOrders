@@ -159,23 +159,10 @@ jobs:
           cd backend
           pytest -n auto -q --tb=short
 
-  frontend-build:
-    name: Normal Gate · 前端构建
-    needs: fast-gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: 装依赖并构建（含 vue-tsc 类型检查）
-        run: |
-          cd frontend
-          npm ci
-          npm run build
+  # ⚠️ 2026-09-25（用户拍板）：frontend-build 作业**删掉了** —— 前端 H5（frontend/）正式归档。
+  #    理由：它是三端里最初始的网页版，**没有任何部署引用**（_tools/deploy/ 与 nginx 都搜不到 frontend/dist），
+  #    线上没人访问它；留着它却继续在 CI 里跑构建，就是报告 §14 说的「旧系统，但又像新系统」。
+  #    归档副本在 _archive/frontend-H5-归档-20260925/（不进 git），代码本体可以从 git 历史取回。
 
   # ============================================================
   # Slow / Nightly Gate

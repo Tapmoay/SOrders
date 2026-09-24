@@ -330,9 +330,8 @@ def main() -> int:
     c.present("订单管理有「已退货」页签", tabs, r'OrderTab\("RETURNED", "已退货"')
     c.present("页签配色也加了第六档", read(ANDROID / "ui/common/SegmentedStatusTabs.kt"), r"已退货 · 棕橙")
     c.present("货主端也能筛到「已退货」", read(ANDROID / "ui/shipper/ShipperOrdersViewModel.kt"), r'OrderTab\("RETURNED"')
-    h5 = read(FRONTEND / "constants/order.ts")
-    c.present("H5 的中文名也补了这一档", h5, r"RETURNED: '已退货'")
-    c.present("H5 的类型也补了这一档", read(FRONTEND / "types/order.ts"), r"\| 'RETURNED'")
+# ⚠️ 2026-09-25：H5 三条断言**删掉**了 —— frontend/ 已按用户拍板归档（见计划表 §4.2），
+#    后端 ↔ App 那两条（上面）仍然在查。
     c.present("核销金额由界面算出来只读显示（单张）", ui, r'SettleAmountRow\("本次核销", vm\.settleAmount\(\)\)')
     c.present("批量核销的金额也是算出来的（用户手打的数必然与后端对不上）",
               ui, r'SettleAmountRow\("本次核销", vm\.settleAllAmount\(\)\)')

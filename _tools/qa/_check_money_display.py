@@ -39,10 +39,8 @@ ROOT = Path(__file__).resolve().parents[2]
 ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 ANDROID_TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders"
 BACKEND = ROOT / "backend/app"
-FRONTEND = ROOT / "frontend/src"
 
 MONEY_KT = ANDROID / "util/Money.kt"
-MONEY_TS = FRONTEND / "utils/formatMoney.ts"
 MONEY_PY = BACKEND / "services/money_text.py"
 AGENT_LOOP = ANDROID / "ai/AiAgentLoop.kt"
 
@@ -186,15 +184,15 @@ def main() -> int:
 
     # ── 0. 反空转 ─────────────────────────────────────────────────────────
     c.section("0. 反空转（文件/结构变了要先喊，而不是安静地什么都不查）")
-    for p in (MONEY_KT, MONEY_TS, MONEY_PY, AGENT_LOOP):
+    for p in (MONEY_KT, MONEY_PY, AGENT_LOOP):
         c.ok(f"{p.relative_to(ROOT).as_posix()} 在", p.exists())
-    if not all(p.exists() for p in (MONEY_KT, MONEY_TS, MONEY_PY, AGENT_LOOP)):
+    if not all(p.exists() for p in (MONEY_KT, MONEY_PY, AGENT_LOOP)):
         return 1
     c.ok(f"扫到的安卓源文件 >= 100 个（实际 {len(kt_files)}）", len(kt_files) >= 100)
     c.ok(f"扫到的后端源文件 >= 60 个（实际 {len(py_files)}）", len(py_files) >= 60)
 
     kt = strip_comments(read(MONEY_KT))
-    ts = read(MONEY_TS)
+    # ⚠️ 2026-09-25：H5 那一份（formatMoney.ts）的断言随 frontend/ 归档一并删掉。
     py = strip_comments(read(MONEY_PY))
     loop = strip_comments(read(AGENT_LOOP))
 
@@ -210,10 +208,8 @@ def main() -> int:
     c.ok("安卓显式 `Locale.US`（默认语言是德语时 `%.2f` 会印成 `56,7`）",
          '"%.2f".format(Locale.US, v)' in fmt)
     c.ok("安卓负零摆正（`-0.001` 否则印成 `-0`）", '"-0"' in fmt)
-    ts_fn = ts[ts.find("export function formatMoney2("):]
-    c.ok("找到 H5 `formatMoney2` 的函数体", "export function formatMoney2(" in ts)
-    c.ok("H5 `formatMoney2` 去尾零", re.search(r"replace\(/\\\.\?0\+\$/", ts_fn) is not None)
-    c.ok("H5 找不到数就给 `0`（不是 `0.00`）", "return '0'" in ts_fn and "'0.00'" not in ts_fn)
+    # ⚠️ 2026-09-25：H5 的三条（formatMoney2 的函数体/去尾零/给 0）随 frontend/ 归档一并删掉 ——
+    #    三端变两端：后端 money_text + 安卓 formatMoney，两条仍然各自钉在函数体里。
     py_fn = _py_fun_body(py, "money_text")
     c.ok("找到后端 `money_text` 的函数体", bool(py_fn))
     c.ok("后端 `money_text` 去尾零", '.rstrip("0").rstrip(".")' in py_fn)
@@ -355,18 +351,8 @@ def main() -> int:
     c.ok("私有 `_plain` 已收进 `money_text`（后端不许有第二份去零实现）",
          not _offenders(r"def _plain\(", py_files))
 
-    # ── 5. H5 漏斗唯一 ────────────────────────────────────────────────────
-    c.section("5. H5：金额显示只有 `formatMoney2` 一处")
-    ts_files = sorted(FRONTEND.rglob("*.ts")) + sorted(FRONTEND.rglob("*.vue"))
-    c.ok(f"扫到 H5 源文件 >= 30 个（实际 {len(ts_files)}）", len(ts_files) >= 30)
-    fixed = [
-        p.relative_to(ROOT).as_posix() for p in ts_files
-        if any("toFixed(2)" in ln for _, ln in _js_code_lines(read(p)))
-    ]
-    c.ok(f"`toFixed(2)` 只允许在 `formatMoney.ts` 里（实际 {fixed}）",
-         fixed == ["frontend/src/utils/formatMoney.ts"])
-    n_ts = sum(read(p).count("formatMoney2(") for p in ts_files)
-    c.ok(f"H5 至少 20 处走 `formatMoney2`（实际 {n_ts}）", n_ts >= 20)
+    # ⚠️ 2026-09-25：原来第 5 节"H5 金额漏斗唯一"整段删掉 —— frontend/ 已归档（见计划表 §4.2）；
+    #    安卓侧与后端侧那几节不受影响。
 
     # ── 6. AI 回复提示词 + 单测钉着用户给的三个例子 ─────────────────────────
     c.section("6. AI 那边：提示词写新规则，单测钉住用户给的三个例子")

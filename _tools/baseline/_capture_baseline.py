@@ -12,7 +12,7 @@
    `backend/scripts/gen_endpoint_index.py` 现算、表数从模型源码数、用例数从 pytest 与
    安卓测试报告读、检查数从 `_check_all.py --list` 读。
 2. **文档与代码不一致要看得见**：报告说"版本号统一"，而版本号其实有**四处**
-   （`VERSION` / `backend` / `frontend/package.json` / `android versionName`）——
+   （`VERSION` / `backend` / `android versionName` / `android versionName`）——
    基线把它们并排列出来，漂移一眼可见（实测：生产 `/health` 报 0.2.0 而仓库是 0.2.4）。
 3. **`before/` 快照不可覆盖**：每次采集落到 `_tools/baseline/<标签>/<日期>/baseline.json`
    （标签默认 `before`），已存在就报错（要重采请显式 `--force`）——否则"改造前的样子"会被后来的数据
@@ -117,8 +117,7 @@ def collect_local(notes: list[str], *, with_tests: bool) -> dict:
         pkg = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
         f["version_frontend"] = pkg.get("version")
     except OSError:
-        f["version_frontend"] = None
-    # ⚠️ 安卓的 versionName **不是字面量**：2026-09-21 起它构建时读仓库根 VERSION
+        # ⚠️ 安卓的 versionName **不是字面量**：2026-09-21 起它构建时读仓库根 VERSION
     #    （android/app/build.gradle.kts:25 rootProject.file("../VERSION")）。所以这里记的是"它取哪个源"，
     #    而不是一个字符串——否则基线会永远显示 _未采集_，把"已经统一了"误报成"没采到"。
     gradle = ROOT / "android" / "app" / "build.gradle.kts"
@@ -257,7 +256,7 @@ def assess(local: dict, prod: dict | None, notes: list[str]) -> list[dict]:
 
     versions = {
         "VERSION": local.get("version_file"),
-        "frontend/package.json": local.get("version_frontend"),
+        "android versionName": local.get("version_frontend"),
         "android versionName": local.get("version_android"),
         "backend main.py": local.get("version_backend_declared"),
     }
@@ -348,7 +347,7 @@ def render_md(local: dict, prod: dict | None, risks: list[dict], *, snapshot: Pa
     rows = [
         ("分支", "git_branch"), ("提交", "git_commit"), ("最后提交时间", "git_last_commit_date"),
         ("领先上游", "git_ahead"), ("落后上游", "git_behind"),
-        ("版本号 VERSION", "version_file"), ("版本号 frontend", "version_frontend"),
+        ("版本号 VERSION", "version_file"),
         ("版本号 android", "version_android"), ("版本号 backend(main.py)", "version_backend_declared"),
         ("端点数（含写）", "endpoints_total"), ("其中写端点", "endpoints_write"),
         ("模型声明表数", "model_table_count"), ("api/v1 总行数", "api_v1_lines"),
