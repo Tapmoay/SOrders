@@ -206,8 +206,9 @@ def render(rows: list[tuple[Evidence, bool, str, str]], *, full: bool) -> str:
     o.append("| --- | --- | --- |")
     o.append("| 把这些提交推到 GitHub，让 CI 真的跑那三层闸门 | 本地领先 origin/new | "
              "本机到 GitHub 的链路不通（代理整体失效、22 与 443 都被切断）；国内站点与生产 SSH 正常 |")
-    o.append("| 读 Tests (Parallel) 那两个红 job 的 CI 注解 | 已把失败摘要改成**公开可读的 CI 注解**，等下一次 push | "
-             "同上：拿不到 run 之前读不了 |")
+    o.append("| Tests (Parallel) 那两个红 job | **真因已复现并修掉**：xdist 默认分发把同一个文件的用例拆到"
+             "不同 worker，而这些用例共享 per-worker 的库 → 加 --dist loadfile（本机 `-n auto` 2 failed、"
+             "加后 1015 passed），并配了判据第 12 条 + 反向验证第 ⑦ 条 | 还差**一次 push**：CI 上跑一遍才算数 |")
     o.append("| 安卓单测从夜闸挪进 PR 闸 | 仍在夜闸（机器判据已把「跑得起来」的四件事钉住） | "
              "需要 CI 能跑，才能验证「挪进去不会让每个 PR 都红」 |")
     o.append("| 把整改后的代码发到生产 | 生产仍跑旧代码（外部监控里如实写着「还没有 outbox_events 表」「迁移版本 —」） | "
