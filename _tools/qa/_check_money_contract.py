@@ -22,6 +22,15 @@
 5. `ALLOWED` 例外必须**仍然命中**（不再命中的豁免是化石，会让人以为这里有洞）；
 6. 契约模块自己**一行算术都没有**（接口里藏实现 = 又长出第二个实现点）。
 
+### 第 ② 步（2026-09-25 第 23 轮）：消费方依赖**接口**，不依赖实现
+报告要的是「所有消费方依赖接口」。契约里有 `REEXPORTS`（**惰性**转出实现符号），于是第 7/8/9 条：
+
+7. `REEXPORTS` 里每个符号**真的取得到**，而且它的 `__module__` 就是**声明的那条实现** ——
+   防的是「契约里又抄了一份实现」（那样接口就成了第二个实现点，比不改还糟）；
+8. 每个声明的消费方必须**从契约** `import` 那条契约的符号（不是从实现模块），
+   于是「钱只有一处实现」变成**一条 import 语句**就能看出来的事；
+9. `app/` 里**不许**再从实现模块 import 这些符号（实现文件自己、以及 `PENDING` 里写明理由的除外）。
+
 用法：
     python _tools/qa/_check_money_contract.py --check   # 非零退出＝有问题
     python _tools/qa/_check_money_contract.py           # 打印逐条明细
@@ -44,6 +53,19 @@ CONTRACT = APP / CONTRACT_REL
 MIN_FIGURES = 5
 MIN_PATTERNS = 6
 MIN_CONSUMERS = 10
+MIN_REEXPORTS = 12
+
+#: ⚠️ 还没改过来的消费方 → 理由。**必须仍然命中**（不命中＝化石，报红），
+#: 也就是「等它落地后必须把这条例外删掉」，而不是让它悄悄留着。
+PENDING: dict[str, str] = {
+    "api/v1/reports.py": (
+        "钱的重度消费方，正在被另一个会话（session-78ebd95c）**下沉成 service**、尚未提交 —— "
+        "现在改它的 import，只会把两个会话的改动搅在一起。落地后删掉这条例外。"
+    ),
+    "services/reports_service.py": (
+        "同上（那个会话新建的 service，还是 untracked 状态）。落地后删掉这条例外。"
+    ),
+}
 
 #: 允许出现在实现区之外的写法 → 理由。⚠️ 每条都要说清「为什么它不是第二个实现」，
 #: 而且**必须仍然命中**（不命中的豁免会变成化石，让人以为这里有洞）。
@@ -148,7 +170,12 @@ def main() -> int:
         return 1
     sys.path.insert(0, str(ROOT / "backend"))
     try:
-        from app.services.money_contract import FIGURES, IMPLEMENTATION_FILES  # noqa: PLC0415
+        from app.services import money_contract as _contract_module  # noqa: PLC0415
+        from app.services.money_contract import (  # noqa: PLC0415
+            FIGURES,
+            IMPLEMENTATION_FILES,
+            REEXPORTS,
+        )
     except Exception as exc:  # noqa: BLE001
         print("❌ 契约模块 import 失败：" + str(exc))
         return 1
@@ -185,10 +212,71 @@ def main() -> int:
                 want(False, "", fig.key + "：声明的消费方不存在 " + rel)
                 continue
             got = imports_of(p)
-            used = sorted(s for s in impl_symbols[fig.key] if s in got or (s[0], "*") in got)
+            # ⚠️ 第 ② 步之后，消费方走的是**契约**（`from app.services.money_contract import 符号`），
+            #    所以「真的在用」要同时认两条路：直接 import 实现（历史写法）与经契约转出。
+            used = sorted(s for s in impl_symbols[fig.key]
+                          if s in got or (s[0], "*") in got
+                          or (s[1] in REEXPORTS and ("money_contract", s[1]) in got))
             want(bool(used), fig.key + " 的消费方 " + rel + " 确实在用（" + "、".join(s[1] for s in used) + "）",
                  fig.key + "：声明 " + rel + " 是消费方，但它**没有 import** 这条契约的任何实现符号 —— "
                  + "假消费方比漏写更糟：它让人以为那处在走契约")
+
+    # ---- ⑥ 接口：消费方依赖契约，不依赖实现（报告 §7 第 ② 步）----
+    reexports = sorted(REEXPORTS)
+    want(len(reexports) >= MIN_REEXPORTS,
+         "契约转出的钱符号 " + str(len(reexports)) + " ≥ " + str(MIN_REEXPORTS),
+         "契约只剩 " + str(len(reexports)) + " 个转出符号 —— 接口被掏空了（消费方会退回去直接 import 实现）")
+    wrong: list[str] = []
+    for name in reexports:
+        module, symbol = REEXPORTS[name]
+        try:
+            obj = getattr(_contract_module, name)
+        except AttributeError:
+            wrong.append(name + "（契约里取不到）")
+            continue
+        owner = getattr(obj, "__module__", "")
+        if owner != module:
+            wrong.append(name + " 来自 " + str(owner) + "，声明的是 " + module)
+    want(not wrong, "契约转出的 " + str(len(reexports)) + " 个钱符号都取得到、且都来自声明的那条实现",
+         "转出的符号与声明对不上：" + "；".join(wrong[:3])
+         + " —— 契约里**又包/又抄**一份实现，就是长出第二个实现点（比不改还糟）")
+
+    not_via_contract: list[str] = []
+    for fig in FIGURES:
+        wanted = {sym for _mod, sym in impl_symbols[fig.key] if sym in REEXPORTS}
+        if not wanted:
+            continue
+        for rel in fig.consumers:
+            p = APP / rel
+            if not p.exists() or rel in PENDING:
+                continue
+            if not any((m, s) in imports_of(p) for s in wanted for m in ("money_contract",)):
+                not_via_contract.append(fig.key + "：" + rel)
+    want(not not_via_contract,
+         "声明的消费方都从契约 import（" + str(sum(len(f.consumers) for f in FIGURES) - len(PENDING)) + " 个）",
+         "这些消费方还在直接 import 实现：" + "、".join(not_via_contract[:5])
+         + " —— 判据要说的是「消费方依赖接口」，漏一个就等于那处没走契约")
+
+    impl_tails = {mod.rsplit(".", 1)[-1] for mod, _sym in REEXPORTS.values()}
+    bypass: list[str] = []
+    for p in sorted(APP.rglob("*.py")):
+        if "__pycache__" in str(p):
+            continue
+        rel = p.relative_to(APP).as_posix()
+        if rel in IMPLEMENTATION_FILES or rel == CONTRACT_REL or rel in PENDING:
+            continue
+        for mod, sym in imports_of(p):
+            if mod in impl_tails and sym in REEXPORTS:
+                bypass.append(rel + " → " + mod + "." + sym)
+    want(not bypass, "app/ 里没有从实现模块直接 import 契约符号（" + "、".join(sorted(impl_tails)) + "）",
+         "这些地方绕过了契约：" + "、".join(bypass[:5])
+         + " —— 实现模块只该被契约自己 import（否则「唯一实现」又变成口头约定）")
+
+    pending_hit = [rel for rel in PENDING if (APP / rel).exists()]
+    want(len(pending_hit) == len(PENDING),
+         "PENDING 例外 " + str(len(pending_hit)) + "/" + str(len(PENDING)) + " 条仍然命中",
+         "PENDING 里有化石（文件不在了/已经改好了）：" + str(sorted(set(PENDING) - set(pending_hit)))
+         + " —— 该把例外删掉了")
 
     hits: dict[tuple[str, str], list[str]] = {}
     WHY: dict[tuple[str, str], tuple[str, str]] = {}

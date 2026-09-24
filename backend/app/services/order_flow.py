@@ -12,13 +12,12 @@ from app.models import Order, User
 from app.models.order import OrderProduct
 from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.services.accounting_service import post_delivery_accounting
+from app.services.money_contract import has_per_order_pay, rule_of_user
 from app.services.driver_pay import (
     ZERO,
     dispatch_mode,
-    has_per_order_pay,
     money,
     override_problem,
-    rule_of_user,
     rule_to_snapshot,
 )
 

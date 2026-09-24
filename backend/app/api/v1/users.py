@@ -34,7 +34,8 @@ def _to_out(u: User, viewer: User) -> User:
         out.salary = None
     # 计费规则：怎么算钱那句话只由 `driver_pay` 生成（界面/确认卡/账单同源，不各写一套）
     if user_role_key(u) == UserRole.DRIVER.value:
-        from app.services.driver_pay import pay_summary_for, rule_of_user, snapshot_mode
+        from app.services.money_contract import pay_summary_for, rule_of_user
+        from app.services.driver_pay import snapshot_mode
 
         rule = rule_of_user(u)
         out.driver_rule_id = rule.rule_id if rule is not None else None

@@ -268,7 +268,7 @@
    "module_cn": "司机计费规则",
    "method": "get",
    "path": "/api/v1/driver-billing-rules",
-   "at": "backend/app/api/v1/driver_billing_rules.py:280",
+   "at": "backend/app/api/v1/driver_billing_rules.py:281",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -305,7 +305,7 @@
    "module_cn": "司机账单",
    "method": "get",
    "path": "/api/v1/driver-bills",
-   "at": "backend/app/api/v1/driver_bills.py:41",
+   "at": "backend/app/api/v1/driver_bills.py:39",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机",
    "roles": [
     "dispatcher",
@@ -2257,7 +2257,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:68",
+   "at": "backend/app/api/v1/users.py:69",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -2328,7 +2328,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users/me",
-   "at": "backend/app/api/v1/users.py:55",
+   "at": "backend/app/api/v1/users.py:56",
    "auth": "仅登录 + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",

@@ -16,7 +16,8 @@ from app.deps import require_permission
 from app.models import Order, User
 from app.schemas.order import OrderReturnBody, OrderReturnOut
 from app.services.order_response import enrich_order_out, load_order_for_response
-from app.services.order_return import OrderReturnError, ReturnItem, return_order
+from app.services.money_contract import return_order
+from app.services.order_return import OrderReturnError, ReturnItem
 from app.services import order_return_request as return_request_svc
 from app.core import outbox
 

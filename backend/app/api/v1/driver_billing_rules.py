@@ -45,7 +45,8 @@ from app.schemas.driver_billing_rule import (
     DriverBillingRuleUpdate,
     validate_rule_params,
 )
-from app.services.driver_pay import PayRule, monthly_salary_of, rule_of_user, snapshot_mode
+from app.services.money_contract import rule_of_user
+from app.services.driver_pay import PayRule, monthly_salary_of, snapshot_mode
 from app.services.money_text import money_text
 from app.services.operation_log_service import write_log
 from app.services import usage_service

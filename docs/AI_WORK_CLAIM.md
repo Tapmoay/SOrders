@@ -20,6 +20,45 @@
 
 ## 进行中
 
+### [2026-09-25 04:3x → ] 会话：**架构整改 · 第 24 轮：三条「源码形状」用例跟着报表下沉走（后端用例 1012/1012 全绿）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**问题**：报表聚合下沉到 `services/reports_service.py` 之后，后端有 **3 条用例**一直在红 —— 它们与第 22 轮修的那 23 条死锚点是**同一个病**：
+按**旧文件**读源码形状，代码搬走之后它们测的是一具空壳（或者当场 IndexError）：
+`test_audit_round12_guards.py::test_turnover_freight_shape_uses_pay_for_order`（`src.split("def build_turnover")` → IndexError）、
+`test_audit_round2_guards.py::test_gross_profit_only_counts_rows_with_cost_snapshot`（断言 `cost_covered_amount += net_amount` 在 reports.py 里）、
+`test_date_order_guard.py::test_the_400_comes_from_the_shared_guard`（**反空转**那条：把闸门换成空实现之后端点仍 400 → 说明它 patch 错了模块）。
+
+**改法**：① 前两条改成**读两份**（`api/v1/reports.py` + `services/reports_service.py`），与 `_airepo.reports_source()` 同一个口径；
+② 第三条把「拆掉闸门」改成换掉**所有持有 `ensure_date_order` 的 app 模块**（定义处 + 每个 import 处）——
+只补端点那个模块时，service 里那份 `from app.core.date_window import …` 绑定的旧函数照样拦人（这就是它红的原因）。
+⛔ 判据不变、被测行为不变，只让**它们找得到自己该找的代码**。
+
+**证据**：后端 `python -m pytest -q` → **1012 passed / 0 failed**（改前 1009 passed / 3 failed）；`_check_all.py` 100/100。
+
+**明确不碰**：`backend/app/api/v1/reports.py` / `services/reports_service.py` 的业务逻辑（另一会话的下沉，未提交）。
+
+### [2026-09-25 04:0x → 04:3x] 会话：**架构整改 · 第 23 轮：阶段 5 §7 第②步 —— 消费方的 import 指到「钱契约」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+核心改动：backend/app/services/order_flow.py —— 为什么必须动核心：只把它 import「司机应得」的那两行从实现模块改到契约模块（报告 §7 第②步，行为零变化）
+核心改动：backend/app/services/order_response.py —— 为什么必须动核心：同上（出参口径与司机视角门控一行未动，只换 import 来源）
+
+**报告 §7 要的是什么**：`以前：谁想用就 import 文件 → 靠 freeze 保证` / `以后：Domain Contract → 接口 → 唯一实现 → 所有消费方依赖接口`。
+上一轮立了契约表与 47 条判据，但消费方**仍然直接从实现模块 import** —— 于是「钱只有一处实现」还是靠一份清单在管，不是代码边界。
+
+**本轮做完第 ② 步**：契约新增 `REEXPORTS`（惰性转出 15 个钱符号）——**13 个消费文件、17 处 import** 全部改成
+`from app.services.money_contract import 符号`（orders_payment / orders_query / orders_return / shipper_ledger / driver_bills /
+driver_billing_rules / freight_settlement / users / order_response / order_flow / stats_service / message_center / order_return_request）。
+⚠️ **惰性是必需的**：`order_return.py` 反过来 import `order_flow.mark_returned`，而 `order_flow` 自己是消费方 —— 顶端 eager import 当场成环。
+⛔ 判据**先于**改动落地（新增 ⑦⑧⑨ 三条）：⑦ 转出符号的 `__module__` 必须是声明的那条实现（防"契约里又抄一份"）；
+⑧ 声明的消费方必须从契约 import；⑨ `app/` 里不许再从实现模块 import 这些符号。
+**反向验证**：`_tools/qa/_reverse_verify_money_contract.py` → **5/5**（绕回实现 / 影子化一份实现 / 假消费方 / 契约里长算式，四种都报红 + 还原逐字节一致）。
+
+**两条例外（写明理由，且必须仍然命中）**：`api/v1/reports.py` 与 `services/reports_service.py` 是钱的重度消费方，
+正在被另一会话（`session-78ebd95c`）下沉成 service、**尚未提交** —— 现在改它们的 import 只会把两个会话的改动搅在一起。
+判据里的 `PENDING` 表盯着这两条：**它们不再命中就报红**（＝提醒删掉例外），落地后我会补上。
+
+**证据**：`_check_money_contract.py` 47 条全绿；后端 `1009 passed`；`_check_all.py` 100/100。
+
 ### [2026-09-25 03:2x → 04:0x] 会话：**架构整改 · 第 22 轮：阶段 4/6 第 ③ 步 —— 23 条反向验证锚点跟着搬迁重指**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `0c202bf`】
 
 **背景**：报表聚合下沉到 `services/reports_service.py`（另一会话在做：`api/v1/reports.py` 只留路由与导出）之后，

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import Notification, Order, OrderReturnRequest, User
 from app.models.enums import UserRole
 from app.schemas.notification import NotificationOut
-from app.services.driver_pay import has_per_order_pay
+from app.services.money_contract import has_per_order_pay
 from app.services.message_push import emit_to_user
 from app.services.money_text import money_text
 

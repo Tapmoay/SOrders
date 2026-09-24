@@ -19,7 +19,7 @@ from app.deps import CurrentUser, parse_date_range
 from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
 from app.schemas.order import OrderOut
-from app.services.order_money import money_map
+from app.services.money_contract import money_map
 from app.services.order_response import enrich_order_out
 from app.api.v1.orders_common import _get_order_scoped
 

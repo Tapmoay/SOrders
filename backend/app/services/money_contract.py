@@ -19,12 +19,14 @@
 3. **除实现区之外**没有任何文件命中「自己又算了一遍」的写法（每条模式都写清为什么它是重复实现）；
 4. 本模块自己**一行算术都没有** —— 接口里不许藏实现（否则「契约」会变成第二个实现点）。
 
-## 为什么这一轮不直接把 import 全改到这一页
+## 接口：消费方依赖契约，不依赖实现（第 ② 步，2026-09-25 第 23 轮）
 
-改 import 是「行为零变化」的活，但它要动 20 多个消费文件 —— 其中 `api/v1/reports.py`、
-`services/reports_service.py`（两个都是钱的重度消费方）**正在被另一个会话改造成 service**。
-所以分两步：① 先立契约 + 判据（本轮，不碰消费方一个字节）；② 等那些文件空下来再逐个把 import 指过来。
-⛔ 顺序不能反：先改 import 而没有判据，等于把「哪一处是唯一实现」从代码搬回记忆里。
+报告要的是「**所有消费方依赖接口**」，所以第 ② 步把消费方的 import 指到这一页：见下面的 `REEXPORTS`。
+从此「钱只有一处实现」是**一条 import 语句**就能看出来的事，而不是靠一份清单 + 文件冻结。
+⛔ 顺序是**先判据、再改 import**（判据的第 ⑥ 条钉着）：没有判据就改 import，等于把「哪一处是唯一实现」从代码搬回记忆。
+⚠️ 还有两个消费方**暂时没改**（`api/v1/reports.py`、`services/reports_service.py`）：它们正在被另一个会话
+下沉成 service、**尚未提交**，改过去只会把两个会话的改动搅在一起。判据里那两条例外写在 `PENDING` 表里、
+写明理由，并且**等它落地后必须删掉**（例外不再命中就报红，防化石）。
 
 ## 允许的例外
 
@@ -175,6 +177,56 @@ FIGURES: tuple[Figure, ...] = (
         ),),
     ),
 )
+
+# ---------------------------------------------------------------- 接口（转出）
+#: 契约**转出**的钱符号：`符号 -> (实现模块, 该模块里的名字)`。
+#: 消费方一律 `from app.services.money_contract import …` —— 转出的是**同一个对象**（判据核对它的 `__module__`），
+#: ⛔ 不是在这里再包一层、更不是抄一份实现。
+#: ⚠️ **为什么用惰性转出（PEP 562 的模块级 `__getattr__`）而不是文件顶端一句 import**：
+#:    `order_return.py` 反过来 import `order_flow.mark_returned`，而 `order_flow` 自己就是消费方 ——
+#:    顶端 eager import 当场成环（order_flow → money_contract → order_return → order_flow）。
+#:    惰性转出把「取符号」推迟到真正用它的那一刻，环就不成立，而 `from … import 符号` 照常可用。
+#: ⚠️ `accounting_service` 的两个实现符号（`generate_piece_bill` / `post_delivery_accounting`）**不转出**：
+#:    它反过来 import `order_flow`，转出会成环；它们仍然按上面的 `impls` 声明当"实现站点"核对。
+REEXPORTS: dict[str, tuple[str, str]] = {
+    # order_money：一张单的四个钱（应收 / 已收 / 已退现 / 欠款）
+    "money_of": ("app.services.order_money", "money_of"),
+    "money_map": ("app.services.order_money", "money_map"),
+    "line_receivable": ("app.services.order_money", "line_receivable"),
+    # driver_pay：司机应得（每单 / 工资 / 提成）
+    "order_pay": ("app.services.driver_pay", "order_pay"),
+    "pay_for_order": ("app.services.driver_pay", "pay_for_order"),
+    "per_order_pay_filter": ("app.services.driver_pay", "per_order_pay_filter"),
+    "has_per_order_pay": ("app.services.driver_pay", "has_per_order_pay"),
+    "pay_summary_for": ("app.services.driver_pay", "pay_summary_for"),
+    "rule_of_user": ("app.services.driver_pay", "rule_of_user"),
+    # shipper_settle：货主核销的上限与剩余
+    "line_remaining": ("app.services.shipper_settle", "line_remaining"),
+    "remaining_of_lines": ("app.services.shipper_settle", "remaining_of_lines"),
+    "over_settled_lines": ("app.services.shipper_settle", "over_settled_lines"),
+    "settle_blocker": ("app.services.shipper_settle", "settle_blocker"),
+    # order_return：退货红冲与退现
+    "return_order": ("app.services.order_return", "return_order"),
+    "max_returnable": ("app.services.order_return", "max_returnable"),
+}
+
+
+def __getattr__(name: str):
+    """模块级惰性转出（PEP 562）—— 理由见 `REEXPORTS` 上面那段。"""
+    try:
+        module, symbol = REEXPORTS[name]
+    except KeyError:
+        raise AttributeError("module " + repr(__name__) + " has no attribute " + repr(name)) from None
+    from importlib import import_module
+
+    value = getattr(import_module(module), symbol)
+    globals()[name] = value  # 取到就放进模块字典，后面几次不再走这里
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(REEXPORTS))
+
 
 #: 实现区 = 所有声明过的实现站点所在文件。判据用它当「允许出现钱算式」的集合。
 IMPLEMENTATION_FILES: frozenset[str] = frozenset(

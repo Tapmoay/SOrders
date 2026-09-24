@@ -19,7 +19,7 @@ from app.models.enums import OperationAction, OrderStatus
 from app.schemas.order import OrderChargeBody, OrderOut
 from app.services.operation_log_service import write_log
 from app.services.order_flow import complete_delivery, lock_order_row
-from app.services.order_money import money_map
+from app.services.money_contract import money_map
 from app.services.order_response import enrich_order_out, load_order_for_response
 
 
