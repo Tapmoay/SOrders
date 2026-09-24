@@ -46,6 +46,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import reports_source  # noqa: E402
 from _check_single_source import code_only  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,7 +73,7 @@ def main() -> int:
     inv_schema = read(BACKEND / "schemas/inventory.py")
     bootstrap = read(BACKEND / "core/schema_bootstrap.py")
     basis = read(BACKEND / "services/cost_basis.py")
-    reports = read(BACKEND / "api/v1/reports.py")
+    reports = reports_source(ROOT)
     report_schema = read(BACKEND / "schemas/reports.py")
     dto = read(ANDROID / "data/remote/dto/Dtos.kt")
     report_screen = read(ANDROID / "ui/dispatcher/ReportCenter.kt")

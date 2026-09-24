@@ -225,3 +225,24 @@ MODULE_ALIAS = {
 def module_key(stem: str) -> str:
     """取的模块名（拆出去的兄弟文件折回原模块）。"""
     return MODULE_ALIAS.get(stem, stem)
+
+
+
+#: 报表的源码现在可能分成两份（2026-09-24 整改阶段 4「reports.py 下沉」）：
+#: 路由在 api/v1/reports.py、聚合在 services/reports_service.py。
+REPORTS_MODULES = ("api/v1/reports.py", "services/reports_service.py")
+
+
+def reports_source(root: Path | None = None) -> str:
+    """报表的源码**并集**（缺哪一份就跳过哪一份）。
+
+    ⚠️ 缺文件不报错是**故意**的：搬迁必须拆成两步走（先改判据读取口径、再下沉），
+    第①步做完时 service 文件还不存在 —— 那时这条判据必须照样是绿的。
+    """
+    base = (root or ROOT) / "backend" / "app"
+    parts = []
+    for rel in REPORTS_MODULES:
+        f = base / rel
+        if f.is_file():
+            parts.append(f"# ===== {rel} =====" + chr(10) + f.read_text(encoding="utf-8", errors="replace"))
+    return (chr(10) * 2).join(parts)

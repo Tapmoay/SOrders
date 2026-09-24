@@ -62,6 +62,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import reports_source  # noqa: E402
 #: 复用兄弟红线里剥 Kotlin 注释的实现（保留行号），不抄第二份。
 from _check_pagination_wiring import strip_comments  # noqa: E402
 from _check_single_source import code_only  # noqa: E402
@@ -144,7 +146,7 @@ def main() -> int:
     vm = read(VM)
     screen = read(SCREEN)
     presets = read(PRESETS)
-    reports_py = io.open(REPORTS_PY, encoding="utf-8", errors="replace").read()
+    reports_py = reports_source(ROOT)
     test = read(TEST)
 
     # ---- ① 「点一下就弹日历」那个控件不许回来 ----

@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _airepo import orders_api_source, refuse_if_injecting, repo_root  # noqa: E402
+from _airepo import reports_source, orders_api_source, refuse_if_injecting, repo_root  # noqa: E402
 
 ROOT = repo_root()
 AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
@@ -3108,7 +3108,7 @@ def main() -> int:
     bills_api = read(ROOT / "backend/app/api/v1/driver_bills.py")
     settle = read(ROOT / "backend/app/api/v1/freight_settlement.py")
     stats_svc = read(ROOT / "backend/app/services/stats_service.py")
-    reports_py = read(ROOT / "backend/app/api/v1/reports.py")
+    reports_py = reports_source(ROOT)
     flow = read(ROOT / "backend/app/services/order_flow.py")
 
     c.present("算法只有一处（[driver_pay.order_pay]）", pay_py, r"def order_pay\(")
@@ -3368,7 +3368,7 @@ def main() -> int:
 
     # ---- 24. 报表口径必须闭合（v3.39 缺陷挖掘第二轮：挂账结清的钱凭空消失）----
     print("\n== 24. 报表口径：营业额 = 已收 + 挂账（一笔钱只有两个去处）==")
-    reports_py = read(ROOT / "backend/app/api/v1/reports.py")
+    reports_py = reports_source(ROOT)
     report_schema = read(ROOT / "backend/app/schemas/reports.py")
     recon_tests = read(ROOT / "backend/tests/test_report_reconciliation.py")
     # ⚠️ 判据锚在**完整划分**这个结构上：两条带条件的判据（cash 且已收 / arrears 且未收）
@@ -3527,7 +3527,7 @@ def main() -> int:
     c.present("钉住「付款后归零」", money_tests, r"付款之后不该还算欠他")
     c.present("探针里有「司机钱」这一组", probe_tool, r'"司机钱": probe_driver_money')
     c.present("导出与接口同一份聚合（不许导出自己再算一套）",
-              read(ROOT / "backend/app/api/v1/reports.py"), r"def build_turnover\(")
+              reports_source(ROOT), r"def build_turnover\(")
 
     # ---- 27. 输入边界：脏输入只许"被拒"，不许 500 / 不许落库（v3.40 模糊测试那一轮）----
     print("\n== 27. 输入边界：超出数据库能存的范围、月份/坐标/枚举乱填 ==")

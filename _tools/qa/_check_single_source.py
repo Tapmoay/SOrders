@@ -207,7 +207,9 @@ def main() -> int:
     # ⚠️ 第一版判据是"看整行里有没有 `_money(`"，被两条排除规则放到太宽：注入
     #    `str(data["arrears_total"])` 之后**仍然全绿**（那一行同时含 `cancelled_orders`，
     #    被"计数行"的排除规则放行了）。现在改成**逐个金额表达式**查：`str(<金额表达式>)` 一律报红。
-    reports = (BACKEND / "api/v1/reports.py").read_text(encoding="utf-8")
+    reports = ((BACKEND / "api/v1/reports.py").read_text(encoding="utf-8")
+               + ((BACKEND / "services/reports_service.py").read_text(encoding="utf-8")
+                  if (BACKEND / "services/reports_service.py").is_file() else ""))   # 聚合可能已下沉到 service 层（阶段 4）
     money_expr = (
         r"(?:data\[[\"'][a-z_]*[\"']\]|it\.\w+|s\.\w+|u\.\w+|b\[[\"']total[\"']\]|"
         r"g\[[\"']amount[\"']\]|f\.amount|income|expense|amt)"

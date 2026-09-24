@@ -48,7 +48,7 @@ FRONTEND = ROOT / "frontend/src"
 #: 生成器要从**真模型**取（2026-09-23 第 10 轮）：退回那一列的老库补全是它生成的。
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))   # orders 源码并集（阶段 4）
-from _airepo import orders_api_source  # noqa: E402
+from _airepo import reports_source, orders_api_source  # noqa: E402
 import app.models  # noqa: E402,F401  —— 注册全部模型
 from app.core.schema_bootstrap import enum_repair_ddl  # noqa: E402
 from app.models.base import Base as _Base  # noqa: E402
@@ -250,7 +250,7 @@ def main() -> int:
     c.present("出参装配调唯一口径", resp, r"m = money or money_of\(db, order\)")
     c.present("列表端点一次算一页的钱（不是逐单 4 条 SQL）", orders_api, r"money = money_map\(db, page\)")
     c.present("应收/已收/已退现/欠款都进了出参", resp, r'data\["arrears_amount"\] = m\.arrears')
-    c.present("报表营业额取应收（减掉退货）", read(BACKEND / "api/v1/reports.py"), r"amount = mm\.receivable")
+    c.present("报表营业额取应收（减掉退货）", reports_source(ROOT), r"amount = mm\.receivable")
 
     print("\n== 5. 按商品核销：归属、上限、不翻 paid ==")
     c.present("收款接口接受 order_product_ids", read(BACKEND / "schemas/accounting_v2.py"), r"order_product_ids: list\[int\]")
