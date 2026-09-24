@@ -341,3 +341,17 @@ GitHub Actions 立刻触发两条：Gate（三层闸门）与 Tests (Parallel)�
 
 仓库原有的 Tests (Parallel) 工作流（Integration Tests / Full Test Suite）也红了，不属于本次新建的三层闸门，
 列为下一轮待查项。
+
+
+### §20 nginx exports deny —— 已做（2026-09-25，生产机）
+
+报告 §20 的小事清单里有一条：导出产物不该是公开资源。查现场的事实：
+  · nginx 只服务 `/static/uploads/`（alias 到 `/opt/SOrders/backend/uploads/`）与 `/static/`，**没有 exports 的 location**；
+  · 后端 2026-09-19 审计后已把导出写在 `exports/`（**不在**公开的 `uploads/` 之下，见 `ledger.py:655` 那段注释）；
+  · 但 `/opt/SOrders/backend/uploads/exports/` 这个**旧目录还在**（当前 0 个文件）—— 谁哪天往那儿丢一份，就会被 nginx 直接发出去。
+
+**改动**：在那份公共 location 片段末尾追加（`^~` 前缀匹配优先于普通前缀，所以放末尾也生效）：
+  `location ^~ /static/uploads/exports/ { deny all; return 404; }`
+  —— 改前备份 `/root/sorders-api-locations.conf.bak-20260925`；`nginx -t` 通过后 `systemctl reload nginx`。
+
+**证据（当场 curl）**：`/static/uploads/exports/` → **403**；`/health` → **200**（reload 没伤到服务）。
