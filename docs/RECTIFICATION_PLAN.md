@@ -421,3 +421,18 @@ Actions 的 Annotations 里，而那个接口**公开可读**（`/check-runs/<jo
 证据：`_check_reverse_verify_anchors.py` → 108 份脚本 / **1081 条注入原文全部还在**；`_check_all.py` → 99/99。
 
 **还欠**：`_money_display` 与 `_pagination_wiring` 的 App/后端那一半同理（各需一份 App-only 的注入脚本）。
+
+
+### 网络现场：push 暂时不通（2026-09-25 第 36 轮，如实记）
+
+本轮把 App 侧反向验证补回来之后要 push，连试 4 次都不通：
+  · 走代理：`TLS connect error: ... unexpected eof while reading`（Clash 在跑、7899 端口通）；
+  · 直连 + `-c http.sslBackend=schannel`：`schannel: failed to receive handshake`。
+**这不是仓库的问题，是本机到 GitHub 的链路**。上一轮也踩过一次（代理进程掉了 → 我误把 push 当成成功，
+直到比对 `git ls-remote` 才发现远端落后 5 个提交）。
+
+⛔ **教训（已写进流程）**：push 之后**必须**用 `git ls-remote origin new` 与 `git rev-parse HEAD` 对一眼，
+因为 `git push` 的输出被管道截断时，失败会伪装成成功。
+
+**待办**：网络恢复后 `git push origin p:new`（本地领先若干提交），CI 会跟着跑；
+另外 `Tests (Parallel)` 那两个红 job 的注解诊断也还没读到（同一条链路问题）。
