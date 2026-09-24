@@ -66,8 +66,15 @@ jobs:
 
       - name: Run integration tests (parallel)
         run: |
+          # ⚠️ 2026-09-25：把失败摘要发成 CI 注解（公开仓库读不到 job 日志），否则只能盲猜
           cd backend
-          pytest -n auto -m "integration and not slow" -v --tb=short
+          set -o pipefail
+          pytest -n auto -m "integration and not slow" -v --tb=short 2>&1 | tee /tmp/pytest-integration.log || {
+            echo "::error::integration 用例失败，下面把摘要发成 CI 注解（公开仓库读不到日志，只能这么把失败原因送出来）"
+            grep -E "^(FAILED|ERROR)" /tmp/pytest-integration.log | head -25 | while read -r l; do echo "::error::$l"; done
+            tail -25 /tmp/pytest-integration.log | while read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
   # ============================================================
   # Slow Tests (batch, ledger sync)
@@ -120,8 +127,15 @@ jobs:
 
       - name: Run all tests (parallel)
         run: |
+          # 同上：失败摘要走 CI 注解
           cd backend
-          pytest -n auto --tb=short -v
+          set -o pipefail
+          pytest -n auto --tb=short -v 2>&1 | tee /tmp/pytest-full.log || {
+            echo "::error::full 用例失败，下面把摘要发成 CI 注解（公开仓库读不到日志，只能这么把失败原因送出来）"
+            grep -E "^(FAILED|ERROR)" /tmp/pytest-full.log | head -25 | while read -r l; do echo "::error::$l"; done
+            tail -25 /tmp/pytest-full.log | while read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
       - name: Generate coverage report
         run: |
