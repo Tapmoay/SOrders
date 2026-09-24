@@ -31,6 +31,8 @@ PROD = ROOT / "backend/app/api/v1/order_products.py"
 ORDERS = ROOT / "backend/app/api/v1/orders.py"
 #: 定价/派单那几条（price_freight 等）2026-09-24 阶段 4 搬去了这里 —— 注入锚点跟着搬。
 ORDERS_A = ROOT / "backend/app/api/v1/orders_assignment.py"
+#: 生命周期那几条（update_order / patch_order_exception）2026-09-24 阶段 4 搬去了这里。
+ORDERS_L = ROOT / "backend/app/api/v1/orders_lifecycle.py"
 
 #: (说明, 目标文件, 被替换的原文, 替换成, 期望在 [FAIL] 行里出现的关键词)
 CASES: list[tuple[str, Path, str, str, str]] = [
@@ -103,7 +105,7 @@ CASES: list[tuple[str, Path, str, str, str]] = [
     ),
     (
         "新加一个没人交代的多写入点字段（两个函数各写一处，谁都没取锁也没理由）",
-        ORDERS,
+        ORDERS_L,   # 2026-09-24 阶段 4：update_order / patch_order_exception 搬去了 orders_lifecycle.py
         ['    order.exception_reason = body.exception_reason or ""\n',
          "    if body.internal_notes is not None:\n        order.internal_notes = body.internal_notes\n"],
         ['    order.exception_reason = body.exception_reason or ""\n'

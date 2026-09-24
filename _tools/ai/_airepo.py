@@ -187,6 +187,8 @@ ORDERS_API_MODULES = (
     "orders_media.py",
     "orders_assignment.py",
     "orders_delivery.py",
+    "orders_lifecycle.py",
+    "orders_return.py",
 )
 
 
@@ -215,6 +217,8 @@ MODULE_ALIAS = {
     "orders_media": "orders",
     "orders_assignment": "orders",
     "orders_delivery": "orders",
+    "orders_lifecycle": "orders",
+    "orders_return": "orders",
 }
 
 

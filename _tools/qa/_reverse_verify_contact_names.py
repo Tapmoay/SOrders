@@ -28,6 +28,8 @@ SCHEMA = BACKEND / "schemas/order.py"
 API = BACKEND / "api/v1/orders.py"
 #: orders 的**查询组**（2026-09-24 整改阶段 4 纯搬迁：列表/待派计数/详情搬去了 orders_query.py）
 API_Q = BACKEND / "api/v1/orders_query.py"
+#: **生命周期**（创建 / 编辑 / 异常标记 / 回收站恢复 / 删除）——收货人/下单人那两个名字的写入口在这里
+API_L = BACKEND / "api/v1/orders_lifecycle.py"
 CONTACT_SVC = BACKEND / "services/shipper_contact_service.py"
 BACKEND_TEST = ROOT / "backend/tests/test_order_boss_contact.py"
 DTO = ANDROID / "data/remote/dto/Dtos.kt"
@@ -49,7 +51,7 @@ MUTATIONS = [
     ),
     (
         "创建订单时不写这两个名称（下单填了也进不去）",
-        API,
+        API_L,
         "        contact_dongjia_name=body.contact_dongjia_name.strip(),\n"
         "        contact_boss_name=boss_name,\n",
         "",
@@ -57,7 +59,7 @@ MUTATIONS = [
     ),
     (
         "PATCH 不认这两个名称（派单员编辑订单时改了没变）",
-        API,
+        API_L,
         "    if body.contact_dongjia_name is not None:\n"
         "        order.contact_dongjia_name = body.contact_dongjia_name\n"
         "    if body.contact_boss_name is not None:\n"
@@ -201,14 +203,14 @@ MUTATIONS = [
     ),
     (
         "后端兜底只在**一栏**空时就补（名字写王老板、电话却是货主账号那个号）",
-        API,
+        API_L,
         "        if not boss_name and not boss_phone:\n",
         "        if True:\n",
         "两栏都空",
     ),
     (
         "后端**货主自己下单也补**（把「客户端明明填了空」悄悄盖成货主）",
-        API,
+        API_L,
         "    if target_shipper is not None and target_shipper.id != current.id:\n",
         "    if target_shipper is not None:\n",
         "只有**代理下单**才兜底",

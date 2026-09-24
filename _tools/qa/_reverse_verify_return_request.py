@@ -81,6 +81,7 @@ CHECK = HERE / "_check_return_request.py"
 
 SERVICE = ROOT / "backend/app/services/order_return_request.py"
 API_FILE = ROOT / "backend/app/api/v1/return_requests.py"
+ORDERS_R = ROOT / "backend/app/api/v1/orders_return.py"
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
 RBAC = ROOT / "backend/app/core/rbac.py"
 PUSH = ROOT / "backend/app/services/push_events.py"
@@ -160,7 +161,7 @@ MUTATIONS: list[tuple[str, Path, str, str, str]] = [
     #    漏掉它 → 申请书停在 pending → 再点「办理」时余量够、校验全过 → 退第二遍。
     (
         "⑥ 删掉 orders.py 里 close_by_direct_return(...) 这一次调用（申请不会被自动关闭）",
-        ORDERS_API,
+        ORDERS_R,
         "        closed = None\n"
         "        closed_note = \"\"\n"
         "        if pending_req is not None:\n"
@@ -183,7 +184,7 @@ MUTATIONS: list[tuple[str, Path, str, str, str]] = [
     #     关申请自己抛错时货也已经落库、申请永远关不掉。顺序判据靠这一条证明它真的在看顺序。
     (
         "⑥b 把 close_by_direct_return(...) 挪到 db.commit() 之后（顺序反了）",
-        ORDERS_API,
+        ORDERS_R,
         "        closed = None\n"
         "        closed_note = \"\"\n"
         "        if pending_req is not None:\n"

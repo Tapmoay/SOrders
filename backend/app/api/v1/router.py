@@ -26,9 +26,11 @@ from app.api.v1 import (
     orders,
     orders_assignment,
     orders_delivery,
+    orders_lifecycle,
     orders_media,
     orders_payment,
     orders_query,
+    orders_return,
     place_categories,
     places,
     price_rules,
@@ -76,6 +78,10 @@ api_router.include_router(orders_assignment.router)
 # orders 的**送达与司机**（完成 / 完成带图 / 接单 / 备注 / 补导航 / 撤销）：2026-09-24 阶段 4 纯搬迁到
 # `api/v1/orders_delivery.py`。
 api_router.include_router(orders_delivery.router)
+# orders 的**生命周期**（创建 / 编辑 / 异常标记 / 回收站恢复 / 删除）与**退货**（唯一的执行入口）：
+# 2026-09-24 阶段 4 纯搬迁到 `api/v1/orders_lifecycle.py` 与 `api/v1/orders_return.py`。
+api_router.include_router(orders_lifecycle.router)
+api_router.include_router(orders_return.router)
 # 预订单 / 订单模板（2026-09-22 用户要求：「预设好的订单，参数没有变直接下单」）。
 # 它自己不生成订单 —— 真下单仍走上面那条 `orders.router`。
 api_router.include_router(order_templates.router)

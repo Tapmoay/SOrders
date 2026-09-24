@@ -172,7 +172,8 @@ def main() -> int:
     #    否则"锚点落在哪一份里"会让判据变成假红（下单一组搬走时实测踩到）。
     orders_src = "".join(api_files.get(n, "") for n in (
         "orders.py", "orders_query.py", "orders_common.py",
-        "orders_payment.py", "orders_media.py", "orders_assignment.py"))
+        "orders_payment.py", "orders_media.py", "orders_assignment.py",
+        "orders_delivery.py", "orders_lifecycle.py", "orders_return.py"))
     c.ok("下单成功时真的记了（联系人/线路/地点/商品/货主）",
          "usage_service.record_usage(db, user=current, kind=kind, target_id=target)" in orders_src)
     c.ok("派单时记了司机（记在**派单员**名下）",

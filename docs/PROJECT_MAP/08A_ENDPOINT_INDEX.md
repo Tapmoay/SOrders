@@ -252,17 +252,6 @@
 | 5 | `DELETE /api/v1/order-templates/{template_id}` | `delete_template` | `backend/app/api/v1/order_templates.py:350` | 权限:ORDER_EDIT |
 | 6 | `POST /api/v1/order-templates/{template_id}/restore` | `restore_template` | `backend/app/api/v1/order_templates.py:383` | 权限:ORDER_EDIT |
 
-### `backend/app/api/v1/orders.py` — 6 个
-
-| # | 方法与路径 | handler | 位置 | 授权 |
-|---|---|---|---|---|
-| 1 | `DELETE /api/v1/orders/{order_id}` | `delete_cancelled_order` | `backend/app/api/v1/orders.py:97` | 仅登录 + 体内权限:ORDER_DELETE_CANCELLED + 体内仅允许:派单员\|货主 |
-| 2 | `POST /api/v1/orders` | `create_order` | `backend/app/api/v1/orders.py:158` | 权限:ORDER_CREATE + 体内仅允许:派单员\|货主 |
-| 3 | `PATCH /api/v1/orders/{order_id}` | `update_order` | `backend/app/api/v1/orders.py:330` | 权限:ORDER_EDIT |
-| 4 | `PATCH /api/v1/orders/{order_id}/exception` | `patch_order_exception` | `backend/app/api/v1/orders.py:398` | 权限:ORDER_EDIT |
-| 5 | `POST /api/v1/orders/{order_id}/restore` | `restore_order` | `backend/app/api/v1/orders.py:439` | 仅登录 + 体内仅允许:派单员 |
-| 6 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders.py:502` | 权限:ORDER_RETURN |
-
 ### `backend/app/api/v1/orders_assignment.py` — 6 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
@@ -285,6 +274,16 @@
 | 5 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders_delivery.py:322` | 权限:ORDER_COMPLETE_DRIVER |
 | 6 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders_delivery.py:350` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
 
+### `backend/app/api/v1/orders_lifecycle.py` — 5 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `DELETE /api/v1/orders/{order_id}` | `delete_cancelled_order` | `backend/app/api/v1/orders_lifecycle.py:40` | 仅登录 + 体内权限:ORDER_DELETE_CANCELLED + 体内仅允许:派单员\|货主 |
+| 2 | `POST /api/v1/orders` | `create_order` | `backend/app/api/v1/orders_lifecycle.py:101` | 权限:ORDER_CREATE + 体内仅允许:派单员\|货主 |
+| 3 | `PATCH /api/v1/orders/{order_id}` | `update_order` | `backend/app/api/v1/orders_lifecycle.py:273` | 权限:ORDER_EDIT |
+| 4 | `PATCH /api/v1/orders/{order_id}/exception` | `patch_order_exception` | `backend/app/api/v1/orders_lifecycle.py:341` | 权限:ORDER_EDIT |
+| 5 | `POST /api/v1/orders/{order_id}/restore` | `restore_order` | `backend/app/api/v1/orders_lifecycle.py:382` | 仅登录 + 体内仅允许:派单员 |
+
 ### `backend/app/api/v1/orders_media.py` — 2 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
@@ -306,6 +305,12 @@
 | 1 | `GET /api/v1/orders` | `list_orders` | `backend/app/api/v1/orders_query.py:76` | 仅登录 + 体内仅允许:派单员\|司机\|货主 |
 | 2 | `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders_query.py:256` | 仅登录 + 体内仅允许:派单员 |
 | 3 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:272` | 仅登录 |
+
+### `backend/app/api/v1/orders_return.py` — 1 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `POST /api/v1/orders/{order_id}/return` | `return_order_endpoint` | `backend/app/api/v1/orders_return.py:28` | 权限:ORDER_RETURN |
 
 ### `backend/app/api/v1/place_categories.py` — 5 个
 
@@ -597,4 +602,4 @@ _（无重复注册）_
 | `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | — |
 | `POST /api/v1/usage/reset` | `reset_usage` | `backend/app/api/v1/usage.py:34` | ✅ |
 
-> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **128** 个端点命中（占 56%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/stats.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。
+> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **128** 个端点命中（占 56%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/stats.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。

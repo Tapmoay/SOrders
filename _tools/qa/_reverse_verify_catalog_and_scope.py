@@ -35,6 +35,7 @@ PCAT_API = ROOT / "backend/app/api/v1/product_categories.py"
 CAT_ORDER = ROOT / "backend/app/services/category_order.py"
 PCAT_MODEL = ROOT / "backend/app/models/product_category.py"
 PRODUCTS_API = ROOT / "backend/app/api/v1/products.py"
+ORDERS_L = ROOT / "backend/app/api/v1/orders_lifecycle.py"
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
 USERS_API = ROOT / "backend/app/api/v1/users.py"
 VIS_SCHEMA = ROOT / "backend/app/schemas/product_visibility.py"
@@ -168,7 +169,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "下单不再校验可见性（藏起来的商品照样能塞进单里）",
-        ORDERS_API,
+        ORDERS_L,
         lambda s: s.replace(
             "        if not product_visible_to(db, current, ln.product_id)",
             "        if False",

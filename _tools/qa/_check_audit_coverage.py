@@ -41,6 +41,10 @@ API = ROOT / "backend/app/api/v1"
 
 #: 不写业务审计日志的模块 → **理由**。每条都要说清"为什么这里不记"，不能写"没必要"。
 REASONS: dict[str, str] = {
+    # 2026-09-24 阶段 4：退货端点单独成模块（api/v1/orders_return.py）。它的审计留痕写在
+    # **唯一执行入口** services/order_return.py 里（端点只是转调它，不在 API 层重复记一遍）——
+    # 搬迁前它混在 orders.py 里，那个文件里别的端点有 write_log，所以整块豁免看不出来。
+    "orders_return.py": "审计留痕在 services/order_return.py（唯一执行入口）里写，API 层不重复记",
     "auth.py": "登录/登出/换 token 是**会话**不是业务数据；失败尝试由 login_guard 限流记录，"
                "写进审计会把真正要回查的钱/单改动淹掉",
     "files.py": "只解析上传的表格（不落库、不改任何业务数据）",
