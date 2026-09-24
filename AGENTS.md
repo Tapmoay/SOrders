@@ -113,14 +113,14 @@ python _tools/backup/_install.py                                  # 把脚本/�
 
 ## 查接口/权限：用端点索引，不要通读 API 文件
 
-**问"某个 URL 落在哪个函数""这个接口谁能调" → grep [docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md](docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md)（155 个端点 / 精确行号 / 授权列）。**
+**问"某个 URL 落在哪个函数""这个接口谁能调" → grep [docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md](docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md)（精确行号 / 授权列；端点条数以文件为准）。**
 
 它是机器生成的（改动后端 API 后重跑 `cd backend && python -m scripts.gen_endpoint_index --out ../docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`，加 `--check` 可校验是否过期）。**grep 命中一行就够，不要通读**——它比定位表大。
 
 ## 改完必跑：一条命令跑完所有静态检查
 
 ```
-python _tools/qa/_check_all.py          # 全部静态检查（当前 50 个脚本，约一分钟）
+python _tools/qa/_check_all.py          # 全部静态检查（脚本数它自己数，见输出第一行；约一分钟）
 python _tools/qa/_check_all.py --deep   # 再加全部反向验证（⚠️ **50 分钟以上**，跑时全场冻住）
 python _tools/qa/_check_all.py --list   # 只列清单不跑（看它到底都在查什么）
 ```
@@ -128,7 +128,7 @@ python _tools/qa/_check_all.py --list   # 只列清单不跑（看它到底都�
 **改红线/改被测代码时，别一上来就跑全量反向验证** —— 用它的子集模式（秒级到分钟级）：
 
 ```
-python _tools/ai/_reverse_verify_all.py --list        # 列会跑哪些（66 份）
+python _tools/ai/_reverse_verify_all.py --list        # 列会跑哪些（份数以它自己列出的为准）
 python _tools/ai/_reverse_verify_all.py --changed     # 只跑「注入目标涉及本次改动文件」的
 python _tools/ai/_reverse_verify_all.py --only qa     # 只跑某个域（ai / qa / notify / fuzz）
 python _tools/ai/_reverse_verify_all.py --for backend/app/services/order_return.py

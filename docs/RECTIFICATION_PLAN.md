@@ -64,7 +64,8 @@
 | 6 | §10 | Outbox（事务发件箱）替代"background task 直接推" | 局部 | 未开始 | — |
 | 7 | §11 | Android 大文件按职责拆（不是按行数拆） | 少量 | 未开始 | — |
 | 7 | §12 | AI 能力目录与后端权限**同源**（`_probe_read_roles` 进 CI） | 否 | 未开始 | — |
-| 7 | §13 | 文档事实源自动化（会变的数字一律生成） | 否 | **已完成（第一块）** | `docs/BASELINE.md` 由脚本生成 |
+| 7 | §13 | 文档事实源自动化（会变的数字一律生成） | 否 | **已完成（两块）** | 第一块：`docs/BASELINE.md` 由脚本生成（`_capture_baseline.py`）。
+第二块：**活文档里手写的「会变的数字」** —— `_tools/qa/_check_live_doc_counts.py`（27 条，自动进必跑组：96 → 97；四类能现算的数字：检查脚本数 / 端点总数 / 反向验证份数 / `orders.py` 规模）。它当场发现 5 处过期：`AGENTS.md` 写「当前 50 个脚本」（实际 97）与「155 个端点」（实际 228）、`03_BACKEND_DETAILS.md` 写 `orders.py`「1,165 行 / 23 个端点」（阶段 4 之后只剩装配说明 / 该组 25 个）、`05_TESTING.md` 写「82 个脚本」；`08_CODE_LOCATOR.md` 写「130 个端点」「只剩 33 行」与「98 份反向验证」。全部改成指向生成物/命令（**不再写数**）。⚠️ 两条边界（第一版误报过）：数字要**紧挨着**文件/工具名才算，且写了「以…为准」的**带日期历史注记**（如 `INDEX.md` 那句「2026-09-19 实测 49 份」）不许当当前值判。反向验证：把「155 个端点」塞回 `AGENTS.md`、把「108 份」塞回定位表 → 各当场 1 条红 + exit 1，还原后 27/0 |
 | 7 | §14 | Android 集成测试（登录 → 导航 → 下单） | 否 | 未开始 | — |
 | 7 | §14 | 前端 H5：正式"继续维护"或"正式归档"（二选一） | — | **待拍板** | 见 §4 |
 | 8 | §15 | Request ID / 业务指标 / 外部监控 | 否 | **①② 已完成；③ 最小版已可跑** | ① `core/request_id.py`（纯 ASGI 中间件 + ContextVar + 日志 `[rid=…]` + `X-Request-ID` 响应头），真机实测响应头有值、5 条用例；② `core/metrics.py` + `GET /metrics`（Prometheus 文本）：能算的 **7 个** —— orders_created / assigned / delivered / cancelled、**待派池积压**（报告点名的「积压到几万」一眼可见）、ledger_entries、driver_settlements；报告点名的另外 4 个（`push_success` / `push_failure` / `AI_calls` / `AI_write_confirmed`）**如实列进 `NOT_TRACKED` 不编数**（推送成败该补在 §10 的 Outbox 里；AI 跑在 App 里、后端只看到普通业务请求）。⛔ 口径：**抓取时现算、不在业务路径上打点**（打点＝在同一件事上再造一个数，两边必然漂移），窗口一律**业务当地日**（用 UTC 分桶就是「每天有 8 小时算进前一天」）。⛔ fail-closed：`METRICS_TOKEN` 没配就一律 403。真机实测：不带口令 403 / 带口令 200，且 7 个数与库里直查逐项一致（本机 0/0/0/0/6/0/0）；6 条用例；③ `_tools/ops/_health_check.py` |

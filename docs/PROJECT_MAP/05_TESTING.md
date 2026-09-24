@@ -119,7 +119,7 @@ python -m pytest tests/ -q          # 2026-09-14 实测：35 passed
 
 | 层 | 命令 | 能证明 | **证明不了** |
 |---|---|---|---|
-| 静态红线 | `python _tools/qa/_check_all.py` | 代码形状/口径有没有被改坏（**82 个脚本**，清单自算） | 运行时行为 |
+| 静态红线 | `python _tools/qa/_check_all.py` | 代码形状/口径有没有被改坏（脚本数由它自己数，见输出第一行） | 运行时行为 |
 | 反向验证 | `python _tools/ai/_reverse_verify_all.py --changed` | 红线**不是空转**（注入真缺陷必须报红） | 线上数据 |
 | 单测 | `cd backend && python -m pytest -q` | 接口/钱/状态机的行为 | 真实并发、真实数据形状 |
 | 库内不变式 | `python _tools/fuzz/_fuzz_invariants.py`（本机库）<br>`python _tools/qa/_probe_prod_readonly.py`（**生产库，只读**） | **数据自己自不自洽**（两个数有没有各说各的）| 代码逻辑对不对（数据干净不代表逻辑对） |

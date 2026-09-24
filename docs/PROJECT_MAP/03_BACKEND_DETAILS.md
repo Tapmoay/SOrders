@@ -26,7 +26,7 @@ app/
 > 大量业务逻辑直接写在路由文件里，典型：
 > - `api/v1/reports.py`（496 行）的 `build_turnover()` / `build_products()` 是**完整聚合实现**，接口与导出共用，**不调用 `services/`**
 > - `api/v1/shipper.py`（405 行）、`api/v1/notifications.py`（269 行）同理
-> - `api/v1/orders.py` 单文件 **1,165 行 / 23 个端点**，是后端最大文件
+> - `api/v1/orders.py` 曾经是后端最大文件（**2026-09-24 整改阶段 4 已按职责拆成 7 个模块**：`orders_{query,assignment,delivery,payment,media,lifecycle,return}.py` + `orders_common.py`；规模与配方见 [08_CODE_LOCATOR.md](08_CODE_LOCATOR.md)）
 >
 > **后果**：找"某功能实现在哪"时，**`services/` 不是首选**——先去 `api/v1/<模块>.py` 看。按"路由薄、逻辑在 service"的常识去找会扑空。
 
