@@ -97,6 +97,45 @@ jobs:
       - name: 全部静态检查
         run: python _tools/qa/_check_all.py
 
+  read-roles-probe:
+    name: Normal Gate · AI 读权限对账（起真后端逐条打）
+    needs: fast-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: 装依赖
+        run: |
+          cd backend
+          pip install -r requirements-all.txt
+      # 报告 §12：**AI 能看到什么，必须和后端真正允许什么来自同一套事实**。
+      # 目录是生成的（`_gen_ai_read_catalog.py --check` 在常闸里盯着），但"生成的目录 == 真后端的行为"
+      # 只有**打一遍**才知道：给多了 → AI 拿到 403（能力白写）；给少了 → 明明能查的表 AI 说查不了。
+      # 两种错都不会让任何测试变红 —— 所以这条闸门必须在真后端上跑。
+      - name: 起一个空库的本地后端 + 三个开发账号
+        run: |
+          cd backend
+          export DATABASE_URL="sqlite:///./ci_probe.db"
+          # ⛔ 不在这里写 JWT_SECRET_KEY：`_check_secrets.py` 会（正确地）把工作流里的密钥默认值判红。
+          #    这个作业只需要一个**能跑起来的**后端，用 `Settings` 自己的缺省值就够 —— 见下面这条注释。
+          python -m scripts.seed_dev_users
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/probe-api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/health || { echo "后端没起来："; tail -40 /tmp/probe-api.log; exit 1; }
+      - name: 逐条对账（403 = 真的不给，其余都算门通）
+        env:
+          # 播种脚本用的口令与探测脚本的缺省值不同，靠这个环境变量对齐（见探测脚本里的注释）。
+          SORDERS_PROBE_PASSWORD: pass12345
+        run: python _tools/ai/_probe_read_roles.py
+
   backend-tests:
     name: Normal Gate · 后端用例
     needs: fast-gate

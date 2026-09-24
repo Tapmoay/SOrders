@@ -15,6 +15,7 @@
 """
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -25,10 +26,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _airepo import repo_root  # noqa: E402
 
 # 开发账号（三端各一个，密码相同）。只用于本机/测试环境对账。
+#
+# ⚠️ 口令走环境变量（2026-09-25 纳入 CI 时加）：本机开发库的口令是 `123321`，
+#    而仓库里的播种脚本 `backend/scripts/seed_dev_users.py` 用的是 `pass12345` ——
+#    CI 上没人会去改口令，于是"对账脚本登不进去"会被当成"权限对不上"（假红）。
+#    所以口令可配：CI 里 `SORDERS_PROBE_PASSWORD=pass12345 python _tools/ai/_probe_read_roles.py`。
+PROBE_PASSWORD = os.environ.get("SORDERS_PROBE_PASSWORD", "123321")
 ACCOUNTS = {
-    "dispatcher": ("13800000001", "123321"),
-    "shipper": ("13800000002", "123321"),
-    "driver": ("13800000003", "123321"),
+    "dispatcher": ("13800000001", PROBE_PASSWORD),
+    "shipper": ("13800000002", PROBE_PASSWORD),
+    "driver": ("13800000003", PROBE_PASSWORD),
 }
 # 必填参数没法凭空知道，用一组"总能满足"的默认值顶上；填不上就让它 400，也算门通。
 DUMMY = {"date_from": "2026-01-01", "date_to": "2026-12-31", "month": "2026-09", "from": "2026-01-01", "to": "2026-12-31"}
