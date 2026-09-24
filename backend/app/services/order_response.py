@@ -12,6 +12,45 @@ from app.services.order_money import OrderMoney, money_map, money_of
 from app.services.soft_delete import dialable_phone
 
 
+#: ⛔ 「**公司付给司机多少**」那一族字段（成本侧）。
+#:
+#: 2026-09-24 第 26 轮 01 区 F1 实测：第 17 轮遮 `freight_fee` 时是**手写点掉一个字段**
+#: （`freight_visible=False` + `freight_fee=None` + `driver_billing_mode=None`），
+#: 而同一笔钱的另外两个出口 —— `driver_piece_amount`（这一单单独定的每单金额）与
+#: `driver_commission_rate`（这一单单独定的提成比例，写入口在派单 body）——
+#: **原样下发给了货主**：他读自己那一单就能算出公司给这个司机多少钱。
+#: 遮盖理由本来就写在同一个函数里（见下面货主分支的注释），所以这是"清单没跟上"，
+#: 不是"判断不同"。**修的是机制**：凡是要遮蔽运费的视角，一律按这张表**整族**遮蔽。
+#:
+#: 配套判据在 `tests/test_order_out_driver_pay_gating.py`：它从 `OrderOut.model_fields`
+#: **自己算**出所有"名字像钱"的字段，逐个要求归到本表或 `CUSTOMER_GOODS_FIELDS` ——
+#: 以后再加一个金额字段却忘了分类，红的是那条用例，而不是等下一轮渗透在真机上发现。
+DRIVER_PAY_FIELDS: tuple[str, ...] = (
+    "freight_fee",  # 这一单的运费（= 司机拿多少）
+    "driver_billing_mode",  # 按单计费 / 固定工资（说出去等于告诉他这单有没有钱）
+    "driver_piece_amount",  # 这一单单独定的每单金额
+    "driver_commission_rate",  # 这一单单独定的提成比例（%）
+)
+
+#: 「**货主货款**」那一族（司机不该看：他没有立场知道货主卖了多少）。
+#: 司机视角下 `goods_amount` 置 None、另外四个置 0（客户端那四个是非空 String，
+#: 发 null 会反序列化失败 —— 见 [apply_driver_view_gating]）。
+CUSTOMER_GOODS_FIELDS: tuple[str, ...] = (
+    "goods_amount",
+    "returned_amount",
+    "settled_amount",
+    "refunded_amount",
+    "arrears_amount",
+)
+
+
+def hide_driver_pay(data: dict) -> None:
+    """整族遮蔽「公司付给司机多少」——**一处实现**，不许在别处再手写点字段。"""
+    data["freight_visible"] = False
+    for f in DRIVER_PAY_FIELDS:
+        data[f] = None
+
+
 def apply_driver_view_gating(data: dict, order: Order) -> None:
     """司机视角门控（列表/详情共用）：
     1) 剥离订单明细的货款（单价/小计，司机无需看到货主货款）；
@@ -111,9 +150,10 @@ def enrich_order_out(
             #    （`ai/AiResources.kt`）—— 也就是说：界面上藏住了、接口与 AI 都没藏。
             #    这是**公司的成本**（他卖货给客户，运费是公司付给司机的钱），露出去了等于把毛利给了客户。
             #    口径与司机视角那条**同一个位置**（[apply_driver_view_gating]）：都是"这一块不该给他"。
-            data["freight_visible"] = False
-            data["freight_fee"] = None
-            data["driver_billing_mode"] = None
+            #    ⚠️ 2026-09-24 第 26 轮：上面这三行是**手写的单点**，于是
+            #    `driver_piece_amount` / `driver_commission_rate` 从旁边漏了出去 ——
+            #    现在收成 [hide_driver_pay] 一处，按 [DRIVER_PAY_FIELDS] 整族遮蔽。
+            hide_driver_pay(data)
         elif role == UserRole.DISPATCHER.value:
             data["freight_visible"] = True
         elif role == UserRole.DRIVER.value and order.driver_id is not None:
