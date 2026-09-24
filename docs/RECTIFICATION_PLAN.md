@@ -327,3 +327,17 @@ _archive/frontend-H5-归档-20260925/，历史里可恢复）；判据侧按「*
 
 ⚠️ 如实记：这一次没有再回退 —— 上一轮之所以回退，是因为「按单文件读」的判据只找到一半（_check_paid_actions 那处没有统一常量）。
 这次先把 7 处读点全部改完再搬，一次过。
+
+
+### CI 第一次真的跑起来了（2026-09-25 第 32 轮）
+
+用户拍板「CI 可以跑一次」→ 开本机代理（D:\APPS\Clash Verge\clash-verge.exe，端口 7899）→ git push origin p:new 成功。
+GitHub Actions 立刻触发两条：Gate（三层闸门）与 Tests (Parallel)（仓库原有工作流）。
+
+**第一次的结果与修复**：Gate 挂在 fast-gate 的「核心区冻结」那一步 —— 该判据要看 git 历史
+（HEAD 这个提交改过哪些核心文件），而 actions/checkout@v4 默认 fetch-depth: 1（只有一个提交）→ 当场报错；
+本地是全量历史，所以「怎么跑都绿」。修法：gate.yml 里 6 个 checkout 全部加 with: {fetch-depth: 0}。
+教训：**「写出来」与「跑起来」是两件事** —— 判据在 CI 上依赖了本地才有的条件，第一次真跑才暴露。
+
+仓库原有的 Tests (Parallel) 工作流（Integration Tests / Full Test Suite）也红了，不属于本次新建的三层闸门，
+列为下一轮待查项。
