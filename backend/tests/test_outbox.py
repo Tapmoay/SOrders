@@ -186,6 +186,46 @@ def test_assigning_an_order_enqueues_the_event_in_the_same_transaction(
     assert rows[0].status == OutboxStatus.PENDING.value, "入队之后就该是待发（由 worker 发）"
 
 
+def test_completing_a_delivery_enqueues_both_events(
+    client, token_dispatcher, token_shipper, token_driver, users, db_session
+):
+    """送达那条链路（第二个切过来的生产者）：一次送达 → 两条事件，都在**同一个事务**里。
+
+    `orders.delivered`（推给货主 + 派单员）与 `ledger.updated`（账本有更新）——
+    以前它们是 commit 之后的两个 background task；现在跟着业务一起落发件箱，由 worker 发。
+    """
+    _clear(db_session)
+    line = {"product_name_snapshot": "送达探针", "quantity": 1, "unit_price": "10.00", "line_total": "10.00"}
+    created = client.post(
+        "/api/v1/orders",
+        headers=auth_headers(token_shipper),
+        json={"lines": [line], "delivery_description": "送达地址", "address_detail": "送达地址"},
+    )
+    assert created.status_code == 201, created.text
+    oid = int(created.json()["id"])
+    hd = auth_headers(token_dispatcher)
+    hdrv = auth_headers(token_driver)
+
+    assert client.post(
+        f"/api/v1/orders/{oid}/assign", json={"driver_id": users["driver"].id}, headers=hd
+    ).status_code == 200
+    assert client.post(f"/api/v1/orders/{oid}/driver-ack", headers=hdrv).status_code == 200
+    done = client.post(
+        f"/api/v1/orders/{oid}/complete",
+        json={"delivery_photo_urls": ["/static/uploads/delivery/probe.jpg"]},
+        headers=hdrv,
+    )
+    assert done.status_code == 200, done.text
+
+    db_session.expire_all()
+    events = {x.event_type: x for x in _rows(db_session)}
+    assert "orders.delivered" in events, list(events)
+    assert events["orders.delivered"].payload_dict() == {"order_id": oid}
+    assert "ledger.updated" in events, list(events)
+    assert events["ledger.updated"].payload_dict() == {"shipper_id": users["shipper"].id}
+    assert all(x.status == OutboxStatus.PENDING.value for x in events.values()), "都该等着 worker 发"
+
+
 def test_outbox_stats_counts_by_status(db_session):
     _clear(db_session)
     outbox.enqueue(db_session, "orders.assigned", {})

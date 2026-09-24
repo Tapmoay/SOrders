@@ -33,16 +33,14 @@ from app.services import place_service
 from app.api.v1.orders_payment import _apply_complete_payment_logged, _reject_if_already_collected
 from app.api.v1.orders_common import (
     _bg_dispatcher_pending_pool,
-    _bg_ledger_updated_shipper,
     _bg_notify_cancel,
-    _bg_notify_delivered,
     _bg_notify_driver_ack,
     _bg_notify_navigation_filled,
     _get_order_scoped,
     _order_not_deleted_or_404,
     _save_delivery_uploads,
 )
-from app.api.v1.orders_common import (_bg_ledger_updated_shipper, _save_delivery_uploads, _get_order_scoped, _bg_notify_delivered, _bg_notify_cancel, _bg_notify_driver_ack, _bg_notify_navigation_filled, _bg_dispatcher_pending_pool, _order_not_deleted_or_404)
+from app.core import outbox
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -87,13 +85,17 @@ async def complete_order_with_upload(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
+    # ⚠️ 两条推送都走**事务发件箱**（整改报告 §10）：与下面这次 commit **同一个事务**。
+    #    ① 以前是 commit 之后 add_task：后台任务挂了，这两条通知就永远没了（而库里一切正常）；
+    #    ② 反过来同样重要：上面 `_apply_complete_payment_logged` 抛错时整单回滚 → 事件也**不存在**，
+    #       不会出现「通知说已送达、其实那张单没送达」。
+    outbox.enqueue(db, "orders.delivered", {"order_id": order.id})
+    if order.shipper_id is not None:
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": order.shipper_id})
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
-    background_tasks.add_task(_bg_notify_delivered, order.id)
-    if order.shipper_id is not None:
-        background_tasks.add_task(_bg_ledger_updated_shipper, order.shipper_id)
     return enrich_order_out(full, db, current)
 
 
@@ -326,13 +328,17 @@ def complete_order(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
+    # ⚠️ 两条推送都走**事务发件箱**（整改报告 §10）：与下面这次 commit **同一个事务**。
+    #    ① 以前是 commit 之后 add_task：后台任务挂了，这两条通知就永远没了（而库里一切正常）；
+    #    ② 反过来同样重要：上面 `_apply_complete_payment_logged` 抛错时整单回滚 → 事件也**不存在**，
+    #       不会出现「通知说已送达、其实那张单没送达」。
+    outbox.enqueue(db, "orders.delivered", {"order_id": order.id})
+    if order.shipper_id is not None:
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": order.shipper_id})
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
-    background_tasks.add_task(_bg_notify_delivered, order.id)
-    if order.shipper_id is not None:
-        background_tasks.add_task(_bg_ledger_updated_shipper, order.shipper_id)
     return enrich_order_out(full, db, current)
 
 

@@ -108,6 +108,14 @@ async def _outbox_deliver(event) -> None:
             int(event.payload.get("order_id") or 0),
         )
         return
+    if event.event_type == "orders.delivered":
+        oid = int(event.payload.get("order_id") or 0)
+        await push_events.push_order_delivered(oid)
+        await push_events.push_order_delivered_to_dispatchers(oid)
+        return
+    if event.event_type == "ledger.updated":
+        await push_events.push_ledger_updated(int(event.payload.get("shipper_id") or 0))
+        return
     raise RuntimeError("发件箱没有登记处理器：" + str(event.event_type))
 
 

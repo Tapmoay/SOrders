@@ -30,12 +30,10 @@ from app.services.push_events import (
     push_dispatcher_pending_pool_changed,
     push_driver_ack_shipper,
     push_driver_ack_to_dispatchers,
-    push_order_delivered_to_dispatchers,
     push_order_cancelled_to_dispatchers,
     push_ledger_updated,
     push_order_freight_updated,
     push_order_cancelled,
-    push_order_delivered,
     push_order_edited_to_driver,
     push_order_revoked,
     push_order_to_shipper,
@@ -110,11 +108,6 @@ async def _bg_push_revoked(driver_id: int, order_id: int, reason: str) -> None:
 
 async def _bg_push_shipper_recalled(shipper_id: int, order_id: int) -> None:
     await push_order_to_shipper(shipper_id, order_id, "order.recalled")
-
-
-async def _bg_notify_delivered(order_id: int) -> None:
-    await push_order_delivered(order_id)
-    await push_order_delivered_to_dispatchers(order_id)
 
 
 async def _bg_notify_cancel(shipper_id: int, order_id: int) -> None:

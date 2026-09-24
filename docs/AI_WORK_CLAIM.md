@@ -20,6 +20,34 @@
 
 ## 进行中
 
+### [2026-09-24 23:5x → ] 会话：**架构整改 · 第 14 轮：阶段 6 §10 —— 送达链路切到发件箱**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**做了什么**：`api/v1/orders_delivery.py` 的**两处 complete 端点**（`complete-with-upload` 与 `complete`）：
+原来在 `db.commit()` 之后挂两个 background task（`_bg_notify_delivered` + `_bg_ledger_updated_shipper`），
+现在改成**commit 之前**两条入队：
+
+```python
+outbox.enqueue(db, "orders.delivered", {"order_id": order.id})
+if order.shipper_id is not None:
+    outbox.enqueue(db, "ledger.updated", {"shipper_id": order.shipper_id})
+db.commit()
+```
+
+派发表里加了两个处理器（`push_order_delivered` + `push_order_delivered_to_dispatchers`；`push_ledger_updated`），
+与原来的助手**调用的是同一批函数**。`_bg_notify_delivered` 连同它那两个已经没人用的 import 一并删掉。
+
+**⚠️ 这条链路把发件箱的第二个好处暴露得最清楚**：`_apply_complete_payment_logged`（"要现金但派单没勾"那条会 400）
+抛错时整单回滚 → **事件也跟着不存在**。旧写法是"commit 成功之后才发"，业务失败时确实不发 ——
+但"commit 成功、后台任务挂了"那一半是**永远丢**；现在两边都成立：业务没成功就绝不通知，业务成功了就一定发（至少一次）。
+
+**证据**：
+- 新用例（真实接口）：建单 → 派单 → 接单 → 送达 → 断言 `outbox_events` 里 `orders.delivered`（负载 `{order_id}`）
+  与 `ledger.updated`（负载 `{shipper_id}`）都在、且都是 `pending`；发件箱用例 **11 条**全绿；
+- 该域红线 `_check_notify_guardrails.py` **117/117**；`_check_outbox.py` 27/27（派发表与生产者一一对应那条现在覆盖 3 种事件）；
+- 后端全量 **1004 通过 / 3 红**（仍是按文件文本找锚点的 reports 三条，另一会话）；`_check_all.py` 99 个检查 1 红（同因）；`/health` 200。
+
+**下一轮**：撤回派单（`orders.revoked` / `orders.recalled`）、账本路由里的 `ledger.updated`（4 处）、代下单的新单通知、退货申请关闭等。
+
 ### [2026-09-24 23:4x → ] 会话：**架构整改 · 第 13 轮：阶段 6 §10 —— 切换第一个生产者（派单推送）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **做了什么**：把「派单推送」这条链路从 background task 改成事务发件箱 ——
