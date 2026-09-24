@@ -353,12 +353,15 @@ def main() -> int:
         "qtyWithUnit" in design and "分列" in design,
         "文档过期比没有文档更糟：下一个人会照他自己觉得好看的样子再做一遍",
     )
+    # ⚠️ 用**原文件全量文本**按行找（不走可能截断长行的 `locator`）：
+    #    订单卡片那一行有 2000+ 字符，截断之后上面那个函数名正好被切掉 →
+    #    判据会假红（实测踩过一次）。
+    locator_full = (ROOT / "docs/PROJECT_MAP/08_CODE_LOCATOR.md").read_text(encoding="utf-8")
+    card_row = next((ln for ln in locator_full.splitlines() if "数量后面必须带单位" in ln), "")
     c.ok(
         "08_CODE_LOCATOR.md 的订单卡片那一行提到单位与两列，且指向**现在**那个拼法",
-        # ⚠️ 必须判 `qtyWithUnitConverted`：只判 `qtyWithUnit` 的话，
-        #    把它改回旧名字（= 少显示换算）之后判据照样绿（反向验证第 ⑪ 条实测空转过一轮）。
-        "qtyWithUnitConverted" in locator,
-        "定位表还指着旧的拼法 —— 下一个人会照它写回一份不带换算的",
+        "qtyWithUnitConverted" in card_row and "右对齐" in card_row,
+        f"那一行里没有 qtyWithUnitConverted（截到 {len(card_row)} 字符）",
     )
 
     print("\n" + "=" * 60)
