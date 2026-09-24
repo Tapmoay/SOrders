@@ -4268,6 +4268,57 @@ class AiWriteTest {
     }
 
     @Test
+    fun `收款卡的合计按欠款算，不按商品行金额（退过货的单）`() = runBlocking<Unit> {
+        // ⛔ 2026-09-24 第 33 轮（第 24 轮 10 区 F1 的第二半）：后端整单核销**逐单按欠款算**，
+        //    而退货只红冲账本、不改行金额 —— 退过货的单上两个数差一大截（本机 order 13：
+        //    行 42.80 / 欠 21.40）。卡片原来拿行金额当判据 → 按 42.80 生成、后端按 21.40 判
+        //    → 必 400；用户改口报 21.40 又被卡片自己那句"必须全额"挡回去 = **永久收不了款**。
+        val r = Rig()
+        r.ds.orders = listOf(
+            AiOrderRef(
+                id = 61, orderNo = "SOTEST2026091100230", shipper = "老王果行",
+                status = "DELIVERED", address = "测试收货地址 65 号", driverLabel = null,
+                amount = "42.80",           // 商品行金额（当时卖了多少）
+                arrearsAmount = "21.40",    // 还欠（后端算的；差在退过货）
+            ),
+            AiOrderRef(
+                id = 62, orderNo = "SOTEST2026091200229", shipper = "老王果行",
+                status = "DELIVERED", address = "测试收货地址 4 号", driverLabel = null,
+                amount = "192.60",
+                arrearsAmount = "138.90",
+            ),
+        )
+
+        // ① 按**欠款**合计（21.40 + 138.90 = 160.30）→ 应当能发卡
+        val card = ok(
+            r.svc.preview(
+                AiWrites.LEDGER_CREATE_RECEIPT,
+                p(
+                    "customer" to "老王果行", "amount" to "160.30",
+                    "orders" to "SOTEST2026091100230,SOTEST2026091200229",
+                ),
+            ),
+        )
+        val text = card.detailLines.joinToString("\n")
+        // ⚠️ 卡上的钱走 `moneyText`（显示口径，末尾 0 全省）→ 是「欠 21.4」不是「欠 21.40」
+        assertTrue("卡片要写清每张单**还欠**多少：$text", text.contains("欠 21.4"))
+        assertTrue("第二张也要写：$text", text.contains("欠 138.9"))
+
+        // ② 按**商品行金额**合计（42.80 + 192.60 = 235.40）→ 必须被拒（后端也会拒）
+        val why = rejected(
+            r.svc.preview(
+                AiWrites.LEDGER_CREATE_RECEIPT,
+                p(
+                    "customer" to "老王果行", "amount" to "235.40",
+                    "orders" to "SOTEST2026091100230,SOTEST2026091200229",
+                ),
+            ),
+        ).reason
+        assertTrue("要说清「还欠」多少、而不是「合计」多少：$why", why.contains("还欠"))
+        assertTrue("要说清差在哪（还欠 160.3）：$why", why.contains("160.3"))
+    }
+
+    @Test
     fun `记客户收款：点名了订单就逐个解析并写进核销列表`() = runBlocking {
         val r = Rig()
         val card = ok(

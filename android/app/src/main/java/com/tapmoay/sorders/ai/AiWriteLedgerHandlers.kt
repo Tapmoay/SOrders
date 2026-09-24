@@ -300,14 +300,25 @@ class CreateReceiptHandler(
         }
 
         // 逐单核销必须全额：先把两边的数摆出来，不等后端 400。
+        // ⛔ 合计用的是**欠款**（`arrearsAmount`），不是商品行金额（2026-09-24 第 33 轮；
+        //    第 24 轮 10 区 F1）：后端 `accounting_service` 的整单核销**逐单按 `m.arrears` 算**，
+        //    而退货只红冲账本、不改行金额 —— 退过货的单上两个数差一大截（本机 order 13：
+        //    行 42.80 / 欠 21.40）。原来这里拿行金额当判据 → **卡片按 42.80 生成、后端按 21.40 判
+        //    → 必 400**；用户改口说 21.40 又会被这段"必须全额"挡回去 = **永久收不了款**。
+        //    界面那一半（收款页）已在第 28 轮改成同一口径，这里追平。
         val settleMode = if (orders.isEmpty()) "rolling" else "itemized"
         if (orders.isNotEmpty()) {
             val sum = orders
-                .fold(BigDecimal.ZERO) { a, o -> a.add(o.amount.toBigDecimalOrNull() ?: BigDecimal.ZERO) }
+                .fold(BigDecimal.ZERO) { a, o ->
+                    a.add(
+                        o.arrearsAmount.takeIf { it.isNotBlank() }?.toBigDecimalOrNull()
+                            ?: BigDecimal.ZERO
+                    )
+                }
                 .setScale(2, java.math.RoundingMode.HALF_UP)
             if (sum.compareTo(amount) != 0) {
                 throw AiWriteArgException(
-                    "逐单核销必须**全额**：这几张单合计 ${AiWriteArgs.moneyText(sum)} 元，" +
+                    "逐单核销必须**全额**：这几张单**还欠** ${AiWriteArgs.moneyText(sum)} 元，" +
                         "而收款金额是 ${AiWriteArgs.moneyText(amount)} 元，两边对不上（后端也会拒）。" +
                         "请让用户确认金额，或者不要点名订单（那就是一笔滚动收款，不核销到单上）。",
                 )
@@ -335,7 +346,11 @@ class CreateReceiptHandler(
                     add("所以它会计入「资金收支」的流入，但不会改变任何订单的已收/未收")
                 } else {
                     add("———— 核销到这些单（逐单核销）————")
-                    orders.forEach { add("· ${it.label()}｜${AiWriteArgs.moneyText(it.amount)} 元") }
+                    // ⚠️ 显示的是**欠款**（后端 arrears_amount），并且把「欠」字写出来：
+                    //    退过货的单上它小于商品行金额，用户看到「欠 21.40」才不会按 42.80 报数。
+                    orders.forEach {
+                        add("· ${it.label()}｜欠 ${AiWriteArgs.moneyText(it.arrearsAmount)} 元")
+                    }
                     add("这些订单会被标记成已收；这几张单必须都属于这个客户（后端会校验）")
                 }
             },

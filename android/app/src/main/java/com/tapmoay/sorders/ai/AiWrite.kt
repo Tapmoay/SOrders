@@ -570,6 +570,21 @@ data class AiOrderRef(
     val paid: Boolean = false,
     /** 已收金额（与 `OrderDto.settledAmount` 同一口径）——`paid` 之外的**物证**。 */
     val settledAmount: String = "0",
+    /**
+     * **这一单还欠多少**（后端 `orders.arrears_amount`）—— 与收款页的判据**同源**
+     * （2026-09-24 第 33 轮；第 24 轮 10 区 F1）。
+     *
+     * ⛔ 收款卡的合计原来用的是 [amount]（= Σ 商品行金额，"当时卖了多少"），而后端整单核销
+     * **逐单按欠款算**：退过货的单上两个数差一大截（本机 order 13：行 42.80 / 欠 21.40），
+     * 于是**卡片按行金额生成 → 后端按欠款判 → 必 400**；用户改口报欠款那个数，
+     * 又会被卡片自己那句"逐单核销必须全额"挡回去 —— **这张单从此再也收不了款**。
+     * 界面那一半已在第 28 轮改成同一口径（`util/Money.kt::settleArrears`），这一处追平它。
+     *
+     * ⚠️ 默认值取 [amount]（**没退货时两者本来就相等**）：老调用点与测试夹具不必逐个改，
+     * 而生产那两个构造点（`AiWriteService`）都**显式**传后端算好的 `arrearsAmount` ——
+     * 谁忘了传，退化成的是"改动之前的行为"，不是崩掉。
+     */
+    val arrearsAmount: String = amount,
 ) {
     /** 卡片上显示的中文状态（由 [status] 推出来，不再单独存一份）。 */
     val statusCn: String get() = statusLabel(status)

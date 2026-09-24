@@ -774,6 +774,7 @@ class RepoWriteDataSource(
                 hasNav = !d.addressLat.isNullOrBlank() && !d.addressLng.isNullOrBlank(),
                 paid = d.paid,
                 settledAmount = d.settledAmount,
+                arrearsAmount = d.arrearsAmount,
             )
         }
 
@@ -1205,6 +1206,7 @@ class RepoWriteDataSource(
                 isException = d.isException,
                 paid = d.paid,
                 settledAmount = d.settledAmount,
+                arrearsAmount = d.arrearsAmount,
             )
         }
 
