@@ -115,6 +115,35 @@ def generate_piece_bill(db: Session, order: Order, operator_id: int | None = Non
     rule = rule_from_snapshot(getattr(order, "driver_rule_snapshot", None))
     pay = pay_for_order(order)
     if pay.total <= 0:
+        # ⛔ 「按分类定价 + 这一单没有分类」= **0 元且全链路无声**（2026-09-24 第 30 轮；
+        #    第 25 轮 06 区缺陷 1）：`driver_pay` 早就算出了 `category_unmatched` 这个标志，
+        #    但**全仓一个消费点都没有** —— 直接 `return None` 之后：不建明细、不写日志、
+        #    不给原因，订单在司机账单页与结算页**同时消失**（两张页面都按"有账单/有待结"筛），
+        #    而派单员与司机都不会收到任何提示：司机白跑一趟，月底对账才发现少了一单。
+        #    这里把它**说出来** —— 出口与「货损没有成本价」那条**同一个**：调用方
+        #    （`order_flow` 的送达流程）把这些话写进操作日志，报表中心「异常与审计」查得到。
+        #    ⚠️ 判据只看 `category_unmatched`：它不是"0 元"的唯一成因（提成 0、运费 0 也会），
+        #    别的 0 元仍然不写日志，免得把审计页淹掉。
+        if pay.category_unmatched:
+            from app.models.enums import OperationAction
+            from app.services.operation_log_service import write_log
+
+            write_log(
+                db,
+                operator_id=operator_id,
+                order_id=order.id,
+                # 复用送达那条动作码 + 一个**独有的键**（与 `warehouse_inbound_skipped`、
+                # `damage_not_booked` 同一个写法）：新加一个枚举值要连带改
+                # `ReportCenter.actionLabel`，而这件事本身不需要多一个动作码。
+                action=OperationAction.ORDER_COMPLETE,
+                change_payload={
+                    "driver_bill_unmatched_category": (
+                        f"{order.order_no} 的计费规则是按分类定价，而这一单没有匹配到任何分类 → "
+                        "司机这单的应付算出来是 0，**没有生成账单**。"
+                        "请在「计费规则」里给这一单的运费分类补一档金额，或改成统一每单金额。"
+                    )
+                },
+            )
         return None
     existing = db.scalars(
         select(DriverBill).where(
