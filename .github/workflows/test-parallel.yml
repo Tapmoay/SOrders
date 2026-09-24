@@ -1,10 +1,14 @@
 name: Tests (Parallel)
 
+# ⚠️ 2026-09-24（整改阶段 3）：分支口径补上 p / new。
+#    原来只挂 main/develop，而这个仓库的代码长期落在 p（→ origin/new）——
+#    等于这份 workflow 从来没在真正的开发分支上跑过。
+#    三层闸门（快闸/常闸/夜闸）见同目录 gate.yml。
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, p, new]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, p, new]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
