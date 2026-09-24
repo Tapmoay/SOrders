@@ -181,8 +181,11 @@ def main() -> int:
     c.ok("App 的请求体带这三个字段", all(f"val {f}Id: Long? = null" in dts
                                         for f in ("contact", "address", "location")))
     c.ok("选了线路/地点时记下 id", "pickedAddressId = a.id" in vm and "pickedLocationId = l.id" in vm)
+    # ⚠️ 2026-09-25（CI 第一次真跑）：原来是**写死换行符**的字面量（`... = null\n        ...`），
+    #    Windows 工作区是 CRLF、CI/Linux 检出是 LF → 同一份代码在两边结论不同（本地绿、CI 红）。
+    #    判据不该依赖换行符：改成 \s*\r?\n\s*（行距与缩进都容忍）。
     c.ok("地图自己选点时**清掉** id（别把上一次的线路记到这一单头上）",
-         "pickedAddressId = null\n        pickedLocationId = null" in vm)
+         re.search(r"pickedAddressId = null\s*\r?\n\s*pickedLocationId = null", vm) is not None)
     c.ok("下单时把 id 一起提交", "addressId = pickedAddressId" in vm and "locationId = pickedLocationId" in vm)
 
     c.section("6. 「重置计数」这一格（用户 2026-09-22：「在我的基础设置里加一个重置计数」）")
