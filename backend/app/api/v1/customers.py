@@ -1,7 +1,7 @@
 """客户档案（注册用户/散客）——账本 V2：收款、欠款、挂账均需客户档案。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.rbac import user_role_key
@@ -164,18 +164,31 @@ def merge_customers(
         #    ¥11007.00 / 26 行，按 `party_id=7` 筛得 ¥3755.60、`party_id=8` 得 ¥3080.10），
         #    而 `party_name` 还写着**已被删掉的那个客户名**（档案都删了，名字还在）。
         #    于是"把钱并到一起"这个合并的**本来目的**在资金流水这一侧根本不会发生。
-        flows = list(db.scalars(
-            select(CashFlow).where(
-                CashFlow.party_type == PARTY_CUSTOMER,
-                CashFlow.party_id == mid,
+        #
+        #    ⚠️ 这里用**一条批量 UPDATE**（不是"select 出来逐行改"），两个理由：
+        #    ① **回收站（软删）里的流水也要跟着换归属** —— 用户把两条档案并了，
+        #       回收站里那笔钱的归属还指着已经删掉的档案，恢复出来就是悬空的；
+        #    ② 这也正合 `_check_supplier_payables.py` 那条"取 cash_flows 必须带 is_deleted 过滤"
+        #       的**作用域**：那条判的是**求和的取数**（别让同一笔钱两个答案），
+        #       而这里是换归属 —— 带上 `is_deleted` 反而会漏搬回收站里那几行。
+        #       两条纪律不冲突，是作用域不同（那条判据数的是"从这张表把行取出来"的处数）。
+        if (m.name or "").strip():
+            # 名字是快照串：先按"原来写的确实是被并客户"把名字换成保留客户的名
+            db.execute(
+                update(CashFlow)
+                .where(
+                    CashFlow.party_type == PARTY_CUSTOMER,
+                    CashFlow.party_id == mid,
+                    CashFlow.party_name == m.name,
+                )
+                .values(party_name=keep.name)
             )
-        ))
-        for cf in flows:
-            cf.party_id = keep.id
-            # 名字是快照串：跟着搬，否则流水上印着一个已经不存在的人
-            if (cf.party_name or "").strip() == (m.name or "").strip():
-                cf.party_name = keep.name
-        moved_flows += len(flows)
+        moved = db.execute(
+            update(CashFlow)
+            .where(CashFlow.party_type == PARTY_CUSTOMER, CashFlow.party_id == mid)
+            .values(party_id=keep.id)
+        ).rowcount
+        moved_flows += int(moved or 0)
         # ③ 临时货主（无账号）的账本行按**名字**归集（`list_accounts` 就是这么聚合的），
         #    合并时名字不改 → 用户做合并的主要目的（把两笔账并到一起）根本不会发生。
         old_name = (m.name or "").strip()

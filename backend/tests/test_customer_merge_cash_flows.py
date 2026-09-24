@@ -32,7 +32,8 @@ from tests.conftest import auth_headers
 def _mk_customer(client: TestClient, h: dict, name: str) -> int:
     r = client.post(
         "/api/v1/customers",
-        json={"name": name, "kind": "shipper"},
+        # ⚠️ `kind` 的合法取值是 **registered / tmp**（不是 shipper —— 那是"订单归属"那一侧的词）
+        json={"name": name, "kind": "registered"},
         headers=h,
     )
     assert r.status_code in (200, 201), r.text
@@ -48,7 +49,12 @@ def _mk_flow(db_session, party_id: int, party_name: str, amount: str) -> int:
         party_id=party_id,
         party_name=party_name,
         direction="in",
-        biz_type="RECEIPT_CUSTOMER",
+        # ⛔ 必须是 `CashFlowBizType` 里的**合法取值**（2026-09-24 第 27 轮实测）：
+        #    第一版写的是 `"RECEIPT_CUSTOMER"` —— 那个值**不存在**，于是这一行进测试库之后，
+        #    任何序列化资金流水的端点都会 `ResponseValidationError` → 因为测试库是
+        #    **同一个文件里跨用例复用**的，它把整批用例一起带红（实测 20 failed / 683 errors）。
+        #    教训与"别污染共享夹具"同源：往共享库里插的行，字段取值必须是**真的合法**。
+        biz_type="RECEIPT_CASH",
         amount=Decimal(amount),
         flow_date=__import__("datetime").date(2026, 9, 1),
         note=f"合并探针-{uuid.uuid4().hex[:6]}",
