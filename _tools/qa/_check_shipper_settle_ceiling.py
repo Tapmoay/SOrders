@@ -211,8 +211,13 @@ def main() -> int:
     # ---- ⑥ 文档指针 ----
     c.present("定位表里指到了本判据（改这一块的人找得到）",
               read(LOCATOR), r"_check_shipper_settle_ceiling\.py")
-    c.present("FINDINGS 里有「退货把应收冲小之后已收大于应收」那一条待拍板",
-              read(FINDINGS), r"退货把应收冲小")
+    # ⚠️ 2026-09-25（CI 第一次真跑时发现）：_archive/ **不进 git**（本机底稿目录），
+    #    干净检出里没有这份 FINDINGS —— 缺底稿时**响亮地跳过**（不假装通过，也不让常闸在 CI 上必红）。
+    if FINDINGS.exists():
+        c.present("FINDINGS 里有「退货把应收冲小之后已收大于应收」那一条待拍板",
+                  read(FINDINGS), r"退货把应收冲小")
+    else:
+        print("  [SKIP] FINDINGS 那条：本机没有 _archive/audit/FINDINGS.md（不进 git）—— 只有带底稿的机器能判")
     c.present("服务层文件头写明了「两道防线分别在哪儿」",
               svc, r"两道防线分别在")
 
