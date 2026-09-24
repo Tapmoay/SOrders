@@ -135,6 +135,61 @@ def test_delivery_to_warehouse_adds_stock(client, token_dispatcher, users, db_se
     )
 
 
+def test_到仓入库要扣掉货损(client, token_dispatcher, users, db_session):
+    """⛔ 入库数量 = 行数量 − **货损**（2026-09-24 第 29 轮；第 25 轮 02 区 D1）。
+
+    缺陷：原来按**整行数量**入库，于是"客户订 3 件、路上坏了 2 件"这一单会往仓库入 **3** 件 ——
+    库存虚增 2，而坏掉那 2 件按仓库自己的规矩（`order_return` 的"货损不回补"）本来就不该算库存。
+    两处口径直接矛盾；而且入库那条线原来跑在**货损落库之前**，就算想扣也读不到数。
+    """
+    from sqlalchemy import select
+
+    from app.models import Order, OrderProduct
+
+    h = auth_headers(token_dispatcher)
+    driver_id, _ = _make_driver(client, h, "13900010009", "货损入库探针司机")
+    hd = _driver_headers(db_session, driver_id)
+    product = _make_product(db_session, "货损入库探针商品", stock=0)
+    wh_id = _make_warehouse(client, h, "货损入库探针仓", "货损入库探针地址 9 号")
+    order_id = _order_to(client, h, users["shipper"].id, product, "货损入库探针地址 9 号", qty=3)
+    assert wh_id  # 仓库点存在（判据在 warehouse_for_order）
+
+    assert client.post(
+        f"/api/v1/orders/{order_id}/assign",
+        json={"driver_id": driver_id, "freight_fee": "100"},
+        headers=h,
+    ).status_code == 200
+    assert client.post(f"/api/v1/orders/{order_id}/driver-ack", headers=hd).status_code == 200
+
+    db_session.expire_all()
+    op = db_session.scalars(
+        select(OrderProduct).where(OrderProduct.order_id == order_id)
+    ).first()
+    r = client.post(
+        f"/api/v1/orders/{order_id}/complete",
+        json={
+            "delivery_photo_urls": ["/static/uploads/delivery/damage.jpg"],
+            "damage_items": [{"order_product_id": op.id, "quantity": 2}],
+            "damage_note": "路上压坏两件",
+        },
+        headers=hd,
+    )
+    assert r.status_code == 200, r.text
+
+    rows = _warehouse_rows(db_session, order_id)
+    total_in = sum(int(m.change or 0) for m in rows)
+    assert total_in == 1, (
+        f"订 3 件、坏 2 件 → 只该入 1 件，实际入了 {total_in} 件"
+        f"（入库数量没扣货损，库存会虚增；或者货损那一步还排在入库之后）：{[(m.product_id, m.change) for m in rows]}"
+    )
+    assert _stock(db_session, product.id) == -2, (
+        "订 3 件、坏 2 件：订单那一线扣 3、仓库这一线只入 1 → 净 −2 ——"
+        "差的正是「坏了、谁都没有」的那两件（账上同时记了货损 LOSS，两处口径一致）"
+    )
+    db_session.expire_all()
+    assert db_session.get(Order, order_id).status == "DELIVERED"
+
+
 def test_delivery_to_normal_place_adds_nothing(client, token_dispatcher, users, db_session):
     """送到**非仓库**地点：这条线一件都不许加（判据坏了就等于所有送达都变入库）。"""
     h = auth_headers(token_dispatcher)

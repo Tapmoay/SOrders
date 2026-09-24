@@ -112,7 +112,13 @@ def auto_warehouse_inbound(db: Session, order: Order, operator_id: int) -> dict:
     inbound = 0
     skipped: list[str] = []
     for op in _order_rows(db, order):
-        qty = int(op.quantity or 0)
+        # ⛔ 入库数量要**扣掉货损**（2026-09-24 第 29 轮；第 25 轮 02 区 D1）：
+        #    原来按整行数量入（`qty = op.quantity`），于是"客户订 10 件、路上坏了 2 件"
+        #    这一单会往仓库入 **10** 件 —— 库存虚增 2，而坏掉那 2 件按仓库自己的规矩
+        #    （`order_return` 的"货损不回补"）本来就不该算库存。两处口径直接矛盾。
+        #    ⚠️ 它还依赖调用顺序：`order_flow` 里的货损录入必须**先**写进
+        #    `op.damage_quantity`，这条入库线才读得到（那一处同时改了，见它的注释）。
+        qty = int(op.quantity or 0) - int(op.damage_quantity or 0)
         if qty <= 0:
             continue
         prod = _resolve_product(db, op)

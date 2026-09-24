@@ -462,6 +462,27 @@ def complete_delivery(
     )
     sync_ledger_from_delivered_order(db, order)
     auto_stock_commit(db, order)
+    # ---- 货损录入（选填）：写商品行/订单备注 ----
+    # ⛔ **必须在"到仓入库"之前**（2026-09-24 第 29 轮；第 25 轮 02 区 D1）：
+    #    入库那条线要读 `op.damage_quantity` 才能把坏掉的那几件扣掉
+    #    （`warehouse.auto_warehouse_inbound`），而它原来排在这一段**后面** ——
+    #    于是入库永远看不到货损、按整行数量入，库存虚增。两件事都改了才算修好：
+    #    顺序 + 数量口径（先写事实，再让消费方读事实）。
+    from decimal import Decimal as _Dec
+
+    if damage_items:
+        for item in damage_items:
+            op = next((x for x in order.order_products if x.id == item.order_product_id), None)
+            if op is None:
+                raise ValueError("货损商品行不存在")
+            qty = int(item.quantity or 0)
+            if qty < 0:
+                raise ValueError("货损数量不能为负")
+            if qty > op.quantity:
+                raise ValueError(f"货损数量超过该行数量（{op.quantity}）")
+            op.damage_quantity = qty
+        order.damage_note = (damage_note or "").strip()
+
     # ---- 到仓入库：**独立的一条线**（用户 2026-09-19：「再开一条计算线，这条线是独立算的…
     #      入库就正常入；直到那个订单完成了之后它才会减库存」）----
     #
@@ -492,21 +513,6 @@ def complete_delivery(
                 action=OperationAction.ORDER_COMPLETE,
                 change_payload={"warehouse_inbound_skipped": inbound["skipped"]},
             )
-    # 货损录入（选填）：写商品行/订单备注，随后统一账务钩子
-    from decimal import Decimal as _Dec
-
-    if damage_items:
-        for item in damage_items:
-            op = next((x for x in order.order_products if x.id == item.order_product_id), None)
-            if op is None:
-                raise ValueError("货损商品行不存在")
-            qty = int(item.quantity or 0)
-            if qty < 0:
-                raise ValueError("货损数量不能为负")
-            if qty > op.quantity:
-                raise ValueError(f"货损数量超过该行数量（{op.quantity}）")
-            op.damage_quantity = qty
-        order.damage_note = (damage_note or "").strip()
     # 账务钩子：PIECE 应付明细 + 货损 LOSS/COGS 冲回（幂等）
     warnings = post_delivery_accounting(db, order, operator_id=driver.id)
     # 「没记成」的必须留痕：司机报的货损在没有成本价时算不出金额，
