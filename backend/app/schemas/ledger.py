@@ -14,8 +14,17 @@ class LedgerCreate(MoneyInput):
     entry_date: date
     product_name: str = Field(..., min_length=1, max_length=256)
     quantity: int = Field(default=1, ge=1)
-    unit_price: Decimal = Field(default=Decimal("0"))
-    total: Decimal | None = Field(default=None)
+    #: ⛔ 金额必须有下界（2026-09-24 第 26 轮 10 区 F1）：`quantity` 一直有 `ge=1`，
+    #:    而这两个钱**什么界都没有** —— 旧 H5 的手工记账单价框是 `type="number"`
+    #:    （同一表单里数量用的是 `type="digit"`，输不出负号），提交前也只判 `Number.isFinite`
+    #:    不判负，于是「单价 10 × 数量 2 / 总额 −999999」这种行能直接进库：
+    #:    它被 `api/v1/ledger.py` 的货主账**直接累加**、还会进导出，同时写一条 `LEDGER_CREATE` 审计。
+    #:    服务端这一层是**唯一的兜底**（AI 那一侧 `AiWriteArgs.parseMoney` 早就拒负数了，
+    #:    所以缺口只在"绕开 App 的客户端"上 —— 而那正是 H5 的形状）。
+    #:    ⚠️ 只加下界，**不动**「total 与 unit_price×quantity 是否必须相等」：那是产品口径
+    #:    （手工记账允许直接给总额），要改得先拍板。
+    unit_price: Decimal = Field(default=Decimal("0"), ge=0)
+    total: Decimal | None = Field(default=None, ge=0)
     order_id: int | None = None
     order_product_id: int | None = None
     product_id: int | None = None
