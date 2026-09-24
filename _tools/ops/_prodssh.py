@@ -179,6 +179,17 @@ emit db_ledgers "$(mysql -N -B -e "select count(*) from @DB@.ledgers;" 2>/dev/nu
 emit db_users "$(mysql -N -B -e "select count(*) from @DB@.users;" 2>/dev/null)"
 emit db_products "$(mysql -N -B -e "select count(*) from @DB@.products;" 2>/dev/null)"
 emit db_tables_list "$(mysql -N -B -e "select table_name from information_schema.tables where table_schema='@DB@' order by table_name;" 2>/dev/null | tr '\n' ',')"
+# 可达性探针（报告 §15 ③ 点名要监控的 "database" 一项）：连不上时上面那些 emit 全是空的，
+# 而"空"与"库里就是 0"在监控上长得一样 —— 所以给一个**明确的**判据值。
+emit db_reachable "$(mysql -N -B -e "select 1;" 2>/dev/null)"
+# 迁移版本（阶段 2 的版本表）：空 = 这个库还没有版本表（老库）
+emit db_schema_version "$(mysql -N -B -e "select coalesce(max(version),0) from @DB@.schema_versions;" 2>/dev/null)"
+# 事务发件箱（阶段 6 §10）：按状态计数。⚠️ 表不存在时这里是空的（生产还没部署新代码就是这样），
+# 健康检查要把"空"如实说成"还没部署"，而不是当成 0。
+emit outbox_pending "$(mysql -N -B -e "select count(*) from @DB@.outbox_events where status='pending';" 2>/dev/null)"
+emit outbox_sent "$(mysql -N -B -e "select count(*) from @DB@.outbox_events where status='sent';" 2>/dev/null)"
+emit outbox_failed "$(mysql -N -B -e "select count(*) from @DB@.outbox_events where status='failed';" 2>/dev/null)"
+emit outbox_table "$(mysql -N -B -e "select count(*) from information_schema.tables where table_schema='@DB@' and table_name='outbox_events';" 2>/dev/null)"
 
 # ---- redis ----
 emit redis_version "$(redis-cli -h 127.0.0.1 -p 6379 info server 2>/dev/null | awk -F: '/redis_version/{print $2}' | tr -d '\r')"

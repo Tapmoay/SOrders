@@ -37,6 +37,8 @@ import _prodssh  # noqa: E402
 CERT_WARN_DAYS, CERT_FAIL_DAYS = 30, 7
 DISK_WARN_PCT, DISK_FAIL_PCT = 85, 95
 BACKUP_WARN_HOURS = 36
+#: 发件箱（报告 §10）的积压阈值：待发堆起来 = worker 卡了；放弃数 ≠0 = 有人得去看 last_error。
+OUTBOX_PENDING_WARN = 50
 
 
 def _run(script: str, local: bool):
@@ -122,6 +124,38 @@ def main(argv: list[str] | None = None) -> int:
             age_h = -1
         lvl = "ok" if 0 <= age_h <= BACKUP_WARN_HOURS else ("warn" if age_h > BACKUP_WARN_HOURS else "warn")
         rows.append((lvl, "最近一次备份", f"{age_h:.1f} 小时前（阈值 {BACKUP_WARN_HOURS}h）"))
+
+    # ---- 数据库可达性（报告 §15 ③ 点名的四项之一）----
+    reachable = f.get("db_reachable", "").strip()
+    rows.append((
+        "ok" if reachable == "1" else "fail",
+        "数据库",
+        f"探针 select 1 = {reachable or '（无输出）'} ｜ {f.get('db_size_mb', '?')} MB / {f.get('db_tables', '?')} 表"
+        f" ｜ 迁移版本 {f.get('db_schema_version') or '—'}",
+    ))
+
+    # ---- 发件箱积压（§10 之后，这条是"事件到底发出去没有"的唯一外部信号）----
+    has_table = f.get("outbox_table", "").strip()
+    if has_table != "1":
+        rows.append(("warn", "发件箱", "生产库里还没有 `outbox_events` 表（新代码尚未部署）"))
+    else:
+        def _n(key: str) -> int:
+            try:
+                return int(f.get(key, "") or 0)
+            except ValueError:
+                return -1
+
+        pending, sent, failed = _n("outbox_pending"), _n("outbox_sent"), _n("outbox_failed")
+        if failed < 0 or pending < 0:
+            lvl = "warn"
+        elif failed > 0:
+            lvl = "warn"      # 不是 fail：业务没坏，是"有事件发不出去"，要人去看 last_error
+        elif pending > OUTBOX_PENDING_WARN:
+            lvl = "warn"      # 待发堆起来 = worker 卡住/处理器在失败
+        else:
+            lvl = "ok"
+        rows.append((lvl, "发件箱",
+                     f"待发 {pending} / 已发 {sent} / 放弃 {failed}（待发阈值 {OUTBOX_PENDING_WARN}，放弃数必须为 0）"))
 
     fails = [r for r in rows if r[0] == "fail"]
     warns = [r for r in rows if r[0] == "warn"]
