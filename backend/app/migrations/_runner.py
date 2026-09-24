@@ -1,0 +1,319 @@
+"""迁移运行器：`schema_versions` 版本表 + 按版本执行 `migrations/` 下的变更。
+
+### 为什么要有它（整改报告 §4）
+报告把这件事列为「整个架构改造的第一核心任务」，原话是：
+
+```text
+现在：app.database → schema_bootstrap → 启动 → ALTER TABLE
+风险：应用启动 = 数据库迁移 = 服务可用性
+```
+
+而 `schema_bootstrap.py` 已经 1600+ 行、且**同时兼任两个角色**（正式变更机制 + 运行时自愈）。
+它最要命的一条不是"文件太大"，而是：**没人知道数据库现在是什么状态** ——
+「这句 DDL 到底跑过没有」只能靠"这句是幂等的，所以跑不跑都行"来兜。
+
+### 分工（本轮只加这一圈外框，既有 DDL 的行为一个字都不改）
+
+| 角色 | 谁负责 | 什么时候跑 |
+|---|---|---|
+| **正式变更**（一次性的结构/数据搬迁） | 本目录下的 `NNN_*.py` | 每个版本**只跑一次**，跑过就记进 `schema_versions` |
+| **运行时自愈**（缺表补表、缺列补列、枚举补值、列宽放宽） | `core/schema_bootstrap.py` | 每次启动都跑（必须幂等） |
+
+⛔ 本轮**没有**把 bootstrap 里那 1600 行搬进 migrations —— 报告 §18 规则 1「一次只动一个维度」：
+搬它＝同时在动"迁移机制"和"全部既有 DDL"，一旦出错分不清是哪一层。
+既有那些 DDL 保持原样（它们是幂等的自愈），新变更从今天起走 `migrations/`。
+
+### 三条刻意的设计选择（都有代价，写在这里免得后人踩）
+
+1. **发现到"改了历史迁移"时只报错、不拦启动**：
+   已经跑过的迁移文件内容变了（checksum 不一致）是**真问题**，但"让 API 起不来"是更大的问题 ——
+   一个校验和笔误就能把线上打死。所以：`logger.error` + 状态里标红 + `_tools/qa/_check_migrations.py` 在 CI 里红。
+2. **默认不带 `--force` 就不重跑任何东西**：版本表里有的版本一律跳过（哪怕它的 checksum 变了）。
+3. **锁是独立的**（`/tmp/sorders_migrations.lock`，不是 bootstrap 那把）：
+   `flock` 是"文件描述符级"的，同一个进程里对**同一个文件**再 `LOCK_EX` 会**自己把自己锁死**。
+   调用顺序恒为 bootstrap → migrations（拿到两把锁的顺序必须一致，反着写就会和 `--workers 2` 死锁）。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import logging
+import re
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from types import ModuleType
+
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+from app.core.business_time import utc_now_naive
+
+logger = logging.getLogger(__name__)
+
+MIGRATIONS_DIR = Path(__file__).resolve().parent
+VERSION_TABLE = "schema_versions"
+
+#: 迁移文件名格式：`001_baseline.py` —— **必须**带三位以上版本号，否则 discover 会当场报错。
+#: 为什么要这么严：一个没有版本号的文件在旧实现里就是"静静地谁也不跑它"，而它看起来又像一条迁移。
+FILE_RE = re.compile(r"^(\d{3,})_([a-z0-9_]+\.py)$")
+#: 只在**同一个进程**里互斥（flock 是 fd 级的），跨进程互斥靠下面这个文件。
+LOCK_FILE = "/tmp/sorders_migrations.lock"
+
+_CREATE_SQL: dict[str, str] = {
+    # 版本表**故意不写成 SQLAlchemy 模型**：它必须能在"模型还没建/建不出来"的库上先存在，
+    # 而且 `create_all` 不该有机会去 drop/recreate 它（那会把"跑过哪些迁移"一起抹掉）。
+    "mysql": (
+        f"CREATE TABLE IF NOT EXISTS {VERSION_TABLE} ("
+        "  version INT NOT NULL COMMENT '迁移版本号（= 文件名前缀）',"
+        "  name VARCHAR(120) NOT NULL COMMENT '迁移名（= 文件名去掉前缀）',"
+        "  checksum CHAR(64) NOT NULL COMMENT '迁移文件内容的 sha256（CRLF 归一后）',"
+        "  description VARCHAR(255) NOT NULL DEFAULT '',"
+        "  applied_at DATETIME NOT NULL COMMENT 'UTC',"
+        "  duration_ms INT NOT NULL DEFAULT 0,"
+        "  app_version VARCHAR(32) NOT NULL DEFAULT '',"
+        "  PRIMARY KEY (version)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    ),
+    "sqlite": (
+        f"CREATE TABLE IF NOT EXISTS {VERSION_TABLE} ("
+        "  version INTEGER NOT NULL PRIMARY KEY,"
+        "  name TEXT NOT NULL,"
+        "  checksum TEXT NOT NULL,"
+        "  description TEXT NOT NULL DEFAULT '',"
+        "  applied_at TEXT NOT NULL,"
+        "  duration_ms INTEGER NOT NULL DEFAULT 0,"
+        "  app_version TEXT NOT NULL DEFAULT ''"
+        ")"
+    ),
+}
+
+
+class MigrationError(RuntimeError):
+    """迁移体系的错误基类（发现/执行/校验各有一种）。"""
+
+
+class MigrationFailed(MigrationError):
+    """某条迁移执行到一半失败。**不写版本表**，所以下次启动会重试它。
+
+    ⚠️ MySQL 的 DDL 是隐式提交的：失败时库里可能已经改了一半。
+    所以迁移里**必须**写成"能重跑的"（先判存在再建/加），见本目录 README。
+    """
+
+
+@dataclass(frozen=True)
+class Migration:
+    version: int
+    name: str
+    path: Path
+    checksum: str
+    description: str = ""
+    module: ModuleType | None = field(default=None, compare=False)
+
+
+def _checksum(path: Path) -> str:
+    """文件内容的 sha256（**先把 CRLF 归一到 LF 再算**）。
+
+    为什么必须归一：本机是 Windows（工作区里 .py 是 CRLF），生产是 Linux（LF）。
+    不归一的话同一份迁移在两处算出的校验和不同 —— 表现是"到了生产就说你改了历史迁移"，
+    而这种假红会让人学会**无视**这条检查（本项目 §15 的教训：永远红的检查 = 没有检查）。
+    """
+    raw = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _load_module(path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(f"app_migrations_{path.stem}", path)
+    if spec is None or spec.loader is None:
+        raise MigrationError(f"迁移文件加载不了：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def discover(directory: Path | None = None, *, load: bool = False) -> list[Migration]:
+    """按版本号升序列出 `migrations/` 下的迁移（**不执行**）。
+
+    `load=True` 时把模块也读进来（会执行文件顶层代码，所以只在真要跑/要看描述时用）。
+    """
+    d = Path(directory) if directory else MIGRATIONS_DIR
+    out: list[Migration] = []
+    seen: dict[int, Path] = {}
+    for path in sorted(d.glob("*.py")):
+        if path.name.startswith("_"):            # `_runner.py` / `__init__.py` 不是迁移
+            continue
+        m = FILE_RE.match(path.name)
+        if not m:
+            raise MigrationError(
+                f"{path.name} 不符合迁移命名 `NNN_名字.py`（三位以上版本号）。\n"
+                "  ⛔ 不报错的话它就是一个「看起来像迁移、实际谁也不跑」的文件 —— 那种东西最危险。"
+            )
+        version = int(m.group(1))
+        if version in seen:
+            raise MigrationError(f"版本号 {version} 被两个文件用了：{seen[version].name} 与 {path.name}")
+        seen[version] = path
+        module = _load_module(path) if load else None
+        out.append(Migration(
+            version=version, name=path.stem.split("_", 1)[1], path=path, checksum=_checksum(path),
+            description=str(getattr(module, "DESCRIPTION", "")) if module else "", module=module,
+        ))
+    out.sort(key=lambda x: x.version)
+    return out
+
+
+def _dialect(engine: Engine) -> str:
+    return engine.dialect.name
+
+
+def ensure_version_table(engine: Engine) -> None:
+    """建版本表（幂等）。**不认识的方言直接报错**，不静默跳过 ——
+    静默跳过的后果是"换了个库之后所有迁移每次都重跑"。"""
+    name = _dialect(engine)
+    sql = _CREATE_SQL.get(name)
+    if sql is None:
+        raise MigrationError(
+            f"迁移版本表还没有 {name} 方言的建表语句（现有：{', '.join(sorted(_CREATE_SQL))}）。\n"
+            "  新方言请显式补一句，别让它静默跳过。"
+        )
+    with engine.begin() as conn:
+        conn.execute(text(sql))
+
+
+def applied_versions(engine: Engine) -> dict[int, dict]:
+    ensure_version_table(engine)
+    with engine.begin() as conn:
+        rows = conn.execute(text(
+            f"SELECT version, name, checksum, description, duration_ms FROM {VERSION_TABLE} ORDER BY version"
+        )).mappings().all()
+    return {int(r["version"]): dict(r) for r in rows}
+
+
+def current_version(engine: Engine) -> int:
+    applied = applied_versions(engine)
+    return max(applied) if applied else 0
+
+
+def migration_status(engine: Engine, *, directory: Path | None = None) -> dict:
+    """给人和 CI 看的状态：当前版本 / 待跑 / **跑了但内容变过**（drifted）。"""
+    migrations = discover(directory)
+    applied = applied_versions(engine)
+    pending = [m for m in migrations if m.version not in applied]
+    drifted = [m for m in migrations
+               if m.version in applied and applied[m.version]["checksum"] != m.checksum]
+    unknown = [v for v in applied if v not in {m.version for m in migrations}]
+    return {
+        "current": max(applied) if applied else 0,
+        "applied": [{"version": v, **{k: applied[v][k] for k in ("name", "checksum", "duration_ms")}}
+                    for v in sorted(applied)],
+        "pending": [{"version": m.version, "name": m.name} for m in pending],
+        "drifted": [{"version": m.version, "name": m.name,
+                     "db_checksum": applied[m.version]["checksum"], "file_checksum": m.checksum}
+                    for m in drifted],
+        "unknown_in_db": unknown,
+    }
+
+
+def _app_version() -> str:
+    """把"哪一版代码跑的这条迁移"记下来（排障时用它对齐代码与库）。"""
+    try:
+        # ⚠️ 取 settings 的唯一正确入口是 `get_settings()`（`app.config` 里**没有**模块级 `settings`）。
+        #    第一版写成 `from app.config import settings` —— 这个 ImportError 被下面的 except 吞掉，
+        #    表现是**版本号永远是空串**（留痕字段静默失效）；而 CLI（`__main__.py`）里同样的写法
+        #    是**直接起不来**。两处都改掉了，并补了一条"真跑 CLI"的单测钉着。
+        from app.config import get_settings
+
+        return str(getattr(get_settings(), "app_version", "") or "")[:32]
+    except Exception:                                    # noqa: BLE001 —— 版本号只是留痕，读不到不该拦迁移
+        return ""
+
+
+def run_migrations(engine: Engine, *, directory: Path | None = None, dry_run: bool = False) -> dict:
+    """把没跑过的迁移按版本号顺序跑掉；返回一份可打印的报告。
+
+    · 跑过的（版本表里有）**一律跳过**；
+    · 内容变过的（checksum 不一致）**只报错不拦**（理由见模块开头第 1 条）；
+    · 某条失败 → 抛 `MigrationFailed`，**不写版本表**（下次启动重试它）。
+    """
+    migrations = discover(directory, load=True)
+    with _lock():
+        ensure_version_table(engine)
+        # ⚠️ 拿锁**之后**再读一次：uvicorn --workers 2 会两个进程同时进这里，
+        #    先读后锁会让两边都以为"还没跑"，然后各跑一遍（DDL 不是原子的）。
+        applied = applied_versions(engine)
+        report: dict = {"applied": [], "skipped": [], "drifted": [], "failed": None}
+
+        for m in migrations:
+            if m.version in applied:
+                if applied[m.version]["checksum"] != m.checksum:
+                    logger.error(
+                        "迁移 %s_%s 的内容与已经记录在库里的不一致（库里 %s / 文件 %s）——"
+                        "**已经跑过的迁移不许再改**，要改请新加一条。这条不会被重跑。",
+                        f"{m.version:03d}", m.name, applied[m.version]["checksum"][:12], m.checksum[:12],
+                    )
+                    report["drifted"].append(m.version)
+                else:
+                    report["skipped"].append(m.version)
+                continue
+
+            if dry_run:
+                report["applied"].append({"version": m.version, "name": m.name, "dry_run": True})
+                continue
+
+            upgrade = getattr(m.module, "upgrade", None)
+            if not callable(upgrade):
+                raise MigrationError(f"迁移 {m.path.name} 没有定义 upgrade(engine)")
+
+            started = time.monotonic()
+            logger.warning("执行迁移 %03d_%s：%s", m.version, m.name, m.description or "(无描述)")
+            try:
+                upgrade(engine)
+            except Exception as e:                            # noqa: BLE001 —— 原样包一层，带上版本号再抛
+                logger.error("迁移 %03d_%s 失败：%s", m.version, m.name, e)
+                report["failed"] = {"version": m.version, "name": m.name, "error": str(e)[:400]}
+                raise MigrationFailed(f"{m.version:03d}_{m.name} 失败：{e}") from e
+            duration_ms = int((time.monotonic() - started) * 1000)
+
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        f"INSERT INTO {VERSION_TABLE} "
+                        "(version, name, checksum, description, applied_at, duration_ms, app_version) "
+                        "VALUES (:v, :n, :c, :d, :a, :ms, :av)"
+                    ),
+                    {"v": m.version, "n": m.name, "c": m.checksum, "d": m.description[:255],
+                     "a": utc_now_naive(), "ms": duration_ms, "av": _app_version()},
+                )
+            report["applied"].append({"version": m.version, "name": m.name, "duration_ms": duration_ms})
+            logger.warning("迁移 %03d_%s 完成（%s ms）", m.version, m.name, duration_ms)
+
+    if not report["applied"] and not report["drifted"]:
+        logger.debug("数据库结构已是最新版本 %s", report.get("current", ""))
+    return report
+
+
+class _lock:
+    """跨进程互斥（Linux）。Windows 没有 fcntl —— 本地单进程开发无碍，与 bootstrap 同一取舍。"""
+
+    def __enter__(self):
+        try:
+            import fcntl
+        except ImportError:                                # pragma: no cover —— Windows
+            self._fh = None
+            return self
+        self._fh = open(LOCK_FILE, "w")
+        fcntl.flock(self._fh, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        if self._fh is None:
+            return False
+        try:
+            import fcntl
+
+            fcntl.flock(self._fh, fcntl.LOCK_UN)
+        finally:
+            self._fh.close()
+            self._fh = None
+        return False
+

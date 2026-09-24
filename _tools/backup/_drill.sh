@@ -200,6 +200,50 @@ sys.exit(0 if not bad else 6)
 PYEOF
 ) || { echo "⛔ 库内不变式不通过 —— 恢复出来的库**不是**可用的生产副本" >&2; exit 6; }
 
+
+# ---------------------------------------------------------------- ②b 迁移运行器（真 MySQL 上验一次）
+# 为什么单独一步：`schema_versions` 的建表语句是**方言相关**的（MySQL 那版带 COMMENT/CHAR(64)、
+# SQLite 那版是 TEXT）—— 本机的单测只跑得到 SQLite，而生产是 MySQL 8。
+# 这一步把**仓库里这份** `app/migrations/` 覆盖到生产代码的一份临时拷贝上，
+# 拿恢复出来的演练库当靶子跑一遍：建表、入账、再跑一次跳过、`status` 对账。
+# ⛔ 只动 /opt/sorders-backup 下的临时拷贝与**演练库**，不碰生产代码、不碰生产库。
+if [ -n "${MIGRATIONS_SRC:-}" ]; then
+  echo "--- ②b 迁移运行器（真 MySQL）---"
+  CODE_DIR="$BACKUP_ROOT/drill-code"
+  rm -rf "$CODE_DIR"; mkdir -p "$CODE_DIR"
+  cp -a "$BACKEND_DIR/app" "$CODE_DIR/app"
+  rm -rf "$CODE_DIR/app/migrations"; cp -a "$MIGRATIONS_SRC" "$CODE_DIR/app/migrations"
+  rm -rf "$CODE_DIR/app/__pycache__"
+  MIG_OUT=$( cd "$CODE_DIR" && DATABASE_URL="$DRILL_URL" "$VENV_PY" - <<'PYEOF'
+import json
+from sqlalchemy import text
+from app.migrations import current_version, migration_status, run_migrations
+from app.database import engine  # noqa: F401 —— 复用应用自己的引擎配置
+
+first = run_migrations(engine)
+second = run_migrations(engine)
+st = migration_status(engine)
+with engine.begin() as conn:
+    rows = conn.execute(text(
+        "SELECT version, name, LENGTH(checksum) FROM schema_versions ORDER BY version")).all()
+print(json.dumps({
+    "applied_first": [a["version"] for a in first["applied"]],
+    "applied_second": [a["version"] for a in second["applied"]],
+    "skipped_second": second["skipped"],
+    "current": current_version(engine),
+    "drifted": st["drifted"],
+    "rows": [list(r) for r in rows],   # ⚠️ SQLAlchemy 的 Row 不是 JSON 可序列化的（实测踩到）
+}, ensure_ascii=False))
+PYEOF
+  )
+  echo "  $MIG_OUT"
+  echo "$MIG_OUT" | grep -q '"current": 1' || { echo "⛔ 迁移运行器在真 MySQL 上没跑出预期结果" >&2; exit 9; }
+  echo "$MIG_OUT" | grep -q '"applied_second": \[\]' || { echo "⛔ 第二次跑又执行了一遍（幂等破了）" >&2; exit 9; }
+  echo "$MIG_OUT" | grep -q '"drifted": \[\]' || { echo "⛔ 出现漂移（校验和跨平台不一致？）" >&2; exit 9; }
+  rm -rf "$CODE_DIR"
+  echo "  ✅ 真 MySQL 上：建表 / 入账 / 幂等 / 无漂移"
+fi
+
 if [ "$SKIP_BOOT" = "1" ]; then
   echo "（--skip-boot：跳过启动与接口验证）"
   echo "DRILL=ok(invariants-only)"; exit 0;
@@ -250,6 +294,21 @@ echo "  ✅ /health 200：$(curl -s http://127.0.0.1:$PORT/health | head -c 200)
 PATHS=$(curl -s "http://127.0.0.1:$PORT/openapi.json" | "$VENV_PY" -c \
   "import sys,json;print(len(json.load(sys.stdin).get(chr(112)+chr(97)+chr(116)+chr(104)+chr(115),{})))")
 echo "  ✅ openapi 加载了 $PATHS 条路径（路由全导入成功＝模型/依赖没有缺失）"
+# 迁移版本表：恢复出来的库**启动之后**应当能看到 app.migrations 建的 schema_versions 与入账的版本号。
+# ⚠️ 这一格是"恢复出来的库 + 迁移运行器"合起来的证据：只验 /health 看不出迁移有没有跑。
+SCHEMA_VER=$( cd "$BACKEND_DIR" && DATABASE_URL="$DRILL_URL" "$VENV_PY" - <<'PYEOF'
+import os
+from sqlalchemy import create_engine, text
+engine = create_engine(os.environ["DATABASE_URL"], future=True)
+try:
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT version, name, checksum FROM schema_versions ORDER BY version")).all()
+    print("|".join(f"{v}:{n}:{c[:8]}" for v, n, c in rows) or "(空)")
+except Exception as e:                                              # noqa: BLE001
+    print(f"读不到（{type(e).__name__}）")
+PYEOF
+)
+echo "  ✅ 迁移版本表 schema_versions：$SCHEMA_VER"
 
 # ---------------------------------------------------------------- ④ 真 token 打只读端点
 echo "--- ④ 只读端点（用真实 token）---"

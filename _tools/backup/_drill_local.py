@@ -34,7 +34,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--backup", help="指定备份目录（缺省＝最新一份可用备份）")
     ap.add_argument("--skip-boot", action="store_true", help="只验库内不变式")
     ap.add_argument("--keep", action="store_true", help="保留演练库/日志（排查用）")
+    ap.add_argument("--verify-migrations", action="store_true",
+                    help="顺带在**真 MySQL** 上验一次仓库里这份 app/migrations（生产代码不动）")
     args = ap.parse_args(argv)
+
+    env_prefix = ""
+    if args.verify_migrations:
+        # 把仓库里这份 migrations 送到生产机的一个临时目录；演练时它会覆盖到
+        # "生产代码的一份拷贝"上再跑（见 _drill.sh ②b）—— 目的是让**方言相关**的建表语句
+        # （MySQL 那版带 COMMENT/CHAR(64)）在真 MySQL 8 上过一遍，而不只是本机的 SQLite。
+        src = ROOT / "backend" / "app" / "migrations"
+        remote = _prodssh.BACKUP_ROOT + "/drill-migrations"
+        _prodssh.ssh_script(f"rm -rf {remote} && mkdir -p {remote}")
+        _prodssh.scp_to(src, remote, recursive=True)
+        _prodssh.ssh_script(f"rm -rf {remote}/migrations/__pycache__")
+        env_prefix = f"MIGRATIONS_SRC={remote}/migrations "
+        print("已上传仓库里的 app/migrations 到 " + remote + "（演练时在真 MySQL 上验一次）")
 
     cmd = "bash " + _prodssh.BACKUP_ROOT + "/bin/_drill.sh"
     if args.backup:
@@ -44,11 +59,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.keep:
         cmd += " --keep"
 
-    print("遥控生产机演练：" + cmd)
+    print("遥控生产机演练：" + env_prefix + cmd)
     print("（演练会恢复一份完整备份并真的起一个隔离实例，通常 1~3 分钟）")
     print("")
     try:
-        r = _prodssh.ssh_script(cmd, timeout=1800)
+        r = _prodssh.ssh_script(env_prefix + cmd, timeout=1800)
     except _prodssh.ProdShellError as e:
         print(str(e))
         return 1

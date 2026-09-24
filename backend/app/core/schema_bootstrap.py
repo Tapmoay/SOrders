@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, OperationalError
 
+from app.migrations import MigrationFailed, run_migrations
 from app.models.base import Base
 
 logger = logging.getLogger(__name__)
@@ -1695,3 +1697,34 @@ def _bootstrap_impl(engine: Engine) -> None:
                 conn.execute(text("UPDATE cash_flows SET is_deleted = 0 WHERE is_deleted IS NULL"))
             except DBAPIError:
                 logger.debug("cash_flows.is_deleted 回填跳过")
+    # ---------- 迁移版本表（2026-09-24 · 整改报告 §4「整个架构改造的第一核心任务」）----------
+    #
+    # 上面这一大段的每一句 DDL 都是**幂等自愈**：每次启动重跑一遍，跑过的再跑也不出错。
+    # 问题不是它们写错了，而是 —— **没人知道数据库现在是什么状态**：
+    # 一句 DDL 到底跑过没有，只能靠"它是幂等的所以跑不跑都行"来兜；
+    # 而真正一次性的变更（数据搬迁 / 拆列 / 删列）根本没有地方记，也没法回答
+    # "这份备份是哪个版本的库"。
+    #
+    # 所以从这一版起分成两个角色（口径写在 `app/migrations/README.md`）：
+    #   · **正式变更** → `app/migrations/NNN_*.py`，每个版本只跑一次，跑过写进 `schema_versions`；
+    #   · **运行时自愈** → 本文件上面那些幂等 DDL，**保持原样**（本轮一个字都没改）。
+    #
+    # ⛔ 顺序不能反：迁移必须看到**已经自愈过**的结构（比如某个列刚刚才被补上）。
+    # ⛔ 也**不许**把这里的异常悄悄吞掉：迁移失败＝这次启动没把结构变更做完，
+    #    静默继续会让服务带着半截结构对外服务（那比"起不来"更难查）。
+    #    真要带病启动有一个显式开关（见下），而不是默认降级。
+    try:
+        run_migrations(engine)
+    except MigrationFailed as e:
+        if os.environ.get("SORDERS_SKIP_MIGRATIONS") == "1":
+            logger.critical(
+                "迁移失败但 SORDERS_SKIP_MIGRATIONS=1 —— **带病启动**（结构未必是最新的）：%s", e
+            )
+        else:
+            logger.critical(
+                "迁移失败，拒绝启动：%s\n"
+                "  排查：python -m app.migrations status\n"
+                "  确要带病启动（先查清再上）：SORDERS_SKIP_MIGRATIONS=1",
+                e,
+            )
+            raise

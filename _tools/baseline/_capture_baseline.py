@@ -146,6 +146,10 @@ def collect_local(notes: list[str], *, with_tests: bool) -> dict:
         tables |= set(re.findall(r'__tablename__\s*=\s*"([^"]+)"', p.read_text(encoding="utf-8", errors="replace")))
     f["model_tables"] = sorted(tables)
     f["model_table_count"] = len(tables)
+    #: **基础设施表**：不由 SQLAlchemy 模型声明，所以"模型 ↔ 生产库"的对照要把它们排掉，
+    #: 否则每加一张基础设施表，基线就会报一条"只在生产库里"的假漂移。
+    #: schema_versions = 迁移版本表（2026-09-24 整改阶段 2 引入，由 app/migrations 自己建）。
+    f["infra_tables"] = ["schema_versions"]
     f["api_v1_lines"] = py_lines(ROOT / "backend" / "app" / "api" / "v1")
     f["services_lines"] = py_lines(ROOT / "backend" / "app" / "services")
     f["services_files"] = len(list((ROOT / "backend" / "app" / "services").glob("*.py")))
@@ -255,7 +259,7 @@ def assess(local: dict, prod: dict | None, notes: list[str]) -> list[dict]:
 
     if prod:
         mt = set(local.get("model_tables") or [])
-        pt = set(prod.get("db_tables_set") or [])
+        pt = set(prod.get("db_tables_set") or []) - set(local.get("infra_tables") or [])
         if mt and pt and mt != pt:
             add("结构漂移", "模型声明的表与生产库的表不一致",
                 f"只在模型里：{sorted(mt - pt)} ｜ 只在生产库里：{sorted(pt - mt)}")

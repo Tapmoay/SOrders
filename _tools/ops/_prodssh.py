@@ -91,10 +91,10 @@ def scp_from(remote: str, local: Path, *, timeout: int = 900) -> Path:
     return local
 
 
-def scp_to(local: Path, remote: str, *, timeout: int = 900) -> None:
-    """把本机文件送到生产机（部署脚本 / 备份脚本本体用）。"""
+def scp_to(local: Path, remote: str, *, recursive: bool = False, timeout: int = 900) -> None:
+    """把本机文件（或目录，recursive=True）送到生产机（备份脚本本体 / 演练用的代码副本）。"""
     r = subprocess.run(
-        ["scp", *SSH_COMMON, str(local), f"{PROD_USER}@{PROD_HOST}:{remote}"],
+        ["scp", *(["-r"] if recursive else []), *SSH_COMMON, str(local), f"{PROD_USER}@{PROD_HOST}:{remote}"],
         capture_output=True, timeout=timeout,
     )
     if r.returncode != 0:
