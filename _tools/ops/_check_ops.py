@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import re
 import sys
@@ -114,6 +115,43 @@ def main() -> int:
         ("backup_latest_epoch", "最近一次备份的年龄"),
     ):
         want(key in health or key in prod, "盯住了：" + label, "⛔ 没有盯 " + label + "（报告 §15 ③ 点名要监控的）")
+
+    # ---- 7. 「已知/已接受」例外表：必须写理由、写退出条件、真的被用到，而且会查出化石 ----
+    #    为什么要单独钉：这张表的**唯一风险**是变成「把红的说成可以不管」的垃圾桶。
+    #    所以给它四条硬约束（每一条都对应一种真实退化）：
+    #      ① 理由必须够长（一句话打发 = 没写理由）；② 必须写清**什么时候删掉它**（含「删」字）；
+    #      ③ 必须在判据里**真的被用**（定义了没人用 = 摆设，那条红线照样会红）；
+    #      ④ 跑完必须能报出**没命中的条目**（证书处理掉了还留着 = 化石）。
+    #    另一条更根本的约束写在代码里：命中时降级成 **warn**，不是 ok。
+    accepted: dict[str, str] = {}
+    try:
+        for node in ast.parse(health).body:
+            if (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+                    and node.target.id == "ACCEPTED_CERT"):
+                accepted = dict(ast.literal_eval(node.value))
+    except (SyntaxError, ValueError):
+        accepted = {}
+    # ⚠️ 判据必须是 **bool(accepted)** 而不是 isinstance：写成语法错的表时 ast.parse 会抛，
+    #    我原来把它兜成 {} 再判 isinstance({}, dict) → **永远成立**，于是下面四条约束一起空转
+    #    （2026-09-25 写反向验证第 ⑤ 条时当场发现的）。
+    want(bool(accepted),
+         "例外表能解析出来（" + str(len(accepted)) + " 条）—— 判据自身有效",
+         "⛔ 解析不出 ACCEPTED_CERT（表被写坏/是空的）—— 下面四条约束会一起空转")
+    short = sorted(k for k, v in accepted.items() if len(str(v)) < 60)
+    want(not short, "例外表每条的理由都写得下（≥60 字）",
+         "⛔ 这些条目的理由太短（一句话打发等于没写理由）：" + str(short))
+    no_exit = sorted(k for k, v in accepted.items() if "删" not in str(v))
+    want(not no_exit, "例外表每条都写明了**什么时候删掉它**",
+         "⛔ 这些条目没写退出条件（含「删」字）—— 没有退出条件的例外 = 永久豁免：" + str(no_exit))
+    want("name in ACCEPTED_CERT" in health and "accepted_hit.add(name)" in health,
+         "例外表真的被判据用到（不是定义了摆着）",
+         "⛔ 例外表定义了却没在证书循环里用（那条红线照样会红）")
+    want('rows.append(("warn", f"证书 {name}（已知/已接受）"' in health,
+         "命中例外时降级成**告警**（不是 ok）",
+         "⛔ 例外命中时没有降级成 warn —— 那就是「把红的说成可以不管」")
+    want("set(ACCEPTED_CERT) - accepted_hit" in health,
+         "跑完会报出**没命中的条目**（防化石）",
+         "⛔ 没有化石探测：证书处理掉了、例外条目还留着，谁也不会发现")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),

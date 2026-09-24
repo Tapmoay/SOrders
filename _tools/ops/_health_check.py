@@ -40,6 +40,24 @@ BACKUP_WARN_HOURS = 36
 #: 发件箱（报告 §10）的积压阈值：待发堆起来 = worker 卡了；放弃数 ≠0 = 有人得去看 last_error。
 OUTBOX_PENDING_WARN = 50
 
+#: **已知且当前无解**的证书告警（键 = 证书名，值 = 为什么现在解不了 + 什么时候删掉这一条）。
+#:
+#: ⛔ 这不是「忽略」，恰恰相反 —— 这一条**每次运行都会打印**（连理由一起），只是不再把整体判成
+#:    「失败」。判成失败的前提是「有人能去修」；域名未备案这件事**今天谁也修不了**，
+#:    于是每天两次的 ❌ 只会训练所有人无视这张表 —— 本项目自己的话：「永远红的检查 = 没有检查」。
+#:    所以：**已知的、有据可查的、当前无解的问题 → 降成告警并写明理由**；其余一律照旧判失败。
+#: ⚠️ 三条纪律（`_tools/ops/_check_ops.py` 第 7 条逐条钉着）：① 每条都要写理由；
+#:    ② 理由里要写**什么时候删掉它**；③ 跑完要报**没命中的条目**（证书处理掉了/改名了 → 那是化石）。
+ACCEPTED_CERT: dict[str, str] = {
+    "sorders.top": "域名**未备案** → 阿里云按 Host/SNI 拦截 80/443，Let\'s Encrypt 的 HTTP-01 挑战"
+                   "被拦成 403（2026-09-25 实测：certbot 1.22 renew 报 unauthorized/403，"
+                   "而从 127.0.0.1 直连 nginx 时挑战路径正常 404/200 = nginx 本身没问题）。"
+                   "App 走的是 IP 证书（`/etc/nginx/ssl/sorders-ip-chain.crt`，实测还有 1089 天）。"
+                   "**备案完成、或改用 DNS-01 挑战之后，删掉这一条。**",
+    "sorders.top-0001": "同一个域名的第二份 lineage（certbot 的 `-0001`），未备案这件事完全一样。"
+                        "**备案完成、或改用 DNS-01 挑战之后，删掉这一条。**",
+}
+
 
 def _run(script: str, local: bool):
     """跑同一段事实脚本：local=True 在**本机**跑（服务器上的 cron 模式），否则 ssh 过去跑。
@@ -90,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     f = _facts(local=args.local)
     rows: list[tuple[str, str, str]] = []      # (级别, 项, 说明)
+    accepted_hit: set[str] = set()             # 本次命中的「已知/已接受」条目（跑完拿它找化石）
 
     state = f.get("service_state", "?")
     health = f.get("api_health", "?")
@@ -104,6 +123,11 @@ def main(argv: list[str] | None = None) -> int:
             continue
         lvl = "fail" if days < CERT_FAIL_DAYS else ("warn" if days < CERT_WARN_DAYS else "ok")
         name = key[len("cert_"):-len("_days_left")]
+        if lvl != "ok" and name in ACCEPTED_CERT:
+            accepted_hit.add(name)
+            rows.append(("warn", f"证书 {name}（已知/已接受）",
+                         f"剩余 {days} 天 —— 为什么现在解不了：{ACCEPTED_CERT[name]}"))
+            continue
         rows.append((lvl, f"证书 {name}", f"剩余 {days} 天"))
 
     try:
@@ -156,6 +180,13 @@ def main(argv: list[str] | None = None) -> int:
             lvl = "ok"
         rows.append((lvl, "发件箱",
                      f"待发 {pending} / 已发 {sent} / 放弃 {failed}（待发阈值 {OUTBOX_PENDING_WARN}，放弃数必须为 0）"))
+
+    # ---- 例外表不许长霉：没命中的条目 ＝ 证书已经处理掉或改名了，留着就是化石 ----
+    stale_accepted = sorted(set(ACCEPTED_CERT) - accepted_hit)
+    if stale_accepted:
+        rows.append(("warn", "证书例外表",
+                     "这些条目**没命中任何证书**（证书已处理/改名 → 把这一条删掉）："
+                     + "、".join(stale_accepted)))
 
     fails = [r for r in rows if r[0] == "fail"]
     warns = [r for r in rows if r[0] == "warn"]
