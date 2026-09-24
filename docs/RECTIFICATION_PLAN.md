@@ -37,9 +37,11 @@
 | 1 | §20 | `_check_all` 加超时 | 否 | 未开始 | — |
 | 1 | §20 | `AI_WORK_CLAIM` 归档（6000+ 行） | 否 | 未开始 | — |
 | 1 | §15 | 证书 / uptime / disk 最小监控 | 否 | 未开始 | 基线风险第 3 条（域名证书已过期 75 天） |
-| 2 | §4 | Schema 迁移版本表（`schema_versions`） | 否 | 未开始 | — |
-| 2 | §4 | 把新增 DDL 拆成 `migrations/`（bootstrap 只管运行时自愈） | 否 | 未开始 | — |
-| 3 | §5 | CI 接管现有检查体系（快闸 <30s / 常闸 / 夜闸） | 否 | 未开始 | — |
+| 2 | §4 | Schema 迁移版本表（`schema_versions`） | 否 | **已完成** | `backend/app/migrations/`（运行器 + 基线 + CLI）；`python -m app.migrations status`；判据 `_tools/qa/_check_migrations.py`（39 项）+ 反向验证 15/15 |
+| 2 | §4 | 新变更走 `migrations/`（bootstrap 只管运行时自愈） | 否 | **已完成（机制就位）** | 既有 1600 行幂等 DDL **刻意不搬**（一次只动一个维度）；分工写进 `backend/app/migrations/README.md` |
+| 2 | §4 | 真 MySQL 上验一次（方言相关的那版建表语句） | 否 | **已完成** | `_drill_local.py --verify-migrations`：在**恢复出来的生产库**上跑仓库里这份迁移（见 §3.4） |
+| 3 | §5 | CI 三层闸门（快闸 / 常闸 / 夜闸） | 否 | **已完成** | `.github/workflows/gate.yml`；分支口径补 `p`/`new`（原来只挂 main/develop，等于从没在开发分支上跑过） |
+| 3 | §5 | 安卓单测进 PR 闸 | 否 | **进行中** | 现在在夜闸（仓库自带的 gradle 在 gitignore 的 `_agent/` 里，runner 要现装 8.9）；首次跑通后挪进 PR 闸 |
 | 4 | §6 | `orders.py` 纯搬迁（URL/入参/出参/权限/状态机全不变） | 否 | 未开始 | — |
 | 4 | §6 | `reports.py` 聚合下沉到 service | 否 | 未开始 | — |
 | 5 | §7 | 状态机唯一写入口（Command → OrderFlow） | 局部 | 未开始 | — |

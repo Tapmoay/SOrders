@@ -20,6 +20,38 @@
 
 ## 进行中
 
+### [2026-09-24 19:5x → 20:2x] 会话：**架构整改 · 第 2 轮：阶段 2（schema 迁移版本化）+ 阶段 3（CI 接管检查）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，安卓单测进 PR 闸留给下一轮】
+
+**改什么**：报告 §4 的原话是「整个架构改造的第一核心任务」——现在 `app.database` 导入即 `schema_bootstrap`，
+而 bootstrap 同时兼任「迁移」与「启动自愈」两个角色，且没有版本表（"不知道数据库现在是什么状态"）。
+本轮**只加一圈外框**：版本表 + 按版本执行 `migrations/`，既有 DDL 的行为**一个字都不改**。
+
+**文件清单**：
+- 新增：`backend/app/migrations/`（`_runner.py` / `001_baseline.py` / `__main__.py` / `README.md`）
+- 新增：`backend/tests/test_schema_migrations.py`、`_tools/qa/_check_migrations.py`
+- 新增：`.github/workflows/gate.yml`（阶段 3：快闸 / 常闸 / 夜闸）
+- 改动：`backend/app/core/schema_bootstrap.py`（末尾调一次 `run_migrations`）、`_tools/baseline/_capture_baseline.py`（基础设施表不进模型对照）
+- **核心改动：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：它是线上迁移的**唯一入口**，
+  「数据库现在是什么版本」这件事只能由它来记录；本轮**只追加一次调用**（在既有自愈之后），不动任何既有 DDL。**
+
+**明确不碰**：订单/账本/AI 写链路的业务代码、`android/**`、`_archive/audit/round26/**`。
+
+**本轮结论**：
+
+| # | 做了什么 | 证据 |
+| --- | --- | --- |
+| 1 | 迁移版本表 + 运行器（发现/顺序/幂等/漂移/失败不记账）+ CLI | `backend/app/migrations/`（`python -m app.migrations status`） |
+| 2 | bootstrap **末尾追加一次调用**（既有 1600 行幂等 DDL **一个字没改**） | `core/schema_bootstrap.py` 末尾那段；失败拒绝启动 + `SORDERS_SKIP_MIGRATIONS=1` 逃生 |
+| 3 | 单测 11 条（幂等/顺序/漂移/失败重试/CRLF 校验和） | `backend/tests/test_schema_migrations.py` 11 passed |
+| 4 | 静态判据 39 项 + **反向验证 15/15** | `_tools/qa/_check_migrations.py`、`_tools/qa/_reverse_verify_migrations.py` |
+| 5 | **真 MySQL 上验过**（方言相关的那版建表语句） | 演练 ②b：`{"applied_first":[1],"applied_second":[],"skipped_second":[1],"current":1,"drifted":[],"rows":[[1,"baseline",64]]}` |
+| 6 | CI 三层闸门 + 分支口径补 `p`/`new` | `.github/workflows/gate.yml`、`test-parallel.yml` |
+
+**反向验证当场抓到 4 条"空转的判据"**（这正是它存在的意义，记下来给下一个写判据的人）：
+1. 锚点选在**中文说明**（"已经跑过的迁移不许再改"）上 → 注入"把 logger.error 换成 raise"时 raise 落在锚点之前，判据看不见；改成锚 `if applied[...] != ...` 那行代码；
+2. 只搜 `MigrationFailed` 这个名字 → 顶上的 import 就满足了它；改成要求 `except MigrationFailed as e:`；
+3. 逃生开关只搜名字 → 日志文案里也有一份；改成要求 `os.environ.get("SORDERS_SKIP_MIGRATIONS")`；
+4. 单测只数条数（11→10 仍然 ≥8）→ 补上"五种行为各有一条具名单测"。
 ### [2026-09-24 19:4x → 20:2x] 会话：**架构整改（按用户交来的评审报告）· 第 1 轮：阶段 0–1**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【阶段 0–1 已完成；阶段 2–3 下一轮】
 
 **改什么**：把外部评审报告（原文存档 `docs/ARCHITECTURE_RECTIFICATION.md`）落成**可执行的分阶段整改**。
