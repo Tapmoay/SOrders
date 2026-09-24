@@ -73,6 +73,11 @@ EXCLUDED: dict[str, str] = {
     # ---- app 级端点（不在 `app/api/v1/*.py` 里，toolmap 生成器扫不到）----
     "main.health": "服务健康检查：给运维探针用的，不是业务数据。",
     "main.app_version": "App 版本信息：客户端启动时自己会读，模型拿它没用。",
+    # 业务指标（GET /metrics，整改阶段 8 ② 的可观测性小事）：**给监控抓的**，不是业务数据。
+    # 它还要 `X-Metrics-Token` 才回话（fail-closed），模型手上没有这个口令；
+    # 就算读到了，一堆 `sorders_*_today` 计数也回答不了用户任何问题 ——
+    # 用户问"今天几单"时，模型该做的是读订单表（`orders.list` 那条读动作）。
+    "main.metrics": "运维指标（Prometheus 抓取口，需要 METRICS_TOKEN）：不是业务数据，模型用不上。",
     # ---- 开销分类名册（2026-09-20）----
     # 模型要"按分类看开销"时**不需要先读名册**：`expenses` 那张读表里每一行都带 `category`
     # 与 `link_kind`（分类名与"卡片突出哪一项"），直接按行里的分类筛就行。

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
 
     database_url: str = "mysql+pymysql://root:password@127.0.0.1:3306/sorders"
     redis_url: str = "redis://127.0.0.1:6379/0"
+    #: 业务指标端点（`GET /metrics`）的抓取口令（整改阶段 8 ②）。
+    #: ⛔ **留空 = 不开放**（fail-closed）：没配口令时端点一律 403 ——
+    #: 一个"默认打开"的指标端点等于把业务量白送给任何扫到它的人。
+    #: 生产上只让服务器本机的监控用；**不要**在 nginx 里给它开口子。
+    metrics_token: str = ""
     # Socket.IO Redis 适配器地址（多 worker 需共享连接状态；留空=进程内内存模式）
     socket_redis_url: str = ""
 

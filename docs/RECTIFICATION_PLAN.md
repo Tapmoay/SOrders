@@ -67,7 +67,7 @@
 | 7 | §13 | 文档事实源自动化（会变的数字一律生成） | 否 | **已完成（第一块）** | `docs/BASELINE.md` 由脚本生成 |
 | 7 | §14 | Android 集成测试（登录 → 导航 → 下单） | 否 | 未开始 | — |
 | 7 | §14 | 前端 H5：正式"继续维护"或"正式归档"（二选一） | — | **待拍板** | 见 §4 |
-| 8 | §15 | Request ID / 业务指标 / 外部监控 | 否 | **① 已完成；③ 最小版已可跑；② 待做** | ① `core/request_id.py`（纯 ASGI 中间件 + ContextVar + 日志 `[rid=…]` + `X-Request-ID` 响应头），真机实测响应头有值、5 条用例、988 用例绿；③ `_tools/ops/_health_check.py`；② 业务指标（orders_created / push_success / AI_calls…）未做 |
+| 8 | §15 | Request ID / 业务指标 / 外部监控 | 否 | **①② 已完成；③ 最小版已可跑** | ① `core/request_id.py`（纯 ASGI 中间件 + ContextVar + 日志 `[rid=…]` + `X-Request-ID` 响应头），真机实测响应头有值、5 条用例；② `core/metrics.py` + `GET /metrics`（Prometheus 文本）：能算的 **7 个** —— orders_created / assigned / delivered / cancelled、**待派池积压**（报告点名的「积压到几万」一眼可见）、ledger_entries、driver_settlements；报告点名的另外 4 个（`push_success` / `push_failure` / `AI_calls` / `AI_write_confirmed`）**如实列进 `NOT_TRACKED` 不编数**（推送成败该补在 §10 的 Outbox 里；AI 跑在 App 里、后端只看到普通业务请求）。⛔ 口径：**抓取时现算、不在业务路径上打点**（打点＝在同一件事上再造一个数，两边必然漂移），窗口一律**业务当地日**（用 UTC 分桶就是「每天有 8 小时算进前一天」）。⛔ fail-closed：`METRICS_TOKEN` 没配就一律 403。真机实测：不带口令 403 / 带口令 200，且 7 个数与库里直查逐项一致（本机 0/0/0/0/6/0/0）；6 条用例；③ `_tools/ops/_health_check.py` |
 | 9 | §16 | 多实例 / HA | 架构级 | **不做（现在）** | 报告 §16：先有迁移版本化与可靠事件，否则三个实例一起跑 DDL 是新的灾难 |
 
 ## 2. 施工纪律（报告 §18，落到本仓库的具体命令）

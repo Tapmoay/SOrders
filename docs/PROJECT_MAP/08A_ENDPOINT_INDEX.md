@@ -60,7 +60,7 @@
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
 
-## 全量端点（227 个，按文件分组）
+## 全量端点（228 个，按文件分组）
 
 
 ### `backend/app/api/v1/arrears.py` — 5 个
@@ -502,13 +502,14 @@
 | 3 | `PATCH /api/v1/vehicles/{vehicle_id}` | `update_vehicle` | `backend/app/api/v1/vehicles.py:180` | 仅登录 + 体内仅允许:派单员 |
 | 4 | `POST /api/v1/vehicles/{vehicle_id}/driver` | `set_vehicle_driver` | `backend/app/api/v1/vehicles.py:214` | 仅登录 + 体内仅允许:派单员 |
 
-### `backend/app/main.py` — 3 个
+### `backend/app/main.py` — 4 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:191` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:229` | **公开** |
-| 3 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:238` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:195` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:233` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:242` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:267` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -567,15 +568,16 @@
 
 _（无重复注册）_
 
-### 2. 完全公开（无鉴权）：5 个
+### 2. 完全公开（无鉴权）：6 个
 
 | 方法与路径 | handler | 位置 |
 |---|---|---|
 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` |
 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:191` |
-| `GET /health` | `health` | `backend/app/main.py:229` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:238` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:195` |
+| `GET /health` | `health` | `backend/app/main.py:233` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:242` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:267` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 

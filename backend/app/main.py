@@ -1,22 +1,26 @@
 import asyncio
 import logging
 import os
+import secrets
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import socketio
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from sqlalchemy.exc import DataError, IntegrityError
+from sqlalchemy.orm import Session
 
 from app.api.v1.router import api_router
 from app.config import get_settings
+from app.core.business_time import business_today
+from app.core.metrics import render_prometheus, snapshot
 from app.core.request_id import RequestIdFilter, RequestIdMiddleware
 from app.core.socket_io import sio
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db
 from app.redis_client import redis_ok
 from app.services.data_retention import run_daily_retention
 
@@ -233,6 +237,31 @@ def create_fastapi_app() -> FastAPI:
             **redis_ok(),
         }
         return body
+
+    @application.get("/metrics", response_class=PlainTextResponse)
+    def metrics(
+        request: Request,
+        token: str | None = None,
+        db: Session = Depends(get_db),
+    ) -> PlainTextResponse:
+        """业务指标（Prometheus 文本，整改报告 §15 ②）—— 每个数都是**抓取时现算**的。
+
+        口径（为什么不打点、窗口为什么用业务当地日）写在 `app/core/metrics.py` 的模块说明里；
+        报告点名但当前算不出来的 4 个指标在那里如实列着（**不编数**）。
+
+        ⛔ **fail-closed**：`METRICS_TOKEN` 没配就一律 403 —— 一个"默认打开"的指标端点，
+        等于把业务量白送给任何扫到它的人（本仓库是公开的，扫描器一定找得到）。
+        ⛔ 也**不要**在 nginx 里给它开口子：生产上只让服务器本机的监控用 `X-Metrics-Token` 抓。
+        """
+        configured = settings.metrics_token
+        supplied = request.headers.get("X-Metrics-Token") or (token or "")
+        if not configured or not secrets.compare_digest(supplied, configured):
+            raise HTTPException(
+                status_code=403,
+                detail="指标端点未开放（METRICS_TOKEN 未配置或口令不对）",
+            )
+        body = render_prometheus(snapshot(db), business_today())
+        return PlainTextResponse(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @application.get("/api/v1/system/app-version")
     def app_version() -> dict[str, Any]:

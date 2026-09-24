@@ -20,6 +20,35 @@
 
 ## 进行中
 
+### [2026-09-24 23:0x → ] 会话：**架构整改 · 第 7 轮：阶段 8 ② 业务指标 —— 能算的 7 个，算不出的 4 个如实列着**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**做了什么**：`backend/app/core/metrics.py` + `GET /metrics`（Prometheus 文本）。报告 §15 ② 点名 10 个指标，
+这里如实分成两类：
+
+- **能算的 7 个**（每个都写明数据来源）：`orders_created` / `assigned` / `delivered` / `cancelled`（业务当地日窗口）、
+  `orders_pending_dispatch`（**待派池积压** —— 报告点名的「积压到几万一眼可见」）、`ledger_entries`、`driver_settlements`；
+- **算不出的 4 个不编数**：`push_success` / `push_failure`（`socketio.emit` 之后谁也不记录结果 → 它该补在报告 §10 的
+  Outbox 里）、`AI_calls` / `AI_write_confirmed`（模型跑在 App 里，后端只看到普通业务请求；92 个动作码里只有 `AI_UNDO`
+  一个与 AI 相关）。它们连原因一起出现在 `/metrics` 的注释里 —— **空着并说明，好过给一个看起来正常的假数**。
+
+**两条口径（都是本项目栽过的坑）**：
+① **抓取时现算，不在业务路径上打点** —— 打点等于在真实数据之外再造一份计数，两边必然漂移（漏打一处永久少一份，
+而没人会发现）；从 `orders`/`ledgers` 现算只有一份真相，而且**不动核心区**（钱与状态机那几个文件一行没碰）。
+② 窗口用 `core/business_time.py` 的**业务当地日** —— 用 UTC 分桶就是「每天有 8 小时算进前一天」。
+
+⛔ **fail-closed**：`METRICS_TOKEN` 没配 → 403（不是「空口令通过」）。一个默认打开的指标端点等于把业务量
+白送给任何扫到它的人，而**本仓库是公开的**。
+
+**真机验证**（不是只有单测）：本机重启后端 → `/health` 200（0.2.4）；`/metrics` 不带口令 **403**；
+另起一个带 `METRICS_TOKEN` 的实例（8021）→ 200，7 个数与用同一份代码直接查库**逐项一致**（本机 0/0/0/0/6/0/0）。
+6 条用例（含「回收站里的单不算」与「没交代的指标不许悄悄消失」）。
+
+**顺手补的两个连带项**：`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` 重生成（227 → 228 个端点）；
+`_tools/ai/_read_coverage.py` 给 `main.metrics` 写一条「不做」的理由（口径与 `main.health` 同：运维探针，不是业务数据）。
+
+**没碰**：`backend/app/api/v1/reports.py` 等（另一会话的在改文件）；本轮跑的 994 条后端用例里 **3 条红**
+全是它的 reports 重构（按文件文本找锚点的那几条），与本轮无关。
+
 ### [2026-09-24 22:3x → ] 会话：**架构整改 · 第 6 轮：阶段 3 收尾 —— CI workflow 自己的判据**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **做了什么**：新增 `_tools/qa/_check_ci_workflows.py`（**29 条**，自动进必跑组：95 → 96）。
