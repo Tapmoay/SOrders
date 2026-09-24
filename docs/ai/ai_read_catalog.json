@@ -2,8 +2,8 @@
  "generated_by": "_gen_ai_read_catalog.py",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 72,
-  "listed": 55,
+  "read_endpoints": 73,
+  "listed": 56,
   "missing_handler": []
  },
  "actions": [
@@ -231,7 +231,7 @@
    "module_cn": "客户",
    "method": "get",
    "path": "/api/v1/customers",
-   "at": "backend/app/api/v1/customers.py:26",
+   "at": "backend/app/api/v1/customers.py:27",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -1549,9 +1549,15 @@
     {
      "name": "status",
      "arg": "status_filter",
-     "type": "str",
+     "type": "Literal",
      "required": false,
-     "enum": [],
+     "enum": [
+      "all",
+      "pending",
+      "done",
+      "rejected",
+      "withdrawn"
+     ],
      "is_id": false,
      "is_path": false,
      "desc": ""
@@ -1576,7 +1582,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests",
-   "at": "backend/app/api/v1/return_requests.py:320",
+   "at": "backend/app/api/v1/return_requests.py:330",
    "auth": "权限:ORDER_RETURN",
    "roles": [
     "dispatcher"
@@ -1596,9 +1602,15 @@
     {
      "name": "status",
      "arg": "status_filter",
-     "type": "str",
+     "type": "Literal",
      "required": false,
-     "enum": [],
+     "enum": [
+      "all",
+      "pending",
+      "done",
+      "rejected",
+      "withdrawn"
+     ],
      "is_id": false,
      "is_path": false,
      "desc": ""
@@ -2200,6 +2212,34 @@
     {
      "name": "include_deleted",
      "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "unit_conversions",
+   "action": "list_conversions",
+   "cn": "单位换算",
+   "module_cn": "单位换算",
+   "method": "get",
+   "path": "/api/v1/unit-conversions",
+   "at": "backend/app/api/v1/unit_conversions.py:62",
+   "auth": "角色:dispatcher\\|shipper",
+   "roles": [
+    "dispatcher",
+    "shipper"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "deleted_only",
+     "arg": "deleted_only",
      "type": "bool",
      "required": false,
      "enum": [],

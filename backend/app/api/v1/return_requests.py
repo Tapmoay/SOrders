@@ -46,7 +46,7 @@
 扛这件事的红线是 `_tools/qa/_check_return_request.py` 的 §4c。
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -264,7 +264,17 @@ def list_my_return_requests(
     current: User = Depends(require_permission(Permission.ORDER_RETURN_REQUEST)),
     _shipper_gate: ShipperOnly = None,  # noqa: RUF013 — FastAPI 依赖，用不到它的值
     order_id: int | None = Query(None, description="只看这一张单的申请"),
-    status_filter: str = Query("all", alias="status", description="pending / all"),
+    # ⛔ `?status=` 的取值必须**闭集**（2026-09-24 第 27 轮；第 25 轮 09 区 ②）：
+    #    原来声明成自由字符串，而过滤只判 `== "pending"` —— 于是模型传 `status=rejected`
+    #    （或 done/closed/withdrawn 里任何一个写错的词）时**既不报错也不过滤**：
+    #    接口回 200、把**全部**申请（含 done/rejected/withdrawn）当成"被驳回的"喂给模型，
+    #    实测 `?status=rejected` 与 `?status=all` 逐字相同（13 条）。用户听到的是一句
+    #    "他这些申请都被驳回了" —— 静默错答里最贵的那种（没有任何一层会报错）。
+    #    改成 Literal 之后：① 别的取值 FastAPI 直接 422；② **顺带**进 AI 读目录的 enum
+    #    （生成器只认 `Literal[...]`，`pattern=` 它读不出来）→ 模型知道合法取值。
+    status_filter: Literal["all", "pending", "done", "rejected", "withdrawn"] = Query(
+        "all", alias="status", description="all / pending / done / rejected / withdrawn"
+    ),
     limit: int = Query(200, ge=1, le=500),
 ) -> ReturnRequestListOut:
     """**我的**退货申请（货主端列表打标记、看驳回理由、撤回都读它）。
@@ -279,8 +289,8 @@ def list_my_return_requests(
     )
     if order_id is not None:
         q = q.where(OrderReturnRequest.order_id == order_id)
-    if status_filter == ReturnRequestStatus.PENDING.value:
-        q = q.where(OrderReturnRequest.status == ReturnRequestStatus.PENDING.value)
+    if status_filter != "all":
+        q = q.where(OrderReturnRequest.status == status_filter)
     rows = list(
         db.scalars(q.order_by(OrderReturnRequest.id.desc()).limit(limit + 1)).unique().all()
     )
@@ -322,19 +332,24 @@ def list_return_requests(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_RETURN)),
     order_id: int | None = Query(None),
-    status_filter: str = Query("pending", alias="status", description="pending / all"),
+    # ⛔ 与 `/mine` 同一条判据（同一个 `?status=` 的两条路必须双门一致）：
+    #    默认仍是 `pending`，但取值**闭集** —— 原来自由字符串 + 只判 pending 的写法让
+    #    `status=rejected` 静默返回**全部**（第 25 轮 09 区 ② 实测：与 `status=all` 逐字相同）。
+    status_filter: Literal["all", "pending", "done", "rejected", "withdrawn"] = Query(
+        "pending", alias="status", description="all / pending / done / rejected / withdrawn"
+    ),
     limit: int = Query(200, ge=1, le=500),
 ) -> ReturnRequestListOut:
     """**派单员待办**：谁申请了退货、要退哪几样、各几件、什么时候提的。
 
     默认只给「待处理」——这一页的用途就是"还有几张没办"；
-    要看历史（谁被驳回过）传 `status=all`。
+    要看历史（谁被驳回过）传 `status=all`，或点名某一档（`done`/`rejected`/`withdrawn`）。
     """
     q = select(OrderReturnRequest).where(OrderReturnRequest.is_deleted.is_(False))
     if order_id is not None:
         q = q.where(OrderReturnRequest.order_id == order_id)
-    if status_filter == ReturnRequestStatus.PENDING.value:
-        q = q.where(OrderReturnRequest.status == ReturnRequestStatus.PENDING.value)
+    if status_filter != "all":
+        q = q.where(OrderReturnRequest.status == status_filter)
     rows = list(
         db.scalars(
             q.order_by(
