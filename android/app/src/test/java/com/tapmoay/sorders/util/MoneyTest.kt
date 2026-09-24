@@ -85,6 +85,45 @@ class MoneyTest {
         id = 1, orderNo = "SO1", status = "DELIVERED", orderProducts = totals.map { line(it) },
     )
 
+    /** 带欠款的一张单（`arrearsAmount` 就是"整单核销要收多少"）。 */
+    private fun orderWithArrears(lineTotal: String?, arrears: String) = OrderDto(
+        id = 1,
+        orderNo = "SO1",
+        status = "DELIVERED",
+        orderProducts = listOf(line(lineTotal)),
+        arrearsAmount = arrears,
+    )
+
+    @Test
+    fun `整单核销取的是欠款，不是商品行合计`() {
+        // ⛔ 2026-09-24 第 28 轮（第 24 轮 10 区 F1）：退过货的单上这两个数差一大截 ——
+        //    退货只红冲账本、不改行金额。界面原来拿"行合计"当判据 → 后端按欠款算 → 必 400，
+        //    而用户想填欠款又过不了界面那道 compareTo → **这张单从此再也收不了款**。
+        //    本机实测样本：order 13（行 42.80 / 欠 21.40）、394（192.60 / 138.90）、419（156.80 / 142.00）。
+        val o = orderWithArrears("42.80", "21.40")
+        assertEquals("行合计仍是「当时卖了多少」（不随退货变）", "42.80", o.goodsTotalText())
+        assertEquals("整单核销要收的是欠款", "21.40", o.settleArrears().toPlainString())
+    }
+
+    @Test
+    fun `多张单的整单核销合计是欠款逐单相加`() {
+        val a = orderWithArrears("100.00", "100.00")
+        val b = OrderDto(
+            id = 2, orderNo = "SO2", status = "DELIVERED",
+            orderProducts = listOf(line("50.00")), arrearsAmount = "30.00",
+        )
+        assertEquals("130.00", listOf(a, b).settleTotal().toPlainString())
+    }
+
+    @Test
+    fun `欠款字段缺失或为空时按 0（老数据或裁剪后不许崩）`() {
+        val o = OrderDto(
+            id = 1, orderNo = "SO1", status = "DELIVERED",
+            orderProducts = listOf(line("10.00")), arrearsAmount = "",
+        )
+        assertEquals("0", o.settleArrears().toPlainString())
+    }
+
     @Test
     fun `商品行合计是定点相加，不是 Double 相加`() {
         // 0.1 + 0.2：Double 是 0.30000000000000004，定点就是 0.3

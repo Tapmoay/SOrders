@@ -100,3 +100,39 @@ fun OrderProductDto.lineTotalValue(): BigDecimal =
  */
 fun OrderDto.goodsTotalText(): String =
     goodsTotal().setScale(2, RoundingMode.HALF_UP).toPlainString()
+
+/**
+ * **整单核销时这一单要收多少**（定点）—— 直接取后端算好的 `arrears_amount`。
+ *
+ * ## ⛔ 为什么不能用 [goodsTotal]（2026-09-24 第 28 轮；第 24 轮 10 区 F1 实测）
+ * 收款页原来是"勾几张单 → 界面算出 Σ`goodsTotal` → 让用户照抄填进去"，而后端
+ * `accounting_service.create_receipt` 的整单核销**按 `m.arrears` 逐单算**、并要求
+ * `收款金额 == Σ(每单的 part)`。两个数在**退过货**的单上必然不等：
+ *
+ * | 单 | Σ 行金额 `line_total` | 欠款 `arrears` |
+ * | --- | --- | --- |
+ * | 本机 order 13 | **42.80** | **21.40** |
+ * | 本机 order 394 | 192.60 | 138.90 |
+ * | 本机 order 419 | 156.80 | 142.00 |
+ *
+ * 因为**退货只红冲账本、不改行金额**（那是"当时卖了多少"）。于是：
+ * 界面强制用户填 42.80 → 后端算 21.40 → **400「收款金额与所选订单合计不一致」**；
+ * 而用户想填 21.40 又过不了界面那道 `compareTo(total)` —— **这张单从此再也收不了款**。
+ * （AI 那条路同样：卡片按 21.40 生成却被自己拒掉。）
+ *
+ * 所以"还能收多少"只有一处口径：**后端算的那个数**（`orders.arrears_amount`），
+ * 客户端一个字都不重算 —— 与 [orderArrearsCents] 同一个来源。
+ */
+fun OrderDto.settleArrears(): BigDecimal =
+    (arrearsAmount.takeIf { it.isNotBlank() } ?: "0")
+        .toBigDecimalOrNull()
+        ?: BigDecimal.ZERO
+
+/**
+ * 勾选的这几张单**整单核销**一共要收多少（定点）—— 页面的显示与判据都用它。
+ *
+ * ⛔ 不许多写一份"Σ line_total"或"Double 累加"的版本：后端是 `Decimal` 逐单相加，
+ * 差一分就 400，而表现是**多行/多单时永久收不了款**（2026-09-19 全项目报告 P0-4）。
+ */
+fun Iterable<OrderDto>.settleTotal(): BigDecimal =
+    fold(BigDecimal.ZERO) { acc, o -> acc.add(o.settleArrears()) }

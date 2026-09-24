@@ -28,7 +28,8 @@ import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatInstantDay
 import com.tapmoay.sorders.util.formatMoney
-import com.tapmoay.sorders.util.goodsTotal
+import com.tapmoay.sorders.util.settleArrears
+import com.tapmoay.sorders.util.settleTotal
 import java.math.BigDecimal
 import java.time.LocalDate
 
@@ -164,30 +165,28 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
     }
 
     /**
-     * 一张订单的商品行合计（**定点**，两位小数）。
+     * 一张订单**还能收多少**（定点，两位小数）。
      *
-     * ⛔ 算法**只有一处**：`util/Money.kt::OrderDto.goodsTotal`（本屏不再自己写一遍，
-     * 2026-09-21 精简轮）。三处各写一遍时（AI 卡片 / 本屏明细 / 本屏合计），任何一处
-     * "顺手用 `Double`"或"忘了进位"都会让两边差一分钱，而**两个数看起来都对** ——
-     * 后果见 `goodsTotal` 的文档（多行/多单时永久收不了款）。
+     * ⛔ 算法只有一处：`util/Money.kt::OrderDto.settleArrears`（取后端算好的 `arrears_amount`，
+     * 客户端不重算）。原来这里是 `o.goodsTotal()`（Σ 行金额）—— 见 [computeTotal] 的说明：
+     * 退过货的单上两个数差一大截，而那正是"永久收不了款"的来源。
      */
-    fun orderTotal(o: OrderDto): BigDecimal = o.goodsTotal()
+    fun orderDue(o: OrderDto): BigDecimal = o.settleArrears()
 
     /**
-     * 所选订单合计（**定点**）。
+     * 所选订单**整单核销**一共要收多少（**定点**）。
      *
-     * ⛔ 这里不许用 `Double` 累加（2026-09-19 全项目 bug 报告 P0-4，high）：
-     * 后端 `accounting_service` 用 **Decimal 定点**相加，而界面把**后端算出的那个数**（两位小数）
-     * 显示给用户、让用户照抄填进输入框——原来判据用的却是 `Double` 顺序累加的结果，
-     * 也就是**两个不同的数**。守护者 20 万次随机试验的失配率：2 行 22.72% / 3 行 26.59% /
-     * 4 行 33.44% / 5 行 37.68%。实测表现是「界面显示合计 ¥3190.68 → 照抄填入 → 红字说
-     * 需要 ¥3190.68」，而唯一的"自救"办法（把位数打多成 3190.6800000000003）会被后端
-     * `Decimal(body.amount) != total` 立刻 400 → **多行/多单时永久收不了款**。
-     * 写法与本仓库既有实现同源（`ai/AiWriteService.kt:473`）。
+     * ⛔ 算法只有一处：`util/Money.kt::Iterable<OrderDto>.settleTotal`（= Σ 后端的 `arrears_amount`）。
+     *
+     * ⚠️ 原来这里算的是 Σ`goodsTotal`（Σ 行金额）——**退过货的单必然收不了款**
+     * （2026-09-24 第 28 轮；第 24 轮 10 区 F1 实测）：退货只红冲账本、不改行金额，
+     * 于是界面强制用户填 42.80、后端按欠款算 21.40 → 400「收款金额与所选订单合计不一致」，
+     * 而用户想填 21.40 又过不了界面那道 `compareTo(total)`。本机 order 13/394/419 就是三张。
+     * 现在两边同源（后端 `accounting_service` 的整单核销也是逐单取 `m.arrears`）。
      */
     fun computeTotal(): BigDecimal = orders
         .filter { it.id in selectedOrderIds }
-        .fold(BigDecimal.ZERO) { acc, o -> acc.add(orderTotal(o)) }
+        .settleTotal()
 
     fun submit() {
         val c = selectedCustomer ?: return
@@ -257,7 +256,11 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                                     Checkbox(checked = o.id in vm.selectedOrderIds, onCheckedChange = {
                                         vm.selectedOrderIds = if (o.id in vm.selectedOrderIds) vm.selectedOrderIds - o.id else vm.selectedOrderIds + o.id
                                     })
-                                    Text(o.orderNo + "  ¥" + formatMoney(vm.orderTotal(o).toPlainString()), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    // ⚠️ 这一行显示的是**还能收多少**（`arrears_amount`），不是行金额合计：
+                                    //    这批单是"未收款订单"，退过货的单能收的比"当时卖了多少"少
+                                    //    （退货只红冲账本、不改行金额）。显示后者会让用户以为要收 42.80、
+                                    //    而接口只认 21.40（第 24 轮 10 区 F1）。
+                                    Text(o.orderNo + "  欠 ¥" + formatMoney(o.settleArrears().toPlainString()), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
