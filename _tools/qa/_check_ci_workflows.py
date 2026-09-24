@@ -27,7 +27,13 @@
 8. 会**注入缺陷/吃满 CPU** 的 job（反向验证、安卓单测）必须只在 `schedule` / `workflow_dispatch` 上跑
    —— 它们在 PR 上并发会互相踩（本仓库实测过：反向验证跑着的时候别人改代码会被抹掉）；
 9. 有 `concurrency` 组（同一分支的重复触发要能互相取消）；
-10. 判据条数下限（防检查空转）。
+10. 判据条数下限（防检查空转）；
+11. **`cd <目录>` / `working-directory:` 指到的目录必须存在**（2026-09-25 补）。
+    为什么它必须单独一条：第 3 条只查 "run: 里出现的**文件**路径"，而 `cd frontend` 这种
+    **目录**目标完全不在扫描范围内 —— 于是 gate.yml 里那个 `frontend-build` 作业
+    （每一步都先 `cd frontend`）在 `frontend/` 被归档之后依然"看起来没问题"，
+    是本仓库**人工**发现再删掉的，**不是**被这条检查拦下的。反例已钉进
+    `_tools/qa/_reverse_verify_ci_workflows.py` 的 ① 与 ②（两个方向：`cd` 与 step 级工作目录）。
 
 用法：
     python _tools/qa/_check_ci_workflows.py --check   # 非零退出＝有问题
@@ -64,6 +70,10 @@ FAST_SHOULD = {
 PATH_RE = re.compile(r"(?<![\w.$-])((?:backend|frontend|_tools|android|docs)/[\w./-]+\.(?:py|sh|ps1|kts|md|txt|json|yml))")
 MOD_RE = re.compile(r"python3?\s+-m\s+([\w.]+)")
 FLAVOR_RE = re.compile(r":app:test([A-Z][A-Za-z0-9]*)DebugUnitTest")
+#: `cd <目录>` 里的目录目标（与上面的"文件路径"是**两件事**，见 §3b）。
+CD_RE = re.compile(r"\bcd\s+([^\s;&|)]+)")
+#: 不算"仓库内相对目录"的 cd 目标。
+SKIP_CD = {"", ".", "..", "~"}
 
 
 def git(*args: str) -> str:
@@ -162,6 +172,37 @@ def main() -> int:
          "⛔ 有路径在仓库里找不到：" + "；".join(sorted(set(missing_paths))[:6]))
     want(not missing_mods, "run: 里 python -m 的模块都存在",
          "⛔ 有模块找不到：" + "；".join(sorted(set(missing_mods))[:6]))
+
+    # ---------- 3b. `cd <目录>` / `working-directory:` 指到的目录必须存在 ----------
+    # 为什么单列一条：上面第 3 条只查 "run: 里出现的**文件**路径存在"，而 `cd frontend`
+    # 这种**目录**目标一个都不在扫描范围内。于是 `.github/workflows/gate.yml` 里的
+    # `frontend-build` 作业（每一步都先 `cd frontend`）在 `frontend/` 被归档之后依然
+    # "看起来没问题"，判据一声不吭 —— 2026-09-25 实测：那个作业是**人工**发现再删掉的，
+    # **不是**被这条检查拦下的。路径类判据的漏洞都是同一个形状：只扫了自己想得到的那一种。
+    cd_targets: list[tuple[str, str, str]] = []
+    for name, doc in docs.items():
+        for job, run in runs_of(doc):
+            for m in CD_RE.finditer(run):
+                cd_targets.append((name, job, m.group(1)))
+        for job_name, job in (doc.get("jobs") or {}).items():
+            wd = (((job or {}).get("defaults") or {}).get("run") or {}).get("working-directory")
+            if wd:
+                cd_targets.append((name, job_name, str(wd)))
+            for step in (job or {}).get("steps") or []:
+                if isinstance(step, dict) and step.get("working-directory"):
+                    cd_targets.append((name, job_name, str(step["working-directory"])))
+    # 只认**仓库内的相对目录**：带 `$`（表达式/环境变量）、`~`、绝对路径、`.`/`..` 一律不算。
+    real_cd = sorted({(w, j, d.strip("\"'").rstrip("/"))
+                      for w, j, d in cd_targets
+                      if d.strip("\"'").rstrip("/") not in SKIP_CD
+                      and "$" not in d and "~" not in d and not d.startswith("/")})
+    bad_cd = [w + "/" + j + " → " + d for w, j, d in real_cd if not (ROOT / d).is_dir()]
+    want(len(real_cd) >= 4,
+         "扫到 " + str(len(real_cd)) + " 个 cd / working-directory 的仓库内目录",
+         "⛔ 只扫到 " + str(len(real_cd)) + " 个 cd 目标 —— 判据在空转（workflow 结构变了？）")
+    want(not bad_cd, "cd / working-directory 指到的目录都真实存在",
+         "⛔ 指到不存在的目录：" + "；".join(bad_cd[:6]) +
+         "（那一步会在不存在的目录里跑；本机 _check_all.py 全绿，所以本机看不出来）")
 
     # ---------- 4/5/6/8. 三层结构与各自的职责 ----------
     gate = docs.get("gate.yml") or {}

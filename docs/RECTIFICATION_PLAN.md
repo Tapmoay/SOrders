@@ -475,3 +475,34 @@ Actions 的 Annotations 里，而那个接口**公开可读**（`/check-runs/<jo
 `_check_reverse_verify_anchors.py` **110 份脚本 / 1107 条注入原文**（比上轮 +2 份 / +26 条）；`_check_all.py` **99/99**。
 
 **网络**：push 仍未通（同上一节），本轮同样只在本地提交。
+
+### 补齐 `_check_ci_workflows.py` 的一个盲区：`cd <目录>` 的目标没人查（2026-09-25 第 38 轮）
+
+H5 归档那一轮，`gate.yml` 里有个 `frontend-build` 作业（每一步都先 `cd frontend`）要删 ——
+它当时**已经**是坏的（`frontend/` 从来没进过 git，所以那个作业在 CI 上一步都跑不过），
+但发现它的方式是**人工**读 workflow，不是检查拦下的。
+
+根因：`_check_ci_workflows.py` 第 3 条只查 "run: 里出现的`backend/xxx.py` 这种**文件**路径存在"，
+而 `cd frontend` 是**目录**目标，一个都不在扫描范围内 —— 路径类判据的老毛病：只扫了自己想得到的那一种。
+
+**补的判据（加严）**：扫 `cd <目录>`、`defaults.run.working-directory`、step 级 `working-directory`，
+凡是**仓库内相对目录**（带 `$`/`~`/绝对路径/`.`/`..` 的一律不算）都必须 `is_dir()`；
+另加"扫到的目标 ≥ 4 个"的反空转下限。判据 **28 → 30 条**。
+
+**配套反向验证 `_tools/qa/_reverse_verify_ci_workflows.py`（6 条注入 → 7/7 全绿）** —— 这条红线原来
+**一条反向验证都没有**，而它查的全是"写在 YAML 里的规矩有没有人执行"，正是最该被反向验证的那一类：
+
+| # | 注入 | 期望命中的判据 |
+| --- | --- | --- |
+| ① | 快闸里又加回一个 `cd frontend` 的作业（**就是被删掉那个作业的形状**） | 指到不存在的目录 |
+| ② | 不写 `cd`，改在 step 上加 `working-directory: frontend` | 指到不存在的目录 |
+| ③ | `pull_request.branches` 只留 `main` | "没挂 p/new" |
+| ④ | gradle 任务名的 flavor 拼错（`Phone` → `Zzz`） | "在 build.gradle.kts 里没有" |
+| ⑤ | `run:` 里引用一个不存在的检查脚本 | "有路径在仓库里找不到" |
+| ⑥ | PR 闸里删掉 `_check_all.py` | "PR 闸里没有 _check_all.py" |
+
+① 的关键意义：它**在没有新判据之前是绿的**（`frontend` 不含文件后缀，第 3 条看不见），
+所以它证明的是"新补的那条判据真的在拦"，而不只是"某条旧判据碰巧红了"。
+
+**证据**：`_reverse_verify_ci_workflows.py` **7/7**；`_check_ci_workflows.py` **30 条全绿**；
+`_check_reverse_verify_anchors.py` **111 份脚本 / 1113 条锚点**（+1 份 / +6 条）；`_check_all.py` **99/99**。

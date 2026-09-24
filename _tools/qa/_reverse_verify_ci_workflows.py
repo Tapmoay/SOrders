@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""反向验证 `_tools/qa/_check_ci_workflows.py` 真的抓得住那几类错误。
+
+## 为什么 CI 工作流的判据也需要反向验证
+报告 §5 的判据是"CI 有没有真的接管检查体系"，而 **workflow 是一份不会在自己身上跑的清单**——
+它写错了只会在 GitHub 上红，本机 `_check_all.py` 照样全绿。所以这条红线的价值全在"它真的会红"上；
+一条永远绿的 workflow 检查比没有更糟（它会让人以为 CI 已经接管了）。
+
+## 六种破坏（每一种都必须让红线当场红，且报出**对应**那条判据）
+| # | 注入 | 现实里谁会这么干 |
+| --- | --- | --- |
+| ① | 快闸里塞一个 `cd frontend` 的作业 | 前端归档后又把 H5 的构建步骤加回来（**它就是 2026-09-25 被人工删掉的那个作业的形状**） |
+| ② | 某个 step 加 `working-directory: frontend` | 同一个坑的另一种写法（不写 `cd`，写 step 级工作目录） |
+| ③ | `pull_request.branches` 只留 `main` | 「挂 main 就行了」→ CI 一次都不跑真正的开发分支 |
+| ④ | gradle 任务名的 flavor 拼错 | 抄旧文档里的任务名 |
+| ⑤ | `run:` 里引用一个不存在的检查脚本 | 检查改名/搬走之后 CI 没跟着改 |
+| ⑥ | PR 闸里删掉 `_check_all.py` | 「本机跑跑就行」→ 检查体系又只剩人在本机跑 |
+
+⚠️ 与仓库里其它 `_reverse_verify_*.py` 同一套纪律：按**字节**备份/还原、跑完逐文件核对、
+⛔ 全程不碰 `git checkout --`。
+
+用法：python _tools/qa/_reverse_verify_ci_workflows.py
+      python _tools/qa/_reverse_verify_ci_workflows.py --list
+"""
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import lock_reverse_verify, unlock_reverse_verify  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+CHECK = ROOT / "_tools/qa/_check_ci_workflows.py"
+GATE = ".github/workflows/gate.yml"
+
+CASES: list[tuple[str, str, str, str, str]] = [
+    (
+        "① 快闸里又冒出一个 `cd frontend` 的作业（H5 归档后加回来）",
+        GATE,
+        "      - name: 语法（后端全部 .py 能编译）\n"
+        "        run: python -m compileall -q backend/app backend/scripts\n",
+        "      - name: 打前端 H5 包\n"
+        "        run: |\n"
+        "          cd frontend\n"
+        "          npm ci\n"
+        "      - name: 语法（后端全部 .py 能编译）\n"
+        "        run: python -m compileall -q backend/app backend/scripts\n",
+        "指到不存在的目录",
+    ),
+    (
+        "② 不写 cd，改在 step 上加 `working-directory: frontend`（同一个坑的另一种写法）",
+        GATE,
+        "      - name: 核心区冻结（动核心必须先在 AI_WORK_CLAIM 里声明）\n"
+        "        run: python _tools/qa/_check_core_freeze.py --check\n",
+        "      - name: 核心区冻结（动核心必须先在 AI_WORK_CLAIM 里声明）\n"
+        "        run: python _tools/qa/_check_core_freeze.py --check\n"
+        "        working-directory: frontend\n",
+        "指到不存在的目录",
+    ),
+    (
+        "③ PR 闸只挂 main（代码落在 p/new 上，CI 从此一次都不跑）",
+        GATE,
+        "  pull_request:\n    branches: [main, develop, p, new]\n",
+        "  pull_request:\n    branches: [main]\n",
+        "没挂",
+    ),
+    (
+        "④ gradle 任务名里的 flavor 拼错（夜闸会红，而没人看夜闸）",
+        GATE,
+        "        run: gradle -p android :app:testPhoneDebugUnitTest --no-daemon --stacktrace",
+        "        run: gradle -p android :app:testZzzDebugUnitTest --no-daemon --stacktrace",
+        "在 build.gradle.kts 里没有",
+    ),
+    (
+        "⑤ run: 里引用一个不存在的检查脚本（脚本改名/搬走，CI 没跟着改）",
+        GATE,
+        "      - name: 密钥自检（仓库是公开的）\n"
+        "        run: python _tools/qa/_check_secrets.py --check\n",
+        "      - name: 密钥自检（仓库是公开的）\n"
+        "        run: python _tools/qa/_check_secrets.py --check\n\n"
+        "      - name: 一条不存在的检查\n"
+        "        run: python _tools/qa/_check_this_file_does_not_exist.py --check\n",
+        "有路径在仓库里找不到",
+    ),
+    (
+        "⑥ PR 闸里删掉 `_check_all.py`（「本机跑跑就行」→ 检查体系又只剩人在本机跑）",
+        GATE,
+        "      - name: 全部静态检查\n        run: python _tools/qa/_check_all.py\n",
+        "      - name: 全部静态检查\n        run: python _tools/qa/_check_secrets.py --check\n",
+        "PR 闸里没有 _check_all.py",
+    ),
+]
+
+CRLF = chr(13) + chr(10)
+
+
+class Sandbox:
+    """按**字节**记账的注入沙箱：每次注入前先还原上一轮，跑完再逐字节核对。"""
+
+    def __init__(self) -> None:
+        self.saved: dict[Path, bytes] = {}
+
+    def apply(self, rel: str, old: str, new: str) -> None:
+        p = ROOT / rel
+        if not p.exists():
+            raise ValueError("找不到 " + rel)
+        self.saved.setdefault(p, p.read_bytes())
+        raw = p.read_bytes()
+        crlf = CRLF.encode("utf-8") in raw
+        text = raw.decode("utf-8")
+        if crlf:
+            text = text.replace(CRLF, chr(10))
+        if text.count(old) != 1:
+            raise ValueError(rel + " 里锚点出现 " + str(text.count(old)) + " 次（要恰好一次）")
+        text = text.replace(old, new, 1)
+        p.write_bytes((text.replace(chr(10), CRLF) if crlf else text).encode("utf-8"))
+
+    def restore(self) -> None:
+        for p, raw in self.saved.items():
+            p.write_bytes(raw)
+
+    def dirty(self) -> list[str]:
+        return [str(p.relative_to(ROOT)) for p, raw in self.saved.items() if p.read_bytes() != raw]
+
+
+def run_check() -> tuple[int, str]:
+    proc = subprocess.run([sys.executable, str(CHECK), "--check"], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", cwd=str(ROOT))
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--list", action="store_true")
+    a = ap.parse_args()
+    if a.list:
+        for i, (name, rel, _o, _n, want) in enumerate(CASES, 1):
+            print(f"{i}. {name}\n      {rel}   ← 期望被「{want}」抓到")
+        return 0
+
+    bad = 0
+    sb = Sandbox()
+    lock_reverse_verify()
+    try:
+        code, out = run_check()
+        if code != 0:
+            print("❌ 前提不成立：源码完好时这条红线就没过")
+            print(out[-1500:])
+            return 1
+        last = [ln for ln in out.splitlines() if ln.strip()][-1]
+        print("✅ 前提：源码完好时红线是绿的 —— " + last.strip())
+        for label, rel, old, new, want in CASES:
+            sb.restore()
+            try:
+                sb.apply(rel, old, new)
+                code, out = run_check()
+            except ValueError as exc:
+                print("  [SKIP] " + label + " —— " + str(exc))
+                bad += 1
+                continue
+            finally:
+                sb.restore()
+            # ⛔ 必须命中**那一条**判据（这条红线打印的是 `  BAD ⛔ <说明>`）
+            hit = code != 0 and ("BAD " in out) and (want in out)
+            if hit:
+                print("  [OK] " + label + " → 红线报红并命中「" + want + "」")
+            else:
+                bad += 1
+                why = "红线居然还是绿的" if code == 0 else "退出了，但没报出「" + want + "」"
+                print("  [MISS] " + label + " → " + why)
+                for ln in [x.strip() for x in out.splitlines() if x.strip().startswith("BAD")][:5]:
+                    print("       红线实际报的：" + ln)
+        sb.restore()
+        code, out = run_check()
+        ok = code == 0
+        print("  [OK] 还原后红线全绿" if ok else "  [MISS] 还原后红线没恢复")
+        bad += 0 if ok else 1
+    finally:
+        sb.restore()
+        unlock_reverse_verify()
+
+    dirty = sb.dirty()
+    if dirty:
+        bad += 1
+        print("⛔ 跑完没逐字节还原：" + "、".join(dirty))
+    total = len(CASES) + 1
+    print()
+    if bad:
+        print(f"❌ {bad}/{total} 条不成立")
+        return 1
+    print(f"✅ {total}/{total} 全部成立：CI 工作流的每一类错误都会被对应的判据抓到")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
