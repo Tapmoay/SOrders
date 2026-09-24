@@ -26,6 +26,8 @@ MODEL = BACKEND / "models/order.py"
 BOOTSTRAP = BACKEND / "core/schema_bootstrap.py"
 SCHEMA = BACKEND / "schemas/order.py"
 API = BACKEND / "api/v1/orders.py"
+#: orders 的**查询组**（2026-09-24 整改阶段 4 纯搬迁：列表/待派计数/详情搬去了 orders_query.py）
+API_Q = BACKEND / "api/v1/orders_query.py"
 CONTACT_SVC = BACKEND / "services/shipper_contact_service.py"
 BACKEND_TEST = ROOT / "backend/tests/test_order_boss_contact.py"
 DTO = ANDROID / "data/remote/dto/Dtos.kt"
@@ -65,7 +67,7 @@ MUTATIONS = [
     ),
     (
         "搜索只改了非派单员那一支（派单员搜收货人名字搜不到）",
-        API,
+        API_Q,
         "                    Order.contact_dongjia_name.like(term, escape=LIKE_ESCAPE),\n"
         "                    Order.contact_boss_name.like(term, escape=LIKE_ESCAPE),\n"
         "                    Order.contact_dongjia_phone.like(term, escape=LIKE_ESCAPE),\n"

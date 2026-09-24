@@ -20,6 +20,8 @@ RULE_SCHEMA = APP / "schemas/driver_billing_rule.py"
 CAT_API = APP / "api/v1/freight_categories.py"
 TPL_API = APP / "api/v1/freight_templates.py"
 ORDERS = APP / "api/v1/orders.py"
+#: orders 的**查询组**（2026-09-24 整改阶段 4 纯搬迁：列表/待派计数/详情搬去了 orders_query.py）
+ORDERS_Q = APP / "api/v1/orders_query.py"
 USERS_KT = KT / "ui/dispatcher/UsersManageScreen.kt"
 TPL_KT = KT / "ui/dispatcher/FreightTemplatesScreen.kt"
 RULE_KT = KT / "ui/dispatcher/DriverBillingRulesScreen.kt"
@@ -127,14 +129,14 @@ MUTATIONS = [
     ),
     (
         "待定价不再看运费是否为空（列表变成全部单）",
-        ORDERS,
+        ORDERS_Q,
         "                Order.freight_fee.is_(None),",
         "                Order.freight_fee.isnot(None),",
         "两条查询路径上都写全了",
     ),
     (
         "unpriced 过滤只留在一条查询路径上（待定价页会静默返回全部单）",
-        ORDERS,
+        ORDERS_Q,
         "    if unpriced:\n        q = q.where(",
         "    if False:\n        q = q.where(",
         "两条",

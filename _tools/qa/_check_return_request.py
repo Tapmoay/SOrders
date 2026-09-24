@@ -49,7 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 #:   就写着 `return_order` / `Ledger` 这些名字（"本函数绝不调它"），不剥的话
 #:   把真代码删掉、判据照样绿（`_check_pagination_wiring.py` 的反向验证栽过这一次）。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
-from _airepo import refuse_if_injecting, repo_root  # noqa: E402
+from _airepo import orders_api_source, refuse_if_injecting, repo_root  # noqa: E402
 from _check_single_source import code_only  # noqa: E402
 
 ROOT = repo_root()
@@ -211,7 +211,7 @@ def main() -> int:
 
     svc = read(SERVICE)
     api = read(API_FILE)
-    orders_api = read(ORDERS_API)
+    orders_api = orders_api_source(ROOT)
     rbac = read(RBAC)
     enums = read(ENUMS)
     push = read(PUSH)

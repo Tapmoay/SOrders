@@ -24,6 +24,7 @@ from app.api.v1 import (
     order_template_categories,
     suppliers,
     orders,
+    orders_query,
     place_categories,
     places,
     price_rules,
@@ -53,6 +54,13 @@ api_router.include_router(shipper.router)
 # 谁都不写谁 —— 见 `api/v1/shipper_ledger.py` 开头。
 api_router.include_router(shipper_ledger.router)
 api_router.include_router(orders.router)
+# orders 的**查询组**（列表 / 待派计数 / 详情）：2026-09-24 整改阶段 4 从 `orders.py` 纯搬迁到
+# `api/v1/orders_query.py`（那个文件已经 2000+ 行）。两条 router **各自带** prefix="/orders"，
+# 在这里**并列挂载** —— ⛔ 不能改成「orders 里 include 它」：include_router 会把前缀再拼一次，
+# 变成 /api/v1/orders/orders/...（实测被契约快照当场抓到）。
+# 两边没有同方法同形状的路径，所以先后无所谓；"静态路径不许被动态路径挡住"这条由
+# `_tools/qa/_api_contract_snapshot.py` 的遮蔽分析机器盯着。
+api_router.include_router(orders_query.router)
 # 预订单 / 订单模板（2026-09-22 用户要求：「预设好的订单，参数没有变直接下单」）。
 # 它自己不生成订单 —— 真下单仍走上面那条 `orders.router`。
 api_router.include_router(order_templates.router)

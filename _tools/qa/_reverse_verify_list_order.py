@@ -40,11 +40,12 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      "每个 kind 都有一个列表接上它"),
 
     ("③ 顺手给**订单列表**也套上常用度（翻账要往下翻几万行）",
-     API + "orders.py",
+     # ⚠️ 2026-09-24 整改阶段 4：订单列表端点搬去了 orders_query.py（锚点跟着搬）
+     API + "orders_query.py",
      "    q = select(Order).options(selectinload(Order.order_products)).order_by(Order.id.desc())",
      "    q = select(Order).options(selectinload(Order.order_products)).order_by(Order.id.desc())\n"
      "    q = usage_service.with_popularity(q, Order, usage_service.KIND_USER, current)",
-     "orders.py 仍然是时间/编号倒序"),
+     "orders_query.py 仍然是时间/编号倒序"),
 
     ("④ 漏掉 coalesce（没用过的行因为 NULL 沉到最后，正好反了）",
      SVC,

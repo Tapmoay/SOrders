@@ -73,7 +73,7 @@ PICK_LISTS: dict[str, tuple[str, str, str]] = {
 
 # ── 看记录的列表：**必须最新在前**，⛔ 不许套用常用度（每条写清为什么）──
 RECORD_LISTS: list[tuple[str, str]] = [
-    ("orders.py", "订单：最新的单在最上面（派单员一进来要看到刚下的单）"),
+    ("orders_query.py", "订单：最新的单在最上面（派单员一进来要看到刚下的单）"),
     ("ledger.py", "账本流水：按发生时间倒序"),
     ("cash_flows.py", "现金流水：同上"),
     ("notifications.py", "消息：最新的在最上面"),

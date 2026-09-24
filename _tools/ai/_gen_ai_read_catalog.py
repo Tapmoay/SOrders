@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _airepo import repo_root  # noqa: E402
+from _airepo import module_key, repo_root  # noqa: E402
 
 ROOT = repo_root()
 API_DIR = ROOT / "backend/app/api/v1"
@@ -280,7 +280,7 @@ def extract() -> dict:
     found: dict[str, dict] = {}
     enums_of = enum_table()
     for py in sorted(API_DIR.glob("*.py")):
-        mod = py.stem
+        mod = module_key(py.stem)   # 逻辑模块名（见 _airepo.MODULE_ALIAS）
         tree = ast.parse(py.read_text(encoding="utf-8"))
         for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):

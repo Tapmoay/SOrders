@@ -24,7 +24,7 @@ from __future__ import annotations
 import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
-from _airepo import repo_root  # noqa: E402
+from _airepo import module_key, repo_root  # noqa: E402
 
 import argparse
 import json
@@ -150,7 +150,9 @@ def scan() -> list[dict]:
     """
     out: list[dict] = []
     for f in sorted(API_DIR.glob("*.py")):
-        mod = f.stem
+        # ⚠️ 逻辑模块名（orders_query → orders）：动作名是客户端契约，搬迁不改名
+        mod = module_key(f.stem)
+        file_stem = f.stem
         text = f.read_text(encoding="utf-8")
         prefix = _router_prefix(text)
         lines = text.splitlines()
@@ -177,6 +179,7 @@ def scan() -> list[dict]:
                 pending["handler"] = d.group("name")
                 pending["line"] = i
                 pending["module"] = mod
+                pending["file"] = file_stem   # 真文件（`at` 那一列要指对）
                 pending["path"] = pending["path"] or ""
                 pending["full_path"] = f'{API_PREFIX}{prefix}{pending["path"]}'
                 pending["doc"] = _docstring_after(lines, i)
@@ -349,7 +352,7 @@ def main() -> int:
                             "path": x["full_path"],
                             "handler": x["handler"],
                             "doc": x.get("doc", ""),
-                            "at": f'backend/app/api/v1/{x["module"]}.py:{x["line"]}',
+                            "at": f'backend/app/api/v1/{x.get("file", x["module"])}.py:{x["line"]}',
                         }
                         for x in sorted(by_mod[mod], key=lambda y: (y["risk"] != "read", y["action"]))
                     ],

@@ -20,6 +20,38 @@
 
 ## 进行中
 
+### [2026-09-24 20:0x → ] 会话：**架构整改 · 第 3 轮：阶段 4（API 层纯搬迁，第一刀：orders 查询组）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成】
+
+**改什么**：报告 §6 的办法是「**纯搬迁**：URL / 入参 / 出参 / 权限 / 状态机 / 数据库全不变，只改代码组织」，
+并且 §18 规则 3 要求"不是我看代码差不多，而是**机器证明**"。本轮：
+
+1. 先造那台机器：`_tools/qa/_api_contract_snapshot.py`（OpenAPI 全文 + 路由表逐条 + 遮蔽关系，带 selftest）；
+2. 再搬第一刀：`orders.py`(2056 行) 的**查询组**（列表 / 待派计数 / 详情）→ `orders_query.py`，共用助手 → `orders_common.py`；
+3. 两个模块**各自声明** `router = APIRouter(prefix="/orders")`，由 `api/v1/router.py` 并列挂载（报告 §6 原话"统一由 router.py 挂载"）。
+
+**文件清单**：新增 `backend/app/api/v1/{orders_query,orders_common}.py`、`_tools/qa/_api_contract_snapshot.py`、
+`_tools/qa/_api_snapshots/`；改 `orders.py`、`api/v1/router.py`、`_tools/ai/{_airepo,_gen_ai_toolmap,_gen_ai_read_catalog,_read_coverage}.py`、
+`_tools/qa/{_check_contact_names,_check_freight_pricing,_check_order_return,_check_return_request,_check_list_order}.py`、
+三个反向验证脚本、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`。
+
+**证据**：`--diff before-orders-move after-orders-move` → **契约零差异**（OpenAPI 全文一致 / 路由表逐条一致 / 遮蔽关系两边都是 0 对）；
+94/94 静态检查全绿；后端用例全绿。
+
+**踩到的四个坑（都留档了）**：
+1. **共享 router 会让 AST 工具瞎**：第一版把唯一的 router 放 common、其余 import 它 —— 语法没问题，
+   但 `gen_endpoint_index` / `_gen_ai_read_catalog` 都是按"本文件里有 `router = APIRouter(prefix=…)`"算 URL 的，
+   结果 `/api/v1/orders` 在机器生成的索引里**整行消失**。改成每个路由模块自持 router。
+2. **`include_router` 会把前缀再拼一次**：父 router 带 `/orders`、子 router 也带 `/orders` → `/api/v1/orders/orders/...`；
+   被契约快照当场抓到（多 3 条路径）。改成在 `api/v1/router.py` 并列挂载。
+3. **AI 动作名是客户端契约**：`orders.list_orders` 写在安卓的 `AiReadCatalog.kt` 与 4 个测试里，
+   搬迁不许改名 → 新增 `_airepo.MODULE_ALIAS`（`orders_query` → `orders`），三个按文件名取模块的工具统一走它。
+4. **反向验证脚本注入到一半被 Windows 文件锁打断会留残留**：`_reverse_verify_freight_pricing.py` 写回
+   `UsersManageScreen.kt` 时报 `OSError: Invalid argument`，留下**一行注入的 Kotlin 代码** ——
+   连带 3 条安卓判据变红。判断依据是 `git diff`：那一行是明显的注入物（`SoTextField("", {}, placeholder = "固定工资…")`）。
+   已 `git checkout --` 还原。⚠️ 以后再跑反向验证，先 `git status` 看一眼再下结论。
+
+**明确不碰**：其余 `orders.py` 端点（下一轮继续搬）、`reports.py`、账本/AI 写链路。
+
 ### [2026-09-24 19:5x → 20:2x] 会话：**架构整改 · 第 2 轮：阶段 2（schema 迁移版本化）+ 阶段 3（CI 接管检查）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，安卓单测进 PR 闸留给下一轮】
 
 **改什么**：报告 §4 的原话是「整个架构改造的第一核心任务」——现在 `app.database` 导入即 `schema_bootstrap`，

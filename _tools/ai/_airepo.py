@@ -173,3 +173,36 @@ def refuse_if_injecting(who: str) -> bool:
         )
         return True
     return False
+
+
+
+#: orders 路由现在由**三个模块**组成（2026-09-24 整改阶段 4 纯搬迁：查询组去了 orders_query.py、
+#: 共用助手去了 orders_common.py）。读它的判据一律读**并集** ——
+#: "锚点落在哪个文件"不是这些判据要管的事，而搬迁不该让一打判据红一遍。
+ORDERS_API_MODULES = ("orders.py", "orders_query.py", "orders_common.py")
+
+
+def orders_api_files(root: Path | None = None) -> list[Path]:
+    """orders 三个模块里**实际存在**的那些（按声明顺序，报错时便于定位）。"""
+    base = (root or ROOT) / "backend/app/api/v1"
+    return [base / n for n in ORDERS_API_MODULES if (base / n).is_file()]
+
+
+def orders_api_source(root: Path | None = None) -> str:
+    """三个模块的源码并集，段间带文件名注释（判据报错时能看出锚点在哪一份里）。"""
+    parts = [f"# ===== {p.name} =====" + chr(10) + p.read_text(encoding="utf-8", errors="replace")
+             for p in orders_api_files(root)]
+    return (chr(10) * 2).join(parts)
+
+
+
+#: 文件名 → AI 动作里的**逻辑模块名**。
+#: orders 在 2026-09-24（整改阶段 4 纯搬迁）拆成了三个文件，但 `orders.list_orders` 这种动作名是
+#: **对模型与客户端可见的契约**（安卓侧 AiReadCatalog.kt 与四个测试都写着它）——
+#: 搬迁不许改契约，所以拆出来的文件在这里**折回同一个模块名**。
+MODULE_ALIAS = {"orders_query": "orders", "orders_common": "orders"}
+
+
+def module_key(stem: str) -> str:
+    """取的模块名（拆出去的兄弟文件折回原模块）。"""
+    return MODULE_ALIAS.get(stem, stem)

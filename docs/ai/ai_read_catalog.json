@@ -1060,7 +1060,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders.py:259",
+   "at": "backend/app/api/v1/orders_query.py:76",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
@@ -1206,7 +1206,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders.py:439",
+   "at": "backend/app/api/v1/orders_query.py:256",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"

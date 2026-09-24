@@ -41,6 +41,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))   # orders 源码并集（阶段 4 搬迁后）
+from _airepo import orders_api_source  # noqa: E402
 from _check_pagination_wiring import strip_comments  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,7 +55,7 @@ RULES_API = APP / "api/v1/driver_billing_rules.py"
 RULE_SCHEMA = APP / "schemas/driver_billing_rule.py"
 RULE_MODEL = APP / "models/driver_billing_rule.py"
 TPL_API = APP / "api/v1/freight_templates.py"
-ORDERS = APP / "api/v1/orders.py"
+#: orders = 三个模块（阶段 4 纯搬迁）：锚点读并集，见 _airepo.orders_api_source
 CAT_API = APP / "api/v1/freight_categories.py"
 CAT_MODEL = APP / "models/freight_category.py"
 TPL_MODEL = APP / "models/freight_template.py"
@@ -108,7 +110,7 @@ def main() -> int:
         "rule_schema": read(RULE_SCHEMA),
         "rule_model": read(RULE_MODEL),
         "tpl_api": read(TPL_API),
-        "orders": read(ORDERS),
+        "orders": orders_api_source(ROOT),
         "cat_api": read(CAT_API),
         "cat_model": read(CAT_MODEL),
         "tpl_model": read(TPL_MODEL),

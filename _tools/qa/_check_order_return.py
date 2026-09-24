@@ -47,6 +47,8 @@ FRONTEND = ROOT / "frontend/src"
 
 #: 生成器要从**真模型**取（2026-09-23 第 10 轮）：退回那一列的老库补全是它生成的。
 sys.path.insert(0, str(ROOT / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))   # orders 源码并集（阶段 4）
+from _airepo import orders_api_source  # noqa: E402
 import app.models  # noqa: E402,F401  —— 注册全部模型
 from app.core.schema_bootstrap import enum_repair_ddl  # noqa: E402
 from app.models.base import Base as _Base  # noqa: E402
@@ -102,7 +104,7 @@ def main() -> int:
     money = read(BACKEND / "services/order_money.py")
     resp = read(BACKEND / "services/order_response.py")
     acct = read(BACKEND / "services/accounting_service.py")
-    orders_api = read(BACKEND / "api/v1/orders.py")
+    orders_api = orders_api_source(ROOT)
     inv = read(BACKEND / "services/inventory_service.py")
     rbac = read(BACKEND / "core/rbac.py")
     lgr = read(BACKEND / "services/ledger_response.py")

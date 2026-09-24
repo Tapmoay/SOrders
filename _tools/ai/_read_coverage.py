@@ -33,6 +33,11 @@ import json
 import sys
 from pathlib import Path
 
+#: `module_key` = 逻辑模块名（拆出去的兄弟文件折回原模块，见 `_airepo.MODULE_ALIAS`）——
+#: 与 `_gen_ai_toolmap` / `_gen_ai_read_catalog` 同一处口径，否则这里会把
+#: `orders_query.list_orders` 当成"没交代的端点"（2026-09-24 阶段 4 搬迁实测踩到）。
+from _airepo import module_key  # noqa: E402
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -141,7 +146,7 @@ def main() -> int:
             "method": "GET",
             "path": r["prefix"] + r["sub"],
             # 与 toolmap 的 action 名同一种写法（`模块.handler`），见 `_gen_ai_read_catalog`
-            "key": f"{Path(r['file']).stem}.{r['name']}",
+            "key": f"{module_key(Path(r['file']).stem)}.{r['name']}",
             "auth": r.get("auth") or [],
         })
     actions = read_actions()

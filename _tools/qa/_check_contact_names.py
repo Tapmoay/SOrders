@@ -61,6 +61,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))   # orders 源码并集（阶段 4 搬迁后）
+from _airepo import orders_api_files, orders_api_source  # noqa: E402
 #: 复用兄弟红线里剥注释的实现，不抄第二份。
 from _check_pagination_wiring import strip_comments  # noqa: E402
 
@@ -71,7 +73,7 @@ BACKEND = ROOT / "backend/app"
 MODEL = BACKEND / "models/order.py"
 BOOTSTRAP = BACKEND / "core/schema_bootstrap.py"
 SCHEMA = BACKEND / "schemas/order.py"
-API = BACKEND / "api/v1/orders.py"
+API_MODULES = orders_api_files(ROOT)   # orders = 三个模块（阶段 4 搬迁后）
 CONTACT_SVC = BACKEND / "services/shipper_contact_service.py"
 BACKEND_TEST = ROOT / "backend/tests/test_order_boss_contact.py"
 
@@ -124,7 +126,8 @@ class Checker:
 
 def main() -> int:
     c = Checker()
-    model, bootstrap, schema, api = read(MODEL), read(BOOTSTRAP), read(SCHEMA), read(API)
+    model, bootstrap, schema = read(MODEL), read(BOOTSTRAP), read(SCHEMA)
+    api = orders_api_source(ROOT)
     contact_svc = read(CONTACT_SVC)
     dto, screen, vm = read(DTO), read(CREATE_SCREEN), read(CREATE_VM)
     orderer = read(ORDERER_PREFILL)
@@ -301,7 +304,7 @@ def main() -> int:
 
     # ---- ⑩ 反空转 ----
     checked = {
-        "后端文件": sum(1 for p in (MODEL, BOOTSTRAP, SCHEMA, API) if p.exists()),
+        "后端文件": sum(1 for p in (MODEL, BOOTSTRAP, SCHEMA, *API_MODULES) if p.exists()),
         "Android 文件": sum(1 for p in (DTO, CREATE_SCREEN, CREATE_VM, CARD, DETAIL, DISP_SCREEN, DISP_VM) if p.exists()),
         "AI 文件": sum(1 for p in (AI_CATALOG, AI_ORDER, AI_RES) if p.exists()),
     }
