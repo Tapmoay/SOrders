@@ -1,5 +1,14 @@
 name: Tests (Parallel)
 
+# ⛔ 2026-09-25：本文件里**每一条并行 pytest 都必须带 --dist loadfile**（原因见下，实测过）。
+#    这套用例是「每个 xdist worker 一个 SQLite 库」（tests/conftest.py::get_db_path），
+#    而**同一个文件的用例会共享那个库的状态**。默认的 --dist load 会把一个文件的用例拆到
+#    不同 worker 上，于是有用例看不到同伴留下的行 —— 实测：`-n auto` 2 failed / 1013 passed，
+#    加 `--dist loadfile` 后 **1015 passed**（两个红 job 的真因就是这个，不是环境问题）。
+#    loadfile = 一个文件整体发给一个 worker；跨文件仍然并行。
+#    ⚠️ 更深的那一半是**用例的顺序依赖**本身（见计划表第 42 轮）：等有人把那些用例改成自给自足，
+#       这条限制才可以撤掉；在那之前撤掉它，CI 就会红。
+
 # ⚠️ 2026-09-24（整改阶段 3）：分支口径补上 p / new。
 #    原来只挂 main/develop，而这个仓库的代码长期落在 p（→ origin/new）——
 #    等于这份 workflow 从来没在真正的开发分支上跑过。
@@ -40,7 +49,7 @@ jobs:
       - name: Run fast tests (parallel)
         run: |
           cd backend
-          pytest -n auto -m "fast or smoke or unit" -v --tb=short
+          pytest -n auto --dist loadfile -m "fast or smoke or unit" -v --tb=short
 
   # ============================================================
   # Integration Tests (parallel)
@@ -69,7 +78,7 @@ jobs:
           # ⚠️ 2026-09-25：把失败摘要发成 CI 注解（公开仓库读不到 job 日志），否则只能盲猜
           cd backend
           set -o pipefail
-          pytest -n auto -m "integration and not slow" -v --tb=short 2>&1 | tee /tmp/pytest-integration.log || {
+          pytest -n auto --dist loadfile -m "integration and not slow" -v --tb=short 2>&1 | tee /tmp/pytest-integration.log || {
             echo "::error::integration 用例失败，下面把摘要发成 CI 注解（公开仓库读不到日志，只能这么把失败原因送出来）"
             grep -E "^(FAILED|ERROR)" /tmp/pytest-integration.log | head -25 | while read -r l; do echo "::error::$l"; done
             tail -25 /tmp/pytest-integration.log | while read -r l; do echo "::error::$l"; done
@@ -101,7 +110,7 @@ jobs:
       - name: Run slow tests (sequential to avoid resource contention)
         run: |
           cd backend
-          pytest -n 2 -m "slow or batch or ledger" -v --tb=short
+          pytest -n 2 --dist loadfile -m "slow or batch or ledger" -v --tb=short
 
   # ============================================================
   # Full Test Suite (parallel, with coverage)
@@ -130,7 +139,7 @@ jobs:
           # 同上：失败摘要走 CI 注解
           cd backend
           set -o pipefail
-          pytest -n auto --tb=short -v 2>&1 | tee /tmp/pytest-full.log || {
+          pytest -n auto --dist loadfile --tb=short -v 2>&1 | tee /tmp/pytest-full.log || {
             echo "::error::full 用例失败，下面把摘要发成 CI 注解（公开仓库读不到日志，只能这么把失败原因送出来）"
             grep -E "^(FAILED|ERROR)" /tmp/pytest-full.log | head -25 | while read -r l; do echo "::error::$l"; done
             tail -25 /tmp/pytest-full.log | while read -r l; do echo "::error::$l"; done
@@ -181,10 +190,10 @@ jobs:
           cd backend
           
           echo "=== Shipper Tests ==="
-          pytest -n auto -m "shipper" -v --tb=line || true
+          pytest -n auto --dist loadfile -m "shipper" -v --tb=line || true
           
           echo "=== Driver Tests ==="
-          pytest -n auto -m "driver" -v --tb=line || true
+          pytest -n auto --dist loadfile -m "driver" -v --tb=line || true
           
           echo "=== Dispatcher Tests ==="
-          pytest -n auto -m "dispatcher" -v --tb=line || true
+          pytest -n auto --dist loadfile -m "dispatcher" -v --tb=line || true

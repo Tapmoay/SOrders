@@ -156,12 +156,16 @@ jobs:
         run: |
           cd backend
           pip install -r requirements-all.txt
-      # ⚠️ -n auto 用的共享测试库会在并发会话间互踩（本仓库实测：13 failed / 644 errors）。
-      #    CI 上只有一个 pytest 进程，所以 -n auto 是安全的；**本地**别同时开两个。
+      # ⛔ 2026-09-25：**必须**带 --dist loadfile（默认的 --dist load 会在这里出错）。
+      #    本测试套件是「每个 xdist worker 一个 SQLite 库」（tests/conftest.py::get_db_path），
+      #    而**同一个文件的用例会共享那个库的状态** —— 默认分发把一个文件的用例拆到不同 worker 上，
+      #    就有用例看不到同伴留下的行。实测：`-n auto` → 2 failed / 1013 passed；
+      #    加 `--dist loadfile` → **1015 passed**。loadfile = 一个文件整体发给一个 worker，跨文件照样并行。
+      #    ⚠️ 另一半仍然是老规矩：**本地**别同时开两个 pytest（同一个 master 库会互踩）。
       - name: 跑全量用例
         run: |
           cd backend
-          pytest -n auto -q --tb=short
+          pytest -n auto --dist loadfile -q --tb=short
 
   # ⚠️ 2026-09-25（用户拍板）：frontend-build 作业**删掉了** —— 前端 H5（frontend/）正式归档。
   #    理由：它是三端里最初始的网页版，**没有任何部署引用**（_tools/deploy/ 与 nginx 都搜不到 frontend/dist），

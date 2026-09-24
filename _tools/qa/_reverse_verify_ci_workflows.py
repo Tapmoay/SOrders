@@ -93,6 +93,13 @@ CASES: list[tuple[str, str, str, str, str]] = [
         "      - name: 全部静态检查\n        run: python _tools/qa/_check_secrets.py --check\n",
         "PR 闸里没有 _check_all.py",
     ),
+    (
+        "⑦ 并行 pytest 丢了 --dist loadfile（默认分发会把一个文件的用例拆到不同 worker）",
+        GATE,
+        "          pytest -n auto --dist loadfile -q --tb=short",
+        "          pytest -n auto -q --tb=short",
+        "没带 --dist loadfile",
+    ),
 ]
 
 CRLF = chr(13) + chr(10)

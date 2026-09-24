@@ -266,6 +266,31 @@ def main() -> int:
          "每份 workflow 都有 concurrency 组",
          "⛔ 有 workflow 没有 concurrency：同一分支重复触发会一起跑")
 
+    # ---- 12. 并行 pytest 必须带 --dist loadfile（★ 2026-09-25 实测出来的，不是猜的）----
+    #    本测试套件是「每个 xdist worker 一个 SQLite 库」（tests/conftest.py::get_db_path），
+    #    而**同一个文件的用例会共享那个库的状态** → 默认的 --dist load 把一个文件的用例拆到不同
+    #    worker 上，就有用例看不到同伴留下的行。用 CI 的原命令实测：
+    #        pytest -n auto                      → 2 failed / 1013 passed
+    #        pytest -n auto --dist loadfile      → 1015 passed（0 failed）
+    #    这条判据的作用是「别哪天有人把 --dist loadfile 删了而没人发现」—— 删了 CI 就红，而 CI 红的
+    #    原因**又要靠人猜**：那两个 job 之前红了整整几轮（公开仓库读不到 job 日志），就是这么来的。
+    par_runs = [(name, job, run) for name, doc_ in docs.items() for job, run in runs_of(doc_)]
+    n_par = 0
+    missing_dist: list[str] = []
+    for name, job, run in par_runs:
+        for ln in run.splitlines():
+            if not re.search(r"pytest[^\n]*\s-n\s*(?:\d|auto)", ln):
+                continue
+            n_par += 1
+            if "--dist loadfile" not in ln:
+                missing_dist.append(name + "/" + job + " → " + ln.strip()[:90])
+    want(n_par >= 3, "盘到 " + str(n_par) + " 处并行 pytest（判据没空转）",
+         "⛔ 只盘到 " + str(n_par) + " 处并行 pytest（<3）—— 判据在空转")
+    want(not missing_dist, "每一处并行 pytest 都带 --dist loadfile（文件内的用例必须落在同一个 worker）",
+         "⛔ 这些并行 pytest 没带 --dist loadfile：" + "；".join(missing_dist[:6])
+         + "（默认分发会把一个文件的用例拆开 → 有用例看不到同伴留下的行，实测 2 failed；"
+         "这不是环境问题，见计划表第 42 轮）")
+
     # ---------- 7. gradle 任务名里的 flavor 必须真实存在 ----------
     gradle_kts = ROOT / "android" / "app" / "build.gradle.kts"
     src = gradle_kts.read_text(encoding="utf-8", errors="replace") if gradle_kts.exists() else ""

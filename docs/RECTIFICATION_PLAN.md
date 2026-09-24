@@ -401,8 +401,10 @@ GitHub Actions 立刻触发两条：Gate（三层闸门）与 Tests (Parallel)�
 ### CI 诊断工具 + 现场（2026-09-25 第 35 轮）
 
 **问题**：`Tests (Parallel)`（仓库**原有**工作流，不在本次三层闸门内）的 `Integration Tests` 与 `Full Test Suite` 两个 job 在 CI 上红，
-而本地与**干净检出**都是绿的（克隆里 `pytest -q` → 1011 passed / 0 failed；`-m "integration and not slow"` → 37 passed，
-**带 `-n auto` 也过**）。公开仓库拿不到 job 日志，所以一直在盲猜。
+而本地与**干净检出**都是绿的（克隆里 `pytest -q` → 1011 passed / 0 failed；`-m "integration and not slow"` → 37 passed）。公开仓库拿不到 job 日志，
+所以当时只能盲猜。
+
+> ⛔ **上面那句「带 `-n auto` 也过」是错的（2026-09-25 第 42 轮更正）** —— 见下面那一节：真因已经复现并修掉了。
 
 **做法（可复用）**：给这两个 job 的 pytest 步骤加了失败摘要 → **CI 注解**（`::error::` 行）—— GitHub 会把它们显示在
 Actions 的 Annotations 里，而那个接口**公开可读**（`/check-runs/<job_id>/annotations`）。以后 CI 红在哪条用例，直接读注解就有。
@@ -588,6 +590,39 @@ App 实际走的是 IP 证书（还有 1089 天）。
 
 **证据**：生产机实测 5 正常 / 3 告警 / 0 失败、exit 1、`--quiet` 也照常输出那 11 行（cron 会记下来）；
 `_tools/backup/_install.py` 重装 + 逐字节校验通过；`_reverse_verify_ops.py` **8/8**；`_check_ops.py` **20 条全绿**。
+
+### 那两个红 job 的真因抓到了：**并行分发把一个文件的用例拆到不同 worker**（2026-09-25 第 42 轮）
+
+前几轮一直说「本地复现不了、只能盲猜」。**那是假的** —— 本轮用 **CI 的原命令**在本地跑，一次就复现了：
+
+```text
+cd backend
+python -m pytest -n auto -q            →  2 failed / 1013 passed     ← CI 就是这个
+python -m pytest -n auto --dist loadfile   →  1015 passed / 0 failed   ← 修好之后
+python -m pytest -q（顺序跑）              →  1015 passed / 0 failed   ← 所以一直看不出问题
+```
+
+**根因**（不是环境、不是依赖、不是平台差异）：本测试套件是「**每个 xdist worker 一个 SQLite 库**」
+（`tests/conftest.py::get_db_path` 按 `PYTEST_XDIST_WORKER` 取库名），而 **同一个文件的用例会共享那个库的状态** ——
+xdist 默认的 `--dist load` 把一个文件的用例**拆到不同 worker** 上，于是有用例看不到同伴留下的行。两条红的具体表现：
+
+- `test_place_library.py::test_navigation_second_driver_merges_into_same_place`：货主地点库该有 1 条、实际 **0 条**；
+- `test_supplier_payables.py::test_每一步都留痕`：`SUPPLIER_PAYABLE_DELETE` **一条审计日志都没写**。
+
+**定位手法（可复用）**：单个用例顺序跑也失败、整文件跑就过 → 说明它依赖**同文件的兄弟用例**；
+再用 `-n 1` / `-n 2` / `-n auto` 三档一比，就能把「xdist 分发」与「用例本身」分开：
+失败矩阵是 `单测 顺序 = ❌ / 单测 -n1 = ❌ / 整文件 -n1 = ✅ / 整文件 -n2 = ✅ / 整文件 -n auto = ❌`。
+
+**修法**：所有并行 pytest 一律加 **`--dist loadfile`**（一个文件整体发给一个 worker，跨文件照样并行）——
+`test-parallel.yml` 的 4 个 job + role 冒烟 3 条 + `gate.yml` 的全量用例那一条，共 8 处。
+
+**配套判据（防回归）**：`_check_ci_workflows.py` 新增第 12 条 —— 「每一处并行 pytest 都必须带 `--dist loadfile`」
+（判据 30 → **32 条**），并给 `_reverse_verify_ci_workflows.py` 加第 ⑦ 条注入（把那一段删掉 → 当场红）→ **8/8**。
+为什么值得一条判据：删掉它 CI 就红，而**CI 红的原因又要靠人猜** —— 这两个 job 已经因此红了整整几轮。
+
+⚠️ **更深的那一半还没做**（如实记）：真正的病是**用例之间的顺序依赖**（同文件共享 per-worker 库）。
+`--dist loadfile` 只是让分发方式与这套用例假定的隔离模型一致；要让它们**自给自足**，得逐个把用例改成
+自己造数据。等哪天做完了，这条限制才可以撤掉。
 
 ### §15 ①② 收口：追踪链路的**最后一跳**补上，指标里两条过期的「算不出来」清掉（2026-09-25 第 41 轮）
 
