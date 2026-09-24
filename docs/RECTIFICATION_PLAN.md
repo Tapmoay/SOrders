@@ -391,3 +391,16 @@ GitHub Actions 立刻触发两条：Gate（三层闸门）与 Tests (Parallel)�
 ⛔ 这一类缺陷值得单独记：**判据自己依赖了平台**（换行符 / 本机才有的文件），本地怎么跑都绿，
 第一次真跑 CI 才暴露 —— 正是报告 §18「等价性验证」要防的东西。
 **复现手法**（下次几十秒就能查完）：`git clone . <临时目录>` → 在克隆里跑同一份 `_check_all.py`。
+
+
+### CI 诊断工具 + 现场（2026-09-25 第 35 轮）
+
+**问题**：`Tests (Parallel)`（仓库**原有**工作流，不在本次三层闸门内）的 `Integration Tests` 与 `Full Test Suite` 两个 job 在 CI 上红，
+而本地与**干净检出**都是绿的（克隆里 `pytest -q` → 1011 passed / 0 failed；`-m "integration and not slow"` → 37 passed，
+**带 `-n auto` 也过**）。公开仓库拿不到 job 日志，所以一直在盲猜。
+
+**做法（可复用）**：给这两个 job 的 pytest 步骤加了失败摘要 → **CI 注解**（`::error::` 行）—— GitHub 会把它们显示在
+Actions 的 Annotations 里，而那个接口**公开可读**（`/check-runs/<job_id>/annotations`）。以后 CI 红在哪条用例，直接读注解就有。
+
+**现场**：`api.github.com/.../actions/runs` 目前只列到 `63abac9`（run_number 5），我之前几次 push（`bc0a7bf` / `d91dd24`）
+**还没有对应 run** —— 下一步先确认 Actions 是否还在为新 push 建 run（可能是并发/配额/事件过滤），再读注解定位那两条用例。
