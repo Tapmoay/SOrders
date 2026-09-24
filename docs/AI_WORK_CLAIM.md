@@ -20,6 +20,20 @@
 
 ## 进行中
 
+### [2026-09-24 20:3x → 20:4x] 会话：**架构整改 · 第 4 轮：阶段 4（搬迁工具；收款组试搬后回退）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【本轮只落工具，搬迁回退】
+
+**做了什么**：把上一轮手工用的搬迁脚本固化成工具 `_tools/qa/_move_api_endpoints.py`（AST 定边界、按行原样切片、
+逐名剪裁 import、新模块自带 router）；dry-run 已验证：收款组（pay/charge + 两个私有助手）应当得到 173 行新模块、
+`orders.py` 1680 → 1540 行。
+
+**⛔ 试搬后**回退**了**（`git checkout --` 两个文件 + 删新模块）：那组函数依赖的 `_already_collected` /
+`_apply_complete_payment` / `_apply_complete_payment_logged` **留在 `orders.py`**（`complete_order` 也在用），
+而工具只会从 `<src>_common.py` 自动补跨模块 import → 新模块 import 就 NameError（`app.main` 起不来）。
+这不是工具坏了，而是**分组没分干净**：要搬的组必须连同"只被它用"的私有助手一起搬，被多方共用的那些要先挪进 `orders_common.py`。
+下一轮按这个顺序做：先把共用助手挪进 common，再按组搬端点。
+
+**当前状态**：阶段 4 第一刀（查询组）仍在，契约零差异；本轮净新增只有一个工具，树是干净的（94/94 检查绿）。
+
 ### [2026-09-24 20:0x → ] 会话：**架构整改 · 第 3 轮：阶段 4（API 层纯搬迁，第一刀：orders 查询组）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成】
 
 **改什么**：报告 §6 的办法是「**纯搬迁**：URL / 入参 / 出参 / 权限 / 状态机 / 数据库全不变，只改代码组织」，
