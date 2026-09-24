@@ -185,19 +185,19 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/ledger/entries` | `list_entries` | `backend/app/api/v1/ledger.py:144` | 仅登录 + 体内仅允许:派单员\|货主 |
-| 2 | `GET /api/v1/ledger/accounts` | `list_accounts` | `backend/app/api/v1/ledger.py:197` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `GET /api/v1/ledger/temp-shipper-names` | `list_temp_shipper_names` | `backend/app/api/v1/ledger.py:266` | 仅登录 + 体内仅允许:派单员 |
-| 4 | `POST /api/v1/ledger/sync-from-delivered-orders` | `sync_ledger_from_delivered_orders` | `backend/app/api/v1/ledger.py:296` | 权限:LEDGER_EDIT |
-| 5 | `POST /api/v1/ledger/entries` | `create_entry` | `backend/app/api/v1/ledger.py:311` | 权限:LEDGER_EDIT |
-| 6 | `GET /api/v1/ledger/entries/{entry_id}` | `get_entry` | `backend/app/api/v1/ledger.py:382` | 仅登录 + 体内仅允许:派单员\|货主 |
-| 7 | `PATCH /api/v1/ledger/entries/{entry_id}` | `update_entry` | `backend/app/api/v1/ledger.py:401` | 权限:LEDGER_EDIT |
-| 8 | `DELETE /api/v1/ledger/entries/{entry_id}` | `delete_entry` | `backend/app/api/v1/ledger.py:506` | 权限:LEDGER_EDIT |
-| 9 | `POST /api/v1/ledger/export-jobs` | `create_export_job` | `backend/app/api/v1/ledger.py:553` | 仅登录 + 体内权限:LEDGER_EDIT + 体内仅允许:派单员\|货主 |
-| 10 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:682` | 仅登录 |
-| 11 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:695` | 仅登录 |
-| 12 | `POST /api/v1/ledger/receipts` | `create_receipt_endpoint` | `backend/app/api/v1/ledger.py:735` | 仅登录 + 体内仅允许:派单员 |
-| 13 | `GET /api/v1/ledger/receipts` | `list_receipts` | `backend/app/api/v1/ledger.py:808` | 仅登录 + 体内仅允许:派单员 |
+| 1 | `GET /api/v1/ledger/entries` | `list_entries` | `backend/app/api/v1/ledger.py:145` | 仅登录 + 体内仅允许:派单员\|货主 |
+| 2 | `GET /api/v1/ledger/accounts` | `list_accounts` | `backend/app/api/v1/ledger.py:198` | 仅登录 + 体内仅允许:派单员 |
+| 3 | `GET /api/v1/ledger/temp-shipper-names` | `list_temp_shipper_names` | `backend/app/api/v1/ledger.py:267` | 仅登录 + 体内仅允许:派单员 |
+| 4 | `POST /api/v1/ledger/sync-from-delivered-orders` | `sync_ledger_from_delivered_orders` | `backend/app/api/v1/ledger.py:297` | 权限:LEDGER_EDIT |
+| 5 | `POST /api/v1/ledger/entries` | `create_entry` | `backend/app/api/v1/ledger.py:312` | 权限:LEDGER_EDIT |
+| 6 | `GET /api/v1/ledger/entries/{entry_id}` | `get_entry` | `backend/app/api/v1/ledger.py:383` | 仅登录 + 体内仅允许:派单员\|货主 |
+| 7 | `PATCH /api/v1/ledger/entries/{entry_id}` | `update_entry` | `backend/app/api/v1/ledger.py:402` | 权限:LEDGER_EDIT |
+| 8 | `DELETE /api/v1/ledger/entries/{entry_id}` | `delete_entry` | `backend/app/api/v1/ledger.py:507` | 权限:LEDGER_EDIT |
+| 9 | `POST /api/v1/ledger/export-jobs` | `create_export_job` | `backend/app/api/v1/ledger.py:554` | 仅登录 + 体内权限:LEDGER_EDIT + 体内仅允许:派单员\|货主 |
+| 10 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:683` | 仅登录 |
+| 11 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:701` | 仅登录 |
+| 12 | `POST /api/v1/ledger/receipts` | `create_receipt_endpoint` | `backend/app/api/v1/ledger.py:741` | 仅登录 + 体内仅允许:派单员 |
+| 13 | `GET /api/v1/ledger/receipts` | `list_receipts` | `backend/app/api/v1/ledger.py:814` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/api/v1/notifications.py` — 10 个
 
@@ -555,8 +555,8 @@ _（无重复注册）_
 | 方法与路径 | handler | 位置 | 含 `current.id` |
 |---|---|---|---|
 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | — |
-| `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:682` | — |
-| `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:695` | — |
+| `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:683` | — |
+| `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:701` | — |
 | `GET /api/v1/notifications/unread-count` | `unread_count` | `backend/app/api/v1/notifications.py:32` | ✅ |
 | `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:40` | ✅ |
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:191` | ✅ |
