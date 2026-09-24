@@ -245,10 +245,17 @@ def main() -> int:
     # ⚠️ 查的是**调用**（带实参），不是 import 行：注入把调用换掉而 import 还在时，
     #    只查 `pay_for_order(` 会漏（第一版的注入就证明了这一点）。
     call_re = re.compile(r"pay_for_order\((?:o|ode|x|order)\)")
-    for name in ("services/stats_service.py", "api/v1/freight_settlement.py", "api/v1/reports.py"):
+    for name in ("services/stats_service.py", "api/v1/freight_settlement.py"):
         src = (BACKEND / name).read_text(encoding="utf-8")
         if not call_re.search(src):
             fails.append(f"{name} 没有真的调用 pay_for_order（司机应得又有一份自己的算法）")
+
+    # ---- 报表那一份：路由在 api/v1/reports.py、聚合可能在 services/reports_service.py（阶段 4 下沉）----
+    rep_files = [BACKEND / "api/v1/reports.py", BACKEND / "services/reports_service.py"]
+    rep_src = "".join(f.read_text(encoding="utf-8") for f in rep_files if f.is_file())
+    if not call_re.search(rep_src):
+        fails.append("报表（api/v1/reports.py + services/reports_service.py）没有真的调用 pay_for_order"
+                     "（司机应得又有一份自己的算法）")
 
     # ---- ④b 订单的计费模式只许从订单读（2026-09-21）----
     # `orders.driver_billing_mode_snapshot` 为空/空串的是**老单**（这一列 v3.36 才加）。钱那一侧
