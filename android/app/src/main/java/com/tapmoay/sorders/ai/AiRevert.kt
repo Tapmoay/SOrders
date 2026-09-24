@@ -364,6 +364,14 @@ object AiRevert {
                     //    后者以前会得到一句**假话**「这个接口清不掉它」——而它明明可以（v3.44 修）。
                     old is JsonNull && k in res.nullableWritable -> put(k, JsonNull)
                     old is JsonNull -> stuck += "${cnOf(res, entry.id, k)}：${res.frozen[k] ?: "这一项原来就是空的，而这个接口清不掉它——撤回时它会保持现在的值"}"
+                    // ⛔ **空串**与 JsonNull 一样写不回去（2026-09-24 第 34 轮；第 25 轮 01 区 F1）：
+                    //    快照（`AiResources`）会把空着的字段记成 `""`，而写入侧 `pick` 用
+                    //    `takeIf { it.isNotBlank() }` 把空串**丢掉** → 撤回**静默什么都没做**，
+                    //    卡片却写着"撤回到（空）"，用户以为已经改回去了。
+                    //    本机活样本：`GET /shipper/locations` 的 `remark` **70/70 都是 ""**。
+                    //    与 JsonNull 那条**同一个去处**：如实说"这一项撤不回来"，不给假承诺。
+                    old is JsonPrimitive && old.contentOrNull.isNullOrBlank() ->
+                        stuck += "${cnOf(res, entry.id, k)}：${res.frozen[k] ?: "这一项原来是空的，而这个接口写不回空值——撤回时它会保持现在的值"}"
                     else -> put(k, old)
                 }
             }
