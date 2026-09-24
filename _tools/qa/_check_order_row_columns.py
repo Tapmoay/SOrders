@@ -172,12 +172,22 @@ def main() -> int:
             "同一个拼法有两个实现 = 改一处漏一处，而两边都不报错",
         )
 
-    qty_callers = [p for p in callers(srcs, "qtyWithUnit") if p != UNITS]
+    # ⚠️ 2026-09-24：数量那一格的拼法从 `qtyWithUnit(` 换成了 `qtyWithUnitConverted(`
+    #    （单位换算：设过「1 车 = 8 方」时写「×10 车 ≈ 80 方」）。**落点没变、数量也没变少** ——
+    #    所以这里把调用点判据一起挪到新函数上，并**同时**要求退回那一支还在
+    #    （`qtyWithUnitConverted` 内部必须仍然调 `qtyWithUnit`）。
+    #    ⛔ 别把这条判据删掉：它是"四处渲染没有各自拼一份"的唯一证据。
+    qty_callers = [p for p in callers(srcs, "qtyWithUnitConverted") if p != UNITS]
     c.ok(
-        f"`qtyWithUnit(` 的调用点 ≥{MIN_QTY_CALL_SITES} 个（订单卡片 / 订单详情 / 账本小卡），"
+        f"`qtyWithUnitConverted(` 的调用点 ≥{MIN_QTY_CALL_SITES} 个（订单卡片 / 订单详情 / 账本小卡 / 下单页），"
         f"实测 {len(qty_callers)}：{[p.name for p in qty_callers]}",
         len(qty_callers) >= MIN_QTY_CALL_SITES,
         f"低于 {MIN_QTY_CALL_SITES} 说明有人又自己拼了一份，或者判据失配在空转",
+    )
+    c.ok(
+        "换算版仍然**逐字退回**原样（`qtyWithUnitConverted` 体内调 `qtyWithUnit`）",
+        "qtyWithUnit(quantity, rawUnit)" in func_body(units, "qtyWithUnitConverted"),
+        "退回那一支没了 —— 没设换算的单会少显示/编一个单位",
     )
 
     body = func_body(units, "qtyWithUnit")
@@ -204,8 +214,8 @@ def main() -> int:
     # ---- ② 订单卡片（四张列表共用） ----
     c.section("订单卡片：商品行带单位、合计带共同单位")
     c.ok(
-        "商品行的数量走 qtyWithUnit（不是裸拼 `\"×\" + op.quantity`）",
-        re.search(r'"×" \+ qtyWithUnit\(op\.quantity, op\.unit\)', card) is not None,
+        "商品行的数量走共用拼法（不是裸拼 `\"×\" + op.quantity`）",
+        re.search(r'"×" \+ qtyWithUnitConverted\(op\.quantity, op\.unit, conversions\)', card) is not None,
         "这正是用户点名的那句「商品后面的数字没有单位」",
     )
     c.ok(
@@ -241,7 +251,7 @@ def main() -> int:
          f"实际 {len(block)} 字符")
     c.ok(
         "件数那一格右对齐（textAlign = TextAlign.End + 同一个宽度）",
-        re.search(r'"×" \+ qtyWithUnit\(line\.quantity, line\.unit\),[\s\S]{0,200}?'
+        re.search(r'"×" \+ qtyWithUnitConverted\(line\.quantity, line\.unit, conversions\),[\s\S]{0,200}?'
                   r"textAlign = TextAlign\.End,\s*modifier = Modifier\.width\(qtyW\)", block) is not None,
         "用户：「件与件数做对齐」",
     )
@@ -260,9 +270,10 @@ def main() -> int:
     #    注入"量宽度时偷偷把单位去掉"之后判据照样绿，而真机上那一列会**按「×6」的宽度去装「×6 桶」**，
     #    数字被那个固定宽度裁掉，屏幕上只是"看着有点挤"，一句报错都没有。
     c.ok(
-        "量宽度用的那串文字与画出来的那串是同一个拼法（都带单位、同一个 style）",
-        re.search(r'rememberTextWidth\("×" \+ qtyWithUnit\(l\.quantity, l\.unit\), qtyStyle\)', block) is not None
-        and re.search(r'"×" \+ qtyWithUnit\(line\.quantity, line\.unit\),[\s\S]{0,120}?style = qtyStyle,',
+        "量宽度用的那串文字与画出来的那串是同一个拼法（都带单位、同一个 style、换算也同源）",
+        re.search(r'rememberTextWidth\("×" \+ qtyWithUnitConverted\(l\.quantity, l\.unit, conversions\), qtyStyle\)',
+                  block) is not None
+        and re.search(r'"×" \+ qtyWithUnitConverted\(line\.quantity, line\.unit, conversions\),[\s\S]{0,120}?style = qtyStyle,',
                       block) is not None,
         "量的比画的窄 → 数字被固定宽度裁掉，而界面上没有任何提示",
     )
@@ -303,8 +314,8 @@ def main() -> int:
         # ⚠️ 必须钉**画出来那一行**（尾部 `style = qtyStyle,`）：小卡里这个串出现两次
         #    （量宽度 + 画），只写 `qtyWithUnit(lp.quantity, lp.unit)` 的话，
         #    把**画**的那一处改回裸拼、判据照样绿（反向验证第 ⑧ 条就是这么空转了一轮）。
-        "小卡的数量也走 qtyWithUnit（画出来那一行，不是只有量宽度那处）",
-        re.search(r'"×" \+ qtyWithUnit\(lp\.quantity, lp\.unit\),[\s\S]{0,120}?style = qtyStyle,',
+        "小卡的数量也走共用拼法（画出来那一行，不是只有量宽度那处）",
+        re.search(r'"×" \+ qtyWithUnitConverted\(lp\.quantity, lp\.unit, conversions\),[\s\S]{0,120}?style = qtyStyle,',
                   peek) is not None,
     )
     c.ok(
@@ -313,11 +324,13 @@ def main() -> int:
         and re.search(r"textAlign = TextAlign\.End,\s*modifier = Modifier\.width\(moneyW\)", peek) is not None,
     )
     c.ok(
-        "小卡量宽度与画出来的也是同一个拼法（都带单位 + 同一个 style）",
-        re.search(r'rememberTextWidth\("×" \+ qtyWithUnit\(lp\.quantity, lp\.unit\), qtyStyle\)', peek) is not None
-        and re.search(r'"×" \+ qtyWithUnit\(lp\.quantity, lp\.unit\),[\s\S]{0,120}?style = qtyStyle,',
+        "小卡量宽度与画出来的也是同一个拼法（都带单位 + 同一个 style + **换算也同源**）",
+        re.search(r'rememberTextWidth\("×" \+ qtyWithUnitConverted\(lp\.quantity, lp\.unit, conversions\), qtyStyle\)',
+                  peek) is not None
+        and re.search(r'"×" \+ qtyWithUnitConverted\(lp\.quantity, lp\.unit, conversions\),[\s\S]{0,120}?style = qtyStyle,',
                       peek) is not None,
-        "小卡是账本页就地展开的那一块，行更窄、被裁掉更看不出来",
+        "小卡是账本页就地展开的那一块，行更窄、被裁掉更看不出来；"
+        "量宽与渲染不同源时，长出来的「≈ 80 方」会把右对齐挤歪",
     )
 
     # ---- ⑤ 反空转 ----

@@ -46,9 +46,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "① 卡片商品行退回裸拼数量（用户点名的「商品后面的数字没有单位」当场复发）",
         CARD,
-        '"×" + qtyWithUnit(op.quantity, op.unit),',
+        '"×" + qtyWithUnitConverted(op.quantity, op.unit, conversions),',
         '"×" + op.quantity,',
-        "商品行的数量走 qtyWithUnit",
+        "商品行的数量走共用拼法",
     ),
     (
         "② 卡片底部合计不管单位（一单「6 桶」底下写「共 6 件」）",
@@ -100,15 +100,15 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         #    而那样注入之后判据照样绿（当时还没查"量的是不是画的那一串"），
         #    这条注入就成了空转的。所以尾部带上 `style = qtyStyle,` 把范围钉死，
         #    行首缩进用捕获组带着走（别写死空格数）。
-        r're:(\n\s*)"×" \+ qtyWithUnit\(lp\.quantity, lp\.unit\),(\s*\n\s*style = qtyStyle,)',
+        r're:(\n\s*)"×" \+ qtyWithUnitConverted\(lp\.quantity, lp\.unit, conversions\),(\s*\n\s*style = qtyStyle,)',
         r'\1"×" + lp.quantity,\2',
-        "小卡的数量也走 qtyWithUnit",
+        "小卡的数量也走共用拼法",
     ),
     (
         "⑨ 在 map 里调 rememberTextWidth（组合期槽位与列表长度对不上）",
         DETAIL,
         r"re:val qtyW = order\.orderProducts\.fold\(0\.dp\) \{ acc, l ->\s*"
-        r"maxOf\(acc, rememberTextWidth\(\"×\" \+ qtyWithUnit\(l\.quantity, l\.unit\), qtyStyle\)\)\s*\}",
+        r"maxOf\(acc, rememberTextWidth\(\"×\" \+ qtyWithUnitConverted\(l\.quantity, l\.unit, conversions\), qtyStyle\)\)\s*\}",
         "val qtyW = order.orderProducts.map { "
         'rememberTextWidth("×" + qtyWithUnit(it.quantity, it.unit), qtyStyle) }.maxOrNull() ?: 0.dp',
         # ⚠️ 期望串要连 `⛔ ` 一起写：判据标签本身以它开头，少写这两个字符就永远匹配不上
@@ -118,21 +118,21 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "⑫ 量宽度时偷偷把单位去掉（那一列会按「×6」的宽度去装「×6 桶」→ 数字被裁掉）",
         DETAIL,
-        r're:rememberTextWidth\("×" \+ qtyWithUnit\(l\.quantity, l\.unit\), qtyStyle\)',
+        r're:rememberTextWidth\("×" \+ qtyWithUnitConverted\(l\.quantity, l\.unit, conversions\), qtyStyle\)',
         'rememberTextWidth("×" + l.quantity, qtyStyle)',
         "量宽度用的那串文字与画出来的那串是同一个拼法",
     ),
     (
         "⑩ 设计规范里那一整节被删掉（文档过期比没有文档更糟）",
         DESIGN,
-        r"re:### 4\.20[\s\S]*?(?=## 5\. 用户明确偏好)",
+        r"re:### 4\.20[\s\S]*?(?=### 4\.21)",
         "",
         "06_DESIGN_SYSTEM.md 记着「数量带单位 + 分列右对齐」",
     ),
     (
         "⑪ 定位表里那条不再指向唯一的拼法（下一个人又会各写一份）",
         LOCATOR,
-        "`ui/common/Units.kt::qtyWithUnit`",
+        "`ui/common/Units.kt::qtyWithUnitConverted`",
         "`ui/common/Units.kt`",
         "08_CODE_LOCATOR.md 的订单卡片那一行提到单位与两列",
     ),
