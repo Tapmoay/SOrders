@@ -36,7 +36,7 @@
 | 1 | §20 | nginx exports deny | 否 | 未开始 | — |
 | 1 | §20 | `_check_all` 加超时 | 否 | 未开始 | — |
 | 1 | §20 | `AI_WORK_CLAIM` 归档（6000+ 行） | 否 | 未开始 | — |
-| 1 | §15 | 证书 / uptime / disk 最小监控 | 否 | 未开始 | 基线风险第 3 条（域名证书已过期 75 天） |
+| 1 | §15 | 证书 / uptime / disk 最小监控 | 否 | **最小版已可跑**（cron 待挂） | `_tools/ops/_health_check.py`（只读）：服务/健康检查、**证书剩余天数**、磁盘、**最近一次备份的年龄**；退出码 `0/1/2`。实测输出：`sorders.top` 两张证书 **剩余 -75 天**（报告点名的那件事）、IP 证书 1089 天、磁盘 29%、**最近备份 1.6 小时前**（顺带证明第 1 轮的 cron 真的在跑）。待做：装到服务器 + `0 9,21 * * *` 本地模式 cron |
 | 2 | §4 | Schema 迁移版本表（`schema_versions`） | 否 | **已完成** | `backend/app/migrations/`（运行器 + 基线 + CLI）；`python -m app.migrations status`；判据 `_tools/qa/_check_migrations.py`（39 项）+ 反向验证 15/15 |
 | 2 | §4 | 新变更走 `migrations/`（bootstrap 只管运行时自愈） | 否 | **已完成（机制就位）** | 既有 1600 行幂等 DDL **刻意不搬**（一次只动一个维度）；分工写进 `backend/app/migrations/README.md` |
 | 2 | §4 | 真 MySQL 上验一次（方言相关的那版建表语句） | 否 | **已完成** | `_drill_local.py --verify-migrations`：在**恢复出来的生产库**上跑仓库里这份迁移（见 §3.4） |
@@ -53,7 +53,7 @@
 | 7 | §13 | 文档事实源自动化（会变的数字一律生成） | 否 | **已完成（第一块）** | `docs/BASELINE.md` 由脚本生成 |
 | 7 | §14 | Android 集成测试（登录 → 导航 → 下单） | 否 | 未开始 | — |
 | 7 | §14 | 前端 H5：正式"继续维护"或"正式归档"（二选一） | — | **待拍板** | 见 §4 |
-| 8 | §15 | Request ID / 业务指标 / 外部监控 | 否 | 未开始 | — |
+| 8 | §15 | Request ID / 业务指标 / 外部监控 | 否 | **① 已完成；③ 最小版已可跑；② 待做** | ① `core/request_id.py`（纯 ASGI 中间件 + ContextVar + 日志 `[rid=…]` + `X-Request-ID` 响应头），真机实测响应头有值、5 条用例、988 用例绿；③ `_tools/ops/_health_check.py`；② 业务指标（orders_created / push_success / AI_calls…）未做 |
 | 9 | §16 | 多实例 / HA | 架构级 | **不做（现在）** | 报告 §16：先有迁移版本化与可靠事件，否则三个实例一起跑 DDL 是新的灾难 |
 
 ## 2. 施工纪律（报告 §18，落到本仓库的具体命令）
