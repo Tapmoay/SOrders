@@ -234,3 +234,32 @@ python _tools/backup/_drill_local.py                 # 恢复演练
 **还差的（都不是本机能独立收口的）**：① §11 第 3 步（清单已备）；② §20 nginx exports deny（生产配置）；
 ③ §5「CI 真的跑一次」—— 要 git push；④ §9 五个无引用权限点 —— 接上还是删掉；⑤ 前端 H5 —— 保还是弃；
 ⑥ 另一会话那 13 个未提交文件（含未跟踪的 services/reports_service.py）要不要替它提交。
+
+
+## 4. 用户 2026-09-25 拍板（两条，下一轮照着做）
+
+### 4.1 §9 五个无引用权限点：**全部接上**（不是删）
+
+五个点的含义与归属（`backend/app/core/rbac.py`）：`ORDER_READ_OWN`=货主只看自己的单、`ORDER_READ_ASSIGNED`=司机只看派给自己的单、
+`LEDGER_READ_OWN`=货主只看自己的账、`LEDGER_READ_ALL`=派单员看全部账、`NOTIFICATION_READ`=三角色都能读消息。
+现在它们**只是声明**（读侧真实判据是端点体内内联的 `user_role_key(current)`），于是「改矩阵不改行为」，而端点索引与 AI 读能力目录都从矩阵推导 → 文档/接口/AI 三头对不上。
+
+**做法（下一轮）**：给 `rbac.py` 加一个「任一即可」的依赖（例如 `require_any_permission(*perms)`，因为一个端点常常同时服务多角色，单一权限点表达不了行级规则），
+把读侧端点逐个接上对应的权限点（`GET /orders`、`/orders/{id}`、`/ledger/*`、`/notifications*`、`/stats/*` 等）；
+⛔ 行级过滤**保留**（权限点管「这一类角色能不能进」，行级规则管「进来能看哪几行」）。
+**连带必须同步**：`_check_permission_points.py`（未使用权限点的理由表 → 接上后那张表要清空/缩短）、`08A_ENDPOINT_INDEX.md` 权限列（重跑生成器）、`docs/ai/ai_read_catalog.json`（`_gen_ai_read_catalog.py` + `_probe_read_roles.py` 逐角色对账）、`_check_client_contract.py`。
+核心区改动：`backend/app/core/rbac.py`（按规矩在声明页写「核心改动」那一行）。
+
+### 4.2 §14 的前端 H5：**归档删掉**（用户原话：它就是最初始的网页版，现在不需要了）
+
+参考现状：`frontend/` 是 Vue3+Vite 的 H5（三角色页面齐全），但**没有任何部署引用**（`_tools/deploy/` 与 nginx 配置里搜不到 `frontend/dist`），线上没人访问它。
+**做法**：① `git rm -r frontend`（历史里可恢复）＋在 gitignore 的 `_archive/` 里留一份可读的归档副本；② 删掉 `gate.yml` 的 `frontend-build` 作业；
+③ 逐条摘掉判据里的 H5 那一半（不是删判据）：`_check_client_contract.py`（后端状态 → H5/App 逐值对账）、`_check_money_display.py`、`_check_offline_queue.py`、
+`_check_order_return.py`、`_check_pagination_wiring.py`、`_check_ps1_encoding.py`、`_check_ci_workflows.py`（快闸四件事里含前端构建）、`_tools/baseline/_capture_baseline.py`、`README.md`；
+④ 它们各自的**反向验证锚点**同步重指（`_reverse_verify_client_contract.py` 18 处、`_reverse_verify_money_display.py` 4、`_reverse_verify_offline_queue.py` 4、`_reverse_verify_pagination_wiring.py` 8）。
+⛔ 顺序：先改判据与 CI → 再删目录 → 再重跑生成物（端点索引 / AI 目录 / hint 目录）→ 再 `_check_all.py` 全绿才提交。
+
+### 4.3 CI：已推上去，第一次真的跑起来了
+
+`git push origin p:new` 成功（`19706d0..c6c841c`，需先手动打开本机代理：`D:\APPS\Clash Verge\clash-verge.exe`）。
+GitHub Actions 已触发两条：**Gate**（常闸：静态检查 + 后端用例 + 前端构建）与 **Tests (Parallel)**。
