@@ -20,6 +20,34 @@
 
 ## 进行中
 
+### [2026-09-24 11:3x → 12:0x] 会话：**全项目系统性复核 · 第 28 轮**（第 8 批报告统一修续：R11-1）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+| # | 改了什么 | 来源 | 提交 |
+| --- | --- | --- | --- |
+| R11-1 | **退过货的单「永久收不了款」**（界面那一半）：收款页原来算 Σ 商品行金额当判据，而后端整单核销**逐单按欠款**算 → 本机 order 13（行 42.80 / 欠 21.40）、394、419 三张单**再也收不了款**（界面强制填 42.80 → 后端 400；想填 21.40 又过不了界面）。修法=口径收到 `util/Money.kt`（`settleArrears()` 取后端 `arrears_amount`、`settleTotal()` 定点逐单相加），收款页合计与列表那行都改用它（列表显示「欠 ¥」） | 第 24 轮 10-F1 | `ca4edca` |
+
+⛔ **这个缺陷有两个入口，本轮只修了界面那一个**：AI 那条路（`orders.receipt` 的确认卡）
+要改 `AiOrderRef` 与它的两个构造点，而那些文件（`AiWrite.kt` / `AiWriteService.kt` /
+`AiWriteBasicData.kt` / `AiReadCatalog.kt` / `AiResources.kt`）**全是另一个会话正在改的 ` M`** ——
+按 `AGENTS.md` 第 2 条我停手并登记：**下一轮他们收工后**补 `arrearsAmount` 字段 + 两个构造点 +
+卡片合计改用它。在那之前 AI 那条路仍会按行金额算、仍会被后端拒。
+
+**验收**：Android `testPhoneDebugUnitTest` **BUILD SUCCESSFUL**；`MoneyTest` **13 条 0 失败**
+（新增 3 条：整单核销取欠款不是行金额 / 多单欠款相加 / 字段为空按 0）。⛔ 本条没有真机复现
+（真机要真收一笔款、真写账本）。
+
+**明确不碰**（另一个会话正在改，工作区里 40+ 个 ` M`/`??`）：`android/.../ai/{AiWrite,AiWriteService,
+AiWriteBasicData,AiReadCatalog,AiResources}.kt`、`.../data/remote/api/Apis.kt`、`.../data/repo/AppRepository.kt`、
+`.../data/remote/dto/Dtos.kt`、`.../ui/common/*`、`.../ui/shipper/*`、`.../ui/dispatcher/DispatcherLedgerViewModel.kt`、
+`backend/app/api/v1/{shipper,unit_conversions}.py`、`backend/app/core/schema_bootstrap.py`、
+`backend/app/models/{shipper,unit_conversion}.py`、`backend/app/schemas/shipper.py`。
+
+**下一轮队列（第 8 批剩下，按严重度）**：① AI 那半边的收款项（等他们的文件）；② 按分类定价 +
+没分类的单 = 0 元且全链路无声（25-06-1）；③ AI 改预设单后商品明细/收货人撤不回来（25-04-A1）；
+④ 回收站界面零入口（24-02）；⑤ 报表中心一个数据格都点不动 + 同商品两样数（25-05-F1/F2）；
+⑥ 到仓入库不含货损且早于货损落库（25-02-D1）；⑦ AI 撤回对空串旧值静默不回退（25-01-F1）；
+⑧ 异步导出任务永远停在 PROCESSING（25-08-1）。
+
 ### [2026-09-24 10:4x → 11:2x] 会话：**全项目系统性复核 · 第 27 轮**（第 8 批报告统一修续：R10-3/R10-4）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 | # | 改了什么 | 来源 | 提交 |
