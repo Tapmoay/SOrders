@@ -506,3 +506,43 @@ H5 归档那一轮，`gate.yml` 里有个 `frontend-build` 作业（每一步都
 
 **证据**：`_reverse_verify_ci_workflows.py` **7/7**；`_check_ci_workflows.py` **30 条全绿**；
 `_check_reverse_verify_anchors.py` **111 份脚本 / 1113 条锚点**（+1 份 / +6 条）；`_check_all.py` **99/99**。
+
+### §10 收官：最后一个直接推的生产者也切进发件箱了（2026-09-25 第 39 轮）
+
+计划表里 §10 那一行的状态一直是「第一步已完成（边界 + worker + 判据）；**生产者待逐条切换**」。
+本轮盘了一遍：**33 处 `outbox.enqueue` 分布在 7 个文件、18 种事件类型**，API 侧早就切完了 ——
+只剩**一处**还在直接推：`services/ledger_export_worker.py`。
+
+**缺陷形状（就是报告 §10 点名的那一个）**：「导出完成」通知 `db.commit()` 之后，紧接着
+`emit_to_user` + `emit_unread_count` + `push_ledger_updated` 三次直接推。进程在这中间重启/被回收
+（导出本身要跑几十秒，部署窗口正好在这个量级）→ 用户**永远收不到**「导出完成」这个实时信号，
+消息中心里那条还在但没人会去翻；而库里一切正常、日志里什么都没记。**不是"少推一次"，是"没人知道丢了"。**
+
+**改法**：通知与它的事件在**同一个事务**里写进发件箱 ——
+`outbox.enqueue(db, "notifications.created", {"notification_id": n.id})` +
+`outbox.enqueue(db, "ledger.updated", {"shipper_id": shipper_id})`，派发交给 worker
+（它在**应用自己的事件循环**里 await，R14-7 那条纪律由它保证）。负载只带**编号**不带快照
+（处理器按编号重取当前那一行 —— 塞快照就等于两处状态）。后台任务那一层现在只做一件事：把重活丢线程。
+
+**顺带修掉的两处（都是反向验证当场抓的，不是我先知道再补的）**：
+
+1. **`_check_outbox.py` 新增第 9 条：生产者不许绕开发件箱直接推。** 做法不是"逐个文件点名单"
+   （点名单会烂），而是**把推送出口那一层列出来**（socket_io / message_push / message_center /
+   push_events / main 的派发表），其余任何模块直接调它们都算绕开；另配"放行表不许长霉"与
+   "扫到的模块 ≥ 40"两条护栏。⚠️ 第一版判的是**原文**，于是 `ledger_export_worker.py` 的
+   **模块说明**里那句历史解释（"原来它在后台线程里直接 `asyncio.run(emit_notification(n))`"）
+   被当成违规 —— **判据被自己的文档骗红**；改成判 `code_only`（剥字符串与注释、保留行号）。
+2. **第 ⑥ 条反向验证抓到一条真漏洞**：迁移那条判据原来判的是**原文**，而迁移的模块说明里
+   写着 "`checkfirst=True` → 可以重跑" —— 把代码里的 `checkfirst` 改成 `False`，**红线照样全绿**。
+   这就是"注释满足判据"的第 N 次复发；已改成判 `code_only`。
+
+**新增 `_tools/qa/_reverse_verify_outbox.py`（6 条注入 → 7/7 全绿）** —— 这条红线此前
+**一条反向验证都没有**，而它的失效方式**全是静默的**（enqueue 里多个 commit、失败被标成功、
+派发表漏登记一个类型），正是最该被反向验证的那一类：① `enqueue` 里加 commit；② `mark_sent` 挪到
+`deliver` 之前；③ 导出那条链路又加回直接推；④ 派发表里改掉一个事件类型名；⑤ 模型少一列
+（`next_attempt_at` 改名）；⑥ 迁移不再 `checkfirst`。
+
+**等价性证据**：`backend/tests/test_audit_round15_export_push.py` **5 passed**（两条用例按新形状重写：
+一条用**真实派发表** `app.main._outbox_deliver` 验证"事件同事务落库 + 推送跑在调用方循环上"，
+一条验证"推送炸了 → 导出仍是完成、事件留在队列里带 `last_error` 等重试"）；后端全量 pytest；
+`_check_outbox.py` **30 条全绿**；`_reverse_verify_outbox.py` **7/7**。

@@ -19,7 +19,16 @@
 5. 失败路径齐全：记 `last_error`、`attempts+1`、退避、用满即放弃；`mark_sent` 只在派发成功之后；
 6. worker 真的被应用起起来（`main.py` 的 lifespan）且未登记的事件类型会**抛错**；
 7. 这条新边界**自己可见**：`/metrics` 里有待发/放弃两个 gauge；
-8. 判据条数下限（防检查空转）。
+8. 判据条数下限（防检查空转）；
+9. **生产者不许绕开发件箱直接推**（2026-09-25 补）：把「推送出口」那一层列出来
+   （`core/socket_io.py` / `services/message_push.py` / `services/message_center.py` /
+   `services/push_events.py` / `main.py` 的派发表），其余**任何**模块直接调它们都算绕开。
+   ⚠️ 判据判在 `code_only` 上：第一版判原文，被模块说明里那句历史解释
+   （"原来它在后台线程里直接 `asyncio.run(emit_notification(n))`"）骗红过。
+   另配两条护栏：放行表不许长霉（每条都指得到真实文件）、扫到的模块数 ≥40（防解析失效后空转）；
+10. 账本导出完成那条链路**必须是发件箱在推**（`notifications.created`）—— 它是最后一个切完的生产者
+   （2026-09-25）：在此之前它 commit 完通知就**直接推**，进程在中间重启 = 用户永远收不到「导出完成」，
+   而库里一切正常、没有任何地方报错。
 
 用法：
     python _tools/qa/_check_outbox.py --check   # 非零退出＝有问题
@@ -119,10 +128,15 @@ def main() -> int:
     metrics_src = read(METRICS)
 
     # ---- 1. 迁移：表结构取自模型 ----
-    want("VERSION = 2" in mig_src, "迁移版本号 = 2", "⛔ 002 迁移没有 VERSION = 2")
-    want("__table__.create" in mig_src and "checkfirst=True" in mig_src,
+    # ⚠️ 这两条**必须**判在 code_only 上：第一版判的是原文，于是迁移的**模块说明**里那句
+    #    "`checkfirst=True` → 可以重跑" 把判据自己满足了 —— 把代码里的 checkfirst 改成 False
+    #    红线照样全绿。2026-09-25 反向验证第 ⑥ 条实测抓到（"注释满足判据"的第 N 次复发）。
+    mig_code = code_only(mig_src)
+    want("VERSION = 2" in mig_code, "迁移版本号 = 2", "⛔ 002 迁移没有 VERSION = 2")
+    want("__table__.create" in mig_code and "checkfirst=True" in mig_code,
          "迁移用模型的 __table__.create(checkfirst=True)（两边不可能写成两样，且可重跑）",
-         "⛔ 迁移没有从模型建表 —— 手写 DDL 的话，模型与迁移迟早写成两样（列名差一个字，上线当天才发现）")
+         "⛔ 迁移没有从模型建表（或没写 checkfirst=True）—— 手写 DDL 的话，模型与迁移迟早写成两样"
+         "（列名差一个字，上线当天才发现）；少了 checkfirst 则这条迁移重跑就炸")
 
     # ---- 2. 模型：表名 / 列 / 索引 ----
     want("__tablename__ = \"outbox_events\"" in model_src, "表名 outbox_events", "⛔ 表名不是 outbox_events")
@@ -203,6 +217,53 @@ def main() -> int:
     want("_bg_push_assigned" not in read(ROOT / "backend" / "app" / "api" / "v1" / "orders_assignment.py"),
          "派单端点里不再直接推（后台任务那条路已撤）",
          "⛔ orders_assignment 里还留着 _bg_push_assigned —— 一条链路两套投递（发件箱 + 后台任务）")
+
+    # ---- 9. 生产者不许**绕开发件箱**直接推（★ 2026-09-25 补：最后一条后台任务也切完了） ----
+    #    这批绕开点的形状全都一样：**不会报错**，只在"进程恰好在 commit 与推送之间重启"时
+    #    静默丢一条事件 —— 正是 §10 要治的病。抓它的办法不是"逐个文件点名单"（点名单会烂），
+    #    而是**把推送出口那一层列出来**，其余任何模块直接调它们都算绕开。
+    #    ⚠️ 实测抓到的第一个违规就是本轮修的 `services/ledger_export_worker.py`
+    #    （导出完成的通知 commit 之后直接 `emit_to_user` + `emit_unread_count` + `push_ledger_updated`）。
+    PUSH_LAYER = {
+        "core/socket_io.py": "推送的**最底层原语**（sio.emit 只在这里）",
+        "services/message_push.py": "emit_to_user 的门面（一层转发，不带业务）",
+        "services/message_center.py": "消息中心自己就是推送出口（站内信 + 未读数）",
+        "services/push_events.py": "派发表处理器所在的那一层（push_events.X 就是它的出口）",
+        "main.py": "发件箱的**派发表**就在这儿（它的处理器必须 await 它们）",
+    }
+    EMIT_CALL = re.compile(
+        r"\b(?:emit_to_user|emit_unread_count|emit_notification|emit_realtime)\s*\("
+        r"|\bpush_events\.\w+\s*\("
+    )
+    bypass: list[str] = []
+    scanned = 0
+    for p in sorted(APP.rglob("*.py")):
+        rel = p.relative_to(APP).as_posix()
+        if "__pycache__" in rel or rel in PUSH_LAYER:
+            continue
+        scanned += 1
+        # ⚠️ 必须扫 **code_only**（剥掉字符串与注释、保留行号）：第一版扫的是原文，
+        #    于是 `ledger_export_worker.py` 的**模块说明**里那句历史解释
+        #    （"原来它在后台线程里直接 `asyncio.run(emit_notification(n))`"）被当成了违规 ——
+        #    判据被自己的文档骗红，而"改文档去迎合判据"比红更糟（本仓库栽过同款）。
+        for i, line in enumerate(code_only(read(p)).splitlines(), 1):
+            if EMIT_CALL.search(line):
+                bypass.append(rel + ":" + str(i) + " → " + line.strip()[:90])
+    want(scanned >= 40, "扫了 " + str(scanned) + " 个模块找绕开发件箱的推送",
+         "⛔ 只扫到 " + str(scanned) + " 个模块（<40）—— 判据在空转")
+    want(not bypass, "没有模块绕开发件箱直接推（推送出口只有 " + str(len(PUSH_LAYER)) + " 处）",
+         "⛔ 这些地方绕开发件箱直接推：" + "；".join(bypass[:6]) +
+         "（进程在 commit 与推送之间重启，这条事件就永远丢了，而库里一切正常）")
+    # 放行表不许长霉：里面每一条都必须还是**真实存在**的文件（改名/搬走后要跟着改）。
+    stale_layer = sorted(k for k in PUSH_LAYER if not (APP / k).exists())
+    want(not stale_layer, "推送出口放行表里每条都指得到真实文件",
+         "⛔ 放行表里有已经不存在的文件：" + "、".join(stale_layer) + "（化石，改完记得删）")
+    # 反面再正面钉一次：导出完成那条链路必须是**发件箱**在推（本轮最后一个切完的生产者）。
+    export_src = read(APP / "services" / "ledger_export_worker.py")
+    want('outbox.enqueue(db, "notifications.created"' in export_src,
+         "账本导出完成的通知走发件箱（notifications.created）",
+         "⛔ 导出完成那条链路没有入队通知事件 —— 推送又回到了「commit 之后直接推」，"
+         "进程在中间重启 = 用户永远收不到「导出完成」")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),
