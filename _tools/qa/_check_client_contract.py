@@ -60,6 +60,8 @@ ORDERS_API = BACKEND / "api/v1/orders.py"
 ORDERS_PAY = BACKEND / "api/v1/orders_payment.py"
 #: 派单与定价（update_order_freight / price_freight / assign / recall / split）2026-09-24 阶段 4 搬去了这里
 ORDERS_ASSIGN = BACKEND / "api/v1/orders_assignment.py"
+#: 送达与司机（driver_ack_view / complete / navigation / cancel）2026-09-24 阶段 4 搬去了这里
+ORDERS_DELIVERY = BACKEND / "api/v1/orders_delivery.py"
 ORDER_PRODUCTS = BACKEND / "api/v1/order_products.py"
 ENDPOINT_GEN = ROOT / "backend/scripts/gen_endpoint_index.py"
 
@@ -204,7 +206,7 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
 
     for name, path, func in (
         ("ASSIGNABLE", ORDER_FLOW, "assign_driver"),
-        ("ACKABLE", ORDERS_API, "driver_ack_view"),
+        ("ACKABLE", ORDERS_DELIVERY, "driver_ack_view"),
         ("COMPLETABLE", ORDER_FLOW, "complete_delivery"),
     ):
         body = body_of(path, func)

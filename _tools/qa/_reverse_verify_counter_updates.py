@@ -38,6 +38,8 @@ CHECK = ROOT / "_tools/qa/_check_counter_updates.py"
 INV_SVC = "backend/app/services/inventory_service.py"
 INV_API = "backend/app/api/v1/inventory.py"
 PLACE = "backend/app/services/place_service.py"
+# ⚠️ 这个脚本用的是**相对路径字符串**（不是 Path），所以新常量也得是字符串，否则两边类型不一致。
+ORDERS_D = "backend/app/api/v1/orders_delivery.py"   # 2026-09-24 阶段 4：送达/司机那一族搬去了这里
 ORDERS = "backend/app/api/v1/orders.py"
 CHECKREL = "_tools/qa/_check_counter_updates.py"
 
@@ -114,7 +116,7 @@ CASES: list[tuple[str, str, object, bool]] = [
     ),
     (
         "文本列上的『读改写』**不许**被误抓（拼接备注不是计数）",
-        ORDERS,
+        ORDERS_D,
         lambda s: s.replace(
             '    order.internal_notes = (order.internal_notes or "").strip()\n',
             '    order.internal_notes = (order.internal_notes or "探针").strip()\n',

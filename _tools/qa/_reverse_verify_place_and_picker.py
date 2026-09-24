@@ -37,6 +37,7 @@ ORDER_FLOW = ROOT / "backend/app/services/order_flow.py"
 PLACE_SCHEMA = ROOT / "backend/app/schemas/place.py"
 PLACE_SVC = ROOT / "backend/app/services/place_service.py"
 PLACE_API = ROOT / "backend/app/api/v1/places.py"
+ORDERS_D = ROOT / "backend/app/api/v1/orders_delivery.py"   # 2026-09-24 阶段 4：送达/司机那一族搬去了这里
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
 ORDER_HANDLERS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteOrderHandlers.kt"
 ENUMS = ROOT / "backend/app/models/enums.py"
@@ -154,7 +155,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "已有坐标的订单允许被覆盖（把正确坐标改成错坐标，而且看不出来）",
-        ORDERS_API,
+        ORDERS_D,   # 2026-09-24 阶段 4：fill_order_navigation 搬去了 orders_delivery.py
         lambda s: s.replace(
             "这张订单已经有导航信息了，不需要补录",
             "补录一下也没关系",
@@ -163,7 +164,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "补导航不写货主地点库（用户要的「下次下单自动带出」落空）",
-        ORDERS_API,
+        ORDERS_D,
         lambda s: s.replace(
             "        _, shipper_location_created = place_service.ensure_shipper_location(",
             "        shipper_location_created = False\n        if False:\n            place_service.ensure_shipper_location(",
@@ -209,7 +210,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "补导航不再拦「名字与地址都空」（同上，而且这条连订单地址都没有）",
-        ORDERS_API,
+        ORDERS_D,
         lambda s: s.replace(
             "    if not place_name and not detail:",
             "    if False:",

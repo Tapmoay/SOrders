@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _airepo import refuse_if_injecting, repo_root  # noqa: E402
+from _airepo import orders_api_source, refuse_if_injecting, repo_root  # noqa: E402
 
 ROOT = repo_root()
 AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
@@ -3199,7 +3199,7 @@ def main() -> int:
     # ---- 抽成范围 + 逐单参数（用户 2026-09-18 补的两条）----
     rule_py = read(ROOT / "backend/app/schemas/driver_billing_rule.py")
     order_model = read(ROOT / "backend/app/models/order.py")
-    orders_api = read(ROOT / "backend/app/api/v1/orders.py")
+    orders_api = orders_api_source(ROOT)
     wsvc22 = read(AI / "AiWriteService.kt")
     # AI 侧这三条只钉"逐单参数真的走完了全程"：声明（模型看得到）→ 卡片（用户看得到）
     # → payload/实参（真的传给了后端）。只钉声明的话，参数会变成"卡片上写着、请求里没有"。
@@ -3821,14 +3821,14 @@ def main() -> int:
 
     # ---- 补导航：只补不改 + 三处写入 + 留痕 ----
     c.present("已有坐标的订单**拒绝**补录（错坐标比没坐标更危险）",
-              read(ROOT / "backend/app/api/v1/orders.py"), r"这张订单已经有导航信息了，不需要补录")
-    c.present("补导航只允许司机或派单员", read(ROOT / "backend/app/api/v1/orders.py"),
+              orders_api_source(ROOT), r"这张订单已经有导航信息了，不需要补录")
+    c.present("补导航只允许司机或派单员", orders_api_source(ROOT),
               r"仅司机或派单员可以补导航信息")
     # ⚠️ 锚"**真的会执行**"这个结构（`if order.shipper_id is not None:` 紧跟着赋值调用），
     #    只锚 `place_service.ensure_shipper_location(` 的话，把调用塞进 `if False:` 里
     #    它照样绿 —— 而用户在货主端看到的就是"下次下单没带出坐标"（反向验证抓到）。
     c.present("补录会写进**货主自己的**地点库（且这行真的会执行）",
-              read(ROOT / "backend/app/api/v1/orders.py"),
+              orders_api_source(ROOT),
               r"if order\.shipper_id is not None:\s*\n\s*_, shipper_location_created = "
               r"place_service\.ensure_shipper_location\(")
     c.present("补录会往操作日志留痕（单独的动作码）",
@@ -3882,7 +3882,7 @@ def main() -> int:
               read(ROOT / "backend/app/services/place_service.py"),
               r"err = identify_error\(new_name, new_detail\)\s*\n\s*if err is not None:\s*\n\s*raise ValueError\(err\)")
     c.present("补导航也拦住「名字与地址都空」（否则一样往共享库塞无名记录）",
-              read(ROOT / "backend/app/api/v1/orders.py"), r"if not place_name and not detail:")
+              orders_api_source(ROOT), r"if not place_name and not detail:")
     # ⚠️ 锚"strip 之后才判空"这个结构：只锚函数名的话，把 strip 去掉照样绿 ——
     #    而 "   " 在 Python 里是真值，`if not value` 拦不住它（反向验证抓到）。
     c.present("补名字时先 strip 再判空（否则一串空格会被写进库）",
@@ -3916,7 +3916,7 @@ def main() -> int:
     vis_model = read(ROOT / "backend/app/models/product_visibility.py")
     user_model31 = read(ROOT / "backend/app/models/user.py")
     products_api31 = read(ROOT / "backend/app/api/v1/products.py")
-    orders_api31 = read(ROOT / "backend/app/api/v1/orders.py")
+    orders_api31 = orders_api_source(ROOT)
     users_api31 = read(ROOT / "backend/app/api/v1/users.py")
     psvc31 = read(ROOT / "backend/app/services/place_service.py")
     places_api31 = read(ROOT / "backend/app/api/v1/places.py")

@@ -186,6 +186,7 @@ ORDERS_API_MODULES = (
     "orders_payment.py",
     "orders_media.py",
     "orders_assignment.py",
+    "orders_delivery.py",
 )
 
 
@@ -213,6 +214,7 @@ MODULE_ALIAS = {
     "orders_payment": "orders",
     "orders_media": "orders",
     "orders_assignment": "orders",
+    "orders_delivery": "orders",
 }
 
 
