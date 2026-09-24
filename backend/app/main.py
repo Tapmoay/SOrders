@@ -14,6 +14,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 
 from app.api.v1.router import api_router
 from app.config import get_settings
+from app.core.request_id import RequestIdFilter, RequestIdMiddleware
 from app.core.socket_io import sio
 from app.database import SessionLocal
 from app.redis_client import redis_ok
@@ -47,8 +48,12 @@ def _configure_logging() -> None:
         return
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        # 2026-09-24（整改阶段 8 ①）：日志带上**请求追踪 id** —— 报告 §15 要的第一件小事。
+        # 每个请求一个 id（`core/request_id.py`）；并发时那串日志才第一次能按请求串起来。
+        format="%(asctime)s %(levelname)s [%(name)s] [rid=%(request_id)s] %(message)s",
     )
+    for _h in logging.getLogger().handlers:
+        _h.addFilter(RequestIdFilter())
 
 
 _configure_logging()
@@ -99,6 +104,9 @@ async def lifespan(_app: FastAPI):
 
 def create_fastapi_app() -> FastAPI:
     application = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+    # 请求追踪 id：最先挂上去的那个（异常也要能带上 id）+ 回写 X-Request-ID（见 core/request_id.py）
+    application.add_middleware(RequestIdMiddleware)
 
     application.add_middleware(
         CORSMiddleware,

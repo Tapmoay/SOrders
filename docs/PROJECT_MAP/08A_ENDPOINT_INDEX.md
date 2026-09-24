@@ -506,9 +506,9 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:183` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:221` | **公开** |
-| 3 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:230` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:191` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:229` | **公开** |
+| 3 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:238` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -573,9 +573,9 @@ _（无重复注册）_
 |---|---|---|
 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` |
 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:183` |
-| `GET /health` | `health` | `backend/app/main.py:221` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:230` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:191` |
+| `GET /health` | `health` | `backend/app/main.py:229` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:238` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 
