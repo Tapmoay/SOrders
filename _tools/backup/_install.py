@@ -27,6 +27,12 @@ import _prodssh  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 SCRIPTS = ["_backup.sh", "_restore.sh", "_drill.sh"]
+#: 健康检查是 ops 目录下的 python 工具（整改阶段 8 ③），装到同一个 bin 下给 cron 用。
+#: ⚠️ 它 import 兄弟模块 `_prodssh`（事实脚本的唯一来源），所以那个也要一起装 ——
+#:    否则服务器上本机模式一跑就是 `ModuleNotFoundError: No module named _prodssh`（实测踩到）。
+OPS_DIR = Path(__file__).resolve().parents[1] / "ops"
+HEALTH_TOOL = OPS_DIR / "_health_check.py"
+PRODSSH_TOOL = OPS_DIR / "_prodssh.py"
 REMOTE_BIN = _prodssh.BACKUP_ROOT + "/bin"
 CRON_FILE = "/etc/cron.d/sorders-backup"
 
@@ -39,6 +45,8 @@ PATH=/sbin:/bin:/usr/sbin:/usr/bin
 30 2,8,14,20 * * * root {bin}/_backup.sh --kind daily >> /var/log/sorders-backup.log 2>&1
 15 3 * * 0 root {bin}/_backup.sh --kind weekly >> /var/log/sorders-backup.log 2>&1
 45 3 * * 1 root {bin}/_drill.sh >> /var/log/sorders-drill.log 2>&1
+# 健康检查（报告 §15 第三件小事）：每天 9 点 / 21 点各一次，只在非全绿时输出
+0 9,21 * * * root /opt/SOrders/backend/.venv/bin/python {bin}/_health_check.py --local --quiet >> /var/log/sorders-health.log 2>&1
 """.format(bin=REMOTE_BIN)
 
 
@@ -108,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
                         _prodssh.BACKUP_ROOT + " " + REMOTE_BIN)
     for s in SCRIPTS:
         _prodssh.scp_to(HERE / s, REMOTE_BIN + "/" + s)
+    _prodssh.scp_to(HEALTH_TOOL, REMOTE_BIN + "/_health_check.py")
+    _prodssh.scp_to(PRODSSH_TOOL, REMOTE_BIN + "/_prodssh.py")
     _prodssh.ssh_script("chmod 700 " + REMOTE_BIN + "/_*.sh")
 
     # ---- 2. 当场校验：语法 + 内容一致（不是"传上去就算"）----

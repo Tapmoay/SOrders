@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,17 +39,37 @@ DISK_WARN_PCT, DISK_FAIL_PCT = 85, 95
 BACKUP_WARN_HOURS = 36
 
 
-def _facts() -> dict[str, str]:
+def _run(script: str, local: bool):
+    """跑同一段事实脚本：local=True 在**本机**跑（服务器上的 cron 模式），否则 ssh 过去跑。
+
+    ⚠️ 两种模式的脚本**是同一份**（`_prodssh.prod_facts_script()`）—— 监控与基线看到的必须是同一批事实，
+    否则会出现「基线里好好的、监控说挂了」。
+    """
+    if local:
+        return subprocess.run(["bash", "-c", script], capture_output=True, timeout=120)
+    return _prodssh.ssh_script(script, timeout=120)
+
+
+def _lines(cmd: str, local: bool) -> list[str]:
+    """同上，但只要 stdout 的非空行（备份年龄那段用）。"""
+    if local:
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, timeout=60)
+        return [x.strip() for x in r.stdout.decode("utf-8", "replace").splitlines() if x.strip()]
+    return _prodssh.ssh_lines(cmd)
+
+
+def _facts(local: bool = False) -> dict[str, str]:
     """生产只读事实（复用基线采集那一段脚本 —— 口径只有一处）。"""
     out: dict[str, str] = {}
-    r = _prodssh.ssh_script(_prodssh.prod_facts_script(), timeout=120)
+    script = _prodssh.prod_facts_script()
+    r = _run(script, local)
     for ln in r.stdout.decode("utf-8", "replace").splitlines():
         if "=" in ln:
             k, v = ln.split("=", 1)
             out[k.strip()] = v.strip()
     # 最近一次备份的年龄（秒）：取 /opt/sorders-backup 下最新的 manifest.json
-    age = _prodssh.ssh_lines(
-        f"find {_prodssh.BACKUP_ROOT} -name manifest.json -printf '%T@\\n' 2>/dev/null | sort -rn | head -1")
+    cmd = f"find {_prodssh.BACKUP_ROOT} -name manifest.json -printf '%T@\\n' 2>/dev/null | sort -rn | head -1"
+    age = _lines(cmd, local)
     out["backup_latest_epoch"] = age[0] if age else ""
     return out
 
@@ -60,10 +81,12 @@ def main(argv: list[str] | None = None) -> int:
         except (AttributeError, ValueError):
             pass
     ap = argparse.ArgumentParser(description="生产最小外部监控（只读）")
-    ap.add_argument("--quiet", action="store_true", help="只在非全绿时输出")
+    ap.add_argument("--quiet", action="store_true", help="只在非全绿时输出（给 cron）")
+    ap.add_argument("--local", action="store_true",
+                    help="在**服务器本机**跑（cron 用；默认走 ssh 从本机连过去）")
     args = ap.parse_args(argv)
 
-    f = _facts()
+    f = _facts(local=args.local)
     rows: list[tuple[str, str, str]] = []      # (级别, 项, 说明)
 
     state = f.get("service_state", "?")
