@@ -179,7 +179,14 @@ def refuse_if_injecting(who: str) -> bool:
 #: orders 路由现在由**三个模块**组成（2026-09-24 整改阶段 4 纯搬迁：查询组去了 orders_query.py、
 #: 共用助手去了 orders_common.py）。读它的判据一律读**并集** ——
 #: "锚点落在哪个文件"不是这些判据要管的事，而搬迁不该让一打判据红一遍。
-ORDERS_API_MODULES = ("orders.py", "orders_query.py", "orders_common.py")
+ORDERS_API_MODULES = (
+    "orders.py",
+    "orders_query.py",
+    "orders_common.py",
+    "orders_payment.py",
+    "orders_media.py",
+    "orders_assignment.py",
+)
 
 
 def orders_api_files(root: Path | None = None) -> list[Path]:
@@ -205,6 +212,7 @@ MODULE_ALIAS = {
     "orders_common": "orders",
     "orders_payment": "orders",
     "orders_media": "orders",
+    "orders_assignment": "orders",
 }
 
 

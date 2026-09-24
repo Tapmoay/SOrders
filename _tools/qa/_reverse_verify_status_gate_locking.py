@@ -29,6 +29,8 @@ ROOT = HERE.parent.parent
 CHECK = HERE / "_check_status_gate_locking.py"
 PROD = ROOT / "backend/app/api/v1/order_products.py"
 ORDERS = ROOT / "backend/app/api/v1/orders.py"
+#: 定价/派单那几条（price_freight 等）2026-09-24 阶段 4 搬去了这里 —— 注入锚点跟着搬。
+ORDERS_A = ROOT / "backend/app/api/v1/orders_assignment.py"
 
 #: (说明, 目标文件, 被替换的原文, 替换成, 期望在 [FAIL] 行里出现的关键词)
 CASES: list[tuple[str, Path, str, str, str]] = [
@@ -59,12 +61,12 @@ CASES: list[tuple[str, Path, str, str, str]] = [
     ),
     (
         "定价端点不取锁（判完到写之间正是送达能挤进来的窗口）",
-        ORDERS,
+        ORDERS_A,   # 2026-09-24 阶段 4：price_freight 搬去了 orders_assignment.py
         "    order = lock_order_row(db, order)\n    if order.status == OrderStatus.CANCELLED:\n"
         "        raise HTTPException(status_code=400, detail=\"这一单已经撤销了，不用再定价\")",
         "    if order.status == OrderStatus.CANCELLED:\n"
         "        raise HTTPException(status_code=400, detail=\"这一单已经撤销了，不用再定价\")",
-        "orders.freight_fee ← orders.py::price_freight",
+        "orders.freight_fee ← orders_assignment.py::price_freight",   # 2026-09-24 阶段 4：price_freight 搬了家
     ),
     (
         "别处又冒出一个直接判状态的地方（没登记理由就是绕过那道门）",

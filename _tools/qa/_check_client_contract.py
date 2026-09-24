@@ -58,6 +58,8 @@ ORDER_FLOW = BACKEND / "services/order_flow.py"
 ORDERS_API = BACKEND / "api/v1/orders.py"
 #: 付款家族（_payment_scoped_order 等）2026-09-24 阶段 4 搬去了 orders_payment.py
 ORDERS_PAY = BACKEND / "api/v1/orders_payment.py"
+#: 派单与定价（update_order_freight / price_freight / assign / recall / split）2026-09-24 阶段 4 搬去了这里
+ORDERS_ASSIGN = BACKEND / "api/v1/orders_assignment.py"
 ORDER_PRODUCTS = BACKEND / "api/v1/order_products.py"
 ENDPOINT_GEN = ROOT / "backend/scripts/gen_endpoint_index.py"
 
@@ -236,8 +238,10 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
         src = f"order_products::{const}"
     gates["LINE_EDITABLE"] = (members, src)
 
-    for name, func in (("EDITABLE", "update_order"), ("FREIGHT_EDITABLE", "update_order_freight")):
-        body = body_of(ORDERS_API, func)
+    # ⚠️ 逐条指明**文件**：`update_order_freight` 2026-09-24 阶段 4 搬去了 orders_assignment.py
+    for name, func, src_file in (("EDITABLE", "update_order", ORDERS_API),
+                                 ("FREIGHT_EDITABLE", "update_order_freight", ORDERS_ASSIGN)):
+        body = body_of(src_file, func)
         m = re.search(r"if\s+order\.status\s+in\s*\(([^)]*)\)\s*:\s*\n\s*raise", body)
         if m is None:
             raise KeyError(f"orders.{func} 里没解析出 `if order.status in (…): raise`")

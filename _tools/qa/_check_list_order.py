@@ -168,10 +168,15 @@ def main() -> int:
     c.ok("后端 OrderCreate 收 contact_id / address_id / location_id（都可选）",
          all(f"{f}: int | None = Field(" in order_schema
              for f in ("contact_id", "address_id", "location_id")))
+    # ⚠️ orders 现在由多个模块组成（2026-09-24 阶段 4 纯搬迁）：判据看**并集**，
+    #    否则"锚点落在哪一份里"会让判据变成假红（下单一组搬走时实测踩到）。
+    orders_src = "".join(api_files.get(n, "") for n in (
+        "orders.py", "orders_query.py", "orders_common.py",
+        "orders_payment.py", "orders_media.py", "orders_assignment.py"))
     c.ok("下单成功时真的记了（联系人/线路/地点/商品/货主）",
-         "usage_service.record_usage(db, user=current, kind=kind, target_id=target)" in api_files.get("orders.py", ""))
+         "usage_service.record_usage(db, user=current, kind=kind, target_id=target)" in orders_src)
     c.ok("派单时记了司机（记在**派单员**名下）",
-         "kind=usage_service.KIND_USER, target_id=body.driver_id" in api_files.get("orders.py", ""))
+         "kind=usage_service.KIND_USER, target_id=body.driver_id" in orders_src)
     c.ok("App 的请求体带这三个字段", all(f"val {f}Id: Long? = null" in dts
                                         for f in ("contact", "address", "location")))
     c.ok("选了线路/地点时记下 id", "pickedAddressId = a.id" in vm and "pickedLocationId = l.id" in vm)

@@ -19,6 +19,7 @@ RULES_API = APP / "api/v1/driver_billing_rules.py"
 RULE_SCHEMA = APP / "schemas/driver_billing_rule.py"
 CAT_API = APP / "api/v1/freight_categories.py"
 TPL_API = APP / "api/v1/freight_templates.py"
+ORDERS_A = ROOT / "backend/app/api/v1/orders_assignment.py"
 ORDERS = APP / "api/v1/orders.py"
 #: orders 的**查询组**（2026-09-24 整改阶段 4 纯搬迁：列表/待派计数/详情搬去了 orders_query.py）
 ORDERS_Q = APP / "api/v1/orders_query.py"
@@ -115,14 +116,14 @@ MUTATIONS = [
     ),
     (
         "沉淀出来的价目不勾进司机的规则（「下次自动带价」是假的）",
-        ORDERS,
+        ORDERS_A,
         "                db.add(DriverBillingRuleTemplate(rule_id=int(rule_id), template_id=tmpl.id))",
         "                pass",
         "沉淀出来的价目**自动勾进这位司机的规则**",
     ),
     (
         "手动定价顺手改异常标记（异常页再也看不清）",
-        ORDERS,
+        ORDERS_A,
         "    order.freight_fee = body.freight_fee\n    order.freight_category_id = body.category_id",
         "    order.is_exception = True\n    order.freight_fee = body.freight_fee\n    order.freight_category_id = body.category_id",
         "手动定价那一段里没有 `is_exception = True`",
