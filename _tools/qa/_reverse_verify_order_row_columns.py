@@ -132,8 +132,10 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "⑪ 定位表里那条不再指向唯一的拼法（下一个人又会各写一份）",
         LOCATOR,
+        # ⚠️ 锚点要**只在订单卡片那一行**出现的那个写法（`ui/common/…` 前缀）：
+        #    光写函数名的话「单位换算」那一行也有它，删掉一处判据照样绿（实测空转过一轮）。
         "`ui/common/Units.kt::qtyWithUnitConverted`",
-        "`ui/common/Units.kt`",
+        "`ui/common/Units.kt::qtyWithUnit`",
         "08_CODE_LOCATOR.md 的订单卡片那一行提到单位与两列",
     ),
 ]
