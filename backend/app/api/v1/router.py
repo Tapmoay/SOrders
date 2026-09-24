@@ -24,6 +24,7 @@ from app.api.v1 import (
     order_template_categories,
     suppliers,
     orders,
+    orders_media,
     orders_payment,
     orders_query,
     place_categories,
@@ -65,6 +66,8 @@ api_router.include_router(orders_query.router)
 # orders 的**收款/现金**（pay / charge）与其付款家族私有助手：2026-09-24 阶段 4 从 orders.py 搬到
 # `api/v1/orders_payment.py`。完成订单仍要写那笔钱 → `orders.py` 反过来从它 import（无环）。
 api_router.include_router(orders_payment.router)
+# orders 的**图片**（地址图 / 送达照片）：同样 2026-09-24 阶段 4 从 orders.py 纯搬迁到 `api/v1/orders_media.py`。
+api_router.include_router(orders_media.router)
 # 预订单 / 订单模板（2026-09-22 用户要求：「预设好的订单，参数没有变直接下单」）。
 # 它自己不生成订单 —— 真下单仍走上面那条 `orders.router`。
 api_router.include_router(order_templates.router)

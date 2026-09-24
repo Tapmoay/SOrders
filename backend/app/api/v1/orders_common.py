@@ -152,3 +152,22 @@ async def _bg_notify_new_order(order_id: int) -> None:
 async def _bg_notify_order_edited(driver_id: int, order_id: int) -> None:
     """改单（地址/联系人/配送说明）→ 让司机那一页自己重拉（2026-09-24 第 20 轮 C12-3）。"""
     await push_order_edited_to_driver(driver_id, order_id)
+
+
+def _order_not_deleted_or_404(order: Order | None) -> Order:
+    """取到单之后**统一挡掉隔离区（已进回收站）的单**（2026-09-19 审计 R13-D1）。
+
+    ### 为什么需要它
+    读侧对所有非派单员是「订单不存在」（`_get_order_scoped`），而司机端的**写路径**
+    （送达 / 上传凭证 / 追加备注 / 派单）原来一个都不看 `deleted_at`：
+    派单员把一张在途单删进回收站之后（客户催单 → 标记异常 → 删单，是日常操作，
+    而且这条删除**没有任何推送**告诉司机），司机手上那一页还停在旧数据，点「送达」返回 **200**：
+    库存实扣、账本入账、**司机应付账单生成**，而这张单在司机/货主/派单员的普通查询里都不存在。
+    30 天后它被物理清理，那笔 OPEN 应付随之作废——司机白跑一趟，全程无提示。
+
+    ⚠️ 用 404 而不是 403：与读侧同一种答复（"这张单对你来说不存在"），
+    否则司机能从状态码差异反推出"有一张我看不到的已删除单"。
+    """
+    if order is None or order.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
+    return order

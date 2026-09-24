@@ -200,7 +200,12 @@ def orders_api_source(root: Path | None = None) -> str:
 #: orders 在 2026-09-24（整改阶段 4 纯搬迁）拆成了三个文件，但 `orders.list_orders` 这种动作名是
 #: **对模型与客户端可见的契约**（安卓侧 AiReadCatalog.kt 与四个测试都写着它）——
 #: 搬迁不许改契约，所以拆出来的文件在这里**折回同一个模块名**。
-MODULE_ALIAS = {"orders_query": "orders", "orders_common": "orders", "orders_payment": "orders"}
+MODULE_ALIAS = {
+    "orders_query": "orders",
+    "orders_common": "orders",
+    "orders_payment": "orders",
+    "orders_media": "orders",
+}
 
 
 def module_key(stem: str) -> str:

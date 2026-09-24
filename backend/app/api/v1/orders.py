@@ -73,7 +73,14 @@ from app.services import place_service
 # ⚠️ 付款家族（_already_collected / _apply_complete_payment / …）2026-09-24 阶段 4 搬去了
 # `orders_payment.py`；**完成订单时要写那笔钱**，所以这里要把它引回来（跨模块 import，无环）。
 from app.api.v1.orders_payment import _apply_complete_payment_logged, _reject_if_already_collected
-from app.api.v1.orders_common import (_bg_ledger_updated_shipper, UPLOAD_DIR, ALLOWED_IMAGE_CT, _save_delivery_uploads, _get_order_scoped, _bg_push_assigned, _bg_freight_updated, _bg_push_revoked, _bg_push_shipper_recalled, _bg_notify_delivered, _bg_notify_cancel, _bg_notify_driver_ack, _bg_notify_navigation_filled, _bg_dispatcher_pending_pool, _bg_notify_return_request_closed, _bg_notify_new_order, _bg_notify_order_edited)
+from app.api.v1.orders_common import (
+    UPLOAD_DIR, ALLOWED_IMAGE_CT, _bg_dispatcher_pending_pool, _bg_freight_updated,
+    _bg_ledger_updated_shipper, _bg_notify_cancel, _bg_notify_delivered, _bg_notify_driver_ack,
+    _bg_notify_navigation_filled, _bg_notify_new_order, _bg_notify_order_edited,
+    _bg_notify_return_request_closed, _bg_push_assigned, _bg_push_revoked,
+    _bg_push_shipper_recalled, _get_order_scoped, _order_not_deleted_or_404,
+    _save_delivery_uploads,
+)
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -494,135 +501,10 @@ def restore_order(
     return enrich_order_out(full, db, current)
 
 
-@router.post("/{order_id}/address-image", response_model=OrderOut)
-async def upload_order_address_image(
-    order_id: int,
-    current: CurrentUser,
-    db: Session = Depends(get_db),
-    file: UploadFile = File(...),
-) -> Order:
-    """上传收货地址参考图（定位不清时辅助找路）。
-
-    **谁能传**（2026-09-20 扩容）：派单员 / 这单的货主 / **这单的司机**。
-    司机加进来是用户点名要的：「司机他也可以去上交补交照片，如果他到了地方没有照片的话，
-    他也可以补」—— 到了现场的人正是唯一拍得出"这个门口长什么样"的人。
-    （原来只放行前两个角色，司机在订单详情页连入口都没有，只能打电话问路。）
-
-    **照片会同时进「我的地点」**（`place_service.attach_order_photo`）：用户要的是
-    「照片跟地点是一样自动保存在库里的」—— 下次下单选到这个位置，图就在库里，
-    不用再让每个货主各拍一次。
-    """
-    order = _order_not_deleted_or_404(db.get(Order, order_id))
-    rk = user_role_key(current)
-    if (
-        rk != UserRole.DISPATCHER.value
-        and current.id != order.shipper_id
-        and current.id != order.driver_id
-    ):
-        raise HTTPException(status_code=403, detail="无权操作")
-    from app.api.v1.products import ALLOWED_IMAGE_CT, _sniff_image_mime
-
-    ct = (file.content_type or "").split(";")[0].strip().lower()
-    # ⚠️ 限量读（2026-09-23 复核 G8）：原来是 `await file.read()` 再判 4MB
-    raw = await read_limited(file, MAX_IMAGE_BYTES, detail="图片过大（最大 4MB）")
-    if ct not in ALLOWED_IMAGE_CT or ct in ("", "application/octet-stream"):
-        sniffed = _sniff_image_mime(raw[:32])
-        if sniffed:
-            ct = sniffed
-    if ct not in ALLOWED_IMAGE_CT:
-        raise HTTPException(status_code=400, detail="不支持的图片类型（请使用 JPG/PNG/WebP）")
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
-        ext = ".jpg"
-    sub = UPLOAD_DIR / str(order_id)
-    name = f"{uuid.uuid4().hex}{ext}"
-    path = sub / name
-    try:
-        sub.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(raw)
-    except OSError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="图片保存失败：服务器无法写入 uploads 目录",
-        ) from e
-    url = f"/static/uploads/delivery/{order_id}/{name}"
-    # 多图：拼进 image_urls（JSON 数组），address_image_url 始终指向首图（兼容旧客户端）
-    try:
-        urls = json.loads(order.image_urls or "[]")
-    except Exception:
-        urls = []
-    if url not in urls:
-        urls.append(url)
-    order.image_urls = json.dumps(urls, ensure_ascii=False)
-    order.address_image_url = urls[0] if urls else url
-    # 照片跟着**同一条判据、同一批人**进「我的地点」（用户 2026-09-20：
-    # 「照片跟地点是一样是自动保存在库里的」）。代理下单时两边都记 —— 与
-    # `remember_order_address` 完全同一批 owner，判据也只有 `place_service` 那一处。
-    # 司机传的图也进**货主**的库（司机自己没有"我的地点"这个概念）。
-    photo_owners = place_service.attach_order_photo(
-        db,
-        owner_ids=[current.id, order.shipper_id],
-        name=order.address_detail or "",
-        detail_address=order.address_detail or "",
-        url=url,
-        lat=float(order.address_lat) if order.address_lat is not None else None,
-        lng=float(order.address_lng) if order.address_lng is not None else None,
-    )
-    if photo_owners:
-        write_log(
-            db,
-            operator_id=current.id,
-            order_id=order.id,
-            action=OperationAction.PLACE_AUTO_ADDED,
-            change_payload={
-                "photo": url,
-                "owner_ids": photo_owners,
-                "note": "位置照片存进「我的地点」（判据见 place_service.attach_order_photo）",
-            },
-        )
-    db.commit()
-    db.refresh(order)
-    return order
 
 
-def _order_not_deleted_or_404(order: Order | None) -> Order:
-    """取到单之后**统一挡掉隔离区（已进回收站）的单**（2026-09-19 审计 R13-D1）。
-
-    ### 为什么需要它
-    读侧对所有非派单员是「订单不存在」（`_get_order_scoped`），而司机端的**写路径**
-    （送达 / 上传凭证 / 追加备注 / 派单）原来一个都不看 `deleted_at`：
-    派单员把一张在途单删进回收站之后（客户催单 → 标记异常 → 删单，是日常操作，
-    而且这条删除**没有任何推送**告诉司机），司机手上那一页还停在旧数据，点「送达」返回 **200**：
-    库存实扣、账本入账、**司机应付账单生成**，而这张单在司机/货主/派单员的普通查询里都不存在。
-    30 天后它被物理清理，那笔 OPEN 应付随之作废——司机白跑一趟，全程无提示。
-
-    ⚠️ 用 404 而不是 403：与读侧同一种答复（"这张单对你来说不存在"），
-    否则司机能从状态码差异反推出"有一张我看不到的已删除单"。
-    """
-    if order is None or order.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
-    return order
 
 
-@router.post("/{order_id}/delivery-photos", response_model=DeliveryPhotoUploadOut)
-async def upload_delivery_photos(
-    order_id: int,
-    db: Session = Depends(get_db),
-    current: User = Depends(require_permission(Permission.ORDER_UPLOAD_DELIVERY)),
-    files: list[UploadFile] = File(...),
-) -> DeliveryPhotoUploadOut:
-    order = _order_not_deleted_or_404(
-        db.scalars(select(Order).where(Order.id == order_id)).first()
-    )
-    if user_role_key(current) != UserRole.DRIVER.value or order.driver_id != current.id:
-        raise HTTPException(status_code=403, detail="无权操作")
-    if order.status != OrderStatus.ACCEPTED:
-        raise HTTPException(status_code=400, detail="仅「已接单」订单可上传凭证")
-    if not files:
-        raise HTTPException(status_code=400, detail="未选择文件")
-
-    urls = await _save_delivery_uploads(order_id, files)
-    return DeliveryPhotoUploadOut(urls=urls)
 
 
 @router.post("/{order_id}/complete-with-upload", response_model=OrderOut)
