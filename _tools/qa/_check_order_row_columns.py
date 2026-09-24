@@ -354,8 +354,11 @@ def main() -> int:
         "文档过期比没有文档更糟：下一个人会照他自己觉得好看的样子再做一遍",
     )
     c.ok(
-        "08_CODE_LOCATOR.md 的订单卡片那一行提到单位与两列",
-        "qtyWithUnit" in locator,
+        "08_CODE_LOCATOR.md 的订单卡片那一行提到单位与两列，且指向**现在**那个拼法",
+        # ⚠️ 必须判 `qtyWithUnitConverted`：只判 `qtyWithUnit` 的话，
+        #    把它改回旧名字（= 少显示换算）之后判据照样绿（反向验证第 ⑪ 条实测空转过一轮）。
+        "qtyWithUnitConverted" in locator,
+        "定位表还指着旧的拼法 —— 下一个人会照它写回一份不带换算的",
     )
 
     print("\n" + "=" * 60)
