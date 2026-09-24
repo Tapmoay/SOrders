@@ -14,18 +14,20 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import func, select
 
 from app.core import outbox
 from app.core.business_time import utc_now_naive
 from app.models import OutboxEvent, OutboxStatus
+from app.services import push_events
 from tests.conftest import auth_headers
 
 
 def _clear(db) -> None:
     """清掉本表（`dispatch_sync` 会 commit，fixture 的 rollback 收不走它）—— 只在**本表**内清。"""
-    db.query(OutboxEvent).delete()
+    db.query(OutboxEvent).delete(synchronize_session=False)
     db.commit()
 
 
@@ -251,6 +253,81 @@ def test_cancelling_an_order_enqueues_cancelled_and_pool_events(
     events = {x.event_type: x.payload_dict() for x in _rows(db_session)}
     assert events.get("orders.cancelled") == {"user_ids": [users["shipper"].id], "order_id": oid}, events
     assert "orders.pending_pool_changed" in events, list(events)
+
+
+def test_dispatcher_maps_the_payload_to_push_args(monkeypatch):
+    """派发表把**负载**翻成实参：`ledger.updated` 的三个收件人由负载决定。
+
+    账本路由那几处带 `dispatchers: True`（它们一直推三类人），送达那条链路只带货主
+    （与它切过来之前逐字一致）—— 这条用例把两种形状都钉住，免得以后"统一一下"就把收件人改窄。
+    """
+    import asyncio
+
+    from app.core.outbox import Event
+    from app.main import _outbox_deliver
+
+    calls: list[tuple] = []
+
+    async def fake_ledger(shipper_id=None, *, driver_id=None, dispatchers=False):
+        calls.append((shipper_id, driver_id, dispatchers))
+
+    monkeypatch.setattr(push_events, "push_ledger_updated", fake_ledger)
+    asyncio.run(_outbox_deliver(Event(
+        id=1, event_type="ledger.updated",
+        payload={"shipper_id": 7, "driver_id": 9, "dispatchers": True}, attempts=0,
+    )))
+    asyncio.run(_outbox_deliver(Event(
+        id=2, event_type="ledger.updated", payload={"shipper_id": 7}, attempts=0,
+    )))
+    assert calls == [(7, 9, True), (7, None, False)], calls
+
+
+def test_dispatcher_refuses_an_unregistered_event_type():
+    """没登记的事件类型**必须抛错**（发件箱要治的就是"静默丢事件"）。"""
+    import asyncio
+
+    from app.core.outbox import Event
+    from app.main import _outbox_deliver
+
+    raised = False
+    try:
+        asyncio.run(_outbox_deliver(Event(id=1, event_type="nobody.handles.this", payload={}, attempts=0)))
+    except RuntimeError as exc:
+        raised = "没有登记处理器" in str(exc)
+    assert raised, "没人处理的事件类型被静默放过了"
+
+
+def test_deleting_a_ledger_entry_enqueues_the_refresh(client, token_dispatcher, users, db_session):
+    """账本路由那几处（本轮切过来）：删一条流水 → 一条 `ledger.updated`，收件人含派单员。"""
+    from datetime import date
+
+    from app.models import Ledger
+    from app.models.enums import LedgerSource
+
+    _clear(db_session)
+    row = Ledger(
+        shipper_id=users["shipper"].id,
+        entry_date=date(2026, 9, 25),
+        product_name="发件箱账本探针",
+        quantity=1,
+        unit_price=Decimal("10.0000"),
+        total=Decimal("10.0000"),
+        source=LedgerSource.MANUAL,
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    gone = client.delete(f"/api/v1/ledger/entries/{row.id}", headers=auth_headers(token_dispatcher))
+    assert gone.status_code in (200, 204), gone.text
+
+    db_session.expire_all()
+    events = [x for x in _rows(db_session) if x.event_type == "ledger.updated"]
+    assert len(events) == 1, [x.event_type for x in _rows(db_session)]
+    # ⚠️ 负载里**不带** driver_id：那一格交给派发表按缺省处理（None = 只推货主与派单员）——
+    #    JSON 里塞一堆 null 只会让"这条事件到底推给谁"更难读。
+    assert events[0].payload_dict() == {
+        "shipper_id": users["shipper"].id, "dispatchers": True,
+    }, events[0].payload_dict()
 
 
 def test_outbox_stats_counts_by_status(db_session):

@@ -20,6 +20,32 @@
 
 ## 进行中
 
+### [2026-09-25 00:4x → ] 会话：**架构整改 · 第 16 轮：阶段 6 §10 —— 账本链路切完（5 处）+ 修掉 worker 的一个生产级缺陷**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**做了什么**：`api/v1/ledger.py` 的 5 处账本刷新（补账 backlog / 建流水 / 改流水 / 删流水 / 客户收款单）改成
+**commit 之前** `outbox.enqueue(db, "ledger.updated", …)`，`_bg_push_ledger_shipper` 助手与它的 import 删掉。
+
+**负载决定收件人**：`ledger.updated` 现在带 `driver_id` / `dispatchers` 两格 ——
+账本路由那 5 处一直推「这本账的主人 + 这一单的司机 + 派单员」三类人（`dispatchers: True`），
+而送达那条链路只带货主（与它切过来之前**逐字一致**）。用例把两种形状都钉住了。
+
+**这一轮判据抓到三个东西**（顺序值得记）：
+1. 我漏删了一处调用点 → **先红的是检查**（`_check_background_tasks.py`：目标 `_bg_push_ledger_shipper` 找不到定义），
+   随后 17 条用例 NameError —— 检查比测试早一步发现；
+2. 删掉那个助手把 `_reverse_verify_background_tasks.py` 的一条注入锚点变成**恒 SKIP**，
+   被 `_check_reverse_verify_anchors.py` 点出来（失效条数 23 → 24）。已把那条注入改挂到 `orders_common.py`
+   里仍然存在的账本推送上，重跑 **6/6 注入都还会红**、文件逐字节还原；
+3. **生产级缺陷**（用例先抓到）：worker 在「取出事件」与「标回结果」之间，若那一行被删掉
+   （保留期清理、人工删、另一进程先标了），`mark_sent` 的提交会抛 `StaleDataError` 把**整个循环**带下去；
+   现在 `_mark_sync` 把它当成"没我什么事"并记一条日志（并把标成功/记失败合成同一条路径，语义只有一处）。
+
+**证据**：发件箱用例 **15 条**（新增：派发表负载→实参映射两种形状、未登记类型必须抛错、删流水→`ledger.updated`）；
+`_check_notify_guardrails.py` 117/117、`_check_ledger_cash.py` 61/61、`_check_ledger_dashboard.py` 143/143、
+`_check_outbox.py` 27/27；后端全量 **1008 通过 / 3 红**（reports 文本锚点三条，另一会话）；
+`_check_all.py` 99 个检查 **1 红**（同因）。**派发点分布**：background task 18 + 发件箱入队 20 = 38（发件箱第一次超过后台任务）。
+
+**下一轮**：退货申请 3 处、消息中心 5 处（`emit_notification` / `_bg_emit_unread`）、代下单/改单/接单通知。
+
 ### [2026-09-25 00:1x → ] 会话：**架构整改 · 第 15 轮：阶段 6 §10 —— 一次切四种事件（池变化 / 撤回 / 召回 / 撤销）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **做了什么**（切法已经完全固定：**commit 之前 enqueue → 删掉只为那条推送存在的助手 → 派发表登记处理器**）：

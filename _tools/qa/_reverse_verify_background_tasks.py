@@ -27,6 +27,11 @@ CHECK = ROOT / "_tools/qa/_check_background_tasks.py"
 WORKER = "backend/app/services/ledger_export_worker.py"
 NOTIFY = "backend/app/api/v1/notifications.py"
 LEDGER = "backend/app/api/v1/ledger.py"
+#: ⚠️ 2026-09-25 换过锚点：`ledger.py` 里那个 `_bg_push_ledger_shipper` 助手已经**随发件箱改造删掉了**
+#:    （账本刷新改成"提交前入队"），原先那条注入因此变成恒 SKIP（被 `_check_reverse_verify_anchors.py`
+#:    当场点出来）。这里改挂到 `orders_common.py` 里**仍然存在**的一个账本推送后台任务上 ——
+#:    "在别处自建事件循环"这件事与哪个文件无关，判据认的是 `asyncio.*` 那些写法。
+COMMON = "backend/app/api/v1/orders_common.py"
 CHECKREL = "_tools/qa/_check_background_tasks.py"
 
 CASES: list[tuple[str, str, object]] = [
@@ -49,11 +54,11 @@ CASES: list[tuple[str, str, object]] = [
         lambda s: s.replace("async def _bg_emit_unread(", "def _bg_emit_unread(", 1),
     ),
     (
-        "在别处（ledger.py）自建事件循环",
-        LEDGER,
+        "在别处（orders_common.py 的账本推送）自建事件循环",
+        COMMON,
         lambda s: s.replace(
-            "async def _bg_push_ledger_shipper(shipper_id: int | None, driver_id: int | None = None) -> None:",
-            "async def _bg_push_ledger_shipper(shipper_id: int | None, driver_id: int | None = None) -> None:\n"
+            "async def _bg_ledger_updated_shipper(shipper_id: int) -> None:",
+            "async def _bg_ledger_updated_shipper(shipper_id: int) -> None:\n"
             "    import asyncio\n"
             "    asyncio.new_event_loop()  # 注入：自建事件循环\n",
             1,

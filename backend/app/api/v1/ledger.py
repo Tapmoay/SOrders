@@ -35,8 +35,8 @@ from app.services.ledger_sync import (
     sync_order_product_from_ledger,
 )
 from app.services.operation_log_service import write_log
-from app.services.push_events import push_ledger_updated
 from app.services.soft_delete import dialable_phone
+from app.core import outbox
 from app.core.date_window import date_window
 #: 「订单明细能不能改」的唯一判据（与订单侧共用一份状态清单，不许在账本侧再抄一遍）
 from app.api.v1.order_products import LINE_EDITABLE_STATUSES
@@ -91,15 +91,6 @@ def _apply_date_window(q, date_from: str | None, date_to: str | None):
 MAX_EXPORT_ROWS = 20_000
 #: 同一账号 24 小时内最多导出几次（产物可重复下载，不需要反复生成）。
 EXPORT_DAILY_QUOTA = 20
-
-
-async def _bg_push_ledger_shipper(shipper_id: int | None, driver_id: int | None = None) -> None:
-    """账本变动 → 通知「这本账的主人 + 这一单的司机 + 派单员」三类人刷新（2026-09-24 第 20 轮）。
-
-    ⚠️ 收件人原来只有货主一个，而客户端三个角色都在订阅 `ledger.updated`
-    → 司机「我的运费」与派单员「账本管理」永远不刷新（界面上没有任何提示）。
-    """
-    await push_ledger_updated(shipper_id, driver_id=driver_id, dispatchers=True)
 
 
 def _reject_if_order_closed(db: Session, row: Ledger, *, wants_detail: bool, what: str) -> None:
@@ -302,9 +293,11 @@ def sync_ledger_from_delivered_orders(
 ) -> dict:
     """按历史已送达订单补全/刷新账本（幂等）。仅派单员。"""
     n, shipper_ids = sync_delivered_orders_to_ledger(db, body.shipper_id, body.temp_shipper_name)
-    db.commit()
+    # ⚠️ 账本刷新走**事务发件箱**（整改报告 §10）：与下面这次 commit **同一个事务**。
+    #    收件人一直是三类（这本账的主人 + 这一单的司机 + 派单员），所以带上 dispatchers 这一格。
     for sid in shipper_ids:
-        background_tasks.add_task(_bg_push_ledger_shipper, sid)
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": sid, "dispatchers": True})
+    db.commit()
     return {"orders_synced": n, "shippers_notified": len(shipper_ids)}
 
 
@@ -372,10 +365,10 @@ def create_entry(
             "requested_order_id": body.order_id,
         },
     )
+    if row.shipper_id is not None:
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": row.shipper_id, "dispatchers": True})
     db.commit()
     db.refresh(row)
-    if row.shipper_id is not None:
-        background_tasks.add_task(_bg_push_ledger_shipper, row.shipper_id)
     return ledger_to_out(row, db)
 
 
@@ -496,10 +489,10 @@ def update_entry(
             },
         },
     )
+    if shipper_id is not None:
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": shipper_id, "dispatchers": True})
     db.commit()
     db.refresh(row)
-    if shipper_id is not None:
-        background_tasks.add_task(_bg_push_ledger_shipper, shipper_id)
     return ledger_to_out(row, db)
 
 
@@ -541,9 +534,9 @@ def delete_entry(
         },
     )
     db.delete(row)
-    db.commit()
     if shipper_id is not None:
-        background_tasks.add_task(_bg_push_ledger_shipper, shipper_id)
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": shipper_id, "dispatchers": True})
+    db.commit()
 
 
 @router.post(
@@ -790,6 +783,13 @@ def create_receipt_endpoint(
             "arrears_unit_id": r.arrears_unit_id,
         },
     )
+    # ⚠️ 核销推送走**事务发件箱**（报告 §10）：收件人上面已经算好（shipper_uid / driver_uid），
+    #    事件与这次 commit 同一个事务 —— 钱没记成就绝不通知，钱记成了就一定会发。
+    outbox.enqueue(
+        db,
+        "ledger.updated",
+        {"shipper_id": shipper_uid, "driver_id": driver_uid, "dispatchers": True},
+    )
     db.commit()
     db.refresh(r)
     from app.models import Customer
@@ -799,8 +799,8 @@ def create_receipt_endpoint(
     #    （同文件的手工记账 `:352` 是有的）—— 派单员在柜台核销了一笔，货主手机上零事件，
     #    「我的账本」还画着「欠 ¥192.60」，而**断线重连也补不回**（重连只回补通知表）。
     #    收件人 = 这本账的主人（客户档案对应的登录账号）+ 这一单的司机（送达/收款都影响他的账）
-    #    + 派单员（账本管理页）。
-    background_tasks.add_task(_bg_push_ledger_shipper, shipper_uid, driver_uid)
+    #    + 派单员（账本管理页）—— 这条事件已经**在上面 commit 之前**入队（见那段注释），
+    #    所以这里不再有 background task（本轮从"提交后再推"改成了发件箱）。
     return ShipperReceiptOut(
         id=r.id, customer_id=r.customer_id, amount=r.amount, method=r.method,
         received_at=r.received_at, order_ids=r.order_ids, settle_mode=r.settle_mode,

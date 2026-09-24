@@ -241,13 +241,40 @@ def _claim_sync(session_factory: Callable[[], Session] | None) -> list[Event]:
 
 
 def _sent_sync(session_factory: Callable[[], Session] | None, event_id: int) -> None:
+    _mark_sync(session_factory, event_id, sent=True, detail="")
+
+
+def _mark_sync(
+    session_factory: Callable[[], Session] | None,
+    event_id: int,
+    *,
+    sent: bool,
+    detail: str,
+) -> bool:
+    """标成功 / 记失败。返回是否已经放弃（只有记失败那条路会返回 True）。
+
+    ⚠️ **行在"取出来"和"标回去"之间消失是正常的**（保留期清理、人工删、另一个进程先标了）——
+    这一处境况必须当成"没我什么事"而不是崩：`mark_*` 是 ORM 赋值 + 提交，行没了会让 SQLAlchemy
+    抛 `StaleDataError`（真实撞到过：本机 worker 与清理并发时，整个循环直接抛出去）。
+    """
+    from sqlalchemy.orm.exc import StaleDataError
+
     db = _factory(session_factory)()
     try:
         row = db.get(OutboxEvent, event_id)
         if row is None:
-            return
-        mark_sent(db, row)
+            return False
+        if sent:
+            mark_sent(db, row)
+            db.commit()
+            return False
+        gave_up = mark_failed(db, row, detail)
         db.commit()
+        return gave_up
+    except StaleDataError:
+        db.rollback()
+        logger.info("发件箱：这条事件在处理期间被删掉了 id=%s（当成已处理）", event_id)
+        return False
     except Exception:
         db.rollback()
         raise
@@ -256,17 +283,5 @@ def _sent_sync(session_factory: Callable[[], Session] | None, event_id: int) -> 
 
 
 def _fail_sync(session_factory: Callable[[], Session] | None, event_id: int, detail: str) -> bool:
-    """记一次失败；返回是否已经放弃。"""
-    db = _factory(session_factory)()
-    try:
-        row = db.get(OutboxEvent, event_id)
-        if row is None:
-            return False
-        gave_up = mark_failed(db, row, detail)
-        db.commit()
-        return gave_up
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    """记一次失败；返回是否已经放弃（行没了同样当成"没我什么事"）。"""
+    return _mark_sync(session_factory, event_id, sent=False, detail=detail)

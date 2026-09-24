@@ -114,7 +114,16 @@ async def _outbox_deliver(event) -> None:
         await push_events.push_order_delivered_to_dispatchers(oid)
         return
     if event.event_type == "ledger.updated":
-        await push_events.push_ledger_updated(int(event.payload.get("shipper_id") or 0))
+        # ⚠️ 三个收件人（这本账的主人 + 这一单的司机 + 派单员）由**负载**决定：
+        #    账本路由那几处带 `dispatchers: True`（它们一直推三类人），
+        #    送达那条链路只带货主（与它的老行为逐字一致）。
+        sid = event.payload.get("shipper_id")
+        did = event.payload.get("driver_id")
+        await push_events.push_ledger_updated(
+            int(sid) if sid else None,
+            driver_id=int(did) if did else None,
+            dispatchers=bool(event.payload.get("dispatchers")),
+        )
         return
     if event.event_type == "orders.pending_pool_changed":
         await push_events.push_dispatcher_pending_pool_changed()
