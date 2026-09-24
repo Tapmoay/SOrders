@@ -29,6 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import business_day_start_utc, business_today
+from app.core.outbox import outbox_stats
 from app.models.driver_settlement import DriverSettlement
 from app.models.enums import OrderStatus
 from app.models.ledger import Ledger
@@ -74,6 +75,9 @@ def snapshot(db: Session) -> list[Metric]:
     def orders(*where: object) -> int:
         return _count(db, Order, live, *where)
 
+    # 发件箱（报告 §10）：新的事件边界必须**自己可见** —— 否则它只是换了个地方丢事件。
+    outbox = outbox_stats(db)
+
     return [
         Metric(
             "sorders_orders_created_today",
@@ -110,6 +114,18 @@ def snapshot(db: Session) -> list[Metric]:
             "今天入账的账本流水条数",
             _count(db, Ledger, Ledger.created_at >= start),
             "ledgers.created_at",
+        ),
+        Metric(
+            "sorders_outbox_pending",
+            "发件箱里待发的事件数（一直 >0 不降 = worker 卡了或处理器在失败）",
+            outbox.get("pending", 0),
+            "outbox_events.status",
+        ),
+        Metric(
+            "sorders_outbox_failed",
+            "发件箱里已放弃的事件数（≠0 就是要人去看 last_error）",
+            outbox.get("failed", 0),
+            "outbox_events.status",
         ),
         Metric(
             "sorders_driver_settlements_today",

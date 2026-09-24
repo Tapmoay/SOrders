@@ -506,10 +506,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:195` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:233` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:242` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:267` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:227` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:265` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:274` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:299` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -574,10 +574,10 @@ _（无重复注册）_
 |---|---|---|
 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` |
 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:195` |
-| `GET /health` | `health` | `backend/app/main.py:233` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:242` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:267` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:227` |
+| `GET /health` | `health` | `backend/app/main.py:265` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:274` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:299` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 

@@ -92,13 +92,45 @@ async def _retention_loop() -> None:
         await asyncio.sleep(86400)
 
 
+async def _outbox_deliver(event) -> None:
+    """发件箱的**派发表**：一条链路一个处理器。
+
+    ⚠️ 没登记的事件类型直接抛错 —— 发件箱要治的就是「静默丢事件」，所以宁可让那条事件失败并留下
+    `last_error`（`/metrics` 的 `sorders_outbox_failed` 看得见），也不许"没人处理就当成功"。
+    ⚠️ 处理器在**应用自己的事件循环**里被 await（由 `core/outbox.run_forever` 保证）—— socketio 的 emit
+    要在这个进程的循环里跑，丢到别的线程/循环是"看起来能跑、偶发丢事件"的路。
+    """
+    from app.services import push_events
+
+    if event.event_type == "orders.assigned":
+        await push_events.push_order_assigned(
+            int(event.payload.get("driver_id") or 0),
+            int(event.payload.get("order_id") or 0),
+        )
+        return
+    raise RuntimeError("发件箱没有登记处理器：" + str(event.event_type))
+
+
+async def _outbox_loop() -> None:
+    """事务发件箱的 worker（整改报告 §10）：把「业务事务里写下的事件」发出去，失败退避重试。
+
+    ⚠️ 本轮**只立边界与 worker**，还没有生产者往里写（切生产者要一条一条来，每切一条都要跑该域红线）——
+    所以它现在每 2 秒扫一次空表，行为与之前完全一致。
+    """
+    from app.core.outbox import run_forever
+
+    await run_forever(_outbox_deliver)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """库表迁移在 `app.database` 导入时已执行 `bootstrap_schema(engine)`。"""
     task = asyncio.create_task(_retention_loop())
+    outbox_task = asyncio.create_task(_outbox_loop())
     try:
         yield
     finally:
+        outbox_task.cancel()
         task.cancel()
         try:
             await task

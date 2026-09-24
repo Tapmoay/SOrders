@@ -38,6 +38,7 @@ from app.models.operation_log import OperationLog
 from app.models.order import Order, OrderProduct
 from app.models.order_return_request import OrderReturnRequest, OrderReturnRequestLine
 from app.models.order_template import OrderTemplate
+from app.models.outbox import OutboxEvent, OutboxStatus
 from app.models.order_template_category import OrderTemplateCategory
 from app.models.place import Place, PlaceUserUsage
 from app.models.place_category import PlaceCategory
@@ -88,6 +89,8 @@ __all__ = [
     "OrderTemplate",
     "OrderTemplateCategory",
     "OrderStatus",
+    "OutboxEvent",
+    "OutboxStatus",
     "Place",
     "PlaceUserUsage",
     "PlaceCategory",

@@ -20,6 +20,37 @@
 
 ## 进行中
 
+### [2026-09-24 23:3x → ] 会话：**架构整改 · 第 12 轮：阶段 6 §10 —— 事务发件箱（边界 + worker + 判据）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**报告点名的病**：`数据库成功 → 后台任务恰好挂了 → 事件永远丢失`。现在的形状是「业务操作 → 数据库 →
+background task → Socket.IO」，而 background task 是尽力而为的 —— 进程重启、任务抛异常、worker 被回收，
+那条推送就没了，**而数据库里一切正常**，所以没人会发现。
+
+**本轮把「边界」立起来**（报告给的形状：事务 → 写发件箱 → worker → 推送）：
+
+- **迁移 `002_outbox_events`**：表结构**直接取自模型**（`OutboxEvent.__table__.create(checkfirst=True)`）——
+  模型与迁移不可能写成两样，而且可重跑（本机库已升到版本 2，`python -m app.migrations status` 可见；
+  另在临时 SQLite 上空跑两次验证过可重跑）。这也是阶段 2 那套迁移**第一次真正派上用场**。
+- **`core/outbox.py`**：`enqueue` **不 commit**（与业务同一个事务，这是整个模式的要点）；`dedupe_key` 唯一；
+  成功才标 `sent`；失败记 `last_error` + **数据库自增**的 attempts + 指数退避（5s→160s，封顶 600s）；
+  用满 5 次**放弃**（否则一条发不出去的事件会把队头堵死）。
+- **worker**：`main.py` 的 lifespan 里起 `run_forever`；处理器在**应用自己的事件循环**里 await
+  （socketio 的 emit 要在这个进程的循环里跑 —— 丢到别的线程/循环是"看起来能跑、偶发丢事件"的路），
+  只有 DB 三步丢进线程。**派发表**里没登记的事件类型**抛错**：静默丢事件正是这套东西要治的病。
+- **`/metrics` 加两个 gauge**（`sorders_outbox_pending` / `sorders_outbox_failed`）：新事件边界必须**自己可见**，
+  否则它只是换个地方丢事件。
+
+**判据**：`_tools/qa/_check_outbox.py`（**23 条**，必跑组 98 → 99）。**反向验证 2/2**：给 `enqueue` 加一行
+`db.commit()` → 当场红；把「未登记就抛错」改成 `return` → 当场红；还原后 23/0。
+
+**用例 9 条**（`backend/tests/test_outbox.py`）—— 它们当场抓到一个真缺陷：本项目 sessionmaker 是
+**autoflush=False**，去重查询**看不见同一事务里刚入队的那条** → 同一个键会写进去两行，而唯一索引要到提交前才炸
+（`IntegrityError` 会把整个业务事务一起带下去）。修法：入队前 `db.flush()`。另：红线 `_check_counter_updates.py`
+抓到我把 `attempts` 写成"读出来 +1 再写回"，改成数据库自增。
+
+**⛔ 还没做（下一轮）**：把现有推送改成"先入队" —— 生产者**逐条切**，每切一条都要跑该域红线
+（`_check_notify_guardrails.py` 117 项等）。本轮**不改变任何现有推送行为**。
+
 ### [2026-09-24 23:1x → ] 会话：**架构整改 · 第 11 轮：阶段 5 §7 —— 钱从「文件冻结」升级为显式契约**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **为什么这一轮值得做**：报告 §7 的原话是「**「不要碰它」不是架构**」—— 这个项目现在靠 `_core_files.txt`
