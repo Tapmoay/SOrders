@@ -30,6 +30,14 @@
 变成了翻历史 —— 真正要看的「正在改」被埋在几十条旧记录下面。存档目录不进 git（本机便利副本），
 **内容并没有丢**：任何一版旧文件都在 git 历史里（`git show <提交>:docs/AI_WORK_CLAIM.md`）。
 
+**顺手补了一个洞（同一个「写在文档里的规矩没人执行」形状）**：`git status` 里躺着 ` M _tools/baseline/before/2026-09-24/baseline.json` ——
+查下来是 **21:51 那次重采用 `--force` 把「改造前」覆盖成了改造后的数据**（模型表数 45 → 46、`infra_tables` 里多了 `schema_versions`、
+`git_ahead` 88 → 109），而 `docs/BASELINE.md` 那页还指着它说「快照」。工具自己的第 3 条口径就写着「`before/` 不许覆盖」，
+**但没有任何检查会说话**。处理：①把冻结的那份还原回去（`git checkout --`，重采的数据改落 `after/`）；
+②采集器加 `--label`（`before` / `after` 分开落盘，重采不必再用 `--force`）；③新增 `_tools/baseline/_check_baseline.py`
+（16 条，进必跑组，94 → 95）——**冻结判据**是「`before/` 那份记录的提交必须是引入本工具那个提交的祖先」，
+改造后采的数据必然不满足。反向验证：把改造后的数据塞回 `before/` → 2 条红 + exit 1；还原后 17/0。
+
 **本轮不碰**：`backend/**` —— 另一会话（`session-78ebd95c`）正在下沉 `reports.py`（
 `api/v1/reports.py`、`schemas/reports.py`、新增 `services/reports_service.py`、
 `tests/test_report_reconciliation.py` 全是它正在改的文件）。

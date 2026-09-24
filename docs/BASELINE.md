@@ -3,7 +3,7 @@
 > **本文件由 `_tools/baseline/_capture_baseline.py` 生成，不要手改**（报告 §13：会变化的数字一律不手写）。
 > 重新采：`python _tools/baseline/_capture_baseline.py --tests --prod --out docs/BASELINE.md`
 
-> 本次采集时间：2026-09-24T21:51:33　｜　快照：`_tools/baseline/before/2026-09-24/baseline.json`
+> 本次采集时间：2026-09-24T22:32:04　｜　快照：`_tools/baseline/after/2026-09-24/baseline.json`
 
 > 说明：这一页回答的是「现在到底是什么样」，不回答「应该改成什么样」——后者在 [RECTIFICATION_PLAN.md](RECTIFICATION_PLAN.md)。
 
@@ -14,17 +14,17 @@
 |---|---:|---:|---:|---|
 | 端点数 | 227 | 227 | 0 | L57 / L940 |
 | 数据库表数（模型） | — | 45 | — | — |
-| service 文件数 | 41 | 41 | 0 | L57 |
-| api/v1 行数 | 13724 | 13966 | +242 | L395 |
-| services 行数 | 9837 | 9837 | 0 | L396 |
+| service 文件数 | 41 | 42 | +1 | L57 |
+| api/v1 行数 | 13724 | 13520 | -204 | L395 |
+| services 行数 | 9837 | 10341 | +504 | L396 |
 | orders.py 行数 | 2055 | 30 | -2025 | L402 |
 | schema_bootstrap.py 行数 | 1697 | 1730 | +33 | L142 / L234 |
-| 静态检查数 | 92 | 94 | +2 | L332 / L1454 |
+| 静态检查数 | 92 | 95 | +3 | L332 / L1454 |
 | 反向验证数 | 108 | 109 | +1 | L332 / L1454 |
-| 后端用例数 | 820 | _未采集_ | — | L334 / L983 |
+| 后端用例数 | 820 | 988 | +168 | L334 / L983 |
 | 安卓用例数 | 1126 | 1126 | 0 | L335 / L985（源码 @Test 注解口径） |
 | docs 文件数 | 502 | 505 | +3 | L915 |
-| _tools Python 文件数 | 325 | 335 | +10 | L1454 |
+| _tools Python 文件数 | 325 | 337 | +12 | L1454 |
 
 > 报告的数字**不是错误**，它记录的是报告成文那一刻的快照；这一列留着的目的是让「文档写着 92 个检查、实际 92 个」这种话**有机器可核的依据**。
 
@@ -34,9 +34,9 @@
 | 项 | 值 |
 |---|---|
 | 分支 | p |
-| 提交 | c2a099556af584e49b111d776075eaea59954163 |
-| 最后提交时间 | 2026-09-24T21:50:35+08:00 |
-| 领先上游 | 109 |
+| 提交 | cace39a508b1d8525c91e382171b633df33b451e |
+| 最后提交时间 | 2026-09-24T22:30:59+08:00 |
+| 领先上游 | 117 |
 | 落后上游 | 0 |
 | 版本号 VERSION | 0.2.4 |
 | 版本号 frontend | 0.2.4 |
@@ -45,11 +45,11 @@
 | 端点数（含写） | 227 |
 | 其中写端点 | 151 |
 | 模型声明表数 | 45 |
-| api/v1 总行数 | 13966 |
-| services 总行数 | 9837 |
-| 静态检查数 | 94 |
+| api/v1 总行数 | 13520 |
+| services 总行数 | 10341 |
+| 静态检查数 | 95 |
 | 反向验证脚本数 | 109 |
-| 后端用例数 | _未采集_ |
+| 后端用例数 | 988 |
 | 安卓用例数（源码 @Test 注解） | 1126 |
 | 安卓最近一次跑到的用例数 | 308 |
 | 安卓用例失败数（最近一次） | 0 |
@@ -75,18 +75,18 @@
 | 1730 | `backend/app/core/schema_bootstrap.py` |
 | 853 | `backend/app/api/v1/ledger.py` |
 | 836 | `backend/app/services/accounting_service.py` |
-| 822 | `backend/app/api/v1/reports.py` |
 | 747 | `backend/app/services/place_service.py` |
 | 709 | `backend/app/services/order_flow.py` |
 | 633 | `backend/app/api/v1/shipper_ledger.py` |
 | 630 | `backend/app/services/driver_pay.py` |
+| 626 | `backend/app/services/message_center.py` |
 
 ## 3. 生产基线（只读采集）
 
 | 项 | 值 |
 |---|---|
 | host | `iZ0jlimnshftl47074z0hbZ` |
-| date | `2026-09-24T21:51:35+08:00` |
+| date | `2026-09-24T22:32:05+08:00` |
 | os | `Alibaba Cloud Linux 3.2104 U13 (OpenAnolis Edition)` |
 | kernel | `5.10.134-19.3.al8.x86_64` |
 | cpu | `2` |
@@ -134,7 +134,6 @@
 | 版本漂移 | 版本号多处不一致 | VERSION=0.2.4 ｜ frontend/package.json=0.2.4 ｜ android versionName=0.2.4（构建时读 VERSION 文件） ｜ backend main.py=0.2.4（= 仓库根 VERSION，config.py 运行时读） ｜ 生产 /health=0.2.0 |
 | 结构漂移 | 模型声明的表与生产库的表不一致 | 只在模型里：['unit_conversions'] ｜ 只在生产库里：[] |
 | 证书 | 域名证书剩余天数 < 30（或已过期） | days_left=-75（end=Jul 11 06:06:48 2026 GMT） |
-| 代码漂移 | 生产在跑的代码与本地工作区不是同一份 | 生产 openapi paths=160，本地端点=227；生产 commit=648fbf81，本地 commit=c2a09955 |
-| 工作区 | 工作区有未提交改动（结构性改造前必须先确认归属） | M _tools/baseline/_capture_baseline.py ； M _tools/baseline/before/2026-09-24/baseline.json ； M _tools/qa/_reverse_verify_cost_basis.py ； M _tools/qa/_reverse_verify_report_guards.py ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenterViewModel.kt ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportFinance.kt ； M android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt ； M backend/app/api/v1/inventory.py ； M backend/app/config.py |
-| 口径 | 这次没采后端用例数（没加 --tests） | 后端用例数记 None，不要拿 None 当 0 |
+| 代码漂移 | 生产在跑的代码与本地工作区不是同一份 | 生产 openapi paths=160，本地端点=227；生产 commit=648fbf81，本地 commit=cace39a5 |
+| 工作区 | 工作区有未提交改动（结构性改造前必须先确认归属） | M _tools/baseline/_capture_baseline.py ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenterViewModel.kt ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportFinance.kt ； M android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt ； M backend/app/api/v1/inventory.py ； M backend/app/api/v1/reports.py ； M backend/app/core/schema_bootstrap.py ； M backend/app/models/order.py ； M backend/app/schemas/inventory.py |
 

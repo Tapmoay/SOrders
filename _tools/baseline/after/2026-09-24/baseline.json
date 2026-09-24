@@ -1,0 +1,289 @@
+{
+  "local": {
+    "git_commit": "cace39a508b1d8525c91e382171b633df33b451e",
+    "git_branch": "p",
+    "git_dirty": [
+      "M _tools/baseline/_capture_baseline.py",
+      " M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt",
+      " M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenterViewModel.kt",
+      " M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportFinance.kt",
+      " M android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt",
+      " M backend/app/api/v1/inventory.py",
+      " M backend/app/api/v1/reports.py",
+      " M backend/app/core/schema_bootstrap.py",
+      " M backend/app/models/order.py",
+      " M backend/app/schemas/inventory.py",
+      " M backend/app/schemas/reports.py",
+      " M backend/app/services/cost_basis.py",
+      " M backend/tests/test_report_reconciliation.py",
+      "?? _tools/baseline/_check_baseline.py",
+      "?? backend/app/services/reports_service.py"
+    ],
+    "git_ahead": 117,
+    "git_behind": 0,
+    "git_last_commit_date": "2026-09-24T22:30:59+08:00",
+    "version_file": "0.2.4",
+    "version_frontend": "0.2.4",
+    "version_android": "0.2.4（构建时读 VERSION 文件）",
+    "version_backend_declared": "0.2.4（= 仓库根 VERSION，config.py 运行时读）",
+    "endpoints_total": 227,
+    "endpoints_write": 151,
+    "model_tables": [
+      "arrears_units",
+      "cash_flows",
+      "customers",
+      "driver_billing_rule_categories",
+      "driver_billing_rule_templates",
+      "driver_billing_rules",
+      "driver_bills",
+      "driver_settlements",
+      "expense_categories",
+      "expenses",
+      "freight_categories",
+      "freight_template_categories",
+      "freight_template_drivers",
+      "freight_templates",
+      "inventory_movements",
+      "ledger_export_jobs",
+      "ledgers",
+      "notifications",
+      "operation_logs",
+      "order_products",
+      "order_return_request_lines",
+      "order_return_requests",
+      "order_template_categories",
+      "order_templates",
+      "orders",
+      "place_categories",
+      "place_user_usage",
+      "places",
+      "price_rules",
+      "product_categories",
+      "product_cost_history",
+      "products",
+      "shipper_addresses",
+      "shipper_contacts",
+      "shipper_locations",
+      "shipper_receipts",
+      "shipper_settlement_lines",
+      "shipper_settlements",
+      "supplier_payables",
+      "suppliers",
+      "unit_conversions",
+      "usage_counters",
+      "user_product_visibility",
+      "users",
+      "vehicles"
+    ],
+    "model_table_count": 45,
+    "infra_tables": [
+      "schema_versions"
+    ],
+    "api_v1_lines": 13520,
+    "services_lines": 10341,
+    "services_files": 42,
+    "schema_bootstrap_lines": 1730,
+    "orders_py_lines": 30,
+    "docs_files": 505,
+    "tools_py_files": 337,
+    "static_checks": 95,
+    "reverse_verify_scripts": 109,
+    "android_tests_last_run": 308,
+    "android_test_failures": 0,
+    "android_test_report_files": 2,
+    "android_tests_declared": 1126,
+    "android_main_kt": 253,
+    "backend_tests": 988,
+    "largest_android_files": [
+      [
+        5796,
+        "android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt"
+      ],
+      [
+        3040,
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt"
+      ],
+      [
+        2548,
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt"
+      ],
+      [
+        2257,
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatScreen.kt"
+      ],
+      [
+        2065,
+        "android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt"
+      ],
+      [
+        1804,
+        "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
+      ],
+      [
+        1605,
+        "android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt"
+      ],
+      [
+        1532,
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicData.kt"
+      ]
+    ],
+    "largest_backend_files": [
+      [
+        1730,
+        "backend/app/core/schema_bootstrap.py"
+      ],
+      [
+        853,
+        "backend/app/api/v1/ledger.py"
+      ],
+      [
+        836,
+        "backend/app/services/accounting_service.py"
+      ],
+      [
+        747,
+        "backend/app/services/place_service.py"
+      ],
+      [
+        709,
+        "backend/app/services/order_flow.py"
+      ],
+      [
+        633,
+        "backend/app/api/v1/shipper_ledger.py"
+      ],
+      [
+        630,
+        "backend/app/services/driver_pay.py"
+      ],
+      [
+        626,
+        "backend/app/services/message_center.py"
+      ]
+    ],
+    "captured_at": "2026-09-24T22:32:04"
+  },
+  "prod": {
+    "host": "iZ0jlimnshftl47074z0hbZ",
+    "date": "2026-09-24T22:32:05+08:00",
+    "uptime_days": "91",
+    "os": "Alibaba Cloud Linux 3.2104 U13 (OpenAnolis Edition)",
+    "kernel": "5.10.134-19.3.al8.x86_64",
+    "cpu": "2",
+    "mem_mb": "1870",
+    "service_state": "active",
+    "service_since": "Wed 2026-09-23 08:58:54 CST",
+    "service_restarts": "0",
+    "service_hash": "2f5734f53645cc18",
+    "api_health": "200",
+    "api_health_body": "{\"status\":\"ok\",\"version\":\"0.2.0\",\"redis\":\"ok\"}",
+    "api_paths": "160",
+    "mysql_version": "mysql  Ver 8.0.44 for Linux on x86_64 (Source distribution)",
+    "db_tables": "44",
+    "db_size_mb": "11.7",
+    "db_orders": "2402",
+    "db_ledgers": "4648",
+    "db_users": "60",
+    "db_products": "37",
+    "db_tables_list": "arrears_units,cash_flows,customers,driver_billing_rule_categories,driver_billing_rule_templates,driver_billing_rules,driver_bills,driver_settlements,expense_categories,expenses,freight_categories,freight_template_categories,freight_template_drivers,freight_templates,inventory_movements,ledger_export_jobs,ledgers,notifications,operation_logs,order_products,order_return_request_lines,order_return_requests,order_template_categories,order_templates,orders,place_categories,place_user_usage,places,price_rules,product_categories,product_cost_history,products,shipper_addresses,shipper_contacts,shipper_locations,shipper_receipts,shipper_settlement_lines,shipper_settlements,supplier_payables,suppliers,usage_counters,user_product_visibility,users,vehicles,",
+    "redis_version": "6.2.20",
+    "redis_maxmemory": "0",
+    "redis_requirepass_len": "1",
+    "nginx_version": "nginx/1.20.1",
+    "nginx_config_hash": "2c7355968c4d581249f88177ba2cef38",
+    "cert_ssl_end": "Sep 18 08:04:48 2029 GMT",
+    "cert_ssl_days_left": "1089",
+    "cert_sorders.top_end": "Jul 11 06:06:48 2026 GMT",
+    "cert_sorders.top_days_left": "-75",
+    "cert_sorders.top-0001_end": "Jul 11 06:25:03 2026 GMT",
+    "cert_sorders.top-0001_days_left": "-75",
+    "disk_total": "40G",
+    "disk_used": "11G",
+    "disk_avail": "27G",
+    "disk_pct": "29%",
+    "uploads_size": "187M",
+    "uploads_files": "2115",
+    "backup_root_size": "204M",
+    "backup_db_count": "3",
+    "repo_commit": "648fbf8134c4ffcae86e698255fdf2427ded71c2",
+    "repo_branch": "new",
+    "repo_dirty": "8",
+    "repo_commit_date": "2026-09-23T09:02:55+08:00",
+    "crontab": "0 4,10,16,22 * * * \"/root/.acme.sh\"/acme.sh --cron --home \"/root/.acme.sh\" > /dev/null;",
+    "db_tables_set": [
+      "arrears_units",
+      "cash_flows",
+      "customers",
+      "driver_billing_rule_categories",
+      "driver_billing_rule_templates",
+      "driver_billing_rules",
+      "driver_bills",
+      "driver_settlements",
+      "expense_categories",
+      "expenses",
+      "freight_categories",
+      "freight_template_categories",
+      "freight_template_drivers",
+      "freight_templates",
+      "inventory_movements",
+      "ledger_export_jobs",
+      "ledgers",
+      "notifications",
+      "operation_logs",
+      "order_products",
+      "order_return_request_lines",
+      "order_return_requests",
+      "order_template_categories",
+      "order_templates",
+      "orders",
+      "place_categories",
+      "place_user_usage",
+      "places",
+      "price_rules",
+      "product_categories",
+      "product_cost_history",
+      "products",
+      "shipper_addresses",
+      "shipper_contacts",
+      "shipper_locations",
+      "shipper_receipts",
+      "shipper_settlement_lines",
+      "shipper_settlements",
+      "supplier_payables",
+      "suppliers",
+      "usage_counters",
+      "user_product_visibility",
+      "users",
+      "vehicles"
+    ]
+  },
+  "risks": [
+    {
+      "kind": "版本漂移",
+      "what": "版本号多处不一致",
+      "detail": "VERSION=0.2.4 ｜ frontend/package.json=0.2.4 ｜ android versionName=0.2.4（构建时读 VERSION 文件） ｜ backend main.py=0.2.4（= 仓库根 VERSION，config.py 运行时读） ｜ 生产 /health=0.2.0"
+    },
+    {
+      "kind": "结构漂移",
+      "what": "模型声明的表与生产库的表不一致",
+      "detail": "只在模型里：['unit_conversions'] ｜ 只在生产库里：[]"
+    },
+    {
+      "kind": "证书",
+      "what": "域名证书剩余天数 < 30（或已过期）",
+      "detail": "days_left=-75（end=Jul 11 06:06:48 2026 GMT）"
+    },
+    {
+      "kind": "代码漂移",
+      "what": "生产在跑的代码与本地工作区不是同一份",
+      "detail": "生产 openapi paths=160，本地端点=227；生产 commit=648fbf81，本地 commit=cace39a5"
+    },
+    {
+      "kind": "工作区",
+      "what": "工作区有未提交改动（结构性改造前必须先确认归属）",
+      "detail": "M _tools/baseline/_capture_baseline.py ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenterViewModel.kt ； M android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportFinance.kt ； M android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt ； M backend/app/api/v1/inventory.py ； M backend/app/api/v1/reports.py ； M backend/app/core/schema_bootstrap.py ； M backend/app/models/order.py ； M backend/app/schemas/inventory.py"
+    }
+  ],
+  "notes": []
+}

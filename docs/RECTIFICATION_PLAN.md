@@ -26,7 +26,8 @@
 
 | 阶段 | 报告章节 | 做什么 | 改业务逻辑 | 状态 | 证据 |
 |---|---|---|---|---|---|
-| 0 | §2 | 建立真实基线（本地 + 生产，只读采集） | 否 | **已完成** | `docs/BASELINE.md`、`_tools/baseline/_capture_baseline.py`、快照 `_tools/baseline/before/2026-09-24/baseline.json` |
+| 0 | §2 | 建立真实基线（本地 + 生产，只读采集） | 否 | **已完成** | `docs/BASELINE.md`、`_tools/baseline/_capture_baseline.py`、**改造前**快照 `_tools/baseline/before/2026-09-24/baseline.json` |
+| 0 | §2 | **`before/` 快照冻结判据**（重采不许把「改造前」覆盖掉） | 否 | **已完成** | `_tools/baseline/_check_baseline.py`（16 条，进 `_check_all.py` 必跑组，总数 94 → 95）。判据：`before/` 那份记录的提交必须是「引入本工具那个提交」的**祖先**。反向验证：把改造后采的数据塞回 `before/` → 当场 2 条红 + exit 1；还原后 17/0。另加 `--label`（`after/` 与 `before/` 分开落盘） |
 | 0 | §2 | 确认工作区里"另一个 AI 会话的未提交改动"归属 | 否 | **已完成（结论：不存在）** | 见 §3 第 1 条 |
 | 1 | §3 | 脚本化备份（库 / 上传 / 清单 / 校验 / 保留期） | 否 | **已完成** | `_tools/backup/_backup.sh`、`_install.py` |
 | 1 | §3 | 恢复路径脚本化 + 生产库门禁 | 否 | **已完成** | `_tools/backup/_restore.sh`（默认只肯写 `sorders_drill_*`） |
@@ -35,7 +36,7 @@
 | 1 | §20 | 版本号统一（原来 4 处、3 个值） | 否 | **已完成** | 后端 `config.py::_repo_version()` 改为读仓库根 `VERSION`（不再硬编码 0.2.0）+ `frontend/package.json` 对齐 0.2.4 + 基线采集器学会认新写法。证据：四处同值（`VERSION` / `package.json` / `android versionName` / `backend` 全 0.2.4），本机 `/health` 由 `0.2.0` 变为 **`0.2.4`**；94/94 检查 + 983 用例全绿 |
 | 1 | §20 | nginx exports deny | 否 | 未开始 | — |
 | 1 | §20 | `_check_all` 加超时 | 否 | **已完成** | `--timeout`（默认 300s；0=不限）；超时按**失败**记账并**继续跑后面的人**（一次跑完看全貌）。实测：`--timeout 1` 对那个 9 秒的检查 → 报「超时（>1s）——这个检查挂住了…」并 exit 1；默认参数下 94/94 全绿 |
-| 1 | §20 | `AI_WORK_CLAIM` 归档（6000+ 行） | 否 | 未开始 | — |
+| 1 | §20 | `AI_WORK_CLAIM` 归档（6000+ 行） | 否 | **已完成** | 提交 `cace39a`：51 条（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`（2449 行），主文件 **6402 → 3967 行**、进行中 96 → 82 条。判据是日期不是「看着旧」；页脚指针写明 `_archive/` 不进 git、真正的底稿在 git 历史（`git show <提交>:docs/AI_WORK_CLAIM.md`） |
 | 1 | §15 | 证书 / uptime / disk 最小监控 | 否 | **最小版已可跑**（cron 待挂） | `_tools/ops/_health_check.py`（只读）：服务/健康检查、**证书剩余天数**、磁盘、**最近一次备份的年龄**；退出码 `0/1/2`。实测输出：`sorders.top` 两张证书 **剩余 -75 天**（报告点名的那件事）、IP 证书 1089 天、磁盘 29%、**最近备份 1.6 小时前**（顺带证明第 1 轮的 cron 真的在跑）。待做：装到服务器 + `0 9,21 * * *` 本地模式 cron |
 | 2 | §4 | Schema 迁移版本表（`schema_versions`） | 否 | **已完成** | `backend/app/migrations/`（运行器 + 基线 + CLI）；`python -m app.migrations status`；判据 `_tools/qa/_check_migrations.py`（39 项）+ 反向验证 15/15 |
 | 2 | §4 | 新变更走 `migrations/`（bootstrap 只管运行时自愈） | 否 | **已完成（机制就位）** | 既有 1600 行幂等 DDL **刻意不搬**（一次只动一个维度）；分工写进 `backend/app/migrations/README.md` |

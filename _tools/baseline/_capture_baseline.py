@@ -14,15 +14,21 @@
 2. **文档与代码不一致要看得见**：报告说"版本号统一"，而版本号其实有**四处**
    （`VERSION` / `backend` / `frontend/package.json` / `android versionName`）——
    基线把它们并排列出来，漂移一眼可见（实测：生产 `/health` 报 0.2.0 而仓库是 0.2.4）。
-3. **`before/` 快照不可覆盖**：每次采集落到 `_tools/baseline/before/<日期>/baseline.json`，
-   已存在就报错（要重采请显式 `--force`）——否则"改造前的样子"会被后来的数据悄悄覆盖，
-   而那正是它唯一的价值。
+3. **`before/` 快照不可覆盖**：每次采集落到 `_tools/baseline/<标签>/<日期>/baseline.json`
+   （标签默认 `before`），已存在就报错（要重采请显式 `--force`）——否则"改造前的样子"会被后来的数据
+   悄悄覆盖，而那正是它唯一的价值。
+   ⚠️ **2026-09-24 实测栽过一次**：重采时忘了换标签、用 `--force` 把 `before/` 里改造前的数据覆盖成了
+   改造后的（工具自己写着"不许覆盖"，但**没有任何检查会说话**，所以没人发现）。现在两道防线：
+   `--label`（`before` 只放改造前那一份，其余时刻用 `after` 之类的标签）+ `_check_baseline.py`
+   （before/ 那份记录的提交必须是"引入本工具那个提交"的祖先 —— 改造后采的数据必然不满足）。
 
 ### 用法
     python _tools/baseline/_capture_baseline.py              # 本地事实（不联网、不碰生产）
     python _tools/baseline/_capture_baseline.py --tests      # 顺带采后端/安卓用例数（慢约 1 分钟）
     python _tools/baseline/_capture_baseline.py --prod       # 额外走 ssh 采生产只读事实
     python _tools/baseline/_capture_baseline.py --out docs/BASELINE.md   # 渲染成文档
+    python _tools/baseline/_capture_baseline.py --tests --prod --label after --out docs/BASELINE.md
+                                                       # 「现在是什么样」的对照快照（写 after/，不碰 before/）
 """
 
 from __future__ import annotations
@@ -413,7 +419,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--prod", action="store_true", help="额外走 ssh 采生产只读事实")
     ap.add_argument("--tests", action="store_true", help="顺带采后端用例数（慢约 30~60 秒）")
     ap.add_argument("--out", help="渲染成 Markdown 写到这个路径（如 docs/BASELINE.md）")
-    ap.add_argument("--force", action="store_true", help="允许覆盖今天的 before/ 快照")
+    ap.add_argument("--label", default="before",
+                    help="快照标签（目录名）：before=改造前那一份（冻结）；其余时刻用 after 之类")
+    ap.add_argument("--force", action="store_true", help="允许覆盖同标签同日期已存在的快照")
     ap.add_argument("--no-snapshot", action="store_true", help="只打印，不写 before/ 快照")
     args = ap.parse_args(argv)
 
@@ -424,11 +432,12 @@ def main(argv: list[str] | None = None) -> int:
     risks = assess(local, prod, notes)
 
     day = date.today().isoformat()
-    snap = ROOT / "_tools" / "baseline" / "before" / day / "baseline.json"
+    snap = ROOT / "_tools" / "baseline" / args.label / day / "baseline.json"
     if not args.no_snapshot:
         if snap.exists() and not args.force:
-            print(f"⛔ 今天的快照已存在：{snap}\n"
-                  f"   （before/ 记的是「改造前的样子」，默认不许覆盖；确实要重采加 --force）")
+            print(f"⛔ 这个标签下今天的快照已存在：{snap}\n"
+                  f"   （「改造前的样子」只该有一份，默认不许覆盖。"
+                  f"要采「现在这一刻」请换标签：--label after；确实要覆盖本标签加 --force）")
             return 2
         snap.parent.mkdir(parents=True, exist_ok=True)
         payload = {"local": local, "prod": prod, "risks": risks, "notes": notes}
