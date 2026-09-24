@@ -41,8 +41,13 @@
 **反向验证**：把 CAS 里的 `status == DELIVERED` 去掉 → 那两条用例当场红（证明它们真的在钉这件事）。
 后端全量 993 通过 / 3 红（那 3 条是另一会话的 reports 重构，与本轮无关）；`_check_all.py` 97 个里 1 红（同上）。
 
-**⚠️ 本轮自己踩的一个坑（记下来免得再犯）**：把 pytest 输出重定向到了**仓库根**（`_t_full.txt` 等），
-被 `_check_ai_guardrails.py` 的「根目录没有临时产物」当场红 —— 临时产物一律写 `%TEMP%`。
+**⚠️ 本轮自己踩的两个坑（都记下来免得再犯）**：
+1. 把 pytest 输出重定向到了**仓库根**（`_t_full.txt` 等），被 `_check_ai_guardrails.py` 的「根目录没有临时产物」当场红 —— 临时产物一律写 `%TEMP%`。
+2. **勘定本身漏了一种写法**：第 9 轮只找 `order.status = …`（赋值），漏了 `db.execute(update(Order).values(status=…))`（条件 UPDATE）。
+   于是「只剩 3 处」这个结论**是错的** —— 补全两种写法后，`driver-ack`（DISPATCHED → ACCEPTED）那一处在 **API 层**露了出来，
+   第 10 轮把它也搬进 `order_flow.accept_order()`（行为一字不改：前置判据 / CAS 条件 / 失败文案逐字一致，403 的角色判断留在端点）。
+   **现在跃迁是 6 个**（派单 / 接单 / 送达 / 撤销 / 撤回派单 / 退货），全部落在 `order_flow.py`（9 处写入）；
+   并把判据补进 `_check_status_gate_locking.py` §E（两种写法都盘；注入一处越界写入 → 当场红）。
 
 ### [2026-09-24 23:4x → ] 会话：**架构整改 · 第 9 轮：阶段 5 先勘定（§7 状态机 / §9 权限）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 

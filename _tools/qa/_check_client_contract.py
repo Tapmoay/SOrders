@@ -22,6 +22,7 @@
 2. **后端状态门** ← 源码里的固定代码形状（形状对不上＝硬失败，绝不静默通过）：
    - `allowed = (…)`：`order_flow.cancel_pending` / `recall_dispatch`
    - `if order.status != OrderStatus.X`：`assign_driver` / `driver_ack_view` / `complete_delivery`
+  （2026-09-24 起 `driver_ack_view` **只做委派** —— 那道比较搬去了 `order_flow.accept_order`，判据跟着认）
    - `return order.status in (…)`：`order_products._order_allows_line_edit`
      （2026-09-23 起**也认** `return order.status in <具名常量>`：那三个状态提成了
      `LINE_EDITABLE_STATUSES`，与原子占位的 `WHERE` 共用一份）
@@ -212,10 +213,29 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
         ("COMPLETABLE", ORDER_FLOW, "complete_delivery"),
     ):
         body = body_of(path, func)
+        where = f"{path.name}::{func}::status != X"
         m = re.search(r"order\.status\s*!=\s*OrderStatus\.([A-Z_]+)", body)
         if m is None:
-            raise KeyError(f"{path.name}::{func} 里没解析出 `order.status != OrderStatus.X`")
-        gates[name] = ({m.group(1)}, f"{path.name}::{func}::status != X")
+            # ⚠️ 2026-09-24（整改阶段 5 §7）：状态跃迁搬进 OrderFlow 之后，端点上只剩一次调用 ——
+            #    判据要跟着代码走（否则这里硬失败，而那道门其实还在，只是深了一层）。
+            #    ⛔ 但**不许**因此放宽：必须真在 `order_flow` 里找到那道比较才算数，
+            #    找不到同样硬失败（"形状对不上时静默通过 = 这条红线不存在"）。
+            call = re.search(r"\b(\w+)\s*\(", body)
+            delegated = ""
+            for cand in re.findall(r"\b(accept_order|assign_driver|complete_delivery|cancel_pending)\s*\(", body):
+                try:
+                    delegated = body_of(ORDER_FLOW, cand)
+                except KeyError:
+                    continue
+                where = f"order_flow.{cand}::status != X（{path.name} 的端点只做委派）"
+                break
+            m = re.search(r"order\.status\s*!=\s*OrderStatus\.([A-Z_]+)", delegated) if delegated else None
+            if m is None:
+                raise KeyError(
+                    f"{path.name}::{func} 里没解析出 `order.status != OrderStatus.X`，"
+                    "委派去的 order_flow 函数里也没有 —— 那道状态门不见了"
+                )
+        gates[name] = ({m.group(1)}, where)
 
     body = body_of(ORDER_PRODUCTS, "_order_allows_line_edit")
     m = re.search(r"return\s+order\.status\s+in\s*\(([^)]*)\)", body)

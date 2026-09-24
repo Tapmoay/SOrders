@@ -528,6 +528,40 @@ def complete_delivery(
         )
 
 
+def accept_order(db: Session, order: Order, driver: User) -> None:
+    """司机确认接单：`DISPATCHED → ACCEPTED`。
+
+    ⚠️ 从 `api/v1/orders_delivery.py::driver_ack_view` **原样搬进来**（整改报告 §7「状态机唯一写入口」）：
+    这一处本来就是条件 UPDATE（2026-09-19 审计加的，理由很具体：**司机手滑点两下**最容易撞上它，
+    而派单员同一时刻可能在撤销/撤回 —— 无条件赋值会把已撤销的单覆盖回 ACCEPTED，
+    而撤销那一步已经把预占释放了 → 单子复活但**库存永远不扣**）。
+    搬进来的原因不是那处写错了，而是**它长在 API 层**：状态跃迁散在路由里，
+    下一处新写的就会是又一次无条件赋值（`order_return.py` 那处就是这样漏掉的）。
+
+    ⚠️ 行为**一字不改**（URL / 入参 / 出参 / 状态码 / 提示文案全不变）：
+    两条前置判据与 CAS 条件、错误文案都与搬迁前逐字一致；角色判断（403）留在端点里，
+    因为那是权限而不是状态机。
+    """
+    if order.status != OrderStatus.DISPATCHED:
+        raise ValueError("仅「已派单」订单可确认接单")
+    claimed = db.execute(
+        update(Order)
+        .where(
+            Order.id == order.id,
+            Order.status == OrderStatus.DISPATCHED,
+            Order.driver_id == driver.id,   # 只有被派的那个人能接（端点的取单已挡，这里再钉一次）
+            Order.deleted_at.is_(None),
+        )
+        .values(status=OrderStatus.ACCEPTED, driver_acknowledged_at=_now())
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError(
+            "这张单刚刚被改过（可能已被撤销/撤回/别人接过），请刷新后看看当前状态"
+        )
+    db.refresh(order)
+
+
 def cancel_pending(
     db: Session,
     order: Order,

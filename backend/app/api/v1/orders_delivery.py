@@ -21,7 +21,13 @@ from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.schemas.order import DriverNoteBody, OrderCompleteBody, OrderOut
 from app.schemas.place import OrderNavigationBody
 from app.services.operation_log_service import write_log
-from app.services.order_flow import assign_driver, cancel_pending, complete_delivery, lock_order_row
+from app.services.order_flow import (
+    accept_order,
+    assign_driver,
+    cancel_pending,
+    complete_delivery,
+    lock_order_row,
+)
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services import place_service
 from app.api.v1.orders_payment import _apply_complete_payment_logged, _reject_if_already_collected
@@ -101,29 +107,13 @@ def driver_ack_view(
     if user_role_key(current) != UserRole.DRIVER.value:
         raise HTTPException(status_code=403, detail="无权操作")
     order = _get_order_scoped(order_id, current, db)
-    if order.status != OrderStatus.DISPATCHED:
-        raise HTTPException(status_code=400, detail="仅「已派单」订单可确认接单")
-    # ⚠️ 条件 UPDATE 占位（2026-09-19 审计）：这是**司机手滑点两下**最容易撞上的一处
-    #    （派单员同一时刻可能在撤销/撤回）。原来是无条件赋值，与撤销并发时能把已经撤销的单
-    #    覆盖回 ACCEPTED —— 而撤销那一步已经把预占释放了，于是单子复活但**库存永远不扣**
-    #    （送达时 `auto_stock_commit` 找不到 RESERVED 行）。作业同 assign/complete。
-    claimed = db.execute(
-        update(Order)
-        .where(
-            Order.id == order.id,
-            Order.status == OrderStatus.DISPATCHED,
-            Order.driver_id == current.id,   # 只有被派的那个人能接（_get_order_scoped 已挡，这里再钉一次）
-            Order.deleted_at.is_(None),
-        )
-        .values(status=OrderStatus.ACCEPTED, driver_acknowledged_at=datetime.now(timezone.utc))
-    )
-    if claimed.rowcount != 1:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="这张单刚刚被改过（可能已被撤销/撤回/别人接过），请刷新后看看当前状态",
-        )
-    db.refresh(order)
+    # ⚠️ 状态跃迁**搬到 `services/order_flow.accept_order()` 了**（整改报告 §7：订单状态的写入只有那一个文件）。
+    #    行为一字不改：两条前置判据、CAS 条件（含 `driver_id == 我`）、失败文案都与搬之前逐字一致。
+    #    留在这里的只有**权限**（上面那道 403）与 HTTP 映射 —— 那是端点该管的事。
+    try:
+        accept_order(db, order, current)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     sid = order.shipper_id
     db.commit()
     full = load_order_for_response(db, order.id)

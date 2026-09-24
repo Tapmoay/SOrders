@@ -305,6 +305,37 @@ def main() -> int:
     c.ok("同源理由表没有化石（那个字段已经不是多写入点了）", not fossils_same,
          f"已经不存在：{fossils_same}")
 
+    print("\n== E. 订单状态的写入点只允许在 OrderFlow（报告 §7「唯一写入口」）==")
+    # ⚠️ 为什么单列一条：C 段盘的是 `order.<字段> =`（**赋值**），而状态跃迁还有**第二种写法** ——
+    #    `db.execute(update(Order).values(status=…))`（条件 UPDATE 占位）。两种都要盘：
+    #    2026-09-24 实测，`driver-ack`（DISPATCHED → ACCEPTED）正是第二种写法、长在 **API 层**，
+    #    C 段一整轮都没看见它 ——「判据漏了就等于没有」在本项目是复发率最高的一条。
+    #    （建单时的初始状态 `Order(status=PENDING_DISPATCH, …)` 不算跃迁，扫不到它。）
+    ALLOWED_STATUS_WRITERS = {"services/order_flow.py"}
+    status_writes: dict[str, int] = {}
+    for f in py_files():
+        code = code_only(read(f))
+        n = len(re.findall(r"\border\.status\s*=(?!=)", code))
+        # ⚠️ 只认 `update(Order) … .values(status=` **紧跟着 status 的那种**（本仓库所有真实跃迁都是
+        #    这么写的）。第一版写成"`.values(` 后面 200 字里出现 status"→ 当场误报两个文件：
+        #    `order_products.py`（`.values(updated_at=…)`，而上面那句 WHERE 里有 `Order.status.in_(…)`）
+        #    与 `data_retention.py`（`.values(parent_order_id=None)`，紧随其后的是 `DriverBill.status`）。
+        #    —— 与 C 段那条"判据必须钉在代码上"同一个形状：窗口开大了就会咬到隔壁的代码。
+        n += len(re.findall(r"update\(\s*Order\s*\)[\s\S]{0,400}?\.values\(\s*status\s*=", code))
+        if n:
+            status_writes[f.relative_to(BACKEND).as_posix()] = n
+    stray = sorted(p for p in status_writes if p not in ALLOWED_STATUS_WRITERS)
+    c.ok(
+        "订单状态的写入只出现在 services/order_flow.py（含条件 UPDATE 那种写法）",
+        not stray,
+        f"这些文件也在写订单状态：{stray} —— 报告 §7 要求跃迁收进 OrderFlow；"
+        "新加一处就把它登记到这份判据里，别让状态机再长出第二个入口",
+    )
+    own = status_writes.get("services/order_flow.py", 0)
+    c.ok(f"order_flow.py 里盘到 {own} 处订单状态写入（少于 4 说明扫描失效）", own >= 4,
+         f"只盘到 {own} 处 —— 切块/正则坏了，别让这条判据空转")
+    print("  写入点分布：" + "、".join(f"{k}×{v}" for k, v in sorted(status_writes.items())))
+
     print("\n" + "=" * 60)
     if c.fails:
         print(f"❌ {len(c.fails)} 项不通过：")
