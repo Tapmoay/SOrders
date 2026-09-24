@@ -679,8 +679,8 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:189",
-   "auth": "仅登录 + 体内仅允许:派单员",
+   "at": "backend/app/api/v1/ledger.py:190",
+   "auth": "体内仅允许:派单员",
    "roles": [
     "dispatcher"
    ],
@@ -726,8 +726,8 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:136",
-   "auth": "仅登录 + 体内仅允许:派单员\\|货主",
+   "at": "backend/app/api/v1/ledger.py:137",
+   "auth": "体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
     "shipper"
@@ -804,7 +804,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:814",
+   "at": "backend/app/api/v1/ledger.py:815",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -851,8 +851,8 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:258",
-   "auth": "仅登录 + 体内仅允许:派单员",
+   "at": "backend/app/api/v1/ledger.py:259",
+   "auth": "体内仅允许:派单员",
    "roles": [
     "dispatcher"
    ],
@@ -867,8 +867,8 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications",
-   "at": "backend/app/api/v1/notifications.py:39",
-   "auth": "仅登录",
+   "at": "backend/app/api/v1/notifications.py:40",
+   "auth": "**公开**",
    "roles": [
     "dispatcher",
     "driver",
@@ -926,8 +926,8 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications/unread-count",
-   "at": "backend/app/api/v1/notifications.py:31",
-   "auth": "仅登录",
+   "at": "backend/app/api/v1/notifications.py:32",
+   "auth": "**公开**",
    "roles": [
     "dispatcher",
     "driver",
@@ -1060,8 +1060,8 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders",
-   "at": "backend/app/api/v1/orders_query.py:76",
-   "auth": "仅登录 + 体内仅允许:派单员\\|司机\\|货主",
+   "at": "backend/app/api/v1/orders_query.py:77",
+   "auth": "体内仅允许:派单员\\|司机\\|货主",
    "roles": [
     "dispatcher",
     "driver",
@@ -1206,8 +1206,8 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders_query.py:256",
-   "auth": "仅登录 + 体内仅允许:派单员",
+   "at": "backend/app/api/v1/orders_query.py:257",
+   "auth": "体内仅允许:派单员",
    "roles": [
     "dispatcher"
    ],

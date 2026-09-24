@@ -20,6 +20,25 @@
 
 ## 进行中
 
+### [2026-09-25 09:0x → ] 会话：**架构整改 · 第 30 轮：§9 五个读侧权限点全部接上（用户拍板）**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】
+
+核心改动：backend/app/deps.py —— 为什么必须动核心：新增 require_any_permission（读侧「任一即可」的鉴权依赖），并把 orders_query / ledger / notifications 的读端点接上那 5 个权限点；这是 §9「权限矩阵必须真的在执行」的唯一入口，漏一处就是越权或误拦。
+
+用户 2026-09-25 拍板：「这个权限点全部接上」。此前 ORDER_READ_OWN / ORDER_READ_ASSIGNED / LEDGER_READ_OWN /
+LEDGER_READ_ALL / NOTIFICATION_READ 只是矩阵上的**声明**（读侧真实判据是端点体内内联的 user_role_key），
+于是「改矩阵不改行为」，而端点索引与 AI 读能力目录都从矩阵推导 → 文档/接口/AI 三头对不上。
+
+做法：① deps.py 加 require_any_permission(*perms)（一个端点常同时服务多角色，单一权限点表达不了行级规则）；
+② 接上 10 处读端点：orders_query 3（列表/详情/待派计数 → OWN+ASSIGNED+ALL）、ledger 4（流水/账目/临时货主名/单条 → OWN+ALL）、
+notifications 3（未读数/列表/单条 → NOTIFICATION_READ）；⛔ 行级过滤**全部保留**（权限点管「能不能进」，行内规则管「进来能看哪几行」）。
+③ _check_permission_points.py 的『只声明不用』表**清空**（那 5 个已经真在执行）—— 判据从「26 个在用 / 5 个有理由」变成「26 个在用 / 0 个有理由」。
+④ 那条反向验证的锚点跟着改成「往空表里塞两条已经在用的」（只改锚点，判据与期望一字未动）。
+
+**证据**：python -c import app.main → IMPORT_OK；后端 python -m pytest -q → **1012 passed / 0 failed**（行为零回归：原来能读的角色今天仍然能读）；
+`_check_permission_points.py` → ✅ 26 个权限点都有交代（26 在用 / 0 有理由）；端点索引与 AI 读能力目录已重跑。
+
+**明确不碰**：core/rbac.py 的矩阵本身（本轮只让矩阵**真的生效**，没改任何角色的权限集合）。
+
 ### [2026-09-25 07:0x → 07:5x] 会话：**架构整改 · 第 27 轮：阶段 9 §11 第 2 步 —— 第一块职责搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【已完成，提交 b186a90】
 
 核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：报告 §11 第 2 步按职责拆文件，本轮把尾部 66 行「payload JSON → 请求 DTO」整块搬去新文件 AiWriteJson.kt（同一个包、一个字符没改；判据读并集，红线不受影响；Kotlin 编译 BUILD SUCCESSFUL）

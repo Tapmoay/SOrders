@@ -71,6 +71,27 @@ def require_permission(permission: Permission):
     return _inner
 
 
+def require_any_permission(*permissions: Permission):
+    """**任一**权限点即可（读侧专用）。
+
+    ⚠️ 为什么读侧要"任一"：同一个端点常常同时服务多角色 —— GET /orders 对货主是"只看自己的"、
+    对司机是"只看派给自己的"、对派单员是"看全部"。单一权限点表达不了这种**行级规则**。
+    所以两件事**都在**、各管一段：
+      · 权限点（这里）管"这一类角色能不能进这道门"——它现在**真的在执行**（以前只是矩阵上的声明）；
+      · 端点体内的 user_role_key 过滤管"进来能看哪几行"。
+    ⛔ 别把行级过滤删掉换成权限点：那是把"货主只看自己的"降级成"货主能看全部"。
+    """
+    def _inner(user: Annotated[User, Depends(get_current_user)]) -> User:
+        uk = user_role_key(user)
+        if not any(role_has_permission(uk, p) for p in permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无读取权限（请确认当前账号角色与权限；可尝试退出后重新登录）",
+            )
+        return user
+
+    return _inner
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 def parse_date_range(date_from: str | None, date_to: str | None):

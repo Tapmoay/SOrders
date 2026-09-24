@@ -35,18 +35,12 @@ RBAC = BACKEND / "core/rbac.py"
 
 #: 声明了但没有任何 `require_permission` 在用的权限点 → **理由**。
 #: 每条都要回答："那读侧到底靠什么判？改了矩阵会发生什么？"
-DECLARED_ONLY: dict[str, str] = {
-    "ORDER_READ_OWN":
-        "读侧由 `orders.py` 端点体内内联判断（货主只看自己的）；权限点表达不了行级规则",
-    "ORDER_READ_ASSIGNED":
-        "同上：司机的 `_get_order_scoped` 按 driver_id 判，不用矩阵",
-    "LEDGER_READ_OWN":
-        "`ledger.py::list_entries` 内联判角色与 shipper_id",
-    "LEDGER_READ_ALL":
-        "同上（派单员看全部）；⚠️ 把它从派单员矩阵里去掉**不会**改变行为",
-    "NOTIFICATION_READ":
-        "`notifications.py` 的列表/已读/删除全部内联判 recipient_id",
-}
+DECLARED_ONLY: dict[str, str] = {}
+#: ⚠️ **2026-09-25（用户拍板「全部接上」）：这张表现在是空的。**
+#: 原来那 5 个读侧权限点（ORDER_READ_OWN / ORDER_READ_ASSIGNED / LEDGER_READ_OWN / LEDGER_READ_ALL / NOTIFICATION_READ）
+#: 已经**真的在执行**了 —— 见 deps.py::require_any_permission 与 orders_query / ledger / notifications 的读端点。
+#: 从那以后改 ROLE_PERMISSIONS **会**改变端点行为（403 或放行），矩阵、端点索引、AI 读能力目录三者重新对得上。
+#: ⏔ 留空不等于这张表没用：**新**声明一个没人用的权限点时，仍然必须在这里写清理由（否则报红）。
 
 MAX_DECLARED_ONLY = 6
 MIN_POINTS = 20

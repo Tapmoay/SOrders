@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import date, timedelta
 
+from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -9,7 +10,7 @@ from app.core.business_time import utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
-from app.deps import CurrentUser, require_permission
+from app.deps import require_any_permission, CurrentUser, require_permission
 from app.models import Ledger, LedgerExportJob, Order, User
 from app.models.enums import LedgerSource, OperationAction, OrderStatus, UserRole
 from app.models.export_job import ExportFormat, ExportJobStatus
@@ -134,7 +135,7 @@ def _reject_if_order_closed(db: Session, row: Ledger, *, wants_detail: bool, wha
 
 @router.get("/entries", response_model=list[LedgerOut])
 def list_entries(
-    current: CurrentUser,
+    current: Annotated[User, Depends(require_any_permission(Permission.LEDGER_READ_OWN, Permission.LEDGER_READ_ALL))],
     response: Response,
     db: Session = Depends(get_db),
     shipper_id: int | None = Query(None),
@@ -187,7 +188,7 @@ def list_entries(
 
 @router.get("/accounts", response_model=list[LedgerAccountOut])
 def list_accounts(
-    current: CurrentUser,
+    current: Annotated[User, Depends(require_any_permission(Permission.LEDGER_READ_OWN, Permission.LEDGER_READ_ALL))],
     db: Session = Depends(get_db),
     date_from: str | None = Query(None, description="YYYY-MM-DD"),
     date_to: str | None = Query(None, description="YYYY-MM-DD"),
@@ -256,7 +257,7 @@ def list_accounts(
 
 @router.get("/temp-shipper-names", response_model=list[str])
 def list_temp_shipper_names(
-    current: CurrentUser,
+    current: Annotated[User, Depends(require_any_permission(Permission.LEDGER_READ_OWN, Permission.LEDGER_READ_ALL))],
     db: Session = Depends(get_db),
 ) -> list[str]:
     """派单员：曾出现过的临时货主称呼（账本或订单），用于快捷筛选；订单送达时已自动入账，无需「创建账本」。"""
@@ -375,7 +376,7 @@ def create_entry(
 @router.get("/entries/{entry_id}", response_model=LedgerOut)
 def get_entry(
     entry_id: int,
-    current: CurrentUser,
+    current: Annotated[User, Depends(require_any_permission(Permission.LEDGER_READ_OWN, Permission.LEDGER_READ_ALL))],
     db: Session = Depends(get_db),
 ) -> LedgerOut:
     row = db.get(Ledger, entry_id)

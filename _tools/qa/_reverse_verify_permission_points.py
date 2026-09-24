@@ -36,9 +36,14 @@ CASES: list[tuple[str, str, object]] = [
     (
         "把一个**已经在用**的权限点塞进『只声明不用』的表（过期说明）",
         CHECKREL,
+        # ⚠️ 2026-09-25：那 5 个读侧权限点**已经接上**（见 deps.py::require_any_permission），
+        #    DECLARED_ONLY 因此变成了空表 —— 锚点跟着改成「往空表里塞两条已经在用的」，
+        #    判据与期望一字未动（本仓库的规矩：只改锚点，不动判据）。
         lambda s: s.replace(
-            '    "NOTIFICATION_READ":',
-            '    "USER_MANAGE": "注入：假装这个没在用",\n    "NOTIFICATION_READ":',
+            "DECLARED_ONLY: dict[str, str] = {}",
+            'DECLARED_ONLY: dict[str, str] = {\n'
+            '    "USER_MANAGE": "注入：假装这个没在用",\n'
+            '    "NOTIFICATION_READ": "注入：假装这个没在用",\n}',
             1,
         ),
     ),

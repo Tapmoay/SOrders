@@ -7,15 +7,16 @@
 实测两边都是 0 对。
 """
 
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 from app.core.business_time import business_range_utc
 from app.core.pagination import finish_page
 from app.core.query_text import LIKE_ESCAPE, like_pattern
-from app.core.rbac import user_role_key
+from app.core.rbac import Permission, user_role_key
 from app.database import get_db
-from app.deps import CurrentUser, parse_date_range
+from app.deps import require_any_permission, CurrentUser, parse_date_range
 from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
 from app.schemas.order import OrderOut
@@ -74,7 +75,7 @@ def _apply_delivered_window(stmt, delivered_from: str | None, delivered_to: str 
 
 @router.get("", response_model=list[OrderOut])
 def list_orders(
-    current: CurrentUser,
+    current: Annotated[User, Depends(require_any_permission(Permission.ORDER_READ_OWN, Permission.ORDER_READ_ASSIGNED, Permission.ORDER_READ_ALL))],
     response: Response,
     db: Session = Depends(get_db),
     status_filter: OrderStatus | None = Query(None, alias="status"),
@@ -254,7 +255,7 @@ def list_orders(
 
 @router.get("/pending-dispatch-count")
 def pending_dispatch_count(
-    current: CurrentUser,
+    current: Annotated[User, Depends(require_any_permission(Permission.ORDER_READ_OWN, Permission.ORDER_READ_ASSIGNED, Permission.ORDER_READ_ALL))],
     db: Session = Depends(get_db),
 ) -> dict[str, int]:
     """派单工作台：当前「派单中」订单数量，用于底部 Tab / 铃铛角标。"""
@@ -269,6 +270,6 @@ def pending_dispatch_count(
 
 
 @router.get("/{order_id}", response_model=OrderOut)
-def get_order(order_id: int, current: CurrentUser, db: Session = Depends(get_db)) -> OrderOut:
+def get_order(order_id: int, current: Annotated[User, Depends(require_any_permission(Permission.ORDER_READ_OWN, Permission.ORDER_READ_ASSIGNED, Permission.ORDER_READ_ALL))], db: Session = Depends(get_db)) -> OrderOut:
     order = _get_order_scoped(order_id, current, db)
     return enrich_order_out(order, db, current)

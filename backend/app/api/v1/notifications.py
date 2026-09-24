@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -8,7 +9,7 @@ from app.core.business_time import utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, user_role_key
 from app.database import get_db
-from app.deps import CurrentUser, require_permission
+from app.deps import require_any_permission, CurrentUser, require_permission
 from app.models import Notification, User
 from app.models.enums import OperationAction, UserRole
 from app.schemas.notification import (
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
 @router.get("/unread-count")
-def unread_count(current: CurrentUser, db: Session = Depends(get_db)) -> dict[str, int]:
+def unread_count(current: Annotated[User, Depends(require_any_permission(Permission.NOTIFICATION_READ))], db: Session = Depends(get_db)) -> dict[str, int]:
     from app.services.message_center import count_unread
 
     n = count_unread(db, current.id)
@@ -38,7 +39,7 @@ def unread_count(current: CurrentUser, db: Session = Depends(get_db)) -> dict[st
 @router.get("", response_model=list[NotificationOut])
 def list_notifications(
     response: Response,
-    current: CurrentUser,
+    current: Annotated[User, Depends(require_any_permission(Permission.NOTIFICATION_READ))],
     db: Session = Depends(get_db),
     unread_only: bool = False,
     recipient_id: int | None = None,
@@ -265,7 +266,7 @@ def batch_delete_notifications(
 
 
 @router.get("/{notification_id}", response_model=NotificationOut)
-def get_notification(notification_id: int, current: CurrentUser, db: Session = Depends(get_db)) -> Notification:
+def get_notification(notification_id: int, current: Annotated[User, Depends(require_any_permission(Permission.NOTIFICATION_READ))], db: Session = Depends(get_db)) -> Notification:
     n = db.get(Notification, notification_id)
     if n is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
