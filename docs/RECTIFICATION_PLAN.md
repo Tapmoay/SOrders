@@ -212,3 +212,25 @@ python _tools/backup/_drill_local.py                 # 恢复演练
 - `docs/BASELINE.md` 是生成的，不要手改；数字过期就重跑采集器；
 - 新增检查脚本只要加一个 `--check`，就自动进 `_check_all.py` 的必跑组（清单自己算，不手写）。
 
+
+## 3. 收尾验收（2026-09-25 第 29 轮 · 目标轮次 40/40）
+
+这一轮**不改代码**，只把「到哪一步了」跑成可复算的事实（下面每条都是当场跑出来的）：
+
+| 验证 | 结果 |
+|---|---|
+| python _tools/qa/_check_all.py | ✅ 100/100 |
+| python _tools/qa/_check_reverse_verify_anchors.py | ✅ 1147 条注入原文全部还在 |
+| cd backend && python -m pytest -q | ✅ 1012 passed |
+| python _tools/e2e/_flow_login_nav_order.py | ✅ 登录 → 导航 → 下单 → 对账 四段全通 |
+| python _tools/backup/_check_backup.py --check | ✅ 全部通过（含恢复演练的隔离与门禁） |
+
+**报告逐条状态**：阶段 0–8（§2 基线 / §3 备份与恢复演练 / §4 迁移版本化 / §5 CI 三层闸门 / §6 API 层搬迁 /
+§7 钱契约两步 / §8 状态机唯一写入口 / §10 发件箱）**全部完成**；
+§11（客户端拆文件）**进行中** —— AiWriteService 的三块职责已拆出 1 块，第 3 步的施工清单钉在上面那一行；
+§12（AI 一致性）、§13（文档事实源）、§14 的 Android 集成测试、§15（可观测性）**已完成**；
+§16（多实例/HA）按报告自己的说法**不做（现在）**。
+
+**还差的（都不是本机能独立收口的）**：① §11 第 3 步（清单已备）；② §20 nginx exports deny（生产配置）；
+③ §5「CI 真的跑一次」—— 要 git push；④ §9 五个无引用权限点 —— 接上还是删掉；⑤ 前端 H5 —— 保还是弃；
+⑥ 另一会话那 13 个未提交文件（含未跟踪的 services/reports_service.py）要不要替它提交。
