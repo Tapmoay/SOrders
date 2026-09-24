@@ -123,6 +123,8 @@ def main() -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--only", default=None)
     ap.add_argument("--deep", action="store_true", help="连反向验证一起跑（几分钟）")
+    ap.add_argument("--timeout", type=int, default=300,
+                    help="每个检查的超时秒数（默认 300；0 = 不限）—— 报告 §20 第 ⑩ 项")
     a = ap.parse_args()
 
     # ⚠️ 反向验证跑着的时候，源码树里带着**注入的 bug**，此时跑任何检查都会得到
@@ -174,10 +176,22 @@ def main() -> int:
     for g, p, args in run:
         rel = str(p.relative_to(ROOT))
         t0 = time.time()
-        r = subprocess.run(
-            [sys.executable, str(p), *args],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(ROOT),
-        )
+        # ⛔ **每个检查都要有超时**（报告 §20 第 ⑩ 项）：没有它，任何一个会挂住的检查
+        #    （等 stdin、等网络、等锁）都会让这条命令**永远不返回** —— 而它正是「改完必跑」的那条。
+        #    超时按**失败**记账、并且继续跑后面的人：一次跑完看全貌，比卡在第一个更有用。
+        try:
+            r = subprocess.run(
+                [sys.executable, str(p), *args],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(ROOT),
+                timeout=(a.timeout or None),
+            )
+        except subprocess.TimeoutExpired:
+            dt = time.time() - t0
+            msg = (f"超时（>{a.timeout}s）——这个检查挂住了；先用 python "
+                   f"{p.relative_to(ROOT).as_posix()} 单独跑一次看它卡在哪")
+            print(f"❌ {rel:52s} {dt:5.1f}s  {msg[:90]}")
+            bad.append((rel, msg))
+            continue
         dt = time.time() - t0
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         tail = [ln.strip() for ln in out.splitlines() if ln.strip()]

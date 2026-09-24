@@ -34,7 +34,7 @@
 | 1 | §3 | 定时任务（日报/周报/每周演练） | 否 | **已完成** | `/etc/cron.d/sorders-backup` |
 | 1 | §20 | 版本号统一（原来 4 处、3 个值） | 否 | **已完成** | 后端 `config.py::_repo_version()` 改为读仓库根 `VERSION`（不再硬编码 0.2.0）+ `frontend/package.json` 对齐 0.2.4 + 基线采集器学会认新写法。证据：四处同值（`VERSION` / `package.json` / `android versionName` / `backend` 全 0.2.4），本机 `/health` 由 `0.2.0` 变为 **`0.2.4`**；94/94 检查 + 983 用例全绿 |
 | 1 | §20 | nginx exports deny | 否 | 未开始 | — |
-| 1 | §20 | `_check_all` 加超时 | 否 | 未开始 | — |
+| 1 | §20 | `_check_all` 加超时 | 否 | **已完成** | `--timeout`（默认 300s；0=不限）；超时按**失败**记账并**继续跑后面的人**（一次跑完看全貌）。实测：`--timeout 1` 对那个 9 秒的检查 → 报「超时（>1s）——这个检查挂住了…」并 exit 1；默认参数下 94/94 全绿 |
 | 1 | §20 | `AI_WORK_CLAIM` 归档（6000+ 行） | 否 | 未开始 | — |
 | 1 | §15 | 证书 / uptime / disk 最小监控 | 否 | **最小版已可跑**（cron 待挂） | `_tools/ops/_health_check.py`（只读）：服务/健康检查、**证书剩余天数**、磁盘、**最近一次备份的年龄**；退出码 `0/1/2`。实测输出：`sorders.top` 两张证书 **剩余 -75 天**（报告点名的那件事）、IP 证书 1089 天、磁盘 29%、**最近备份 1.6 小时前**（顺带证明第 1 轮的 cron 真的在跑）。待做：装到服务器 + `0 9,21 * * *` 本地模式 cron |
 | 2 | §4 | Schema 迁移版本表（`schema_versions`） | 否 | **已完成** | `backend/app/migrations/`（运行器 + 基线 + CLI）；`python -m app.migrations status`；判据 `_tools/qa/_check_migrations.py`（39 项）+ 反向验证 15/15 |
