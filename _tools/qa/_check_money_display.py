@@ -20,7 +20,7 @@
 清单**全部由脚本自己算**（扫源码），不手写文件名单；每节都有数量判据防"解析失效后安静地什么都不查"。
 
 用法：python _tools/qa/_check_money_display.py
-配套：python _tools/qa/_reverse_verify_money_display.py（7 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_money_display.py（16 种破坏方式全被抓 + 还原复检）
 """
 from __future__ import annotations
 
@@ -304,6 +304,26 @@ def main() -> int:
          f"（进 payload / 参与比较），没有一处是印在卡片上的",
          4 <= len(money_sites) <= 12 and not wrong,
          f"实际 {len(money_sites)} 处；形态不对的：" + "；".join(wrong[:6]))
+    # ⛔ 上面那条只防**一个方向**（"用了 `money(` 的地方是不是值形态"）。反方向它看不见：
+    #    把某个 payload 槽**改成 `moneyText(`** 之后，那一行就不再含 `AiWriteArgs.money(`、
+    #    于是它从清单里**消失**了，剩下的每一处仍然都是值形态 → 判据全绿。
+    #    2026-09-25 反向验证第 ⑬ 条实测抓到（`put("amount", AiWriteArgs.money(amount))` 改成
+    #    `put("amount", AiWriteArgs.moneyText(amount))` 时红线**仍然全绿** —— 当时只有条数
+    #    下限 4~12 在拦，而 6 处掉到 5 处照样落在区间里）。
+    #    所以反方向也正面钉一次：**金额 payload 槽里不许出现显示口径**。
+    payload_money = [
+        (p.relative_to(ROOT).as_posix(), i, code.strip())
+        for p in sorted((ANDROID / "ai").glob("*.kt"))
+        for i, code in _code_lines(read(p))
+        if re.search(r'put\(\s*"(?:amount|price|value|fee)"\s*,', code)
+    ]
+    c.ok(f"扫到的金额 payload 槽 >= 4 处（实际 {len(payload_money)}，防正则失配后空转）",
+         len(payload_money) >= 4)
+    leaked = [f"{f}:{i} → {code[:90]}" for f, i, code in payload_money if "moneyText(" in code]
+    c.ok(f"⛔ 金额 payload 槽没有一处用显示口径 `moneyText(`（{len(leaked)} 处漏进去）", not leaked,
+         "；".join(leaked[:6])
+         + '（显示口径会去掉末尾的 0 —— 发给后端的数就变了，'
+           '且下游 `== "0.00"` 的「付清了/免运费」会静默不显示）')
     n_text = sum(read(p).count("AiWriteArgs.moneyText(") for p in (ANDROID / "ai").glob("*.kt"))
     c.ok(f"卡片文字走 `moneyText` >= 40 处（实际 {n_text}，防「定义了没人用」或被改回去）", n_text >= 40)
     # ⛔ 哨兵比较：去零会让这几句提示**静默不显示**，所以比较必须留在两位小数那一侧。
