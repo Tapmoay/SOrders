@@ -37,7 +37,7 @@
 
 **明确不碰**：`backend/app/api/v1/reports.py` / `services/reports_service.py` 的业务逻辑（另一会话的下沉，未提交）。
 
-### [2026-09-25 04:0x → 04:3x] 会话：**架构整改 · 第 23 轮：阶段 5 §7 第②步 —— 消费方的 import 指到「钱契约」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+### [2026-09-25 04:0x → 04:3x] 会话：**架构整改 · 第 23 轮：阶段 5 §7 第②步 —— 消费方的 import 指到「钱契约」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `e070265`】
 
 核心改动：backend/app/services/order_flow.py —— 为什么必须动核心：只把它 import「司机应得」的那两行从实现模块改到契约模块（报告 §7 第②步，行为零变化）
 核心改动：backend/app/services/order_response.py —— 为什么必须动核心：同上（出参口径与司机视角门控一行未动，只换 import 来源）
