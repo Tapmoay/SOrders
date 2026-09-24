@@ -241,9 +241,25 @@ def main() -> int:
     c.ok("「退出登录」用 error 色（红）",
          re.search(r'title = "退出登录",[\s\S]{0,300}?titleColor = MaterialTheme\.colorScheme\.error',
                    profile) is not None)
-    logout_row = re.search(r'title = "退出登录",[\s\S]{0,400}?\n\s*\)\n', profile)
+    # ⚠️ 2026-09-25（CI 第一次真跑）：原来这里是**按字符窗口**切的（`[\s\S]{0,400}?`），
+    #    于是判据自己依赖了**换行符**：本机工作区是 CRLF、Linux 检出是 LF，同样 400 个字符
+    #    在 LF 下能多盖几行 → 把确认框里的 `vm.logout` 也切了进来，本地绿、CI 红。
+    #    现在改成**按行**取这一行自己的块（遇到同级的 ")" 收尾），与换行符无关。
+    def _row_block(text: str, marker: str) -> str:
+        rows = text.splitlines()
+        k = next((i for i, ln in enumerate(rows) if marker in ln), None)
+        if k is None:
+            return ""
+        block = [rows[k]]
+        for ln in rows[k + 1:]:
+            block.append(ln)
+            if ln.strip() in (")", "),"):
+                break
+        return "\n".join(block)
+
+    logout_row = _row_block(profile, 'title = "退出登录",')
     c.ok("那一行**只弹确认框**、不直接退（用户：「不是点一下就直接退出，为了防止误碰」）",
-         logout_row is not None and "vm.logout" not in logout_row.group(0),
+         bool(logout_row) and "vm.logout" not in logout_row,
          "行自己的 onClick 里出现 vm.logout ＝ 误碰一下就退出去了")
     c.ok("确认框复用全 App 那一个危险操作弹层（不自己拼 AlertDialog）",
          "DangerConfirmDialog(" in profile, "ui/common/Components.kt::DangerConfirmDialog")

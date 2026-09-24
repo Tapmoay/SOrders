@@ -197,6 +197,13 @@ def check_ic(rep: Report, title: str, bad_sql: str, total_sql: str | None = None
 
 
 def main() -> int:
+    # ⚠️ 2026-09-25（CI 第一次真跑时发现）：本机开发库（backend/sorders.db）**不在 git 里**，
+    #    干净检出里没有它 → 这条判据在 CI 上必红。缺库时**响亮地跳过**：
+    #    既不假装通过，也不让整条常闸一直红着没人看（要连库的那部分只有本机跑得了）。
+    if not DB_PATH.is_file():
+        print("⚠️  跳过：找不到本机开发库 " + str(DB_PATH) + "（不进 git；这条要连库，CI 上不跑）")
+        return 0
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=5)
     #: `--check`：**这个脚本在必跑清单里的唯一凭据**（`_tools/qa/_check_all.py` 的清单是自己算的：
