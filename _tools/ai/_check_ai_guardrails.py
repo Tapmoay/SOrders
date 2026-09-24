@@ -2560,7 +2560,22 @@ def main() -> int:
 
     # ---- 快照必须在 commit 之前抓 ----
     i_exec = wsvc.find("suspend fun execute(token: String)")
-    seg = wsvc[i_exec : i_exec + 3500]
+    # ⚠️ 2026-09-24 第 35 轮：这里原来切的是**固定 3500 字符窗口**。本轮给"没能挂上撤回"那段
+    #    **用户可见的话术**多写了两种成因（第 25 轮 01 区 F2），`undoToken = …` 那行就被挤出了
+    #    窗口 → 判据**假红**（源码里那行一直都在）。判据不该取决于"给用户看的那句话有多长"：
+    #    改成切到**这个函数的末尾**（下一个成员声明 / 成员修饰符之前）。
+    _rest = wsvc[i_exec + 1 :]
+    _ends = [
+        p
+        for p in (
+            _rest.find("\n    suspend fun "),
+            _rest.find("\n    override "),
+            _rest.find("\n    private fun "),
+            _rest.find("\n    fun "),
+        )
+        if p > 0
+    ]
+    seg = _rest[: min(_ends)] if _ends else _rest
     i_pre = seg.find("AiRevert.plan(")
     i_com = seg.find("handler.commit(")
     c.ok(

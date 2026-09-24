@@ -2731,6 +2731,45 @@ class AiWriteTest {
     }
 
     @Test
+    fun `撤回不为「原来是空的」字段给假承诺`() = runBlocking<Unit> {
+        // ⛔ 2026-09-24 第 35 轮（第 25 轮 01 区 F1）：快照把空着的字段记成 `""`，而写入侧
+        //    `pick` 用 `takeIf { it.isNotBlank() }` 把空串**丢掉** —— 于是"撤回"会静默什么都不做，
+        //    卡片却写着"撤回到（空）"。本机活样本：`/shipper/locations` 的 `remark` 70/70 都是 ""。
+        //    判据：这种字段**不许**出现在"撤回到"的承诺里（它写不回去）。
+        val r = Rig()
+        // 改地址要能定位到（否则 prepare 会先拒掉，测不到撤回那一段）——与上一条同一个现场
+        r.ds.geoCodes = mapOf("上海市浦东新区世纪大道 200 号" to (31.2305 to 121.4738))
+        r.ds.snapshots["address:91"] = buildJsonObject {
+            put("receiver_name", "王五")
+            put("phone", "13800000099")
+            // 这次要改的就是它，而它原来是**空串**（不是 JsonNull）
+            put("detail_address", "")
+        }
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ADDRESS_UPDATE,
+                p("address" to "王五 测试路 1 号", "detail" to "上海市浦东新区世纪大道 200 号"),
+            ),
+        )
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        val msg = done.message
+        // ① 不许承诺"撤回到空"：要么给不出撤回按钮，要么明确说这一项撤不回来
+        assertFalse(
+            "卡片不能承诺把空值撤回去（写入侧会把空串丢掉，撤回是个空转）：\n$msg",
+            msg.contains("撤回到（）") || msg.contains("撤回到 )") || msg.contains("撤回到："),
+        )
+        // ② 挂不上撤回时必须把**两种成因**都说出来（只写"读不到这条记录"会让用户白试一次）
+        assertTrue(
+            "挂不上撤回的话术要把「原来是空的」这一种成因也说出来：\n$msg",
+            msg.contains("原来就是空的") || msg.contains("撤不回来"),
+        )
+        if (msg.contains("没能挂上")) {
+            assertTrue("另一种成因（读不到记录）也要在：\n$msg", msg.contains("读不到"))
+            assertTrue("要说清重试也不一定成功：\n$msg", msg.contains("也会失败") || msg.contains("必然") || msg.contains("如实说"))
+        }
+    }
+
+    @Test
     fun `撤回 token 只能用一次`() = runBlocking<Unit> {
         val r = Rig()
         val card = ok(r.svc.preview(AiWrites.ADDRESS_DELETE, p("address" to "王五 测试路 1 号")))
