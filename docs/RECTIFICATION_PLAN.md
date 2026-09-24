@@ -32,7 +32,7 @@
 | 1 | §3 | 恢复路径脚本化 + 生产库门禁 | 否 | **已完成** | `_tools/backup/_restore.sh`（默认只肯写 `sorders_drill_*`） |
 | 1 | §3 | **真的做一次恢复演练**（恢复→启动→打接口→验钱/状态） | 否 | **已完成** | 2026-09-24 `DRILL=ok`：行数逐项核对一致 ｜ 25 条库内不变式 0 违规 ｜ `/health` 200 + openapi 160 路径 ｜ 4 个带鉴权只读端点全 200 ｜ 收尾自清（`_tools/backup/_drill.sh`、`_drill_local.py`） |
 | 1 | §3 | 定时任务（日报/周报/每周演练） | 否 | **已完成** | `/etc/cron.d/sorders-backup` |
-| 1 | §20 | 版本号统一（现在 4 处，实测 3 个值） | 否 | 未开始 | 基线风险第 1 条 |
+| 1 | §20 | 版本号统一（原来 4 处、3 个值） | 否 | **已完成** | 后端 `config.py::_repo_version()` 改为读仓库根 `VERSION`（不再硬编码 0.2.0）+ `frontend/package.json` 对齐 0.2.4 + 基线采集器学会认新写法。证据：四处同值（`VERSION` / `package.json` / `android versionName` / `backend` 全 0.2.4），本机 `/health` 由 `0.2.0` 变为 **`0.2.4`**；94/94 检查 + 983 用例全绿 |
 | 1 | §20 | nginx exports deny | 否 | 未开始 | — |
 | 1 | §20 | `_check_all` 加超时 | 否 | 未开始 | — |
 | 1 | §20 | `AI_WORK_CLAIM` 归档（6000+ 行） | 否 | 未开始 | — |

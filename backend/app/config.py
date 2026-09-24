@@ -1,6 +1,28 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _repo_version() -> str:
+    """产品版本号的**唯一来源** = 仓库根的 `VERSION` 文件。
+
+    2026-09-24 整改（报告 §20 第 ⑧ 项"版本号统一"）：这里原来是**硬编码** `"0.2.0"`，
+    而仓库根 `VERSION` 写着 0.2.4、前端 `package.json` 也是 0.2.0 ——
+    实测基线（`docs/BASELINE.md`）就把它列为一条"版本漂移"：
+    **"线上到底跑的是哪一版"说不清**（`/health` 报 0.2.0，包里却是 0.2.4）。
+
+    安卓那边早就这么做了（`android/app/build.gradle.kts` 构建时读 `../VERSION`），
+    这里补上同一件事：**三处版本号共用一个文件**。
+
+    ⚠️ 读不到时返回 `"0.0.0"` 而不是旧的 `"0.2.0"`：那是"说不清"的旧值，
+    留着只会让人继续以为版本对得上；`0.0.0` 一眼就能看出"这个部署没带上 VERSION"。
+    """
+    try:
+        version = (Path(__file__).resolve().parents[2] / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return "0.0.0"
+    return version or "0.0.0"
 
 
 class Settings(BaseSettings):
@@ -11,8 +33,9 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "SOrders API"
-    #: 与仓库根目录 VERSION、前端 package.json 对齐（语义化版本，0.2.0 即产品「0.02」）
-    app_version: str = "0.2.0"
+    #: 产品版本（语义化）。**从仓库根 VERSION 读**，不再硬编码 —— 见上面 _repo_version() 的说明。
+    #: 仍可用环境变量 `APP_VERSION` 覆盖（pydantic-settings 的常规行为）。
+    app_version: str = _repo_version()
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 

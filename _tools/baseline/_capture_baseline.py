@@ -121,9 +121,16 @@ def collect_local(notes: list[str], *, with_tests: bool) -> dict:
                             if 'rootProject.file("../VERSION")' in gsrc else None)
     # 后端的版本号是**硬编码**在 config.py 里的（实测 0.2.0）—— 这就是报告 §20 要的"版本号统一"缺口。
     cfg = ROOT / "backend" / "app" / "config.py"
-    m2 = re.search(r'app_version\s*:\s*str\s*=\s*"([^"]+)"',
-                   cfg.read_text(encoding="utf-8", errors="replace")) if cfg.exists() else None
-    f["version_backend_declared"] = m2.group(1) if m2 else None
+    # ⚠️ 2026-09-24 整改：后端不再硬编码版本，改成读仓库根 VERSION（见 config.py::_repo_version）。
+    #    所以这里既要认旧的字符串写法，也要认"从 VERSION 读"这种写法。
+    csrc = cfg.read_text(encoding="utf-8", errors="replace") if cfg.exists() else ""
+    m2 = re.search(r'app_version\s*:\s*str\s*=\s*"([^"]+)"', csrc)
+    if m2:
+        f["version_backend_declared"] = m2.group(1)
+    elif "_repo_version()" in csrc:
+        f["version_backend_declared"] = f"{f['version_file']}（= 仓库根 VERSION，config.py 运行时读）"
+    else:
+        f["version_backend_declared"] = None
 
     # --- 端点：现算（不读手写文档） ---
     with tempfile.TemporaryDirectory() as td:
