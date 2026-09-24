@@ -26,8 +26,6 @@ from app.services import usage_service
 from app.services.shipper_contact_service import upsert_boss_contact
 from app.services import place_service
 from app.api.v1.orders_common import (
-    _bg_notify_new_order,
-    _bg_notify_order_edited,
     _get_order_scoped,
 )
 from app.core import outbox
@@ -260,8 +258,8 @@ def create_order(
     for ln in body.lines:
         usage_service.record_usage(db, user=current, kind=usage_service.KIND_PRODUCT, target_id=ln.product_id)
     outbox.enqueue(db, "orders.pending_pool_changed", {})
+    outbox.enqueue(db, "orders.created", {"order_id": order.id})
     db.commit()
-    background_tasks.add_task(_bg_notify_new_order, order.id)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单保存失败")
@@ -321,15 +319,16 @@ def update_order(
         action=OperationAction.ORDER_UPDATE,
         change_payload={"before": before, "after": after},
     )
-    db.commit()
     # ⚠️ **改单必须推**（2026-09-24 第 20 轮并行渗透 C12-3）：这条路径原来一个推送都不发
     #    （同文件的派单 `:1440`、送达 `:1681`、撤销 `:1725`、撤回 `:1965` 都排了推送）。
     #    而它改的是**地址 / 收货人与下单人的电话 / 配送说明** —— 这条路径在
     #    「已派单 / 已接单」时是允许的（上面的状态门只挡终态），也就是说它**就是给在途的单用的**：
     #    客户在电话里改了地址 → 派单员改完 → 司机那一页还是旧地址，且断线重连也补不回
     #    （重连只回补通知表、不带订单负载）。司机拿着旧地址跑一趟的成本是真实发生的。
+    #    ⚠️ 事件与这次改单**同一个事务**（放在 commit 之前）：改单没成，司机就不该收到「地址变了」。
     if order.driver_id:
-        background_tasks.add_task(_bg_notify_order_edited, order.driver_id, order.id)
+        outbox.enqueue(db, "orders.edited", {"driver_id": order.driver_id, "order_id": order.id})
+    db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")

@@ -10,6 +10,7 @@ from typing import Any
 import socketio
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.background import BackgroundTask
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
@@ -125,6 +126,52 @@ async def _outbox_deliver(event) -> None:
             dispatchers=bool(event.payload.get("dispatchers")),
         )
         return
+    if event.event_type == "orders.created":
+        await push_events.push_new_order_to_dispatchers(int(event.payload.get("order_id") or 0))
+        return
+    if event.event_type == "orders.freight_updated":
+        await push_events.push_order_freight_updated(int(event.payload.get("order_id") or 0))
+        return
+    if event.event_type == "orders.driver_acked":
+        sid = int(event.payload.get("shipper_id") or 0)
+        oid = int(event.payload.get("order_id") or 0)
+        await push_events.push_driver_ack_shipper(sid, oid)
+        await push_events.push_driver_ack_to_dispatchers(oid)
+        return
+    if event.event_type == "orders.navigation_filled":
+        await push_events.push_navigation_filled(
+            int(event.payload.get("shipper_id") or 0),
+            int(event.payload.get("order_id") or 0),
+            str(event.payload.get("place_name") or ""),
+        )
+        return
+    if event.event_type == "orders.edited":
+        await push_events.push_order_edited_to_driver(
+            int(event.payload.get("driver_id") or 0),
+            int(event.payload.get("order_id") or 0),
+        )
+        return
+    if event.event_type == "returns.requested":
+        await push_events.push_return_request_to_dispatchers(int(event.payload.get("request_id") or 0))
+        return
+    if event.event_type == "returns.rejected":
+        await push_events.push_return_request_rejected(int(event.payload.get("request_id") or 0))
+        return
+    if event.event_type == "returns.done":
+        await push_events.push_return_request_done(
+            int(event.payload.get("request_id") or 0),
+            returned_amount=str(event.payload.get("returned_amount") or "0"),
+            refund_amount=str(event.payload.get("refund_amount") or "0"),
+            fully_returned=bool(event.payload.get("fully_returned")),
+        )
+        return
+    if event.event_type == "returns.request_closed":
+        await push_events.push_return_request_closed(
+            int(event.payload.get("request_id") or 0),
+            returned_amount=str(event.payload.get("returned_amount") or "0"),
+            note=str(event.payload.get("note") or ""),
+        )
+        return
     if event.event_type == "notifications.created":
         from app.services import message_center
 
@@ -161,6 +208,16 @@ async def _outbox_deliver(event) -> None:
     raise RuntimeError("发件箱没有登记处理器：" + str(event.event_type))
 
 
+async def _drain_outbox() -> None:
+    """响应发出后**立刻**把刚写下的那批事件派发掉（快速通道；worker 仍是兜底）。"""
+    from app.core.outbox import drain
+
+    try:
+        await drain(_outbox_deliver)
+    except Exception:   # noqa: BLE001 —— 快速通道失败不该影响任何业务（worker 会重试）
+        logger.exception("发件箱快速通道失败（worker 会兜底）")
+
+
 async def _outbox_loop() -> None:
     """事务发件箱的 worker（整改报告 §10）：把「业务事务里写下的事件」发出去，失败退避重试。
 
@@ -193,6 +250,19 @@ def create_fastapi_app() -> FastAPI:
 
     # 请求追踪 id：最先挂上去的那个（异常也要能带上 id）+ 回写 X-Request-ID（见 core/request_id.py）
     application.add_middleware(RequestIdMiddleware)
+
+    # ---- 发件箱的"快速通道"（整改报告 §10）----
+    # ⚠️ 事件已经与业务写在同一个事务里了，worker 每 2 秒扫一遍是**兜底**；
+    #    但如果只靠 worker，**站内信**（用户看得见的那条持久记录）会晚 ≤2 秒才出现 ——
+    #    13 条既有用例因此当场红（它们断言"提交完就能查到通知"）。
+    #    所以每个响应发出后顺手 drain 一次（与原来的 background task 同一时机），
+    #    失败/重启/漏掉的由 worker 兜。两条路径共用同一套 claim/mark_*，语义只有一处。
+    @application.middleware("http")
+    async def _outbox_fast_path(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path != "/metrics":   # 抓取端点不参与（它自己就要读发件箱的数字）
+            response.background = BackgroundTask(_drain_outbox)
+        return response
 
     application.add_middleware(
         CORSMiddleware,

@@ -1529,7 +1529,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests/mine",
-   "at": "backend/app/api/v1/return_requests.py:261",
+   "at": "backend/app/api/v1/return_requests.py:245",
    "auth": "权限:ORDER_RETURN_REQUEST + 角色:shipper",
    "roles": [
     "shipper"
@@ -1582,7 +1582,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests",
-   "at": "backend/app/api/v1/return_requests.py:330",
+   "at": "backend/app/api/v1/return_requests.py:314",
    "auth": "权限:ORDER_RETURN",
    "roles": [
     "dispatcher"

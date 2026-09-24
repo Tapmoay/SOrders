@@ -32,6 +32,10 @@ LEDGER = "backend/app/api/v1/ledger.py"
 #:    当场点出来）。这里改挂到 `orders_common.py` 里**仍然存在**的一个账本推送后台任务上 ——
 #:    "在别处自建事件循环"这件事与哪个文件无关，判据认的是 `asyncio.*` 那些写法。
 COMMON = "backend/app/api/v1/orders_common.py"
+#: 2026-09-25：`NOTIFY` 里那两个 `_bg_` 助手已经随 §10 删掉了，锚点改挂到"仍然存在"的地方：
+#: 派发表调用的那批处理器（`push_events.py`）与快速通道（`main.py`）。
+PUSH = "backend/app/services/push_events.py"
+MAIN = "backend/app/main.py"
 CHECKREL = "_tools/qa/_check_background_tasks.py"
 
 CASES: list[tuple[str, str, object]] = [
@@ -49,16 +53,25 @@ CASES: list[tuple[str, str, object]] = [
         ),
     ),
     (
-        "另一个后台任务也退回同步 def（证明不是只钉了一个名字）",
-        NOTIFY,
-        lambda s: s.replace("async def _bg_emit_unread(", "def _bg_emit_unread(", 1),
+        # ⚠️ 2026-09-25 换过锚点：`notifications.py` 里那个 `_bg_emit_unread` 助手已随 §10 的改造删掉。
+        #    这类"把 async 当同步用"的事故现在长在**派发表**上（`main.py::_outbox_deliver` 直接 await
+        #    `push_events.X(...)`），所以改注入到那批处理器里 —— 判据也同步加了这条（判据 1b）。
+        "派发表里的处理器退回同步 def（证明不只是钉了后台任务那一个名字）",
+        PUSH,
+        lambda s: s.replace(
+            "async def push_order_delivered(order_id: int) -> None:",
+            "def push_order_delivered(order_id: int) -> None:",
+            1,
+        ),
     ),
     (
-        "在别处（orders_common.py 的账本推送）自建事件循环",
-        COMMON,
+        # ⚠️ 同上：锚点从已删除的 `_bg_*` 助手改到 `main.py` 里**仍然存在**的派发函数上
+        #    （"自建事件循环"这条判据扫的是全 app 文件，与锚在哪个函数无关）。
+        "在别处（发件箱的快速通道）自建事件循环",
+        MAIN,
         lambda s: s.replace(
-            "async def _bg_ledger_updated_shipper(shipper_id: int) -> None:",
-            "async def _bg_ledger_updated_shipper(shipper_id: int) -> None:\n"
+            "async def _drain_outbox() -> None:",
+            "async def _drain_outbox() -> None:\n"
             "    import asyncio\n"
             "    asyncio.new_event_loop()  # 注入：自建事件循环\n",
             1,
@@ -66,18 +79,20 @@ CASES: list[tuple[str, str, object]] = [
     ),
     (
         "注册点用另一个名字自建事件循环（run_until_complete 变体）",
-        NOTIFY,
+        PUSH,
         lambda s: s.replace(
-            "async def _bg_emit_unread(",
+            "async def push_ledger_updated(",
             "def _loop_smuggler():\n    asyncio.get_event_loop().run_until_complete(None)\n\n\n"
-            "async def _bg_emit_unread(",
+            "async def push_ledger_updated(",
             1,
         ),
     ),
     (
         "后台任务目标改名（检查解析不到定义 → 必须报红，不能当没看见）",
-        NOTIFY,
-        lambda s: s.replace("async def _bg_emit_unread(", "async def _bg_emit_unread_renamed(", 1),
+        WORKER,
+        lambda s: s.replace(
+            "async def run_ledger_export_job_with_slot(", "async def run_ledger_export_job_with_slot_renamed(", 1
+        ),
     ),
     (
         "扫描目录指错（一个文件都扫不到 → 判据空转）",

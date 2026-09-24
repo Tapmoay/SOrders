@@ -32,8 +32,6 @@ from app.services.order_response import enrich_order_out, load_order_for_respons
 from app.services import place_service
 from app.api.v1.orders_payment import _apply_complete_payment_logged, _reject_if_already_collected
 from app.api.v1.orders_common import (
-    _bg_notify_driver_ack,
-    _bg_notify_navigation_filled,
     _get_order_scoped,
     _order_not_deleted_or_404,
     _save_delivery_uploads,
@@ -115,12 +113,12 @@ def driver_ack_view(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     sid = order.shipper_id
+    if sid is not None:
+        outbox.enqueue(db, "orders.driver_acked", {"shipper_id": sid, "order_id": order.id})
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
-    if sid is not None:
-        background_tasks.add_task(_bg_notify_driver_ack, sid, order.id)
     return enrich_order_out(full, db, current)
 
 
@@ -278,15 +276,17 @@ def fill_order_navigation(
             "shipper_id": order.shipper_id,
         },
     )
+    if order.shipper_id is not None:
+        outbox.enqueue(
+            db,
+            "orders.navigation_filled",
+            {"shipper_id": order.shipper_id, "order_id": order.id, "place_name": place_name},
+        )
     db.commit()
 
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
-    if order.shipper_id is not None:
-        background_tasks.add_task(
-            _bg_notify_navigation_filled, order.shipper_id, order.id, place_name
-        )
     return enrich_order_out(full, db, current)
 
 

@@ -67,13 +67,9 @@ from app.schemas.return_request import (
     ReturnRequestOut,
     ReturnRequestRejectBody,
 )
+from app.core import outbox
 from app.services import order_return_request as svc
 from app.services.order_return import OrderReturnError, ReturnItem
-from app.services.push_events import (
-    push_return_request_done,
-    push_return_request_rejected,
-    push_return_request_to_dispatchers,
-)
 
 router = APIRouter(prefix="/return-requests", tags=["return-requests"])
 
@@ -90,23 +86,8 @@ _STATUS_LABEL = {
 }
 
 
-async def _bg_notify_dispatchers(request_id: int) -> None:
-    await push_return_request_to_dispatchers(request_id)
-
-
-async def _bg_notify_rejected(request_id: int) -> None:
-    await push_return_request_rejected(request_id)
-
-
-async def _bg_notify_done(
-    request_id: int, returned_amount: str, refund_amount: str, fully_returned: bool
-) -> None:
-    await push_return_request_done(
-        request_id,
-        returned_amount=returned_amount,
-        refund_amount=refund_amount,
-        fully_returned=fully_returned,
-    )
+#: ⚠️ 这里原来的三个 `_bg_notify_*` 助手（通知派单员 / 驳回 / 办理完成）已经**搬进事务发件箱**
+#: （整改报告 §10）：事件只带申请编号与金额，处理器按编号重取那一条再推 —— 见 `main.py::_outbox_deliver`。
 
 
 def _name_map(db: Session, ids: set[int]) -> dict[int, str]:
@@ -250,9 +231,12 @@ def create_return_request(
     except svc.ReturnRequestError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
+    # ⚠️ 事件与这次申请**同一个事务**（整改报告 §10）。旧注释写的是"通知放在提交之后"
+    #    （当时的顾虑是"站内信落库失败不该把用户的申请一起回滚掉"）—— 发件箱把这条顾虑解掉了：
+    #    入队的只是一行事件（同一个库、同一个事务，没有外部 I/O），真正的站内信由 worker 事后去写，
+    #    它失败也只影响那条事件（会重试并留 last_error），不会回滚用户的申请。
+    outbox.enqueue(db, "returns.requested", {"request_id": req.id})
     db.commit()
-    # 通知放在提交之后（与全库一致：站内信落库失败不该把用户的申请一起回滚掉）
-    background_tasks.add_task(_bg_notify_dispatchers, req.id)
     req = _load_request(db, req.id)
     return _build_out(db, [req])[0]
 
@@ -386,8 +370,8 @@ def reject_return_request(
     except svc.ReturnRequestError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
+    outbox.enqueue(db, "returns.rejected", {"request_id": request_id})
     db.commit()
-    background_tasks.add_task(_bg_notify_rejected, request_id)
     return _build_out(db, [_load_request(db, request_id)])[0]
 
 
@@ -414,14 +398,17 @@ def fulfill_return_request(
     except (svc.ReturnRequestError, OrderReturnError) as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
-    db.commit()
-    background_tasks.add_task(
-        _bg_notify_done,
-        request_id,
-        str(result.returned.returned_amount),
-        str(result.returned.refund_amount),
-        result.returned.fully_returned,
+    outbox.enqueue(
+        db,
+        "returns.done",
+        {
+            "request_id": request_id,
+            "returned_amount": str(result.returned.returned_amount),
+            "refund_amount": str(result.returned.refund_amount),
+            "fully_returned": bool(result.returned.fully_returned),
+        },
     )
+    db.commit()
     fresh = _load_request(db, request_id)
     return ReturnRequestFulfillOut(
         request=_build_out(db, [fresh])[0],

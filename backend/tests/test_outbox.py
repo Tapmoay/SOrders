@@ -185,7 +185,9 @@ def test_assigning_an_order_enqueues_the_event_in_the_same_transaction(
     rows = [x for x in _rows(db_session) if x.event_type == "orders.assigned"]
     assert len(rows) == 1, [x.event_type for x in _rows(db_session)]
     assert rows[0].payload_dict() == {"driver_id": users["driver"].id, "order_id": oid}
-    assert rows[0].status == OutboxStatus.PENDING.value, "入队之后就该是待发（由 worker 发）"
+    # ⚠️ 响应发出后有一条**快速通道**会立刻 drain 一次（见 main.py 的 _outbox_fast_path）：
+    #    所以这里多半已经是 sent；worker 仍然是兜底（进程重启/失败重试）。两者都算对。
+    assert rows[0].status in (OutboxStatus.PENDING.value, OutboxStatus.SENT.value), rows[0].status
 
 
 def test_completing_a_delivery_enqueues_both_events(
@@ -221,11 +223,19 @@ def test_completing_a_delivery_enqueues_both_events(
 
     db_session.expire_all()
     events = {x.event_type: x for x in _rows(db_session)}
+    # 接单那一步也走发件箱（本轮最后一批切过来的）：收件人是货主，顺带推派单员
+    assert "orders.driver_acked" in events, list(events)
+    assert events["orders.driver_acked"].payload_dict() == {
+        "shipper_id": users["shipper"].id, "order_id": oid,
+    }, events["orders.driver_acked"].payload_dict()
     assert "orders.delivered" in events, list(events)
     assert events["orders.delivered"].payload_dict() == {"order_id": oid}
     assert "ledger.updated" in events, list(events)
     assert events["ledger.updated"].payload_dict() == {"shipper_id": users["shipper"].id}
-    assert all(x.status == OutboxStatus.PENDING.value for x in events.values()), "都该等着 worker 发"
+    # 同上：快速通道可能已经发掉了（pending 与 sent 都是"这条事件在正确的位置上"）
+    assert all(
+        x.status in (OutboxStatus.PENDING.value, OutboxStatus.SENT.value) for x in events.values()
+    ), {k: v.status for k, v in events.items()}
 
 
 def test_cancelling_an_order_enqueues_cancelled_and_pool_events(

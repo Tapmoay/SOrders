@@ -18,8 +18,7 @@ from app.schemas.order import OrderReturnBody, OrderReturnOut
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services.order_return import OrderReturnError, ReturnItem, return_order
 from app.services import order_return_request as return_request_svc
-from app.api.v1.orders_common import _bg_ledger_updated_shipper, _bg_notify_return_request_closed
-from app.api.v1.orders_common import (_bg_ledger_updated_shipper, _bg_notify_return_request_closed)
+from app.core import outbox
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -92,20 +91,24 @@ def return_order_endpoint(
     sid = order.shipper_id
     oid = order.id
     closed_id = closed.id if closed is not None else None
+    # ⚠️ 两条事件与这次退货**同一个事务**（整改报告 §10）：退货没成，账本刷新与"申请被直接办掉"
+    #    的通知都不该发出去。
+    if sid is not None:
+        outbox.enqueue(db, "ledger.updated", {"shipper_id": sid})
+    if closed_id is not None:
+        outbox.enqueue(
+            db,
+            "returns.request_closed",
+            {
+                "request_id": closed_id,
+                "returned_amount": str(result.returned_amount),
+                "note": closed_note,
+            },
+        )
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
-    if sid is not None:
-        background_tasks.add_task(_bg_ledger_updated_shipper, sid)
-    if closed_id is not None:
-        # 告诉货主"你那张申请被直接办掉了、实退多少"（差异也在这里如实写出来）
-        background_tasks.add_task(
-            _bg_notify_return_request_closed,
-            closed_id,
-            str(result.returned_amount),
-            closed_note,
-        )
     return OrderReturnOut(
         order_no=result.order_no,
         returned_amount=result.returned_amount,

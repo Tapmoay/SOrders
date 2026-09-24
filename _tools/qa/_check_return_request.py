@@ -223,6 +223,8 @@ def main() -> int:
     ai_write = read(AI_WRITE)
     ai_order = read(AI_ORDER)
     report = read(REPORT_CENTER)
+    #: 派发表住在 `main.py`（整改报告 §10 之后，站内信那条链子多了一跳：入队 → 派发表 → push_events → 消息中心）。
+    main_src = read(BACKEND / "main.py")
 
     # 后端一律只看代码（注释/文档字符串换成空格，**行号不变**）。
     svc_c = code_only(svc)
@@ -232,6 +234,7 @@ def main() -> int:
     enums_c = code_only(enums)
     push_c = code_only(push)
     msg_c = code_only(msg)
+    main_body = code_only(main_src)
     schema_c = code_only(schema)
     ret_c = code_only(ret_svc)
     ai_rr_c = kotlin_code_only(ai_rr)
@@ -480,17 +483,25 @@ def main() -> int:
             "派单端端点被挂上了货主门 —— 派单员会按不了" if sig else "没解析到签名",
         )
 
-    # ---------------------------------------------------------------- 5. 消息双向（3 跳）
-    print("\n== 5. 消息双向：endpoint → push_events → message_center 三跳逐跳接通 ==")
-    bg = sorted(set(re.findall(r"background_tasks\.add_task\(\s*(_bg_notify_\w+)", api_c)))
-    # 不钉住会怎样：只在服务里写了个 `async def _bg_notify_x` 却没人 add_task →
-    # 通知永远不发（申请提了没人知道；办完了没人告诉货主，他以为没办）。
-    c.ok(f"三个写动作都排了后台通知任务（实测 {len(bg)} 个：{bg}）", len(bg) >= 3, f"实际 {bg}")
+    # ---------------------------------------------------------------- 5. 消息双向（四跳：入队 → 派发表 → push_events → message_center）
+    print("\n== 5. 消息双向：endpoint → 发件箱 → 派发表 → push_events → message_center 逐跳接通 ==")
+    # ⚠️ 2026-09-25 换过形状（整改报告 §10）：原来第一跳是 `background_tasks.add_task(_bg_notify_X)`，
+    #    §10 把那批后台任务搬进了事务发件箱 —— 链子变成**四跳**，判据也跟着走：
+    #      端点 enqueue("returns.x") → main.py 派发表 → push_events.push_x → message_center.publish_x
+    #    ⛔ 不放宽：少任何一跳，通知都不落库（申请提了没人知道 / 办完了没人告诉货主）。
+    enqueued = sorted(set(re.findall(r"outbox\.enqueue\(\s*db,\s*\"(returns\.\w+)\"", api)))
+    c.ok(f"三个写动作都入队了（实测 {len(enqueued)} 个：{enqueued}）", len(enqueued) >= 3, f"实际 {enqueued}")
     publish_used: list[str] = []
-    for target in bg:
-        hop1 = c.body_of(api_c, target, "return_requests.py")
-        m1 = re.search(r"await\s+(push_\w+)\(", hop1)
-        c.ok(f"第 1 跳：{target}() 真的 await 了一个 push_*（空壳函数＝通知不发）", m1 is not None)
+    for ev in enqueued:
+        branch = re.search(
+            r'event\.event_type == "' + re.escape(ev) + r'"([\s\S]{0,500}?)(?=\n    if event\.event_type|\Z)',
+            main_src,
+        )
+        m1 = re.search(r"await\s+push_events\.(\w+)\(", branch.group(1)) if branch else None
+        c.ok(
+            f"第 1 跳：派发表里为 {ev} 登记了处理器（没登记＝事件会被反复标记失败、通知永远不发）",
+            m1 is not None,
+        )
         if m1 is None:
             continue
         push_name = m1.group(1)
@@ -663,18 +674,22 @@ def main() -> int:
         "ORDER_RETURN_REQUEST_CLOSE" in labels and bool(labels["ORDER_RETURN_REQUEST_CLOSE"].strip()),
         "表里没有这一条（卡片上会直接印原始码）",
     )
-    # 站内信：orders.py 的后台任务 → push_events → message_center 三跳逐跳接通。
-    # 不钉住会怎样：只在 message_center 里写好发布者、没人调 → 消息永远不落库，
-    # 而"直达"这件事就成了空话（货主连"申请被关了"都不知道）。
+    # 站内信：**四跳**逐跳接通（整改报告 §10 之后链子加了一跳：多了"事务发件箱"）。
+    # ⚠️ 2026-09-25 换过形状：原来是「orders.py 的后台任务 `_bg_notify_return_request_closed` → push_* →
+    #    message_center」；§10 把那批后台任务搬进了发件箱，于是链子是：
+    #      orders_return.py 入队 `returns.request_closed` → main.py 派发表 → push_events → message_center
+    #    ⛔ 判据**不许**因此放宽：少任何一跳，站内信都不落库（货主连"申请被关了"都不知道）。
     c.present(
-        "orders.py 的退货端点真的排了「申请已关闭」那条后台任务",
+        "orders_return.py 的退货端点真的入队了「申请已关闭」那条事件",
         ro_body,
-        r"background_tasks\.add_task\(\s*_bg_notify_return_request_closed",
+        r"outbox\.enqueue\(\s*db,\s*\"returns\.request_closed\"",
     )
-    closed_bg = c.body_of(orders_c, "_bg_notify_return_request_closed", "orders.py")
-    m_cl = re.search(r"await\s+(push_\w+)\(", closed_bg)
-    c.ok("第 1 跳：_bg_notify_return_request_closed() 真的 await 了一个 push_*", m_cl is not None)
-    push_closed_name = m_cl.group(1) if m_cl else ""
+    c.present(
+        "第 1 跳：派发表里为 `returns.request_closed` 登记了处理器（没登记＝事件被反复标记失败）",
+        main_src,
+        r'event\.event_type == "returns\.request_closed"[\s\S]{0,400}?push_events\.push_return_request_closed',
+    )
+    push_closed_name = "push_return_request_closed"
     if push_closed_name:
         hop2c = c.body_of(push_c, push_closed_name, "push_events.py")
         m2c = re.search(r"message_center\.(publish_\w+)\(", hop2c)

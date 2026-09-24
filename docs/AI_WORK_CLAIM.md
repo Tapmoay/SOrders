@@ -20,6 +20,37 @@
 
 ## 进行中
 
+### [2026-09-25 01:4x → ] 会话：**架构整改 · 第 18 轮：阶段 6 §10 —— 生产者全部切完（11 处）+ 补一条"快速通道"**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**做了什么**：最后 11 处后台任务全部切进事务发件箱 ——
+`orders.created`（建单 / 拆单给派单员）、`orders.freight_updated`、`orders.driver_acked`、`orders.navigation_filled`、`orders.edited`、
+`returns.requested` / `returns.rejected` / `returns.done` / `returns.request_closed`，加上退货链路里的 `ledger.updated`。
+**`orders_common.py` 那一整层 `_bg_*` 助手（7 个）与 `return_requests.py` 的 3 个全部删除**：API 层不再自己持有"怎么推"。
+
+⛔ 唯一剩下的后台任务是账本导出的**任务执行器**（`run_ledger_export_job_with_slot`）—— 它是一次长任务 + 占一个文件槽，不是"事件"。
+
+**⚠️ 被 13 条用例逼出来的补充设计：快速通道**
+搬完之后 worker 每 2 秒扫一次，于是**站内信**（消息中心里用户看得见的持久记录）也晚 ≤2 秒出现，13 条既有用例当场红。
+修法**不是**改测试，而是补「响应发出后立刻 drain 一次」：`main.py` 的中间件把 `core/outbox.drain()` 挂成响应的 background task，
+worker 仍每 2 秒扫作兜底 —— 两条路径共用同一套 `claim`/`mark_*`（语义一处；重复投递由消费方幂等兜着）。
+口径因此是：**推送"尽力而为要快"、事件"至少一次不丢"，两者都要**。
+
+**判据第三次跟着搬**（都写清了为什么）：
+- `_check_background_tasks.py`：新增判据 1b「**派发表里的处理器也必须是 async def**」—— 后台任务目标 31 → 1，
+  旧判据的"多目标覆盖"没了，而"把 async 当同步用"那类事故换到派发表上长；
+- `_check_return_request.py`：站内信链从 3 跳改成 **4 跳**（入队 → 派发表 → push_events → message_center），不放宽；
+- `_reverse_verify_background_tasks.py`：4 条锚点因助手被删而失效（锚点检查当场点出 23 → 27），全部改挂到仍然存在的位置，重跑 **6/6 都还会红**；
+- 顺带修掉自己两处误伤：① 删助手的脚本把模块级常量 `UPLOAD_DIR` 一起吞了（ImportError 当场抓到，改用"不再缩进"当块边界）；
+  ② 多行函数签名的块尾没吃掉（`return_requests.py` 语法错），改成按行块处理。
+
+**现状**：派发点 38 = background task **1** + 发件箱入队 **37**；派发目标 19 = 后台任务 1 + 派发表处理器 18。**§10 的"搬"这一步做完了。**
+
+**证据**：发件箱用例 16 条（含快速通道后的两种状态断言）；后端全量 **1009 通过 / 3 红**（reports 文本锚点三条，另一会话）；
+`_check_all.py` **99 个检查 1 红**（同因）；`_check_return_request.py` 141/141；`_check_notify_guardrails.py` 117/117；`_check_ai_guardrails.py` 1280/1280；`/health` 200。
+
+**下一阶段（不是本轮）**：把 `message_center.publish_*` 拆成「写站内信（与业务同事务）」+「发信号（发件箱）」—— 现在站内信由处理器写，
+所以它出现在快速通道那一跳；要让"消息与业务同事务落库"就得做这个拆分。
+
 ### [2026-09-25 01:1x → ] 会话：**架构整改 · 第 17 轮：阶段 6 §10 —— 消息中心切完（6 处）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **做了什么**：`api/v1/notifications.py` 的 6 处推送改成**提交前入队**：

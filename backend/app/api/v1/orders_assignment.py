@@ -39,10 +39,6 @@ from app.services.order_flow import assign_driver, lock_order_row, recall_dispat
 from app.services.accounting_service import BillAlreadySettledError, resync_open_piece_bill
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services import usage_service
-from app.api.v1.orders_common import (
-    _bg_freight_updated,
-    _bg_notify_new_order,
-)
 from app.core import outbox
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -334,10 +330,11 @@ def split_order_endpoint(
         created = split_order(db, order, body.parts, current)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    db.flush()   # 先拿到子单的编号（事件只带编号）
     outbox.enqueue(db, "orders.pending_pool_changed", {})
-    db.commit()
     for c in created:
-        background_tasks.add_task(_bg_notify_new_order, c.id)
+        outbox.enqueue(db, "orders.created", {"order_id": c.id})
+    db.commit()
     return [enrich_order_out(c, db, current) for c in created]
 
 
@@ -375,8 +372,8 @@ def update_order_freight(
             }
         },
     )
+    outbox.enqueue(db, "orders.freight_updated", {"order_id": order.id})
     db.commit()
-    background_tasks.add_task(_bg_freight_updated, order.id)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")

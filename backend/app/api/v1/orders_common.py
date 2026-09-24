@@ -25,20 +25,6 @@ from app.core.rbac import user_role_key
 from app.core.upload_read import MAX_DELIVERY_PHOTO_BYTES, read_limited
 from app.models import Order, User
 from app.models.enums import UserRole
-from app.services.push_events import (
-    push_new_order_to_dispatchers,
-    push_driver_ack_shipper,
-    push_driver_ack_to_dispatchers,
-    push_ledger_updated,
-    push_order_freight_updated,
-    push_order_edited_to_driver,
-    push_navigation_filled,
-    push_return_request_closed,
-)
-
-
-async def _bg_ledger_updated_shipper(shipper_id: int) -> None:
-    await push_ledger_updated(shipper_id)
 
 
 UPLOAD_DIR = Path("uploads") / "delivery"
@@ -91,34 +77,6 @@ def _get_order_scoped(order_id: int, current: User, db: Session) -> Order:
     if role not in (UserRole.SHIPPER.value, UserRole.DRIVER.value, UserRole.DISPATCHER.value):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
     return order
-
-
-async def _bg_freight_updated(order_id: int) -> None:
-    await push_order_freight_updated(order_id)
-
-
-async def _bg_notify_driver_ack(shipper_id: int, order_id: int) -> None:
-    await push_driver_ack_shipper(shipper_id, order_id)
-    await push_driver_ack_to_dispatchers(order_id)
-
-
-async def _bg_notify_navigation_filled(shipper_id: int, order_id: int, place_name: str) -> None:
-    await push_navigation_filled(shipper_id, order_id, place_name)
-
-
-async def _bg_notify_return_request_closed(request_id: int, amount: str, note: str) -> None:
-    """直连退货把那张申请自动关掉之后，告诉货主（2026-09-21 用户拍板的那条规则）。"""
-    await push_return_request_closed(request_id, returned_amount=amount, note=note)
-
-
-async def _bg_notify_new_order(order_id: int) -> None:
-    await push_new_order_to_dispatchers(order_id)
-
-
-async def _bg_notify_order_edited(driver_id: int, order_id: int) -> None:
-    """改单（地址/联系人/配送说明）→ 让司机那一页自己重拉（2026-09-24 第 20 轮 C12-3）。"""
-    await push_order_edited_to_driver(driver_id, order_id)
-
 
 def _order_not_deleted_or_404(order: Order | None) -> Order:
     """取到单之后**统一挡掉隔离区（已进回收站）的单**（2026-09-19 审计 R13-D1）。

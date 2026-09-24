@@ -116,6 +116,26 @@ def main() -> int:
         marks = "async ✅" if kinds == {"async"} else f"❌ {kinds}"
         print(f"   · {name:34} {marks:12} {where[0][0]}")
 
+    # ---- 判据 1b（2026-09-25 新增）：**派发表里的处理器也必须是 async def** ----
+    # 整改报告 §10 把推送从"后台任务"搬进了事务发件箱：后台任务目标从 31 个降到 1 个，
+    # 但"把一个 async 函数当同步用"那类事故换了个地方长 —— 现在它会出现在**派发表**里
+    # （`main.py::_outbox_deliver` 直接 `await push_events.X(...)`）。判据得跟着搬，
+    # 否则旧判据会因为"目标函数变少"而变成空转（这正是它自己防的那件事）。
+    main_src = (APP / "main.py").read_text(encoding="utf-8")
+    handler_calls = sorted(set(re.findall(r"await\s+push_events\.(\w+)\(", main_src)))
+    print(f"派发表里 await 的处理器 {len(handler_calls)} 个")
+    for name in handler_calls:
+        where = global_defs.get(name)
+        if not where:
+            fails.append(f"派发表调用的 `{name}` 在 backend/app 里找不到定义（拼错？已删？）")
+            continue
+        kinds = {k for _, k in where}
+        if "sync" in kinds:
+            fails.append(
+                f"派发表调用的 `{name}` 里有**同步**定义（{sorted(kinds)}）—— "
+                "await 一个同步函数会当场 TypeError，而事件会被记成失败重试到放弃"
+            )
+
     sync_targets = sorted(
         {
             name

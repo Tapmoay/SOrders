@@ -187,6 +187,51 @@ def outbox_stats(db: Session) -> dict[str, int]:
     for status, n in rows:
         out[str(status)] = int(n)
     return out
+async def drain(
+    deliver: Callable[[Event], Awaitable[None]],
+    *,
+    session_factory: Callable[[], Session] | None = None,
+) -> dict[str, int]:
+    """**立刻**派发一批（响应发出后的"快速通道"）。
+
+    ⚠️ 为什么要有它（2026-09-25 实测逼出来的）：发件箱把"推送"从"提交后立刻做"改成了
+    "worker 每 2 秒扫一次"，于是**站内信**（消息中心里那条持久记录）也跟着晚了 ——
+    13 条既有用例当场红（它们断言"提交完就能查到通知"）。
+    站内信是**用户看得见的数据**，不该因为搬了个投递方式就变成"过一会儿才有"。
+    所以：响应发出后立刻 drain 一次（快速通道，与原来的 background task 同一时机），
+    worker 仍然每 2 秒扫一遍作为**兜底**（进程重启、drain 失败、并发漏掉都靠它）。
+    ⛔ 两条路径都走同一套 `claim`/`mark_*`，语义只有一处；重复投递由消费方幂等兜着（本来就至少一次）。
+    """
+    events = await asyncio.to_thread(_claim_sync, session_factory)
+    return await _deliver_batch(deliver, session_factory, events)
+
+
+async def _deliver_batch(
+    deliver: Callable[[Event], Awaitable[None]],
+    session_factory: Callable[[], Session] | None,
+    events: list[Event],
+) -> dict[str, int]:
+    """把一批事件发出去（drain 与 worker 共用这一段）。"""
+    out = {"sent": 0, "retry": 0, "given_up": 0}
+    for ev in events:
+        try:
+            await deliver(ev)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 —— 任何异常都要留痕并退避，不许把事件吞掉
+            detail = type(exc).__name__ + ": " + str(exc)
+            gave_up = await asyncio.to_thread(_fail_sync, session_factory, ev.id, detail)
+            out["given_up" if gave_up else "retry"] += 1
+            logger.warning(
+                "发件箱派发失败 id=%s type=%s%s: %s",
+                ev.id, ev.event_type, "（已放弃）" if gave_up else "（稍后重试）", exc,
+            )
+        else:
+            await asyncio.to_thread(_sent_sync, session_factory, ev.id)
+            out["sent"] += 1
+    return out
+
+
 async def run_forever(
     deliver: Callable[[Event], Awaitable[None]],
     *,
@@ -202,20 +247,7 @@ async def run_forever(
     while True:
         try:
             events = await asyncio.to_thread(_claim_sync, session_factory)
-            for ev in events:
-                try:
-                    await deliver(ev)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001 —— 任何异常都要留痕并退避，不许把事件吞掉
-                    detail = type(exc).__name__ + ": " + str(exc)
-                    gave_up = await asyncio.to_thread(_fail_sync, session_factory, ev.id, detail)
-                    logger.warning(
-                        "发件箱派发失败 id=%s type=%s%s: %s",
-                        ev.id, ev.event_type, "（已放弃）" if gave_up else "（稍后重试）", exc,
-                    )
-                else:
-                    await asyncio.to_thread(_sent_sync, session_factory, ev.id)
+            await _deliver_batch(deliver, session_factory, events)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 —— 一轮出错不该让整个循环退出（下一轮继续）
