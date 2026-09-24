@@ -3,6 +3,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.request_id import get_request_id
 from app.models import OperationLog
 from app.models.enums import OperationAction
 
@@ -22,6 +23,16 @@ def write_log(
     else:
         content = json.dumps(change_payload, ensure_ascii=False)
     act = action.value if isinstance(action, OperationAction) else str(action)
-    row = OperationLog(operator_id=operator_id, order_id=order_id, action=act, change_content=content)
+    # 整改报告 §15 ① 的最后一跳：把这一行接回产生它的那次 HTTP 请求。
+    # ⚠️ 只在这一处填（本函数是全库**唯一**构造 OperationLog 的地方）—— 谁要是绕过它自己
+    #    构造，那一行就永远没有 request_id，而「缺一个字段」不会报错，只会让报障时接不上。
+    rid = get_request_id() or None   # 请求外（后台任务/脚本/保留期治理）→ NULL，不是空串
+    row = OperationLog(
+        operator_id=operator_id,
+        order_id=order_id,
+        action=act,
+        change_content=content,
+        request_id=rid,
+    )
     db.add(row)
     return row

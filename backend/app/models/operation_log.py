@@ -20,6 +20,10 @@ class OperationLog(Base):
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(64), index=True)
     change_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 整改报告 §15 ① 的**最后一跳**：产生这一行的那次 HTTP 请求的 id（`core/request_id.py`）。
+    #: 由 `services/operation_log_service.write_log` 一处填 —— 不在请求上下文里（后台任务、
+    #: 脚本、保留期治理）时是 NULL，那正是「不是某个人点出来的」这个事实。
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # 与 `TimestampMixin` 同一口径：**Python 写 UTC**（审计页的日期、3 年保留期都拿它比）。
     # 原来是 `server_default=func.now()`（库端时钟）→ 生产 +08:00，与本项目"库里存 UTC"
     # 的口径差 8 小时（2026-09-19 外部完整检查 C-2）。`server_default` 只留作原生 SQL 的兜底，
