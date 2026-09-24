@@ -20,6 +20,39 @@
 
 ## 进行中
 
+### [2026-09-24 10:2x → ] 会话：**全项目系统性复核 · 第 26 轮**（**第 8 批 10 份报告的统一修**：R10-1/R10-2；本轮不派新渗透）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
+
+**这一轮的输入**是第 25 轮派出的 10 个子代理留下的 10 份报告（`_archive/audit/round25/01..10-*.md`）。
+按用户定的方式（先读 md、去重排序、一次性整体修改）先修最要命的两处：
+
+| # | 改了什么 | 来源报告 | 提交 |
+| --- | --- | --- | --- |
+| R10-1 | **客户合并漏搬 `cash_flows.party_id`**（唯一真正记钱的键，全后端 0 处更新）→ 合并之后按保留客户筛钱**永远少被并客户那几笔**（本机实测 26 行 ¥11007.00 分在两个 party_id 上），`party_name` 还留着已删客户的名。顺带：`merge_ids` 里不存在的编号原来静默 200 并写一条"合并成功"→ 现在 404；`party_type` 字面量收成一处（写侧/读侧各写一次时"漏搬"类判据会在另一侧静默失效） | 第 25 轮 03-F1/F5 | `39696ae` |
+| R10-2 | **`POST /stats/export` 必 500**：`stats_export.py` 读 `stats_service.shipper_product_chart.TOP_PRODUCTS`（把函数当模块用），而 `TOP_PRODUCTS` 是函数体里的局部名 → `AttributeError`。修法=提到模块级同名常量 | 第 25 轮 05-F6 | `39696ae` |
+
+**⚠️ 本轮唯一没做到位的一步（已如实登记）**：全量 pytest **跑不起来**，不是我的改动导致的 ——
+另一个会话正在写的 `backend/app/api/v1/unit_conversions.py:27` 引用了**不存在**的
+`app.core.time`（`ModuleNotFoundError`），而 `tests/conftest.py` 需要 `from app.main import app`
+→ **整个 app 起不来、pytest 一条都收集不到**。那个文件是他们的在改文件（工作区 15+ 个 ` M`/`??`），
+我**没有碰**。我改用的替代验证：只 import 我改的两个模块，在 %TEMP% 临时库上**直接调端点函数**
+（脚本 `%TEMP%\r26_verify.py`）——四处断言全通过，输出抄在提交信息里。
+`backend/tests/test_customer_merge_cash_flows.py`（2 条判据）已随代码落盘，
+**等他们把那个导入修好之后必须补跑一次全量 pytest**（排在下一轮开头）。
+
+**明确不碰**（另一个会话正在改）：`backend/app/api/v1/{shipper,unit_conversions}.py`、
+`backend/app/core/schema_bootstrap.py`、`backend/app/models/{shipper,unit_conversion}.py`、
+`backend/app/schemas/shipper.py`、`android/.../{Apis.kt,AppRepository.kt,Dtos.kt,
+AiWriteService.kt,AiWriteBasicData.kt,ui/shipper/*}`。
+
+**下一轮队列（第 8 批报告里剩下的，按严重度）**：① `return_requests.status` 任何非 pending
+值都被当成 all → 模型把全部申请报成"被驳回的"（25-09-②，高）；② 收款判据 Σ`line_total`
+vs 后端 `Σ line_receivable`/`arrears` → **退过货的单永久收不了款**（24-10-F1，本机实测虚高 89.90）；
+③ 按分类定价 + 没分类的单 = 0 元且全链路无声（25-06-1，高）；④ AI 改预设单后**商品明细/收货人
+撤不回来**（手写动作从未被撤回判据覆盖，25-04-A1，高）；⑤ 回收站界面零入口（24-02-F1/F2）；
+⑥ 报表中心**一个数据格都点不动**（25-05-F1）+ 同商品两样数（F2）；
+⑦ 到仓入库不含货损、且发生在货损落库之前（25-02-D1）；
+⑧ AI 撤回对**空串旧值**静默不回退（25-01-F1）；⑨ 异步导出任务永远停在 PROCESSING（25-08-1）。
+
 ### [2026-09-24 09:2x → 10:0x] 会话：**全项目系统性复核 · 第 25 轮**（第 8 次并行渗透：**再换 10 个全新区域**；统一修 R9-1…R9-3，1 个提交）【已完成】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **并行渗透（第 8 批区域，见 `_archive/audit/round25/README.md`）**：AI 确认卡「预备↔提交」契约 /
