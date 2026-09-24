@@ -55,6 +55,7 @@ from app.services.accounting_service import resolve_customer_for_order
 from app.services.inventory_service import restock_returned
 from app.services.ledger_response import order_shipper_label
 from app.services.operation_log_service import write_log
+from app.services.order_flow import mark_returned
 from app.services.order_money import money_of, q2
 
 ZERO = Decimal("0")
@@ -346,7 +347,15 @@ def return_order(
     ).all()
     fully = bool(fresh) and all(int(r[1] or 0) >= int(r[0] or 0) for r in fresh)
     if fully:
-        order.status = OrderStatus.RETURNED
+        # ⚠️ 状态跃迁**必须**走 OrderFlow（整改报告 §7：订单状态的写入只有那一个文件）：
+        #    这里原来是 `order.status = OrderStatus.RETURNED`（无条件赋值）—— 与送达/撤销并发时
+        #    会把别人刚写进去的状态**覆盖掉且两边都不报错**，而 SQLite 不认 `FOR UPDATE`，
+        #    所以本地根本测不出来。`mark_returned` 是条件 UPDATE：只有"行现在还是 DELIVERED"的人能改。
+        #    它抛 `ValueError`，在这里翻成 `OrderReturnError`（端点只认这一个 → 400，不会是 500）。
+        try:
+            mark_returned(db, order)
+        except ValueError as exc:
+            raise OrderReturnError(str(exc)) from exc
     order.returned_at = _now()
 
     parts = "、".join(f"{ops[i.order_product_id].product_name_snapshot}×{i.quantity}" for i in items)

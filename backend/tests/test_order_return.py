@@ -489,3 +489,80 @@ def test_return_amount_is_one_number_even_with_four_decimal_prices(
 
     detail = client.get(f"/api/v1/orders/{oid}", headers=h).json()
     assert Decimal(detail["returned_amount"]) == Decimal("24.69"), detail["returned_amount"]
+# ---------------------------------------------------------------- 状态跃迁必须是条件 UPDATE（报告 §7）
+def test_returned_transition_is_a_conditional_update(
+    client, token_dispatcher, token_shipper, token_driver, users, db_session
+):
+    """整单退货那一步（`DELIVERED → RETURNED`）必须是**条件 UPDATE**，不是无条件赋值。
+
+    ## 为什么单独立一条（这一处在本地差点永远测不出来）
+    它原来是 `order.status = OrderStatus.RETURNED`。并发的「退货 × 送达 / 撤销」下，
+    无条件赋值会把**别人刚写进去的状态覆盖掉，而两边都不报错**：
+    一张刚被撤销的单会被改成「已退货」——账本红冲、库存回补都做了，而这单其实已经撤了。
+    ⚠️ 端点上确实写了 `with_for_update()`，但 **SQLite 不认 `FOR UPDATE`**（本仓库那条教训：
+    「只在生产有效的保护等于本地测不出来」）→ 本地跑一百遍也看不到这个问题。
+
+    ## 怎么在单进程里造出那个并发窗口
+    让手上那份 `Order` 快照**是陈旧的**：先读出来、`expunge`（从此与 session 无关），
+    再用**另一个 session** 把库里的状态改成 CANCELLED —— 这正是并发下的真实形状
+    （请求 A 先读到单，请求 B 在这之间把它撤销了）。改之前：A 的无条件赋值覆盖 B；
+    改之后：A 的条件 UPDATE 改到 0 行 → 拒绝。
+    """
+    from sqlalchemy import update
+
+    from app.models import Order
+    from app.models.enums import OrderStatus
+    from app.services.order_flow import mark_returned
+    from tests.conftest import get_test_session_factory
+
+    h, hd = auth_headers(token_dispatcher), auth_headers(token_driver)
+    oid = _order_as_shipper(client, token_shipper, "退货并发探针", qty=2, price="10.00")
+    _deliver(client, h, hd, users, oid)
+
+    stale = db_session.get(Order, oid)
+    assert stale.status == OrderStatus.DELIVERED, "前提不成立：这一单没有送达"
+    db_session.expunge(stale)   # 手上这份快照就此独立（＝另一个请求手里的那个对象）
+    db_session.rollback()       # 把我这边的读事务收掉，免得下面那个 session 写不进去（SQLite 锁）
+    assert stale.status == OrderStatus.DELIVERED, "前提：手上那份快照仍然是旧的"
+
+    other = get_test_session_factory()()
+    try:
+        other.execute(update(Order).where(Order.id == oid).values(status=OrderStatus.CANCELLED))
+        other.commit()
+    finally:
+        other.close()
+
+    raised = False
+    try:
+        mark_returned(db_session, stale)
+    except ValueError:
+        raised = True
+    assert raised, "陈旧快照把别人写的状态覆盖掉了 —— 条件 UPDATE 没起作用"
+
+    db_session.expire_all()
+    now = db_session.get(Order, oid).status
+    assert now == OrderStatus.CANCELLED, f"撤销被退货覆盖成了 {now}（这条用例要挡的就是它）"
+
+
+def test_mark_returned_refuses_orders_never_delivered(
+    client, token_shipper, db_session
+):
+    """没送达的单**永远**不该被标成「已退货」：判据是 CAS 的 WHERE，不靠调用方自觉。"""
+    from app.models import Order
+    from app.models.enums import OrderStatus
+    from app.services.order_flow import mark_returned
+
+    oid = _order_as_shipper(client, token_shipper, "退货未送达探针", qty=1, price="9.00")
+    order = db_session.get(Order, oid)
+    assert order.status == OrderStatus.PENDING_DISPATCH, "前提不成立：新单不是待派单"
+
+    raised = False
+    try:
+        mark_returned(db_session, order)
+    except ValueError:
+        raised = True
+    assert raised, "待派单的单被标成了「已退货」"
+
+    db_session.expire_all()
+    assert db_session.get(Order, oid).status == OrderStatus.PENDING_DISPATCH
+

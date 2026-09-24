@@ -611,6 +611,44 @@ def recall_dispatch(
     )
 
 
+def mark_returned(db: Session, order: Order) -> None:
+    """整单退完 → `RETURNED`。**订单状态跃迁的第三个、也是最后一个写入点**
+    （前两个：`assign_driver` 派单、`complete_delivery` 送达）。
+
+    ⚠️ 为什么必须收进这里（整改报告 §7「状态机唯一写入口」）：
+    改之前 `order_return.py` 里是**无条件赋值** `order.status = OrderStatus.RETURNED`，
+    而「退货完成」与「送达 / 撤销」是**并发**的（司机刚点送达、派单员同时在退货；或两个人同时点退货）。
+    无条件赋值的后果与 `cancel_pending` 那条注释里写的一模一样：
+    **把别人刚写进去的状态覆盖掉，而两边都不报错**。
+
+    ⚠️ 端点虽然 `with_for_update()` 锁了行，但 **SQLite 不认 `FOR UPDATE`**
+    （本仓库反复记着这条：「只在生产有效的保护等于本地测不出来」）——
+    所以在本地/单测里这处覆盖**根本测不出来**，只有条件 UPDATE 两边都成立。
+
+    ⚠️ 只改 `status`，**不碰 `returned_at`**：那个字段的既有口径是「最近一次退货操作的时间」
+    （**部分退货也会写**），由调用方按原样写 —— 挪进来会静默改掉账本/报表读它的口径。
+
+    ⚠️ 抛 `ValueError`（与 `cancel_pending` / `recall_dispatch` 一致）；
+    退货那条链路的调用方负责把它翻成 `OrderReturnError`，否则端点会把它当 500。
+    """
+    claimed = db.execute(
+        update(Order)
+        .where(
+            Order.id == order.id,
+            Order.status == OrderStatus.DELIVERED,
+            # 隔离区（回收站里）的单不许退货 —— 与 `cancel_pending` 同：判完到写之间被删掉也要挡住
+            Order.deleted_at.is_(None),
+        )
+        .values(status=OrderStatus.RETURNED)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError(
+            "这一单刚刚被别的操作改过（可能已撤销 / 已退货 / 正在被另一个人退货），请刷新后重试"
+        )
+    db.refresh(order)
+
+
 def ensure_order_date(d: date | None) -> date:
     """订单业务日期：客户端没传时用**业务当地日**（不是进程本地日）。
 

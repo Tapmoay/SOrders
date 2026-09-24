@@ -20,6 +20,30 @@
 
 ## 进行中
 
+### [2026-09-24 23:5x → ] 会话：**架构整改 · 第 10 轮：阶段 5 §7 —— 把 `RETURNED` 那一处也收进 OrderFlow（订单状态的唯一写入口）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+核心改动：backend/app/services/order_flow.py —— 为什么必须动核心：报告 §7「状态机唯一写入口」——订单状态的写入要只剩这一处，所以在这里新增 `mark_returned()`（条件 UPDATE）
+核心改动：backend/app/services/order_return.py —— 为什么必须动核心：把 `order.status = RETURNED` 那处**无条件赋值**换成调用 OrderFlow 的 CAS（钱的口径、账本红冲、库存回补一行不动）
+
+**第 9 轮勘定的结论**：订单状态的写入只剩 3 处 —— `assign_driver`（派单）/ `complete_delivery`（送达）
+早已用上「条件 UPDATE 占位」（2026-09-19 审计那条：**无条件赋值会把别人刚写进去的状态覆盖掉，而两边都不报错**），
+只有 `order_return.py:349` 还是无条件赋值。⚠️ 而且它与送达/撤销**真的是并发的**：
+端点虽然 `with_for_update()` 锁了行，但 `SQLite 不认 FOR UPDATE`（这是本仓库反复写下的那条教训：
+「只在生产有效的保护等于本地测不出来」）—— 本地/单测环境下这处覆盖**测不出来**。
+
+**改法**：`order_flow.mark_returned(db, order)` ＝ `update(orders).where(id=?, status==DELIVERED, deleted_at is null).values(status=RETURNED)`，
+改到 0 行就 `rollback` + 抛错（与 `cancel_pending` / `recall_dispatch` 同一形状）；`return_order` 把 `ValueError` 翻成 `OrderReturnError`
+（端点只认这一个异常类型 → 400，不会变成 500）。⚠️ **只改 `status`**：`returned_at` 的既有口径是「最近一次退货操作的时间」（**部分退货也会写**），仍由调用方写。
+
+**结果**：`grep "status = OrderStatus"` 现在只命中 `order_flow.py` 一个文件（订单状态的写入真的只剩一处）✓。
+用例 2 条（`tests/test_order_return.py`）：`test_returned_transition_is_a_conditional_update`（**用「陈旧快照 + 另一个 session 撤销」造出并发窗口**：
+断言覆盖被挡住、库里仍是 CANCELLED）、`test_mark_returned_refuses_orders_never_delivered`。退货现有 12 条用例全绿。
+**反向验证**：把 CAS 里的 `status == DELIVERED` 去掉 → 那两条用例当场红（证明它们真的在钉这件事）。
+后端全量 993 通过 / 3 红（那 3 条是另一会话的 reports 重构，与本轮无关）；`_check_all.py` 97 个里 1 红（同上）。
+
+**⚠️ 本轮自己踩的一个坑（记下来免得再犯）**：把 pytest 输出重定向到了**仓库根**（`_t_full.txt` 等），
+被 `_check_ai_guardrails.py` 的「根目录没有临时产物」当场红 —— 临时产物一律写 `%TEMP%`。
+
 ### [2026-09-24 23:4x → ] 会话：**架构整改 · 第 9 轮：阶段 5 先勘定（§7 状态机 / §9 权限）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **为什么先勘定不先动手**：§7 与 §9 都要动**核心区**（`order_flow.py` / `order_return.py` / `rbac.py`），
