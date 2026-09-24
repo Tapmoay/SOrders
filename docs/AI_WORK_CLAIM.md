@@ -20,7 +20,46 @@
 
 ## 进行中
 
-### [2026-09-25 10:0x → ] 会话：**架构整改 · 第 32 轮：阶段 9 §11 第 3 步 —— 数据源（1935 行）也搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】
+### [2026-09-25 06:4x → ] 会话：**架构整改 · 第 33 轮（目标轮 46）：把 H5 归档时删掉的两份「App+后端」反向验证补回来，并因此抓到一条真判据漏洞**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**用户 2026-09-25 稍早拍板**把前端 H5 归档（`frontend/` 从仓库删除）→ 三份**混合主体**的反向验证
+（`_reverse_verify_client_contract` / `_money_display` / `_pagination_wiring`）当时整份删掉，
+并在计划表 §（第 45 轮）如实记下「App/后端那一半暂时没有反向验证」。本轮把**后两份**补齐
+（第一份上一轮已补）。
+
+**① 新增 `_tools/qa/_reverse_verify_money_display.py`（16 条注入 + 前提 + 还原复检 → 17/17 全绿）**
+原来 18 条，其中 2 条打 H5（`formatMoney.ts`、`DispatcherPending.vue`）→ 没有主体；
+剩下 16 条逐条保留（锚点先逐个探过：16 个全部恰好命中一次）。与原版相比**加严**了一处：
+要求红线报出的**是那一条**判据（`[!!]   <标签>`），而不是"随便红了就算抓到"。
+
+**② 新增 `_tools/qa/_reverse_verify_pagination_wiring.py`（10 条注入 → 11/11 全绿）**
+原来 15 条，去掉 5 条 H5（`orders.ts` 两个响应头 + 三个 .vue 的 truncated 标记）。
+
+**③ ⛔ 反向验证当场抓到的一条真漏洞（本轮最有价值的产出）**
+第 ⑬ 条注入「把 `put("amount", AiWriteArgs.money(amount))` 改成 `moneyText(...)`」
+**红线居然全绿**。根因：`_check_money_display.py` §3b 原来只防**一个方向**——"用了
+`AiWriteArgs.money(` 的地方是不是「值」形态"；而那行改成 `moneyText(` 之后**不再含
+`AiWriteArgs.money(`**，于是它**从清单里消失**，剩下的每一处仍然都是值形态 → 判据全绿。
+当时唯一在拦的是条数下限 4~12，而实际 6 处掉到 5 处照样落在区间里。
+修法（**加严，不是放宽**）：补一条反方向判据——**金额 payload 槽
+（`put("amount"/"price"/"value"/"fee", …)`）里不许出现显示口径 `moneyText(`**，
+并加一条"扫到的槽 ≥ 4 处"的反空转下限。红线从 **48 项 → 50 项**，仍是全绿。
+
+**④ 顺带把两处会腐烂的文档数字改对**（都是"手写的会变的数字"，本项目的老毛病）：
+`06_DESIGN_SYSTEM.md` 与 `08_CODE_LOCATOR.md`：金额红线 **54 项 → 50 项**、反向验证
+**18 种注入 → 16 种**、`AiWriteArgs.money(` **"只许剩 6 处" → "只许剩 4~12 处（当前 6 处）"**；
+`08_CODE_LOCATOR.md` 另修两处过期引用：客户端状态口径那行 **36 项 → 29 项**、
+反向验证脚本名 `_reverse_verify_client_contract.py` → `_reverse_verify_client_contract_app.py`、
+"三端同一条显示规则" → "两端（H5 那一端已归档）"。
+
+**证据**：`_reverse_verify_money_display.py` **17/17**；`_reverse_verify_pagination_wiring.py` **11/11**；
+`_check_money_display.py` **50 项全绿**；`_check_client_contract.py` **29 项全绿**；
+`_check_reverse_verify_anchors.py` **110 份脚本 / 1107 条注入原文全部还在**（比原来 +2 份 / +26 条）；
+`_check_all.py` **99/99 全绿**。两份新脚本跑完都逐字节还原（脚本自己核对哈希）。
+
+**明确不碰**：`_check_client_contract.py` 的其余判据、任何别的会话正在改的文件。
+
+### [2026-09-25 10:0x → ] 会话：**架构整改 · 第 32 轮：阶段 9 §11 第 3 步 —— 数据源（1935 行）也搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】：阶段 9 §11 第 3 步 —— 数据源（1935 行）也搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】
 
 核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：报告 §11 要求按职责拆文件，本轮把 `RepoWriteDataSource`（1935 行，真去调 AppRepository 的那一层）整块搬去 `ai/AiWriteDataSource.kt`（同一个包、一个字符没改；Kotlin 编译 BUILD SUCCESSFUL；写闸门的判定逻辑一行未动）
 
@@ -4522,6 +4561,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-09-25 06:4x | **架构整改**（我，`session-e94394d5`） | `docs/PROJECT_MAP/{06_DESIGN_SYSTEM,08_CODE_LOCATOR}.md` | 只改**自己那几行**里手写的过期数字与过期引用：金额红线 **54→50 项**、反向验证 **18→16 种**、`AiWriteArgs.money(` 的「只许剩 6 处」→「只许剩 4~12 处（当前 6 处）」、客户端状态口径 **36→29 项**、已删脚本名 `_reverse_verify_client_contract.py` → `_reverse_verify_client_contract_app.py`、"三端同一条显示规则" → "两端（H5 那一端已归档）"。⛔ **没有覆盖任何别的会话写在同文件里的内容**（改前都重读过最新行） |
 | 2026-09-24 23:2x | **架构整改**（我，`session-e94394d5`） | `AGENTS.md`、`docs/PROJECT_MAP/{03_BACKEND_DETAILS,05_TESTING,08_CODE_LOCATOR}.md` | 第 8 轮：删掉手写的**会变的数字**（检查脚本数 / 端点数 / 反向验证份数 / `orders.py` 规模），改成指向生成物与命令；新增 `_tools/qa/_check_live_doc_counts.py`（27 条）守住。**只动这几行，没有别的会话的内容被覆盖** |
 | 2026-09-22 23:1x | （我） | ⚠️ **`session-78ebd95c` 的提交 `7ab1a32` 把我这一轮的 4 份文档一起提交了** | 它 `git add` 的范围覆盖了 `docs/`：`docs/AI_WORK_CLAIM.md`（我的 进行中 条目 + 交叉点三行）、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§5 拨号那条偏好）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`（「收货人与下单人」「订单详情页」两行）、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` 都被卷进它那个提交。**代码一行没被卷走**（`orders.py` / `OrderDetail*` / `OrderCreate*` / 两条红线 / 两个新文件仍在我的工作区）。后果只有一个：README 之外的人看 git 历史时，那几个文档块会挂在"预订单"那条提交下。⚠️ 08A 那份它提交的是**我改 `orders.py` 之前**生成的版本（`update_order` 在 677 行），我这轮重新生成过（702 行），所以工作区里它又是 ` M` —— 以工作区那份为准 |
 | 2026-09-22 23:0x | （我） | `_tools/qa/_install_all.py --only 5554/5556/5558` 装了三台 | ⚠️ 预检说 `session-78ebd95c` 正在干活（规矩是"各装各的"），但本轮要验的角色分布在**三台**上（派单员/批发商货主/司机），所以逐台 `--only` 装的。**装的是同一个工作区编出来的包**（含它未提交的预订单改动），不是"把别人的机器刷成我的版本"；另外第一次构建时它的 `OrderTemplatesScreen.kt` 正引用着没 import 的 `ShipperTeal`/`MoneyOrange`（编译失败），等它自己修好后重试才装上（我的代码从头到尾没动过那个文件） |

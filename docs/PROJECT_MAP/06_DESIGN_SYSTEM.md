@@ -181,14 +181,18 @@
 | `core/InputRules` 的金额输入框 | 那是**用户自己打的字**，不是显示 |
 
 **AI 层的分工怎么钉住**（这是"显示 vs 值"最容易混的一处）：全 `ai/` 目录里
-`AiWriteArgs.money(` **只许剩 6 处**，且每一处都必须是「值」的形态（`put("price"/"value"/"amount", …)`
-或 `val amount/fee = …`）—— 红线 `_check_money_display.py` §3b 逐行扫出来；
-反向验证里有一条专门注入"把 `put("amount", …)` 也改成去零"。
+`AiWriteArgs.money(` 剩下的**每一处**都必须是「值」的形态（`put("price"/"value"/"amount", …)`
+或 `val amount/fee = …`，2026-09-25 实测 6 处）—— 红线 `_check_money_display.py` §3b 逐行扫出来。
+⛔ **反方向也钉着**（2026-09-25 补）：金额 payload 槽（`put("amount"/"price"/"value"/"fee", …)`）
+里**不许**出现显示口径 `moneyText(` —— 只钉前一个方向时，把
+`put("amount", AiWriteArgs.money(amount))` 改成 `moneyText(` 会让那一行**从清单里消失**
+（它不再含 `AiWriteArgs.money(`），剩下的每一处仍然都是值形态 → 红线**全绿**；
+当时只有条数下限在拦，而 6 处掉到 5 处照样落在 4~12 里。反向验证第 ⑬ 条实测抓到后补的这条判据。
 
-判据：`_tools/qa/_check_money_display.py`（**54 项**，含"清单自己算"：扫界面里每一处 `¥`、
-扫后端每一条 `¥{…}` 与 `{…} 元`、扫 `ai/` 里每一处 `AiWriteArgs.money(`）+
-反向验证 `_reverse_verify_money_display.py`（**18 种注入**，
-含"顺手把 `goodsTotalText` 也去零"这一种）。
+判据：`_tools/qa/_check_money_display.py`（**50 项**，含"清单自己算"：扫界面里每一处 `¥`、
+扫后端每一条 `¥{…}` 与 `{…} 元`、扫 `ai/` 里每一处 `AiWriteArgs.money(` 与每一个金额 payload 槽）+
+反向验证 `_reverse_verify_money_display.py`（**16 种注入** —— 原来 18 种，其中 2 种打 H5，
+`frontend/` 归档后没有主体；含"顺手把 `goodsTotalText` 也去零"这一种）。
 
 ### 4.2 卡片上的动作：三个就一排等宽大按钮，其余进「编辑」页（2026-09-21 改）
 
