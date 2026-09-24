@@ -263,3 +263,18 @@ python _tools/backup/_drill_local.py                 # 恢复演练
 
 `git push origin p:new` 成功（`19706d0..c6c841c`，需先手动打开本机代理：`D:\APPS\Clash Verge\clash-verge.exe`）。
 GitHub Actions 已触发两条：**Gate**（常闸：静态检查 + 后端用例 + 前端构建）与 **Tests (Parallel)**。
+
+
+### 4.4 前端 H5 归档：进行中（做完才提交，按规矩「全绿才提交」）
+
+**已完成**：① `gate.yml` 的 `frontend-build` 作业删掉（留了说明注释）；② `git rm -r frontend`（5941 个文件已复制到 gitignore 的
+`_archive/frontend-H5-归档-20260925/`，代码本体仍可从 git 历史取回）；③ `_check_offline_queue.py` + `_reverse_verify_offline_queue.py`
+**整份删除**（这条红线的主体就是 H5 离线队列，H5 没了它没有主体）；④ `_check_order_return.py` 117/117（删掉 H5 那两条断言）；
+⑤ `_check_money_display.py` 48/48（第 5 节「H5 金额漏斗」整段删掉 + H5 常量与断言）；⑥ `_check_pagination_wiring.py` 40/40（H5 那一段停用）。
+
+**还没做（下一轮接着做，做完再提交）**：
+  · `_check_client_contract.py`：H5 半分还在（`FE_SRC` 常量、② H5 状态模型、⑤ H5 入口、⑥ H5 调的端点、643 行的 DispatcherLedger.vue 检查）——
+    现在的失败是 `FileNotFoundError: frontend/src/api/orders.ts`；
+  · `_reverse_verify_client_contract.py`（18 处）、`_reverse_verify_money_display.py`（4）、`_reverse_verify_pagination_wiring.py`（8）：H5 锚点要跟着删/重指；
+  · `_tools/baseline/_capture_baseline.py`（12 处，采集项里有前端构建/文件数）；`README.md`（5 处，提到的 frontend 目录）；
+  · 收尾：`node_modules`/`dist` 等未跟踪残留要清干净、重跑生成物、`_check_all.py` 100/100 之后**一次性提交**。
