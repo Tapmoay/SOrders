@@ -13,6 +13,11 @@
   ⑤ `re:` 前缀那一支被拿掉（正则锚点会被误报成腐烂）→ 必须按正则再看一眼；
   ⑥ 允许表里留下一条化石 → 必须报出来。
 
+2026-09-24 第 35 轮补的两条（那次真被硬中断坑了一次，见下面 ⑦ 的由来）：
+  ⑦ **注入残留**：原文找不到、而**替换串在目标文件里** → 必须报「注入残留」，
+     而且**不许**再给「去更新锚点」那句话（两者修法相反，说反了就是把 bug 永久钉进源码）；
+  ⑧ `--restore` 必须真的把文件**按字节换回原文**（不能只打印一句"已还原"）。
+
 ⚠️ 快照/还原按**字节**做，跑完逐字节核对（本项目栽过"注入把 bug 留在源码里"）。
 
 用法：python _tools/qa/_reverse_verify_anchor_audit.py
@@ -29,9 +34,11 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECK = "_tools/qa/_check_reverse_verify_anchors.py"
 #: 被注入的"别人的脚本"（这条元检查的审计对象）。
 VICTIM = "_tools/qa/_reverse_verify_input_rules.py"
+#: ⑦⑧ 要弄脏的那个**源码文件**：VICTIM 的第 1 条注入就是在这里把电话过滤摘掉的。
+VICTIM_TARGET = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt"
 
-#: (说明, 相对路径, 被替换的原文, 替换成, 期望在 [FAIL]/输出里出现的关键词)
-CASES: list[tuple[str, str, str, str, str]] = [
+#: (说明, 相对路径, 被替换的原文, 替换成, 期望在输出里出现的关键词[, 额外参数][, 期望"跑完是干净的"])
+CASES: list[tuple] = [
     (
         "某一份脚本的锚点腐烂了（原文已经不在目标文件里）→ 必须点名那一份",
         VICTIM,
@@ -74,12 +81,41 @@ CASES: list[tuple[str, str, str, str, str]] = [
         'ALLOW: dict[tuple[str, str], str] = {\n    ("_reverse_verify_ZZZ_不存在.py", "一条早就删掉的注入"): "化石",',
         "化石",
     ),
+    (
+        # ⚠️ 由来：2026-09-24 一次反向验证被硬中断（工具调用被取消 → 进程树被杀），
+        #    `AiRevert.kt` 里留下了注入的 bug。这条检查当时只说"1 条注入原文找不到了"，
+        #    而那句话的默认修法是「去改锚点」—— 照着做 = 把注入的 bug 永久钉进源码，
+        #    这条反向验证从此恒绿。所以「替换串在文件里」必须判成**注入残留**。
+        "源码里留着上一次没还原的注入（原文没了、替换串在）→ 必须报「注入残留」，且不许再说「去更新锚点」",
+        VICTIM_TARGET,
+        "onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },",
+        "onValueChange = { vm.dongjiaPhone = it },",
+        "注入残留",
+        [],
+        False,
+        # ⛔ 这一格才是这条注入的**要害**：残留时若还印着「去更新锚点」那句修法，
+        #    照着做就是把注入的 bug 永久钉进源码。
+        "只改锚点",
+    ),
+    (
+        "`--restore` 必须真的按字节换回原文（不是只打印一句「已还原」）",
+        VICTIM_TARGET,
+        "onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },",
+        "onValueChange = { vm.dongjiaPhone = it },",
+        "已按注入串换回原文",
+        ["--restore"],
+        True,
+    ),
 ]
 
 
-def run_check() -> tuple[int, str]:
+def run_check(extra: list[str] | None = None) -> tuple[int, str]:
     r = subprocess.run(
-        [sys.executable, CHECK], capture_output=True, text=True, encoding="utf-8", errors="replace"
+        [sys.executable, CHECK, *(extra or [])],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
@@ -92,10 +128,14 @@ def main() -> int:
         return 1
     print("✅ 前提：源码完好时这条检查是绿的")
 
-    touched = sorted({rel for _l, rel, _o, _n, _e in CASES})
+    touched = sorted({c[1] for c in CASES})
     originals = {rel: (ROOT / rel).read_bytes() for rel in touched}
 
-    for label, rel, old, new, expect in CASES:
+    for case in CASES:
+        label, rel, old, new, expect = (list(case) + [None] * 4)[:5]
+        extra = case[5] if len(case) > 5 else []
+        want_restored = case[6] if len(case) > 6 else False
+        forbid = case[7] if len(case) > 7 else None
         original_bytes = originals[rel]
         crlf = b"\r\n" in original_bytes
         plain = original_bytes.decode("utf-8").replace("\r\n", "\n")
@@ -107,11 +147,26 @@ def main() -> int:
         try:
             data = mutated.replace("\n", "\r\n") if crlf else mutated
             (ROOT / rel).write_bytes(data.encode("utf-8"))
-            code, out = run_check()
+            code, out = run_check(extra)
+            restored_now = (ROOT / rel).read_bytes() == original_bytes
         finally:
             (ROOT / rel).write_bytes(original_bytes)
-        hit = code != 0 and expect in out
-        detail = f"退出码 {code}" + ("" if hit else f"，输出里没有「{expect}」")
+        if want_restored:
+            # `--restore` 之后仍然**非零**退出是**故意**的（树刚才确实是脏的），
+            # 所以这里断言三件事：报红、说了"已按注入串换回原文"、**文件真的逐字节回到原文**。
+            hit = code != 0 and expect in out and restored_now
+            detail = f"退出码 {code}，逐字节还原={restored_now}"
+            if expect not in out:
+                detail += f"，输出里没有「{expect}」"
+            elif not restored_now:
+                detail += "，文件没被改回原文"
+        else:
+            hit = code != 0 and expect in out and not (forbid and forbid in out)
+            detail = f"退出码 {code}"
+            if expect not in out:
+                detail += f"，输出里没有「{expect}」"
+            elif forbid and forbid in out:
+                detail += f"，⛔ 输出里**还有**「{forbid}」（这正是要拦的那句误导性修法）"
         print(f"  [{'OK' if hit else 'MISS'}] {label} → {detail}")
         if not hit:
             for ln in out.splitlines()[-12:]:

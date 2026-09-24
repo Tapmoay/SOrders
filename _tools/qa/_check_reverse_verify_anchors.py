@@ -37,7 +37,25 @@
 ⚠️ 它**不替代**反向验证：锚点还在 ≠ 那条注入真能让检查变红（判据写错、期望文案对不上都测不出来）。
 这条只负责「**别让注入悄悄失效**」，两件事互补。
 
-用法：python _tools/qa/_check_reverse_verify_anchors.py [--verbose]
+### 2026-09-24 第 35 轮补的那一半：**「锚点找不到」有两种，修法相反**
+
+那次实测代价：一份反向验证被**硬中断**（工具调用被取消 → 进程树被杀），
+`AiRevert.kt` 里留下了**注入的 bug**（`顺序**整份**`）。这条检查当时报的是
+「1 条注入原文找不到了」，而这句话的**默认修法**是「去脚本里把锚点改成现在的写法」——
+照着做就等于**把注入的 bug 永久钉进源码**，那条反向验证从此恒绿（比锚点腐烂严重得多）。
+
+所以现在把两种成因分开判：
+
+| 现象 | 判定 | 修法 |
+| --- | --- | --- |
+| 原文找不到，**替换串也不在** | 锚点腐烂（源码改了写法） | 去脚本里更新锚点（只改锚点，不动判据） |
+| 原文找不到，而**替换串正躺在目标文件里** | **注入残留**（上一次反向验证没还原） | `--restore` 按注入串换回原文；⛔ **绝不要去改锚点** |
+
+判据是注入的"另一半"：每条注入都声明了「原文 → 替换成」，替换串只可能来自注入本身。
+
+用法：
+  python _tools/qa/_check_reverse_verify_anchors.py [--verbose]
+  python _tools/qa/_check_reverse_verify_anchors.py --restore   # 还原注入残留（会先备份）
 """
 from __future__ import annotations
 
@@ -45,9 +63,13 @@ import argparse
 import ast
 import re
 import sys
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import refuse_if_injecting  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -61,6 +83,10 @@ EXCLUDE_NAMES = {"_reverse_verify_all.py"}
 #: 而不是安静地什么都查不到（本项目栽过 5 次的形状）。
 MIN_SCRIPTS = 90
 MIN_CASES = 850
+
+#: 能拿到「替换成」那一格的锚点数下限（第 35 轮加的判据要用它）——实测 1018 条，
+#: 抽不出来时就会有一条"注入残留永远判不出来"的检查悄悄变成绿的，所以要有下限。
+MIN_WITH_NEW = 900
 
 #: 有些脚本把"替换"包成自己的小助手（`sub("原文", "替换成")`）——这一格也要认。
 HELPER_NAMES = {"sub", "substitute", "replace", "mutate", "inject", "swap"}
@@ -292,6 +318,44 @@ def _pairs_from_calls(node: ast.AST, consts: dict[str, ast.AST], depth: int) -> 
 
 # ---------------------------------------------------------------- 核对
 
+@dataclass
+class Leftover:
+    """一处**注入残留**：原文不在、而替换串在目标文件里（上一次反向验证被硬中断留下的）。"""
+
+    script: Path
+    label: str
+    target: Path
+    old: str
+    new: str
+    lineno: int
+    hits: int
+
+
+def restore_leftover(it: Leftover) -> tuple[bool, str]:
+    """把一处注入残留按「替换串 → 原文」换回去。返回 (是否成功, 说明)。
+
+    ⛔ 只在**替换串在文件里恰好出现一次**时才动手（宁可拒绝也不猜）：出现多次时分不清哪一处
+    是注入留下的，猜错就把用户真写的内容改掉了。改之前先把原文件按字节备份到临时目录。
+    """
+    if it.hits != 1:
+        return False, (
+            f"替换串在文件里出现 {it.hits} 次，分不清哪一处是注入留下的 —— 没改任何东西，"
+            "请人工看 `git diff <文件>`"
+        )
+    raw = it.target.read_bytes()
+    crlf = b"\r\n" in raw
+    plain = raw.decode("utf-8").replace("\r\n", "\n")
+    if plain.count(it.new) != 1:
+        return False, "替换串在按行尾归一后的文本里对不上，放弃（没改任何东西）"
+    bak_dir = Path(tempfile.gettempdir()) / "dsh_rv_restore_backup"
+    bak_dir.mkdir(parents=True, exist_ok=True)
+    bak = bak_dir / (it.target.name + ".before-restore")
+    bak.write_bytes(raw)
+    fixed = plain.replace(it.new, it.old, 1)
+    it.target.write_bytes((fixed.replace("\n", "\r\n") if crlf else fixed).encode("utf-8"))
+    return True, f"已按注入串换回原文（原文件备份：{bak}）"
+
+
 def count_in(text: str, old: str) -> int:
     """按各脚本读源码的实际口径数一遍（它们普遍把 CRLF 统一成 \\n 再数）。"""
     if not old:
@@ -300,6 +364,15 @@ def count_in(text: str, old: str) -> int:
     if n:
         return n
     return text.count(old)
+
+
+def line_of(text: str, needle: str) -> int:
+    """`needle` 在文件里的行号（1 基）——报"注入残留"时要说清在哪儿。"""
+    plain = text.replace("\r\n", "\n")
+    i = plain.find(needle)
+    if i < 0:
+        return 0
+    return plain[:i].count("\n") + 1
 
 
 def regex_hit(text: str, old: str) -> bool:
@@ -320,18 +393,23 @@ def regex_hit(text: str, old: str) -> bool:
 
 def audit_script(
     script: Path, seen_keys: set[tuple[str, str]] | None = None
-) -> tuple[list[tuple[str, Path, list[str]]], int]:
-    """返回 (问题列表, 本脚本核对的"原文"条数)。问题 = (标签, 目标文件, 说明列表)。"""
+) -> tuple[list[tuple[str, Path, list[str]]], int, list[Leftover], int]:
+    """返回 (锚点腐烂列表, 核对的原文条数, 注入残留列表, 能拿到替换串的条数)。
+
+    问题 = (标签, 目标文件, 说明列表)；注入残留 = Leftover。
+    """
     src = script.read_text(encoding="utf-8")
     try:
         tree = ast.parse(src)
     except SyntaxError as e:  # pragma: no cover
-        return [("<整份脚本>", script, [f"AST 解析失败：{e}"])], 0
+        return [("<整份脚本>", script, [f"AST 解析失败：{e}"])], 0, [], 0
     uses_regex = "re.subn(" in src or re.search(r"\bre\.sub\(", src) is not None
 
     consts = collect_consts(tree)
     problems: list[tuple[str, Path, list[str]]] = []
+    leftovers: list[Leftover] = []
     checked = 0
+    with_new = 0
     for node in ast.walk(tree):
         if not isinstance(node, ast.Tuple) or not (3 <= len(node.elts) <= 7):
             continue
@@ -349,13 +427,21 @@ def audit_script(
         if len(node.elts) == 3 and isinstance(node.elts[2], ast.Constant):
             continue
 
-        olds: list[str] = []
-        for a, _ in pairs_in(node.elts[2], consts):
-            olds.append(a)
+        pairs = pairs_in(node.elts[2], consts)
+        # ⚠️ 第 35 轮补：最常见的形状是 **5 元组** `(说明, 路径, 原文, 替换成, 期望)`
+        #    ——「替换成」在 `elts[3]`，而 `pairs_in(elts[2])` 只给得出原文。
+        #    少了这一格，「注入残留」就一条都判不出来（实测：只认 elts[2] 时 1160 条里
+        #    只有 515 条拿得到替换串；补上 elts[3] 后 1018 条）。**只补空着的那一半**，
+        #    lambda 形状自带的替换串不许被覆盖。
+        nxt = const_string(node.elts[3], consts) if len(node.elts) >= 4 else None
+        if nxt and nxt.strip():
+            pairs = [(a, b or nxt) for a, b in pairs]
+        olds = [a for a, _ in pairs]
         if not olds:
             continue
         if seen_keys is not None:
             seen_keys.add((script.name, label))
+        with_new += sum(1 for _a, b in pairs if b and b.strip())
 
         if not target.exists():
             checked += len(olds)
@@ -364,7 +450,7 @@ def audit_script(
             continue
         text = target.read_text(encoding="utf-8", errors="replace")
         bad: list[str] = []
-        for old in olds:
+        for old, new in pairs:
             checked += 1
             # 有些脚本用 `re:` 前缀显式标出"这一格是正则"（替换串按正则匹配）。
             if old.startswith("re:"):
@@ -376,10 +462,26 @@ def audit_script(
                 continue
             if uses_regex and regex_hit(text, old):
                 continue
+            # ⛔ 原文没了，而**替换串在**：这不是锚点腐烂，是上一次注入没还原。
+            #    两者的修法相反（一个要改锚点、一个绝不能改锚点），所以必须分开报。
+            hits = count_in(text, new) if (new and new.strip()) else 0
+            if hits:
+                leftovers.append(
+                    Leftover(
+                        script=script,
+                        label=label,
+                        target=target,
+                        old=old,
+                        new=new,
+                        lineno=line_of(text, new),
+                        hits=hits,
+                    )
+                )
+                continue
             bad.append(f"原文找不到（{preview(old)}）")
         if bad and (script.name, label) not in ALLOW:
             problems.append((label, target, bad))
-    return problems, checked
+    return problems, checked, leftovers, with_new
 
 
 def preview(s: str, n: int = 60) -> str:
@@ -391,24 +493,34 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="（兼容 _check_all 的调用约定；失败一律非零退出）")
     ap.add_argument("--verbose", action="store_true", help="逐份列出核对了多少条原文")
+    ap.add_argument(
+        "--restore",
+        action="store_true",
+        help="把「注入残留」按注入串换回原文（只动恰好出现一次的；改前按字节备份到 %%TEMP%%）",
+    )
     args = ap.parse_args()
 
     scripts = iter_scripts()
     total = 0
     n_scripts_with_table = 0
     all_problems: list[tuple[Path, str, Path, list[str]]] = []
+    all_leftovers: list[Leftover] = []
     per: list[tuple[Path, int, int]] = []
     seen_keys: set[tuple[str, str]] = set()
+    with_new = 0
     for s in scripts:
-        problems, n = audit_script(s, seen_keys)
+        problems, n, leftovers, wn = audit_script(s, seen_keys)
         total += n
+        with_new += wn
         if n:
             n_scripts_with_table += 1
-        per.append((s, n, len(problems)))
+        per.append((s, n, len(problems) + len(leftovers)))
         for label, target, why in problems:
             all_problems.append((s, label, target, why))
+        all_leftovers.extend(leftovers)
 
-    print(f"扫到 {len(scripts)} 份反向验证脚本（自己算），核对了 {total} 条注入原文。")
+    print(f"扫到 {len(scripts)} 份反向验证脚本（自己算），核对了 {total} 条注入原文"
+          f"（其中 {with_new} 条同时拿得到「替换成」那一格，用来判注入残留）。")
     if args.verbose:
         for s, n, bad in sorted(per, key=lambda x: x[1]):
             print(f"  {'❌' if bad else '  '} {s.relative_to(REPO)}  {n} 条" + (f"，{bad} 处失效" if bad else ""))
@@ -421,6 +533,12 @@ def main() -> int:
         print(
             f"❌ 只核对到 {total} 条原文（少于 {MIN_CASES}）："
             "AST 抽取认不出这些脚本的写法了 —— **抽取失效比锚点腐烂更危险**（那会变成一条永远绿的检查）。"
+        )
+        fail = True
+    if with_new < MIN_WITH_NEW:
+        print(
+            f"❌ 只有 {with_new} 条锚点拿得到「替换成」那一格（少于 {MIN_WITH_NEW}）："
+            "**注入残留这一半判据等于没在跑**（它靠替换串认人）。先修抽取，再信这条检查。"
         )
         fail = True
 
@@ -445,6 +563,51 @@ def main() -> int:
                 print(f"      问题：{w}")
         print("\n修法：去那份脚本里把「被替换的原文」改成目标文件里现在真实的写法（**只改锚点，不动判据**）。")
         fail = True
+
+    if all_leftovers:
+        # ⚠️ **同一处注入会被多条声明指到**（实测：OrderCreateScreen.kt 那一行电话过滤，
+        #    有 3 份反向验证脚本各声明了一条同名注入）—— 按 (目标文件, 注入串, 原文) 去重，
+        #    否则第二、三条会去改一处**刚刚已经修好**的地方，报出莫名其妙的"对不上"。
+        grouped: dict[tuple[Path, str, str], list[Leftover]] = {}
+        for it in all_leftovers:
+            grouped.setdefault((it.target, it.new, it.old), []).append(it)
+        uniq = [v[0] for v in grouped.values()]
+        print(
+            f"\n⛔ {len(uniq)} 处**注入残留**（不是锚点腐烂；共 {len(all_leftovers)} 条注入声明指向它们）："
+            " 原文找不到，而那条注入的**替换串正躺在目标文件里** ——"
+            "这是**上一次反向验证被硬中断**（工具调用被取消 / Ctrl+C / 进程被杀）留下的，"
+            "也就是**一个真的 bug 现在就在源码里**。"
+        )
+        for it in uniq:
+            rel = it.target.relative_to(REPO) if it.target.is_relative_to(REPO) else it.target
+            n = len(grouped[(it.target, it.new, it.old)])
+            print(f"  · {rel}:{it.lineno}" + (f"（{n} 条注入声明指向这里）" if n > 1 else ""))
+            print(f"      注入串：{preview(it.new)}")
+            print(f"      来自：{it.script.relative_to(REPO)} ｜ 标签：{it.label}")
+            print(f"      该处原文应为：{preview(it.old)}")
+        print(
+            "\n⛔ **不要去改锚点**：照那句「更新锚点」做 = 把注入的 bug 永久钉进源码，"
+            "这条反向验证从此恒绿（比锚点腐烂严重得多）。\n"
+            "  修法：python _tools/qa/_check_reverse_verify_anchors.py --restore"
+        )
+        fail = True
+        if args.restore and not refuse_if_injecting("锚点检查（--restore）"):
+            # ⚠️ 反向验证正在跑时，"替换串在文件里"是**正常的注入状态**，不能当残留还原。
+            fixed_ok = 0
+            for it in uniq:
+                ok, why = restore_leftover(it)
+                print(f"  {'✅' if ok else '⛔'} {it.target.name}:{it.lineno} —— {why}")
+                fixed_ok += 1 if ok else 0
+            if fixed_ok == len(uniq):
+                print(
+                    f"\n✅ {fixed_ok} 处注入残留已按字节还原，请重跑这条检查确认全绿。"
+                    "\n（本次仍以**非零**退出：刚才源码树确实是脏的 —— 修好了不等于没发生过；"
+                    "重跑一次变绿才代表可以继续。）"
+                )
+            else:
+                print(f"\n❌ {len(uniq) - fixed_ok} 处没能自动还原（见上面的理由），请人工处理。")
+    elif args.restore:
+        print("\n（--restore：没有发现注入残留，什么都没改。）")
 
     if not fail:
         print(f"✅ {total} 条注入原文全部还在（{n_scripts_with_table}/{len(scripts)} 份脚本的注入表都认得出）。")
