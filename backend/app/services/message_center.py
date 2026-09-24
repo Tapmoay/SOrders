@@ -54,6 +54,25 @@ async def emit_notification(n: Notification) -> None:
     await emit_unread_count(n.recipient_id)
 
 
+async def emit_notification_by_id(notification_id: int) -> None:
+    """按编号重新取那一条再推（事务发件箱的处理器入口）。
+
+    ⚠️ 为什么不让事件把整条消息带着走：负载里塞一份**快照**就等于两处状态
+    （发件箱里那份与消息中心里那份），改了消息之后推出去的还是旧的；只带编号则永远推的是当前值。
+    行已经不在（被删/保留期清理）就静默跳过 —— 那说明这条事件没有意义了，不是故障。
+    """
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        n = db.get(Notification, notification_id)
+        if n is None:
+            return
+        await emit_notification(n)
+    finally:
+        db.close()
+
+
 async def emit_unread_count(recipient_id: int) -> None:
     from app.database import SessionLocal
 

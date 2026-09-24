@@ -159,8 +159,17 @@ def main() -> int:
             f"只认出 {total_sites} 个派发点（background task {len(sites)} + 发件箱 {outbox_sites}，<25）"
             " —— 判据可能已空转"
         )
-    if len(targets) < 12:
-        fails.append(f"只认出 {len(targets)} 个后台任务目标函数（<12）—— 判据可能已空转")
+    # 目标函数那一格同理（同上那段"改口径"的注释）：发件箱的**派发表**也是"派发目标"，
+    # 一起算才既能防"defs 解析瞎了"，又不会把"按计划搬家"判成事故。
+    main_src = (APP / "main.py").read_text(encoding="utf-8")
+    outbox_handlers = len(re.findall(r'event\.event_type\s*==\s*"', main_src))
+    total_targets = len(targets) + outbox_handlers
+    print(f"  派发目标总数 {total_targets} 个 = 后台任务目标 {len(targets)} + 派发表处理器 {outbox_handlers}")
+    if total_targets < 12:
+        fails.append(
+            f"只认出 {total_targets} 个派发目标（后台任务 {len(targets)} + 派发表 {outbox_handlers}，<12）"
+            " —— 判据可能已空转"
+        )
 
     if fails:
         print("\n❌ 后台任务事件循环纪律被破坏：")

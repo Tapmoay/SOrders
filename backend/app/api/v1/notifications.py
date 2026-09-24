@@ -18,14 +18,13 @@ from app.schemas.notification import (
     NotificationUpdate,
 )
 from app.schemas.price_notify import PriceChangeNotifyBody
-from app.services.message_center import emit_notification, emit_unread_count
+from app.core import outbox
 from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
-
-async def _bg_emit_unread(user_id: int) -> None:
-    await emit_unread_count(user_id)
+#: ⚠️ 这个文件里原来的 `_bg_emit_unread` 助手与 `emit_notification` 后台任务都**搬进事务发件箱**了
+#: （整改报告 §10）：事件只带编号，处理器按编号重新取那一条再推 —— 见 `main.py::_outbox_deliver`。
 
 
 @router.get("/unread-count")
@@ -157,10 +156,10 @@ def notify_price_change(
         )
         db.add(n)
         out.append(n)
-    db.commit()
+    db.flush()   # 先拿 id：事件只带编号，处理器按编号重取那一条
     for n in out:
-        db.refresh(n)
-        background_tasks.add_task(emit_notification, n)
+        outbox.enqueue(db, "notifications.created", {"notification_id": n.id})
+    db.commit()
     return out
 
 
@@ -181,9 +180,10 @@ def create_notification(
         speech_important=body.speech_important,
     )
     db.add(n)
+    db.flush()
+    outbox.enqueue(db, "notifications.created", {"notification_id": n.id})
     db.commit()
     db.refresh(n)
-    background_tasks.add_task(emit_notification, n)
     return n
 
 
@@ -201,8 +201,8 @@ def mark_all_read(
     now = datetime.now(timezone.utc)
     for n in rows:
         n.read_at = now
+    outbox.enqueue(db, "notifications.unread_changed", {"user_id": current.id})
     db.commit()
-    background_tasks.add_task(_bg_emit_unread, current.id)
     return {"updated": len(rows)}
 
 
@@ -259,8 +259,8 @@ def batch_delete_notifications(
                 "note": "派单员删除了**别人的**站内信（该账号自己的消息中心不再有这些条）",
             },
         )
+    outbox.enqueue(db, "notifications.unread_changed", {"user_id": target})
     db.commit()
-    background_tasks.add_task(_bg_emit_unread, target)
     return {"deleted": result.rowcount}
 
 
@@ -345,8 +345,8 @@ def delete_notification(
             },
         )
     db.delete(n)
+    outbox.enqueue(db, "notifications.unread_changed", {"user_id": rid})
     db.commit()
-    background_tasks.add_task(_bg_emit_unread, rid)
 
 
 @router.post("/{notification_id}/read", response_model=NotificationOut)
@@ -360,7 +360,7 @@ def mark_read(
     if n is None or n.recipient_id != current.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到对应记录")
     n.read_at = datetime.now(timezone.utc)
+    outbox.enqueue(db, "notifications.unread_changed", {"user_id": current.id})
     db.commit()
     db.refresh(n)
-    background_tasks.add_task(_bg_emit_unread, current.id)
     return n

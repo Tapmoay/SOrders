@@ -330,6 +330,38 @@ def test_deleting_a_ledger_entry_enqueues_the_refresh(client, token_dispatcher, 
     }, events[0].payload_dict()
 
 
+def test_marking_a_notification_read_enqueues_the_unread_event(
+    client, token_shipper, users, db_session
+):
+    """消息中心那几处（本轮切过来）：标记已读 → `notifications.unread_changed`。
+
+    事件只带**用户编号**，处理器按编号现算未读数 —— 不带"未读数是多少"的快照，
+    否则同一件事会有两个数（发件箱里那份 vs 消息中心里那份）。
+    """
+    from app.models import Notification
+
+    _clear(db_session)
+    n = Notification(
+        recipient_id=users["shipper"].id,
+        category="order",
+        type="order.assigned",
+        title="发件箱消息探针",
+        content="",
+    )
+    db_session.add(n)
+    db_session.commit()
+
+    read = client.post(
+        f"/api/v1/notifications/{n.id}/read", headers=auth_headers(token_shipper)
+    )
+    assert read.status_code == 200, read.text
+
+    db_session.expire_all()
+    events = [x for x in _rows(db_session) if x.event_type == "notifications.unread_changed"]
+    assert len(events) == 1, [x.event_type for x in _rows(db_session)]
+    assert events[0].payload_dict() == {"user_id": users["shipper"].id}, events[0].payload_dict()
+
+
 def test_outbox_stats_counts_by_status(db_session):
     _clear(db_session)
     outbox.enqueue(db_session, "orders.assigned", {})

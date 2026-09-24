@@ -867,7 +867,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications",
-   "at": "backend/app/api/v1/notifications.py:40",
+   "at": "backend/app/api/v1/notifications.py:39",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -926,7 +926,7 @@
    "module_cn": "消息通知",
    "method": "get",
    "path": "/api/v1/notifications/unread-count",
-   "at": "backend/app/api/v1/notifications.py:32",
+   "at": "backend/app/api/v1/notifications.py:31",
    "auth": "仅登录",
    "roles": [
     "dispatcher",

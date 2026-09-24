@@ -203,10 +203,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/notifications/unread-count` | `unread_count` | `backend/app/api/v1/notifications.py:32` | 仅登录 |
-| 2 | `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:40` | 仅登录 |
-| 3 | `POST /api/v1/notifications/price-notify` | `notify_price_change` | `backend/app/api/v1/notifications.py:122` | 权限:NOTIFICATION_MANAGE |
-| 4 | `POST /api/v1/notifications` | `create_notification` | `backend/app/api/v1/notifications.py:168` | 权限:NOTIFICATION_MANAGE |
+| 1 | `GET /api/v1/notifications/unread-count` | `unread_count` | `backend/app/api/v1/notifications.py:31` | 仅登录 |
+| 2 | `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:39` | 仅登录 |
+| 3 | `POST /api/v1/notifications/price-notify` | `notify_price_change` | `backend/app/api/v1/notifications.py:121` | 权限:NOTIFICATION_MANAGE |
+| 4 | `POST /api/v1/notifications` | `create_notification` | `backend/app/api/v1/notifications.py:167` | 权限:NOTIFICATION_MANAGE |
 | 5 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:191` | 仅登录 |
 | 6 | `POST /api/v1/notifications/batch-delete` | `batch_delete_notifications` | `backend/app/api/v1/notifications.py:210` | 仅登录 |
 | 7 | `GET /api/v1/notifications/{notification_id}` | `get_notification` | `backend/app/api/v1/notifications.py:268` | 仅登录 + 体内含角色判断（需读源码） |
@@ -506,10 +506,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:267` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:305` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:314` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:339` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:277` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:315` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:324` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:349` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -574,10 +574,10 @@ _（无重复注册）_
 |---|---|---|
 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` |
 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:267` |
-| `GET /health` | `health` | `backend/app/main.py:305` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:314` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:339` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:277` |
+| `GET /health` | `health` | `backend/app/main.py:315` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:324` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:349` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 
@@ -589,8 +589,8 @@ _（无重复注册）_
 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:676` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:694` | — |
-| `GET /api/v1/notifications/unread-count` | `unread_count` | `backend/app/api/v1/notifications.py:32` | ✅ |
-| `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:40` | ✅ |
+| `GET /api/v1/notifications/unread-count` | `unread_count` | `backend/app/api/v1/notifications.py:31` | ✅ |
+| `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:39` | ✅ |
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:191` | ✅ |
 | `POST /api/v1/notifications/batch-delete` | `batch_delete_notifications` | `backend/app/api/v1/notifications.py:210` | ✅ |
 | `POST /api/v1/notifications/{notification_id}/read` | `mark_read` | `backend/app/api/v1/notifications.py:353` | ✅ |

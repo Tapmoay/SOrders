@@ -125,6 +125,16 @@ async def _outbox_deliver(event) -> None:
             dispatchers=bool(event.payload.get("dispatchers")),
         )
         return
+    if event.event_type == "notifications.created":
+        from app.services import message_center
+
+        await message_center.emit_notification_by_id(int(event.payload.get("notification_id") or 0))
+        return
+    if event.event_type == "notifications.unread_changed":
+        from app.services import message_center
+
+        await message_center.emit_unread_count(int(event.payload.get("user_id") or 0))
+        return
     if event.event_type == "orders.pending_pool_changed":
         await push_events.push_dispatcher_pending_pool_changed()
         return
