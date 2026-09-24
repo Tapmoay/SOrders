@@ -24,6 +24,7 @@ from app.schemas.ledger import (
 )
 from app.services.ledger_export_worker import (
     acquire_export_slot,
+    reap_stale_job,
     release_export_slot,
     run_ledger_export_job_with_slot,
 )
@@ -688,6 +689,11 @@ def get_export_job(
     if job is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
     _ensure_export_job_visible(job, current)
+    # 读的时候顺手把**卡住的**任务收敛成 FAILED（2026-09-24 第 32 轮；第 25 轮 08 区缺陷 1）：
+    # 那个 worker 先 commit `PROCESSING` 再干活，进程在两步之间重启就**永远停在 PROCESSING**，
+    # 而全后端没有第二个收割者 —— 客户端轮询 60×2s 之后静默放弃，用户看到"一直在导出中"。
+    # 收敛之后前端会拿到 FAILED + 一句能照做的原因（"请重新发起导出"）。
+    reap_stale_job(db, job)
     return job
 
 

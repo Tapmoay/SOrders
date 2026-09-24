@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, IO
 
+from sqlalchemy import update
+from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app.core.business_time import utc_now_naive
 from app.database import SessionLocal
 from app.models import LedgerExportJob, Notification
 from app.models.export_job import ExportFormat, ExportJobStatus
@@ -19,6 +22,11 @@ from app.services.message_push import emit_to_user
 from app.services.push_events import push_ledger_updated
 
 logger = logging.getLogger(__name__)
+
+#: 一个导出任务超过多少分钟还没进终态，就认为它**卡死了**（进程重启/被杀）。
+#: 账本导出是"几十秒级"的活儿（本机实测最长几十秒），15 分钟足够宽 ——
+#: 取值偏大只是让"卡住"这种异常状态多显示一会儿，不会误杀正在跑的任务。
+STALE_AFTER_MINUTES = 15
 
 #: 每个账号同时在跑的导出任务上限（靠 OS 文件锁实现，见 `acquire_export_slot`）。
 EXPORT_SLOT_PATH = "/tmp/sorders_export_{user_id}.lock"
@@ -74,6 +82,53 @@ def release_export_slot(handle: IO[str] | None) -> None:
             handle.close()
         except Exception:                   # noqa: BLE001
             pass
+
+
+def reap_stale_job(db: Session, job) -> None:
+    """把**卡住的**导出任务收敛成 FAILED（2026-09-24 第 32 轮；第 25 轮 08 区缺陷 1）。
+
+    ### 为什么需要它
+    `run_ledger_export_job_sync` 先 `status = PROCESSING` + **commit**，然后再干活：
+    进程在两步之间被重启/杀掉（或异常路径绕过了它的 FAILED 分支），这一行就**永远停在
+    PROCESSING** —— 全后端**没有任何收割者**（`PROCESSING` 的唯一写入点就是那个 worker）。
+    客户端轮询 60 次 × 2 秒之后**静默放弃**：用户看到的是"一直在导出中"，而它永远不会完成。
+
+    ### 判据为什么用**应用时钟**、不用库端时钟
+    库端时钟在生产 MySQL 上未必是 UTC（`database.py` 设 `time_zone='+00:00'` 失败时只是
+    warning），拿库端 `NOW()` 比会得出"还没超时"的错结论。这里用 `created_at`
+    （应用写入的 UTC naive）与 `utc_now_naive()` 比 —— 与全项目其它超时判据同源。
+
+    ### 为什么是"读时收敛"而不是后台定时任务
+    这个模块**刻意不用**后台清理线程（见文件头：进程死了文件锁自动释放，不需要谁去清"卡住的任务"）；
+    而"读的时候顺手把过期的收敛掉"不需要任何额外线程、也不会被多 worker 并发重复执行出问题
+    （条件 UPDATE + rowcount，只有一个请求改得到）。
+    """
+    now = utc_now_naive()
+    cutoff = now - timedelta(minutes=STALE_AFTER_MINUTES)
+    created = getattr(job, "created_at", None)
+    if created is None or created > cutoff:
+        return
+    changed = db.execute(
+        update(LedgerExportJob)
+        .where(
+            LedgerExportJob.id == job.id,
+            # 只动**非终态**的：DONE 永远不该被收敛，FAILED 不用再动
+            LedgerExportJob.status.in_(
+                [ExportJobStatus.PENDING.value, ExportJobStatus.PROCESSING.value]
+            ),
+        )
+        .values(
+            status=ExportJobStatus.FAILED.value,
+            error_message=(
+                f"导出任务超过 {STALE_AFTER_MINUTES} 分钟仍未完成（服务可能重启过），"
+                "已自动标记为失败，请重新发起导出。"
+            ),
+            completed_at=now,
+        )
+    )
+    if changed.rowcount:
+        db.commit()
+        db.refresh(job)
 
 
 def run_ledger_export_job_sync(job_id: int) -> dict[str, Any] | None:
