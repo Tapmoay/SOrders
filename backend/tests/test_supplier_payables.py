@@ -366,31 +366,55 @@ def test_只看没结清的(client, token_dispatcher):
 
 # ---------------- 审计与权限 ----------------
 def test_每一步都留痕(client, token_dispatcher, db_session):
+    """每一次写都要有审计行，**而且那一条必须指向本次操作**。
+
+    ⛔ 2026-09-25 修掉的两个毛病（根因与 CI 那两个红 job 是同一个：用例靠别人的数据通过）：
+    1. 原来删的是**已经有付款的那张应付单**，而规矩是「有付款的应付单不许删」——
+       端点**正确地拒绝了**（于是没有日志）。它当时还能绿，是因为 `_logs()` 是**全库按动作码
+       查**的，前面某个用例留下的同码日志把它喂饱了（最典型的假绿）。同理最后两步「删供应商」
+       也不合法（那家供应商名下还有应付单）。→ 现在：付过款的那张单上只验付款三件事，
+       删/恢复另开**没有付款的**应付单与**没有应付单的**供应商。
+    2. 每一步都不看状态码 → 被拒了也不知道。现在每步都断言 2xx。
+    """
     h = auth_headers(token_dispatcher)
     s = _new_supplier(client, h, "留痕供应商")
     p = _new_payable(client, h, s["id"], "留痕单", "50.00")
     f = _pay(client, h, p["id"], "50.00")
-    client.delete(f"{FLOW}/{f['id']}", headers=h)
-    client.post(f"{FLOW}/{f['id']}/restore", headers=h)
-    client.patch(f"{PAY}/{p['id']}", json={"remark": "改一下"}, headers=h)
-    client.delete(f"{PAY}/{p['id']}", headers=h)
-    client.post(f"{PAY}/{p['id']}/restore", headers=h)
-    client.delete(f"{SUP}/{s['id']}", headers=h)
-    client.post(f"{SUP}/{s['id']}/restore", headers=h)
-    for action, key in (
-        ("SUPPLIER_UPSERT", "supplier_id"),
-        ("SUPPLIER_PAYABLE_UPSERT", "payable_id"),
-        ("SUPPLIER_PAYMENT_CREATE", "flow_id"),
-        ("SUPPLIER_PAYMENT_CANCEL", "flow_id"),
-        ("SUPPLIER_PAYMENT_RESTORE", "flow_id"),
-        ("SUPPLIER_PAYABLE_DELETE", "payable_id"),
-        ("SUPPLIER_PAYABLE_RESTORE", "payable_id"),
-        ("SUPPLIER_DELETE", "supplier_id"),
-        ("SUPPLIER_RESTORE", "supplier_id"),
+
+    def call(method: str, url: str, **kw):
+        r = getattr(client, method)(url, headers=h, **kw)
+        assert r.status_code in (200, 204), f"{method.upper()} {url} → {r.status_code} {r.text}"
+        return r
+
+    call("delete", f"{FLOW}/{f['id']}")             # 撤销付款
+    call("post", f"{FLOW}/{f['id']}/restore")       # 恢复付款
+    call("patch", f"{PAY}/{p['id']}", json={"remark": "改一下"})
+    # 删/恢复要另开对象：付过款的应付单不许删（自己的用例 `test_有付款的单不许删`），
+    # 有应付单的供应商也不许删（`test_有应付单的供应商不许删`）—— 在这条用例里它们都会被拒。
+    p2 = _new_payable(client, h, s["id"], "留痕单-没付过款", "1.00")
+    call("delete", f"{PAY}/{p2['id']}")
+    call("post", f"{PAY}/{p2['id']}/restore")
+    s2 = _new_supplier(client, h, "留痕供应商-空壳")
+    call("delete", f"{SUP}/{s2['id']}")
+    call("post", f"{SUP}/{s2['id']}/restore")
+
+    for action, ent_id in (
+        ("SUPPLIER_UPSERT", s["id"]),
+        ("SUPPLIER_PAYABLE_UPSERT", p["id"]),
+        ("SUPPLIER_PAYMENT_CREATE", f["id"]),
+        ("SUPPLIER_PAYMENT_CANCEL", f["id"]),
+        ("SUPPLIER_PAYMENT_RESTORE", f["id"]),
+        ("SUPPLIER_PAYABLE_DELETE", p2["id"]),
+        ("SUPPLIER_PAYABLE_RESTORE", p2["id"]),
+        ("SUPPLIER_DELETE", s2["id"]),
+        ("SUPPLIER_RESTORE", s2["id"]),
     ):
         rows = _logs(db_session, action)
-        assert rows, f"{action} 一条日志都没写"
-        assert any(key in r for r in rows), f"{action} 的日志里没有 {key}"
+        mine = [r for r in rows if str(ent_id) in json.dumps(r, ensure_ascii=False)]
+        assert mine, (
+            f"{action} 没有为**本次**操作留痕（id={ent_id}）——"
+            f"库里同码日志共 {len(rows)} 条，但没有一条指向它"
+        )
 
 
 def test_货主和司机都进不来(client, token_shipper, token_driver):

@@ -518,13 +518,24 @@ def test_navigation_second_driver_merges_into_same_place(
     assert len(rows) == 1, f"同一个位置变成了 {len(rows)} 条：{[float(x.lat) for x in rows]}"
     assert rows[0].use_count >= 2
 
-    locs = db_session.scalars(
-        select(ShipperLocation).where(
-            ShipperLocation.shipper_id == users["shipper"].id,
-            ShipperLocation.name == "同一家仓库",
-        )
-    ).all()
-    assert len(locs) == 1, f"货主地点库该去重，实际 {len(locs)} 条"
+    # ⛔ 判据是「**同一个位置不会越攒越多**」，**不是**「那一条一定叫『同一家仓库』」——
+    #    按名字断言会得出假红（本地整文件跑恰好绿、CI 并行跑就红，2026-09-25 实测）。
+    #    真正发生的是 2026-09-20 定的那条行为：下单时收货地址已经以**文字**进了货主的地点库
+    #    （`place_service.remember_order_address`），司机补坐标走的是「把那条**补全**」
+    #    （`_find_known_location` 第 1 条判据：地址原文完全一样）—— 名字仍是下单时那句地址。
+    #    所以这里按**位置**数（±0.0001° ≈ 11 米，落在本用例自己的纬度带里，不会串到别的用例）。
+    locs = [
+        x
+        for x in db_session.scalars(
+            select(ShipperLocation).where(ShipperLocation.shipper_id == users["shipper"].id)
+        ).all()
+        if x.address_lat is not None and abs(float(x.address_lat) - lat) < 1e-4
+    ]
+    assert len(locs) == 1, (
+        f"货主地点库在这个位置上该只有一条，实际 {len(locs)} 条："
+        f"{[(x.name, float(x.address_lat)) for x in locs]}"
+    )
+    assert locs[0].address_lng is not None, "补上坐标的那一条必须真的带上经纬度"
 
 
 def test_blank_name_is_not_stored_when_merging(db_session):
