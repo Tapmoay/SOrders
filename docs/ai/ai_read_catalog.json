@@ -1378,7 +1378,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:517",
+   "at": "backend/app/api/v1/reports.py:87",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1415,7 +1415,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:451",
+   "at": "backend/app/api/v1/reports.py:70",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1472,7 +1472,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:436",
+   "at": "backend/app/api/v1/reports.py:55",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
