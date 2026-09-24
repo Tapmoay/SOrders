@@ -96,7 +96,18 @@ eager import 当场成环（order_flow → money_contract → order_return → o
 ✅ **第 2 步第一块（本轮做完）**：尾部那 66 行「payload JSON → 请求 DTO」（toExpenseRequest / toLedgerRequest / toOrderCreateRequest + 三个取值助手）**整块搬去新文件 ai/AiWriteJson.kt**（同一个包、一个字符没改，AiWriteService.kt 原地只留一段指路注释）。
 **等价性证据**（报告 §18「重构要有等价性验证」）：gradle -p android compileEmuDebugKotlin → **BUILD SUCCESSFUL**；_check_ai_guardrails.py **1280/1280**（并集读法让「搬文件」对判据不可见）；_check_reverse_verify_anchors.py **1147/1147**（这一族没有锚点落在这块上）；_check_all.py **100/100**。
 ⚠️ 两处连带都被检查当场抓到并修掉：① 多一个 .kt → 09A_HINT_CATALOG.md 的「扫了 253 个文件」过期（重跑 _hint_inventory.py --md）；② 搬走后 AiWriteService.kt 有 3 条 import 没人用了 → _check_dead_code.py 报红（删掉 OrderProductLine / JsonPrimitive / contentOrNull）。
-⛔ **下一步（第 3 步）**：另外两块还混在一起 —— RepoWriteDataSource（数据源，约 1950 行）与 AiWriteService 写闸门（约 380 行）；建议**先搬数据源**（它不动写闸门的判定逻辑），搬完立刻跑同一串；另外 AI_join("AiWriteService.kt")（**剥注释**那条路）要单独给并集版。 |
+⛔ **下一步（第 3 步）**：另外两块还混在一起 —— RepoWriteDataSource（数据源，约 1950 行）与 AiWriteService 写闸门（约 380 行）；建议**先搬数据源**（它不动写闸门的判定逻辑），搬完立刻跑同一串；另外 AI_join("AiWriteService.kt")（**剥注释**那条路）要单独给并集版。
+⚠️ **第 3 步（搬数据源）试做后的实测清单（2026-09-25 第 28 轮；工作区已按字节回退，树保持 100/100）**：
+class RepoWriteDataSource（1935 行，连同紧邻的注释块）可以整块搬去 ai/AiWriteDataSource.kt —— 试做时 **Kotlin 编译 BUILD SUCCESSFUL**、
+且把 _check_ai_guardrails.py 的 wsvc = AI_join(AiWriteService.kt) 换成读并集之后 **1280/1280**。
+但**同时必须做三件事**，少一件就是红的：
+① 还有两处判据**按单个文件读、且断言的是数据源里的代码**：_check_supplier_payables.py（撤回要读现场那条 → 改成 read(AI_SVC) + read(AI_DS)）与
+_check_paid_actions.py（两处构造点都填了它那条 —— 它**没有统一的路径常量**，是按文件名直接读的，要单独改）；
+② 8 条反向验证锚点要重指：_reverse_verify_ai_price_basis / _billing / _local_reads / _undo / qa/_reverse_verify_ai_dto_defaults / _paid_actions / _single_source；
+⚠️ 其中 _reverse_verify_undo.py 的锚点**分居两个文件**（写闸门 2 条 + 数据源 1 条）→ 必须拆成两个常量（本轮已验证：拆完锚点检查 1147/1147 全绿）；
+③ 搬完会有 15 条 import 变死代码（_check_dead_code.py 会点名）要删，且 09A_HINT_CATALOG.md 的文件数要重跑（253→255→回退）。
+⛔ 本轮的取舍（如实记）：发现的第 4 处（_check_paid_actions.py）没改完时，我**没有把半成品留在工作区** —— 按字节回退到提交 b186a90，
+把上面这份清单钉在这里，下一轮照着做即可（顺序：先改那两处判据 + AI_join → 再搬 → 再重指锚点 → 再清死代码/生成物）。 |
 | 7 | §12 | AI 能力目录与后端权限**同源**（`_probe_read_roles` 进 CI） | 否 | **已完成** |
 **① 同源（生成方向）**：`docs/ai/ai_read_catalog.json` 由 `_tools/ai/_gen_ai_read_catalog.py` 从**后端权限点**生成
 （`--check` 已在必跑组里盯着"目录与源码一致"）；App 侧的 `AiReadCatalog.kt` 同源生成，三处（工具说明 / enum / 执行前的门）共用一份。
