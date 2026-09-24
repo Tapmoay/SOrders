@@ -58,9 +58,9 @@
 > 也不在普通 CASES 里 —— 要按**行号**直接改，别再写通用扫描器（本轮两次通用扫描都在它们身上失效）。
 > ⚠️ 常量路径别用推导出来的相对前缀：`REPORTS = ROOT / "backend/app/api/v1/reports.py"` 对应的 service 是
 > `ROOT / "backend/app/services/reports_service.py"`（我第一次写成 `ROOT / "services/…"` → 三个脚本当场 FileNotFoundError）。
-| 5 | §7 | 状态机唯一写入口（Command → OrderFlow） | 局部 | 未开始 | — |
+| 5 | §7 | 状态机唯一写入口（Command → OrderFlow） | 局部 | **已勘定（下一轮可动手）** | 实测（本轮扫描 `backend/app` 里所有 `.status = ` 赋值）：**订单状态的写入只有 3 处、2 个文件** —— `services/order_flow.py:172`（派单 → DISPATCHED）、`:452`（送达 → DELIVERED）、`services/order_return.py:349`（退货完成 → RETURNED）。所以 §7 的差距比报告设想的**小得多**：只剩「把 RETURNED 那一处也收进 OrderFlow（或在 OrderFlow 里开一个显式的 `mark_returned()`）」+ 三条迁移各配一条 CAS 断言（`_check_status_gate_locking.py` 已有 54 项盯着同类问题）。⚠️ 这两个文件都在核心区（钱与状态机），动手前先在声明页写 `核心改动：<路径> —— 为什么必须动核心：<一句话>` |
 | 5 | §8 | 钱：从"文件冻结"升级为显式契约 | 局部 | 未开始 | — |
-| 5 | §9 | 权限模型收敛（26 个权限点 / 5 个无引用） | 局部 | 未开始 | — |
+| 5 | §9 | 权限模型收敛（26 个权限点 / 5 个无引用） | 局部 | **已勘定（待你拍板）** | 实测（本轮）：权限点**仍然是 26 个**，**没被任何代码引用的仍然是 5 个** —— `ORDER_READ_OWN` / `ORDER_READ_ASSIGNED` / `LEDGER_READ_OWN` / `LEDGER_READ_ALL` / `NOTIFICATION_READ`，全是「按范围读」那一类：端点实际用的是 `CurrentUser`（只要求登录）+ **函数体内自己按角色过滤** —— 也就是说权限矩阵上写着的边界，**没有任何地方在执行**。另有若干文件「端点一堆、`require_permission` 零处」：`shipper.py`（19 个端点 / 0）、`places.py`（8/0）、`expense_categories.py`（5/0）、`vehicles.py`（4/0）、`driver_settlements.py`（3/0）。两条路（**要你拍板**）：① **接上**这 5 个权限点（把函数体内的范围过滤换成声明式权限点，行为不变、边界变成可查的）；② 从 `ROLE_PERMISSIONS` **删掉**它们（诚实，但少一层保护）。⛔ 两条都要动核心区 `core/rbac.py` |
 | 6 | §10 | Outbox（事务发件箱）替代"background task 直接推" | 局部 | 未开始 | — |
 | 7 | §11 | Android 大文件按职责拆（不是按行数拆） | 少量 | 未开始 | — |
 | 7 | §12 | AI 能力目录与后端权限**同源**（`_probe_read_roles` 进 CI） | 否 | 未开始 | — |
