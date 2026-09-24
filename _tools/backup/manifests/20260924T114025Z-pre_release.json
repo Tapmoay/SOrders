@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "整改阶段1：脚本化备份系统上线（第二份，修掉保留期清理的假失败）",
+  "created_utc": "2026-09-24T11:40:25Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260924T114017Z",
+  "code": {
+    "commit": "648fbf8134c4ffcae86e698255fdf2427ded71c2",
+    "branch": "new",
+    "dirty_files": 8
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": null,
+    "rows": {
+      "orders": 2402,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 44
+    }
+  },
+  "uploads": {
+    "bytes": 105962426,
+    "files": 2115
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 530604,
+      "sha256": "b950241793d6ffe2bb5e4e954de0ae294afa63b165cb4897184d2dba5ad0ee0f"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105962426,
+      "sha256": "427b9cb2f67d945bf61e21af1376dda64a7d9e871848d2cd7805c4ce153a8763"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}

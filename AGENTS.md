@@ -72,6 +72,20 @@ python _tools/qa/_install_all.py --only 5556 --no-build   # 只装我这一台
   否则 CRLF 文件的偏移量会对不上（`_hint_inventory.py` 那次踩过）。
 - 含中文的 `.ps1` 必须存成 **UTF-8 with BOM**（否则 PS 5.1 按 ANSI 读会直接报语法错）。
 
+## 发布前 / 出事时：备份与恢复（2026-09-24 起 · 整改报告阶段 1）
+
+```
+python _tools/backup/_pre_release.py --note "上线 X（改了什么）"   # 发布前**必做**：库 + 上传文件 + 清单
+python _tools/backup/_drill_local.py                              # 恢复演练（每周一凌晨也会自动跑一次）
+python _tools/backup/_install.py                                  # 把脚本/定时任务（重新）装到生产机
+```
+
+- 口径与现场手册：[_tools/backup/README.md](_tools/backup/README.md)；这套东西**自己的**判据：
+  `python _tools/backup/_check_backup.py --check`（55 条，已进 `_check_all.py` 必跑组）。
+- ⛔ **恢复默认不碰生产库**：`_restore.sh` 不带 `--i-know` 只肯往 `sorders_drill_*` 里恢复。
+- ⛔ **发布前先备份**：报告的原话是「不能 deploy 完了才想起来好像以前有个 mysqldump」。
+- 生产事实（主机/密钥/路径）只写在 `_tools/ops/_prodssh.py` 一处，其余脚本一律 import。
+
 ## 项目地图（了解全貌）
 
 [docs/PROJECT_MAP/INDEX.md](docs/PROJECT_MAP/INDEX.md) — 地图索引与文档导航（架构、后端 API、Android、测试、设计系统、端到端流程）。
