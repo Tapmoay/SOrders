@@ -256,33 +256,33 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders_assignment.py:55` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
-| 2 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders_assignment.py:96` | 权限:ORDER_DISPATCH |
-| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:265` | 权限:ORDER_DISPATCH |
-| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:323` | 权限:ORDER_DISPATCH |
-| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:348` | 权限:ORDER_DISPATCH |
-| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:390` | 权限:ORDER_RECALL |
+| 1 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders_assignment.py:52` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
+| 2 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders_assignment.py:93` | 权限:ORDER_DISPATCH |
+| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:262` | 权限:ORDER_DISPATCH |
+| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:320` | 权限:ORDER_DISPATCH |
+| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:345` | 权限:ORDER_DISPATCH |
+| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:387` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/orders_delivery.py` — 6 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/orders/{order_id}/complete-with-upload` | `complete_order_with_upload` | `backend/app/api/v1/orders_delivery.py:49` | 权限:ORDER_COMPLETE_DRIVER + 体内含角色判断（需读源码） |
-| 2 | `POST /api/v1/orders/{order_id}/driver-ack` | `driver_ack_view` | `backend/app/api/v1/orders_delivery.py:103` | 仅登录 + 体内仅允许:司机 |
-| 3 | `POST /api/v1/orders/{order_id}/driver-note` | `driver_append_internal_note` | `backend/app/api/v1/orders_delivery.py:130` | 权限:ORDER_INTERNAL_NOTE + 体内仅允许:派单员\|司机 |
-| 4 | `POST /api/v1/orders/{order_id}/navigation` | `fill_order_navigation` | `backend/app/api/v1/orders_delivery.py:169` | 仅登录 + 体内仅允许:派单员\|司机 |
-| 5 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders_delivery.py:314` | 权限:ORDER_COMPLETE_DRIVER |
-| 6 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders_delivery.py:346` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
+| 1 | `POST /api/v1/orders/{order_id}/complete-with-upload` | `complete_order_with_upload` | `backend/app/api/v1/orders_delivery.py:47` | 权限:ORDER_COMPLETE_DRIVER + 体内含角色判断（需读源码） |
+| 2 | `POST /api/v1/orders/{order_id}/driver-ack` | `driver_ack_view` | `backend/app/api/v1/orders_delivery.py:101` | 仅登录 + 体内仅允许:司机 |
+| 3 | `POST /api/v1/orders/{order_id}/driver-note` | `driver_append_internal_note` | `backend/app/api/v1/orders_delivery.py:128` | 权限:ORDER_INTERNAL_NOTE + 体内仅允许:派单员\|司机 |
+| 4 | `POST /api/v1/orders/{order_id}/navigation` | `fill_order_navigation` | `backend/app/api/v1/orders_delivery.py:167` | 仅登录 + 体内仅允许:派单员\|司机 |
+| 5 | `POST /api/v1/orders/{order_id}/complete` | `complete_order` | `backend/app/api/v1/orders_delivery.py:312` | 权限:ORDER_COMPLETE_DRIVER |
+| 6 | `POST /api/v1/orders/{order_id}/cancel` | `cancel_order` | `backend/app/api/v1/orders_delivery.py:344` | 仅登录 + 体内权限:ORDER_CANCEL_SHIPPER + 体内权限:ORDER_CANCEL_DISPATCHER + 体内仅允许:派单员\|货主 |
 
 ### `backend/app/api/v1/orders_lifecycle.py` — 5 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `DELETE /api/v1/orders/{order_id}` | `delete_cancelled_order` | `backend/app/api/v1/orders_lifecycle.py:40` | 仅登录 + 体内权限:ORDER_DELETE_CANCELLED + 体内仅允许:派单员\|货主 |
-| 2 | `POST /api/v1/orders` | `create_order` | `backend/app/api/v1/orders_lifecycle.py:101` | 权限:ORDER_CREATE + 体内仅允许:派单员\|货主 |
-| 3 | `PATCH /api/v1/orders/{order_id}` | `update_order` | `backend/app/api/v1/orders_lifecycle.py:273` | 权限:ORDER_EDIT |
-| 4 | `PATCH /api/v1/orders/{order_id}/exception` | `patch_order_exception` | `backend/app/api/v1/orders_lifecycle.py:341` | 权限:ORDER_EDIT |
-| 5 | `POST /api/v1/orders/{order_id}/restore` | `restore_order` | `backend/app/api/v1/orders_lifecycle.py:382` | 仅登录 + 体内仅允许:派单员 |
+| 1 | `DELETE /api/v1/orders/{order_id}` | `delete_cancelled_order` | `backend/app/api/v1/orders_lifecycle.py:39` | 仅登录 + 体内权限:ORDER_DELETE_CANCELLED + 体内仅允许:派单员\|货主 |
+| 2 | `POST /api/v1/orders` | `create_order` | `backend/app/api/v1/orders_lifecycle.py:100` | 权限:ORDER_CREATE + 体内仅允许:派单员\|货主 |
+| 3 | `PATCH /api/v1/orders/{order_id}` | `update_order` | `backend/app/api/v1/orders_lifecycle.py:272` | 权限:ORDER_EDIT |
+| 4 | `PATCH /api/v1/orders/{order_id}/exception` | `patch_order_exception` | `backend/app/api/v1/orders_lifecycle.py:340` | 权限:ORDER_EDIT |
+| 5 | `POST /api/v1/orders/{order_id}/restore` | `restore_order` | `backend/app/api/v1/orders_lifecycle.py:381` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/api/v1/orders_media.py` — 2 个
 
@@ -506,10 +506,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:235` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:273` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:282` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:307` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:258` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:296` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:305` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:330` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -574,10 +574,10 @@ _（无重复注册）_
 |---|---|---|
 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` |
 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:235` |
-| `GET /health` | `health` | `backend/app/main.py:273` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:282` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:307` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:258` |
+| `GET /health` | `health` | `backend/app/main.py:296` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:305` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:330` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 

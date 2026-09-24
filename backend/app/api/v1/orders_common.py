@@ -27,16 +27,11 @@ from app.models import Order, User
 from app.models.enums import UserRole
 from app.services.push_events import (
     push_new_order_to_dispatchers,
-    push_dispatcher_pending_pool_changed,
     push_driver_ack_shipper,
     push_driver_ack_to_dispatchers,
-    push_order_cancelled_to_dispatchers,
     push_ledger_updated,
     push_order_freight_updated,
-    push_order_cancelled,
     push_order_edited_to_driver,
-    push_order_revoked,
-    push_order_to_shipper,
     push_navigation_filled,
     push_return_request_closed,
 )
@@ -102,19 +97,6 @@ async def _bg_freight_updated(order_id: int) -> None:
     await push_order_freight_updated(order_id)
 
 
-async def _bg_push_revoked(driver_id: int, order_id: int, reason: str) -> None:
-    await push_order_revoked(driver_id, order_id, reason)
-
-
-async def _bg_push_shipper_recalled(shipper_id: int, order_id: int) -> None:
-    await push_order_to_shipper(shipper_id, order_id, "order.recalled")
-
-
-async def _bg_notify_cancel(shipper_id: int, order_id: int) -> None:
-    await push_order_cancelled([shipper_id], order_id)
-    await push_order_cancelled_to_dispatchers(order_id)
-
-
 async def _bg_notify_driver_ack(shipper_id: int, order_id: int) -> None:
     await push_driver_ack_shipper(shipper_id, order_id)
     await push_driver_ack_to_dispatchers(order_id)
@@ -122,10 +104,6 @@ async def _bg_notify_driver_ack(shipper_id: int, order_id: int) -> None:
 
 async def _bg_notify_navigation_filled(shipper_id: int, order_id: int, place_name: str) -> None:
     await push_navigation_filled(shipper_id, order_id, place_name)
-
-
-async def _bg_dispatcher_pending_pool() -> None:
-    await push_dispatcher_pending_pool_changed()
 
 
 async def _bg_notify_return_request_closed(request_id: int, amount: str, note: str) -> None:

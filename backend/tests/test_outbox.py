@@ -226,6 +226,33 @@ def test_completing_a_delivery_enqueues_both_events(
     assert all(x.status == OutboxStatus.PENDING.value for x in events.values()), "都该等着 worker 发"
 
 
+def test_cancelling_an_order_enqueues_cancelled_and_pool_events(
+    client, token_shipper, users, db_session
+):
+    """撤销那条链路（第三个切过来的生产者）：一次撤销 → 两条事件。
+
+    一条 `orders.cancelled`（收件人 = 货主 + 司机，未派单时就只有货主）、一条 `orders.pending_pool_changed`
+    （派单员的待派池变了）。⚠️ 原来调两次助手 → 派单员会收到**两次**池刷新，现在合成一条事件。
+    """
+    _clear(db_session)
+    line = {"product_name_snapshot": "撤销探针", "quantity": 1, "unit_price": "10.00", "line_total": "10.00"}
+    created = client.post(
+        "/api/v1/orders",
+        headers=auth_headers(token_shipper),
+        json={"lines": [line], "delivery_description": "撤销地址", "address_detail": "撤销地址"},
+    )
+    assert created.status_code == 201, created.text
+    oid = int(created.json()["id"])
+
+    cancelled = client.post(f"/api/v1/orders/{oid}/cancel", headers=auth_headers(token_shipper))
+    assert cancelled.status_code == 200, cancelled.text
+
+    db_session.expire_all()
+    events = {x.event_type: x.payload_dict() for x in _rows(db_session)}
+    assert events.get("orders.cancelled") == {"user_ids": [users["shipper"].id], "order_id": oid}, events
+    assert "orders.pending_pool_changed" in events, list(events)
+
+
 def test_outbox_stats_counts_by_status(db_session):
     _clear(db_session)
     outbox.enqueue(db_session, "orders.assigned", {})

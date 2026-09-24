@@ -40,11 +40,8 @@ from app.services.accounting_service import BillAlreadySettledError, resync_open
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services import usage_service
 from app.api.v1.orders_common import (
-    _bg_dispatcher_pending_pool,
     _bg_freight_updated,
     _bg_notify_new_order,
-    _bg_push_revoked,
-    _bg_push_shipper_recalled,
 )
 from app.core import outbox
 
@@ -82,13 +79,13 @@ def batch_assign_orders(
             # ⚠️ 派单推送走**事务发件箱**（整改报告 §10）：事件与这次 commit **同一个事务** ——
             #    以前是 commit 之后再 add_task，后台任务挂了这条推送就永远没了，而库里一切正常。
             outbox.enqueue(db, "orders.assigned", {"driver_id": body.driver_id, "order_id": oid})
+            # 池变化跟着**这一单**的事务走（原来在循环之后补一次 —— 那时已经出了事务，丢了就没了）
+            outbox.enqueue(db, "orders.pending_pool_changed", {})
             db.commit()
             results.append(BatchAssignResultItem(order_id=oid, success=True, detail=None))
         except ValueError as e:
             db.rollback()
             results.append(BatchAssignResultItem(order_id=oid, success=False, detail=str(e)))
-    if any(r.success for r in results):
-        background_tasks.add_task(_bg_dispatcher_pending_pool)
     return OrderBatchAssignOut(results=results)
 
 
@@ -311,8 +308,8 @@ def assign_order(
     #    题外话：这里**刻意不去重**（不传 dedupe_key）—— 派单是"再派一次就该再响一次"，
     #    而重复投递由客户端兜着（App 侧按 order_id 有 60 秒去重窗口，见 core/NewOrderAlert.kt）。
     outbox.enqueue(db, "orders.assigned", {"driver_id": body.driver_id, "order_id": order.id})
+    outbox.enqueue(db, "orders.pending_pool_changed", {})
     db.commit()
-    background_tasks.add_task(_bg_dispatcher_pending_pool)
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
@@ -337,10 +334,10 @@ def split_order_endpoint(
         created = split_order(db, order, body.parts, current)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    outbox.enqueue(db, "orders.pending_pool_changed", {})
     db.commit()
     for c in created:
         background_tasks.add_task(_bg_notify_new_order, c.id)
-    background_tasks.add_task(_bg_dispatcher_pending_pool)
     return [enrich_order_out(c, db, current) for c in created]
 
 
@@ -405,12 +402,14 @@ def recall_order(
         recall_dispatch(db, order, current, body.reason)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    db.commit()
+    # ⚠️ 三条事件与这次撤回**同一个事务**（撤回失败就一条都不发）：
+    #    司机「派单被撤回」/ 货主「这单被召回了」/ 派单员的待派池变了。
     if old_driver_id:
-        background_tasks.add_task(_bg_push_revoked, old_driver_id, order_id, body.reason)
+        outbox.enqueue(db, "orders.revoked", {"driver_id": old_driver_id, "order_id": order_id, "reason": body.reason})
     if shipper_id is not None:
-        background_tasks.add_task(_bg_push_shipper_recalled, shipper_id, order_id)
-    background_tasks.add_task(_bg_dispatcher_pending_pool)
+        outbox.enqueue(db, "orders.recalled", {"shipper_id": shipper_id, "order_id": order_id})
+    outbox.enqueue(db, "orders.pending_pool_changed", {})
+    db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")

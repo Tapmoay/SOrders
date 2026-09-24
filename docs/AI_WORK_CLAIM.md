@@ -20,6 +20,32 @@
 
 ## 进行中
 
+### [2026-09-25 00:1x → ] 会话：**架构整改 · 第 15 轮：阶段 6 §10 —— 一次切四种事件（池变化 / 撤回 / 召回 / 撤销）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**做了什么**（切法已经完全固定：**commit 之前 enqueue → 删掉只为那条推送存在的助手 → 派发表登记处理器**）：
+
+| 事件 | 谁在入队 | 处理器 |
+|---|---|---|
+| `orders.pending_pool_changed` | 单条派单 / 批量派单（**每成功一单进它自己的事务**）/ 拆单 / 建单 / 撤销 / 撤回（6 处） | `push_dispatcher_pending_pool_changed` |
+| `orders.revoked` | 撤回派单（司机那条） | `push_order_revoked` |
+| `orders.recalled` | 撤回派单（货主那条） | `push_order_to_shipper(..., "order.recalled")` |
+| `orders.cancelled` | 撤销订单 | `push_order_cancelled(recipients, …)` + `…_to_dispatchers` |
+
+**两处顺手改对的地方**：
+① 批量派单原来在循环之后补一次「池变化」—— 那时**已经出了事务**，丢了就没了；现在跟着每一单的事务走；
+② 撤销原来是**两次**助手调用（货主一次、司机一次），每次都顺带推一遍派单员 → 派单员收到两次刷新；
+   现在合成一条事件、两个收件人，语义不变而少一次重复推送。
+
+**判据口径跟着搬**：`_check_background_tasks.py` 原本钉着「`background_tasks.add_task` ≥ 25 处」（防扫描器空转），
+而 §10 正是要把这些任务搬走 —— 数量会**合法下降**（31 → 23）。改成钉「**派发点总数** = background task + `outbox.enqueue`」
+（现在 **38 = 23 + 15**）：照样抓得住「扫描器瞎了」，但不会把「按计划搬家」判成事故。
+
+**证据**：发件箱用例 **12 条**（新增「撤销 → `orders.cancelled` 收件人 = 货主 + 司机、外加一条池变化」，走真实接口）；
+`_check_notify_guardrails.py` **117/117**、`_check_order_return.py` **119/119**、`_check_outbox.py` **27/27**（生产者↔处理器对应现在覆盖 **7 种**事件）；
+后端全量 **1005 通过 / 3 红**（仍是 reports 文本锚点那三条，另一会话）；`_check_all.py` **99 个检查 1 红**（同因）；`/health` 200。
+
+**下一轮**：账本路由里的 5 处 `ledger.updated`、消息中心的 `emit_notification`/`_bg_emit_unread`、退货申请 3 处、代下单/改单/接单通知。
+
 ### [2026-09-24 23:5x → ] 会话：**架构整改 · 第 14 轮：阶段 6 §10 —— 送达链路切到发件箱**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **做了什么**：`api/v1/orders_delivery.py` 的**两处 complete 端点**（`complete-with-upload` 与 `complete`）：

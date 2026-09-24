@@ -26,12 +26,11 @@ from app.services import usage_service
 from app.services.shipper_contact_service import upsert_boss_contact
 from app.services import place_service
 from app.api.v1.orders_common import (
-    _bg_dispatcher_pending_pool,
     _bg_notify_new_order,
     _bg_notify_order_edited,
     _get_order_scoped,
 )
-from app.api.v1.orders_common import (_get_order_scoped, _bg_dispatcher_pending_pool, _bg_notify_new_order, _bg_notify_order_edited)
+from app.core import outbox
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -260,8 +259,8 @@ def create_order(
         )
     for ln in body.lines:
         usage_service.record_usage(db, user=current, kind=usage_service.KIND_PRODUCT, target_id=ln.product_id)
+    outbox.enqueue(db, "orders.pending_pool_changed", {})
     db.commit()
-    background_tasks.add_task(_bg_dispatcher_pending_pool)
     background_tasks.add_task(_bg_notify_new_order, order.id)
     full = load_order_for_response(db, order.id)
     if full is None:

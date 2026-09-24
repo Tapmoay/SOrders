@@ -53,6 +53,9 @@ APP = ROOT / "backend/app"
 #: `background_tasks.add_task(` 后面跟的第一个标识符（允许中间换行）。
 ADD_TASK = re.compile(r"background_tasks\.add_task\(\s*([A-Za-z_][A-Za-z0-9_]*)")
 
+#: 事务发件箱的入队点（整改报告 §10）：与后台任务合起来算「派发点总数」，见判据 4。
+OUTBOX_ENQUEUE = re.compile(r"outbox\.enqueue\(")
+
 #: 自建事件循环的四种写法。全部禁止。
 LOOP_BUILDERS = (
     "asyncio.run(",
@@ -144,8 +147,18 @@ def main() -> int:
         print(f"   ✅ {len(files)} 个文件里没有任何自建事件循环")
 
     # ---- 判据 4：数量判据（防解析失效后安静地空转）----
-    if len(sites) < 25:
-        fails.append(f"只认出 {len(sites)} 处 background_tasks.add_task（<25）—— 判据可能已空转")
+    # ⚠️ 2026-09-24 改口径：整改报告 §10 正在把「推送类」的后台任务**逐条搬进事务发件箱** ——
+    #    于是 `background_tasks.add_task` 的数量会**合法地下降**（切完第一条链路就从 31 降到 23）。
+    #    数量判据因此改成「**派发点总数** = background task + `outbox.enqueue`」：
+    #    照样抓得住「扫描器瞎了」（两类一起塌也会红），但不会把「按计划搬家」判成事故。
+    outbox_sites = sum(len(OUTBOX_ENQUEUE.findall(code[p])) for p in files)
+    total_sites = len(sites) + outbox_sites
+    print(f"  派发点总数 {total_sites} 处 = background task {len(sites)} + 发件箱入队 {outbox_sites}")
+    if total_sites < 25:
+        fails.append(
+            f"只认出 {total_sites} 个派发点（background task {len(sites)} + 发件箱 {outbox_sites}，<25）"
+            " —— 判据可能已空转"
+        )
     if len(targets) < 12:
         fails.append(f"只认出 {len(targets)} 个后台任务目标函数（<12）—— 判据可能已空转")
 

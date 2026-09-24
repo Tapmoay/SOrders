@@ -116,6 +116,29 @@ async def _outbox_deliver(event) -> None:
     if event.event_type == "ledger.updated":
         await push_events.push_ledger_updated(int(event.payload.get("shipper_id") or 0))
         return
+    if event.event_type == "orders.pending_pool_changed":
+        await push_events.push_dispatcher_pending_pool_changed()
+        return
+    if event.event_type == "orders.revoked":
+        await push_events.push_order_revoked(
+            int(event.payload.get("driver_id") or 0),
+            int(event.payload.get("order_id") or 0),
+            str(event.payload.get("reason") or ""),
+        )
+        return
+    if event.event_type == "orders.recalled":
+        await push_events.push_order_to_shipper(
+            int(event.payload.get("shipper_id") or 0),
+            int(event.payload.get("order_id") or 0),
+            "order.recalled",
+        )
+        return
+    if event.event_type == "orders.cancelled":
+        oid = int(event.payload.get("order_id") or 0)
+        recipients = [int(x) for x in (event.payload.get("user_ids") or [])]
+        await push_events.push_order_cancelled(recipients, oid)
+        await push_events.push_order_cancelled_to_dispatchers(oid)
+        return
     raise RuntimeError("发件箱没有登记处理器：" + str(event.event_type))
 
 

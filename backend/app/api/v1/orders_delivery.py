@@ -32,8 +32,6 @@ from app.services.order_response import enrich_order_out, load_order_for_respons
 from app.services import place_service
 from app.api.v1.orders_payment import _apply_complete_payment_logged, _reject_if_already_collected
 from app.api.v1.orders_common import (
-    _bg_dispatcher_pending_pool,
-    _bg_notify_cancel,
     _bg_notify_driver_ack,
     _bg_notify_navigation_filled,
     _get_order_scoped,
@@ -385,13 +383,15 @@ def cancel_order(
         raise HTTPException(status_code=400, detail=str(e)) from e
     sid = order.shipper_id
     oid = order.id
+    # ⚠️ 撤销推送走**事务发件箱**：与这次 commit 同一个事务。
+    #    原来调两次助手（货主一次、司机一次）→ 派单员因此会收到**两次**池刷新；
+    #    现在合成一条事件、两个收件人，语义不变而少一次重复推送。
+    recipients = [u for u in (sid, order.driver_id) if u is not None]
+    if recipients:
+        outbox.enqueue(db, "orders.cancelled", {"user_ids": recipients, "order_id": oid})
+    outbox.enqueue(db, "orders.pending_pool_changed", {})
     db.commit()
     full = load_order_for_response(db, order.id)
     if full is None:
         raise HTTPException(status_code=500, detail="订单数据异常")
-    if sid is not None:
-        background_tasks.add_task(_bg_notify_cancel, sid, oid)
-    if order.driver_id is not None:
-        background_tasks.add_task(_bg_notify_cancel, order.driver_id, oid)
-    background_tasks.add_task(_bg_dispatcher_pending_pool)
     return enrich_order_out(full, db, current)
