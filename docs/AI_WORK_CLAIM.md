@@ -20,6 +20,30 @@
 
 ## 进行中
 
+### [2026-09-24 22:3x → ] 会话：**架构整改 · 第 6 轮：阶段 3 收尾 —— CI workflow 自己的判据**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**做了什么**：新增 `_tools/qa/_check_ci_workflows.py`（**29 条**，自动进必跑组：95 → 96）。
+workflow 是一份**不会在自己身上跑的清单**，它的三类错误本地全看不见：
+①**路径写错**（脚本改名/搬走 → 只有 CI 那一步红，而人看的是本机 `_check_all.py` 全绿）；
+②**分支筛错**（只挂 main/develop 而代码长期落在 `p` → CI 一次都没跑过、**而且看起来一切正常** ——
+这个坑本仓库已经踩过）；③**任务名写错**（`testPhoneDebugUnitTest` 里的 flavor 与 `build.gradle.kts`
+对不上 → 夜闸红，而没人看夜闸）。
+
+**判据怎么算出来的**（不手写名单）：触发分支从 git 推（当前分支 + upstream = `p`/`new`）；
+`run:` 里每个仓库内路径与 `python -m` 模块逐个查存在性（`compileall` 这类标准库/已装模块不算路径）；
+gradle 任务名里的 flavor 去 `build.gradle.kts` 的 `productFlavors` 里对；快闸四件事（语法/端点索引/
+核心冻结/密钥）逐条点名；注入式 job（反向验证）必须只在 `schedule`/`workflow_dispatch`。
+
+**反向验证 5/5**（每条都当场红并给出对应结论；还原后 29/0）：路径写错（`_check_all.py` → `_check_alll.py`）／
+push 去掉 `p`／flavor 改成 tablet／把反向验证挪进 PR 闸／快闸删掉密钥自检。
+
+**顺手钉下一个不肯说谎的状态**：这套 CI **一次都没执行过** —— 本地领先 `origin` 109 个提交，
+`gate.yml` 还没推上去。所以执行表里阶段 3 写的是「**已完成（写出来了）**」，
+并在 §4 加了一条待拍板：要不要推一次让 CI 真的跑（夜闸的安卓单测是「挪进 PR 闸」的前提）。
+
+**本轮不碰**：`android/**`（另一会话正在改 `ReportCenter.kt` / `ReportFinance.kt`；现在跑 gradle 会与
+他的构建撞车 —— `_install_all.py` 的预检就是为这件事写的）、`backend/app/api/v1/reports.py` 等（同前）。
+
 ### [2026-09-24 22:2x → ] 会话：**架构整改 · 第 5 轮：声明页瘦身（6402 → 3967 行）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **做了什么**：把「已完成」整节 + 「进行中」里 **2026-09-24 之前**的【已完成】条目（两批共 **51 条**）移到
