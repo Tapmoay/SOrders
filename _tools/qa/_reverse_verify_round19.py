@@ -30,7 +30,8 @@ ORDERS_PAY = "backend/app/api/v1/orders_payment.py"
 LEDGER = "backend/app/api/v1/ledger.py"
 SYNC = "backend/app/services/ledger_sync.py"
 ACCT = "backend/app/services/accounting_service.py"
-REPORTS = "backend/app/api/v1/reports.py"
+#: ⚠️ 2026-09-25 第 21 轮：`_money` 的 HALF_UP 舍入随聚合下沉到 `services/reports_service.py`。
+REPORTS = "backend/app/services/reports_service.py"
 GUARDS = "tests/test_audit_round19_ledger_receipts.py"
 
 CASES: list[tuple[str, str, object, str]] = [

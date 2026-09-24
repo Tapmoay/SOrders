@@ -45,10 +45,22 @@
 | 3 | §5 | **CI workflow 自己的判据**（workflow 是不会在自己身上跑的清单） | 否 | **已完成** | `_tools/qa/_check_ci_workflows.py`（25 条，自动进必跑组：95 → 96）：分支口径（从 git 推当前分支与 upstream，不手写）/ `run:` 里每个仓库内路径与 `python -m` 模块是否存在 / 三层与 `needs` 层序 / 快闸四件事 / PR 闸里真的跑了 `_check_all.py` / **gradle 任务名里的 flavor 必须在 `build.gradle.kts` 里存在** / 注入式 job 必须只在夜闸。反向验证 **5/5**（路径写错、push 去掉 `p`、flavor 改 tablet、把反向验证挪进 PR、快闸删掉密钥自检）—— 每条当场红并给出对应结论；还原后 25/0 |
 | 3 | §5 | 安卓单测进 PR 闸 | 否 | **进行中** | 现在在夜闸（仓库自带的 gradle 在 gitignore 的 `_agent/` 里，runner 要现装 8.9）。本轮的机器判据已把「跑得起来」的四件事钉住：`setup-java`、`setup-gradle` 且**版本 pin 成 8.9**、任务名 `:app:testPhoneDebugUnitTest` 里的 flavor `phone` **在 `build.gradle.kts` 里真实存在**、失败也有 `if: always()` 的报告步骤。**唯一还差的是真的跑过一次**（同上：要推） |
 | 4 | §6 | `orders.py` 纯搬迁（URL/入参/出参/权限/状态机全不变） | 否 | **已完成** | **2056 → 33 行**（只剩装配说明 + 空 router）；25 个端点分在 7 个模块（query/assignment/delivery/payment/media/lifecycle/return）+ 共用助手在 orders_common；证据：每一刀都用 `_tools/qa/_api_contract_snapshot.py --diff` 证明**契约零差异**（OpenAPI 全文 / 路由表逐条 / 遮蔽关系 0 对），94/94 检查 + 983 用例全绿 |
-| 4 | §6 | `reports.py` 聚合下沉到 service | 否 | **第 ① 步已完成（94/94 绿）；② 下沉、③ 锚点逐个重指待做**。三步走：① 判据读取口径（✅ 已做：`_airepo.reports_source()`（缺文件就跳过，所以先改口径也不会红）+ 5 个读点全改并集：`_check_ai_guardrails`×3 / `_check_cost_basis` / `_check_order_return` / `_check_report_window` / `_check_single_source`）；② 再下沉（此时判据已能看两份）；③ **逐个**反向验证脚本重指锚点（一次一个、改完立刻跑 —— 上一轮批量重指把 8 条改错、13 条失效）：下沉本身**契约零差异**（`after-reports-sink` 快照），但 5 条判据是**按文件文本**读 `api/v1/reports.py` 找聚合锚点的（`_check_ai_guardrails` / `_check_cost_basis` / `_check_order_return` / `_check_report_window` / `_check_single_source`）—— 下沉前要先给它们加"读两份（api + service）"的口径，与 orders 那套 `orders_api_source` 同形 |
+| 4 | §6 | `reports.py` 聚合下沉到 service | 否 | **三步都已完成（① 判据读并集 / ② 下沉 / ③ 锚点逐个重指）—— 100/100 检查全绿**。三步走：① 判据读取口径（✅ 已做：`_airepo.reports_source()`（缺文件就跳过，所以先改口径也不会红）+ 5 个读点全改并集：`_check_ai_guardrails`×3 / `_check_cost_basis` / `_check_order_return` / `_check_report_window` / `_check_single_source`）；② 再下沉（此时判据已能看两份）；③ **逐个**反向验证脚本重指锚点（一次一个、改完立刻跑 —— 上一轮批量重指把 8 条改错、13 条失效）：下沉本身**契约零差异**（`after-reports-sink` 快照），但 5 条判据是**按文件文本**读 `api/v1/reports.py` 找聚合锚点的（`_check_ai_guardrails` / `_check_cost_basis` / `_check_order_return` / `_check_report_window` / `_check_single_source`）—— 下沉前要先给它们加"读两份（api + service）"的口径，与 orders 那套 `orders_api_source` 同形 |
 
-<!-- 下沉第 ③ 步的**精确清单**（本轮实测出来的，下一轮照着做即可） -->
-> **第 ③ 步的精确定位（2026-09-24 第 4 次试做时实测出来的）**：会搬到 service 那一份的注入锚点共 **22 条**，
+<!-- 下沉第 ③ 步：**精确清单**（第 4 次试做时实测）＋**执行结果**（2026-09-25 第 21 轮做完） -->
+> ✅ **第 ③ 步已完成**：死锚点 **23 条 → 0**（`_check_reverse_verify_anchors.py`：`✅ 1147 条注入原文全部还在`，exit 0），
+> 且逐份**真跑一遍**证明注入确实会红：`_reverse_verify_report_window.py` **29/29**、`_reverse_verify_cost_basis.py` **8/8**、
+> `_reverse_verify_report_guards.py` §24 的 **5 条**全红、`_reverse_verify_round19.py` **7 条**、
+> `_reverse_verify_round12.py` **30 条**（18 个文件逐字节还原）、`_reverse_verify_single_source.py` **19 条**。
+> 做法两种：**常量整族重指**（`cost_basis` / `report_guards` / `round19` 各一个常量；`report_window` 拆成两个 ——
+> `REPORTS_SVC` 给聚合、`REPORTS_PY` 只留给**仍在 API 层**的导出 `s, e = _span(...)`）与**逐条按标签改路径**（`round12` / `single_source` 的内联表）。
+> ⚠️ 两条**不在**上面清单里、只有"逐份真跑"才暴露的：`round12` 的「司机送达不再看隔离区」挂在 `orders.py`，
+> 而 `complete_order` 早随阶段 4 搬去 `orders_delivery.py` —— **锚点检查当时说"找得到"**（它在别处找到了同一段原文），
+> 只有真跑那份脚本才报 SKIP。结论：**锚点检查 + 逐份真跑，两个都要**。
+> ⛔ 两条纪律（第 4 次试做踩出来的，仍然有效）：**常量路径别用推导出来的相对前缀**（service 是
+> `ROOT / "backend/app/services/reports_service.py"`；写成 `ROOT / "services/…"` 会让三个脚本当场 FileNotFoundError）；
+> **别写通用扫描器**（`round12`/`single_source` 的表是列表套列表，通用扫描在它们身上失败过两次）。
+> **精确清单（历史记录，行号以当时为准；已完成）**：会搬到 service 那一份的注入锚点共 **22 条**，
 > 按脚本列出行号（锚点行号 → 所在用例的目标表达式要改成 `REPORTS_SVC`）：
 > `_reverse_verify_cost_basis.py` 35 / 88；`_reverse_verify_report_guards.py` 33 / 57；
 > `_reverse_verify_report_window.py` 162 / 167 / 175 / 189 / 194 / 199 / 204 / 240（**已验证可修**：重指后 29/29 通过）；

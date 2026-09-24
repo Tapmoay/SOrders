@@ -29,7 +29,10 @@ INV_API = ROOT / "backend/app/api/v1/inventory.py"
 INV_SCHEMA = ROOT / "backend/app/schemas/inventory.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
 BASIS = ROOT / "backend/app/services/cost_basis.py"
-REPORTS = ROOT / "backend/app/api/v1/reports.py"
+#: ⚠️ 2026-09-25 第 21 轮：成本/毛利的聚合**下沉到 service 层**了 —— 这一族的两条注入
+#: （`basis.of(...)` 与货损快照）现在住在 `services/reports_service.py`。
+#: ⛔ 注入必须打在**那段原文真正住着的文件**上，否则反向验证静默 SKIP（＝锚点腐烂，红线没有牙）。
+REPORTS = ROOT / "backend/app/services/reports_service.py"
 REPORT_SCREEN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt"
 
 BASIS_CALL = "cost, basis_src = basis.of(lp.product_id, lp.cost_price_snapshot)"

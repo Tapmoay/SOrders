@@ -68,7 +68,8 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "报表的司机运费支出改回累加订单运费（虚高 90%）",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         lambda s: s.replace(
             "        pay = pay_for_order(o).total if has_per_order_pay(o) else Decimal(\"0\")",
             "        pay = o.freight_fee or Decimal(\"0\")",
@@ -170,7 +171,8 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "报表改回按 UTC 日分桶（东八区当地 0~8 点的单算进前一天）",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         lambda s: s.replace(
             "        ds = business_date(o.delivered_at)\n"
             "        if ds is None or ds < start or ds > end:\n"
@@ -222,7 +224,8 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "撤销数改回按 UTC 日筛（当地凌晨撤销的单算到前一天）",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         lambda s: s.replace(
             "            Order.cancelled_at >= c_start,\n            Order.cancelled_at < c_end,\n",
             "            func.date(Order.cancelled_at) >= start,\n            func.date(Order.cancelled_at) <= end,\n",
@@ -232,7 +235,8 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "日报小时桶改回 UTC 小时（当地凌晨标成下午）",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         lambda s: s.replace(
             "        h = business_local(o.delivered_at).hour",
             "        h = o.delivered_at.hour",
@@ -242,7 +246,8 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "「挂账未收」又加上 payment_method 那一条（两处口径再次分叉）",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已腐烂）：下面那句 `paid.is_(False)`
         #    后面多了"与 load_delivered 同一个窗口预过滤"的注释 + `*delivered_span_sql(...)`
         #    （2026-09-23 容量实测那一轮的加速改动）。
@@ -258,7 +263,8 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "导出金额改回字符串（Excel 求和不到钱）",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         # ⚠️ 锚点跟着实现走（2026-09-19 第十八轮）：这一行现在显式写了
         #    `rounding=ROUND_HALF_UP`（F7：导出金额不许用银行家舍入）。
         lambda s: s.replace(
@@ -396,7 +402,9 @@ MULTI = [
         "司机送达不再看隔离区（已删除的单又能在谁都看不见的情况下送达）",
         [
             (
-                "backend/app/api/v1/orders.py",
+                # ⚠️ 2026-09-25 第 21 轮：司机送达那一族已随阶段 4 从 orders.py 搬到 orders_delivery.py
+                #    （`complete_order`）—— 锚点不跟着走，这条注入就**恒 SKIP**（反向验证实测报出）。
+                "backend/app/api/v1/orders_delivery.py",
                 lambda s: s.replace(
                     "    order = _order_not_deleted_or_404(\n"
                     "        db.scalars(select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)).first()\n"

@@ -43,7 +43,8 @@ CASES: list[tuple[str, str, object]] = [
     ),
     (
         "报表又自己算日期（`delivered_at.date()` 回到分桶里）",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         lambda s: s.replace(
             "        ds = business_date(o.delivered_at)\n        if ds is None or ds < start or ds > end:\n            continue\n",
             "        ds = o.delivered_at.date()\n        if ds < start or ds > end:\n            continue\n",
@@ -52,7 +53,8 @@ CASES: list[tuple[str, str, object]] = [
     ),
     (
         "日报小时桶又用 UTC 小时",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         lambda s: s.replace(
             "        h = business_local(o.delivered_at).hour",
             "        h = o.delivered_at.hour",
@@ -61,7 +63,8 @@ CASES: list[tuple[str, str, object]] = [
     ),
     (
         "撤销数又用 `func.date(` 筛",
-        "backend/app/api/v1/reports.py",
+        # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
+        "backend/app/services/reports_service.py",
         lambda s: s.replace(
             "            Order.cancelled_at >= c_start,",
             "            func.date(Order.cancelled_at) >= start,",

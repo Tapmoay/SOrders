@@ -26,7 +26,9 @@ from _airepo import repo_root  # noqa: E402
 
 AI_TOOLS = Path(__file__).resolve().parent.parent / "ai"
 ROOT = repo_root()
-REPORTS = ROOT / "backend/app/api/v1/reports.py"
+#: ⚠️ 2026-09-25 第 21 轮：报表聚合下沉到 service 层，这一族的三条注入（营业额 / 已收 / 挂账的算法）
+#: 现在住在 `services/reports_service.py`。注入要打在原文真正住着的文件上，否则静默 SKIP。
+REPORTS = ROOT / "backend/app/services/reports_service.py"
 REPORT_SCHEMA = ROOT / "backend/app/schemas/reports.py"
 RECON_TESTS = ROOT / "backend/tests/test_report_reconciliation.py"
 

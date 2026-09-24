@@ -26,6 +26,11 @@ ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 FINANCE = ANDROID / "ui/dispatcher/ReportFinance.kt"
 VM = ANDROID / "ui/dispatcher/ReportCenterViewModel.kt"
 SCREEN = ANDROID / "ui/dispatcher/ReportCenter.kt"
+#: ⚠️ 2026-09-25 第 21 轮：报表聚合**下沉到 service 层**之后，这一族里的注入目标分成了两处 ——
+#: 聚合函数（`build_turnover`/`build_products`/`load_delivered`/`delivered_span_sql`/`_window`…）
+#: 现在住在 `services/reports_service.py`，而**导出**（`export_report` 里的 `s, e = _span(...)`）仍在 API 层。
+#: 所以下面分成两个常量：**注入要打在"那段原文真正住着的文件"上**，否则反向验证会静默 SKIP（锚点腐烂）。
+REPORTS_SVC = ROOT / "backend/app/services/reports_service.py"
 REPORTS_PY = ROOT / "backend/app/api/v1/reports.py"
 ORDER_MODEL = ROOT / "backend/app/models/order.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
@@ -158,17 +163,17 @@ CASES: list[tuple[str, Path, object]] = [
     # ---- ⑤ 后端 ----
     (
         "半截窗口不再报错（猜另一头）",
-        REPORTS_PY,
+        REPORTS_SVC,
         lambda s: s.replace("date_from 与 date_to 必须同时给", "date_from 随便给", 1),
     ),
     (
         "两个 build_* 不再共用同一段聚合（各写各的窗口）",
-        REPORTS_PY,
+        REPORTS_SVC,
         lambda s: s.replace("    start, end = span if span else _window(mode, anchor)", "    start, end = _window(mode, anchor)", 1),
     ),
     (
         "曲线的粒度又只看 mode（整月区间会画成每小时一个点）",
-        REPORTS_PY,
+        REPORTS_SVC,
         # ⚠️ 锚点必须带上下一行：文件里 `if start == end:` 还出现在 `_span_label` 里，
         #    只换第一处就会打在那一处上 —— 判据照样绿（第一次跑就是这么被抓出来的）。
         lambda s: s.replace(
@@ -185,22 +190,22 @@ CASES: list[tuple[str, Path, object]] = [
     # ---- ⑤b 窗口下推到 SQL（2026-09-23 容量实测补）----
     (
         "营业纵览又把全库已送达单读进内存（span 被摘掉 → 报表随历史线性变慢）",
-        REPORTS_PY,
+        REPORTS_SVC,
         lambda s: s.replace("orders = load_delivered(db, span=(start, end))", "orders = load_delivered(db)", 1),
     ),
     (
         "商品经营那一路的 span 被摘掉（只留一处也会让那一页慢）",
-        REPORTS_PY,
+        REPORTS_SVC,
         lambda s: s.replace("for o in load_delivered(db, span=(start, end)):", "for o in load_delivered(db):", 1),
     ),
     (
         "挂账汇总那条自己写的查询丢了窗口条件",
-        REPORTS_PY,
+        REPORTS_SVC,
         lambda s: s.replace("                *delivered_span_sql(start, end),\n", "", 1),
     ),
     (
         "窗口翻译函数被改名/删掉（调用点就成了未定义名）",
-        REPORTS_PY,
+        REPORTS_SVC,
         lambda s: s.replace("def delivered_span_sql(", "def _delivered_span_sql_x(", 1),
     ),
     # ---- ⑤c 窗口列必须有索引可用（2026-09-23 生产 EXPLAIN ANALYZE 实测补）----
@@ -235,7 +240,7 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "窗口条件套上函数（`func.date(delivered_at)` 写法：索引当场失效，没人会报错）",
-        REPORTS_PY,
+        REPORTS_SVC,
         lambda s: s.replace(
             "    return Order.delivered_at >= lo, Order.delivered_at < hi",
             "    return func.date(Order.delivered_at) >= lo, func.date(Order.delivered_at) < hi",
