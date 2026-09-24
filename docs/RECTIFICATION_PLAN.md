@@ -404,3 +404,20 @@ Actions 的 Annotations 里，而那个接口**公开可读**（`/check-runs/<jo
 
 **现场**：`api.github.com/.../actions/runs` 目前只列到 `63abac9`（run_number 5），我之前几次 push（`bc0a7bf` / `d91dd24`）
 **还没有对应 run** —— 下一步先确认 Actions 是否还在为新 push 建 run（可能是并发/配额/事件过滤），再读注解定位那两条用例。
+
+
+### §11/§14 的连带：把 App 侧反向验证补回来（2026-09-25 第 36 轮）
+
+前端 H5 归档时删掉了三份**混合主体**的反向验证（`_reverse_verify_client_contract` / `_money_display` / `_pagination_wiring`）——
+它们的用例一半打 H5、一半打 App/后端。当时如实记了「App/后端那一半暂时没有反向验证」，这一轮补上第一份：
+
+**新增 `_tools/qa/_reverse_verify_client_contract_app.py` → 4/4 全绿**（前提 + 3 条注入 + 还原后红线全绿）：
+  ① App 的 `RECALLABLE` 少一档（派错司机之后撤不回来）→ `_check_client_contract.py` 当场红；
+  ② App 的 `CANCELLABLE` 少一档（货主撤销按钮少一档可撤）→ 红；
+  ③ 撤回按钮写回硬编码（`OrderStatusModel.RECALLABLE` → `== "ACCEPTED"`，审计 H1 的原形）→ 红。
+⚠️ 原计划还有第 ④ 条「`ALL` 里少一档」，**删掉了**：它的锚点（裸的 `"DISPATCHED",`）在 `OrderStatusModel.kt` 里出现 7 次，
+拿不到「恰好一次」的锚点就只能永远 SKIP —— 与其留一条假覆盖，不如删掉并把原因写在脚本里。
+
+证据：`_check_reverse_verify_anchors.py` → 108 份脚本 / **1081 条注入原文全部还在**；`_check_all.py` → 99/99。
+
+**还欠**：`_money_display` 与 `_pagination_wiring` 的 App/后端那一半同理（各需一份 App-only 的注入脚本）。
