@@ -20,7 +20,7 @@
 
 ## 进行中
 
-### [2026-09-25 07:0x → ] 会话：**架构整改 · 第 27 轮：阶段 9 §11 第 2 步 —— 第一块职责搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【进行中】
+### [2026-09-25 07:0x → 07:5x] 会话：**架构整改 · 第 27 轮：阶段 9 §11 第 2 步 —— 第一块职责搬出 AiWriteService.kt**（DSH session-e94394d5-4f36-49dd-9ee1-446fcb7dee30）【已完成，提交 b186a90】
 
 核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：报告 §11 第 2 步按职责拆文件，本轮把尾部 66 行「payload JSON → 请求 DTO」整块搬去新文件 AiWriteJson.kt（同一个包、一个字符没改；判据读并集，红线不受影响；Kotlin 编译 BUILD SUCCESSFUL）
 
