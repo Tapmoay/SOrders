@@ -102,8 +102,14 @@ def test_gross_profit_only_counts_rows_with_cost_snapshot():
     """
     from pathlib import Path
 
+    # ⚠️ 2026-09-25（阶段 4/6 的报表下沉）：聚合已搬到 `services/reports_service.py`，
+    #    `api/v1/reports.py` 只剩路由与导出 —— 源码形状断言必须**读两份**，
+    #    否则它测的是一具空壳（本仓库的规矩：判据/用例要跟着代码走，见 `_airepo.reports_source()`）。
     root = Path(__file__).resolve().parents[1]
-    reports = (root / "app/api/v1/reports.py").read_text(encoding="utf-8")
+    reports = "\n".join([
+        (root / "app/api/v1/reports.py").read_text(encoding="utf-8"),
+        (root / "app/services/reports_service.py").read_text(encoding="utf-8"),
+    ])
     schema = (root / "app/schemas/reports.py").read_text(encoding="utf-8")
 
     assert "cost_covered_amount" in schema

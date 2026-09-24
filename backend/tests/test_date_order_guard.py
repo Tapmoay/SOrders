@@ -201,12 +201,22 @@ def test_the_400_comes_from_the_shared_guard(
     `monkeypatch` —— **不动源码**，所以也不会污染别人的检查结论。
     """
     headers = auth_headers(token_dispatcher)
-    guarded = []
-    for r in _candidates():
-        mod = sys.modules.get(getattr(r.endpoint, "__module__", ""))
-        if mod is not None and hasattr(mod, "ensure_date_order"):
-            monkeypatch.setattr(mod, "ensure_date_order", lambda *a, **k: None)
-            guarded.append(r)
+    # ⚠️ 2026-09-25（阶段 4/6 的报表下沉）：端点函数在 `api/v1/reports.py`、而**闸门是在
+    #    `services/reports_service.py` 里调的** —— 只换端点那个模块的属性，service 里那份
+    #    `from app.core.date_window import ensure_date_order` 绑定的旧函数照样拦人
+    #    （实测：只补端点模块时，这 3 个聚合端点拆了闸门仍然 400，这条反空转当场红）。
+    #    所以「把这道闸门换成空实现」＝换掉**所有持有它的 app 模块**（定义处 + 每个 import 处）。
+    patched: list[str] = []
+    for name, mod in list(sys.modules.items()):
+        if mod is None or not name.startswith("app."):
+            continue
+        if hasattr(mod, "ensure_date_order"):
+            monkeypatch.setattr(mod, "ensure_date_order", lambda *a, **k: None, raising=False)
+            patched.append(name)
+    assert "app.core.date_window" in patched, (
+        "闸门的定义模块没被换掉 —— 这条反空转此刻证明不了任何事"
+    )
+    guarded = [r for r in _candidates() if getattr(r.endpoint, "__module__", "") in patched]
 
     assert len(guarded) >= 7, (
         f"只有 {len(guarded)} 个端点挂着这道闸门 —— 说明这一族里剩下的是"

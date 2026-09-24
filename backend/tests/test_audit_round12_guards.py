@@ -328,9 +328,16 @@ def test_business_date_buckets_utc_into_local_day():
 
 def test_turnover_freight_shape_uses_pay_for_order():
     """形状断言：turnover 的 freight 必须来自 `pay_for_order`（与账单/结算页同源）。"""
+    # ⚠️ 2026-09-25（阶段 4/6 的报表下沉）：聚合已搬到 `services/reports_service.py`，
+    #    `api/v1/reports.py` 只剩路由与导出 —— 源码形状断言必须**读两份**，
+    #    否则它测的是一具空壳（本仓库的规矩：判据/用例要跟着代码走，见 `_airepo.reports_source()`）。
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[1] / "app/api/v1/reports.py").read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+    src = "\n".join([
+        (root / "app/api/v1/reports.py").read_text(encoding="utf-8"),
+        (root / "app/services/reports_service.py").read_text(encoding="utf-8"),
+    ])
     body = src.split("def build_turnover", 1)[1].split("\ndef ", 1)[0]
     assert "pay_for_order(" in body, "营业纵览的司机运费支出没有走 pay_for_order"
     assert "o.freight_fee or Decimal" not in body, "营业纵览仍在累加订单运费（虚高）"
