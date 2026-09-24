@@ -20,6 +20,42 @@
 
 ## 进行中
 
+### [2026-09-24 19:4x → 20:2x] 会话：**架构整改（按用户交来的评审报告）· 第 1 轮：阶段 0–1**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【阶段 0–1 已完成；阶段 2–3 下一轮】
+
+**改什么**：把外部评审报告（原文存档 `docs/ARCHITECTURE_RECTIFICATION.md`）落成**可执行的分阶段整改**。
+本会话只做**基础设施层**：真实基线 / 备份与恢复演练 / CI 接管检查 / schema 迁移版本化。
+⛔ **不碰订单业务、不碰 AI 写链路、不碰 Android UI**（那些是 78ebd95c 第 36 轮队列里的东西）。
+
+**文件清单**：
+- 新增：`docs/ARCHITECTURE_RECTIFICATION.md`（报告原文，逐字存档）、`docs/BASELINE.md`、`docs/RECTIFICATION_PLAN.md`
+- 新增：`_tools/baseline/`（基线采集器 + `before/` 快照）、`_tools/backup/`（备份/恢复/回滚/演练）
+- 新增：`.github/workflows/gate.yml`（快闸/常闸/夜闸三层，接管已有 92 个检查与 970 个后端用例）
+- 改动：`docs/AI_WORK_CLAIM.md`（本页）
+- **核心改动：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：迁移没有版本表，"数据库现在是什么状态"无从判断，而它同时兼任"迁移"与"启动自愈"两个角色。本轮只**在外面加一层版本记录**（`schema_versions`）+ 把新增 DDL 挪进 `backend/app/migrations/`，**不改任何既有 DDL 的行为**（等价性由 `--check` 与端点/枚举检查守住）。**
+
+**明确不碰**：`backend/app/services/order_response.py`、`backend/app/api/v1/orders.py`、`backend/app/api/v1/reports.py`、`android/**/ai/*`、`_archive/audit/round26/**`。
+
+**本轮结论（阶段 0 + 1 做完，阶段 2–3 未动）**：
+
+| # | 做了什么 | 证据 |
+| --- | --- | --- |
+| 1 | 报告原文逐字存档 + 与代码实测的对照（报告里的数字**不是**现状） | `docs/ARCHITECTURE_RECTIFICATION.md`（sha256 `1838dd55…`）、`docs/BASELINE.md` |
+| 2 | 真实基线采集器（本地 + 生产**只读**），数字全部现算；`before/` 快照默认不许覆盖 | `_tools/baseline/_capture_baseline.py`、`_tools/baseline/before/2026-09-24/baseline.json` |
+| 3 | 报告说的"两个未提交文件"**已不存在**：唯一那条 ` M` 工作区哈希与 HEAD 相同（已知假阳性，判据是哈希不是状态） | 见 RECTIFICATION_PLAN §3.1 |
+| 4 | 脚本化备份系统（库+上传+清单+sha256+保留期）**装到生产机并挂定时任务** | `_tools/backup/`、`/etc/cron.d/sorders-backup`；首份 `pre_release/20260924T114017Z`（库 530KB / 上传 106MB，sha256 通过） |
+| 5 | **真的做了一次恢复演练**：恢复 → 库内不变式 → 起隔离实例 → 真 token 打只读端点 | `_tools/backup/_drill.sh`（本轮跑到 ②，见下条） |
+| 6 | 备份体系**自己的静态判据** 55 条，已自动进 `_check_all.py` | `_tools/backup/_check_backup.py --check` |
+
+**第一次真跑就抓到的四个问题**（都只在"真跑"时才暴露，全部留档在脚本注释里）：
+1. `dirs=$(find …)` 在目录不存在时返回非零 → `set -e` 把**一次已经成功的备份**判成失败，trap 再打上 `.FAILED`，那份完好的备份反而不可恢复；
+2. `find … ! -exec test … \;` **一个结果都不输出**（用了 `-exec` 就不再默认 `-print`）→ 演练报"找不到备份"；
+3. `urllib.parse` **不做**百分号解码：口令含 `@ : / %` 时会变成 `p%40ss` → `Access denied`（现场极易误判成"口令被改了"）；
+4. 应用账号只有 `sorders.*` 权限 → 演练建 `sorders_drill_*` 直接 1044；修法是**只给这一个命名空间**（不是改用 root），并当场用应用账号建库/删库自检。
+
+**库内不变式的两条修正（都是"我猜的"被真实数据打回）**：
+- 账本**允许**负数 `total` —— 那是退货红冲，口径写在 `services/order_return.py:151`（"数量、金额、成本快照全为负"）。判据改成"只有 `source=RETURN` 允许负数，且 RETURN 必须是红冲"。
+- `order_products` **没有** `deleted_at` 列 → 手写的第一版软删判据直接查询报错。改成**从 `information_schema` 现算**"同时有 `is_deleted`/`deleted_at` 的表"（实测 16 张），覆盖表数会打印出来。
+
 ### [2026-09-24 18:4x → ] 会话：**全项目系统性复核 · 第 36 轮**（第 9 批并行渗透：**10 个全新区域** + 统一修 R12-1/R12-2）【进行中】（DSH `session-78ebd95c-b8c9-4a44-8f7a-270d17e7c918`）
 
 **本轮探索区（`_archive/audit/round26/README.md`）**：01 横向越权/IDOR · 02 软删恢复的界面入口合规 ·
