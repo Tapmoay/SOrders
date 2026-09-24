@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # 全量历史（若干判据要看 git log；默认只有 1 个提交会报错）
 
       - uses: actions/setup-python@v5
         with:
@@ -89,6 +90,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # 全量历史（若干判据要看 git log；默认只有 1 个提交会报错）
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -104,6 +106,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # 全量历史（若干判据要看 git log；默认只有 1 个提交会报错）
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -143,6 +146,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # 全量历史（若干判据要看 git log；默认只有 1 个提交会报错）
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -175,6 +179,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # 全量历史（若干判据要看 git log；默认只有 1 个提交会报错）
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -192,6 +197,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # 全量历史（若干判据要看 git log；默认只有 1 个提交会报错）
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
