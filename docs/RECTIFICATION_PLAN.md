@@ -44,6 +44,18 @@
 | 3 | §5 | 安卓单测进 PR 闸 | 否 | **进行中** | 现在在夜闸（仓库自带的 gradle 在 gitignore 的 `_agent/` 里，runner 要现装 8.9）；首次跑通后挪进 PR 闸 |
 | 4 | §6 | `orders.py` 纯搬迁（URL/入参/出参/权限/状态机全不变） | 否 | **已完成** | **2056 → 33 行**（只剩装配说明 + 空 router）；25 个端点分在 7 个模块（query/assignment/delivery/payment/media/lifecycle/return）+ 共用助手在 orders_common；证据：每一刀都用 `_tools/qa/_api_contract_snapshot.py --diff` 证明**契约零差异**（OpenAPI 全文 / 路由表逐条 / 遮蔽关系 0 对），94/94 检查 + 983 用例全绿 |
 | 4 | §6 | `reports.py` 聚合下沉到 service | 否 | **第 ① 步已完成（94/94 绿）；② 下沉、③ 锚点逐个重指待做**。三步走：① 判据读取口径（✅ 已做：`_airepo.reports_source()`（缺文件就跳过，所以先改口径也不会红）+ 5 个读点全改并集：`_check_ai_guardrails`×3 / `_check_cost_basis` / `_check_order_return` / `_check_report_window` / `_check_single_source`）；② 再下沉（此时判据已能看两份）；③ **逐个**反向验证脚本重指锚点（一次一个、改完立刻跑 —— 上一轮批量重指把 8 条改错、13 条失效）：下沉本身**契约零差异**（`after-reports-sink` 快照），但 5 条判据是**按文件文本**读 `api/v1/reports.py` 找聚合锚点的（`_check_ai_guardrails` / `_check_cost_basis` / `_check_order_return` / `_check_report_window` / `_check_single_source`）—— 下沉前要先给它们加"读两份（api + service）"的口径，与 orders 那套 `orders_api_source` 同形 |
+
+<!-- 下沉第 ③ 步的**精确清单**（本轮实测出来的，下一轮照着做即可） -->
+> **第 ③ 步的精确定位（2026-09-24 第 4 次试做时实测出来的）**：会搬到 service 那一份的注入锚点共 **22 条**，
+> 按脚本列出行号（锚点行号 → 所在用例的目标表达式要改成 `REPORTS_SVC`）：
+> `_reverse_verify_cost_basis.py` 35 / 88；`_reverse_verify_report_guards.py` 33 / 57；
+> `_reverse_verify_report_window.py` 162 / 167 / 175 / 189 / 194 / 199 / 204 / 240（**已验证可修**：重指后 29/29 通过）；
+> `_reverse_verify_round19.py` 1 处（**已验证可修**）；
+> `_reverse_verify_round12.py` 73 / 175 / 227 / 237 / 252 / 265；`_reverse_verify_single_source.py` 48 / 57 / 66 / 98。
+> ⚠️ 后两份的用例表是 **`MULTI`（列表套列表）** 形状，`round12`/`single_source` 的锚点行既不是 `Name` 元素、
+> 也不在普通 CASES 里 —— 要按**行号**直接改，别再写通用扫描器（本轮两次通用扫描都在它们身上失效）。
+> ⚠️ 常量路径别用推导出来的相对前缀：`REPORTS = ROOT / "backend/app/api/v1/reports.py"` 对应的 service 是
+> `ROOT / "backend/app/services/reports_service.py"`（我第一次写成 `ROOT / "services/…"` → 三个脚本当场 FileNotFoundError）。
 | 5 | §7 | 状态机唯一写入口（Command → OrderFlow） | 局部 | 未开始 | — |
 | 5 | §8 | 钱：从"文件冻结"升级为显式契约 | 局部 | 未开始 | — |
 | 5 | §9 | 权限模型收敛（26 个权限点 / 5 个无引用） | 局部 | 未开始 | — |
