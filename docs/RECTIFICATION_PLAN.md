@@ -1031,3 +1031,103 @@ gate.yml 挪到"仍并行"的 test-parallel.yml 那几处 → **8/8**）。
 
 ⛔ 这三条**不写成"已完成"**：报告批评的正是"检测器写出来了但没接到生产线上"，
 把"写出来"记成"跑起来"就是同一个错误换了个地方犯。
+
+### 推上去了，于是 CI 第一次说了真话（2026-09-25 第 54 轮）
+
+**推送怎么打通的**：Clash 代理本身是通的（百度走代理 200），但**到 GitHub 的 TLS 被掐断**
+（`error:0A000126: unexpected eof while reading`），直连 + schannel 同样失败，
+域名解析出来还是 `198.18.0.x`（fake-ip，说明 TUN 截获了全部流量）。
+最后走的是**借生产机当跳板**：`ssh -D 17890` 开一条 SOCKS 隧道（生产机到 GitHub 完全通畅，
+实测 200 且 `ls-remote` 拿得到 ref），再 `git -c http.proxy=socks5h://127.0.0.1:17890 push`。
+⛔ 判断"推没推上去"一律用 `git ls-remote` 与 `git rev-parse HEAD` 对比，
+**不看 `git status` 那行 ahead**（它只说本地领先，不说远端收到没有）。
+
+**CI 的结论（29 个提交第一次跑起来）：双红，12 项没通过。** 逐条查下来三类，
+**没有一条是产品缺陷**，但每一类都让「检查体系」这件事名不副实：
+
+**① 「全部静态检查」这个 job 是全仓唯一不装依赖的 job。**
+其它三个 job 都装了 `requirements-all.txt`，唯独它没有。
+后果不是"少跑几个检查"：8 个检查在裸 Python 上直接 `ModuleNotFoundError`
+（sqlalchemy×4 / socketio / PIL / PyYAML / annotated_types×2），而
+`_check_ai_read_limits` 与 `_check_notify_guardrails` 会退化成「扫到 0 个端点 → 判据此刻证明不了什么」
+—— ⚠️ **不是红，是空转**，比红更隐蔽。本机永远看不出来（依赖是全局装的，101/101 全绿），
+所以这类问题**只有 CI 看得见**；而 CI 常年红的时候，没人分得清"缺依赖"和"真缺陷"。
+
+**② 反向验证写死了本机路径 → 它在 CI 上是死的。**
+锚点检查在 CI 上报出「3 条注入的锚点已经失效（这些反向验证现在是恒 SKIP 的）」，
+目标路径写着 `D:\AProjects\ASDH\orders/backend/...` —— 在 `/home/runner/work/...` 上根本不存在。
+这比红糟得多：那 3 条注入**永远不生效**，而本机因为那个目录真的存在，永远看不出来。
+同族 4 处：`_verify_ast.py` / `_reverse_verify_multi_request.py` / `_probe_security_round5.py` /
+`_reverse_verify_loop_e2e.py`。
+
+**③ 一个工具脚本坏了几轮，没有任何检查发现。**
+`_tools/baseline/_capture_baseline.py` 的 `except OSError:` 块体被一次编辑「换成注释」，
+整个文件 `IndentationError` —— 阶段 0 的基线采集工具**根本跑不起来**。
+为什么没人发现：Fast Gate 的语法检查是 `compileall -q backend/app backend/scripts`，
+**只 compile `backend/`**，`_tools/` 从来没被编译过；而它又不是 `_check_*.py`，不进必跑组。
+
+**结构性修法**（报告 §20 的原话是「发现问题 → **改变架构**」，不是"再加一个检查器"；
+这两件事都得做，但顺序是先把"结构"改对）：
+
+| 改什么 | 为什么是"结构"而不是"补丁" |
+| --- | --- |
+| `gate.yml` 两个 job 补 `pip install`（static-checks 与 Nightly 的 reverse-verify） | 后者只在夜里跑，红了更没人看 |
+| `_check_ci_workflows.py` **第 13 条**：跑检查/后端的 job 必须装依赖 | 10 个 job 全数认出来；RV 补第 ⑧ 条（删掉 pip install → 当场红）→ **9/9** |
+| 新增 `_tools/qa/_check_tool_scripts.py` | 两条判据：A 每个 `_tools/**/*.py` 都能 `ast.parse`；B **不许写死「本仓库的检出位置」** |
+| `_check_all.py` 新增**「带理由的跳过」**档位 | 见下 |
+
+**关于判据 B 的取舍（值得单独写下来）**：刻意**不**判「所有 Windows 绝对路径」——
+`adb.exe` / Git bash / AndroidStudio jbr / omap-tiles 是「**外部工具装在哪**」，
+与「仓库在哪」是两件事（`adb` 实测不在 PATH 上，改成 `shutil.which()` 会当场失效）。
+把它们一并判红只会逼出一张豁免表 —— 而豁免表恰恰是本项目反复吃过亏的东西。
+反过来，「仓库在哪」**没有任何正当理由**要写死：永远可以从 `__file__` 推。
+判的是 **AST 里的字符串常量**（跳过 docstring 与注释）：否则「⛔ 不许写死 `D:\...`」这种
+反面教材自己就会被判红。⚠️ 这条不是空谈：写这份反向验证时，它**当场抓到了 RV 自己的夹具字面量**。
+
+**关于「带理由的跳过」**：`_audit_role_ai.py` 是真调模型的检查（要花钱、有随机性），
+CI 上没有 key 也不该有。在这之前，这套体系里**根本没有「这个检查在当前环境跑不了」这个词汇** ——
+于是它只能表现为红，而「永远红的检查＝没有检查」（这也正是本轮 8 项「缺依赖」当初只能红着的原因）。现在：
+
+- 退出码 3 + 打印一行 `SKIP: <为什么在这台机器上跑不了>` → 记成 ⏭️，**不算通过**，
+  摘要里逐条连理由列出，并写明「另有 N 个在这台机器上跑不了」；
+- ⛔ **没有理由的 3 一律按失败记账** —— 否则一行 `sys.exit(3)` 就能让任何检查消失。
+  （牙齿验证：删掉那行 SKIP 只留 exit 3 → 当场判红 rc=1，文件逐字节还原。）
+
+### 「本机绿」和「CI 绿」说的其实是两套系统（2026-09-25 第 55 轮）
+
+上一轮把"缺依赖"修掉后，静态检查从 12 项红降到 2 项，剩下的全指向同一件事：
+
+| 包 | 本机 | CI |
+| --- | --- | --- |
+| fastapi | 0.136.1 | **0.141.1** |
+| starlette | 0.52.1 | **1.7.0**（0.x → 1.x 是**大版本**） |
+| sqlalchemy | 2.0.52 | **2.1.0** |
+
+根因：`requirements.txt` 写的是 `fastapi>=0.110,<1` 这类**开区间** → CI 每次装到的都是当时最新，
+而本机是几个月前装的那一套。starlette 1.x 改了 `include_router` 的行为：
+不再把子路由**摊平**进 `app.routes`，而是放一个 `_IncludedRouter`
+（既没有 `.path` 也没有 `.dependant`，而且**能再套一层**）。后果是 3 个用例红，
+两种形状都是最隐蔽的那一类：
+
+- `test_metrics_route_is_registered` → `AttributeError: '_IncludedRouter' object has no attribute 'path'`；
+- `test_date_order_guard` 两条 → 一路 `continue`，**扫到 0 个候选端点**（判据静默失效）。
+
+**修法（改架构）**：`backend/tests/conftest.py` 新增 `iter_api_routes()` ——
+递归拍平叶子路由，并且**把各级 `include_context.prefix` 累加回 path**
+（⚠️ 新形状里子路由的 `.path` **不含** include 时的前缀，不补的话扫出来的 20 个端点全部 404，
+"反序窗口被 400 拒绝"那条判据就变成一句空话）。产出的是一个 `ApiRoute` **投影**
+（`path` / `methods` / `dependant` / `endpoint`），**测试从此不认识 `_IncludedRouter`** ——
+starlette 内部结构下次再变，只改这一处。
+
+**证据（不靠猜：先把 CI 那套栈搬进本地临时 venv 复现，再改）**：
+新版本栈上 **3 failed（与 CI 报错逐字一致）** → 修后**两套栈都是 11 passed** →
+**整套用例在新版本栈上 1015 passed**（120.6s）→ `_check_all.py` **101/101**。
+
+⛔ 顺带记一条纪律：以后凡是"本机绿、CI 红"，**先在本地复现 CI 的那套依赖**
+（建个临时 venv 装 `requirements-all.txt`），再动手。
+"我这儿是好的"在这套体系里不算证据 —— 它只是"我这套库里是好的"。
+
+⚠️ **留给用户拍板的一件事**：依赖要不要**锁死**（`requirements.txt` 现在是开区间）。
+锁死才能让「本机跑 `_check_all.py` 全绿」真的等价于「CI 会绿」；
+不锁则每次 CI 都在验证一套我们没验过的库。这一轮**没有擅自改**（改它等于替项目决定
+"停在哪个版本"，而那要连生产一起考虑）。
