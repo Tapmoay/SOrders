@@ -124,12 +124,17 @@ def test_order_list_date_window_is_business_day(
     )
     assert r.status_code == 200, r.text
     got = {o["id"] for o in r.json()}
+    # ⚠️ 只认**我自己造的**这三张单：同一个文件里那条 `q` 路径的用例**也在同一个窗口造单**
+    #    （下面的 `_rows()` 早就是这么写的）。不设范围的话，「集合恰好等于谁」就变成了
+    #    「兄弟用例还没跑」—— 文件内用例一换顺序就红（2026-09-25 倒序扫描实测：
+    #    实际取到 {1, 2, 4, 5}，多出来的正是兄弟用例那两张）。
+    mine = got & {early, mid, late}
 
     old = _ids_in_utc_window(db_session, Order, {early, mid, late})
     assert old == {mid, late}, f"旧口径（UTC 零点）应当取到 MID+LATE，实际 {old}"
-    assert got != old, "两种口径取到的集合一样 → 这条判据证明不了'确实换算了'"
-    assert got == {early, mid}, (
-        f"窗口 {WINDOW}（业务当地）应当恰好取到 EARLY+MID，实际 {got}；"
+    assert mine != old, "两种口径取到的集合一样 → 这条判据证明不了'确实换算了'"
+    assert mine == {early, mid}, (
+        f"窗口 {WINDOW}（业务当地）应当恰好取到 EARLY+MID，实际 {mine}；"
         f"若拿到 LATE 说明还在按 UTC 零点比（这就是差 8 小时那个缺陷）"
     )
 

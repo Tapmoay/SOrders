@@ -193,6 +193,35 @@ jobs:
       - name: 全部反向验证（清单自己算）
         run: python _tools/ai/_reverse_verify_all.py
 
+  # ============================================================
+  # Nightly · 测试隔离度（每个测试文件单独跑）
+  # ============================================================
+  test-isolation:
+    name: Nightly · 测试隔离度（每个文件单独跑）
+    # ⚠️ 为什么要有这一条：本套件是「每个 xdist worker 一个 SQLite 库」，而**同一个文件里的用例
+    #    会共享那个库的状态** —— 于是会出现两种**假绿**（既不红也不报错，只在换了执行顺序或
+    #    分发方式之后才现形）。CI 上那两条工作流红了整整几轮，根子就是这两类（计划表第 42/43 轮）。
+    #    这个扫描量的是「**每个文件从空库开始**还过不过」—— 也就是 `--dist loadfile` 依赖的那条不变式。
+    #    ⛔ 不进 PR 闸：它要十几分钟（每个文件一次 pytest 启动 + 一次建库）。
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: fast-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: 装依赖
+        run: |
+          cd backend
+          pip install -r requirements-all.txt
+      - name: 逐个测试文件单独跑（每个文件一个空库）
+        run: python _tools/qa/_sweep_test_isolation.py
+
   android-unit-tests:
     name: Nightly · 安卓单测（先跑通，再挪进 PR 闸）
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
