@@ -275,7 +275,13 @@ jobs:
           # 默认 600s。头一次真跑（没有硬件加速）跑到 16 分钟都没起来，所以显式放宽；
           # 开了 KVM 之后正常是 1~3 分钟，这个值只起"慢也不冤杀"的作用。
           emulator-boot-timeout: 900
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          # ⚠️ 2026-09-25 第 60 轮实测：默认 AVD 只有 2 核（这个 action 会写 `hw.cpu.ncore=2`），
+          #    加上软件渲染（`swiftshader_indirect`，无头 runner 上只能这样），
+          #    流程第一次真的跑到 App 启动时，屏幕上出现的是
+          #    `❌ 既没看到工作台也没看到登录页。当前屏幕：Pixel Launcher isn't responding ｜ Close app ｜ Wait`
+          #    —— **是 launcher 被拖到 ANR**，不是我们的 App 崩。
+          #    所以显式给 4 核 / 4G（GitHub 标准 runner 是 4 vCPU / 16G，留得下）。
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -cores 4 -memory 4096
           # ⛔ **必须是一整行**：这个 action 把 `script` **按行**分别 `sh -c` 执行。
           #    2026-09-25 第 57 轮实测（日志原文）——
           #      [command]/usr/bin/sh -c set +e
@@ -301,8 +307,10 @@ jobs:
           #    开发机上这个权限早就被手点过了，所以本地从来不会遇到 —— 只有全新安装才会。
           #    预授的是清单里声明的四个**运行时**权限（定位两个 / 通知 / 读图），
           #    它们正好是 App 首次进工作台前后会弹的那几个。判据第 20 条钉着这一条。
+          # ⚠️ 中间那个 `sleep 20` 是**让系统先安定**：装包 + 授 4 个权限之后立刻跑流程，
+          #    会撞上 launcher 还在忙（第 60 轮实测就是 ANR 弹窗盖住屏幕）。
           script: >
-            echo 9 > /tmp/e2e.rc; adb install -r android/app/build/outputs/apk/phone/debug/*.apk > /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_FINE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_COARSE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.POST_NOTIFICATIONS >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.READ_MEDIA_IMAGES >> /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
+            echo 9 > /tmp/e2e.rc; adb install -r android/app/build/outputs/apk/phone/debug/*.apk > /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_FINE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_COARSE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.POST_NOTIFICATIONS >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.READ_MEDIA_IMAGES >> /tmp/e2e.log 2>&1; sleep 20; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
       - name: 判定（跑通 / 跑挂 / 带理由跳过）
         if: always()
         run: |
