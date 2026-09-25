@@ -278,8 +278,13 @@ jobs:
           #      ① `set +e` 管不到后面；② 变量（`rc=$?`）活不过一行；
           #      ③ 行尾 `\` 变成**一个真实参数** → argparse 直接 `unrecognized arguments: \` 退 2。
           #    所以整条流程压成一行，用 `;` / `||` 连接；判据第 16 条钉着「只能一行」。
+          # ⚠️ 开头那个 `echo 9 > /tmp/e2e.rc` 是**哨兵**（2026-09-25 第 58 轮加的）：
+          #    没有它，判定步骤分不出「模拟器压根没起来」（= 没有 rc 文件）与
+          #    「脚本跑到了但中途挂了」（= 写 rc 那一行本身没跑成）—— 两者都是"没有 rc 文件"，
+          #    第 58 轮实测就撞上了这个含混（明明是脚本退 2，报的却是"模拟器没起来"）。
+          #    有哨兵后：没有文件 = 没跑；rc=9 = 跑到了但没写出结论；0/3/其他 = 脚本自己的结论。
           script: >
-            python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 > /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; adb install -r android/app/build/outputs/apk/phone/debug/*.apk >> /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
+            echo 9 > /tmp/e2e.rc; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 > /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; adb install -r android/app/build/outputs/apk/phone/debug/*.apk >> /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
       - name: 判定（跑通 / 跑挂 / 带理由跳过）
         if: always()
         run: |
@@ -290,6 +295,10 @@ jobs:
           fi
           rc=$(tail -1 /tmp/e2e.rc | tr -d "[:space:]")
           cat /tmp/e2e.log || true
+          if [ "$rc" = "9" ]; then
+            echo "::error title=安卓端到端没跑通::rc=9 是哨兵值 —— 模拟器起来了、脚本也起了，但它**没写出结论**就退出了（看上面 /tmp/e2e.log 与脚本那一行的报错）。这与「模拟器没起来」是两回事。"
+            exit 1
+          fi
           if [ "$rc" = "0" ]; then echo "✅ 登录 → 导航 → 下单 → 对账 四段全通"; exit 0; fi
           if [ "$rc" = "3" ]; then
             echo "::warning title=安卓端到端带理由跳过::$(grep -m1 '^SKIP:' /tmp/e2e.log || echo '脚本没给出 SKIP 行，见上面日志')"

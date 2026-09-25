@@ -177,9 +177,20 @@ CASES: list[tuple[str, str, str, str, str]] = [
         # ⚠️ 锚点取 `script: >` 那一行 + 紧随其后的正文行：只锚 `script: >` 会太短，
         #    而整段正文太长且含 `>`（YAML 折叠标量），分段锚更稳。
         GATE,
-        "          script: >\n            python _tools/e2e/_flow_login_nav_order.py --check-env",
-        "          script: |\n            set +e\n            python _tools/e2e/_flow_login_nav_order.py --check-env",
+        # ⚠️ 锚点里必须**带上哨兵**：2026-09-25 第 58 轮给脚本开头加了 `echo 9 > /tmp/e2e.rc;`，
+        #    不带它这条锚点就 0 次命中（RV 会报 SKIP，而 SKIP 记成 MISS）—— 实测踩到过一次。
+        #    ⛔ 替换文本也要**保留哨兵**（只是挪到自己一行），否则第 16、17 条会一起红，
+        #    那就证明不了"红的是 16 条"。
+        "          script: >\n            echo 9 > /tmp/e2e.rc; python _tools/e2e/_flow_login_nav_order.py --check-env",
+        "          script: |\n            echo 9 > /tmp/e2e.rc\n            python _tools/e2e/_flow_login_nav_order.py --check-env",
         "的模拟器 script 是多行的",
+    ),
+    (
+        "⑰ 脚本开头那个哨兵被拿掉（脚本中途挂掉时会被归因成「模拟器没起来」）",
+        GATE,
+        "            echo 9 > /tmp/e2e.rc; python _tools/e2e/_flow_login_nav_order.py --check-env",
+        "            python _tools/e2e/_flow_login_nav_order.py --check-env",
+        "没在脚本开头写哨兵",
     ),
 ]
 
