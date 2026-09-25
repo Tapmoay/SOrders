@@ -20,6 +20,23 @@
 
 ## 进行中
 
+### [2026-09-25 12:0x → ] 会话：**路线图剩余项 ①⑤ —— §7 钱契约收尾（PENDING 清零）+ §16 多实例前置（跨主机迁移锁）；并开工 §9 权限三维模型**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**改动文件**：`backend/app/api/v1/reports.py`、`backend/app/services/reports_service.py`、
+`backend/app/migrations/_runner.py`、`_tools/qa/_check_money_contract.py`、`_tools/qa/_check_migrations.py`、
+`_tools/qa/_reverse_verify_migrations.py`、`docs/MULTI_INSTANCE_READINESS.md`（新）、
+`_tools/qa/_check_permission_model.py`（新）、`_tools/qa/_reverse_verify_permission_model.py`（新）。
+
+核心改动：backend/app/core/rbac.py —— 为什么必须动核心：报告 §9 要的是 User → Role → Permission →
+Action → Resource → Scope，而权限模型只有前两维（Role→Permission）；这个文件就是本项目**权限的核心
+定义处**（ROLE_PERMISSIONS / role_has_permission / user_role_key 全在里面），不在它里面加就没有别的地方可加。
+行为**完全不变**：split() 只是把枚举值 "resource:action" 拆开（不写第二份映射表），SCOPES 是新增的声明表，
+BYPASS_ROLES 是原来那句硬编码 `if key == UserRole.DISPATCHER.value: return True` **换了个住址**
+（判据钉着函数体里不许再有硬编码角色名）。
+
+**明确不碰**：`ROLE_PERMISSIONS` 的三角色内容、`require_permission` / `require_roles` 的语义、
+以及那 72 处内联 `user_role_key(...)` 行级过滤（本轮只做模型层，逐处收敛是下一轮）。
+
 ### [2026-09-25 06:4x → ] 会话：**架构整改 · 第 33 轮（目标轮 46）：把 H5 归档时删掉的两份「App+后端」反向验证补回来，并因此抓到一条真判据漏洞**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **用户 2026-09-25 稍早拍板**把前端 H5 归档（`frontend/` 从仓库删除）→ 三份**混合主体**的反向验证

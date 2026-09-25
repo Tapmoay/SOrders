@@ -109,6 +109,79 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
 }
 
 
+# ---------------------------------------------------------------- 三维模型（报告 §9）
+#: 报告要的是 `User → Role → Permission → Action → Resource → Scope`。
+#: 前两维在本文件上面（`ROLE_PERMISSIONS`），**后三维在这里补齐**：
+#:
+#: · **Action / Resource 不手写第二份** —— 枚举值本身就是 `"resource:action"` 的形状，
+#:   `split()` 从它拆出来。手写一张映射表＝又一处「同一个事实写两遍」，本项目在那种地方栽过很多次。
+#: · **Scope 是新增的那一维**：一个权限点**管到哪一层数据**。
+#:   它正是「货主只看自己的单」这类**行级规则**没法用一个权限点表达的原因 ——
+#:   以前这些规则散在 26 个文件、72 处内联判断里，现在至少**先在模型上有一维**。
+
+#: 允许的 Scope 取值（⛔ 不放别的：多一个取值就要有人解释它和行级过滤怎么对应）。
+SCOPE_KINDS = frozenset({"all", "own", "assigned", "self"})
+
+
+def split(permission: Permission) -> tuple[str, str]:
+    """`Permission.ORDER_CREATE` → `("order", "create")`（从枚举值拆，不写第二份表）。
+
+    ⚠️ 值里必须**恰好一个** `:`：多一个少一个都会让资源 / 动作分不清。
+    """
+    resource, sep, action = permission.value.partition(":")
+    if not sep or not resource or not action:
+        raise ValueError(f"权限点 {permission.name} 的值 {permission.value!r} 不是 resource:action 的形状")
+    return resource, action
+
+
+#: 权限点 →（Scope, 为什么是这一档）。判据要求 26 个**一个不少**、理由非空、取值合法。
+#: ⛔ Scope 不是装饰：它就是那些内联行级过滤**在模型上的名字**。
+SCOPES: dict[Permission, tuple[str, str]] = {
+    Permission.ORDER_CREATE: ("self", "建单是自己发起的动作，数据归属看行上的 shipper_id"),
+    Permission.ORDER_READ_OWN: ("own", "货主只看自己名下的单（行级过滤）"),
+    Permission.ORDER_READ_ASSIGNED: ("assigned", "司机只看派给自己的单（行级过滤）"),
+    Permission.ORDER_READ_ALL: ("all", "派单员看全部：单店经营者，没有「只看自己」这一档"),
+    Permission.ORDER_CANCEL_SHIPPER: ("own", "货主只能撤销自己名下的单（行级过滤按 shipper_id）"),
+    Permission.ORDER_CANCEL_DISPATCHER: ("all", "派单员可撤任意单（含代客撤销）"),
+    Permission.ORDER_RETURN: ("all", "退货动账本与库存，只有派单员能做，不分归属"),
+    Permission.ORDER_RETURN_REQUEST: ("own", "货主只能给自己的单提退货申请"),
+    Permission.ORDER_DELETE_CANCELLED: ("own", "软删进回收站：货主限自己的、派单员不限"),
+    Permission.ORDER_DISPATCH: ("all", "派单是全局动作：要看到所有待派单与所有司机"),
+    Permission.ORDER_RECALL: ("all", "撤回改派是全局动作：把单从某个司机手里收回来再派给别人"),
+    Permission.ORDER_EDIT: ("all", "派单员代客改单，改的往往是别人名下的单，所以不分归属"),
+    Permission.ORDER_COMPLETE_DRIVER: ("assigned", "司机只能完成派给自己的单"),
+    Permission.ORDER_INTERNAL_NOTE: ("assigned", "内部备注写在单上，司机限自己的单"),
+    Permission.ORDER_UPLOAD_DELIVERY: ("assigned", "送达照片只能传到派给自己的那张单上（行级过滤按 driver_id）"),
+    Permission.PRODUCT_MANAGE: ("all", "商品是全局主数据，不分归属"),
+    Permission.PRICE_RULE_MANAGE: ("all", "专属价按批发商维度，管理动作是全局的"),
+    Permission.LEDGER_READ_OWN: ("own", "货主看自己的账（行级过滤）"),
+    Permission.LEDGER_READ_ALL: ("all", "派单员看全部账：账本页是仪表盘"),
+    Permission.LEDGER_EDIT: ("all", "手工记账写的是全局账本，不挂在某一个人的名下"),
+    Permission.NOTIFICATION_READ: ("self", "消息按 recipient_id 过滤 —— 这里的「自己的」是收件人本人，比其他 own 更窄"),
+    Permission.NOTIFICATION_MANAGE: ("all", "群发与管理面向所有人；个人消息在 NOTIFICATION_READ 那一档"),
+    Permission.OPERATION_LOG_READ: ("all", "审计日志是全局只读视图，任何角色看到的都是同一份"),
+    Permission.USER_MANAGE: ("all", "账号、司机名册、货主名册都是全局主数据，不分归属"),
+    Permission.ORDER_PRODUCT_EDIT: ("all", "订单商品行是订单的一部分，编辑权归派单员"),
+    Permission.STATS_READ: ("all", "报表是全店口径（营业额/毛利/司机绩效），没有「只看自己那份」的版本"),
+}
+
+#: 绕过矩阵的角色 → 为什么 + **什么时候删掉这一条**。
+#:
+#: ⛔ 这不是「漏判」，恰恰相反 —— 它原来是 `role_has_permission` 里一句
+#:    `if key == UserRole.DISPATCHER.value: return True`：读代码的人只看到「恒真」，
+#:    看不到**谁批的、为什么、什么时候该收回去**。装进这张表之后，例外变成一条可审计的声明，
+#:    判据也钉得住「不许再在函数体里硬编码角色名」。
+#: 三条纪律与证书例外表同：① 每条写理由；② 理由里写什么时候删；③ 没命中就是化石（判据报红）。
+BYPASS_ROLES: dict[str, str] = {
+    "dispatcher": (
+        "派单员是这家店的**实际经营者**：所有业务动作他都要能替客户做（代下单、代撤销、代改单）。"
+        "把他塞进 ROLE_PERMISSIONS 的每一格，只会让那 26 行越写越长、而且每加一个权限点都要记得加他一次，"
+        "漏一次就是「派单员忽然做不了某件事」。**这家店出现第二个派单员角色、或引入「只读派单员」之后，"
+        "删掉这一条，改成逐格授权。**"
+    ),
+}
+
+
 def user_role_key(user: object) -> str:
     """从 ORM User 读取 `role` 并归一化，便于与 `UserRole.xxx.value`（小写）比较。
 
@@ -143,7 +216,7 @@ def normalize_role_key(role: str | None) -> str:
 def role_has_permission(role: str, permission: Permission) -> bool:
     """派单员为最高业务权限：通过 `require_permission` 校验时一律放行（仍须有效登录）。"""
     key = normalize_role_key(role)
-    if key == UserRole.DISPATCHER.value:
+    if key in BYPASS_ROLES:
         return True
     perms = ROLE_PERMISSIONS.get(key)
     if not perms:
