@@ -11,11 +11,15 @@
 ```text
   订单 #10086
    ↓ 命令 / 状态跃迁   orders.status + operation_logs.action
+   ↓ 是哪一条命令       operation_logs.command_id   ← R3-04-A 的中间那一层
    ↓ 是哪一次请求       operation_logs.request_id
    ↓ 账本               ledgers.order_id
    ↓ 司机账单           driver_bills.order_id
-   ↓ 事件               outbox_events.aggregate_id
+   ↓ 事件               outbox_events.aggregate_id（含 event_id = 事件行自己的 id）
    ↓ 通知               notifications.payload
+
+⛔ **三个 id 不是一个东西**（指南 §R3-04-A）：一次请求可以跑多条命令（批量派单就是），
+   一条命令又可以产生多条事件。所以这里**并排打出来**，而不是合成一个「追踪号」。
 ```
 
 ## 用法
@@ -45,7 +49,8 @@ sys.path.insert(0, str(ROOT / "backend"))
 #: 链路的七段。判据按这张表核对「每一段的表与列真的存在」+「这个工具真的查了它」。
 LINKS: tuple[tuple[str, str, str], ...] = (
     ("订单与状态", "orders", "order_no, status, created_at, dispatched_at, driver_acknowledged_at, delivered_at, cancelled_at"),
-    ("命令与审计", "operation_logs", "order_id, action, request_id, origin, operator_id, created_at"),
+    ("命令与审计", "operation_logs",
+     "order_id, action, command_id, request_id, origin, operator_id, created_at"),
     ("账本", "ledgers", "order_id, source, total, entry_date"),
     ("司机账单", "driver_bills", "order_id, driver_id, amount, status, rule_name"),
     ("事件", "outbox_events", "aggregate_id, event_type, status, attempts, sent_at"),
@@ -116,10 +121,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({
                 "order_no": order.order_no,
                 "status": _d(getattr(order.status, "value", order.status)),
-                "logs": [{"action": x.action, "request_id": x.request_id, "origin": x.origin} for x in logs],
+                "logs": [{"action": x.action, "command_id": x.command_id, "request_id": x.request_id,
+                      "origin": x.origin} for x in logs],
                 "ledger_rows": len(rows),
                 "driver_bills": len(bills),
-                "events": [{"type": e.event_type, "status": e.status} for e in events],
+                "events": [{"event_id": e.id, "type": e.event_type, "status": e.status} for e in events],
                 "notifications": [{"id": n.id, "type": n.type} for n in notes],
                 "notifications_scanned": len(recent),
             }, ensure_ascii=False, indent=2));
@@ -131,9 +137,10 @@ def main(argv: list[str] | None = None) -> int:
               + "  接单 " + _d(order.driver_acknowledged_at) + "  送达 " + _d(order.delivered_at)
               + "  撤销 " + _d(order.cancelled_at))
         print()
-        print("[命令与审计] " + str(len(logs)) + " 行（含是哪一次请求 request_id）")
+        print("[命令与审计] " + str(len(logs)) + " 行（命令 command_id + 请求 request_id 并排）")
         for x in logs:
-            print("   " + _d(x.created_at) + "  " + x.action + "  请求=" + _d(x.request_id)
+            print("   " + _d(x.created_at) + "  " + x.action
+                  + "  命令=" + _d(x.command_id) + "  请求=" + _d(x.request_id)
                   + "  来源=" + _d(x.origin))
         print("[账本] " + str(len(rows)) + " 行")
         for r in rows:
@@ -144,8 +151,8 @@ def main(argv: list[str] | None = None) -> int:
             print("   " + _d(b.amount) + "  " + _d(b.status) + "  规则=" + _d(b.rule_name))
         print("[事件] " + str(len(events)) + " 行（来源：" + event_src + "）")
         for e in events:
-            print("   " + _d(e.created_at) + "  " + e.event_type + "  " + e.status
-                  + "  尝试=" + _d(e.attempts))
+            print("   " + _d(e.created_at) + "  事件#" + _d(e.id) + "  " + e.event_type
+                  + "  " + e.status + "  尝试=" + _d(e.attempts))
         print("[通知] " + str(len(notes)) + " 条（在最近 " + str(len(recent)) + " 条里筛出）")
         for n in notes[:20]:
             print("   " + _d(n.created_at) + "  " + n.type + "  → 收件人 " + str(n.recipient_id))

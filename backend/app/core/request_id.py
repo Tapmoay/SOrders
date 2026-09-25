@@ -66,6 +66,15 @@ class RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if not getattr(record, "request_id", ""):
             record.request_id = get_request_id() or "-"
+        # R3-04-A：命令那一层也进日志（同一处生效，理由与 request_id 完全一样）。
+        # ⛔ 两者**不是**一个东西：一次请求可以跑多条命令（批量派单就是）。
+        if not getattr(record, "command_id", ""):
+            try:
+                from app.core.command_id import get_command_id
+
+                record.command_id = get_command_id() or "-"
+            except Exception:                      # noqa: BLE001 —— 日志字段不该拖垮任何请求
+                record.command_id = "-"
         return True
 
 

@@ -55,7 +55,8 @@ def _configure_logging() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         # 2026-09-24（整改阶段 8 ①）：日志带上**请求追踪 id** —— 报告 §15 要的第一件小事。
         # 每个请求一个 id（`core/request_id.py`）；并发时那串日志才第一次能按请求串起来。
-        format="%(asctime)s %(levelname)s [%(name)s] [rid=%(request_id)s] %(message)s",
+        # 2026-09-26（R3-04-A）：再带上**命令 id** —— 一次请求可能跑多条命令，只有 rid 分不开。
+        format="%(asctime)s %(levelname)s [%(name)s] [rid=%(request_id)s] [cid=%(command_id)s] %(message)s",
     )
     for _h in logging.getLogger().handlers:
         _h.addFilter(RequestIdFilter())

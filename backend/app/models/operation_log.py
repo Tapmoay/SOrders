@@ -24,6 +24,10 @@ class OperationLog(Base):
     #: 由 `services/operation_log_service.write_log` 一处填 —— 不在请求上下文里（后台任务、
     #: 脚本、保留期治理）时是 NULL，那正是「不是某个人点出来的」这个事实。
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    #: R3-04-A 的**中间那一层**：产生这一行的那条**命令**（`core/command_id.py`，形如
+    #: `order.create#3f2a1c9d`）。与 request_id 是 1:N —— 一次请求可以派 N 张单（批量派单）。
+    #: 不走命令层的路径（直接调 service / order_flow）这里是 NULL：那是事实，不是缺陷。
+    command_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     #: 整改报告 §15 ②：**这一行是谁发起的** —— `human`（默认）/ `ai`（用户在 AI 确认卡上点过）。
     #: 由 `services/operation_log_service.write_log` 一处填（`core/client_origin.py` 的上下文变量）。
     #: ⛔ 它不是「AI 能不能写」的闸门（那道闸门在 App 的确认卡上，模型永远只能"申请"）——

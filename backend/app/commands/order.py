@@ -36,6 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import outbox
+from app.core.command_id import traced_command
 from app.core.rbac import user_role_key
 from app.models import Order, User
 from app.models.enums import OperationAction, OrderStatus, UserRole
@@ -63,6 +64,7 @@ class CommandError(Exception):
         self.status_code = status_code
 
 
+@traced_command("order.create")
 def create_order(db: Session, *, actor: User, body: OrderCreate) -> Order:
     """`POST /orders` 的应用层：下单 → 落库 → 记地点/常用度 → 入队事件。
 
@@ -233,6 +235,7 @@ def create_order(db: Session, *, actor: User, body: OrderCreate) -> Order:
 
 
 
+@traced_command("order.exception")
 def resolve_exception(db: Session, *, actor: User, order_id: int, note: str) -> Order:
     """`POST /stats/exception-orders/{id}/resolve` 的应用层：把一条异常标记成**已解决**。
 
@@ -280,6 +283,7 @@ def resolve_exception(db: Session, *, actor: User, order_id: int, note: str) -> 
     db.commit()
     return order
 
+@traced_command("order.edit")
 def update_order(db: Session, *, actor: User, order_id: int, body: OrderUpdate) -> Order:
     """`PATCH /orders/{id}` 的应用层：改单（地址 / 收货人电话 / 配送说明 / 内部备注）。
 

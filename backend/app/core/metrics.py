@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.business_time import business_day_start_utc, business_today
@@ -41,6 +41,7 @@ from app.models.enums import OrderStatus
 from app.models.ledger import Ledger
 from app.models.ai_call_daily import AiCallDaily
 from app.models.operation_log import OperationLog
+from app.models.notification import Notification
 from app.models.order import Order
 from app.models.outbox import OutboxEvent, OutboxStatus
 
@@ -64,7 +65,40 @@ class Metric:
 #:   · 前者 = `operation_logs.origin = ai`（**后端从库里数**，能对回审计表）；
 #:   · 后者 = `ai_call_daily`（**App 上报**，见 `api/v1/ai_telemetry.py` 里的口径说明）。
 #: 这张表留着不删：它是"报告点名、当前算不出"的正式去处，下一条缺口该进这里。
-NOT_TRACKED: dict[str, str] = {}
+NOT_TRACKED: dict[str, str] = {
+    # ---- R3-04-B：指南点名、但**现在算不出来**的（每条写清为什么 + 它该长在哪）----
+    "orders_accepted": (
+        "orders 表**没有 accepted_at 列**（只有 dispatched_at / delivered_at / cancelled_at），"
+        "而 ACCEPTED 是**过程态**：单子很快就进 DELIVERED，事后没法从状态列回推‘今天接了几单’。"
+        "该长在哪：给 orders 补一列 accepted_at（要动核心区 + 一条迁移），下一轮的选择。"
+    ),
+    "commands_failed": (
+        "失败的命令**没有落库**：审计行只在成功写入时产生，而命令失败走的是 `CommandError` → 4xx，"
+        "那一层不写审计（写它要先想清楚‘拒绝也要留痕吗’）。"
+        "该长在哪：要么让它变成 ‘operation_logs 加 result 列’，要么由访问日志按状态码聚合。"
+    ),
+    "notifications_deduplicated": (
+        "被幂等键挡下的重投**没有计数**：唯一索引冲突后是回查已有那条，不写任何一行。"
+        "⛔ 不要拿‘事件重投次数’去近似它 —— 那是另一个量。"
+        "该长在哪：真要它就要一个计数器（那正是本模块反对的打点），先用 events_retried 看趋势。"
+    ),
+    "migration_failure": (
+        "迁移失败**不写版本表**（故意的：没跑成就不许记账），所以查库查不到失败。"
+        "它现在只出现在日志里（`迁移 NNN_xxx 失败`）。该长在哪：迁移运行记录表（一次一行）。"
+    ),
+    "scheduler_acquired": (
+        "数据治理的选主结果没有落库：它写在**日志**与**标记文件**里（`sorders_retention.last`）。"
+        "该长在哪：`data_retention_runs` 一次运行一行（谁跑的、拿到没拿到、各步结果）。"
+    ),
+    "scheduler_skipped": (
+        "同上：跳过只打一行日志（‘本轮跳过’），没有计数的地方。"
+    ),
+    "request_latency": (
+        "每次请求的耗时**只在访问日志里**（`GET /x → 200（12.3 ms）`），没有聚合。"
+        "⛔ 也不该在这里现算：聚合时延要直方图，而现算只能给‘某一刻的均值’，那个数会误导人。"
+        "该长在哪：由外部按日志聚合，或者上指标库（指南 §R3-04-C 说这一轮**先不上**）。"
+    ),
+}
 
 
 def _count_day(db: Session, model: type) -> int:
@@ -81,6 +115,20 @@ def _count(db: Session, model: type, *where: object) -> int:
     if where:
         stmt = stmt.where(*where)
     return int(db.execute(stmt).scalar() or 0)
+
+
+def _count_distinct(db: Session, column: object, *where: object) -> int:
+    """去重计数（命令条数用：同一条命令写多行审计只算一条）。"""
+    return int(db.scalar(select(func.count(func.distinct(column))).where(*where)) or 0)
+
+
+def _last_migration_ms(db: Session) -> int:
+    """最近一次迁移的耗时 —— ⛔ 走 `app.migrations` 的**只读**读法，不自己写那张表的名字：
+    表名与只读纪律都归迁移模块管（判据 `_check_migrations.py` 会红在「谁又写了一遍那张表」）。
+    """
+    from app.migrations import last_migration_duration_ms
+
+    return last_migration_duration_ms(db.get_bind())
 
 
 def snapshot(db: Session) -> list[Metric]:
@@ -161,6 +209,31 @@ def snapshot(db: Session) -> list[Metric]:
             "发件箱里已放弃的事件数（≠0 就是要人去看 last_error）",
             outbox.get("failed", 0),
             "outbox_events.status",
+        ),
+        # ---- R3-04-B：指南点名的业务指标里**能算**的那几个（算不出的进 NOT_TRACKED，不编数）----
+        Metric(
+            "sorders_commands_today",
+            "今天执行过的**命令**条数（按 operation_logs.command_id 去重；R3-04-A 加的那一列）",
+            _count_distinct(db, OperationLog.command_id, OperationLog.created_at >= start),
+            "operation_logs.command_id",
+        ),
+        Metric(
+            "sorders_notifications_created_today",
+            "今天创建的站内信条数（事件重投被幂等键挡下的不计在内）",
+            _count(db, Notification, Notification.created_at >= start),
+            "notifications.created_at",
+        ),
+        Metric(
+            "sorders_outbox_retried_today",
+            "今天**重试过**的事件数（attempts>1；≠0 说明有处理器在失败后恢复）",
+            _count(db, OutboxEvent, OutboxEvent.attempts > 1, OutboxEvent.created_at >= start),
+            "outbox_events.attempts",
+        ),
+        Metric(
+            "sorders_last_migration_duration_ms",
+            "最近一次迁移耗时（毫秒）；迁移变慢（大表 ALTER）时这里先看得出来",
+            _last_migration_ms(db),
+            "app.migrations.last_migration_duration_ms()",
         ),
         Metric(
             "sorders_driver_settlements_today",

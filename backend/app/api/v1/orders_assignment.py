@@ -39,7 +39,9 @@ from app.services.order_flow import assign_driver, lock_order_row, recall_dispat
 from app.services.accounting_service import BillAlreadySettledError, resync_open_piece_bill
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services import usage_service
+# R3-04-A：每次派单**各开一个命令作用域** —— 一次批量请求会产生 N 个 command_id。
 from app.core import outbox
+from app.core.command_id import command_scope
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -69,7 +71,10 @@ def batch_assign_orders(
             if order is None:
                 results.append(BatchAssignResultItem(order_id=oid, success=False, detail="未找到订单"))
                 continue
-            assign_driver(db, order, driver, current, body.internal_note)
+            # ⛔ 作用域罩在**单次派单**上，不是整个请求上：一次请求派 N 张单就是 N 条命令，
+            #    这就是指南 §R3-04-A 说的「1 request ≠ 1 command」在代码里的样子。
+            with command_scope("order.assign"):
+                assign_driver(db, order, driver, current, body.internal_note)
             if body.collect_cash is not None:
                 order.collect_cash = body.collect_cash
             # ⚠️ 派单推送走**事务发件箱**（整改报告 §10）：事件与这次 commit **同一个事务** ——
@@ -271,15 +276,16 @@ def assign_order(
     try:
         # 逐单覆盖值（派单员对这一单单独定的金额/比例）跟着一起进 assign_driver——
         # 它与模式快照、规则快照是**同一件事的三个字段**，分开写会出现半截状态。
-        assign_driver(
-            db,
-            order,
-            driver,
-            current,
-            body.internal_note,
-            piece_override=body.driver_piece_amount,
-            rate_override=body.driver_commission_rate,
-        )
+        with command_scope("order.assign"):
+            assign_driver(
+                db,
+                order,
+                driver,
+                current,
+                body.internal_note,
+                piece_override=body.driver_piece_amount,
+                rate_override=body.driver_commission_rate,
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     # ⛔ **没传运费 ≠ 把运费清空**（2026-09-19 审计 H3，高）：

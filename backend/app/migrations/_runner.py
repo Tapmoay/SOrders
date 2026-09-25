@@ -211,6 +211,27 @@ def current_version(engine: Engine) -> int:
     return max(applied) if applied else 0
 
 
+def last_migration_duration_ms(engine: Engine) -> int:
+    """最近一次迁移的耗时（毫秒）；没有迁移记录时 0。
+
+    ⛔ **只读**（与 `schema_ready` 同一条纪律）：不调 `applied_versions` / `ensure_version_table`，
+    所以任何抓取路径（指标、体检）都能安全地调它 —— 那是 R3-01 定下的规矩：
+    「看一眼状态」这件事本身不该改库。
+    ⛔ 表名的字面量只出现在**本模块**里：它是这张表的拥有者，别的模块想读一律走这里
+    （判据 `_check_migrations.py` 盯着「谁又写了一遍 schema_versions」）。
+    """
+    try:
+        if not inspect(engine).has_table(VERSION_TABLE):
+            return 0
+        with engine.connect() as conn:
+            got = conn.execute(text(
+                f"SELECT duration_ms FROM {VERSION_TABLE} ORDER BY version DESC LIMIT 1"
+            )).scalar()
+    except Exception:                       # noqa: BLE001 —— 读不到就是 0，不该拖垮抓取
+        return 0
+    return int(got or 0)
+
+
 def schema_ready(engine: Engine, *, directory: Path | None = None) -> tuple[bool, str]:
     """结构准备好了吗？—— **只读**核对，供应用启动时用（R3-01）。
 
