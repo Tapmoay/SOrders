@@ -64,7 +64,7 @@ PLAN_REL = "_tools/qa/_check_all.py"
 #: 判据条数下限。⛔ 原来是 17，而实际已经 38 —— 一个远低于实际值的下限等于没有下限
 #: （它只在"检查整个空转"时才响，而那时通常还有别的症状）。2026-09-25 第 56 轮改成**贴着实际值**：
 #: 少一条就红，逼着"删判据"这件事变成一次显式编辑。
-MIN_RULES = 42
+MIN_RULES = 43
 
 # fast gate 四件事（报告 §5 图里的 "syntax / changed checks / endpoint freshness / core freeze"）
 FAST_SHOULD = {
@@ -487,6 +487,22 @@ def main() -> int:
              "⛔ " + jn + " 的 uvicorn 没绑 0.0.0.0（或压根没有 uvicorn 行）："
              + ("；".join(bad_uv) if bad_uv else "没有 uvicorn")
              + " —— 模拟器里的 App 会连不上，而体检那一步却是绿的（第 59 轮实测）")
+        # ---- 20. 全新安装必须**在跑流程之前预授运行时权限** ----
+        # ⛔ 2026-09-25 第 59 轮实测：CI 每次都是**全新安装**，登录成功后弹出系统定位权限弹窗，
+        #    挡住工作台 —— 日志原文：
+        #    `❌ 登录后没进工作台。当前屏幕：Allow SOrders 派单送货 to access this device's
+        #     location? ｜ Precise ｜ Approximate ｜ While using the app ｜ …`。
+        #    开发机上这个权限早就被手点过了，所以**本地永远复现不出来** ——
+        #    这类"只在全新安装时出现"的阻塞正是端到端要跑在干净环境里的理由。
+        #    判据钉的是"预授发生在跑流程**之前**"：跑完再授没有任何意义。
+        if esc:
+            i_grant = esc.find("pm grant")
+            i_py = esc.find("python ")
+            want(0 <= i_grant < i_py,
+                 jn + " 在跑流程**之前**预授运行时权限（`adb shell pm grant`）",
+                 "⛔ " + jn + " 没有预授运行时权限（或授在了跑流程之后）—— 全新安装会弹"
+                 "系统权限窗挡住流程，而本地开发机因为早就手点过，**永远复现不出来**"
+                 "（第 59 轮实测）")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),

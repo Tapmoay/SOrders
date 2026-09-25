@@ -294,8 +294,15 @@ jobs:
           #    于是它必然报 `SKIP: emulator-5554 上没装 com.tapmoay.sorders` 并 rc=3 跳过 ——
           #    **这条端到端从落地那天（ef6854b）起就不可能真的跑过**，而它一直显示 success。
           #    判据第 18 条钉着「adb install 必须在第一次 --check-env 之前」。
+          # ⛔ **装完必须预授运行时权限**（2026-09-25 第 59 轮实测）：CI 每次都是**全新安装**，
+          #    登录成功之后会弹出系统定位权限弹窗，挡住工作台 ——
+          #    日志原文：`❌ 登录后没进工作台。当前屏幕：Allow SOrders 派单送货 to access
+          #    this device's location? ｜ Precise ｜ Approximate ｜ While using the app ｜ …`。
+          #    开发机上这个权限早就被手点过了，所以本地从来不会遇到 —— 只有全新安装才会。
+          #    预授的是清单里声明的四个**运行时**权限（定位两个 / 通知 / 读图），
+          #    它们正好是 App 首次进工作台前后会弹的那几个。判据第 20 条钉着这一条。
           script: >
-            echo 9 > /tmp/e2e.rc; adb install -r android/app/build/outputs/apk/phone/debug/*.apk > /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
+            echo 9 > /tmp/e2e.rc; adb install -r android/app/build/outputs/apk/phone/debug/*.apk > /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_FINE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_COARSE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.POST_NOTIFICATIONS >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.READ_MEDIA_IMAGES >> /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
       - name: 判定（跑通 / 跑挂 / 带理由跳过）
         if: always()
         run: |

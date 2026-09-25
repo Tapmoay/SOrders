@@ -212,6 +212,13 @@ CASES: list[tuple[str, str, str, str, str]] = [
         "          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/e2e-api.log 2>&1 &",
         "没绑 0.0.0.0",
     ),
+    (
+        "⑳ 预授运行时权限被拿掉（全新安装会弹系统权限窗挡住流程，本地复现不出来）",
+        GATE,
+        "adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_FINE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.ACCESS_COARSE_LOCATION >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.POST_NOTIFICATIONS >> /tmp/e2e.log 2>&1; adb shell pm grant com.tapmoay.sorders android.permission.READ_MEDIA_IMAGES >> /tmp/e2e.log 2>&1; ",
+        "",
+        "没有预授运行时权限",
+    ),
 ]
 
 CRLF = chr(13) + chr(10)
