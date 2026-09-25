@@ -322,10 +322,12 @@ def reports_source(root: Path | None = None) -> str:
     ⚠️ 缺文件不报错是**故意**的：搬迁必须拆成两步走（先改判据读取口径、再下沉），
     第①步做完时 service 文件还不存在 —— 那时这条判据必须照样是绿的。
     """
-    base = (root or ROOT) / "backend" / "app"
+    # ⚠️ 第二轮 R2-05：文件集改成 `reports_files()` —— 它在原来的两个路径之外，
+    #    再用 **glob** 收 `services/reports/**`（新拆出来的文件自动进并集，不用谁记得来登记）。
+    # ⛔ 别在这里再写一份路径清单：本文件里曾经同时存在**两个** `reports_source`，
+    #    后定义的那个把先定义的**静默覆盖**掉 —— 于是「并集」看起来加了、其实没生效，
+    #    而判据红在「找不到被搬走的函数」上，查了很久才发现是函数重名（判据救了我们一次）。
     parts = []
-    for rel in REPORTS_MODULES:
-        f = base / rel
-        if f.is_file():
-            parts.append(f"# ===== {rel} =====" + chr(10) + f.read_text(encoding="utf-8", errors="replace"))
+    for f in reports_files(root):
+        parts.append(f"# ===== {f.name} =====" + chr(10) + f.read_text(encoding="utf-8", errors="replace"))
     return (chr(10) * 2).join(parts)

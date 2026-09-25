@@ -251,6 +251,18 @@ Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，�
 | 6 | `_reverse_verify_{round12,round19,cost_basis,report_guards,single_source,report_window}.py` | 注入锚点钉在旧文件上 → 找不到原文 = `[SKIP]` = **计为不成立** | 每个 CASES 元组**自带 `rel`**，逐条改成新家那一个文件 |
 | 7 | `_check_reverse_verify_anchors.py` | 同上（它是 6 的元检查） | 跟着 6 一起改 |
 
+**第 6 项实测有 24 条锚点要改**（`_check_reverse_verify_anchors.py` 会逐条列出来：哪份脚本、哪段原文）。
+分布在 6 份脚本里：`_reverse_verify_{cost_basis,report_guards,report_window,round12,round19,single_source}.py`。
+**最省事的做法不是逐条改路径，而是改那 6 份脚本的 `Sandbox.apply`**：原文在 `ROOT/rel` 里找不到时，
+去这条链路的**全部文件**（`_airepo.reports_files()`）里找那一份含这段原文的，打到它上面 ——
+与判据读并集是同一条规矩，而且以后再搬一次不用再改锚点。
+⚠️ 六份脚本各有自己的 `Sandbox` 类（没有共用的），要改六处。
+
+**⛔ 这一轮还抓到一个真 bug（已修好并提交）**：`_tools/ai/_airepo.py` 里曾经同时存在**两个**
+`def reports_source` —— 后定义的那个把先定义的**静默覆盖**掉。于是「并集」看起来加了、其实没生效，
+判据红在「找不到被搬走的函数」上。修法：让**胜出的那一个**改用 `reports_files()`（glob）。
+这正是本项目最贵的一类错（同一个事实两处实现，只有一个地方改了）。
+
 **并集读取器已经就位**（`42a28ba`）：`_airepo.reports_source()` = `api/v1/reports.py` + `reports_service.py` +
 **glob 收到的** `services/reports/**`。⛔ 改上面的 1–4 时**直接用它**，别再各写各的路径 ——
 那正是 `_airepo` 里那段注释说的：「先让判据读并集，再搬代码。顺序不能反」。
