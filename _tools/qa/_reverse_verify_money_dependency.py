@@ -121,6 +121,25 @@ class Sandbox:
         raw = p.read_bytes()
         crlf = CRLF.encode("utf-8") in raw
         text = raw.decode("utf-8")
+        if old not in text:
+            # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— **锚点跟着搬家走**。
+            # 判据读的是「并集」（`_airepo.reports_source`），注入器也必须打在那份含原文的文件上，
+            # 否则沙箱找不到原文 → [SKIP] → 而 SKIP 在本仓库是**计为不成立**的。
+            # ⛔ 不逐条改锚点、也不改目标路径：以后报表再搬一次，这里自动跟上。
+            import sys as _sys
+            from pathlib import Path as _P
+            _sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "ai"))
+            from _airepo import reports_files as _rf
+            for _c in _rf():
+                _t = _c.read_text(encoding="utf-8", errors="replace")
+                if _t.count(old) == 1:
+                    p = _c
+                    raw = p.read_bytes()
+                    text = raw.decode("utf-8")
+                    if CRLF.encode("utf-8") in raw:
+                        text = text.replace(CRLF, chr(10))
+                    self.saved.setdefault(p, raw)
+                    break
         if crlf:
             text = text.replace(CRLF, chr(10))
         if text.count(old) != 1:
