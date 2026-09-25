@@ -3,18 +3,16 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.core.date_window import date_window
 from app.core.pagination import finish_page
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.core.rbac import user_role_key
 from app.database import get_db
-from app.deps import CurrentUser
+from app.deps import DispatcherUser
 from app.models import CashFlow, User
-from app.models.enums import UserRole
 from app.schemas.accounting_v2 import CashFlowOut
 
 router = APIRouter(prefix="/cash-flows", tags=["cash-flows"])
@@ -55,7 +53,7 @@ def _scoped_stmt(
 
 @router.get("", response_model=list[CashFlowOut])
 def list_cash_flows(
-    current: CurrentUser,
+    current: DispatcherUser,
     response: Response,
     db: Session = Depends(get_db),
     direction: str | None = Query(None),
@@ -66,8 +64,6 @@ def list_cash_flows(
     date_to: date | None = Query(None),
     limit: int = Query(200, ge=1, le=1000),
 ) -> list[CashFlowOut]:
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可查看")
     stmt = (
         _scoped_stmt(current, direction, biz_type, party_type, party_id, date_from, date_to)
         .order_by(CashFlow.flow_date.desc(), CashFlow.id.desc())
@@ -79,7 +75,7 @@ def list_cash_flows(
 
 @router.get("/summary")
 def cash_flow_summary(
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
     direction: str | None = Query(None),
     biz_type: str | None = Query(None),
@@ -96,8 +92,6 @@ def cash_flow_summary(
     而同一页的 Excel 导出是**在 SQL 侧全窗口求和**的（真值）。于是"页面一个数、导出一个数"。
     金额必须在数据库里算完再给客户端，客户端的 limit 只影响"看得见几行明细"。
     """
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可查看")
     stmt = _scoped_stmt(current, direction, biz_type, party_type, party_id, date_from, date_to)
     scoped = stmt.subquery()
     row = db.execute(
@@ -125,7 +119,7 @@ def cash_flow_summary(
 
 @router.get("/breakdown")
 def cash_flow_breakdown(
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
@@ -149,8 +143,6 @@ def cash_flow_breakdown(
     ⚠️ 只有派单员能看：这是**全公司**的经营数据（成本与开销都在里面）。货主/批发商各有各的那本账
     （`/shipper-ledger` + 他们的「我的账本」），不从这一个端点出。
     """
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可查看")
     scoped = _scoped_stmt(current, None, None, None, None, date_from, date_to).subquery()
     # ⚠️ 分组键里的方向也要 `lower()`：老数据里存过大写（枚举是小写），
     #    不归一就会出现 `IN` 与 `in` 两行，而且其中一行会被下面判成"支出"。

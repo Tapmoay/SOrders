@@ -30,8 +30,8 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows/breakdown",
-   "at": "backend/app/api/v1/cash_flows.py:127",
-   "auth": "仅登录 + 体内仅允许:派单员",
+   "at": "backend/app/api/v1/cash_flows.py:121",
+   "auth": "角色:dispatcher",
    "roles": [
     "dispatcher"
    ],
@@ -67,8 +67,8 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows/summary",
-   "at": "backend/app/api/v1/cash_flows.py:81",
-   "auth": "仅登录 + 体内仅允许:派单员",
+   "at": "backend/app/api/v1/cash_flows.py:77",
+   "auth": "角色:dispatcher",
    "roles": [
     "dispatcher"
    ],
@@ -144,8 +144,8 @@
    "module_cn": "现金流水",
    "method": "get",
    "path": "/api/v1/cash-flows",
-   "at": "backend/app/api/v1/cash_flows.py:57",
-   "auth": "仅登录 + 体内仅允许:派单员",
+   "at": "backend/app/api/v1/cash_flows.py:55",
+   "auth": "角色:dispatcher",
    "roles": [
     "dispatcher"
    ],

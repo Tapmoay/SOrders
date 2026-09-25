@@ -109,13 +109,18 @@ def main() -> int:
          and ".group_by(dir_col" in handler,
          "少了归一，老数据里那个大写 IN 会自成一组、还会被判成支出")
     c.present("只有 in 算收入，其余归支出一侧", handler, r'== "in" else expense')
-    c.present("守门条件就是 dispatcher（⛔ 不是一句空话）",
-              handler,
-              r'if user_role_key\(current\) != UserRole\.DISPATCHER\.value:\s*\n\s*'
-              r'raise HTTPException\(status_code=403, detail="仅派单员可查看"\)')
+    # ⚠️ 2026-09-25 §9 第二域：授权从**函数体**搬到了**签名**上（`DispatcherUser`）。
+    #    这条判据必须跟着搬 —— 否则它会因为"体内那段文字没了"直接报红，
+    #    然后被人顺手删掉（那才是真正的损失）。搬过去之后判据**更强**：
+    #    原来查的是"函数体里有没有写这句话"，现在查的是"入口上有没有挂这个依赖"，
+    #    而后者正是端点索引「授权」列读得出来的东西。
+    c.present("守门在**签名**上（DispatcherUser = require_roles(DISPATCHER)）",
+              handler, r"current: DispatcherUser,")
     c.ok("三个端点都守了门（只有派单员能看：全公司成本不从这一页漏出去）",
-         len(re.findall(r"仅派单员可查看", api)) == 3,
-         f"实际出现 {len(re.findall(r'仅派单员可查看', api))} 次")
+         len(re.findall(r"current: DispatcherUser,", api)) == 3
+         and "user_role_key" not in api,
+         f"实际签名级守门 {len(re.findall(r'current: DispatcherUser,', api))} 处、"
+         f"体内残留 {api.count('user_role_key')} 处")
     c.present("空/NULL 的 biz_type 不并进「其他」（账上出现没见过的东西要看得见）",
               handler, r'"biz_type": str\(biz_type or ""\)')
 

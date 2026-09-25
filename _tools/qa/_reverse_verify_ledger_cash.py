@@ -65,15 +65,14 @@ MUTATIONS = [
         "只有 in 算收入",
     ),
     (
-        "守门条件写空（`if False:`，字符串还在、权限门没了）",
+        # ⚠️ 2026-09-25 §9 第二域：原来是往**函数体**里注入 `if False:`。
+        #    授权搬到签名上之后，体内那段文字已经不在了 —— 注入点必须跟着搬到签名，
+        #    否则这条反向验证会变成恒 SKIP（锚点失效），而 SKIP 会被记成 MISS。
+        "守门从**签名**上摘掉（换回 CurrentUser —— 体内那段文字早就搬走了，只剩签名能证明它守了门）",
         API,
-        "    if user_role_key(current) != UserRole.DISPATCHER.value:\n"
-        '        raise HTTPException(status_code=403, detail="仅派单员可查看")\n'
-        "    scoped = _scoped_stmt(",
-        "    if False:\n"
-        '        raise HTTPException(status_code=403, detail="仅派单员可查看")\n'
-        "    scoped = _scoped_stmt(",
-        "守门条件就是 dispatcher",
+        '@router.get("/breakdown")\ndef cash_flow_breakdown(\n    current: DispatcherUser,',
+        '@router.get("/breakdown")\ndef cash_flow_breakdown(\n    current: CurrentUser,',
+        "守门在**签名**上",
     ),
     (
         "没标注的流水被并进「其他」（账上出现没见过的东西被藏起来）",
