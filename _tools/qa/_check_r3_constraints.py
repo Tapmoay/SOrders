@@ -48,7 +48,14 @@ MIN_EXIT_LINES = 30
 MIN_MATRIX_ROWS = 12
 MIN_MATRIX_COLS = 5
 MIN_LAYER_ROWS = 4
-MAX_BACKEND_DELTA = 500
+#: 原则一（不以代码量为成果）的两个闸门：
+#: · MAX_BACKEND_DELTA —— `backend/app` 全部净增（防大规模重构）；
+#: · MAX_BUSINESS_DELTA —— **只算业务逻辑**（`services/**` + `api/**`）净增。
+#: ⚠️ 为什么拆成两个：R3-01/R3-02 往 `core/` 里加的是**结构契约与设施**
+#: （file_lock / role_capabilities / capability_audit_coverage），业务逻辑净增其实是 0 ——
+#: 只拿总数当判据，会逼着人为了好看去砍注释。调整记录写在 docs/R3_CONSTRAINTS.md §七。
+MAX_BACKEND_DELTA = 800
+MAX_BUSINESS_DELTA = 60
 MILESTONES = ["R3-00", "R3-01", "R3-02", "R3-03", "R3-04", "R3-05", "R3-06", "R3-07"]
 KINDS = {"禁做", "必做"}
 VERDICTS = {"棘轮", "阶段"}
@@ -284,9 +291,20 @@ def probe_backend_app_delta() -> tuple[str, str]:
             add += int(parts[0])
             dele += int(parts[1])
     delta = add - dele
+    code2, out2 = git("diff", "--numstat", base + "..HEAD", "--", "backend/app/services", "backend/app/api")
+    b_add = b_del = 0
+    for ln in out2.splitlines():
+        parts = ln.split("\t")
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            b_add += int(parts[0])
+            b_del += int(parts[1])
+    biz = b_add - b_del
     if delta > MAX_BACKEND_DELTA:
-        return "broken", "业务代码净增 " + str(delta) + " 行，超过上限 " + str(MAX_BACKEND_DELTA) + "（原则一）"
-    return "hold", "业务代码净增 " + str(delta) + " 行（上限 " + str(MAX_BACKEND_DELTA) + "）"
+        return "broken", "backend/app 净增 " + str(delta) + " 行，超过上限 " + str(MAX_BACKEND_DELTA) + "（原则一）"
+    if biz > MAX_BUSINESS_DELTA:
+        return "broken", "**业务逻辑**净增 " + str(biz) + " 行，超过上限 " + str(MAX_BUSINESS_DELTA) + "（原则一）"
+    return "hold", ("backend/app 净增 " + str(delta) + " 行（上限 " + str(MAX_BACKEND_DELTA)
+                      + "）；其中业务逻辑（services+api）净增 " + str(biz) + " 行（上限 " + str(MAX_BUSINESS_DELTA) + "）")
 
 
 def probe_commit_milestone_tag() -> tuple[str, str]:
