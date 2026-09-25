@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections import namedtuple
 from collections.abc import Generator
 from pathlib import Path
 
@@ -28,6 +29,66 @@ from starlette.testclient import TestClient
 def get_worker_id() -> str:
     """Get pytest-xdist worker ID or 'master' if running without xdist."""
     return os.environ.get("PYTEST_XDIST_WORKER", "master")
+
+
+#: `iter_api_routes` 的产出：只暴露两个测试真正要的四个字段（见下面那段说明）。
+ApiRoute = namedtuple("ApiRoute", "path methods dependant endpoint")
+
+
+def _join_path(a: str, b: str) -> str:
+    if not a:
+        return b or "/"
+    if not b:
+        return a
+    return a.rstrip("/") + "/" + b.lstrip("/")
+
+
+def iter_api_routes(node):
+    """把应用里的**叶子路由**递归拍平 —— 跨 starlette 版本，两种形状都认。
+
+    ⚠️ 为什么不能直接遍历 `fastapi_app.routes`（2026-09-25 CI 实测，代价是 3 个用例红）：
+    · 本机 starlette 0.52.1：`include_router` 的路由被**摊平**进 `.routes`，
+      直接遍历就拿得到 `APIRoute`（有 `.path` / `.dependant`）；
+    · CI 上是 starlette **1.7.0**（`requirements.txt` 写的是 `fastapi>=0.110,<1`，
+      CI 装到的是新版）：`.routes` 里放的是 `_IncludedRouter` —— 它既**没有** `.path`
+      也**没有** `.dependant`，子路由藏在 `.original_router.routes` 里，而且**还能再套一层**。
+    直接遍历的两种后果都很隐蔽：要么 `AttributeError`（`test_metrics` 那条就是这么红的），
+    要么 `getattr(r, "dependant", None) is None` 一路 `continue` → **扫到 0 个候选端点**
+    （`test_date_order_guard` 那两条）—— 也就是"判据静默失效"，本项目最怕的那一类。
+
+    还有第二个坎：新形状里子路由的 `.path` **不含** include 时的前缀
+    （旧形状是在 include 那一刻就把前缀套在 path 上了）。所以这里一边下钻一边**累加**
+    `_IncludedRouter.include_context.prefix`（顶层那个就是 `/api/v1`）——
+    不补的话扫出来的 path 会全部 404（实测：20 个候选端点全变成 404，
+    于是"反序窗口被 400 拒绝"那条判据变成一句空话）。
+
+    ⛔ 产出的是 `ApiRoute` 这个**投影**（只含两个测试真正要的四个字段），
+    不是框架自己的路由对象：starlette 内部结构下次再变，改这一处就够了，
+    调用方永远不用认识 `_IncludedRouter`。
+    """
+    stack: list[tuple[object, str]] = [(node, "")]
+    seen: set[int] = set()
+    while stack:
+        cur, prefix = stack.pop()
+        if id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        sub = getattr(cur, "routes", None)
+        nxt = prefix
+        if sub is None:
+            inner = getattr(cur, "original_router", None)
+            if inner is not None:
+                sub = getattr(inner, "routes", None)
+                ctx = getattr(cur, "include_context", None)
+                nxt = _join_path(prefix, getattr(ctx, "prefix", None) or "")
+        if sub:
+            stack.extend((s, nxt) for s in sub)
+            continue
+        path = getattr(cur, "path", None)
+        if path is None:
+            continue
+        yield ApiRoute(_join_path(prefix, path), getattr(cur, "methods", None) or set(),
+                       getattr(cur, "dependant", None), getattr(cur, "endpoint", None))
 
 
 def get_db_path() -> str:

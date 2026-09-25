@@ -58,7 +58,15 @@ def llm_key() -> str:
         for line in cred.read_text(encoding="utf-8", errors="ignore").splitlines():
             if "DEEPSEEK_API_KEY" in line and ":" in line:
                 return line.split(":", 1)[1].strip().strip("'\"")
-    raise SystemExit("取不到 DEEPSEEK_API_KEY（环境变量或 ~/.dsh/.credentials.yaml）")
+    # ⛔ 退出码 3 + `SKIP:` 一行 = 「这台机器上跑不了」，由 `_check_all.py` 单独记账、连理由列出。
+    #    为什么不干脆判红：这条检查是**真调模型**（要花钱、有随机性），CI 上没有 key 也不该有 ——
+    #    让它每次 CI 都红，训练出来的是"整段跳过这份输出"，而它旁边还混着真正的缺陷。
+    #    为什么不干脆算绿：`_check_all.py` 会把它**单独列出来**，不算进「全部通过」，
+    #    摘要里写「另有 N 个在这台机器上跑不了」—— 是可见的缺口，不是静默的绿。
+    print("SKIP: 取不到 DEEPSEEK_API_KEY（环境变量或 ~/.dsh/.credentials.yaml）—— "
+          "这条检查要真调模型、会花 token，只在本地有 key 时跑；"
+          "能力表与角色对齐的**静态**那一半由 _check_role_parity.py 兜着。")
+    raise SystemExit(3)
 
 
 # --------------------------------------------------------------------------- 能力表

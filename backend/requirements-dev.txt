@@ -20,3 +20,10 @@ pytest-pretty>=1.2,<2
 # Coverage reporting
 pytest-cov>=5.0,<6
 
+# ⛔ 2026-09-25：**检查**用得到，不是"开发时顺手装的"——
+#    `_tools/ai/_check_notify_guardrails.py` 会去跑 `_tools/media/_probe_clip_voice.py`，
+#    而后者靠逐帧自相关估基频来判断播报素材是女声还是男声（换错音色不会报任何错，
+#    只有用户听得出来）。缺 numpy 时它在 CI 上直接 ImportError —— 而本机全局装了 numpy，
+#    所以这条**只有 CI 看得见**（实测：静态检查 job 唯独它红，其余 100 项全绿）。
+numpy>=1.26,<3
+

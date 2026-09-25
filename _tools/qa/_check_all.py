@@ -173,6 +173,12 @@ def main() -> int:
 
     print()
     bad: list[tuple[str, str]] = []
+    #: 「在这台机器上跑不了」的检查：(脚本, 理由)。⛔ 不算通过 —— 摘要里单独列、连理由一起。
+    #: 为什么要有这一档：2026-09-25 CI 第一次拿到真实日志时，12 条红里有 8 条的真实原因是
+    #: **CI 上没装依赖**（sqlalchemy/socketio/PIL/PyYAML…），还有 1 条是**要 DEEPSEEK_API_KEY**。
+    #: 在那之前，这套体系里根本没有"这个检查在当前环境跑不了"这个词汇 —— 于是它只能表现为红，
+    #: 而「永远红的检查 = 没有检查」：红久了就没人读了，真缺陷也跟着被忽略。
+    skipped: list[tuple[str, str]] = []
     for g, p, args in run:
         rel = str(p.relative_to(ROOT))
         t0 = time.time()
@@ -196,6 +202,19 @@ def main() -> int:
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         tail = [ln.strip() for ln in out.splitlines() if ln.strip()]
         summary = tail[-1] if tail else "(无输出)"
+        # 退出码 3 = 「这个检查在当前环境跑不了」，**但必须带理由** ——
+        # ⛔ 没有理由的 3 一律按失败记账，否则一行 sys.exit(3) 就能让任何检查消失。
+        skip_reasons = [ln[5:].strip() for ln in tail if ln.startswith("SKIP:")]
+        if r.returncode == 3 and skip_reasons:
+            print(f"⏭️  {rel:52s} {dt:5.1f}s  {summary[:90]}")
+            skipped.append((rel, skip_reasons[0]))
+            continue
+        if r.returncode == 3:
+            msg = ("退出码 3（=跳过）但没写理由 —— 必须打印一行 "
+                   "`SKIP: <为什么在这台机器上跑不了>`，否则任何人都能一行 exit(3) 让检查消失")
+            print(f"❌ {rel:52s} {dt:5.1f}s  {msg[:90]}")
+            bad.append((rel, msg))
+            continue
         mark = "✅" if r.returncode == 0 else "❌"
         print(f"{mark} {rel:52s} {dt:5.1f}s  {summary[:90]}")
         if r.returncode != 0:
@@ -210,6 +229,12 @@ def main() -> int:
                 print("  " + ln)
         return 1
 
+    if skipped:
+        print(f"⏭️  {len(skipped)} 个检查在这台机器上跑不了（**不算通过**，逐条连理由列出）：")
+        for rel, why in skipped:
+            print(f"   - {rel}：{why}")
+        print()
+
     # 最后一条：**这条命令自己有没有被人知道**。
     # 检查写得再全，没人跑就等于没有检查——本项目已经栽过一次
     # （`_app_feature_coverage.py --check` 红了一整轮，因为收尾清单是手写的、它不在里面）。
@@ -220,7 +245,14 @@ def main() -> int:
         print("❌ AGENTS.md 里没有提到 `_check_all.py` —— 新会话不会知道要跑它，"
               "这条命令就等于不存在（请在 AGENTS.md 里加一行）。")
         return 1
-    print(f"✅ {len(run)}/{len(run)} 个检查全部通过（并且 AGENTS.md 里写了要跑它）。")
+    # ⚠️ 分子要**扣掉跳过的**：跳过的不是"通过"。
+    # ⚠️ 没有跳过时保留「个检查全部通过」这个措辞 —— `_gen_acceptance.py` 是按它抓结论行的
+    #    （见那份脚本的 pick 正则）。有跳过时换一句，免得出现「0/1 个检查全部通过」这种自相矛盾。
+    if skipped:
+        print(f"✅ {len(run) - len(skipped)}/{len(run)} 个检查通过（并且 AGENTS.md 里写了要跑它）；"
+              f"另有 {len(skipped)} 个在这台机器上跑不了（逐条理由见上，**不算通过**）。")
+    else:
+        print(f"✅ {len(run)}/{len(run)} 个检查全部通过（并且 AGENTS.md 里写了要跑它）。")
     return 0
 
 

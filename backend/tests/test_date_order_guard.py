@@ -38,7 +38,7 @@ import pytest
 from sqlalchemy import func, select
 from starlette.testclient import TestClient
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, iter_api_routes
 
 #: 反序窗口（`date_from > date_to`）：任何一端点都不许把它当合法区间。
 REVERSED_FROM = "2026-09-30"
@@ -127,11 +127,16 @@ def _candidates() -> list:
 
     ⚠️ 取 `fastapi_app` 而不是 `app`：后者是 `socketio.ASGIApp` 的包装，
     只有前者才拿得到路由表。
+
+    ⚠️ 遍历要用 `iter_api_routes`（递归拍平），**不能**直接 `for r in fastapi_app.routes`：
+    starlette 1.7.0（CI 装到的那个）把 `include_router` 的子路由包在 `_IncludedRouter` 里，
+    它没有 `.dependant` → 这个循环会一路 `continue`，最后**扫到 0 个候选端点**，
+    而那正好会被上面的下限断言拦住（CI 上就是这么红的）。见 `conftest.iter_api_routes`。
     """
     from app.main import fastapi_app
 
     out = []
-    for r in fastapi_app.routes:
+    for r in iter_api_routes(fastapi_app):
         # 只认 FastAPI 的 APIRoute（`/docs`、`/openapi.json` 那些是 Starlette `Route`，
         # 没有 `dependant`，也没有查询参数模型）
         dep = getattr(r, "dependant", None)

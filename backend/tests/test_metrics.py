@@ -30,6 +30,7 @@ from app.main import fastapi_app, settings
 from app.models.enums import OrderStatus
 from app.models.order import Order
 from app.models.outbox import OutboxEvent, OutboxStatus
+from tests.conftest import iter_api_routes
 
 
 def _values(db: Session) -> dict[str, int]:
@@ -130,6 +131,9 @@ def test_metrics_are_rendered_for_scrapers(db_session: Session):
 
 
 def test_metrics_route_is_registered():
-    paths = [r.path for r in fastapi_app.routes]
+    # ⚠️ 用 `iter_api_routes`（递归拍平）而不是直接遍历 `fastapi_app.routes`：
+    #    starlette 1.7.0 下 `.routes` 里是 `_IncludedRouter`，没有 `.path` →
+    #    `AttributeError`（CI 上就是这么红的）。见 `conftest.iter_api_routes` 的说明。
+    paths = [r.path for r in iter_api_routes(fastapi_app)]
     assert "/metrics" in paths
 
