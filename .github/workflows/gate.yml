@@ -283,8 +283,13 @@ jobs:
           #    「脚本跑到了但中途挂了」（= 写 rc 那一行本身没跑成）—— 两者都是"没有 rc 文件"，
           #    第 58 轮实测就撞上了这个含混（明明是脚本退 2，报的却是"模拟器没起来"）。
           #    有哨兵后：没有文件 = 没跑；rc=9 = 跑到了但没写出结论；0/3/其他 = 脚本自己的结论。
+          # ⛔ **先装包、再体检**（2026-09-25 第 58 轮实测修）：`--check-env` 体检四样 ——
+          #    adb / 设备 / **App 装没装** / 后端。原来的顺序是先 `--check-env` 再 `adb install`，
+          #    于是它必然报 `SKIP: emulator-5554 上没装 com.tapmoay.sorders` 并 rc=3 跳过 ——
+          #    **这条端到端从落地那天（ef6854b）起就不可能真的跑过**，而它一直显示 success。
+          #    判据第 18 条钉着「adb install 必须在第一次 --check-env 之前」。
           script: >
-            echo 9 > /tmp/e2e.rc; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 > /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; adb install -r android/app/build/outputs/apk/phone/debug/*.apk >> /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
+            echo 9 > /tmp/e2e.rc; adb install -r android/app/build/outputs/apk/phone/debug/*.apk > /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
       - name: 判定（跑通 / 跑挂 / 带理由跳过）
         if: always()
         run: |

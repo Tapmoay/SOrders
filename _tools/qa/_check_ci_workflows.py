@@ -64,7 +64,7 @@ PLAN_REL = "_tools/qa/_check_all.py"
 #: 判据条数下限。⛔ 原来是 17，而实际已经 38 —— 一个远低于实际值的下限等于没有下限
 #: （它只在"检查整个空转"时才响，而那时通常还有别的症状）。2026-09-25 第 56 轮改成**贴着实际值**：
 #: 少一条就红，逼着"删判据"这件事变成一次显式编辑。
-MIN_RULES = 40
+MIN_RULES = 41
 
 # fast gate 四件事（报告 §5 图里的 "syntax / changed checks / endpoint freshness / core freeze"）
 FAST_SHOULD = {
@@ -458,6 +458,21 @@ def main() -> int:
              jn + " 的模拟器 script 先写**哨兵** `echo 9 > /tmp/e2e.rc`（区分「没跑」与「跑了没结论」）",
              "⛔ " + jn + " 没在脚本开头写哨兵 —— 脚本中途挂掉时，判定步骤会把归因写成"
              "「模拟器没起来」（第 58 轮实测就这么错了一次），排查方向从一开始就是歪的")
+        # ---- 18. `adb install` 必须在第一次 `--check-env` **之前** ----
+        # ⛔ 2026-09-25 第 58 轮实测：`--check-env` 体检的是 adb / 设备 / **App 装没装** / 后端，
+        #    而它原来排在 `adb install` **之前** → 恒返回 rc=3 +
+        #    `SKIP: emulator-5554 上没装 com.tapmoay.sorders`。
+        #    后果是这条端到端**从落地那天（ef6854b）起就不可能真的跑过流程**，
+        #    而它一直显示 success —— 又一个「接了线但从不执行」。
+        #    判据钉的是**先后顺序**：「顺序反了」就是这一类的形状，光查"有没有 adb install"抓不到。
+        if esc:
+            i_install = esc.find("adb install")
+            i_check = esc.find("--check-env")
+            want(0 <= i_install < i_check,
+                 jn + " 在 `--check-env` **之前**先 `adb install`（体检查的就是「App 装没装」）",
+                 "⛔ " + jn + " 的顺序反了（或找不到 `adb install` / `--check-env`）——"
+                 "`--check-env` 会报「没装 App」并 rc=3 跳过，于是这条端到端**永远跑不到流程**，"
+                 "却一直显示 success（第 58 轮实测）")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),
