@@ -478,6 +478,25 @@ def audit_script(
                     )
                 )
                 continue
+            # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— 注入器已经**按并集**找那一份
+            # 含原文的文件（26 份走 Sandbox.apply 的回退、6 份走各自的 mutate 回退），
+            # 所以这里也要按同一张清单判：并集里找得到就不算「锚点失效」。
+            # ⛔ 否则这条元检查会把「搬家」判成「腐烂」，逼人去逐条改路径常量 —— 那正是要避免的。
+            try:
+                from _airepo import reports_files  # noqa: PLC0415
+
+                _moved = False
+                for _c in reports_files():
+                    if _c == target:
+                        continue
+                    _t = _c.read_text(encoding="utf-8", errors="replace")
+                    if count_in(_t, old) >= 1 or (uses_regex and regex_hit(_t, old)):
+                        _moved = True
+                        break
+            except Exception:  # noqa: BLE001 —— 判据自己不该因为读不到包而崩
+                _moved = False
+            if _moved:
+                continue
             bad.append(f"原文找不到（{preview(old)}）")
         if bad and (script.name, label) not in ALLOW:
             problems.append((label, target, bad))

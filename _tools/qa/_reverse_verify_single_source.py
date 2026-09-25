@@ -216,6 +216,19 @@ def main() -> int:
     for label, rel, mutate in CASES:
         path = ROOT / rel
         original = path.read_text(encoding="utf-8")
+        # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— 目标路径可能已经过期。
+        # 判据读的是**并集**，注入器也照着并集找：哪一份真的被 mutate 改了，就打在哪一份上。
+        # ⛔ 不逐条改 CASES 里的路径常量：那几条锚点跨多个新文件，改常量改不干净。
+        if mutate(original) == original:
+            import sys as _sys
+            from pathlib import Path as _P
+            _sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "ai"))
+            from _airepo import reports_files as _rf
+            for _c in _rf():
+                _t = _c.read_text(encoding="utf-8")
+                if mutate(_t) != _t:
+                    path, original = _c, _t
+                    break
         mutated = mutate(original)
         if mutated == original:
             # 白名单那条注入：如果清单里已经没有这行，说明判据结构变了
