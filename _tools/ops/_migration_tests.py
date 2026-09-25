@@ -32,7 +32,19 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / 'backend'
-LATEST = 7
+#: ⛔ **不许写死版本号**：写死的那一版（7）在 R3-04 加了迁移 008 之后就过期了 ——
+#: 而它不会报错，只会让「空库迁移通过」这条用例静默地判错（实测：R3-07 的报告事实核对
+#: 判据把它抓出来时，台账里那三行 ✅ 已经挂了两轮）。现在从 `app.migrations` 现算。
+def _latest_version() -> int:
+    code, out = py('from app.migrations import discover; print(max(m.version for m in discover()))', 'sqlite://')
+    for ln in reversed(out.splitlines()):
+        if ln.strip().isdigit():
+            return int(ln.strip())
+    raise SystemExit('❌ 拿不到迁移版本数（app.migrations.discover() 没回答）：' + out[-300:])
+
+
+#: 由 `main()` 现算后写进来（每次运行都重新问一遍 `app.migrations`）。
+LATEST = 0
 MIN_TABLES = 40
 
 
@@ -209,6 +221,8 @@ CASES = {
 
 
 def main() -> int:
+    global LATEST
+    LATEST = _latest_version()          # ⛔ 现算，不写死（写死过 7，加了迁移 008 之后就判错了）
     ap = argparse.ArgumentParser(description='R3-01 迁移生命周期测试')
     for name in CASES:
         ap.add_argument('--' + name, action='store_true')
