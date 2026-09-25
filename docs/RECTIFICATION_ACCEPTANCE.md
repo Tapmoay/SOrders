@@ -3,7 +3,7 @@
 > **本文件由 `_tools/qa/_gen_acceptance.py` 生成，不要手改**（报告 §13：会变化的数字一律不手写）。
 > 重新生成： `python _tools/qa/_gen_acceptance.py --full --out docs/RECTIFICATION_ACCEPTANCE.md`
 
-生成于 2026-09-24 23:45 UTC ｜ 分支 p ｜ 提交 f8cdf69 ｜ 模式：完整（含全量静态检查与后端用例）
+生成于 2026-09-25 01:34 UTC ｜ 分支 p ｜ 提交 c7d9516 ｜ 模式：完整（含全量静态检查与后端用例）
 
 ⚠️ 本页是**快照**：生成之后仓库还会往前走。**数字以重新跑出来的为准**，别拿这一页当当前值（这正是报告 §13 说的「文档系统要变成事实生成系统」）。
 
@@ -27,7 +27,7 @@
 | 8 | §13 文档事实源自动化 | 会变的数字不手写：生成物 + 判据守住 | ✅ `python _tools/qa/_check_live_doc_counts.py` | ✅ 全部通过（活文档里手写的数字都与现状一致，或已被指向生成物） |
 | 10 | §15 可观测性 | Request ID 一条链路 / 业务指标现算 / 外部监控四项（跑得到生产） | ✅ `python _tools/ops/_check_ops.py` | ✅ 全部通过（只读、阈值一处、退出码分档、该盯的都盯着） |
 | - | §18 施工纪律：判据自己也要被验证 | 反向验证的注入原文还找得到（锚点不许腐烂） | ✅ `python _tools/qa/_check_reverse_verify_anchors.py` | ✅ 1127 条注入原文全部还在（90/113 份脚本的注入表都认得出）。 |
-| - | §19 Domain + Database invariants | 直接查库：钱 / 库存 / 状态 / 单据自相矛盾吗 | ✅ `python _tools/fuzz/_fuzz_invariants.py --check` | 小结：检查 41 项 / 确认缺陷 0 / 可疑 0 / 信息 5 / 0.7s |
+| - | §19 Domain + Database invariants | 直接查库：钱 / 库存 / 状态 / 单据自相矛盾吗 | ✅ `python _tools/fuzz/_fuzz_invariants.py --check` | 小结：检查 41 项 / 确认缺陷 0 / 可疑 0 / 信息 5 / 0.8s |
 | - | §5 全量静态检查（移交 CI 的那一套） | 清单自己算，一条命令跑完全部静态检查 | ✅ `python _tools/qa/_check_all.py` | ✅ 99/99 个检查全部通过（并且 AGENTS.md 里写了要跑它）。 |
 | 9 | §14 后端全量用例 | 重构的等价性靠用例钉住（每一步都跑过） | ✅ `python -m pytest -q` | 1015 passed |
 
