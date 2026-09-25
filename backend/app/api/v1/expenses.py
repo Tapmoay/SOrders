@@ -7,11 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.date_window import date_window
-from app.core.rbac import user_role_key
 from app.database import get_db
-from app.deps import CurrentUser
+from app.deps import DispatcherUser
 from app.models import Expense, ExpenseCategory, Order, User, Vehicle
-from app.models.enums import OperationAction, UserRole
+from app.models.enums import OperationAction
 from app.services.operation_log_service import write_log
 from app.schemas.accounting_v2 import ExpenseCreate, ExpenseOut
 
@@ -20,15 +19,13 @@ router = APIRouter(prefix="/expenses", tags=["expenses"])
 
 @router.get("", response_model=list[ExpenseOut])
 def list_expenses(
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
     category: str | None = Query(None),
     driver_id: int | None = Query(None),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
 ) -> list[ExpenseOut]:
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可查看")
     stmt = select(Expense).order_by(Expense.exp_date.desc(), Expense.id.desc())
     if category:
         stmt = stmt.where(Expense.category == category)
@@ -82,11 +79,9 @@ def list_expenses(
 @router.post("", response_model=ExpenseOut)
 def create_expense(
     body: ExpenseCreate,
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
 ) -> ExpenseOut:
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可操作")
     from app.services.accounting_service import create_expense as svc_create
 
     try:

@@ -437,8 +437,8 @@
    "module_cn": "费用",
    "method": "get",
    "path": "/api/v1/expenses",
-   "at": "backend/app/api/v1/expenses.py:22",
-   "auth": "仅登录 + 体内仅允许:派单员",
+   "at": "backend/app/api/v1/expenses.py:21",
+   "auth": "角色:dispatcher",
    "roles": [
     "dispatcher"
    ],
