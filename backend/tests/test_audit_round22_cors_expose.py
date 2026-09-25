@@ -18,6 +18,24 @@ from __future__ import annotations
 
 from tests.conftest import auth_headers
 
+#: 客户端**发出去**的请求头（不是「读到的响应头」）—— 下面的扫描器只按 `x-...` 字面量抓，
+#: **分不清方向**，所以这一小撮要写在这里，⛔ 每条都要说清为什么它不是响应头。
+#:
+#: ⚠️ 为什么不干脆把扫描放宽（比如只认 `headers["x-..."]` 那种读法）：这条判据的价值就在于
+#:    「客户端读了却没暴露 = 跨源时读不到，而界面永远显示『没有更多了』」那类**静默失败**；
+#:    放宽正则等于把它变成摆设。用它自己的形状（带理由 + 化石检测）收口更稳：
+#:    既能放行请求头，又不会把真正的响应头一起放过去。
+#: 三条纪律与仓库里其它例外表同：① 每条写理由；② 理由里写什么时候删；
+#: ③ 没命中、或者它其实**已经**在 expose_headers 里了 = 化石，报红。
+REQUEST_ONLY: dict[str, str] = {
+    "x-sorders-origin": (
+        "**请求**头（App → 后端）：AI 确认卡写库时标注来源，后端据此把审计行记成 origin=ai"
+        "（android 的 core/ClientOrigin.kt ↔ 后端的 core/client_origin.py）。它只在请求方向上出现，"
+        "浏览器读不到也不需要读它。**哪天客户端开始读这个响应头（比如后端回显它），删掉这一条、"
+        "并把它加进 expose_headers。**"
+    ),
+}
+
 
 def test_truncation_headers_are_exposed_to_browsers(client, token_dispatcher):
     r = client.get(
@@ -62,5 +80,11 @@ def test_expose_headers_covers_every_header_the_clients_read():
     m = re.search(r"expose_headers\s*=\s*\[([^\]]*)\]", cors)
     assert m, "CORSMiddleware 没有写 expose_headers"
     exposed = {h.lower() for h in re.findall(r'"([^"]+)"', m.group(1))}
-    missing = sorted(read - exposed)
+    # ---- 例外表自己的纪律：写在表里却**没被扫到**＝化石；已经暴露了＝这条例外多余 ----
+    fossils = sorted(k for k in REQUEST_ONLY if k not in read or k in exposed)
+    assert not fossils, (
+        f"REQUEST_ONLY 里这些条目已经没用了（扫不到它、或它已经在 expose_headers 里）：{fossils} ——"
+        "清掉那一行，别让例外表长霉"
+    )
+    missing = sorted(read - exposed - set(REQUEST_ONLY))
     assert not missing, f"客户端读了但没暴露的响应头：{missing}（跨源时读不到）"
