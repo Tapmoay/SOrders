@@ -106,10 +106,14 @@ def test_gross_profit_only_counts_rows_with_cost_snapshot():
     #    `api/v1/reports.py` 只剩路由与导出 —— 源码形状断言必须**读两份**，
     #    否则它测的是一具空壳（本仓库的规矩：判据/用例要跟着代码走，见 `_airepo.reports_source()`）。
     root = Path(__file__).resolve().parents[1]
-    reports = "\n".join([
-        (root / "app/api/v1/reports.py").read_text(encoding="utf-8"),
-        (root / "app/services/reports_service.py").read_text(encoding="utf-8"),
-    ])
+    # ⚠️ 2026-09-25（第二轮 R2-05 下半）：聚合又搬了一层（`services/reports/**`）——
+    #    形状断言读**并集**（glob 收新文件），否则它测的是一具空壳。
+    parts = [(root / "app/api/v1/reports.py").read_text(encoding="utf-8"),
+             (root / "app/services/reports_service.py").read_text(encoding="utf-8")]
+    pkg = root / "app/services/reports"
+    if pkg.is_dir():
+        parts += [p.read_text(encoding="utf-8") for p in sorted(pkg.rglob("*.py"))]
+    reports = chr(10).join(parts)
     schema = (root / "app/schemas/reports.py").read_text(encoding="utf-8")
 
     assert "cost_covered_amount" in schema

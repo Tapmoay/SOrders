@@ -334,10 +334,15 @@ def test_turnover_freight_shape_uses_pay_for_order():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    src = "\n".join([
-        (root / "app/api/v1/reports.py").read_text(encoding="utf-8"),
-        (root / "app/services/reports_service.py").read_text(encoding="utf-8"),
-    ])
+    # ⚠️ 2026-09-25（第二轮 R2-05 下半）：聚合又搬了一层 —— 现在是
+    #    `services/reports/{turnover,product,arrears}_query.py` + `loader.py` + `_common.py`。
+    #    形状断言必须读**并集**（glob 收 `services/reports/**`），否则它测的是一具空壳。
+    parts = [(root / "app/api/v1/reports.py").read_text(encoding="utf-8"),
+             (root / "app/services/reports_service.py").read_text(encoding="utf-8")]
+    pkg = root / "app/services/reports"
+    if pkg.is_dir():
+        parts += [p.read_text(encoding="utf-8") for p in sorted(pkg.rglob("*.py"))]
+    src = chr(10).join(parts)
     body = src.split("def build_turnover", 1)[1].split("\ndef ", 1)[0]
     assert "pay_for_order(" in body, "营业纵览的司机运费支出没有走 pay_for_order"
     assert "o.freight_fee or Decimal" not in body, "营业纵览仍在累加订单运费（虚高）"

@@ -69,7 +69,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "报表的司机运费支出改回累加订单运费（虚高 90%）",
         # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
-        "backend/app/services/reports_service.py",
+        "backend/app/services/reports/turnover_query.py",
         lambda s: s.replace(
             "        pay = pay_for_order(o).total if has_per_order_pay(o) else Decimal(\"0\")",
             "        pay = o.freight_fee or Decimal(\"0\")",
@@ -172,7 +172,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "报表改回按 UTC 日分桶（东八区当地 0~8 点的单算进前一天）",
         # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
-        "backend/app/services/reports_service.py",
+        "backend/app/services/reports/turnover_query.py",
         lambda s: s.replace(
             "        ds = business_date(o.delivered_at)\n"
             "        if ds is None or ds < start or ds > end:\n"
@@ -225,7 +225,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "撤销数改回按 UTC 日筛（当地凌晨撤销的单算到前一天）",
         # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
-        "backend/app/services/reports_service.py",
+        "backend/app/services/reports/turnover_query.py",
         lambda s: s.replace(
             "            Order.cancelled_at >= c_start,\n            Order.cancelled_at < c_end,\n",
             "            func.date(Order.cancelled_at) >= start,\n            func.date(Order.cancelled_at) <= end,\n",
@@ -236,7 +236,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "日报小时桶改回 UTC 小时（当地凌晨标成下午）",
         # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
-        "backend/app/services/reports_service.py",
+        "backend/app/services/reports/turnover_query.py",
         lambda s: s.replace(
             "        h = business_local(o.delivered_at).hour",
             "        h = o.delivered_at.hour",
@@ -247,7 +247,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "「挂账未收」又加上 payment_method 那一条（两处口径再次分叉）",
         # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
-        "backend/app/services/reports_service.py",
+        "backend/app/services/reports/arrears_query.py",
         # ⚠️ 锚点跟着实现走（2026-09-23 静态审计抓到它已腐烂）：下面那句 `paid.is_(False)`
         #    后面多了"与 load_delivered 同一个窗口预过滤"的注释 + `*delivered_span_sql(...)`
         #    （2026-09-23 容量实测那一轮的加速改动）。
@@ -264,7 +264,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "导出金额改回字符串（Excel 求和不到钱）",
         # ⚠️ 2026-09-25：聚合下沉到 service 层 —— 注入要打在原文真正住着的文件上（否则静默 SKIP）
-        "backend/app/services/reports_service.py",
+        "backend/app/services/reports/_common.py",
         # ⚠️ 锚点跟着实现走（2026-09-19 第十八轮）：这一行现在显式写了
         #    `rounding=ROUND_HALF_UP`（F7：导出金额不许用银行家舍入）。
         lambda s: s.replace(
@@ -529,7 +529,14 @@ def main() -> int:
             print(f"  [MISS] {label} → 测试照常通过")
 
     print()
-    # ---- 收尾：源码必须**逐字节**回到跑之前的样子 ----
+    # ---- 收尾①：按快照**逐字节**写回去 ----
+    # ⚠️ 2026-09-25：原来是只靠每个 case 的 `finally: _write_src(path, plain, crlf)` 还原。
+    #    搬报表聚合（R2-05 下半）之后，有 **5 条 case 指向同一个新文件** ——
+    #    收尾实测报「三个文件与运行前不一致」。加这一道不管谁漏了、中途被打断，都盖得住；
+    #    而且它正是本文件顶上那段注释要的东西（注入残留最贵的一次是 `order_flow.py` 的守卫被抹掉）。
+    for p, data in snapshot.items():
+        p.write_bytes(data)
+    # ---- 收尾②：源码必须**逐字节**回到跑之前的样子 ----
     dirty = [str(p.relative_to(ROOT)) for p, data in snapshot.items() if p.read_bytes() != data]
     if dirty:
         fails.append("跑完反向验证后源码没还原（这些文件与运行前不一致）：" + "、".join(dirty))

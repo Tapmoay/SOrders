@@ -72,7 +72,10 @@ FIGURES: tuple[Figure, ...] = (
             "api/v1/orders_query.py",
             "api/v1/orders_payment.py",
             "api/v1/reports.py",
-            "services/reports_service.py",
+            # 第二轮 R2-05：报表聚合搬进了 `services/reports/`。
+            "services/reports/turnover_query.py",
+            "services/reports/product_query.py",
+            "services/reports/arrears_query.py",
             "api/v1/shipper_ledger.py",
         ),
         forbid=((
@@ -103,7 +106,8 @@ FIGURES: tuple[Figure, ...] = (
             "services/order_flow.py",
             "services/order_response.py",
             "services/stats_service.py",
-            "services/reports_service.py",
+            # ⛔ driver_pay 这条**只列 turnover_query**（多列两份会被判「假消费方」）。
+            "services/reports/turnover_query.py",
             "api/v1/freight_settlement.py",
             "api/v1/driver_bills.py",
             "api/v1/users.py",
