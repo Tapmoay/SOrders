@@ -96,7 +96,6 @@
 
 ## R3-02 Capability → UI / Audit
 
-- ❌ 26/26 capabilities 有执行点 —— 复现：`python _tools/qa/_check_capability_registry.py`
 R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真源**，并补齐两张此前不存在的真源表。
 
 1. `backend/app/core/role_capabilities.py`（新）：**角色能力** —— 没有权限点、但仍被角色门护着的事实
