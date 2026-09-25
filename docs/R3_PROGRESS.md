@@ -119,14 +119,33 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 - ✅ Audit action 能证明 write capability 的留痕覆盖（91 个动作码有着落 / 非双射 / 棘轮只减不增）—— 复现：`python _tools/qa/_check_capability_unification.py`
 - ✅ 任意 capability 改动能够使相关生成物 / 检查立即变化 —— 复现：`python _tools/ai/_gen_capability_snapshot.py --check`（反向验证第 ① 条就是改一句话让它红）
 - ✅ 不存在第二份**静态** Capability 真相（安卓**代码**里没有权限词表；生成物带 source hash，判据逐字比）—— 复现：`python _tools/qa/_check_capability_unification.py`
-- ❌ **UI 不再自行定义角色能力**（R3-02b 待做）—— 复现：`python _tools/qa/_check_capability_unification.py`
-  （该判据现在已经能证明**生成物与源码一致**，但生成物还没人消费）。
-  还差的两处：`ai/AiWrite.kt` 的 `SHIPPER_ACTIONS`（13+ 项手写动作白名单）与 `ui/nav/Modules.kt` 的
-  `entriesFor(role)`（「角色 → 入口列表」硬编码）。⛔ 要改成问能力表，且用「行为等价」的测试钉住不许变。
-  ⚠️ 注意 `_check_r3_constraints.py` 的 `android_no_second_truth` 探针**已经归零**（它只看代码，不看注释）——
-  归零说的是「安卓代码里没有第二份权限词表」，**不等于**这一条退出条件做完了。
+- ✅ **UI 不再自行定义角色能力** —— 复现：`python _tools/qa/_check_capability_unification.py`（第 6 组）
+  + `android/gradlew` 不存在，用 `_agent/gradle/gradle-8.9/bin/gradle.bat :app:testPhoneDebugUnitTest --tests '*ModulesEntryTest*'`
 
-**三层完成度**：Code Ready ✅（后端真源 + 生成物 + 判据）｜ CI Proven ❌（还没推）｜ Runtime Proven ❌（界面还没消费它，R3-02b）
+  R3-02b 做的事：`ui/nav/Modules.kt` 里 `entriesFor(role)` 原来是 `when (role) { … -> 写死的那张表 }`；
+  现在多了两张声明表 —— `ENTRY_CAPABILITY`（**入口 → 能力**，32 条映射，覆盖 34 个去重后的入口路由 ——
+  有几个入口两端都有）与 `ENTRY_NO_CAPABILITY`（2 条，各写了理由：
+  AI 助手入口本身不是业务动作；司机的「我的账本」端点是 `get_current_user` + 体内按人过滤，没有可问的名字），
+  `entriesFor` 改成 `.filter { canSee(role, it) }`，而 `canSee` 只问生成物 `Capabilities.can(role.key, cap)`。
+
+  **行为等价**由单测钉住（`ModulesEntryTest` 15 个用例全过，其中两个是这一轮加的）：
+  「工作台入口是按能力筛出来的，今天三个角色一个都没被筛掉」逐条比对 `entriesFor(role)` 与改动前的清单；
+  「每个入口都有着落」核例外表。⛔ 它同时是回归闸门：以后谁把某个能力从某个角色身上拿走，这条会红。
+
+  **判据能看到什么、看不到什么**（写在判据里，防止被当成更强的保证）：
+  能核「每个入口都有下落 / 没有多余键 / 键是生成物里真实存在的能力 / 筛选真的走了 `Capabilities.can`」；
+  ⛔ **核不了**「这一格挂的能力**选得对不对**」—— 那要按 入口→屏幕→repo→端点→权限 四跳解析，本轮没做。
+  选得对不对由上面那条行为等价断言兜底（挂错了货主会少一格，当场红）。
+  ⚠️ 派单端的 24 格**现在筛不出差别**（派单员在 `BYPASS_ROLES` 里）—— 那 24 条能力标注是为
+  「以后出现非绕过角色」准备的，今天证明不了对错，如实写在 `Modules.kt` 的注释里。
+
+  ⚠️ **已知未做（不属指南七条退出条件，记在这里不藏着）**：`ai/AiWrite.kt` 的 `SHIPPER_ACTIONS`
+  （13+ 项动作白名单）**仍是手写的**。它不是授权真相的副本（`_tools/ai/_check_role_parity.py` 逐条核过
+  AI(role) ⊆ BACKEND(role)），但「货主的 AI 能用哪些动作」这件事目前由人写而不是由能力表推。
+  要推的话得给每个动作声明能力并重做那条判据的推导链 —— 那会让它的「缺能力」半边失效（AI 由后端推出来
+  就不再可能缺），需要先想清楚换来的那半边（「声明的能力必须与动作真打的端点一致」）够不够抵。
+
+**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机两个 flavor 的 Gradle 单测都跑过；**真机界面未验**）
 
 ## R3-03 Multi-instance Runtime（硬门槛）
 

@@ -43,7 +43,7 @@ CASES: list[tuple[str, str, str, str, str]] = [
      'const val SOURCE_HASH: String = "sha256:dead', '与后端不一致'),
     ('③ 往 Kotlin 里塞手写的权限键表', MODULES, 'data class ModuleEntry(',
      'private val HACK = setOf("order:create", "order:edit", "order:dispatch")' + chr(10)
-     + 'data class ModuleEntry(', '手写的权限键表'),
+     + 'data class ModuleEntry(', '第二份真相'),
     ('④ 角色能力的 gate 指到不是角色门的一行', ROLE_CAPS,
      "gate='backend/app/api/v1/unit_conversions.py:44'", "gate='backend/app/api/v1/unit_conversions.py:1'",
      '不是角色门'),
@@ -52,6 +52,17 @@ CASES: list[tuple[str, str, str, str, str]] = [
      "'order:recall': ('ORDER_RECALL',),", "'order:recall': (),", '既没有能力认领'),
     ('⑦ 反空转下限失守（覆盖表被掏空）', CHK,
      'MIN_ACTION_CODES = 80', 'MIN_ACTION_CODES = 999', '被覆盖的动作码只有'),
+    ('⑧ 一个工作台入口失去能力与例外理由', MODULES,
+     'Routes.MESSAGES to "notification:read",' + chr(10),
+     '', '既没有能力也没有例外理由'),
+    ('⑨ Kotlin 里出现「角色 → 能力」表（第二份真相）', MODULES,
+     'val ENTRY_CAPABILITY: Map<String, String> = mapOf(',
+     'val HACK: Map<String, String> = mapOf(' + chr(10)
+     + '        "dispatcher" to "order:dispatch",' + chr(10)
+     + '        "shipper" to "order:create",' + chr(10)
+     + '        "driver" to "order:read_assigned",' + chr(10)
+     + '    )' + chr(10) + '    val ENTRY_CAPABILITY: Map<String, String> = mapOf(',
+     '第二份真相'),
 ]
 
 CRLF = chr(13) + chr(10)

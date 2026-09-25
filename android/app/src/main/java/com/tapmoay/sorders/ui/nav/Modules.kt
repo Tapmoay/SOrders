@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.core.Capabilities
 import com.tapmoay.sorders.ui.theme.ArrearsTangerine
 import com.tapmoay.sorders.ui.theme.AiBlue
 import com.tapmoay.sorders.ui.theme.AiPink
@@ -283,11 +284,86 @@ object Modules {
         ModuleEntry("我的账本", Routes.DRIVER_FREIGHT, Icons.Default.AccountBalanceWallet, color = MoneyOrange),
     )
 
+    /** 这个角色能不能看见这一格：**问能力表，不问角色**（R3-02-A）。 */
+    private fun canSee(role: Role, entry: ModuleEntry): Boolean {
+        val cap = ENTRY_CAPABILITY[entry.route]
+            ?: return ENTRY_NO_CAPABILITY.containsKey(entry.route)
+        return Capabilities.can(role.key, cap)
+    }
+
+    /** 工作台网格：**按能力筛**（不再是 `when (role) -> 写死的那张表`）。 */
     fun entriesFor(role: Role): List<ModuleEntry> = when (role) {
         Role.DISPATCHER -> dispatcherEntries
         Role.SHIPPER -> shipperEntries
         Role.DRIVER -> driverEntries
-    }
+    }.filter { canSee(role, it) }
+
+    /**
+     * 入口 → 它要的**能力**（R3-02：界面不再自己判断角色）。
+     *
+     * ⛔ 键是 `Routes.x` 的**原文**（含带参数的 `dispatcherLedger(0)`），值与能力表里的键逐字相同。
+     * ⛔ 这张表**不是**第二份权限真相：能力键由后端生成（`core/Capabilities.kt`，带 source hash），
+     *    这里只声明「这一格对应哪件事」——那是我方界面的事实，不是后端的授权事实。
+     * 判据 `_tools/qa/_check_capability_unification.py` 核三件事：每个入口都有着落、没有多余键、
+     * 键必须是生成物里真实存在的能力。
+     *
+     * ⚠️ 位置放在 `entriesFor` **之后**不是随手放的：`_check_ai_guardrails.py` 按
+     *    `block_between("val driverEntries", "fun entriesFor(")` 取「司机端那一段」并断言里面
+     *    **没有** `Routes.AI_CHAT`；这两张表里有 AI 那一格，塞在 driverEntries 与 entriesFor 之间
+     *    会被它读成「司机端工作台多了个 AI 入口」（判据是对的，是位置放错了）。
+     */
+    val ENTRY_CAPABILITY: Map<String, String> = mapOf(
+        // ---- 派单端工作台（派单员在 BYPASS_ROLES 里，所以这些格一律可见；写出来是为了让
+        //      「这一格是什么事」与「谁能做这件事」对上，将来出现非绕过角色时它才真的会筛）----
+        Routes.DISPATCH_ORDER_CREATE to "order:create",
+        Routes.DISPATCH_ORDER_TEMPLATES to "order:edit",
+        Routes.ADDRESSES to "address:manage",
+        Routes.DISPATCH_ORDERS to "order:read_all",
+        Routes.DISPATCH_RETURN_REQUESTS to "order:return",
+        Routes.ACCOUNTS to "user:manage",
+        Routes.DISPATCH_DRIVERS to "user:manage",
+        Routes.SHIPPERS_MANAGE to "user:manage",
+        Routes.MEMBERS to "user:manage",
+        Routes.PRODUCTS to "product:manage",
+        Routes.INVENTORY to "product:manage",
+        Routes.UNIT_CONVERSIONS to "unit_conversion:manage",
+        Routes.LEDGER_HOME to "ledger:edit",
+        Routes.DISPATCH_VEHICLES to "vehicle:manage",
+        Routes.FREIGHT_TEMPLATES to "order:dispatch",
+        Routes.DRIVER_BILLING_RULES to "order:dispatch",
+        Routes.FREIGHT_SETTLEMENT to "ledger:edit",
+        Routes.ARREARS_UNITS to "ledger:edit",
+        Routes.REPORT_HOME to "stats:read",
+        Routes.MESSAGES to "notification:read",
+        // ---- 账本管理入口页那 7 格 ----
+        Routes.dispatcherLedger(0) to "ledger:read_all",
+        Routes.dispatcherLedger(1) to "ledger:read_all",
+        Routes.dispatcherLedger(2) to "ledger:read_all",
+        Routes.dispatcherLedger(3) to "ledger:read_all",
+        Routes.DISPATCH_RECEIPTS to "ledger:edit",
+        Routes.DISPATCH_CASH to "ledger:edit",
+        Routes.DISPATCH_SUPPLIERS to "ledger:edit",
+        // ---- 货主端（这里才是真的在筛：货主没有跳过能力表这回事）----
+        Routes.SHIPPER_ORDERS to "order:read_own",
+        Routes.ORDER_CREATE to "order:create",
+        Routes.SHIPPER_LEDGER to "ledger:read_own",
+        Routes.SHIPPER_RETURN_REQUESTS to "order:return_request",
+        // ---- 司机端 ----
+        Routes.DRIVER_ORDERS to "order:read_assigned",
+    )
+
+    /**
+     * 没有能力的入口 → **为什么**。⛔ 不许图省事往这里塞（每一条都是一次例外）。
+     */
+    val ENTRY_NO_CAPABILITY: Map<String, String> = mapOf(
+        // AI 助手本身不是某个业务动作：它里面**能做什么**由 `AiWrites` 按同一张能力表裁剪，
+        // 入口这一格只是「换一种用法」。给它编一个能力只会凭空多出一条谁也执行不到的名字。
+        Routes.AI_CHAT to "入口本身不是业务动作（里面的动作由 AiWrites 按能力裁剪）",
+        // 司机的「我的账本」：`GET /freight-settlement` 是 `get_current_user` + 体内按人过滤，
+        // **没有权限点也没有角色门** —— 没有可问的名字。要给司机一个能力名，得先把那个端点
+        // 接成权限点（那是改后端授权，属于体内门槛棘轮那一条线）。
+        Routes.DRIVER_FREIGHT to "端点按登录人过滤，没有可问的能力名（见注释）",
+    )
 
     /** 底部导航：派单端（派单作业/工作台/消息/我的），其他端（工作台/消息/我的）。加 Tab 只改这里 */
     fun bottomTabs(role: Role): List<BottomTab> = when (role) {

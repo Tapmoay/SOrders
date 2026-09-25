@@ -168,32 +168,35 @@ def probe_import_purity() -> tuple[str, str]:
 def probe_android_no_second_truth() -> tuple[str, str]:
     """安卓**代码**里不许有第二份权限词表。
 
-    ⚠️ 只看代码、不看注释（去掉 `//` 与 `/* */` 再搜）：第一版是纯文本搜 `ROLE_PERMISSIONS`，
-    结果被 `AiWrite.kt` 的**说明性注释**（「这 13 个是照着后端 ROLE_PERMISSIONS 定的」）判成违规 ——
-    那是文档，不是第二份真相。本仓库的规矩就是判据锚**代码形状**，不锚文字。
+    ⚠️ **这个探针不自己实现判断**：它直接问真判据 `_check_capability_unification.py` 的
+    `kotlin_second_truth_hits()`。2026-09-26 之前它是自己写的一份（纯文本搜 `ROLE_PERMISSIONS`），
+    于是同一件事在两处判得不一样：探针把 `AiWrite.kt` 的**说明性注释**判成违规，
+    真判据又不认「入口 → 能力」那种合法写法。本仓库的老账 —— 同一个判断两份实现，迟早走散。
 
-    违反信号两条：① 代码里引用 `ROLE_PERMISSIONS`；② 代码里出现 ≥3 个权限键字面量（`x:y`）的表。
+    两步都从判据那边取：① 手写的「角色→能力」表；② 代码里引用 `ROLE_PERMISSIONS`。
+    （生成物自带「不许手改」抬头 → 判据那边已豁免：快照里有权限词表是它的本职。）
     """
-    import re as _re
+    import importlib.util as _ilu
 
-    perm_literal = _re.compile(r'"[a-z_]+:[a-z_]+"')
-    hits: list[str] = []
-    base = ROOT / "android/app/src/main/java"
-    for f in (sorted(base.rglob("*.kt")) if base.exists() else []):
+    path = ROOT / "_tools/qa/_check_capability_unification.py"
+    if not path.exists():
+        return "broken", "真判据 _check_capability_unification.py 不存在"
+    spec = _ilu.spec_from_file_location("_cap_unification_probe", path)
+    if spec is None or spec.loader is None:
+        return "broken", "真判据加载不了（探针拿不到那份实现）"
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    hits = list(mod.kotlin_second_truth_hits())
+    for f in sorted((ROOT / "android/app/src/main/java").rglob("*.kt")):
         raw = f.read_text(encoding="utf-8", errors="replace")
-        # ⛔ **生成物豁免**（但只在它真的是生成物时）：快照里有权限词表是它的本职，
-        #    判据盯的是「人**手写**了第二份」。生成物自带「不许手改」抬头 → 放行。
         if "不许手改" in raw[:800]:
             continue
-        code = _re.sub(r"/\*.*?\*/", "", raw, flags=_re.S)
-        code = chr(10).join(_re.sub(r"//.*$", "", ln) for ln in code.split(chr(10)))
+        code = mod.strip_kotlin_comments(raw)
         if "ROLE_PERMISSIONS" in code:
             hits.append(str(f.relative_to(ROOT)) + "（引用 ROLE_PERMISSIONS）")
-        elif len(set(perm_literal.findall(code))) >= 3:
-            hits.append(str(f.relative_to(ROOT)) + "（手写权限键表）")
     if hits:
         return "broken", str(len(hits)) + " 个安卓文件里有第二份权限真相：" + "、".join(hits[:3])
-    return "hold", "安卓代码里没有手抄的权限词表（注释里的说明不算）"
+    return "hold", "安卓代码里没有手抄的权限词表（注释与生成物不算）"
 
 
 def probe_no_observability_stack() -> tuple[str, str]:

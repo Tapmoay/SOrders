@@ -217,6 +217,35 @@ class ModulesEntryTest {
         }
     }
 
+    // ============================================================ R3-02：入口按能力筛
+
+    @Test
+    fun `工作台入口是按能力筛出来的，今天三个角色一个都没被筛掉`() {
+        // R3-02 之前没有这条断言：`entriesFor(role)` 直接返回写死的那张表，谁也证明不了
+        // 「货主看得见的那 7 格，确实都是他有权做的事」。现在它过一遍能力表（后端生成、带 source hash），
+        // 这条断言就是那次改动的**行为等价证明**：今天三个角色可见的入口与改动前逐条相同。
+        // ⚠️ 它同时是**回归闸门**：以后谁把某个能力从某个角色身上拿走，这里会红 ——
+        //    逼人做一次有意识的决定（「这一格也要跟着对货主关掉吗」），而不是界面默默少一格。
+        for ((role, entries) in GRIDS) {
+            assertEquals(
+                "$role 的工作台入口被能力表筛掉了 —— 要么能力表少了它该有的，要么这一格挂错了能力",
+                entries.map { it.route },
+                Modules.entriesFor(role).map { it.route },
+            )
+        }
+    }
+
+    @Test
+    fun `每个入口都有着落：要么挂着能力，要么在例外表里写了理由`() {
+        val all = Modules.dispatcherEntries + Modules.ledgerHomeEntries +
+            Modules.shipperEntries + Modules.driverEntries
+        val missing = all.map { it.route }.filter {
+            it !in Modules.ENTRY_CAPABILITY && it !in Modules.ENTRY_NO_CAPABILITY
+        }
+        assertTrue("这些入口既没有能力、也没有例外理由：$missing", missing.isEmpty())
+        assertTrue("例外表里的理由不许空着", Modules.ENTRY_NO_CAPABILITY.values.all { it.isNotBlank() })
+    }
+
     @Test
     fun `账本管理入口页 6 个图标互不相同`() {
         val icons = Modules.ledgerHomeEntries.map { it.icon.name }

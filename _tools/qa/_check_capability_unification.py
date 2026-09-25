@@ -26,6 +26,7 @@ R3-BOUNDARY-JUSTIFICATION: 边界解法已经先做了 —— App 侧的能力�
 '''
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -52,7 +53,9 @@ from app.models.enums import OperationAction  # noqa: E402
 MIN_CAPS = 26
 MIN_ROLE_CAPS = 5
 MIN_ACTION_CODES = 80
+MIN_ENTRY_ROUTES = 30
 KT = ROOT / 'android/app/src/main/java/com/tapmoay/sorders/core/Capabilities.kt'
+MODULES = ROOT / 'android/app/src/main/java/com/tapmoay/sorders/ui/nav/Modules.kt'
 GENERATOR = '_tools/ai/_gen_capability_snapshot.py'
 PERM_LITERAL = re.compile(r'"[a-z_]+:[a-z_]+"')
 
@@ -62,6 +65,32 @@ def strip_kotlin_comments(text: str) -> str:
     注释里提到 `ROLE_PERMISSIONS` 是**文档**（说明这个文件照着后端定的），不是第二份真相。'''
     text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
     return chr(10).join(re.sub(r'//.*$', '', ln) for ln in text.split(chr(10)))
+
+
+def kotlin_second_truth_hits() -> list[str]:
+    '''哪些 Kotlin 文件里出现了「第二份权限真相」。
+
+    ⚠️ 一处实现、两处消费：本判据第 2 组用它，`_check_r3_constraints.py` 的
+    `android_no_second_truth` 探针也用它。2026-09-26 之前两边各写一份（探针那份只搜文本），
+    于是同一件事在两处判得不一样 —— 本仓库的老账：同一个判断有两份实现，迟早走散。
+
+    ⚠️ 什么算「第二份真相」，这里说准（不然会误伤）：
+      ❌ **角色 → 能力**（左侧是 `Role.*` / `AiRole.*`）—— 那是把后端授权矩阵抄了一份，
+         改一处忘一处就两边走散，正是指南 §R3-02-B 反对的东西。
+      ✅ **入口 → 能力**（左侧是 `Routes.*`）—— 那是「这一格界面按钮对应哪件事」，
+         是我方界面的事实；「谁有这条能力」仍然只用生成物回答。
+    所以先把 `Routes.x to "..."` 这种配对整体抠掉，再看还剩多少个权限键字面量。
+    '''
+    entry_pair = re.compile(r'Routes\.[A-Za-z_]+(?:\([^)]*\))?\s+to\s+"[^"]*"')
+    hits: list[str] = []
+    for p in sorted((ROOT / 'android/app/src/main/java').rglob('*.kt')):
+        if p == KT:
+            continue
+        code = strip_kotlin_comments(p.read_text(encoding='utf-8', errors='replace'))
+        lits = PERM_LITERAL.findall(entry_pair.sub('', code))
+        if len(set(lits)) >= 3:
+            hits.append(str(p.relative_to(ROOT)) + '（' + str(len(set(lits))) + ' 个权限键字面量）')
+    return hits
 
 
 def git(*args: str) -> tuple[int, str]:
@@ -105,16 +134,15 @@ def main() -> int:
         elif m.group(1) != want:
             fails.append('Kotlin 里的 SOURCE_HASH 与后端不一致（' + m.group(1)[:24]
                           + ' vs ' + want[:24] + '）—— 有人手改了生成物，或者忘了重跑生成器')
-    bad_files = []
-    for p in sorted((ROOT / 'android/app/src/main/java').rglob('*.kt')):
-        if p == KT:
-            continue
-        code = strip_kotlin_comments(p.read_text(encoding='utf-8', errors='replace'))
-        lits = PERM_LITERAL.findall(code)
-        if len(set(lits)) >= 3:
-            bad_files.append(str(p.relative_to(ROOT)) + '（' + str(len(set(lits))) + ' 个权限键字面量）')
+    bad_files = kotlin_second_truth_hits()
     if bad_files:
-        fails.append('Kotlin **代码**里出现了手写的权限键表（第二份真相）：' + '、'.join(bad_files[:3]))
+        fails.append('Kotlin **代码**里出现了手写的「角色→能力」表（第二份真相）：' + '、'.join(bad_files[:3]))
+
+    # 生成物里的「角色 → 能力键」——判据第 6 组拿它当白名单（能力键必须是真实存在的）
+    snap_by_role: dict[str, list[str]] = {}
+    for _role, _keys in (json.loads((ROOT / 'docs/CAPABILITY_SNAPSHOT.json').read_text(encoding='utf-8'))
+                         .get('by_role', {}) if (ROOT / 'docs/CAPABILITY_SNAPSHOT.json').exists() else {}).items():
+        snap_by_role[_role] = list(_keys)
 
     # ---- 3. 角色能力 ----
     perm_values = {p.value for p in Permission}
@@ -205,6 +233,46 @@ def main() -> int:
     if len(owned) < MIN_ACTION_CODES:
         fails.append('被覆盖的动作码只有 ' + str(len(owned)) + ' 个（下限 ' + str(MIN_ACTION_CODES) + '）')
 
+    # ---- 6. UI：工作台入口按能力筛（R3-02-A）----
+    # ⛔ 判据看到什么、看不到什么：能核「每个入口都有下落 / 没有多余键 / 键是真实能力 /
+    #    筛选真的走了 Capabilities.can」；**核不了**「这一格挂的能力选得对不对」——
+    #    那要按 入口→屏幕→repo→端点→权限 四跳解析，本轮没做。选得对不对由
+    #    `ModulesEntryTest` 的行为等价断言兜底（挂错了货主会少一格，当场红）。
+    if not MODULES.exists():
+        fails.append('找不到工作台入口表：' + str(MODULES.relative_to(ROOT)))
+    else:
+        kt_mod = strip_kotlin_comments(MODULES.read_text(encoding='utf-8', errors='replace'))
+        head, _, tail = kt_mod.partition('val ENTRY_CAPABILITY')
+        if not tail:
+            fails.append('工作台入口表里没有 ENTRY_CAPABILITY —— 入口还没接上能力表（R3-02-A 未做）')
+        else:
+            route_re = re.compile(r'Routes\.[A-Za-z_]+(?:\([^)]*\))?')
+            entry_routes = set(route_re.findall(head))
+            vcap, _, vnoca = tail.partition('val ENTRY_NO_CAPABILITY')
+            key_re = re.compile(r'(Routes\.[A-Za-z_]+(?:\([^)]*\))?)\s+to\s+"([^"]+)"')
+            cap_map = dict(key_re.findall(vcap))
+            noca_map = dict(key_re.findall(vnoca))
+            valid_keys = set()
+            for keys in snap_by_role.values():
+                valid_keys.update(keys)
+            if len(entry_routes) < MIN_ENTRY_ROUTES:
+                fails.append('从 Modules.kt 里只认出 ' + str(len(entry_routes)) + ' 个入口路由（下限 '
+                              + str(MIN_ENTRY_ROUTES) + '）—— 解析坏了，判据在空转')
+            missing = sorted(r for r in entry_routes if r not in cap_map and r not in noca_map)
+            if missing:
+                fails.append('这些入口既没有能力也没有例外理由：' + '、'.join(missing[:5]))
+            fossil = sorted((set(cap_map) | set(noca_map)) - entry_routes)
+            if fossil:
+                fails.append('入口表里有已经不存在的路由（化石）：' + '、'.join(fossil[:5]))
+            bad_key = sorted(k for k, v in cap_map.items() if v not in valid_keys)
+            if bad_key:
+                fails.append('入口挂的能力键在生成物里不存在（拼错/过期）：' + '、'.join(bad_key[:5]))
+            naked_reason = sorted(k for k, v in noca_map.items() if len(v.strip()) < 8)
+            if naked_reason:
+                fails.append('无能力例外表里没写理由（或太短）：' + '、'.join(naked_reason[:5]))
+            if 'Capabilities.can(' not in kt_mod:
+                fails.append('entriesFor 没有走 Capabilities.can —— 入口还是在自己判断角色（R3-02-A 未做）')
+
     print('四端同源：能力 ' + str(len(CAPABILITIES)) + ' 条（写 ' + str(len(write_caps)) + '）'
           + ' / 角色能力 ' + str(len(ROLE_CAPABILITIES)) + ' 条'
           + ' / 审计覆盖 ' + str(len(owned)) + ' 个动作码（例外 ' + str(len(AUDIT_EXCEPTIONS))
@@ -220,8 +288,8 @@ def main() -> int:
         print('❌ ' + str(len(fails)) + ' 条不成立')
         return 1
     print()
-    print('  ✅ 5 组判据全部通过：生成物与源码一致、Kotlin 里没有第二份真相、角色能力的门都核过、'
-          '审计覆盖完整且不是双射、棘轮只减不增。')
+    print('  ✅ 6 组判据全部通过：生成物与源码一致、Kotlin 里没有第二份真相、角色能力的门都核过、'
+          '审计覆盖完整且不是双射、棘轮只减不增、工作台入口按能力筛且都有着落。')
     return 0
 
 
