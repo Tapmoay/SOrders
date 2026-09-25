@@ -3,7 +3,7 @@
 > **本文件由 `_tools/qa/_gen_acceptance.py` 生成，不要手改**（报告 §13：会变化的数字一律不手写）。
 > 重新生成： `python _tools/qa/_gen_acceptance.py --full --out docs/RECTIFICATION_ACCEPTANCE.md`
 
-生成于 2026-09-25 10:42 UTC ｜ 分支 p ｜ 提交 38f8ff3 ｜ 模式：完整（含全量静态检查与后端用例）
+生成于 2026-09-25 10:53 UTC ｜ 分支 p ｜ 提交 2216f66 ｜ 模式：完整（含全量静态检查与后端用例）
 
 ⚠️ 本页是**快照**：生成之后仓库还会往前走。**数字以重新跑出来的为准**，别拿这一页当当前值（这正是报告 §13 说的「文档系统要变成事实生成系统」）。
 
@@ -16,7 +16,7 @@
 | 1 | §3 备份 / 恢复演练 | 脚本化备份 + 默认不碰生产库的恢复 + 每周演练 | ✅ `python _tools/backup/_check_backup.py --check` | ✅ 全部通过（含恢复演练的隔离与门禁） |
 | 2 | §4 Schema 迁移版本化 | 版本表 + 每次结构变更一条迁移（跑过记进 schema_versions） | ✅ `python -m app.migrations status` | 当前版本：5 |
 | 2 | §4 迁移判据 | 命名 / 版本号唯一递增 / 接线 / 失败不记账 / 漂移不抛异常 | ✅ `python _tools/qa/_check_migrations.py` | ✅ 判据条数 58 ≥ 18 |
-| 3 | §5 CI 正式接管检查体系 | 三层闸门（快闸 / 常闸 / 夜闸）+ 分支口径 p、new | ✅ `python _tools/qa/_check_ci_workflows.py` | "set/变量/行尾 `\` 全部失效且**不报错**，只在真跑时才炸（第 57 轮实测退 2）") |
+| 3 | §5 CI 正式接管检查体系 | 三层闸门（快闸 / 常闸 / 夜闸）+ 分支口径 p、new | ✅ `python _tools/qa/_check_ci_workflows.py` | ✅ 全部通过（分支口径 / 路径 / 层序 / 危险 job 的时机 / gradle 任务名都对得上） |
 | 4 | §6 API 层纯搬迁 | orders.py / reports.py 拆开，URL 与出参一个字不变 | ✅ `python _tools/qa/_check_endpoint_index_fresh.py` | ✅ 端点索引与源码一致（不是过期地图） |
 | 5 | §7 钱：从文件冻结升级为领域契约 | 钱只有一处实现，消费方一律从契约 import | ✅ `python _tools/qa/_check_money_contract.py` | ✅ 全部通过（每个钱数只有一处实现，消费方真的在用它） |
 | 5 | §8 状态机唯一写入口 | 状态迁移只在 order_flow；写前取锁 + 原子占位 | ✅ `python _tools/qa/_check_status_gate_locking.py` | ✅ 全部 55 项通过。 |
@@ -27,7 +27,7 @@
 | 8 | §13 文档事实源自动化 | 会变的数字不手写：生成物 + 判据守住 | ✅ `python _tools/qa/_check_live_doc_counts.py` | ✅ 全部通过（活文档里手写的数字都与现状一致，或已被指向生成物） |
 | 10 | §15 可观测性 | Request ID 一条链路 / 业务指标现算 / 外部监控四项（跑得到生产） | ✅ `python _tools/ops/_check_ops.py` | ✅ 全部通过（只读、阈值一处、退出码分档、该盯的都盯着） |
 | - | §18 施工纪律：判据自己也要被验证 | 反向验证的注入原文还找得到（锚点不许腐烂） | ✅ `python _tools/qa/_check_reverse_verify_anchors.py` | ✅ 1200 条注入原文全部还在（102/126 份脚本的注入表都认得出）。 |
-| - | §19 Domain + Database invariants | 直接查库：钱 / 库存 / 状态 / 单据自相矛盾吗 | ✅ `python _tools/fuzz/_fuzz_invariants.py --check` | 小结：检查 42 项 / 确认缺陷 0 / 可疑 0 / 信息 2 / 0.7s |
+| - | §19 Domain + Database invariants | 直接查库：钱 / 库存 / 状态 / 单据自相矛盾吗 | ✅ `python _tools/fuzz/_fuzz_invariants.py --check` | 小结：检查 42 项 / 确认缺陷 0 / 可疑 0 / 信息 2 / 0.8s |
 | - | §5 全量静态检查（移交 CI 的那一套） | 清单自己算，一条命令跑完全部静态检查 | ✅ `python _tools/qa/_check_all.py` | ✅ 103/103 个检查全部通过（并且 AGENTS.md 里写了要跑它）。 |
 | 9 | §14 后端全量用例 | 重构的等价性靠用例钉住（每一步都跑过） | ✅ `python -m pytest -q` | 1015 passed |
 

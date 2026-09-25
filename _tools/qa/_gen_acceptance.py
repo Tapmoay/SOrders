@@ -147,15 +147,23 @@ def run_one(ev: Evidence) -> tuple[bool, str, str]:
                               errors="replace", timeout=ev.timeout)
     except subprocess.TimeoutExpired:
         return False, "", "超时（>" + str(ev.timeout) + "s）"
-    text = (proc.stdout or "") + (proc.stderr or "")
+    # ⚠️ 2026-09-25 第 61 轮实测：这里原本把 stdout 与 stderr **拼起来**再取最后一行。
+    #    当时 `_check_ci_workflows.py` 因为一处 `\`` 转义写错，往 stderr 吐了两条
+    #    `SyntaxWarning: invalid escape sequence` —— 拼起来之后，验收页那一格填进去的
+    #    是**一段源码**（那一列的承诺是"命令自己打印的结论"，实际印出来的却是一句告警里的源码行）。
+    #    改法：命令**成功**时只看 stdout（结论行是它打的）；失败时两边都看（错误常常只在 stderr）。
+    out_text = proc.stdout or ""
+    err_text = proc.stderr or ""
+    text = out_text + err_text
+    search_text = out_text if proc.returncode == 0 else text
     line = ""
     if ev.pick:
-        for ln in text.splitlines():
+        for ln in search_text.splitlines():
             if re.search(ev.pick, ln):
                 line = ln.strip()
                 break
     if not line:
-        nonempty = [x.strip() for x in text.splitlines() if x.strip()]
+        nonempty = [x.strip() for x in search_text.splitlines() if x.strip()]
         line = nonempty[-1] if nonempty else "（没有输出）"
     if proc.returncode != 0:
         return False, line, "退出码 " + str(proc.returncode)
