@@ -260,9 +260,32 @@ def module_key(stem: str) -> str:
 
 
 
-#: 报表的源码现在可能分成两份（2026-09-24 整改阶段 4「reports.py 下沉」）：
-#: 路由在 api/v1/reports.py、聚合在 services/reports_service.py。
+#: 报表的源码现在可能分成几份（2026-09-24 阶段 4「reports.py 下沉」+ 第二轮 R2-05 §九 的
+#: query boundary）：路由在 api/v1/reports.py、聚合在 services/reports_service.py、
+#: 只读查询在 services/reports/**。
 REPORTS_MODULES = ("api/v1/reports.py", "services/reports_service.py")
+
+
+def reports_files(root: Path | None = None) -> list[Path]:
+    """报表源码的**全部**文件：上面那两个 + `services/reports/**`（**glob 自动收新文件**）。
+
+    ⚠️ 这里刻意用 glob 而不是写死清单 —— 与 `AiWrite*` 那条同一个理由（见下面那段注释）：
+    「先让判据读并集，再搬代码。⛔ 顺序不能反：先搬代码而没有并集口径，每搬一块就要改一打判据，
+    改漏一个就是静默不查」。
+    """
+    base = root or ROOT
+    out = [base / "backend" / p for p in REPORTS_MODULES]
+    pkg = base / "backend/app/services/reports"
+    if pkg.is_dir():
+        out.extend(sorted(pkg.rglob("*.py")))
+    return [p for p in out if p.is_file()]
+
+
+def reports_source(root: Path | None = None) -> str:
+    """报表源码的**并集**（段间带文件名注释）—— 读报表的判据一律读它，不读单个文件。"""
+    parts = [f"# ===== {p.name} =====" + chr(10) + p.read_text(encoding="utf-8", errors="replace")
+             for p in reports_files(root)]
+    return (chr(10) * 2).join(parts)
 
 
 #: AI 写链路（写闸门）的**家族文件名**。整改报告 §11「客户端按职责拆，不是按行数拆」——

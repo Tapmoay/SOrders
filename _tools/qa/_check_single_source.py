@@ -39,6 +39,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import reports_source as _reports_source  # noqa: E402
+
 #: ⛔ 让 **stdout 与 stderr 都** 按 UTF-8 写（本机 Windows 的 stderr 默认是 GBK）。
 #: 为什么放在这里：几乎每个工具都 import 本模块，而 `raise SystemExit("中文")` 与
 #: `print(..., file=sys.stderr)` 走的是 stderr —— 只重配 stdout 的话，检查红了的**原因**
@@ -218,9 +221,9 @@ def main() -> int:
     # ⚠️ 第一版判据是"看整行里有没有 `_money(`"，被两条排除规则放到太宽：注入
     #    `str(data["arrears_total"])` 之后**仍然全绿**（那一行同时含 `cancelled_orders`，
     #    被"计数行"的排除规则放行了）。现在改成**逐个金额表达式**查：`str(<金额表达式>)` 一律报红。
-    reports = ((BACKEND / "api/v1/reports.py").read_text(encoding="utf-8")
-               + ((BACKEND / "services/reports_service.py").read_text(encoding="utf-8")
-                  if (BACKEND / "services/reports_service.py").is_file() else ""))   # 聚合可能已下沉到 service 层（阶段 4）
+    # ⚠️ 读**并集**（`_airepo.reports_source`）：聚合已经下沉过一次（阶段 4），第二轮 R2-05 §九
+    #    还要再分到 `services/reports/**`。并集口径在先、搬代码在后 —— 反过来每搬一块就要改一打判据。
+    reports = _reports_source()
     money_expr = (
         r"(?:data\[[\"'][a-z_]*[\"']\]|it\.\w+|s\.\w+|u\.\w+|b\[[\"']total[\"']\]|"
         r"g\[[\"']amount[\"']\]|f\.amount|income|expense|amt)"
@@ -262,8 +265,7 @@ def main() -> int:
             fails.append(f"{name} 没有真的调用 pay_for_order（司机应得又有一份自己的算法）")
 
     # ---- 报表那一份：路由在 api/v1/reports.py、聚合可能在 services/reports_service.py（阶段 4 下沉）----
-    rep_files = [BACKEND / "api/v1/reports.py", BACKEND / "services/reports_service.py"]
-    rep_src = "".join(f.read_text(encoding="utf-8") for f in rep_files if f.is_file())
+    rep_src = _reports_source()
     if not call_re.search(rep_src):
         fails.append("报表（api/v1/reports.py + services/reports_service.py）没有真的调用 pay_for_order"
                      "（司机应得又有一份自己的算法）")
