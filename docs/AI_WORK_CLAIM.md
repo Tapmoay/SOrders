@@ -198,6 +198,36 @@ Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，�
 
 ---
 
+### 贯穿层：Capability Registry（指南 §十一）【本轮】
+
+**新增文件**：`backend/app/core/capabilities.py`（新）、`_tools/qa/_check_capability_registry.py`（新）、
+`_tools/qa/_reverse_verify_capability_registry.py`（新）。
+
+指南 §十一 要的是「Capability Registry → API / AI / UI / Audit」，并点明「这样 AI 就不会成为自己的权限系统」。
+在它之前，「一个权限点是什么」散在**四处**：枚举、`ROLE_PERMISSIONS` 矩阵、`SCOPES` 那张只写 scope 的表、
+以及各端点签名上的 `require_permission` —— 四处各说各话时**没有任何地方会报错**。
+
+现在 26 个权限点在 `capabilities.CAPABILITIES` 里**各声明一次**（what / scope + 理由 / roles / kind），
+判据做三件事：① 与 `Permission` 一一对应；② 与 `rbac.SCOPES` **双向一致**；
+③ 与 `rbac.ROLE_PERMISSIONS` **双向一致**。实测 **26 条能力 / 有执行点 26 条 / 仅声明 0 条**。
+
+⭐ **执行点是算出来的，不是声明出来的**：判据去 `backend/app/api/**` 里找
+`require_permission(Permission.X)` / `require_any_permission` / 体内的 `role_has_permission(...)`；
+一条执行点都没有的必须写进 `DECLARED_ONLY`（理由 + 「什么时候删掉这一条」）—— 现在是空的。
+
+**⚠️ 两个刻意的设计取舍（都写在脚本里）**：
+① **为什么不把 rbac 改成派生**：`rbac.py` 是核心区，且 `_check_order_return.py` 等判据锚着它**段落结构**
+（「货主那一段里不许出现退货执行权」）。派生会把那些锚点连根拔掉，风险远大于收益；
+用**双向一致**判据代替派生，效果一样（改一处忘一处就红）。
+② **判据第一版把「绕过角色出现在 roles 里」直接判红，当场红了 21 条** —— 而那是**现状**
+（`ROLE_PERMISSIONS` 里一直写着 dispatcher），且行为上无害（绕过那一句先返回，矩阵那几格是死数据）。
+改成**逼人把这条冗余说清楚**（`REDUNDANT_WHY` 带退出条件），不把现状判红。
+
+**证据**：`_check_capability_registry.py` 5 组全过 + 反向验证 **6/6**；`_check_all.py` 111 → **112/112**；
+后端 `pytest -q` **1015 passed**。
+
+---
+
 ### R2-02：订单命令层（Route → Command → Application → DomainRule → Persistence）
 
 **做了什么**：`create_order` / `update_order` 的**应用逻辑**从路由搬进 `backend/app/commands/order.py`，
