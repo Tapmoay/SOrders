@@ -64,7 +64,7 @@ PLAN_REL = "_tools/qa/_check_all.py"
 #: 判据条数下限。⛔ 原来是 17，而实际已经 38 —— 一个远低于实际值的下限等于没有下限
 #: （它只在"检查整个空转"时才响，而那时通常还有别的症状）。2026-09-25 第 56 轮改成**贴着实际值**：
 #: 少一条就红，逼着"删判据"这件事变成一次显式编辑。
-MIN_RULES = 41
+MIN_RULES = 42
 
 # fast gate 四件事（报告 §5 图里的 "syntax / changed checks / endpoint freshness / core freeze"）
 FAST_SHOULD = {
@@ -473,6 +473,20 @@ def main() -> int:
                  "⛔ " + jn + " 的顺序反了（或找不到 `adb install` / `--check-env`）——"
                  "`--check-env` 会报「没装 App」并 rc=3 跳过，于是这条端到端**永远跑不到流程**，"
                  "却一直显示 success（第 58 轮实测）")
+        # ---- 19. 端到端作业里的后端必须绑 `0.0.0.0` ----
+        # ⛔ 2026-09-25 第 59 轮实测：原来绑的是 127.0.0.1，注释还写着「模拟器打的是宿主机
+        #    loopback，所以绑 127.0.0.1 就够」—— **实测把这句话推翻了**：流程第一次真的跑到
+        #    登录那一步，App 当场报 `Failed to connect to /10.0.2.2:8000`，而**同一次体检**里
+        #    写着 `后端 可登录`（那是 runner 自己 curl 127.0.0.1 打通的）。
+        #    两个说法都对，因为它们是**两个网络命名空间** —— 所以"runner 连得上"
+        #    证明不了"模拟器里的 App 连得上"。判据钉的是绑定地址本身。
+        uv = [x for x in body.splitlines() if "uvicorn" in x]
+        bad_uv = [x.strip() for x in uv if "--host" in x and "0.0.0.0" not in x]
+        want(bool(uv) and not bad_uv,
+             jn + " 的后端绑 **0.0.0.0**（模拟器里的 10.0.2.2 与 runner 的 127.0.0.1 不是同一条路）",
+             "⛔ " + jn + " 的 uvicorn 没绑 0.0.0.0（或压根没有 uvicorn 行）："
+             + ("；".join(bad_uv) if bad_uv else "没有 uvicorn")
+             + " —— 模拟器里的 App 会连不上，而体检那一步却是绿的（第 59 轮实测）")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),

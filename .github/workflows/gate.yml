@@ -222,14 +222,20 @@ jobs:
         run: |
           cd backend
           pip install -r requirements-all.txt
-      # App 在模拟器里打 `10.0.2.2:8000` —— 那是模拟器看到的**宿主机 loopback**，
-      # 所以这里绑 127.0.0.1 就够（与 read-roles 那个作业同一套起法）。
+      # ⛔ 这里必须绑 **0.0.0.0**（2026-09-25 第 59 轮实测改）：原来写的是「App 在模拟器里打
+      #    `10.0.2.2:8000`，那是模拟器看到的宿主机 loopback，所以绑 127.0.0.1 就够」——
+      #    **这句话被实测推翻了**：流程第一次真的跑到登录那一步，App 当场报
+      #    `网络连接失败：Failed to connect to /10.0.2.2:8000`，
+      #    而同一次体检里写着 `后端 可登录`（那是 runner 自己 curl 127.0.0.1 打通的）。
+      #    两种说法都对，说的是**两个不同的网络命名空间**：runner 的 127.0.0.1 与
+      #    模拟器里的 10.0.2.2 不是同一条路。绑 0.0.0.0 两边都通。
+      #    判据第 19 条钉着「安卓端到端那个作业里的 uvicorn 必须绑 0.0.0.0」。
       - name: 起一个空库的本地后端 + 三个开发账号
         run: |
           cd backend
           export DATABASE_URL="sqlite:///./ci_e2e.db"
           python -m scripts.seed_dev_users
-          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/e2e-api.log 2>&1 &
+          nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/e2e-api.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/health >/dev/null; then break; fi
             sleep 1

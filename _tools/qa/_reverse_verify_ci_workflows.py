@@ -203,6 +203,15 @@ CASES: list[tuple[str, str, str, str, str]] = [
         "; python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 > /dev/null 2>&1; adb install -r android/app/build/outputs/apk/phone/debug/*.apk > /tmp/e2e.log 2>&1;",
         "的顺序反了",
     ),
+    (
+        "⑲ 端到端的后端绑回 127.0.0.1（模拟器里的 App 连不上，而体检那一步仍然是绿的）",
+        # ⚠️ 锚点带 `e2e-api.log`：read-roles 那个作业也起了 uvicorn（写 probe-api.log），
+        #    不带这个后缀就会"出现两次"直接 SKIP。
+        GATE,
+        "          nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/e2e-api.log 2>&1 &",
+        "          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/e2e-api.log 2>&1 &",
+        "没绑 0.0.0.0",
+    ),
 ]
 
 CRLF = chr(13) + chr(10)
