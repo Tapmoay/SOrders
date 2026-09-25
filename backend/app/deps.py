@@ -94,6 +94,22 @@ def require_any_permission(*permissions: Permission):
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
+#: **仅派单员**能进的端点（报告 §9「先把授权机制统一」）。
+#:
+#: 它替代的是散在端点**函数体内**的那种硬门槛：
+#:
+#:     if user_role_key(current) != UserRole.DISPATCHER.value:
+#:         raise HTTPException(status_code=403, detail="仅派单员可操作")
+#:
+#: ⛔ 为什么必须有一个**具名别名**，而不是每个端点各写一遍 `Depends(require_roles(...))`：
+#:   ① 写在签名上，**端点索引的授权列才看得见** —— 体内判断生成器只能标成「体内」，
+#:      而那要求读的人恰好想到去翻那一列（本项目吃过「文档说没权限了、接口照样能读」的亏）；
+#:   ② 「谁算派单员」只有这一处说法，改的时候不会漏；
+#:   ③ 403 的文案统一成一句人话（原来那 36 处各编各的：「仅派单员可查看」/「仅派单员可操作」/…）。
+#:
+#: 行为与体内那句**完全一致**：非派单员一律 403（`require_roles` 比的就是 `user_role_key`）。
+DispatcherUser = Annotated[User, Depends(require_roles(UserRole.DISPATCHER))]
+
 def parse_date_range(date_from: str | None, date_to: str | None):
     # 通用日期范围解析（订单/账本/库存流水等列表复用）：YYYY-MM-DD 起止，含当天。
     # 返回 (datetime | None, datetime | None)；非法格式抛 400。

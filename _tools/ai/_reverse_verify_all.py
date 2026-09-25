@@ -68,6 +68,10 @@ SCRIPTS = _discover()
 # v3.44：新增 `_tools/ai/_reverse_verify_check_blindspots.py`（**检查自己的写法盲区**：跨行字段/单行 lambda）→ 29
 # 2026-09-20：新增 `_tools/qa/_reverse_verify_vm_init_order.py`（`init {}` 调用链会写到的状态
 #    必须声明在 init 之前 —— 真机崩过：打开「AI 助手 → 设置」NPE）→ 30
+# 2026-09-25：新增 `_tools/qa/_reverse_verify_inline_role_gates.py`（§9 体内角色门槛棘轮：
+#    9 个用例，含 2 个「必须仍然绿」的防误报用例）→ 126
+# ⚠️ 上面这串 `→ N` 是**加脚本时手写**的，中间断过很久（最后一条停在 30，实际已经 126 份）。
+#    权威数量＝运行时自己算出来的那个；这里的数字只当「当时是多少」的存档。
 MIN_SCRIPTS = 30
 
 

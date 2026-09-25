@@ -17,11 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.rbac import user_role_key
 from app.database import get_db
-from app.deps import CurrentUser
+from app.deps import DispatcherUser
 from app.models import Expense, ExpenseCategory
-from app.models.enums import OperationAction, UserRole
+from app.models.enums import OperationAction
 from app.schemas.expense_category import (
     ExpenseCategoryCreate,
     ExpenseCategoryOut,
@@ -87,10 +86,8 @@ def _legacy_names(db: Session, known: set[str]) -> list[str]:
 
 
 @router.get("", response_model=list[ExpenseCategoryOut])
-def list_categories(current: CurrentUser, db: Session = Depends(get_db)) -> list[ExpenseCategoryOut]:
+def list_categories(current: DispatcherUser, db: Session = Depends(get_db)) -> list[ExpenseCategoryOut]:
     """开销分类名册（按显示顺序）。**仅派单员**（开销这一块本来就只有他能看）。"""
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可查看")
     rows = db.scalars(
         select(ExpenseCategory).order_by(ExpenseCategory.sort_order, ExpenseCategory.id)
     ).all()
@@ -111,11 +108,9 @@ def list_categories(current: CurrentUser, db: Session = Depends(get_db)) -> list
 @router.post("", response_model=ExpenseCategoryOut, status_code=status.HTTP_201_CREATED)
 def create_category(
     body: ExpenseCategoryCreate,
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
 ) -> ExpenseCategoryOut:
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可操作")
     exists = db.scalars(select(ExpenseCategory).where(ExpenseCategory.name == body.name)).first()
     if exists is not None:
         raise HTTPException(status_code=409, detail=f"分类「{body.name}」已经存在了")
@@ -148,11 +143,9 @@ def create_category(
 def update_category(
     category_id: int,
     body: ExpenseCategoryUpdate,
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
 ) -> ExpenseCategoryOut:
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可操作")
     """改名 / 改顺序 / 改"突出哪一项"。**改名会级联改掉挂在它下面的开销**（同一事务）。"""
     row = db.get(ExpenseCategory, category_id)
     if row is None:
@@ -194,11 +187,9 @@ def update_category(
 @router.post("/reorder", response_model=list[ExpenseCategoryOut])
 def reorder_categories(
     body: ExpenseCategoryReorder,
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
 ) -> list[ExpenseCategoryOut]:
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可操作")
     """整份顺序一次提交：`ids[0]` 排最前。
 
     ⚠️ **必须整份提交**（ids 要覆盖全部现存分类）：只传一部分的话，"没提到的那些该排哪儿"
@@ -225,11 +216,9 @@ def reorder_categories(
 @router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_category(
     category_id: int,
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
 ) -> None:
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=403, detail="仅派单员可操作")
     """删除名册里的一行。**还有开销挂着时拒绝**（告诉有几笔）。"""
     row = db.get(ExpenseCategory, category_id)
     if row is None:

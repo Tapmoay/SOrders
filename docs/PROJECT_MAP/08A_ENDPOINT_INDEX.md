@@ -133,11 +133,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/expense-categories` | `list_categories` | `backend/app/api/v1/expense_categories.py:90` | 仅登录 + 体内仅允许:派单员 |
-| 2 | `POST /api/v1/expense-categories` | `create_category` | `backend/app/api/v1/expense_categories.py:112` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `PATCH /api/v1/expense-categories/{category_id}` | `update_category` | `backend/app/api/v1/expense_categories.py:148` | 仅登录 + 体内仅允许:派单员 |
-| 4 | `POST /api/v1/expense-categories/reorder` | `reorder_categories` | `backend/app/api/v1/expense_categories.py:195` | 仅登录 + 体内仅允许:派单员 |
-| 5 | `DELETE /api/v1/expense-categories/{category_id}` | `delete_category` | `backend/app/api/v1/expense_categories.py:226` | 仅登录 + 体内仅允许:派单员 |
+| 1 | `GET /api/v1/expense-categories` | `list_categories` | `backend/app/api/v1/expense_categories.py:89` | 角色:dispatcher |
+| 2 | `POST /api/v1/expense-categories` | `create_category` | `backend/app/api/v1/expense_categories.py:109` | 角色:dispatcher |
+| 3 | `PATCH /api/v1/expense-categories/{category_id}` | `update_category` | `backend/app/api/v1/expense_categories.py:143` | 角色:dispatcher |
+| 4 | `POST /api/v1/expense-categories/reorder` | `reorder_categories` | `backend/app/api/v1/expense_categories.py:188` | 角色:dispatcher |
+| 5 | `DELETE /api/v1/expense-categories/{category_id}` | `delete_category` | `backend/app/api/v1/expense_categories.py:217` | 角色:dispatcher |
 
 ### `backend/app/api/v1/expenses.py` — 2 个
 
@@ -563,7 +563,7 @@
 
 | 角色组合 | 端点数 | 端点 |
 |---|---|---|
-| `dispatcher` | 5 | `PATCH /api/v1/places/{place_id}`<br>`POST /api/v1/places/{place_id}/demote`<br>`DELETE /api/v1/places/{place_id}`<br>`POST /api/v1/places/{place_id}/restore`<br>`POST /api/v1/shipper/locations/{location_id}/share` |
+| `dispatcher` | 10 | `GET /api/v1/expense-categories`<br>`POST /api/v1/expense-categories`<br>`PATCH /api/v1/expense-categories/{category_id}`<br>`POST /api/v1/expense-categories/reorder`<br>`DELETE /api/v1/expense-categories/{category_id}`<br>`PATCH /api/v1/places/{place_id}`<br>`POST /api/v1/places/{place_id}/demote`<br>`DELETE /api/v1/places/{place_id}`<br>`POST /api/v1/places/{place_id}/restore`<br>`POST /api/v1/shipper/locations/{location_id}/share` |
 | `dispatcher\|shipper` | 30 | `POST /api/v1/files/parse-sheet`<br>`GET /api/v1/place-categories`<br>`POST /api/v1/place-categories`<br>`PATCH /api/v1/place-categories/{category_id}`<br>`POST /api/v1/place-categories/reorder`<br>`DELETE /api/v1/place-categories/{category_id}`<br>`GET /api/v1/price-rules`<br>`GET /api/v1/shipper/addresses`<br>`POST /api/v1/shipper/addresses`<br>`GET /api/v1/shipper/addresses/{address_id}`<br>`PATCH /api/v1/shipper/addresses/{address_id}`<br>`DELETE /api/v1/shipper/addresses/{address_id}`<br>`POST /api/v1/shipper/addresses/{address_id}/restore`<br>`POST /api/v1/shipper/addresses/{address_id}/set-default`<br>`GET /api/v1/shipper/contacts`<br>`POST /api/v1/shipper/contacts`<br>`PATCH /api/v1/shipper/contacts/{contact_id}`<br>`POST /api/v1/shipper/locations/image`<br>`GET /api/v1/shipper/locations`<br>`POST /api/v1/shipper/locations`<br>`PATCH /api/v1/shipper/locations/{location_id}`<br>`DELETE /api/v1/shipper/locations/{location_id}`<br>`POST /api/v1/shipper/locations/{location_id}/restore`<br>`DELETE /api/v1/shipper/contacts/{contact_id}`<br>`POST /api/v1/shipper/contacts/{contact_id}/restore`<br>`GET /api/v1/unit-conversions`<br>`POST /api/v1/unit-conversions`<br>`PATCH /api/v1/unit-conversions/{conversion_id}`<br>`DELETE /api/v1/unit-conversions/{conversion_id}`<br>`POST /api/v1/unit-conversions/{conversion_id}/restore` |
 | `shipper` | 8 | `POST /api/v1/return-requests`<br>`GET /api/v1/return-requests/mine`<br>`POST /api/v1/return-requests/{request_id}/withdraw`<br>`GET /api/v1/shipper-ledger/summary`<br>`GET /api/v1/shipper-ledger/settlements`<br>`POST /api/v1/shipper-ledger/settlements`<br>`DELETE /api/v1/shipper-ledger/settlements/{settlement_id}`<br>`POST /api/v1/shipper-ledger/settlements/{settlement_id}/restore` |
 
