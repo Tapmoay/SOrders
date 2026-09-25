@@ -23,6 +23,11 @@
 配数量判据：第一条至少要认出 3 处（`base.py` 两列 + `operation_logs.created_at`），
 认不出来说明解析器失配了，而不是"项目里没有库端时钟了"。
 
+⚠️ 两条判据都**锚在代码形状上**（`cur.execute("SET time_zone` / `def _mysql_session_utc(`），
+不锚在"这个名字出现过"上 —— `database.py` 的注释与报错文案里也写着这两个名字，
+按名字找的话，把钩子改名之后判据**照样绿**（2026-09-25 反向验证第 ③ 条当场抓到）。
+配套反向验证：`python _tools/qa/_reverse_verify_time_base.py`（4 种破坏 5/5）。
+
 用法：python _tools/qa/_check_time_base.py
 """
 from __future__ import annotations
@@ -79,13 +84,21 @@ def main() -> int:
         )
 
     src_db = io.open(DATABASE, encoding="utf-8", errors="replace").read()
-    if "SET time_zone = '+00:00'" not in src_db:
+    # ⛔ 两条都必须锚在**代码形状**上，不能锚在一个名字/一句话上：`database.py` 的注释与报错文案里
+    #    也写着 `SET time_zone` 与 `_mysql_session_utc`。第一版按名字找，于是把
+    #    `def _mysql_session_utc(` 改名之后这两条判据**照样绿**（2026-09-25 反向验证第 ③ 条当场
+    #    抓到；「判据被自己的文档满足」这在本项目已经是第 3 次）。
+    if 'cur.execute("SET time_zone' not in src_db:
         errs.append(
-            "`app/database.py` 没有把 MySQL 会话时区钉成 UTC（`SET time_zone = '+00:00'`）—— "
+            "`app/database.py` 没有把 MySQL 会话时区钉成 UTC —— 要的是那一句**代码**"
+            "（cur.execute(\"SET time_zone = '+00:00'\")），不是注释里提到过它。"
             "库端 `NOW()` 会是 +08:00，与 Python 写的 UTC 差 8 小时（见 C-2）。"
         )
-    if "else:" not in src_db or "_mysql_session_utc" not in src_db:
-        errs.append("`database.py` 里找不到 MySQL 分支的会话时区钩子（`_mysql_session_utc`）。")
+    if "else:" not in src_db or "def _mysql_session_utc(" not in src_db:
+        errs.append(
+            "`database.py` 里找不到 MySQL 分支的会话时区钩子 —— 要的是 `def _mysql_session_utc(` "
+            "这个**定义**，不是注释里提到过这个名字。"
+        )
 
     if errs:
         print("\n❌ 时间基准检查没通过：\n")
