@@ -7,13 +7,15 @@
 ⚠️ 本模块**自己声明** `router`：按文件解析的 AST 工具（端点索引 / AI 能力表）靠这一行算 URL 前缀。
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
-from app.deps import CurrentUser, require_permission
+from app.deps import CurrentUser, DispatcherUser, require_permission, require_roles
 from app.models import Order, User
 from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.schemas.order import OrderCreate, OrderExceptionBody, OrderOut, OrderUpdate
@@ -36,15 +38,18 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_cancelled_order(
     order_id: int,
-    current: CurrentUser,
+    # ⚠️ 2026-09-25 §9 第②步第五域：这道「只有货主/派单员能删」的门从**函数体**搬到**签名**上。
+    #    等价（原来非这两种角色 403「无权操作」，现在 403 由入口统一给出），
+    #    但端点索引的授权列从此读得出真实授权。
+    #    ⛔ 下面 `if role == SHIPPER` 那一支里的**权限点**门（ORDER_DELETE_CANCELLED）
+    #    **留在体内**：它只对货主生效，依赖角色分支，签名级表达不了。
+    current: Annotated[User, Depends(require_roles(UserRole.SHIPPER, UserRole.DISPATCHER))],
     db: Session = Depends(get_db),
 ) -> None:
     """软删除订单 → 进入隔离区 30 天（用户不可见；派单员可恢复；到期物理清理）。
     货主：本人 已送达/已撤销/异常 订单；派单员：任意状态（含待派单）。"""
     order = _get_order_scoped(order_id, current, db)
     role = user_role_key(current)
-    if role not in (UserRole.SHIPPER.value, UserRole.DISPATCHER.value):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
     if role == UserRole.SHIPPER.value:
         if not role_has_permission(role, Permission.ORDER_DELETE_CANCELLED):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
@@ -379,12 +384,10 @@ def patch_order_exception(
 @router.post("/{order_id}/restore", response_model=OrderOut)
 def restore_order(
     order_id: int,
-    current: CurrentUser,
+    current: DispatcherUser,
     db: Session = Depends(get_db),
 ) -> OrderOut:
     """派单员：从隔离区恢复订单（软删除后 30 天内可恢复）。"""
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可恢复")
     order = db.scalars(
         select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
     ).first()
