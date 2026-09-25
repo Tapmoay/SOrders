@@ -39,6 +39,7 @@ from app.core.outbox import outbox_stats
 from app.models.driver_settlement import DriverSettlement
 from app.models.enums import OrderStatus
 from app.models.ledger import Ledger
+from app.models.operation_log import OperationLog
 from app.models.order import Order
 from app.models.outbox import OutboxEvent, OutboxStatus
 
@@ -56,11 +57,10 @@ class Metric:
 #: 报告点名、但**当前算不出来**的指标 —— 每条都写清原因与它该有的位置。
 #: ⛔ 不要用"近似值"填空：push_success 与"发出去的通知条数"不是一回事。
 NOT_TRACKED: dict[str, str] = {
-
-    "AI_calls": "模型跑在 App 里（后端没有 AI 代理端点），服务端只看到普通业务请求 ——"
-    "要采它得先加一条客户端上报（阶段 7 / 8 的后续）",
-    "AI_write_confirmed": "AI 写入走的是普通业务端点 + App 侧确认卡；后端动作码里"
-    "只有 AI_UNDO 一个与 AI 直接相关 —— 现在算不出「AI 确认了几次写入」",
+    "AI_calls": "模型跑在 App 里（后端没有 AI 代理端点），服务端**看不到这次调用** ——"
+    "`AI_write_confirmed` 已经能算了（见 `sorders_ai_write_confirmed_today`：写入本身落在"
+    "operation_logs 上，只要知道「这一行来自 AI」就能数），但**聊天本身不落任何库**。"
+    "要采它只能由 App 上报（客户端报的数 ≠ 后端数的数，口径差异写在那条指标的 help 里）。",
 }
 
 
@@ -155,6 +155,16 @@ def snapshot(db: Session) -> list[Metric]:
             "今天生成的司机结算单数（含草稿）",
             _count(db, DriverSettlement, DriverSettlement.created_at >= start),
             "driver_settlements.created_at",
+        ),
+        # ---- 报告 §15 ② 的 AI_write_confirmed（2026-09-25：origin 列落地后**能算了**）----
+        # ⛔ 它是**后端从库里数出来的**，不是 App 报上来的：AI 写入走的仍是普通业务端点，
+        #    但 App 在「用户点过确认卡」时带 `X-SOrders-Origin: ai`，中间件记进 operation_logs.origin。
+        #    这样它与审计表**是同一个事实**（能逐行对回去），而不是一个孤立的计数器。
+        Metric(
+            "sorders_ai_write_confirmed_today",
+            "今天由 AI 确认卡**真的写进库**的操作数（原报告的 AI_write_confirmed；来源＝operation_logs.origin=ai）",
+            _count(db, OperationLog, OperationLog.origin == "ai", OperationLog.created_at >= start),
+            "operation_logs.origin",
         ),
     ]
 

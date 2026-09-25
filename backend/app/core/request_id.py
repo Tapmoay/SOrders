@@ -37,6 +37,9 @@ import time
 import uuid
 from contextvars import ContextVar
 
+from app.core.client_origin import HEADER as ORIGIN_HEADER
+from app.core.client_origin import reset_origin, set_origin
+
 logger = logging.getLogger("app.access")
 
 #: 当前请求的追踪 id。默认空串 = "不在请求上下文里"（后台任务 / 启动期日志）。
@@ -81,6 +84,11 @@ class RequestIdMiddleware:
         incoming = headers.get(HEADER.lower().encode(), b"").decode("latin-1").strip()
         rid = incoming[:MAX_ID_LEN] or uuid.uuid4().hex[:12]
         token = _request_id.set(rid)
+        # 报告 §15 ②：**这一次请求是谁发起的**（人工 / AI 助手）。同一个中间件里一起记，
+        # 理由与 request_id 相同 —— 一处生效，业务代码不用层层传参。
+        # ⛔ 白名单在 core/client_origin.py 里（认不出的头落回 human，不报错）。
+        origin_raw = headers.get(ORIGIN_HEADER.lower().encode(), b"").decode("latin-1")
+        origin_token = set_origin(origin_raw)
         status_holder = {"code": 500}
 
         async def send_wrapper(message):
@@ -102,3 +110,4 @@ class RequestIdMiddleware:
                 scope.get("method", "?"), scope.get("path", "?"), status_holder["code"], cost_ms,
             )
             _request_id.reset(token)
+            reset_origin(origin_token)

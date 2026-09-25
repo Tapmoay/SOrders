@@ -3,6 +3,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.client_origin import get_origin
 from app.core.request_id import get_request_id
 from app.models import OperationLog
 from app.models.enums import OperationAction
@@ -33,6 +34,9 @@ def write_log(
         action=act,
         change_content=content,
         request_id=rid,
+        # 报告 §15 ②：**同一处填**（与 request_id 并排的理由一样：本函数是全库唯一构造点），
+        # 后台任务 / 脚本里没有请求上下文 → `get_origin()` 返回 human，那正是事实。
+        origin=get_origin(),
     )
     db.add(row)
     return row
