@@ -170,6 +170,34 @@ Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，�
 
 ---
 
+### R2-06 下半：订单全链路 trace（指南 §十五）【本轮】
+
+**新增文件**：`_tools/ops/_trace_order.py`（新）、`_tools/qa/_check_traceability.py`（新）、
+`_tools/qa/_reverse_verify_traceability.py`（新）。
+
+指南 §十五：「这样你遇到『为什么这笔订单的钱不对？』可以直接查完整链路」。
+`python _tools/ops/_trace_order.py --latest` 一条命令打完七段：订单与状态 → 命令与审计（含 `request_id`）
+→ 账本 → 司机账单 → 事件 → 通知。
+
+**真跑过一次（本机 dev 库，只读）**：单 SO202609251043879901 / 状态 PENDING_DISPATCH；
+1 行审计（`ORDER_CREATE`，请求 `e508292a5bf8`，来源 human）；1 条事件（`orders.created`，sent）；
+2 条通知（`order.created` → 收件人 59 / 1）。
+
+⚠️ **两次自己抓到的错**：
+① 通知筛法第一版是「字符串里出现过这个数字」→ 把 9 月 16 日**别的单**的通知也捞进来了
+（金额里恰好有那几个数字）。排障工具给假阳性比给不出结论更糟：人会照着它去查错的地方。
+已改成**按键精确比**（`payload.order_id` / `payload.order_no`）。
+② 事件按 `aggregate_id` 查不到 —— 那一列是 R2-04 才加的、**历史事件不回填**。已加 payload 回退，
+并在输出里如实标出「这一条是哪种来源」。
+
+⛔ 工具**只读**，而且**不 import `app.database`**（那个模块导入即 `bootstrap_schema`：
+排障工具不该在别人的库上跑 DDL）—— 两条都由判据的 AST 检查钉着，反向验证里各有一条注入。
+
+**证据**：`_check_traceability.py` 3 组全过（6 段链路 / 32 个列）+ 反向验证 **6/6**；
+`_check_all.py` 110 → **111/111**。
+
+---
+
 ### R2-02：订单命令层（Route → Command → Application → DomainRule → Persistence）
 
 **做了什么**：`create_order` / `update_order` 的**应用逻辑**从路由搬进 `backend/app/commands/order.py`，
