@@ -35,6 +35,17 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Sequence
 
+#: ⛔ 让 **stdout 与 stderr 都** 按 UTF-8 写（本机 Windows 的 stderr 默认是 GBK）。
+#: 为什么放在这里：几乎每个工具都 import 本模块，而 `raise SystemExit("中文")` 与
+#: `print(..., file=sys.stderr)` 走的是 stderr —— 只重配 stdout 的话，检查红了的**原因**
+#: 在开发机上是乱码（2026-09-25 实测：反向验证因此匹配不上那句话）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
+
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 ROOT = Path(__file__).resolve().parents[2]

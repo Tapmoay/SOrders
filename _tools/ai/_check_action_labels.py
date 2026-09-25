@@ -17,7 +17,11 @@ import re
 import sys
 from pathlib import Path
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+# ⚠️ stdout **和 stderr** 都要：`raise SystemExit("中文")` 走的是 stderr，
+#    而 stderr 默认按系统编码（Windows 上是 GBK）写 —— 不重配的话错误提示在开发机上是乱码，
+#    反向验证也就匹配不上那句话（2026-09-25 实测踩到）。
+for _s in (sys.stdout, sys.stderr):
+    _s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _airepo import repo_root  # noqa: E402
 
@@ -40,6 +44,43 @@ def backend_actions() -> set[str]:
     return out
 
 
+def _strip_kotlin_comments(block: str) -> str:
+    """把 Kotlin 注释去掉（**字符串里的 `//` 保留**）。
+
+    为什么要它：把一条中文**注释掉**（`// "ORDER_CREATE" -> "新建订单"`）时，原来那条正则
+    **照样命中** —— 判据是绿的，而审计卡片上那一行又变回原始码（用户报过的那个缺陷）。
+    2026-09-25 反向验证第 ③ 条实测：注释掉一条，红线仍然全绿。
+    """
+    out: list[str] = []
+    for line in block.splitlines():
+        buf: list[str] = []
+        in_str = False
+        i = 0
+        while i < len(line):
+            c = line[i]
+            if in_str:
+                buf.append(c)
+                if c == chr(92) and i + 1 < len(line):
+                    buf.append(line[i + 1])
+                    i += 2
+                    continue
+                if c == '"':
+                    in_str = False
+                i += 1
+                continue
+            if c == '"':
+                in_str = True
+                buf.append(c)
+                i += 1
+                continue
+            if line.startswith("//", i) or line.startswith("/*", i):
+                break          # 注释：这一行剩下的都不要（本表里没有行内块注释）
+            buf.append(c)
+            i += 1
+        out.append("".join(buf))
+    return chr(10).join(out)
+
+
 def kotlin_labels() -> dict[str, str]:
     s = REPORT_CENTER.read_text(encoding="utf-8")
     # 只看 actionLabel 那个 when 块，避免把别处的常量对映射也扫进来
@@ -47,7 +88,8 @@ def kotlin_labels() -> dict[str, str]:
     if i < 0:
         raise SystemExit("❌ 找不到 actionLabel（被改名或搬走了？）")
     j = s.find("\n}", i)
-    return {m.group(1): m.group(2) for m in LABEL_IN_KOTLIN.finditer(s[i:j])}
+    # ⛔ 先剥注释再匹配：注释掉一条中文**不算**「有中文」（见 _strip_kotlin_comments）
+    return {m.group(1): m.group(2) for m in LABEL_IN_KOTLIN.finditer(_strip_kotlin_comments(s[i:j]))}
 
 
 def main() -> int:
