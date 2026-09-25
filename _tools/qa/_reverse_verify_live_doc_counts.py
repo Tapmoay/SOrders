@@ -16,6 +16,7 @@ _check_live_doc_counts.py 是一条**元检查**：它判的不是代码，而�
   ⑥ _check_all.py 的条数手写           → 必须判「不许手写」（这个脚本在这里跑不动）；
   ⑦ 反向验证脚本的注入条数手写         → 同上（跑它会注入并改工作区）；
   ⑧ LIVE 清单指到一个不存在的活文档    → 必须报「不存在」，不许安静地少判一页；
+  ⑩ 给 `_check_all.py` 手写耗时（R3-07c）→ 必须判「不许写耗时」（它自己会打总耗时）；
   ⑨ **负面对照（必须仍然全绿）**：表格行里"数字在前、脚本在后"、又没写「判据」的那种形状 ——
      旧版会把**上一个格子**的括号当成这处的声明，把 _check_backup.py 的条数错记到
      _check_all.py 头上（一条假红，真值还算不出来）。这个形状**故意不判**，所以要钉住它必须全绿。
@@ -24,6 +25,16 @@ _check_live_doc_counts.py 是一条**元检查**：它判的不是代码，而�
 - 超过 200 字符的超长行**整行不判**（定位表那些几百字一行会顺带提到别的数字）；
 - 这一族只认「N **条**」，「N **项**」不判 —— docs/CORE_AND_EXTENSION.md 里
   「核心冻结（7 项）」早就该是 39 项，没有任何东西守着它（2026-09-25 靠人眼抓到）。
+
+## ⛔ 它自己踩过的坑（2026-09-26，R3-07c 顺手抓到的）
+
+`Sandbox._mutate()` 里曾经粘着一段**跑不起来**的兜底代码（第二轮 R2-05 加的「报表锚点跟着搬家走」）：
+它引用了一个**未定义的 `old`**、又在 `@staticmethod` 里用 `self` —— 一跑就 `NameError`。
+也就是说：**这份反向验证从那次编辑起就没跑通过**，而外面没有任何东西发现它（它的形状是对的，
+`_check_reverse_verify_restore.py` 只判「有没有按字节还原」，不判「跑不跑得起来」）。
+已删掉那段；没有任何用例需要它（没有一个注入锚在报表源码里）。
+将来真需要「锚点跟着搬家走」时，写成**模块级的 `sub_anywhere(old, new)` 注入器**，⛔ 别再塞进 `_mutate`。
+教训：反向验证脚本自己也是代码，**它坏掉的样子是「安静地什么都不注入」**。
 
 ⚠️ 与其它反向验证同一套纪律：注入/还原都按**字节**做，跑完逐文件核对
 （本项目栽过"注入把 bug 留在源码里"）。跑之前先上注入锁（lock_reverse_verify）。
@@ -168,6 +179,16 @@ CASES: list[tuple] = [
         "不存在（活文档被删/改名了？",
     ),
     (
+        # ⭐ R3-07c：给 `_check_all.py` 写耗时是同一类毛病 —— 写的时候是真的，之后必然过期
+        #    （实测 AGENTS.md 写着「约一分钟」而它当时要 171 秒）。那个数现在由它自己打。
+        '给 `_check_all.py` 手写耗时 → 必须判「不许写耗时」（它自己会打总耗时）',
+        AGENTS,
+        False,
+        after_line('_check_all.py --list', 'python _tools/qa/_check_all.py  # 约 90 秒'),
+        True,
+        '手写了耗时',
+    ),
+    (
         # ⛔ 负面对照：数字在**上一个格子**里、又没写「判据/注入」时，不许把它算到后面那个脚本头上
         #    （旧版会记成「_check_all.py 有 999 条」→ 假红，而且那个真值本来也算不出来）。
         "负面对照：表格行里跨格子的数字不许被误认成后面那个脚本的条数（旧版的假红）",
@@ -190,25 +211,6 @@ class Sandbox:
     def _mutate(data: bytes, mutate) -> bytes:
         crlf = CRLF_BYTES in data
         text = data.decode("utf-8")
-        if old not in text:
-            # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— **锚点跟着搬家走**。
-            # 判据读的是「并集」（`_airepo.reports_source`），注入器也必须打在那份含原文的文件上，
-            # 否则沙箱找不到原文 → [SKIP] → 而 SKIP 在本仓库是**计为不成立**的。
-            # ⛔ 不逐条改锚点、也不改目标路径：以后报表再搬一次，这里自动跟上。
-            import sys as _sys
-            from pathlib import Path as _P
-            _sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "ai"))
-            from _airepo import reports_files as _rf
-            for _c in _rf():
-                _t = _c.read_text(encoding="utf-8", errors="replace")
-                if _t.count(old) == 1:
-                    p = _c
-                    raw = p.read_bytes()
-                    text = raw.decode("utf-8")
-                    if CRLF.encode("utf-8") in raw:
-                        text = text.replace(CRLF, chr(10))
-                    self.saved.setdefault(p, raw)
-                    break
         if crlf:
             text = text.replace(CRLF_TEXT, chr(10))
         text = mutate(text)

@@ -120,8 +120,8 @@ python _tools/backup/_install.py                                  # 把脚本/�
 ## 改完必跑：一条命令跑完所有静态检查
 
 ```
-python _tools/qa/_check_all.py          # 全部静态检查（脚本数它自己数，见输出第一行；约一分钟）
-python _tools/qa/_check_all.py --deep   # 再加全部反向验证（⚠️ **50 分钟以上**，跑时全场冻住）
+python _tools/qa/_check_all.py          # 全部静态检查（脚本数、逐条耗时、总耗时都由它自己打在输出里）
+python _tools/qa/_check_all.py --deep   # 再加全部反向验证（⚠️ 慢得多，跑时全场冻住；耗时分秒看它自己打的）
 python _tools/qa/_check_all.py --list   # 只列清单不跑（看它到底都在查什么）
 ```
 

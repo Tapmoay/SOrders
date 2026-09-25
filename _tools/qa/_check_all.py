@@ -18,7 +18,7 @@
 而不是安静地少跑一半）。
 
 用法：
-    python _tools/qa/_check_all.py            # 全部跑一遍（几分钟）
+    python _tools/qa/_check_all.py            # 全部跑一遍（脚本数、逐条耗时、总耗时都由它自己打）
     python _tools/qa/_check_all.py --list     # 只列清单，不跑
     python _tools/qa/_check_all.py --only ai  # 只跑路径里含 ai 的
 """
@@ -126,6 +126,7 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=300,
                     help="每个检查的超时秒数（默认 300；0 = 不限）—— 报告 §20 第 ⑩ 项")
     a = ap.parse_args()
+    t_start = time.time()
 
     # ⚠️ 反向验证跑着的时候，源码树里带着**注入的 bug**，此时跑任何检查都会得到
     # "一堆真实但无关的失败"——而人的第一反应是"我刚改坏了什么"。
@@ -221,6 +222,9 @@ def main() -> int:
             bad.append((rel, out))
 
     print()
+    # 总耗时**自己报**（⛔ 活文档里不要给这条命令写「约 N 分钟」：写的时候是真的，之后必然过期 ——
+    # 实测 AGENTS.md 写着「约一分钟」而实际是 171 秒。数字只能由这里打出来，见 §13）。
+    print(f"跑完 {len(run)} 个检查，总耗时 {time.time() - t_start:.1f} 秒。")
     if bad:
         print(f"❌ {len(bad)}/{len(run)} 个检查没通过：")
         for rel, out in bad:

@@ -24,7 +24,10 @@ python _tools/qa/_check_all.py          # 全部静态检查（当前 50 个脚�
 3. ⚠️ 数字只在**它自己声明「这是当前值」的上下文里**才判（同一行提到那个生成物 / 那个命令），
    于是「155 个端点里只有 78 个挂了 require_permission」这类**当时的结论**不会被误判；
 4. ⚠️ `orders.py` 的行数只在**紧挨着文件名**的位置判（地图里的长表格行会顺带提到别的文件的行数）；
-5. 算不出真值时**报错而不是放过**（生成器或源码结构变了就来改这个脚本，不许静悄悄地不查）。
+5. 算不出真值时**报错而不是放过**（生成器或源码结构变了就来改这个脚本，不许静悄悄地不查）；
+6. ⭐ 给 `_check_all.py` 写**耗时**（「约一分钟」）也算同一类毛病 —— 写的时候是真的、之后必然过期
+   （实测写着「约一分钟」而它当时要跑 171 秒）。那个数现在由 `_check_all.py` 自己打在输出里
+   （「跑完 N 个检查，总耗时 X 秒。」），活文档里再写一份就是**第二份真相** → 判红。
 
 用法：
     python _tools/qa/_check_live_doc_counts.py --check   # 非零退出＝有对不上的数字
@@ -80,6 +83,11 @@ RE_CHECK_COUNT = re.compile(
     r"(_(?:check|reverse_verify)_[a-z0-9_]+\.py)[^\n|]{0,24}?(\d+)\s*条"
     r"|(\d+)\s*条[^\n|]{0,24}?(_(?:check|reverse_verify)_[a-z0-9_]+\.py)"
 )
+#: ⭐ 给 `_check_all.py` 手写的**耗时**（R3-07c 实测：AGENTS.md 写着「约一分钟」，而它当时要 171 秒）。
+#: 那个数只能由 `_check_all.py` 自己打（它现在会打一行「跑完 N 个检查，总耗时 X 秒。」）——
+#: 活文档里再写一份就是第二份真相，而且**写的时候是真的、之后必然过期**。
+RE_DURATION = re.compile(r"\d+(?:\.\d+)?\s*(?:分钟|小时|秒钟|秒|min)")
+
 #: 脚本**自己报的**总数（口径是它的输出，不是我们数源码里的 want() 调用 —— 那有五六种写法）。
 #: 静态检查脚本报总数的那几种写法（它自己的总结句）。
 RULE_PATTERNS = (
@@ -259,6 +267,18 @@ def main() -> int:
                   for i, ln in enumerate(lines, 1) if "_check_all" in ln
                   for m in RE_SCRIPTS.finditer(ln)]
         judge(rel, "检查脚本数", claims, total_checks, "删掉数字、改成指向 `_check_all.py` 第一行（它自己数）")
+
+        # ⑥ ⭐ 给 `_check_all.py` 手写的耗时。它自己会打总耗时，活文档里再写一份就是第二份真相 ——
+        #    而且那个数**写的时候是真的、之后必然过期**（实测写着「约一分钟」而它当时要 171 秒）。
+        durs = [(i, m.group(0).strip()) for i, ln in enumerate(lines, 1) if "_check_all" in ln
+                for m in RE_DURATION.finditer(ln)]
+        if durs:
+            want(False, "", rel + "：给 `_check_all.py` 手写了耗时（"
+                 + "、".join("L" + str(i) + "「" + d + "」" for i, d in durs) + "）—— "
+                 + "那个数写的时候是真的、之后必然过期（实测「约一分钟」而实际 171 秒）。"
+                 + "改成「耗时它自己打在输出里」")
+        else:
+            want(True, rel + "：没给 `_check_all.py` 手写耗时", "")
 
         claims = [(i, int(m.group(1)), "个端点")
                   for i, ln in enumerate(lines, 1) if "08A_ENDPOINT_INDEX" in ln
