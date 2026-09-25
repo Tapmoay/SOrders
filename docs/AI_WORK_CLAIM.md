@@ -198,7 +198,7 @@ Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，�
 
 ---
 
-### 贯穿层：Capability Registry（指南 §十一）【本轮】
+### 贯穿层：Capability Registry（指南 §十一）【已完成，提交 `7cc2f7a`】
 
 **新增文件**：`backend/app/core/capabilities.py`（新）、`_tools/qa/_check_capability_registry.py`（新）、
 `_tools/qa/_reverse_verify_capability_registry.py`（新）。
@@ -225,6 +225,39 @@ Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，�
 
 **证据**：`_check_capability_registry.py` 5 组全过 + 反向验证 **6/6**；`_check_all.py` 111 → **112/112**；
 后端 `pytest -q` **1015 passed**。
+
+---
+
+### R2-05 下半第 ② 步：搬迁**本轮试过、按「全绿才提交」回退了**（精确交接）
+
+**做了什么**：用脚本把 `reports_service.py` 按行号切成 `services/reports/{_common,loader,turnover_query,product_query,arrears_query}.py`
+（503 行 → 5 个模块 + 一个只转出名字的 shim；每个模块的 import 由「名字在本模块里出现过」自动筛）。
+结果：**模块本身是对的** —— `import app.services.reports_service` 成功、`__all__` 12 个名字齐全、
+`_check_report_boundary.py` 从 5 个文件变成 **11 个文件**且 3 组判据全过。
+
+**为什么回退**：搬完 **8 条检查红**，红的全是「读的还是旧文件」这一类 —— 而我没有余量把它们一条条改对。
+按用户硬规矩「全绿才提交」，`git checkout -- backend/app/services/reports_service.py` + 删掉新包，
+回到 112/112（`42a28ba`）。⛔ 那一轮**没有留下任何半成品**（未提交的改动都还原了）。
+
+**下一轮照着改这几处（按顺序，每改一处跑一次 `_check_all.py`）**：
+
+| # | 文件 | 症状 | 修法 |
+|---|---|---|---|
+| 1 | `_tools/ai/_check_ai_guardrails.py` | 6 项找不到聚合形状（`amount = mm.receivable` 等） | 读 `_airepo.reports_source()` |
+| 2 | `_tools/qa/_check_cost_basis.py` | `basis.of(` / `cost_price_snapshot` 计数为 0 | 同上 |
+| 3 | `_tools/qa/_check_order_return.py` | 找不到 `amount = mm.receivable` | 同上 |
+| 4 | `_tools/qa/_check_report_window.py` | 12 项（窗口 / `_span(` 形状） | 同上 |
+| 5 | `_tools/qa/_check_money_contract.py` | 消费方清单写死 `services/reports_service.py`，搬完全变成「直接 import 实现」 | 把 `FIGURES` 里的消费方路径改成 `services/reports/turnover_query.py` 等 |
+| 6 | `_reverse_verify_{round12,round19,cost_basis,report_guards,single_source,report_window}.py` | 注入锚点钉在旧文件上 → 找不到原文 = `[SKIP]` = **计为不成立** | 每个 CASES 元组**自带 `rel`**，逐条改成新家那一个文件 |
+| 7 | `_check_reverse_verify_anchors.py` | 同上（它是 6 的元检查） | 跟着 6 一起改 |
+
+**并集读取器已经就位**（`42a28ba`）：`_airepo.reports_source()` = `api/v1/reports.py` + `reports_service.py` +
+**glob 收到的** `services/reports/**`。⛔ 改上面的 1–4 时**直接用它**，别再各写各的路径 ——
+那正是 `_airepo` 里那段注释说的：「先让判据读并集，再搬代码。顺序不能反」。
+
+**⚠️ 值不值得做，请你拍板**：这一条的**实质**已经交付（报表层零写动词 / 不依赖写服务 / 路由不写业务对象，
+由一个真违规的修复 + 3 组判据 + 反向验证 7/7 钉着）；剩下的纯粹是**文件放哪儿**。
+成本是上面 7 处（其中 6 处是反向验证的注入锚点，必须逐条对）。我按你的规矩把它做干净了再说。
 
 ---
 
