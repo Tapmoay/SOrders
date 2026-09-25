@@ -46,11 +46,15 @@ ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 REPO = ANDROID / "data/repo/AppRepository.kt"
 APIS = ANDROID / "data/remote/api/Apis.kt"
 
-#: 接线数量的下限＝**本轮的实测值**（`>=`：多加页面不用改这里，少一个就红）。
-#: 为什么用实测值当阈值：这几个数字就是"7 个页面都还接着"的判据本身，
-#: 留余量等于允许某个页面静默退回去。
-MIN_META_READS = 8      # ViewModel 里读 `page.meta.hasMore` 的处数
-MIN_NOTES = 9           # 界面里 `TruncationNote(` 的调用处数
+#: 接线数量的下限＝**当前实测值（⛔ 不留余量）**。
+#:
+#: ⚠️ 2026-09-25 更正：这里原来写的是「多加页面不用改这里」—— 那句话**自相矛盾**：
+#:    下限停在 8 / 9，而页面一直在加，实测已经变成 14 / 17 → **中间那几处可以静默退回去**，
+#:    而这几个数字要防的恰恰就是「某个列表页又静默了」。
+#:    所以现在：下限＝实测值，而且**实测 > 下限也报红**（提示把下限提到实测值）——
+#:    增长时必须同步这一行，余量因此永远不存在。
+MIN_META_READS = 14     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
+MIN_NOTES = 16          # 界面里 `TruncationNote(` 的**调用**处数（实测值；⛔ 定义那处不算）
 MIN_ENDPOINTS = 6       # 返回 `Response<List<...>>` 的列表端点方法数
 
 fails: list[str] = []
@@ -136,6 +140,18 @@ def main() -> int:
         f"界面渲染 TruncationNote(...) ≥ {MIN_NOTES} 处",
         note_sites >= MIN_NOTES,
         f"实际 {note_sites}",
+    )
+    # ⛔ 不留余量：实测比下限**多**，说明下限过期了（页面加了、这一行没同步），
+    #    而余量正是「少几处也能绿」的成因 —— 见 MIN_META_READS 的说明。
+    ok(
+        f"下限没过期：实测读取 {meta_reads} ≤ 下限 {MIN_META_READS}",
+        meta_reads <= MIN_META_READS,
+        f"把 MIN_META_READS 改成 {meta_reads}（这条例外不留余量）",
+    )
+    ok(
+        f"下限没过期：实测提示 {note_sites} ≤ 下限 {MIN_NOTES}",
+        note_sites <= MIN_NOTES,
+        f"把 MIN_NOTES 改成 {note_sites}（这条例外不留余量）",
     )
     note_files = [p for p, s in kts.items() if re.search(r"(?<!fun )TruncationNote\(", s)]
     ok(
