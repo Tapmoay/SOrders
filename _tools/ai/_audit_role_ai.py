@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -169,6 +170,11 @@ PROBES: dict[str, list[dict]] = {
 }
 
 
+#: 瞬时网络故障的重试次数（⛔ **不含** HTTPError：那是接口在明确回答，重试没有意义）。
+RETRY = 3
+RETRY_SLEEP = 4.0
+
+
 def call_llm(key: str, messages: list[dict], tools: list[dict]) -> dict:
     body = json.dumps({
         "model": MODEL,
@@ -180,11 +186,27 @@ def call_llm(key: str, messages: list[dict], tools: list[dict]) -> dict:
     req = urllib.request.Request(LLM_BASE + "/chat/completions", data=body, method="POST")
     req.add_header("Content-Type", "application/json")
     req.add_header("Authorization", "Bearer " + key)
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            return json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        return {"error": e.code, "detail": e.read().decode()[:300]}
+    last: Exception | None = None
+    for attempt in range(1, RETRY + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            return {"error": e.code, "detail": e.read().decode()[:300]}
+        except Exception as exc:  # noqa: BLE001 —— 瞬时网络故障：RemoteDisconnected / 超时 / 连接被重置
+            last = exc
+            if attempt < RETRY:
+                print(f"  [重试 {attempt}/{RETRY - 1}] {type(exc).__name__}: {exc}")
+                time.sleep(RETRY_SLEEP * attempt)
+
+    # ⛔ 连不上 ≠ 判据失败。2026-09-25 实测：接口抖一下时这条检查直接抛 RemoteDisconnected，
+    #    把「改完必跑」的 _check_all.py 判成红 —— 而它红的原因和代码毫无关系。
+    #    红的次数一多，真缺陷也会跟着被忽略（本项目最怕的那一类）。
+    #    所以：**带理由的跳过**（退出码 3 + SKIP 行）—— 由 _check_all.py 单独记账、连理由列出，
+    #    ⛔ 不算通过（谁都不能用一条 exit(3) 让它消失，见 _check_all.py 里那条纪律）。
+    print(f"SKIP: 连不上模型接口（重试 {RETRY} 次仍失败）：{type(last).__name__}: {str(last)[:140]}"
+          " —— 这是网络/接口的问题，不是越权或能力缺失；网络恢复后重跑一次即可。")
+    raise SystemExit(3)
 
 
 def run_probe(key: str, tag: str, ids: list[str], probe: dict) -> tuple[set[str], str]:
