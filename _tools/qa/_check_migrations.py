@@ -104,8 +104,14 @@ def main(argv: list[str] | None = None) -> int:
     want(nums == sorted(nums), "版本号递增排列", f"⛔ 版本号不递增：{nums}")
 
     # ---------------------------------------------------------- 3. 运行器的硬纪律
-    want("raise MigrationFailed" in runner,
-         "失败时抛 MigrationFailed（不吞）", "⛔ 运行器把迁移失败吞掉了")
+    # ⛔ 判据原来写的是 `"raise MigrationFailed" in runner` —— 那是个**能被别处满足**的判据：
+    #    2026-09-25 给 `_db_lock` 加了一条「拿不到锁」的 `raise MigrationFailed` 之后，
+    #    反向验证当场抓到：把**真正那条**（迁移失败 → 带版本号抛出）删掉，检查照样绿。
+    #    现在钉的是「带版本号的那条抛出」这个**形状** —— 它在 run_migrations 的失败分支里唯一，
+    #    别处（例如拿不到锁）写不出同样的串。
+    want('raise MigrationFailed(f"{m.version:03d}_{m.name} 失败：{e}") from e' in runner,
+         "迁移失败时抛 MigrationFailed 且**带上版本号**（不吞）",
+         "⛔ 运行器的失败分支不再抛出（或换成不带版本号的抛出）—— 失败的迁移会被当成成功")
     # 记账必须发生在 upgrade() **之后**（顺序反了＝"没跑也算跑过"）
     i_call = runner.find("upgrade(engine)")
     i_insert = runner.find(f"INSERT INTO {{VERSION_TABLE}}")
@@ -132,6 +138,16 @@ def main(argv: list[str] | None = None) -> int:
          "⛔ 校验和没归一换行 —— Windows 与 Linux 会算出不同的值（生产上天天假红）")
     want("/tmp/sorders_migrations.lock" in runner,
          "迁移用独立的锁文件", "⛔ 迁移没有独立锁（与 bootstrap 共用会自锁死）")
+    # ---- 多实例前置：**跨主机**互斥（2026-09-25 补，报告 §16）----
+    # ⚠️ `/tmp` 那把 flock 只在**同一台机器**上有效：多实例部署时 A、B 各自拿自己的锁都会成功，
+    #    同一条迁移被同时跑两遍（DDL 半途撞车、版本表互相覆盖）。判据钉的是
+    #    「**真的拿了服务端命名锁**」，而不是「文件里出现过 GET_LOCK 这几个字」。
+    want("GET_LOCK" in runner and "RELEASE_LOCK" in runner and "DB_LOCK_NAME" in runner,
+         "迁移拿了服务端命名锁（MySQL GET_LOCK，可跨主机）",
+         "⛔ 迁移只有本机 flock —— 多实例部署时两台机器会同时跑同一条迁移")
+    want(re.search(r"with _lock\(\), _db_lock\(engine\):", runner) is not None,
+         "两把锁的获取顺序固定（本机 flock → 服务端 GET_LOCK）",
+         "⛔ 锁的顺序不是 `with _lock(), _db_lock(engine)` —— 反着写会和 --workers 2 死锁")
 
     # ---------------------------------------------------------- 4. 接线：必须真的被调用
     want("from app.migrations import" in boot,

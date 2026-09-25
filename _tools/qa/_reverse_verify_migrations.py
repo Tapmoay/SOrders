@@ -108,6 +108,18 @@ CASES: list[tuple[str, Path, object]] = [
         BACKUP_SH,
         lambda s: s.replace("schema_versions", "no_such_table", 1),
     ),
+    # ---- ⑨ 多实例前置：跨主机锁（2026-09-25 补）----
+    (
+        "迁移不再拿服务端命名锁（多实例下两台机器会同时跑同一条迁移）",
+        RUNNER,
+        lambda s: s.replace("    with _lock(), _db_lock(engine):", "    with _lock():", 1),
+    ),
+    (
+        "两把锁的顺序反过来（会和 --workers 2 死锁）",
+        RUNNER,
+        lambda s: s.replace("    with _lock(), _db_lock(engine):",
+                            "    with _db_lock(engine), _lock():", 1),
+    ),
     # ---- ⑧ 单测不许被掏空 ----
     (
         "单测被删掉一条（判据下限靠数量守着）",

@@ -32,6 +32,11 @@
 3. **锁是独立的**（`/tmp/sorders_migrations.lock`，不是 bootstrap 那把）：
    `flock` 是"文件描述符级"的，同一个进程里对**同一个文件**再 `LOCK_EX` 会**自己把自己锁死**。
    调用顺序恒为 bootstrap → migrations（拿到两把锁的顺序必须一致，反着写就会和 `--workers 2` 死锁）。
+4. **多实例的前置条件（2026-09-25 补）**：文件锁只在**同一台机器**上有效，所以迁移另外拿一把
+   **服务端命名锁**（MySQL `GET_LOCK("sorders_migrations")`，超时 60s）。
+   没有它，A/B 两台机器各拿自己的 `/tmp` 锁都会成功 → 同一条迁移被同时跑两遍。
+   顺序恒为 **本机 flock → 服务端 GET_LOCK**（反了会死锁）。
+   ⚠️ SQLite 下**如实不做**跨主机锁（它本来就不可能多主机共享），只记一行日志说明。
 """
 
 from __future__ import annotations
@@ -60,6 +65,13 @@ VERSION_TABLE = "schema_versions"
 FILE_RE = re.compile(r"^(\d{3,})_([a-z0-9_]+\.py)$")
 #: 只在**同一个进程**里互斥（flock 是 fd 级的），跨进程互斥靠下面这个文件。
 LOCK_FILE = "/tmp/sorders_migrations.lock"
+
+#: 迁移的**服务端命名锁**（MySQL `GET_LOCK`）—— **跨主机**互斥靠它。
+#: ⚠️ `/tmp` 那把 flock 只在**同一台机器**上有效：多实例部署时 A、B 两台各自拿自己的 `/tmp` 锁
+#:    都能成功，于是同一条迁移被**同时执行两遍**（DDL 半途撞车、版本表互相覆盖）。
+#:    这正是报告 §16 说的「单实例 + 没有迁移协调」—— 它才是多实例真正的前置条件。
+DB_LOCK_NAME = "sorders_migrations"
+DB_LOCK_TIMEOUT_S = 60
 
 _CREATE_SQL: dict[str, str] = {
     # 版本表**故意不写成 SQLAlchemy 模型**：它必须能在"模型还没建/建不出来"的库上先存在，
@@ -228,6 +240,56 @@ def _app_version() -> str:
         return ""
 
 
+class _db_lock:
+    """**跨主机**互斥（MySQL `GET_LOCK`）；SQLite 如实不做 —— 它本来就不可能多主机共享。
+
+    ⛔ 为什么不用 `BEGIN IMMEDIATE` 之类糊一个"看起来有锁"的东西：
+    **算不出真值就别说自己锁住了**。SQLite 是单机文件库，"跨主机共享它"这件事本身不成立，
+    假装有锁只会让人以为可以多实例 —— 而那正是这一条要防的误判。
+
+    ⚠️ `GET_LOCK` 是**连接级**的：锁挂在拿它的那条连接上，所以必须**抱着这条连接**活到迁移跑完
+    （不能 execute 完就把连接还回池里 —— 那样锁会跟着连接一起被放掉，等于没锁）。
+    """
+
+    def __init__(self, engine: Engine) -> None:
+        self.engine = engine
+        self._conn = None
+
+    def __enter__(self):
+        if self.engine.dialect.name != "mysql":
+            logger.info(
+                "迁移互斥：当前库是 %s（单机文件库），只用本机 flock；"
+                "跨主机互斥只在 MySQL 上成立（多实例部署时请确认库是 MySQL）。",
+                self.engine.dialect.name,
+            )
+            return self
+        self._conn = self.engine.connect()
+        got = self._conn.execute(
+            text("SELECT GET_LOCK(:n, :t)"), {"n": DB_LOCK_NAME, "t": DB_LOCK_TIMEOUT_S}
+        ).scalar()
+        if got != 1:
+            self._conn.close()
+            self._conn = None
+            raise MigrationFailed(
+                f"拿不到迁移锁 `{DB_LOCK_NAME}`（等了 {DB_LOCK_TIMEOUT_S}s）—— "
+                "另一个实例正在跑迁移。**不要**绕过它：两条迁移同时跑会把 DDL 撞在半路，"
+                "而且版本表会互相覆盖（谁后写谁赢，先跑完的那条等于没记账）。"
+            )
+        logger.warning("拿到迁移锁 %s（超时 %ss）", DB_LOCK_NAME, DB_LOCK_TIMEOUT_S)
+        return self
+
+    def __exit__(self, *exc):
+        if self._conn is None:
+            return False
+        try:
+            self._conn.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": DB_LOCK_NAME})
+            self._conn.commit()
+        finally:
+            self._conn.close()
+            self._conn = None
+        return False
+
+
 def run_migrations(engine: Engine, *, directory: Path | None = None, dry_run: bool = False) -> dict:
     """把没跑过的迁移按版本号顺序跑掉；返回一份可打印的报告。
 
@@ -236,7 +298,9 @@ def run_migrations(engine: Engine, *, directory: Path | None = None, dry_run: bo
     · 某条失败 → 抛 `MigrationFailed`，**不写版本表**（下次启动重试它）。
     """
     migrations = discover(directory, load=True)
-    with _lock():
+    # 锁的顺序恒为 **本机 flock → 服务端 GET_LOCK**。⛔ 顺序必须一致：
+    # 反着写会和 `--workers 2` 死锁（同一进程再拿同一把 flock 会自己锁死，见模块开头第 3 条）。
+    with _lock(), _db_lock(engine):
         ensure_version_table(engine)
         # ⚠️ 拿锁**之后**再读一次：uvicorn --workers 2 会两个进程同时进这里，
         #    先读后锁会让两边都以为"还没跑"，然后各跑一遍（DDL 不是原子的）。
