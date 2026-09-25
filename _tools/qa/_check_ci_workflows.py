@@ -61,7 +61,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 WF = ROOT / ".github" / "workflows"
 PLAN_REL = "_tools/qa/_check_all.py"
-MIN_RULES = 14
+MIN_RULES = 17
 
 # fast gate 四件事（报告 §5 图里的 "syntax / changed checks / endpoint freshness / core freeze"）
 FAST_SHOULD = {
@@ -105,6 +105,26 @@ def runs_of(doc: dict) -> list[tuple[str, str]]:
             if isinstance(step, dict) and isinstance(step.get("run"), str):
                 out.append((name, step["run"]))
     return out
+
+
+def job_scripts(job: dict) -> str:
+    """一个 job 里所有**会被执行的脚本正文**：`run:` 加上 `with.script:`。
+
+    ⚠️ 为什么两处都要收：`android-e2e` 那个 job 真正跑脚本的那一行在
+    `uses: reactivecircus/android-emulator-runner` 的 `with.script:` 里，
+    只扫 `run:` 会得出「没有任何 job 跑过端到端脚本」的错误结论 ——
+    而这条判据存在的前提就是**它得先看得到**。
+    """
+    parts: list[str] = []
+    for s in (job or {}).get("steps") or []:
+        if not isinstance(s, dict):
+            continue
+        if isinstance(s.get("run"), str):
+            parts.append(s["run"])
+        w = s.get("with") or {}
+        if isinstance(w, dict) and isinstance(w.get("script"), str):
+            parts.append(w["script"])
+    return "\n".join(parts)
 
 
 def main() -> int:
@@ -331,6 +351,32 @@ def main() -> int:
     want(not no_deps, "每个跑检查/后端的 job 都装了依赖",
          "⛔ 这些 job 跑检查却没装依赖（裸 Python 上会 ModuleNotFoundError，而本机全是绿的）："
          + "；".join(no_deps))
+
+    # ---- 14. 安卓端到端必须真的被 CI 接管，而且**三种结局分得开**（报告 §14）----
+    #    报告 §14 的原话是「真正缺的是 Android Integration Test —— 至少补『登录 → 导航 → 下单』」。
+    #    脚本 2026-09-25 第 25 轮就跑通了，缺的是"每次改动都被跑"。
+    #    ⛔ 光有 job 不够：一个"起不来模拟器就静默 exit 0"的 job 等于没有这条测试，
+    #       所以判据要求它把**跑通 / 跑挂 / 没跑成**三种结局分开报。
+    # ⛔ 判据钉的是**调用形状**（`python <脚本>`），不是"文件里出现过这个路径"——
+    #    2026-09-25 实测：判定步骤的提示语里就写着「本地跑法见 _tools/e2e/_flow_login_nav_order.py 的用法」，
+    #    于是"只扫 run:、漏掉 with.script"那种破坏**照样绿**（反向验证第 ⑩ 条当场抓到）。
+    #    这正是本项目反复栽的那一类：**判据被一段文字提及满足**，而不是被行为满足。
+    E2E_INVOKE = "python _tools/e2e/_flow_login_nav_order.py"
+    e2e_jobs = [(n, jn, j) for n, d in docs.items() for jn, j in (d.get("jobs") or {}).items()
+                if E2E_INVOKE in job_scripts(j)]
+    want(bool(e2e_jobs), "有 job 真的**执行**安卓端到端脚本（" + E2E_INVOKE + "）",
+         "⛔ 没有任何 job 执行它 —— 登录/导航/下单那三条主链又只剩「某人在本机跑一遍」")
+    for _n, jn, j in e2e_jobs:
+        body = job_scripts(j)
+        # ⚠️ 判据钉**具体的注解标题**而不是笼统的 `::warning`：后者在正文里出现两次，
+        #    单点改坏一次仍然命中 —— 那种判据反向验证根本碰不到（本项目栽过很多次）。
+        want("::warning title=安卓端到端这次没跑" in body
+             and "::warning title=安卓端到端带理由跳过" in body
+             and "SKIP:" in body,
+             jn + " 把「起不来模拟器」报成**可见的跳过**（两条 ::warning 注解 + SKIP: 理由）",
+             "⛔ " + jn + " 没把跳过做成可见的 —— 静默绿等于没有这条测试")
+        want("::error title=安卓端到端没跑通" in body, jn + " 跑挂了会红（::error 注解）",
+             "⛔ " + jn + " 没把失败报成红 —— 那它接管了什么？")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),

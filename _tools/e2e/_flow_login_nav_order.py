@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -27,7 +29,38 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
-ADB = r"D:\APPS\sdk\platform-tools\adb.exe"
+#: 环境不满足时的退出码 —— 与 `_check_all.py` 的「带理由的跳过」同一套约定：
+#: **3 + 一行 `SKIP: <为什么>``** = 这台机器上跑不了（不是失败）；真正的失败仍然是 1。
+#: ⛔ 为什么必须有这一档：CI 的 runner 上不一定起得来模拟器，而"起不来"和"跑挂了"
+#:    是两件事 —— 混在一起的话，要么 CI 天天红（没人看），要么静默绿（等于没有这条测试）。
+EXIT_SKIP = 3
+
+
+def resolve_adb() -> str | None:
+    """找 adb：`ADB` 环境变量 → `ANDROID_HOME`/`ANDROID_SDK_ROOT` → PATH → 本机那份。
+
+    ⚠️ 为什么不能只写死本机路径：CI（ubuntu）上那份本机路径不存在，而这条链路要在 CI 里跑。
+    找不到 adb 时**不是"跳过"**，是"这台机器上跑不了" —— 由 main() 用带理由的跳过说清楚。
+    """
+    env = os.environ.get("ADB")
+    if env and Path(env).is_file():
+        return env
+    for key in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        root = os.environ.get(key)
+        if not root:
+            continue
+        for name in ("adb", "adb.exe"):
+            cand = Path(root) / "platform-tools" / name
+            if cand.is_file():
+                return str(cand)
+    found = shutil.which("adb")
+    if found:
+        return found
+    legacy = Path(r"D:\APPS\sdk\platform-tools\adb.exe")
+    return str(legacy) if legacy.is_file() else None
+
+
+ADB = resolve_adb()
 ROOT = Path(__file__).resolve().parents[2]
 PKG = "com.tapmoay.sorders"
 API = "http://127.0.0.1:8000/api/v1"
@@ -48,6 +81,7 @@ class Emu:
         self.shot_dir.mkdir(parents=True, exist_ok=True)
 
     def adb(self, *args: str, timeout: int = 60) -> str:
+        assert ADB, "没找到 adb —— 调用方应当先用 resolve_adb() 判过"  # noqa: S101
         r = subprocess.run([ADB, "-s", "emulator-" + self.serial, *args],
                            capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=timeout)
@@ -286,18 +320,47 @@ def main() -> int:
     ap.add_argument("--shot-dir", default=str(ROOT / "_agent" / "e2e"))
     ap.add_argument("--relogin", action="store_true",
                     help="先退出登录再登一遍（默认：已经是登录态就只验「会话恢复」）")
+    ap.add_argument("--check-env", action="store_true",
+                    help="只体检不跑流程：adb / 设备 / App / 后端四样都报一遍；不满足时 exit 3 + SKIP:")
     a = ap.parse_args()
 
+    # ---- 体检：**环境不满足一律带理由跳过（exit 3），不是失败** ----
+    # 理由见 EXIT_SKIP 的注释：CI 上不一定起得来模拟器，而"起不来"与"跑挂了"必须分开 ——
+    # 混在一起的话，要么 CI 天天红（没人看），要么静默绿（等于没有这条测试）。
     emu = Emu(a.serial, Path(a.shot_dir))
-    state = emu.adb("get-state").strip()
-    if state != "device":
-        print("❌ emulator-" + a.serial + " 不在线（" + state + "）—— 先起模拟器")
-        return 2
-    try:
-        token = backend_token(a.account, a.password)
-    except Exception as exc:  # noqa: BLE001
-        print("❌ 后端登录失败（" + str(exc) + "）—— 本机 uvicorn 起了吗（127.0.0.1:8000）？")
-        return 2
+    problems: list[str] = []
+    if not ADB:
+        problems.append("这台机器上没有 adb（找过 $ADB / $ANDROID_HOME / $ANDROID_SDK_ROOT / PATH）")
+    else:
+        state = emu.adb("get-state").strip()
+        if state != "device":
+            problems.append(f"emulator-{a.serial} 不在线（adb 说 {state!r}）—— 先起模拟器："
+                            f"emulator -avd <名字> -port {a.serial}")
+    installed = False
+    token = ""
+    if not problems:
+        installed = PKG in emu.adb("shell", "pm", "list", "packages", PKG)
+        if not installed:
+            problems.append(f"emulator-{a.serial} 上没装 {PKG} —— 先装包："
+                            f"python _tools/qa/_install_all.py --only {a.serial}")
+        else:
+            try:
+                token = backend_token(a.account, a.password)
+            except Exception as exc:  # noqa: BLE001
+                problems.append(f"后端登录失败（{exc}）—— 本机 uvicorn 起了吗（127.0.0.1:8000）？")
+
+    if a.check_env:
+        print(f"adb={ADB or '（没找到）'}｜emulator-{a.serial}｜App {'已装' if installed else '没装'}｜"
+              f"后端 {'可登录' if token else '没通'}")
+        if problems:
+            print("SKIP: " + "；".join(problems))
+            return EXIT_SKIP
+        print("✅ 环境齐，可以跑")
+        return 0
+
+    if problems:
+        print("SKIP: " + "；".join(problems))
+        return EXIT_SKIP
 
     if a.relogin:
         chain_logout(emu)

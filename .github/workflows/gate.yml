@@ -186,6 +186,97 @@ jobs:
           cd backend
           pytest -q --tb=short
 
+  # ============================================================
+  # 常闸 · 安卓端到端（报告 §14：**登录 → 导航 → 下单**）
+  #
+  # 为什么它必须进 CI：这三条主链此前只有"某人在本机起三台模拟器跑一遍"这一种验证方式，
+  # 而报告 §14 点名的正是「App 集成测试」这一块空白。脚本本身（`_tools/e2e/`）2026-09-25
+  # 第 25 轮已经跑通，缺的是**让它每次改动都被跑**。
+  #
+  # ⛔ 三种结局必须分得开（这就是最后那个"判定"步骤存在的理由）：
+  #    · 跑通                 → 绿；
+  #    · 跑挂了               → **红**（这才是接管的意义）；
+  #    · 这台 runner 起不来模拟器 → **带理由的跳过 + `::warning::` 注解**（可见，不是静默绿）。
+  #    ⛔ 不许把第三种混进第一种：本轮之前 CI 上"看起来在跑其实没跑"的东西已经够多了。
+  # ============================================================
+  android-e2e:
+    name: 常闸 · 安卓端到端（登录 → 导航 → 下单）
+    needs: fast-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: 装依赖
+        run: |
+          cd backend
+          pip install -r requirements-all.txt
+      # App 在模拟器里打 `10.0.2.2:8000` —— 那是模拟器看到的**宿主机 loopback**，
+      # 所以这里绑 127.0.0.1 就够（与 read-roles 那个作业同一套起法）。
+      - name: 起一个空库的本地后端 + 三个开发账号
+        run: |
+          cd backend
+          export DATABASE_URL="sqlite:///./ci_e2e.db"
+          python -m scripts.seed_dev_users
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/e2e-api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/health || { echo "后端没起来："; tail -40 /tmp/e2e-api.log; exit 1; }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: 构建 phone 包（模拟器也是手机形态，与手机包同一个 flavor）
+        run: gradle -p android :app:assemblePhoneDebug --no-daemon
+      # ⛔ 这一步**允许失败**：GitHub runner 的 KVM 不保证可用，"起不来模拟器"是环境问题，
+      #    不是"这段代码坏了"。真正的判定在下一步 —— 它按 `/tmp/e2e.rc` 把三种结局分开。
+      - name: 起模拟器 + 装包 + 跑流程
+        id: e2e
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            set +e
+            python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 \
+              --password pass12345 > /tmp/e2e.log 2>&1
+            rc=$?
+            if [ "$rc" != "0" ]; then echo "$rc" > /tmp/e2e.rc; exit 0; fi
+            adb install -r android/app/build/outputs/apk/phone/debug/*.apk >> /tmp/e2e.log 2>&1
+            python _tools/e2e/_flow_login_nav_order.py --serial 5554 \
+              --password pass12345 >> /tmp/e2e.log 2>&1
+            echo $? > /tmp/e2e.rc
+      - name: 判定（跑通 / 跑挂 / 带理由跳过）
+        if: always()
+        run: |
+          if [ ! -f /tmp/e2e.rc ]; then
+            echo "::warning title=安卓端到端这次没跑::这台 runner 上没能起模拟器 —— **这次没有跑**，不是通过。本地跑法见 _tools/e2e/_flow_login_nav_order.py 的用法。"
+            exit 0
+          fi
+          rc=$(tail -1 /tmp/e2e.rc | tr -d "[:space:]")
+          cat /tmp/e2e.log || true
+          if [ "$rc" = "0" ]; then echo "✅ 登录 → 导航 → 下单 → 对账 四段全通"; exit 0; fi
+          if [ "$rc" = "3" ]; then
+            echo "::warning title=安卓端到端带理由跳过::$(grep -m1 '^SKIP:' /tmp/e2e.log || echo '脚本没给出 SKIP 行，见上面日志')"
+            exit 0
+          fi
+          echo "::error title=安卓端到端没跑通::rc=$rc —— 见上面日志与 _agent/e2e 里的截图"; exit 1
+
   # ⚠️ 2026-09-25（用户拍板）：frontend-build 作业**删掉了** —— 前端 H5（frontend/）正式归档。
   #    理由：它是三端里最初始的网页版，**没有任何部署引用**（_tools/deploy/ 与 nginx 都搜不到 frontend/dist），
   #    线上没人访问它；留着它却继续在 CI 里跑构建，就是报告 §14 说的「旧系统，但又像新系统」。

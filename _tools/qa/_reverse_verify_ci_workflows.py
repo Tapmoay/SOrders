@@ -106,6 +106,42 @@ CASES: list[tuple[str, str, str, str, str]] = [
         '          pytest -n auto -m "fast or smoke or unit" -v --tb=short',
         "没带 --dist loadfile",
     ),
+    # ---- ⑩ 安卓端到端必须真的被接管，且三种结局分得开（2026-09-25 补）----
+    (
+        "⑩ 判据只扫 run:（漏掉 with.script —— 端到端脚本恰好在 emulator-runner 的 script 里）",
+        "_tools/qa/_check_ci_workflows.py",
+        '        if isinstance(w, dict) and isinstance(w.get("script"), str):\n            parts.append(w["script"])',
+        '        pass  # 注入：只扫 run:',
+        "没有任何 job 执行它",
+    ),
+    (
+        "⑪ 「起不来模拟器」那条注解被撤掉（跳过变成静默绿）",
+        GATE,
+        '            echo "::warning title=安卓端到端这次没跑::这台 runner 上没能起模拟器',
+        '            echo "安卓端到端这次没跑：这台 runner 上没能起模拟器',
+        "没把跳过做成可见的",
+    ),
+    (
+        "⑫ 带理由跳过那条注解被撤掉",
+        GATE,
+        '            echo "::warning title=安卓端到端带理由跳过::$(grep -m1',
+        '            echo "带理由跳过：$(grep -m1',
+        "没把跳过做成可见的",
+    ),
+    (
+        "⑬ SKIP: 判定没了（脚本给的理由不再被读出来）",
+        GATE,
+        "grep -m1 '^SKIP:'",
+        "grep -m1 '^NOPE:'",
+        "没把跳过做成可见的",
+    ),
+    (
+        "⑭ 跑挂不再报红（那它接管了什么）",
+        GATE,
+        '          echo "::error title=安卓端到端没跑通::rc=$rc',
+        '          echo "安卓端到端没跑通 rc=$rc',
+        "没把失败报成红",
+    ),
     (
         "⑧ 跑检查的 job 删掉 `pip install`（裸 Python 上检查会成片 ModuleNotFoundError，而本机看不出来）",
         # ⚠️ 锚点必须带上后面那句注释才唯一 —— gate.yml 里有 4 个 job 都写了同样的「装依赖」三步，
