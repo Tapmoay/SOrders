@@ -173,9 +173,10 @@ def to_kotlin(snap: dict) -> str:
         '    /** 能力表的指纹。判据拿它对账：Kotlin 与后端不一致就是有人手改了。 */',
         '    const val SOURCE_HASH: String = "' + snap['source_hash'] + '"',
 
-        '    /** 生成它的那一版代码与时刻（R3-07：产物要能回答「我是哪一版代码的产物」）。 */',
-        '    const val SOURCE_COMMIT: String = "' + snap['source_commit'] + '"',
-        '    const val GENERATED_AT: String = "' + snap['generated_at'] + '"',
+        # ⛔ source_commit / generated_at **不写进 Kotlin**：它们每次生成都变，而这个 .kt
+        #    本身又是「提示语目录」那份产物的真源之一 —— 写进来就会变成
+        #    「提交一次 → 快照变 → .kt 变 → 提示语目录过期 → 再提交又变」的死循环（实测撞到过）。
+        #    它们只留在 JSON 里（那份给人排查用，不参与别的产物的指纹）。
         '',
         '    /** 有没有「绕过角色」（后端 BYPASS_ROLES）：它不受能力表限制。 */',
         '    val BYPASS_ROLES: Set<String> = setOf(' + kt_string_set(snap['bypass_roles']) + ')',
@@ -251,15 +252,17 @@ def to_markdown(snap: dict) -> str:
 def _strip_volatile(text: str) -> str:
     '''比对前把**每次生成都会变**的字段去掉（R3-07 的新鲜度契约）。
 
-    ⛔ 只有 `generated_at`（与它并排的 Kotlin 常量）算「每次都变」——
-    `source_hash` / `source_commit` 都**不**去掉：它们变了就是真的变了（换了代码或换了提交）。
+    ⛔ 去掉 `generated_at` **和** `source_commit` 两个字段（Kotlin 里对应的两个常量也去掉）：
+    它们记的是「哪一次生成、哪一版代码生成的」——**每次都变**，一行代码没改也会变
+    （哪怕只是提交了一次别的东西）。
+    ⛔ 但 `source_hash` **不去掉**：它变了就是真的变了（真源动了），那才是内容契约。
     '''
     out = []
     for ln in text.split(chr(10)):
         s = ln.strip()
-        if s.startswith('"generated_at"') or s.startswith('// generated_at'):
+        if s.startswith('"generated_at"') or s.startswith('"source_commit"'):
             continue
-        if s.startswith('const val GENERATED_AT'):
+        if s.startswith('const val GENERATED_AT') or s.startswith('const val SOURCE_COMMIT'):
             continue
         out.append(ln)
     return chr(10).join(out)

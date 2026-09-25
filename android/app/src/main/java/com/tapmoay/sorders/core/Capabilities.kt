@@ -11,9 +11,6 @@ package com.tapmoay.sorders.core
 object Capabilities {
     /** 能力表的指纹。判据拿它对账：Kotlin 与后端不一致就是有人手改了。 */
     const val SOURCE_HASH: String = "sha256:768fdd45c24c637a41e7bd4cc4623c52125ad29997f8e3551b56a1ca5df15bf2"
-    /** 生成它的那一版代码与时刻（R3-07：产物要能回答「我是哪一版代码的产物」）。 */
-    const val SOURCE_COMMIT: String = "a55e90e"
-    const val GENERATED_AT: String = "2026-09-25T22:00:51Z"
 
     /** 有没有「绕过角色」（后端 BYPASS_ROLES）：它不受能力表限制。 */
     val BYPASS_ROLES: Set<String> = setOf("dispatcher")
