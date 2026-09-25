@@ -74,6 +74,51 @@ class Event:
     attempts: int
 
 
+#: 事件类型 → **payload 里哪个键是聚合根编号**（第二轮 R2-04）。
+#: ⛔ 只有这一处映射：让 39 个入队点各写一遍 aggregate_id 就是第二份表，而且必然有人漏
+#:   （漏了不报错、只是排障时查不到）。判据核对「每种被入队的事件类型都在这张表或 NO_AGGREGATE 里」。
+AGGREGATE_KEY: dict[str, str] = {
+    "orders.assigned": "order_id",
+    "orders.created": "order_id",
+    "orders.delivered": "order_id",
+    "orders.cancelled": "order_id",
+    "orders.recalled": "order_id",
+    "orders.revoked": "order_id",
+    "orders.edited": "order_id",
+    "orders.driver_acked": "order_id",
+    "orders.freight_updated": "order_id",
+    "orders.navigation_filled": "order_id",
+    "ledger.updated": "shipper_id",
+    "notifications.created": "notification_id",
+    "notifications.unread_changed": "user_id",
+    "returns.requested": "request_id",
+    "returns.rejected": "request_id",
+    "returns.done": "request_id",
+    "returns.request_closed": "request_id",
+}
+
+#: 没有聚合根的事件 → **为什么**（例外要留解释，这是第一轮就定下的口径）。
+NO_AGGREGATE: dict[str, str] = {
+    "orders.pending_pool_changed": (
+        "它是一个**全局信号**（待派池变了、去看一眼），payload 是空的 {} —— 不指向任何一张单。"
+        "**什么时候删掉这一条**：哪天待派池的推送改成按单发（而不是变了就整体刷一遍）时。"
+    ),
+}
+
+
+def aggregate_of(event_type: str, payload: dict | None) -> str | None:
+    """这条事件的**聚合根编号**（单号 / 申请号 / 消息号）；映射表里没有或 payload 里没有就 None。
+
+    ⚠️ 这里**刻意不抛错**：enqueue 在业务写的热路径上，为一个查不到的聚合根把用户的下单打回去
+    是本末倒置。查不到的会在判据那边报红（CI 里拦住新加的事件类型），而不是在生产上炸。
+    """
+    key = AGGREGATE_KEY.get(event_type)
+    if not key or not payload:
+        return None
+    v = payload.get(key)
+    return None if v is None else str(v)[:64]
+
+
 def enqueue(
     db: Session,
     event_type: str,
@@ -99,6 +144,7 @@ def enqueue(
             event_type=event_type,
             payload=json.dumps(payload or {}, ensure_ascii=False, default=str),
             dedupe_key=dedupe_key,
+            aggregate_id=aggregate_of(event_type, payload),
             status=OutboxStatus.PENDING.value,
             attempts=0,
             next_attempt_at=utc_now_naive(),

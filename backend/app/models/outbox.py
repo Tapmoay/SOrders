@@ -46,6 +46,10 @@ class OutboxEvent(Base, TimestampMixin):
     payload: Mapped[str] = mapped_column(Text, default="{}")
     #: 去重键：同一次业务动作重复入队只会有一条（None 表示不去重，允许重复入队）
     dedupe_key: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    #: **聚合根编号**（第二轮 R2-04）：这一条事件属于哪张单 / 哪个申请 / 哪条消息。
+    #: 排障用：「这一单到底发了哪些事件、哪条没发出去」按它一查就全捞出来。
+    #: ⚠️ 由 `outbox.AGGREGATE_KEY` 那张**声明的映射表**从 payload 取，不是 39 个生产者各写一遍。
+    aggregate_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(12), default=OutboxStatus.PENDING.value, index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

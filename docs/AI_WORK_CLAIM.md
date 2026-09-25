@@ -58,7 +58,14 @@
 
 ---
 
-### R2-03：跨域事务地图 + 钱的依赖方向（指南 §五 / §六）
+### R2-03：跨域事务地图 + 钱的依赖方向（指南 §五 / §六）【已完成，提交 `01da3fb`】
+
+核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：它是「账本入账与欠款口径」的
+核心文件（`_core_files.txt` 第 22 行）。本次动它的**只有一处 import 的住处**：
+原来 `create_expense` 里写的是 `from app.api.v1.expense_categories import ensure_category` ——
+服务层反向依赖 HTTP 路由（判据 `_check_money_dependency.py` 第一次跑就抓到）。
+函数的**住处**搬到新的 `services/expense_category_service.py`（函数体原样搬，口径一个字没改），
+这里改成从服务层 import。⛔ 钱的口径、金额计算、账本写入**一行都没动**。
 
 **新增文件**：`docs/BUSINESS_TRANSACTION_MAP.md`（新）、`docs/MONEY_DEPENDENCY_GRAPH.md`（新）、
 `_tools/qa/_check_money_dependency.py`（新）、`_tools/qa/_reverse_verify_money_dependency.py`（新）、
@@ -85,6 +92,30 @@
 
 **证据**：`_check_money_dependency.py` 11 组全过 + 反向验证 **9/9**；
 `_check_business_transactions.py` 5 组全过 + 反向验证 **10/10**。
+
+---
+
+### R2-04：发件箱幂等消费 + 事件字段齐全（指南 §七）【本轮】
+
+**新增文件**：`backend/app/migrations/006_notification_idem_key.py`、`007_outbox_aggregate_id.py`、
+`_tools/qa/_check_outbox_idempotency.py`、`_tools/qa/_reverse_verify_outbox_idempotency.py`。
+
+**判据第一次跑之前先盘了一遍**：18 条事件 / 39 个入队点，其中 **13 条处理器不幂等** ——
+发件箱是「至少一次」，重投一次就多一条站内信，而且**没有任何地方会报错**。
+修法不是逐条改 13 处（那是 13 份各写各的幂等），而是在**站内信的唯一创建处**加幂等键：
+`notifications.idem_key` + **唯一索引**（迁移 006），`create_message(..., idem_key=...)`
+插入前查一次、撞键时用 **SAVEPOINT** 回查（裸 `db.rollback()` 会把业务写一起丢掉）。
+16 处由事件驱动的 `create_message` 全部带上键（键由业务事实算：`type:单号`，收件人由函数内部拼）。
+
+**事件字段补齐**：指南列的 7 项里只差 `aggregate_id`。没有让 39 个入队点各写一遍，
+而是在 `core/outbox.py` 里加了一张**声明的映射表** `AGGREGATE_KEY`（17 条）+ `NO_AGGREGATE`（1 条例外带理由），
+`enqueue` 按表从 payload 取。判据核对「每种被入队的事件类型都登记过」+「映射指向的 payload 键真的有人填」。
+
+**顺带修掉一段过期文档**：`main.py::_outbox_loop` 的 docstring 还写着「还没有生产者往里写……每 2 秒扫一次空表」
+（实际 39 个入队点）。改成如实描述，并把教训写进去：解释性文字也会腐烂，而它腐烂时不报错。
+
+**证据**：`_check_outbox_idempotency.py` 9 组全过 + 反向验证 **9/9**；`_check_all.py` 107 → **108/108**；
+后端 `pytest -q` **1015 passed**（新迁移 006/007 已应用，`python -m app.migrations status` 报版本 7）。
 
 ---
 

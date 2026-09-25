@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Notification, Order, OrderReturnRequest, User
@@ -33,7 +34,28 @@ def create_message(
     content: str,
     payload: dict[str, Any] | None = None,
     speech_important: bool = False,
+    idem_key: str | None = None,
 ) -> Notification:
+    """建一条站内信。
+
+    ### 第二轮 R2-04：`idem_key` 是**幂等键**
+    「同一条业务事实被投递两次」在本系统里是**设计内的正常情况**：发件箱的口径是至少一次
+    （失败退避重试、快速通道与 worker 两条路都在跑）。没有幂等键时，重投一次就多一条站内信，
+    **而且没有任何地方会报错**。
+
+    - 传了 `idem_key`：同一收件人已经有过这个键的那条 → **返回已有的那条**，不再新建；
+    - 不传（默认）：行为与以前**一字不差** —— 直接调用创建的消息（用户在界面上点的、
+      后台补发的）本来就该每次都是一条新的。
+    - 键里由本函数拼上收件人：同一条事实发给司机和派单员两个人，那是两条**该发**的消息。
+    - ⛔ 唯一性由**数据库**保证（`uq_notifications_idem_key`），不是「先查再插」——
+      后者挡不住两个 worker 同时投同一条事件（本项目在 lost update 上栽过同一个形状）。
+    """
+    key = None
+    if idem_key and idem_key.strip():
+        key = idem_key.strip()[:140] + "#" + str(recipient_id)
+        existing = db.scalars(select(Notification).where(Notification.idem_key == key)).first()
+        if existing is not None:
+            return existing
     n = Notification(
         recipient_id=recipient_id,
         category=category,
@@ -42,9 +64,21 @@ def create_message(
         content=content,
         payload=payload,
         speech_important=speech_important,
+        idem_key=key,
     )
-    db.add(n)
-    db.flush()
+    try:
+        # SAVEPOINT：并发的两个 worker 同时插同一个键时，只有一边会撞唯一索引，
+        # 而 **SAVEPOINT 回滚不会带走外层事务**（裸 db.rollback() 会 —— 那是把业务写一起丢掉）。
+        with db.begin_nested():
+            db.add(n)
+            db.flush()
+    except IntegrityError:
+        if key is None:
+            raise
+        existing = db.scalars(select(Notification).where(Notification.idem_key == key)).first()
+        if existing is None:
+            raise
+        return existing
     return n
 
 
@@ -117,6 +151,7 @@ async def publish_order_assigned(db: Session, order_id: int) -> None:
             content=f"您有新的派单：{ono}，请及时处理。",
             payload={"order_id": order_id, "order_no": ono},
             speech_important=True,
+            idem_key="order.assigned" + ":" + str(order_id),
         )
     )
     if shipper_id is not None:
@@ -130,6 +165,7 @@ async def publish_order_assigned(db: Session, order_id: int) -> None:
                 content=f"订单 {ono} 已指派司机。",
                 payload={"order_id": order_id, "order_no": ono},
                 speech_important=False,
+                idem_key="order.dispatched" + ":" + str(order_id),
             )
         )
     db.commit()
@@ -170,6 +206,7 @@ async def publish_order_freight_updated(db: Session, order_id: int) -> None:
         content=content,
         payload={"order_id": order_id, "order_no": ono},
         speech_important=False,
+        idem_key=f"order.freight.updated" + ":" + str(order_id),
     )
     db.commit()
     db.refresh(n)
@@ -189,6 +226,7 @@ async def publish_order_revoked(db: Session, driver_id: int, order_id: int, reas
         content=f"订单 {ono} 已被撤回" + (f"：{reason}" if reason.strip() else "。"),
         payload={"order_id": order_id, "order_no": ono, "reason": reason},
         speech_important=True,
+        idem_key=f"order.revoked" + ":" + str(order_id),
     )
     db.commit()
     db.refresh(n)
@@ -208,6 +246,7 @@ async def publish_order_recalled_shipper(db: Session, shipper_id: int, order_id:
         content=f"订单 {ono} 的派单已由派单员撤回。",
         payload={"order_id": order_id, "order_no": ono},
         speech_important=False,
+        idem_key=f"order.recalled" + ":" + str(order_id),
     )
     db.commit()
     db.refresh(n)
@@ -237,6 +276,7 @@ async def publish_navigation_filled(
         content=f"订单 {ono} 的司机到场后补上了导航位置「{where}」，已存入你的地点库，下次下单可直接选。",
         payload={"order_id": order_id, "order_no": ono, "place_name": where},
         speech_important=False,
+        idem_key=f"order.navigation.filled" + ":" + str(order_id),
     )
     db.commit()
     db.refresh(n)
@@ -262,6 +302,7 @@ async def publish_order_delivered(db: Session, order_id: int) -> None:
                 content=f"订单 {ono} 已完成送达。",
                 payload={"order_id": order_id, "order_no": ono},
                 speech_important=False,
+                idem_key="order.delivered" + ":" + str(order_id),
             )
         )
     if driver_id is not None:
@@ -275,6 +316,7 @@ async def publish_order_delivered(db: Session, order_id: int) -> None:
                 content=f"订单 {ono} 已完成送达，可在「已完成」中查看。",
                 payload={"order_id": order_id, "order_no": ono},
                 speech_important=False,
+                idem_key="order.delivered_driver" + ":" + str(order_id),
             )
         )
     if not ns:
@@ -302,6 +344,7 @@ async def publish_driver_ack_shipper(db: Session, shipper_id: int, order_id: int
         content=f"订单 {ono} 已由司机{driver_name or ''}确认。",
         payload={"order_id": order_id, "order_no": ono},
         speech_important=False,
+        idem_key=f"order.driver_ack" + ":" + str(order_id),
     )
     db.commit()
     db.refresh(n)
@@ -326,6 +369,7 @@ async def publish_order_cancelled_multi(db: Session, user_ids: list[int], order_
                 content=f"订单 {ono} 已取消。",
                 payload={"order_id": order_id, "order_no": ono},
                 speech_important=True,
+                idem_key="order.cancelled" + ":" + str(order_id),
             )
         )
     db.commit()
@@ -360,6 +404,8 @@ async def _broadcast_to_dispatchers(
             recipient_id=d.id,
             category="order",
             type=type_,
+            # 第二轮 R2-04：键里带 business fact（type_ 由调用方给），事件重投不会再发一条。
+            idem_key=str(type_) + ":" + str(order_id),
             title=title,
             content=content,
             payload={"order_id": order_id, "order_no": order.order_no},
@@ -408,6 +454,7 @@ async def publish_new_order_to_dispatchers(db: Session, order_id: int) -> None:
             content=f"订单 {ono} 已提交，请及时派单。",
             payload={"order_id": order.id, "order_no": ono},
             speech_important=True,
+            idem_key="order.created" + ":" + str(order_id),
         )
         db.commit()
         db.refresh(n)
@@ -490,6 +537,7 @@ async def publish_return_request_closed(
         ),
         payload=payload,
         speech_important=False,
+        idem_key=f"order.return_request.closed" + ":" + str(request_id),
     )
     db.commit()
     db.refresh(n)
@@ -556,6 +604,7 @@ async def publish_return_request_to_dispatchers(db: Session, request_id: int) ->
             content=f"{who} 对订单 {ono} 申请退货：{_return_request_parts(req)}。核对后请办理或驳回。",
             payload=_return_request_payload(req, ono),
             speech_important=False,
+            idem_key="order.return_request" + ":" + str(request_id),
         )
         db.commit()
         db.refresh(n)
@@ -582,6 +631,7 @@ async def publish_return_request_rejected(db: Session, request_id: int) -> None:
         content=f"订单 {ono} 的退货申请被驳回：{req.reject_reason or '（未填原因）'}",
         payload=payload,
         speech_important=False,
+        idem_key=f"order.return_request.rejected" + ":" + str(request_id),
     )
     db.commit()
     db.refresh(n)
@@ -635,6 +685,7 @@ async def publish_return_request_done(
         ),
         payload=payload,
         speech_important=False,
+        idem_key=f"order.return_request.done" + ":" + str(request_id),
     )
     db.commit()
     db.refresh(n)

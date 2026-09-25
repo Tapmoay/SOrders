@@ -512,10 +512,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:347` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:385` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:394` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:419` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:349` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:387` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:396` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:421` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -590,10 +590,10 @@ _（无重复注册）_
 | `GET /api/v1/orders` | `list_orders` | `backend/app/api/v1/orders_query.py:77` |
 | `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders_query.py:257` |
 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:273` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:347` |
-| `GET /health` | `health` | `backend/app/main.py:385` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:394` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:419` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:349` |
+| `GET /health` | `health` | `backend/app/main.py:387` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:396` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:421` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：15 个
 
