@@ -21,6 +21,7 @@ python _tools/fuzz/_fuzz_invariants.py --limit 20   # 每条最多列几个例�
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -115,6 +116,77 @@ def _idle_reason(total_sql: str | None) -> str | None:
         f"库里 {table}.{col} 的真实取值是 {vals}，没有 {lits} 这一类 —— "
         "是「这段数据本机没有」，不是判据写错；等有这类数据时它会自动开始查"
     )
+
+
+#: `upper(<别名>.status)` 里出现、但**不是** OrderStatus 的取值 —— 每条写清它属于哪张表。
+#: ⛔ 这不是「放行一切」：放行表里每条都必须**真的还命中**（不命中就是化石，自检会报）。
+NON_ORDER_STATUS: dict[str, str] = {
+    "COMMITTED": "inventory_movements.status（实扣）",
+    "RESERVED": "inventory_movements.status（预占）",
+    "CONFIRMED": "driver_settlements.status（已确认）",
+    "PAID": "driver_settlements.status（已付款）",
+    "SETTLED": "driver_bills.status（已结算）",
+    "OPEN": "driver_bills.status（未结算）",
+}
+
+
+def _live_strings() -> str:
+    """本文件里**真的会被执行**的字符串（SQL 都在这儿），⛔ 不含文档字符串。
+
+    为什么要用 AST 而不是直接读文件：本文件的文档里**故意**引用了旧的坏字面量 ——
+    第 125 行那句 `('CANCELLED','DELIVERED','RECALLED')` 举的正是「原来写错了」的例子。
+    直接读文件的话，自检会把**文档里的反例**当成现行 SQL 报出来（「判据被自己的文档搞红」，
+    本项目栽过 4 次）。注释天然不在 AST 里，所以只用排除文档字符串这一条就够。
+    """
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", [])
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                docstrings.add(id(body[0].value))
+    return chr(10).join(
+        n.value for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings
+    )
+
+
+def _real_order_statuses() -> set[str]:
+    """`OrderStatus` 的真实取值（从 `backend/app/models/enums.py` 的**源码**读）。
+
+    本文件刻意**不 import 后端**（见文件头：要能在没装后端依赖的机器上跑），所以是文本解析；
+    解析不出来就**硬失败** —— 判据在空转比没有判据更糟。
+    """
+    src = (ROOT / "backend/app/models/enums.py").read_text(encoding="utf-8")
+    m = re.search(r"class OrderStatus\(str,\s*enum\.Enum\):(.*?)(?=\nclass |\Z)", src, re.S)
+    if not m:
+        raise SystemExit("❌ 读不到 OrderStatus（enums.py 改名/搬家了？）—— 停，不许空转。")
+    vals = set(re.findall(r"^\s{4}[A-Z_]+\s*=\s*\"([A-Z_]+)\"", m.group(1), re.M))
+    if len(vals) < 5:
+        raise SystemExit(f"❌ OrderStatus 只解析出 {len(vals)} 个取值（<5）—— 解析器失配了。")
+    return vals
+
+
+def _status_literals() -> list[str]:
+    """本文件 SQL 里手写的状态字面量（`upper(x.status) = 'X'` 与 `in ('X','Y')`）。
+
+    ## 为什么要有它（2026-09-25，反向验证当场抓到）
+    这条判据原来是手写的 `('DISPATCHED', 'ACKED')`，而 **ACKED 在 OrderStatus 里根本不存在**
+    （接单是 ACCEPTED）：于是「派单中/已接单但没有司机」**只对 DISPATCHED 有效**，ACCEPTED 那半边
+    永远为假，看起来却像覆盖了两种状态。这正是本文件自己抱怨过的手写清单腐烂（第 124-127 行），
+    只不过长在另一个判据上。所以：**每个字面量都拿 enums.py 里的真实取值对一遍**。
+    """
+    text = _live_strings()
+    out: set[str] = set()
+    pat = re.compile(r"upper\(([A-Za-z_.]*status)\)\s*(?:=\s*'([A-Z_]+)'|in\s*\(([^)]*)\))")
+    for m in pat.finditer(text):
+        if m.group(2):
+            out.add(m.group(2))
+        else:
+            out.update(re.findall(r"'([A-Z_]+)'", m.group(3) or ""))
+    return sorted(out)
 
 
 def _line_editable_statuses() -> list[str]:
@@ -219,6 +291,22 @@ def main() -> int:
     rep = Report("数据不变式审计：钱 / 库存 / 状态 / 单据还对不对得上", module="_fuzz_invariants")
     n_orders = db_q("select count(*) from orders")[0][0]
     rep.guard("库里有订单可查（空库等于没测）", n_orders > 0, f"orders={n_orders}")
+
+    # ---- 自检：本文件 SQL 里的状态字面量必须都是**真状态**（2026-09-25 补）----
+    # 为什么这条要挡在最前面：状态字面量写错时，判据**不会报错，只会永远为假** ——
+    # 实测抓到过 `ACKED`（OrderStatus 里没有这个值，接单是 ACCEPTED），它让「已接单但没有司机」
+    # 那半边永远查不出来，而看起来像覆盖了两种状态。
+    _lits = _status_literals()
+    _real = _real_order_statuses()
+    _unknown = [x for x in _lits if x not in _real and x not in NON_ORDER_STATUS]
+    _stale = [k for k in NON_ORDER_STATUS if k not in _lits]
+    rep.guard(
+        "本文件 SQL 里的状态字面量都是真状态（或写了理由、且不是化石）",
+        len(_lits) >= 8 and not _unknown and not _stale,
+        f"认出的字面量={_lits}；OrderStatus={sorted(_real)}；"
+        f"不认识又没理由的={_unknown}（写错一个字母就是一个永远为假的分支）；"
+        f"放行表里的化石={_stale}",
+    )
 
     # ---------------------------------------------------------------- 订单行金额
     rep.section("订单行金额 = 数量 × 单价（服务端口径，先乘后按分四舍五入）")
@@ -477,10 +565,15 @@ def main() -> int:
              "select id, order_no, status, delivered_at from orders "
              "where upper(status)='DELIVERED' and delivered_at is null",
              "select count(*) from orders where upper(status)='DELIVERED'", limit=lim)
+    # ⛔ 2026-09-25：这里原来是 ('DISPATCHED', 'ACKED') —— **ACKED 在 OrderStatus 里根本不存在**
+    #    （接单是 ACCEPTED）。于是这一条**只对 DISPATCHED 有效**，ACCEPTED 那半边永远为假，
+    #    而它看起来像覆盖了两种状态。抓到它的办法不是「看代码」，而是把一条「ACCEPTED 且没有司机」
+    #    的行塞进**副本库**再跑（`_reverse_verify_invariants.py` 的第 ② 条）—— 它当场没报。
+    #    现在这个字面量还多了一层保护：下面的 `rep.guard(...)` 会拿 `enums.py` 的真实取值逐个对。
     check_ic(rep, "派单中/已接单但没有司机",
              "select id, order_no, status, driver_id from orders "
-             "where upper(status) in ('DISPATCHED', 'ACKED') and driver_id is null",
-             "select count(*) from orders where upper(status) in ('DISPATCHED', 'ACKED')", limit=lim)
+             "where upper(status) in ('DISPATCHED', 'ACCEPTED') and driver_id is null",
+             "select count(*) from orders where upper(status) in ('DISPATCHED', 'ACCEPTED')", limit=lim)
     check_ic(rep, "待派单却已经有司机",
              "select id, order_no, status, driver_id from orders "
              "where upper(status)='PENDING_DISPATCH' and driver_id is not null",
