@@ -36,6 +36,7 @@ from _airepo import lock_reverse_verify, unlock_reverse_verify  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 CHECK = ROOT / "_tools/qa/_check_ci_workflows.py"
 GATE = ".github/workflows/gate.yml"
+PARALLEL = ".github/workflows/test-parallel.yml"
 
 CASES: list[tuple[str, str, str, str, str]] = [
     (
@@ -95,9 +96,12 @@ CASES: list[tuple[str, str, str, str, str]] = [
     ),
     (
         "⑦ 并行 pytest 丢了 --dist loadfile（默认分发会把一个文件的用例拆到不同 worker）",
-        GATE,
-        "          pytest -n auto --dist loadfile -q --tb=short",
-        "          pytest -n auto -q --tb=short",
+        # ⚠️ 2026-09-25：锚点从 gate.yml 的**全量用例**挪到这里 —— 那一条已经改成**顺序跑**
+        #    （去掉了 -n auto：并行分发下整套用例会偶发红，见 test-parallel.yml 顶部那段），
+        #    而这条判据管的是「**还并行**的那几处必须带 loadfile」。
+        PARALLEL,
+        '          pytest -n auto --dist loadfile -m "fast or smoke or unit" -v --tb=short',
+        '          pytest -n auto -m "fast or smoke or unit" -v --tb=short',
         "没带 --dist loadfile",
     ),
 ]

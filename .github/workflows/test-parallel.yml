@@ -1,6 +1,17 @@
 name: Tests (Parallel)
 
-# ⛔ 2026-09-25：本文件里**每一条并行 pytest 都必须带 --dist loadfile**（原因见下，实测过）。
+# ⛔⛔ 2026-09-25（第 52 轮实测后的最终口径）：**全量套件一律顺序跑**，不要 `-n auto`。
+#    为什么改口：`--dist loadfile` 只保证「一个文件的用例落在同一个 worker」，而**一个 worker 会顺序跑
+#    好几个文件**，它们**共用同一个 SQLite 库**（`tests/conftest.py::get_db_path` 按 worker 取名）——
+#    于是跨文件的假设照样会踩：实测在**全新检出**里连跑 4 次，`-n auto --dist loadfile` **红了 2 次**
+#    （`test_export_cells_other_kinds.py::test_customers_export_matches_ledger_accounts` 把货主导成了
+#    「批发商」那一桶；另一次是 `test_auth.py` 要注册的那个手机号已经被别的文件建过）。
+#    顺序跑（`pytest -q`）在本机连跑多轮都是 1015 passed —— 因为**这套用例本来就是按文件顺序开发的**。
+#    代价：约 145s（并行 33s）。⛔ 拿确定性换 2 分钟，值 —— 一个会偶发红的闸门等于没有闸门。
+#    ⚠️ 真正的修法是**每个测试文件一个库**（或让用例自给自足），那是独立的一轮工作，记在计划表里。
+#
+# ⚠️ 下面这几条**子集**任务（fast / integration / slow / 角色冒烟）仍可并行：它们只跑一个标记子集，
+#    踩不到「别的文件先跑过」那种状态；但仍要求带 `--dist loadfile`（文件内的用例必须落在同一个 worker）。
 #    这套用例是「每个 xdist worker 一个 SQLite 库」（tests/conftest.py::get_db_path），
 #    而**同一个文件的用例会共享那个库的状态**。默认的 --dist load 会把一个文件的用例拆到
 #    不同 worker 上，于是有用例看不到同伴留下的行 —— 实测：`-n auto` 2 failed / 1013 passed，
@@ -78,7 +89,7 @@ jobs:
           # ⚠️ 2026-09-25：把失败摘要发成 CI 注解（公开仓库读不到 job 日志），否则只能盲猜
           cd backend
           set -o pipefail
-          pytest -n auto --dist loadfile -m "integration and not slow" -v --tb=short 2>&1 | tee /tmp/pytest-integration.log || {
+          pytest -m "integration and not slow" -v --tb=short 2>&1 | tee /tmp/pytest-integration.log || {
             echo "::error::integration 用例失败，下面把摘要发成 CI 注解（公开仓库读不到日志，只能这么把失败原因送出来）"
             grep -E "^(FAILED|ERROR)" /tmp/pytest-integration.log | head -25 | while read -r l; do echo "::error::$l"; done
             tail -25 /tmp/pytest-integration.log | while read -r l; do echo "::error::$l"; done
@@ -139,7 +150,7 @@ jobs:
           # 同上：失败摘要走 CI 注解
           cd backend
           set -o pipefail
-          pytest -n auto --dist loadfile --tb=short -v 2>&1 | tee /tmp/pytest-full.log || {
+          pytest --tb=short -v 2>&1 | tee /tmp/pytest-full.log || {
             echo "::error::full 用例失败，下面把摘要发成 CI 注解（公开仓库读不到日志，只能这么把失败原因送出来）"
             grep -E "^(FAILED|ERROR)" /tmp/pytest-full.log | head -25 | while read -r l; do echo "::error::$l"; done
             tail -25 /tmp/pytest-full.log | while read -r l; do echo "::error::$l"; done

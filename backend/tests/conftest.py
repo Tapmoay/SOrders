@@ -177,6 +177,42 @@ def users(db_session: Session) -> dict[str, User]:
     }
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_users(db_session: Session) -> None:
+    """每个用例开始前，把**三个共用账号**的可变标志摆回建号时的基线。
+
+    ## 为什么（2026-09-25 抓到，代价很实在）
+    这三行是**每个 xdist worker 共用**的（同一个 SQLite 库、整个 worker 共享），而有些用例会改它们
+    且**不还原**：批发商那几条把 `is_member` 设成 True（`test_shipper_ledger_summary` /
+    `test_shipper_settlement` / `test_shipper_settle_ceiling`），计费那几条改 `billing_mode` /
+    `driver_rule_id`。xdist 是**动态分发**的，谁先跑不确定 —— 于是受害者偶发红：
+    实测 `test_export_cells_other_kinds.py::test_customers_export_matches_ledger_accounts`
+    把这位货主导成了「批发商」那一桶（全新检出并行跑 5 次里红 2 次；断言原话是
+    「导出的货主/临时货主账一行都没有：[['批发商', 'Shipper', 15, 640]]」）。
+
+    ⛔ 修法不是「再去把某一个用例改成自己摆前提」（那是打地鼠）：**基线摆在这里**，
+    谁要别的状态就**在自己用例里**设 —— 与「每个文件单独跑都过」同一条纪律。
+    """
+    from app.models import User
+
+    changed = False
+    for phone in ("13800000001", "13800000002", "13800000003"):
+        u = db_session.query(User).filter_by(phone=phone).first()
+        if u is None:
+            continue
+        if u.is_member:
+            u.is_member = False
+            changed = True
+        if getattr(u, "driver_rule_id", None) is not None:
+            u.driver_rule_id = None
+            changed = True
+        if getattr(u, "billing_mode", None) is not None:
+            u.billing_mode = None
+            changed = True
+    if changed:
+        db_session.commit()
+
+
 @pytest.fixture(scope="function")
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     """Function-scoped test client with DB override."""
