@@ -20,6 +20,31 @@
 
 ## 进行中
 
+### [2026-09-25 20:4x → ] 会话：**第二轮整改 R2-01：领域边界地图（DOMAIN_BOUNDARIES）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**用户 2026-09-25 交来第二份方向指南**（`C:\Users\Optimistic\Desktop\ppdd.md`，1028 行），原名
+《SOrders 第二轮整改的核心目标：从「强约束模块化单体」进入「显式业务边界架构」》。已归档为
+`docs/ARCHITECTURE_RECTIFICATION_R2.md`（字节一致，SHA256 `047D6C75…8041`），并按用户要求立了
+本轮的长期目标（六个里程碑 R2-01…R2-06 + 四个贯穿层）。
+
+**改动文件**：`docs/DOMAIN_BOUNDARIES.md`（新）、`docs/ARCHITECTURE_RECTIFICATION_R2.md`（新，指南存档）、
+`_tools/qa/_check_domain_boundaries.py`（新）、`_tools/qa/_reverse_verify_domain_boundaries.py`（新）。
+
+⛔ **本轮不动任何核心文件**：R2-01 只产出「声明 + 判据」，一行后端代码都没改 —— 指南 §一 的原话是
+「第二轮先不要改代码：先建立领域地图」。后面的 R2-02（订单命令层）会动 `order_flow.py` / `api/v1/orders_*.py`，
+到时在「进行中」补 `核心改动：` 那一行。
+
+**这一轮做了什么**：按**业务事实所有权**（不是文件夹）划了 15 个域，47 张表每张恰好一个主人；
+每个域写清 Owns / Commands / Reads / Events 四件事，并**逐条与代码对账**（表名来自模型的 `__tablename__`、
+命令来自源码里的 `def`、事件来自 `outbox.enqueue(...)` 的字面量 —— 全是判据自己算的，不是从文档抄的）。
+判据 10 组全过（15 域 / 47 张表有主 / 55 条命令 / 31 条跨域读边 / 18 个事件有主），反向验证 13/13。
+
+**⚠️ 顺手抓到的两个真缺口（已如实写进地图，不是悄悄放过）**：
+① 下单时 `Order(status=PENDING_DISPATCH, …)` 是**在路由里构造对象**写进去的
+（`api/v1/orders_lifecycle.py`）—— 第一轮「状态唯一写入口」的判据按 `\.status\s*=` 扫，**扫不到构造期的那个 status**；
+② 指南里引用的三个数字（`api/v1` 13,724 行 / `orders.py` 2,055 行 / `reports.py` 822 行）**已经过期**：
+第一轮阶段 4 把 `orders.py` 拆成了 8 个文件（19 行装配层），`api/v1` 现在是 10,979 行、`reports.py` 286 行。
+指南是拿**第一份报告**的数字在描述现状，所以本轮按**实测**重排了优先级（见 `docs/RECTIFICATION_PLAN.md`）。
 ### [2026-09-25 15:0x → ] 会话：**路线图 ⑨ 第二层第一域（授权收到签名上）+ ④ §14 安卓端到端的第一次真跑结果与两处修正**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **改动文件**：`backend/app/deps.py`、`backend/app/api/v1/expense_categories.py`、
