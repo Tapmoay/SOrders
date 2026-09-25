@@ -59,10 +59,19 @@ data class ToolCallRecord(val name: String, val arguments: String)
 
 /** agent 循环的最终结果。 */
 sealed interface AiRunResult {
+    /**
+     * 这一轮**真实发生了几次模型调用**（工具循环一轮可能调多次；硬上限是 `maxSteps`）。
+     *
+     * ⚠️ 声明在接口上而不是各自的分支里：两个分支都有它，调用方却因为类型是 `AiRunResult`
+     *    而拿不到 —— 只能写一个 `when` 把两边分别取出来（2026-09-25 实测踩到）。
+     *    它现在是报告 §15 ② 的 `AI_calls` 的**唯一**计数来源，不该让每个调用方各写一遍。
+     */
+    val steps: Int
+
     /** 拿到最终答复。[usage] 是**最后一次**调用的用量（多轮时前面几轮的用量通过 AiEvent.Usage 上报）。 */
     data class Success(
         val text: String,
-        val steps: Int,
+        override val steps: Int,
         val usage: Usage?,
         /** 本轮真实调过的工具（用于使用习惯统计）。 */
         val toolCalls: List<ToolCallRecord> = emptyList(),
@@ -79,7 +88,7 @@ sealed interface AiRunResult {
     /** 没拿到最终答复：配置缺失 / 模型报错 / 达到步骤上限。userMessage 可直接展示。 */
     data class Failure(
         val userMessage: String,
-        val steps: Int,
+        override val steps: Int,
         val toolCalls: List<ToolCallRecord> = emptyList(),
         /**
          * 失败原因是**对话超过模型能装的长度**。

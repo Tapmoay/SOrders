@@ -404,6 +404,27 @@ data class UsageResetDto(
     val deleted: Int = 0,
 )
 
+/**
+ * 报告 §15 ② 的 `AI_calls`：App 每跑完一轮对话，把「跑了几次模型」报给后端。
+ *
+ * ⚠️ 为什么这个数**只能由 App 报**：模型跑在 App 里（后端没有 AI 代理端点），
+ *    后端看不到这次调用。与它相对的 `AI_write_confirmed` 是**后端从库里数的**
+ *    （审计行的 `origin=ai`）—— 两个数不同源，别当成同一件事。
+ */
+@Serializable
+data class AiCallReportDto(
+    /** 这次要累加的次数（后端上限 100；一轮对话最多 8 次模型调用，留足余量）。 */
+    val calls: Int,
+)
+
+/** 上报结果：`calls` = 后端记下的**当天累计**（只用于自检，界面不显示）。 */
+@Serializable
+data class AiCallReportResultDto(
+    val day: String = "",
+    val calls: Int = 0,
+    val reported: Int = 0,
+)
+
 @Serializable
 data class OrderCreateRequest(
     val lines: List<OrderProductLine>,

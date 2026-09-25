@@ -1382,6 +1382,17 @@ interface UsageApi {
     suspend fun reset(): UsageResetDto
 }
 
+/**
+ * AI 调用计数上报（报告 §15 ② 的 `AI_calls`）。
+ *
+ * ⛔ 只有这一个动作，而且**模型不能调它**（它在后端 `_write_coverage.EXCLUDED` 里，
+ *    理由：让模型能调它等于让模型给自己的指标刷数）。调用方只有聊天页跑完一轮之后那一次。
+ */
+interface AiTelemetryApi {
+    @POST("ai/telemetry")
+    suspend fun reportCalls(@Body body: AiCallReportDto): AiCallReportResultDto
+}
+
 /** 系统：版本更新检测 + 测试账号的默认 AI 配置 */
 interface SystemApi {
     @GET("system/app-version")

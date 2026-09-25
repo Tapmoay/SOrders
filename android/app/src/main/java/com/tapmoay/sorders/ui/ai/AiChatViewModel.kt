@@ -803,6 +803,9 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
                 val systemExtra = prepareSystemExtra(text)
                 var history = shrunkHistory(cfg.contextWindow)
 
+                // 报告 §15 ② 的 AI_calls：把**整轮**（含下面的溢出重试）跑了几次模型攒起来，
+                // 循环结束之后只上报一次 —— 逐轮上报会把同一件事记两遍。
+                var totalSteps = 0
                 var result = ai.agentLoop.run(
                     userText = modelText,
                     history = history,
@@ -810,6 +813,7 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
                     images = images,
                     onEvent = { ev -> onAiEvent(holder, streamed, ev) },
                 )
+                totalSteps += result.steps
 
                 // ---- 撞到「上下文超长」→ 自动改窗口重试（最多 2 次）----
                 // 为什么必须有这一步：窗口是**按模型名猜的**（接口不返回这个数，用户又不愿意选），
@@ -839,7 +843,14 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
                         images = images,
                         onEvent = { ev -> onAiEvent(holder, streamed, ev) },
                     )
+                    totalSteps += result.steps
                 }
+
+                // 报告 §15 ② 的 AI_calls：这一轮到底跑了几次模型。
+                // ⛔ 用 `steps` 而不是「用户问了几句」：工具循环一轮可能调多次模型，
+                //    而 `steps` 正是循环里真实发生的调用次数（硬上限也是它）。
+                // 尽力而为、不抛（见 AppRepository.reportAiCalls）：上报失败不该让对话失败。
+                ai.reportAiCalls(totalSteps)
 
                 when (result) {
                     is AiRunResult.Success -> {

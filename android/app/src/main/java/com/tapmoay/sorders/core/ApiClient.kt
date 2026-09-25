@@ -103,6 +103,7 @@ object ApiClient {
             accountingApi = retrofit.create(AccountingApi::class.java),
             systemApi = retrofit.create(SystemApi::class.java),
             usageApi = retrofit.create(UsageApi::class.java),
+            aiTelemetryApi = retrofit.create(AiTelemetryApi::class.java),
             fileApi = retrofit.create(FileApi::class.java),
             rawApi = retrofit.create(RawApi::class.java),
         )
@@ -240,6 +241,8 @@ data class ApiBundle(
     val systemApi: SystemApi,
     /** 常用度：只清**我自己**的计数（「我的 → 基础设置 → 重置计数」）。 */
     val usageApi: UsageApi,
+    /** AI 调用计数上报（报告 §15 ② 的 AI_calls）：见 [AiTelemetryApi] 的说明。 */
+    val aiTelemetryApi: AiTelemetryApi,
     /** AI 助手「挂载文件」：上传表格让服务端读成文本（不保存文件）。 */
     val fileApi: FileApi,
     /** 动态 GET（只给 AI 通用读工具用，路径来自编译期白名单，见 [RawApi]）。 */

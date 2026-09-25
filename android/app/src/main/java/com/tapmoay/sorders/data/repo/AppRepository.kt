@@ -2,6 +2,8 @@ package com.tapmoay.sorders.data.repo
 
 import com.tapmoay.sorders.core.ApiBundle
 import com.tapmoay.sorders.core.ApiClient
+import com.tapmoay.sorders.data.remote.dto.AiCallReportDto
+import kotlinx.coroutines.CancellationException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -940,6 +942,26 @@ class AppRepository(private val api: ApiBundle) {
      * 用户分不清"真的清了 20 条"和"本来就没有、什么都没发生"（后者更可能是点错了地方）。
      */
     suspend fun resetUsage(): Int = api.usageApi.reset().deleted
+
+    /**
+     * 报告 §15 ② 的 `AI_calls`：把「这一轮对话跑了几次模型」报给后端。
+     *
+     * ⛔ **尽力而为，绝不抛**（协程取消除外）：上报失败不该让用户的对话失败 ——
+     *    少一个计数而已，而「聊天回答完却弹一个错」是更糟的体验。
+     *    把它放在这一层而不是调用点，就是为了让调用方**不用**写 try/catch。
+     *
+     * 返回后端的**当天累计**（自检用；null = 没报成功或次数 <= 0）。
+     */
+    suspend fun reportAiCalls(calls: Int): Int? {
+        if (calls <= 0) return null
+        return try {
+            api.aiTelemetryApi.reportCalls(AiCallReportDto(calls)).calls
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     /** 测试账号的默认模型服务（服务端下发；非测试号 403、服务端没配 404）。 */
     suspend fun aiDefault() = api.systemApi.aiDefault()

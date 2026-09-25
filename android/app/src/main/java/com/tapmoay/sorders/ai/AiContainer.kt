@@ -254,6 +254,17 @@ class AiContainer(
      * 关掉开关、或没有相关记忆 → 返回 null（什么都不加）。
      * 读盘放 IO：它是文件 IO，而调用点在 viewModelScope（Main）。
      */
+    /**
+     * 报告 §15 ② 的 `AI_calls`：聊天页跑完一轮之后调它。
+     *
+     * ⚠️ 次数从 `AiRunResult.steps` 来 —— 那是**循环里真实发生的模型调用次数**
+     *    （工具循环一轮可能调多次），比「用户问了几句」准确。
+     * ⛔ 只在这一处上报：散在多处会让同一个数被记两遍。
+     */
+    suspend fun reportAiCalls(calls: Int) {
+        repo.reportAiCalls(calls)
+    }
+
     suspend fun memoryHint(question: String): String? {
         if (!keyStore.memoryEnabled()) return null
         return try {

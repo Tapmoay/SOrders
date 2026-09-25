@@ -25,7 +25,7 @@
 **改动文件**：`android/.../core/ClientOrigin.kt`（新）、`core/ApiClient.kt`、`ai/AiWriteService.kt`、
 `android/app/src/test/.../core/ClientOriginTest.kt`（新）；后端半边见上一个提交（`790d4a4`）。
 
-**核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心**：
+核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：
 它是 AI 写闸门「preview → 确认卡 → execute」的**唯一写入口**，而报告 §15 ② 要的
 `AI_write_confirmed` 只能在这一处标注 —— 只有这里既知道「用户点了确认卡」又知道
 「这次真的要写库」。改动只有一句：把 `handler.commit(...)` 包进 `ClientOrigin.asAi { }`，
