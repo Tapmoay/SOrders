@@ -148,6 +148,28 @@
 
 ---
 
+### R2-06：多实例就绪度的**机器契约**（指南 §十四）【本轮·上半】
+
+**新增文件**：`_tools/qa/_check_multi_instance_readiness.py`（新）、
+`_tools/qa/_reverse_verify_multi_instance_readiness.py`（新）；`docs/MULTI_INSTANCE_READINESS.md` 补了 `gate` 机器块。
+
+指南 §十四 的原话是「把它变成 check_multi_instance_readiness.py」，同时提醒「检查器只作为验收工具，
+不是解决方案」。所以这一条**不假装能证明多实例就绪**（那要真起两台机器），它证明的是另一件同样会被骗过去的事：
+**文档说「这一关过了」，而代码里根本没有那个东西** —— 本仓库在这种「文档与事实走散」上栽过多次。
+
+做法：10 道门各写一个 `gate` 块（`status: done|not-done`）；`done` 的把**证据源码路径**与
+`must_contain` 那几串形状写出来，判据去源码里核对**真的在不在**。实测：已过 6 道、没做 4 道、
+done 的门一共核了 **20 串代码形状**。
+
+**⚠️ 本节只做「就绪度的可核对」，没做的是指南 §十五 的观测性那半边**：
+Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，已作为 observability 那道门的证据被核过），
+但「**订单全链路 trace**」（订单→命令→状态→账本→司机账单→事件→通知，一条命令查完）**还没建** ——
+它是 R2-06 的下半，下一轮做。
+
+**证据**：`_check_multi_instance_readiness.py` 3 组全过 + 反向验证 **6/6**；`_check_all.py` 109 → **110/110**。
+
+---
+
 ### R2-02：订单命令层（Route → Command → Application → DomainRule → Persistence）
 
 **做了什么**：`create_order` / `update_order` 的**应用逻辑**从路由搬进 `backend/app/commands/order.py`，
