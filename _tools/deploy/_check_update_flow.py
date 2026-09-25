@@ -166,9 +166,17 @@ check(
     "而闸门原来只丢一句「请提高版本号」",
 )
 check(
-    "上传文件名带构建号（同日第二个包不会覆盖第一个）",
-    "sorders-{name}-{code}.apk" in _pub_early,
-    "versionName 语义化之后（0.2.0 这种）文件名会重复 → 覆盖线上包，--keep 也留不住历史",
+    "上传文件名带构建号，且上传目标与 version.json 是**同一份**（同日第二个包不会覆盖第一个）",
+    # ⛔ 判据原来只写 `"sorders-{name}-{code}.apk" in _pub_early` —— 那是个**能被别处满足**的判据：
+    #    打印文案与 version.json 的 url 都含这个串，所以把**真正 scp 的那个路径**去掉构建号，
+    #    检查照样绿（2026-09-25 反向验证第 ⑤ 条当场抓到）。后果：上传成 sorders-0.2.4.apk 覆盖旧包，
+    #    而 version.json 指向带构建号的路径 → 用户检查更新拿到 404。
+    #    现在钉的是「文件名只算一次」这个**结构**：三行都在，才叫同源。
+    'apk_name = f"sorders-{name}-{code}.apk"' in _pub_early
+    and 'remote_apk = f"{REMOTE_DIR}/{apk_name}"' in _pub_early
+    and '"url": f"{URL_BASE}/{apk_name}"' in _pub_early,
+    "versionName 语义化之后（0.2.0 这种）文件名会重复 → 覆盖线上包，--keep 也留不住历史；"
+    "而且上传目标与 version.json 的 url 各写一遍就会各自漂移（用户拿到 404）",
 )
 check(
     "打包提示里的 -PapiBaseUrl 是 https（不是 http）",

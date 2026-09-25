@@ -327,11 +327,19 @@ def main() -> int:
     # 包名带上构建号：**产品版本语义化之后（0.2.0 这种）文件名会重复**，
     # 同日第二个包会覆盖线上第一个包 —— 而 version.json 里 url 不变，看起来"发了新版"，
     # 实际拿到的是被覆盖后的新文件、旧包没了，--keep 也留不住历史。
-    remote_apk = f"{REMOTE_DIR}/sorders-{name}-{code}.apk"
+    #
+    # ⛔ 文件名**只算一次**（2026-09-25 反向验证抓到的）：原来上传目标与 version.json 的 url
+    #    各写一遍 `sorders-{name}-{code}.apk`，两处可以**单独**漂移 —— 而红线当时只要求
+    #    「文件里某处出现过这个串」，打印文案那一处也满足它，所以把**真正 scp 的那个路径**
+    #    去掉构建号，检查照样绿。后果正是上面警告的那件事：上传成 sorders-0.2.4.apk（覆盖旧包），
+    #    而 version.json 指向 sorders-0.2.4-<号>.apk → 用户检查更新拿到 404。
+    #    一份来源之后，「上传了什么」与「告诉大家去哪下」结构上不可能不一致。
+    apk_name = f"sorders-{name}-{code}.apk"
+    remote_apk = f"{REMOTE_DIR}/{apk_name}"
     if args.dry_run:
         print(f"[dry-run] 前置检查都过了，本来会上传 {apk.name} → {remote_apk}")
         print(f"[dry-run] 本来会写 version.json：version={name} versionCode={code} "
-              f"url={URL_BASE}/sorders-{name}-{code}.apk")
+              f"url={URL_BASE}/{apk_name}")
         return 0
 
     print(f"上传中 : {apk.name} → {remote_apk}")
@@ -345,7 +353,7 @@ def main() -> int:
     ver = {
         "version": name,
         "versionCode": code,
-        "url": f"{URL_BASE}/sorders-{name}-{code}.apk",
+        "url": f"{URL_BASE}/{apk_name}",
         "size": size,
         "note": args.note or "",
     }
