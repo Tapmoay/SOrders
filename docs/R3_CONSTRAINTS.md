@@ -108,7 +108,7 @@ R3-07 Meta-System Hardening      ← 故意放在生产之后
 `类别` ∈ {禁做, 必做}、`探针` 必须是判据里真实实现的那几个、`判定` ∈ {棘轮, 阶段}。
 `判定: 棘轮` = 现在就要守住；`判定: 阶段` = 到 `里程碑` 才开始判定。
 
-`棘轮上限: 1`　`不判定上限: 13`
+`棘轮上限: 0`　`不判定上限: 13`
 
 （`不判定上限` 是**当天的实数**：那几条属于后面里程碑的探针，产物还不存在，所以现在判不了。
 这两个数**都只能减不能增** —— 判据会拿 `git show HEAD:docs/R3_CONSTRAINTS.md` 跟上一版比。）
@@ -385,11 +385,15 @@ id: R3-B08
 
 ## 七、棘轮台账（只减不增）
 
-当前 `棘轮上限: 1`。**棘轮已经降过一次**（2 → 1），记录在下面；⛔ 只许继续降。
+当前 `棘轮上限: 0` —— **没有未守住的条目**。⛔ 只许保持或继续降（涨了就红）。
 
-| 探针 | 现状 | 什么时候归零 |
-| --- | --- | --- |
-| `android_no_second_truth` | `android/.../ai/AiWrite.kt` 里手抄了后端 `ROLE_PERMISSIONS['shipper']` 的 13 项 | R3-02 |
+| 探针 | 现状 |
+| --- | --- |
+| （空） | 27 条里 18 条守住、9 条还没到阶段 |
+
+⚠️ **棘轮归零不等于 R3-02 做完了**：它说明的只是「安卓**代码**里已经不存在第二份权限词表」。
+真正把 UI 改成「问能力」的那一半（消费 `Capabilities.kt`、把 `SHIPPER_ACTIONS` 改成派生）
+记在 `docs/R3_PROGRESS.md` 的 R3-02 退出条件里，**仍然是 ❌**。
 
 ### 降棘轮记录（每一次都必须写出是哪条命令让它变绿的）
 
@@ -398,6 +402,8 @@ id: R3-B08
 | 2026-09-26 | `import_purity` | 未守住 | **守住** | `python _tools/qa/_check_import_purity.py` →「import 纯净」（R3-01） |
 | 2026-09-26 | `import_purity_dynamic` | 不判定 | **守住** | 产物落地：`_tools/qa/_check_import_purity.py` 存在且含 schema_version/before/after（R3-01） |
 | 2026-09-26 | `migration_tests` | 不判定 | **守住** | 产物落地：`_tools/ops/_migration_tests.py --all` → 4/4（R3-01） |
+| 2026-09-26 | `audit_coverage_shape` | 不判定 | **守住** | 产物落地：`docs/CAPABILITY_AUDIT_COVERAGE.md`（生成物）+ `_check_capability_unification.py`（R3-02a） |
+| 2026-09-26 | `android_no_second_truth` | 未守住（1） | **守住** | ① 探针改成**只看代码**（原来把 `AiWrite.kt` 的说明性注释判成了违规 —— 判据要锚代码形状，不锚文字）；② 生成物 `Capabilities.kt` 豁免（自带「不许手改」抬头）。⛔ 剩下的「UI 消费生成物」记在 R3_PROGRESS（R3-02b） |
 
 这条棘轮的规则：**上限只能减不能增**（判据会拿 `git show HEAD:docs/R3_CONSTRAINTS.md` 比对上一版），
 每减少一条必须在 R3_PROGRESS.md 里写出**是哪条命令让它变绿的**。

@@ -97,11 +97,36 @@
 ## R3-02 Capability → UI / Audit
 
 - ❌ 26/26 capabilities 有执行点 —— 复现：`python _tools/qa/_check_capability_registry.py`
+R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真源**，并补齐两张此前不存在的真源表。
+
+1. `backend/app/core/role_capabilities.py`（新）：**角色能力** —— 没有权限点、但仍被角色门护着的事实
+   （地址与联系人 / 地点库 / 单位换算 / 货主自己的账 / 车辆）。每条带 `gate=文件:行号`，判据去核那一行真有角色门。
+2. `backend/app/core/capability_audit_coverage.py`（新）：**能力 ↔ 审计动作码的覆盖**（不是一一映射）。
+   覆盖 91 个动作码 + 1 条例外（`AI_UNDO`）+ 3 条豁免（写能力但没有动作码，各写了为什么）。
+3. `_tools/ai/_gen_capability_snapshot.py`（新）→ 三份产物：
+   `docs/CAPABILITY_SNAPSHOT.json`、`android/.../core/Capabilities.kt`（带 `SOURCE_HASH`）、`docs/CAPABILITY_AUDIT_COVERAGE.md`。
+4. `_tools/qa/_check_capability_unification.py`（新，5 组）+ 反向验证 8/8。
+
+**为什么选「生成快照」而不是 `/me/capabilities` 接口**（指南说这一步要按 App 架构验证）：这个 App 已经在用
+生成快照这条路（`_gen_ai_read_catalog.py` → `AiReadCatalog.kt`）。再开一条运行时通道等于给同一个问题造第二套机制，
+而且按钮显隐会依赖一次网络往返。见生成器文档里的三条理由。
+
+退出条件：
+
+- ✅ 26/26 capabilities 有执行点 —— 复现：`python _tools/qa/_check_capability_registry.py`
 - ✅ API 使用 Capability（第二轮已完成）—— 复现：`python _tools/qa/_check_capability_registry.py`
 - ✅ AI 使用同一 Capability（第二轮已完成，走 `rbac.ROLE_PERMISSIONS`）—— 复现：`python _tools/ai/_check_role_parity.py`
-- ❌ UI 不再自行定义角色能力（`android/.../ai/AiWrite.kt` 手抄了 13 项）—— 复现：`python _tools/qa/_check_r3_constraints.py`
-- ❌ Audit action 能证明 write capability 的留痕覆盖 —— 复现：`python _tools/qa/_check_audit_coverage.py`
-- ❌ 不存在第二份静态 Capability 真相 —— 复现：`python _tools/qa/_check_r3_constraints.py`
+- ✅ Audit action 能证明 write capability 的留痕覆盖（91 个动作码有着落 / 非双射 / 棘轮只减不增）—— 复现：`python _tools/qa/_check_capability_unification.py`
+- ✅ 任意 capability 改动能够使相关生成物 / 检查立即变化 —— 复现：`python _tools/ai/_gen_capability_snapshot.py --check`（反向验证第 ① 条就是改一句话让它红）
+- ✅ 不存在第二份**静态** Capability 真相（安卓**代码**里没有权限词表；生成物带 source hash，判据逐字比）—— 复现：`python _tools/qa/_check_capability_unification.py`
+- ❌ **UI 不再自行定义角色能力**（R3-02b 待做）—— 复现：`python _tools/qa/_check_capability_unification.py`
+  （该判据现在已经能证明**生成物与源码一致**，但生成物还没人消费）。
+  还差的两处：`ai/AiWrite.kt` 的 `SHIPPER_ACTIONS`（13+ 项手写动作白名单）与 `ui/nav/Modules.kt` 的
+  `entriesFor(role)`（「角色 → 入口列表」硬编码）。⛔ 要改成问能力表，且用「行为等价」的测试钉住不许变。
+  ⚠️ 注意 `_check_r3_constraints.py` 的 `android_no_second_truth` 探针**已经归零**（它只看代码，不看注释）——
+  归零说的是「安卓代码里没有第二份权限词表」，**不等于**这一条退出条件做完了。
+
+**三层完成度**：Code Ready ✅（后端真源 + 生成物 + 判据）｜ CI Proven ❌（还没推）｜ Runtime Proven ❌（界面还没消费它，R3-02b）
 
 ## R3-03 Multi-instance Runtime（硬门槛）
 

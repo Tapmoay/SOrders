@@ -1,0 +1,569 @@
+{
+ "generated_by": "_gen_capability_snapshot.py",
+ "source_hash": "sha256:41fc1ae887231096ec642d0bf035220a1f700b69d023d42ee51d83fb5bb2e6df",
+ "source_files": [
+  "backend/app/core/capabilities.py",
+  "backend/app/core/role_capabilities.py",
+  "backend/app/core/capability_audit_coverage.py",
+  "backend/app/core/rbac.py",
+  "backend/app/models/enums.py"
+ ],
+ "authority_note": "App 侧关于「哪个角色能做什么」的**唯一**来源。⛔ 不许在 Kotlin 里再写一份：改能力表 → 重跑本脚本 → 两边一起变。",
+ "bypass_roles": [
+  "dispatcher"
+ ],
+ "role_keys": [
+  "dispatcher",
+  "driver",
+  "shipper"
+ ],
+ "capabilities": [
+  {
+   "key": "order:create",
+   "member": "ORDER_CREATE",
+   "what": "客户（或代客）下一张新订单",
+   "scope": "self",
+   "scope_why": "建单是自己发起的动作，数据归属看行上的 shipper_id",
+   "roles": [
+    "shipper",
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:read_own",
+   "member": "ORDER_READ_OWN",
+   "what": "看自己名下的订单",
+   "scope": "own",
+   "scope_why": "货主只看自己名下的单（行级过滤）",
+   "roles": [
+    "shipper"
+   ],
+   "kind": "read"
+  },
+  {
+   "key": "order:read_assigned",
+   "member": "ORDER_READ_ASSIGNED",
+   "what": "看派给自己的订单",
+   "scope": "assigned",
+   "scope_why": "司机只看派给自己的单（行级过滤）",
+   "roles": [
+    "driver"
+   ],
+   "kind": "read"
+  },
+  {
+   "key": "order:read_all",
+   "member": "ORDER_READ_ALL",
+   "what": "看全部订单",
+   "scope": "all",
+   "scope_why": "派单员看全部：单店经营者，没有「只看自己」这一档",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "read"
+  },
+  {
+   "key": "order:cancel_shipper",
+   "member": "ORDER_CANCEL_SHIPPER",
+   "what": "撤销自己名下的单",
+   "scope": "own",
+   "scope_why": "货主只能撤销自己名下的单（行级过滤按 shipper_id）",
+   "roles": [
+    "shipper"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:cancel_dispatcher",
+   "member": "ORDER_CANCEL_DISPATCHER",
+   "what": "撤销任意单（含代客撤销）",
+   "scope": "all",
+   "scope_why": "派单员可撤任意单（含代客撤销）",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:return",
+   "member": "ORDER_RETURN",
+   "what": "执行退货（红冲营收、回补库存、可能退现）",
+   "scope": "all",
+   "scope_why": "退货动账本与库存，只有派单员能做，不分归属",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:return_request",
+   "member": "ORDER_RETURN_REQUEST",
+   "what": "给自己的单提退货申请",
+   "scope": "own",
+   "scope_why": "货主只能给自己的单提退货申请",
+   "roles": [
+    "shipper"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:delete_cancelled",
+   "member": "ORDER_DELETE_CANCELLED",
+   "what": "把订单软删进回收站",
+   "scope": "own",
+   "scope_why": "软删进回收站：货主限自己的、派单员不限",
+   "roles": [
+    "shipper",
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:dispatch",
+   "member": "ORDER_DISPATCH",
+   "what": "把待派单派给某位司机",
+   "scope": "all",
+   "scope_why": "派单是全局动作：要看到所有待派单与所有司机",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:recall",
+   "member": "ORDER_RECALL",
+   "what": "撤回派单（把单从司机手里收回来）",
+   "scope": "all",
+   "scope_why": "撤回改派是全局动作：把单从某个司机手里收回来再派给别人",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:edit",
+   "member": "ORDER_EDIT",
+   "what": "代客改单与拆单",
+   "scope": "all",
+   "scope_why": "派单员代客改单，改的往往是别人名下的单，所以不分归属",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:complete_driver",
+   "member": "ORDER_COMPLETE_DRIVER",
+   "what": "确认接单与完成配送",
+   "scope": "assigned",
+   "scope_why": "司机只能完成派给自己的单",
+   "roles": [
+    "driver"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:internal_note",
+   "member": "ORDER_INTERNAL_NOTE",
+   "what": "在订单上写内部备注",
+   "scope": "assigned",
+   "scope_why": "内部备注写在单上，司机限自己的单",
+   "roles": [
+    "driver",
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:upload_delivery",
+   "member": "ORDER_UPLOAD_DELIVERY",
+   "what": "上传送达照片",
+   "scope": "assigned",
+   "scope_why": "送达照片只能传到派给自己的那张单上（行级过滤按 driver_id）",
+   "roles": [
+    "driver"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "product:manage",
+   "member": "PRODUCT_MANAGE",
+   "what": "维护商品目录与库存",
+   "scope": "all",
+   "scope_why": "商品是全局主数据，不分归属",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "price_rule:manage",
+   "member": "PRICE_RULE_MANAGE",
+   "what": "维护批发商专属价",
+   "scope": "all",
+   "scope_why": "专属价按批发商维度，管理动作是全局的",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "ledger:read_own",
+   "member": "LEDGER_READ_OWN",
+   "what": "看自己那本账",
+   "scope": "own",
+   "scope_why": "货主看自己的账（行级过滤）",
+   "roles": [
+    "shipper"
+   ],
+   "kind": "read"
+  },
+  {
+   "key": "ledger:read_all",
+   "member": "LEDGER_READ_ALL",
+   "what": "看全部账本",
+   "scope": "all",
+   "scope_why": "派单员看全部账：账本页是仪表盘",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "read"
+  },
+  {
+   "key": "ledger:edit",
+   "member": "LEDGER_EDIT",
+   "what": "手工记账与核销",
+   "scope": "all",
+   "scope_why": "手工记账写的是全局账本，不挂在某一个人的名下",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "notification:read",
+   "member": "NOTIFICATION_READ",
+   "what": "看发给自己的消息",
+   "scope": "self",
+   "scope_why": "消息按 recipient_id 过滤 —— 这里的「自己的」是收件人本人，比其他 own 更窄",
+   "roles": [
+    "shipper",
+    "driver",
+    "dispatcher"
+   ],
+   "kind": "read"
+  },
+  {
+   "key": "notification:manage",
+   "member": "NOTIFICATION_MANAGE",
+   "what": "群发与管理消息",
+   "scope": "all",
+   "scope_why": "群发与管理面向所有人；个人消息在 NOTIFICATION_READ 那一档",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "operation_log:read",
+   "member": "OPERATION_LOG_READ",
+   "what": "看审计日志",
+   "scope": "all",
+   "scope_why": "审计日志是全局只读视图，任何角色看到的都是同一份",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "read"
+  },
+  {
+   "key": "user:manage",
+   "member": "USER_MANAGE",
+   "what": "维护账号、司机名册、货主名册",
+   "scope": "all",
+   "scope_why": "账号、司机名册、货主名册都是全局主数据，不分归属",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order_product:edit",
+   "member": "ORDER_PRODUCT_EDIT",
+   "what": "增删改订单商品行",
+   "scope": "all",
+   "scope_why": "订单商品行是订单的一部分，编辑权归派单员",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "stats:read",
+   "member": "STATS_READ",
+   "what": "看报表与统计",
+   "scope": "all",
+   "scope_why": "报表是全店口径（营业额/毛利/司机绩效），没有「只看自己那份」的版本",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "read"
+  }
+ ],
+ "role_capabilities": [
+  {
+   "key": "address:manage",
+   "what": "地址与联系人：常用线路、联系人、地点（含图片）",
+   "roles": [
+    "shipper",
+    "dispatcher"
+   ],
+   "kind": "write",
+   "gate": "backend/app/api/v1/shipper.py:29",
+   "why_not_permission": "这一整块是「按人分区」的：货主管自己的地址库，派单员用同一套接口管代理下单要用的地址；权限点表述不了「只能动自己那一份」，那是 scope 才管的事。",
+   "when_to_remove": "如果哪天把 scope=own 的权限点体系补全（`order:read_own` 那种已经在用了），这块可以收成 `address:manage` + scope=own。"
+  },
+  {
+   "key": "place:manage",
+   "what": "地点库与地点分组（谁都能标自己的常用地点，派单员另有发布/下架）",
+   "roles": [
+    "shipper",
+    "dispatcher"
+   ],
+   "kind": "write",
+   "gate": "backend/app/api/v1/place_categories.py:42",
+   "why_not_permission": "同上：地点是**按人**的。派单员多出来的「发布/下架」由 `places.py:173 DispatcherOnly` 单独守。",
+   "when_to_remove": "与 address:manage 同批（scope 体系补全时）。"
+  },
+  {
+   "key": "unit_conversion:manage",
+   "what": "单位换算（一车=8 方那类），货主与派单员都能自己设",
+   "roles": [
+    "shipper",
+    "dispatcher"
+   ],
+   "kind": "write",
+   "gate": "backend/app/api/v1/unit_conversions.py:44",
+   "why_not_permission": "它是**全局共享**的一份换算表，没有「谁的那一份」可分，所以当初直接按角色开放（用户 2026-09-24 明确要求货主也能设）。",
+   "when_to_remove": "如果哪天它要收成派单员专属，改成 `require_permission(UNIT_CONVERSION_MANAGE)` 即可 ——那时这一条连同 UI/AI 两端的引用一起删。"
+  },
+  {
+   "key": "shipper_ledger:read_own",
+   "what": "货主自己的账（明细与汇总，只读）",
+   "roles": [
+    "shipper"
+   ],
+   "kind": "read",
+   "gate": "backend/app/api/v1/shipper_ledger.py:67",
+   "why_not_permission": "`ledger:read_own` 只写在 `ROLE_PERMISSIONS` 里，**端点上一处都没用**；真正常在用的是这个角色门（`ShipperOnly`）。两边同时存在，说不清谁说了算。",
+   "when_to_remove": "把端点接回 `require_permission(Permission.LEDGER_READ_OWN)` 的那一天（那时这条删掉，UI/AI 改问权限点）。在那之前，它是这一块**唯一能问的名字**。"
+  },
+  {
+   "key": "vehicle:manage",
+   "what": "车辆名册与「这辆车归哪个司机」",
+   "roles": [
+    "dispatcher"
+   ],
+   "kind": "write",
+   "gate": "backend/app/api/v1/vehicles.py:46",
+   "why_not_permission": "它的授权是**体内角色判断**（`_must_dispatcher`）而不是权限点 ——属于那 35 处「体内门槛」棘轮里的一处；本轮不搬它（搬它要动端点鉴权）。",
+   "when_to_remove": "体内门槛棘轮往下降、把它接成 `require_permission(...)` 的那一天。"
+  }
+ ],
+ "by_role": {
+  "dispatcher": [
+   "address:manage",
+   "ledger:edit",
+   "ledger:read_all",
+   "notification:manage",
+   "notification:read",
+   "operation_log:read",
+   "order:cancel_dispatcher",
+   "order:create",
+   "order:delete_cancelled",
+   "order:dispatch",
+   "order:edit",
+   "order:internal_note",
+   "order:read_all",
+   "order:recall",
+   "order:return",
+   "order_product:edit",
+   "place:manage",
+   "price_rule:manage",
+   "product:manage",
+   "stats:read",
+   "unit_conversion:manage",
+   "user:manage",
+   "vehicle:manage"
+  ],
+  "driver": [
+   "notification:read",
+   "order:complete_driver",
+   "order:internal_note",
+   "order:read_assigned",
+   "order:upload_delivery"
+  ],
+  "shipper": [
+   "address:manage",
+   "ledger:read_own",
+   "notification:read",
+   "order:cancel_shipper",
+   "order:create",
+   "order:delete_cancelled",
+   "order:read_own",
+   "order:return_request",
+   "place:manage",
+   "shipper_ledger:read_own",
+   "unit_conversion:manage"
+  ]
+ },
+ "audit_coverage": {
+  "order:create": [
+   "ORDER_CREATE"
+  ],
+  "order:edit": [
+   "ORDER_UPDATE",
+   "ORDER_EXCEPTION",
+   "ORDER_SPLIT",
+   "ORDER_FREIGHT",
+   "ORDER_FREIGHT_PRICE",
+   "ORDER_TEMPLATE_UPSERT",
+   "ORDER_TEMPLATE_DELETE",
+   "ORDER_TEMPLATE_RESTORE",
+   "ORDER_TEMPLATE_CATEGORY_UPSERT",
+   "ORDER_TEMPLATE_CATEGORY_DELETE",
+   "ORDER_TEMPLATE_CATEGORY_REORDER"
+  ],
+  "order:dispatch": [
+   "ORDER_DISPATCH",
+   "ORDER_NAVIGATION_FILL",
+   "FREIGHT_TEMPLATE_UPSERT",
+   "FREIGHT_TEMPLATE_DELETE",
+   "FREIGHT_TEMPLATE_RESTORE",
+   "FREIGHT_CATEGORY_UPSERT",
+   "FREIGHT_CATEGORY_DELETE",
+   "FREIGHT_CATEGORY_REORDER",
+   "DRIVER_RULE_UPSERT",
+   "DRIVER_RULE_ATTACH"
+  ],
+  "order:recall": [
+   "ORDER_RECALL"
+  ],
+  "order:cancel_dispatcher": [
+   "ORDER_CANCEL"
+  ],
+  "order:cancel_shipper": [
+   "ORDER_CANCEL"
+  ],
+  "order:delete_cancelled": [
+   "ORDER_DELETE",
+   "ORDER_RESTORE"
+  ],
+  "order:return": [
+   "ORDER_RETURN",
+   "ORDER_RETURN_REQUEST_REJECT",
+   "ORDER_RETURN_REQUEST_CLOSE"
+  ],
+  "order:return_request": [
+   "ORDER_RETURN_REQUEST",
+   "ORDER_RETURN_REQUEST_WITHDRAW"
+  ],
+  "order_product:edit": [
+   "ORDER_LINE_ADD",
+   "ORDER_LINE_UPDATE",
+   "ORDER_LINE_DELETE"
+  ],
+  "order:complete_driver": [
+   "ORDER_COMPLETE"
+  ],
+  "ledger:edit": [
+   "LEDGER_CREATE",
+   "LEDGER_UPDATE",
+   "LEDGER_DELETE",
+   "RECEIPT_CREATE",
+   "EXPENSE_CREATE",
+   "EXPENSE_CATEGORY_UPSERT",
+   "EXPENSE_CATEGORY_DELETE",
+   "EXPENSE_CATEGORY_REORDER",
+   "SHIPPER_SETTLE_CREATE",
+   "SHIPPER_SETTLE_REVOKE",
+   "SHIPPER_SETTLE_RESTORE",
+   "DRIVER_BILL_GENERATE",
+   "SETTLEMENT_CREATE",
+   "SETTLEMENT_STATUS",
+   "SUPPLIER_UPSERT",
+   "SUPPLIER_DELETE",
+   "SUPPLIER_RESTORE",
+   "SUPPLIER_PAYABLE_UPSERT",
+   "SUPPLIER_PAYABLE_DELETE",
+   "SUPPLIER_PAYABLE_RESTORE",
+   "SUPPLIER_PAYMENT_CREATE",
+   "SUPPLIER_PAYMENT_CANCEL",
+   "SUPPLIER_PAYMENT_RESTORE",
+   "ARREARS_UNIT_UPSERT",
+   "ARREARS_UNIT_DELETE",
+   "ARREARS_UNIT_RESTORE"
+  ],
+  "price_rule:manage": [
+   "PRICE_RULE_UPSERT"
+  ],
+  "product:manage": [
+   "PRODUCT_CREATE",
+   "PRODUCT_UPDATE",
+   "PRODUCT_DELETE",
+   "PRODUCT_RESTORE",
+   "PRODUCT_VISIBILITY_SET",
+   "PRODUCT_CATEGORY_UPSERT",
+   "PRODUCT_CATEGORY_DELETE",
+   "PRODUCT_CATEGORY_REORDER",
+   "INVENTORY_ADJUST"
+  ],
+  "user:manage": [
+   "USER_CREATE",
+   "USER_UPDATE",
+   "USER_DELETE",
+   "USER_RESTORE",
+   "CUSTOMER_MERGE"
+  ],
+  "notification:manage": [
+   "NOTIFICATION_MODERATE"
+  ],
+  "place:manage": [
+   "PLACE_AUTO_ADDED",
+   "PLACE_UPDATE",
+   "PLACE_PUBLISH",
+   "PLACE_DEMOTE",
+   "PLACE_DELETE",
+   "PLACE_RESTORE",
+   "PLACE_CATEGORY_UPSERT",
+   "PLACE_CATEGORY_DELETE",
+   "PLACE_CATEGORY_REORDER"
+  ],
+  "unit_conversion:manage": [
+   "UNIT_CONVERSION_UPSERT",
+   "UNIT_CONVERSION_DELETE",
+   "UNIT_CONVERSION_RESTORE"
+  ],
+  "vehicle:manage": [
+   "VEHICLE_UPSERT",
+   "VEHICLE_DRIVER_SET"
+  ],
+  "address:manage": [],
+  "shipper_ledger:read_own": []
+ },
+ "audit_exceptions": {
+  "AI_UNDO": "这是 AI 撤回卡走的那条路（`AiWriteRestore`）：撤回的是**上一次写动作**，而那条写动作本身已经留下过自己的动作码了 —— 再记一个只会让审计页出现两行同一件事。**什么时候删掉这一条**：如果哪天撤回也要独立留痕（比如「谁撤回的、撤回后值变成什么」要能单独查），就给它一个能力（那意味着 AI 写链路也要进 Capability 表）。"
+ },
+ "audit_capability_exempt": {
+  "order:internal_note": "司机/派单员给订单写内部备注：它写在 `orders.internal_notes` **字段**上，订单自己的状态与字段变化就是留痕（`ORDER_UPDATE` 那条覆盖了它）。**什么时候删掉这一条**：如果内部备注要单独可查（现在只能在订单详情里看）。",
+  "order:upload_delivery": "司机上传送达照片：留痕是**图片本体**（`delivery_photos` 表）与订单状态，不是操作日志。**什么时候删掉这一条**：如果照片要做「谁在什么时候传的第几张」这类追溯。",
+  "address:manage": "地址与联系人没有独立的审计动作码（`OperationAction` 里一个 `ADDRESS_*` 都没有）。**什么时候删掉这一条**：如果地址库要可审计（谁改了谁家的地址），先加动作码、再来销这一条。"
+ },
+ "counts": {
+  "capabilities": 26,
+  "role_capabilities": 5,
+  "write_capabilities": 18,
+  "audited_action_codes": 92,
+  "audit_exceptions": 1
+ }
+}

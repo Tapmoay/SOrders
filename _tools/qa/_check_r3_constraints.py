@@ -159,15 +159,34 @@ def probe_import_purity() -> tuple[str, str]:
 
 
 def probe_android_no_second_truth() -> tuple[str, str]:
+    """安卓**代码**里不许有第二份权限词表。
+
+    ⚠️ 只看代码、不看注释（去掉 `//` 与 `/* */` 再搜）：第一版是纯文本搜 `ROLE_PERMISSIONS`，
+    结果被 `AiWrite.kt` 的**说明性注释**（「这 13 个是照着后端 ROLE_PERMISSIONS 定的」）判成违规 ——
+    那是文档，不是第二份真相。本仓库的规矩就是判据锚**代码形状**，不锚文字。
+
+    违反信号两条：① 代码里引用 `ROLE_PERMISSIONS`；② 代码里出现 ≥3 个权限键字面量（`x:y`）的表。
+    """
+    import re as _re
+
+    perm_literal = _re.compile(r'"[a-z_]+:[a-z_]+"')
     hits: list[str] = []
     base = ROOT / "android/app/src/main/java"
     for f in (sorted(base.rglob("*.kt")) if base.exists() else []):
-        t = f.read_text(encoding="utf-8", errors="replace")
-        if "ROLE_PERMISSIONS" in t:
-            hits.append(str(f.relative_to(ROOT)))
+        raw = f.read_text(encoding="utf-8", errors="replace")
+        # ⛔ **生成物豁免**（但只在它真的是生成物时）：快照里有权限词表是它的本职，
+        #    判据盯的是「人**手写**了第二份」。生成物自带「不许手改」抬头 → 放行。
+        if "不许手改" in raw[:800]:
+            continue
+        code = _re.sub(r"/\*.*?\*/", "", raw, flags=_re.S)
+        code = chr(10).join(_re.sub(r"//.*$", "", ln) for ln in code.split(chr(10)))
+        if "ROLE_PERMISSIONS" in code:
+            hits.append(str(f.relative_to(ROOT)) + "（引用 ROLE_PERMISSIONS）")
+        elif len(set(perm_literal.findall(code))) >= 3:
+            hits.append(str(f.relative_to(ROOT)) + "（手写权限键表）")
     if hits:
-        return "broken", str(len(hits)) + " 个安卓文件手抄了后端权限词表：" + "、".join(hits[:3])
-    return "hold", "安卓侧没有手抄的权限词表"
+        return "broken", str(len(hits)) + " 个安卓文件里有第二份权限真相：" + "、".join(hits[:3])
+    return "hold", "安卓代码里没有手抄的权限词表（注释里的说明不算）"
 
 
 def probe_no_observability_stack() -> tuple[str, str]:
