@@ -45,6 +45,11 @@ REASONS: dict[str, str] = {
     # **唯一执行入口** services/order_return.py 里（端点只是转调它，不在 API 层重复记一遍）——
     # 搬迁前它混在 orders.py 里，那个文件里别的端点有 write_log，所以整块豁免看不出来。
     "orders_return.py": "审计留痕在 services/order_return.py（唯一执行入口）里写，API 层不重复记",
+    # 2026-09-25 第二轮 R2-05（方向指南 §八「报表是事实消费者，不是生产者」）：
+    # 异常解决那个**写**端点原来住在报表模块里，实现搬进订单域命令层后审计行也在那里写 ——
+    # 所以下面两条是「写逻辑不在本模块」型豁免，不是「忘了记」。
+    "exception_resolution.py": "写逻辑与审计留痕都在订单域命令层（app/commands/order.py::resolve_exception）",
+    "stats.py": "只剩读端点与 POST /export（导出 xlsx 流，不落库、不改任何业务数据）",
     "auth.py": "登录/登出/换 token 是**会话**不是业务数据；失败尝试由 login_guard 限流记录，"
                "写进审计会把真正要回查的钱/单改动淹掉",
     "files.py": "只解析上传的表格（不落库、不改任何业务数据）",

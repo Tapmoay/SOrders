@@ -232,6 +232,54 @@ def create_order(db: Session, *, actor: User, body: OrderCreate) -> Order:
     return full
 
 
+
+def resolve_exception(db: Session, *, actor: User, order_id: int, note: str) -> Order:
+    """`POST /stats/exception-orders/{id}/resolve` 的应用层：把一条异常标记成**已解决**。
+
+    ### 为什么它属于订单域、不属于报表域（第二轮 R2-05）
+    这个端点住在 `/stats/` 下面，于是它的实现也一直写在 `api/v1/stats.py` 里 ——
+    而它做的是**写业务状态**（`orders.is_exception` / `exception_reason` /
+    `exception_resolution` / `exception_resolved_at`）。方向指南 §八 的原话是：
+
+    > 报表是：**事实消费者，而不是事实生产者**。
+
+    它同时还开了一个**自己的** `SessionLocal()`（不是请求那个 db）：
+    于是这次写不在请求的事务里，而报表层的任何只读判据都看不见它。
+    现在写逻辑在订单域（命令层），路由只负责 HTTP —— **URL / 入参 / 出参 / 权限一字未改**。
+
+    ⚠️ 行为逐字保持不变，包括那个 `datetime.now(timezone.utc)`：
+    ⛔ 本项目的口径是「库里一律 UTC **naive**」（`core/business_time.py`），这里是 tz-aware ——
+    与审计 R14-9 同族。**本轮是搬迁，不改语义**；那一处单独立项（改它会让历史值与新值形状不同）。
+    """
+    from datetime import datetime, timezone
+
+    order = db.scalars(select(Order).where(Order.id == order_id)).first()
+    if order is None:
+        raise CommandError("未找到对应记录", 404)
+    # ⚠️ 这里原本是 `order.is_exception = True` ——「解除异常」把标记又设回了异常。
+    # 后果不是脏数据，而是**用户点了没反应**：异常列表按 `Order.is_exception.is_(True)` 筛，
+    # 解除之后单子仍然留在列表里（App 的报表中心 → 异常与审计那个按钮就是这个端点）。
+    # 解除语义 = 清掉标记 + 记下解决说明与时间；异常历史仍可从那两个字段回查。
+    order.is_exception = False
+    order.exception_reason = order.exception_reason or "异常订单"
+    order.exception_resolution = note or order.exception_resolution
+    order.exception_resolved_at = datetime.now(timezone.utc)
+    # 解除异常也要留痕（2026-09-19 审计）：它改的是报表「异常与审计」的口径，
+    # 而这一页本身就是给人查「谁处理了哪条异常」用的 —— 没有日志，等于这一页查不到自己。
+    write_log(
+        db,
+        operator_id=actor.id if actor is not None else None,
+        order_id=order.id,
+        action=OperationAction.ORDER_EXCEPTION,
+        change_payload={
+            "resolved": True,
+            "note": note,
+            "order_no": order.order_no,
+        },
+    )
+    db.commit()
+    return order
+
 def update_order(db: Session, *, actor: User, order_id: int, body: OrderUpdate) -> Order:
     """`PATCH /orders/{id}` 的应用层：改单（地址 / 收货人电话 / 配送说明 / 内部备注）。
 

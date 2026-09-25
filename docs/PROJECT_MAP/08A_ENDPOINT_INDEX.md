@@ -129,6 +129,12 @@
 | 2 | `POST /api/v1/driver-settlements` | `create_settlement` | `backend/app/api/v1/driver_settlements.py:79` | 仅登录 + 体内仅允许:派单员 |
 | 3 | `PATCH /api/v1/driver-settlements/{settlement_id}` | `settlement_action` | `backend/app/api/v1/driver_settlements.py:122` | 仅登录 + 体内仅允许:派单员 |
 
+### `backend/app/api/v1/exception_resolution.py` — 1 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | `resolve_exception_order` | `backend/app/api/v1/exception_resolution.py:42` | 权限:STATS_READ |
+
 ### `backend/app/api/v1/expense_categories.py` — 5 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
@@ -429,18 +435,17 @@
 | 4 | `DELETE /api/v1/shipper-ledger/settlements/{settlement_id}` | `delete_settlement` | `backend/app/api/v1/shipper_ledger.py:509` | 角色:shipper |
 | 5 | `POST /api/v1/shipper-ledger/settlements/{settlement_id}/restore` | `restore_settlement` | `backend/app/api/v1/shipper_ledger.py:558` | 角色:shipper |
 
-### `backend/app/api/v1/stats.py` — 8 个
+### `backend/app/api/v1/stats.py` — 7 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/stats/shipper-product-chart` | `get_shipper_product_chart` | `backend/app/api/v1/stats.py:32` | 权限:STATS_READ |
-| 2 | `GET /api/v1/stats/shipper-activity` | `get_shipper_activity` | `backend/app/api/v1/stats.py:53` | 权限:STATS_READ |
-| 3 | `GET /api/v1/stats/product-drilldown` | `get_product_drilldown` | `backend/app/api/v1/stats.py:66` | 权限:STATS_READ |
-| 4 | `GET /api/v1/stats/driver-performance` | `get_driver_performance` | `backend/app/api/v1/stats.py:79` | 权限:STATS_READ |
-| 5 | `GET /api/v1/stats/shipper-performance` | `get_shipper_performance` | `backend/app/api/v1/stats.py:95` | 权限:STATS_READ |
-| 6 | `GET /api/v1/stats/exception-orders` | `get_exception_orders` | `backend/app/api/v1/stats.py:111` | 权限:STATS_READ |
-| 7 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | `resolve_exception_order` | `backend/app/api/v1/stats.py:123` | 权限:STATS_READ |
-| 8 | `POST /api/v1/stats/export` | `post_stats_export` | `backend/app/api/v1/stats.py:171` | 权限:STATS_READ |
+| 1 | `GET /api/v1/stats/shipper-product-chart` | `get_shipper_product_chart` | `backend/app/api/v1/stats.py:31` | 权限:STATS_READ |
+| 2 | `GET /api/v1/stats/shipper-activity` | `get_shipper_activity` | `backend/app/api/v1/stats.py:52` | 权限:STATS_READ |
+| 3 | `GET /api/v1/stats/product-drilldown` | `get_product_drilldown` | `backend/app/api/v1/stats.py:65` | 权限:STATS_READ |
+| 4 | `GET /api/v1/stats/driver-performance` | `get_driver_performance` | `backend/app/api/v1/stats.py:78` | 权限:STATS_READ |
+| 5 | `GET /api/v1/stats/shipper-performance` | `get_shipper_performance` | `backend/app/api/v1/stats.py:94` | 权限:STATS_READ |
+| 6 | `GET /api/v1/stats/exception-orders` | `get_exception_orders` | `backend/app/api/v1/stats.py:110` | 权限:STATS_READ |
+| 7 | `POST /api/v1/stats/export` | `post_stats_export` | `backend/app/api/v1/stats.py:122` | 权限:STATS_READ |
 
 ### `backend/app/api/v1/suppliers.py` — 15 个
 
@@ -540,7 +545,7 @@
 | `ORDER_UPLOAD_DELIVERY` | 1 | `POST /api/v1/orders/{order_id}/delivery-photos` |
 | `PRICE_RULE_MANAGE` | 5 | `POST /api/v1/price-rules/batch`<br>`POST /api/v1/price-rules`<br>`GET /api/v1/price-rules/{rule_id}`<br>`PATCH /api/v1/price-rules/{rule_id}`<br>`DELETE /api/v1/price-rules/{rule_id}` |
 | `PRODUCT_MANAGE` | 13 | `GET /api/v1/inventory/movements`<br>`POST /api/v1/inventory/movements`<br>`GET /api/v1/inventory/summary`<br>`POST /api/v1/product-categories`<br>`PATCH /api/v1/product-categories/{category_id}`<br>`POST /api/v1/product-categories/reorder`<br>`DELETE /api/v1/product-categories/{category_id}`<br>`POST /api/v1/products`<br>`GET /api/v1/products/cost-history`<br>`PATCH /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/image`<br>`DELETE /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/restore` |
-| `STATS_READ` | 8 | `GET /api/v1/stats/shipper-product-chart`<br>`GET /api/v1/stats/shipper-activity`<br>`GET /api/v1/stats/product-drilldown`<br>`GET /api/v1/stats/driver-performance`<br>`GET /api/v1/stats/shipper-performance`<br>`GET /api/v1/stats/exception-orders`<br>`POST /api/v1/stats/exception-orders/{order_id}/resolve`<br>`POST /api/v1/stats/export` |
+| `STATS_READ` | 8 | `POST /api/v1/stats/exception-orders/{order_id}/resolve`<br>`GET /api/v1/stats/shipper-product-chart`<br>`GET /api/v1/stats/shipper-activity`<br>`GET /api/v1/stats/product-drilldown`<br>`GET /api/v1/stats/driver-performance`<br>`GET /api/v1/stats/shipper-performance`<br>`GET /api/v1/stats/exception-orders`<br>`POST /api/v1/stats/export` |
 | `USER_MANAGE` | 7 | `POST /api/v1/driver-billing-rules/attach`<br>`GET /api/v1/users`<br>`POST /api/v1/users`<br>`PUT /api/v1/users/{user_id}/product-visibility`<br>`POST /api/v1/users/{user_id}/swap-shipper-driver`<br>`DELETE /api/v1/users/{user_id}`<br>`POST /api/v1/users/{user_id}/restore` |
 
 > **「体内条件判断」** = 该权限点不是在签名里用 `Depends(require_permission(...))` 校验的，而是写在函数体里（通常只对某类角色附加要求）。改这类权限点**不会**被签名层看见，必须点进源码。
@@ -618,4 +623,4 @@ _（无重复注册）_
 | `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | — |
 | `POST /api/v1/usage/reset` | `reset_usage` | `backend/app/api/v1/usage.py:34` | ✅ |
 
-> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **125** 个端点命中（占 54%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/stats.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。
+> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **124** 个端点命中（占 54%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。

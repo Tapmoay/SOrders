@@ -105,6 +105,8 @@ MODULE_CN: dict[str, str] = {
     "expenses": "费用",
     "cash_flows": "现金流水",
     "stats": "统计口径",
+    # 第二轮 R2-05：异常解决端点搬出报表层（URL 仍挂在 /stats 下，见 api/v1/exception_resolution.py）。
+    "exception_resolution": "异常订单处理",
     "reports": "报表中心",
     "notifications": "消息通知",
     "operation_logs": "操作日志",

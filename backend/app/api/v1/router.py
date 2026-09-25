@@ -10,6 +10,7 @@ from app.api.v1 import (
     driver_bills,
     driver_billing_rules,
     driver_settlements,
+    exception_resolution,
     expenses,
     files,
     freight_settlement,
@@ -113,6 +114,10 @@ api_router.include_router(inventory.router)
 api_router.include_router(notifications.router)
 api_router.include_router(operation_logs.router)
 api_router.include_router(stats.router)
+# 异常订单的**解决**（第二轮 R2-05）：它原来写在 `stats.py` 里，做的却是**写业务状态** ——
+# 报表层是「事实消费者，不是生产者」（方向指南 §八）。实现搬进订单域命令层、文件独立成
+# `exception_resolution.py`，但 **URL 仍挂在 /stats 下**（那是客户端契约，搬了 App 就打死了）。
+api_router.include_router(exception_resolution.router)
 api_router.include_router(customers.router)
 api_router.include_router(driver_bills.router)
 api_router.include_router(driver_billing_rules.router)

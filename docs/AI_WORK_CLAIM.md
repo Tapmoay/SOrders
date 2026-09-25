@@ -119,6 +119,35 @@
 
 ---
 
+### R2-05：报表层只读边界（指南 §八 / §九）【本轮】
+
+**新增文件**：`backend/app/api/v1/exception_resolution.py`（新）、`_tools/qa/_check_report_boundary.py`（新）、
+`_tools/qa/_reverse_verify_report_boundary.py`（新）。
+
+**摸底抓到一处真违规**：`POST /stats/exception-orders/{id}/resolve` 住在**报表模块**里，
+做的却是**写业务状态**（`orders.is_exception` / `exception_reason` / `exception_resolution` /
+`exception_resolved_at`），而且开的是**自己的** `SessionLocal()` —— 那次写不在请求的事务里，
+报表层的任何只读判据都看不见它。指南 §八 的原话正是它：「报表是事实消费者，而不是事实生产者」。
+
+**修法（改依赖方向，不是加检查器）**：写逻辑搬进订单域命令层 `app.commands.order.resolve_exception`；
+端点单独成文件 `api/v1/exception_resolution.py`（**URL 仍挂在 /stats 下** —— 那是客户端契约，
+搬了 App 就打死了）；会话改用请求的 `db`（同一个事务）。
+**契约零差异**：`_api_contract_snapshot.py --diff r2-02-after r2-05-after` 报「OpenAPI 全文一致、
+路由表逐条一致、遮蔽关系一致」，唯一的结构性变化是那个端点的 module 名（工具明确「只报不拦」）。
+
+**新判据 3 组 + 反向验证 7/7**：报表层（5 个文件 + `services/reports/**` 自己算）零写动词、
+不 import 写服务（含函数体内的惰性 import）、路由体不写业务对象。
+
+**⚠️ 本轮没做完的（如实记着，下一轮做）**：指南 §九 点名的那三个查询模块目录
+`services/reports/{turnover,product,arrears}_query.py` **还没建** —— 现在聚合逻辑仍在
+`services/reports_service.py` 里（它已经在 service 层，不在 API 层，所以 §八 那条病已经没有了；
+缺的是 §九 的物理边界）。搬迁会牵动 `_check_report_window` / `_check_single_source` /
+`_check_money_contract` 等约 10 份判据 + 4 份反向验证 + 3 份后端用例的锚点，单独立一轮做。
+
+**证据**：`_check_all.py` 108 → **109/109**；后端 `pytest -q` **1015 passed**；反向验证 **7/7**。
+
+---
+
 ### R2-02：订单命令层（Route → Command → Application → DomainRule → Persistence）
 
 **做了什么**：`create_order` / `update_order` 的**应用逻辑**从路由搬进 `backend/app/commands/order.py`，
