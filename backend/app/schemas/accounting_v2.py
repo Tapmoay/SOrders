@@ -227,7 +227,7 @@ class ExpenseCreate(MoneyInput):
     exp_date: date
     # 分类是**可维护名册里的名字**（自由字符串，≤32 字）：
     # 原来这里是 `ExpenseCategory` 枚举 —— 枚举认不出的名字会让读接口整个 500，
-    # 现在由 `expense_categories.ensure_category` 把新名字自动补进名册。
+    # 现在由 `services/expense_category_service.ensure_category` 把新名字自动补进名册。
     category: str = Field(..., max_length=32)
     amount: Decimal = Field(..., gt=0)
     driver_id: int | None = None

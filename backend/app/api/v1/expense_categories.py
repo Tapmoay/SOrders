@@ -28,6 +28,11 @@ from app.schemas.expense_category import (
     ExpenseCategoryUpdate,
 )
 from app.services.category_order import ordered_ids
+# ⚠️ 2026-09-25 R2-03：`ensure_category` / 排序号取下一个 搬进了服务层 ——
+#    它原来住在这里，而唯一的另一个调用方是 `services/accounting_service.py`，
+#    于是 `services/` 反过来 import 了 `app.api.v1`（依赖方向是反的）。
+#    口径一个字没改，只是换了个住处；判据 `_check_money_dependency.py` 钉着这条方向。
+from app.services.expense_category_service import ensure_category, next_sort
 from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/expense-categories", tags=["expense-categories"])
@@ -48,27 +53,6 @@ def _out(row: ExpenseCategory, counts: dict[str, int]) -> ExpenseCategoryOut:
     o.expense_count = counts.get(row.name, 0)
     return o
 
-
-def _next_sort(db: Session) -> int:
-    top = db.scalar(select(func.max(ExpenseCategory.sort_order)))
-    return (top or 0) + 1
-
-
-def ensure_category(db: Session, name: str, link_kind: str = "none") -> ExpenseCategory | None:
-    """确保这个分类名在名册里（不在就补到最后）。给新开销复用。
-
-    返回被新建的名册行；已经在名册里则返回 None（调用方据此决定要不要记日志）。
-    """
-    clean = (name or "").strip()[:32]
-    if not clean:
-        return None
-    exists = db.scalars(select(ExpenseCategory).where(ExpenseCategory.name == clean)).first()
-    if exists is not None:
-        return None
-    row = ExpenseCategory(name=clean, sort_order=_next_sort(db), link_kind=link_kind or "none")
-    db.add(row)
-    db.flush()
-    return row
 
 
 def _legacy_names(db: Session, known: set[str]) -> list[str]:
@@ -119,7 +103,7 @@ def create_category(
         raise HTTPException(status_code=400, detail=f"分类最多 {MAX_CATEGORIES} 个，请先清理一些")
     row = ExpenseCategory(
         name=body.name,
-        sort_order=body.sort_order if body.sort_order is not None else _next_sort(db),
+        sort_order=body.sort_order if body.sort_order is not None else next_sort(db),
         link_kind=body.link_kind,
     )
     db.add(row)

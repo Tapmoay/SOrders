@@ -784,8 +784,10 @@ def cancel_settlement(db: Session, s: DriverSettlement, operator_id: int | None)
 def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) -> Expense:
     # 分类**先补进名册**（不在就补到最后）：否则用户在一个新分类下记的开销，
     # 左侧分类栏里没有它 —— 那条记录只能靠"名册外的分类"兜底显示（排序/改名都轮不到它）。
-    # ⚠️ 与 `expense_categories.py::ensure_category` 是同一个函数，不抄第二份判据。
-    from app.api.v1.expense_categories import ensure_category
+    # ⚠️ 与 `expense_category_service.ensure_category` 是同一个函数，不抄第二份判据。
+    # ⚠️ 2026-09-25 R2-03：这里原来是 `from app.api.v1.expense_categories import ensure_category` ——
+    #    也就是**服务层反向 import 了 HTTP 路由**。函数的住处已经搬到服务层，方向掰回来了。
+    from app.services.expense_category_service import ensure_category
 
     clean = (str(body.category or "")).strip()
     if not clean:

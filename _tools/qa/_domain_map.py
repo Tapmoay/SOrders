@@ -105,6 +105,25 @@ def event_owner_map(blocks: list[dict]) -> dict[str, str]:
     return out
 
 
+def dotted_to_rel(name: str) -> str | None:
+    """`app.services.order_money` → `app/services/order_money.py`（相对 `backend/` 的路径）。
+
+    找不到（既不是模块也不是包）返回 None。R2-03 起的两个依赖图判据共用这一份 ——
+⛔ 各写一份的话，一处改了另一处不改，两张图的节点集就会悄悄不一样。
+    """
+    if not name.startswith("app."):
+        return None
+    tail = name[len("app."):].replace(".", "/")
+    backend = ROOT / "backend"
+    cand = APP / (tail + ".py")
+    if cand.is_file():
+        return cand.relative_to(backend).as_posix()
+    pkg = APP / tail / "__init__.py"
+    if pkg.is_file():
+        return pkg.relative_to(backend).as_posix()
+    return None
+
+
 def command_problem(ref: str) -> str:
     """命令 `模块:函数` 是否真的存在；不存在就返回原因（空串 = 存在）。"""
     mod, sep, fn = ref.partition(":")

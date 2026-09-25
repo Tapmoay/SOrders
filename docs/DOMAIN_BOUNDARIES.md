@@ -75,12 +75,18 @@ pure_consumer: yes|no                 ← 只有 yes 才允许 owns 为空
 ### 规则 2：事务只有一个边界 —— `Route → Command → commit` 的那一次 commit
 
 跨域协作全部发生在**同一个数据库事务**里（这是现状，也是对的）。谁负责 commit、失败了怎么办、
-重复执行怎么办 —— 逐条写在 [BUSINESS_TRANSACTION_MAP.md](BUSINESS_TRANSACTION_MAP.md)（R2-03）。
+重复执行怎么办 —— 逐条写在 [BUSINESS_TRANSACTION_MAP.md](BUSINESS_TRANSACTION_MAP.md)（R2-03，**已落地**）。
+
+⚠️ 那一页不是散文：判据会把地图上写的每个参与者拿去与**AST 调用图**对账 ——
+「入口的调用链里走不到它」当场报红。实测 10 条事务 / 875 个函数 / 1688 条调用边。
 
 ### 规则 3：钱只能单向流动（消费方 → 钱契约，绝不反向）
 
-依赖方向见 [MONEY_DEPENDENCY_GRAPH.md](MONEY_DEPENDENCY_GRAPH.md)（R2-03）。一句话：
+依赖方向见 [MONEY_DEPENDENCY_GRAPH.md](MONEY_DEPENDENCY_GRAPH.md)（R2-03，**已落地**）。一句话：
 **报表 / 账本 / 结算 / AI / 订单 都依赖钱；钱不依赖它们任何一个。**
+
+本轮判据第一次跑起来就抓到一条真的方向倒置（`accounting_service` 反向 import 了
+`api/v1/expense_categories`），已按指南 §十七.3「能靠改依赖方向解决就别加检查器」修掉。
 
 ### 规则 4：报表域只读
 

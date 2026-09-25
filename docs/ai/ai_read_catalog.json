@@ -421,7 +421,7 @@
    "module_cn": "开销分类",
    "method": "get",
    "path": "/api/v1/expense-categories",
-   "at": "backend/app/api/v1/expense_categories.py:89",
+   "at": "backend/app/api/v1/expense_categories.py:73",
    "auth": "角色:dispatcher",
    "roles": [
     "dispatcher"

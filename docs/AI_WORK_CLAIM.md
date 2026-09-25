@@ -58,6 +58,36 @@
 
 ---
 
+### R2-03：跨域事务地图 + 钱的依赖方向（指南 §五 / §六）
+
+**新增文件**：`docs/BUSINESS_TRANSACTION_MAP.md`（新）、`docs/MONEY_DEPENDENCY_GRAPH.md`（新）、
+`_tools/qa/_check_money_dependency.py`（新）、`_tools/qa/_reverse_verify_money_dependency.py`（新）、
+`_tools/qa/_check_business_transactions.py`（新）、`_tools/qa/_reverse_verify_business_transactions.py`（新）、
+`backend/app/services/expense_category_service.py`（新）。
+
+**判据第一次跑起来就抓到一条真的方向倒置**：`services/accounting_service.py` 反向 import 了
+`app.api.v1.expense_categories`（服务层 → HTTP 路由）。按指南 §十七.3「能靠改依赖方向解决就别加检查器」，
+把 `ensure_category` 原样搬进新的 `services/expense_category_service.py`，路由反过来从服务层 import。
+口径一个字没改，函数体是搬的；搬完那条「任何模块都不许反向 import 路由」才立得住（**0 例外**）。
+
+**两张图，两种证明**：
+① `_check_money_dependency.py`（8 条 / 实测 202 模块 / 1049 条依赖 / 例外 0 条）跑 **AST import 图**
+   —— 含**函数体内的惰性 import**（反向 import 路由那一处恰恰就在函数体里，按行正则扫会漏）；
+② `_check_business_transactions.py`（5 条 / 10 条事务 / 875 个函数 / 1688 条调用边）跑 **AST 调用图**
+   —— 地图上写的每个参与者都必须**真的从入口走得到**。它还会把「经由钱契约取的符号」**解开**到
+   真正的实现上（实测 32 处）：`orders_return.py` 写的是 `from app.services.money_contract import return_order`，
+   这正是指南要的「消费方依赖接口」，判据证明的正是「**依赖指向契约、执行落在实现**」。
+
+⚠️ **写判据时自己踩的两个坑（都当场被反向验证抓到）**：
+① 调用图的键第一版写成相对 `app/`，与 `dotted_to_rel` 的 `app/…` 对不上 → 十条事务全报「入口函数不存在」；
+② `from X import f` 之后调裸名 `f()`，第一版只记了模块路径没记符号名 → 参与者全部「走不到」。
+   **两次错的都是判据，不是代码** —— 这也是反向验证存在的意义。
+
+**证据**：`_check_money_dependency.py` 11 组全过 + 反向验证 **9/9**；
+`_check_business_transactions.py` 5 组全过 + 反向验证 **10/10**。
+
+---
+
 ### R2-02：订单命令层（Route → Command → Application → DomainRule → Persistence）
 
 **做了什么**：`create_order` / `update_order` 的**应用逻辑**从路由搬进 `backend/app/commands/order.py`，
