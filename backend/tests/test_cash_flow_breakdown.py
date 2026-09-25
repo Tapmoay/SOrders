@@ -89,8 +89,14 @@ def test_分项之和等于汇总_且每一路金额与落库相符(client, db_s
     assert exp["EXPENSE_FUEL"] == Decimal("60.50"), "同一个分类的两笔必须并成一行"
     assert exp["EXPENSE_TOLL"] == Decimal("5.00")
     assert exp["PAYMENT_DRIVER"] == Decimal("80.00")
-    assert sum(x["count"] for x in b["income"]) == 2
-    assert sum(x["count"] for x in b["expense"]) == 5
+    # ⚠️ 笔数只数**我自己造的那几路**：同一个文件里「历史脏数据」那条用例也在同一个 DAY 上写
+    #    （它加的是 RECEIPT_PREPAID）。整个窗口的总笔数会把别人的算进来 ——
+    #    文件内一换顺序（倒序扫描）就变成 4 != 2（2026-09-25 实测）。
+    #    下面那条脏数据用例早就是这么写的（它按 biz_type 取），这里补齐成同一纪律。
+    mine_in = {"RECEIPT_CASH", "RECEIPT_TRANSFER"}
+    mine_out = {"EXPENSE_FUEL", "EXPENSE_TOLL", "PAYMENT_DRIVER"}
+    assert sum(x["count"] for x in b["income"] if x["biz_type"] in mine_in) == 2
+    assert sum(x["count"] for x in b["expense"] if x["biz_type"] in mine_out) == 5
 
     # ③ 钱多的排前面
     amounts = [Decimal(x["amount"]) for x in b["income"]]

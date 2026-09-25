@@ -79,6 +79,12 @@ def test_soft_deleted_order_bills_are_not_collected_by_a_settlement(
     h = auth_headers(token_dispatcher)
     # 司机必须是**按单计费**才会有 PIECE 账单（工资制司机本来就不产生按单应付）
     users["driver"].billing_mode = "piece"
+    # ⛔ **只改 billing_mode 不够**：挂着的计费规则优先于这一列（`driver_pay.snapshot_mode`）。
+    #    同一个文件里的 `test_salary_generate_is_idem` / `test_driver_performance_bill` 会给这个
+    #    司机挂上工资制规则；用例一换顺序（倒序扫描）那条规则还在 → 送达不产生按单账单 →
+    #    这条用例的前提（第 91 行那句"送达没生成账单"）直接不成立。2026-09-25 实测。
+    #    与 `test_audit_round25_export_content.py` 同一写法：两个都清干净。
+    users["driver"].driver_rule_id = None
     db_session.commit()
     pid = _mk_product(client, h, "软删账单探针货")
     order = _mk_order(client, h, users["shipper"].id, pid)

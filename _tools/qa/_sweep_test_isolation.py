@@ -64,10 +64,13 @@ def _park_dbs(run_index: int, archive: Path) -> None:
 
 
 def _run(args: list[str], timeout: int) -> tuple[int, str]:
+    # ⚠️ 只取 **stdout**：pytest 的结论行在 stdout，而 stderr 上是一条基础设施告警
+    #    （「SOCKET_REDIS_URL 未配置…」）。第一版把两者拼起来，于是每次的"结论行"
+    #    都被那条告警顶掉了 —— 满屏 OK/FLA 后面跟着同一句无关的话（2026-09-25 实测）。
     try:
         r = subprocess.run(args, cwd=str(BACKEND), capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=timeout, env=RUN_ENV)
-        return r.returncode, (r.stdout or "") + (r.stderr or "")
+        return r.returncode, (r.stdout or "")
     except subprocess.TimeoutExpired:
         return 99, "TIMEOUT"
 

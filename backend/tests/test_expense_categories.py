@@ -35,7 +35,14 @@ def test_新分类会自动补进名册(client, token_dispatcher):
     row = next((c for c in after if c["name"] == name), None)
     assert row is not None, f"新分类没进名册：{[c['name'] for c in after]}"
     assert row["expense_count"] == 1
-    assert row["sort_order"] >= max(c["sort_order"] for c in after if c["id"] != row["id"])
+    # ⚠️ 比的是**名册里的**行（id > 0）：GET 还会带回「名册外的分类名」（老数据）那种**合成行**
+    #    （id=0、sort_order=10000 的占位）。拿它当上界，这条断言在合成行存在时必然假红 ——
+    #    App 侧同一条规矩写在 `CategoryRoster.kt`：只比名册里的那几行。
+    #    2026-09-25 倒序扫描实测：同文件那条「名册外的分类名」用例先跑 → 这里变成 11 >= 10000。
+    in_roster = [c for c in after if c["id"] > 0]
+    assert row["sort_order"] >= max(
+        c["sort_order"] for c in in_roster if c["id"] != row["id"]
+    )
 
 
 def test_改名级联改掉挂着的开销(client, token_dispatcher):
@@ -80,15 +87,31 @@ def test_排序必须整份提交(client, token_dispatcher):
     h = auth_headers(token_dispatcher)
     cats = client.get("/api/v1/expense-categories", headers=h).json()
     assert len(cats) >= 2, cats
+    # ⛔ 提交的只能是**名册里的**行（id > 0）：GET 还会带回「名册外的分类名」（老数据）那种**合成行**，
+    #    它的 id=0 是列表侧的占位，后端不认识它 —— 带上就是**整批** 400。
+    #    App 侧同一条规矩写在 `CategoryRosterViewModel.kt` 与 `CategoryRoster.kt` 的注释里
+    #    （「只提交名册里的（id > 0）：合成行后端不认识，带上就被整体拒绝」）。
+    #    2026-09-25 倒序扫描实测：同文件那条「名册外的分类名」用例先跑 → 名册里多出 id=0 →
+    #    这条用例整批被拒（400 顺序里有不存在的分类编号：[0]）。
+    in_roster = [c for c in cats if c["id"] > 0]
 
     partial = client.post(
-        "/api/v1/expense-categories/reorder", headers=h, json={"ids": [cats[0]["id"]]}
+        "/api/v1/expense-categories/reorder", headers=h, json={"ids": [in_roster[0]["id"]]}
     )
     assert partial.status_code == 400, partial.text
     assert "少了" in partial.json()["detail"], partial.json()["detail"]
 
+    # 契约的另一半：把合成行（id=0）带上去 → 整批拒绝，而且是**说得清**的那句（不是 500）
+    if any(c["id"] == 0 for c in cats):
+        with_ghost = client.post(
+            "/api/v1/expense-categories/reorder", headers=h,
+            json={"ids": [c["id"] for c in reversed(cats)]},
+        )
+        assert with_ghost.status_code == 400, with_ghost.text
+        assert "不存在" in with_ghost.json()["detail"], with_ghost.json()["detail"]
+
     # 整份倒过来 → 200，且顺序真的反了
-    ids = [c["id"] for c in reversed(cats)]
+    ids = [c["id"] for c in reversed(in_roster)]
     r = client.post("/api/v1/expense-categories/reorder", headers=h, json={"ids": ids})
     assert r.status_code == 200, r.text
     assert [c["id"] for c in r.json()] == ids
