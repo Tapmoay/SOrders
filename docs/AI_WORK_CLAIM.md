@@ -281,6 +281,22 @@ Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，�
 **第 11 轮结论**：搬完 → 只剩 3 条红（后端新鲜度 / money_contract 消费方 / 24 条锚点）。
 前两条当轮已修好并验证通过；**卡在最后一条**，按「全绿才提交」第三次回退，回到 112/112。
 
+
+**第 13 轮实测（差一步就全绿）**：搬完 + 修 round12/round19 的锚点之后：
+
+- ✅ `_reverse_verify_round19.py` **7/7 全过** —— 修法已验证：把它的 `REPORTS` 常量从
+  `backend/app/services/reports_service.py` 改成 `backend/app/services/reports/_common.py`（`_money` 的新家）。
+- ⚠️ `_reverse_verify_round12.py`：6 条注入**全部生效**（不再 SKIP），但收尾报
+  「跑完反向验证后源码没还原：`arrears_query.py` / `_common.py` / `turnover_query.py`」。
+  它的 CASES 现在有 **5 条指向同一个新文件**（`turnover_query.py`），收尾按 `snapshot[path]` 写回 ——
+  **下一轮先查这一处**（怀疑是同一个 path 被多个 case 反复写回时快照对不上，或 `_write_src` 的换行处理）。
+- 锚点重指的**正确做法**（本轮验证过）：用 AST 从每个 CASES 元组的 lambda 里取出「旧」那一串，
+  再去 `services/reports/*.py` 里找 `count(anchor)==1` 的那一份 —— **不要一刀切替换路径**
+  （round12 里有 6 条锚点，其中「导出金额改回字符串」那条落在 `_common.py` 而不是 `turnover_query.py`）。
+
+**第 13 轮结论**：搬完的状态是 **112/112 静态检查全绿**，只差 round12 的收尾还原。
+按「全绿才提交」第五次回退（`git checkout --` 三个文件 + 删包），回到 112/112。
+
 **并集读取器已经就位**（`42a28ba`）：`_airepo.reports_source()` = `api/v1/reports.py` + `reports_service.py` +
 **glob 收到的** `services/reports/**`。⛔ 改上面的 1–4 时**直接用它**，别再各写各的路径 ——
 那正是 `_airepo` 里那段注释说的：「先让判据读并集，再搬代码。顺序不能反」。
