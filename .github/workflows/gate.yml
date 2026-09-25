@@ -193,11 +193,17 @@ jobs:
   # 而报告 §14 点名的正是「App 集成测试」这一块空白。脚本本身（`_tools/e2e/`）2026-09-25
   # 第 25 轮已经跑通，缺的是**让它每次改动都被跑**。
   #
-  # ⛔ 三种结局必须分得开（这就是最后那个"判定"步骤存在的理由）：
-  #    · 跑通                 → 绿；
-  #    · 跑挂了               → **红**（这才是接管的意义）；
-  #    · 这台 runner 起不来模拟器 → **带理由的跳过 + `::warning::` 注解**（可见，不是静默绿）。
-  #    ⛔ 不许把第三种混进第一种：本轮之前 CI 上"看起来在跑其实没跑"的东西已经够多了。
+  # ⛔ 四种结局必须分得开（这就是最后那个"判定"步骤存在的理由）：
+  #    · 跑通                    → 绿；
+  #    · 跑挂了                  → **红**（这才是接管的意义）；
+  #    · 脚本自己给出 `SKIP:` 理由 → **带理由的跳过 + `::warning::` 注解**（可见，不是静默绿）；
+  #    · 连 rc 文件都没有（模拟器压根没起来）→ **红 + `::warning::` 注解**。
+  #
+  #    第四种在 2026-09-25 第 56 轮从"绿"改成了"红"，理由是实测出来的：第一次真跑的结果是
+  #    job **success**，而日志里写着 `ProbeKVM: This user doesn't have permissions to use KVM`
+  #    → 模拟器以 `-accel off` 纯软件跑了 16 分钟没启动完。**"没跑"被报成了"通过"。**
+  #    ⛔ 那正是「永远绿的检查＝没有检查」。要么把环境修好（下面加了开 KVM 的步骤），
+  #       要么它就该红着 —— 不许两者都不做。
   # ============================================================
   android-e2e:
     name: 常闸 · 安卓端到端（登录 → 导航 → 下单）
@@ -238,8 +244,18 @@ jobs:
           gradle-version: "8.9"
       - name: 构建 phone 包（模拟器也是手机形态，与手机包同一个 flavor）
         run: gradle -p android :app:assemblePhoneDebug --no-daemon
-      # ⛔ 这一步**允许失败**：GitHub runner 的 KVM 不保证可用，"起不来模拟器"是环境问题，
-      #    不是"这段代码坏了"。真正的判定在下一步 —— 它按 `/tmp/e2e.rc` 把三种结局分开。
+      # ⛔ 这一步是**前提**，不是优化。GitHub 托管 runner 上 `/dev/kvm` 存在，
+      #    但当前用户不在 `kvm` 组里，`android-emulator-runner` 探测到没权限就走 `-accel off`
+      #    纯软件模拟 —— 2026-09-25 第 56 轮实测：**16 分钟没启动完，`Timeout waiting for emulator to boot.`**
+      #    官方 README 给的修法就是下面这条 udev 规则（`MODE="0666"` 而不是 0660 —— 因为 runner 用户不在组里）。
+      - name: 开启 KVM（托管 runner 上跑模拟器的前提）
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # ⛔ 这一步**允许失败**：模拟器起不来是环境问题，不是"这段代码坏了"。
+      #    但"允许失败"不等于"允许静默绿" —— 判定在下一步，它按 `/tmp/e2e.rc` 把四种结局分开。
       - name: 起模拟器 + 装包 + 跑流程
         id: e2e
         continue-on-error: true
@@ -250,6 +266,9 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
+          # 默认 600s。头一次真跑（没有硬件加速）跑到 16 分钟都没起来，所以显式放宽；
+          # 开了 KVM 之后正常是 1~3 分钟，这个值只起"慢也不冤杀"的作用。
+          emulator-boot-timeout: 900
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           script: |
             set +e
@@ -266,7 +285,8 @@ jobs:
         run: |
           if [ ! -f /tmp/e2e.rc ]; then
             echo "::warning title=安卓端到端这次没跑::这台 runner 上没能起模拟器 —— **这次没有跑**，不是通过。本地跑法见 _tools/e2e/_flow_login_nav_order.py 的用法。"
-            exit 0
+            echo "::error title=安卓端到端没跑通::连 /tmp/e2e.rc 都没有 —— 模拟器压根没起来（先看上面有没有 ProbeKVM / boot timeout）。⛔ 「没跑」不等于「通过」：省掉这一行，这个作业就只是一块永远绿的装饰牌子。"
+            exit 1
           fi
           rc=$(tail -1 /tmp/e2e.rc | tr -d "[:space:]")
           cat /tmp/e2e.log || true

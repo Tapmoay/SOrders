@@ -61,7 +61,10 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 WF = ROOT / ".github" / "workflows"
 PLAN_REL = "_tools/qa/_check_all.py"
-MIN_RULES = 17
+#: 判据条数下限。⛔ 原来是 17，而实际已经 38 —— 一个远低于实际值的下限等于没有下限
+#: （它只在"检查整个空转"时才响，而那时通常还有别的症状）。2026-09-25 第 56 轮改成**贴着实际值**：
+#: 少一条就红，逼着"删判据"这件事变成一次显式编辑。
+MIN_RULES = 38
 
 # fast gate 四件事（报告 §5 图里的 "syntax / changed checks / endpoint freshness / core freeze"）
 FAST_SHOULD = {
@@ -125,6 +128,30 @@ def job_scripts(job: dict) -> str:
         if isinstance(w, dict) and isinstance(w.get("script"), str):
             parts.append(w["script"])
     return "\n".join(parts)
+
+
+def branch_of(script: str, marker: str) -> str:
+    """取 `script` 里从含 `marker` 的那一行起、到**同缩进的 `fi`** 为止的那一段。
+
+    ⚠️ 为什么不用"往后截 N 个字符"：那样会把后面几支的 `exit` 一起圈进来，
+    于是"这一支 exit 0"照样能命中别处的 `exit 1` —— 判据变成永远绿。
+    """
+    lines = script.splitlines()
+    start = next((i for i, ln in enumerate(lines) if marker in ln), -1)
+    if start < 0:
+        return ""
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    out = [lines[start]]
+    for ln in lines[start + 1:]:
+        if ln.strip() and (len(ln) - len(ln.lstrip())) <= indent:
+            break
+        out.append(ln)
+    return "\n".join(out)
+
+
+def exits_nonzero(script: str) -> bool:
+    """这一段里有没有以非 0 退出。"""
+    return any(int(m.group(1)) != 0 for m in re.finditer(r"^\s*exit\s+(\d+)\s*$", script, re.M))
 
 
 def main() -> int:
@@ -375,8 +402,28 @@ def main() -> int:
              and "SKIP:" in body,
              jn + " 把「起不来模拟器」报成**可见的跳过**（两条 ::warning 注解 + SKIP: 理由）",
              "⛔ " + jn + " 没把跳过做成可见的 —— 静默绿等于没有这条测试")
-        want("::error title=安卓端到端没跑通" in body, jn + " 跑挂了会红（::error 注解）",
-             "⛔ " + jn + " 没把失败报成红 —— 那它接管了什么？")
+        # ⚠️ 2026-09-25 第 56 轮：这里原来是 `"::error title=安卓端到端没跑通" in body`，
+        #    而那一轮给"缺失 rc"那一支也加了一条**同名** `::error` —— 于是"撤掉跑挂那一支的报红"
+        #    照样绿（反向验证第 ⑭ 条当场抓到：**判据被别处满足**，本项目反复栽的那一类）。
+        #    修法不是把字符串写得更长，而是把判据**钉到那一支自己身上**：
+        #    只认「处理非 0 rc 的那一支」里同时出现 `::error` 注解与 `exit 1`。
+        #    ⚠️ 那一支是单行 `echo "..."; exit 1`，所以判 `"exit 1" in 该行`，
+        #    不能用 `exits_nonzero`（它只认独占一行的 `exit N`）。
+        fail_branch = branch_of(body, "::error title=安卓端到端没跑通::rc=$rc")
+        want("exit 1" in fail_branch, jn + " 跑挂了会红（处理非 0 rc 的那一支带 ::error 注解 + exit 1）",
+             "⛔ " + jn + " 没把失败报成红 —— 那它接管了什么？（找不到处理 `rc=$rc` 的那一支也算不成立）")
+        # ---- 15. 「模拟器压根没起来」那一支必须**真的红**（报告 §14，2026-09-25 第 56 轮）----
+        # ⛔ 上面那条只要求 `::error` 注解**存在**，而"注解存在"不等于"这一步会失败"：
+        #    注解是给人看的，退出码才是给 CI 看的。
+        #    **实测**：第一次真跑，job 报的是 success，日志里却是「这台 runner 上没能起模拟器」——
+        #    因为"没有 rc 文件"那一支当时写的是 `exit 0`。
+        #    一个"没跑也绿"的作业比没有这条测试更糟：它让人以为登录/导航/下单三条主链被守住了。
+        #    所以这里钉的是**退出码**，不是它有没有喊话。
+        missing = branch_of(body, "[ ! -f /tmp/e2e.rc ]")
+        want(bool(missing) and exits_nonzero(missing),
+             jn + "「模拟器没起来」那一支**会红**（缺失 rc 文件时 exit 非 0）",
+             "⛔ " + jn + " 在‘模拟器没起来’时仍然 exit 0 —— 那是「永远绿的检查」："
+             "没跑成会被报成通过。（找不到 `[ ! -f /tmp/e2e.rc ]` 那一支也算不成立。）")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),

@@ -1217,3 +1217,66 @@ grep 下来只有 `_tools/qa/_check_permission_model.py` 在看角色/权限，�
 
 按域一个一个来，每个域一次提交：`cash_flows.py`（3）、`orders_query.py`（3）、`users.py`（3）、
 `notifications.py`（3）… 每收敛一个域，就把 `HISTORY` 追加一条并把数字降下来。
+
+### §14 安卓端到端的**第一次真跑**：job 报 success，日志却在说「这次没有跑」（2026-09-25 第 57 轮）
+
+#### 结论先说：那次 job 是绿的，而它**一次都没跑**
+
+`Gate @ b8a39e0` 整体 success，`常闸 · 安卓端到端（登录 → 导航 → 下单）` 耗时 **23.7 分钟**、
+结论 success。但把 job 日志拉下来看，判定步骤走的是「**这次没有跑**」那一支：
+
+```
+##[warning]这台 runner 上没能起模拟器 —— **这次没有跑**，不是通过。
+```
+
+也就是说：**"没跑"被报成了"通过"**。这正是本仓库反复立的那条规矩——
+「永远绿的检查＝没有检查」——最典型的一种形态。
+
+#### 真因（日志原文，不靠猜）
+
+```
+ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm).
+The KVM line in /etc/group is: [kvm:x:993:]
+disable Linux hardware acceleration: true
+/usr/local/lib/android/sdk/emulator/emulator ... -gpu swiftshader_indirect -accel off &
+...（16 分钟后）...
+##[error]Timeout waiting for emulator to boot.
+```
+
+GitHub 托管 runner 上 `/dev/kvm` **存在**，但当前用户不在 `kvm` 组里 →
+`android-emulator-runner` 探测到没权限就自动 `-accel off`，纯软件模拟 → 16 分钟没启动完。
+官方 README 给的修法就是一条 udev 规则（`MODE="0666"`，因为 runner 用户不在组里）。
+
+#### 改了三处（都在同一个 job 里，一个维度）
+
+1. **加「开启 KVM」步骤**（前提，不是优化）：写 `/etc/udev/rules.d/99-kvm4all.rules` + reload + trigger；
+2. **`emulator-boot-timeout: 900`**：默认 600s，头一次真跑跑到 16 分钟；开了 KVM 后正常 1~3 分钟，
+   这个值只起"慢也不冤杀"的作用；
+3. **「连 rc 文件都没有」那一支从 `exit 0` 改成 `exit 1`** —— 注解（`::warning`）保留，
+   因为它要**可见**；但退出码必须是红的，因为「没跑成」不是「通过」。
+
+于是这个 job 的四种结局才真的分得开：跑通→绿／跑挂→红／带理由跳过（`SKIP:`）→黄／
+**压根没跑→红**。
+
+#### 顺带抓到第 12 次「判据被别处满足」（反向验证当场拦下）
+
+给「缺失 rc」那一支补上同名 `::error` 之后，`_check_ci_workflows.py` 的第 14 条
+（`"::error title=安卓端到端没跑通" in body`）就变成了**被别处满足**：
+撤掉「跑挂」那一支的报红，它照样绿 —— 反向验证第 ⑭ 条当场判 MISS。
+
+修法不是把字符串写得更长，而是把判据**钉到那一支自己身上**（新增 `branch_of()`：
+从锚点行取到同缩进的 `fi` 为止）。同一轮新增第 15 条判据：
+**「模拟器没起来」那一支必须以非 0 退出** —— ⛔ 判据看的是**退出码**，不是有没有喊话，
+因为注解是给人看的，退出码才是给 CI 看的。
+
+反向验证 `_reverse_verify_ci_workflows.py` → **15/15**（⑮ = 把那一支改回 `exit 0`）。
+顺带把 `MIN_RULES` 从 17 调到 **38**（贴着实际值）：一个远低于实际值的下限等于没有下限。
+
+#### 数字
+
+- `Gate @ b8a39e0`：5 个作业 success（含端到端那条**假绿**）、2 个夜闸 skipped；
+- 端到端 job 实测耗时 **23.7 分钟**（超时上限 40 分钟）；真因是**没有硬件加速**；
+- `_check_ci_workflows.py` **39 条判据全过**；反向验证 **15/15**。
+
+⏭️ **下一步**：开了 KVM 之后的第一次真跑结果（跑通 / 仍然起不来）—— 只有它才能说明
+这条端到端测试**真的接管了**，而不是换了一种绿法。

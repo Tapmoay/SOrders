@@ -20,6 +20,25 @@
 
 ## 进行中
 
+### [2026-09-25 15:0x → ] 会话：**路线图 ⑨ 第二层第一域（授权收到签名上）+ ④ §14 安卓端到端的第一次真跑结果与两处修正**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**改动文件**：`backend/app/deps.py`、`backend/app/api/v1/expense_categories.py`、
+`_tools/qa/_check_inline_role_gates.py`（新）、`_tools/qa/_reverse_verify_inline_role_gates.py`（新）、
+`_tools/qa/_check_ci_workflows.py`、`_tools/qa/_reverse_verify_ci_workflows.py`、
+`.github/workflows/gate.yml`、`_tools/ai/_reverse_verify_all.py`、
+`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`、`docs/RECTIFICATION_PLAN.md`。
+
+核心改动：backend/app/deps.py —— 为什么必须动核心：它是**鉴权依赖**唯一的住处
+（清单原话「require_roles / 当前用户；漏一处就是越权」）。本轮只在里面**加**一个
+`DispatcherUser`（`Annotated[User, Depends(require_roles(UserRole.DISPATCHER))]`），
+已有符号一个都没改：`CurrentUser` / `require_roles` / `get_current_user` 行为一行未动。
+放在这里而不是让各 API 文件各抄一遍，正是因为「授权只有一个模型」这件事只能有一个住处 ——
+它同时是端点索引「授权」列能读出**真实**授权的来源。
+
+⛔ **本轮已发现的洞（第 12 次同类「判据被别处满足」）**：给 `gate.yml` 的「缺失 rc」那一支
+补了一条同名 `::error` 之后，「撤掉跑挂那一支的报红」照样绿 —— 反向验证第 ⑭ 条当场抓到。
+修法是把判据钉到**那一支自己身上**（`branch_of(...)`），不是把字符串写得更长。
+
 ### [2026-09-25 14:0x → ] 会话：**路线图 ③ Android 侧（AI_write_confirmed 的发出端）+ 后端 AI_calls 落地**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **改动文件**：`android/.../core/ClientOrigin.kt`（新）、`core/ApiClient.kt`、`ai/AiWriteService.kt`、
