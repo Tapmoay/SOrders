@@ -274,7 +274,9 @@ def reports_files(root: Path | None = None) -> list[Path]:
     改漏一个就是静默不查」。
     """
     base = root or ROOT
-    out = [base / "backend" / p for p in REPORTS_MODULES]
+    # ⚠️ `REPORTS_MODULES` 里的路径是相对 `backend/app` 的（不是相对仓库根）—— 第一版写成
+    #    `base / "backend" / p`，那两个文件一个都找不到，并集里只剩 glob 到的新包。
+    out = [base / "backend/app" / p for p in REPORTS_MODULES]
     pkg = base / "backend/app/services/reports"
     if pkg.is_dir():
         out.extend(sorted(pkg.rglob("*.py")))
