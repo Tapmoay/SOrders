@@ -10,7 +10,8 @@
 python _tools/qa/_probe_core_flows.py            # 跑全部
 python _tools/qa/_probe_core_flows.py 商品         # 只跑某一组（前缀匹配）
 ```
-每条打印：`[通过]`=按预期被拒/行为正确；`[!!]`=**可疑**（放行了不该放行的、或结果不符预期）。
+每条打印：`[通过]`=按预期被拒/行为正确；`[!!]`=**可疑**（放行了不该放行的、或结果不符预期）；
+`[已知]`=**已接受的产品口径问题**（每次照样打印，理由与"什么时候删掉这一条"写在 `ACCEPTED_QUESTIONS` 里）。
 脚本自己清理建出来的数据（软删商品 / 软删订单），不删别人的数据。
 """
 from __future__ import annotations
@@ -33,7 +34,26 @@ DISPATCHER = ("13800000001", "123321")
 SHIPPER = ("13800000002", "123321")
 DRIVER = ("13800000003", "123321")
 
-FINDINGS: list[str] = []
+#: 探针发现的疑点：(键, 文案)。键为空 = **不可接受**；键命中 `ACCEPTED_QUESTIONS` = 已接受。
+FINDINGS: list[tuple[str, str]] = []
+
+#: 探针提出来的**产品口径问题**：键 = 稳定标识（不是文案），值 = 为什么今天不解 + 什么时候删掉这一条。
+#:
+#: ⛔ 这不是「放过」：这一条**每次运行都打印**（连理由一起），只是不再把整次运行判成"可疑"。
+#:    理由与 `_tools/ops/_health_check.py::ACCEPTED_CERT` 完全同形 —— 判成失败的前提是
+#:    「有人能去修」。一个**需要产品拍板**的问题今天谁也修不了，于是这脚本每次都以 exit 1 结束；
+#:    而本项目自己的话是：**永远红的检查 = 没有检查**（没人会再读那份输出）。
+#: ⚠️ 三条纪律（与证书例外表同）：① 每条都要写理由；② 理由里要写**什么时候删掉它**；
+#:    ③ 跑完要报**没命中的条目**（问题被修掉了 / 改了名字 → 那是化石，必须清掉）。
+ACCEPTED_QUESTIONS: dict[str, str] = {
+    "oversell-negative-stock":
+        "下单/派单都不拦超卖，**送达那天**才把库存扣成负数（实测 -95.0）。"
+        "这不是缺陷而是口径：允许负库存是批发场景的常见做法（先接单、后进货），"
+        "而「下单就拦」会让这门生意做不成 —— 两条都自洽，只能由产品拍板。"
+        "⛔ 今天不改的原因：改哪一边都要动「预占/实扣」那条核心链路（`inventory_*`），"
+        "拍板之前动它等于替用户做决定。"
+        "**产品明确「下单就拦」或「允许负库存（并写进文档）」之后，删掉这一条。**",
+}
 
 #: 探针自己建出来的账号（收尾时软删掉）。见 [cleanup_created] 的理由。
 CREATED_USERS: list[int] = []
@@ -82,12 +102,13 @@ def login(cred) -> str:
     return r["access_token"]
 
 
-def ok(label: str, cond: bool, detail: str = "") -> None:
+def ok(label: str, cond: bool, detail: str = "", key: str = "") -> None:
+    """`key` 只在"这条失败其实是**已知的产品口径问题**"时给 —— 见 ACCEPTED_QUESTIONS。"""
     if cond:
         print(f"  [通过] {label}")
     else:
         print(f"  [!!]   {label} —— {detail}")
-        FINDINGS.append(f"{label} —— {detail}")
+        FINDINGS.append((key, f"{label} —— {detail}"))
 
 
 def uniq(prefix: str) -> str:
@@ -367,10 +388,9 @@ def probe_inventory(tok: str) -> None:
     call("POST", f"/orders/{oid4}/complete", {"delivery_photo_urls": ["/static/uploads/delivery/inv3.jpg"]}, token=t1)
     print(f"  [信息] 超卖：下单 100 件（库存 5）派单 {st} → 送达后库存 {stock()}（负数=允许，但要知道会发生）")
     if stock() < 0:
-        FINDINGS.append(
-            f"超卖会走到负库存（{stock()}）：目前**下单/派单都不拦**，只有送达那天账上才知道"
-            " —— 需要产品拍板是「下单就拦」还是「允许负库存」"
-        )
+        # 这条是**产品口径**问题，不是缺陷 —— 进例外表，别让整个探针永远红（见 ACCEPTED_QUESTIONS）
+        ok("超卖会走到负库存，需要产品拍板（下单就拦 / 允许负库存）", False,
+           f"送达后库存 {stock()}", key="oversell-negative-stock")
 
     call("DELETE", f"/products/{pid}", token=tok)
 
@@ -455,23 +475,30 @@ def probe_money(tok: str) -> None:
     d1, t1 = _mk_driver(tok, "收款探针司机")
 
     _, me = call("GET", "/users/me", token=shipper)
+    my_id = me.get("id")
     customer_id = None
+    # ⚠️ 必须挑**属于这个货主**的客户档案。原来写的是
+    #     `if a.get("shipper_id") == my_id or a.get("customer_id")` ——
+    #     后半句对任何带 customer_id 的账号都成立（恒真），于是永远取列表第一条：别人的客户。
+    #     接着"逐单核销 100 元"必然 400「订单不属于该客户」，变成一条**恒红的假判据**
+    #     （改成 `(mine or custs)[0]` 也只是把"随便抓一个"藏得更深）。
     st, accounts = call("GET", "/ledger/accounts?kind=shipper", token=tok)
     if st == 200 and isinstance(accounts, list):
-        # 账本里的"客户"是按 customer 档案来的：找到属于这个货主的那个
         for a in accounts:
-            if a.get("shipper_id") == me.get("id") or a.get("customer_id"):
+            if a.get("shipper_id") == my_id and a.get("customer_id"):
                 customer_id = a.get("customer_id")
                 break
     if customer_id is None:
         st, custs = call("GET", "/customers", token=tok)
-        if st == 200 and isinstance(custs, list) and custs:
-            mine = [c for c in custs if c.get("user_id") == me.get("id")]
-            customer_id = (mine or custs)[0]["id"]
+        if st == 200 and isinstance(custs, list):
+            mine = [c for c in custs if c.get("user_id") == my_id]
+            if mine:
+                customer_id = mine[0]["id"]
     if customer_id is None:
-        print("  [跳过] 找不到可用的客户档案，跳过收款探针")
+        print("  [跳过] 这个货主没有对应的客户档案，跳过收款探针"
+              "（拿别人的客户档案去核销必然 400「订单不属于该客户」，那不是缺陷）")
         return
-    print(f"  [信息] 用客户档案 #{customer_id} 做收款探针")
+    print(f"  [信息] 用客户档案 #{customer_id}（货主本人 #{my_id}）做收款探针")
 
     def turnover() -> dict:
         # ⚠️ 这个接口的 date 是**必填**的：不传会 422，而 422 的响应体里没有 collected
@@ -1018,6 +1045,48 @@ GROUPS = {
 }
 
 
+def verdict(findings: list[tuple[str, str]], only: str = "") -> int:
+    """把疑点列表判成退出码（**纯函数**：不碰网络、不碰库）。
+
+    三种结局：
+      · 全是"已接受的产品口径问题"  → 0（照样打印，连理由一起）
+      · 有任何**不可接受**的疑点     → 1
+      · 例外表里有**没命中**的条目   → 1（化石：问题修掉了 / 改了名字，必须清掉那一行）
+    ⚠️ `only` 非空（只跑某一组）时不做化石判定 —— 别的组的例外条目当然不会命中。
+
+    ⛔ 这个函数是纯的，不是设计洁癖：探针要活后端才跑得起来（进不了 `_check_all.py` 必跑组），
+    而"疑点怎么判"恰恰是整套东西里最容易空转的一环（把 unknown 判成 0、忘了报化石 →
+    探针**永远绿**且没人会发现）。抽成纯函数之后，它就能被静态检查直接反向验证 ——
+    见 `_tools/qa/_check_probe_verdict.py`。
+    """
+    accepted = [(k, t) for k, t in findings if k and k in ACCEPTED_QUESTIONS]
+    unknown = [(k, t) for k, t in findings if not (k and k in ACCEPTED_QUESTIONS)]
+
+    if accepted:
+        print(f"已知·已接受 {len(accepted)} 条（每次都会打印；理由与删除条件见 ACCEPTED_QUESTIONS）：")
+        for k, t in accepted:
+            print("  [已知] " + t)
+            print("         为什么现在不解 / 什么时候删掉：" + ACCEPTED_QUESTIONS[k])
+
+    # ---- 例外表不许长霉：没命中的条目 ＝ 问题已经修掉或改了名字，留着就是化石 ----
+    fossils = [] if only else sorted(set(ACCEPTED_QUESTIONS) - {k for k, _ in accepted})
+    if fossils:
+        print(f"⛔ 例外表里有 {len(fossils)} 条**没命中**（问题已修掉 / 改了名字 → 化石，必须清掉）：")
+        for k in fossils:
+            print("  - " + k)
+
+    if unknown or fossils:
+        if unknown:
+            print(f"可疑 {len(unknown)} 条：")
+            for _, t in unknown:
+                print("  - " + t)
+        else:
+            print("本次没有新的可疑点（红的是上面的化石，不是业务问题）。")
+        return 1
+    print("这一组没有发现可疑点。")
+    return 0
+
+
 def main() -> int:
     only = sys.argv[1] if len(sys.argv) > 1 else ""
     tok = login(DISPATCHER)
@@ -1028,18 +1097,12 @@ def main() -> int:
             fn(tok)
         except Exception as e:  # 探针自己炸了也要说清楚，别静默跳过
             print(f"  [探针异常] {name}: {type(e).__name__}: {e}")
-            FINDINGS.append(f"{name} 探针异常：{e}")
+            FINDINGS.append(("", f"{name} 探针异常：{e}"))
 
     cleanup_created(tok)
 
     print("\n" + "=" * 64)
-    if FINDINGS:
-        print(f"可疑 {len(FINDINGS)} 条：")
-        for f in FINDINGS:
-            print("  - " + f)
-        return 1
-    print("这一组没有发现可疑点。")
-    return 0
+    return verdict(FINDINGS, only)
 
 
 if __name__ == "__main__":
