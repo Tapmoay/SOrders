@@ -21,13 +21,14 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from app.config import uploads_root
 from app.core.rbac import user_role_key
 from app.core.upload_read import MAX_DELIVERY_PHOTO_BYTES, read_limited
 from app.models import Order, User
 from app.models.enums import UserRole
 
 
-UPLOAD_DIR = Path("uploads") / "delivery"
+UPLOAD_DIR = uploads_root() / "delivery"
 ALLOWED_IMAGE_CT = frozenset({"image/jpeg", "image/png", "image/webp", "image/jpg", "image/pjpeg"})
 
 

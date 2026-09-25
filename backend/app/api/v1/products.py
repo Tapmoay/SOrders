@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
+from app.config import uploads_root
 from app.core.business_time import utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
@@ -26,7 +27,7 @@ from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/products", tags=["products"])
 
-UPLOAD_DIR = Path("uploads") / "products"
+UPLOAD_DIR = uploads_root() / "products"
 ALLOWED_IMAGE_CT = frozenset(
     {
         "image/jpeg",

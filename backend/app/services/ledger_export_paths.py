@@ -16,10 +16,12 @@ from __future__ import annotations
 import secrets
 from pathlib import Path
 
+from app.config import uploads_root
+
 #: 新产物目录（**不在公开的 uploads/ 之下**）
 EXPORT_DIR = Path("exports")
 #: 历史产物所在（老 job 的 file_path 指向这里）；只用于兼容读取，不再往这里写。
-LEGACY_UPLOAD_EXPORTS = Path("uploads") / "exports"
+LEGACY_UPLOAD_EXPORTS = uploads_root() / "exports"
 
 
 def ensure_export_dir() -> None:

@@ -38,9 +38,12 @@ CHK = '_tools/qa/_check_capability_unification.py'
 CASES: list[tuple[str, str, str, str, str]] = [
     ('① 改后端能力表的一句话（产物该跟着变）', CAPS,
      'what="把待派单派给某位司机"', 'what="把待派单派给某位司机（改过）"', '产物已过期'),
+    # ⚠️ 锚点**不许带哈希值本身**：`sha256:41fc…` 那种写法在这条断言第一次重生成产物之后就失效了
+    #    （能力表改一行 → source hash 变 → 锚点找不到 → 这条反向验证变成恒 SKIP）。
+    #    锚在**结构**上（`const val SOURCE_HASH: String = "sha256:`），注入一个固定前缀就够了。
     ('② 手改生成物里的 SOURCE_HASH', KT,
-     'const val SOURCE_HASH: String = "sha256:41fc',
-     'const val SOURCE_HASH: String = "sha256:dead', '与后端不一致'),
+     'const val SOURCE_HASH: String = "sha256:',
+     'const val SOURCE_HASH: String = "sha256:deadbeef', '与后端不一致'),
     ('③ 往 Kotlin 里塞手写的权限键表', MODULES, 'data class ModuleEntry(',
      'private val HACK = setOf("order:create", "order:edit", "order:dispatch")' + chr(10)
      + 'data class ModuleEntry(', '第二份真相'),

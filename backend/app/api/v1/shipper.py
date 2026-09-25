@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.config import uploads_root
 from app.core.business_time import utc_now_naive
 from app.core.rbac import user_role_key
 from app.core.upload_read import MAX_IMAGE_BYTES, read_limited
@@ -299,7 +300,7 @@ async def upload_location_image(
     ext = Path(file.filename or "").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
         ext = ".jpg"
-    sub = Path("uploads") / "locations"
+    sub = uploads_root() / "locations"
     name = f"{uuid4().hex}{ext}"
     path = sub / name
     try:

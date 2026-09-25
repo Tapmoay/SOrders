@@ -54,15 +54,22 @@ class FileLock:
       进程崩了锁也会被系统收回（不会留下「僵尸锁文件」那种要靠人删的坑）。
     '''
 
-    def __init__(self, path: str | Path, *, wait_s: float = DEFAULT_WAIT_S) -> None:
+    def __init__(self, path: str | Path, *, wait_s: float = DEFAULT_WAIT_S,
+                 reentrant: bool = True) -> None:
         self.path = str(path)
         self.wait_s = wait_s
+        #: 同一个进程里再拿一次同一把锁时：
+        #: · `reentrant=True`（默认）→ 当成重入，直接放行 —— 迁移入口 `prepare_schema` 需要它
+        #:   （它自己拿一把，里面的自愈再拿同一把，不能死锁）；
+        #: · `reentrant=False` → **真去抢**，同进程也会被挡住 —— 调度选主要它：
+        #:   「同一进程里两个线程同时触发治理」和「两个进程同时触发」一样必须只跑一个。
+        self.reentrant = reentrant
         self._fh = None
         self._reentrant = False
 
     def __enter__(self) -> 'FileLock':
         key = os.path.abspath(self.path)
-        if _HELD.get(key):
+        if self.reentrant and _HELD.get(key):
             _HELD[key] += 1
             self._reentrant = True
             return self
@@ -78,8 +85,19 @@ class FileLock:
         if fcntl is not None:
             # Linux 的 flock 是建议锁，截断不拦人；但两条平台用同一套打开方式，少一处分叉。
             self._ensure_one_byte()
-            fcntl.flock(self._fh, fcntl.LOCK_EX)
-            _HELD[key] = 1
+            if self.wait_s <= 0:
+                # ⛔ `wait_s=0` 必须是**真的非阻塞**：`flock(LOCK_EX)` 会一直等下去
+                #    （Windows 分支本来就是非阻塞的，两边语义要对齐 —— 调度选主要「拿不到就走」）。
+                try:
+                    fcntl.flock(self._fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    self._fh.close()
+                    self._fh = None
+                    raise FileLockTimeout(self._timeout_msg()) from None
+            else:
+                fcntl.flock(self._fh, fcntl.LOCK_EX)
+            if self.reentrant:
+                _HELD[key] = 1
             return self
         # ---- Windows ----
         import msvcrt
@@ -90,18 +108,19 @@ class FileLock:
             try:
                 self._fh.seek(0)
                 msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
-                _HELD[key] = 1
+                if self.reentrant:
+                    _HELD[key] = 1
                 return self
             except OSError:
                 if time.monotonic() >= deadline:
-                    name = self.path
                     self._fh.close()
                     self._fh = None
-                    raise FileLockTimeout(
-                        '拿不到文件锁 ' + name + '（等了 ' + str(self.wait_s) + 's）——'
-                        ' 另一个进程还在迁移？先看 python -m app.migrations status'
-                    )
+                    raise FileLockTimeout(self._timeout_msg())
                 time.sleep(0.05)
+
+    def _timeout_msg(self) -> str:
+        return ('拿不到文件锁 ' + self.path + '（等了 ' + str(self.wait_s) + 's）——'
+                ' 另一个进程还在跑？先看 python -m app.migrations status')
 
     def _ensure_one_byte(self) -> None:
         '''`msvcrt.locking` 锁的是**字节区间**，文件至少要有 1 字节。
@@ -148,7 +167,8 @@ class FileLock:
             logger.debug('放文件锁失败（忽略）', exc_info=True)
         finally:
             fh.close()
-            _HELD.pop(key, None)
+            if self.reentrant:
+                _HELD.pop(key, None)
 
     def __exit__(self, *exc) -> bool:
         self._release()

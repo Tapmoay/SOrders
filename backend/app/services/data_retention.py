@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,7 @@ from pathlib import Path
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
+from app.config import uploads_root
 from app.core.business_time import business_today, utc_now_naive
 from app.models.cash_flow import CashFlow
 from app.models.driver_bill import DriverBill
@@ -38,13 +40,16 @@ from app.services.image_archive import (
     purge_orphan_compressed,
     purge_orphan_images,
 )
+from app.core.scheduler_lock import SCHEDULER_LOCK_FILE, scheduler_leader
 from app.services.ledger_export_paths import EXPORT_DIR, LEGACY_UPLOAD_EXPORTS
 from app.services.money_text import money_text
 
 logger = logging.getLogger(__name__)
 
-#: 治理的跨进程锁文件（与 `schema_bootstrap` 同一个思路）。
-GOVERNANCE_LOCK_PATH = "/tmp/sorders_retention.lock"
+#: 治理的本机锁文件 —— ⛔ **R3-03-B 起由 `core/scheduler_lock.py` 一处说了算**
+#: （那边同时管跨主机的 `GET_LOCK`，锁名 `sorders:scheduler:retention`）。
+#: 这个别名只为让日志/排障还能打出同一个路径。
+GOVERNANCE_LOCK_PATH = SCHEDULER_LOCK_FILE
 
 #: 「今天已经治理过了」的标记文件。
 #:
@@ -54,7 +59,10 @@ GOVERNANCE_LOCK_PATH = "/tmp/sorders_retention.lock"
 #: 而在真实的库上（几万张图要重新扫 mtime、几万行要重新比时间）那是白烧 CPU 与磁盘 IO。
 #: 所以拿到锁之后再问一句"今天是不是已经跑过"。
 #: 用**文本文件**而不是数据库行：治理的第一步就是删数据，标记不能跟着那份事务一起回滚。
-GOVERNANCE_MARKER_PATH = "/tmp/sorders_retention.last"
+#: ⛔ 别写死 `/tmp`：Windows 上它会解析成当前盘的 `\tmp`（通常不存在），于是 `_mark_ran_today()`
+#: 每次都失败、`_already_ran_today()` 永远读不到 —— 表现是「每天 N 次治理」而且**不报错**。
+#: R3-03 做双实例实验时踩到的（同一个毛病在锁路径上也有一份）。
+GOVERNANCE_MARKER_PATH = str(Path(tempfile.gettempdir()) / "sorders_retention.last")
 
 #: 导出产物的保留期（天）。派生数据，源数据在库里还能再导一次——不需要留 3 年。
 EXPORT_FILE_RETENTION_DAYS = 30
@@ -85,7 +93,7 @@ def _mark_ran_today() -> None:
 
 @contextmanager
 def _single_runner():
-    """跨进程互斥：**拿不到锁就跳过本轮**，而不是排队等它跑完再原样跑一遍。
+    """选主：**拿不到就跳过本轮**，而不是排队等它跑完再原样跑一遍。
 
     ⚠️ 为什么必须有（2026-09-19 外部完整检查 PERF-05 / R2-5(bak)）：
     治理循环挂在 `main.lifespan` 上，而生产是 `uvicorn --workers 2`
@@ -99,26 +107,15 @@ def _single_runner():
 
     ⚠️ 用 `LOCK_NB`（非阻塞）而不是 `LOCK_EX`（阻塞）：阻塞会让第二个 worker
     **等第一个跑完、然后自己再跑一遍** —— 那正是要避免的重复执行，跳过才是本意。
-    Windows 本机开发没有 `fcntl`（单进程也无所谓），照常执行。
+    ⛔ R3-03-B 起实现搬到了 `core/scheduler_lock.py`，那里是**两层**：
+    本机 `FileLock`（Windows 上也是真锁）+ 跨主机 `GET_LOCK('sorders:scheduler:retention')`。
+    原来这一份的 Windows 分支是「import fcntl 失败就 yield True」= **没有互斥** ——
+    与 R3-01 修掉的迁移锁是同一个毛病（那次的表现是并发迁移撞 `table already exists`）。
     """
-    try:
-        import fcntl
-    except ImportError:                    # pragma: no cover - Windows 本机开发
-        yield True
-        return
-    lock_file = open(GOVERNANCE_LOCK_PATH, "w")
-    try:
-        try:
-            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            yield False
-            return
-        try:
-            yield True
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
-    finally:
-        lock_file.close()
+    from app.database import engine
+
+    with scheduler_leader(engine) as is_leader:
+        yield is_leader
 
 
 def _orders_with_blocking_docs(db: Session, ids: list[int]) -> list[int]:
@@ -287,7 +284,7 @@ def delete_orders_by_ids(db: Session, ids: list[int]) -> int:
     held_back = 0
     for oid in ids:
         try:
-            d = Path("uploads") / "delivery" / str(oid)
+            d = uploads_root() / "delivery" / str(oid)
             if d.is_dir():
                 for f in d.iterdir():
                     if not f.is_file():

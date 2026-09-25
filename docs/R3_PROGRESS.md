@@ -148,14 +148,42 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 
 ## R3-03 Multi-instance Runtime（硬门槛）
 
-- ❌ 两个实例同时运行 —— 复现：`python _tools/ops/_dual_instance.py --up`
-- ❌ migration 只执行一次 —— 复现：`python _tools/ops/_dual_instance.py --case migration`
-- ❌ scheduler 只执行一次 —— 复现：`python _tools/ops/_dual_instance.py --case scheduler`
-- ❌ upload 一致（A 传 B 查得到）—— 复现：`python _tools/ops/_dual_instance.py --case upload`
-- ❌ Socket.IO 跨实例推送正常 —— 复现：`python _tools/ops/_dual_instance.py --case socket`
-- ❌ 杀掉 A 之后 B 继续服务 —— 复现：`python _tools/ops/_dual_instance.py --case kill-a`
-- ❌ 上传资产的运行模型已决策（共享盘 or 对象存储）—— 复现：`docs/R3_DECISIONS.md`
-- ❌ nginx upstream + 失败摘除 —— 复现：`docs/R3_DECISIONS.md`
+工具：`python _tools/ops/_dual_instance.py --all`（真起两个 uvicorn :8111/:8112，共用一个库 + 一个上传目录）。
+原始输出记在 `docs/R3_RUNTIME_EVIDENCE.md`；架构决策记在 `docs/R3_DECISIONS.md`。
+
+- ✅ 两个实例同时运行（都接请求；**A 登录的 token 到 B 上也认**）—— 复现：`python _tools/ops/_dual_instance.py --rest`
+- ✅ migration 只执行一次 —— 复现：`python _tools/ops/_migration_tests.py --concurrent`（R3-01 的用例，两个进程同时 upgrade）
+- ✅ scheduler 只执行一次（启动即跑的那轮治理：**真跑 1 次 / 跳过 1 次**）—— 复现：`python _tools/ops/_dual_instance.py --scheduler`
+- ✅ upload 一致（A 传的图 B 取得到，**字节一致**）—— 复现：`python _tools/ops/_dual_instance.py --upload`
+- ✅ 杀掉 A 之后 B 继续服务（`/health` 200 + 登录读自己 200）—— 复现：`python _tools/ops/_dual_instance.py --kill`
+- ✅ 上传资产的运行模型已决策（**本机文件系统资产**；多实例＝同机多进程/同一挂载点；对象存储留 R4）—— 复现：`python _tools/qa/_check_r3_constraints.py`（`upload_decision_record` 探针）
+- ❌ **Socket.IO 跨实例推送未验** —— 复现：`python _tools/ops/_dual_instance.py --socket`（它会如实打印「没验」）
+  ⛔ 本机**没有 Redis**，Socket.IO 的跨进程适配器起不来，这一格**没有验**，不假装通过。
+  要验需要有 Redis 的环境。⛔ 有一条**不能走**的路：借生产的 Redis —— 那会把测试实例的推送混进
+  生产客户端的同一个 channel（除非用不同的 Redis DB 序号，而那就等于在生产机上起临时实例）。
+  三条候选路径写在下面「卡在哪儿」一节。
+- ❌ **nginx upstream + 失败摘除未验** —— 复现：`python _tools/qa/_check_multi_instance_readiness.py`
+  （那道门的 `status` 仍是 `not-done`）。本机没有 nginx；它要动生产 nginx，属 R3-05（且要用户许可）。
+
+### 卡在哪儿（需要你拍板，不必现在答）
+
+这两个 ❌ 都卡在**环境**，不是卡在代码：
+
+1. **装一个本机 Redis**（Windows 上可用 Memurai 或 tporadowski 的 redis 移植版）→ 就能在本机把 socket 那一格验掉；
+   代价是动本机环境（多一个常驻服务）。
+2. **在生产机上起一对隔离的临时实例**（不同端口 + SQLite + 独立的 Redis DB 序号）→ 能验 socket 与 nginx；
+   代价是动生产机 —— 按禁做 #13/#14，这件事要你明确点头。
+3. **留到 R3-05**：那时本来就要在生产上做 RC 与验收，socket/nginx 两格并进去一起验。
+   代价是 R3-03 一直挂着一个 ❌（本轮就选了这条，因为它不需要额外许可）。
+
+### 这一轮顺带修掉/发现的三件事（细节在 `docs/R3_RUNTIME_EVIDENCE.md`）
+
+1. `GOVERNANCE_MARKER_PATH` 写死 `/tmp` → Windows 上标记**永远写不进去也读不到**（不报错）；
+2. `_single_runner` 在 Windows 上是**空操作**（`import fcntl` 失败就放行）—— 与 R3-01 的迁移锁同一个毛病；
+3. 我自己第一版的判据是错的：按「日志里出现几次『治理完成』」数，而那行**无条件打**，
+   跳过时打的是 `{'skipped_same_day': 1}` → 「两个都跳过」被读成「两个都跑了」。现在按**返回的字典**判。
+
+**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven **部分**（本机同机双进程 4/5 个实验过；跨机器与 socket/nginx 未验）
 
 ## R3-04 Observability
 

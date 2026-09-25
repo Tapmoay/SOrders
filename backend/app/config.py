@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -48,6 +49,11 @@ class Settings(BaseSettings):
     metrics_token: str = ""
     # Socket.IO Redis 适配器地址（多 worker 需共享连接状态；留空=进程内内存模式）
     socket_redis_url: str = ""
+    #: 上传资产的根目录（R3-03-A 的**架构决策**：它是**本机文件系统资产**，不是对象存储 —— 见
+    #: `docs/R3_DECISIONS.md`）。相对路径按**进程工作目录**解析，与改动前 `Path("uploads")` 逐字等价；
+    #: 多实例部署时把它设成**同一个绝对路径/共享挂载点**，两个实例就看得到彼此上传的图。
+    #: ⛔ 业务代码里不许再写 `Path("uploads")` —— 一处实现，判据 `_check_multi_instance_readiness.py` 核。
+    uploads_dir: str = "uploads"
 
     # ⚠️ **刻意不给默认值**（2026-09-19 安全审计）：
     #     原来这里是 `"change-me-in-production-use-openssl-rand-hex-32"`，而这个仓库是**公开的** ——
@@ -78,6 +84,15 @@ class Settings(BaseSettings):
     #: （1=派单员 / 2=货主 / 3=司机(固定工资) / 4=司机(挂车) / 5=普通货主…）。
     #: 留空 = 这个能力**整体关闭**（谁都不许拿默认 key）。
     ai_test_phone_prefix: str = ""
+
+
+def uploads_root() -> Path:
+    """上传资产的根目录 —— **一处实现**（R3-03-A 的决策落地，见 `docs/R3_DECISIONS.md`）。
+
+    ⛔ 业务代码里不许再写 `Path("uploads")`：多实例部署时两个实例必须指向**同一个**目录
+    （同机多进程天然共享；跨机器要靠共享挂载点），散在 7 个文件里的 13 处字面量没法保证这一点。
+    """
+    return Path(get_settings().uploads_dir)
 
 
 @lru_cache

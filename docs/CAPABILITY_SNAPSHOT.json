@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:41fc1ae887231096ec642d0bf035220a1f700b69d023d42ee51d83fb5bb2e6df",
+ "source_hash": "sha256:a292ffc8b559131f7254062280349a2c8b0d05b0806f7e17879fee98d64414a7",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -319,7 +319,7 @@
     "dispatcher"
    ],
    "kind": "write",
-   "gate": "backend/app/api/v1/shipper.py:29",
+   "gate": "backend/app/api/v1/shipper.py:30",
    "why_not_permission": "这一整块是「按人分区」的：货主管自己的地址库，派单员用同一套接口管代理下单要用的地址；权限点表述不了「只能动自己那一份」，那是 scope 才管的事。",
    "when_to_remove": "如果哪天把 scope=own 的权限点体系补全（`order:read_own` 那种已经在用了），这块可以收成 `address:manage` + scope=own。"
   },

@@ -37,6 +37,7 @@ from PIL import Image, ImageOps
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import uploads_root
 from app.models.order import Order
 from app.models.place import Place
 from app.models.product import Product
@@ -160,7 +161,7 @@ def archive_images_older_than(days: int = ORIGINAL_RETENTION_DAYS) -> int:
     返回压缩成功数量。文件名不变，所以库里的引用一直有效。"""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     done = 0
-    for base in (Path("uploads") / "delivery", Path("uploads") / "products", Path("uploads") / "locations"):
+    for base in (uploads_root() / "delivery", uploads_root() / "products", uploads_root() / "locations"):
         if not base.is_dir():
             continue
         for f in base.rglob("*"):
@@ -189,7 +190,7 @@ def purge_orphan_compressed() -> int:
       不会被下一次覆盖）——同样没有任何引用，且扩展名不在归档扫描范围内，不清就永远留着。
     """
     removed = 0
-    for base in (Path("uploads") / "delivery", Path("uploads") / "products", Path("uploads") / "locations"):
+    for base in (uploads_root() / "delivery", uploads_root() / "products", uploads_root() / "locations"):
         if not base.is_dir():
             continue
         for pattern in ("*.compressed.webp", "*.archiving"):
@@ -286,7 +287,7 @@ def purge_orphan_images(db: Session, days: int = ORPHAN_IMAGE_GRACE_DAYS) -> int
     """
     keep = protected_image_urls(db)
     cutoff = time.time() - days * 86400
-    uploads = Path("uploads")
+    uploads = uploads_root()
     removed = 0
     # ⚠️ 三个子目录走**同一段扫描逻辑**（原来 locations/products 在这里、delivery 在
     #    `data_retention.delete_orders_by_ids` 里，两份判据分头演进迟早分叉）。

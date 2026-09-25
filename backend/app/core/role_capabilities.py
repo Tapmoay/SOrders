@@ -54,7 +54,7 @@ ROLE_CAPABILITIES: tuple[RoleCapability, ...] = (
         what='地址与联系人：常用线路、联系人、地点（含图片）',
         roles=('shipper', 'dispatcher'),
         kind='write',
-        gate='backend/app/api/v1/shipper.py:29',
+        gate='backend/app/api/v1/shipper.py:30',
         why_not_permission='这一整块是「按人分区」的：货主管自己的地址库，派单员用同一套接口管代理下单要用的地址；'
                             '权限点表述不了「只能动自己那一份」，那是 scope 才管的事。',
         when_to_remove='如果哪天把 scope=own 的权限点体系补全（`order:read_own` 那种已经在用了），'

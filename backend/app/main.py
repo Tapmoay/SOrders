@@ -16,7 +16,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.v1.router import api_router
-from app.config import get_settings
+from app.config import get_settings, uploads_root
 from app.core.business_time import business_today
 from app.core.metrics import render_prometheus, snapshot
 from app.core.request_id import RequestIdFilter, RequestIdMiddleware
@@ -383,7 +383,7 @@ def create_fastapi_app() -> FastAPI:
         #    `GET /api/v1/ledger/export-jobs/{id}/download` 取；这里再堵一道历史文件。
         if file_path.split("/", 1)[0] == "exports":
             raise HTTPException(status_code=404, detail="文件不存在")
-        base = Path("uploads").resolve()
+        base = uploads_root().resolve()
         target = (base / file_path).resolve()
         # ⚠️ 判据必须是**路径关系**，不能是字符串前缀（2026-09-19 审计 L-15）：
         #    原来是 `str(target).startswith(str(base))`，而 `uploads_evil/…` 的前缀**就是** `uploads/`
@@ -447,7 +447,7 @@ def create_fastapi_app() -> FastAPI:
     @application.get("/api/v1/system/app-version")
     def app_version() -> dict[str, Any]:
         """App 检查更新：返回部署时写入 uploads/app/version.json 的版本信息。"""
-        p = Path("uploads/app/version.json")
+        p = uploads_root() / "app" / "version.json"
         if not p.is_file():
             return {"version": None, "url": None, "note": ""}
         try:
