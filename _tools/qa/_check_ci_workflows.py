@@ -64,7 +64,7 @@ PLAN_REL = "_tools/qa/_check_all.py"
 #: 判据条数下限。⛔ 原来是 17，而实际已经 38 —— 一个远低于实际值的下限等于没有下限
 #: （它只在"检查整个空转"时才响，而那时通常还有别的症状）。2026-09-25 第 56 轮改成**贴着实际值**：
 #: 少一条就红，逼着"删判据"这件事变成一次显式编辑。
-MIN_RULES = 38
+MIN_RULES = 39
 
 # fast gate 四件事（报告 §5 图里的 "syntax / changed checks / endpoint freshness / core freeze"）
 FAST_SHOULD = {
@@ -128,6 +128,18 @@ def job_scripts(job: dict) -> str:
         if isinstance(w, dict) and isinstance(w.get("script"), str):
             parts.append(w["script"])
     return "\n".join(parts)
+
+
+def emulator_script(job: dict) -> str | None:
+    """模拟器那个 action 的 `with.script`（找不到返回 None）。"""
+    for s in (job or {}).get("steps") or []:
+        if not isinstance(s, dict):
+            continue
+        if "android-emulator-runner" in str(s.get("uses") or ""):
+            w = s.get("with") or {}
+            if isinstance(w, dict) and isinstance(w.get("script"), str):
+                return w["script"]
+    return None
 
 
 def branch_of(script: str, marker: str) -> str:
@@ -424,6 +436,18 @@ def main() -> int:
              jn + "「模拟器没起来」那一支**会红**（缺失 rc 文件时 exit 非 0）",
              "⛔ " + jn + " 在‘模拟器没起来’时仍然 exit 0 —— 那是「永远绿的检查」："
              "没跑成会被报成通过。（找不到 `[ ! -f /tmp/e2e.rc ]` 那一支也算不成立。）")
+        # ---- 16. 模拟器那个 action 的 `script` 必须**只有一行**（它按行 `sh -c`）----
+        # ⛔ 2026-09-25 第 57 轮实测（日志原文）：`[command]/usr/bin/sh -c set +e` 与
+        #    `[command]/usr/bin/sh -c python _tools/e2e/... --serial 5554 \` 是**两次独立调用**：
+        #    这个 action 把 script **逐行**执行。于是多行脚本里有三样东西静默失效：
+        #      ① `set +e` 管不到后面；② 变量（`rc=$?`）活不过一行；
+        #      ③ 行尾 `\` 变成**一个真实参数** → python 直接 `unrecognized arguments: \` 退 2。
+        #    三种都不报"你的写法不对"，只在**真跑**时才炸 —— 所以判据钉「只能一行」。
+        esc = emulator_script(j)
+        want(esc is not None and len([x for x in esc.splitlines() if x.strip()]) == 1,
+             jn + " 的模拟器 `with.script` 只有**一行**（那个 action 逐行执行，多行会丢 set/变量、把 `\` 当参数）",
+             "⛔ " + jn + " 的模拟器 script 是多行的（或压根找不到）—— 这个 action 逐行 `sh -c`："
+             "set/变量/行尾 `\` 全部失效且**不报错**，只在真跑时才炸（第 57 轮实测退 2）")
 
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),

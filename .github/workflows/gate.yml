@@ -270,16 +270,16 @@ jobs:
           # 开了 KVM 之后正常是 1~3 分钟，这个值只起"慢也不冤杀"的作用。
           emulator-boot-timeout: 900
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: |
-            set +e
-            python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 \
-              --password pass12345 > /tmp/e2e.log 2>&1
-            rc=$?
-            if [ "$rc" != "0" ]; then echo "$rc" > /tmp/e2e.rc; exit 0; fi
-            adb install -r android/app/build/outputs/apk/phone/debug/*.apk >> /tmp/e2e.log 2>&1
-            python _tools/e2e/_flow_login_nav_order.py --serial 5554 \
-              --password pass12345 >> /tmp/e2e.log 2>&1
-            echo $? > /tmp/e2e.rc
+          # ⛔ **必须是一整行**：这个 action 把 `script` **按行**分别 `sh -c` 执行。
+          #    2026-09-25 第 57 轮实测（日志原文）——
+          #      [command]/usr/bin/sh -c set +e
+          #      [command]/usr/bin/sh -c python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 \
+          #    是**两次独立调用**。后果有三，而且全部静默：
+          #      ① `set +e` 管不到后面；② 变量（`rc=$?`）活不过一行；
+          #      ③ 行尾 `\` 变成**一个真实参数** → argparse 直接 `unrecognized arguments: \` 退 2。
+          #    所以整条流程压成一行，用 `;` / `||` 连接；判据第 16 条钉着「只能一行」。
+          script: >
+            python _tools/e2e/_flow_login_nav_order.py --check-env --serial 5554 --password pass12345 > /tmp/e2e.log 2>&1 || { echo $? > /tmp/e2e.rc; exit 0; }; adb install -r android/app/build/outputs/apk/phone/debug/*.apk >> /tmp/e2e.log 2>&1; python _tools/e2e/_flow_login_nav_order.py --serial 5554 --password pass12345 >> /tmp/e2e.log 2>&1; echo $? > /tmp/e2e.rc
       - name: 判定（跑通 / 跑挂 / 带理由跳过）
         if: always()
         run: |

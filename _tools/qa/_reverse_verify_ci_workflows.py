@@ -172,6 +172,15 @@ CASES: list[tuple[str, str, str, str, str]] = [
         + chr(10) + "            exit 0",
         "仍然 exit 0",
     ),
+    (
+        "⑯ 模拟器 script 又被拆成多行（那个 action 逐行 `sh -c`：set/变量/续行全静默失效）",
+        # ⚠️ 锚点取 `script: >` 那一行 + 紧随其后的正文行：只锚 `script: >` 会太短，
+        #    而整段正文太长且含 `>`（YAML 折叠标量），分段锚更稳。
+        GATE,
+        "          script: >\n            python _tools/e2e/_flow_login_nav_order.py --check-env",
+        "          script: |\n            set +e\n            python _tools/e2e/_flow_login_nav_order.py --check-env",
+        "的模拟器 script 是多行的",
+    ),
 ]
 
 CRLF = chr(13) + chr(10)
