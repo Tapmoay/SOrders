@@ -157,7 +157,7 @@ name: order
 中文名: 订单域
 为什么是它自己的域: 订单状态、派单归属、订单生命周期是这套系统围绕的中心事实；它连接钱、司机、退货、库存、通知、报表，但**不拥有**其中任何一个。
 owns: orders, order_products, order_templates, order_template_categories
-commands: services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:mark_returned, services.order_flow:split_order
+commands: commands.order:create_order, commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:mark_returned, services.order_flow:split_order
 reads: users@identity, products@catalogue, shipper_addresses@party, driver_billing_rules@settlement
 events: orders.assigned, orders.created, orders.delivered, orders.cancelled, orders.recalled, orders.revoked, orders.edited, orders.driver_acked, orders.freight_updated, orders.pending_pool_changed, orders.navigation_filled
 pure_consumer: no
@@ -167,7 +167,16 @@ pure_consumer: no
 
 **状态只有一个写入口**（第一轮阶段 5 §8 已收口，本轮把它升级成**声明**）：`order.status` 的每一次变化都在 `services/order_flow.py` 里，且都是**条件 UPDATE（CAS）**。
 
-**⚠️ 本轮发现并如实登记的缺口**：下单时 `Order(status=PENDING_DISPATCH, …)` 是在路由里**构造对象**写进去的（`api/v1/orders_lifecycle.py`）—— 按 `\.status\s*=` 这条判据扫是**扫不到它的**。R2-02 把 `CreateOrder` 也收成命令，并给判据补上「构造期状态」这一族。
+**✅ R2-02 把这个缺口补上了**：原来下单时 `Order(status=PENDING_DISPATCH, …)` 是在**路由里构造对象**写进去的
+（`api/v1/orders_lifecycle.py`）—— 按 `\.status\s*=` 这条判据扫是**扫不到它的**。现在 `create_order` / `update_order`
+的应用逻辑搬进了 [`app/commands/order.py`](../../backend/app/commands/order.py)，路由只剩 HTTP；
+命令登记在上面 `commands:` 那一行里，判据 [`_check_order_commands.py`](../_tools/qa/_check_order_commands.py)
+会核对「**API 层一处都没有直接写订单状态**」（反向验证里专门有一条把状态写回路由，看它会不会红）。
+
+**命令的完整形状在 [`backend/app/commands/registry.py`](../../backend/app/commands/registry.py)**：每条命令的
+「前置状态 → 目标状态 / 需要的权限点 / 会发出的事件 / 会写的别的域的表」都写在那里，
+并且与 `order_flow.py` 里的**条件 UPDATE 逐条对账** —— 声明与代码不一致就报红。
+本域的 `commands:` 一行是**归属**（谁拥有它），registry 是**形状**（它允许什么）；两处都要有，判据也会核对两处互相指得到。
 
 **`reads` 里为什么有 `driver_billing_rules`**：派单时必须把司机当次的计费规则**快照**进订单（`orders.driver_rule_snapshot`），否则规则后来被改，历史单的钱会跟着变。
 

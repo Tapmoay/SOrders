@@ -161,7 +161,10 @@ def main() -> int:
 
     # ---- ②b 后端：「下单人」= 这一单的货主（2026-09-22 第二轮的口径，兜底那半边）----
     c.present("只有**代理下单**才兜底（货主自己下单一个字节都不补）", api,
-              r"if target_shipper is not None and target_shipper\.id != current\.id:")
+              # ⚠️ 2026-09-25 R2-02：这段搬进了 commands/order.py，形参由 `current` 改名 `actor`。
+              #    锚点里那个名字**不该钉死** —— 判据要的是"下单人不是本人的时候才补"，
+              #    钉在局部变量名上只会让它下次改名时再红一遍（规则一个字没变）。
+              r"if target_shipper is not None and target_shipper\.id != \w+\.id:")
     # ⛔ 只补一半的后果：名字写"王老板"、电话却是货主账号那个号 —— 一个不存在的下单人。
     c.present("**两栏都空**才补（只空一栏不补）", api,
               r"if not boss_name and not boss_phone:\s*\n\s*boss_name = ")

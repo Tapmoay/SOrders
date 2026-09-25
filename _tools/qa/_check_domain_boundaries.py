@@ -3,7 +3,7 @@
 
 ### 为什么需要它（第二轮 R2-01）
 用户 2026-09-25 交来的方向指南第一节：「第二轮先不要改代码：先建立领域地图」。
-地图在 `docs/DOMAIN_BOUNDARIES.md`，主体是一批 ````domain` 声明块。
+地图在 `docs/DOMAIN_BOUNDARIES.md`，主体是一批 `domain` 声明块。
 
 ⛔ **一张没人核对的领域地图比没有地图更糟**：没有地图时你会去读代码拿一手真相；
 有错地图时你会相信结论直接动手（这条教训本仓库在 `08_CODE_LOCATOR.md` 上写过一遍）。
@@ -20,25 +20,22 @@
 7. `owns` 为空只允许 `pure_consumer: yes`；
 8. `commands` 为空必须写非空的 `无命令的理由`。
 
-⚠️ **判据自己算的东西**（不是从文档抄的）：表清单来自 `backend/app/models/**` 的
-`__tablename__`；命令是否存在来自源码里的 `def`；事件类型来自
-`outbox.enqueue(...)` 的字符串字面量。所以文档过期会当场报红，而不是安静地骗人。
+⚠️ **判据自己算的东西**（不是从文档抄的）：表清单、事件类型、命令是否存在 —— 口径与实现都在
+`_domain_map.py` 一处（R2-02 的命令注册表判据共用同一份解析，避免两处各写一遍）。
+所以文档过期会当场报红，而不是安静地骗人。
 
 用法：python _tools/qa/_check_domain_boundaries.py [--check]
 """
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
 for _s in (sys.stdout, sys.stderr):
     _s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
-ROOT = Path(__file__).resolve().parents[2]
-DOC = ROOT / "docs/DOMAIN_BOUNDARIES.md"
-APP = ROOT / "backend/app"
-MODELS = APP / "models"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _domain_map as dm  # noqa: E402
 
 #: 反空转下限 —— 清单/表/命令/事件少到这个数以下，说明判据自己空转了（本仓库的老规矩）。
 MIN_DOMAINS = 15
@@ -47,82 +44,11 @@ MIN_COMMANDS = 30
 MIN_EVENTS = 15
 MIN_TEXT = 12
 
-#: 每个域块必须有的键（少一个就是「地图缺了一半」）。
-REQUIRED_KEYS = (
-    "name", "中文名", "为什么是它自己的域",
-    "owns", "commands", "reads", "events", "pure_consumer",
-)
-
-BLOCK_RE = re.compile(r"(?ms)^```domain[ \t]*$(.*?)^```[ \t]*$")
-TABLE_RE = re.compile(r"__tablename__\s*=\s*\"([^\"]+)\"")
-ENQUEUE_RE = re.compile(r"enqueue\(\s*db,\s*\"([^\"]+)\"")
-
-
-def _split(value: str) -> list[str]:
-    """逗号分隔的清单；`-` 与空串都表示「没有」。"""
-    v = (value or "").strip()
-    if not v or v == "-":
-        return []
-    return [x.strip() for x in v.split(",") if x.strip()]
-
-
-def parse_blocks(text: str) -> tuple[list[dict], list[str]]:
-    blocks: list[dict] = []
-    bad: list[str] = []
-    for m in BLOCK_RE.finditer(text):
-        d: dict = {}
-        for line in m.group(1).splitlines():
-            if not line.strip():
-                continue
-            key, sep, val = line.partition(":")
-            if not sep or not key.strip():
-                bad.append(line.strip()[:60])
-                continue
-            d[key.strip()] = val.strip()
-        blocks.append(d)
-    return blocks, bad
-
-
-def real_tables() -> set[str]:
-    """项目里真有哪几张表 —— **自己算**，不从文档抄。"""
-    out: set[str] = set()
-    for f in MODELS.rglob("*.py"):
-        out.update(TABLE_RE.findall(f.read_text(encoding="utf-8")))
-    return out
-
-
-def real_events() -> set[str]:
-    """代码里真的在产生哪些事件类型 —— **自己算**。
-
-    ⚠️ 用 `\\s*` 而不是 ` `：本项目多处 `enqueue(...)` 是**跨行**写的
-    （`orders_return.py` / `return_requests.py` / `ledger.py`），
-    只认单行会把它们漏掉，而漏掉的后果是「没人认领的事实」那条判据**永远绿**。
-    """
-    out: set[str] = set()
-    for f in APP.rglob("*.py"):
-        out.update(ENQUEUE_RE.findall(f.read_text(encoding="utf-8")))
-    return out
-
-
-def command_problem(ref: str) -> str:
-    """命令 `模块:函数` 是否真的存在；不存在就返回原因。"""
-    mod, sep, fn = ref.partition(":")
-    if not sep or not mod or not fn:
-        return "不是 `模块:函数` 的形状"
-    path = APP / (mod.replace(".", "/") + ".py")
-    if not path.exists():
-        return "模块不存在：" + mod
-    src = path.read_text(encoding="utf-8")
-    if not re.search(r"(?m)^def " + re.escape(fn) + r"\(", src):
-        return "函数不存在：" + fn
-    return ""
-
 
 def main() -> int:
-    text = DOC.read_text(encoding="utf-8")
-    blocks, unparsed = parse_blocks(text)
-    tables = real_tables()
-    events = real_events()
+    blocks, unparsed = dm.load_blocks()
+    tables = dm.real_tables()
+    events = dm.real_events()
 
     fails: list[str] = []
     passed = 0
@@ -151,7 +77,7 @@ def main() -> int:
     for d in blocks:
         nm = d.get("name", "?")
         names.append(nm)
-        miss = [k for k in REQUIRED_KEYS if k not in d]
+        miss = [k for k in dm.REQUIRED_KEYS if k not in d]
         if miss:
             fails.append(f"域 {nm} 缺字段：" + "、".join(miss))
         if len(d.get("为什么是它自己的域", "")) < MIN_TEXT:
@@ -166,7 +92,7 @@ def main() -> int:
     owner_of: dict[str, str] = {}
     for d in blocks:
         nm = d.get("name", "?")
-        for t in _split(d.get("owns", "")):
+        for t in dm.split_list(d.get("owns", "")):
             if t in owner_of:
                 fails.append(f"表 {t} 有**两个**拥有者：{owner_of[t]} 与 {nm}（一个事实不能有两处口径）")
             else:
@@ -184,10 +110,10 @@ def main() -> int:
     cmd_count = 0
     for d in blocks:
         nm = d.get("name", "?")
-        refs = _split(d.get("commands", ""))
+        refs = dm.split_list(d.get("commands", ""))
         cmd_count += len(refs)
         for ref in refs:
-            why = command_problem(ref)
+            why = dm.command_problem(ref)
             if why:
                 fails.append(f"域 {nm} 的命令 {ref} 对不上代码：{why}")
             if ref in cmd_owner:
@@ -204,7 +130,7 @@ def main() -> int:
     before = len(fails)
     for d in blocks:
         nm = d.get("name", "?")
-        for item in _split(d.get("reads", "")):
+        for item in dm.split_list(d.get("reads", "")):
             read_edges += 1
             tbl, sep, other = item.partition("@")
             if not sep or not tbl or not other:
@@ -218,8 +144,9 @@ def main() -> int:
                 continue
             if owner_of.get(tbl) != other:
                 fails.append(
-                    f"域 {nm} 认为 {tbl} 属于 {other}，但地图上它属于 {owner_of.get(tbl) or '（没人）'} —— "
-                    "读边指错了域，等于偷偷读"
+                    f"域 {nm} 认为 {tbl} 属于 {other}，但地图上它属于 "
+                    + (owner_of.get(tbl) or "（没人）")
+                    + " —— 读边指错了域，等于偷偷读"
                 )
     if len(fails) == before:
         passed += 1
@@ -228,7 +155,7 @@ def main() -> int:
     ev_owner: dict[str, str] = {}
     for d in blocks:
         nm = d.get("name", "?")
-        for ev in _split(d.get("events", "")):
+        for ev in dm.split_list(d.get("events", "")):
             if ev not in events:
                 fails.append(f"域 {nm} 声称产生事件 {ev}，但代码里没有任何 `enqueue` 产生它")
             if ev in ev_owner:
@@ -248,9 +175,9 @@ def main() -> int:
         pc = d.get("pure_consumer", "").strip().lower()
         if pc not in ("yes", "no"):
             fails.append(f"域 {nm} 的 pure_consumer 只能是 yes / no，现在是 {pc!r}")
-        if not _split(d.get("owns", "")) and pc != "yes":
+        if not dm.split_list(d.get("owns", "")) and pc != "yes":
             fails.append(f"域 {nm} 一张表都不拥有，却没标 pure_consumer: yes")
-        if not _split(d.get("commands", "")):
+        if not dm.split_list(d.get("commands", "")):
             why = d.get("无命令的理由", "").strip()
             if len(why) < MIN_TEXT:
                 fails.append(f"域 {nm} 没有命令，但没写（或写得太短）「无命令的理由」")

@@ -106,12 +106,15 @@ CASES: list[tuple[str, Path, str, str, str]] = [
     (
         "新加一个没人交代的多写入点字段（两个函数各写一处，谁都没取锁也没理由）",
         ORDERS_L,   # 2026-09-24 阶段 4：update_order / patch_order_exception 搬去了 orders_lifecycle.py
+        # ⚠️ 2026-09-25 R2-02：`update_order` 又搬进了命令层，所以第二处锚点改成**还在本文件里**的
+        #    `restore_order`（注入必须落在同一份文件上；跨文件注入这一套沙箱不支持，
+        #    硬写会 SKIP —— 而 SKIP 会被算成不成立）。
         ['    order.exception_reason = body.exception_reason or ""\n',
-         "    if body.internal_notes is not None:\n        order.internal_notes = body.internal_notes\n"],
+         "    order.deleted_at = None\n"],
         ['    order.exception_reason = body.exception_reason or ""\n'
          "    order.zzz_probe_field = 1\n",
-         "    if body.internal_notes is not None:\n        order.internal_notes = body.internal_notes\n"
-         "        order.zzz_probe_field = 2\n"],
+         "    order.deleted_at = None\n"
+         "    order.zzz_probe_field = 2\n"],
         "orders.zzz_probe_field",
     ),
     (

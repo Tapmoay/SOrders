@@ -20,15 +20,25 @@
 
 ## 进行中
 
-### [2026-09-25 20:4x → ] 会话：**第二轮整改 R2-01：领域边界地图（DOMAIN_BOUNDARIES）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+### [2026-09-25 20:4x → 21:3x] 会话：**第二轮整改 R2-01 领域边界地图 + R2-02 订单命令层（Route → Command）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **用户 2026-09-25 交来第二份方向指南**（`C:\Users\Optimistic\Desktop\ppdd.md`，1028 行），原名
 《SOrders 第二轮整改的核心目标：从「强约束模块化单体」进入「显式业务边界架构」》。已归档为
 `docs/ARCHITECTURE_RECTIFICATION_R2.md`（字节一致，SHA256 `047D6C75…8041`），并按用户要求立了
 本轮的长期目标（六个里程碑 R2-01…R2-06 + 四个贯穿层）。
 
-**改动文件**：`docs/DOMAIN_BOUNDARIES.md`（新）、`docs/ARCHITECTURE_RECTIFICATION_R2.md`（新，指南存档）、
-`_tools/qa/_check_domain_boundaries.py`（新）、`_tools/qa/_reverse_verify_domain_boundaries.py`（新）。
+**改动文件（R2-01）**：`docs/DOMAIN_BOUNDARIES.md`（新）、`docs/ARCHITECTURE_RECTIFICATION_R2.md`（新，指南存档）、
+`_tools/qa/_check_domain_boundaries.py`（新）、`_tools/qa/_reverse_verify_domain_boundaries.py`（新）、
+`_tools/qa/_domain_map.py`（新，两份判据共用的解析器）。
+
+**改动文件（R2-02）**：`backend/app/commands/order.py`（新）、`backend/app/commands/registry.py`（新）、
+`backend/app/commands/__init__.py`（新）、`backend/app/api/v1/orders_lifecycle.py`（路由变薄）、
+`_tools/qa/_check_order_commands.py`（新）、`_tools/qa/_reverse_verify_order_commands.py`（新）、
+`docs/DOMAIN_BOUNDARIES.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`（行号跟着搬），
+**以及 4 份反向验证 + 4 份判据的锚点跟着实现重指**（`_tools/ai/_airepo.py`、`_check_ai_guardrails.py`、
+`_check_client_contract.py`、`_check_contact_names.py`、`_check_list_order.py`、
+`_reverse_verify_contact_names.py`、`_reverse_verify_product_guards.py`、
+`_reverse_verify_status_gate_locking.py`、`_reverse_verify_catalog_and_scope.py`）。
 
 ⛔ **本轮不动任何核心文件**：R2-01 只产出「声明 + 判据」，一行后端代码都没改 —— 指南 §一 的原话是
 「第二轮先不要改代码：先建立领域地图」。后面的 R2-02（订单命令层）会动 `order_flow.py` / `api/v1/orders_*.py`，
@@ -45,6 +55,39 @@
 ② 指南里引用的三个数字（`api/v1` 13,724 行 / `orders.py` 2,055 行 / `reports.py` 822 行）**已经过期**：
 第一轮阶段 4 把 `orders.py` 拆成了 8 个文件（19 行装配层），`api/v1` 现在是 10,979 行、`reports.py` 286 行。
 指南是拿**第一份报告**的数字在描述现状，所以本轮按**实测**重排了优先级（见 `docs/RECTIFICATION_PLAN.md`）。
+
+---
+
+### R2-02：订单命令层（Route → Command → Application → DomainRule → Persistence）
+
+**做了什么**：`create_order` / `update_order` 的**应用逻辑**从路由搬进 `backend/app/commands/order.py`，
+路由只剩 HTTP（认证 / 参数 / 响应 / 状态码）。错误不再就地 `raise HTTPException`，
+而是命令层抛 `CommandError`（默认 400 + 一句人话）、由路由**原样**翻回去 —— 本层因此不 import fastapi，
+可以被 HTTP / 后台任务 / 将来的 AI 服务端化三个入口共用。
+
+**⛔ 不动核心**：`services/order_flow.py`（核心区）**一行都没改** —— 它本来就是 7 处条件 UPDATE 的唯一住处。
+本轮做的是把「谁有权发起这些跃迁」从路由搬出来，并给它们一张**可核对的声明表**。
+
+**新判据 `_check_order_commands.py`（10 组）最要紧的两条**：
+① **CAS 对账** —— `order_flow.py` 里每一处条件 UPDATE 的（前置状态集合 → 目标状态）
+必须与 `registry.py` 的声明**一模一样**（多一条、少一条、前置写错都报红）；
+② **构造期状态** —— `Order(status=…)` 写下的状态必须是某条命令的 `to_state`，
+⛔ 而且 `backend/app/api/**` 里**一处都不许有**（这就是指南 §十九 的退出条件「API 不直接改变 order.status」）。
+反向验证 14/14 —— 其中第 ⑧ 条专门把状态写回路由，第 ⑨ 条在 order_flow 里偷偷多加一处 CAS。
+
+**等价性机器证明**：`_api_contract_snapshot.py --diff r2-02-before r2-02-after` → **契约零差异**
+（OpenAPI 全文一致、路由表逐条一致、遮蔽关系一致）。为此我把第一版加的 docstring 又撤了 ——
+FastAPI 会把 docstring 当 operation description 塞进 OpenAPI，那也算契约差异。解释改放模块 docstring。
+
+**⚠️ 搬运的代价（如实记下）**：4 份判据 + 4 份反向验证的锚点指到了旧位置，一度 5 条检查红。
+修法分两类：① 读源码**并集**的判据（`_airepo.orders_api_source()`）把命令层并进并集 ——
+这是本仓库早就定下的规矩「锚点落在哪一份里不该让一打判据红一遍」；
+② 锚点里那个局部变量名（`current` → `actor`）**不该钉死** —— 改成 `\w+`，
+判据要的是「这道门真的在」，不是「变量叫什么」。
+
+**证据**：`_check_all.py` 103 → **105/105**；后端 `pytest -q` **1015 passed**（与搬运前同数）；
+`_check_order_commands.py` 10 组全过（9 条命令 / order_flow 里 7 处条件 UPDATE / API 层直写状态 0 处）；
+`_reverse_verify_order_commands.py` **14/14**；`_reverse_verify_domain_boundaries.py` **13/13**。
 ### [2026-09-25 15:0x → ] 会话：**路线图 ⑨ 第二层第一域（授权收到签名上）+ ④ §14 安卓端到端的第一次真跑结果与两处修正**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **改动文件**：`backend/app/deps.py`、`backend/app/api/v1/expense_categories.py`、

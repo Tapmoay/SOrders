@@ -30,8 +30,11 @@ FLOW = ROOT / "backend/app/services/order_flow.py"
 LINES = ROOT / "backend/app/api/v1/order_products.py"
 PROD_SCHEMA = ROOT / "backend/app/schemas/product.py"
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
-#: 下单的商品护栏（create_order 里那一段）2026-09-24 阶段 4 搬去了 orders_lifecycle.py。
+#: 下单的商品护栏（create_order 里那一段）：2026-09-24 阶段 4 搬去了 orders_lifecycle.py，
+#: ⚠️ 2026-09-25 R2-02 又搬了一层 —— 应用逻辑进了命令层（路由只剩 HTTP）。
+#: 注入必须打在**真的含有那段文字**的那一份上，否则会 SKIP 而不是报红。
 ORDERS_L = ROOT / "backend/app/api/v1/orders_lifecycle.py"
+ORDER_CMD = ROOT / "backend/app/commands/order.py"
 ACCT = ROOT / "backend/app/services/accounting_service.py"
 
 CASES: list[tuple[str, Path, object]] = [
@@ -141,10 +144,10 @@ CASES: list[tuple[str, Path, object]] = [
     ),
     (
         "下单被拒时改回 500（用户/AI 看到的是「服务器错误」而不是「第 2 行对不上」）",
-        ORDERS_L,   # 2026-09-24 阶段 4：create_order 搬去了 orders_lifecycle.py
+        ORDER_CMD,   # R2-02：这段搬进了命令层（抛 CommandError，由路由翻成 400）
         lambda s: s.replace(
             "    except ValueError as e:\n"
-            "        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e\n"
+            "        raise CommandError(str(e)) from e\n"
             "    od = ensure_order_date(body.order_date)",
             "    od = ensure_order_date(body.order_date)",
             1,

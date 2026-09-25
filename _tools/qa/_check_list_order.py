@@ -174,8 +174,12 @@ def main() -> int:
         "orders.py", "orders_query.py", "orders_common.py",
         "orders_payment.py", "orders_media.py", "orders_assignment.py",
         "orders_delivery.py", "orders_lifecycle.py", "orders_return.py"))
+    # ⚠️ 2026-09-25 R2-02：下单那段应用逻辑搬进了 backend/app/commands/order.py（形参 current→actor）。
+    #    并集跟着扩；锚点也不再钉局部变量名 —— 判据要的是「这五类都记了」，不是「变量叫什么」。
+    orders_src += read(ROOT / "backend/app/commands/order.py")
     c.ok("下单成功时真的记了（联系人/线路/地点/商品/货主）",
-         "usage_service.record_usage(db, user=current, kind=kind, target_id=target)" in orders_src)
+         re.search(r"usage_service\.record_usage\(db, user=\w+, kind=kind, target_id=target\)",
+                   orders_src) is not None)
     c.ok("派单时记了司机（记在**派单员**名下）",
          "kind=usage_service.KIND_USER, target_id=body.driver_id" in orders_src)
     c.ok("App 的请求体带这三个字段", all(f"val {f}Id: Long? = null" in dts

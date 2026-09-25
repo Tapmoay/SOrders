@@ -65,6 +65,10 @@ ORDERS_ASSIGN = BACKEND / "api/v1/orders_assignment.py"
 ORDERS_DELIVERY = BACKEND / "api/v1/orders_delivery.py"
 #: 生命周期（update_order / create / patch exception / restore / delete）2026-09-24 阶段 4 搬去了这里
 ORDERS_LIFECYCLE = BACKEND / "api/v1/orders_lifecycle.py"
+#: ⚠️ 2026-09-25 R2-02：`update_order` 的**应用逻辑**又搬了一层 —— 从路由搬进了命令层
+#: （`backend/app/commands/order.py`，路由只剩 HTTP）。它里面那道状态门是**客户端状态门的真源**，
+#: 判据必须跟着实现走：留在旧文件里就会读不到门而当场硬失败（这是有意设计的，绝不静默通过）。
+ORDERS_COMMANDS = BACKEND / "commands/order.py"
 ORDER_PRODUCTS = BACKEND / "api/v1/order_products.py"
 ENDPOINT_GEN = ROOT / "backend/scripts/gen_endpoint_index.py"
 
@@ -267,7 +271,7 @@ def parse_backend_gates(enum: set[str]) -> dict[str, tuple[set[str], str]]:
     gates["LINE_EDITABLE"] = (members, src)
 
     # ⚠️ 逐条指明**文件**：`update_order_freight` 2026-09-24 阶段 4 搬去了 orders_assignment.py
-    for name, func, src_file in (("EDITABLE", "update_order", ORDERS_LIFECYCLE),
+    for name, func, src_file in (("EDITABLE", "update_order", ORDERS_COMMANDS),
                                  ("FREIGHT_EDITABLE", "update_order_freight", ORDERS_ASSIGN)):
         body = body_of(src_file, func)
         m = re.search(r"if\s+order\.status\s+in\s*\(([^)]*)\)\s*:\s*\n\s*raise", body)

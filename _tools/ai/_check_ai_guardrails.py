@@ -3314,8 +3314,17 @@ def main() -> int:
     c.present("先乘再按分四舍五入（先收单价会把误差放大）",
               flow, r"computed = money\(Decimal\(str\(unit_price\)\) \* qty\)")
     c.absent("下单不再「客户端给了就用客户端的」", strip_comments(flow), r"lt = getattr\(line, \"line_total\", None\)")
+    # ⚠️ 2026-09-25 R2-02：下单的应用逻辑搬进了 backend/app/commands/order.py，
+    #    错误不再在路由里就地 raise，而是「命令层抛 CommandError（默认 400 + 中文）→ 路由原样翻成 HTTPException」。
+    #    判据因此锚**那三步都在**（只锚路由那一步的话，命令层把默认档改成 500 这里照样绿 ——
+    #    而"被拒时是 400、不是 500"正是这一条要守的东西）。
     c.present("下单被拒时是 400 + 中文原因（不是 500）",
-              orders_api, r"except ValueError as e:\s*\n\s*raise HTTPException\(status_code=status\.HTTP_400_BAD_REQUEST")
+              orders_api, r"except ValueError as e:\s*\n\s*raise CommandError\(str\(e\)\)")
+    c.present("命令层错误的默认档是 400（兜底改成 500 就静默失效）",
+              orders_api, r"def __init__\(self, detail: str, status_code: int = 400\)")
+    c.present("命令层的错误由路由原样翻成 HTTP（状态码与文案都不丢）", orders_api,
+              r"except order_commands\.CommandError as e:\s*\n\s*raise HTTPException\("
+              r"status_code=e\.status_code, detail=e\.detail\)")
     c.present("加行也走同一份判据", lines_api, r"resolve_line_total\(body\.unit_price, body\.quantity, body\.line_total\)")
     c.present("改行也走同一份判据（改数量要重算金额）",
               lines_api, r"op\.line_total = resolve_line_total\(new_up, new_qty, body\.line_total\)")
@@ -4008,7 +4017,7 @@ def main() -> int:
               r"if not product_visible_to\(db, current, p\.id\):\s*\n\s*raise HTTPException\(status_code=404")
     # ⚠️ 只在选品页藏起来不够：接口照收 = 看起来限制了、其实没有。
     c.present("下单时也校验（否则藏起来的商品照样能塞进单里）", orders_api31,
-              r"if not product_visible_to\(db, current, ln\.product_id\)")
+              r"if not product_visible_to\(db, \w+, ln\.product_id\)")  # R2-02：下单那段搬进 commands/order.py，形参 current→actor
     # ⚠️ 这两条锚"**真的抛 / 真的写日志**"这个结构，不锚那句中文/那行 action=
     #    （把整块塞进 `if False:` 之后，中文和 action= 都还在文件里，照样绿 —— 反向验证抓到）
     c.present("`custom` 但一个都没勾 → **拒绝**（那等于让他什么都看不到）", users_api31,

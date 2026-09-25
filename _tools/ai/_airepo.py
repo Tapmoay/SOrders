@@ -204,16 +204,36 @@ ORDERS_API_MODULES = (
 )
 
 
+#: ⚠️ 第二轮 R2-02（2026-09-25）：`create_order` / `update_order` 的**应用逻辑**从路由搬去了
+#: `backend/app/commands/order.py`（指南要的形状是 Route → Command → Application → DomainRule）。
+#: 这里沿用上面同一条规矩 —— **判据读源码的并集**：锚点落在路由里还是命令层里，
+#: 不该让一打判据红一遍。所以 `orders_api_source()` 返回的是「API 路由 ∪ 命令层」。
+ORDERS_COMMAND_MODULES = (
+    "commands/order.py",
+)
+
+
 def orders_api_files(root: Path | None = None) -> list[Path]:
-    """orders 三个模块里**实际存在**的那些（按声明顺序，报错时便于定位）。"""
+    """orders 各模块里**实际存在**的那些（按声明顺序，报错时便于定位）。"""
     base = (root or ROOT) / "backend/app/api/v1"
     return [base / n for n in ORDERS_API_MODULES if (base / n).is_file()]
 
 
+def orders_command_files(root: Path | None = None) -> list[Path]:
+    """订单域**命令层**里实际存在的那些（R2-02 起：应用逻辑住在这里）。"""
+    base = (root or ROOT) / "backend/app"
+    return [base / n for n in ORDERS_COMMAND_MODULES if (base / n).is_file()]
+
+
+def orders_app_files(root: Path | None = None) -> list[Path]:
+    """orders 的**源码并集** = API 路由 ∪ 命令层。"""
+    return orders_api_files(root) + orders_command_files(root)
+
+
 def orders_api_source(root: Path | None = None) -> str:
-    """三个模块的源码并集，段间带文件名注释（判据报错时能看出锚点在哪一份里）。"""
+    """并集的源码，段间带文件名注释（判据报错时能看出锚点在哪一份里）。"""
     parts = [f"# ===== {p.name} =====" + chr(10) + p.read_text(encoding="utf-8", errors="replace")
-             for p in orders_api_files(root)]
+             for p in orders_app_files(root)]
     return (chr(10) * 2).join(parts)
 
 
