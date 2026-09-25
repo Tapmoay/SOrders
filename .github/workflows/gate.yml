@@ -223,8 +223,14 @@ jobs:
         run: python _tools/qa/_sweep_test_isolation.py
 
   android-unit-tests:
-    name: Nightly · 安卓单测（先跑通，再挪进 PR 闸）
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Normal Gate · 安卓单测（PR 上也拦）
+    # ⚠️ 2026-09-25：**去掉 if: schedule** —— 它现在 PR 上也跑（报告 §14 的目标就是「PR 上就拦住」，
+    #    而这一条一直挂在夜闸，等于没人拦）。
+    #    ⛔ 为什么敢挪：① 本机把**两个 flavor** 都跑通了（`testEmuDebugUnitTest` 与 `testPhoneDebugUnitTest`
+    #    各 BUILD SUCCESSFUL）；② 工具链四件事早被 `_check_ci_workflows.py` 钉住（setup-java /
+    #    setup-gradle 且版本 pin 成 8.9 / flavor 真实存在 / 失败也有结论）。
+    #    ⚠️ 保留 schedule 触发（没写 if 就是所有事件都跑）：这也是报告 §18 规则 4 的「双跑观察」——
+    #    等 PR 上稳定跑过一段时间，再把夜闸那条重复覆盖撤掉。
     needs: fast-gate
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -241,6 +247,12 @@ jobs:
           gradle-version: "8.9"
       - name: 跑模拟器变体的单测
         run: gradle -p android :app:testPhoneDebugUnitTest --no-daemon --stacktrace
+      # ⚠️ 汇总那一步调的是 `python`，而这个 job 原来**没装 Python** —— runner 上有没有 `python`
+      #    （而不是 `python3`）是不保证的，而那个 `|| true` 会把「command not found」也吞掉：
+      #    表现是**这一步永远绿、报告永远不出现**（一个静默失败）。装上 python 才是确定的。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
       - name: 汇总测试报告（失败也要给结论，别只留一句 exit 1）
         if: always()
         run: python _tools/qa/_android_test_count.py || true

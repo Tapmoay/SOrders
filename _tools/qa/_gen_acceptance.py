@@ -209,8 +209,8 @@ def render(rows: list[tuple[Evidence, bool, str, str]], *, full: bool) -> str:
     o.append("| Tests (Parallel) 那两个红 job | **真因已复现并修掉**：xdist 默认分发把同一个文件的用例拆到"
              "不同 worker，而这些用例共享 per-worker 的库 → 加 --dist loadfile（本机 `-n auto` 2 failed、"
              "加后 1015 passed），并配了判据第 12 条 + 反向验证第 ⑦ 条 | 还差**一次 push**：CI 上跑一遍才算数 |")
-    o.append("| 安卓单测从夜闸挪进 PR 闸 | 仍在夜闸（机器判据已把「跑得起来」的四件事钉住） | "
-             "需要 CI 能跑，才能验证「挪进去不会让每个 PR 都红」 |")
+    o.append("| 安卓单测 | **已挪进 PR 闸**（去掉 if: schedule = PR 与夜闸都跑；本机两个 flavor 各跑通一次）；"
+             "顺带修掉那个 job 的汇总步骤调 python 却从没装 Python 的静默失败 | 还差一次 push 在 CI 上确认 |")
     o.append("| 把整改后的代码发到生产 | 生产仍跑旧代码（外部监控里如实写着「还没有 outbox_events 表」「迁移版本 —」） | "
              "**等你拍板**；上线时启动会自动跑 002/003 两条迁移，迁移失败会拒绝启动（逃生门 SORDERS_SKIP_MIGRATIONS=1） |")
     o.append("")
