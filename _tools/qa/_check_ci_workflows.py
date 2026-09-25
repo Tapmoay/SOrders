@@ -305,6 +305,33 @@ def main() -> int:
         want(u in flavors, "gradle 任务里的 flavor `" + u + "` 真实存在",
              "⛔ 任务里的 flavor `" + u + "` 在 build.gradle.kts 里没有 —— 夜闸会红，而没人看夜闸")
 
+    # ---- 13. 跑「检查套件 / 后端」的 job 必须装依赖（★ 2026-09-25 CI 实测抓到的）----
+    #    事实：`static-checks` 与 `reverse-verify` 是全仓**唯二**不装依赖的 job（其它都装了
+    #    `requirements-all.txt`）。后果不是"少跑几个检查"：8 个检查在裸 Python 上
+    #    ModuleNotFoundError（sqlalchemy ×4 / socketio / PIL / PyYAML / annotated_types ×2），
+    #    而 `_check_ai_read_limits` / `_check_notify_guardrails` 会退化成「扫到 0 个端点 →
+    #    判据此刻证明不了什么」（不是红，是**空转**，更隐蔽）。
+    #    ⛔ 为什么本机永远看不出来：本机这些依赖是全局装的，`_check_all.py` 100/100 全绿 ——
+    #    这类红**只有 CI 看得见**；而 CI 常年红的时候，没人分得清"缺依赖"和"真缺陷"
+    #    （这正是那两个 job 红了整整几轮的原因之一）。
+    needs_deps = re.compile(r"_check_all\.py|_reverse_verify_all\.py|_sweep_test_isolation\.py"
+                            r"|\buvicorn\b|\bpytest\b")
+    n_need = 0
+    no_deps: list[str] = []
+    for name, doc_ in docs.items():
+        for jname, job in (doc_.get("jobs") or {}).items():
+            runs = [s.get("run") or "" for s in (job or {}).get("steps") or [] if isinstance(s, dict)]
+            if not any(needs_deps.search(r) for r in runs):
+                continue
+            n_need += 1
+            if not any("pip install" in r for r in runs):
+                no_deps.append(name + "/" + jname)
+    want(n_need >= 4, "盘到 " + str(n_need) + " 个要跑检查/后端的 job（判据没空转）",
+         "⛔ 只盘到 " + str(n_need) + " 个（<4）—— 判据在空转")
+    want(not no_deps, "每个跑检查/后端的 job 都装了依赖",
+         "⛔ 这些 job 跑检查却没装依赖（裸 Python 上会 ModuleNotFoundError，而本机全是绿的）："
+         + "；".join(no_deps))
+
     total = len(passed) + len(failures)
     want(total >= MIN_RULES, "判据条数 " + str(total) + " ≥ " + str(MIN_RULES),
          "⛔ 只跑了 " + str(total) + " 条判据（< " + str(MIN_RULES) + "）—— 检查可能空转了")

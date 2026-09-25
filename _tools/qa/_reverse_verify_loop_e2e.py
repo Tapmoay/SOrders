@@ -9,7 +9,10 @@ import sys
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-ROOT = Path(r"D:\AProjects\ASDH\orders")
+# ⛔ 不许写死本机路径：CI 在 /home/runner/... 上跑，写死会让这 3 条注入**恒 SKIP**
+#    （2026-09-25 CI 实测抓到：锚点检查报「目标文件不存在（被改名/搬走了？）」3 条，
+#     而在本机因为那个目录真的存在，永远看不出来 —— 一份"死掉的反向验证"比没有更糟）。
+ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
 TARGET = "tests/test_full_loop_regression.py"
 

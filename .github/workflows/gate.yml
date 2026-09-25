@@ -94,8 +94,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      # ⛔ 这一步 2026-09-25 才补上，原因值得留在这儿：
+      #    在这之前**这个 job 是全仓唯一不装依赖的 job**（其它三个都装 requirements-all.txt）。
+      #    后果不是"少跑几个检查"，而是 8 个检查在裸 Python 上直接 ModuleNotFoundError
+      #    （sqlalchemy ×4 / socketio / PIL / PyYAML / annotated_types ×2）—— 其中`_check_ai_read_limits`
+      #    和 `_check_notify_guardrails` 会退化成"扫到 0 个端点 → 判据证明不了什么"，
+      #    而它们在**本机**（依赖是全局装的）全绿 —— 也就是说这类红只有 CI 看得见，
+      #    而当时 CI 常年红，没人读得出"是缺依赖"还是"真缺陷"。
+      - name: 装依赖
+        run: |
+          cd backend
+          pip install -r requirements-all.txt
       # ⚠️ 这里**故意**不写死条数：条数由脚本自己数（写死的话每加一个检查都要改 CI，
       #    而"忘了改"的表现是"少跑了一半检查但仍然是绿的"）。
+      #    `_check_ci_workflows.py` 第 12 条现在会拦"跑检查的 job 却没装依赖"这件事。
       - name: 全部静态检查
         run: python _tools/qa/_check_all.py
 
@@ -192,6 +206,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      # ⛔ 和 `static-checks` 同一天补的：反向验证脚本会去跑那些检查，
+      #    没有依赖同样会成片 ModuleNotFoundError —— 而它只在夜闸跑，红了更没人看见。
+      - name: 装依赖
+        run: |
+          cd backend
+          pip install -r requirements-all.txt
       # ⛔ 反向验证会**注入真缺陷再还原**，所以：
       #    ① 期间不能有人改源码（本仓库 AGENTS.md 写着这条）；
       #    ② 它要独占工作区 —— 这就是这个 job 与别的 job 分开的原因。

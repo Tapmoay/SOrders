@@ -71,7 +71,7 @@ SKIP = {
 def endpoints_from_index() -> tuple[list[str], list[str]]:
     """解析机器生成的端点索引 → (无参 GET 路径, 解析失败的说明)。"""
     text = INDEX.read_text(encoding="utf-8")
-    # 表行形如：`| 1 | \`GET /api/v1/orders\` | \`list_orders\` | 文件:行 | 授权 |`
+    # 表行形如：`| 1 | `GET /api/v1/orders` | `list_orders` | 文件:行 | 授权 |`
     # （最前面那一列的序号可有可无：app 级路由那张表就没有序号，所以写成可选）
     rows = re.findall(r"^\|(?:\s*\d+\s*\|)?\s*`(GET|POST|PUT|PATCH|DELETE)\s+([^`]+)`\s*\|", text, re.M)
     if not rows:

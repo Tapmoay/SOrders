@@ -117,7 +117,16 @@ def collect_local(notes: list[str], *, with_tests: bool) -> dict:
         pkg = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
         f["version_frontend"] = pkg.get("version")
     except OSError:
-        # ⚠️ 安卓的 versionName **不是字面量**：2026-09-21 起它构建时读仓库根 VERSION
+        # ⛔ 这里必须有**一条语句**：2026-09-25 之前这一段被一次编辑"换成注释"了，
+        #    于是整个文件 IndentationError、这个工具根本跑不起来 —— 而它不在任何检查里
+        #    （Fast Gate 只 compile `backend/`，从没 compile 过 `_tools/`），所以坏了很久没人知道。
+        #    现在 `_check_tool_paths.py` 会把 `_tools/**/*.py` 全量 AST 解析一遍，这类当场红。
+        f["version_frontend"] = None
+        notes.append("取不到 frontend/package.json（Vue3 H5 已于 2026-09-25 归档删除，用户拍板不要网页版）"
+                      " → version_frontend 记 None；报告 §20 的「四处同值」现在是三处")
+
+    # --- 安卓 versionName：**不是字面量** ---
+    # ⚠️ 2026-09-21 起它构建时读仓库根 VERSION
     #    （android/app/build.gradle.kts:25 rootProject.file("../VERSION")）。所以这里记的是"它取哪个源"，
     #    而不是一个字符串——否则基线会永远显示 _未采集_，把"已经统一了"误报成"没采到"。
     gradle = ROOT / "android" / "app" / "build.gradle.kts"

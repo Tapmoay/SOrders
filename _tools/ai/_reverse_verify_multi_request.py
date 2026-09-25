@@ -2,12 +2,15 @@
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-ROOT = Path(r"D:\AProjects\ASDH\orders")
+# ⛔ 不许写死本机路径（`D:\AProjects\...` / `C:\Users\...`）：CI 在 /home/runner/... 上跑，
+#    写死 = 这条反向验证在外面永远不生效，而本机看起来一切正常。根目录一律从 __file__ 推。
+ROOT = Path(__file__).resolve().parents[2]
 P = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteNotificationHandlers.kt"
-BAK = Path(r"C:\Users\Optimistic\AppData\Local\Temp\_noth_backup.kt")
+BAK = Path(tempfile.gettempdir()) / "_noth_backup.kt"
 shutil.copy2(P, BAK)
 
 src = P.read_text(encoding="utf-8")

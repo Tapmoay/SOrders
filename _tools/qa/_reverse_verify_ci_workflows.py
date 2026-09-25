@@ -6,7 +6,7 @@
 它写错了只会在 GitHub 上红，本机 `_check_all.py` 照样全绿。所以这条红线的价值全在"它真的会红"上；
 一条永远绿的 workflow 检查比没有更糟（它会让人以为 CI 已经接管了）。
 
-## 六种破坏（每一种都必须让红线当场红，且报出**对应**那条判据）
+## 八种破坏（每一种都必须让红线当场红，且报出**对应**那条判据）
 | # | 注入 | 现实里谁会这么干 |
 | --- | --- | --- |
 | ① | 快闸里塞一个 `cd frontend` 的作业 | 前端归档后又把 H5 的构建步骤加回来（**它就是 2026-09-25 被人工删掉的那个作业的形状**） |
@@ -15,6 +15,8 @@
 | ④ | gradle 任务名的 flavor 拼错 | 抄旧文档里的任务名 |
 | ⑤ | `run:` 里引用一个不存在的检查脚本 | 检查改名/搬走之后 CI 没跟着改 |
 | ⑥ | PR 闸里删掉 `_check_all.py` | 「本机跑跑就行」→ 检查体系又只剩人在本机跑 |
+| ⑦ | 并行 pytest 丢了 `--dist loadfile` | 有人觉得"默认分发也一样"（实测默认分发 2 failed / 1013 passed） |
+| ⑧ | 跑检查的 job 删掉 `pip install` | 加新 job 时照抄了最像的那个 —— 而它恰好是全仓唯一不装依赖的那个（2026-09-25 CI 实测：8 个检查直接 `ModuleNotFoundError`，本机却全绿） |
 
 ⚠️ 与仓库里其它 `_reverse_verify_*.py` 同一套纪律：按**字节**备份/还原、跑完逐文件核对、
 ⛔ 全程不碰 `git checkout --`。
@@ -103,6 +105,19 @@ CASES: list[tuple[str, str, str, str, str]] = [
         '          pytest -n auto --dist loadfile -m "fast or smoke or unit" -v --tb=short',
         '          pytest -n auto -m "fast or smoke or unit" -v --tb=short',
         "没带 --dist loadfile",
+    ),
+    (
+        "⑧ 跑检查的 job 删掉 `pip install`（裸 Python 上检查会成片 ModuleNotFoundError，而本机看不出来）",
+        # ⚠️ 锚点必须带上后面那句注释才唯一 —— gate.yml 里有 4 个 job 都写了同样的「装依赖」三步，
+        #    只锚那三步的话 `apply` 会因为"出现 4 次"直接 SKIP（那种 SKIP 会被记成 MISS）。
+        GATE,
+        "      - name: 装依赖\n"
+        "        run: |\n"
+        "          cd backend\n"
+        "          pip install -r requirements-all.txt\n"
+        "      # ⚠️ 这里**故意**不写死条数：条数由脚本自己数（写死的话每加一个检查都要改 CI，\n",
+        "      # ⚠️ 这里**故意**不写死条数：条数由脚本自己数（写死的话每加一个检查都要改 CI，\n",
+        "却没装依赖",
     ),
 ]
 

@@ -22,7 +22,8 @@
 # ① 造库（副本，见 _perf_seed.py 的说明）
 python _tools/perf/_perf_seed.py --orders 20000 --force
 # ② 另一个后端指向副本（别动正在用的 8000）
-cd backend; $env:DATABASE_URL='sqlite:///D:/AProjects/ASDH/orders/_agent/perf/perf.db'; \
+# ⛔ 用**相对仓库根**的写法（`..` 是因为这一步在 backend/ 里跑），别写死某台机器的绝对路径
+cd backend; $env:DATABASE_URL='sqlite:///../_agent/perf/perf.db'; \
     python -m uvicorn app.main:app --port 8001
 # ③ 量
 python _tools/perf/_perf_probe.py --base http://127.0.0.1:8001

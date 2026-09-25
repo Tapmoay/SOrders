@@ -1,4 +1,4 @@
-﻿"""Independent verification via ast (NOT the generator's line-regex).
+"""Independent verification via ast (NOT the generator's line-regex).
 
 Extracts every route decorator from backend/app/api/v1/*.py by walking the AST,
 resolving the module APIRouter prefix, and dumping a canonical list.
@@ -13,7 +13,7 @@ import ast, json, re, sys
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-ROOT = Path(r"D:\AProjects\ASDH\orders")
+ROOT = repo_root()   # ⛔ 不许写死本机路径：CI 在 /home/runner/... 上跑，写死 = 那个检查在外面永远不生效
 API_DIR = ROOT / "backend" / "app" / "api" / "v1"
 
 def const_str(node):

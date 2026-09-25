@@ -49,7 +49,8 @@ def login_guard_id_threshold() -> int:
     import re
     from pathlib import Path as _P
 
-    src = _P(r"D:\AProjects\ASDH\orders\backend\app\services\login_guard.py").read_text(encoding="utf-8")
+    root = _P(__file__).resolve().parents[2]   # ⛔ 不许写死本机路径（CI 上不存在，探针会直接炸）
+    src = (root / "backend/app/services/login_guard.py").read_text(encoding="utf-8")
     m = re.search(r"MAX_FAILS_PER_ID = (\d+)", src)
     if not m:
         raise SystemExit("找不到 MAX_FAILS_PER_ID（登录限流的阈值挪地方了？）")

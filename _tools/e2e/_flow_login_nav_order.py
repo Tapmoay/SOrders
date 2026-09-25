@@ -106,7 +106,7 @@ class Emu:
         """点**这一行最右侧**的可点控件（商品行右边的「＋」）。
 
         商品名本身不可点（实测：点名字没有任何反应），可点的是同一行右侧那颗 ＋。
-        判据用"与它纵向对齐、且 x 最大" —— 与 \`_ui.py\` 的 \`taprow\` 同一个思路（不写死坐标）。
+        判据用"与它纵向对齐、且 x 最大" —— 与 `_ui.py` 的 `taprow` 同一个思路（不写死坐标）。
         """
         rows = self.nodes()
         anchor = next((n for n in rows if n["text"] == label), None)
