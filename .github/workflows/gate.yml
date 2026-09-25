@@ -241,6 +241,12 @@ jobs:
             sleep 1
           done
           curl -sf http://127.0.0.1:8000/health || { echo "后端没起来："; tail -40 /tmp/e2e-api.log; exit 1; }
+          # ⛔ 光有账号不够（2026-09-25 第 60 轮实测）：端到端的「下单」那一段要**在选品页点一行**、
+          #    再**在地址库里选一条**，而 `seed_dev_users` 只造三个账号 —— 页面上写的是
+          #    「暂无可用商品 ｜ 请联系派单员先在「商品管理」中添加商品后再下单」。
+          #    所以这里再播一次最小数据（幂等，走真实 API，见那个脚本的 docstring）。
+          #    判据第 21 条钉着这一条。
+          python -m scripts.seed_ci_e2e --base http://127.0.0.1:8000
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

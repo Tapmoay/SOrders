@@ -219,6 +219,13 @@ CASES: list[tuple[str, str, str, str, str]] = [
         "",
         "没有预授运行时权限",
     ),
+    (
+        "㉑ 业务数据没播（只有账号 → 选品页是空的 → 下单那一段卡住，而前两段全绿）",
+        GATE,
+        "          python -m scripts.seed_ci_e2e --base http://127.0.0.1:8000\n",
+        "",
+        "只造了账号、没造商品",
+    ),
 ]
 
 CRLF = chr(13) + chr(10)
