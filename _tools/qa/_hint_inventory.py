@@ -473,6 +473,20 @@ def main() -> int:
     return 0
 
 
+def _source_hash() -> str:
+    '''这份目录的**真源指纹** —— ⛔ 算法只有一处：`_airepo.source_fingerprint`。'''
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _ai = _Path(__file__).resolve().parents[1] / 'ai'
+    if str(_ai) not in _sys.path:
+        _sys.path.insert(0, str(_ai))
+    from _airepo import GENERATED_ARTIFACTS, source_fingerprint
+
+    spec = next(a for a in GENERATED_ARTIFACTS if a.key == 'hint_catalog')
+    return source_fingerprint(spec.sources)
+
+
 def render_md(rows: list[dict], n_files: int) -> str:
     by_cat = Counter(r["cat"] for r in rows)
     explain = sorted((r for r in rows if r["cat"] == "EXPLAIN"), key=lambda r: (-r["len"], r["file"]))
@@ -480,6 +494,9 @@ def render_md(rows: list[dict], n_files: int) -> str:
     out.append("# 界面提示与说明目录（**机器生成，不要手改**）")
     out.append("")
     out.append("> 生成命令：`python _tools/qa/_hint_inventory.py --md`")
+    # R3-07：产物自己声明真源指纹（真源表在 _airepo.GENERATED_ARTIFACTS，判据读同一份）
+    # ⚠️ 标记名必须**逐字**是 `source_hash`（判据按这个名字找，见 _check_generated_freshness.py）
+    out.append("> source_hash：`" + _source_hash() + "`")
     out.append("> 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。")
     out.append("")
     out.append("## 1. 口径")

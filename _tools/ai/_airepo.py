@@ -15,9 +15,11 @@
 from __future__ import annotations
 
 import filecmp
+import hashlib
 import shutil
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 #: ⛔ 让 **stdout 与 stderr 都** 按 UTF-8 写（本机 Windows 的 stderr 默认是 GBK）。
@@ -211,6 +213,91 @@ ORDERS_API_MODULES = (
 ORDERS_COMMAND_MODULES = (
     "commands/order.py",
 )
+
+
+# ============================================================ 生成物的「来源契约」（R3-07）
+#
+# 判据 `_tools/qa/_check_generated_freshness.py` 与**每个生成器**都从这里取同一份定义：
+# 一处实现、两处消费 —— 否则「为什么这个产物过期了」会变成各说各话。
+#
+# 每一行：
+#   · `path`        产物（仓库相对）
+#   · `generator`   重新生成它的命令（判据会真的跑 `--check` 形态来核内容新鲜）
+#   · `sources`     决定它内容的**真源 glob**（算指纹用；宁可多算，别少算）
+@dataclass(frozen=True)
+class GeneratedArtifact:
+    """一个机器生成物：它是谁生成的、由哪些源码决定、必须声明什么。"""
+
+    key: str
+    path: str
+    #: 重新生成它的命令（给人复制用）
+    generator: str
+    #: 校验它是否过期的命令（判据真的会跑它；必须是非零退出＝过期）
+    check_cmd: str
+    sources: tuple[str, ...]
+    #: 产物里必须能找到的标记（判据在这些文本里找 `source_hash` 的值时用）
+    marker: str
+
+
+GENERATED_ARTIFACTS: tuple[GeneratedArtifact, ...] = (
+    GeneratedArtifact(
+        key='endpoint_index',
+        path='docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md',
+        generator='cd backend && python -m scripts.gen_endpoint_index --out ../docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md',
+        check_cmd='cd backend && python -m scripts.gen_endpoint_index --check --out ../docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md',
+        sources=('backend/app/api/**/*.py', 'backend/app/core/rbac.py',
+                 'backend/scripts/gen_endpoint_index.py'),
+        marker='source_hash',
+    ),
+    GeneratedArtifact(
+        key='ai_read_catalog',
+        path='docs/ai/ai_read_catalog.json',
+        generator='python _tools/ai/_gen_ai_read_catalog.py',
+        check_cmd='python _tools/ai/_gen_ai_read_catalog.py --check',
+        sources=('backend/app/api/**/*.py', 'backend/app/core/rbac.py',
+                 'backend/scripts/gen_endpoint_index.py', 'docs/ai/ai_toolmap.json'),
+        marker='source_hash',
+    ),
+    GeneratedArtifact(
+        key='capability_snapshot',
+        path='docs/CAPABILITY_SNAPSHOT.json',
+        generator='python _tools/ai/_gen_capability_snapshot.py',
+        check_cmd='python _tools/ai/_gen_capability_snapshot.py --check',
+        sources=('backend/app/core/capabilities.py', 'backend/app/core/role_capabilities.py',
+                 'backend/app/core/capability_audit_coverage.py', 'backend/app/core/rbac.py',
+                 'backend/app/models/enums.py'),
+        marker='source_hash',
+    ),
+    GeneratedArtifact(
+        key='hint_catalog',
+        path='docs/PROJECT_MAP/09A_HINT_CATALOG.md',
+        generator='python _tools/qa/_hint_inventory.py --md',
+        check_cmd='python _tools/qa/_hint_inventory.py --check',
+        sources=('backend/app/**/*.py', 'android/app/src/main/**/*.kt'),
+        marker='source_hash',
+    ),
+)
+
+
+def source_fingerprint(globs: tuple[str, ...] | list[str], root: Path | None = None) -> str:
+    """一组源文件的**内容指纹** —— 回答「这个产物是哪一版代码生成的」。
+
+    规则（**只有这一处实现**，生成器与判据都用它，所以必须逐字一致）：
+      · 每个 glob 是**仓库相对**的（`backend/app/api/**/*.py`），按路径排序展开；
+      · 路径**也**参与哈希（改名/搬家要算出来）；
+      · 只读字节，不做解码、不等于规范化 —— 换行符或编码变了也算变。
+    """
+    base = root or ROOT
+    seen: list[Path] = []
+    for pattern in globs:
+        seen.extend(sorted(p for p in base.glob(pattern) if p.is_file()))
+    h = hashlib.sha256()
+    for p in sorted(set(seen)):
+        h.update(str(p.relative_to(base)).replace(chr(92), '/').encode('utf-8'))
+        h.update(b'\x00')
+        h.update(p.read_bytes())
+        h.update(b'\x01')
+    return 'sha256:' + h.hexdigest()
 
 
 def orders_api_files(root: Path | None = None) -> list[Path]:

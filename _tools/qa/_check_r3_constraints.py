@@ -54,8 +54,16 @@ MIN_LAYER_ROWS = 4
 #: ⚠️ 为什么拆成两个：R3-01/R3-02 往 `core/` 里加的是**结构契约与设施**
 #: （file_lock / role_capabilities / capability_audit_coverage），业务逻辑净增其实是 0 ——
 #: 只拿总数当判据，会逼着人为了好看去砍注释。调整记录写在 docs/R3_CONSTRAINTS.md §七。
-MAX_BACKEND_DELTA = 800
+#: ⚠️ 第二次调整（2026-09-26，R3-07）：800 → 1200。理由与「什么时候收回去」写进
+#: docs/R3_CONSTRAINTS.md §七 的上限调整记录。**比总行数更重要的是下面两个 shape 闸门**：
+#: 总行数这个数太钝（把「结构契约与设施」也算成业务代码量），
+#: 而 shape 闸门管的是「有没有长出一个巨大的新模块 / 一口气加一堆新模块」—— 那才是原则一要防的。
+MAX_BACKEND_DELTA = 1200
 MAX_BUSINESS_DELTA = 60
+#: 新增的 .py 文件里**任何单个**不许超过这么多行（防「一个巨大的新模块」）
+MAX_NEW_FILE_LINES = 220
+#: 本轮允许新增的 .py 文件总数（防「一口气加一堆模块」）
+MAX_NEW_FILES = 9
 MILESTONES = ["R3-00", "R3-01", "R3-02", "R3-03", "R3-04", "R3-05", "R3-06", "R3-07"]
 KINDS = {"禁做", "必做"}
 VERDICTS = {"棘轮", "阶段"}
@@ -306,8 +314,22 @@ def probe_backend_app_delta() -> tuple[str, str]:
         return "broken", "backend/app 净增 " + str(delta) + " 行，超过上限 " + str(MAX_BACKEND_DELTA) + "（原则一）"
     if biz > MAX_BUSINESS_DELTA:
         return "broken", "**业务逻辑**净增 " + str(biz) + " 行，超过上限 " + str(MAX_BUSINESS_DELTA) + "（原则一）"
+    # ---- shape 闸门：新模块的**个头**与**个数**（比总行数那把钝刀准得多）----
+    code3, out3 = git("diff", "--name-status", "--diff-filter=A", base + "..HEAD", "--", "backend/app")
+    added = [p[1].strip() for p in (ln.split("\t") for ln in out3.splitlines())
+             if len(p) >= 2 and p[1].strip().endswith(".py")]
+    if len(added) > MAX_NEW_FILES:
+        return "broken", "新增了 " + str(len(added)) + " 个 .py（上限 " + str(MAX_NEW_FILES) + "）"
+    fat = [(p, len((ROOT / p).read_text(encoding="utf-8", errors="replace").splitlines()))
+           for p in added if (ROOT / p).exists()]
+    big = [(p, n) for p, n in fat if n > MAX_NEW_FILE_LINES]
+    if big:
+        return "broken", "新模块个头过大（上限 " + str(MAX_NEW_FILE_LINES) + " 行）：" + \
+            "、".join(p + "(" + str(n) + " 行)" for p, n in big[:3])
     return "hold", ("backend/app 净增 " + str(delta) + " 行（上限 " + str(MAX_BACKEND_DELTA)
-                      + "）；其中业务逻辑（services+api）净增 " + str(biz) + " 行（上限 " + str(MAX_BUSINESS_DELTA) + "）")
+                      + "）；新模块 " + str(len(added)) + " 个（上限 " + str(MAX_NEW_FILES) + "，最大的 "
+                      + str(max([n for _p, n in fat], default=0)) + " 行 / 上限 " + str(MAX_NEW_FILE_LINES) + "）；"
+                      + "业务逻辑（services+api）净增 " + str(biz) + " 行（上限 " + str(MAX_BUSINESS_DELTA) + "）")
 
 
 def probe_commit_milestone_tag() -> tuple[str, str]:

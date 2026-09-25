@@ -233,9 +233,20 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 
 ## R3-07 Meta-System Hardening
 
+指南 §二十一 的四条 + §二十二 的依赖决策。**这一轮先做「生成物新鲜度」**（R3-07a），其余三条下一轮。
+
 - ✅ 判据不许静默空转（本轮 `_check_r3_constraints.py` 自带反空转下限）—— 复现：`python _tools/qa/_check_r3_constraints.py`
-- ❌ 反向验证必须完整还原（机器证明 before == after）—— 复现：`python _tools/qa/_reverse_verify_r3_constraints.py`
-- ❌ 生成物新鲜度（source hash / generated_at / source commit）—— 复现：`python _tools/qa/_check_generated_freshness.py`
+- ✅ **生成物新鲜度**（R3-07a）—— 复现：`python _tools/qa/_check_generated_freshness.py`
+  真源表在 `_airepo.GENERATED_ARTIFACTS`（**生成器与判据读同一份**，不各写一遍），四个产物各自声明
+  `source_hash`：`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`、
+  `docs/CAPABILITY_SNAPSHOT.json`（+ `source_commit` + `generated_at`）、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`。
+  判据自己重算指纹（**不信任产物里那串**）+ 跑每个生成器的 `--check` + 核提交/时刻是否真实；
+  反向验证 7/7（改真源没重跑 / 手改指纹 / 抹掉指纹 / glob 空转 / 编造提交 / 清单被掏空）。
+  ⚠️ `generated_at` 每次生成都会变，所以能力快照的 `--check` 会把它**归一化掉**再比对 ——
+  真正回答「哪一版代码」的是 `source_hash`。这句话写进了生成器与判据两边。
+- ❌ 反向验证必须完整还原（机器证明 before == after）—— 复现：`python _tools/qa/_check_reverse_verify_restore.py`
+  （还没写；现在只有各脚本自己的逐字节还原断言，缺一个**统一**的契约检查）—— **下一轮**
+- ❌ 报告事实核对 —— **下一轮**（复现：`python _tools/qa/_check_report_facts.py`，还没写）
 - ❌ 报告事实核对 —— 复现：`python _tools/qa/_check_report_facts.py`
 - ❌ 依赖可复现性决策（开区间 vs pin，三处版本是否一致）—— 复现：`docs/DEPENDENCY_DECISION.md`
 

@@ -659,8 +659,27 @@ HEADER = """<!-- 本文件由 backend/scripts/gen_endpoint_index.py 生成，请
 """
 
 
+def _source_hash() -> str:
+    '''本文件是「哪些源码决定这份产物」的指纹 —— ⛔ 算法只有一处：`_tools/ai/_airepo.py`。
+
+    为什么这个后端脚本要反过来 import `_tools`：`_airepo.GENERATED_ARTIFACTS` 是**产物与真源的
+    唯一登记表**（判据 `_check_generated_freshness.py` 读同一份）。各写一份哈希算法，
+    两边迟早算不出同一个值 —— 那正是「过期了却没人发现」的形状。
+    '''
+    import pathlib
+
+    tools_ai = pathlib.Path(__file__).resolve().parents[2] / '_tools' / 'ai'
+    if str(tools_ai) not in sys.path:
+        sys.path.insert(0, str(tools_ai))
+    from _airepo import GENERATED_ARTIFACTS, source_fingerprint  # noqa: PLC0415
+
+    spec = next(a for a in GENERATED_ARTIFACTS if a.key == 'endpoint_index')
+    return source_fingerprint(spec.sources)
+
+
 def render(rows: list[dict], api_prefix: str, repo_rel: str, api_dir: str) -> str:
-    out: list[str] = [HEADER]
+    # R3-07：产物自己声明「我是哪一版源码生成的」——过期与否算得出来，不用靠人记得重跑。
+    out: list[str] = [HEADER, f'<!-- source_hash: {_source_hash()} -->']
 
     # 按文件分组
     by_file: dict[str, list[dict]] = {}

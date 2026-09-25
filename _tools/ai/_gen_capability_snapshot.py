@@ -43,27 +43,47 @@ from app.core.capabilities import CAPABILITIES  # noqa: E402
 from app.core.capability_audit_coverage import AUDIT_CAPABILITY_EXEMPT, AUDIT_COVERAGE, AUDIT_EXCEPTIONS  # noqa: E402
 from app.core.rbac import BYPASS_ROLES, ROLE_PERMISSIONS, Permission  # noqa: E402
 from app.core.role_capabilities import ROLE_CAPABILITIES  # noqa: E402
+from _airepo import GENERATED_ARTIFACTS, source_fingerprint  # noqa: E402
 
 JSON_OUT = ROOT / 'docs/CAPABILITY_SNAPSHOT.json'
 MD_OUT = ROOT / 'docs/CAPABILITY_AUDIT_COVERAGE.md'
 KT_OUT = ROOT / 'android/app/src/main/java/com/tapmoay/sorders/core/Capabilities.kt'
 
-#: 参与 source hash 的文件 —— 能力表的**全部**真源。改任何一个，产物都要重生成。
-SOURCE_FILES = (
-    'backend/app/core/capabilities.py',
-    'backend/app/core/role_capabilities.py',
-    'backend/app/core/capability_audit_coverage.py',
-    'backend/app/core/rbac.py',
-    'backend/app/models/enums.py',
-)
+#: 真源与产物登记在 `_airepo.GENERATED_ARTIFACTS` 里（判据用同一份，不各写一遍）。
+ARTIFACT = next(a for a in GENERATED_ARTIFACTS if a.key == 'capability_snapshot')
 
 
 def source_hash() -> str:
-    h = hashlib.sha256()
-    for rel in SOURCE_FILES:
-        h.update(rel.encode('utf-8'))
-        h.update((ROOT / rel).read_bytes())
-    return 'sha256:' + h.hexdigest()
+    '''能力表的**内容指纹**。
+
+    ⛔ 算法在 `_airepo.source_fingerprint`（一处实现、两处消费：本生成器与
+    `_check_generated_freshness.py` 必须算出同一个值，各写一份迟早走散）。
+    ⛔ 真源表在 `_airepo.GENERATED_ARTIFACTS` 里（与判据同一份定义）。
+    '''
+    return source_fingerprint(ARTIFACT.sources)
+
+
+def source_commit() -> str:
+    '''产物是**哪一版代码**生成的（短 sha）。取不到 git 时如实写 unknown。'''
+    import subprocess
+
+    try:
+        out = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=str(ROOT),
+                             capture_output=True, text=True, encoding='utf-8', errors='replace')
+        return (out.stdout or '').strip() or 'unknown'
+    except OSError:
+        return 'unknown'
+
+
+def generated_at() -> str:
+    '''生成时刻（UTC，ISO）。
+
+    ⚠️ **它不参与判据比对**：`--check` 会把它归一化掉 —— 否则每重生成一次就「过期」一次，
+    而真正回答「这个产物对应哪一版代码」的是 `source_hash` 与 `source_commit`。
+    '''
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def build() -> dict:
@@ -106,7 +126,11 @@ def build() -> dict:
     return {
         'generated_by': '_gen_capability_snapshot.py',
         'source_hash': source_hash(),
-        'source_files': list(SOURCE_FILES),
+        # R3-07：能回答「这个产物对应哪一版代码」的三个字段。
+        # ⚠️ `generated_at` 每次生成都会变 —— `--check` 会把它归一化掉，见那里的注释。
+        'source_commit': source_commit(),
+        'generated_at': generated_at(),
+        'source_files': list(ARTIFACT.sources),
         'authority_note': (
             'App 侧关于「哪个角色能做什么」的**唯一**来源。⛔ 不许在 Kotlin 里再写一份：'
             '改能力表 → 重跑本脚本 → 两边一起变。'
@@ -148,6 +172,10 @@ def to_kotlin(snap: dict) -> str:
         'object Capabilities {',
         '    /** 能力表的指纹。判据拿它对账：Kotlin 与后端不一致就是有人手改了。 */',
         '    const val SOURCE_HASH: String = "' + snap['source_hash'] + '"',
+
+        '    /** 生成它的那一版代码与时刻（R3-07：产物要能回答「我是哪一版代码的产物」）。 */',
+        '    const val SOURCE_COMMIT: String = "' + snap['source_commit'] + '"',
+        '    const val GENERATED_AT: String = "' + snap['generated_at'] + '"',
         '',
         '    /** 有没有「绕过角色」（后端 BYPASS_ROLES）：它不受能力表限制。 */',
         '    val BYPASS_ROLES: Set<String> = setOf(' + kt_string_set(snap['bypass_roles']) + ')',
@@ -220,6 +248,23 @@ def to_markdown(snap: dict) -> str:
     return chr(10).join(out)
 
 
+def _strip_volatile(text: str) -> str:
+    '''比对前把**每次生成都会变**的字段去掉（R3-07 的新鲜度契约）。
+
+    ⛔ 只有 `generated_at`（与它并排的 Kotlin 常量）算「每次都变」——
+    `source_hash` / `source_commit` 都**不**去掉：它们变了就是真的变了（换了代码或换了提交）。
+    '''
+    out = []
+    for ln in text.split(chr(10)):
+        s = ln.strip()
+        if s.startswith('"generated_at"') or s.startswith('// generated_at'):
+            continue
+        if s.startswith('const val GENERATED_AT'):
+            continue
+        out.append(ln)
+    return chr(10).join(out)
+
+
 def main() -> int:
     check = '--check' in sys.argv
     snap = build()
@@ -232,7 +277,7 @@ def main() -> int:
             if not p.exists():
                 print('❌ 缺少产物：' + str(p.relative_to(ROOT)))
                 ok = False
-            elif p.read_text(encoding='utf-8') != want:
+            elif _strip_volatile(p.read_text(encoding='utf-8')) != _strip_volatile(want):
                 print('❌ 产物已过期：' + str(p.relative_to(ROOT)) + '（重跑生成脚本）')
                 ok = False
         if ok:

@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _airepo import module_key, repo_root  # noqa: E402
+from _airepo import GENERATED_ARTIFACTS, module_key, repo_root, source_fingerprint  # noqa: E402
 
 ROOT = repo_root()
 API_DIR = ROOT / "backend/app/api/v1"
@@ -263,6 +263,12 @@ def route_info(fn: ast.AST) -> tuple[str, str]:
     return "", ""
 
 
+def _source_hash() -> str:
+    '''这份目录的**真源指纹** —— ⛔ 算法只有一处：`_airepo.source_fingerprint`。'''
+    spec = next(a for a in GENERATED_ARTIFACTS if a.key == 'ai_read_catalog')
+    return source_fingerprint(spec.sources)
+
+
 def extract() -> dict:
     toolmap = json.loads(TOOLMAP.read_text(encoding="utf-8"))
     read_ids = {
@@ -388,6 +394,8 @@ def extract() -> dict:
     missing = sorted(set(expected) - set(found))
     return {
         "generated_by": "_gen_ai_read_catalog.py",
+        # R3-07：产物自己声明「我是哪一版源码生成的」（真源表在 _airepo.GENERATED_ARTIFACTS）。
+        "source_hash": _source_hash(),
         "authority_note": (
             "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。"
             "只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。"
