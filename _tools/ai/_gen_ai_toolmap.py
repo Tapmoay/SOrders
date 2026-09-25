@@ -70,6 +70,8 @@ MODULE_CN: dict[str, str] = {
     # ⚠️ 它只有**一个**动作：重置（清掉自己的常用度）。⛔ 不配 AI 动作 ——
     #    理由写在 `_tools/ai/_write_coverage.py` 的 EXCLUDED 里（清的是统计，不是业务事实）。
     "usage": "重置常用计数",
+    # 报告 §15 ② 的 AI_calls：App 上报调用次数（模型不许调，理由见 _write_coverage 的 EXCLUDED）。
+    "ai_telemetry": "AI 调用计数上报",
     # 共享地点库（导航信息）：司机到场补录的坐标，全库共用（2026-09-18）
     "places": "共享地点库",
     "ledger": "账本",

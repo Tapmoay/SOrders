@@ -39,6 +39,7 @@ from app.core.outbox import outbox_stats
 from app.models.driver_settlement import DriverSettlement
 from app.models.enums import OrderStatus
 from app.models.ledger import Ledger
+from app.models.ai_call_daily import AiCallDaily
 from app.models.operation_log import OperationLog
 from app.models.order import Order
 from app.models.outbox import OutboxEvent, OutboxStatus
@@ -56,12 +57,23 @@ class Metric:
 
 #: 报告点名、但**当前算不出来**的指标 —— 每条都写清原因与它该有的位置。
 #: ⛔ 不要用"近似值"填空：push_success 与"发出去的通知条数"不是一回事。
-NOT_TRACKED: dict[str, str] = {
-    "AI_calls": "模型跑在 App 里（后端没有 AI 代理端点），服务端**看不到这次调用** ——"
-    "`AI_write_confirmed` 已经能算了（见 `sorders_ai_write_confirmed_today`：写入本身落在"
-    "operation_logs 上，只要知道「这一行来自 AI」就能数），但**聊天本身不落任何库**。"
-    "要采它只能由 App 上报（客户端报的数 ≠ 后端数的数，口径差异写在那条指标的 help 里）。",
-}
+#: 报告点名、但**当前算不出来**的指标 —— 每条都写清原因与它该有的位置。
+#: ⛔ 不要用"近似值"填空。
+#:
+#: 2026-09-25：**空了**。`AI_write_confirmed` 与 `AI_calls` 两个都已落地：
+#:   · 前者 = `operation_logs.origin = ai`（**后端从库里数**，能对回审计表）；
+#:   · 后者 = `ai_call_daily`（**App 上报**，见 `api/v1/ai_telemetry.py` 里的口径说明）。
+#: 这张表留着不删：它是"报告点名、当前算不出"的正式去处，下一条缺口该进这里。
+NOT_TRACKED: dict[str, str] = {}
+
+
+def _count_day(db: Session, model: type) -> int:
+    """日表里**今天那一行**的计数（表里一天一行；没有那一行就是 0）。
+
+    ⚠️ 为什么不是 `_count`：日表存的是**累计值**不是事件行，数行数只会得到 0 或 1。
+    """
+    row = db.get(model, business_today().isoformat())
+    return int(getattr(row, "calls", 0) or 0)
 
 
 def _count(db: Session, model: type, *where: object) -> int:
@@ -165,6 +177,15 @@ def snapshot(db: Session) -> list[Metric]:
             "今天由 AI 确认卡**真的写进库**的操作数（原报告的 AI_write_confirmed；来源＝operation_logs.origin=ai）",
             _count(db, OperationLog, OperationLog.origin == "ai", OperationLog.created_at >= start),
             "operation_logs.origin",
+        ),
+        # ⚠️ 这一条与上一条**不同源**，help 里必须说清：模型跑在 App 里，后端看不到调用本身，
+        #    只能由 App 上报（`POST /ai/telemetry` → `ai_call_daily`）。
+        #    ⛔ 别把它们当成"同一件事的两个数"：上一条能逐行对回审计表，这一条只能信客户端。
+        Metric(
+            "sorders_ai_calls_today",
+            "今天 App 上报的 AI 对话次数（原报告的 AI_calls；**客户端上报**，与 ai_write_confirmed 不同源）",
+            _count_day(db, AiCallDaily),
+            "ai_call_daily.calls",
         ),
     ]
 

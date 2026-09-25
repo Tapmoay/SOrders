@@ -1,3 +1,4 @@
+from app.models.ai_call_daily import AiCallDaily
 from app.models.arrears import ArrearsUnit
 from app.models.cash_flow import CashFlow
 from app.models.customer import Customer

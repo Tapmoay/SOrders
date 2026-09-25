@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    ai_telemetry,
     arrears,
     auth,
     cash_flows,
@@ -49,6 +50,9 @@ from app.api.v1 import (
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+# AI 调用计数上报（报告 §15 ② 的 AI_calls）：模型跑在 App 里，后端只有靠它才知道跑了几次 ——
+# 见 `api/v1/ai_telemetry.py` 开头那段「服务端能知道的 vs 只有客户端知道的」。
+api_router.include_router(ai_telemetry.router)
 api_router.include_router(users.router)
 api_router.include_router(files.router)
 api_router.include_router(freight_templates.router)

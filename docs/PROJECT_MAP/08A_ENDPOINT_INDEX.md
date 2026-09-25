@@ -60,8 +60,14 @@
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
 
-## 全量端点（228 个，按文件分组）
+## 全量端点（229 个，按文件分组）
 
+
+### `backend/app/api/v1/ai_telemetry.py` — 1 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `POST /api/v1/ai/telemetry` | `report_ai_calls` | `backend/app/api/v1/ai_telemetry.py:47` | 仅登录 |
 
 ### `backend/app/api/v1/arrears.py` — 5 个
 
@@ -589,13 +595,14 @@ _（无重复注册）_
 | `GET /metrics` | `metrics` | `backend/app/main.py:394` |
 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:419` |
 
-### 3. 仅登录、且检测不到任何角色/权限约束：14 个
+### 3. 仅登录、且检测不到任何角色/权限约束：15 个
 
 > 这些端点的准入范围**在本表里看不出来**——约束（如果有）在函数体里按参数或 `current.id` 过滤。
 > 反过来说：**这一节是「该去读源码」的清单**，不是「谁都能调」的清单。
 
 | 方法与路径 | handler | 位置 | 含 `current.id` |
 |---|---|---|---|
+| `POST /api/v1/ai/telemetry` | `report_ai_calls` | `backend/app/api/v1/ai_telemetry.py:47` | — |
 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:677` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:695` | — |
