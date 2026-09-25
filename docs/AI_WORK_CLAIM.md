@@ -20,6 +20,23 @@
 
 ## 进行中
 
+### [2026-09-25 14:0x → ] 会话：**路线图 ③ Android 侧（AI_write_confirmed 的发出端）+ 后端 AI_calls 落地**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**改动文件**：`android/.../core/ClientOrigin.kt`（新）、`core/ApiClient.kt`、`ai/AiWriteService.kt`、
+`android/app/src/test/.../core/ClientOriginTest.kt`（新）；后端半边见上一个提交（`790d4a4`）。
+
+**核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心**：
+它是 AI 写闸门「preview → 确认卡 → execute」的**唯一写入口**，而报告 §15 ② 要的
+`AI_write_confirmed` 只能在这一处标注 —— 只有这里既知道「用户点了确认卡」又知道
+「这次真的要写库」。改动只有一句：把 `handler.commit(...)` 包进 `ClientOrigin.asAi { }`，
+⛔ 预览与别的一律不包（包进去只会让后端多记一堆没发生的事）。行为、风险分级、撤回方案一行未动。
+
+⚠️ **顺带发现 `_check_core_freeze.py` 有一个洞（第 10 次同类）**：它判「本次改动的核心文件
+是否在『进行中』里有声明」时，用的是 `任何一行声明**包含**这个路径` —— 于是**上一轮的旧声明**
+就能让本次改动通过（本轮实测：它认出了 `AiWriteService.kt` 是核心改动，却因为
+第 33 轮那行旧声明而全绿）。已按规矩补了上面这一行本次声明；那个洞单独立项修
+（要配反向验证，且得考虑多会话并存 —— 不能简单要求「只在最新一条 ### 里」）。
+
 ### [2026-09-25 12:0x → ] 会话：**路线图剩余项 ①⑤ —— §7 钱契约收尾（PENDING 清零）+ §16 多实例前置（跨主机迁移锁）；并开工 §9 权限三维模型**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **改动文件**：`backend/app/api/v1/reports.py`、`backend/app/services/reports_service.py`、

@@ -73,6 +73,10 @@ object ApiClient {
         val retrofit = Retrofit.Builder()
             .baseUrl(ApiEndpoint.baseUrl.trimEnd('/') + "/" + API_PREFIX)
             .client(client)
+            // 报告 §15 ②：把「这一行审计是 AI 写的」这件事带上去。
+            // ⛔ 必须走 callFactory（见 OriginAwareCallFactory 的说明）——
+            //    写成 addInterceptor 的话线程不对，头会永远是 null 且不报任何错。
+            .callFactory(OriginAwareCallFactory(client))
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
 
@@ -241,3 +245,29 @@ data class ApiBundle(
     /** 动态 GET（只给 AI 通用读工具用，路径来自编译期白名单，见 [RawApi]）。 */
     val rawApi: RawApi,
 )
+
+/**
+ * 把 [ClientOrigin] 记下的来源变成一个请求头（报告 §15 ② 的 `AI_write_confirmed`）。
+ *
+ * ## ⛔ 为什么挂在 `callFactory` 上，而不是 `addInterceptor`
+ * OkHttp 的**应用拦截器跑在 dispatcher 线程**上（`enqueue` 之后由线程池执行），
+ * 而 [ClientOrigin] 是 ThreadLocal —— 拦截器那条线程上根本读不到它。
+ * `Call.Factory.newCall()` 则是在**调用者线程**上同步调用的（Retrofit 的 suspend 桥接里
+ * 就是协程当前线程），所以只有这里读得到。
+ *
+ * ⚠️ 这个区别不是"风格"问题：写成 `addInterceptor` 编译得过、请求也发得出去，
+ *    只是那个头永远是 null —— 而"少一个头"不会报任何错，只会让
+ *    `sorders_ai_write_confirmed_today` 恒为 0，看起来像"最近没人用 AI 写东西"。
+ */
+internal class OriginAwareCallFactory(
+    private val delegate: okhttp3.Call.Factory,
+) : okhttp3.Call.Factory {
+
+    override fun newCall(request: okhttp3.Request): okhttp3.Call {
+        // 不在 AI 写入的那一段里时**原样透传**（不加头 → 后端按 human 记）。
+        val origin = ClientOrigin.current() ?: return delegate.newCall(request)
+        return delegate.newCall(
+            request.newBuilder().header(ClientOrigin.HEADER, origin).build(),
+        )
+    }
+}

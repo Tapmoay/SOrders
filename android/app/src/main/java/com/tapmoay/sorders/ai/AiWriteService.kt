@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ai
 
 import com.tapmoay.sorders.core.ApiClient
+import com.tapmoay.sorders.core.ClientOrigin
 import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
@@ -967,7 +968,15 @@ class AiWriteService(
             // 由 token 派生出稳定幂等键：OkHttp 在连接失败时会自动重试 POST，
             // 带上它，后端将来实现幂等时才能识别出"这是同一次操作"而不是两笔。
             // 后端现在忽略它，无害。
-            handler.commit(p.payload, "ai-" + token)
+            //
+            // ⛔ 外面这层 `asAi` 是报告 §15 ② 的最后一跳：它让这一段里发出去的请求都带
+            //    `X-SOrders-Origin: ai`，后端据此把审计行记成 `origin=ai`，
+            //    `sorders_ai_write_confirmed_today` 就是从那儿数出来的。
+            //    ⚠️ 只包**写**这一句 —— 预览（preview_write）不写库，包进去只会让后端
+            //    多记一堆没发生的事。
+            //    ⚠️ 它必须是 ThreadLocal 级的作用域（见 `core/ClientOrigin.kt`）：
+            //    用一个普通全局变量开关的话，这个窗口里**任何别的请求**都会被标成 ai。
+            ClientOrigin.asAi { handler.commit(p.payload, "ai-" + token) }
             // 批量动作（按表格调价）会在这里补一句**逐行结果**；其余动作返回 null，行为不变。
             // 少了这一句，20 行里失败的 2 行会被"已完成"盖住——那正是最坏的一种反馈。
             val note = handler.commitNote()
