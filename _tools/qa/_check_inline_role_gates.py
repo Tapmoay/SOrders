@@ -49,6 +49,7 @@ HISTORY: list[tuple[str, int, str]] = [
     ("2026-09-25", 44, "首次建账：§9 第②步收敛 expense_categories 时的全库实测（13 个文件）"),
     ("2026-09-25", 41, "§9 第②步第二域：cash_flows 3 个端点收到签名级 DispatcherUser（13→12 个文件）"),
     ("2026-09-25", 39, "§9 第②步第三域：expenses 2 个端点收到签名级 DispatcherUser（12→11 个文件）"),
+    ("2026-09-25", 38, "§9 第②步第四域：products 的读门接到 `require_permission` 上（11→10 个文件）"),
 ]
 """计数台账（日期, 处数, 说明）。**逐条不增**；不减的那一条必须带「理由:」并写清为什么。
 
@@ -67,6 +68,8 @@ CONVERTED: dict[str, str] = {
         "2026-09-25 §9 第②步第二域：3 个端点全部收到签名级 DispatcherUser，体内 0 处",
     "app/api/v1/expenses.py":
         "2026-09-25 §9 第②步第三域：2 个端点全部收到签名级 DispatcherUser，体内 0 处",
+    "app/api/v1/products.py":
+        "2026-09-25 §9 第②步第四域：读门接到 require_permission（Permission.ORDER_CREATE）上，体内 0 处",
 }
 """已经收敛完的文件：体内角色门槛必须为 **0**（防"改完又长回来"）。"""
 

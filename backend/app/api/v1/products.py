@@ -2,6 +2,7 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import case, select
@@ -78,7 +79,12 @@ def product_out(p: Product, role_key: str) -> ProductOut:
 
 @router.get("", response_model=list[ProductOut])
 def list_products(
-    current: CurrentUser,
+    # ⚠️ 2026-09-25 §9 第②步第四域：这道门原来是**函数体里的**
+    #    `if not role_has_permission(rk, Permission.ORDER_CREATE): raise 403`。
+    #    现在挂在签名上（`require_permission` 是权限的唯一入口）—— 等价，但它
+    #    ① 在端点索引的授权列里读得出来；② 不会再被漏抄/漏改；
+    #    ③ 403 文案统一成入口那一份（原来这里是「无权访问」，更含糊）。
+    current: Annotated[User, Depends(require_permission(Permission.ORDER_CREATE))],
     db: Session = Depends(get_db),
     include_inactive: bool = Query(
         False,
@@ -86,9 +92,6 @@ def list_products(
     ),
 ) -> list[ProductOut]:
     rk = user_role_key(current)
-    # 与全局 RBAC 一致：货主/派单员均可浏览商品目录；派单员在 role_has_permission 中一律放行
-    if not role_has_permission(rk, Permission.ORDER_CREATE):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
     if include_inactive and rk not in (UserRole.DISPATCHER.value, UserRole.SHIPPER.value):
         include_inactive = False
     q = select(Product).where(Product.is_deleted.is_(False)).order_by(

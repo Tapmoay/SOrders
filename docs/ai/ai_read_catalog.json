@@ -1313,7 +1313,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products",
-   "at": "backend/app/api/v1/products.py:80",
+   "at": "backend/app/api/v1/products.py:81",
    "auth": "权限:ORDER_CREATE + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",
@@ -1341,7 +1341,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products/cost-history",
-   "at": "backend/app/api/v1/products.py:183",
+   "at": "backend/app/api/v1/products.py:186",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
