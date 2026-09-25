@@ -1,14 +1,19 @@
 """`python -m app.migrations` —— 迁移的命令行入口（生产上排障/发布时用）。
 
 ```bash
-python -m app.migrations status      # 当前版本 / 待跑 / 内容变过的
-python -m app.migrations upgrade     # 手动把待跑的跑掉（正常由启动自动跑）
+python -m app.migrations status      # 当前版本 / 待跑 / 内容变过的（只读）
+python -m app.migrations upgrade     # 把待跑的跑掉 = 自愈 + 版本化迁移（**迁移的唯一入口**）
 python -m app.migrations upgrade --dry-run
 python -m app.migrations --json status
 ```
 
-⚠️ **不 import `app.database`**：那个模块在导入时就 `bootstrap_schema(engine)`（建表 + 全部自愈），
-而本命令必须能在"库还没准备好/只想看一眼版本"的时候跑。所以这里自己按 `settings.database_url` 建引擎。
+## R3-01 起：这就是「先迁移、后应用」里的那一步
+`upgrade` 调用 `app.core.schema_bootstrap.prepare_schema(engine)`（自愈 → 版本化迁移）。
+⛔ 应用启动**不再**跑迁移（`app/main.py` 只核对结构），所以部署顺序必须是
+`backup → python -m app.migrations upgrade → 启动应用`。
+
+⚠️ **仍然不 import `app.database`**：理由换了 —— 现在不是因为「import 就会改库」（那条已经修掉），
+而是本命令必须能在**库连不上、或者应用起不来**的时候跑（排障时最有用的就是它）。
 """
 
 from __future__ import annotations
@@ -44,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = _engine(args.url)
     if args.command == "upgrade":
+        if not args.dry_run:
+            # ⛔ 唯一入口：自愈 + 版本化迁移（R3-01）。dry-run 只列版本化迁移，不碰库。
+            from app.core.schema_bootstrap import prepare_schema
+
+            prepare_schema(engine)
+            print("结构与迁移都已就绪。")
+            return 0
         report = run_migrations(engine, dry_run=args.dry_run)
         if args.json:
             print(json.dumps(report, ensure_ascii=False, indent=2))

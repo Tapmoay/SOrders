@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import tempfile
 import logging
 import re
 import time
@@ -50,10 +51,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 from app.core.business_time import utc_now_naive
+from app.core.file_lock import FileLock, FileLockTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +66,10 @@ VERSION_TABLE = "schema_versions"
 #: 为什么要这么严：一个没有版本号的文件在旧实现里就是"静静地谁也不跑它"，而它看起来又像一条迁移。
 FILE_RE = re.compile(r"^(\d{3,})_([a-z0-9_]+\.py)$")
 #: 只在**同一个进程**里互斥（flock 是 fd 级的），跨进程互斥靠下面这个文件。
-LOCK_FILE = "/tmp/sorders_migrations.lock"
+#: 本机迁移锁的锁文件。⛔ 用 `gettempdir()` 而不是写死 `/tmp`：
+#: Windows 上没有 `/tmp` 这个目录（会解析成当前盘的 `\tmp`，通常不存在），
+#: 而 R3-01 之前 Windows 分支根本不走锁，所以这个路径问题一直没暴露。
+LOCK_FILE = str(Path(tempfile.gettempdir()) / "sorders_migrations.lock")
 
 #: 迁移的**服务端命名锁**（MySQL `GET_LOCK`）—— **跨主机**互斥靠它。
 #: ⚠️ `/tmp` 那把 flock 只在**同一台机器**上有效：多实例部署时 A、B 两台各自拿自己的 `/tmp` 锁
@@ -204,6 +209,41 @@ def applied_versions(engine: Engine) -> dict[int, dict]:
 def current_version(engine: Engine) -> int:
     applied = applied_versions(engine)
     return max(applied) if applied else 0
+
+
+def schema_ready(engine: Engine, *, directory: Path | None = None) -> tuple[bool, str]:
+    """结构准备好了吗？—— **只读**核对，供应用启动时用（R3-01）。
+
+    ⛔ **本函数一个 DDL 都不许有**：所以它不调用 `applied_versions()` / `migration_status()`
+    —— 那两个都会 `ensure_version_table()`（建表）。这里用 `has_table` + 裸 SELECT。
+    理由与整轮的主题一致：**「看一眼状态」这件事本身不该改库**。
+
+    返回 `(True, 说明)` 或 `(False, 为什么还没准备好)`。三种「没准备好」分得开：
+      · 连不上库；
+      · 没有 `schema_versions`（从没跑过迁移 —— 老版本代码或全新库）；
+      · 库在版本 N，而仓库里有更新的迁移没跑。
+    """
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1")
+    except Exception as exc:                       # noqa: BLE001 —— 连不上就是没准备好
+        return False, f"连不上数据库：{exc}"
+
+    try:
+        if not inspect(engine).has_table(VERSION_TABLE):
+            return False, f"没有迁移记录表 `{VERSION_TABLE}` —— 这个库从没跑过迁移"
+        with engine.connect() as conn:
+            rows = conn.execute(text(f"SELECT version FROM {VERSION_TABLE}")).scalars().all()
+    except Exception as exc:                       # noqa: BLE001
+        return False, f"读迁移版本失败：{exc}"
+
+    current = max((int(v) for v in rows), default=0)
+    latest = max((m.version for m in discover(directory)), default=0)
+    if current < latest:
+        return False, f"库在版本 {current}，仓库里有到版本 {latest} 的迁移没跑"
+    if current > latest:
+        return True, f"版本 {current}（比仓库里的 {latest} 还新 —— 代码可能比库旧，已知情）"
+    return True, f"版本 {current}"
 
 
 def migration_status(engine: Engine, *, directory: Path | None = None) -> dict:
@@ -357,27 +397,23 @@ def run_migrations(engine: Engine, *, directory: Path | None = None, dry_run: bo
 
 
 class _lock:
-    """跨进程互斥（Linux）。Windows 没有 fcntl —— 本地单进程开发无碍，与 bootstrap 同一取舍。"""
+    """同一台机器上的迁移互斥（`FileLock`：Linux 用 flock，Windows 用 msvcrt）。
+
+    ⛔ 曾经的写法是「import fcntl 失败就往下跑」—— 在 Windows 上**等于没有锁**，
+    R3-01 的并发迁移测试当场抓到：两个进程同时 upgrade，第二个在 `create_all` 上
+    撞 `table already exists` 直接失败。现在两条平台都是真锁，且进程崩了由系统释放。
+    """
 
     def __enter__(self):
+        self._impl = FileLock(LOCK_FILE)
         try:
-            import fcntl
-        except ImportError:                                # pragma: no cover —— Windows
-            self._fh = None
-            return self
-        self._fh = open(LOCK_FILE, "w")
-        fcntl.flock(self._fh, fcntl.LOCK_EX)
+            self._impl.__enter__()
+        except FileLockTimeout as e:
+            # 与 `_db_lock` 的口径一致：拿不到锁是**明确失败**，不许悄悄往下跑。
+            raise MigrationError(str(e)) from e
         return self
 
     def __exit__(self, *exc):
-        if self._fh is None:
-            return False
-        try:
-            import fcntl
-
-            fcntl.flock(self._fh, fcntl.LOCK_UN)
-        finally:
-            self._fh.close()
-            self._fh = None
+        self._impl.__exit__(*exc)
         return False
 

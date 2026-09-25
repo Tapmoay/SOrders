@@ -108,9 +108,9 @@ R3-07 Meta-System Hardening      ← 故意放在生产之后
 `类别` ∈ {禁做, 必做}、`探针` 必须是判据里真实实现的那几个、`判定` ∈ {棘轮, 阶段}。
 `判定: 棘轮` = 现在就要守住；`判定: 阶段` = 到 `里程碑` 才开始判定。
 
-`棘轮上限: 2`　`不判定上限: 15`
+`棘轮上限: 1`　`不判定上限: 13`
 
-（`不判定上限: 15` 是**今天的实数**：15 条属于后面里程碑的探针，产物还不存在，所以现在判不了。
+（`不判定上限` 是**当天的实数**：那几条属于后面里程碑的探针，产物还不存在，所以现在判不了。
 这两个数**都只能减不能增** —— 判据会拿 `git show HEAD:docs/R3_CONSTRAINTS.md` 跟上一版比。）
 
 ```constraint
@@ -385,12 +385,19 @@ id: R3-B08
 
 ## 七、棘轮台账（只减不增）
 
-当前 `棘轮上限: 2`，两个未守住的是**已知欠账**，不是意外：
+当前 `棘轮上限: 1`。**棘轮已经降过一次**（2 → 1），记录在下面；⛔ 只许继续降。
 
 | 探针 | 现状 | 什么时候归零 |
 | --- | --- | --- |
-| `import_purity` | `backend/app/database.py` 仍在 import 时调用 `bootstrap_schema(engine)` | R3-01 |
 | `android_no_second_truth` | `android/.../ai/AiWrite.kt` 里手抄了后端 `ROLE_PERMISSIONS['shipper']` 的 13 项 | R3-02 |
+
+### 降棘轮记录（每一次都必须写出是哪条命令让它变绿的）
+
+| 日期 | 条目 | 从 | 到 | 是哪条命令 |
+| --- | --- | --- | --- | --- |
+| 2026-09-26 | `import_purity` | 未守住 | **守住** | `python _tools/qa/_check_import_purity.py` →「import 纯净」（R3-01） |
+| 2026-09-26 | `import_purity_dynamic` | 不判定 | **守住** | 产物落地：`_tools/qa/_check_import_purity.py` 存在且含 schema_version/before/after（R3-01） |
+| 2026-09-26 | `migration_tests` | 不判定 | **守住** | 产物落地：`_tools/ops/_migration_tests.py --all` → 4/4（R3-01） |
 
 这条棘轮的规则：**上限只能减不能增**（判据会拿 `git show HEAD:docs/R3_CONSTRAINTS.md` 比对上一版），
 每减少一条必须在 R3_PROGRESS.md 里写出**是哪条命令让它变绿的**。

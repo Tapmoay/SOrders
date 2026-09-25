@@ -231,9 +231,36 @@ async def _outbox_loop() -> None:
     await run_forever(_outbox_deliver)
 
 
+def assert_schema_ready() -> None:
+    """启动前的结构核对（R3-01）：**只读**，不迁移。
+
+    ⛔ 应用启动不许改库 —— 迁移是部署流程里的一步（`python -m app.migrations upgrade`）。
+    没准备好就是没准备好：拒绝启动，并给出确切的下一步命令（而不是偷偷迁一半再对外服务）。
+    """
+    from app.database import engine as _engine
+    from app.migrations import schema_ready
+
+    ok, why = schema_ready(_engine)
+    if ok:
+        logger.info("数据库结构已就绪：%s", why)
+        return
+    if os.environ.get("SORDERS_SKIP_MIGRATIONS") == "1":
+        logger.critical("结构没准备好但 SORDERS_SKIP_MIGRATIONS=1 —— 带病启动：%s", why)
+        return
+    logger.critical(
+        "数据库结构没准备好，拒绝启动：%s\n"
+        "  先跑：python -m app.migrations upgrade\n"
+        "  只想看一眼：python -m app.migrations status\n"
+        "  确要带病启动（先查清再上）：SORDERS_SKIP_MIGRATIONS=1",
+        why,
+    )
+    raise RuntimeError("数据库结构没准备好：" + why)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """库表迁移在 `app.database` 导入时已执行 `bootstrap_schema(engine)`。"""
+    """R3-01：启动**不迁移**，只核对结构已就绪（迁移在部署流程里显式跑）。"""
+    assert_schema_ready()
     task = asyncio.create_task(_retention_loop())
     outbox_task = asyncio.create_task(_outbox_loop())
     try:

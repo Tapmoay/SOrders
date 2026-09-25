@@ -12,7 +12,7 @@
 3. 失败的迁移**不许记账**（记账＝下次不重试＝结构永远半截）—— 判据看的是**源码顺序**；
 4. 改了历史迁移**只报错不重跑、也不拦启动**（拦启动＝一个笔误把线上打死）；
 5. `schema_versions` 这个名字**只能有一份**（备份脚本也读它，两边写岔了备份清单就永远是 None）；
-6. 运行器必须真的**被 bootstrap 调用**（没人调的运行器＝装饰品）。
+6. 运行器必须真的**被迁移入口调用，且排在自愈之后**（没人调的运行器＝装饰品；顺序反了＝迁移看到半截结构）。
 
 用法：
     python _tools/qa/_check_migrations.py --check    # 非零退出＝有问题（进 _check_all.py）
@@ -154,10 +154,16 @@ def main(argv: list[str] | None = None) -> int:
          "bootstrap 导入了迁移运行器", "⛔ bootstrap 没导入 run_migrations（没人调的运行器＝装饰品）")
     want("run_migrations(engine)" in boot,
          "bootstrap 调用了 run_migrations(engine)", "⛔ bootstrap 里没有 run_migrations(engine) 调用")
-    i_heal = boot.find("def _bootstrap_impl")
-    i_run = boot.find("run_migrations(engine)")
-    want(i_run > i_heal > 0, "调用在 _bootstrap_impl 之内（自愈之后）",
-         "⛔ run_migrations 不在 _bootstrap_impl 里 —— 迁移必须看到自愈过的结构")
+    # ⚠️ R3-01 把 `_bootstrap_impl` 拆成了「自愈」与「迁移入口」两段：
+    #    真正要守的不变量是**自愈在迁移之前**（迁移必须看到已经补过列的结构），
+    #    而不是「它们在同一个函数里」。所以锚点跟着挪到 `_prepare_locked` 的函数体内，
+    #    ⛔ 不是把这条判据删掉 —— 拆函数不等于可以丢掉顺序。
+    i_prep = boot.find("def _prepare_locked")
+    i_heal = boot.find("apply_runtime_self_heal(engine)", i_prep)
+    i_run = boot.find("run_migrations(engine)", i_prep)
+    want(i_prep > 0 and i_heal > i_prep and i_run > i_heal,
+         "自愈在迁移之前（同一个 _prepare_locked 里，顺序固定）",
+         "⛔ 自愈与迁移的顺序不对/不在同一处 —— 迁移必须看到自愈过的结构")
     # ⚠️ 判据要锚在**处理器与取值**上，不能只搜名字：只搜 MigrationFailed 的话，
     #    顶上那句 from app.migrations import MigrationFailed 就能满足它（反向验证抓到过）。
     want("except MigrationFailed as e:" in boot,

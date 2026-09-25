@@ -1,3 +1,19 @@
+"""数据库运行时（Database Runtime）—— **只有** engine / session / connection / transaction。
+
+⛔ **R3-01 的硬不变量：import 本模块不产生任何持久化副作用。**
+在此之前，本模块在 import 的最后一行调用 `bootstrap_schema(engine)`（建表 + 全部自愈 + 版本化迁移）——
+后果是 `import app.database` 就等于改库：一个只读的排障脚本只要 import 它，就会在别人的库上跑 DDL；
+`python -m app.migrations status` 那种「只想看一眼版本」的命令也躲不开。
+
+现在的分工（判据 `_tools/qa/_check_import_purity.py` 用真库核这一条）：
+```text
+  本模块（运行时）      engine / SessionLocal / get_db        —— import 无副作用
+  app.core.schema_bootstrap（迁移）  prepare_schema(engine)    —— 自愈 + 版本化迁移，**显式调用**
+  入口                   python -m app.migrations upgrade
+```
+⛔ 应用启动也不迁移：`app/main.py::lifespan` 只核对结构是否已准备好，没准备好就拒绝启动。
+"""
+
 import logging
 from collections.abc import Generator
 
@@ -93,10 +109,8 @@ else:
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
 
-# 确保无论 ASGI lifespan 是否执行（如仅引用 database 或未走 FastAPI 生命周期），旧库都能补列/迁移
-from app.core.schema_bootstrap import bootstrap_schema  # noqa: E402
-
-bootstrap_schema(engine)
+# ⛔ 这里**不许**再出现任何 DDL / 迁移调用（R3-01）。需要准备结构时显式跑：
+#     python -m app.migrations upgrade          # = app.core.schema_bootstrap.prepare_schema
 
 
 def get_db() -> Generator[Session, None, None]:

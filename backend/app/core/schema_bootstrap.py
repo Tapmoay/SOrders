@@ -1,18 +1,36 @@
-"""启动时建表并补齐旧库缺失列（如 users.username、products.image_url）。"""
+"""运行时自愈 + 迁移入口（R3-01 把这两件事从「import 时偷偷做」改成「显式调用」）。
+
+## 两个角色（判据 `_tools/qa/_check_import_purity.py` 钉着这一条）
+
+| 函数 | 做什么 | 谁调 |
+| --- | --- | --- |
+| `apply_runtime_self_heal(engine)` | 建表 + 补列 + 补索引 + 回填（**幂等**，每次跑都不出错） | 迁移入口 |
+| `prepare_schema(engine)` | ① 自愈 → ② 版本化迁移 —— **迁移的唯一入口** | `python -m app.migrations upgrade`、部署脚本 |
+| `bootstrap_schema(engine)` | 旧名，保留兼容：**只**做自愈 | 老代码/测试 |
+
+⛔ **import 路径上一个 DDL 都不许有**：`app.database` 不再调用这里的任何东西（R3-01 之前它在 import 时调）。
+⛔ 应用启动（`app/main.py` 的 lifespan）也**不迁移**，只核对结构是否已经准备好。
+"""
 
 from __future__ import annotations
 
 import logging
 import os
+import tempfile
+from pathlib import Path
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, OperationalError
 
+from app.core.file_lock import FileLock
 from app.migrations import MigrationFailed, run_migrations
 from app.models.base import Base
 
 logger = logging.getLogger(__name__)
+
+#: 本机自愈锁（与迁移锁 `sorders_migrations.lock` 分开：名字不同、生命周期不同）。
+BOOTSTRAP_LOCK_FILE = str(Path(tempfile.gettempdir()) / "sorders_bootstrap.lock")
 
 
 def _string_columns(max_width: int = 255) -> list[tuple[str, object]]:
@@ -176,21 +194,63 @@ def _import_all_models() -> None:
     import app.models  # noqa: F401 — 注册所有 Table
 
 
-def bootstrap_schema(engine: Engine) -> None:
-    """跨进程互斥：uvicorn --workers 2 会同时执行 bootstrap，防止并发 DDL 冲突(1684)。
-    Windows 无 fcntl 时直接执行（本地单进程开发无碍）。"""
-    try:
-        import fcntl
+def apply_runtime_self_heal(engine: Engine) -> None:
+    """① 运行时自愈：建表 + 补列 + 补索引 + 回填（全部幂等）。
 
-        lock_file = open("/tmp/sorders_bootstrap.lock", "w")
-        try:
-            fcntl.flock(lock_file, fcntl.LOCK_EX)
-            _bootstrap_impl(engine)
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
-            lock_file.close()
-    except (ImportError, OSError):
+    ⛔ **不跑版本化迁移** —— 那是第二步，见 `prepare_schema`。
+    跨进程互斥：uvicorn --workers 2 会同时执行，防止并发 DDL 冲突(1684)。
+    Windows 无 fcntl 时直接执行（本地单进程开发无碍）。
+    """
+    # ⛔ 跨平台互斥（R3-01）：以前这里是「import fcntl 失败就直接跑」——
+    #    在 Windows 上等于**没有锁**，两个进程同时自愈会撞 `table already exists`。
+    #    锁文件与迁移锁**不同名、不同生命周期**（各自进各自出）。
+    with FileLock(BOOTSTRAP_LOCK_FILE):
         _bootstrap_impl(engine)
+
+
+def bootstrap_schema(engine: Engine) -> None:
+    """⛔ **旧名，保留兼容**：只做运行时自愈（不跑版本化迁移）。新代码请用 `prepare_schema`。
+
+    R3-01 之前，它是由 `import app.database` 自动触发的那一个；现在 import 路径上一个 DDL 都不许有，
+    于是它退化成「自愈」这一步，必须被显式调用（测试里建库就是显式调的）。
+    """
+    apply_runtime_self_heal(engine)
+
+
+def prepare_schema(engine: Engine) -> None:
+    """迁移的**唯一入口**：① 运行时自愈 → ② 版本化迁移。
+
+    ⛔ 顺序不能反：迁移必须看到**已经自愈过**的结构（比如某个列刚刚才被补上）。
+    ⛔ 两次执行之间没有别的写库路径：本函数要么全做完，要么抛 `MigrationFailed`。
+
+    部署口径（指南 R3-01-D）：`deploy → 本函数（migration job）→ 成功 → 应用启动`。
+    应用启动**不调用它** —— 见 `app/main.py::lifespan` 里的结构核对。
+    """
+    # ⛔ 两段**必须同一把锁**：R3-01 的并发测试抓到过 —— 自愈放锁之后、迁移拿锁之前
+    #    有个窗口，另一个进程正好在里面跑自愈，两边的 DDL 撞在一起（`table already exists`）。
+    #    自己再拿一次同一把锁是**重入**（`FileLock` 里有计数），不会死锁。
+    with FileLock(BOOTSTRAP_LOCK_FILE):
+        _prepare_locked(engine)
+
+
+def _prepare_locked(engine: Engine) -> None:
+    '''`prepare_schema` 的锁内部分（拆出来只是为了别把那把锁写成一个大缩进块）。'''
+    apply_runtime_self_heal(engine)
+    try:
+        run_migrations(engine)
+    except MigrationFailed as e:
+        if os.environ.get("SORDERS_SKIP_MIGRATIONS") == "1":
+            logger.critical(
+                "迁移失败但 SORDERS_SKIP_MIGRATIONS=1 —— **带病启动**（结构未必是最新的）：%s", e
+            )
+        else:
+            logger.critical(
+                "迁移失败，拒绝启动：%s\n"
+                "  排查：python -m app.migrations status\n"
+                "  确要带病启动（先查清再上）：SORDERS_SKIP_MIGRATIONS=1",
+                e,
+            )
+            raise
 
 
 def _bootstrap_impl(engine: Engine) -> None:
@@ -1709,22 +1769,5 @@ def _bootstrap_impl(engine: Engine) -> None:
     #   · **正式变更** → `app/migrations/NNN_*.py`，每个版本只跑一次，跑过写进 `schema_versions`；
     #   · **运行时自愈** → 本文件上面那些幂等 DDL，**保持原样**（本轮一个字都没改）。
     #
-    # ⛔ 顺序不能反：迁移必须看到**已经自愈过**的结构（比如某个列刚刚才被补上）。
-    # ⛔ 也**不许**把这里的异常悄悄吞掉：迁移失败＝这次启动没把结构变更做完，
-    #    静默继续会让服务带着半截结构对外服务（那比"起不来"更难查）。
-    #    真要带病启动有一个显式开关（见下），而不是默认降级。
-    try:
-        run_migrations(engine)
-    except MigrationFailed as e:
-        if os.environ.get("SORDERS_SKIP_MIGRATIONS") == "1":
-            logger.critical(
-                "迁移失败但 SORDERS_SKIP_MIGRATIONS=1 —— **带病启动**（结构未必是最新的）：%s", e
-            )
-        else:
-            logger.critical(
-                "迁移失败，拒绝启动：%s\n"
-                "  排查：python -m app.migrations status\n"
-                "  确要带病启动（先查清再上）：SORDERS_SKIP_MIGRATIONS=1",
-                e,
-            )
-            raise
+    # ⛔ 顺序不能反：迁移必须看到**已经自愈过**的结构（比如某个列刚刚才被补上）——
+    #    所以自愈是本函数，版本化迁移在 `prepare_schema` 的第二步（R3-01 拆开的）。

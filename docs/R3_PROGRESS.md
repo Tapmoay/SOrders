@@ -14,7 +14,7 @@
 
 | 能力 | 代码 | CI | Staging | Production | Failure Drill |
 | --- | --- | --- | --- | --- | --- |
-| Migration | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Migration | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Order Command | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Money | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Capability API | ✅ | ✅ | ❌ | ❌ | ❌ |
@@ -39,7 +39,7 @@
 
 | 四根主梁 | Code Ready | CI Proven | Runtime Proven |
 | --- | --- | --- | --- |
-| Migration 不再有隐式副作用 | ❌（R3-01 待做） | ❌ | ❌ |
+| Migration 不再有隐式副作用 | ✅（R3-01） | ❌ | ✅ 本机真进程真库（生产 ❌，R3-05） |
 | Capability 四端同源 | ❌（UI/Audit 待做） | ❌ | ❌ |
 | 两个实例真的同时跑过 | ❌ | ❌ | ❌ |
 | 生产真的跑过 + 故障演练 | ❌ | ❌ | ❌ |
@@ -57,16 +57,42 @@
 
 退出条件（指南 L222-232 原文十条）：
 
-- ❌ 退出条件 1/10：`import app.database` 不执行 DDL —— 复现：`python _tools/qa/_check_import_purity.py`
-- ❌ 退出条件 2/10：application startup 不执行 migration —— 复现：`python _tools/qa/_check_import_purity.py`
-- ❌ 退出条件 3/10：migration 有唯一入口 —— 复现：`cd backend; python -m app.migrations status`
-- ❌ 退出条件 4/10：migration version 正确 —— 复现：`cd backend; python -m app.migrations status`
-- ❌ 退出条件 5/10：空库迁移通过 —— 复现：`python _tools/ops/_migration_tests.py --fresh`
-- ❌ 退出条件 6/10：旧库（version 7 → 新版本）迁移通过 —— 复现：`python _tools/ops/_migration_tests.py --old`
-- ❌ 退出条件 7/10：双实例并发迁移只执行一次 —— 复现：`python _tools/ops/_migration_tests.py --concurrent`
-- ❌ 退出条件 8/10：migration 失败不会启动半残服务 —— 复现：`python _tools/ops/_migration_tests.py --fail-fast`
-- ❌ 退出条件 9/10：现有 1015 tests 全绿 —— 复现：`cd backend; python -m pytest -q`
-- ❌ 退出条件 10/10：全量静态检查全绿 —— 复现：`python _tools/qa/_check_all.py`
+改了什么：
+
+1. `app/database.py` **摘掉 import 时的 `bootstrap_schema(engine)`** —— 现在它只有 engine / session；
+2. `app/core/schema_bootstrap.py` 拆成两个角色：`apply_runtime_self_heal`（幂等自愈）与
+   `prepare_schema`（**迁移的唯一入口**：自愈 → 版本化迁移）；旧名 `bootstrap_schema` 保留为「只自愈」；
+3. `app/main.py` 启动**不迁移**：只 `schema_ready()` 只读核对，没准备好就拒绝启动（逃生开关不变）；
+4. `app/migrations/_runner.py` 新增 `schema_ready()` —— ⛔ 它**不建表**（所以不能调 `applied_versions`）；
+5. 测试自己显式建库（`conftest`：`create_all` + `run_migrations`），不再依赖 import 副作用；
+6. 新增判据 `_tools/qa/_check_import_purity.py`（真库 + 子进程核对）+ 反向验证 7/7；
+7. 新增 `_tools/ops/_migration_tests.py`（--fresh / --old / --concurrent / --fail-fast）。
+
+**跑这一块时抓到的两个真缺陷**（都不是测试写错了）：
+
+- 并发迁移测试当场红了：第二个进程不是「等待」，而是撞 `table already exists` **直接失败退出**。
+  根因是「import fcntl 失败就往下跑」——**Windows 上这把跨进程锁等于没有**。
+  修法：抽出 `app/core/file_lock.py`（POSIX 用 flock、Windows 用 msvcrt.locking），两条路径共用。
+  ⛔ 期间踩到第二个坑：锁文件用 `'w+'` 打开会**截断**，而 Windows 的文件锁是强制的 →
+  第二个进程在 `flush()` 上直接 `PermissionError`（还是「不等待」）。改成 append 打开才对。
+- 自愈与迁移各自拿各自的锁，中间有一个窗口（放锁之后、拿锁之前）——另一个进程正好在里面跑自愈，
+  两边的 DDL 撞在一起。修法：`prepare_schema` 用**同一把锁**罩住两段，`FileLock` 支持同进程重入。
+
+退出条件（指南 L222-232 原文十条）：
+
+- ✅ 退出条件 1/10：`import app.database` 不执行 DDL —— 复现：`python _tools/qa/_check_import_purity.py`
+- ✅ 退出条件 2/10：application startup 不执行 migration（只 `schema_ready` 核对）—— 复现：`python _tools/qa/_check_import_purity.py`
+- ✅ 退出条件 3/10：migration 有唯一入口（`prepare_schema` ← `python -m app.migrations upgrade`）—— 复现：`python _tools/qa/_check_migrations.py`
+- ✅ 退出条件 4/10：migration version 正确（版本 7，7 条全部记账）—— 复现：`cd backend; python -m app.migrations status`
+- ✅ 退出条件 5/10：空库迁移通过（48 张表 / 版本 7 / 启动核对通过）—— 复现：`python _tools/ops/_migration_tests.py --fresh`
+- ✅ 退出条件 6/10：旧库迁移通过（无迁移记录的老库 → 版本 7，结构一行没丢）—— 复现：`python _tools/ops/_migration_tests.py --old`
+- ✅ 退出条件 7/10：两个进程同时迁移 → 都成功、每个版本恰好一行 —— 复现：`python _tools/ops/_migration_tests.py --concurrent`
+  ⚠️ 本机是 Windows + SQLite，证的是**本机互斥**；跨主机那一段是 MySQL `GET_LOCK`，要到 R3-03 在生产库上真跑一次才算数
+- ✅ 退出条件 8/10：迁移失败 → 不记账、不半残（失败版本没进版本表，1..7 都在）—— 复现：`python _tools/ops/_migration_tests.py --fail-fast`
+- ✅ 退出条件 9/10：现有 1015 tests 全绿 —— 复现：`cd backend; python -m pytest -q` → `1015 passed`
+- ✅ 退出条件 10/10：全量静态检查全绿 —— 复现：`python _tools/qa/_check_all.py` → `114/114`
+
+**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机真进程真库；**生产**仍未验证）
 
 ## R3-02 Capability → UI / Audit
 

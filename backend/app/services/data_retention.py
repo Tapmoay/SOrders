@@ -94,7 +94,7 @@ def _single_runner():
     实测后果：两个执行者同时压同一张图时，40 轮里有 4 张**根本没压成**、
     30 轮一方失败；单执行者对照 40/40 全成。而"删数据"被重复执行的后果比压图严重得多。
 
-    同仓库为并发 DDL 专门加过 `fcntl` 锁（`schema_bootstrap.bootstrap_schema`），
+    同仓库为并发 DDL 专门加过 `fcntl` 锁（`schema_bootstrap.apply_runtime_self_heal`），
     这里的道理完全一样，只是当时漏了。
 
     ⚠️ 用 `LOCK_NB`（非阻塞）而不是 `LOCK_EX`（阻塞）：阻塞会让第二个 worker

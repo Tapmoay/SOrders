@@ -140,12 +140,22 @@ def base_commit() -> str | None:
 
 
 def probe_import_purity() -> tuple[str, str]:
-    src = read("backend/app/database.py")
-    if not src.strip():
-        return "broken", "backend/app/database.py 读不到（扫描对象消失）"
-    if "bootstrap_schema(" in src:
-        return "broken", "backend/app/database.py 里仍有 bootstrap_schema( —— import 即 DDL"
-    return "hold", "import 路径上没有 bootstrap_schema("
+    """直接跑**真判据** _tools/qa/_check_import_purity.py（真库 + 子进程核对）。
+
+    ⛔ 这里不许再写一份「搜文本里有没有 bootstrap_schema(」的简版：第一版就是这么写的，
+    于是 database.py 的**文档字符串**里提到这个名字就把自己判红了 ——
+    同一个判断有两份实现，迟早走散（本仓库栽过的老账）。
+    """
+    checker = ROOT / "_tools/qa/_check_import_purity.py"
+    if not checker.exists():
+        return "broken", "真判据 _tools/qa/_check_import_purity.py 不存在"
+    proc = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True,
+                          cwd=str(ROOT), encoding="utf-8", errors="replace")
+    if proc.returncode == 0:
+        return "hold", "真判据《_check_import_purity.py》通过（真库 + 子进程核对）"
+    bad = [ln.strip() for ln in ((proc.stdout or "") + (proc.stderr or "")).splitlines()
+           if ln.strip().startswith("❌")]
+    return "broken", (bad[0] if bad else "真判据报红")[:140]
 
 
 def probe_android_no_second_truth() -> tuple[str, str]:

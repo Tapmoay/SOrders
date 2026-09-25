@@ -111,6 +111,7 @@ get_settings.cache_clear()
 
 import app.models  # noqa: E402, F401 - register models
 from app.core.security import hash_password
+from app.migrations import run_migrations  # noqa: E402
 from app.database import get_db
 from app.main import app, fastapi_app
 from app.models import User
@@ -141,6 +142,10 @@ def get_test_engine():
             cursor.close()
 
         Base.metadata.create_all(bind=_test_engine)
+        # R3-01：`import app.database` 不再建表/迁移了，测试必须**自己显式**把结构准备好
+        # （create_all 建结构 → run_migrations 写版本表，两者合起来等价于以前的 import 副作用）。
+        # ⛔ 少了这一句，启动期的结构核对会拒绝启动 —— 那正是它该有的行为。
+        run_migrations(_test_engine)
 
     return _test_engine
 
