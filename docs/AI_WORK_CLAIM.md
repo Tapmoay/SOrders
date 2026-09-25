@@ -263,6 +263,24 @@ Request ID 早已贯穿（`core/request_id.py` + `operation_logs.request_id`，�
 判据红在「找不到被搬走的函数」上。修法：让**胜出的那一个**改用 `reports_files()`（glob）。
 这正是本项目最贵的一类错（同一个事实两处实现，只有一个地方改了）。
 
+
+**第 11 轮实测（把清单又收窄了一格）**：
+
+- ✅ 26 份反向验证脚本**已经**有并集回退（提交 `da2b1f5`），搬完之后它们不再 SKIP；
+- ❌ 剩下 **6 份 harness 形状不同**，`_check_reverse_verify_anchors.py` 报的 **24 条失效锚点全在这 6 份里**：
+  `_reverse_verify_{report_window,report_guards,single_source,round19,cost_basis,round12}.py`。
+  它们的注入不是 `Sandbox.apply`，而是 `(说明, 目标文件, lambda s: s.replace(旧, 新))` 这种三元组，
+  另有 `read_src(p)/write_src(p, text, crlf)` 两套写法 —— 回退要加在**它们各自应用补丁的那一处**。
+  ⛔ 这 6 份的锚点**跨多个新文件**（`_common` / `loader` / `turnover_query` / `product_query`），
+  所以不能只改一个常量；正解仍是「按并集找含原文的那一份」。
+- ✅ `_check_money_contract.py` 的消费方路径改法已经**试对过**：
+  `order_money` 那条列三份（`turnover_query` / `product_query` / `arrears_query`，它们各 import 一个符号），
+  ⛔ `driver_pay` 那条**只列 `turnover_query`** —— 多列两份会被判「假消费方」
+  （判据会核对「声明的消费方真的 import 了这条契约」，这条判据自己抓到了我第一次写错）。
+
+**第 11 轮结论**：搬完 → 只剩 3 条红（后端新鲜度 / money_contract 消费方 / 24 条锚点）。
+前两条当轮已修好并验证通过；**卡在最后一条**，按「全绿才提交」第三次回退，回到 112/112。
+
 **并集读取器已经就位**（`42a28ba`）：`_airepo.reports_source()` = `api/v1/reports.py` + `reports_service.py` +
 **glob 收到的** `services/reports/**`。⛔ 改上面的 1–4 时**直接用它**，别再各写各的路径 ——
 那正是 `_airepo` 里那段注释说的：「先让判据读并集，再搬代码。顺序不能反」。
