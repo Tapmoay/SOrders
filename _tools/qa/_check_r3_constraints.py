@@ -227,10 +227,17 @@ def _new_checkers() -> tuple[int, list[str], str]:
     code, out = git("rev-parse", "--verify", base + "^{commit}")
     if code != 0:
         return -1, [], "基线提交 " + base + " 还不在 git 里"
-    code, out = git("diff", "--name-only", base + "..HEAD", "--", "_tools")
+    # ⚠️ 只看**新增**（status=A）的检查器：R3-01 里改过 `_check_migrations.py` 的锚点，
+    #    那是「判据跟着代码走」，不是「又加了一个检查器」—— 要求它写边界理由就跑偏了。
+    code, out = git("diff", "--name-status", base + "..HEAD", "--", "_tools")
     if code != 0:
         return -1, [], "git diff 失败：" + out.strip()[:120]
-    fresh = [ln.strip() for ln in out.splitlines() if ln.strip().endswith(".py") and "/_check_" in ln]
+    fresh = []
+    for ln in out.splitlines():
+        parts = ln.split("\t")
+        if len(parts) >= 2 and parts[0].startswith("A") and parts[1].strip().endswith(".py") \
+                and "/_check_" in parts[1]:
+            fresh.append(parts[1].strip())
     return len(fresh), fresh, ""
 
 

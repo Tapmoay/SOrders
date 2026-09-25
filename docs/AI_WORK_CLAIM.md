@@ -20,6 +20,31 @@
 
 ## 进行中
 
+### [2026-09-26 03:3x → 04:0x] 会话：**第三轮整改 R3-00 禁做清单 + R3-01 迁移生命周期**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `c544db5` / `81a8219`】
+
+**用户 2026-09-26 交来第三份方向指南**（`C:\Users\Optimistic\Desktop\ppll.md`，1219 行），原名
+《SOrders 第三轮整改方案：从「结构正确」进入「运行时正确」》。已归档为 `docs/ARCHITECTURE_RECTIFICATION_R3.md`
+（字节一致，SHA256 `193AB545…5297`）。用户的原话是「避免了像上次一样，明明在指南里加了不要做，但是还是做的情况」，
+所以先把 27 条禁做/必做抄进 `docs/R3_CONSTRAINTS.md` 并配可判定的探针（`_check_r3_constraints.py`，棘轮只减不增）。
+
+**改动文件（R3-00）**：`docs/R3_CONSTRAINTS.md`（新）、`docs/R3_PROGRESS.md`（新）、
+`docs/ARCHITECTURE_RECTIFICATION_R3.md`（新，指南存档）、`_tools/qa/_check_r3_constraints.py`（新）、
+`_tools/qa/_reverse_verify_r3_constraints.py`（新）。
+
+**改动文件（R3-01）**：`backend/app/database.py`（摘掉 import 时的 `bootstrap_schema(engine)`）、
+`backend/app/main.py`（启动只核对不迁移）、`backend/app/migrations/_runner.py`（+`schema_ready`、锁换实现）、
+`backend/app/migrations/__init__.py`、`backend/app/migrations/__main__.py`、`backend/app/core/file_lock.py`（新）、
+`backend/tests/conftest.py`（自己显式建库）、`_tools/qa/_check_import_purity.py`（新判据）、
+`_tools/qa/_reverse_verify_import_purity.py`（新）、`_tools/ops/_migration_tests.py`（新）、
+`_tools/qa/_check_migrations.py`（锚点跟着拆函数走）、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`（行号刷新）。
+
+- 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：它是**生产库结构变更的唯一入口**，
+  R3-01 要解决的正是「它在 import 时就被执行」这件事 —— 不把它拆成「幂等自愈」与「迁移唯一入口」两个角色，
+  `import app.database` 就永远等于改库（只读排障脚本会在别人的库上跑 DDL）。
+
+- 核心改动：backend/app/services/data_retention.py —— 为什么必须动核心：只改了一行注释里的函数名
+  （`bootstrap_schema.bootstrap_schema` → `apply_runtime_self_heal`）—— 留着旧名字就是「文档说了一个不存在的入口」。
+  行为零变化。
 ### [2026-09-25 20:4x → 21:3x] 会话：**第二轮整改 R2-01 领域边界地图 + R2-02 订单命令层（Route → Command）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **用户 2026-09-25 交来第二份方向指南**（`C:\Users\Optimistic\Desktop\ppdd.md`，1028 行），原名

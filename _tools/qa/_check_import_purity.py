@@ -10,6 +10,13 @@ R3-01 之前它是这样的：backend/app/database.py 的最后两行是
 from app.core.schema_bootstrap import bootstrap_schema + bootstrap_schema(engine) ——
 于是 import app.database 就等于改库：一个只读排障脚本只要 import 它，就会在别人的库上跑 DDL。
 
+R3-BOUNDARY-JUSTIFICATION: 边界**已经先改过了**（database.py 不再 import 自愈模块、启动不再迁移）——
+这一条判据守的是「这条不变量以后不会被改回去」。它无法被任何局部边界消除：
+「import 无副作用」不是某个模块的内部性质，而是**「模块加载」这个动作**与**数据库状态**之间的关系，
+横跨进程、导入系统与库三样东西，没有任何一个函数签名能表达它。
+⚠️ 而且它**必须**是动态的：静态扫源码只能证明「没写这一行」，证明不了「import 之后库没变」。
+（指南 R3-01-C 点名要的也正是这一条：注入一个 import → 检查 schema version → 必须完全不变。）
+
 ## 八组判据
 1. app/database.py 里不许出现建库/迁移调用（bootstrap_schema / prepare_schema / create_all / DDL 文本）；
 2. app/database.py 不许 import app.core.schema_bootstrap；
