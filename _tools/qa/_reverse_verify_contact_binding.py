@@ -41,6 +41,9 @@ ORDER_VM = f"{AND}/ui/shipper/OrderCreateViewModel.kt"
 FILL = f"{AND}/ui/common/ContactFill.kt"
 DTOS = f"{AND}/data/remote/dto/Dtos.kt"
 AI_SVC = f"{AND}/ai/AiWriteService.kt"
+# ⛔ 2026-09-26 修：`contactName = fields.str("contact_name") ?: cur.contactName` 这一行随实现搬进了
+#    `AiWriteDataSource.kt`（服务只剩薄派发）。只改目标文件，锚点原文不动。
+AI_DATA = f"{AND}/ai/AiWriteDataSource.kt"
 TEST = "android/app/src/test/java/com/tapmoay/sorders/ui/common/ContactFillTest.kt"
 BE_MODEL = "backend/app/models/shipper.py"
 BE_API = "backend/app/api/v1/shipper.py"
@@ -138,7 +141,7 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     (
         "⑩ AI 改地点不回填（模型说一句「改个名」就把绑定清了）",
-        AI_SVC,
+        AI_DATA,
         lambda s: s.replace(
             '                contactName = fields.str("contact_name") ?: cur.contactName,\n',
             '                contactName = fields.str("contact_name").orEmpty(),\n',

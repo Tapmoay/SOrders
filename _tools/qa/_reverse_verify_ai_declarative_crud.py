@@ -22,6 +22,10 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECK = ROOT / "_tools/qa/_check_ai_declarative_crud.py"
 BASE = "android/app/src/main/java/com/tapmoay/sorders/ai/"
 SVC = BASE + "AiWriteService.kt"
+# ⛔ 2026-09-26 修：声明式写入的**数据源实现**后来从 `AiWriteService.kt` 搬进了 `AiWriteDataSource.kt`
+#    （服务只剩薄派发）—— 下面两条锚点（`isActive = fields.str("active")`、`sort_order ... moveCategoryTo`）
+#    现在住在 `AiWriteDataSource.kt` 里。⛔ 只改这两条的**目标文件**，锚点原文一字不改（源码里逐字相同）。
+DATA = BASE + "AiWriteDataSource.kt"
 BASIC = BASE + "AiWriteBasicData.kt"
 
 CASES: list[tuple[str, str, object]] = [
@@ -51,7 +55,7 @@ CASES: list[tuple[str, str, object]] = [
     ),
     (
         "改车辆又不搬 active",
-        SVC,
+        DATA,
         lambda s: s.replace('                isActive = fields.str("active")?.toBooleanStrictOrNull(),\n', "", 1),
     ),
     (
@@ -66,7 +70,7 @@ CASES: list[tuple[str, str, object]] = [
     ),
     (
         "分类位置改回「只写绝对值」",
-        SVC,
+        DATA,
         lambda s: s.replace(
             '        fields.str("sort_order")?.toIntOrNull()?.let { moveCategoryTo(created.id, it) }',
             "        // 注入：只写绝对值",

@@ -35,7 +35,11 @@ NL = chr(10)
 
 SESS = 'SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)'
 LIFE = '    assert_schema_ready()' + NL + '    task = asyncio.create_task(_retention_loop())'
-READY_TRY = '    try:' + NL + '        if not inspect(engine).has_table(VERSION_TABLE):'
+# ⛔ 2026-09-26 修锚点：`try:` + `if not inspect(engine).has_table(VERSION_TABLE):` 这一对在
+#    `_runner.py` 里出现了**两次**（`applied_versions()` 与 `schema_ready()`）—— 要求恰好一次的注入
+#    于是恒 SKIP。锚点往下多带一行（`schema_ready` 独有的那句中文报错），就唯一了。
+READY_TRY = ('    try:' + NL + '        if not inspect(engine).has_table(VERSION_TABLE):' + NL
+             + '            return False, f' + chr(34) + '没有迁移记录表 `{VERSION_TABLE}` —— 这个库从没跑过迁移' + chr(34))
 
 CASES: list[tuple[str, str, str, str, str]] = [
     ('① 把 bootstrap_schema(engine) 注回 database.py', DB, SESS, SESS + NL + 'bootstrap_schema(engine)',
@@ -48,7 +52,7 @@ CASES: list[tuple[str, str, str, str, str]] = [
     ('④ 启动核对被删掉', MAIN, LIFE, '    task = asyncio.create_task(_retention_loop())',
      '启动路径里没有 schema_ready'),
     ('⑤ schema_ready 变成会建表', RUNNER, READY_TRY,
-     '    try:' + NL + '        ensure_version_table(engine)' + NL + '        if not inspect(engine).has_table(VERSION_TABLE):',
+     '    try:' + NL + '        ensure_version_table(engine)' + NL + READY_TRY,
      'schema_ready 不是只读的'),
     ('⑥ 快照下限失守（判据空转）', CHK, 'MIN_TABLES = 40', 'MIN_TABLES = 999', '快照太小'),
 ]

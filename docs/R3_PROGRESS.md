@@ -395,6 +395,13 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   `category_roster`、`contact_binding`、`import_purity`、`inline_role_gates`、`list_order`、`money_contract`、
   `permission_points`、`r3_constraints`、`round17`。
   ⛔ 这一条**不是**「还原」问题（漂移 0 条已经证明），是「**注入还在不在**」问题 —— 两件事分开记，谁也不许替谁背书。
+  ⏳ 进度（2026-09-26）：**已修 3 份** —— ① `import_purity`：`try:` + `if not inspect(engine).has_table(VERSION_TABLE):`
+  这一对在 `_runner.py` 里出现**两次**（`applied_versions()` 与 `schema_ready()`），要求恰好一次的注入恒 SKIP ⇒
+  锚点往下多带一行（`schema_ready` 独有的那句中文报错）就唯一了 → **7/7**；② `ai_declarative_crud`：两条锚点随实现
+  从 `AiWriteService.kt` 搬进了 `AiWriteDataSource.kt` ⇒ **只改目标文件、锚点原文一字不改** → **5/5**；
+  ③ `contact_binding`：同上（⑩ 那条搬到 `AiWriteDataSource.kt`）→ **18/18**。**还剩 8 份**（`audit_coverage` /
+  `category_roster` / `inline_role_gates`（3 条）/ `list_order` / `money_contract` / `permission_points` /
+  `r3_constraints` / `round17`）—— 其中 `list_order` / `money_contract` 的失败原因还没看清（日志里没有 `[SKIP]`/`[MISS]` 行）。
   · 另外核一件事：**没有任何一份**在代码里真的执行 `git checkout`（⛔ 用 AST 看**调用实参**，
     不用正则搜文本 —— 反向验证脚本自己就把 `["git","checkout",…]` 当字符串数据写着，
     正则会把它们全判红，那是本仓库栽过的「判据被文字误伤」）。
