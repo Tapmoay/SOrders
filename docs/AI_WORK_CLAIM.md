@@ -20,7 +20,7 @@
 
 ## 进行中
 
-### [2026-09-27 08:0x → 进行中] 会话：**R4-PROD-INTEGRATION · P0 治理收口 + P1① 计价事实审计**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+### [2026-09-27 08:0x → 已完成] 会话：**R4-PROD-INTEGRATION · P0 治理收口 + P1① 计价事实审计**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `84beca6` / `3537d57` / `dfdac3d`】
 
 **依据**：用户 2026-09-27 的拍板 —— R4 拆成**两个命题**：
 **R4 Structural Proven ✅ / R4 Production Integration ⏳**；⛔ 不开泛化的 R5，
@@ -41,7 +41,7 @@
 
 ---
 
-### [2026-09-27 00:2x → 进行中] 会话：**R4 第四轮整改 —— 核心稳定 / 扩展开放（Core-Stable / Extension-Open）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+### [2026-09-27 00:2x → 已完成] 会话：**R4 第四轮整改 —— 核心稳定 / 扩展开放（Core-Stable / Extension-Open）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `c67b2cf`..`1224077`（22 条，R4-00…R4-08）】
 
 **依据**：用户 2026-09-27 交来的方向指南《SOrders 第四轮整改方案 R4》（`C:\Users\Optimistic\Desktop\ppkk.md`，1599 行）。
 总纲一句话：**核心不可插拔，边缘能力可插拔** —— 核心负责定义「什么是真的」，扩展负责定义「怎么做」。
