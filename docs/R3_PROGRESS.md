@@ -329,7 +329,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   ⭐ 记录本体：`docs/RELEASE_CANDIDATE.md`（每个字段都写了自己的**现取命令**，⛔ 没有一个是手抄的）。
   ⛔ 这一条 ✅ 证的是「**记录齐全且与仓库事实对得上**」（字段齐、SHA 真是本仓库的提交、迁移版本与目录现数一致、版本号与根 `VERSION` 一致）；⛔ **不证**发布做过了 —— 下面第 2–7 条仍然全是 ❌。
 - ✅ 发布工具在位、且**护栏自检**通过（顺序强制 / 备份新鲜度 / SHA 必须在仓库里 / 算不出事实就拒绝 / 没 `--go` 一律只打印）—— 复现：`python _tools/deploy/_release.py --selftest`
-  ⛔ 这一条证的是**工具的护栏**（17 项自检），**不证**发布跑过 —— 下面第 2–7 条仍然全是 ❌。
+  ⛔ 这一条证的是**工具的护栏**（23 项自检），**不证**发布跑过 —— 下面第 2–7 条仍然全是 ❌。
   ⛔ 工具默认只打印：`--plan` 打印八步与判据；`--step X` 不带 `--go` 只给结论；真执行要 `--go`。
 - ✅ 生产验收清单已建立（R3-05-C：12 项**按权限分段** —— 只读那段今天跑过，写那段一条没跑）—— 复现：`python -c "import pathlib,re,sys; docs=['docs/RELEASE_CANDIDATE.md','docs/PRODUCTION_ACCEPTANCE.md','docs/R3_FAILURE_DRILL.md']; miss=[d for d in docs if not pathlib.Path(d).exists()]; lines=[(d,ln) for d in docs for ln in pathlib.Path(d).read_text(encoding='utf-8').splitlines() if not any(k in ln for k in ('待写','还没写','不存在','待建'))]; bad=sorted({d+':'+p for d,ln in lines for p in re.findall(r'_tools/[A-Za-z0-9_./-]+\.py', ln) if not pathlib.Path(p).exists()}); print('缺文档',miss,'引用了不存在的脚本',bad); sys.exit(1 if (miss or bad) else 0)"`
   清单本体：`docs/PRODUCTION_ACCEPTANCE.md`（逐项给了命令与判据；⛔ 混在一起就会变成「借验收之名做写测试」）。
@@ -359,6 +359,39 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 - ✅ 回滚 / 前向修复方案已写 —— 复现：`python -c "import pathlib,re,sys; docs=['docs/RELEASE_CANDIDATE.md','docs/PRODUCTION_ACCEPTANCE.md','docs/R3_FAILURE_DRILL.md']; miss=[d for d in docs if not pathlib.Path(d).exists()]; lines=[(d,ln) for d in docs for ln in pathlib.Path(d).read_text(encoding='utf-8').splitlines() if not any(k in ln for k in ('待写','还没写','不存在','待建'))]; bad=sorted({d+':'+p for d,ln in lines for p in re.findall(r'_tools/[A-Za-z0-9_./-]+\.py', ln) if not pathlib.Path(p).exists()}); print('缺文档',miss,'引用了不存在的脚本',bad); sys.exit(1 if (miss or bad) else 0)"`
   方案分四条：**回滚 A**（代码退回上一个可用提交）／**回滚 B**（用发布前的 dump 恢复库）／**前向修复**（数据没错、问题小而明确时宁可再修一版）／**回滚后要做的三件事**。
   ⛔ 这条命令同时钉住一件事：**三份新文档里提到的 `_tools/*.py` 必须真的存在**（标了「待写／还没写」的除外）—— 免得文档里写着一支根本不存在的脚本。
+
+### A 阶段执行记录（2026-09-26，用户原话：「开始写阶段，但只开始 A」）
+
+⛔ 口径：**每一步单独判定**（用户的 A0–A6），任何一步失败**立即停在原地** —— ⛔ 不「先跑后面看看」。
+⛔ 只放行 **A**：B（多实例）与 C（故障演练）**未放行**，本记录里不出现它们的任何动作。
+
+| 步 | 做了什么 | 结果 | 证据 |
+|---|---|---|---|
+| **A0 RC** | 候选记录的 Git SHA 指到本次发布点；新增「**运行时代码指纹**」判据（`git diff <SHA>..<发布点> -- backend/` 必须为空）| ✅ | `docs/RELEASE_CANDIDATE.md` §一 |
+| **A1 备份** | `_pre_release.py` → `/opt/sorders-backup/pre_release/20260926T133009Z`（库 526,286 B ／ 上传 105,962,426 B ÷ 2115 文件，sha256 通过）| ✅ | 清单 `_tools/backup/manifests/20260926T133017Z-pre_release.json`：orders=2402 / ledgers=4648 / users=60 / products=37 / tables=44 |
+| **A2a 代码落位** | `_release.py --step stage --go`：生产 `git fetch` + `checkout b3dad61`（**不重启**）| ✅ | 生产 HEAD = `b3dad61bbdfa…`；`app/migrations` 在了；**服务仍 active、`/health` 200、版本仍是 0.2.0（跑的还是旧代码）**、`ActiveEnterTimestamp` 未变（仍是 2026-09-23 那次）|
+| **A2b 迁移** | `_release.py --step migrate --go` → `prepare_schema`（自愈）+ 8 条版本化迁移 | ✅ | `schema_versions` 1..8 各一行；新增 `outbox_events` / `ai_call_daily` / `schema_versions` / `unit_conversions`（第 4 张是新代码的**模型表**，由运行时自愈建，不是迁移建）；表数 44 → 48；⛔ **业务数据一行没动**：orders 2402 / ledgers 4648 / users 60 / products 37（与 A1 清单逐项相同）|
+| **A2c 验证结构** | 第一次 `--step verify --go` **判据报失败** → 停在原地查 → 是**判据错**、不是迁移错；修判据后重跑 | ⚠️→✅ | 见下面「A2c 那一次假红」 |
+| A3 启动 / A4 体检 / A5 只读烟测 / A6 trace | —— | **待做** | —— |
+
+#### A2c 那一次假红（判据错，⛔ 不是生产错）
+
+`verify` 原来的判据是「`status` 的输出里必须有『待跑：0 条』」。而 `status` 里那一行是
+`if st["pending"]:` **才打**的 ⇒ **迁移越干净，这句话越不出现**，判据**必然误报失败**。
+生产实测输出（库其实已经是 8/8）：
+
+```text
+当前版本：8
+已应用：8 条
+  ✅ 001 baseline（0 ms，f5af981021b7）
+  …（8 条全 ✅，各自带校验和）…
+```
+
+**怎么处置的**（⛔ 不是「绕过」）：判据改成读 `status --json` 的**结论** ——
+`pending` / `drifted` / `unknown_in_db` 三个列表都空、且 `current` == **本仓库迁移头**；
+并抽成**纯函数** `verify_verdict()` 进 `--selftest`（新增 6 条用例，自检 17 → **23** 项全过）。
+根因是「判据写出来**从没被真输出验过**」，所以修法不只是改一行，是让它**可被自检**。
+⛔ 判据是**变强**了：原来只核一句中文措辞，现在还核漂移、库里陌生版本、以及与仓库迁移头是否一致。
 
 ### 现场只读核对（2026-09-26，用户拍板③「生产只读放行」）
 

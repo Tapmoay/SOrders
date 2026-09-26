@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "R3-05 A1 发布前备份（发布点 b3dad61，A 阶段·工具口径）",
+  "created_utc": "2026-09-26T13:30:17Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260926T133009Z",
+  "code": {
+    "commit": "648fbf8134c4ffcae86e698255fdf2427ded71c2",
+    "branch": "new",
+    "dirty_files": 8
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": null,
+    "rows": {
+      "orders": 2402,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 44
+    }
+  },
+  "uploads": {
+    "bytes": 105962426,
+    "files": 2115
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 526286,
+      "sha256": "d4630afb01bffa41bbe193b87a431fd1e0cbe833b62d3e508e42d2e6efa85b5c"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105962426,
+      "sha256": "975774acb2aeab81d858b07f9d4f5d3aacb206799f512a4a8e4cbf73ea3b30fb"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}

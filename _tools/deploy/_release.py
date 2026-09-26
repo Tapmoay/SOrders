@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -70,8 +71,8 @@ STEP_DOC: dict[str, tuple[str, str, str]] = {
     "migrate": ("生产上跑迁移的唯一入口：.venv/bin/python -m app.migrations upgrade",
                 "版本 0 → 8；schema_versions 出现 8 行",
                 "失败 → 不启动服务；按 RELEASE_CANDIDATE §五 前向修复或从 dump 恢复"),
-    "verify": ("生产上 .venv/bin/python -m app.migrations status",
-               "「当前版本：8 / 待跑：0 条」",
+    "verify": ("生产上 .venv/bin/python -m app.migrations status --json",
+               "当前版本 == 本仓库迁移头；待跑 0 / 漂移 0 / 陌生版本 0",
                "与期望不符 → 不启动"),
     "start": ("再核一次 git checkout <SHA> + systemctl restart sorders-api",
               "systemctl is-active = active",
@@ -117,6 +118,49 @@ def decide(step: str, go: bool, facts: dict, state: dict) -> tuple[str, str]:
     return "run", "护栏全过"
 
 
+def expected_head() -> int | None:
+    """本仓库的**迁移头**（`backend/app/migrations/0*.py` 里最大的 VERSION）。算不出返回 None。
+
+    ⛔ 不 import backend（那要装依赖、还会触发 app 包的一串副作用）—— 直接读文件里的 VERSION。
+    ⛔ 算不出**不许**当成 0（G4）：调用方拿到 None 必须判失败。
+    """
+    d = ROOT / "backend" / "app" / "migrations"
+    vs: list[int] = []
+    for p in sorted(d.glob("0*.py")):
+        m = re.search(r"^VERSION\s*=\s*(\d+)", p.read_text(encoding="utf-8", errors="replace"), re.M)
+        if m:
+            vs.append(int(m.group(1)))
+    return max(vs) if vs else None
+
+
+def verify_verdict(st: dict, head: int | None) -> tuple[bool, str]:
+    """**纯函数**：`status --json` 的结论 + 本仓库迁移头 ⇒ (过不过, 一句话)。
+
+    ⛔ 为什么要抽成纯函数：原来的判据是「输出里必须有『待跑：0 条』」——
+    而 `status` **只在有待跑的时候才打那一行**（`if st["pending"]:`），
+    于是**迁移跑得越干净，这句话越不出现**，判据必然误报失败。
+    2026-09-26 生产 A 阶段实测踩到：库已经 8/8 全应用，判据却说「迁移没跑干净」。
+    抽成纯函数 + 进 --selftest，就是为了让「判据从没被真输出验过」这件事不再发生。
+    """
+    pending = st.get("pending") or []
+    drifted = st.get("drifted") or []
+    unknown = st.get("unknown_in_db") or []
+    current = st.get("current")
+    if head is None:
+        return False, "算不出本仓库的迁移头 —— 算不出就不许往下走（G4）"
+    if pending:
+        return False, "还有 " + str(len(pending)) + " 条待跑：不启动服务"
+    if drifted:
+        return False, "有 " + str(len(drifted)) + " 条**漂移**（库里记录的校验和与文件对不上）：不启动服务"
+    if unknown:
+        return False, "库里有仓库里没有的版本号 " + str(unknown) + "：不启动服务"
+    if current != head:
+        return False, ("库里的版本（" + str(current) + "）与本仓库的迁移头（" + str(head)
+                       + "）对不上：不启动服务")
+    return True, ("当前版本 " + str(current) + " == 本仓库迁移头 " + str(head)
+                  + "；待跑 0 / 漂移 0 / 陌生版本 0")
+
+
 def build_cases() -> list[tuple[str, dict, str, str]]:
     """(说明, decide 的入参, 期望 action, 期望 why 里必须出现的词)。"""
     done3 = {"done": ["backup", "stage", "migrate", "verify"]}
@@ -147,6 +191,29 @@ def build_cases() -> list[tuple[str, dict, str, str]]:
     ]
 
 
+#: verify_verdict 的用例：(说明, status --json 的结论, 仓库迁移头, 期望过不过, 期望话里必须有的词)
+VERIFY_CASES: list[tuple[str, dict, int | None, bool, str]] = [
+    ("8/8 全应用、没待跑 ⇒ 过",
+     {"current": 8, "applied": [{"version": i} for i in range(1, 9)], "pending": [],
+      "drifted": [], "unknown_in_db": []}, 8, True, "待跑 0"),
+    ("还有 2 条待跑 ⇒ 不过",
+     {"current": 6, "applied": [], "pending": [{"version": 7}, {"version": 8}],
+      "drifted": [], "unknown_in_db": []}, 8, False, "还有 2 条待跑"),
+    ("有漂移（文件被改过）⇒ 不过",
+     {"current": 8, "applied": [], "pending": [],
+      "drifted": [{"version": 3}], "unknown_in_db": []}, 8, False, "漂移"),
+    ("库里有仓库里没有的版本 ⇒ 不过",
+     {"current": 8, "applied": [], "pending": [], "drifted": [], "unknown_in_db": [9]},
+     8, False, "仓库里没有的版本号"),
+    ("版本对不上仓库（库里 7 / 仓库 8）⇒ 不过",
+     {"current": 7, "applied": [], "pending": [], "drifted": [], "unknown_in_db": []},
+     8, False, "对不上"),
+    ("算不出仓库迁移头 ⇒ 不过（G4 fail-closed）",
+     {"current": 8, "applied": [], "pending": [], "drifted": [], "unknown_in_db": []},
+     None, False, "算不出"),
+]
+
+
 def selftest() -> int:
     bad = 0
     cases = build_cases()
@@ -155,12 +222,18 @@ def selftest() -> int:
         ok = (action == want_action) and (want_word in why)
         print(("  OK   " if ok else "  BAD  ") + label + " → " + action + "：" + why)
         bad += 0 if ok else 1
+    for label, st, head, want_ok, want_word in VERIFY_CASES:
+        ok, why = verify_verdict(st, head)
+        good = (ok == want_ok) and (want_word in why)
+        print(("  OK   " if good else "  BAD  ") + label + " → " + ("过" if ok else "不过") + "：" + why)
+        bad += 0 if good else 1
     for s in STEPS:      # ⛔ 自检还要证明「默认不动手」：没有 --go 时任何步骤都只能是 plan
         action, _ = decide(step=s, go=False, facts={"backup_age_hours": 1.0, "sha_in_repo": True}, state={})
         if action != "plan":
             print("  BAD  没有 --go 时步骤 " + s + " 居然不是 plan")
             bad += 1
-    print("发布工具护栏自检：" + str(len(cases) + len(STEPS) - bad) + "/" + str(len(cases) + len(STEPS)) + " 通过")
+    total = len(cases) + len(VERIFY_CASES) + len(STEPS)
+    print("发布工具护栏自检：" + str(total - bad) + "/" + str(total) + " 通过")
     return 1 if bad else 0
 # ------------------------------------------------------------------ 事实（只读）
 def repo_sha_ok(sha: str) -> bool:
@@ -242,14 +315,20 @@ def run_migrate() -> int:
 
 
 def run_verify() -> int:
-    code, out = ssh("cd " + _prodssh.BACKEND_DIR + " && " + _prodssh.VENV_PY + " -m app.migrations status")
+    """核结构：拿 `status --json` 的**结论**判，而不是拿一句中文措辞判（见 verify_verdict）。"""
+    code, out = ssh("cd " + _prodssh.BACKEND_DIR + " && " + _prodssh.VENV_PY
+                    + " -m app.migrations status --json")
     print(out[-2000:])
     if code != 0:
         return code
-    if "待跑：0" not in out:
-        print("⛔ status 里没有「待跑：0 条」—— 迁移没跑干净，不启动服务")
+    try:
+        st = json.loads(out[out.index("{"): out.rindex("}") + 1])
+    except (ValueError, IndexError):
+        print("⛔ 解析不出 status --json 的输出 —— 算不出事实就不许往下走（G4）")
         return 1
-    return 0
+    ok, why = verify_verdict(st, expected_head())
+    print("   " + ("✅ " if ok else "⛔ ") + why)
+    return 0 if ok else 1
 
 
 def run_start(sha: str, fetch: bool) -> int:

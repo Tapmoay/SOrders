@@ -203,11 +203,29 @@ AI 那侧还有对话层裁剪、安全确认、批量策略、只读/写入策�
 | Release Candidate 记录齐全 | ✅ | `docs/RELEASE_CANDIDATE.md`：Git SHA / 迁移版本 / Android·Backend·Frontend 版本 / 依赖锁 / config checksum / artifact checksum，**每个字段都写了现取命令** |
 | 回滚 / 前向修复方案 | ✅ | 同文档 §五：回滚 A（代码）／回滚 B（库 dump）／前向修复（什么时候它更安全）／回滚后三件事 |
 | 生产验收清单 | ✅ | `docs/PRODUCTION_ACCEPTANCE.md`：12 项**按权限分段**（只读 6 项已出结果，写 6 项等许可）|
-| 发布工具在位 + 护栏自检 | ✅ | `python _tools/deploy/_release.py --selftest` → **17/17** |
+| 发布工具在位 + 护栏自检 | ✅ | `python _tools/deploy/_release.py --selftest` → **23/23**（A 阶段修判据时从 17 涨到 23）|
 | 备份 | ❌ | 要写许可（`_tools/backup/_pre_release.py` 已备好）|
 | 迁移（先迁移后应用）| ❌ | 要写许可（`--step migrate --go`）|
 | 启动新后端 | ❌ | 同上（`--step start --go`；**顺序护栏**会先拒绝没有 backup/migrate/verify 的情况）|
 | health / 只读烟测 / trace 一单 | ❌ | 都要**发布之后**才有意义（今天跑过的是**发布前**的现状核对）|
+
+⭐⭐ **2026-09-26：用户放行「只开始 A」，A 的前四步已真实执行**（详细记录在台账 `docs/R3_PROGRESS.md`
+的「A 阶段执行记录」一节，⛔ 报告不复制那份流水）：
+
+```text
+A0 RC        ✅  候选记录的 SHA 指到发布点 + 新增「运行时代码指纹」判据
+A1 备份      ✅  库 526 KB / 上传 106 MB ÷ 2115 文件，sha256 通过（清单留档）
+A2a 代码落位  ✅  生产 checkout b3dad61（**不重启**）：服务仍 active、版本仍 0.2.0 = 跑的还是旧代码
+A2b 迁移      ✅  schema_versions 1..8；新表 3 张 + 自愈建的模型表 1 张；⛔ 业务数据一行没动
+A2c 验证结构  ⚠️→✅  第一次报红是**判据错**（status 只在有待跑时才打那行）—— 修判据并让它可自检
+A3 启动 / A4 体检 / A5 只读烟测 / A6 trace  —— **待做**
+```
+
+⭐ **两个发现都发生在「动手之前」或「动手当下」，而且都不是靠猜**：
+① **顺序缺陷**（动手前查出来的）：生产没有 `app/migrations` 包，而迁移入口就是这个包提供的
+⇒ 原方案「先迁移后应用」第一次必然撞 `No module named app.migrations`；
+② **判据缺陷**（A2c 当场暴露）：`verify` 要求输出里有「待跑：0 条」，而那一行**只在有待跑时才打**
+⇒ 迁移越干净越报红。两个都按「先修对、再往下走」处理，⛔ 没有一处是绕过。
 
 ⭐ **发布八步已经是一条命令**（`_tools/deploy/_release.py`），四条护栏写在**代码**里：
 G1 不给 `--go` 只打印（判定是纯函数）；G2 顺序强制（实测：空 run-file 上 `--step start --go`
@@ -388,7 +406,7 @@ Windows 专属 shell / 例外表「必须还在当前违反里」/ 排序键用 
 
 | 产物 | 是什么 | 它证什么 | ⛔ 它不证什么 |
 |---|---|---|---|
-| `_tools/deploy/_release.py` | 发布八步一条命令 + 四条护栏 | 自检 **17/17**；护栏真的会拒绝 | ⛔ 没在生产上跑过一次 |
+| `_tools/deploy/_release.py` | 发布八步一条命令 + 四条护栏 | 自检 **23/23**；护栏真的会拒绝 | ⭐ **2026-09-26 A 阶段真在生产上跑了前 4 步**（见台账「A 阶段执行记录」）|
 | `_tools/ops/_drill.py` | 五个演练 + 护栏（生产要三信号且**不代跑**）| 自检 **12/12**；本机预演 **5/5** | ⛔ 不证生产演练做过 |
 | `_tools/ops/_prod_smoke.py` | 生产只读八项 | 八项各有真探针、且被钉成只读 | ⛔ 不证业务正确、不证写路径 |
 | `_tools/ops/_health_check.py` | 四个阈值 + 三档退出码 | 日常监控有人盯 | ⛔ 不替代演练 |
@@ -470,7 +488,7 @@ python _tools/qa/_check_reverse_verify_anchors.py
 # ⑦ 生成物新鲜度（四份产物的真源指纹）
 python _tools/qa/_check_generated_freshness.py
 
-# ⑧ 发布工具护栏自检（17/17）
+# ⑧ 发布工具护栏自检（23/23）
 python _tools/deploy/_release.py --selftest
 
 # ⑨ 演练工具护栏自检（12/12）与五个本机预演（5/5，⚠️ 要几分钟）
