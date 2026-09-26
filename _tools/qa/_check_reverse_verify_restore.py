@@ -52,14 +52,21 @@ MIN_SCRIPTS = 130
 #: 重新读回来的内容参与 `==`/`!=` 比较 —— L2「逐字节证明」的**形状**（见下面 proof 那一段的长注释）。
 READBACK_CMP = re.compile(r'(?:read_bytes|read_text)\s*\([^\n]*?\)\s*(?:==|!=)')
 
+#: L3：**换行符会漂**的脚本上限（只减不增）。2026-09-26 实测 **34** 份：它们的快照用不带 `newline=` 的
+#: `read_text()`、还原用 `write_text(newline="")` ⇒ CRLF 文件还原后变 LF（字节变了、git 看不见）。
+MAX_L3 = 34
+
 MIN_L1 = 135
 #: ⛔ L2：2026-09-26 实测 **94** 份。两次变化都要记清楚（⛔ 不是「缺口改小了」）：
 #:   · 88：原先记的「69 份缺口」里有 **14 份是判据自己读窄了**（只认变量名 `original`/`raw`，
 #:     认不出 `originals[rel]` / `v` 这些写法）—— 那 14 份**本来就在证明**；
 #:   · 94：又给 6 份补上「还原当场核对」（geocode / card_claim / ctx_budget / cost_history /
-#:     image_refs / billing —— 各自跑过一遍，全绿，证明没污染源码树）。
-#: 剩下 49 份仍是真缺口。棘轮只增不减 —— 每补一份就把这个数抬上来。
-MIN_L2 = 94
+#:     image_refs / billing —— 各自跑过一遍，全绿，证明没污染源码树）；
+#:   · 106：再补 12 份（local_reads / read_caps / sun_theme / undo / catalog_and_scope /
+#:     concurrency_guards / cost_basis / input_guards / place_and_picker / product_guards /
+#:     report_guards / soft_delete —— 同样逐份跑过，全绿）。
+#: 剩下 37 份仍是真缺口。棘轮只增不减 —— 每补一份就把这个数抬上来。
+MIN_L2 = 106
 
 #: 做不到那三样、但有正当理由的 —— 键是相对路径，值是「为什么 + 什么时候删掉这一条」。
 EXCEPTIONS: dict[str, str] = {
@@ -139,6 +146,8 @@ def main() -> int:
     fails: list[str] = []
     l1 = 0
     l2 = 0
+    l3 = 0
+    l3_files: list[str] = []
     no_l2: list[str] = []
     for path in files:
         rel = str(path.relative_to(ROOT)).replace(chr(92), '/')
@@ -176,10 +185,31 @@ def main() -> int:
                  or READBACK_CMP.search(code) is not None
                  # sha256(读回字节) 比对也是证明（`_reverse_verify_role_parity.py` 就是这么做的）
                  or ('sha256(' in code and 'read_bytes(' in code))
+        # ---- L3：**换行符安全**（2026-09-26 实测事故后新加的一格）----
+        # 事故：一整轮 `_check_all.py` 从绿变红，唯一动过的东西是 12 份反向验证的**注入+还原**；
+        #   `git status` 干净，但 `docs/PROJECT_MAP/09A_HINT_CATALOG.md` 的 `source_hash` （它对
+        #   `backend/app/**/*.py` + `android/app/src/main/**/*.kt` 取**原始字节**哈希）与现算不一致 ——
+        #   也就是说**有文件的字节被改了，而 git 看不见**。机制：
+        #     · 快照用 `read_text()`（**不带 newline=**）→ 通用换行解码，CRLF 在内存里已经变成 LF；
+        #     · 还原用 `write_text(..., newline="")` → 不做翻译，把那串 LF **原样写回** ⇒
+        #       一个 CRLF 文件还原后变成 LF：内容「看起来」一样，字节不一样，git（autocrlf）也不报。
+        #   ⛔ 连 L2 的「文本级证明」都看不出来：`read_text() != original` 两边都被归一成 LF，恒等。
+        #    正确的写法是**两边都带 `newline=""`**（`read_text(..., newline="")` + `write_text(..., newline="")`），
+        #    那对 UTF-8 文件与字节级等价（本仓库那条「不许用 PowerShell 往返」的纪律就是它）。
+        # 这一格只**数**、只**减**：给定棘轮 MAX_L3，涨了才红。
+        bare_reads = [a for a in re.findall(r'read_text\(([^)]*)\)', code) if 'newline' not in a]
+        if bare_reads and 'write_text(' in code:
+            l3 += 1
+            l3_files.append(rel)
         if proof:
             l2 += 1
         else:
             no_l2.append(rel)
+
+    # L3：**换行符会漂**的那一类（⛔ 只减不增 —— 修一份就把 MAX_L3 降一格）
+    if l3 > MAX_L3:
+        fails.append('换行符会漂的脚本从 ' + str(MAX_L3) + ' 涨到 ' + str(l3) + ' 份 —— 这一格只减不增；'
+                     + '新写的脚本请两边都带 newline=""（见 proof 上面那段事故记录）')
 
     if l1 < MIN_L1:
         fails.append('L1（按字节还原）只有 ' + str(l1) + ' 份（下限 ' + str(MIN_L1) + '）—— 棘轮只增不减，别往回退')
@@ -196,6 +226,7 @@ def main() -> int:
 
     print('反向验证还原契约：扫到 ' + str(len(files)) + ' 份 / 例外 ' + str(len(EXCEPTIONS)) + ' 条')
     print('  L1 按字节快照+还原：' + str(l1) + ' 份（下限 ' + str(MIN_L1) + '）')
+    print('  L3 换行符会漂的脚本：' + str(l3) + ' 份（上限 ' + str(MAX_L3) + '，只减不增）')
     print('  L2 逐字节**证明**还原：' + str(l2) + ' 份（下限 ' + str(MIN_L2) + '）'
           + '  ← 差 ' + str(len(no_l2)) + ' 份还没证明（R3-07 要补的缺口，棘轮只增不减）')
     print('  ⛔ 另外核：**没有**任何一份在代码里真的执行 git checkout')
