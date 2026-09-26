@@ -67,9 +67,9 @@
 | # | 步骤 | 命令 | 期望 | 失败怎么办 |
 |---|---|---|---|---|
 | 1 | **备份**（必做，先备份再动） | `python _tools/backup/_pre_release.py --note "R3-05 发布 <SHA>"` | 库 dump + 上传文件 + 清单；记下 dump 路径与 sha256 | 备份失败 → **停止发布**（没有回滚点就不许往前走） |
-| 2 | **迁移**（唯一入口） | 生产上 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade` | 版本 0 → 8；`schema_versions` 出现 8 行 | 失败 → **不启动**，按第 5 节「前向修复」或从 dump 恢复 |
+| 2 | **迁移**（唯一入口） | `python _tools/deploy/_release.py --step migrate --go`（它执行生产上的 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`） | 版本 0 → 8；`schema_versions` 出现 8 行 | 失败 → **不启动**，按第 5 节「前向修复」或从 dump 恢复 |
 | 3 | **验证结构** | `.venv/bin/python -m app.migrations status` | 「当前版本：8 / 待跑：0 条」 | 与期望不符 → 不启动 |
-| 4 | **启动新后端** | `git -C /opt/SOrders fetch && git checkout <SHA> && systemctl restart sorders-api` | `systemctl is-active` = active | 起不来 → 看 `/tmp/probe-api.log` 或 `journalctl -u sorders-api`；回第 5 节 |
+| 4 | **启动新后端** | `python _tools/deploy/_release.py --step start --go`（执行 `git fetch` → `checkout <SHA>` → `restart sorders-api`，并核对 `is-active`） | `systemctl is-active` = active | 起不来 → 看 `journalctl -u sorders-api`；回第 5 节 |
 | 5 | **体检** | `python _tools/ops/_health_check.py` | 退出码 0（或只有「已知/已接受」的证书告警） | 退出码 2 → 立刻回滚 |
 | 6 | **只读烟测** | `python _tools/ops/_prod_smoke.py --readonly` | 退出码 **0**（现状健康 **且**与这一版代码一致） | 退出码 2 → 回滚；退出码 1 → 看是哪几项不一致 |
 | 7 | **业务烟测（有限写）** | `docs/PRODUCTION_ACCEPTANCE.md` 里「需要写权限」的那几项 | 逐条按那份清单走 | 任何一条不符合 → 回滚或前向修复 |
@@ -122,5 +122,5 @@ systemctl start sorders-api
 
 1. ⛔ **发布没有执行**：第 1–7 步一步都没跑（要写许可）；上面所有「期望」都是**计划**，不是结果；
 2. ⛔ 生产还停在 `648fbf8`（落后 293 个提交），所以「生产跑过这一版代码」**没有发生**；
-3. ⛔ `_tools/deploy/_release.py`（把第 1–7 步串起来的那支脚本）**还没写** —— 本轮的记录是**手工可执行**的版本；
+3. ⛔ `_tools/deploy/_release.py`（把第 1–7 步串起来的那支脚本）**已经写好了**（2026-09-26），但它**只在本机跑过 `--plan` / `--selftest` / 被护栏拒绝的那一次** —— ⛔ 一次都没在生产上真跑过；
 4. ⛔ APK 的 checksum 记的是**上一次发布**那个包；本轮若只发后端，APK 不重打（要重打就重算这一格）。

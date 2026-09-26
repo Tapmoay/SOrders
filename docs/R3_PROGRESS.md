@@ -255,14 +255,17 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 - ✅ Release Candidate 记录齐全（Git SHA / 迁移版本 / Android / Backend / Frontend / 依赖锁 / 配置校验和 / 产物校验和）—— 复现：`python -c "import pathlib,re,subprocess,sys; t=pathlib.Path('docs/RELEASE_CANDIDATE.md').read_text(encoding='utf-8'); need=['Git SHA','DB migration version','Android 版本','Backend 版本','Frontend 版本','requirements lock','config checksum','artifact checksum']; bad=[k for k in need if k not in t]; m=re.search(r'\*\*Git SHA\*\* \| .{0,3}([0-9a-f]{40})', t); shaok=bool(m) and subprocess.run(['git','cat-file','-e',m.group(1)+'^{commit}']).returncode==0; ver=pathlib.Path('VERSION').read_text(encoding='utf-8').strip(); verok=ver in t; head=max(int(''.join(c for c in p.stem.split('_')[0] if c.isdigit())) for p in pathlib.Path('backend/app/migrations').glob('0*.py')); mm=re.search(r'\*\*DB migration version\*\* \| \*\*(\d+)\*\*', t); migok=bool(mm) and int(mm.group(1))==head; print('缺字段',bad,'SHA在库',shaok,'VERSION',ver,verok,'迁移头',head,'记录一致',migok); sys.exit(1 if (bad or not shaok or not verok or not migok) else 0)"`
   ⭐ 记录本体：`docs/RELEASE_CANDIDATE.md`（每个字段都写了自己的**现取命令**，⛔ 没有一个是手抄的）。
   ⛔ 这一条 ✅ 证的是「**记录齐全且与仓库事实对得上**」（字段齐、SHA 真是本仓库的提交、迁移版本与目录现数一致、版本号与根 `VERSION` 一致）；⛔ **不证**发布做过了 —— 下面第 2–7 条仍然全是 ❌。
+- ✅ 发布工具在位、且**护栏自检**通过（顺序强制 / 备份新鲜度 / SHA 必须在仓库里 / 算不出事实就拒绝 / 没 `--go` 一律只打印）—— 复现：`python _tools/deploy/_release.py --selftest`
+  ⛔ 这一条证的是**工具的护栏**（15 项自检），**不证**发布跑过 —— 下面第 2–7 条仍然全是 ❌。
+  ⛔ 工具默认只打印：`--plan` 打印七步与判据；`--step X` 不带 `--go` 只给结论；真执行要 `--go`。
 - ✅ 生产验收清单已建立（R3-05-C：12 项**按权限分段** —— 只读那段今天跑过，写那段一条没跑）—— 复现：`python -c "import pathlib,re,sys; docs=['docs/RELEASE_CANDIDATE.md','docs/PRODUCTION_ACCEPTANCE.md','docs/R3_FAILURE_DRILL.md']; miss=[d for d in docs if not pathlib.Path(d).exists()]; lines=[(d,ln) for d in docs for ln in pathlib.Path(d).read_text(encoding='utf-8').splitlines() if not any(k in ln for k in ('待写','还没写','不存在','待建'))]; bad=sorted({d+':'+p for d,ln in lines for p in re.findall(r'_tools/[A-Za-z0-9_./-]+\.py', ln) if not pathlib.Path(p).exists()}); print('缺文档',miss,'引用了不存在的脚本',bad); sys.exit(1 if (miss or bad) else 0)"`
   清单本体：`docs/PRODUCTION_ACCEPTANCE.md`（逐项给了命令与判据；⛔ 混在一起就会变成「借验收之名做写测试」）。
 - ❌ 备份 —— 复现：`python _tools/backup/_pre_release.py --note "R3"`
   手工次序与「失败怎么办」写在 `docs/RELEASE_CANDIDATE.md` §四（第 1 步：备份失败就**停止发布**）。
 - ❌ 迁移（先迁移后应用）—— 复现：`python _tools/deploy/_release.py --step migrate`
-  ⛔ 那支脚本**还没写**（`_tools/deploy/_release.py` 属写阶段第一批）；手工等价命令：生产上 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`（见 `docs/RELEASE_CANDIDATE.md` §四 第 2 步）。
+  ⛔ 真跑要加 `--go`：`python _tools/deploy/_release.py --step migrate --go`（没有 `--go` 一律只打印）—— 生产上它执行的就是迁移的唯一入口 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`（见 `docs/RELEASE_CANDIDATE.md` §四 第 2 步）。
 - ❌ 启动新后端 —— 复现：`python _tools/deploy/_release.py --step start`
-  ⛔ 同上（脚本**还没写**）；手工等价：`git -C /opt/SOrders fetch && git checkout <SHA> && systemctl restart sorders-api`。
+  ⛔ 真跑要加 `--go`：`python _tools/deploy/_release.py --step start --go`；它执行 `git -C /opt/SOrders fetch origin && git checkout <SHA> && systemctl restart sorders-api`，并且**顺序护栏**会先拒绝（没 backup/migrate/verify 时）、**备份新鲜度**不过也会拒绝。
 - ❌ health —— 复现：`python _tools/ops/_health_check.py`
   ⚠️ 别把「现场只读核对」那一节读成这一条已经做了：那条跑的是**发布前**的现状体检，
   这一条要的是**启动新后端之后**的体检（顺序在 `docs/RELEASE_CANDIDATE.md` §四 第 5 步）。
