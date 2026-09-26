@@ -1,0 +1,314 @@
+# -*- coding: utf-8 -*-
+"""**钱路 provenance（计价来源）判据**：一笔历史金额，能不能说清"它凭什么是这个数"。
+
+R4-BOUNDARY-JUSTIFICATION: **代码边界解决不了这件事，因为缺口长在"少写了一格"上。**
+
+一个金额被写进库里、而"产生它的规则"没被写下来 —— 单看**任何一个文件**都是合法的：
+`orders_assignment.py` 那一刻手里就有 `Quote.matched.template_id`，然后只写了
+`freight_fee` 与分类，语法正确、事务正确、测试通过、金额也对。错的只有一件事：
+**那一格没落库**。而"哪些钱必须有来源"只存在于**整张图**里（全部 `Numeric` 列 ×
+谁是配置 / 谁是算出来的），不存在于任何单个文件里 —— 所以这一条只能是对账式的，
+与 `_check_data_ownership.py` 属于同一类（指南 §14 那个"代码上完全看不出来"的坑）。
+
+**反向破坏用例**（`_tools/qa/_reverse_verify_pricing_provenance.py`，六种）：
+给订单补上价目身份列（棘轮必须响）／给订单加契约版本列／拿掉账单的 `rule_id`／
+让快照读一个写不进去的键／让算钱那一步能拿到活用户／加一个没人归类的钱列 ——
+每一种都必须当场报红，还原后必须恢复。
+
+**静默空转保护**：① 清单**自己算**（遍历 mapper 的 `Numeric` 列，⛔ 不手写）；
+② 「扫到 ≥30 个金额列」的下限（枚举失效时先喊，而不是安静地全绿）；
+③ 分类表**双向**核对（未归类红、化石也红）—— 少了任何一条，"什么都不看"也会全绿。
+
+⛔ 本判据**不检查金额对不对**：它只回答"这个金额凭什么"，不回答"算得对不对"。
+
+## 为什么要有它（用户 2026-09-27 的原话）
+
+> 「一个订单最终使用的"计价规则版本"在哪里留下事实？……如果系统只知道 `order_id = A`
+>  而不知道当时采用的 `Pricing Rule = v1`，那么历史事实就无法可靠重建。」
+>
+> 「**能重新计算 ≠ 能证明历史为什么是这个金额。**」
+
+这是 **Money correctness prerequisite（资金正确性前置条件）** —— 不是模块化问题。
+在把任何扩展接进钱路之前，先要能回答这个问题。
+
+## 判据的形状（清单**自己算**，不手写）
+
+1. **每一笔钱都必须被归类** —— 遍历 SQLAlchemy mapper 的**全部 `Numeric` 列**，
+   逐个核对它在下面四张表里**恰好出现一次**：
+   `CONFIG`（配置/入参，不是算出来的）/ `SELF`（自描述：产生它的输入就在同一行）/
+   `RULED`（由规则算出来 → **必须有 provenance**）/ `NO_PROVENANCE`（**缺口**：有书面理由，
+   且理由必须**仍然成立**）。坐标列由名字形状认出，不算钱。
+   ⛔ 新增一个钱列而没归类 → 当场红（"给 AI 开一条后路"的规矩）。
+2. **`RULED` 那一档的 provenance 必须真的在**（列在 / 快照读写同源 / 那个算法读不到活配置）。
+3. **`NO_PROVENANCE` 那一档的缺口必须仍然是真的** —— 化石棘轮：
+   有人把事实记录补上了，这条会红，逼着把条目挪进 `RULED` **并同步文档**。
+4. **契约版本**：核心事实里没有任何一列（也没有生产快照写入器）记录"这笔金额按**哪一版计价契约**算的"
+   —— 同样带化石棘轮（补上了就红，逼你改这里）。
+5. `--check` 模式只印结论一行（进 `_check_all.py` 的必跑组靠它）。
+
+## 它与 R4 的关系
+
+R4 证明的是"扩展可以被添加 / 替换 / 拆除，核心不跟着改"。
+它**没有**证明"扩展算出来的钱，事后能说清是哪个扩展的哪一版算的"。
+这一条判据就是那道门：**过不了它，就不该把扩展接进生产钱路。**
+
+用法：
+    python _tools/qa/_check_pricing_provenance.py            # 详细
+    python _tools/qa/_check_pricing_provenance.py --check    # 必跑模式（一行结论）
+"""
+from __future__ import annotations
+
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+ROOT = Path(__file__).resolve().parents[2]
+BACKEND = ROOT / "backend"
+# 只读审计：库指到临时目录，别在仓库里建出 app.db
+os.environ.setdefault(
+    "DATABASE_URL", "sqlite:///" + (Path(tempfile.mkdtemp()) / "prov.db").as_posix()
+)
+sys.path.insert(0, str(BACKEND))
+
+import app.main  # noqa: E402,F401  —— 导入真正的 app，让枚举看到应用实际注册的全部模型
+from sqlalchemy import Numeric  # noqa: E402
+
+from app.models.base import Base  # noqa: E402
+
+DRIVER_PAY = BACKEND / "app" / "services" / "driver_pay.py"
+
+# ---------------------------------------------------------------- 四张分类表
+# ⛔ 规则：**每一条都必须仍然成立**。加了钱列不归类 → 红（第 1 组）；
+#    分类表里留着一个已经不存在的列 → 红（化石，第 1 组）。
+
+#: 配置 / 入参 / 快照：是"别人给进来的数"或"它自己就是快照"，不是"系统按规则算出来的金额"。
+CONFIG = {
+    "products.default_unit_price": "商品默认价（配置）",
+    "products.cost_price": "商品成本价（配置）",
+    "product_cost_history.cost_price": "成本价变更历史（它自己就是历史）",
+    "price_rules.special_unit_price": "批发商专属价（配置）",
+    "freight_templates.fee": "运费价目（配置；历史单不引用它 —— 见 NO_PROVENANCE）",
+    "order_templates.freight_fee": "订单模板的预设运费（配置）",
+    "driver_billing_rules.salary": "司机计费规则：固定工资（配置）",
+    "driver_billing_rules.piece_amount": "司机计费规则：每单/每件金额（配置）",
+    "driver_billing_rules.commission_rate": "司机计费规则：提成比例（配置）",
+    "driver_billing_rule_categories.piece_amount": "按分类的每单金额（配置）",
+    "driver_billing_rule_categories.commission_rate": "按分类的提成比例（配置）",
+    "users.salary": "司机个人工资（配置）",
+    "unit_conversions.factor": "单位换算系数（扩展配置：R4-04 的 unit_conversion 扩展）",
+    "inventory_movements.unit_cost": "出入库单价（录入即事实）",
+    "ledgers.unit_price": "账本行单价（录入/同步即事实）",
+    "ledgers.cost_price_snapshot": "账本行成本快照（它自己就是快照）",
+    "order_products.unit_price": "订单行单价（下单时谈定的价，值即事实）",
+    "order_products.cost_price_snapshot": "订单行成本快照（它自己就是快照）",
+    "orders.driver_piece_amount": "派单员对这一单单独定的金额（值即事实）",
+    "orders.driver_commission_rate": "派单员对这一单单独定的比例（值即事实）",
+    "expenses.amount": "开销金额（录入即事实）",
+    "cash_flows.amount": "现金流水金额（录入即事实）",
+    "shipper_receipts.amount": "货主收款金额（录入即事实）",
+    "supplier_payables.amount": "供应商应付金额（录入即事实）",
+    "shipper_settlements.amount": "货主核销金额（录入即事实）",
+    "shipper_settlement_lines.amount": "核销明细金额（录入即事实）",
+}
+
+#: 坐标：名字是 lat/lng 的那几个，与钱无关。
+COORD_NAMES = {
+    "address_lat", "address_lng", "origin_lat", "origin_lng", "lat", "lng",
+}
+
+#: 自描述：产生它的输入**就在同一行**，所以这一行自己就能重建它。
+SELF = {
+    "order_products.line_total": "= quantity × unit_price（两个输入都在同一行）",
+    "ledgers.total": "= quantity × unit_price（两个输入都在同一行）",
+}
+
+#: 由**规则/算法**算出来 → 必须能在同一行（或它引用的那份快照）上找到"产生它的规则"。
+RULED = {
+    "driver_bills.amount": {
+        "where": "orders.driver_rule_snapshot（派单那一刻定格的规则）+ driver_bills.rule_id / rule_name",
+        "why": "送达生成账单用的是快照；司机后来换规则不改已送完的单",
+    },
+    "driver_bills.piece_amount": {
+        "where": "同上（快照里的 piece_amount / by_category）",
+        "why": "账单要能独立复核是按什么算的",
+    },
+    "driver_bills.commission_amount": {
+        "where": "同上（快照里的 commission_base × commission_rate）",
+        "why": "提成也来自同一份快照",
+    },
+    "driver_settlements.amount": {
+        "where": "driver_settlement_lines.amount 的合计（逐单指向 driver_bills / orders）",
+        "why": "结算单是聚合，来源逐单可查",
+    },
+}
+
+#: ⛔ **缺口**（有书面理由；理由必须**仍然成立** —— 补上了就红，逼你改成 RULED）。
+NO_PROVENANCE = {
+    "orders.freight_fee": (
+        "只记了金额与分类（freight_category_id + freight_category 名字快照），"
+        "**没有记**是哪一条价目（freight_templates.id）产生的；而价目可以被就地改价"
+        "（手动定价走 existing.fee = …），改完历史单就再也说不清当时凭什么算这个数。"
+        "⛔ 它不影响已落库的金额（金额本身就是事实；没有任何路径按活价目重算历史单），"
+        "影响的是**复核**：有争议时拿不出这个数出自哪条价。"
+        "R4-P1 要补的就是它 —— 补上之后把这一条挪进 RULED 并同步 docs/R4_PRICING_PROVENANCE.md。"
+    ),
+}
+
+#: 记录"按哪一版计价契约算的"的列名形状（现在核心事实里**一处都没有**）。
+CONTRACT_VERSION_RE = re.compile(
+    r"(pricing_kind|pricing_version|contract_version|rule_version|pricing_contract)",
+    re.IGNORECASE,
+)
+
+
+def numeric_columns() -> list[str]:
+    """枚举**应用实际注册的**全部 Numeric 列 → ["表.列"]（清单自己算，不手写）。"""
+    out: list[str] = []
+    for t in Base.metadata.sorted_tables:
+        for c in t.columns:
+            if isinstance(c.type, Numeric):
+                out.append(f"{t.name}.{c.name}")
+    return out
+
+
+def is_coord(col: str) -> bool:
+    return col.rsplit(".", 1)[1].lower() in COORD_NAMES
+
+
+def func_body(path: Path, name: str) -> str:
+    """取一个顶层函数的源码正文（到下一条 `def ` / 分隔线为止）。"""
+    text = path.read_text(encoding="utf-8")
+    m = re.search(rf"^def {re.escape(name)}\(", text, re.M)
+    if not m:
+        raise SystemExit(f"{path.name} 里找不到函数 {name} —— 判据要跟着改")
+    rest = text[m.end():]
+    nxt = re.search(r"^(?:def |# -{3,})", rest, re.M)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def main() -> int:
+    check = "--check" in sys.argv
+    fails: list[str] = []
+    passes = 0
+
+    def ok(label: str, cond: bool, detail: str = "") -> None:
+        nonlocal passes
+        if cond:
+            passes += 1
+            if not check:
+                print(f"  [OK]   {label}")
+        else:
+            fails.append(label + (f" —— {detail}" if detail else ""))
+            print(f"  [FAIL] {label}" + (f" —— {detail}" if detail else ""))
+
+    actual = numeric_columns()
+    coords = [c for c in actual if is_coord(c)]
+    declared = list(CONFIG) + list(SELF) + list(RULED) + list(NO_PROVENANCE)
+
+    if not check:
+        print("== 1. 每一笔钱都必须被归类（清单自己算：遍历 mapper 的 Numeric 列）==")
+    ok(f"扫到 {len(actual)} 个金额列（含坐标 {len(coords)} 个）", len(actual) >= 30)
+    dup = [k for k in declared
+           if [k in CONFIG, k in SELF, k in RULED, k in NO_PROVENANCE].count(True) > 1]
+    ok("同一个列没有同时出现在两张分类表里", not dup, f"重复：{dup}")
+    unclassified = [c for c in actual if c not in set(declared) and not is_coord(c)]
+    ok("没有**未归类**的钱列（新增钱列必须归类，否则这条就红）", not unclassified,
+       f"未归类：{unclassified}（放进 CONFIG / SELF / RULED / NO_PROVENANCE 之一）")
+    ghost = [k for k in declared if k not in actual]
+    ok("分类表里没有**化石**（列已经不存在了）", not ghost, f"不存在：{ghost}")
+
+    if not check:
+        print("\n== 2. RULED 那一档：provenance 必须真的在 ==")
+    order_cols = {c.name for c in Base.metadata.tables["orders"].columns}
+    bill_cols = {c.name for c in Base.metadata.tables["driver_bills"].columns}
+    ok("orders.driver_rule_snapshot 列在（RULED 的 provenance 就指着它）",
+       "driver_rule_snapshot" in order_cols)
+    ok("driver_bills 上有 rule_id / rule_name（账单能独立复核是按什么算的）",
+       {"rule_id", "rule_name"} <= bill_cols,
+       f"缺：{sorted({'rule_id', 'rule_name'} - bill_cols)}")
+
+    # 2c. 快照的**写**与**读**必须同源：漏一个键 = 历史金额重建不出来（静默错的那一类）
+    to_body = func_body(DRIVER_PAY, "rule_to_snapshot")
+    from_body = func_body(DRIVER_PAY, "rule_from_snapshot")
+    written = set(re.findall(r'"([a-z_]+)"\s*:', to_body))
+    read = set(re.findall(r'\.get\("([a-z_]+)"\)', from_body))
+    ok(f"快照写出的键 ⊇ 读回的键（写 {len(written)} 个 / 读 {len(read)} 个）",
+       read <= written,
+       f"读得到但写不进去：{sorted(read - written)}（快照里没有 → 历史金额重建不出来）")
+    ok("快照里带着 rule_id（能指回那条规则）", "rule_id" in written)
+
+    # 2d. **算钱的那一步拿不到活配置** —— 它只认一份已经定格的规则。
+    #     ⚠️ 第一版这条写的是"driver_pay.py 不 import app.models"，实测**过严**：
+    #     那个文件确实在几处**函数体内** import 了 Model（`resolve_billing_mode` /
+    #     `DriverBill` / `Order`），但那些都不是"取规则来算钱"。判据要钉的是**取规则那一步**，
+    #     不是"这个文件永远不许提 models"（过严的判据要么被绕过，要么逼人做假）。
+    pay_text = DRIVER_PAY.read_text(encoding="utf-8")
+    sig_m = re.search(r"def order_pay\((.*?)\)\s*->", pay_text, re.S)
+    sig = sig_m.group(1) if sig_m else ""
+    ok("算钱的那一步（order_pay）收的是 PayRule，不是活用户 / 活规则 / 数据库会话",
+       bool(sig) and "PayRule" in sig and not re.search(r"\b(db|session|user)\b", sig),
+       "签名：" + repr(sig.strip()[:120]))
+    pfo = func_body(DRIVER_PAY, "pay_for_order")
+    ok("订单 → 应得 只经 rule_from_snapshot 取规则（读不到活规则）",
+       "rule_from_snapshot(" in pfo
+       and "driver_rule_id" not in pfo and "DriverBillingRule" not in pfo,
+       "它一旦按活规则算，司机换一次规则，已送完的单金额就跟着变")
+
+    if not check:
+        print("\n== 3. NO_PROVENANCE 那一档：缺口必须**仍然是真的**（化石棘轮）==")
+    looks_like_template_id = [c for c in order_cols
+                              if re.search(r"(freight_)?template_id|price_rule_id", c)]
+    ok("orders 上仍然**没有**记录「这条承运价出自哪条价目」的列",
+       not looks_like_template_id,
+       f"现在有了：{looks_like_template_id} ⇒ 事实记录已经补上，"
+       f"把 orders.freight_fee 从 NO_PROVENANCE 挪进 RULED，并同步 docs/R4_PRICING_PROVENANCE.md")
+    # 旁证：这条身份**在派单那一刻是拿得到的**（quote_for 的 Candidate 里有 template_id）——
+    # 所以缺口是"被丢掉了"，不是"根本不存在"。两件事的修法完全不同。
+    fp = (BACKEND / "app" / "services" / "freight_pricing.py").read_text(encoding="utf-8")
+    ok("价目身份在派单那一刻拿得到（Candidate.template_id / quote_for 返回它）",
+       "template_id" in fp and "def quote_for" in fp,
+       "拿不到的话问题就不是「没存」，而是「没有」—— 两件事的修法完全不同")
+    ok("quote_for 是**只读**的（不写库）：历史金额没有被它悄悄重算",
+       "db.commit" not in fp and "db.add(" not in fp)
+
+    if not check:
+        print("\n== 4. 契约版本：核心事实里没有任何一处记录「按哪一版算的」（同样是棘轮）==")
+    version_cols = sorted(
+        f"{t.name}.{c.name}" for t in Base.metadata.sorted_tables for c in t.columns
+        if CONTRACT_VERSION_RE.search(c.name)
+    )
+    ok("没有任何**列**记录计价契约 / 规则版本", not version_cols,
+       f"现在有了：{version_cols} ⇒ 把 R4-P1 的结论改成「已具备版本事实」，并同步文档")
+    ok("生产快照写入器（rule_to_snapshot）不写版本号",
+       not CONTRACT_VERSION_RE.search(to_body),
+       "写了的话上面那条判据要跟着改（它现在是「三处都没有」）")
+
+    if not check:
+        print("\n== 5. 汇总 ==")
+        print(f"  CONFIG {len(CONFIG)} / SELF {len(SELF)} / RULED {len(RULED)} / "
+              f"NO_PROVENANCE {len(NO_PROVENANCE)} / 坐标 {len(coords)} = {len(actual)}")
+        print("  ⛔ 本判据**不检查金额对不对**，它只检查「这个金额凭什么」有没有留下事实。")
+
+    if check:
+        print(
+            ("✅" if not fails else "❌")
+            + f" 钱路 provenance：{len(actual)} 个金额列全部归类，"
+            + f"RULED {len(RULED)} 项来源齐全，缺口 {len(NO_PROVENANCE)} 项（已在文档里如实声明）"
+            + ("" if not fails else f"；{len(fails)} 项不通过")
+        )
+    if fails:
+        print(f"\n❌ {len(fails)} 项不通过：")
+        for f in fails:
+            print("   - " + f)
+        return 1
+    if not check:
+        print(f"\n✅ 全部 {passes} 项通过。")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

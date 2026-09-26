@@ -12,6 +12,92 @@
 
 ---
 
+## R4 的**两个命题**（用户 2026-09-27 拍板把它拆开）
+
+> 用户原话：「这不是说 R4 "没完成"。而是把两个不同命题拆开：
+>  『**模块化设计真的成立了吗？**』—— 已经证明。
+>  『**这个模块化设计能安全接入真实钱路吗？**』—— 还没证明。这个区分一定要保留。」
+
+| 命题 | 状态 | 出口 |
+| --- | --- | --- |
+| **R4 Structural Proven**（核心/扩展边界 · 契约 · 防火墙 · 注册表 · Add / Replace / Remove / Compatibility） | ✅ **已证明** | 本文件上面那 8 个里程碑 + 验收矩阵 |
+| **R4 Production Integration** | ⏳ **进行中** | 见下面「R4-PROD-INTEGRATION」一节 |
+
+⛔ 两条读法都必须守住：**不要把"生产未接线"写成 R4 的失败**；
+也**不要把"结构已证明"读成"生产已经安全"**。
+
+---
+
+## R4-PROD-INTEGRATION（很窄的一阶段：结构 → 真实钱路）
+
+用户 2026-09-27 拍板：**不开泛化的 R5**。现在缺的不是一个新的架构主题，
+而是「拿一个真正重要的能力，把这个架构接到现实里」。
+
+     R4 Structural ✅
+            ↓
+     R4-P0 Governance Close            ← ✅ 已完成
+            ↓
+     R4-P1 Production Pricing Readiness ← ⏳ 进行中
+            ↓
+     R4-P2 Production Canary
+            ↓
+     R4-P3 Full Cutover
+            ↓
+     R4 Production Proven
+
+⚠️ **里程碑编号的约定**（先说清，免得看起来像漏标）：本阶段是 R4 的**子阶段**，⛔ 不是 R5。
+而仓库的跨轮棘轮 `_check_r3_constraints.py::probe_commit_milestone_tag` 只认
+`R[3-9]-0\d` 这一种形状 —— R4 这一轮只有 `R4-00`…`R4-09` 十个槽，而 `R4-00`…`R4-08`
+在上一段已经用完。所以**本阶段的提交统一标 `R4-09`**，
+具体是 P0 还是 P1 写在提交标题的后半句里。
+⛔ **我们没有为了让自己的提交变绿去放宽那条正则** —— 棘轮红了就改提交，不改判据。
+
+---
+
+### R4-P0 Governance Close —— ✅ 已完成
+
+| 项 | 交付 | 出口证据（可复现） |
+| --- | --- | --- |
+| **P0-1** | `socket_io.py` 升**证据档**：动它的例外必须写全**四格**（证据 / 原因 / 范围 / 影响面运行时证明） | `_check_core_freeze.py` 第 6 组（`_EVIDENCE_REQUIRED`）——复现：`python _tools/qa/_check_core_freeze.py`；反向验证 `python _tools/qa/_reverse_verify_core_freeze.py` → **14/14** |
+| **P0-2** | CI 措辞修正：⛔ 不写「CI 全绿」 | 见本文档「验收矩阵」的**读表须知** |
+
+**P0-1 的关键一条**是那两个**成对**的注入：同一份"老式一行声明"，
+对 `business_time.py` **绿**、对 `socket_io.py` **红** ——
+它证明**升的是这一档，不是把判据整体收紧**（用户明确要求：只扩这一项，不重新扩大整个核心区）。
+
+⚠️ **一处如实更正**：上一轮我在报告里说「`socket_io.py`……核心区清单的**骨架判据**只钉了 8 项」
+—— 那句话写得有歧义，读起来像"它不在骨架里"。**事实是：它从 R4-00 起就在 `_SKELETON` 里**
+（8 项之一，见本文件 R4-00）。P0-1 真正补上的是**更强的那一档**：
+一行"为什么"不够，要四格。判据与写法写在 `docs/CORE_AND_EXTENSION.md` §2.2。
+
+---
+
+### R4-P1 Production Pricing Readiness —— ⏳ 进行中
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| **① 计价事实（provenance）审计** —— 用户点名的"**比发布更重要**的问题" | ✅ **已出结论** | `docs/R4_PRICING_PROVENANCE.md`；判据 `python _tools/qa/_check_pricing_provenance.py`（43 个金额列全部归类）+ 反向验证 `python _tools/qa/_reverse_verify_pricing_provenance.py` → **7/7** |
+| ② Pricing Golden Set（脱敏真实样本，Legacy vs Extension **逐笔**比） | ⏳ 未开始 | — |
+| ③ Shadow 对照计算（**⛔ 不写 Ledger**，只 calculate / compare / record） | ⏳ 未开始 | — |
+| ④ 发布演练（`release → rolling restart → health → smoke → rollback`） | ⏳ 未开始 | — |
+
+**① 的结论一句话**（全文见那份审计）：
+
+- **司机应得**那一路 —— ✅ **齐**：`orders.driver_rule_snapshot` 定格规则、
+  `driver_bills` 另存 `rule_id`/`rule_name`/`piece_amount`/`commission_amount`、
+  算钱那一步只认快照（`order_pay(rule: PayRule | None, …)` 拿不到活配置）；
+- **承运运费**（`orders.freight_fee`）—— ⚠️ **只记金额，不记是哪条价目**；
+  而价目可以被就地改价（`orders_assignment.py:186` `existing.fee = …`）；
+- **计价契约版本** —— ⛔ **三处都没有**（列 / 快照写入器 / 账本结算，全都没有）。
+
+⇒ 按用户 §5 的拍板：**先补齐事实记录，再接生产**。
+补法**建议**见 `docs/R4_PRICING_PROVENANCE.md` §6（**建议，未施工** ——
+它要动核心区 `schema_bootstrap.py` 且改钱的口径，属于"单独一轮 + 单独发布 + 单独演练"）。
+
+⚠️ 那份审计也**如实写着它证不了什么**（没查金额对不对 / 没连生产库 / 没替用户拍板 / 票据类没历史）。
+
+---
+
 ## 冻结基线（R4-00，2026-09-27）
 
 | 项 | 值 | 来源 |
@@ -141,7 +227,7 @@ Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 ⚠️ **扩展被删除，不代表它创造的历史事实可以删除**（Money / Audit / Order History 上必须钉死）。
 
 **退出条件**
-- ✅ 完整删除 Unit Conversion 之后：**全量静态检查全绿**（124/124，红 0 条）—— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+- ✅ 完整删除 Unit Conversion 之后：**全量静态检查全绿**（红 0 条；脚本数以 `_check_all.py` 自己打印的为准，⛔ 不手写）—— 复现：`python _tools/ops/_r4_remove_drill.py --check`
 - ✅ 后端用例全绿：**1065 passed**（R3 基线 1020，本轮 +45）—— 复现：`cd backend; python -m pytest -q`
 - ✅ core smoke 通过：发件箱 / 投递原语 / 两个契约共 **50 passed**（都不碰那个扩展）—— 复现：`cd backend; python -m pytest tests/test_socket_io.py tests/test_outbox.py tests/test_extension_contracts.py tests/test_pricing_contract.py -q`
 - ✅ **API smoke**：拆掉之后应用照常起得来，核心路由 235 → **234**（正好少它那一条）—— 复现：`python _tools/ops/_r4_probe_app.py` + `python _tools/ops/_r4_remove_drill.py --check`
@@ -193,7 +279,9 @@ Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 - ✅ 指南 §42 的验收矩阵落进 `docs/ARCHITECTURE_RECTIFICATION_R4.md` **附录 A**，且 Add / Replace / Remove **是实际演练**（三条演练器 + 一份 Remove 记录，证据都在 `_tools/ops/r4_drill_records/`）—— 复现：`python _tools/ops/_r4_acceptance.py --check`
 - ✅ 北极星那一句（§44）写进该文档附录 A.1；⛔ 附录**明确标着"不是指南原文"**，原文仍是逐字节那 26669 字节（SHA256 写在附录开头）—— 复现：`python _tools/ops/_r4_acceptance.py --check`
 - ✅ 依赖图可以现场生成（指南 §29）：谁依赖谁 / 谁提供能力 / 谁拥有表 / 核心事实表多少张 —— 复现：`python _tools/ops/_r4_drill_graph.py`
-- ⚠️ **CI 一列留 ⏳**：判据都在全量静态检查里（本机 124/124），但这批提交**推送并确认 CI 跑过之前，这一列不许写 ✅** —— 写上去就是"文档语义超过代码事实"，R3 为这条栽过四轮
+- ✅ **CI 一列按下面那句口径读，⛔ 不是一个"全绿"**：**Required R4 CI gates 全绿；安卓端到端未运行，本轮不计通过** —— 明细见本文档「CI 验证」一节。
+  （这一格原来留 ⏳ 的条件是"推送并确认 CI 跑过之前不许写 ✅"——现在跑过了，所以写 ✅；
+   但写的是**那六行判据**在 CI 上全绿，**不是**"CI 整轮全绿"。R3 为"文档语义超过代码事实"栽过四轮。）
 
 ---
 
@@ -212,8 +300,12 @@ Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 
 **读表须知**
 
-- `Code ✅` = 有判据在每次全量静态检查里核它（本机 **124/124**）；`Runtime ✅` = **在本机真跑过**；`—` = 不适用。
-- ⚠️ `CI` 一列是 **⏳**：判据都在全量检查里，但这批提交**推送并确认 CI 跑过之前不许写 ✅**。
+- `Code ✅` = 有判据在每次全量静态检查里核它（脚本数由 `python _tools/qa/_check_all.py` 自己打印，全部通过；⛔ 不在这里手写那个数字）；`Runtime ✅` = **在本机真跑过**；`—` = 不适用。
+- ✅ `CI ✅` 的**准确读法**（用户 2026-09-27 明确要求改这个措辞）：**Required R4 CI gates 全绿**
+  —— `Gate` 六个实质作业 + `Tests (Parallel)` 五个作业，两次 run 都全绿。
+  ⛔ **不要写成、也不要读成「CI 全绿」**：`常闸 · 安卓端到端` 那次**没有跑**（runner 起不了模拟器，
+  它自己的注解原话是「这次没有跑，不是通过」）⇒ **本轮不计通过**。
+  ⛔ 这条措辞**不许为了好看而放宽**：「没跑 ≠ 通过」是 R3/R4 一路守下来的那条原则。
 - ⛔ Add / Replace / Remove 三列**只认演练记录**（`_tools/ops/r4_drill_records/`），不认"设计上支持"。
 
 ---
