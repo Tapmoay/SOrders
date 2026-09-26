@@ -125,6 +125,42 @@ class TestEveryImplementation:
                 assert result.quantity.value * Decimal("1") == result.quantity.value
 
 
+
+def test_overlapping_pairs_must_agree():
+    """⭐ 有多个实现都支持的那一对单位，**答案必须逐位相同**。
+
+    这是 R4-04 加第二个实现时**必须**有的一条：两个实现会重叠（都认识 kg / m / l 这几个
+    桥接单位），于是"谁先回答"取决于名字的字典序 —— 那就不能靠"反正答案一样"糊过去。
+    这条把重叠从隐患变成不变量：⛔ 谁改了定义值、换了基准、写错了倍数，这里当场红。
+    """
+    pairs: dict[tuple[str, str], list[tuple[str, ConversionResult]]] = {}
+    for provider in PROVIDERS:
+        for a in provider.units():
+            for b in provider.units():
+                if a == b:
+                    continue
+                if not provider.supports(a, b):
+                    continue
+                try:
+                    result = provider.convert(ConversionRequest(Decimal("7"), a, b))
+                except UnitConversionError:
+                    continue
+                if result is None:
+                    continue
+                pairs.setdefault((a, b), []).append((provider.name, result))
+    shared = {k: v for k, v in pairs.items() if len(v) > 1}
+    assert shared, "没有任何一对单位被两个以上实现支持 —— 这条判据在空转"
+    for (a, b), results in sorted(shared.items()):
+        first_name, first = results[0]
+        for other_name, other in results[1:]:
+            assert other.quantity.value == first.quantity.value, (
+                a + " -> " + b + " 两个实现给了不同的值：" + first_name + "="
+                + str(first.quantity.value) + " / " + other_name + "=" + str(other.quantity.value)
+            )
+            assert other.factor == first.factor, a + " -> " + b + " 的 factor 不一致"
+            assert other.quantity.dimension == first.quantity.dimension, a + " -> " + b + " 的量纲不一致"
+
+
 def test_resolve_picks_a_provider_or_says_it_cannot():
     """`resolve` 只负责"谁来回答"：认得就给人，认不得就给 None（⛔ 不猜）。"""
     for provider in PROVIDERS:
