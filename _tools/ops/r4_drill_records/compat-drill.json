@@ -3,5 +3,11 @@
   "base_providers": [
     "per_quantity",
     "standard"
+  ],
+  "head": "5bb144d374121d87469a51960a88cdae075a77ba",
+  "head_providers": [
+    "per_quantity",
+    "standard",
+    "tiered"
   ]
 }

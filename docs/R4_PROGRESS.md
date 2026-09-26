@@ -168,9 +168,16 @@ Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 故意做 `PricingContract v1 → v2` 的实现，验证旧实现还能工作、新实现可以加入、核心无需修改。
 
 **退出条件**
-- ❌ v1 与 v2 两个实现**同时可用**，同一组契约用例两边都跑 —— 复现：`cd backend; python -m pytest tests/test_pricing_contract.py -q`
-- ❌ 核心修改数 = 0 —— 复现：`python _tools/ops/_r4_replace_drill.py --check`
-- ❌ ⛔ 不出现"10 代接口"（§31 坑 13）：只为**真实存在的**旧实现提供兼容层 —— 复现：`python _tools/qa/_check_extension_contracts.py`
+- ✅ v1 与 v2 两个实现**同时可用**，同一组契约用例两边都跑（19 passed；阶梯价是原生 v2）—— 复现：`cd backend; python -m pytest tests/test_pricing_contract.py -q`
+- ✅ **核心修改数 = 0**（区间 `f666cf7..5bb144d`，只新增 1 个文件 `tiered.py`；v2 契约与适配器在区间**之前**那一次提交里落地）—— 复现：`python _tools/ops/_r4_compat_drill.py --check`
+- ✅ **旧实现还能工作**：v1 实现经 `as_v2()` 适配器后**仍然满足 v1**（`isinstance(p, PricingContract)` 为真），旧消费方一行代码都不用改；且明细各行之和**等于**总额 —— 复现：`python _tools/ops/_r4_compat_drill.py --check`
+- ✅ **新实现可以加入**：`tiered` 给出 2 行**原生**明细（前 10 件 × 8.00 + 超出 5 件 × 9.00 = 125.00），而 v1 实现只合成 1 行 —— 复现：`python _tools/ops/_r4_compat_drill.py --check`
+- ✅ ⛔ 不出现「10 代接口」：v2 **只加一个方法**（`breakdown`），⛔ 不搞 v1/v2/v3 + compatibility matrix（§18 明确否掉的过度设计）；边界图的契约版本数上限仍是 3，当前只到 v2 —— 复现：`python _tools/qa/_check_core_extension_boundary.py`
+
+**顺序本身就是指南的一部分，如实记一笔**：§18 说「**先证明这个契约真的会被多个实现使用，
+再为它设计长期版本兼容**」。所以 v2 **不是**在 R4-02 设计契约时就一起设计的 ——
+是到 R4-05 已经有两个实现了之后才加的，而且只加了一个方法。
+⛔ 也没有为"任何旧实现"都写适配器：只为**真实存在的**旧实现提供兼容层（§31 坑 13）。
 
 ## R4-08 最终架构验收
 

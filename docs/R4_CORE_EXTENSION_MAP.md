@@ -616,6 +616,23 @@ pending: no
 ```
 
 ```capability
+id: pricing.tiered
+中文名: 阶梯价（契约 v2 的第一个实现）
+class: EXTENSION_IMPL
+domain: settlement
+owns: -
+contract: PricingContract v2
+why: 它按 PricingContract **v2** 写：给出多行**原生**明细（前 N 件 + 超出部分），而 v1 实现经适配器只合成一行 —— 两代实现在同一张注册表里同时可用
+impl: extensions/pricing/tiered.py
+pending: no
+```
+
+> ⭐ **v1 与 v2 是并存的，不是替换关系**（R4-07 的 Compatibility 演练）：
+> `PricingContract v2 = v1 的全部 + breakdown()`，所以一个 v2 实现**同时**满足 v1 ——
+> 旧消费方一行代码都不用改。⛔ 本项目**没有**为任何别的版本写适配器：
+> 只为**真实存在的**旧实现提供兼容层（§31 坑 13）。
+
+```capability
 id: export.ledger.xlsx
 中文名: 账本导出（异步任务 + xlsx 产物）
 class: EXTENSION_IMPL

@@ -167,7 +167,10 @@ def main() -> int:
         fails.append("运行时探针失败：" + str(rt["error"])[:160])
     v1_ok = rt.get("v1_ok", [])
     print("  3) 旧实现还能工作（经适配器后仍是 v1、也是 v2、明细加起来 == 总额）：")
-    for name, is_v1, is_v2, sums, nlines in v1_ok:
+    # ⚠️ 按**位置**取，不做元组解包：探针那边每加一个字段（这次加了总额），
+    #    解包就会当场 ValueError（实测踩到）—— 而"演练脚本自己崩了"很容易被误读成"演练不成立"。
+    for row in v1_ok:
+        name, is_v1, is_v2, sums, nlines = row[0], row[1], row[2], row[3], row[4]
         print("     " + name + "  v1=" + str(is_v1) + " v2=" + str(is_v2)
               + " 明细自洽=" + str(sums) + " 行数=" + str(nlines))
         if not (is_v1 and is_v2 and sums):
