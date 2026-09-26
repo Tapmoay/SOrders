@@ -103,11 +103,19 @@ Event 只作事实通知（§28）、模块依赖图可自动生成（§29）。
 再增加 Imperial，再增加 China-traditional。**整个过程中 Core 不应该为了新增一种单位而不断修改。**
 
 **退出条件**
-- ❌ **Core 修改数 = 0**（这一条是本轮 Add 演练的**唯一判据**）—— 复现：`python _tools/ops/_r4_add_drill.py --check`
-- ❌ 扩展自足（自己的表 / 自己的配置 / 自己的路由声明；⛔ 不往 Core Model 加扩展专属字段）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
-- ❌ 契约有单测，且**两个实现各跑一遍同一组契约用例** —— 复现：`cd backend; python -m pytest tests/test_unit_conversion_contract.py -q`
-- ❌ Add 演练：新增一个实现，Core 不改、既有模块不改 —— 复现：`python _tools/ops/_r4_add_drill.py --check`
-- ❌ Remove 演练（完整卸载）后核心仍成立 —— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+- ✅ **Core 修改数 = 0**（Add 演练的唯一判据）：区间 `54f2418..cf3588f` 里核心区**改 0 行** —— 复现：`python _tools/ops/_r4_add_drill.py --check`
+- ✅ **既有扩展模块修改数 = 0**：同一区间里 `backend/app/extensions/` 下只出现**新增**（1 个文件 `china_traditional.py`），没有任何修改/删除 —— 复现：`python _tools/ops/_r4_add_drill.py --check`
+- ✅ 扩展自足（自己声明路由与能力点、自己拥有 0 张表、⛔ 没往 Core Model 加扩展专属字段）—— 复现：`python _tools/qa/_check_core_extension_boundary.py` + `python _tools/qa/_check_data_ownership.py`
+- ✅ 契约有单测，且**两个实现各跑一遍同一组契约用例**（那份用例**不认识任何一种单位**：单位与量纲从实现自己的 `units()` 里读）—— 复现：`cd backend; python -m pytest tests/test_unit_conversion_contract.py -q`
+- ✅ **重叠必须一致**：凡有两个以上实现都支持的一对单位，值 / 因子 / 量纲**逐位相同**。加第二个实现会带出这件事 —— 两个实现都认识桥接单位（kg/m/l），"谁先回答"取决于字典序，所以它不能靠"反正答案一样"糊过去 —— 复现：`cd backend; python -m pytest tests/test_unit_conversion_contract.py -q -k overlapping`
+- ✅ 第一版实现 + 第二版实现：SI（11 个单位 / 3 类量纲）与市制（8 个市制单位 + 6 个桥接单位）—— 复现：`cd backend; python -c "from app.extensions.unit_conversion import PROVIDERS; print([p.name for p in PROVIDERS])"`
+- ⏳ Remove 演练（完整卸载）后核心仍成立 —— 出口在 R4-06
+
+**四条如实记着的边界**：
+1. ⛔ **不收「尺」与「寸」**：1 尺 = 1/3 米，十进制除不尽，收进来会让 `1 尺→米→尺` 回不到 1（契约用例的往返回归会当场红）。要收它们得先回答"保留几位、谁来定"，那是另一件事。
+2. 本轮的换算只覆盖**量纲感知的内建单位**；用户自己填的换算率（`1 车 = 8 方`，存在 `unit_conversions` 表）走的仍是既有那一条路，**一个字节都没动**。
+3. 扩展的 `config`（`EXT_UNIT_CONVERSION_UNIT_SYSTEM`）目前**没有任何代码读它** —— 它是"配置要经注册表"这条规矩的活样本，R4-06 的 orphan config 核查会拿它当对象。
+4. 路由 `/api/v1/unit-conversion/preview` 的鉴权是 `ORDER_CREATE`（能下单的人就能试算），与既有 `POST /api/v1/unit-conversions` 的 shipper+dispatcher 口径一致；⛔ 扩展代码里**一行鉴权都没有**，它由核心在装配时施加。
 
 ## R4-05 第二个真实扩展：Pricing
 

@@ -172,8 +172,10 @@ def main() -> int:
         fails.append("当前实现少于 " + str(MIN_PROVIDERS) + " 个 —— 同一组契约用例没有第二个实现可跑")
 
     code, out = run_contract_tests()
-    tail = [ln for ln in out.splitlines() if ln.strip()]
-    print("  ④ 契约用例（每个实现各跑一遍）：" + (tail[-1].strip() if tail else "（没有输出）")
+    # ⚠️ 挑**结果那一行**（含 passed/failed），不是最后一行 —— 应用启动时那两句 stderr 警告
+    #    会排在最后，第一版就是把那句警告当成"用例结果"打出来的（实测）。
+    tail = [ln.strip() for ln in out.splitlines() if " passed" in ln or " failed" in ln]
+    print("  ④ 契约用例（每个实现各跑一遍）：" + (tail[-1] if tail else "（没有结果行）")
           + ("  ✅" if code == 0 else "  ❌"))
     if code != 0:
         fails.append("契约用例没过 —— 新实现没有守住契约")

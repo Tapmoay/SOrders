@@ -2,5 +2,10 @@
   "base": "54f2418f11c6602f5a6d7f2f4897e251b29117f4",
   "base_providers": [
     "si"
+  ],
+  "head": "cf3588f40d27c19d9d7e95a2f89bdf85e1423943",
+  "head_providers": [
+    "china_traditional",
+    "si"
   ]
 }
