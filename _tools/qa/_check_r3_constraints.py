@@ -236,8 +236,34 @@ def probe_no_premature_round4() -> tuple[str, str]:
 
 
 def probe_requirements_not_blindly_locked() -> tuple[str, str]:
-    if (ROOT / "docs/DEPENDENCY_DECISION.md").exists():
-        return "hold", "依赖可复现性决策已存在，锁与不锁由它说了算"
+    # ⛔ 2026-09-26 修：原来只看**那份决策文档在不在** —— 于是「建了文档」就等于「决策做了」，
+    #    这条探针**永久 hold**；反向验证里「requirements.txt 被顺手锁死一条」当场变成打不动判据的假绿
+    #    （实测：R3-07b2 的 ⑧ 号注入报「判据居然还是绿的」）。
+    #    改成读文档里那行**机器读的状态**：「已拍板」才放行；「待用户拍板」= 还没决策 ⇒ 继续不许锁。
+    #    ⛔ 文件存在 ≠ 决策做了 —— 这是本仓库反复栽的「判据被别处的存在满足」。
+    # ⛔ 只读**那一行**状态，不读整份文档：第一版我写的是 `"已拍板" in text` —— 而文档的说明文字里
+    #    就写着「拍板之后把这一行改成『已拍板』」⇒ 整份文档永远含这三个字 ⇒ 探针永远放行（第二次踩）。
+    #    判据要盯的是**那一行机器读的状态**，不是散文里出现过的词。
+    dec = ROOT / "docs/DEPENDENCY_DECISION.md"
+    status = ""
+    if dec.exists():
+        for ln in dec.read_text(encoding="utf-8", errors="replace").splitlines():
+            if ln.strip().startswith("> **状态**"):
+                status = ln
+                break
+        if not status:
+            return "broken", "依赖决策文档里找不到「> **状态**」那一行 —— 探针读不出决策做了没有"
+        if "已拍板" in status:
+            return "hold", "依赖可复现性决策**已拍板** —— 锁与不锁由那份决策说了算"
+        if "待用户拍板" not in status:
+            return "broken", "状态行里既没写「已拍板」也没写「待用户拍板」：" + status.strip()[:60]
+        # 落到这里 = 文档在、但决策**还没做** ⇒ 与「没有决策文档」同等对待：不许顺手锁。
+    pins_all = [ln.strip() for ln in read("backend/requirements.txt").splitlines()
+                if ln.strip() and not ln.strip().startswith("#") and "==" in ln]
+    if pins_all:
+        return "broken", ("依赖决策还**没拍板**（文档里写着「待用户拍板」）就先锁死 "
+                          + str(len(pins_all)) + " 条：" + pins_all[0])
+    return "hold", "依赖决策还没拍板，而 requirements.txt 仍是开区间（>=x,<y）—— 没有顺手就锁"
     pins = [ln.strip() for ln in read("backend/requirements.txt").splitlines()
             if ln.strip() and not ln.strip().startswith("#") and "==" in ln]
     if pins:

@@ -49,10 +49,14 @@ CASES: list[tuple[str, str, object]] = [
     (
         "豁免表里的模块其实还在写日志（假豁免＝看表的人以为它没留痕）",
         "_tools/qa/_check_audit_coverage.py",
+        # ⛔ 2026-09-26 修注入：原来塞的是 `stats.py` —— 而 `stats.py` 里**一处 `write_log(` 都没有**
+        #    （实测 0 处），塞进豁免表本来就是**合法豁免** ⇒ 判据不红是对的，注入自己错了。
+        #    ⛔ 这已经是同一个坑第二次：判据自己的注释里就记着上一次（当年塞 `arrears.py`，后来它也写了日志）。
+        #    改成塞一个**确实在写日志**的模块：`products.py`（4 处 `write_log(`）—— 这才叫「假豁免」。
         lambda s: s.replace(
-            "REASONS: dict[str, str] = {\n",
-            "REASONS: dict[str, str] = {\n"
-            '    "stats.py": "注入：假装报表模块不写日志",\n',
+            "REASONS: dict[str, str] = {" + chr(10),
+            "REASONS: dict[str, str] = {" + chr(10)
+            + '    "products.py": "注入：假装商品模块没有留痕（它其实写了 4 处）",' + chr(10),
             1,
         ),
     ),
