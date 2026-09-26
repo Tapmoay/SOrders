@@ -209,6 +209,11 @@ class Sandbox:
     def restore(self) -> None:
         for p, raw in self.saved.items():
             p.write_bytes(raw)
+            # R3-07b：还原**当场核对**（写回后再读回来逐字节比）—— 对不上就非零退出，
+            # ⛔ 别让注入留在源码树里（实测过一次：崩在还原前，注入留了一整天）。
+            if p.read_bytes() != raw:
+                print("⛔ 还原后与快照不一致（注入污染了源码树）：" + str(p))
+                raise SystemExit(2)
         self.saved.clear()
 
 

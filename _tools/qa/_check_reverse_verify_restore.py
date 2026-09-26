@@ -90,7 +90,10 @@ MIN_L1 = 135
 #: 剩 10 份形状不同（还原调用不是 `finally: write_src(...)`），要逐份看代码。
 #: 2026-09-26 再补 4 份（coverage_input / loop_e2e / fuzz_safety / place_and_picker 改成字节级；
 #: multi_request / core_freeze 补「还原后逐字节核对」）→ 140。剩 3 份：ai_batch / invariants / root_clean（后者在例外表里）。
-MIN_L2 = 140
+#: 2026-09-26 收口到 **142**（`ai_batch` / `fuzz/_invariants` 补「还原后逐字节核对」）。
+#: ⛔ 剩下那 1 份 `_reverse_verify_root_clean.py` 在例外表里（注入的是临时探针、自己删掉）⇒ **142 就是上限**：
+#: 凡是「会改源码」的那 141 份，都既有字节级快照/还原、又有逐字节证明。
+MIN_L2 = 142
 
 #: 做不到那三样、但有正当理由的 —— 键是相对路径，值是「为什么 + 什么时候删掉这一条」。
 EXCEPTIONS: dict[str, str] = {

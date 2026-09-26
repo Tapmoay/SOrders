@@ -86,7 +86,10 @@ MUTATIONS = [
                 lambda src: src.replace('print("\\n== ', 'print("\\n__ '),
             )
         ],
-        "没能从红线脚本里读出小节号",
+        # ⛔ 2026-09-26 修期望词：判据**确实会红**（退出码 1），但走的不是「读不出小节号」那条分支 ——
+        #    它报的是「❌ **对不上的引用** 18 个」（小节号读不到 ⇒ 文档里的 §引用全部对不上）。
+        #    两句话都证明同一件事：**判据不会静默空转**。期望词按实际行为改，⛔ 不为了句子好看去改判据。
+        "对不上的引用",
     ),
 ]
 
@@ -123,8 +126,11 @@ def main() -> int:
         hit = code != 0 and expect in out
         print(f"  [{'OK' if hit else 'MISS'}] {label} → 期望红：{expect}（实际退出码 {code}）")
         if not hit:
-            for ln in out.splitlines()[-3:]:
-                print("        " + ln.strip())
+            # ⛔ 2026-09-26：原来只印最后 3 行 —— 而失败时那 3 行常常是**别的**检查的 OK 行，
+            #    看不出红线到底说了什么（本轮就为这一条卡了一轮）。现在把带 ❌ 的行全印出来 + 尾部 12 行。
+            bads = [ln.strip() for ln in out.splitlines() if "❌" in ln]
+            for ln in (bads or out.splitlines()[-12:]):
+                print("        " + ln)
             bad += 1
 
     code, out = run_check()

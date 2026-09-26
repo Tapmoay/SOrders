@@ -147,6 +147,10 @@ def main() -> int:
                 code, out = _run_audit(tmp / "clean.db")
             finally:
                 INV.write_bytes(orig)
+                # R3-07b：还原**当场核对**（写回后再读回来逐字节比）
+                if INV.read_bytes() != orig:
+                    print("⛔ 还原后与快照不一致（注入污染了 _invariants.py）：" + str(INV))
+                    raise SystemExit(2)
             hit = code != 0 and "自检失败" in out
             if hit:
                 print("  [OK] ⑤ 状态字面量写错 → 自检当场拦下（不是一个永远为假的分支）")
