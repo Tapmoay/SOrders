@@ -190,7 +190,9 @@ def test_v1_implementations_still_work_through_the_adapter() -> None:
         if not kind:
             continue
         ctx = PricingContext(rule_snapshot={"pricing_kind": kind, "amount": "120.00",
-                                            "unit_price": "8.50"},
+                                            "unit_price": "8.50",
+                                            "base_price": "8.00", "base_qty": "10",
+                                            "over_price": "9.00"},
                              unit_price=Decimal("8.50"),
                              quantity=Quantity(Decimal("15"), "件", "count"))
         v2 = as_v2(provider)
