@@ -308,14 +308,23 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 
 方案已写好：`docs/R3_FAILURE_DRILL.md`（五个演练各自的**目的 / 命令 / 期望信号 / 判读 / 今天的状态**，
 外加「先备份后演练」「演练要有怎么停」两条纪律）。⛔ **方案 ≠ 演练过**：下面五条**一条都没跑**。
-⛔ `_tools/ops/_drill.py`（把五个演练变成一条命令的那支脚本）**还没写**，现在只能照文档里的「手动等价」列走。
+工具已写好：`python _tools/ops/_drill.py`（护栏：不给 `--go` 只打印；`--target prod` 要 `--go` + `--i-know-prod`
+三个信号，且生产演练**只打印不代跑**）。**本机预演 5/5 通过**（`--all-local --go`，明细见 `docs/R3_FAILURE_DRILL.md` §二·补）。
+
+- ✅ 故障演练工具在位、护栏自检通过、且**五个本机预演真跑过**（5/5）—— 复现：`python _tools/ops/_drill.py --selftest`
+  ⛔ 这一条证的是**工具与护栏**（12 项自检）＋「本机那一半跑得通」；⛔ **不证**生产演练做过 —— 下面五条仍然全是 ❌。
 
 - ❌ Drill A：杀掉一个 worker，是否恢复 —— 复现：`python _tools/ops/_drill.py --case worker-crash`
+  ⭐ 本机预演已跑通：`python _tools/ops/_drill.py --case worker-crash --go` → 杀掉 A 之后 B `/health`=200、登录读自己=200；⛔ 生产那格是「一个 systemd 里两个 worker」，形态不同，要写许可（`--target prod --go --i-know-prod` 只打印过程）。
   （⛔ 工具**还没写**；手动等价与判读见 `docs/R3_FAILURE_DRILL.md` Drill A。本机已有等价证据：R3-03「杀掉 A 之后 B 继续服务」—— 但那是两个独立进程，⛔ 不能顶替）
 - ❌ Drill B：Redis 不可用，业务还能不能工作 —— 复现：`python _tools/ops/_drill.py --case redis-down`
+  ⭐ 本机预演已跑通：`python _tools/ops/_drill.py --case redis-down --go` → `redis_ok()={'redis':'unavailable'}` 且订单流/账本同步用例 10 passed；⛔ 生产停 Redis 那一格未验。
 - ❌ Drill C：事件消费延迟，业务数据是否仍然正确 —— 复现：`python _tools/ops/_drill.py --case event-delay`
+  ⭐ 本机预演已跑通（发件箱语义：入队 3 → pending=3 → 抽干 → pending=0 且收到 3 → 再抽 sent=0）；⛔ 生产现在**没有** `outbox_events` 表，这一格只能发布之后验。
 - ❌ Drill D：迁移锁竞争，第二实例是否正常等待 —— 复现：`python _tools/ops/_drill.py --case lock-contention`
+  ⭐ 本机预演已跑通（两个进程同时迁移都退出 0、版本表 1..8 各一行、无重复记账）；⛔ 生产是 MySQL `GET_LOCK`（跨主机）—— 那条路从未在生产上真跑过。
 - ❌ Drill E：磁盘将满，能否被发现 —— 复现：`python _tools/ops/_drill.py --case disk-full`
+  ⭐ 本机**部分**预演已跑通（阈值逐档断言 50→ok / 85→warn / 95→fail）；⛔ 「报警链路真的有人收到」本机证不了，要生产。
 
 ## R3-07 Meta-System Hardening
 
