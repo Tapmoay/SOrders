@@ -48,9 +48,18 @@ CASES: list[tuple[str, str, object]] = [
         ),
     ),
     (
-        "把说明表里的权限点从枚举里删掉（化石条目）",
-        RBAC,
-        lambda s: s.replace('    LEDGER_READ_ALL = "ledger:read_all"\n', "", 1),
+        # ⛔ 2026-09-26 修注入：原来只做「把枚举里那条删掉」，指望说明表里**已经**挂着它 ——
+        #    而 `DECLARED_ONLY` 现在是**空表**（所有权限点都被引用了）⇒ 删掉枚举成员之后
+        #    既没有化石、也没有别的规则会响 ⇒ 判据全绿是对的，**注入的前提过期了**。
+        #    改成自带前提：往说明表里塞一条**根本不是权限点**的条目（这才叫化石）。
+        "说明表里留着一条已经不是权限点的条目（化石）",
+        CHECKREL,
+        lambda s: s.replace(
+            "DECLARED_ONLY: dict[str, str] = {}",
+            ('DECLARED_ONLY: dict[str, str] = {' + chr(10)
+             + '    "ledger:read_all_gone": "注入：这个权限点已经从枚举里删掉了，说明表里还留着",' + chr(10) + '}'),
+            1,
+        ),
     ),
     (
         "扫描目录指错（一个引用都找不到 → 全被当成没在用）",

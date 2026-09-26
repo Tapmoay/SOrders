@@ -66,6 +66,15 @@ WORKERS = 8
 #: 命令里出现这些片段的**不能并发跑**（它们抢同一组端口）—— 串行处理。
 SERIAL_HINTS = ('_dual_instance.py',)
 
+#: ⛔ **绝对不许由本判据启动**的命令：反向验证会**注入并改工作区**（还带注入锁）。
+#: 实测事故（2026-09-26）：台账里一条 ✅ 的复现命令写成了「按域全量跑反向验证」（~50 分钟），
+#: 本判据照着跑 ⇒ 它自己 300 秒超时，而那个**后台的全量跑还活着**：注入锁把后面所有检查拦成
+#: 「反向验证正在跑，给不出可信结论」，源码树里还留着两处注入。
+#: 规矩：✅ 的复现命令必须是**不改源码**的判据（要证明注入还活着，用静态的
+#: `_check_reverse_verify_anchors.py`；逐份跑反向验证由人来跑）。
+NEVER_RUN_HINTS = ('_reverse_verify',)
+
+
 #: 明确不跑的：为什么 + **什么时候删掉这一条**。
 SKIP: dict[str, str] = {
     # ⛔ 自引用：这条命令**就是本判据自己**（台账 R3-07c 那条 ✅ 的复现命令就是它）。
@@ -191,7 +200,18 @@ def main() -> int:
         fails.append('台账里这些命令会**跑起本脚本自己**，却没写进 SKIP 表：' + ' / '.join(selfref)
                      + ' —— 那会无限套娃（实测 40 分钟 400+ 个进程）；写进 SKIP 并写明为什么')
 
-    todo = [c for c in cmds if c not in SKIP]
+    # ⛔ 会把工作区改坏的命令：**不跑**，而且**计为不达标**（不许安静地跳过）
+    # ⚠️ 只认**会注入的**那些（`_reverse_verify_*.py`）：`_check_reverse_verify_restore.py` /
+    #    `_check_reverse_verify_anchors.py` 名字里也有 `_reverse_verify`，但它们**只读源码**（第一版误伤，
+    #    把 R3-07b 那条正常的复现命令也判红了）。
+    mutating = [c for c in cmds
+                if any(h in c for h in NEVER_RUN_HINTS) and '_check_reverse_verify' not in c]
+    for c in mutating:
+        fails.append('台账里这条 ✅ 的复现命令**会跑反向验证**（注入 + 改工作区）：' + c
+                     + ' —— 判据不许启动它（实测：后台留下一次 50 分钟的全量跑 + 注入锁，把后面的检查全拦了）。'
+                     + '改成引用**不改源码**的判据（如 `_check_reverse_verify_anchors.py`）')
+
+    todo = [c for c in cmds if c not in SKIP and c not in mutating]
     if len(todo) < MIN_RUN:
         fails.append('真跑的命令只有 ' + str(len(todo)) + ' 条（下限 ' + str(MIN_RUN) + '）—— 判据在空转')
 

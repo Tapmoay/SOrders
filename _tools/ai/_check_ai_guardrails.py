@@ -3525,8 +3525,21 @@ def main() -> int:
     # NULL 在唯一索引里互不相等）→ 并发生成两张月薪单，结算单把两行一起 sum（¥4500 → ¥9000），
     # 而确认时的"金额与明细合计一致"校验**会通过**。所以生成前必须锁住司机行。
     bills_src = read(ROOT / "backend/app/api/v1/driver_bills.py")
-    c.present("月薪单生成前锁住司机行（先查再插 + NULL 不参与唯一索引 = 付两次月薪）",
-              bills_src, r"with_for_update\(\)[\s\S]{0,400}?DriverBillType\.SALARY")
+    # ⛔ 2026-09-26 收紧（**反向验证抓到的**）：原来只要求「文件里有 `with_for_update()`，且 400 字符内有
+    #    `DriverBillType.SALARY`」—— 而这个文件里**有两处** `with_for_update()`（① 锁司机行、② 对已存在月薪单的
+    #    加锁读）。把 ① 那一行删掉，② 照样满足那条正则 ⇒ 判据不红（实测：`_reverse_verify_round17.py` 的
+    #    ⑨ 号注入报「全绿」）。**判据比它自己的名字弱**，就是这个仓库反复栽的那一类。
+    #    现在拆成三件事：① 有「锁司机行」这个调用；② 有月薪单的存在性查询；③ **锁在查询之前**。
+    # ⚠️ 用 `[^\n]*` 而不是 `[^)]*`：中间还有 `.where(User.id == d.id)` 那一对括号（第一版就是栽在这儿，
+    #    收紧之后连**干净源码**都不匹配 ⇒ 判据自己先红了）。
+    _lock = re.search(r"db\.execute\(select\(User\.id\)[^\n]*with_for_update\(\)\)", bills_src)
+    # ⚠️ 锚「月薪单的**存在性查询**」那一段（`DriverBill.bill_type == DriverBillType.SALARY`），
+    #    而不是裸的 `DriverBillType.SALARY`：后者在文件里**更早**就出现过（L140 的 if 分支）——
+    #    第二版就是拿它比顺序，于是「锁在查询之前」永远为假、连干净源码都判红。
+    _sal = bills_src.find("DriverBill.bill_type == DriverBillType.SALARY")
+    _ok = _lock is not None and _sal != -1 and _lock.start() < _sal
+    c.ok("月薪单生成前锁住司机行（先查再插 + NULL 不参与唯一索引 = 付两次月薪）", _ok,
+         "没找到「锁司机行 → 再查月薪单」这个顺序（删掉锁、或把锁挪到查询后面，都会让并发生成两张月薪单）")
     c.present("串行重复核销只落一条收款记录（钱的回归测试）",
               conc_tests, r"def test_double_itemized_receipt_sequential_records_money_once")
     c.present("探针会核对「账单唯一索引真的在库里」（不再是「没有唯一约束」的信息）",
