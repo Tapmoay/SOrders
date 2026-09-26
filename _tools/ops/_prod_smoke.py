@@ -24,12 +24,14 @@
 ⛔ 本脚本**只记录、不判定对错**：该不该改声明是依赖治理那一轮的事（决策②：本轮不锁）。
 
 ### 退出码三档（⚠️ 与 `_health_check.py` 的语义**不同**，别混）
-- **0** = 生产现状健康，**且**与这一版代码一致（＝发布已完成）；
-- **1** = 生产现状健康，但与这一版代码**不一致**（发布之前就是这个样子）——
-  这一档今天必然命中：生产停在 `648fbf8`（2026-09-23），落后本仓库一大截；
+- **0** = 全绿：现状健康、与这一版代码一致、**且没有任何告警**；
+- **1** = 现状健康且**没有❌**，但**有不一致，或有 warn_only 的已知告警**；
 - **2** = 生产**现状本身**有问题（服务 / 库 / Redis / 磁盘 / 备份那种，跟发布没关系也要管）。
 
-所以「1」不是失败，是**发布还没做**这件事的机器形态；发布之后本表应当全绿。
+⚠️ **2026-09-26 发布之后这一档的读法变了**：发布之前「1」几乎只意味着「发布还没做」；
+发布之后它还可能只意味着「**两条已知告警**还在」（Redis 无口令 / MySQL 服务端默认时区不是 UTC）。
+⇒ ⛔ 别拿 exit code 判「发布做没做完」：**要判就判 ❌ 的条数**（`--json` 里的 `level == "fail"` 行），
+发布工具 `_release.py` 的 smoke 这一步就是这么判的。
 
 ### ⛔ 它证不了什么
 - 它不证明业务正确性（只读＝**永远不会写**，所以也没法证明「写路径在生产上是好的」）；
@@ -152,17 +154,45 @@ def git(*args: str) -> tuple[int, str]:
     return r.returncode, r.stdout.decode("utf-8", "replace").strip()
 
 
+def runtime_delta(commit: str) -> int | None:
+    """生产那个提交与本仓库 HEAD 之间 **运行时代码（`backend/`）** 的差异行数。
+
+    ⛔ 算不出返回 None（调用方**不许**当成 0）。
+    ⛔ 为什么核这个而不是核「commit 相等」：发布之后必然还会推**只改文档/工具**的提交
+    （发布记录、台账、以及修发布工具自己），那时生产与本机 HEAD 的 commit 不同、
+    但**跑起来的代码一个字没变** —— 要求 commit 相等等于要求「永远不许再提交」。
+    反过来，生产真的落后（比如还停在旧版本）时 `backend/` 一定有差异 ⇒ 仍然报红。
+    """
+    if len(commit) != 40:
+        return None
+    r = subprocess.run(["git", "diff", "--numstat", commit + "..HEAD", "--", "backend"],
+                       cwd=str(ROOT), capture_output=True, timeout=60)
+    if r.returncode != 0:
+        return None
+    n = 0
+    for ln in r.stdout.decode("utf-8", "replace").splitlines():
+        parts = ln.split("\t")
+        if len(parts) >= 2 and parts[0].isdigit():
+            n += int(parts[0])
+    return n
+
+
 def prod_skew(commit: str) -> tuple[bool, str]:
-    """生产那个提交在**本仓库历史**里吗？落后多少？（只读 git，不联网）"""
+    """生产那个提交在**本仓库历史**里吗？**跑起来的代码**与本仓库一致吗？（只读 git，不联网）"""
     if len(commit) != 40:
         return False, "生产提交读不出来"
     if git("merge-base", "--is-ancestor", commit, "HEAD")[0] != 0:
         return False, "生产提交**不在**本仓库历史里（生产上跑的不是这个仓库的提交？）"
     code, out = git("rev-list", "--count", commit + "..HEAD")
-    if code != 0 or not out.isdigit():
-        return False, "落后多少提交算不出来"
-    n = int(out)
-    return n == 0, ("与 HEAD 一致" if n == 0 else "落后 HEAD **" + str(n) + "** 个提交（发布还没做）")
+    behind = out if (code == 0 and out.isdigit()) else "?"
+    delta = runtime_delta(commit)
+    if delta is None:                                   # G4：算不出就不许判过
+        return False, "跑起来的代码有没有差异**算不出来**（git diff 失败）"
+    if delta != 0:
+        return False, ("生产 " + commit[:8] + " 与本仓库的 `backend/` 差 **" + str(delta)
+                       + "** 行 —— 生产上跑的不是这一版代码（发布还没做？）")
+    return True, ("跑起来的代码一致（`backend/` 零差异；提交号差 " + str(behind) + " 个）"
+                  if behind != "0" else "与 HEAD 一致")
 
 
 def declared_packages() -> list[tuple[str, str, str]]:
@@ -293,7 +323,8 @@ def main() -> int:
         warn_only=True)
     tz = (f("db_time_zone") or "")
     chk("+00:00" in tz or "UTC" in tz.upper(), "MySQL 时区口径是 UTC",
-        "time_zone = " + tz, "time_zone = " + tz + "（不是 UTC —— 代码里钉会话时区那一段还没上生产）",
+        "time_zone = " + tz, "time_zone = " + tz + "（**服务端默认值**不是 UTC —— ⚠️ 应用层已把**会话**时区钉成 UTC "
+            "（app/database.py 的 SET time_zone='+00:00'），这里记的是服务端默认值，属既知/已接受）",
         warn_only=True)
 
     # ---- 2. 与这一版代码的一致性（发布要做的事：今天必然有一批不成立）----
@@ -301,7 +332,7 @@ def main() -> int:
     chk(len(commit) == 40, "生产仓库提交可读", (commit[:12] or "") + " / 分支 " + str(f("repo_branch")),
         "读不出来（/opt/SOrders 不是 git 工作区？）", category="consistency")
     same, why = prod_skew(commit)
-    chk(same, "生产代码 = 本仓库 HEAD", "与 HEAD 一致", "生产 " + (commit[:8] or "?") + "：" + why,
+    chk(same, "生产跑的运行时代码 = 本仓库（`backend/` 零差异）", "跑起来的代码一致", "生产 " + (commit[:8] or "?") + "：" + why,
         category="consistency")
     chk(f("tracked_dirty") == "0", "生产**跟踪文件**没有被手改过",
         "git diff 干净", "有 " + str(f("tracked_dirty")) + " 个跟踪文件被改过（生产上有人手改了代码？）",
@@ -398,9 +429,12 @@ def main() -> int:
           + str(len(warns)) + " 告警 / " + str(len(fails)) + " 不一致   （⛔ 全程只读，没有一条写操作）")
     for lvl, name, detail, cat in rows:
         print("  " + mark[lvl] + " " + name + ("  —— " + detail if detail else ""))
-    if not bad_health and (bad_consist or warns):
-        print("  ⓘ 没有「现状本身有问题」的项；上面这些 ❌/⚠️ 是**发布还没做**的机器形态"
-              "（生产停在 " + (f("repo_commit") or "?")[:8] + "）—— 发布之后本表应全绿。")
+    if bad_consist:
+        print("  ⓘ 现状本身没问题，但生产与这一版代码**不一致**（" + str(len(bad_consist))
+              + " 项）—— 那正是发布这一步要消除的东西（生产停在 " + (f("repo_commit") or "?")[:8] + "）。")
+    elif warns:
+        print("  ⓘ 现状健康、与这一版代码**一致**；剩下的 " + str(len(warns))
+              + " 条是 **warn_only 的既知告警**（每条都写了为什么），⛔ 不算发布失败。")
 
     if a.json:
         payload = {"facts": facts,

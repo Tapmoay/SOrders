@@ -80,9 +80,9 @@ STEP_DOC: dict[str, tuple[str, str, str]] = {
     "health": ("本机跑 _tools/ops/_health_check.py",
                "退出码 0（或只有「已知/已接受」的证书告警 = 1）",
                "退出码 2 → 立刻回滚"),
-    "smoke": ("本机跑 _tools/ops/_prod_smoke.py --readonly",
-              "退出码 0（现状健康**且**与这一版代码一致）",
-              "退出码 2 → 回滚；1 → 看是哪几项不一致"),
+    "smoke": ("本机跑 _tools/ops/_prod_smoke.py --readonly --json <tmp>",
+              "❌ 的项 **0 条**（健康类与一致性类都不许有；warn_only 的既知告警如实留档，⛔ 不算失败）",
+              "有健康类 ❌ → 回滚（2）；有一致性类 ❌ → 看是哪几项（1）"),
     "business": ("按 docs/PRODUCTION_ACCEPTANCE.md §三 做**有限写**烟测",
                  "逐条按那份清单走",
                  "任何一条不符合 → 回滚或前向修复"),
@@ -170,6 +170,8 @@ def build_cases() -> list[tuple[str, dict, str, str]]:
          dict(step="start", go=False, facts=fresh, state=done3), "plan", "只打印"),
         ("G2 start 之前没 backup/migrate/verify ⇒ 拒绝",
          dict(step="start", go=True, facts=fresh, state={}), "refuse", "顺序强制"),
+        ("G1 计划模式**不需要**生产事实（facts 里没有备份年龄）⇒ 仍然只打印",
+         dict(step="start", go=False, facts={"sha_in_repo": True}, state=done3), "plan", "只打印"),
         ("G2 stage 之前没 backup ⇒ 拒绝",
          dict(step="stage", go=True, facts=fresh, state={}), "refuse", "顺序强制"),
         ("G2 migrate 之前没 backup ⇒ 拒绝",
@@ -343,6 +345,38 @@ def run_start(sha: str, fetch: bool) -> int:
     return 0 if out.strip() == "active" else 1
 
 
+def run_smoke() -> int:
+    """只读烟测：判据是「**❌ 的项 0 条**」，⛔ 不是「退出码必须是 0」。
+
+    为什么不用退出码：`_prod_smoke.py` 的「1」档**同时**装着两件性质不同的事 ——
+    ①「生产与这一版代码不一致」（发布要消除的）与 ②「有 warn_only 的**既知告警**」
+    （Redis 无口令 / MySQL 服务端默认时区 —— 那两件都不属于发布这一步，各有各的许可）。
+    要求退出码 0 等于要求「顺手把已知缺口也修掉」，而那正是 A 阶段明令**不许**做的事。
+    ⇒ 拿 `--json` 的逐行 level 判：**fail 一条都不许有**；warn 如实打印并留档。
+    ⛔ G4 同样生效：读不出 json 就算不出事实，不许得出「大概没事」的结论。
+    """
+    out_json = Path(tempfile.gettempdir()) / "sorders_r3_smoke.json"
+    try:
+        out_json.unlink()
+    except OSError:
+        pass
+    code = run_local_script("_tools/ops/_prod_smoke.py", ["--readonly", "--json", str(out_json)])
+    try:
+        payload = json.loads(out_json.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 —— 读不出就判失败，不许猜
+        print("⛔ 烟测没有写出 --json 结果（退出码 " + str(code) + "）—— 算不出事实就不许往下走")
+        return 1
+    rows = payload.get("rows") or []
+    bad = [r for r in rows if r.get("level") == "fail"]
+    warns = [r for r in rows if r.get("level") == "warn"]
+    if bad:
+        print("⛔ 烟测有 " + str(len(bad)) + " 条 ❌：" + "；".join(str(r.get("name")) for r in bad[:3]))
+        return 2 if any(r.get("category") == "health" for r in bad) else 1
+    print("   ✅ ❌ 0 条；warn_only 的既知告警 " + str(len(warns)) + " 条（如实留档，⛔ 不算失败）："
+          + "；".join(str(r.get("name")) for r in warns[:4]))
+    return 0
+
+
 def run_local_script(rel: str, extra: list[str] | None = None) -> int:
     cmd = [sys.executable, str(ROOT / rel)] + (extra or [])
     print("  → " + " ".join(cmd))
@@ -400,7 +434,11 @@ def main() -> int:
     state = load_state()
     for step in todo:
         facts: dict = {"sha": sha, "sha_in_repo": repo_sha_ok(sha)}
-        if step == "start":
+        if step == "start" and a.go:
+            # ⛔ 计划模式**不连生产**：G1 说「不给 --go 绝不执行任何一步」，而读一次备份年龄要 SSH。
+            #    2026-09-26 实测：原来不判 a.go，于是 `--step start`（只打印）也会去 SSH ——
+            #    后果是「只打印」这个模式**依赖生产可达**（CI 上跑不了，台账里也就没法把它写成复现命令）。
+            #    decide() 的第一条就是 `if not go: return "plan"`，所以计划模式下这个事实根本用不到。
             facts["backup_age_hours"] = backup_age_hours()
         action, why = decide(step=step, go=a.go, facts=facts, state=state)
         cmd, expect, fail = STEP_DOC[step]
@@ -426,7 +464,7 @@ def main() -> int:
             code = run_local_script("_tools/ops/_health_check.py")
             code = 0 if code in (0, 1) else code          # 1 = 告警（证书那种已知项）
         elif step == "smoke":
-            code = run_local_script("_tools/ops/_prod_smoke.py", ["--readonly"])
+            code = run_smoke()
         else:   # business
             print("   ⛔ business 这一步**故意不自动化**：它要往生产写业务数据（建单/派单/撤销），"
                   "必须人按 docs/PRODUCTION_ACCEPTANCE.md §三 逐条做并留痕。")
