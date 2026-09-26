@@ -21,7 +21,9 @@ R3-BOUNDARY-JUSTIFICATION: 这条**没法用边界消除**。140 份 `_reverse_v
    那是本仓库栽过多次的「判据被文字误伤」）：
    · `read_bytes(` —— 快照是按**字节**取的；
    · `write_bytes(` —— 还原是按**字节**写回的；
-   · `dirty(` 或 `== raw` / `!= raw` —— 跑完**逐字节比对**过。
+   · 跑完**逐字节比对**过 —— 认形状不认变量名：`dirty(` / `dirty =` / `== raw` / `!= raw` / `bytes_identical`，
+     或**一次重新读**出现在 `==`/`!=` 左侧（`if p.read_bytes() != originals[rel]`、`if Path(k).read_text() != v`）。
+     ⛔ 2026-09-26 修：这条原来只认几个变量名，把 **36 份已经证明了的脚本**记成「没证明」（假缺口）。
 3. ⭐ 每份的**代码**里都不许出现真的去执行 `git checkout` 的调用（注释里提它是允许的、而且是应该的）；
 4. 有例外就必须在 EXCEPTIONS 里写清「为什么 + 什么时候删掉这一条」，且例外**只减不增**（与 HEAD 比）。
 
@@ -47,9 +49,17 @@ ROOT = Path(__file__).resolve().parents[2]
 MIN_SCRIPTS = 130
 #: **两级契约的两条棘轮**（⛔ 只增不减 —— 每加一份证明，就把下限抬上来）：
 #: L1「按字节快照 + 按字节还原」——今天实测 102 份；
-#: L2「跑完**逐字节比对**证明一模一样」——今天实测 33 份（**这就是 R3-07 要补的缺口**）。
+#: 重新读回来的内容参与 `==`/`!=` 比较 —— L2「逐字节证明」的**形状**（见下面 proof 那一段的长注释）。
+READBACK_CMP = re.compile(r'(?:read_bytes|read_text)\s*\([^\n]*?\)\s*(?:==|!=)')
+
 MIN_L1 = 135
-MIN_L2 = 70
+#: ⛔ L2：2026-09-26 实测 **94** 份。两次变化都要记清楚（⛔ 不是「缺口改小了」）：
+#:   · 88：原先记的「69 份缺口」里有 **14 份是判据自己读窄了**（只认变量名 `original`/`raw`，
+#:     认不出 `originals[rel]` / `v` 这些写法）—— 那 14 份**本来就在证明**；
+#:   · 94：又给 6 份补上「还原当场核对」（geocode / card_claim / ctx_budget / cost_history /
+#:     image_refs / billing —— 各自跑过一遍，全绿，证明没污染源码树）。
+#: 剩下 49 份仍是真缺口。棘轮只增不减 —— 每补一份就把这个数抬上来。
+MIN_L2 = 94
 
 #: 做不到那三样、但有正当理由的 —— 键是相对路径，值是「为什么 + 什么时候删掉这一条」。
 EXCEPTIONS: dict[str, str] = {
@@ -151,8 +161,19 @@ def main() -> int:
             fails.append(rel + '：没有快照/还原（read_bytes+write_bytes 或 read_text+write_text(newline=)）')
             continue
         # ---- L2：跑完**比对**证明一模一样（文本级比对也算，只要真的比了）----
-        proof = ('dirty(' in code or '== raw' in code or '!= raw' in code or 'bytes_identical' in code
+        # ⛔ 2026-09-26 修（R3-07b）：这一格原来只认几个**变量名**（`dirty(` / `== raw` / `!= raw` / `!= original` …），
+        #    而仓库里大量脚本写的是
+        #        dirty = [rel for rel in touched if (ROOT / rel).read_bytes() != originals[rel]]
+        #    —— `dirty` 是**列表变量**不是函数、比的是 `originals[rel]` 不是 `original`。
+        #    于是 **36 份明明已经逐字节证明了的脚本被记成「没证明」**，报出来一个**假缺口**。
+        #    本仓库的老账：「判据读得比事实窄」与「判据被文字误伤」是同一类毛病 —— 都会让缺口变成假的。
+        #    现在改成认**形状**：一次**重新读**（read_bytes/read_text）出现在 `==`/`!=` 的左侧即算证明。
+        #    ⚠️ 只认「读回在左」这一个方向（宁可少算、不虚报）：反向那种写法（`mutated == p.read_text()`）
+        #       常常是在判「注入有没有生效」，不是判「还原没还原」，认了就会虚报。
+        proof = ('dirty(' in code or 'dirty =' in code or '== raw' in code or '!= raw' in code
+                 or 'bytes_identical' in code
                  or '!= src' in code or '!= orig' in code or '!= original' in code or '!= before' in code
+                 or READBACK_CMP.search(code) is not None
                  # sha256(读回字节) 比对也是证明（`_reverse_verify_role_parity.py` 就是这么做的）
                  or ('sha256(' in code and 'read_bytes(' in code))
         if proof:

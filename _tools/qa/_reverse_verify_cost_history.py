@@ -106,6 +106,10 @@ def main() -> int:
             code2, _ = run(CHECK)
         finally:
             path.write_text(original, encoding="utf-8", newline="")
+        # R3-07b：还原**当场核对**（不是「看起来还原了」）—— 对不上就记账，别让坏代码留在树里
+        if path.read_text(encoding="utf-8") != original:
+            fails.append(f"{label}：还原后与快照不一致 —— 注入污染了源码树")
+            continue
         if code2 != 0:
             print(f"✅ 注入「{label}」→ 报红")
         else:

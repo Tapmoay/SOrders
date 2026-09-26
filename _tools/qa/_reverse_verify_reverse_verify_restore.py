@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | ① | 某份反向验证的代码里真的去跑 `git checkout` | 红：真的执行了 git checkout |
 | ② | 抹掉某份的按字节还原（`write_bytes(`） | 红：没有快照/还原 |
-| ③ | 抹掉某份的还原比对 | （L2 计数下降）红：L2 棘轮只增不减 |
+| ③ | 把 L2 棘轮抬到计数之上（锚点**从判据源码现取**，不写死） | 红：L2 棘轮只增不减 |
 | ④ | 例外表里加一条没有理由的 | 红：没写清「为什么 + 什么时候删掉这一条」 |
 | ⑤ | 扫描下限失守（脚本被掏空却不喊） | 红：下限 |
 
@@ -29,6 +29,27 @@ CHECK = ROOT / '_tools/qa/_check_reverse_verify_restore.py'
 CHK = '_tools/qa/_check_reverse_verify_restore.py'
 VICTIM = '_tools/ai/_reverse_verify_ai_entry.py'
 
+
+def _live_anchor(pattern: str) -> str:
+    '''从**当前**判据源码里取锚点（⛔ 不写死）。
+
+    为什么：`MIN_L2` 这类**会变的数字**每抬一次，写死的锚点就烂一次 —— 2026-09-26 实测踩到：
+    判据的 L2 下限从 70 抬到 88 之后，本脚本的 ③ 当场 `[SKIP]`（锚点出现 0 次），
+    而 SKIP 在本仓库**计为不成立**。取现值的写法则永远跟得上。
+    '''
+    import io
+    import re as _re
+
+    src = io.open(CHECK, encoding='utf-8').read()
+    m = _re.search(pattern, src)
+    if not m:
+        raise SystemExit('❌ 锚点在判据里找不到了（改过判据？）：' + pattern)
+    return m.group(0)
+
+
+_MIN_L2_LINE = _live_anchor(r'MIN_L2\s*=\s*\d+')
+_MIN_L2_NOW = int(_MIN_L2_LINE.split('=')[1].strip())
+
 CASES: list[tuple[str, str, str, str, str]] = [
     ('① 某份反向验证真的去跑 git checkout', VICTIM,
      'def read_src(path: Path) -> tuple[str, bool]:',
@@ -37,10 +58,12 @@ CASES: list[tuple[str, str, str, str, str]] = [
      '真的执行了 git checkout'),
     ('② 抹掉按字节还原', VICTIM, '    path.write_bytes(data.encode("utf-8"))',
      '    pass  # 反向验证注入：不写回了', '没有快照/还原'),
-    # ⚠️ ③ 试过「抹掉某一份的比对」：那只让 L2 从 72 掉到 71，**仍在 70 之上**，判据照样绿 ——
+    # ⚠️ ③ 试过「抹掉某一份的比对」：那只让 L2 掉 1（72→71），**仍在 70 之上**，判据照样绿 ——
     #    说明棘轮是按**总数**判的，单点回退抓不到。要证棘轮真的在守，就把下限抬到计数之上；
     #    单点回退的防线在别处（每份脚本自己跑完会打印「还原后判据全绿」）。
-    ('③ L2 棘轮被抬到计数之上（棘轮真的在守）', CHK, 'MIN_L2 = 70', 'MIN_L2 = 139', 'L2'),
+    # ⚠️ 锚点**现取**（`_MIN_L2_LINE`）：写死的话，判据每抬一次下限这里就烂一次。
+    ('③ L2 棘轮被抬到计数之上（棘轮真的在守）', CHK, _MIN_L2_LINE,
+     'MIN_L2 = ' + str(_MIN_L2_NOW + 100), 'L2'),
     ('④ 例外表里加一条没理由的', CHK,
      "EXCEPTIONS: dict[str, str] = {", "EXCEPTIONS: dict[str, str] = {" + chr(10)
      + "    '_tools/ai/_reverse_verify_ai_entry.py': '先这样',", '没写清'),
