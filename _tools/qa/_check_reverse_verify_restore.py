@@ -51,10 +51,18 @@ MIN_SCRIPTS = 130
 #: L1「按字节快照 + 按字节还原」——今天实测 102 份；
 #: 重新读回来的内容参与 `==`/`!=` 比较 —— L2「逐字节证明」的**形状**（见下面 proof 那一段的长注释）。
 READBACK_CMP = re.compile(r'(?:read_bytes|read_text)\s*\([^\n]*?\)\s*(?:==|!=)')
+#: L3 用：`名 = …read_text(<不带 newline=>)` —— 抓住「读来的那串文本」叫什么名字。
+SNAP_ASSIGN = re.compile(r'(\w+)\s*=\s*[^\n]*?read_text\(([^)]*)\)')
 
 #: L3：**换行符会漂**的脚本上限（只减不增）。2026-09-26 实测 **34** 份：它们的快照用不带 `newline=` 的
 #: `read_text()`、还原用 `write_text(newline="")` ⇒ CRLF 文件还原后变 LF（字节变了、git 看不见）。
-MAX_L3 = 34
+#: L3：**换行符会漂**的脚本上限（只减不增）。2026-09-26 实测 **23** 份 —— ⚠️ 口径写清楚：
+#:   判据是「**读来的文本会被写回去**」：`名 = …read_text(<不带 newline=>)` **且那个名字**出现在
+#:   `write_text(...)` / `write_bytes(...)` 的实参里 ⇒ 那串 LF 会被原样写回，CRLF 文件就变成 LF。
+#:   ⛔ 第一版口径太宽（只要文件里同时有裸 `read_text(` 与 `write_text(` 就算）→ 把
+#:   **只是读来比对、根本不写回**的脚本也算成了风险（实测虚报 11 份）—— 判据读宽了与读窄了同样糟。
+#: 收紧口径 + 本轮把 12 处改成字节级之后，实测 **22** 份。
+MAX_L3 = 22
 
 MIN_L1 = 135
 #: ⛔ L2：2026-09-26 实测 **94** 份。两次变化都要记清楚（⛔ 不是「缺口改小了」）：
@@ -197,10 +205,15 @@ def main() -> int:
         #    正确的写法是**两边都带 `newline=""`**（`read_text(..., newline="")` + `write_text(..., newline="")`），
         #    那对 UTF-8 文件与字节级等价（本仓库那条「不许用 PowerShell 往返」的纪律就是它）。
         # 这一格只**数**、只**减**：给定棘轮 MAX_L3，涨了才红。
-        bare_reads = [a for a in re.findall(r'read_text\(([^)]*)\)', code) if 'newline' not in a]
-        if bare_reads and 'write_text(' in code:
+        risky: list[str] = []
+        for _name, _args in SNAP_ASSIGN.findall(code):
+            if 'newline' in _args:
+                continue
+            if re.search(r'write_(?:text|bytes)\s*\([^)]*\b' + re.escape(_name) + r'\b', code):
+                risky.append(_name)
+        if risky:
             l3 += 1
-            l3_files.append(rel)
+            l3_files.append(rel + '（' + '、'.join(sorted(set(risky))) + '）')
         if proof:
             l2 += 1
         else:
@@ -227,6 +240,8 @@ def main() -> int:
     print('反向验证还原契约：扫到 ' + str(len(files)) + ' 份 / 例外 ' + str(len(EXCEPTIONS)) + ' 条')
     print('  L1 按字节快照+还原：' + str(l1) + ' 份（下限 ' + str(MIN_L1) + '）')
     print('  L3 换行符会漂的脚本：' + str(l3) + ' 份（上限 ' + str(MAX_L3) + '，只减不增）')
+    if l3_files:
+        print('     ' + '、'.join(x.split('/')[-1].split('（')[0] for x in l3_files[:6]) + (' …' if len(l3_files) > 6 else ''))
     print('  L2 逐字节**证明**还原：' + str(l2) + ' 份（下限 ' + str(MIN_L2) + '）'
           + '  ← 差 ' + str(len(no_l2)) + ' 份还没证明（R3-07 要补的缺口，棘轮只增不减）')
     print('  ⛔ 另外核：**没有**任何一份在代码里真的执行 git checkout')

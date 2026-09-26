@@ -166,7 +166,8 @@ def main() -> int:
                 continue
             new_path, src = made
             init = MODELS / "__init__.py"
-            init_src = init.read_text(encoding="utf-8")
+            init_bytes = init.read_bytes()  # R3-07b：快照取**字节**，还原才可能字节级
+            init_src = init_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
             try:
                 new_path.write_text(src, encoding="utf-8", newline="")
                 init.write_text(
@@ -177,14 +178,16 @@ def main() -> int:
                 code = run(CHECK)
             finally:
                 new_path.unlink(missing_ok=True)
-                init.write_text(init_src, encoding="utf-8", newline="")
+                init.write_bytes(init_bytes)
             if code != 0:
                 print(f"✅ 注入「{label}」→ 报红")
             else:
                 fails.append(f"{label}：注入之后没有报红 —— 判据盯不住「新增的表」")
             continue
 
-        original = path.read_text(encoding="utf-8")
+        original_bytes = path.read_bytes()
+
+        original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
         mutated = mutate(original)
         if mutated == original:
             fails.append(f"{label}：注入没生效（替换串过期了，请更新本脚本）")
@@ -199,7 +202,7 @@ def main() -> int:
             else:
                 code, caught = run(CHECK), run(CHECK) != 0
         finally:
-            path.write_text(original, encoding="utf-8", newline="")
+            path.write_bytes(original_bytes)
         if caught:
             print(f"✅ 注入「{label}」→ 报红（{'单测' if judge == 'pytest' else '红线'}）")
         else:

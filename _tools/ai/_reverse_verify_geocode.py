@@ -84,7 +84,8 @@ def main() -> int:
     print("✅ 前提：源码完好时检查是绿的")
 
     for label, path, mutate in CASES:
-        original = path.read_text(encoding="utf-8")
+        original_bytes = path.read_bytes()
+        original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
         mutated = mutate(original)
         if mutated == original:
             fails.append(f"{label}：注入没生效（源码里那段已经变了，请更新本脚本的替换串）")
@@ -93,9 +94,9 @@ def main() -> int:
             path.write_text(mutated, encoding="utf-8", newline="")
             code, out = run_check()
         finally:
-            path.write_text(original, encoding="utf-8", newline="")
+            path.write_bytes(original_bytes)
         # R3-07b：还原**当场核对**（不是「看起来还原了」）—— 对不上就记账，别让坏代码留在树里
-        if path.read_text(encoding="utf-8") != original:
+        if path.read_bytes() != original_bytes:
             fails.append(f"{label}：还原后与快照不一致 —— 注入污染了源码树")
             continue
         sec18 = out.split("== 18.")[-1] if "== 18." in out else ""

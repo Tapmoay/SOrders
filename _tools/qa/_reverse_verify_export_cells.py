@@ -169,7 +169,8 @@ def main() -> int:
 
     fails: list[str] = []
     for label, path, mutate in CASES:
-        original = path.read_text(encoding="utf-8")
+        original_bytes = path.read_bytes()
+        original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
         mutated = mutate(original)
         if mutated == original:
             fails.append(f"{label}：注入没生效（替换串过期了，请更新本脚本）")
@@ -178,7 +179,7 @@ def main() -> int:
             path.write_text(mutated, encoding="utf-8", newline="")
             code, out = run_test()
         finally:
-            path.write_text(original, encoding="utf-8", newline="")
+            path.write_bytes(original_bytes)
         if re.search(r"\d+ failed", out):
             print(f"✅ 注入「{label}」→ 用例失败（判据抓到了）")
         elif code != 0:
