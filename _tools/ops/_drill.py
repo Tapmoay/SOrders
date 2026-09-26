@@ -298,10 +298,13 @@ KNOWN_LIMITS: dict[str, tuple[str, ...]] = {
     "redis-down": (
         "停的是生产机上唯一的 Redis；⛔ 不证 Redis 慢（只证不可用）；",
         "⛔ 不证 App 端界面上「推送晚到」的体感 —— 只证服务端这一侧的投递失败与恢复；",
-        "⚠️ **未定的一条**：X3 里 R_NUMSUB=socketio 只有 1（两个实例里只有 B 订阅着跨实例总线）。"
-        "重启 A + 逼它 emit 一次之后仍然是 1。更可能的解释是 python-socketio 的 Redis 监听器**惰性启动**"
-        "（本实例上还没有客户端连接时不订阅 —— 没有本地客户端也就没有要投递的对象），"
-        "但本次**没有**真的量到「客户端连到 A 时 A 会不会开始订阅」⇒ 如实记成**未定**，⛔ 不记成缺陷。",
+        "⚠️ 关于 pubsub channels / numsub 这两个读数：它们**不是**判据，只是观察。"
+        "python-socketio 的 Redis 监听器是**惰性启动**的 —— async_server.py:675 在**第一次 Engine.IO 连接**"
+        "时才调 manager.initialize()（源码核对过）⇒ 一个从没被客户端连过的实例本来就不会订阅总线，"
+        "而「没有本地客户端」时也确实没有要投递的对象。所以 B_NUMSUB/R_NUMSUB 是 0 还是 1 取决于"
+        "演练前有没有客户端连过，⛔ 不能拿它当「总线坏没坏」。"
+        "真正可判的是**投递这条路**：停 Redis 时写的那条事件，恢复后必须由消费者自己补投成 sent"
+        "（见 REQUIRED 里的那条信号）。",
     ),
     "event-delay": (
         "注入用的是「停 Redis」，**不是**「让消费者线程停住」——在本拓扑里消费者与 API 同进程，"
@@ -690,6 +693,14 @@ RNS=$(redis-cli pubsub numsub socketio 2>&1 | tr '\n' ' ')
 echo "R_NUMSUB=$RNS"
 RH=$(curl -s http://127.0.0.1:8111/health)
 echo "R_HEALTH=$RH"
+echo "== 停 Redis 期间写的那条事件，恢复后应当由消费者自己补投（轮询到 sent，最多 40 秒）"
+RPE=""
+for i in $(seq 1 20); do
+  RPE=$(Q "select concat(status,' attempts=',attempts) from outbox_events where aggregate_id='$NID' limit 1;")
+  case "$RPE" in sent*) break;; esac
+  sleep 2
+done
+echo "R_PROBE_EVENT=$RPE"
 DEL=$(curl -sk -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOK" "https://127.0.0.1/api/v1/notifications/$NID")
 echo "R_DELETE_PROBE=$DEL id=$NID"
 '''
@@ -709,7 +720,6 @@ def _prod_redis_down() -> tuple[dict, dict]:
     except ValueError:
         tok_ok = False
     codes = [_grab(out, k) for k in ("D_ME", "D_ORDERS", "D_LEDGER")]
-    bus_back = "socketio" in _grab(out, "R_CHANNELS") and _grab(out, "R_PING") == "PONG"
     health_changed = _grab(out, "B_HEALTH") != _grab(out, "D_HEALTH_8111")
     sig = {
         "Redis 停机期间 HTTP 业务接口照常（登录拿到 token、读自己/读订单/读账本 全 200）":
@@ -717,7 +727,8 @@ def _prod_redis_down() -> tuple[dict, dict]:
         "停机期间业务**写**也照常（写探针消息拿到 id 且行真的在库里）":
             _grab(out, "D_WRITE_ID") != "" and _grab(out, "D_WRITE_ROW") == "1",
         "/health 如实报出 Redis 的变化（停机前后 redis 字段不一样）": health_changed,
-        "跨实例实时总线（socketio）恢复之后自己回来": bus_back,
+        "跨实例投递在 Redis 回来之后自己回来（停 Redis 时写的那条事件补投成 sent）":
+            _grab(out, "R_PING") == "PONG" and _grab(out, "R_PROBE_EVENT").startswith("sent"),
     }
     return {"X2": REDIS_X2, "X3": out.strip(), "X4": REDIS_X4}, sig
 
@@ -804,7 +815,9 @@ EVENT_X2 = ("systemctl stop redis —— 让发件箱的**投递**真的失败�
             "（这就是「消费者处理不了」在本拓扑下的真实形态）。⚠️ 为什么不用「把消费者线程停住」："
             "这个拓扑里消费者与 API 同进程，停掉消费者必然停掉业务，没法只停一半 —— 这本身是 Drill C 的一条结论。")
 EVENT_X4 = ("脚本 trap 保证 Redis 起回来；消费者每 2 秒扫一次（POLL_INTERVAL=2.0），"
-            "恢复后 sleep 15 秒足够追平；随后删掉探针消息。⛔ 不动订单/账本。")
+            "但失败之后要按指数退避（5s/10s/20s…）才轮到下一次 —— 所以恢复后**等 30 秒**再看，"
+            "那足够等到退避到期并由消费者自己补投成功（⛔ 不是靠人手工补发）。"
+            "随后删掉探针消息。⛔ 不动订单/账本。")
 
 
 def _prod_event_delay() -> tuple[dict, dict]:

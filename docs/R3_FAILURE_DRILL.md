@@ -7,8 +7,10 @@
 >
 > **状态（2026-09-26 更新）**：✅ **方案已写**，且 **C 段之后五个演练全部在生产机上真跑过**
 > （六阶段 X0–X5；逐字输出在 `_tools/ops/drill_records/*.json`，汇总在 `docs/R3_FAILURE_DRILL_EVIDENCE.md`）。
-> 结果 **4 ✅ / 1 ❌**：❌ 的是 **Drill C**，而那个 ❌ **是演练抓到的真缺陷**
-> （发件箱把「投递失败」记成了「已发送」，详见证据文档 §三·发现 2）—— ⛔ 不是「没跑」。
+> 结果 **5 ✅ / 0 ❌**。⚠️ 但第一轮是 **4 ✅ / 1 ❌**：**Drill C 抓到了真缺陷**（发件箱把「投递失败」记成了「已发送」），
+> **修完之后重跑**才变成 5/5 —— 这条链（演练 → 缺陷 → 修复 → 重跑）本身就是证据，详见
+> `docs/R3_FAILURE_DRILL_EVIDENCE.md` §三·发现 2。Drill D 另抓到一条**跨主机**的结构缺陷（发现 1），
+> 用户 2026-09-26 拍板**本轮只记录不修**（它是「跨主机 enable blocker」，混在一起修＝偷偷扩大 R3 范围）。
 > 下面每一格的「今天的状态」栏已按实测结果重写。
 
 ---
@@ -42,7 +44,7 @@
 | **命令** | 本机真跑（本机没有 Redis ⇒ 现场就是它）：`python _tools/ops/_drill.py --case redis-down --go`；⛔ 生产：`systemctl stop redis` → 打 /health 与几笔真实业务 → **必须放回** `systemctl start redis` |
 | **期望信号** | `/health` 里的 `redis` 字段变红但**接口仍可用**；下单/派单/账本读写全部正常（因为它们不经过 Redis） |
 | **判读** | 「业务不受影响」＝过；**如果反而挂了**，说明有隐藏依赖 —— 那是一个真缺陷，要当场记下来 |
-| **实测（2026-09-26）** | ✅ **生产跑过**（`redis-down-20260926T151904Z.json`，5/5 信号）：停 Redis 期间 `/health` 如实变成 `redis:error`，而登录 / 读订单 / 读账本 / **写一条消息**全 200；恢复后 `PONG` 与总线都自己回来。⚠️ **方案里「Redis 没人用」这条前提已过期** —— B 段之后跨实例总线就是它 |
+| **实测（2026-09-26）** | ✅ **生产跑过**（修复后重跑：`redis-down-20260926T155127Z.json`，5/5 信号）：停 Redis 期间 `/health` 如实变成 `redis:error`，而登录 / 读订单 / 读账本 / **写一条消息**全 200；恢复后消费者**自己**把那条事件补投成 `sent attempts=1`。⚠️ **方案里「Redis 没人用」这条前提已过期** —— B 段之后跨实例总线就是它。⚠️ 判据也修过一次：原来拿 `pubsub channels` 当判据，查源码发现监听器是**随第一次 Engine.IO 连接惰性启动**的（`async_server.py:675`）⇒ 改成「投递那条路必须自己回来」 |
 
 ### Drill C · event 消费者延迟，业务数据是否仍然正确（event）
 
@@ -52,7 +54,7 @@
 | **命令** | 本机真跑（发件箱语义：入队→堆积→追平→不重复）：`python _tools/ops/_drill.py --case event-delay --go`；⛔ 生产要等发布之后（生产现在**没有** `outbox_events` 表） |
 | **期望信号** | ① 业务写入**照常成功**（发件箱是**先落库后投递**）；② `outbox_events` 里 `pending` 堆起来但**不丢**；③ 消费者恢复后**追平**，且没有重复投递（`event_id` 幂等） |
 | **判读** | ①②③ 都成立才算过；⛔ 只看①就下结论＝把「业务没报错」当成「数据一致」 |
-| **实测（2026-09-26）** | ❌ **不通过**（`event-delay-20260926T151742Z.json`，5/6 信号）：业务写入 / 追平 / 不重复 / 净零都对，**但「投递失败要被发件箱看见」不成立** —— 停 Redis 期间写的那条事件被记成 `sent attempts=0`，同一时刻日志里 16 条 `Cannot publish to redis... giving up`。这是**演练抓到的真缺陷**，详见 `docs/R3_FAILURE_DRILL_EVIDENCE.md` §三·发现 2。⚠️ 生产**已经有** `outbox_events`（A 段带上去了），方案里「没有这张表」那句已过期 |
+| **实测（2026-09-26）** | ✅ **修复后重跑通过**（`event-delay-20260926T154938Z.json`，7/7 信号）。⚠️ **第一轮是不通过的**（5/6）：停 Redis 期间写的那条事件被记成 `sent attempts=0`，而日志里 16 条 `Cannot publish to redis... giving up` —— python-socketio 把 publish 失败吞了。修复（`_StrictRedisManager`：publish 没成功返回就抛）之后重跑：`sent_before_failure=0` / `pending_after_failure=1` / `attempts=2` / `last_error` 219 字符 / `sent_after_recovery=1` / `duplicate_count=0`。⚠️ 生产**已经有** `outbox_events`（A 段带上去了），方案里「没有这张表」那句已过期 |
 
 ### Drill D · migration lock 竞争，第二实例是否正常等待（lock）
 
@@ -96,7 +98,7 @@ python _tools/ops/_drill.py --all-local --go  # 五个演练的**本机部分**�
 | lock-contention | `_migration_tests.py --concurrent`：两个进程同时迁移 | ✅ 两个进程都退出 0、版本表 1..8 各一行、无重复记账 | 本机是 SQLite（本机锁）；生产是 MySQL `GET_LOCK`（跨主机）—— 那条路**从未在生产上真跑过** |
 | disk-full | 读 `_health_check.py` 的阈值常量逐档断言（50→ok / 85→warn / 90→warn / 95→fail / 99→fail） | ✅ 阈值判得对 | ⛔ **「报警链路真的有人收到」本机证不了** |
 
-⭐ **2026-09-26 C 段之后，这一节记录的「本机预演」已经被生产实测取代** —— 五条都在生产上真跑过，
+⭐ **2026-09-26 C 段之后，这一节记录的「本机预演」已经被生产实测取代** —— 五条都在生产上真跑过（4 条 + 1 条修复后重跑通过），
 逐字原始输出在 `_tools/ops/drill_records/*.json`，汇总与「证不了什么」见 `docs/R3_FAILURE_DRILL_EVIDENCE.md`。
 ⛔ 本机预演那一列仍然只证明「本机那一半跑得通」，**不许**拿它顶生产那一格。
 ## 三、跑完之后要落地什么（⛔ 别只留一句「演练过了」）

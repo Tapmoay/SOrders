@@ -23,7 +23,7 @@
 | Capability AI | ✅ | ✅ | ❌ | ❌ | ❌ | `_check_role_parity.py`（AI(role) ⊆ BACKEND(role)）；⛔ AI **写**动作白名单仍是**人工声明**，见 R3-02 |
 | Capability UI | ✅ | ✅ | ❌ | ❌ | ❌ | `_check_capability_unification.py` 第 6 组（工作台入口按能力筛、都有着落）+ `ModulesEntryTest`；生产出口 R3-05-A |
 | Capability Audit | ✅ | ✅ | ❌ | ❌ | ❌ | `_check_capability_unification.py`（91 个动作码有着落 / 非双射 / 棘轮只减不增）；⛔ 覆盖关系是**离线产物**，生产侧只有「审计行带着新列」这一点 |
-| Outbox | ✅ | ✅ | ❌ | ✅ | ❌ | `_check_outbox.py` + `_check_outbox_idempotency.py`；生产：6 条事件全部 `sent`、重试 0（A6）；**演练出口 R3-06 Drill C ❌** —— 演练抓到真缺陷：投递失败被 python-socketio 吞掉，事件被记成 `sent`（`docs/R3_FAILURE_DRILL_EVIDENCE.md` §三·发现 2）|
+| Outbox | ✅ | ✅ | ❌ | ✅ | ✅ | `_check_outbox.py` + `_check_outbox_idempotency.py`；生产：6 条事件全部 `sent`、重试 0（A6）；**演练出口 ✅ = R3-06 Drill C**（修复后重跑 7/7：失败被看见 → pending → 退避 → 补投成 sent → 不重复）。⚠️ 这条演练**第一轮是 ❌**，它抓到的真缺陷与修法见 `docs/R3_FAILURE_DRILL_EVIDENCE.md` §三·发现 2 |
 | Scheduler | ❌ | ❌ | ❌ | ✅ | ❌ | ⛔ **没有静态判据**（只能真跑）：本机 `_dual_instance.py --all`（R3-03）；**生产**：一个 systemd 里 2 个 worker，`数据保留治理` 一个 `{'skipped': 1}`（拿到锁）+ 一个 `{'skipped_same_day': 1}`（没拿到）|
 | Upload | ❌ | ❌ | ❌ | ❌ | ❌ | ⛔ 「多实例下一致」**没有静态判据**（只能真跑，R3-03）；上传自身的限制由 `_check_upload_limits.py` 核；⛔ 生产**没做写探测** ⇒ 可写性未验 |
 | Socket multi-instance | ✅ | ✅ | ❌ | ✅ | ✅ | 判据 `_check_multi_instance_readiness.py`（在 119 个检查里）+ **生产实测**（A→B / B→A 双向往返、nginx `upstream`、摘机测试）；**演练出口 ✅ = R3-06 Drill B**（停 Redis：业务照常、总线恢复后自己回来）；⛔ **跨主机未验**，⚠️ 另有 `R_NUMSUB=1` 一条**未定**（见证据文档 §四）|
@@ -48,10 +48,9 @@
   其余七格仍 ❌ —— ⛔ **不是因为没上生产**，而是因为**那条路没被验过**：钱没动、Capability 四格没有生产侧判据、
   uploads 没做写探测。⛔ 「只读核对过」与「代码上生产了」**都不顶替**这一列。
 - `Failure Drill` 一列 ＝ 「**这条能力有自己的故障演练，而且真的在生产上跑过**」。2026-09-26 C 段之后它**不再是全 ❌**：
-  Migration（Drill D）与 Socket multi-instance（Drill B）两格 ✅；其余仍 ❌ —— 分两种：**演练问了但它答不上来**
-  （Outbox：Drill C 抓到了真缺陷，见 `docs/R3_FAILURE_DRILL_EVIDENCE.md` §三·发现 2），
-  以及**这五个演练压根没问到它**（Money / Capability 四格 / Scheduler / Upload / Trace / Order Command）——
-  ⛔ 「没问到」与「问了没答上来」是两件事，别读成一件。
+  Migration（Drill D）/ Socket multi-instance（Drill B）/ Outbox（Drill C，修复后重跑）**三格 ✅**；
+  其余仍 ❌ —— ⛔ 但那是**这五个演练压根没问到它**（Money / Capability 四格 / Scheduler / Upload / Trace / Order Command），
+    与「问了没答上来」是两件事，别读成一件（C 段确实出过一次「问了没答上来」，修完就补上了）。
 
 ## 三层完成度矩阵（指南 §二十五 原则三）
 
@@ -60,7 +59,7 @@
 | Migration 不再有隐式副作用 | ✅（R3-01） | ✅（`cc949bf` 整轮） | ✅ 本机真进程真库 ＋ **✅ 生产**（A 段：`schema_versions` 1..8、表数 44 → 48、业务数据零变动）|
 | Capability 四端同源 | ✅（R3-02；⛔ AI **写**动作白名单仍是**人工声明**） | ✅ | ✅ 本机（生成物 + 两个 flavor 的 Gradle 单测；⛔ 真机界面未验；生产 ❌，R3-05） |
 | 两个实例真的同时跑过 | ✅（R3-03） | ❌（**CI 里不起两个实例** —— 这一格 CI 证不了，只能本机/生产跑） | **部分**：本机同机双进程 4/5；socket / nginx 两格**没验**（本机没有 Redis / 没有 nginx） |
-| 生产真的跑过 + 故障演练 | ✅（2026-09-26 A 段：发布八步走完） | ✅ | **部分**：生产**跑过** ✅（9/10 勾选项，见 R3-05）；**故障演练** ⚠️ 五条**都在生产上真跑过**（4 通过 / 1 抓到真缺陷）—— ⛔ 但第 10 项「Failure drills verified」仍是 **❌**，因为那一条判的是「故障**能被发现**」，而它发现的恰恰是「发现不了」|
+| 生产真的跑过 + 故障演练 | ✅（2026-09-26 A 段：发布八步走完） | ✅ | ✅ **10/10**：生产**跑过** ✅（发布八步，见 R3-05）；**故障演练** ✅ —— 五条都在生产上真跑过，**5/5**（其中 Drill C 是「抓到缺陷 → 修复 → 重跑通过」）|
 | 整套静态判据（脚本数以 `_check_all.py` 自己打印的为准） | ✅ | ✅（`cc949bf` 整轮 success） | ✅ 本机 |
 
 ### 把 Runtime Proven 拆开看：三段的证据不是一回事
@@ -72,13 +71,13 @@
 |---|---|---|
 | 本机运行（Local Runtime） | ✅ **主要部分** | 双实例 4/5、真实迁移四态、真实上传、真库真请求 —— `docs/R3_RUNTIME_EVIDENCE.md`；⛔ socket 跨实例与 nginx 两格**本机也没验** |
 | 生产只读（Production Read） | ✅ | 八项只读核对 —— `docs/R3_PROD_READONLY_EVIDENCE.md`；⛔ 只核对**现状**（结论大多是「生产还没有这一版」），**不是**运行验证，⛔ 不顶替验收矩阵里任何一个 `Production` 格 |
-| 生产运行（Production Runtime） | ✅ **部分（7/10）** | A 段七项已完成（备份 / 迁移 / 启动 / health / 只读烟测 / **写烟测** / trace）；⭐ **B（socket / 多实例）与 C（五个故障演练）都已完成**（2026-09-26）—— 勾选表 **9/10**，只剩第 10 项因**演练抓到真缺陷**而仍是 ❌（见 R3-06）；勾选表在 R3-05「A 阶段执行记录」一节 |
+| 生产运行（Production Runtime） | ✅ **10/10** | ⭐ 十项全部完成（2026-09-26）：A 段七项（备份 / 迁移 / 启动 / health / 只读烟测 / **写烟测** / trace）+ B 段（socket 双向 / 多实例）+ **C 段（五个故障演练 5/5，含一次「抓到缺陷 → 修复 → 重跑」）**；勾选表在 R3-05「A 阶段执行记录」一节 |
 
 ---
 
 ## 写阶段出口（Write Phase A / B / C）
 
-⚠️ **口径（2026-09-26 用户拍板）**：**A ✅ 已完成**；**B ✅ 已完成**；**发布控制面已与双实例拓扑对齐**（见下面 R3-05）；**备份隔离恢复验证 ✅ 已完成**；⭐ **C（五个故障演练）✅ 已执行**（2026-09-26：五条在生产上真跑过，六阶段 X0–X5，原始输出进仓库）—— **4 条通过 / 1 条（event-delay）抓到真缺陷**，详见 R3-06 与 `docs/R3_FAILURE_DRILL_EVIDENCE.md`。
+⚠️ **口径（2026-09-26 用户拍板）**：**A ✅ 已完成**；**B ✅ 已完成**；**发布控制面已与双实例拓扑对齐**（见下面 R3-05）；**备份隔离恢复验证 ✅ 已完成**；⭐ **C（五个故障演练）✅ 已完成**（2026-09-26：五条在生产上真跑过，六阶段 X0–X5，原始输出进仓库）—— **5/5 通过**：其中 event-delay **第一轮抓到真缺陷（发件箱把投递失败记成已发送）**，修完发布 + 滚动重启后**重跑通过**，详见 R3-06 与 `docs/R3_FAILURE_DRILL_EVIDENCE.md`。
 
 ```text
              R3 Production
@@ -466,7 +465,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 | 7 | Business write smoke verified | ✅ | 建 1 单 / 派 1 次 / 撤 1 次（只动测试账号）；测试单已撤、钱没动 |
 | 8 | Socket verified | ✅ | **2026-09-26 B 段实测**：A→B 与 B→A 两个方向都收到（raw WebSocket 直连两个实例；机制在隔离 db 1 上验一次、真拓扑 db 0 上再验一次）|
 | 9 | Multi-instance verified | ✅ | **2026-09-26**：两个 unit（A :8111 / B :8112）＋ nginx `upstream`＋**摘机测试**通过；⛔ 同机两进程，**跨主机未验** |
-| 10 | Failure drills verified | ❌ | **C 段已执行**（2026-09-26）：五条在生产上真跑过，**4 条通过**；⛔ **event-delay 不通过** —— 演练要证的是「故障**能被发现**」，而它抓到的恰恰是「**发现不了**」（投递失败被 python-socketio 吞掉、事件被记成 `sent`）。这一格因此**算不过**，即使演练本身做完了 |
+| 10 | Failure drills verified | ✅ | **C 段已完成**（2026-09-26）：五条在生产上真跑过，**5/5**。⚠️ 走的是完整一圈：event-delay 第一轮**不通过**（演练要证「故障能被发现」，它抓到的恰恰是「**发现不了**」）→ 修 `core/socket_io.py` 的投递边界（提交 `bb67156`）→ 发布 + 滚动重启 → **重跑 7/7 通过** |
 
 ⇒ **9 / 10**（B 段又关掉两条）。⛔ 但「Production Runtime Proven」**不许简化成这一个分数** —— 用户 2026-09-26 要求按四块分开写：
 
@@ -525,7 +524,10 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 
 **2026-09-26 C 段：五个演练在**生产机**上真跑过**（每条六阶段 X0 前置 → X1 基线 → X2 注入 → X3 观察 → X4 恢复 → X5 核业务状态）。
 逐字原始输出在 `_tools/ops/drill_records/*.json`（进仓库），汇总与「证不了什么」见 `docs/R3_FAILURE_DRILL_EVIDENCE.md`。
-结论 **4 ✅ / 1 ❌** —— ⛔ 那个 ❌ **是演练抓到的真缺陷**（发件箱把「投递失败」记成了「已发送」），不是「没跑」。
+结论 **5 ✅ / 0 ❌**。⚠️ **但第一轮是 4 ✅ / 1 ❌**：Drill C 抓到了一条真缺陷（发件箱把「投递失败」记成了「已发送」），
+**修完并发布到生产、滚动重启之后重跑**才变成 5/5 —— 这条链（演练 → 缺陷 → 修复 → 重跑）本身就是 R3-06 最值钱的产出。
+Drill D 另抓到一条**跨主机**的结构缺陷（自愈 bootstrap 的 DDL 没有服务端互斥），用户拍板**本轮只记录不修**：
+它是「跨主机 enable blocker」，和 C 混着修＝偷偷把 R3 的范围扩大到跨主机。
 演练前先备了份：`/opt/sorders-backup/pre_release/20260926T150728Z`（orders=2403 ledgers=4648 users=60 products=37 tables=48）。
 工具：`python _tools/ops/_drill.py`（不给 `--go` 只打印；`--target prod` 要 `--go` + `--i-know-prod` 三个信号；
 `--verify` 在 **CI 侧**核记录 —— 六阶段齐 + 必须的信号在 + 结论 pass，⛔ 不连生产）。
@@ -544,14 +546,17 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   而业务照常：登录拿到 155 字符 token、`/users/me` 200、读订单 200、读账本 200、**写一条消息也 200 且行真的在库里**（id 41732）；恢复后 `PONG`/`channels=socketio` 全回来。
   ⚠️ 方案里「生产 Redis 没人用」那条前提**已过期**：B 段之后 Socket.IO 的跨实例总线就是它（`pubsub channels` 里的 `socketio`）。
   ⛔ 证不了：只证「不可用」不证「慢」；不证 App 端「推送晚到」的体感。⚠️ 另有一条**未定**（`R_NUMSUB=1`，见证据文档 §四）。
-- ❌ Drill C：事件消费延迟，业务数据是否仍然正确 —— 复现：`python _tools/ops/_drill.py --verify event-delay`（⛔ 现在会红，**红得对**）
-  ⭐ 生产实测（`event-delay-20260926T151742Z.json`）：**5/6 信号** —— 业务写入 ✅、追平/不重复/净零 ✅、X5 ✅；
-  ❌ 而 **「投递失败要被发件箱看见」不成立**：停 Redis 期间写的那条事件被记成 `sent attempts=0`，
-  同一时刻日志里是 **16 条** `Cannot publish to redis... giving up`。
-  ⇒ **真缺陷**：python-socketio 的 Redis manager 把 publish 失败自己吞了（记日志、不抛异常），
-  于是 outbox 看到「成功」，重试/退避/`failed`+`last_error` 一条都不触发 —— 正是 outbox 模块开头点名要治的病，
-  边界治住了业务事务与事件，却在**最外层的 emit** 上漏了回来。后果：跨实例那条推送**永久丢掉且没有任何地方记着**（站内信行还在，伤的是实时性不是数据）。
-  ⛔ **本轮只记录、未改代码**（核心区冻结中）；修法方向与判据写在 `docs/R3_FAILURE_DRILL_EVIDENCE.md` §三·发现 2。
+- ✅ Drill C：事件消费延迟，业务数据是否仍然正确 —— 复现：`python _tools/ops/_drill.py --verify event-delay` → `1/1`
+  ⚠️ **这一条是「演练 → 缺陷 → 修复 → 重跑」的完整样本**：第一轮 **❌ 5/6**，修复后重跑 **✅ 7/7**。
+  ❌ 第一轮（`event-delay-20260926T151742Z.json`）：「投递失败要被发件箱看见」**不成立** —— 停 Redis 期间写的那条事件被记成
+  `sent attempts=0`，而同一时刻日志里是 16 条 `Cannot publish to redis... giving up`。
+  ⇒ **真缺陷（P1）**：python-socketio 的 Redis manager 把 publish 失败自己吞了（记日志、不抛异常），于是 outbox 看到「成功」，
+  重试/退避/`failed`+`last_error` 一条都不触发 —— 正是 outbox 模块开头点名要治的病，边界治住了业务事务与事件，却在**最外层的 emit** 上漏了回来。
+  ✅ 修复（提交 `bb67156`，用户拍板开核心区例外；⛔ **否掉了「发之前先探一次 Redis 可达」** —— 那是 TOCTOU）：
+  `core/socket_io.py` 新增 `_StrictRedisManager`，**只有 `redis.publish` 真的返回了才算成功**，失败一律抛给发件箱；
+  `main.py::_outbox_deliver` **一个字没改**（错误传播一通，它本来就按失败处理）。修完发布到生产并滚动重启两个 unit。
+  ✅ 重跑（`event-delay-20260926T154938Z.json`，7/7）：`sent_before_failure=0` ／ `pending_after_failure=1` ／ `attempts=2` ／
+  `last_error` 219 字符（**原文就是我们的那句异常，落在生产库的行里**）／ `sent_after_recovery=1` ／ `duplicate_count=0` ／ `pending=0`、`failed=0`。
 - ✅ Drill D：迁移锁竞争，第二实例是否正常等待 —— 复现：`python _tools/ops/_drill.py --verify lock-contention` → `1/1`
   ⭐ 生产实测（`lock-contention-20260926T151551Z.json`，6/6 信号）：一条连接先拿住 `sorders_migrations` 15 秒，
   两个迁移进程同时开跑（第二个换 TMPDIR ⇒ 各有一把本机 flock，把「两台主机各自一把」还原出来）：
@@ -565,6 +570,24 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   把 cron 那一行命令原样跑一遍：**退出码 1**，磁盘告警真的落进 `/var/log/sorders-health.log`；最紧张的当口 MySQL 照常读出 2403。
   ⚠️ 计划推 87%、实测 92%（`df -k` 与 `df -h` 取整之间的差）；⛔ **刻意没撞 95%** 失败线（那要把在跑的 MySQL 所在盘压到剩 ~1.5G，不可接受）。
   ⛔ 证不了「有人被叫醒」：告警落**日志文件**，**没有**邮件/IM 通道 —— 这是**发现的缺口**，如实记，不粉饰。
+
+### C 段的修复发布（Drill C 抓到的那条缺陷）
+
+修的是 **投递边界**（`core/socket_io.py`，提交 `bb67156`）：**只有 `redis.publish` 真的返回了，`emit` 才算成功**；
+失败一律抛给发件箱。⛔ 用户明确否掉了「发之前先探一次 Redis 可达」—— 那是 TOCTOU，证明不了 publish 成功。
+
+| 步骤 | 结果 |
+|---|---|
+| 发布前备份 | `/opt/sorders-backup/pre_release/20260926T154737Z`（orders=2403 / ledgers=4648 / tables=48）|
+| 代码落位 `stage` | 生产 HEAD = `bb671565afb4d9c0947604671abe691bb076b1fd` |
+| 迁移 `migrate` | 当前版本 8 == 迁移头 8；待跑 0 / 漂移 0 / 陌生版本 0 |
+| 启动 `start` | **滚动重启 2 个实例**（a 然后 b）：各自 `is-active=active` ＋ `/health=200`，**全程经 nginx 都有活上游** |
+| 体检 `health` | 退出码 0/1（只有两条已知证书告警）|
+| 只读烟测 `smoke` | **ERROR 0 条**、未批准告警 0 条 |
+| 重跑 Drill C | ✅ **7/7**（`sent_before_failure=0` / `pending_after_failure=1` / `attempts=2` / `sent_after_recovery=1` / `duplicate_count=0`）|
+
+⚠️ 发布时踩过一次自己写的护栏：`stage` 第一次退出 128，原因是**修复提交还没推到 origin**（生产要 `git fetch` 才拿得到）。
+推上去重跑就过了 —— 如实记：这是操作顺序问题，不是工具缺陷。
 
 ## R3-07 Meta-System Hardening
 

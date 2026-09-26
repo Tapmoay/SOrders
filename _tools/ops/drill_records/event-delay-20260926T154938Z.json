@@ -1,0 +1,31 @@
+{
+  "case": "event-delay",
+  "started_utc": "2026-09-26T15:49:38Z",
+  "phases": {
+    "X0": "目的：事件消费者延迟，业务数据是否仍然正确\n期望信号：① 业务写入照常成功（先落库后投递）② outbox_events 里 pending 堆起来但不丢 ③ 消费者恢复后追平，且不重复投递\n生产做法：生产**已经有** `outbox_events`（A 段发布带上去的；C 段 X1 实测 13 行全 sent）⇒ 这一格现在能验：停 Redis 让投递真的失败 → 事件堆在 pending → 恢复 → 追平且不丢\n怎么停（判读不了就地停）：① 脚本自带 try/finally 式的收尾（见 X4），中断时按 X4 那几行手工放回；② 若演练中途失联，先看 sorders-api-a/-b 两个 unit 的 is-active，再跑 python _tools/ops/_health_check.py（⛔ 别在生产上直接改代码）；③ 演练前的备份在 /opt/sorders-backup/pre_release/ 下（上面那两行）。\nNOW=2026-09-26T15:49:40Z\nPROD_SHA=bb671565afb4d9c0947604671abe691bb076b1fd\n--- 服务 ---\nSERVICE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401\n--- 最近一份演练前备份 ---\n/opt/sorders-backup/pre_release/20260926T154836Z/\n/opt/sorders-backup/pre_release/20260926T154802Z/\n--- 磁盘 ---\n/dev/vda3        40G   12G   26G  31% /",
+    "X1": "业务状态基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=21  products=37  schema_versions=8  tables=48  users=60\n服务面：\nBASE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401",
+    "X2": "systemctl stop redis —— 让发件箱的**投递**真的失败，事件因此堆在 pending（这就是「消费者处理不了」在本拓扑下的真实形态）。⚠️ 为什么不用「把消费者线程停住」：这个拓扑里消费者与 API 同进程，停掉消费者必然停掉业务，没法只停一半 —— 这本身是 Drill C 的一条结论。",
+    "X3": "== X1 追加基线：发件箱\nC_BEFORE_TOTAL=21\nC_BEFORE_PENDING=0\n== 注入：停 Redis —— 消费者投递必然失败（这就是「消费者处理不了」的真实形态）\nC_REDIS_ACTIVE=inactive\n== 停 Redis 期间做一次**真实业务写入**\nC_WRITE_ID=41734\nC_ROW_IN_DB=1\n== 等 10 秒：让消费者把这一条投递失败、堆在 pending\nC_PROBE_STATUS_AFTER_FAILURE=pending\nC_PROBE_SENT_AFTER_FAILURE=0\nC_PROBE_PENDING_AFTER_FAILURE=1\nC_PROBE_ATTEMPTS_AFTER_FAILURE=2\nC_PROBE_LASTERROR_LEN=219\nC_PROBE_LASTERROR=RuntimeError: Socket.IO 跨实例投递失败：redis.publish 没有成功返回（上游 AsyncRedisManager 把失败吞成了一条日志）—— 发件箱必须按**投递失败**处理，⛔ 不许当成已发送。\nC_PENDING_NOW=1\nC_NOTIF_ROWS=2713\n== 停机期间应用日志里 socketio/redis 的报错（这是根因证据）\nSep 26 23:49:53 iZ0jlimnshftl47074z0hbZ python[1106576]: Cannot publish to redis... retrying\nSep 26 23:49:53 iZ0jlimnshftl47074z0hbZ python[1106576]: 2026-09-26 23:49:53,150 ERROR [socketio.server] [rid=-] [cid=-] Cannot publish to redis... retrying\nSep 26 23:49:53 iZ0jlimnshftl47074z0hbZ python[1106576]: Cannot publish to redis... giving up\nSep 26 23:49:53 iZ0jlimnshftl47074z0hbZ python[1106576]: 2026-09-26 23:49:53,151 ERROR [socketio.server] [rid=-] [cid=-] Cannot publish to redis... giving up\nPUBLISH_GIVEUP=8\n== 恢复：起 Redis，消费者应当按自己的退避把这一条补投出去\nC_REDIS_ACTIVE_AFTER=active\nC_PENDING_AFTER=0\nC_FAILED_AFTER=0\nC_PROBE_SENT_AFTER_RECOVERY=1\nC_PROBE_ROWS=1\nC_PROBE_DUPLICATES=0\nC_PROBE_EVENT_AFTER=sent attempts=2 sent_at=2026-09-26 15:50:03\nC_SENT_TOTAL=22\nC_TOTAL_AFTER=22\n== 删掉探针消息（净零）\nC_DELETE_PROBE=204\nC_ROW_GONE=0",
+    "X4": "脚本 trap 保证 Redis 起回来；消费者每 2 秒扫一次（POLL_INTERVAL=2.0），恢复后 sleep 15 秒足够追平；随后删掉探针消息。⛔ 不动订单/账本。",
+    "X5": "基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=21  products=37  schema_versions=8  tables=48  users=60\n现在：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=23  products=37  schema_versions=8  tables=48  users=60\n业务行逐项一致（orders、ledgers、users、products、tables、schema_versions）。\n（演练自己会写的那几行，只作参考不作判据：outbox_pending=0  outbox_total=23）\n服务面：\nAFTER\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401"
+  },
+  "signals": {
+    "业务写入成功（停 Redis 期间写的探针消息拿到了 id 且行在库里）": true,
+    "底层投递失败被发件箱看见：sent_before_failure=0、pending_after_failure=1、attempts>=1、last_error 非空": true,
+    "Redis 恢复之后按退避补投成功：sent_after_recovery=1": true,
+    "没有重复投递：duplicate_count=0": true,
+    "恢复后没有留下积压（pending=0、failed=0）": true,
+    "探针消息已删干净（净零，不动业务数据）": true,
+    "X5 业务状态与 X1 基线逐项一致": true
+  },
+  "known_limits": [
+    "注入用的是「停 Redis」，**不是**「让消费者线程停住」——在本拓扑里消费者与 API 同进程，停掉消费者就必然停掉业务，无法只停一半（这本身是一条结论）；⚠️ 而停 Redis 这一手**没能**让发件箱看见失败（见本记录的 findings）——那是演练**发现的问题**，不是演练没做对；",
+    "只投递一条演练消息，⛔ 不证高并发下大批量积压；",
+    "⛔ 不证跨主机。"
+  ],
+  "repo_sha": "bb671565afb4d9c0947604671abe691bb076b1fd",
+  "prod_host": "8.145.40.22",
+  "findings": [],
+  "finished_utc": "2026-09-26T15:50:32Z",
+  "verdict": "pass"
+}
