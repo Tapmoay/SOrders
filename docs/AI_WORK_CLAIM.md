@@ -20,7 +20,7 @@
 
 ## 进行中
 
-### [2026-09-26 15:3x → ] 会话：**第三轮收口（R3-07d 依赖决策拍板 + 生产只读核对 + push）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+### [2026-09-26 15:3x → 17:0x] 会话：**第三轮收口（R3-07d 依赖决策拍板 + 生产只读核对 + push + CI 修红）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `8663c92` / `5cb27fb` / `79ac355` / `bcb11a9` / `2ed3e5a` / `cc949bf`】
 **用户 2026-09-26 拍了四条板**：① `cryptography` **以生产真实 `pip freeze` 为准**（⛔ 不凭本机猜生产）；
 ② requirements **本轮不锁**（保持开区间 + 现有机器判据）；③ 生产**只读放行**（只验证、不做业务写入）；
 ④ **要 push**（把领先 `origin/new` 的提交交给 CI，补 Code Ready → CI Proven）。
@@ -31,6 +31,16 @@
 `_tools/ops/_prod_smoke.py`（新：生产**只读**烟测，覆盖 版本/依赖/migration/DB/Redis/nginx/uploads/trace）、
 `_tools/ops/_check_ops.py`（把新脚本也钉进「只读」这条判据）、`docs/R3_PROGRESS.md`、`docs/R3_RUNTIME_EVIDENCE.md`。
 ⛔ **不动**：`backend/requirements*.txt`（一个字不改）、`backend/app/**`、`android/**`。
+
+**结果**：
+① 生产只读核对八项做完（`_tools/ops/_prod_smoke.py --readonly`，八项各有真探针）→ 生产停在 `648fbf8`、
+   **落后 286 个提交**；**15/15 运行依赖落在声明区间内**（`cryptography` **43.0.3**，本机的 48.0.0 才是偏差）；
+   没有 `schema_versions` / 没有 `outbox_events` / 没有 `request_id` 列 / nginx 单后端无 upstream / Redis keyspace 空。
+② 依赖决策已拍板并落地（台账 R3-07d ❌ → ✅）；探针改成**照着决策判**（决策说不锁 ⇒ 继续拦 `==`），反验证 9/9。
+③ **CI 从红修到绿（四轮）**：抓到并修好三个「本机绿、CI 红」缺陷 —— 写死 `powershell`、例外表跨环境、
+   指纹排序键用 Path（Windows 大小写不敏感）；另修 CI 依赖 R3-01 已摘掉的 import 建表副作用。
+   `cc949bf` 上 **Gate + Tests (Parallel) 两条工作流整轮 success**。
+④ 报告补写 §10 收口（`docs/RECTIFICATION_REPORT_R3.md` 813 → 916 行），桌面两份副本已刷新（同 SHA256）。
 
 ### [2026-09-26 03:3x → 04:0x] 会话：**第三轮整改 R3-00 禁做清单 + R3-01 迁移生命周期**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `c544db5` / `81a8219`】
 
