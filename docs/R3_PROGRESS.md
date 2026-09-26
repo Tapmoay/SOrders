@@ -243,8 +243,14 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 - ❌ 启动新后端 —— 复现：`python _tools/deploy/_release.py --step start`
   ⛔ 同上（脚本**还没写**）；手工等价：`git -C /opt/SOrders fetch && git checkout <SHA> && systemctl restart sorders-api`。
 - ❌ health —— 复现：`python _tools/ops/_health_check.py`
+  ⚠️ 别把「现场只读核对」那一节读成这一条已经做了：那条跑的是**发布前**的现状体检，
+  这一条要的是**启动新后端之后**的体检（顺序在 `docs/RELEASE_CANDIDATE.md` §四 第 5 步）。
 - ❌ 只读烟测 —— 复现：`python _tools/ops/_prod_smoke.py --readonly`
+  ⚠️ 这道命令**今天真跑过**（2026-09-26，用户拍板③），但退出码是 **1**（现状健康、但与这一版代码不一致：
+  生产还停在 `648fbf8`）—— 这条退出条件要的是**发布之后**退出码 0，所以仍然是 ❌。
 - ❌ trace 一单 —— 复现：`python _tools/ops/_trace_order.py <订单号>`
+  ⚠️ 生产**现在做不到**：`operation_logs` 没有 `request_id` / `command_id` 列（这一版代码还没上生产），
+  所以「按一次请求串起整条链」今天**没有证据**；只读 SQL 已核到最近一单的 5 行审计（见现场只读核对）。
 - ✅ 回滚 / 前向修复方案已写 —— 复现：`python -c "import pathlib,re,sys; docs=['docs/RELEASE_CANDIDATE.md','docs/PRODUCTION_ACCEPTANCE.md','docs/R3_FAILURE_DRILL.md']; miss=[d for d in docs if not pathlib.Path(d).exists()]; lines=[(d,ln) for d in docs for ln in pathlib.Path(d).read_text(encoding='utf-8').splitlines() if not any(k in ln for k in ('待写','还没写','不存在','待建'))]; bad=sorted({d+':'+p for d,ln in lines for p in re.findall(r'_tools/[A-Za-z0-9_./-]+\.py', ln) if not pathlib.Path(p).exists()}); print('缺文档',miss,'引用了不存在的脚本',bad); sys.exit(1 if (miss or bad) else 0)"`
   方案分四条：**回滚 A**（代码退回上一个可用提交）／**回滚 B**（用发布前的 dump 恢复库）／**前向修复**（数据没错、问题小而明确时宁可再修一版）／**回滚后要做的三件事**。
   ⛔ 这条命令同时钉住一件事：**三份新文档里提到的 `_tools/*.py` 必须真的存在**（标了「待写／还没写」的除外）—— 免得文档里写着一支根本不存在的脚本。
