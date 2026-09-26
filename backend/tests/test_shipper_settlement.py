@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from app.core.business_time import business_today
+
 import pytest
 
 from app.models import CashFlow, Ledger, OperationLog, Order
@@ -179,7 +181,7 @@ def test_revoke_then_restore(client, db_session, users, token_dispatcher, token_
     oid = _delivered_order(client, h, users)
     sid = client.post(BASE, json={"order_id": oid}, headers=auth_headers(token_shipper)).json()["id"]
 
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     win = {"delivered_from": today, "delivered_to": today, "order_id": oid}
 
     assert client.delete(f"{BASE}/{sid}", headers=auth_headers(token_shipper)).status_code == 204
@@ -303,7 +305,7 @@ def test_window_follows_delivery_date(client, db_session, users, token_dispatche
     oid = _delivered_order(client, auth_headers(token_dispatcher), users)
     sid = client.post(BASE, json={"order_id": oid}, headers=auth_headers(token_shipper)).json()["id"]
 
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     hit = client.get(
         BASE,
         params={"delivered_from": today, "delivered_to": today, "order_id": oid},

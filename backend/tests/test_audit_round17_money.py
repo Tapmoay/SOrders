@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 from datetime import date
+
+from app.core.business_time import business_today
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
@@ -351,7 +353,7 @@ def test_product_profit_is_the_same_number_everywhere(
     assert ("毛利探针-有成本", Decimal("0")) in costs, costs
     assert ("毛利探针-无成本", Decimal("0")) in costs, costs
 
-    today = date.today()
+    today = business_today()
     url = f"/api/v1/reports/products?mode=day&date={today.isoformat()}"
     r = client.get(url, headers=h)
     assert r.status_code == 200, r.text

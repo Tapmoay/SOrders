@@ -32,7 +32,9 @@ import re
 import sys
 import types
 import typing
-from datetime import date, datetime
+from datetime import date
+
+from app.core.business_time import business_today, datetime
 
 import pytest
 from sqlalchemy import func, select
@@ -277,7 +279,7 @@ def test_turnover_cancelled_kpi_excludes_recycle_bin(
     from app.models.enums import OrderStatus
 
     headers = auth_headers(token_dispatcher)
-    today = date.today().isoformat()
+    today = business_today().isoformat()
 
     def kpi() -> int:
         r = client.get(

@@ -33,6 +33,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from app.core.business_time import business_today
+
 import pytest
 from sqlalchemy import Update, event, select
 from sqlalchemy.orm import Session
@@ -106,7 +108,7 @@ def _delivered_order(client, users, disp_h, *, dongjia: str, dongjia_phone: str)
 
 
 def _summary(client, h, *, dongjia: str, dongjia_phone: str) -> dict:
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     r = client.get(
         SUMMARY,
         params={

@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 from datetime import date
+
+from app.core.business_time import business_today
 from decimal import Decimal
 from io import BytesIO
 
@@ -94,7 +96,7 @@ def test_ledger_and_turnover_agree_after_deleting_an_order(
     """账本口径与「营业额」必须**同步**减少（同一个数，两处都变）。"""
     h = auth_headers(token_dispatcher)
     hd = auth_headers(token_driver)
-    today = date.today().isoformat()
+    today = business_today().isoformat()
 
     def turnover() -> Decimal:
         r = client.get(f"/api/v1/reports/turnover?mode=day&date={today}", headers=h)
