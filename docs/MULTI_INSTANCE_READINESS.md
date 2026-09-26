@@ -91,8 +91,8 @@ must_contain: socket_redis_url, A 上 emit -> 连在 B 上的客户端收到, B 
 name: bootstrap-self-heal
 中文名: 启动期自愈（跨主机）
 status: not-done
-为什么还没做: schema_bootstrap 只有本机 flock（/tmp/sorders_bootstrap.lock），多实例同时跑那 1600 行 DDL 仍有风险
-什么时候做: 切多实例之前 —— 要么把它纳入同一把服务端锁，要么加一个「只让一个实例跑自愈」的开关
+为什么还没做: schema_bootstrap 只有本机 flock（/tmp/sorders_bootstrap.lock），多实例同时跑那 1600 行 DDL 仍有风险 —— **2026-09-26 R3-06 的 Drill D 把这个风险跑成了原始输出**：让两个进程各持一把本机 flock（换 TMPDIR ＝ 还原「两台主机各自一把」）后同时迁移，三轮里每轮都撞 1~2 处并发 DDL（1213 死锁 / 1684 concurrent DDL statement），并有一条 DDL 被静默跳过（docs/R3_FAILURE_DRILL_EVIDENCE.md §三·发现 1）；⚠️ 生产现状是**同机两个 unit**（共享 /tmp ⇒ 共享那把 flock）⇒ **没中招**
+什么时候做: 切多实例之前 —— 要么把它纳入同一把服务端锁（⚠️ 判据已经有了：Drill D 复现出来的那两条报错必须消失），要么加一个「只让一个实例跑自愈」的开关
 ```
 
 ```gate
