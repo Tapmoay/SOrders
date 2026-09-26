@@ -141,11 +141,26 @@ Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 ⚠️ **扩展被删除，不代表它创造的历史事实可以删除**（Money / Audit / Order History 上必须钉死）。
 
 **退出条件**
-- ❌ 完整删除 Unit Conversion 之后：full static checks 全绿 —— 复现：`python _tools/qa/_check_all.py`
-- ❌ 后端用例全绿 —— 复现：`cd backend; python -m pytest -q`
-- ❌ core smoke + API smoke 通过 —— 复现：`python _tools/ops/_r4_remove_drill.py --check`
-- ❌ **没有 orphan**：route / capability / config / import 四类孤儿一个都没有 —— 复现：`python _tools/qa/_check_extension_manifest.py`
-- ❌ **核心数据没被破坏**：删除前后核心事实表逐表比对一致 —— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+- ✅ 完整删除 Unit Conversion 之后：**全量静态检查全绿**（124/124，红 0 条）—— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+- ✅ 后端用例全绿：**1065 passed**（R3 基线 1020，本轮 +45）—— 复现：`cd backend; python -m pytest -q`
+- ✅ core smoke 通过：发件箱 / 投递原语 / 两个契约共 **50 passed**（都不碰那个扩展）—— 复现：`cd backend; python -m pytest tests/test_socket_io.py tests/test_outbox.py tests/test_extension_contracts.py tests/test_pricing_contract.py -q`
+- ✅ **API smoke**：拆掉之后应用照常起得来，核心路由 235 → **234**（正好少它那一条）—— 复现：`python _tools/ops/_r4_probe_app.py` + `python _tools/ops/_r4_remove_drill.py --check`
+- ✅ **没有 orphan**：route（那条 preview 消失）/ capability（`ORDER_CREATE` 在别处仍有执行点，能力注册表检查全过）/ config（`EXT_UNIT_CONVERSION` 无人引用）/ import（`app.extensions.unit_conversion` 无人引用）—— 四类一个都没有 —— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+- ✅ **核心数据没被破坏**：47 张表逐名比对一致（它 `owns_tables=()`，本来就没有数据要删）—— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+- ✅ 指南 §24 的四件事**分开做**：停用 Disable（清单 `enabled=False`，路由消失、代码还在）/ 卸载 Uninstall（目录移出仓库）/ 删代码 Code Removal / 数据 Data Removal（无数据可删）—— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+- ✅ 演练**可重跑且安全**：开跑前拒绝脏工作区；跑完按字节还原（6 个文件逐个核 sha256）+ 路由回来 + `git status` 干净 —— 复现：`python _tools/ops/_r4_remove_drill.py --check`
+
+**这次演练抓到的三条真东西（如实记着，它们比"通过"更值钱）**：
+
+1. **一次完整卸载不只是删一个目录**：还要重跑两张由源码集合推导出来的产物（界面文案目录、端点索引）
+   并删掉 AI 读覆盖表里那条登记 —— 不删就是**化石**（那个检查器专门防这个）。
+   所以"重新生成 + 删登记"是**卸载的一部分**，不是额外工作；演练里已经把它做成第 3a 步。
+2. **`tests/test_extension_contracts.py` 里的 pricing 内联实现漏了 R4-05 新加的 `applies_to()`** ——
+   `isinstance` 假失败，而**全量静态检查不跑 pytest**，所以它一直没露出来。
+   是这次演练跑 core smoke 才抓到的。教训：**改了协议就立刻把所有内联实现跑一遍**，别只跑新写的那几个文件。
+3. 演练脚本自己踩了两次同一个坑：**用子串当标记**（`unit-conversion` 是 `unit-conversions` 的子串、
+   `unit_conversion` 是核心 `unit_conversions` 模块的子串）→ "路由消失"永远判 False、孤儿引用全是假阳。
+   判据要盯的是**那一个具体的东西**，不是"名字里恰好含这几个字"。
 
 ## R4-07 Compatibility Drill
 
