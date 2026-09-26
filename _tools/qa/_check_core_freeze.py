@@ -7,8 +7,8 @@
 准则本身写在 `docs/CORE_AND_EXTENSION.md`，核心区清单在 `_tools/qa/_core_files.txt`。
 这条脚本只负责**让准则有牙**：光写在文档里，"顺手把核心改一改"谁都不会觉得有什么问题。
 
-## 判据（5 条）
-1. **清单不许被掏空**：核心区必须包含一组"骨架"文件（钱 / 状态机 / 权限 / 时区 / AI 写闸门），
+## 判据（6 条）
+1. **清单不许被掏空**：核心区必须包含一组"骨架"文件（钱 / 状态机 / 权限 / 时区 / 可靠投递 / AI 写闸门），
    少一个就报红 —— 否则"把条目删掉"就是最省事的过检查办法。
 2. **清单不许有化石**：写进清单的路径必须真实存在（文件被改名/删掉时必须同步改清单，
    否则下一个人会以为某个已经不存在的文件还在守着什么）。
@@ -16,6 +16,27 @@
    ⛔ 只认「进行中」那一段：写在别处（比如文件末尾的记录区）等于没声明。
 4. **HEAD 那一个提交里改过的核心文件，声明页里也要有 `核心改动：<路径>` 一行**（2026-09-23 加）。
 5. **报出"最近有哪些提交碰过核心区"**（只打印，不判红）—— 让改动者一眼看到这一带的近期历史。
+6. **证据档文件（`_EVIDENCE_REQUIRED`）的例外声明必须写全四格**
+   （证据 / 原因 / 范围 / 影响面运行时证明）—— 见下面「为什么 socket_io.py 要单独升一档」。
+
+## 为什么 socket_io.py 要单独升一档（用户 2026-09-27 拍板）
+
+用户原话：
+
+> 「`socket_io.py` 应该加入 Core Freeze 的机器骨架判据……有合法例外：
+>  **evidence / reason / scope / affected runtime proof** 才 ✅。
+>  ⛔ **不需要把整个 `core/` 的 13 个文件重新审一遍** —— 那会把一个很小的治理缺口
+>  重新扩大成 R4.1 大工程。」
+
+背景：第 3/4 条只要求一行 `核心改动：<路径> —— 为什么必须动核心：<一句话>`。
+对"顺手改一行"够用，但 `socket_io.py` 是**投递边界的承重件** ——
+R3-06 的生产 Drill C 用原始输出证明它位于「至少一次投递」的成败语义上
+（那次的证据是一条真实业务写入的收件箱事件被记成 `sent attempts=0`，
+同一次演练日志里有 16 条 `Cannot publish to redis... giving up`）。
+这样的文件，一行"为什么"撑不住：**必须同时说清"证据是什么、改动范围到哪、
+运行时影响面被怎么证明过"**，否则下一个人只能看到"核心又被改了一处"。
+
+所以升的是**这一档**（`_EVIDENCE_REQUIRED`，现在只有它一个成员），不是整个核心区。
 
 ## 为什么只看**未提交**的改动
 声明页要解决的问题是「同一时间多个人在改同一个仓库」时互相覆盖 —— 那一刻改动就在工作区里。
@@ -60,6 +81,24 @@ _SKELETON = {
     "backend/app/models/enums.py": "领域词汇表",
     "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt": "AI 写闸门",
 }
+
+#: ⛔ **证据档**：这几个文件的例外声明除了"一句为什么"，还必须写全四格。
+#: 加文件的判据不是"它重要"，而是"**它的错误不报错**" —— 可靠投递、账、状态机那几处的共同点
+#: 是"坏掉时安安静静"（R3-06 那次：事件被记成 sent，业务侧一条异常都没有）。
+#: ⚠️ 用户 2026-09-27 明确要求**只升这一项**，不许借机把整个核心区都升成这一档。
+_EVIDENCE_REQUIRED = {
+    "backend/app/core/socket_io.py": "可靠投递原语（发件箱的成败语义建立在这条上）",
+}
+
+#: 例外声明必须写全的四格（用户原话：evidence / reason / scope / affected runtime proof）。
+#: `原因` 一格可以由同一行的 `为什么必须动核心：…` 顶上（那是全核心区本来就要写的那句话），
+#: 所以实际要多写的是另外三格。
+_EXCEPTION_FIELDS = ("证据", "原因", "范围", "影响面运行时证明")
+
+#: 四格子字段的形状：缩进 + 可选的列表符 + 字段名 + 冒号 + 值（值不许为空 —— 空值等于没写）。
+_SUBFIELD = re.compile(
+    r"^\s+(?:[-*]\s*)?(证据|原因|范围|影响面运行时证明)\s*[:：]\s*(\S.*)$", re.M
+)
 
 #: 清单至少要有这么多条（低于这个数说明它在被掏空，而不是在维护）。
 MIN_CORE = 10
@@ -119,6 +158,53 @@ def claim_section(name: str) -> str:
     return rest[: nxt.start()] if nxt else rest
 
 
+def decl_blocks(section: str) -> list[tuple[str, str, str]]:
+    """把一节正文切成**一条声明一块**：→ [(路径, 声明那一行, 它下面的子字段块)]。
+
+    块 = 声明行**后面连续的缩进行**，遇到空行 / 下一条声明 / 顶格行就结束。
+    刻意用"缩进"当边界：声明页是 Markdown，子字段本来就写成子列表；
+    ⛔ 不按"往下 N 行"取 —— 那会把别人下一条声明的内容算进这一条。
+    """
+    out: list[tuple[str, str, str]] = []
+    lines = section.splitlines()
+    for i, ln in enumerate(lines):
+        m = DECL.match(ln)
+        if not m:
+            continue
+        block: list[str] = []
+        for nxt in lines[i + 1:]:
+            if not nxt.strip() or DECL.match(nxt) or not nxt[:1].isspace():
+                break
+            block.append(nxt)
+        out.append((m.group(1), ln, "\n".join(block)))
+    return out
+
+
+def evidence_gaps(decl_line: str, block: str) -> list[str]:
+    """证据档那四格里**还缺哪几格**（值不许为空）。"""
+    have = {m.group(1) for m in _SUBFIELD.finditer(block)}
+    missing = [f for f in _EXCEPTION_FIELDS if f not in have]
+    # `原因` 可以由同一行那句 `为什么必须动核心：…` 顶上（全核心区本来就要写它）。
+    if "原因" in missing and ("为什么" in decl_line or "——" in decl_line or "--" in decl_line):
+        missing.remove("原因")
+    return missing
+
+
+def check_evidence(c, where: str, section: str, files: list[str]) -> None:
+    """证据档文件动了 → 它的例外声明必须写全四格（`files` 传"这次真的动了的那些"）。"""
+    blocks = decl_blocks(section)
+    for p in files:
+        mine = [b for b in blocks if p in b[0]]
+        gaps = evidence_gaps(mine[0][1], mine[0][2]) if mine else list(_EXCEPTION_FIELDS)
+        c.ok(
+            f"[{where}] {p} 的例外声明四格齐全（证据 / 原因 / 范围 / 影响面运行时证明）",
+            not gaps,
+            f"缺：{[g for g in gaps if g != '原因'] or gaps}"
+            + ("（一行'为什么'不够 —— 这一档要写清证据、范围与运行时影响面的证明）"
+               if mine else "（整条声明都没有）"),
+        )
+
+
 def main() -> int:
     if refuse_if_injecting("核心冻结检查"):
         return 1
@@ -136,6 +222,11 @@ def main() -> int:
     c.ok("每条都写了『为什么它是核心』（一句话，不是只有路径）",
          all(why for _, why in entries),
          f"没写理由：{[p for p, why in entries if not why]}")
+    # ⛔ 证据档的成员必须**同时也是核心清单里的条目** —— 否则它守的是一份已经不在清单上的名单，
+    #    下一个人删条目时不会看到任何提示（这一档就悄悄失效了）。
+    off_tier = [p for p in _EVIDENCE_REQUIRED if p not in paths]
+    c.ok(f"证据档 {len(_EVIDENCE_REQUIRED)} 项都在核心清单里", not off_tier,
+         f"不在清单里：{off_tier}")
 
     print("\n== 2. 清单不许有化石：写进去的路径必须真实存在 ==")
     ghosts = [p for p in paths if not (ROOT / p).exists()]
@@ -200,6 +291,22 @@ def main() -> int:
             print("     " + ln)
     else:
         print("     （没有历史）")
+
+    print("\n== 6. 证据档文件：例外声明必须写全四格 ==")
+    # ⚠️ 为什么单独一档（用户 2026-09-27 拍板）：第 3/4 条只要求"一句为什么"。
+    #    对"顺手改一行"够用；而 `socket_io.py` 是**投递边界的承重件** ——
+    #    R3-06 生产 Drill C 用原始输出证明它位于「至少一次投递」的成败语义上。
+    #    这种文件要的是"证据 / 原因 / 范围 / 影响面运行时证明"四格齐全，一行撑不住。
+    #    ⛔ 只升这一档，不把整个核心区都升上来（用户明确要求）。
+    ev_touched = [p for p in touched if p in _EVIDENCE_REQUIRED]
+    print(f"  本次未提交改动里属于证据档的：{ev_touched}")
+    check_evidence(c, "未提交", live, ev_touched)
+    ev_head = [p for p in head_core if p in _EVIDENCE_REQUIRED]
+    if ev_head:
+        print(f"  HEAD 那个提交碰过的证据档文件：{ev_head}")
+        check_evidence(c, "HEAD", "\n".join(own), ev_head)
+    else:
+        print("  HEAD 那个提交没碰证据档文件（这一条本次无事可判）")
 
     print("\n" + "=" * 60)
     if c.fails:

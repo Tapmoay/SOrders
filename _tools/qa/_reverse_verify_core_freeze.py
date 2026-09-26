@@ -28,8 +28,28 @@ CLAIM = ROOT / "docs" / "AI_WORK_CLAIM.md"
 CORE_FILE = ROOT / "backend/app/core/business_time.py"
 CORE_REL = "backend/app/core/business_time.py"
 
+#: **证据档**那个文件（用户 2026-09-27 拍板升档的那个）：动它要多写三格。
+SOCK_FILE = ROOT / "backend/app/core/socket_io.py"
+SOCK_REL = "backend/app/core/socket_io.py"
+
 DECL_GOOD = f"核心改动：{CORE_REL} —— 为什么必须动核心：反向验证场景\n"
 DECL_NO_REASON = f"核心改动：{CORE_REL}\n"
+
+#: 老式的一行声明（对**普通**核心文件够用；对证据档文件**不够**）
+DECL_SOCK_ONE_LINE = f"核心改动：{SOCK_REL} —— 为什么必须动核心：反向验证场景\n"
+#: 写了三格、缺"影响面运行时证明" —— 少一格就不许过（这正是升档要拦的形状）
+DECL_SOCK_NO_PROOF = (
+    f"核心改动：{SOCK_REL} —— 为什么必须动核心：反向验证场景\n"
+    "  - 证据：反向验证注入（伪造的原始证据）\n"
+    "  - 范围：只改这一条链\n"
+)
+#: ✅ 四格齐全（`原因` 由声明行的那句"为什么必须动核心"顶上）
+DECL_SOCK_FULL = (
+    f"核心改动：{SOCK_REL} —— 为什么必须动核心：反向验证场景\n"
+    "  - 证据：反向验证注入（伪造的原始证据）\n"
+    "  - 范围：只改这一条链\n"
+    "  - 影响面运行时证明：反向验证注入（伪造的运行时观测）\n"
+)
 
 
 class Sandbox:
@@ -62,28 +82,38 @@ class Sandbox:
     def touch_core(self) -> None:
         self.append(CORE_FILE, "\n# rv-injection: 假装有人顺手改了核心\n")
 
+    def touch_socket(self) -> None:
+        """"偷偷改一下投递边界" —— 只加一行注释，不改任何行为（不然会真的弄坏运行时）。"""
+        self.append(SOCK_FILE, "\n# rv-injection: 假装有人顺手改了投递边界\n")
+
     def decl_in_progress(self, line: str) -> None:
         """把声明插进「进行中」一节的开头（判据只认这一节）。"""
         self.replace(CLAIM, "## 进行中\n", "## 进行中\n\n" + line)
 
-    def strip_declarations(self) -> None:
+    def strip_declarations(self, rel: str = CORE_REL, required: bool = True) -> None:
         """把声明页里**已有的**、关于这个核心文件的声明行全部删掉。
 
         ⚠️ 2026-09-25 实测（两条注入同时变 MISS）：判据第 3 条问的是「**未提交**的核心改动有没有声明」，
         而声明页里会**长期留着**历史声明行 —— 只要那个核心文件以前被谁声明过一次，
         "改了核心却一个字都没声明"这个前提就**永远不成立**了，注入于是再也不红。
         所以注入必须先把自己要证伪的前提造出来：清掉已有声明，再改核心。
+
+        `required=False` 用于**当前声明页里本来就没有**该文件声明的注入（例如证据档那个文件）：
+        那时"没有声明"这个前提**天然成立**，没什么可清；⛔ 但不能因此跳过断言 ——
+        只要清掉了东西，就说明确实有过声明，那就必须真的清干净。
         """
         self._keep(CLAIM)
         text = self.saved[CLAIM].decode("utf-8")
         kept = [
             ln
             for ln in text.splitlines(keepends=True)
-            if ("核心改动：" + CORE_REL) not in ln and ("核心改动：`" + CORE_REL + "`") not in ln
+            if ("核心改动：" + rel) not in ln and ("核心改动：`" + rel + "`") not in ln
         ]
         stripped = "".join(kept)
-        assert stripped != text, "声明页里没有关于 " + CORE_REL + " 的声明，这条注入的前提不成立"
-        CLAIM.write_bytes(stripped.encode("utf-8"))
+        if required:
+            assert stripped != text, "声明页里没有关于 " + rel + " 的声明，这条注入的前提不成立"
+        if stripped != text:
+            CLAIM.write_bytes(stripped.encode("utf-8"))
 
     def restore(self) -> None:
         for p, raw in self.saved.items():
@@ -127,6 +157,48 @@ def s_decl_ok(sb: Sandbox) -> None:
     sb.decl_in_progress(DECL_GOOD)
 
 
+def s_socket_touch_only(sb: Sandbox) -> None:
+    """"偷偷改了投递边界，一个字都没声明" —— 这是升档要拦的第一种形状。"""
+    sb.strip_declarations(SOCK_REL, required=False)
+    sb.touch_socket()
+
+
+def s_socket_one_line_decl(sb: Sandbox) -> None:
+    """改了投递边界，但只写**老式的一行**（有路径、有"为什么"，没有证据/范围/影响面证明）。
+
+    ⭐ 这条是升档的**核心**：老式一行对普通核心文件仍然够用（见 `s_decl_ok`），
+    对证据档文件**不够** —— 两条注入一起跑才说明"升的是这一档，不是把判据整体收紧"。
+    """
+    sb.strip_declarations(SOCK_REL, required=False)
+    sb.touch_socket()
+    sb.decl_in_progress(DECL_SOCK_ONE_LINE)
+
+
+def s_socket_missing_proof(sb: Sandbox) -> None:
+    """四格里缺最后一格（影响面运行时证明）——少一格就不许过。"""
+    sb.strip_declarations(SOCK_REL, required=False)
+    sb.touch_socket()
+    sb.decl_in_progress(DECL_SOCK_NO_PROOF)
+
+
+def s_socket_decl_ok(sb: Sandbox) -> None:
+    """**正面场景**：按四格写全 → 必须通过（否则这一档就是"永远红"＝没有检查）。"""
+    sb.strip_declarations(SOCK_REL, required=False)
+    sb.touch_socket()
+    sb.decl_in_progress(DECL_SOCK_FULL)
+
+
+def s_drop_socket_skeleton(sb: Sandbox) -> None:
+    """把 `socket_io.py` 从核心清单里删掉 —— 用户 2026-09-27 点名的那个缺口不许再打开。"""
+    sb.replace(
+        CORE_LIST,
+        "backend/app/core/socket_io.py|推送的**最底层投递原语**（`sio.emit` 只在这里）"
+        "—— 发件箱的「至少一次投递」承诺就建立在它的成败语义上；R3-06 生产 Drill C 用原始输出证明"
+        "它位于**可靠投递边界**，所以它不能因为「想做插件化」就从核心拆出去\n",
+        "",
+    )
+
+
 def s_drop_skeleton(sb: Sandbox) -> None:
     """把"钱"那一格从核心清单里删掉（最省事的过检查办法）。"""
     sb.replace(
@@ -161,6 +233,14 @@ SCENARIOS = [
     ("清单里塞一条不存在的路径", s_ghost_entry, ("red", "清单里的路径全部存在")),
     ("把核心清单清空", s_empty_list, ("red", "核心区清单有")),
     ("同一条写两遍", s_duplicate_entry, ("red", "清单里没有重复条目")),
+    # ---- 证据档（用户 2026-09-27 拍板：只升 socket_io.py 这一项）----
+    ("偷偷改了 socket_io.py，一个字都没声明", s_socket_touch_only, ("red", "改了核心文件就必须在")),
+    ("改了 socket_io.py，只写老式的一行声明（缺证据/范围/影响面证明）",
+     s_socket_one_line_decl, ("red", "四格齐全")),
+    ("改了 socket_io.py，四格里缺『影响面运行时证明』", s_socket_missing_proof, ("red", "四格齐全")),
+    ("✅ 正面场景：改了 socket_io.py + 四格写全 → 应当通过", s_socket_decl_ok, ("green", "")),
+    ("把 socket_io.py 从核心清单里删掉（骨架判据必须拦住）",
+     s_drop_socket_skeleton, ("red", "骨架文件都在清单里")),
 ]
 
 

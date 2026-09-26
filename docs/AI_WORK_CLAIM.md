@@ -20,6 +20,27 @@
 
 ## 进行中
 
+### [2026-09-27 08:0x → 进行中] 会话：**R4-PROD-INTEGRATION · P0 治理收口 + P1① 计价事实审计**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**依据**：用户 2026-09-27 的拍板 —— R4 拆成**两个命题**：
+**R4 Structural Proven ✅ / R4 Production Integration ⏳**；⛔ 不开泛化的 R5，
+改做一个很窄的 `R4-PROD-INTEGRATION`（P0 治理收口 → P1 生产定价就绪 → P2 Canary → P3 Full Cutover）。
+
+**本轮改哪些文件**：
+
+- `_tools/qa/_check_core_freeze.py` + `_tools/qa/_core_files.txt` + `_tools/qa/_reverse_verify_core_freeze.py`
+  —— `socket_io.py` 升**证据档**（动它的例外要写全四格：证据 / 原因 / 范围 / 影响面运行时证明）；
+  ⛔ 按要求**只升这一项**，没有把整个核心区都升上来
+- `_tools/qa/_check_pricing_provenance.py` + `_tools/qa/_reverse_verify_pricing_provenance.py`（**新**）
+  —— 钱路 provenance 判据（43 个金额列全部归类 + 化石棘轮）+ 反向验证
+- `docs/R4_PRICING_PROVENANCE.md`（**新**，审计结论）+ `docs/R4_PROGRESS.md` +
+  `docs/CORE_AND_EXTENSION.md` §2.2 + `docs/ARCHITECTURE_RECTIFICATION_R4.md`（附录 A 的 CI 措辞）
+
+**明确不碰**：`backend/` 与 `android/` 的**任何源码** ——
+本轮既没有核心改动，也**没有把扩展接进生产钱路**（那是 P1 的后续格，要先补事实记录）。
+
+---
+
 ### [2026-09-27 00:2x → 进行中] 会话：**R4 第四轮整改 —— 核心稳定 / 扩展开放（Core-Stable / Extension-Open）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
 
 **依据**：用户 2026-09-27 交来的方向指南《SOrders 第四轮整改方案 R4》（`C:\Users\Optimistic\Desktop\ppkk.md`，1599 行）。
