@@ -49,7 +49,17 @@ EXT_DIR = ROOT / "backend" / "app" / "extensions" / "unit_conversion"
 EXT_TEST = ROOT / "backend" / "tests" / "test_unit_conversion_contract.py"
 MANIFEST = EXT_DIR / "manifest.py"
 RECORD = ROOT / "_tools" / "ops" / "r4_drill_records" / "remove-drill.json"
-ROUTE_MARK = "unit-conversion"
+#: ⚠️ 标记必须**精确到那条路由**：第一版用 "unit-conversion"，而核心自己的
+#: /api/v1/unit-conversions（**复数**，用户自建换算率）也含这个子串 ——
+#: 于是"路由消失"永远判 False（实测踩到，与孤儿引用那次是同一个坑）。
+ROUTE_MARK = "/api/v1/unit-conversion/preview"
+#: 拆掉一个端点之后，**该红**的就是这几条"登记表"（它们登记的就是那个端点）：
+#: 端点索引、生成物新鲜度、读侧覆盖表。⛔ 除它们以外的任何一条红都属于**核心被拆坏**。
+REGISTRATION_CHECKS = (
+    "_tools\\ai\\_read_coverage.py",
+    "_tools\\qa\\_check_endpoint_index_fresh.py",
+    "_tools\\qa\\_check_generated_freshness.py",
+)
 #: 孤儿引用的标记 —— ⚠️ 必须**精确**：第一版拿 "unit_conversion" 当标记，于是核心自己的
 #: api/v1/unit_conversions.py（**复数**，那是另一件东西：用户自建换算率的核心实现）、
 #: router.py 里那句 import，全被算成了"孤儿引用"（实测踩到）。
@@ -194,22 +204,32 @@ def main() -> int:
                + "（逐表名比对一致 = " + str(after.get("tables") == before_tables) + "）")
 
         code, out = run([sys.executable, "_tools/qa/_check_all.py"])
+        bad = [ln.strip().strip("=").strip() for ln in out.splitlines() if ln.strip().startswith("=====")]
+        stray = [b for b in bad if b not in REGISTRATION_CHECKS]
         tail = [ln.strip() for ln in out.splitlines() if "个检查" in ln and "跑完" in ln]
-        # ⚠️ 失败时要说清**是哪一条检查**红了 —— 只打一句"没通过"等于没说（第一版就是这样）。
-        bad = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("=====")]
-        detail = (tail[-1] if tail else out.strip().splitlines()[-1][:140])
-        if code != 0 and bad:
-            detail += "；红的是：" + "、".join(b.replace("=", "").strip() for b in bad[:3])
-        d.step("3b 全量静态检查（含能力执行点 / 依赖方向 / 数据归属）", code == 0, detail)
+        # ⚠️ 判据是"红的地方**全在登记表里**"，不是"全绿" —— 这两件事不一样，而且前者才是对的：
+        #    删掉一个端点，登记它的那几张表**本来就该过期**（不过期才是漏登记）；
+        #    真正要防的是"核心被拆坏" —— 那会表现为**别处也红**。
+        d.step("3b 全量静态检查：红的全在登记表里、别处一条不红", not stray,
+               (tail[-1] if tail else "") + "；红 " + str(len(bad)) + " 条 = "
+               + ("、".join(x.split(chr(92))[-1] for x in bad) or "无")
+               + ("；⛔ 别处也红了：" + str(stray[:3]) if stray else "；核心逻辑 / 依赖 / 归属 / 孤儿引用 一条没红"))
 
         code, out = run([sys.executable, "-m", "pytest", "tests/test_socket_io.py",
                          "tests/test_outbox.py", "tests/test_extension_contracts.py",
                          "tests/test_pricing_contract.py", "-q"], cwd=ROOT / "backend")
-        tail = [ln.strip() for ln in out.splitlines() if " passed" in ln or " failed" in ln]
-        detail = (tail[-1] if tail else "（没有结果行）")
+        # ⚠️ 结果行要**先看 failed**：这份 pytest 报告把 "N failed" 与 "M passed" 打印成两行，
+        #    只取最后一行会把"有失败"读成"全过"（实测踩到：49 passed 底下躺着 1 failed）。
+        failed = [ln.strip() for ln in out.splitlines() if " failed" in ln]
+        passed = [ln.strip() for ln in out.splitlines() if " passed" in ln]
+        detail = (failed[-1] + " / " + passed[-1]) if failed else (passed[-1] if passed else "（没有结果行）")
         if code != 0:
-            detail += "；退出码 " + str(code) + "：" + " / ".join(
-                ln.strip()[:60] for ln in out.splitlines() if "error" in ln.lower())[:180]
+            names = [ln.strip().split(" ")[0] for ln in out.splitlines()
+                     if ln.strip().startswith("FAILED") or "____" in ln]
+            detail += "；失败的：" + str(names[:3])[:160]
+            # ⚠️ 把原始输出也带进证据里：这一份 pytest 报告的形状会变，
+            #    而"失败了什么"这件事不该因为报告格式变了就读不出来（实测踩到：49 passed 底下躺着失败）。
+            d.steps[-1]["raw_tail"] = out[-2000:]
         d.step("3c core smoke（发件箱 / 投递原语 / 两个契约，都不碰那个扩展）", code == 0, detail)
     finally:
         if moved_ext.exists() and not EXT_DIR.exists():
