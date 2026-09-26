@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "R3-06 演练前（C 段五个故障演练）",
+  "created_utc": "2026-09-26T15:07:39Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260926T150728Z",
+  "code": {
+    "commit": "b3dad61bbdfae6a3b64a5d0be2d75d20641213a7",
+    "branch": "",
+    "dirty_files": 8
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": 8,
+    "rows": {
+      "orders": 2403,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 48
+    }
+  },
+  "uploads": {
+    "bytes": 105962426,
+    "files": 2115
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 531251,
+      "sha256": "f6248c7a45e01f49122153753cac523d943440dc96cf593ec438837103b4b15d"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105962426,
+      "sha256": "430736189772963e131fdb6b60f968f05e6e36d2eb2139c2a73756e8ed9176e8"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "case": "lock-contention",
+  "started_utc": "2026-09-26T15:15:51Z",
+  "phases": {
+    "X0": "目的：迁移锁竞争，第二实例是否正常等待\n期望信号：两个进程最终都成功；每个版本在 schema_versions 里恰好一行；没有 table already exists\n生产做法：一条独立连接先拿住服务端命名锁 sorders_migrations，再让两个迁移进程同时开跑（第二个换 TMPDIR ⇒ 与第一个各有一把本机 flock，等价于两台主机）—— ⛔ 全程零 DDL/DML\n怎么停（判读不了就地停）：① 脚本自带 try/finally 式的收尾（见 X4），中断时按 X4 那几行手工放回；② 若演练中途失联，先看 sorders-api-a/-b 两个 unit 的 is-active，再跑 python _tools/ops/_health_check.py（⛔ 别在生产上直接改代码）；③ 演练前的备份在 /opt/sorders-backup/pre_release/ 下（上面那两行）。\nNOW=2026-09-26T15:15:53Z\nPROD_SHA=b3dad61bbdfae6a3b64a5d0be2d75d20641213a7\n--- 服务 ---\nSERVICE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401\n--- 最近一份演练前备份 ---\n/opt/sorders-backup/pre_release/20260926T150728Z/\n/opt/sorders-backup/pre_release/20260926T145643Z/\n--- 磁盘 ---\n/dev/vda3        40G   12G   27G  31% /",
+    "X1": "业务状态基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=13  products=37  schema_versions=8  tables=48  users=60\n服务面：\nBASE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401",
+    "X2": "在一条独立连接上先拿住服务端命名锁 sorders_migrations 15 秒（＝另一个实例正在跑迁移），然后让两个迁移进程同时开跑；第二个进程换 TMPDIR，于是它与第一个**各有一把本机 flock**（本机 flock 是按 /tmp 下的锁文件互斥的，跨主机时本来就是各自一把 —— 换 TMPDIR 就是在同一台机器上把那件事还原出来）。这样一来两个进程会真的**同时**去争服务端那把 GET_LOCK。",
+    "X3": "LOCK_CONST=78:DB_LOCK_NAME = \"sorders_migrations\"\nLOCK_TIMEOUT=79:DB_LOCK_TIMEOUT_S = 60\n== 第 1 轮（带 holder）：这一轮量的是「第二个实例是等还是撞」\nT6_ALIVE_A=alive\nT6_ALIVE_B=alive\nT6_IS_USED_LOCK=2157\nA_RC=0\nB_RC=0\n== holder 输出：\nHOLDER_GOT=1\n0\nHOLDER_REL=1\n== 第 1 轮 A 输出：\n拿到迁移锁 sorders_migrations（超时 60s）\n结构与迁移都已就绪。\n== 第 1 轮 B 输出：\norders.shipper_id 可空迁移跳过: (pymysql.err.OperationalError) (1213, 'Deadlock found when trying to get lock; try restarting transaction')\n[SQL: ALTER TABLE orders MODIFY COLUMN shipper_id INT NULL]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)\nledgers.entry_date 索引创建跳过: (pymysql.err.OperationalError) (1684, \"Table 'sorders'.'ledgers' was skipped since its definition is being modified by concurrent DDL statement\")\n[SQL: SHOW INDEX FROM ledgers WHERE Key_name = 'ix_ledgers_entry_date']\n(Background on this error at: https://sqlalche.me/e/20/e3q8)\n拿到迁移锁 sorders_migrations（超时 60s）\n结构与迁移都已就绪。\nROUND1_COLLIDE=2\n== 第 2..3 轮：不带 holder、两边同时开跑 —— 量的是「自愈 DDL 会不会相撞」（有竞态，所以跑多次）\nROUND2_RC=0/0\nROUND2_COLLIDE=1\n    ledgers.entry_date 索引创建跳过: (pymysql.err.OperationalError) (1684, \"Table 'sorders'.'ledgers' was skipped since its definition is being modified by concurrent DDL statement\")\nROUND3_RC=0/0\nROUND3_COLLIDE=1\n    ledgers.entry_date 索引创建跳过: (pymysql.err.OperationalError) (1684, \"Table 'sorders'.'ledgers' was skipped since its definition is being modified by concurrent DDL statement\")\nCOLLIDE_TOTAL=4\nALREADY_EXISTS=0\n== 版本表（期望每个版本恰好一行）：\n1\t1\n2\t1\n3\t1\n4\t1\n5\t1\n6\t1\n7\t1\n8\t1\nVERSIONS_SUMMARY=8/8\nIS_FREE_LOCK=1",
+    "X4": "注入只是 GET_LOCK 的持有与释放，**没有任何 DDL/DML**：脚本自己 wait 掉所有子进程、删掉 /tmp/sorders-drillD；锁随连接关闭自动释放（X3 里 is_free_lock=1 就是这条的判据）。",
+    "X5": "基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=13  products=37  schema_versions=8  tables=48  users=60\n现在：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=13  products=37  schema_versions=8  tables=48  users=60\n业务行逐项一致（orders、ledgers、users、products、tables、schema_versions）。\n（演练自己会写的那几行，只作参考不作判据：outbox_pending=0  outbox_total=13）\n服务面：\nAFTER\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401"
+  },
+  "signals": {
+    "两个迁移进程都退出 0（三轮都是 0/0）": true,
+    "T+6s 两个进程都还活着 ⇒ 在等锁，不是撞车失败": true,
+    "版本表里每个版本恰好一行（8/8，每行 count=1）": true,
+    "三轮里没有任何 already exists": true,
+    "服务端锁已释放（is_free_lock=1）": true,
+    "X5 业务状态与 X1 基线逐项一致": true
+  },
+  "known_limits": [
+    "两个进程在**同一台机器**上：跨主机那一半靠给第二个进程换 TMPDIR 来还原（各自一把本机 flock），所以 GET_LOCK 这条服务端路径是真的被争用了；",
+    "⛔ 但它仍不证「两台**物理主机**之间」的时钟/网络差异；",
+    "库是 MySQL，所以 _db_lock 这一支是真的走了（SQLite 上它会如实跳过）。"
+  ],
+  "repo_sha": "67f46da4558fccde84685115b7ed2a26ebfe5b00",
+  "prod_host": "8.145.40.22",
+  "findings": [
+    "⚠️ **发现（有竞态，所以要按次数说）**：3 轮并发里，有 4 处并发 DDL 的痕迹（原始输出见 X3 的 ROUNDn_COLLIDE 与那段缩进的报错）。⇒ **自愈 bootstrap 的 DDL 只受 /tmp/sorders_bootstrap.lock 那把**本机** flock 保护**（backend/app/core/schema_bootstrap.py:232 的 with FileLock(BOOTSTRAP_LOCK_FILE)），服务端 GET_LOCK 是在**之后**的 run_migrations 里才拿的（同文件 240 行）——所以「两台主机各自一把 flock」时，两个实例会真的同时跑自愈 DDL：轻则一条 DDL 被静默跳过（本次就跳过了），重则 1213 死锁。本次是靠给第二个进程换 TMPDIR 把那个条件还原出来的。⚠️ 生产现状是**同一台机器上的两个 unit**（共享 /tmp ⇒ 共享那把 flock）⇒ **现状安全**；这一条是「跨主机多实例」的具体拦路石，与 docs/MULTI_INSTANCE_READINESS.md 的 bootstrap-self-heal 那一格对得上 —— 本次第一次给了它原始输出。⚠️ 但它**有竞态**：不是每轮都撞（见 ROUNDn_COLLIDE），所以判据不能只看一轮。"
+  ],
+  "finished_utc": "2026-09-26T15:16:19Z",
+  "verdict": "pass"
+}

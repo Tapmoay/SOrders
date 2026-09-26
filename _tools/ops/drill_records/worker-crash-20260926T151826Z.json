@@ -1,0 +1,28 @@
+{
+  "case": "worker-crash",
+  "started_utc": "2026-09-26T15:18:26Z",
+  "phases": {
+    "X0": "目的：杀掉一个 worker，服务是否恢复\n期望信号：① 另一路请求不中断（/health 连续 200）② systemd/uvicorn 监督把 worker 补回来 ③ 被杀的 worker 上在飞的请求会有失败（如实记条数）\n生产做法：systemctl kill -s KILL sorders-api-a（整个 cgroup 一起 SIGKILL）；盯另一个实例与经 nginx 的入口；systemd 的 Restart=always 自己把它拉回来（⛔ 不手工 start）\n怎么停（判读不了就地停）：① 脚本自带 try/finally 式的收尾（见 X4），中断时按 X4 那几行手工放回；② 若演练中途失联，先看 sorders-api-a/-b 两个 unit 的 is-active，再跑 python _tools/ops/_health_check.py（⛔ 别在生产上直接改代码）；③ 演练前的备份在 /opt/sorders-backup/pre_release/ 下（上面那两行）。\nNOW=2026-09-26T15:18:28Z\nPROD_SHA=b3dad61bbdfae6a3b64a5d0be2d75d20641213a7\n--- 服务 ---\nSERVICE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401\n--- 最近一份演练前备份 ---\n/opt/sorders-backup/pre_release/20260926T150728Z/\n/opt/sorders-backup/pre_release/20260926T145643Z/\n--- 磁盘 ---\n/dev/vda3        40G   12G   27G  31% /",
+    "X1": "业务状态基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=17  products=37  schema_versions=8  tables=48  users=60\n服务面：\nBASE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401",
+    "X2": "systemctl kill -s KILL sorders-api-a（整个 cgroup 一起 SIGKILL，模拟进程崩溃）",
+    "X3": "== 杀之前\nsorders-api-a active=active NRestarts=0\nsorders-api-b active=active NRestarts=0\nNR_BEFORE=0\n== 注入：SIGKILL 掉 sorders-api-a 的整个 cgroup\n== 杀之后\nsorders-api-a active=active NRestarts=1\nsorders-api-b active=active NRestarts=0\nNR_AFTER=1\n== 采样 50 次 x 0.5s 的分布\nA_STATE:\n       10 A=activating\n       40 A=active\nB_STATE:\n       50 B=200\nN_STATE:\n       50 N=401\nFIRST_ACTIVE_SAMPLE=11\nRECOVER_SECONDS=5.5",
+    "X4": "systemd 的 Restart=always + RestartSec=5 自己把它拉起来 —— ⛔ 演练**不手工 start**：手工 start 就证不了「监督真的管用」。X3 里的 RECOVER_SECONDS 与 NRestarts 是判据。",
+    "X5": "基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=17  products=37  schema_versions=8  tables=48  users=60\n现在：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=17  products=37  schema_versions=8  tables=48  users=60\n业务行逐项一致（orders、ledgers、users、products、tables、schema_versions）。\n（演练自己会写的那几行，只作参考不作判据：outbox_pending=0  outbox_total=17）\n服务面：\nAFTER\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401"
+  },
+  "signals": {
+    "另一实例全程 /health=200（B 分布里只有 200）": true,
+    "经 nginx 的入口全程有活上游（N 里没有 5xx）": true,
+    "被杀实例被 systemd 拉起（结尾 is-active 回到 active）": true,
+    "NRestarts 因为这次 SIGKILL +1": true,
+    "X5 业务状态与 X1 基线逐项一致": true
+  },
+  "known_limits": [
+    "杀的是**一个实例**（两个独立 unit 中的一个）—— 生产拓扑不是「一个 systemd 里 2 个 worker」，两者形态不同，⛔ 本记录只代表前者；",
+    "⛔ 不证跨主机；⛔ 不证真实 Android 客户端在被杀瞬间的体感（只量 HTTP 码）。"
+  ],
+  "repo_sha": "67f46da4558fccde84685115b7ed2a26ebfe5b00",
+  "prod_host": "8.145.40.22",
+  "findings": [],
+  "finished_utc": "2026-09-26T15:18:59Z",
+  "verdict": "pass"
+}

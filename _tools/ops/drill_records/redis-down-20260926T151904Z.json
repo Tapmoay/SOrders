@@ -1,0 +1,28 @@
+{
+  "case": "redis-down",
+  "started_utc": "2026-09-26T15:19:04Z",
+  "phases": {
+    "X0": "目的：Redis 不可用，业务还能不能工作\n期望信号：① /health 的 redis 字段变红、但 HTTP 业务接口（登录/读订单/读账本）照常 ② ⚠️ **跨实例实时推送会断** —— 因为 Redis 就是 Socket.IO 的跨实例总线（B 段实测 `redis-cli pubsub channels` 里有 `socketio`）③ 恢复 Redis 之后推送链路自己回来\n生产做法：systemctl stop redis → 打业务接口（登录/读订单/读账本）与 /health → systemctl start redis（脚本用 trap 保证一定放回）\n怎么停（判读不了就地停）：① 脚本自带 try/finally 式的收尾（见 X4），中断时按 X4 那几行手工放回；② 若演练中途失联，先看 sorders-api-a/-b 两个 unit 的 is-active，再跑 python _tools/ops/_health_check.py（⛔ 别在生产上直接改代码）；③ 演练前的备份在 /opt/sorders-backup/pre_release/ 下（上面那两行）。\nNOW=2026-09-26T15:19:06Z\nPROD_SHA=b3dad61bbdfae6a3b64a5d0be2d75d20641213a7\n--- 服务 ---\nSERVICE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401\n--- 最近一份演练前备份 ---\n/opt/sorders-backup/pre_release/20260926T150728Z/\n/opt/sorders-backup/pre_release/20260926T145643Z/\n--- 磁盘 ---\n/dev/vda3        40G   12G   27G  31% /",
+    "X1": "业务状态基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=17  products=37  schema_versions=8  tables=48  users=60\n服务面：\nBASE\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401",
+    "X2": "systemctl stop redis（生产机上唯一的 Redis）。⚠️ 前提已经**不是**演练方案里写的「Redis 没人用」了：B 段之后 Socket.IO 的跨实例总线就是它（X1 里 pubsub channels 有 socketio 就是这条的判据）。",
+    "X3": "== 基线（Redis 活着）\nB_REDIS_ACTIVE=active\nB_PING=PONG\nB_CHANNELS=socketio,\nB_NUMSUB=socketio 1 \nB_HEALTH={\"status\":\"ok\",\"version\":\"0.2.4\",\"redis\":\"ok\"}\n== 注入：停 Redis\n== 停机期间\nD_REDIS_ACTIVE=inactive\nD_PING=Could not connect to Redis at 127.0.0.1:6379: Connection refused\nD_HEALTH_8111={\"status\":\"ok\",\"version\":\"0.2.4\",\"redis\":\"error\"}\nD_HEALTH_8112={\"status\":\"ok\",\"version\":\"0.2.4\",\"redis\":\"error\"}\nD_TOKEN_LEN=155\nD_ME=200\nD_ORDERS=200\nD_LEDGER=200\nD_WRITE_ID=41732\nD_WRITE_ROW=1\n== 应用日志里与 redis 有关的报错（近 2 分钟）\nSep 26 23:19:14 iZ0jlimnshftl47074z0hbZ python[1094452]: Cannot publish to redis... giving up\nSep 26 23:19:14 iZ0jlimnshftl47074z0hbZ python[1094452]: 2026-09-26 23:19:14,204 ERROR [socketio.server] [rid=-] [cid=-] Cannot publish to redis... giving up\nSep 26 23:19:14 iZ0jlimnshftl47074z0hbZ python[1094452]: Cannot publish to redis... retrying\nSep 26 23:19:14 iZ0jlimnshftl47074z0hbZ python[1094452]: 2026-09-26 23:19:14,210 ERROR [socketio.server] [rid=-] [cid=-] Cannot publish to redis... retrying\nSep 26 23:19:14 iZ0jlimnshftl47074z0hbZ python[1094452]: Cannot publish to redis... giving up\nSep 26 23:19:14 iZ0jlimnshftl47074z0hbZ python[1094452]: 2026-09-26 23:19:14,210 ERROR [socketio.server] [rid=-] [cid=-] Cannot publish to redis... giving up\n== 恢复：起 Redis\nR_REDIS_ACTIVE=active\nR_PING=PONG\nR_CHANNELS=socketio,\nR_NUMSUB=socketio 1 \nR_HEALTH={\"status\":\"ok\",\"version\":\"0.2.4\",\"redis\":\"ok\"}\nR_DELETE_PROBE=204 id=41732",
+    "X4": "脚本用 trap 保证 Redis 一定被起回来（连中断也会执行），并在 X3 末尾复验 ping/channels/numsub 三项；探针消息当场删掉（净零）。",
+    "X5": "基线：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=17  products=37  schema_versions=8  tables=48  users=60\n现在：ledgers=4648  orders=2403  outbox_pending=0  outbox_total=19  products=37  schema_versions=8  tables=48  users=60\n业务行逐项一致（orders、ledgers、users、products、tables、schema_versions）。\n（演练自己会写的那几行，只作参考不作判据：outbox_pending=0  outbox_total=19）\n服务面：\nAFTER\nsorders-api-a=active sorders-api-b=active \n8111=200 8112=200 \nnginx=401"
+  },
+  "signals": {
+    "Redis 停机期间 HTTP 业务接口照常（登录拿到 token、读自己/读订单/读账本 全 200）": true,
+    "停机期间业务**写**也照常（写探针消息拿到 id 且行真的在库里）": true,
+    "/health 如实报出 Redis 的变化（停机前后 redis 字段不一样）": true,
+    "跨实例实时总线（socketio）恢复之后自己回来": true,
+    "X5 业务状态与 X1 基线逐项一致": true
+  },
+  "known_limits": [
+    "停的是生产机上唯一的 Redis；⛔ 不证 Redis 慢（只证不可用）；",
+    "⛔ 不证 App 端界面上「推送晚到」的体感 —— 只证服务端这一侧的投递失败与恢复。"
+  ],
+  "repo_sha": "67f46da4558fccde84685115b7ed2a26ebfe5b00",
+  "prod_host": "8.145.40.22",
+  "findings": [],
+  "finished_utc": "2026-09-26T15:19:21Z",
+  "verdict": "pass"
+}
