@@ -159,6 +159,13 @@ def test_pricing_contract_shape_and_money_only_output():
         name = "reverse-verify"
         version = 1
 
+        # ⚠️ R4-05 给协议补了 applies_to() —— 这个内联实现当时**忘了跟上**，
+        #    于是 isinstance 假失败。它没被任何东西抓住，一直到 R4-06 的 Remove 演练
+        #    跑 core smoke 时才露出来（全量静态检查不跑 pytest，而我只单跑了几个测试文件）。
+        #    教训：改了协议就立刻把**所有**内联实现跑一遍 —— 别只跑新写的那几个文件。
+        def applies_to(self, context: PricingContext) -> bool:
+            return True
+
         def price(self, context: PricingContext) -> PricingResult:
             return PricingResult(money=Money("12.34"), rule_name="r", detail="按规则 r")
 

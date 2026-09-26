@@ -53,18 +53,48 @@ RECORD = ROOT / "_tools" / "ops" / "r4_drill_records" / "remove-drill.json"
 #: /api/v1/unit-conversions（**复数**，用户自建换算率）也含这个子串 ——
 #: 于是"路由消失"永远判 False（实测踩到，与孤儿引用那次是同一个坑）。
 ROUTE_MARK = "/api/v1/unit-conversion/preview"
-#: 拆掉一个端点之后，**该红**的就是这几条"登记表"（它们登记的就是那个端点）：
-#: 端点索引、生成物新鲜度、读侧覆盖表。⛔ 除它们以外的任何一条红都属于**核心被拆坏**。
-REGISTRATION_CHECKS = (
-    "_tools\\ai\\_read_coverage.py",
-    "_tools\\qa\\_check_endpoint_index_fresh.py",
-    "_tools\\qa\\_check_generated_freshness.py",
+#: 由**源码集合**推导出来的产物与登记项 —— 完整卸载必须连着它们一起处理：
+#:   · 两张生成物：端点索引、界面文案目录（它们的指纹算的就是源码集合）；
+#:   · 一张登记表：AI 读覆盖的 EXCLUDED（那条登记"因为端点在"才存在，不删就是化石）。
+#: ⛔ 处理完这些之后**还能红**的，就属于"核心被拆坏" —— 那才是这条演练要抓的东西。
+DERIVED_FILES = (
+    "docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md",
+    "docs/PROJECT_MAP/09A_HINT_CATALOG.md",
+    "_tools/ai/_read_coverage.py",
 )
+#: 处理完登记项之后，仍然允许红的那几条（每一条都要写明为什么"红了是对的"）。
+#: ⚠️ 现在是空的 —— 说明拆干净之后全量检查是全绿的，比"允许红"强。
+TOLERATED_RED: tuple[str, ...] = ()
 #: 孤儿引用的标记 —— ⚠️ 必须**精确**：第一版拿 "unit_conversion" 当标记，于是核心自己的
 #: api/v1/unit_conversions.py（**复数**，那是另一件东西：用户自建换算率的核心实现）、
 #: router.py 里那句 import，全被算成了"孤儿引用"（实测踩到）。
 #: 子串匹配会把"名字里恰好含这几个字"的东西一起算进来 —— 判据要盯的是**这个扩展**。
 ORPHAN_MARKS = ("app.extensions.unit_conversion", "EXT_UNIT_CONVERSION")
+
+
+def strip_covered_entry(text: str) -> tuple[str, bool]:
+    """删掉读覆盖表里那条"因为端点在才存在"的登记（连同它上面的注释）。
+
+    ⛔ 不删的话 _read_coverage.py 会报「EXCLUDED 里的这些已不是端点」——
+    而那正是它该做的事（防化石）。所以**完整卸载必须连着登记项一起删**，
+    少删一样都不叫拆干净。
+    """
+    kept: list[str] = []
+    skipping = False
+    removed = False
+    for line in text.splitlines():
+        if not skipping and line.strip().startswith('"api.preview": ('):
+            while kept and (kept[-1].lstrip().startswith("#") or kept[-1].strip() == ""):
+                kept.pop()
+            skipping = True
+            removed = True
+            continue
+        if skipping:
+            if line.strip() == "),":
+                skipping = False
+            continue
+        kept.append(line)
+    return chr(10).join(kept) + chr(10), removed
 
 
 def paused_manifest(text: str) -> str:
@@ -157,6 +187,7 @@ def main() -> int:
            "路由 " + str(before_routes) + " 条（含扩展那条）/ 文件 " + str(len(before_hash))
            + " 个 / 表 " + str(len(before_tables)) + " 张")
 
+    derived_before = {rel: (ROOT / rel).read_bytes() for rel in DERIVED_FILES}
     tmp = Path(tempfile.mkdtemp(prefix="r4_remove_drill_"))
     moved_ext = tmp / "unit_conversion"
     moved_test = tmp / EXT_TEST.name
@@ -203,17 +234,18 @@ def main() -> int:
                "表 " + str(len(before_tables)) + " -> " + str(len(after.get("tables", [])))
                + "（逐表名比对一致 = " + str(after.get("tables") == before_tables) + "）")
 
-        code, out = run([sys.executable, "_tools/qa/_check_all.py"])
-        bad = [ln.strip().strip("=").strip() for ln in out.splitlines() if ln.strip().startswith("=====")]
-        stray = [b for b in bad if b not in REGISTRATION_CHECKS]
-        tail = [ln.strip() for ln in out.splitlines() if "个检查" in ln and "跑完" in ln]
-        # ⚠️ 判据是"红的地方**全在登记表里**"，不是"全绿" —— 这两件事不一样，而且前者才是对的：
-        #    删掉一个端点，登记它的那几张表**本来就该过期**（不过期才是漏登记）；
-        #    真正要防的是"核心被拆坏" —— 那会表现为**别处也红**。
-        d.step("3b 全量静态检查：红的全在登记表里、别处一条不红", not stray,
-               (tail[-1] if tail else "") + "；红 " + str(len(bad)) + " 条 = "
-               + ("、".join(x.split(chr(92))[-1] for x in bad) or "无")
-               + ("；⛔ 别处也红了：" + str(stray[:3]) if stray else "；核心逻辑 / 依赖 / 归属 / 孤儿引用 一条没红"))
+        # ---- 完整卸载的最后一步：把"由源码集合推导出来的东西"一起处理掉 ----
+        # 删掉一个端点，登记它的那几张表**本来就该过期** —— 不过期才是漏登记。
+        # 所以一次真的卸载里，"重新生成 + 删登记"是**卸载的一部分**，不是额外工作。
+        run([sys.executable, "_tools/qa/_hint_inventory.py", "--md"])
+        run([sys.executable, "-m", "scripts.gen_endpoint_index",
+             "--out", "../docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md"], cwd=ROOT / "backend")
+        cov = ROOT / "_tools" / "ai" / "_read_coverage.py"
+        stripped, removed = strip_covered_entry(cov.read_text(encoding="utf-8"))
+        if removed:
+            cov.write_bytes(stripped.encode("utf-8"))
+        d.step("3a 完整卸载：重跑两张产物 + 删掉读覆盖里那条登记", removed,
+               "界面文案目录与端点索引已重跑；读覆盖表里那条登记" + ("已删" if removed else "**没找到**"))
 
         code, out = run([sys.executable, "-m", "pytest", "tests/test_socket_io.py",
                          "tests/test_outbox.py", "tests/test_extension_contracts.py",
@@ -230,7 +262,15 @@ def main() -> int:
             # ⚠️ 把原始输出也带进证据里：这一份 pytest 报告的形状会变，
             #    而"失败了什么"这件事不该因为报告格式变了就读不出来（实测踩到：49 passed 底下躺着失败）。
             d.steps[-1]["raw_tail"] = out[-2000:]
-        d.step("3c core smoke（发件箱 / 投递原语 / 两个契约，都不碰那个扩展）", code == 0, detail)
+        d.step("3b core smoke（发件箱 / 投递原语 / 两个契约，都不碰那个扩展）", code == 0, detail)
+
+        code, out = run([sys.executable, "_tools/qa/_check_all.py"])
+        bad = [ln.strip().strip("=").strip() for ln in out.splitlines() if ln.strip().startswith("=====")]
+        stray = [b for b in bad if b and b not in TOLERATED_RED]
+        tail = [ln.strip() for ln in out.splitlines() if "个检查" in ln and "跑完" in ln]
+        d.step("3c 全量静态检查：拆干净之后不许有别的红", not stray,
+               (tail[-1] if tail else "") + "；红 " + str(len(stray)) + " 条"
+               + ("：" + "、".join(x.split(chr(92))[-1] for x in stray) if stray else "（全绿）"))
     finally:
         if moved_ext.exists() and not EXT_DIR.exists():
             shutil.move(str(moved_ext), str(EXT_DIR))
@@ -239,6 +279,8 @@ def main() -> int:
         shutil.rmtree(tmp, ignore_errors=True)
         if MANIFEST.exists() and "enabled=False" in MANIFEST.read_text(encoding="utf-8"):
             MANIFEST.write_bytes(original_manifest.encode("utf-8"))
+        for rel, raw in derived_before.items():
+            (ROOT / rel).write_bytes(raw)
 
     after_hash = hashes([EXT_DIR, EXT_TEST])
     final = probe()
