@@ -25,7 +25,8 @@
 
 ### 退出码三档（⚠️ 与 `_health_check.py` 的语义**不同**，别混）
 - **0** = 全绿：现状健康、与这一版代码一致、**且没有任何告警**；
-- **1** = 现状健康且**没有❌**，但**有不一致，或有 warn_only 的已知告警**；
+- **1** = 现状健康且**没有❌**，但**有不一致，或有（已批准的）告警**；
+  ⛔ **未批准的告警不是「1」，是 ❌**（见 APPROVED_WARNS：用户 2026-09-26 定的 A5 语义 = ERROR 0 且无未批准 WARN）；
 - **2** = 生产**现状本身**有问题（服务 / 库 / Redis / 磁盘 / 备份那种，跟发布没关系也要管）。
 
 ⚠️ **2026-09-26 发布之后这一档的读法变了**：发布之前「1」几乎只意味着「发布还没做」；
@@ -152,6 +153,25 @@ def git(*args: str) -> tuple[int, str]:
     """本机只读 git（⛔ 只允许 rev-parse / merge-base / rev-list 这类不写不改的命令）。"""
     r = subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True, timeout=60)
     return r.returncode, r.stdout.decode("utf-8", "replace").strip()
+
+
+#: ✅ **已批准的告警**（用户 2026-09-26 拍板的 A5 语义：**A5 通过 = ERROR 0 条 且 没有未批准的 WARN**）。
+#: 键 = 行名（与 chk() 的 name **一字不差**）；值 = 批准理由 + 什么时候能删。
+#: ⛔ 不在这里的告警 = **未批准** ⇒ 直接升级成 ERROR（`chk()` 里那一段），不许静悄悄地过去。
+#: ⛔ 而「生产与这一版不一致」那一类**永远不许**进这张表 —— 它们是 ERROR（见第 2 节那几条没有 warn_only 的行）。
+APPROVED_WARNS: dict[str, str] = {
+    "Redis 设了口令":
+        "既知缺口：Redis 只监听 127.0.0.1、安全组不放行 6379（外网不可达），给它设口令是**另一次变更**"
+        "（要同时改 .env 与服务），不属于发布这一步。**什么时候删**：给生产 Redis 设上口令之后。",
+    "MySQL 时区口径是 UTC":
+        "这里的 time_zone 是**服务端默认值**；应用层已把**会话**时区钉成 UTC（app/database.py 的 "
+        "SET time_zone='+00:00'，判据 _tools/qa/_check_time_base.py 盯着）。改服务端全局时区会动到"
+        "既有数据的解释口径，属**另一次变更**。**什么时候删**：真的改了服务端默认时区之后。",
+    "生产路由数 = 仓库最近一次快照":
+        "快照是**某个时点**的记录，不是判据：『生产是不是这一版』由上面那条"
+        "『生产跑的运行时代码 = 本仓库（backend/ 零差异）』判（那是 ERROR）。"
+        "**什么时候删**：快照改成随每次发布自动更新之后。",
+}
 
 
 def runtime_delta(commit: str) -> int | None:
@@ -282,8 +302,21 @@ def main() -> int:
 
     def chk(ok: bool, name: str, ok_detail: str, bad_detail: str = "",
             warn_only: bool = False, category: str = "health") -> None:
+        """记一行结论。⛔ 告警**不是**随便就能挂的 —— 见 APPROVED_WARNS 与下面的升级规则。"""
         level = "ok" if ok else ("warn" if warn_only else "fail")
-        rows.append((level, name, ok_detail if ok else (bad_detail or ok_detail), category))
+        detail = ok_detail if ok else (bad_detail or ok_detail)
+        if level == "warn":
+            reason = APPROVED_WARNS.get(name)
+            if reason is None:
+                # ⛔ 用户 2026-09-26 定的语义：**未批准的 WARN 就是 ERROR**（A5 通过 = ERROR 0 且无未批准 WARN）。
+                #    要么把它修掉，要么把它连同理由写进 APPROVED_WARNS —— 不许「默默地告警一下就过去」。
+                level = "fail"
+                category = "approval"
+                detail = ("**未批准的告警**：" + detail
+                          + " —— ⛔ 要么修掉它，要么写进 APPROVED_WARNS 并写明理由与什么时候能删")
+            else:
+                detail = detail + " ｜ ✅ **已批准**：" + reason
+        rows.append((level, name, detail, category))
 
     f = facts.get
     head = repo_migration_head()
@@ -345,7 +378,7 @@ def main() -> int:
     chk(snap_paths == 0 or str(snap_paths) == paths, "生产路由数 = 仓库最近一次快照（" + snap_name + "）",
         paths + " 条路由，与快照一致",
         "生产 " + paths + " 条 vs 快照 " + str(snap_paths) + " 条（" + snap_name + "，它只是**某个时点**的记录）",
-        warn_only=True, category="consistency")
+        warn_only=True, category="snapshot")
     chk(bool(f("app_has_migrations")) and f("app_has_migrations") == "yes",
         "生产代码里有版本化迁移（app.migrations）", "import app.migrations 通过",
         "生产没有 app.migrations 模块（R3-01 的版本化迁移还没上生产）", category="consistency")
@@ -374,7 +407,8 @@ def main() -> int:
     chk(rid != "" and f("trace_nginx_header") == rid, "request_id 经 nginx 也原样回来",
         "发出 " + rid + " → 回来同一个（/api/v1/orders " + str(f("trace_nginx_status")) + "）",
         "经 nginx 回来的是 " + str(f("trace_nginx_header")) + "（/api/v1/orders " + str(f("trace_nginx_status"))
-        + "）—— 与上一条同源", warn_only=True, category="consistency")
+        + "）—— 与上一条同源（⛔ 这一条**不许**降级成告警：nginx 丢掉 X-Request-ID 就等于"
+        + "「整条 trace 链在入口断掉」）", category="consistency")
     has_outbox = (f("has_outbox") or "0") == "1"
     chk(has_outbox, "生产库有 outbox_events 表", "存在", "生产库没有 outbox_events 表（发件箱还没上生产）",
         category="consistency")
@@ -391,10 +425,11 @@ def main() -> int:
         category="consistency")
     bad = [(n, d, f("pkg_" + n) or "") for n, d, _r in runtime
            if (f("pkg_" + n) or "") and version_in_range(d, f("pkg_" + n) or "") is False]
-    chk(not bad, "声明的版本区间在**生产**上成立（" + str(len(runtime)) + " 条运行依赖）",
-        "全部落在声明区间内",
+    # ⛔ 这一条**只记录、不判定对错**（用户 2026-09-26 拍板②：本轮不锁声明 ⇒ 该不该改声明是依赖治理那一轮的事）。
+    chk(True, "声明的版本区间 vs 生产实际（只记录，⛔ 不判对错）",
+        "全部落在声明区间内" if not bad else
         "落在声明区间外：" + "；".join(n + " 声明 " + d + " 实际 " + v for n, d, v in bad[:4]),
-        warn_only=True, category="consistency")
+        category="dependency")
     chk(bool(f("pip_freeze_count")) and (f("pip_freeze_count") or "0").isdigit(), "生产 pip freeze 可读",
         str(f("pip_freeze_count")) + " 个包 / sha " + str(f("pip_freeze_sha")), "读不出来",
         category="consistency")
@@ -410,7 +445,8 @@ def main() -> int:
         + "；失败摘除指令：" + (f("nginx_failover") or "无"),
         category="consistency")
     chk(bool(f("nginx_socketio")), "nginx 有 /socket.io/ 转发（WebSocket 升级头）",
-        str(f("nginx_socketio"))[:120], "nginx 里没找到 /socket.io/ 转发", warn_only=True,
+        str(f("nginx_socketio"))[:120],
+        "nginx 里没找到 /socket.io/ 转发（⛔ 那等于实时推送在入口就断了，不是告警）",
         category="consistency")
 
     # ---- 5. 记录项（不判对错，进证据文档）----
@@ -429,15 +465,28 @@ def main() -> int:
           + str(len(warns)) + " 告警 / " + str(len(fails)) + " 不一致   （⛔ 全程只读，没有一条写操作）")
     for lvl, name, detail, cat in rows:
         print("  " + mark[lvl] + " " + name + ("  —— " + detail if detail else ""))
+    unapproved = [r for r in fails if r[3] == "approval"]
     if bad_consist:
         print("  ⓘ 现状本身没问题，但生产与这一版代码**不一致**（" + str(len(bad_consist))
               + " 项）—— 那正是发布这一步要消除的东西（生产停在 " + (f("repo_commit") or "?")[:8] + "）。")
+    elif unapproved:
+        print("  ⛔ **未批准的告警 " + str(len(unapproved)) + " 条** —— 按 A5 语义（ERROR 0 且无未批准 WARN）"
+              "它们就是 ERROR：要么修掉，要么写进 APPROVED_WARNS 并写明理由。")
+        for _lvl, _name, _detail, _cat in unapproved:
+            print("     · " + _name)
     elif warns:
         print("  ⓘ 现状健康、与这一版代码**一致**；剩下的 " + str(len(warns))
-              + " 条是 **warn_only 的既知告警**（每条都写了为什么），⛔ 不算发布失败。")
+              + " 条是**已批准**的告警（每条都带批准理由，见 APPROVED_WARNS）—— ⛔ 不算发布失败。")
+    else:
+        print("  ⓘ 全绿：ERROR 0 条、告警 0 条。")
 
     if a.json:
         payload = {"facts": facts,
+                   # ⛔ 发布那一步判的就是这三样：errors / unapproved_warns 必须都是 0。
+                   "errors": [n for l, n, _d, _c in rows if l == "fail"],
+                   "unapproved_warns": [n for l, n, _d, c in rows if l == "fail" and c == "approval"],
+                   "approved_warns": [{"name": n, "reason": APPROVED_WARNS.get(n, "")}
+                                      for l, n, _d, _c in rows if l == "warn"],
                    "rows": [{"level": l, "name": n, "detail": d, "category": c} for l, n, d, c in rows],
                    "declared": [{"name": n, "decl": d, "file": r, "prod": f("pkg_" + n)} for n, d, r in pkgs]}
         if not a.local:
@@ -447,7 +496,7 @@ def main() -> int:
         Path(a.json).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8", newline="")
         print("  原始事实已写：" + a.json)
 
-    return 2 if bad_health else (1 if (bad_consist or warns) else 0)
+    return 2 if bad_health else (1 if (fails or warns) else 0)
 
 
 if __name__ == "__main__":

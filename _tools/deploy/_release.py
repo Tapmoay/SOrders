@@ -81,7 +81,8 @@ STEP_DOC: dict[str, tuple[str, str, str]] = {
                "退出码 0（或只有「已知/已接受」的证书告警 = 1）",
                "退出码 2 → 立刻回滚"),
     "smoke": ("本机跑 _tools/ops/_prod_smoke.py --readonly --json <tmp>",
-              "❌ 的项 **0 条**（健康类与一致性类都不许有；warn_only 的既知告警如实留档，⛔ 不算失败）",
+              "**ERROR 0 条** 且 **没有未批准的 WARN**（已批准的告警可以存在，但必须带理由；"
+              "「与这一版不一致」永远是 ERROR）",
               "有健康类 ❌ → 回滚（2）；有一致性类 ❌ → 看是哪几项（1）"),
     "business": ("按 docs/PRODUCTION_ACCEPTANCE.md §三 做**有限写**烟测",
                  "逐条按那份清单走",
@@ -367,13 +368,20 @@ def run_smoke() -> int:
         print("⛔ 烟测没有写出 --json 结果（退出码 " + str(code) + "）—— 算不出事实就不许往下走")
         return 1
     rows = payload.get("rows") or []
-    bad = [r for r in rows if r.get("level") == "fail"]
-    warns = [r for r in rows if r.get("level") == "warn"]
-    if bad:
-        print("⛔ 烟测有 " + str(len(bad)) + " 条 ❌：" + "；".join(str(r.get("name")) for r in bad[:3]))
+    errs = payload.get("errors") or [r.get("name") for r in rows if r.get("level") == "fail"]
+    unapproved = payload.get("unapproved_warns") or []
+    approved = payload.get("approved_warns") or []
+    # ⛔ **A5 的语义（用户 2026-09-26 拍板）**：通过 = **ERROR 0 条** 且 **没有未批准的 WARN**。
+    #    「已登记、明确接受的告警」可以存在，但它们必须**带着批准理由**出现，⛔ 不许伪装成成功；
+    #    而「与当前发布版本不一致」那一类**永远是 ERROR**（在 _prod_smoke 里就没有 warn_only 这一档）。
+    if errs or unapproved:
+        print("⛔ 烟测不通过：ERROR " + str(len(errs)) + " 条" +
+              ("，其中**未批准的告警** " + str(len(unapproved)) + " 条" if unapproved else "") +
+              "：" + "；".join(str(x) for x in (errs or unapproved)[:3]))
+        bad = [r for r in rows if r.get("level") == "fail"]
         return 2 if any(r.get("category") == "health" for r in bad) else 1
-    print("   ✅ ❌ 0 条；warn_only 的既知告警 " + str(len(warns)) + " 条（如实留档，⛔ 不算失败）："
-          + "；".join(str(r.get("name")) for r in warns[:4]))
+    print("   ✅ ERROR 0 条、未批准告警 0 条；已批准告警 " + str(len(approved)) + " 条（都带理由）："
+          + "；".join(str(w.get("name")) for w in approved[:4]))
     return 0
 
 
