@@ -2,5 +2,10 @@
   "base": "51c4a72d806c2613b691a40ba853509d35c4aa8b",
   "base_providers": [
     "standard"
+  ],
+  "head": "a7fee0c039098b3774c04a900c68fef967831cb7",
+  "head_providers": [
+    "per_quantity",
+    "standard"
   ]
 }

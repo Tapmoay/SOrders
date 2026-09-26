@@ -123,10 +123,17 @@ Event 只作事实通知（§28）、模块依赖图可自动生成（§29）。
 Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 
 **退出条件**
-- ❌ 链路成立：`Order → PricingContext → PricingContract → Money Core` —— 复现：`cd backend; python -m pytest tests/test_pricing_contract.py -q`
-- ❌ **两个 Pricing 实现可替换**，替换时 Core 与 Order / Money / Ledger **修改数 = 0** —— 复现：`python _tools/ops/_r4_replace_drill.py --check`
-- ❌ Extension ⛔ 不写账本：只能 `calculate → Money`，最终事实交给 Core 事务 —— 复现：`python _tools/qa/_check_data_ownership.py`
-- ❌ 历史可解释：订单上保存**当时的计费规则快照**，删除扩展后历史单仍解释得通 —— 复现：`python _tools/qa/_check_data_ownership.py`
+- ✅ 链路成立：`Order → PricingContext → PricingContract → Money` —— 左边两格由核心的 `core/pricing_context.py::context_of` 负责（扩展没有库访问权），右边**必须是核心的 `Money`**（AST/运行期双重核对）—— 复现：`cd backend; python -m pytest tests/test_pricing_contract.py -q`
+- ✅ **两个 Pricing 实现可替换**，替换时 Core 修改 **0 行**、既有扩展模块修改 **0 个**（区间 `51c4a72..a7fee0c`，只新增 1 个文件 `per_quantity.py`）—— 复现：`python _tools/ops/_r4_replace_drill.py --check`
+- ✅ **替换是配置行为，不是开发行为**：同一张订单只换规则快照里的 `pricing_kind`，两个实现给出**不同的**结果（统一价 120.00 元 / 按量 8.50 × 15 件 = 127.50 元），而代码一行没改 —— 复现：`python _tools/ops/_r4_replace_drill.py --check`
+- ✅ Extension ⛔ 不写账本：只能 `calculate → Money`，最终事实交给 Core 事务（扩展包里一条写语句都没有、也碰不到 `ledgers` / `cash_flows`）—— 复现：`python _tools/qa/_check_data_ownership.py`
+- ✅ 历史可解释：订单上保有**派单那一刻定格的规则快照**（`orders.driver_rule_snapshot`），删除扩展后历史单仍解释得通 —— 复现：`python _tools/qa/_check_data_ownership.py`
+- ✅ 顺带兑现 R4-03 台账里那条承诺：`_check_extension_manifest.py` 的 `MIN_EXTENSIONS` **从 0 抬到 1**（从这一刻起「扩展数掉到 0」会当场报红，而不是安静地全绿）—— 复现：`python _tools/qa/_check_extension_manifest.py`
+
+**一条如实记着的边界**：`Order → PricingContext` 这一段**在测试里是真的**（用一张 `Order` 实例走完整链路），
+但 ⛔ **生产订单计价仍然走既有的核心实现**（`services/freight_pricing.py` / `services/driver_pay.py`）。
+本轮**不做接线** —— 那会改钱的口径，与「Core 修改数 = 0」直接冲突，也需要单独的发布与演练。
+本里程碑证的是「**这条链在契约层成立、且换实现不用动核心**」，不是「生产已经换成扩展在算钱」。
 
 ## R4-06 Remove Drill
 
