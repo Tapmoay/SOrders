@@ -110,11 +110,16 @@ def main(argv: list[str] | None = None) -> int:
     rows: list[tuple[str, str, str]] = []      # (级别, 项, 说明)
     accepted_hit: set[str] = set()             # 本次命中的「已知/已接受」条目（跑完拿它找化石）
 
+    # ⛔ 2026-09-26 B 段之后生产是**两个** unit（sorders-api-a/-b），所以这里不再要求 state 恰好等于
+    #    "active"：采集侧把所有 enabled 的 sorders-api* unit 的 is-active 去重后用逗号连起来，
+    #    "active," / "active" 都算全活；只要有一个不是 active，值里就会出现别的词 ⇒ 判 fail。
     state = f.get("service_state", "?")
     health = f.get("api_health", "?")
-    rows.append(("ok" if state == "active" and health == "200" else "fail",
+    rows.append(("ok" if state.replace(",", "") == "active" and health == "200" else "fail",
                  "服务 / 健康检查",
-                 f"systemd={state} ｜ /health={health} ｜ {f.get('api_health_body', '')[:60]}"))
+                 "units=" + str(f.get("service_units", "?")) + " ｜ systemd=" + state
+                 + " ｜ /health=" + health + "（" + str(f.get("api_health_each", "")).strip() + "）"
+                 + " ｜ " + str(f.get("api_health_body", ""))[:40]))
 
     for key in sorted(k for k in f if k.endswith("_days_left")):
         try:

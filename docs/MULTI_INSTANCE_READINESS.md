@@ -81,10 +81,10 @@ must_contain: UPLOADS_DIR, mysqldump
 
 ```gate
 name: socket-cross-process
-中文名: Socket.IO 跨进程
+中文名: Socket.IO 跨进程（⛔ 2026-09-26 B 段之后是**实测过**的，不只是代码在）
 status: done
-evidence: backend/app/core/socket_io.py, backend/app/config.py
-must_contain: socket_redis_url
+evidence: backend/app/core/socket_io.py, backend/app/config.py, docs/R3_B_MULTIINSTANCE_EVIDENCE.md
+must_contain: socket_redis_url, A 上 emit -> 连在 B 上的客户端收到, B 上 emit -> 连在 A 上的客户端收到, 结果：A->B OK | B->A OK
 ```
 
 ```gate
@@ -99,25 +99,29 @@ status: not-done
 name: shared-uploads
 中文名: 上传目录共享
 status: not-done
-为什么还没做: 上传目录是写死的相对路径 Path("uploads")，落在各机器的本机磁盘上（生产 /opt/SOrders/backend/uploads）
-什么时候做: 切多实例之前 —— 换对象存储或共享盘；那之前先\u628a路径提成配置项（现在连配置项都没有）
+为什么还没做: ⚠️ 同机多实例**已经满足**（生产两实例共用 /opt/SOrders/backend/uploads，双实例实验也验过 A 传的图 B 取得到、字节一致）；但这一道门按**跨主机**判，所以仍是 not-done —— 上传目录还是本机磁盘路径，没有共享盘或对象存储
+什么时候做: 真要多主机时 —— 换对象存储或共享盘；那之前先把路径提成配置项
 ```
 
 ```gate
 name: scheduled-jobs-single-leader
 中文名: 定时任务选主
 status: not-done
-为什么还没做: data_retention 每日循环只有本机 flock + 标记文件；备份与体检是各机器自己的 cron —— 跨主机没有任何去重
-什么时候做: 切多实例之前 —— 选主（Redis/DB 锁）或把定时任务外置成一处跑
+为什么还没做: ⚠️ 同机多实例**已经满足**（2026-09-26 生产实测：一个实例拿到 sorders_scheduler_retention 锁去跑治理、另一个记 skipped_same_day）；但这一道门按**跨主机**判，所以仍是 not-done —— 那把锁是本机 flock + /tmp 标记文件，跨主机不成立，备份与体检也仍是各机器自己的 cron
+什么时候做: 真要多主机时 —— 选主换成 Redis/DB 锁，或把定时任务外置成一处跑
 ```
 
 ```gate
 name: nginx-upstream
-中文名: nginx 上游多台 + 健康检查摘除
-status: not-done
-为什么还没做: 仓库里的生成模板只有单台（proxy_pass http://127.0.0.1:8000），且没有任何 max_fails / proxy_next_upstream / health_check
-什么时候做: 切多实例之前 —— 配 upstream 多台 + 失败摘除；那要动生产 nginx，属于用户拍板
+中文名: nginx 上游多台 + 健康检查摘除（2026-09-26 B 段已在生产上做成，并**摘机验过**）
+status: done
+evidence: docs/R3_B_MULTIINSTANCE_EVIDENCE.md
+must_contain: upstream sorders_backend, ip_hash, max_fails=2 fail_timeout=10s, proxy_next_upstream error timeout, no live upstreams, 摘掉 A, 摘掉 B
 ```
+
+⚠️ 这一道门原来写的是「仓库里的生成模板只有单台」—— 那句话在 2026-09-26 之后**不再成立**：
+生产 nginx 已经是 `upstream sorders_backend { ip_hash; server 127.0.0.1:8111 max_fails=2 fail_timeout=10s; server 127.0.0.1:8112 …; }`，
+并且**摘机测试**（摘 A → B 接管、摘 B → A 继续）与 `no live upstreams` 的原始日志都在证据文档里。
 
 ## 前置条件逐条核对（报告的排序：迁移 → 事件 → 可观测 → 备份 → 才轮到多实例）
 

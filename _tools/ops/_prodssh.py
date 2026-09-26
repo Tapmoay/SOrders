@@ -161,14 +161,27 @@ emit kernel "$(uname -r)"
 emit cpu "$(nproc)"
 emit mem_mb "$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo)"
 
-# ---- 服务 ----
-emit service_state "$(systemctl is-active @SERVICE@)"
-emit service_since "$(systemctl show @SERVICE@ -p ActiveEnterTimestamp --value)"
-emit service_restarts "$(systemctl show @SERVICE@ -p NRestarts --value)"
-emit service_hash "$(systemctl cat @SERVICE@ 2>/dev/null | sha256sum | cut -c1-16)"
-emit api_health "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/health)"
-emit api_health_body "$(curl -s http://127.0.0.1:8000/health | head -c 200)"
-emit api_paths "$(curl -s http://127.0.0.1:8000/openapi.json | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("paths",{})))' 2>/dev/null)"
+# ---- 服务（⛔ 拓扑无关写法：认**所有 enabled 的** sorders-api* unit）----
+# 2026-09-26 R3-03 B 段之后，生产从「一个 unit 里 2 个 worker（:8000）」变成
+# 「两个 unit：sorders-api-a :8111 / sorders-api-b :8112，nginx upstream 负载」。
+# 所以这里不再写死 unit 名与端口 —— 单实例与双实例都能采，且**新增实例会自动被采到**。
+UNITS="$(systemctl list-unit-files 'sorders-api*.service' --state=enabled --no-legend 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
+[ -z "$UNITS" ] && UNITS="@SERVICE@"
+emit service_units "$UNITS"
+emit service_state "$(for u in $UNITS; do systemctl is-active "$u"; done 2>/dev/null | sort -u | tr '\n' ',')"
+emit service_since "$(systemctl show $(echo $UNITS | awk '{print $1}') -p ActiveEnterTimestamp --value)"
+emit service_restarts "$(systemctl show $(echo $UNITS | awk '{print $1}') -p NRestarts --value)"
+emit service_hash "$(systemctl cat $UNITS 2>/dev/null | sha256sum | cut -c1-16)"
+# 后端端口：从**正在跑的** uvicorn 进程里取（单实例/多实例都认）；取不到再退回 8000
+PORTS="$(pgrep -af 'uvicorn app.main:app' 2>/dev/null | grep -oE 'port [0-9]+' | awk '{print $2}' | sort -un | tr '\n' ' ')"
+[ -z "$PORTS" ] && PORTS="8000"
+emit api_ports "$PORTS"
+EACH=""; ALLOK=1
+for p in $PORTS; do c=$(curl -s -m 4 -o /dev/null -w '%{http_code}' http://127.0.0.1:$p/health 2>/dev/null); EACH="$EACH $p=$c"; [ "$c" = "200" ] || ALLOK=0; done
+emit api_health_each "$EACH"
+emit api_health "$([ $ALLOK = 1 ] && echo 200 || echo "非全绿:$EACH")"
+emit api_health_body "$(curl -s -m 4 http://127.0.0.1:${PORTS%% *}/health | head -c 200)"
+emit api_paths "$(curl -s -m 4 http://127.0.0.1:${PORTS%% *}/openapi.json | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("paths",{})))' 2>/dev/null)"
 
 # ---- 数据库 ----
 emit mysql_version "$(mysql --version | sed 's/.*Distrib //;s/,.*//')"

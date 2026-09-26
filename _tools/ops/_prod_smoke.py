@@ -105,6 +105,10 @@ emit nginx_proxy_pass "$(nginx -T 2>/dev/null | grep -E 'proxy_pass' | sed 's/^[
 emit nginx_upstream "$(nginx -T 2>/dev/null | grep -A5 -E '^[[:space:]]*upstream[[:space:]]' | tr -d '\r' | tr '\n' ';' | head -c 400)"
 emit nginx_failover "$(nginx -T 2>/dev/null | grep -E 'max_fails|fail_timeout|proxy_next_upstream' | tr -d ' ' | tr '\n' ';')"
 emit nginx_socketio "$(nginx -T 2>/dev/null | grep -A8 'socket.io' | tr -d '\r' | tr '\n' ';' | head -c 400)"
+emit upstream_members "$(nginx -T 2>/dev/null | sed -n '/^[[:space:]]*upstream[[:space:]]/,/}/p' | grep -oE '127\.0\.0\.1:[0-9]+' | sort -u | tr '\n' ' ')"
+emit backend_a_health "$(curl -s -m 4 -o /dev/null -w '%{http_code}' http://127.0.0.1:8111/health 2>/dev/null || echo ERR)"
+emit backend_b_health "$(curl -s -m 4 -o /dev/null -w '%{http_code}' http://127.0.0.1:8112/health 2>/dev/null || echo ERR)"
+emit backend_units "$(systemctl is-active sorders-api-a sorders-api-b 2>/dev/null | tr '\n' ',' )"
 
 # ---- uploads（⛔ 不做写入探测：那会往生产上传目录里放垃圾文件）----
 emit uploads_readable "$([ -r @UPLOADS@ ] && echo yes || echo no)"
@@ -112,8 +116,10 @@ emit uploads_readable "$([ -r @UPLOADS@ ] && echo yes || echo no)"
 # ---- trace：X-Request-ID 必须**原样**回来（客户端 → 应用 → 响应头）----
 RID="r3smoke-$(date +%s)-$$"
 emit trace_probe_id "$RID"
-emit trace_app_status "$(curl -s -o /dev/null -w '%{http_code}' -H "X-Request-ID: $RID" http://127.0.0.1:8000/health)"
-emit trace_app_header "$(curl -s -D- -o /dev/null -H "X-Request-ID: $RID" http://127.0.0.1:8000/health | tr -d '\r' | awk 'tolower($1)=="x-request-id:"{print $2}')"
+# ⛔ 2026-09-26 B 段之后不再写死 :8000（那个 unit 已经退场）—— 直连「正在跑的第一个后端端口」。
+P0="$(pgrep -af 'uvicorn app.main:app' 2>/dev/null | grep -oE 'port [0-9]+' | awk '{print $2}' | sort -un | head -1)"; [ -z "$P0" ] && P0=8000
+emit trace_app_status "$(curl -s -o /dev/null -w '%{http_code}' -H "X-Request-ID: $RID" http://127.0.0.1:$P0/health)"
+emit trace_app_header "$(curl -s -D- -o /dev/null -H "X-Request-ID: $RID" http://127.0.0.1:$P0/health | tr -d '\r' | awk 'tolower($1)=="x-request-id:"{print $2}')"
 emit trace_nginx_status "$(curl -s -o /dev/null -w '%{http_code}' -H "X-Request-ID: $RID" http://127.0.0.1/api/v1/orders)"
 emit trace_nginx_header "$(curl -s -D- -o /dev/null -H "X-Request-ID: $RID" http://127.0.0.1/api/v1/orders | tr -d '\r' | awk 'tolower($1)=="x-request-id:"{print $2}')"
 """
@@ -323,8 +329,12 @@ def main() -> int:
     snap_name, snap_paths = newest_route_snapshot()
 
     # ---- 1. 现状健康：服务 / 接口 / 磁盘 / 上传 / 备份（这些跟发布没关系，红了就要管）----
-    chk(f("service_state") == "active", "服务 sorders-api 在跑",
-        "systemctl is-active = active", "systemctl is-active = " + str(f("service_state")))
+    # ⛔ 2026-09-26 起生产是**两个** unit ⇒ 采集侧把它们去重后用逗号连起来（"active,"）。
+    #    单实例时是 "active"。两者都算全活；有一个不 active，值里就会混进别的词。
+    _svc = str(f("service_state") or "")
+    chk(_svc.replace(",", "") == "active", "API 服务在跑（所有 enabled 的 sorders-api* unit）",
+        "units=" + str(f("service_units")) + " ｜ is-active=" + _svc,
+        "units=" + str(f("service_units")) + " ｜ is-active=" + _svc + "（有 unit 不是 active）")
     chk(f("api_health") == "200", "GET /health = 200",
         "/health = 200（" + str(f("api_health_body"))[:40] + "）", "/health = " + str(f("api_health")))
     chk(f("db_reachable") == "1", "数据库可达", "select 1 = 1", "select 1 = " + str(f("db_reachable")))
@@ -438,12 +448,25 @@ def main() -> int:
     chk((f("nginx_T_lines") or "0") != "0", "nginx 配置可读",
         str(f("nginx_T_lines")) + " 行 / " + str(f("nginx_version")), "nginx -T 打不出东西",
         category="consistency")
-    chk("127.0.0.1:8000" in (f("nginx_proxy_pass") or ""), "nginx 反代到后端",
-        f("nginx_proxy_pass") or "", "proxy_pass = " + str(f("nginx_proxy_pass")), category="consistency")
+    # ⛔ 2026-09-26 B 段之后：部署形态从「单后端 127.0.0.1:8000」变成「upstream{A :8111, B :8112}」。
+    #    所以这里判的是「反代指向了**一个**后端」：单后端（proxy_pass 直写 ip:port）或 upstream 都算，
+    #    ⛔ 但**必须**能在这个字符串里看见后端地址 —— 什么都不指向就是 ❌。
+    _pp = f("nginx_proxy_pass") or ""
+    _members = f("upstream_members") or ""
+    _proxied = ("127.0.0.1:8000" in _pp) or ("sorders_backend" in _pp) or ("127.0.0.1:8111" in _pp)
+    chk(_proxied, "nginx 反代到后端", _pp[:120] or "(空)", "proxy_pass = " + _pp, category="consistency")
     chk(True, "nginx 的 upstream 形态（只记录）",
-        (f("nginx_upstream") or "没有 upstream 块 —— 单后端 proxy_pass（当前部署形态）")
+        (f("nginx_upstream") or "没有 upstream 块 —— 单后端 proxy_pass")
         + "；失败摘除指令：" + (f("nginx_failover") or "无"),
         category="consistency")
+    # R3-03 B 段之后新增的判据（2026-09-26）：**两个后端都得活着**。
+    # ⛔ 原来这里只有一条「反代到后端」—— 单后端形态下它够了；两后端形态下，
+    #    一台悄悄死了而 nginx 还在往它转（只是每次多花一次失败重试）是**看不出来**的。
+    _a = (f("backend_a_health") or "").strip()
+    _b = (f("backend_b_health") or "").strip()
+    chk(_a == "200" and _b == "200", "两个后端实例都活着（A :8111 / B :8112）",
+        "A=" + _a + " B=" + _b + " ｜ units=" + (f("backend_units") or ""),
+        "A=" + _a + " B=" + _b + "（有一个不是 200 —— 它要么挂了，要么还没起）", category="health")
     chk(bool(f("nginx_socketio")), "nginx 有 /socket.io/ 转发（WebSocket 升级头）",
         str(f("nginx_socketio"))[:120],
         "nginx 里没找到 /socket.io/ 转发（⛔ 那等于实时推送在入口就断了，不是告警）",

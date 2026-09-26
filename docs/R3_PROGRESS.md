@@ -26,7 +26,7 @@
 | Outbox | ✅ | ✅ | ❌ | ✅ | ❌ | `_check_outbox.py` + `_check_outbox_idempotency.py`；生产：6 条事件全部 `sent`、重试 0（A6）；演练出口 R3-06-C |
 | Scheduler | ❌ | ❌ | ❌ | ✅ | ❌ | ⛔ **没有静态判据**（只能真跑）：本机 `_dual_instance.py --all`（R3-03）；**生产**：一个 systemd 里 2 个 worker，`数据保留治理` 一个 `{'skipped': 1}`（拿到锁）+ 一个 `{'skipped_same_day': 1}`（没拿到）|
 | Upload | ❌ | ❌ | ❌ | ❌ | ❌ | ⛔ 「多实例下一致」**没有静态判据**（只能真跑，R3-03）；上传自身的限制由 `_check_upload_limits.py` 核；⛔ 生产**没做写探测** ⇒ 可写性未验 |
-| Socket multi-instance | ❌ | ❌ | ❌ | ❌ | ❌ | ⛔ 卡**环境**：本机没有 Redis、生产没有多实例（R3-03）；出口＝写阶段 B（或先装本机 Redis 只验 socket）|
+| Socket multi-instance | ✅ | ✅ | ❌ | ✅ | ❌ | 判据 `_check_multi_instance_readiness.py`（在 119 个检查里）+ **生产实测**（A→B / B→A 双向往返、nginx `upstream`、摘机测试）；⛔ **跨主机未验** |
 | Trace | ✅ | ✅ | ❌ | ✅ | ❌ | `_check_traceability.py`（R3-04）；生产：`_trace_order.py SO202609264191401979` 打完整条链（4 行审计带两个号 / 3 条事件 sent）|
 
 **读表须知**
@@ -74,13 +74,13 @@
 
 ## 写阶段出口（Write Phase A / B / C）
 
-⚠️ **口径（2026-09-26 用户拍板）**：**A ✅ 已完成**（7 条 ❌ 已关）；**B ✅ 已放行**（同日开始）；**C ⏸ 等 B 验收后再放行**。
+⚠️ **口径（2026-09-26 用户拍板）**：**A ✅ 已完成**；**B ✅ 已放行并完成**（socket 双向 + nginx upstream + 摘机测试）；**C ⏸ 等「备份隔离恢复验证」做完再放行**。
 
 ```text
              R3 Production
                   A ✅（已完成）
                   ↓
-          B Multi-instance ← 现在在这里（Redis → 双实例 Socket → Socket 实测 → nginx upstream → 摘机测试）
+          B Multi-instance ✅（Redis → 双实例 Socket → Socket 实测 → nginx upstream → 摘机测试，全部做完）
                   ↓ B 验收 ✅
           备份隔离恢复验证（新增前置）
                   ↓
@@ -105,7 +105,7 @@ C 故障演练   worker-crash / redis-down / event-delay / lock-contention / dis
 | 段 | 关掉哪几条 ❌ | 入口条件 | 出口判据（怎么算过关） | 失败怎么办 |
 |---|---|---|---|---|
 | **A 发布** | R3-05 六条：备份 / 迁移 / 启动 / health / 只读烟测 / trace 一单 | 用户一句话许可（禁做 #13/#14） | `_release.py --step X --go` 八步全过（各步判据见 `--plan`；⛔ 2026-09-26 执行前实测发现少了一步，见 R3-05）；`_prod_smoke.py --readonly` 退出码 **0**（⚠️ 今天跑出来是 **1** —— 生产还是旧代码）；`_trace_order.py <单号>` 能按 request_id 串起整条链 | **回滚 A**（代码退回上一个可用提交）/ **回滚 B**（用发布前的 dump 恢复库）；四步与「回滚后要做的三件事」在 `docs/RELEASE_CANDIDATE.md` §四·§五 |
-| **B 多实例**（**2026-09-26 已放行**）| R3-03 两条：Socket.IO 跨实例推送 / nginx upstream + 失败摘除 | A 段已 ✅（B 就从这里开始）| 见下面「B 段三步」：B0 备 Redis+A/B 两实例 → B1 **Socket 双向实测**（A→B、B→A）→ B2 才改 nginx 并**摘机测试**（`max_fails` / `proxy_next_upstream` **真的触发过**，⛔ 不是「配置里看起来有」）| 只回 nginx（先备份原配置）；⛔ B1 过之前**不许**动那条单后端 `proxy_pass` |
+| **B 多实例**（**2026-09-26 已放行并完成**）| R3-03 两条：Socket.IO 跨实例推送 / nginx upstream + 失败摘除 | ✅ **已完成** | 全部达标：B0 备料（⛔ 发现「生产 keyspace 空」**推不出**「没在用适配器」—— `.env` 里本来就有 `SOCKET_REDIS_URL`）→ B1 **Socket 双向实测通过** → B2 nginx `upstream` + **摘机测试通过** + 失败摘除有原始日志；原始输出 `docs/R3_B_MULTIINSTANCE_EVIDENCE.md` | 回滚：`systemctl enable --now sorders-api` + 把 nginx 两个文件从 `/opt/sorders-backup/b2-nginx-20260926-223624/` 拷回 + reload |
 | **B 验收之后的必修前置**（用户 2026-09-26 加的）| **备份的隔离恢复验证**：生产备份 → 隔离 MySQL（`sorders_drill_*`）→ 恢复 → 核 schema / 行数 / 关键查询 | B 段验收 ✅ | 恢复出来的库**能用**：结构版本 8、`orders`/`ledgers`/`users`/`products` 行数与 A1 备份清单一致、跑一条关键查询（例如某单的账本行）能对上 | 恢复失败 → **C 段不许开始**（没有可用的回滚点，破坏性演练就没有安全网）|\n| **C 演练** | R3-06 五条：worker-crash / redis-down / event-delay / lock-contention / disk-full | **B 验收 ✅ ＋ 备份恢复验证 ✅** | 每条按 `C-X0 前置 → X1 取基线 → X2 注入 → X3 观察期望信号 → X4 恢复 → X5 核业务状态` 六步；⛔ **只证「服务起来了」不算过，要证「业务状态没被弄坏」** | 每条都写了「怎么停」；演练不动业务数据（`operation_logs` 除外 —— 那是它自己的证据）|
 
 ⚠️ **B 段可以只做一半**：装一个本机 Redis 就能把 socket 那一格验掉（代价＝本机多一个常驻服务）；
@@ -296,14 +296,29 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 - ✅ upload 一致（A 传的图 B 取得到，**字节一致**）—— 复现：`python _tools/ops/_dual_instance.py --all`
 - ✅ 杀掉 A 之后 B 继续服务（`/health` 200 + 登录读自己 200）—— 复现：`python _tools/ops/_dual_instance.py --all`
 - ✅ 上传资产的运行模型已决策（**本机文件系统资产**；多实例＝同机多进程/同一挂载点；对象存储留 R4）—— 复现：`python _tools/qa/_check_r3_constraints.py`（`upload_decision_record` 探针）
-- ❌ **Socket.IO 跨实例推送未验** —— 复现：`python _tools/ops/_dual_instance.py --socket`（它会如实打印「没验」）
+- ✅ **Socket.IO 跨实例推送**（2026-09-26 B 段实测，**两个方向都收到**）—— 复现：`python _tools/qa/_check_multi_instance_readiness.py --check`
+  ⭐ 实测（raw WebSocket 直接讲 Socket.IO 协议，⛔ 不是「Redis 配置看起来没问题」）：
+  ```text
+  OK   A 上 emit -> 连在 B 上的客户端收到 -> 收到（0.1s）      ← 第一次（隔离的 db 1 上验机制）
+  OK   B 上 emit -> 连在 A 上的客户端收到 -> 收到（1.5s）
+  OK   A 上 emit -> 连在 B 上的客户端收到 -> 收到（1.7s）      ← 第二次（真拓扑 db 0 上复验）
+  OK   B 上 emit -> 连在 A 上的客户端收到 -> 收到（0.0s）
+  ```
+  ⛔ 上面那条复现命令核的是`docs/MULTI_INSTANCE_READINESS.md` 里 `socket-cross-process` 这道门：
+  它声明 done，判据就去 `docs/R3_B_MULTIINSTANCE_EVIDENCE.md` 里核那四串**实测结论**真的在不在（可在 CI 上跑）。
+  原始输出与「⛔ 这份证据证不了什么」在同文档。
   ⛔ 本机**没有 Redis**，Socket.IO 的跨进程适配器起不来，这一格**没有验**，不假装通过。
   要验需要有 Redis 的环境。⛔ 有一条**不能走**的路：借生产的 Redis —— 那会把测试实例的推送混进
   生产客户端的同一个 channel（除非用不同的 Redis DB 序号，而那就等于在生产机上起临时实例）。
   三条候选路径写在下面「卡在哪儿」一节。
   ⭐ 2026-09-26 生产只读核对补上一条**事实**：生产 Redis 的 `info keyspace` **没有任何 db 行**（键空间是空的）
   ⇒ 生产**也没有**在用跨实例适配器。所以这一格不是「本机缺 Redis」，而是**本机与生产都没有证据**。
-- ❌ **nginx upstream + 失败摘除未验** —— 复现：`python _tools/qa/_check_multi_instance_readiness.py`
+- ✅ **nginx upstream + 失败摘除**（2026-09-26 B 段在生产上做成并**摘机验过**）—— 复现：`python _tools/qa/_check_multi_instance_readiness.py --check`
+  ⭐ 现在的形态：`upstream sorders_backend { ip_hash; server 127.0.0.1:8111 max_fails=2 fail_timeout=10s; server 127.0.0.1:8112 … }`
+  + 三个 location 都带 `proxy_next_upstream error timeout http_502 http_503 http_504`（`ip_hash` 是因为 Socket.IO 先 polling 再升级 websocket，那一串必须落同一个后端）。
+  ⭐ **摘机测试**：摘掉 A → 请求仍 401（B 接管）；恢复 A、等过 `fail_timeout` 窗口、再摘掉 B → 请求仍 401（A 继续服务）。
+  ⭐ **失败摘除的原始证据**（`/var/log/nginx/error.log`）：`connect() failed (111: Connection refused) … upstream 8111` 与 `no live upstreams … upstream http://sorders_backend`
+  ⇒ ⛔ 不是「配置文件里看起来有」，是 nginx 真的把那台标了不可用。⚠️ 我第一次跑时第三步出过 502 —— 是我自己的时序（`fail_timeout` 窗口没过完就摘了第二台），重跑即过，如实记着。
   （那道门的 `status` 仍是 `not-done`）。本机没有 nginx；它要动生产 nginx，属 R3-05（且要用户许可）。
   ⭐ 2026-09-26 生产只读核对了 nginx **现状**（`nginx -T`，只读）：`proxy_pass http://127.0.0.1:8000` ——
   **单后端**；配置里**没有** `upstream` 块，也**没有** `max_fails` / `fail_timeout` / `proxy_next_upstream`。
@@ -328,7 +343,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 3. 我自己第一版的判据是错的：按「日志里出现几次『治理完成』」数，而那行**无条件打**，
    跳过时打的是 `{'skipped_same_day': 1}` → 「两个都跳过」被读成「两个都跑了」。现在按**返回的字典**判。
 
-**三层完成度**：Code Ready ✅ ｜ CI Proven ✅（2026-09-26 整轮 success —— 见上面「CI 运行记录」；⛔ 之前写的「还没推」已过期）｜ Runtime Proven **部分**（本机同机双进程 4/5 个实验过；跨机器与 socket/nginx 未验）
+**三层完成度**：Code Ready ✅ ｜ CI Proven ✅（2026-09-26 整轮 success —— 见上面「CI 运行记录」）｜ Runtime Proven ✅（本机同机双进程 + **生产两个实例**：socket 双向实测、nginx upstream + 摘机测试都过；⛔ **跨主机未验**）
 
 ## R3-04 Observability
 
@@ -441,17 +456,17 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 | 5 | Read-only smoke verified | ✅ | `_prod_smoke.py --readonly`：**❌ 0 条** / 2 既知告警 |
 | 6 | Trace verified | ✅ | 一条命令打完整条链，4 行审计带两个号；事件 `sent`、通知 8 条 |
 | 7 | Business write smoke verified | ✅ | 建 1 单 / 派 1 次 / 撤 1 次（只动测试账号）；测试单已撤、钱没动 |
-| 8 | Socket verified | ❌ | **B 段未放行**；生产 Redis keyspace 空、也没有在用跨实例适配器 |
-| 9 | Multi-instance verified | ❌ | **B 段未放行**；生产仍是单后端 nginx + 一个 systemd 里的 2 个 worker |
+| 8 | Socket verified | ✅ | **2026-09-26 B 段实测**：A→B 与 B→A 两个方向都收到（raw WebSocket 直连两个实例；机制在隔离 db 1 上验一次、真拓扑 db 0 上再验一次）|
+| 9 | Multi-instance verified | ✅ | **2026-09-26**：两个 unit（A :8111 / B :8112）＋ nginx `upstream`＋**摘机测试**通过；⛔ 同机两进程，**跨主机未验** |
 | 10 | Failure drills verified | ❌ | **C 段未放行**；五个演练本机预演过、生产一条没跑 |
 
-⇒ **7 / 10**。⛔ 但「Production Runtime Proven」**不许简化成这一个分数** —— 用户 2026-09-26 要求按四块分开写：
+⇒ **9 / 10**（B 段又关掉两条）。⛔ 但「Production Runtime Proven」**不许简化成这一个分数** —— 用户 2026-09-26 要求按四块分开写：
 
 | 块 | 状态 | 说明 |
 |---|---|---|
-| **Production Runtime Foundation** | ✅ **7 / 10** | 上面那张勾选表：备份 / 迁移 / 启动 / 体检 / 只读烟测 / trace / 写烟测 已 ✅；socket / 多实例 / 演练 ❌ |
+| **Production Runtime Foundation** | ✅ **9 / 10** | 上面那张勾选表：备份 / 迁移 / 启动 / 体检 / 只读烟测 / trace / 写烟测 / **socket** / **多实例** 已 ✅；只剩**演练** ❌ |
 | **Business Write Correctness** | ⛔ **未充分证明** | 这次的测试单**没送达、没收款** ⇒ `ledgers` / `driver_bills` **0 行**。⛔ **「没覆盖」≠「有问题」** —— Money 那一格是**未知**，不是 ❌ 的缺陷 |
-| **Multi-instance Runtime** | ⛔ **未证明** | socket 跨实例 / nginx upstream + 失败摘除（**B 段**，2026-09-26 已放行）|
+| **Multi-instance Runtime** | ✅ **已证明（同机）** | 2026-09-26 B 段：两个实例 + socket 双向实测 + nginx upstream + 摘机测试。⛔ **跨主机未验**（共享盘 / 跨机选主 / 远端 Redis 都没做）|
 | **Failure Recovery** | ⛔ **未证明** | 五个故障演练 + **备份的隔离恢复验证**（**C 段**，等 B 验收后再放行）|
 
 #### A2c 那一次假红（判据错，⛔ 不是生产错）
