@@ -233,7 +233,17 @@ jobs:
       - name: 跑全量用例
         run: |
           cd backend
-          pytest -q --tb=short
+          # ⛔ 2026-09-27（R4）：原来这里只有一句 pytest —— 红了**看不到红在哪一条**。
+          #    这个仓库是**公开**的，Actions 日志匿名读不到；`test-parallel.yml` 早就为这个
+          #    加了"把失败摘要发成 CI 注解"的做法，Gate 这一条一直没跟上（R4 实测踩到：
+          #    后端用例红了，而注解里只有一句 "Process completed with exit code 1"）。
+          set -o pipefail
+          pytest -q --tb=short 2>&1 | tee /tmp/pytest-gate.log || {
+            echo "::error::后端用例失败，下面把摘要发成 CI 注解（公开仓库读不到日志，只能这么把失败原因送出来）"
+            grep -E "^(FAILED|ERROR)" /tmp/pytest-gate.log | head -30 | while read -r l; do echo "::error::$l"; done
+            tail -40 /tmp/pytest-gate.log | while read -r l; do echo "::error::尾部| $l"; done
+            exit 1
+          }
 
   # ============================================================
   # 常闸 · 安卓端到端（报告 §14：**登录 → 导航 → 下单**）
