@@ -20,6 +20,45 @@
 
 ## 进行中
 
+### [2026-09-27 00:2x → 进行中] 会话：**R4 第四轮整改 —— 核心稳定 / 扩展开放（Core-Stable / Extension-Open）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**依据**：用户 2026-09-27 交来的方向指南《SOrders 第四轮整改方案 R4》（`C:\Users\Optimistic\Desktop\ppkk.md`，1599 行）。
+总纲一句话：**核心不可插拔，边缘能力可插拔** —— 核心负责定义「什么是真的」，扩展负责定义「怎么做」。
+R4 要解的不是「把系统拆得更细」，而是：**未来不断新增能力时，新增的复杂度尽可能留在自己的边界内，不扩散到核心。**
+
+⛔ 指南自己踩了刹车（§44「最后给你一个非常重要的施工原则」）：**千万不要一开始就大重构**。
+顺序钉死为：`Boundary → Contract → 一个小扩展 → Add Drill → Replace Drill → Remove Drill → 第二个复杂扩展 → Compatibility → 才总结成框架`。
+⛔ §30 同时限制检查器数量：R4 **只做五个**架构检查器，且每个必须写清「为什么代码边界解决不了 / 反向破坏用例 / 静默空转保护」。
+
+**里程碑**（逐条退出条件见 `docs/R4_PROGRESS.md`，那是「已完成」三个字的唯一出处）：
+
+| 里程碑 | 交付 |
+| --- | --- |
+| R4-00 | 冻结基线；`socket_io.py` 正式进 `_core_files.txt`；写入「核心区只经受证据触发的例外机制修改」这条规则 |
+| R4-01 | `docs/R4_CORE_EXTENSION_MAP.md`（Core / Extension Point / Extension Implementation / Infrastructure），**Unclassified = 0** |
+| R4-02 | `UnitConversionContract v1` + `PricingContract v1`（输入 / 输出 / 错误 / 不变量 / 兼容 / 生命周期），⛔ 不建插件框架 |
+| R4-03 | Dependency Firewall + 五个检查器（boundary / dependencies / data_ownership / manifest / contracts） |
+| R4-04 | Unit Conversion 扩展落地：Core 修改数 = 0，Add 演练 |
+| R4-05 | Pricing 扩展落地：`Order → PricingContext → PricingContract → Money Core`，两个实现可替换 |
+| R4-06 | Remove Drill：完整卸载 Unit Conversion，核 orphan route / capability / config / import + 核心数据 |
+| R4-07 | Compatibility Drill：`PricingContract v1 → v2` 并存，旧实现仍工作、核心不改 |
+| R4-08 | `docs/ARCHITECTURE_RECTIFICATION_R4.md`（北极星）+ `docs/R4_PROGRESS.md` 验收矩阵（Add / Replace / Remove 是**实练**，不是静态概念） |
+
+**改动文件**（随里程碑推进追加）：`_tools/qa/_core_files.txt`、`_tools/qa/_check_core_freeze.py`、
+`docs/CORE_AND_EXTENSION.md`、`_tools/qa/_check_r3_constraints.py`（R3 棘轮窗口收口，理由见该文件）、
+`docs/R4_*.md`、新增扩展包与 R4 检查器。
+
+⛔ **明确不碰**（核心区 14 个）：`services/order_money.py`、`services/driver_pay.py`、`services/order_flow.py`、
+`services/order_return.py`、`services/accounting_service.py`、`services/shipper_settle.py`、`services/order_response.py`、
+`core/business_time.py`、`core/rbac.py`、`deps.py`、`models/enums.py`、`core/schema_bootstrap.py`、
+`services/data_retention.py`、`android/.../ai/AiWriteService.kt`。
+理由正是 R4 的立论本身：**扩展不迫使核心改变** —— 所以本轮默认「核心一个字节都不改」，
+「Core 修改数 = 0」是 Add / Replace 演练的**唯一判据**，不是顺带的一句结论。
+
+**核心改动：backend/app/core/socket_io.py 的清单归属（不是改它的代码）** —— 为什么必须动核心清单：
+它是 R3 生产 Drill C 用原始输出证明过的**可靠投递最底层原语**，指南 §5 明确点它「位于可靠投递边界，
+不能因为想做插件化就随便拆出去」。
+
 ### [2026-09-26 23:2x → 次日 00:1x] 会话：**R3-06 C 段修复 —— 发件箱把「投递失败」记成「已发送」（生产 Drill C 抓到的 P1）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `bb67156`（修复）+ 收尾提交】
 
 **为什么开这个例外（用户 2026-09-26 拍板）**：核心区冻结本轮**正式开一个有证据触发的例外** —— 不是为了继续整理架构，

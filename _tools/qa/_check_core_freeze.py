@@ -55,6 +55,7 @@ _SKELETON = {
     "backend/app/services/driver_pay.py": "司机应得",
     "backend/app/services/order_flow.py": "订单状态迁移",
     "backend/app/core/business_time.py": "业务时区",
+    "backend/app/core/socket_io.py": "可靠投递原语（发件箱的成败语义建立在这条上）",
     "backend/app/core/rbac.py": "角色权限",
     "backend/app/models/enums.py": "领域词汇表",
     "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt": "AI 写闸门",

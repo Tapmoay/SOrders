@@ -1,0 +1,176 @@
+{
+  "local": {
+    "git_commit": "c67b2cfea27c01f184c05f6fba60120c768d6851",
+    "git_branch": "p",
+    "git_dirty": [
+      "?? _tools/qa/_r4_baseline_gate.txt"
+    ],
+    "git_ahead": 0,
+    "git_behind": 0,
+    "git_last_commit_date": "2026-09-26T23:56:47+08:00",
+    "version_file": "0.2.4",
+    "version_frontend": null,
+    "version_android": "0.2.4（构建时读 VERSION 文件）",
+    "version_backend_declared": "0.2.4（= 仓库根 VERSION，config.py 运行时读）",
+    "endpoints_total": 229,
+    "endpoints_write": 152,
+    "model_tables": [
+      "ai_call_daily",
+      "arrears_units",
+      "cash_flows",
+      "customers",
+      "driver_billing_rule_categories",
+      "driver_billing_rule_templates",
+      "driver_billing_rules",
+      "driver_bills",
+      "driver_settlements",
+      "expense_categories",
+      "expenses",
+      "freight_categories",
+      "freight_template_categories",
+      "freight_template_drivers",
+      "freight_templates",
+      "inventory_movements",
+      "ledger_export_jobs",
+      "ledgers",
+      "notifications",
+      "operation_logs",
+      "order_products",
+      "order_return_request_lines",
+      "order_return_requests",
+      "order_template_categories",
+      "order_templates",
+      "orders",
+      "outbox_events",
+      "place_categories",
+      "place_user_usage",
+      "places",
+      "price_rules",
+      "product_categories",
+      "product_cost_history",
+      "products",
+      "shipper_addresses",
+      "shipper_contacts",
+      "shipper_locations",
+      "shipper_receipts",
+      "shipper_settlement_lines",
+      "shipper_settlements",
+      "supplier_payables",
+      "suppliers",
+      "unit_conversions",
+      "usage_counters",
+      "user_product_visibility",
+      "users",
+      "vehicles"
+    ],
+    "model_table_count": 47,
+    "infra_tables": [
+      "schema_versions"
+    ],
+    "api_v1_lines": 13292,
+    "services_lines": 10326,
+    "services_files": 44,
+    "schema_bootstrap_lines": 1773,
+    "orders_py_lines": 30,
+    "docs_files": 530,
+    "tools_py_files": 405,
+    "static_checks": 119,
+    "reverse_verify_scripts": 142,
+    "android_tests_last_run": 1160,
+    "android_test_failures": 1,
+    "android_test_report_files": 76,
+    "android_tests_declared": 1131,
+    "android_main_kt": 257,
+    "backend_tests": 1020,
+    "largest_android_files": [
+      [
+        5796,
+        "android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt"
+      ],
+      [
+        2548,
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt"
+      ],
+      [
+        2257,
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatScreen.kt"
+      ],
+      [
+        2086,
+        "android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt"
+      ],
+      [
+        1960,
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt"
+      ],
+      [
+        1804,
+        "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
+      ],
+      [
+        1616,
+        "android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt"
+      ],
+      [
+        1532,
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicData.kt"
+      ]
+    ],
+    "largest_backend_files": [
+      [
+        1773,
+        "backend/app/core/schema_bootstrap.py"
+      ],
+      [
+        854,
+        "backend/app/api/v1/ledger.py"
+      ],
+      [
+        838,
+        "backend/app/services/accounting_service.py"
+      ],
+      [
+        780,
+        "backend/app/services/order_flow.py"
+      ],
+      [
+        747,
+        "backend/app/services/place_service.py"
+      ],
+      [
+        696,
+        "backend/app/services/message_center.py"
+      ],
+      [
+        633,
+        "backend/app/api/v1/shipper_ledger.py"
+      ],
+      [
+        630,
+        "backend/app/services/driver_pay.py"
+      ]
+    ],
+    "captured_at": "2026-09-27T00:15:24"
+  },
+  "prod": null,
+  "risks": [
+    {
+      "kind": "版本漂移",
+      "what": "版本号多处不一致",
+      "detail": "VERSION=0.2.4 ｜ android versionName=0.2.4（构建时读 VERSION 文件） ｜ backend main.py=0.2.4（= 仓库根 VERSION，config.py 运行时读）"
+    },
+    {
+      "kind": "测试",
+      "what": "最近一次安卓单测报告里有失败",
+      "detail": "failures=1"
+    },
+    {
+      "kind": "工作区",
+      "what": "工作区有未提交改动（结构性改造前必须先确认归属）",
+      "detail": "?? _tools/qa/_r4_baseline_gate.txt"
+    }
+  ],
+  "notes": [
+    "取不到 frontend/package.json（Vue3 H5 已于 2026-09-25 归档删除，用户拍板不要网页版） → version_frontend 记 None；报告 §20 的「四处同值」现在是三处"
+  ]
+}

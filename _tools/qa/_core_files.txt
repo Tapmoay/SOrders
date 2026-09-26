@@ -14,6 +14,26 @@
 #
 # 格式：`路径|为什么它是核心（一句话）`；`#` 开头是注释，空行忽略。
 # ⛔ 不许为了让检查变绿而删条目：脚本里有一条"骨架判据"钉着必须存在的那些（`_SKELETON`）。
+#
+# ## ⭐ 核心区**不是永久禁止修改**：它只能被「证据触发的例外」修改（R4-00，2026-09-27）
+#
+# 用户 2026-09-26 拍板（R3-06 生产 Drill C 抓到 P1 之后）：冻结的**目的不是让核心永远不变**，
+# 而是让每一次改动**必须有一个已经发生过的事实当理由**。例外要同时满足三件事：
+#
+#   ① **有证据** —— 不是"我觉得这样更好"，而是生产演练 / 线上原始输出 / 失败用例里拿到的**原始证据**。
+#      （R3-06 那次的证据是：停 Redis 时一条真实业务写入的发件箱事件被记成 `sent attempts=0`，
+#        而同一次演练的日志里有 16 条 `Cannot publish to redis... giving up`。）
+#   ② **只治那个病** —— 改动范围由证据界定的**那一条链**决定。
+#      ⛔ "顺手"做的重构 / 换实现 / 加抽象层**不算例外**：那属于新的一轮，要另行立项，
+#      不许借这个口子进来（用户 R3 的原话：「这次只治一个病」）。
+#   ③ **写下来** —— 在 `docs/AI_WORK_CLAIM.md` 的「进行中」写一行
+#      `核心改动：<路径> —— 为什么必须动核心：<一句话>`，并在报告里留一条
+#      「**演练 → 缺陷 → 修复 → 重跑**」的证据链（R3 的样子见 `docs/R3_FAILURE_DRILL_EVIDENCE.md`
+#      与 `docs/RECTIFICATION_REPORT_R3.md` §2.7）。
+#
+# ⛔ 反过来同样成立：**没有这三件事就不许动核心**。
+#    判据 `_check_core_freeze.py` 的第 3 条（未提交）与第 4 条（HEAD 那个提交）就是这句话的机器形态；
+#    规则本身写在 `docs/CORE_AND_EXTENSION.md` §2.1。
 
 backend/app/services/order_money.py|一张单的钱（已收 / 挂账 / 退货红冲 / 现场收现金）只有这一处口径
 backend/app/services/driver_pay.py|司机应得多少只有这一处实现（账单/结算页/绩效/报表四个消费点共用）
@@ -27,5 +47,6 @@ backend/app/core/rbac.py|角色 → 权限点（谁能干什么）
 backend/app/deps.py|鉴权依赖（require_roles / 当前用户；漏一处就是越权）
 backend/app/models/enums.py|领域词汇表：状态 / 来源 / 审计动作码（全项目共用的取值）
 backend/app/core/schema_bootstrap.py|生产库结构变更（线上迁移的唯一入口）
+backend/app/core/socket_io.py|推送的**最底层投递原语**（`sio.emit` 只在这里）—— 发件箱的「至少一次投递」承诺就建立在它的成败语义上；R3-06 生产 Drill C 用原始输出证明它位于**可靠投递边界**，所以它不能因为「想做插件化」就从核心拆出去
 backend/app/services/data_retention.py|**历史数据变样的唯一入口**：物理删单（连带账本/日志/库存流水/图片）、30 天隔离清理、3 年清理、压图。漏解一个外键就会让当天的整套治理全部停摆（2026-09-23 第 13 轮实测）
 android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt|AI 写闸门：preview → 确认卡 → execute 的唯一写入口

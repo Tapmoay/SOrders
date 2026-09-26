@@ -27,6 +27,18 @@ R3-BOUNDARY-JUSTIFICATION: 这不是「多一条红线」——它守的是**本
 ⚠️ **这条判据有一个诚实的局限**：阶段探针在产物出现之前一直返回 na，所以它**挡不住「干脆不做」**。
    挡住「不做」的是 docs/R3_PROGRESS.md 里逐条列出的退出条件与它们的复现命令 —— 那是给人看的。
 
+### ⚠️ R4-00（2026-09-27）：**预算窗口必须跟着轮次收口**（这条判据自己的一次修正）
+上面第 5/7/8 组的窗口原来是 `基线..HEAD` —— 那个右端点**永远不会关闭**。后果是：
+R4 每加一个扩展、每动一行 `backend/app`，都在**消耗 R3 的额度**；R4 干了几件事之后，
+「R3 净增不许超上限」会突然报红，而报红的原因**跟 R3 一点关系都没有**。
+一个只属于某一轮的判据，它的窗口必须跟着那一轮一起收口 ⇒ 现在读 `docs/R3_CONSTRAINTS.md` 里的
+**「R3 收口提交」**当右端点（`r3_window()`），清单里不写就 fail-closed 报错，不是悄悄退回 HEAD。
+
+⚠️ **但有两种东西故意跨轮继续生效**（它们守的不是 R3 的额度）：
+① `probe_commit_milestone_tag` —— 「每个提交都能回溯到某个里程碑」是**仓库级长期纪律**，
+   R3 窗口内必须标 `R3-0x`、收口之后必须标 R4 及以后某轮的编号；
+② `probe_checker_budget` 的**「必须写为什么边界解决不了」那一半** —— R4 指南 §30 对检查器有同样要求。
+
 用法：python _tools/qa/_check_r3_constraints.py [--list]
 """
 from __future__ import annotations
@@ -97,6 +109,16 @@ STACK_WORDS = ["prometheus", "grafana", "jaeger", "loki", "opentelemetry", "elas
 ROUND4_IMPORTS = ["oss2", "boto3", "minio", "aliyunsdkcore"]
 ROUND4_PATHS = ["backend/app/services/read_models", "backend/app/core/materialized_views.py"]
 
+#: R3 的「收口提交」从 `docs/R3_CONSTRAINTS.md` 读（同一份文档，一处真相）。
+#: ⛔ 为什么需要它：这份清单的**预算闸门**（backend_app_delta / checker_budget 的个数）
+#:    原来一律算 `基线..HEAD`，而那个窗口在 R3 结束后**永远不会关闭** —— 见文件头那段说明。
+ROUND_END_RE = re.compile("R3 收口提交[^\\n]*?`([0-9a-f]{7,40})`")
+
+#: 提交里程碑编号的形状：R3 窗口内必须 `R3-0x`；收口之后必须是 R3 及以后**任何一轮**的编号。
+#: 写成 `R[3-9]-0\\d` 而不是写死 `R4-0\\d`：下一轮不用回来改这一行。
+R3_TAG = re.compile("R3-0\\d")
+LATER_TAG = re.compile("R[3-9]-0\\d")
+
 Q = chr(39) + chr(34)
 LOCK_RE = re.compile(r"^([A-Z_]*LOCK_NAME[A-Z_]*)\s*=\s*[" + Q + r"]([^" + Q + r"]+)[" + Q + r"]", re.M)
 BASE_RE = re.compile("基线提交[^\\n]*?`([0-9a-f]{7,40})`")
@@ -152,6 +174,31 @@ def committed_caps() -> tuple[int | None, int | None] | None:
 def base_commit() -> str | None:
     m = BASE_RE.search(read(DOC_REL))
     return m.group(1) if m else None
+
+
+def round_end() -> str | None:
+    """R3 的收口提交（右端点）。"""
+    m = ROUND_END_RE.search(read(DOC_REL))
+    return m.group(1) if m else None
+
+
+def r3_window() -> tuple[str, str, str]:
+    """R3 的**预算/棘轮窗口** `(基线, 收口, 错误)`；错误非空时调用方一律按 na 处理。
+
+    ⛔ fail-closed：清单里没写「R3 收口提交」就报错，**不是**悄悄退回 `HEAD` ——
+       退回 HEAD 正是上面那段要修的毛病（窗口永不关闭）。
+    """
+    base = base_commit()
+    if not base:
+        return "", "", "清单里没写基线提交"
+    end = round_end()
+    if not end:
+        return base, "", ("清单里没写「R3 收口提交」—— 预算窗口没有右端点，就会把后面几轮的改动"
+                          "一直算进 R3 的额度里")
+    code, out = git("rev-parse", "--verify", end + "^{commit}")
+    if code != 0:
+        return base, "", "收口提交 " + end + " 还不在 git 里"
+    return base, end, ""
 
 
 def probe_import_purity() -> tuple[str, str]:
@@ -288,42 +335,65 @@ def probe_distinct_lock_names() -> tuple[str, str]:
     return "hold", str(len(names)) + " 把锁名字互不相同：" + "、".join(sorted(names))
 
 
-def _new_checkers() -> tuple[int, list[str], str]:
-    base = base_commit()
-    if not base:
-        return -1, [], "清单里没写基线提交"
-    code, out = git("rev-parse", "--verify", base + "^{commit}")
+def _added_checkers(rng: str) -> tuple[list[str], str]:
+    """某个区间（`a..b`）里**新增**（status=A）的检查器清单。
+
+    ⚠️ 只看**新增**：R3-01 里改过 `_check_migrations.py` 的锚点，那是「判据跟着代码走」，
+       不是「又加了一个检查器」—— 要求它写边界理由就跑偏了。
+    """
+    code, out = git("diff", "--name-status", rng, "--", "_tools")
     if code != 0:
-        return -1, [], "基线提交 " + base + " 还不在 git 里"
-    # ⚠️ 只看**新增**（status=A）的检查器：R3-01 里改过 `_check_migrations.py` 的锚点，
-    #    那是「判据跟着代码走」，不是「又加了一个检查器」—— 要求它写边界理由就跑偏了。
-    code, out = git("diff", "--name-status", base + "..HEAD", "--", "_tools")
-    if code != 0:
-        return -1, [], "git diff 失败：" + out.strip()[:120]
+        return [], "git diff 失败：" + out.strip()[:120]
     fresh = []
     for ln in out.splitlines():
         parts = ln.split("\t")
         if len(parts) >= 2 and parts[0].startswith("A") and parts[1].strip().endswith(".py") \
                 and "/_check_" in parts[1]:
             fresh.append(parts[1].strip())
+    return fresh, ""
+
+
+def _new_checkers() -> tuple[int, list[str], str]:
+    """**R3 窗口内**新增的检查器个数与清单 —— 个数预算不跨轮（见 `r3_window()`）。"""
+    base, end, err = r3_window()
+    if err:
+        return -1, [], err
+    fresh, derr = _added_checkers(base + ".." + end)
+    if derr:
+        return -1, [], derr
     return len(fresh), fresh, ""
 
 
 def probe_checker_budget() -> tuple[str, str]:
+    """① 个数预算（只算 R3 窗口）；② 「必须写为什么边界解决不了」（**跨轮生效**）。"""
     n, fresh, err = _new_checkers()
     if n < 0:
         return "na", err
-    missing = [rel for rel in fresh if "R3-BOUNDARY-JUSTIFICATION:" not in read(rel)]
+    # ⚠️ 为什么 ② 故意跨轮：R4 指南 §30 对检查器提的是同一件事
+    #    （每个检查器必须写清「为什么代码边界无法解决 / 反向破坏用例 / 静默空转保护」），
+    #    而 window 一收口就整条停掉的话，这条纪律会随着轮次结束一起消失。
+    #    ⛔ 但**个数**不跨轮 —— R4 的检查器不该消耗 R3 的额度。
+    base = base_commit() or ""
+    allfresh, derr = _added_checkers(base + "..HEAD") if base else ([], "")
+    if derr:
+        return "broken", derr
+    missing = [rel for rel in allfresh
+               if ("R3-BOUNDARY-JUSTIFICATION:" not in read(rel)
+                   and "R4-BOUNDARY-JUSTIFICATION:" not in read(rel))]
     if missing:
-        return "broken", "本轮新增的检查器没写「为什么边界解决不了」：" + "、".join(missing[:3])
-    return "hold", "本轮新增检查器 " + str(n) + " 个，都写了边界理由"
+        return "broken", "新增的检查器没写「为什么边界解决不了」：" + "、".join(missing[:3])
+    return "hold", ("R3 窗口内新增检查器 " + str(n) + " 个；基线以来共 " + str(len(allfresh))
+                    + " 个，都写了边界理由")
 
 
 def probe_backend_app_delta() -> tuple[str, str]:
-    base = base_commit()
-    if not base:
-        return "na", "清单里没写基线提交"
-    code, out = git("diff", "--numstat", base + "..HEAD", "--", "backend/app")
+    # ⚠️ 窗口 = **R3 窗口**（基线..收口），不是 `基线..HEAD` —— 理由写在 `r3_window()`：
+    #    R3 的额度属于 R3，不该被后面几轮的扩展消耗掉。
+    base, end, err = r3_window()
+    if err:
+        return "na", err
+    rng = base + ".." + end
+    code, out = git("diff", "--numstat", rng, "--", "backend/app")
     if code != 0:
         return "na", "基线提交还不在 git 里"
     add = dele = 0
@@ -333,7 +403,7 @@ def probe_backend_app_delta() -> tuple[str, str]:
             add += int(parts[0])
             dele += int(parts[1])
     delta = add - dele
-    code2, out2 = git("diff", "--numstat", base + "..HEAD", "--", "backend/app/services", "backend/app/api")
+    code2, out2 = git("diff", "--numstat", rng, "--", "backend/app/services", "backend/app/api")
     b_add = b_del = 0
     for ln in out2.splitlines():
         parts = ln.split("\t")
@@ -346,7 +416,7 @@ def probe_backend_app_delta() -> tuple[str, str]:
     if biz > MAX_BUSINESS_DELTA:
         return "broken", "**业务逻辑**净增 " + str(biz) + " 行，超过上限 " + str(MAX_BUSINESS_DELTA) + "（原则一）"
     # ---- shape 闸门：新模块的**个头**与**个数**（比总行数那把钝刀准得多）----
-    code3, out3 = git("diff", "--name-status", "--diff-filter=A", base + "..HEAD", "--", "backend/app")
+    code3, out3 = git("diff", "--name-status", "--diff-filter=A", rng, "--", "backend/app")
     added = [p[1].strip() for p in (ln.split("\t") for ln in out3.splitlines())
              if len(p) >= 2 and p[1].strip().endswith(".py")]
     if len(added) > MAX_NEW_FILES:
@@ -364,6 +434,12 @@ def probe_backend_app_delta() -> tuple[str, str]:
 
 
 def probe_commit_milestone_tag() -> tuple[str, str]:
+    """每个提交都要标里程碑编号 —— ⚠️ 这一条**跨轮继续生效**。
+
+    窗口（预算）收口了，纪律不收口：R3 窗口内必须 `R3-0x`，收口之后必须是 R4 及以后某一轮的编号。
+    整条停掉的话，「任何一个提交都能回溯到某个里程碑」这条长期纪律会随着轮次一起消失 ——
+    而它正是上一个「提交没编号」事故留下的那道防线。
+    """
     base = base_commit()
     if not base:
         return "na", "清单里没写基线提交"
@@ -373,10 +449,22 @@ def probe_commit_milestone_tag() -> tuple[str, str]:
     subs = [ln for ln in out.splitlines() if ln.strip()]
     if not subs:
         return "hold", "基线之后还没有提交（这一条从下一个提交开始生效）"
-    bad = [s for s in subs if not re.search(r"R3-0\d", s)]
-    if bad:
-        return "broken", str(len(bad)) + " 个提交没标里程碑编号：" + bad[0][:60]
-    return "hold", str(len(subs)) + " 个提交都标了里程碑编号"
+    end = round_end()
+    in_r3: set[str] = set()
+    if end and git("rev-parse", "--verify", end + "^{commit}")[0] == 0:
+        code2, out2 = git("log", "--format=%h", base + ".." + end)
+        if code2 == 0:
+            in_r3 = {ln.strip() for ln in out2.splitlines() if ln.strip()}
+    bad_r3 = [s for s in subs if s.split(" ", 1)[0] in in_r3 and not R3_TAG.search(s)]
+    if bad_r3:
+        return "broken", str(len(bad_r3)) + " 个 R3 窗口内的提交没标 R3-0x：" + bad_r3[0][:60]
+    later = [s for s in subs if s.split(" ", 1)[0] not in in_r3]
+    bad_later = [s for s in later if not LATER_TAG.search(s)]
+    if bad_later:
+        return "broken", (str(len(bad_later)) + " 个提交没有可回溯的里程碑编号"
+                          "（R3 收口之后应为 R4-0x）：" + bad_later[0][:60])
+    return "hold", (str(len(subs)) + " 个提交都标了里程碑编号（R3 窗口内 " + str(len(in_r3))
+                    + " 个标 R3-0x；收口之后 " + str(len(later)) + " 个标 R4 及以后）")
 
 
 def probe_exit_condition_ledger() -> tuple[str, str]:
