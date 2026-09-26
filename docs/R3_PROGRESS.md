@@ -83,7 +83,10 @@
 - ✅ 退出条件 1/10：`import app.database` 不执行 DDL —— 复现：`python _tools/qa/_check_import_purity.py`
 - ✅ 退出条件 2/10：application startup 不执行 migration（只 `schema_ready` 核对）—— 复现：`python _tools/qa/_check_import_purity.py`
 - ✅ 退出条件 3/10：migration 有唯一入口（`prepare_schema` ← `python -m app.migrations upgrade`）—— 复现：`python _tools/qa/_check_migrations.py`
-- ✅ 退出条件 4/10：migration version 正确（版本 7，7 条全部记账）—— 复现：`cd backend; python -m app.migrations status`
+- ✅ 退出条件 4/10：migration version 正确（版本 7，7 条全部记账）—— 复现：`cd backend; python -c "import os,sys,tempfile,runpy; d=tempfile.mkdtemp(); os.environ['DATABASE_URL']='sqlite:///'+(d.replace(os.sep,'/')+'/m.db'); sys.path.insert(0,'.'); sys.argv=['app.migrations','status']; runpy.run_module('app.migrations', run_name='__main__')"`
+  ⚠️ 这条命令为什么这么长：原来的 `python -m app.migrations status` 读的是**环境里配的 DATABASE_URL** ——
+  本机有 `.env`（SQLite）所以它绿，而 CI 上**没有 `.env`**、缺省值是 MySQL ⇒ 报 `Can't connect to MySQL server`
+  （2026-09-26 CI 实测）。改成**自己造一个临时库再问它**：两个平台都跑得通，证的还是同一件事（迁移体系认得出版本表）。
 - ✅ 退出条件 5/10：空库迁移通过（48 张表 / 版本 7 / 启动核对通过）—— 复现：`python _tools/ops/_migration_tests.py --fresh`
 - ✅ 退出条件 6/10：旧库迁移通过（无迁移记录的老库 → 版本 7，结构一行没丢）—— 复现：`python _tools/ops/_migration_tests.py --old`
 - ✅ 退出条件 7/10：两个进程同时迁移 → 都成功、每个版本恰好一行 —— 复现：`python _tools/ops/_migration_tests.py --concurrent`

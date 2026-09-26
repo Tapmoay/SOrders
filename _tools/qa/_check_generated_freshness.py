@@ -59,6 +59,23 @@ def _run_check(cmd: str) -> tuple[int, str]:
     return proc.returncode, ((proc.stdout or '') + (proc.stderr or '')).strip()
 
 
+def _diag(globs) -> str:
+    '''指纹不一致时的**诊断串**（文件数 / 每 glob 命中 / 清单哈希 / 字节哈希 / 最近改动的 3 个文件）。
+
+    为什么要有它：2026-09-26 实测过一次「本机绿、CI 红」的指纹不一致 —— 而 CI 的**日志要登录才看得到**，
+    唯一的匿名信息通道是**注解**。没有这几个数，只能靠猜（那一刻我确实猜不出来）。
+    '''
+    import hashlib as _h
+    files = sorted({p for g in globs for p in ROOT.glob(g) if p.is_file()})
+    per = ';'.join(g.split('/')[-1] + '=' + str(sum(1 for p in ROOT.glob(g) if p.is_file())) for g in globs)
+    h_list = _h.sha256(chr(10).join(str(p.relative_to(ROOT)).replace(chr(92), '/')
+                                    for p in files).encode('utf-8')).hexdigest()[:12]
+    h_bytes = _h.sha256(b''.join(p.read_bytes().replace(b'\r\n', b'\n') for p in files)).hexdigest()[:12]
+    newest = sorted(files, key=lambda p: p.stat().st_mtime)[-3:]
+    return ('files=' + str(len(files)) + ' (' + per + ') list=' + h_list + ' bytes=' + h_bytes
+            + ' newest=' + ','.join(str(p.relative_to(ROOT)).replace(chr(92), '/') for p in newest))
+
+
 def _glob_hits(globs: tuple[str, ...]) -> int:
     n = 0
     for pattern in globs:
@@ -70,6 +87,7 @@ def main() -> int:
     fails: list[str] = []
     checked = 0
     hashed = 0
+    attempted = 0   # 真的**比过**几次（对上几次是 hashed）—— 反空转看它，见下面那条注释
 
     if len(GENERATED_ARTIFACTS) < MIN_ARTIFACTS:
         fails.append('登记表里只有 ' + str(len(GENERATED_ARTIFACTS)) + ' 个产物（下限 '
@@ -91,6 +109,10 @@ def main() -> int:
             continue
         want = source_fingerprint(spec.sources)
         found = HASH_RE.findall(text)
+        # ⚠️ 2026-09-26 修：原来只有**比对成功**才算 hashed ⇒ 一条不一致会同时触发两条 fail，
+        #    其中一条还写着「判据在空转」—— 而判据明明比过了、只是没对上。**判据的报错不许说错话**
+        #    （实测：CI 上 hint_catalog 不一致，注解里同时出现「指纹不一致」与「判据在空转」，把人引偏）。
+        #    现在分开记：`attempted` = 真的比过；`hashed` = 比过且一致；反空转看 attempted。
         if spec.marker not in text:
             # ⛔ 光有那串 sha256 不够：**标记名**也要在 —— 否则判据只能靠「文件里出现过 64 位十六进制」去猜，
             #    那是「恰好对上」不是「说清楚了」。（反向验证第 ③ 条就是这么逼出来的。）
@@ -100,9 +122,13 @@ def main() -> int:
             fails.append(label + ' 里没有 source_hash 值 —— 它答不了「我是哪一版代码的产物」（重跑 '
                           + spec.generator + '）')
         elif want not in found:
+            attempted += 1
+            # ⭐ 不一致时把**诊断**打出来（本机与 CI 的差异靠猜猜不出来；CI 上注解是唯一的信息通道）：
+            #    文件数 / 每个 glob 命中数 / 清单哈希 / 字节哈希 / 最近改动的 3 个文件。只在真需要时算。
             fails.append(label + ' 的 source_hash 与现算指纹不一致（产物里 ' + found[0][:24]
-                          + ' / 现算 ' + want[:24] + '）—— 源码变了而产物没重跑')
+                          + ' / 现算 ' + want[:24] + '）—— 源码变了而产物没重跑。诊断：' + _diag(spec.sources))
         else:
+            attempted += 1
             hashed += 1
 
         # ---- ② 生成器自己说它没过期 ----
@@ -131,8 +157,9 @@ def main() -> int:
                 if when > _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(minutes=5):
                     fails.append(label + ' 的 generated_at 在未来：' + raw)
 
-    if hashed < MIN_HASHED:
-        fails.append('真正比对过指纹的产物只有 ' + str(hashed) + ' 个（下限 ' + str(MIN_HASHED) + '）—— 判据在空转')
+    if attempted < MIN_HASHED:
+        fails.append('真正比对过指纹的产物只有 ' + str(attempted) + ' 个（下限 ' + str(MIN_HASHED)
+                     + '）—— 判据在空转（⚠️ 这里数的是**比过几次**，不是「对上几次」：对不上由上面那条报）')
 
     print('生成物新鲜度：' + str(checked) + ' 个产物 / ' + str(hashed) + ' 个指纹比对过'
           + '（真源表：_airepo.GENERATED_ARTIFACTS）')

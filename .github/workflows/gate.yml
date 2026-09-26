@@ -123,6 +123,31 @@ jobs:
             echo "::error::全部静态检查失败（退出码 $rc）：$msg"
           fi
           exit "$rc"
+      # ⛔ 为什么要有这一步：Actions 的**日志要登录才看得到**（匿名只看到「Sign in to view logs」），
+      #    而**注解是匿名可读的**。2026-09-26 实测过一次代价：一次「本机 119/119 全绿、CI 红」，
+      #    我读不到是哪一条、也读不到为什么 —— 只能靠猜。这一步把「来源指纹对账」的**输入**
+      #    （文件数 / 每个 glob 命中数 / 清单哈希 / 字节哈希 / 最近改动的 3 个文件）打成 notice，
+      #    于是「本机与 CI 算出来的指纹为什么不一样」这件事变成**可读的证据**，而不是猜。
+      - name: 来源指纹自检（把 CI 侧对账输入打成注解 —— 诊断用，不改任何东西）
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib, pathlib, sys
+          sys.path.insert(0, '_tools/ai')
+          from _airepo import GENERATED_ARTIFACTS
+          root = pathlib.Path('.')
+          for spec in GENERATED_ARTIFACTS:
+              files = sorted({p for g in spec.sources for p in root.glob(g) if p.is_file()})
+              per = ' '.join(g.split('/')[-1] + '=' + str(sum(1 for p in root.glob(g) if p.is_file()))
+                             for g in spec.sources)
+              h_list = hashlib.sha256('\n'.join(str(p).replace('\\', '/')
+                                                     for p in files).encode()).hexdigest()[:12]
+              h_bytes = hashlib.sha256(b''.join(p.read_bytes().replace(b'\r\n', b'\n')
+                                                for p in files)).hexdigest()[:12]
+              newest = sorted(files, key=lambda p: p.stat().st_mtime)[-3:]
+              print('::notice::' + spec.key + ' files=' + str(len(files)) + ' (' + per + ') list='
+                    + h_list + ' bytes=' + h_bytes + ' newest=' + ','.join(str(p) for p in newest))
+          PY
 
   read-roles-probe:
     name: Normal Gate · AI 读权限对账（起真后端逐条打）
