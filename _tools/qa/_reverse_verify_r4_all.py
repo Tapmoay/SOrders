@@ -1,0 +1,252 @@
+# -*- coding: utf-8 -*-
+"""反向验证：R4 的架构检查器**真的会红**吗（R4 指南 §30 的硬要求）。
+
+## 为什么 R4 的每个检查器都必须有这一份
+指南 §30 的原话：「每个检查器必须有：**为什么代码边界无法解决 / 反向破坏用例 / 静默空转保护**。
+没有这些，**不准进入 R4 核心工具**。」
+而 R3 已经用事实说明为什么：R3 暴露过 checker self-reference、checker 被弱化、
+file existence 伪通过、报告数字漂移 —— **一条永远绿的检查等于没有检查**。
+
+所以这里对每一个 R4 检查器：先证明"源码完好时它是绿的"（前提），
+再**把每一条判据分别弄坏一次**，看它是不是**点出了那一条**（不是"随便红了就行"：
+期望里带关键字，红的位置不对也算不成立），最后证明**还原之后它又绿了**。
+
+⚠️ 注入只改**文档与声明**，尽量不动源码；非动源码不可的那几条（§28 的派发表）
+只加一行**语法合法但不执行**的调用，跑完按字节还原。
+
+用法：python _tools/qa/_reverse_verify_r4_all.py            # 全部成立 → 退出码 0
+     python _tools/qa/_reverse_verify_r4_all.py --list      # 只列场景
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+for _s in (sys.stdout, sys.stderr):
+    _s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai"))
+from _airepo import lock_reverse_verify, unlock_reverse_verify  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+CHECK = HERE / "_check_core_extension_boundary.py"
+DOC = ROOT / "docs" / "R4_CORE_EXTENSION_MAP.md"
+MAIN = ROOT / "backend" / "app" / "main.py"
+
+FENCE = chr(96) * 3
+
+
+class Sandbox:
+    """按字节记住原样，最后一次性还原（⛔ 不用 git checkout --：那会抹掉未提交的真实改动）。"""
+
+    def __init__(self) -> None:
+        self.saved: dict[Path, bytes] = {}
+
+    def _keep(self, p: Path) -> None:
+        if p not in self.saved:
+            self.saved[p] = p.read_bytes()
+
+    def append(self, p: Path, text: str) -> None:
+        self._keep(p)
+        p.write_bytes(p.read_bytes() + text.encode("utf-8"))
+
+    def replace(self, p: Path, old: str, new: str) -> None:
+        self._keep(p)
+        text = p.read_text(encoding="utf-8")
+        assert text.count(old) == 1, p.name + ": 原文出现 " + str(text.count(old)) + " 次，无法唯一替换"
+        p.write_bytes(text.replace(old, new).encode("utf-8"))
+
+    def sub(self, p: Path, old: str, new: str) -> None:
+        """全局替换（用在"每条都改一下"的注入上）。"""
+        self._keep(p)
+        p.write_bytes(p.read_text(encoding="utf-8").replace(old, new).encode("utf-8"))
+
+    def write(self, p: Path, text: str) -> None:
+        self._keep(p)
+        p.write_bytes(text.encode("utf-8"))
+
+    def restore(self) -> None:
+        for p, raw in self.saved.items():
+            p.write_bytes(raw)
+            if p.read_bytes() != raw:
+                print("⛔ 还原后与快照不一致（注入污染了源码树）：" + str(p))
+        self.saved.clear()
+
+
+def run_check() -> tuple[int, str]:
+    r = subprocess.run([sys.executable, str(CHECK)], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", cwd=str(ROOT))
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+# ---------------------------------------------------------------- 注入场景
+
+def s_ok(sb: Sandbox) -> None:
+    """正面前提：什么都不动 → 必须绿。"""
+
+
+def s_orphan_table(sb: Sandbox) -> None:
+    """把 orders 这张表从图上摘掉（＝ 有东西没被定档，Unclassified > 0）。"""
+    sb.replace(DOC, "owns: orders, order_products, order_templates, order_template_categories",
+               "owns: order_products, order_templates, order_template_categories")
+
+
+def s_ghost_table(sb: Sandbox) -> None:
+    """往 owns 里塞一个不存在的表名（防化石那一组该红）。"""
+    sb.replace(DOC, "owns: orders, order_products, order_templates, order_template_categories",
+               "owns: orders, order_products, order_templates, order_template_categories, orders_v2")
+
+
+def s_double_owner(sb: Sandbox) -> None:
+    """让两条能力同时认领 orders（同一个事实两个主人）。"""
+    sb.replace(DOC, "owns: inventory_movements", "owns: inventory_movements, orders")
+
+
+def s_bad_class(sb: Sandbox) -> None:
+    """把一条的 class 改成四档之外的值。"""
+    sb.replace(DOC, "id: audit.operation_log\n中文名: 核心审计（谁在什么时候对什么做了什么）\nclass: CORE",
+               "id: audit.operation_log\n中文名: 核心审计（谁在什么时候对什么做了什么）\nclass: KERNEL")
+
+
+def s_short_why(sb: Sandbox) -> None:
+    """把一条的 why 砍到两个字（等于没写为什么是这一档）。"""
+    sb.replace(DOC, "why: 只增不改的事实，全项目所有域都能往里写一条，但格式与落库只有一处实现（判定规则 1）",
+               "why: 审计")
+
+
+def s_rename_event(sb: Sandbox) -> None:
+    """§5.2 里把一个真事件改成一个不存在的名字（代码里产生的事件没人认领）。"""
+    sb.replace(DOC, "| " + FENCE.replace(FENCE, chr(96)) + "orders.created" + chr(96) + " |",
+               "| " + chr(96) + "orders.bogus" + chr(96) + " |")
+
+
+def s_fake_event(sb: Sandbox) -> None:
+    """§5.2 里塞一条代码里根本不产生的事件（化石）。"""
+    row = "| " + chr(96) + "notifications.unread_changed" + chr(96) + " | " + chr(96) \
+        + "notification.data" + chr(96) + " | 未读数变了 | 同上 | ❌ 不会 |"
+    sb.replace(DOC, row, row + "\n| " + chr(96) + "fake.event" + chr(96) + " | "
+               + chr(96) + "money.ledger" + chr(96) + " | 假事件 | 无 | ❌ 不会 |")
+
+
+def s_event_is_business(sb: Sandbox) -> None:
+    """把§5.2 某一行的结论改成 ✅（＝ 这个事件其实在承担核心业务）。"""
+    sb.replace(DOC, "❌ 不会（订单行已在库里）", "✅ 会改变核心事实")
+
+
+def s_point_without_contract(sb: Sandbox) -> None:
+    """把一个扩展点的契约摘掉（铁律 4：没有契约的扩展点只是愿望）。"""
+    sb.replace(DOC, "id: pricing.freight\n中文名: 运费计算（这一单该收多少）\nclass: EXTENSION_POINT\ndomain: freight\nowns: -\ncontract: PricingContract v1",
+               "id: pricing.freight\n中文名: 运费计算（这一单该收多少）\nclass: EXTENSION_POINT\ndomain: freight\nowns: -\ncontract: -")
+
+
+def s_ghost_impl(sb: Sandbox) -> None:
+    """impl 指向一个不存在的符号（防化石那一组该红）。"""
+    sb.replace(DOC, "impl: services/order_flow.py", "impl: services/order_flow.py::this_symbol_never_existed")
+
+
+def s_unknown_domain(sb: Sandbox) -> None:
+    """把一个域写成不存在的名字（该域的条目于是没人定档 + 图上出现假域，两组都该红）。"""
+    sb.replace(DOC, "id: inventory.movement\n中文名: 库存流水（货动了没有）\nclass: CORE\ndomain: inventory",
+               "id: inventory.movement\n中文名: 库存流水（货动了没有）\nclass: CORE\ndomain: warehouse")
+
+
+def s_empty_map(sb: Sandbox) -> None:
+    """把整张图掏空成一条（块数下限 + 表归属两组都该红）。"""
+    sb.write(DOC, "# 反向验证：图被掏空\n\n" + FENCE + "capability\nid: x\n中文名: x\nclass: CORE\n"
+             + "domain: -\nowns: -\ncontract: -\nwhy: 反向验证注入用的假条目，需要够长才不会被长度判据先拦住\n"
+             + "impl: main.py\npending: no\n" + FENCE + "\n")
+
+
+def s_pending_flood(sb: Sandbox) -> None:
+    """把所有条目都标成 pending（＝ 用 pending 躲判定）。"""
+    sb.sub(DOC, "pending: no", "pending: yes\npending_reason: 反向验证注入用的理由，需要够长才不会被长度判据先拦住")
+
+
+def s_event_hidden_rpc(sb: Sandbox) -> None:
+    """§28 的核心场景：让发件箱派发表去调一个**业务服务**（事件变成隐形 RPC）。"""
+    sb.replace(MAIN, "    raise RuntimeError(\"发件箱没有登记处理器：\" + str(event.event_type))",
+               "    await accounting_service.create_receipt(1, 1)\n"
+               "    raise RuntimeError(\"发件箱没有登记处理器：\" + str(event.event_type))")
+
+
+# (说明, 场景, 期望)；期望 = ("red", 关键字) 或 ("green", "")
+SCENARIOS = [
+    ("✅ 正面前提：什么都不动 → 应当通过", s_ok, ("green", "")),
+    ("把 orders 从图上摘掉（有东西没定档）", s_orphan_table, ("red", "都在图上")),
+    ("owns 里塞一个不存在的表名", s_ghost_table, ("red", "不存在的表名")),
+    ("两张能力同时认领 orders", s_double_owner, ("red", "两个归属")),
+    ("class 改成四档之外的 KERNEL", s_bad_class, ("red", "四档之一")),
+    ("把一条的 why 砍成两个字", s_short_why, ("red", "why ≥")),
+    ("§5.2 里把一个真事件改成假名字", s_rename_event, ("red", "没人认领")),
+    ("§5.2 里塞一条代码不产生的事件", s_fake_event, ("red", "化石")),
+    ("§5.2 把某一行的结论改成 ✅（事件在承担业务）", s_event_is_business, ("red", "全是 ❌")),
+    ("把一个扩展点的 contract 摘掉", s_point_without_contract, ("red", "都写了 contract")),
+    ("impl 指向不存在的符号", s_ghost_impl, ("red", "实现站点全部存在")),
+    ("把一个域写成不存在的名字", s_unknown_domain, ("red", "没被定档的域")),
+    ("把整张图掏空成一条", s_empty_map, ("red", "边界图有")),
+    ("把所有条目都标成 pending", s_pending_flood, ("red", "pending 的条数")),
+    ("§28：派发表里加一个业务服务调用", s_event_hidden_rpc, ("red", "白名单内")),
+]
+
+
+def main() -> int:
+    if "--list" in sys.argv[1:]:
+        for label, _, _ in SCENARIOS:
+            print(label)
+        return 0
+    if not CHECK.exists():
+        print("❌ 找不到 " + str(CHECK))
+        return 1
+
+    bad = 0
+    sb = Sandbox()
+    lock_reverse_verify()
+    try:
+        code, out = run_check()
+        if code != 0:
+            print("❌ 前提不成立：源码完好时这条判据没过\n" + out[-1500:])
+            return 1
+        last = [ln for ln in out.splitlines() if ln.strip()][-1]
+        print("✅ 前提：源码完好时判据是绿的 —— " + last.strip())
+
+        for label, setup, expect in SCENARIOS:
+            sb.restore()
+            setup(sb)
+            try:
+                code, out = run_check()
+            finally:
+                sb.restore()
+            fails = [ln for ln in out.splitlines() if "[FAIL]" in ln]
+            kind, keyword = expect
+            if kind == "green":
+                hit = code == 0
+                detail = "通过（这正是要的）" if hit else ("按格式写好后仍报红：" + (fails[0].strip()[:80] if fails else "?"))
+            else:
+                hit = code != 0 and any(keyword in ln for ln in fails)
+                detail = "实际红 " + str(len(fails)) + " 条" + ("" if hit else "：" + str([f.strip()[:70] for f in fails[:2]]))
+            print("  [" + ("OK" if hit else "MISS") + "] " + label + " → " + detail)
+            if not hit:
+                bad += 1
+
+        sb.restore()
+        code, out = run_check()
+        ok = code == 0
+        print("  [OK] 还原后判据全绿" if ok else "  [MISS] 还原后判据没恢复")
+        bad += 0 if ok else 1
+    finally:
+        sb.restore()
+        unlock_reverse_verify()
+
+    total = len(SCENARIOS) + 1
+    print()
+    if bad:
+        print("❌ " + str(bad) + "/" + str(total) + " 条不成立")
+        return 1
+    print("✅ " + str(total) + "/" + str(total) + " 全部成立：每条注入都让判据点出了那一条，正面场景也能过")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

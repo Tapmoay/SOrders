@@ -53,10 +53,12 @@
 4. 插件**是否应该能够决定核心事实** → 只要答案是"是"，先判 Core
 
 **退出条件**
-- ❌ `docs/R4_CORE_EXTENSION_MAP.md` 存在，且四类齐全 —— 复现：`python _tools/qa/_check_core_extension_boundary.py`
-- ❌ **Unclassified = 0**（或每一项显式写 `Pending decision` + `Reason`）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
-- ❌ 每张表、每条命令、每个事件类型**都在图上有归属**（与 `DOMAIN_BOUNDARIES.md` 的 15 域对得上）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
-- ❌ Event 规则落地：「Event 是**事实通知**，不是隐藏调用」（§28）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
+- ✅ `docs/R4_CORE_EXTENSION_MAP.md` 存在，51 条能力覆盖四档（CORE 24 / EXTENSION_POINT 12 / EXTENSION_IMPL 8 / INFRASTRUCTURE 7）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
+- ✅ **Unclassified = 0**：47 张表**恰好一个归属**（不许多头、不许孤儿、不许幽灵表名）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
+- ✅ **15 个域全部被定过档**（命令按域归属，域被定档 = 命令被定档；域清单由 `DOMAIN_BOUNDARIES.md` **自己算**，不从本图抄）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
+- ✅ 18 个事件类型**双向**对上（代码产生的都在 §5.2 登记、§5.2 登记的都在产生），且最后一列**全是 ❌** = Event 是事实通知、不是隐藏调用（§28）—— 复现：`python _tools/qa/_check_core_extension_boundary.py`
+- ✅ 判据**真的会红**：14 条反向破坏用例 + 1 条正面前提全部成立 —— 复现：`python _tools/qa/_reverse_verify_r4_all.py`
+- ⚠️ 三条 `pending: yes` 是**如实留白**（税费 / 促销 / 搜索排序：系统里根本没有这类业务），理由逐条写在块里 —— 复现：`python _tools/qa/_check_core_extension_boundary.py --list`
 
 ## R4-02 Contract Design（Unit Conversion + Pricing）
 
