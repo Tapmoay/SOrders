@@ -402,6 +402,14 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   ③ `contact_binding`：同上（⑩ 那条搬到 `AiWriteDataSource.kt`）→ **18/18**。**还剩 8 份**（`audit_coverage` /
   `category_roster` / `inline_role_gates`（3 条）/ `list_order` / `money_contract` / `permission_points` /
   `r3_constraints` / `round17`）—— 其中 `list_order` / `money_contract` 的失败原因还没看清（日志里没有 `[SKIP]`/`[MISS]` 行）。
+  ⏳ 再修 2 份（累计 **5/11**）：④ `money_contract`：它的 `Sandbox.apply()` 里**粘着同一段跑不起来的兜底代码**
+  （引用未定义的 `old`）—— 第一次注入就 `NameError` 崩掉，表现只是「这份反向验证不达标」，实际**一条注入都没做**；
+  与 `_reverse_verify_live_doc_counts.py` 里那段是同一份复制粘贴的残留，已删 → **5/5**。
+  ⑤ `list_order`：⑨ 号注入报「红线居然还是绿的」—— 查下去发现 VM 里 `pickedAddressId = null` + `pickedLocationId = null`
+  这一对出现**两次**（预设单回填 / 地图选点），而**判据只要求「存在」**⇒ 删掉地图那一处它照样绿。
+  ⛔ 这是「**判据比它自己的名字弱**」——本仓库反复栽的那一类。处置：反向验证改成带上下文的 `re:` 正则锚点
+  （只命中 `applyPicked()` 里那一对，applier 本来就支持 `re:` 前缀），判据同步收紧成「必须在 `applyPicked()` 里」→
+  判据 55 项仍全过、反向验证 13/13 全红。**还剩 6 份**。
   · 另外核一件事：**没有任何一份**在代码里真的执行 `git checkout`（⛔ 用 AST 看**调用实参**，
     不用正则搜文本 —— 反向验证脚本自己就把 `["git","checkout",…]` 当字符串数据写着，
     正则会把它们全判红，那是本仓库栽过的「判据被文字误伤」）。

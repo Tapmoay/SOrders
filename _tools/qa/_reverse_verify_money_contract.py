@@ -93,6 +93,14 @@ CRLF_B = CRLF.encode("utf-8")
 
 
 class Sandbox:
+    '''按字节快照/还原（⛔ 不许用 `git checkout --`：那会抹掉未提交的真实改动）。
+
+    ⛔ 2026-09-26 修：这里原来粘着一段**跑不起来**的兜底代码（第二轮 R2-05 的「报表锚点跟着搬家走」）——
+    它引用了一个**未定义的 `old`**，于是 `apply()` 的第一次调用就 `NameError` 崩掉（实测：
+    脚本退 1、**一条注入都没做**，而外面看起来只是「这份反向验证不达标」）。
+    与 `_reverse_verify_live_doc_counts.py` 里那段是同一份复制粘贴的残留 —— 一起删掉。
+    '''
+
     def __init__(self) -> None:
         self.saved: dict[Path, bytes] = {}
 
@@ -101,25 +109,6 @@ class Sandbox:
         data = path.read_bytes()
         crlf = CRLF_B in data
         text = data.decode("utf-8")
-        if old not in text:
-            # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— **锚点跟着搬家走**。
-            # 判据读的是「并集」（`_airepo.reports_source`），注入器也必须打在那份含原文的文件上，
-            # 否则沙箱找不到原文 → [SKIP] → 而 SKIP 在本仓库是**计为不成立**的。
-            # ⛔ 不逐条改锚点、也不改目标路径：以后报表再搬一次，这里自动跟上。
-            import sys as _sys
-            from pathlib import Path as _P
-            _sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "ai"))
-            from _airepo import reports_files as _rf
-            for _c in _rf():
-                _t = _c.read_text(encoding="utf-8", errors="replace")
-                if _t.count(old) == 1:
-                    p = _c
-                    raw = p.read_bytes()
-                    text = raw.decode("utf-8")
-                    if CRLF.encode("utf-8") in raw:
-                        text = text.replace(CRLF, chr(10))
-                    self.saved.setdefault(p, raw)
-                    break
         if crlf:
             text = text.replace(CRLF, chr(10))
         text = mutate(text)

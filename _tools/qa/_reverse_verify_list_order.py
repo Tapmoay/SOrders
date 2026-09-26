@@ -80,8 +80,12 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
 
     ("⑨ 地图自己选点时不清 id（把上一次的线路记到这一单头上）",
      VM,
-     "        pickedAddressId = null\n        pickedLocationId = null\n",
-     "",
+     # ⛔ 2026-09-26 修锚点：`pickedAddressId = null` + `pickedLocationId = null` 这一对在 VM 里出现**两次**
+     #    （`applyPicked()`（地图选点，本用例的目标）与预设单回填那一段），而 applier 用的是 `count=1` ——
+     #    去掉第一处之后第二处还在 ⇒ 判据那条「存在即通过」的规则照样绿 ⇒ 误报「红线居然还是绿的」。
+     #    改成带上下文的**正则锚点**（applier 支持 `re:` 前缀），只命中 `applyPicked()` 里那一对。
+     "re:pickedAddressId = null\\s*\\r?\\n\\s*pickedLocationId = null\\s*\\r?\\n\\s*showMapPicker = false",
+     "showMapPicker = false",
      "地图自己选点时**清掉** id"),
 
     ("⑩ 后端不再收 contact_id（App 传了也白传）",
