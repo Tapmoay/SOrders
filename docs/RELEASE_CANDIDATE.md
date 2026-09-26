@@ -4,9 +4,14 @@
 > R3 Release Candidate 并记录 Git SHA / DB migration version / Android version / Backend version /
 > Frontend version / requirements lock / config checksum，并做 artifact checksum」。
 >
-> **状态**：✅ **记录齐全**（每个字段都是**现取**的，命令写在表里，⛔ 没有一个是手抄的）；
-> ⛔ **发布本身没有做** —— 备份 / 迁移 / 启动 / 体检全是**写操作**，按禁做 #13/#14 要用户单独许可。
-> 生成日期：2026-09-26。
+> **状态**：✅ **记录齐全**（每个字段都是**现取**的，命令写在表里，⛔ 没有一个是手抄的）。
+>
+> ⭐ **2026-09-26：A 阶段（生产发布）已获用户放行，只放行 A（B 多实例 / C 演练未放行）**，
+> 执行记录（每一步的结论与证据）在 `docs/R3_PROGRESS.md` 的 R3-05 一节 —— ⛔ 本文档只负责**候选与顺序**，
+> 不负责记录「跑到哪了」（那会变成第二份真相）。
+> ⛔ 另：本次 A **只发布后端**（源码部署，SHA 就是它的标识）；Android 包不变（本文件里的 APK 校验和是 2026-09-23 那份）。
+>
+> 生成日期：2026-09-26（§一 的发布点与运行时指纹行在 A 阶段开始时更新）。
 
 ---
 
@@ -14,7 +19,8 @@
 
 | 字段 | 值 | 现取命令（可复现） |
 |---|---|---|
-| **Git SHA** | `684a9374d7333bc513ed0333cfa7e28198f437c7`（分支 `p` → `origin/new`，已推） | `git rev-parse HEAD` |
+| **Git SHA** | `e98c7d7ecc71179254f26920bafe018b6ad4bf1f`（**本次发布点**；分支 `p` → `origin/new`，已推） | `git rev-parse HEAD` |
+| **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空** | `git diff --stat <Git SHA>..HEAD -- backend/` |
 | 提交时刻 | 2026-09-26T16:59:56+08:00 | `git log -1 --format=%cI` |
 | **DB migration version** | **8**（`001_baseline` … `008_operation_log_command_id`） | `python -c "import sys;sys.path.insert(0,'_tools/ops');import _prod_smoke as s;print(s.repo_migration_head())"` |
 | **Android 版本** | 产品 **0.2.4**（唯一来源＝仓库根 `VERSION`）＋构建号（日期式 `yyyyMMdd * 100 + 当日序号`） | `Get-Content VERSION` ／ `android/app/build.gradle.kts` |
