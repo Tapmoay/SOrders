@@ -63,7 +63,8 @@ if code != 0:
 print("✅ 前提：源码完好时 E2E 是绿的")
 
 for label, path, old, new, count in CASES:
-    src = path.read_text(encoding="utf-8")
+    src_bytes = path.read_bytes()
+    src = src_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
     if old not in src:
         fails.append(f"{label}：注入锚点没找到（替换串过期了）")
         continue
@@ -72,7 +73,9 @@ for label, path, old, new, count in CASES:
         path.write_text(mutated, encoding="utf-8", newline="")
         code = run()
     finally:
-        path.write_text(src, encoding="utf-8", newline="")
+        path.write_bytes(src_bytes)
+    if path.read_bytes() != src_bytes:
+        fails.append(f"{label}：还原后与快照不一致（注入污染了源码树）")
     if code == 0:
         fails.append(f"{label}：摘掉修复后 E2E **仍然通过** —— 这条测试是摆设")
     else:

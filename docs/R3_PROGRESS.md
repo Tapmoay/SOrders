@@ -357,7 +357,20 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
     **变成恒 SKIP** —— `_check_reverse_verify_anchors.py`（静态解析注入表）在 `_check_all.py` 里当场报红、
     并点名「哪一份脚本 / 哪条注入 / 哪个目标文件 / 原文找不到」。锚点已改成现在的写法，审计回到
     「1289 条注入原文全部还在」。⛔ 这正是「改一处要想到它的下游」的机器化版本：判据先喊，不用等到有人跑那份 RV。
-    · 当前 **L3 = 6 份（上限 6）**；**L2 = 136/143**（还剩 7 份 + 上述 10 份形状不同的另有账）。
+    ⑮ **L3（换行符会漂）收到 0，L2 到 140/143**：4 份真的会漂的（`coverage_input` / `fuzz_safety` /
+    `loop_e2e` / `place_and_picker`）改成「快照 `read_bytes` + 还原 `write_bytes` + 还原后逐字节核对」；
+    另给 `multi_request`（还原本来就是 `shutil.copy2`）与 `core_freeze`（还原本来就是 `write_bytes`）补上核对那一句。
+    逐份跑过、全绿（coverage_input 1/1、loop_e2e 3 种、fuzz_safety 四道轨、place_and_picker 23/23、
+    multi_request、core_freeze 9/9）。
+    ⛔ **L3 的口径本轮又收了一次**（这是第三次收紧）：原来「文件里同时有裸 `read_text(` 与 `write_text(`」就算风险，
+    现在要求**还原路径本身不是字节级**（没有 `write_bytes(` / `shutil.copy`）—— `multi_request` 与 `core_freeze` 的
+    注入确实写 LF，但还原是**字节复制**，文件最终一模一样；judged 读宽了同样是错。
+    剩 L2 **3 份**：`ai_batch` / `invariants` / `root_clean`（最后一份在例外表里：它注入的是临时探针、自己删掉）。
+    ⑯ ⛔ **本轮又踩到「单独跑一份反向验证没有兜底」**：改 `place_and_picker` 的中途它 `NameError` 崩在还原**之前**，
+    把 `android/.../ProductPicker.kt` 的注入留在树里（`git status` 就一行 ` M`）—— 它**自己那句还原核对根本没跑到**，
+    而外部证明层（`_reverse_verify_all.py` 的逐份快照比对）只在**批跑**时才兜。已按 `git diff` 认出来源、
+    `git checkout --` 还原，红线恢复（1282 项全通过）。教训：**单独跑一份 RV 之前先想好兜底**（批跑有快照，单跑没有）。
+    · 当前 **L3 = 0（上限 0）**；**L2 = 140/143**（还剩 3 份）。
   · 另外核一件事：**没有任何一份**在代码里真的执行 `git checkout`（⛔ 用 AST 看**调用实参**，
     不用正则搜文本 —— 反向验证脚本自己就把 `["git","checkout",…]` 当字符串数据写着，
     正则会把它们全判红，那是本仓库栽过的「判据被文字误伤」）。

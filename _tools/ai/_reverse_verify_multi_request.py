@@ -26,6 +26,10 @@ try:
                        cwd=str(ROOT), capture_output=True)
 finally:
     shutil.copy2(BAK, P)
+    # R3-07b：还原**当场核对**（写回后再读回来逐字节比）
+    if P.read_bytes() != BAK.read_bytes():
+        print("⛔ 还原后与快照不一致（注入污染了源码树）：" + str(P))
+        sys.exit(2)
 
 out = (p.stdout or b"").decode("utf-8", "replace") + (p.stderr or b"").decode("utf-8", "replace")
 if "MarkNotificationsReadHandler" in out and "commitNote" in out:

@@ -70,7 +70,8 @@ SNAP_ASSIGN = re.compile(r'(\w+)\s*=\s*[^\n]*?read_text\(([^)]*)\)')
 #:   **只是读来比对、根本不写回**的脚本也算成了风险（实测虚报 11 份）—— 判据读宽了与读窄了同样糟。
 #: 收紧口径 + 两批共把 28 处改成字节级之后，实测 **6** 份（coverage_input / multi_request / fuzz_safety /
 #: core_freeze / loop_e2e / place_and_picker —— 形状各不相同，要逐份看代码）。
-MAX_L3 = 6
+#: ⛔ 2026-09-26 收到 **0**：4 份真的会漂的都改成字节级了（口径也同时收紧过一次，见下面的注释）。
+MAX_L3 = 0
 
 MIN_L1 = 135
 #: ⛔ L2：2026-09-26 实测 **94** 份。两次变化都要记清楚（⛔ 不是「缺口改小了」）：
@@ -87,7 +88,9 @@ MIN_L1 = 135
 #: 与本轮改动无关），已记在台账里等下一轮补 —— 那是「注入没生效」，不是「还原没证明」。
 #: 2026-09-26 又补 19 份（同一族剩下的：`write_src` 返回写出的字节 + `restore_src` 写回后逐字节核对）→ 136。
 #: 剩 10 份形状不同（还原调用不是 `finally: write_src(...)`），要逐份看代码。
-MIN_L2 = 136
+#: 2026-09-26 再补 4 份（coverage_input / loop_e2e / fuzz_safety / place_and_picker 改成字节级；
+#: multi_request / core_freeze 补「还原后逐字节核对」）→ 140。剩 3 份：ai_batch / invariants / root_clean（后者在例外表里）。
+MIN_L2 = 140
 
 #: 做不到那三样、但有正当理由的 —— 键是相对路径，值是「为什么 + 什么时候删掉这一条」。
 EXCEPTIONS: dict[str, str] = {
@@ -227,12 +230,19 @@ def main() -> int:
         #    正确的写法是**两边都带 `newline=""`**（`read_text(..., newline="")` + `write_text(..., newline="")`），
         #    那对 UTF-8 文件与字节级等价（本仓库那条「不许用 PowerShell 往返」的纪律就是它）。
         # 这一格只**数**、只**减**：给定棘轮 MAX_L3，涨了才红。
+        # ⚠️ 2026-09-26 再收一次口径：这一格的前提是**两件**事 ——
+        #   ① 读来的文本被 `write_text` 写回；② **还原路径不是字节级的**（既没有 `write_bytes(`，
+        #   也没有 `shutil.copy*` —— 那两种都是逐字节的）。只判 ① 会把两类**结果安全**的脚本算进来：
+        #   `multi_request`（还原用 `shutil.copy2(BAK, P)`）、`core_freeze`（还原用 `p.write_bytes(raw)`）——
+        #   它们的注入确实写 LF，但还原是**字节复制**，文件最终一模一样。judged 读宽了同样是错。
+        byte_restore = 'write_bytes(' in code or 'shutil.copy' in code
         risky: list[str] = []
-        for _name, _args in SNAP_ASSIGN.findall(code):
-            if 'newline' in _args:
-                continue
-            if re.search(r'write_(?:text|bytes)\s*\([^)]*\b' + re.escape(_name) + r'\b', code):
-                risky.append(_name)
+        if not byte_restore:
+            for _name, _args in SNAP_ASSIGN.findall(code):
+                if 'newline' in _args:
+                    continue
+                if re.search(r'write_text\s*\([^)]*\b' + re.escape(_name) + r'\b', code):
+                    risky.append(_name)
         if risky:
             l3 += 1
             l3_files.append(rel + '（' + '、'.join(sorted(set(risky))) + '）')

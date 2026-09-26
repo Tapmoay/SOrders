@@ -88,6 +88,9 @@ class Sandbox:
     def restore(self) -> None:
         for p, raw in self.saved.items():
             p.write_bytes(raw)
+            if p.read_bytes() != raw:
+                print("⛔ 还原后与快照不一致（注入污染了源码树）：" + str(p))
+
         self.saved.clear()
 
 

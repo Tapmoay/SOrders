@@ -44,7 +44,8 @@ def run_check() -> int:
 
 
 def main() -> int:
-    original = TARGET.read_text(encoding="utf-8")
+    original_bytes = TARGET.read_bytes()
+    original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
     if run_check() != 0:
         print("❌ 前提不成立：源码完好时覆盖率就没过")
         return 1
@@ -55,7 +56,7 @@ def main() -> int:
         TARGET.write_text(original + INJECTED, encoding="utf-8", newline="")
         code = run_check()
     finally:
-        TARGET.write_text(original, encoding="utf-8", newline="")
+        TARGET.write_bytes(original_bytes)
 
     if code != 0:
         print("✅ 注入「多了一个写端点」→ 覆盖率报红（清单是活的）")
@@ -64,7 +65,7 @@ def main() -> int:
             "注入一个新写端点之后覆盖率**没有报红** —— 端点清单又变成静态的了（假绿会回来）"
         )
 
-    if TARGET.read_text(encoding="utf-8") != original:
+    if TARGET.read_bytes() != original_bytes:
         fails.append("收尾没还原 places.py")
     if run_check() != 0:
         fails.append("还原之后覆盖率仍然红")

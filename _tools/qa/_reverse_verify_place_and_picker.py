@@ -292,7 +292,8 @@ def main() -> int:
     print(f"✅ 前提：源码完好时红线是绿的（§{SECTION} 在），合并探针也是绿的")
 
     for label, path, mutate in CASES:
-        original = path.read_text(encoding="utf-8")
+        original_bytes = path.read_bytes()
+        original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
         mutated = mutate(original)
         if mutated == original:
             fails.append(f"{label}：注入没生效（替换串过期了，请更新本脚本）")
@@ -306,7 +307,7 @@ def main() -> int:
                 code2, out2 = run(GUARDRAILS)
                 red = code2 != 0 and "[FAIL]" in section(out2, SECTION)
         finally:
-            path.write_text(original, encoding="utf-8", newline="")
+            path.write_bytes(original_bytes)
         # R3-07b：还原**当场核对**（不是「看起来还原了」）—— 对不上就记账，别让坏代码留在树里
         if path.read_text(encoding="utf-8") != original:
             fails.append("还原后与快照不一致（注入污染了源码树）：" + str(path))
@@ -318,7 +319,7 @@ def main() -> int:
                 code3, _ = run(COVERAGE)
                 red = code3 != 0
             finally:
-                path.write_text(original, encoding="utf-8", newline="")
+                path.write_bytes(original_bytes)
 
         if red:
             print(f"✅ 注入「{label}」→ 报红")

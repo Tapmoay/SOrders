@@ -49,6 +49,9 @@ def main() -> int:
         return 1
     print("✅ 前提：完好状态下批量调价在禁止清单里（按类拦，不是点名拦）")
 
+    # R3-07b：三次注入都打在同一份 `_fuzzlib.py` 上 —— 快照取**一次**，所有还原都写回它，收尾再逐字节核对。
+    lib_bytes0 = LIB.read_bytes()
+
     # ---- ① 拆掉「批量/全量端点按类禁止」这条轨：工具应当**自检失败**（退出码 3）
     original = LIB.read_text(encoding="utf-8")
     mutated = original.replace(
@@ -61,7 +64,7 @@ def main() -> int:
             LIB.write_text(mutated, encoding="utf-8", newline="")
             code, out = run(CONTRACT, "--only", "/products", "--max", "20")
         finally:
-            LIB.write_text(original, encoding="utf-8", newline="")
+            LIB.write_bytes(lib_bytes0)
         if code != 3 or "批量调价" not in out:
             fails.append(f"① 拆掉批量端点白名单后，契约测试没有自检失败（code={code}）"
                          f"——说明那条轨是空转的")
@@ -82,7 +85,7 @@ def main() -> int:
             LIB.write_text(mutated, encoding="utf-8", newline="")
             code, out = run(CONTRACT, "--only", "/products", "--max", "20")
         finally:
-            LIB.write_text(original, encoding="utf-8", newline="")
+            LIB.write_bytes(lib_bytes0)
         if code != 3 or "安全模式" not in out:
             fails.append(f"② 安全模式失效后没有被自检拦住（code={code}）"
                          f"——真跑起来会拿真实 id 去改业务数据")
@@ -106,7 +109,7 @@ def main() -> int:
             # 只有几个端点 + 极小预算：正常会因自检失败中止（3），现在应当"顺利跑完"
             code, out = run(CONTRACT, "--only", "/products", "--max", "3")
         finally:
-            LIB.write_text(original_g, encoding="utf-8", newline="")
+            LIB.write_bytes(lib_bytes0)
         if code == 3:
             fails.append("③ guard 被改成不退出后，工具仍然以 3 退出——那条自检可能来自别处")
         else:
@@ -144,6 +147,8 @@ def main() -> int:
     else:
         print("✅ 方向三：认不出的形状 → 不放行（fail-closed）")
 
+    if LIB.read_bytes() != lib_bytes0:
+        fails.append("还原后与快照不一致（注入污染了 _fuzzlib.py）")
     if fails:
         print("\n❌ 反向验证不通过：")
         for f in fails:
