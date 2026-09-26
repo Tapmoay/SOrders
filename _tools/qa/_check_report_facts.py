@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -113,12 +114,40 @@ EXPECT = re.compile(r'→\s*`([^`]+)`')
 NEED_IN_REASON = '什么时候删掉这一条'
 
 
+#: 用哪个 shell 跑台账里的命令。台账的命令是这本仓库的**方言**（`cd backend; python …`），
+#: 本地是 Windows PowerShell 5.1 —— 但 CI 是 ubuntu：那里**没有 `powershell`**，只有 PowerShell 7（`pwsh`）。
+#: ⛔ 2026-09-26 实测：写死 `powershell` 的后果不是「CI 上这条判据红」，而是它**每一条行**都返回 125
+#:    （`FileNotFoundError`），于是整个 Gate 的「全部静态检查」作业红，而**本机 119/119 全绿** ——
+#:    这正是本仓库最难查的那类红（红在 CI、绿在本机、日志还要登录才看得到）。
+def _pick_shell() -> list[str]:
+    '''选一个能跑台账命令的 shell。⛔ 选不到时**不许静默**：返回空表，调用处会如实报错。
+
+    Windows：`powershell`（5.1，本仓库的命令方言就是它）。
+    POSIX（CI）：优先 `pwsh`（ubuntu runner 自带 PowerShell 7；台账里那些 `cd backend; python …`
+    在它下面照样成立）；**没有 pwsh 就退回 `bash -c`** —— 退回去之后 Windows 写法（反斜杠路径、
+    `Get-FileHash`）会失败，但那是**如实失败**（退出码非 0），比「整条判据在 CI 上一条都跑不了」好。
+    '''
+    if os.name == 'nt':
+        return ['powershell', '-NoProfile', '-NonInteractive', '-Command']
+    if shutil.which('pwsh'):
+        return ['pwsh', '-NoProfile', '-NonInteractive', '-Command']
+    if shutil.which('bash'):
+        return ['bash', '-c']
+    return []
+
+
+SHELL: list[str] = _pick_shell()
+
+
 def run(cmd: str) -> tuple[int, str]:
-    '''在 **PowerShell** 里跑：台账里的命令是这本仓库的方言（`cd backend; python …`、`Get-FileHash`）。'''
+    '''用 SHELL 跑：台账里的命令是这本仓库的方言（`cd backend; python …`），两个平台都能解。'''
     env = dict(os.environ)
     env[RECURSION_ENV] = str(int(os.environ.get(RECURSION_ENV, '0')) + 1)
     try:
-        p = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', cmd],
+        if not SHELL:
+            return 125, ('既没有 powershell/pwsh 也没有 bash —— 这不是「命令失败」，'
+                         '是这条判据在本机跑不起来（装一个 shell，或如实说明这里不适用）')
+        p = subprocess.run([*SHELL, cmd],
                            cwd=str(ROOT), capture_output=True, text=True, env=env,
                            encoding='utf-8', errors='replace', timeout=TIMEOUT_S)
     except subprocess.TimeoutExpired:

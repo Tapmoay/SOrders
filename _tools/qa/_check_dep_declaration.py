@@ -22,7 +22,13 @@ CI 也绿（CI 是运行时解析开区间），只有「把两边摆一起比�
 1. 三份 requirements 都能解析，且声明条数 ≥ MIN_DECLS（解析器坏了先喊，不许安静地一条都不查）；
 2. ⭐ 每条声明都要在本机实际安装的版本上**成立**（版本号取自 `importlib.metadata`，不读我们自己写的表）；
 3. ⭐ 不成立的必须登记在 EXCEPTIONS 里，每条写清「为什么」+「什么时候删掉这一条」；
-4. 棘轮：例外条数 ≤ EXCEPTION_RATCHET（只减不增），且**没有化石**（键必须还是当前真出现的违反）。
+4. 棘轮：例外条数 ≤ EXCEPTION_RATCHET（只减不增），且**键必须还是仓库里真实存在的声明**
+   （防化石：改名了/抄错了/依赖被删了 ⇒ 那条例外谁也守不住，必须删）；
+5. ⭐ **当前环境没命中 ≠ 化石**（2026-09-26 修，第三次同一个形状）：例外描述的是**某个环境**的状态。
+   实测：本机 `cryptography` 是 48.0.0（区间外，要例外），而 CI 按声明装到 43.x（区间内，**不该**有例外）——
+   同一条规则：「键不在当前违反里就红」在本机绿、在 CI 红。而 CI 那个环境恰恰是**更好**的那个，
+   罚它等于逼着人把例外删掉再让本机红回来。现在的口径：**键必须是真声明**（有牙）+ **未命中就打印出来**
+   （每次运行都看得见，不静默），⛔ 但不判红。
 
 ### ⛔ 它证不了什么
 - 它只比「本机环境」与「声明」，**不证**生产上是哪个版本（那要上机器跑 `pip freeze`，见 R3-05）；
@@ -121,9 +127,11 @@ def main() -> int:
             violations.append((name + ' ' + line,
                                rel + '：声明 `' + line + '`，本机实际是 **' + str(installed) + '**（不在区间里）'))
 
-    # ④ 棘轮 + 防化石：登记下来的例外必须还是**当前真出现**的违反。
+    # ④ 棘轮 + 防化石 + 「未命中只报告」：见文件头第 4、5 条。
     keys_now = {k for k, _ in violations}
-    fossils = [k for k in EXCEPTIONS if k not in keys_now]
+    real_keys = {name + ' ' + line for _rel, line, name in decls}
+    stale = [k for k in EXCEPTIONS if k not in real_keys]
+    unfired = [k for k in EXCEPTIONS if k not in keys_now]
     thin = [k for k, why in EXCEPTIONS.items() if NEED_IN_REASON not in why]
     unregistered = [(k, msg) for k, msg in violations if k not in EXCEPTIONS]
 
@@ -131,9 +139,12 @@ def main() -> int:
          '例外条数 ' + str(len(EXCEPTIONS)) + ' ≤ 棘轮 ' + str(EXCEPTION_RATCHET),
          '例外条数 ' + str(len(EXCEPTIONS)) + ' 超过棘轮 ' + str(EXCEPTION_RATCHET)
          + ' —— 棘轮是「只减不增」的：新加例外必须同时改这个数并说明为什么')
-    want(not fossils, '例外表里没有化石',
-         '例外表里这些键已经不再是当前的违反了（化石）：' + ' / '.join(fossils)
-         + ' —— 声明/环境已经对上了，把这一条删掉')
+    want(not stale, '例外表的键都还挂在一条**真实存在**的声明上',
+         '例外表里这些键**不是**仓库里真实存在的声明（改名了 / 抄错了 / 依赖被删了）：'
+         + ' / '.join(stale) + ' —— 例外挂在不存在的声明上，等于它谁也守不住；删掉或者改对')
+    for k in sorted(unfired):
+        print('  ⓘ 这条例外在**当前环境未命中**（本环境的版本满足声明）：' + k
+              + ' —— ⛔ 不判红：例外描述的是某个环境的状态，别的环境（如 CI 按声明装到区间内）本来就不该命中。')
     want(not thin, '例外每条都写了「' + NEED_IN_REASON + '」',
          '例外表里这些条没写「' + NEED_IN_REASON + '」：' + ' / '.join(thin)
          + ' —— 例外没有退出条件就会永远留在那儿')

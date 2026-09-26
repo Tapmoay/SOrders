@@ -48,7 +48,7 @@
 
 ## R3-00 Baseline（本轮起点）
 
-- ✅ 指南已归档：`docs/ARCHITECTURE_RECTIFICATION_R3.md`（SHA256 `193AB545…5297`，1219 行）—— 复现：`Get-FileHash docs\ARCHITECTURE_RECTIFICATION_R3.md`
+- ✅ 指南已归档：`docs/ARCHITECTURE_RECTIFICATION_R3.md`（SHA256 `193AB545…5297`，1219 行）—— 复现：`python -c "import hashlib,pathlib;p=pathlib.Path('docs/ARCHITECTURE_RECTIFICATION_R3.md');print(hashlib.sha256(p.read_bytes()).hexdigest()[:8], len(p.read_text(encoding='utf-8').splitlines()))"`
 - ✅ 禁做清单已机器化：`docs/R3_CONSTRAINTS.md`（27 条，19 条棘轮 + 8 条阶段）—— 复现：`python _tools/qa/_check_r3_constraints.py`
 - ✅ 基线数字已冻结：静态检查 112/112、后端用例 1015 passed —— 复现：`python _tools/qa/_check_all.py`
 - ✅ 契约快照已在库：`_tools/qa/_api_snapshots/r2-02-before.json`（233 条路由）—— 复现：`python _tools/qa/_api_contract_snapshot.py --list`
@@ -203,7 +203,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   **一条命令又可以产生多条事件**（`order.create` → `orders.created` + `orders.pending_pool_changed`）。
   三个用例分别钉住这三件事：ids 都非空且两两不等 / 一次批量请求 N 个 command_id 共用一个 request_id /
   一条命令入队 ≥2 条事件（各自的 event id 不同）。
-- ✅ 业务指标（订单/命令/事件/通知/迁移/调度）—— 复现：`cd backend; python -c "import sys; sys.path.insert(0,'.'); from app.database import SessionLocal; from app.core.metrics import snapshot, NOT_TRACKED; print(len(snapshot(SessionLocal())), len(NOT_TRACKED))"`
+- ✅ 业务指标（订单/命令/事件/通知/迁移/调度）—— 复现：`cd backend; python -c "import os,sys,tempfile; d=tempfile.mkdtemp(); os.environ['DATABASE_URL']='sqlite:///'+(d.replace(os.sep,'/')+'/m.db'); sys.path.insert(0,'.'); from app.database import engine, SessionLocal; from app.core.schema_bootstrap import prepare_schema; prepare_schema(engine); from app.core.metrics import snapshot, NOT_TRACKED; print(len(snapshot(SessionLocal())), len(NOT_TRACKED))"`
   → `17 7`：**17 条现算指标 + 7 条「算不出来但写清了为什么」**（本轮新增 4 条：`sorders_commands_today`
   （按新加的 `command_id` 去重）、`sorders_notifications_created_today`、`sorders_outbox_retried_today`、
   `sorders_last_migration_duration_ms`）。
