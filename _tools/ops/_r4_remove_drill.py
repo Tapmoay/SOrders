@@ -50,7 +50,16 @@ EXT_TEST = ROOT / "backend" / "tests" / "test_unit_conversion_contract.py"
 MANIFEST = EXT_DIR / "manifest.py"
 RECORD = ROOT / "_tools" / "ops" / "r4_drill_records" / "remove-drill.json"
 ROUTE_MARK = "unit-conversion"
-ORPHAN_WORDS = ("unit_conversion", "EXT_UNIT_CONVERSION", "UNIT_SYSTEM")
+#: 孤儿引用的标记 —— ⚠️ 必须**精确**：第一版拿 "unit_conversion" 当标记，于是核心自己的
+#: api/v1/unit_conversions.py（**复数**，那是另一件东西：用户自建换算率的核心实现）、
+#: router.py 里那句 import，全被算成了"孤儿引用"（实测踩到）。
+#: 子串匹配会把"名字里恰好含这几个字"的东西一起算进来 —— 判据要盯的是**这个扩展**。
+ORPHAN_MARKS = ("app.extensions.unit_conversion", "EXT_UNIT_CONVERSION")
+
+
+def paused_manifest(text: str) -> str:
+    """把清单改成"停用"（enabled=False），不碰别的字节。"""
+    return text.replace("    why=", "    enabled=False," + chr(10) + "    why=")
 
 
 class Drill:
@@ -98,16 +107,20 @@ def hashes(paths: list[Path]) -> dict[str, str]:
 
 
 def orphan_hits() -> list[str]:
-    """代码/文档里还有没有引用它的地方（orphan import / config）。"""
+    """生产代码里还有没有引用它的地方（orphan import / config）。
+
+    只扫 backend/：`_tools/` 下的演练脚本与检查器**本来就该提到它**
+    （要拆的就是它），把它们算进来等于让判据自己把自己判红。
+    """
     hits: list[str] = []
-    for base in (ROOT / "backend", ROOT / "_tools"):
+    for base in (ROOT / "backend",):
         for f in sorted(base.rglob("*.py")):
             if "__pycache__" in f.parts or "extensions/unit_conversion" in str(f).replace(chr(92), "/"):
                 continue
             if f == Path(__file__).resolve():
                 continue          # 演练脚本自己当然会提到它
             text = f.read_text(encoding="utf-8", errors="replace")
-            for w in ORPHAN_WORDS:
+            for w in ORPHAN_MARKS:
                 if w in text:
                     hits.append(str(f.relative_to(ROOT)).replace(chr(92), "/") + " <- " + w)
     return hits
@@ -140,15 +153,18 @@ def main() -> int:
     original_manifest = MANIFEST.read_text(encoding="utf-8")
     try:
         # ---- 1. 停用（Disable）：代码还在，只是不装 ----
-        MANIFEST.write_text(original_manifest.replace("    why=", "    enabled=False," + chr(10) + "    why="),
-                            encoding="utf-8")
+        # ⚠️ 一律 write_bytes：Path.write_text 在 Windows 上会把 \n 翻成 \r\n，
+        #    于是"按字节还原"会静默变成"内容一样、字节不一样"（实测踩到：git diff 是空的，
+        #    而 sha256 变了 —— 正是本仓库 AGENTS.md 里那条"别用 PowerShell 往返改文件"的同一类坑）。
+        MANIFEST.write_bytes(paused_manifest(original_manifest).encode("utf-8"))
         paused = probe()
         paused_has_route = any(ROUTE_MARK in r for r in paused.get("routes", []))
         d.step("1 停用（Disable）：清单 enabled=False",
                paused.get("boot") and not paused_has_route and EXT_DIR.is_dir(),
-               "应用照常起、路由消失、代码还在 = "
-               + str(paused.get("boot") and not paused_has_route and EXT_DIR.is_dir()))
-        MANIFEST.write_text(original_manifest, encoding="utf-8")
+               "起得来=" + str(paused.get("boot")) + " 路由消失=" + str(not paused_has_route)
+               + " 代码还在=" + str(EXT_DIR.is_dir())
+               + ("；起不来的原因：" + str(paused.get("boot_error"))[:160] if not paused.get("boot") else ""))
+        MANIFEST.write_bytes(original_manifest.encode("utf-8"))
         back = probe()
         d.step("1b 还原停用：路由回来", any(ROUTE_MARK in r for r in back.get("routes", [])), "路由回来")
 
@@ -161,7 +177,9 @@ def main() -> int:
         after_routes = after.get("routes", [])
         d.step("2 卸载（Uninstall）：目录移出仓库",
                not EXT_DIR.exists() and after.get("boot") and not any(ROUTE_MARK in r for r in after_routes),
-               "目录没了、应用照常起、路由没了")
+               "目录没了=" + str(not EXT_DIR.exists()) + " 起得来=" + str(after.get("boot"))
+               + " 路由没了=" + str(not any(ROUTE_MARK in r for r in after_routes))
+               + ("；起不来的原因：" + str(after.get("boot_error"))[:160] if not after.get("boot") else ""))
 
         hits = orphan_hits()
         d.step("2b 没有 orphan import / config（代码里不再引用它）", not hits,
@@ -177,15 +195,22 @@ def main() -> int:
 
         code, out = run([sys.executable, "_tools/qa/_check_all.py"])
         tail = [ln.strip() for ln in out.splitlines() if "个检查" in ln and "跑完" in ln]
-        d.step("3b 全量静态检查（含能力执行点 / 依赖方向 / 数据归属）", code == 0,
-               (tail[-1] if tail else out.strip().splitlines()[-1][:140]))
+        # ⚠️ 失败时要说清**是哪一条检查**红了 —— 只打一句"没通过"等于没说（第一版就是这样）。
+        bad = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("=====")]
+        detail = (tail[-1] if tail else out.strip().splitlines()[-1][:140])
+        if code != 0 and bad:
+            detail += "；红的是：" + "、".join(b.replace("=", "").strip() for b in bad[:3])
+        d.step("3b 全量静态检查（含能力执行点 / 依赖方向 / 数据归属）", code == 0, detail)
 
         code, out = run([sys.executable, "-m", "pytest", "tests/test_socket_io.py",
                          "tests/test_outbox.py", "tests/test_extension_contracts.py",
                          "tests/test_pricing_contract.py", "-q"], cwd=ROOT / "backend")
         tail = [ln.strip() for ln in out.splitlines() if " passed" in ln or " failed" in ln]
-        d.step("3c core smoke（发件箱 / 投递原语 / 两个契约，都不碰那个扩展）", code == 0,
-               (tail[-1] if tail else "（没有结果行）"))
+        detail = (tail[-1] if tail else "（没有结果行）")
+        if code != 0:
+            detail += "；退出码 " + str(code) + "：" + " / ".join(
+                ln.strip()[:60] for ln in out.splitlines() if "error" in ln.lower())[:180]
+        d.step("3c core smoke（发件箱 / 投递原语 / 两个契约，都不碰那个扩展）", code == 0, detail)
     finally:
         if moved_ext.exists() and not EXT_DIR.exists():
             shutil.move(str(moved_ext), str(EXT_DIR))
@@ -193,7 +218,7 @@ def main() -> int:
             shutil.move(str(moved_test), str(EXT_TEST))
         shutil.rmtree(tmp, ignore_errors=True)
         if MANIFEST.exists() and "enabled=False" in MANIFEST.read_text(encoding="utf-8"):
-            MANIFEST.write_text(original_manifest, encoding="utf-8")
+            MANIFEST.write_bytes(original_manifest.encode("utf-8"))
 
     after_hash = hashes([EXT_DIR, EXT_TEST])
     final = probe()
