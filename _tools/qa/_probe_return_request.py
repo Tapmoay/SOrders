@@ -20,6 +20,11 @@ import sys
 import urllib.error
 import urllib.request
 
+# ⛔ 2026-09-26 修：本脚本不 import `_airepo`，自己又没设 stdout —— 在 GBK 控制台下**跑到一半**
+#    （第 187 行打「退款 ¥…」那一句）`UnicodeEncodeError` 崩掉，前面的探针结果全白跑。
+for _s in (sys.stdout, sys.stderr):
+    _s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
 BASE = "http://127.0.0.1:8000/api/v1"
 ACCOUNTS = {
     "dispatcher": ("13800000001", "123321"),

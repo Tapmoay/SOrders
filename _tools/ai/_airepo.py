@@ -285,7 +285,15 @@ def source_fingerprint(globs: tuple[str, ...] | list[str], root: Path | None = N
     规则（**只有这一处实现**，生成器与判据都用它，所以必须逐字一致）：
       · 每个 glob 是**仓库相对**的（`backend/app/api/**/*.py`），按路径排序展开；
       · 路径**也**参与哈希（改名/搬家要算出来）；
-      · 只读字节，不做解码、不等于规范化 —— 换行符或编码变了也算变。
+      · 只读字节，不做解码；**但换行符要先归一成 `\n`**（见下面那段，2026-09-26 修）；
+      · 编码变了仍然算变（不做解码，非 UTF-8 字节照样进哈希）。
+
+    ⛔ **为什么必须归一换行符**（2026-09-26 实测两次踩到）：本仓库 `core.autocrlf=true` ——
+    同一个提交，Windows 检出是 CRLF、CI（Linux）检出是 LF；而 `git checkout -- <file>`、
+    反向验证脚本的注入还原，都会把工作区某几个文件的换行「换一种写法」。于是这个指纹
+    **同一个代码库在两台机器上算出来不一样**（本机全绿、CI 上红），而「哪一版代码」这件事
+    跟换行符毫无关系 —— 那是**检出状态的产物**，不是代码的内容。
+    归一之后：内容没变 ⇒ 指纹不变（本机与 CI 一致）；内容变了 ⇒ 照样能算出来。
     """
     base = root or ROOT
     seen: list[Path] = []
@@ -295,7 +303,7 @@ def source_fingerprint(globs: tuple[str, ...] | list[str], root: Path | None = N
     for p in sorted(set(seen)):
         h.update(str(p.relative_to(base)).replace(chr(92), '/').encode('utf-8'))
         h.update(b'\x00')
-        h.update(p.read_bytes())
+        h.update(p.read_bytes().replace(b'\r\n', b'\n'))  # 换行归一：检出状态不算内容
         h.update(b'\x01')
     return 'sha256:' + h.hexdigest()
 

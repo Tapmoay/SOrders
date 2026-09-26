@@ -59,6 +59,11 @@ MIN_FILES = 200
 #: （`p:/` 前面是字母）；`[^\s]*` 只是让匹配止于空白，路径本身不做语法解析。
 WIN_PATH = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]):[\\/][^\s]*")
 
+#: 会打 ✅/❌ 的脚本**必须能把它们打出来**：要么自己 `reconfigure`，要么 import `_airepo`（它顺手设了 stdout）。
+#: ⛔ 2026-09-26 实测事故：`_reverse_verify_shipper_settle_ceiling.py` 两样都没有 —— 在 GBK 控制台/管道下
+#: 打第一个 ✅ 就 `UnicodeEncodeError` 崩掉（EXIT=1、4 秒），看着像「反向验证跑过了」，其实**一条都没验**。
+MARKS = ("\u2705", "\u274c")
+
 #: 别人家目录（CI 自己的 /home/runner/ 不算）。
 HOME_DIR = re.compile(r"[\\/](?:Users|home)[\\/]([A-Za-z0-9._-]+)")
 
@@ -78,6 +83,31 @@ def why_offence(text: str) -> str | None:
     return None
 
 
+def provides_encoding(path: Path, seen: set[Path] | None = None, depth: int = 3) -> bool:
+    """这个脚本（**或它 import 的本仓库模块**）有没有把 stdout 设成 UTF-8。
+
+    ⛔ 必须跟着 import 走：`_check_shipper_settle_ceiling.py` 自己一个 `reconfigure` 都没有，
+    但它 `from _check_pagination_wiring import …`，而那一份会 import `_airepo`（顺手设了 stdout）——
+    只看本文件会**虚报**（实测第一版就虚报了 5 份）。判据读宽了与读窄了同样糟。
+    """
+    seen = seen if seen is not None else set()
+    if path in seen or depth < 0:
+        return False
+    seen.add(path)
+    try:
+        src = path.read_bytes().decode("utf-8-sig")
+    except OSError:
+        return False
+    if "reconfigure" in src or "_airepo" in src:
+        return True
+    for m in re.finditer(r"^\s*(?:from|import)\s+([A-Za-z_][\w.]*)", src, re.M):
+        name = m.group(1).split(".")[0]
+        for cand in (path.parent / (name + ".py"), TOOLS / "ai" / (name + ".py")):
+            if cand.is_file() and provides_encoding(cand, seen, depth - 1):
+                return True
+    return False
+
+
 def docstrings(tree: ast.AST) -> set[int]:
     """收集 docstring 那些字符串节点的 id（判据要跳过它们，理由见文件头）。"""
     out: set[int] = set()
@@ -95,15 +125,19 @@ def main() -> int:
     files = sorted(p for p in TOOLS.rglob("*.py") if "__pycache__" not in p.parts)
     broken: list[str] = []
     offences: list[str] = []
+    noenc: list[str] = []
     seen = 0
 
     for p in files:
         rel = str(p.relative_to(ROOT))
         try:
-            tree = ast.parse(p.read_bytes().decode("utf-8-sig"))
+            src = p.read_bytes().decode("utf-8-sig")
+            tree = ast.parse(src)
         except SyntaxError as exc:
             broken.append(f"{rel}:{exc.lineno}  {str(exc)[:100]}")
             continue
+        if any(mk in src for mk in MARKS) and not provides_encoding(p):
+            noenc.append(rel)
         skip = docstrings(tree)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
@@ -124,6 +158,8 @@ def main() -> int:
         print(f"  …… 还有 {len(offences) - 30} 处")
     for b in broken[:20]:
         print("  ⛔ 解析不了（这个工具根本跑不起来）  " + b)
+    for r in noenc[:10]:
+        print("  ⛔ 会打 ✅/❌ 却没法把它们打出来（没 reconfigure、也没 import _airepo）  " + r)
 
     problems: list[str] = []
     if broken:
@@ -131,6 +167,9 @@ def main() -> int:
     if offences:
         problems.append(f"{len(offences)} 处把**本仓库的检出位置**写死了"
                         "（本机跑得通、CI 上那个文件不存在 → 反向验证会变成恒 SKIP）")
+    if noenc:
+        problems.append(f"{len(noenc)} 个脚本会打 ✅/❌ 却没法把它们打出来"
+                        "（GBK 控制台/管道下会 UnicodeEncodeError——看着跑过了，其实没验）")
     if len(files) < MIN_FILES:
         problems.append(f"只扫到 {len(files)} 个文件（< {MIN_FILES}）—— 判据可能扫错目录了")
 

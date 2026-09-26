@@ -61,8 +61,9 @@ SNAP_ASSIGN = re.compile(r'(\w+)\s*=\s*[^\n]*?read_text\(([^)]*)\)')
 #:   `write_text(...)` / `write_bytes(...)` 的实参里 ⇒ 那串 LF 会被原样写回，CRLF 文件就变成 LF。
 #:   ⛔ 第一版口径太宽（只要文件里同时有裸 `read_text(` 与 `write_text(` 就算）→ 把
 #:   **只是读来比对、根本不写回**的脚本也算成了风险（实测虚报 11 份）—— 判据读宽了与读窄了同样糟。
-#: 收紧口径 + 本轮把 12 处改成字节级之后，实测 **22** 份。
-MAX_L3 = 22
+#: 收紧口径 + 两批共把 28 处改成字节级之后，实测 **6** 份（coverage_input / multi_request / fuzz_safety /
+#: core_freeze / loop_e2e / place_and_picker —— 形状各不相同，要逐份看代码）。
+MAX_L3 = 6
 
 MIN_L1 = 135
 #: ⛔ L2：2026-09-26 实测 **94** 份。两次变化都要记清楚（⛔ 不是「缺口改小了」）：
@@ -164,6 +165,15 @@ def main() -> int:
         if runs_git_checkout(src_raw):
             fails.append(rel + '：代码里真的执行了 git checkout（会把未提交的工作一起抹掉）')
             continue
+        # ⛔ 2026-09-26 新增（实测事故）：**搬家时只换 `path` / 文本、不换字节快照**的写法。
+        #    后果：还原把**老文件**的字节写进了新文件 —— 实测 `_reverse_verify_report_guards.py` 把
+        #    `services/reports_service.py`（1176B 的壳）盖到了 `reports/turnover_query.py` 上，
+        #    而且它自己那句「还原后与快照不一致就记账」拿的还是**同一份错字节** ⇒ 恒等、静默通过。
+        #    形状判据（代码级）＋ 那 4 份脚本各自加了「注入前的不变量」：快照必须属于要改的那个文件。
+        if re.search(r'path\s*,\s*original\s*=\s*\w+\s*,\s*\w+', code):
+            fails.append(rel + '：写了 `path, original = _c, _t` —— 字节快照没跟着搬家，还原会把'
+                         + '**老文件**的字节写进新文件（2026-09-26 实测事故）；分别赋值并同时更新 *_bytes')
+
         # ---- L1：快照 + 还原（两种都算，仓库里两种形状都在用）----
         #   ① 字节级：read_bytes + write_bytes（新写的脚本基本是这种）；
         #   ② 文本级：read_text + write_text(..., newline="") —— `newline=""` 不做换行翻译，

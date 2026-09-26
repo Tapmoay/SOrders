@@ -277,7 +277,8 @@ def main() -> int:
 
     fails: list[str] = []
     for label, path, mutate in CASES:
-        original = path.read_text(encoding="utf-8")
+        original_bytes = path.read_bytes()
+        original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
         # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— 目标路径可能已经过期。
         # 判据读的是**并集**，注入器也照着并集找：哪一份真的被 mutate 改了，就打在哪一份上。
         # ⛔ 不逐条改 CASES 里的路径常量：那几条锚点跨多个新文件，改常量改不干净。
@@ -289,8 +290,18 @@ def main() -> int:
             for _c in _rf():
                 _t = _c.read_text(encoding="utf-8")
                 if mutate(_t) != _t:
-                    path, original = _c, _t
+                    # ⛔ 2026-09-26 修正（R3-07b 顺带抓到的真事故）：搬家时**字节快照必须一起搬**。
+                    #    只换 path/original、不换 original_bytes 的后果：还原把**老文件**的字节写进了新文件
+                    #    （实测把 `services/reports_service.py` 那份 1176B 的壳盖到 `reports/turnover_query.py` 上），
+                    #    而「还原后核对」拿的还是同一份错字节 ⇒ 恒等、**静默通过**。
+                    path = _c
+                    original_bytes = _c.read_bytes()
+                    original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
                     break
+        # ⛔ 注入前的**不变量**：快照必须确实属于要改的那个文件（否则还原会写错东西）
+        if path.read_bytes() != original_bytes:
+            fails.append(f"{label}：快照与目标不是同一个文件（搬家时漏换 original_bytes）")
+            continue
         mutated = mutate(original)
         if mutated == original:
             fails.append(f"{label}：注入没生效（替换串过期了，请更新本脚本）")
@@ -299,7 +310,7 @@ def main() -> int:
             path.write_text(mutated, encoding="utf-8", newline="")
             code = run(CHECK)
         finally:
-            path.write_text(original, encoding="utf-8", newline="")
+            path.write_bytes(original_bytes)
         if code != 0:
             print(f"✅ 注入「{label}」→ 报红")
         else:

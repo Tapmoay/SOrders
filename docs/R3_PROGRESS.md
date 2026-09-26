@@ -244,6 +244,14 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   反向验证 7/7（改真源没重跑 / 手改指纹 / 抹掉指纹 / glob 空转 / 编造提交 / 清单被掏空）。
   ⚠️ `generated_at` 每次生成都会变，所以能力快照的 `--check` 会把它**归一化掉**再比对 ——
   真正回答「哪一版代码」的是 `source_hash`。这句话写进了生成器与判据两边。
+  ⛔ **2026-09-26 修（本机一天被它绊倒两次之后）**：`_airepo.source_fingerprint` 原来把**原始字节**
+  直接进哈希，而本仓库 `core.autocrlf=true` —— 同一个提交，Windows 检出是 CRLF、CI（Linux）检出是 LF，
+  于是**同一个代码库在两台机器上指纹不一样**：本机全绿、**CI 上会红**。触发它的三件小事都真的发生过：
+  `git checkout -- <file>` 还原两个被写坏的文件、反向验证的注入+还原碰到 CRLF 文件、以及一次批量改法。
+  已改成**哈希前把 `\r\n` 归一成 `\n`**（内容没变 ⇒ 指纹不变；内容变了 ⇒ 照样算得出来），
+  四份产物按新口径重新生成（只动 `source_hash` 一行 + 能力快照的 `generated_at`），反向验证仍 7/7。
+  ⛔ 顺带说清一件事：这条判据报红时的提示原来只有「源码变了而产物没重跑」，在**换行漂移**的情况下
+  那句话是**误导**（内容一个字没变）。口径归一之后，它才真的只表示「内容变了」。
 - ❌ **反向验证必须完整还原**（R3-07b，**只补到一半**）—— 复现：`python _tools/qa/_check_reverse_verify_restore.py`
   新增判据把「还原契约」抽出来逐份核（143 份），分**两级**、各有只增不减的棘轮：
   · **L1 快照 + 还原**：**141/143**（字节级 `read_bytes`+`write_bytes`，或文本级 `read_text`+`write_text(newline=)`，
@@ -279,7 +287,34 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
     `card_claim` / `ctx_budget` / `geocode` / `image_refs` / `cost_history` / `soft_delete` / `read_caps` /
     `export_cells` / `product_guards` / `user_search` / `order_purge_fk`（它有两处：`original` 与 `init_src`）。
     **每一份都跑过一遍，全部退出 0**。
-    · 当前 **L3 = 22 份（上限 22，只减不增）**；L2 保持 106/143。
+    · 本轮第二批又把 **16 处**改成字节级（billing / local_reads / sun_theme / undo / catalog_and_scope /
+    concurrency_guards / cost_basis / enum_drift / freight_settlement_ui / input_guards / migrations /
+    paid_actions / report_guards / report_window / shipper_settle_ceiling / single_source），逐份跑过全绿，
+    于是 **L3 22 → 6 份**：剩下 6 份形状各不相同（`coverage_input` / `multi_request` / `fuzz_safety` /
+    `core_freeze` / `loop_e2e` / `place_and_picker`），要逐份看代码再改。
+    · ⛔ 两个自己踩的坑（都跟换行符同源，记下来免得再踩）：① 第一版批量改法用 `$` 匹配行尾，
+    **CRLF 文件一条都没匹配上**（行尾还留着一个 `\r`），16 份被静默跳过 —— 是看『SKIP』名单才发现的，
+    它自己不报错；② 往 CRLF 文件里**插一行 LF** 会造出混合行尾（比原来更糟），所以插入的新行必须
+    跟随原文件的换行符。
+    ⑤ ⛔ **本轮还抓到一个真正的破坏性缺陷**（就是这一格存在的理由）：`_reverse_verify_report_guards.py`
+    的「锚点跟着搬家走」分支里写着 `path, original = _c, _t` —— **字节快照没跟着搬**。后果：还原把
+    `services/reports_service.py`（1176B 的壳）的字节**写进了** `reports/turnover_query.py` 与
+    `reports/product_query.py`（整份覆盖，`git status` 只看得出「改过」，看不出是哪一步干的）。
+    ⛔ 而它自己那句「还原后与快照不一致就记账」拿的是**同一份错字节** ⇒ 恒等、**静默通过** ——
+    这正是「判据盯的是错的那一头」的样子（与我这轮修的 L2 口径同源）。
+    处置：① 4 份同类脚本（`cost_basis` / `report_guards` / `report_window` / `single_source`）改成**分别赋值**
+    ＋**同时重取 `original_bytes`**，并加一条**注入前的不变量**「快照必须属于要改的那个文件」；
+    ② 判据新增一条**代码形状红线**：凡出现 `path, original = _c, _t` 一律红（防复发）；
+    ③ 4 份重跑 → 全绿（29/29、19 条、5 条、8/8），跑完 `git status backend/` 干净。
+    ⑥ **另一类「看着跑过了」**：`_reverse_verify_shipper_settle_ceiling.py` 不 import `_airepo`、自己也没设
+    stdout，在 GBK 控制台下**打第一个 ✅ 就崩**（EXIT=1、4 秒）——一条都没验却像个跑过的样子。
+    同类还扫出 `_probe_return_request.py`（实测跑到第 187 行打「退款 ¥…」时崩，前面的探针结果全白跑）。
+    处置：两份都补 `reconfigure`；`_check_tool_scripts.py` 新增一条判据「会打 ✅/❌ 就必须能把它们打出来」
+    （⛔ 第一版只看本文件 → **虚报 5 份**：它们靠 `from _check_pagination_wiring import …` 间接拿到
+    `_airepo` 的编码设置；改成**跟着 import 走**（深度 ≤ 3）之后只剩 1 份真犯规，已修）。
+    ⑦ **一条没解决的**（如实记着）：`_reverse_verify_enum_drift.py` 里「生成器把可空性写死」那条注入
+    **打不动判据**（注入后不报红）—— 下一轮查是注入锚点过期，还是判据真缺这一条规则。
+    · 当前 **L3 = 6 份（上限 6）**；L2 保持 106/143。
   · 另外核一件事：**没有任何一份**在代码里真的执行 `git checkout`（⛔ 用 AST 看**调用实参**，
     不用正则搜文本 —— 反向验证脚本自己就把 `["git","checkout",…]` 当字符串数据写着，
     正则会把它们全判红，那是本仓库栽过的「判据被文字误伤」）。

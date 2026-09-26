@@ -159,7 +159,8 @@ def main() -> int:
     print("✅ 前提：源码完好时检查是绿的")
 
     for label, path, old, new, expect in MUTATIONS:
-        original = path.read_text(encoding="utf-8")
+        original_bytes = path.read_bytes()
+        original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
         if original.count(old) != 1:
             fails.append(f"{label}：注入没生效（原文出现 {original.count(old)} 次，请更新本脚本的替换串）")
             continue
@@ -167,9 +168,9 @@ def main() -> int:
             path.write_text(original.replace(old, new), encoding="utf-8", newline="")
             code, out = run_check()
         finally:
-            path.write_text(original, encoding="utf-8", newline="")
+            path.write_bytes(original_bytes)
         # R3-07b：还原**当场核对**（不是「看起来还原了」）—— 对不上就记账，别让坏代码留在树里
-        if path.read_text(encoding="utf-8") != original:
+        if path.read_bytes() != original_bytes:
             fails.append("还原后与快照不一致（注入污染了源码树）：" + str(path))
         sec = out.split("== 2b-3.")[-1] if "== 2b-3." in out else ""
         hit = any("[FAIL]" in ln and expect in ln for ln in out.splitlines())

@@ -22,6 +22,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# ⛔ 2026-09-26 修：本脚本**不 import `_airepo`**（别人靠它顺手把 stdout 设成 UTF-8），自己又没设 ——
+#    于是在 GBK 控制台/管道下打第一个 ✅ 就 `UnicodeEncodeError` 崩掉（实测：EXIT=1，4 秒）。
+for _s in (sys.stdout, sys.stderr):
+    _s.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -331,7 +336,8 @@ def main() -> int:
 
     fails: list[str] = []
     for label, path, old, new, expect, judge in CASES:
-        original = path.read_text(encoding="utf-8")
+        original_bytes = path.read_bytes()
+        original = original_bytes.decode("utf-8").replace(chr(13) + chr(10), chr(10))
         if original.count(old) != 1:
             fails.append(f"{label}：替换串出现 {original.count(old)} 次（要唯一），请更新本脚本")
             continue
@@ -345,7 +351,7 @@ def main() -> int:
                 caught = run_check() != 0
                 how = "红线"
         finally:
-            path.write_text(original, encoding="utf-8", newline="")
+            path.write_bytes(original_bytes)
         if caught:
             print(f"  [OK]   {label} → 报红（{how}）")
         else:

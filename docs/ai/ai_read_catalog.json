@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:6e9e540dd05b33d1b548473f0cfc2bd0f4cd676d38da281bb4a747ff8ed1e190",
+ "source_hash": "sha256:007a92d57f456f1c0163f3740e7453bb9f4a3cf1c82f1dabf3e75f9f8efe12ea",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 73,
