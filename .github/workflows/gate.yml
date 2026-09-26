@@ -398,7 +398,11 @@ jobs:
             echo "::warning title=安卓端到端带理由跳过::$(grep -m1 '^SKIP:' /tmp/e2e.log || echo '脚本没给出 SKIP 行，见上面日志')"
             exit 0
           fi
-          echo "::error title=安卓端到端没跑通::rc=$rc —— 见上面日志与 _agent/e2e 里的截图"; exit 1
+          # ⛔ 2026-09-26：把 /tmp/e2e.log 的尾部**送进注解**。理由是实测出来的：这个 rc=1 分支
+          #    （脚本真的跑了并报失败）当天出现过 3 次，而 Actions 日志要登录才看得到 ⇒ 我只能在
+          #    注解里看到「rc=1」，看不到**是哪一段挂的**，于是把它误当成「模拟器没起来」。
+          #    注解是匿名可读的，日志不是 —— 所以关键信息必须进注解。
+          echo "::error title=安卓端到端没跑通::rc=$rc —— $(tail -c 700 /tmp/e2e.log | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')"; exit 1
 
   # ⚠️ 2026-09-25（用户拍板）：frontend-build 作业**删掉了** —— 前端 H5（frontend/）正式归档。
   #    理由：它是三端里最初始的网页版，**没有任何部署引用**（_tools/deploy/ 与 nginx 都搜不到 frontend/dist），
