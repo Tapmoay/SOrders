@@ -9,11 +9,11 @@
 >
 > | 项 | 值 |
 > |---|---|
-> | 版本 | **v2.3**（2026-09-26）；v2.2 记 A 段（生产发布），v2.3 记 **B 段（多实例运行时）** 的结果 |
+> | 版本 | **v2.4**（2026-09-26）；v2.3 记 B 段（多实例），v2.4 记 **发布控制面与拓扑对齐 + 备份隔离恢复验证** |
 > | 交付日期 | 2026-09-26 |
 > | 方向指南 | `docs/ARCHITECTURE_RECTIFICATION_R3.md`（原 `C:\Users\Optimistic\Desktop\ppll.md`，1219 行，SHA256 `193AB545…5297`）|
 > | 代码基线 | `d4be6f4`（第二轮收尾）→ 本轮 `c544db5` 开工 → v2.1 的提交链见 §10（⛔ **不写「当前 tip」**：提交号现算 `git rev-parse --short HEAD`；分支 `p`，已推 `origin/new`）|
-> | 本轮提交数 | **64**（`git log --oneline c544db5..HEAD` 现算 —— ⚠️ 每提交一次就 +1，v2.3 收尾时是 64，**含本节所在的这个提交**）|
+> | 本轮提交数 | **65**（`git log --oneline c544db5..HEAD` 现算 —— ⚠️ 每提交一次就 +1，v2.4 收尾时是 65，**含本节所在的这个提交**）|
 > | 台账 | **55 ✅ / 5 ❌**（`docs/R3_PROGRESS.md`）—— A 段关掉 7 条、**B 段关掉 2 条**，剩下的 5 条＝**C（五个故障演练）**，未放行 |
 > | CI | `Gate` + `Tests (Parallel)` 整轮 success（首次 `cc949bf`）；⛔ **按提交记、不按 tip 记** —— 当天逐提交结果见 §5.4（含没绿的那几次）|
 > | 本机证据 | 静态检查 **119 个全绿**、后端用例 **1018 passed**、反向验证全量 **142/142、漂移 0** |
@@ -206,7 +206,7 @@ AI 那侧还有对话层裁剪、安全确认、批量策略、只读/写入策�
 | Release Candidate 记录齐全 | ✅ | `docs/RELEASE_CANDIDATE.md`：Git SHA / 迁移版本 / Android·Backend·Frontend 版本 / 依赖锁 / config checksum / artifact checksum，**每个字段都写了现取命令** |
 | 回滚 / 前向修复方案 | ✅ | 同文档 §五：回滚 A（代码）／回滚 B（库 dump）／前向修复（什么时候它更安全）／回滚后三件事 |
 | 生产验收清单 | ✅ | `docs/PRODUCTION_ACCEPTANCE.md`：12 项**按权限分段**（只读 6 项已出结果，写 6 项等许可）|
-| 发布工具在位 + 护栏自检 | ✅ | `python _tools/deploy/_release.py --selftest` → **24/24**（A 阶段修判据时从 17 → 23 → 24）|
+| 发布工具在位 + 护栏自检 | ✅ | `python _tools/deploy/_release.py --selftest` → **32/32**（A 段修判据 17→24；B 段后把 start 改成**滚动重启**，新增 8 条用例）|
 | 备份 | ✅ | 生产实测：`/opt/sorders-backup/pre_release/20260926T133009Z`（库 526 KB ＋ 上传 106 MB ÷ 2115 文件，sha256 通过）；清单进库 |
 | **代码落位**（⭐ A 阶段补的一步）| ✅ | 生产实测：`checkout b3dad61` 而**不重启**（服务仍 active、版本仍 0.2.0、`ActiveEnterTimestamp` 未变）|
 | 迁移（先迁移后应用）| ✅ | 生产实测：`schema_versions` **1..8 各一行**；表数 44 → 48；⛔ 业务数据一行没动（orders 2402 / ledgers 4648 / users 60 / products 37）|
@@ -452,7 +452,7 @@ Windows 专属 shell / 例外表「必须还在当前违反里」/ 排序键用 
 
 | 产物 | 是什么 | 它证什么 | ⛔ 它不证什么 |
 |---|---|---|---|
-| `_tools/deploy/_release.py` | 发布八步一条命令 + 四条护栏 | 自检 **23/23**；护栏真的会拒绝 | ⭐ **2026-09-26 A 阶段真在生产上跑了前 4 步**（见台账「A 阶段执行记录」）|
+| `_tools/deploy/_release.py` | 发布八步一条命令 + 四条护栏（start ＝ **滚动重启所有 enabled 的 API unit**）| 自检 **32/32**；护栏真的会拒绝 | ⭐ A 段真在生产上跑过 6 步；**B 段之后 start 已与双实例拓扑对齐并真跑过一次**（逐个实例 active + health 200 + 全程 nginx 有活上游）|
 | `_tools/ops/_drill.py` | 五个演练 + 护栏（生产要三信号且**不代跑**）| 自检 **12/12**；本机预演 **5/5** | ⛔ 不证生产演练做过 |
 | `_tools/ops/_prod_smoke.py` | 生产只读八项 | 八项各有真探针、且被钉成只读 | ⛔ 不证业务正确、不证写路径 |
 | `_tools/ops/_health_check.py` | 四个阈值 + 三档退出码 | 日常监控有人盯 | ⛔ 不替代演练 |
@@ -464,6 +464,7 @@ Windows 专属 shell / 例外表「必须还在当前违反里」/ 排序键用 
 | `docs/R3_FAILURE_DRILL.md` | 五个演练方案 + 本机预演明细 | 方案与纪律 | ⛔ 不证演练做过 |
 | `docs/R3_A_RELEASE_EVIDENCE.md` | A 段（生产发布）每一步的**原始输出** + 库端对账 | 发布真的做过（备份 / 迁移 / 启动 / 体检 / 烟测 / trace 各自输出都在）| ⛔ 不证业务正确、不证多实例、不证演练、不证回滚可用 |
 | `docs/R3_B_MULTIINSTANCE_EVIDENCE.md` | B 段（多实例）每一步的**原始输出** | socket 双向实测 / nginx upstream / 摘机测试 / 失败摘除日志 / 老服务退场 | ⛔ 不证跨主机、不证真实 App 端、不证演练、不证备份能恢复 |
+| `docs/R3_RESTORE_VERIFICATION.md` | 备份隔离恢复验证的**原始输出**（四阶段 + 逐条不变量 + 关键查询）| 恢复出来的库**真的能用**（结构/行数/不变式/查询四层）| ⛔ 不证 uploads、不证 RTO、不证演练 |
 | `docs/R3_PROD_READONLY_EVIDENCE.md` | 生产只读原始事实（含全量依赖清单）| 八项实测 | ⛔ 见 §4 末 |
 | `docs/DEPENDENCY_DECISION.md` | 依赖决策的证据 + 拍板记录 | 决策做了、且有依据 | ⛔ 不证依赖树可复现（本轮不锁）|
 
@@ -477,7 +478,7 @@ Windows 专属 shell / 例外表「必须还在当前违反里」/ 排序键用 
 ```text
 B Multi-instance（已放行）  Redis → 双实例 Socket → Socket 双向实测 → nginx upstream → 摘机测试
         ↓ B 验收 ✅
-备份隔离恢复验证（新增前置：生产备份 → 隔离 MySQL 恢复 → 核 schema / 行数 / 关键查询）
+备份隔离恢复验证 ✅（2026-09-26 已做：迁移后的备份 → 项目自己的四阶段演练 → **DRILL=ok**；schema_versions 1..8 / 表 48 / orders 2403 / ledgers 4648 / users 60 / products 37 + 五条关键查询）
         ↓
 C Failure Drill（等 B 验收后再放行）  每条：C-X0 前置 → X1 基线 → X2 注入 → X3 观察 → X4 恢复 → X5 核业务状态
 ```
@@ -519,7 +520,7 @@ C 故障演练   worker-crash / redis-down / event-delay / lock-contention / dis
 | 类别 | 条数 | 卡在哪 | 归到哪一段 |
 |---|---|---|---|
 | ~~R3-05 发布~~ | ~~6~~ | ⭐ **已完成**（2026-09-26 A 段；含新补的「代码落位」与「验证结构」两步）| **A ✅** |
-| R3-06 演练五条 | 5 | 停服务 / 断 Redis / 塞磁盘（生产侧）| **C** —— ⏸ **等 B 验收 + 备份恢复验证之后再放行**（本机预演 5/5，⛔ 形态不同不能顶替）|
+| R3-06 演练五条 | 5 | 停服务 / 断 Redis / 塞磁盘（生产侧）| **C** —— ⏸ **两项前置都已完成（B ✅ / 备份恢复验证 ✅），现在只等你的放行** |
 | ~~R3-03 socket 跨实例~~ | ~~1~~ | ⭐ **已完成**（2026-09-26 B 段）：A→B 与 B→A 两个方向都实测收到 | **B ✅** |
 | ~~R3-03 nginx 失败摘除~~ | ~~1~~ | ⭐ **已完成**（2026-09-26 B 段）：upstream + 摘机测试通过 + 失败摘除有原始日志 | **B ✅** |
 

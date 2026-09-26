@@ -74,9 +74,9 @@ STEP_DOC: dict[str, tuple[str, str, str]] = {
     "verify": ("生产上 .venv/bin/python -m app.migrations status --json",
                "当前版本 == 本仓库迁移头；待跑 0 / 漂移 0 / 陌生版本 0",
                "与期望不符 → 不启动"),
-    "start": ("再核一次 git checkout <SHA> + systemctl restart sorders-api",
-              "systemctl is-active = active",
-              "起不来 → 看 journalctl -u sorders-api；按 §五 处置"),
+    "start": ("再核一次 git checkout <SHA>，然后**滚动重启所有 enabled 的 sorders-api* unit**（⛔ 不是重启某个写死的 unit）",
+              "逐个实例：is-active=active ＋ /health=200 ＋ 重启期间**经 nginx 的入口一直有活上游**；全部通过才算过",
+              "任一实例不 active / health 非 200 / 入口拿不到活上游 → 停下看 journalctl -u <unit>；按 §五 处置"),
     "health": ("本机跑 _tools/ops/_health_check.py",
                "退出码 0（或只有「已知/已接受」的证书告警 = 1）",
                "退出码 2 → 立刻回滚"),
@@ -217,6 +217,22 @@ VERIFY_CASES: list[tuple[str, dict, int | None, bool, str]] = [
 ]
 
 
+#: roll_plan / roll_verdict 的用例：(说明, 测哪个, 入参, 期望过不过, 期望话里必须有的词)
+ROLL_CASES: list[tuple[str, str, object, bool, str]] = [
+    ("roll_plan：一个 unit 都没有 ⇒ 不许瞎猜", "plan", [], False, "没找到"),
+    ("roll_plan：两个 unit ⇒ 按名字排序（稳定可复现）", "plan",
+     ["sorders-api-b.service", "sorders-api-a.service"], True, "sorders-api-a.service、sorders-api-b.service"),
+    ("roll_verdict：没有任何实例结果 ⇒ 不过（算不出事实）", "verdict", [], False, "没有任何实例结果"),
+    ("roll_verdict：单实例全绿 ⇒ 过", "verdict", [("u", True, True, True)], True, "全部 1 个实例"),
+    ("roll_verdict：两个实例全绿 ⇒ 过", "verdict", [("a", True, True, True), ("b", True, True, True)],
+     True, "全部 2 个实例"),
+    ("roll_verdict：有一个不是 active ⇒ 不过并点名它", "verdict", [("a", True, True, True), ("b", False, True, True)],
+     False, "b 不是 active"),
+    ("roll_verdict：health 不是 200 ⇒ 不过", "verdict", [("a", True, False, True)], False, "/health 不是 200"),
+    ("roll_verdict：滚动中途入口没有活上游 ⇒ 不过", "verdict", [("a", True, True, False)], False, "活上游"),
+]
+
+
 def selftest() -> int:
     bad = 0
     cases = build_cases()
@@ -230,12 +246,21 @@ def selftest() -> int:
         good = (ok == want_ok) and (want_word in why)
         print(("  OK   " if good else "  BAD  ") + label + " → " + ("过" if ok else "不过") + "：" + why)
         bad += 0 if good else 1
+    for label, kind, args, want_ok, want_word in ROLL_CASES:
+        if kind == "plan":
+            plan, why = roll_plan(args)  # type: ignore[arg-type]
+            got_ok = bool(plan) and (plan == sorted(args))
+        else:
+            got_ok, why = roll_verdict(args)  # type: ignore[arg-type]
+        good = (got_ok == want_ok) and (want_word in why)
+        print(("  OK   " if good else "  BAD  ") + label + " → " + ("过" if got_ok else "不过") + "：" + why)
+        bad += 0 if good else 1
     for s in STEPS:      # ⛔ 自检还要证明「默认不动手」：没有 --go 时任何步骤都只能是 plan
         action, _ = decide(step=s, go=False, facts={"backup_age_hours": 1.0, "sha_in_repo": True}, state={})
         if action != "plan":
             print("  BAD  没有 --go 时步骤 " + s + " 居然不是 plan")
             bad += 1
-    total = len(cases) + len(VERIFY_CASES) + len(STEPS)
+    total = len(cases) + len(VERIFY_CASES) + len(ROLL_CASES) + len(STEPS)
     print("发布工具护栏自检：" + str(total - bad) + "/" + str(total) + " 通过")
     return 1 if bad else 0
 # ------------------------------------------------------------------ 事实（只读）
@@ -334,16 +359,101 @@ def run_verify() -> int:
     return 0 if ok else 1
 
 
+def api_units() -> list[str]:
+    """**enabled** 的 sorders-api* unit（⛔ 拓扑从系统来，不在这里硬编码 unit 名）。"""
+    out = _prodssh.ssh_lines("systemctl list-unit-files 'sorders-api*.service' --state=enabled"
+                             " --no-legend 2>/dev/null | awk '{print $1}'")
+    return sorted(u.strip() for u in out if u.strip())
+
+
+def unit_port(unit: str) -> str | None:
+    """从 unit 的 ExecStart 里取 `--port N`（⛔ 不硬编码 8111/8112）。算不出返回 None。"""
+    out = _prodssh.ssh_lines("systemctl show -p ExecStart --value " + unit)
+    m = re.search(r"--port[= ](\d+)", " ".join(out))
+    return m.group(1) if m else None
+
+
+def roll_plan(units: list[str]) -> tuple[list[str], str]:
+    """滚动重启的**计划**（纯函数 ⇒ --selftest 直接测）。
+
+    ⛔ 为什么是滚动而不是「一起重启」：生产现在是**两个实例 + nginx upstream**，
+    一起重启会出现「两个后端同时不在」，那一瞬间 nginx 就是 `no live upstreams` ——
+    等于把这个拓扑唯一的冗余白白丢掉。
+    ⛔ 顺序按 unit 名**排序**：稳定、可复现，也不依赖 systemctl 的返回顺序。
+    """
+    us = sorted(u.strip() for u in units if u.strip())
+    if not us:
+        return [], "没找到任何 enabled 的 API unit —— 算不出要重启谁，不许瞎猜"
+    return us, "滚动重启 " + str(len(us)) + " 个（按名字排序）：" + "、".join(us)
+
+
+def roll_verdict(results: list[tuple[str, bool, bool, bool]]) -> tuple[bool, str]:
+    """(unit, active, health200, nginx_has_live_upstream) 逐实例结果 ⇒ (过不过, 一句话)。纯函数。
+
+    ⛔ 判据是**逐实例的不变量**，不是一个总退出码：重启一个就核一个（active / health / 入口仍可用），
+    全部核完才算过。任何一项不成立就点名是哪个 unit 的哪一项 —— 排障时这一点最值钱。
+    """
+    if not results:
+        return False, "没有任何实例结果 —— 算不出事实就不许判过"
+    bad = []
+    for unit, active, health, nginx_ok in results:
+        if not active:
+            bad.append(unit + " 不是 active")
+        if not health:
+            bad.append(unit + " 的 /health 不是 200")
+        if not nginx_ok:
+            bad.append("重启 " + unit + " 之后，经 nginx 的入口拿不到活上游")
+    if bad:
+        return False, "；".join(bad[:3])
+    return True, ("全部 " + str(len(results)) + " 个实例：active + /health 200 + 滚动全程 nginx 都有活上游")
+
+
 def run_start(sha: str, fetch: bool) -> int:
+    """滚动重启**所有 enabled 的 API unit**（⛔ 不是重启某一个写死的 unit）。
+
+    2026-09-26 B 段把生产从「一个 unit 两个 worker（:8000）」换成「两个 unit :8111/:8112 + nginx upstream」，
+    而这一步原来写死 `systemctl restart sorders-api` —— 拓扑一变，它就**在重启一个已经停用的 unit**：
+    命令会「成功」返回、`is-active` 却不是 active。那是**发布控制面自己的契约漂移**，必须先消掉。
+    """
     pre = ("git -C " + _prodssh.APP_DIR + " fetch origin && " if fetch else "")
     code, out = ssh(pre + "git -C " + _prodssh.APP_DIR + " checkout " + sha)
     print(out[-1200:])
     if code != 0:
         return code
-    code, out = ssh("systemctl restart " + _prodssh.SERVICE + " && sleep 2 && systemctl is-active "
-                    + _prodssh.SERVICE)
-    print(out.strip())
-    return 0 if out.strip() == "active" else 1
+    code, head = ssh("git -C " + _prodssh.APP_DIR + " rev-parse HEAD")
+    head = head.strip().splitlines()[-1].strip() if head.strip() else ""
+    if head != sha:                                   # G4：对不上就不许往下走
+        print("⛔ 生产 HEAD（" + (head or "读不到") + "）≠ 要发布的 SHA —— 不重启")
+        return 1
+
+    units, why = roll_plan(api_units())
+    print("   拓扑：" + why)
+    if not units:
+        return 1
+    results: list[tuple[str, bool, bool, bool]] = []
+    for idx, unit in enumerate(units, 1):
+        port = unit_port(unit)
+        print("   [" + str(idx) + "/" + str(len(units)) + "] 重启 " + unit
+              + "（端口 " + str(port or "?") + "）")
+        _, out = ssh("systemctl restart " + unit + " && sleep 3 && systemctl is-active " + unit)
+        tail = out.strip().splitlines()[-1].strip() if out.strip() else ""
+        active = tail == "active"
+        health = False
+        if port:
+            _, hout = ssh("curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:" + port + "/health")
+            health = hout.strip().endswith("200")
+            print("        is-active=" + (tail or "?") + " ｜ /health=" + hout.strip()[-3:])
+        else:
+            print("        is-active=" + (tail or "?") + " ｜ ⛔ 读不出端口，健康检查跳过")
+        # ⛔ 每重启一个就核一次**入口仍有活上游** —— 这正是滚动重启的意义
+        _, nout = ssh("curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/api/v1/orders")
+        nginx_ok = nout.strip()[-3:] in ("200", "401", "403")
+        print("        经 nginx 入口：" + nout.strip()[-3:] + "（"
+              + ("有活上游" if nginx_ok else "⛔ 没有可用上游") + "）")
+        results.append((unit, active, health, nginx_ok))
+    ok, verdict = roll_verdict(results)
+    print("   " + ("✅ " if ok else "⛔ ") + verdict)
+    return 0 if ok else 1
 
 
 def run_smoke() -> int:

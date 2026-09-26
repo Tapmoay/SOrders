@@ -74,7 +74,7 @@
 
 ## 写阶段出口（Write Phase A / B / C）
 
-⚠️ **口径（2026-09-26 用户拍板）**：**A ✅ 已完成**；**B ✅ 已放行并完成**（socket 双向 + nginx upstream + 摘机测试）；**C ⏸ 等「备份隔离恢复验证」做完再放行**。
+⚠️ **口径（2026-09-26 用户拍板）**：**A ✅ 已完成**；**B ✅ 已完成**；**发布控制面已与双实例拓扑对齐**（见下面 R3-05）；**备份隔离恢复验证 ✅ 已完成** —— ⛔ **C（五个故障演练）仍未放行**，等用户点头。
 
 ```text
              R3 Production
@@ -106,7 +106,7 @@ C 故障演练   worker-crash / redis-down / event-delay / lock-contention / dis
 |---|---|---|---|---|
 | **A 发布** | R3-05 六条：备份 / 迁移 / 启动 / health / 只读烟测 / trace 一单 | 用户一句话许可（禁做 #13/#14） | `_release.py --step X --go` 八步全过（各步判据见 `--plan`；⛔ 2026-09-26 执行前实测发现少了一步，见 R3-05）；`_prod_smoke.py --readonly` 退出码 **0**（⚠️ 今天跑出来是 **1** —— 生产还是旧代码）；`_trace_order.py <单号>` 能按 request_id 串起整条链 | **回滚 A**（代码退回上一个可用提交）/ **回滚 B**（用发布前的 dump 恢复库）；四步与「回滚后要做的三件事」在 `docs/RELEASE_CANDIDATE.md` §四·§五 |
 | **B 多实例**（**2026-09-26 已放行并完成**）| R3-03 两条：Socket.IO 跨实例推送 / nginx upstream + 失败摘除 | ✅ **已完成** | 全部达标：B0 备料（⛔ 发现「生产 keyspace 空」**推不出**「没在用适配器」—— `.env` 里本来就有 `SOCKET_REDIS_URL`）→ B1 **Socket 双向实测通过** → B2 nginx `upstream` + **摘机测试通过** + 失败摘除有原始日志；原始输出 `docs/R3_B_MULTIINSTANCE_EVIDENCE.md` | 回滚：`systemctl enable --now sorders-api` + 把 nginx 两个文件从 `/opt/sorders-backup/b2-nginx-20260926-223624/` 拷回 + reload |
-| **B 验收之后的必修前置**（用户 2026-09-26 加的）| **备份的隔离恢复验证**：生产备份 → 隔离 MySQL（`sorders_drill_*`）→ 恢复 → 核 schema / 行数 / 关键查询 | B 段验收 ✅ | 恢复出来的库**能用**：结构版本 8、`orders`/`ledgers`/`users`/`products` 行数与 A1 备份清单一致、跑一条关键查询（例如某单的账本行）能对上 | 恢复失败 → **C 段不许开始**（没有可用的回滚点，破坏性演练就没有安全网）|\n| **C 演练** | R3-06 五条：worker-crash / redis-down / event-delay / lock-contention / disk-full | **B 验收 ✅ ＋ 备份恢复验证 ✅** | 每条按 `C-X0 前置 → X1 取基线 → X2 注入 → X3 观察期望信号 → X4 恢复 → X5 核业务状态` 六步；⛔ **只证「服务起来了」不算过，要证「业务状态没被弄坏」** | 每条都写了「怎么停」；演练不动业务数据（`operation_logs` 除外 —— 那是它自己的证据）|
+| **备份的隔离恢复验证**（用户 2026-09-26 定的 C 前置）| **已完成**：取一份**迁移之后**的备份 `pre_release/20260926T145643Z` → 跑项目自己的四阶段演练（恢复 / 库内不变式 / 隔离实例启动 / 真 token 打只读端点）| ✅ **DRILL=ok** | `schema_versions` **1..8** ／ 表 **48** ／ orders **2403**、ledgers **4648**、users **60**、products **37**（与 manifest 逐项相同）／ 关键查询（订单 / 账本 join / 身份 34+24+2 / 跨表审计行 / 新结构 outbox=13、带 rid 4、带 cid 3）全部读得出；原始输出 `docs/R3_RESTORE_VERIFICATION.md` | 恢复失败 → **C 段不许开始**（没有可用的回滚点，破坏性演练就没有安全网）|\n| **C 演练** | R3-06 五条：worker-crash / redis-down / event-delay / lock-contention / disk-full | **B 验收 ✅ ＋ 备份恢复验证 ✅** | 每条按 `C-X0 前置 → X1 取基线 → X2 注入 → X3 观察期望信号 → X4 恢复 → X5 核业务状态` 六步；⛔ **只证「服务起来了」不算过，要证「业务状态没被弄坏」** | 每条都写了「怎么停」；演练不动业务数据（`operation_logs` 除外 —— 那是它自己的证据）|
 
 ⚠️ **B 段可以只做一半**：装一个本机 Redis 就能把 socket 那一格验掉（代价＝本机多一个常驻服务）；
 nginx 那一格**必须**在生产上做 —— 「upstream + 失败摘除」在当前部署形态里**根本不存在**（单后端反代）。
@@ -399,6 +399,10 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   ⚠️ **第一次它是红的，而红的是判据、不是生产**：原判据要求输出里有「待跑：0 条」，而 `status` 那行**只在有待跑时才打** ⇒ 迁移越干净越报红。
   已改成读 `--json` 的三个列表（`pending` / `drifted` / `unknown_in_db`）+ 与**本仓库迁移头**比对，并抽成纯函数进 `--selftest`（自检 17 → **24** 项）—— ⛔ 判据**变强**了，不是放松。两次原始输出都在同文档 §五。
 - ✅ 启动新后端 —— 生产实测：`is-active = active`，重启时刻 21:36:06；**`/health` 版本 0.2.0 → 0.2.4**（＝新代码真的在跑）；启动日志「数据库结构已经是版本 8」＋ 结构化日志 `[rid=…] [cid=-]` —— 复现：`python _tools/deploy/_release.py --selftest`（⛔ 这条核的是**这一步的四条护栏**：G1 不给 `--go` 只打印、G2 顺序强制、G3 备份新鲜度、G4 算不出事实就拒绝；⛔ 它**证不了**生产起没起来 —— 那要连生产，没法写进 CI 能跑的复现位）
+  ⭐ **2026-09-26 二次对齐（发布控制面 ↔ 双实例拓扑）**：B 段把生产换成「两个 unit + nginx upstream」之后，这一步原来写死的 `systemctl restart sorders-api` 变成**在重启一个已停用的 unit**（命令会「成功」返回、`is-active` 却不是 active）。已改成：**从系统里实际 enabled 的 `sorders-api*` unit 取目标**（⛔ 不硬编码 unit 名，⛔ 也不硬编码端口 —— 端口从每个 unit 的 `ExecStart` 里读）、**逐个滚动重启**，每重启一个就核 `is-active` ＋ 该实例 `/health` ＋ **经 nginx 的入口仍有活上游**，全部通过才算过。
+  实测（`--step start --go`）：`拓扑：滚动重启 2 个（按名字排序）：sorders-api-a.service、sorders-api-b.service` → `[1/2] … is-active=active ｜ /health=200 ｜ 经 nginx 入口：401（有活上游）` → `[2/2] …` 同 → `✅ 全部 2 个实例：active + /health 200 + 滚动全程 nginx 都有活上游`。
+  ⛔ 顺带复验「不影响 Socket 双实例能力」（⛔ 不是重做 B1/B2）：滚动重启后再跑一次跨实例实测 —— A→B 收到（0.5s）、B→A 收到（0.0s）。护栏自检 24 → **32/32**（新增 `roll_plan` / `roll_verdict` 的 8 条用例）。
+  ⛔ 这一条记的是「**发布工具与拓扑重新对齐**」，⛔ **不算新的生产运行时能力**，也不重做 A 的整套验收。
   ⚠️ 真跑要 `--go`（本轮是 `--step start --go --sha b3dad61…`）；生产侧原始输出：同文档 §六。
 - ✅ health（**启动之后**的体检）—— 生产实测：**6 项正常 / 2 告警 / 0 失败**；数据库探针 = 1、48 表、**迁移版本 8**；发件箱 待发 0 / 已发 0 / 放弃 0；2 条告警是**已知/已接受**的证书（域名未备案，App 走 IP 证书，还有 1087 天） —— 复现：`python _tools/ops/_check_ops.py --check`（⛔ 核的是**体检工具本身**：只读、阈值只有一处、退出码分档；生产那一次的输出在同文档 §六）
 - ✅ 只读烟测 —— 生产实测：**ERROR 0 条、未批准 WARN 0 条、已批准 WARN 2 条**（31 通过）；⭐ 顺带量到 `request_id` 直连与**经 nginx 都原样回来**、生产跑的运行时代码与本仓库 **`backend/` 零差异** —— 复现：`python _tools/ops/_check_ops.py --check`

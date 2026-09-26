@@ -76,7 +76,9 @@
 | 2 | **代码落位**（⭐ 2026-09-26 补） | `python _tools/deploy/_release.py --step stage --go`（生产上 `git fetch origin` → `git checkout <SHA>`，**⛔ 不重启服务**） | 生产 `git rev-parse HEAD` == <SHA>，且 `app/migrations` 这个包**在**了；服务仍 active（跑的还是旧代码）| 失败 → 停止（服务与库都还没被动过；要退只需 checkout 回旧 SHA）|
 | 3 | **迁移**（唯一入口） | `python _tools/deploy/_release.py --step migrate --go`（它执行生产上的 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`） | 版本 0 → 8；`schema_versions` 出现 8 行 | 失败 → **不启动**，按第 5 节「前向修复」或从 dump 恢复 |
 | 4 | **验证结构** | `.venv/bin/python -m app.migrations status` | 「当前版本：8 / 待跑：0 条」 | 与期望不符 → 不启动 |
-| 5 | **启动新后端** | `python _tools/deploy/_release.py --step start --go`（再核一次 `checkout <SHA>` → `restart sorders-api`，并核对 `is-active`） | `systemctl is-active` = active | 起不来 → 看 `journalctl -u sorders-api`；回第 5 节 |
+| 5 | **启动新后端（滚动重启）** | `python _tools/deploy/_release.py --step start --go` —— 再核一次 `checkout <SHA>`，然后**逐个**重启 `systemctl list-unit-files 'sorders-api*.service' --state=enabled` 里的每个 unit；每重启一个就核 `is-active` ＋ 该实例 `/health` ＋ **经 nginx 的入口仍有活上游** | 全部实例：`is-active` = active 且 `/health` = 200 且滚动全程入口有活上游 | 任一实例不 active / health 非 200 / 入口拿不到活上游 → 停下看 `journalctl -u <那个 unit>`；回第 5 节 |
+
+> ⛔ **2026-09-26 修的口径漂移**：这一步原来写死 `systemctl restart sorders-api`。B 段把生产换成「两个 unit（`sorders-api-a` :8111 / `sorders-api-b` :8112）+ nginx upstream」之后，那句话就变成「**在重启一个已经停用的 unit**」—— 命令会「成功」返回、而 `is-active` 不是 active。现在它从**系统里实际 enabled 的 unit** 取目标（⛔ 不硬编码 unit 名、也不硬编码端口），并且**滚动**重启（一起重启会让 nginx 出现 `no live upstreams`，等于把拓扑唯一的冗余丢掉）。
 | 6 | **体检** | `python _tools/ops/_health_check.py` | 退出码 0（或只有「已知/已接受」的证书告警） | 退出码 2 → 立刻回滚 |
 | 7 | **只读烟测** | `python _tools/ops/_prod_smoke.py --readonly` | 退出码 **0**（现状健康 **且**与这一版代码一致） | 退出码 2 → 回滚；退出码 1 → 看是哪几项不一致 |
 | 8 | **业务烟测（有限写）** | `docs/PRODUCTION_ACCEPTANCE.md` 里「需要写权限」的那几项 | 逐条按那份清单走 | 任何一条不符合 → 回滚或前向修复 |
