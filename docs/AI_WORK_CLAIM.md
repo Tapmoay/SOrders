@@ -20,6 +20,18 @@
 
 ## 进行中
 
+### [2026-09-26 15:3x → ] 会话：**第三轮收口（R3-07d 依赖决策拍板 + 生产只读核对 + push）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+**用户 2026-09-26 拍了四条板**：① `cryptography` **以生产真实 `pip freeze` 为准**（⛔ 不凭本机猜生产）；
+② requirements **本轮不锁**（保持开区间 + 现有机器判据）；③ 生产**只读放行**（只验证、不做业务写入）；
+④ **要 push**（把领先 `origin/new` 的提交交给 CI，补 Code Ready → CI Proven）。
+
+**改动文件**：`docs/DEPENDENCY_DECISION.md`（§一.4 生产那一格填上 + 新增 §七 拍板记录）、
+`_tools/qa/_check_r3_constraints.py`（探针改成**照着决策判**：决策说不锁 ⇒ 继续拦 `==`）、
+`_tools/qa/_reverse_verify_r3_constraints.py`（⑧ 期望词跟着改）、
+`_tools/ops/_prod_smoke.py`（新：生产**只读**烟测，覆盖 版本/依赖/migration/DB/Redis/nginx/uploads/trace）、
+`_tools/ops/_check_ops.py`（把新脚本也钉进「只读」这条判据）、`docs/R3_PROGRESS.md`、`docs/R3_RUNTIME_EVIDENCE.md`。
+⛔ **不动**：`backend/requirements*.txt`（一个字不改）、`backend/app/**`、`android/**`。
+
 ### [2026-09-26 03:3x → 04:0x] 会话：**第三轮整改 R3-00 禁做清单 + R3-01 迁移生命周期**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `c544db5` / `81a8219`】
 
 **用户 2026-09-26 交来第三份方向指南**（`C:\Users\Optimistic\Desktop\ppll.md`，1219 行），原名

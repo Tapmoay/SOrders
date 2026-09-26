@@ -244,6 +244,8 @@ def probe_requirements_not_blindly_locked() -> tuple[str, str]:
     # ⛔ 只读**那一行**状态，不读整份文档：第一版我写的是 `"已拍板" in text` —— 而文档的说明文字里
     #    就写着「拍板之后把这一行改成『已拍板』」⇒ 整份文档永远含这三个字 ⇒ 探针永远放行（第二次踩）。
     #    判据要盯的是**那一行机器读的状态**，不是散文里出现过的词。
+    # 决策的**结论**：三条路径各写一次，⛔ 任何一条都不许留下未定义的 why（下面是「文档都没有」的兜底）。
+    why = "**没有决策文档**（docs/DEPENDENCY_DECISION.md 不存在）"
     dec = ROOT / "docs/DEPENDENCY_DECISION.md"
     status = ""
     if dec.exists():
@@ -253,22 +255,25 @@ def probe_requirements_not_blindly_locked() -> tuple[str, str]:
                 break
         if not status:
             return "broken", "依赖决策文档里找不到「> **状态**」那一行 —— 探针读不出决策做了没有"
-        if "已拍板" in status:
-            return "hold", "依赖可复现性决策**已拍板** —— 锁与不锁由那份决策说了算"
-        if "待用户拍板" not in status:
+        if "已拍板" not in status and "待用户拍板" not in status:
             return "broken", "状态行里既没写「已拍板」也没写「待用户拍板」：" + status.strip()[:60]
-        # 落到这里 = 文档在、但决策**还没做** ⇒ 与「没有决策文档」同等对待：不许顺手锁。
-    pins_all = [ln.strip() for ln in read("backend/requirements.txt").splitlines()
-                if ln.strip() and not ln.strip().startswith("#") and "==" in ln]
-    if pins_all:
-        return "broken", ("依赖决策还**没拍板**（文档里写着「待用户拍板」）就先锁死 "
-                          + str(len(pins_all)) + " 条：" + pins_all[0])
-    return "hold", "依赖决策还没拍板，而 requirements.txt 仍是开区间（>=x,<y）—— 没有顺手就锁"
+        # ⛔ 2026-09-26 **第三次**修（用户拍板「② 不要 lock」之后）：
+        #    原来「已拍板」= **直接放行** —— 可这一次拍板的内容恰恰是「**不锁**」：
+        #    放行等于把决策**反着执行**，还顺手废掉一条反向验证（⑧ 号注入会变成打不动判据的假绿）。
+        #    ⇒ 现在**读出决策的内容再判**，而不是把「拍板」当成一张万能通行证（fail-closed）。
+        if ("已拍板" in status and "锁" in status
+                and "不锁" not in status and "保持开区间" not in status):
+            return "broken", ("依赖决策已拍板**要锁**，而这条探针还没有「锁定之后该核什么」的规则 —— "
+                              "先补规则再改状态行；⛔ 不许把一句话当成判据")
+        why = ("已拍板为「**本轮不锁**（保持开区间）」" if "已拍板" in status
+               else "还**没拍板**（文档里写着「待用户拍板」）")
+        # 落到这里 = 文档在、决策读得出来 ⇒ 与「没有决策文档」一样：**都按「不许顺手锁」判**。
     pins = [ln.strip() for ln in read("backend/requirements.txt").splitlines()
             if ln.strip() and not ln.strip().startswith("#") and "==" in ln]
     if pins:
-        return "broken", "还没写依赖决策就先锁死 " + str(len(pins)) + " 条：" + pins[0]
-    return "hold", "requirements.txt 仍是开区间（>=x,<y），没有顺手就锁"
+        return "broken", ("依赖决策" + why + "，那就**不该**锁 —— 却先锁死 "
+                          + str(len(pins)) + " 条：" + pins[0])
+    return "hold", "依赖决策" + why + "，而 requirements.txt 仍是开区间（>=x,<y）—— 没有顺手就锁"
 
 
 def probe_distinct_lock_names() -> tuple[str, str]:
