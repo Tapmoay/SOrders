@@ -337,7 +337,27 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
     ⑪ **全量一遍的实测成本**（这一轮试过）：143 份 × 平均 67 秒 ≈ **2.7 小时**（前 7 份 470 秒）—— 跑的时候
     整个工作区不能动，所以本轮改成**分域/分批**跑。⛔ 中途停掉按文档处置：杀进程 → `_recover_injections.py`
     还原现场 → 清注入锁（本轮真做过一次：还原了 1 个被注入的文件、`git status` 回到干净）。
-    · 当前 **L3 = 6 份（上限 6）**；**L2 = 117/143**（还剩 26 份）。
+    ⑫ **L2 再补 19 份（117 → 136）**：`read_src`/`write_src` 那一族剩下的 19 份一次改完（同一套改法：
+    `write_src` 返回写出的字节 ＋ `restore_src` 写回后 `p.read_bytes() != wrote` 逐字节核对），
+    **19 份逐份跑过、全部退出 0**（notify 45/45、ledger_dashboard 33/33、contact_names 26/26、order_templates 26/26、
+    product_card 26/26、shipper_ledger_stats 25/25、supplier_payables 25/25、nav 25/25、order_driver_call 24/24、
+    freight_pricing 23/23、driver_money 19/19、ledger_manual_entry 19/19、workbench_header 18/18、expense_page 17/17、
+    ledger_cash 17/17、answer_style 14/14、ai_default_key 12/12、ai_entry 9/9、form_panel 8/8）。
+    ⛔ 这一族共 39 份，还剩 **10 份形状不同**（还原调用不是 `finally: write_src(...)`）：`ai_declarative_crud` /
+    `ai_dto_defaults` / `counter_updates` / `inventory_reservation` / `permission_points` / `return_request` /
+    `round17` / `round18` / `round19` / `round20` —— 要逐份看代码。
+    ⑬ **补掉 4 条烂掉的注入锚点**（都是「源码改了、替换串没跟着改」→ 静默 `[SKIP]`，而 SKIP 计为不成立）：
+    `_reverse_verify_write_roles.py` 的 3 条 —— ① 判据改收 `AiActor?`（`val role = actor?.role ?: return emptyList()`）、
+    ② 货主那一支从一行变四行（多了 roles/memberOnly 两层条件）、③ `AiRolePrompt.brief(...)` 的首参由 `tools.role` 改成
+    `tools.actor`；外加一条**期望词过期**（判据那句改成「货主确实按白名单 + member 过滤」）。修完 **15/15 全绿**。
+    ⚠️ `_reverse_verify_doc_refs.py` 还剩 **1 条**（「红线脚本印不出任何小节号」）：判据确实红了（退出码 1），
+    但脚本期望的那句文案没出现在输出里 —— 下一轮让它在 `[MISS]` 时把判据输出打出来再定位。
+    ⑭ ⭐ **改动自己的连锁反应被静态审计当场抓住**：给 `write_src` 加「返回写出的字节」之后，
+    `_reverse_verify_reverse_verify_restore.py` 的 ② 号注入（锚点原文写的是 `path.write_bytes(data.encode("utf-8"))`）
+    **变成恒 SKIP** —— `_check_reverse_verify_anchors.py`（静态解析注入表）在 `_check_all.py` 里当场报红、
+    并点名「哪一份脚本 / 哪条注入 / 哪个目标文件 / 原文找不到」。锚点已改成现在的写法，审计回到
+    「1289 条注入原文全部还在」。⛔ 这正是「改一处要想到它的下游」的机器化版本：判据先喊，不用等到有人跑那份 RV。
+    · 当前 **L3 = 6 份（上限 6）**；**L2 = 136/143**（还剩 7 份 + 上述 10 份形状不同的另有账）。
   · 另外核一件事：**没有任何一份**在代码里真的执行 `git checkout`（⛔ 用 AST 看**调用实参**，
     不用正则搜文本 —— 反向验证脚本自己就把 `["git","checkout",…]` 当字符串数据写着，
     正则会把它们全判红，那是本仓库栽过的「判据被文字误伤」）。

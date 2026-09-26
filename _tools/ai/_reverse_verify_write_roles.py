@@ -66,7 +66,13 @@ MUTATIONS: list[tuple[str, str | None, object, Path]] = [
     (
         "fail-closed 破了：认不出角色时给全部",
         "认不出角色就返回空",
-        lambda s: s.replace("        null -> emptyList()", "        null -> ALL", 1),
+        # ⛔ 2026-09-26 修锚点：`forRole` 后来改成收 `AiActor?`（`val role = actor?.role ?: return emptyList()`），
+        #    旧的 `null -> emptyList()` 那句早就不在了 —— 注入静默 [SKIP]，而 [SKIP] 在本仓库计为不成立。
+        lambda s: s.replace(
+            "        val role = actor?.role ?: return emptyList()",
+            "        val role = actor?.role" + chr(10) + "        if (role == null) return ALL",
+            1,
+        ),
         W,
     ),
     (
@@ -77,10 +83,16 @@ MUTATIONS: list[tuple[str, str | None, object, Path]] = [
     ),
     (
         "货主直接等于全量（等于没裁，只是换了写法）",
-        "货主确实按白名单过滤",
+        # ⛔ 2026-09-26 修期望词：判据那句话后来改成了「货主确实按白名单 + member 过滤」（多了 member 那一层）。
+        "货主确实按白名单",
+        # ⛔ 2026-09-26 修锚点：货主那一支从一行变成了四行（多了 roles 与 memberOnly 两层条件），
+        #    旧的一行式替换串对不上了 → 静默 [SKIP]。改成按**当前那四行**替换。
         lambda s: s.replace(
-            "        AiRole.SHIPPER -> ALL.filter { it.id in SHIPPER_ACTIONS }",
-            "        AiRole.SHIPPER -> ALL",
+            "            AiRole.SHIPPER -> ALL.filter {" + chr(10)
+            + "                (it.roles == null || role in it.roles) &&" + chr(10)
+            + "                    it.id in SHIPPER_ACTIONS && (!it.memberOnly || member)" + chr(10)
+            + "            }",
+            "            AiRole.SHIPPER -> ALL",
             1,
         ),
         W,
@@ -90,7 +102,8 @@ MUTATIONS: list[tuple[str, str | None, object, Path]] = [
         "身份提示词又写死成派单员那一份（用户说的「没分开」）",
         "给派单员用的助手",
         lambda s: s.replace(
-            "            appendLine(AiRolePrompt.brief(tools.role, tools.enabledReadModules))",
+            # ⛔ 2026-09-26 修锚点：`brief(...)` 的第一个实参由 `tools.role` 改成了 `tools.actor`。
+            "            appendLine(AiRolePrompt.brief(tools.actor, tools.enabledReadModules))",
             '            appendLine("你是「SOrders 派单送货管理系统」里给派单员用的助手。")',
             1,
         ),

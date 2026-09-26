@@ -56,7 +56,10 @@ CASES: list[tuple[str, str, str, str, str]] = [
      'def _hack(path):' + chr(10) + '    subprocess.run(["git", "checkout", "--", str(path)])' + chr(10)
      + chr(10) + 'def read_src(path: Path) -> tuple[str, bool]:',
      '真的执行了 git checkout'),
-    ('② 抹掉按字节还原', VICTIM, '    path.write_bytes(data.encode("utf-8"))',
+    # ⛔ 2026-09-26 修锚点：本仓库给 `write_src` 加了「返回写出的字节」（R3-07b 的 L2 改造），
+    #    `path.write_bytes(data.encode("utf-8"))` 那一行拆成了两行 —— 旧锚点失效 ⇒ 这条注入**恒 SKIP**，
+    #    是静态审计 `_check_reverse_verify_anchors.py` 把它点出来的（`_check_all.py` 当场变红）。
+    ('② 抹掉按字节还原', VICTIM, '    path.write_bytes(out)',
      '    pass  # 反向验证注入：不写回了', '没有快照/还原'),
     # ⚠️ ③ 试过「抹掉某一份的比对」：那只让 L2 掉 1（72→71），**仍在 70 之上**，判据照样绿 ——
     #    说明棘轮是按**总数**判的，单点回退抓不到。要证棘轮真的在守，就把下限抬到计数之上；

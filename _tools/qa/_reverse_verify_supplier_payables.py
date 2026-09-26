@@ -226,12 +226,23 @@ def read_src(p: Path) -> tuple[str, bool]:
     return data.decode("utf-8").replace("\r\n", "\n"), b"\r\n" in data
 
 
-def write_src(p: Path, text: str, crlf: bool) -> None:
+def write_src(p: Path, text: str, crlf: bool) -> bytes:
     data = text.replace("\r\n", "\n")
     if crlf:
         data = data.replace("\n", "\r\n")
-    p.write_bytes(data.encode("utf-8"))
+    out = data.encode("utf-8")
+    p.write_bytes(out)
+    return out
 
+
+
+def restore_src(p: Path, text: str, crlf: bool) -> None:
+    # 还原**当场核对**（R3-07b）：写回后**重新读回来逐字节比**，对不上就非零退出。
+    # ⛔ 「写了还原」不是证明；重新读回来的字节 == 刚写出去的字节 才是（L2 要的就是这一句）。
+    wrote = write_src(p, text, crlf)
+    if p.read_bytes() != wrote:
+        print('⛔ 还原后与快照不一致（注入污染了源码树）：' + str(p))
+        raise SystemExit(2)
 
 def run_check() -> tuple[int, str]:
     r = subprocess.run(
@@ -265,7 +276,7 @@ def main() -> int:
         try:
             hit, detail = verdict(expect)
         finally:
-            write_src(path, src, crlf)
+            restore_src(path, src, crlf)
         print(f"  [{'OK' if hit else 'MISS'}] {label} → {detail}")
         if not hit:
             bad += 1
