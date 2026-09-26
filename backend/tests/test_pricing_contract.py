@@ -23,6 +23,8 @@ from app.core.contracts.money import Money
 from app.core.contracts.quantity import Quantity
 from app.core.contracts.pricing import (
     CONTRACT_VERSION,
+    PricingContractV2,
+    as_v2,
     AmbiguousPricingRule,
     NoPricingRule,
     PricingContext,
@@ -166,6 +168,68 @@ def test_replace_is_a_data_change_not_a_code_change() -> None:
     assert len(set(seen.values())) == len(seen), (
         "不同的计价方式给了**完全相同**的数，那就分不出替换有没有生效：" + str(seen)
     )
+
+
+
+# ---------------------------------------------------------------- v2（R4-07 兼容性）
+
+def test_v2_is_a_superset_of_v1() -> None:
+    """⚠️ v2 **不是另一个协议世界**：满足 v2 的实现必须同时满足 v1 ——
+    "旧消费方照常工作"这条就是这么来的，不需要为它写第二套调用代码。"""
+    for provider in PROVIDERS:
+        v2 = as_v2(provider)
+        assert isinstance(v2, PricingContractV2)
+        assert isinstance(v2, PricingContract), "v2 实现也必须还是 v1 —— 否则旧消费方要改代码"
+        assert v2.name == provider.name and v2.version == provider.version
+
+
+def test_v1_implementations_still_work_through_the_adapter() -> None:
+    """指南 §17：**旧实现还能工作**。每个实现都要能经适配器拿到明细。"""
+    for provider in PROVIDERS:
+        kind = getattr(provider, "kind", None)
+        if not kind:
+            continue
+        ctx = PricingContext(rule_snapshot={"pricing_kind": kind, "amount": "120.00",
+                                            "unit_price": "8.50"},
+                             unit_price=Decimal("8.50"),
+                             quantity=Quantity(Decimal("15"), "件", "count"))
+        v2 = as_v2(provider)
+        result = v2.price(ctx)
+        lines = v2.breakdown(ctx)
+        assert lines, provider.name + " 经适配器后一行明细都给不出"
+        assert all(isinstance(ln.money, Money) for ln in lines), "明细里的金额也必须是核心 Money"
+        total = lines[0].money
+        for ln in lines[1:]:
+            total = total + ln.money
+        assert total.amount == result.money.amount, (
+            provider.name + " 的明细加起来不等于总额：" + total.as_text() + " vs " + result.money.as_text()
+        )
+
+
+def test_breakdown_is_synthesized_and_says_so() -> None:
+    """v1 实现给不出真明细，适配器**合成**一行 —— 它如实标着 synthesized_breakdown，
+    ⛔ 不许假装那是原生的多行明细（那会让界面以为"这一单只有一项"）。"""
+    for provider in PROVIDERS:
+        v2 = as_v2(provider)
+        if isinstance(provider, PricingContractV2) and "breakdown" in type(provider).__dict__:
+            continue                       # 原生 v2 实现，不适用
+        assert getattr(v2, "synthesized_breakdown", False) is True, (
+            provider.name + " 经适配器包了一层，却没说这行明细是合成的"
+        )
+
+
+def test_resolve_v2_works_for_every_implementation() -> None:
+    """`resolve_v2` 把"挑实现"与"用 v2 视角看它"两件事接起来。"""
+    from app.extensions.pricing import resolve_v2
+
+    for provider in PROVIDERS:
+        kind = getattr(provider, "kind", None)
+        if not kind:
+            continue
+        ctx = PricingContext(rule_snapshot={"pricing_kind": kind, "amount": "120.00"})
+        picked = resolve_v2(ctx)
+        assert isinstance(picked, PricingContractV2)
+        assert picked.name == provider.name
 
 
 def test_driver_rule_snapshot_is_readable_and_never_throws() -> None:

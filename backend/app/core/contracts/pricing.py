@@ -134,3 +134,93 @@ class PricingContract(Protocol):
         ⛔ 不许返回 None、不许返回裸 Decimal、不许返回自定义对象 —— 只许 PricingResult。
         """
         ...
+
+
+# --------------------------------------------------------------------------- v2
+# 指南 §17 / §18 的先后顺序在这里很关键：**先证明这个契约真的会被多个实现使用，
+# 再为它设计长期版本兼容**。到 R4-07 时 PricingContract 已经有两个实现了
+# （统一价 / 按量计费），所以这时候加 v2 是"有需要"，不是"提前设计"。
+#
+# ⛔ 也正因为如此，这一版 v2 只加**一个**方法，⛔ 不搞 v1/v2/v3 + compatibility matrix
+#    （§18 明确否掉的那种过度设计）。判据 _check_extension_contracts.py 把版本数上限定在 3。
+
+#: v2 在 v1 之上**新增**的东西 —— 只有这一项（写在这里，免得读的人以为还有别的）。
+V2_ADDED: tuple[str, ...] = ("breakdown",)
+
+
+@dataclass(frozen=True)
+class PricingLine:
+    """报价的**一行明细**（v2 才有的东西）。
+
+    为什么 v2 要它：v1 只能给一个总额（"这一单 127.50 元"），而派单员要能复核
+    "这 127.50 是怎么来的"（前 10 件 8.00、超出 5 件 9.50）。⛔ 金额仍然是核心的 Money。
+    """
+
+    label: str
+    money: Money
+
+
+@runtime_checkable
+class PricingContractV2(Protocol):
+    """算钱扩展的接口 **v2** = v1 的全部 + `breakdown()`。
+
+    ⚠️ v2 **不是**另一个协议世界：它把 v1 的三样东西原样再声明一遍，
+    所以一个 v2 实现**同时**满足 v1（`isinstance(p, PricingContract)` 也为真）——
+    "旧消费方照常工作"这条就是这么来的，不需要为它写第二套调用代码。
+    """
+
+    name: str
+    version: int
+
+    def applies_to(self, context: PricingContext) -> bool:
+        """同 v1。"""
+        ...
+
+    def price(self, context: PricingContext) -> PricingResult:
+        """同 v1。"""
+        ...
+
+    def breakdown(self, context: PricingContext) -> tuple[PricingLine, ...]:
+        """这一笔是怎么凑出来的（按顺序的几行）。
+
+        契约要求：**各行金额之和必须等于 `price()` 给出的总额**（判据核这一条）——
+        否则"明细"就成了第二份真相，而两份真相迟早对不上。
+        """
+        ...
+
+
+class _V1AsV2:
+    """把 v1 实现**包成** v2 —— 指南 §17 那个"旧实现还能跑"的兼容层。
+
+    ⛔ 它不是"再写一遍实现"：`applies_to` / `price` 原样转给里面那个 v1 实现，
+    只有 v2 新加的 `breakdown()` 需要**合成**（v1 给不出明细，就用它的结论当唯一一行）。
+    ⛔ 也**没有**给"任何旧实现"都写一个适配器 —— 只为**真实存在的**旧实现提供兼容层（§31 坑 13）。
+    """
+
+    def __init__(self, inner: PricingContract) -> None:
+        self._inner = inner
+        self.name = inner.name
+        self.version = getattr(inner, "version", 1)
+        #: 记着"这一层的明细是合成出来的"，界面要能如实说出口（⛔ 不许假装是原生明细）。
+        self.synthesized_breakdown = True
+
+    def applies_to(self, context: PricingContext) -> bool:
+        return self._inner.applies_to(context)
+
+    def price(self, context: PricingContext) -> PricingResult:
+        return self._inner.price(context)
+
+    def breakdown(self, context: PricingContext) -> tuple[PricingLine, ...]:
+        result = self._inner.price(context)
+        return (PricingLine(label=result.rule_name or "按规则计价", money=result.money),)
+
+
+def as_v2(provider: PricingContract) -> PricingContractV2:
+    """拿 v2 的视角看任何一个实现：v2 实现原样返回，v1 实现包一层适配器。
+
+    ⛔ 判据是"它有没有 breakdown"，不是"它自称是第几版"—— 版本号是**声明**，
+    方法是**事实**；两者冲突时以事实为准（本项目一贯口径：执行点才算数）。
+    """
+    if isinstance(provider, PricingContractV2):
+        return provider
+    return _V1AsV2(provider)

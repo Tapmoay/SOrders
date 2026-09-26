@@ -35,6 +35,8 @@ from app.core.contracts.pricing import (
     NoPricingRule,
     PricingContract,
     PricingContext,
+    PricingContractV2,
+    as_v2,
 )
 
 _NOT_IMPLEMENTATIONS = ("manifest", "api")
@@ -59,6 +61,16 @@ def _discover_providers() -> tuple[PricingContract, ...]:
 
 
 PROVIDERS: tuple[PricingContract, ...] = _discover_providers()
+
+
+def resolve_v2(context: PricingContext) -> PricingContractV2:
+    """v2 视角的 resolve：v2 实现原样返回，**v1 实现经适配器包一层**（指南 §17）。
+
+    ⚠️ 实测（R4-07）：这一条**必须在这里、不能进适配器** —— 适配器只该认识契约，
+    不该认识"我们包里有哪些实现"；而"从上下文挑一个实现"是**这个扩展包**的事。
+    ⛔ 加它的时候要注意：v1 实现**一个字节都不用改**，旧消费方照常调 resolve()。
+    """
+    return as_v2(resolve(context))
 
 
 def resolve(context: PricingContext) -> PricingContract:
