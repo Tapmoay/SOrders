@@ -144,13 +144,15 @@ def test_replace_is_a_data_change_not_a_code_change() -> None:
         kind = getattr(provider, "kind", None)
         if not kind:
             continue
-        snapshot: dict[str, object] = {"pricing_kind": kind, "unit_price": "8.00"}
+        # ⚠️ 两种算法的结果**必须不同**：一样的话就分不出替换有没有生效（实测踩过）。
+        #     统一价 120.00 元 vs 按量 8.50 × 15 件 = 127.50 元。
+        snapshot: dict[str, object] = {"pricing_kind": kind, "unit_price": "8.50"}
         snapshot["amount"] = "120.00"
         context = context_of(order, rule_snapshot=snapshot)
         context = PricingContext(
             order_id=context.order_id, order_no=context.order_no, category=context.category,
             to_place=context.to_place, driver_id=context.driver_id,
-            unit_price=Decimal("8.00"),
+            unit_price=Decimal("8.50"),
             quantity=Quantity(Decimal("15"), "件", "count"),
             rule_snapshot=snapshot,
         )
