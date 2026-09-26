@@ -68,9 +68,12 @@
 ⛔ §18：第一个版本**不要**做版本系统，先证明"这个契约真的会被多个实现使用"。
 
 **退出条件**
-- ❌ 两个契约各有 `v1` 声明与六个要素，且**契约里一行实现都没有** —— 复现：`python _tools/qa/_check_extension_contracts.py`
-- ❌ 契约的错误语义是**中文可照着改**的一句，不是异常类型名 —— 复现：`python _tools/qa/_check_extension_contracts.py`
-- ❌ Core 侧**不认识任何具体实现名**（无 `ColdChainPricing` 这类字面量）—— 复现：`python _tools/qa/_check_extension_dependencies.py`
+- ✅ 两个契约（`UnitConversionContract` / `PricingContract`）各有 `CONTRACT_VERSION = 1` 与六个要素，且**契约里一行实现都没有**（AST 去掉文档字符串与注释后扫 db / Session / select）—— 复现：`python _tools/qa/_check_extension_contracts.py`
+- ✅ 契约的错误语义是**中文可照着改**的一句，不是异常类型名（`MoneyError` / `QuantityError` / `UnitConversionError` / `PricingError` / `NoPricingRule` / `AmbiguousPricingRule`）—— 复现：`cd backend; python -m pytest tests/test_extension_contracts.py -q`
+- ✅ **输出必须是核心类型**：AST 核对 `PricingResult.money: Money` 与 `ConversionResult.quantity: Quantity`（指南 §20「只接受 Money」的机器形态）—— 复现：`python _tools/qa/_check_extension_contracts.py`
+- ✅ **顺手做实的一件**：`Rounding` 这条跨十几个文件的口头约定收进 `contracts/money.py` 一处定义，判据用 AST 对全项目 **14 处 `quantize`** 逐条对账（都显式写了 `rounding=`，两位小数那一档都是 `ROUND_HALF_UP`）—— 复现：`python _tools/qa/_check_extension_contracts.py`
+- ✅ 判据**真的会红**：契约判据的 10 条反向破坏用例全部成立 —— 复现：`python _tools/qa/_reverse_verify_r4_all.py`
+- ⏳ 「Core 侧不认识任何具体实现名（无 `ColdChainPricing` 这类字面量）」这一条**不在本里程碑**：它是依赖防火墙的事，出口在 R4-03 的 `_check_extension_dependencies.py`
 
 ## R4-03 Dependency Firewall + 五个检查器
 

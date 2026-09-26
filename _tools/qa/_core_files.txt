@@ -47,6 +47,7 @@ backend/app/core/rbac.py|角色 → 权限点（谁能干什么）
 backend/app/deps.py|鉴权依赖（require_roles / 当前用户；漏一处就是越权）
 backend/app/models/enums.py|领域词汇表：状态 / 来源 / 审计动作码（全项目共用的取值）
 backend/app/core/schema_bootstrap.py|生产库结构变更（线上迁移的唯一入口）
+backend/app/core/contracts/money.py|**钱的表示**（两位小数 + ROUND_HALF_UP 的唯一一处定义，R4-02 从一条跨十几个文件的口头约定收上来的）—— 改这一行就是改全项目「一个金额长什么样」
 backend/app/core/socket_io.py|推送的**最底层投递原语**（`sio.emit` 只在这里）—— 发件箱的「至少一次投递」承诺就建立在它的成败语义上；R3-06 生产 Drill C 用原始输出证明它位于**可靠投递边界**，所以它不能因为「想做插件化」就从核心拆出去
 backend/app/services/data_retention.py|**历史数据变样的唯一入口**：物理删单（连带账本/日志/库存流水/图片）、30 天隔离清理、3 年清理、压图。漏解一个外键就会让当天的整套治理全部停摆（2026-09-23 第 13 轮实测）
 android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt|AI 写闸门：preview → 确认卡 → execute 的唯一写入口
