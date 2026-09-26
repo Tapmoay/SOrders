@@ -86,7 +86,7 @@ C 故障演练   worker-crash / redis-down / event-delay / lock-contention / dis
 
 | 段 | 关掉哪几条 ❌ | 入口条件 | 出口判据（怎么算过关） | 失败怎么办 |
 |---|---|---|---|---|
-| **A 发布** | R3-05 六条：备份 / 迁移 / 启动 / health / 只读烟测 / trace 一单 | 用户一句话许可（禁做 #13/#14） | `_release.py --step X --go` 七步全过（各步判据见 `--plan`）；`_prod_smoke.py --readonly` 退出码 **0**（⚠️ 今天跑出来是 **1** —— 生产还是旧代码）；`_trace_order.py <单号>` 能按 request_id 串起整条链 | **回滚 A**（代码退回上一个可用提交）/ **回滚 B**（用发布前的 dump 恢复库）；四步与「回滚后要做的三件事」在 `docs/RELEASE_CANDIDATE.md` §四·§五 |
+| **A 发布** | R3-05 六条：备份 / 迁移 / 启动 / health / 只读烟测 / trace 一单 | 用户一句话许可（禁做 #13/#14） | `_release.py --step X --go` 八步全过（各步判据见 `--plan`；⛔ 2026-09-26 执行前实测发现少了一步，见 R3-05）；`_prod_smoke.py --readonly` 退出码 **0**（⚠️ 今天跑出来是 **1** —— 生产还是旧代码）；`_trace_order.py <单号>` 能按 request_id 串起整条链 | **回滚 A**（代码退回上一个可用提交）/ **回滚 B**（用发布前的 dump 恢复库）；四步与「回滚后要做的三件事」在 `docs/RELEASE_CANDIDATE.md` §四·§五 |
 | **B 多实例** | R3-03 两条：Socket.IO 跨实例推送 / nginx upstream + 失败摘除 | A 段全绿 | socket：实例 A 上的写入，连在实例 B 上的客户端收到（要有跨进程适配器）；nginx：摘掉一个后端后请求仍 200，`max_fails` / `proxy_next_upstream` **真的触发过** | 只回 nginx（先备份原配置）；⛔ 第二个实例起来之前**不许**动现有那条单后端 `proxy_pass` |
 | **C 演练** | R3-06 五条：worker-crash / redis-down / event-delay / lock-contention / disk-full | A 段全绿，**且备份是新鲜的**（`_release.py` 的 G3 在备份超 6 小时时拒绝）| 五条的**期望信号**逐条写在 `docs/R3_FAILURE_DRILL.md`；⛔ 本机 5/5 只证工具，**不顶替**生产那一格 | 每条都写了「怎么停」；演练不动业务数据（`operation_logs` 除外 —— 那是它自己的证据）|
 
@@ -329,12 +329,20 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   ⭐ 记录本体：`docs/RELEASE_CANDIDATE.md`（每个字段都写了自己的**现取命令**，⛔ 没有一个是手抄的）。
   ⛔ 这一条 ✅ 证的是「**记录齐全且与仓库事实对得上**」（字段齐、SHA 真是本仓库的提交、迁移版本与目录现数一致、版本号与根 `VERSION` 一致）；⛔ **不证**发布做过了 —— 下面第 2–7 条仍然全是 ❌。
 - ✅ 发布工具在位、且**护栏自检**通过（顺序强制 / 备份新鲜度 / SHA 必须在仓库里 / 算不出事实就拒绝 / 没 `--go` 一律只打印）—— 复现：`python _tools/deploy/_release.py --selftest`
-  ⛔ 这一条证的是**工具的护栏**（15 项自检），**不证**发布跑过 —— 下面第 2–7 条仍然全是 ❌。
-  ⛔ 工具默认只打印：`--plan` 打印七步与判据；`--step X` 不带 `--go` 只给结论；真执行要 `--go`。
+  ⛔ 这一条证的是**工具的护栏**（17 项自检），**不证**发布跑过 —— 下面第 2–7 条仍然全是 ❌。
+  ⛔ 工具默认只打印：`--plan` 打印八步与判据；`--step X` 不带 `--go` 只给结论；真执行要 `--go`。
 - ✅ 生产验收清单已建立（R3-05-C：12 项**按权限分段** —— 只读那段今天跑过，写那段一条没跑）—— 复现：`python -c "import pathlib,re,sys; docs=['docs/RELEASE_CANDIDATE.md','docs/PRODUCTION_ACCEPTANCE.md','docs/R3_FAILURE_DRILL.md']; miss=[d for d in docs if not pathlib.Path(d).exists()]; lines=[(d,ln) for d in docs for ln in pathlib.Path(d).read_text(encoding='utf-8').splitlines() if not any(k in ln for k in ('待写','还没写','不存在','待建'))]; bad=sorted({d+':'+p for d,ln in lines for p in re.findall(r'_tools/[A-Za-z0-9_./-]+\.py', ln) if not pathlib.Path(p).exists()}); print('缺文档',miss,'引用了不存在的脚本',bad); sys.exit(1 if (miss or bad) else 0)"`
   清单本体：`docs/PRODUCTION_ACCEPTANCE.md`（逐项给了命令与判据；⛔ 混在一起就会变成「借验收之名做写测试」）。
 - ❌ 备份 —— 复现：`python _tools/backup/_pre_release.py --note "R3"`
   手工次序与「失败怎么办」写在 `docs/RELEASE_CANDIDATE.md` §四（第 1 步：备份失败就**停止发布**）。
+- ❌ **代码落位**（`stage`：把 <SHA> 落到生产，**⛔ 不重启服务**）—— 复现：`python _tools/deploy/_release.py --step stage`
+  ⭐ **这一步是 2026-09-26 执行 A 阶段前实测发现的**：迁移的入口 `-m app.migrations` **属于新代码**，
+  而生产上当时**没有这个包**（只读实测：`ls /opt/SOrders/backend/app/migrations` → No such file）
+  ⇒ 原方案「先迁移后应用」在**第一次**发布时**落不了地**（会以 `No module named app.migrations` 失败，
+  而那不是数据问题、是顺序问题）。⛔ 修法是**把顺序补对**，不是绕过：`stage` 落位 → `migrate` 迁移
+  → `verify` 核结构 → `start` 才重启。三步分开，失败时才分得清是「代码没落位」「迁移失败」还是「服务起不来」。
+  ⛔ 这一条**执行前就改了工具与文档**（见 `docs/RELEASE_CANDIDATE.md` §四 与 `_release.py` 的 `stage` 步），
+  不是在失败之后临时绕过去 —— 「不做旁路修补」的意思正是这个。
 - ❌ 迁移（先迁移后应用）—— 复现：`python _tools/deploy/_release.py --step migrate`
   ⛔ 真跑要加 `--go`：`python _tools/deploy/_release.py --step migrate --go`（没有 `--go` 一律只打印）—— 生产上它执行的就是迁移的唯一入口 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`（见 `docs/RELEASE_CANDIDATE.md` §四 第 2 步）。
 - ❌ 启动新后端 —— 复现：`python _tools/deploy/_release.py --step start`

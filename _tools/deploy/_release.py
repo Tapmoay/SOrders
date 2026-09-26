@@ -4,7 +4,16 @@
 ### 为什么必须有它
 指南 §十七 的原话是「**不要** restart systemd → hope」，要的是这个顺序：
 
-    backup → migration → verify → start new backend → health → readonly smoke → business smoke
+    backup → **stage（代码落位，不重启）** → migration → verify → start new backend → health
+           → readonly smoke → business smoke
+
+### 为什么是**八**步（2026-09-26 执行 A 阶段前实测发现，⛔ 不是设计时就有的）
+
+迁移的入口 `-m app.migrations` **属于新代码**，而生产上当时**还没有这个包**（`ls .../app/migrations`
+→ No such file）。所以「先迁移后应用」在**第一次**发布时**落不了地**：迁移命令会以
+`No module named app.migrations` 失败，而那不是数据问题、是顺序问题。
+=> 拆出独立的 `stage` 步：**先把代码落到 <SHA> 但⛔不重启服务**，再迁移、再重启。
+三个状态分开，失败时才分得清是「代码没落位」「迁移失败」还是「服务起不来」。
 
 手工敲这七条有三个问题（本仓库三个都踩过）：
 ① **顺序会被临时改**：先起服务再迁库 ⇒ 新代码对着旧结构跑；
@@ -48,20 +57,23 @@ BACKUP_HOURS_MAX = 6          #: 备份新鲜度上限（小时）—— 超过�
 STATE_FILE = Path(tempfile.gettempdir()) / "sorders_r3_release.json"
 
 #: 顺序**就是**判据：改这里的顺序等于改纪律，必须同步改 docs/RELEASE_CANDIDATE.md §四。
-STEPS: tuple[str, ...] = ("backup", "migrate", "verify", "start", "health", "smoke", "business")
+STEPS: tuple[str, ...] = ("backup", "stage", "migrate", "verify", "start", "health", "smoke", "business")
 
 #: 每一步：命令 / 期望 / 失败怎么办（打印给操作的人看，⛔ 不指望他记得住）。
 STEP_DOC: dict[str, tuple[str, str, str]] = {
     "backup": ("调 _tools/backup/_pre_release.py（库 + 上传 + 清单）",
                "清单落到 _tools/backup/manifests/，并打印回滚命令",
                "备份失败 → **停止发布**（没有回滚点就不许往前走）"),
+    "stage": ("生产上 git fetch origin + git checkout <SHA>（**只落代码，不重启服务**）",
+              "生产 HEAD = <SHA>，且 app/migrations 这个包**在**了；服务仍 active（跑的还是旧代码）",
+              "失败 → 停止（服务与库都还没被动过；要退只需 checkout 回旧 SHA）"),
     "migrate": ("生产上跑迁移的唯一入口：.venv/bin/python -m app.migrations upgrade",
                 "版本 0 → 8；schema_versions 出现 8 行",
                 "失败 → 不启动服务；按 RELEASE_CANDIDATE §五 前向修复或从 dump 恢复"),
     "verify": ("生产上 .venv/bin/python -m app.migrations status",
                "「当前版本：8 / 待跑：0 条」",
                "与期望不符 → 不启动"),
-    "start": ("git checkout <SHA> + systemctl restart sorders-api",
+    "start": ("再核一次 git checkout <SHA> + systemctl restart sorders-api",
               "systemctl is-active = active",
               "起不来 → 看 journalctl -u sorders-api；按 §五 处置"),
     "health": ("本机跑 _tools/ops/_health_check.py",
@@ -107,13 +119,15 @@ def decide(step: str, go: bool, facts: dict, state: dict) -> tuple[str, str]:
 
 def build_cases() -> list[tuple[str, dict, str, str]]:
     """(说明, decide 的入参, 期望 action, 期望 why 里必须出现的词)。"""
-    done3 = {"done": ["backup", "migrate", "verify"]}
+    done3 = {"done": ["backup", "stage", "migrate", "verify"]}
     fresh = {"backup_age_hours": 1.0, "sha_in_repo": True, "sha": "a" * 40}
     return [
         ("G1 不给 --go ⇒ 只打印（哪怕护栏全过）",
          dict(step="start", go=False, facts=fresh, state=done3), "plan", "只打印"),
         ("G2 start 之前没 backup/migrate/verify ⇒ 拒绝",
          dict(step="start", go=True, facts=fresh, state={}), "refuse", "顺序强制"),
+        ("G2 stage 之前没 backup ⇒ 拒绝",
+         dict(step="stage", go=True, facts=fresh, state={}), "refuse", "顺序强制"),
         ("G2 migrate 之前没 backup ⇒ 拒绝",
          dict(step="migrate", go=True, facts=fresh, state={}), "refuse", "顺序强制"),
         ("G3 备份 40 小时前 ⇒ 拒绝",
@@ -193,6 +207,32 @@ def run_backup(note: str) -> int:
     cmd = [sys.executable, str(ROOT / "_tools" / "backup" / "_pre_release.py"), "--note", note]
     print("  → " + " ".join(cmd))
     return subprocess.run(cmd, cwd=str(ROOT)).returncode
+
+
+def run_stage(sha: str, fetch: bool) -> int:
+    """把代码落到 <SHA>，**但不重启服务**（服务继续用它内存里的旧代码）。
+
+    ⛔ 为什么不能省掉这一步：下一步 migrate 跑的是 `python -m app.migrations upgrade`，
+    而那个包**来自新代码**。生产第一次升级时它还不存在 ⇒ 先迁移后应用这条纪律会撞在
+    「模块不存在」上。G4 在这里同样生效：**核不出生产 HEAD == <SHA> 就不许往下走**。
+    """
+    pre = ("git -C " + _prodssh.APP_DIR + " fetch origin && " if fetch else "")
+    code, out = ssh(pre + "git -C " + _prodssh.APP_DIR + " checkout " + sha)
+    print(out[-1200:])
+    if code != 0:
+        return code
+    code, out = ssh("git -C " + _prodssh.APP_DIR + " rev-parse HEAD")
+    head = out.strip().splitlines()[-1].strip() if out.strip() else ""
+    print("   生产 HEAD = " + (head or "（读不到）"))
+    if head != sha:
+        print("⛔ 生产 HEAD 与要发布的 SHA 对不上 —— 不继续（算不出事实就不许往前走）")
+        return 1
+    code, out = ssh("ls -d " + _prodssh.BACKEND_DIR + "/app/migrations")
+    print("   迁移包：" + out.strip()[:200])
+    if code != 0:
+        print("⛔ 落位之后仍然没有 app/migrations —— 下一步（migrate）必然失败，不继续")
+        return 1
+    return 0
 
 
 def run_migrate() -> int:
@@ -275,7 +315,7 @@ def main() -> int:
     else:
         print_plan()
         print("")
-        print("  本机 HEAD：" + sha[:12] + "（--sha 可覆盖；--all 会按顺序走完七步）")
+        print("  本机 HEAD：" + sha[:12] + "（--sha 可覆盖；--all 会按顺序走完**八**步）")
         return 0
 
     state = load_state()
@@ -295,6 +335,8 @@ def main() -> int:
 
         if step == "backup":
             code = run_backup(note)
+        elif step == "stage":
+            code = run_stage(sha, fetch=not a.no_fetch)
         elif step == "migrate":
             code = run_migrate()
         elif step == "verify":

@@ -67,12 +67,24 @@
 | # | 步骤 | 命令 | 期望 | 失败怎么办 |
 |---|---|---|---|---|
 | 1 | **备份**（必做，先备份再动） | `python _tools/backup/_pre_release.py --note "R3-05 发布 <SHA>"` | 库 dump + 上传文件 + 清单；记下 dump 路径与 sha256 | 备份失败 → **停止发布**（没有回滚点就不许往前走） |
-| 2 | **迁移**（唯一入口） | `python _tools/deploy/_release.py --step migrate --go`（它执行生产上的 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`） | 版本 0 → 8；`schema_versions` 出现 8 行 | 失败 → **不启动**，按第 5 节「前向修复」或从 dump 恢复 |
-| 3 | **验证结构** | `.venv/bin/python -m app.migrations status` | 「当前版本：8 / 待跑：0 条」 | 与期望不符 → 不启动 |
-| 4 | **启动新后端** | `python _tools/deploy/_release.py --step start --go`（执行 `git fetch` → `checkout <SHA>` → `restart sorders-api`，并核对 `is-active`） | `systemctl is-active` = active | 起不来 → 看 `journalctl -u sorders-api`；回第 5 节 |
-| 5 | **体检** | `python _tools/ops/_health_check.py` | 退出码 0（或只有「已知/已接受」的证书告警） | 退出码 2 → 立刻回滚 |
-| 6 | **只读烟测** | `python _tools/ops/_prod_smoke.py --readonly` | 退出码 **0**（现状健康 **且**与这一版代码一致） | 退出码 2 → 回滚；退出码 1 → 看是哪几项不一致 |
-| 7 | **业务烟测（有限写）** | `docs/PRODUCTION_ACCEPTANCE.md` 里「需要写权限」的那几项 | 逐条按那份清单走 | 任何一条不符合 → 回滚或前向修复 |
+| 2 | **代码落位**（⭐ 2026-09-26 补） | `python _tools/deploy/_release.py --step stage --go`（生产上 `git fetch origin` → `git checkout <SHA>`，**⛔ 不重启服务**） | 生产 `git rev-parse HEAD` == <SHA>，且 `app/migrations` 这个包**在**了；服务仍 active（跑的还是旧代码）| 失败 → 停止（服务与库都还没被动过；要退只需 checkout 回旧 SHA）|
+| 3 | **迁移**（唯一入口） | `python _tools/deploy/_release.py --step migrate --go`（它执行生产上的 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`） | 版本 0 → 8；`schema_versions` 出现 8 行 | 失败 → **不启动**，按第 5 节「前向修复」或从 dump 恢复 |
+| 4 | **验证结构** | `.venv/bin/python -m app.migrations status` | 「当前版本：8 / 待跑：0 条」 | 与期望不符 → 不启动 |
+| 5 | **启动新后端** | `python _tools/deploy/_release.py --step start --go`（再核一次 `checkout <SHA>` → `restart sorders-api`，并核对 `is-active`） | `systemctl is-active` = active | 起不来 → 看 `journalctl -u sorders-api`；回第 5 节 |
+| 6 | **体检** | `python _tools/ops/_health_check.py` | 退出码 0（或只有「已知/已接受」的证书告警） | 退出码 2 → 立刻回滚 |
+| 7 | **只读烟测** | `python _tools/ops/_prod_smoke.py --readonly` | 退出码 **0**（现状健康 **且**与这一版代码一致） | 退出码 2 → 回滚；退出码 1 → 看是哪几项不一致 |
+| 8 | **业务烟测（有限写）** | `docs/PRODUCTION_ACCEPTANCE.md` 里「需要写权限」的那几项 | 逐条按那份清单走 | 任何一条不符合 → 回滚或前向修复 |
+
+### 四·补 为什么第 2 步是**执行前**补上去的（⛔ 不是失败之后绕过去的）
+
+第一次发布时，生产上**没有** `app/migrations` 这个包（只读实测 `ls /opt/SOrders/backend/app/migrations`
+→ No such file）——而迁移的唯一入口 `-m app.migrations upgrade` **正是这个包提供的**。
+所以原方案里「第 2 步迁移」在生产上必然以 `No module named app.migrations` 失败，
+而那不是数据问题、是**顺序问题**：代码不先到位，迁移就没得跑。
+
+修法是把顺序补对（`stage` → `migrate` → `verify` → `start`），而不是在失败之后临时
+手动 `git checkout` 一下再重跑 —— 后者会让「代码落位」这个状态**不进任何记录**，
+出了事分不清是「代码没落位」「迁移失败」还是「服务起不来」。⛔ 这条纪律就是本文件存在的理由。
 
 ---
 

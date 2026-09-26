@@ -50,7 +50,7 @@
 | R3-02 | Capability → UI / Audit（能力变成可生成的唯一真源）| ✅ 7 / ❌ 0 |
 | R3-03 | Multi-instance Runtime（真起两个实例）| ✅ 6 / **❌ 2** |
 | R3-04 | Observability（request_id / command_id / event_id + 业务指标）| ✅ 5 / ❌ 0 |
-| R3-05 | Production Release（候选记录 → 发布七步 → 回滚）| ✅ 5 / **❌ 6** |
+| R3-05 | Production Release（候选记录 → 发布**八**步 → 回滚）| ✅ 5 / **❌ 6** |
 | R3-06 | Failure Drill（五个演练）| ✅ 1 / **❌ 5** |
 | R3-07 | Meta-System Hardening（判据自身不许腐烂 + 依赖决策）| ✅ 7 / ❌ 0 |
 | | **合计** | **45 ✅ / 13 ❌** |
@@ -203,13 +203,13 @@ AI 那侧还有对话层裁剪、安全确认、批量策略、只读/写入策�
 | Release Candidate 记录齐全 | ✅ | `docs/RELEASE_CANDIDATE.md`：Git SHA / 迁移版本 / Android·Backend·Frontend 版本 / 依赖锁 / config checksum / artifact checksum，**每个字段都写了现取命令** |
 | 回滚 / 前向修复方案 | ✅ | 同文档 §五：回滚 A（代码）／回滚 B（库 dump）／前向修复（什么时候它更安全）／回滚后三件事 |
 | 生产验收清单 | ✅ | `docs/PRODUCTION_ACCEPTANCE.md`：12 项**按权限分段**（只读 6 项已出结果，写 6 项等许可）|
-| 发布工具在位 + 护栏自检 | ✅ | `python _tools/deploy/_release.py --selftest` → **15/15** |
+| 发布工具在位 + 护栏自检 | ✅ | `python _tools/deploy/_release.py --selftest` → **17/17** |
 | 备份 | ❌ | 要写许可（`_tools/backup/_pre_release.py` 已备好）|
 | 迁移（先迁移后应用）| ❌ | 要写许可（`--step migrate --go`）|
 | 启动新后端 | ❌ | 同上（`--step start --go`；**顺序护栏**会先拒绝没有 backup/migrate/verify 的情况）|
 | health / 只读烟测 / trace 一单 | ❌ | 都要**发布之后**才有意义（今天跑过的是**发布前**的现状核对）|
 
-⭐ **发布七步已经是一条命令**（`_tools/deploy/_release.py`），四条护栏写在**代码**里：
+⭐ **发布八步已经是一条命令**（`_tools/deploy/_release.py`），四条护栏写在**代码**里：
 G1 不给 `--go` 只打印（判定是纯函数）；G2 顺序强制（实测：空 run-file 上 `--step start --go`
 当场被拒「还有没跑成功的步骤 —— backup、migrate、verify」）；G3 备份必须新鲜（<6 小时）；
 G4 算不出事实就拒绝（连不上生产 / 读不到备份年龄 / `--sha` 不是本仓库提交）。
@@ -388,14 +388,14 @@ Windows 专属 shell / 例外表「必须还在当前违反里」/ 排序键用 
 
 | 产物 | 是什么 | 它证什么 | ⛔ 它不证什么 |
 |---|---|---|---|
-| `_tools/deploy/_release.py` | 发布七步一条命令 + 四条护栏 | 自检 **15/15**；护栏真的会拒绝 | ⛔ 没在生产上跑过一次 |
+| `_tools/deploy/_release.py` | 发布八步一条命令 + 四条护栏 | 自检 **17/17**；护栏真的会拒绝 | ⛔ 没在生产上跑过一次 |
 | `_tools/ops/_drill.py` | 五个演练 + 护栏（生产要三信号且**不代跑**）| 自检 **12/12**；本机预演 **5/5** | ⛔ 不证生产演练做过 |
 | `_tools/ops/_prod_smoke.py` | 生产只读八项 | 八项各有真探针、且被钉成只读 | ⛔ 不证业务正确、不证写路径 |
 | `_tools/ops/_health_check.py` | 四个阈值 + 三档退出码 | 日常监控有人盯 | ⛔ 不替代演练 |
 | `_tools/ops/_dual_instance.py` | 两个真实例跑五个实验 | R3-03 六条 ✅ | socket 那一格如实未验 |
 | `_tools/ops/_migration_tests.py` | 迁移四态 | R3-01 四条 ✅ | ⛔ 本机是 SQLite（本机互斥）|
 | `_tools/qa/_check_report_facts.py` | 台账每条 ✅ 的命令真的跑一遍 | 文档不许说假话 | ⛔ 不证那句中文描述得准确（那要人读）|
-| `docs/RELEASE_CANDIDATE.md` | 候选记录 + 发布七步 + 回滚 / 前向修复 | 记录齐全且与仓库事实对得上（判据会核）| ⛔ 不证发布做过 |
+| `docs/RELEASE_CANDIDATE.md` | 候选记录 + 发布**八**步 + 回滚 / 前向修复 | 记录齐全且与仓库事实对得上（判据会核）| ⛔ 不证发布做过 |
 | `docs/PRODUCTION_ACCEPTANCE.md` | 12 项验收，**按权限分段** | 只读那半有结果 | ⛔ 写那半一条没跑 |
 | `docs/R3_FAILURE_DRILL.md` | 五个演练方案 + 本机预演明细 | 方案与纪律 | ⛔ 不证演练做过 |
 | `docs/R3_PROD_READONLY_EVIDENCE.md` | 生产只读原始事实（含全量依赖清单）| 八项实测 | ⛔ 见 §4 末 |
@@ -409,7 +409,7 @@ Windows 专属 shell / 例外表「必须还在当前违反里」/ 排序键用 
 而是**三段有先后、每段都能停能回滚**的路（台账同款表在 `docs/R3_PROGRESS.md` 的「写阶段出口」一节）：
 
 ```text
-A 结构迁移   备份 → 迁移 → 启动 → health → 只读烟测 → trace 一单
+A 结构迁移   备份 → **代码落位** → 迁移 → 验证结构 → 启动 → health → 只读烟测 → trace 一单
                         ↓ 全绿才准进
 B 多实例     nginx upstream + 失败摘除（要先有第二个实例）/ Socket 跨实例
                         ↓ 全绿才准进
@@ -418,7 +418,7 @@ C 故障演练   worker-crash / redis-down / event-delay / lock-contention / dis
 
 | 段 | 关掉哪几条 ❌ | 卡在哪 / 入口条件 | 出口判据（怎么算过关） | 失败怎么办 |
 |---|---|---|---|---|
-| **A 发布** | R3-05 六条：备份 / 迁移 / 启动 / health / 只读烟测 / trace 一单 | 全是**写操作或要在生产上跑** ⇒ 要用户一句话许可 | `_release.py --step X --go` 七步全过；`_prod_smoke.py --readonly` 退出码 **0**（⚠️ 今天跑是 **1**，因为生产还是旧代码）；`_trace_order.py <单号>` 能按 request_id 串起整条链 | 回滚 A（代码）/ 回滚 B（库 dump）；四步在 `docs/RELEASE_CANDIDATE.md` §四·§五 |
+| **A 发布** | R3-05 六条：备份 / 迁移 / 启动 / health / 只读烟测 / trace 一单 | 全是**写操作或要在生产上跑** ⇒ 要用户一句话许可 | `_release.py --step X --go` 八步全过（含 **stage 代码落位**）；`_prod_smoke.py --readonly` 退出码 **0**（⚠️ 今天跑是 **1**，因为生产还是旧代码）；`_trace_order.py <单号>` 能按 request_id 串起整条链 | 回滚 A（代码）/ 回滚 B（库 dump）；四步在 `docs/RELEASE_CANDIDATE.md` §四·§五 |
 | **B 多实例** | R3-03 两条：Socket.IO 跨实例推送 / nginx upstream + 失败摘除 | 本机没有 Redis；生产是**单后端反代**、**没有 upstream** ⇒ 要改部署形态（发布变更）| socket：A 实例的写入在 B 实例的客户端上收到；nginx：摘掉一个后端后请求仍 200 且 `max_fails` 真触发过 | 只回 nginx 配置（先备份）；⛔ 不许动现有那条 `proxy_pass` 直到第二个实例起来 |
 | **C 演练** | R3-06 五条：worker-crash / redis-down / event-delay / lock-contention / disk-full | 停服务 / 断 Redis / 塞磁盘（**生产侧**）| 五条的期望信号逐条在 `docs/R3_FAILURE_DRILL.md`；⛔ 本机 5/5 只证工具、不顶替生产 | 每条都写了「怎么停」；演练不动业务数据 |
 
@@ -470,7 +470,7 @@ python _tools/qa/_check_reverse_verify_anchors.py
 # ⑦ 生成物新鲜度（四份产物的真源指纹）
 python _tools/qa/_check_generated_freshness.py
 
-# ⑧ 发布工具护栏自检（15/15）
+# ⑧ 发布工具护栏自检（17/17）
 python _tools/deploy/_release.py --selftest
 
 # ⑨ 演练工具护栏自检（12/12）与五个本机预演（5/5，⚠️ 要几分钟）
