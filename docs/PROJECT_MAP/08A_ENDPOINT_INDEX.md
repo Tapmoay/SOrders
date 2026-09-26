@@ -61,7 +61,7 @@
 
 <!-- source_hash: sha256:03108cc6af69e2ff20d9a5edc3915ac88a774226890ee4d17b18e36b3f3bd0ab -->
 
-## 全量端点（230 个，按文件分组）
+## 全量端点（231 个，按文件分组）
 
 
 ### `backend/app/api/v1/ai_telemetry.py` — 1 个
@@ -514,6 +514,12 @@
 | 3 | `PATCH /api/v1/vehicles/{vehicle_id}` | `update_vehicle` | `backend/app/api/v1/vehicles.py:180` | 仅登录 + 体内仅允许:派单员 |
 | 4 | `POST /api/v1/vehicles/{vehicle_id}/driver` | `set_vehicle_driver` | `backend/app/api/v1/vehicles.py:214` | 仅登录 + 体内仅允许:派单员 |
 
+### `backend/app/extensions/pricing/api.py` — 1 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `GET /api/v1/pricing/quote` | `quote` | `backend/app/extensions/pricing/api.py:54` | **公开** |
+
 ### `backend/app/extensions/unit_conversion/api.py` — 1 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
@@ -586,7 +592,7 @@
 
 _（无重复注册）_
 
-### 2. 完全公开（无鉴权）：17 个
+### 2. 完全公开（无鉴权）：18 个
 
 | 方法与路径 | handler | 位置 |
 |---|---|---|
@@ -602,6 +608,7 @@ _（无重复注册）_
 | `GET /api/v1/orders` | `list_orders` | `backend/app/api/v1/orders_query.py:77` |
 | `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders_query.py:257` |
 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:273` |
+| `GET /api/v1/pricing/quote` | `quote` | `backend/app/extensions/pricing/api.py:54` |
 | `GET /api/v1/unit-conversion/preview` | `preview` | `backend/app/extensions/unit_conversion/api.py:42` |
 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:377` |
 | `GET /health` | `health` | `backend/app/main.py:415` |

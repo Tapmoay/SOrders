@@ -110,6 +110,23 @@ class PricingContract(Protocol):
     name: str
     version: int
 
+    def applies_to(self, context: PricingContext) -> bool:
+        """这条规则管不管这一单 —— ⛔ **管不管 ≠ 这次算不算得出来**。
+
+        与 UnitConversionContract.supports 同一条分工（R4-05 实测定的）：
+
+        * **不是我的规则** → False，由调用方去问下一条；
+        * **是我的规则但缺料**（快照里没写金额 / 单子上没数量）→ True，
+          price 里抛 NoPricingRule，带一句能照着改的中文。
+
+        反过来（缺料也算"不管"）的后果：用户拿到「没有一条计费规则管这一单」，
+        而真相是「管，只是这张单没填数量」—— 两种情形要修的地方完全不同。
+
+        有了它，"同一单被两条规则认领"才判得出来 —— 那时按本项目一贯口径**不猜**，
+        抛 AmbiguousPricingRule 并带上候选。
+        """
+        ...
+
     def price(self, context: PricingContext) -> PricingResult:
         """按上下文算出这一单该收多少。
 
