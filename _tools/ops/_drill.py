@@ -278,7 +278,7 @@ REQUIRED_SIGNALS: dict[str, tuple[str, ...]] = {
     "lock-contention": ("都退出 0", "在等锁", "恰好一行", "already exists", "锁已释放"),
     "worker-crash": ("被 systemd 拉起", "另一实例全程", "经 nginx 的入口", "NRestarts"),
     "redis-down": ("业务接口照常", "也照常", "如实报出", "自己回来"),
-    "event-delay": ("堆在 pending", "追平", "只被标记一次", "业务写入成功"),
+    "event-delay": ("业务写入成功", "被发件箱看见", "补投成功", "净零"),
     "disk-full": ("报 warn", "退出码 1", "落进", "恢复到"),
 }
 
@@ -751,8 +751,18 @@ echo "C_ROW_IN_DB=$R1"
 
 echo "== 等 10 秒：让消费者把这一条投递失败、堆在 pending"
 sleep 10
-PE=$(Q "select concat(status,' attempts=',attempts,' err=',coalesce(left(last_error,60),'-')) from outbox_events where aggregate_id='$NID';")
-echo "C_PROBE_EVENT=$PE"
+PS=$(Q "select status from outbox_events where aggregate_id='$NID' limit 1;")
+echo "C_PROBE_STATUS_AFTER_FAILURE=$PS"
+PSENT=$(Q "select count(*) from outbox_events where aggregate_id='$NID' and status='sent';")
+echo "C_PROBE_SENT_AFTER_FAILURE=$PSENT"
+PPEND=$(Q "select count(*) from outbox_events where aggregate_id='$NID' and status='pending';")
+echo "C_PROBE_PENDING_AFTER_FAILURE=$PPEND"
+PAT=$(Q "select coalesce(max(attempts),0) from outbox_events where aggregate_id='$NID';")
+echo "C_PROBE_ATTEMPTS_AFTER_FAILURE=$PAT"
+PLE=$(Q "select coalesce(max(last_error),'') from outbox_events where aggregate_id='$NID';")
+PLEN=$(printf '%s' "$PLE" | wc -c)
+echo "C_PROBE_LASTERROR_LEN=$PLEN"
+echo "C_PROBE_LASTERROR=$PLE"
 PN=$(Q "select count(*) from outbox_events where status='pending';")
 echo "C_PENDING_NOW=$PN"
 echo "C_NOTIF_ROWS=$(Q 'select count(*) from notifications;')"
@@ -762,18 +772,22 @@ printf '%s\n' "$JL" | grep -iE 'Cannot publish to redis|Cannot receive from redi
 PG=$(printf '%s\n' "$JL" | grep -c 'Cannot publish to redis')
 echo "PUBLISH_GIVEUP=$PG"
 
-echo "== 恢复：起 Redis，消费者应当自己追平"
+echo "== 恢复：起 Redis，消费者应当按自己的退避把这一条补投出去"
 systemctl start redis
-sleep 15
+sleep 30
 echo "C_REDIS_ACTIVE_AFTER=$(systemctl is-active redis)"
 PA=$(Q "select count(*) from outbox_events where status='pending';")
 echo "C_PENDING_AFTER=$PA"
 FA=$(Q "select count(*) from outbox_events where status='failed';")
 echo "C_FAILED_AFTER=$FA"
+PSA=$(Q "select count(*) from outbox_events where aggregate_id='$NID' and status='sent';")
+echo "C_PROBE_SENT_AFTER_RECOVERY=$PSA"
+PROW=$(Q "select count(*) from outbox_events where aggregate_id='$NID';")
+[ -n "$PROW" ] || PROW=0
+echo "C_PROBE_ROWS=$PROW"
+echo "C_PROBE_DUPLICATES=$(( PROW - 1 ))"
 PEA=$(Q "select concat(status,' attempts=',attempts,' sent_at=',coalesce(sent_at,'-')) from outbox_events where aggregate_id='$NID';")
 echo "C_PROBE_EVENT_AFTER=$PEA"
-PR=$(Q "select count(*) from outbox_events where aggregate_id='$NID';")
-echo "C_PROBE_EVENT_ROWS=$PR"
 ST=$(Q "select count(*) from outbox_events where status='sent';")
 echo "C_SENT_TOTAL=$ST"
 TA=$(Q 'select count(*) from outbox_events;')
@@ -794,13 +808,27 @@ EVENT_X4 = ("脚本 trap 保证 Redis 起回来；消费者每 2 秒扫一次（
 
 
 def _prod_event_delay() -> tuple[dict, dict]:
-    _c, out = _sh(EVENT_SCRIPT, timeout=300)
-    pe = _grab(out, "C_PROBE_EVENT")
-    pea = _grab(out, "C_PROBE_EVENT_AFTER")
-    try:
-        attempts = int(pe.split("attempts=")[1].split()[0]) if "attempts=" in pe else 0
-    except (ValueError, IndexError):
-        attempts = 0
+    """六阶段的观察按**用户 2026-09-26 拍板的出口契约**逐条核（⛔ 不是「服务还在」就算过）：
+
+        sent_before_failure = 0     底层投递失败了，事件**没有**被当成已发送
+        pending_after_failure = 1   它留在 pending（等着被重试）
+        attempts_after_failure >= 1 发件箱**真的看见了**这次失败
+        last_error != null          失败原因留痕了
+        sent_after_recovery = 1     恢复之后按退避补投成功
+        duplicate_count = 0         没有重复
+    """
+    _c, out = _sh(EVENT_SCRIPT, timeout=420)
+
+    def num(key: str) -> int:
+        v = _grab(out, key)
+        return int(v) if v.isdigit() else -1
+
+    sent_before = num("C_PROBE_SENT_AFTER_FAILURE")
+    pending_fail = num("C_PROBE_PENDING_AFTER_FAILURE")
+    attempts_fail = num("C_PROBE_ATTEMPTS_AFTER_FAILURE")
+    err_len = num("C_PROBE_LASTERROR_LEN")
+    sent_after = num("C_PROBE_SENT_AFTER_RECOVERY")
+    dup = num("C_PROBE_DUPLICATES")
     try:
         giveup = int(_grab(out, "PUBLISH_GIVEUP"))
     except ValueError:
@@ -808,16 +836,16 @@ def _prod_event_delay() -> tuple[dict, dict]:
     sig = {
         "业务写入成功（停 Redis 期间写的探针消息拿到了 id 且行在库里）":
             _grab(out, "C_WRITE_ID") != "" and _grab(out, "C_ROW_IN_DB") == "1",
-        "投递失败被发件箱看见（事件堆在 pending、attempts>=1）":
-            pe.startswith("pending") and attempts >= 1,
-        "恢复后追平（pending=0、failed=0、探针事件变 sent）":
-            _grab(out, "C_PENDING_AFTER") == "0" and _grab(out, "C_FAILED_AFTER") == "0"
-            and pea.startswith("sent"),
-        "那条事件只被标记一次（aggregate_id 命中 1 行）": _grab(out, "C_PROBE_EVENT_ROWS") == "1",
+        "底层投递失败被发件箱看见：sent_before_failure=0、pending_after_failure=1、attempts>=1、last_error 非空":
+            sent_before == 0 and pending_fail == 1 and attempts_fail >= 1 and err_len > 0,
+        "Redis 恢复之后按退避补投成功：sent_after_recovery=1": sent_after == 1,
+        "没有重复投递：duplicate_count=0": dup == 0,
+        "恢复后没有留下积压（pending=0、failed=0）":
+            _grab(out, "C_PENDING_AFTER") == "0" and _grab(out, "C_FAILED_AFTER") == "0",
         "探针消息已删干净（净零，不动业务数据）": _grab(out, "C_ROW_GONE") == "0",
     }
     findings: list[str] = []
-    if giveup > 0 and pea.startswith("sent") and attempts == 0:
+    if giveup > 0 and sent_before == 1 and attempts_fail == 0:
         findings.append(
             "⚠️ **发现（真缺陷，不是演练写错）**：Redis 停着的时候做的那次业务写入，"
             "它的发件箱事件被记成了 **sent、attempts=0**（" + pea + "），"

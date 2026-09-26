@@ -20,6 +20,28 @@
 
 ## 进行中
 
+### [2026-09-26 23:2x → ] 会话：**R3-06 C 段修复 —— 发件箱把「投递失败」记成「已发送」（生产 Drill C 抓到的 P1）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**为什么开这个例外（用户 2026-09-26 拍板）**：核心区冻结本轮**正式开一个有证据触发的例外** —— 不是为了继续整理架构，
+而是**生产 Failure Drill 已经用原始输出证明核心边界存在真实的数据可靠性缺陷**：停 Redis 时一条真实业务写入的
+发件箱事件被记成 `sent attempts=0`，而日志里是 16 条 `Cannot publish to redis... giving up`。继续冻结，
+会让 R3 的「运行时正确」结论被一个已被实测抓到的 P1 类问题架住。
+
+**唯一要治的病**：**底层 publish 已经失败，但上层仍把它当成成功**。
+⛔ 用户明确不许顺手做：重构整个 Socket.IO / 重写 outbox / 重新设计事件模型 / 换消息系统 / 增加新抽象层。
+⛔ 用户明确否掉了「发之前先探一次 Redis 可达」这条方案：那是 TOCTOU（探完到发之间照样能挂），只能降概率、证明不了 publish 成功。
+
+**改动文件**：`backend/app/core/socket_io.py`（新增 `_StrictRedisManager`：只把上游 `_publish` 的「失败返回值」翻成异常；
+并把 `connect` 里那条**发给连接自己**的 `sync` 广播改成容忍 —— 它本地已经投递完了，⛔ 不能因为 Redis 一抖就让新连接建不起来）、
+`backend/tests/test_socket_io.py`、`backend/tests/test_outbox.py`（两条契约用例：原语要抛 / 抛了之后发件箱真的留在 pending）、
+`_tools/ops/_drill.py`（Drill C 的出口契约按用户给逐条核）、`docs/**`。
+⛔ **不动**：`main.py::_outbox_deliver` —— 错误传播一通，它原来的 `_deliver_batch` 就已经按失败处理了（少改一处、少一个爆炸半径）。
+
+**核心改动：backend/app/core/socket_io.py** —— 为什么必须动核心：它是**推送的最底层原语**（`sio.emit` 只在这里），
+而发件箱的「至少一次投递」承诺就建立在这条原语的成败语义上；原语说谎，整条 outbox 边界就是假的。
+
+**判据**（用户给的出口契约，逐条进演练记录）：`sent_before_failure=0` / `pending_after_failure=1` / `attempts>=1` /
+`last_error` 非空 / `sent_after_recovery=1` / `duplicate_count=0`。
 ### [2026-09-26 15:3x → 17:0x] 会话：**第三轮收口（R3-07d 依赖决策拍板 + 生产只读核对 + push + CI 修红）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `8663c92` / `5cb27fb` / `79ac355` / `bcb11a9` / `2ed3e5a` / `cc949bf`】
 **用户 2026-09-26 拍了四条板**：① `cryptography` **以生产真实 `pip freeze` 为准**（⛔ 不凭本机猜生产）；
 ② requirements **本轮不锁**（保持开区间 + 现有机器判据）；③ 生产**只读放行**（只验证、不做业务写入）；

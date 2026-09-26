@@ -1,4 +1,18 @@
-"""Socket.IO 长连接（与 FastAPI 组合为 ASGI）。业务侧通过 emit_to_user 推送。"""
+"""Socket.IO 长连接（与 FastAPI 组合为 ASGI）。业务侧通过 emit_to_user 推送。
+
+### 投递边界的一条硬契约（2026-09-26 R3-06 生产 Drill C 逼出来的）
+
+    sio.emit  →  本地投递（_handle_emit）  →  redis.publish（_publish，跨实例那一半）
+
+上游 AsyncRedisManager._publish 在两次发布都失败之后**只打一条日志就 return**（异常被吞掉），
+于是 sio.emit **永远成功返回** —— 发件箱因此把「跨实例那条推送根本没发出去」记成 sent，
+重试 / 退避 / failed + last_error 一条都不触发。那正是 outbox 模块开头点名要治的病。
+
+所以本模块把这一层**翻成会抛**（见 _StrictRedisManager）：
+**只有 redis.publish 真的返回之后，emit 才算成功**；失败必须让调用方看得见。
+⛔ 这不是「发之前先探一次 Redis 可达」—— 那是 TOCTOU：探完到发之间它照样能挂，
+   而且它只能降低概率，证明不了 publish 成功。
+"""
 
 from __future__ import annotations
 
@@ -26,9 +40,38 @@ SYNC_LIMIT = 200
 
 from app.config import get_settings
 
+class _StrictRedisManager(socketio.AsyncRedisManager):
+    """Redis 适配器：**publish 失败必须抛**，不许记一条日志就当成功。
+
+    ### 它治的是什么病（2026-09-26 R3-06 生产 Drill C 实测）
+    停掉 Redis 之后，一条真实业务写入产生的发件箱事件被记成了 sent / attempts=0，
+    而同一时刻日志里是 16 条 ERROR [socketio.server] Cannot publish to redis... giving up ——
+    事件在发件箱眼里「已经发出去了」，实际上**跨实例那半根本没发出去，而且没有任何地方记着**。
+
+    ### 契约（这一层存在的**全部**理由）
+    _publish **只有在 redis.publish 真的返回之后才返回**；失败一律抛出去，
+    由调用方按它自己的语义处理 —— 发件箱那边的语义是「留在 pending，退避重试，用满次数才 failed」。
+
+    ### ⛔ 它刻意**不**做的事
+    · 不重写发布逻辑：仍然调 super()._publish()，只把它的「失败返回值」翻成异常；
+    · 不做「发之前先探一次 Redis 可达」—— 检查与使用之间有竞态，证明不了 publish 成功。
+    """
+
+    async def _publish(self, data):  # type: ignore[no-untyped-def]
+        sent = await super()._publish(data)
+        # 上游成功时返回 redis.publish 的订阅者数（**0 也算成功**）；两次都失败时 return None。
+        if sent is None:
+            raise RuntimeError(
+                "Socket.IO 跨实例投递失败：redis.publish 没有成功返回"
+                "（上游 AsyncRedisManager 把失败吞成了一条日志）—— "
+                "发件箱必须按**投递失败**处理，⛔ 不许当成已发送。"
+            )
+        return sent
+
+
 # 多 worker 部署时用 Redis 适配器共享连接状态（否则 403/400 重连循环）；单进程留空用内存
 _socket_redis_url = get_settings().socket_redis_url
-_client_manager = socketio.AsyncRedisManager(_socket_redis_url) if _socket_redis_url else None
+_client_manager = _StrictRedisManager(_socket_redis_url) if _socket_redis_url else None
 
 if not _socket_redis_url:
     # ⚠️ 空值必须**说出来**（2026-09-19 审计 R12-A6）：各 worker 各持一份内存连接表时，
@@ -138,7 +181,17 @@ async def connect(sid, environ, auth=None) -> bool:  # type: ignore[no-untyped-d
     except (TypeError, ValueError):
         last_id = 0
 
-    await sio.emit("sync", sync_payload_for(user_id, last_id), room=sid)
+    # ⚠️ sync 是发给**这条连接自己**的（room=sid）：emit 会先本地投递，再往 Redis 广播一次
+    #    （别的进程收到也会忽略 —— 那个 sid 不在它们那儿）。Redis 不可用时严格适配器会从
+    #    **广播那一步**抛出来，可那一刻 payload **已经就位投递完了** ⇒ 这一处必须容忍：
+    #    ⛔ 别把它变成「Redis 一抖，新连接就建不起来」。
+    #    ⛔ 与发件箱那条路**故意不一样**：那边一失败就必须让事件留在 pending（见 _StrictRedisManager）。
+    try:
+        await sio.emit("sync", sync_payload_for(user_id, last_id), room=sid)
+    except Exception:  # noqa: BLE001 - 跨实例广播失败不影响这条连接拿它自己的 payload
+        logger.warning(
+            "sync 的跨实例广播失败（本连接的 payload 已就地投递）user_id=%s", user_id, exc_info=True
+        )
     return True
 
 

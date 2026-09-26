@@ -382,3 +382,36 @@ def test_outbox_stats_counts_by_status(db_session):
     stats = outbox.outbox_stats(db_session)
     assert stats["sent"] == 2 and stats["pending"] == 0, stats
 
+
+
+def test_publish_failure_keeps_the_event_pending(db_session):
+    """**端到端钉死那条契约**：底层 publish 失败 ⇒ 事件必须留在 pending（⛔ 不许被当成 sent）。
+
+    与 test_publish_failure_is_not_swallowed 的分工：那条钉**投递原语**（失败要抛），
+    这条钉**原语到发件箱**这一段（抛出来之后发件箱真的按失败处理：pending + attempts + last_error）。
+    ⛔ 两条都要有：只钉一头，中间接错了照样是绿的。
+
+    ⚠️ attempts 的口径（钉死，别再含糊）：它数的是**底层投递被拒了几次**，不是 deliver 被调用了几次；
+    成功路径 attempts 保持 0。生产 Drill C 那次记到的 sent / attempts=0 **不是这个计数器的口径问题**，
+    是失败压根没被看见（socketio 把它吞了）—— 那是缺陷，不是语义。
+    """
+    import asyncio
+
+    from app.core.socket_io import _StrictRedisManager
+
+    _clear(db_session)
+    outbox.enqueue(db_session, "orders.assigned", {"order_id": 1, "driver_id": 2})
+    db_session.commit()
+
+    mgr = _StrictRedisManager("redis://127.0.0.1:1/0")
+
+    async def _deliver(ev):
+        await mgr._publish({"method": "emit", "event": ev.event_type})
+
+    stats = outbox.dispatch_sync(db_session, lambda ev: asyncio.run(_deliver(ev)))
+    row = _rows(db_session)[0]
+    assert stats == {"sent": 0, "retry": 1, "given_up": 0}, stats
+    assert row.status == OutboxStatus.PENDING.value, "投递失败却被推进了别的状态"
+    assert row.attempts == 1, row.attempts
+    assert "没有成功返回" in (row.last_error or ""), row.last_error
+    assert row.sent_at is None, "投递失败却写了 sent_at"
