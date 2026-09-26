@@ -73,7 +73,12 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "生成器把可空性写死（模型是 NOT NULL、DDL 给 NULL）",
         BOOTSTRAP,
-        lambda s: s.replace('"NULL" if column.nullable else "NOT NULL"', '"NULL"', 1),
+        # ⛔ 2026-09-26 修：这一条注入原来**打错了地方**。同一个表达式在 `schema_bootstrap.py` 里出现
+        #    **两次** —— 第一次在 **VARCHAR 宽度补全**那段（`_check_enum_drift.py` 不检查它），
+        #    第二次才是 `enum_repair_ddl` 里被检查的那一处。写 `, 1` 只改前一处 ⇒ 判据当然不红，
+        #    于是这条反向验证**误报**成「这条判据是空转的」（判据没病，是注入瞄错了）。
+        #    改成**全替换**：两处都写死成 NULL，被检查的那一处必然变。
+        lambda s: s.replace('"NULL" if column.nullable else "NOT NULL"', '"NULL"'),
     ),
     # ---- ① 清单盘空 ----
     (

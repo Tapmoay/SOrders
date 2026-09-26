@@ -327,7 +327,17 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
     真实脚本上跑（`--only _reverse_verify_dep_declaration`）→ 全绿。
     ⑨ 顺带修掉 2 处**永远会 `TypeError` 的兜底调用**：`restore_snapshot(snapshot_dir())` —— 那个函数从来没有参数
     （只在「自检失败」分支里才会走到，所以从没暴露过），已改成 `restore_snapshot()`。
-    · 当前 **L3 = 6 份（上限 6）**；L2 保持 106/143。
+    ⑩ ⭐ **L2 又补 10 份（106 → 117）**：`read_src`/`write_src` 那一族（39 份共用同一对助手）本轮先改 10 份 ——
+    还原调用改成 `restore_src`：**写回后重新读回来逐字节比**，对不上立刻非零退出。10 份逐份跑过：
+    **8 份全绿**（coverage 6/6、field_keys 5/5、price_table 7/7、prepare_no_write 8/8、report_priority 7/7、
+    card_markdown 15/15、check_blindspots 11/11、read_roles 9/9）。
+    ⛔ 另外 2 份的失败**与本轮改动无关、是早就烂了的注入锚点**（已用 `git show HEAD:` 的原版跑过、同样失败）：
+    `_reverse_verify_write_roles.py` 3 条 `[SKIP] 注入没生效`、`_reverse_verify_doc_refs.py` 1 条 ——
+    下一轮补替换串（那是「注入没生效」，不是「还原没证明」，所以 L2 计数照样算）。
+    ⑪ **全量一遍的实测成本**（这一轮试过）：143 份 × 平均 67 秒 ≈ **2.7 小时**（前 7 份 470 秒）—— 跑的时候
+    整个工作区不能动，所以本轮改成**分域/分批**跑。⛔ 中途停掉按文档处置：杀进程 → `_recover_injections.py`
+    还原现场 → 清注入锁（本轮真做过一次：还原了 1 个被注入的文件、`git status` 回到干净）。
+    · 当前 **L3 = 6 份（上限 6）**；**L2 = 117/143**（还剩 26 份）。
   · 另外核一件事：**没有任何一份**在代码里真的执行 `git checkout`（⛔ 用 AST 看**调用实参**，
     不用正则搜文本 —— 反向验证脚本自己就把 `["git","checkout",…]` 当字符串数据写着，
     正则会把它们全判红，那是本仓库栽过的「判据被文字误伤」）。

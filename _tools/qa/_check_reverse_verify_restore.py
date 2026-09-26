@@ -82,7 +82,10 @@ MIN_L1 = 135
 #:     concurrency_guards / cost_basis / input_guards / place_and_picker / product_guards /
 #:     report_guards / soft_delete —— 同样逐份跑过，全绿）。
 #: 剩下 37 份仍是真缺口。棘轮只增不减 —— 每补一份就把这个数抬上来。
-MIN_L2 = 106
+#: 2026-09-26 又补 10 份（`read_src`/`write_src` 那一族：还原改成 `restore_src` —— 写回后**重新读回来逐字节比**）
+#: → 117。⛔ 其中两份脚本**本身**有腐烂的注入锚点（`write_roles` 3 条、`doc_refs` 1 条，HEAD 版同样失败、
+#: 与本轮改动无关），已记在台账里等下一轮补 —— 那是「注入没生效」，不是「还原没证明」。
+MIN_L2 = 117
 
 #: 做不到那三样、但有正当理由的 —— 键是相对路径，值是「为什么 + 什么时候删掉这一条」。
 EXCEPTIONS: dict[str, str] = {

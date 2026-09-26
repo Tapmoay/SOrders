@@ -34,12 +34,25 @@ def read_src(p: Path):
     return data.decode("utf-8").replace("\r\n", "\n"), b"\r\n" in data
 
 
-def write_src(p: Path, text: str, crlf: bool) -> None:
+def write_src(p: Path, text: str, crlf: bool) -> bytes:
     data = text.replace("\r\n", "\n")
     if crlf:
         data = data.replace("\n", "\r\n")
-    p.write_bytes(data.encode("utf-8"))
+    out = data.encode("utf-8")
+    p.write_bytes(out)
+    return out
 
+
+
+def restore_src(p: Path, text: str, crlf: bool) -> None:
+    # 还原**当场核对**（R3-07b）：写回后**重新读回来比**，对不上就非零退出。
+    # ⛔ 「写了还原」不是证明；重新读回来的内容 == 快照 才是（L2 要的就是这一句）。
+    # 实测教训（2026-09-26）：有份反向验证的还原写的是**另一个文件的字节**，而它自己那句核对
+    # 比的也是同一份错字节 ⇒ 恒等通过，把两个源码文件整份写坏。
+    wrote = write_src(p, text, crlf)
+    if p.read_bytes() != wrote:
+        print('⛔ 还原后与快照不一致（注入污染了源码树）：' + str(p))
+        raise SystemExit(2)
 
 def run_check() -> tuple[int, str]:
     r = subprocess.run(
@@ -116,7 +129,7 @@ def main() -> int:
         try:
             code, out = run_check()
         finally:
-            write_src(COVERAGE, src, crlf)
+            restore_src(COVERAGE, src, crlf)
         hit = code == want_code and expect in out
         print(f"  [{'OK' if hit else 'MISS'}] {label} → 期望红：{expect}（实际退出码 {code}）")
         if not hit:
