@@ -96,8 +96,17 @@ CASES: list[tuple[str, str, str, str, str]] = [
     (
         "⑥ PR 闸里删掉 `_check_all.py`（「本机跑跑就行」→ 检查体系又只剩人在本机跑）",
         GATE,
-        "      - name: 全部静态检查\n        run: python _tools/qa/_check_all.py\n",
-        "      - name: 全部静态检查\n        run: python _tools/qa/_check_secrets.py --check\n",
+        # ⚠️ 2026-09-26 跟锚点：`全部静态检查` 那一步从单行 `run:` 变成了多行（外面套了
+        #    `tee /tmp/gate.log` + 失败时打 `::error::` 注解，为的是让 CI 红的时候**匿名也能读出为什么**）。
+        #    ⛔ 只改锚点的形状，判据与期望词一个字没动。
+        "      - name: 全部静态检查\n"
+        "        run: |\n"
+        "          set +e\n"
+        "          python _tools/qa/_check_all.py 2>&1 | tee /tmp/gate.log\n",
+        "      - name: 全部静态检查\n"
+        "        run: |\n"
+        "          set +e\n"
+        "          python _tools/qa/_check_secrets.py --check 2>&1 | tee /tmp/gate.log\n",
         "PR 闸里没有 _check_all.py",
     ),
     (

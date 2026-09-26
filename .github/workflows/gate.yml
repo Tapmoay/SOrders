@@ -111,7 +111,18 @@ jobs:
       #    而"忘了改"的表现是"少跑了一半检查但仍然是绿的"）。
       #    `_check_ci_workflows.py` 第 12 条现在会拦"跑检查的 job 却没装依赖"这件事。
       - name: 全部静态检查
-        run: python _tools/qa/_check_all.py
+        run: |
+          set +e
+          python _tools/qa/_check_all.py 2>&1 | tee /tmp/gate.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            # ⛔ 失败时必须把**为什么**送进注解：Actions 日志要登录才看得到（匿名只看到
+            #    「Sign in to view logs」），而注解匿名可读。2026-09-26 实测过一次代价：
+            #    本机 119/119 全绿、CI 这个作业红，却**读不出是哪一条**（只能靠猜）。
+            msg=$(grep '❌' /tmp/gate.log | head -20 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error::全部静态检查失败（退出码 $rc）：$msg"
+          fi
+          exit "$rc"
 
   read-roles-probe:
     name: Normal Gate · AI 读权限对账（起真后端逐条打）
@@ -140,13 +151,26 @@ jobs:
           export DATABASE_URL="sqlite:///./ci_probe.db"
           # ⛔ 不在这里写 JWT_SECRET_KEY：`_check_secrets.py` 会（正确地）把工作流里的密钥默认值判红。
           #    这个作业只需要一个**能跑起来的**后端，用 `Settings` 自己的缺省值就够 —— 见下面这条注释。
+          # ⛔ R3-01 起「import 不再建表」：原来这一步能跑通，是因为 `import app.database`
+          #    顺手执行了 DDL —— 那条副作用被**故意**摘掉了（`_check_import_purity.py` 钉着它不许回来），
+          #    所以 CI 必须自己走**迁移的唯一入口**。这正是生产上的顺序：先迁移、后应用。
+          if ! python -m app.migrations upgrade > /tmp/migrate.log 2>&1; then
+            echo "迁移没跑通："; tail -30 /tmp/migrate.log
+            echo "::error::迁移没跑通：$(tail -c 500 /tmp/migrate.log | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')"
+            exit 1
+          fi
           python -m scripts.seed_dev_users
           nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/probe-api.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/health >/dev/null; then break; fi
             sleep 1
           done
-          curl -sf http://127.0.0.1:8000/health || { echo "后端没起来："; tail -40 /tmp/probe-api.log; exit 1; }
+          # ⛔ 起不来时把日志尾部**送进注解**（原因同上：日志要登录才看得到，注解不用）。
+          curl -sf http://127.0.0.1:8000/health || {
+            echo "后端没起来："; tail -40 /tmp/probe-api.log
+            echo "::error::后端没起来：$(tail -c 600 /tmp/probe-api.log | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')"
+            exit 1
+          }
       - name: 逐条对账（403 = 真的不给，其余都算门通）
         env:
           # 播种脚本用的口令与探测脚本的缺省值不同，靠这个环境变量对齐（见探测脚本里的注释）。
@@ -234,13 +258,26 @@ jobs:
         run: |
           cd backend
           export DATABASE_URL="sqlite:///./ci_e2e.db"
+          # ⛔ R3-01 起「import 不再建表」：原来这一步能跑通，是因为 `import app.database`
+          #    顺手执行了 DDL —— 那条副作用被**故意**摘掉了（`_check_import_purity.py` 钉着它不许回来），
+          #    所以 CI 必须自己走**迁移的唯一入口**。这正是生产上的顺序：先迁移、后应用。
+          if ! python -m app.migrations upgrade > /tmp/migrate.log 2>&1; then
+            echo "迁移没跑通："; tail -30 /tmp/migrate.log
+            echo "::error::迁移没跑通：$(tail -c 500 /tmp/migrate.log | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')"
+            exit 1
+          fi
           python -m scripts.seed_dev_users
           nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/e2e-api.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/health >/dev/null; then break; fi
             sleep 1
           done
-          curl -sf http://127.0.0.1:8000/health || { echo "后端没起来："; tail -40 /tmp/e2e-api.log; exit 1; }
+          # ⛔ 起不来时把日志尾部**送进注解**（原因同上：日志要登录才看得到，注解不用）。
+          curl -sf http://127.0.0.1:8000/health || {
+            echo "后端没起来："; tail -40 /tmp/e2e-api.log
+            echo "::error::后端没起来：$(tail -c 600 /tmp/e2e-api.log | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')"
+            exit 1
+          }
           # ⛔ 光有账号不够（2026-09-25 第 60 轮实测）：端到端的「下单」那一段要**在选品页点一行**、
           #    再**在地址库里选一条**，而 `seed_dev_users` 只造三个账号 —— 页面上写的是
           #    「暂无可用商品 ｜ 请联系派单员先在「商品管理」中添加商品后再下单」。

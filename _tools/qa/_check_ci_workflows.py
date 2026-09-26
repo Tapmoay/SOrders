@@ -222,7 +222,16 @@ def main() -> int:
                 mod = m.group(1)
                 leaf = mod.split(".")[-1]
                 if any(ROOT.glob("backend/**/" + leaf + ".py")) or any(ROOT.glob("_tools/**/" + leaf + ".py")):
-                    continue   # 仓库里的模块（真存在）
+                    continue   # 仓库里的模块（真存在，单文件）
+                # ⛔ 2026-09-26 修：原来只认 `<leaf>.py` —— **包**（目录 + `__init__.py`/`__main__.py`）
+                #    一律被判成「找不到」。实测代价：`python -m app.migrations upgrade`（R3-01 的迁移
+                #    唯一入口，包在 `backend/app/migrations/`）让这条判据**假红**，而它红的样子
+                #    和「真写错模块名」一模一样 —— 判据读得比事实窄（与 list_order / round17 同源）。
+                if (any(ROOT.glob("backend/**/" + leaf + "/__init__.py"))
+                        or any(ROOT.glob("_tools/**/" + leaf + "/__init__.py"))
+                        or any(ROOT.glob("backend/**/" + leaf + "/__main__.py"))
+                        or any(ROOT.glob("_tools/**/" + leaf + "/__main__.py"))):
+                    continue   # 仓库里的模块（真存在，包）
                 try:   # 标准库/已装的三方模块（compileall / pytest 这类）不算路径
                     known = importlib.util.find_spec(mod.split(".")[0]) is not None
                 except (ImportError, ValueError):
