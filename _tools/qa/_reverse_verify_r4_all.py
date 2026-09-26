@@ -36,11 +36,19 @@ APP = ROOT / "backend" / "app"
 CHECKS = {
     "boundary": HERE / "_check_core_extension_boundary.py",
     "contracts": HERE / "_check_extension_contracts.py",
+    "dependencies": HERE / "_check_extension_dependencies.py",
+    "ownership": HERE / "_check_data_ownership.py",
+    "manifest": HERE / "_check_extension_manifest.py",
 }
 MAP = ROOT / "docs" / "R4_CORE_EXTENSION_MAP.md"
 CDOC = ROOT / "docs" / "R4_CONTRACTS.md"
 MAIN = APP / "main.py"
 CONTRACTS = APP / "core" / "contracts"
+EDOC = ROOT / "docs" / "R4_EXTENSIONS.md"
+REGISTRY = APP / "core" / "extension_registry.py"
+EXT_INIT = APP / "extensions" / "__init__.py"
+MODELS_ORDER = APP / "models" / "order.py"
+CORE_SVC = APP / "services" / "reports_service.py"
 
 FENCE = chr(96) * 3
 TICK = chr(96)
@@ -242,6 +250,90 @@ def c_missing_element(sb: Sandbox) -> None:
     sb.sub(CDOC, "生命周期", "生存期")
 
 
+# ------------------------------------------------ 依赖防火墙判据的注入
+
+
+def d_ok(sb: Sandbox) -> None:
+    """正面前提。"""
+
+
+def d_core_imports_ext(sb: Sandbox) -> None:
+    """让一个核心 service 去 import 具体扩展（Core -> Extension 是禁止方向）。"""
+    sb.append(CORE_SVC, chr(10) + "from app.extensions import unit_conversion  # rv" + chr(10))
+
+
+def d_ext_imports_private(sb: Sandbox) -> None:
+    """让扩展去 import 核心私有内部（规则④）。"""
+    sb.append(EXT_INIT, chr(10) + "from app.services import accounting_service  # rv" + chr(10))
+
+
+def d_ext_auth(sb: Sandbox) -> None:
+    """让扩展自己写一套鉴权（§31 坑 11）。"""
+    sb.append(EXT_INIT, chr(10) + "def rv_guard(user):" + chr(10)
+              + "    return require_permission(user)" + chr(10))
+
+
+# ------------------------------------------------ 数据归属判据的注入
+
+
+def o_ok(sb: Sandbox) -> None:
+    """正面前提。"""
+
+
+def o_write(sb: Sandbox) -> None:
+    """让扩展写一行数据（§31 坑 4）。"""
+    sb.append(EXT_INIT, chr(10) + "def rv_write(db, obj):" + chr(10) + "    db.add(obj)" + chr(10))
+
+
+def o_ledger(sb: Sandbox) -> None:
+    """让扩展碰到账本那一路（§31 坑 5，最高危）。"""
+    sb.append(EXT_INIT, chr(10) + "RV_LEDGER_TABLE = 'ledgers'" + chr(10))
+
+
+def o_ghost_core_table(sb: Sandbox) -> None:
+    """往核心表清单里塞一个模型里不存在的表名（防化石那一组该红）。"""
+    sb.replace(MAP, "owns: ledgers, cash_flows,", "owns: ledgers_v2, cash_flows,")
+
+
+def o_missing_snapshot(sb: Sandbox) -> None:
+    """删掉订单上的计费规则快照列（历史就不再可解释，§31 坑 9）。"""
+    sb.sub(MODELS_ORDER, "driver_rule_snapshot", "rv_dropped_rule_snapshot")
+
+
+# ------------------------------------------------ 扩展清单判据的注入
+
+
+def m_ok(sb: Sandbox) -> None:
+    """正面前提。"""
+
+
+def m_field_removed(sb: Sandbox) -> None:
+    """把清单的一个字段从 dataclass 里删掉（三方一致那条该红）。"""
+    sb.replace(REGISTRY, "    emits: tuple[str, ...] = ()" + chr(10), "")
+
+
+def m_kind_removed(sb: Sandbox) -> None:
+    """把四类扩展删掉一类。"""
+    sb.replace(REGISTRY, '"pure-function", "policy", "provider", "presentation"',
+               '"pure-function", "policy", "provider"')
+
+
+def m_doc_field_removed(sb: Sandbox) -> None:
+    """把文档里的一个必备字段名改名（文档覆盖度那条该红）。"""
+    sb.sub(EDOC, "compatibility", "兼容性")
+
+
+def m_exec_in_registry(sb: Sandbox) -> None:
+    """在注册表里加一句 eval（动态加载禁令那条该红）。"""
+    sb.append(REGISTRY, chr(10) + "RV_X = eval('1+1')" + chr(10))
+
+
+def m_env_in_extension(sb: Sandbox) -> None:
+    """让扩展直接读环境变量（配置必须走注册表那条该红）。"""
+    sb.append(EXT_INIT, chr(10) + "import os as _rv_os" + chr(10)
+              + "RV_ENV = _rv_os.environ.get('CORE_DATABASE_URL')" + chr(10))
+
+
 # (说明, 判据, 场景, 期望)；期望 = ("red", 关键字) 或 ("green", "")
 SCENARIOS = [
     ("✅ 正面前提：边界图不动 → 应当通过", "boundary", b_ok, ("green", "")),
@@ -269,6 +361,21 @@ SCENARIOS = [
     ("删掉某一处既有实现的 rounding=", "contracts", c_missing_rounding, ("red", "显式写了")),
     ("把某一处两位小数的进位改成 ROUND_HALF_EVEN", "contracts", c_wrong_rounding, ("red", "两位小数那一档")),
     ("把文档里的「生命周期」全部改名", "contracts", c_missing_element, ("red", "每个契约各一份")),
+    ("✅ 正面前提：防火墙不动 → 应当通过", "dependencies", d_ok, ("green", "")),
+    ("让核心 service import 具体扩展", "dependencies", d_core_imports_ext, ("red", "能 import app.extensions")),
+    ("让扩展 import 核心私有内部", "dependencies", d_ext_imports_private, ("red", "越界 import")),
+    ("让扩展自己写一套鉴权", "dependencies", d_ext_auth, ("red", "一行鉴权都没有")),
+    ("✅ 正面前提：数据归属不动 → 应当通过", "ownership", o_ok, ("green", "")),
+    ("让扩展写一行数据", "ownership", o_write, ("red", "一条写语句都没有")),
+    ("让扩展碰到账本那一路", "ownership", o_ledger, ("red", "碰不到账本")),
+    ("往核心表清单里塞一个不存在的表", "ownership", o_ghost_core_table, ("red", "模型里没有")),
+    ("删掉订单上的计费规则快照列", "ownership", o_missing_snapshot, ("red", "历史快照")),
+    ("✅ 正面前提：扩展清单不动 → 应当通过", "manifest", m_ok, ("green", "")),
+    ("把清单的一个字段从 dataclass 删掉", "manifest", m_field_removed, ("red", "REQUIRED_FIELDS 一致")),
+    ("把四类扩展删掉一类", "manifest", m_kind_removed, ("red", "两项下限都达标")),
+    ("把文档里的一个必备字段名改名", "manifest", m_doc_field_removed, ("red", "每个必备字段都在文档里写了")),
+    ("在注册表里加一句 eval", "manifest", m_exec_in_registry, ("red", "都没有 exec")),
+    ("让扩展直接读环境变量", "manifest", m_env_in_extension, ("red", "不许直接读环境变量")),
 ]
 
 

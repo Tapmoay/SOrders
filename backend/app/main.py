@@ -458,6 +458,15 @@ def create_fastapi_app() -> FastAPI:
         except Exception:
             return {"version": None, "url": None, "note": ""}
 
+    # ---- 扩展装配（R4-03）----
+    # 这里是**唯一**允许 import app.extensions 的地方（指南 §13 的那一条边：Core -> 契约）。
+    # 其余任何核心文件 import 具体扩展 = 核心反向依赖扩展，判据 _check_extension_dependencies.py 第 1 组报红。
+    # ⛔ 只在**启动时**装配一次：没有运行期 add/remove/reload（指南 §16 点名的那个坑）。
+    from app.core.extension_registry import discover as _discover_extensions
+
+    application.state.extensions = _discover_extensions()
+    logger.info("扩展已装配：%s", [m.id for m in application.state.extensions] or "（当前没有扩展）")
+
     return application
 
 

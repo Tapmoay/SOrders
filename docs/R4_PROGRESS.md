@@ -88,12 +88,14 @@
 Event 只作事实通知（§28）、模块依赖图可自动生成（§29）。
 
 **退出条件**
-- ❌ 五个检查器都在，且都带 `R4-BOUNDARY-JUSTIFICATION:` 一行 —— 复现：`python _tools/qa/_check_all.py`
-- ❌ 五个检查器各有**反向破坏用例**（把每条规则弄坏一次，看它会不会红）—— 复现：`python _tools/qa/_reverse_verify_r4_all.py`
-- ❌ 五个检查器各有**静默空转保护**（清单为空 / 数量低于下限时报错，而不是"全绿"）—— 复现：`python _tools/qa/_reverse_verify_r4_all.py`
-- ❌ Manifest 能声明 `id / version / kind / requires / provides / consumes / emits / config / compatibility`（涉及库再加 `owns_tables`）—— 复现：`python _tools/qa/_check_extension_manifest.py`
-- ❌ 依赖图可生成并可回答「谁依赖谁 / 谁拥有这张表 / 谁提供这个 capability / 谁监听这个 event」—— 复现：`python _tools/qa/_check_extension_dependencies.py --graph`
-- ❌ 配置分离：扩展的环境变量一律 `EXT_*`，核心一律 `CORE_*`，⛔ 扩展不许读核心配置项 —— 复现：`python _tools/qa/_check_extension_manifest.py`
+- ✅ 五个检查器都在（boundary 30 项 / contracts 21 项 / dependencies 8 项 / ownership 9 项 / manifest 16 项），每个都带 `R4-BOUNDARY-JUSTIFICATION:` 一行 —— 复现：`python _tools/qa/_check_all.py`
+- ✅ 五个检查器各有**反向破坏用例**，共 40 条注入 + 5 条正面前提 + 5 条还原校验 = **45/45 全部成立** —— 复现：`python _tools/qa/_reverse_verify_r4_all.py`
+- ✅ 五个检查器各有**静默空转保护**（块数 / 表数 / 事件数 / impl 数 / 契约数 / quantize 处数 / 核心文件数 / 权限点数 / 字段数 / 类别数 / 文档覆盖度，逐项有下限；核不到就报红而不是全绿）—— 复现：`python _tools/qa/_reverse_verify_r4_all.py`
+- ✅ Manifest 能声明 `id / version / kind / requires / provides / consumes / emits / config / compatibility / owns_tables / routes / capability`（12 个必备字段；注册表、dataclass、文档**三方一致**）—— 复现：`python _tools/qa/_check_extension_manifest.py`
+- ✅ 依赖图可生成并可回答「谁依赖谁 / 谁拥有这张表 / 谁提供这个 capability / 谁监听这个 event」—— 复现：`python _tools/qa/_check_extension_dependencies.py --graph`
+- ✅ 配置分离：扩展一律 `EXT_<ID>_<KEY>`、核心一律 `CORE_*`，⛔ 扩展不许直接读环境变量 —— 复现：`python _tools/qa/_check_extension_manifest.py`
+- ✅ **四条防火墙规则**各有落点：① Core 不能 import 具体 Extension（只有装配根 `main.py` 可以）；② Extension 不能改核心拥有的数据（只能 calculate 出 Money，写语句一条都不许有）；③ Extension 不能绕过 Capability（扩展代码里一行鉴权都没有，能力点由核心施加）；④ Extension 不能 direct-import 私有内部（只许 `app.core.contracts.*` 与 `app.core.extension_registry`）—— 复现：`python _tools/qa/_check_extension_dependencies.py` + `python _tools/qa/_check_data_ownership.py`
+- ⏳ **扩展数为 0，所以「每个扩展都合规」那一半此刻只核了空集**（如实记着，不粉饰）：第一个扩展由 R4-04 落地，届时 `_check_extension_manifest.py` 的 `MIN_EXTENSIONS` 要从 0 抬到 1 —— 那是一次**收紧**，不给它留模糊空间
 
 ## R4-04 第一个真实扩展：Unit Conversion
 
