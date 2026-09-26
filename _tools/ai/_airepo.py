@@ -315,10 +315,19 @@ def source_fingerprint(globs: tuple[str, ...] | list[str], root: Path | None = N
     base = root or ROOT
     seen: list[Path] = []
     for pattern in globs:
-        seen.extend(sorted(p for p in base.glob(pattern) if p.is_file()))
+        seen.extend(p for p in base.glob(pattern) if p.is_file())
+    # ⛔ ⭐ 2026-09-26 **第三次**修同一个东西：这里原来写的是 `sorted(set(seen))` —— 排的是 **Path 对象**，
+    #    而 Path 的排序规则**是平台相关的**：Windows 的大小写不敏感（`WindowsPath.__lt__` 比的是
+    #    小写化后的字符串），Linux 的大小写敏感。于是**同一个提交、同一批文件**在两台机器上算出两个指纹。
+    #    实测证据（hint_catalog，475 个文件，内容逐字节一致）：
+    #      · 本机（Path 排序）      sha256:b73395970ed426a10…  ← 产物里记的就是这个（所以本机全绿）
+    #      · CI（字符串排序）        sha256:42d8e6cb4e1107e9a…  ← CI 现算的（所以 CI 红）
+    #    首次分叉在第 0 项：`…/sorders/ai/AiActor.kt`（'a' < 'M' 不敏感）vs `…/sorders/MainActivity.kt`（'M' 97 前）。
+    #    修法：**先把相对路径归一成 posix 字符串再排**（⛔ 不排 Path 对象）—— 排序键必须是内容，不是平台。
     h = hashlib.sha256()
-    for p in sorted(set(seen)):
-        h.update(str(p.relative_to(base)).replace(chr(92), '/').encode('utf-8'))
+    for rel in sorted(str(p.relative_to(base)).replace(chr(92), '/') for p in set(seen)):
+        p = base / rel
+        h.update(rel.encode('utf-8'))
         h.update(b'\x00')
         h.update(p.read_bytes().replace(b'\r\n', b'\n'))  # 换行归一：检出状态不算内容
         h.update(b'\x01')
