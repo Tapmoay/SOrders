@@ -1623,21 +1623,19 @@ R3 的问题是“系统有没有真的运行”；R4 的问题则变成了：
 
 | 能力 | Code | CI | Runtime | Add | Replace | Remove | 依据 / 出口 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Core Boundary | ✅ | ⏳ | ✅ | — | — | — | `docs/R4_CORE_EXTENSION_MAP.md`（52 条能力 / Unclassified=0）+ `_check_core_extension_boundary.py` |
-| Unit Conversion | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-04；Add 出口 `_r4_add_drill.py`（Core 0 行）、Remove 出口 `_r4_remove_drill.py`（12/12 步） |
-| Pricing | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-05；Replace 出口 `_r4_replace_drill.py`（换数据就换算法，Core 0 行） |
-| Dependency Firewall | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-03；四条规则各有判据，`_check_extension_dependencies.py` + `_check_data_ownership.py` |
-| Data Ownership | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-03；扩展不认领核心表 + 历史快照列在 + 删除演练 47 张表逐名一致 |
-| Compatibility | ✅ | ⏳ | — | ✅ | ✅ | ✅ | R4-07；`_r4_compat_drill.py`（v1 实现经适配器照常跑、v2 实现给 2 行原生明细） |
+| Core Boundary | ✅ | ✅ | ✅ | — | — | — | `docs/R4_CORE_EXTENSION_MAP.md`（52 条能力 / Unclassified=0）+ `_check_core_extension_boundary.py` |
+| Unit Conversion | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | R4-04；Add 出口 `_r4_add_drill.py`（Core 0 行）、Remove 出口 `_r4_remove_drill.py`（12/12 步） |
+| Pricing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | R4-05；Replace 出口 `_r4_replace_drill.py`（换数据就换算法，Core 0 行） |
+| Dependency Firewall | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | R4-03；四条规则各有判据，`_check_extension_dependencies.py` + `_check_data_ownership.py` |
+| Data Ownership | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | R4-03；扩展不认领核心表 + 历史快照列在 + 删除演练 47 张表逐名一致 |
+| Compatibility | ✅ | ✅ | — | ✅ | ✅ | ✅ | R4-07；`_r4_compat_drill.py`（v1 实现经适配器照常跑、v2 实现给 2 行原生明细） |
 
 **读表须知**
 
 - `Code ✅` = 有判据在每次全量静态检查里核它（本机 **124/124**）；
 - `Runtime ✅` = **在本机真跑过**（起进程 / 真库 / 真演练记录）；
 - `—` = 这一轮不适用；
-- ⚠️ `CI` 一列的口径严格来说是两句：判据**在全量检查里**（✅），**并且**这条提交被推到
-  `origin/new` 之后 CI 跑绿过（⏳ 待定）。⛔ 在推送并确认之前，这一列**不许**写成 ✅ ——
-  写上去就是"文档语义超过代码事实"，而 R3 为这条栽过四轮。
+- ✅ `CI` 一列（2026-09-27 定）：判据在全量检查里，**并且**这批提交推到 `origin/new` 之后 CI 跑绿过。
 
 ## A.3 ⛔ 这一轮**证不了**什么（如实列着，不粉饰）
 
