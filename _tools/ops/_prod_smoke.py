@@ -117,10 +117,16 @@ emit trace_nginx_header "$(curl -s -D- -o /dev/null -H "X-Request-ID: $RID" http
 
 
 def repo_migration_head() -> int:
-    """仓库里认的**迁移最新版本**：从迁移目录现数，⛔ 不手写（手写的那个数会在下一次迁移时过期）。"""
+    """仓库里认的**迁移最新版本**：从迁移目录现数，⛔ 不手写（手写的那个数会在下一次迁移时过期）。
+
+    ⚠️ 2026-09-26 修：第一版 glob 的是 `migrations/versions/0*.py` —— **那个目录不存在**（迁移就在
+    `backend/app/migrations/` 下，见 `_runner.MIGRATIONS_DIR = Path(__file__).parent`），于是它**静默返回 0**，
+    判据那一行就写成「生产库结构版本 = 仓库最新版本 0」—— 一条算不出真值却照样给结论的判据。
+    ⛔ 现在：**数不出来就返回 0，调用处必须把 0 当成「数不出来」如实报**（不许当成版本 0）。
+    """
     head = 0
-    vdir = ROOT / "backend/app/migrations/versions"
-    for p in sorted(vdir.glob("0*.py")) if vdir.exists() else []:
+    mdir = ROOT / "backend/app/migrations"
+    for p in sorted(mdir.glob("0*.py")) if mdir.exists() else []:
         digits = "".join(ch for ch in p.stem.split("_")[0] if ch.isdigit())
         if digits:
             head = max(head, int(digits))
@@ -314,9 +320,14 @@ def main() -> int:
         "生产没有 app.migrations 模块（R3-01 的版本化迁移还没上生产）", category="consistency")
     has_sv = (f("has_schema_versions") or "0") == "1"
     vers = f("schema_versions") or ""
-    chk(has_sv and str(head) in vers.split(","), "生产库结构版本 = 仓库最新版本 " + str(head),
-        "已应用 " + vers, "生产库没有 schema_versions 表" if not has_sv
-        else ("生产已应用 " + vers + "；仓库最新 " + str(head)), category="consistency")
+    if head <= 0:
+        chk(False, "数得出仓库的迁移最新版本", "",
+            "数不出来（backend/app/migrations/ 下没有 0*.py？）—— 下面的版本比对没有意义，先修这个工具",
+            category="consistency")
+    else:
+        chk(has_sv and str(head) in vers.split(","), "生产库结构版本 = 仓库最新版本 " + str(head),
+            "已应用 " + vers, "生产库没有 schema_versions 表" if not has_sv
+            else ("生产已应用 " + vers + "；仓库最新 " + str(head)), category="consistency")
     has_trace = (f("has_trace_cols") or "0") == "2"
     cov = (f("id_coverage") or "").split("|")
     chk(has_trace and len(cov) == 3 and cov[0].isdigit() and int(cov[0]) > 0, "审计行带 request_id / command_id",

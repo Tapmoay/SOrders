@@ -231,14 +231,23 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 ⛔ 这八条**一条都没做**（它们全都要写操作：备份 → 迁移 → 启动 → 体检）。用户 2026-09-26 只放行了**只读**那一半，
 所以「只读核对」单独记在下面那个小节里，⛔ 不拿它顶替这里的任何一条。
 
-- ❌ Release Candidate 记录齐全（SHA / 迁移版本 / 各端版本 / 依赖锁 / 配置校验和）—— 复现：`docs/RELEASE_CANDIDATE.md`
+- ✅ Release Candidate 记录齐全（Git SHA / 迁移版本 / Android / Backend / Frontend / 依赖锁 / 配置校验和 / 产物校验和）—— 复现：`python -c "import pathlib,re,subprocess,sys; t=pathlib.Path('docs/RELEASE_CANDIDATE.md').read_text(encoding='utf-8'); need=['Git SHA','DB migration version','Android 版本','Backend 版本','Frontend 版本','requirements lock','config checksum','artifact checksum']; bad=[k for k in need if k not in t]; m=re.search(r'\*\*Git SHA\*\* \| .{0,3}([0-9a-f]{40})', t); shaok=bool(m) and subprocess.run(['git','cat-file','-e',m.group(1)+'^{commit}']).returncode==0; ver=pathlib.Path('VERSION').read_text(encoding='utf-8').strip(); verok=ver in t; head=max(int(''.join(c for c in p.stem.split('_')[0] if c.isdigit())) for p in pathlib.Path('backend/app/migrations').glob('0*.py')); mm=re.search(r'\*\*DB migration version\*\* \| \*\*(\d+)\*\*', t); migok=bool(mm) and int(mm.group(1))==head; print('缺字段',bad,'SHA在库',shaok,'VERSION',ver,verok,'迁移头',head,'记录一致',migok); sys.exit(1 if (bad or not shaok or not verok or not migok) else 0)"`
+  ⭐ 记录本体：`docs/RELEASE_CANDIDATE.md`（每个字段都写了自己的**现取命令**，⛔ 没有一个是手抄的）。
+  ⛔ 这一条 ✅ 证的是「**记录齐全且与仓库事实对得上**」（字段齐、SHA 真是本仓库的提交、迁移版本与目录现数一致、版本号与根 `VERSION` 一致）；⛔ **不证**发布做过了 —— 下面第 2–7 条仍然全是 ❌。
+- ✅ 生产验收清单已建立（R3-05-C：12 项**按权限分段** —— 只读那段今天跑过，写那段一条没跑）—— 复现：`python -c "import pathlib,re,sys; docs=['docs/RELEASE_CANDIDATE.md','docs/PRODUCTION_ACCEPTANCE.md','docs/R3_FAILURE_DRILL.md']; miss=[d for d in docs if not pathlib.Path(d).exists()]; lines=[(d,ln) for d in docs for ln in pathlib.Path(d).read_text(encoding='utf-8').splitlines() if not any(k in ln for k in ('待写','还没写','不存在','待建'))]; bad=sorted({d+':'+p for d,ln in lines for p in re.findall(r'_tools/[A-Za-z0-9_./-]+\.py', ln) if not pathlib.Path(p).exists()}); print('缺文档',miss,'引用了不存在的脚本',bad); sys.exit(1 if (miss or bad) else 0)"`
+  清单本体：`docs/PRODUCTION_ACCEPTANCE.md`（逐项给了命令与判据；⛔ 混在一起就会变成「借验收之名做写测试」）。
 - ❌ 备份 —— 复现：`python _tools/backup/_pre_release.py --note "R3"`
+  手工次序与「失败怎么办」写在 `docs/RELEASE_CANDIDATE.md` §四（第 1 步：备份失败就**停止发布**）。
 - ❌ 迁移（先迁移后应用）—— 复现：`python _tools/deploy/_release.py --step migrate`
+  ⛔ 那支脚本**还没写**（`_tools/deploy/_release.py` 属写阶段第一批）；手工等价命令：生产上 `cd /opt/SOrders/backend && .venv/bin/python -m app.migrations upgrade`（见 `docs/RELEASE_CANDIDATE.md` §四 第 2 步）。
 - ❌ 启动新后端 —— 复现：`python _tools/deploy/_release.py --step start`
+  ⛔ 同上（脚本**还没写**）；手工等价：`git -C /opt/SOrders fetch && git checkout <SHA> && systemctl restart sorders-api`。
 - ❌ health —— 复现：`python _tools/ops/_health_check.py`
 - ❌ 只读烟测 —— 复现：`python _tools/ops/_prod_smoke.py --readonly`
 - ❌ trace 一单 —— 复现：`python _tools/ops/_trace_order.py <订单号>`
-- ❌ 回滚 / 前向修复方案已写 —— 复现：`docs/RELEASE_CANDIDATE.md`
+- ✅ 回滚 / 前向修复方案已写 —— 复现：`python -c "import pathlib,re,sys; docs=['docs/RELEASE_CANDIDATE.md','docs/PRODUCTION_ACCEPTANCE.md','docs/R3_FAILURE_DRILL.md']; miss=[d for d in docs if not pathlib.Path(d).exists()]; lines=[(d,ln) for d in docs for ln in pathlib.Path(d).read_text(encoding='utf-8').splitlines() if not any(k in ln for k in ('待写','还没写','不存在','待建'))]; bad=sorted({d+':'+p for d,ln in lines for p in re.findall(r'_tools/[A-Za-z0-9_./-]+\.py', ln) if not pathlib.Path(p).exists()}); print('缺文档',miss,'引用了不存在的脚本',bad); sys.exit(1 if (miss or bad) else 0)"`
+  方案分四条：**回滚 A**（代码退回上一个可用提交）／**回滚 B**（用发布前的 dump 恢复库）／**前向修复**（数据没错、问题小而明确时宁可再修一版）／**回滚后要做的三件事**。
+  ⛔ 这条命令同时钉住一件事：**三份新文档里提到的 `_tools/*.py` 必须真的存在**（标了「待写／还没写」的除外）—— 免得文档里写着一支根本不存在的脚本。
 
 ### 现场只读核对（2026-09-26，用户拍板③「生产只读放行」）
 
@@ -267,7 +276,12 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 
 ## R3-06 Failure Drill
 
+方案已写好：`docs/R3_FAILURE_DRILL.md`（五个演练各自的**目的 / 命令 / 期望信号 / 判读 / 今天的状态**，
+外加「先备份后演练」「演练要有怎么停」两条纪律）。⛔ **方案 ≠ 演练过**：下面五条**一条都没跑**。
+⛔ `_tools/ops/_drill.py`（把五个演练变成一条命令的那支脚本）**还没写**，现在只能照文档里的「手动等价」列走。
+
 - ❌ Drill A：杀掉一个 worker，是否恢复 —— 复现：`python _tools/ops/_drill.py --case worker-crash`
+  （⛔ 工具**还没写**；手动等价与判读见 `docs/R3_FAILURE_DRILL.md` Drill A。本机已有等价证据：R3-03「杀掉 A 之后 B 继续服务」—— 但那是两个独立进程，⛔ 不能顶替）
 - ❌ Drill B：Redis 不可用，业务还能不能工作 —— 复现：`python _tools/ops/_drill.py --case redis-down`
 - ❌ Drill C：事件消费延迟，业务数据是否仍然正确 —— 复现：`python _tools/ops/_drill.py --case event-delay`
 - ❌ Drill D：迁移锁竞争，第二实例是否正常等待 —— 复现：`python _tools/ops/_drill.py --case lock-contention`
