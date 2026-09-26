@@ -50,9 +50,9 @@
 | 依赖 | 49 个包；**15/15 运行依赖落在声明区间内**（`cryptography` **43.0.3**）；9 条开发依赖没装（正常） |
 | 数据库 | 44 张表 / 11.6 MB；orders 2402 / ledgers 4648 / users 60 / products 37；⚠️ `time_zone = SYSTEM` |
 | 结构版本 | ⛔ **没有** `schema_versions` 表（版本化迁移还没上生产）；⛔ 没有 `outbox_events`；`operation_logs` 没有 `request_id`/`command_id` 列 |
-| 上传 | `/opt/SOrders/backend/uploads@@：2115 个文件 / 187M |
+| 上传 | `/opt/SOrders/backend/uploads`：2115 个文件 / 187M |
 | 磁盘 | 40G 中已用 29%（可用 27G） |
-| 备份 | `/opt/sorders-backup@@：10 份库备份 / 208M，最近一次 1.1 小时前 |
+| 备份 | `/opt/sorders-backup`：10 份库备份 / 208M，最近一次 1.1 小时前 |
 | nginx | 单后端 `proxy_pass http://127.0.0.1:8000`；**没有** `upstream` / 没有失败摘除 |
 
 完整原始事实：`docs/R3_PROD_READONLY_EVIDENCE.md`。
