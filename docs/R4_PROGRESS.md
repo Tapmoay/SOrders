@@ -4,7 +4,7 @@
 > 不许用「已经差不多了」。
 > **冻结基线**：`c67b2cf`（R3 的收口提交）｜**指南**：`C:\Users\Optimistic\Desktop\ppkk.md`
 > → 已归档 [ARCHITECTURE_RECTIFICATION_R4.md](ARCHITECTURE_RECTIFICATION_R4.md)
-> （**逐字节原文**：26669 字节 / 1599 行 / SHA256 `E45A6CAF01143418BDB5F20D36401382456754C267367424B3FAE91D9DA230E0`；
+> （**文件 = 指南逐字节原文 + 施工方附录 A**：原文 26669 字节 / 1599 行 / SHA256 `E45A6CAF01143418BDB5F20D36401382456754C267367424B3FAE91D9DA230E0`；
 > 核它对不对：`git show HEAD:docs/ARCHITECTURE_RECTIFICATION_R4.md > /tmp/g.md; python -c "import hashlib;print(hashlib.sha256(open('/tmp/g.md','rb').read()).hexdigest().upper())"`）
 > **基线快照**（机器采集，⛔ 不是手写）：`_tools/baseline/r4-before/2026-09-27/baseline.json` +
 > [R4_BASELINE.md](R4_BASELINE.md)
@@ -189,9 +189,11 @@ Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 5. **历史核心事实不会因为扩展删除而失效**
 
 **退出条件**
-- ❌ 五条各有实测证据（不是散文）—— 复现：`python _tools/ops/_r4_acceptance.py --check`
-- ❌ 指南 §42 的验收矩阵落进 `docs/ARCHITECTURE_RECTIFICATION_R4.md`，且 Add / Replace / Remove **是实际演练**、不是静态概念 —— 复现：`python _tools/ops/_r4_acceptance.py --check`
-- ❌ 北极星那一句（§44）写进该文档 —— 复现：`python _tools/ops/_r4_acceptance.py --check`
+- ✅ **五条判据各有实测证据**（不是散文）：1 新增不污染 Core｜2 替换不改 Core（含契约 v1→v2）｜3 删除不破坏 Core｜4 依赖全部可见｜5 历史核心事实不因扩展删除而失效 —— 复现：`python _tools/ops/_r4_acceptance.py --check`
+- ✅ 指南 §42 的验收矩阵落进 `docs/ARCHITECTURE_RECTIFICATION_R4.md` **附录 A**，且 Add / Replace / Remove **是实际演练**（三条演练器 + 一份 Remove 记录，证据都在 `_tools/ops/r4_drill_records/`）—— 复现：`python _tools/ops/_r4_acceptance.py --check`
+- ✅ 北极星那一句（§44）写进该文档附录 A.1；⛔ 附录**明确标着"不是指南原文"**，原文仍是逐字节那 26669 字节（SHA256 写在附录开头）—— 复现：`python _tools/ops/_r4_acceptance.py --check`
+- ✅ 依赖图可以现场生成（指南 §29）：谁依赖谁 / 谁提供能力 / 谁拥有表 / 核心事实表多少张 —— 复现：`python _tools/ops/_r4_drill_graph.py`
+- ⚠️ **CI 一列留 ⏳**：判据都在全量静态检查里（本机 124/124），但这批提交**推送并确认 CI 跑过之前，这一列不许写 ✅** —— 写上去就是"文档语义超过代码事实"，R3 为这条栽过四轮
 
 ---
 
@@ -201,18 +203,18 @@ Core **只接受 `Money`**，⛔ 不接受任何插件自己的对象。
 
 | 能力 | Code | CI | Runtime | Add | Replace | Remove | 依据 / 出口 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Core Boundary | ❌ | ❌ | ❌ | — | — | — | R4-01 + `_check_core_extension_boundary.py` |
-| Unit Conversion | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | R4-04；Add/Remove 出口 = `_r4_add_drill.py` / `_r4_remove_drill.py` |
-| Pricing | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | R4-05；Replace 出口 = `_r4_replace_drill.py` |
-| Dependency Firewall | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | R4-03 + `_check_extension_dependencies.py` |
-| Data Ownership | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | R4-03 + `_check_data_ownership.py` |
-| Compatibility | ❌ | ❌ | — | ✅ | ❌ | ❌ | R4-07；v1/v2 并存出口 = `tests/test_pricing_contract.py` |
+| Core Boundary | ✅ | ⏳ | ✅ | — | — | — | R4-01：`docs/R4_CORE_EXTENSION_MAP.md`（52 条能力 / 47 张表各一个归属 / 18 事件全是事实通知）+ `_check_core_extension_boundary.py`（30 项） |
+| Unit Conversion | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-04：Add 出口 `_r4_add_drill.py`（Core 0 行 / 既有模块 0 个）；Remove 出口 `_r4_remove_drill.py`（12/12 步，全量检查红 0 条） |
+| Pricing | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-05：Replace 出口 `_r4_replace_drill.py`（换一个 `pricing_kind` 就换算法：120.00 vs 127.50，Core 0 行） |
+| Dependency Firewall | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-03：四条规则各有判据（`_check_extension_dependencies.py` 8 项 + `_check_data_ownership.py` 9 项） |
+| Data Ownership | ✅ | ⏳ | ✅ | ✅ | ✅ | ✅ | R4-03：扩展不认领核心表（34 张核心事实表一张没被染指）+ 历史快照列在 + 删除演练 47 张表逐名一致 |
+| Compatibility | ✅ | ⏳ | — | ✅ | ✅ | ✅ | R4-07：`_r4_compat_drill.py`（v1 实现经适配器照常跑、v2 实现给 2 行原生明细，Core 0 行） |
 
 **读表须知**
 
-- `Code ✅` = 有判据在每次全量检查里核它；`Runtime ✅` = **在本机真跑过**（起进程 / 真库）。
-- `—` = 这一轮不适用（Compatibility 没有 Add：「新增」在它这里是 v2 实现，已单独一列）。
-- Add / Replace / Remove 三列**只认演练记录**（`_tools/ops/r4_drill_records/`），⛔ 不认"设计上支持"。
+- `Code ✅` = 有判据在每次全量静态检查里核它（本机 **124/124**）；`Runtime ✅` = **在本机真跑过**；`—` = 不适用。
+- ⚠️ `CI` 一列是 **⏳**：判据都在全量检查里，但这批提交**推送并确认 CI 跑过之前不许写 ✅**。
+- ⛔ Add / Replace / Remove 三列**只认演练记录**（`_tools/ops/r4_drill_records/`），不认"设计上支持"。
 
 ---
 
