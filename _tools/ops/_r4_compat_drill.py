@@ -38,6 +38,7 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = Path(__file__).resolve().parents[2]
 RECORD = ROOT / "_tools" / "ops" / "r4_drill_records" / "compat-drill.json"
+PROBE = ROOT / "_tools" / "ops" / "_r4_probe_pricing.py"
 CONTRACT_TEST = "tests/test_pricing_contract.py"
 
 CORE_PATHS = (
@@ -88,29 +89,13 @@ def changed_ext_files(rng: str) -> list[tuple[str, str]]:
 
 
 def probe_runtime() -> dict:
-    """在子进程里跑一段只读探针，把"旧实现还能工作 / 新实现能加入"两件事量出来。"""
-    code = (
-        "import json; from decimal import Decimal; "
-        "from app.core.contracts.pricing import PricingContext, PricingContract, PricingContractV2, as_v2; "
-        "from app.core.contracts.quantity import Quantity; "
-        "from app.extensions.pricing import PROVIDERS, resolve_v2; "
-        "out = {'providers': [p.name for p in PROVIDERS], 'v1_ok': [], 'v2_native': []}; "
-        "for p in PROVIDERS: "
-        "    kind = getattr(p, 'kind', None) "
-        "    if not kind: continue "
-        "    ctx = PricingContext(rule_snapshot={'pricing_kind': kind, 'amount': '120.00', 'unit_price': '8.50'}, "
-        "                         unit_price=Decimal('8.50'), quantity=Quantity(Decimal('15'), '件', 'count')) "
-        "    v2 = resolve_v2(ctx) "
-        "    total = v2.price(ctx).money "
-        "    lines = v2.breakdown(ctx) "
-        "    s = lines[0].money "
-        "    for ln in lines[1:]: s = s + ln.money "
-        "    out['v1_ok'].append([p.name, isinstance(v2, PricingContract), isinstance(v2, PricingContractV2), "
-        "                        s.amount == total.amount, len(lines)]) "
-        "    if isinstance(p, PricingContractV2): out['v2_native'].append(p.name) "
-        "print(json.dumps(out, ensure_ascii=False))"
-    )
-    r = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT / "backend"), capture_output=True,
+    """跑只读探针，把"旧实现还能工作 / 新实现能加入"两件事量出来。
+
+    ⚠️ 探针是**独立脚本**，不是内联的 python -c：第一版就是内联的，引号套引号写错，
+    结果**静默返回空** —— 演练于是把"探测不到"读成了"一个实现都没有"（实测踩到）。
+    分开成文件之后，探针自己出错会带上 stderr，不再有"假装事实如此"的空间。
+    """
+    r = subprocess.run([sys.executable, str(PROBE)], cwd=str(ROOT), capture_output=True,
                        text=True, encoding="utf-8", errors="replace")
     for line in reversed(((r.stdout or "") + (r.stderr or "")).splitlines()):
         line = line.strip()
@@ -119,7 +104,8 @@ def probe_runtime() -> dict:
                 return json.loads(line)
             except ValueError:
                 continue
-    return {"providers": [], "v1_ok": [], "v2_native": [], "error": (r.stderr or "")[-300:]}
+    return {"providers": [], "v1_ok": [], "v2_native": [],
+            "errors": ["探针没有给出 JSON（退出码 " + str(r.returncode) + "）：" + (r.stderr or "")[-200:]]}
 
 
 def run_contract_tests() -> tuple[int, str]:

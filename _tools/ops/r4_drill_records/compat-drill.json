@@ -1,0 +1,7 @@
+{
+  "base": "c3536e55700fc9945e3962b6f41d921f97d70af5",
+  "base_providers": [
+    "per_quantity",
+    "standard"
+  ]
+}
