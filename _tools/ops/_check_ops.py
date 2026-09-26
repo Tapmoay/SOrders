@@ -15,7 +15,17 @@
 3. 阈值是常量、且真的被用到（改口径只改一处）；
 4. 退出码分三档（0 全绿 / 1 告警 / 2 失败）且真的这么 return；
 5. 报告 §15 ③ 点名的四项都在：`/health`、证书、磁盘、**数据库**（外加发件箱积压）；
-6. 判据条数下限（防检查空转）。
+6. ⭐ `_prod_smoke.py`（生产**只读**烟测，R3-05）同受第 1、2 条约束，而且**用户点名的八项**
+   （版本 / 依赖 / migration / DB / Redis / nginx / uploads / trace）必须**各自都有真探针** ——
+   只在一张清单里写八个名字不算覆盖。
+7. 判据条数下限（防检查空转）。
+
+R3-BOUNDARY-JUSTIFICATION: 这不是「又多一个检查器」——`_tools/ops/` 这套脚本的存在意义就是
+「**在没有人看着的时候**替人盯着生产」，而它们自己的失效同样是静默的：事实脚本里混进一句写操作，
+一个只读监控就开始改生产库；只读烟测里混进一句 `systemctl restart`，一次「只读核对」就重启了线上。
+2026-09-26 用户拍板「③ 生产只读放行」之后新增了 `_prod_smoke.py` —— 它是要在生产上跑的东西，
+所以它必须和 `_prodssh` 的事实脚本受**同一套**只读约束；这两条判据是本文件原有的第 1、2 条
+扩展到新脚本上，不是另立一套标准。
 
 用法：
     python _tools/ops/_check_ops.py --check   # 非零退出＝有问题
@@ -34,7 +44,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 PROD = HERE / "_prodssh.py"
 HEALTH = HERE / "_health_check.py"
-MIN_RULES = 12
+MIN_RULES = 18
 
 #: 监控脚本里**绝不允许**出现的写操作（一个"只读监控"改生产库，是最没人会想到的事故）。
 WRITES = ("INSERT ", "UPDATE ", "DELETE ", "DROP ", "ALTER ", "TRUNCATE ", "GRANT ", "FLUSH ", "CREATE ")
@@ -86,6 +96,46 @@ def main() -> int:
     others = [p.name for p in sorted(HERE.glob("*.py")) if p.name != "_prodssh.py" and ip and ip in read(p)]
     want(not others, "别的脚本没有重复写生产主机（一律 import _prodssh）",
          "⛔ 这些脚本里又写了一遍生产主机：" + str(others))
+
+    # ---- 2b. 只读烟测脚本（R3-05）：同样只读、同样不自己写主机、八项各有真探针 ----
+    smoke_path = HERE / "_prod_smoke.py"
+    want(smoke_path.exists(), "只读烟测脚本在位（R3-05 的 --readonly）",
+         "⛔ 找不到 _prod_smoke.py —— R3-05 的「只读烟测」没有落到脚本上")
+    smoke = read(smoke_path) if smoke_path.exists() else ""
+    sm = re.search(r'_SMOKE_TEMPLATE = r"""(.*?)"""', smoke, re.S)
+    smoke_text = sm.group(1) if sm else ""
+    want(bool(smoke_text), "解析出烟测脚本本体（判据自身有效）",
+         "⛔ 解析不出 `_SMOKE_TEMPLATE` —— 下面那条只读判据正在空转")
+    bad2 = [w.strip() for w in WRITES if w in smoke_text.upper()]
+    want(not bad2, "烟测脚本里没有任何写操作（" + str(len(WRITES)) + " 种写法都查过）",
+         "⛔ 烟测脚本里出现了写操作：" + str(bad2) + " —— 一次「只读核对」把生产改了，是最没人会想到的事故")
+    want(bool(ip) and ip not in smoke and "_prodssh" in smoke,
+         "烟测脚本没有重复写生产主机（一律 import _prodssh）",
+         "⛔ _prod_smoke.py 里又写了一遍生产主机，或没有 import _prodssh")
+    # ⭐ 八项「各自都有真探针」：名字写进清单不算覆盖，脚本里必须找得到对应的采集点/判据点。
+    #    这张表与脚本里的 `SMOKE_COVERS` 是**两份独立的声明**，所以要互相对账 ——
+    #    任何一边悄悄改名/删项，另一边立刻报红（防「覆盖面变成一句口号」）。
+    markers = {
+        "version": ("repo_commit", "venv_python"),
+        "deps": ("pip freeze", "pkg_"),
+        "migration": ("app.migrations", "schema_versions"),
+        "db": ("db_reachable", "db_tables"),
+        "redis": ("redis_ping",),
+        "nginx": ("nginx_proxy_pass", "nginx_upstream"),
+        "uploads": ("uploads_readable", "uploads_files"),
+        "trace": ("X-Request-ID", "id_coverage"),
+    }
+    cov = re.search(r"SMOKE_COVERS = \(([^)]*)\)", smoke)
+    named = tuple(re.findall(r'"([a-z]+)"', cov.group(1))) if cov else ()
+    want(bool(named) and set(named) == set(markers),
+         "用户点名的八项与判据的表对得上（" + str(len(markers)) + " 项）",
+         "⛔ SMOKE_COVERS 与判据里的表对不上：脚本声明 " + str(named) + " / 判据要求 " + str(tuple(markers)))
+    thin2 = [k for k, ms in markers.items() if not all(m in smoke for m in ms)]
+    want(not thin2, "这八项各自都有真的探针，不是只在清单里写个名字",
+         "⛔ 这些项在烟测脚本里找不到对应探针：" + str(thin2) + " —— 清单说有覆盖，脚本里没有")
+    want(not any(h in smoke for h in ("systemctl restart", "nginx -s reload", "pip install")),
+         "烟测脚本不做安装 / 重启 / 重载",
+         "⛔ 烟测脚本里有安装/重启/重载 —— 那已经不是「只读核对」了")
 
     # ---- 3. 阈值是常量且被用到 ----
     # ⚠️ 阈值有两种写法：单名 `X = 1` 与逗号并列 `A, B = 30, 7` —— 第一版只认前者，
