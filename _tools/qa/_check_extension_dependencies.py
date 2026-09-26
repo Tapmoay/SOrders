@@ -58,9 +58,14 @@ RBAC = APP / "core" / "rbac.py"
 #: ⛔ 其余任何核心文件都不许 —— 那正是「核心反向依赖具体扩展」。
 ALLOWED_EXTENSION_IMPORTERS = {"main.py"}
 
-#: 扩展**可以** import 的核心模块前缀（指南 §12 规则④：不许 direct-import 私有内部）。
-#: 只有契约与注册表：前者是它要实现的接口，后者是它声明自己的方式。
-EXTENSION_ALLOWED_CORE_PREFIXES = ("app.core.contracts", "app.core.extension_registry")
+#: 扩展**可以** import 的模块前缀（指南 §12 规则④：不许 direct-import 私有内部）。
+#: * `app.core.contracts` —— 它要实现的接口；
+#: * `app.core.extension_registry` —— 它声明自己的方式；
+#: * `app.extensions` —— **同区内的兄弟模块**（R4-04 实测补的：路由模块要 import 自己包的 PROVIDERS）。
+#:   ⚠️ 该禁的是"碰核心私有内部"，不是"扩展之间不能互相看见"；后者是另一件事
+#:   （指南 §12 禁的是"直接改另一个 Extension 的表"，那由 _check_data_ownership.py 管）。
+#:   其余 `app.*`（services / api / models / database / deps / commands / schemas）一律不许。
+EXTENSION_ALLOWED_CORE_PREFIXES = ("app.core.contracts", "app.core.extension_registry", "app.extensions")
 
 #: 扩展里出现这些 = 自己写了一套鉴权（§31 坑 11）。
 AUTH_SMELLS = ("require_permission", "require_roles", "require_any_permission",
@@ -214,7 +219,7 @@ def main() -> int:
             if any(mod == p or mod.startswith(p + ".") for p in EXTENSION_ALLOWED_CORE_PREFIXES):
                 continue
             bad_ext.append(rel(f) + " -> " + mod)
-    c.ok("扩展只 import 契约与注册表（" + "、".join(EXTENSION_ALLOWED_CORE_PREFIXES) + "）",
+    c.ok("扩展只 import 契约 / 注册表 / 同区兄弟（" + "、".join(EXTENSION_ALLOWED_CORE_PREFIXES) + "）",
          not bad_ext, "越界 import：" + str(bad_ext[:3]))
     print("  扩展文件 " + str(len(ext_files)) + " 个 / 扩展目录 " + str(len(exts)) + " 个")
 

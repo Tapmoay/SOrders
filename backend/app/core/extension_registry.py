@@ -191,6 +191,49 @@ def discover(package: str = EXTENSIONS_PACKAGE) -> ExtensionRegistry:
     return registry
 
 
+def mount_extension_routes(app: Any, registry: ExtensionRegistry, *, prefix: str = "") -> list[str]:
+    """把扩展声明的路由挂到应用上 —— **鉴权由核心施加**（指南 §27）。
+
+    指南 §27 要的是一条单向链：
+
+        Extension declares capability  ->  Core authorization  ->  route
+
+    而不是「Extension 自己写一套权限」。落到代码就是这一句：
+
+        app.include_router(router, prefix=prefix, dependencies=[Depends(require_permission(perm))])
+
+    于是扩展的路由模块里**一行鉴权都没有**（判据 _check_extension_dependencies.py 第 3 组核），
+    也不可能出现 extension_permission.py 那种另起一套授权世界的写法（§31 坑 11）。
+
+    返回挂上的扩展 id 列表（给启动日志用）。⛔ 只在启动时调用一次。
+    """
+    from fastapi import Depends
+
+    from app.core.rbac import Permission
+    from app.deps import require_permission
+
+    mounted: list[str] = []
+    for manifest in registry.enabled():
+        if not manifest.routes:
+            continue
+        module = importlib.import_module(EXTENSIONS_PACKAGE + "." + manifest.id + "." + manifest.routes)
+        router = getattr(module, "router", None)
+        if router is None:
+            raise ExtensionRegistryError(
+                "扩展 " + manifest.id + " 声明了 routes=" + repr(manifest.routes)
+                + "，但那个模块里没有 router"
+            )
+        permission = getattr(Permission, manifest.capability, None)
+        if permission is None:
+            raise ExtensionRegistryError(
+                "扩展 " + manifest.id + " 的能力点 " + repr(manifest.capability)
+                + " 不是 core.rbac.Permission 的成员 —— 路由不能拿一个不存在的能力点当门槛"
+            )
+        app.include_router(router, prefix=prefix, dependencies=[Depends(require_permission(permission))])
+        mounted.append(manifest.id)
+    return mounted
+
+
 def extension_config(manifest: ExtensionManifest, environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """按清单声明的 `config` 取配置，**只认 `EXT_<ID>_<KEY>` 前缀**（指南 §26）。
 

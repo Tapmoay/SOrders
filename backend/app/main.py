@@ -463,9 +463,13 @@ def create_fastapi_app() -> FastAPI:
     # 其余任何核心文件 import 具体扩展 = 核心反向依赖扩展，判据 _check_extension_dependencies.py 第 1 组报红。
     # ⛔ 只在**启动时**装配一次：没有运行期 add/remove/reload（指南 §16 点名的那个坑）。
     from app.core.extension_registry import discover as _discover_extensions
+    from app.core.extension_registry import mount_extension_routes as _mount_extensions
 
     application.state.extensions = _discover_extensions()
+    # ⚠️ 必须在 include_router(api_router, ...) **之后**：扩展路由带自己的前缀，不能与主表争顺序。
+    _mounted = _mount_extensions(application, application.state.extensions, prefix=settings.api_v1_prefix)
     logger.info("扩展已装配：%s", [m.id for m in application.state.extensions] or "（当前没有扩展）")
+    logger.info("扩展路由已挂载：%s", _mounted or "（没有扩展声明路由）")
 
     return application
 

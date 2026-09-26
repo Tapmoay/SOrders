@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Protocol, runtime_checkable
+from typing import Mapping, Protocol, runtime_checkable
 
 from app.core.contracts.quantity import Quantity
 
@@ -75,8 +75,31 @@ class UnitConversionContract(Protocol):
     #: 实现自己按哪个契约版本写的。
     version: int
 
+    def units(self) -> Mapping[str, str]:
+        """我认识哪些单位：单位名 -> 量纲。
+
+        ⚠️ 这一条是 R4-04 落地第一个实现时**补进 v1 的**（契约处于 v1 且只有一个实现，
+        按兼容规则「加字段 / 加方法可以，删与改语义不可以」补进来，不算破坏兼容）。
+
+        为什么非有不可：没有它，调用方（以及契约用例）想知道"这个实现覆盖了什么"
+        只能靠 try/except 去猜 —— 而「猜」正是本项目一贯拒绝的做法。有了它，
+        **同一组契约用例可以对每一个实现自动跑一遍**（遍历 units()、同量纲两两换算、
+        查往返、查 factor 自洽），Add 演练的"两个实现跑同一组用例"就靠它。
+        """
+        ...
+
     def supports(self, from_unit: str, to_unit: str) -> bool:
-        """我认不认识这一对单位。认不认识 ≠ 合不合法。"""
+        """这两个单位归不归我管 —— ⛔ **归我管 ≠ 这次换算合法**。
+
+        分工（R4-04 实测定下来的，写进契约免得第二个实现又要重新想一遍）：
+
+        * **认不出单位** = 不是我的活 → `supports` False、`convert` 返回 None；
+        * **量纲冲突 / 同单位** = 合法性问题 → `supports` True、`convert` 抛 `UnitConversionError`。
+
+        反过来（把量纲冲突也算成"不支持"）的后果是：用户问「cm 到 g」时拿到的是
+        「没有实现认得这对单位」，而真正该说的是「一个是长度、一个是质量，不能换算」。
+        错误消息的质量就是这一行的价值。
+        """
         ...
 
     def convert(self, request: ConversionRequest) -> ConversionResult | None:

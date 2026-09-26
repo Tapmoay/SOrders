@@ -138,6 +138,11 @@ def test_unit_conversion_contract_shape():
         name = "reverse-verify"
         version = 1
 
+        # ⚠️ R4-04 给协议补了 units()（见契约里的说明）—— 这个内联实现要跟上，
+        #    否则 isinstance 会假失败，而那会把"协议改了"误报成"实现坏了"。
+        def units(self) -> dict[str, str]:
+            return {"a": "dim-a", "b": "dim-a"}
+
         def supports(self, from_unit: str, to_unit: str) -> bool:
             return True
 
