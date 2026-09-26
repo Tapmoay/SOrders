@@ -51,8 +51,46 @@ GATE = (
     chr(10) + "    if user_role_key(current) != UserRole.DISPATCHER.value:" + chr(10)
     + "        raise HTTPException(status_code=403, detail=" + chr(34) + "无权" + chr(34) + ")"
 )
-LEDGER_TAIL = '    ("2026-09-25", 44, "首次建账：§9 第②步收敛 expense_categories 时的全库实测（13 个文件）"),' + chr(10) + "]"
-LEDGER_REASON = "首次建账：§9 第②步收敛 expense_categories 时的全库实测（13 个文件）"
+def _ledger_tail() -> str:
+    """从判据源码里**现取**计数台账的尾部（最后一条 + 收尾的 `]`）。
+
+    ⛔ 2026-09-26 修：原来写死的是「2026-09-25 首次建账」那一条 —— 台账后来又追加了 4 条，
+    写死的锚点出现 0 次 ⇒ ③④ 两条注入**恒 SKIP**（而 SKIP 在本仓库计为不成立）。
+    台账本来就是**会长的东西**，锚点必须现取（与 `_reverse_verify_reverse_verify_restore.py`
+    里 `_live_anchor` 同一个教训）。
+    """
+    import io as _io
+
+    src = _io.open(CHECK, encoding="utf-8").read()
+    head = 'HISTORY: list[tuple[str, int, str]] = ['
+    i = src.index(head)
+    j = src.index(chr(10) + ']', i)
+    body = src[i:j + 2].splitlines()
+    k = len(body) - 2
+    while k > 0 and not body[k].startswith('    ("'):
+        k -= 1
+    return chr(10).join(body[k:])
+
+
+LEDGER_TAIL = _ledger_tail()
+
+
+def _ledger_first_reason() -> str:
+    """台账**第一条**的「说明」——也从判据源码里现取，不手抄。
+
+    ⚠️ 为什么不用最后一条：台账里**后面的条目可能是好几个字符串拼起来的**（跨行续写），
+    只取其中一段去缩短，整条说明照样超过字数下限 ⇒ ⑦ 号注入会「判据居然还是绿的」（实测踩到）。
+    第一条是**单串**，缩短它才能真的把它压到下限以下。
+    """
+    import io as _io
+    import re as _re
+
+    src = _io.open(CHECK, encoding="utf-8").read()
+    m = _re.search(r"\(\s*\"[^\"]*\",\s*\d+,\s*\"([^\"]+)\"", src)
+    return m.group(1) if m else ""
+
+
+LEDGER_REASON = _ledger_first_reason()
 
 CASES: list[tuple[str, str, str, str, str | None]] = [
     (
@@ -67,7 +105,10 @@ CASES: list[tuple[str, str, str, str, str | None]] = [
         PRODUCTS,
         "    if include_inactive and rk not in (UserRole.DISPATCHER.value, UserRole.SHIPPER.value):",
         GATE + chr(10) + "    if include_inactive and rk not in (UserRole.DISPATCHER.value, UserRole.SHIPPER.value):",
-        "涨到 45 处",
+        # ⛔ 2026-09-26 修期望词：注入之后判据**确实报红**（退出码 1），但报的是「app/api/v1/products.py
+        #    声明已收敛…但体内还有 1 处：list_products:98」—— 比当年那句「涨到 45 处」**更具体**
+        #    （先撞上的是「已收敛文件里不许再长」那条）。判据没病，是期望词过期了。
+        "声明已收敛",
     ),
     (
         "③ 台账追加一条**增大**且没写理由的记录（悄悄松掉棘轮）",

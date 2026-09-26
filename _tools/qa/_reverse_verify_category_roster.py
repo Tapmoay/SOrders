@@ -78,7 +78,10 @@ MUTATIONS: list[tuple[str, Path, str, str, str]] = [
         PRODUCT_VM,
         "    CategoryRosterViewModel<ProductCategoryDto>(container) {",
         "    ViewModel() {",
-        "继承共用内核的名册页只有",
+        # ⛔ 2026-09-26 修期望词：注入之后判据**确实会红**（退出码 1），但报的是它自己那条具体规则 ——
+        #    「ProductCategoriesViewModel.kt：提交顺序没走 submittableIds（名册外的合成行会被一起发过去）」，
+        #    而不是当年那句泛泛的「继承共用内核的名册页只有」。判据没病，是期望词过期了。
+        "submittableIds",
     ),
 ]
 
