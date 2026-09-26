@@ -34,7 +34,7 @@
 - `CI ✅` 的依据是：这条判据确实在 `_check_all.py` 里，而 CI 的 Gate **在 `cc949bf` 整轮 success**
   （2026-09-26 实测：`Gate` + `Tests (Parallel)` 两条工作流都是 success，含安卓端到端那个作业）。
   ⚠️ 在此之前 CI 已红过**四轮**：全是「本机绿、CI 红」——写死 `powershell`、例外表跨环境、
-  指纹的排序键用 Path（Windows 大小写不敏感）。三件都只有 CI 看得见，见 `docs/RECTIFICATION_REPORT_R3.md` §10。
+  指纹的排序键用 Path（Windows 大小写不敏感）。三件都只有 CI 看得见，见 `docs/RECTIFICATION_REPORT_R3.md` §5.3。
   ⚠️ 这一列的 ✅ **有保质期**（`cc949bf` 之后推的提交要重新跑 CI 才算数）。2026-09-26 当天推的 8 个提交**逐条**记在下面「CI 运行记录」一节（⛔ 不挑好的写）。
 - `Staging` 一列全是 ❌，因为**这个项目没有 staging 环境**。这一列留着是为了让「生产没验过」这件事一直可见。
 - `Migration` 的 `代码 ❌` 说的是 **R3-01 要解决的那件事**（import 时执行 DDL），不是「迁移不存在」。
@@ -59,7 +59,7 @@
 
 | 提交 | Gate | Tests (Parallel) | 说明 |
 |---|---|---|---|
-| `5cb27fb` / `bcb11a9` / `2ed3e5a` | ❌ / ❌ / ❌ | ✅ / ✅ / ✅ | 三个「本机绿、CI 红」缺陷的取证过程（根因见报告 §10.4） |
+| `5cb27fb` / `bcb11a9` / `2ed3e5a` | ❌ / ❌ / ❌ | ✅ / ✅ / ✅ | 三个「本机绿、CI 红」缺陷的取证过程（根因见报告 §5.2） |
 | `cc949bf` | ✅ | ✅ | 指纹排序键修好之后的**第一次整轮绿** |
 | `684a937` | ✅ | ✅ | 收口文档（含安卓端到端那个作业）|
 | `88b6a66` / `5e9eda7` | — | — | **cancelled**：连推两次时 GitHub 按并发组取消了前一次 —— ⛔ 那不是红 |
@@ -127,7 +127,7 @@
 - ✅ 退出条件 9/10：后端用例全绿（**条数以 `pytest -q` 自己打印的为准**）—— 复现：`cd backend; python -m pytest -q`
 - ✅ 退出条件 10/10：全量静态检查全绿（**脚本数/逐条耗时/总耗时都以它自己打印的为准**）—— 复现：`python _tools/qa/_check_all.py`
 
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机真进程真库；**生产**仍未验证）
+**三层完成度**：Code Ready ✅ ｜ CI Proven ✅（2026-09-26 整轮 success —— 见上面「CI 运行记录」；⛔ 之前写的「还没推」已过期）｜ Runtime Proven ✅（本机真进程真库；**生产**仍未验证）
 
 ## R3-02 Capability → UI / Audit
 
@@ -179,7 +179,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   要推的话得给每个动作声明能力并重做那条判据的推导链 —— 那会让它的「缺能力」半边失效（AI 由后端推出来
   就不再可能缺），需要先想清楚换来的那半边（「声明的能力必须与动作真打的端点一致」）够不够抵。
 
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机两个 flavor 的 Gradle 单测都跑过；**真机界面未验**）
+**三层完成度**：Code Ready ✅ ｜ CI Proven ✅（2026-09-26 整轮 success —— 见上面「CI 运行记录」；⛔ 之前写的「还没推」已过期）｜ Runtime Proven ✅（本机两个 flavor 的 Gradle 单测都跑过；**真机界面未验**）
 
 ## R3-03 Multi-instance Runtime（硬门槛）
 
@@ -224,7 +224,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 3. 我自己第一版的判据是错的：按「日志里出现几次『治理完成』」数，而那行**无条件打**，
    跳过时打的是 `{'skipped_same_day': 1}` → 「两个都跳过」被读成「两个都跑了」。现在按**返回的字典**判。
 
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven **部分**（本机同机双进程 4/5 个实验过；跨机器与 socket/nginx 未验）
+**三层完成度**：Code Ready ✅ ｜ CI Proven ✅（2026-09-26 整轮 success —— 见上面「CI 运行记录」；⛔ 之前写的「还没推」已过期）｜ Runtime Proven **部分**（本机同机双进程 4/5 个实验过；跨机器与 socket/nginx 未验）
 
 ## R3-04 Observability
 
@@ -251,7 +251,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
   ⚠️ 老数据（R3-04 之前）的审计行 `command_id` 是 `-`：那时还没有这一列 —— 那是事实，不是缺陷。
 - ✅ 没有引入大型观测平台 —— 复现：`python _tools/qa/_check_r3_constraints.py`（`no_observability_stack` 探针）
 
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机真库真请求：3 个用例跑在真实接口上）
+**三层完成度**：Code Ready ✅ ｜ CI Proven ✅（2026-09-26 整轮 success —— 见上面「CI 运行记录」；⛔ 之前写的「还没推」已过期）｜ Runtime Proven ✅（本机真库真请求：3 个用例跑在真实接口上）
 
 ## R3-05 Production Release
 
@@ -303,7 +303,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 | nginx | ✅ 1.20.1，247 行配置；`proxy_pass http://127.0.0.1:8000`（单后端）；⛔ 无 `upstream` / 无失败摘除 |
 | uploads | ✅ 2115 个文件 / 187M（⛔ 没做写入探测 —— 「可写」本轮没验） |
 | trace | ⛔ 生产 `operation_logs` **没有** `request_id` / `command_id` 列、代码里没有 `app/core/request_id.py`、带 `X-Request-ID` 打过去响应头里也没有它 ⇒ R3-04 那一层还没上生产 |
-| 现状健康（另外量到的） | 服务 active、`/health` 200、磁盘 29%（可用 27G）、备份 10 份 / 208M 且最近一次 1.1 小时前 |
+| 现状健康（另外量到的） | 服务 active、`/health` 200、磁盘 29%（可用 27G）、备份 10 份 / 208M（⚠️ 备份年龄是会变的数，以 `_health_check.py` 当场打印的为准）|
 
 完整证据（含全量 `pip freeze` 与「这一次证不了什么」）：`docs/R3_PROD_READONLY_EVIDENCE.md`。
 
@@ -322,7 +322,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 
 - ❌ Drill A：杀掉一个 worker，是否恢复 —— 复现：`python _tools/ops/_drill.py --case worker-crash`
   ⭐ 本机预演已跑通：`python _tools/ops/_drill.py --case worker-crash --go` → 杀掉 A 之后 B `/health`=200、登录读自己=200；⛔ 生产那格是「一个 systemd 里两个 worker」，形态不同，要写许可（`--target prod --go --i-know-prod` 只打印过程）。
-  （⛔ 工具**还没写**；手动等价与判读见 `docs/R3_FAILURE_DRILL.md` Drill A。本机已有等价证据：R3-03「杀掉 A 之后 B 继续服务」—— 但那是两个独立进程，⛔ 不能顶替）
+  ⚠️ 本机预演用的是**两个独立进程**的形态；生产是「一个 systemd 里两个 worker」—— 两者不同，⛔ 不能互相顶替（判读见 `docs/R3_FAILURE_DRILL.md` Drill A）。
 - ❌ Drill B：Redis 不可用，业务还能不能工作 —— 复现：`python _tools/ops/_drill.py --case redis-down`
   ⭐ 本机预演已跑通：`python _tools/ops/_drill.py --case redis-down --go` → `redis_ok()={'redis':'unavailable'}` 且订单流/账本同步用例 10 passed；⛔ 生产停 Redis 那一格未验。
 - ❌ Drill C：事件消费延迟，业务数据是否仍然正确 —— 复现：`python _tools/ops/_drill.py --case event-delay`
@@ -334,7 +334,7 @@ R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真
 
 ## R3-07 Meta-System Hardening
 
-指南 §二十一 的四条 + §二十二 的依赖决策。**a / b / c 三条已落地**，只剩 §二十二 的依赖决策（要用户拍板）。
+指南 §二十一 的四条 + §二十二 的依赖决策。**a / b / c / d / e 五项都已落地**（依赖决策 2026-09-26 拍板，见 `docs/DEPENDENCY_DECISION.md` §七）。
 
 - ✅ 判据不许静默空转（本轮 `_check_r3_constraints.py` 自带反空转下限）—— 复现：`python _tools/qa/_check_r3_constraints.py`
 - ✅ **生成物新鲜度**（R3-07a）—— 复现：`python _tools/qa/_check_generated_freshness.py`

@@ -1,99 +1,472 @@
-# SOrders 第三轮整改 · 详情报告（Runtime Integrity & Production Readiness）
+# SOrders 第三轮整改报告（R3 · 从「结构正确」进入「运行时正确」）
 
-> **指南**：`C:\Users\Optimistic\Desktop\ppll.md`（已归档 `docs/ARCHITECTURE_RECTIFICATION_R3.md`，SHA256 `193AB545…5297`，1219 行）
-> **禁做清单**：`docs/R3_CONSTRAINTS.md`（27 条机器化：19 条棘轮 + 8 条阶段）
-> **台账（唯一的「已完成」出处）**：`docs/R3_PROGRESS.md`　｜　**本报告生成时间**：2026-09-26（第三轮第 22 个目标轮）
+> **这一份是什么**：第三轮整改的**完整报告**（重写版 · v2）。它取代桌面上那份中途交付的版本
+> （那份的数字停在中途：台账 38 ✅ / 16 ❌、CI 未验、依赖决策未拍板）。⛔ **唯一权威仍然是
+> `docs/R3_PROGRESS.md`**（逐条退出条件 + 每条的可跑复现命令）；这份报告是**叙事与对账**，
+> 每条结论都指回归档处，⛔ 不新增任何台账里没有的「已完成」。
+>
+> **交付信息**
+>
+> | 项 | 值 |
+> |---|---|
+> | 交付日期 | 2026-09-26 |
+> | 方向指南 | `docs/ARCHITECTURE_RECTIFICATION_R3.md`（原 `C:\Users\Optimistic\Desktop\ppll.md`，1219 行，SHA256 `193AB545…5297`）|
+> | 代码基线 | `d4be6f4`（第二轮收尾）→ 本轮 `c544db5` 开工 → 当前 `b0a364a`（分支 `p`，已推 `origin/new`）|
+> | 本轮提交数 | **47**（`git log --oneline c544db5..HEAD`）|
+> | 台账 | **45 ✅ / 13 ❌**（`docs/R3_PROGRESS.md`）|
+> | CI | `b0a364a`（当前 tip）**Gate + Tests 整轮 success**；当天逐提交结果见 §5.4（⛔ 含没绿的那几次）|
+> | 本机证据 | 静态检查 **119 个全绿**、后端用例 **1018 passed**、反向验证全量 **142/142、漂移 0** |
+> | 生产 | 只读核对**八项已做完**（§4）；⛔ **发布本身没有做**（要写许可）|
 
 ---
 
-## §0 一页纸结论
+## §0 一页纸
 
-**问题：除了那三件事，其他都做完了吗？** —— **是，但不含生产，也不含推送。**准确的说法是：
+**这一轮在改什么**：从「结构正确」进入「运行时正确」——前两轮把领域边界与命令层立起来了，
+这一轮要回答「它**跑起来**对不对」：迁移有没有隐式副作用、能力四端是不是同源、两个实例真的能同时跑吗、
+一次请求能不能串起来、生产上发布与故障演练能不能做。
 
-> **凡是不依赖你的决定、且不需要碰生产机房的那部分，全部做完了**；台账里剩下的 **16 条 ❌ 全部要你点头**。
+**八个里程碑的现状**：
 
-| 维度 | 数字 | 怎么来的（都能重跑） |
+| 里程碑 | 主题 | 台账 |
 |---|---|---|
-| 台账 | **38 ✅ / 16 ❌** | `Select-String -Path docs/R3_PROGRESS.md -Pattern '^- ✅'` |
-| 提交 | 第三轮 **30 个**，每个带 R3-0x 号 | `git log --oneline c544db5..HEAD` |
-| 静态检查 | **119/119**（约 163 秒） | `python _tools/qa/_check_all.py` |
-| 后端用例 | **1018 passed** | `cd backend; python -m pytest -q` |
-| 反向验证 | **142 份全部跑过一遍，漂移告警 0 条** | `python _tools/ai/_reverse_verify_all.py --only <域>/` |
-| 还原契约 | L1 141/143、**L2 142/143**、**L3 0** | `python _tools/qa/_check_reverse_verify_restore.py` |
-| 禁做清单 | 27 条全部有探针，判定 8 组 | `python _tools/qa/_check_r3_constraints.py` |
+| R3-00 | Baseline（指南归档 + 禁做清单机器化 + 基线数字冻结）| ✅ 4 / ❌ 0 |
+| R3-01 | Migration Lifecycle（import 不再改库、启动不再迁移）| ✅ 10 / ❌ 0 |
+| R3-02 | Capability → UI / Audit（能力变成可生成的唯一真源）| ✅ 7 / ❌ 0 |
+| R3-03 | Multi-instance Runtime（真起两个实例）| ✅ 6 / **❌ 2** |
+| R3-04 | Observability（request_id / command_id / event_id + 业务指标）| ✅ 5 / ❌ 0 |
+| R3-05 | Production Release（候选记录 → 发布七步 → 回滚）| ✅ 5 / **❌ 6** |
+| R3-06 | Failure Drill（五个演练）| ✅ 1 / **❌ 5** |
+| R3-07 | Meta-System Hardening（判据自身不许腐烂 + 依赖决策）| ✅ 7 / ❌ 0 |
+| | **合计** | **45 ✅ / 13 ❌** |
 
-**三层完成度**（指南 §二十五 原则三 · 禁做 #18 要求这样写）：
+**五层完成度（现在）**：
 
-| 层 | 状态 | 说明 |
+| 层 | 状态 | 依据 |
 |---|---|---|
-| Code Ready | ✅ | 代码与判据都在仓库；静态检查 119/119、后端 1018 passed |
-| CI Proven | ❌ **未验** | 本地 `p` 分支**领先 `origin/new` 32 个提交**（从未推送）⇒ CI 上跑没跑过、红没红，**我不知道** |
-| Runtime Proven | **本机 ✅ / 生产 ❌** | 本机两实例、迁移、上传、杀实例都真跑过；**生产上一格都没跑** |
+| Code Ready | ✅ | 静态检查 119 个全绿；后端用例 1018 passed；反向验证 142/142 漂移 0 |
+| CI Proven | ✅ | `b0a364a` 上 `Gate` + `Tests (Parallel)` 整轮 success |
+| Local Runtime Proven | ✅ | 本机真进程真库：双实例、真迁移、真上传、真请求 |
+| Production Read（只读） | ✅ | 八项核对 + 原始证据 `docs/R3_PROD_READONLY_EVIDENCE.md` |
+| **Production Runtime** | ❌ | **未发布**：生产停在 `648fbf8`（落后 **293** 个提交），故障演练一条未跑 |
 
-**卡住的只有三件事**（第四件是可选）：① 生产放行档位；② 依赖决策（cryptography 对齐 + 要不要 lock）；③ 要不要在本机验 socket/nginx；④（可选）要不要我 push 触发 CI。
-
----
-
-## §1 这一轮到底在改什么
-
-### 1.1 主题
-
-**从「结构正确」进入「运行时正确」** —— 前两轮把结构（分层、单一真相、契约）理顺了，这一轮要回答的是：
-**同一个系统真的跑起来、真的并发、真的上生产时，还算不算对。**
-
-### 1.2 八个里程碑（按序推进，不许跳）
-
-```
-R3-00 Baseline ✅      →  R3-01 Migration Lifecycle（最高优先级）✅
-R3-02 Capability→UI/Audit ✅  →  R3-03 Multi-instance Runtime（硬门槛）6/8
-R3-04 Observability ✅  →  R3-05 Production RC/发布 ❌
-R3-06 Failure Drill ❌   →  R3-07 Meta-System Hardening（故意放在生产之后）a/b/b2/c ✅、d 待拍板
-```
-
-### 1.3 完成判据（**只有一处**，也是这份报告的口径）
-
-> `docs/R3_PROGRESS.md` 里逐条列出的退出条件**全部 ✅**，每条都要带**能跑的复现命令**；
-> 没达到退出条件就是没完成，**不许说「已经差不多了」**（禁做 #16）。
-
-所以本报告里每一格结论后面都跟一条命令；跑不动、跑不过的，一律写 ❌ 并说明卡在哪。
-
-### 1.4 施工纪律（每一块都照这个做）
-
-```
-局部判据 → 全量静态检查（python _tools/qa/_check_all.py）→ 反向验证 → 后端用例 → 提交（带 R3-0x 号）→ 更新台账 ✅/❌
-全绿才提交；不确定的事如实说不知道。
-```
-
-### 1.5 禁做清单 27 条是怎么「机器化」的
-
-- 清单写在 `docs/R3_CONSTRAINTS.md`，**每条带 id、类别（禁做/必做）、原文、位置、探针名、判定方式**；
-- `_check_r3_constraints.py` 每次全量检查都会：**清单完整性**（条数下限、id 唯一、原文 ≥8 字、探针必须真实存在防化石）＋**逐条跑探针**（判定有「棘轮 / 阶段 / 不判定」三种）＋**棘轮只减不增**（上限 2、不判定上限 15）；
-- 实测：19 条棘轮探针里 **0 条被破**；本报告里凡说「守住了」的，都是这条命令跑出来的。
-
-证据：`python _tools/qa/_check_r3_constraints.py` → 「✅ 8 组判据全部通过」。
+**一句话**：代码侧与 CI 侧闭环了；**生产侧只剩「写阶段」**（备份 → 迁移 → 启动 → 体检 → 演练），要用户许可。
 
 ---
 
-## §2 逐里程碑详情（台账原文 + 说明）
+## §1 判据、禁做清单与施工纪律
 
-下面每一节都直接取自 `docs/R3_PROGRESS.md`（台账是唯一出处），保留原有 ✅/❌ 标记与复现命令；
-⛔ 这些命令**不是装饰**：它们由 `_check_report_facts.py` 逐条真跑核过（见 §3.4）。
+**完成判据只有一处**：`docs/R3_PROGRESS.md` 里逐条列出的退出条件全部 ✅，每条都要带**能跑的**复现命令。
+⛔ 没达到退出条件就是没完成，不许说「已经差不多了」（禁做 #16）。
 
-> 下面这一段是 `docs/R3_PROGRESS.md` 的**原文**（只把标题降了一级），逐条带复现命令；
-> ⛔ 它是唯一的「已完成」出处 —— 本报告不另写一份，免得两份说法打架。
+**这份台账是机器核过的**（这是本轮与以往最大的不同）：
 
-### R3 第三轮整改进度与退出条件台账
+| 判据 | 它核什么 | 现状 |
+|---|---|---|
+| `_tools/qa/_check_report_facts.py` | 台账里**每条 ✅ 后面那句复现命令真的被跑一遍**（去重 23 条：19 条真跑 / 4 条按 SKIP 表跳过；8 路并发、每条 180 秒超时）；命令非零退出＝文档说了假话 | 6 组判据全过 |
+| `_tools/qa/_check_r3_constraints.py` | 27 条禁做清单：探针真实存在、棘轮只减不增、**未守住的必须写「什么时候会守住」**、进度台账形状（两张矩阵） | 27 条 / 守住 26 / 未守住 0 / 未到阶段 1（上限 13）|
+| `_tools/qa/_check_reverse_verify_restore.py` | 反向验证的**还原契约**（L1 快照还原、L2 逐字节证明、L3 换行符会不会漂）| L1 **141/143**、L2 **142/143**、L3 **0**（上限 0）|
+| `_tools/qa/_check_generated_freshness.py` | 四份生成物各自声明**真源指纹**，判据自己重算（不信任产物里那串） | 4/4 一致 |
+| `_tools/qa/_check_reverse_verify_anchors.py` | 反向验证的**注入锚点**不许腐烂（源码改了、替换串没跟着改 ⇒ 那条红线形同虚设）| **1286 条注入原文全在** |
 
-> **规则**：这份文件是「已完成」三个字的唯一出处。⛔ **没达到退出条件的里程碑就是没完成**，
-> 不许用「已经差不多了」（指南 L1003）。
-> **代码基线**：`d4be6f4` ｜ **指南**：`docs/ARCHITECTURE_RECTIFICATION_R3.md`
-> **事实优先**：每一行的 `复现：` 后面必须是真能跑的命令；跑不通就是 ❌，不许写 ✅。
+**27 条禁做清单**（`docs/R3_CONSTRAINTS.md`）：19 条「棘轮」（守住就不许退）+ 8 条「阶段」（到某个里程碑才判定）。
+它的价值在本轮被实测过**两次**：
+① 某个里程碑提交漏了 `R3-0x` 编号 → 探针 `R3-D02` 当场报红；
+② 新增检查器没写「为什么边界解决不了」→ 探针 `R3-D17` 当场报红。⛔ 清单不是提醒，是判据。
 
+**施工纪律**（每完成一块）：局部判据 → 全量静态检查 → 反向验证 → 后端用例 → **单独提交（带 `R3-0x` 号）** →
+更新台账 ✅/❌；**全绿才提交**；不确定的事如实说不知道。
 
-### 最终验收矩阵
+---
 
-12 项能力 × 5 个层次。⛔ 一行的意义是**这一格被证明过**，不是「代码里有」。
-`—` = 这一轮不适用；`❌` = 还没证明。
+## §2 八个里程碑逐条对账
+
+> 每一节只列**退出条件**与**关键证据**。完整原文、逐条命令、以及「这一条证不了什么」全在
+> `docs/R3_PROGRESS.md` 对应小节里 —— ⛔ 报告不复制一份，免得两份说法打架。
+
+### §2.1 R3-00 Baseline（✅ 4/4）
+
+- 指南已归档（SHA256 `193AB545…5297`，1219 行）；
+- **禁做清单机器化**：27 条，每条带探针名与判定类别；
+- 基线数字冻结（当时的静态检查数与用例数）；
+- 契约快照入 `_tools/qa/_api_snapshots/`。
+
+### §2.2 R3-01 Migration Lifecycle（✅ 10/10）——本轮最高优先级
+
+**做了什么**：
+1. `app/database.py` **摘掉 import 时的建表调用** —— 现在它只有 engine / session；
+2. `schema_bootstrap.py` 拆成两个角色：`apply_runtime_self_heal`（幂等自愈）与
+   `prepare_schema`（**迁移的唯一入口**：自愈 → 版本化迁移）；
+3. `app/main.py` 启动**不迁移**：只做只读核对（`schema_ready()`），没准备好就**拒绝启动**；
+4. `app/migrations/_runner.py` 新增 `schema_ready()`（⛔ 它不建表，所以不能调版本表）；
+5. 测试自己显式建库（`conftest`：建表 + 跑迁移），不再依赖 import 副作用；
+6. 新判据 `_tools/qa/_check_import_purity.py`（真库 + 子进程核对）+ 反向验证 7/7；
+7. 新工具 `_tools/ops/_migration_tests.py`（fresh / old / concurrent / fail-fast 四态）。
+
+**十条退出条件**：import 不执行 DDL ✅｜启动不迁移 ✅｜迁移唯一入口 ✅｜版本正确 ✅｜空库迁移通过 ✅｜
+旧库迁移通过（结构一行没丢）✅｜两个进程同时迁移都成功、每版本恰好一行 ✅｜迁移失败不记账不半残 ✅｜
+后端用例全绿 ✅｜全量静态检查全绿 ✅。
+
+**跑这一块时抓到的两个真缺陷**（⛔ 都不是「测试写错了」）：
+- 并发迁移测试当场红：第二个进程不是**等待**，而是撞「表已存在」直接失败 —— 根因是「导入文件锁失败就往下跑」，
+  而**Windows 上那把跨进程锁等于没有**。修法：抽出 `app/core/file_lock.py`（POSIX flock /
+  Windows msvcrt.locking）两条路径共用。⛔ 期间踩到第二个坑：锁文件用覆盖模式打开会**截断**，而 Windows 文件锁是
+  强制的 ⇒ 第二个进程在 flush 上直接权限错误（还是「不等待」）；改成 append 才对。
+- 自愈与迁移各自拿各自的锁，中间有窗口（放锁之后、拿锁之前）⇒ 两边的 DDL 会撞；修法：`prepare_schema`
+  用**同一把锁**罩住两段（`FileLock` 支持同进程重入）。
+
+### §2.3 R3-02 Capability → UI / Audit（✅ 7/7）
+
+- 新增两张此前不存在的**真源表**：`core/role_capabilities.py`（没有权限点、但仍被角色门护着的事实，每条带
+  `gate=文件:行号`）与 `core/capability_audit_coverage.py`（**能力 ↔ 审计动作码的覆盖**：
+  91 个动作码 + 1 条例外 + 3 条豁免，各写了为什么）；
+- 生成器 `_tools/ai/_gen_capability_snapshot.py` → 三份产物（JSON / App 侧 `Capabilities.kt`（带 `SOURCE_HASH`）/
+  `CAPABILITY_AUDIT_COVERAGE.md`）；
+- **UI 不再自行定义角色能力**：`ui/nav/Modules.kt` 的 `entriesFor` 从写死的 `when` 表改成
+  `.filter { canSee(role, it) }`，`canSee` 只问生成物；两张声明表（入口→能力 32 条覆盖 34 个路由、2 条例外各写了理由）；
+- **行为等价有单测钉住**（`ModulesEntryTest` 15 个用例）。
+- ⚠️ 已知未做（不属退出条件，如实记着）：`ai/AiWrite.kt` 的货主动作白名单**仍是手写的**（它不是授权真相的副本，
+  `_check_role_parity.py` 逐条核过 AI 的动作集合包含于后端，但「货主的 AI 能用哪些动作」目前由人写）。
+
+### §2.4 R3-03 Multi-instance Runtime（✅ 6 / ❌ 2）
+
+工具：`python _tools/ops/_dual_instance.py --all` —— **真起两个 uvicorn（:8111 / :8112）、共用一个库与一个上传目录**。
+
+**六条 ✅**：两个实例同时运行（**A 登录的 token 到 B 上也认**）｜迁移只执行一次｜调度只执行一次
+（**真跑 1 次 / 跳过 1 次**）｜上传一致（A 传的图 B 取得到，**字节一致**）｜杀掉 A 之后 B 继续服务｜
+上传资产运行模型已决策（本机文件系统资产；对象存储留第四轮）。
+
+**两条 ❌（都卡在环境，不是卡在代码）**：
+- **Socket.IO 跨实例推送未验**：本机没有 Redis ⇒ 跨进程适配器起不来。⭐ 生产只读核对又补一条事实：
+  生产 Redis 的 keyspace **没有任何 db 行** ⇒ 生产**也没有**在用跨实例适配器。
+  ⛔ 有一条**不能走**的路：借生产的 Redis（会把测试推送混进生产 channel）。
+- **nginx upstream + 失败摘除未验**：⭐ 生产只读核对读到的是 —— 反代指向 `127.0.0.1:8000`（**单后端**）、
+  **没有** upstream 块、**没有** 失败摘除指令 ⇒ 「upstream + 失败摘除」**在当前部署形态里根本不存在**，
+  要成立必须同时改部署形态与 nginx 配置（发布变更，属写阶段）。
+
+**顺带修掉/发现的三件事**：治理标记路径写死 `/tmp`（Windows 上标记永远写不进去也读不到，**不报错**）；
+单实例守卫在 Windows 上是**空操作**（与 R3-01 的迁移锁同一个毛病）；我自己的第一版判据按「日志出现几次」数，
+而那行**无条件打** ⇒ 「两个都跳过」被读成「两个都跑了」（现在按返回的字典判）。
+
+### §2.5 R3-04 Observability（✅ 5/5）
+
+- `request_id` 贯穿（第二轮已完成）；
+- **`command_id` 与 `request_id` / `event_id` 分成三个概念**，三个用例钉住：ids 都非空且两两不等 /
+  一次批量请求 N 个 command_id 共用一个 request_id / 一条命令入队 ≥2 条事件（各自的 event id 不同）。
+  一句话：**一次请求可以跑多条命令**（批量派单 1 → N），**一条命令又可以产生多条事件**；
+- 业务指标：**17 条现算 + 7 条「算不出来但写清了为什么」**（指南点名的 12 个里有 7 个落进「算不出来」那一栏，
+  每条都写了「为什么算不出来 + 它该长在哪」——⛔ 宁可空着并说明，也不要给一个看起来正常的假数）；
+- 全链路诊断接口：`python _tools/ops/_trace_order.py --latest`（命令 id 与请求 id **并排**、事件带自己的编号、账本、司机账单、通知）；
+- ⛔ 没有引入任何大型观测平台（探针盯着，禁做 #12）。
+
+### §2.6 R3-05 Production Release（✅ 5 / ❌ 6）——**记录与工具就位，发布未执行**
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| Release Candidate 记录齐全 | ✅ | `docs/RELEASE_CANDIDATE.md`：Git SHA / 迁移版本 / Android·Backend·Frontend 版本 / 依赖锁 / config checksum / artifact checksum，**每个字段都写了现取命令** |
+| 回滚 / 前向修复方案 | ✅ | 同文档 §五：回滚 A（代码）／回滚 B（库 dump）／前向修复（什么时候它更安全）／回滚后三件事 |
+| 生产验收清单 | ✅ | `docs/PRODUCTION_ACCEPTANCE.md`：12 项**按权限分段**（只读 6 项已出结果，写 6 项等许可）|
+| 发布工具在位 + 护栏自检 | ✅ | `python _tools/deploy/_release.py --selftest` → **15/15** |
+| 备份 | ❌ | 要写许可（`_tools/backup/_pre_release.py` 已备好）|
+| 迁移（先迁移后应用）| ❌ | 要写许可（`--step migrate --go`）|
+| 启动新后端 | ❌ | 同上（`--step start --go`；**顺序护栏**会先拒绝没有 backup/migrate/verify 的情况）|
+| health / 只读烟测 / trace 一单 | ❌ | 都要**发布之后**才有意义（今天跑过的是**发布前**的现状核对）|
+
+⭐ **发布七步已经是一条命令**（`_tools/deploy/_release.py`），四条护栏写在**代码**里：
+G1 不给 `--go` 只打印（判定是纯函数）；G2 顺序强制（实测：空 run-file 上 `--step start --go`
+当场被拒「还有没跑成功的步骤 —— backup、migrate、verify」）；G3 备份必须新鲜（<6 小时）；
+G4 算不出事实就拒绝（连不上生产 / 读不到备份年龄 / `--sha` 不是本仓库提交）。
+`business` 那一步（有限写烟测）**故意不自动化**。
+
+### §2.7 R3-06 Failure Drill（✅ 1 / ❌ 5）——**方案与工具就位，生产演练未做**
+
+- 方案：`docs/R3_FAILURE_DRILL.md`（五个演练各自的 目的 / 命令 / 期望信号 / 判读 / 今天的状态 + 两条纪律）；
+- 工具：`python _tools/ops/_drill.py` —— 护栏 **12/12**（不给 `--go` 只打印；`--target prod` 要
+  `--go` + `--i-know-prod` 三个信号，且**生产演练只打印不代跑**）；
+- ⭐ **本机预演 5/5 通过**（`--all-local --go`）：
+
+| 演练 | 本机真跑的是什么 | 结果 | ⛔ 证不了什么 |
+|---|---|---|---|
+| worker-crash | 两个真实例，杀掉 A | B 的健康检查 200、登录读自己 200 | 生产是「一个 systemd 两个 worker」，形态不同 |
+| redis-down | 本机**根本没有 Redis** + 订单流/账本同步用例 | Redis 探针报 unavailable，**10 passed** | 生产停 Redis 未验 |
+| event-delay | 临时库：入队 3 → 待发 3 → 抽干 → 0 且收到 3 → 再抽 **发出 0** | 先落库后投递 / 追平 / 不重复 | 生产**没有**发件箱表（要发布后才验）|
+| lock-contention | 两个进程同时迁移 | 都退出 0、版本表 1..8 各一行、无重复记账 | 生产是 MySQL 的跨主机锁，从未真跑 |
+| disk-full | 阈值逐档断言（50→正常 / 85→告警 / 95→失败）| 阈值判得对 | ⛔「报警链路真的有人收到」本机证不了 |
+
+⛔ **本机预演 ≠ 生产演练**：台账那五条**仍然是 ❌**。
+
+### §2.8 R3-07 Meta-System Hardening（✅ 7/7）
+
+- **判据不许静默空转**（自带反空转下限）；
+- **生成物新鲜度**（四份产物各自声明真源指纹，判据自己重算；反向验证 7/7）；
+- **反向验证必须完整还原**：把「还原」从各写一遍变成**一份契约**（L1/L2/L3 三级 + 棘轮），并给运行器加了
+  **外部证明**（每跑完一份就逐字节比对现场与开跑前快照）—— 全量 **142/142、漂移 0**，且这一层
+  **不依赖任何脚本的自述**；
+- **注入锚点不许腐烂**（静态审计 1286 条注入原文全在；本轮修好 11 份腐烂的注入）；
+- **报告事实核对**（台账每条 ✅ 的命令由机器跑一遍）；
+- **活文档不许写「会变的数字」**（耗时也归这一族：AGENTS.md 里那句「约一分钟」实测差得远，改成由脚本自己打）；
+- **依赖可复现性决策**：2026-09-26 拍板「本轮不锁 + 以生产真实版本为准」，生产实测
+  **15/15 运行依赖全部落在声明区间内**（`cryptography` **43.0.3** ∈ `>=42,<44`）。
+
+---
+
+## §3 这一轮真抓到的缺陷（按性质分三类）
+
+> ⛔ 这些都是**真缺陷**（不是「测试写错了」）。第一类改代码，第二类改判据自身，第三类改「我以为的世界」。
+
+### 3.1 业务 / 运行时侧
+
+| # | 现象 | 根因 | 处置 |
+|---|---|---|---|
+| 1 | 并发迁移：第二个进程直接失败退出（不是等待） | 「导入文件锁失败就往下跑」——**Windows 上跨进程锁等于没有** | 抽出共用的文件锁模块（POSIX / Windows 两条路径）；锁文件改成 append 打开（覆盖模式会截断 ⇒ 权限错误）|
+| 2 | 自愈与迁移之间有一把「各自拿、各自放」的窗口 | 两段各拿自己的锁 | 迁移入口用**同一把锁**罩住两段 |
+
+### 3.2 判据自身（这一类比业务缺陷更贵：判据错了会**静默**）
+
+| # | 现象 | 根因 | 处置 |
+|---|---|---|---|
+| 3 | 「台账 ✅ 的复现命令」判据**自己把自己当命令跑**（40 分钟长出 400+ 个进程）| 台账那条 ✅ 的复现命令就是它自己 ⇒ 检查跑检查 | 环境变量守卫 + 自己进 SKIP 表 + 一条**结构性判据**（凡是要跑起本脚本的命令必须显式登记）|
+| 4 | 反向验证「还原了」但**盯错了一头**（搬家时字节快照没跟着搬）| 还原把旧文件的字节写进了新文件，而它自己的核对拿的是**同一份错字节** ⇒ 恒等、静默通过 | 四份改成分别赋值 + 重取快照 + **注入前不变量**；判据新增**代码形状红线**（禁止那种写法）|
+| 5 | 两条判据**比自己的名字弱** | 一条的锚点对出现两次而判据只要求「存在」；另一条只要求「400 字符内有某常量」而文件里有两处 | 两处判据**收紧**（带上下文的正则 / 拆成三件事），并各配反向验证 |
+| 6 | 探针**被「文件存在」满足**（永久 hold） | 依赖决策探针原来只看那份文档在不在 | 改成只读**机器读的状态行**；⛔ 后来又发现「已拍板＝放行」会把「不锁」这条决策**反着执行** ⇒ 再改成读出结论再判 |
+| 7 | 两份脚本**崩在第一行**（引用未定义的变量）| 复制粘贴残留；**谁也没发现**，因为它只表现为「这份反向验证不达标」 | 删掉残留；新增判据「会打 ✅/❌ 就必须能把它们打出来」（跟着 import 走，避免误伤）|
+| 8 | 源码里留着**真的注入残渣**（不是锚点腐烂）| 某次反向验证被中断，把注入改的东西留下了 | 用审计自带的还原开关按字节还原；⛔ **这种情况绝不许去改锚点**（改了等于把缺陷钉进源码）|
+
+### 3.3 「我以为的世界」——平台假设（**三次都是本机绿、CI 红**，只有 CI 看得见）
+
+| # | 我以为什么 | 实际 | 处置 |
+|---|---|---|---|
+| 9 | 判据可以用 Windows 的 `powershell` | CI 是 ubuntu，**没有**它 ⇒ 每条台账命令都返回 125 ⇒ 整个「静态检查」作业红 | 按平台选 shell（三种候选），选不到**如实报错** |
+| 10 | 例外表必须「还在当前违反里」 | `cryptography`：本机 48（区间外、命中例外），CI 按声明装 43（区间内、**本来就不该命中**）⇒ 罚了**更好**的那个环境 | 改成「键必须挂在**真实存在**的声明上」+ 未命中**只打印不判红** |
+| 11 | 指纹的排序键随便排 | 排的是 **Path 对象** —— Windows 的 Path 大小写**不敏感**、POSIX 的敏感 ⇒ **同一个提交两台机器两个指纹**（某份产物 475 个文件：本机 `b7339597…` / CI `42d8e6cb…`，首次分叉在第 0 项）| 归一成 **posix 字符串**再排序；重生产物 |
+| 12 | 生产重启后应用自然会起来 | R3-01 之后应用**会核对结构并拒绝启动**；而 CI 的「起后端」两步还在依赖 import 建表的旧副作用 ⇒ 两个作业红 | 流水线补「先迁移、后应用」那一步 |
+| 13 | 「CI 红了大概是基础设施」 | 注解原文是 **`rc=1`** ⇒ 工作流的分档里那是「**脚本跑了并失败**」，与「连结果文件都没有＝模拟器没起来」是**两回事** | 台账按注解原文改写（⛔ 撤掉我那句错的推断）；把端到端日志尾部拼进注解，下次红能读出**是哪一段** |
+
+⭐ **第 9–11 条是同一个家族**：**把「本机」当成了「世界」**。它们在本机全绿，只有 CI 看得见 ——
+而在此之前，连「是哪一条红了」都读不出来（Actions 日志要登录）。所以本轮做了一件工程决定：
+**把关键信息送进注解**（注解匿名可读，日志不是）。第 11 条就是靠注解里那份
+「文件数 / 清单哈希 / 字节哈希 / 最近改动的文件」才定位到的。
+
+---
+
+## §4 生产现状（**只读**核对，2026-09-26）
+
+> 用户拍板③「生产只读放行：只验证，不做业务写入；优先核对 版本 / 依赖 / migration / DB / Redis / nginx / uploads / trace」。
+> 一条命令复现：`python _tools/ops/_prod_smoke.py --readonly`（八项各有真探针；
+> `_tools/ops/_check_ops.py` 逐条钉着它「一句写操作都不许有」）。
+> ⛔ 全程只读：**没有备份、没有迁移、没有重启、没有一条写 SQL、没有建文件、没有改配置**。
+
+| 项 | 实测 |
+|---|---|
+| 版本 | 生产 `648fbf8`（2026-09-23，分支 `new`）—— ⛔ **落后本仓库 293 个提交**；跟踪文件没被手改过（未跟踪的是 8 个历史备份文件）|
+| 依赖 | 49 个包；**15/15 运行依赖落在声明区间内**（`cryptography` **43.0.3**）；9 条开发依赖没装（正常）|
+| migration | ⛔ 没有迁移模块、库里没有版本表 ⇒ R3-01 还没上生产 |
+| DB | ✅ 可达；44 张表 / 11.6 MB；⚠️ 时区口径是系统时区（不是 UTC）；⛔ 没有发件箱表 |
+| Redis | ✅ PONG（6.2.20）；keyspace **空**；⚠️ 无口令（既知）|
+| nginx | ✅ 1.20.1；反代指向 `127.0.0.1:8000`（**单后端**）；⛔ 无 upstream / 无失败摘除 |
+| uploads | ✅ 2115 个文件 / 187M（⛔ **没做写入探测** —— 「可写」本轮没验）|
+| trace | ⛔ 审计表**没有** `request_id` / `command_id` 列、代码里没有对应中间件、带请求 id 打过去响应头里也没有它 |
+| 现状健康 | 服务 active、健康检查 200、磁盘 29%（可用 27G）、备份 10 份 / 208M |
+
+**退出码口径**（只读烟测）：**0** = 现状健康**且**与这一版代码一致（发布后应当是它）；
+**1** = 现状健康但与这一版代码不一致（**今天就是这个**）；**2** = 现状本身有问题。今天退出 **1**。
+
+⛔ **这一次证不了什么**：不证「这一版代码在生产上跑得起来」、不证写路径、不证备份可恢复、
+不证迁移能过（生产库还是旧结构、没有版本表）、不证上传目录可写 / Socket.IO 跨实例 / nginx 失败摘除。
+
+---
+
+## §5 CI：从红到绿（以及「本机绿、CI 红」这个家族）
+
+### §5.1 第一次 push 就红了 —— 而日志**读不到**
+API 回 *Must have admin rights to Repository*，网页回 *Sign in to view logs*。⛔ 所以我做的第一件事
+**不是修红，而是让红可读**：把关键信息打进**注解**（注解匿名可读，日志不是）。
+
+### §5.2 之后每一轮都靠注解定位真因
+
+| 轮 | 抓到的 | 根因 | 处置 |
+|---|---|---|---|
+| 1 | 两个「起后端」作业红 | **CI 还在依赖 R3-01 摘掉的 import 建表副作用** ⇒ 空库没表 / 应用拒绝启动 | 补「先迁移、后应用」那一步 |
+| 1 | 「全部静态检查」红 | 事实核对脚本写死了 Windows 的 shell（CI 上没有）| 按平台选 shell + 两条只在本机成立的台账命令改成可移植写法 |
+| 2 | 台账里一条 ✅ 跑不通 | 迁移状态命令读环境里的数据库地址：本机有配置文件，CI 没有 ⇒ 缺省连 MySQL 失败 | 台账命令改成**自己造一个临时库**再问它 |
+| 2 | 判据**说错话** | 指纹不一致时它**同时**报「判据在空转」（明明比过了）| 拆成「比过几次 / 对上几次」|
+| 3 | 指纹不一致（真因）| 排序键是 **Path 对象**（平台相关）| 归一成 posix 字符串再排 + 重生产物 |
+| 3 | 定位手段 | 新增「来源指纹自检」步骤，把文件数 / 清单哈希 / 字节哈希 / 最近改动的文件打成 notice | 正是这条 notice 给出了定位第 11 条缺陷的证据 |
+
+### §5.3 三个「本机绿、CI 红」缺陷的共同形状
+Windows 专属 shell / 例外表「必须还在当前违反里」/ 排序键用 Path —— 都是**把「本机」当成了「世界」**。
+判据要盯的是**内容**，不是**平台**。
+
+### §5.4 当天逐提交的 CI 账（⛔ 不挑好的写）
+
+| 提交 | Gate | Tests | 说明 |
+|---|---|---|---|
+| `5cb27fb` / `bcb11a9` / `2ed3e5a` | 红 / 红 / 红 | 绿 / 绿 / 绿 | 前三个缺陷的取证过程 |
+| **`cc949bf`** | 绿 | 绿 | 指纹排序键修好后的**第一次整轮绿** |
+| **`684a937`** | 绿 | 绿 | 收口文档 |
+| `88b6a66` / `5e9eda7` | 取消 | 取消 | 连推两次被并发组取消（⛔ 不是红）|
+| `97c5caa` | 红 | 绿 | 只有「安卓端到端」作业红：注解原文 `rc=1` ＝ **脚本跑了并失败**（不是模拟器没起来）|
+| **`dadf095a`** | 绿 | 绿 | 整轮绿（含安卓端到端）|
+| **`a591ff2` / `1c2c572`** | 绿 / 绿 | 绿 / 绿 | 两次整轮绿 |
+| `c4c8206` / `cc47565` | 红 / 红 | 绿 / 绿 | 同样是只有安卓端到端红（`rc=1`）|
+| **`b0a364a`（当前 tip）** | 绿 | 绿 | **整轮绿** |
+
+⭐ 那个「安卓端到端」作业当天跑了 8 次：**绿 5 / `rc=1` 红 3 / 无结果文件 1**（无结果文件＝模拟器没起来）。
+⚠️ **两种红的含义完全不同**（一个是流程里某一段真的失败，一个是这次根本没跑），台账不再把它们混成一句
+「基础设施问题」—— 并且已经把端到端日志尾部加进注解，下一次红就能读出**是哪一段**。
+
+---
+
+## §6 四个拍板的落地（用户 2026-09-26 原话：① c　② 不要 lock　③ 只读放行　④ 要 push）
+
+| # | 决定 | 真做了什么 | 证据 |
+|---|---|---|---|
+| ① | `cryptography` **以生产真实版本为准** | 上生产跑**只读**依赖清单：**生产 43.0.3 落在声明区间内** ⇒ **声明是对的，偏差在本机 48.0.0 那一头**（已登记为唯一例外）| `docs/DEPENDENCY_DECISION.md` §一.4 / §七 |
+| ② | requirements **本轮不锁** | 两份 requirements **一个字没改**（最后一次改动仍是 2026-04-09 的初始提交）；探针改成**照着决策判**（决策说不锁 ⇒ 继续拦精确锁）| 台账 R3-07d ✅；反向验证 9/9 |
+| ③ | 生产**只读放行** | 新增只读烟测工具；八项核对做完（§4）；⛔ 没备份、没迁移、没重启、没写一行 SQL | `docs/R3_PROD_READONLY_EVIDENCE.md` |
+| ④ | **要 push**，补齐 CI Proven | 推了 47 个提交；CI 从红到绿（§5）| 当前 tip **整轮 success** |
+
+⛔ **这次拍板没有做的事**：没改 requirements、没降本机版本、没引入 lock、没在生产上写过任何东西 ——
+所以「生产真的跑过这一版代码」**仍然没有发生**。
+
+---
+
+## §7 工具与文档清单（各自证什么、⛔ 不证什么）
+
+| 产物 | 是什么 | 它证什么 | ⛔ 它不证什么 |
+|---|---|---|---|
+| `_tools/deploy/_release.py` | 发布七步一条命令 + 四条护栏 | 自检 **15/15**；护栏真的会拒绝 | ⛔ 没在生产上跑过一次 |
+| `_tools/ops/_drill.py` | 五个演练 + 护栏（生产要三信号且**不代跑**）| 自检 **12/12**；本机预演 **5/5** | ⛔ 不证生产演练做过 |
+| `_tools/ops/_prod_smoke.py` | 生产只读八项 | 八项各有真探针、且被钉成只读 | ⛔ 不证业务正确、不证写路径 |
+| `_tools/ops/_health_check.py` | 四个阈值 + 三档退出码 | 日常监控有人盯 | ⛔ 不替代演练 |
+| `_tools/ops/_dual_instance.py` | 两个真实例跑五个实验 | R3-03 六条 ✅ | socket 那一格如实未验 |
+| `_tools/ops/_migration_tests.py` | 迁移四态 | R3-01 四条 ✅ | ⛔ 本机是 SQLite（本机互斥）|
+| `_tools/qa/_check_report_facts.py` | 台账每条 ✅ 的命令真的跑一遍 | 文档不许说假话 | ⛔ 不证那句中文描述得准确（那要人读）|
+| `docs/RELEASE_CANDIDATE.md` | 候选记录 + 发布七步 + 回滚 / 前向修复 | 记录齐全且与仓库事实对得上（判据会核）| ⛔ 不证发布做过 |
+| `docs/PRODUCTION_ACCEPTANCE.md` | 12 项验收，**按权限分段** | 只读那半有结果 | ⛔ 写那半一条没跑 |
+| `docs/R3_FAILURE_DRILL.md` | 五个演练方案 + 本机预演明细 | 方案与纪律 | ⛔ 不证演练做过 |
+| `docs/R3_PROD_READONLY_EVIDENCE.md` | 生产只读原始事实（含全量依赖清单）| 八项实测 | ⛔ 见 §4 末 |
+| `docs/DEPENDENCY_DECISION.md` | 依赖决策的证据 + 拍板记录 | 决策做了、且有依据 | ⛔ 不证依赖树可复现（本轮不锁）|
+
+---
+
+## §8 还没做的（13 条 ❌，全部卡在「写许可」或「环境」）
+
+| 类别 | 条数 | 卡在哪 | 解锁条件 |
+|---|---|---|---|
+| R3-05 发布六条 | 6 | 备份 / 迁移 / 启动 / health / 只读烟测 / trace 一单 —— 全是**写操作或要在生产上跑** | 用户一句「开始写阶段」；工具与手册已就位 |
+| R3-06 演练五条 | 5 | 停服务 / 断 Redis / 塞磁盘（生产侧）| 同上（本机预演已 5/5 通过）|
+| R3-03 socket 跨实例 | 1 | 本机没有 Redis；生产 keyspace 空、也没在用适配器 | 装本机 Redis **或** 生产隔离实例（都要点头）|
+| R3-03 nginx 失败摘除 | 1 | 当前部署形态**根本没有 upstream**（单后端反代）| 改部署形态 + nginx 配置（发布变更）|
+
+---
+
+## §9 怎么自己复核（每一条都能跑）
+
+```powershell
+# ① 全量静态检查（脚本数 / 逐条耗时 / 总耗时都由它自己打印）
+python _tools/qa/_check_all.py
+
+# ② 后端用例（条数以它自己打印的为准）
+cd backend; python -m pytest -q
+
+# ③ 台账事实核对（每条 ✅ 的复现命令真的跑一遍）
+python _tools/qa/_check_report_facts.py
+
+# ④ 禁做清单 27 条 + 两张矩阵的形状
+python _tools/qa/_check_r3_constraints.py
+
+# ⑤ 反向验证的还原契约（L1/L2/L3 与棘轮）
+python _tools/qa/_check_reverse_verify_restore.py
+
+# ⑥ 注入锚点不许腐烂
+python _tools/qa/_check_reverse_verify_anchors.py
+
+# ⑦ 生成物新鲜度（四份产物的真源指纹）
+python _tools/qa/_check_generated_freshness.py
+
+# ⑧ 发布工具护栏自检（15/15）
+python _tools/deploy/_release.py --selftest
+
+# ⑨ 演练工具护栏自检（12/12）与五个本机预演（5/5，⚠️ 要几分钟）
+python _tools/ops/_drill.py --selftest
+python _tools/ops/_drill.py --all-local --go
+
+# ⑩ 两个实例真跑（含杀 A 之后 B 继续服务）
+python _tools/ops/_dual_instance.py --all
+
+# ⑪ 生产**只读**烟测（八项；退出码 0/1/2）
+python _tools/ops/_prod_smoke.py --readonly
+
+# ⑫ 依赖：生产真实版本 vs 仓库声明
+python _tools/qa/_check_dep_declaration.py
+```
+
+---
+
+## §10 本轮提交台账（47 个，`c544db5..b0a364a`）
+
+按里程碑分组（连续的「续 N」提交压缩成一行）：
+
+```
+【R3-00】c544db5  禁做清单机器化（27 条 / 2 条已知欠账）
+【R3-01】81a8219  迁移生命周期：import 不再改库、启动不再迁移
+        e9c9658  收尾：新判据补边界理由、核心改动补声明
+【R3-02】3331e9f  能力变成可生成的唯一真源（角色能力 + 审计覆盖 + App 侧快照）
+        0769563  收尾：代码量闸门拆成「总闸 + 业务逻辑闸」
+        2185ea7  工作台入口改成问能力（行为等价有单测钉住）
+        7289250  收尾：清掉台账里一行过期的 ❌
+【R3-03】3e7419f  多实例运行时：真起两个实例跑实验（4/5）+ 上传资产决策 + 调度选主
+【R3-04】a55e90e  可观测性：三层追踪 id 落地 + 指标 17 条
+【R3-05】5cb27fb  现场只读核对：只读烟测脚本 + 生产事实入账
+        79ac355  CI 修红①：流水线补「先迁移、后应用」+ 失败原因进注解
+        88b6a66  候选记录 + 生产验收清单 + 故障演练方案（两条退出条件转 ✅）
+        5e9eda7  三条容易误读的 ❌ 各补一句「为什么它还不是 ✅」
+        97c5caa  修掉三处没替换干净的占位符
+        dadf095  台账新增「CI 运行记录」一节
+        a591ff2  CI 记录补 tip 那一次整轮绿 + 写明「按提交记、不按 tip 记」
+        1c2c572  发布工具：七步一条命令 + 四条护栏写在代码里（自检 15/15）
+        cc47565  CI 记录补两次整轮绿与一次「只有安卓端到端红」
+        b0a364a  把安卓端到端失败的那一段也送进注解 + 纠正一句错的推断
+【R3-06】c4c8206  演练工具：五个演练的本机那一半固化（自检 12/12、预演 5/5）
+【R3-07】5ba7b1f  生成物新鲜度：四份产物各自声明真源指纹
+        e5979f8  反向验证还原契约：把「还原」变成一份契约
+        a8b32bb  报告事实核对：台账每条 ✅ 的命令都由机器跑一遍
+        750b68b  依赖声明对账：开区间也必须有人守
+        65857ca  会变的数字（耗时）也归判据管
+        31f7442  新增检查器必须写「为什么边界解决不了」
+        7af019d～2a4d3ac  L2 逐级收口（72 → 142/143）、外部证明层、L3 收到 0
+        a7abbb0  收口：全量反向验证 142/142、漂移 0
+        5f81c84～d7da1b4  11 份腐烂注入逐份修好（含一处**真的注入残渣**）
+        f87b7f9 / 75c4b89  第三轮报告（初版 111 行 → 详情报告 813 行）
+        8663c92  依赖决策拍板落地（本轮不锁 + 生产真实版本）
+        bcb11a9 / 2ed3e5a / cc949bf  CI 修红②③④（shell 可移植 / 例外表跨环境 / 排序键）
+        684a937  收口文档
+【本次】<本报告提交>  第三轮整改报告（重写版 v2）
+```
+
+完整 47 条用 `git log --oneline c544db5..HEAD` 取。
+
+---
+
+## §11 一句话总结
+
+> **代码侧与 CI 侧都闭环了**：静态检查全绿、后端用例通过、反向验证零漂移、CI 在 tip 上整轮 success。
+> 这一轮最值钱的收获不是又写了几个检查，而是**把判据自身的错抓出来**（算错、比名字弱、被「文件存在」满足、
+> 排错键用 Path）—— 以及由此定下的一条工程纪律：**关键信息要进注解**，因为红的时候人可能根本读不到日志。
+>
+> **生产侧只完成了只读那一半**：八项核对做完、依赖以生产真实版本为准、候选记录与回滚方案写好、
+> 发布与演练的工具都带护栏自检就位；**发布本身与五个生产演练仍然是 ❌** —— 按禁做 #13/#14，
+> 那要用户明确点头。⛔ 所以现在**不能说**「第三轮完成了」。
+
+---
+
+## §12 附录：台账里的三张表（原文嵌入）
+
+> ⛔ 这三张表的**权威副本**在 `docs/R3_PROGRESS.md`；这里嵌一份是为了让本报告自足。
+> 改了台账就该同步这里（判据不核这一节 —— 它核的是台账本身）。
+
+### §12.1 最终验收矩阵（12 项能力 × 5 个层次）
 
 | 能力 | 代码 | CI | Staging | Production | Failure Drill |
 | --- | --- | --- | --- | --- | --- |
@@ -110,872 +483,35 @@ R3-06 Failure Drill ❌   →  R3-07 Meta-System Hardening（故意放在生产�
 | Socket multi-instance | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Trace | ✅ | ✅ | ❌ | ❌ | ❌ |
 
-**读表须知**
+⚠️ 读表须知：代码那一列的 ✅ ＝ 有判据在每次全量检查里核它且现在全绿；Staging 一列全是 ❌，因为
+**这个项目没有 staging 环境**（这一列留着是为了让「生产没验过」一直可见）。
 
-- `代码 ✅` 的意思是：有判据在每次全量检查里核它，且现在全绿（`python _tools/qa/_check_all.py` → 113/113 之后是 113）。
-- `CI ✅` 的依据是：这条判据确实在 `_check_all.py` 里，而 CI 的 Gate 在 `7cc2f7a` 整轮 success。
-  ⚠️ `7cc2f7a` **之后**的提交，CI 还没确认过 —— 所以这一列的 ✅ 有保质期，重新跑一次 CI 才算数。
-- `Staging` 一列全是 ❌，因为**这个项目没有 staging 环境**。这一列留着是为了让「生产没验过」这件事一直可见。
-- `Migration` 的 `代码 ❌` 说的是 **R3-01 要解决的那件事**（import 时执行 DDL），不是「迁移不存在」。
-
-### 三层完成度矩阵（指南 §二十五 原则三）
+### §12.2 三层完成度矩阵
 
 | 四根主梁 | Code Ready | CI Proven | Runtime Proven |
 | --- | --- | --- | --- |
-| Migration 不再有隐式副作用 | ✅（R3-01） | ❌ | ✅ 本机真进程真库（生产 ❌，R3-05） |
+| Migration 不再有隐式副作用 | ✅（R3-01） | ✅ | ✅ 本机真进程真库（生产 ❌）|
 | Capability 四端同源 | ❌（UI/Audit 待做） | ❌ | ❌ |
 | 两个实例真的同时跑过 | ❌ | ❌ | ❌ |
 | 生产真的跑过 + 故障演练 | ❌ | ❌ | ❌ |
+| 整套静态判据 | ✅ | ✅ | ✅ 本机 |
 
+### §12.3 现场只读核对（八项，2026-09-26）
 
-### R3-00 Baseline（本轮起点）
-
-- ✅ 指南已归档：`docs/ARCHITECTURE_RECTIFICATION_R3.md`（SHA256 `193AB545…5297`，1219 行）—— 复现：`Get-FileHash docs\ARCHITECTURE_RECTIFICATION_R3.md`
-- ✅ 禁做清单已机器化：`docs/R3_CONSTRAINTS.md`（27 条，19 条棘轮 + 8 条阶段）—— 复现：`python _tools/qa/_check_r3_constraints.py`
-- ✅ 基线数字已冻结：静态检查 112/112、后端用例 1015 passed —— 复现：`python _tools/qa/_check_all.py`
-- ✅ 契约快照已在库：`_tools/qa/_api_snapshots/r2-02-before.json`（233 条路由）—— 复现：`python _tools/qa/_api_contract_snapshot.py --list`
-
-### R3-01 Migration Lifecycle（最高优先级）
-
-退出条件（指南 L222-232 原文十条）：
-
-改了什么：
-
-1. `app/database.py` **摘掉 import 时的 `bootstrap_schema(engine)`** —— 现在它只有 engine / session；
-2. `app/core/schema_bootstrap.py` 拆成两个角色：`apply_runtime_self_heal`（幂等自愈）与
-   `prepare_schema`（**迁移的唯一入口**：自愈 → 版本化迁移）；旧名 `bootstrap_schema` 保留为「只自愈」；
-3. `app/main.py` 启动**不迁移**：只 `schema_ready()` 只读核对，没准备好就拒绝启动（逃生开关不变）；
-4. `app/migrations/_runner.py` 新增 `schema_ready()` —— ⛔ 它**不建表**（所以不能调 `applied_versions`）；
-5. 测试自己显式建库（`conftest`：`create_all` + `run_migrations`），不再依赖 import 副作用；
-6. 新增判据 `_tools/qa/_check_import_purity.py`（真库 + 子进程核对）+ 反向验证 7/7；
-7. 新增 `_tools/ops/_migration_tests.py`（--fresh / --old / --concurrent / --fail-fast）。
-
-**跑这一块时抓到的两个真缺陷**（都不是测试写错了）：
-
-- 并发迁移测试当场红了：第二个进程不是「等待」，而是撞 `table already exists` **直接失败退出**。
-  根因是「import fcntl 失败就往下跑」——**Windows 上这把跨进程锁等于没有**。
-  修法：抽出 `app/core/file_lock.py`（POSIX 用 flock、Windows 用 msvcrt.locking），两条路径共用。
-  ⛔ 期间踩到第二个坑：锁文件用 `'w+'` 打开会**截断**，而 Windows 的文件锁是强制的 →
-  第二个进程在 `flush()` 上直接 `PermissionError`（还是「不等待」）。改成 append 打开才对。
-- 自愈与迁移各自拿各自的锁，中间有一个窗口（放锁之后、拿锁之前）——另一个进程正好在里面跑自愈，
-  两边的 DDL 撞在一起。修法：`prepare_schema` 用**同一把锁**罩住两段，`FileLock` 支持同进程重入。
-
-退出条件（指南 L222-232 原文十条）：
-
-- ✅ 退出条件 1/10：`import app.database` 不执行 DDL —— 复现：`python _tools/qa/_check_import_purity.py`
-- ✅ 退出条件 2/10：application startup 不执行 migration（只 `schema_ready` 核对）—— 复现：`python _tools/qa/_check_import_purity.py`
-- ✅ 退出条件 3/10：migration 有唯一入口（`prepare_schema` ← `python -m app.migrations upgrade`）—— 复现：`python _tools/qa/_check_migrations.py`
-- ✅ 退出条件 4/10：migration version 正确（版本 7，7 条全部记账）—— 复现：`cd backend; python -m app.migrations status`
-- ✅ 退出条件 5/10：空库迁移通过（48 张表 / 版本 7 / 启动核对通过）—— 复现：`python _tools/ops/_migration_tests.py --fresh`
-- ✅ 退出条件 6/10：旧库迁移通过（无迁移记录的老库 → 版本 7，结构一行没丢）—— 复现：`python _tools/ops/_migration_tests.py --old`
-- ✅ 退出条件 7/10：两个进程同时迁移 → 都成功、每个版本恰好一行 —— 复现：`python _tools/ops/_migration_tests.py --concurrent`
-  ⚠️ 本机是 Windows + SQLite，证的是**本机互斥**；跨主机那一段是 MySQL `GET_LOCK`，要到 R3-03 在生产库上真跑一次才算数
-- ✅ 退出条件 8/10：迁移失败 → 不记账、不半残（失败版本没进版本表，1..7 都在）—— 复现：`python _tools/ops/_migration_tests.py --fail-fast`
-- ✅ 退出条件 9/10：后端用例全绿（**条数以 `pytest -q` 自己打印的为准**）—— 复现：`cd backend; python -m pytest -q`
-- ✅ 退出条件 10/10：全量静态检查全绿（**脚本数/逐条耗时/总耗时都以它自己打印的为准**）—— 复现：`python _tools/qa/_check_all.py`
-
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机真进程真库；**生产**仍未验证）
-
-### R3-02 Capability → UI / Audit
-
-R3-02a（已做，提交见下）：把「能力」变成**可生成的唯一真源**，并补齐两张此前不存在的真源表。
-
-1. `backend/app/core/role_capabilities.py`（新）：**角色能力** —— 没有权限点、但仍被角色门护着的事实
-   （地址与联系人 / 地点库 / 单位换算 / 货主自己的账 / 车辆）。每条带 `gate=文件:行号`，判据去核那一行真有角色门。
-2. `backend/app/core/capability_audit_coverage.py`（新）：**能力 ↔ 审计动作码的覆盖**（不是一一映射）。
-   覆盖 91 个动作码 + 1 条例外（`AI_UNDO`）+ 3 条豁免（写能力但没有动作码，各写了为什么）。
-3. `_tools/ai/_gen_capability_snapshot.py`（新）→ 三份产物：
-   `docs/CAPABILITY_SNAPSHOT.json`、`android/.../core/Capabilities.kt`（带 `SOURCE_HASH`）、`docs/CAPABILITY_AUDIT_COVERAGE.md`。
-4. `_tools/qa/_check_capability_unification.py`（新，5 组）+ 反向验证 8/8。
-
-**为什么选「生成快照」而不是 `/me/capabilities` 接口**（指南说这一步要按 App 架构验证）：这个 App 已经在用
-生成快照这条路（`_gen_ai_read_catalog.py` → `AiReadCatalog.kt`）。再开一条运行时通道等于给同一个问题造第二套机制，
-而且按钮显隐会依赖一次网络往返。见生成器文档里的三条理由。
-
-退出条件：
-
-- ✅ 26/26 capabilities 有执行点 —— 复现：`python _tools/qa/_check_capability_registry.py`
-- ✅ API 使用 Capability（第二轮已完成）—— 复现：`python _tools/qa/_check_capability_registry.py`
-- ✅ AI 使用同一 Capability（第二轮已完成，走 `rbac.ROLE_PERMISSIONS`）—— 复现：`python _tools/ai/_check_role_parity.py`
-- ✅ Audit action 能证明 write capability 的留痕覆盖（91 个动作码有着落 / 非双射 / 棘轮只减不增）—— 复现：`python _tools/qa/_check_capability_unification.py`
-- ✅ 任意 capability 改动能够使相关生成物 / 检查立即变化 —— 复现：`python _tools/ai/_gen_capability_snapshot.py --check`（反向验证第 ① 条就是改一句话让它红）
-- ✅ 不存在第二份**静态** Capability 真相（安卓**代码**里没有权限词表；生成物带 source hash，判据逐字比）—— 复现：`python _tools/qa/_check_capability_unification.py`
-- ✅ **UI 不再自行定义角色能力** —— 复现：`python _tools/qa/_check_capability_unification.py`（第 6 组）
-  + `android/gradlew` 不存在，用 `_agent/gradle/gradle-8.9/bin/gradle.bat :app:testPhoneDebugUnitTest --tests '*ModulesEntryTest*'`
-
-  R3-02b 做的事：`ui/nav/Modules.kt` 里 `entriesFor(role)` 原来是 `when (role) { … -> 写死的那张表 }`；
-  现在多了两张声明表 —— `ENTRY_CAPABILITY`（**入口 → 能力**，32 条映射，覆盖 34 个去重后的入口路由 ——
-  有几个入口两端都有）与 `ENTRY_NO_CAPABILITY`（2 条，各写了理由：
-  AI 助手入口本身不是业务动作；司机的「我的账本」端点是 `get_current_user` + 体内按人过滤，没有可问的名字），
-  `entriesFor` 改成 `.filter { canSee(role, it) }`，而 `canSee` 只问生成物 `Capabilities.can(role.key, cap)`。
-
-  **行为等价**由单测钉住（`ModulesEntryTest` 15 个用例全过，其中两个是这一轮加的）：
-  「工作台入口是按能力筛出来的，今天三个角色一个都没被筛掉」逐条比对 `entriesFor(role)` 与改动前的清单；
-  「每个入口都有着落」核例外表。⛔ 它同时是回归闸门：以后谁把某个能力从某个角色身上拿走，这条会红。
-
-  **判据能看到什么、看不到什么**（写在判据里，防止被当成更强的保证）：
-  能核「每个入口都有下落 / 没有多余键 / 键是生成物里真实存在的能力 / 筛选真的走了 `Capabilities.can`」；
-  ⛔ **核不了**「这一格挂的能力**选得对不对**」—— 那要按 入口→屏幕→repo→端点→权限 四跳解析，本轮没做。
-  选得对不对由上面那条行为等价断言兜底（挂错了货主会少一格，当场红）。
-  ⚠️ 派单端的 24 格**现在筛不出差别**（派单员在 `BYPASS_ROLES` 里）—— 那 24 条能力标注是为
-  「以后出现非绕过角色」准备的，今天证明不了对错，如实写在 `Modules.kt` 的注释里。
-
-  ⚠️ **已知未做（不属指南七条退出条件，记在这里不藏着）**：`ai/AiWrite.kt` 的 `SHIPPER_ACTIONS`
-  （13+ 项动作白名单）**仍是手写的**。它不是授权真相的副本（`_tools/ai/_check_role_parity.py` 逐条核过
-  AI(role) ⊆ BACKEND(role)），但「货主的 AI 能用哪些动作」这件事目前由人写而不是由能力表推。
-  要推的话得给每个动作声明能力并重做那条判据的推导链 —— 那会让它的「缺能力」半边失效（AI 由后端推出来
-  就不再可能缺），需要先想清楚换来的那半边（「声明的能力必须与动作真打的端点一致」）够不够抵。
-
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机两个 flavor 的 Gradle 单测都跑过；**真机界面未验**）
-
-### R3-03 Multi-instance Runtime（硬门槛）
-
-工具：`python _tools/ops/_dual_instance.py --all`（真起两个 uvicorn :8111/:8112，共用一个库 + 一个上传目录）。
-原始输出记在 `docs/R3_RUNTIME_EVIDENCE.md`；架构决策记在 `docs/R3_DECISIONS.md`。
-
-- ✅ 两个实例同时运行（都接请求；**A 登录的 token 到 B 上也认**）—— 复现：`python _tools/ops/_dual_instance.py --all`（下面三条共用这一次运行）
-- ✅ migration 只执行一次 —— 复现：`python _tools/ops/_migration_tests.py --concurrent`（R3-01 的用例，两个进程同时 upgrade）
-- ✅ scheduler 只执行一次（启动即跑的那轮治理：**真跑 1 次 / 跳过 1 次**）—— 复现：`python _tools/ops/_dual_instance.py --all`
-- ✅ upload 一致（A 传的图 B 取得到，**字节一致**）—— 复现：`python _tools/ops/_dual_instance.py --all`
-- ✅ 杀掉 A 之后 B 继续服务（`/health` 200 + 登录读自己 200）—— 复现：`python _tools/ops/_dual_instance.py --all`
-- ✅ 上传资产的运行模型已决策（**本机文件系统资产**；多实例＝同机多进程/同一挂载点；对象存储留 R4）—— 复现：`python _tools/qa/_check_r3_constraints.py`（`upload_decision_record` 探针）
-- ❌ **Socket.IO 跨实例推送未验** —— 复现：`python _tools/ops/_dual_instance.py --socket`（它会如实打印「没验」）
-  ⛔ 本机**没有 Redis**，Socket.IO 的跨进程适配器起不来，这一格**没有验**，不假装通过。
-  要验需要有 Redis 的环境。⛔ 有一条**不能走**的路：借生产的 Redis —— 那会把测试实例的推送混进
-  生产客户端的同一个 channel（除非用不同的 Redis DB 序号，而那就等于在生产机上起临时实例）。
-  三条候选路径写在下面「卡在哪儿」一节。
-- ❌ **nginx upstream + 失败摘除未验** —— 复现：`python _tools/qa/_check_multi_instance_readiness.py`
-  （那道门的 `status` 仍是 `not-done`）。本机没有 nginx；它要动生产 nginx，属 R3-05（且要用户许可）。
-
-### 卡在哪儿（需要你拍板，不必现在答）
-
-这两个 ❌ 都卡在**环境**，不是卡在代码：
-
-1. **装一个本机 Redis**（Windows 上可用 Memurai 或 tporadowski 的 redis 移植版）→ 就能在本机把 socket 那一格验掉；
-   代价是动本机环境（多一个常驻服务）。
-2. **在生产机上起一对隔离的临时实例**（不同端口 + SQLite + 独立的 Redis DB 序号）→ 能验 socket 与 nginx；
-   代价是动生产机 —— 按禁做 #13/#14，这件事要你明确点头。
-3. **留到 R3-05**：那时本来就要在生产上做 RC 与验收，socket/nginx 两格并进去一起验。
-   代价是 R3-03 一直挂着一个 ❌（本轮就选了这条，因为它不需要额外许可）。
-
-### 这一轮顺带修掉/发现的三件事（细节在 `docs/R3_RUNTIME_EVIDENCE.md`）
-
-1. `GOVERNANCE_MARKER_PATH` 写死 `/tmp` → Windows 上标记**永远写不进去也读不到**（不报错）；
-2. `_single_runner` 在 Windows 上是**空操作**（`import fcntl` 失败就放行）—— 与 R3-01 的迁移锁同一个毛病；
-3. 我自己第一版的判据是错的：按「日志里出现几次『治理完成』」数，而那行**无条件打**，
-   跳过时打的是 `{'skipped_same_day': 1}` → 「两个都跳过」被读成「两个都跑了」。现在按**返回的字典**判。
-
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven **部分**（本机同机双进程 4/5 个实验过；跨机器与 socket/nginx 未验）
-
-### R3-04 Observability
-
-指南 §R3-04-C 的原话：「第三步只做 structured logs + request_id + command_id + event_id + 关键 metrics。」
-**本轮就做到这一步**：不上 Prometheus/Grafana/Jaeger/Loki/OTel/ELK（禁做 #12，`no_observability_stack` 探针盯着）。
-
-- ✅ request_id 贯穿（第二轮已完成）—— 复现：`python _tools/qa/_check_traceability.py`
-- ✅ **command_id 与 request_id / event_id 分成三个概念** —— 复现：`cd backend; python -m pytest tests/test_r3_trace_ids.py -q`（3 个用例）
-  三个 id 各是什么、为什么不能合成一个：`backend/app/core/command_id.py` 的文件头写了；
-  一句话：**一次请求可以跑多条命令**（批量派单 `batch-assign` 一次请求 → N 条 `order.assign`），
-  **一条命令又可以产生多条事件**（`order.create` → `orders.created` + `orders.pending_pool_changed`）。
-  三个用例分别钉住这三件事：ids 都非空且两两不等 / 一次批量请求 N 个 command_id 共用一个 request_id /
-  一条命令入队 ≥2 条事件（各自的 event id 不同）。
-- ✅ 业务指标（订单/命令/事件/通知/迁移/调度）—— 复现：`cd backend; python -c "import sys; sys.path.insert(0,'.'); from app.database import SessionLocal; from app.core.metrics import snapshot, NOT_TRACKED; print(len(snapshot(SessionLocal())), len(NOT_TRACKED))"`
-  → `17 7`：**17 条现算指标 + 7 条「算不出来但写清了为什么」**（本轮新增 4 条：`sorders_commands_today`
-  （按新加的 `command_id` 去重）、`sorders_notifications_created_today`、`sorders_outbox_retried_today`、
-  `sorders_last_migration_duration_ms`）。
-  ⛔ **指南点名的 12 个里，有 7 个落进了 NOT_TRACKED**，每条都写了「为什么算不出来 + 它该长在哪」：
-  订单接单数（表上没有 `accepted_at` 列）、命令失败数（失败不写审计）、通知去重数（唯一索引冲突不记账）、
-  迁移失败数（失败**故意**不写版本表）、调度选主/跳过（只在日志与标记文件里）、请求时延（要直方图，
-  现算的均值会误导）。这符合本模块的规矩：**宁可空着并说明，也不要给一个看起来正常的假数**。
-- ✅ 全链路诊断接口（人可读）—— 复现：`cd backend; python ..\_tools\ops\_trace_order.py --latest`
-  → 一条命令打完整条链：**命令 `command_id` 与请求 `request_id` 并排**、事件带上自己的 `事件#id`、账本、司机账单、通知。
-  ⚠️ 老数据（R3-04 之前）的审计行 `command_id` 是 `-`：那时还没有这一列 —— 那是事实，不是缺陷。
-- ✅ 没有引入大型观测平台 —— 复现：`python _tools/qa/_check_r3_constraints.py`（`no_observability_stack` 探针）
-
-**三层完成度**：Code Ready ✅ ｜ CI Proven ❌（还没推）｜ Runtime Proven ✅（本机真库真请求：3 个用例跑在真实接口上）
-
-### R3-05 Production Release
-
-- ❌ Release Candidate 记录齐全（SHA / 迁移版本 / 各端版本 / 依赖锁 / 配置校验和）—— 复现：`docs/RELEASE_CANDIDATE.md`
-- ❌ 备份 —— 复现：`python _tools/backup/_pre_release.py --note "R3"`
-- ❌ 迁移（先迁移后应用）—— 复现：`python _tools/deploy/_release.py --step migrate`
-- ❌ 启动新后端 —— 复现：`python _tools/deploy/_release.py --step start`
-- ❌ health —— 复现：`python _tools/ops/_health_check.py`
-- ❌ 只读烟测 —— 复现：`python _tools/ops/_prod_smoke.py --readonly`
-- ❌ trace 一单 —— 复现：`python _tools/ops/_trace_order.py <订单号>`
-- ❌ 回滚 / 前向修复方案已写 —— 复现：`docs/RELEASE_CANDIDATE.md`
-
-### R3-06 Failure Drill
-
-- ❌ Drill A：杀掉一个 worker，是否恢复 —— 复现：`python _tools/ops/_drill.py --case worker-crash`
-- ❌ Drill B：Redis 不可用，业务还能不能工作 —— 复现：`python _tools/ops/_drill.py --case redis-down`
-- ❌ Drill C：事件消费延迟，业务数据是否仍然正确 —— 复现：`python _tools/ops/_drill.py --case event-delay`
-- ❌ Drill D：迁移锁竞争，第二实例是否正常等待 —— 复现：`python _tools/ops/_drill.py --case lock-contention`
-- ❌ Drill E：磁盘将满，能否被发现 —— 复现：`python _tools/ops/_drill.py --case disk-full`
-
-### R3-07 Meta-System Hardening
-
-指南 §二十一 的四条 + §二十二 的依赖决策。**a / b / c 三条已落地**，只剩 §二十二 的依赖决策（要用户拍板）。
-
-- ✅ 判据不许静默空转（本轮 `_check_r3_constraints.py` 自带反空转下限）—— 复现：`python _tools/qa/_check_r3_constraints.py`
-- ✅ **生成物新鲜度**（R3-07a）—— 复现：`python _tools/qa/_check_generated_freshness.py`
-  真源表在 `_airepo.GENERATED_ARTIFACTS`（**生成器与判据读同一份**，不各写一遍），四个产物各自声明
-  `source_hash`：`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/ai/ai_read_catalog.json`、
-  `docs/CAPABILITY_SNAPSHOT.json`（+ `source_commit` + `generated_at`）、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`。
-  判据自己重算指纹（**不信任产物里那串**）+ 跑每个生成器的 `--check` + 核提交/时刻是否真实；
-  反向验证 7/7（改真源没重跑 / 手改指纹 / 抹掉指纹 / glob 空转 / 编造提交 / 清单被掏空）。
-  ⚠️ `generated_at` 每次生成都会变，所以能力快照的 `--check` 会把它**归一化掉**再比对 ——
-  真正回答「哪一版代码」的是 `source_hash`。这句话写进了生成器与判据两边。
-  ⛔ **2026-09-26 修（本机一天被它绊倒两次之后）**：`_airepo.source_fingerprint` 原来把**原始字节**
-  直接进哈希，而本仓库 `core.autocrlf=true` —— 同一个提交，Windows 检出是 CRLF、CI（Linux）检出是 LF，
-  于是**同一个代码库在两台机器上指纹不一样**：本机全绿、**CI 上会红**。触发它的三件小事都真的发生过：
-  `git checkout -- <file>` 还原两个被写坏的文件、反向验证的注入+还原碰到 CRLF 文件、以及一次批量改法。
-  已改成**哈希前把 `\r\n` 归一成 `\n`**（内容没变 ⇒ 指纹不变；内容变了 ⇒ 照样算得出来），
-  四份产物按新口径重新生成（只动 `source_hash` 一行 + 能力快照的 `generated_at`），反向验证仍 7/7。
-  ⛔ 顺带说清一件事：这条判据报红时的提示原来只有「源码变了而产物没重跑」，在**换行漂移**的情况下
-  那句话是**误导**（内容一个字没变）。口径归一之后，它才真的只表示「内容变了」。
-- ✅ **反向验证必须完整还原**（R3-07b）—— 复现：`python _tools/qa/_check_reverse_verify_restore.py`
-  新增判据把「还原契约」抽出来逐份核（143 份），分**两级**、各有只增不减的棘轮：
-  · **L1 快照 + 还原**：**141/143**（字节级 `read_bytes`+`write_bytes`，或文本级 `read_text`+`write_text(newline=)`，
-    或 `open(..., newline=)`）—— 下限 135；
-  · **L2 跑完**逐字节比对**证明一模一样**：**106/143** —— 下限 106。⛔ **剩下的 37 份才是缺口**：
-    它们是「按原文写回、但没比对」，**声称**还原了，谁也没证明。
-  ⛔ **2026-09-26 修了两件事，都要记清楚（不是「缺口改小了」）**：
-    ① 原判据**自己读窄了** —— 只认变量名（`dirty(` / `== raw` / `!= original`），认不出
-    `dirty = [rel for rel in touched if (ROOT/rel).read_bytes() != originals[rel]]` 这种写法，
-    于是 **14 份明明已经逐字节证明了的脚本被记成「没证明」**（旧账面写「72/141，差 69 份」，
-    真实是 88，差 55）。这就是本仓库的老账「判据读得比事实窄 ⇒ 缺口是假的」，与「判据被文字误伤」同源。
-    ② 又给 **18 份**补上「还原**当场核对**」（还原后立刻 `read_text() != original` 就记账）：
-    第一批 6 份 `geocode` / `card_claim` / `ctx_budget` / `cost_history` / `image_refs` / `billing`；
-    第二批 12 份 `local_reads` / `read_caps` / `sun_theme` / `undo` / `catalog_and_scope` /
-    `concurrency_guards` / `cost_basis` / `input_guards` / `place_and_picker` / `product_guards` /
-    `report_guards` / `soft_delete`。**18 份各自跑过一遍，全部退出 0**（证明没污染源码树）→
-    L2 88 → **106**，棘轮跟着抬到 106。
-    ③ ⛔ **又抓到一个更隐蔽的：换行符会漂**（2026-09-26 实测事故）—— 一整轮 `_check_all.py` 从绿变红，
-    期间唯一动过 `backend/app/**` 或 `android/app/src/main/**` 的是那 12 份反向验证的**注入 + 还原**；
-    `git status` 干净，但 `09A_HINT_CATALOG.md` 的 `source_hash`（对这两个 glob 取**原始字节**哈希）
-    与现算对不上 ⇒ **有文件的字节被改了，而 git 看不见**（实测 90 份文件的 CRLF/LF 差异被 autocrlf 归一）。
-    机制：快照用**不带** `newline=` 的 `read_text()`（通用换行解码，CRLF 在内存里已经变成 LF）＋
-    还原用 `write_text(..., newline="")`（不翻译、原样写回）⇒ **一个 CRLF 文件还原后成了 LF**。
-    ⛔ 连 L2 的「文本级证明」都看不出来：`read_text() != original` 两边都被归一成 LF，恒等。
-    修法：**两边都带 `newline=""`**（对 UTF-8 文件与字节级等价）。判据新加一格
-    **L3「换行符会漂的脚本」= 34 份（上限 34，只减不增）**；当轮先把生成物重新生成（只动 `source_hash` 一行）
-    让门变绿，⛔ 不删这一格、也不放宽指纹口径 —— 它正是「反向验证不许把工作区改坏」里最难看见的那一半。
-    ④ **L3 这一格本轮收紧了一次口径 + 修了 12 处**（⛔ 记清楚，不然下次看不懂数字是怎么变的）：
-    · 口径 v1 太宽（文件里同时有裸 `read_text(` 与 `write_text(` 就算）→ 把**只读来比对、不写回**的
-    脚本也算成风险，**虚报 11 份**；口径 v2 = 「**读来的文本会被写回去**」（`名 = …read_text(不带 newline=)`
-    且那个名字进了 `write_text` / `write_bytes` 的实参）。判据读宽了与读窄了同样糟，这条也写进了判据注释。
-    · 本轮把 **12 处**改成**字节级**（快照 `read_bytes()` + 还原 `write_bytes()`，我加的核对行也一并改成字节比较）：
-    `card_claim` / `ctx_budget` / `geocode` / `image_refs` / `cost_history` / `soft_delete` / `read_caps` /
-    `export_cells` / `product_guards` / `user_search` / `order_purge_fk`（它有两处：`original` 与 `init_src`）。
-    **每一份都跑过一遍，全部退出 0**。
-    · 本轮第二批又把 **16 处**改成字节级（billing / local_reads / sun_theme / undo / catalog_and_scope /
-    concurrency_guards / cost_basis / enum_drift / freight_settlement_ui / input_guards / migrations /
-    paid_actions / report_guards / report_window / shipper_settle_ceiling / single_source），逐份跑过全绿，
-    于是 **L3 22 → 6 份**：剩下 6 份形状各不相同（`coverage_input` / `multi_request` / `fuzz_safety` /
-    `core_freeze` / `loop_e2e` / `place_and_picker`），要逐份看代码再改。
-    · ⛔ 两个自己踩的坑（都跟换行符同源，记下来免得再踩）：① 第一版批量改法用 `$` 匹配行尾，
-    **CRLF 文件一条都没匹配上**（行尾还留着一个 `\r`），16 份被静默跳过 —— 是看『SKIP』名单才发现的，
-    它自己不报错；② 往 CRLF 文件里**插一行 LF** 会造出混合行尾（比原来更糟），所以插入的新行必须
-    跟随原文件的换行符。
-    ⑤ ⛔ **本轮还抓到一个真正的破坏性缺陷**（就是这一格存在的理由）：`_reverse_verify_report_guards.py`
-    的「锚点跟着搬家走」分支里写着 `path, original = _c, _t` —— **字节快照没跟着搬**。后果：还原把
-    `services/reports_service.py`（1176B 的壳）的字节**写进了** `reports/turnover_query.py` 与
-    `reports/product_query.py`（整份覆盖，`git status` 只看得出「改过」，看不出是哪一步干的）。
-    ⛔ 而它自己那句「还原后与快照不一致就记账」拿的是**同一份错字节** ⇒ 恒等、**静默通过** ——
-    这正是「判据盯的是错的那一头」的样子（与我这轮修的 L2 口径同源）。
-    处置：① 4 份同类脚本（`cost_basis` / `report_guards` / `report_window` / `single_source`）改成**分别赋值**
-    ＋**同时重取 `original_bytes`**，并加一条**注入前的不变量**「快照必须属于要改的那个文件」；
-    ② 判据新增一条**代码形状红线**：凡出现 `path, original = _c, _t` 一律红（防复发）；
-    ③ 4 份重跑 → 全绿（29/29、19 条、5 条、8/8），跑完 `git status backend/` 干净。
-    ⑥ **另一类「看着跑过了」**：`_reverse_verify_shipper_settle_ceiling.py` 不 import `_airepo`、自己也没设
-    stdout，在 GBK 控制台下**打第一个 ✅ 就崩**（EXIT=1、4 秒）——一条都没验却像个跑过的样子。
-    同类还扫出 `_probe_return_request.py`（实测跑到第 187 行打「退款 ¥…」时崩，前面的探针结果全白跑）。
-    处置：两份都补 `reconfigure`；`_check_tool_scripts.py` 新增一条判据「会打 ✅/❌ 就必须能把它们打出来」
-    （⛔ 第一版只看本文件 → **虚报 5 份**：它们靠 `from _check_pagination_wiring import …` 间接拿到
-    `_airepo` 的编码设置；改成**跟着 import 走**（深度 ≤ 3）之后只剩 1 份真犯规，已修）。
-    ⑦ **一条没解决的**（如实记着）：`_reverse_verify_enum_drift.py` 里「生成器把可空性写死」那条注入
-    **打不动判据**（注入后不报红）—— 下一轮查是注入锚点过期，还是判据真缺这一条规则。
-    ⑧ ⭐ **补上「外部证明」这一层**（指南 §二十一 ② 的原话：before snapshot = after restore snapshot）：
-    上面 L1/L2/L3 都是**每份脚本自己写的**核对，而自己写的核对可能**盯错一头**（⑤ 就是），
-    所以 `_reverse_verify_all.py` 现在**每跑完一份就逐字节比对「现场 vs 开跑前的快照」**：
-    · 不一致 → 打印**是哪一份**、**哪些文件**，当场按快照写回（不让坏代码传染给下一份），并**计为不达标**；
-    · 现场多出来的文件同样计为不达标（只报告不删 —— 用户底线是「不要删了就搞不回来了」）；
-    · 快照范围 5 个目录 → **17 个**（原来只盯 `_tools/ai`，而注入目标早就散到 `_tools/qa`、`_tools/notify`；
-    有些反向验证还会**原地改检查脚本再改回来**）。
-    反例实测（临时探针故意写脏一个文件且 `exit 0`，验完已删）：
-    `❌ _reverse_verify_zz_drift_probe.py（0.2s）` → 「⛔ 跑完**没把工作区还原干净**（1 个文件，已按快照写回）：
-    backend/app/services/reports/turnover_query.py」，运行器 exit 1，且那个文件逐字节回到 HEAD ✓；
-    真实脚本上跑（`--only _reverse_verify_dep_declaration`）→ 全绿。
-    ⑨ 顺带修掉 2 处**永远会 `TypeError` 的兜底调用**：`restore_snapshot(snapshot_dir())` —— 那个函数从来没有参数
-    （只在「自检失败」分支里才会走到，所以从没暴露过），已改成 `restore_snapshot()`。
-    ⑩ ⭐ **L2 又补 10 份（106 → 117）**：`read_src`/`write_src` 那一族（39 份共用同一对助手）本轮先改 10 份 ——
-    还原调用改成 `restore_src`：**写回后重新读回来逐字节比**，对不上立刻非零退出。10 份逐份跑过：
-    **8 份全绿**（coverage 6/6、field_keys 5/5、price_table 7/7、prepare_no_write 8/8、report_priority 7/7、
-    card_markdown 15/15、check_blindspots 11/11、read_roles 9/9）。
-    ⛔ 另外 2 份的失败**与本轮改动无关、是早就烂了的注入锚点**（已用 `git show HEAD:` 的原版跑过、同样失败）：
-    `_reverse_verify_write_roles.py` 3 条 `[SKIP] 注入没生效`、`_reverse_verify_doc_refs.py` 1 条 ——
-    下一轮补替换串（那是「注入没生效」，不是「还原没证明」，所以 L2 计数照样算）。
-    ⑪ **全量一遍的实测成本**（这一轮试过）：143 份 × 平均 67 秒 ≈ **2.7 小时**（前 7 份 470 秒）—— 跑的时候
-    整个工作区不能动，所以本轮改成**分域/分批**跑。⛔ 中途停掉按文档处置：杀进程 → `_recover_injections.py`
-    还原现场 → 清注入锁（本轮真做过一次：还原了 1 个被注入的文件、`git status` 回到干净）。
-    ⑫ **L2 再补 19 份（117 → 136）**：`read_src`/`write_src` 那一族剩下的 19 份一次改完（同一套改法：
-    `write_src` 返回写出的字节 ＋ `restore_src` 写回后 `p.read_bytes() != wrote` 逐字节核对），
-    **19 份逐份跑过、全部退出 0**（notify 45/45、ledger_dashboard 33/33、contact_names 26/26、order_templates 26/26、
-    product_card 26/26、shipper_ledger_stats 25/25、supplier_payables 25/25、nav 25/25、order_driver_call 24/24、
-    freight_pricing 23/23、driver_money 19/19、ledger_manual_entry 19/19、workbench_header 18/18、expense_page 17/17、
-    ledger_cash 17/17、answer_style 14/14、ai_default_key 12/12、ai_entry 9/9、form_panel 8/8）。
-    ⛔ 这一族共 39 份，还剩 **10 份形状不同**（还原调用不是 `finally: write_src(...)`）：`ai_declarative_crud` /
-    `ai_dto_defaults` / `counter_updates` / `inventory_reservation` / `permission_points` / `return_request` /
-    `round17` / `round18` / `round19` / `round20` —— 要逐份看代码。
-    ⑬ **补掉 4 条烂掉的注入锚点**（都是「源码改了、替换串没跟着改」→ 静默 `[SKIP]`，而 SKIP 计为不成立）：
-    `_reverse_verify_write_roles.py` 的 3 条 —— ① 判据改收 `AiActor?`（`val role = actor?.role ?: return emptyList()`）、
-    ② 货主那一支从一行变四行（多了 roles/memberOnly 两层条件）、③ `AiRolePrompt.brief(...)` 的首参由 `tools.role` 改成
-    `tools.actor`；外加一条**期望词过期**（判据那句改成「货主确实按白名单 + member 过滤」）。修完 **15/15 全绿**。
-    ⚠️ `_reverse_verify_doc_refs.py` 还剩 **1 条**（「红线脚本印不出任何小节号」）：判据确实红了（退出码 1），
-    但脚本期望的那句文案没出现在输出里 —— 下一轮让它在 `[MISS]` 时把判据输出打出来再定位。
-    ⑭ ⭐ **改动自己的连锁反应被静态审计当场抓住**：给 `write_src` 加「返回写出的字节」之后，
-    `_reverse_verify_reverse_verify_restore.py` 的 ② 号注入（锚点原文写的是 `path.write_bytes(data.encode("utf-8"))`）
-    **变成恒 SKIP** —— `_check_reverse_verify_anchors.py`（静态解析注入表）在 `_check_all.py` 里当场报红、
-    并点名「哪一份脚本 / 哪条注入 / 哪个目标文件 / 原文找不到」。锚点已改成现在的写法，审计回到
-    「1289 条注入原文全部还在」。⛔ 这正是「改一处要想到它的下游」的机器化版本：判据先喊，不用等到有人跑那份 RV。
-    ⑮ **L3（换行符会漂）收到 0，L2 到 140/143**：4 份真的会漂的（`coverage_input` / `fuzz_safety` /
-    `loop_e2e` / `place_and_picker`）改成「快照 `read_bytes` + 还原 `write_bytes` + 还原后逐字节核对」；
-    另给 `multi_request`（还原本来就是 `shutil.copy2`）与 `core_freeze`（还原本来就是 `write_bytes`）补上核对那一句。
-    逐份跑过、全绿（coverage_input 1/1、loop_e2e 3 种、fuzz_safety 四道轨、place_and_picker 23/23、
-    multi_request、core_freeze 9/9）。
-    ⛔ **L3 的口径本轮又收了一次**（这是第三次收紧）：原来「文件里同时有裸 `read_text(` 与 `write_text(`」就算风险，
-    现在要求**还原路径本身不是字节级**（没有 `write_bytes(` / `shutil.copy`）—— `multi_request` 与 `core_freeze` 的
-    注入确实写 LF，但还原是**字节复制**，文件最终一模一样；judged 读宽了同样是错。
-    剩 L2 **3 份**：`ai_batch` / `invariants` / `root_clean`（最后一份在例外表里：它注入的是临时探针、自己删掉）。
-    ⑯ ⛔ **本轮又踩到「单独跑一份反向验证没有兜底」**：改 `place_and_picker` 的中途它 `NameError` 崩在还原**之前**，
-    把 `android/.../ProductPicker.kt` 的注入留在树里（`git status` 就一行 ` M`）—— 它**自己那句还原核对根本没跑到**，
-    而外部证明层（`_reverse_verify_all.py` 的逐份快照比对）只在**批跑**时才兜。已按 `git diff` 认出来源、
-    `git checkout --` 还原，红线恢复（1282 项全通过）。教训：**单独跑一份 RV 之前先想好兜底**（批跑有快照，单跑没有）。
-    ⑰ **L2 收口到 142/143**：最后两份补上「还原后逐字节核对」（`ai_batch` 的 `Sandbox.restore` 逐份比、
-    `fuzz/_invariants` 的 `INV.write_bytes(orig)` 之后比），逐份跑过全绿。⛔ 剩下那 1 份是 `_reverse_verify_root_clean.py`：
-    它在例外表里（注入的是**临时探针文件**、自己删掉，没有「还原源码」这回事）⇒ **L1 141/143、L2 142/143、L3 0
-    就是这套契约的理论上限**：凡是「会改源码」的那 141 份，都既有字节级快照/还原、又有逐字节证明。
-    ⑱ **`_reverse_verify_doc_refs.py` 最后那 1 条用例修好了**（期望词过期）：注入「让红线脚本印不出小节号」之后，
-    判据**确实会红**（退出码 1），但报的是「❌ 对不上的引用 18 个」，不是脚本期望的「没能从红线脚本里读出小节号」——
-    两句话证明同一件事（**判据不会静默空转**），期望词按**实际行为**改，⛔ 不为了句子好看去改判据。
-    顺手把它的失败诊断从「只印最后 3 行」改成「印所有带 ❌ 的行」：原来那 3 行常常是**别的**检查的 OK 行，
-    本轮就为这一点多花了一轮才发现真实原因。
-    ⑲ 下一件（也是 R3-07b 转 ✅ 的最后一块证据）：**全量跑一遍** `_reverse_verify_all.py`（实测 ≈2.7 小时，要分批），
-    拿「143 份里没有任何一份把工作区改坏」的机器证明 —— 判据就是 runner 每份跑完的那次逐字节比对。
-    · 当前 **L3 = 0（上限 0）**；**L2 = 142/143**（剩 1 份＝例外）。
-    ⑳ ⭐ **最后一块证据：全量跑一遍（2026-09-26 第一次真做）**——按域跑完 **142/142 份**：
-    `ai` 34/34 达标、`qa` 104 份（93 达标）、`fuzz` 2、`deploy` 1、`baseline` 1；
-    ⛔ **漂移告警 0 条**（runner 每跑完一份就逐字节比对现场与快照，「现场多了这些文件」也是 0），跑完 `git status` **干净**。
-    指南 §二十一 ② 那句话现在是**机器证明**的：142 份里没有任何一份把工作区改坏 —— 且这一层**不依赖任何脚本的自述**
-    （它自己写的那句核对可能盯错一头，本轮修过两次这种）。反例对照：临时探针故意写脏一个文件且 `exit 0` →
-    runner 当场点名 + 按快照写回 + 计为不达标（验完已删）。
-
-- ✅ **反向验证的注入锚点不许腐烂**（R3-07b2）—— 复现：`python _tools/qa/_check_reverse_verify_anchors.py`
-  上面那次全量跑的另一半收获：`qa` 域 **11 份脚本现在是恒真的**（注入没生效或打不动判据 ⇒ 那条红线没有东西在守它）。
-  名单（下一轮逐份补锚点/期望词）：`ai_declarative_crud`（2 条 `[SKIP]`）、`audit_coverage`（1 条打不动判据）、
-  `category_roster`、`contact_binding`、`import_purity`、`inline_role_gates`、`list_order`、`money_contract`、
-  `permission_points`、`r3_constraints`、`round17`。
-  ⛔ 这一条**不是**「还原」问题（漂移 0 条已经证明），是「**注入还在不在**」问题 —— 两件事分开记，谁也不许替谁背书。
-  ⏳ 进度（2026-09-26）：**已修 3 份** —— ① `import_purity`：`try:` + `if not inspect(engine).has_table(VERSION_TABLE):`
-  这一对在 `_runner.py` 里出现**两次**（`applied_versions()` 与 `schema_ready()`），要求恰好一次的注入恒 SKIP ⇒
-  锚点往下多带一行（`schema_ready` 独有的那句中文报错）就唯一了 → **7/7**；② `ai_declarative_crud`：两条锚点随实现
-  从 `AiWriteService.kt` 搬进了 `AiWriteDataSource.kt` ⇒ **只改目标文件、锚点原文一字不改** → **5/5**；
-  ③ `contact_binding`：同上（⑩ 那条搬到 `AiWriteDataSource.kt`）→ **18/18**。**还剩 8 份**（`audit_coverage` /
-  `category_roster` / `inline_role_gates`（3 条）/ `list_order` / `money_contract` / `permission_points` /
-  `r3_constraints` / `round17`）—— 其中 `list_order` / `money_contract` 的失败原因还没看清（日志里没有 `[SKIP]`/`[MISS]` 行）。
-  ⏳ 再修 2 份（累计 **5/11**）：④ `money_contract`：它的 `Sandbox.apply()` 里**粘着同一段跑不起来的兜底代码**
-  （引用未定义的 `old`）—— 第一次注入就 `NameError` 崩掉，表现只是「这份反向验证不达标」，实际**一条注入都没做**；
-  与 `_reverse_verify_live_doc_counts.py` 里那段是同一份复制粘贴的残留，已删 → **5/5**。
-  ⑤ `list_order`：⑨ 号注入报「红线居然还是绿的」—— 查下去发现 VM 里 `pickedAddressId = null` + `pickedLocationId = null`
-  这一对出现**两次**（预设单回填 / 地图选点），而**判据只要求「存在」**⇒ 删掉地图那一处它照样绿。
-  ⛔ 这是「**判据比它自己的名字弱**」——本仓库反复栽的那一类。处置：反向验证改成带上下文的 `re:` 正则锚点
-  （只命中 `applyPicked()` 里那一对，applier 本来就支持 `re:` 前缀），判据同步收紧成「必须在 `applyPicked()` 里」→
-  判据 55 项仍全过、反向验证 13/13 全红。
-  ⏳ 再修 2 份（累计 **7/11**）：⑥ `category_roster`：④ 号注入报了「（没有任何判据承认这条注入）」，其实判据**红了**
-  （退出码 1），只是报的是它自己那条具体规则「提交顺序没走 `submittableIds`」而不是当年那句泛泛的「继承共用内核的名册页只有」——
-  期望词过期，按实际行为改 → 4/4。⑦ `inline_role_gates`：② 的期望词同样过期（判据报「声明已收敛…体内还有 1 处」，比
-  当年的「涨到 45 处」更具体）；③④ 是**锚点写死了台账尾部**（台账后来又追加了 4 条 ⇒ 出现 0 次 ⇒ 恒 SKIP），
-  改成**从判据源码现取**（`_ledger_tail()`）；⛔ 顺带踩到一个细节：`LEDGER_REASON` 不能取「最后一条」——
-  后面的条目是**多个字符串拼起来的**，只缩短其中一段整条照样超下限 ⇒ ⑦ 号注入变假绿；改成取**第一条**（单串）→ **10/10**。
-  ⏳ **还剩 4 份**（都是「注入生效但**没有任何判据报红**」= 判据真缺规则/测试，不是锚点问题）：
-  · `audit_coverage`：「豁免表里的模块其实还在写日志」——判据没有「豁免条目必须真的没在写日志」这条；
-  · `permission_points`：「说明表里的权限点从枚举里删掉」——判据没有「说明表的键必须还在枚举里」这条；
-  · ~~`r3_constraints`：禁做 #15 没有探针~~ → **本轮修好（9/11）**：探针**早就有**，但它的第一句是
-  「`docs/DEPENDENCY_DECISION.md` 存在就放行」—— 我那轮建了那份**证据文档**，于是它**永久 hold** ⇒
-  反向验证里「顺手锁死一条」变成打不动判据的假绿。⛔ **文件存在 ≠ 决策做了**。
-  处置：`docs/DEPENDENCY_DECISION.md` 里加一行**机器读的状态**（`> **状态**：待用户拍板`），探针改成只读那一行；
-  拍板后把状态改成「已拍板」它就放行。⛔ 而且第一版探针写的是 `"已拍板" in 整份文档` —— 文档的说明文字里
-  就写着「拍板之后把这一行改成『已拍板』」⇒ 永远为真（**第二次踩**）；改成只读**那一行**才对。→ 9/9。
-  · ~~`audit_coverage`：缺「豁免表里的模块必须真的没在写日志」~~ → **本轮修好（9/11）**：那条判据（②b）**早就有**，
-  错的是**注入**：它塞的 `stats.py` 里**一处 `write_log(` 都没有**（实测 0 处），塞进豁免表本来就是合法豁免
-  ⇒ 判据不红是对的。⛔ 同一个坑第二次（判据注释里记着上一次是 `arrears.py`）—— 改成塞 `products.py`（4 处）→ 10/10。
-    · ~~`permission_points`~~ → **修好（10/11）**：化石规则**早就有**（`DECLARED_ONLY` 里有表外的键就红），
-  错的是**注入**：它只做「把枚举里那条删掉」，而 `DECLARED_ONLY` 现在是**空表**（所有权限点都被引用了）
-  ⇒ 删完既没化石也没别的规则会响，判据全绿是对的。改成**自带前提**（往说明表里塞一条根本不是权限点的条目）→ 4/4。
-  · ~~`round17`~~ → **修好（11/11）**：红线 §25b 那条判据**比自己的名字弱** —— 它要求「文件里有 `with_for_update()`，
-  且 400 字符内有 `DriverBillType.SALARY`」，而那个文件里有**两处** `with_for_update()`（锁司机行、对已存在月薪单的
-  加锁读）⇒ 删掉司机行锁之后另一处照样满足正则。改成拆三件事：① 有「锁司机行」这个调用、② 有月薪单**存在性查询**、
-  ③ **锁在查询之前**。⛔ 收紧过程本身踩了两次：`[^)]*` 跨不过 `.where(…)` 的括号（连干净源码都判红）、
-  以及拿裸的 `DriverBillType.SALARY` 比顺序（它在文件里更早就出现过）—— 两个都记在判据注释里。
-  ⭐ **11/11 全部修完**，每一份都用 `_reverse_verify_all.py --only <名字>` 跑过 **1/1 达标**；
-  其中 5 份是锚点/期望词过期、8 份是「判据其实有牙、探针或注入写错了」，还有 2 份（`list_order`/`round17`）
-  **确实把判据收紧了**（收紧后判据在干净源码上仍然全绿：红线 1282 项、`_check_list_order` 55 项）。
-  · `round17`：「月薪单生成前不锁司机行」——修复**没有被任何测试钉住**（要补一条并发回归）。
-  · 另外核一件事：**没有任何一份**在代码里真的执行 `git checkout`（⛔ 用 AST 看**调用实参**，
-    不用正则搜文本 —— 反向验证脚本自己就把 `["git","checkout",…]` 当字符串数据写着，
-    正则会把它们全判红，那是本仓库栽过的「判据被文字误伤」）。
-  · 例外 2 条，都写了理由与退出条件：`_reverse_verify_all.py`（批处理调度器，自己不注入）、
-    `_reverse_verify_root_clean.py`（它注入的是临时探针文件、自己删掉，不还原源码）。
-  反向验证 6/6（真跑 git checkout / 没有还原 / 少比对 / 例外没理由 / 扫描下限 / L2 棘轮）。
-  ⚠️ 它的 ③ 号注入原来把 `MIN_L2 = 70` **写死在锚点里** —— 2026-09-26 棘轮一抬到 88，那条当场变 `[SKIP]`
-  （SKIP 在本仓库**计为不成立**）。已改成**从判据源码现取**当前值（`_live_anchor`），以后抬棘轮不会再撞。
-  ⚠️ 剩下的 37 份**不是一轮能补完的**（每份形状不同，要逐份改 + 逐份跑），棘轮会盯着它只增不减。
-  ⚠️ 补法有两档：① 有统一锚点（`finally:` + `path.write_text(original, …)`）的直接插一行核对（已用掉 12 份）；
-     ② 其余的形状各不相同（多文件、`shutil.copy2`、快照字典…），要逐份看代码再改。
-- ✅ **报告事实核对**（R3-07c）—— 复现：`python _tools/qa/_check_report_facts.py`
-  台账里每条 ✅ 后面那句 `复现：` 现在**真的会被跑一遍**（去重后 23 条命令：19 条真跑 / 4 条跳过，8 路并发、
-  每条 180 秒超时）：非零退出就是「文档说了假话」。六组判据：✅ 条数下限（扫描坏了先喊）／每条 ✅ 必须带命令／
-  命令必须退出 0／真跑条数下限（判据空转就红）／SKIP 表**不许有化石**且每条要写「什么时候删掉这一条」／
-  ⭐ 行里写的**期望值**（`→ ` + 反引号）必须在命令**现在的输出**里，而**跳过的那几条不许写期望值**。
-  写它当天就抓到两批真缺陷：① 三条过期 ✅（`_migration_tests.py --fresh/--old/--concurrent` 因为脚本里
-  `LATEST = 7` 写死、迁移 008 之后必失败）；② 本文件里两个**没人核的数字**（`1015 passed` / `114/114` ——
-  两条命令都在 SKIP 表里，谁也跑不出那个数）→ 已改成「以命令自己打印的为准」。
-  反向验证 **9/9**（7 条注入各自报红：命令必失败 / 指向不存在的脚本 / 抹掉某条的复现命令 / 台账被掏空 /
-  SKIP 变化石 / 给跳过的命令写期望值 / 写一个假的期望值；+ 负面对照（重复的命令去重后仍算通过）
-  + 还原后逐字节一致）。
-  ⛔ **写它的当天就踩了自己的雷**（2026-09-26 实测）：台账本条 ✅ 的复现命令**就是它自己** ⇒
-  「检查跑检查」→ 40 分钟里长出 **400 多个 python 进程**（每一代隔 7~8 秒生一个，`_check_all.py` 被拖到 171 秒）。
-  修法三层，缺一层都会复发：① **环境变量守卫**（子命令带 `SORDERS_REPORT_FACTS_DEPTH`，下一代一启动就报错退出）；
-  ② 自己那条命令进 SKIP 表（写明为什么 + 什么时候删掉这一条）；③ 一条**结构性判据** ——
-  台账里凡是要跑起本脚本的命令，必须在 SKIP 表里显式登记，否则红。
-  教训与「永远红的检查＝没有检查」同源：**判据的爆炸半径，本身也是判据要管的东西**。
-  ⛔ 它证不了什么：只证「那条命令现在退出 0」+「写的期望值现在还打得出」，
-  **不证**「那句中文描述得准确」——话有没有说过头，机器判不了，那是人读报告时要盯的。
-  ⚠️ 期望值那条判据**当前核了 0 条**（台账里没人写期望值）：它有没有牙由反向验证的 ⑥⑦⑧ 三条证，
-  ⛔ 别把它当成「已经在替你核数」。
-- ❌ 依赖可复现性决策（开区间 vs pin，三处版本是否一致）—— 产物已是 `docs/DEPENDENCY_DECISION.md`，**决策待用户拍板**
-  **前半（证据 + 判据）已就位**：① 三处版本摆齐（声明 / 本机 / CI；**生产那一格空着** —— 要 R3-05 上机器 `pip freeze`）；
-  ② 机器判据 `python _tools/qa/_check_dep_declaration.py`（24 条声明逐条对**本机实际装的版本**，不成立的必须
-  登记 + 写「什么时候删掉这一条」+ 棘轮只减不增（=1）+ 防化石），反向验证 6/6；
-  ③ 实测抓到一处真不一致：`cryptography` 声明 `>=42,<44`、本机是 **48.0.0**（高 5 个大版本），
-  上限来自 `f20b93a`「初始提交 v0.01」（2026-04-09），仓库里找不到理由 —— 已登记为例外，⛔ 不自己改。
-  **要用户拍板的三件事**写在 `docs/DEPENDENCY_DECISION.md` §五（往哪边对齐 / 要不要 lock / 允不允许上生产只读 `pip freeze`）。
-
-- ✅ **活文档不许写「会变的数字」：耗时也归这一族**（R3-07e）—— 复现：`python _tools/qa/_check_live_doc_counts.py --check`
-  `AGENTS.md`（每个新会话都会读的那一页）写着「约一分钟」，实测 **171 秒**；而那个数只会随脚本数继续涨
-  → 数字删掉，改由 `_check_all.py` **自己打**（「跑完 N 个检查，总耗时 X 秒。」）；
-  判据新增一族：**凡提到 `_check_all.py` 的行里不许出现耗时数字**（写的时候是真的、之后必然过期）。
-  反向验证 **11/11**（9 条注入各自报红，含这一族；+ 负面对照 + 还原后逐字节一致）。
-  ⛔ 顺手抓到两件真缺陷：① 台账里两个**没人核的数字**（`1015 passed` / `114/114`，两条命令都在 SKIP 表里，
-  谁也跑不出那个数）→ 改成「以命令自己打印的为准」；
-  ② `_reverse_verify_live_doc_counts.py` 的沙箱里粘着一段**必然 `NameError`** 的兜底代码
-  （引用未定义的 `old`、还在 `@staticmethod` 里用 `self`）—— 也就是说**这份反向验证从第二轮那次编辑起就没跑通过**，
-  而外面没有任何东西发现它（形状是对的：`_check_reverse_verify_restore.py` 只判「有没有按字节还原」，
-  不判「跑不跑得起来」）。已删掉那段，并把这个坑写进脚本自己的说明。
-
----
-
----
-## §3 R3-07 元系统加固：这一轮**真正值钱**的部分
-
-指南 §二十一 的四条 + §二十二 的依赖决策。为什么把它放在**生产之后**：它管的是「判据体系本身还灵不灵」，
-而判据体系的价值只能在真实运行中被检验。五个子项：
-
-### 3.1 R3-07a 生成物新鲜度 ✅
-
-- **要解决的问题**：机器生成的产物（端点索引、AI 读能力目录、能力快照、界面文案目录）**会过期**，而过期地图比没有地图更糟。
-- **做法**：`_airepo.GENERATED_ARTIFACTS` 是**唯一**的真源表（生成器与判据读同一份，不各写一遍），每条声明 `sources` glob 与 `marker`；
-  产物里写下 `source_hash`；判据**自己重算指纹**（不信任产物里那串）＋跑每个生成器的 `--check`＋核提交/时刻是否真实。
-- **本轮额外修**：指纹原来把**原始字节**直接进哈希，而本仓库 `core.autocrlf=true` —— 同一个提交，Windows 检出是 CRLF、CI 是 LF，
-  **同一个代码库在两台机器上指纹不一样**（本机全绿、CI 会红）。已改成哈希前把 `\r\n` 归一成 `\n`，四份产物按新口径重新生成。
-- 证据：`python _tools/qa/_check_generated_freshness.py` → 5 组判据全过；反向验证 7/7。
-
-### 3.2 R3-07b 反向验证必须完整还原 ✅（本轮收口）
-
-- **要解决的问题**：`_reverse_verify_*.py` 会**注入 bug 再还原**。一旦某一份没还原干净，接下来**所有结论都建立在坏代码上**，而 `git status` 不一定看得出来。
-- **契约分三层**（棘轮只增不减）：
-
-| 层 | 含义 | 实测 | 上限/下限 |
-|---|---|---|---|
-| L1 | 按字节快照 + 按字节还原 | **141/143** | 下限 135（余 2 份是例外） |
-| L2 | 跑完**逐字节比对**证明一模一样 | **142/143** | 下限 142（余 1 份是例外） |
-| L3 | 换行符会漂的脚本 | **0** | 上限 0 |
-
-- **⭐ 最后一块证据（本轮第一次真做）**：把 **142 份全部跑一遍**（按域分批，约 2.5 小时）—— 运行器**每跑完一份就逐字节比对
-  「现场 vs 开跑前的快照」**，不一致就点名（哪一份、哪些文件）＋当场按快照写回＋**计为不达标**。结果：**漂移告警 0 条**、跑完 `git status` 干净。
-  这就是指南 §二十一 ② 那句 **before snapshot = after restore snapshot** 的机器证明，而且**不依赖任何脚本的自述**。
-- **反例对照**（证明这层有牙）：临时探针故意写脏一个文件且 `exit 0` → 运行器当场点名 + 写回 + 计为不达标（验完已删）。
-- 例外表里两条（都写了「什么时候删掉这一条」）：`_reverse_verify_all.py`（批处理调度器，自己不注入）、`_reverse_verify_root_clean.py`（注入的是临时探针、自己删掉）。
-
-### 3.3 R3-07b2 注入锚点不许腐烂 ✅（本轮收口）
-
-- **暴露方式**：上面那次全量跑，`qa` 域 **104 份里有 11 份是「恒真的」**（注入没生效 / 打不动判据 ⇒ 那条红线**没有东西在守它**）。
-- **11 份逐份修好**，每份都用 `--only <名字>` 跑过 1/1；其中 **2 份是把判据收紧了**（收紧后干净源码仍全绿）。
-- **三种成因**（都记在台账与判据注释里）：
-  1. **锚点过期**：源码改了替换串没跟着改（如 `AiWriteService.kt` → `AiWriteDataSource.kt` 搬了家；台账尾部会长大）；
-  2. **判据比自己的名字弱**：`list_order` 的「地图选点要清 id」只判「这一对存在」，而文件里有两处；红线 §25b 的月薪锁只判「有 `with_for_update()` 且 400 字符内有 `SALARY`」，而文件里有两处锁；
-  3. **注入自己写错了**：`audit_coverage` 塞的 `stats.py` 根本没有 `write_log`（属合法豁免）、`permission_points` 的注入没有自带前提（说明表是空的）。
-- 证据：名单与逐条诊断在台账 R3-07b2 那一条。
-
-### 3.4 R3-07c 报告事实核对 ✅
-
-- **要解决的问题**：台账每条 ✅ 后面都跟着 `复现：` 命令，但「跟着一条命令」和「那条命令现在跑得通」是两件事。
-- **做法**：`_check_report_facts.py` 把台账里**每一条 ✅ 的命令真跑一遍**（去重后 23 条，8 路并发，每条 180 秒超时，整轮约 41 秒），非零退出就是**文档说了假话**；
-  另有五组结构判据：✅ 条数下限、每条 ✅ 必须带命令、真跑条数下限、SKIP 表不许有化石且要写退出条件、**行里写的期望值必须当场核得住**。
-- **它当天就抓到**：① 三条过期 ✅（`_migration_tests.py` 的 `LATEST = 7` 写死，迁移 008 之后必失败）；② 台账里两个**没人核的数字**（`1015 passed` / `114/114`）。
-- **本轮新增硬规矩**：台账里凡是要跑**反向验证**（会注入、会改工作区）的复现命令，本判据**一律不跑并计为不达标** —— 因为实测发生过一次事故（见 §4 第 8 条）。
-- 证据：`python _tools/qa/_check_report_facts.py` → 6 组判据全过；反向验证 9/9。
-
-### 3.5 R3-07d 依赖可复现性决策 ⏳ **等你拍板**
-
-- 产物已写好：`docs/DEPENDENCY_DECISION.md`（证据、三个选项与代价、我的建议）；
-- 机器判据已就位：`_check_dep_declaration.py` —— 24 条依赖声明逐条对**本机实际装的版本**（`importlib.metadata`），
-  不成立的必须登记 + 写「什么时候删掉这一条」+ 棘轮只减不增 + 防化石；反向验证 6/6；
-- **实测抓到一处真不一致**：`cryptography` 声明 `>=42,<44`，本机实测 **48.0.0**（高 5 个大版本；上限来自 2026-04-09 初始提交，仓库里找不到理由）；
-- **只差一行字**：把 `docs/DEPENDENCY_DECISION.md` 里的 `> **状态**：待用户拍板` 改成「已拍板：<你的选择>」，
-  禁做 #15 的探针就会放行（它现在**不许**顺手锁依赖，因为决策还没做）。
-
----
-
-## §4 这一轮**真被抓到**的 8 个缺陷（逐条：现象 → 根因 → 处置 → 防复发）
-
-这一节是整份报告里最值钱的部分：**它们不是设计出来的，是被判据抓出来的**。
-
-### ① 判据把自己写成了递归（400+ 个 python 进程）
-
-- **现象**：新写的「报告事实核对」跑起来之后，40 分钟里长出 **400 多个 python 进程**，整台机器被拖到连 `_check_all.py` 都要跑 171 秒。
-- **根因**：台账里那条 ✅ 的复现命令**就是这条判据自己** ⇒ 检查跑检查，每一代隔 7~8 秒生一个。
-- **处置**：三层，缺一层都会复发 —— ① **环境变量守卫**（子命令带上 `SORDERS_REPORT_FACTS_DEPTH`，下一代一启动就报错退出）；② 自己那条命令进 SKIP 表并写「什么时候删掉这一条」；③ 一条**结构性判据**（台账里凡要跑起本脚本的命令，必须在 SKIP 表里显式登记）。
-- **教训**：**判据的爆炸半径，本身也是判据要管的东西。**
-
-### ② 反向验证能把 CRLF 文件悄悄写成 LF
-
-- **现象**：一整轮全量检查从绿变红，而期间唯一动过源码的是 12 份反向验证的**注入 + 还原**；`git status` 干净，但生成物指纹对不上。
-- **根因**：快照用**不带 `newline=`** 的 `read_text()`（通用换行解码 ⇒ CRLF 在内存里已变成 LF）＋还原用 `write_text(newline=")`（不翻译 ⇒ 原样写回）⇒ **CRLF 文件还原后成了 LF**；`git status` 看不见（autocrlf 归一），而指纹是**原始字节**哈希。连 L2 的「文本级证明」都看不出来（两边都被归一，恒等）。
-- **处置**：口径收紧三次 + **28 处改成字节级**（快照 `read_bytes` / 还原 `write_bytes` / 还原后逐字节核对）⇒ **L3 收到 0**。
-
-### ③ 一份反向验证的「还原」写的是**另一个文件的字节**
-
-- **现象**：`backend/app/services/reports/` 下两个源码文件被整份覆盖成 **1176 字节的旧壳**。
-- **根因**：脚本的「锚点跟着搬家走」分支写的是 `path, original = _c, _t` —— 只换了路径与文本，**字节快照没换**；还原时把老文件的字节写进了新文件，而它自己那句「还原后与快照不一致就记账」比的是**同一份错字节** ⇒ **恒等、静默通过**。
-- **处置**：4 份同类脚本改成分别赋值 + 重取 `original_bytes`，并加**注入前的不变量**（快照必须属于要改的那个文件）；判据加一条**代码形状红线**（出现这个形状一律红）。
-
-### ④ 判据比自己的名字弱（两处，本轮收紧）
-
-- `list_order`：「地图自己选点时**清掉** id」实际只判「这一对存在」，而文件里有两处（预设单回填 / 地图选点）⇒ 删掉地图那一处照样绿；
-- 红线 §25b：「月薪单生成前锁住司机行」实际只判「有 `with_for_update()` 且 400 字符内有 `SALARY`」，而文件里有两处锁 ⇒ 删掉司机行锁照样绿。
-- **处置**：两处都**把判据收紧**（`list_order` 要求出现在 `applyPicked()` 里；§25b 拆成「有锁司机行调用 + 有月薪存在性查询 + **锁在查询之前**」），收紧后**干净源码仍然全绿**（55 项 / 1282 项）。
-- **教训**：判据读宽了与读窄了**同样糟** —— 这条在仓库里已经栽过多次（「判据被文字误伤」「判据被别处满足」）。
-
-### ⑤ 探针被「某文件存在」糊住
-
-- **现象**：禁做 #15 的探针（requirements 不许顺手锁）打不动了：反向验证里「顺手锁死一条」注入之后判据还是绿的。
-- **根因**：探针第一句是 `if (ROOT / "docs/DEPENDENCY_DECISION.md").exists(): return hold` —— 我建了那份**证据文档**（决策其实还没做）⇒ 探针**永久放行**。**文件存在 ≠ 决策做了。**
-- **二次踩**：改成读文档之后，我第一版写的是「`已拍板` in 整份文档」—— 而文档的说明文字里就写着「拍板之后把这一行改成『已拍板』」⇒ 永远为真。最终改成**只读那一行状态**。
-
-### ⑥ 两处脚本「第一行就崩」，外面看起来只是「不达标」
-
-- **现象**：`_reverse_verify_money_contract.py` 与 `_reverse_verify_live_doc_counts.py` 的沙箱里**粘着同一段跑不起来的兜底代码**（第二轮 R2-05 的「报表锚点跟着搬家走」，引用了未定义的 `old`）⇒ 第一次注入就 `NameError` 崩掉，**一条注入都没做**。
-- **另一类**：两份脚本会打 ✅/❌ 却**没设 stdout 编码**（`_reverse_verify_shipper_settle_ceiling.py`、`_probe_return_request.py`）⇒ 在 GBK 控制台下**打第一个 ✅ 就崩**（前者一条没验、后者跑到一半白跑）。
-- **处置**：删残留、补 `reconfigure`；`_check_tool_scripts.py` 加一条「会打 ✅/❌ 就必须能把它打出来」（⛔ 第一版只看本文件 → **虚报 5 份**，它们靠 `from _check_pagination_wiring import …` 间接拿到编码设置；改成**跟着 import 走**（深度 ≤3））。
-
-### ⑦ 静态审计抓到**源码里一处真的注入残留**
-
-- **现象**：`_check_reverse_verify_anchors.py` 报「1 处**注入残留**」：`backend/app/api/v1/places.py` 里 `LEDGER_UPDATE` 本该是 `PLACE_AUTO_ADDED`。
-- **根因**：某次反向验证**被硬中断**（工具调用被取消 / 进程被杀）⇒ 注入留在了源码里 —— **一个真的 bug 就在树上**，而且那条反向验证从此恒绿。
-- **处置**：用审计自带的 `--restore` 按字节还原（同批还清了 `OrderCreateScreen.kt`）；复核「1287 条注入原文全部还在」。
-- ⛔ 审计脚本自己写着那句话，要照做：**这种情况不要去改锚点** —— 改了等于把 bug 永久钉进源码。
-
-### ⑧ 我自己造的连锁事故：判据把一次 50 分钟的全量跑留在了后台
-
-- **现象**：全量检查突然 3 条红：`_check_report_facts.py` **300 秒超时**、两个检查报「反向验证正在跑（源码是**注入状态**），给不出可信结论」、生成物指纹对不上。
-- **根因**：台账里我写的那条 ✅ 复现命令是「**按域全量跑反向验证**」（~50 分钟），而报告事实核对**会逐条真跑** ⇒ 它**启动**了那次全量跑：判据自己超时，后台却留下**两个全量跑进程**，注入锁把后面所有检查全拦了，源码里还留着两处注入。
-- **处置**：① 那条复现命令改成**静态**锚点审计（1 秒级、不改源码）；② `_check_report_facts.py` 加硬规矩：**台账里凡是要跑反向验证的复现命令，一律不跑并计为不达标**（⛔ 第一版误伤：`_check_reverse_verify_restore.py` 这类**只读检查**名字里也有 `_reverse_verify`，已排除）；③ 杀进程 + `_recover_injections.py` 还原现场 + `git checkout --` 清掉两处注入残留。
-
----
-
-## §5 卡住的地方（逐条：卡点 → 为什么我不能自己推 → 候选路径与代价）
-
-### 5.1 生产（13 条 ❌：R3-05 八条 + R3-06 五条）
-
-- **R3-05 要的八件事**：Release Candidate 记录（SHA / 迁移版本 / 各端版本 / 依赖锁 / 配置校验和）、备份、迁移、启动新后端、health、只读烟测、trace 一单、回滚/前向修复方案；
-- **R3-06 要的五种演练**：杀 worker、Redis 不可用、事件消费延迟、迁移锁竞争、磁盘将满；
-- **为什么不能自己推**：禁做 #13 明确「不要 main → production；不要 restart systemd → hope」（要先备份→迁移→验证→启动→体检），
-  禁做 #14「第一阶段不要拿生产做完整写操作测试，**先只读**」——两条都要你**明确点头**；
-- **我做过什么**：**一次都没有登录过生产**（本报告不含任何生产实测数据）；只把要用的工具与流程写好（`_tools/backup/_pre_release.py`、`_tools/deploy/_release.py`、`_tools/ops/_health_check.py`、`_tools/ops/_prod_smoke.py --readonly`、`_tools/ops/_drill.py`）；
-- **候选档位**：(a) 只允许只读（读配置/日志/`pip freeze`/库结构）；(b) 只读 + 演练（会有真实故障窗口，需要时间窗与回滚）；(c) 先都不动（当前就是这一档）。
-
-### 5.2 依赖决策（1 条 ❌：R3-07d）
-
-- **卡点**：指南 §二十二 写明这件事**必须用户拍板**，我不能替你选；
-- **三个选项与代价**：(a) 改声明为 `>=42,<49`（不动机器，但新机器会装到 48、生产可能是 43）；(b) 把本机装回 `43.x`（要重装环境并重跑 1018 个用例）；(c) 先上生产跑**只读** `pip freeze`，以生产为基准（需要你在 5.1 里放行只读）；
-- **要不要引入 lock 文件**也在这里定；(d) 产物与判据都已就位，**只差状态行**。
-
-### 5.3 本机环境（2 条 ❌：R3-03 的 socket / nginx）
-
-- **Socket.IO 跨实例推送**：本机**没有 Redis**（实测 `Test-NetConnection 127.0.0.1:6379` 不通、`redis-server` 不存在）⇒ socket.io 的跨进程适配器起不来；这一格**没有验**，台账里如实写 ❌ 并让 `_dual_instance.py --socket` 打印「没验」，**不假装通过**；
-  ⛔ 有一条**不能走**的路：借生产的 Redis —— 那会把测试实例的推送混进生产客户端的同一个 channel；
-- **nginx upstream + 失败摘除**：本机没有 nginx（`nginx` 命令不存在）；它要动生产 nginx，属 R3-05；
-- **三条候选路径**（台账「卡在哪儿」一节）：① 本机装一个 Redis（Windows 上可用 Memurai 或社区移植版）⇒ 能把 socket 验掉，代价是本机多一个常驻服务；② 在生产起一对**隔离的**临时实例（不同端口 + SQLite + 独立 Redis DB 序号）⇒ 能验 socket 与 nginx，代价是动生产机、要你点头；③ 并进 R3-05 一起验（当前选的这条，因为它不需要额外许可）。
-
----
-
-## §6 完全没做的（列清楚，不含糊）
-
-| # | 没做的事 | 状态与原因 |
-|---|---|---|
-| 1 | **CI 一次都没验过** | 本地 `p` 领先 `origin/new` **32 个提交**（从未推送）⇒ CI 上跑没跑过、红没红，**我不知道**。要推要你一句话（推 = 公开发布，仓库本来就是公开的，但我不擅自动） |
-| 2 | **生产上一格都没跑** | R3-05 八条 + R3-06 五条，等你放行（见 §5.1） |
-| 3 | **socket 跨实例推送** | 本机无 Redis（见 §5.3） |
-| 4 | **nginx upstream + 失败摘除** | 本机无 nginx，且要动生产 |
-| 5 | **依赖 lock / 对齐** | 等你拍板（见 §5.2） |
-| 6 | 第四轮的东西（读模型 / 缓存 / 容量规划 / 对象存储 / 高可用 / 弹性扩容 / 更复杂的异步） | 禁做 #19 明确「不要现在做」——**刻意不做**，不是漏了 |
-
----
-
-## §7 怎么自己复核（照着跑就行）
-
-```
-# ① 台账结论（唯一出处）：38 ✅ / 16 ❌，每条 ✅ 都带能跑的命令
-cd D:\AProjects\ASDH\orders
-Select-String -Path docs\R3_PROGRESS.md -Pattern '^- (✅|❌)' | Measure-Object
-
-# ② 全量静态检查（119 个脚本；脚本数/耗时它自己打）
-python _tools\qa\_check_all.py
-
-# ③ 禁做清单 27 条 + 8 组探针（棘轮只减不增）
-python _tools\qa\_check_r3_constraints.py
-
-# ④ 后端用例
-cd backend; python -m pytest -q
-
-# ⑤ 报告事实核对：台账里每条 ✅ 的命令**真跑一遍**
-python _tools\qa\_check_report_facts.py
-
-# ⑥ 还原契约（L1/L2/L3 三个数）
-python _tools\qa\_check_reverse_verify_restore.py
-
-# ⑦ 注入锚点有没有腐烂 / 有没有注入残留在源码里
-python _tools\qa\_check_reverse_verify_anchors.py
-
-# ⑧ 两实例真跑（本机 8111/8112 + 共享库 + 共享上传目录）
-python _tools\ops\_dual_instance.py --all
-
-# ⑨ 第三轮 30 个提交
-git log --oneline c544db5..HEAD
-```
-
----
-
-## §8 附录：第三轮提交台账（30 个）
-
-```
-7758bf7 R3 报告：第三轮整改报告（交付物 + 桌面副本）
-d7da1b4 R3-07b2 收口：11 份腐烂注入全部修好；静态审计抓到一处真注入残留；判据不许再启动反向验证
-5cbe1b4 R3-07b2 续四：再修 2 份（r3_constraints / audit_coverage）—— 9/11，两处都是「判据其实有牙」
-77f020a R3-07b2 续三：再修 2 份（category_roster / inline_role_gates）—— 7/11，并列出剩 4 份的真因
-e7c836a R3-07b2 续二：再修 2 份腐烂注入（money_contract 崩在第一行；list_order 是判据比名字弱）
-5f81c84 R3-07b2 续：11 份腐烂注入里先修 3 份（import_purity / ai_declarative_crud / contact_binding）
-a7abbb0 R3-07b 收口：全量跑完 142/142（漂移 0）→ 还原契约转 ✅；另记一条 ❌ 注入锚点腐烂
-5ffb0b5 R3-07b 续十：L2 收口到 142/143（余下 1 份是例外即上限）；doc_refs 最后一条用例修好
-2a4d3ac R3-07b 续九：L3 收到 0（换行符再也不会漂）；L2 到 140/143；踩到「单跑没有兜底」
-1b90dec R3-07b 续八：L2 117→136（那一族剩下的 19 份一次改完）；补掉 4 条烂锚点
-3eb0faf R3-07b 续七：L2 106→117（read_src 那一族加「写回后重新读回来逐字节比」）；修一条瞄错地方的注入
-68dfab5 R3-07b 续六：给反向验证补上「外部证明」——每跑完一份就逐字节比对现场与快照
-4669357 R3-07b 续五：搬家时字节快照没跟着搬（破坏性缺陷）；生成物指纹改成换行无关
-77260ae R3-07b 续四：12 处还原改成字节级；L3 口径收紧（虚报 11 份 → 22 份真缺口）
-2d6b67b R3-07b 续三：L2 94→106（补 12 份并逐份跑过）；顺带抓到「换行符漂移」
-7af019d R3-07b 续：L2 从 72 抬到 94 —— 一半是判据读窄了，一半是真补的
-31f7442 R3-07d 补：新增检查器必须写「为什么边界解决不了」（R3-D17 抓到的）
-65857ca R3-07e 会变的数字（耗时）也归判据管；顺手修好一份跑不起来的反向验证
-750b68b R3-07d 依赖声明对账：开区间也必须有人守（证据 + 判据；决策待用户拍板）
-a8b32bb ﻿R3-07c 报告事实核对：台账每条 ✅ 的命令都由机器跑一遍
-e5979f8 R3-07b 反向验证还原契约：把「还原」从各写一遍变成一份契约（L1 139/141、L2 72/141）
-5ba7b1f R3-07a 生成物新鲜度：四个产物各自声明真源指纹，判据自己重算（+ 反向验证 7/7）
-a55e90e R3-04 可观测性：三层追踪 id 落地（request_id / command_id / event_id）+ 指标 17 条
-3e7419f R3-03 多实例运行时：真起两个实例跑实验（4/5 过）+ 上传资产决策 + 调度选主
-7289250 R3-02 收尾：清掉进度台账里一行过期的 ❌（文档语义不许落后于事实）
-2185ea7 R3-02b 工作台入口改成问能力：UI 不再自己判断角色（行为等价有单测钉住）
-0769563 R3-02a 收尾：代码量闸门拆成「总闸 + 业务逻辑闸」（业务逻辑净增 0 行）
-3331e9f R3-02a 能力变成可生成的唯一真源：角色能力 + 审计覆盖 + App 侧快照
-e9c9658 R3-01 收尾：新判据补上边界理由、checker_budget 只盯「新增」、核心改动补声明
-81a8219 R3-01 迁移生命周期：import 不再改库，启动不再迁移（并修掉两个真缺陷）
-```
-
----
-
-## §9 一句话总结
-
-> **代码侧做完了**：119/119 静态检查、1018 个后端用例、142 份反向验证零漂移、还原契约 L2 142/143、L3 0，
-> 这一轮还抓出并修好了 **8 个真缺陷**（含一个真的留在源码里的注入 bug）；
-> **生产侧一格未跑、CI 一次未验、依赖决策未拍板、socket/nginx 未验** —— 这四件事全在等你。
->
-> ⤵️ **2026-09-26 下午补记**：上面这四件里，**只读那一半、CI、依赖决策**都已经落地（见 §10）；
-> 真正还等你的只剩**写阶段**（备份 → 迁移 → 启动 → 体检 → 故障演练）。
-
----
-
-## §10 收口（2026-09-26 下午 · 用户四条拍板之后）
-
-### 10.1 用户拍板的四条（原话）
-
-> 「**① c　② 不要 lock　③ 只读放行　④ 要 push**」
-
-| # | 决定 | 它拦住了什么 |
-|---|---|---|
-| ① | `cryptography` **以生产真实 `pip freeze` 为准** | 拿**本机的偏差**去改一件生产上本来正确的事 |
-| ② | requirements **本轮不锁**（保持开区间 + 现有机器判据） | 在还没有生产基准时凭空锁一个版本 |
-| ③ | 生产**只读放行**（只验证，不做业务写入） | 「验证」顺手变成「顺手改一台线上机」 |
-| ④ | **要 push** | 「本机全绿」被当成「验过了」 |
-
-### 10.2 逐条落地
-
-| # | 真做了什么 | 证据 | 留到什么时候 |
-|---|---|---|---|
-| ① | 上生产跑**只读** `pip freeze`：**15/15 运行依赖全部落在声明区间内**，`cryptography` = **43.0.3**（∈ `>=42,<44`） | `docs/R3_PROD_READONLY_EVIDENCE.md` §二.2（含 49 个包的全量清单） | 依赖治理那一轮再定「放宽声明 / 降本机 / 上 lock」 |
-| ② | `backend/requirements*.txt` **一个字没改**；把探针改成**照着决策判**（决策说不锁 ⇒ 继续拦 `==`） | `python _tools/qa/_check_r3_constraints.py`（R3-D15）＋反向验证 9/9 | 拿到生产真实版本后再单独做依赖治理 |
-| ③ | 新增 `_tools/ops/_prod_smoke.py --readonly`（八项各有真探针，`_check_ops.py` 钉着它一句写操作都不许有） | 八项实测表见 `docs/R3_PROGRESS.md`「现场只读核对」一节 | 写操作（备份/迁移/启动/回滚）要**另外一次许可** |
-| ④ | `git push origin p:new` + **把 CI 从红修到绿**（四轮） | 见 §10.4 | 以后每次收口都以「CI 整轮 success」为准 |
-
-⛔ **这次拍板没有做的事**（记着，免得下轮以为做过了）：没改 requirements、没降本机版本、没引入 lock、
-没在生产上写过任何东西（不备份、不迁移、不重启、不写业务数据）——所以「生产真的跑过这一版代码」**仍然没有发生**。
-
-### 10.3 生产只读核对（用户点名的八项，逐项实测）
-
-| 项 | 实测（2026-09-26） |
+| 核对项 | 实测 |
 |---|---|
-| 版本 | 生产 `648fbf8`（2026-09-23，分支 new）—— ⛔ **落后本仓库 HEAD 286 个提交**；跟踪文件没被手改过 |
-| 依赖 | 49 个包；**15/15 运行依赖落在声明区间内**（`cryptography` **43.0.3**）；9 条开发依赖没装（正常） |
-| migration | ⛔ 生产**没有** `app.migrations` 模块、库里**没有** `schema_versions` 表 ⇒ R3-01 还没上生产 |
-| DB | ✅ 可达；44 张表 / 11.6 MB；⚠️ `time_zone = SYSTEM`（不是 UTC）；⛔ 没有 `outbox_events` 表 |
-| Redis | ✅ PONG（6.2.20）；keyspace **空**；⚠️ 无口令（既知） |
-| nginx | ✅ 1.20.1；`proxy_pass http://127.0.0.1:8000`（**单后端**）；⛔ 无 `upstream` / 无失败摘除 |
-| uploads | ✅ 2115 个文件 / 187M（⛔ 没做写入探测 —— 「可写」本轮没验） |
-| trace | ⛔ 生产 `operation_logs` **没有** `request_id` / `command_id` 列、代码里没有 `app/core/request_id.py` ⇒ R3-04 那一层还没上生产 |
-| 现状健康 | 服务 active、`/health` 200、磁盘 29%（可用 27G）、备份 10 份 / 208M 且最近一次 1.1 小时前 |
+| 版本 | 生产 `648fbf8`（2026-09-23，分支 new）—— 落后本仓库 HEAD **293** 个提交；跟踪文件没被手改过 |
+| 依赖 | 生产 49 个包；**15/15 运行依赖落在声明区间内**；9 条开发依赖没装（正常）|
+| migration | 生产**没有** `app.migrations` 模块、库里**没有** `schema_versions` 表 |
+| DB | 可达；44 张表 / 11.6 MB；时区口径不是 UTC；**没有** `outbox_events` 表 |
+| Redis | PONG（6.2.20）；keyspace **空**；无口令（既知）|
+| nginx | 1.20.1，247 行配置；反代指向 `127.0.0.1:8000`（单后端）；**无** upstream / **无**失败摘除 |
+| uploads | 2115 个文件 / 187M（⛔ 没做写入探测）|
+| trace | `operation_logs` 没有 `request_id` / `command_id` 列、代码里没有 `app/core/request_id.py` |
+| 现状健康 | 服务 active、健康检查 200、磁盘 29%（可用 27G）、备份 10 份 / 208M |
 
-### 10.4 CI：从红到绿（四轮），它抓到的**三个「本机绿、CI 红」缺陷**
+### §12.4 CI 运行记录（当天）
 
-第一次 push（`5cb27fb`）CI 就红了 —— 而**日志匿名读不到**（API 说 *Must have admin rights*，页面说
-*Sign in to view logs*）。所以第一件事不是修红，而是**让红可读**：那一步改成 `tee` 日志 + 失败时把 `❌` 行
-拼进 `::error::` **注解**（注解匿名可读）。
-
-| 轮 | 抓到的 | 根因 | 处置 |
-|---|---|---|---|
-| 1 | 两个「起后端」的作业红 | **CI 还在依赖 R3-01 摘掉的那条副作用**：只 `seed_dev_users` 就起 uvicorn ⇒ 空库没表 / `assert_schema_ready()` 拒绝启动 | 两个作业补 `python -m app.migrations upgrade`（先迁移、后应用） |
-| 1 | 「全部静态检查」红 | `_check_report_facts.py` 写死 `powershell`，CI（ubuntu）上没有 ⇒ **每一条**台账命令都 125 | 按平台选 shell（`powershell` / `pwsh` / `bash`），选不到如实报错 |
-| 2 | 台账里一条 ✅ 跑不通 | `cd backend; python -m app.migrations status` 读环境里的 `DATABASE_URL`：本机有 `.env`（SQLite），CI 没有 ⇒ 默认 MySQL 连不上 | 改成**自己造一个临时库再问它** |
-| 2 | 判据说错话 | 指纹不一致时它**同时**报「判据在空转」——而判据明明比过了 | 拆成 `attempted`（比过几次）/ `hashed`（对上几次） |
-| 3 | 指纹不一致（真因） | `source_fingerprint` 里 `sorted(set(seen))` 排的是 **Path 对象** —— `WindowsPath` 大小写**不敏感**、`PosixPath` 敏感 ⇒ 同一个提交两台机器两个指纹 | 归一成 posix 字符串再排；重生受影响的产物 |
-
-⭐ **三个缺陷是同一个家族**：`powershell` 写死、例外表「必须还在当前违反里」、排序键用 Path —— 都是
-**把「本机」当成了「世界」**。它们在本机全是绿的，只有 CI 看得见；而第一轮之前，连「哪一条红了」都读不出来。
-
-**第四轮（`cc949bf`）：`Gate` + `Tests (Parallel)` 两条工作流整轮 success**（含安卓端到端那个作业）；
-`684a937`（收口文档）同样整轮绿。
-
-⛔ **之后又推的提交里有一次红，如实记在这儿**：`97c5caa`（只改了三处文档占位符）的 `Gate` 红在**唯一一个作业**
-——「安卓端到端（登录 → 导航 → 下单）」：**模拟器在托管 runner 上没起来**（同一个作业在 `cc949bf`、`684a937` 上都是绿的，
-这一提交又只动了两个 `.md`，与安卓端到端没有任何关系）；同一提交的静态检查 / 后端用例 / AI 权限对账 / 安卓单测全绿。
-中间两次（`88b6a66`、`5e9eda7`）是 **cancelled** —— 连推两次时 GitHub 按并发组取消了前一次，⛔ 那不是红。
-⛔ 这一格**没有被说成全绿**：想拿到 tip 上的整轮绿，得再推一次让它重跑那个作业。
-
-### 10.5 三层完成度（现在）
-
-| | 状态 |
-|---|---|
-| Code Ready | ✅ 119 个静态检查全绿（条数以它自己打印的为准） |
-| CI Proven | ✅ `cc949bf` 整轮 success（Gate + Tests） |
-| Local Proven（Runtime） | ✅ 本机真进程真库（两个实例、真迁移、真上传） |
-| Production Read（只读） | ✅ 八项核对做完，证据入档 |
-| Runtime Proven（生产） | ❌ **未发布** —— 生产还停在 2026-09-23 的代码上（落后 286 个提交） |
-
-### 10.6 还剩什么 ❌（16 → 13）
-
-| 类别 | 条数 | 为什么还等着 |
-|---|---|---|
-| R3-05 发布六条 | 6 | 全要**写操作**或要在生产上跑（备份 → 迁移 → 启动 → health → 只读烟测 → trace 一单）；⛔ 另两条（候选记录、回滚方案）已在本轮补上并转 ✅（见 §10.9） |
-| R3-06 故障演练五条 | 5 | 要停服务 / 拔 Redis / 塞满磁盘 —— 同样要写许可 |
-| R3-03 socket 跨实例 | 1 | 本机**没有** Redis；生产 Redis 的 keyspace 是**空的**（也没在用跨实例适配器）—— 两头都没有证据 |
-| R3-03 nginx 失败摘除 | 1 | 现在这套部署形态里**根本没有 `upstream`**（单后端 proxy_pass）—— 要改部署形态才行 |
-
-（另有一件**不属于 ❌、但记在这儿**的：本机 `cryptography 48.0.0` 与声明 `>=42,<44` 不一致，
-而生产是 43.0.3 —— 偏差在**本机**那一头，留到依赖治理那一轮。）
-
-### 10.7 这一轮的提交（6 个，全部已推 `origin/new` 并通过 CI）
-
-```
-cc949bf R3-07 CI 修红④：指纹的**排序键**是平台相关的 —— 「本机绿、CI 红」的真因找到了
-2ed3e5a R3-07 CI 修红③：让 CI 的「指纹不一致」变成**读得出来**的 + 台账里一条环境绑定的命令
-bcb11a9 R3-07 CI 修红②：两条判据的「本机绿、CI 红」缺陷（shell 可移植 / 例外表跨环境）
-79ac355 R3-05 CI 修红①：流水线补上「先迁移、后应用」+ 静态检查失败时把原因打进注解
-5cb27fb R3-05 现场只读核对：新增只读烟测脚本（八项各有真探针）+ 生产事实入账；R3-07d 台账转 ✅
-8663c92 R3-07d 拍板落地：依赖决策=本轮不锁 + 生产真实版本已量到（cryptography 43.0.3 ∈ 声明区间）
-```
-
-### 10.9 补记（同一轮内）：三份「写阶段要用的文档」已经写好
-
-R3-05 里有两条退出条件的产物**是文档本身**（指南 §十六「先建立 Release Candidate」、§十八「建立
-PRODUCTION_ACCEPTANCE.md」），R3-06 要的也是**演练方案**。在等许可的那段时间里可以先生成 —— 于是补了：
-
-| 文档 | 是什么 | 机器判据 |
-|---|---|---|
-| `docs/RELEASE_CANDIDATE.md` | R3-05-A 候选记录：Git SHA / 迁移版本 / Android·Backend·Frontend 版本 / 依赖锁 / config checksum / artifact checksum（**每个字段都写了自己的现取命令**）＋ 发布七步（先迁移后应用）＋ 回滚·前向修复方案 | 台账 R3-05 第 1、8 条 ✅（判据核：字段齐不齐、SHA 是不是本仓库的提交、迁移版本与目录现数是否一致） |
-| `docs/PRODUCTION_ACCEPTANCE.md` | R3-05-C 验收清单：12 项**按权限分段**（只读 6 项今天已出结果，写 6 项等许可） | 禁做清单探针 R3-B05 由 ⏳ 转 ✅ |
-| `docs/R3_FAILURE_DRILL.md` | R3-06 五个演练（worker / redis / event / lock / disk）：目的、命令、期望信号、判读、今天的状态 | 探针 R3-B06 由 ⏳ 转 ✅ |
-
-⛔ **它们都不是「做完了」**：候选记录不证发布做过、验收清单不证验收过了、演练方案不证演练跑了 ——
-三份文档各自都写了「这份东西**证不了**什么」。台账从 **40 ✅ / 15 ❌** 变成 **42 ✅ / 13 ❌**：多出来的
-两条 ✅ 是「记录 / 方案齐全」，⛔ 不是「生产验过」。
-
-顺手修掉一个真缺陷：`_tools/ops/_prod_smoke.py` 的 `repo_migration_head()` 原来 glob 的是
-`migrations/versions/0*.py` —— **那个目录不存在**（迁移就在 `backend/app/migrations/` 下），于是它
-**静默返回 0**，判据那一行会写成「生产库结构版本 = 仓库最新版本 **0**」。现在数不出来会如实报「数不出来」。
-
-### 10.10 发布工具：把七步变成一条命令，并把纪律写进**代码**（`_tools/deploy/_release.py`）
-
-指南 §十七 要的是「先迁移、后应用」那个顺序，禁的是「restart systemd → hope」。手工敲七步有三个问题，
-本仓库三个都踩过：**顺序会被临时改**、**「备份了吗」没人验**、**失败之后回滚指引不在手边**。
-所以把七步做成了 `_tools/deploy/_release.py`，并把四条护栏写在代码里（⛔ 不靠记性）：
-
-| 护栏 | 内容 |
-|---|---|
-| **G1 默认只打印** | 不给 `--go` 绝不执行任何一步；所有有副作用的调用都在 `if go:` 之后，判定逻辑是**纯函数** `decide()` |
-| **G2 顺序强制** | 每一步只有在**前面所有步**都成功记在同一份 run-file 里时才允许跑（实测：`--step start --go` 当场被拒：「还有没跑成功的步骤 —— backup、migrate、verify」）|
-| **G3 备份必须新鲜** | `--step start` 要求最近一次 pre-release 备份 < 6 小时，否则拒绝 |
-| **G4 算不出事实就拒绝** | 连不上生产 / 读不到备份年龄 ⇒ 拒绝（⛔ 不许猜成「大概没事」）；`--sha` 必须是**本仓库真实提交** |
-
-⭐ 工具**自己可验证**：`python _tools/deploy/_release.py --selftest` 用**假事实**把四条护栏逐条断言（8 个用例
-+ 7 个「没有 `--go` 时任何步骤都只能是 plan」）→ **15/15 通过**，而且这条命令已进台账的 ✅ 行 ⇒
-以后每次全量检查与 CI 都会跑它一遍（⛔ 不是写一次就没人管）。
-
-⛔ **它没有被用在生产上过一次**：本机只跑过 `--plan`、`--selftest`，以及那次被护栏拒绝的 `--step start --go`。
-`business` 那一步（有限写烟测）**故意不自动化** —— 往生产写业务数据必须人按 `docs/PRODUCTION_ACCEPTANCE.md` §三 逐条做。
-
-### 10.11 故障演练工具：把五个演练的**本机那一半**固化成一条命令（`_tools/ops/_drill.py`）
-
-R3-06 要的是「故障时能不能恢复」。五个演练里，**生产那一半**都要停服务 / 断 Redis / 塞磁盘 ——
-按禁做 #13/#14 必须人做且要许可；但**本机那一半**可以现在就固化并跑通，于是写了 `_tools/ops/_drill.py`：
-
-| 护栏 | 内容 |
-|---|---|
-| **G1 默认只打印** | 不给 `--go` 一律不执行（五个演练逐个自检过这一点）|
-| **G2 默认目标＝本机** | 要动生产必须**同时**给 `--target prod` + `--go` + `--i-know-prod`，缺一个就拒绝；
-  而生产演练**它也不代跑** —— 只打印过程、期望信号与「怎么放回原样」|
-| **G4 本机跑不了的那格如实报** | disk 那一格只报「本机只能证阈值判得对」，⛔ 不把「没跑」写成「通过」|
-
-⭐ **本机预演 5/5 通过**（`--all-local --go`，2026-09-26 实测）：worker-crash（杀 A → B 继续服务）、
-redis-down（本机没有 Redis + 订单流/账本同步 10 passed）、event-delay（入队 3 → pending=3 → 抽干 → 0 且不重复）、
-lock-contention（两进程同时迁移都成功、版本表各一行）、disk-full（阈值 50/85/95 逐档判得对）。
-
-⛔ **它不改变台账那五条 ❌**：本机预演 ≠ 生产演练。工具的 `--selftest`（12/12）已进台账的 ✅ 行 ⇒
-以后每次全量检查与 CI 都会跑它。
-
-### 10.8 一句话
-
-> **代码侧与 CI 侧都闭环了**：这一轮从「本机全绿」走到「CI 整轮绿」，靠的不是再写几个检查，
-> 而是把**判据里那些「只有本机成立」的假设**一条条挖出来（`powershell`、例外表、Path 排序键）；
-> **生产侧只剩写阶段**（备份 → 迁移 → 启动 → 体检 → 故障演练）—— 那一步要你明确点头。
-
+见 §5.4（同一张表）。⛔ 口径：**按提交记、不按 tip 记** —— 每次推新提交都会产生新的运行，
+所以「现在的 tip 是绿的」只对表里列出的那个提交成立。
 
