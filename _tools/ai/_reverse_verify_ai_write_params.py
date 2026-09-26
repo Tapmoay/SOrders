@@ -186,7 +186,7 @@ def main() -> int:
         dirty = [str(p.relative_to(ROOT)) for p, h in before.items() if sha(p) != h]
         if dirty:
             print(f"⚠️ 逐字节还原自检失败：{dirty} —— 尝试按快照还原")
-            restore_snapshot(snapshot_dir())
+            restore_snapshot()
             bad += 1
         else:
             print(f"✅ 逐字节还原自检：{len(before)}/{len(touched)} 个注入点文件与跑之前完全一致")

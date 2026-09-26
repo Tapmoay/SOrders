@@ -46,14 +46,19 @@ def repo_root() -> Path:
 
 ROOT = repo_root()
 
-# 反向验证会注入到的目录（**自己列**，不含 build 产物；漏掉一个不影响安全，只是那一处还原不了）
+# 反向验证会注入到的目录（**自己列**，不含 build 产物；漏掉一个不影响安全，只是那一处还原不了）。
+# ⚠️ 2026-09-26：`_tools/**` 从「只列 ai」改成**按目录自己算** —— 注入目标早就散到 `_tools/qa`、
+#    `_tools/notify` 等域了，而有些反向验证会**原地改检查脚本再改回来**（如
+#    `_reverse_verify_reverse_verify_restore.py`）。只盯 `_tools/ai` 的话，那些地方改坏了没人知道。
 SNAPSHOT_DIRS = (
     "android/app/src/main/java",
     "android/app/src/test/java",
     "backend/app",
     "docs",
-    "_tools/ai",
-)
+) + tuple(sorted(
+    "_tools/" + d.name for d in (ROOT / "_tools").iterdir()
+    if d.is_dir() and d.name != "__pycache__"
+))
 
 
 def snapshot_dir() -> Path:
@@ -81,16 +86,17 @@ def take_snapshot() -> int:
     return n
 
 
-def restore_snapshot() -> list[str]:
-    """把快照里与现场**不一致**的文件写回去，返回被还原的仓库相对路径。快照用完即删。
+def snapshot_drift(repair: bool = False) -> list[str]:
+    """现场与快照**逐字节**不一致的文件（**不删快照**）。repair=True 时顺手按快照写回。
 
-    只覆盖"内容不同"的文件；只在现场新出现的文件**只报告不删**——那可能是这次跑
-    真的新加的文件，删了就真丢了（用户的底线是「不要删了就搞不回来了」）。
+    用来回答指南 §二十一 ② 那句话：**before snapshot = after restore snapshot** —— 而且能问到
+    「是哪一份脚本跑完变成这样的」，比每份脚本自己手写的还原核对更硬（自己写的那个可能盯错一头，
+    2026-09-26 实测过：`path, original = _c, _t` 那句让核对比的是**同一份错字节**，恒等通过）。
     """
     src = snapshot_dir()
     if not src.is_dir():
         return []
-    fixed: list[str] = []
+    drift: list[str] = []
     for rel in SNAPSHOT_DIRS:
         base = src / rel
         if not base.is_dir():
@@ -100,11 +106,22 @@ def restore_snapshot() -> list[str]:
                 continue
             live = ROOT / rel / snap.relative_to(base)
             if not live.exists() or not filecmp.cmp(snap, live, shallow=False):
-                live.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(snap, live)
-                fixed.append(str(live.relative_to(ROOT)))
-    shutil.rmtree(src, ignore_errors=True)
-    return sorted(fixed)
+                drift.append(str(live.relative_to(ROOT)).replace(chr(92), '/'))
+                if repair:
+                    live.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(snap, live)
+    return sorted(drift)
+
+
+def restore_snapshot() -> list[str]:
+    """把快照里与现场**不一致**的文件写回去，返回被还原的仓库相对路径。快照用完即删。
+
+    只覆盖"内容不同"的文件；只在现场新出现的文件**只报告不删**——那可能是这次跑
+    真的新加的文件，删了就真丢了（用户的底线是「不要删了就搞不回来了」）。
+    """
+    fixed = snapshot_drift(repair=True)
+    shutil.rmtree(snapshot_dir(), ignore_errors=True)
+    return fixed
 
 
 def extra_files() -> list[str]:

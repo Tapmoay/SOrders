@@ -36,6 +36,7 @@ from _airepo import (  # noqa: E402
     lock_reverse_verify,
     repo_root,
     restore_snapshot,
+    snapshot_drift,
     take_snapshot,
     unlock_reverse_verify,
 )
@@ -226,9 +227,22 @@ def _run_all(scripts: list[tuple[Path, str]]) -> int:
         spent = time.monotonic() - t0
         out = (r.stdout or "") + (r.stderr or "")
         tail = [ln.strip() for ln in out.splitlines() if ln.strip().startswith(("✅", "❌"))]
-        mark = "✅" if r.returncode == 0 else "❌"
+        # ⛔ 2026-09-26 新增：**每一份跑完立刻逐字节比对现场与快照**（指南 §二十一 ②：
+        #    before snapshot = after restore snapshot）。为什么要按份查、而且要立刻查：
+        #      · 等全跑完再查，只能说「有人没还原」，说不出**是哪一份**（还得手工二分）；
+        #      · 坏代码留在树里，**后面每一份都拿它当「完好源码」**，结论一起不可信；
+        #      · 自己写的那句还原核对可能**盯错一头**（实测：`path, original = _c, _t` 让核对比的
+        #        是同一份错字节 ⇒ 恒等通过），所以这一层必须由**外部的快照**来证。
+        #    `repair=True`：当场写回，别让坏代码传染给下一份。
+        dirty = snapshot_drift(repair=True)
+        mark = "✅" if (r.returncode == 0 and not dirty) else "❌"
         summary = tail[-1] if tail else (out.strip().splitlines() or ["(无输出)"])[-1]
         print(f"{mark} {name}（{spent:.1f}s）: {summary}")
+        if dirty:
+            bad += 1
+            print("     ⛔ 跑完**没把工作区还原干净**（" + str(len(dirty)) + " 个文件，已按快照写回）："
+                  + "、".join(dirty[:5]) + ("…" if len(dirty) > 5 else ""))
+            print("        这一份**不算通过** —— 「before snapshot = after restore snapshot」是它的及格线。")
         if r.returncode != 0:
             bad += 1
             for ln in out.splitlines():
@@ -241,7 +255,8 @@ def _run_all(scripts: list[tuple[Path, str]]) -> int:
     if fixed:
         print(f"\n⚠️ 有 {len(fixed)} 个文件没还原干净，已按快照写回：{'、'.join(fixed)}")
     if extra:
-        print(f"⚠️ 现场多了这些文件（可能是注入留下的，请自己看一眼）：{'、'.join(extra)}")
+        bad += 1
+        print(f"⚠️ 现场多了这些文件（注入留下的？只报告不删，但这一批**不算通过**）：{'、'.join(extra)}")
     print()
     n = len(scripts)
     if bad:
