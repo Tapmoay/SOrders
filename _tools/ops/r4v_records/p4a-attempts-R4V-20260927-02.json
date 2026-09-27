@@ -1,0 +1,498 @@
+{
+  "run_id": "R4V-20260927-02",
+  "scenario_id": "P4-1-agreed-true",
+  "preregistered": {
+    "bucket_rule": "order_id % 100 < 30（与 pricing_runtime.policy_for 同形，BUCKETS=100）",
+    "address": "塘厦林村工业区21号 3栋1063室",
+    "address_reason": "shipper_addresses.id=5 的 detail_address ⇒ 价目 #5 的 route_id=5 命中",
+    "shipper_id": 183,
+    "driver_id": 184,
+    "expected_when_in_bucket": {
+      "kind": "freight_template",
+      "resolution": "contract",
+      "agreed": true,
+      "override": false,
+      "algorithm_amount": "45.00",
+      "final_amount": "45.00"
+    }
+  },
+  "attempts": [
+    {
+      "order_id": 20854,
+      "order_no": "SO202609281435106089",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 54,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20855,
+      "order_no": "SO202609289400566628",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 55,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20856,
+      "order_no": "SO202609284934745160",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 56,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20857,
+      "order_no": "SO202609284113261766",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 57,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20858,
+      "order_no": "SO202609280203389010",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 58,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20859,
+      "order_no": "SO202609282298332869",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 59,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20860,
+      "order_no": "SO202609284744391737",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 60,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20861,
+      "order_no": "SO202609285054061118",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 61,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20862,
+      "order_no": "SO202609280037446753",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 62,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20863,
+      "order_no": "SO202609287615191330",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 63,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20864,
+      "order_no": "SO202609280016792495",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 64,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20865,
+      "order_no": "SO202609281514614763",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 65,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20866,
+      "order_no": "SO202609288565351670",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 66,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20867,
+      "order_no": "SO202609281629278528",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 67,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20868,
+      "order_no": "SO202609289217269938",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 68,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20869,
+      "order_no": "SO202609288383022790",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 69,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20870,
+      "order_no": "SO202609281689026706",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 70,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20871,
+      "order_no": "SO202609281383214831",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 71,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20872,
+      "order_no": "SO202609287593350772",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 72,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20873,
+      "order_no": "SO202609283460880751",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 73,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20874,
+      "order_no": "SO202609282400460130",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 74,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20875,
+      "order_no": "SO202609285684526196",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 75,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20876,
+      "order_no": "SO202609288176593617",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 76,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20877,
+      "order_no": "SO202609284474634148",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 77,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20878,
+      "order_no": "SO202609284890639655",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 78,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20879,
+      "order_no": "SO202609280590048690",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 79,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20880,
+      "order_no": "SO202609289033793838",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 80,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20881,
+      "order_no": "SO202609288147193850",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 81,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20882,
+      "order_no": "SO202609282910402270",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 82,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20883,
+      "order_no": "SO202609282556784786",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 83,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20884,
+      "order_no": "SO202609285258870919",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 84,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20885,
+      "order_no": "SO202609282157225937",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 85,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20886,
+      "order_no": "SO202609283183614255",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 86,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20887,
+      "order_no": "SO202609284145777760",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 87,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20888,
+      "order_no": "SO202609282271862939",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 88,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20889,
+      "order_no": "SO202609288756504428",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 89,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20890,
+      "order_no": "SO202609282028129560",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 90,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20891,
+      "order_no": "SO202609281907957388",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 91,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20892,
+      "order_no": "SO202609288136990025",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 92,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20893,
+      "order_no": "SO202609285924730319",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 93,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20894,
+      "order_no": "SO202609289217839013",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 94,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20895,
+      "order_no": "SO202609286618481555",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 95,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20896,
+      "order_no": "SO202609281165913478",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 96,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20897,
+      "order_no": "SO202609281355006908",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 97,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20898,
+      "order_no": "SO202609284969829911",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 98,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20899,
+      "order_no": "SO202609282982872365",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 99,
+      "in_bucket": false
+    },
+    {
+      "order_id": 20900,
+      "order_no": "SO202609286921666274",
+      "shipper_id": 183,
+      "status": "PENDING_DISPATCH",
+      "freight_fee": null,
+      "kind": "(无)",
+      "mod": 0,
+      "in_bucket": true
+    }
+  ],
+  "attempt_count": 47,
+  "in_bucket_ids": [
+    20900
+  ],
+  "target_order_id": 20900,
+  "result": "OK",
+  "note": "本记录是**从库里按 remark 反查出来的**，不是工具写的 —— 工具首次真跑在 RESULT 解析上 ValueError 挂了（f[2].split('=')[1] 拿到 '20900 created'），订单已建出去、运行记录没写成。解析已修，记录按库里的权威名单补。"
+}

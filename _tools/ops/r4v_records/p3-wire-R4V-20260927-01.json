@@ -1,0 +1,106 @@
+{
+  "run_id": "R4V-20260927-01",
+  "scenario_id": "P3-wire",
+  "what": "一笔真实生产链路自检：真机 App → 生产 API → Pricing Runtime → 生产 MySQL",
+  "when_utc": "2026-09-27T14:52:08Z/2026-09-27T14:57:17Z",
+  "device": {
+    "serial": "QO4HNNYLSCXSLVJB",
+    "model": "PDCM00",
+    "android": "12",
+    "abi": "arm64-v8a"
+  },
+  "app": {
+    "package": "com.tapmoay.sorders",
+    "versionName": "0.2.4",
+    "versionCode": 2026092302,
+    "base_url": "https://8.145.40.22"
+  },
+  "identity": {
+    "shipper_id": 183,
+    "shipper_phone": "13800000006",
+    "driver_id": 184,
+    "driver_phone": "13800000007",
+    "driver_rule_id": 1
+  },
+  "chain": [
+    {
+      "step": "login",
+      "evidence": "POST /api/v1/auth/login 200 · UA okhttp/4.12.0 · scheme=https",
+      "at": "2026-09-27T14:52:08Z"
+    },
+    {
+      "step": "create_order",
+      "evidence": "POST /api/v1/orders 201",
+      "at": "2026-09-27T14:54:55Z",
+      "order_id": 20853,
+      "order_no": "SO202609270853094644"
+    },
+    {
+      "step": "quote",
+      "evidence": "GET /api/v1/freight-templates 200（App 的「模板」选择器）",
+      "at": "2026-09-27T14:56:03Z",
+      "chosen": {
+        "template_id": 5,
+        "route": "惠州江北 → 惠阳淡水",
+        "fee": "45.00"
+      }
+    },
+    {
+      "step": "assign",
+      "evidence": "POST /api/v1/orders/20853/assign 200",
+      "at": "2026-09-27T14:57:16Z",
+      "driver_id": 184,
+      "freight_fee": "45.00"
+    }
+  ],
+  "before": {
+    "order_id": null,
+    "note": "下单时无定价事实：freight_fee=NULL、freight_rule_snapshot=NULL"
+  },
+  "after": {
+    "order_id": 20853,
+    "status": "DISPATCHED",
+    "driver_id": 184,
+    "freight_fee": "45.00",
+    "remark": "R4V-20260927-01",
+    "snapshot": {
+      "v": 1,
+      "at": "2026-09-27T14:57:16",
+      "source": "assign",
+      "fee": "45.00",
+      "category": {
+        "id": null,
+        "name": ""
+      },
+      "rule": null,
+      "pricing": {
+        "kind": "legacy_client",
+        "contract": {
+          "name": "FreightPricingCore",
+          "version": 1
+        },
+        "reason": "ok",
+        "resolution": "not_in_canary"
+      }
+    }
+  },
+  "expected": {
+    "note": "事前写死的期望：订单 20853 的 order_id % 100 = 53，> 30 ⇒ 不在 Canary 桶内 ⇒ legacy_client + not_in_canary",
+    "kind": "legacy_client",
+    "resolution": "not_in_canary",
+    "fee_passthrough": "45.00"
+  },
+  "observed_matches_expected": true,
+  "fills_gap": "V2 —— 该分支的旧证据（#20851 的 not_in_canary）已被同单修订覆盖，库里当时看不见；本笔是重新取得的新鲜证据",
+  "proves": [
+    "App(release 0.2.4) → https://8.145.40.22 的 TLS 链路通（内置 CA @raw/sorders_ca 生效）",
+    "App → 生产 API → Pricing Runtime → 生产 MySQL 整条链通",
+    "下单时刻确实没有定价事实（freight_fee NULL + 无快照）",
+    "派单时刻产生定价事实，且 resolution 如实记为 not_in_canary"
+  ],
+  "does_not_prove": [
+    "⛔ 不证明 agreed=true（本轮即为 agreed 语义的下单-派单常规路径，未做人工改价）",
+    "⛔ 不证明双实例一致",
+    "⛔ 不证明业务上 45.00 这个价对不对（那是人工复核的事）"
+  ]
+}

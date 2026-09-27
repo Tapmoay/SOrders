@@ -1,0 +1,53 @@
+{
+  "run_id": "R4V-20260927-03",
+  "port": 8111,
+  "instance_fingerprint": {
+    "listen_line": "LISTEN 0      2048       127.0.0.1:8111       0.0.0.0:*    users:((\"python\",pid=1308799,fd=14))",
+    "pid_from_listen": 1308799,
+    "pid_from_response": 1308799,
+    "listen_matches_response": true,
+    "resolver": {
+      "canary_percent": 30,
+      "resolver": "PricingContract v2 @ extensions.pricing"
+    }
+  },
+  "input": {
+    "order_id": 20900,
+    "driver_id": 184,
+    "claimed_fee": "45.00"
+  },
+  "input_hash": "a3aa94e99875a3e1546f35e9aa2b9adc3b5deeccee41800e551d31f73a7e5c13",
+  "raw_response": {
+    "pid": 1308799,
+    "resolver": {
+      "canary_percent": 30,
+      "resolver": "PricingContract v2 @ extensions.pricing"
+    },
+    "order_id": 20900,
+    "driver_id": 184,
+    "claimed_fee": "45.00",
+    "kind": "freight_template",
+    "resolution": "contract",
+    "contract": {
+      "name": "PricingContract",
+      "version": 2
+    },
+    "quoted_fee": "45.00",
+    "agreed": true,
+    "override": false,
+    "reason": "ok",
+    "rule": {
+      "template_id": 5,
+      "template_name": "惠州江北 → 惠阳淡水",
+      "price_name": "一车价",
+      "route": "惠州江北 → 惠阳淡水",
+      "fee": "45.00",
+      "origin": "derived"
+    }
+  },
+  "zero_write_proof": {
+    "before": "20900|DISPATCHED|45.00|2026-09-27 16:26:32|{\"v\": 1, \"at\": \"2026-09-27T16:26:32\", \"source\": \"assign\", \"fee\": \"45.00\", \"category\": {\"id\": null, \"name\": \"\"}, \"rule\": {\"template_id\": 5, \"template_name\": \"惠州江北 → 惠阳淡水\", \"price_name\": \"一车价\", \"route\": \"惠州江北 → 惠阳淡水\", \"fee\": \"45.00\", \"origin\": \"derived\"}, \"pricing\": {\"kind\": \"freight_template\", \"contract\": {\"name\": \"PricingContract\", \"version\": 2}, \"reason\": \"ok\", \"resolution\": \"contract\", \"agreed\": true, \"override\": false}}",
+    "after": "20900|DISPATCHED|45.00|2026-09-27 16:26:32|{\"v\": 1, \"at\": \"2026-09-27T16:26:32\", \"source\": \"assign\", \"fee\": \"45.00\", \"category\": {\"id\": null, \"name\": \"\"}, \"rule\": {\"template_id\": 5, \"template_name\": \"惠州江北 → 惠阳淡水\", \"price_name\": \"一车价\", \"route\": \"惠州江北 → 惠阳淡水\", \"fee\": \"45.00\", \"origin\": \"derived\"}, \"pricing\": {\"kind\": \"freight_template\", \"contract\": {\"name\": \"PricingContract\", \"version\": 2}, \"reason\": \"ok\", \"resolution\": \"contract\", \"agreed\": true, \"override\": false}}",
+    "identical": true
+  }
+}

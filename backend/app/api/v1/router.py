@@ -7,6 +7,7 @@ from app.api.v1 import (
     cash_flows,
     vehicles,
     customers,
+    diagnostics,
     driver_bills,
     driver_billing_rules,
     driver_settlements,
@@ -130,3 +131,7 @@ api_router.include_router(system.router)
 api_router.include_router(usage.router)
 # 单位换算（用户 2026-09-24：一车 = 8 方）—— 新表，`create_all` 自动建
 api_router.include_router(unit_conversions.router)
+# ⭐ 只读诊断面（R4-49 · P4-②）：把 pricing_runtime 的只读那一半暴露成**实例级观测面**，
+# 好让「两个正在跑的生产实例对同一份输入给出同一个 Decision」这件事**可以被直接测量**。
+# ⛔ 它不是业务能力：不接受自拼的 Pricing Context、不写库、App 不调它 —— 见 diagnostics.py 的六条硬限制。
+api_router.include_router(diagnostics.router)

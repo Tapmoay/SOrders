@@ -60,6 +60,16 @@ STATE_FILE = Path(tempfile.gettempdir()) / "sorders_r3_release.json"
 #: 顺序**就是**判据：改这里的顺序等于改纪律，必须同步改 docs/RELEASE_CANDIDATE.md §四。
 STEPS: tuple[str, ...] = ("backup", "stage", "migrate", "verify", "start", "health", "smoke", "business")
 
+#: 滚动重启之后**最多等多久**（秒）让实例的 /health 变成 200 —— 探到就立刻过。
+#: ⚠️ 这两条是 2026-09-27 加的：原来用**固定等待**再探一次，**固定等待 ≠ 等到就绪**，
+#:    连续 3 次给健康部署报了假 FAIL（/health=000 而手工 curl 是 200）。
+READY_WAIT_S = 20.0
+#: 两次探测之间歇多久（秒）。
+READY_POLL_S = 0.5
+#: ⛔ 被换掉的那段旧写法。**拼接出来**，⛔ 不写字面量 ——
+#:    否则「源码里不许再出现它」这条自检判据会**自己命中自己**（本轮实测踩到）。
+OLD_FIXED_WAIT = "slee" + "p 3"
+
 #: 每一步：命令 / 期望 / 失败怎么办（打印给操作的人看，⛔ 不指望他记得住）。
 STEP_DOC: dict[str, tuple[str, str, str]] = {
     "backup": ("调 _tools/backup/_pre_release.py（库 + 上传 + 清单）",
@@ -284,10 +294,16 @@ def selftest() -> int:
     #    两层之后配对断掉，远端一个字符都没执行 ⇒ 门禁把两个健康实例判成「报不出指纹」，
     #    把一次**成功**的发布拦停了（fail-closed，方向安全，但它会拦住每一次合法发布）。
     probe = fingerprint_probe_script("8111")
+    #: 本文件自己的源码 —— 下面那条判据要盯「代码里还有没有那段被换掉的旧写法」。
+    _src = Path(__file__).read_text(encoding="utf-8")
     shape = [
         ("指纹探针必须走 heredoc（外层 bash 一个字符都不解释）", "<<'PYEOF'" in probe),
         ("⛔ 指纹探针**不许**用 python -c（引号会被两层解析吃掉）", " -c " not in probe),
         ("探针里带得上那个端口", "http://127.0.0.1:8111/health" in probe),
+        # ⚠️ 2026-09-27：滚动重启之后**不许再用固定等待** —— 它连续 3 次给健康部署报了假 FAIL。
+        #    判据盯的是「代码里还有没有那句固定等待」与「有没有那个有上限的轮询常量」。
+        ("⛔ 滚动重启后不再用固定等待等就绪（改成有上限的轮询）",
+         OLD_FIXED_WAIT not in _src and "READY_WAIT_S" in _src and "READY_POLL_S" in _src),
     ]
     for label, good in shape:
         print(("  OK   " if good else "  BAD  ") + label)
@@ -297,7 +313,7 @@ def selftest() -> int:
         if action != "plan":
             print("  BAD  没有 --go 时步骤 " + s + " 居然不是 plan")
             bad += 1
-    total = len(cases) + len(VERIFY_CASES) + len(ROLL_CASES) + len(FP_CASES) + 3 + len(STEPS)
+    total = len(cases) + len(VERIFY_CASES) + len(ROLL_CASES) + len(FP_CASES) + 4 + len(STEPS)
     print("发布工具护栏自检：" + str(total - bad) + "/" + str(total) + " 通过")
     return 1 if bad else 0
 # ------------------------------------------------------------------ 事实（只读）
@@ -535,12 +551,24 @@ def run_start(sha: str, fetch: bool) -> int:
         port = unit_port(unit)
         print("   [" + str(idx) + "/" + str(len(units)) + "] 重启 " + unit
               + "（端口 " + str(port or "?") + "）")
-        _, out = ssh("systemctl restart " + unit + " && sleep 3 && systemctl is-active " + unit)
+        _, out = ssh("systemctl restart " + unit + " && systemctl is-active " + unit)
         tail = out.strip().splitlines()[-1].strip() if out.strip() else ""
         active = tail == "active"
         health = False
         if port:
-            _, hout = ssh("curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:" + port + "/health")
+            # ⚠️ 这里原来是在重启之后**固定等三秒**再探**一次** ——
+            #    **固定等待 ≠ 等到就绪**：2026-09-27 R4 收尾时连续 3 次给健康部署报了假 FAIL
+            #    （/health=000，而同一时刻手工 curl 是 200；重跑 start 即过）。
+            #    假红多了人就会学会无视红（本仓库的判据：「永远红的检查 = 没有检查」），
+            #    所以改成**有上限的轮询**：探到 200 立刻过，探不到才等到上限。
+            # ⛔ 轮询放在**本机**（每条一次 ssh），⛔ 不往远端塞带嵌套引号的 shell 循环。
+            hout = ""
+            for _ in range(max(1, int(READY_WAIT_S / READY_POLL_S))):
+                _, hout = ssh("curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:"
+                              + str(port) + "/health")
+                if hout.strip().endswith("200"):
+                    break
+                time.sleep(READY_POLL_S)
             health = hout.strip().endswith("200")
             print("        is-active=" + (tail or "?") + " ｜ /health=" + hout.strip()[-3:])
         else:

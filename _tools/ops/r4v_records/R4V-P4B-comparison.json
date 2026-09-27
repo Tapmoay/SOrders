@@ -1,0 +1,49 @@
+{
+  "run_id": "R4V-20260927-03",
+  "preregistered": {
+    "A.kind==B.kind": true,
+    "A.resolution==B.resolution": true,
+    "A.contract.name==B.contract.name": true,
+    "A.contract.version==B.contract.version": true,
+    "A.quoted_fee==B.quoted_fee": true,
+    "A/B 均确认命中指定实例": true,
+    "请求前后无业务写入": true,
+    "输入完全相同": true
+  },
+  "checks": [
+    {
+      "field": "kind",
+      "A": "freight_template",
+      "B": "freight_template",
+      "pass": true
+    },
+    {
+      "field": "resolution",
+      "A": "contract",
+      "B": "contract",
+      "pass": true
+    },
+    {
+      "field": "contract.name",
+      "A": "PricingContract",
+      "B": "PricingContract",
+      "pass": true
+    },
+    {
+      "field": "contract.version",
+      "A": 2,
+      "B": 2,
+      "pass": true
+    },
+    {
+      "field": "quoted_fee",
+      "A": "45.00",
+      "B": "45.00",
+      "pass": true
+    }
+  ],
+  "instance_identity_ok": true,
+  "zero_write_ok": true,
+  "same_input_ok": true,
+  "verdict": "PASS"
+}

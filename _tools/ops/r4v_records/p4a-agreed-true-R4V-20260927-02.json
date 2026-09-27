@@ -1,0 +1,115 @@
+{
+  "run_id": "R4V-20260927-02",
+  "scenario_id": "P4-1-agreed-true",
+  "what": "补上覆盖台账最后一个真缺口：Contract 算出来的值被人工**原样接受**（agreed=true / override=false）",
+  "when_utc": "2026-09-27T16:26:32Z",
+  "preregistered_expectation": {
+    "kind": "freight_template",
+    "resolution": "contract",
+    "agreed": true,
+    "override": false,
+    "algorithm_amount": "45.00",
+    "final_amount": "45.00"
+  },
+  "observed": {
+    "order_id": 20900,
+    "order_no": "SO202609286921666274",
+    "status": "DISPATCHED",
+    "driver_id": 184,
+    "freight_fee": "45.00",
+    "shipper_id": 183,
+    "remark": "R4V-20260927-02",
+    "snapshot": {
+      "v": 1,
+      "at": "2026-09-27T16:26:32",
+      "source": "assign",
+      "fee": "45.00",
+      "category": {
+        "id": null,
+        "name": ""
+      },
+      "rule": {
+        "template_id": 5,
+        "template_name": "惠州江北 → 惠阳淡水",
+        "price_name": "一车价",
+        "route": "惠州江北 → 惠阳淡水",
+        "fee": "45.00",
+        "origin": "derived"
+      },
+      "pricing": {
+        "kind": "freight_template",
+        "contract": {
+          "name": "PricingContract",
+          "version": 2
+        },
+        "reason": "ok",
+        "resolution": "contract",
+        "agreed": true,
+        "override": false
+      }
+    }
+  },
+  "verdict": {
+    "passed": true,
+    "checks": {
+      "kind == freight_template": true,
+      "resolution == contract": true,
+      "agreed == true": true,
+      "override == false": true,
+      "snapshot 能解释算法来源（rule.template_id=5 / origin=derived）": true,
+      "算法额 == 终值 == 45.00": true
+    }
+  },
+  "how_in_bucket": {
+    "rule": "order_id % 100 < 30（pricing_runtime.policy_for，BUCKETS=100）",
+    "max_before": 20853,
+    "next_in_bucket": 20900,
+    "created": 47,
+    "attempts_record": "_tools/ops/r4v_records/p4a-attempts-R4V-20260927-02.json",
+    "note": "46 笔落在桶外 —— 按预注册它们本身就是 not_in_canary 对照样本，⛔ 一条都没删"
+  },
+  "the_other_branch_already_existed": {
+    "note": "override=true 早已有生产证据，独立抄录在此，⛔ 不靠记得",
+    "order_id": 20709,
+    "snapshot": {
+      "v": 1,
+      "at": "2026-09-27T10:10:12",
+      "source": "adjust",
+      "fee": "50.00",
+      "rule": {
+        "template_id": 5,
+        "template_name": "惠州江北 → 惠阳淡水",
+        "fee": "45.00",
+        "origin": "derived"
+      },
+      "pricing": {
+        "kind": "freight_template",
+        "contract": {
+          "name": "PricingContract",
+          "version": 2
+        },
+        "reason": "ok",
+        "resolution": "contract",
+        "agreed": false,
+        "override": true,
+        "note": "价目算出来是 45.00，派单员定的是 50.00 —— ⛔ 以人为准，但两个数都留下"
+      }
+    }
+  },
+  "how_it_was_driven": {
+    "path": "生产 API 直发：POST http://127.0.0.1:8111/api/v1/orders/20900/assign",
+    "why_not_app": "真机在 P4-① 执行中途从 adb 掉线（adb devices 只剩 emulator-5554），无法继续用界面点击",
+    "same_endpoint_as_app": true,
+    "payload": {
+      "driver_id": 184,
+      "freight_fee": 45,
+      "collect_cash": false
+    },
+    "app_path_already_proved_by": "R4V-20260927-01 / P3（同一个端点，UA=okhttp/4.12.0，scheme=https → 200）"
+  },
+  "provenance_note": "契约为 PricingContract v2；候选价目来自核心导出的快照（规则 #1 → 价目 #5），扩展只做纯挑选",
+  "does_not_prove": [
+    "⛔ 不证明 business 上 45.00 这个价对不对（那是人工复核的事）",
+    "⛔ 不证明双实例一致（P4-② 的事）"
+  ]
+}

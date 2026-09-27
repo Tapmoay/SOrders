@@ -20,6 +20,118 @@
 
 ## 进行中
 
+### [2026-09-27 17:2x UTC → 已完成] 会话：**R4-49 P5 Evidence Closeout + R4 Final Review**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**裁决：没有新的必须整改项 ⇒ R4 正式结束**（架构整改 / 生产接线 / 受控验证 三块 CLOSE，
+Natural Observation → POST-LAUNCH）。
+
+**产物**：`docs/R4_EVIDENCE_INDEX.md`（一页索引，29 行，每行都有真实文件 + 重跑入口）
++ `docs/R4_FINAL_REVIEW.md`（七问 + 端点生命周期 + 2409 条的正确写法）
++ `_tools/qa/_check_r4_closeout.py`（机器核索引 + 端点不许长成业务 API）
++ `_tools/qa/_check_r4_constraints.py`（⬅ 补的，它此前是**不存在的脚本**）。
+
+**⭐ 本轮抓到的一条**：R4 台账 54 条 `复现：` 里有 1 条指向不存在的脚本，
+而那句话（指南归档带来源 SHA256）本身也重算不出来 ⇒ 已补真判据 + 把话改准确。
+根因：`_check_report_facts.py` 只核 R3 台账，R4 那一侧没人核。
+
+⛔ **不碰**：Canary（仍 30%）、生产价目、那 6 个真实司机、窗口九条判据与四个常量、App 源码。
+
+---
+### [2026-09-27 16:5x UTC → 已完成] 会话：**R4-49 P4-② 只读诊断端点 + 双实例一致性**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**结论：P4-② PASS。** A(:8111 pid 1298294) 与 B(:8112 pid 1299571) 对同一份输入给出：
+`kind=freight_template` / `resolution=contract` / `PricingContract v2` / `45.00` —— **四项全同**；
+响应里的 pid 与 `ss -lntp` 那条**逐字相同**；请求前后订单四列+快照**逐字节相同（非空）**。
+生产 HEAD = `3f93782b0751`（backup→stage→migrate→verify→start→health→smoke 全过；
+⛔ `business` 本次没跑，状态文件里那条是上一次发布留下的）。
+
+⚠️ 本轮自己踩了三个坑（详见 `docs/R4_PROGRESS.md` §R4-49 的 P4-② 一节）：
+第一次跑的「零写入证明」是**空过的**（SQL 写坏→stdout 空→空串==空串 判相同），
+已修成「SQL 失败不许静默返回空串 + before 必须非空 + 表名带库名」；另外三引号撞车两次。
+
+**为什么**：P4-② 要证「两个正在跑的生产实例对同一份输入给出同一个 Decision」，
+而生产上**不存在**「只读 + 真正经过 pricing_runtime」的面 ——
+`GET /freight-templates/quote` 是旧路（`quote_for`），`GET /pricing/quote` 是扩展试算、
+连 order/driver/route 上下文都没有。用户 2026-09-27 选 (A)：加一个只读诊断端点。
+
+**改哪些文件**：
+- `backend/app/api/v1/diagnostics.py`（新建，只读 GET）
+- `backend/app/api/v1/router.py`（注册一行）
+- `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`（重跑生成器）
+- 证据：`_tools/ops/_r4v_p4b.py`（新建）+ `_tools/ops/r4v_records/`
+
+**⛔ 六条硬限制**（用户定，写进代码）：只做诊断 / 输入只来自现有业务对象 /
+直接调 `pricing_runtime.decide` ⛔ 不复制 / 零写入 / 走现有权限边界 / ⛔ 不顺便解决别的问题。
+
+⛔ **明确不碰**：Canary（仍 30%）、生产价目、那 6 个真实司机、窗口九条判据与四个常量、App 源码。
+
+---
+### [2026-09-27 16:2x UTC → 已完成] 会话：**R4-49 P4-① —— 补上 `agreed=true` 缺口**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**⚠️ 本轮先纠正了一条语义错误**：需求方给的出口条件写的是 `agreed=true AND override=true`，
+而 `core/pricing_runtime.py:383-389` 是 `override = not agreed` —— **两者互补，不可能同时为真**。
+按需求方上一稿（「不人工改价 → agreed=true / override=false」）执行，已在回复里如实说明。
+
+**做法**：按需求方裁决走 (B) —— 用测试货主 183 造受控测试单，直到 `order_id % 100 < 30`。
+从 max id 20853 起造了 **47 笔**（20854–20900），只有 **`#20900`** 落桶内。
+桶判据 / 目标地址（`塘厦林村工业区21号 3栋1063室` = `shipper_addresses.id=5`）写死在
+`_tools/ops/_r4v_p4a.py` 里；**46 笔桶外的单按预注册全部留档，⛔ 一条没删**。
+
+**结果**：`#20900` 派给司机 184、运费填**算法值 45.00**（⛔ 不改价）→
+`kind=freight_template` / `resolution=contract` / **`agreed=true`** / `override=false` /
+`rule.template_id=5` / `origin=derived` —— **六条判据全过**。
+
+**如实记**：① 本轮派单走**生产 API 直发**（真机中途从 adb 掉线），端点与 App 一致，App 那条路已由 P3 证过；
+② 工具首次真跑的 `RESULT` 解析挂了（订单已建出去、运行记录没写成），记录**按库反查补写**。
+
+**本轮改哪些文件**：`_tools/ops/_r4v_p4a.py`（新建）+ `_tools/ops/r4v_records/`（3 份运行记录）
++ `docs/R4_PROGRESS.md` / `docs/R4_CONTROLLED_VALIDATION.md`（覆盖台账 + P4-① 记录）+ 本行。
+
+⛔ **不碰**：Canary（仍 30%）、生产价目、那 6 个真实司机、窗口九条判据与四个常量、App 源码。
+
+---
+### [2026-09-27 22:5x → 已完成] 会话：**R4-49 P2+P3 —— 测试身份落地 + 真机一笔链路自检**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**这是本项目第一次由真机 App 驱动的生产定价决策。**
+
+**依据**：需求方 2026-09-27 ——「可以使用此账号进行测试，真机已经连上并开启了 USB 调试」
++「建议直接采用 Test Shipper / Test Driver，全新创建……司机绑定 rule #1，但绝不使用现在那 6 个真实司机」。
+
+**P2 测试身份（生产写入，需求方已授权）**：
+- 货主 `13800000006` / id **183**（R4受控验证货主）
+- 司机 `13800000007` / id **184**（R4受控验证司机，车型 `small`，已挂规则 **#1**）
+- 号段落在 `is_test_account` 认的 `1380000000X` 里（唯一有代码判据的测试号段）
+- 工具：`_tools/ops/_r4v_identity.py`（幂等 / 只看库复核 / `--selftest` 10/10）
+
+**P3 真机一笔链路自检（✅ 通）**：
+登录 200 → 下单 **201**（`#20853`，`remark=R4V-20260927-01`）→ 报价 200（模板 #5 = 45.00）
+→ 派单 **200**（driver 184）→ 落库快照 `kind=legacy_client` / `resolution=not_in_canary`。
+⭐ 顺手补上了 `not_in_canary` 这个**已被同单修订覆盖**的真缺口。
+
+**本轮改哪些文件**：`_tools/ops/_r4v_identity.py`（新建）+ `_tools/ops/r4v_records/`（运行记录）
++ `docs/R4_PROGRESS.md` / `docs/R4_CONTROLLED_VALIDATION.md`（覆盖台账 + P3 记录）+ 本行。
+
+⛔ **不碰**：Canary（仍 30%）、生产价目、那 6 个真实司机、观察窗口九条判据与四个常量、App 源码。
+
+---
+### [2026-09-27 22:xx → 已完成] 会话：**R4-49 验证模型裁决**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已生效，见 `docs/R4_PROGRESS.md` §R4-49】
+
+⚠️ **它不是施工，是裁决 + 证据整合**：⛔ `R4_CANARY_WINDOW.md` 的九条判据与四个常量一字未改。
+
+**依据**：需求方 2026-09-27 —— 「我们把一个『受控生产验证环境』，错误地套用了
+『自然生产流量观察窗口』的验证模型」+ 11 步改造方案。
+
+**本轮改哪些文件**：`docs/R4_CONTROLLED_VALIDATION.md`（新建）+
+`docs/R4_CANARY_WINDOW.md`（只改那段指针：待签 → 已生效）+ `docs/R4_PROGRESS.md`（R4-49 一节）+
+`docs/AI_WORK_CLAIM.md`（本行）。
+
+**⚠️ 与需求方原方案的一处不同（必须写下来）**：需求方建议受控窗口沿用 `Bucket>=20 / Contract>=10`。
+我⛔ 不建议照做 —— 那会为了凑数而造单，且绿灯证明不了什么（R4-45 同一种病）。
+建议受控窗口另立判据：**分支覆盖 + 事前写死期望值 + 正反对照**。
+
+⛔ **明确不碰**：代码 / 配置 / 生产 / 订单 / Canary（仍 30%）/ 观察窗口常量与口径 / App / Shadow / ⑧-b。
+
+---
 ### [2026-09-27 19:4x → 已完成] 会话：**R4-48 把施工禁区钉进预注册文档**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，见 `docs/R4_PROGRESS.md` §R4-48】
 
 ⚠️ **它不是新工作包**（用户原话：「不要再造一个新的 R4-48 大工程」）：全文**只有文档一处改动**。

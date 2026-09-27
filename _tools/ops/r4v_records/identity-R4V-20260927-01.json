@@ -1,0 +1,11 @@
+{
+  "run_id": "R4V-20260927-01",
+  "shipper_phone": "13800000006",
+  "driver_phone": "13800000007",
+  "shipper_id": 183,
+  "shipper_role": "SHIPPER",
+  "driver_id": 184,
+  "driver_role": "DRIVER",
+  "driver_rule_id": 1,
+  "driver_vehicle": "small"
+}

@@ -119,6 +119,11 @@ MODULE_CN: dict[str, str] = {
     # ⚠️ 中文名与 App 工作台那一格**同名**（`Modules.kt` 的「单位换算」）——
     #    能力按模块认领时靠它对齐（`_app_feature_coverage.py` 的映射表也是这个名字）。
     "unit_conversions": "单位换算",
+    # 定价只读诊断（R4-49 P4-②，2026-09-27）：一个**只读**的诊断面，用来让
+    # 「两个正在跑的生产实例对同一份输入给出同一个 Decision」可以被直接测量。
+    # ⛔ 它不是业务模块、⛔ App 不调它、⛔ 也不给模型读 —— 读侧的理由写在
+    #    `_read_coverage.py` 的 EXCLUDED 里（"不是用不上，是它不是业务能力"）。
+    "diagnostics": "定价只读诊断",
 }
 
 ROUTE_RE = re.compile(
