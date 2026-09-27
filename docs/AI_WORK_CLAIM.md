@@ -20,6 +20,35 @@
 
 ## 进行中
 
+### [2026-09-27 18:3x → 已完成] 会话：**R4-45 形状审计（用户 §六 点名）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，见 `docs/R4_PROGRESS.md` §R4-45】
+
+**依据**：用户 2026-09-27 在 R4-44 之后点名的那一类问题 ——
+「不是因为 `true/false` 本身多危险，而是它暴露了一个更深的问题：**Self-test 的数据形状和
+Production 数据形状不一致**…… 我建议现在做一次小范围 Shape Audit，尤其是那些
+『**生产数据一旦形状不同，判据仍然可能 PASS**』的地方。」
+
+**先说结论**：R4-44 修掉的是 `true/false` **那一种写法**，没有修掉「认不出会被静默吞掉」
+这件事。形状矩阵实测（把每一种形状喂进现有纯函数）：`CONTRACT` / `Contract` / `unknown` / `0`
+全都会被并进 `not_in_canary` + `inferred` —— 也就是**冒充成「R4-36 之前的老快照、没被抽中」**。
+
+**本轮改哪些文件**（⛔ 零 backend 改动、零核心改动、零配置改动、零生产写入）：
+
+- `_tools/ops/_canary_status.py`：`unknown` 单独成桶 + 三态 `shape_of`/`as_bool`；
+  ⑥ 的人群改成与窗口**同一口径**；生产 SQL 判据**由键名生成**（NULL **或空串**才算「缺」）；
+  `with_res` 那个**死变量**补成一条判据；窗口判据 6 条 → 9 条；自检 **33 → 62**
+- `_tools/ops/_freeze_probe.py`：T2「kind 与 reason 两个都要比」**从注释搬进代码**；
+  自检 6/6（**新补** —— 这个工具原来一个自检都没有）
+- `_tools/ops/_canary_live_write.py`：自检 8/8（**新补**，含三条硬限制的静态断言）
+- `_tools/qa/_check_prod_shape.py`（**新**）+ `_tools/qa/_reverse_verify_prod_shape.py`（**新**，12/12）
+- `docs/R4_CANARY_WINDOW.md`（用户要求**钉住的三条边界**）+ `docs/R4_PROGRESS.md`（R4-44 补记 + R4-45）
+
+**明确不碰**：`backend/`、`android/`、生产 `.env`（Canary 比例**仍是 30%，一个字节没改**）、
+⑧-b Full Cutover。App 那条链路这一轮也没碰 —— 理由写在 `docs/R4_CANARY_WINDOW.md` 的
+「⛔ 边界」一节（生产 App 调用的入口已经直接走过；App 侧再跑一次属于 UI/产品交互验证，
+不是 R4 架构证明，⛔ 不要在观察窗口期间多引入一个变量）。
+
+---
+
 ### [2026-09-27 09:1x → 已完成] 会话：**R4-10 Milestone Tag Grammar v2 + R4-11 承运运费来源凭据**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `70c97fb` / `b9df8b7`】
 
 **依据**：用户 2026-09-27 拍板「**① §6 做。**」+ 五条退出条件 P1-02a…e。

@@ -24,8 +24,14 @@
     # T1：确认两个实例**实际生效**的比例真的变了（⛔ 不是看 .env）
     python _tools/ops/_freeze_probe.py --order SO... --phase t1
 
-    # T2：比对 —— 比例换了，来源**必须没换**
-    python _tools/ops/_freeze_probe.py --order SO... --phase t2 --expect-kind legacy_client
+    # T2：比对 —— 比例换了，来源**必须没换**（⛔ kind 与 reason **两个都要给**）
+    python _tools/ops/_freeze_probe.py --order SO... --phase t2 \
+        --expect-kind legacy_client --expect-reason <T0 记下的那个>
+
+⛔ **T2 不许只比 kind**（R4-45）：契约算不出来时会退回旧路，于是「冻结住了」与
+「这次没抽中」**都是 legacy_client** —— 只比 kind 的话这个实验恒成立、什么都证明不了。
+这个门禁以前**只写在注释里**（代码允许 --expect-reason 缺省，缺了就跳过那一半，
+然后照样打「✅ 冻结成立」）—— 写在注释里的门禁不是门禁，现在它进了判据。
 """
 from __future__ import annotations
 
@@ -70,6 +76,67 @@ def _sql(order: str) -> str:
             "from " + DB + ".orders o where " + where + " limit 1")
 
 
+def freeze_verdict(now_kind: str, now_reason: str,
+                   expect_kind: str, expect_reason: str) -> tuple[bool, list[str]]:
+    """T2 的判据（**纯函数** ⇒ --selftest 直接测，⛔ 不用连生产）。
+
+    为什么抠出来并强制**两个都比**（R4-45）：这一段以前写在 `main()` 里，
+    注释上写着"只比 kind 证明不了任何事（假绿）"，但代码允许 `--expect-reason` 缺省 ——
+    缺了就**跳过 reason 那一半**，然后照样打出「✅ **冻结成立**」。
+    ⛔ 于是"必须两个都比"这句话只存在于注释里，不在判据里。
+
+    更值钱的是：**没给基准**（T0 忘了记）与**来源真的没换**，以前在屏幕上长得一模一样。
+    现在前者是一个明确的"不成立 + 为什么"。
+    """
+    bad: list[str] = []
+    if not expect_kind:
+        bad.append("⛔ 没给 --expect-kind：T2 的意义就是跟 T0 记下来的值比 —— 没有基准就没有结论")
+    elif now_kind != expect_kind:
+        bad.append("kind：T0 是 " + expect_kind + "，现在是 " + now_kind)
+    if not expect_reason:
+        bad.append("⛔ 没给 --expect-reason：只比 kind 的话「冻结住了」与「这次没抽中」"
+                   "**都是 legacy_client**，这个实验证明不了任何事（假绿）")
+    elif now_reason != expect_reason:
+        bad.append("reason：T0 是 " + expect_reason + "，现在是 " + now_reason)
+    return (not bad), bad
+
+
+def selftest() -> int:
+    """⛔ 这几支**只在生产上真的做 T2 时才走到** —— 所以它们必须有机器证明。"""
+    bad = 0
+    seen = 0
+
+    def chk(label: str, got, want) -> None:
+        nonlocal bad, seen
+        seen += 1
+        ok = got == want
+        print(("  OK   " if ok else "  BAD  ") + label + " → " + str(got)
+              + ("" if ok else "（期望 " + str(want) + "）"))
+        bad += 0 if ok else 1
+
+    okv, why = freeze_verdict("legacy_client", "no_candidates", "legacy_client", "no_candidates")
+    chk("两个都比、且都对 ⇒ 冻结成立", (okv, why), (True, []))
+
+    okv, why = freeze_verdict("freight_template", "ok", "legacy_client", "no_candidates")
+    chk("kind 换了 ⇒ 不成立，且点得出是 kind", (okv, any("kind" in b for b in why)), (False, True))
+
+    okv, why = freeze_verdict("legacy_client", "ok", "legacy_client", "no_candidates")
+    chk("★ 只换了 reason（「没抽中」冒充「冻结住了」）⇒ 不成立（⛔ 以前只比 kind 会假绿）",
+        (okv, any("reason：" in b for b in why)), (False, True))
+
+    okv, _ = freeze_verdict("legacy_client", "no_candidates", "", "no_candidates")
+    chk("⛔ 没给 --expect-kind ⇒ 不成立（不许把「没有基准」当成「通过」）", okv, False)
+
+    okv, why = freeze_verdict("legacy_client", "no_candidates", "legacy_client", "")
+    chk("⛔ 没给 --expect-reason ⇒ 不成立（这一条就是 R4-45 补上的门禁）", okv, False)
+    chk("并把「是缺基准」与「是值变了」说成两句不同的话",
+        "没给" in why[0], True)
+
+    print("")
+    print("冻结现场实验自检：" + str(seen - bad) + "/" + str(seen) + " 通过")
+    return 1 if bad else 0
+
+
 def _read(order: str):
     sql = _sql(order)
     remote = ("set +e\n" + _prodssh.VENV_PY + " - <<'PYEOF'\n"
@@ -88,12 +155,16 @@ def _read(order: str):
 
 def main() -> int:
     argv = sys.argv
+    if "--selftest" in argv:
+        return selftest()
     order = argv[argv.index("--order") + 1] if "--order" in argv else ""
     phase = argv[argv.index("--phase") + 1] if "--phase" in argv else "t0"
     expect = argv[argv.index("--expect-kind") + 1] if "--expect-kind" in argv else ""
     expect_reason = argv[argv.index("--expect-reason") + 1] if "--expect-reason" in argv else ""
     if not order:
-        print("用法：--order <单号或 id> --phase t0|t1|t2 [--expect-kind legacy_client|freight_template]")
+        print("用法：--order <单号或 id> --phase t0|t1|t2 "
+              + "[--expect-kind legacy_client|freight_template --expect-reason <T0 记下的那个>]")
+        print("     ⛔ T2 **两个都要给**：只比 kind 证明不了任何事（见下方说明）。")
         return 2
 
     row, health = _read(order)
@@ -145,27 +216,22 @@ def main() -> int:
 
     if phase == "t2":
         print("")
-        if not expect:
-            print("   ⛔ 少给 --expect-kind / --expect-reason：T2 的意义就是**跟 T0 记下来的那两个比**。")
-            return 2
         # ⚠️ **`kind` 一个人分不出冻结**（R4-34 实测才想清楚）：
         #    契约算不出来时会退回旧路，所以"冻结住了"与"这次没被抽中"**都是 legacy_client**。
         #    真正分得开的是 `reason`：
         #      冻结 ⇒ 仍然走契约那一支 ⇒ 算不出来 ⇒ reason=no_candidates
         #      没冻 ⇒ 比例已经调到 0，这一单**根本不在桶里** ⇒ reason=ok
-        #    ⛔ 所以 t2 必须**两个都比**，只比 kind 的话这个实验证明不了任何事（假绿）。
-        bad = []
-        if kind != expect:
-            bad.append("kind：T0 是 " + expect + "，现在是 " + kind)
-        if expect_reason and reason != expect_reason:
-            bad.append("reason：T0 是 " + expect_reason + "，现在是 " + reason)
-        if not bad:
+        #    ⛔ 所以 t2 必须**两个都比**（门禁在 freeze_verdict 里，⛔ 不在注释里）。
+        okv, bad = freeze_verdict(kind, reason, expect, expect_reason)
+        if okv:
             print("   ✅ **冻结成立**：比例换过了，这张单的来源**没换**（kind=" + kind
                   + "、reason=" + reason + "）。")
             return 0
-        print("   ⛔ **冻结不成立**：" + "；".join(bad)
-              + " —— 同一张单因为 canary 配置变化换了来源。")
-        return 1
+        print("   ⛔ **冻结不成立**：")
+        for b in bad:
+            print("      · " + b)
+        # 缺基准（用法问题，退出码 2）与来源真的换了（实验失败，退出码 1）**不是同一件事**。
+        return 2 if any("没给 --" in b for b in bad) else 1
 
     print("⛔ 不认识的 phase：" + phase)
     return 2

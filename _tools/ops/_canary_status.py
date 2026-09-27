@@ -63,16 +63,29 @@ WINDOW_MIN_CONTRACT = 10
 #:    口径 = 窗口内每一份快照都能恢复这几个键（⛔ 不是"大部分能"）：
 #:      v / at / source / fee / pricing.kind / pricing.contract.name / pricing.contract.version
 #:    ⚠️ parsing 时**故意不要求** `rule` 与 `category`：没有匹配到价目时它们**合法地为空**。
-#:      也**不要求** `pricing.resolution`：那是 R4-36 才加的，老快照没有 —— 单独报它的覆盖率。
-PROV_REQUIRED_SQL = (
-    "json_extract(freight_rule_snapshot, '$.v') is null or "
-    "json_extract(freight_rule_snapshot, '$.at') is null or "
-    "json_extract(freight_rule_snapshot, '$.source') is null or "
-    "json_extract(freight_rule_snapshot, '$.fee') is null or "
-    "json_extract(freight_rule_snapshot, '$.pricing.kind') is null or "
-    "json_extract(freight_rule_snapshot, '$.pricing.contract.name') is null or "
-    "json_extract(freight_rule_snapshot, '$.pricing.contract.version') is null"
-)
+#:      也**不要求** `pricing.resolution`：那是 R4-36 才加的，老快照没有 ——
+#:      它由**单独一条判据**管（见 `resolution_cutover_ok`：新写入不许再缺）。
+#:
+#: ⭐ R4-45：⛔ 键名**只写在这里**，SQL 判据由它生成 —— 以前是手抄的一串字符串，
+#:    与代码侧那份清单（`_check_pricing_provenance.PROVENANCE_REQUIRED`）没有任何机器对账，
+#:    两边迟早漂移。漂移之后「生产上 100% 完整」与「代码里要求的那几格」说的就不是一回事。
+PROV_REQUIRED_KEYS = ("v", "at", "source", "fee",
+                      "pricing.kind", "pricing.contract.name", "pricing.contract.version")
+
+
+def prov_missing_sql(key: str) -> str:
+    """一格「缺了」的判据：**SQL NULL 或空串**。
+
+    ⛔ 只写 `is null` 是不够的：一个写成 `""` 的键会被算成「在」，
+    而代码侧判据用的是 `v not in (None, "", {})` —— 两边**不是同一个东西**，
+    于是生产上能报 100% 完整，而代码侧对同一份快照判「缺」。
+    （JSON `null` 仍然抓得住：`json_extract` 对它的结果本身就是 SQL NULL。）
+    """
+    return ("coalesce(json_unquote(json_extract(freight_rule_snapshot, '$."
+            + key + "')), '') = ''")
+
+
+PROV_REQUIRED_SQL = " or ".join(prov_missing_sql(k) for k in PROV_REQUIRED_KEYS)
 #: 观察期内**一个都不许出现**的原因码（它们都是有具体故障含义的）。
 WINDOW_FORBIDDEN_REASONS = ("error", "ambiguous")
 
@@ -151,7 +164,19 @@ print("RULEDRV|" + (sql("select count(*) from " + DB + ".users where driver_rule
 print("PROVMISS|" + (sql("select count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
                         + "@SINCE@" + " and (" + "@PROV@" + ")") or "?"))
 print("PROVRES|" + (sql("select count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
-                       + "@SINCE@" + " and json_extract(freight_rule_snapshot, '$.pricing.resolution') is not null") or "?"))
+                       + "@SINCE@" + " and coalesce(json_unquote(json_extract("
+                       + "freight_rule_snapshot, '$.pricing.resolution')), '') <> ''") or "?"))
+# ⭐ R4-45：resolution 的**缺口**还得能判「新不新」—— 于是把缺口的**最晚**时刻与
+#    有值的**最早**时刻一起取回来，让数据自己说这次切换干不干净（⛔ 不比写死的时间戳：
+#    那等于给「发布是什么时候」立第二个真相，发布一挪就得两边改）。
+_GAP = (DB + ".orders where freight_rule_snapshot is not null" + "@SINCE@"
+        + " and coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.resolution')), '') = ''")
+_OK = (DB + ".orders where freight_rule_snapshot is not null" + "@SINCE@"
+       + " and coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.resolution')), '') <> ''")
+_AT = "json_unquote(json_extract(freight_rule_snapshot, '$.at'))"
+print("RESGAP|" + (sql("select count(*) from " + _GAP) or "?"))
+print("RESGAPMAX|" + (sql("select coalesce(max(" + _AT + "), '-') from " + _GAP) or "-"))
+print("RESOKMIN|" + (sql("select coalesce(min(" + _AT + "), '-') from " + _OK) or "-"))
 PYEOF"""
 
 
@@ -164,6 +189,71 @@ _SINCE_SQL = ("" if not SINCE else
 _REMOTE = (REMOTE.replace("@PY@", _prodssh.VENV_PY)
            .replace("@SINCE@", _SINCE_SQL)
            .replace("@PROV@", PROV_REQUIRED_SQL))
+
+
+# ---------------------------------------------------------------------------
+# ⭐ **生产形状**（R4-45）：同一个逻辑值，从库里读出来有好几种写法
+#
+# R4-43 在生产上踩到过一次：`agreed` / `override` 是 JSON 布尔，MySQL 的
+# `json_unquote(json_extract(...))` 还原出来的是**字符串 true/false**，
+# 而自检里喂的样本是 1/0 ⇒ 那两个计数**恒为 0**，界面上完全看不出来。
+#
+# 教训不是"少认了一种写法"，而是：**自检的样本形状与生产的样本形状不一致**，
+# 于是"判据自己测自己"永远绿。所以这里把读出来的一格明确分成**三态**，
+# ⛔ 三者永远不许悄悄合并：
+#
+#   ok      —— 认得出，是白名单里的取值
+#   missing —— 这一格**根本没有**（SQL NULL 经 coalesce 之后的占位符）
+#   unknown —— 这一格**有内容、但认不出**（大小写漂移 / 新增取值 / 换了写法）
+#
+# ⛔ 把 unknown 并进任何一个已知桶都是**假绿**：它会让"认不出"看起来像"没发生"。
+#    实测（R4-45 形状矩阵）：`CONTRACT`、`Contract`、`unknown` 这些 resolution
+#    全都会被并进 `not_in_canary` + `inferred` —— 也就是**冒充成"R4-36 之前的老快照"**，
+#    而 `inferred` 这个标签的原意是"这些笔没有 resolution 这一格"。
+# ---------------------------------------------------------------------------
+#: 一格"缺了"的**全部**写法 —— 就是 SQL 侧 `coalesce(..., X)` 真正会打出来的那几个占位符。
+#: ⛔ 只放**真的会出现的**：`"null"` / `"None"` 这种**字面字符串**不是缺失，
+#:    它是"有人把 `str(None)` 写进去了"——那是**形状异常**，并进"缺失"就等于放过它。
+MISSING_MARKS = ("", "(无)", "(none)")
+
+#: 布尔那两格的写法（比对前会 lower()）。⛔ 认不出时 as_bool 返回 None，**绝不当 False**。
+_TRUEISH = ("1", "true", "yes", "on")
+_FALSEISH = ("0", "false", "no", "off")
+
+#: ⛔ **闭集**：这两个集合与 backend 的同名集合必须一致 ——
+#: 由 `_tools/qa/_check_prod_shape.py` 拿 backend 的真身逐个对账（⛔ 不各写一套）。
+KIND_CONTRACT = "freight_template"
+KIND_LEGACY = "legacy_client"
+RESOLUTIONS = ("contract", "fallback", "not_in_canary", "frozen")
+
+
+def shape_of(raw, allowed: tuple) -> tuple[str, str]:
+    """读出来的一格 → `("ok" | "missing" | "unknown", 归一后的原值)`。
+
+    ⚠️ 两边都 strip()：`"frozen "`（尾空格）与 `"frozen"` 是**同一个值**，
+    不该因为一个空格就被判成认不出（那样会天天误报）。
+    """
+    s = str(raw if raw is not None else "").strip()
+    if s in MISSING_MARKS:
+        return "missing", s
+    if s in allowed:
+        return "ok", s
+    return "unknown", s
+
+
+def as_bool(raw) -> bool | None:
+    """生产上读出来的「是 / 否」→ True / False；⛔ **认不出 → None（说不清）**。
+
+    ⚠️ 大小写与 1/0 都要认：MySQL 给的是 `true`/`false`（R4-43 实测），
+    而别的写入路径给的可能是 `1`/`0`（R4-43 之前自检喂的就是它）。
+    两种都是同一件事；⛔ 但"**认不出**"与"**是假**"不是同一件事 —— 所以这里是三态。
+    """
+    s = str(raw if raw is not None else "").strip().lower()
+    if s in _TRUEISH:
+        return True
+    if s in _FALSEISH:
+        return False
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -196,64 +286,159 @@ def four_way(decisions: list[dict]) -> dict:
     ⭐ R4-36 起**优先读 `pricing.resolution`**（这一次走的是哪条路）—— 它把
     「没抽中」与「已冻结沿用旧路」分开了；⛔ 老快照（R4-36 之前）没有这一格，
     只能按 kind+reason **推断**，而推断**分不出 frozen** ⇒ 单独计数并如实标注。
+
+    ⭐ R4-45：`resolution` 与 `kind` 都是**闭集**，认不出的取值**单独落 `unknown`**，
+    并把原值记进 `odd`。⛔ 以前它们会被并进 `not_in_canary` + `inferred` ——
+    那等于把"认不出"冒充成"R4-36 之前的老快照、没被抽中"（形状矩阵实测：
+    `CONTRACT` / `Contract` / `unknown` 全部走到那一支）。
     """
     out = {"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 0,
-           "stale": 0, "inferred": 0}
+           "stale": 0, "inferred": 0, "unknown": 0, "odd": []}
     for d in decisions:
-        res, n = d.get("resolution") or "", d["n"]
-        if res in ("contract", "fallback", "not_in_canary", "frozen"):
+        n = d["n"]
+        rst, res = shape_of(d.get("resolution"), RESOLUTIONS)
+        if rst == "unknown":
+            out["unknown"] += n
+            out["odd"].append("resolution=" + repr(res))
+            continue
+        if rst == "ok":
             out[res] += n
             continue
+        # ---- 没有 resolution 这一格（R4-36 之前的老快照）：只能按 kind + reason 推断 ----
+        kst, kind = shape_of(d.get("kind"), (KIND_CONTRACT, KIND_LEGACY))
+        if kst != "ok":
+            out["unknown"] += n
+            out["odd"].append("kind=" + repr(kind))
+            continue
+        reason = str(d.get("reason") if d.get("reason") is not None else "")
+        if reason.strip() in ("(none)", "(无)"):
+            out["stale"] += n          # 缺 reason = R4-22 之前的旧式快照
+            continue
+        if reason.strip() == "":
+            # ⚠️ **空串 ≠ 缺**：键在、只是内容空 —— 那是形状不对，⛔ 不许当成"旧式快照"。
+            out["unknown"] += n
+            out["odd"].append("reason=空串（⛔ 不是「缺」，是形状不对）")
+            continue
         out["inferred"] += n
-        if d["reason"] == "(none)":
-            out["stale"] += n
-        elif d["kind"] == "freight_template":
+        if kind == KIND_CONTRACT:
             out["contract"] += n
-        elif d["reason"] not in ("ok",):
+        elif reason.strip() != "ok":
             out["fallback"] += n
         else:
             out["not_in_canary"] += n
     return out
 
 
-def contract_detail(decisions: list[dict]) -> tuple[list[str], int, int]:
-    """出口条件 ⑥：契约那一支里，算法值 == 人工最终值 / 人工改过价 各多少笔。"""
-    hits = [d for d in decisions if d["kind"] == "freight_template"]
+def contract_branch(decisions: list[dict]) -> list[dict]:
+    """**契约那一支**的样本 —— 与窗口的 `contract` 计数**同一口径**。
+
+    ⛔ 以前这里按 `kind == "freight_template"` 取，而窗口按 `resolution` 取，
+    于是 `frozen` 的契约单**只进这里、不进窗口**（形状矩阵实测：
+    窗口 contract=4，而这里认到 10）—— ⑥ 的两个计数与窗口判据
+    因此描述的是**两个不同的人群**，放在同一屏上就是在互相误导。
+    """
+    out = []
+    for d in decisions:
+        rst, res = shape_of(d.get("resolution"), RESOLUTIONS)
+        if rst == "ok":
+            if res == "contract":
+                out.append(d)
+        elif rst == "missing" and str(d.get("kind") or "").strip() == KIND_CONTRACT:
+            out.append(d)      # R4-36 之前的老快照：按 kind 推断
+    return out
+
+
+def contract_detail(decisions: list[dict]) -> tuple[list[str], int, int, int]:
+    """出口条件 ⑥：契约那一支里，算法值 == 人工最终值 / 人工改过价 / **认不出** 各多少笔。
+
+    ⚠️ MySQL 的 json_unquote(json_extract(<JSON 布尔>)) 返回的是字符串 **true/false**，
+    ⛔ 不是 1/0 —— R4-43 在生产上一跑就发现这两个计数**恒为 0**：
+    自检里我喂的样本是 1/0，而生产给的是 true/false，样本形状与生产不一致。
+    ⇒ 改用三态的 `as_bool`（认 1/0 也认 true/false/True/True），
+    并且**认不出的单独计数**：⛔ 认不出**不是**"两个值都没发生" —— 只有把第三格
+    摆出来，"形状换了"才会当场看得见，而不是又一次恒为 0。
+    """
+    hits = contract_branch(decisions)
     contracts = sorted({d["contract"] for d in hits})
-    # ⚠️ MySQL 的 json_unquote(json_extract(<JSON 布尔>)) 返回的是字符串 **true/false**，
-    #    ⛔ 不是 1/0 —— R4-43 在生产上一跑就发现这两个计数**恒为 0**：
-    #    自检里我喂的样本是 1/0，而生产给的是 true/false，样本形状与生产不一致。
-    #    ⇒ 两个都认；并且自检里**补上生产真实形状**的那一组（见 selftest）。
-    TRUEISH = ("1", "true", "True")
-    agreed_n = sum(d["n"] for d in hits if d["agreed"] in TRUEISH)
-    over_n = sum(d["n"] for d in hits if d["override"] in TRUEISH)
-    return contracts, agreed_n, over_n
+    agreed_n = over_n = odd_n = 0
+    for d in hits:
+        a, o = as_bool(d.get("agreed")), as_bool(d.get("override"))
+        if a is None or o is None:
+            odd_n += d["n"]
+            continue
+        agreed_n += d["n"] if a else 0
+        over_n += d["n"] if o else 0
+    return contracts, agreed_n, over_n, odd_n
 
 
-def window_verdict(decisions: list[dict], missing_prov: int = 0) -> list[tuple[str, bool]]:
+def resolution_cutover_ok(gap: int, gap_max: str, ok_min: str) -> tuple[bool, str]:
+    """⭐ 观察期内 `pricing.resolution` 有没有**新的**缺口（R4-45）。
+
+    口径 = **单调切换**：老快照缺这一格是合法的（R4-36 之前根本没有这一格），
+    但只要窗口里已经开始出现带 resolution 的快照，**再往后就不许有缺的**。
+
+    ⚠️ 为什么不比一个写死的"代码批次上线时刻"：那会引入**第二个真相**
+    （发布时刻写在工具里、实际发布在别处），而且发布一挪就得两边改。
+    ⇒ 让数据自己说话：**缺的那一批必须全都早于有的那一批**。
+    这一条同时也不会变成"永远红"：切换干净过一次，它就永久绿。
+
+    ⛔ 它拦的是 R4-36 那条语义**重新失效**：只要有一条新写入漏了这一格，
+    「冻结」与「没抽中」就在生产上重新分不开（那正是 T0/T1/T2 当初卡住的原因）。
+    """
+    if gap == 0:
+        return True, "窗口内没有一笔缺 resolution"
+    if not ok_min or ok_min == "-":
+        return False, ("窗口内有 " + str(gap) + " 笔缺 resolution，**一笔带它的都没有** "
+                       "⇒ 分不清这些缺口是「R4-36 之前的存量」还是「新的写入漏了这一格」")
+    if gap_max and gap_max != "-" and gap_max < ok_min:
+        return True, ("窗口内 " + str(gap) + " 笔缺 resolution，**全部**早于第一笔带它的（"
+                      + gap_max + " < " + ok_min + "）⇒ 是 R4-36 之前的存量，不是新缺口")
+    return False, ("⛔ **出现了新的缺口**：最近一笔缺 resolution 的是 " + str(gap_max)
+                   + "，而带 resolution 的样本最早出现在 " + str(ok_min)
+                   + " —— 说明有一条写入路径没带这一格")
+
+
+def window_verdict(decisions: list[dict], missing_prov: int = 0,
+                   res_gap: int = 0, res_gap_max: str = "-",
+                   res_ok_min: str = "-") -> list[tuple[str, bool]]:
     """⑧-a 观察窗口的门槛（⛔ 阈值只在文件头那几个常量里）。
 
     用户 §十三/§十四 要求**分开看三个维度**，⛔ 不许混成一个"通过/不通过"：
       · **Availability**（契约能不能算）—— 样本量、Contract 样本数、退回比例；
       · **Correctness**（算出来对不对）—— ⛔ **机器不判**，只把可观察的事实摆出来（见主输出）；
-      · **Provenance**（说得清凭什么）—— 来源凭据完整率 100%、不许新增无原因的旧式快照。
+      · **Provenance**（说得清凭什么）—— 来源凭据完整率 100%、resolution 没有新缺口、
+        没有新增无原因的旧式快照、**没有认不出的取值**。
+
+    ⚠️ 用户 §十 把出口条件列成七条；这里把它拆成**九条可机判**的 —— 不是加码，是
+    原来把 `error` 与 `ambiguous` 合成了一条（两种故障的修法完全不同），
+    并且 **resolution 缺口**与**形状异常**当时压根没有判据（只有一句注释说"会单独报"，
+    而那个数被算出来之后**丢掉不用**：`with_res` 是个死变量）。
     """
     f = four_way(decisions)
     in_bucket = f["contract"] + f["fallback"]
     # ⚠️ `frozen` **不进分母**：那一次压根没有重新抽签，它不是"抓到的样本"。
+    # ⚠️ `unknown` 同样不进分母：认不出的东西算进"样本量"就是把没验证的当验证过的。
     total = in_bucket + f["not_in_canary"]
     ratio = (f["fallback"] / in_bucket) if in_bucket else None
+    reasons = {str(d.get("reason") or "").strip().lower() for d in decisions}
+    cut_ok, cut_why = resolution_cutover_ok(res_gap, res_gap_max, res_ok_min)
     return [
         ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL),
          in_bucket >= WINDOW_MIN_IN_BUCKET and total >= WINDOW_MIN_TOTAL),
         ("★ **真的被契约算出来**的决策 ≥ " + str(WINDOW_MIN_CONTRACT)
          + "（⛔ 只有「契约被用过」不够 —— 用户 §十三）", f["contract"] >= WINDOW_MIN_CONTRACT),
         ("★ 来源凭据**完整率 100%**（缺键 " + str(missing_prov) + " 份）", missing_prov == 0),
-        ("没有一个 " + " / ".join(WINDOW_FORBIDDEN_REASONS),
-         not any(d["reason"] in WINDOW_FORBIDDEN_REASONS for d in decisions)),
+        ("★ `pricing.resolution` 没有**新的**缺口 —— " + cut_why, cut_ok),
+        ("没有一个 " + WINDOW_FORBIDDEN_REASONS[0] + "（⛔ 与下一条**分开**：两种故障的修法不同）",
+         WINDOW_FORBIDDEN_REASONS[0] not in reasons),
+        ("没有一个 " + WINDOW_FORBIDDEN_REASONS[1] + "（⛔ 大小写漂移也算 —— 它曾经会静默通过）",
+         WINDOW_FORBIDDEN_REASONS[1] not in reasons),
         ("桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO),
          ratio is not None and ratio <= WINDOW_MAX_FALLBACK_RATIO),
         ("观察期内**没有**新增无原因的旧式快照", f["stale"] == 0),
+        ("⛔ 没有**认不出**的取值（"
+         + ("、".join(sorted(set(f["odd"]))) if f["odd"] else "无")
+         + " " + str(f["unknown"]) + " 笔）", not f["odd"]),
     ]
 
 
@@ -310,7 +495,10 @@ def selftest() -> int:
     chk("解析：agreed/override 原样保留", (ds[0]["agreed"], ds[1]["override"]), ("1", "1"))
 
     f = four_way(ds)
-    chk("分类：没有 resolution 的老快照单独计数（⛔ 推断与事实要分得开）", f["inferred"], 41)
+    # ⚠️ 期望值是 **40 不是 41**：老快照共 41 笔，其中 1 笔连 reason 都没有（stale）——
+    #    它落的是 stale 这个**更强的结论**，不再算"按 kind+reason 推断出来的"。
+    #    ⛔ 两处都算就是同一笔在两个标签里各出现一次（读的人会把它当成两笔）。
+    chk("分类：没有 resolution 的老快照单独计数（⛔ 推断与事实要分得开）", f["inferred"], 40)
     chk("分类：老快照里 contract / fallback / not_in_canary 仍按 kind+reason 推断",
         (f["contract"], f["fallback"], f["not_in_canary"]), (10, 5, 25))
     chk("分类：老快照的 stale", f["stale"], 1)
@@ -330,19 +518,99 @@ def selftest() -> int:
     chk("R4-36：resolution=frozen 与「没抽中」**分开**（⛔ 合并就是这次要修的坑）",
         (f2["frozen"], f2["inferred"]), (6, 0))
 
-    contracts, agreed_n, over_n = contract_detail(ds)
+    contracts, agreed_n, over_n, odd_n = contract_detail(ds)
     chk("⑥ 契约身份去重", contracts, ["PricingContract v2"])
     chk("⑥ 算法值 == 人工最终值", agreed_n, 7)
     chk("⑥ 人工改过价（两个数都留）", over_n, 3)
+    chk("⑥ 三个计数（相等 / 改过 / 认不出）加起来正好是契约支的总数",
+        agreed_n + over_n + odd_n, f["contract"])
 
     # ⭐ 生产真实形状：MySQL 给的是 **true/false 字符串**（R4-43 实测）
     raw3 = [
         "DECISION|freight_template|ok|true|false|contract|PricingContract|2|1",
         "DECISION|freight_template|ok|false|true|contract|PricingContract|2|1",
     ]
-    _, a3, o3 = contract_detail(parse_decisions(raw3))
+    _, a3, o3, _n3 = contract_detail(parse_decisions(raw3))
     chk("⑥ 认得出 true/false 字符串（⛔ 只认 1/0 的话计数会恒为 0）", (a3, o3), (1, 1))
-    chk("⑥ 两者相加 == 契约命中总数", agreed_n + over_n, f["contract"])
+
+    # ================= ⭐ R4-45 形状矩阵（自检的样本形状必须覆盖生产可能的每一种）=================
+    # ⚠️ 这一组的由来：R4-43 那个 bug 不是"少认了一种写法"，而是**自检喂的形状
+    #    与生产给的形状不一致**（自检 1/0、生产 true/false）⇒ 判据自己测自己、永远绿。
+    #    ⇒ 于是这里把每一种形状**都喂一遍**，并断言：认不出时**单独成数**，
+    #      ⛔ 绝不被并进任何一个已知桶（并进去 = 把"认不出"伪装成"没发生"）。
+
+    chk("形状：shape_of 认得出白名单取值", shape_of("frozen", RESOLUTIONS), ("ok", "frozen"))
+    chk("形状：shape_of 容忍尾空格（⛔ 不该因为一个空格天天误报）",
+        shape_of(" frozen ", RESOLUTIONS), ("ok", "frozen"))
+    chk("形状：shape_of 把占位符判成「缺」", shape_of("(无)", RESOLUTIONS), ("missing", "(无)"))
+    chk("形状：shape_of 把认不出的判成 unknown（⛔ 不吞）",
+        shape_of("CONTRACT", RESOLUTIONS), ("unknown", "CONTRACT"))
+
+    chk("形状：as_bool 认 1/0", (as_bool("1"), as_bool("0")), (True, False))
+    chk("形状：as_bool 认 true/false（生产给的就是它）",
+        (as_bool("true"), as_bool("false")), (True, False))
+    chk("形状：as_bool 认大小写与 yes/no/on/off",
+        (as_bool("TRUE"), as_bool("False"), as_bool("yes"), as_bool("off")),
+        (True, False, True, False))
+    chk("形状：as_bool 认不出时返回 **None**（⛔ 不是 False —— 两者不是同一件事）",
+        (as_bool("2"), as_bool(""), as_bool("(无)"), as_bool(None)),
+        (None, None, None, None))
+
+    # ⛔ 这一条是整组里最值钱的：**认不出的 resolution 不许冒充老快照**
+    raw4 = ["DECISION|legacy_client|ok|(无)|(无)|CONTRACT|FreightPricingCore|1|9"]
+    f4a = four_way(parse_decisions(raw4))
+    chk("形状⛔：认不出的 resolution 落 unknown 桶", f4a["unknown"], 9)
+    chk("形状⛔：它**没有**被并进 not_in_canary（并进去 = 它冒充成「没被抽中」）",
+        f4a["not_in_canary"], 0)
+    chk("形状⛔：它也**没有**被并进 inferred（⛔ inferred 的原意是「R4-36 之前的老快照」）",
+        f4a["inferred"], 0)
+    chk("形状⛔：并把原值记下来（否则只知道「有认不出的」，不知道是谁）",
+        "resolution='CONTRACT'" in f4a["odd"], True)
+
+    f4b = four_way(parse_decisions(["DECISION|FREIGHT_TEMPLATE|ok|(无)|(无)||X|1|4"]))
+    chk("形状⛔：认不出的 kind 也落 unknown（⛔ 不是 not_in_canary）",
+        (f4b["unknown"], f4b["not_in_canary"] + f4b["contract"]), (4, 0))
+
+    f4c = four_way(parse_decisions(["DECISION|legacy_client||(无)|(无)||X|1|4"]))
+    chk("形状⛔：reason 是**空串**时落 unknown（⛔ 空串 ≠ 缺：键在、只是内容空）",
+        (f4c["unknown"], f4c["stale"]), (4, 0))
+
+    f4d = four_way(parse_decisions(["DECISION|legacy_client|ERROR|(无)|(无)|fallback|X|1|4"]))
+    v4d = dict(window_verdict(parse_decisions(
+        ["DECISION|legacy_client|ERROR|(无)|(无)|fallback|X|1|4"])))
+    e4d = [k for k in v4d if k.startswith("没有一个 " + WINDOW_FORBIDDEN_REASONS[0])]
+    chk("形状⛔：reason 的**大写漂移**（ERROR）仍然被 forbidden 判据抓住（⛔ 以前静默通过）",
+        (f4d["fallback"], bool(e4d) and v4d[e4d[0]]), (4, False))
+
+    # ⭐ 契约支的口径必须与窗口**同一人群**（⛔ 以前 frozen 的契约单只进 ⑥、不进窗口）
+    raw5 = parse_decisions([
+        "DECISION|freight_template|ok|1|0|contract|PricingContract|2|4",
+        "DECISION|freight_template|ok|(无)|(无)|frozen|PricingContract|2|6",
+    ])
+    chk("口径：契约支 = resolution=contract（frozen 的契约单**不算**契约支）",
+        sum(d["n"] for d in contract_branch(raw5)), four_way(raw5)["contract"])
+    _, a5, o5, n5 = contract_detail(raw5)
+    chk("口径：⑥ 的三个计数加起来 == 窗口的 contract（⛔ 两个人群不许各说各话）",
+        a5 + o5 + n5, four_way(raw5)["contract"])
+
+    raw6 = parse_decisions(["DECISION|freight_template|ok|TRUE|FALSE|contract|PricingContract|2|2"])
+    _, a6, o6, n6 = contract_detail(raw6)
+    chk("⑥ 形状：大字 TRUE/FALSE 也认得出", (a6, o6, n6), (2, 0, 0))
+    raw7 = parse_decisions(["DECISION|freight_template|ok|(无)|(无)|contract|PricingContract|2|2"])
+    _, a7, o7, n7 = contract_detail(raw7)
+    chk("⑥ 形状⛔：认不出时**单独成数**（⛔ 不是「0 笔相等、0 笔改过」这种看不出来的假绿）",
+        (a7, o7, n7), (0, 0, 2))
+
+    # ---- resolution 缺口：**新不新**（R4-45）----
+    chk("缺口：一笔都不缺 ⇒ 过", resolution_cutover_ok(0, "-", "-")[0], True)
+    chk("缺口：有缺、有值、且缺口全在值之前 ⇒ 过（是 R4-36 的存量）",
+        resolution_cutover_ok(3, "2026-09-27T07:30:00", "2026-09-27T10:30:00")[0], True)
+    chk("缺口：有缺、**一笔值都没有** ⇒ 不过（分不清是存量还是新漏）",
+        resolution_cutover_ok(3, "2026-09-27T07:30:00", "-")[0], False)
+    chk("缺口：⛔ 缺口出现在有值的**之后** ⇒ 不过（新的写入漏了这一格）",
+        resolution_cutover_ok(1, "2026-09-27T11:00:00", "2026-09-27T10:30:00")[0], False)
+    chk("缺口：那句话说清了「分不清存量还是新漏」",
+        "分不清" in resolution_cutover_ok(3, "x", "-")[1], True)
 
     fails = dict(window_verdict(ds))
     chk("窗口：桶内 15 < 20 ⇒ 样本量不过", fails["样本量：桶内 ≥ 20 且总数 ≥ 40"], False)
@@ -357,9 +625,25 @@ def selftest() -> int:
     prov = [k for k in fails if k.startswith("★ 来源凭据")]
     chk("窗口：来源凭据完整率单独成一条门槛", bool(prov), True)
     chk("窗口：缺键 0 份 ⇒ 完整率那条过", fails[prov[0]] if prov else None, True)
-    chk("窗口：没有 forbidden reason ⇒ 过", fails["没有一个 error / ambiguous"], True)
+    cut = [k for k in fails if k.startswith("★ `pricing.resolution`")]
+    chk("窗口：resolution 缺口单独成一条门槛（⛔ R4-45 之前这个数算出来就丢了）", bool(cut), True)
+    chk("窗口：缺口 0 ⇒ 那一条过", fails[cut[0]] if cut else None, True)
+    err_keys = [k for k in fails if k.startswith("没有一个 " + WINDOW_FORBIDDEN_REASONS[0])]
+    amb_keys = [k for k in fails if k.startswith("没有一个 " + WINDOW_FORBIDDEN_REASONS[1])]
+    chk("窗口：⛔ error 与 ambiguous **是两条**（两种故障的修法不同，不许合成一条）",
+        (len(err_keys), len(amb_keys)), (1, 1))
+    chk("窗口：没有 forbidden reason ⇒ 两条都过",
+        bool(err_keys and amb_keys) and fails[err_keys[0]] and fails[amb_keys[0]], True)
     chk("窗口：退回 5/15 = 0.33 ≤ 0.8 ⇒ 过", fails["桶内退回比例 ≤ 0.8"], True)
     chk("窗口：有 stale ⇒ 不过", fails["观察期内**没有**新增无原因的旧式快照"], False)
+    shape_key = [k for k in fails if k.startswith("⛔ 没有**认不出**")]
+    chk("窗口：认不出的取值单独成一条门槛（⛔ 没有它，形状换了也照样全绿）",
+        bool(shape_key) and fails[shape_key[0]], True)
+    bad_shape = dict(window_verdict(parse_decisions(
+        ["DECISION|legacy_client|ok|(无)|(无)|CONTRACT|X|1|1"])))
+    bk = [k for k in bad_shape if k.startswith("⛔ 没有**认不出**")]
+    chk("窗口：真有坏形状时那一条会红（⛔ 否则它就是一条永远绿的装饰）",
+        bool(bk) and bad_shape[bk[0]], False)
 
     # ---- 窗口可行性（纯函数）----
     ok0, why0 = window_feasibility(0, 8, 25)
@@ -375,7 +659,8 @@ def selftest() -> int:
 
     empty = parse_decisions([])
     chk("空输入不炸", four_way(empty),
-        {"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 0, "stale": 0, "inferred": 0})
+        {"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 0,
+         "stale": 0, "inferred": 0, "unknown": 0, "odd": []})
     chk("桶内为 0 时比例算不出来（⛔ 不是当成 0% 过）",
         dict(window_verdict(empty))["桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO)], False)
 
@@ -405,6 +690,9 @@ def main() -> int:
     schema = col = snaptotal = orders = "?"
     rule_tpl = tpl_n = ruledrv = "?"
     provmiss = provres = "?"
+    res_gap = "?"          # 窗口内缺 pricing.resolution 的快照数
+    res_gap_max = "-"      # 缺的那一批里**最晚**的时刻（判断这个缺口新不新）
+    res_ok_min = "-"       # 有 resolution 的那一批里**最早**的时刻
     for ln in out.splitlines():
         parts = ln.split("|")
         if parts[0] == "HEALTH" and len(parts) >= 5:
@@ -429,6 +717,12 @@ def main() -> int:
             provmiss = parts[1] if len(parts) > 1 else "?"
         elif parts[0] == "PROVRES":
             provres = parts[1] if len(parts) > 1 else "?"
+        elif parts[0] == "RESGAP":
+            res_gap = parts[1] if len(parts) > 1 else "?"
+        elif parts[0] == "RESGAPMAX":
+            res_gap_max = parts[1] if len(parts) > 1 else "-"
+        elif parts[0] == "RESOKMIN":
+            res_ok_min = parts[1] if len(parts) > 1 else "-"
 
     decisions = parse_decisions(raw_decisions)
 
@@ -459,13 +753,17 @@ def main() -> int:
                     else ("  ← R4-22 之前的旧快照，没有 reason 字段" if d["reason"] == "(none)" else ""))
             print("        " + d["kind"].ljust(16) + " reason=" + d["reason"].ljust(16)
                   + str(d["n"]).ljust(5) + mark)
-        contracts, agreed_n, over_n = contract_detail(decisions)
+        contracts, agreed_n, over_n, odd_n = contract_detail(decisions)
         if contracts:
             print("        契约身份（生产上真的用到的那几版）：" + "、".join(contracts))
-        if contracts:
             print("        ⑥ 算法值 == 人工最终值：" + str(agreed_n) + " 笔"
                   + " ／ 人工改过价（两个数都留下了）：" + str(over_n) + " 笔")
             print("           ⚠️ 两个数都留下是可查的；⛔ 但「金额对不对」这件事**只能人看**，本工具不判。")
+            if odd_n:
+                # ⛔ 这一行才是 R4-43 那个坑的真正修法：认不出的形状**单独成数**，
+                #    而不是悄悄并进"两个数都没发生"（那样它会恒为 0，谁也看不出来）。
+                print("           ⛔ 另有 " + str(odd_n) + " 笔的 agreed/override **认不出形状**"
+                      + "（既不算「相等」也不算「没发生」—— 形状换了就得当场看见）")
     else:
         print("        （还没有任何一张单带来源凭据 —— R4-21 之后产生的单才会有）")
 
@@ -520,6 +818,8 @@ def main() -> int:
 
     missing_prov = _i(provmiss)
     with_res = _i(provres)
+    res_gap_n = _i(res_gap)
+    snap_n = _i(snaptotal)
     f4 = four_way(decisions)
     contract, fell_back = f4["contract"], f4["fallback"]
     not_in_bucket, stale = f4["not_in_canary"], f4["stale"]
@@ -541,6 +841,15 @@ def main() -> int:
               + "只能按 kind+reason 推断 —— 而推断**分不出 frozen**。")
     print("        旧式快照（无原因） stale           " + str(stale)
           + "   ← 只该来自 R4-22 之前，观察期内**新增**任何一个都是问题")
+    if f4["unknown"]:
+        print("        ⛔ **认不出的取值**   unknown         " + str(f4["unknown"])
+              + "   ← ⛔ 它们**不是**老快照：是形状换了（" + "、".join(sorted(set(f4["odd"]))) + "）")
+        print("           ⇒ ⛔ 不许把它读成「没抽中」或「R4-36 之前的存量」—— 先查是谁换了写法。")
+    print("        resolution 覆盖率  with_res         " + str(with_res) + " / " + str(snap_n)
+          + "   ← ⭐ 它单独成一条判据（以前这个数算出来就丢掉了）")
+    if res_gap_n:
+        print("           ⛔ 缺 resolution 的 " + str(res_gap_n) + " 笔里，**最晚**一笔在 "
+              + str(res_gap_max) + "；有 resolution 的最早一笔在 " + str(res_ok_min))
     if SINCE:
         print("        窗口起点（快照 pricing.at ≥）：" + SINCE_AT + " UTC")
     if not SINCE:
@@ -548,7 +857,8 @@ def main() -> int:
         print("           发布之后跑：python _tools/ops/_canary_status.py --since <发布日>")
         window_ok = None
     else:
-        crit = window_verdict(decisions, missing_prov)
+        crit = window_verdict(decisions, missing_prov,
+                              res_gap_n, str(res_gap_max), str(res_ok_min))
         for label, c in crit:
             print("        " + ("✅ " if c else "⛔ ") + label)
         window_ok = all(c for _l, c in crit)
@@ -559,7 +869,8 @@ def main() -> int:
         print("        B **Correctness**（算出来对不对）：⛔ **机器不判** —— 工具只回答「两个值在不在」；")
         print("          「这个数业务上该不该是这么多」**必须人看**（用户 §十五：这条边界不许为了自动化再塞回去）")
         print("        C **Provenance**（说得清凭什么）：来源凭据完整率 100% + 每条退回都带 reason")
-        print("          + 观察期内没有新增无原因的旧式快照")
+        print("          + resolution 没有**新的**缺口 + 观察期内没有新增无原因的旧式快照")
+        print("          + ⛔ 没有**认不出**的取值（认不出并进已知桶 = 假绿，R4-45）")
 
     if strict and state != "ACTIVE":
         return 1

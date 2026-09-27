@@ -144,6 +144,56 @@ PYEOF
 """
 
 
+def parse_result(out: str) -> tuple[str, str]:
+    """远端打的 `RESULT|<码>|<说明>` → (码, 说明)。⛔ 一行都没有就是**空码 = 没结论**。
+
+    ⚠️ 为什么抠成纯函数（R4-45）：本工具是**唯一会往生产写业务数据**的那一个，
+    而它的结论全靠远端这一行。以前这段藏在 `run()` 里、只能在真跑时验 ——
+    形状一变（少了说明、多打了一行）就会退化成"⛔ 没拿到结论"，而没人当场知道。
+    """
+    code = msg = ""
+    for ln in out.splitlines():
+        if ln.startswith("RESULT|"):
+            parts = ln.split("|")
+            code, msg = parts[1], (parts[2] if len(parts) > 2 else "")
+    return code, msg
+
+
+def selftest() -> int:
+    """⛔ 它会写**生产** —— 三条硬限制与回传解析都必须有机器证明，⛔ 不靠记性。"""
+    bad = 0
+    seen = 0
+
+    def chk(label: str, got, want) -> None:
+        nonlocal bad, seen
+        seen += 1
+        ok = got == want
+        print(("  OK   " if ok else "  BAD  ") + label + " → " + str(got)
+              + ("" if ok else "（期望 " + str(want) + "）"))
+        bad += 0 if ok else 1
+
+    chk("回传解析：正常一行", parse_result("STEP|x\nRESULT|OK|123\n"), ("OK", "123"))
+    chk("回传解析：没有说明也认（⛔ 不许因为少一段就说「没拿到结论」）",
+        parse_result("RESULT|REFUSE|"), ("REFUSE", ""))
+    chk("回传解析：完全没有 RESULT ⇒ 空码（= 没结论，⛔ 不许当成完成）",
+        parse_result("STEP|x\n"), ("", ""))
+    chk("回传解析：多行时以**最后一行**为准", parse_result("RESULT|FAIL|a\nRESULT|OK|b\n"), ("OK", "b"))
+
+    chk("⛔ 远端脚本里**留着**演练单标记判据（少了它 refreight/cancel 会碰真实客户的单）",
+        "if MARK not in addr:" in _REMOTE and "绝不碰真实单" in _REMOTE, True)
+    chk("⛔ 远端脚本里是 /cancel（撤销），不是 /recall（撤回要必填 reason，发空 body 会 422）",
+        '"/cancel"' in _REMOTE, True)
+    chk("⛔ 走实例直连 8111（经 nginx 的明文请求会被 core/transport.py 用 426 拒掉）",
+        "127.0.0.1:8111" in _REMOTE, True)
+    chk("⛔ 两个 phase 都不许在没有 --order 时往下走",
+        ('if phase in ("refreight", "cancel") and not order:' in
+         __import__("inspect").getsource(main)), True)
+
+    print("")
+    print("Canary 有限写自检：" + str(seen - bad) + "/" + str(seen) + " 通过")
+    return 1 if bad else 0
+
+
 def run(phase: str, order: int = 0) -> tuple[str, str]:
     script = (_REMOTE.replace("@PY@", _prodssh.VENV_PY)
               .replace("@MARK@", repr(MARK))
@@ -155,16 +205,13 @@ def run(phase: str, order: int = 0) -> tuple[str, str]:
               .replace("@FEE2@", repr(FEE_2)))
     out = _prodssh.ssh_script(script, timeout=180, check=False).stdout.decode("utf-8", "replace")
     print(out.rstrip())
-    code, msg = "", ""
-    for ln in out.splitlines():
-        if ln.startswith("RESULT|"):
-            parts = ln.split("|")
-            code, msg = parts[1], (parts[2] if len(parts) > 2 else "")
-    return code, msg
+    return parse_result(out)
 
 
 def main() -> int:
     argv = sys.argv
+    if "--selftest" in argv:
+        return selftest()
     phase = argv[argv.index("--phase") + 1] if "--phase" in argv else "create"
     order = int(argv[argv.index("--order") + 1]) if "--order" in argv else 0
     if phase in ("refreight", "cancel") and not order:
