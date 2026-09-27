@@ -180,8 +180,17 @@ APPROVED_WARNS: dict[str, str] = {
 }
 
 
+#: `--at` 指定的那个提交（缺省 None = 用本仓库 HEAD）。
+#: ⭐ 为什么需要它（2026-09-27 R4-18 发布演练实测踩到）：
+#: **回滚之后这条判据必然报红** —— 生产停在「回滚到的那个提交」，而本机 HEAD 是更新的那个，
+#: `backend/` 当然有差异。于是**回滚这一半没法用烟测验收**（那是"判据只认本机 HEAD"造成的，
+#: 不是回滚本身有问题）。给了 `--at` 之后：`--at <回滚到的提交>` 才是"这次要核的那一版"。
+AT_COMMIT: str | None = None
+
+
 def runtime_delta(commit: str) -> int | None:
-    """生产那个提交与本仓库 HEAD 之间 **运行时代码（`backend/`）** 的差异行数。
+    """生产那个提交与**要核的那一版**（`--at`，缺省本仓库 HEAD）之间
+    **运行时代码（`backend/`）** 的差异行数。
 
     ⛔ 算不出返回 None（调用方**不许**当成 0）。
     ⛔ 为什么核这个而不是核「commit 相等」：发布之后必然还会推**只改文档/工具**的提交
@@ -191,7 +200,8 @@ def runtime_delta(commit: str) -> int | None:
     """
     if len(commit) != 40:
         return None
-    r = subprocess.run(["git", "diff", "--numstat", commit + "..HEAD", "--", "backend"],
+    target = AT_COMMIT or "HEAD"
+    r = subprocess.run(["git", "diff", "--numstat", commit + ".." + target, "--", "backend"],
                        cwd=str(ROOT), capture_output=True, timeout=60)
     if r.returncode != 0:
         return None
@@ -298,7 +308,11 @@ def main() -> int:
                     help="只读模式（本脚本**只有**这一种模式，写在这里是为了让命令自己说得清）")
     ap.add_argument("--local", action="store_true", help="在生产机上直接跑（不 ssh）")
     ap.add_argument("--json", help="把原始事实写成 JSON（证据留档用；会额外把完整 pip freeze 一起存档）")
+    ap.add_argument("--at", help="要核的那一版提交（缺省＝本仓库 HEAD）。**验收一次回滚时必须给** —— "
+                                 "生产停在回滚到的提交上，而本机 HEAD 更新，不给就会误报「生产不是这一版」")
     a = ap.parse_args()
+    global AT_COMMIT
+    AT_COMMIT = a.at
 
     pkgs = declared_packages()
     facts = parse_facts(run_remote(build_script(pkgs), a.local))
@@ -375,7 +389,8 @@ def main() -> int:
     chk(len(commit) == 40, "生产仓库提交可读", (commit[:12] or "") + " / 分支 " + str(f("repo_branch")),
         "读不出来（/opt/SOrders 不是 git 工作区？）", category="consistency")
     same, why = prod_skew(commit)
-    chk(same, "生产跑的运行时代码 = 本仓库（`backend/` 零差异）", "跑起来的代码一致", "生产 " + (commit[:8] or "?") + "：" + why,
+    chk(same, "生产跑的运行时代码 = " + ("--at " + AT_COMMIT[:8] if AT_COMMIT else "本仓库 HEAD")
+                   + "（`backend/` 零差异）", "跑起来的代码一致", "生产 " + (commit[:8] or "?") + "：" + why,
         category="consistency")
     chk(f("tracked_dirty") == "0", "生产**跟踪文件**没有被手改过",
         "git diff 干净", "有 " + str(f("tracked_dirty")) + " 个跟踪文件被改过（生产上有人手改了代码？）",

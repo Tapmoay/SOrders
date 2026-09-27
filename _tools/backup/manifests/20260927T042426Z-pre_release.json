@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "R4-18 计价接线的发布演练（发布→滚动重启→health→smoke→**回滚**）",
+  "created_utc": "2026-09-27T04:24:25Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260927T042413Z",
+  "code": {
+    "commit": "ca5e49f755497e6719aa5c2da79bbf9fd39e35be",
+    "branch": "",
+    "dirty_files": 8
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": 9,
+    "rows": {
+      "orders": 2403,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 48
+    }
+  },
+  "uploads": {
+    "bytes": 105224536,
+    "files": 2110
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 530495,
+      "sha256": "ded65218a3747cb62d3aca9890df1579b2cd5a796c4ded07f30c82d3a8543cab"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105224536,
+      "sha256": "92246950f66594e0103a284d980b63586720d13174f8b5ced5bf574c98e9c0df"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}
