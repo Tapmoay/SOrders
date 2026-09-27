@@ -215,6 +215,27 @@ schema 顺延到 R4-11。用户明确说过草案「以真正施工顺序为准�
 
 ---
 
+### ④ Pricing Golden Set —— ✅ 已完成（2026-09-27）
+
+用户 §11 点名的那一份。**Legacy vs Extension 逐笔 0 漂移**（15 条语料），全文 `docs/R4_GOLDEN_SET.md`。
+
+| 项 | 交付 | 出口（可复现） |
+| --- | --- | --- |
+| **候选实现** | `backend/app/extensions/pricing/freight_template.py` —— 把核心的价目匹配**原样搬进** PricingContract v2（⛔ 一行业务规则都不改） | 四个实现：`freight_template` / `per_quantity` / `standard` / `tiered` |
+| **语料** | `_tools/qa/_golden/freight_pricing.json`（15 条：8 个桶有样例 + 3 个桶**明确不适用**并写了理由） | `python _tools/qa/_check_golden_set.py --compare` |
+| **比对器 + 判据** | `_tools/qa/_check_golden_set.py`（必跑组） | ✅ 语料 15 条 —— match 15 / **mismatch 0** |
+| **反向验证** | `_tools/qa/_reverse_verify_golden_set.py` | ✅ **7/7**（三种边界口径被改坏 + 语料缺桶 / 期望改错 / 声明的「不适用」被打脸） |
+
+⭐ **这一格还证伪了我自己的一个猜想**：我以为「价目存三位小数时核心会原样给出、只有候选才量化」，
+实测两边都是 12.35 —— 量化发生在**读库**那一步（`Numeric(12,2)` 的结果处理器），两条路都经过它。
+Golden Set 的价值不只是「回归」，还是「**证伪**」。
+
+⛔ **它证不了什么，如实记着**（详见那份文档 §5）：不证明「核心是对的」（只证明候选与核心一致）；
+不是真实生产数据；⭐ 最大的残余风险是**喂给候选的那份快照是我转录的**（`snapshot_from_db`），
+⛔ 不是核心自己导出的 ⇒ ⑤ Shadow 必须用**核心侧构造器**再证一次。
+
+---
+
 ### ⭐ 本阶段提交的 CI 结果（R4-09，2026-09-27）
 
 用户 2026-09-27 要求把 CI 那一列的措辞改准（见「验收矩阵」读表须知）。下面是**这一批提交**的实测：

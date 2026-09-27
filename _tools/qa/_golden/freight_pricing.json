@@ -1,0 +1,218 @@
+{
+  "spec": "承运运费 Golden Set（R4-16）—— 输入世界 + **人写的期望**；同一份世界逐笔喂给 Legacy（services/freight_pricing.quote_for）与 Extension（extensions/pricing/freight_template.py）。⛔ 只从其中一边生成语料 = 只证明『候选像它』，不是『候选对』。",
+  "buckets": {
+    "normal": "最常见的：目的地与价目终点逐字相同 / 靠线路编号命中",
+    "boundary": "边界：价目没挂分类（当通用兜底）/ 分类对不上 / 这一单没分类 / 路线没价目 / 没有送货地址",
+    "zero": "零值：价目就是 0.00 —— ⛔ 不是『没定价』",
+    "decimal": "小数：两位小数里的零头",
+    "max": "最大值：金额列能存下的上限",
+    "pricing_kind": "不同计价类型：同一档多条（不猜）/ 这一单根本不归它管",
+    "rounding": "四舍五入边界：核心原样给出三位小数，取两位才是入库口径",
+    "error": "异常输入：司机没挂规则 / 规则没勾价目",
+    "unit": "不适用（见 NOT_APPLICABLE）",
+    "discount": "不适用（见 NOT_APPLICABLE）",
+    "surcharge": "不适用（见 NOT_APPLICABLE）"
+  },
+  "cases": [
+    {
+      "id": "normal-route-hit", "bucket": "normal", "origin": "synthetic",
+      "why": "最常见的一条：目的地与价目的终点逐字相同、分类也命中",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州市余杭区仓前街 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "仓前线蔬菜价", "price_name": "小车价", "fee": "120.00",
+                       "route_id": 1, "to_place": "杭州市余杭区仓前街 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "老李的规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0001", "to_place": "杭州市余杭区仓前街 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "matched", "fee": "120.00", "ids": [12], "raw": "120.00"}
+    },
+    {
+      "id": "normal-route-id-hit", "bucket": "normal", "origin": "synthetic",
+      "why": "终点文字写法不同，但价目挂的线路编号就是这一单地址那条线路 —— 靠编号命中",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "仓前线", "price_name": "", "fee": "135.50",
+                       "route_id": 1, "to_place": "仓前（旧写法）", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0002", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "matched", "fee": "135.50", "ids": [12], "raw": "135.50"}
+    },
+    {
+      "id": "boundary-template-no-category", "bucket": "boundary", "origin": "synthetic",
+      "why": "价目一条分类都没挂 = **通用兜底**（不是『不可用』）",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "全线通用价", "price_name": "", "fee": "99.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": []}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0003", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "matched", "fee": "99.00", "ids": [12], "raw": "99.00"}
+    },
+    {
+      "id": "boundary-category-mismatch", "bucket": "boundary", "origin": "synthetic",
+      "why": "这一单是蔬菜，这条路线上的价目只挂水果 ⇒ 一条都不可用（**不是**取一条凑数）",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}, {"id": 9, "name": "水果"}],
+        "templates": [{"id": 12, "name": "水果价", "price_name": "", "fee": "88.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [9]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0004", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "none"}
+    },
+    {
+      "id": "boundary-order-no-category", "bucket": "boundary", "origin": "synthetic",
+      "why": "这一单还没定分类（待定价那一页）⇒ 分类这一维**不参与筛选**，带分类的价目照样可用",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "蔬菜价", "price_name": "", "fee": "120.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0005", "to_place": "杭州仓前 1 号", "category_id": null, "category": ""},
+      "expect": {"kind": "matched", "fee": "120.00", "ids": [12], "raw": "120.00"}
+    },
+    {
+      "id": "boundary-route-miss", "bucket": "boundary", "origin": "synthetic",
+      "why": "这条路线一条价目都没有（终点对不上、线路编号也对不上）",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "别的线", "price_name": "", "fee": "120.00",
+                       "route_id": 2, "to_place": "宁波北仑 9 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0006", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "none"}
+    },
+    {
+      "id": "boundary-no-address", "bucket": "boundary", "origin": "synthetic",
+      "why": "这一单没有送货地址 ⇒ 认不出路线（**不是**『没有价目』）",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "蔬菜价", "price_name": "", "fee": "120.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0007", "to_place": "", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "none"}
+    },
+    {
+      "id": "zero-fee", "bucket": "zero", "origin": "synthetic",
+      "why": "价目就是 0.00 —— ⛔ 不是『没定价』：它是一条**真的价格**",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "内部调拨价", "price_name": "", "fee": "0.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0008", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "matched", "fee": "0.00", "ids": [12], "raw": "0.00"}
+    },
+    {
+      "id": "decimal-fee", "bucket": "decimal", "origin": "synthetic",
+      "why": "两位小数里的零头：88.88（⛔ 不是 88 或 89）",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "零头价", "price_name": "", "fee": "88.88",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0009", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "matched", "fee": "88.88", "ids": [12], "raw": "88.88"}
+    },
+    {
+      "id": "max-fee", "bucket": "max", "origin": "synthetic",
+      "why": "金额列能存下的上限 9999999999.99 —— 再大 MySQL 会 Out of range（本地 SQLite 不会）",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "上限价", "price_name": "", "fee": "9999999999.99",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0010", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "matched", "fee": "9999999999.99", "ids": [12], "raw": "9999999999.99"}
+    },
+    {
+      "id": "pricing-kind-ambiguous", "bucket": "pricing_kind", "origin": "synthetic",
+      "why": "同一路线 + 同一分类下有**两条同样优先**的价目 ⇒ ⛔ 不猜，带候选清单交出去",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [
+          {"id": 12, "name": "蔬菜价 A", "price_name": "价一", "fee": "120.00", "route_id": 1,
+           "to_place": "杭州仓前 1 号", "category_ids": [3]},
+          {"id": 13, "name": "蔬菜价 B", "price_name": "价二", "fee": "127.50", "route_id": 1,
+           "to_place": "杭州仓前 1 号", "category_ids": [3]}
+        ],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12, 13]}}
+      },
+      "order": {"order_no": "SO-G-0011", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "ambiguous", "ids": [12, 13]}
+    },
+    {
+      "id": "pricing-kind-not-mine", "bucket": "pricing_kind", "origin": "synthetic", "extension_only": true,
+      "why": "快照点名的是**别的**计价方式 ⇒ 这个实现不该认领它（核心认识的是契约，不是实现）",
+      "snapshot_patch": {"pricing_kind": "standard"},
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "蔬菜价", "price_name": "", "fee": "120.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0012", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "not-mine"}
+    },
+    {
+      "id": "rounding-3dp", "bucket": "rounding", "origin": "synthetic",
+      "why": "价目写的是三位小数 12.345。⭐ 这一格**证伪了我原本的猜想**：我以为核心会原样给出 12.345、只有候选才量化 —— 实测不是，**量化发生在读库那一步**（SQLAlchemy 的 Numeric(12,2) 结果处理器），两条路都经过它，所以两边都是 12.35。⛔ 这条语料的价值就在这里：一个「听起来很对」的猜想被数据否掉了，而且从此钉住。",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "三位小数价", "price_name": "", "fee": "12.345",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "规则", "template_ids": [12]}}
+      },
+      "order": {"order_no": "SO-G-0013", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "matched", "fee": "12.35", "ids": [12], "raw": "12.35"}
+    },
+    {
+      "id": "error-driver-no-rule", "bucket": "error", "origin": "synthetic",
+      "why": "这个司机还没挂计费规则 ⇒ 一条候选都没有（**不是**『这条路线没价目』）",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "蔬菜价", "price_name": "", "fee": "120.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": null}
+      },
+      "order": {"order_no": "SO-G-0014", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "none"}
+    },
+    {
+      "id": "error-rule-without-templates", "bucket": "error", "origin": "synthetic",
+      "why": "挂了规则，但规则里**一条价目都没勾** ⇒ 同样一条候选都没有",
+      "world": {
+        "addresses": [{"id": 1, "detail": "杭州仓前 1 号"}],
+        "categories": [{"id": 3, "name": "蔬菜"}],
+        "templates": [{"id": 12, "name": "蔬菜价", "price_name": "", "fee": "120.00",
+                       "route_id": 1, "to_place": "杭州仓前 1 号", "category_ids": [3]}],
+        "driver": {"id": 21, "rule": {"id": 5, "name": "空规则", "template_ids": []}}
+      },
+      "order": {"order_no": "SO-G-0015", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
+      "expect": {"kind": "none"}
+    }
+  ]
+}

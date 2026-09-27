@@ -183,16 +183,37 @@ def test_v2_is_a_superset_of_v1() -> None:
         assert v2.name == provider.name and v2.version == provider.version
 
 
+#: 每个 kind 需要的那一份"料"（快照里放什么 + 上下文里放什么）。
+#:
+#: ⚠️ 2026-09-27（R4-16）加这张表的原因值得写下来：这份测试原来是"**所有实现喂同一份大杂烩**"
+#: （把各家的键都塞进一个快照）。新加的 `freight_template` 要的是**价目表 + 送货地址**，
+#: 大杂烩里没有 ⇒ 它抛 NoPricingRule，而报出来的是"实现坏了"。
+#: 那其实是**这份测试的问题**：它想证的从来是「经适配器拿得到明细、且明细等于总额」，
+#: 那就必须按 kind 给料。⛔ 没有放宽任何断言 —— 下面四条一个字都没动。
+MATERIAL: dict[str, dict] = {
+    "freight_template": {
+        "to_place": "语料路 1 号",
+        "snapshot": {"templates": [{"id": 1, "name": "语料价目", "price_name": "",
+                                    "fee": "120.00", "to_place": "语料路 1 号",
+                                    "route_id": None, "category_ids": []}]},
+    },
+}
+
+
 def test_v1_implementations_still_work_through_the_adapter() -> None:
     """指南 §17：**旧实现还能工作**。每个实现都要能经适配器拿到明细。"""
     for provider in PROVIDERS:
         kind = getattr(provider, "kind", None)
         if not kind:
             continue
-        ctx = PricingContext(rule_snapshot={"pricing_kind": kind, "amount": "120.00",
-                                            "unit_price": "8.50",
-                                            "base_price": "8.00", "base_qty": "10",
-                                            "over_price": "9.00"},
+        extra = MATERIAL.get(kind, {})
+        snapshot = {"pricing_kind": kind, "amount": "120.00",
+                    "unit_price": "8.50",
+                    "base_price": "8.00", "base_qty": "10",
+                    "over_price": "9.00"}
+        snapshot.update(extra.get("snapshot", {}))
+        ctx = PricingContext(rule_snapshot=snapshot,
+                             to_place=extra.get("to_place", ""),
                              unit_price=Decimal("8.50"),
                              quantity=Quantity(Decimal("15"), "件", "count"))
         v2 = as_v2(provider)
