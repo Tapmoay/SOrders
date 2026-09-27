@@ -89,6 +89,7 @@ def main() -> int:
     order = argv[argv.index("--order") + 1] if "--order" in argv else ""
     phase = argv[argv.index("--phase") + 1] if "--phase" in argv else "t0"
     expect = argv[argv.index("--expect-kind") + 1] if "--expect-kind" in argv else ""
+    expect_reason = argv[argv.index("--expect-reason") + 1] if "--expect-reason" in argv else ""
     if not order:
         print("用法：--order <单号或 id> --phase t0|t1|t2 [--expect-kind legacy_client|freight_template]")
         return 2
@@ -116,7 +117,16 @@ def main() -> int:
         print("     ③ 让这张单**再走一次真实的运费写入**（派单界面改价 / 或用真实接口）")
         print("     ④ 跑 --phase t1 确认比例真的变了，再跑 --phase t2 比对来源")
         print("")
-        print("   ⚠️ T0 的 kind 要记下来：" + kind + " —— T2 必须还是它。")
+        print("   ⚠️ T0 要记下来**两个**：kind=" + kind + "、reason=" + reason + " —— T2 必须都还是它。")
+        print("")
+        print("   ⛔ 一条 R4-34 在生产上实测出来的**局限**，先说清楚免得把结论读大：")
+        print("      · 如果 T0 的 kind 是 legacy_client，这个实验**分不出冻结与没抽中** ——")
+        print("        冻结住 ⇒ 仍然按旧路记；没冻 ⇒ 比例调低后这一单也不在桶里。两条路**同一支代码**，")
+        print("        都写 reason=ok，唯一的差别只体现在 kind 上（而两种情况下 kind 都是 legacy_client）。")
+        print("      · 真正分得开的是**契约那一支**（T0 冻结成 freight_template，T1 把比例调到 0，")
+        print("        T2 必须仍然是 freight_template）—— 而生产今天**造不出**契约决策")
+        print("        （driver_billing_rule_templates 是 0 行，契约必然退回旧路）。")
+        print("      ⇒ 所以这一格在生产上只能证明**旧路那一支没被改动**，⛔ 不能声明冻结已被生产验证。")
         return 0
 
     if phase == "t1":
@@ -133,12 +143,24 @@ def main() -> int:
     if phase == "t2":
         print("")
         if not expect:
-            print("   ⛔ 少给 --expect-kind：T2 的意义就是**跟 T0 记下来的那一个比**。")
+            print("   ⛔ 少给 --expect-kind / --expect-reason：T2 的意义就是**跟 T0 记下来的那两个比**。")
             return 2
-        if kind == expect:
-            print("   ✅ **冻结成立**：比例换过了，这张单的来源**没换**（仍然是 " + expect + "）。")
+        # ⚠️ **`kind` 一个人分不出冻结**（R4-34 实测才想清楚）：
+        #    契约算不出来时会退回旧路，所以"冻结住了"与"这次没被抽中"**都是 legacy_client**。
+        #    真正分得开的是 `reason`：
+        #      冻结 ⇒ 仍然走契约那一支 ⇒ 算不出来 ⇒ reason=no_candidates
+        #      没冻 ⇒ 比例已经调到 0，这一单**根本不在桶里** ⇒ reason=ok
+        #    ⛔ 所以 t2 必须**两个都比**，只比 kind 的话这个实验证明不了任何事（假绿）。
+        bad = []
+        if kind != expect:
+            bad.append("kind：T0 是 " + expect + "，现在是 " + kind)
+        if expect_reason and reason != expect_reason:
+            bad.append("reason：T0 是 " + expect_reason + "，现在是 " + reason)
+        if not bad:
+            print("   ✅ **冻结成立**：比例换过了，这张单的来源**没换**（kind=" + kind
+                  + "、reason=" + reason + "）。")
             return 0
-        print("   ⛔ **冻结不成立**：T0 是 " + expect + "，现在是 " + kind
+        print("   ⛔ **冻结不成立**：" + "；".join(bad)
               + " —— 同一张单因为 canary 配置变化换了来源。")
         return 1
 

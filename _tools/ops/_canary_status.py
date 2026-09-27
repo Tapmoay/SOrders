@@ -120,7 +120,10 @@ rows = sql("select coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.
 for ln in rows.splitlines():
     if ln.strip():
         print("DECISION|" + ln.replace(chr(9), "|"))
-print("SNAPTOTAL|" + (sql("select count(*) from " + DB + ".orders where freight_rule_snapshot is not null") or "?"))
+# ⚠️ 这个数**也要**跟着窗口走：不然屏幕上会同时出现「带凭据 2 张」和
+#    「还没有任何一张单带凭据」—— 两句都对，放在一起就是误导（R4-34 发布后实测遇到）。
+print("SNAPTOTAL|" + (sql("select count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
+           + "@SINCE@") or "?"))
 print("ORDERS|" + (sql("select count(*) from " + DB + ".orders") or "?"))
 PYEOF"""
 
@@ -309,7 +312,9 @@ def main() -> int:
     print("[schema] 版本 " + str(schema) + "（本仓库迁移头 9）｜ orders.freight_rule_snapshot 列 "
           + ("在" if col == "1" else "⛔ 不在"))
     print("")
-    print("[观测] 订单 " + str(orders) + " 张，其中**带来源凭据**的 " + str(snaptotal) + " 张")
+    scope = ("窗口内（pricing.at ≥ " + SINCE_AT + " UTC）" if SINCE else "全库历史累计")
+    print("[观测] " + scope + "：带来源凭据的订单 " + str(snaptotal) + " 张"
+          + ("　（全库订单 " + str(orders) + " 张）" if SINCE else ""))
     if decisions:
         for d in decisions:
             mark = ("  ← 契约真的算出来了" if d["kind"] == "freight_template"

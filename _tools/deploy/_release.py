@@ -280,12 +280,24 @@ def selftest() -> int:
         print(("  OK   " if good else "  BAD  ") + label + " → "
               + ("过" if got_ok else "不过") + "：" + why)
         bad += 0 if good else 1
+    # ⛔ R4-34 发布时真栽过一次：指纹探针写成 python -c 单引号包法，引号经 repr 与 bash
+    #    两层之后配对断掉，远端一个字符都没执行 ⇒ 门禁把两个健康实例判成「报不出指纹」，
+    #    把一次**成功**的发布拦停了（fail-closed，方向安全，但它会拦住每一次合法发布）。
+    probe = fingerprint_probe_script("8111")
+    shape = [
+        ("指纹探针必须走 heredoc（外层 bash 一个字符都不解释）", "<<'PYEOF'" in probe),
+        ("⛔ 指纹探针**不许**用 python -c（引号会被两层解析吃掉）", " -c " not in probe),
+        ("探针里带得上那个端口", "http://127.0.0.1:8111/health" in probe),
+    ]
+    for label, good in shape:
+        print(("  OK   " if good else "  BAD  ") + label)
+        bad += 0 if good else 1
     for s in STEPS:      # ⛔ 自检还要证明「默认不动手」：没有 --go 时任何步骤都只能是 plan
         action, _ = decide(step=s, go=False, facts={"backup_age_hours": 1.0, "sha_in_repo": True}, state={})
         if action != "plan":
             print("  BAD  没有 --go 时步骤 " + s + " 居然不是 plan")
             bad += 1
-    total = len(cases) + len(VERIFY_CASES) + len(ROLL_CASES) + len(FP_CASES) + len(STEPS)
+    total = len(cases) + len(VERIFY_CASES) + len(ROLL_CASES) + len(FP_CASES) + 3 + len(STEPS)
     print("发布工具护栏自检：" + str(total - bad) + "/" + str(total) + " 通过")
     return 1 if bad else 0
 # ------------------------------------------------------------------ 事实（只读）
@@ -462,21 +474,35 @@ def fingerprint_verdict(fps: list[tuple[str, str]], target: str) -> tuple[bool, 
     return True, ("全部 " + str(len(fps)) + " 个实例：canary_percent=" + only + tail)
 
 
-def _remote_fingerprint(port: str) -> str:
-    """问**某一个实例**实际生效的 canary 比例（⛔ 不是读 .env）。读不到返回空串。
+def fingerprint_probe_script(port: str) -> str:
+    """问某实例指纹的那段**远端脚本**（纯函数 ⇒ --selftest 直接看它长什么样）。
+
+    ⛔⛔ **绝对不许用 `python -c '…'`**（R4-34 发布时就是这么栽的）：
+    那段 one-liner 里同时有单引号和双引号，经 `repr()` 一包、再过一层 bash，
+    引号配对当场断掉 —— 远端**一个字符都没执行**，`out` 是空的，
+    于是门禁把两个健康实例判成「报不出指纹」，**把一次成功的发布拦停了**。
+    （它**fail-closed**，方向是安全的；但它会拦住**每一次**合法发布，所以是真 bug。）
+
+    ⇒ 只用 **heredoc**（`<<'PYEOF'`）：外层 bash 一个字符都不解释，
+      引号爱怎么写怎么写。这个形状就是 `_canary_status.py` 里已经验过的那种。
 
     ⚠️ 必须用 venv 那个 python：生产机上 /usr/bin/python3 是 3.6，
        连 subprocess 的 capture_output 都没有（R4-28 在别处已经栽过一次）。
     """
-    url = "http://127.0.0.1:" + str(port) + "/health"
-    k1 = json.dumps("pricing")
-    k2 = json.dumps("canary_percent")
-    one_liner = (
-        "import json,urllib.request;"
-        "d=json.load(urllib.request.urlopen(" + repr(url) + ", timeout=8));"
-        "print((d.get(" + k1 + ") or {}).get(" + k2 + "))"
+    return (
+        "set +e\n"
+        + _prodssh.VENV_PY + " - <<'PYEOF'\n"
+        + "import json, urllib.request\n"
+        + "d = json.load(urllib.request.urlopen(" + repr("http://127.0.0.1:" + str(port) + "/health")
+        + ", timeout=8))\n"
+        + "print((d.get(\"pricing\") or {}).get(\"canary_percent\"))\n"
+        + "PYEOF\n"
     )
-    _, out = ssh(_prodssh.VENV_PY + " -c " + repr(one_liner))
+
+
+def _remote_fingerprint(port: str) -> str:
+    """问**某一个实例**实际生效的 canary 比例（⛔ 不是读 .env）。读不到返回空串。"""
+    _, out = ssh(fingerprint_probe_script(port))
     tail = out.strip().splitlines()[-1].strip() if out.strip() else ""
     return tail if tail.isdigit() else ""
 
