@@ -77,8 +77,10 @@ STEP_DOC: dict[str, tuple[str, str, str]] = {
                "当前版本 == 本仓库迁移头；待跑 0 / 漂移 0 / 陌生版本 0",
                "与期望不符 → 不启动"),
     "start": ("再核一次 git checkout <SHA>，然后**滚动重启所有 enabled 的 sorders-api* unit**（⛔ 不是重启某个写死的 unit）",
-              "逐个实例：is-active=active ＋ /health=200 ＋ 重启期间**经 nginx 的入口一直有活上游**；全部通过才算过",
-              "任一实例不 active / health 非 200 / 入口拿不到活上游 → 停下看 journalctl -u <unit>；按 §五 处置"),
+              "逐个实例：is-active=active ＋ /health=200 ＋ 重启期间**经 nginx 的入口一直有活上游** "
+              "＋ **effective config 指纹（逐个实例问出来的 canary 比例）必须一致、并与 .env 相符**；全部通过才算过",
+              "任一实例不 active / health 非 200 / 入口拿不到活上游 / 指纹报不出或不一致 → 停下看 "
+              "journalctl -u <unit>；⛔ 指纹不一致时**不许宣布 Canary ACTIVE**；按 §五 处置"),
     "health": ("本机跑 _tools/ops/_health_check.py",
                "退出码 0（或只有「已知/已接受」的证书告警 = 1）",
                "退出码 2 → 立刻回滚"),
@@ -235,6 +237,21 @@ ROLL_CASES: list[tuple[str, str, object, bool, str]] = [
 ]
 
 
+#: fingerprint_verdict 的用例：(说明, 逐实例指纹, .env 目标, 期望过不过, 期望话里必须有的词)
+FP_CASES: list[tuple[str, list[tuple[str, str]], str, bool, str]] = [
+    ("没有任何实例指纹 ⇒ 不过（算不出事实）", [], "50", False, "算不出事实"),
+    ("有实例**报不出**指纹（跑的是旧代码）⇒ 不过并点名它",
+     [("sorders-api-a.service", "50"), ("sorders-api-b.service", "")], "50", False, "报不出"),
+    ("★ 两个实例**不一致**（A=30 / B=0）⇒ 不过 —— 这正是要拦的状态",
+     [("a", "30"), ("b", "0")], "30", False, "不一致"),
+    ("实例一致但与 .env 对不上 ⇒ 不过（配置没生效）",
+     [("a", "30"), ("b", "30")], "50", False, "配置没生效"),
+    ("实例一致且与 .env 一致 ⇒ 过", [("a", "30"), ("b", "30")], "30", True, "与 .env 的 30 一致"),
+    ("读不到 .env 目标 ⇒ 只比实例之间，并且**说出来**",
+     [("a", "30"), ("b", "30")], "", True, "只比了实例之间"),
+]
+
+
 def selftest() -> int:
     bad = 0
     cases = build_cases()
@@ -257,12 +274,18 @@ def selftest() -> int:
         good = (got_ok == want_ok) and (want_word in why)
         print(("  OK   " if good else "  BAD  ") + label + " → " + ("过" if got_ok else "不过") + "：" + why)
         bad += 0 if good else 1
+    for label, fps, target, want_ok, want_word in FP_CASES:
+        got_ok, why = fingerprint_verdict(fps, target)
+        good = (got_ok == want_ok) and (want_word in why)
+        print(("  OK   " if good else "  BAD  ") + label + " → "
+              + ("过" if got_ok else "不过") + "：" + why)
+        bad += 0 if good else 1
     for s in STEPS:      # ⛔ 自检还要证明「默认不动手」：没有 --go 时任何步骤都只能是 plan
         action, _ = decide(step=s, go=False, facts={"backup_age_hours": 1.0, "sha_in_repo": True}, state={})
         if action != "plan":
             print("  BAD  没有 --go 时步骤 " + s + " 居然不是 plan")
             bad += 1
-    total = len(cases) + len(VERIFY_CASES) + len(ROLL_CASES) + len(STEPS)
+    total = len(cases) + len(VERIFY_CASES) + len(ROLL_CASES) + len(FP_CASES) + len(STEPS)
     print("发布工具护栏自检：" + str(total - bad) + "/" + str(total) + " 通过")
     return 1 if bad else 0
 # ------------------------------------------------------------------ 事实（只读）
@@ -410,6 +433,54 @@ def roll_verdict(results: list[tuple[str, bool, bool, bool]]) -> tuple[bool, str
     return True, ("全部 " + str(len(results)) + " 个实例：active + /health 200 + 滚动全程 nginx 都有活上游")
 
 
+def fingerprint_verdict(fps: list[tuple[str, str]], target: str) -> tuple[bool, str]:
+    """(unit, canary_percent) 逐实例指纹 + .env 目标 ⇒ (过不过, 一句话)。**纯函数**。
+
+    ⭐ 这是用户 2026-09-27 钉的 ⑧-a 出口条件 ② 的**机器形态**：
+    「两个实例 effective canary config 一致」，而不是靠「我记得两个都改了」。
+
+    ⛔ 三种都不过（每一种的修法都不一样，所以必须分开说）：
+      · 有实例**报不出** 指纹 ⇒ 它跑的还是**没有指纹那一版**的代码（要发布）；
+      · 实例之间**不一致** ⇒ 滚动发布没走完 / 有实例没读到新配置（要查重启）；
+      · 与 `.env` 的**目标不一致** ⇒ 配置没生效（要查 EnvironmentFile）。
+    ⛔ 读不到目标（target 为空）时**只比实例之间**，并把这件事说出来 —— ⛔ 不当成「一致」。
+    """
+    if not fps:
+        return False, "没有任何实例指纹 —— 算不出事实就不许判过"
+    missing = [u for u, v in fps if not v.isdigit()]
+    if missing:
+        return False, ("这些实例报不出 canary 指纹：" + "、".join(missing)
+                       + " —— 它们跑的还是还没有指纹那一版")
+    values = {v for _u, v in fps}
+    if len(values) != 1:
+        return False, ("实例之间**不一致**：" + "、".join(u + "=" + v for u, v in fps))
+    only = next(iter(values))
+    if target and target != only:
+        return False, ("实例都报 " + only + "，而 .env 上写的是 " + target + " —— 配置没生效")
+    tail = ("（与 .env 的 " + target + " 一致）" if target
+            else "（⚠️ 读不到 .env 上的目标值，只比了实例之间）")
+    return True, ("全部 " + str(len(fps)) + " 个实例：canary_percent=" + only + tail)
+
+
+def _remote_fingerprint(port: str) -> str:
+    """问**某一个实例**实际生效的 canary 比例（⛔ 不是读 .env）。读不到返回空串。
+
+    ⚠️ 必须用 venv 那个 python：生产机上 /usr/bin/python3 是 3.6，
+       连 subprocess 的 capture_output 都没有（R4-28 在别处已经栽过一次）。
+    """
+    url = "http://127.0.0.1:" + str(port) + "/health"
+    k1 = json.dumps("pricing")
+    k2 = json.dumps("canary_percent")
+    one_liner = (
+        "import json,urllib.request;"
+        "d=json.load(urllib.request.urlopen(" + repr(url) + ", timeout=8));"
+        "print((d.get(" + k1 + ") or {}).get(" + k2 + "))"
+    )
+    _, out = ssh(_prodssh.VENV_PY + " -c " + repr(one_liner))
+    tail = out.strip().splitlines()[-1].strip() if out.strip() else ""
+    return tail if tail.isdigit() else ""
+
+
 def run_start(sha: str, fetch: bool) -> int:
     """滚动重启**所有 enabled 的 API unit**（⛔ 不是重启某一个写死的 unit）。
 
@@ -433,6 +504,7 @@ def run_start(sha: str, fetch: bool) -> int:
     if not units:
         return 1
     results: list[tuple[str, bool, bool, bool]] = []
+    fps: list[tuple[str, str]] = []
     for idx, unit in enumerate(units, 1):
         port = unit_port(unit)
         print("   [" + str(idx) + "/" + str(len(units)) + "] 重启 " + unit
@@ -452,10 +524,24 @@ def run_start(sha: str, fetch: bool) -> int:
         nginx_ok = nout.strip()[-3:] in ("200", "401", "403")
         print("        经 nginx 入口：" + nout.strip()[-3:] + "（"
               + ("有活上游" if nginx_ok else "⛔ 没有可用上游") + "）")
+        fp = _remote_fingerprint(port) if port else ""
+        if port:
+            print("        实际生效的 canary 比例：" + (fp + "%" if fp else "⛔ 读不到（跑的是旧代码？）"))
         results.append((unit, active, health, nginx_ok))
+        fps.append((unit, fp))
     ok, verdict = roll_verdict(results)
     print("   " + ("✅ " if ok else "⛔ ") + verdict)
-    return 0 if ok else 1
+
+    # ---- ⑧-a 出口条件 ②：逐实例的 effective config 必须一致（用户 §3 的 ④⑤ 步）----
+    try:
+        target = (_prodssh.read_env().get("FREIGHT_PRICING_CANARY_PERCENT") or "").strip()
+    except Exception:  # noqa: BLE001 —— 读不到目标不算崩，但要**说出来**
+        target = ""
+    fp_ok, fp_why = fingerprint_verdict(fps, target)
+    print("   " + ("✅ " if fp_ok else "⛔ ") + "effective config：" + fp_why)
+    if not fp_ok:
+        print("      ⛔ 两个实例的 effective config 不一致 ⇒ **不许宣布 Canary ACTIVE**。")
+    return 0 if (ok and fp_ok) else 1
 
 
 def run_smoke() -> int:
