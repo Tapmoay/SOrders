@@ -1777,6 +1777,99 @@ R4-45 那一轮我**连开了四个提交、全部标 `R4-45`** —— `_check_r
 
 ---
 
+### R4-47 ⭐ **测试基础设施隔离**：先证明"RED = 真回归"，再谈别的
+
+#### 用户点名的闭环（六步）与结果
+
+> 「我反而建议下一步就修 `get_db_path()`……**不是为了"让测试绿"，而是为了让以后出现红灯时，
+>  我们能够相信 RED = 真回归**。」
+>
+> 「⚠️ 不要只测试 `path != path` —— 最好让两个进程真的各自连接自己算出来的 DB。」
+
+| # | 步骤 | 结果 |
+| --- | --- | --- |
+| ① | `get_db_path()` 带 worker_id + **pid** | ✅ |
+| ② | 两个并发进程必须得到两份库 | ✅ 探针：3 进程 3 份库，**且各自只读到自己写的那一行** |
+| ③ | 实际并发跑原来会撞的那一对 | ✅ **1099 passed / 1099 passed**（修复前：1099 passed / **1099 errors**） |
+| ④ | 单进程 / 串行再跑 | ✅ 1099 passed（行为不变） |
+| ⑤ | `_check_report_facts` 再跑 | ✅ 6 组判据全过（而且是**趁两个全量还在跑的时候**跑的） |
+| ⑥ | 全套再跑两次 | ✅ 1099 passed ×2，连续稳定 |
+
+#### 一、侦察：缺陷有**两半**，只修路径等于只修一半
+
+```text
+① 命名：PYTEST_XDIST_WORKER 在没有 xdist 时**恒为 "master"**
+        ⇒ 两个并发 pytest 会话算出**同一个文件**（sorders_test_master.db）
+② 清理：cleanup_test_dbs 原来是 shutil.rmtree(整个 .test_dbs)
+        ⇒ xdist 下每个 worker 退出时把**别人的库**一起删掉；
+          而 master 时**一份都不删** —— 正是 ① 能踩到同一份文件的另一半原因
+```
+
+⚠️ 而且这个坑**本仓库更早就吃过一次**（`docs/AI_WORK_CLAIM.md:1377`）：
+并发两个会话 → `13 failed / 644 errors`，当时只立了「不要并发跑」的**纪律**，**没有修**。
+
+#### 二、复现（修之前，同一份代码、同一条命令，只是并发）
+
+    A → 1099 passed (142.01s)
+    B → **1099 errors** (317.85s)
+
+#### 三、判据落在**真实连接**上（用户点名的 `path != path` 陷阱）
+
+`_tools/qa/_probe_test_db_isolation.py`：每个子进程**真的连上自己算出来的库**、
+建真实结构、写一行、睡一会、**读回来**。判据 = 「每个进程只看得见自己那一行」。
+
+⭐ 而且带**阴性对照** `--force-shared`（复现旧命名），它必须在**同一份判据**下判红 ——
+实测它红得很难看，正是那个形状：
+
+    子进程报错：OperationalError: table driver_billing_rule_categories already exists
+
+#### 四、⭐ 第二个缺陷（修完路径才浮出来的）：**调度器锁也是全机共享的**
+
+③ 第一次修完重跑，并发那一对里出现 `1 failed / 1098 passed`。查下去发现
+**不是撞库**，是另一处跨进程共享资源：
+
+    scheduler_lock.SCHEDULER_LOCK_FILE = <tempdir>/sorders_scheduler_retention.lock   ← 全机固定路径
+    run_daily_retention() 拿不到锁 → 返回 {"skipped": 1}
+    而测试断言的是                → {"skipped_same_day": 1}
+
+**确定性复现**（同一份代码、同一条测试，只差"有没有别的进程占着锁"）：
+
+    没别人占锁   → 1 passed
+    有人占着锁   → **1 failed**     ← 假红
+    占锁的人走了 → 1 passed
+
+⇒ 修法：conftest 加一条 session 级 autouse fixture，把这个常量挪到本进程自己的临时目录。
+⚠️ 必须打在 `scheduler_lock` 模块上 —— `data_retention.GOVERNANCE_LOCK_PATH` 是 import 时的
+**副本**、且只用在日志文案里，**改它等于假修复**（差点就这么写了）。
+修完同样三态复现：**全 passed**。
+
+#### 五、⚠️ 我自己在修的过程中引入了两个新缺陷（如实记，它们都被闭环抓住了）
+
+1. **把 `PermissionError` 静默吞掉** —— 第一版 `except OSError: pass`，
+   实测收工后**本次四个会话的库一份都没删掉**。⇒ 换成"删不掉要打一行说明"。
+2. **然后那行说明自己把整轮跑挂了**：`print("⚠️ …")` 在 **GBK 控制台**上抛
+   `UnicodeEncodeError: 'gbk' codec can't encode character '\u26a0'` ——
+   于是"如实报一句警告"变成一条 **teardown error**，被 `_check_report_facts` 当场抓到
+   （`3 passed / 1 error`）。⇒ 加 `_say()` 兜住编码。
+   ⛔ 一个诊断输出不该有能力把整轮跑挂掉。
+
+   还有一处：光 `dispose(_test_engine)` 不够 —— **`app.database.engine` 是第二个**
+   指向同一份库的 engine（conftest 在 import 应用之前就把 DATABASE_URL 指过去了）。
+
+#### 六、⛔ 一条**没修掉**的（如实记，⛔ 不许读成修好了）
+
+**全量跑仍会在 `.test_dbs` 留 1 份库**：短跑（子集）能删掉，全量跑删不掉 ——
+某个用例把句柄占到进程退出，`dispose` 两个 engine + `gc.collect()` + 重试 4 轮
+仍然 `PermissionError`。
+
+- ⛔ 不影响正确性：文件名带 PID ⇒ 不会与别的进程撞（**那才是本里程碑修的缺陷**）；
+- ⛔ 不影响标准入口：`run_tests.ps1` / `run_tests.sh` **开局就清空** `.test_dbs`；
+- 收尾删不掉时**会打一行说明**，⛔ 不静默；
+- **什么时候修**：需要长期跑全量而又在意磁盘时 —— 方向是**开局按 PID/mtime 清掉死进程的残留**，
+  而不是继续在收尾和文件句柄较劲。
+
+---
+
 ## 冻结基线（R4-00，2026-09-27）
 
 | 项 | 值 | 来源 |

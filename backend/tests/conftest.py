@@ -2,16 +2,20 @@
 Pytest fixtures: parallel-test-ready with worker isolation.
 
 Key optimizations:
-1. File-based SQLite per worker (not :memory:) for parallel execution
+1. File-based SQLite **per process** (not :memory:) for parallel execution
 2. Session-scoped fixtures where possible to reduce setup overhead
-3. Automatic worker ID detection for isolation
-4. Proper cleanup on shutdown
+3. Automatic worker ID **+ PID** detection for isolation
+4. Proper cleanup on shutdown (**only this process's own file**)
+
+⚠️ 第 3 与第 4 条是 R4-47 修的（原来只有 worker id、且退出时删整个目录）——
+详见 get_db_path() 与 cleanup_test_dbs() 的说明，以及判据
+`_tools/qa/_probe_test_db_isolation.py`。
 """
 
 from __future__ import annotations
 
 import os
-import shutil
+import sys
 from collections import namedtuple
 from collections.abc import Generator
 from pathlib import Path
@@ -91,12 +95,47 @@ def iter_api_routes(node):
                        getattr(cur, "dependant", None), getattr(cur, "endpoint", None))
 
 
+def _say(msg: str) -> None:
+    """往控制台打一行，⛔ 保证**不会因为编码差异把收尾搞崩**。
+
+    ⚠️ R4-47 实测（抓到的原样）：
+
+        print("⚠️ 本进程的测试库没能删掉…")
+        UnicodeEncodeError: 'gbk' codec can't encode character '\u26a0'
+
+    于是"如实报一句警告"**本身变成了一条 teardown error**（而它想说的只是
+    "有个文件没删掉、不影响结果"）。⛔ 一个诊断输出不该有能力把整轮跑挂掉 ——
+    所以这里兜一层：编不出来就用替换字符，而不是抛。
+    """
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+        print(msg.encode(enc, "replace").decode(enc, "replace"))
+
+
 def get_db_path() -> str:
-    """Get unique database path for this worker."""
+    """Get unique database path for **this process**.
+
+    ⚠️ **为什么必须带上 PID**（R4-47 修的缺陷）：
+
+    `PYTEST_XDIST_WORKER` 在**没有 xdist** 时**恒为 "master"** ——
+    于是两个并发的 pytest 会话（例如本机全量 ∥ 检查套件里的一条子集命令）
+    会算出**同一个文件**，双双 `create_all()` 并互相踩。
+
+    实测（同一份代码、同一条命令、只是并发跑）：
+
+        A → 1099 passed (142s)
+        B → **1099 errors** (317s)
+
+    ⛔ 这类红最难查：它看起来像回归，其实是被测代码一个字都没改。
+    ⛔ 判据不是"两个路径字符串不一样"，而是"两个进程**真的各自连上了自己的库**"——
+    见 `_tools/qa/_probe_test_db_isolation.py`（它会读回自己写的那一行来证明）。
+    """
     worker_id = get_worker_id()
     temp_dir = Path(__file__).parent / ".test_dbs"
     temp_dir.mkdir(exist_ok=True)
-    return str(temp_dir / f"sorders_test_{worker_id}.db")
+    return str(temp_dir / f"sorders_test_{worker_id}_{os.getpid()}.db")
 
 
 # Set database URL BEFORE importing app modules
@@ -326,20 +365,105 @@ def auth_headers(token: str) -> dict[str, str]:
 
 
 # ============================================================
+# 跨进程资源隔离（R4-47）
+# ============================================================
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolate_scheduler_lock(tmp_path_factory):
+    """把**调度器跨进程锁**挪到本进程自己的临时目录下。
+
+    ⚠️ 为什么必须有（R4-47）：`scheduler_lock.SCHEDULER_LOCK_FILE` 默认是
+    **全机共用的一个固定文件**（在 tempdir 下）。于是——
+
+    · 并发跑两个 pytest 会话：一边拿着锁，另一边 `run_daily_retention` 会返回
+      `{"skipped": 1}`（拿不到锁）而不是 `{"skipped_same_day": 1}`（今天跑过了）；
+    · 本机**正开着一个后端**时同理（lifespan 里那个每日治理循环也要拿这把锁）。
+
+    确定性复现（R4-47，同一份代码同一条测试，只差"有没有别的进程占着锁"）：
+
+        没别人占锁   → 1 passed
+        有人占着锁   → 1 failed   ← 这就是假红
+        占锁的人走了 → 1 passed
+
+    ⛔ 这里动的是**测试进程里的常量**，生产一个字没改；
+    ⛔ 也不削弱被测语义：锁仍然是真的 `FileLock`（Windows 上走 `msvcrt.locking`，
+      同进程两次获取照样拿不到 —— 那正是 `_single_runner` 那几条测试要的证据），
+      只是不再与**别的进程**抢同一份文件。
+    """
+    import app.core.scheduler_lock as sl
+
+    monkeypatch = pytest.MonkeyPatch()
+    lock = tmp_path_factory.mktemp("locks") / "scheduler_retention.lock"
+    # ⚠️ 必须打在 `scheduler_lock` 模块上：`data_retention.GOVERNANCE_LOCK_PATH`
+    #    是 import 时的一个**副本**，而且只被用在日志文案里 —— 改它等于假修复。
+    monkeypatch.setattr(sl, "SCHEDULER_LOCK_FILE", str(lock), raising=False)
+    yield
+    monkeypatch.undo()
+
+
+# ============================================================
 # Cleanup (after all tests)
 # ============================================================
 
 
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_test_dbs():
-    """Clean up test database files after all tests complete."""
+    """收工：只删**本进程自己**那一份测试库。
+
+    ⚠️ 原来这里是 `shutil.rmtree(temp_dir)` —— **删整个目录**。两处后果：
+
+    · xdist 下每个 worker 退出时会把**别人的库**一起删掉（谁先退谁先删）；
+    · 而 `worker_id == "master"`（无 xdist）时**一份都不删**，于是那份文件一直留着 ——
+      这正是两个并发会话能踩到同一份库的另一半原因。
+
+    本仓库更早就吃过一次这个形状：并发两个 pytest 会话得到 `13 failed / 644 errors`
+    （记录在 `docs/AI_WORK_CLAIM.md`），当时只立了"不要并发跑"的纪律，没有修。
+    ⇒ 现在改成**只删自己这一份**；目录**空了**才顺手删目录。
+    """
     yield
 
-    worker_id = get_worker_id()
-    if worker_id != "master":
-        temp_dir = Path(__file__).parent / ".test_dbs"
-        if temp_dir.exists():
-            try:
-                shutil.rmtree(temp_dir)
-            except Exception:
-                pass
+    # ⚠️ Windows 上 SQLite **占着文件句柄**：不先 dispose，unlink 必然 PermissionError。
+    #    第一版把它 `except OSError: pass` 吞掉了 ⇒ 实测收工后本次四个会话的库**一份都没删掉**、
+    #    `.test_dbs` 一直涨。⛔ "静默吞错"正是这个缺陷能藏住的原因，所以现在**删不掉要说出来**。
+    # ⚠️ 指向同一个库文件的 engine **有两个**：conftest 自己的 _test_engine，
+    #    以及 app.database.engine（conftest 在 import 应用之前就把 DATABASE_URL 指过去了）。
+    #    只 dispose 前者 ⇒ unlink 仍然 PermissionError —— R4-47 实测就是这么栽的第二次。
+    if _test_engine is not None:
+        try:
+            _test_engine.dispose()
+        except Exception as exc:  # noqa: BLE001
+            _say("[conftest] 释放测试库连接失败（" + type(exc).__name__ + "）：" + str(exc)[:120])
+    try:
+        from app import database as _app_db
+        _app_db.engine.dispose()
+    except Exception as exc:  # noqa: BLE001
+        _say("[conftest] 释放 app.database.engine 失败（" + type(exc).__name__ + "）："
+             + str(exc)[:120])
+
+    # ⚠️ 光 dispose 还不够：全量跑时仍会 PermissionError —— 说明还有**用例漏关了 session**
+    #    （连接被 checked out，dispose 不会回收它），而 Windows 释放文件句柄又常常**滞后**于 close。
+    #    ⇒ gc 一次 + 重试几轮。⛔ 仍然失败就如实说，不吞（这条实测过：吞掉的后果是
+    #      ".test_dbs 一直涨、而没有任何人知道"）。
+    import gc
+    import time as _time
+
+    p = Path(get_db_path())
+    gc.collect()
+    last: OSError | None = None
+    for _attempt in range(4):
+        try:
+            p.unlink(missing_ok=True)
+            last = None
+            break
+        except OSError as exc:
+            last = exc
+            _time.sleep(0.25)
+    if last is not None:
+        _say("[conftest] 本进程的测试库没能删掉（" + type(last).__name__ + "）：" + str(p)
+             + " —— 不影响本次结果；文件名带 PID 不会与别人撞，但 .test_dbs 会继续累积")
+        return
+    try:
+        p.parent.rmdir()          # ⛔ 只在**空**的时候才成功：并发会话时别人的库还在，不许动
+    except OSError:
+        pass
