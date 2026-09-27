@@ -138,7 +138,8 @@ schema 顺延到 R4-11。用户明确说过草案「以真正施工顺序为准�
 | ⑦ Canary（组装点唯一） | ⚠️ **机制已上生产并开启，但只观察到"退回"那一支** | 下面 ⑦ / ⑦-b / ⑦-c 节 |
 | ⑦-d 契约支路的**接线演练**（生产数据**副本**） | ✅ 已完成 | 下面 ⑦-d 节（补**一行**配置即成立；⛔ 生产未动） |
 | ⑦-e 契约支路的**分支矩阵**（六种原因码全演） | ✅ 已完成 | 下面 ⑦-e 节（**40/40**；歪配置**一条都没猜出数**；⛔ 生产未动） |
-| ⑧ Full Cutover | ⛔ **卡在一个业务决定上** | 生产缺的那**一行配置**会让真实派单开始自动带价 —— 见 ⑦-d |
+| **⑧-a 生产 Canary** | ✅ 机制三条件已钉死 / ⏳ **生产还没在这么跑** | 下面「⑧-a 的三个前置条件」+ `python _tools/ops/_canary_status.py`（今天判出来是 `CONFIGURED_ONLY`） |
+| ⑧-b Full Cutover | ⛔ **暂缓**（用户明确：Canary 出口条件全过之前不做） | 生产缺的那**一行配置**会让真实派单开始自动带价 —— 见 ⑦-d |
 
 **① 的结论一句话**（全文见那份审计）：
 
@@ -644,6 +645,109 @@ R4-24 只走通了**一条直线**（一个司机、一份规则、一条价目�
     rm -f /tmp/_pricing_contract_branches.py  → /tmp 无残留
     生产 HEAD = 9710477d202a46ada50f1d166f7e00ff52763ebd（**没变**）
     生产 driver_billing_rule_templates 行数 = 0（**没变**）
+
+---
+
+### ⑧-a 的三个前置条件（R4-26 / R4-27）—— ✅ **机制已钉死** / ⏳ **生产还没在这么跑**
+
+用户 2026-09-27 放行 ⑧-a、暂缓 ⑧-b，并把出口条件正式升级成 **7 条（R4-PROD-CANARY）**：
+
+> 「⑧-a 可以开始生产，但先把 **Decision Freeze + 双实例配置一致性 + fallback 可观测**
+>  这三个条件钉死；⑧-b 暂缓。」
+
+| 出口条件 | 状态 | 在哪 |
+| --- | --- | --- |
+| ① Schema / provenance 已在生产存在 | ✅ | 生产实测 schema **9** + 来源凭据列在（③ 节） |
+| ② 两个实例 effective canary config 一致 | ✅ 机制 / ⏳ 生产 | **前置 B** + `_tools/ops/_canary_status.py` |
+| ③ Pricing Decision 在生命周期内**冻结** | ✅ | **前置 A** |
+| ④ Canary 由唯一组装点决定 | ✅ | R4-20（前置 A 的判据第 2 组盯着「恰好一处」） |
+| ⑤ Extension failure 可观察且可统计 | ✅ | `reason` 原因码（R4-22）+ 状态工具按 reason 分组 |
+| ⑥ override 同时保留算法值与人工最终值 | ✅ | R4-11 + 前置 A 的反方向实验里又验了一遍 |
+| ⑦ Canary 期间没有 **silent** legacy fallback | ✅ | 退回**必须带 reason**；工具会把「配着但一次没命中」当场标出来 |
+
+#### 前置 A：Decision Freeze（R4-26）
+
+用户的原话：
+
+> 「**同一个 Pricing Decision 不能因为 Canary 配置变化而改变来源。**」
+
+改法只有三处（`policy_for` 本身已经是纯函数；缺的是「已经定过的那一个」要能被读回来）：
+
+1. `services/order_money.freight_kind_of(order)` —— **唯一一处**读「这张单已经定过什么」
+   （⛔ 认不出的 kind 当**没定过**：宁可退回「没有」，也不拿一个不认识的取值去冻结后面所有写入）；
+2. `core/pricing_runtime.policy_for(..., *, frozen=None)` —— **冻结优先于比例**（写在比例**之前**）；
+3. `pricing_runtime.decide` 把冻结读出来传进去。
+
+⭐ 用户点名的两个实验（**都走真实 API**，不是直接调函数）：
+
+| 实验 | 结果 |
+| --- | --- |
+| 比例 0 → 派单（形成 legacy）→ **比例调到 100** → 再次写入 | 来源**仍然是 `legacy_client`**，契约身份仍是 `FreightPricingCore v1` |
+| 比例 100 → 派单（形成 contract）→ **比例调回 0** → 再次写入 | 来源**仍然是 `freight_template`**，身份仍是 `PricingContract v2`，而金额**仍以人为准**（150.00 落库） |
+
+判据 `_tools/qa/_check_canary_freeze.py` **19 项**；
+反向验证 `_tools/qa/_reverse_verify_canary_freeze.py` **12/12** ——
+其中第 2 条最值钱：**把冻结挪到比例之后**（代码还在、还在跑、顺序变了），判据必须照样红。
+
+##### ⚠️ 改这一条时撞出一个**真问题**（不是 bug，但必须知道）
+
+`price-freight`（派单前手动定价）**也会形成一次计价决策** —— 而那一刻**还没有司机**，
+契约看到的候选集是**全部价目**（不是这个司机的）⇒ 多半算不出来 ⇒ 如实退回旧路 ⇒
+**这一单的来源就此冻在 legacy**，后面派单本该走契约也不再走。
+
+⇒ 生产后果：**实际走契约的比例会低于配置的比例**。
+⑧-a 的观察窗口必须**按来源拆开看**，⛔ 不能拿「配了 30% 就该有 30% 走契约」当判据。
+这条已经写成单测钉住：`test_派单前先手动定价会把来源提前冻住_这是有意的`。
+
+#### 前置 B：effective config 指纹（R4-26，与 A 同一条提交）
+
+`/health` 上多了一个**非敏感**的指纹（只有两个键，⛔ 不含口令/连接串）：
+
+    "pricing": {"canary_percent": 50, "resolver": "PricingContract v2 @ extensions.pricing"}
+
+⭐ 理由就是用户那句话：**「30% 写在环境变量里了」与「生产实际上已经在以 30% 运行」
+是两个完全不同的问题**。前者看 `.env`，后者只能**逐个进程去问** ——
+滚动发布期间 `A=30 / B=0` 在 `.env` 上一个字都看不出来。
+
+判据 `_check_canary_config_fingerprint.py`（**真的 import 应用、真的调那个函数** + 读源码）；
+反向验证 `_reverse_verify_canary_config.py` **8/8**。
+
+#### 前置 C：Canary 正式状态 + fallback 可统计（R4-27）
+
+`_tools/ops/_canary_status.py` 把**目标**（`.env`）与**实际**（每个进程的 `/health`）摆在一起，
+给出一个正式状态：
+
+| 状态 | 含义 |
+| --- | --- |
+| `OFF` | 目标 0 且所有实例都是 0（没开） |
+| `CONFIGURED_ONLY` | `.env` 上写了要开，但**生产还没在这么跑** |
+| `ACTIVE` | 七条子条件全过（用户 §4 点名的六条 + 每个实例都报得出指纹） |
+
+#### ⭐ 第一次跑它就抓到了一件真事（2026-09-27）
+
+    [目标] .env 上 FREIGHT_PRICING_CANARY_PERCENT = 50
+    [实例] :8111  ⛔ /health 上**没有** pricing 指纹 —— 这个实例跑的是还没指纹那一版的代码
+           :8112  ⛔ 同上
+    [schema] 版本 9 ｜ orders.freight_rule_snapshot 列 在
+    [观测] 订单 2406 张，其中带来源凭据的 2 张
+           legacy_client  reason=(none)         1  ← R4-22 之前的旧快照，没有 reason 字段
+           legacy_client  reason=no_candidates  1
+    ⇒ Canary = CONFIGURED_ONLY
+    [出口条件 ⑦] 契约命中 0 ／ 如实退回（带 reason）1 ／ 旧快照（无 reason）1
+                ⛔ 配着 Canary，但**一次都没真正用上契约**
+
+⇒ 这正是用户那句话的实证：**「我记得两个都改了」不是证据**。
+生产今天**问不出**「实际以多少比例在跑」—— 因为两个实例跑的还是旧代码。
+
+⚠️ 把 Canary 判成 ACTIVE 还差两步，**都属于生产动作、需要用户放行**：
+
+1. 把带指纹那一版发布到两个实例（用户 §3 钉的顺序：改配置 → 确认发布 SHA 一致 →
+   逐实例 drain / restart → 每个实例 health + config fingerprint →
+   两实例都显示同一个数 → **才宣布 Canary ACTIVE**）；
+2. 确认**目标比例**到底是多少 —— ⚠️ 用户文档里写的是 **30%**，
+   而生产 `.env` 现在是 **50%**。这两个数不一样，⛔ 不能由 AI 替用户挑一个。
+
+⛔ 在 Canary 真正判成 `ACTIVE` 之前，⑧-b Full Cutover 一律不做。
 
 ---
 
