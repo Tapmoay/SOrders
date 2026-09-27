@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "R4-22 原因码上生产",
+  "created_utc": "2026-09-27T05:24:26Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260927T052416Z",
+  "code": {
+    "commit": "4bb1b71d7d252bb359c8eae1a2a4220f313f5edf",
+    "branch": "",
+    "dirty_files": 9
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": 9,
+    "rows": {
+      "orders": 2405,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 48
+    }
+  },
+  "uploads": {
+    "bytes": 105224536,
+    "files": 2110
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 531516,
+      "sha256": "5642b05ca479d7b0b002e55b65966b1c1eb615ffdd448bf051d08d103f7e498e"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105224536,
+      "sha256": "8e578f495cedd88602452064522ff8e913912efaa6318d0f633983758f6053c9"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}

@@ -20,7 +20,7 @@
 
 | 字段 | 值 | 现取命令（可复现） |
 |---|---|---|
-| **Git SHA** | `ca5e49f755497e6719aa5c2da79bbf9fd39e35be`（**R4 发布点**：承运运费来源凭据改走版本化迁移 009；分支 `p` → `origin/new`，已推） | `git rev-parse HEAD` |
+| **Git SHA** | `9710477d202a46ada50f1d166f7e00ff52763ebd`（**R4 当前发布点**：承运运费的唯一组装点 + Canary + 原因码。生产已重启到这一版；分支 `p` → `origin/new`，已推） | `git rev-parse HEAD` |
 | **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空** | `git diff --stat <Git SHA>..HEAD -- backend/` |
 | 提交时刻 | 2026-09-27T09:53:52+08:00 | `git log -1 --format=%cI` |
 | **DB migration version** | **9**（`001_baseline` … `009_freight_rule_snapshot`，R4-11 加的承运运费来源凭据） | `python -c "import sys;sys.path.insert(0,'_tools/ops');import _prod_smoke as s;print(s.repo_migration_head())"` |
