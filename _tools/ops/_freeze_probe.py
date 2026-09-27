@@ -60,6 +60,8 @@ def _sql(order: str) -> str:
     return ("select o.id, o.order_no, o.status, o.freight_fee, "
             "coalesce(json_unquote(json_extract(o.freight_rule_snapshot, '$.pricing.kind')), '(无)'), "
             "coalesce(json_unquote(json_extract(o.freight_rule_snapshot, '$.pricing.reason')), '(无)'), "
+            # ⭐ R4-36：`resolution` 才是分得出「冻结」与「没抽中」的那一格
+            "coalesce(json_unquote(json_extract(o.freight_rule_snapshot, '$.pricing.resolution')), '(无)'), "
             "coalesce(json_unquote(json_extract(o.freight_rule_snapshot, '$.pricing.contract.name')), '(无)'), "
             "coalesce(json_unquote(json_extract(o.freight_rule_snapshot, '$.pricing.contract.version')), '(无)'), "
             "coalesce(json_unquote(json_extract(o.freight_rule_snapshot, '$.pricing.agreed')), '(无)'), "
@@ -77,7 +79,7 @@ def _read(order: str):
     health: list[tuple[str, str, str]] = []
     for ln in out.splitlines():
         parts = ln.split("|")
-        if parts[0] == "ROW" and len(parts) >= 12:
+        if parts[0] == "ROW" and len(parts) >= 13:
             row = parts[1:]
         elif parts[0] == "HEALTH" and len(parts) >= 4:
             health.append((parts[1], parts[2], parts[3]))
@@ -98,11 +100,12 @@ def main() -> int:
     if row is None:
         print("⛔ 生产库里找不到这一单：" + order)
         return 1
-    (oid, ono, status, fee, kind, reason, cname, cver, agreed, override, at) = row[:11]
+    (oid, ono, status, fee, kind, reason, resolution, cname, cver,
+     agreed, override, at) = row[:12]
 
     print("== 冻结现场实验 · " + phase.upper() + " ==")
     print("   单：" + ono + "（id=" + oid + "，状态 " + status + "，运费 " + fee + "）")
-    print("   来源凭据：kind=" + kind + "  reason=" + reason
+    print("   来源凭据：kind=" + kind + "  reason=" + reason + "  resolution=" + resolution
           + "  contract=" + cname + " v" + cver
           + "  agreed=" + agreed + "  override=" + override + "  at=" + at)
     print("   实际生效的比例（逐个实例问出来的）：")

@@ -141,6 +141,38 @@ class ContractQuote:
         return REASON_TEXT.get(self.reason, self.reason)
 
 
+# ---------------------------------------------------------------------------
+# ⭐ **这一次决策是怎么来的**（R4-36）—— 用户 2026-09-27 点名的那个语义坑：
+#
+# > 「当前字段 pricing.kind 同时承担了两个不同概念：
+# >   ① 订单最终采用了谁作为价格来源；② Contract 有没有成功算出价格。」
+#
+# 于是 kind=legacy_client + reason=ok 同时盖住了三种完全不同的情形，排障时**分不出来**
+# （这正是生产上 T0/T1/T2 无法辨识的根源）。
+#
+# ⇒ 拆成两个正交的概念：
+#   · kind（= 来源）：**金额最终由谁产生** —— legacy_client / freight_template；
+#   · resolution（= 这一次怎么走到那一步的）：下面四个取值。
+#
+# ⛔ resolution **不是** reason 的替代：reason 说的是「契约为什么没算出来」
+#    （no_candidates / no_match / ambiguous / …），resolution 说的是「这一次走的是哪条路」。
+#    两个一起看，才既知道走没走、又知道为什么没走通。
+# ---------------------------------------------------------------------------
+#: 走了契约，而且**算出来了** —— 金额来自扩展。
+RESOLUTION_CONTRACT = "contract"
+#: 走了契约，但**没算出来**，如实退回旧路（金额仍以派单员为准）。
+RESOLUTION_FALLBACK = "fallback"
+#: 这一次**没被抽中**（比例关着、或这一单不在桶里）—— 压根没去问契约。
+RESOLUTION_NOT_IN_CANARY = "not_in_canary"
+#: 这一次**没有重新抽签**：这张单已经定过来源，沿用它（⑧-a 出口条件 ③ 的冻结）。
+RESOLUTION_FROZEN = "frozen"
+
+#: 四个取值的全集（⛔ 加取值必须来这里报到 —— 判据会按它核对）。
+RESOLUTIONS: tuple[str, ...] = (
+    RESOLUTION_CONTRACT, RESOLUTION_FALLBACK, RESOLUTION_NOT_IN_CANARY, RESOLUTION_FROZEN,
+)
+
+
 @dataclass(frozen=True)
 class FreightDecision:
     """这一次承运运费**是怎么定的** —— 三个问题一次说清。
@@ -158,8 +190,11 @@ class FreightDecision:
     quoted_fee: str | None = None
     agreed: bool | None = None
     override: bool = False
-    #: 机器可读的"为什么"（`REASON_*`）—— 走通和没走通都有值，⛔ 不许是空串。
+    #: 机器可读的"为什么"（REASON_*）—— 走通和没走通都有值，⛔ 不许是空串。
     reason: str = ""
+    #: ⭐ 这一次决策**走的是哪条路**（RESOLUTION_*）—— 与 kind（来源）正交，见上面那段说明。
+    #: ⛔ 缺省空串只留给"老调用方"；组装点自己的每一条 return 都必须给值（判据盯着）。
+    resolution: str = ""
     note: str = ""
 
 
@@ -291,7 +326,8 @@ def decide(db, order, *, driver_id: int | None, claimed_fee=None) -> FreightDeci
     from app.services.order_money import freight_kind_of, rule_ref_of_candidate
 
     # ⭐ 已经定过来源的单**沿用**那一个（⑧-a 出口条件 ③）—— ⛔ 不拿当前比例重新抽签。
-    kind = policy_for(getattr(order, "id", None), frozen=freight_kind_of(order))
+    frozen = freight_kind_of(order)
+    kind = policy_for(getattr(order, "id", None), frozen=frozen)
     # 两条路都要在快照里留下"是哪一条价目" —— 那是**核心的事实**，与走哪条路无关。
     try:
         quote = quote_for(db, order, driver_id=driver_id)
@@ -301,13 +337,21 @@ def decide(db, order, *, driver_id: int | None, claimed_fee=None) -> FreightDeci
 
     if kind != KIND_CONTRACT or claimed_fee is None:
         # 没走契约那一支：`reason` 如实写`没走`（不是失败，是这一次不在 canary 桶里 / 没有金额）。
-        return FreightDecision(kind=KIND_LEGACY, rule=rule, reason=REASON_OK)
+        # ⭐ 但**"没走"有两种**（R4-36 拆开的正是这一处）：
+        #    这张单**已经定过来源、这一次是沿用**（frozen）≠ 这一次**没被抽中**（not_in_canary）。
+        #    ⛔ 不拆的话，生产上"冻结住了"与"没抽中"写出来一模一样，冻结就永远验不了。
+        return FreightDecision(
+            kind=KIND_LEGACY, rule=rule, reason=REASON_OK,
+            resolution=(RESOLUTION_FROZEN if frozen == KIND_LEGACY
+                        else RESOLUTION_NOT_IN_CANARY),
+        )
 
     got = contract_quote(db, order, driver_id=driver_id)
     if not got.ok:
         # ⛔ 退回旧路**必须说清是哪一种**（原因码 + 一句人话 + 细节），否则运维还得去查库。
         return FreightDecision(
             kind=KIND_LEGACY, rule=rule, reason=got.reason,
+            resolution=RESOLUTION_FALLBACK,
             note="契约没算出结论【" + got.reason + "】" + got.text
                  + ("　细节：" + got.detail if got.detail else "")
                  + " —— 按旧路记，金额以派单员为准",
@@ -321,6 +365,7 @@ def decide(db, order, *, driver_id: int | None, claimed_fee=None) -> FreightDeci
         agreed=agreed,
         override=not agreed,
         reason=REASON_OK,
+        resolution=RESOLUTION_CONTRACT,
         note="" if agreed else ("价目算出来是 " + fee_text + "，派单员定的是 "
                                 + str(_decimals(claimed_fee)) + " —— ⛔ 以人为准，但两个数都留下"),
     )

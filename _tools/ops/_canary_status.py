@@ -113,10 +113,11 @@ rows = sql("select coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.
            "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.reason')), '(none)'), "
            "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.agreed')), '(无)'), "
            "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.override')), '(无)'), "
+           "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.resolution')), ''), "
            "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.contract.name')), '(无)'), "
            "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.contract.version')), '(无)'), "
            "count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
-           + "@SINCE@" + " group by 1, 2, 3, 4, 5, 6 order by 7 desc")
+           + "@SINCE@" + " group by 1, 2, 3, 4, 5, 6, 7 order by 8 desc")
 for ln in rows.splitlines():
     if ln.strip():
         print("DECISION|" + ln.replace(chr(9), "|"))
@@ -152,28 +153,43 @@ def parse_decisions(lines: list[str]) -> list[dict]:
     out: list[dict] = []
     for ln in lines:
         parts = ln.split("|")
-        if parts[0] != "DECISION" or len(parts) < 8:
+        if parts[0] != "DECISION" or len(parts) < 9:
             continue
         try:
-            n = int(parts[7])
+            n = int(parts[8])
         except ValueError:
             continue
         out.append({"kind": parts[1], "reason": parts[2],
                     "agreed": parts[3], "override": parts[4],
-                    "contract": parts[5] + " v" + parts[6], "n": n})
+                    "resolution": parts[5],
+                    "contract": parts[6] + " v" + parts[7], "n": n})
     return out
 
 
 def four_way(decisions: list[dict]) -> dict:
-    """⑧-a 观察窗口的四分类（⛔ 口径按 pricing.reason 判，不是按人猜）。"""
-    contract = sum(d["n"] for d in decisions if d["kind"] == "freight_template")
-    fell_back = sum(d["n"] for d in decisions
-                    if d["kind"] == "legacy_client" and d["reason"] not in ("(none)", "ok"))
-    not_in_bucket = sum(d["n"] for d in decisions
-                        if d["kind"] == "legacy_client" and d["reason"] == "ok")
-    stale = sum(d["n"] for d in decisions if d["reason"] == "(none)")
-    return {"contract": contract, "fell_back": fell_back,
-            "not_in_bucket": not_in_bucket, "stale": stale}
+    """⑧-a 观察窗口的分类。
+
+    ⭐ R4-36 起**优先读 `pricing.resolution`**（这一次走的是哪条路）—— 它把
+    「没抽中」与「已冻结沿用旧路」分开了；⛔ 老快照（R4-36 之前）没有这一格，
+    只能按 kind+reason **推断**，而推断**分不出 frozen** ⇒ 单独计数并如实标注。
+    """
+    out = {"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 0,
+           "stale": 0, "inferred": 0}
+    for d in decisions:
+        res, n = d.get("resolution") or "", d["n"]
+        if res in ("contract", "fallback", "not_in_canary", "frozen"):
+            out[res] += n
+            continue
+        out["inferred"] += n
+        if d["reason"] == "(none)":
+            out["stale"] += n
+        elif d["kind"] == "freight_template":
+            out["contract"] += n
+        elif d["reason"] not in ("ok",):
+            out["fallback"] += n
+        else:
+            out["not_in_canary"] += n
+    return out
 
 
 def contract_detail(decisions: list[dict]) -> tuple[list[str], int, int]:
@@ -188,9 +204,10 @@ def contract_detail(decisions: list[dict]) -> tuple[list[str], int, int]:
 def window_verdict(decisions: list[dict]) -> list[tuple[str, bool]]:
     """⑧-a 观察窗口的五条门槛（⛔ 阈值只在文件头那几个常量里）。"""
     f = four_way(decisions)
-    in_bucket = f["contract"] + f["fell_back"]
-    total = in_bucket + f["not_in_bucket"]
-    ratio = (f["fell_back"] / in_bucket) if in_bucket else None
+    in_bucket = f["contract"] + f["fallback"]
+    # ⚠️ `frozen` **不进分母**：那一次压根没有重新抽签，它不是"抓到的样本"。
+    total = in_bucket + f["not_in_canary"]
+    ratio = (f["fallback"] / in_bucket) if in_bucket else None
     return [
         ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL),
          in_bucket >= WINDOW_MIN_IN_BUCKET and total >= WINDOW_MIN_TOTAL),
@@ -240,12 +257,14 @@ def selftest() -> int:
               + ("" if ok else "（期望 " + str(want) + "）"))
         bad += 0 if ok else 1
 
+    # ⚠️ 这五行是 **R4-36 之前的老快照形状**（第 6 格 resolution 是空的）——
+    #    专门用来验「老数据只能推断、且推断分不出 frozen」那一条。
     raw = [
-        "DECISION|freight_template|ok|1|0|PricingContract|2|7",
-        "DECISION|freight_template|ok|0|1|PricingContract|2|3",
-        "DECISION|legacy_client|no_candidates|(无)|(无)|FreightPricingCore|1|5",
-        "DECISION|legacy_client|ok|(无)|(无)|FreightPricingCore|1|25",
-        "DECISION|legacy_client|(none)|(无)|(无)|FreightPricingCore|1|1",
+        "DECISION|freight_template|ok|1|0||PricingContract|2|7",
+        "DECISION|freight_template|ok|0|1||PricingContract|2|3",
+        "DECISION|legacy_client|no_candidates|(无)|(无)||FreightPricingCore|1|5",
+        "DECISION|legacy_client|ok|(无)|(无)||FreightPricingCore|1|25",
+        "DECISION|legacy_client|(none)|(无)|(无)||FreightPricingCore|1|1",
         "DECISION|垃圾行",
     ]
     ds = parse_decisions(raw)
@@ -254,10 +273,25 @@ def selftest() -> int:
     chk("解析：agreed/override 原样保留", (ds[0]["agreed"], ds[1]["override"]), ("1", "1"))
 
     f = four_way(ds)
-    chk("四分类：contract", f["contract"], 10)
-    chk("四分类：fell_back（只算带原因的退回）", f["fell_back"], 5)
-    chk("四分类：not_in_bucket", f["not_in_bucket"], 25)
-    chk("四分类：stale", f["stale"], 1)
+    chk("分类：没有 resolution 的老快照单独计数（⛔ 推断与事实要分得开）", f["inferred"], 41)
+    chk("分类：老快照里 contract / fallback / not_in_canary 仍按 kind+reason 推断",
+        (f["contract"], f["fallback"], f["not_in_canary"]), (10, 5, 25))
+    chk("分类：老快照的 stale", f["stale"], 1)
+    chk("分类：老快照**分不出 frozen**（这一格必须是 0，⛔ 不许瞎猜）", f["frozen"], 0)
+
+    # ⭐ R4-36：带 resolution 的快照按它分类 —— 「冻结」与「没抽中」必须分开
+    raw2 = [
+        "DECISION|freight_template|ok|1|0|contract|PricingContract|2|4",
+        "DECISION|legacy_client|no_candidates|(无)|(无)|fallback|FreightPricingCore|1|3",
+        "DECISION|legacy_client|ok|(无)|(无)|not_in_canary|FreightPricingCore|1|20",
+        "DECISION|legacy_client|ok|(无)|(无)|frozen|FreightPricingCore|1|6",
+    ]
+    f2 = four_way(parse_decisions(raw2))
+    chk("R4-36：resolution=contract", f2["contract"], 4)
+    chk("R4-36：resolution=fallback", f2["fallback"], 3)
+    chk("R4-36：resolution=not_in_canary", f2["not_in_canary"], 20)
+    chk("R4-36：resolution=frozen 与「没抽中」**分开**（⛔ 合并就是这次要修的坑）",
+        (f2["frozen"], f2["inferred"]), (6, 0))
 
     contracts, agreed_n, over_n = contract_detail(ds)
     chk("⑥ 契约身份去重", contracts, ["PricingContract v2"])
@@ -286,7 +320,7 @@ def selftest() -> int:
 
     empty = parse_decisions([])
     chk("空输入不炸", four_way(empty),
-        {"contract": 0, "fell_back": 0, "not_in_bucket": 0, "stale": 0})
+        {"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 0, "stale": 0, "inferred": 0})
     chk("桶内为 0 时比例算不出来（⛔ 不是当成 0% 过）",
         dict(window_verdict(empty))["桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO)], False)
 
@@ -422,8 +456,8 @@ def main() -> int:
 
     # ---------------- ⑧-a 观察窗口（预注册门槛见文件头那几个常量）----------------
     f4 = four_way(decisions)
-    contract, fell_back = f4["contract"], f4["fell_back"]
-    not_in_bucket, stale = f4["not_in_bucket"], f4["stale"]
+    contract, fell_back = f4["contract"], f4["fallback"]
+    not_in_bucket, stale = f4["not_in_canary"], f4["stale"]
     in_bucket = contract + fell_back
 
     print("")
@@ -433,13 +467,15 @@ def main() -> int:
     feasible, why = window_feasibility(_i(rule_tpl), _i(tpl_n), _i(ruledrv))
     print("[窗口可行性] " + ("✅ " if feasible else "⛔ ") + why)
 
-    print("[观察窗口] 四分类（口径按 pricing.reason 判，⛔ 不是按我猜）")
+    print("[观察窗口] 分类（⭐ 优先读 pricing.resolution；老快照才按 kind+reason 推断）")
     print("        契约算出来        contract        " + str(contract))
     print("        桶内退回（带原因） fell_back       " + str(fell_back))
-    print("        没被抽中          not_in_bucket   " + str(not_in_bucket))
-    print("          ⚠️ 这一格里**混着两种**：这一次真的没被抽中，以及**之前就被冻在 legacy** 的单 ——")
-    print("             reason 只有 ok，分不出这两种（冻结那一条见 R4-26 的说明）。")
-    print("             ⛔ 它不进「桶内」分母，所以不影响退回比例与样本量两条判据。")
+    print("        没被抽中          not_in_canary   " + str(not_in_bucket))
+    print("        **冻结沿用旧路**   frozen          " + str(f4["frozen"])
+          + "   ← ⭐ R4-36 起才分得出来（以前它与「没被抽中」写出来一模一样）")
+    if f4["inferred"]:
+        print("          ⚠️ 其中 " + str(f4["inferred"]) + " 笔是 **R4-36 之前的老快照**（没有 resolution 这一格），"
+              + "只能按 kind+reason 推断 —— 而推断**分不出 frozen**。")
     print("        旧式快照（无原因） stale           " + str(stale)
           + "   ← 只该来自 R4-22 之前，观察期内**新增**任何一个都是问题")
     if SINCE:

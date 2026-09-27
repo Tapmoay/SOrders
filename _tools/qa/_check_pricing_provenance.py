@@ -103,6 +103,9 @@ PROVENANCE_REQUIRED: tuple[tuple[tuple[str, ...], str], ...] = (
     (("pricing", "kind"), "pricing kind（用了什么计价方式）"),
     (("pricing", "contract", "name"), "pricing contract（属于哪一版计价契约）"),
     (("pricing", "contract", "version"), "pricing contract version"),
+    # ⭐ R4-36：`kind` 只回答"金额最终由谁产生"，回答不了"这一次是怎么走到那一步的"——
+    #    少了 resolution，legacy_client + reason=ok 会同时盖住"没抽中"与"已冻结沿用旧路"。
+    (("pricing", "resolution"), "pricing resolution（这一次走的是哪条路）"),
     (("category",), "effective calculation context（按哪一类货算的）"),
     (("rule",), "哪一条价目"),
     (("fee",), "final fee（当时的金额）"),
@@ -356,7 +359,7 @@ def main() -> int:
 
     o = _FakeOrder()
     record_freight_decision(o, source="manual", fee=Decimal("120"), category_id=3,
-                            category_name="蔬菜",
+                            category_name="蔬菜", resolution="not_in_canary",
                             rule={"template_id": 12, "fee": "120.00", "origin": "saved"})
     snap = freight_provenance_of(o)
     ok("写入口把金额写成两位小数（120 → 120.00）", str(o.freight_fee) == "120.00",
@@ -384,7 +387,16 @@ def main() -> int:
        set(codes) <= set(REASON_TEXT), "缺解释：" + str(sorted(set(codes) - set(REASON_TEXT))))
     o4 = _FakeOrder()
     record_freight_decision(o4, source="assign", fee=Decimal("88"),
-                            kind="legacy_client", reason="no_candidates")
+                            kind="legacy_client", reason="no_candidates",
+                            resolution="fallback")
+    # ⭐ R4-36：`resolution` 必须**与 kind 正交**地落进快照 —— 否则「没抽中」与
+    #    「已冻结沿用旧路」写出来一模一样，生产上分不出来（T0/T1/T2 就是这么卡住的）。
+    ok("写入口把「这一次走的是哪条路」写进快照（pricing.resolution）",
+       _dig(freight_provenance_of(o4), ("pricing", "resolution")) == "fallback")
+    from app.core.pricing_runtime import RESOLUTIONS  # noqa: E402
+    ok("resolution 是一组互不相同的取值，且**恰好四个**（增加值必须来这里报到）",
+       len(set(RESOLUTIONS)) == len(RESOLUTIONS) and set(RESOLUTIONS) ==
+       {"contract", "fallback", "not_in_canary", "frozen"}, str(RESOLUTIONS))
     ok("写入口把原因码原样写进快照（pricing.reason）",
        _dig(freight_provenance_of(o4), ("pricing", "reason")) == "no_candidates")
     ok("没给原因码时**不编**一个（⛔ 不许写假原因）",

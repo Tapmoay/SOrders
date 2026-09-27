@@ -895,6 +895,74 @@ R4-34 上线之后，观察窗口开着、`Canary = ACTIVE` —— 但**窗口�
 
 判据：状态工具 `--selftest` **24/24**（新增 5 条走的是同一个纯函数 `window_feasibility`）。
 
+---
+
+### R4-36 ⭐ 把 `pricing.kind` 一分为二：`kind`（来源）与 `resolution`（这一次走的是哪条路）
+
+用户 2026-09-27 的定位（原话）：
+
+> 「当前字段 `pricing.kind` 同时承担了两个不同概念：
+>   ① 订单最终采用了谁作为价格来源；② Contract 有没有成功算出价格。
+>   于是 `legacy_client` 既可能意味着：没抽中 / 抽中了但 Contract 失败 / 已 Freeze 然后沿用 Legacy。
+>   这正是你现在 T0/T1/T2 无法辨识的根源。」
+
+⭐ 用户同时把**语义问题**拍了板：**fallback 算 Decision**（一旦产生了真实金额，来源就该被冻结 ——
+历史事实不能被后来的配置改写）。要修的不是冻结语义，是**可辨识性**。
+
+#### 改法：拆成两个正交的概念
+
+| 概念 | 字段 | 取值 |
+| --- | --- | --- |
+| 金额最终由谁产生（**来源**） | `pricing.kind` | `legacy_client` / `freight_template`（**不动**） |
+| 这一次**是怎么走到那一步的** | `pricing.resolution` | `contract` / `fallback` / `not_in_canary` / `frozen` |
+
+四个取值各自的意思（⛔ 一个都不能少）：
+
+| 取值 | 意思 | 以前写出来是什么样 |
+| --- | --- | --- |
+| `contract` | 走了契约，而且**算出来了** | `kind=freight_template` —— 这一种本来就分得开 |
+| `fallback` | 走了契约，**没算出来**，如实退回 | `kind=legacy_client` + `reason=no_candidates` —— 也分得开 |
+| `not_in_canary` | 这一次**没被抽中**（比例关着 / 不在桶里） | `kind=legacy_client` + `reason=ok` |
+| `frozen` | 这一次**没有重新抽签**，沿用这张单已定过的来源 | `kind=legacy_client` + `reason=ok` ⛔ **与上一条一模一样** |
+
+⇒ **最后两行就是那个坑**：冻结住了与没抽中，在账上长得完全一样 ——
+所以生产上的 T0/T1/T2 证明不了任何事（R4-34 实测踩到）。
+
+#### 证据
+
+**契约单测**（`backend/tests/test_pricing_runtime.py`，都走真实 API）：
+
+| 用例 | 钉住什么 |
+| --- | --- |
+| `test_四种走法各自说得出走的是哪条路` | 四种情形各造一次，四个取值**各自出现**（⛔ 少一个都算没拆干净） |
+| `test_冻结过的单_resolution_必须说得出是冻结而不是没抽中` | ⭐ **对照组**：比例 0 下没冻过的单 ⇒ `not_in_canary`；**实验组**：先在 100% 下定过来源、再把比例调到 0 写第二次 ⇒ 必须 `frozen`，且与对照组**不是同一个取值** |
+
+判据：`_check_pricing_provenance.py` 把 `pricing.resolution` 加进**快照必须能恢复的键**
+（缺了当场红），并新增「`resolution` 恰好四个取值、互不相同」；
+`_check_canary_freeze.py` 新增第 7 组（四个取值都在 + 组装点**每一条** return 都带 `resolution`）。
+反向验证：`_reverse_verify_canary_freeze.py` **15/15**、`_reverse_verify_pricing_provenance.py` **13/13**。
+
+#### 工具跟着改（⛔ 不然窗口会把「冻结」算成「没抽中」）
+
+`_canary_status.py` 的分类**优先读 `resolution`**：
+
+    契约算出来        contract
+    桶内退回（带原因） fallback
+    没被抽中          not_in_canary
+    **冻结沿用旧路**   frozen          ← ⭐ R4-36 起才分得出来
+                      （老快照单独计一笔 inferred，如实标注「只能推断、分不出 frozen」）
+
+⚠️ 生产上现存的快照都是 R4-36 之前的（没有这一格）⇒ 工具会如实说「推断」，⛔ 不会假装分得开。
+`_freeze_probe.py` 也把 `resolution` 一起读出来比对。
+
+#### ⛔ 这一格**没有**证明什么
+
+- ⛔ 生产上还**没有产生过**任何 `resolution=contract` 的决策（`driver_billing_rule_templates` 仍是 0 行）；
+- ⛔ 所以「冻结在生产上成立」仍然**只有单测 + 反向验证**撑着，生产验证要等第一笔真实契约决策；
+- ⛔ 这一轮**只改了代码与工具**，没碰生产、没动任何配置（用户 §二十：配置变更与代码变更**不同批**）。
+
+验证：backend **1098 passed**（+2）；静态检查 **129/129**；状态工具 `--selftest` **28/28**。
+
 #### 前置 D：观察窗口**预注册** + T0/T1/T2 现场实验（R4-28 / R4-29）
 
 ⛔ 这两件都**不需要生产放行**，所以先做完了 —— 发布一落地就能直接跑。

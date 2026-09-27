@@ -101,7 +101,7 @@ def s_freeze_returns_something_else(sb):
 
 def s_decide_forgets_frozen(sb):
     """组装点**忘了把冻结读出来**传进去（= 决策不再冻结，而只测比例的单测照样绿）。"""
-    sb.replace(RUNTIME, ", frozen=freight_kind_of(order))", ")  # rv-injection")
+    sb.replace(RUNTIME, ", frozen=frozen)", ")  # rv-injection")
 
 
 def s_kind_accepts_anything(sb):
@@ -146,6 +146,7 @@ ASSIGN_TAIL = (
     "            override=d.override,\n"
     "            reason=d.reason,\n"
     "            note=d.note,\n"
+    "            resolution=d.resolution,\n"   # R4-36 加的
     "        )\n"
     "    if body.collect_cash is not None:"
 )
@@ -155,7 +156,7 @@ ADJUST_HEAD = (
     "        order,\n"
     "        source=FREIGHT_SOURCE_ADJUST,"
 )
-LEGACY_RETURN = "        return FreightDecision(kind=KIND_LEGACY, rule=rule, reason=REASON_OK)"
+LEGACY_RETURN = "            kind=KIND_LEGACY, rule=rule, reason=REASON_OK,"
 
 
 def s_call_site_without_reason(sb):
@@ -176,7 +177,7 @@ def s_call_site_bypasses_root(sb):
 def s_return_without_reason(sb):
     """组装点有一条 return **丢掉了 reason** —— 那一条决策就没有原因码了。"""
     sb.replace(RUNTIME, LEGACY_RETURN,
-               "        return FreightDecision(kind=KIND_LEGACY, rule=rule)  # rv-injection")
+               "            kind=KIND_LEGACY, rule=rule,  # rv-injection 丢了 reason")
 
 
 # (说明, 场景, 期望关键字) ；关键字必须在**报红那一行**里出现

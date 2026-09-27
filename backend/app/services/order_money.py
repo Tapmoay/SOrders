@@ -385,6 +385,7 @@ def record_freight_decision(
     override: bool = False,
     reason: str = "",
     note: str = "",
+    resolution: str = "",
 ) -> None:
     """**写承运运费的唯一入口**：金额、分类与它的来源凭据一起落。
 
@@ -425,6 +426,11 @@ def record_freight_decision(
             # ✅ **机器可读的"为什么"**（走通 / 没走通都有值）：运维可以直接 GROUP BY 出
             #    "生产上最常卡在哪一步"，而不用去读中文。⛔ 有它就别再去解析 note 那串人话。
             **({"reason": reason} if reason else {}),
+            # ⭐ **这一次走的是哪条路**（R4-36）：与 kind（来源）正交。
+            #    ⛔ 少了它，legacy_client + reason=ok 同时盖住「没抽中」与「已冻结沿用旧路」，
+            #    排障时分不出来（这正是生产上 T0/T1/T2 无法辨识的根源）。
+            #    取值全集与含义在 core/pricing_runtime.RESOLUTIONS —— ⛔ 不在这里另立一套。
+            **({"resolution": resolution} if resolution else {}),
             **({"agreed": bool(agreed), "override": bool(override)} if agreed is not None else {}),
             **({"note": note} if note else {}),
         },

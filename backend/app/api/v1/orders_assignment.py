@@ -262,6 +262,7 @@ def price_freight(
         override=d.override,
         reason=d.reason,
         note=d.note,
+        resolution=d.resolution,
     )
 
     # ⚠️ 送达之后才补上运费 → 那张**还没结算**的司机应付明细必须跟着改（2026-09-23 第 6 轮，
@@ -356,6 +357,7 @@ def assign_order(
             override=d.override,
             reason=d.reason,
             note=d.note,
+            resolution=d.resolution,
         )
     if body.collect_cash is not None:
         order.collect_cash = body.collect_cash
@@ -437,6 +439,7 @@ def update_order_freight(
         override=d.override,
         reason=d.reason,
         note=d.note,
+        resolution=d.resolution,
     )
     write_log(
         db,

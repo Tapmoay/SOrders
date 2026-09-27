@@ -465,3 +465,97 @@ def test_每一条决策都带得出原因码(client, db_session, token_dispatch
     assert p3["kind"] == "legacy_client", p3
     assert p3["reason"] == "no_candidates", "③ 退回必须带得出是哪一种：" + str(p3)
     assert "契约没算出结论" in p3.get("note", ""), p3
+
+
+def test_四种走法各自说得出走的是哪条路(client, db_session, token_dispatcher, monkeypatch):
+    """⛔ R4-36（用户 2026-09-27 点名的语义坑）：**一个 kind 盖不住四件事**。
+
+    `kind` 只回答「金额最终由谁产生」；「这一次是怎么走到那一步的」得由 `resolution` 回答。
+四种各造一次，四个取值必须**各自出现**：
+
+      not_in_canary  比例 0          —— 压根没去问契约
+      contract       比例 100 + 铺好 —— 契约算出来了
+      fallback       比例 100 + 没挂规则 —— 去了、没算出来、如实退回
+      frozen         **已经定过来源的单再写一次** —— ⛔ 这一条以前与 not_in_canary 长得一模一样
+    """
+    from app.core.pricing_runtime import RESOLUTIONS
+
+    h = auth_headers(token_dispatcher)
+
+    # ① not_in_canary
+    _pin_canary(monkeypatch, 0)
+    a = _mk_order(client, h)
+    da = _mk_driver(client, h)
+    assert client.post(f"/api/v1/orders/{a}/assign",
+                       json={"driver_id": da, "freight_fee": "120"}, headers=h).status_code in (200, 201)
+    pa = _snapshot(db_session, a)["pricing"]
+    assert pa["resolution"] == "not_in_canary", pa
+    assert pa["kind"] == "legacy_client", pa
+
+    # ② contract
+    _pin_canary(monkeypatch, 100)
+    b = _mk_order(client, h)
+    db_ = _mk_driver(client, h)
+    cat = _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=db_)
+    _set_category_only(db_session, b, cat)
+    assert client.post(f"/api/v1/orders/{b}/assign",
+                       json={"driver_id": db_, "freight_fee": "135"}, headers=h).status_code in (200, 201)
+    pb = _snapshot(db_session, b)["pricing"]
+    assert pb["resolution"] == "contract", pb
+    assert pb["kind"] == "freight_template", pb
+
+    # ③ fallback
+    c = _mk_order(client, h)
+    dc = _mk_driver(client, h)          # 这个司机没挂规则 ⇒ 算不出来
+    assert client.post(f"/api/v1/orders/{c}/assign",
+                       json={"driver_id": dc, "freight_fee": "120"}, headers=h).status_code in (200, 201)
+    pc = _snapshot(db_session, c)["pricing"]
+    assert pc["resolution"] == "fallback", pc
+    assert pc["kind"] == "legacy_client" and pc["reason"] == "no_candidates", pc
+
+    # ④ frozen：把比例调到 0，对**已经定过来源的** c 再写一次
+    _pin_canary(monkeypatch, 0)
+    assert client.post(f"/api/v1/orders/{c}/freight",
+                       json={"freight_fee": "130"}, headers=h).status_code in (200, 201)
+    pc2 = _snapshot(db_session, c)["pricing"]
+    assert pc2["resolution"] == "frozen", pc2
+    assert pc2["kind"] == "legacy_client", pc2
+
+    seen = {pa["resolution"], pb["resolution"], pc["resolution"], pc2["resolution"]}
+    assert seen == set(RESOLUTIONS), "四个取值要各自出现：" + str(seen)
+
+
+def test_冻结过的单_resolution_必须说得出是冻结而不是没抽中(client, db_session, token_dispatcher, monkeypatch):
+    """⭐⭐ 这一条正是**生产上 T0/T1/T2 之前验不了的那个分辨点**（R4-34 实测踩到）。
+
+    冻结住 ⇒ 沿用 legacy ⇒ 走旧路那一支；没冻住 ⇒ 比例已是 0、这单也不在桶里 ⇒ **同样**走旧路那一支。
+两条路是同一支代码，`kind` 与 `reason` 写出来一模一样 ⇒ ⛔ 实验证明不了冻结。
+⇒ 拆出 `resolution` 之后：冻住的是 `frozen`、没抽中的是 `not_in_canary`，**一眼分得开**。
+    """
+    h = auth_headers(token_dispatcher)
+
+    # 对照组：**没有**冻结过的单，在比例 0 下写一次 ⇒ not_in_canary
+    _pin_canary(monkeypatch, 0)
+    fresh = _mk_order(client, h)
+    d1 = _mk_driver(client, h)
+    assert client.post(f"/api/v1/orders/{fresh}/assign",
+                       json={"driver_id": d1, "freight_fee": "120"}, headers=h).status_code in (200, 201)
+    p_fresh = _snapshot(db_session, fresh)["pricing"]
+    assert p_fresh["resolution"] == "not_in_canary", p_fresh
+
+    # 实验组：先在 100% 下**定过一次来源**（契约算不出来 ⇒ fallback），再调到 0 写第二次
+    _pin_canary(monkeypatch, 100)
+    frozen_oid = _mk_order(client, h)
+    d2 = _mk_driver(client, h)          # 没挂规则 ⇒ 第一次必然是 fallback
+    assert client.post(f"/api/v1/orders/{frozen_oid}/assign",
+                       json={"driver_id": d2, "freight_fee": "120"}, headers=h).status_code in (200, 201)
+    first = _snapshot(db_session, frozen_oid)["pricing"]
+    assert first["resolution"] == "fallback", first
+
+    _pin_canary(monkeypatch, 0)         # ← 比例换了（生产上 T1 做的就是这个）
+    assert client.post(f"/api/v1/orders/{frozen_oid}/freight",
+                       json={"freight_fee": "130"}, headers=h).status_code in (200, 201)
+    second = _snapshot(db_session, frozen_oid)["pricing"]
+    assert second["resolution"] == "frozen", "冻结的那一单必须是 frozen：" + str(second)
+    assert second["kind"] == first["kind"], "来源不许变：" + str((first, second))
+    assert second["resolution"] != p_fresh["resolution"], "⛔ 与「没抽中」必须是两个取值"

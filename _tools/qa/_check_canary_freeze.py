@@ -123,8 +123,11 @@ def main() -> int:
     decide_body = rt[rt.find("def decide("):] if "def decide(" in rt else ""
     ok("decide 里恰好一处调 policy_for（⛔ 两处就是两个决策点）",
        decide_body.count("policy_for(") == 1)
-    ok("那一处把冻结读出来传进去了（frozen=freight_kind_of(order)）",
-       "policy_for(getattr(order, \"id\", None), frozen=freight_kind_of(order))" in decide_body)
+    # ⚠️ R4-36 起把冻结**先读进一个变量**（`frozen = freight_kind_of(order)`），
+    #    因为 resolution 的判定也要用它 —— 判据跟着改成两段一起核。
+    ok("那一处把冻结读出来传进去了（先读进 frozen，再 frozen=frozen）",
+       "frozen = freight_kind_of(order)" in decide_body
+       and "policy_for(getattr(order, \"id\", None), frozen=frozen)" in decide_body)
 
     if not check:
         print("== 3. 读冻结只有一处实现，且只认白名单 ==")
@@ -206,6 +209,16 @@ def main() -> int:
        bool(returns) and all("reason=" in b for b in returns))
     ok("空 reason **不写进快照**（⛔ 不是写一个空串装作有记录）",
        "**({\"reason\": reason} if reason else {})" in om)
+
+    if not check:
+        print("== 7. ⭐ resolution：这一次走的是哪条路（R4-36，用户点名的语义坑）==")
+
+    ok("四个取值都在、且互不相同",
+       "RESOLUTION_CONTRACT" in rt and "RESOLUTION_FALLBACK" in rt
+       and "RESOLUTION_NOT_IN_CANARY" in rt and "RESOLUTION_FROZEN" in rt
+       and "RESOLUTIONS: tuple[str, ...] = (" in rt)
+    ok("组装点的**每一条** return 都带 resolution（⛔ 漏一条就有一类决策说不清路）",
+       bool(returns) and all("resolution=" in b for b in returns))
 
     if check:
         print(("✅" if not fails else "❌")
