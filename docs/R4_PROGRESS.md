@@ -1208,6 +1208,70 @@ R4-34 上线之后，观察窗口开着、`Canary = ACTIVE` —— 但**窗口�
 · ⛔ 观察窗口的五条门槛仍然**没过**（样本量 0、契约样本 0）；⛔ ⑧-b 未动。
 · ⛔ **没有**用「造 50 张测试单去凑 `id % 100 < 30`」的办法硬造一笔 —— 那是污染生产数据换一个数字。
 
+---
+
+### R4-42 ⭐ 代码批**独立部署**（与配置批分开）+ 链路在副本上**整条验通**
+
+#### 为什么必须再发一次（演练抓出来的顺序问题）
+
+`_tools/ops/_pricing_chain_drill.py`（参数化接线演练）第一次跑在**生产机上的旧代码**上，
+契约**算得出来**（`ok=True fee=45.00`），但紧接着崩在一行：
+
+    AttributeError: 'FreightDecision' object has no attribute 'resolution'
+
+⛔ 这不是 bug，是**顺序**：生产跑的还是 `448dbb3`，而 `resolution` 是 R4-36 才加的 ——
+**还没发布**。后果很实在：**第一笔真实 Contract Decision 会以「旧形状」落库（只有 kind/reason）**，
+那样 ⑤ 的 Provenance 闭环与 ⑦ 的**双向 Freeze 实验**都做不了（`frozen` 与 `not_in_canary` 分不开）。
+
+⇒ 好在用户自己定的规矩正好接上：「⛔ **配置变更与代码变更不要一起做**」。
+配置批（R4-41）已经单独完成并核对过，所以这里是**独立的第二批**：走同一个八步发布器。
+
+#### 发布结果（八步，逐条留原始输出）
+
+| 步 | 结果 |
+| --- | --- |
+| backup | 新备份点（清单留档） |
+| stage | 生产 HEAD = 本批发布点 |
+| migrate / verify | 版本 **9**；待跑 0 / 漂移 0 / 陌生版本 0 |
+| **start** | 滚动重启 a(8111) → b(8112)；**逐实例指纹都是 30%，与 .env 相符** |
+| health | ✅ |
+| smoke | **ERROR 0 条、未批准告警 0 条** |
+| business | 按设计**不自动化**（要人按 PRODUCTION_ACCEPTANCE §三 做） |
+
+⚠️ `start` 那一步的指纹门禁（R4-30 加的）这次**一次就过** —— 它上次拦停是真 bug，
+修好之后这一版发布没有误报。
+
+#### ⭐ 演练复跑（新代码 + 生产上那一对配置，在**副本**上）
+
+    == 1. 补上那一行：规则 #1 × 价目 #5 ==   链接行数 0 → 1
+       价目 #5「惠州江北 → 惠阳淡水」fee=45.00 route_id=5 to_place=惠阳淡水
+       订单 #20709  地址=塘厦林村工业区21号 3栋1063室
+       司机 #167 罗少华  driver_rule_id=1
+    == 2. 问契约 ==  ok=True  fee=45.00  reason=ok
+    == 3. 界面给的数 == 契约算的数（45.00）==
+       kind=freight_template  resolution=contract  agreed=True  override=False
+       rule={template_id: 5, template_name: 惠州江北 → 惠阳淡水, price_name: 一车价,
+             route: 惠州江北 → 惠阳淡水, fee: 45.00, origin: derived}
+    == 4. 派单员改过价（55.00）== kind=freight_template resolution=contract
+       agreed=False override=True
+       note=价目算出来是 45.00，派单员定的是 55.00 —— ⛔ 以人为准，但两个数都留下
+
+⇒ **整条链路通了**：司机 → 他的规则 → 勾的价目 → 路线匹配 → 45.00 → 凭据带全（含 `resolution`）。
+而且 ⑥（override 两个值都留）也在真实数据形状上又验了一遍。
+
+⛔ 这是**副本**：它证明的是「配置一到位、链路就通」，
+⛔ **不等于**生产已经产生了这一笔 —— 那要**真实的派单动作**。
+
+#### 现在等什么
+
+订单 **`#20709`**（桶=9 ⇒ 在 30% canary 里）被派给**规则 #1 的 6 个司机之一**（163/167/169/170/173/174）。
+那一刻，第一笔**真实** Contract Decision 就会出现，形状已经预先验过：
+`kind=freight_template`、`resolution=contract`、`fee=45.00`、凭据带全。
+⛔ 若派给了别的规则的司机，那一单不会走契约。
+
+收工核对：演练库 `sorders_drill_r442` / `r443` 都已 drop（`SHOW DATABASES` 只剩 `sorders`），
+`/tmp` 无残留，生产库那一行链接仍是 `1 → 5`。
+
 #### 前置 D：观察窗口**预注册** + T0/T1/T2 现场实验（R4-28 / R4-29）
 
 ⛔ 这两件都**不需要生产放行**，所以先做完了 —— 发布一落地就能直接跑。

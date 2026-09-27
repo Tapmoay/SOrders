@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "R4-42 代码批（与配置批分开）：pricing.resolution 语义拆分 + 冻结粒度定义 + 观察窗口升级",
+  "created_utc": "2026-09-27T10:02:26Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260927T100214Z",
+  "code": {
+    "commit": "448dbb3e743c4b96b238d009a2c6ca46a68f441a",
+    "branch": "",
+    "dirty_files": 10
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": 9,
+    "rows": {
+      "orders": 2407,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 48
+    }
+  },
+  "uploads": {
+    "bytes": 105224536,
+    "files": 2110
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 532769,
+      "sha256": "04b6fb959c975eb8665ae487caad6a8b134d028c84385578e2111d4c6199863f"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105224536,
+      "sha256": "f58c516ff91c5f549282cc7ff87b6e3666c3c9cd4a15938aa0d2a7d0a4aff4e9"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}
