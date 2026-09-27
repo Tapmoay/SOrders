@@ -8,6 +8,68 @@
 
 完整需求原文：[requirements.md](requirements.md)。
 
+## ⛔ 开工前必读：每一次开发都要有一个身份（2026-09-27 定的规范）
+
+> **完整规范**：[docs/DEVELOPMENT_SPEC.md](docs/DEVELOPMENT_SPEC.md)（三十八节；
+> 每条规则都写了**在本仓库的落点**与**有没有机器判据**）。
+> 下面是**动手前**必须做到的最小集 —— 缺一条就别开工。
+
+**① 先给它一个 ID**（`R4-xx` 属于整改阶段历史，日常开发不再用）：
+
+```text
+FEAT-xxxx  新功能（原来没有）      CHG-xxxx  既有功能修改（原来有，现在改行为）
+BUG-xxxx   缺陷修复                GOV-xxxx  开发治理 / 规则本身的变化
+```
+
+定义写在 **`docs/changes/<ID>.md`**（复制模板 `docs/changes/_TEMPLATE.md`）；
+目录即台账：[docs/changes/README.md](docs/changes/README.md)。
+⛔ 不要用「临时改一下 / 顺便修一下 / 先做着」当工作状态。
+
+**② 在 [docs/AI_WORK_CLAIM.md](docs/AI_WORK_CLAIM.md)「进行中」写一行，首行带这个 ID**，
+写清改哪些文件、**明确不碰哪些**。
+
+**③ 回答六问**，其中第④条必须写成两块：
+
+```text
+① 解决什么问题？  ② 当前流程是什么？  ③ 哪个现有事实会变？
+④ 哪些明确不能变？ ⑤ 属于 Core/Extension/Infrastructure？ ⑥ 什么证据能证明完成？
+
+Must Change:      …      ← 我打算改什么
+Must Not Change:  …      ← 我承诺不改什么
+```
+
+**④ 判边界**：五问（是否定义核心事实 / 是否改核心不变量 / 是否必须永久存在 /
+是否可能出现多个实现 / 删除后 Core 是否仍成立）→
+见 [docs/R4_CORE_EXTENSION_MAP.md](docs/R4_CORE_EXTENSION_MAP.md) §7。
+**模糊时先不要抽象**：先做一个真实实现，等第二个实现出现再判。
+⛔ 新东西一律走扩展点（[docs/CORE_AND_EXTENSION.md](docs/CORE_AND_EXTENSION.md)），不要改核心。
+
+**⑤ 标 Blast Radius，按等级加审查**：
+
+```text
+L0 展示层（颜色 / 文案 / 排版）   ← 最低审查
+L1 局部行为                       ← 要回归测试
+L2 契约 / 数据                    ← 要兼容性与迁移检查
+L3 核心 / 历史事实 / 安全          ← 要正式变更审查（规范 §二十七）
+```
+
+命中 **钱 / 账本 / 订单生命周期 / 权限 / 审计 / 历史事实 / 定价决策 / 数据库迁移**
+里任意一项 ⇒ 不能走普通流程直接合并（规范 §八）。
+
+**⑥ 收工前**：
+
+```text
+python _tools/qa/_check_all.py                    # 全部静态检查（清单自己算）
+python backend/scripts/check_reachability.py      # 文档可达性（报孤儿文档）
+```
+
+再把 `docs/changes/<ID>.md` 的**六格**补齐：
+`Changed / Preserved / Evidence / Known Limitations / Rollback / Historical Data Impact`。
+
+⛔ **三条最容易犯的**：① 拿"测试绿了"当完成（要 Behavior + Boundary + Evidence +
+Compatibility + Operational Safety 全满足）；② 让判据**永远红**（永远红的检查 = 没有检查）；
+③ 把**判断**（Judgment）写成**测量**（Measurement）。
+
 ## ⚠️ 动手前先看：这个仓库**同时有多个 AI 会话在改代码**
 
 用户 2026-09-20 明确要求：**谁要改什么，必须先声明**（否则会出现"你在这个文件、他在那个文件"最后互相覆盖）。

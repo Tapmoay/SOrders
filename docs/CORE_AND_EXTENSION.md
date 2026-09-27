@@ -7,6 +7,11 @@
 这份文档是那条准则的落地：**哪些文件算核心**、**新功能该往哪儿加**、**怎么自检**。
 准则的机器判据是 `_tools/qa/_check_core_freeze.py`（反向验证 `_tools/qa/_reverse_verify_core_freeze.py`）。
 
+> **这一页只管"改哪儿"，不管"走什么流程"。**
+> 一个事项**从立项到关闭**的流程（四种 ID / 开工六问 / Must Change / Blast Radius /
+> 四件事测试 / 关闭六格）在 **[DEVELOPMENT_SPEC.md](DEVELOPMENT_SPEC.md)**。
+> 两页的分工：**改哪儿看这里，怎么走看那儿。** ⛔ 不要让两页说同一件事。
+
 ---
 
 ## §1 三条路（加/改功能时按这个顺序想）

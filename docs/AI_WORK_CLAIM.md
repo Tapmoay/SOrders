@@ -16,9 +16,44 @@
    **被静默抹掉**（连带把一个已删的文件恢复回来了）。开跑前先确认没人正在改代码；
    跑完先 `git status` 看一眼，再动别的。
 
+**⛔ 第 0 条（2026-09-27 起）：每个事项先有身份。**
+
+`FEAT-xxxx`（新功能）/ `CHG-xxxx`（既有功能修改）/ `BUG-xxxx`（缺陷修复）
+/ `GOV-xxxx`（治理规则本身的变化）——
+定义写在 `docs/changes/<ID>.md`（模板 `docs/changes/_TEMPLATE.md`），
+**新加的声明行，首行必须带这个 ID**；commit message 首行也以它开头。
+
+⛔ 没有 ID 的事项不许开工；⛔ 不要用「临时改一下 / 顺便修一下 / 先做着」当工作状态。
+完整流程（六问 / 边界判定 / Blast Radius / 四件事测试 / 关闭六格）见
+[docs/DEVELOPMENT_SPEC.md](DEVELOPMENT_SPEC.md)。
+
 ---
 
 ## 进行中
+
+### [2026-09-27 22:51 UTC → 已完成] 会话：**GOV-0001 把《开发规范 v1.0》写进仓库并接线到开工入口**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**事项**：`GOV-0001`（定义见 `docs/changes/GOV-0001.md`）——
+需求方 2026-09-27 交来《SOrders 新功能开发与既有功能修改规范 v1.0》（三十八节），
+要求「详细写进项目的架构当中，确保每次进行项目之前都能读到」。
+
+**改哪些文件**（全部是**新增**与**追加**，⛔ 零运行时改动）：
+- 新增 `docs/DEVELOPMENT_SPEC.md`（规范全文，每条规则带【本仓库落点】与【判据】）
+- 新增 `docs/changes/`（`README.md` 登记簿 + `_TEMPLATE.md` + `GOV-0001.md`）
+- 接线（追加）：`AGENTS.md`（开工前必读段）/ `docs/PROJECT_MAP/INDEX.md`（导航行 + 全量文档目录）
+  / `docs/AI_WORK_CLAIM.md`（声明首行带 ID）/ `docs/CORE_AND_EXTENSION.md`（交叉引用）
+- 新增判据：`_tools/qa/_check_dev_spec.py` + `_reverse_verify_dev_spec.py`
+  + `_check_doc_reachability.py`（把既有的 `backend/scripts/check_reachability.py` 接进必跑清单）
+
+**⭐ 顺带修的一个真缺陷**：`check_reachability.py` 今晨实测报 **39 份孤儿文档**
+（R3/R4 的全部证据页与报告**从 `AGENTS.md` 出发都到不了** = 对新会话不存在）。
+本事项在 INDEX 里补「全量文档目录」把它们接上，并把这条检查接进必跑清单，防止再断。
+
+⛔ **明确不碰**：`backend/` 与 `android/` 业务代码、核心区文件（`_core_files.txt` 里的路径零改动）、
+生产（不发布 / 不改配置 / Canary 仍 30% / 不碰生产价目 / 不碰那 6 个真实司机）、
+`R3-xx` 与 `R4-xx` 的历史编号与结论。
+
+---
 
 ### [2026-09-27 17:2x UTC → 已完成] 会话：**R4-49 P5 Evidence Closeout + R4 Final Review**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 

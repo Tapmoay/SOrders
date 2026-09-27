@@ -175,11 +175,11 @@ pure_consumer: no
 
 **✅ R2-02 把这个缺口补上了**：原来下单时 `Order(status=PENDING_DISPATCH, …)` 是在**路由里构造对象**写进去的
 （`api/v1/orders_lifecycle.py`）—— 按 `\.status\s*=` 这条判据扫是**扫不到它的**。现在 `create_order` / `update_order`
-的应用逻辑搬进了 [`app/commands/order.py`](../../backend/app/commands/order.py)，路由只剩 HTTP；
+的应用逻辑搬进了 [`app/commands/order.py`](../backend/app/commands/order.py)，路由只剩 HTTP；
 命令登记在上面 `commands:` 那一行里，判据 [`_check_order_commands.py`](../_tools/qa/_check_order_commands.py)
 会核对「**API 层一处都没有直接写订单状态**」（反向验证里专门有一条把状态写回路由，看它会不会红）。
 
-**命令的完整形状在 [`backend/app/commands/registry.py`](../../backend/app/commands/registry.py)**：每条命令的
+**命令的完整形状在 [`backend/app/commands/registry.py`](../backend/app/commands/registry.py)**：每条命令的
 「前置状态 → 目标状态 / 需要的权限点 / 会发出的事件 / 会写的别的域的表」都写在那里，
 并且与 `order_flow.py` 里的**条件 UPDATE 逐条对账** —— 声明与代码不一致就报红。
 本域的 `commands:` 一行是**归属**（谁拥有它），registry 是**形状**（它允许什么）；两处都要有，判据也会核对两处互相指得到。

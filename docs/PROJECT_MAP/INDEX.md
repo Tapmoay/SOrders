@@ -27,6 +27,9 @@
 | [**../RECTIFICATION_PLAN.md**](../RECTIFICATION_PLAN.md) | **架构整改执行表**：分阶段（基线→备份恢复→迁移版本化→CI→API 搬迁→硬边界…）的做什么 / 改不改业务逻辑 / 状态 / 证据 | 接着做整改时**先读这一页**，别从报告原文重新推一遍 |
 | [**../ARCHITECTURE_RECTIFICATION.md**](../ARCHITECTURE_RECTIFICATION.md) | 外部评审报告**原文存档**（逐字，不改一字）。⚠️ 里面的数字是成文当时的快照，实测以 BASELINE 为准 | 想知道"报告当初到底怎么说的" |
 | [**09_DEV_ONLY_INDEX.md**](09_DEV_ONLY_INDEX.md) | **开发期专用信息索引**：AI key / 本地测试账号 / 凭据文件 / 测试数据 —— 各自在哪、**上线前按表删或换**。⚠️ 只写"有什么、在哪"，**不写密钥值**（仓库是公开的） | 交付/上线前，或"某把 key 放哪了"时查它 |
+| [**../DEVELOPMENT_SPEC.md**](../DEVELOPMENT_SPEC.md) | **开发规范 v1.0（⛔ 开工前必读）**：四种 ID（FEAT / CHG / BUG / GOV）、开工六问、Must Change / Must Not Change、边界五问、Blast Radius L0–L3、四件事测试、证据格式、DoD、关闭六格。每条规则都标注了**本仓库落点**与**有没有机器判据** | **动手之前**；判据 `python _tools/qa/_check_dev_spec.py` |
+| [**../changes/README.md**](../changes/README.md) | **开发事项登记簿**：一个事项 = 一个文件 = 一个 ID（目录即台账，没有第二份手写清单） | 立项 / 找自己的事项号时 |
+| [../changes/_TEMPLATE.md](../changes/_TEMPLATE.md) | 事项定义模板（F0）：六问 / 边界 / 行为契约 / 数据契约 / CHG 专章 / 测试 / 证据 / 关闭六格 | 开新事项时**复制它** |
 
 ---
 
@@ -158,3 +161,106 @@ cd frontend; npm install; npm run build   # vue-tsc + vite（H5 本轮才第一�
 | [../../_tools/ai/notes/README.md](../../_tools/ai/notes/README.md) | **外部参考笔记的入口**（更早的能力规划 + 对 Operit 仓库的 4 份代码考古）。⚠️ 引用的是**另一个仓库**的路径，本仓校验不到，所以放在 `_tools/ai/notes/` 而不是 `docs/` | 只在追溯"某个机制当初为什么这么设计"时读 |
 
 **代码入口**：Android 端位于 `android/app/src/main/java/com/tapmoay/sorders/` 下的 ai/（agent 循环 `AiAgentLoop.kt`、5 个只读工具 `AiTools.kt`、答复渲染解析 `AiMarkdown.kt`、厂商预设 `AiProviders.kt`）与 ui/ai/（`AiChatScreen.kt`、`AiRichText.kt`、`AiSettingsScreen.kt`）；底部导航中央圆钮在 `android/app/src/main/java/com/tapmoay/sorders/ui/home/RoleHomeScreen.kt`；工具与路由的行级指引见 [08_CODE_LOCATOR.md](08_CODE_LOCATOR.md) 的「AI 助手」行。
+
+---
+
+## 📚 全量文档目录（2026-09-27 补）
+
+> **为什么有这一节**：`python backend/scripts/check_reachability.py` 实测报出
+> **39 份孤儿文档** —— 从 `AGENTS.md` 出发**图遍历走不到**它们。
+> 后果不是"没人读"，而是**"对新会话等于不存在"**：写的人做完就走了，
+> 下一个会话从入口冷启动，磁盘上的东西对它是一片空白。
+> ⛔ 按 §"可达性"的纪律：**找不到**和**知道它不该读**是两回事 ——
+> 历史归档**也要链过来**，只是要注明状态。
+
+### A · 开发流程与治理（**当前有效**）
+
+| 文档 | 内容 | 什么时候看 |
+| --- | --- | --- |
+| [**../DEVELOPMENT_SPEC.md**](../DEVELOPMENT_SPEC.md) | **开发规范 v1.0**：一个事项从立项到关闭的全流程 | **动手之前** |
+| [../changes/README.md](../changes/README.md) | 事项登记簿（四种 ID） | 立项时 |
+| [../changes/_TEMPLATE.md](../changes/_TEMPLATE.md) | F0 模板 | 开新事项时 |
+| [../changes/GOV-0001.md](../changes/GOV-0001.md) | 第一个事项：把规范写进仓库并接线 | 想知道"这套规矩怎么来的" |
+
+### B · 架构边界（**当前事实**，判据机器可核）
+
+| 文档 | 内容 | 什么时候看 |
+| --- | --- | --- |
+| [../R4_CORE_EXTENSION_MAP.md](../R4_CORE_EXTENSION_MAP.md) | **核心 / 扩展边界图**：47 张表归属、扩展点、事件、五问判定表、15 个施工禁区各自落在哪条判据 | 判 Core 还是 Extension 时 |
+| [../R4_CONTRACTS.md](../R4_CONTRACTS.md) | **四类扩展契约**：UnitConversionContract v1 / PricingContract v1→v2（输入 / 输出 / 错误 / 不变量 / 兼容 / 生命周期） | 写扩展实现时 |
+| [../R4_EXTENSIONS.md](../R4_EXTENSIONS.md) | **扩展区**：manifest 字段、注册表、`EXT_*` 配置、模块依赖图、⛔ 扩展不许做的事 | 加一个扩展时 |
+| [../DOMAIN_BOUNDARIES.md](../DOMAIN_BOUNDARIES.md) | **领域边界地图**（R2-01 产物） | 问"这块归谁"时 |
+| [../BUSINESS_TRANSACTION_MAP.md](../BUSINESS_TRANSACTION_MAP.md) | **跨域事务地图**（R2-03 产物）：Order / Money / Inventory / Settlement 之间谁跟谁必须一起动 | 一个功能要同时碰多个域时 |
+| [../MONEY_DEPENDENCY_GRAPH.md](../MONEY_DEPENDENCY_GRAPH.md) | **钱的依赖图**：钱契约的统一依赖方向 | 改钱相关代码时 |
+
+### C · 依赖、就绪与验收口径
+
+| 文档 | 内容 | 什么时候看 |
+| --- | --- | --- |
+| [../DEPENDENCY_DECISION.md](../DEPENDENCY_DECISION.md) | **依赖可复现性：证据与待拍板**（开区间 vs pin、三处版本是否一致）⚠️ 其中"待拍板"项以该文件当前状态为准 | 动依赖 / 版本时 |
+| [../MULTI_INSTANCE_READINESS.md](../MULTI_INSTANCE_READINESS.md) | **多实例 / HA 就绪度**：什么时候才考虑多实例，前置条件是什么 | 讨论扩容 / 多实例时 |
+| [../PRODUCTION_ACCEPTANCE.md](../PRODUCTION_ACCEPTANCE.md) | **生产只读验收清单**（R3-05-C）：/health、登录、查订单、查账、司机账单、通知、trace、Capability | 上线前逐条核 |
+| [../CAPABILITY_AUDIT_COVERAGE.md](../CAPABILITY_AUDIT_COVERAGE.md) | **能力 ↔ 审计覆盖**（⚠️ **机器生成，勿手改**：`python _tools/ai/_gen_capability_snapshot.py`） | 核"某个能力有没有审计"时 |
+
+### D · 计价链路（**当前生产在跑的就是这条**）
+
+| 文档 | 内容 | 什么时候看 |
+| --- | --- | --- |
+| [../R4_PRICING_PROVENANCE.md](../R4_PRICING_PROVENANCE.md) | **计价事实审计**：一个订单最终用的"计价规则版本"留在哪 | 改计价 / 排查某个金额"凭什么"时 |
+| [../R4_GOLDEN_SET.md](../R4_GOLDEN_SET.md) | **计价回归语料集**：从真实订单抽的脱敏样本 | 改计价算法前 |
+| [../R4_SHADOW.md](../R4_SHADOW.md) | **Shadow 对照**：真实订单、只读、⛔ 不写 Ledger | 想证明"新算法没有漂移"时 |
+| [../R4_CANARY_WINDOW.md](../R4_CANARY_WINDOW.md) | **Canary 观察窗口（预注册）**：九条判据 + 四个常量。⚠️ 窗口 = Natural Observation，**上线后才激活**；本文件是**改之前**写的 | 动 Canary / 观察口径时 |
+
+### E · 整改台账与报告（**历史** —— "为什么这么做"在这里，但别当现状读）
+
+> ⚠️ 这些文档写于各轮整改**当中**。它们的**结论**仍然有效，但**状态描述**要打折扣：
+> 现在的接口/表/数字以 `08` / `08A` / `03` / `BASELINE.md` 与代码为准。
+
+| 文档 | 内容 |
+| --- | --- |
+| [../R4_PROGRESS.md](../R4_PROGRESS.md) | R4 第四轮台账（条目最全，"已完成"三个字的唯一出处） |
+| [../R4_CONTROLLED_VALIDATION.md](../R4_CONTROLLED_VALIDATION.md) | R4-49 受控生产验证的方案与覆盖账 |
+| [../R4_FINAL_REVIEW.md](../R4_FINAL_REVIEW.md) | R4 收尾七问与裁决（含 Natural Observation 推迟到上线后的记录） |
+| [../R4_EVIDENCE_INDEX.md](../R4_EVIDENCE_INDEX.md) | **一页证据索引**：结论 → 真实文件 → 能重跑的入口（照着这个格式写新证据） |
+| [../R4_BASELINE.md](../R4_BASELINE.md) | R4 期间采的真实世界基线快照（当前基线见 [../BASELINE.md](../BASELINE.md)） |
+| [../R3_PROGRESS.md](../R3_PROGRESS.md) | R3 第三轮台账与退出条件 |
+| [../R3_CONSTRAINTS.md](../R3_CONSTRAINTS.md) | R3 要点与**禁做清单**（机器可核对） |
+| [../R3_DECISIONS.md](../R3_DECISIONS.md) | R3 架构决策记录（先决策、再开发） |
+| [../RECTIFICATION_REPORT_R3.md](../RECTIFICATION_REPORT_R3.md) | R3 完整报告（唯一权威是台账） |
+| [../RECTIFICATION_REPORT_R2.md](../RECTIFICATION_REPORT_R2.md) | R2 完整报告 |
+| [../RECTIFICATION_REPORT.md](../RECTIFICATION_REPORT.md) | 2026-09-25 那一轮的变更报告（**快照，不是活文档**） |
+| [../RELEASE_CANDIDATE.md](../RELEASE_CANDIDATE.md) | R3 发布候选记录（Git SHA / migration / 版本号） |
+| [../ARCHITECTURE_RECTIFICATION_R2.md](../ARCHITECTURE_RECTIFICATION_R2.md) | R2 **方向指南原文存档**（逐字） |
+| [../ARCHITECTURE_RECTIFICATION_R3.md](../ARCHITECTURE_RECTIFICATION_R3.md) | R3 方向指南原文存档（逐字） |
+| [../ARCHITECTURE_RECTIFICATION_R4.md](../ARCHITECTURE_RECTIFICATION_R4.md) | R4 方向指南原文存档（逐字） |
+
+### F · 原始证据（**只放事实，不放结论**）
+
+> ⛔ 读这一组的心法：**结论在上面 E 组的台账里**；这里放的是**跑出来的原始输出**。
+> 别把这里的片段当结论引用 —— 结论要回到它对应的台账条目。
+
+| 文档 | 内容 |
+| --- | --- |
+| [../R3_PROD_READONLY_EVIDENCE.md](../R3_PROD_READONLY_EVIDENCE.md) | 生产**只读**核对证据（版本 / 依赖 / migration / DB / Redis / nginx / uploads / trace） |
+| [../R3_A_RELEASE_EVIDENCE.md](../R3_A_RELEASE_EVIDENCE.md) | R3 A 段（生产发布）逐步原始输出 |
+| [../R3_B_MULTIINSTANCE_EVIDENCE.md](../R3_B_MULTIINSTANCE_EVIDENCE.md) | R3 B 段（多实例运行时）逐步原始输出 |
+| [../R3_RUNTIME_EVIDENCE.md](../R3_RUNTIME_EVIDENCE.md) | 双实例实验的当场结果，以及**这个环境证不了什么** |
+| [../R3_RESTORE_VERIFICATION.md](../R3_RESTORE_VERIFICATION.md) | 备份隔离恢复验证（恢复出来的库真的能用吗） |
+| [../R3_FAILURE_DRILL.md](../R3_FAILURE_DRILL.md) | 生产故障演练**方案**（五个演练） |
+| [../R3_FAILURE_DRILL_EVIDENCE.md](../R3_FAILURE_DRILL_EVIDENCE.md) | 生产故障演练**证据**（真跑过的原始记录，含抓到 P1 的那次） |
+
+### G · 界面与提示
+
+| 文档 | 内容 |
+| --- | --- |
+| [../HINT_STYLE.md](../HINT_STYLE.md) | 界面「提示与说明」书写规范（三端通用） |
+| [09A_HINT_CATALOG.md](09A_HINT_CATALOG.md) | 界面提示与说明**目录**（⚠️ **机器生成，勿手改**：`python _tools/qa/_hint_inventory.py --md`） |
+
+### H · 方案与设计稿（**未拍板 / 待执行**）
+
+| 文档 | 内容 |
+| --- | --- |
+| [../plan-product-management.md](../plan-product-management.md) | 商品管理改版方案（3 期，第 1 期零后端零数据库）。⚠️ **状态以该文件顶部为准** |
+
+> **验收**：`python backend/scripts/check_reachability.py` 必须报 **孤儿 0 份**。
+> 新写一份文档却忘了接到这里 → 它会红。这就是"找不到"和"知道它不该读"的区别被机器守住的地方。

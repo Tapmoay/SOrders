@@ -88,10 +88,17 @@ def _resolve(ref: str, base_dir: str, repo: str) -> str | None:
     先按引用文件所在目录解析；失败再按仓库根解析——因为文档里两种基准都有人用，
     而"基准不统一"本身就是最常见的断链原因之一。两种都失败才算断链，
     这样既不会因为基准不同报假断链，也不会漏掉真断链。
+
+    ⚠️ **目录也算有效目标**（2026-09-27 实测补）：文档里确实会写
+    「代码在这 → [app/extensions/](../backend/app/extensions/)」这种指向**目录**的链接。
+    只认 `os.path.isfile` 会让它们报**假断链** —— 接进必跑清单后实测 4 条断链里占了 2 条
+    （R4_EXTENSIONS.md → backend/app/extensions/、R4_CONTRACTS.md → backend/app/core/contracts/，
+    两个目录都真实存在）。另 2 条是真断链（路径少了一层），已改正原文。
+    ⛔ 只放宽"存在即可"：**不存在的目录照样算断链**，判据没有变松。
     """
     for base in (base_dir, repo):
         cand = os.path.normpath(os.path.join(base, ref.replace("/", os.sep)))
-        if os.path.isfile(cand):
+        if os.path.isfile(cand) or os.path.isdir(cand):
             return cand
     return None
 
