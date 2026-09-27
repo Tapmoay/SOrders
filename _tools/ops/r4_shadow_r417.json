@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-09-27T04:19:54+00:00",
+  "kind": "freight_template",
+  "limit": 3000,
+  "counts_before": {
+    "orders": 2403,
+    "ledgers": 4648,
+    "cash_flows": 72,
+    "outbox_events": 27,
+    "driver_bills": 1515
+  },
+  "counts_after": {
+    "orders": 2403,
+    "ledgers": 4648,
+    "cash_flows": 72,
+    "outbox_events": 27,
+    "driver_bills": 1515
+  },
+  "wrote_anything": false,
+  "tally": {
+    "total": 2116,
+    "matched": 2116,
+    "mismatched": 0,
+    "error": 0,
+    "unsupported": 0,
+    "skipped_no_driver": 0
+  },
+  "diffs": [],
+  "note": "本对照是只读的：快照由核心导出，扩展只做纯计算"
+}

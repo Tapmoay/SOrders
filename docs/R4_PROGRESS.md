@@ -236,6 +236,38 @@ Golden Set 的价值不只是「回归」，还是「**证伪**」。
 
 ---
 
+### ⑤ Shadow 定价对照 —— ✅ 已完成（2026-09-27）
+
+用户 §7 点名的那一份。**真实订单全量 2116 笔，0 漂移，0 写库。** 全文 `docs/R4_SHADOW.md`。
+
+| 项 | 交付 | 出口（可复现） |
+| --- | --- | --- |
+| **核心侧快照** | `services/freight_pricing.freight_snapshot_of`，与报价 `quote_for` **共用同一个读取**（`driver_template_ids` / `route_ids_of` / `candidate_templates`） | ✅ Golden Set 换成它之后**仍然 15/15 / mismatch 0** |
+| **对照器** | `_tools/qa/_shadow_pricing.py`（`--check` 进必跑组；`--orders` 对真库跑） | `python _tools/qa/_shadow_pricing.py --check` → total 2 / matched 2 / mismatch 0 / **写库：没有** |
+| **真订单那一趟** | 生产机上**只读工作树** + 发布 dump 恢复出来的演练库（⛔ `/opt/SOrders` 全程停在 `ca5e49f`、⛔ 不碰生产库） | 原始事实 `_tools/ops/r4_shadow_r417.json` |
+
+**结果（全量，不是抽样）**：
+
+    total 2116 / matched 2116 / **mismatched 0** / error 0 / unsupported 0
+    写库前 {"orders": 2403, "ledgers": 4648, "cash_flows": 72, "outbox_events": 27, "driver_bills": 1515}
+    写库后 {"orders": 2403, "ledgers": 4648, "cash_flows": 72, "outbox_events": 27, "driver_bills": 1515}
+    wrote_anything: false
+
+`total = 2116` = 那份快照里**所有有司机的订单**（2403 张里 2116 张）。
+
+⭐ **同一天把 R4-16 自己记下的最大残余风险消掉了**：喂给候选的快照原来是我转录的
+（Golden Set 文档 §5.3 把它记成"最大的残余风险"），现在换成**核心自己导出的**那一份。
+⛔ 核心那份**不写 `pricing_kind`**（指南 §13 单向性），由调用方补。
+
+⚠️ 顺带：演练库从 v8 迁到 v9（009 在**生产形状的真实数据**上又跑了一遍，**108 ms**）；
+收工后核对 `prod HEAD = ca5e49f`（没动过）、库只剩 `sorders`、`/tmp` 无残留。
+
+⛔ **这一格证不了什么**（详见文档 §4）：不证明候选"更好"（只证明两边一样）；
+不证明生产真的会切（**没有接线**）；快照的时间点是 2026-09-27T02:01Z 不是"永远"；
+没有覆盖别的 `pricing_kind`；**没有做有限写烟测**（本轮不改任何业务行为）。
+
+---
+
 ### ⭐ 本阶段提交的 CI 结果（R4-09，2026-09-27）
 
 用户 2026-09-27 要求把 CI 那一列的措辞改准（见「验收矩阵」读表须知）。下面是**这一批提交**的实测：
