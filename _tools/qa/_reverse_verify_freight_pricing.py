@@ -33,15 +33,19 @@ MUTATIONS = [
     (
         "候选不按规则过滤了（规则白勾：司机拿别人的价目）",
         PRICING,
-        "        stmt = stmt.where(FreightTemplate.id.in_(picked_template_ids))",
+        # ⚠️ 锚点重指（R4-17）：候选集那两行抽进了 candidate_templates（影子对照要与报价读同一份），
+        #    原地那句 picked_template_ids 已经不存在了 —— 不重指它就会变成一条**恒 SKIP 的注入**。
+        "        stmt = stmt.where(FreightTemplate.id.in_(picked_ids))",
         "        stmt = stmt",
         "候选先按「规则勾的价目」过滤",
     ),
     (
         "没挂规则也照常给价（用户以为配好了）",
         PRICING,
-        '                reason="这个司机还没挂计费规则 —— 运费是从「他的规则勾了哪几条价目」来的，"',
-        '                reason="ok"',
+        # ⚠️ 锚点重指（R4-17）：那句话搬进了 driver_template_ids（报价与影子对照共用），
+        #    缩进也从 16 格变成 12 格。⛔ 只改锚点，判据一字未动。
+        '            "这个司机还没挂计费规则 —— 运费是从「他的规则勾了哪几条价目」来的，"',
+        '            "ok",',
         "没挂规则 → 说清原因",
     ),
     (
@@ -61,8 +65,11 @@ MUTATIONS = [
     (
         "路线不认地点库了（改成永不命中）",
         PRICING,
-        "        db.scalars(select(ShipperAddress.id).where(ShipperAddress.detail_address == addr)).all()",
-        "        db.scalars(select(ShipperAddress.id).where(ShipperAddress.id < 0)).all()",
+        # ⚠️ 锚点重指（R4-17）：路线这一维也抽进了 route_ids_of（⛔ 不然影子对照会自己另写一遍
+        #    "怎么认路线"，比的就成了两个算法）—— 原来那句在文件里**出现两次**，
+        #    注入会因为"无法唯一替换"而恒 SKIP。
+        "            select(ShipperAddress.id).where(ShipperAddress.detail_address == addr)",
+        "            select(ShipperAddress.id).where(ShipperAddress.id < 0)",
         "路线判据来自**地点库的线路**",
     ),
     (

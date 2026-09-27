@@ -123,6 +123,114 @@ def _to_candidate(
     )
 
 
+def driver_template_ids(db: Session, driver_id: int) -> tuple[set[int], str]:
+    """这个司机的计费规则**勾了哪些价目** → (编号集合, 算不了的原因)。
+
+    原因非空就表示"这一步就走不下去"（没挂规则 / 规则没了 / 没勾价目）；
+    ⛔ 三句话与改造前**一字不差** —— 它们是给用户看的中文，不是日志。
+
+    ⭐ 为什么把它单独拎出来：**「候选集从哪来」只能有一处实现**。
+    派单时的报价（`quote_for`）与**影子对照**（`freight_snapshot_of`）读的必须是同一份东西，
+    否则"候选集"就有两份说法，而两份说法迟早走散 —— 那一刻影子对照就变成了自说自话。
+    """
+    from app.models import DriverBillingRule, DriverBillingRuleTemplate, User
+
+    driver = db.get(User, int(driver_id))
+    rule_id = getattr(driver, "driver_rule_id", None) if driver is not None else None
+    if rule_id is None:
+        return set(), (
+            "这个司机还没挂计费规则 —— 运费是从「他的规则勾了哪几条价目」来的，"
+            "先去工作台「计费规则」给他挂一份、并在里面勾上价目"
+        )
+    rule = db.get(DriverBillingRule, int(rule_id))
+    if rule is None or rule.is_deleted:
+        return set(), "这个司机挂的计费规则不在了（或被删了）—— 去「计费规则」里重挂一份"
+    picked = {
+        int(x)
+        for x in db.scalars(
+            select(DriverBillingRuleTemplate.template_id).where(
+                DriverBillingRuleTemplate.rule_id == int(rule_id)
+            )
+        ).all()
+    }
+    if not picked:
+        return set(), (
+            f"「{rule.name}」这份规则还没勾价目 —— 打开它，在「用哪些运费价目」里勾上"
+            "（可以整类全选），这一单才会有运费"
+        )
+    return picked, ""
+
+
+def route_ids_of(db: Session, address_detail: str) -> set[int]:
+    """这个送货地址**属于哪几条线路**（地点库里的线路终点 = 这一单的送货地址）。
+
+    ⭐ 与 `driver_template_ids` 同一条理由：**路线这一维也只能有一处实现**。
+    影子对照如果自己另写一遍「怎么认路线」，它比的就成了两个算法，而不是「同一个算法两条路」。
+    """
+    addr = (address_detail or "").strip()
+    if not addr:
+        return set()
+    return {
+        int(x)
+        for x in db.scalars(
+            select(ShipperAddress.id).where(ShipperAddress.detail_address == addr)
+        ).all()
+    }
+
+
+def candidate_templates(db: Session, picked_ids: set[int] | None) -> list[FreightTemplate]:
+    """候选价目行（没删的）。`picked_ids=None` = 不按规则过滤（影子对照要看**全量**那一档）。"""
+    stmt = select(FreightTemplate).where(FreightTemplate.is_deleted.is_(False))
+    if picked_ids is not None:
+        stmt = stmt.where(FreightTemplate.id.in_(picked_ids))
+    return list(db.scalars(stmt).all())
+
+
+def freight_snapshot_of(db: Session, order: Order, *, driver_id: int | None) -> dict:
+    """**核心自己导出**的那份「承运运费快照」：候选价目 + 这个地址的线路编号 + 分类。
+
+    ## 它是干什么用的（R4-17 Shadow）
+
+    影子对照要把同一单喂给**两条路**：
+
+        Legacy      -> services/freight_pricing.quote_for(db, order, driver_id)    （生产今天跑的）
+        Extension   -> PricingContext(rule_snapshot=freight_snapshot_of(...) + pricing_kind)
+                       -> extensions/pricing/freight_template.py
+
+    两边必须是**同一份事实**。⛔ 所以这份快照由**核心**导出，⛔ 不许由对照脚本自己"照着读一遍"
+    —— R4-16 的 Golden Set 就是那么干的（它叫 `snapshot_from_db`），而它自己在文档 §5.3 里
+    把这件事记成了**最大的残余风险**：转录错了，语料照样全绿。
+
+    ## ⛔ 两件它不做的事
+
+    1. **不写 `pricing_kind`**：选哪个实现是**调用方**的事（指南 §13 单向性）——
+       核心一旦写出某个实现的名字，它就开始认识具体实现了；
+    2. **不写库**：只读，返回普通 dict（可以直接进 JSON、进快照、进断言）。
+    """
+    ids: set[int] | None = None
+    if driver_id is not None:
+        ids, _why = driver_template_ids(db, int(driver_id))
+    rows = candidate_templates(db, ids)
+    cats = _category_map(db, rows)
+    return {
+        "category_id": getattr(order, "freight_category_id", None),
+        # ⚠️ 与报价**共用同一个读取**（`route_ids_of`）—— 见那个函数的说明。
+        "route_ids": sorted(route_ids_of(db, order.address_detail)),
+        "templates": [
+            {
+                "id": int(t.id),
+                "name": t.name or "",
+                "price_name": t.price_name or "",
+                "fee": str(t.fee),
+                "to_place": (t.to_place or ""),
+                "route_id": t.route_id,
+                "category_ids": cats.get(int(t.id), []),
+            }
+            for t in rows
+        ],
+    }
+
+
 def quote_for(
     db: Session,
     order: Order,
@@ -141,42 +249,18 @@ def quote_for(
     cat_id = category_id if category_id is not None else getattr(order, "freight_category_id", None)
 
     # ---- ⓪ 先按**这个司机的计费规则**取候选（价目归规则，不归司机/车型）----
+    # ⚠️ 这一段与 `freight_snapshot_of` **共用同一个读取**（`driver_template_ids`）：
+    #    「候选集从哪来」只能有一处实现 —— 两处迟早走散，而影子对照正是靠"两边读的是同一份东西"
+    #    才有意义（R4-17）。⛔ 三句中文原因一字未改，它们还是要原样显示给用户。
     picked_template_ids: set[int] | None = None
     if driver_id is not None:
-        from app.models import DriverBillingRule, DriverBillingRuleTemplate, User
-
-        driver = db.get(User, int(driver_id))
-        rule_id = getattr(driver, "driver_rule_id", None) if driver is not None else None
-        if rule_id is None:
-            return Quote(
-                reason="这个司机还没挂计费规则 —— 运费是从「他的规则勾了哪几条价目」来的，"
-                       "先去工作台「计费规则」给他挂一份、并在里面勾上价目"
-            )
-        rule = db.get(DriverBillingRule, int(rule_id))
-        if rule is None or rule.is_deleted:
-            return Quote(reason="这个司机挂的计费规则不在了（或被删了）—— 去「计费规则」里重挂一份")
-        picked_template_ids = {
-            int(x)
-            for x in db.scalars(
-                select(DriverBillingRuleTemplate.template_id).where(
-                    DriverBillingRuleTemplate.rule_id == int(rule_id)
-                )
-            ).all()
-        }
-        if not picked_template_ids:
-            return Quote(
-                reason=f"「{rule.name}」这份规则还没勾价目 —— 打开它，在「用哪些运费价目」里勾上"
-                       "（可以整类全选），这一单才会有运费"
-            )
+        picked_template_ids, why = driver_template_ids(db, int(driver_id))
+        if why:
+            return Quote(reason=why)
 
     # ---- ① 路线：价目的终点快照 = 这一单的送货地址；或它挂的那条线路的终点 = 送货地址 ----
-    route_ids = set(
-        db.scalars(select(ShipperAddress.id).where(ShipperAddress.detail_address == addr)).all()
-    )
-    stmt = select(FreightTemplate).where(FreightTemplate.is_deleted.is_(False))
-    if picked_template_ids is not None:
-        stmt = stmt.where(FreightTemplate.id.in_(picked_template_ids))
-    templates = list(db.scalars(stmt).all())
+    route_ids = route_ids_of(db, order.address_detail)
+    templates = candidate_templates(db, picked_template_ids)
     by_route: list[FreightTemplate] = []
     for t in templates:
         if (t.to_place or "").strip() == addr:

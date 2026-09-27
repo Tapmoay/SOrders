@@ -132,9 +132,16 @@ def main() -> int:
     c.present("路线判据来自**地点库的线路**（终点等于这一单的送货地址）",
               files["pricing"], r"ShipperAddress\.detail_address == addr")
     c.present("候选先按「规则勾的价目」过滤",
-              files["pricing"], r"FreightTemplate\.id\.in_\(picked_template_ids\)")
+              files["pricing"], r"FreightTemplate\.id\.in_\(picked_ids\)")
     c.present("规则勾的价目来自 DriverBillingRuleTemplate",
               files["pricing"], r"DriverBillingRuleTemplate\.template_id")
+    # ⚠ 判据跟着**代码形状**走（R4-17，2026-09-27）：候选集那两行抽成了 candidate_templates，
+    #    为的是让**影子对照**（freight_snapshot_of）与报价读**同一份**东西 ——
+    #    「候选集从哪来」有两处实现的话，影子对照就变成自说自话。
+    #    ⚠ 拆成两条**是加强不是放宽**：少哪一条都红 ——
+    #    ① 过滤这一步真的在；② 报价真的走那条路（否则把 candidate_templates 架空即可绕过）。
+    c.present("报价（quote_for）真的走那条读取（⛔ 不许自己另抄一份候选集）",
+              files["pricing"], r"candidate_templates\(db, picked_template_ids")
     c.present("没挂规则 → 说清原因（进待定价，不静默给 0）",
               files["pricing"], r"这个司机还没挂计费规则")
     c.present("规则没勾价目 → 也说清", files["pricing"], r"还没勾价目")

@@ -8,7 +8,10 @@
 >  不同计价类型 / 折扣 / 附加费 / 四舍五入边界 / 异常输入，然后 Legacy vs Extension
 >  **自动逐笔比较**。这样比手工造十几个 case 强得多。」
 
-R4-GOLDEN-JUSTIFICATION: **为什么代码边界解决不了这件事。**
+R4-BOUNDARY-JUSTIFICATION: **为什么代码边界解决不了这件事。**
+（⛔ 标记必须是这一个：`_check_r3_constraints.py::probe_checker_budget` 认的就是
+`R3-BOUNDARY-JUSTIFICATION:` / `R4-BOUNDARY-JUSTIFICATION:` —— 第一版我写成了
+`R4-GOLDEN-JUSTIFICATION:`，于是 R3-D17 当场报"新增的检查器没写为什么边界解决不了"。）
 「扩展算得跟生产一样」不是任何单个文件的属性 —— Legacy 在核心（`services/freight_pricing.py`）、
 候选在扩展（`extensions/pricing/freight_template.py`），两边各自看都合法、各自都有测试。
 **只有把它们放在同一份输入上逐笔比，才知道它们是不是同一个数。**
@@ -164,56 +167,22 @@ def legacy_outcome(db, Order, driver_id: int, case: dict) -> dict:
 
 
 def snapshot_from_db(db, Order, driver_id: int, case: dict) -> dict:
-    """**核心会怎么把这一单读成一份快照** —— 候选集 + 这个地址的线路编号。
+    """一份快照 → 喂给候选实现。
 
-    ⚠️ 这一小段是**照着 `quote_for` 自己的那几处读法**写的（谁由核心读、谁由扩展算，
-    见扩展文件头那张表）。它同时也是这份语料**最大的残余风险**：
-    它是我转录的，不是核心自己导出的 ⇒ 所以 ⑤ Shadow 那一步要用**核心侧**的构造器再证一次。
+    ⭐ 2026-09-27（同一天，R4-17 之前）：这里原来是**我照着 `quote_for` 的读法转录的一份**，
+    而且我在文档 §5.3 里把它记成了这份语料**最大的残余风险**（转录错了，语料照样全绿）。
+    现在它换成 **核心自己导出的那一份**：`services/freight_pricing.freight_snapshot_of`
+    —— 与报价 `quote_for` **共用同一个读取**（`driver_template_ids` / `route_ids_of` /
+    `candidate_templates`）。⇒ 那条残余风险**从构造上消失了**，不再是"我保证我抄对了"。
+
+    ⛔ 核心那份**不写 `pricing_kind`**（指南 §13 单向性：核心不许认识具体实现），
+    所以这一行由**调用方**补 —— 那是"这一次要用哪个实现"的实验选择，不是核心的事。
     """
-    from sqlalchemy import select
+    from app.services.freight_pricing import freight_snapshot_of
 
-    from app.models import (
-        FreightTemplate,
-        FreightTemplateCategory,
-        DriverBillingRule,
-        DriverBillingRuleTemplate,
-        ShipperAddress,
-        User,
-    )
-
-    order = db.get(Order, 1)
-    addr = (order.address_detail or "").strip()
-    route_ids = [int(x) for x in db.scalars(
-        select(ShipperAddress.id).where(ShipperAddress.detail_address == addr)).all()]
-    picked: set[int] = set()
-    driver = db.get(User, int(driver_id))
-    rule_id = getattr(driver, "driver_rule_id", None) if driver is not None else None
-    if rule_id is not None:
-        rule = db.get(DriverBillingRule, int(rule_id))
-        if rule is not None and not rule.is_deleted:
-            picked = {int(x) for x in db.scalars(
-                select(DriverBillingRuleTemplate.template_id)
-                .where(DriverBillingRuleTemplate.rule_id == int(rule_id))).all()}
-    rows = [t for t in db.scalars(select(FreightTemplate).where(
-        FreightTemplate.is_deleted.is_(False))).all() if int(t.id) in picked]
-    cats: dict[int, list[int]] = {}
-    if rows:
-        for tid, cid in db.execute(select(FreightTemplateCategory.template_id,
-                                          FreightTemplateCategory.category_id)
-                                   .where(FreightTemplateCategory.template_id.in_(
-                                       [int(t.id) for t in rows]))).all():
-            cats.setdefault(int(tid), []).append(int(cid))
-    return {
-        "pricing_kind": "freight_template",
-        "category_id": order.freight_category_id,
-        "route_ids": route_ids,
-        "templates": [
-            {"id": int(t.id), "name": t.name or "", "price_name": t.price_name or "",
-             "fee": str(t.fee), "to_place": (t.to_place or ""), "route_id": t.route_id,
-             "category_ids": cats.get(int(t.id), [])}
-            for t in rows
-        ],
-    }
+    snapshot = freight_snapshot_of(db, db.get(Order, 1), driver_id=int(driver_id))
+    snapshot["pricing_kind"] = "freight_template"
+    return snapshot
 
 
 def extension_outcome(db, Order, driver_id: int, case: dict) -> dict:
