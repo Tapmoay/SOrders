@@ -220,8 +220,13 @@ def contract_detail(decisions: list[dict]) -> tuple[list[str], int, int]:
     """出口条件 ⑥：契约那一支里，算法值 == 人工最终值 / 人工改过价 各多少笔。"""
     hits = [d for d in decisions if d["kind"] == "freight_template"]
     contracts = sorted({d["contract"] for d in hits})
-    agreed_n = sum(d["n"] for d in hits if d["agreed"] == "1")
-    over_n = sum(d["n"] for d in hits if d["override"] == "1")
+    # ⚠️ MySQL 的 json_unquote(json_extract(<JSON 布尔>)) 返回的是字符串 **true/false**，
+    #    ⛔ 不是 1/0 —— R4-43 在生产上一跑就发现这两个计数**恒为 0**：
+    #    自检里我喂的样本是 1/0，而生产给的是 true/false，样本形状与生产不一致。
+    #    ⇒ 两个都认；并且自检里**补上生产真实形状**的那一组（见 selftest）。
+    TRUEISH = ("1", "true", "True")
+    agreed_n = sum(d["n"] for d in hits if d["agreed"] in TRUEISH)
+    over_n = sum(d["n"] for d in hits if d["override"] in TRUEISH)
     return contracts, agreed_n, over_n
 
 
@@ -328,7 +333,15 @@ def selftest() -> int:
     contracts, agreed_n, over_n = contract_detail(ds)
     chk("⑥ 契约身份去重", contracts, ["PricingContract v2"])
     chk("⑥ 算法值 == 人工最终值", agreed_n, 7)
-    chk("⑥ 人工改过价（两个数都留下）", over_n, 3)
+    chk("⑥ 人工改过价（两个数都留）", over_n, 3)
+
+    # ⭐ 生产真实形状：MySQL 给的是 **true/false 字符串**（R4-43 实测）
+    raw3 = [
+        "DECISION|freight_template|ok|true|false|contract|PricingContract|2|1",
+        "DECISION|freight_template|ok|false|true|contract|PricingContract|2|1",
+    ]
+    _, a3, o3 = contract_detail(parse_decisions(raw3))
+    chk("⑥ 认得出 true/false 字符串（⛔ 只认 1/0 的话计数会恒为 0）", (a3, o3), (1, 1))
     chk("⑥ 两者相加 == 契约命中总数", agreed_n + over_n, f["contract"])
 
     fails = dict(window_verdict(ds))
