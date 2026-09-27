@@ -559,3 +559,41 @@ def test_冻结过的单_resolution_必须说得出是冻结而不是没抽中(c
     assert second["resolution"] == "frozen", "冻结的那一单必须是 frozen：" + str(second)
     assert second["kind"] == first["kind"], "来源不许变：" + str((first, second))
     assert second["resolution"] != p_fresh["resolution"], "⛔ 与「没抽中」必须是两个取值"
+
+
+def test_拆单产生的子单是新的一次定价决策_不继承父单的来源(client, db_session, token_dispatcher, monkeypatch):
+    """⭐⭐ **冻结的粒度**用一条可执行的边界钉死（用户 2026-09-27 §十一 要求「必须先定义」）。
+
+    定义（同时写在 core/pricing_runtime.py 里，代码是权威）：
+
+      · 冻结粒度 = **订单上的那一个「承运运费定价事实」**；
+      · 「后续写入」（派单 / 改价 / 补录）是**同一次事实的修订** ⇒ 沿用原来源；
+      · **新的订单 = 新的一次决策** ⇒ 按**当时**的策略走，⛔ 不继承别人的来源。
+
+    拆单子单正好是后半句的试金石：split_order **不**给子单写 freight_fee / 快照，
+    所以子单是从「没有定价事实」开始的 —— 这一条把「什么算新决策」从口头定义变成了判据。
+    """
+    h = auth_headers(token_dispatcher)
+
+    _pin_canary(monkeypatch, 0)
+    oid = _mk_order(client, h)
+    assert client.post(f"/api/v1/orders/{oid}/price-freight",
+                       json={"freight_fee": "120"}, headers=h).status_code in (200, 201)
+    assert _snapshot(db_session, oid)["pricing"]["resolution"] == "not_in_canary", "父单先定一次价"
+
+    r = client.post(f"/api/v1/orders/{oid}/split", json={"parts": [1, 1]}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    kid = int(r.json()[0]["id"])
+
+    # ⛔ 子单不许继承父单的运费与凭据
+    assert _snapshot(db_session, kid) == {}, "子单不该带着父单的来源凭据"
+    assert _fee(db_session, kid) is None, "子单不该继承父单的运费"
+
+    did = _mk_driver(client, h)
+    cat = _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=did)
+    _set_category_only(db_session, kid, cat)
+    _pin_canary(monkeypatch, 100)          # ← 策略变了
+    assert client.post(f"/api/v1/orders/{kid}/assign",
+                       json={"driver_id": did, "freight_fee": "135"}, headers=h).status_code in (200, 201)
+    p = _snapshot(db_session, kid)["pricing"]
+    assert p["resolution"] == "contract", "子单按**当时**的策略走，⛔ 不是继承父单的：" + str(p)

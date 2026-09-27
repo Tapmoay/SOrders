@@ -135,6 +135,31 @@ def s_drop_test_fresh_draws(sb):
     _rename_test(sb, "test_没定过来源的单仍然按比例抽签")
 
 
+FLOW = ROOT / "backend/app/services/order_flow.py"
+CHILD_TAIL = (
+    "            parent_order_id=order.id,\n"
+    "        )"
+)
+
+
+def s_child_inherits(sb):
+    """让**拆单子单继承**父单的运费与来源凭据 —— 冻结的粒度就被破坏了。
+
+    ⭐ 这条注入证明的是「子单 = 新的一次决策」这个定义**真的由代码撑着**，
+    而不只是一句写在注释里的约定。
+    """
+    sb.replace(FLOW, CHILD_TAIL,
+               CHILD_TAIL.replace("        )",
+                                 "            freight_fee=order.freight_fee,  # rv-injection\n"
+                                 + "            freight_rule_snapshot=order.freight_rule_snapshot,\n"
+                                 + "        )"))
+
+
+def s_drop_granularity_doc(sb):
+    """把冻结粒度的定义删掉 —— 代码还在跑，但**没人再说得清边界在哪**。"""
+    sb.replace(RUNTIME, "冻结的粒度", "（这条被删了）")
+
+
 def s_drop_header_rule(sb):
     """把模块头第 4 条铁律删掉 —— 代码里还冻着，但**没人再说得清为什么**。"""
     sb.replace(RUNTIME, "**不许让比例变化改掉**", "**（这条被删了）**")
@@ -196,6 +221,8 @@ SCENARIOS = [
     ("⭐ 某个写入点忘了传 reason（静默退回）", s_call_site_without_reason, "reason 传进去了"),
     ("某个写入点绕过组装点", s_call_site_bypasses_root, "先经过组装点"),
     ("组装点有一条 return 丢掉了 reason", s_return_without_reason, "每一条** return 都带 reason"),
+    ("⭐ 拆单子单继承了父单的运费/凭据（破坏冻结粒度）", s_child_inherits, "不给子单"),
+    ("删掉冻结粒度的定义", s_drop_granularity_doc, "粒度定义"),
 ]
 
 

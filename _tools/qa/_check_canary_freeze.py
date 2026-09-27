@@ -220,6 +220,25 @@ def main() -> int:
     ok("组装点的**每一条** return 都带 resolution（⛔ 漏一条就有一类决策说不清路）",
        bool(returns) and all("resolution=" in b for b in returns))
 
+    if not check:
+        print("== 8. 冻结的**粒度**（R4-37，用户 §十一：必须先定义）==")
+
+    ok("粒度定义写在组装点里（代码是权威，⛔ 不是只写在文档里）",
+       "冻结的粒度" in rt and "新的订单 = 新的一次决策" in rt)
+    ok("定义里点名了那条可执行的边界（拆单子单不继承）",
+       "拆单产生的子单是新的一次定价决策_不继承父单的来源" in rt)
+    ok("定义里如实写了代价（只留最后一次快照，完整时间线要另立表）",
+       "只留**最后一次**事实的快照" in rt)
+
+    flow = (BACKEND / "app" / "services" / "order_flow.py").read_text(encoding="utf-8")
+    split_body = flow[flow.find("def split_order("):]
+    split_body = split_body[:split_body.find("\ndef ", 1)] if "\ndef " in split_body else split_body
+    ok("★ split_order **不给子单**写 freight_fee / 快照（⇒ 子单必然是新的一次决策）",
+       "freight_fee" not in split_body and "freight_rule_snapshot" not in split_body)
+
+    ok("那条边界单测真的在",
+       "def test_拆单产生的子单是新的一次定价决策_不继承父单的来源(" in tests)
+
     if check:
         print(("✅" if not fails else "❌")
               + " Canary 决策冻结 + 无静默退回：冻结在比例之前、组装点唯一、读冻结唯一、"
