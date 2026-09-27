@@ -27,6 +27,7 @@ BILL_MODEL = ROOT / "backend/app/models/driver_bill.py"
 LEDGER_MODEL = ROOT / "backend/app/models/ledger.py"
 DRIVER_PAY = ROOT / "backend/app/services/driver_pay.py"
 ORDER_MONEY = ROOT / "backend/app/services/order_money.py"
+PRICING_RUNTIME = ROOT / "backend/app/core/pricing_runtime.py"
 ASSIGN_API = ROOT / "backend/app/api/v1/orders_assignment.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
 MIGRATION_009 = ROOT / "backend/app/migrations/009_freight_rule_snapshot.py"
@@ -56,6 +57,11 @@ class Sandbox:
 
     def add_column(self, p: Path, anchor: str, line: str) -> None:
         self.replace(p, anchor, anchor + line)
+
+    def append(self, p: Path, text: str) -> None:
+        """在文件末尾追加一段（⛔ 拼的是**当前内容**，不是保存的基线 —— 见 core_freeze 那份的同一条注释）。"""
+        self._keep(p)
+        p.write_bytes(p.read_bytes() + text.encode("utf-8"))
 
     def restore(self) -> None:
         for p, raw in self.saved.items():
@@ -133,6 +139,24 @@ def s_backfill_migration(sb: Sandbox) -> None:
     sb.replace(MIGRATION_009, _ALTER_LINE + chr(10), _ALTER_LINE + chr(10) + _BACKFILL_LINE + chr(10))
 
 
+def s_switch_in_business_code(sb: Sandbox) -> None:
+    """业务代码里**长出一个计价开关** —— 指南 §8 点名的"R4 又开始腐烂"那种形状。
+
+    ⛔ 注入的是一个**函数体**（名字在调用时才解析）⇒ 不 import 期执行、不炸别的用例；
+    判据看的是"这行代码里有没有 policy_for("，与它跑没跑无关。
+    """
+    sb.append(ASSIGN_API,
+              chr(10) + "def _canary_probe(order):  # rv-injection" + chr(10)
+              + "    return policy_for(order.id)" + chr(10))
+
+
+def s_resolve_v2_in_business_code(sb: Sandbox) -> None:
+    """业务代码里**自己调契约**（绕过组装点）—— 组装箱就不唯一了。"""
+    sb.append(ORDER_MONEY,
+              chr(10) + "def _contract_probe(order):  # rv-injection" + chr(10)
+              + "    return resolve_v2(None)" + chr(10))
+
+
 def s_order_pricing_kind(sb: Sandbox) -> None:
     """给订单加一列记录计价契约版本 —— 第 4 组那句"三处都没有"不再成立。"""
     sb.add_column(ORDER_MODEL, ANCHOR_RULE_SNAP,
@@ -167,6 +191,10 @@ SCENARIOS = [
     # ---- R4-11：承运运费的写原子性 / 完整性（用户 §五 P1-02b/c/d/e）----
     ("某个写入点绕过唯一写入口，直接给 order.freight_fee 赋值",
      s_bypass_writer, ("red", "越界")),
+    # ---- R4-20：指南 §8 的"唯一组装点"（业务代码里不许有开关、不许自己调契约）----
+    ("业务代码里长出一个计价开关（policy_for）", s_switch_in_business_code, ("red", "计价开关")),
+    ("业务代码里自己调契约（resolve_v2 绕过组装点）",
+     s_resolve_v2_in_business_code, ("red", "resolve_v2(")),
     ("写入口忘了写来源凭据（金额写了、快照没写）",
      s_drop_snapshot_write, ("red", "快照能恢复")),
     ("写入口忘了写金额（凭据写了、金额没动）",

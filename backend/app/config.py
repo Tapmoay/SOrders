@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     ai_default_api_key: str = ""
     ai_default_base_url: str = "https://api.deepseek.com"
     ai_default_model: str = "deepseek-flash"
+    #: 承运运费**走契约**的订单比例（0..100）——R4-20 的 Canary 开关。
+    #: ⛔ 缺省 **0 = 关**：新东西默认不开（与本仓库对 AI 写闸门那条规矩一致）。
+    #: ⛔ 它只决定"这一单走哪条路"，**不决定金额** —— 金额仍然是写完就不再改的核心事实。
+    freight_pricing_canary_percent: int = 0
     #: 哪些手机号算「测试账号」（**前缀匹配**）：用户的命名约定是 `1380000000X`
     #: （1=派单员 / 2=货主 / 3=司机(固定工资) / 4=司机(挂车) / 5=普通货主…）。
     #: 留空 = 这个能力**整体关闭**（谁都不许拿默认 key）。

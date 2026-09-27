@@ -1,0 +1,196 @@
+# -*- coding: utf-8 -*-
+"""承运运费的**唯一组装点**（Composition Root）—— 指南 §8（R4-20）。
+
+## 指南 §8 的原话
+
+> 「Shadow 连续稳定后，再让少量真实业务进入：Order → Pricing Extension → Money Core。
+>  但这里有一个原则：**必须在核心的唯一组装点切换**。
+>  不要在 orders.py / driver_pay.py / accounting_service.py 分别加 if extension_enabled，
+>  否则你刚刚建立的 R4 又开始腐烂。」
+>
+>     Core → Pricing Contract → Selected Implementation
+>              ├─ LegacyPricing
+>              └─ ExtensionPricing
+
+所以：**业务代码里一个 `if 开关` 都不许有**。要换算法只改这一页。
+
+## 两条路（它们**都**经过这里）
+
+| kind | 算什么 | 今天谁在用 |
+| --- | --- | --- |
+| `legacy_client` | 金额由派单界面带过来（界面上的数来自 `GET /freight-templates/quote`），核心只记事实 | 生产今天跑的 |
+| `freight_template` | 核心读事实（`freight_snapshot_of`）→ `PricingContext` → **契约** → 扩展算 → Money | R4-20 起的 Canary |
+
+## ⛔ 三条不许（每一条都对应一个会出事的方向）
+
+1. **不许在业务里加开关**：三条写入点、账单、结算页一个 `if canary` 都不许有 —— 它们只调这里。
+2. **不许让契约算不出来就失败**：算不出来就**退回旧路并如实记下来**，
+   来源凭据是记录、不是前置条件（同 `_derived_quote_rule` 那条理由）。
+3. **不许偷偷改金额**：Canary 里契约算出来的数与派单员给的不一样时，
+   ⛔ **以人为准**，但**两个数都写进来源凭据** —— 换"算钱的源"是 ⑧ Full Cutover 的事，
+   不是这一格的事（用户 §14：风险 A「记录事实失败」与风险 B「金额变化」不许一起发）。
+
+## 指南 §9：同一订单不能在运行过程中换算法
+
+这一页的 `policy_for` 是**纯函数**（按订单编号分桶），所以：
+· 同一次派单里重复问 → 同一个答案；
+· 而且真正防住"换算法"的是**金额只算一次、写完就是核心事实**（`order_money.record_freight_decision`）——
+  策略以后再变，也不会去改写任何已经落库的金额。
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
+
+#: 今天那条路：金额由派单界面带过来。
+KIND_LEGACY = "legacy_client"
+#: 走契约那条路：装进上下文的是**核心读出来的事实**，算钱的是扩展。
+KIND_CONTRACT = "freight_template"
+
+#: 分桶用的模数（⛔ 固定 100，改它等于把"同一单永远同一策略"这条重新洗牌）。
+BUCKETS = 100
+
+
+def canary_percent() -> int:
+    """走契约的订单比例（0..100）。⛔ 缺省 0 = **关**。"""
+    from app.config import get_settings
+
+    try:
+        n = int(getattr(get_settings(), "freight_pricing_canary_percent", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(100, n))
+
+
+def policy_for(order_id: int | None, percent: int | None = None) -> str:
+    """这张单走哪条路 —— ⛔ **纯函数**，只由订单编号与比例决定。
+
+    ⛔ 为什么不用"随机"也不用"这次请求带什么"：那样同一张单会在两次调用之间换算法，
+    而派单、改价、补录会**分别**问一次 —— 三次答案不同时，界面上和库里的数就对不上了。
+    """
+    pct = canary_percent() if percent is None else max(0, min(100, int(percent)))
+    if pct <= 0:
+        return KIND_LEGACY
+    if pct >= 100:
+        return KIND_CONTRACT
+    if order_id is None:
+        return KIND_LEGACY
+    return KIND_CONTRACT if (int(order_id) % BUCKETS) < pct else KIND_LEGACY
+
+
+@dataclass(frozen=True)
+class FreightDecision:
+    """这一次承运运费**是怎么定的** —— 三个问题一次说清。
+
+    · 走哪条路（`kind`）；
+    · 契约算出来是多少（`quoted_fee`，没走契约就是 None）；
+    · 它和派单员给的那个数一样吗（`agreed` / `override`）。
+
+    ⚠️ `override=True` **不是错误**：派单员本来就允许改价（那是既有功能）。
+    它只是"这一次的金额来自人，不是来自价目表"这件事**被记下来了**。
+    """
+
+    kind: str
+    rule: dict | None = None
+    quoted_fee: str | None = None
+    agreed: bool | None = None
+    override: bool = False
+    note: str = ""
+
+
+def _decimals(v) -> Decimal:
+    return Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+# ---------------------------------------------------------------------------
+# **依赖倒置**：核心不认识具体扩展，只认一个"谁来把上下文算成 Money"的槽位。
+#
+# ⛔ 为什么不能直接 `from app.extensions.pricing import resolve_v2`（第一版就是这么写的，
+#    当场被 `_check_core_extension_boundary.py` 判红：「核心反向依赖了具体扩展」）：
+#    那样一来"核心 → 具体扩展"这条边就长出来了，而 R4 的防火墙只有一条边：**核心 → 契约**。
+#    换一个算价扩展（甚至一个都不装）不该让核心改代码。
+#
+# ⭐ 谁来填这个槽位：**装配根**（`app/main.py`）—— 与它挂扩展路由、发现扩展清单是同一件事。
+#    ⛔ 槽位空着时 `contract_quote` 返回 None ⇒ 组装点**如实退回旧路**（不是崩、
+#    也不是假装算过）。
+# ---------------------------------------------------------------------------
+_RESOLVER = None
+
+
+def register_pricing_resolver(fn) -> None:
+    """**只许装配根调**：把"上下文 → PricingContractV2"这一跳接进来。"""
+    global _RESOLVER
+    _RESOLVER = fn
+
+
+def pricing_resolver():
+    """当前的解析器；没人注册时返回 None（⇒ 契约那一路整体降级为旧路）。"""
+    return _RESOLVER
+
+
+def contract_quote(db, order, *, driver_id: int | None) -> tuple[str, dict] | None:
+    """走契约算一遍 → (金额文本, 价目身份)；算不出来返回 None。
+
+    ⛔ 全程只读；⛔ 不许抛（调用方在钱路上，见模块头第 2 条）。
+    """
+    from app.core.contracts.pricing import PricingContext
+    from app.services.order_money import rule_ref_of_candidate
+
+    resolver = _RESOLVER
+    if resolver is None:
+        # 装配根没接（例如脚本/测试里只 import 了这个模块）—— 如实退回旧路，⛔ 不猜。
+        return None
+    try:
+        from app.services.freight_pricing import freight_snapshot_of, quote_for
+
+        snapshot = freight_snapshot_of(db, order, driver_id=driver_id)
+        snapshot["pricing_kind"] = KIND_CONTRACT
+        ctx = PricingContext(
+            order_id=getattr(order, "id", None), order_no=order.order_no or "",
+            category=order.freight_category or "",
+            to_place=(order.address_detail or "").strip(),
+            driver_id=driver_id, rule_snapshot=snapshot,
+        )
+        result = resolver(ctx).price(ctx)
+        # 价目身份仍然从**核心的匹配**拿（契约给的是 Money；"哪一条价目"是核心的事实）
+        quote = quote_for(db, order, driver_id=driver_id)
+        ref = rule_ref_of_candidate(quote.matched, origin="derived") if quote.matched else None
+        return result.money.as_text(), (ref or {})
+    except Exception:  # noqa: BLE001 —— 见模块头第 2 条：算不出来就退回旧路
+        return None
+
+
+def decide(db, order, *, driver_id: int | None, claimed_fee=None) -> FreightDecision:
+    """**唯一组装点**：这一单的承运运费走哪条路、契约算出多少、和人给的一样不一样。
+
+    `claimed_fee` = 派单员（或界面）带过来的金额；`None` = 这次没有金额（例如只补分类）。
+    """
+    from app.services.freight_pricing import quote_for
+    from app.services.order_money import rule_ref_of_candidate
+
+    kind = policy_for(getattr(order, "id", None))
+    # 两条路都要在快照里留下"是哪一条价目" —— 那是**核心的事实**，与走哪条路无关。
+    try:
+        quote = quote_for(db, order, driver_id=driver_id)
+        rule = rule_ref_of_candidate(quote.matched, origin="derived") if quote.matched else None
+    except Exception:  # noqa: BLE001
+        rule = None
+
+    if kind != KIND_CONTRACT or claimed_fee is None:
+        return FreightDecision(kind=KIND_LEGACY, rule=rule)
+
+    got = contract_quote(db, order, driver_id=driver_id)
+    if got is None:
+        return FreightDecision(kind=KIND_LEGACY, rule=rule,
+                               note="这一次契约没算出结论（缺料或多条价目）—— 按旧路记，金额以派单员为准")
+    fee_text, ref = got
+    agreed = _decimals(claimed_fee) == Decimal(fee_text)
+    return FreightDecision(
+        kind=KIND_CONTRACT,
+        rule=(ref or rule),
+        quoted_fee=fee_text,
+        agreed=agreed,
+        override=not agreed,
+        note="" if agreed else ("价目算出来是 " + fee_text + "，派单员定的是 "
+                                + str(_decimals(claimed_fee)) + " —— ⛔ 以人为准，但两个数都留下"),
+    )

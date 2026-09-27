@@ -54,26 +54,18 @@ from app.core.command_id import command_scope
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-def _derived_quote_rule(db: Session, order: Order, driver_id: int | None) -> dict | None:
-    """**服务端复算**那一刻的价目匹配结论 → 快照里的 `rule` 那一格（best-effort）。
+def _freight_decision(db: Session, order: Order, driver_id: int | None, claimed_fee):
+    """把这一单交给**唯一组装点**（`core/pricing_runtime.decide`），拿回一个结论。
 
-    ⛔ 为什么可以复算：`services/freight_pricing.quote_for` 是**唯一**的匹配实现，
-    派单弹窗上那个价也是它算出来的 —— 同一份输入（路线 + 分类 + 司机）必然得到同一条价目。
-    所以这里记下来的不是"猜"，是"同一算法在同一时刻的同一个结论"。
+    ⛔ 这里**没有开关**（指南 §8）：业务代码不认识 `canary`、也不认识"哪条路"——
+    它只把订单与金额交给组装点。要换算法只改组装点那一页。
 
-    ⛔ 为什么必须 best-effort：来源凭据是**记录**，不是**前置条件** ——
-    它出错绝不能让派单失败（那会把一个审计字段变成钱路上的单点故障）。
-    拿不到就返回 None，快照里如实写 `rule: null`（"没有价目来源"），不编一条出来。
+    ⛔ 组装点自己保证 best-effort：算不出来就退回旧路并如实记下来，
+    绝不让"来源凭据"变成钱路上的单点故障（这条原来是本文件里那段注释的职责，现在搬进了组装点）。
     """
-    if driver_id is None:
-        return None
-    try:
-        from app.services.freight_pricing import quote_for
+    from app.core.pricing_runtime import decide
 
-        quote = quote_for(db, order, driver_id=int(driver_id))
-    except Exception:  # noqa: BLE001 —— 见上面第二段的理由
-        return None
-    return rule_ref_of_candidate(quote.matched, origin="derived") if quote.matched else None
+    return decide(db, order, driver_id=driver_id, claimed_fee=claimed_fee)
 
 
 @router.post("/batch-assign", response_model=OrderBatchAssignOut)
@@ -256,13 +248,19 @@ def price_freight(
             saved["rule_not_linked"] = "这一单的司机还没挂计费规则，价目已存好但要有人在他的规则里勾上才会自动带价"
         db.flush()
 
+    d = _freight_decision(db, order, order.driver_id, body.freight_fee)
     record_freight_decision(
         order,
         source=FREIGHT_SOURCE_MANUAL,
         fee=body.freight_fee,
         category_id=body.category_id,
         category_name=cat_name,
-        rule=rule,
+        # 手动定价**沉淀下来的那条价目**是这里最准的事实（`origin="saved"`），优先用它
+        rule=rule or d.rule,
+        kind=d.kind,
+        agreed=d.agreed,
+        override=d.override,
+        note=d.note,
     )
 
     # ⚠️ 送达之后才补上运费 → 那张**还没结算**的司机应付明细必须跟着改（2026-09-23 第 6 轮，
@@ -344,13 +342,18 @@ def assign_order(
     if body.freight_fee is not None:
         # ⛔ **唯一写入口**：金额与来源凭据一起落、同一个事务。
         #    这一步**不碰分类**（派单不带分类）—— 所以原样把它自己传回去。
+        d = _freight_decision(db, order, body.driver_id, body.freight_fee)
         record_freight_decision(
             order,
             source=FREIGHT_SOURCE_ASSIGN,
             fee=body.freight_fee,
             category_id=order.freight_category_id,
             category_name=order.freight_category,
-            rule=_derived_quote_rule(db, order, body.driver_id),
+            rule=d.rule,
+            kind=d.kind,
+            agreed=d.agreed,
+            override=d.override,
+            note=d.note,
         )
     if body.collect_cash is not None:
         order.collect_cash = body.collect_cash
@@ -419,17 +422,18 @@ def update_order_freight(
     # ⛔ **唯一写入口**：金额与来源凭据一起落。
     #    传 `null` 清空运费时凭据**一起清空**（不变量 2：同生共死）——
     #    "金额没有了、来源还挂着"会让下一个人以为这笔钱还在。
+    d = _freight_decision(db, order, order.driver_id, body.freight_fee)
     record_freight_decision(
         order,
         source=FREIGHT_SOURCE_ADJUST,
         fee=body.freight_fee,
         category_id=order.freight_category_id,
         category_name=order.freight_category,
-        rule=(
-            _derived_quote_rule(db, order, order.driver_id)
-            if body.freight_fee is not None
-            else None
-        ),
+        rule=d.rule,
+        kind=d.kind,
+        agreed=d.agreed,
+        override=d.override,
+        note=d.note,
     )
     write_log(
         db,

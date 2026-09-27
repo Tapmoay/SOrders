@@ -403,6 +403,39 @@ def main() -> int:
        not re.search(r"UPDATE\s+orders\s+SET[^\n]*freight_rule_snapshot", all_ddl, re.I),
        "出现了回填语句 —— 那会把「当时的价目」编出来")
 
+    # 3h ⛔ 指南 §8：**唯一组装点** —— 业务代码里一个开关都不许有（R4-20）
+    root = (BACKEND / "app" / "core" / "pricing_runtime.py").read_text(encoding="utf-8")
+    ok("组装点在（core/pricing_runtime.py：decide + policy_for）",
+       "def decide(" in root and "def policy_for(" in root)
+    # ⚠️ 扫的是**代码形态**（调用 / 取属性），不是「出现过 Canary 这个词」——
+    #    第一版扫的是裸词，于是那两处**注释里解释"这里没有开关"**的说明被扫红了（假红）。
+    #    判据要认的是 `policy_for(` / `canary_percent(` / `freight_pricing_canary`
+    #    这种**真的在用**的形状。
+    SWITCH = re.compile(r"policy_for\(|canary_percent\(|freight_pricing_canary")
+    for rel in ("app/api/v1/orders_assignment.py", "app/services/accounting_service.py",
+                "app/services/driver_pay.py", "app/services/order_money.py"):
+        hits = [ln.strip() for ln in (BACKEND / rel).read_text(encoding="utf-8").splitlines()
+                if SWITCH.search(ln.split("#", 1)[0])]
+        ok(rel + " 里**没有计价开关**（policy_for / canary_percent）—— 换算法只改组装点",
+           not hits, "业务代码里长出了开关：" + str(hits[:2])
+                     + "（指南 §8 点名的「R4 又开始腐烂」那种形状）")
+    # ⚠️ 这一条与 `_check_extension_dependencies.py` 第 1 组是**同一件事的两面**：
+    #    那一条管"核心不许 import 具体扩展"，这一条管"解析器只在**装配根**接一次"。
+    #    第一版我把 `from app.extensions.pricing import resolve_v2` 写进了
+    #    `core/pricing_runtime.py` —— 当场被那条判据抓到（「核心反向依赖了具体扩展」），
+    #    于是改成**依赖倒置**：核心只留一个槽位，装配根填。
+    callers = sorted(p.relative_to(ROOT).as_posix() for p in (BACKEND / "app").rglob("*.py")
+                     if "resolve_v2(" in p.read_text(encoding="utf-8"))
+    allowed = {"backend/app/main.py", "backend/app/extensions/pricing/__init__.py"}
+    ok("resolve_v2( 只在**装配根**与扩展包里出现（其它地方一处都不许有）",
+       set(callers) <= allowed, "多出来的地方：" + str([c for c in callers if c not in allowed]))
+    ok("核心只留**槽位**、不认识具体扩展（register_pricing_resolver / pricing_resolver）",
+       "def register_pricing_resolver(" in root and "def pricing_resolver(" in root)
+    cfg = (BACKEND / "app" / "config.py").read_text(encoding="utf-8")
+    ok("Canary 开关**缺省是关**（freight_pricing_canary_percent: int = 0）",
+       re.search(r"freight_pricing_canary_percent:\s*int\s*=\s*0", cfg) is not None,
+       "新东西默认必须是关的（与本仓库对 AI 写闸门那条规矩一致）")
+
     # 3g 旁证：价目身份**在派单那一刻是拿得到的**（所以当年那个缺口是"被丢掉了"，不是"没有"）
     fp = (BACKEND / "app" / "services" / "freight_pricing.py").read_text(encoding="utf-8")
     ok("价目身份在派单那一刻拿得到（Candidate.template_id / quote_for 返回它）",

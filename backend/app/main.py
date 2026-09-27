@@ -471,6 +471,21 @@ def create_fastapi_app() -> FastAPI:
     logger.info("扩展已装配：%s", [m.id for m in application.state.extensions] or "（当前没有扩展）")
     logger.info("扩展路由已挂载：%s", _mounted or "（没有扩展声明路由）")
 
+    # ---- 算价的**依赖倒置**（R4-20）----
+    # 核心的组装点（core/pricing_runtime）只认一个"上下文 → Money"的**槽位**，
+    # 具体是哪个扩展来填、由**装配根**（就是这里）说了算 —— 与上面挂扩展路由同一件事。
+    # ⛔ 核心文件里**不许** import app.extensions（判据 _check_extension_dependencies.py 第 1 组），
+    #    所以这一跳只能在这里接。
+    from app.core.pricing_runtime import register_pricing_resolver
+
+    try:
+        from app.extensions.pricing import resolve_v2 as _resolve_pricing
+
+        register_pricing_resolver(_resolve_pricing)
+        logger.info("算价解析器已装配：extensions.pricing.resolve_v2")
+    except Exception as exc:  # noqa: BLE001 —— 没装算价扩展不是错误：组装点会如实退回旧路
+        logger.warning("算价扩展没装配上（走旧路）：%s", exc)
+
     return application
 
 

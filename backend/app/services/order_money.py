@@ -253,8 +253,21 @@ FREIGHT_SOURCE_MANUAL = "manual"    # 派单员手动定价（没匹配到价目
 FREIGHT_SOURCE_ASSIGN = "assign"    # 派单时带上了运费
 FREIGHT_SOURCE_ADJUST = "adjust"    # 事后补录 / 修改运费
 
-#: 今天生产上**真正在跑**的计价方式，以及它所属的契约身份。
-#: ⛔ 只改这里就能改声明 —— 但改之前先确认钱路真的变了（否则就是在记假事实）。
+#: ⭐ 2026-09-27（R4-20 Canary）：**每一条路各自带着它的契约身份**。
+#: 在此之前这里只有一个常量 —— 那时生产跑的是核心的价目匹配，所以写
+#: `FreightPricingCore`；而 Canary 之后，一部分单的金额**真的是 PricingContract 算出来的**，
+#: 两件事必须分得开：⛔ 一份快照不许同时说两种话。
+#:
+#: | kind | 谁算的 | 契约身份 |
+#: | --- | --- | --- |
+#: | `legacy_client` | 核心的价目匹配（金额由派单界面带过来） | `FreightPricingCore v1` |
+#: | `freight_template` | 算价扩展 `extensions/pricing/freight_template.py` | `PricingContract v2` |
+FREIGHT_KIND_CONTRACTS: dict[str, dict] = {
+    "legacy_client": {"name": "FreightPricingCore", "version": 1},
+    "freight_template": {"name": "PricingContract", "version": 2},
+}
+
+#: 缺省按哪条路记（没走组装点的老调用方用这个）—— 与上面那张表同一份真相。
 FREIGHT_PRICING_KIND = "freight_template"
 FREIGHT_PRICING_CONTRACT_NAME = "FreightPricingCore"
 FREIGHT_PRICING_CONTRACT_VERSION = 1
@@ -346,8 +359,15 @@ def record_freight_decision(
     category_id: int | None = None,
     category_name: str = "",
     rule: dict | None = None,
+    kind: str | None = None,
+    agreed: bool | None = None,
+    override: bool = False,
+    note: str = "",
 ) -> None:
     """**写承运运费的唯一入口**：金额、分类与它的来源凭据一起落。
+
+    `kind` / `agreed` / `override` / `note` 由**唯一组装点**（`core/pricing_runtime.decide`）
+    带过来 —— 这一层不认识"哪条路"，它只负责把那个事实**原样写进快照**。
 
     ⛔ 全仓库不许在别处写 `order.freight_fee` —— 判据 `_check_pricing_provenance.py`
     扫全仓的 `.freight_fee =` 赋值，只允许出现在本文件里。
@@ -371,11 +391,17 @@ def record_freight_decision(
         "category": {"id": category_id, "name": category_name or ""},
         "rule": rule or None,
         "pricing": {
-            "kind": FREIGHT_PRICING_KIND,
-            "contract": {
-                "name": FREIGHT_PRICING_CONTRACT_NAME,
-                "version": FREIGHT_PRICING_CONTRACT_VERSION,
-            },
+            "kind": kind or FREIGHT_PRICING_KIND,
+            "contract": dict(FREIGHT_KIND_CONTRACTS.get(
+                kind or FREIGHT_PRICING_KIND,
+                {"name": FREIGHT_PRICING_CONTRACT_NAME,
+                 "version": FREIGHT_PRICING_CONTRACT_VERSION},
+            )),
+            # ⚠️ 只在**走了契约**时才有这两个键（旧路没有"算得一样不一样"这回事）。
+            #    `override=True` 不是错误：派单员本来就允许改价，这里只是把
+            #    "这次的钱来自人、不是来自价目表"这件事记下来。
+            **({"agreed": bool(agreed), "override": bool(override)} if agreed is not None else {}),
+            **({"note": note} if note else {}),
         },
     }
     order.freight_rule_snapshot = json.dumps(payload, ensure_ascii=False)

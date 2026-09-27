@@ -328,6 +328,50 @@ R2 时代那份快照）—— 那正是 R4-15 修掉的那个"批准表键把�
 
 ---
 
+### ⑦ Canary：核心的**唯一组装点**（Composition Root）—— ✅ 机制已完成 / ⏳ 生产未开启
+
+用户 §8：「**必须在核心的唯一组装点切换**……不要在 orders.py / driver_pay.py /
+accounting_service.py 分别加 if extension_enabled，否则你刚刚建立的 R4 又开始腐烂。」
+用户 §9：「**同一订单不能在运行过程中换算法**。」
+
+| 项 | 交付 | 出口（可复现） |
+| --- | --- | --- |
+| **组装点** | `backend/app/core/pricing_runtime.py` —— `decide()` / `policy_for()` / `canary_percent()` | 判据第 3 组新增 4 项（业务代码里没有开关、`resolve_v2(` 只在装配根…） |
+| **装配根接线** | `app/main.py` 注册 `resolve_v2`（**依赖倒置**：核心只留槽位） | `python _tools/qa/_check_extension_dependencies.py` → 8 项全过 |
+| **开关** | `freight_pricing_canary_percent`（0..100，⛔ **缺省 0 = 关**） | 判据核"缺省必须是关" |
+| **三条写入点** | 全部改问组装点（⛔ 一个 `if` 都没有） | `backend/tests/test_pricing_runtime.py` 6 条用例 |
+
+**Canary 的口径（比"开关"更要紧的三件事）**：
+
+1. **策略是纯函数**：`policy_for(order_id, percent)` 按订单编号分桶 ⇒ 同一次派单里重复问、
+   甚至三个写入点分别问，答案都一样（⛔ 不用随机、也不用"这次请求带什么"）；
+2. **走契约时金额由契约确认**：派单界面带的数 = 价目算出来的数 ⇒ 快照写
+   `pricing.kind="freight_template"` + `contract=PricingContract v2` + `agreed: true`；
+3. ⛔ **派单员改过价时以人为准**：金额照样是人的那个数，但快照写 `override: true`，
+   并把**两个数都留在 note 里** —— 换"算钱的源"是 ⑧ Full Cutover 的事，
+   不是这一格（用户 §14：风险 A「记录事实失败」与风险 B「金额变化」不许一起发）。
+
+**独立契约身份**（R4-11 那条"编一个 PricingContract v1 就是记假事实"在这里兑现了）：
+`FREIGHT_KIND_CONTRACTS` 让两条路各自带自己的身份 ——
+`legacy_client → FreightPricingCore v1`、`freight_template → PricingContract v2`。
+
+#### ⭐ 这一格**自己撞上了 R4 的防火墙**（如实记着）
+
+第一版我把 `from app.extensions.pricing import resolve_v2` **写进了 `core/pricing_runtime.py`** ——
+`_check_all.py` 当场报：
+
+    ❌ 只有装配根（main.py）能 import app.extensions —— 核心反向依赖了具体扩展
+
+修法**不是**把它加进白名单，而是改成**依赖倒置**：核心只留一个
+`register_pricing_resolver` 槽位，由**装配根**（`main.py`，与它挂扩展路由同一处）填；
+槽位空着时组装点**如实退回旧路**（不是崩，也不是假装算过）。
+
+⛔ **生产还没开**（`freight_pricing_canary_percent` 仍是 0）：开启是一次配置变更 + 滚动重启，
+而且要有真实派单才看得出效果 —— 那是下一步的事。
+⚠️ 所以上面这 6 条用例是**本机证据**，⛔ 不构成"生产已经在走契约"。
+
+---
+
 ### ⭐ 本阶段提交的 CI 结果（R4-09，2026-09-27）
 
 用户 2026-09-27 要求把 CI 那一列的措辞改准（见「验收矩阵」读表须知）。下面是**这一批提交**的实测：
