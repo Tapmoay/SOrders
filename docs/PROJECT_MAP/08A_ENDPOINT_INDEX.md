@@ -530,10 +530,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:377` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:415` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:424` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:449` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:378` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:416` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:430` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:455` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -610,10 +610,10 @@ _（无重复注册）_
 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:273` |
 | `GET /api/v1/pricing/quote` | `quote` | `backend/app/extensions/pricing/api.py:54` |
 | `GET /api/v1/unit-conversion/preview` | `preview` | `backend/app/extensions/unit_conversion/api.py:42` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:377` |
-| `GET /health` | `health` | `backend/app/main.py:415` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:424` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:449` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:378` |
+| `GET /health` | `health` | `backend/app/main.py:416` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:430` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:455` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：15 个
 

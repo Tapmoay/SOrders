@@ -292,6 +292,27 @@ def freight_provenance_of(order) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def freight_kind_of(order) -> str | None:
+    """这张单**已经定过的计价来源**（没定过 / 快照坏了 / 认不出的取值 → None）。
+
+    ⭐ 为什么单独成一个函数（用户 2026-09-27 拍板的 ⑧-a 出口条件 ③ CANARY_DECISION_FREEZE）：
+
+        「第一次形成有效计价决策后：pricing.kind / contract / implementation
+          必须成为该订单该次计价事实的既定来源。
+          后续写入不得重新依据当前 canary_percent 改变已经形成的 Pricing Decision。」
+
+    同一张单会被**问很多次**（派单 / 改价 / 补录各问一次），而 Canary 比例在观察期间
+    一定会被调（0 → 30 → 100）。比例一调，历史单的来源就跟着变一次 ——
+    那正是指南 §9 说的「同一订单不能在运行过程中换算法」，只是换了个入口进来。
+    ⇒ 所以"已经定过的那一个"必须能被读回来，而且**只有这一处**会去读它。
+
+    ⛔ 认不出的取值当"没定过"：与 freight_provenance_of 对坏快照的口径一致
+    （宁可退回"没有"，也不拿一个不认识的 kind 去冻结后面所有写入）。
+    """
+    kind = (freight_provenance_of(order).get("pricing") or {}).get("kind")
+    return kind if kind in FREIGHT_KIND_CONTRACTS else None
+
+
 def rule_ref_of(
     *,
     origin: str,

@@ -113,6 +113,25 @@ def _snapshot(db_session, order_id: int) -> dict:
     return json.loads(o.freight_rule_snapshot) if o.freight_rule_snapshot else {}
 
 
+def _set_category_only(db_session, order_id: int, cat_id: int) -> None:
+    """只把「这一单算哪类货」铺上，⛔ **刻意不走 price-freight**。
+
+    为什么（R4-26 决策冻结之后才知道）：`price-freight` 会写出**一次真实的计价决策**，
+    而那一刻还没有司机 ⇒ 契约看到的候选集是**全部价目**（不是这个司机的）⇒ 多半算不出来 ⇒
+    如实退回旧路 ⇒ **这一单的来源就此冻结在 legacy**，后面派单本该走契约也不再走。
+    这一格要测的是**派单那一次**决策，所以分类用夹具直接给。
+    （"提前冻住"那件事本身由 `test_派单前先手动定价会把来源提前冻住` 专门钉。）
+    """
+    from app.models import Order
+
+    db_session.expire_all()
+    o = db_session.get(Order, order_id)
+    assert o is not None
+    o.freight_category_id = cat_id
+    db_session.commit()
+    db_session.expire_all()
+
+
 def _fee(db_session, order_id: int):
     from app.models import Order
 
@@ -167,9 +186,7 @@ def test_开满时金额由契约确认并如实记进凭据(client, db_session,
     oid = _mk_order(client, h)
     did = _mk_driver(client, h)
     cat_id = _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=did)
-    assert client.post(f"/api/v1/orders/{oid}/price-freight",
-                       json={"freight_fee": "135", "category_id": cat_id}, headers=h
-                       ).status_code in (200, 201)
+    _set_category_only(db_session, oid, cat_id)
     # 派单时界面带的数就是价目那个数 → 契约应当**agree**
     r = client.post(f"/api/v1/orders/{oid}/assign",
                     json={"driver_id": did, "freight_fee": "135"}, headers=h)
@@ -192,9 +209,7 @@ def test_派单员改过价时以人为准但两个数都留下(client, db_sessi
     oid = _mk_order(client, h)
     did = _mk_driver(client, h)
     cat_id = _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=did)
-    assert client.post(f"/api/v1/orders/{oid}/price-freight",
-                       json={"freight_fee": "135", "category_id": cat_id}, headers=h
-                       ).status_code in (200, 201)
+    _set_category_only(db_session, oid, cat_id)
     r = client.post(f"/api/v1/orders/{oid}/assign",
                     json={"driver_id": did, "freight_fee": "150"}, headers=h)
     assert r.status_code in (200, 201), r.text
@@ -247,3 +262,161 @@ def test_候选集为空时原因码说得出为什么(client, db_session, token
     assert p["reason"] == "no_candidates", p
     # 人话那一栏也要能指着**这一步**：这个司机没挂规则 / 规则没勾价目
     assert "没挂计费规则" in p["note"] or "没勾价目" in p["note"], p["note"]
+
+# ---------------------------------------------------------------- ⑦ 冻结（⑧-a 出口条件 ③）
+
+def test_已经定过的来源只认得出两种取值():
+    """读「这张单已经定过什么」只走一处，且**认不出的取值当没定过**。
+
+    ⛔ 不认识的 kind 不许拿去冻结后面所有写入 —— 与 freight_provenance_of 对坏快照的口径一致。
+    """
+    import json
+    from types import SimpleNamespace
+
+    from app.services.order_money import freight_kind_of
+
+    def o(snap):
+        return SimpleNamespace(freight_rule_snapshot=snap)
+
+    assert freight_kind_of(o(None)) is None
+    assert freight_kind_of(o("")) is None
+    assert freight_kind_of(o("{坏掉的 JSON")) is None
+    assert freight_kind_of(o(json.dumps({"source": "assign"}))) is None
+    assert freight_kind_of(o(json.dumps({"pricing": {}}))) is None
+    assert freight_kind_of(o(json.dumps({"pricing": {"kind": "未来才有的 kind"}}))) is None
+    assert freight_kind_of(o(json.dumps({"pricing": {"kind": "legacy_client"}}))) == "legacy_client"
+    assert freight_kind_of(o(json.dumps({"pricing": {"kind": "freight_template"}}))) == "freight_template"
+
+
+def test_没定过来源的单仍然按比例抽签():
+    """⛔ 冻结不许把 Canary 变成「永远关着」：没定过的单照样按比例走。"""
+    from app.core.pricing_runtime import KIND_CONTRACT, KIND_LEGACY, policy_for
+
+    assert policy_for(1, 0, frozen=None) == KIND_LEGACY
+    assert policy_for(1, 100, frozen=None) == KIND_CONTRACT
+    # 冻结参数给了「认不出的东西」时**不许静默生效** —— 照样按比例
+    assert policy_for(1, 100, frozen="") == KIND_CONTRACT
+    assert policy_for(1, 100, frozen="某个未来的 kind") == KIND_CONTRACT
+
+
+def test_先形成旧路之后把比例开到满_这次计价仍然是旧路(client, db_session, token_dispatcher, monkeypatch):
+    """⛔ 用户点名的第 1 个实验：**同一个 Pricing Decision 不因 Canary 配置变化而改变来源**。
+
+    比例 0 → 第一次派单形成 legacy_client；
+    比例改成 100 → 同一张单**再次**写入 → 来源必须仍然是 legacy_client。
+
+    ⚠️ 不冻结的话，这里会变成 freight_template —— 同一张单的「钱凭什么」跟着配置变了一次。
+    """
+    h = auth_headers(token_dispatcher)
+    _pin_canary(monkeypatch, 0)
+    did = _mk_driver(client, h)
+    oid = _mk_order(client, h)
+    r = client.post(f"/api/v1/orders/{oid}/assign",
+                    json={"driver_id": did, "freight_fee": "120"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    assert _snapshot(db_session, oid)["pricing"]["kind"] == "legacy_client"
+
+    _pin_canary(monkeypatch, 100)                    # ← 观察期里比例被调了
+    r = client.post(f"/api/v1/orders/{oid}/freight",
+                    json={"freight_fee": "130"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    p = _snapshot(db_session, oid)["pricing"]
+    assert p["kind"] == "legacy_client", "⛔ 比例调到 100 之后，这张单换了来源：" + str(p)
+    assert p["contract"] == {"name": "FreightPricingCore", "version": 1}, p["contract"]
+
+
+def test_先形成契约之后把比例关到零_这次计价仍然是契约(client, db_session, token_dispatcher, monkeypatch):
+    """⛔ 用户点名的第 2 个实验（反方向）。
+
+    比例 100 → 第一次派单形成 freight_template；
+    比例改成 0 → 同一张单**再次**写入 → 来源必须仍然是 freight_template，
+    而且**契约身份也一并保住**（pricing.contract 仍是 PricingContract v2）。
+    """
+    h = auth_headers(token_dispatcher)
+    _pin_canary(monkeypatch, 100)
+    oid = _mk_order(client, h)
+    did = _mk_driver(client, h)
+    cat_id = _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=did)
+    _set_category_only(db_session, oid, cat_id)
+    r = client.post(f"/api/v1/orders/{oid}/assign",
+                    json={"driver_id": did, "freight_fee": "135"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    assert _snapshot(db_session, oid)["pricing"]["kind"] == "freight_template"
+
+    _pin_canary(monkeypatch, 0)                      # ← 比例被调回 0（甚至整个关掉）
+    r = client.post(f"/api/v1/orders/{oid}/freight",
+                    json={"freight_fee": "150"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    p = _snapshot(db_session, oid)["pricing"]
+    assert p["kind"] == "freight_template", "⛔ 比例关到 0 之后，这张单换了来源：" + str(p)
+    assert p["contract"] == {"name": "PricingContract", "version": 2}, p["contract"]
+    assert p["agreed"] is False and p["override"] is True, "冻结的是**来源**，不是金额：" + str(p)
+    assert str(_fee(db_session, oid)) == "150.00", "⛔ 以人为准：人的那个数仍然必须原样落库"
+
+
+def test_运费被清空后再定价_按当时的比例重新抽签(client, db_session, token_dispatcher, monkeypatch):
+    """⭐ 一条**明确的边界**（不是漏洞，但要写下来）：把运费清成 null 时凭据**一起清空**
+    （不变量 2：同生共死）。凭据都没了，下一次定价就是**新的一次决策** —— 按**当时**的比例抽签。
+
+    ⛔ 这条边界必须写死，否则将来有人会以为「冻结」是永久的、
+    然后拿一张清空过的单去解释为什么来源变了。
+    """
+    h = auth_headers(token_dispatcher)
+    _pin_canary(monkeypatch, 0)
+    oid = _mk_order(client, h)
+    did = _mk_driver(client, h)
+    _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=did)
+    r = client.post(f"/api/v1/orders/{oid}/assign",
+                    json={"driver_id": did, "freight_fee": "120"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    assert _snapshot(db_session, oid)["pricing"]["kind"] == "legacy_client"
+
+    # 清空运费 → 凭据一起清空（不变量 2）
+    r = client.post(f"/api/v1/orders/{oid}/freight",
+                    json={"freight_fee": None}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    assert _snapshot(db_session, oid) == {}, "凭据必须跟着金额一起清空"
+    assert _fee(db_session, oid) is None
+
+    _pin_canary(monkeypatch, 100)
+    r = client.post(f"/api/v1/orders/{oid}/freight",
+                    json={"freight_fee": "135"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    p = _snapshot(db_session, oid)["pricing"]
+    assert p["kind"] == "freight_template", "清空过 = 新的一次决策，按当时的比例：" + str(p)
+
+
+def test_派单前先手动定价会把来源提前冻住_这是有意的(client, db_session, token_dispatcher, monkeypatch):
+    """⭐ 一条**一定会被问到**的后果，写死在判据里，⛔ 不留给人去猜。
+
+    比例 100、价目世界也铺好了，但派单员**先手动定价、后派单**：
+    手动定价那一刻**还没有司机**，契约看到的候选集是**全部价目**（不是这个司机的）——
+    于是多半算不出来 ⇒ 如实退回旧路（reason 非 ok）⇒ **这一单的来源就此冻在 legacy**。
+    等到派单那一刻（本来该走契约），它仍然是 legacy。
+
+    ⛔ 这不是 bug：不变量是「同一张单不换来源」，而「先手动定价」确实已经形成了一次计价事实。
+    ⚠️ 但它有一条**必须知道**的生产后果：
+       实际走契约的比例会**低于**配置的比例 ——
+       ⑧-a 的观察窗口必须**按来源拆开看**，不能拿「配了 30% 就该有 30% 走契约」当判据。
+    """
+    h = auth_headers(token_dispatcher)
+    _pin_canary(monkeypatch, 100)
+    oid = _mk_order(client, h)
+    did = _mk_driver(client, h)
+    cat_id = _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=did)
+
+    # ① 先手动定价（此刻 driver_id 还是 None）
+    r = client.post(f"/api/v1/orders/{oid}/price-freight",
+                    json={"freight_fee": "135", "category_id": cat_id}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    first = _snapshot(db_session, oid)["pricing"]
+    assert first["kind"] == "legacy_client", first
+    assert first["reason"] in ("no_match", "ambiguous", "no_candidates"), \
+        "⛔ 必须是「算不出来」而不是「没轮到我」——两者混起来就看不出 Canary 覆盖了多少：" + str(first)
+
+    # ② 再派单：这一次本该走契约
+    r = client.post(f"/api/v1/orders/{oid}/assign",
+                    json={"driver_id": did, "freight_fee": "135"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    assert _snapshot(db_session, oid)["pricing"]["kind"] == "legacy_client", \
+        "提前冻住：已经形成过的来源不许在派单时被换掉"

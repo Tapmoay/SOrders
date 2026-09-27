@@ -19,6 +19,7 @@ from app.api.v1.router import api_router
 from app.config import get_settings, uploads_root
 from app.core.business_time import business_today
 from app.core.metrics import render_prometheus, snapshot
+from app.core.pricing_runtime import pricing_fingerprint
 from app.core.request_id import RequestIdFilter, RequestIdMiddleware
 from app.core.socket_io import sio
 from app.database import SessionLocal, get_db
@@ -417,6 +418,11 @@ def create_fastapi_app() -> FastAPI:
             "status": "ok",
             "version": settings.app_version,
             **redis_ok(),
+            # ⭐ 这一次进程**实际生效**的算价配置（⑧-a 出口条件 ②）——
+            #    「写进 .env 了」与「生产实际上就是这么跑的」是两个不同的问题；
+            #    滚动发布期间 A=30 / B=0 在 .env 上完全看不出来，只有逐个实例问才看得见。
+            #    ⛔ 只有两个非敏感取值（比例 + 一个短名字），见 pricing_fingerprint 的说明。
+            "pricing": pricing_fingerprint(),
         }
         return body
 
@@ -481,7 +487,9 @@ def create_fastapi_app() -> FastAPI:
     try:
         from app.extensions.pricing import resolve_v2 as _resolve_pricing
 
-        register_pricing_resolver(_resolve_pricing)
+        # `identity` 只用于 /health 的指纹对账（⑧-a 出口条件 ②：两个实例的 effective
+        # config 必须一致）。⛔ 它是一个我们自己起的短名字，**非敏感**。
+        register_pricing_resolver(_resolve_pricing, identity="PricingContract v2 @ extensions.pricing")
         logger.info("算价解析器已装配：extensions.pricing.resolve_v2")
     except Exception as exc:  # noqa: BLE001 —— 没装算价扩展不是错误：组装点会如实退回旧路
         logger.warning("算价扩展没装配上（走旧路）：%s", exc)

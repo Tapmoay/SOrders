@@ -29,6 +29,11 @@
 3. **不许偷偷改金额**：Canary 里契约算出来的数与派单员给的不一样时，
    ⛔ **以人为准**，但**两个数都写进来源凭据** —— 换"算钱的源"是 ⑧ Full Cutover 的事，
    不是这一格的事（用户 §14：风险 A「记录事实失败」与风险 B「金额变化」不许一起发）。
+4. **不许让比例变化改掉**已经形成的**计价决策**（用户 2026-09-27 的 ⑧-a 出口条件 ③
+   CANARY_DECISION_FREEZE）：同一张单会被问很多次（派单 / 改价 / 补录），
+   而 Canary 比例在观察期间**一定会被调**。已经定过来源的单，后续写入必须沿用那一个来源，
+   ⛔ 不许拿当前比例重新抽签 —— 否则「历史单的金额凭什么」会随配置一起变。
+   ⚠️ ⑧-b Full Cutover 的回滚规则（新决策走 Legacy / 已有决策保持原来源）**也靠这条**。
 
 ## 指南 §9：同一订单不能在运行过程中换算法
 
@@ -62,12 +67,29 @@ def canary_percent() -> int:
     return max(0, min(100, n))
 
 
-def policy_for(order_id: int | None, percent: int | None = None) -> str:
-    """这张单走哪条路 —— ⛔ **纯函数**，只由订单编号与比例决定。
+def policy_for(order_id: int | None, percent: int | None = None, *,
+               frozen: str | None = None) -> str:
+    """这张单走哪条路 —— ⛔ **纯函数**，只由订单编号、比例、以及**它已经定过的来源**决定。
 
     ⛔ 为什么不用"随机"也不用"这次请求带什么"：那样同一张单会在两次调用之间换算法，
     而派单、改价、补录会**分别**问一次 —— 三次答案不同时，界面上和库里的数就对不上了。
+
+    ## ⭐ 冻结优先于比例（⑧-a 出口条件 ③ CANARY_DECISION_FREEZE）
+
+    `frozen` = 这张单**已经形成过**的那一次计价决策的来源
+    （由 `services.order_money.freight_kind_of` 读出来）。它有**最高优先级**：
+
+        比例 0   → 形成 legacy_client   → 比例调到 100 → 这张单**仍然是** legacy_client
+        比例 100 → 形成 freight_template → 比例调回 0  → 这张单**仍然是** freight_template
+
+    ⚠️ 为什么必须这样（而不是"每次都按当前比例来"）：比例在观察期里会被调很多次，
+    而**同一张单会被问很多次**。不冻结的话，调一次比例，这一单的「钱凭什么」就换一次 ——
+    而这条不变量一旦破了，⑧-b 的回滚就再也说不清
+    （"昨天 Extension 127.50、今天 Legacy 120.00"那个场景）。
     """
+    if frozen in (KIND_LEGACY, KIND_CONTRACT):
+        # ⛔ 先看冻结：⛔ 不许把它挪到下面（那样比例 0 / 100 会越过冻结改掉来源）。
+        return frozen
     pct = canary_percent() if percent is None else max(0, min(100, int(percent)))
     if pct <= 0:
         return KIND_LEGACY
@@ -158,17 +180,43 @@ def _decimals(v) -> Decimal:
 #    也不是假装算过）。
 # ---------------------------------------------------------------------------
 _RESOLVER = None
+#: 装配根登记时给的一个**可读身份**（短名字，⛔ 非敏感）—— 用途只有一个：
+#: ⑧-a 出口条件 ②「两个实例的 effective config 一致」要能**对账**，
+#: 而不是靠"我记得两个都改了"。
+_RESOLVER_ID = ""
 
 
-def register_pricing_resolver(fn) -> None:
-    """**只许装配根调**：把"上下文 → PricingContractV2"这一跳接进来。"""
-    global _RESOLVER
+def register_pricing_resolver(fn, *, identity: str = "") -> None:
+    """**只许装配根调**：把"上下文 → PricingContractV2"这一跳接进来。
+
+    `identity` = 这次装的是谁（一个短名字，写进 /health 的指纹里给运维对账）。
+    ⛔ 传 None 表示**没有装配**：`pricing_fingerprint()` 会如实说「未装配」，
+    ⛔ 不是留着上一次的名字骗人。
+    """
+    global _RESOLVER, _RESOLVER_ID
     _RESOLVER = fn
+    _RESOLVER_ID = (identity or "") if fn is not None else ""
 
 
 def pricing_resolver():
     """当前的解析器；没人注册时返回 None（⇒ 契约那一路整体降级为旧路）。"""
     return _RESOLVER
+
+
+def pricing_fingerprint() -> dict:
+    """这一次进程**实际生效**的算价配置 —— ⑧-a 出口条件 ②（两个实例一致）靠它。
+
+    ⭐ 「写进环境变量了」与「生产实际上就是这么跑的」是**两个不同的问题**：
+    前者看 .env，后者只能问**每一个正在跑的进程**。滚动发布期间
+    「A=30、B=0」那种状态在 .env 上**完全看不出来** —— 只有逐个实例问才看得见。
+
+    ⛔ 只放**非敏感**的两样：一个 0..100 的整数、一个我们自己起的短名字。
+    ⛔ 这个函数会被 /health 直接吐出去，所以它**永远**不许长出口令 / 连接串 / 密钥。
+    """
+    if _RESOLVER is None:
+        return {"canary_percent": canary_percent(), "resolver": "(未装配)"}
+    return {"canary_percent": canary_percent(),
+            "resolver": _RESOLVER_ID or "(已装配，未命名)"}
 
 
 def _no_candidates_reason(db, driver_id: int | None) -> str:
@@ -240,9 +288,10 @@ def decide(db, order, *, driver_id: int | None, claimed_fee=None) -> FreightDeci
     `claimed_fee` = 派单员（或界面）带过来的金额；`None` = 这次没有金额（例如只补分类）。
     """
     from app.services.freight_pricing import quote_for
-    from app.services.order_money import rule_ref_of_candidate
+    from app.services.order_money import freight_kind_of, rule_ref_of_candidate
 
-    kind = policy_for(getattr(order, "id", None))
+    # ⭐ 已经定过来源的单**沿用**那一个（⑧-a 出口条件 ③）—— ⛔ 不拿当前比例重新抽签。
+    kind = policy_for(getattr(order, "id", None), frozen=freight_kind_of(order))
     # 两条路都要在快照里留下"是哪一条价目" —— 那是**核心的事实**，与走哪条路无关。
     try:
         quote = quote_for(db, order, driver_id=driver_id)
