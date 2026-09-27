@@ -83,6 +83,13 @@ class Order(Base, TimestampMixin):
     # 派单时挂着的**计费规则**快照（JSON）：规则后来被改了/换了，已送完的单金额不能跟着变。
     # 空 = 这单没挂规则，按老口径算（计件=全额运费）。
     driver_rule_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 承运运费的**来源凭据**快照（JSON，R4-11）：这笔 `freight_fee` 出自哪一条价目、
+    # 按什么计价方式、属于哪一版计价契约。它与 `freight_fee` **同生共死**。
+    # ⛔ 空 = 两种可能：① 这一单还没有运费；② **R4-11 之前落库的老单**（那时没记来源）。
+    #    老数据**不补** —— 拿今天的价目表倒推历史 = 伪造历史事实（用户 2026-09-27 原话：
+    #    「千万不要猜着补快照」）。
+    # 写入只有一处：`services/order_money.record_freight_decision`（判据扫全仓的赋值）。
+    freight_rule_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 派单员对**这一单**单独定的数（空=用规则里的）：
     # 用户 2026-09-18：「每单有多少钱，但每单是不固定的，几百块、几十块，由派单员决定」。
     driver_piece_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)

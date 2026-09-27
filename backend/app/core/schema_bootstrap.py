@@ -375,6 +375,18 @@ def _bootstrap_impl(engine: Engine) -> None:
                         pass
                     else:
                         raise
+            # 承运运费的**来源凭据**（R4-11）：这一笔 freight_fee 出自哪条价目、
+            # 按什么计价方式、属于哪一版计价契约。与 freight_fee 同生共死。
+            # ⛔ **不回填老数据**：那时确实没记来源，倒推 = 伪造历史事实（老单这一列留 NULL）。
+            if "freight_rule_snapshot" not in col_names:
+                try:
+                    conn.execute(text("ALTER TABLE orders ADD COLUMN freight_rule_snapshot TEXT"))
+                except DBAPIError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        pass
+                    else:
+                        raise
             # 派单员对这一单单独定的数（v3.36）：每单的钱不固定、提成也能逐单给
             for col, ddl in (
                 ("driver_piece_amount", "NUMERIC(12,2)"),

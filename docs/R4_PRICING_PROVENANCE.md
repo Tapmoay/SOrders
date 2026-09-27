@@ -13,13 +13,35 @@
 
 ---
 
+## §0 ⚠️ 更新（R4-11，2026-09-27）：缺口**已经补上了**
+
+用户 2026-09-27 拍板「**① §6 做。**」并按 §五 拆成五条退出条件（P1-02a…e）。
+R4-11 把**承运运费**那一路补完了。**本文档 §1–§6 保留审计当时的结论**（那是基线，
+⛔ 不改写成"当时就已经有"），补完之后的形状见这一节与 §7。
+
+| 审计时的结论（R4-09） | 现状（R4-11 之后） |
+| --- | --- |
+| 承运运费 ⚠️ 只记金额与分类，**不记是哪条价目** | ✅ `orders.freight_rule_snapshot`（同一行、同一事务、同一次定价决定）记着价目身份 |
+| 计价契约版本 ⛔ 三处都没有 | ⚠️ **承运那一路有了**（快照里的 `pricing.contract`）；**司机应得那一路仍然没有** |
+| 缺口 `orders.freight_fee` 在 `NO_PROVENANCE` 里 | ✅ 已挪进 `RULED`，`NO_PROVENANCE` **空了**（⛔ 空着是结论，不是漏了） |
+
+**三条不变量**（写进代码注释与判据，不是写在这里就算）：
+① 金额与凭据**同处写**（承运运费的唯一写入口 `order_money.record_freight_decision`，
+判据扫全仓的 `.freight_fee =`）；② **同生共死**（`freight_fee is None` ⟺ 凭据为空）；
+③ 每一次写金额 = **一次新的定价决定**（快照整份替换，改动历史在 `operation_logs`）。
+
+⛔ **老数据不补**：R4-11 之前落库的单这一列留 NULL —— 拿今天的价目表倒推历史 = 伪造历史事实
+（用户原话：「千万不要猜着补快照」）。判据名字就叫「迁移**不回填老数据**」。
+
+---
+
 ## §1 一句话结论
 
 | 钱路 | 事实记录 | 读法 |
 | --- | --- | --- |
 | **司机应得**（`driver_bills` / 司机结算） | ✅ **齐** | 派单那一刻把整份规则定格进 `orders.driver_rule_snapshot`；账单自己另存 `rule_id` / `rule_name` / `piece_amount` / `commission_amount`；**算钱那一步只认快照**（签名收的是 `PayRule`，不是活用户/活规则/DB 会话） |
-| **承运运费**（`orders.freight_fee`） | ⚠️ **半** | 只记了**金额**与**分类**（编号 + 名字快照），**没记是哪一条价目**；而价目可以被**就地改价** |
-| **计价契约版本**（v1 / v2 / …） | ⛔ **没有** | 全库没有任何一列、也没有生产快照写入器记录"这笔金额按**哪一版算法**算的" |
+| **承运运费**（`orders.freight_fee`） | ⚠️ **半** →（R4-11 补成 ✅，见 §0） | 审计当时只记了**金额**与**分类**（编号 + 名字快照），**没记是哪一条价目**；而价目可以被**就地改价** |
+| **计价契约版本**（v1 / v2 / …） | ⛔ **没有** →（R4-11：承运那一路有了） | 全库没有任何一列、也没有生产快照写入器记录"这笔金额按**哪一版算法**算的" |
 
 **所以：R4 的"扩展架构"要接进钱路，先要补第二、三条。** 这不是模块化问题，
 是 **Money correctness prerequisite（资金正确性前置条件）**。
@@ -161,7 +183,52 @@
 
 ---
 
-## §7 ⛔ 本审计**证不了**什么
+## §7 补完之后的形状（R4-11）——**五条退出条件逐条对账**
+
+用户 2026-09-27 给的 P1-02a…e，逐条落到可复现的出口：
+
+| 退出条件 | 交付 | 出口（可复现） |
+| --- | --- | --- |
+| **P1-02a Schema** | `orders.freight_rule_snapshot TEXT NULL`（+ 迁移） | `backend/app/core/schema_bootstrap.py`；`python _tools/ops/_migration_tests.py --fresh --old --concurrent` |
+| **P1-02b Write Atomicity** | 三个写入点**都**调同一个写入口（⛔ 全仓 `.freight_fee =` 只许出现在它里面） | 判据第 3 组；`backend/tests/test_freight_provenance.py` 三个写入点各一条用例 |
+| **P1-02c Provenance Completeness** | 快照能恢复：来源 / 计价方式 / 契约身份与版本 / 计费上下文 / 当时的金额 / **哪一条价目** | 判据第 3 组**现场把写入口跑一遍**（⛔ 不是文本匹配）逐键核 |
+| **P1-02d Legacy Safety** | 老单这一列 NULL：读得出来、改得动、⛔ **不回填** | 用例 `test_老单没有来源凭据也照常读照常改价`；判据「迁移**不回填老数据**」 |
+| **P1-02e Reverse Verification** | 缺快照 / 金额与凭据错位 / 绕过写入口 / 来源改裸串 / 回填老数据 —— 五种破坏各自报红 | `python _tools/qa/_reverse_verify_pricing_provenance.py` |
+
+### 快照长什么样（一份真的）
+
+    {
+      "v": 1,
+      "at": "2026-09-27T01:12:34",
+      "source": "manual",                          ← 这一次运费怎么产生的
+      "fee": "135.00",                             ← 当时的金额（必须等于 orders.freight_fee）
+      "category": {"id": 3, "name": "蔬菜"},        ← 按哪一类货算的
+      "rule": {                                     ← 哪一条价目（空 = 没有价目来源）
+        "template_id": 12, "template_name": "…", "price_name": "小车价",
+        "route": "A → B",
+        "fee": "135.00",                           ← **价目当时**的金额（价目改价之后才对得上）
+        "origin": "saved"                          ← saved = 这次真的写/改了一条价目
+      },                                            ←   derived = 服务端按同一算法复算出来的
+      "pricing": {
+        "kind": "freight_template",                 ← 用了什么计价方式
+        "contract": {"name": "FreightPricingCore", "version": 1}   ← 属于哪一版计价契约
+      }
+    }
+
+⚠️ **两条边界，别读大**：
+
+1. 生产今天跑的**不是** PricingContract 扩展（那是 R4 的演练产物），而是核心的**价目匹配**。
+   所以 `kind` / `contract` 如实写 `freight_template` / `FreightPricingCore v1` ——
+   ⛔ 编一个 "PricingContract v1" 写上去就是**记假事实**。扩展真的接上生产钱路时（R4-P2），
+   这两个值必须**一起**改：那正是它们存在的意义。
+2. `rule.origin="derived"` 说的是"**服务端在那一刻按同一个匹配算法复算出来的结论**"
+   （`services/freight_pricing.quote_for` 是唯一的匹配实现，派单弹窗上那个价也是它算的）——
+   不是"猜"。而且它是 **best-effort**：复算失败只会让 `rule` 记成 `null`，
+   ⛔ 绝不让派单失败（审计字段不该变成钱路上的单点故障）。
+
+---
+
+## §8 ⛔ 本审计**证不了**什么
 
 1. **没有查金额对不对**：本判据只回答"凭什么"，不回答"算得对不对"。
    后者是另一条线（`_check_freight_pricing.py` / `_check_money_contract.py` / 后端用例）。

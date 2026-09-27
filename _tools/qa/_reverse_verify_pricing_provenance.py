@@ -26,6 +26,9 @@ ORDER_MODEL = ROOT / "backend/app/models/order.py"
 BILL_MODEL = ROOT / "backend/app/models/driver_bill.py"
 LEDGER_MODEL = ROOT / "backend/app/models/ledger.py"
 DRIVER_PAY = ROOT / "backend/app/services/driver_pay.py"
+ORDER_MONEY = ROOT / "backend/app/services/order_money.py"
+ASSIGN_API = ROOT / "backend/app/api/v1/orders_assignment.py"
+BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
 
 ANCHOR_RULE_SNAP = '    driver_rule_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)\n'
 ANCHOR_BILL_RULE_ID = '    rule_id: Mapped[int | None] = mapped_column(nullable=True, index=True)\n'
@@ -71,10 +74,60 @@ def run_check() -> tuple[int, str]:
 
 # ---------------------------------------------------------------- 注入场景
 
-def s_order_template_id(sb: Sandbox) -> None:
-    """给订单加一列"这条承运价出自哪条价目" —— 缺口被补上了，棘轮必须响。"""
-    sb.add_column(ORDER_MODEL, ANCHOR_RULE_SNAP,
-                  "    freight_template_id: Mapped[int | None] = mapped_column(nullable=True)\n")
+def s_bypass_writer(sb: Sandbox) -> None:
+    """某个写入点**绕过唯一写入口**，自己给 `order.freight_fee` 赋值。
+
+    ⛔ 这正是"两个写入口"的形状：金额会被写对，而**来源凭据不会被写** ——
+    两边都不报错，只有判据能看出来。
+    """
+    sb.replace(
+        ASSIGN_API,
+        "    if body.freight_fee is not None:\n",
+        "    if body.freight_fee is not None:\n"
+        "        order.freight_fee = body.freight_fee  # rv-injection\n",
+    )
+
+
+def s_drop_snapshot_write(sb: Sandbox) -> None:
+    """写入口**忘了写来源凭据**：金额落了库，快照还是空的（P1-02e 的"缺快照"）。"""
+    sb.replace(
+        ORDER_MONEY,
+        "    order.freight_rule_snapshot = json.dumps(payload, ensure_ascii=False)\n",
+        "    pass  # rv-injection: 忘了写凭据\n",
+    )
+
+
+def s_drop_fee_write(sb: Sandbox) -> None:
+    """写入口**忘了写金额**：凭据落了库、金额没动（P1-02e 的"错位"）。"""
+    sb.replace(
+        ORDER_MONEY,
+        "    order.freight_fee = fee2\n",
+        "    pass  # rv-injection: 忘了写金额\n",
+    )
+
+
+def s_bare_source(sb: Sandbox) -> None:
+    """把某一处的 `source=FREIGHT_SOURCE_X` 改成裸字符串 —— 来源就说不清了。"""
+    sb.replace(
+        ASSIGN_API,
+        "            source=FREIGHT_SOURCE_ASSIGN,\n",
+        '            source="assign",  # rv-injection\n',
+    )
+
+
+#: 回填那一行注入的原文（⛔ 用 chr() 拼引号，不然这段"注入的源码"自己先被引号绕晕 ——
+#: 第一版就是那么写的，Python 当场 SyntaxError: unmatched ')'）。
+_ALTER_LINE = '                    conn.execute(text("ALTER TABLE orders ADD COLUMN freight_rule_snapshot TEXT"))'
+_BACKFILL_LINE = (
+    "                    conn.execute(text("
+    + chr(34) + "UPDATE orders SET freight_rule_snapshot = " + chr(39) + "{}" + chr(39)
+    + " WHERE freight_fee IS NOT NULL" + chr(34) + "))  # rv-injection"
+)
+
+
+def s_backfill_migration(sb: Sandbox) -> None:
+    """迁移里给**老数据回填**快照 —— 用户 §3 最怕的那件事：伪造历史事实。"""
+    sb.replace(BOOTSTRAP, _ALTER_LINE + chr(10), _ALTER_LINE + chr(10) + _BACKFILL_LINE + chr(10))
 
 
 def s_order_pricing_kind(sb: Sandbox) -> None:
@@ -108,8 +161,17 @@ def s_unclassified_money_column(sb: Sandbox) -> None:
 
 # (说明, 场景, 期望) ；期望 = ("red", 关键字) 或 ("green", "")
 SCENARIOS = [
-    ("给订单补上「这条承运价出自哪条价目」的列（棘轮必须响）",
-     s_order_template_id, ("red", "orders 上仍然")),
+    # ---- R4-11：承运运费的写原子性 / 完整性（用户 §五 P1-02b/c/d/e）----
+    ("某个写入点绕过唯一写入口，直接给 order.freight_fee 赋值",
+     s_bypass_writer, ("red", "越界")),
+    ("写入口忘了写来源凭据（金额写了、快照没写）",
+     s_drop_snapshot_write, ("red", "快照能恢复")),
+    ("写入口忘了写金额（凭据写了、金额没动）",
+     s_drop_fee_write, ("red", "两位小数")),
+    ("某个写入点把 source 常量改成裸字符串（来源说不清了）",
+     s_bare_source, ("red", "各自说清了")),
+    ("迁移里给老数据回填快照（伪造历史事实）",
+     s_backfill_migration, ("red", "不回填")),
     ("给订单加一列记录计价契约版本（第 4 组必须响）",
      s_order_pricing_kind, ("red", "没有任何**列**记录")),
     ("把账单上的 rule_id 拿掉（账单没法独立复核了）",

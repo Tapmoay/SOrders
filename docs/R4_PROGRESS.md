@@ -61,6 +61,54 @@
 | **P0-1** | `socket_io.py` 升**证据档**：动它的例外必须写全**四格**（证据 / 原因 / 范围 / 影响面运行时证明） | `_check_core_freeze.py` 第 6 组（`_EVIDENCE_REQUIRED`）——复现：`python _tools/qa/_check_core_freeze.py`；反向验证 `python _tools/qa/_reverse_verify_core_freeze.py` → **14/14** |
 | **P0-2** | CI 措辞修正：⛔ 不写「CI 全绿」 | 见本文档「验收矩阵」的**读表须知** |
 
+---
+
+### R4-10 Milestone Tag Grammar v2 —— ✅ 已完成（2026-09-27）
+
+用户 2026-09-27 拍板：「**② 里程碑编号采用 (b)：把 `R4-00…R4-09` 的 10 槽限制正式放宽为
+`R4-00…R4-99`。⛔ 不要选 (a)，也不要用 (c) 冒充 R5。**」
+并要求「**不能只改正则**……这次应该把它作为一个正式的小治理变更：Milestone Tag Grammar v2」。
+
+| 规矩 | 判据在哪 |
+| --- | --- |
+| ① 形状 `R<3-9>-<两位数字>`，且**独立成词**（`R4-100` / `R4-A0` / `R10-01` 都不合法） | `_tools/qa/_milestone_tag.py`（语法**只有这一处定义**，判据与反向验证都 import 它） |
+| ② 每条提交都要有（v1 就有，⛔ 不放宽） | `_check_r3_constraints.py::probe_commit_milestone_tag` |
+| ③ **不许重号**：v2 生效之后每条提交的编号必须唯一 | 同上（从「标题里写着 `Milestone Tag Grammar v2`」那条提交起算，**不翻旧账**） |
+
+出口证据：`python _tools/qa/_reverse_verify_r3_constraints.py` → **19/19**
+（10 种破坏 + **8 条单元断言**）。
+⭐ 那 8 条是这次特意加的：用户点名要的六个样例（`R4-10` / `R4-27` / `R4-99` 必须**合法**；
+`R4-100` / `R4-A0` / `R10-01` 必须**不合法**）只有单元断言证得了 ——
+⛔ **"该允许的必须允许"没法用"注入→变红"来证**：一条把所有东西都判红的正则，在注入测试下是**全绿**的。
+另加两条重号判定（同号两行要报、不重号必须返回空，⛔ 不许乱报）。
+
+⚠️ 编号顺序与用户给的草案差一格（草案 R4-10 = Freight Provenance Schema）：
+**实际施工顺序是先治理后 schema**（用户 §16 的顺序 ①→②），所以 R4-10 落在语法变更上，
+schema 顺延到 R4-11。用户明确说过草案「以真正施工顺序为准」。
+
+---
+
+### R4-11 承运运费来源凭据（freight provenance）—— ⏳ 施工完成 / 发布未做
+
+用户 2026-09-27 拍板：「**① §6 做。**」+ 五条退出条件 P1-02a…e。
+审计（R4-09）查出来的那个缺口：`orders.freight_fee` 有金额、有分类，
+**没记是哪一条价目产生的**，全库也没有任何一处记「按哪一版计价契约算的」。
+
+| 退出条件 | 交付 | 出口（可复现） |
+| --- | --- | --- |
+| **P1-02a Schema** | `orders.freight_rule_snapshot TEXT NULL` + 线上迁移 | `python _tools/ops/_migration_tests.py --fresh/--old/--concurrent/--fail-fast` |
+| **P1-02b Write Atomicity** | 三个写入点都走唯一写入口；全仓 `.freight_fee =` 只许出现在 `order_money.py` | 判据第 3 组；`backend/tests/test_freight_provenance.py` |
+| **P1-02c Provenance Completeness** | 快照能恢复：来源 / 计价方式 / 契约身份与版本 / 计费上下文 / 金额 / **哪一条价目** | 判据第 3 组**现场把写入口跑一遍**（⛔ 不是文本匹配），逐键核 |
+| **P1-02d Legacy Safety** | 老单该列 NULL：读得出、改得动、⛔ **不回填** | 用例 + 判据「迁移**不回填老数据**」 |
+| **P1-02e Reverse Verification** | 缺快照 / 金额与凭据错位 / 绕过写入口 / 来源改裸串 / 回填老数据 —— 各自报红 | `python _tools/qa/_reverse_verify_pricing_provenance.py` → **11/11** |
+
+⛔ **本轮只补「记事实」，不改任何算法**（用户 §14：风险 A「记录事实失败」与
+风险 B「金额变化」不许一起发布、一起排查）。后端用例 **1079 passed**（R4-09 之后 +7）。
+
+⚠️ 顺带记一条**本轮没动的既存观察**：`schemas/order.py::OrderCreate.freight_fee` 是个**没人读的入参**
+—— 下单时传它不会写进订单（真正写运费的是后面三个写入点）。所以"下单就带运费"这件事
+**今天是不生效的**，而客户端看不出来。与本轮改动无关，留给你拍板。
+
 **P0-1 的关键一条**是那两个**成对**的注入：同一份"老式一行声明"，
 对 `business_time.py` **绿**、对 `socket_io.py` **红** ——
 它证明**升的是这一档，不是把判据整体收紧**（用户明确要求：只扩这一项，不重新扩大整个核心区）。

@@ -38,12 +38,42 @@ from app.services.order_flow import split_order
 from app.services.order_flow import assign_driver, lock_order_row, recall_dispatch
 from app.services.accounting_service import BillAlreadySettledError, resync_open_piece_bill
 from app.services.order_response import enrich_order_out, load_order_for_response
+from app.services.order_money import (
+    FREIGHT_SOURCE_ADJUST,
+    FREIGHT_SOURCE_ASSIGN,
+    FREIGHT_SOURCE_MANUAL,
+    record_freight_decision,
+    rule_ref_of_candidate,
+    rule_ref_of_template,
+)
 from app.services import usage_service
 # R3-04-A：每次派单**各开一个命令作用域** —— 一次批量请求会产生 N 个 command_id。
 from app.core import outbox
 from app.core.command_id import command_scope
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _derived_quote_rule(db: Session, order: Order, driver_id: int | None) -> dict | None:
+    """**服务端复算**那一刻的价目匹配结论 → 快照里的 `rule` 那一格（best-effort）。
+
+    ⛔ 为什么可以复算：`services/freight_pricing.quote_for` 是**唯一**的匹配实现，
+    派单弹窗上那个价也是它算出来的 —— 同一份输入（路线 + 分类 + 司机）必然得到同一条价目。
+    所以这里记下来的不是"猜"，是"同一算法在同一时刻的同一个结论"。
+
+    ⛔ 为什么必须 best-effort：来源凭据是**记录**，不是**前置条件** ——
+    它出错绝不能让派单失败（那会把一个审计字段变成钱路上的单点故障）。
+    拿不到就返回 None，快照里如实写 `rule: null`（"没有价目来源"），不编一条出来。
+    """
+    if driver_id is None:
+        return None
+    try:
+        from app.services.freight_pricing import quote_for
+
+        quote = quote_for(db, order, driver_id=int(driver_id))
+    except Exception:  # noqa: BLE001 —— 见上面第二段的理由
+        return None
+    return rule_ref_of_candidate(quote.matched, origin="derived") if quote.matched else None
 
 
 @router.post("/batch-assign", response_model=OrderBatchAssignOut)
@@ -142,11 +172,12 @@ def price_freight(
         if cat is None:
             raise HTTPException(status_code=400, detail="这个运费分类不存在")
         cat_name = cat.name
-    order.freight_fee = body.freight_fee
-    order.freight_category_id = body.category_id
-    order.freight_category = cat_name
+    # ⛔ **金额不在这里写**：承运运费的唯一写入口是 `order_money.record_freight_decision`
+    #    （金额与来源凭据必须同处写；判据 `_check_pricing_provenance.py` 扫全仓的 `.freight_fee =`）。
+    #    它放在下面 —— 要等"这次定价有没有沉淀出一条价目"定下来，来源凭据里才写得进 `rule`。
 
     saved: dict = {}
+    rule: dict | None = None
     if body.save_template:
         # ① 路线：优先用现成的一条（同一终点、且是当前派单员的），没有就建一条
         route = None
@@ -204,6 +235,8 @@ def price_freight(
             saved["template_created"] = tmpl.id
         if body.category_id is not None:
             db.add(FreightTemplateCategory(template_id=tmpl.id, category_id=body.category_id))
+        # 来源凭据里的价目身份：`origin="saved"` = 这次定价**真的**写/改了一条价目（不是复算出来的）
+        rule = rule_ref_of_template(tmpl, origin="saved")
         # ⛔ 价目**不绑司机**（2026-09-21 用户：「运费模板不会去匹配车型也不会匹配司机……
         #    这一目录就归这个计费规则」）。所以"下次自动带价"要落到**规则**上：
         #    这一单的司机有规则 → 把新价目**勾进他的规则**（没有就如实说，不偷偷造规则）。
@@ -222,6 +255,15 @@ def price_freight(
         else:
             saved["rule_not_linked"] = "这一单的司机还没挂计费规则，价目已存好但要有人在他的规则里勾上才会自动带价"
         db.flush()
+
+    record_freight_decision(
+        order,
+        source=FREIGHT_SOURCE_MANUAL,
+        fee=body.freight_fee,
+        category_id=body.category_id,
+        category_name=cat_name,
+        rule=rule,
+    )
 
     # ⚠️ 送达之后才补上运费 → 那张**还没结算**的司机应付明细必须跟着改（2026-09-23 第 6 轮，
     #    实测分叉：明细 300 而结算页/绩效页按新运费重算成 350，两个数都不报错）。
@@ -300,7 +342,16 @@ def assign_order(
     #    口径与紧邻的 `collect_cash` 一致（它有 `is not None` 守卫）：**没传就是不改**。
     #    要真的清掉运费得显式传一个值（现在不允许传 null —— 清运费属于改单，走订单编辑）。
     if body.freight_fee is not None:
-        order.freight_fee = body.freight_fee
+        # ⛔ **唯一写入口**：金额与来源凭据一起落、同一个事务。
+        #    这一步**不碰分类**（派单不带分类）—— 所以原样把它自己传回去。
+        record_freight_decision(
+            order,
+            source=FREIGHT_SOURCE_ASSIGN,
+            fee=body.freight_fee,
+            category_id=order.freight_category_id,
+            category_name=order.freight_category,
+            rule=_derived_quote_rule(db, order, body.driver_id),
+        )
     if body.collect_cash is not None:
         order.collect_cash = body.collect_cash
     # 派单记一次「这个派单员常用这位司机」（2026-09-22 统一规则：挑人的列表也按常用度排）。
@@ -365,7 +416,21 @@ def update_order_freight(
     if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
         raise HTTPException(status_code=400, detail="已送达或已撤销的订单不可修改运费")
     old = order.freight_fee
-    order.freight_fee = body.freight_fee
+    # ⛔ **唯一写入口**：金额与来源凭据一起落。
+    #    传 `null` 清空运费时凭据**一起清空**（不变量 2：同生共死）——
+    #    "金额没有了、来源还挂着"会让下一个人以为这笔钱还在。
+    record_freight_decision(
+        order,
+        source=FREIGHT_SOURCE_ADJUST,
+        fee=body.freight_fee,
+        category_id=order.freight_category_id,
+        category_name=order.freight_category,
+        rule=(
+            _derived_quote_rule(db, order, order.driver_id)
+            if body.freight_fee is not None
+            else None
+        ),
+    )
     write_log(
         db,
         operator_id=current.id,

@@ -20,6 +20,26 @@
 
 ## 进行中
 
+### [2026-09-27 09:1x → 进行中] 会话：**R4-11 承运运费来源凭据（freight provenance）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【进行中】
+
+**依据**：用户 2026-09-27 拍板「**① §6 做。**」+ 五条退出条件 P1-02a…e。
+审计结论（R4-09）说清了这个缺口：`orders.freight_fee` 有金额、有分类，
+**没记是哪一条价目产生的**，全库也没有任何一处记「按哪一版计价契约算的」。
+
+核心改动：backend/app/services/order_money.py —— 为什么必须动核心：承运运费的**唯一写入口**收在这里（金额与来源凭据必须同处写，否则「改了金额没改快照」永远查不出来）
+核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：新增 orders.freight_rule_snapshot 列必须走线上迁移的唯一入口；⛔ 且**不许回填老数据**（倒推历史 = 伪造历史事实）
+
+**本轮改哪些文件**：
+- `backend/app/services/order_money.py`（核心）：`record_freight_decision` —— 金额 + 分类 + 来源凭据一起落
+- `backend/app/core/schema_bootstrap.py`（核心）：`ALTER TABLE orders ADD COLUMN freight_rule_snapshot TEXT`
+- `backend/app/models/order.py` / `backend/app/api/v1/orders_assignment.py`（三个写入点）
+- `_tools/qa/_check_pricing_provenance.py` + `_tools/qa/_reverse_verify_pricing_provenance.py` + 后端用例
+
+**明确不碰**：不改任何**算法**（金额一分不变）—— 这一轮只补「记事实」，
+换算法是 R4-P2 的事（用户 §14：风险 A「记录事实失败」与风险 B「金额变化」不许一起发布）。
+
+---
+
 ### [2026-09-27 08:0x → 已完成] 会话：**R4-PROD-INTEGRATION · P0 治理收口 + P1① 计价事实审计**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）【已完成，提交 `84beca6` / `3537d57` / `dfdac3d`】
 
 **依据**：用户 2026-09-27 的拍板 —— R4 拆成**两个命题**：

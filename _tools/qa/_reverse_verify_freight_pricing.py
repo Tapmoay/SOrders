@@ -124,8 +124,13 @@ MUTATIONS = [
     (
         "手动定价顺手改异常标记（异常页再也看不清）",
         ORDERS_A,
-        "    order.freight_fee = body.freight_fee\n    order.freight_category_id = body.category_id",
-        "    order.is_exception = True\n    order.freight_fee = body.freight_fee\n    order.freight_category_id = body.category_id",
+        # ⚠️ 锚点重指（R4-11，2026-09-27）：原来指的是 `order.freight_fee = body.freight_fee` 那两行，
+        #    而承运运费的写入已经收进唯一写入口（`order_money.record_freight_decision`）——
+        #    那两行在文件里**不存在了**，这条注入于是恒 SKIP（`_check_reverse_verify_anchors.py` 当场点出）。
+        #    ⛔ 只改锚点、**不动判据**：判据仍然是"手动定价那一段里没有 `is_exception = True`"。
+        "    record_freight_decision(\n        order,\n        source=FREIGHT_SOURCE_MANUAL,",
+        "    order.is_exception = True\n"
+        "    record_freight_decision(\n        order,\n        source=FREIGHT_SOURCE_MANUAL,",
         "手动定价那一段里没有 `is_exception = True`",
     ),
     (

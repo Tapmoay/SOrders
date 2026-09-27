@@ -38,12 +38,14 @@
   退款的判据只有 `biz_type == REFUND_CUSTOMER` 一条，用"所有 OUT"会把货损当成退给客户的钱。
 """
 
+import json
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.models import CashFlow, Ledger, Order, OrderProduct
 from app.models.enums import CashFlowBizType, LedgerSource
 
@@ -205,3 +207,175 @@ def money_map(db: Session, orders: list[Order], *, lock: bool = False) -> dict[i
 def money_of(db: Session, order: Order, *, lock: bool = False) -> OrderMoney:
     """单张订单的钱（**列表请用 [money_map]**，别在循环里调它）。"""
     return money_map(db, [order], lock=lock)[order.id]
+
+
+# ---------------------------------------------------------------------------
+# 承运运费的**来源凭据**（freight provenance）—— R4-11
+#
+# 用户 2026-09-27 拍板（§6）：历史承运运费缺少 provenance ——「金额有、分类有，
+# **没记是哪一条价目产生的**」，也没有记按哪一版契约算的。所以从这一版起：
+#
+#     一笔承运运费 = 金额 + **它凭什么**
+#
+# ## 三条不变量（这一段存在的全部理由）
+#
+# 1. **同一处写**：`orders.freight_fee` **只许在本文件里被赋值**（判据扫全仓）。
+#    写它的那条路必须**同时**写 `freight_rule_snapshot` —— 同一事务、同一个决定。
+#    ⛔ 不许出现"改了金额没改快照""改了快照金额没动""先改金额、事后再异步补来源"。
+# 2. **同生共死**：`freight_fee is None` ⟺ `freight_rule_snapshot is None`（新数据）。
+#    ⛔ **老数据（R4-11 之前落库的）不补** —— 那时候确实没有记来源，
+#    拿今天的价目表倒推历史 = **伪造历史事实**（用户原话：「千万不要猜着补快照」）。
+# 3. **每次写金额 = 一次新的定价决定**：快照描述的是"**当前这个金额**凭什么"，
+#    所以重新定价 / 改分类 / 事后补录时**整份替换**，既不合并也不追加。
+#    改动历史不在这里 —— 它在 `operation_logs`（`ORDER_FREIGHT` / `ORDER_FREIGHT_PRICE`）。
+#
+# ## 快照里有什么（少一样就回答不了"这个数凭什么"）
+#
+# | 键 | 回答什么 |
+# | --- | --- |
+# | `source` | 这一次是**怎么产生的**（手动定价 / 派单定价 / 事后补录） |
+# | `rule` | 用了**哪一条价目**（含它当时的金额 + "这条是怎么拿到的"）—— 空 = 没有价目 |
+# | `pricing.kind` | 用了**什么计价方式**（R4-05 那个数据级选择器） |
+# | `pricing.contract` | 属于**哪一版计价契约**（用 R4-02 的身份规范：name + version） |
+# | `category` | 这一单按**哪一类货**算的 |
+# | `fee` | 这次决定算出来的**金额**（必须等于 `orders.freight_fee`） |
+# | `at` | 决定时刻（UTC naive，与全库时间口径一致） |
+#
+# ⚠️ 生产今天跑的**不是** PricingContract 扩展（那是 R4 的演练产物），而是核心的价目匹配
+#    （`services/freight_pricing.quote_for`）—— 所以这里**如实**写
+#    `kind="freight_template"` + `contract={"name": "FreightPricingCore", ...}`。
+#    ⛔ 编一个 "PricingContract v1" 写上去就是**记假事实**：那会让以后的读者以为这一笔是扩展算的。
+#    扩展真的接上生产钱路时（R4-P2），这两个值必须**一起**改 —— 那正是它们存在的意义。
+# ---------------------------------------------------------------------------
+
+#: 这一次运费是**怎么产生的**（写进快照，不是给人看的枚举名 —— 界面别直接显示它）。
+FREIGHT_SOURCE_MANUAL = "manual"    # 派单员手动定价（没匹配到价目那条路）
+FREIGHT_SOURCE_ASSIGN = "assign"    # 派单时带上了运费
+FREIGHT_SOURCE_ADJUST = "adjust"    # 事后补录 / 修改运费
+
+#: 今天生产上**真正在跑**的计价方式，以及它所属的契约身份。
+#: ⛔ 只改这里就能改声明 —— 但改之前先确认钱路真的变了（否则就是在记假事实）。
+FREIGHT_PRICING_KIND = "freight_template"
+FREIGHT_PRICING_CONTRACT_NAME = "FreightPricingCore"
+FREIGHT_PRICING_CONTRACT_VERSION = 1
+
+#: 快照自己的版本（将来加字段时用它区分"这份快照按哪一版格式写的"）。
+FREIGHT_PROVENANCE_V = 1
+
+
+def freight_provenance_of(order) -> dict:
+    """订单上那份**承运运费来源凭据**（没记过就返回 `{}`）。
+
+    ⛔ 坏掉的快照当"没有"（返回 `{}`），**不抛** —— 与 `driver_pay.rule_from_snapshot` 同一条口径：
+    一份脏 JSON 不该让订单详情整页 500。
+    """
+    raw = getattr(order, "freight_rule_snapshot", None)
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def rule_ref_of(
+    *,
+    origin: str,
+    template_id,
+    template_name: str = "",
+    price_name: str = "",
+    route: str = "",
+    fee=None,
+) -> dict:
+    """价目的身份 → 快照里的 `rule` 那一格。
+
+    `origin` 必须如实说清这条价目是**怎么拿到的**：
+    · `"saved"`   = 这一次定价真的写/改了一条价目（手动定价 + 沉淀那条路）；
+    · `"derived"` = **服务端在那一刻按同一个匹配算法复算出来的**（派单 / 补录时客户端没带价目）。
+    ⛔ 两种都不能省：少了它，"这条价目到底是谁挑的"就说不清了。
+
+    `fee` 记的是**那一刻**这条价目的金额 —— 价目后来被改价时，
+    这一格就是"当时凭什么"的唯一凭据（历史单不引用活价目）。
+    """
+    return {
+        "template_id": int(template_id) if template_id is not None else None,
+        "template_name": template_name or "",
+        "price_name": price_name or "",
+        "route": route or "",
+        "fee": None if fee is None else str(q2(fee)),
+        "origin": origin,
+    }
+
+
+def rule_ref_of_candidate(candidate, *, origin: str) -> dict:
+    """`services/freight_pricing.Candidate`（一次匹配的结论）→ 快照里的 `rule`。"""
+    return rule_ref_of(
+        origin=origin,
+        template_id=getattr(candidate, "template_id", None),
+        template_name=getattr(candidate, "name", "") or "",
+        price_name=getattr(candidate, "price_name", "") or "",
+        route=getattr(candidate, "route", "") or "",
+        fee=getattr(candidate, "fee", None),
+    )
+
+
+def rule_ref_of_template(t, *, origin: str) -> dict:
+    """一条**价目行**（`models.freight_template.FreightTemplate`）→ 快照里的 `rule`。
+
+    ⛔ 刻意不 import 那个模型：这里只按属性取值，免得"钱的口径"这个模块
+    因为一个只读的身份转换而多背一条模型依赖。
+    """
+    f = (getattr(t, "from_place", "") or "").strip()
+    o = (getattr(t, "to_place", "") or "").strip()
+    return rule_ref_of(
+        origin=origin,
+        template_id=getattr(t, "id", None),
+        template_name=getattr(t, "name", "") or "",
+        price_name=getattr(t, "price_name", "") or "",
+        route=(f + " → " + o) if f else o,
+        fee=getattr(t, "fee", None),
+    )
+
+
+def record_freight_decision(
+    order,
+    *,
+    source: str,
+    fee,
+    category_id: int | None = None,
+    category_name: str = "",
+    rule: dict | None = None,
+) -> None:
+    """**写承运运费的唯一入口**：金额、分类与它的来源凭据一起落。
+
+    ⛔ 全仓库不许在别处写 `order.freight_fee` —— 判据 `_check_pricing_provenance.py`
+    扫全仓的 `.freight_fee =` 赋值，只允许出现在本文件里。
+    （理由与 `driver_pay` 那条一样：口径一旦有两个写入口，迟早会出现
+      "账单 120、订单 135" 这种**两边都不报错**的分叉。）
+
+    `fee=None` = 把这一笔清掉（回到"运费待定"）：那时凭据**一起清空** —— 不变量 2。
+    """
+    fee2 = None if fee is None else q2(Decimal(fee))
+    order.freight_fee = fee2
+    order.freight_category_id = category_id
+    order.freight_category = (category_name or "")[:32]
+    if fee2 is None:
+        order.freight_rule_snapshot = None
+        return
+    payload = {
+        "v": FREIGHT_PROVENANCE_V,
+        "at": utc_now_naive().isoformat(timespec="seconds"),
+        "source": source,
+        "fee": str(fee2),
+        "category": {"id": category_id, "name": category_name or ""},
+        "rule": rule or None,
+        "pricing": {
+            "kind": FREIGHT_PRICING_KIND,
+            "contract": {
+                "name": FREIGHT_PRICING_CONTRACT_NAME,
+                "version": FREIGHT_PRICING_CONTRACT_VERSION,
+            },
+        },
+    }
+    order.freight_rule_snapshot = json.dumps(payload, ensure_ascii=False)

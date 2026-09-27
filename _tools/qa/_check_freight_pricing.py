@@ -215,8 +215,15 @@ def main() -> int:
     c.present("待定价的口径在订单列表上（已派单 + 没运费）",
               files["orders"], r"Order\.freight_fee\.is_\(None\)")
     c.present("手动定价端点", files["orders"], r"def price_freight\(")
+    # ⚠️ 判据跟着**代码形状**走（R4-11，2026-09-27）：承运运费的写入收进了唯一写入口
+    #    `order_money.record_freight_decision`（金额与来源凭据必须同处写），
+    #    所以"定价会写分类"这件事现在表现为**调用写入口时把分类传进去**。
+    #    ⛔ 判的仍是同一件事（编号 + 名字快照都要落到订单上），只是换了形状 ——
+    #    不是放宽：下面**两条**都要在，少一条这一项照样红。
     c.present("定价会写分类（编号 + 名字快照）",
-              files["orders"], r"order\.freight_category_id = body\.category_id")
+              files["orders"], r"category_id=body\.category_id")
+    c.present("定价会把分类名的快照一起写下来",
+              files["orders"], r"category_name=cat_name")
     c.present("可选沉淀：建/找**线路**", files["orders"], r'saved\["route_created"\] = route\.id')
     c.present("可选沉淀：建/改**价目**并绑分类",
               files["orders"], r"FreightTemplateCategory\(template_id=tmpl\.id")
