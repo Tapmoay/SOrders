@@ -29,6 +29,7 @@ DRIVER_PAY = ROOT / "backend/app/services/driver_pay.py"
 ORDER_MONEY = ROOT / "backend/app/services/order_money.py"
 ASSIGN_API = ROOT / "backend/app/api/v1/orders_assignment.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
+MIGRATION_009 = ROOT / "backend/app/migrations/009_freight_rule_snapshot.py"
 
 ANCHOR_RULE_SNAP = '    driver_rule_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)\n'
 ANCHOR_BILL_RULE_ID = '    rule_id: Mapped[int | None] = mapped_column(nullable=True, index=True)\n'
@@ -117,9 +118,11 @@ def s_bare_source(sb: Sandbox) -> None:
 
 #: 回填那一行注入的原文（⛔ 用 chr() 拼引号，不然这段"注入的源码"自己先被引号绕晕 ——
 #: 第一版就是那么写的，Python 当场 SyntaxError: unmatched ')'）。
-_ALTER_LINE = '                    conn.execute(text("ALTER TABLE orders ADD COLUMN freight_rule_snapshot TEXT"))'
+#: ⚠️ 锚点从 schema_bootstrap **重指到 009 迁移**（R4-11 当天）：这一列按分工挪进了
+#: migrations/（正式变更），bootstrap 那处已删 —— 锚点不跟着走，这条注入会恒 SKIP。
+_ALTER_LINE = '        conn.execute(text(f"ALTER TABLE {TABLE} ADD COLUMN {COLUMN} TEXT"))'
 _BACKFILL_LINE = (
-    "                    conn.execute(text("
+    "        conn.execute(text("
     + chr(34) + "UPDATE orders SET freight_rule_snapshot = " + chr(39) + "{}" + chr(39)
     + " WHERE freight_fee IS NOT NULL" + chr(34) + "))  # rv-injection"
 )
@@ -127,7 +130,7 @@ _BACKFILL_LINE = (
 
 def s_backfill_migration(sb: Sandbox) -> None:
     """迁移里给**老数据回填**快照 —— 用户 §3 最怕的那件事：伪造历史事实。"""
-    sb.replace(BOOTSTRAP, _ALTER_LINE + chr(10), _ALTER_LINE + chr(10) + _BACKFILL_LINE + chr(10))
+    sb.replace(MIGRATION_009, _ALTER_LINE + chr(10), _ALTER_LINE + chr(10) + _BACKFILL_LINE + chr(10))
 
 
 def s_order_pricing_kind(sb: Sandbox) -> None:

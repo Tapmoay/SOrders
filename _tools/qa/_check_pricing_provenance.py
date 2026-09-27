@@ -84,6 +84,8 @@ DRIVER_PAY = BACKEND / "app" / "services" / "driver_pay.py"
 ORDER_MONEY = BACKEND / "app" / "services" / "order_money.py"
 ASSIGN_API = BACKEND / "app" / "api" / "v1" / "orders_assignment.py"
 BOOTSTRAP = BACKEND / "app" / "core" / "schema_bootstrap.py"
+MIGRATIONS = BACKEND / "app" / "migrations"
+MIGRATION_009 = MIGRATIONS / "009_freight_rule_snapshot.py"
 
 #: 承运运费的**唯一写入口**所在文件（判据 3b：全仓 `.freight_fee =` 只许出现在这里）。
 FREIGHT_WRITE_ALLOWED = {"backend/app/services/order_money.py"}
@@ -384,12 +386,22 @@ def main() -> int:
        freight_provenance_of(_FakeOrder()) == {})
 
     # 3f 迁移在，而且**不回填**
-    sb = BOOTSTRAP.read_text(encoding="utf-8")
-    ok("schema_bootstrap 里加了这一列（线上迁移的唯一入口）",
-       "ADD COLUMN freight_rule_snapshot TEXT" in sb)
+    # ⚠️ 机制选择是判据的一部分（R4-11 当天改过一次）：migrations/README.md 的分工是
+    #    「**正式变更**走 migrations/、**运行时自愈**走 schema_bootstrap」，
+    #    加一列是正式变更 ⇒ 它必须是一条迁移。⛔ 两处都写 = 同一个事实两个来源。
+    mig = MIGRATION_009.read_text(encoding="utf-8")
+    ok("009_freight_rule_snapshot 迁移里加了这一列（正式变更走 migrations/）",
+       "freight_rule_snapshot" in mig and "ADD COLUMN" in mig)
+    ok("⛔ schema_bootstrap 里**没有**重复这一列（否则就成了两个来源）",
+       "ADD COLUMN freight_rule_snapshot" not in BOOTSTRAP.read_text(encoding="utf-8"),
+       "bootstrap 是**运行时自愈**，正式变更不该落在那里（migrations/README.md 的分工）")
+    # 回填要**全目录**扫：只扫一个文件的话，换个地方偷偷 UPDATA 一下就绕过去了
+    mig_text = "\n".join(p.read_text(encoding="utf-8")
+                            for p in sorted((BACKEND / "app" / "migrations").glob("*.py")))
+    all_ddl = mig_text + "\n" + BOOTSTRAP.read_text(encoding="utf-8")
     ok("迁移**不回填老数据**（用户 §3：猜着补快照 = 伪造历史事实）",
-       not re.search(r"UPDATE\s+orders\s+SET[^\n]*freight_rule_snapshot", sb, re.I),
-       "迁移里出现了回填语句 —— 那会把「当时的价目」编出来")
+       not re.search(r"UPDATE\s+orders\s+SET[^\n]*freight_rule_snapshot", all_ddl, re.I),
+       "出现了回填语句 —— 那会把「当时的价目」编出来")
 
     # 3g 旁证：价目身份**在派单那一刻是拿得到的**（所以当年那个缺口是"被丢掉了"，不是"没有"）
     fp = (BACKEND / "app" / "services" / "freight_pricing.py").read_text(encoding="utf-8")

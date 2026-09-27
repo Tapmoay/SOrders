@@ -23,7 +23,7 @@
 | **Git SHA** | `e98c7d7ecc71179254f26920bafe018b6ad4bf1f`（**本次发布点**；分支 `p` → `origin/new`，已推） | `git rev-parse HEAD` |
 | **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空** | `git diff --stat <Git SHA>..HEAD -- backend/` |
 | 提交时刻 | 2026-09-26T16:59:56+08:00 | `git log -1 --format=%cI` |
-| **DB migration version** | **8**（`001_baseline` … `008_operation_log_command_id`） | `python -c "import sys;sys.path.insert(0,'_tools/ops');import _prod_smoke as s;print(s.repo_migration_head())"` |
+| **DB migration version** | **9**（`001_baseline` … `009_freight_rule_snapshot`，R4-11 加的承运运费来源凭据） | `python -c "import sys;sys.path.insert(0,'_tools/ops');import _prod_smoke as s;print(s.repo_migration_head())"` |
 | **Android 版本** | 产品 **0.2.4**（唯一来源＝仓库根 `VERSION`）＋构建号（日期式 `yyyyMMdd * 100 + 当日序号`） | `Get-Content VERSION` ／ `android/app/build.gradle.kts` |
 | **Backend 版本** | `app_version` = **0.2.4**（`config._repo_version()` 现读同一个 `VERSION`）；⚠️ OpenAPI `info.version` 仍是 `0.1.0`（没跟产品版本走，如实记） | `backend/app/config.py` |
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |
