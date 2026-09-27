@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "R4-21 Canary 上生产（观察窗口）",
+  "created_utc": "2026-09-27T05:03:09Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260927T050259Z",
+  "code": {
+    "commit": "ca5e49f755497e6719aa5c2da79bbf9fd39e35be",
+    "branch": "",
+    "dirty_files": 8
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": 9,
+    "rows": {
+      "orders": 2403,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 48
+    }
+  },
+  "uploads": {
+    "bytes": 105224536,
+    "files": 2110
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 530496,
+      "sha256": "b2a076e65fa91c86ec206cfb8c5722ddef7bc81e113d4df976901ea5ed11219c"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105224536,
+      "sha256": "2205cbd690faccd0177eed4553a564b18d67e42d79486538650dee0ec0bbc870"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}
