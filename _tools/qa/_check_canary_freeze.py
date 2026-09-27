@@ -57,6 +57,35 @@ def ok(label: str, cond: bool) -> bool:
     return cond
 
 
+def _call_blocks(text: str, name: str) -> list[str]:
+    """把 name( ... ) 的**实参整段**抠出来（按括号配对，⛔ 不是切固定长度）。
+
+    ⚠️ 为什么不用"往后取 500 个字符"：那种写法在"这个调用后面正好还有别的调用"时
+    会把别人的参数算进来 —— 判据会因此**假绿**。
+    """
+    out: list[str] = []
+    i = 0
+    while True:
+        i = text.find(name + "(", i)
+        if i < 0:
+            return out
+        # ⛔ 跳过**定义**那一行（`def record_freight_decision(` 也匹配这个形状 ——
+        #    第一版就是这么把定义处当成"第 4 个写入口"的）。
+        if text[max(0, i - 4):i].rstrip().endswith("def"):
+            i += len(name) + 1
+            continue
+        j = i + len(name) + 1
+        depth = 1
+        while j < len(text) and depth:
+            if text[j] == "(":
+                depth += 1
+            elif text[j] == ")":
+                depth -= 1
+            j += 1
+        out.append(text[i:j])
+        i = j
+
+
 def main() -> int:
     check = "--check" in sys.argv
     for p in (RUNTIME, ORDER_MONEY, TESTS):
@@ -143,9 +172,45 @@ def main() -> int:
     ok("那条铁律点名了 ⑧-a 出口条件 ③ / CANARY_DECISION_FREEZE",
        "CANARY_DECISION_FREEZE" in rt)
 
+    if not check:
+        print("== 6. ⑧-a 出口条件 ⑦：退回必须**留下记录**（⛔ 不许静默退回）==")
+
+    callers: list[tuple[str, str]] = []
+    for p in sorted((BACKEND / "app").rglob("*.py")):
+        txt = p.read_text(encoding="utf-8")
+        for block in _call_blocks(txt, "record_freight_decision"):
+            if block.startswith("record_freight_decision("):
+                callers.append((str(p.relative_to(ROOT)).replace("\\", "/"), block))
+
+    ok("全仓**恰好 3 处**写运费决策（手动定价 / 派单 / 补录）", len(callers) == 3)
+    if len(callers) != 3:
+        print("        ⛔ 实际：" + ", ".join(c[0] + " ×1" for c in callers))
+    ok("三处都在 orders_assignment.py（⛔ 别的地方不许自己写钱）",
+       {c[0] for c in callers} == {"backend/app/api/v1/orders_assignment.py"})
+    missing = [c[0] for c in callers if "reason=" not in c[1]]
+    ok("**每一处**都把 reason 传进去了（否则就是一条没有记录的退回）", not missing)
+    if missing:
+        print("        ⛔ 没传的：" + ", ".join(missing))
+    ok("**每一处**都把 kind / agreed / override 也传进去了",
+       all(all(k in c[1] for k in ("kind=", "agreed=", "override=")) for c in callers))
+
+    assign = (BACKEND / "app" / "api" / "v1" / "orders_assignment.py").read_text(encoding="utf-8")
+    not_via_decide = [c[0] for c in callers
+                      if "_freight_decision(" not in assign[max(0, assign.find(c[1]) - 400):
+                                                          assign.find(c[1])]]
+    ok("**每一处**都先经过组装点（_freight_decision 就在它上一行）", not not_via_decide)
+
+    decide_body2 = rt[rt.find("def decide("):]
+    returns = _call_blocks(decide_body2, "FreightDecision")
+    ok("组装点的**每一条** return 都带 reason（⛔ 空串会让快照少一格）",
+       bool(returns) and all("reason=" in b for b in returns))
+    ok("空 reason **不写进快照**（⛔ 不是写一个空串装作有记录）",
+       "**({\"reason\": reason} if reason else {})" in om)
+
     if check:
         print(("✅" if not fails else "❌")
-              + " Canary 决策冻结：冻结在比例之前、组装点唯一、读冻结唯一、6 条单测在"
+              + " Canary 决策冻结 + 无静默退回：冻结在比例之前、组装点唯一、读冻结唯一、"
+              + "3 处写入口全带 reason、单测在"
               + ("" if not fails else "；" + str(len(fails)) + " 项不通过"))
     if fails:
         print("")

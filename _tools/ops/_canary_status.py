@@ -44,6 +44,31 @@ import _prodssh  # noqa: E402
 
 DB = _prodssh.DB_NAME
 
+# ---------------------------------------------------------------------------
+# ⑧-a 观察窗口的**预注册门槛**（用户 §8：「达到预先定义的最小样本量 → 检查」）
+#
+# ⛔ 这几个数字的**唯一来源就是这里** —— 文档只写口径与理由，不抄数字。
+# ⛔ 它们在**观察之前**就写死：不写死的话，"看多少算够"就会变成事后找理由。
+# ---------------------------------------------------------------------------
+#: 桶内决策（真的被 canary 抽中的那些）至少要这么多笔。
+WINDOW_MIN_IN_BUCKET = 20
+#: 决策总数（含没被抽中的）至少要这么多笔。
+WINDOW_MIN_TOTAL = 40
+#: 桶内退回比例的上限（退回可以有，但不能"配着却几乎一次都没用上"）。
+WINDOW_MAX_FALLBACK_RATIO = 0.8
+#: 观察期内**一个都不许出现**的原因码（它们都是有具体故障含义的）。
+WINDOW_FORBIDDEN_REASONS = ("error", "ambiguous")
+
+
+def _arg(flag: str) -> str:
+    """取 --flag value（没给就返回空串）。"""
+    argv = sys.argv
+    return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else ""
+
+
+#: 观察窗口起点（YYYY-MM-DD）。⛔ 不给就**只看历史累计**，那种数字不许当窗口结论。
+SINCE = _arg("--since")
+
 #: 远端只跑这一段（heredoc 用**带引号**的分隔符：外层的 bash 一个字符都不许展开）。
 REMOTE = r"""set +e
 @PY@ - <<'PYEOF'
@@ -80,7 +105,8 @@ print("COLUMN|" + (sql("select count(*) from information_schema.columns where ta
                       + "' and table_name='orders' and column_name='freight_rule_snapshot'") or "?"))
 rows = sql("select coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.kind')), '(none)'), "
            "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.reason')), '(none)'), "
-           "count(*) from " + DB + ".orders where freight_rule_snapshot is not null group by 1, 2 order by 3 desc")
+           "count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
+           + "@SINCE@" + " group by 1, 2 order by 3 desc")
 for ln in rows.splitlines():
     if ln.strip():
         print("DECISION|" + ln.replace(chr(9), "|"))
@@ -92,7 +118,10 @@ PYEOF"""
 # ⚠️ 远端那一段**必须**用 venv 里那个 python：生产机上 /usr/bin/python3 是 **3.6**，
 #    连 subprocess 的 capture_output 都没有（第一版就栽在这上面：
 #    TypeError: __init__() got an unexpected keyword argument 'capture_output'）。
-_REMOTE = REMOTE.replace("@PY@", _prodssh.VENV_PY)
+# 观察窗口起点：快照里的 `pricing.at` 是 UTC 的 ISO 字符串（秒精度），可以直接按字典序比。
+_SINCE_SQL = ("" if not SINCE else
+              " and json_unquote(json_extract(freight_rule_snapshot, '$.at')) >= '" + SINCE + "T00:00:00'")
+_REMOTE = REMOTE.replace("@PY@", _prodssh.VENV_PY).replace("@SINCE@", _SINCE_SQL)
 
 
 def main() -> int:
@@ -200,6 +229,42 @@ def main() -> int:
         print("           这就是「系统看起来正常、其实 Canary 没在跑」那种假稳定。")
     elif target > 0 and not decisions:
         print("        ⚠️ 还没有任何决策记录 —— 观察窗口还没开始，别把「没有数据」读成「没问题」。")
+
+    # ---------------- ⑧-a 观察窗口（预注册门槛见文件头那几个常量）----------------
+    contract = sum(n for k, _r, n in decisions if k == "freight_template")
+    fell_back = sum(n for k, r, n in decisions
+                    if k == "legacy_client" and r not in ("(none)", "ok"))
+    not_in_bucket = sum(n for k, r, n in decisions if k == "legacy_client" and r == "ok")
+    stale = sum(n for k, r, n in decisions if r == "(none)")
+    in_bucket = contract + fell_back
+
+    print("")
+    print("[观察窗口] 四分类（口径按 pricing.reason 判，⛔ 不是按我猜）")
+    print("        契约算出来        contract        " + str(contract))
+    print("        桶内退回（带原因） fell_back       " + str(fell_back))
+    print("        没被抽中          not_in_bucket   " + str(not_in_bucket))
+    print("        旧式快照（无原因） stale           " + str(stale)
+          + "   ← 只该来自 R4-22 之前，观察期内**新增**任何一个都是问题")
+    if not SINCE:
+        print("        ⚠️ 没给 --since：上面是**历史累计**，⛔ 不能当观察窗口的结论。")
+        print("           发布之后跑：python _tools/ops/_canary_status.py --since <发布日>")
+        window_ok = None
+    else:
+        ratio = (fell_back / in_bucket) if in_bucket else None
+        crit = [
+            ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL),
+             in_bucket >= WINDOW_MIN_IN_BUCKET and (contract + fell_back + not_in_bucket) >= WINDOW_MIN_TOTAL),
+            ("契约真的被用上了（contract ≥ 1）", contract >= 1),
+            ("没有一个 " + " / ".join(WINDOW_FORBIDDEN_REASONS),
+             not any(r in WINDOW_FORBIDDEN_REASONS for _k, r, _n in decisions)),
+            ("桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO),
+             ratio is not None and ratio <= WINDOW_MAX_FALLBACK_RATIO),
+            ("观察期内**没有**新增无原因的旧式快照", stale == 0),
+        ]
+        for label, c in crit:
+            print("        " + ("✅ " if c else "⛔ ") + label)
+        window_ok = all(c for _l, c in crit)
+        print("        ⇒ 观察窗口 = " + ("通过" if window_ok else "**还没通过**（⛔ 不许「再看看」）"))
 
     if strict and state != "ACTIVE":
         return 1

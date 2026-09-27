@@ -420,3 +420,48 @@ def test_派单前先手动定价会把来源提前冻住_这是有意的(client
     assert r.status_code in (200, 201), r.text
     assert _snapshot(db_session, oid)["pricing"]["kind"] == "legacy_client", \
         "提前冻住：已经形成过的来源不许在派单时被换掉"
+
+
+def test_每一条决策都带得出原因码(client, db_session, token_dispatcher, monkeypatch):
+    """⛔ ⑧-a 出口条件 ⑦：**允许退回，但不许没有记录地退回**。
+
+    三种情形各走一遍，看组装点有没有哪一次给出空原因码（空 = 库里少一格 = 静默）：
+      ① 不在 canary 桶里（比例 0）—— 也要留 ok，⛔ 不是「没记录」；
+      ② 在桶里、契约算得出来；
+      ③ 在桶里、契约算不出来（这个司机没挂规则）—— 退回**必须带得出是哪一种**。
+    """
+    from app.core.pricing_runtime import REASON_TEXT
+
+    h = auth_headers(token_dispatcher)
+
+    _pin_canary(monkeypatch, 0)
+    oid = _mk_order(client, h)
+    did = _mk_driver(client, h)
+    r = client.post(f"/api/v1/orders/{oid}/assign",
+                    json={"driver_id": did, "freight_fee": "120"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    p1 = _snapshot(db_session, oid)["pricing"]
+    assert p1.get("reason"), "① 不在桶里也要留下原因码（ok）：" + str(p1)
+    assert p1["reason"] in REASON_TEXT, p1
+
+    _pin_canary(monkeypatch, 100)
+    oid2 = _mk_order(client, h)
+    did2 = _mk_driver(client, h)
+    cat_id = _seed_price_world(db_session, address="组装点探针路 1 号", fee="135", driver_id=did2)
+    _set_category_only(db_session, oid2, cat_id)
+    r = client.post(f"/api/v1/orders/{oid2}/assign",
+                    json={"driver_id": did2, "freight_fee": "135"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    p2 = _snapshot(db_session, oid2)["pricing"]
+    assert p2["kind"] == "freight_template", p2
+    assert p2.get("reason") in REASON_TEXT, "② " + str(p2)
+
+    oid3 = _mk_order(client, h)
+    did3 = _mk_driver(client, h)          # 这个司机**没挂规则** ⇒ 契约必然算不出来
+    r = client.post(f"/api/v1/orders/{oid3}/assign",
+                    json={"driver_id": did3, "freight_fee": "120"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    p3 = _snapshot(db_session, oid3)["pricing"]
+    assert p3["kind"] == "legacy_client", p3
+    assert p3["reason"] == "no_candidates", "③ 退回必须带得出是哪一种：" + str(p3)
+    assert "契约没算出结论" in p3.get("note", ""), p3

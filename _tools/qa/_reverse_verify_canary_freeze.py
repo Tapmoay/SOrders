@@ -140,6 +140,45 @@ def s_drop_header_rule(sb):
     sb.replace(RUNTIME, "**不许让比例变化改掉**", "**（这条被删了）**")
 
 
+# ⚠️ 缩进要跟源码一致：派单那一处在 `if body.freight_fee is not None:` 里面，是 **12 格**
+#    （第一版按 8 格写，assert 当场说"原文出现 0 次"）。
+ASSIGN_TAIL = (
+    "            override=d.override,\n"
+    "            reason=d.reason,\n"
+    "            note=d.note,\n"
+    "        )\n"
+    "    if body.collect_cash is not None:"
+)
+ADJUST_HEAD = (
+    "    d = _freight_decision(db, order, order.driver_id, body.freight_fee)\n"
+    "    record_freight_decision(\n"
+    "        order,\n"
+    "        source=FREIGHT_SOURCE_ADJUST,"
+)
+LEGACY_RETURN = "        return FreightDecision(kind=KIND_LEGACY, rule=rule, reason=REASON_OK)"
+
+
+def s_call_site_without_reason(sb):
+    """某一个写入点**忘了传 reason** —— 退回了，但库里看不出来为什么。"""
+    sb.replace(ASSIGN_API, ASSIGN_TAIL,
+               ASSIGN_TAIL.replace("            reason=d.reason,\n", ""))
+
+
+def s_call_site_bypasses_root(sb):
+    """某一个写入点**绕过组装点**（不调 _freight_decision）—— 决策就不再唯一了。"""
+    sb.replace(ASSIGN_API, ADJUST_HEAD,
+               "    d = None  # rv-injection 绕过组装点\n"
+               + "    record_freight_decision(\n"
+               + "        order,\n"
+               + "        source=FREIGHT_SOURCE_ADJUST,")
+
+
+def s_return_without_reason(sb):
+    """组装点有一条 return **丢掉了 reason** —— 那一条决策就没有原因码了。"""
+    sb.replace(RUNTIME, LEGACY_RETURN,
+               "        return FreightDecision(kind=KIND_LEGACY, rule=rule)  # rv-injection")
+
+
 # (说明, 场景, 期望关键字) ；关键字必须在**报红那一行**里出现
 SCENARIOS = [
     ("把冻结整段删掉（每次重抽签）", s_drop_freeze, "冻结分支"),
@@ -153,6 +192,9 @@ SCENARIOS = [
     ("删掉用户点名的实验 2（先契约后关零）", s_drop_test_contract_first, "实验 2"),
     ("删掉「没定过的单照样按比例」", s_drop_test_fresh_draws, "永远关着"),
     ("删掉模块头第 4 条铁律", s_drop_header_rule, "第 4 条铁律"),
+    ("⭐ 某个写入点忘了传 reason（静默退回）", s_call_site_without_reason, "reason 传进去了"),
+    ("某个写入点绕过组装点", s_call_site_bypasses_root, "先经过组装点"),
+    ("组装点有一条 return 丢掉了 reason", s_return_without_reason, "每一条** return 都带 reason"),
 ]
 
 
