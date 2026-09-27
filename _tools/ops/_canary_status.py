@@ -66,8 +66,12 @@ def _arg(flag: str) -> str:
     return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else ""
 
 
-#: 观察窗口起点（YYYY-MM-DD）。⛔ 不给就**只看历史累计**，那种数字不许当窗口结论。
+#: 观察窗口起点。⛔ 不给就**只看历史累计**，那种数字不许当窗口结论。
+#: 两种写法：`YYYY-MM-DD`（按当天 00:00:00 UTC）或完整的 `YYYY-MM-DDTHH:MM:SS`。
+#: ⚠️ 为什么要精确到秒：预注册的窗口边界**就是**边界的定义 ——
+#:    发布是某一天的 15:40，而按日期过滤会把当天发布**之前**的单也算进去。
 SINCE = _arg("--since")
+SINCE_AT = (SINCE + "T00:00:00") if len(SINCE) == 10 else SINCE
 
 #: 远端只跑这一段（heredoc 用**带引号**的分隔符：外层的 bash 一个字符都不许展开）。
 REMOTE = r"""set +e
@@ -126,7 +130,7 @@ PYEOF"""
 #    TypeError: __init__() got an unexpected keyword argument 'capture_output'）。
 # 观察窗口起点：快照里的 `pricing.at` 是 UTC 的 ISO 字符串（秒精度），可以直接按字典序比。
 _SINCE_SQL = ("" if not SINCE else
-              " and json_unquote(json_extract(freight_rule_snapshot, '$.at')) >= '" + SINCE + "T00:00:00'")
+              " and json_unquote(json_extract(freight_rule_snapshot, '$.at')) >= '" + SINCE_AT + "'")
 _REMOTE = REMOTE.replace("@PY@", _prodssh.VENV_PY).replace("@SINCE@", _SINCE_SQL)
 
 
@@ -378,8 +382,13 @@ def main() -> int:
     print("        契约算出来        contract        " + str(contract))
     print("        桶内退回（带原因） fell_back       " + str(fell_back))
     print("        没被抽中          not_in_bucket   " + str(not_in_bucket))
+    print("          ⚠️ 这一格里**混着两种**：这一次真的没被抽中，以及**之前就被冻在 legacy** 的单 ——")
+    print("             reason 只有 ok，分不出这两种（冻结那一条见 R4-26 的说明）。")
+    print("             ⛔ 它不进「桶内」分母，所以不影响退回比例与样本量两条判据。")
     print("        旧式快照（无原因） stale           " + str(stale)
           + "   ← 只该来自 R4-22 之前，观察期内**新增**任何一个都是问题")
+    if SINCE:
+        print("        窗口起点（快照 pricing.at ≥）：" + SINCE_AT + " UTC")
     if not SINCE:
         print("        ⚠️ 没给 --since：上面是**历史累计**，⛔ 不能当观察窗口的结论。")
         print("           发布之后跑：python _tools/ops/_canary_status.py --since <发布日>")
