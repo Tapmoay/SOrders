@@ -125,6 +125,10 @@ for ln in rows.splitlines():
 print("SNAPTOTAL|" + (sql("select count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
            + "@SINCE@") or "?"))
 print("ORDERS|" + (sql("select count(*) from " + DB + ".orders") or "?"))
+# ---- 结构性前提：契约到底**能不能**算出东西来（⛔ 与样本量无关，先看这个）----
+print("RULETPL|" + (sql("select count(*) from " + DB + ".driver_billing_rule_templates") or "?"))
+print("TPL|" + (sql("select count(*) from " + DB + ".freight_templates where is_deleted = 0") or "?"))
+print("RULEDRV|" + (sql("select count(*) from " + DB + ".users where driver_rule_id is not null") or "?"))
 PYEOF"""
 
 
@@ -199,6 +203,27 @@ def window_verdict(decisions: list[dict]) -> list[tuple[str, bool]]:
     ]
 
 
+def window_feasibility(rule_tpl: int, templates: int, drivers_with_rule: int) -> tuple[bool, str]:
+    """⑧-a 观察窗口**结构上有没有可能通过**（⛔ 与样本量无关 —— 先看这个，再看样本）。
+
+    ⭐ 为什么要单列：预注册的五条判据里有两条是「契约真的被用上了」与「退回比例 ≤ 上限」。
+    而**契约算不算得出来**取决于生产上配没配价目 —— 这件事**不会**随着样本变多而改善。
+    ⛔ 不先看它，就会拿几周的真实流量去等一个**结构上不可能通过**的窗口。
+    """
+    if rule_tpl <= 0:
+        return False, ("契约**结构上**必然退回：没有任何计费规则勾过价目"
+                       + "（driver_billing_rule_templates = 0 行）"
+                       + " ⇒ 桶内决策 100% 是 fell_back ⇒ 判据②（契约真的被用上）"
+                       + "与判据④（退回比例 ≤ 上限）**不可能通过**。"
+                       + " 窗口再等也不会过 —— 要先把那**一行配置**配上（见台账 R4-24）。")
+    if templates <= 0:
+        return False, ("价目表是空的（freight_templates = 0 行）⇒ 挂在规则上也没有价目可算")
+    if drivers_with_rule <= 0:
+        return False, ("一个司机都没挂计费规则 ⇒ 永远走不到候选集那一步")
+    return True, ("结构上具备通过的条件：规则勾了 " + str(rule_tpl) + " 条价目、"
+                  + "可用价目 " + str(templates) + " 条、" + str(drivers_with_rule) + " 个司机挂了规则")
+
+
 def selftest() -> int:
     """⛔ 这几段**只在生产上有数据时才走到**（例如"契约命中了"那一支）——
     所以它们必须有机器证明，⛔ 不能等生产上第一次跑到才发现坏了。"""
@@ -247,6 +272,18 @@ def selftest() -> int:
     chk("窗口：退回 5/15 = 0.33 ≤ 0.8 ⇒ 过", fails["桶内退回比例 ≤ 0.8"], True)
     chk("窗口：有 stale ⇒ 不过", fails["观察期内**没有**新增无原因的旧式快照"], False)
 
+    # ---- 窗口可行性（纯函数）----
+    ok0, why0 = window_feasibility(0, 8, 25)
+    chk("可行性：没有任何规则勾过价目 ⇒ 不过", ok0, False)
+    chk("可行性：并把「结构上不可能」说出来", "结构上" in why0, True)
+    chk("可行性：点名要配的那张表", "driver_billing_rule_templates" in why0, True)
+    ok1, why1 = window_feasibility(3, 0, 25)
+    chk("可行性：价目表空的 ⇒ 不过", (ok1, "价目表是空的" in why1), (False, True))
+    ok2, why2 = window_feasibility(3, 8, 0)
+    chk("可行性：没司机挂规则 ⇒ 不过", (ok2, "都没挂计费规则" in why2), (False, True))
+    ok3, why3 = window_feasibility(3, 8, 25)
+    chk("可行性：三样都有 ⇒ 过", (ok3, "具备通过的条件" in why3), (True, True))
+
     empty = parse_decisions([])
     chk("空输入不炸", four_way(empty),
         {"contract": 0, "fell_back": 0, "not_in_bucket": 0, "stale": 0})
@@ -277,6 +314,7 @@ def main() -> int:
     instances: list[tuple[str, str, str, str]] = []
     raw_decisions: list[str] = []
     schema = col = snaptotal = orders = "?"
+    rule_tpl = tpl_n = ruledrv = "?"
     for ln in out.splitlines():
         parts = ln.split("|")
         if parts[0] == "HEALTH" and len(parts) >= 5:
@@ -291,6 +329,12 @@ def main() -> int:
             snaptotal = parts[1] if len(parts) > 1 else "?"
         elif parts[0] == "ORDERS":
             orders = parts[1] if len(parts) > 1 else "?"
+        elif parts[0] == "RULETPL":
+            rule_tpl = parts[1] if len(parts) > 1 else "?"
+        elif parts[0] == "TPL":
+            tpl_n = parts[1] if len(parts) > 1 else "?"
+        elif parts[0] == "RULEDRV":
+            ruledrv = parts[1] if len(parts) > 1 else "?"
 
     decisions = parse_decisions(raw_decisions)
 
@@ -383,6 +427,12 @@ def main() -> int:
     in_bucket = contract + fell_back
 
     print("")
+    def _i(v) -> int:
+        return int(v) if str(v).isdigit() else 0
+
+    feasible, why = window_feasibility(_i(rule_tpl), _i(tpl_n), _i(ruledrv))
+    print("[窗口可行性] " + ("✅ " if feasible else "⛔ ") + why)
+
     print("[观察窗口] 四分类（口径按 pricing.reason 判，⛔ 不是按我猜）")
     print("        契约算出来        contract        " + str(contract))
     print("        桶内退回（带原因） fell_back       " + str(fell_back))
