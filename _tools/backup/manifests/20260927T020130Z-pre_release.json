@@ -1,0 +1,44 @@
+{
+  "kind": "pre_release",
+  "note": "R4-11 承运运费来源凭据 schema-only（orders.freight_rule_snapshot）",
+  "created_utc": "2026-09-27T02:01:30Z",
+  "host": "iZ0jlimnshftl47074z0hbZ",
+  "backup_dir": "/opt/sorders-backup/pre_release/20260927T020119Z",
+  "code": {
+    "commit": "bb671565afb4d9c0947604671abe691bb076b1fd",
+    "branch": "",
+    "dirty_files": 8
+  },
+  "db": {
+    "user": "sorders",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "name": "sorders",
+    "schema_version": 8,
+    "rows": {
+      "orders": 2403,
+      "ledgers": 4648,
+      "users": 60,
+      "products": 37,
+      "tables": 48
+    }
+  },
+  "uploads": {
+    "bytes": 105962426,
+    "files": 2115
+  },
+  "artifacts": {
+    "db.sql.gz": {
+      "bytes": 531548,
+      "sha256": "72f163a800642aa0dd66aa3f80c371a7934ea1e1c5dc8d6cba111b2a6ac9d473"
+    },
+    "uploads.tar.gz": {
+      "bytes": 105962426,
+      "sha256": "3ca6d957ad2f6540244b521fd763f3b337b155c7976efa7955f483865647b5a5"
+    }
+  },
+  "server": {
+    "python": "3.11.13",
+    "uname": "Linux-5.10.134-19.3.al8.x86_64-x86_64-with-glibc2.32"
+  }
+}

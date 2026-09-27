@@ -385,8 +385,13 @@ def main() -> int:
     paths = f("api_paths") or "0"
     chk(paths.isdigit() and int(paths) >= 100, "接口表可读（openapi 路由数）", "路由 " + paths + " 条",
         "路由数读不出来（" + paths + "）", category="consistency")
-    chk(snap_paths == 0 or str(snap_paths) == paths, "生产路由数 = 仓库最近一次快照（" + snap_name + "）",
-        paths + " 条路由，与快照一致",
+    # ⚠️ 行名必须**稳定**：APPROVED_WARNS 的键是「行名一字不差」（见那张表的注释）。
+    #    原来把快照**文件名**拼进了行名 ⇒ 那张表里写的那条批准**永远匹配不上** ——
+    #    快照一过期，一条**已批准**的告警就变成"未批准"，发布被判失败。
+    #    （2026-09-27 R4 发布实测踩到：快照还叫 r2-05-after 时它就红。）
+    #    所以：行名固定，快照名进**详情**那两格。
+    chk(snap_paths == 0 or str(snap_paths) == paths, "生产路由数 = 仓库最近一次快照",
+        paths + " 条路由，与快照一致（" + snap_name + "）",
         "生产 " + paths + " 条 vs 快照 " + str(snap_paths) + " 条（" + snap_name + "，它只是**某个时点**的记录）",
         warn_only=True, category="snapshot")
     chk(bool(f("app_has_migrations")) and f("app_has_migrations") == "yes",

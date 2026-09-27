@@ -69,7 +69,9 @@ STEP_DOC: dict[str, tuple[str, str, str]] = {
               "生产 HEAD = <SHA>，且 app/migrations 这个包**在**了；服务仍 active（跑的还是旧代码）",
               "失败 → 停止（服务与库都还没被动过；要退只需 checkout 回旧 SHA）"),
     "migrate": ("生产上跑迁移的唯一入口：.venv/bin/python -m app.migrations upgrade",
-                "版本 0 → 8；schema_versions 出现 8 行",
+                # ⚠️ 这个数字**不许手写**（2026-09-27 R4 发布时它是「版本 0 → 8」，而当时迁移头已经是 9，
+                #    操作的人会拿着一个过期的期望值去判"成功没有"）。真值由 verify 那一步自己算。
+                "版本 → **本仓库迁移头**（由 verify 那一步自己算，⛔ 不在这里手写）；schema_versions 行数一致",
                 "失败 → 不启动服务；按 RELEASE_CANDIDATE §五 前向修复或从 dump 恢复"),
     "verify": ("生产上 .venv/bin/python -m app.migrations status --json",
                "当前版本 == 本仓库迁移头；待跑 0 / 漂移 0 / 陌生版本 0",
