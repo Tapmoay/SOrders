@@ -398,6 +398,48 @@ def resolution_cutover_ok(gap: int, gap_max: str, ok_min: str) -> tuple[bool, st
                    + " —— 说明有一条写入路径没带这一格")
 
 
+def gate_projection(f: dict, percent: int | None = None, *, min_obs: int = 10) -> tuple[str, str]:
+    """预注册的**两个**样本量门槛里，真正卡着窗口的是**哪一条**（R4-46）。
+
+    ⭐ 为什么要把它单独算出来：`WINDOW_MIN_IN_BUCKET` 与 `WINDOW_MIN_TOTAL` **不是两个独立的数** ——
+    桶是 `order_id % 100 < p` 的**均匀抽签**，所以「没被抽中 : 桶内」= `(100-p) : p`。
+    不给这句话，「总数」那一条就会被读成一个**可能单独卡住的**门槛，
+    于是「要不要把它改松」就成了一笔**看不出代价**的账。代价必须能算出来。
+
+    ⛔ **比例用"代码定下来的"那一个，不用当前窗口那几笔去估** —— R4-46 实测踩到过：
+    窗口里参与抽签的样本只有 3 笔，观测比值 0.50（理论 2.33），于是外推说
+    「总数会不够」。n=3 上出这个值是 19% 概率的正常波动，**它推不出任何结论**。
+    ⇒ 观测值只当**旁证**，且样本不够时明说"还不能拿来判断"。
+    """
+    in_bucket = f["contract"] + f["fallback"]
+    drawn = in_bucket + f["not_in_canary"]
+    head = ("还差 **桶内 " + str(max(0, WINDOW_MIN_IN_BUCKET - in_bucket)) + " 笔**、**总数 "
+            + str(max(0, WINDOW_MIN_TOTAL - drawn)) + " 笔**（契约还差 "
+            + str(max(0, WINDOW_MIN_CONTRACT - f["contract"])) + " 笔）")
+    obs = ("旁证：观测到「没被抽中/桶内」= " + format(f["not_in_canary"] / in_bucket, ".2f")
+           + "（**参与抽签的只有 " + str(drawn) + " 笔**）") if in_bucket else "旁证：还没有参与抽签的样本"
+    if drawn < min_obs:
+        obs += "　⛔ **样本太少**：这个数既不足以推翻、也不足以支持下面的外推"
+    if percent is None or not (0 < percent < 100):
+        # 比例不是"抽签"来的（关着 / 全开）⇒ 只能用观测值，并如实说它的来源与粗糙度
+        if in_bucket <= 0:
+            return "未定", (head + "；⛔ Canary 目标是 " + str(percent)
+                            + "（不是 0~100 之间的抽签比例），**外推不出来**；" + obs)
+        ratio = f["not_in_canary"] / in_bucket
+        src = "**观测值**（⛔ 不是抽签比例，且样本很粗）"
+    else:
+        ratio = (100 - percent) / percent
+        src = "**代码定下来的抽签比例**（p = " + str(percent) + "%，桶是均匀抽签）"
+    proj = WINDOW_MIN_IN_BUCKET * (1 + ratio)
+    binding = "桶内" if proj >= WINDOW_MIN_TOTAL else "总数"
+    return binding, (head + "；按 " + src + " ⇒ 桶内补到门槛那一刻，参与抽签的总数约 "
+                     + format(proj, ".0f") + "（门槛 " + str(WINDOW_MIN_TOTAL) + "）"
+                     + " ⇒ **绑定约束 = " + binding + "**"
+                     + ("（总数在期望上会自动够）" if binding == "桶内"
+                        else "（⛔ 桶内够了总数**也可能不够**）")
+                     + "　⚠️ 外推，⛔ 不是保证；" + obs)
+
+
 def window_verdict(decisions: list[dict], missing_prov: int = 0,
                    res_gap: int = 0, res_gap_max: str = "-",
                    res_ok_min: str = "-") -> list[tuple[str, bool]]:
@@ -423,7 +465,8 @@ def window_verdict(decisions: list[dict], missing_prov: int = 0,
     reasons = {str(d.get("reason") or "").strip().lower() for d in decisions}
     cut_ok, cut_why = resolution_cutover_ok(res_gap, res_gap_max, res_ok_min)
     return [
-        ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL),
+        ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL)
+         + "（总数 = 桶内 + 没被抽中，⛔ **不含 frozen**；这两个数是**预注册**的）",
          in_bucket >= WINDOW_MIN_IN_BUCKET and total >= WINDOW_MIN_TOTAL),
         ("★ **真的被契约算出来**的决策 ≥ " + str(WINDOW_MIN_CONTRACT)
          + "（⛔ 只有「契约被用过」不够 —— 用户 §十三）", f["contract"] >= WINDOW_MIN_CONTRACT),
@@ -613,7 +656,40 @@ def selftest() -> int:
         "分不清" in resolution_cutover_ok(3, "x", "-")[1], True)
 
     fails = dict(window_verdict(ds))
-    chk("窗口：桶内 15 < 20 ⇒ 样本量不过", fails["样本量：桶内 ≥ 20 且总数 ≥ 40"], False)
+    vol = [k for k in fails if k.startswith("样本量：")]
+    chk("窗口：桶内 15 < 20 ⇒ 样本量不过", bool(vol) and fails[vol[0]], False)
+    chk("窗口：「总数」这个字当场钉死了是哪一堆（⛔ 不含 frozen）",
+        bool(vol) and "不含 frozen" in vol[0], True)
+
+    # ---- R4-46：预注册的**两个**数里，哪一个是绑定约束（⛔ 外推，不是保证）----
+    b0, w0 = gate_projection({"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 0}, 30)
+    b1, w1 = gate_projection({"contract": 1, "fallback": 1, "not_in_canary": 5, "frozen": 3}, 30)
+    chk("外推：30% 的抽签比例 ⇒ **桶内**是绑定约束（总数在期望上会自动够）", b1, "桶内")
+    chk("外推：比例取自**代码定下来的抽签规则**，⛔ 不是拿观测值去估",
+        "代码定下来的抽签比例" in w1, True)
+    # ⭐ R4-46 实测踩到的那一条：窗口里只有 3 笔参与抽签的样本，观测比值 0.50（理论 2.33），
+    #    第一版拿观测值外推 ⇒ 说"总数会不够"。n=3 上出这个值是 19% 概率的正常波动。
+    b2, w2 = gate_projection({"contract": 1, "fallback": 1, "not_in_canary": 1, "frozen": 0}, 30)
+    chk("★ 观测比值再离谱（0.50 vs 理论 2.33）也**不许**改掉绑定结论（⛔ n 小 = 没有结论）",
+        b2, "桶内")
+    chk("★ 并且当场把「样本太少」说出来（⛔ 不许拿它当证据）",
+        "样本太少" in w2 and "参与抽签的只有 3 笔" in w2, True)
+    chk("外推：说清了它是外推、⛔ 不是保证", "不是保证" in w2, True)
+    b3, _w3 = gate_projection({"contract": 5, "fallback": 5, "not_in_canary": 1, "frozen": 0}, 99)
+    chk("外推：比例高到 99% 时**总数**才是绑定约束（⛔ 不许一律说桶内）", b3, "总数")
+    b4, w4 = gate_projection({"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 3}, 30)
+    chk("外推：一笔桶内都没有、但抽签比例已知 ⇒ 仍然说得出绑定约束"
+        "（它是**门槛的性质**，不是数据的性质）",
+        (b4, "还没有参与抽签的样本" in w4), ("桶内", True))
+    b5, w5 = gate_projection({"contract": 0, "fallback": 0, "not_in_canary": 0, "frozen": 3}, None)
+    chk("外推：连比例都不可知（Canary 关着 / 全开）时才**不硬猜**",
+        ("外推不出来" in w5, b5), (True, "未定"))
+    chk("外推：Canary 关着/全开（不是抽签）时改为如实标注比例来源",
+        "观测值" in gate_projection({"contract": 1, "fallback": 0, "not_in_canary": 2, "frozen": 0}, 0)[1], True)
+    chk("外推：frozen **完全不影响**这两个数（它没有重新抽签）",
+        gate_projection({"contract": 2, "fallback": 0, "not_in_canary": 4, "frozen": 0}, 30)[1]
+        == gate_projection({"contract": 2, "fallback": 0, "not_in_canary": 4, "frozen": 99}, 30)[1],
+        True)
     key = [k for k in fails if k.startswith("★ **真的被契约算出来**")]
     chk("窗口：契约真的算出来的样本数单独成一条门槛", bool(key), True)
     chk("窗口：契约样本 10 笔 = 门槛 ⇒ 恰好过（边界不许差一）", fails[key[0]] if key else None, True)
@@ -850,6 +926,12 @@ def main() -> int:
     if res_gap_n:
         print("           ⛔ 缺 resolution 的 " + str(res_gap_n) + " 笔里，**最晚**一笔在 "
               + str(res_gap_max) + "；有 resolution 的最早一笔在 " + str(res_ok_min))
+    binding, why = gate_projection(f4, target if target >= 0 else None)
+    print("")
+    print("        ⭐ **样本量那两条里，真正卡着的是哪一条**（R4-46）")
+    print("           " + why)
+    print("           ⛔ 数字的唯一来源是 _tools/ops/_canary_status.py 文件头那几个常量 ——")
+    print("              别处（文档 / 台账 / 聊天记录）写的任何数字**都不作数**。")
     if SINCE:
         print("        窗口起点（快照 pricing.at ≥）：" + SINCE_AT + " UTC")
     if not SINCE:
