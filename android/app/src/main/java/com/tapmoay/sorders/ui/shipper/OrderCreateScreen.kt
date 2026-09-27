@@ -1,5 +1,7 @@
 package com.tapmoay.sorders.ui.shipper
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -27,11 +29,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.HintPrefs
 import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.core.SunLocation
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
@@ -559,6 +563,12 @@ fun OrderCreateScreen(
             onDemotePlace = { vm.demotePlace(it) },
             onShareLocation = { vm.shareLocation(it) },
             onRestorePlace = { vm.restorePlace(it) },
+            // FEAT-0003：点「我就在这里」→ 用既有那条 `applyPicked` 回填（地图选点走的也是它），
+            // 填完把抽屉收起来 —— 用户这一下要的就是"地址定了"。
+            onPickCurrentLocation = { lat, lng, addr ->
+                vm.applyPicked(lat, lng, addr)
+                vm.showAddressSheet = false
+            },
             recentlyDeleted = vm.recentlyDeletedPlace,
             onDismiss = { vm.showAddressSheet = false },
         )
@@ -747,6 +757,13 @@ private fun AddressPickerSheet(
     onDemotePlace: (Long) -> Unit,
     onRestorePlace: (Long) -> Unit,
     onShareLocation: (LocationDto) -> Unit,
+    /**
+     * FEAT-0003：点「我就在这里」拿到当前定位 —— (纬度, 经度, 逆地理地址)。
+     *
+     * 用户 2026-09-27：「在下单选择地点的时候……再加一个按钮，就是**我就在这**，直接定位」。
+     * ⛔ 只回填表单，**不写库、不提交**（存不存进地点库由既有按钮决定）。
+     */
+    onPickCurrentLocation: (Double, Double, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var keyword by remember { mutableStateOf("") }
@@ -766,6 +783,61 @@ private fun AddressPickerSheet(
     var demoteTarget by remember { mutableStateOf<PlaceDto?>(null) }
     var deleteTarget by remember { mutableStateOf<PlaceDto?>(null) }
     var publishTarget by remember { mutableStateOf<LocationDto?>(null) }
+
+    // ---------------- FEAT-0003：「我就在这里」（用当前定位直接当收货地址）----------------
+    //
+    // 用户 2026-09-27：「在下单选择地点的时候，他不是有那么多吗？再加一个按钮啊，
+    // 就是比较长的就是说我就在这啊，直接定位」。
+    //
+    // 它与「地图选点 → 使用当前位置」走**同一条**取点路径（`container.locationManager`），
+    // 只是省掉"先进地图再点一下"那两步 —— ⛔ 没有第二套定位实现。
+    val ctx = LocalContext.current
+    var locating by remember { mutableStateOf(false) }
+    var locateError by remember { mutableStateOf<String?>(null) }
+
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { it }) {
+            locating = true
+            container.locationManager.requestSingle()
+        } else {
+            locating = false
+            locateError = "没有定位权限，拿不到当前位置。"
+        }
+    }
+
+    fun locate() {
+        val ok = listOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ).all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }
+        if (ok) {
+            locating = true
+            container.locationManager.requestSingle()
+        } else {
+            permLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        container.locationManager.locations.collect { pt ->
+            locating = false
+            // ⛔ 高德**失败时照常回调**，只是给 `(0,0)` —— 那不是"就在几内亚湾"，
+            //    是"没拿到"。判据复用全仓唯一那份 `SunLocation.isPlausible`。
+            //    ⛔ 拿不到就**如实说一句中文**，表单一个字不改（不许填一个假地址）。
+            if (!SunLocation.isPlausible(pt.lat, pt.lng)) {
+                locateError = "没拿到有效定位：请检查定位权限，或改用「地图选点」。"
+                return@collect
+            }
+            onPickCurrentLocation(pt.lat, pt.lng, pt.address)
+        }
+    }
 
     // 搜索**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
     // 前两段在本地过滤（数据本来就在手上，即时出结果）；共享地点段还要**同时**打后端 ——
@@ -851,6 +923,27 @@ private fun AddressPickerSheet(
                         modifier = Modifier.align(Alignment.CenterEnd),
                     ) { Text("清除") }
                 }
+            }
+            Spacer(Modifier.height(10.dp))
+            // FEAT-0003：一条更短的路 —— 就在这儿，直接定位。
+            // 放在搜索框下面、三段列表上面：它是"这些都不是，我就在这"的出口。
+            OutlinedButton(
+                onClick = { locateError = null; locate() },
+                enabled = !locating,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            ) {
+                Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (locating) "正在定位…" else "我就在这里")
+            }
+            locateError?.let { msg ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
             }
             Spacer(Modifier.height(10.dp))
             if (managing) {
