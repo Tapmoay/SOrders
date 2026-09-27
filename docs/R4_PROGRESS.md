@@ -1210,6 +1210,79 @@ R4-34 上线之后，观察窗口开着、`Canary = ACTIVE` —— 但**窗口�
 
 ---
 
+### R4-43 ⭐⭐ 生产上第一笔**真实 Contract Decision** + Production Golden Case + **双向 Freeze 实证**
+
+用户 2026-09-27 指路：订单 `#20709` → 派给规则 #1 的 6 个司机之一。
+
+#### ⑤ 第一笔真实 Contract Decision（`2026-09-27T10:08:34Z`）
+
+派单界面会显示什么（`GET /freight-templates/quote?order_id=20709&driver_id=167`，**走的是旧路报价**）：
+
+    matched: template_id=5「惠州江北 → 惠阳淡水」fee=45.00
+
+⇒ 界面预填 **45.00**，而契约也会算出 **45.00** —— 两条路在真实数据上**对上了**。
+
+真实派单（`POST /orders/20709/assign` driver=167、运费 45.00）之后落库的凭据：
+
+```json
+{"v": 1, "at": "2026-09-27T10:08:34", "source": "assign", "fee": "45.00",
+ "category": {"id": null, "name": ""},
+ "rule": {"template_id": 5, "template_name": "惠州江北 → 惠阳淡水", "price_name": "一车价",
+          "route": "惠州江北 → 惠阳淡水", "fee": "45.00", "origin": "derived"},
+ "pricing": {"kind": "freight_template", "contract": {"name": "PricingContract", "version": 2},
+             "reason": "ok", "resolution": "contract", "agreed": true, "override": false}}
+```
+
+**⑤ 的闭环逐项都在**：来源（`source=assign`）✔ ／ 谁算的（`kind=freight_template`）✔ ／
+契约身份（`PricingContract v2`）✔ ／ **哪一条价目**（`template_id=5` + 线路 + 价目名 + 当时金额 + `origin=derived`）✔ ／
+计算上下文（`category`）✔ ／ 算法值 vs 人工最终值（`agreed=true override=false`）✔ ／ 最终金额 ✔ ／
+这一次走的是哪条路（`resolution=contract`）✔。
+
+#### ⑥ Production Golden Case
+
+把这一笔**原样**加进 Golden Set（`_tools/qa/_golden/freight_pricing.json`，新增 bucket `production`）：
+世界与输入**都是从那一单抄回来的**（不是编的），期望值 `45.00` 就是当时写进 `freight_fee` 的数。
+
+    ✅ Golden Set：语料 **16 条** —— match 16 / known-diff 0 / **mismatch 0**
+
+⛔ **诚实说明**：这个期望值是**扩展自己算出来的**（生产上就是它算的）⇒ 这条用例证明的是
+**稳定性**（以后改代码不许把这条历史事实改掉），⛔ **不是**「这个价在业务上对不对」。
+（用户 §八 要的正是这种「改 Pricing → 重算 Golden Case → 比」的回归护栏。）
+
+#### ⑦ ⭐⭐ 双向 Freeze —— 而且这次**分得开**（R4-34 做不到的那件事）
+
+| 实验 | 比例 | `kind` | `resolution` | 金额 |
+| --- | --- | --- | --- | --- |
+| **A**：`#20709` 派单（Contract 已形成） | 30% | `freight_template` | **`contract`** | 45.00 |
+| **A**：同一张单**再写一次** | **0%** | `freight_template` | **`contract`** | 50.00 |
+| **B**：新建演练单 `#20851` 定价 | **0%** | `legacy_client` | **`not_in_canary`** | 77.00 |
+| **B**：同一张单**再写一次** | **100%** | `legacy_client` | **`frozen`** | 78.00 |
+| 对照：100% 下的**全新单** `#20852` | 100% | `legacy_client` | **`fallback`** | 88.00 |
+
+⭐ **A 方向**：已经定过 Contract 的单，在比例调到 **0%** 之后再写入，**仍然是 contract**（⛔ 没被降级）。
+⭐ **B 方向**：已经定过 Legacy 的单，在比例调到 **100%** 之后再写入，**仍然是 legacy**（⛔ 没被升级）。
+⭐⭐ 而 `resolution` 把三种情形**分得清清楚楚**：
+`frozen`（沿用旧路）／`not_in_canary`（这一次没抽中）／`fallback`（去了契约没算出来）。
+
+⛔ **R4-34 正是卡在这一格**：那时 `frozen` 与 `not_in_canary` 写出来一模一样，
+所以生产上的 T0/T1/T2「证明不了任何事」。R4-36 拆出 `resolution` 之后，
+**四个取值在生产上都真实出现过**，双向 Freeze 才算真的证住了。
+
+#### 收工（全部只读复核过）
+
+    比例        .env = 30，两个实例都报 30 ⇒ Canary = ACTIVE
+    链接        driver_billing_rule_templates → 1  5（没动）
+    #20709      已**撤回**（回待派池，⛔ 运费 50.00 与凭据**留着**：撤回不清快照）
+    #20851/#20852  已**撤销**（撤销而不是删除）
+
+⚠️ 实验期间（0% 与 100% 两个短暂窗口）若有真实派单发生，它们的 `resolution` 会如实记成
+`not_in_canary` / `fallback` —— 那是**真实记录**，⛔ 不是被改过的。
+⚠️ 用户说的「打开模拟器」：模拟器上装的 App 其 `BuildConfig.API_BASE_URL` 指向本机后端
+（`10.0.2.2:8000`，当前没有在跑），拿它操作**碰不到生产**。所以这一步走的是**生产接口**，
+而这正是 App 派单时调的那个端点（`POST /orders/{id}/assign`）—— 数据形状与链路完全一致。
+
+---
+
 ### R4-42 ⭐ 代码批**独立部署**（与配置批分开）+ 链路在副本上**整条验通**
 
 #### 为什么必须再发一次（演练抓出来的顺序问题）

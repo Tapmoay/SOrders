@@ -9,6 +9,7 @@
     "pricing_kind": "不同计价类型：同一档多条（不猜）/ 这一单根本不归它管",
     "rounding": "四舍五入边界：核心原样给出三位小数，取两位才是入库口径",
     "error": "异常输入：司机没挂规则 / 规则没勾价目",
+    "production": "**生产上真实发生过的那一笔**（R4-43）：期望值就是当时落库的金额 ⇒ 它钉的是**稳定性**（以后改代码不许改动这条历史事实），⛔ 不是正确性",
     "unit": "不适用（见 NOT_APPLICABLE）",
     "discount": "不适用（见 NOT_APPLICABLE）",
     "surcharge": "不适用（见 NOT_APPLICABLE）"
@@ -213,6 +214,20 @@
       },
       "order": {"order_no": "SO-G-0015", "to_place": "杭州仓前 1 号", "category_id": 3, "category": "蔬菜"},
       "expect": {"kind": "none"}
+    },
+    {
+      "id": "production-20709-first-contract", "bucket": "production", "origin": "production",
+      "why": "⭐ **生产上第一笔真实 Contract Decision**（订单 #20709，2026-09-27T10:08:34Z 落库）。世界与输入都是从那一单**抄回来的**（不是编的）；期望值 45.00 就是当时写进 orders.freight_fee 的数。⛔ 诚实说明：这个期望值是**扩展自己算出来的**（生产上就是它算的）⇒ 这条用例证明的是**稳定性**（以后改代码不许把这条历史事实改掉），⛔ 不是「这个价在业务上对不对」。",
+      "world": {
+        "addresses": [{"id": 5, "detail": "塘厦林村工业区21号 3栋1063室"}],
+        "categories": [],
+        "templates": [{"id": 5, "name": "惠州江北 → 惠阳淡水", "price_name": "一车价", "fee": "45.00",
+                       "route_id": 5, "to_place": "惠阳淡水", "category_ids": []}],
+        "driver": {"id": 167, "rule": {"id": 1, "name": "按单计件 · 小货车", "template_ids": [5]}}
+      },
+      "order": {"order_no": "SO202609161219197401",
+                "to_place": "塘厦林村工业区21号 3栋1063室", "category_id": null, "category": ""},
+      "expect": {"kind": "matched", "fee": "45.00", "ids": [5], "raw": "45.00"}
     }
   ]
 }
