@@ -54,6 +54,16 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = Path(__file__).resolve().parents[2]
 
+#: 里程碑编号的语法**只有一处定义**（`_tools/qa/_milestone_tag.py`，2026-09-27 升级成 v2）。
+#: ⛔ 判据与反向验证都从这里 import —— 两份正则一定会走散。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _milestone_tag import (  # noqa: E402
+    R3_WINDOW_TAG,
+    V2_MARKER,
+    duplicate_tags,
+    milestone_tag_of,
+)
+
 MIN_CONSTRAINTS = 24
 MIN_JUDGED = 12
 MIN_EXIT_LINES = 30
@@ -114,10 +124,10 @@ ROUND4_PATHS = ["backend/app/services/read_models", "backend/app/core/materializ
 #:    原来一律算 `基线..HEAD`，而那个窗口在 R3 结束后**永远不会关闭** —— 见文件头那段说明。
 ROUND_END_RE = re.compile("R3 收口提交[^\\n]*?`([0-9a-f]{7,40})`")
 
-#: 提交里程碑编号的形状：R3 窗口内必须 `R3-0x`；收口之后必须是 R3 及以后**任何一轮**的编号。
-#: 写成 `R[3-9]-0\\d` 而不是写死 `R4-0\\d`：下一轮不用回来改这一行。
-R3_TAG = re.compile("R3-0\\d")
-LATER_TAG = re.compile("R[3-9]-0\\d")
+#: ⛔ 里程碑编号的语法**不在这里写**（2026-09-27 起）：唯一一处是 `_tools/qa/_milestone_tag.py`。
+#: v1（`R[3-9]-0\\d`）把"每轮只有 10 个槽"写死进了正则，而 R4 的 R4-00…R4-09 已经用完 ——
+#: 用户 2026-09-27 拍板升级成 **Milestone Tag Grammar v2**：`R<3-9>-<两位数字>`，即 R4-00…R4-99。
+R3_TAG = R3_WINDOW_TAG
 
 Q = chr(39) + chr(34)
 LOCK_RE = re.compile(r"^([A-Z_]*LOCK_NAME[A-Z_]*)\s*=\s*[" + Q + r"]([^" + Q + r"]+)[" + Q + r"]", re.M)
@@ -436,9 +446,16 @@ def probe_backend_app_delta() -> tuple[str, str]:
 def probe_commit_milestone_tag() -> tuple[str, str]:
     """每个提交都要标里程碑编号 —— ⚠️ 这一条**跨轮继续生效**。
 
-    窗口（预算）收口了，纪律不收口：R3 窗口内必须 `R3-0x`，收口之后必须是 R4 及以后某一轮的编号。
+    窗口（预算）收口了，纪律不收口：R3 窗口内必须 `R3-xx`，收口之后必须是 R4 及以后某一轮的编号。
     整条停掉的话，「任何一个提交都能回溯到某个里程碑」这条长期纪律会随着轮次一起消失 ——
     而它正是上一个「提交没编号」事故留下的那道防线。
+
+    ⭐ 2026-09-27 升级成 **Milestone Tag Grammar v2**（用户拍板），这一条多管两件事：
+    · **形状**放宽成 `R<3-9>-<两位数字>`（R4-00…R4-99）—— v1 的 `R[3-9]-0\\d`
+      把"每轮 10 个槽"写死进正则，而 R4-00…R4-09 已经用完；
+    · **不许重号**：v2 生效之后每条提交的编号必须唯一（v1 时代 `R4-09` 被四条提交用过，
+      「提交标签是施工账本的索引」这件事就失效了）。
+    ⛔ 唯一性**不翻旧账**：v2 生效点 = 标题里写着 ` + V2_MARKER + ` 的那条提交。
     """
     base = base_commit()
     if not base:
@@ -457,14 +474,36 @@ def probe_commit_milestone_tag() -> tuple[str, str]:
             in_r3 = {ln.strip() for ln in out2.splitlines() if ln.strip()}
     bad_r3 = [s for s in subs if s.split(" ", 1)[0] in in_r3 and not R3_TAG.search(s)]
     if bad_r3:
-        return "broken", str(len(bad_r3)) + " 个 R3 窗口内的提交没标 R3-0x：" + bad_r3[0][:60]
+        return "broken", str(len(bad_r3)) + " 个 R3 窗口内的提交没标 R3-xx：" + bad_r3[0][:60]
     later = [s for s in subs if s.split(" ", 1)[0] not in in_r3]
-    bad_later = [s for s in later if not LATER_TAG.search(s)]
+    bad_later = [s for s in later if not milestone_tag_of(s)]
     if bad_later:
         return "broken", (str(len(bad_later)) + " 个提交没有可回溯的里程碑编号"
-                          "（R3 收口之后应为 R4-0x）：" + bad_later[0][:60])
-    return "hold", (str(len(subs)) + " 个提交都标了里程碑编号（R3 窗口内 " + str(len(in_r3))
-                    + " 个标 R3-0x；收口之后 " + str(len(later)) + " 个标 R4 及以后）")
+                          "（形状 = R<3-9>-<两位数字>，R3 收口之后应为 R4-xx）：" + bad_later[0][:60])
+
+    # ---- 规矩 3（v2 新增）：**不许重号**（用户 2026-09-27：「每个 R4 阶段提交必须有唯一 milestone tag」）
+    # 理由（用户原话）：「**提交标签本身就是架构施工账本的索引**」—— v1 时代 R4-09 被四条提交用过，
+    # 之后必须再读 message 的后半句才知道那条是 P0 / P1 / 迁移 / Shadow / Canary。
+    # ⚠️ **只从 v2 生效那一刻起要求唯一，不翻旧账**（R4-00…R4-09 历史上就是一条编号配多条提交，
+    #    判据不去改写历史；这正是 r3_window() 那一课：**窗口要跟着事实走，不是跟着愿望走**）。
+    marker = next((s for s in subs if V2_MARKER in s), "")
+    head_line = (str(len(subs)) + " 个提交都标了里程碑编号（R3 窗口内 " + str(len(in_r3))
+                 + " 个标 R3-xx；收口之后 " + str(len(later)) + " 个标 R4 及以后）")
+    if not marker:
+        return "hold", head_line + "；⚠️ 唯一性棘轮还没生效（还没有写着 " + V2_MARKER + " 的提交）"
+    marker_hash = marker.split(" ", 1)[0]
+    code3, out3 = git("log", "--format=%h %s", marker_hash + "..HEAD")
+    if code3 != 0:
+        return "na", "取 v2 生效点之后的提交失败：" + out3.strip()[:120]
+    rows = [ln.split(" ", 1) for ln in out3.splitlines() if ln.strip()]
+    rows = [(p[0], p[1]) for p in rows if len(p) == 2]
+    dups = duplicate_tags(rows)
+    if dups:
+        return "broken", ("v2 生效之后有提交重号：" + "、".join(dups)
+                          + " —— 每条提交要有唯一的里程碑编号（用户 2026-09-27 拍板："
+                            "提交标签是施工账本的索引，重号之后它就失效了）")
+    return "hold", (head_line + "；v2 生效点（" + marker_hash + "）之后 " + str(len(rows))
+                    + " 条提交的编号互不重复")
 
 
 def probe_exit_condition_ledger() -> tuple[str, str]:
