@@ -78,6 +78,47 @@ def policy_for(order_id: int | None, percent: int | None = None) -> str:
     return KIND_CONTRACT if (int(order_id) % BUCKETS) < pct else KIND_LEGACY
 
 
+#: 契约这一支**为什么没算出来** —— 机器可读的原因码，写进快照的 `pricing.reason`。
+#:
+#: ⭐ 为什么必须分开（R4-21 生产观察实测逼出来的）：
+#: 第一版只有一句笼统的"契约没算出结论（缺料或多条价目）"。在生产上拿到那句话之后，
+#: **我必须去查库才知道到底是哪一种** —— 而这两件事的修法完全不同：
+#: "这个司机没配规则"是**配置问题**，"同一档多条价目"是**配置歧义**。
+#: 凭据的用途就是"不用查库也能说清为什么"，所以原因必须分开、而且要机器可读
+#: （运维可以直接 `GROUP BY` 出"生产上最常卡在哪一步"）。
+REASON_OK = "ok"                          # 走通了（这一支不算"没算出来"）
+REASON_NO_CANDIDATES = "no_candidates"   # 这个司机没挂规则 / 规则一条价目都没勾
+REASON_NO_MATCH = "no_match"             # 有候选，但这条路线 / 这一类里没有可用的价目
+REASON_AMBIGUOUS = "ambiguous"           # 同一档多条 —— **不猜**
+REASON_NO_RESOLVER = "no_resolver"       # 装配根没接解析器（例如脚本里只 import 了这个模块）
+REASON_ERROR = "error"                   # 契约自己抛了别的错
+
+#: 原因码 → 给人看的一句话（界面/审计直接显示，⛔ 不要自己另编）。
+REASON_TEXT: dict[str, str] = {
+    REASON_OK: "金额由契约（算价扩展）算出来的",
+    REASON_NO_CANDIDATES: "这个司机没有可用价目：他还没挂计费规则，或者规则里一条价目都没勾",
+    REASON_NO_MATCH: "这条路线 + 这一类货上没有可用的价目（价目表里没有，或分类对不上）",
+    REASON_AMBIGUOUS: "同一档里有多条同样优先的价目 —— 不猜，请自己挑一条",
+    REASON_NO_RESOLVER: "算价扩展没有装配（装配根没接解析器）",
+    REASON_ERROR: "算价扩展在算这一单时抛了错（详见服务端日志）",
+}
+
+
+@dataclass(frozen=True)
+class ContractQuote:
+    """走契约算一次的结果 —— 算不出来时**必须带原因码**（见 REASON_* 那段说明）。"""
+
+    ok: bool
+    fee: str | None = None
+    rule: dict | None = None
+    reason: str = ""
+    detail: str = ""
+
+    @property
+    def text(self) -> str:
+        return REASON_TEXT.get(self.reason, self.reason)
+
+
 @dataclass(frozen=True)
 class FreightDecision:
     """这一次承运运费**是怎么定的** —— 三个问题一次说清。
@@ -95,6 +136,8 @@ class FreightDecision:
     quoted_fee: str | None = None
     agreed: bool | None = None
     override: bool = False
+    #: 机器可读的"为什么"（`REASON_*`）—— 走通和没走通都有值，⛔ 不许是空串。
+    reason: str = ""
     note: str = ""
 
 
@@ -128,36 +171,67 @@ def pricing_resolver():
     return _RESOLVER
 
 
-def contract_quote(db, order, *, driver_id: int | None) -> tuple[str, dict] | None:
+def _no_candidates_reason(db, driver_id: int | None) -> str:
+    """候选集为什么是空的 —— **同一处实现**（`driver_template_ids`）给出的中文原因。"""
+    if driver_id is None:
+        return "这一单还没有司机 —— 运费是按「他的规则勾了哪几条价目」来的，先指派司机"
+    from app.services.freight_pricing import driver_template_ids
+
+    _ids, why = driver_template_ids(db, int(driver_id))
+    return why or "这个司机的规则勾了价目，但候选集仍然是空的"
+
+
+def contract_quote(db, order, *, driver_id: int | None) -> ContractQuote:
     """走契约算一遍 → (金额文本, 价目身份)；算不出来返回 None。
 
     ⛔ 全程只读；⛔ 不许抛（调用方在钱路上，见模块头第 2 条）。
     """
-    from app.core.contracts.pricing import PricingContext
+    from app.core.contracts.pricing import AmbiguousPricingRule, NoPricingRule, PricingContext
+    from app.services.freight_pricing import freight_snapshot_of, quote_for
     from app.services.order_money import rule_ref_of_candidate
 
     resolver = _RESOLVER
     if resolver is None:
         # 装配根没接（例如脚本/测试里只 import 了这个模块）—— 如实退回旧路，⛔ 不猜。
-        return None
-    try:
-        from app.services.freight_pricing import freight_snapshot_of, quote_for
+        return ContractQuote(ok=False, reason=REASON_NO_RESOLVER)
 
+    try:
         snapshot = freight_snapshot_of(db, order, driver_id=driver_id)
-        snapshot["pricing_kind"] = KIND_CONTRACT
-        ctx = PricingContext(
-            order_id=getattr(order, "id", None), order_no=order.order_no or "",
-            category=order.freight_category or "",
-            to_place=(order.address_detail or "").strip(),
-            driver_id=driver_id, rule_snapshot=snapshot,
-        )
+    except Exception as exc:  # noqa: BLE001
+        return ContractQuote(ok=False, reason=REASON_ERROR,
+                             detail=type(exc).__name__ + ": " + str(exc)[:120])
+
+    if not snapshot.get("templates"):
+        # ⭐ 生产上最常见的就是这一支（**价目表压根没配**）—— 它必须自己说清楚，
+        #    不能和"同一档多条"混成同一句话：那两种的修法完全不同（一个去配置、一个去挑一条）。
+        return ContractQuote(ok=False, reason=REASON_NO_CANDIDATES,
+                             detail=_no_candidates_reason(db, driver_id))
+
+    snapshot["pricing_kind"] = KIND_CONTRACT
+    ctx = PricingContext(
+        order_id=getattr(order, "id", None), order_no=order.order_no or "",
+        category=order.freight_category or "",
+        to_place=(order.address_detail or "").strip(),
+        driver_id=driver_id, rule_snapshot=snapshot,
+    )
+    try:
         result = resolver(ctx).price(ctx)
-        # 价目身份仍然从**核心的匹配**拿（契约给的是 Money；"哪一条价目"是核心的事实）
+    except AmbiguousPricingRule as exc:
+        return ContractQuote(ok=False, reason=REASON_AMBIGUOUS, detail=str(exc)[:200])
+    except NoPricingRule as exc:
+        return ContractQuote(ok=False, reason=REASON_NO_MATCH, detail=str(exc)[:200])
+    except Exception as exc:  # noqa: BLE001 —— 见模块头第 2 条：算不出来就退回旧路
+        return ContractQuote(ok=False, reason=REASON_ERROR,
+                             detail=type(exc).__name__ + ": " + str(exc)[:120])
+
+    # 价目身份仍然从**核心的匹配**拿（契约给的是 Money；"哪一条价目"是核心的事实）
+    ref: dict | None = None
+    try:
         quote = quote_for(db, order, driver_id=driver_id)
         ref = rule_ref_of_candidate(quote.matched, origin="derived") if quote.matched else None
-        return result.money.as_text(), (ref or {})
-    except Exception:  # noqa: BLE001 —— 见模块头第 2 条：算不出来就退回旧路
-        return None
+    except Exception:  # noqa: BLE001
+        ref = None
+    return ContractQuote(ok=True, fee=result.money.as_text(), rule=ref or {}, reason=REASON_OK)
 
 
 def decide(db, order, *, driver_id: int | None, claimed_fee=None) -> FreightDecision:
@@ -177,20 +251,27 @@ def decide(db, order, *, driver_id: int | None, claimed_fee=None) -> FreightDeci
         rule = None
 
     if kind != KIND_CONTRACT or claimed_fee is None:
-        return FreightDecision(kind=KIND_LEGACY, rule=rule)
+        # 没走契约那一支：`reason` 如实写`没走`（不是失败，是这一次不在 canary 桶里 / 没有金额）。
+        return FreightDecision(kind=KIND_LEGACY, rule=rule, reason=REASON_OK)
 
     got = contract_quote(db, order, driver_id=driver_id)
-    if got is None:
-        return FreightDecision(kind=KIND_LEGACY, rule=rule,
-                               note="这一次契约没算出结论（缺料或多条价目）—— 按旧路记，金额以派单员为准")
-    fee_text, ref = got
+    if not got.ok:
+        # ⛔ 退回旧路**必须说清是哪一种**（原因码 + 一句人话 + 细节），否则运维还得去查库。
+        return FreightDecision(
+            kind=KIND_LEGACY, rule=rule, reason=got.reason,
+            note="契约没算出结论【" + got.reason + "】" + got.text
+                 + ("　细节：" + got.detail if got.detail else "")
+                 + " —— 按旧路记，金额以派单员为准",
+        )
+    fee_text = got.fee or ""
     agreed = _decimals(claimed_fee) == Decimal(fee_text)
     return FreightDecision(
         kind=KIND_CONTRACT,
-        rule=(ref or rule),
+        rule=(got.rule or rule),
         quoted_fee=fee_text,
         agreed=agreed,
         override=not agreed,
+        reason=REASON_OK,
         note="" if agreed else ("价目算出来是 " + fee_text + "，派单员定的是 "
                                 + str(_decimals(claimed_fee)) + " —— ⛔ 以人为准，但两个数都留下"),
     )

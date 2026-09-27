@@ -212,7 +212,8 @@ def test_契约算不出来时退回旧路不让派单失败(client, db_session,
     _pin_canary(monkeypatch, 100)
     import app.core.pricing_runtime as rt
 
-    monkeypatch.setattr(rt, "contract_quote", lambda db, order, *, driver_id: None)
+    monkeypatch.setattr(rt, "contract_quote", lambda db, order, *, driver_id:
+                        rt.ContractQuote(ok=False, reason=rt.REASON_ERROR, detail="boom"))
     h = auth_headers(token_dispatcher)
     did = _mk_driver(client, h)
     oid = _mk_order(client, h)
@@ -221,5 +222,28 @@ def test_契约算不出来时退回旧路不让派单失败(client, db_session,
     assert r.status_code in (200, 201), "⛔ 契约算不出来不该让派单失败"
     assert str(_fee(db_session, oid)) == "120.00"
     p = _snapshot(db_session, oid)["pricing"]
-    assert p["kind"] == "legacy_client" and "退回" not in p.get("kind", ""), p
+    assert p["kind"] == "legacy_client", p
+    assert p["reason"] == "error", p
     assert "契约没算出结论" in p.get("note", ""), "退回旧路这件事必须**写在凭据里**：" + str(p)
+
+
+# ---------------------------------------------------------------- ⑥ 原因码说得出是哪一种
+
+def test_候选集为空时原因码说得出为什么(client, db_session, token_dispatcher, monkeypatch):
+    """⭐ 生产上最常见的那一支（价目表压根没配）—— 它必须**自己说清是哪一种**。
+
+    R4-21 在生产上拿到的是第一版那句笼统的"契约没算出结论（缺料或多条价目）"，
+    而我**必须去查库才知道**到底是"没配规则"还是"同一档多条" —— 那两种的修法完全不同。
+    """
+    _pin_canary(monkeypatch, 100)
+    h = auth_headers(token_dispatcher)
+    did = _mk_driver(client, h)          # 这个司机**没挂规则**（_seed_price_world 不调用）
+    oid = _mk_order(client, h)
+    r = client.post(f"/api/v1/orders/{oid}/assign",
+                    json={"driver_id": did, "freight_fee": "120"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    p = _snapshot(db_session, oid)["pricing"]
+    assert p["kind"] == "legacy_client", p
+    assert p["reason"] == "no_candidates", p
+    # 人话那一栏也要能指着**这一步**：这个司机没挂规则 / 规则没勾价目
+    assert "没挂计费规则" in p["note"] or "没勾价目" in p["note"], p["note"]

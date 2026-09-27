@@ -362,6 +362,7 @@ def record_freight_decision(
     kind: str | None = None,
     agreed: bool | None = None,
     override: bool = False,
+    reason: str = "",
     note: str = "",
 ) -> None:
     """**写承运运费的唯一入口**：金额、分类与它的来源凭据一起落。
@@ -400,6 +401,9 @@ def record_freight_decision(
             # ⚠️ 只在**走了契约**时才有这两个键（旧路没有"算得一样不一样"这回事）。
             #    `override=True` 不是错误：派单员本来就允许改价，这里只是把
             #    "这次的钱来自人、不是来自价目表"这件事记下来。
+            # ✅ **机器可读的"为什么"**（走通 / 没走通都有值）：运维可以直接 GROUP BY 出
+            #    "生产上最常卡在哪一步"，而不用去读中文。⛔ 有它就别再去解析 note 那串人话。
+            **({"reason": reason} if reason else {}),
             **({"agreed": bool(agreed), "override": bool(override)} if agreed is not None else {}),
             **({"note": note} if note else {}),
         },

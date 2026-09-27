@@ -260,6 +260,7 @@ def price_freight(
         kind=d.kind,
         agreed=d.agreed,
         override=d.override,
+        reason=d.reason,
         note=d.note,
     )
 
@@ -353,6 +354,7 @@ def assign_order(
             kind=d.kind,
             agreed=d.agreed,
             override=d.override,
+            reason=d.reason,
             note=d.note,
         )
     if body.collect_cash is not None:
@@ -433,6 +435,7 @@ def update_order_freight(
         kind=d.kind,
         agreed=d.agreed,
         override=d.override,
+        reason=d.reason,
         note=d.note,
     )
     write_log(

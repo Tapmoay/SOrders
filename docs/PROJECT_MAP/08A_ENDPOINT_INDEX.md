@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:0d04eb4894a814f3001d64ec61ff17942916da19eab230b69706eb7faf5ab3d5 -->
+<!-- source_hash: sha256:a97eb58f3acee4f6220fac78cab7061a1ad24190d804356ee71f77c921bbc66a -->
 
 ## 全量端点（231 个，按文件分组）
 
@@ -271,10 +271,10 @@
 |---|---|---|---|---|
 | 1 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders_assignment.py:72` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
 | 2 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders_assignment.py:116` | 权限:ORDER_DISPATCH |
-| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:303` | 权限:ORDER_DISPATCH |
-| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:376` | 权限:ORDER_DISPATCH |
-| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:402` | 权限:ORDER_DISPATCH |
-| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:459` | 权限:ORDER_RECALL |
+| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:304` | 权限:ORDER_DISPATCH |
+| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:378` | 权限:ORDER_DISPATCH |
+| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:404` | 权限:ORDER_DISPATCH |
+| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:462` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/orders_delivery.py` — 6 个
 

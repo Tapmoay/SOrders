@@ -372,6 +372,25 @@ def main() -> int:
     ok("快照带着自己的格式版本 v（将来加字段时读得懂老快照）",
        _dig(snap, ("v",)) == 1)
 
+    # 3d-2 ⭐ **原因码**（R4-21 生产观察逼出来的）：退回旧路必须说清是哪一种
+    #     —— 第一版只有一句笼统的"契约没算出结论"，在生产上拿到之后还得去查库才知道是哪种。
+    from app.core.pricing_runtime import REASON_TEXT
+    from app.core import pricing_runtime as _rt
+    codes = sorted(v for k, v in vars(_rt).items()
+                   if k.startswith("REASON_") and isinstance(v, str))
+    ok(f"原因码是**一组互不相同的**取值（{len(codes)} 个：{'/'.join(codes)}）",
+       len(codes) == len(set(codes)) and len(codes) >= 5)
+    ok("每个原因码都配了一句人话（⛔ 不许有解释不了的原因码）",
+       set(codes) <= set(REASON_TEXT), "缺解释：" + str(sorted(set(codes) - set(REASON_TEXT))))
+    o4 = _FakeOrder()
+    record_freight_decision(o4, source="assign", fee=Decimal("88"),
+                            kind="legacy_client", reason="no_candidates")
+    ok("写入口把原因码原样写进快照（pricing.reason）",
+       _dig(freight_provenance_of(o4), ("pricing", "reason")) == "no_candidates")
+    ok("没给原因码时**不编**一个（⛔ 不许写假原因）",
+       "reason" not in _dig(freight_provenance_of(o), ("pricing",)) if isinstance(
+           _dig(freight_provenance_of(o), ("pricing",)), dict) else False)
+
     # 3e 不变量：清空金额时凭据**一起**清空（同生共死）
     o2 = _FakeOrder()
     record_freight_decision(o2, source="adjust", fee=None)

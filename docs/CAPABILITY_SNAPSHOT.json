@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
  "source_hash": "sha256:20aa7fdec497a14c27706c7cd64f5e86886ea17b3c8c52fd5ffbd1aae4b95daf",
- "source_commit": "1cd47c0",
- "generated_at": "2026-09-27T04:48:19Z",
+ "source_commit": "66be42d",
+ "generated_at": "2026-09-27T05:20:45Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
