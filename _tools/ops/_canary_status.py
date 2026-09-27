@@ -56,6 +56,23 @@ WINDOW_MIN_IN_BUCKET = 20
 WINDOW_MIN_TOTAL = 40
 #: 桶内退回比例的上限（退回可以有，但不能"配着却几乎一次都没用上"）。
 WINDOW_MAX_FALLBACK_RATIO = 0.8
+#: ⭐ **真的被契约算出来的**决策至少要这么多笔（用户 §十三：
+#:    「100 笔里 90 legacy / 10 fallback / 0 contract，即使总数 ≥20 也没验证 Pricing Contract」）。
+WINDOW_MIN_CONTRACT = 10
+#: ⭐ 来源凭据的**完整率**必须 100%（用户 §十三：provenance completeness = 100%）。
+#:    口径 = 窗口内每一份快照都能恢复这几个键（⛔ 不是"大部分能"）：
+#:      v / at / source / fee / pricing.kind / pricing.contract.name / pricing.contract.version
+#:    ⚠️ parsing 时**故意不要求** `rule` 与 `category`：没有匹配到价目时它们**合法地为空**。
+#:      也**不要求** `pricing.resolution`：那是 R4-36 才加的，老快照没有 —— 单独报它的覆盖率。
+PROV_REQUIRED_SQL = (
+    "json_extract(freight_rule_snapshot, '$.v') is null or "
+    "json_extract(freight_rule_snapshot, '$.at') is null or "
+    "json_extract(freight_rule_snapshot, '$.source') is null or "
+    "json_extract(freight_rule_snapshot, '$.fee') is null or "
+    "json_extract(freight_rule_snapshot, '$.pricing.kind') is null or "
+    "json_extract(freight_rule_snapshot, '$.pricing.contract.name') is null or "
+    "json_extract(freight_rule_snapshot, '$.pricing.contract.version') is null"
+)
 #: 观察期内**一个都不许出现**的原因码（它们都是有具体故障含义的）。
 WINDOW_FORBIDDEN_REASONS = ("error", "ambiguous")
 
@@ -130,6 +147,11 @@ print("ORDERS|" + (sql("select count(*) from " + DB + ".orders") or "?"))
 print("RULETPL|" + (sql("select count(*) from " + DB + ".driver_billing_rule_templates") or "?"))
 print("TPL|" + (sql("select count(*) from " + DB + ".freight_templates where is_deleted = 0") or "?"))
 print("RULEDRV|" + (sql("select count(*) from " + DB + ".users where driver_rule_id is not null") or "?"))
+# ---- 来源凭据的完整率（用户 §十三：provenance completeness = 100%）----
+print("PROVMISS|" + (sql("select count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
+                        + "@SINCE@" + " and (" + "@PROV@" + ")") or "?"))
+print("PROVRES|" + (sql("select count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
+                       + "@SINCE@" + " and json_extract(freight_rule_snapshot, '$.pricing.resolution') is not null") or "?"))
 PYEOF"""
 
 
@@ -139,7 +161,9 @@ PYEOF"""
 # 观察窗口起点：快照里的 `pricing.at` 是 UTC 的 ISO 字符串（秒精度），可以直接按字典序比。
 _SINCE_SQL = ("" if not SINCE else
               " and json_unquote(json_extract(freight_rule_snapshot, '$.at')) >= '" + SINCE_AT + "'")
-_REMOTE = REMOTE.replace("@PY@", _prodssh.VENV_PY).replace("@SINCE@", _SINCE_SQL)
+_REMOTE = (REMOTE.replace("@PY@", _prodssh.VENV_PY)
+           .replace("@SINCE@", _SINCE_SQL)
+           .replace("@PROV@", PROV_REQUIRED_SQL))
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +225,14 @@ def contract_detail(decisions: list[dict]) -> tuple[list[str], int, int]:
     return contracts, agreed_n, over_n
 
 
-def window_verdict(decisions: list[dict]) -> list[tuple[str, bool]]:
-    """⑧-a 观察窗口的五条门槛（⛔ 阈值只在文件头那几个常量里）。"""
+def window_verdict(decisions: list[dict], missing_prov: int = 0) -> list[tuple[str, bool]]:
+    """⑧-a 观察窗口的门槛（⛔ 阈值只在文件头那几个常量里）。
+
+    用户 §十三/§十四 要求**分开看三个维度**，⛔ 不许混成一个"通过/不通过"：
+      · **Availability**（契约能不能算）—— 样本量、Contract 样本数、退回比例；
+      · **Correctness**（算出来对不对）—— ⛔ **机器不判**，只把可观察的事实摆出来（见主输出）；
+      · **Provenance**（说得清凭什么）—— 来源凭据完整率 100%、不许新增无原因的旧式快照。
+    """
     f = four_way(decisions)
     in_bucket = f["contract"] + f["fallback"]
     # ⚠️ `frozen` **不进分母**：那一次压根没有重新抽签，它不是"抓到的样本"。
@@ -211,7 +241,9 @@ def window_verdict(decisions: list[dict]) -> list[tuple[str, bool]]:
     return [
         ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL),
          in_bucket >= WINDOW_MIN_IN_BUCKET and total >= WINDOW_MIN_TOTAL),
-        ("契约真的被用上了（contract ≥ 1）", f["contract"] >= 1),
+        ("★ **真的被契约算出来**的决策 ≥ " + str(WINDOW_MIN_CONTRACT)
+         + "（⛔ 只有「契约被用过」不够 —— 用户 §十三）", f["contract"] >= WINDOW_MIN_CONTRACT),
+        ("★ 来源凭据**完整率 100%**（缺键 " + str(missing_prov) + " 份）", missing_prov == 0),
         ("没有一个 " + " / ".join(WINDOW_FORBIDDEN_REASONS),
          not any(d["reason"] in WINDOW_FORBIDDEN_REASONS for d in decisions)),
         ("桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO),
@@ -301,7 +333,17 @@ def selftest() -> int:
 
     fails = dict(window_verdict(ds))
     chk("窗口：桶内 15 < 20 ⇒ 样本量不过", fails["样本量：桶内 ≥ 20 且总数 ≥ 40"], False)
-    chk("窗口：contract ≥ 1 ⇒ 契约被用上了", fails["契约真的被用上了（contract ≥ 1）"], True)
+    key = [k for k in fails if k.startswith("★ **真的被契约算出来**")]
+    chk("窗口：契约真的算出来的样本数单独成一条门槛", bool(key), True)
+    chk("窗口：契约样本 10 笔 = 门槛 ⇒ 恰好过（边界不许差一）", fails[key[0]] if key else None, True)
+    thin = [d for d in ds if d["contract"] != "PricingContract v2"]
+    thin_contract = sum(d["n"] for d in thin if d["kind"] == "freight_template")
+    thin_key = [k for k in dict(window_verdict(thin)) if k.startswith("★ **真的被契约算出来**")][0]
+    chk("窗口：契约样本 " + str(thin_contract) + " 笔 < 门槛 ⇒ 那一条不过",
+        dict(window_verdict(thin))[thin_key], False)
+    prov = [k for k in fails if k.startswith("★ 来源凭据")]
+    chk("窗口：来源凭据完整率单独成一条门槛", bool(prov), True)
+    chk("窗口：缺键 0 份 ⇒ 完整率那条过", fails[prov[0]] if prov else None, True)
     chk("窗口：没有 forbidden reason ⇒ 过", fails["没有一个 error / ambiguous"], True)
     chk("窗口：退回 5/15 = 0.33 ≤ 0.8 ⇒ 过", fails["桶内退回比例 ≤ 0.8"], True)
     chk("窗口：有 stale ⇒ 不过", fails["观察期内**没有**新增无原因的旧式快照"], False)
@@ -349,6 +391,7 @@ def main() -> int:
     raw_decisions: list[str] = []
     schema = col = snaptotal = orders = "?"
     rule_tpl = tpl_n = ruledrv = "?"
+    provmiss = provres = "?"
     for ln in out.splitlines():
         parts = ln.split("|")
         if parts[0] == "HEALTH" and len(parts) >= 5:
@@ -369,6 +412,10 @@ def main() -> int:
             tpl_n = parts[1] if len(parts) > 1 else "?"
         elif parts[0] == "RULEDRV":
             ruledrv = parts[1] if len(parts) > 1 else "?"
+        elif parts[0] == "PROVMISS":
+            provmiss = parts[1] if len(parts) > 1 else "?"
+        elif parts[0] == "PROVRES":
+            provres = parts[1] if len(parts) > 1 else "?"
 
     decisions = parse_decisions(raw_decisions)
 
@@ -455,14 +502,17 @@ def main() -> int:
         print("        ⚠️ 还没有任何决策记录 —— 观察窗口还没开始，别把「没有数据」读成「没问题」。")
 
     # ---------------- ⑧-a 观察窗口（预注册门槛见文件头那几个常量）----------------
+    def _i(v) -> int:
+        return int(v) if str(v).isdigit() else 0
+
+    missing_prov = _i(provmiss)
+    with_res = _i(provres)
     f4 = four_way(decisions)
     contract, fell_back = f4["contract"], f4["fallback"]
     not_in_bucket, stale = f4["not_in_canary"], f4["stale"]
     in_bucket = contract + fell_back
 
     print("")
-    def _i(v) -> int:
-        return int(v) if str(v).isdigit() else 0
 
     feasible, why = window_feasibility(_i(rule_tpl), _i(tpl_n), _i(ruledrv))
     print("[窗口可行性] " + ("✅ " if feasible else "⛔ ") + why)
@@ -485,11 +535,18 @@ def main() -> int:
         print("           发布之后跑：python _tools/ops/_canary_status.py --since <发布日>")
         window_ok = None
     else:
-        crit = window_verdict(decisions)
+        crit = window_verdict(decisions, missing_prov)
         for label, c in crit:
             print("        " + ("✅ " if c else "⛔ ") + label)
         window_ok = all(c for _l, c in crit)
         print("        ⇒ 观察窗口 = " + ("通过" if window_ok else "**还没通过**（⛔ 不许「再看看」）"))
+        print("")
+        print("    [三维度] ⛔ 不许混成一个「通过 / 不通过」（用户 §十四）")
+        print("        A **Availability**（契约能不能算）：上面的样本量 / Contract 样本数 / 退回比例")
+        print("        B **Correctness**（算出来对不对）：⛔ **机器不判** —— 工具只回答「两个值在不在」；")
+        print("          「这个数业务上该不该是这么多」**必须人看**（用户 §十五：这条边界不许为了自动化再塞回去）")
+        print("        C **Provenance**（说得清凭什么）：来源凭据完整率 100% + 每条退回都带 reason")
+        print("          + 观察期内没有新增无原因的旧式快照")
 
     if strict and state != "ACTIVE":
         return 1
