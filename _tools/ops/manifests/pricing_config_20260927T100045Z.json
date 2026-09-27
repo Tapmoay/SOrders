@@ -1,0 +1,79 @@
+{
+  "kind": "pricing_config",
+  "note": "R4-41 ⑧-a：把生产上的计费规则 #1 勾上运费价目 #5（最小真实价目，只为让第一笔真实 Contract Decision 成为可观测事实）",
+  "at_utc": "2026-09-27T10:00:45Z",
+  "at_host": "2026-09-27T18:00:45+08:00",
+  "approved_by": "用户 2026-09-27 08:00 前后：「按 #5 配。」（理由：#5 是唯一同时满足「真实覆盖 ≥1」与「该订单在 30% Canary 桶」的候选）",
+  "executed_by": "AI 会话 session-e94394d5-4f36-49dd-9ee1-446fcb7dee30（DSH）",
+  "method": "真实业务接口 PUT /api/v1/driver-billing-rules/1 {\"template_ids\": [5]}（⛔ 不是裸 SQL；走的是带权限与校验的正式路径）",
+  "api_base": "http://127.0.0.1:8111/api/v1（实例直连；经 nginx 的明文登录会被 core/transport.py 按设计 426 拒掉）",
+  "change": {
+    "rule_id": 1,
+    "rule_name": "按单计件 · 小货车",
+    "rule_vehicle_type": "small",
+    "template_id": 5,
+    "template_name": "惠州江北 → 惠阳淡水",
+    "template_price_name": "一车价",
+    "template_fee": "45.00",
+    "template_route_id": 5
+  },
+  "before": {
+    "rule_1_template_ids": []
+  },
+  "after": {
+    "rule_1_template_ids": [
+      5
+    ]
+  },
+  "db_row_verified": "select rule_id, template_id from driver_billing_rule_templates → 1\t5",
+  "config_fingerprint": "4ae6b699bb57dd94",
+  "fingerprint_meaning": "sha256(rule, template, fee, route, vehicle)[:16]；改价目金额 / 改线路 / 改车型都会让它变",
+  "affected_drivers": [
+    {
+      "id": 163,
+      "name": "赖立新",
+      "vehicle_type": "small"
+    },
+    {
+      "id": 167,
+      "name": "罗少华",
+      "vehicle_type": "small"
+    },
+    {
+      "id": 169,
+      "name": "罗伟明",
+      "vehicle_type": "small"
+    },
+    {
+      "id": 170,
+      "name": "吴国平",
+      "vehicle_type": "small"
+    },
+    {
+      "id": 173,
+      "name": "苏耀光",
+      "vehicle_type": "small"
+    },
+    {
+      "id": 174,
+      "name": "徐德胜",
+      "vehicle_type": "small"
+    }
+  ],
+  "affected_scope": "挂规则 #1 的司机 6 个；他们名下未完结单 8 张（其中按 30% 分桶落 canary 的 4 张）—— ⚠️ 这是**影响面**，⛔ 不是覆盖范围",
+  "real_coverage": {
+    "note": "真实覆盖 = 这张价目按地址/线路能对上多少张未完结单（⛔ 与影响面是两件事，R4-40 踩过这个坑）",
+    "unfinished_orders_matched": 1,
+    "in_canary_bucket": 1,
+    "orders": [
+      "#20709  桶=9  PENDING_DISPATCH  司机=(还没派)"
+    ]
+  },
+  "expected_first_decision": "订单 #20709 被派给规则 #1 的 6 个司机之一 ⇒ Canary 命中（桶 9 < 30）⇒ 契约算出 45.00",
+  "rollback": "PUT /api/v1/driver-billing-rules/1 {\"template_ids\": []} —— 一行即可回到配置前的状态",
+  "unchanged": [
+    "FREIGHT_PRICING_CANARY_PERCENT=30（⛔ 没有调高）",
+    "代码（⛔ 配置与代码不同批）",
+    "⑧-b Full Cutover（未动）"
+  ]
+}

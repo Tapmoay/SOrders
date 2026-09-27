@@ -109,11 +109,48 @@ PYEOF
 """
 
 
+def selftest() -> int:
+    """⛔ 用户 2026-09-27 定的规矩，**钉在工具自己身上**：
+
+    > 「以后所有生产配置提案都应把『影响了谁』和『当前究竟能算到哪些订单』**分成两项**，
+    >  后者继续作为**硬核对项**。」
+
+    ⭐ 为什么必须自检：R4-40 就是这么栽的 —— 把「挂这份规则的司机名下有 8 张未完结单」
+    当成了覆盖范围，而那张价目按地址**一张都匹配不上**。判据只查形状，⛔ 不连生产。
+    """
+    src = Path(__file__).read_text(encoding="utf-8")
+    good = 0
+    total = 0
+
+    def chk(label: str, cond: bool) -> None:
+        nonlocal good, total
+        total += 1
+        good += 1 if cond else 0
+        print(("  OK   " if cond else "  BAD  ") + label)
+
+    chk("影响面与真实覆盖**是两个不同的标题**（⛔ 不许合成一项）",
+        "[真实覆盖]" in src and "影响面：" in src and "[真实覆盖]" != "影响面：")
+    chk("真实覆盖按**地址/线路**匹配（to_place / shipper_addresses）",
+        "t.to_place = coalesce(o.address_detail" in src and "shipper_addresses sa" in src)
+    chk("影响面按**司机挂的规则**算（driver_rule_id）", "driver_rule_id = " in src)
+    chk("★ 真实覆盖是**硬核对项**（进 checks），⛔ 不是只打印一行",
+        "checks.append((\"★ 这条价目**能对上**现有未完结单" in src)
+    chk("覆盖为 0 时**退出码非 0**（先别配）", "return 0 if allok else 1" in src)
+    chk("数据来源只用 sql()（⛔ 不自己拼 shell）", "subprocess.run([\"mysql\", \"-N\", \"-B\"]" in src)
+
+    print("")
+    print("配置提案检查器自检：" + str(good) + "/" + str(total) + " 通过")
+    return 0 if good == total else 1
+
+
 def _i(v) -> int:
     return int(v) if str(v).isdigit() else 0
 
 
 def main() -> int:
+    if "--selftest" in sys.argv:
+        return selftest()
+
     argv = sys.argv
     if "--rule" not in argv or "--template" not in argv:
         print("用法：--rule <计费规则 id> --template <价目 id>")
