@@ -75,7 +75,27 @@ print("DRIVERS|" + (sql("select count(*) from " + DB + ".users where driver_rule
 for ln in sql("select id, full_name, coalesce(vehicle_type, ''), is_active "
               "from " + DB + ".users where driver_rule_id = " + str(RULE) + " order by id").splitlines():
     print("DRV|" + ln.replace(chr(9), "|"))
-# 覆盖范围：这些司机名下**未完结**的单有多少，其中多少会落进 canary 桶
+# ⛔ 以前这里查的是「这些司机名下的单」—— 那是**影响面**，不是**覆盖范围**。
+#    R4-40 实测栽在这上面：提案 rule1×template2 报「4 张落桶」，而这张价目
+#    按地址**一张都匹配不上** ⇒ 配了也永远不会产生 Contract Decision。
+#    ⇒ 真正的覆盖 = 「这张价目按地址/线路能对上多少张未完结单」。
+MATCH = ("(t.to_place = coalesce(o.address_detail, '') "
+         "or t.route_id in (select sa.id from " + DB + ".shipper_addresses sa "
+         "where sa.detail_address = coalesce(o.address_detail, '')))")
+UNFINISHED = "o.status not in ('DELIVERED', 'CANCELLED', 'RETURNED')"
+print("COVALL|" + (sql("select count(*) from " + DB + ".orders o, " + DB + ".freight_templates t "
+                       + "where t.id = " + str(TPL) + " and " + UNFINISHED + " and " + MATCH) or "0"))
+print("COVBUCKET|" + (sql("select count(*) from " + DB + ".orders o, " + DB + ".freight_templates t "
+                          + "where t.id = " + str(TPL) + " and " + UNFINISHED + " and " + MATCH
+                          + " and (o.id % 100) < " + str(PCT)) or "0"))
+print("COVDRIVER|" + (sql("select count(*) from " + DB + ".orders o, " + DB + ".freight_templates t "
+                          + "where t.id = " + str(TPL) + " and " + UNFINISHED + " and " + MATCH
+                          + " and o.driver_id is not null") or "0"))
+for ln in sql("select o.id, (o.id % 100), o.status, coalesce(o.driver_id, 0) from " + DB + ".orders o, "
+              + DB + ".freight_templates t where t.id = " + str(TPL) + " and " + UNFINISHED
+              + " and " + MATCH + " order by o.id").splitlines():
+    print("COV|" + ln.replace(chr(9), "|"))
+# 影响面：这些司机名下**未完结**的单有多少（原口径，改名，别与覆盖范围混）
 print("ORDERS|" + (sql("select count(*) from " + DB + ".orders where driver_id in "
                        "(select id from " + DB + ".users where driver_rule_id = " + str(RULE) + ") "
                        "and status not in ('DELIVERED', 'CANCELLED', 'RETURNED')") or "0"))
@@ -87,6 +107,10 @@ print("CATS|" + (sql("select count(*) from " + DB + ".freight_categories") or "0
 print("TPLCATS|" + (sql("select count(*) from " + DB + ".freight_template_categories where template_id = " + str(TPL)) or "0"))
 PYEOF
 """
+
+
+def _i(v) -> int:
+    return int(v) if str(v).isdigit() else 0
 
 
 def main() -> int:
@@ -104,9 +128,12 @@ def main() -> int:
 
     data: dict[str, str] = {}
     drivers: list[list[str]] = []
+    covs: list[list[str]] = []
     for ln in out.splitlines():
         parts = ln.split("|")
-        if parts[0] == "DRV":
+        if parts[0] == "COV":
+            covs.append(parts[1:])
+        elif parts[0] == "DRV":
             drivers.append(parts[1:])
         elif len(parts) >= 2:
             data[parts[0]] = "|".join(parts[1:])
@@ -121,8 +148,20 @@ def main() -> int:
                        + " 线路=" + (t[5] or "(无)")) if len(t) >= 6 else "⛔ 找不到这条价目"))
     print("[现状] 这份规则已勾价目 " + data.get("LINKS_ALL", "?") + " 条（全库）；本提案的那一对现在"
           + ("**已经在**" if data.get("LINK") == "1" else "**不在**"))
-    print("       会影响的司机 " + data.get("DRIVERS", "?") + " 个，未完结的单 " + data.get("ORDERS", "?")
-          + " 张，其中按 " + pct + "% 分桶会落进 canary 的 " + data.get("BUCKET", "?") + " 张")
+    print("       影响面：挂这份规则的司机 " + data.get("DRIVERS", "?") + " 个，"
+          + "他们名下未完结的单 " + data.get("ORDERS", "?") + " 张"
+          + "（其中按 " + pct + "% 分桶会落进 canary 的 " + data.get("BUCKET", "?") + " 张）")
+    print("")
+    cov_all, cov_bucket = _i(data.get("COVALL")), _i(data.get("COVBUCKET"))
+    print("[真实覆盖] ⭐ **这张价目按地址/线路能对上多少张未完结单**"
+          + "（⛔ 与上面的影响面是两件事）")
+    print("       能对上 " + str(cov_all) + " 张，其中在 canary 桶里的 " + str(cov_bucket)
+          + " 张，已派了司机的 " + str(_i(data.get("COVDRIVER"))) + " 张")
+    for c in covs[:10]:
+        print("        #" + c[0] + "  桶=" + c[1] + "  " + c[2] + "  司机=" + (c[3] if c[3] != "0" else "(还没派)"))
+    if cov_all == 0:
+        print("       ⛔ **一张都对不上** ⇒ 这一对配下去**永远不会**产生 Contract Decision。"
+              + " 要产生第一笔，得选一条**能对上现有单子**的价目。")
     print("       运费分类共 " + data.get("CATS", "?") + " 条；这条价目挂了 " + data.get("TPLCATS", "?") + " 个分类")
     print("")
     print("[会影响的司机]")
@@ -143,6 +182,8 @@ def main() -> int:
     checks.append(("有限车型的规则必须配给对得上的司机（⛔ 配错车型派单会被拦）",
                    all((not r[2]) or (d[2] or "") in ("", r[2]) for d in drivers) if len(r) >= 3 else False,
                    "规则限 " + ((r[2] if len(r) > 2 else "?") or "不限")))
+    checks.append(("★ 这条价目**能对上**现有未完结单（否则配了也永远不产生 Contract Decision）",
+                   _i(data.get("COVALL")) > 0, "能对上 " + str(_i(data.get("COVALL"))) + " 张"))
     checks.append(("受影响的司机不是「只有测试号」（§六：⛔ 别把生产配成人工边界）",
                    any(not (d[0] in ("3", "126", "167")) for d in drivers),
                    "司机 " + str(len(drivers)) + " 个"))
