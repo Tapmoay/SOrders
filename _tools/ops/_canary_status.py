@@ -103,10 +103,16 @@ for p in ports:
 print("SCHEMA|" + (sql("select coalesce(max(version),0) from " + DB + ".schema_versions") or "?"))
 print("COLUMN|" + (sql("select count(*) from information_schema.columns where table_schema='" + DB
                       + "' and table_name='orders' and column_name='freight_rule_snapshot'") or "?"))
+# ⭐ 出口条件 ⑥（override 必须同时保留算法值与人工最终值）也要能在生产上**看出来**，
+#    所以 agreed / override / 契约身份 一起取回来 —— ⛔ 不能只在单测里成立。
 rows = sql("select coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.kind')), '(none)'), "
            "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.reason')), '(none)'), "
+           "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.agreed')), '(无)'), "
+           "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.override')), '(无)'), "
+           "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.contract.name')), '(无)'), "
+           "coalesce(json_unquote(json_extract(freight_rule_snapshot, '$.pricing.contract.version')), '(无)'), "
            "count(*) from " + DB + ".orders where freight_rule_snapshot is not null"
-           + "@SINCE@" + " group by 1, 2 order by 3 desc")
+           + "@SINCE@" + " group by 1, 2, 3, 4, 5, 6 order by 7 desc")
 for ln in rows.splitlines():
     if ln.strip():
         print("DECISION|" + ln.replace(chr(9), "|"))
@@ -124,7 +130,131 @@ _SINCE_SQL = ("" if not SINCE else
 _REMOTE = REMOTE.replace("@PY@", _prodssh.VENV_PY).replace("@SINCE@", _SINCE_SQL)
 
 
+# ---------------------------------------------------------------------------
+# 纯函数（⇒ --selftest 直接测，⛔ 不用连生产）
+#
+# ⭐ 为什么把它们抠出来：这几段**只在生产上有数据时才走到**（例如"契约命中了"那一支），
+#    而"只在生产上才跑的分支"正是最容易悄悄坏掉的地方 —— 坏了也没人当场知道。
+# ---------------------------------------------------------------------------
+def parse_decisions(lines: list[str]) -> list[dict]:
+    """远端 `DECISION|kind|reason|agreed|override|contract|version|count` 行 → 结构化。"""
+    out: list[dict] = []
+    for ln in lines:
+        parts = ln.split("|")
+        if parts[0] != "DECISION" or len(parts) < 8:
+            continue
+        try:
+            n = int(parts[7])
+        except ValueError:
+            continue
+        out.append({"kind": parts[1], "reason": parts[2],
+                    "agreed": parts[3], "override": parts[4],
+                    "contract": parts[5] + " v" + parts[6], "n": n})
+    return out
+
+
+def four_way(decisions: list[dict]) -> dict:
+    """⑧-a 观察窗口的四分类（⛔ 口径按 pricing.reason 判，不是按人猜）。"""
+    contract = sum(d["n"] for d in decisions if d["kind"] == "freight_template")
+    fell_back = sum(d["n"] for d in decisions
+                    if d["kind"] == "legacy_client" and d["reason"] not in ("(none)", "ok"))
+    not_in_bucket = sum(d["n"] for d in decisions
+                        if d["kind"] == "legacy_client" and d["reason"] == "ok")
+    stale = sum(d["n"] for d in decisions if d["reason"] == "(none)")
+    return {"contract": contract, "fell_back": fell_back,
+            "not_in_bucket": not_in_bucket, "stale": stale}
+
+
+def contract_detail(decisions: list[dict]) -> tuple[list[str], int, int]:
+    """出口条件 ⑥：契约那一支里，算法值 == 人工最终值 / 人工改过价 各多少笔。"""
+    hits = [d for d in decisions if d["kind"] == "freight_template"]
+    contracts = sorted({d["contract"] for d in hits})
+    agreed_n = sum(d["n"] for d in hits if d["agreed"] == "1")
+    over_n = sum(d["n"] for d in hits if d["override"] == "1")
+    return contracts, agreed_n, over_n
+
+
+def window_verdict(decisions: list[dict]) -> list[tuple[str, bool]]:
+    """⑧-a 观察窗口的五条门槛（⛔ 阈值只在文件头那几个常量里）。"""
+    f = four_way(decisions)
+    in_bucket = f["contract"] + f["fell_back"]
+    total = in_bucket + f["not_in_bucket"]
+    ratio = (f["fell_back"] / in_bucket) if in_bucket else None
+    return [
+        ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL),
+         in_bucket >= WINDOW_MIN_IN_BUCKET and total >= WINDOW_MIN_TOTAL),
+        ("契约真的被用上了（contract ≥ 1）", f["contract"] >= 1),
+        ("没有一个 " + " / ".join(WINDOW_FORBIDDEN_REASONS),
+         not any(d["reason"] in WINDOW_FORBIDDEN_REASONS for d in decisions)),
+        ("桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO),
+         ratio is not None and ratio <= WINDOW_MAX_FALLBACK_RATIO),
+        ("观察期内**没有**新增无原因的旧式快照", f["stale"] == 0),
+    ]
+
+
+def selftest() -> int:
+    """⛔ 这几段**只在生产上有数据时才走到**（例如"契约命中了"那一支）——
+    所以它们必须有机器证明，⛔ 不能等生产上第一次跑到才发现坏了。"""
+    bad = 0
+    seen = 0
+
+    def chk(label: str, got, want) -> None:
+        # ⛔ 条数**自己数**：第一版把总数写成 `total = 17`，而实际打了 18 条 ——
+        #    于是屏幕上写着 17/17（全过），却有一条压根没被算进去。
+        nonlocal bad, seen
+        seen += 1
+        ok = got == want
+        print(("  OK   " if ok else "  BAD  ") + label + " → " + str(got)
+              + ("" if ok else "（期望 " + str(want) + "）"))
+        bad += 0 if ok else 1
+
+    raw = [
+        "DECISION|freight_template|ok|1|0|PricingContract|2|7",
+        "DECISION|freight_template|ok|0|1|PricingContract|2|3",
+        "DECISION|legacy_client|no_candidates|(无)|(无)|FreightPricingCore|1|5",
+        "DECISION|legacy_client|ok|(无)|(无)|FreightPricingCore|1|25",
+        "DECISION|legacy_client|(none)|(无)|(无)|FreightPricingCore|1|1",
+        "DECISION|垃圾行",
+    ]
+    ds = parse_decisions(raw)
+    chk("解析：跳过垃圾行，其余 5 行都要在", len(ds), 5)
+    chk("解析：契约身份拼成 name + v + version", ds[0]["contract"], "PricingContract v2")
+    chk("解析：agreed/override 原样保留", (ds[0]["agreed"], ds[1]["override"]), ("1", "1"))
+
+    f = four_way(ds)
+    chk("四分类：contract", f["contract"], 10)
+    chk("四分类：fell_back（只算带原因的退回）", f["fell_back"], 5)
+    chk("四分类：not_in_bucket", f["not_in_bucket"], 25)
+    chk("四分类：stale", f["stale"], 1)
+
+    contracts, agreed_n, over_n = contract_detail(ds)
+    chk("⑥ 契约身份去重", contracts, ["PricingContract v2"])
+    chk("⑥ 算法值 == 人工最终值", agreed_n, 7)
+    chk("⑥ 人工改过价（两个数都留下）", over_n, 3)
+    chk("⑥ 两者相加 == 契约命中总数", agreed_n + over_n, f["contract"])
+
+    fails = dict(window_verdict(ds))
+    chk("窗口：桶内 15 < 20 ⇒ 样本量不过", fails["样本量：桶内 ≥ 20 且总数 ≥ 40"], False)
+    chk("窗口：contract ≥ 1 ⇒ 契约被用上了", fails["契约真的被用上了（contract ≥ 1）"], True)
+    chk("窗口：没有 forbidden reason ⇒ 过", fails["没有一个 error / ambiguous"], True)
+    chk("窗口：退回 5/15 = 0.33 ≤ 0.8 ⇒ 过", fails["桶内退回比例 ≤ 0.8"], True)
+    chk("窗口：有 stale ⇒ 不过", fails["观察期内**没有**新增无原因的旧式快照"], False)
+
+    empty = parse_decisions([])
+    chk("空输入不炸", four_way(empty),
+        {"contract": 0, "fell_back": 0, "not_in_bucket": 0, "stale": 0})
+    chk("桶内为 0 时比例算不出来（⛔ 不是当成 0% 过）",
+        dict(window_verdict(empty))["桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO)], False)
+
+    print("")
+    print("状态工具自检：" + str(seen - bad) + "/" + str(seen) + " 通过")
+    return 1 if bad else 0
+
+
 def main() -> int:
+    if "--selftest" in sys.argv:
+        return selftest()
+
     strict = "--strict" in sys.argv
 
     env = _prodssh.read_env()
@@ -138,17 +268,14 @@ def main() -> int:
     out = r.stdout.decode("utf-8", "replace")
 
     instances: list[tuple[str, str, str, str]] = []
-    decisions: list[tuple[str, str, int]] = []
+    raw_decisions: list[str] = []
     schema = col = snaptotal = orders = "?"
     for ln in out.splitlines():
         parts = ln.split("|")
         if parts[0] == "HEALTH" and len(parts) >= 5:
             instances.append((parts[1], parts[2], parts[3], "|".join(parts[4:])))
-        elif parts[0] == "DECISION" and len(parts) >= 4:
-            try:
-                decisions.append((parts[1], parts[2], int(parts[3])))
-            except ValueError:
-                pass
+        elif parts[0] == "DECISION":
+            raw_decisions.append(ln)      # 解析交给纯函数（可 selftest）
         elif parts[0] == "SCHEMA":
             schema = parts[1] if len(parts) > 1 else "?"
         elif parts[0] == "COLUMN":
@@ -157,6 +284,8 @@ def main() -> int:
             snaptotal = parts[1] if len(parts) > 1 else "?"
         elif parts[0] == "ORDERS":
             orders = parts[1] if len(parts) > 1 else "?"
+
+    decisions = parse_decisions(raw_decisions)
 
     print("== R4-PROD-CANARY 状态（⑧-a）—— 生产机，只读 ==")
     print("")
@@ -178,10 +307,18 @@ def main() -> int:
     print("")
     print("[观测] 订单 " + str(orders) + " 张，其中**带来源凭据**的 " + str(snaptotal) + " 张")
     if decisions:
-        for kind, reason, n in decisions:
-            mark = ("  ← 契约真的算出来了" if kind == "freight_template"
-                    else ("  ← R4-22 之前的旧快照，没有 reason 字段" if reason == "(none)" else ""))
-            print("        " + kind.ljust(16) + " reason=" + reason.ljust(16) + str(n) + mark)
+        for d in decisions:
+            mark = ("  ← 契约真的算出来了" if d["kind"] == "freight_template"
+                    else ("  ← R4-22 之前的旧快照，没有 reason 字段" if d["reason"] == "(none)" else ""))
+            print("        " + d["kind"].ljust(16) + " reason=" + d["reason"].ljust(16)
+                  + str(d["n"]).ljust(5) + mark)
+        contracts, agreed_n, over_n = contract_detail(decisions)
+        if contracts:
+            print("        契约身份（生产上真的用到的那几版）：" + "、".join(contracts))
+        if contracts:
+            print("        ⑥ 算法值 == 人工最终值：" + str(agreed_n) + " 笔"
+                  + " ／ 人工改过价（两个数都留下了）：" + str(over_n) + " 笔")
+            print("           ⚠️ 两个数都留下是可查的；⛔ 但「金额对不对」这件事**只能人看**，本工具不判。")
     else:
         print("        （还没有任何一张单带来源凭据 —— R4-21 之后产生的单才会有）")
 
@@ -216,11 +353,11 @@ def main() -> int:
         print("        ⚠️ 这句话的意思是：**.env 上写了，但生产还没在这么跑** ——")
         print("           要么有实例没重启/没读到，要么两个实例不一致（滚动发布期间会出现）。")
 
-    hits = sum(n for k, _r, n in decisions if k == "freight_template")
-    fallbacks = sum(n for k, r, n in decisions if r not in ("(none)", "ok"))
+    hits = sum(d["n"] for d in decisions if d["kind"] == "freight_template")
+    fallbacks = sum(d["n"] for d in decisions if d["reason"] not in ("(none)", "ok"))
     print("")
     print("[出口条件 ⑦] fallback 必须可统计（⛔ 允许退回，但不许**没有记录**地退回）")
-    old_style = sum(n for k, r, n in decisions if k == "legacy_client" and r == "(none)")
+    old_style = sum(d["n"] for d in decisions if d["kind"] == "legacy_client" and d["reason"] == "(none)")
     print("        契约命中 " + str(hits) + " ／ 如实退回（带 reason）" + str(fallbacks)
           + ("　／ 旧快照（无 reason）" + str(old_style) if old_style else "")
           + "　—— 退回的每一条都带 reason，上面已经按 reason 分组")
@@ -231,11 +368,9 @@ def main() -> int:
         print("        ⚠️ 还没有任何决策记录 —— 观察窗口还没开始，别把「没有数据」读成「没问题」。")
 
     # ---------------- ⑧-a 观察窗口（预注册门槛见文件头那几个常量）----------------
-    contract = sum(n for k, _r, n in decisions if k == "freight_template")
-    fell_back = sum(n for k, r, n in decisions
-                    if k == "legacy_client" and r not in ("(none)", "ok"))
-    not_in_bucket = sum(n for k, r, n in decisions if k == "legacy_client" and r == "ok")
-    stale = sum(n for k, r, n in decisions if r == "(none)")
+    f4 = four_way(decisions)
+    contract, fell_back = f4["contract"], f4["fell_back"]
+    not_in_bucket, stale = f4["not_in_bucket"], f4["stale"]
     in_bucket = contract + fell_back
 
     print("")
@@ -250,17 +385,7 @@ def main() -> int:
         print("           发布之后跑：python _tools/ops/_canary_status.py --since <发布日>")
         window_ok = None
     else:
-        ratio = (fell_back / in_bucket) if in_bucket else None
-        crit = [
-            ("样本量：桶内 ≥ " + str(WINDOW_MIN_IN_BUCKET) + " 且总数 ≥ " + str(WINDOW_MIN_TOTAL),
-             in_bucket >= WINDOW_MIN_IN_BUCKET and (contract + fell_back + not_in_bucket) >= WINDOW_MIN_TOTAL),
-            ("契约真的被用上了（contract ≥ 1）", contract >= 1),
-            ("没有一个 " + " / ".join(WINDOW_FORBIDDEN_REASONS),
-             not any(r in WINDOW_FORBIDDEN_REASONS for _k, r, _n in decisions)),
-            ("桶内退回比例 ≤ " + str(WINDOW_MAX_FALLBACK_RATIO),
-             ratio is not None and ratio <= WINDOW_MAX_FALLBACK_RATIO),
-            ("观察期内**没有**新增无原因的旧式快照", stale == 0),
-        ]
+        crit = window_verdict(decisions)
         for label, c in crit:
             print("        " + ("✅ " if c else "⛔ ") + label)
         window_ok = all(c for _l, c in crit)
