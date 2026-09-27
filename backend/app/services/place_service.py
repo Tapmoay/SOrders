@@ -51,6 +51,47 @@ MERGE_METERS = 1.0
 #: 同名地点 + 相距 ≤ 该米数 → 也判同一个（GPS 实测误差远大于 1 米，见模块注释）
 SAME_NAME_METERS = 30.0
 
+#: 「共享地点列表」按距离**分档优先**的档位边界（米）—— 用户 2026-09-27 定的：
+#: **≤1 米 / ≤10 米 / ≤50 米 / ≤100 米**从小到大优先，**>100 米不参与优先**。
+#:
+#: ⛔ **与上面那两个半径是两件事，一个字节都不许混**（FEAT-0002）：
+#:   · `MERGE_METERS` / `SAME_NAME_METERS` 决定"**要不要新建一行**"（写数据）；
+#:   · 这里的档位**只决定列表里谁排在前面**（多一个数都不写）。
+#:   模块开头那段注释已经专门写过"合并半径不是搜索半径"，2026-09-27 又差点被混一次，
+#:   所以两个概念在代码里各占一处、各自带名字。
+NEAR_TIERS: tuple[float, ...] = (1.0, 10.0, 50.0, 100.0)
+
+#: 分档优先的**最远**一档（= `NEAR_TIERS` 的最后一格）。超过它就只能排在后面。
+NEAR_METERS = NEAR_TIERS[-1]
+
+
+def tier_of(meters: float) -> int:
+    """距离落在第几档：`0..3` = 四个档位内（越小越近）；`4` = **不优先**。
+
+    ⚠️ 四个档位是**嵌套**的（≤1 ⊂ ≤10 ⊂ ≤50 ⊂ ≤100），所以"档位升序 + 档内距离升序"
+    与"距离升序"今天**等价**。仍然按 (档位, 距离) 排，是为了让规则**长成它被描述的样子**——
+    哪天用户改成分档不嵌套（例如"≤10 米优先，1 米内反而最后"），排序不用重写。
+
+    ⛔ 没有坐标的行**不是**"0 米"：调用方必须拿 `tier_of` 之前先确认有距离，
+    否则"没坐标"会被当成"就在我脚下"。见 `rank_key` 的注释。
+    """
+    for i, edge in enumerate(NEAR_TIERS):
+        if meters <= edge:
+            return i
+    return len(NEAR_TIERS)
+
+
+def rank_key(meters: float | None) -> tuple[int, float]:
+    """列表排序键：**没有坐标 → 视为"不优先"的最后一名**（不是 0 米）。
+
+    为什么单独一个函数：把 `None` 折成 `0.0` 是最容易犯、也最看不出来的错——
+    界面上那些没有坐标的地点会**跑到最前面**（用户以为"它就在我附近"）。
+    判据 `_tools/qa/_check_place_ranking.py` 专门钉这一条。
+    """
+    if meters is None:
+        return (len(NEAR_TIERS), float("inf"))
+    return (tier_of(meters), meters)
+
 #: **同一个人**在列表里用到第几次，就自动帮他收进「我的地点」（用户 2026-09-18 选的口径）
 #:
 #: 为什么是 2 而不是 1：第一次可能是"看一眼 / 点错了"，第二次才说明这个位置他真常用；
@@ -236,6 +277,39 @@ def find_place_near(
             if d < best_d:
                 best, best_d = row, d
     return best
+
+
+def near_places(
+    db: Session,
+    stmt: Any,
+    *,
+    lat: float,
+    lng: float,
+    meters: float = NEAR_METERS,
+) -> list[tuple[Any, float]]:
+    """从 `stmt`（一个已带筛选条件的 `select(Place)`）里挑出坐标在 `meters` 内的行。
+
+    返回 `[(行, 距离米)]`，**未排序** —— 排序由调用方按 `rank_key` 做。
+    为什么要拆开：档位是"排序口径"，而"哪些行算近"是"筛选口径"，两个概念各自可测。
+
+    做法与 `find_place_near` 同一套：先按 `_bbox` 卡一个盒子（走索引列），
+    再逐行算 haversine 复核 —— ⛔ 不在 SQL 里写距离公式（那会退化成全表扫描）。
+    """
+    lat_min, lat_max, lng_min, lng_max = _bbox(lat, lng, meters)
+    boxed = stmt.where(
+        Place.lat.is_not(None),
+        Place.lng.is_not(None),
+        Place.lat >= lat_min,
+        Place.lat <= lat_max,
+        Place.lng >= lng_min,
+        Place.lng <= lng_max,
+    )
+    out: list[tuple[Any, float]] = []
+    for row in db.scalars(boxed).all():
+        d = haversine_m(lat, lng, float(row.lat), float(row.lng))
+        if d <= meters:
+            out.append((row, d))
+    return out
 
 
 def find_shipper_location_near(

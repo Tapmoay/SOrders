@@ -56,6 +56,11 @@ def list_places(
     db: Session = Depends(get_db),
     q: str | None = Query(None, description="按地点名/地址模糊匹配（不传=常用在前）"),
     limit: int = Query(100, ge=1, le=MAX_LIST),
+    lat: float | None = Query(
+        None, ge=-90, le=90,
+        description="我当前在哪（纬度）。给了就按距离分档优先：≤1/10/50/100 米从小到大，>100 米不优先",
+    ),
+    lng: float | None = Query(None, ge=-180, le=180, description="我当前在哪（经度）。与 lat 成对出现"),
 ) -> list[Place]:
     # ⛔ 只看没删的（`SoftDeleteMixin`）：删掉的行不该出现在任何人的选点列表里
     stmt = select(Place).where(Place.is_deleted.is_(False))
@@ -79,6 +84,32 @@ def list_places(
     #    「按人来搞」，所以改成「我自己用过几次」（`usage_counters`，kind=place）。
     #    全库 `places.use_count` 仍然在写（它管「这条坐标被并入过几次」），只是不再拿来排序。
     stmt = usage_service.with_popularity(stmt, Place, usage_service.KIND_PLACE, current)
+
+    # ---------------- 距离分档优先（FEAT-0002 · 用户 2026-09-27）----------------
+    # 给了"我在哪"就把 **≤100 米** 的按距离排到前面；**>100 米与没有坐标的保持原顺序跟在后面**。
+    #
+    # ⛔ 这里**只排序**：不新建、不合并、一个字节都不写。
+    #    决定"要不要新建一行"的是 `place_service.MERGE_METERS`（1 米）与
+    #    `SAME_NAME_METERS`（同名 30 米）—— 那两个数字与这里的档位毫无关系（见
+    #    `place_service.NEAR_TIERS` 的注释）。Q3 拍板就是"只排序、不合并"。
+    #
+    # ⛔ 没有坐标的行**不许**当 0 米（否则它们会跑到最前面，看起来像"就在我附近"）——
+    #    它们进不了 `near` 这一支，天然落在"其余"里。
+    if lat is not None and lng is not None:
+        near = place_service.near_places(db, stmt, lat=lat, lng=lng)
+        near.sort(key=lambda it: place_service.rank_key(it[1]))
+        # 多取一行就够判截断了，近的那一批再长也没有意义（超出 `limit` 的会被丢掉）
+        near_rows = [row for row, _ in near][: limit + 1]
+
+        rows: list[Place] = list(near_rows)
+        if len(rows) <= limit:
+            # 近的还没占满一页 → 用**同一份原顺序**把其余的接在后面
+            rest = stmt
+            if rows:
+                rest = rest.where(Place.id.not_in([r.id for r in rows]))
+            rows += list(db.scalars(rest.limit(limit + 1)).all())
+        return finish_page(rows, limit, response)
+
     stmt = stmt.limit(limit + 1)
     return finish_page(list(db.scalars(stmt).all()), limit, response)
 

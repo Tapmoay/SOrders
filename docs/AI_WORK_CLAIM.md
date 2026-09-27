@@ -31,6 +31,33 @@
 
 ## 进行中
 
+### [2026-09-27 23:40 UTC → ] 会话：**FEAT-0001/0002/0003 货主与派单员下的三件新功能**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求**：需求方 2026-09-27 提了六件事，核实后**四件已在 2026-09-24 做完**
+（下单选联系人 / 地点·线路绑联系人 / 下单后地点入库 / 单位换算本体）——
+本事项只做真正还缺的三件，定义见 `docs/changes/`：
+`FEAT-0001`（换算率绑车辆，L3）· `FEAT-0002`（共享地点分档排序，L1）·
+`FEAT-0003`（下单地址库「我就在这里」按钮，L1）。
+
+**需求方已拍板**：Q1=A（换算**只提示、不参与金额**）· Q2=B（**每辆车不同容量**）·
+Q3=A（分档**只排序、不合并**）。
+
+核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：单位换算要能按车辆区分，而加列的唯一合法入口就是它
+
+**改哪些文件**（预计）：
+- `backend/app/models/unit_conversion.py`（+vehicle_id 列）
+- `backend/app/core/schema_bootstrap.py`（迁移，**核心区**）
+- `backend/app/api/v1/unit_conversions.py` + `services/@ @BT@@rules`（取值优先级）
+- `backend/app/api/v1/places.py`（分档排序）
+- `android/.../ui/shipper/OrderCreateScreen.kt`（地址库抽屉加按钮）+ `Dtos.kt` / `Apis.kt` / `AppRepository.kt`（**共享文件，只做追加式改动**）
+- 判据与反向验证：`_tools/qa/_check_unit_conversion.py`（扩）、`_check_place_ranking.py`（新）、对应反向验证
+
+⛔ **明确不碰**：金额口径（`order_money` / `driver_pay` / 账本）、订单状态机、
+`place_service.py` 的合并半径（`MERGE_METERS` / `SAME_NAME_METERS`）、
+生产（不发布、不改配置、Canary 仍 30%）、`vehicles` 表结构。
+
+---
+
 ### [2026-09-27 22:55 UTC → 23:25 UTC 已完成] 会话：**环境准备 —— 拉起三台模拟器 + 装最新 APK**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **⚠️ 没有 ID，因为本事项不改代码** —— 它只是把开发环境摆好（用户下一步才会给要做的功能）。
