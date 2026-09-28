@@ -749,38 +749,22 @@ fun OrderCreateScreen(
             onDismiss = { vm.showMapPicker = false },
         )
     }
-    // 代理下单：选择货主弹窗
+    // 代理下单：为谁下单（**底部抽屉**，CHG-0007）。
+    //
+    // 用户 2026-09-28：「派单员的选择货主为什么还是一个弹窗啊，干的太丑，改成**下拉选项下拉抽屉**啊，
+    // 就是**底部抽屉**」。
+    // ⚠️ 原来这里是 `AlertDialog` —— 而同一页其它三个选择器（地址库 / 联系人 / 选商品）都是
+    //    `ModalBottomSheet`：**同一页两种选择容器**本身就是不一致。现在走共用的
+    //    `ShipperPickerSheet`（`ui/common/`），别的页面要选货主时也用同一个。
     if (showShipperPicker) {
-        AlertDialog(
-            onDismissRequest = { showShipperPicker = false },
-            title = { Text("为谁下单") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()).heightIn(max = 420.dp)) {
-                    Text("临时货主（未注册，可直接填名字）", style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.height(4.dp))
-                    SoTextField(vm.tempShipperName ?: "", { vm.setShipper(null, it) }, placeholder = "临时货主姓名")
-                    Spacer(Modifier.height(12.dp))
-                    Text("已注册货主", style = MaterialTheme.typography.labelLarge)
-                    if (vm.shippers.isEmpty()) {
-                        Text("暂无货主", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    vm.shippers.forEach { s ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { vm.setShipper(s.id, null); showShipperPicker = false }.padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = vm.shipperId == s.id, onClick = { vm.setShipper(s.id, null); showShipperPicker = false })
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text(s.fullName.ifBlank { s.username }, style = MaterialTheme.typography.bodyLarge)
-                                Text(s.phone.ifBlank { "-" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showShipperPicker = false }) { Text("确定") } },
-            dismissButton = { TextButton(onClick = { showShipperPicker = false }) { Text("取消") } },
+        ShipperPickerSheet(
+            shippers = vm.shippers,
+            selectedId = vm.shipperId,
+            tempName = vm.tempShipperName,
+            onPick = { id -> vm.setShipper(id, null); showShipperPicker = false },
+            // ⚠️ 填临时货主名字时**不关抽屉**：他可能只是想改一个字，关掉会逼他再点一次。
+            onPickTemp = { name -> vm.setShipper(null, name) },
+            onDismiss = { showShipperPicker = false },
         )
     }
     if (proxyMode) {

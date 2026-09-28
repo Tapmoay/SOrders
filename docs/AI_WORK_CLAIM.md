@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-09-28 15:55 UTC → ] 会话：**CHG-0007 代理下单「为谁下单」改底部抽屉**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「派单员的选择货主为什么还是一个弹窗啊，干的太丑，改成**下拉选项下拉抽屉**啊，
+就是**底部抽屉**」。
+
+**改法**：从 `AlertDialog` 换成 `ModalBottomSheet`（与地址库/联系人/选商品同一个容器），
+并抽成公共件 `android/.../ui/common/ShipperPickerSheet.kt`（顺手加了搜索框，走 `core/UserSearch`）；
+选中与临时货主仍走 `vm.setShipper` 那两条路，互斥关系一个字没变。
+
+**改哪些文件**：新增 `ui/common/ShipperPickerSheet.kt`；`ui/shipper/OrderCreateScreen.kt` 调用点替换；
+`docs/changes/CHG-0007.md` + 登记簿。
+
+⛔ **明确不碰**：后端、`setShipper` 的两条路、账本「记一笔账」那一页（它也选货主，本次不改，
+只是把件放到公共目录，以后可以复用）。
+
+---
 
 ### [2026-09-27 23:40 UTC → ] 会话：**FEAT-0001/0002/0003 货主与派单员下的三件新功能**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
