@@ -24,7 +24,7 @@
 | `ORDER_TEMPLATE_*` | `order_templates.py` → `Permission.ORDER_EDIT` |
 | `SUPPLIER_*` | `suppliers.py` → `Permission.LEDGER_EDIT` |
 | `ARREARS_UNIT_*` | `arrears.py` → `Permission.LEDGER_EDIT` |
-| `VEHICLE_*` | `vehicles.py:46 _must_dispatcher`（体内角色判断，没有权限点） |
+| `VEHICLE_*` | `vehicles.py:79 _must_dispatcher`（体内角色判断，没有权限点） |
 
 ## 判据看到什么、看不到什么（说清楚，免得被当成更强的保证）
 

@@ -5,7 +5,7 @@
 R3-02 要的是「Capability 四端同源」：UI 问 `can(order:assign)`、AI 问同一句、审计按同一套词表留痕。
 但本项目**不是所有授权都有权限点**：地址与联系人、地点库、单位换算这几块用的是
 `require_roles(UserRole.SHIPPER, UserRole.DISPATCHER)`（见 `api/v1/shipper.py:29`）；
-车辆管理更彻底 —— 它是**体内角色判断**（`vehicles.py:46 _must_dispatcher`）。
+车辆管理更彻底 —— 它是**体内角色判断**（`vehicles.py:79 _must_dispatcher`）。
 没有名字，UI/AI 就无从问起 —— 于是它们各自硬编码 `role == ...`，这正是「第二份权限真相」的来源。
 
 ## 这一张表是什么、不是什么
@@ -96,7 +96,7 @@ ROLE_CAPABILITIES: tuple[RoleCapability, ...] = (
         what='车辆名册与「这辆车归哪个司机」',
         roles=('dispatcher',),
         kind='write',
-        gate='backend/app/api/v1/vehicles.py:46',
+        gate='backend/app/api/v1/vehicles.py:79',
         why_not_permission='它的授权是**体内角色判断**（`_must_dispatcher`）而不是权限点 ——'
                             '属于那 35 处「体内门槛」棘轮里的一处；本轮不搬它（搬它要动端点鉴权）。',
         when_to_remove='体内门槛棘轮往下降、把它接成 `require_permission(...)` 的那一天。',

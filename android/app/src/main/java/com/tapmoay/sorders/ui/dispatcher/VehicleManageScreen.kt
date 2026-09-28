@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -86,6 +88,18 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     var draftType by mutableStateOf("trailer")
     var draftDriverId by mutableStateOf<Long?>(null)
     var draftActive by mutableStateOf(true)
+    /**
+     * **车身型式**（`VehicleAttrs.kt` 里 BODY_CHOICES 的键；空串 = 未设置）。
+     *
+     * ⚠️ 它与上面的 [draftType]（车型：小货车 / 大货车 / 挂车）**不是一回事**：
+     * 那个是**计费口径**（司机计费规则 / 运费模板共用，取值一个字不许扩），
+     * 这个只决定**这辆车能填哪些属性**。
+     */
+    var draftBody by mutableStateOf("")
+    /** 车辆属性（键 → 用户填的原文）。空串 = 这一项没填，保存前会被剔掉。 */
+    var draftAttrs by mutableStateOf<Map<String, String>>(emptyMap())
+    /** 换车身型式时"哪几项被去掉了"——⛔ 静默丢掉用户填过的数是最不该发生的一种。 */
+    var bodyNote by mutableStateOf<String?>(null)
     var driverQuery by mutableStateOf("")
     var saving by mutableStateOf(false)
     var sheetError by mutableStateOf<String?>(null)
@@ -141,6 +155,10 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftType = "trailer"
         draftDriverId = null
         draftActive = true
+        // 新车的车身型式默认「未设置」：⛔ 不替用户认一个（认错了，他就会在一个错误的表单上填一堆数）
+        draftBody = ""
+        draftAttrs = emptyMap()
+        bodyNote = null
         driverQuery = ""
         sheetError = null
         sheetOpen = true
@@ -152,10 +170,47 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftType = v.vehicleType.ifBlank { "trailer" }
         draftDriverId = v.driverId
         draftActive = v.isActive
+        draftBody = v.bodyType
+        // 后端只回**填过的**属性；这里整份接住，保存时再整份发回去（那正是后端的"整份替换"语义）。
+        draftAttrs = v.attrs
+        bodyNote = null
         driverQuery = ""
         sheetError = null
         sheetOpen = true
     }
+
+    /** 改一项属性（输入框每次按键都走这里）。 */
+    fun setAttr(key: String, value: String) {
+        draftAttrs = draftAttrs + (key to value)
+    }
+
+    /**
+     * 换车身型式：把**新型式不存在的那几项**从草稿里剔掉，并**把剔掉的写出来**。
+     *
+     * ⛔ 不静默丢：`cargo_height_m` 换到平板车之后连输入框都画不出来了 ——
+     * 用户再也看不到那个数，"它还在不在"只能靠猜。所以要么当场说清，要么别动它；
+     * 而"别动它"是不行的：后端会以"这不是平板车的属性"整份拒绝（那是**对的**，
+     * 它拦的正是"型式与属性对不上"这种最难查的中间态）。
+     */
+    fun setBody(next: String) {
+        if (next == draftBody) return
+        val allowed = attrsFor(next).map { it.key }.toSet()
+        val dropped = draftAttrs.filter { (k, v) -> k !in allowed && v.trim().isNotEmpty() }
+        draftAttrs = draftAttrs.filterKeys { it in allowed }
+        draftBody = next
+        bodyNote = if (dropped.isEmpty()) {
+            null
+        } else {
+            dropped.entries.joinToString("、") { (k, v) ->
+                val f = VEHICLE_ATTR_FIELDS.firstOrNull { it.key == k }
+                (if (f == null) k else attrTitle(f, next)) + " 原值 " + v + " 已去掉"
+            } + " —— 新的车身型式没有这一项"
+        }
+    }
+
+    /** 只把**填了的**那几项发给后端（空串 = 没填；后端把空串也当没填，但少传一个键更清楚）。 */
+    fun filledAttrs(): Map<String, String> =
+        draftAttrs.mapValues { it.value.trim() }.filterValues { it.isNotEmpty() }
 
     fun closeSheet() {
         if (saving) return
@@ -175,13 +230,29 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         viewModelScope.launch {
             try {
                 if (id == null) {
-                    val v = container.repo.createVehicle(VehicleCreateRequest(plate, draftType, draftDriverId))
+                    val v = container.repo.createVehicle(
+                        VehicleCreateRequest(
+                            plateNo = plate,
+                            vehicleType = draftType,
+                            driverId = draftDriverId,
+                            bodyType = draftBody,
+                            attrs = filledAttrs(),
+                        ),
+                    )
                     val who = driverNameOf(v.driverId)
                     actionResult = "已添加 " + v.plateNo + if (who.isEmpty()) "" else "，并绑给 $who"
                 } else {
                     container.repo.updateVehicle(
                         id,
-                        VehicleUpdateRequest(plateNo = plate, vehicleType = draftType, isActive = draftActive),
+                        VehicleUpdateRequest(
+                            plateNo = plate,
+                            vehicleType = draftType,
+                            isActive = draftActive,
+                            bodyType = draftBody,
+                            // ⚠️ **整份**发回去（含空 map）：后端把"传了 attrs"定义成整份替换，
+                            //    只发改动的那几个键 = 其余全部被清空。见 VehicleUpdateRequest 的注释。
+                            attrs = filledAttrs(),
+                        ),
                     )
                     var note = "已保存 " + plate
                     // 只有真的动了司机才发第二个请求（否则每存一次都白写一条绑车日志）
@@ -366,10 +437,27 @@ private fun VehicleCard(
                     )
                     Spacer(Modifier.width(8.dp))
                     MiniChip(vehicleTypeLabel(v.vehicleType), MaterialTheme.colorScheme.onSurfaceVariant)
+                    // 车身型式（箱式车 / 平板车 / 自卸车 / 挂车）**另起一个 chip**：
+                    // 它与左边那个"车型"是两件事 —— 那个决定怎么算钱，这个决定能填哪些属性。
+                    // ⚠️ 用后端回的 bodyLabel，不查本地那张表（后端将来多一个取值时不会显示原始码）。
+                    if (v.bodyLabel.isNotBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                        MiniChip(v.bodyLabel, VehicleAccent)
+                    }
                     if (!v.isActive) {
                         Spacer(Modifier.width(6.dp))
                         MiniChip("停用", MaterialTheme.colorScheme.error)
                     }
+                }
+                // 「这车能装多少」—— 只有量过的项才写；一项都没有时**整行不出现**
+                // （⛔ 不写"载重 0 吨"：界面上"0 吨"与"没量过"是两件事）。
+                val capacity = capacityText(v.attrs)
+                if (capacity.isNotEmpty()) {
+                    Text(
+                        capacity,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             IconButton(onClick = onEdit) {
@@ -461,6 +549,11 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
             )
             Spacer(Modifier.height(14.dp))
             Text("车型", style = MaterialTheme.typography.labelLarge)
+            Hint(
+                "决定这辆车怎么算钱（司机计费规则与运费模板都按它匹配）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 VEHICLE_TYPES.forEach { (k, label) ->
@@ -468,7 +561,65 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
                 }
             }
 
+            // ---------------- 车身型式 + 车辆属性（2026-09-27） ----------------
+            //
+            // 用户原话：「给一辆车**固定一个属性**……在**创建车辆的时候就需要填相应的属性**。
+            // **不同的车型会需要填的属性是不同的**……别说有可能是个**平板车**、有可能是一个**自卸车**。」
+            //
+            // ⚠️ 这一块与上面那个"车型"**是两件事**，所以是两个选择器、两行提示语：
+            //   车型＝怎么算钱（与司机计费规则共用，取值不许扩）；车身型式＝能填哪些属性（只这张台账用）。
             Spacer(Modifier.height(16.dp))
+            Text("车身型式", style = MaterialTheme.typography.labelLarge)
+            Hint(
+                "决定下面能填哪些属性。选错了会填出一批这辆车根本没有的项，所以按行驶证/实车选。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BODY_CHOICES.forEach { (k, label) ->
+                    PickChip(label, vm.draftBody == k) { vm.setBody(k) }
+                }
+            }
+            vm.bodyNote?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(MoneyOrange))
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("车辆属性", style = MaterialTheme.typography.labelLarge)
+            Hint(
+                // ⛔ 界面文案里不许有 Markdown 记号（`_check_ai_guardrails.py` 那一组钉着）：
+                //    这里的字会**原样**画在屏幕上，`**粗体**` 会把星号一起显示出来。
+                "这些是这辆车的固有属性，建车时填一次。载重 / 容积以后要用来算「一车 = 多少方 / 多少吨」；" +
+                    "其余是台账信息，不影响任何金额。没量过的留空，别随便填一个数。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            // 两列一行：一项一个输入框，标题**带量纲**（"车高(米)"）——
+            // 不带单位时 4 与 400 在界面上都像是对的。
+            attrsFor(vm.draftBody).chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    pair.forEach { f ->
+                        OutlinedTextField(
+                            value = vm.draftAttrs[f.key].orEmpty(),
+                            onValueChange = { vm.setAttr(f.key, it) },
+                            label = { Text(attrTitle(f, vm.draftBody)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = if (f.integer) KeyboardType.Number else KeyboardType.Decimal,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    // 奇数项时补一个空位，免得最后一个输入框被拉成整行宽
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.height(8.dp))
             Text("绑的司机", style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.height(6.dp))
             Row(

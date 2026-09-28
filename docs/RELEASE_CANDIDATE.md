@@ -23,7 +23,7 @@
 | **Git SHA** | `448dbb3e743c4b96b238d009a2c6ca46a68f441a`（**R4 当前发布点**：Decision Freeze + `/health` 的 effective config 指纹。⛔ 上一个发布点是 `9710477`，它只到「组装点 + Canary + 原因码」；分支 `p` → `origin/new`，已推） | `git rev-parse HEAD` |
 | **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空**。⚠️ 上次发布（`448dbb3`）落位之后又推过**只改工具/文档**的提交，所以这个 diff **不为空**是正常的 —— 判据是「`backend/` 下没有差异」，工具与文档不算运行时 | `git diff --stat <Git SHA>..HEAD -- backend/` |
 | 提交时刻 | 2026-09-27T09:53:52+08:00 | `git log -1 --format=%cI` |
-| **DB migration version** | **9**（`001_baseline` … `009_freight_rule_snapshot`，R4-11 加的承运运费来源凭据） | `python -c "import sys;sys.path.insert(0,'_tools/ops');import _prod_smoke as s;print(s.repo_migration_head())"` |
+| **DB migration version** | **10**（`001_baseline` … `010_vehicle_attrs`，FEAT-0001 加的车辆属性：车身型式 + 9 项属性） | `python -c "import sys;sys.path.insert(0,'_tools/ops');import _prod_smoke as s;print(s.repo_migration_head())"` |
 | **Android 版本** | 产品 **0.2.4**（唯一来源＝仓库根 `VERSION`）＋构建号（日期式 `yyyyMMdd * 100 + 当日序号`） | `Get-Content VERSION` ／ `android/app/build.gradle.kts` |
 | **Backend 版本** | `app_version` = **0.2.4**（`config._repo_version()` 现读同一个 `VERSION`）；⚠️ OpenAPI `info.version` 仍是 `0.1.0`（没跟产品版本走，如实记） | `backend/app/config.py` |
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |

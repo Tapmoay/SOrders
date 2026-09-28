@@ -3,6 +3,7 @@
 import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -277,24 +278,52 @@ class CashFlowOut(BaseModel):
 
 
 # ---------------- 车辆台账 ----------------
+#
+# ⚠️ **车型与车身型式是两件事**（2026-09-27 用户要的「车辆属性」）：
+#   · `vehicle_type`（小货车 / 大货车 / 挂车）＝ **计费口径**，被司机计费规则 / 运费模板 /
+#     `models/user.py::resolve_billing_mode` 共用，其中「挂车→按单计费、其余→固定工资」**是钱**
+#     ⇒ ⛔ 它的取值一个字不扩；
+#   · `body_type`（箱式车 / 平板车 / 自卸车 / 挂车 / 未设置）＝ **车身型式**，
+#     决定**这辆车能填哪些属性**。
+# 判据（哪些型式能填哪些项、每项叫什么、范围多少）的**唯一实现**在 `services/vehicle_attrs.py`，
+# 这里只声明出入参形状。
 class VehicleCreate(BaseModel):
     plate_no: str = Field(..., min_length=1, max_length=16)
     vehicle_type: str = Field("", max_length=16)
     driver_id: int | None = None
+    #: 车身型式（`services/vehicle_attrs.BODY_TYPES`）。空串 = 未设置 —— 它是**正式取值**
+    #: （老车、以及"还不知道这车是什么型式"），不是"没填"。
+    body_type: str = Field("", max_length=16)
+    #: 车辆属性 `{属性键: 数值}`（键见 `services/vehicle_attrs.ATTR_KEYS`）。
+    #: ⚠️ 值**收字符串也收数字**（App 传字符串、AI 可能传数字）；校验与归一在
+    #: `vehicle_attrs.parse_attrs`（那里给的是**中文**，不是 pydantic 的英文结构体）。
+    #: ⛔ 这里刻意**不写** per-key 的 Field 约束：写了越界会变成 422 + 英文结构体，
+    #:    而用户需要的是一句能照着改的话（与司机计费规则 `validate_rule_params` 同一条纪律）。
+    attrs: dict[str, Any] | None = None
 
 
 class VehicleUpdate(BaseModel):
     """改车辆：**只传要改的键**，没传的后端不动。
 
-    ⚠️ `driver_id` 有两种含义，靠 `model_fields_set` 区分（v3.44）：
-    **没传这个键** = 不动司机；**显式传 `null`** = 解绑。
-    以前两种都走 `is not None`，于是"解绑"这件事根本没有表达方式。
+    ⚠️ **两个键各有一套"没传 vs 传空"的语义**，都必须说清：
+
+    * `driver_id`：**没传这个键** = 不动司机；**显式传 `null`** = 解绑（v3.44）。
+      以前两种都走 `is not None`，于是"解绑"这件事根本没有表达方式。
+    * `attrs`：**没传** = 不动属性；**传了就是整份替换** —— 没写进去的属性会被清空。
+      需求方 2026-09-27 要的是「属性**不可能变**」：改就是一次说清"这辆车现在是什么样"，
+      别让两次改动之间留一个谁也说不清的状态。（安卓 `explicitNulls = false` 发不出
+      "显式 null"，整份替换正好把"清空某一项"表达成"不带这一项"，不需要额外协议。）
     """
 
     plate_no: str | None = Field(None, max_length=16)
     vehicle_type: str | None = Field(None, max_length=16)
     driver_id: int | None = None
     is_active: bool | None = None
+    #: 车身型式。**没传** = 不改；传了要过 `vehicle_attrs.clean_body`。
+    body_type: str | None = Field(None, max_length=16)
+    #: 车辆属性。**没传** = 不改；**传了就是整份替换**（没写进去的属性会被清空）——
+    #: 见类注释里那一段。
+    attrs: dict[str, Any] | None = None
 
 
 class VehicleDriverSet(BaseModel):
@@ -317,3 +346,12 @@ class VehicleOut(BaseModel):
     is_active: bool = True
     driver_name: str | None = None
     created_at: datetime | None = None
+    #: 车身型式（`box` / `flat` / `dump` / `trailer` / 空串）与它的**中文名**。
+    #: ⚠️ 中文名由**后端**给：客户端再写一份 `when(...)`，两处叫法迟早不一样。
+    body_type: str = ""
+    body_label: str = ""
+    #: 填过的属性 `{属性键: 数值字符串}` —— **只回填过的那些**，没量过的不出现。
+    #: ⚠️ 值是**字符串**不是数字：`load_tons` / `volume_cubic` 要参与「一车 = 多少方 / 多少吨」
+    #:    的换算，浮点会让 8 变成 7.999999999999999；客户端用 BigDecimal 接
+    #:    （与 `UnitConversionDto.factor` 同一个做法）。
+    attrs: dict[str, str] = Field(default_factory=dict)

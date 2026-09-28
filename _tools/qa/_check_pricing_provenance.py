@@ -177,6 +177,20 @@ CONFIG = {
     "supplier_payables.amount": "供应商应付金额（录入即事实）",
     "shipper_settlements.amount": "货主核销金额（录入即事实）",
     "shipper_settlement_lines.amount": "核销明细金额（录入即事实）",
+    # ---- 车辆属性（2026-09-28 · FEAT-0001）：**派单员建车时量了填进来的事实**，
+    # 与 `unit_conversions.factor` 同一档（都是"别人给进来的数"，不是系统按规则算出来的）。
+    # ⛔ **它们不是钱**：目前**一个消费点都没有**（接进换算是 FEAT-0005，而那一步也
+    #    只作用于**数量的显示**，"钱一个字节都不动"是 2026-09-24 就定死的口径）。
+    # ⚠️ 为什么逐列登记、不写一条通配：判据第 1 组是「每一列**恰好**落在一张表里」——
+    #    通配会让"以后往 vehicles 里加一个真的金额列"也顺带免检。
+    "vehicles.height_m": "车辆属性：车高(米)（建车时量了填进来的事实）",
+    "vehicles.width_m": "车辆属性：车宽(米)（同上）",
+    "vehicles.curb_weight_t": "车辆属性：净重(吨)（同上）",
+    "vehicles.load_tons": "车辆属性：载重(吨)（同上；⭐ 以后参与「一车 = 多少吨」的**数量显示**）",
+    "vehicles.volume_cubic": "车辆属性：容积(方)（同上；⭐ 以后参与「一车 = 多少方」的**数量显示**）",
+    "vehicles.cargo_length_m": "车辆属性：载货区长(米)（同上）",
+    "vehicles.cargo_width_m": "车辆属性：载货区宽(米)（同上）",
+    "vehicles.cargo_height_m": "车辆属性：载货区高(米)（同上）",
 }
 
 #: 坐标：名字是 lat/lng 的那几个，与钱无关。

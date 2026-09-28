@@ -21,7 +21,10 @@
 2. **缩字号**：有人为了"塞得下"把 sp 改小 —— 那是把老人特意调大的字又压回去；
 3. **按屏宽缩放**（`Density` 覆盖 / `fontScale` 参与换算 / 设计稿宽缩放）：一旦进来，
    全 App 的字号就与用户的字体设置脱钩，而且**没人会再收到报错**；
-4. **长串被折行**：单号是 21 位，和状态徽章挤不进一行时会被折成「…31271」+「78」；
+4. ⚠️ **已经被用户推翻过一条**（2026-09-27 CHG-0002）：这里原来防的是"21 位单号与状态徽章
+   挤不进一行时被折成「…31271」+「78」"，用户原话是「**普通订单卡不要显示订单号，
+   只有点进详情才显示**」⇒ 单号从那四张列表里**整个拿掉**了，那一节改成防**两件新事**：
+   ① 单号又长回卡片上；② 详情页把单号也删了（那就成了"哪里都看不到"）。
    徽章宽度 = 文字实测 + 38dp，**改徽章内边距却忘了改这个常数**，判定就会算错；
 5. **可伸缩的文本没给 `weight`**：它自己会去挤**后面的兄弟**（真机踩到：长单号把日期挤成一条缝，
    `2026-09-19` 被折成 `202`/`6-0`/`9-1`/`9` 四行 —— 而且 **411dp 下就能看见**）。
@@ -55,6 +58,8 @@ COMMON = UI_DIR / "common"
 ADAPTIVE = COMMON / "Adaptive.kt"
 TABS = COMMON / "SegmentedStatusTabs.kt"
 CARD = COMMON / "OrderCard.kt"
+#: 订单详情页：单号**只许**在这里出现（用户 2026-09-27：「只有点进详情才显示」）
+DETAIL = UI_DIR / "order/OrderDetailScreen.kt"
 COMPONENTS = COMMON / "Components.kt"
 ENTRY_GRID = COMMON / "EntryGrid.kt"
 EXPENSES = UI_DIR / "dispatcher/ExpensesScreen.kt"
@@ -265,21 +270,28 @@ def main() -> int:
     c.ok("⛔ 标签里没有 `TextOverflow.Ellipsis`（截断＝改成另一个意思）", ELLIPSIS not in tabs)
     c.ok("⛔ 标签里没有 `TextOverflow.Clip` 这种显式剪裁", "TextOverflow.Clip" not in tabs)
 
-    # ── 3. 单号行：两种形态 ────────────────────────────────────────────────
-    c.section("3. 订单卡片的单号行：放得下=原样，放不下=单号独占一行")
-    c.ok("用 `rememberTextWidth(orderNumber, numberStyle)` 实测单号",
-         "rememberTextWidth(orderNumber, numberStyle)" in card)
-    c.ok("用 `orderStatusChipWidth(order.status)` 实测徽章",
-         "orderStatusChipWidth(order.status)" in card)
-    c.ok("`numberStyle` 同时喂给 Text 与测量（两边不许各写一个 style）",
-         "style = numberStyle" in card and "rememberTextWidth(orderNumber, numberStyle)" in card)
-    c.ok("有 `onOneLine` 的两支（放得下 / 放不下）",
-         "if (onOneLine)" in card and "else {" in card)
-    number_calls = [b for _s, _e, b in call_blocks(card, "Text") if "orderNumber" in b]
-    c.ok(f"单号那一处 Text 找得到（{len(number_calls)} 处）", len(number_calls) >= 1)
-    c.ok("⛔ 单号没有 `Ellipsis`（21 位单号截断就看不出是哪一单）",
-         all(ELLIPSIS not in b for b in number_calls))
-    c.ok("⛔ 单号没有 `TextOverflow.Clip`", all("TextOverflow.Clip" not in b for b in number_calls))
+    # ── 3. 单号：只在详情里（2026-09-27 CHG-0002 起的规则）──────────────────
+    #
+    # ⚠️ 这一节**换过规则**：原来判的是"单号与徽章挤不进一行时怎么折"（见模块头第 4 条）。
+    #    用户 2026-09-27 原话：「**普通订单卡不要显示订单号，只有点进详情才显示**」——
+    #    单号从那四张列表（派单中/已接单/已送达/已撤销）里整个拿掉了。
+    #    ⛔ 两个方向都要判：少一处没用（单号长回来）与多一处没用（详情里也没了）都不行 ——
+    #    只判一个方向的话，另一种坏法会安安静静地过。
+    c.section("3. 单号：普通订单卡一处都没有，订单详情里必须有")
+    number_calls = [b for _s, _e, b in call_blocks(card, "Text") if "orderNo" in b]
+    # ⚠️ 标题**不带数量**：反向验证是拿 `[!!]   <标题>` 去匹配的，标题里带一个会变的数
+    #    （找到 1 处 / 2 处）就会让那一条永远匹配不上 —— 实测踩过。数量写在下面的说明里。
+    c.ok("⛔ 订单卡里没有一处 Text 渲染单号",
+         number_calls == [],
+         f"找到 {len(number_calls)} 处 Text 渲染了单号 —— "
+         "单号又长回卡片上了 —— 用户 2026-09-27：「普通订单卡不要显示订单号，只有点进详情才显示」")
+    c.ok("⛔ 订单卡连 `orderNo` 这个字段都不再引用（拿了不用 = 下一个人会以为该显示）",
+         "orderNo" not in card)
+    c.ok("卡片上的状态徽章仍然**右对齐**（单号去掉后位置不许变）",
+         "Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {" in card)
+    detail = strip_comments(read(DETAIL))
+    c.ok("订单详情里**有**单号（否则「点进详情才显示」变成哪里都看不到）",
+         re.search(r'Text\(\s*"#" \+ order\.orderNo', detail) is not None)
 
     # ── 4. 徽章常数与源码对账 ──────────────────────────────────────────────
     c.section("4. 徽章宽度的常数 = 徽章源码里那几个数之和（防「改了内边距忘改常数」）")

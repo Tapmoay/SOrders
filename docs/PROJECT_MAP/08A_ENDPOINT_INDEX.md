@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:684ce9667b778546be198af45045ee9775e1964da98e60fb8bf4c3bdba96365c -->
+<!-- source_hash: sha256:9f4ba505208b2a062d1fab8c7e4f2897e4c5407cf8968507d79d9ccc4f8111fe -->
 
 ## 全量端点（232 个，按文件分组）
 
@@ -515,10 +515,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/vehicles` | `list_vehicles` | `backend/app/api/v1/vehicles.py:157` | 仅登录 + 体内仅允许:派单员 |
-| 2 | `POST /api/v1/vehicles` | `create_vehicle` | `backend/app/api/v1/vehicles.py:165` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `PATCH /api/v1/vehicles/{vehicle_id}` | `update_vehicle` | `backend/app/api/v1/vehicles.py:180` | 仅登录 + 体内仅允许:派单员 |
-| 4 | `POST /api/v1/vehicles/{vehicle_id}/driver` | `set_vehicle_driver` | `backend/app/api/v1/vehicles.py:214` | 仅登录 + 体内仅允许:派单员 |
+| 1 | `GET /api/v1/vehicles` | `list_vehicles` | `backend/app/api/v1/vehicles.py:244` | 仅登录 + 体内仅允许:派单员 |
+| 2 | `POST /api/v1/vehicles` | `create_vehicle` | `backend/app/api/v1/vehicles.py:252` | 仅登录 + 体内仅允许:派单员 |
+| 3 | `PATCH /api/v1/vehicles/{vehicle_id}` | `update_vehicle` | `backend/app/api/v1/vehicles.py:288` | 仅登录 + 体内仅允许:派单员 |
+| 4 | `POST /api/v1/vehicles/{vehicle_id}/driver` | `set_vehicle_driver` | `backend/app/api/v1/vehicles.py:341` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/extensions/pricing/api.py` — 1 个
 

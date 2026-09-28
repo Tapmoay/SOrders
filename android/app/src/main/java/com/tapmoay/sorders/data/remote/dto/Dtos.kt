@@ -1987,6 +1987,22 @@ data class VehicleCreateRequest(
     @SerialName("plate_no") val plateNo: String,
     @SerialName("vehicle_type") val vehicleType: String = "",
     @SerialName("driver_id") val driverId: Long? = null,
+    /**
+     * **车身型式**（`box` 箱式车 / `flat` 平板车 / `dump` 自卸车 / `trailer` 挂车 / 空串 未设置）。
+     *
+     * ⚠️ 与 [vehicleType] **不是一回事**：那个（小货车 / 大货车 / 挂车）是**计费口径**，
+     * 被司机计费规则 / 运费模板共用，取值不许扩；这个只决定**这辆车能填哪些属性**。
+     * 表在 `ui/dispatcher/VehicleAttrs.kt`（镜像），真源在后端 `services/vehicle_attrs.py`。
+     */
+    @SerialName("body_type") val bodyType: String = "",
+    /**
+     * 车辆属性 `{属性键: 数值字符串}`。
+     *
+     * ⚠️ **值传字符串**：`load_tons` / `volume_cubic` 要参与「一车 = 多少方 / 多少吨」的换算，
+     * 走 Double 会带出 `7.999999999999999`（与 `UnitConversionDto.factor` 同一个理由）。
+     * 没填的项**不要放进这个 map**（后端把空串与 null 都当成"没填"，但少传一个键更清楚）。
+     */
+    val attrs: Map<String, String>? = null,
 )
 
 /**
@@ -1996,6 +2012,11 @@ data class VehicleCreateRequest(
  * 1. `driverId = null` 是"不动司机"（本 DTO 里 null 会被 `explicitNulls = false` 丢掉）；
  *    **解绑要走 `POST /vehicles/{id}/driver`**（见 [VehicleDriverSetRequest]）。
  * 2. 车牌**查重了**，且会排除自己——所以"只改车型也带上同一个车牌"不会再自己撞自己。
+ * 3. [attrs] **没传** = 不动属性；**传了就是整份替换**（没写进去的属性会被清空）。
+ *    ⚠️ 所以界面上必须把**当前这份属性**整份带上（空 map = 用户把它们都清空了），
+ *    而不是只发"改动的那几个键"。这与 [plateNo] 那几个键的部分更新语义**相反** ——
+ *    两套语义并存是刻意的（需求方 2026-09-27：「属性是**不可能变**的」：
+ *    改就是一次说清"这辆车现在是什么样"，别在两次改动之间留一个谁也说不清的状态）。
  */
 @Serializable
 data class VehicleUpdateRequest(
@@ -2003,6 +2024,10 @@ data class VehicleUpdateRequest(
     @SerialName("vehicle_type") val vehicleType: String? = null,
     @SerialName("driver_id") val driverId: Long? = null,
     @SerialName("is_active") val isActive: Boolean? = null,
+    /** **车身型式**。没传 = 不改；传了要过后端 `clean_body`（认不出的取值为 400）。 */
+    @SerialName("body_type") val bodyType: String? = null,
+    /** 车辆属性（**整份替换**，见类注释第 3 条；空 map = 全部清空）。 */
+    val attrs: Map<String, String>? = null,
 )
 
 /**
@@ -2026,6 +2051,18 @@ data class VehicleDto(
     @SerialName("driver_id") val driverId: Long? = null,
     @SerialName("driver_name") val driverName: String? = null,
     @SerialName("is_active") val isActive: Boolean = true,
+    /**
+     * **车身型式**（`box` / `flat` / `dump` / `trailer` / 空串）与它的中文名。
+     * ⚠️ 显示一律用 [bodyLabel]（后端给的），**不要**拿 `VehicleAttrs.kt` 那张表去查：
+     * 后端将来多一个取值时，老客户端查不到会显示原始码。
+     */
+    @SerialName("body_type") val bodyType: String = "",
+    @SerialName("body_label") val bodyLabel: String = "",
+    /**
+     * 车辆属性 `{属性键: 数值字符串}` —— **只含填过的那些**。
+     * ⛔ 没量过的项**不出现**（不是 0）：回一个 0，界面上就会画出一个"系统说是 0"的数。
+     */
+    val attrs: Map<String, String> = emptyMap(),
 )
 
 // ===== 计费规则「按分类定价」的一行（2026-09-21）=====

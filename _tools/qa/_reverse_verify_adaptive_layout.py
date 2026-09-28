@@ -44,6 +44,8 @@ CARD = UI + "common/OrderCard.kt"
 COMPONENTS = UI + "common/Components.kt"
 ENTRY_GRID = UI + "common/EntryGrid.kt"
 EXPENSES = UI + "dispatcher/ExpensesScreen.kt"
+#: 订单详情页：单号**只许**在这里出现（CHG-0002）
+DETAIL = UI + "order/OrderDetailScreen.kt"
 
 #: (说明, 文件, 原文, 替换成, 期望出现在失败清单里的关键字)
 INJECTIONS: list[tuple[str, str, str, str, str]] = [
@@ -84,26 +86,23 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "等宽那一支的文字**不加内边距**",
     ),
     (
-        "⑤ 单号宽度改成猜一个常数（换个系统字号就算错）",
+        # ⚠️ **锚点必须是一行**：`OrderCard.kt` 是 **CRLF**，多行锚点写 `\n` 会**静默匹配 0 次**
+        #    （实测踩过：反向验证报"退出了，但没有期望的那句话"，其实是锚点根本没命中）。
+        #    用 `;` 把两句写在一行上，既与换行符无关，又正好是被判据 grep 到的形状。
+        "⑤ 单号又长回订单卡上（用户 2026-09-27 明确不要）",
         CARD,
-        "                    rememberTextWidth(orderNumber, numberStyle) + orderStatusChipWidth(order.status) <= maxWidth",
-        "                    200.dp + orderStatusChipWidth(order.status) <= maxWidth",
-        "用 `rememberTextWidth(orderNumber, numberStyle)` 实测单号",
+        "                OrderStatusChip(order.status)",
+        "                Text(\"#\" + order.orderNo, style = MaterialTheme.typography.labelMedium); OrderStatusChip(order.status)",
+        # ⚠️ 期望串要**逐字**等于判据那行的标题（匹配的是 `[!!]   <标题>`）——
+        #    漏掉开头的 `⛔ ` 就永远匹配不上（实测踩过一次，报的是"退出了，但没有期望的那句话"）。
+        "⛔ 订单卡里没有一处 Text 渲染单号",
     ),
     (
-        "⑥ 单号行退回「永远一行 + 省略号」（21 位单号截断后认不出是哪一单）",
-        CARD,
-        "                    Column {\n"
-        "                        Text(orderNumber, style = numberStyle, color = MaterialTheme.colorScheme.onSurface)\n",
-        "                    Column {\n"
-        "                        Text(\n"
-        "                            orderNumber,\n"
-        "                            style = numberStyle,\n"
-        "                            maxLines = 1,\n"
-        "                            overflow = TextOverflow.Ellipsis,\n"
-        "                            color = MaterialTheme.colorScheme.onSurface,\n"
-        "                        )\n",
-        "⛔ 单号没有 `Ellipsis`",
+        "⑥ 订单详情里把单号也删掉（那就成了哪里都看不到）",
+        DETAIL,
+        "                        \"#\" + order.orderNo,\n",
+        "                        \"\" + order.orderNo,\n",
+        "订单详情里**有**单号",
     ),
     (
         "⑦ 开销卡又去掉 weight（长单号把日期挤成四行，两边都不报错）",

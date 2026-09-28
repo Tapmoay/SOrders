@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:20aa7fdec497a14c27706c7cd64f5e86886ea17b3c8c52fd5ffbd1aae4b95daf",
- "source_commit": "0c84237",
- "generated_at": "2026-09-27T07:43:38Z",
+ "source_hash": "sha256:7fe8bf672f1b36afcadb5c8f6662d370ad70b57e1c626914985da2b658eaba5f",
+ "source_commit": "55a00ce",
+ "generated_at": "2026-09-28T04:56:23Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -367,7 +367,7 @@
     "dispatcher"
    ],
    "kind": "write",
-   "gate": "backend/app/api/v1/vehicles.py:46",
+   "gate": "backend/app/api/v1/vehicles.py:79",
    "why_not_permission": "它的授权是**体内角色判断**（`_must_dispatcher`）而不是权限点 ——属于那 35 处「体内门槛」棘轮里的一处；本轮不搬它（搬它要动端点鉴权）。",
    "when_to_remove": "体内门槛棘轮往下降、把它接成 `require_permission(...)` 的那一天。"
   }
