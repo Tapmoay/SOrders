@@ -476,10 +476,26 @@ def probe_commit_milestone_tag() -> tuple[str, str]:
     if bad_r3:
         return "broken", str(len(bad_r3)) + " 个 R3 窗口内的提交没标 R3-xx：" + bad_r3[0][:60]
     later = [s for s in subs if s.split(" ", 1)[0] not in in_r3]
-    bad_later = [s for s in later if not milestone_tag_of(s)]
+    # v3（2026-09-27 晚）：日常开发改用**四种事项 ID**（用户交来的《开发规范 v1.0》§一）。
+    # ⛔ 这不是放宽 —— 是**换标准**：R<轮次>-<nn> 是整改阶段的编号法，规范 §一 写明
+    #    「R4-xx 属于架构整改 / 治理阶段历史，日常开发使用四种 ID」。
+    # ⛔ 没有 ID 的提交**只有一种**合法情形：它根本不是开发事项（例如把环境摆好、拉模拟器），
+    #    而且**必须在正文里写明理由** —— 正文里没有那句「无 ID：<理由>」，照样红。
+    #    与仓库里「证据档要写全四格」「核心改动要写为什么」是同一条纪律：**写下来才算数**。
+    bad_later = []
+    exempted = 0
+    for s in later:
+        if milestone_tag_of(s):
+            continue
+        code_b, body = git("log", "-1", "--format=%b", s.split(" ", 1)[0])
+        if code_b == 0 and re.search(r"无\s*ID\s*[：:]\s*\S", body or ""):
+            exempted += 1
+            continue
+        bad_later.append(s)
     if bad_later:
-        return "broken", (str(len(bad_later)) + " 个提交没有可回溯的里程碑编号"
-                          "（形状 = R<3-9>-<两位数字>，R3 收口之后应为 R4-xx）：" + bad_later[0][:60])
+        return "broken", (str(len(bad_later)) + " 个提交没有可回溯的编号"
+                          "（形状 = R<3-9>-<两位数字> 或 FEAT/CHG/BUG/GOV-四位数字；"
+                          "非开发事项要在正文写「无 ID：<理由>」）：" + bad_later[0][:60])
 
     # ---- 规矩 3（v2 新增）：**不许重号**（用户 2026-09-27：「每个 R4 阶段提交必须有唯一 milestone tag」）
     # 理由（用户原话）：「**提交标签本身就是架构施工账本的索引**」—— v1 时代 R4-09 被四条提交用过，
