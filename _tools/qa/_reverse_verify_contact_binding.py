@@ -67,13 +67,17 @@ APPLY_LOCATION_FILL = (
 def _move_contact_picker_below(s: str) -> str:
     """把「从联系人里选收货人」从组首挪到「收货人电话」后面 —— 也就是**用户否掉的那个顺序**
     （CHG-0005）。挪不动就原样返回（那种情况判据会绿，用例会当场红，提醒锚点腐烂了）。"""
+    # ⚠️ CHG-0006 之后那一行被 `if (!proxyMode) { … }` 包着 ⇒ **整块**一起挪，
+    #    否则守卫会被拆掉，红的就不是"顺序"那条判据了（那会让这条用例变成假证据）。
     block = (
-        '                    FormActionRow(\n'
-        '                        label = "从联系人里选收货人",\n'
-        '                        onClick = { vm.openContactSheet() },\n'
-        '                        icon = Icons.Default.Contacts,\n'
-        '                        iconTint = Color(MgrGreen),\n'
-        '                    )\n'
+        "                    if (!proxyMode) {\n"
+        '                        FormActionRow(\n'
+        '                            label = "从联系人里选收货人",\n'
+        '                            onClick = { vm.openContactSheet() },\n'
+        '                            icon = Icons.Default.Contacts,\n'
+        '                            iconTint = Color(MgrGreen),\n'
+        '                        )\n'
+        "                    }\n"
     )
     if block not in s:
         return s
@@ -88,7 +92,29 @@ def _move_contact_picker_below(s: str) -> str:
 #: (说明, 相对路径, 替换函数, 期望在输出里出现的关键词 —— 空串 = 只要非零退出)
 CASES: list[tuple[str, str, object, str]] = [
     (
-        "⑰「从联系人里选收货人」又被挪到「收货人名称」下面（CHG-0005 用户点名不许）",
+        "⑳ 去掉 `if (!proxyMode)` 守卫（代理下单页又出现那一行 —— CHG-0006 用户截图点名不许）",
+        ORDER_SCREEN,
+        lambda s: s.replace("                    if (!proxyMode) {\n", "", 1).replace(
+            '                        FormActionRow(\n'
+            '                            label = "从联系人里选收货人",\n'
+            '                            onClick = { vm.openContactSheet() },\n'
+            '                            icon = Icons.Default.Contacts,\n'
+            '                            iconTint = Color(MgrGreen),\n'
+            '                        )\n'
+            '                    }\n',
+            '                        FormActionRow(\n'
+            '                            label = "从联系人里选收货人",\n'
+            '                            onClick = { vm.openContactSheet() },\n'
+            '                            icon = Icons.Default.Contacts,\n'
+            '                            iconTint = Color(MgrGreen),\n'
+            '                        )\n',
+            1,
+        ),
+        "",
+    ),
+    (
+        "⑲「从联系人里选收货人」又被挪到「收货人名称」下面（CHG-0005 用户点名不许）",
+
         ORDER_SCREEN,
         _move_contact_picker_below,
         "",

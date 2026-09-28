@@ -535,12 +535,22 @@ fun OrderCreateScreen(
                     //    不要放在他们的下面」⇒ 现在它是这一组的**第一行**。
                     //    读法也更顺：先"从名册里挑一位"、挑不中再手填下面两栏；压在下面会被读成
                     //    "填完了再补充"，而它其实是**同一件事的另一种做法**。
-                    FormActionRow(
-                        label = "从联系人里选收货人",
-                        onClick = { vm.openContactSheet() },
-                        icon = Icons.Default.Contacts,
-                        iconTint = Color(MgrGreen),
-                    )
+                    //
+                    // ⛔ **代理下单页不显示它**（CHG-0006，2026-09-28 用户给截图点名）：
+                    //    原话「是我红色框那个地方，**派单员是不需要的**……**他自己上面就可以选择货主**，
+                    //    选择货主，这样子的话属于功能重叠，他根本就不需要这个」。
+                    //    代理下单页**最上面就是「请选择货主」**（下面 `if (proxyMode)` 那一块），
+                    //    选了货主之后收货人这一套就跟着来了（`setShipper` → 线路/地点 → `fillReceiver`）；
+                    //    再给一行"从名册里挑"，同一件事就有了两个入口 —— 用户看到的就是重复。
+                    //    ⚠️ 货主自下单（`proxyMode = false`）**保留**：他自己那本联系人名册是常用路径。
+                    if (!proxyMode) {
+                        FormActionRow(
+                            label = "从联系人里选收货人",
+                            onClick = { vm.openContactSheet() },
+                            icon = Icons.Default.Contacts,
+                            iconTint = Color(MgrGreen),
+                        )
+                    }
                     // 收货人：名称 + 电话。名称从**选中的线路**自动带出来（`applyAddress`），也能手改。
                     FormInputRow(
                         label = "收货人名称",
