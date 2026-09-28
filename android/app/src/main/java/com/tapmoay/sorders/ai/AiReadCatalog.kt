@@ -175,9 +175,11 @@ object AiReadCatalog {
         )),
         ReadAction("place_categories.list_categories", "地点分类名册（**当前登录人自己那份**：地点库左侧那一列的名字与顺序）", "/api/v1/place-categories", "", setOf("dispatcher", "shipper"), false, listOf(
         )),
-        ReadAction("places.list_places", "共享地点库（司机/货主标过的导航坐标，不分人、大家共用；可按地点名或地址搜）", "/api/v1/places", "q、limit", setOf("dispatcher", "driver", "shipper"), false, listOf(
+        ReadAction("places.list_places", "共享地点库（司机/货主标过的导航坐标，不分人、大家共用；可按地点名或地址搜）", "/api/v1/places", "q、limit、lat、lng", setOf("dispatcher", "driver", "shipper"), false, listOf(
             ReadParam("q", "str", false, emptyList(), false),
             ReadParam("limit", "int", false, emptyList(), false),
+            ReadParam("lat", "float", false, emptyList(), false),
+            ReadParam("lng", "float", false, emptyList(), false),
         )),
         ReadAction("price_rules.list_price_rules", "批发商专属定价规则", "/api/v1/price-rules", "", setOf("dispatcher", "shipper"), false, listOf(
         )),
