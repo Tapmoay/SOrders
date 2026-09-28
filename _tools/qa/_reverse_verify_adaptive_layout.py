@@ -98,6 +98,14 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "⛔ 订单卡里没有一处 Text 渲染单号",
     ),
     (
+        # ⚠️ 锚点同样只用一行（`OrderCard.kt` 是 CRLF）。
+        "⑤b 状态徽章又独占一行（CHG-0003 修掉的「上面空一行」又回来了）",
+        CARD,
+        "                OrderStatusChip(order.status)",
+        "                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { OrderStatusChip(order.status) }",
+        "⛔ 没有「只有徽章的空行」",
+    ),
+    (
         "⑥ 订单详情里把单号也删掉（那就成了哪里都看不到）",
         DETAIL,
         "                        \"#\" + order.orderNo,\n",

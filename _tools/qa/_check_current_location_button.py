@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""_check_current_location_button.py —— 下单页地址库的「我就在这里」按钮（FEAT-0003）的判据。
+"""_check_current_location_button.py —— 下单页「我就在这里」按钮（FEAT-0003 / CHG-0004）的判据。
 
 ### 用户要的是什么
 
@@ -8,6 +8,17 @@
 >  直接定位……**它其实就是获取当前的手机定位就可以了**。」
 
 货主端与派单员端都要有（两端共用同一个 `OrderCreateScreen`）。
+
+### ⚠️ 它**放在哪**被改过一次（CHG-0004，2026-09-28）
+
+第一版（FEAT-0003）把它放在「地址库」**抽屉里面**。用户看过之后：
+
+> 「还有一个就是我已到了那个界面**不要放在那个地点库里面**，它直接放在**选手动选点和
+>  地点库的下面一个按钮**，对直接放在那里，不要放地点库里面啊，进行选择」。
+
+⇒ 它现在与「地图选点 / 地址库」并排成**同一层的三个选项**，在表单的「收货地址」卡里。
+⛔ 所以本判据**两个方向都盯**：表单里必须有；`AddressPickerSheet` 里一处都不许有
+（只判前者的话，有人把它加回抽屉也不会有任何反应）。
 
 ### 这条最容易走样的地方
 
@@ -59,8 +70,9 @@ SCREEN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderC
 NAV = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/nav/NavGraph.kt"
 
 #: 兜底下限：低于它就说明源码形状变了、判据什么都查不到，必须先喊。
-#: ⚠️ 这个数是**判据自己实际会跑几项**算出来的（当前 9 项），不是拍的。
-MIN_CHECKS = 9
+#: ⚠️ 这个数是**判据自己实际会跑几项**算出来的（当前 10 项：CHG-0004 加了一条
+#: 「抽屉里一处都不许有」），不是拍的。
+MIN_CHECKS = 10
 
 bad: list[str] = []
 checked = 0
@@ -82,6 +94,20 @@ def _pass() -> None:
     checked += 1
 
 
+def _sheet_body(code: str) -> str | None:
+    """`AddressPickerSheet` 的函数体（判"抽屉里有没有那颗按钮"要用它）。
+
+    ⚠️ 它是这个文件里**最后一个**大 composable，后面跟着的是别的小函数；
+    切到下一个顶格的 `@Composable` / `private fun` 为止就够了（不追求精确配对）。
+    """
+    start = code.find("private fun AddressPickerSheet(")
+    if start < 0:
+        return None
+    tail = code[start + 10:]
+    m = re.search(r"\n(@Composable\n)?(private |internal )?fun ", tail)
+    return tail[: m.start()] if m else tail
+
+
 def _code_only(src: str) -> str:
     """去掉注释 —— 判据只看**代码**（注释里会提到 DeviceLocation 之类的名字来解释"为什么不用"）。"""
     src = re.sub(r"/\*[\s\S]*?\*/", "", src)
@@ -95,16 +121,30 @@ def main() -> int:
         return 1
     code = _code_only(src)
 
-    print("[1] 按钮在不在（文案 / 回调 / 权限）")
+    print("[1] 按钮在不在（文案 / 位置 / 权限）")
     if "我就在这里" in code:
         _pass()
         _ok("按钮文案在")
     else:
         _bad("找不到「我就在这里」这个按钮")
-    if "onPickCurrentLocation" in code:
-        _pass()
+
+    # ⛔ 位置：必须在**表单**里，而且**不许在抽屉里**（CHG-0004 用户点名）。
+    #    两个方向都判 —— 只判一个的话另一种坏法会安安静静地过。
+    sheet_body = _sheet_body(code)
+    if sheet_body is None:
+        _bad("找不到 AddressPickerSheet 的函数体（形状变了？判据要跟着改）")
+    elif "我就在这里" in sheet_body:
+        _bad("「我就在这里」又出现在地址库抽屉里了 —— 用户 2026-09-28：「不要放在那个地点库里面」")
     else:
-        _bad("没有 onPickCurrentLocation 回调（拿到的点回不到表单）")
+        _pass()
+        _ok("地址库抽屉里没有它（用户点名不许放那儿）")
+    # 在表单里 = 出现在 AddressPickerSheet 之前的那一段
+    form_body = code.split("private fun AddressPickerSheet(")[0]
+    if "我就在这里" in form_body:
+        _pass()
+        _ok("它在表单那一侧（与「地图选点 / 地址库」同一层）")
+    else:
+        _bad("表单里找不到这颗按钮 —— 它被挪到别处了？")
     n_perm = code.count("ACCESS_FINE_LOCATION")
     if n_perm >= 1 and "rememberLauncherForActivityResult" in code:
         _pass()
@@ -134,16 +174,20 @@ def main() -> int:
     m = re.search(r"if \(!SunLocation\.isPlausible\([^)]*\)\)\s*\{([^}]*)\}", code)
     if m is None:
         _bad("找不到「失效点 → 直接返回」这个分支（形状变了？）")
-    elif "onPickCurrentLocation" in m.group(1):
-        _bad("失败分支里居然调用了 onPickCurrentLocation —— 拿不到点也会填一个假地址")
+    elif "applyPicked" in m.group(1):
+        _bad("失败分支里居然调用了 vm.applyPicked —— 拿不到点也会填一个假地址")
+        # ⚠️ CHG-0004 之前这里判的是 `onPickCurrentLocation`（那层回调已经删了，
+        #    按钮直接在表单里调 `vm.applyPicked`）—— 判据跟着改，否则它会**永远绿**。
     else:
         _pass()
         _ok("失败分支只提示、不回填")
 
     print("[4] ⛔ 只填表单，不写库")
-    m2 = re.search(r"onPickCurrentLocation = \{([^}]*)\}", code)
+    # ⚠️ CHG-0004 之后那层 `onPickCurrentLocation` 回调**没有了**（按钮直接在表单里，
+    #    拿到点就调 `vm.applyPicked`）—— 判据跟着看"收集定位的那一段"。
+    m2 = re.search(r"container\.locationManager\.locations\.collect \{ pt ->([\s\S]*?)\n    \}", code)
     if m2 is None:
-        _bad("调用点没接 onPickCurrentLocation")
+        _bad("找不到收集定位那一段（`locationManager.locations.collect`）—— 形状变了？")
     else:
         body = m2.group(1)
         if "applyPicked" not in body:

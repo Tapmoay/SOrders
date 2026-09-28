@@ -287,8 +287,17 @@ def main() -> int:
          "单号又长回卡片上了 —— 用户 2026-09-27：「普通订单卡不要显示订单号，只有点进详情才显示」")
     c.ok("⛔ 订单卡连 `orderNo` 这个字段都不再引用（拿了不用 = 下一个人会以为该显示）",
          "orderNo" not in card)
-    c.ok("卡片上的状态徽章仍然**右对齐**（单号去掉后位置不许变）",
-         "Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {" in card)
+    # CHG-0003（2026-09-28）：徽章**不再独占一行** —— 那正是"上面空一行"的来源
+    # （用户：「整个布局就不是很好，现在就是看起来**上面是空的**啊，就是不美观」）。
+    # 判据两条：① 徽章只有一个、且排在地点之后、图之前；② 那种空行不许回来。
+    pos_text = card.find("order.addressDetail")
+    pos_chip = card.find("OrderStatusChip(order.status)")
+    pos_img = card.find("order.addressImageUrl")
+    c.ok("状态徽章只有一个，且**在地点那一行里**（地点 → 徽章 → 地址图）",
+         card.count("OrderStatusChip(order.status)") == 1
+         and -1 < pos_text < pos_chip < pos_img)
+    c.ok("⛔ 没有「只有徽章的空行」（CHG-0003 修掉的那一种）",
+         "Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {" not in card)
     detail = strip_comments(read(DETAIL))
     c.ok("订单详情里**有**单号（否则「点进详情才显示」变成哪里都看不到）",
          re.search(r'Text\(\s*"#" \+ order\.orderNo', detail) is not None)

@@ -132,25 +132,22 @@ fun OrderCard(
         shadowElevation = 2.dp,
     ) {
         Column(Modifier.padding(16.dp)) {
-            // 行1：**只有状态徽章**（CHG-0002，用户 2026-09-27 要求：普通订单卡不显示单号）。
+            // 行1：地点（蓝 tinted 图标 + 深色地址）+ **状态徽章** + 地址参考图。
             //
-            // 用户原话：「那个**订单号码是不要有显示**啊，那个订单号码**只有在点击去订单详情的时候
-            // 才会显示**……也就是说我们平常比如说派单界面、司机的那些界面、那个查订单的管理那些界面，
-            // **普通的订单卡是不要显示订单号**。」
+            // 历史（两步，别只看一半）：
+            //  · CHG-0002（2026-09-27）用户要求「**普通订单卡是不要显示订单号**」→ 原来那一行
+            //    只剩一个右对齐的徽章，于是**顶上等于空了一行**（约 40dp 只放一个小胶囊）。
+            //  · CHG-0003（2026-09-28）用户：「整个布局就不是很好，现在就是看起来**上面是空的**啊，
+            //    就是不美观」→ 徽章**不再独占一行**，并到地点那一行的右端（地址参考图之前）。
             //
-            // ⛔ 单号在**订单详情页**照旧显示（`OrderDetailScreen.kt` 的「订单编号」那一行）——
-            //    那是"我要查这一单"的地方，卡片上它只是一串没人看的数字。
-            // ⛔ 这一改动**三端同时生效**（货主 / 派单员 / 司机共用一个 `OrderCard`）——
-            //    正是用户点名的那几处。别为某一端单独把单号加回来。
-            // ⚠️ 原来那套"21 位单号挤不下就折行"的规则（`BoxWithConstraints` +
-            //    `rememberTextWidth`）**随单号一起去掉**：这条规则存在的唯一理由就是那串数字。
-            //    徽章仍然**右对齐**，位置与以前一致。
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                OrderStatusChip(order.status)
-            }
-            Spacer(Modifier.height(10.dp))
-
-            // 行2：地点（蓝 tinted 图标 + 深色地址）+ 地址参考图
+            // ⛔ 单号**不许回到卡片上**（它只在订单详情页 `OrderDetailScreen.kt`）——
+            //    判据 `_tools/qa/_check_adaptive_layout.py` §3 两个方向都判：长回来了红、详情里没了也红。
+            // ⛔ 徽章的**配色 / 文案 / 右对齐**位置含义一个字没动（`OrderStatusChip` 本体重构都没碰）。
+            // ⛔ 这一改动**三端同时生效**（货主 / 派单员 / 司机共用一个 `OrderCard`）。
+            //
+            // ⚠️ 顺序是**地点 → 徽章 → 图**，并且地点那一格带 `weight(1f)` + Ellipsis：
+            //    地址再长也是它先省略，**徽章始终完整可读**（状态是扫一眼就要看到的信息，
+            //    地址可以点进详情看）。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TintedIcon(Icons.Default.Place, Color(0xFF1E6FFF), size = 15.dp)
                 Spacer(Modifier.width(8.dp))
@@ -164,6 +161,9 @@ fun OrderCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // 状态徽章：地点之后、地址参考图之前（CHG-0003）
+                Spacer(Modifier.width(8.dp))
+                OrderStatusChip(order.status)
                 if (!order.addressImageUrl.isNullOrBlank()) {
                     Spacer(Modifier.width(8.dp))
                     AsyncImage(

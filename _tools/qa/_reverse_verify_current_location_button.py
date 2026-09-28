@@ -35,18 +35,23 @@ SCENARIOS = [
     ("拿不到定位时不再过滤 (0,0)", SCREEN,
      "if (!SunLocation.isPlausible(pt.lat, pt.lng)) {",
      "if (false) {", True, CHECK),
-    ("失败分支里也去回填（拿不到点也填）", SCREEN,
+    ("失败分支里也去回填（拿不到点也填一个假地址）", SCREEN,
      '                locateError = "没拿到有效定位：请检查定位权限，或改用「地图选点」。"',
-     '                locateError = "没拿到有效定位：请检查定位权限，或改用「地图选点」。"\n                onPickCurrentLocation(pt.lat, pt.lng, pt.address)', True, CHECK),
+     '                locateError = "没拿到有效定位：请检查定位权限，或改用「地图选点」。"\n                vm.applyPicked(pt.lat, pt.lng, pt.address)', True, CHECK),
     ("回填时顺手写库", SCREEN,
-     "                vm.applyPicked(lat, lng, addr)",
-     "                container.repo.shareLocation(lat, lng, addr)", True, CHECK),
-    ("退到系统定位（WGS84）", SCREEN,
-     "    val ctx = LocalContext.current",
-     "    val ctx = LocalContext.current\n    val _wgs = DeviceLocation.lastPoint", True, CHECK),
+     "            vm.applyPicked(pt.lat, pt.lng, pt.address)",
+     "            container.repo.shareLocation(pt.lat, pt.lng, pt.address)", True, CHECK),
+    ("退到系统定位（WGS84，国内偏几百米）", SCREEN,
+     "    var locating by remember { mutableStateOf(false) }",
+     "    var locating by remember { mutableStateOf(false) }\n    val _wgs = DeviceLocation.lastPoint", True, CHECK),
     ("回填不再走 applyPicked", SCREEN,
-     "                vm.applyPicked(lat, lng, addr)",
-     "                vm.showAddressSheet = false", True, CHECK),
+     "            vm.applyPicked(pt.lat, pt.lng, pt.address)",
+     "            vm.showAddressSheet = false", True, CHECK),
+    # CHG-0004：按钮**又被放回地址库抽屉**（用户 2026-09-28 点名不许放那儿）。
+    # ⚠️ 注入要落在**真代码**上（判据会先剥掉 `//` 注释 —— 往注释里塞一句话是没用的）。
+    ("按钮又被放回地址库抽屉里", SCREEN,
+     "        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(bottom = 12.dp)) {",
+     "        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(bottom = 12.dp)) {\n            Text(\"我就在这里\")", True, CHECK),
 ]
 
 
