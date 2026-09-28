@@ -13,7 +13,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -43,6 +42,7 @@ import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesPanel
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesViewModel
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.InventoryTeal
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ShipperTeal
@@ -187,10 +187,14 @@ fun OrderCreateScreen(
                 ) {
                     Column {
                         Text("合计", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // ⚠️ 金额＝**橙**（规范 §4「金额（钱）：橙 #FF9500」）：原来写的是
+                        //    `colorScheme.primary`（主题蓝）—— 那是"主操作色"，不是"钱"的色。
+                        //    全 App 的钱都是 `MoneyOrange`（账本/报表/小计），只有这一处漏了。
                         Text(
                             "¥" + formatMoney(vm.totalAmount().toString()),
                             style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(MoneyOrange),
                         )
                     }
                     Spacer(Modifier.weight(1f))
@@ -243,21 +247,46 @@ fun OrderCreateScreen(
         }
         if (proxyMode) {
             item {
-                SectionCard {
-                    Text("为谁下单", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
+                // 「为谁下单」——**按设计规范重做**（CHG-0008，用户 2026-09-28：「页面怎么都那么难看」）。
+                //
+                // 原来这张卡是这一页唯一的"异类"：
+                //  · 同一句话说三遍 —— 标题「为谁下单」+ 大字「请选择货主」+ 小灰字「点击选择货主」
+                //    + 右侧「选择」（规范 §4.10：常驻只留"几个字"，解释走 HintOnce）；
+                //  · **没有色底图标** —— 而同一页另外三张卡（商品明细/收货地址/联系信息）都是
+                //    「色底图标 + 标题 + 内容」（规范 §3：`TintedIcon` 是一等公民）；
+                //  · 权重不分 —— 货主名（真正要一眼看到的）和"临时货主（未注册）"一样大（规范 §4.18）。
+                //
+                // 现在：图标 + 标题（与同页一致）／大字＝**货主名**（未选＝「未选择货主」灰字）／
+                // 选中之后才补一行小字说明是已注册还是临时货主（橙色，与"还没选坐标"同一个警示色）／
+                // 右侧按钮随状态变「选择 → 更换」。
+                // 图标色取**货主管理色**（深青 `InventoryTeal`，规范 §2 一色一功能 → 跨端同功能同色）。
+                // ⚠️ **不要再套一层 `SectionCard`**：`FormGroup` 自己就是白卡（套两层 = 白卡套白卡，
+                //    用户早在商品管理那一轮就否过这种"三层框叠加"）。
+                FormGroup(icon = Icons.Default.Storefront, title = "为谁下单", tint = Color(InventoryTeal)) {
+                    val picked = vm.tempShipperName?.ifBlank { null }
+                        ?: vm.shippers.firstOrNull { it.id == vm.shipperId }?.fullName
+                    val isTemp = !vm.tempShipperName.isNullOrBlank()
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            val picked = vm.tempShipperName?.ifBlank { null } ?: vm.shippers.firstOrNull { it.id == vm.shipperId }?.fullName
-                            Text(picked ?: "请选择货主", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(2.dp))
                             Text(
-                                if (vm.tempShipperName != null) "临时货主（未注册）" else if (vm.shipperId != null) "已注册货主" else "点击选择货主",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                picked ?: "未选择货主",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (picked == null) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.onSurface,
                             )
+                            if (picked != null) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    if (isTemp) "临时货主（未注册）" else "已注册货主",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isTemp) Color(0xFFE6A23C) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
-                        TextButton(onClick = { showShipperPicker = true }) { Text("选择") }
+                        TextButton(onClick = { showShipperPicker = true }) {
+                            Text(if (picked == null) "选择" else "更换")
+                        }
                     }
                 }
             }
