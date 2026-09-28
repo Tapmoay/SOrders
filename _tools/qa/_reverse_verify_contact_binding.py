@@ -38,6 +38,8 @@ AND = "android/app/src/main/java/com/tapmoay/sorders"
 ADDR_VM = f"{AND}/ui/shipper/AddressViewModel.kt"
 ADDR_SCREEN = f"{AND}/ui/shipper/AddressScreen.kt"
 ORDER_VM = f"{AND}/ui/shipper/OrderCreateViewModel.kt"
+#: CHG-0005（2026-09-28）：「从联系人里选收货人」那一行的**位置**由用户拍板（排在收货人名称上面）
+ORDER_SCREEN = f"{AND}/ui/shipper/OrderCreateScreen.kt"
 FILL = f"{AND}/ui/common/ContactFill.kt"
 DTOS = f"{AND}/data/remote/dto/Dtos.kt"
 AI_SVC = f"{AND}/ai/AiWriteService.kt"
@@ -62,8 +64,36 @@ APPLY_LOCATION_FILL = (
     "        dongjiaPhone = c.phone\n"
 )
 
+def _move_contact_picker_below(s: str) -> str:
+    """把「从联系人里选收货人」从组首挪到「收货人电话」后面 —— 也就是**用户否掉的那个顺序**
+    （CHG-0005）。挪不动就原样返回（那种情况判据会绿，用例会当场红，提醒锚点腐烂了）。"""
+    block = (
+        '                    FormActionRow(\n'
+        '                        label = "从联系人里选收货人",\n'
+        '                        onClick = { vm.openContactSheet() },\n'
+        '                        icon = Icons.Default.Contacts,\n'
+        '                        iconTint = Color(MgrGreen),\n'
+        '                    )\n'
+    )
+    if block not in s:
+        return s
+    rest = s.replace(block, "", 1)
+    anchor = "                    // 下单人：名称 + 电话。"
+    i = rest.find(anchor)
+    if i < 0:
+        return s
+    return rest[:i] + block + rest[i:]
+
+
 #: (说明, 相对路径, 替换函数, 期望在输出里出现的关键词 —— 空串 = 只要非零退出)
 CASES: list[tuple[str, str, object, str]] = [
+    (
+        "⑰「从联系人里选收货人」又被挪到「收货人名称」下面（CHG-0005 用户点名不许）",
+        ORDER_SCREEN,
+        _move_contact_picker_below,
+        "",
+    ),
+
     (
         "① 地点编辑**不回填**联系人（改个地点名就把绑定静默清掉）",
         ADDR_VM,

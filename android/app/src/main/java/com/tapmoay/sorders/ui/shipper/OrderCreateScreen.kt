@@ -527,6 +527,20 @@ fun OrderCreateScreen(
             // 联系与备注（2026-09-22：改成**共用表单行**，白卡里不画边框、值本身就是占位符）
             item {
                 FormGroup(icon = Icons.Default.Contacts, title = "联系信息", tint = Color(MgrGreen)) {
+                    // 从联系人名册里挑一位（用户 2026-09-24：「可以选择联系人，就不用每次要
+                    // 手动填入了」）。它是**一次填两栏**（名称 + 电话）的动作，所以不挂在某一栏的行尾。
+                    //
+                    // ⚠️ **位置被用户改过一次**（CHG-0005，2026-09-28）：原来放在「收货人名称 /
+                    //    收货人电话」**下面**。用户原话：「从联系人选收货人放在**收货人名称的上面**，
+                    //    不要放在他们的下面」⇒ 现在它是这一组的**第一行**。
+                    //    读法也更顺：先"从名册里挑一位"、挑不中再手填下面两栏；压在下面会被读成
+                    //    "填完了再补充"，而它其实是**同一件事的另一种做法**。
+                    FormActionRow(
+                        label = "从联系人里选收货人",
+                        onClick = { vm.openContactSheet() },
+                        icon = Icons.Default.Contacts,
+                        iconTint = Color(MgrGreen),
+                    )
                     // 收货人：名称 + 电话。名称从**选中的线路**自动带出来（`applyAddress`），也能手改。
                     FormInputRow(
                         label = "收货人名称",
@@ -546,15 +560,6 @@ fun OrderCreateScreen(
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
                         iconTint = Color(0xFF00B578),
-                    )
-                    // 从联系人名册里挑一位（用户 2026-09-24：「可以选择联系人，就不用每次要
-                    // 手动填入了」）。放在这两栏**下面**而不是各挂一颗行尾小图标：
-                    // 它是"一次填两栏"的动作，挂在其中一栏上会读成"只填那一栏"。
-                    FormActionRow(
-                        label = "从联系人里选收货人",
-                        onClick = { vm.openContactSheet() },
-                        icon = Icons.Default.Contacts,
-                        iconTint = Color(MgrGreen),
                     )
                     // 下单人：名称 + 电话。**填谁由角色决定，不要在这里再判一次**（判据在
                     // `OrdererPrefill.kt::ordererContactFor`）：

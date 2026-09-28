@@ -192,7 +192,23 @@ def main() -> int:
         "又有人把名册摊成一个下拉了 —— 该走 ContactPickerSheet",
     )
 
+    # ---- 3b. 那一行排在**收货人名称上面**（CHG-0005，用户 2026-09-28 点名）----
+    #
+    # ⚠️ **顺序被用户改过一次**：原来它在「收货人名称 / 收货人电话」**下面**。
+    #    用户原话：「从联系人选收货人放在**收货人名称的上面**，不要放在他们的下面」。
+    #    判的是**位置**而不是"有没有"（有没有已经由第 3 组管了）：它是"一次填两栏"的**另一种做法**，
+    #    压在下面会被读成"填完了再补充" —— 顺序反了。
+    pos_pick = order_screen.find('label = "从联系人里选收货人"')
+    pos_name = order_screen.find('label = "收货人名称"')
+    pos_phone = order_screen.find('label = "收货人电话"')
+    c.ok(
+        "「从联系人里选收货人」排在「收货人名称 / 收货人电话」**上面**",
+        -1 < pos_pick < pos_name < pos_phone,
+        f"位置：选联系人={pos_pick} 名称={pos_name} 电话={pos_phone}（要求 选联系人 < 名称 < 电话）",
+    )
+
     # ---- 4. 回填判据只有一份：两个 VM 都走 fillReceiver，不许内联 ----
+
     c.ok(
         "下单页 VM 走共用回填判据（`fillReceiver(` 至少 2 处：挑人 / 选地点）",
         count(r"fillReceiver\(", order_vm) >= 2,
