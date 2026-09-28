@@ -132,35 +132,21 @@ fun OrderCard(
         shadowElevation = 2.dp,
     ) {
         Column(Modifier.padding(16.dp)) {
-            // 行1：单号（加粗）+ 状态徽章（彩色）。
-            // 单号是 21 位的长串：窄屏 / 系统大字号下它和徽章挤不进同一行时，**宁可让单号独占一行、
-            // 徽章右对齐到下一行**，也不许把单号折成「…31271」+「78」那种吊一个尾巴的样子
-            // （更不许缩小字号、不许截断 —— 规则与官方出处见 `Adaptive.kt`）。
-            val numberStyle = (if (highlight) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall)
-                .copy(fontWeight = FontWeight.Bold)
-            val orderNumber = "#" + order.orderNo
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val onOneLine =
-                    rememberTextWidth(orderNumber, numberStyle) + orderStatusChipWidth(order.status) <= maxWidth
-                if (onOneLine) {
-                    // 放得下 = 与以前**逐像素相同**（单号吃剩余宽度、徽章贴右）
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            orderNumber,
-                            style = numberStyle,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                        OrderStatusChip(order.status)
-                    }
-                } else {
-                    Column {
-                        Text(orderNumber, style = numberStyle, color = MaterialTheme.colorScheme.onSurface)
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                            OrderStatusChip(order.status)
-                        }
-                    }
-                }
+            // 行1：**只有状态徽章**（CHG-0002，用户 2026-09-27 要求：普通订单卡不显示单号）。
+            //
+            // 用户原话：「那个**订单号码是不要有显示**啊，那个订单号码**只有在点击去订单详情的时候
+            // 才会显示**……也就是说我们平常比如说派单界面、司机的那些界面、那个查订单的管理那些界面，
+            // **普通的订单卡是不要显示订单号**。」
+            //
+            // ⛔ 单号在**订单详情页**照旧显示（`OrderDetailScreen.kt` 的「订单编号」那一行）——
+            //    那是"我要查这一单"的地方，卡片上它只是一串没人看的数字。
+            // ⛔ 这一改动**三端同时生效**（货主 / 派单员 / 司机共用一个 `OrderCard`）——
+            //    正是用户点名的那几处。别为某一端单独把单号加回来。
+            // ⚠️ 原来那套"21 位单号挤不下就折行"的规则（`BoxWithConstraints` +
+            //    `rememberTextWidth`）**随单号一起去掉**：这条规则存在的唯一理由就是那串数字。
+            //    徽章仍然**右对齐**，位置与以前一致。
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                OrderStatusChip(order.status)
             }
             Spacer(Modifier.height(10.dp))
 
