@@ -31,23 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 06:2x UTC] 会话：**CHG-0014 地址与联系人页第 3 批：配色归一到语义 token、常驻文案压到 8 字**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求（paraphrased，长期未结）**：用户要求「前端页面要重做按照我们的设计规范进行写」。第 3 批接着 CHG-0013
-往下做，治这一页两处「同一件事配了两个答案」：一条线路的**起点 / 终点在卡片与表单里各配了一个色**
-（§1 一色一功能 / §2 一个概念一个色），以及**常驻标题 12 字与 11 字**超出 §4.10 的 8 字上限、
-`ImageStrip` 的说明句还是裸 `Text`（提示开关关掉也照样占位）。
-
-**改哪些文件**：
-
-- `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`：新增两个公有 token `OriginTeal` / `DestOrange`（值不变，只是把 RouteRail 里那份私有定义提上来）
-- `android/app/src/main/java/com/tapmoay/sorders/ui/common/RouteRail.kt`：删掉自带的两个 `private val`，改成 import（卡片与表单共用同一份）
-- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`：起点 / 终点 / 电话 / 人 / 分组 / 备注六处换成语义色（本页 `Color(0xFF…)` 清零）、三档「路线」色跟着线路色走、两条常驻标题压到 8 字内、`ImageStrip` 说明句走 `Hint(`
-- `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`：§2 新增「线路语义色（起点 / 终点）」小节（定义只有一份、不许借去第三个语义）
-- 同批同步的锚点：`_tools/qa/_check_address_tabs.py` 的三档色常量、`_tools/qa/_reverse_verify_form_panel.py` 的起点锚点、`_tools/qa/_hint_inventory.py` 两个举例注释
-- 判据：新增 `_tools/qa/_check_address_palette.py` 与 `_tools/qa/_reverse_verify_address_palette.py`
-
-**状态**：开工（源码与规范已改完；判据 **47 项 0 失败**；反验 **19/19 全报红 + 8 个被碰过的文件逐字节还原**；构建 **BUILD SUCCESSFUL in 27s**；`_check_all` **141/141（210.0 秒）**、可达性 101/101；模拟器 5554 已取证：列表页标题「常用线路」4 字、抽屉「起点（可选）/ 终点（必填）」）
 
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
@@ -5682,6 +5665,26 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-03 06:2x UTC → 2026-10-03 已完成] 会话：**CHG-0014 地址与联系人页第 3 批：配色归一到语义 token、常驻文案压到 8 字**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（paraphrased，长期未结）**：用户要求「前端页面要重做按照我们的设计规范进行写」。第 3 批接着 CHG-0013
+往下做，治这一页两处「同一件事配了两个答案」：一条线路的**起点 / 终点在卡片与表单里各配了一个色**
+（§1 一色一功能 / §2 一个概念一个色），以及**常驻标题 12 字与 11 字**超出 §4.10 的 8 字上限、
+`ImageStrip` 的说明句还是裸 `Text`（提示开关关掉也照样占位）。
+
+**改哪些文件**：
+
+- `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`：新增两个公有 token `OriginTeal` / `DestOrange`（值不变，只是把 RouteRail 里那份私有定义提上来）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/RouteRail.kt`：删掉自带的两个 `private val`，改成 import（卡片与表单共用同一份）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`：起点 / 终点 / 电话 / 人 / 分组 / 备注六处换成语义色（本页 `Color(0xFF…)` 清零）、三档「路线」色跟着线路色走、两条常驻标题压到 8 字内、`ImageStrip` 说明句走 `Hint(`
+- `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`：§2 新增「线路语义色（起点 / 终点）」小节（定义只有一份、不许借去第三个语义）
+- 同批同步的锚点：`_tools/qa/_check_address_tabs.py` 的三档色常量、`_tools/qa/_reverse_verify_form_panel.py` 的起点锚点、`_tools/qa/_hint_inventory.py` 两个举例注释
+- 判据：新增 `_tools/qa/_check_address_palette.py` 与 `_tools/qa/_reverse_verify_address_palette.py`
+
+**结论**：`ui/theme/Color.kt` 新增两个公有 token `OriginTeal` / `DestOrange`，`ui/common/RouteRail.kt` 不再自带私有色值（卡片与表单共用同一份定义）；`ui/shipper/AddressScreen.kt` 的电话 / 人 / 分组 / 备注四处借色换成 `MgrGreen` / `ShipperTeal` / `ShipperTeal` / `MaterialTheme.colorScheme.outline`，本页 `Color(0xFF…)` 字面量清零，两条常驻标题压到 8 字内、`ImageStrip` 说明句改走 `Hint(`。判据 `_tools/qa/_check_address_palette.py` 47 项 0 失败、反向验证 `_tools/qa/_reverse_verify_address_palette.py` 19/19 全报红（8 个被碰过的文件逐字节还原）、构建 BUILD SUCCESSFUL in 27s、`_check_all` 141/141、可达性 101/101、模拟器 5554 实测到「常用线路」4 字标题与抽屉「起点（可选）/ 终点（必填）」。
+
+**状态**：已完成（提交 `e18141e`，推送 `3434212..e18141e`）
 
 ### [2026-10-03 05:0x UTC → 2026-10-03 已完成] 会话：**CHG-0013 地址与联系人页第 2 批：顶部导航与搜索框收编唯一实现**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
