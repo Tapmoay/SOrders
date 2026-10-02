@@ -13,7 +13,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -31,11 +33,23 @@ import java.util.concurrent.atomic.AtomicLong
  * 高德逐格问 [TileProvider.getTile]「这一格给我」。返回 [TileProvider.NO_TILE] 就是
  * 「这一格我没有」—— 地图于是**透出底下的高德瓦片**。所以：
  *
- * ```
- * z <= 18  ->  NO_TILE        （高德自己的影像，它是清晰的，我们不掺和）
- * z == 19  ->  用 z20 的 2x2 四个子格在客户端合成
+ * ```text
+ * z <= 14  ->  NO_TILE   （高德自己的影像）
+ * z == 15  ->  用 z16 的 2x2 合成
+ * z == 16  ->  直接取 z16
+ * z == 17  ->  用 z18 的 2x2 合成
+ * z == 18  ->  直接取 z18
+ * z == 19  ->  用 z20 的 2x2 合成
  * z >= 20  ->  直接取 z20
  * ```
+ *
+ * ⚠️ **服务器上只放了 16 / 18 / 20 三层**（[BASE_ZOOMS]），它们正好隔 2 ⇒
+ * 每个奇数层都是相邻偶数层的 **2×2**，**永远只取 4 张**。这不是巧合，是刻意的：
+ * 只放偶数层能省掉一半上传量，而"2 倍"是唯一一种**逐像素无损**的降采样比例
+ * （4 倍就得先拼 4×4=16 张、还要 1024×1024 的中间位图，内存和请求数都爆）。
+ *
+ * ⛔ **不要为了少传几层就把 [BASE_ZOOMS] 拉稀**：间距一旦大于 1，[MAX_SPLIT] 就必须跟着放大，
+ * 而那是请求数按 4 的幂次增长（间距 2 → 16 张/格）。
  *
  * ⚠️ **必须直接 implements [TileProvider]，不能继承 `UrlTileProvider`** —— 后者把
  * `getTile` 声明成了 `final`（它只会把 `getTileUrl` 包一层），拿不到 `NO_TILE`
@@ -51,30 +65,58 @@ import java.util.concurrent.atomic.AtomicLong
 private const val TILE_CONNECT_TIMEOUT_MS = 5_000
 private const val TILE_READ_TIMEOUT_MS = 8_000
 
-/** 等 4 张 z20 回来的上限。超过就整块放弃（回落高德），绝不让地图卡住。 */
+/** 等 4 张基座瓦片回来的上限。超过就整块放弃（回落高德），绝不让地图卡住。 */
 private const val TILE_FETCH_WAIT_SEC = 20L
 
-/** 合成瓦片的 JPEG 质量。z19 只是过渡层（真要找门会放到 z20），不必给太高。 */
+/** 合成瓦片的 JPEG 质量。奇数层都是过渡层（真要找门会放到最细的那层），不必给太高。 */
 private const val TILE_JPEG_QUALITY = 85
+
+/** 「这张确实没有」记多久。数据边界上的洞是**稳定**的（那块地本来就没抓），所以可以记久一点。 */
+private const val MISSING_TTL_MS = 10 * 60 * 1000L
+
+/** 负面缓存的上限。到顶就整体清空 —— 简单但有界，⛔ 不要让它无界增长。 */
+private const val MISSING_MAX = 8192
 
 internal object HiResTileLayer {
 
-    /** 从这一层起改用自备影像。低层级一律 [TileProvider.NO_TILE]。 */
-    const val HI_ZOOM: Int = 19
+    /** 从这一层起改用自备影像。低层级一律 [TileProvider.NO_TILE] 交回高德。 */
+    const val HI_ZOOM: Int = 15
 
-    /** 服务器上实际存在的层级（`/opt/SOrders/tiles/20/<x>/<y>.jpg`）。z19 由它合成。 */
-    const val BASE_ZOOM: Int = 20
+    /**
+     * 服务器上**真实存在**的层级（升序，见 `_tools/map/_upload_tiles.py`）。
+     * 其余层级由"≥ 它、且差距不超过 [MAX_SPLIT] 的那一层"合成。
+     *
+     * ⚠️ 实测这三层的**覆盖范围并不一样**（是数据本身决定的，不是缺陷）：
+     * ```text
+     * z20  817 km²    经 116.75–117.09 / 纬 29.16–29.45
+     * z18  2,725 km²  经 116.58–117.19 / 纬 29.09–29.61
+     * z16  23,400 km² 经 116.39–118.39 / 纬 27.93–29.58
+     * ```
+     * ⇒ 越放大覆盖越窄，出了范围就回落高德。这跟真实地图金字塔的行为一致
+     * （全球底图 + 城市高清），⛔ 不要试图把它们"对齐"。
+     */
+    val BASE_ZOOMS: IntArray = intArrayOf(16, 18, 20)
+
+    /**
+     * 最多允许"一层顶几层"：2^[MAX_SPLIT] 格合成。
+     * `= 1` ⇒ 只做 2×2（4 张）。见类注释里为什么不让它变大。
+     */
+    private const val MAX_SPLIT = 1
 
     const val TILE_PX: Int = 256
 
     /**
      * 磁盘缓存上限。
      *
-     * 为什么是 1 GB：实测「固定跑一个乡镇的派单员」把 8×8 km 在 z20 上滑一遍约 530 MB，
-     * 跑 5 个乡镇约 3.2 GB。1 GB 对绝大多数人**永远碰不到**，但它保证缓存**有界** ——
-     * 「只缓存浏览过的」≠「不会涨」：天天跑同几条路，半年后也能把整个片区攒下来。
+     * 为什么是 1.5 GB（2026-10-02 从 1 GB 上调）：现在服务的是 **6 个层级**，不是 2 个。
+     * 实测「固定跑一个乡镇的派单员」把片区滑一遍大约是：z20 约 300 MB + z19 约 75 MB +
+     * z18 约 740 MB（z18 覆盖面积是 z20 的 3.3 倍）+ z15/z16/z17 几 MB ≈ **1.1 GB**。
+     * 1 GB 会刚好在门槛上反复淘汰，1.5 GB 留出余量。
+     *
+     * ⛔ 上限本身不能取消：「只缓存浏览过的」≠「不会涨」—— 天天跑同几条路，半年后也能
+     * 把整个片区攒下来。有界是**必需品**，只是界要跟着层级数走。
      */
-    private const val CACHE_CAP_BYTES = 1L * 1024 * 1024 * 1024
+    private const val CACHE_CAP_BYTES = 1536L * 1024 * 1024   // 1.5 GB
 
     /**
      * 瓦片基址。
@@ -96,9 +138,12 @@ internal object HiResTileLayer {
     /**
      * 取瓦片用的线程池。
      *
-     * z19 要并发取 4 张 z20（串行的话延迟是 z20 的 4 倍，肉眼可见卡顿）。
+     * 奇数层要**并发**取 4 张基座瓦片（串行的话延迟是 4 倍，肉眼可见卡顿）。
      * 池子里的任务**不等待任何东西**，所以 [TileProvider.getTile] 所在的高德瓦片线程
      * 阻塞在这里是安全的（不存在互相等待）。
+     *
+     * ⚠️ 池子大小要与**服务端的 HTTP/2** 配套看：没开 HTTP/2 时每个并发都要独立 TCP+TLS，
+     * 开了一条连接就能多路复用（生产机 2026-10-02 开了）。
      */
     private val POOL = Executors.newFixedThreadPool(8) { r ->
         Thread(r, "sorders-tile").apply { isDaemon = true }
@@ -122,6 +167,42 @@ internal object HiResTileLayer {
 
     /** 组装瓦片 URL。⛔ 不做任何坐标换算，见类注释。 */
     fun tileUrl(zoom: Int, x: Int, y: Int): String = "$baseUrl/$zoom/$x/$y.jpg"
+
+    // ── 负面缓存（"这张确实没有"）────────────────────────────────────────────
+    //
+    // 为什么必须有这一层（2026-10-02 实测）：高德对**拿不到**的格子会**反复来问** ——
+    // 一次验收里，z17 上两个位于数据边界的洞在 13 秒内被问了 **27 次/格**。
+    // 没有这层记忆的话，每次重试都要「查磁盘缓存（miss）→ 发一次 HTTPS → 收 404」，
+    // 纯属白烧流量与电；用户沿着覆盖边界拖地图时这个量会更大。
+    //
+    // ⚠️ **只记 404**（后端明确说"没有"）。超时 / 连不上这类**传输失败不许记** ——
+    // 那是暂时的，记下来会让一块本来有数据的瓦片在 10 分钟里一直显示不出。
+    private val missing = ConcurrentHashMap<String, Long>()
+
+    /** 这张是不是刚问过、后端说没有。 */
+    fun isKnownMissing(key: String): Boolean {
+        val until = missing[key] ?: return false
+        if (until > System.currentTimeMillis()) return true
+        missing.remove(key)
+        return false
+    }
+
+    /** 记下"后端说这张没有"。 */
+    fun rememberMissing(key: String) {
+        if (missing.size >= MISSING_MAX) missing.clear()
+        missing[key] = System.currentTimeMillis() + MISSING_TTL_MS
+    }
+
+    /**
+     * 这一层该用哪个基座层 —— 整个层级门控就靠这一个函数。
+     *
+     * 返回 `null` = 我们不管这一层（调用方返回 `NO_TILE`，地图透出高德瓦片）。
+     * 返回 `== zoom` = 服务器上直接有；返回 `> zoom` = 用它的 2^(差) × 2^(差) 合成。
+     */
+    fun baseFor(zoom: Int): Int? {
+        if (zoom < HI_ZOOM) return null
+        return BASE_ZOOMS.firstOrNull { it >= zoom && it - zoom <= MAX_SPLIT }
+    }
 }
 
 /**
@@ -141,11 +222,11 @@ internal class HiResTileProvider(private val ctx: Context) : TileProvider {
      *   那已经证明它是后台线程）—— 所以这里的阻塞调用是允许的
      */
     override fun getTile(x: Int, y: Int, zoom: Int): Tile {
-        // ★ 这一行就是"缩小时自动换回高德"的全部实现
-        if (zoom < HiResTileLayer.HI_ZOOM) return TileProvider.NO_TILE
+        // ★ 这一个函数就是"缩小时自动换回高德"的全部实现（z≤14 或没有基座层时返回 null）
+        val base = HiResTileLayer.baseFor(zoom) ?: return TileProvider.NO_TILE
 
         val bytes = try {
-            if (zoom == HiResTileLayer.HI_ZOOM) composeFromBaseZoom(x, y) else fetchBase(x, y)
+            if (base == zoom) fetchTile(base, x, y) else compose(zoom, x, y, base)
         } catch (_: Exception) {
             // 任何异常都只是"这一格没有" —— ⛔ 绝不把异常抛回给地图 SDK
             null
@@ -157,17 +238,42 @@ internal class HiResTileProvider(private val ctx: Context) : TileProvider {
         else Tile(HiResTileLayer.TILE_PX, HiResTileLayer.TILE_PX, bytes)
     }
 
-    /** z19(x,y) 覆盖的正是 z20 的 (2x,2y)(2x+1,2y)(2x,2y+1)(2x+1,2y+1) 四格。 */
-    private fun composeFromBaseZoom(x: Int, y: Int): ByteArray? {
-        val bx = x * 2
-        val by = y * 2
-        val quads = arrayOf(
-            bx to by, (bx + 1) to by,
-            bx to (by + 1), (bx + 1) to (by + 1),
-        )
+    /**
+     * 用 [base] 层的 2^n × 2^n 格合成 [zoom] 层的一张瓦片（n = base - zoom）。
+     *
+     * ⚠️ 当前配置下 **n 恒为 1**（基座层隔 2 排布），但代码按通用写 ——
+     * 万一以后加了间距更大的基座层，这里不用改（只要 [HiResTileLayer.MAX_SPLIT] 允许）。
+     *
+     * 内存：**每张小图先缩到自己的格位再贴**，不建 2^n × 2^n 的大中间位图。
+     * n=1 时峰值约 256KB(输出) + 256KB(解码) + 64KB(缩放) ≈ 576 KB；
+     * 若按"先拼 512×512 再整体缩"是 1.3 MB，而 n=2 时那种写法要 4 MB/张 × 8 并发 = 32 MB，
+     * **够 OOM 了** —— 所以这个写法不是微优化，是必须的。
+     *
+     * 质量：2:1 是逐像素无损的（每个输出像素正好平均 2×2 源像素，且瓦片边界与输出像素边界对齐），
+     * 所以"每张小图各缩一半再拼"与"整体缩一半"结果**完全一样**。
+     *
+     * ⚠️ **合成结果刻意不写磁盘缓存**（只写它用到的 4 张基座瓦片）：
+     * 光是 z19 一层的合成结果就有约 18.5 万张 ≈ 1.5 GB，写下去会把整个缓存预算吃光，
+     * 而**基座瓦片本来就要缓存**（不写的话每次都要重新下载）。重复访问靠高德 SDK 自己的
+     * 内存缓存（`TileOverlayOptions.memCacheSize`）兜住 —— 实测连续 12 次取同一批 z19
+     * 只触发 12 次合成，SDK 没有重复来问。
+     */
+    private fun compose(zoom: Int, x: Int, y: Int, base: Int): ByteArray? {
+        val shift = base - zoom
+        val n = 1 shl shift
+        val cell = HiResTileLayer.TILE_PX shr shift
+        val bx = x shl shift
+        val by = y shl shift
 
-        // 并发取四张
-        val futures = quads.map { (qx, qy) -> HiResTileLayer.executor().submit<ByteArray?> { fetchBase(qx, qy) } }
+        // 并发取 n*n 张
+        val futures = ArrayList<Future<ByteArray?>>(n * n)
+        for (dy in 0 until n) {
+            for (dx in 0 until n) {
+                val qx = bx + dx
+                val qy = by + dy
+                futures.add(HiResTileLayer.executor().submit<ByteArray?> { fetchTile(base, qx, qy) })
+            }
+        }
         val parts = futures.mapNotNull { f ->
             try {
                 f.get(TILE_FETCH_WAIT_SEC, TimeUnit.SECONDS)
@@ -178,47 +284,57 @@ internal class HiResTileProvider(private val ctx: Context) : TileProvider {
 
         // ★ 缺一张就整块放弃。四格里有任何一格不在覆盖范围内（多边形边界），
         //   合成出来就是"四分之三有影像、四分之一是黑块"—— 那比直接回落高德更难看。
-        if (parts.size != 4) return null
+        if (parts.size != n * n) return null
 
-        var big: Bitmap? = null
-        var small: Bitmap? = null
+        var out: Bitmap? = null
         return try {
-            big = Bitmap.createBitmap(
-                HiResTileLayer.TILE_PX * 2, HiResTileLayer.TILE_PX * 2, Bitmap.Config.ARGB_8888,
+            out = Bitmap.createBitmap(
+                HiResTileLayer.TILE_PX, HiResTileLayer.TILE_PX, Bitmap.Config.ARGB_8888,
             )
-            val canvas = Canvas(big)
+            val canvas = Canvas(out)
             val paint = Paint(Paint.FILTER_BITMAP_FLAG)
             val dst = Rect()
-            for (i in 0 until 4) {
+            for (i in parts.indices) {
                 val src = parts[i]
                 val bmp = BitmapFactory.decodeByteArray(src, 0, src.size) ?: return null
-                val dx = (i % 2) * HiResTileLayer.TILE_PX
-                val dy = (i / 2) * HiResTileLayer.TILE_PX
-                dst.set(dx, dy, dx + HiResTileLayer.TILE_PX, dy + HiResTileLayer.TILE_PX)
-                canvas.drawBitmap(bmp, null, dst, paint)
-                bmp.recycle()
+                // 每张先缩到自己的格位（n=1 时 cell=128）
+                val s = if (cell == HiResTileLayer.TILE_PX) bmp
+                else Bitmap.createScaledBitmap(bmp, cell, cell, true)
+                if (s !== bmp) bmp.recycle()
+                val dx = (i % n) * cell
+                val dy = (i / n) * cell
+                dst.set(dx, dy, dx + cell, dy + cell)
+                canvas.drawBitmap(s, null, dst, paint)
+                s.recycle()
             }
-            // 512 -> 256 用带滤波的整体缩放（比"每格各缩一半再拼"质量好，且只算一次）
-            small = Bitmap.createScaledBitmap(big, HiResTileLayer.TILE_PX, HiResTileLayer.TILE_PX, true)
-            val out = ByteArrayOutputStream(24 * 1024)
-            if (!small.compress(Bitmap.CompressFormat.JPEG, TILE_JPEG_QUALITY, out)) return null
-            out.toByteArray()
+            val bytes = ByteArrayOutputStream(24 * 1024)
+            if (!out.compress(Bitmap.CompressFormat.JPEG, TILE_JPEG_QUALITY, bytes)) return null
+            bytes.toByteArray()
         } catch (_: Exception) {
             null
         } finally {
-            // ⛔ 必须回收：512×512 ARGB = 1 MB/张，来回缩放几次不回收就是 OOM
-            big?.recycle()
-            small?.recycle()
+            // ⛔ 必须回收：256×256 ARGB = 256 KB/张，来回缩放几次不回收就是 OOM
+            out?.recycle()
         }
     }
 
-    /** 取一张 z20：先查磁盘缓存，没有再走网络，拿到就写缓存。 */
-    private fun fetchBase(x: Int, y: Int): ByteArray? {
+    /** 取一张 [zoom] 层的瓦片：先查磁盘缓存，再查负面缓存，最后走网络；拿到就写缓存。 */
+    private fun fetchTile(zoom: Int, x: Int, y: Int): ByteArray? {
         val cache = HiResTileLayer.cacheOf(ctx)
-        cache.read(HiResTileLayer.BASE_ZOOM, x, y)?.let { return it }
-        val bytes = httpGet(HiResTileLayer.tileUrl(HiResTileLayer.BASE_ZOOM, x, y)) ?: return null
-        cache.write(HiResTileLayer.BASE_ZOOM, x, y, bytes)
-        return bytes
+        cache.read(zoom, x, y)?.let { return it }
+
+        val key = "$zoom/$x/$y"
+        if (HiResTileLayer.isKnownMissing(key)) return null
+
+        val (code, bytes) = httpGet(HiResTileLayer.tileUrl(zoom, x, y))
+        if (bytes != null) {
+            cache.write(zoom, x, y, bytes)
+            return bytes
+        }
+        // ⚠️ **只有后端明确说"没有"才记负面缓存**；超时 / 断网不记（那是暂时的，
+        //    记下来会让一块本来有数据的瓦片在 10 分钟里一直显示不出来）。
+        if (code == 404) HiResTileLayer.rememberMissing(key)
+        return null
     }
 
     /**
@@ -228,19 +344,24 @@ internal class HiResTileProvider(private val ctx: Context) : TileProvider {
      * 于是**每一张瓦片都要重新做一次 TLS 握手**。生产机实测（2026-10-02）：
      * 复用连接的请求 15 微秒，新建 TLS 连接 1,333 微秒 —— **89 倍**。
      * 正确做法就是"设超时 → 读流 → 关流（`use {}` 会关）→ 什么都不做，让池自己管"。
+     *
+     * @return `(HTTP 状态码, 字节)`；异常时状态码为 **-1**。
+     *   ⚠️ 调用方必须区分 **404（后端确实没有）** 与 **-1（传输失败）** ——
+     *   只有前者能进负面缓存，见 [HiResTileLayer.rememberMissing]。
      */
-    private fun httpGet(url: String): ByteArray? = try {
+    private fun httpGet(url: String): Pair<Int, ByteArray?> = try {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = TILE_CONNECT_TIMEOUT_MS
         conn.readTimeout = TILE_READ_TIMEOUT_MS
-        if (conn.responseCode != 200) {
+        val code = conn.responseCode
+        if (code != 200) {
             conn.errorStream?.close()
-            null
+            code to null
         } else {
-            conn.inputStream.use { it.readBytes() }
+            code to conn.inputStream.use { it.readBytes() }
         }
     } catch (_: Exception) {
-        null
+        -1 to null
     }
 }
 

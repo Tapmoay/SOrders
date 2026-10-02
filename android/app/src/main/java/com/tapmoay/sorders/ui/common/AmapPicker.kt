@@ -80,8 +80,9 @@ internal object AmapMapHolder {
     private var roadOverlay: TileOverlay? = null
 
     /**
-     * 自备高清影像层（FEAT-0006）。只在 z≥[HiResTileLayer.HI_ZOOM] 出瓦片，
-     * 低层级返回 `NO_TILE` 让高德自己的影像透出来 —— 所以它对 z≤18 是**零影响**的。
+     * 自备高清影像层（FEAT-0006 引入，CHG-0009 扩到 6 个层级）。
+     * 只在 z≥[HiResTileLayer.HI_ZOOM] 出瓦片，低层级返回 `NO_TILE` 让高德自己的影像透出来
+     * —— 所以它对 z≤14 是**零影响**的。
      */
     private var hiOverlay: TileOverlay? = null
 
@@ -131,12 +132,13 @@ internal object AmapMapHolder {
      * ⚠️ 图层**当参数传进来**、而不是在里面读 [satellite]：司机那一侧要"起步就是标准"，
      *    读全局的话会跟"用户上次选过卫星"打架（那种 bug 表现为"司机这边怎么又变卫星了"）。
      *
-     * ### 三层叠加关系（FEAT-0006 起）
+     * ### 三层叠加关系（FEAT-0006 起；层级范围见 CHG-0009）
      * ```text
-     * 高德卫星底图（z≤18 时就是它在显示；z≥19 时高德只有灰底占位）
-     *   └─ 自备高清影像   zIndex = 1   ← 只画 z≥19，低层级返回 NO_TILE 不参与
+     * 高德卫星底图（z≤14 时就是它在显示）
+     *   └─ 自备高清影像   zIndex = 1   ← 只画 z≥15，低层级返回 NO_TILE 不参与
      *        └─ 路网注记  zIndex = 2   ← 必须在最上，否则放大之后路名被影像压住
      * ```
+     * ⚠️ 注记层是**全层级**的：所以换掉底图**不会丢路名/门牌**，这是这套做法能成立的关键。
      */
     fun applyMapType(aMap: AMap, satellite: Boolean) {
         try {
