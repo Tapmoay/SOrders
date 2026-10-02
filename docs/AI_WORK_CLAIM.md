@@ -31,23 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 03:3x UTC] 会话：**CHG-0011 AI「记一个联系人」手机号改选填（与人工入口同一条下限）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求（paraphrased）**：CHG-0010 已经把**人工**新建联系人的手机号改成选填（存 NULL）；AI 那扇门
-「记一个联系人」当时还是**必填**，同一个下限要落到两条入口上 —— 只报名字的人也得能记。
-
-**改什么**：AI 动作卡 CONTACT_UPSERT 的手机号字段从必填改**选填**（提示语改成「选填；填了就按号认人
-（同一个号会更新他原来的名字）」、摘要行里空号不落「手机号：…」），落点 `createContact(fields)` 跟着允许空串。
-**按号认人的口径一个字没动**（同一个号已经有 = 更新他原来的名字）；只放开必填，没放松格式校验。
-
-**文件清单**：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicData.kt`、
-`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt`、
-`android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt`、
-`_tools/qa/_check_contact_binding.py`（第 13 节 8 项）、`_tools/qa/_reverse_verify_contact_binding.py`（㉝–㊱）、
-`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成）、`docs/changes/CHG-0011.md`、`docs/changes/README.md`、本文件。
-
-**状态**：源码 + 判据 87/87 + 反向验证 37/37（18 个文件逐字节还原）+ 单测 `BUILD SUCCESSFUL` 已齐，待提交。
-
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
@@ -5682,6 +5665,28 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-03 03:3x UTC → 2026-10-03 已完成] 会话：**CHG-0011 AI「记一个联系人」手机号改选填（与人工入口同一条下限）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（paraphrased）**：CHG-0010 已经把**人工**新建联系人的手机号改成选填（存 NULL）；AI 那扇门
+「记一个联系人」当时还是**必填** —— 同一个下限要落到两条入口上，只报名字的人也得能记。
+
+**为什么是 CHG 不是 FEAT**：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicData.kt` 的
+CONTACT_UPSERT 早就声明过「手机号」这一格的字段规格，本事项改的就是这条**已经存在**的契约（必填 → 选填）。
+
+**结论**：手机号这一格从必填改**选填**（卡片提示语「选填；填了就按号认人（同一个号会更新他原来的名字）」、
+正文明细里空号不再落「手机号：…」那一行），落点 `AiWriteDataSource.kt:1092` `phone = fields.str("phone").orEmpty()`
+跟着允许空串。**按号认人的口径一个字没动**（同一个号已经有 = 更新他原来的名字）；只放开必填，格式校验没松。
+
+**证据**：`_tools/qa/_check_contact_binding.py` 87 项 0 失败（第 13 节 8 项）+
+`_reverse_verify_contact_binding.py` 37/37 全红 +「18 个被碰过的文件与运行前逐字节一致」；
+JVM 单测 `:app:testEmuDebugUnitTest` **BUILD SUCCESSFUL in 25s**（用例先红后绿：首次 BUILD FAILED in 44s /
+1132 tests / 1 failed，`expected:<记[联系人：工地老李]> but was:<记[一个联系人]>`）；
+`_check_all.py` **138/138**（211.2 秒）；`check_reachability.py` 98/98 可达、无孤儿。
+
+**没有模拟器 E2E**：AI 卡片由对话产生，中文提示没法脚本注入 —— 记在 `docs/changes/CHG-0011.md` ⑨ 的
+Known Limitations 里（同时列出「只放开必填没放松格式校验」「同名且都没号判同一人」两条口径边界）。
+
+**提交**：`4fc58f6`（9 files changed, 377 insertions(+), 9 deletions(-)），已推 `origin/new`（`8fbe0dc..4fc58f6`）。
 ### [2026-10-03 01:0x UTC → 2026-10-03 已完成] 会话：**FEAT-0007 联系人分类（左分类右列表，复用地点分类那一套）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **需求方原话**：「我们的联系人好像是可以做分类的吧，同样以**左边为分类右边为列表**的形式展示出来。
