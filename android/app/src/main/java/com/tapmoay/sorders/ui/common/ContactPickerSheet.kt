@@ -189,7 +189,10 @@ private fun CreateContactDialog(
     // 电话规则**唯一实现在 `core/InputRules.kt`**（与「地址与联系人」那个联系人表单、
     // 以及后端 `ContactCreate.phone` 同一条）：这里不另写一遍"长度 ≥7 就算过"——
     // 那一版曾经让 `222`、`12345` 这种打不通的号进了生产库。
-    val phoneError = InputRules.phoneError(phone.trim(), required = true)
+    // CHG-0010 起电话**不再是必填**（用户原话：「新建联系人的时候不需要必填手机号」），
+    // 改成姓名与电话**至少填一个** —— 两个都空存下来是一条谁也认不出的记录。
+    val phoneError = InputRules.phoneError(phone.trim(), required = false)
+    val identityError = InputRules.contactIdentityError(name, phone)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("新建联系人") },
@@ -200,23 +203,27 @@ private fun CreateContactDialog(
                 SoTextField(
                     value = phone,
                     onValueChange = { phone = InputRules.phoneInput(it) },
-                    placeholder = "手机号（必填）",
+                    placeholder = "手机号（选填）",
                     keyboardType = KeyboardType.Phone,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     // 后端那句中文（例如同号重复的 409）优先于本地规则：它是**最终判据**，
                     // 本地规则只是"还没发请求就先说一句"。
-                    error ?: phoneError
+                    error ?: phoneError ?: identityError
                     ?: "存下来之后，这个人会在「地址与联系人」和这里的列表里出现，以后下单直接挑。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (error != null || phoneError != null) MaterialTheme.colorScheme.error
+                    color = if (error != null || phoneError != null || identityError != null)
+                    MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name.trim(), phone.trim()) }, enabled = phoneError == null && !creating) {
+            TextButton(
+                onClick = { onSave(name.trim(), phone.trim()) },
+                enabled = phoneError == null && identityError == null && !creating,
+            ) {
                 Text(if (creating) "保存中…" else "保存")
             }
         },

@@ -692,7 +692,9 @@ fun AddressScreen(
                         // 电话只让数字进来（规则唯一实现在 core/InputRules.kt）
                         onValueChange = { vm.contactPhone = InputRules.phoneInput(it) },
                         placeholder = "请输入手机号",
-                        required = true,
+                        // CHG-0010：这一栏**不再必填**（用户原话「新建联系人的时候不需要必填手机号」）——
+                        // ⛔ 别再挂 required = true：校验早就放开了，标记却还写着必填，
+                        //    用户会以为「只填称呼存不下来」（模拟器上就是这么被抓到的）。
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
                         iconTint = Color(MgrGreen),

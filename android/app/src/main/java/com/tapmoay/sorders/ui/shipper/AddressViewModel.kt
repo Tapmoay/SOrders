@@ -238,10 +238,17 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
      *
      * 与 [saveContact] 是同一条电话规则（`core/InputRules.kt::phoneError`）+ 同一个后端端点；
      * 分开一个入口只是因为**落点不同**：那个落进联系人列表，这个落进当前正在填的那份草稿。
+     *
+     * CHG-0010：电话**选填**（后端 `ContactCreate.phone` 已有默认值），但姓名与电话
+     * **至少填一个** —— 两个都空存下来是一条谁也认不出的记录。
      */
     fun createContactAndPick(name: String, phone: String) {
         val p = phone.trim()
-        InputRules.phoneError(p, required = true)?.let {
+        InputRules.phoneError(p, required = false)?.let {
+            pickerError = it
+            return
+        }
+        InputRules.contactIdentityError(name, p)?.let {
             pickerError = it
             return
         }
@@ -255,8 +262,10 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                 applyPickedContact(created)
                 load()
             } catch (e: Exception) {
-                // 同号已存在（后端 409）：用户要的是"用这个人"，不是"再建一条"
-                val existing = contacts.firstOrNull { it.phone.trim() == p }
+                // 同号已存在（后端 409）：用户要的是"用这个人"，不是"再建一条"。
+                // ⚠️ 只有**真填了号码**才按号码兜底：`p` 是空串时会把一堆"没填号码"的
+                //    联系人全都匹配上，随手指一个比老老实实报错更糟（CHG-0010）。
+                val existing = if (p.isEmpty()) null else contacts.firstOrNull { it.phone.trim() == p }
                 if (existing != null) {
                     applyPickedContact(existing)
                 } else {
@@ -415,10 +424,15 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun saveContact() {
-        // 口径与后端一致（`ContactCreate.phone` 也走同一条电话规则）：只数字、7~12 位。
-        // 原来是"长度 ≥5 就算过" —— 于是 `222`、`12345` 这种打不通的号也能进库
-        // （生产库里真有一条 `222`）。规则唯一实现在 core/InputRules.kt。
-        InputRules.phoneError(contactPhone.trim(), required = true)?.let {
+        // 口径与后端一致（`ContactCreate.phone` / `ContactUpdate.phone` 也走同一条电话规则）：
+        // 只数字、7~12 位。原来是"长度 ≥5 就算过" —— 于是 `222`、`12345` 这种打不通的号
+        // 也能进库（生产库里真有一条 `222`）。规则唯一实现在 core/InputRules.kt。
+        // CHG-0010：电话**选填**，改成姓名与电话**至少填一个**（与后端那句 400 一字不差）。
+        InputRules.phoneError(contactPhone.trim(), required = false)?.let {
+            formError = it
+            return
+        }
+        InputRules.contactIdentityError(contactName, contactPhone)?.let {
             formError = it
             return
         }

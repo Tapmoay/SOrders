@@ -584,7 +584,9 @@ fun OrderCreateScreen(
                     FormInputRow(
                         label = "收货人名称",
                         value = vm.dongjiaName,
-                        onValueChange = { vm.dongjiaName = it },
+                        // 走 ViewModel 的回调而不是直接赋值：手改**名称**＝换人，顺手清掉
+                        // pickedContactId（CHG-0010；下面对电话那一栏是反过来的，见那里的注释）。
+                        onValueChange = { vm.onReceiverNameChange(it) },
                         placeholder = "从线路带出，可改",
                         icon = Icons.Default.Person,
                         iconTint = Color(MgrGreen),
@@ -594,7 +596,10 @@ fun OrderCreateScreen(
                         value = vm.dongjiaPhone,
                         // 只让数字敲得进来（汉字/字母/符号在输入层就被丢掉），最多 12 位，
                         // 并给数字键盘。规则唯一实现在 core/InputRules.kt。
-                        onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },
+                        // ⚠️ 手改电话**不清** pickedContactId（与名称那一栏相反）：挑一个没号码的
+                        //    联系人、在这里把号码补上，下单成功后要把号码存回他的档案 —— 这正是
+                        //    CHG-0010 要的那件事（详见 VM 里 onReceiverPhoneChange 的注释）。
+                        onValueChange = { vm.onReceiverPhoneChange(InputRules.phoneInput(it)) },
                         placeholder = "请输入手机号",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,

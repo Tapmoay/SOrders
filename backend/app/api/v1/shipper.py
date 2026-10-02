@@ -226,18 +226,35 @@ def upsert_contact(
     current: ShipperOrDispatcher,
     db: Session = Depends(get_db),
 ) -> ShipperContact:
-    phone = body.phone.strip()
-    row = db.scalars(
-        select(ShipperContact).where(
-            ShipperContact.shipper_id == current.id,
-            ShipperContact.phone == phone,
-        )
-    ).first()
-    if row:
-        if body.display_name:
-            row.display_name = body.display_name
+    phone = (body.phone or "").strip()
+    name = (body.display_name or "").strip()
+    # 姓名和手机号**至少填一个**：两个都空的联系人在列表里是一行认不出、也没法拨的空白。
+    # 用户只要求"手机号不必填"，没要求"可以什么都不填"。
+    if not phone and not name:
+        raise HTTPException(status_code=400, detail="联系人的姓名和手机号至少填一个")
+    if phone:
+        row = db.scalars(
+            select(ShipperContact).where(
+                ShipperContact.shipper_id == current.id,
+                ShipperContact.phone == phone,
+            )
+        ).first()
     else:
-        row = ShipperContact(shipper_id=current.id, phone=phone, display_name=body.display_name or "")
+        # 没填号的行**不能按号认人**（NULL 不参与等值比较，`phone == ""` 谁都不匹配），
+        # 改按「同名且同样没填号」认人 —— 否则同一个人的名字会被反复建出一串空号联系人。
+        row = db.scalars(
+            select(ShipperContact).where(
+                ShipperContact.shipper_id == current.id,
+                ShipperContact.phone.is_(None),
+                ShipperContact.display_name == name,
+            )
+        ).first()
+    if row:
+        if name:
+            row.display_name = name
+    else:
+        # 空号一律写 NULL，⛔ 不写空串：空串是真值，两条空号会撞 (shipper_id, phone) 唯一约束。
+        row = ShipperContact(shipper_id=current.id, phone=phone or None, display_name=name)
         db.add(row)
     db.commit()
     db.refresh(row)
@@ -260,7 +277,13 @@ def update_contact(
     # 界面上什么都没变，用户以为自己改的是另一条。
     if getattr(c, "is_deleted", False):
         raise HTTPException(status_code=400, detail="这条联系人已经被删除了（在回收站里），不能修改")
-    new_phone = body.phone.strip() if body.phone and body.phone.strip() else None
+    # CHG-0010：`None` = 这一项不改；**空串 = 明确要清掉**（界面上把号码删空再保存）。
+    # 分开之后"删空保存"不再是一次**静默无效**的写入（改之前空串会被当成"没给这一项"）。
+    new_phone = c.phone if body.phone is None else (body.phone.strip() or None)
+    new_name = c.display_name if body.display_name is None else body.display_name.strip()
+    if not (new_phone or "").strip() and not new_name.strip():
+        raise HTTPException(status_code=400, detail="联系人的姓名和手机号至少填一个")
+    # ⛔ 先判后写：中途 raise 会让 ORM 上的半截改动留在 session 里（下面还有别的调用方在用）。
     if new_phone and new_phone != c.phone:
         dup = db.scalars(
             select(ShipperContact).where(
@@ -270,9 +293,8 @@ def update_contact(
         ).first()
         if dup is not None:
             raise HTTPException(status_code=409, detail="该电话已存在已有联系人")
-        c.phone = new_phone
-    if body.display_name is not None:
-        c.display_name = body.display_name.strip()
+    c.phone = new_phone
+    c.display_name = new_name
     db.commit()
     db.refresh(c)
     return c
@@ -492,7 +514,10 @@ def delete_contact(contact_id: int, current: ShipperOrDispatcher, db: Session = 
     # 和账号删除（users.py 的 _del{id} 后缀）是同一个套路。
     c.is_deleted = True
     c.deleted_at = utc_now_naive()
-    c.phone = del_suffix(c.phone, c.id, 32)   # shipper_contacts.phone 是 String(32)
+    # CHG-0010：没填号的行**跳过**这一手 —— NULL 在唯一索引里本来就不互相冲突；
+    # 给它编一个 "_del{id}" 反而会把一个假号码写进"电话"列，恢复时还会被当成"原来号是空的"。
+    if c.phone:
+        c.phone = del_suffix(c.phone, c.id, 32)   # shipper_contacts.phone 是 String(32)
     db.commit()
 
 
@@ -509,18 +534,24 @@ def restore_contact(contact_id: int, current: ShipperOrDispatcher, db: Session =
     if not c.is_deleted:
         raise HTTPException(status_code=400, detail="这个联系人没有被删除，不需要恢复")
     suffix = f"_del{c.id}"
-    if c.phone.endswith(suffix):
+    # `or ""`：删除时没填号的行走的是 NULL（见 DELETE），endswith 直接调会 AttributeError。
+    if (c.phone or "").endswith(suffix):
         want = c.phone[: -len(suffix)]
-        taken = db.scalars(
-            select(ShipperContact).where(
-                ShipperContact.shipper_id == current.id,
-                ShipperContact.phone == want,
-                ShipperContact.id != c.id,
-                ShipperContact.is_deleted.is_(False),
-            )
-        ).first()
-        if taken is None:
-            c.phone = want
+        if not want:
+            # 老数据：号码本来就是空串、删的时候被加了后缀。恢复成 NULL（"没填号"的正解），
+            # ⛔ 不写回空串 —— 空串是**真值**，会占掉 (shipper_id, phone) 唯一键的一位。
+            c.phone = None
+        else:
+            taken = db.scalars(
+                select(ShipperContact).where(
+                    ShipperContact.shipper_id == current.id,
+                    ShipperContact.phone == want,
+                    ShipperContact.id != c.id,
+                    ShipperContact.is_deleted.is_(False),
+                )
+            ).first()
+            if taken is None:
+                c.phone = want
     c.is_deleted = False
     c.deleted_at = None
     db.commit()

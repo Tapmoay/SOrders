@@ -47,6 +47,11 @@ AI_SVC = f"{AND}/ai/AiWriteService.kt"
 #    `AiWriteDataSource.kt`（服务只剩薄派发）。只改目标文件，锚点原文不动。
 AI_DATA = f"{AND}/ai/AiWriteDataSource.kt"
 TEST = "android/app/src/test/java/com/tapmoay/sorders/ui/common/ContactFillTest.kt"
+#: CHG-0010（2026-10-03）：联系人手机号**选填** + 下单时补的号写回档案
+SHEET_REL = f"{AND}/ui/common/ContactPickerSheet.kt"
+IN_RULES_REL = f"{AND}/core/InputRules.kt"
+BE_MIG_REL = "backend/app/migrations/011_contact_phone_optional.py"
+BE_TEST_OPT_REL = "backend/tests/test_contact_phone_optional.py"
 BE_MODEL = "backend/app/models/shipper.py"
 BE_API = "backend/app/api/v1/shipper.py"
 BE_BOOT = "backend/app/core/schema_bootstrap.py"
@@ -265,7 +270,109 @@ CASES: list[tuple[str, str, object, str]] = [
                             'REVERSE = "_tools/qa/_reverse_verify_contact_binding_gone.py"', 1),
         "反向验证",
     ),
-]
+    # ---- CHG-0010（2026-10-03）：手机号选填 + 补了就存回档案 ----
+    (
+        "㉑ 新建联系人弹层的电话又变回**必填**（用户点名：「新建联系人的时候不需要必填手机号」）",
+        SHEET_REL,
+        lambda s: s.replace(
+            "InputRules.phoneError(phone.trim(), required = false)",
+            "InputRules.phoneError(phone.trim(), required = true)",
+            1,
+        ),
+        "选填",
+    ),
+    (
+        "㉒ 两个都空的那条下限被删（联系人能存成一条谁也认不出的记录）",
+        IN_RULES_REL,
+        lambda s: s.replace(
+            'if (name.isBlank() && phone.isBlank()) "姓名和手机号至少填一个" else null', "null", 1
+        ),
+        "至少填一个",
+    ),
+    (
+        "㉓ 下单成功后不再把补的号码写回档案（CHG-0010 的主功能没了）",
+        ORDER_VM,
+        lambda s: s.replace("                        savePickedContactPhone()\n", "", 1),
+        "下单成功之后",
+    ),
+    (
+        "㉔ 手改名称不再清 `pickedContactId`（这次补的号码会写到**上一位**头上）",
+        ORDER_VM,
+        lambda s: s.replace("        dongjiaName = v\n        pickedContactId = null\n", "        dongjiaName = v\n", 1),
+        "名称那一栏没清",
+    ),
+    (
+        "㉔b 手改电话反过来去清 `pickedContactId`（补的号再也写不回档案）",
+        ORDER_VM,
+        lambda s: s.replace(
+            "    fun onReceiverPhoneChange(v: String) {\n        dongjiaPhone = v\n    }\n",
+            "    fun onReceiverPhoneChange(v: String) {\n        dongjiaPhone = v\n        pickedContactId = null\n    }\n",
+            1,
+        ),
+        "电话那一栏把 pickedContactId 清了",
+    ),
+    (
+        "㉕ 写回时不再检查「档案里本来就有号」（会把别人填的号覆盖掉）",
+        ORDER_VM,
+        lambda s: s.replace("        if (archived.phone.isNotBlank()) return\n", "", 1),
+        "三条守卫",
+    ),
+    (
+        "㉖ 服务端那一列又变回 NOT NULL（两条「没填号」的联系人会撞唯一索引）",
+        BE_MODEL,
+        lambda s: s.replace(
+            "phone: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)",
+            "phone: Mapped[str] = mapped_column(String(32), index=True)",
+            1,
+        ),
+        "可空",
+    ),
+    (
+        "㉗ 空号判重又按空串比（两条没填号的联系人会互相当成同一条）",
+        BE_API,
+        lambda s: s.replace("ShipperContact.phone.is_(None)", 'ShipperContact.phone == ""', 1),
+        "空号判重",
+    ),
+    (
+        "㉘ 删除时给没填号的行也编一个 _del{id} 假号码（恢复时读成一个真的号）",
+        BE_API,
+        lambda s: s.replace(
+            "    if c.phone:\n        c.phone = del_suffix(",
+            "    if True:\n        c.phone = del_suffix(",
+            1,
+        ),
+        "假号码",
+    ),
+    (
+        "㉙ 恢复时又拿 NULL 去调 .endswith（没填号的那条恢复 500）",
+        BE_API,
+        lambda s: s.replace('if (c.phone or "").endswith(suffix):', "if c.phone.endswith(suffix):", 1),
+        "endswith",
+    ),
+    (
+        "㉚ 迁移又把列改回 NOT NULL（MySQL 上这条迁移等于没做）",
+        BE_MIG_REL,
+        lambda s: s.replace(
+            "MODIFY COLUMN {COLUMN} VARCHAR(32) NULL", "MODIFY COLUMN {COLUMN} VARCHAR(32) NOT NULL", 1
+        ),
+        "可空",
+    ),
+    (
+        "㉛ 回归用例里「存 NULL」那条断言被删（「不存空串」这条选择没了行为证据）",
+        BE_TEST_OPT_REL,
+        lambda s: s.replace("row.phone is None", "row.phone is not None"),
+        "NULL 断言",
+    ),
+    (
+        "㉜ 联系人抽屉（地址与联系人 → 添加联系人）的电话又挂上必填标记",
+        ADDR_SCREEN,
+        lambda s: s.replace(
+            "onValueChange = { vm.contactPhone = InputRules.phoneInput(it) },",
+            "onValueChange = { vm.contactPhone = InputRules.phoneInput(it) },\n                        required = true,",
+            1,
+        ),
+        "必填标记",
+    ),]
 
 
 def run_check() -> tuple[int, str]:

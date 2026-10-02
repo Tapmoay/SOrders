@@ -88,8 +88,8 @@ CASES: list[tuple] = [
         #    这条反向验证从此恒绿。所以「替换串在文件里」必须判成**注入残留**。
         "源码里留着上一次没还原的注入（原文没了、替换串在）→ 必须报「注入残留」，且不许再说「去更新锚点」",
         VICTIM_TARGET,
-        "onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },",
-        "onValueChange = { vm.dongjiaPhone = it },",
+        "onValueChange = { vm.onReceiverPhoneChange(InputRules.phoneInput(it)) },",
+        "onValueChange = { vm.onReceiverPhoneChange(it) },",
         "注入残留",
         [],
         False,
@@ -100,8 +100,8 @@ CASES: list[tuple] = [
     (
         "`--restore` 必须真的按字节换回原文（不是只打印一句「已还原」）",
         VICTIM_TARGET,
-        "onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },",
-        "onValueChange = { vm.dongjiaPhone = it },",
+        "onValueChange = { vm.onReceiverPhoneChange(InputRules.phoneInput(it)) },",
+        "onValueChange = { vm.onReceiverPhoneChange(it) },",
         "已按注入串换回原文",
         ["--restore"],
         True,

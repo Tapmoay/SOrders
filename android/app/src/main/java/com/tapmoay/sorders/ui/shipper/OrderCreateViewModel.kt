@@ -124,7 +124,26 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
      */
     var pickedAddressId by mutableStateOf<Long?>(null)
     var pickedLocationId by mutableStateOf<Long?>(null)
+    /**
+     * 这一单的收货人是**从联系人名册里挑的哪一位**（没挑＝null）。
+     *
+     * 用途只有一个，但很值钱（CHG-0010）：下单时如果这个人原本**没有**手机号、这次补上了，
+     * 就自动存回他的档案（用户原话：「在下单的时候……一旦补上去了，他就自动的做一份保存」）。
+     * ⛔ 手打的收货人**绝不会**凭空建一份档案 —— 所以这里存的必须是"挑来的那条记录的 id"。
+     *
+     * 清空边界（⚠️ 两栏**不一样**，别"顺手对齐"）：
+     * · 手改**名称**（[onReceiverNameChange]）＝换人 → 清成 null；
+     * · 手改**电话**（[onReceiverPhoneChange]）**不清** —— 给一个没号码的联系人补号码，正是
+     *   要写回**同一条**档案的那个场景（模拟器实测：清了它，那条联系人到下单结束还是"没号码"，
+     *   也就是用户要的功能根本没发生）；
+     * · 线路 / 我的地点 / 预设单带出来的收货人 = 快照，不是名册里挑的 → 清成 null。
+     */
+    var pickedContactId by mutableStateOf<Long?>(null)
+        private set
+    // ⚠️ 收货人这两栏**只能**通过下面那两个函数手改（`private set` 就是为这件事立的：
+    //    界面直接赋值会绕过 pickedContactId 的清理，编译期就挡住）。
     var dongjiaPhone by mutableStateOf("")
+        private set
     var bossPhone by mutableStateOf("")
     /**
      * 收货人 / 下单人的**名称**（2026-09-20 用户要求；下单人的来源 2026-09-22 第二轮改过）。
@@ -139,6 +158,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
      * 两个都是**可改**的普通输入框：自动填只是省一次输入，不是锁死。
      */
     var dongjiaName by mutableStateOf("")
+        private set
     var bossName by mutableStateOf("")
     var remark by mutableStateOf("")
     // 代理下单（派单员代下单）：shipperId=已注册货主；tempShipperName=临时货主（互斥）
@@ -537,6 +557,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                     pickedAddressId = null
                     pickedLocationId = null
                 }
+                // 预设单里存的是**收货人文字**，不是名册里的哪一位 → 清掉联系人 id
+                // （CHG-0010：留着它会让"补号写回档案"写到上一次挑的那个人头上）
+                pickedContactId = null
                 if (t.receiverName.isNotBlank()) dongjiaName = t.receiverName
                 if (t.receiverPhone.isNotBlank()) dongjiaPhone = t.receiverPhone
                 if (t.remark.isNotBlank()) remark = t.remark
@@ -773,6 +796,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         // ⚠️ 名字只在**这条线路真的填了收货人**时才覆盖：`receiver_name` 在老线路上可能是空的，
         //    那种时候把用户刚敲进去的名字清掉，比"不自动填"更糟。电话沿用原来的行为不动。
         if (a.receiverName.isNotBlank()) dongjiaName = a.receiverName
+        // 这条线路上的收货人**不是**从名册里挑的 → 清掉联系人 id（CHG-0010）
+        pickedContactId = null
         // 记下"这一单用的是哪条线路"：下单时随单交给后端记一次常用度
         // （用户 2026-09-22：「下单时经常用到的联系人……用得越多越往前」）。
         // ⚠️ 手输地址 / 地图选点不会走到这里 —— 那种情况 `picked*Id` 保持为空，后端就不计分。
@@ -899,8 +924,35 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         )
         dongjiaName = f.name
         dongjiaPhone = f.phone
+        // 记下"这一单的收货人是名册里的哪一位"：下单时若这次补上了号码，要写回他的档案
+        // （CHG-0010）。⚠️ 只能在这里赋值 —— 别处赋值＝会把号码写到别人头上。
+        pickedContactId = c.id
         showContactSheet = false
         contactsError = null
+    }
+
+    /**
+     * 收货人**名称**的手改入口（下单页那个输入框调它）。
+     *
+     * 手改名称就意味着"这一单的收货人不再是名册里的某一位了"，所以顺手把 [pickedContactId]
+     * 清掉 —— 不然下单时那个"补了号码就存回档案"的动作会写到上一位头上（CHG-0010）。
+     */
+    fun onReceiverNameChange(v: String) {
+        dongjiaName = v
+        pickedContactId = null
+    }
+
+    /**
+     * 收货人**电话**的手改入口。
+     *
+     * ⛔ **这里不许清 [pickedContactId]**（与名称那一栏不同，别"顺手对齐"）：挑一个**没号码**的
+     *    联系人、在下单页把他的号码补上，正是 CHG-0010 要写回档案的那个场景（用户原话：
+     *    「在下单的时候……一旦补上去了，他就自动的做一份保存」）。清掉它 = 这个功能永远不会触发。
+     *    会不会写到别人头上由 [savePickedContactPhone] 的三条守卫兜住：必须是名册里挑的那一位，
+     *    且**档案里本来就有号就不写**（所以"挑的人本来有号、这次改成别的号"也不会污染档案）。
+     */
+    fun onReceiverPhoneChange(v: String) {
+        dongjiaPhone = v
     }
 
     /**
@@ -912,7 +964,13 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
      */
     fun saveReceiverAsContact(name: String, phone: String) {
         val p = phone.trim()
-        InputRules.phoneError(p, required = true)?.let {
+        // CHG-0010：电话**选填**（用户原话：「新建联系人的时候不需要必填手机号」），
+        // 但姓名与电话**至少填一个** —— 两个都空存下来是一条谁也认不出的记录。
+        InputRules.phoneError(p, required = false)?.let {
+            contactSaveError = it
+            return
+        }
+        InputRules.contactIdentityError(name, p)?.let {
             contactSaveError = it
             return
         }
@@ -927,8 +985,10 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             } catch (e: Exception) {
                 // 同号重复时后端 409。用户要的是"用这个人"，不是"再建一条"——
                 // 名册里已经有同号的那位，直接挑他，别把一句报错丢给他去自己找。
+                // ⚠️ 只有**真填了号码**才按号码兜底：`p` 是空串时会把一堆"没填号码"的
+                //    联系人全都匹配上，随手指一个比老老实实报错更糟（CHG-0010）。
                 val msg = toApiException(e).message.orEmpty()
-                val existing = contacts.firstOrNull { it.phone.trim() == p }
+                val existing = if (p.isEmpty()) null else contacts.firstOrNull { it.phone.trim() == p }
                 if (existing != null) {
                     pickReceiver(existing)
                     toast = "「${existing.displayName.ifBlank { existing.phone }}」已经在联系人里了，直接选了他"
@@ -941,6 +1001,27 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * 下单成功后：把这次补上的收货人手机号**写回联系人档案**（CHG-0010）。
+     *
+     * 三个条件、为什么写在成功之后、为什么 runCatching —— 见 [submit] 里调用处的注释，
+     * 这里不重复一遍（判据只有一处）。
+     */
+    private suspend fun savePickedContactPhone() {
+        val id = pickedContactId ?: return
+        val newPhone = dongjiaPhone.trim()
+        if (newPhone.isEmpty()) return
+        val archived = contacts.firstOrNull { it.id == id } ?: return
+        if (archived.phone.isNotBlank()) return
+        runCatching {
+            container.repo.updateContact(id, ContactUpdateRequest(phone = newPhone))
+        }.onSuccess {
+            // 名册在内存里的那份也要跟上，不然回头再打开弹层还是"没号码"的样子
+            // （下一次进来会重新拉一次，但这一屏到那时还没关）。
+            contacts = contacts.map { if (it.id == id) it.copy(phone = newPhone) else it }
+        }
+    }
+
     /** 从「我的地点库」选终点（B 点）：带坐标时一并填上，这才叫"导航信息"。 */
     fun applyLocation(l: LocationDto) {
         addressDetail = l.detailAddress.ifBlank { l.name }
@@ -950,6 +1031,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         // 绑定联系人，就大家选择地点之后，自动填入对应的联系人」）。
         // ⚠️ 规矩是**有值才覆盖**（`ContactFillMode.BROUGHT`）：没绑人的地点不许把用户
         //    刚敲好的名字/电话清掉 —— 他选这个地点只是为了填地址。
+        // 地点上绑的收货人同样是**快照**（不是名册里挑的）→ 清掉联系人 id（CHG-0010）
+        pickedContactId = null
         val c = fillReceiver(
             ReceiverContact(dongjiaName, dongjiaPhone),
             l.contactName,
@@ -1083,6 +1166,17 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                         appliedTemplateId?.let { tid ->
                             runCatching { container.repo.useOrderTemplate(tid) }
                         }
+                        // 「下单时补上的收货人手机号 → 自动存回他的档案」（CHG-0010，用户原话：
+                        // 「在下单的时候……一旦补上去了，他就自动的做一份保存」）。
+                        // 三个条件**同时**成立才写，缺一不可：
+                        //   ① 收货人是**从名册里挑的**（pickedContactId != null）——
+                        //      ⛔ 手打出来的收货人绝不凭空建档案，也不改任何人的号；
+                        //   ② 档案里**原本没有**号码 —— 有号就不动它（那是别人填的，不是这次的空白）；
+                        //   ③ 这一次**填了**号码 —— 空着就没什么可存的。
+                        // ⚠️ 写在**下单成功之后**：单子没下成就不该动名册（用户说的是"下单的时候"）。
+                        // ⚠️ runCatching：写回失败（例如这个号刚被别的联系人占了 → 后端 409）
+                        //    不能反过来把一张已经下成的单子报成失败。
+                        savePickedContactPhone()
                         onDone()
                     } catch (e: Exception) {
                         error = toApiException(e).message

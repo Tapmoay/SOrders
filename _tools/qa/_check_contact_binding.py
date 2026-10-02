@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""红线：**联系人可以被挑、也可以绑在「地点 / 线路」上**（2026-09-24 用户要求）。
+"""红线：**联系人可以被挑、也可以绑在「地点 / 线路」上**（2026-09-24 用户要求）；
+**手机号选填、补上了就存回档案**（CHG-0010，2026-10-03）。
 
 ## 用户原话
 > 「给户主也加一个在选择下单的时候**可以选择联系人**，就**不用每次要手动填入了**。同时再给他
@@ -66,6 +67,12 @@ BE_SCHEMA = BE / "schemas/shipper.py"
 BE_API = BE / "api/v1/shipper.py"
 BE_BOOT = BE / "core/schema_bootstrap.py"
 BE_TEST = ROOT / "backend/tests/test_location_contact.py"
+#: CHG-0010（2026-10-03）：联系人**手机号选填** + 下单时补的号写回档案
+BE_MIG = BE / "migrations/011_contact_phone_optional.py"
+BE_TEST_OPT = ROOT / "backend/tests/test_contact_phone_optional.py"
+IN_RULES = AND / "core/InputRules.kt"
+#: 姓名与电话"至少填一个"这条下限，客户端与服务端**共用**的半句（两边不许各写各的）
+IDENTITY_CORE = "姓名和手机号至少填一个"
 
 REVERSE = "_tools/qa/_reverse_verify_contact_binding.py"
 DOC = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
@@ -424,6 +431,224 @@ def main() -> int:
         "06_DESIGN_SYSTEM.md 里没记联系人绑定这一节",
     )
 
+    # ---- 12. CHG-0010：手机号**选填**、补上了就存回档案（2026-10-03 用户点名）----
+    #
+    # 用户原话：「新建联系人的时候**不需要必填手机号**」+「在下单的时候……**一旦补上去了，他就
+    # 自动的做一份保存**」—— 两句连起来是**一条**功能：不填也能建 + 补了就存回去。
+    #
+    # 三段判据，各防一种"改了但没生效"：
+    #   ① 客户端两处"必填"真的松开（只说选填、校验还拦着 = 用户还是建不出来）；
+    #   ② "这一单的收货人是名册里的哪一位"被记住，且**任何一次手改**都清掉它 ——
+    #      不清的话，这次补的号码会写到**上一位**头上（比不写更坏）；
+    #   ③ 服务端那条写回的路真的通：列可空（空串在唯一索引里是真值，两条"没填"会撞键）、
+    #      删除时不给空号编假号码、恢复时不拿 NULL 去调 `.endswith`。
+    rules = code(IN_RULES)
+    ident = re.search(
+        r"fun contactIdentityError\(name: String, phone: String\): String\? =\s*\n"
+        r'\s*if \(name\.isBlank\(\) && phone\.isBlank\(\)\) "([^"]+)" else null',
+        rules,
+    )
+    c.ok(
+        "`InputRules.contactIdentityError` 在（姓名与电话**至少填一个**的下限；按声明判，改名也红）",
+        ident is not None,
+        "找不到这个函数（或形状变了）—— 下限没了，两个都空也能存成一条谁也认不出的记录",
+    )
+    c.ok(
+        f"客户端那句话里含着后端同一条下限「{IDENTITY_CORE}」（两边不许各写各的）",
+        ident is not None and IDENTITY_CORE in ident.group(1),
+        f"客户端现在说的是「{ident.group(1) if ident else '<没找到>'}」",
+    )
+    c.ok(
+        "后端 Create 与 Update **两处**都拦这条下限（只有一处 = 另一个入口能把人存成空白）",
+        count(re.escape(IDENTITY_CORE), api) >= 2,
+        f"只找到 {count(re.escape(IDENTITY_CORE), api)} 处",
+    )
+
+    # 12a. 客户端：新建联系人的弹层 + 两个 VM 的入口都按"选填"走
+    c.ok(
+        "新建联系人弹层里电话是**选填**（`phoneError(…, required = false)`）",
+        re.search(r"InputRules\.phoneError\(phone\.trim\(\), required = false\)", sheet) is not None,
+        "又变回必填了 —— 用户 2026-10-03：「新建联系人的时候不需要必填手机号」",
+    )
+    c.ok(
+        "弹层里那句占位符是「手机号（选填）」",
+        "手机号（选填）" in sheet,
+        "占位符还写着「必填」（用户看到的字与校验对不上）",
+    )
+    c.ok(
+        "弹层把这条下限也接上了（两个都空就地提示，不用等后端 400 回来）",
+        count(r"InputRules\.contactIdentityError\(", sheet) >= 1,
+        "弹层里没接下限",
+    )
+    for label, src in (("地址与联系人", addr_vm), ("下单页", order_vm)):
+        c.ok(
+            f"{label} VM 里新建联系人也是选填 + 有下限（`required = false` 与 `contactIdentityError` 各 ≥1）",
+            count(r"required = false", src) >= 1 and count(r"InputRules\.contactIdentityError\(", src) >= 1,
+            "这条路上还是必填 / 没有下限",
+        )
+
+    # 12b. 下单页：记住"挑的是谁"，并且**手改就清掉**
+    c.ok(
+        "`pickedContactId` 是 `private set`（界面直接赋值会绕过清理，让编译期挡住）",
+        re.search(r"var pickedContactId by mutableStateOf<Long\?>\(null\)\n\s*private set", order_vm) is not None,
+        "声明处没有 `private set`",
+    )
+    c.ok(
+        "挑人时记下「这一单的收货人是名册里的哪一位」（`pickedContactId = c.id` 全文件只有一处）",
+        count(r"pickedContactId = c\.id", order_vm) == 1,
+        f"{count(r'pickedContactId = c.id', order_vm)} 处 —— 多一处就可能写到别人头上",
+    )
+    c.ok(
+        "手改「收货人名称」清掉 `pickedContactId`（换人 = 不许把这次的号写到上一位头上）",
+        "pickedContactId = null" in fn_body(order_vm, "fun onReceiverNameChange("),
+        "名称那一栏没清",
+    )
+    # ⚠️ 电话那一栏**必须不清**：清了它，"挑一个没号码的联系人 → 下单时补号 → 存回档案"
+    #    这条链永远不会触发（模拟器 E2E 抓到的：联系人 42 下单成功后 phone 还是 NULL）。
+    c.ok(
+        "手改「收货人电话」**不清** `pickedContactId`（清了 = 补号写回档案永远不会触发）",
+        "pickedContactId = null" not in fn_body(order_vm, "fun onReceiverPhoneChange("),
+        "电话那一栏把 pickedContactId 清了 —— 这个功能就此失效",
+    )
+    c.ok(
+        "三条**自动带出**收货人的来源清（预设单 / 线路 / 我的地点；加手改名称 1 处共 ≥ 4 处清空）",
+        count(r"pickedContactId = null", order_vm) >= 4,
+        f"只有 {count(r'pickedContactId = null', order_vm)} 处清空",
+    )
+    c.ok(
+        "下单页那两栏改走 VM 的手改入口（`vm.onReceiverNameChange(` / `vm.onReceiverPhoneChange(`）",
+        "vm.onReceiverNameChange(" in order_screen and "vm.onReceiverPhoneChange(" in order_screen,
+        "界面还在直接写那两栏 —— 手改不会清 pickedContactId",
+    )
+    c.ok(
+        "收货人两栏在 VM 外面**没有人**直接写（`dongjiaName =` / `dongjiaPhone =` 只许出现在 VM 里）",
+        not [
+            p.relative_to(AND).as_posix()
+            for p in ui_files
+            if p != ORDER_VM and count(r"\bdongjia(Name|Phone)\s*=[^=]", code(p))
+        ],
+        "界面上又出现直写 —— 手改不会清 pickedContactId",
+    )
+
+    # 12c. 写回档案：一处实现 + 三条守卫 + 只在成功之后
+    write_body = fn_body(order_vm, "private suspend fun savePickedContactPhone(")
+    c.ok(
+        "写回只有一处实现、且是 `suspend`（它要发请求；改成普通 fun 编译不过）",
+        count(r"private suspend fun savePickedContactPhone\(", order_vm) == 1 and len(write_body) >= BODY_FLOOR,
+        f"定义 {order_vm.count('private suspend fun savePickedContactPhone(')} 处，体长 {len(write_body)}",
+    )
+    c.ok(
+        "三条守卫都在：没挑人 / 这次没填 / 档案里本来就有号 → 都不写",
+        "pickedContactId ?: return" in write_body
+        and "if (newPhone.isEmpty()) return" in write_body
+        and "if (archived.phone.isNotBlank()) return" in write_body,
+        "缺守卫 —— 会给没挑人的单子乱写，或把别人填的号覆盖掉",
+    )
+    submit_body = fn_body(order_vm, "fun submit(")
+    c.ok(
+        "写回发生在**下单成功之后**（`savePickedContactPhone()` 排在 `onDone()` 前面）",
+        "savePickedContactPhone()" in submit_body
+        and -1 < submit_body.find("savePickedContactPhone()") < submit_body.find("onDone()"),
+        "没调（补的号没人存）或调在了成功之外（单子没下成也动名册）",
+    )
+
+    # 12d. 服务端：列真的可空、空号不撞唯一索引、删/恢复不编假号码
+    c.ok(
+        "迁移 011 在（列的可空性只能走迁移，见 migrations/README.md 的分工）",
+        BE_MIG.exists(),
+        "文件不在",
+    )
+    mig_src = code(BE_MIG)
+    c.ok(
+        "迁移 011 的 VERSION / NAME 在册（版本号跳号或改名 = 线上 upgrade 会跳过它）",
+        BE_MIG.exists() and "VERSION = 11" in mig_src and 'NAME = "contact_phone_optional"' in mig_src,
+        "版本号 / 名字对不上（或文件不在）",
+    )
+    c.ok(
+        "MySQL 那条路真的把列改成可空（`MODIFY COLUMN {COLUMN} VARCHAR(32) NULL`）",
+        re.search(r"MODIFY COLUMN \{COLUMN\} VARCHAR\(32\) NULL", mig_src) is not None,
+        "MySQL 上这一列还是 NOT NULL —— 两条「没填号」的联系人照样撞唯一索引",
+    )
+    c.ok(
+        "SQLite 那条路走整表重建（SQLite 的 ALTER 不支持 MODIFY COLUMN）",
+        "_sqlite_rebuild(engine)" in mig_src and "CREATE TABLE" in mig_src,
+        "SQLite 上没有可走的路（本地/测试库 upgrade 直接报错）",
+    )
+    i_nullable = mig_src.find("if nullable:")
+    c.ok(
+        "迁移能重跑（列已经是可空就安静返回 —— migrations/README.md 的硬要求）",
+        i_nullable >= 0 and "return" in mig_src[i_nullable : i_nullable + 200],
+        "少了这条早退 —— 第二次 upgrade 会炸",
+    )
+    contact_cls = re.search(r"class ShipperContact\(([\s\S]*?)\n\n\n", model)
+    contact_body = contact_cls.group(1) if contact_cls else ""
+    c.ok(
+        "抽出了 `ShipperContact` 的类体（≥ 300 字符 —— 抽取失效会让下面那条变成假绿）",
+        len(contact_body) >= 300,
+        f"只有 {len(contact_body)} 字符",
+    )
+    c.ok(
+        "`shipper_contacts.phone` 可空（「没填」存 NULL —— 唯一索引里**空串是真值**，两条空串会撞键）",
+        re.search(r"phone: Mapped\[str \| None\] = mapped_column\(String\(32\),[^\n]*nullable=True", contact_body)
+        is not None,
+        "这一列又是 NOT NULL 了",
+    )
+    c.ok(
+        "空号判重走 `phone.is_(None)`（不是在比空串）",
+        count(r"phone\.is_\(None\)", api) >= 1,
+        "空号判重又按空串比 —— 两条「没填号」的联系人会互相当成同一条",
+    )
+    c.ok(
+        "删除时**跳过**给空号编假号码（`if c.phone:` 守卫）",
+        count(r"if c\.phone:", api) == 1,
+        "没号的行走进了 del_suffix —— 往「电话」列写一个假号码",
+    )
+    c.ok(
+        "恢复时不再对 NULL 调 `.endswith`（`(c.phone or \"\")`）",
+        count(r'\(c\.phone or ""\)', api) >= 1,
+        "没填号的那条恢复会 AttributeError → 500",
+    )
+    c.ok(
+        "出参把 None 归一成空串（客户端的 `ContactDto.phone` 是非空 String）",
+        re.search(r'@field_validator\("phone", mode="before"\)', schema) is not None,
+        "ContactOut 少归一 —— Gson 会得到字面量 null",
+    )
+    c.ok(
+        "`ContactCreate.phone` 有默认空串（不传 phone 也能建）",
+        re.search(r'phone: ContactPhone = Field\(default=""', schema) is not None,
+        "没默认值 = 不传 phone 直接 422",
+    )
+    opt_test = read(BE_TEST_OPT)
+    c.ok(
+        "回归用例在，且钉了「存 NULL 而不是空串」这条（≥ 7 个用例）",
+        opt_test.count("def test_") >= 7 and "row.phone is None" in opt_test,
+        f"用例 {opt_test.count('def test_')} 个；NULL 断言{'在' if 'row.phone is None' in opt_test else '不在'}",
+    )
+
+    # 12e. 「地址与联系人 → 联系人」抽屉是**另一处**电话输入（一个独立的 @Composable 表单，
+    #      不是 ContactPickerSheet 那个弹层）：它的必填标记不归 12a 管 —— 12a 第 ④ 条只查两个 VM，
+    #      第一轮就是在这里漏掉的（模拟器上看见「电话」还挂着红星）。
+    i_cd = addr_screen.find("if (vm.showContactDialog)")
+    j_cd = addr_screen.find("@Composable", i_cd) if i_cd >= 0 else -1
+    contact_drawer = addr_screen[i_cd:j_cd] if i_cd >= 0 and j_cd > i_cd else ""
+    c.ok(
+        "抽出了联系人抽屉那一段（≥ 300 字符、且里面真有那两栏 —— 抽取失效会让下面那条假绿）",
+        len(contact_drawer) >= 300
+        and "vm.contactPhone" in contact_drawer
+        and "InputRules.phoneInput(" in contact_drawer,
+        f"只抽到 {len(contact_drawer)} 字符",
+    )
+    c.ok(
+        "抽屉里的电话**没有**挂必填标记（required = true）—— 校验放开了，标记也得跟着放开",
+        count(r"required = true", contact_drawer) == 0,
+        "联系人抽屉的电话又挂上必填标记了：用户看到红星、其实能空着存（2026-10-03 模拟器上抓到的）",
+    )
+    c.ok(
+        "抽屉里留着那句「为什么不能再挂必填」的注释（下一个人动这里之前能看见）",
+        "别再挂 required = true" in read(ADDR_SCREEN),
+        "注释被删了 —— 下一个人会把红星再加回来，而校验依然是放开的",
+    )
+
     if "--list" in sys.argv:
         print()
         print("  == 它到底在查什么 ==")
@@ -432,6 +657,9 @@ def main() -> int:
         print("     · 共享地点不绑人（applyPlace / PlaceDto / models/place.py 里都不许有 contact）")
         print("     · 快照串不是外键；编辑与 AI 改地点都必须回填（不回填 = 静默解绑）")
         print("     · 后端三件套（schema / API / schema_bootstrap 补列）+ 单测 + 反向验证")
+        print("     · CHG-0010：手机号选填（弹层 required=false + 后端列可空存 NULL）")
+        print("     · CHG-0010：pickedContactId 记住挑的是谁、手改**名称**才清（改电话不清）；下单成功后把补的号写回档案")
+        print("     · CHG-0010：联系人抽屉（地址与联系人）的电话同样不许再挂必填标记")
 
     return c.report("联系人（可选 / 可绑在地点与线路上）")
 

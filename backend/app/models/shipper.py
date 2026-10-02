@@ -43,7 +43,10 @@ class ShipperContact(Base, TimestampMixin, SoftDeleteMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     shipper_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    phone: Mapped[str] = mapped_column(String(32), index=True)
+    # 手机号**选填**（CHG-0010：用户拍板「新建联系人的时候不需要必填手机号」）。
+    # 没填存 NULL 而不是空串：这张表有 (shipper_id, phone) 唯一约束，空串是**真值**，
+    # 两条"没填号"的联系人在 MySQL 与 SQLite 上都会撞唯一键；NULL 才允许多行共存。
+    phone: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     display_name: Mapped[str] = mapped_column(String(128), default="")
 
     shipper: Mapped["User"] = relationship(back_populates="contacts")

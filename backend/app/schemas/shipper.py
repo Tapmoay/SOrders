@@ -181,7 +181,9 @@ class LocationImageOut(BaseModel):
 class ContactCreate(BaseModel):
     # 原来只写 `min_length=5` —— 5 位的"电话"实际上打不出去（生产库那条 `[222]` 就是这么进来的）。
     # 现在的下限由 `app/core/phone.py` 的规则给（7 位），不再另写一个更松的数字。
-    phone: ContactPhone = Field(..., max_length=32)
+    # CHG-0010：**选填**了（用户原话「新建联系人的时候不需要必填手机号」）—— 默认空串，
+    # `validate_contact_phone` 对空串放行；写成 NULL 还是空串由 api/v1/shipper.py 一处决定。
+    phone: ContactPhone = Field(default="", max_length=32)
     display_name: str = Field(default="", max_length=128)
 
 
@@ -199,3 +201,13 @@ class ContactOut(BaseModel):
     phone: str
     display_name: str
     created_at: datetime
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _blank_phone_out(cls, v: Any) -> Any:
+        """库里"没填手机号"存的是 NULL（见 models/shipper.py）；出参一律归一成空串。
+
+        ⛔ 不改成 `phone: str | None`：客户端的 `ContactDto.phone` 是非空 `String`，
+        Gson 把 null 塞进去会得到字面量 "null"（比空串更糟，且没人会去判它）。
+        """
+        return "" if v is None else v

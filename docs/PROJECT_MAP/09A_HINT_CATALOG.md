@@ -1,7 +1,7 @@
 # 界面提示与说明目录（**机器生成，不要手改**）
 
 > 生成命令：`python _tools/qa/_hint_inventory.py --md`
-> source_hash：`sha256:c246486ee100ee73c05968d643ce5506acb61f088db9b63160deeda33670cad4`
+> source_hash：`sha256:70e1b558b9ab20b57d7e537d67b8ae0a602b20919fd3ee45b681d5946bab7869`
 > 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。
 
 ## 1. 口径
@@ -65,7 +65,7 @@
 | 43 | 派单员 | 28 | `ExpenseCategoriesScreen.kt:244` | 老数据里的分类名，改不了也排不了序；它名下的开销照常显示 |
 | 44 | 派单员 | 28 | `PlaceCategoriesScreen.kt:80` | 只影响你自己的左栏分组，别人看不到；顺序就是左栏的顺序。 |
 | 45 | 派单员 | 28 | `VehicleManageScreen.kt:553` | 决定这辆车怎么算钱（司机计费规则与运费模板都按它匹配）。 |
-| 46 | 货主 | 28 | `AddressScreen.kt:740` | 建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。 |
+| 46 | 货主 | 28 | `AddressScreen.kt:742` | 建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。 |
 | 47 | 共用 | 27 | `AiChatScreen.kt:1732` | 填好地址、Key、模型名即可提问；Key 只存在本机。 |
 | 48 | 共用 | 27 | `AiSettingsScreen.kt:113` | API Key 加密存在本机、不上传；费用你自己承担。 |
 | 49 | 派单员 | 27 | `OrderTemplateFormScreen.kt:326` | 分类只影响这一页左边那一列怎么分组；不选就是「未分类」 |

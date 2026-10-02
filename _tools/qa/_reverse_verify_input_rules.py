@@ -54,8 +54,8 @@ CASES: list[tuple[str, str, object, str]] = [
         "下单页的收货人电话不再过滤（汉字又能写进电话字段）",
         ORDER_CREATE,
         lambda s: s.replace(
-            "onValueChange = { vm.dongjiaPhone = InputRules.phoneInput(it) },",
-            "onValueChange = { vm.dongjiaPhone = it },",
+            "onValueChange = { vm.onReceiverPhoneChange(InputRules.phoneInput(it)) },",
+            "onValueChange = { vm.onReceiverPhoneChange(it) },",
             1,
         ),
         "收货人电话",

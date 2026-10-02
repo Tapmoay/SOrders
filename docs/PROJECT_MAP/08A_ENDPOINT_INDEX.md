@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:9f4ba505208b2a062d1fab8c7e4f2897e4c5407cf8968507d79d9ccc4f8111fe -->
+<!-- source_hash: sha256:b2ea579be4be2cb9c22286bf3a4fcb55bb47ca1a18c6ca0ecea9bc1c8cca07a6 -->
 
 ## 全量端点（232 个，按文件分组）
 
@@ -421,16 +421,16 @@
 | 7 | `POST /api/v1/shipper/addresses/{address_id}/set-default` | `set_default_address` | `backend/app/api/v1/shipper.py:196` | 角色:dispatcher\|shipper |
 | 8 | `GET /api/v1/shipper/contacts` | `list_contacts` | `backend/app/api/v1/shipper.py:213` | 角色:dispatcher\|shipper |
 | 9 | `POST /api/v1/shipper/contacts` | `upsert_contact` | `backend/app/api/v1/shipper.py:224` | 角色:dispatcher\|shipper |
-| 10 | `PATCH /api/v1/shipper/contacts/{contact_id}` | `update_contact` | `backend/app/api/v1/shipper.py:248` | 角色:dispatcher\|shipper |
-| 11 | `POST /api/v1/shipper/locations/image` | `upload_location_image` | `backend/app/api/v1/shipper.py:282` | 角色:dispatcher\|shipper |
-| 12 | `GET /api/v1/shipper/locations` | `list_locations` | `backend/app/api/v1/shipper.py:319` | 角色:dispatcher\|shipper |
-| 13 | `POST /api/v1/shipper/locations` | `create_location` | `backend/app/api/v1/shipper.py:329` | 角色:dispatcher\|shipper |
-| 14 | `PATCH /api/v1/shipper/locations/{location_id}` | `update_location` | `backend/app/api/v1/shipper.py:362` | 角色:dispatcher\|shipper |
-| 15 | `DELETE /api/v1/shipper/locations/{location_id}` | `delete_location` | `backend/app/api/v1/shipper.py:414` | 角色:dispatcher\|shipper |
-| 16 | `POST /api/v1/shipper/locations/{location_id}/share` | `share_location` | `backend/app/api/v1/shipper.py:425` | 角色:dispatcher |
-| 17 | `POST /api/v1/shipper/locations/{location_id}/restore` | `restore_location` | `backend/app/api/v1/shipper.py:471` | 角色:dispatcher\|shipper |
-| 18 | `DELETE /api/v1/shipper/contacts/{contact_id}` | `delete_contact` | `backend/app/api/v1/shipper.py:486` | 角色:dispatcher\|shipper |
-| 19 | `POST /api/v1/shipper/contacts/{contact_id}/restore` | `restore_contact` | `backend/app/api/v1/shipper.py:500` | 角色:dispatcher\|shipper |
+| 10 | `PATCH /api/v1/shipper/contacts/{contact_id}` | `update_contact` | `backend/app/api/v1/shipper.py:265` | 角色:dispatcher\|shipper |
+| 11 | `POST /api/v1/shipper/locations/image` | `upload_location_image` | `backend/app/api/v1/shipper.py:304` | 角色:dispatcher\|shipper |
+| 12 | `GET /api/v1/shipper/locations` | `list_locations` | `backend/app/api/v1/shipper.py:341` | 角色:dispatcher\|shipper |
+| 13 | `POST /api/v1/shipper/locations` | `create_location` | `backend/app/api/v1/shipper.py:351` | 角色:dispatcher\|shipper |
+| 14 | `PATCH /api/v1/shipper/locations/{location_id}` | `update_location` | `backend/app/api/v1/shipper.py:384` | 角色:dispatcher\|shipper |
+| 15 | `DELETE /api/v1/shipper/locations/{location_id}` | `delete_location` | `backend/app/api/v1/shipper.py:436` | 角色:dispatcher\|shipper |
+| 16 | `POST /api/v1/shipper/locations/{location_id}/share` | `share_location` | `backend/app/api/v1/shipper.py:447` | 角色:dispatcher |
+| 17 | `POST /api/v1/shipper/locations/{location_id}/restore` | `restore_location` | `backend/app/api/v1/shipper.py:493` | 角色:dispatcher\|shipper |
+| 18 | `DELETE /api/v1/shipper/contacts/{contact_id}` | `delete_contact` | `backend/app/api/v1/shipper.py:508` | 角色:dispatcher\|shipper |
+| 19 | `POST /api/v1/shipper/contacts/{contact_id}/restore` | `restore_contact` | `backend/app/api/v1/shipper.py:525` | 角色:dispatcher\|shipper |
 
 ### `backend/app/api/v1/shipper_ledger.py` — 5 个
 
