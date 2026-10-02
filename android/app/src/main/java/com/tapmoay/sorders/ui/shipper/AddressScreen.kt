@@ -984,18 +984,22 @@ private fun AddressCard(a: AddressDto, onEdit: () -> Unit, onDelete: () -> Unit)
             }
             Spacer(Modifier.width(8.dp))
             // ---- 右：删除（上）/ 编辑（下）—— 一上一下，删除在上（用户点名两遍）----
+            // ⚠️ **竖排不吃 §4.2c 的"左＝反向、右＝编辑"位置条**：那一页位置条管的是**横排**
+            //    两个动作用户，这里上下排布本身就是位置信息（上＝危险）。所以只把形态对齐
+            //    （裸 18dp 图标 → `CardActionIcon` 圈底），顺序一个字不动。
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "删除",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
-                }
+                CardActionIcon(
+                    icon = Icons.Default.Delete,
+                    contentDescription = "删除",
+                    tint = MaterialTheme.colorScheme.error,
+                    onClick = onDelete,
+                )
+                CardActionIcon(
+                    icon = Icons.Default.Edit,
+                    contentDescription = "编辑",
+                    tint = MaterialTheme.colorScheme.primary,
+                    onClick = onEdit,
+                )
             }
         }
     }
@@ -1022,8 +1026,21 @@ private fun ContactCard(c: ContactDto, onEdit: () -> Unit, onDelete: () -> Unit)
                 Text(c.displayName.ifBlank { "联系人" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(c.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp)) }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
+            // 卡片动作分区（见 `CardActionIcon` 的 KDoc）：**左＝反向/警示（删除），右＝编辑**
+            // —— 用户 2026-09-22：「编辑一定在右边，因为我们的惯用手是右手」。原来这两张卡
+            //    把**删除放在了最右边**（右手最容易点到的地方放着最危险的那个），且都是裸图标。
+            CardActionIcon(
+                icon = Icons.Default.Delete,
+                contentDescription = "删除",
+                tint = MaterialTheme.colorScheme.error,
+                onClick = onDelete,
+            )
+            CardActionIcon(
+                icon = Icons.Default.Edit,
+                contentDescription = "编辑",
+                tint = MaterialTheme.colorScheme.primary,
+                onClick = onEdit,
+            )
         }
     }
 }
@@ -1067,8 +1084,21 @@ private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Uni
                     Text(l.remark, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
             }
-            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp)) }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
+            // 卡片动作分区（见 `CardActionIcon` 的 KDoc）：**左＝反向/警示（删除），右＝编辑**
+            // —— 用户 2026-09-22：「编辑一定在右边，因为我们的惯用手是右手」。原来这两张卡
+            //    把**删除放在了最右边**（右手最容易点到的地方放着最危险的那个），且都是裸图标。
+            CardActionIcon(
+                icon = Icons.Default.Delete,
+                contentDescription = "删除",
+                tint = MaterialTheme.colorScheme.error,
+                onClick = onDelete,
+            )
+            CardActionIcon(
+                icon = Icons.Default.Edit,
+                contentDescription = "编辑",
+                tint = MaterialTheme.colorScheme.primary,
+                onClick = onEdit,
+            )
         }
     }
 }

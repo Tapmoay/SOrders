@@ -31,6 +31,24 @@
 
 ## 进行中
 
+### [2026-10-03 04:0x UTC] 会话：**CHG-0012 地址与联系人页按设计规范重做（第 1 批：三张卡的圈底动作 + 左删右编）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（paraphrased，长期未结）**：用户抱怨前端页面难看、认知成本高：「不只是显示信息啊，哪些信息该被显示，
+哪些信息重要需要被察觉到，哪些信息可以用图标进行替代，这样子方便减少认知的成本」「前端页面要重做
+按照我们的设计规范进行写」。第 1 批做**地址与联系人页**的三张卡（线路 / 联系人 / 地点）。
+
+**改什么**：三张卡的动作从**裸 `IconButton`**（18dp 图标，用户 2026-09-22 原话「这个不行」）换成
+`ui/common/Components.kt::CardActionIcon`（12% 语义色圆底 + 同色图标）；联系人卡 / 地点卡改成
+**左＝删除、右＝编辑**（§4.2c① 位置规范）；线路卡保留**删除在上、编辑在下**的竖排（§5.0 明说竖排
+不受位置条管、KDoc 907–918 记录用户点名两遍），只换成圈底。⛔ 纯形态，不动取数 / 布局 / 文案。
+
+**文件清单**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`、
+`_tools/qa/_check_address_cards.py`（新）、`_tools/qa/_reverse_verify_address_cards.py`（新）、
+`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成）、`docs/changes/CHG-0012.md`、
+`docs/changes/README.md`、本文件。
+
+**状态**：开工。
+
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
