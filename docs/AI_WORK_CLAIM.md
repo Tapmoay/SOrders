@@ -31,20 +31,7 @@
 
 ## 进行中
 
-### [2026-10-03 进行中] 会话：**CHG-0017 车辆管理页按设计规范重做（第 2 批：抽屉表单）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
-**需求方原话**：「前端页面要重做按照我们的设计规范进行写」（本页第 1 批 CHG-0016 已关闭，第 2 批治抽屉里的表单）。
-
-**改什么**：`ui/dispatcher/VehicleManageScreen.kt` 的 `VehicleEditSheet` —— 三张 `FormGroup` 白卡分组；
-车型与车身型式由横排点选 chips 改为下拉（`ExposedDropdownMenuBox` + `FormPickRow` + `Modifier.menuAnchor()`）；
-车辆属性两列一行改为一项一行（带量纲、键盘按字段类型分、空值提示「没量过就留空」）；车牌必填画红星；
-抽屉 `.fillMaxHeight()` + `.imePadding()`；页脚「取消 / 保存」两键并列，保存键字色写成 `Color(OnDriverLime)`（黄绿底白字只有约 1.4:1）；
-表单的错改走 `FormErrorLine`。工具侧：销掉 `_check_sheet_form_pages.py` 欠账表里这一页那一行（并把表改成锚在原文上，免得空转）、
-本页进 `_check_form_panel_style.py` CONVERTED、白卡基线 58 → 56、新增 `_check_vehicle_form.py` 与 `_reverse_verify_vehicle_form.py`。
-
-**Blast Radius**：L0（源码只动一个页面文件；`ui/common/FormRows.kt` 一行没改，不新增 / 不改色 token，不碰 DTO / 后端 / 迁移 / 权限 / 审计）。
-
-**文件**：`docs/changes/CHG-0017.md`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt`。
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5639,6 +5626,23 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**CHG-0017 车辆管理页第 2 批：抽屉表单（白卡分组 / 下拉 / 属性一项一行）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「前端页面要重做按照我们的设计规范进行写」（本页第 1 批 CHG-0016 已关闭，第 2 批治抽屉里的表单）。
+
+**改什么**：`ui/dispatcher/VehicleManageScreen.kt` 的 `VehicleEditSheet` —— 三张 `FormGroup` 白卡分组；
+车型与车身型式由横排点选 chips 改为下拉（`ExposedDropdownMenuBox` + `FormPickRow` + `Modifier.menuAnchor()`）；
+车辆属性两列一行改为一项一行（带量纲、键盘按字段类型分、空值提示「没量过就留空」）；车牌必填画红星；
+抽屉 `.fillMaxHeight()` + `.imePadding()`；页脚「取消 / 保存」两键并列，保存键字色写成 `Color(OnDriverLime)`（黄绿底白字只有约 1.4:1）；
+表单的错改走 `FormErrorLine`。工具侧：销掉 `_check_sheet_form_pages.py` 欠账表里这一页那一行（并把表改成锚在原文上，免得空转）、
+本页进 `_check_form_panel_style.py` CONVERTED、白卡基线 58 → 56、新增 `_check_vehicle_form.py` 与 `_reverse_verify_vehicle_form.py`。
+
+**结果**：提交 `865b798`（12 个文件，+1072 / −164）。`python _tools/qa/_check_all.py` = 144/144 全绿（含本批新增的第 144 项 `_check_vehicle_form.py`）；`_check_reverse_verify_anchors.py` 1456 条注入原文全部还在（顺手修好了 CHG-0016 留下的那条腐烂锚点）；`backend/scripts/check_reachability.py` 104/104；gradle `:app:testEmuDebugUnitTest :app:assembleEmuDebug` BUILD SUCCESSFUL。模拟器 5554 实测：`_tmp/v2_5554_sheet.png`（三张白卡 / 两个下拉 / 属性一项一行）、`_tmp/v3_5554_type_menu.png`、`_tmp/v4_5554_footer.png`（保存键深橄榄字）、`_tmp/v5_5554_unbound.png`（解绑后「不绑司机」）。
+
+**Blast Radius**：L0（源码只动一个页面文件；`ui/common/FormRows.kt` 一行没改，不新增 / 不改色 token，不碰 DTO / 后端 / 迁移 / 权限 / 审计）。
+
+**文件**：`docs/changes/CHG-0017.md`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt`。
 
 ### [2026-10-03 0x:xx UTC → 2026-10-03 已完成] 会话：**CHG-0016 车辆管理页第 1 批：列表与卡片（圈底动作 / 搜索框统一 / 黄绿提成 token）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
