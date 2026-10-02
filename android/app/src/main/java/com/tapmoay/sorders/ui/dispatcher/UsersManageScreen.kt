@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -213,55 +212,97 @@ fun UsersManageScreen(
         )
     }
 
-    if (vm.showDialog) {
-        AlertDialog(
-            onDismissRequest = { vm.showDialog = false },
-            title = { Text(if (vm.editing == null) "新增" + pool.title.removeSuffix("管理") else "编辑账号") },
-            text = {
-                // ⚠️ 必须能滚：司机那一套字段（车型/计费方式/计费规则/工资）+ 商品可见范围
-                //    叠起来在小屏上会把「保存」顶出屏幕外，而用户只会觉得"这个弹窗坏了"。
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    OutlinedTextField(
-                        // 手机号是**登录账号**，所以按手机号规则来：只数字、正好 11 位、以 1 开头。
-                        // 规则唯一实现在 core/InputRules.kt（这一处原来什么过滤都没有，
-                        // 同一个 App 里的「账号管理」页却有 —— 两页两个口径）。
+    // ---- 新增/编辑账号：**底部抽屉 + 白卡分组**（2026-10-03 · CHG-0018）----
+    //
+    // 用户原话：「为什么你每次设计前端页面怎么都那么难看啊……我们不是有一套完整的呃设计规范吗？」
+    // 原来这里是 `AlertDialog` + 一摞裸 `OutlinedTextField`，同时违反三条：
+    // 1. 规范「表单带选择器时用单独一页，不要塞进 AlertDialog」—— 这里有车型、计费规则两个选择器
+    //    再加一张商品可见范围清单，弹窗装不下，只能靠一个自带 scroll 的 `Column` 硬顶
+    //    （旧代码自己写着「字段叠起来在小屏上会把「保存」顶出屏幕」）；
+    // 2. 规范 §5.0「分组一律白卡」：字段一律用 `ui/common/FormRows.kt` 里的共用行；
+    // 3. 「校验/保存失败画在表单里」—— 旧代码把失败写进**页面级** `vm.error`，而那句话画在
+    //    **弹窗背后**（页面主体），用户看到的是"点「保存」没有任何反应"，关掉之后整页还被
+    //    `ErrorView` 顶掉。现在失败走 `vm.formError` → `FormErrorLine`，就画在「保存」正上方。
+    if (vm.showSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = { vm.closeSheet() }, sheetState = sheetState) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    .padding(horizontal = 16.dp)
+                    .imePadding()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (vm.editing == null) "新增" + pool.title.removeSuffix("管理") else "编辑账号",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SheetCloseButton(onClick = { vm.closeSheet() })
+                }
+
+                // ① 账号：登录用的三样。手机号就是登录账号，所以按手机号规则来 ——
+                //    规则唯一实现在 core/InputRules.kt（这一处原来什么过滤都没有，
+                //    同一个 App 里的「账户管理」页却有 —— 两页两个口径）。
+                FormGroup(icon = Icons.Default.Person, title = "账号", tint = poolAccent(pool)) {
+                    FormInputRow(
+                        label = "手机号（登录账号）",
                         value = vm.draftPhone,
                         onValueChange = { vm.draftPhone = InputRules.mobileInput(it) },
-                        label = { Text("手机号（登录账号）") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "11 位手机号",
+                        required = true,
+                        keyboardType = KeyboardType.Phone,
+                        icon = Icons.Default.Phone,
+                        iconTint = poolAccent(pool),
                     )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = vm.draftName, onValueChange = { vm.draftName = it },
-                        label = { Text("姓名") },
-                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    FormInputRow(
+                        label = "姓名",
+                        value = vm.draftName,
+                        onValueChange = { vm.draftName = it },
+                        placeholder = "选填",
+                        icon = Icons.Default.Badge,
+                        iconTint = poolAccent(pool),
                     )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = vm.draftPassword, onValueChange = { vm.draftPassword = it },
-                        label = { Text(if (vm.editing == null) "初始密码（至少 6 位）" else "重置密码（留空不改）") },
-                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    FormInputRow(
+                        label = if (vm.editing == null) "初始密码" else "重置密码",
+                        value = vm.draftPassword,
+                        onValueChange = { vm.draftPassword = it },
+                        // 新建时必填（save() 卡 6 位长度），编辑时留空就是不改
+                        placeholder = if (vm.editing == null) "至少 6 位" else "留空就不改",
+                        required = vm.editing == null,
+                        icon = Icons.Default.Lock,
+                        iconTint = poolAccent(pool),
                     )
-                    if (pool == UserPool.DRIVERS) {
-                        Spacer(Modifier.height(10.dp))
-                        // 车辆类型下拉（大车/挂车）
-                        var vtExpanded by remember { mutableStateOf(false) }
+                }
+
+                // ② 车辆与计费（只有司机池有这两项）
+                if (pool == UserPool.DRIVERS) {
+                    var vtExpanded by remember { mutableStateOf(false) }
+                    var ruleExpanded by remember { mutableStateOf(false) }
+                    val attached = vm.rules.firstOrNull { it.id == vm.draftRuleId }
+                    FormGroup(
+                        icon = Icons.Default.LocalShipping,
+                        title = "车辆与计费",
+                        tint = Color(DriverLime),
+                    ) {
+                        // 车辆类型：大车 / 挂车。⚠️ 这里原来会顺手把「计费方式」改成 PIECE/SALARY，
+                        // 那是老口径的副作用，现在没有那个字段了（他怎么算钱只看规则）。
                         ExposedDropdownMenuBox(expanded = vtExpanded, onExpandedChange = { vtExpanded = it }) {
-                            OutlinedTextField(
+                            FormPickRow(
+                                label = "车辆类型",
                                 value = driverKindLabel(vm.draftVehicleType),
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("车辆类型") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vtExpanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                placeholder = "请选择",
+                                icon = Icons.Default.LocalShipping,
+                                iconTint = Color(DriverLime),
+                                onClick = { vtExpanded = true },
+                                modifier = Modifier.menuAnchor(),
                             )
                             ExposedDropdownMenu(expanded = vtExpanded, onDismissRequest = { vtExpanded = false }) {
                                 listOf("large" to "大车司机", "trailer" to "挂车司机").forEach { (k, label) ->
                                     DropdownMenuItem(text = { Text(label) }, onClick = {
-                                        // ⚠️ 这里原来会顺手把「计费方式」改成 PIECE/SALARY ——
-                                        //    那是老口径的副作用，现在没有那个字段了（他怎么算钱只看规则）
                                         vm.draftVehicleType = k
                                         vtExpanded = false
                                     })
@@ -277,17 +318,15 @@ fun UsersManageScreen(
                         // 账号上再放「固定工资」「计费方式」两个框就是同一个数两处写：改哪一处都可能
                         // **不生效**（挂了规则时老字段被完全忽略），而界面上两边都不报错。
                         // 于是那两个框**删掉**，这里只留规则；没挂规则时如实说出兜底口径。
-                        Spacer(Modifier.height(10.dp))
-                        var ruleExpanded by remember { mutableStateOf(false) }
-                        val attached = vm.rules.firstOrNull { it.id == vm.draftRuleId }
                         ExposedDropdownMenuBox(expanded = ruleExpanded, onExpandedChange = { ruleExpanded = it }) {
-                            OutlinedTextField(
+                            FormPickRow(
+                                label = "计费规则（他怎么算钱就看这一项）",
                                 value = attached?.name ?: "还没挂规则",
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("计费规则（他怎么算钱就看这一项）") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ruleExpanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                placeholder = "请选择",
+                                icon = Icons.Default.Payments,
+                                iconTint = Color(DriverLime),
+                                onClick = { ruleExpanded = true },
+                                modifier = Modifier.menuAnchor(),
                             )
                             ExposedDropdownMenu(expanded = ruleExpanded, onDismissRequest = { ruleExpanded = false }) {
                                 DropdownMenuItem(
@@ -312,7 +351,9 @@ fun UsersManageScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(6.dp))
+                        // ⛔ 这一句**刻意用 Text 而不是 Hint**：它的前半句是数据（他挂的是哪份规则、
+                        //    那份规则怎么算钱由后端给），也就是「关掉提示还得看得见」的东西 ——
+                        //    `_check_hints.py` 第 2 组会盯着这件事（Hint 里全是数据/警告就报红）。
                         Text(
                             if (attached != null) {
                                 "他以后按「${attached.name}」算钱：" + attached.summary +
@@ -326,10 +367,9 @@ fun UsersManageScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        // 车辆绑定**不在这个弹窗里**：它是另一条写路径（POST /vehicles/{id}/driver），
+                        // 车辆绑定**不在这个抽屉里**：它是另一条写路径（POST /vehicles/{id}/driver），
                         // 单独一个弹层更好报错（后端会因为"这不是司机账号"而拒绝，那句话要原样给用户看）。
                         if (vm.editing != null) {
-                            Spacer(Modifier.height(8.dp))
                             Hint(
                                 "配车请在卡片上的「配车 / 换车」里改 —— 一辆车同时只能归一个司机，" +
                                     "绑错了那边会明确告诉你是谁名下的。",
@@ -338,14 +378,18 @@ fun UsersManageScreen(
                             )
                         }
                     }
-                    // ---- 商品可见范围（白名单）：只对货主/批发商有意义 ----
-                    // 用户 2026-09-18：「派单员可以指定他只只能看到哪些商品」——
-                    // 入口就放在**这个人的编辑页**里（和"给谁什么权限"是同一件事，
-                    // 单开一页会让人对不上号）。
-                    if (vm.editing != null && vm.visibilityApplies) {
-                        Spacer(Modifier.height(14.dp))
-                        HorizontalDivider()
-                        Spacer(Modifier.height(10.dp))
+                }
+
+                // ③ 商品可见范围（白名单）：只对货主/批发商有意义。
+                // 用户 2026-09-18：「派单员可以指定他只只能看到哪些商品」——
+                // 入口就放在**这个人的编辑页**里（和"给谁什么权限"是同一件事，
+                // 单开一页会让人对不上号）。
+                if (vm.editing != null && vm.visibilityApplies) {
+                    FormGroup(
+                        icon = Icons.Default.Visibility,
+                        title = "商品可见范围",
+                        tint = poolAccent(pool),
+                    ) {
                         ProductVisibilityBlock(
                             scope = vm.draftScope,
                             onScope = { vm.setScope(it) },
@@ -358,10 +402,29 @@ fun UsersManageScreen(
                         )
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { vm.save() }, enabled = !vm.acting) { Text("保存") } },
-            dismissButton = { TextButton(onClick = { vm.showDialog = false }) { Text("取消") } },
-        )
+
+                FormErrorLine(vm.formError)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { vm.closeSheet() },
+                        enabled = !vm.acting,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                    ) { Text("取消") }
+                    Button(
+                        onClick = { vm.save() },
+                        enabled = !vm.acting,
+                        colors = ButtonDefaults.buttonColors(
+                            // 主键用本池的语义色（司机=深橄榄 / 货主=深蓝 / 批发商=深金）—— 这三个色
+                            // 本来就是"圆底用它 16% 透明、字用它本身"的深色，白字压得住（对比度 ≥ 7:1）
+                            containerColor = poolAccent(pool),
+                            contentColor = Color.White,
+                        ),
+                        modifier = Modifier.weight(1f).height(48.dp),
+                    ) { Text(if (vm.acting) "保存中…" else "保存") }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
     }
     // 商品维度批量调价抽屉（批发商管理页：同一商品可同时修改多个批发商专属价）
     if (vm.showBatch) {
@@ -604,8 +667,8 @@ private fun ProductVisibilityBlock(
     loading: Boolean,
 ) {
     Column {
-        Text("商品可见范围", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(2.dp))
+        // 标题不在这里：白卡分组（FormGroup）已经把「商品可见范围」画在卡外了，
+        // 这里再写一遍就是同一个标题两处画（2026-10-03 · CHG-0018 从 AlertDialog 搬进抽屉时删的）。
         Hint(
             "决定他在「选择商品」里能看到哪些商品。默认不限制。",
             style = MaterialTheme.typography.bodySmall,
@@ -632,8 +695,8 @@ private fun ProductVisibilityBlock(
             if (loading) {
                 LoadingBox(Modifier.height(80.dp))
             } else {
-                // 固定高度内滚动：编辑弹窗本身在 AlertDialog 里有高度上限，
-                // 商品多了必须自己能滚，否则底下的保存键会被顶出去。
+                // 固定高度内滚动：商品多了这一段**自己滚**，不把抽屉撑到没边 ——
+                // 下面还有「取消 / 保存」，货主名下几十个商品时不能让保存键滚出屏幕。
                 Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
                     products.forEach { p ->
                         Row(

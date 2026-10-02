@@ -106,11 +106,10 @@ EXCLUDED: dict[str, str] = {
         "命中关键词只因为它出现在举例文案里。这一条是「提成」进关键词表的代价："
         "多认一个名字框，换来两个真正该管的框（提成比例 ×2）被认出来 —— 划算，所以留着。"
     ),
-    "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt::计费规则（他怎么算钱就看这一项）": (
-        "司机编辑弹窗里的**只读下拉框**（`onValueChange = {}`，选规则用的），根本打不了字 ——"
-        "标题里那个「费」是「计费规则」这个词自带的。2026-09-21 起这一格是"
-        "「他怎么算钱」的**唯一入口**（老的两个框已删），所以标题必须留着那两个词。"
-    ),
+    # ⚠️ 2026-10-03（CHG-0018）：这里原来还有一条豁免 —— 司机编辑弹窗里的「计费规则（他怎么算钱就看这一项）」
+    #    只读下拉框。那个表单从 `AlertDialog` 搬进抽屉时整格换成了 `FormPickRow`（**不在**本脚本的
+    #    FIELD_NAMES 里：它不是输入框），于是豁免的键命中不到任何真实输入框、被化石规则判红，已删掉。
+    #    标题里那串字仍然原样留在页面上（`_check_freight_pricing.py` 锚着它）。
     "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt::备注": (
         "下单页那个**自由文本备注框**（`FormTextAreaRow`）。它被认成电话框只因为"
         "举例文案里写了「到了先**打电话**」—— 命中关键词的是 placeholder 里的例子，"

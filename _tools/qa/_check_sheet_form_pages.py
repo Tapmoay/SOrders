@@ -411,7 +411,7 @@ def main() -> int:
     c.ok("全库扫到了抽屉（ModalBottomSheet ≥ 15）", len(sheets) >= 15,
          f"实际扫到 {len(sheets)} 个 —— 扫描本身被改坏了？（那样下面全是空转）")
     forms = [(rel, ln, b) for rel, ln, b in sheets if any(k in b for k in FORM_ROWS)]
-    c.ok("认得出「表单抽屉」（体内有共用表单行；今天 4 个：地址与联系人那三个 + 车辆编辑）",
+    c.ok("认得出「表单抽屉」（体内有共用表单行；今天 5 个：地址与联系人那三个 + 车辆编辑 + 账号编辑）",
          len(forms) >= 2,
          f"实际 {len(forms)} 个 —— 表单行改名 / 被换掉的话，这一节会**安静地**缩成 0")
     n_addr = sum(1 for rel, _, _ in forms if rel.endswith("shipper/AddressScreen.kt"))

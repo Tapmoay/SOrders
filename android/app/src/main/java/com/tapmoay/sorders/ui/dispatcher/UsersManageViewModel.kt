@@ -48,6 +48,17 @@ class UsersManageViewModel(
         private set
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+
+    /**
+     * **抽屉里**的校验失败与保存失败（2026-10-03 · CHG-0018）。
+     *
+     * ⚠️ 这两类错误原来写的是上面那个**页面级** `error`：抽屉（原来是弹窗）是另一个窗口，
+     *    那句话被画在它**背后**的页面主体里 —— 用户看到的是"点「保存」没有任何反应"，
+     *    而抽屉一关，整页还会被 `ErrorView` 顶掉（一条数据都没丢，但页面没了）。
+     *    现在：**表单里的错**走这里 → `FormErrorLine` 画在「保存」正上方；
+     *    页面级 `error` 从此只留给"名单读不出来 / 点卡片上的动作失败"这一类**页面级**的事。
+     */
+    var formError by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 
@@ -143,7 +154,8 @@ class UsersManageViewModel(
         return d.fullName.ifBlank { d.phone.ifBlank { d.username } }
     }
 
-    var showDialog by mutableStateOf(false)
+    // 抽屉开关（2026-10-03 · CHG-0018 之前叫 `showDialog`：它当时真的是个 AlertDialog）。
+    var showSheet by mutableStateOf(false)
     var editing by mutableStateOf<UserDto?>(null)
     var draftPhone by mutableStateOf("")
     var draftName by mutableStateOf("")
@@ -267,7 +279,8 @@ class UsersManageViewModel(
         draftPassword = ""
         draftVehicleType = "large"
         draftRuleId = null
-        showDialog = true
+        formError = null
+        showSheet = true
     }
 
     fun openEdit(u: UserDto) {
@@ -277,7 +290,8 @@ class UsersManageViewModel(
         draftPassword = ""
         draftVehicleType = if (u.vehicleType == "trailer") "trailer" else "large"
         draftRuleId = u.driverRuleId
-        showDialog = true
+        formError = null
+        showSheet = true
         // 商品可见范围：**只有货主/批发商有这一项**（派单员不受限，司机没有商品目录）
         draftScope = "all"
         draftVisible = emptySet()
@@ -330,20 +344,26 @@ class UsersManageViewModel(
         draftVisible = emptySet()
     }
 
+    /** 关掉抽屉（右上角的 × 与底部「取消」都走这里）。保存途中不许关：闸门是 [acting]。 */
+    fun closeSheet() {
+        if (!acting) showSheet = false
+    }
+
     fun save() {
         // 手机号就是登录账号 —— 格式要求与后端 `UserCreate.phone` 的 `^1\d{10}$` 完全一致。
         // 原来这里只判"长度 ≥5"，于是 10 位、以 2 开头的号能一路走到后端才被 422 挡回来。
         InputRules.mobileError(draftPhone.trim())?.let {
-            error = it
+            formError = it
             return
         }
         val cur = editing
         if (cur == null && draftPassword.length < 6) {
-            error = "初始密码至少 6 位"
+            formError = "初始密码至少 6 位"
             return
         }
         acting = true
-        error = null
+        // 只清**表单里**那条错；页面级的 error 留着（它说的是另一件事：名单读不出来）
+        formError = null
         viewModelScope.launch {
             try {
                 if (cur == null) {
@@ -406,10 +426,11 @@ class UsersManageViewModel(
                         actionResult = "资料已更新，但计费规则没挂上：" + toApiException(e).message
                     }
                 }
-                showDialog = false
+                showSheet = false
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // 保存失败画在**抽屉里**（FormErrorLine），别画到抽屉背后去
+                formError = toApiException(e).message
             } finally {
                 acting = false
             }

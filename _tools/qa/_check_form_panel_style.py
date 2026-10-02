@@ -63,6 +63,10 @@ CONVERTED = {
         "新增/编辑车辆（2026-10-03 第 2 批：车型与车身型式改走下拉、属性一项一行）",
         ["FormInputRow", "FormPickRow", "FormSwitchRow"],
     ),
+    "ui/dispatcher/UsersManageScreen.kt": (
+        "新增/编辑账号（2026-10-03 · CHG-0018：从 AlertDialog 搬进抽屉，车型与计费规则改走下拉）",
+        ["FormInputRow", "FormPickRow"],
+    ),
 }
 
 #: 表单那几种零件（少一个就红：判据不能因为"零件被删了"而空转）
