@@ -68,6 +68,13 @@ android {
         buildConfigField("String", "API_BASE_URL", "\"" + "$apiBaseUrl" + "\"")
         val apiFallbackIp = localProps.getProperty("api_fallback_ip") ?: ""
         buildConfigField("String", "DNS_FALLBACK_IP", "\"" + "$apiFallbackIp" + "\"")
+        // 自备地图瓦片基址（FEAT-0006，见 ui/common/HiResTileLayer.kt）。
+        // 缺省留空 = 跟着 API 走（生产 api_base_url=https://8.145.40.22 → https://8.145.40.22/tiles）。
+        // ⚠️ 本机开发时 API 是 http://10.0.2.2:8000，**那里没有瓦片** —— 想在模拟器上验这一层，
+        //    用 `-PtileBaseUrl=https://8.145.40.22/tiles` 覆盖即可，⛔ 不要去改 local.properties。
+        val tileBaseUrl = (project.findProperty("tileBaseUrl") as String?)
+            ?: localProps.getProperty("tile_base_url") ?: ""
+        buildConfigField("String", "TILE_BASE_URL", "\"" + "$tileBaseUrl" + "\"")
     }
 
     // ── ABI 分流：整包瘦身的最大一笔（2026-09-15）────────────────────────────

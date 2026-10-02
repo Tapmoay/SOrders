@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ui.common
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -79,6 +80,19 @@ internal object AmapMapHolder {
     private var roadOverlay: TileOverlay? = null
 
     /**
+     * 自备高清影像层（FEAT-0006）。只在 z≥[HiResTileLayer.HI_ZOOM] 出瓦片，
+     * 低层级返回 `NO_TILE` 让高德自己的影像透出来 —— 所以它对 z≤18 是**零影响**的。
+     */
+    private var hiOverlay: TileOverlay? = null
+
+    /**
+     * 建瓦片层要用 Context（拿去 `externalCacheDir` 做磁盘缓存）。
+     * [applyMapType] 的签名不方便再塞一个参数（两个调用点都在 Composable 里，
+     * 而这个 object 本来就是"跟着地图走"的单例），所以在这里记一份 applicationContext。
+     */
+    private var appCtx: Context? = null
+
+    /**
      * **默认图层 = 卫星**（用户 2026-09-22 定：「默认做成卫星地图，然后再是可以切换成标准地图」）；
      * `true` = 卫星（叠路网注记），`false` = 标准。
      *
@@ -90,7 +104,8 @@ internal object AmapMapHolder {
      */
     var satellite: Boolean = true
 
-    fun get(context: android.content.Context): MapView {
+    fun get(context: Context): MapView {
+        appCtx = context.applicationContext
         mv?.let { return it }
         return try {
             MapView(context.applicationContext).apply { onCreate(null) }.also { mv = it }
@@ -115,6 +130,13 @@ internal object AmapMapHolder {
      *
      * ⚠️ 图层**当参数传进来**、而不是在里面读 [satellite]：司机那一侧要"起步就是标准"，
      *    读全局的话会跟"用户上次选过卫星"打架（那种 bug 表现为"司机这边怎么又变卫星了"）。
+     *
+     * ### 三层叠加关系（FEAT-0006 起）
+     * ```text
+     * 高德卫星底图（z≤18 时就是它在显示；z≥19 时高德只有灰底占位）
+     *   └─ 自备高清影像   zIndex = 1   ← 只画 z≥19，低层级返回 NO_TILE 不参与
+     *        └─ 路网注记  zIndex = 2   ← 必须在最上，否则放大之后路名被影像压住
+     * ```
      */
     fun applyMapType(aMap: AMap, satellite: Boolean) {
         try {
@@ -122,16 +144,39 @@ internal object AmapMapHolder {
         } catch (_: Exception) {
             return
         }
+        // 放开到 z20：高德在本区域的影像原生只到 z18，不显式设的话各 ROM 上能到的最大层级不一致，
+        // 而"能不能放到最大"正是这一层要解决的事。
+        try {
+            aMap.maxZoomLevel = 20f
+        } catch (_: Exception) {
+        }
         try {
             if (roadOverlay == null) {
+                // zIndex=2：**必须在自备影像（1）之上**，否则放到最大之后路名全被影像盖住
                 roadOverlay = aMap.addTileOverlay(
-                    TileOverlayOptions().tileProvider(object : UrlTileProvider(256, 256) {
+                    TileOverlayOptions().zIndex(2f).tileProvider(object : UrlTileProvider(256, 256) {
                         override fun getTileUrl(x: Int, y: Int, zoom: Int): URL =
                             URL("https://wprd0${(x + y) % 4 + 1}.is.autonavi.com/appmaptile?style=8&x=$x&y=$y&z=$zoom")
                     })
                 )
             }
             roadOverlay?.isVisible = satellite
+        } catch (_: Exception) {
+        }
+        // 自备高清影像层（FEAT-0006）。它自己也遵守"只在开弹层/点切换时挂"的规矩
+        // （`hiOverlay == null` 兜住），所以不会每拖一次地图就多一层。
+        try {
+            val ctx = appCtx
+            if (ctx != null && hiOverlay == null) {
+                hiOverlay = aMap.addTileOverlay(
+                    TileOverlayOptions()
+                        .tileProvider(HiResTileProvider(ctx))
+                        .zIndex(1f)
+                        .memoryCacheEnabled(true)
+                        .memCacheSize(8 * 1024 * 1024)
+                )
+            }
+            hiOverlay?.isVisible = satellite
         } catch (_: Exception) {
         }
     }
