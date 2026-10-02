@@ -32,29 +32,6 @@
 ## 进行中
 
 
-### [2026-10-03 04:0x UTC → 进行中] 会话：**CHG-0015 地址与联系人页第 4 批：信息补齐（分类小字 / 仓库标记 / 抽屉拉满 / 地址尾部省略 / 删除后可撤回）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求（用户原话，paraphrase 自本会话的长期指令）**：「前端页面要重做按照我们的设计规范进行写」——
-审计稿 `_tmp/ui_audit_address.md:73` 排的批 4：线路抽屉补 remark 一栏、联系人卡补分类小字、地点卡补「仓库」标记、
-三抽屉 `fillMaxHeight()`、地址 `TextOverflow.StartEllipsis`、三个删除补手边撤销。
-
-**改哪些文件**：
-
-- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`：三个抽屉 Column 补 `fillMaxHeight()`；
-  线路抽屉在「设为默认线路」前补「备注」栏；新增私有 `CardTag(text, container, content)`；
-  联系人卡补分类小字、地点卡补「仓库」标记、详细地址改 `TextOverflow.StartEllipsis`；
-  列表容器之前补一行「已删除「X」+ 撤销」
-- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressViewModel.kt`：新增 `RecentlyDeleted`、
-  `recentlyDeleted`、`undoDelete()`（`when (rd.kind)` 走 `repo.restoreAddress / restoreLocation / restoreContact`），
-  三处删除成功后各记一笔
-- `_tools/qa/_check_sheet_form_pages.py`：新增 §7「抽屉形态三件套」—— 清单自己算（扫全库 `ModalBottomSheet(`，
-  只有体内含表单行的抽屉才要求 `fillMaxHeight()` + `verticalScroll(`；仍禁 `containerColor`）
-- 新增 `_tools/qa/_check_delete_undo.py`（删除调用点清单自己算 + 豁免表只能收紧 + 本页撤回链路 + 位置断言）
-  与它的反向验证 `_tools/qa/_reverse_verify_delete_undo.py`
-- `docs/changes/CHG-0015.md`、`docs/changes/README.md`、本页
-
-**状态**：开工（源码与判据已落盘，构建 / 全量 / 模拟器取证 / 提交待做）。
-
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
@@ -5688,6 +5665,31 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-03 04:0x UTC → 2026-10-03 已完成] 会话：**CHG-0015 地址与联系人页第 4 批：信息补齐（分类小字 / 仓库标记 / 抽屉拉满 / 地址尾部省略 / 删除后可撤回）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（用户原话，paraphrase 自本会话的长期指令）**：「前端页面要重做按照我们的设计规范进行写」——
+审计稿 `_tmp/ui_audit_address.md:73` 排的批 4：线路抽屉补 remark 一栏、联系人卡补分类小字、地点卡补「仓库」标记、
+三抽屉 `fillMaxHeight()`、地址 `TextOverflow.StartEllipsis`、三个删除补手边撤销。
+
+**改哪些文件**：
+
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`：三个抽屉 Column 补 `fillMaxHeight()`；
+  线路抽屉在「设为默认线路」前补「备注」栏；新增私有 `CardTag(text, container, content)`；
+  联系人卡补分类小字、地点卡补「仓库」标记、详细地址改 `TextOverflow.StartEllipsis`；
+  列表容器之前补一行「已删除「X」+ 撤销」
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressViewModel.kt`：新增 `RecentlyDeleted`、
+  `recentlyDeleted`、`undoDelete()`（`when (rd.kind)` 走 `repo.restoreAddress / restoreLocation / restoreContact`），
+  三处删除成功后各记一笔
+- `_tools/qa/_check_sheet_form_pages.py`：新增 §7「抽屉形态三件套」—— 清单自己算（扫全库 `ModalBottomSheet(`，
+  只有体内含表单行的抽屉才要求 `fillMaxHeight()` + `verticalScroll(`；仍禁 `containerColor`）
+- 新增 `_tools/qa/_check_delete_undo.py`（删除调用点清单自己算 + 豁免表只能收紧 + 本页撤回链路 + 位置断言）
+  与它的反向验证 `_tools/qa/_reverse_verify_delete_undo.py`
+- `docs/changes/CHG-0015.md`、`docs/changes/README.md`、本页
+
+**结论**：`AddressScreen.kt` 新增私有 `CardTag(text, container, content)`（一处实现两处调用，盒子形状与「默认」标签同一份）：联系人卡电话下面画分类小字、地点卡名字右边画「仓库」标记；线路抽屉在「设为默认线路」前补一栏「备注」（`vm.draftRemark` 的数据链本来就是通的，只差界面这一栏）；三个表单抽屉的 Column 追加 `.fillMaxHeight()`；详细地址改 `TextOverflow.StartEllipsis`（门牌号在尾部，先截头不截尾）。`AddressViewModel.kt` 新增 `RecentlyDeleted(kind, label, id, name)` + `recentlyDeleted` + `undoDelete()`（`when (rd.kind)` 走 `repo.restoreAddress / restoreLocation / restoreContact`），三处删除成功后各记一笔；`AddressScreen.kt` 在列表容器**之前**画一行「已删除「X」+ 撤销」（规范要的是「手边」，`OneShotSnackbar` 没有 action 槽，照 `OrderCreateScreen.kt` 的列表顶行先例）。判据 `_check_delete_undo.py` **26 项 0 失败**（删除调用点清单自己算、豁免表 12 条只能收紧且每条都仍然成立）、`_check_sheet_form_pages.py` 扩 §7 后 **58 项 0 失败**；反向验证 `_reverse_verify_delete_undo.py` **14/14** 与 `_reverse_verify_sheet_form_pages.py` **28/28** 全报红（被碰过的文件逐字节还原）；构建 BUILD SUCCESSFUL in 30s；`_check_all` **142/142**（210.1 秒）；可达性 102/102；模拟器 5554 四张截图 —— 联系人卡分类小字（@548,1071）、地点卡「仓库」（@725,883）、线路抽屉「备注 / 选填」、删一条后列表顶上「已删除「徐伟明（惠民生火锅店）」+ 撤销」，点「撤销」后该联系人回到列表且 DB `is_deleted` 回到 0。
+
+**状态**：已完成（提交 `a196cad`，推送 `adb305a..a196cad`）
 
 ### [2026-10-03 06:2x UTC → 2026-10-03 已完成] 会话：**CHG-0014 地址与联系人页第 3 批：配色归一到语义 token、常驻文案压到 8 字**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
