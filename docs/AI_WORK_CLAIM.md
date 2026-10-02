@@ -31,24 +31,6 @@
 
 ## 进行中
 
-
-### [2026-10-03 0x:xx UTC → 进行中] 会话：**CHG-0016 车辆管理页第 1 批：列表与卡片（圈底动作 / 搜索框统一 / 黄绿提成 token）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求（用户原话，paraphrase 自本会话的长期指令）**：「前端页面要重做按照我们的设计规范进行写」。
-规范 §4.2c 记的用户原话「这个不行」指的就是车辆卡上那个 18dp 裸铅笔；同一页还有三个各写一遍的搜索框、
-一个黄绿 #CDDC39 在三个文件里手写三遍。
-
-**改哪些文件**：
-
-- `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`：新增 `DriverLime` / `OnDriverLime`
-- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt`：卡片底部换成一行三枚圈底动作（左：解绑 · 停用/启用，右：编辑）、删掉表头裸 `IconButton`、司机行「换 / 解绑」→「换司机」、三个搜索框换 `SearchField`、借色归零（`WarningAmber`）、色值全走 token
-- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/nav/Modules.kt`：跟着走 token（司机管理页与工作台那一格）
-- `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:26`：§2 模块色表「司机管理」那格由 `-` 填成 `DriverLime`
-- 新增 `_tools/qa/_check_vehicle_ui.py`（6 组：色只有一个定义 / 动作形态与位置 / 搜索框统一 / 不借色 / 既有约束 / 接线）与它的反向验证 `_tools/qa/_reverse_verify_vehicle_ui.py`
-- `docs/changes/CHG-0016.md`、`docs/changes/README.md`、本页
-
-**状态**：开工
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5644,6 +5626,28 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-03 0x:xx UTC → 2026-10-03 已完成] 会话：**CHG-0016 车辆管理页第 1 批：列表与卡片（圈底动作 / 搜索框统一 / 黄绿提成 token）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（用户原话，paraphrase 自本会话的长期指令）**：「前端页面要重做按照我们的设计规范进行写」。
+规范 §4.2c 记的用户原话「这个不行」指的就是车辆卡上那个 18dp 裸铅笔；同一页还有三个各写一遍的搜索框、
+一个黄绿 #CDDC39 在三个文件里手写三遍。
+
+**改哪些文件**：
+
+- `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`：新增 `DriverLime` / `OnDriverLime`
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt`：卡片底部换成一行三枚圈底动作（左：解绑 · 停用/启用，右：编辑）、删掉表头裸 `IconButton`、司机行「换 / 解绑」→「换司机」、三个搜索框换 `SearchField`、借色归零（`WarningAmber`）、色值全走 token
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/nav/Modules.kt`：跟着走 token（司机管理页与工作台那一格）
+- `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:26`：§2 模块色表「司机管理」那格由 `-` 填成 `DriverLime`
+- 新增 `_tools/qa/_check_vehicle_ui.py`（6 组：色只有一个定义 / 动作形态与位置 / 搜索框统一 / 不借色 / 既有约束 / 接线）与它的反向验证 `_tools/qa/_reverse_verify_vehicle_ui.py`
+- `docs/changes/CHG-0016.md`、`docs/changes/README.md`、本页
+
+**结论**：卡片上那三枚动作现在一律是 `CardActionIcon`（30dp 圈底 + 15dp 图标 + 文字 label）—— 左边「解绑」「停用 / 启用」，
+右边「编辑」贴着右边；三个搜索框统一走共用 `SearchField`；黄绿提成 token 收进 `ui/theme/Color.kt`
+（`DriverLime` / `OnDriverLime`），规范 §2 与另外两个消费方跟着走 token，全库手写 `0xFFCDDC39` / `0xFF3A3F00` 归零。
+判据 `_tools/qa/_check_vehicle_ui.py` **46 项全通过**、反向验证 **19 条全红**、`_check_all.py` **143/143（214.3 秒）**、
+模拟器 5554 两张截图（`_tmp/v1_5554_list.png`、`_tmp/v1_5554_sheet.png`）。抽屉表单留给第 2 批 CHG-0017。
+
+**状态**：已完成（提交 `5a89ba9`，推送 `75ee849..5a89ba9`）
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
