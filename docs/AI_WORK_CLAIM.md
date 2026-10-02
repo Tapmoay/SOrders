@@ -31,22 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 进行中] 会话：**CHG-0018 账号管理页：新增 / 编辑账号从 AlertDialog 搬进抽屉表单**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求方原话**：「前端页面要重做按照我们的设计规范进行写」（车辆页两批 CHG-0016 / CHG-0017 已关闭，这一批轮到司机 / 货主 / 批发商三池共用的账号表单）。
-
-**改什么**：`ui/dispatcher/UsersManageScreen.kt` 的「新增 / 编辑账号」整块 —— `AlertDialog` → `ModalBottomSheet` 抽屉（拉满 + 键盘顶起）、
-三张 `FormGroup` 白卡分组（账号 / 车辆与计费 / 商品可见范围）、手机号·姓名·密码改 `FormInputRow`（手机号红星 + `InputRules` + 电话键盘）、
-车型与计费规则改 `FormPickRow` + `Modifier.menuAnchor()`（候选与标签原样保留）、页脚「取消 / 保存」同宽 48dp、保存键是本池深色底白字；
-`ui/dispatcher/UsersManageViewModel.kt` 新增 `formError`（表单级），`save()` 的三类错改走它 —— 原来写页面级 `error`，那句话画在弹窗**背后**、
-关掉后整页还被 `ErrorView` 顶掉，用户看到的是「点保存没反应」；`showDialog` 改名 `showSheet` + 新增 `closeSheet()`（保存途中不许关）。
-工具侧：删掉 `_check_input_rules.py` 里那条已经变成化石的豁免（那一格不再是输入框）、本页进 `_check_form_panel_style.py` CONVERTED、
-描边输入框基线 56 → 51、`_check_sheet_form_pages.py` §7 改成"今天 5 个"、新增 `_check_users_form.py` 与 `_reverse_verify_users_form.py`。
-
-**Blast Radius**：L0（源码只动这一页自己的两个文件；`ui/common/FormRows.kt` 与 `ui/theme/Color.kt` 一行没改，不碰 DTO / 后端 / 迁移 / 权限 / 审计）。
-
-**文件**：`docs/changes/CHG-0018.md`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageViewModel.kt`。
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5642,6 +5626,29 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**CHG-0018 账号管理页：新增 / 编辑账号从 AlertDialog 搬进抽屉表单**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「前端页面要重做按照我们的设计规范进行写」（车辆页两批 CHG-0016 / CHG-0017 已关闭，这一批轮到司机 / 货主 / 批发商三池共用的账号表单）。
+
+**改什么**：`ui/dispatcher/UsersManageScreen.kt` 的「新增 / 编辑账号」整块 —— `AlertDialog` → `ModalBottomSheet` 抽屉（拉满 + 键盘顶起）、
+三张 `FormGroup` 白卡分组（账号 / 车辆与计费 / 商品可见范围）、手机号·姓名·密码改 `FormInputRow`（手机号红星 + `InputRules` + 电话键盘）、
+车型与计费规则改 `FormPickRow` + `Modifier.menuAnchor()`（候选与标签原样保留）、页脚「取消 / 保存」同宽 48dp、保存键是本池深色底白字；
+`ui/dispatcher/UsersManageViewModel.kt` 新增 `formError`（表单级），`save()` 的三类错改走它 —— 原来写页面级 `error`，那句话画在弹窗**背后**、
+关掉后整页还被 `ErrorView` 顶掉，用户看到的是「点保存没反应」；`showDialog` 改名 `showSheet` + 新增 `closeSheet()`（保存途中不许关）。
+工具侧：删掉 `_check_input_rules.py` 里那条已经变成化石的豁免（那一格不再是输入框）、本页进 `_check_form_panel_style.py` CONVERTED、
+描边输入框基线 56 → 51、`_check_sheet_form_pages.py` §7 改成"今天 5 个"、新增 `_check_users_form.py` 与 `_reverse_verify_users_form.py`。
+
+**Blast Radius**：L0（源码只动这一页自己的两个文件；`ui/common/FormRows.kt` 与 `ui/theme/Color.kt` 一行没改，不碰 DTO / 后端 / 迁移 / 权限 / 审计）。
+
+**结果**：提交 `9f1721b`（12 个文件，+1168 / −87）。归档提交见下一行说明。
+`python _tools/qa/_check_all.py` = **145/145 全绿**（215.8 秒，含本批新增的第 145 项 `_check_users_form.py`）；
+判据 `_check_users_form.py` 86/86、反验 `_reverse_verify_users_form.py` 56/56（事后 8 个被碰过的文件与运行前逐字节一致）、
+文档可达性 105/105、gradle `:app:testEmuDebugUnitTest :app:assembleEmuDebug` BUILD SUCCESSFUL in 49s；
+模拟器 5554 实测：抽屉三张白卡 + 两个下拉行 + 「手机号要填 11 位数字（现在 3 位）」/「初始密码至少 6 位」都画在抽屉里页脚正上方、
+关掉抽屉后列表原样还在、自定义可见范围一个都没勾时只如实说「可见范围没保存：…」不把坏值写进去。
+顺带修掉两处全仓红：没用到的 import `KeyboardOptions`；把一句**数据**（他挂的是哪份规则）从 `Hint(` 改回 `Text(`（提示关掉也得看得见）。
+
+**文件**：`docs/changes/CHG-0018.md`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageViewModel.kt`。
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**CHG-0017 车辆管理页第 2 批：抽屉表单（白卡分组 / 下拉 / 属性一项一行）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **需求方原话**：「前端页面要重做按照我们的设计规范进行写」（本页第 1 批 CHG-0016 已关闭，第 2 批治抽屉里的表单）。
