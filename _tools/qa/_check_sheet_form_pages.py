@@ -136,20 +136,29 @@ def sheet_overrides() -> dict[str, int]:
 # ── 表单抽屉的清单：**算出来的**（2026-10-03 · CHG-0015）────────────────────
 #: 抽屉体里出现这些「表单行」＝ 这一页的表单已经搬进抽屉并换成了白卡形态。
 #: ⛔ 别拿 `SoTextField(` 当判据：全库把它同时当**搜索框**用（挑一条的抽屉里到处都是），
-#: 那样「表单抽屉」会从 3 个涨到 14 个、把挑一条的抽屉全判红。
+#: 那样「表单抽屉」会从 4 个涨到 15 个、把挑一条的抽屉全判红。
 FORM_ROWS = ("FormGroup(", "FormInputRow(", "FormPickRow(", "FormSwitchRow(", "FormErrorLine(")
 #: 「三件套」里那两条（拉满 + 能滚）。`fillMaxHeight(` 收 `()` 与 `(0.88f)` 两种写法：
 #: 用户要的是「拉到最上面」，`.fillMaxHeight(0.9f)` 是**有意**留一截（前面那页的先例）。
 TRIO = ("fillMaxHeight(", "verticalScroll(")
-#: ⛔ 还没搬三件套的**表单**抽屉（只能收紧：搬好一页就删一行；每一行都必须仍然成立）。
-#: 为什么要有这张表：`FORM_ROWS` 只认「已经换成白卡表单行」的页，而下面这几页本身也是表单
-#: （用户要往里填字），只是还没按规范重做 —— 不记下来的话，「又一个表单抽屉没拉满」
+#: ⛔ 还没搬三件套的**抽屉**（只能收紧：搬好一个就删一行；每一行都必须仍然成立）。
+#: 为什么要有这张表：`FORM_ROWS` 只认「已经换成白卡表单行」的页，而下面这几个抽屉本身也是
+#: 要往里填字的（只是还没按规范重做）—— 不记下来的话，「又一个抽屉没拉满」
 #: 永远不会有人喊（它编译得过、真机上也能用，只是半截）。
+#:
+#: 每一项 = (相对路径, **抽屉体里必须还能找到的一段原文**, 人话说明)。
+#: ⚠️ 为什么锚在"一段原文"上（2026-10-03 · CHG-0017 修的一个**空转豁免**）：
+#:    判据原来是"这个文件里还有没有没搬三件套的抽屉"。车辆管理页有**两个**抽屉
+#:    （编辑表单 + 选车弹层），把表单那个修好之后，"还有没搬三件套的抽屉"**依然成立**
+#:    —— 选车弹层是个"挑一条"的抽屉，它永远不需要三件套。于是这条豁免变成空转：
+#:    欠账已经还清，判据还在替它喊（反向验证 ㉘ 就是拿这一页做实验时发现的）。
+#:    锚在那段原文上之后，抽屉真修好了 → 锚在"缺三件套"的那堆里找不到 → 当场红，
+#:    逼人把这一行删掉。
 PENDING_FORMS = {
-    "ui/dispatcher/VehicleManageScreen.kt":
-        "「新增 / 编辑车辆」表单（有 verticalScroll，缺 fillMaxHeight）—— 车辆管理页那一批重做",
-    "ui/dispatcher/LedgerCreateScreen.kt":
+    "ui/dispatcher/LedgerCreateScreen.kt": (
+        "这一笔记给谁",
         "「这一笔记给谁」带一个自由填名字的框（有 fillMaxHeight(0.88f)，缺 verticalScroll）",
+    ),
 }
 
 
@@ -402,7 +411,7 @@ def main() -> int:
     c.ok("全库扫到了抽屉（ModalBottomSheet ≥ 15）", len(sheets) >= 15,
          f"实际扫到 {len(sheets)} 个 —— 扫描本身被改坏了？（那样下面全是空转）")
     forms = [(rel, ln, b) for rel, ln, b in sheets if any(k in b for k in FORM_ROWS)]
-    c.ok("认得出「表单抽屉」（体内有共用表单行；今天 3 个：地址与联系人那三个）",
+    c.ok("认得出「表单抽屉」（体内有共用表单行；今天 4 个：地址与联系人那三个 + 车辆编辑）",
          len(forms) >= 2,
          f"实际 {len(forms)} 个 —— 表单行改名 / 被换掉的话，这一节会**安静地**缩成 0")
     n_addr = sum(1 for rel, _, _ in forms if rel.endswith("shipper/AddressScreen.kt"))
@@ -414,11 +423,13 @@ def main() -> int:
              "少了这一行抽屉就退回「半截」，而表单页字段多，等于要滚着填")
         c.ok(f"{rel}:{ln} 抽屉能滚（verticalScroll：字段比一屏高时够得着保存）",
              "verticalScroll(" in b)
-    for rel, why in PENDING_FORMS.items():
-        still = [b for r2, _, b in sheets if r2 == rel and not all(k in b for k in TRIO)]
+    for rel, (anchor, why) in PENDING_FORMS.items():
+        still = [b for r2, _, b in sheets
+                 if r2 == rel and anchor in b and not all(k in b for k in TRIO)]
         c.ok(f"「还没搬三件套」这条仍然成立：{rel} —— {why}",
-             (AND / rel).exists() and any(r2 == rel for r2, _, _ in sheets) and bool(still),
-             "这一页已经搬好了（或文件没了）—— 把 PENDING_FORMS 里这一行删掉，别让它变成空转的豁免")
+             (AND / rel).exists() and bool(still),
+             "这一个抽屉已经搬好了（或文件/锚点没了）—— 把 PENDING_FORMS 里这一行删掉，"
+             "别让它变成空转的豁免")
     # 信息行（不是判据）：体内有输入框、但还没换成白卡表单行的抽屉。它们多半是**挑一条**的
     # 抽屉（框是搜索框），列出来只为下一个人判断"这一页算不算表单"。
     maybe = sorted({rel for rel, _, b in sheets

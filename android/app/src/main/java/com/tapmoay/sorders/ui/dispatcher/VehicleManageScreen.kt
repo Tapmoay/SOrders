@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -568,10 +567,21 @@ internal fun MiniChip(text: String, color: Color) {
 private fun VehicleEditSheet(vm: VehicleManageViewModel) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var driverOpen by remember { mutableStateOf(false) }
+    // 两个下拉的展开态。车型与车身型式都是"从固定取值里选一个"——
+    // 设计规范 §5：「下拉一律 `ExposedDropdownMenuBox` 点选回填，**不要**用点选 chips 替代下拉」。
+    // 锚在 `FormPickRow` 上（先例 `ui/shipper/AddressScreen.kt` 的地点分组那两行），不用
+    // `OutlinedTextField`：描边输入框会把白卡分组又变回"一堆矩形框浮在灰底上"（那正是这条规范要治的）。
+    var typeMenu by remember { mutableStateOf(false) }
+    var bodyMenu by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = { vm.closeSheet() }, sheetState = sheetState) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .padding(horizontal = 16.dp)
+                .imePadding()
                 .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -581,27 +591,52 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
                 )
                 SheetCloseButton(onClick = { vm.closeSheet() })
             }
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = vm.draftPlate,
-                onValueChange = { vm.draftPlate = it },
-                label = { Text("车牌号") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(14.dp))
-            Text("车型", style = MaterialTheme.typography.labelLarge)
-            Hint(
-                "决定这辆车怎么算钱（司机计费规则与运费模板都按它匹配）。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                VEHICLE_TYPES.forEach { (k, label) ->
-                    PickChip(label, vm.draftType == k) { vm.draftType = k }
+            // ---- 三个**白卡分组**（2026-09-22 用户定的全局规范）----
+            // 原话：「…只是用**线框**框起来的话太不美观了…**这就是个设计规范，包括以后也是
+            // 这样子啊，所有都要这样子去改**」。所以这一屏从"一串描边输入框浮在灰底上"改成
+            // "每个分组一张白卡、卡里的行不画边框（值本身就是占位符）"，与「新增商品」「编辑线路」
+            // 同一套行（`ui/common/FormRows.kt`）。
+            // ⛔ 判据 `_tools/qa/_check_form_panel_style.py`：这一页的 `OutlinedTextField` 必须是 0。
+
+            // ① 车牌 + 车型
+            FormGroup(icon = Icons.Default.LocalShipping, title = "车辆", tint = Color(DriverLime)) {
+                FormInputRow(
+                    label = "车牌号",
+                    value = vm.draftPlate,
+                    onValueChange = { vm.draftPlate = it },
+                    placeholder = "如 粤LUB6868",
+                    // 车牌是这一屏**唯一必填**的（VM 里 save() 第一件事就是拦空车牌），
+                    // 所以用 required 画红星，而不是把"必填"写进标签文字。
+                    required = true,
+                    icon = Icons.Default.LocalShipping,
+                    iconTint = Color(DriverLime),
+                )
+                ExposedDropdownMenuBox(expanded = typeMenu, onExpandedChange = { typeMenu = it }) {
+                    FormPickRow(
+                        label = "车型",
+                        value = vehicleTypeLabel(vm.draftType),
+                        placeholder = "请选择",
+                        icon = Icons.Default.LocalShipping,
+                        iconTint = Color(DriverLime),
+                        onClick = { typeMenu = true },
+                        modifier = Modifier.menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
+                        VEHICLE_TYPES.forEach { (k, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = { vm.draftType = k; typeMenu = false },
+                            )
+                        }
+                    }
                 }
             }
+            Hint(
+                "车型决定这辆车怎么算钱（司机计费规则与运费模板都按它匹配）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
 
             // ---------------- 车身型式 + 车辆属性（2026-09-27） ----------------
             //
@@ -610,120 +645,135 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
             //
             // ⚠️ 这一块与上面那个"车型"**是两件事**，所以是两个选择器、两行提示语：
             //   车型＝怎么算钱（与司机计费规则共用，取值不许扩）；车身型式＝能填哪些属性（只这张台账用）。
-            Spacer(Modifier.height(16.dp))
-            Text("车身型式", style = MaterialTheme.typography.labelLarge)
-            Hint(
-                "决定下面能填哪些属性。选错了会填出一批这辆车根本没有的项，所以按行驶证/实车选。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BODY_CHOICES.forEach { (k, label) ->
-                    PickChip(label, vm.draftBody == k) { vm.setBody(k) }
+            FormGroup(icon = Icons.Default.Straighten, title = "车身与属性", tint = Color(DriverLime)) {
+                ExposedDropdownMenuBox(expanded = bodyMenu, onExpandedChange = { bodyMenu = it }) {
+                    FormPickRow(
+                        label = "车身型式",
+                        // 空串 = 未设置，交给 placeholder 显示「未设置」（`vehicleTypeLabel` 那套只认车型）
+                        value = bodyLabelOf(vm.draftBody),
+                        placeholder = "未设置",
+                        icon = Icons.Default.Straighten,
+                        iconTint = Color(DriverLime),
+                        onClick = { bodyMenu = true },
+                        modifier = Modifier.menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = bodyMenu, onDismissRequest = { bodyMenu = false }) {
+                        BODY_CHOICES.forEach { (k, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                // 走 setBody（不是直接给 draftBody 赋值）：换型式会把**新型式没有的那几项**
+                                // 从草稿里剔掉，并把剔掉的写出来 —— 那几项在界面上已经画不出来，
+                                // 不说不等于它没被丢掉。
+                                onClick = { vm.setBody(k); bodyMenu = false },
+                            )
+                        }
+                    }
+                }
+                // 这两句必须紧贴它们讲的那些行：第一句说的是"下面这些行为什么是这几行"，
+                // 第二句说的是"这些数填来干什么、不填会怎样"。
+                Hint(
+                    "决定下面能填哪些属性。选错了会填出一批这辆车根本没有的项，所以按行驶证/实车选。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Hint(
+                    // ⛔ 界面文案里不许有 Markdown 记号（`_check_ai_guardrails.py` 那一组钉着）：
+                    //    这里的字会**原样**画在屏幕上，`**粗体**` 会把星号一起显示出来。
+                    "这些是这辆车的固有属性，建车时填一次。载重 / 容积以后要用来算「一车 = 多少方 / 多少吨」；" +
+                        "其余是台账信息，不影响任何金额。没量过的留空，别随便填一个数。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // **一项一行**（原来两列一行）：标签**必须带量纲**（"车高(米)"）—— 不带单位时
+                // 4 与 400 在界面上都像是对的；而半栏宽塞不下"净重(吨)"这种标签再加右边一个数，
+                // 原来两列那一版在窄屏上正是把标签挤成两行。
+                attrsFor(vm.draftBody).forEach { f ->
+                    FormInputRow(
+                        label = attrTitle(f, vm.draftBody),
+                        value = vm.draftAttrs[f.key].orEmpty(),
+                        onValueChange = { vm.setAttr(f.key, it) },
+                        placeholder = "没量过就留空",
+                        keyboardType = if (f.integer) KeyboardType.Number else KeyboardType.Decimal,
+                    )
                 }
             }
             vm.bodyNote?.let {
-                Spacer(Modifier.height(6.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall, color = Color(WarningAmber))
             }
 
-            Spacer(Modifier.height(16.dp))
-            Text("车辆属性", style = MaterialTheme.typography.labelLarge)
-            Hint(
-                // ⛔ 界面文案里不许有 Markdown 记号（`_check_ai_guardrails.py` 那一组钉着）：
-                //    这里的字会**原样**画在屏幕上，`**粗体**` 会把星号一起显示出来。
-                "这些是这辆车的固有属性，建车时填一次。载重 / 容积以后要用来算「一车 = 多少方 / 多少吨」；" +
-                    "其余是台账信息，不影响任何金额。没量过的留空，别随便填一个数。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(6.dp))
-            // 两列一行：一项一个输入框，标题**带量纲**（"车高(米)"）——
-            // 不带单位时 4 与 400 在界面上都像是对的。
-            attrsFor(vm.draftBody).chunked(2).forEach { pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    pair.forEach { f ->
-                        OutlinedTextField(
-                            value = vm.draftAttrs[f.key].orEmpty(),
-                            onValueChange = { vm.setAttr(f.key, it) },
-                            label = { Text(attrTitle(f, vm.draftBody)) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = if (f.integer) KeyboardType.Number else KeyboardType.Decimal,
-                            ),
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    // 奇数项时补一个空位，免得最后一个输入框被拉成整行宽
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+            // ③ 绑的司机 + 启用
+            FormGroup(icon = Icons.Default.Person, title = "司机与状态", tint = Color(NavBlue)) {
+                // 司机那一行原来是一整块自绘的圆角灰条（clip + background + clickable）——
+                // 那是白卡之前的老画法；现在它就是一个 FormRow（自带内嵌浅色卡 + 可点）。
+                FormRow(label = "绑的司机", onClick = { driverOpen = !driverOpen }) {
+                    Text(
+                        vm.driverNameOf(vm.draftDriverId).ifEmpty { "不绑司机" },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (vm.draftDriverId == null) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        if (driverOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
-                Spacer(Modifier.height(8.dp))
-            }
+                if (driverOpen) {
+                    // 按人搜 = 走共用 SearchField，连提示语都取默认那一份（UserSearch.HINT），
+                    // 这样"后 4 位也行"这件事全 App 只有一处说明。
+                    SearchField(
+                        value = vm.driverQuery,
+                        onValueChange = { vm.driverQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    DriverPickList(vm)
+                }
 
-            Spacer(Modifier.height(8.dp))
-            Text("绑的司机", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                    .clickable { driverOpen = !driverOpen }
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    vm.driverNameOf(vm.draftDriverId).ifEmpty { "不绑司机" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (vm.draftDriverId == null) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    if (driverOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
+                if (vm.editing) {
+                    // 启用 / 停用就是一个开关行（原来是自己拼的"文字 + Switch"一行）
+                    FormSwitchRow(
+                        label = "启用",
+                        checked = vm.draftActive,
+                        onCheckedChange = { vm.draftActive = it },
+                    )
+                }
             }
-            if (driverOpen) {
-                Spacer(Modifier.height(8.dp))
-                // 按人搜 = 走共用 SearchField，连提示语都取默认那一份（UserSearch.HINT），
-                // 这样"后 4 位也行"这件事全 App 只有一处说明。
-                SearchField(
-                    value = vm.driverQuery,
-                    onValueChange = { vm.driverQuery = it },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(6.dp))
-                DriverPickList(vm)
-            }
-
             if (vm.editing) {
-                Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("启用", style = MaterialTheme.typography.bodyMedium)
-                        Hint(
-                            "停用后不再派活；车牌要留在历史记录里，所以不给删。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(checked = vm.draftActive, onCheckedChange = { vm.draftActive = it })
-                }
+                Hint(
+                    "停用后不再派活；车牌要留在历史记录里，所以不给删。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
             }
 
-            vm.sheetError?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            // 表单的错画在**表单里**（规范 §4.8 / FormErrorLine）：写成页面级错误的话，
+            // "保存被拦下"会变成"整页列表全没了"（这一页的列表在抽屉底下）。
+            FormErrorLine(vm.sheetError)
+
+            // 底部一条栏放「取消 / 保存」（与「编辑线路」那个抽屉同一版式）
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.closeSheet() },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                ) { Text("取消") }
+                // ⚠️ 黄绿底上的字必须是**深橄榄**（OnDriverLime）：白字对黄绿只有约 1.4:1，
+                //    与卡片上那三枚圈底图标、右下那颗 FAB 同一条理由（原来这里走
+                //    PrimaryActionButton，它把字色写死成白色 —— 所以那行字在真机上是发灰的）。
+                Button(
+                    onClick = { vm.save() },
+                    enabled = !vm.saving,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = VehicleAccent,
+                        contentColor = Color(OnDriverLime),
+                    ),
+                ) { Text(if (vm.saving) "保存中…" else "保存") }
             }
-            Spacer(Modifier.height(16.dp))
-            PrimaryActionButton(
-                text = if (vm.saving) "保存中…" else "保存",
-                onClick = { vm.save() },
-                enabled = !vm.saving,
-                containerColor = VehicleAccent,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -777,21 +827,9 @@ private fun DriverPickList(vm: VehicleManageViewModel) {
     }
 }
 
-@Composable
-internal fun PickChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = if (selected) VehicleAccent else MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.clickable { onClick() },
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (selected) Color(OnDriverLime) else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-        )
-    }
-}
+// ⚠️ 这里原来还有一个 `PickChip`（"选中 = 黄绿底 + 深橄榄字"的小块），
+//    车型与车身型式两排都改走下拉（设计规范 §5）之后，它在本仓库一个使用方都没有了 ——
+//    留着一个没人用的"第二套选择控件"，下一个人会照着它再写一遍 chips 冒充下拉。
 
 /**
  * **给某个司机选一辆车**（司机管理页用；和车辆管理是同一个动作的另一个视角）。

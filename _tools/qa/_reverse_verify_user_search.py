@@ -129,7 +129,7 @@ CASES: list[tuple[str, Path, object]] = [
         #    原来的锚点 `placeholder = com.…UserSearch.HINT,` 在这个文件里已经不存在了 ——
         #    这条注入改成「又退回自己写提示语的 SoTextField」，治的病一样（各页各写一句）。
         lambda s: s.replace(
-            "                SearchField(\n                    value = vm.driverQuery,\n",
+            "                    SearchField(\n                        value = vm.driverQuery,\n",
             '                SoTextField(\n                    value = vm.driverQuery,\n                    placeholder = "搜司机姓名 / 手机号",\n',
             1,
         ).replace("com.tapmoay.sorders.core.UserSearch.filter(", "listOf(", 1).replace(

@@ -211,8 +211,8 @@ CASES: list[tuple[str, str, str, str, tuple[str, ...] | str]] = [
     (
         "界面不再按车身型式长属性（所有型式看到同一张表）",
         "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt",
-        "attrsFor(vm.draftBody).chunked(2).forEach { pair ->",
-        "VEHICLE_ATTR_FIELDS.chunked(2).forEach { pair ->",
+        "attrsFor(vm.draftBody).forEach { f ->",
+        "VEHICLE_ATTR_FIELDS.forEach { f ->",
         ("没有按型式过滤属性",),
     ),
     (
