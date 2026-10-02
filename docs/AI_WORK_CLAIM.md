@@ -31,18 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 收尾补丁 → ] 会话：**CHG-0010 收尾：「地址与联系人 → 联系人」抽屉的电话还标着必填**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**模拟器实测抓到的**：5556 货主 → 地址与联系人 → 联系人 → 添加联系人，电话那一行**还带着红色 `*`**
-（`AddressScreen.kt` 的联系人抽屉是**另一处**电话输入：CHG-0010 第一轮只改了校验，没改这个必填标记）。
-校验早就放开了（`AddressViewModel.saveContact` 用 `phoneError(required = false)` + `contactIdentityError`），
-**标记与判据不一致** ⇒ 用户看到的仍是「必填」。
-
-**改哪些文件**：`android/.../ui/shipper/AddressScreen.kt`（去掉 `required = true`）、
-`_tools/qa/_check_contact_binding.py`（补一条：联系人抽屉的电话**不许**标必填）、
-`_tools/qa/_reverse_verify_contact_binding.py`（补 ㉜ 注入回必填）、`docs/changes/CHG-0010.md`（写进 ⑦ 边界）。
-
----
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5648,12 +5636,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 若收货人是从档案里选的、档案里没号、这次填了号 → 自动 PATCH 回写档案（手改过那一栏就不再认这个档案，
 以免把号写到上一位头上）；手打的收货人**不会**被凭空建成档案。
 
-**证据**：判据 `_tools/qa/_check_contact_binding.py` **74 项**（原 43 项）；
-反向验证 `_reverse_verify_contact_binding.py` **31/31**（新增 ㉑–㉛：弹层又变必填 / 手改不清 `pickedContactId` /
-去掉「档案已有号就不写」守卫 / 列改回 NOT NULL / 空号判重按空串比 / 删除时给 NULL 编假号码 / 恢复拿 NULL 调 `.endswith`）；
+**证据**：判据 `_tools/qa/_check_contact_binding.py` **77 项**（原 43 项）；
+反向验证 `_reverse_verify_contact_binding.py` **33/33**（新增 ㉑–㉜：弹层又变必填 / 手改名称不清 `pickedContactId` /
+**手改电话反过来去清它** / 去掉「档案已有号就不写」守卫 / 列改回 NOT NULL / 空号判重按空串比 /
+删除时给 NULL 编假号码 / 恢复拿 NULL 调 `.endswith` / 联系人抽屉的电话又挂上必填标记）；
 回归用例 `backend/tests/test_contact_phone_optional.py` 7 个（四个用例文件合计 **114 passed**）；
 迁移 011 已在 SQLite 跑过（`phone` notnull=0 / 41 行 / `schema_versions` 到 11，重跑幂等，备份 `sorders.db.bak-chg0010-20261003-001523`）；
 Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-0010.md`（九节，L3：含迁移）。
+
+**模拟器 E2E（货主 5556，2026-10-03）**：挑一个没号的联系人（`CHG0010A`）→ 在下单页补号 `13700008888` → `提交订单`。
+后端日志 `POST /api/v1/orders` **201** → 紧接 `PATCH /api/v1/shipper/contacts/42` **200**；
+下单前 `shipper_contacts` id=42 = `('CHG0010A', None)`，下单后 = `('CHG0010A', '13700008888')`，订单 550 事实正确。
+⚠️ 第一版**跑不通**（订单 549 建成但档案仍是 NULL）：`onReceiverPhoneChange` 里多了一句 `pickedContactId = null`，
+而"挑一个没号的人 → 就地补号"正是这条路的正常走法 —— 补号是**同一条档案的补全**，不是换人。
+模拟器上还抓到第二处：`AddressScreen.kt` 联系人抽屉的电话**仍挂着必填星号**（校验早放开、标记没跟上）—— 两处都在 4bb4335 里改掉。
+
+**提交**：`4bb4335`（22 files changed, 1116 insertions(+), 69 deletions(-)），已推 `origin/new`（`c747fe0..4bb4335`）。
 
 **⚠️ 跑反向验证会把被注入文件的 mtime 刷新**（内容逐字节还原、`git status` 干净）——
 跑完必须重启本机后端，否则 `_check_backend_fresh.py` 会红。
