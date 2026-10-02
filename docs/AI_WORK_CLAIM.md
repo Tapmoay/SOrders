@@ -31,6 +31,17 @@
 
 ## 进行中
 
+### [2026-10-04 进行中] 会话：**CHG-0020 挂账单位页按设计规范重做**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「前端页面要重做按照我们的设计规范进行写」；表单进抽屉照 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:1266-1269` 引的「他**不要使用弹窗**啊，**使用底部抽屉**，并且**底部抽屉是拉到最上面**」；卡片动作照 §4.2c（「编辑一定在右边，因为我们的**惯用手是右手**」「相反的操作就在左边」）；删除照 :1328 / :1371 那条硬规矩「**删除一律软删 + 手边要有撤回**」。
+
+**改什么**：`ui/dispatcher/ArrearsUnitsScreen.kt` —— 新增 / 编辑从居中 `AlertDialog` 搬进拉到最上面的 `ModalBottomSheet`（一张白卡分组 + 三行共用输入行 + 错画在表单里），卡片头上两把 18dp 裸图标换成一行圈底动作（左删 `MessageRed` / 右编 `NavBlue`，都带字），卡头图标换成这一页的模块色橙红，LazyColumn 头顶加一行「已删除「X」+ 撤销」；`ui/dispatcher/ArrearsUnitsViewModel.kt` —— `error` 拆成 `loadError` / `formError`、`showDialog` → `showSheet` + `closeSheet()`、新增 `RecentlyDeleted` 与 `undoDelete()`（真调 `repo.restoreArrearsUnit`）；`ui/theme/Color.kt` —— 新增 `OnArrearsTangerine`（橙红底上的深棕字；白字压 #FF6B2C 只有 2.84:1，深棕 ≈6.2:1）。
+
+**Blast Radius**：L0（只动这一页 + 它的 ViewModel + 一个色 token；接口 / DTO / 权限 / 审计 / 迁移全不动 —— 后端 `restore` 端点本来就在 `backend/app/api/v1/arrears.py:221`）
+
+**文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ArrearsUnitsScreen.kt`、同目录 `ArrearsUnitsViewModel.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`、`_tools/qa/_check_arrears_units.py`（新）、`_tools/qa/_reverse_verify_arrears_units.py`（新）、`_tools/qa/_check_delete_undo.py`、`_tools/qa/_check_form_panel_style.py`、`_tools/qa/_check_sheet_form_pages.py`、`docs/changes/CHG-0020.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`
+
+**结果**：（归档时补提交号与各项数字）
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

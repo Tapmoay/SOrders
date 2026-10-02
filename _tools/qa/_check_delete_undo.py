@@ -71,7 +71,8 @@ KINDS = ("line", "place", "contact")
 #: 撤回提示必须画在列表容器**之前**（在列表上面 = 永远在第一屏）
 LIST_ANCHOR = "Box(Modifier.weight(1f)) {"
 #: 豁免条数上限（**只能收紧**：新加一条就会红，逼人先想清楚是不是真要再欠一笔）
-EXEMPT_MAX = 12
+#: 2026-10-04 CHG-0020：挂账单位补上了撤回 ⇒ 上限跟着从 12 收到 11（欠账还一笔就收一格）。
+EXEMPT_MAX = 11
 
 #: 还没配撤回入口的删除调用点 —— 键 = "相对 android/.../sorders 的路径::方法名"。
 #: ⛔ 这张表**只能收紧**：把某一页的撤回补上之后，这一行必须删掉（判据会逼你删，
@@ -84,8 +85,6 @@ EXEMPT = {
         "删账号＝注销：能不能「撤销注销」没拍板 —— 排在账号管理那一批",
     "ui/dispatcher/DispatcherLedgerViewModel.kt::deleteLedger":
         "派单账本的行删除 —— 撤回排在账本那一批",
-    "ui/dispatcher/ArrearsUnitsViewModel.kt::deleteArrearsUnit":
-        "欠款单位删除 —— 撤回排在账本/欠款那一批",
     "ui/dispatcher/PriceMatrixViewModel.kt::deletePriceRule":
         "价格矩阵里的规则删除 —— 撤回排在定价那一批（FEAT-0004 会动这块）",
     "ui/dispatcher/FreightTemplatesViewModel.kt::deleteFreightTemplate":

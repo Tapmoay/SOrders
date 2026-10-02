@@ -67,6 +67,10 @@ CONVERTED = {
         "新增/编辑账号（2026-10-03 · CHG-0018：从 AlertDialog 搬进抽屉，车型与计费规则改走下拉）",
         ["FormInputRow", "FormPickRow"],
     ),
+    "ui/dispatcher/ArrearsUnitsScreen.kt": (
+        "新增/编辑挂账单位（2026-10-04 · CHG-0020：从 AlertDialog 搬进抽屉，三个字段改走共用行）",
+        ["FormInputRow"],
+    ),
 }
 
 #: 表单那几种零件（少一个就红：判据不能因为"零件被删了"而空转）

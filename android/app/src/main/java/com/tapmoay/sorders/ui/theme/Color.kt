@@ -32,6 +32,13 @@ val MessageRed = 0xFFFF4D4FL       // 消息 / 通知：红
 val DriverLime = 0xFFCDDC39L       // 司机管理 / 车辆台账：黄绿
 val OnDriverLime = 0xFF3A3F00L     // 黄绿底上的字（FAB 文字 / 选中的车型）
 
+// ===== 挂账单位橙红底上那行字（2026-10-04，CHG-0020）=====
+//
+// 挂账单位页的保存键与分组图标用的是本模块的语义色 [ArrearsTangerine]（#FF6B2C）。
+// 白字压在这块橙红上只有 **2.84:1** —— 连 AA 的 4.5:1 都不到，小字根本读不出来
+// （跟 [OnDriverLime] 是同一个病：**亮底就得配深字**，深棕约 6.2:1）。
+val OnArrearsTangerine = 0xFF2B1200L // 橙红底上的字（保存键）
+
 // ===== 线路语义色：起点 / 终点（2026-10-03，CHG-0014 从 ui/common/RouteRail.kt 提上来）=====
 //
 // 「从 A 到 B」那一竖条（ui/common/RouteRail.kt）是全库唯一一处，它用的两个色原先**只在那一个
