@@ -31,6 +31,17 @@
 
 ## 进行中
 
+### [2026-10-03 进行中] 会话：**CHG-0019 账号管理页第 2 批：卡片动作（圈底图标 / 左反向右编辑）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「前端页面要重做按照我们的设计规范进行写」。规范 §4.2c 的原话是：「假如像我们**派单员编辑**的话，一定是在**右边**的，而且他就是一个…**笔**啊，**这个不行**啊，他**要一个图标**啊，**稍微圈一下**；然后呢**异常**的话，就放置在**左边**而且**是最左边**……**编辑一定在右边**（因为我们的**惯用手是右手**）」。
+
+**改什么**：`ui/dispatcher/UsersManageScreen.kt` 那一张账号卡片的动作区 —— 卡头右上角那个**裸 18dp 铅笔 `IconButton`**（用户点名「这个不行」的那一种）连同底部平铺的三个 `TextButton`（设为批发商 / 转司机 / 停用）一起换成规范里的**圈底图标动作** `ui/common/Components.kt::CardActionIcon`（带 `label` 的形态：这一页的用户是派单员，只留图标会逼人靠猜）：
+左边＝停用·启用（提醒色 / 成功色，警示放最左）、设为·取消批发商（批发商金）、转司机·转货主（转到哪个池就用那个池的模块色）；右边＝编辑（`NavBlue`，惯用手那一侧）。
+
+**Blast Radius**：L0（只动这一个页面文件的卡片动作区；`CardActionIcon` 一行没改、不新增色 token、不碰 ViewModel / DTO / 后端 / 迁移 / 权限 / 审计）。
+
+**文件**：`docs/changes/CHG-0019.md`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt`、`_tools/qa/_check_users_ui.py`（新）、`_tools/qa/_reverse_verify_users_ui.py`（新）。
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

@@ -28,9 +28,12 @@ import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.DriverLime
+import com.tapmoay.sorders.ui.theme.InventoryTeal
+import com.tapmoay.sorders.ui.theme.MemberGold
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.NavBlue
 import com.tapmoay.sorders.ui.theme.Success
+import com.tapmoay.sorders.ui.theme.WarningAmber
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.ui.common.Hint
 
@@ -60,10 +63,27 @@ import com.tapmoay.sorders.ui.common.Hint
  *    现在左侧一个**姓氏圆底**（颜色按池分：司机黄绿 / 货主蓝 / 批发商金），
  *    与顶部的角色徽章同色系。
  * 2. **操作按钮挤成一行**：`设为批发商 / 转货主 / 停用` 三个文字键平铺，
- *    误触率高（"停用"和"转货主"挨着）。现在**危险的那个靠右**，且中间留弹性空位。
- * 3. **行尾只有一个铅笔**：看不出"点整张卡"能不能编辑。现在整卡可点 + 行尾图标保持一致。
+ *    误触率高（"停用"和"转货主"挨着）。当时改成"危险的那个靠右 + 中间留弹性空位"，
+ *    **2026-10-03 的 CHG-0019 又推翻了一次** —— 见下面 v3.46 那一节（现在整行走圈底图标）。
+ * 3. **行尾只有一个铅笔**：看不出"点整张卡"能不能编辑。现在整卡可点；
+ *    那个裸 18dp 铅笔也在 CHG-0019 里换成了圈底的「编辑」动作。
  *
- * ## 一个刻意的边界
+ * ## v3.46（CHG-0019）：卡片动作按规范 §4.2c 重画
+ * 用户 2026-10-03 的原话是「前端页面要重做按照我们的设计规范进行写」。规范 §4.2c 给卡片动作定死两件事：
+ * **形态**一律是「12% 语义色圆底 + 同色图标」（`ui/common/Components.kt::CardActionIcon`），
+ * **位置**是「危险 / 异常放最左、编辑放最右（惯用手是右手）」。这一屏原来两样都不对：
+ * 卡头一个**裸 18dp 铅笔**（用户原话「这个不行」），卡底三个 `TextButton` 平铺。
+ *
+ * 现在卡头只剩「定价」这个业务入口，四个动作都在卡底那一行，从左到右：
+ * 停用·启用（提醒色 / 成功色，**最左**，只留圈底图标 —— 这一行最多要塞四个动作，
+ * 而行宽 347dp，「设为批发商」这种五字标签一个就 112dp，四个带字的一行装不下；
+ * 危险的那个又恰恰最不该是个好按的带字大键）→ 设为 / 取消批发商（批发商金）
+ * → 转司机 / 转货主（转到哪个池就用那个池的模块色）→ `Spacer(weight(1f))` →
+ * 编辑（`NavBlue`，**最右**）。
+ *
+ * ⛔ 别把这一行退回 `TextButton`：三个池之间差一层语义就点错人，圈底图标 + 字是这一页的最低要求；
+ *    也别再往卡头塞第二个动作键 —— 卡头是「这个人是谁」，卡底才是「拿他能做什么」。
+ * * ## 一个刻意的边界
  * **改车辆（车牌/车型/停用/谁没配车）不在这一屏做**，它在「车辆管理」页——
  * 这一屏只做"给这个人配哪辆车"（司机视角）。两个视角改的是同一条接口，
  * 但混在一屏会让"这辆车现在归谁"和"这个人现在开哪辆"两件事互相打架。
@@ -565,14 +585,11 @@ private fun UserManageCard(
                     }
                 }
             }
+            // 「定价」是批发商池的业务入口，留在卡头 —— 它不是通用卡片动作，不该混进下面那一行。
             if (pool == UserPool.MEMBERS) {
                 Button(onClick = onOpenPricing, contentPadding = PaddingValues(horizontal = 12.dp)) {
                     Text("定价")
                 }
-                Spacer(Modifier.width(4.dp))
-            }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
             }
         }
 
@@ -609,29 +626,60 @@ private fun UserManageCard(
             }
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
+        // ---- 卡片动作（规范 §4.2c）：形态一律"12% 语义色圈底 + 同色图标"，
+        //      位置是"危险最左、编辑最右"（惯用手是右手）。原来这里是三个文字键平铺 + 卡头一个
+        //      裸 18dp 铅笔（用户原话「这个不行」），现在整行都是 CardActionIcon。
+        //
+        //      ⛔ 「停用 / 启用」只留圈底图标、不配字：这一行最多要塞**四个**动作，
+        //      而行宽只有 347dp（411dp 屏 − 列表 32 − 卡片 32），「设为批发商」这种五字标签
+        //      一个就占 112dp，四个带字的一行装不下。危险的那一个又恰恰最不该是个好按的带字大键
+        //      —— 收成圈底图标，位置（最左）与色（提醒 / 成功）已经把它说清楚了。
+        //      别的动作都给字：三个池之间差一层语义就点错人。
         Row(verticalAlignment = Alignment.CenterVertically) {
+            CardActionIcon(
+                icon = if (u.isActive) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (u.isActive) "停用" else "启用",
+                tint = if (u.isActive) Color(WarningAmber) else Success,
+                onClick = onToggleActive,
+                size = 15.dp,
+                container = 30.dp,
+            )
             if (pool == UserPool.SHIPPERS || pool == UserPool.MEMBERS) {
-                TextButton(onClick = onToggleMember, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(
-                        if (u.isMember) Icons.Default.Stars else Icons.Default.StarOutline,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (u.isMember) "取消批发商" else "设为批发商")
-                }
+                Spacer(Modifier.width(10.dp))
+                CardActionIcon(
+                    icon = if (u.isMember) Icons.Default.Stars else Icons.Default.StarOutline,
+                    contentDescription = if (u.isMember) "取消批发商" else "设为批发商",
+                    // 批发商金：这个动作改的是"他在哪个池"，色跟那个池走。
+                    tint = Color(MemberGold),
+                    onClick = onToggleMember,
+                    label = if (u.isMember) "取消批发商" else "设为批发商",
+                    size = 15.dp,
+                    container = 30.dp,
+                )
             }
-            TextButton(onClick = onSwapRole, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if (u.role == "shipper") "转司机" else "转货主")
-            }
-            // 危险的那个一律靠右：原来三个文字键平铺，"停用"紧挨着"转货主"，误触代价不对称
+            Spacer(Modifier.width(10.dp))
+            CardActionIcon(
+                icon = Icons.Default.SwapHoriz,
+                contentDescription = if (u.role == "shipper") "转司机" else "转货主",
+                // 转到哪个池，就用那个池的模块色（司机黄绿 / 货主深青）。
+                tint = if (u.role == "shipper") Color(DriverLime) else Color(InventoryTeal),
+                onClick = onSwapRole,
+                label = if (u.role == "shipper") "转司机" else "转货主",
+                size = 15.dp,
+                container = 30.dp,
+            )
+            // 编辑固定在最右：与车辆页、地址页同一套手势语。
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onToggleActive, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(if (u.isActive) "停用" else "启用", color = if (u.isActive) MaterialTheme.colorScheme.error else Success)
-            }
+            CardActionIcon(
+                icon = Icons.Default.Edit,
+                contentDescription = "编辑",
+                tint = Color(NavBlue),
+                onClick = onEdit,
+                label = "编辑",
+                size = 15.dp,
+                container = 30.dp,
+            )
         }
     }
 }
