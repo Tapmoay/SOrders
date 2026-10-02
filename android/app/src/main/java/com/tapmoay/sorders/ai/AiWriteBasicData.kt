@@ -126,23 +126,30 @@ internal object AiWriteBasicData {
         ) { ds, p -> ds.setDefaultAddress(p.reqLong("address_id")) },
 
         // ---------------------------------------------------------- 联系人
+        // CHG-0011：手机号**选填**（与 CHG-0010 的人工入口同一条下限 —— 姓名与手机号至少填一个，
+        // 这里姓名必填、天然满足）。⛔ 别把它改回 required = true：手上只有名字的场景（工地上的人、
+        // 只报名的收货人）会逼着模型编一个假号，那正是 CHG-0010 要治的病；空号由后端写 NULL，
+        // 并按「同名且也没号」认人。
         crud(
             id = AiWrites.CONTACT_UPSERT,
             title = "记一个联系人",
             risk = AiWriteRisk.MEDIUM,
             group = AiWrites.G_ADDRESS,
-            blurb = "按手机号记一个联系人。**同一个手机号已经有了就更新他的名字**，不会重复。",
+            blurb = "记一个联系人。**同一个手机号已经有了就更新他的名字**；手机号可以不填，只填姓名也能记。",
             fields = listOf(
-                textField("phone", "手机号", "必填", required = true, maxChars = 20),
+                textField("phone", "手机号", "选填；填了就按号认人（同一个号会更新他原来的名字）", maxChars = 20),
                 textField("name", "姓名", "必填，如「张三」", required = true, maxChars = 32)
                     .copy(key = "display_name"),
             ),
-            headline = { c -> "记联系人：${c.str("display_name")} ${c.str("phone")}" },
+            headline = { c ->
+                "记联系人：" + listOf(c.str("display_name"), c.str("phone"))
+                    .filter { !it.isNullOrBlank() }.joinToString(" ")
+            },
             details = { c ->
-                listOf(
+                listOfNotNull(
                     "姓名：${c.str("display_name")}",
-                    "手机号：${c.str("phone")}",
-                    "同一个手机号已经有了的话，这条会更新他原来的名字而不是新增一条",
+                    c.str("phone")?.takeIf { it.isNotBlank() }?.let { "手机号：$it" },
+                    "同一个手机号已经有了的话，这条会更新他原来的名字而不是新增一条；没填手机号就按同名认人",
                 )
             },
         ) { ds, p -> ds.createContact(p) },

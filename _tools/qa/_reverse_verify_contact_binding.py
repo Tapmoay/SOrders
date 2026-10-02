@@ -52,6 +52,9 @@ SHEET_REL = f"{AND}/ui/common/ContactPickerSheet.kt"
 IN_RULES_REL = f"{AND}/core/InputRules.kt"
 BE_MIG_REL = "backend/app/migrations/011_contact_phone_optional.py"
 BE_TEST_OPT_REL = "backend/tests/test_contact_phone_optional.py"
+#: CHG-0011（2026-10-03）：AI 动作「记一个联系人」的手机号同样选填（与人工入口同一条下限）
+AI_BASIC = f"{AND}/ai/AiWriteBasicData.kt"
+AI_TEST = "android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt"
 BE_MODEL = "backend/app/models/shipper.py"
 BE_API = "backend/app/api/v1/shipper.py"
 BE_BOOT = "backend/app/core/schema_bootstrap.py"
@@ -372,7 +375,44 @@ CASES: list[tuple[str, str, object, str]] = [
             1,
         ),
         "必填标记",
-    ),]
+    ),
+    (
+        "㉝ AI「记一个联系人」的手机号又挂上 required = true（模型手上只有名字时会编假号 —— CHG-0011）",
+        AI_BASIC,
+        lambda s: s.replace(
+            '"选填；填了就按号认人（同一个号会更新他原来的名字）", maxChars = 20),',
+            '"选填；填了就按号认人（同一个号会更新他原来的名字）", required = true, maxChars = 20),',
+            1,
+        ),
+        "AI 记联系人又把手机号写成必填",
+    ),
+    (
+        "㉞ 数据源把选填取号改回 req(phone)（模型只说了名字的那条路会当场抛错）",
+        AI_DATA,
+        # ⚠️ 锚点必须带上下一行：`phone = fields.str("phone").orEmpty(),` 在文件里出现 4 次
+        #    （第一处在别的动作里），只按这一行替换会改到别人身上、这条注入就恒绿。
+        lambda s: s.replace(
+            'phone = fields.str("phone").orEmpty(),\n'
+            '                displayName = fields.str("display_name").orEmpty(),',
+            'phone = fields.req("phone"),\n'
+            '                displayName = fields.str("display_name").orEmpty(),',
+            1,
+        ),
+        "又改回 req(phone) 了",
+    ),
+    (
+        "㉟ 卡片明细把空号渲染成光秃秃的「手机号：」（用户以为这个人有个空号）",
+        AI_BASIC,
+        lambda s: s.replace('c.str("phone")?.takeIf { it.isNotBlank() }?.let { "手机号：$it" },', 'c.line("phone", "手机号"),', 1),
+        "光秃秃的「手机号：」",
+    ),
+    (
+        "㊱ blurb 不再说「手机号可以不填」（模型看的就是这句话，它还是会去要号）",
+        AI_BASIC,
+        lambda s: s.replace("；手机号可以不填，只填姓名也能记。", "。", 1),
+        "模型还是会去要号",
+    ),
+]
 
 
 def run_check() -> tuple[int, str]:

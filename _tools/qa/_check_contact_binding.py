@@ -58,6 +58,9 @@ ADDR_SCREEN = AND / "ui/shipper/AddressScreen.kt"
 ADDR_VM = AND / "ui/shipper/AddressViewModel.kt"
 AI_SVC = AND / "ai/AiWriteService.kt"
 AI_DATA = AND / "ai/AiWriteBasicData.kt"
+#: CHG-0011（2026-10-03）：AI 动作「记一个联系人」是**同一个新建入口的另一扇门**，手机号同样选填
+AI_DS = AND / "ai/AiWriteDataSource.kt"
+AI_TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt"
 DTOS = AND / "data/remote/dto/Dtos.kt"
 TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/common/ContactFillTest.kt"
 
@@ -159,6 +162,8 @@ def main() -> int:
         (SHEET, "挑选联系人的唯一弹层"),
         (TEST, "回填判据的 JVM 单测"),
         (BE_TEST, "后端那条链路的用例（含软删恢复）"),
+        (AI_DS, "AI 记联系人那扇门的落点（CHG-0011）"),
+        (AI_TEST, "AI 动作的 JVM 单测"),
     ):
         c.ok(f"{p.relative_to(ROOT).as_posix()} 存在（{why}）", p.exists(), "文件被搬走/改名了")
 
@@ -649,6 +654,59 @@ def main() -> int:
         "注释被删了 —— 下一个人会把红星再加回来，而校验依然是放开的",
     )
 
+    # ---- 13. CHG-0011：AI 的「记一个联系人」手机号也**选填**（与人工入口同一条下限，2026-10-03）----
+    #      同一个新建入口有两扇门：人工的弹层/抽屉（第 12 节）与 AI 动作 contact.upsert。CHG-0010
+    #      只把人工那扇门放开了，AI 那扇门还写着 required = true —— 模型手上只有名字（工地上的人、
+    #      只报名的收货人）时就会**编一个假号**，假号既污染档案、又顶 (shipper_id, phone) 唯一约束。
+    ai_data_code = code(AI_DATA)
+    ai_ds_code = code(AI_DS)
+    i_cu = ai_data_code.find("id = AiWrites.CONTACT_UPSERT,")
+    j_cu = ai_data_code.find("id = AiWrites.CONTACT_UPDATE,", i_cu + 1)
+    contact_upsert = ai_data_code[i_cu:j_cu] if i_cu >= 0 and j_cu > i_cu else ""
+    c.ok(
+        "抽出了 AI「记一个联系人」那一段（≥ 200 字符、姓名与手机号两栏都在 —— 抽取失效会让下面几条假绿）",
+        len(contact_upsert) >= 200
+        and 'textField("phone"' in contact_upsert
+        and 'textField("name"' in contact_upsert,
+        f"只抽到 {len(contact_upsert)} 字符",
+    )
+    phone_field = re.search(r'textField\("phone",[^\n]*', contact_upsert)
+    c.ok(
+        "AI 那一侧的手机号**没有**挂必填（这条下限靠姓名必填兜住）",
+        phone_field is not None and "required = true" not in phone_field.group(0),
+        "AI 记联系人又把手机号写成必填了：模型手上只有名字时会编假号（CHG-0010 要治的正是这个病）",
+    )
+    c.ok(
+        "姓名仍然必填（「姓名和手机号至少填一个」靠它兜住）",
+        re.search(r'textField\("name",[^\n]*required = true', contact_upsert) is not None,
+        "姓名也放开了 —— 一张什么都不填的空卡就合法了，点确认后什么都不会发生",
+    )
+    c.ok(
+        "blurb 明说了手机号可以不填（模型看的就是这句话）",
+        "手机号可以不填" in contact_upsert,
+        "提示词还写着「按手机号记一个联系人」—— 模型还是会去要号",
+    )
+    create_contact = fn_body(ai_ds_code, "override suspend fun createContact(fields: JsonObject) {")
+    c.ok(
+        "数据源取号用 str() 而不是 req()（req 在模型只说了名字时直接抛错）",
+        'str("phone")' in create_contact and 'req("phone")' not in create_contact,
+        "又改回 req(phone) 了 —— 只报名字的那条路会当场失败（注释里的字样已按 code() 剥掉，不会误判）",
+    )
+    c.ok(
+        "卡片明细不许把空号渲染成光秃秃的「手机号：」",
+        "takeIf { it.isNotBlank() }" in contact_upsert and 'c.line("phone"' not in contact_upsert,
+        "空号会渲染出一行「手机号：」—— 用户会以为这个联系人有个空号",
+    )
+    c.ok(
+        "两处都留着「为什么不能再挂必填」的注释（下一个人动这里之前能看见）",
+        "别把它改回 required = true" in read(AI_DATA) and "别改回 req" in read(AI_DS),
+        "注释被删了 —— 下一个人会把必填再加回来",
+    )
+    c.ok(
+        "JVM 单测里有用例（只报名字的人也能记）",
+        "记联系人可以不填手机号" in read(AI_TEST),
+        "没有用例 —— 下次谁改回去都看不出来",
+    )
     if "--list" in sys.argv:
         print()
         print("  == 它到底在查什么 ==")
@@ -660,6 +718,7 @@ def main() -> int:
         print("     · CHG-0010：手机号选填（弹层 required=false + 后端列可空存 NULL）")
         print("     · CHG-0010：pickedContactId 记住挑的是谁、手改**名称**才清（改电话不清）；下单成功后把补的号写回档案")
         print("     · CHG-0010：联系人抽屉（地址与联系人）的电话同样不许再挂必填标记")
+        print("     · CHG-0011：AI「记一个联系人」手机号同样选填（blurb 说了可以不填 + str(phone) + 空号不出「手机号：」那一行）")
 
     return c.report("联系人（可选 / 可绑在地点与线路上）")
 

@@ -1087,7 +1087,9 @@ class RepoWriteDataSource(
     override suspend fun createContact(fields: JsonObject) {
         repo.createContact(
             com.tapmoay.sorders.data.remote.dto.ContactCreateRequest(
-                phone = fields.req("phone"),
+                // CHG-0011：手机号选填 —— ⛔ 别改回 req("phone")，模型只说了名字时会在这儿抛错。
+                // 空号一律交给后端写 NULL（不写空串），并按「同名且也没号」认人。
+                phone = fields.str("phone").orEmpty(),
                 displayName = fields.str("display_name").orEmpty(),
             ),
         )

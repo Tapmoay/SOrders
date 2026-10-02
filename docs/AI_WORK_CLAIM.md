@@ -31,6 +31,23 @@
 
 ## 进行中
 
+### [2026-10-03 03:3x UTC] 会话：**CHG-0011 AI「记一个联系人」手机号改选填（与人工入口同一条下限）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（paraphrased）**：CHG-0010 已经把**人工**新建联系人的手机号改成选填（存 NULL）；AI 那扇门
+「记一个联系人」当时还是**必填**，同一个下限要落到两条入口上 —— 只报名字的人也得能记。
+
+**改什么**：AI 动作卡 CONTACT_UPSERT 的手机号字段从必填改**选填**（提示语改成「选填；填了就按号认人
+（同一个号会更新他原来的名字）」、摘要行里空号不落「手机号：…」），落点 `createContact(fields)` 跟着允许空串。
+**按号认人的口径一个字没动**（同一个号已经有 = 更新他原来的名字）；只放开必填，没放松格式校验。
+
+**文件清单**：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicData.kt`、
+`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt`、
+`android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt`、
+`_tools/qa/_check_contact_binding.py`（第 13 节 8 项）、`_tools/qa/_reverse_verify_contact_binding.py`（㉝–㊱）、
+`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成）、`docs/changes/CHG-0011.md`、`docs/changes/README.md`、本文件。
+
+**状态**：源码 + 判据 87/87 + 反向验证 37/37（18 个文件逐字节还原）+ 单测 `BUILD SUCCESSFUL` 已齐，待提交。
+
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`

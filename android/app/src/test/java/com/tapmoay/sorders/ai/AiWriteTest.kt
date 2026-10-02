@@ -2631,6 +2631,23 @@ class AiWriteTest {
     }
 
     @Test
+    fun `记联系人可以不填手机号（只报名字的人也能记）`() = runBlocking {
+        val r = Rig()
+        // CHG-0011：手机号选填（与 CHG-0010 的人工入口同一条下限：姓名与手机号至少填一个）
+        val card = ok(r.svc.preview(AiWrites.CONTACT_UPSERT, p("name" to "工地老李")))
+        // 没填号时标题不许留一个空尾巴，明细里也不许出现光秃秃的一行「手机号：」
+        // 卡片正文那一行（headline）走 summary；title 是动作名「记一个联系人」
+        assertEquals("记联系人：工地老李", card.summary)
+        assertFalse("没填号却写了手机号那一行：${card.detailLines}", card.detailLines.any { it.startsWith("手机号") })
+        r.svc.execute(card.token)
+        val call = r.ds.masterCalls.single()
+        assertTrue("只填姓名也要能发出去：$call", call.startsWith("createContact"))
+        assertTrue("姓名要带上：$call", call.contains("工地老李"))
+        // 载荷里只许有模型真给的那些键（crud 只装 values 里有值的项）—— 没填号就不许凭空造一个号
+        assertFalse("没填手机号却凭空造了一个：$call", call.contains("phone"))
+    }
+
+    @Test
     fun `删挂账单位是高危并且写明欠款会失去归属`() = runBlocking {
         val r = Rig()
         val card = ok(r.svc.preview(AiWrites.ARREARS_UNIT_DELETE, p("unit" to "明辉食品商行")))
