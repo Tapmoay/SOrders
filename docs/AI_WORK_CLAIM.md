@@ -31,6 +31,27 @@
 
 ## 进行中
 
+### [2026-10-03 05:0x UTC] 会话：**CHG-0013 地址与联系人页第 2 批：顶部导航与搜索框收编唯一实现**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（paraphrased，长期未结）**：用户要求「前端页面要重做按照我们的设计规范进行写」。第 2 批接着
+CHG-0012 往下做：这一页的顶部三档还是**自己画的一排描边胶囊**（§3 组件速查里 `SegmentedStatusTabs`
+才是唯一实现），联系人那一档的搜索框也没走 `SearchField`（§4.4「按人搜索」的唯一一份实现）。
+
+**改什么**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt` ——
+① 私有 `AddressTabBar`（自定义 `Surface` + `BorderStroke` + 图标）删掉，换共用 `SegmentedStatusTabs`
+（三档语义色沿用 路线=ShipperTeal / 联系人=MgrGreen / 地址=MoneyOrange，选档仍然清空关键词）；
+② 搜索区按档分流：联系人档走 `SearchField(`（放大镜 + ✕ 一键清空 + 提示语同源 `UserSearch.HINT`），
+线路 / 地点两档保留 `SoTextField` + 原来的地址型占位语，清空也统一成 ✕ 形态。⛔ 不动取数 / 过滤口径 /
+抽屉 / 文案：`0 -> "搜线路：收货人 / 电话 / 地址"` 与 `UserSearch.matches(kw, …)` 原样保留 ——
+它们分别是 `_tools/ai/_check_ai_guardrails.py:4074` 的锚点与 `_tools/qa/_check_input_rules.py:101` 的豁免键。
+
+**文件清单**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`、
+`_tools/qa/_check_address_tabs.py`（新）、`_tools/qa/_reverse_verify_address_tabs.py`（新）、
+`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成）、`docs/changes/CHG-0013.md`、
+`docs/changes/README.md`、本文件。
+
+**状态**：开工。
+
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`

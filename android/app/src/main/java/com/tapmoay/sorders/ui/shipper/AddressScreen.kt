@@ -1,6 +1,5 @@
 package com.tapmoay.sorders.ui.shipper
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -48,6 +47,13 @@ import com.tapmoay.sorders.ui.dispatcher.ContactCategoriesViewModel
 import android.graphics.Bitmap
 import com.tapmoay.sorders.ui.common.Hint
 
+/**
+ * 顶部三档的标签与语义色：与「地址与联系人」这一页的三个概念一一对应
+ * （路线 = 青、联系人 = 绿、地址 = 橙；色值走 `ui/theme/Color.kt` 的命名 token，⛔ 不写裸色值）。
+ * 交给共用件 `SegmentedStatusTabs` 去画 —— 它自己负责"放不下就整条滑动"那条契约。
+ */
+private val ADDRESS_TABS = listOf("路线", "联系人", "地址")
+private val ADDRESS_TAB_COLORS = listOf(Color(ShipperTeal), Color(MgrGreen), Color(MoneyOrange))
 /** 地址与联系人：三个列表（常用线路=联系人+地点 → 联系人 → 地点），新增入口在各自标题行右侧 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,25 +132,43 @@ fun AddressScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            AddressTabBar(tab = tab, onTab = { tab = it; keyword = "" })
+            // 顶部三档走全 App 唯一那份 `SegmentedStatusTabs`（§3 组件速查）。
+            // ⛔ 别再退回自己画的描边胶囊：导航形态在每一页必须一样，用户才不会每次重新认。
+            SegmentedStatusTabs(
+                labels = ADDRESS_TABS,
+                colors = ADDRESS_TAB_COLORS,
+                selected = tab,
+                onSelect = { tab = it; keyword = "" },
+            )
             // 搜索框**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
             // 这里搜的是本地已有的那份列表 —— 数据本来就在手上，即时出结果，
             // 不需要往返后端（共享库那一段在下单页的地址弹层里，那里才需要打后端）。
+            // ⚠️ 联系人那一档是**按人搜索**，必须走全 App 唯一那份 `SearchField`
+            //    （放大镜 + ✕ 一键清空 + 提示语同源 `core/UserSearch.HINT`）——
+            //    自己拿 `SoTextField` 顶一份，用户在两页看到的形状就不一样，
+            //    而且会丢掉"能按手机号后 4 位搜"那句提示。
+            // 线路 / 地点两档搜的是地址型文本，继续用 `SoTextField` + 地址占位语。
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                SoTextField(
-                    value = keyword,
-                    onValueChange = { keyword = it },
-                    placeholder = when (tab) {
-                        0 -> "搜线路：收货人 / 电话 / 地址"
-                        1 -> "搜联系人：姓名 / 电话"
-                        else -> "搜地点：名称 / 地址"
-                    },
-                )
-                if (keyword.isNotBlank()) {
-                    TextButton(
+                if (tab == 1) {
+                    SearchField(value = keyword, onValueChange = { keyword = it })
+                } else {
+                    SoTextField(
+                        value = keyword,
+                        onValueChange = { keyword = it },
+                        placeholder = when (tab) {
+                            0 -> "搜线路：收货人 / 电话 / 地址"
+                            else -> "搜地点：名称 / 地址"
+                        },
+                    )
+                }
+                // 清空统一成 ✕（与 `SearchField` 里的那个同形）。联系人档自带 ✕，这里不重复画。
+                if (tab != 1 && keyword.isNotBlank()) {
+                    IconButton(
                         onClick = { keyword = "" },
                         modifier = Modifier.align(Alignment.CenterEnd),
-                    ) { Text("清除") }
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
+                    }
                 }
             }
             val kw = keyword.trim()
@@ -1099,48 +1123,6 @@ private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Uni
                 tint = MaterialTheme.colorScheme.primary,
                 onClick = onEdit,
             )
-        }
-    }
-}
-
-/** 顶部导航：路线 / 联系人 / 地址（只显示一个模块，点击切换） */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AddressTabBar(tab: Int, onTab: (Int) -> Unit) {
-    val tabs = listOf(
-        Triple(0, "路线", Icons.Default.Route to Color(ShipperTeal)),
-        Triple(1, "联系人", Icons.Default.Person to Color(MgrGreen)),
-        Triple(2, "地址", Icons.Default.Place to Color(MoneyOrange)),
-    )
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        tabs.forEach { (idx, label, ic) ->
-            val (icon, color) = ic
-            val selected = tab == idx
-            Surface(
-                onClick = { onTab(idx) },
-                shape = RoundedCornerShape(12.dp),
-                color = if (selected) color.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, if (selected) color.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.weight(1f).height(42.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp), tint = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
         }
     }
 }
