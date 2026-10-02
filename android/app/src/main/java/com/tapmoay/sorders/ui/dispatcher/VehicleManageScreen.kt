@@ -29,8 +29,12 @@ import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import com.tapmoay.sorders.data.remote.dto.VehicleUpdateRequest
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
-import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.DriverLime
+import com.tapmoay.sorders.ui.theme.MessageRed
+import com.tapmoay.sorders.ui.theme.NavBlue
+import com.tapmoay.sorders.ui.theme.OnDriverLime
 import com.tapmoay.sorders.ui.theme.Success
+import com.tapmoay.sorders.ui.theme.WarningAmber
 import kotlinx.coroutines.launch
 import com.tapmoay.sorders.ui.common.Hint
 
@@ -59,8 +63,14 @@ import com.tapmoay.sorders.ui.common.Hint
  *    不许合并成一句"保存失败"——那会让用户重试一次已经成功的操作。
  */
 
-/** 车辆域的语义色：与「司机管理」同色（黄绿）。 */
-internal val VehicleAccent = Color(0xFFCDDC39)
+/**
+ * 车辆域的语义色：与「司机管理」同色（黄绿）。
+ *
+ * ⚠️ 值本身住在 `ui/theme/Color.kt::DriverLime`（就是规范 §2 模块色表里「司机管理」那一格）——
+ * 2026-10-04 之前这个值在三个文件里手写了五遍，改色时总会漏一处。这里只回答
+ * 「这一页用哪个色」，不再回答「这个色是多少」。
+ */
+internal val VehicleAccent = Color(DriverLime)
 
 internal fun vehicleTypeLabel(t: String?): String = when (t) {
     "small" -> "小货车"
@@ -322,7 +332,7 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
             ExtendedFloatingActionButton(
                 onClick = { vm.openCreate() },
                 containerColor = VehicleAccent,
-                contentColor = Color(0xFF3A3F00),
+                contentColor = Color(OnDriverLime),
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("新增车辆") },
             )
@@ -340,7 +350,10 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
                     item { VehicleSummary(vm) }
                     if (vm.vehicles.isNotEmpty()) {
                         item {
-                            SoTextField(
+                            // 搜索框走全站那一个（规范 §4.4：放大镜 + 入框即出 ✕ 清空）。
+                            // 提示语仍是本页自己的：这个框要搜的是**车牌**，不是姓名 / 手机号，
+                            // 所以不套 UserSearch.HINT（那是"按人搜"那一份的默认话术）。
+                            SearchField(
                                 value = vm.query,
                                 onValueChange = { vm.query = it },
                                 placeholder = "搜车牌或司机",
@@ -410,7 +423,7 @@ private fun VehicleSummary(vm: VehicleManageViewModel) {
             Text(
                 "有 " + (vm.vehicles.size - bound) + " 辆车还没绑司机 —— 点开卡片里「司机」那一行就能绑。",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(MoneyOrange),
+                color = Color(WarningAmber),
             )
         }
     }
@@ -460,9 +473,6 @@ private fun VehicleCard(
                     )
                 }
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
-            }
         }
         Spacer(Modifier.height(10.dp))
         // 「司机」那一行本身就是绑车入口：点它 → 编辑弹层（弹层里就是司机选择）。
@@ -487,21 +497,53 @@ private fun VehicleCard(
                 modifier = Modifier.weight(1f),
             )
             Text(
-                if (driverName.isEmpty()) "点这里绑" else "换 / 解绑",
+                // 这一行只负责"点开编辑弹层"，所以说法也跟着变：解绑现在是卡片左下的
+                // 圈底动作（见下面那张动作行），⛔ 别让入口写着解绑、点下去只是开弹层。
+                if (driverName.isEmpty()) "点这里绑" else "换司机",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
         Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onToggleActive, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(if (v.isActive) "停用" else "启用", color = if (v.isActive) MaterialTheme.colorScheme.error else Success)
-            }
+
+        // ---- 动作行（左＝相反 / 警示 · 右＝编辑）----
+        // 规范 §4.2c：卡片上的**图标**动作一律做成"圈底图标"（ui/common/Components.kt::CardActionIcon），
+        // 位置是 左＝反向 / 警示（警示放最左）、右＝编辑（惯用手是右手）。
+        // 原来那个裸 IconButton 里的 18dp 铅笔正是用户点名「这个不行」的那一种：在信息很满的
+        // 卡片上太轻、手指也不好找。
+        // 带 label（圈底图标 + 文字）是跟「账户管理」学的：这一页的用户是派单员，
+        // 要一眼看清按下去会发生什么，只留一个图标就逼人靠猜。
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (driverName.isNotEmpty()) {
-                TextButton(onClick = onUnbind, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("解绑司机")
-                }
+                CardActionIcon(
+                    icon = Icons.Default.LinkOff,
+                    contentDescription = "解绑司机",
+                    tint = Color(MessageRed),
+                    onClick = onUnbind,
+                    label = "解绑",
+                    size = 15.dp,
+                    container = 30.dp,
+                )
             }
+            CardActionIcon(
+                icon = if (v.isActive) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (v.isActive) "停用" else "启用",
+                tint = if (v.isActive) Color(WarningAmber) else Success,
+                onClick = onToggleActive,
+                label = if (v.isActive) "停用" else "启用",
+                size = 15.dp,
+                container = 30.dp,
+            )
+            Spacer(Modifier.weight(1f))
+            CardActionIcon(
+                icon = Icons.Default.Edit,
+                contentDescription = "编辑",
+                tint = Color(NavBlue),
+                onClick = onEdit,
+                label = "编辑",
+                size = 15.dp,
+                container = 30.dp,
+            )
         }
     }
 }
@@ -583,7 +625,7 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
             }
             vm.bodyNote?.let {
                 Spacer(Modifier.height(6.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(MoneyOrange))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(WarningAmber))
             }
 
             Spacer(Modifier.height(16.dp))
@@ -644,10 +686,11 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
             }
             if (driverOpen) {
                 Spacer(Modifier.height(8.dp))
-                SoTextField(
+                // 按人搜 = 走共用 SearchField，连提示语都取默认那一份（UserSearch.HINT），
+                // 这样"后 4 位也行"这件事全 App 只有一处说明。
+                SearchField(
                     value = vm.driverQuery,
                     onValueChange = { vm.driverQuery = it },
-                    placeholder = com.tapmoay.sorders.core.UserSearch.HINT,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(6.dp))
@@ -678,7 +721,7 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
                 text = if (vm.saving) "保存中…" else "保存",
                 onClick = { vm.save() },
                 enabled = !vm.saving,
-                containerColor = Color(0xFFCDDC39),
+                containerColor = VehicleAccent,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -744,7 +787,7 @@ internal fun PickChip(text: String, selected: Boolean, onClick: () -> Unit) {
         Text(
             text,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (selected) Color(0xFF3A3F00) else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (selected) Color(OnDriverLime) else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
         )
     }
@@ -788,7 +831,8 @@ internal fun VehiclePickerSheet(
                 SheetCloseButton(onClick = onDismiss)
             }
             Spacer(Modifier.height(12.dp))
-            SoTextField(
+            // 与列表页同一个搜索框控件（规范 §4.4）；提示语仍是本页自己的：这个框搜的是车牌。
+            SearchField(
                 value = q,
                 onValueChange = { q = it },
                 placeholder = "搜车牌",
@@ -855,7 +899,9 @@ private fun PickRow(
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (warn) Color(MoneyOrange) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    // 「他名下已经有 X 辆车」这类提醒：用提醒色，不借账本的金橙（借色的
+                    // 后果是同一个颜色在这一页表示两件事）。
+                    color = if (warn) Color(WarningAmber) else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

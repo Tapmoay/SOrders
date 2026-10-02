@@ -28,7 +28,9 @@ import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.DriverLime
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.NavBlue
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.ui.common.Hint
@@ -395,7 +397,7 @@ private fun DriverFleetSummary(vm: UsersManageViewModel) {
     val unbound = vm.users.size - boundDrivers
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TintedIcon(Icons.Default.Groups, Color(0xFFCDDC39), size = 20.dp, container = 38.dp)
+            TintedIcon(Icons.Default.Groups, Color(DriverLime), size = 20.dp, container = 38.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("司机团队", style = MaterialTheme.typography.titleMedium)
@@ -485,7 +487,7 @@ private fun UserManageCard(
                 if (pool == UserPool.DRIVERS) {
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        MiniChip(driverKindLabel(u.vehicleType), Color(0xFF1E6FFF))
+                        MiniChip(driverKindLabel(u.vehicleType), Color(NavBlue))
                         Spacer(Modifier.width(6.dp))
                         // 计费口径优先显示**后端算好的那句话**（和账单同源）：
                         // 界面自己拼一句"按单 X 元"必然和账单口径分叉。
@@ -525,7 +527,7 @@ private fun UserManageCard(
                 Icon(
                     Icons.Default.LocalShipping,
                     contentDescription = null,
-                    tint = if (plates.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFCDDC39),
+                    tint = if (plates.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else Color(DriverLime),
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(8.dp))

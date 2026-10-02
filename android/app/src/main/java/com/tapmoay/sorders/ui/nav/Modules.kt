@@ -9,6 +9,7 @@ import com.tapmoay.sorders.ui.theme.ArrearsTangerine
 import com.tapmoay.sorders.ui.theme.AiBlue
 import com.tapmoay.sorders.ui.theme.AiPink
 import com.tapmoay.sorders.ui.theme.AiPurple
+import com.tapmoay.sorders.ui.theme.DriverLime
 import com.tapmoay.sorders.ui.theme.InventoryTeal
 import com.tapmoay.sorders.ui.theme.MemberGold
 import com.tapmoay.sorders.ui.theme.MessageRed
@@ -97,7 +98,7 @@ object Modules {
         // 派单员才是实际性的操作」）。所以它紧挨着「订单管理」：同一件事的两头。
         ModuleEntry("退货申请", Routes.DISPATCH_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),  // 棕橙 · 退货这条线
         ModuleEntry("账户管理", Routes.ACCOUNTS, Icons.Default.AccountBox, color = 0xFF8D6E63L),                     // 棕 · 统一建号（账号+密码+角色）
-        ModuleEntry("司机管理", Routes.DISPATCH_DRIVERS, Icons.Default.Groups, color = 0xFFCDDC39L),                    // 黄绿 · 司机团队
+        ModuleEntry("司机管理", Routes.DISPATCH_DRIVERS, Icons.Default.Groups, color = DriverLime),                    // 黄绿 · 司机团队
         ModuleEntry("货主管理", Routes.SHIPPERS_MANAGE, Icons.Default.PeopleAlt, color = InventoryTeal),                // 深青 · 货主
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
         ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品（还原成原来的色）

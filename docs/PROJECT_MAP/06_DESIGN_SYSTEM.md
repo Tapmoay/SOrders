@@ -23,7 +23,7 @@
 | 代理下单 / 已完成 | 青绿 #00B578 | MgrGreen |
 | 地址与联系人 | 湖蓝 #00A2C7 | ShipperTeal |
 | 订单管理 | 黄 #FFB300 | ProgressYellow |
-| 司机管理 | 黄绿 #CDDC39 | - |
+| 司机管理 | 黄绿 #CDDC39 | DriverLime |
 | 货主管理 | 深青 #00A8A8 | InventoryTeal |
 | 批发商管理 | 金 #F5A623 | MemberGold |
 | 商品管理 | 紫 #8455E6 | ProductPurple |

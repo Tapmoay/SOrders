@@ -125,25 +125,28 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "又有一个页面自己写按人匹配（提示语里同时提人和号码却不用规则）",
         VEHICLE_SCREEN,
+        # ⚠️ 2026-10-03 更新锚点：CHG-0016 把抽屉里那个按人搜的框收编成共用 SearchField（不再传 placeholder），
+        #    原来的锚点 `placeholder = com.…UserSearch.HINT,` 在这个文件里已经不存在了 ——
+        #    这条注入改成「又退回自己写提示语的 SoTextField」，治的病一样（各页各写一句）。
         lambda s: s.replace(
-            "placeholder = com.tapmoay.sorders.core.UserSearch.HINT,",
-            'placeholder = "搜司机姓名 / 手机号",',
+            "                SearchField(\n                    value = vm.driverQuery,\n",
+            '                SoTextField(\n                    value = vm.driverQuery,\n                    placeholder = "搜司机姓名 / 手机号",\n',
             1,
         ).replace("com.tapmoay.sorders.core.UserSearch.filter(", "listOf(", 1).replace(
             # ⚠️ 2026-09-21 更新锚点：这段 Kotlin 后来被格式化过，`{ it.username } },`
             #    多了一个空格（原来的锚点是 `}},`）——替换串对不上就等于**这条注入一直是空转的**。
             "        { it.fullName.ifBlank { it.username } },\n        { it.phone },\n    )", "    )", 1
-        ),
+        # ⚠️ 2026-10-03 加固：CHG-0016 把抽屉里那个按人搜的框收编成共用 SearchField 之后，
+        #    `_check_user_search.py` 的「文件里有 SearchField 就算这一页过」会把这条注入放行 ——
+        #    所以把这一页剩下的 SearchField 也一并退回 SoTextField，让「两种画法 + 自己写提示语」完整成立。
+        ).replace("SearchField(", "SoTextField("),
     ),
-    (
-        "联系人那一段退回就地 contains（同一件事两个答案）",
-        ADDRESS_SCREEN,
-        lambda s: s.replace(
-            "else vm.contacts.filter { UserSearch.matches(kw, it.displayName, it.phone) }",
-            "else vm.contacts.filter { it.displayName.contains(kw, true) || it.phone.contains(kw) }",
-            1,
-        ),
-    ),
+    # ⚠️ 2026-10-03：原来这里还有一条「联系人那一段退回就地 contains」的注入，**已搬走** ——
+    #    CHG-0013 把地址页联系人档的输入框收编成共用 `SearchField` 之后，本判据按
+    #    「文件里有 SearchField 就算这一页过」放行，这条注入留在这里是**空转**的
+    #    （实测：把 matches 改回就地 contains，`_check_user_search.py` 仍然全绿）。
+    #    它现在住在 `_tools/qa/_reverse_verify_address_tabs.py:282`（锚点断言 `找不到 UserSearch.matches`），
+    #    由 `_check_address_tabs.py` 抓住。红线没丢，只是换了看门人。
     (
         "共享搜索框的默认提示语不再引用 UserSearch.HINT（各页开始各写一份）",
         COMPONENTS,
