@@ -31,6 +31,68 @@
 
 ## 进行中
 
+### [2026-10-02 05:3x UTC → 06:2x UTC 已完成] 会话：**FEAT-0006 地图选点自备高清影像层**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
+
+**需求方原话**：「我们在调用高德地图的时候…一般默认是最大的时候，他的图片太过于不清晰，
+我想用我的数据来使图片更加的清晰……只有它放大到 z20 的时候才是我们那个地图」。
+数据是需求方自己抓的谷歌瓦片（`D:\AProjects\ASDH\ATXT\omap-analysis\tiles_z20_final\20\<x>\<y>.jpg`，
+**735,194 张 / 6.40 GB**）。最终拍板的三条：**z20 全量部署服务器 · z19 客户端用算法合成 · 手机只缓存浏览过的**。
+
+**先说三条实测结论（整个方案的前提，都做成了证据）**：
+
+1. 自抓瓦片索引与高德**同一网格**（都是 GCJ-02 墨卡托）—— 互相关峰值位移 **(0,0)**；
+   vs 天地图（CGCS2000/WGS-84）峰值 (+2,−3) ≈ **480 m**（正是 GCJ-02 的偏移量）；
+   两者 50/50 叠加后田块边界与道路是**单一锐线、无重影**。⇒ **一个坐标换算都不用写**。
+2. 高德本区域卫星**原生只到 z18**：z17/z18 = 真实 JPEG（10,005 / 7,892 B），
+   **z19/z20 = 4,235 B PNG 灰底占位「此区域无卫星图」**（灰度 std 1.46）。
+   所以切换点选 **z19** 而不是 z20 —— 只在 z20 切的话，缩到 z19 会看到一整片灰。
+3. AMap 9.8.3 的 `TileProvider` **有 `NO_TILE` 常量**，且逐格问 `getTile(x,y,zoom)`
+   ⇒ 层级门控就是一行 `if`。⚠️ 但 `UrlTileProvider.getTile` 是 **`final`**，拿不到 `NO_TILE`
+   ⇒ 必须直接 `implements TileProvider`。
+
+**改哪些文件**：
+
+- **新增** `android/app/src/main/java/com/tapmoay/sorders/ui/common/HiResTileLayer.kt`
+  （TileProvider：z≤18 → `NO_TILE`；z=19 → z20 四格合成 512→256；z≥20 直取；
+  + 1 GB LRU 磁盘缓存落在 `externalCacheDir/tiles`，**没有任何预先下载**）
+- **改** `android/.../ui/common/AmapPicker.kt`（`AmapMapHolder`：新增 `hiOverlay` zIndex=1；
+  **既有路网注记层 zIndex 0 → 2**，否则放大后路名被影像压住；`maxZoomLevel = 20f`）
+- **改** `android/app/build.gradle.kts`（新增编译期字段 `TILE_BASE_URL`，缺省跟随 API，
+  本机开发用 `-PtileBaseUrl=https://8.145.40.22/tiles` 覆盖，⛔ 不改 `local.properties`）
+- **新增** `_tools/map/_upload_tiles.py`（分批 `tar | ssh` 上传器，默认 dry-run，幂等可重跑）
+- **新增** `docs/changes/FEAT-0006.md` + `docs/changes/README.md` 登记行
+- **服务端**：`/opt/SOrders/tiles/20/`（735,194 张）+ `nginx/snippets/sorders-api-locations.conf`
+  加一段 `location /tiles/`（已 `nginx -t` 通过并 reload）
+
+⛔ **明确不碰**：`AmapPickerDialog` 的签名与三个调用点、司机侧 `startSatellite = false` 的起步行为、
+确认按钮的 `SunLocation.isPlausible` 闸、地图单例 + 永不 `onDestroy` 的规避方案、
+`res/xml/network_security_config.xml`（所以瓦片**必须**走 https）、后端任何业务代码、数据库、
+订单/钱/账本口径、核心区文件（含 `ai/AiWriteService.kt`）。
+
+**为什么不动核心**：它是**展示层基础设施** —— 五问 ①否 ②否 ③否 ④**是** ⑤**是**
+（删掉它地图退回高德影像，业务一字不变）。已核 `_tools/qa/_core_files.txt`：
+Android 侧只有 `ai/AiWriteService.kt` 一项，本事项不碰它 ⇒ **不需要 `核心改动：` 声明行**。
+
+**性能账（需求方担心"服务器内存非常少、50 个人用扛不住"，实测回答）**：
+生产机 `ecs.e-c1m1.large`（2 vCPU / 1870 MB），负载 `0.00, 0.05, 0.02`，现状约 3,500 请求/天。
+压测：**复用连接取静态文件 37,774 req/s、nginx 侧 15 微秒/请求**（与纯 `/health` 完全同价 ——
+`sendfile` 零拷贝）；新建 TLS 连接 1,333 微秒（89 倍，所以客户端**不许调 `disconnect()`**）。
+50 人最坏一次性 6.6 GB、日均约 180 MB ⇒ nginx CPU 约 **0.3 秒/天**，内存增量 **< 5 MB**。
+
+**验收结果（模拟器 `emulator-5554`，2026-10-02 06:0x UTC）**：z20 `getTile` **12/12** 拿到字节、
+z19 四格合成 **12/12**、**z18 调用 0 次**（NO_TILE 门控生效，SDK 连问都不问）、
+断网（`iptables` 封掉瓦片服务器、实测 100% 丢包）后重开 App **12/12 从磁盘缓存取到**。
+田畈街镇中心同一位置同层级改造前后对照：**从糊成一团 → 能看清单栋楼、屋顶太阳能板阵列、天窗、楼间小巷**。
+`_check_all.py` **137/137**、`check_reachability.py` **93/93**。
+⚠️ 瓦片上传验收时约 3.4/6.4 GB 仍在跑（`_tools/map/_upload_tiles.py`，默认 dry-run、可随时重跑、幂等）。
+
+⚠️ **一条给后来人的话（踩了两小时的坑，写在 `FEAT-0006.md` ⑦.2）**：模拟器上**没有一条路**能把地图
+放到 z20 —— 双击被 `setOnMapClickListener` 吃掉、`sendevent` 灌不进输入系统（`adb root` 后权限已通、
+但同一个坐标用 `input tap` 有效而 `sendevent` 无效，对照组成立）、剪贴板粘中文时灵时不灵。
+本次验收用了一段**临时跳转脚手架**，**已整块删除**（`grep 临时|SOrdersTile|29.3528` 零命中，净 +47/−2）。
+
+---
+
 ### [2026-09-28 17:05 UTC → ] 会话：**CHG-0008 代理下单页按设计规范重做（第 1 批）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **需求方原话**：「为什么你每次设计前端页面怎么都那么难看啊，不只是显示信息啊，哪些信息该被显示，

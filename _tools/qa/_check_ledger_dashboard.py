@@ -121,6 +121,7 @@ COLOR = ANDROID / "ui/theme/Color.kt"
 CANVAS_ALLOW = {
     "ui/common/Charts.kt": "图表唯一的实现处（折线/条形/扇形都在这里）",
     "util/Watermark.kt": "导出图片上的水印，不是图表",
+    "ui/common/HiResTileLayer.kt": "把 2x2 张 z20 瓦片拼成 1 张 z19（位图拼接，不是图表）",
 }
 
 #: 「账本管理」入口页里的 7 格（顺序即显示顺序）。
