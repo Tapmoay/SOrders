@@ -23,6 +23,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** 三个列表：常用线路（联系人+地点）/ 联系人 / 地点 */
+/**
+ * 「刚删掉的那一条」——软删之后允许**当场**撤回（规范 06:1371「删除一律软删 + 手边要有撤回」）。
+ *
+ * 只记一条是有意的：撤回的含义是「我手滑了」，隔了三条再撤就不是同一个动作了。
+ * （同款做法见 `OrderCreateViewModel.recentlyDeletedPlace`。）
+ *
+ * [kind] 给代码用（[AddressViewModel.undoDelete] 按它挑还原接口），[label] 给人看。
+ */
+data class RecentlyDeleted(val kind: String, val label: String, val id: Long, val name: String)
+
 class AddressViewModel(private val container: AppContainer) : ViewModel() {
 
     var addresses by mutableStateOf<List<AddressDto>>(emptyList())
@@ -55,6 +65,36 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
      */
     var notice by mutableStateOf<String?>(null)
     var acting by mutableStateOf(false)
+    /**
+     * 刚删掉的那一条（三档列表共用：线路 / 地点 / 联系人）。
+     *
+     * ⛔ 删完**不能只留一句「已删除」就完了** —— 这一页每一行都没有二次确认，
+     *    点错一下就是把用户的常用线路删掉，而恢复入口在别处根本找不到。
+     *    所以每次删除都把它记在这里，界面在列表顶上给一行「已删除 X + 撤销」。
+     */
+    var recentlyDeleted by mutableStateOf<RecentlyDeleted?>(null)
+
+    /** 撤回刚删的那一条（软删 → 还原，走仓库里本来就有的 restore* 接口）。 */
+    fun undoDelete() {
+        val rd = recentlyDeleted ?: return
+        if (acting) return
+        acting = true
+        viewModelScope.launch {
+            try {
+                when (rd.kind) {
+                    "line" -> container.repo.restoreAddress(rd.id)
+                    "place" -> container.repo.restoreLocation(rd.id)
+                    "contact" -> container.repo.restoreContact(rd.id)
+                }
+                recentlyDeleted = null
+                load()
+            } catch (e: Exception) {
+                notice = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
 
     // 常用线路（联系人+地点）编辑弹窗状态
     var editing by mutableStateOf<AddressDto?>(null)
@@ -407,6 +447,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 container.repo.deleteAddress(a.id)
+                recentlyDeleted = RecentlyDeleted(
+                    kind = "line", label = "常用线路", id = a.id, name = a.receiverName,
+                )
                 load()
             } catch (e: Exception) {
                 notice = toApiException(e).message
@@ -494,6 +537,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 container.repo.deleteContact(c.id)
+                recentlyDeleted = RecentlyDeleted(
+                    kind = "contact", label = "联系人", id = c.id, name = c.displayName,
+                )
                 load()
             } catch (e: Exception) {
                 notice = toApiException(e).message
@@ -696,6 +742,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 container.repo.deleteLocation(l.id)
+                recentlyDeleted = RecentlyDeleted(
+                    kind = "place", label = "地点", id = l.id, name = l.name,
+                )
                 load()
             } catch (e: Exception) {
                 notice = toApiException(e).message

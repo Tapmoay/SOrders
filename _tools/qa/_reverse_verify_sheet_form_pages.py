@@ -171,6 +171,22 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      A + "ui/dispatcher/FreightTemplatesScreen.kt",
      "                FilledIconButton(\n", "                OutlinedButton(\n",
      "中间是**语义色圆钮**"),
+    # ---- §7：表单抽屉的「三件套」清单是**算出来的**（2026-10-03 · CHG-0015）----
+    # 这一节的标签是**动态**的（前面拼了 {rel}:{ln}），所以期望值用 `~` 前缀：
+    # 意思是「任意一条以 [!!] 开头的失败行里包含这段子串」，不做行首对齐匹配。
+    ("㉗ 地址页的抽屉不再拉满（三个 .fillMaxHeight() 打掉一个）",
+     A + "ui/shipper/AddressScreen.kt",
+     ".fillMaxWidth()\n                    .fillMaxHeight()\n",
+     ".fillMaxWidth()\n",
+     "~抽屉内容 fillMaxHeight("),
+    # ⚠️ 为什么挑「这一笔记给谁」抽屉、不挑车辆管理页：车辆管理页有**两个**抽屉，
+    #    只补齐其中一个，`still` 仍然非空、豁免照样成立 —— 那样的注入是**假红**。
+    ("㉘ 欠账被偷偷补上（「这一笔记给谁」抽屉加上了 verticalScroll）",
+     A + "ui/dispatcher/LedgerCreateScreen.kt",
+     "        Column(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)) {",
+     "        Column(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)"
+     ".verticalScroll(rememberScrollState())) {",
+     "~还没搬三件套"),
 ]
 
 
@@ -237,7 +253,14 @@ def main() -> int:
             print(f"\n[{i}] {name}\n  🛑 {rel} 还原后哈希对不上，停手")
             return 2
 
-        hit = f"[!!]   {want}" in out
+        # 期望值两种写法：
+        #   普通字符串 —— 必须原样命中「[!!]   <标签>」（标签是**写死**的判据）；
+        #   `~` 前缀    —— 只要**任意一条** [!!] 失败行里包含这段子串即可（§7 的标签
+        #                  前面拼了 `{rel}:{ln}`，写死了就会因为行号漂移而漏网）。
+        if want.startswith("~"):
+            hit = any(want[1:] in ln for ln in out.splitlines() if ln.lstrip().startswith("[!!]"))
+        else:
+            hit = f"[!!]   {want}" in out
         if rc != 0 and hit:
             caught += 1
             print(f"\n[{i}] {name}\n  ✅ 被抓到（红线非零退出，命中「{want}」）")

@@ -35,7 +35,7 @@
 - 底色那条**直接解析十六进制**算 R/G/B（不看注释、不看名字），并且**同时**卡上下界：
   带蓝要红、纯白也要红（刷成白，里面的白卡就糊了，用户要的"对比"就没了）；
 - "谁在管这个颜色"那条要求 `Theme.kt` 里是**指向 token**（`= SheetSurface`），不是又抄一遍字面量；
-- 全局那条（没有哪个抽屉自己传 `containerColor`）的清单是**算出来的**，不手写。
+- 全局那条（没有哪个抽屉自己传 `containerColor`）的清单是**算出来的**，不手写；
 
 用法：python _tools/qa/_check_sheet_form_pages.py
 配套：python _tools/qa/_reverse_verify_sheet_form_pages.py（**23** 种破坏方式全被抓）
@@ -130,6 +130,76 @@ def sheet_overrides() -> dict[str, int]:
                 if "containerColor" in call_args(src, m.start()))
         if n:
             out[str(p.relative_to(AND)).replace("\\", "/")] = n
+    return out
+
+
+# ── 表单抽屉的清单：**算出来的**（2026-10-03 · CHG-0015）────────────────────
+#: 抽屉体里出现这些「表单行」＝ 这一页的表单已经搬进抽屉并换成了白卡形态。
+#: ⛔ 别拿 `SoTextField(` 当判据：全库把它同时当**搜索框**用（挑一条的抽屉里到处都是），
+#: 那样「表单抽屉」会从 3 个涨到 14 个、把挑一条的抽屉全判红。
+FORM_ROWS = ("FormGroup(", "FormInputRow(", "FormPickRow(", "FormSwitchRow(", "FormErrorLine(")
+#: 「三件套」里那两条（拉满 + 能滚）。`fillMaxHeight(` 收 `()` 与 `(0.88f)` 两种写法：
+#: 用户要的是「拉到最上面」，`.fillMaxHeight(0.9f)` 是**有意**留一截（前面那页的先例）。
+TRIO = ("fillMaxHeight(", "verticalScroll(")
+#: ⛔ 还没搬三件套的**表单**抽屉（只能收紧：搬好一页就删一行；每一行都必须仍然成立）。
+#: 为什么要有这张表：`FORM_ROWS` 只认「已经换成白卡表单行」的页，而下面这几页本身也是表单
+#: （用户要往里填字），只是还没按规范重做 —— 不记下来的话，「又一个表单抽屉没拉满」
+#: 永远不会有人喊（它编译得过、真机上也能用，只是半截）。
+PENDING_FORMS = {
+    "ui/dispatcher/VehicleManageScreen.kt":
+        "「新增 / 编辑车辆」表单（有 verticalScroll，缺 fillMaxHeight）—— 车辆管理页那一批重做",
+    "ui/dispatcher/LedgerCreateScreen.kt":
+        "「这一笔记给谁」带一个自由填名字的框（有 fillMaxHeight(0.88f)，缺 verticalScroll）",
+}
+
+
+def call_end(src: str, start: int) -> int:
+    """[start] 处那个 `(` 的配平收尾位置（`call_args` 的位置版）。"""
+    i = src.find("(", start)
+    if i < 0:
+        return -1
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "(":
+            depth += 1
+        elif src[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
+
+
+def trailing_body(src: str, start: int) -> str:
+    """`ModalBottomSheet(...)` 后面那段 **trailing lambda** 的正文（大括号配平）。
+
+    ⚠️ 不能用 `call_args` 的结果当抽屉体：实参里就有 lambda（`onDismissRequest = { … }`），
+    而**内容**在调用之后那个大括号里 —— 只看实参的话，「抽屉里有没有表单行」全看不见。
+    """
+    e = call_end(src, start)
+    if e < 0:
+        return ""
+    b = src.find("{", e)
+    if b < 0:
+        return ""
+    depth = 0
+    for j in range(b, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[b : j + 1]
+    return src[b:]
+
+
+def sheet_bodies() -> list[tuple[str, int, str]]:
+    """全库每一个 `ModalBottomSheet` → (相对路径, 行号, 抽屉体)。清单不手写。"""
+    out: list[tuple[str, int, str]] = []
+    for p in sorted(AND.rglob("*.kt")):
+        src = strip_comments(read(p))
+        rel = str(p.relative_to(AND)).replace("\\", "/")
+        for m in re.finditer(r"\bModalBottomSheet\s*\(", src):
+            out.append((rel, src[: m.start()].count("\n") + 1, trailing_body(src, m.start())))
     return out
 
 
@@ -323,6 +393,38 @@ def main() -> int:
         c.ok("左右两格是「图标 + 文字」的无边框格（不是描边按钮）",
              "FreightBottomCell(" in bbar and "OutlinedButton" not in bbar)
 
+    # ── 7. 表单抽屉的「三件套」：清单自己算（2026-10-03 · CHG-0015）──────
+    # ⚠️ 为什么要有这一节：上面 §6 是**手写**的两页（账户管理、运费模板）。下一个把表单
+    #    搬进抽屉的人**不知道该往哪儿加判据** —— 于是"又一页半截抽屉"没有任何人喊。
+    #    这一节把清单改成**算出来的**：多一个表单抽屉，它自动进清单。
+    c.section("7. 表单抽屉的形态三件套（拉满 + 能滚）—— 清单是**算出来的**")
+    sheets = sheet_bodies()
+    c.ok("全库扫到了抽屉（ModalBottomSheet ≥ 15）", len(sheets) >= 15,
+         f"实际扫到 {len(sheets)} 个 —— 扫描本身被改坏了？（那样下面全是空转）")
+    forms = [(rel, ln, b) for rel, ln, b in sheets if any(k in b for k in FORM_ROWS)]
+    c.ok("认得出「表单抽屉」（体内有共用表单行；今天 3 个：地址与联系人那三个）",
+         len(forms) >= 2,
+         f"实际 {len(forms)} 个 —— 表单行改名 / 被换掉的话，这一节会**安静地**缩成 0")
+    n_addr = sum(1 for rel, _, _ in forms if rel.endswith("shipper/AddressScreen.kt"))
+    c.ok("本批这一页三个抽屉都在清单里（AddressScreen × 3）", n_addr == 3,
+         f"只认出 {n_addr} 个 —— 这一页从清单里掉出去了")
+    for rel, ln, b in forms:
+        c.ok(f"{rel}:{ln} 抽屉内容 fillMaxHeight(（用户：「底部抽屉是**拉到最上面**」）",
+             "fillMaxHeight(" in b,
+             "少了这一行抽屉就退回「半截」，而表单页字段多，等于要滚着填")
+        c.ok(f"{rel}:{ln} 抽屉能滚（verticalScroll：字段比一屏高时够得着保存）",
+             "verticalScroll(" in b)
+    for rel, why in PENDING_FORMS.items():
+        still = [b for r2, _, b in sheets if r2 == rel and not all(k in b for k in TRIO)]
+        c.ok(f"「还没搬三件套」这条仍然成立：{rel} —— {why}",
+             (AND / rel).exists() and any(r2 == rel for r2, _, _ in sheets) and bool(still),
+             "这一页已经搬好了（或文件没了）—— 把 PENDING_FORMS 里这一行删掉，别让它变成空转的豁免")
+    # 信息行（不是判据）：体内有输入框、但还没换成白卡表单行的抽屉。它们多半是**挑一条**的
+    # 抽屉（框是搜索框），列出来只为下一个人判断"这一页算不算表单"。
+    maybe = sorted({rel for rel, _, b in sheets
+                    if not any(k in b for k in FORM_ROWS)
+                    and ("SoTextField(" in b or "OutlinedTextField(" in b)})
+    print(f"  [信息] 体内有输入框但还没换成表单行的抽屉（{len(maybe)} 个文件）：{maybe}")
     # ── 汇总 ─────────────────────────────────────────────────────────────
     print("\n" + "=" * 60)
     if c.fails:

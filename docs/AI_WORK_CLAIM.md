@@ -32,6 +32,29 @@
 ## 进行中
 
 
+### [2026-10-03 04:0x UTC → 进行中] 会话：**CHG-0015 地址与联系人页第 4 批：信息补齐（分类小字 / 仓库标记 / 抽屉拉满 / 地址尾部省略 / 删除后可撤回）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（用户原话，paraphrase 自本会话的长期指令）**：「前端页面要重做按照我们的设计规范进行写」——
+审计稿 `_tmp/ui_audit_address.md:73` 排的批 4：线路抽屉补 remark 一栏、联系人卡补分类小字、地点卡补「仓库」标记、
+三抽屉 `fillMaxHeight()`、地址 `TextOverflow.StartEllipsis`、三个删除补手边撤销。
+
+**改哪些文件**：
+
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`：三个抽屉 Column 补 `fillMaxHeight()`；
+  线路抽屉在「设为默认线路」前补「备注」栏；新增私有 `CardTag(text, container, content)`；
+  联系人卡补分类小字、地点卡补「仓库」标记、详细地址改 `TextOverflow.StartEllipsis`；
+  列表容器之前补一行「已删除「X」+ 撤销」
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressViewModel.kt`：新增 `RecentlyDeleted`、
+  `recentlyDeleted`、`undoDelete()`（`when (rd.kind)` 走 `repo.restoreAddress / restoreLocation / restoreContact`），
+  三处删除成功后各记一笔
+- `_tools/qa/_check_sheet_form_pages.py`：新增 §7「抽屉形态三件套」—— 清单自己算（扫全库 `ModalBottomSheet(`，
+  只有体内含表单行的抽屉才要求 `fillMaxHeight()` + `verticalScroll(`；仍禁 `containerColor`）
+- 新增 `_tools/qa/_check_delete_undo.py`（删除调用点清单自己算 + 豁免表只能收紧 + 本页撤回链路 + 位置断言）
+  与它的反向验证 `_tools/qa/_reverse_verify_delete_undo.py`
+- `docs/changes/CHG-0015.md`、`docs/changes/README.md`、本页
+
+**状态**：开工（源码与判据已落盘，构建 / 全量 / 模拟器取证 / 提交待做）。
+
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`

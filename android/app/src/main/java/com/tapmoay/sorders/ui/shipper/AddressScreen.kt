@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -192,6 +193,27 @@ fun AddressScreen(
                 if (kw.isBlank()) vm.locations
                 else vm.locations.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
             }
+            // 删除是软删，但「软」是数据库的事，用户要的是**当场能救回来**（规范 06:1371：
+            // 删除一律软删 + **手边**要有撤回）。这一行就摆在列表**顶上**：它跟着内容走、
+            // 永远在第一屏；⛔ 不塞进页面底部提示位 —— 那在长列表的末尾，根本不在屏幕上。
+            vm.recentlyDeleted?.let { rd ->
+                val what = if (rd.name.isBlank()) "这条" + rd.label else "「" + rd.name + "」"
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp),
+                ) {
+                    Text(
+                        "已删除" + what,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { vm.undoDelete() }, enabled = !vm.acting) { Text("撤销") }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
             Box(Modifier.weight(1f)) {
                 when {
                     vm.loading -> LoadingBox(Modifier.fillMaxSize())
@@ -270,6 +292,7 @@ fun AddressScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .fillMaxHeight()
                     .padding(horizontal = 16.dp)
                     .imePadding()
                     .verticalScroll(rememberScrollState()),
@@ -419,6 +442,17 @@ fun AddressScreen(
                         onAdd = { imageTarget = "line"; showImageSource = true },
                         onRemove = { vm.removeLineImage(it) },
                     )
+                    // 备注：这条线路原来**存得下、列表卡上也画得出，只有这个抽屉里看不见**
+                    //（保存时一直在传 remark = draftRemark.trim()）。第 4 批补上这一栏，形状直接照抄
+                    // 地点抽屉那张「图片 + 备注」的白卡 —— 同一件事在两个抽屉里必须长一样。
+                    FormInputRow(
+                        label = "备注",
+                        value = vm.draftRemark,
+                        onValueChange = { vm.draftRemark = it },
+                        placeholder = "选填",
+                        icon = Icons.Default.Notes,
+                        iconTint = MaterialTheme.colorScheme.outline,
+                    )
                     FormSwitchRow(
                         label = "设为默认线路",
                         checked = vm.draftIsDefault,
@@ -447,6 +481,7 @@ fun AddressScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .fillMaxHeight()
                     .padding(horizontal = 16.dp)
                     .imePadding()
                     .verticalScroll(rememberScrollState()),
@@ -683,6 +718,7 @@ fun AddressScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .fillMaxHeight()
                     .padding(horizontal = 16.dp)
                     .imePadding()
                     .verticalScroll(rememberScrollState()),
@@ -992,14 +1028,12 @@ private fun AddressCard(a: AddressDto, onEdit: () -> Unit, onDelete: () -> Unit)
                     )
                     Spacer(Modifier.weight(1f))
                     if (a.isDefault) {
-                        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
-                            Text(
-                                "默认",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                            )
-                        }
+                        // 与地点卡的「仓库」是同一个标签件（形状只有一处实现，见 CardTag）
+                        CardTag(
+                            text = "默认",
+                            container = MaterialTheme.colorScheme.primaryContainer,
+                            content = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
                     }
                 }
                 if (a.remark.isNotBlank()) {
@@ -1040,6 +1074,26 @@ private fun AddressCard(a: AddressDto, onEdit: () -> Unit, onDelete: () -> Unit)
 // 一样：下单页（`OrderCreateScreen`）也要同一个分组形态，各写一份就会出现
 // "两个页面的组标题字号/间距不一样"。判据 `_check_form_panel_style.py` 钉着它只许有一处。
 
+/**
+ * 卡片上的一个小标签（「默认」「仓库」同形状；颜色由调用处给）。
+ *
+ * 为什么做成共用件：两张卡各画一份，圆角 / 字号 / 内边距一定会慢慢分叉，
+ * 而这一页一共也就这两种标签 —— 一处实现、两处调用是唯一划算的写法。
+ * ⛔ 它不是动作按钮：动作一律走 CardActionIcon（圈底 36dp、可点、有语义）。
+ */
+@Composable
+private fun CardTag(text: String, container: Color, content: Color) {
+    Surface(color = container, shape = MaterialTheme.shapes.small) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+        )
+    }
+}
+
 /** 联系人卡 */
 @Composable
 private fun ContactCard(c: ContactDto, onEdit: () -> Unit, onDelete: () -> Unit) {
@@ -1050,6 +1104,16 @@ private fun ContactCard(c: ContactDto, onEdit: () -> Unit, onDelete: () -> Unit)
             Column(Modifier.weight(1f)) {
                 Text(c.displayName.ifBlank { "联系人" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(c.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // 分类（FEAT-0007）也要在卡上看得见：左栏那道筛选就是按它过滤的，卡片上一个字都不写，
+                // 用户在「全部」里只能逐个点开编辑去看这个人归在哪一类。没归类就整行不画，不留空标签。
+                if (c.category.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    CardTag(
+                        text = c.category,
+                        container = Color(ShipperTeal).copy(alpha = 0.14f),
+                        content = Color(ShipperTeal),
+                    )
+                }
             }
             // 卡片动作分区（见 `CardActionIcon` 的 KDoc）：**左＝反向/警示（删除），右＝编辑**
             // —— 用户 2026-09-22：「编辑一定在右边，因为我们的惯用手是右手」。原来这两张卡
@@ -1089,8 +1153,34 @@ private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Uni
                 Spacer(Modifier.width(10.dp))
             }
             Column(Modifier.weight(1f)) {
-                Text(l.name.ifBlank { "地点" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(l.detailAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        l.name.ifBlank { "地点" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    // 「这是我的仓」是**身份**，摆在名字这一行（不在名字里加字、也不藏进备注）：
+                    // 入库 / 下单带不带出仓库那一套全靠它，卡片上不写，用户只能靠记忆。
+                    if (l.isWarehouse) {
+                        Spacer(Modifier.width(6.dp))
+                        CardTag(
+                            text = "仓库",
+                            container = Color(MoneyOrange).copy(alpha = 0.14f),
+                            content = Color(MoneyOrange),
+                        )
+                    }
+                }
+                Text(
+                    l.detailAddress,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    // 长地址保**尾部**：门牌号 / 几栋几室在最后，默认的 Clip 正好把那几个字切掉，
+                    // 而那几个字才是「到底送到哪」的落点。
+                    overflow = TextOverflow.StartEllipsis,
+                )
                 // 绑了联系人的地点要在地点卡上**看得见**：不写这一行，用户只能靠"下单时会不会带出来"猜
                 // （而卡片上没有任何线索）。没绑就整行不画，不留一个空标签。
                 if (hasBoundContact(l.contactName, l.contactPhone)) {
