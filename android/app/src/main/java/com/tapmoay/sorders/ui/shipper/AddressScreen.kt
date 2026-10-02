@@ -38,9 +38,10 @@ import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
-import com.tapmoay.sorders.ui.theme.InventoryTeal
+import com.tapmoay.sorders.ui.theme.DestOrange
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.OriginTeal
 import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.ui.dispatcher.ContactCategoriesPanel
 import com.tapmoay.sorders.ui.dispatcher.ContactCategoriesViewModel
@@ -49,11 +50,11 @@ import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 顶部三档的标签与语义色：与「地址与联系人」这一页的三个概念一一对应
- * （路线 = 青、联系人 = 绿、地址 = 橙；色值走 `ui/theme/Color.kt` 的命名 token，⛔ 不写裸色值）。
+ * （路线 = 起点那族的蓝青、联系人 = 人 / 本页模块色的湖蓝、地址 = 橙；色值走 `ui/theme/Color.kt` 的命名 token，⛔ 不写裸色值）。
  * 交给共用件 `SegmentedStatusTabs` 去画 —— 它自己负责"放不下就整条滑动"那条契约。
  */
 private val ADDRESS_TABS = listOf("路线", "联系人", "地址")
-private val ADDRESS_TAB_COLORS = listOf(Color(ShipperTeal), Color(MgrGreen), Color(MoneyOrange))
+private val ADDRESS_TAB_COLORS = listOf(Color(OriginTeal), Color(ShipperTeal), Color(MoneyOrange))
 /** 地址与联系人：三个列表（常用线路=联系人+地点 → 联系人 → 地点），新增入口在各自标题行右侧 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -235,7 +236,7 @@ fun AddressScreen(
                             else -> {
                                 item {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("常用线路（联系人+地点）", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                        Text("常用线路", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                         TextButton(onClick = { vm.openCreate() }) {
                                             Icon(Icons.Default.AddLocationAlt, null, Modifier.size(16.dp), tint = Color(ShipperTeal))
                                             Spacer(Modifier.width(3.dp))
@@ -318,26 +319,26 @@ fun AddressScreen(
                         placeholder = "请输入手机号",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
-                        iconTint = Color(0xFF00B578),
+                        iconTint = Color(MgrGreen),
                     )
                 }
 
                 // ② 起点（可选）
-                FormGroup(icon = Icons.Default.Route, title = "起点（可选，从这出发）", tint = Color(InventoryTeal)) {
+                FormGroup(icon = Icons.Default.Route, title = "起点（可选）", tint = Color(OriginTeal)) {
                     FormTextAreaRow(
                         label = "起点地址",
                         value = vm.draftOrigin,
                         onValueChange = { vm.draftOrigin = it },
                         placeholder = "不填就是「只送到终点」",
                         icon = Icons.Default.Route,
-                        iconTint = Color(InventoryTeal),
+                        iconTint = Color(OriginTeal),
                     )
                     Box {
                         FormActionRow(
                             label = "从地点库选起点",
                             onClick = { startLocMenu = true },
                             icon = Icons.Default.List,
-                            iconTint = Color(InventoryTeal),
+                            iconTint = Color(OriginTeal),
                         )
                         DropdownMenu(expanded = startLocMenu, onDismissRequest = { startLocMenu = false }) {
                             DropdownMenuItem(
@@ -360,12 +361,12 @@ fun AddressScreen(
                         label = "在地图上选起点",
                         onClick = { vm.openPicker("origin") },
                         icon = Icons.Default.Route,
-                        iconTint = Color(InventoryTeal),
+                        iconTint = Color(OriginTeal),
                     )
                 }
 
                 // ③ 终点（必填）
-                FormGroup(icon = Icons.Default.Place, title = "终点（必填）", tint = Color(MoneyOrange)) {
+                FormGroup(icon = Icons.Default.Place, title = "终点（必填）", tint = Color(DestOrange)) {
                     FormTextAreaRow(
                         label = "终点地址",
                         value = vm.draftDetail,
@@ -373,14 +374,14 @@ fun AddressScreen(
                         placeholder = "送到哪里",
                         required = true,
                         icon = Icons.Default.Place,
-                        iconTint = Color(MoneyOrange),
+                        iconTint = Color(DestOrange),
                     )
                     Box {
                         FormActionRow(
                             label = "从地点库选终点",
                             onClick = { endLocMenu = true },
                             icon = Icons.Default.List,
-                            iconTint = Color(MoneyOrange),
+                            iconTint = Color(DestOrange),
                         )
                         DropdownMenu(expanded = endLocMenu, onDismissRequest = { endLocMenu = false }) {
                             DropdownMenuItem(
@@ -403,7 +404,7 @@ fun AddressScreen(
                         label = "在地图上选终点",
                         onClick = { vm.openPicker("dest") },
                         icon = Icons.Default.Place,
-                        iconTint = Color(MoneyOrange),
+                        iconTint = Color(DestOrange),
                     )
                 }
 
@@ -486,7 +487,7 @@ fun AddressScreen(
                             value = vm.locCategory.trim(),
                             placeholder = "未分类",
                             icon = Icons.Default.Folder,
-                            iconTint = Color(0xFF8455E6),
+                            iconTint = Color(ShipperTeal),
                             onClick = { catExpanded = true },
                             modifier = Modifier.menuAnchor(),
                         )
@@ -570,7 +571,7 @@ fun AddressScreen(
                         placeholder = "选填",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
-                        iconTint = Color(0xFF00B578),
+                        iconTint = Color(MgrGreen),
                     )
                 }
                 // ---- 白卡 2：图片 + 备注 ----
@@ -590,7 +591,7 @@ fun AddressScreen(
                         onValueChange = { vm.locRemark = it },
                         placeholder = "选填",
                         icon = Icons.Default.Notes,
-                        iconTint = Color(0xFF8A8A8E),
+                        iconTint = MaterialTheme.colorScheme.outline,
                     )
                 }
                 // 同上：新增/编辑地点被拦下时，那句话说在**这张抽屉里**
@@ -848,7 +849,7 @@ private fun ContactCategoryPane(
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = { vm.openContactDialog() }) {
-                        Icon(Icons.Default.PersonAddAlt, null, Modifier.size(16.dp), tint = Color(MgrGreen))
+                        Icon(Icons.Default.PersonAddAlt, null, Modifier.size(16.dp), tint = Color(ShipperTeal))
                         Spacer(Modifier.width(3.dp))
                         Text("新增联系人")
                     }
@@ -981,7 +982,7 @@ private fun AddressCard(a: AddressDto, onEdit: () -> Unit, onDelete: () -> Unit)
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Default.Phone, contentDescription = "电话", modifier = Modifier.size(11.dp), tint = Color(0xFF00B578))
+                    Icon(Icons.Default.Phone, contentDescription = "电话", modifier = Modifier.size(11.dp), tint = Color(MgrGreen))
                     Spacer(Modifier.width(3.dp))
                     Text(
                         a.phone,
@@ -1197,7 +1198,7 @@ private fun ImageStrip(
             }
         }
         Spacer(Modifier.height(4.dp))
-        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Hint(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     preview.Show()
 }

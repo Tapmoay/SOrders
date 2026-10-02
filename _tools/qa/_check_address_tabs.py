@@ -72,7 +72,10 @@ REGISTRY = ROOT / "docs/changes/README.md"
 #: 三档的清单与顺序（顺序就是用户认路用的那个顺序）
 TABS_DECL = 'private val ADDRESS_TABS = listOf("路线", "联系人", "地址")'
 #: 三档的语义色：必须走命名 token
-COLORS_DECL = "private val ADDRESS_TAB_COLORS = listOf(Color(ShipperTeal), Color(MgrGreen), Color(MoneyOrange))"
+#: ⚠️ 2026-10-03 CHG-0014（批 3 配色归一）把这三个 token 换成了 OriginTeal / ShipperTeal /
+#:    MoneyOrange（路线用线路色、联系人用"人"的湖蓝），**不变的是"必须走命名 token"这条**；
+#:    这条锚点跟着改，判据口径一个字没放宽。
+COLORS_DECL = "private val ADDRESS_TAB_COLORS = listOf(Color(OriginTeal), Color(ShipperTeal), Color(MoneyOrange))"
 #: 线路档占位语：_tools/ai/_check_ai_guardrails.py:4074 的锚点 + _check_input_rules.py:101 的 EXCLUDED 键
 ROUTE_HINT = '0 -> "搜线路：收货人 / 电话 / 地址"'
 #: 地点档占位语
@@ -196,14 +199,15 @@ def main() -> int:
 
     # ---- 2. 三档的内容：标签 + 语义色 ----
     c.ok("三档标签与顺序就是 路线 / 联系人 / 地址", TABS_DECL in src, "标签清单被改了（顺序是用户认路用的）")
-    c.ok("三档颜色走命名 token（ShipperTeal / MgrGreen / MoneyOrange）", COLORS_DECL in src, "色值不是这三个命名 token")
+    c.ok("三档颜色走命名 token（OriginTeal / ShipperTeal / MoneyOrange）", COLORS_DECL in src, "色值不是这三个命名 token")
     c.ok(
         "新加的两行常量里没有裸色值（三档色只许引用 Color.kt 的命名 token）",
         "0xFF" not in TABS_DECL and "0xFF" not in COLORS_DECL,
         "新常量里写死了色值",
     )
-    # ⚠️ 本页还有 5 处历史裸色值（iconTint / 电话图标），属于「批 3 · 配色归一」的活；
-    #    这里**不**把它们钉住，也不假装它们不存在 —— 批 3 会连判据一起收。
+    # ⚠️ 本页那 5 处历史裸色值（iconTint / 电话图标 / 分组 / 备注）已由「批 3 · 配色归一」
+    #    （CHG-0014）收口，现在钉在 `_tools/qa/_check_address_palette.py`：本页 `Color(0xFF` == 0。
+    #    这一条只管三档的色是不是命名 token，两条判据各管一段、都不重复。
     call = between(src, "SegmentedStatusTabs(", "\n            )")
     c.ok(
         "调用点四项都传了：labels / colors / selected / onSelect",

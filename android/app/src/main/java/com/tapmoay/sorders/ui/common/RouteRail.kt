@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.ui.theme.DestOrange
+import com.tapmoay.sorders.ui.theme.OriginTeal
 
 /**
  * # 「从 A 到 B」那一竖条 —— **全库唯一一处**（起点、终点、中间那条连着两个图标的线）
@@ -54,7 +56,7 @@ fun RouteRail(
             Icon(
                 Icons.Default.TripOrigin,
                 contentDescription = null,
-                tint = if (hasOrigin) OriginTeal else MaterialTheme.colorScheme.outline,
+                tint = if (hasOrigin) Color(OriginTeal) else MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(13.dp),
             )
             Box(
@@ -67,7 +69,7 @@ fun RouteRail(
             Icon(
                 Icons.Default.Place,
                 contentDescription = null,
-                tint = DestOrange,
+                tint = Color(DestOrange),
                 modifier = Modifier.size(15.dp),
             )
             Spacer(Modifier.height(2.dp))
@@ -106,8 +108,5 @@ fun RouteRail(
     }
 }
 
-/** 起点的颜色（`InventoryTeal`「库存管理」那一族的青绿，与"起点"图标同源）。 */
-private val OriginTeal = Color(0xFF00BCD4)
-
-/** 终点的颜色（地点 = 橙，一色一功能：与「地址与联系人」模块同色）。 */
-private val DestOrange = Color(0xFFF5A623)
+// 起点 / 终点的两个色在 ui/theme/Color.kt（公有 token OriginTeal / DestOrange，CHG-0014 提上去的）：
+// 同一个概念在卡片与表单两处必须是同一个色 —— 定义只能有一份，所以本文件不再自带私有值。

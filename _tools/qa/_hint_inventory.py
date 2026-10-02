@@ -41,7 +41,7 @@ CATALOG = ROOT / "docs" / "PROJECT_MAP" / "09A_HINT_CATALOG.md"
 
 # ── 判据参数（都在这里，改口径改这一处）────────────────────────────────────
 LABEL_MAX = 8          # ≤ 这个字数、无标点 = 标签（订单号 / 合计 / 撤销）
-PAREN_LABEL_MAX = 18   # ≤ 这个字数且带括号补充 = **字段标签**（`起点（可选，从这出发）`）
+PAREN_LABEL_MAX = 18   # ≤ 这个字数且带括号补充 = **字段标签**（`起点（可选）`）
 EXPLAIN_MIN = 16       # ≥ 这个字数才可能是解释句（比它短的一律留着，安全方向）
 EXPLAIN_SHORT_MIN = 12 # 带"解释性标记词"时的下限（见 classify 里的注释：精简之后还要认得出来）
 LONG = 40              # 超过这个字数就要精简（规范 §3 的两行上限）——目录里标 ⚠️
@@ -299,7 +299,7 @@ def classify(text: str, file_name: str = "") -> str:
     elif len(t) <= LABEL_MAX and not any(p in t for p in PUNCT):
         return "DATA"                     # 短标签：订单号 / 合计 / 撤销 …
     elif PAREN_RE.search(t) and len(t) <= PAREN_LABEL_MAX:
-        return "DATA"                     # 字段标签的括号补充：`起点（可选，从这出发）`
+        return "DATA"                     # 字段标签的括号补充：`起点（可选）`
     elif any(w in t for w in META_WORDS):
         return "DATA"                     # 必填/选填/只读：字段的一部分，藏了就没法填
     elif any(w in t for w in STATE_WORDS):

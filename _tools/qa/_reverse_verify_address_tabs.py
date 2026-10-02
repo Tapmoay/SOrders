@@ -52,7 +52,7 @@ SEG_CALL = '\n'.join([
 ON_SELECT = 'onSelect = { tab = it; keyword = ' + QQ + ' }'
 COLORS_DECL = (
     'private val ADDRESS_TAB_COLORS = listOf('
-    'Color(ShipperTeal), Color(MgrGreen), Color(MoneyOrange))'
+    'Color(OriginTeal), Color(ShipperTeal), Color(MoneyOrange))'
 )
 ROUTE_HINT = '0 -> ' + Q + '搜线路：收货人 / 电话 / 地址' + Q
 SEARCH_CALL = '                    SearchField(value = keyword, onValueChange = { keyword = it })'
@@ -136,8 +136,8 @@ CASES: list[tuple[str, str, object, str]] = [
         ADDR,
         lambda s: s.replace(
             COLORS_DECL,
-            'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF00BCD4), Color(0xFF00B578),'
-            ' Color(0xFFF5A623))',
+            'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF00BCD4), Color(0xFF00A2C7),'
+            ' Color(0xFFFF9500))',
             1,
         ),
         '三档颜色走命名 token',

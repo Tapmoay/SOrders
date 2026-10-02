@@ -32,9 +32,9 @@ MUTATIONS = [
     (
         "「新增线路」又写回一个描边输入框（那一屏「乱」的根因）",
         ADDR,
-        "                FormGroup(icon = Icons.Default.Route, title = \"起点（可选，从这出发）\", tint = Color(InventoryTeal)) {",
+        "                FormGroup(icon = Icons.Default.Route, title = \"起点（可选）\", tint = Color(OriginTeal)) {",
         "                androidx.compose.material3.OutlinedTextField(value = \"\", onValueChange = {})\n"
-        "                FormGroup(icon = Icons.Default.Route, title = \"起点（可选，从这出发）\", tint = Color(InventoryTeal)) {",
+        "                FormGroup(icon = Icons.Default.Route, title = \"起点（可选）\", tint = Color(OriginTeal)) {",
         "一个描边输入框都没有",
     ),
     (

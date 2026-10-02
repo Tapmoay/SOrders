@@ -31,6 +31,24 @@
 
 ## 进行中
 
+### [2026-10-03 06:2x UTC] 会话：**CHG-0014 地址与联系人页第 3 批：配色归一到语义 token、常驻文案压到 8 字**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（paraphrased，长期未结）**：用户要求「前端页面要重做按照我们的设计规范进行写」。第 3 批接着 CHG-0013
+往下做，治这一页两处「同一件事配了两个答案」：一条线路的**起点 / 终点在卡片与表单里各配了一个色**
+（§1 一色一功能 / §2 一个概念一个色），以及**常驻标题 12 字与 11 字**超出 §4.10 的 8 字上限、
+`ImageStrip` 的说明句还是裸 `Text`（提示开关关掉也照样占位）。
+
+**改哪些文件**：
+
+- `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`：新增两个公有 token `OriginTeal` / `DestOrange`（值不变，只是把 RouteRail 里那份私有定义提上来）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/RouteRail.kt`：删掉自带的两个 `private val`，改成 import（卡片与表单共用同一份）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`：起点 / 终点 / 电话 / 人 / 分组 / 备注六处换成语义色（本页 `Color(0xFF…)` 清零）、三档「路线」色跟着线路色走、两条常驻标题压到 8 字内、`ImageStrip` 说明句走 `Hint(`
+- `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`：§2 新增「线路语义色（起点 / 终点）」小节（定义只有一份、不许借去第三个语义）
+- 同批同步的锚点：`_tools/qa/_check_address_tabs.py` 的三档色常量、`_tools/qa/_reverse_verify_form_panel.py` 的起点锚点、`_tools/qa/_hint_inventory.py` 两个举例注释
+- 判据：新增 `_tools/qa/_check_address_palette.py` 与 `_tools/qa/_reverse_verify_address_palette.py`
+
+**状态**：开工（源码与规范已改完；判据 **47 项 0 失败**；反验 **19/19 全报红 + 8 个被碰过的文件逐字节还原**；构建 **BUILD SUCCESSFUL in 27s**；`_check_all` **141/141（210.0 秒）**、可达性 101/101；模拟器 5554 已取证：列表页标题「常用线路」4 字、抽屉「起点（可选）/ 终点（必填）」）
+
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
@@ -5766,7 +5784,7 @@ Known Limitations 里（同时列出「只放开必填没放松格式校验」�
 
 **结论**：联系人多了**一格自定义分类**（自由文本、空串=未分类），左侧一列由**按人分区**的名册表 `contact_categories` 决定名字与顺序 —— 与地点分组 / 商品分类**同一套做法**（名册管顺序、字符串管归属、改名级联、整份顺序提交幂等）；还有联系人挂着时不许删（后端 400 原话「还有 N 位联系人挂在这个分类下，先把他们改成别的分类（或改个名）再删」）。
 
-**证据**：判据 `_tools/qa/_check_contact_categories.py` **100 项 0 失败**；反向验证 `_tools/qa/_reverse_verify_contact_categories.py` **31/31 全报红 + 15 个被碰过的文件逐字节还原**；后端用例 `backend/tests/test_contact_categories.py` 13 个；全仓 `_check_all.py` **⟪CHECKALL⟫**、`check_reachability.py` 96/96 无孤儿；迁移 012 已在 SQLite 跑过（`category VARCHAR(32) NOT NULL DEFAULT ''` + 索引，42 行全为空串，`schema_versions` 到 12，备份 `sorders.db.bak-20261003-feat0007`）。
+**证据**：判据 `_tools/qa/_check_contact_categories.py` **100 项 0 失败**；反向验证 `_tools/qa/_reverse_verify_contact_categories.py` **31/31 全报红 + 15 个被碰过的文件逐字节还原**；后端用例 `backend/tests/test_contact_categories.py` 13 个；全仓 `_check_all.py` **138/138（210.5 秒）**、`check_reachability.py` 96/96 无孤儿；迁移 012 已在 SQLite 跑过（`category VARCHAR(32) NOT NULL DEFAULT ''` + 索引，42 行全为空串，`schema_versions` 到 12，备份 `sorders.db.bak-20261003-feat0007`）。
 
 **模拟器 E2E（货主 5556）**：建类 `FEAT0007A` → 编辑联系人选类 → 左栏出 `FEAT0007A` 格、点它右栏只剩那一位 → 进「管理分类」改名/排序/删除 → 删有挂载的分类被后端挡下（屏上原文即后端 400 文案）。库里 `contact_categories [(1, 2, 'FEAT0007A', 1)]`、`shipper_contacts id=40 category='FEAT0007A'`。
 
