@@ -32,45 +32,6 @@
 ## 进行中
 
 
-### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
-**整份被打断** —— 它的锚点 `    money: Money` 在 `backend/app/core/contracts/pricing.py` 里出现了 2 次
-（`:96` `class PricingResult`、`:160` `class PricingLine`），`Sandbox.replace` 的唯一性断言抛错，
-后面的用例一条都没跑，报告里只留一句「非零退出」。
-
-**更深的问题**：审计锚点的元检查 `_tools/qa/_check_reverse_verify_anchors.py` 只从「注入元组」里抽，
-而 r4_all 那类脚本把注入写成 `sb.replace(路径, "原文", "替换成")` —— 它在报告里是「**0 条**」，
-而 0 条看起来是正常的（驱动别人的 harness 本来就是 0 条）⇒ **锚点腐烂永远不会被看见**。
-
-**改哪些文件**（零业务代码）：
-
-- `_tools/qa/_check_reverse_verify_anchors.py`：加第二支抽取（`ast.Call` + `HELPER_NAMES` + 首参必须
-  `is_file()`）；成因判断抽成 `judge_missing()` 两支共用；`strict_helper_names()` 只对「自己断言了唯一」
-  的助手要求恰好一次（`sub()` 是故意的全换语义，不认它）；新增下限 `MIN_SCRIPTS_WITH_TABLE`，
-  并把三条旧下限按实测复核（153 / 1426 / 1243）
-- `_tools/qa/_reverse_verify_anchor_audit.py`：新增 ⑨ 要求它唯一 / ⑩ 函数式注入表被点名 / ⑪ 新下限失守
-  三条注入；用例④⑤的锚点跟着源码改（⛔ 判据一个字没动）
-- `_tools/qa/_reverse_verify_r4_all.py`：`Sandbox.replace` 的裸 `assert` 改成 `SystemExit`（说清在哪几行 +
-  指向静态审计命令）；那条锚点带上紧邻的上下文行让它唯一
-- `docs/changes/GOV-0003.md` + `docs/changes/README.md` + 本页；另修两处写错的路径
-  （`backend/app/contracts/pricing.py` → `backend/app/core/contracts/pricing.py`）
-
-**顺带被新支抓出来的两条腐烂（同一类问题）**：`_reverse_verify_anchor_audit.py` 用例⑤的锚点缩进从
-12 格变成 4 格、用例④的 `"MIN_CASES = 850"` 因为抬了下限而失效 —— 都只改锚点。
-
-**新红当场暴露成死代码**：用例⑨ 第一次跑出一个 `TypeError: bad operand type for unary +: str` ——
-那条「要求它唯一」的红**从来没被执行过**（写成 `+ "…",` 的列表元素），所以它一直没被发现。
-⇒ 每条新红都必须配一条注入用例，否则它就是死代码。
-
-**证据**：`python _tools/qa/_check_reverse_verify_anchors.py` 绿（153 份脚本 / 1426 条锚点 /
-128 份注入表认得出）；`python _tools/qa/_reverse_verify_anchor_audit.py` **11/11 全红** +
-「4 个被碰过的文件与运行前逐字节一致」；探针 `_tmp/probe_strict.py` 打印 `strict = ['replace']`。
-
-**结论**：第二支已落地并把 7 份「函数式注入表」脚本（此前全是 0 条）纳入了审计 —— `_reverse_verify_r4_all.py` 17 条、
-`canary_freeze` 12、`prod_shape` 11、`pricing_provenance` 7、`canary_config` 7、`golden_set` 3、`core_freeze` 3；
-同类腐烂以后再出现会被当场点名。**提交**：`a6d3ae7`（5 files changed, 439 insertions(+), 47 deletions(-)），已推 `origin/new`（`ddc6011..a6d3ae7`）。
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5665,6 +5626,45 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
+**整份被打断** —— 它的锚点 `    money: Money` 在 `backend/app/core/contracts/pricing.py` 里出现了 2 次
+（`:96` `class PricingResult`、`:160` `class PricingLine`），`Sandbox.replace` 的唯一性断言抛错，
+后面的用例一条都没跑，报告里只留一句「非零退出」。
+
+**更深的问题**：审计锚点的元检查 `_tools/qa/_check_reverse_verify_anchors.py` 只从「注入元组」里抽，
+而 r4_all 那类脚本把注入写成 `sb.replace(路径, "原文", "替换成")` —— 它在报告里是「**0 条**」，
+而 0 条看起来是正常的（驱动别人的 harness 本来就是 0 条）⇒ **锚点腐烂永远不会被看见**。
+
+**改哪些文件**（零业务代码）：
+
+- `_tools/qa/_check_reverse_verify_anchors.py`：加第二支抽取（`ast.Call` + `HELPER_NAMES` + 首参必须
+  `is_file()`）；成因判断抽成 `judge_missing()` 两支共用；`strict_helper_names()` 只对「自己断言了唯一」
+  的助手要求恰好一次（`sub()` 是故意的全换语义，不认它）；新增下限 `MIN_SCRIPTS_WITH_TABLE`，
+  并把三条旧下限按实测复核（153 / 1426 / 1243）
+- `_tools/qa/_reverse_verify_anchor_audit.py`：新增 ⑨ 要求它唯一 / ⑩ 函数式注入表被点名 / ⑪ 新下限失守
+  三条注入；用例④⑤的锚点跟着源码改（⛔ 判据一个字没动）
+- `_tools/qa/_reverse_verify_r4_all.py`：`Sandbox.replace` 的裸 `assert` 改成 `SystemExit`（说清在哪几行 +
+  指向静态审计命令）；那条锚点带上紧邻的上下文行让它唯一
+- `docs/changes/GOV-0003.md` + `docs/changes/README.md` + 本页；另修两处写错的路径
+  （`backend/app/contracts/pricing.py` → `backend/app/core/contracts/pricing.py`）
+
+**顺带被新支抓出来的两条腐烂（同一类问题）**：`_reverse_verify_anchor_audit.py` 用例⑤的锚点缩进从
+12 格变成 4 格、用例④的 `"MIN_CASES = 850"` 因为抬了下限而失效 —— 都只改锚点。
+
+**新红当场暴露成死代码**：用例⑨ 第一次跑出一个 `TypeError: bad operand type for unary +: str` ——
+那条「要求它唯一」的红**从来没被执行过**（写成 `+ "…",` 的列表元素），所以它一直没被发现。
+⇒ 每条新红都必须配一条注入用例，否则它就是死代码。
+
+**证据**：`python _tools/qa/_check_reverse_verify_anchors.py` 绿（153 份脚本 / 1426 条锚点 /
+128 份注入表认得出）；`python _tools/qa/_reverse_verify_anchor_audit.py` **11/11 全红** +
+「4 个被碰过的文件与运行前逐字节一致」；探针 `_tmp/probe_strict.py` 打印 `strict = ['replace']`。
+
+**结论**：第二支已落地并把 7 份「函数式注入表」脚本（此前全是 0 条）纳入了审计 —— `_reverse_verify_r4_all.py` 17 条、
+`canary_freeze` 12、`prod_shape` 11、`pricing_provenance` 7、`canary_config` 7、`golden_set` 3、`core_freeze` 3；
+同类腐烂以后再出现会被当场点名。**提交**：`a6d3ae7`（5 files changed, 439 insertions(+), 47 deletions(-)），已推 `origin/new`（`ddc6011..a6d3ae7`）。
 
 ### [2026-10-03 04:0x UTC → 2026-10-03 已完成] 会话：**CHG-0015 地址与联系人页第 4 批：信息补齐（分类小字 / 仓库标记 / 抽屉拉满 / 地址尾部省略 / 删除后可撤回）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
