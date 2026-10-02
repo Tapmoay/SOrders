@@ -31,27 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 05:0x UTC] 会话：**CHG-0013 地址与联系人页第 2 批：顶部导航与搜索框收编唯一实现**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求（paraphrased，长期未结）**：用户要求「前端页面要重做按照我们的设计规范进行写」。第 2 批接着
-CHG-0012 往下做：这一页的顶部三档还是**自己画的一排描边胶囊**（§3 组件速查里 `SegmentedStatusTabs`
-才是唯一实现），联系人那一档的搜索框也没走 `SearchField`（§4.4「按人搜索」的唯一一份实现）。
-
-**改什么**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt` ——
-① 私有 `AddressTabBar`（自定义 `Surface` + `BorderStroke` + 图标）删掉，换共用 `SegmentedStatusTabs`
-（三档语义色沿用 路线=ShipperTeal / 联系人=MgrGreen / 地址=MoneyOrange，选档仍然清空关键词）；
-② 搜索区按档分流：联系人档走 `SearchField(`（放大镜 + ✕ 一键清空 + 提示语同源 `UserSearch.HINT`），
-线路 / 地点两档保留 `SoTextField` + 原来的地址型占位语，清空也统一成 ✕ 形态。⛔ 不动取数 / 过滤口径 /
-抽屉 / 文案：`0 -> "搜线路：收货人 / 电话 / 地址"` 与 `UserSearch.matches(kw, …)` 原样保留 ——
-它们分别是 `_tools/ai/_check_ai_guardrails.py:4074` 的锚点与 `_tools/qa/_check_input_rules.py:101` 的豁免键。
-
-**文件清单**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`、
-`_tools/qa/_check_address_tabs.py`（新）、`_tools/qa/_reverse_verify_address_tabs.py`（新）、
-`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成）、`docs/changes/CHG-0013.md`、
-`docs/changes/README.md`、本文件。
-
-**状态**：开工。
-
 ### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
@@ -5686,6 +5665,33 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-03 05:0x UTC → 2026-10-03 已完成] 会话：**CHG-0013 地址与联系人页第 2 批：顶部导航与搜索框收编唯一实现**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求（paraphrased，长期未结）**：用户要求「前端页面要重做按照我们的设计规范进行写」。第 2 批接着
+CHG-0012 往下做，专治这一页的两处「同一件事有两个答案」：顶部三档是自己画的描边胶囊
+（§3 组件速查里 `SegmentedStatusTabs` 才是唯一实现），联系人那一档的搜索框也没走 `SearchField`
+（§4.4「按人搜索」的唯一一份实现）。
+
+**结论**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt` —— 私有
+`AddressTabBar`（`Surface` + `BorderStroke` + 每格一个图标，原 1106–1146）与 `BorderStroke` 的 import 一起删掉，
+换共用 `SegmentedStatusTabs`（无图标、语义色、选段淡色底；三档色沿用 路线=ShipperTeal / 联系人=MgrGreen /
+地址=MoneyOrange，切换仍清空关键词）；搜索区按档分流：联系人档走共用 `SearchField`（放大镜 + ✕ 一键清空，
+提示语同源 `core/UserSearch.HINT`「搜姓名 / 手机号（后 4 位也行）」），线路 / 地点两档保留 `SoTextField`
+与原来的地址型占位语，清空统一成 ✕ 且只在非联系人档画。⛔ 纯形态：取数 / 过滤口径
+（`UserSearch.matches(kw, it.displayName, it.phone)`）/ 抽屉 / 卡片 / 后端 / DTO 一个字没动；线路那句占位语
+既是 `_tools/ai/_check_ai_guardrails.py:4074` 的锚点、也是 `_tools/qa/_check_input_rules.py:101` 的豁免键，原样保留。
+
+**证据**：判据 `_tools/qa/_check_address_tabs.py` **40 项通过 / 0 失败**（清单自己算：`SegmentedStatusTabs(` ≥1、
+`AddressTabBar` 消失、`BorderStroke(` ==0、三档标签与语义色、`onSelect` 里 `keyword = 空串`、联系人档是 `SearchField(`、
+线路 / 地点档仍是 `SoTextField(` 且占位语原样、清空是 ✕、本页 `SearchField(` 只出现一次）；反向验证
+`_tools/qa/_reverse_verify_address_tabs.py` **24/24 全红**、末行「7 个被碰过的文件与运行前逐字节一致」
+（⚠️ 第一遍跑出 2 条 SKIP —— 注入锚点写错了，当场改成 `SEARCH_CALL` / 真实单行 IconButton 才拿到 24/24）；
+`_check_all` **140/140**（215.1 秒；提交后复跑 211.6 秒仍 140/140）、可达性 **100/100** 无孤儿；
+`:app:testEmuDebugUnitTest :app:assembleEmuDebug` **BUILD SUCCESSFUL in 36s**；模拟器 5554（派单员，APK 重装）实测：
+路线档三档胶囊无图标、选段淡青底，联系人档搜索框左侧放大镜 +「搜姓名 / 手机号（后 4 位也行）」
+（截图 `_tmp/tabs_5554.png`、`_tmp/tabs_5554_contacts.png`）。
+
+**提交**：`74c717d`（7 files changed, 957 insertions(+), 59 deletions(-)），已推 `origin/new`（`73e48de..74c717d`）。
 ### [2026-10-03 04:0x UTC → 2026-10-03 已完成] 会话：**CHG-0012 地址与联系人页按设计规范重做（第 1 批：三张卡的圈底动作 + 左删右编）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **需求（paraphrased，长期未结）**：用户抱怨前端页面难看、认知成本高：「不只是显示信息啊，哪些信息该被显示，
