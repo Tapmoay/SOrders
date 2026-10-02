@@ -31,7 +31,7 @@
 
 ## 进行中
 
-### [2026-10-03 03:0x UTC → ] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+### [2026-10-03 03:0x UTC → 2026-10-03 已完成] 会话：**GOV-0003 反向验证锚点审计：补出「函数式注入表」第二支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **起因（2026-10-03 全量反向验证 3/77 不达标里的一份）**：`_tools/qa/_reverse_verify_r4_all.py`
 **整份被打断** —— 它的锚点 `    money: Money` 在 `backend/app/core/contracts/pricing.py` 里出现了 2 次
@@ -65,6 +65,10 @@
 **证据**：`python _tools/qa/_check_reverse_verify_anchors.py` 绿（153 份脚本 / 1426 条锚点 /
 128 份注入表认得出）；`python _tools/qa/_reverse_verify_anchor_audit.py` **11/11 全红** +
 「4 个被碰过的文件与运行前逐字节一致」；探针 `_tmp/probe_strict.py` 打印 `strict = ['replace']`。
+
+**结论**：第二支已落地并把 7 份「函数式注入表」脚本（此前全是 0 条）纳入了审计 —— `_reverse_verify_r4_all.py` 17 条、
+`canary_freeze` 12、`prod_shape` 11、`pricing_provenance` 7、`canary_config` 7、`golden_set` 3、`core_freeze` 3；
+同类腐烂以后再出现会被当场点名。**提交**：`a6d3ae7`（5 files changed, 439 insertions(+), 47 deletions(-)），已推 `origin/new`（`ddc6011..a6d3ae7`）。
 
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
