@@ -53,6 +53,27 @@
 
 判据是注入的"另一半"：每条注入都声明了「原文 → 替换成」，替换串只可能来自注入本身。
 
+### 2026-10-03 补的第二支：**不写成元组的注入表**（r4_all 那次整份被打断）
+
+`_reverse_verify_r4_all.py` 这类脚本把注入写成 `sb.replace(路径, "原文", "替换成")` —— 一条
+元组都没有，所以上面那支抽取**一条都看不见**（报告里那一行是「0 条」，而 0 条看起来是正常的）。
+代价：它的一条锚点（`    money: Money`）在 `pricing.py` 里出现了 2 次，`Sandbox.replace` 的
+唯一性守卫直接断言失败，**整份脚本被打断** —— 全量反向验证 77 分钟里这一份白跑，
+剩下的用例一条都没跑，报告里只留一句「非零退出」。
+
+所以现在两支一起抽（两支共用同一套成因判断 `judge_missing()`），并且多一条下限：
+
+| 下限 | 盯的是什么 | 实测（2026-10-03） |
+| --- | --- | --- |
+| `MIN_SCRIPTS` | `GLOBS` 还扫得到脚本 | 153 |
+| `MIN_SCRIPTS_WITH_TABLE` | **注入表认得出的脚本数**（抽不出来 = 安静地少查） | 128 |
+| `MIN_CASES` | 核对到的锚点总数 | 1423 |
+| `MIN_WITH_NEW` | 拿得到「替换成」的锚点数（注入残留那一半判据靠它） | 1240 |
+
+唯一性只在**自己断言了唯一**的助手上要求（`strict_helper_names()`：函数体里有
+`count(...) == 1`）：`Sandbox.replace` 会要求；同一个类里的 `Sandbox.sub` 是故意的「全换」
+语义、**不要求** —— 按整份脚本判严格，会给那几条 `sub` 注入报假红。
+
 用法：
   python _tools/qa/_check_reverse_verify_anchors.py [--verbose]
   python _tools/qa/_check_reverse_verify_anchors.py --restore   # 还原注入残留（会先备份）
@@ -81,15 +102,27 @@ EXCLUDE_NAMES = {"_reverse_verify_all.py"}
 
 #: 兜底下限：低于它就说明「抽取逻辑本身失效了」，必须先报错，
 #: 而不是安静地什么都查不到（本项目栽过 5 次的形状）。
-MIN_SCRIPTS = 90
-MIN_CASES = 850
+#: 2026-10-03 实测 153 / 1423，按 ~5% 余量定；改动抽取逻辑后要跟着复核。
+MIN_SCRIPTS = 145
+MIN_CASES = 1350
 
-#: 能拿到「替换成」那一格的锚点数下限（第 35 轮加的判据要用它）——实测 1018 条，
+#: 「注入表**认得出**的脚本数」下限（5 元组形状 ∪ 注入助手调用形状）。
+#: 为什么要有它：一份脚本的注入表抽不出来时，报告里那一行显示的是 **0 条**，
+#: 而 0 条**看起来是正常的** —— 这个仓库栽过 5 次的形状就是「安静地少查」。
+#: 2026-10-03 加：`_reverse_verify_r4_all.py` 就是这么藏了一条腐烂的锚点。
+MIN_SCRIPTS_WITH_TABLE = 122   # 实测 128（2026-10-03）
+
+#: 能拿到「替换成」那一格的锚点数下限（第 35 轮加的判据要用它）——2026-10-03 实测 1240 条，
 #: 抽不出来时就会有一条"注入残留永远判不出来"的检查悄悄变成绿的，所以要有下限。
-MIN_WITH_NEW = 900
+MIN_WITH_NEW = 1180
 
 #: 有些脚本把"替换"包成自己的小助手（`sub("原文", "替换成")`）——这一格也要认。
 HELPER_NAMES = {"sub", "substitute", "replace", "mutate", "inject", "swap"}
+
+#: 「这个助手要求锚点**唯一**吗」的判据 = 助手自己的函数体里断言了「原文出现次数 == 1」。
+#: ⚠️ 2026-10-03 加这一格之前，这类脚本的注入表**一条都抽不出来**（它们不是 5 元组形状），
+#: 于是它们的锚点腐烂**永远不会被这条元检查看到**；实测代价见 MIN_SCRIPTS_WITH_TABLE 上面那段。
+UNIQUE_GUARD_RE = re.compile(r"count\([^)]*\)\s*(?:==|!=|>=|<=|<|>)\s*1")
 
 #: 算"源码文件"的后缀 —— 目标路径解析出这些东西但文件不存在 = 被改名/搬走了。
 SRC_SUFFIXES = {
@@ -391,6 +424,93 @@ def regex_hit(text: str, old: str) -> bool:
     return False
 
 
+def strict_helper_names(src: str, tree: ast.Module) -> set[str]:
+    """哪些**助手名**要求锚点唯一（它自己的函数体里断言了「原文出现次数 == 1」）。
+
+    ⚠️ 判据必须落到**助手名**上，不能落到「整份脚本」上：`_reverse_verify_r4_all.py` 的
+    `Sandbox.replace` 有唯一性守卫，而同一个类里的 `Sandbox.sub` 是**故意的「全换」语义**
+    （`sub(..., "ROUND_HALF_UP", ...)` 就是要一次改掉两处）。
+    按整份脚本判严格，会给那 5 条 `sub` 注入报 5 条**假红** —— 这条检查是要天天跑的，
+    误报比漏报更伤。
+    """
+    out: set[str] = set()
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or fn.name not in HELPER_NAMES:
+            continue
+        seg = ast.get_source_segment(src, fn) or ""
+        if UNIQUE_GUARD_RE.search(seg):
+            out.add(fn.name)
+            continue
+        # ⚠️ 间接写法也要认：`n = text.count(old)` 之后 `if n != 1:`（这个仓库的写法）。
+        #    判据是「这个助手**自己断言了唯一**」，不认它写成一行还是两行 ——
+        #    只认一行的话，把 assert 改成"先赋值再判"就会让这一格静默失效。
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Assign):
+                continue
+            val = node.value
+            if not (
+                isinstance(val, ast.Call)
+                and isinstance(val.func, ast.Attribute)
+                and val.func.attr == "count"
+            ):
+                continue
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if any(
+                re.search(r"\b" + re.escape(nm) + r"\s*(?:==|!=|>=|<=|<|>)=?\s*1\b", seg)
+                for nm in names
+            ):
+                out.add(fn.name)
+                break
+    return out
+
+
+def judge_missing(
+    script: Path, label: str, target: Path, text: str, old: str, new: str, uses_regex: bool
+) -> tuple[str, object]:
+    """原文在目标文件里**找不到**时判成因，返回 (种类, 说明)：
+
+    ("ok", "")             正则锚点其实还命中（不是腐烂，别报）
+    ("leftover", Leftover) 原文没了、而**替换串在** = 上一次注入没还原
+    ("moved", "")          报表源码搬到了别的文件里，并集里找得到（不是腐烂）
+    ("rot", 文案)          锚点腐烂（去更新锚点）
+
+    ⚠️ 2026-10-03 把这段从元组那一支**抽出来共用**：新增的「注入助手调用」那一支也要判成因，
+    而两处必须**一模一样** —— 分叉出去的那一份迟早会漏掉「注入残留」这一支，
+    它的修法与锚点腐烂**正好相反**（照着「更新锚点」改 = 把注入的 bug 永久钉进源码）。
+    """
+    if uses_regex and regex_hit(text, old):
+        return "ok", ""
+    # ⛔ 原文没了，而**替换串在**：这不是锚点腐烂，是上一次注入没还原。
+    #    两者的修法相反（一个要改锚点、一个绝不能改锚点），所以必须分开报。
+    hits = count_in(text, new) if (new and new.strip()) else 0
+    if hits:
+        return "leftover", Leftover(
+            script=script,
+            label=label,
+            target=target,
+            old=old,
+            new=new,
+            lineno=line_of(text, new),
+            hits=hits,
+        )
+    # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— 注入器已经**按并集**找那一份
+    # 含原文的文件（26 份走 Sandbox.apply 的回退、6 份走各自的 mutate 回退），
+    # 所以这里也要按同一张清单判：并集里找得到就不算「锚点失效」。
+    # ⛔ 否则这条元检查会把「搬家」判成「腐烂」，逼人去逐条改路径常量 —— 那正是要避免的。
+    try:
+        from _airepo import reports_files  # noqa: PLC0415
+
+        for _c in reports_files():
+            if _c == target:
+                continue
+            _t = _c.read_text(encoding="utf-8", errors="replace")
+            if count_in(_t, old) >= 1 or (uses_regex and regex_hit(_t, old)):
+                return "moved", ""
+    except Exception:  # noqa: BLE001 —— 判据自己不该因为读不到包而崩
+        pass
+    return "rot", "原文找不到（" + preview(old) + "）"
+
+
 def audit_script(
     script: Path, seen_keys: set[tuple[str, str]] | None = None
 ) -> tuple[list[tuple[str, Path, list[str]]], int, list[Leftover], int]:
@@ -460,46 +580,84 @@ def audit_script(
                 continue
             if count_in(text, old) >= 1:
                 continue
-            if uses_regex and regex_hit(text, old):
+            # ⚠️ 2026-10-03：成因判断抽成 judge_missing 共用（下面「注入助手调用」那一支走的是
+            #    同一个函数）。两条支路必须一模一样 —— 分叉出去的那一份迟早会漏掉「注入残留」
+            #    这一支，而它的修法与锚点腐烂**正好相反**（改错方向 = 把注入的 bug 钉进源码）。
+            kind, why = judge_missing(script, label, target, text, old, new, uses_regex)
+            if kind == "leftover":
+                leftovers.append(why)  # type: ignore[arg-type]
                 continue
-            # ⛔ 原文没了，而**替换串在**：这不是锚点腐烂，是上一次注入没还原。
-            #    两者的修法相反（一个要改锚点、一个绝不能改锚点），所以必须分开报。
-            hits = count_in(text, new) if (new and new.strip()) else 0
-            if hits:
-                leftovers.append(
-                    Leftover(
-                        script=script,
-                        label=label,
-                        target=target,
-                        old=old,
-                        new=new,
-                        lineno=line_of(text, new),
-                        hits=hits,
-                    )
-                )
+            if kind in ("ok", "moved"):
                 continue
-            # 第二轮 R2-05：报表源码搬进了 `services/reports/` —— 注入器已经**按并集**找那一份
-            # 含原文的文件（26 份走 Sandbox.apply 的回退、6 份走各自的 mutate 回退），
-            # 所以这里也要按同一张清单判：并集里找得到就不算「锚点失效」。
-            # ⛔ 否则这条元检查会把「搬家」判成「腐烂」，逼人去逐条改路径常量 —— 那正是要避免的。
-            try:
-                from _airepo import reports_files  # noqa: PLC0415
-
-                _moved = False
-                for _c in reports_files():
-                    if _c == target:
-                        continue
-                    _t = _c.read_text(encoding="utf-8", errors="replace")
-                    if count_in(_t, old) >= 1 or (uses_regex and regex_hit(_t, old)):
-                        _moved = True
-                        break
-            except Exception:  # noqa: BLE001 —— 判据自己不该因为读不到包而崩
-                _moved = False
-            if _moved:
-                continue
-            bad.append(f"原文找不到（{preview(old)}）")
+            bad.append(str(why))
         if bad and (script.name, label) not in ALLOW:
             problems.append((label, target, bad))
+
+    # ------------------------------------------------------------ 第二支：函数式注入表
+    # `sb.replace(路径 / "x.py", "原文", "替换成")` 这种**不写成元组**的注入表，上面那一支
+    # 一条都抽不出来 ⇒ 它们的锚点腐烂**永远不会被这条元检查看到**（报告里那一行是「0 条」，
+    # 而 0 条看起来是正常的）。2026-10-03 实测代价：`_reverse_verify_r4_all.py` 的一条锚点在
+    # 源码里出现了 2 次，全量反向验证跑到它时被唯一性守卫**整份打断** —— 那一份白跑，
+    # 剩下的用例一条都没跑，报告里只留一句「非零退出」。
+    strict = strict_helper_names(src, tree)
+    texts: dict[Path, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        name = node.func.attr
+        if name not in HELPER_NAMES or len(node.args) < 2:
+            continue
+        h_target = resolve(node.args[0], script, consts, set())
+        # ⛔ 必须要求它**是一个真实存在的文件**：`text.replace("a", "b")` 这类字符串方法也会
+        #    走到这里（实测还撞上过 `Path("D:/")` 这种目录，直接把判据跑崩）。
+        #    宁可少查，不许误报 —— 这条检查是要天天跑的。
+        if h_target is None or not h_target.is_file():
+            continue
+        h_old = const_string(node.args[1], consts)
+        if not h_old or not h_old.strip() or h_old.startswith("re:"):
+            continue
+        h_new = const_string(node.args[2], consts) if len(node.args) >= 3 else ""
+        h_label = "注入助手调用 " + name + "()（脚本第 " + str(node.lineno) + " 行）"
+        checked += 1
+        if h_new and h_new.strip():
+            with_new += 1
+        if seen_keys is not None:
+            seen_keys.add((script.name, h_label))
+        h_text = texts.get(h_target)
+        if h_text is None:
+            h_text = texts[h_target] = h_target.read_text(encoding="utf-8", errors="replace")
+        h_hits = count_in(h_text, h_old)
+        if h_hits >= 1:
+            # 唯一性：**只有自己断言了唯一**的助手才要求恰好一次（见 strict_helper_names）。
+            # ⛔ 不能按整份脚本判严格：同一个 Sandbox 里的 sub() 是故意的「全换」语义。
+            if name in strict and h_hits != 1:
+                where = "、".join(
+                    str(i)
+                    for i, ln in enumerate(h_text.replace("\r\n", "\n").splitlines(), 1)
+                    if h_old in ln
+                )
+                if (script.name, h_label) not in ALLOW:
+                    problems.append((
+                        h_label,
+                        h_target,
+                        [
+                            "这段原文出现 " + str(h_hits) + " 次"
+                            + ("（第 " + where + " 行）" if where else "")
+                            + "，而 " + name + "() 要求它唯一 —— 它会在调用点直接抛错/断言，把**整份脚本"
+                            "打断**（后面的用例一条都不跑，报告里只留一句「非零退出」）。"
+                            "单行锚点要带上紧邻的上下文行，或改用 sub() 的「全换」语义。",
+                        ],
+                    ))
+            continue
+        h_kind, h_why = judge_missing(script, h_label, h_target, h_text, h_old, h_new, uses_regex)
+        if h_kind == "leftover":
+            leftovers.append(h_why)  # type: ignore[arg-type]
+            continue
+        if h_kind in ("ok", "moved"):
+            continue
+        if (script.name, h_label) not in ALLOW:
+            problems.append((h_label, h_target, [str(h_why)]))
+
     return problems, checked, leftovers, with_new
 
 
@@ -560,6 +718,15 @@ def main() -> int:
             "**注入残留这一半判据等于没在跑**（它靠替换串认人）。先修抽取，再信这条检查。"
         )
         fail = True
+    if n_scripts_with_table < MIN_SCRIPTS_WITH_TABLE:
+        print(
+            f"❌ 只有 {n_scripts_with_table} 份脚本的注入表认得出（少于 {MIN_SCRIPTS_WITH_TABLE}）："
+            "抽不出来的那几份**一条都不会被查**，而报告里显示的是「0 条」—— 看起来正常，"
+            "所以必须由这条下限来喊。2026-10-03 加：`_reverse_verify_r4_all.py` 就是这样藏了一条"
+            "腐烂的锚点，直到全量反向验证被它**整份打断**才暴露。两种形状都要认："
+            "5 元组 `(说明, 路径, 原文, 替换成, 期望)`，以及 `sb.replace(路径, 原文, 替换成)` 这类注入助手调用。"
+        )
+        fail = True
 
     # ⚠️ 化石防御：ALLOW 里的键必须还是真存在的（脚本名, 标签）——
     #    写过理由的那条注入被删掉/改名之后，理由会**永远留在表里**，
@@ -581,6 +748,10 @@ def main() -> int:
             for w in why:
                 print(f"      问题：{w}")
         print("\n修法：去那份脚本里把「被替换的原文」改成目标文件里现在真实的写法（**只改锚点，不动判据**）。")
+        print(
+            "      ⛔ 说「要求它唯一」的那几条**不是腐烂**，是锚点写得太短（同一段原文在源码里出现了多次）："
+            "带上紧邻的上下文行让它唯一，或改用 sub() 的「全换」语义。"
+        )
         fail = True
 
     if all_leftovers:

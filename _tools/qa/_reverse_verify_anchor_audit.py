@@ -5,7 +5,7 @@
 注入锚点有没有腐烂。元检查比普通检查更容易变成"永远绿"——它出错时最可能的表现是
 **安静地少查**（抽取逻辑认不出那些脚本的写法 → 一条锚点都没核对 → 打印"全部还在"）。
 
-所以这里把它的四种失效方式固化成注入：
+所以这里把它的失效方式固化成注入：
   ① 某一份脚本的锚点真的腐烂了 → 必须点名那一份、指出「原文找不到」；
   ② 目标文件被改名/搬走 → 必须报「目标文件不存在」；
   ③ 抽取逻辑自己失效（`GLOBS` 扫不到东西）→ 必须喊「只扫到 N 份脚本」，而不是零问题全绿；
@@ -17,6 +17,13 @@
   ⑦ **注入残留**：原文找不到、而**替换串在目标文件里** → 必须报「注入残留」，
      而且**不许**再给「去更新锚点」那句话（两者修法相反，说反了就是把 bug 永久钉进源码）；
   ⑧ `--restore` 必须真的把文件**按字节换回原文**（不能只打印一句"已还原"）。
+
+2026-10-03 补的三条（起因：r4_all 的注入表不写成元组，元检查一条都抽不出来 ⇒ 它的锚点
+在源码里长出了 2 次都没人知道，全量反向验证 77 分钟里那一份被整份打断）：
+  ⑨ 注入助手调用的锚点写得太短、而那个助手**自己要求唯一** → 必须报「要求它唯一」+ 行号
+     （⛔ 只在"自己断言了唯一"的助手上要求：同一个类里的 `sub()` 是故意的全换语义）；
+  ⑩ 函数式注入表里的一条原文没了 → 必须**点名那一份脚本**（证明第二支抽取真的看见了它）；
+  ⑪ 「注入表认得出的脚本数」下限失守 → 必须喊「抽取失效」，不许当成"全部正常"。
 
 ⚠️ 快照/还原按**字节**做，跑完逐字节核对（本项目栽过"注入把 bug 留在源码里"）。
 
@@ -34,6 +41,9 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECK = "_tools/qa/_check_reverse_verify_anchors.py"
 #: 被注入的"别人的脚本"（这条元检查的审计对象）。
 VICTIM = "_tools/qa/_reverse_verify_input_rules.py"
+#: ⑨⑩ 要弄脏的那一份：它的注入表**不写成元组**（sb.replace(路径, 原文, 替换成)），
+#: 2026-10-03 之前这条元检查一条都抽不出来 ⇒ 它的锚点腐烂永远看不见（见 ⑩）。
+R4ALL = "_tools/qa/_reverse_verify_r4_all.py"
 #: ⑦⑧ 要弄脏的那个**源码文件**：VICTIM 的第 1 条注入就是在这里把电话过滤摘掉的。
 VICTIM_TARGET = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt"
 
@@ -63,15 +73,17 @@ CASES: list[tuple] = [
     (
         "条数下限失守（核对到的锚点数远少于下限）→ 必须先喊「抽取失效」",
         CHECK,
-        "MIN_CASES = 850",
+        "MIN_CASES = 1350",
         "MIN_CASES = 999999",
         "抽取失效比锚点腐烂更危险",
     ),
     (
         "`re:` 前缀那一支被拿掉（正则锚点会被误报成腐烂）→ 必须按正则再看一眼",
         CHECK,
-        "            if uses_regex and regex_hit(text, old):",
-        "            if False and regex_hit(text, old):",
+        # ⚠️ 2026-10-03：那一支从元组循环里**搬进了 judge_missing()**（缩进 12 → 4 格，
+        #    两条支路共用同一套成因判断）—— 锚点跟着改，⛔ 判据一个字不动。
+        "    if uses_regex and regex_hit(text, old):",
+        "    if False and regex_hit(text, old):",
         "允许 AI 查看成本与毛利",
     ),
     (
@@ -105,6 +117,34 @@ CASES: list[tuple] = [
         "已按注入串换回原文",
         ["--restore"],
         True,
+    ),
+    (
+        "注入助手调用的锚点写得太短（同一段原文出现 2 次、而那个助手要求唯一）"
+        "→ 必须报「要求它唯一」，并说清在哪几行",
+        R4ALL,
+        '               "    money: Money" + chr(10) + "    rule_name: str",\n'
+        '               "    money: Decimal" + chr(10) + "    rule_name: str")',
+        '               "    money: Money",\n'
+        '               "    money: Decimal")',
+        "要求它唯一",
+    ),
+    (
+        # ⛔ 这一格是"函数式注入表被看见了"的唯一证据：以前这条元检查对 r4_all
+        #    一条都抽不出来（报告里写"0 条"，看起来完全正常），所以必须点名它。
+        "函数式注入表里的一条原文没了 → 必须**点名那一份脚本**（0 条 = 安静地少查）",
+        R4ALL,
+        '               "    money: Money" + chr(10) + "    rule_name: str",\n'
+        '               "    money: Decimal" + chr(10) + "    rule_name: str")',
+        '               "    moneyZZZ_不存在: Money" + chr(10) + "    rule_name: str",\n'
+        '               "    moneyZZZ_不存在: Decimal" + chr(10) + "    rule_name: str")',
+        "_reverse_verify_r4_all.py",
+    ),
+    (
+        "「注入表认得出的脚本数」下限失守 → 必须喊「抽取失效」，不许零问题全绿",
+        CHECK,
+        "MIN_SCRIPTS_WITH_TABLE = 122",
+        "MIN_SCRIPTS_WITH_TABLE = 999999",
+        "注入表认得出",
     ),
 ]
 

@@ -71,7 +71,21 @@ class Sandbox:
     def replace(self, p: Path, old: str, new: str) -> None:
         self._keep(p)
         text = p.read_text(encoding="utf-8")
-        assert text.count(old) == 1, p.name + ": 原文出现 " + str(text.count(old)) + " 次，无法唯一替换"
+        n = text.count(old)
+        if n != 1:
+            # ⚠️ 这里**故意**从 assert 改成 SystemExit + 说清在哪几行：2026-10-03 全量反向验证
+            #    77 分钟里，这一份就是因为一条锚点在源码里出现了 2 次而被**整份打断**，
+            #    剩下的用例一条都没跑，报告里只留一句"非零退出"。
+            #    锚点腐烂**本该**由静态审计提前报（_check_reverse_verify_anchors.py），
+            #    所以报错里直接写上那条命令。
+            where = "、".join(str(i) for i, ln in enumerate(text.splitlines(), 1) if old in ln)
+            raise SystemExit(
+                "锚点不唯一：" + p.name + " 里这段原文出现 " + str(n) + " 次"
+                + ("（第 " + where + " 行）" if where else "")
+                + "。单行锚点要带上紧邻的上下文行（或改用 sb.sub() 的「全换」语义）。\n"
+                + "⛔ 不要去改判据。先跑静态审计确认："
+                + "python _tools/qa/_check_reverse_verify_anchors.py"
+            )
         p.write_bytes(text.replace(old, new).encode("utf-8"))
 
     def sub(self, p: Path, old: str, new: str) -> None:
@@ -227,7 +241,13 @@ def c_plugin_base(sb: Sandbox) -> None:
 
 def c_wrong_output_type(sb: Sandbox) -> None:
     """把 PricingResult.money 的注解改成裸 Decimal（核心就不再"只接受 Money"了）。"""
-    sb.replace(CONTRACTS / "pricing.py", "    money: Money", "    money: Decimal")
+    # ⚠️ 锚点必须**唯一**：单行 "    money: Money" 在 pricing.py 里出现过 2 次
+    #    （PricingResult.money 与 v2 的 PricingLine.money），照原样写会让 Sandbox.replace
+    #    的唯一性守卫把整份脚本打断（2026-10-03 全量反验实测）。带上紧邻的下一行
+    #    "    rule_name: str" —— 只有 PricingResult 有它，所以锚点唯一、语义不变。
+    sb.replace(CONTRACTS / "pricing.py",
+               "    money: Money" + chr(10) + "    rule_name: str",
+               "    money: Decimal" + chr(10) + "    rule_name: str")
 
 
 def c_quantum_changed(sb: Sandbox) -> None:
