@@ -124,7 +124,7 @@ pure_consumer: no
 name: party
 中文名: 往来单位档案域
 为什么是它自己的域: 货主 / 批发商 / 散客 / 供应商 / 挂账单位是「跟谁打交道」的档案：它们不属于订单（订单只是引用），也不属于钱（钱只是记在它们名下）。
-owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations
+owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations, contact_categories
 commands: services.supplier_service:soft_delete_supplier, services.supplier_service:restore_supplier, services.supplier_service:soft_delete_payable, services.supplier_service:restore_payable, services.shipper_contact_service:upsert_boss_contact
 reads: users@identity
 events: -

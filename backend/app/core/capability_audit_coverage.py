@@ -79,7 +79,10 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                      'PLACE_RESTORE', 'PLACE_CATEGORY_UPSERT', 'PLACE_CATEGORY_DELETE', 'PLACE_CATEGORY_REORDER'),
     'unit_conversion:manage': ('UNIT_CONVERSION_UPSERT', 'UNIT_CONVERSION_DELETE', 'UNIT_CONVERSION_RESTORE'),
     'vehicle:manage': ('VEHICLE_UPSERT', 'VEHICLE_DRIVER_SET'),
-    'address:manage': (),
+    # FEAT-0007：地址与联系人原来一个动作码都没有（见下面 AUDIT_EXCEPTIONS 的历史注释）。
+    # 联系人分类这一块**有真正的写动作**（建类 / 删类 / 排序都要可查：谁把哪一类挪到了第一位），
+    # 所以认领回来 —— 例外表只减不增，靠「先加动作码、再认领」来销，不靠加例外。
+    'address:manage': ('CONTACT_CATEGORY_UPSERT', 'CONTACT_CATEGORY_DELETE', 'CONTACT_CATEGORY_REORDER'),
     'shipper_ledger:read_own': (),
 }
 
@@ -98,8 +101,6 @@ AUDIT_CAPABILITY_EXEMPT: dict[str, str] = {
                             '**什么时候删掉这一条**：如果内部备注要单独可查（现在只能在订单详情里看）。',
     'order:upload_delivery': '司机上传送达照片：留痕是**图片本体**（`delivery_photos` 表）与订单状态，'
                              '不是操作日志。**什么时候删掉这一条**：如果照片要做「谁在什么时候传的第几张」这类追溯。',
-    'address:manage': '地址与联系人没有独立的审计动作码（`OperationAction` 里一个 `ADDRESS_*` 都没有）。'
-                       '**什么时候删掉这一条**：如果地址库要可审计（谁改了谁家的地址），先加动作码、再来销这一条。',
 }
 
 #: 例外与豁免的条数上限（⛔ 只减不增）：

@@ -5626,6 +5626,42 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-03 01:0x UTC → 2026-10-03 已完成] 会话：**FEAT-0007 联系人分类（左分类右列表，复用地点分类那一套）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「我们的联系人好像是可以做分类的吧，同样以**左边为分类右边为列表**的形式展示出来。
+如果没有分类功能的话，则添加新的分类功能」「**对分类管理的话啊，就像我们的复用地点管理一样**」
+「这个不只是派单人员，他拥有其他的账户也是拥有比如说**货主批发商**」（＝货主/批发商/派单员三种身份都要有；
+批发商在本仓库就是**货主**（`ShipperSettlement` 那条线，没有独立角色），所以角色集合 = `ShipperOrDispatcher`）。
+
+**做什么**：给联系人加一格自定义分类（自由文本、空串=未分类），配一张**按人分区**的名册表 `contact_categories`
+决定左侧那一列的名字与顺序 —— 与 `place_categories` / `product_categories` **同一套做法**（名册管顺序、字符串管归属、
+改名级联、整份顺序提交幂等、还有联系人挂着时不许删）。顺带：联系人列表按分类分栏、增改联系人时能选分类。
+
+**改哪些文件**：`backend/app/models/{contact_category.py(新),shipper.py,enums.py,__init__.py}`、
+`backend/app/schemas/{contact_category.py(新),shipper.py}`、`backend/app/api/v1/{contact_categories.py(新),router.py,shipper.py}`、
+`backend/app/migrations/012_contact_categories.py(新)`、`backend/tests/test_contact_categories.py(新)`、
+`backend/app/core/role_capabilities.py`（`address:manage` 那句 what 补上「联系人分组」）、
+`_tools/qa/_check_contact_categories.py(新)` + `_reverse_verify_contact_categories.py(新)`、
+`android/.../ui/shipper/{AddressScreen.kt,AddressViewModel.kt,ContactCategories*}`、`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、
+`docs/changes/FEAT-0007.md(新)`、`docs/changes/README.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`（重生成）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、
+`docs/RELEASE_CANDIDATE.md`（迁移版本 11→12）。
+
+⛔ **不碰**：`place_categories` 表本身（不动它的唯一约束、不加 kind 列 —— 两边级联目标不同，合表就要每次都判 kind）、
+下单/派单的业务口径（CHG-0010 那套补号写回）、`shipper_contacts.phone` 的唯一约束、微信/生产环境。
+
+**结论**：联系人多了**一格自定义分类**（自由文本、空串=未分类），左侧一列由**按人分区**的名册表 `contact_categories` 决定名字与顺序 —— 与地点分组 / 商品分类**同一套做法**（名册管顺序、字符串管归属、改名级联、整份顺序提交幂等）；还有联系人挂着时不许删（后端 400 原话「还有 N 位联系人挂在这个分类下，先把他们改成别的分类（或改个名）再删」）。
+
+**证据**：判据 `_tools/qa/_check_contact_categories.py` **100 项 0 失败**；反向验证 `_tools/qa/_reverse_verify_contact_categories.py` **31/31 全报红 + 15 个被碰过的文件逐字节还原**；后端用例 `backend/tests/test_contact_categories.py` 13 个；全仓 `_check_all.py` **⟪CHECKALL⟫**、`check_reachability.py` 96/96 无孤儿；迁移 012 已在 SQLite 跑过（`category VARCHAR(32) NOT NULL DEFAULT ''` + 索引，42 行全为空串，`schema_versions` 到 12，备份 `sorders.db.bak-20261003-feat0007`）。
+
+**模拟器 E2E（货主 5556）**：建类 `FEAT0007A` → 编辑联系人选类 → 左栏出 `FEAT0007A` 格、点它右栏只剩那一位 → 进「管理分类」改名/排序/删除 → 删有挂载的分类被后端挡下（屏上原文即后端 400 文案）。库里 `contact_categories [(1, 2, 'FEAT0007A', 1)]`、`shipper_contacts id=40 category='FEAT0007A'`。
+
+**⚠️ 全量反向验证（--changed，60 个文件里选中 78/153、实跑 77 份）抓到第三处：**为了让联系人复用同一个「新建分类」弹窗，我把地点那句说明句写成了参数默认值 `hint: String = "…"` —— 而 `_check_hints.py` 靠「字面量挂在 `Hint(` 调用里」来盯住「有人把它改回裸 Text」，挪到默认值上那句话就**从提示目录里消失**，`_reverse_verify_hints.py` 的用例①（裸露的解释句 = 1）随之失灵（实测变成 0）。修法：参数默认值改空，内联字面量搬回 `Hint(hint.ifBlank { "…" })` 里，并把这条禁令写进代码注释。修后 `_check_hints.py` 29/29、`_reverse_verify_hints.py` **15/15**。
+
+**其余两份红与本事项无关**：`order_commands` 单独复跑 14/14 全绿（批量跑时的偶发）；`r4_all` 是**既有锚点腐烂**（`backend/app/core/contracts/pricing.py` 里 `    money: Money` 这一行出现 2 次，注入脚本无法唯一替换；那个文件不在本次改动里）→ 另开 GOV 修锚点。
+
+**提交**：`⟪HASH⟫`，已推 `origin/new`。
+
+---
 ### [2026-10-02 16:14 UTC → 2026-10-03 已完成] 会话：**CHG-0010 新建联系人手机号选填（+ 下单时补号自动写回档案）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **需求方原话**：「新建联系人的时候不需要必填手机号」「新建货主的时候没必要强迫填手机号……在下单的时候用户

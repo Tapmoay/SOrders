@@ -1104,6 +1104,11 @@ private fun actionLabel(action: String): String = when (action) {
     "PLACE_CATEGORY_UPSERT" -> "改地点分类"
     "PLACE_CATEGORY_DELETE" -> "删地点分类"
     "PLACE_CATEGORY_REORDER" -> "调地点分类顺序"
+    // 联系人分类（FEAT-0007）：同样与上面两套**分开命名** —— 审计里「改了联系人分类」
+    // 和「改了地点/商品分类」是三件事，都叫「改分类」就分不出来了。
+    "CONTACT_CATEGORY_UPSERT" -> "改联系人分类"
+    "CONTACT_CATEGORY_DELETE" -> "删联系人分类"
+    "CONTACT_CATEGORY_REORDER" -> "调联系人分类顺序"
     // 开销分类（2026-09-20）：与上面两套**分开命名**，原因同地点分类 ——
     // 审计里"改了开销分类"和"改了商品/地点分类"是三件事，都叫「改分类」就分不出来了。
     "EXPENSE_CATEGORY_UPSERT" -> "改开销分类"

@@ -48,6 +48,13 @@ class ShipperContact(Base, TimestampMixin, SoftDeleteMixin):
     # 两条"没填号"的联系人在 MySQL 与 SQLite 上都会撞唯一键；NULL 才允许多行共存。
     phone: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     display_name: Mapped[str] = mapped_column(String(128), default="")
+    #: 自定义分类（FEAT-0007，用户 2026-10-03：「我们的联系人好像是可以做分类的吧，同样以**左边为分类
+    #  右边为列表**的形式展示出来」）。与 `shipper_locations.category` **同一个口径**：
+    #  自由文本 + 一张按人分区的名册表（`ContactCategory`）管顺序，与商品/地点分类同一套做法。
+    #  空串 = 未分类。
+    #  ⚠️ 存在联系人这一行上、**不存人名册 id**：分类是"这个人属于哪一类"，不是"他的档案在哪一格"，
+    #     名册删一行不该让 30 位联系人的归属跟着消失（与地点侧同一条理由）。
+    category: Mapped[str] = mapped_column(String(32), default="", index=True)
 
     shipper: Mapped["User"] = relationship(back_populates="contacts")
 

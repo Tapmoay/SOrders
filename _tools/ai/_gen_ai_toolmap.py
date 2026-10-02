@@ -80,6 +80,8 @@ MODULE_CN: dict[str, str] = {
     "product_categories": "商品分类",
     # 地点分类名册（2026-09-19）：地址库左侧那一列，**按人分区**（每个人管自己那一份）
     "place_categories": "地点分类",
+    # 联系人分类名册（FEAT-0007）：地址与联系人页「联系人」段左侧那一列，同样**按人分区**。
+    "contact_categories": "联系人分类",
     "price_rules": "批发商定价",
     "inventory": "库存管理",
     "users": "司机/货主/批发商/账号",

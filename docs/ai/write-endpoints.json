@@ -1,10 +1,22 @@
 [
  {
   "method": "POST",
+  "path": "/api/v1/ai/telemetry",
+  "handler": "report_ai_calls",
+  "file": "v1/ai_telemetry.py",
+  "line": 46,
+  "body": "AiCallReport",
+  "auth": [
+   "仅登录"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/arrears-units",
   "handler": "create_unit",
   "file": "v1/arrears.py",
-  "line": 28,
+  "line": 41,
   "body": "ArrearsUnitCreate",
   "auth": [
    "LEDGER_EDIT"
@@ -18,7 +30,7 @@
    },
    {
     "name": "phone",
-    "type": "str",
+    "type": "ContactPhone",
     "required": false,
     "default": null
    },
@@ -35,7 +47,7 @@
   "path": "/api/v1/arrears-units/{unit_id}",
   "handler": "update_unit",
   "file": "v1/arrears.py",
-  "line": 46,
+  "line": 107,
   "body": "ArrearsUnitUpdate",
   "auth": [
    "LEDGER_EDIT"
@@ -49,7 +61,7 @@
    },
    {
     "name": "phone",
-    "type": "str | None",
+    "type": "OptionalContactPhone",
     "required": false,
     "default": "None"
    },
@@ -66,7 +78,7 @@
   "path": "/api/v1/arrears-units/{unit_id}",
   "handler": "delete_unit",
   "file": "v1/arrears.py",
-  "line": 75,
+  "line": 152,
   "body": null,
   "auth": [
    "LEDGER_EDIT"
@@ -78,7 +90,7 @@
   "path": "/api/v1/arrears-units/{unit_id}/restore",
   "handler": "restore_unit",
   "file": "v1/arrears.py",
-  "line": 99,
+  "line": 221,
   "body": null,
   "auth": [
    "LEDGER_EDIT"
@@ -87,10 +99,22 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/auth/logout",
+  "handler": "logout",
+  "file": "v1/auth.py",
+  "line": 75,
+  "body": null,
+  "auth": [
+   "仅登录"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/auth/login",
   "handler": "login_json",
   "file": "v1/auth.py",
-  "line": 24,
+  "line": 97,
   "body": "LoginRequest",
   "auth": [
    "?须读源码"
@@ -121,7 +145,88 @@
   "path": "/api/v1/auth/token",
   "handler": "login_form",
   "file": "v1/auth.py",
-  "line": 32,
+  "line": 107,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/contact-categories",
+  "handler": "create_category",
+  "file": "v1/contact_categories.py",
+  "line": 112,
+  "body": "ContactCategoryCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/contact-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/contact_categories.py",
+  "line": 149,
+  "body": "ContactCategoryUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/contact-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/contact_categories.py",
+  "line": 197,
+  "body": "ContactCategoryReorder",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/contact-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/contact_categories.py",
+  "line": 224,
   "body": null,
   "auth": [
    "?须读源码"
@@ -133,7 +238,7 @@
   "path": "/api/v1/customers",
   "handler": "create_customer",
   "file": "v1/customers.py",
-  "line": 39,
+  "line": 47,
   "body": "CustomerCreate",
   "auth": [
    "仅登录"
@@ -145,7 +250,7 @@
   "path": "/api/v1/customers/merge",
   "handler": "merge_customers",
   "file": "v1/customers.py",
-  "line": 73,
+  "line": 88,
   "body": "CustomerMergeBody",
   "auth": [
    "仅登录"
@@ -170,7 +275,7 @@
   "path": "/api/v1/driver-billing-rules",
   "handler": "create_rule",
   "file": "v1/driver_billing_rules.py",
-  "line": 138,
+  "line": 299,
   "body": "DriverBillingRuleCreate",
   "auth": [
    "ORDER_DISPATCH"
@@ -182,7 +287,7 @@
   "path": "/api/v1/driver-billing-rules/{rule_id}",
   "handler": "update_rule",
   "file": "v1/driver_billing_rules.py",
-  "line": 179,
+  "line": 345,
   "body": "DriverBillingRuleUpdate",
   "auth": [
    "ORDER_DISPATCH"
@@ -194,7 +299,7 @@
   "path": "/api/v1/driver-billing-rules/{rule_id}",
   "handler": "delete_rule",
   "file": "v1/driver_billing_rules.py",
-  "line": 242,
+  "line": 424,
   "body": null,
   "auth": [
    "ORDER_DISPATCH"
@@ -206,7 +311,7 @@
   "path": "/api/v1/driver-billing-rules/{rule_id}/restore",
   "handler": "restore_rule",
   "file": "v1/driver_billing_rules.py",
-  "line": 267,
+  "line": 456,
   "body": null,
   "auth": [
    "ORDER_DISPATCH"
@@ -218,7 +323,7 @@
   "path": "/api/v1/driver-billing-rules/attach",
   "handler": "attach_rule",
   "file": "v1/driver_billing_rules.py",
-  "line": 294,
+  "line": 483,
   "body": "AttachRuleBody",
   "auth": [
    "USER_MANAGE"
@@ -243,7 +348,7 @@
   "path": "/api/v1/driver-bills/generate",
   "handler": "generate_bills",
   "file": "v1/driver_bills.py",
-  "line": 95,
+  "line": 129,
   "body": "DriverBillGenerateBody",
   "auth": [
    "仅登录"
@@ -274,7 +379,7 @@
   "path": "/api/v1/driver-settlements",
   "handler": "create_settlement",
   "file": "v1/driver_settlements.py",
-  "line": 77,
+  "line": 78,
   "body": "DriverSettlementCreate",
   "auth": [
    "仅登录",
@@ -287,7 +392,7 @@
   "path": "/api/v1/driver-settlements/{settlement_id}",
   "handler": "settlement_action",
   "file": "v1/driver_settlements.py",
-  "line": 102,
+  "line": 121,
   "body": "SettlementActionBody",
   "auth": [
    "仅登录",
@@ -316,22 +421,103 @@
  },
  {
   "method": "POST",
-  "path": "/api/v1/expenses",
-  "handler": "create_expense",
-  "file": "v1/expenses.py",
-  "line": 62,
-  "body": "ExpenseCreate",
+  "path": "/api/v1/stats/exception-orders/{id}/resolve",
+  "handler": "resolve_exception_order",
+  "file": "v1/exception_resolution.py",
+  "line": 41,
+  "body": null,
   "auth": [
-   "仅登录"
+   "STATS_READ"
   ],
   "bodyFields": null
  },
  {
   "method": "POST",
-  "path": "/api/v1/files/parse-sheet",
-  "handler": "parse_sheet",
-  "file": "v1/files.py",
-  "line": 32,
+  "path": "/api/v1/expense-categories",
+  "handler": "create_category",
+  "file": "v1/expense_categories.py",
+  "line": 92,
+  "body": "ExpenseCategoryCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "link_kind",
+    "type": "str",
+    "required": false,
+    "default": "'none'"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/expense-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/expense_categories.py",
+  "line": 126,
+  "body": "ExpenseCategoryUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "link_kind",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/expense-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/expense_categories.py",
+  "line": 171,
+  "body": "ExpenseCategoryReorder",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/expense-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/expense_categories.py",
+  "line": 200,
   "body": null,
   "auth": [
    "?须读源码"
@@ -340,10 +526,115 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/expenses",
+  "handler": "create_expense",
+  "file": "v1/expenses.py",
+  "line": 79,
+  "body": "ExpenseCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/files/parse-sheet",
+  "handler": "parse_sheet",
+  "file": "v1/files.py",
+  "line": 33,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/freight-categories",
+  "handler": "create_category",
+  "file": "v1/freight_categories.py",
+  "line": 82,
+  "body": "FreightCategoryCreate",
+  "auth": [
+   "ORDER_DISPATCH"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/freight-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/freight_categories.py",
+  "line": 113,
+  "body": "FreightCategoryUpdate",
+  "auth": [
+   "ORDER_DISPATCH"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/freight-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/freight_categories.py",
+  "line": 152,
+  "body": "FreightCategoryReorder",
+  "auth": [
+   "ORDER_DISPATCH"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/freight-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/freight_categories.py",
+  "line": 177,
+  "body": null,
+  "auth": [
+   "ORDER_DISPATCH"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/freight-templates",
   "handler": "create_template",
   "file": "v1/freight_templates.py",
-  "line": 46,
+  "line": 251,
   "body": "FreightTemplateCreate",
   "auth": [
    "ORDER_DISPATCH"
@@ -355,7 +646,7 @@
   "path": "/api/v1/freight-templates/{template_id}",
   "handler": "update_template",
   "file": "v1/freight_templates.py",
-  "line": 67,
+  "line": 301,
   "body": "FreightTemplateUpdate",
   "auth": [
    "ORDER_DISPATCH"
@@ -367,7 +658,7 @@
   "path": "/api/v1/freight-templates/{template_id}",
   "handler": "delete_template",
   "file": "v1/freight_templates.py",
-  "line": 94,
+  "line": 363,
   "body": null,
   "auth": [
    "ORDER_DISPATCH"
@@ -379,7 +670,7 @@
   "path": "/api/v1/freight-templates/{template_id}/restore",
   "handler": "restore_template",
   "file": "v1/freight_templates.py",
-  "line": 109,
+  "line": 426,
   "body": null,
   "auth": [
    "ORDER_DISPATCH"
@@ -391,38 +682,19 @@
   "path": "/api/v1/inventory/movements",
   "handler": "create_movement",
   "file": "v1/inventory.py",
-  "line": 40,
+  "line": 65,
   "body": "MovementCreate",
   "auth": [
    "PRODUCT_MANAGE"
   ],
-  "bodyFields": [
-   {
-    "name": "product_id",
-    "type": "int",
-    "required": true,
-    "default": null
-   },
-   {
-    "name": "change",
-    "type": "int",
-    "required": true,
-    "default": null
-   },
-   {
-    "name": "note",
-    "type": "str",
-    "required": false,
-    "default": null
-   }
-  ]
+  "bodyFields": null
  },
  {
   "method": "POST",
   "path": "/api/v1/ledger/sync-from-delivered-orders",
   "handler": "sync_ledger_from_delivered_orders",
   "file": "v1/ledger.py",
-  "line": 169,
+  "line": 288,
   "body": "LedgerSyncFromOrdersBody",
   "auth": [
    "LEDGER_EDIT"
@@ -447,7 +719,7 @@
   "path": "/api/v1/ledger/entries",
   "handler": "create_entry",
   "file": "v1/ledger.py",
-  "line": 184,
+  "line": 305,
   "body": "LedgerCreate",
   "auth": [
    "LEDGER_EDIT"
@@ -459,11 +731,10 @@
   "path": "/api/v1/ledger/entries/{entry_id}",
   "handler": "update_entry",
   "file": "v1/ledger.py",
-  "line": 246,
+  "line": 395,
   "body": "LedgerUpdate",
   "auth": [
-   "LEDGER_EDIT",
-   "体内:LEDGER_EDIT"
+   "LEDGER_EDIT"
   ],
   "bodyFields": null
  },
@@ -472,7 +743,7 @@
   "path": "/api/v1/ledger/entries/{entry_id}",
   "handler": "delete_entry",
   "file": "v1/ledger.py",
-  "line": 311,
+  "line": 500,
   "body": null,
   "auth": [
    "LEDGER_EDIT",
@@ -485,7 +756,7 @@
   "path": "/api/v1/ledger/export-jobs",
   "handler": "create_export_job",
   "file": "v1/ledger.py",
-  "line": 336,
+  "line": 543,
   "body": "LedgerExportJobCreate",
   "auth": [
    "仅登录",
@@ -523,7 +794,7 @@
   "path": "/api/v1/ledger/receipts",
   "handler": "create_receipt_endpoint",
   "file": "v1/ledger.py",
-  "line": 393,
+  "line": 734,
   "body": "ShipperReceiptCreate",
   "auth": [
    "仅登录"
@@ -535,7 +806,7 @@
   "path": "/api/v1/notifications/price-notify",
   "handler": "notify_price_change",
   "file": "v1/notifications.py",
-  "line": 93,
+  "line": 121,
   "body": "PriceChangeNotifyBody",
   "auth": [
    "NOTIFICATION_MANAGE"
@@ -547,7 +818,7 @@
   "path": "/api/v1/notifications",
   "handler": "create_notification",
   "file": "v1/notifications.py",
-  "line": 135,
+  "line": 167,
   "body": "NotificationCreate",
   "auth": [
    "NOTIFICATION_MANAGE"
@@ -602,7 +873,7 @@
   "path": "/api/v1/notifications/read-all",
   "handler": "mark_all_read",
   "file": "v1/notifications.py",
-  "line": 158,
+  "line": 191,
   "body": null,
   "auth": [
    "仅登录"
@@ -614,7 +885,7 @@
   "path": "/api/v1/notifications/batch-delete",
   "handler": "batch_delete_notifications",
   "file": "v1/notifications.py",
-  "line": 177,
+  "line": 210,
   "body": "NotificationBatchDeleteBody",
   "auth": [
    "仅登录"
@@ -645,7 +916,7 @@
   "path": "/api/v1/notifications/{notification_id}",
   "handler": "update_notification",
   "file": "v1/notifications.py",
-  "line": 214,
+  "line": 278,
   "body": "NotificationUpdate",
   "auth": [
    "仅登录"
@@ -676,7 +947,7 @@
   "path": "/api/v1/notifications/{notification_id}",
   "handler": "delete_notification",
   "file": "v1/notifications.py",
-  "line": 237,
+  "line": 318,
   "body": null,
   "auth": [
    "仅登录"
@@ -688,7 +959,7 @@
   "path": "/api/v1/notifications/{notification_id}/read",
   "handler": "mark_read",
   "file": "v1/notifications.py",
-  "line": 255,
+  "line": 353,
   "body": null,
   "auth": [
    "仅登录"
@@ -700,7 +971,7 @@
   "path": "/api/v1/order-products",
   "handler": "create_order_product",
   "file": "v1/order_products.py",
-  "line": 51,
+  "line": 173,
   "body": "OrderProductCreate",
   "auth": [
    "ORDER_PRODUCT_EDIT"
@@ -712,7 +983,7 @@
   "path": "/api/v1/order-products/{line_id}",
   "handler": "update_order_product",
   "file": "v1/order_products.py",
-  "line": 103,
+  "line": 237,
   "body": "OrderProductUpdate",
   "auth": [
    "ORDER_PRODUCT_EDIT"
@@ -724,7 +995,7 @@
   "path": "/api/v1/order-products/{line_id}",
   "handler": "delete_order_product",
   "file": "v1/order_products.py",
-  "line": 151,
+  "line": 293,
   "body": null,
   "auth": [
    "ORDER_PRODUCT_EDIT"
@@ -733,14 +1004,282 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/order-template-categories",
+  "handler": "create_category",
+  "file": "v1/order_template_categories.py",
+  "line": 100,
+  "body": "OrderTemplateCategoryCreate",
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/order-template-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/order_template_categories.py",
+  "line": 137,
+  "body": "OrderTemplateCategoryUpdate",
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/order-template-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/order_template_categories.py",
+  "line": 183,
+  "body": "OrderTemplateCategoryReorder",
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
+    "required": false,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/order-template-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/order_template_categories.py",
+  "line": 208,
+  "body": null,
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/order-templates",
+  "handler": "create_template",
+  "file": "v1/order_templates.py",
+  "line": 201,
+  "body": "OrderTemplateCreate",
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "shipper_id",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "category",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "origin_address",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "address",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "receiver_name",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "receiver_phone",
+    "type": "OptionalContactPhone",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "freight_fee",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "remark",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "lines",
+    "type": "list[OrderTemplateLine]",
+    "required": false,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/order-templates/{template_id}",
+  "handler": "update_template",
+  "file": "v1/order_templates.py",
+  "line": 243,
+  "body": "OrderTemplateUpdate",
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "shipper_id",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "category",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "origin_address",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "address",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "receiver_name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "receiver_phone",
+    "type": "OptionalContactPhone",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "freight_fee",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "remark",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "lines",
+    "type": "list[OrderTemplateLine] | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "clear_shipper",
+    "type": "bool",
+    "required": false,
+    "default": "False"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/order-templates/{template_id}/use",
+  "handler": "use_template",
+  "file": "v1/order_templates.py",
+  "line": 325,
+  "body": null,
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/order-templates/{template_id}",
+  "handler": "delete_template",
+  "file": "v1/order_templates.py",
+  "line": 349,
+  "body": null,
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/order-templates/{template_id}/restore",
+  "handler": "restore_template",
+  "file": "v1/order_templates.py",
+  "line": 382,
+  "body": null,
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/orders/batch-assign",
   "handler": "batch_assign_orders",
-  "file": "v1/orders.py",
-  "line": 288,
+  "file": "v1/orders_assignment.py",
+  "line": 71,
   "body": "OrderBatchAssignBody",
   "auth": [
-   "ORDER_DISPATCH",
-   "体内:ORDER_DELETE_CANCELLED"
+   "ORDER_DISPATCH"
   ],
   "bodyFields": [
    {
@@ -770,167 +1309,14 @@
   ]
  },
  {
-  "method": "DELETE",
-  "path": "/api/v1/orders/{id}",
-  "handler": "delete_cancelled_order",
-  "file": "v1/orders.py",
-  "line": 333,
-  "body": null,
-  "auth": [
-   "仅登录",
-   "体内:ORDER_DELETE_CANCELLED"
-  ],
-  "bodyFields": null
- },
- {
   "method": "POST",
-  "path": "/api/v1/orders",
-  "handler": "create_order",
-  "file": "v1/orders.py",
-  "line": 366,
-  "body": "OrderCreate",
+  "path": "/api/v1/orders/{id}/price-freight",
+  "handler": "price_freight",
+  "file": "v1/orders_assignment.py",
+  "line": 115,
+  "body": "OrderFreightPriceBody",
   "auth": [
-   "ORDER_CREATE"
-  ],
-  "bodyFields": null
- },
- {
-  "method": "PATCH",
-  "path": "/api/v1/orders/{id}",
-  "handler": "update_order",
-  "file": "v1/orders.py",
-  "line": 460,
-  "body": "OrderUpdate",
-  "auth": [
-   "ORDER_EDIT"
-  ],
-  "bodyFields": null
- },
- {
-  "method": "PATCH",
-  "path": "/api/v1/orders/{id}/exception",
-  "handler": "patch_order_exception",
-  "file": "v1/orders.py",
-  "line": 512,
-  "body": "OrderExceptionBody",
-  "auth": [
-   "ORDER_EDIT"
-  ],
-  "bodyFields": [
-   {
-    "name": "is_exception",
-    "type": "bool",
-    "required": false,
-    "default": "True"
-   },
-   {
-    "name": "exception_reason",
-    "type": "str",
-    "required": false,
-    "default": null
-   },
-   {
-    "name": "exception_resolution",
-    "type": "str",
-    "required": false,
-    "default": null
-   },
-   {
-    "name": "expected_deliver_before",
-    "type": "datetime | None",
-    "required": false,
-    "default": "None"
-   }
-  ]
- },
- {
-  "method": "POST",
-  "path": "/api/v1/orders/{id}/restore",
-  "handler": "restore_order",
-  "file": "v1/orders.py",
-  "line": 545,
-  "body": null,
-  "auth": [
-   "仅登录"
-  ],
-  "bodyFields": null
- },
- {
-  "method": "POST",
-  "path": "/api/v1/orders/{id}/address-image",
-  "handler": "upload_order_address_image",
-  "file": "v1/orders.py",
-  "line": 574,
-  "body": null,
-  "auth": [
-   "仅登录"
-  ],
-  "bodyFields": null
- },
- {
-  "method": "POST",
-  "path": "/api/v1/orders/{id}/delivery-photos",
-  "handler": "upload_delivery_photos",
-  "file": "v1/orders.py",
-  "line": 629,
-  "body": null,
-  "auth": [
-   "ORDER_UPLOAD_DELIVERY"
-  ],
-  "bodyFields": null
- },
- {
-  "method": "POST",
-  "path": "/api/v1/orders/{id}/complete-with-upload",
-  "handler": "complete_order_with_upload",
-  "file": "v1/orders.py",
-  "line": 650,
-  "body": null,
-  "auth": [
-   "ORDER_COMPLETE_DRIVER"
-  ],
-  "bodyFields": null
- },
- {
-  "method": "POST",
-  "path": "/api/v1/orders/{id}/driver-ack",
-  "handler": "driver_ack_view",
-  "file": "v1/orders.py",
-  "line": 686,
-  "body": null,
-  "auth": [
-   "仅登录"
-  ],
-  "bodyFields": null
- },
- {
-  "method": "POST",
-  "path": "/api/v1/orders/{id}/driver-note",
-  "handler": "driver_append_internal_note",
-  "file": "v1/orders.py",
-  "line": 710,
-  "body": "DriverNoteBody",
-  "auth": [
-   "ORDER_INTERNAL_NOTE"
-  ],
-  "bodyFields": [
-   {
-    "name": "note",
-    "type": "str",
-    "required": true,
-    "default": null
-   }
-  ]
- },
- {
-  "method": "POST",
-  "path": "/api/v1/orders/{id}/navigation",
-  "handler": "fill_order_navigation",
-  "file": "v1/orders.py",
-  "line": 740,
-  "body": "OrderNavigationBody",
-  "auth": [
-   "仅登录"
+   "ORDER_DISPATCH"
   ],
   "bodyFields": null
  },
@@ -938,8 +1324,8 @@
   "method": "POST",
   "path": "/api/v1/orders/{id}/assign",
   "handler": "assign_order",
-  "file": "v1/orders.py",
-  "line": 860,
+  "file": "v1/orders_assignment.py",
+  "line": 304,
   "body": "OrderAssignBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -950,8 +1336,8 @@
   "method": "POST",
   "path": "/api/v1/orders/{id}/split",
   "handler": "split_order_endpoint",
-  "file": "v1/orders.py",
-  "line": 900,
+  "file": "v1/orders_assignment.py",
+  "line": 379,
   "body": "OrderSplitBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -969,8 +1355,8 @@
   "method": "POST",
   "path": "/api/v1/orders/{id}/freight",
   "handler": "update_order_freight",
-  "file": "v1/orders.py",
-  "line": 925,
+  "file": "v1/orders_assignment.py",
+  "line": 405,
   "body": "OrderFreightBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -979,10 +1365,84 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/orders/{id}/recall",
+  "handler": "recall_order",
+  "file": "v1/orders_assignment.py",
+  "line": 464,
+  "body": "OrderRecallBody",
+  "auth": [
+   "ORDER_RECALL"
+  ],
+  "bodyFields": [
+   {
+    "name": "reason",
+    "type": "str",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/complete-with-upload",
+  "handler": "complete_order_with_upload",
+  "file": "v1/orders_delivery.py",
+  "line": 44,
+  "body": null,
+  "auth": [
+   "ORDER_COMPLETE_DRIVER"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/driver-ack",
+  "handler": "driver_ack_view",
+  "file": "v1/orders_delivery.py",
+  "line": 98,
+  "body": null,
+  "auth": [
+   "仅登录"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/driver-note",
+  "handler": "driver_append_internal_note",
+  "file": "v1/orders_delivery.py",
+  "line": 125,
+  "body": "DriverNoteBody",
+  "auth": [
+   "ORDER_INTERNAL_NOTE"
+  ],
+  "bodyFields": [
+   {
+    "name": "note",
+    "type": "str",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/navigation",
+  "handler": "fill_order_navigation",
+  "file": "v1/orders_delivery.py",
+  "line": 164,
+  "body": "OrderNavigationBody",
+  "auth": [
+   "仅登录"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/orders/{id}/complete",
   "handler": "complete_order",
-  "file": "v1/orders.py",
-  "line": 995,
+  "file": "v1/orders_delivery.py",
+  "line": 311,
   "body": "OrderCompleteBody",
   "auth": [
    "ORDER_COMPLETE_DRIVER",
@@ -1026,8 +1486,8 @@
   "method": "POST",
   "path": "/api/v1/orders/{id}/cancel",
   "handler": "cancel_order",
-  "file": "v1/orders.py",
-  "line": 1023,
+  "file": "v1/orders_delivery.py",
+  "line": 343,
   "body": null,
   "auth": [
    "仅登录",
@@ -1037,11 +1497,122 @@
   "bodyFields": null
  },
  {
+  "method": "DELETE",
+  "path": "/api/v1/orders/{id}",
+  "handler": "delete_cancelled_order",
+  "file": "v1/orders_lifecycle.py",
+  "line": 39,
+  "body": null,
+  "auth": [
+   "role:SHIPPER",
+   "role:DISPATCHER",
+   "体内:ORDER_DELETE_CANCELLED"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders",
+  "handler": "create_order",
+  "file": "v1/orders_lifecycle.py",
+  "line": 103,
+  "body": "OrderCreate",
+  "auth": [
+   "ORDER_CREATE"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/orders/{id}",
+  "handler": "update_order",
+  "file": "v1/orders_lifecycle.py",
+  "line": 122,
+  "body": "OrderUpdate",
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/orders/{id}/exception",
+  "handler": "patch_order_exception",
+  "file": "v1/orders_lifecycle.py",
+  "line": 137,
+  "body": "OrderExceptionBody",
+  "auth": [
+   "ORDER_EDIT"
+  ],
+  "bodyFields": [
+   {
+    "name": "is_exception",
+    "type": "bool",
+    "required": false,
+    "default": "True"
+   },
+   {
+    "name": "exception_reason",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "exception_resolution",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "expected_deliver_before",
+    "type": "datetime | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/restore",
+  "handler": "restore_order",
+  "file": "v1/orders_lifecycle.py",
+  "line": 178,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/address-image",
+  "handler": "upload_order_address_image",
+  "file": "v1/orders_media.py",
+  "line": 36,
+  "body": null,
+  "auth": [
+   "仅登录"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/delivery-photos",
+  "handler": "upload_delivery_photos",
+  "file": "v1/orders_media.py",
+  "line": 127,
+  "body": null,
+  "auth": [
+   "ORDER_UPLOAD_DELIVERY"
+  ],
+  "bodyFields": null
+ },
+ {
   "method": "POST",
   "path": "/api/v1/orders/{id}/pay",
   "handler": "pay_order",
-  "file": "v1/orders.py",
-  "line": 1081,
+  "file": "v1/orders_payment.py",
+  "line": 206,
   "body": null,
   "auth": [
    "ORDER_EDIT"
@@ -1052,8 +1623,8 @@
   "method": "POST",
   "path": "/api/v1/orders/{id}/charge",
   "handler": "charge_order",
-  "file": "v1/orders.py",
-  "line": 1107,
+  "file": "v1/orders_payment.py",
+  "line": 257,
   "body": "OrderChargeBody",
   "auth": [
    "ORDER_EDIT"
@@ -1061,37 +1632,130 @@
   "bodyFields": [
    {
     "name": "arrears_unit_id",
-    "type": "int",
-    "required": true,
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "arrears_unit_name",
+    "type": "str",
+    "required": false,
     "default": null
    }
   ]
  },
  {
   "method": "POST",
-  "path": "/api/v1/orders/{id}/recall",
-  "handler": "recall_order",
-  "file": "v1/orders.py",
-  "line": 1137,
-  "body": "OrderRecallBody",
+  "path": "/api/v1/orders/{id}/return",
+  "handler": "return_order_endpoint",
+  "file": "v1/orders_return.py",
+  "line": 27,
+  "body": "OrderReturnBody",
   "auth": [
-   "ORDER_RECALL"
+   "ORDER_RETURN"
   ],
   "bodyFields": [
    {
-    "name": "reason",
+    "name": "items",
+    "type": "list[OrderReturnItem]",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "note",
     "type": "str",
+    "required": false,
+    "default": "''"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/place-categories",
+  "handler": "create_category",
+  "file": "v1/place_categories.py",
+  "line": 108,
+  "body": "PlaceCategoryCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/place-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/place_categories.py",
+  "line": 145,
+  "body": "PlaceCategoryUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/place-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/place_categories.py",
+  "line": 193,
+  "body": "PlaceCategoryReorder",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
     "required": true,
     "default": null
    }
   ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/place-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/place_categories.py",
+  "line": 220,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
  },
  {
   "method": "POST",
   "path": "/api/v1/places",
   "handler": "create_place",
   "file": "v1/places.py",
-  "line": 50,
+  "line": 117,
   "body": "PlaceCreate",
   "auth": [
    "仅登录"
@@ -1103,10 +1767,71 @@
   "path": "/api/v1/places/{place_id}/use",
   "handler": "use_place",
   "file": "v1/places.py",
-  "line": 81,
+  "line": 148,
   "body": null,
   "auth": [
    "仅登录"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/places/{place_id}",
+  "handler": "update_place",
+  "file": "v1/places.py",
+  "line": 221,
+  "body": "PlaceUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "detail_address",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/places/{place_id}/demote",
+  "handler": "demote_place",
+  "file": "v1/places.py",
+  "line": 262,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/places/{place_id}",
+  "handler": "delete_place",
+  "file": "v1/places.py",
+  "line": 300,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/places/{place_id}/restore",
+  "handler": "restore_place",
+  "file": "v1/places.py",
+  "line": 329,
+  "body": null,
+  "auth": [
+   "?须读源码"
   ],
   "bodyFields": null
  },
@@ -1115,7 +1840,7 @@
   "path": "/api/v1/price-rules/batch",
   "handler": "batch_price_rules",
   "file": "v1/price_rules.py",
-  "line": 88,
+  "line": 90,
   "body": "PriceRuleBatchBody",
   "auth": [
    "PRICE_RULE_MANAGE"
@@ -1127,7 +1852,7 @@
   "path": "/api/v1/price-rules",
   "handler": "create_price_rule",
   "file": "v1/price_rules.py",
-  "line": 198,
+  "line": 279,
   "body": "PriceRuleCreate",
   "auth": [
    "PRICE_RULE_MANAGE"
@@ -1139,7 +1864,7 @@
   "path": "/api/v1/price-rules/{rule_id}",
   "handler": "update_price_rule",
   "file": "v1/price_rules.py",
-  "line": 266,
+  "line": 383,
   "body": "PriceRuleUpdate",
   "auth": [
    "PRICE_RULE_MANAGE"
@@ -1151,7 +1876,7 @@
   "path": "/api/v1/price-rules/{rule_id}",
   "handler": "delete_price_rule",
   "file": "v1/price_rules.py",
-  "line": 311,
+  "line": 451,
   "body": null,
   "auth": [
    "PRICE_RULE_MANAGE"
@@ -1163,7 +1888,7 @@
   "path": "/api/v1/product-categories",
   "handler": "create_category",
   "file": "v1/product_categories.py",
-  "line": 91,
+  "line": 92,
   "body": "ProductCategoryCreate",
   "auth": [
    "PRODUCT_MANAGE"
@@ -1188,7 +1913,7 @@
   "path": "/api/v1/product-categories/{category_id}",
   "handler": "update_category",
   "file": "v1/product_categories.py",
-  "line": 121,
+  "line": 122,
   "body": "ProductCategoryUpdate",
   "auth": [
    "PRODUCT_MANAGE"
@@ -1213,7 +1938,7 @@
   "path": "/api/v1/product-categories/reorder",
   "handler": "reorder_categories",
   "file": "v1/product_categories.py",
-  "line": 165,
+  "line": 166,
   "body": "ProductCategoryReorder",
   "auth": [
    "PRODUCT_MANAGE"
@@ -1232,7 +1957,7 @@
   "path": "/api/v1/product-categories/{category_id}",
   "handler": "delete_category",
   "file": "v1/product_categories.py",
-  "line": 206,
+  "line": 196,
   "body": null,
   "auth": [
    "PRODUCT_MANAGE"
@@ -1244,7 +1969,7 @@
   "path": "/api/v1/products",
   "handler": "create_product",
   "file": "v1/products.py",
-  "line": 81,
+  "line": 130,
   "body": "ProductCreate",
   "auth": [
    "PRODUCT_MANAGE"
@@ -1256,7 +1981,7 @@
   "path": "/api/v1/products/{product_id}",
   "handler": "update_product",
   "file": "v1/products.py",
-  "line": 140,
+  "line": 243,
   "body": "ProductUpdate",
   "auth": [
    "PRODUCT_MANAGE"
@@ -1268,7 +1993,7 @@
   "path": "/api/v1/products/{product_id}/image",
   "handler": "upload_product_image",
   "file": "v1/products.py",
-  "line": 186,
+  "line": 296,
   "body": null,
   "auth": [
    "PRODUCT_MANAGE"
@@ -1280,7 +2005,7 @@
   "path": "/api/v1/products/{product_id}",
   "handler": "delete_product",
   "file": "v1/products.py",
-  "line": 238,
+  "line": 349,
   "body": null,
   "auth": [
    "PRODUCT_MANAGE"
@@ -1292,7 +2017,7 @@
   "path": "/api/v1/products/{product_id}/restore",
   "handler": "restore_product",
   "file": "v1/products.py",
-  "line": 277,
+  "line": 426,
   "body": null,
   "auth": [
    "PRODUCT_MANAGE"
@@ -1301,10 +2026,84 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/return-requests",
+  "handler": "create_return_request",
+  "file": "v1/return_requests.py",
+  "line": 207,
+  "body": "ReturnRequestCreateBody",
+  "auth": [
+   "ORDER_RETURN_REQUEST"
+  ],
+  "bodyFields": [
+   {
+    "name": "order_id",
+    "type": "int",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "items",
+    "type": "list[OrderReturnItem]",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "note",
+    "type": "str",
+    "required": false,
+    "default": "''"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/return-requests/{request_id}/withdraw",
+  "handler": "withdraw_return_request",
+  "file": "v1/return_requests.py",
+  "line": 292,
+  "body": null,
+  "auth": [
+   "ORDER_RETURN_REQUEST"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/return-requests/{request_id}/reject",
+  "handler": "reject_return_request",
+  "file": "v1/return_requests.py",
+  "line": 358,
+  "body": "ReturnRequestRejectBody",
+  "auth": [
+   "ORDER_RETURN"
+  ],
+  "bodyFields": [
+   {
+    "name": "reason",
+    "type": "str",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/return-requests/{request_id}/fulfill",
+  "handler": "fulfill_return_request",
+  "file": "v1/return_requests.py",
+  "line": 378,
+  "body": null,
+  "auth": [
+   "ORDER_RETURN"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/shipper/addresses",
   "handler": "create_address",
   "file": "v1/shipper.py",
-  "line": 54,
+  "line": 82,
   "body": "AddressCreate",
   "auth": [
    "?须读源码"
@@ -1316,7 +2115,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}",
   "handler": "update_address",
   "file": "v1/shipper.py",
-  "line": 93,
+  "line": 121,
   "body": "AddressUpdate",
   "auth": [
    "?须读源码"
@@ -1328,7 +2127,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}",
   "handler": "delete_address",
   "file": "v1/shipper.py",
-  "line": 135,
+  "line": 169,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1340,7 +2139,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}/restore",
   "handler": "restore_address",
   "file": "v1/shipper.py",
-  "line": 147,
+  "line": 181,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1352,7 +2151,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}/set-default",
   "handler": "set_default_address",
   "file": "v1/shipper.py",
-  "line": 162,
+  "line": 196,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1364,7 +2163,7 @@
   "path": "/api/v1/shipper/contacts",
   "handler": "upsert_contact",
   "file": "v1/shipper.py",
-  "line": 184,
+  "line": 224,
   "body": "ContactCreate",
   "auth": [
    "?须读源码"
@@ -1372,12 +2171,18 @@
   "bodyFields": [
    {
     "name": "phone",
-    "type": "str",
-    "required": true,
+    "type": "ContactPhone",
+    "required": false,
     "default": null
    },
    {
     "name": "display_name",
+    "type": "str",
+    "required": false,
+    "default": null
+   },
+   {
+    "name": "category",
     "type": "str",
     "required": false,
     "default": null
@@ -1389,7 +2194,7 @@
   "path": "/api/v1/shipper/contacts/{contact_id}",
   "handler": "update_contact",
   "file": "v1/shipper.py",
-  "line": 208,
+  "line": 275,
   "body": "ContactUpdate",
   "auth": [
    "?须读源码"
@@ -1397,12 +2202,18 @@
   "bodyFields": [
    {
     "name": "phone",
-    "type": "str | None",
+    "type": "OptionalContactPhone",
     "required": false,
     "default": "None"
    },
    {
     "name": "display_name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "category",
     "type": "str | None",
     "required": false,
     "default": "None"
@@ -1414,7 +2225,7 @@
   "path": "/api/v1/shipper/locations/image",
   "handler": "upload_location_image",
   "file": "v1/shipper.py",
-  "line": 236,
+  "line": 318,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1426,7 +2237,7 @@
   "path": "/api/v1/shipper/locations",
   "handler": "create_location",
   "file": "v1/shipper.py",
-  "line": 282,
+  "line": 365,
   "body": "LocationCreate",
   "auth": [
    "?须读源码"
@@ -1438,7 +2249,7 @@
   "path": "/api/v1/shipper/locations/{location_id}",
   "handler": "update_location",
   "file": "v1/shipper.py",
-  "line": 306,
+  "line": 398,
   "body": "LocationUpdate",
   "auth": [
    "?须读源码"
@@ -1450,7 +2261,19 @@
   "path": "/api/v1/shipper/locations/{location_id}",
   "handler": "delete_location",
   "file": "v1/shipper.py",
-  "line": 336,
+  "line": 450,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/shipper/locations/{location_id}/share",
+  "handler": "share_location",
+  "file": "v1/shipper.py",
+  "line": 461,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1462,7 +2285,7 @@
   "path": "/api/v1/shipper/locations/{location_id}/restore",
   "handler": "restore_location",
   "file": "v1/shipper.py",
-  "line": 347,
+  "line": 507,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1474,7 +2297,7 @@
   "path": "/api/v1/shipper/contacts/{contact_id}",
   "handler": "delete_contact",
   "file": "v1/shipper.py",
-  "line": 362,
+  "line": 522,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1486,7 +2309,7 @@
   "path": "/api/v1/shipper/contacts/{contact_id}/restore",
   "handler": "restore_contact",
   "file": "v1/shipper.py",
-  "line": 376,
+  "line": 539,
   "body": null,
   "auth": [
    "?须读源码"
@@ -1495,13 +2318,37 @@
  },
  {
   "method": "POST",
-  "path": "/api/v1/stats/exception-orders/{id}/resolve",
-  "handler": "resolve_exception_order",
-  "file": "v1/stats.py",
-  "line": 115,
+  "path": "/api/v1/shipper-ledger/settlements",
+  "handler": "create_settlement",
+  "file": "v1/shipper_ledger.py",
+  "line": 372,
+  "body": "ShipperSettlementCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/shipper-ledger/settlements/{settlement_id}",
+  "handler": "delete_settlement",
+  "file": "v1/shipper_ledger.py",
+  "line": 508,
   "body": null,
   "auth": [
-   "STATS_READ"
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/shipper-ledger/settlements/{settlement_id}/restore",
+  "handler": "restore_settlement",
+  "file": "v1/shipper_ledger.py",
+  "line": 557,
+  "body": null,
+  "auth": [
+   "?须读源码"
   ],
   "bodyFields": null
  },
@@ -1510,7 +2357,7 @@
   "path": "/api/v1/stats/export",
   "handler": "post_stats_export",
   "file": "v1/stats.py",
-  "line": 147,
+  "line": 121,
   "body": "StatsExportBody",
   "auth": [
    "STATS_READ"
@@ -1562,10 +2409,314 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/suppliers",
+  "handler": "create_supplier",
+  "file": "v1/suppliers.py",
+  "line": 157,
+  "body": "SupplierCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "contact_name",
+    "type": "str",
+    "required": false,
+    "default": "''"
+   },
+   {
+    "name": "phone",
+    "type": "ContactPhone",
+    "required": false,
+    "default": "''"
+   },
+   {
+    "name": "address",
+    "type": "str",
+    "required": false,
+    "default": "''"
+   },
+   {
+    "name": "remark",
+    "type": "str",
+    "required": false,
+    "default": "''"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/suppliers/{supplier_id}",
+  "handler": "update_supplier",
+  "file": "v1/suppliers.py",
+  "line": 195,
+  "body": "SupplierUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "contact_name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "phone",
+    "type": "OptionalContactPhone",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "address",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "remark",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/suppliers/{supplier_id}",
+  "handler": "delete_supplier",
+  "file": "v1/suppliers.py",
+  "line": 233,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/suppliers/{supplier_id}/restore",
+  "handler": "restore_supplier",
+  "file": "v1/suppliers.py",
+  "line": 249,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/suppliers/{supplier_id}/payables",
+  "handler": "create_payable",
+  "file": "v1/suppliers.py",
+  "line": 287,
+  "body": "SupplierPayableCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/supplier-payables/{payable_id}",
+  "handler": "update_payable",
+  "file": "v1/suppliers.py",
+  "line": 319,
+  "body": "SupplierPayableUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/supplier-payables/{payable_id}",
+  "handler": "delete_payable",
+  "file": "v1/suppliers.py",
+  "line": 364,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/supplier-payables/{payable_id}/restore",
+  "handler": "restore_payable",
+  "file": "v1/suppliers.py",
+  "line": 381,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/supplier-payables/{payable_id}/payments",
+  "handler": "pay_payable",
+  "file": "v1/suppliers.py",
+  "line": 436,
+  "body": "SupplierPaymentCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/supplier-payments/{flow_id}",
+  "handler": "cancel_payment",
+  "file": "v1/suppliers.py",
+  "line": 461,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/supplier-payments/{flow_id}/restore",
+  "handler": "restore_payment",
+  "file": "v1/suppliers.py",
+  "line": 486,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/unit-conversions",
+  "handler": "create_conversion",
+  "file": "v1/unit_conversions.py",
+  "line": 79,
+  "body": "UnitConversionCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "from_unit",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "to_unit",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "factor",
+    "type": "Decimal",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "remark",
+    "type": "str",
+    "required": false,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/unit-conversions/{conversion_id}",
+  "handler": "update_conversion",
+  "file": "v1/unit_conversions.py",
+  "line": 156,
+  "body": "UnitConversionUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "from_unit",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "to_unit",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "factor",
+    "type": "Decimal | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "remark",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/unit-conversions/{conversion_id}",
+  "handler": "delete_conversion",
+  "file": "v1/unit_conversions.py",
+  "line": 211,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/unit-conversions/{conversion_id}/restore",
+  "handler": "restore_conversion",
+  "file": "v1/unit_conversions.py",
+  "line": 234,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/usage/reset",
+  "handler": "reset_usage",
+  "file": "v1/usage.py",
+  "line": 33,
+  "body": null,
+  "auth": [
+   "仅登录"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/users",
   "handler": "create_user",
   "file": "v1/users.py",
-  "line": 67,
+  "line": 101,
   "body": "UserCreate",
   "auth": [
    "USER_MANAGE"
@@ -1577,7 +2728,7 @@
   "path": "/api/v1/users/{user_id}/product-visibility",
   "handler": "set_product_visibility",
   "file": "v1/users.py",
-  "line": 141,
+  "line": 175,
   "body": "ProductVisibilityIn",
   "auth": [
    "USER_MANAGE"
@@ -1602,7 +2753,7 @@
   "path": "/api/v1/users/{user_id}",
   "handler": "update_user",
   "file": "v1/users.py",
-  "line": 201,
+  "line": 235,
   "body": "UserUpdate",
   "auth": [
    "仅登录"
@@ -1614,7 +2765,7 @@
   "path": "/api/v1/users/{user_id}/swap-shipper-driver",
   "handler": "swap_shipper_driver",
   "file": "v1/users.py",
-  "line": 285,
+  "line": 347,
   "body": null,
   "auth": [
    "USER_MANAGE"
@@ -1626,7 +2777,7 @@
   "path": "/api/v1/users/{user_id}",
   "handler": "delete_user",
   "file": "v1/users.py",
-  "line": 309,
+  "line": 395,
   "body": null,
   "auth": [
    "USER_MANAGE"
@@ -1638,7 +2789,7 @@
   "path": "/api/v1/users/{user_id}/restore",
   "handler": "restore_user",
   "file": "v1/users.py",
-  "line": 340,
+  "line": 432,
   "body": null,
   "auth": [
    "USER_MANAGE"
@@ -1650,7 +2801,7 @@
   "path": "/api/v1/vehicles",
   "handler": "create_vehicle",
   "file": "v1/vehicles.py",
-  "line": 152,
+  "line": 251,
   "body": "VehicleCreate",
   "auth": [
    "仅登录",
@@ -1674,6 +2825,18 @@
     "type": "int | None",
     "required": false,
     "default": "None"
+   },
+   {
+    "name": "body_type",
+    "type": "str",
+    "required": false,
+    "default": "''"
+   },
+   {
+    "name": "attrs",
+    "type": "dict[str, Any] | None",
+    "required": false,
+    "default": "None"
    }
   ]
  },
@@ -1682,7 +2845,7 @@
   "path": "/api/v1/vehicles/{vehicle_id}",
   "handler": "update_vehicle",
   "file": "v1/vehicles.py",
-  "line": 167,
+  "line": 287,
   "body": "VehicleUpdate",
   "auth": [
    "仅登录",
@@ -1712,6 +2875,18 @@
     "type": "bool | None",
     "required": false,
     "default": "None"
+   },
+   {
+    "name": "body_type",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "attrs",
+    "type": "dict[str, Any] | None",
+    "required": false,
+    "default": "None"
    }
   ]
  },
@@ -1720,7 +2895,7 @@
   "path": "/api/v1/vehicles/{vehicle_id}/driver",
   "handler": "set_vehicle_driver",
   "file": "v1/vehicles.py",
-  "line": 201,
+  "line": 340,
   "body": "VehicleDriverSet",
   "auth": [
    "仅登录",

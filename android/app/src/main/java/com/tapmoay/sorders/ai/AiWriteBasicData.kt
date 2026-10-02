@@ -701,6 +701,84 @@ internal object AiWriteBasicData {
             },
         ) { ds, p -> ds.deletePlaceCategory(p.reqLong("category_id")) },
 
+        // -------------------------------------------------------- 联系人分类名册（按人分区）
+        //
+        // FEAT-0007（2026-10-03）。用户原话：「我们的联系人好像是可以做分类的吧，同样以左边
+        // 为分类右边为列表的形式展示出来」「对分类管理的话啊，就像我们的复用地点管理一样」
+        // 「这个不只是派单人员，他拥有其他的账户也是拥有比如说货主批发商」。
+        //
+        // ⚠️ 与地点分组**唯一的不同是级联目标**：改名跟着改的是 `shipper_contacts.category`
+        //    （地点那份改的是 `shipper_locations.category`）；其余（按人分区、能删的前提
+        //    是"没有联系人挂着"、删了就是真删）一字不差。
+        crud(
+            id = AiWrites.CONTACT_CATEGORY_CREATE,
+            title = "新建联系人分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_CONTACT_CATEGORY,
+            blurb = "在**你自己的**联系人分类名册里加一格（「地址与联系人 → 联系人」左栏就是它）。" +
+                "它只决定「怎么分类、什么顺序」，不改任何联系人的归属——" +
+                "某位联系人归到哪一类是在「改联系人」里选的那个分类名。",
+            fields = listOf(
+                textField("name", "分类名", "必填，如「供货商」「老客户」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+            ),
+            headline = { c -> "新建联系人分类：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    "只加一格分类，不改任何联系人的归属",
+                    "⚠️ 只影响你自己的联系人列表（每个人管自己那一份，别人看不到）",
+                )
+            },
+        ) { ds, p -> ds.createContactCategory(p) },
+
+        crud(
+            id = AiWrites.CONTACT_CATEGORY_UPDATE,
+            title = "改联系人分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_CONTACT_CATEGORY,
+            blurb = "改一个**你自己的**联系人分类的名字，或者把它排到别的位置。只填要改的那一项。" +
+                "改名会级联：挂在这个分类下的联系人会跟着改成新名字（后端在同一个事务里做）。",
+            targets = listOf(targetContactCategory()),
+            fields = listOf(
+                textField("name", "新分类名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+            ),
+            headline = { c -> "改联系人分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let {
+                        "⚠️ 这个分类下有 $it——改名会把这些联系人的分类一起改过去（后端同一个事务）"
+                    },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                    "⚠️ 只影响你自己的联系人列表",
+                )
+            },
+        ) { ds, p -> ds.updateContactCategory(p.reqLong("category_id"), p.pick(CONTACT_CATEGORY_KEYS)) },
+
+        crud(
+            id = AiWrites.CONTACT_CATEGORY_DELETE,
+            title = "删除联系人分类",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_CONTACT_CATEGORY,
+            blurb = "从**你自己的**联系人分类名册里删掉一格。还有联系人挂在这个分类下时后端会拒绝，" +
+                "并告诉你还有几位——先把那些联系人改成别的分类（或给这一格改个名）再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。",
+            targets = listOf(targetContactCategory()),
+            headline = { c -> "删除联系人分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这个分类下有 $it" },
+                    "还有联系人挂在它下面时后端会拒绝，并告诉你有几位：先把那些联系人改成别的分类",
+                    "⚠️ 只影响你自己的联系人列表；联系人本身一位都不会被删",
+                )
+            },
+        ) { ds, p -> ds.deleteContactCategory(p.reqLong("category_id")) },
+
         // ---------------------------------------------------- 开销分类名册（2026-09-23 补齐）
         //
         // 名册决定「这笔钱算哪一类」，也决定开销卡片上**突出显示哪一项关联**
@@ -1321,6 +1399,21 @@ internal object AiWriteBasicData {
 
     /** 地点分组进 payload 的键（改分组时只传点名的那几个）。 */
     private val PLACE_CATEGORY_KEYS = setOf("name", "sort_order")
+
+    /**
+     * 联系人分类（按**名字**找，**只在自己那一份名册里找**）。
+     *
+     * `note` 带的是"这一类下挂着几位联系人"——改名会波及它们、删除会被后端拒绝，
+     * 那个数字是用户判断影响面的唯一依据（与地点分组同一套理由）。
+     */
+    private fun targetContactCategory() = AiTargetSpec(
+        param = "category", cn = "联系人分类", key = "category_id",
+        hint = "分类名（联系人列表左栏那一列的格子名，如「供货商」「老客户」）",
+        lookup = { ds, _ -> ds.contactCategories() },
+    )
+
+    /** 联系人分类进 payload 的键（改分类时只传点名的那几个）。 */
+    private val CONTACT_CATEGORY_KEYS = setOf("name", "sort_order")
 
     // ---------------------------------------------------------- 另外三张配置名册（2026-09-23）
     //

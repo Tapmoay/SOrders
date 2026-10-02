@@ -3,7 +3,7 @@
 > **本文件由 `_tools/ai/_gen_capability_snapshot.py` 生成，不要手改。**
 > 重新生成：`python _tools/ai/_gen_capability_snapshot.py`
 >
-> `source_hash = sha256:7fe8bf672f1b36afcadb5c8f6662d370ad70b57e1c626914985da2b658eaba5f`
+> `source_hash = sha256:88349483e23be9cd8f9063925460201a50a44951b80831b75102f8285e68cd96`
 
 这张表回答：**一个写能力会留下哪些审计动作码**（指南 §R3-02-C：不要假设一一对应）。
 
@@ -12,7 +12,7 @@
 
 | 能力 | 动作码 |
 | --- | --- |
-| `address:manage` | — |
+| `address:manage` | `CONTACT_CATEGORY_UPSERT`, `CONTACT_CATEGORY_DELETE`, `CONTACT_CATEGORY_REORDER` |
 | `ledger:edit` | `LEDGER_CREATE`, `LEDGER_UPDATE`, `LEDGER_DELETE`, `RECEIPT_CREATE`, `EXPENSE_CREATE`, `EXPENSE_CATEGORY_UPSERT`, `EXPENSE_CATEGORY_DELETE`, `EXPENSE_CATEGORY_REORDER`, `SHIPPER_SETTLE_CREATE`, `SHIPPER_SETTLE_REVOKE`, `SHIPPER_SETTLE_RESTORE`, `DRIVER_BILL_GENERATE`, `SETTLEMENT_CREATE`, `SETTLEMENT_STATUS`, `SUPPLIER_UPSERT`, `SUPPLIER_DELETE`, `SUPPLIER_RESTORE`, `SUPPLIER_PAYABLE_UPSERT`, `SUPPLIER_PAYABLE_DELETE`, `SUPPLIER_PAYABLE_RESTORE`, `SUPPLIER_PAYMENT_CREATE`, `SUPPLIER_PAYMENT_CANCEL`, `SUPPLIER_PAYMENT_RESTORE`, `ARREARS_UNIT_UPSERT`, `ARREARS_UNIT_DELETE`, `ARREARS_UNIT_RESTORE` |
 | `notification:manage` | `NOTIFICATION_MODERATE` |
 | `order:cancel_dispatcher` | `ORDER_CANCEL` |
@@ -44,7 +44,6 @@
 
 | 能力 | 为什么 + 什么时候删掉这一条 |
 | --- | --- |
-| `address:manage` | 地址与联系人没有独立的审计动作码（`OperationAction` 里一个 `ADDRESS_*` 都没有）。**什么时候删掉这一条**：如果地址库要可审计（谁改了谁家的地址），先加动作码、再来销这一条。 |
 | `order:internal_note` | 司机/派单员给订单写内部备注：它写在 `orders.internal_notes` **字段**上，订单自己的状态与字段变化就是留痕（`ORDER_UPDATE` 那条覆盖了它）。**什么时候删掉这一条**：如果内部备注要单独可查（现在只能在订单详情里看）。 |
 | `order:upload_delivery` | 司机上传送达照片：留痕是**图片本体**（`delivery_photos` 表）与订单状态，不是操作日志。**什么时候删掉这一条**：如果照片要做「谁在什么时候传的第几张」这类追溯。 |
 

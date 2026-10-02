@@ -185,12 +185,17 @@ class ContactCreate(BaseModel):
     # `validate_contact_phone` 对空串放行；写成 NULL 还是空串由 api/v1/shipper.py 一处决定。
     phone: ContactPhone = Field(default="", max_length=32)
     display_name: str = Field(default="", max_length=128)
+    #: 自定义分类（空 = 未分类）。名册里没有这个名字时**自动补进去**（顺手建分类）——
+    #  FEAT-0007，与 `LocationCreate.category` 同一个口径。
+    category: str = Field(default="", max_length=32)
 
 
 class ContactUpdate(BaseModel):
     # None = 不改这一项（可选别名会放行 None）
     phone: OptionalContactPhone = Field(None, max_length=32)
     display_name: str | None = Field(None, max_length=128)
+    #: None = 不改；"" = 清成未分类（与地点那一格同一条 PATCH 语义）
+    category: str | None = Field(None, max_length=32)
 
 
 class ContactOut(BaseModel):
@@ -200,6 +205,8 @@ class ContactOut(BaseModel):
     shipper_id: int
     phone: str
     display_name: str
+    #: 自定义分类（"" = 未分类）：联系人列表左侧那一列按它分栏 —— FEAT-0007。
+    category: str = ""
     created_at: datetime
 
     @field_validator("phone", mode="before")

@@ -59,9 +59,9 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:b2ea579be4be2cb9c22286bf3a4fcb55bb47ca1a18c6ca0ecea9bc1c8cca07a6 -->
+<!-- source_hash: sha256:bcf9c448b454e557ea73ef59a25e7580e72dfd5802c7f33adc51ecee15e63baf -->
 
-## 全量端点（232 个，按文件分组）
+## 全量端点（237 个，按文件分组）
 
 
 ### `backend/app/api/v1/ai_telemetry.py` — 1 个
@@ -95,6 +95,16 @@
 | 1 | `GET /api/v1/cash-flows` | `list_cash_flows` | `backend/app/api/v1/cash_flows.py:55` | 角色:dispatcher |
 | 2 | `GET /api/v1/cash-flows/summary` | `cash_flow_summary` | `backend/app/api/v1/cash_flows.py:77` | 角色:dispatcher |
 | 3 | `GET /api/v1/cash-flows/breakdown` | `cash_flow_breakdown` | `backend/app/api/v1/cash_flows.py:121` | 角色:dispatcher |
+
+### `backend/app/api/v1/contact_categories.py` — 5 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `GET /api/v1/contact-categories` | `list_categories` | `backend/app/api/v1/contact_categories.py:101` | 角色:dispatcher\|shipper |
+| 2 | `POST /api/v1/contact-categories` | `create_category` | `backend/app/api/v1/contact_categories.py:113` | 角色:dispatcher\|shipper |
+| 3 | `PATCH /api/v1/contact-categories/{category_id}` | `update_category` | `backend/app/api/v1/contact_categories.py:150` | 角色:dispatcher\|shipper |
+| 4 | `POST /api/v1/contact-categories/reorder` | `reorder_categories` | `backend/app/api/v1/contact_categories.py:198` | 角色:dispatcher\|shipper |
+| 5 | `DELETE /api/v1/contact-categories/{category_id}` | `delete_category` | `backend/app/api/v1/contact_categories.py:225` | 角色:dispatcher\|shipper |
 
 ### `backend/app/api/v1/customers.py` — 3 个
 
@@ -412,25 +422,25 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/shipper/addresses` | `list_addresses` | `backend/app/api/v1/shipper.py:68` | 角色:dispatcher\|shipper |
-| 2 | `POST /api/v1/shipper/addresses` | `create_address` | `backend/app/api/v1/shipper.py:82` | 角色:dispatcher\|shipper |
-| 3 | `GET /api/v1/shipper/addresses/{address_id}` | `get_address` | `backend/app/api/v1/shipper.py:113` | 角色:dispatcher\|shipper |
-| 4 | `PATCH /api/v1/shipper/addresses/{address_id}` | `update_address` | `backend/app/api/v1/shipper.py:121` | 角色:dispatcher\|shipper |
-| 5 | `DELETE /api/v1/shipper/addresses/{address_id}` | `delete_address` | `backend/app/api/v1/shipper.py:169` | 角色:dispatcher\|shipper |
-| 6 | `POST /api/v1/shipper/addresses/{address_id}/restore` | `restore_address` | `backend/app/api/v1/shipper.py:181` | 角色:dispatcher\|shipper |
-| 7 | `POST /api/v1/shipper/addresses/{address_id}/set-default` | `set_default_address` | `backend/app/api/v1/shipper.py:196` | 角色:dispatcher\|shipper |
-| 8 | `GET /api/v1/shipper/contacts` | `list_contacts` | `backend/app/api/v1/shipper.py:213` | 角色:dispatcher\|shipper |
-| 9 | `POST /api/v1/shipper/contacts` | `upsert_contact` | `backend/app/api/v1/shipper.py:224` | 角色:dispatcher\|shipper |
-| 10 | `PATCH /api/v1/shipper/contacts/{contact_id}` | `update_contact` | `backend/app/api/v1/shipper.py:265` | 角色:dispatcher\|shipper |
-| 11 | `POST /api/v1/shipper/locations/image` | `upload_location_image` | `backend/app/api/v1/shipper.py:304` | 角色:dispatcher\|shipper |
-| 12 | `GET /api/v1/shipper/locations` | `list_locations` | `backend/app/api/v1/shipper.py:341` | 角色:dispatcher\|shipper |
-| 13 | `POST /api/v1/shipper/locations` | `create_location` | `backend/app/api/v1/shipper.py:351` | 角色:dispatcher\|shipper |
-| 14 | `PATCH /api/v1/shipper/locations/{location_id}` | `update_location` | `backend/app/api/v1/shipper.py:384` | 角色:dispatcher\|shipper |
-| 15 | `DELETE /api/v1/shipper/locations/{location_id}` | `delete_location` | `backend/app/api/v1/shipper.py:436` | 角色:dispatcher\|shipper |
-| 16 | `POST /api/v1/shipper/locations/{location_id}/share` | `share_location` | `backend/app/api/v1/shipper.py:447` | 角色:dispatcher |
-| 17 | `POST /api/v1/shipper/locations/{location_id}/restore` | `restore_location` | `backend/app/api/v1/shipper.py:493` | 角色:dispatcher\|shipper |
-| 18 | `DELETE /api/v1/shipper/contacts/{contact_id}` | `delete_contact` | `backend/app/api/v1/shipper.py:508` | 角色:dispatcher\|shipper |
-| 19 | `POST /api/v1/shipper/contacts/{contact_id}/restore` | `restore_contact` | `backend/app/api/v1/shipper.py:525` | 角色:dispatcher\|shipper |
+| 1 | `GET /api/v1/shipper/addresses` | `list_addresses` | `backend/app/api/v1/shipper.py:69` | 角色:dispatcher\|shipper |
+| 2 | `POST /api/v1/shipper/addresses` | `create_address` | `backend/app/api/v1/shipper.py:83` | 角色:dispatcher\|shipper |
+| 3 | `GET /api/v1/shipper/addresses/{address_id}` | `get_address` | `backend/app/api/v1/shipper.py:114` | 角色:dispatcher\|shipper |
+| 4 | `PATCH /api/v1/shipper/addresses/{address_id}` | `update_address` | `backend/app/api/v1/shipper.py:122` | 角色:dispatcher\|shipper |
+| 5 | `DELETE /api/v1/shipper/addresses/{address_id}` | `delete_address` | `backend/app/api/v1/shipper.py:170` | 角色:dispatcher\|shipper |
+| 6 | `POST /api/v1/shipper/addresses/{address_id}/restore` | `restore_address` | `backend/app/api/v1/shipper.py:182` | 角色:dispatcher\|shipper |
+| 7 | `POST /api/v1/shipper/addresses/{address_id}/set-default` | `set_default_address` | `backend/app/api/v1/shipper.py:197` | 角色:dispatcher\|shipper |
+| 8 | `GET /api/v1/shipper/contacts` | `list_contacts` | `backend/app/api/v1/shipper.py:214` | 角色:dispatcher\|shipper |
+| 9 | `POST /api/v1/shipper/contacts` | `upsert_contact` | `backend/app/api/v1/shipper.py:225` | 角色:dispatcher\|shipper |
+| 10 | `PATCH /api/v1/shipper/contacts/{contact_id}` | `update_contact` | `backend/app/api/v1/shipper.py:276` | 角色:dispatcher\|shipper |
+| 11 | `POST /api/v1/shipper/locations/image` | `upload_location_image` | `backend/app/api/v1/shipper.py:319` | 角色:dispatcher\|shipper |
+| 12 | `GET /api/v1/shipper/locations` | `list_locations` | `backend/app/api/v1/shipper.py:356` | 角色:dispatcher\|shipper |
+| 13 | `POST /api/v1/shipper/locations` | `create_location` | `backend/app/api/v1/shipper.py:366` | 角色:dispatcher\|shipper |
+| 14 | `PATCH /api/v1/shipper/locations/{location_id}` | `update_location` | `backend/app/api/v1/shipper.py:399` | 角色:dispatcher\|shipper |
+| 15 | `DELETE /api/v1/shipper/locations/{location_id}` | `delete_location` | `backend/app/api/v1/shipper.py:451` | 角色:dispatcher\|shipper |
+| 16 | `POST /api/v1/shipper/locations/{location_id}/share` | `share_location` | `backend/app/api/v1/shipper.py:462` | 角色:dispatcher |
+| 17 | `POST /api/v1/shipper/locations/{location_id}/restore` | `restore_location` | `backend/app/api/v1/shipper.py:508` | 角色:dispatcher\|shipper |
+| 18 | `DELETE /api/v1/shipper/contacts/{contact_id}` | `delete_contact` | `backend/app/api/v1/shipper.py:523` | 角色:dispatcher\|shipper |
+| 19 | `POST /api/v1/shipper/contacts/{contact_id}/restore` | `restore_contact` | `backend/app/api/v1/shipper.py:540` | 角色:dispatcher\|shipper |
 
 ### `backend/app/api/v1/shipper_ledger.py` — 5 个
 
@@ -588,7 +598,7 @@
 | 角色组合 | 端点数 | 端点 |
 |---|---|---|
 | `dispatcher` | 16 | `GET /api/v1/cash-flows`<br>`GET /api/v1/cash-flows/summary`<br>`GET /api/v1/cash-flows/breakdown`<br>`GET /api/v1/expense-categories`<br>`POST /api/v1/expense-categories`<br>`PATCH /api/v1/expense-categories/{category_id}`<br>`POST /api/v1/expense-categories/reorder`<br>`DELETE /api/v1/expense-categories/{category_id}`<br>`GET /api/v1/expenses`<br>`POST /api/v1/expenses`<br>`POST /api/v1/orders/{order_id}/restore`<br>`PATCH /api/v1/places/{place_id}`<br>`POST /api/v1/places/{place_id}/demote`<br>`DELETE /api/v1/places/{place_id}`<br>`POST /api/v1/places/{place_id}/restore`<br>`POST /api/v1/shipper/locations/{location_id}/share` |
-| `dispatcher\|shipper` | 31 | `POST /api/v1/files/parse-sheet`<br>`DELETE /api/v1/orders/{order_id}`<br>`GET /api/v1/place-categories`<br>`POST /api/v1/place-categories`<br>`PATCH /api/v1/place-categories/{category_id}`<br>`POST /api/v1/place-categories/reorder`<br>`DELETE /api/v1/place-categories/{category_id}`<br>`GET /api/v1/price-rules`<br>`GET /api/v1/shipper/addresses`<br>`POST /api/v1/shipper/addresses`<br>`GET /api/v1/shipper/addresses/{address_id}`<br>`PATCH /api/v1/shipper/addresses/{address_id}`<br>`DELETE /api/v1/shipper/addresses/{address_id}`<br>`POST /api/v1/shipper/addresses/{address_id}/restore`<br>`POST /api/v1/shipper/addresses/{address_id}/set-default`<br>`GET /api/v1/shipper/contacts`<br>`POST /api/v1/shipper/contacts`<br>`PATCH /api/v1/shipper/contacts/{contact_id}`<br>`POST /api/v1/shipper/locations/image`<br>`GET /api/v1/shipper/locations`<br>`POST /api/v1/shipper/locations`<br>`PATCH /api/v1/shipper/locations/{location_id}`<br>`DELETE /api/v1/shipper/locations/{location_id}`<br>`POST /api/v1/shipper/locations/{location_id}/restore`<br>`DELETE /api/v1/shipper/contacts/{contact_id}`<br>`POST /api/v1/shipper/contacts/{contact_id}/restore`<br>`GET /api/v1/unit-conversions`<br>`POST /api/v1/unit-conversions`<br>`PATCH /api/v1/unit-conversions/{conversion_id}`<br>`DELETE /api/v1/unit-conversions/{conversion_id}`<br>`POST /api/v1/unit-conversions/{conversion_id}/restore` |
+| `dispatcher\|shipper` | 36 | `GET /api/v1/contact-categories`<br>`POST /api/v1/contact-categories`<br>`PATCH /api/v1/contact-categories/{category_id}`<br>`POST /api/v1/contact-categories/reorder`<br>`DELETE /api/v1/contact-categories/{category_id}`<br>`POST /api/v1/files/parse-sheet`<br>`DELETE /api/v1/orders/{order_id}`<br>`GET /api/v1/place-categories`<br>`POST /api/v1/place-categories`<br>`PATCH /api/v1/place-categories/{category_id}`<br>`POST /api/v1/place-categories/reorder`<br>`DELETE /api/v1/place-categories/{category_id}`<br>`GET /api/v1/price-rules`<br>`GET /api/v1/shipper/addresses`<br>`POST /api/v1/shipper/addresses`<br>`GET /api/v1/shipper/addresses/{address_id}`<br>`PATCH /api/v1/shipper/addresses/{address_id}`<br>`DELETE /api/v1/shipper/addresses/{address_id}`<br>`POST /api/v1/shipper/addresses/{address_id}/restore`<br>`POST /api/v1/shipper/addresses/{address_id}/set-default`<br>`GET /api/v1/shipper/contacts`<br>`POST /api/v1/shipper/contacts`<br>`PATCH /api/v1/shipper/contacts/{contact_id}`<br>`POST /api/v1/shipper/locations/image`<br>`GET /api/v1/shipper/locations`<br>`POST /api/v1/shipper/locations`<br>`PATCH /api/v1/shipper/locations/{location_id}`<br>`DELETE /api/v1/shipper/locations/{location_id}`<br>`POST /api/v1/shipper/locations/{location_id}/restore`<br>`DELETE /api/v1/shipper/contacts/{contact_id}`<br>`POST /api/v1/shipper/contacts/{contact_id}/restore`<br>`GET /api/v1/unit-conversions`<br>`POST /api/v1/unit-conversions`<br>`PATCH /api/v1/unit-conversions/{conversion_id}`<br>`DELETE /api/v1/unit-conversions/{conversion_id}`<br>`POST /api/v1/unit-conversions/{conversion_id}/restore` |
 | `shipper` | 8 | `POST /api/v1/return-requests`<br>`GET /api/v1/return-requests/mine`<br>`POST /api/v1/return-requests/{request_id}/withdraw`<br>`GET /api/v1/shipper-ledger/summary`<br>`GET /api/v1/shipper-ledger/settlements`<br>`POST /api/v1/shipper-ledger/settlements`<br>`DELETE /api/v1/shipper-ledger/settlements/{settlement_id}`<br>`POST /api/v1/shipper-ledger/settlements/{settlement_id}/restore` |
 
 ## 需要注意的端点（机器可判定的三类风险）
@@ -644,4 +654,4 @@ _（无重复注册）_
 | `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | — |
 | `POST /api/v1/usage/reset` | `reset_usage` | `backend/app/api/v1/usage.py:34` | ✅ |
 
-> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **124** 个端点命中（占 53%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。
+> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **129** 个端点命中（占 54%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/contact_categories.py`、`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/users.py`。

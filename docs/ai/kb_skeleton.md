@@ -8,6 +8,12 @@
 >
 > 端点事实以 `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` 为准。
 
+## AI 调用计数上报（`ai_telemetry`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `report_ai_calls` | 写 | `POST /api/v1/ai/telemetry` | 把「刚跑了 N 次 AI 对话」累加进今天那一行。 |  |
+
 ## 挂账单位（`arrears`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -34,6 +40,16 @@
 | `cash_flow_summary` | 只读 | `GET /api/v1/cash-flows/summary` | **服务端**汇总流入/流出/净额（与列表同一套筛选）。 |  |
 | `cash_flow_breakdown` | 只读 | `GET /api/v1/cash-flows/breakdown` | 按**钱的来路 / 去处**分组求和（账本管理「收支」页那两段：收入来源明细 + 支出明细）。 |  |
 
+## 联系人分类（`contact_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/contact-categories` | **自己那一份**分类名册（按显示顺序）。司机没有联系人库，拿不到。 |  |
+| `create_category` | 写 | `POST /api/v1/contact-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/contact-categories/{category_id}` | 改名 / 改顺序。**改名会级联改掉挂在这一类下的联系人**（同一事务）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/contact-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前。**必须覆盖自己全部现存分类**（理由同地点分类： |  |
+| `delete_category` | 写 | `DELETE /api/v1/contact-categories/{category_id}` | 删掉自己名册里的一行。**还有联系人挂着时拒绝**（告诉有几条）。 |  |
+
 ## 客户（`customers`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -41,6 +57,12 @@
 | `list_customers` | 只读 | `GET /api/v1/customers` |  |  |
 | `create_customer` | 写 | `POST /api/v1/customers` |  |  |
 | `merge_customers` | 写 | `POST /api/v1/customers/merge` |  |  |
+
+## 定价只读诊断（`diagnostics`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `pricing_decision` | 只读 | `GET /api/v1/diagnostics/orders/{order_id}/pricing-decision` | **只读**：这个真实订单在当前生产状态下，交给当前 Pricing Runtime 会得到什么 Decision。 |  |
 
 ## 司机计费规则（`driver_billing_rules`）
 
@@ -67,6 +89,12 @@
 | `list_settlements` | 只读 | `GET /api/v1/driver-settlements` |  |  |
 | `create_settlement` | 写 | `POST /api/v1/driver-settlements` |  |  |
 | `settlement_action` | 写 | `PATCH /api/v1/driver-settlements/{settlement_id}` |  |  |
+
+## 异常订单处理（`exception_resolution`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `resolve_exception_order` | 写 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | 派单员解决异常：填写解决说明，订单标记已解决。 |  |
 
 ## 开销分类（`expense_categories`）
 
@@ -200,10 +228,18 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
-| `list_orders` | 只读 | `GET /api/v1/orders` |  |  |
-| `pending_dispatch_count` | 只读 | `GET /api/v1/orders/pending-dispatch-count` | 派单工作台：当前「派单中」订单数量，用于底部 Tab / 铃铛角标。 |  |
 | `batch_assign_orders` | 写 | `POST /api/v1/orders/batch-assign` |  |  |
-| `get_order` | 只读 | `GET /api/v1/orders/{order_id}` | 软删除订单 → 进入隔离区 30 天（用户不可见；派单员可恢复；到期物理清理）。 |  |
+| `price_freight` | 写 | `POST /api/v1/orders/{order_id}/price-freight` | 派单员**手动定价**：没匹配到价目的单，由人给一个数。 |  |
+| `assign_order` | 写 | `POST /api/v1/orders/{order_id}/assign` |  |  |
+| `split_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/split` | 把待派单拆分为 N 个子单（按比例拆分件数），分别派单。 |  |
+| `update_order_freight` | 写 | `POST /api/v1/orders/{order_id}/freight` | 派单员补录/修改司机运费（送达/撤销/退货后锁定；传 null 清空回待定）。 |  |
+| `recall_order` | 写 | `POST /api/v1/orders/{order_id}/recall` |  |  |
+| `complete_order_with_upload` | 写 | `POST /api/v1/orders/{order_id}/complete-with-upload` |  |  |
+| `driver_ack_view` | 写 | `POST /api/v1/orders/{order_id}/driver-ack` |  |  |
+| `driver_append_internal_note` | 写 | `POST /api/v1/orders/{order_id}/driver-note` |  |  |
+| `fill_order_navigation` | 写 | `POST /api/v1/orders/{order_id}/navigation` | **司机到场后给这单补上导航信息**（订单原本没有坐标时才能补）。 |  |
+| `complete_order` | 写 | `POST /api/v1/orders/{order_id}/complete` |  |  |
+| `cancel_order` | 写 | `POST /api/v1/orders/{order_id}/cancel` |  |  |
 | `delete_cancelled_order` | 写 | `DELETE /api/v1/orders/{order_id}` | 软删除订单 → 进入隔离区 30 天（用户不可见；派单员可恢复；到期物理清理）。 |  |
 | `create_order` | 写 | `POST /api/v1/orders` | 创建订单，初始状态为派单中（PENDING_DISPATCH）。 |  |
 | `update_order` | 写 | `PATCH /api/v1/orders/{order_id}` |  |  |
@@ -211,20 +247,12 @@
 | `restore_order` | 写 | `POST /api/v1/orders/{order_id}/restore` | 派单员：从隔离区恢复订单（软删除后 30 天内可恢复）。 |  |
 | `upload_order_address_image` | 写 | `POST /api/v1/orders/{order_id}/address-image` | 上传收货地址参考图（定位不清时辅助找路）。 |  |
 | `upload_delivery_photos` | 写 | `POST /api/v1/orders/{order_id}/delivery-photos` |  |  |
-| `complete_order_with_upload` | 写 | `POST /api/v1/orders/{order_id}/complete-with-upload` |  |  |
-| `driver_ack_view` | 写 | `POST /api/v1/orders/{order_id}/driver-ack` |  |  |
-| `driver_append_internal_note` | 写 | `POST /api/v1/orders/{order_id}/driver-note` |  |  |
-| `fill_order_navigation` | 写 | `POST /api/v1/orders/{order_id}/navigation` | **司机到场后给这单补上导航信息**（订单原本没有坐标时才能补）。 |  |
-| `price_freight` | 写 | `POST /api/v1/orders/{order_id}/price-freight` | 派单员**手动定价**：没匹配到价目的单，由人给一个数。 |  |
-| `assign_order` | 写 | `POST /api/v1/orders/{order_id}/assign` |  |  |
-| `split_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/split` | 把待派单拆分为 N 个子单（按比例拆分件数），分别派单。 |  |
-| `update_order_freight` | 写 | `POST /api/v1/orders/{order_id}/freight` | 派单员补录/修改司机运费（送达/撤销/退货后锁定；传 null 清空回待定）。 |  |
-| `complete_order` | 写 | `POST /api/v1/orders/{order_id}/complete` |  |  |
-| `cancel_order` | 写 | `POST /api/v1/orders/{order_id}/cancel` |  |  |
-| `return_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/return` | **订单退货**（2026-09-20 用户要求）。 |  |
 | `pay_order` | 写 | `POST /api/v1/orders/{order_id}/pay` | 派单员：现场收款确认（货到付款）。仅派单员界面可用。 |  |
 | `charge_order` | 写 | `POST /api/v1/orders/{order_id}/charge` | 派单员：订单挂账到挂账单位名下。仅派单员界面可用。 |  |
-| `recall_order` | 写 | `POST /api/v1/orders/{order_id}/recall` |  |  |
+| `list_orders` | 只读 | `GET /api/v1/orders` |  |  |
+| `pending_dispatch_count` | 只读 | `GET /api/v1/orders/pending-dispatch-count` | 派单工作台：当前「派单中」订单数量，用于底部 Tab / 铃铛角标。 |  |
+| `get_order` | 只读 | `GET /api/v1/orders/{order_id}` |  |  |
+| `return_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/return` | **订单退货**（2026-09-20 用户要求）。 |  |
 
 ## 地点分类（`place_categories`）
 
@@ -347,7 +375,6 @@
 | `get_driver_performance` | 只读 | `GET /api/v1/stats/driver-performance` |  |  |
 | `get_shipper_performance` | 只读 | `GET /api/v1/stats/shipper-performance` |  |  |
 | `get_exception_orders` | 只读 | `GET /api/v1/stats/exception-orders` |  |  |
-| `resolve_exception_order` | 写 | `POST /api/v1/stats/exception-orders/{order_id}/resolve` | 派单员解决异常：填写解决说明，订单标记已解决。 |  |
 | `post_stats_export` | 只读 | `POST /api/v1/stats/export` |  |  |
 
 ## 供应商/应付款（`suppliers`）
@@ -405,7 +432,7 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
-| `list_vehicles` | 只读 | `GET /api/v1/vehicles` |  |  |
-| `create_vehicle` | 写 | `POST /api/v1/vehicles` |  |  |
+| `list_vehicles` | 只读 | `GET /api/v1/vehicles` | 新增一辆车（车牌 / 车型 / **车身型式** / **车辆属性** / 司机）。 |  |
+| `create_vehicle` | 写 | `POST /api/v1/vehicles` | 新增一辆车（车牌 / 车型 / **车身型式** / **车辆属性** / 司机）。 |  |
 | `update_vehicle` | 写 | `PATCH /api/v1/vehicles/{vehicle_id}` |  |  |
 | `set_vehicle_driver` | 写 | `POST /api/v1/vehicles/{vehicle_id}/driver` | 把车绑给某个司机 / 解绑。`driver_id` 缺省或 null **都算解绑**。 |  |

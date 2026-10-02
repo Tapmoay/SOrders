@@ -14,6 +14,7 @@ from app.config import uploads_root
 from app.core.business_time import utc_now_naive
 from app.core.rbac import user_role_key
 from app.core.upload_read import MAX_IMAGE_BYTES, read_limited
+from app.api.v1.contact_categories import ensure_contact_category
 from app.api.v1.place_categories import ensure_place_category
 from app.database import get_db
 from app.deps import require_roles
@@ -228,6 +229,8 @@ def upsert_contact(
 ) -> ShipperContact:
     phone = (body.phone or "").strip()
     name = (body.display_name or "").strip()
+    # FEAT-0007：分类与地点那一格同一个口径（strip、≤32 字、空串 = 未分类）。
+    category = _clean_category(body.category)
     # 姓名和手机号**至少填一个**：两个都空的联系人在列表里是一行认不出、也没法拨的空白。
     # 用户只要求"手机号不必填"，没要求"可以什么都不填"。
     if not phone and not name:
@@ -252,10 +255,18 @@ def upsert_contact(
     if row:
         if name:
             row.display_name = name
+        # 分类**只在这次真的给了才覆盖**（空串 = 这次没提分类，不是"改成未分类"）：
+        # POST /contacts 是 upsert（按号认人），界面上新建时没选分类，不该把老档案的分类抹掉。
+        if category:
+            row.category = category
     else:
         # 空号一律写 NULL，⛔ 不写空串：空串是真值，两条空号会撞 (shipper_id, phone) 唯一约束。
-        row = ShipperContact(shipper_id=current.id, phone=phone or None, display_name=name)
+        row = ShipperContact(
+            shipper_id=current.id, phone=phone or None, display_name=name, category=category
+        )
         db.add(row)
+    # 名册里没有这个分类名就顺手补一个（与地点创建同一条：用户敲个新名字 = 建了它）。
+    ensure_contact_category(db, current.id, category)
     db.commit()
     db.refresh(row)
     return row
@@ -295,6 +306,10 @@ def update_contact(
             raise HTTPException(status_code=409, detail="该电话已存在已有联系人")
     c.phone = new_phone
     c.display_name = new_name
+    # FEAT-0007：分类 —— `None` = 不改；**空串 = 明确清成未分类**（界面上把分类清空再保存）。
+    if body.category is not None:
+        c.category = _clean_category(body.category)
+        ensure_contact_category(db, current.id, c.category)
     db.commit()
     db.refresh(c)
     return c

@@ -4,7 +4,7 @@
 
 R3-02 要的是「Capability 四端同源」：UI 问 `can(order:assign)`、AI 问同一句、审计按同一套词表留痕。
 但本项目**不是所有授权都有权限点**：地址与联系人、地点库、单位换算这几块用的是
-`require_roles(UserRole.SHIPPER, UserRole.DISPATCHER)`（见 `api/v1/shipper.py:29`）；
+`require_roles(UserRole.SHIPPER, UserRole.DISPATCHER)`（见 `api/v1/shipper.py:31`）；
 车辆管理更彻底 —— 它是**体内角色判断**（`vehicles.py:79 _must_dispatcher`）。
 没有名字，UI/AI 就无从问起 —— 于是它们各自硬编码 `role == ...`，这正是「第二份权限真相」的来源。
 
@@ -51,10 +51,10 @@ class RoleCapability:
 ROLE_CAPABILITIES: tuple[RoleCapability, ...] = (
     RoleCapability(
         key='address:manage',
-        what='地址与联系人：常用线路、联系人、地点（含图片）',
+        what='地址与联系人：常用线路、联系人（含分类）、地点（含图片）',
         roles=('shipper', 'dispatcher'),
         kind='write',
-        gate='backend/app/api/v1/shipper.py:30',
+        gate='backend/app/api/v1/shipper.py:31',
         why_not_permission='这一整块是「按人分区」的：货主管自己的地址库，派单员用同一套接口管代理下单要用的地址；'
                             '权限点表述不了「只能动自己那一份」，那是 scope 才管的事。',
         when_to_remove='如果哪天把 scope=own 的权限点体系补全（`order:read_own` 那种已经在用了），'

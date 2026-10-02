@@ -1,7 +1,7 @@
 # 界面提示与说明目录（**机器生成，不要手改**）
 
 > 生成命令：`python _tools/qa/_hint_inventory.py --md`
-> source_hash：`sha256:70e1b558b9ab20b57d7e537d67b8ae0a602b20919fd3ee45b681d5946bab7869`
+> source_hash：`sha256:fe1f73845b012e6ac0218f181bf1d11073b16cbee397a5f5ae0a8f56bcac7dda`
 > 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。
 
 ## 1. 口径
@@ -12,7 +12,7 @@
 | `DATA` | 数据/状态/标签（金额、数量、单号、档位摘要） | ⛔ 永远显示 |
 | `WARN` | 警告/错误/安全 | ⛔ 永远显示 |
 
-扫了 **260** 个 `.kt` 文件，抽到 **1370** 条文案：解释 **76** / 数据 **1249** / 警告 **31**。
+扫了 **262** 个 `.kt` 文件，抽到 **1383** 条文案：解释 **77** / 数据 **1260** / 警告 **32**。
 
 ## 2. 解释类逐条清单（**归总开关管的那一批**）
 
@@ -62,39 +62,40 @@
 | 40 | 货主 | 30 | `ShipperLedgerScreen.kt:485` | 这里只有你欠公司的这一边：你自己卖货收回来的钱不经过本系统。 |
 | 41 | 共用 | 29 | `AiChatScreen.kt:1545` | 正在编辑这条消息：发送后会重新回答，这条之后的对话会被撤掉 |
 | 42 | 派单员 | 29 | `VehicleManageScreen.kt:783` | 一辆车同时只能归一个司机。选了别人名下的车 = 改挂过来。 |
-| 43 | 派单员 | 28 | `ExpenseCategoriesScreen.kt:244` | 老数据里的分类名，改不了也排不了序；它名下的开销照常显示 |
-| 44 | 派单员 | 28 | `PlaceCategoriesScreen.kt:80` | 只影响你自己的左栏分组，别人看不到；顺序就是左栏的顺序。 |
-| 45 | 派单员 | 28 | `VehicleManageScreen.kt:553` | 决定这辆车怎么算钱（司机计费规则与运费模板都按它匹配）。 |
-| 46 | 货主 | 28 | `AddressScreen.kt:742` | 建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。 |
-| 47 | 共用 | 27 | `AiChatScreen.kt:1732` | 填好地址、Key、模型名即可提问；Key 只存在本机。 |
-| 48 | 共用 | 27 | `AiSettingsScreen.kt:113` | API Key 加密存在本机、不上传；费用你自己承担。 |
-| 49 | 派单员 | 27 | `OrderTemplateFormScreen.kt:326` | 分类只影响这一页左边那一列怎么分组；不选就是「未分类」 |
-| 50 | 共用 | 26 | `AiChatScreen.kt:1006` | 里面可以填 API Key、开关工具、拉取模型列表。 |
-| 51 | 共用 | 26 | `AiSettingsScreen.kt:344` | 低/中/高：越往上越想得全，也越慢越贵。默认「中」。 |
-| 52 | 共用 | 25 | `AiChatScreen.kt:1265` | 这段对话是从历史里分叉出来的，原对话仍在「历史」里 |
-| 53 | 派单员 | 25 | `ProductFormScreen.kt:204` | 新建默认上架；关闭开关则保存后货主下单时看不到它。 |
-| 54 | 派单员 | 25 | `UsersManageScreen.kt:608` | 决定他在「选择商品」里能看到哪些商品。默认不限制。 |
-| 55 | 派单员 | 25 | `VehicleManageScreen.kt:663` | 停用后不再派活；车牌要留在历史记录里，所以不给删。 |
-| 56 | 货主 | 25 | `ShipperLedgerScreen.kt:851` | 只记在你自己这一本账上 —— 公司那边的账不会变。 |
-| 57 | 共用 | 24 | `AiSettingsScreen.kt:650` | 测试只发一句「你好」，开启思考时会多花一点额度。 |
-| 58 | 共用 | 24 | `AiSettingsScreen.kt:726` | 关掉哪个，它就查不到或做不了那一类事。默认全开。 |
-| 59 | 派单员 | 23 | `FreightPricingScreens.kt:365` | 他还没挂规则的话，会提示你去给他挂一份再勾上。 |
-| 60 | 派单员 | 23 | `ProductCategoriesScreen.kt:153` | 改顺序：按住一行长按拖动，或直接改左边的序号。 |
-| 61 | 派单员 | 22 | `AccountManageScreen.kt:373` | 创建后账号密码自动复制，直接发给对方即可登录 |
-| 62 | 共用 | 21 | `AiSettingsScreen.kt:649` | 先点「保存」才生效，再点「测试连接」验证。 |
-| 63 | 派单员 | 21 | `DispatcherReturnRequestsScreen.kt:142` | 按这张申请实际退货：库存和账本在这一刻才变 |
-| 64 | 货主 | 21 | `ShipperOrdersScreen.kt:326` | 撤回后可以重新申请（想改数量只能这么改）。 |
-| 65 | 货主 | 21 | `ShipperReturnRequestsScreen.kt:131` | 撤回后可以重新申请（想改数量只能这么改）。 |
-| 66 | 派单员 | 20 | `DispatcherOrdersScreen.kt:311` | 退掉的那部分会自动记一笔退给客户的现金。 |
-| 67 | 共用 | 18 | `AiChatScreen.kt:1676` | 左上角「历史」里能看到以前问过的对话 |
-| 68 | 共用 | 18 | `OrderDetailScreen.kt:1251` | 到地方标一下位置，以后大家都直接能用 |
-| 69 | 共用 | 18 | `OrderDetailScreen.kt:1393` | 坐标相近会自动并成一个，不会越攒越多 |
-| 70 | 派单员 | 17 | `AccountManageScreen.kt:372` | 修改后保存即可；密码留空表示不修改 |
-| 71 | 派单员 | 17 | `SupplierDetailScreen.kt:518` | 填一个金额，这里会算出付完还差多少 |
-| 72 | 派单员 | 17 | `UsersManageScreen.kt:333` | 绑错了那边会明确告诉你是谁名下的。 |
-| 73 | 共用 | 15 | `AiSettingsScreen.kt:519` | 全程只存在这台手机上，不上传。 |
-| 74 | 共用 | 15 | `AiSettingsScreen.kt:557` | 全程只存在这台手机上，不上传。 |
-| 75 | 共用 | 14 | `ProfileScreen.kt:213` | 通知栏提醒 / 后台接收新单 |
-| 76 | 共用 | 13 | `ProfileScreen.kt:211` | 语音播报 / 后台接收新单 |
+| 43 | 派单员 | 28 | `ContactCategoriesScreen.kt:77` | 只影响你自己看到的分类，别人看不到；顺序就是左栏的顺序。 |
+| 44 | 派单员 | 28 | `ExpenseCategoriesScreen.kt:244` | 老数据里的分类名，改不了也排不了序；它名下的开销照常显示 |
+| 45 | 派单员 | 28 | `PlaceCategoriesScreen.kt:80` | 只影响你自己的左栏分组，别人看不到；顺序就是左栏的顺序。 |
+| 46 | 派单员 | 28 | `VehicleManageScreen.kt:553` | 决定这辆车怎么算钱（司机计费规则与运费模板都按它匹配）。 |
+| 47 | 货主 | 28 | `AddressScreen.kt:890` | 建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。 |
+| 48 | 共用 | 27 | `AiChatScreen.kt:1732` | 填好地址、Key、模型名即可提问；Key 只存在本机。 |
+| 49 | 共用 | 27 | `AiSettingsScreen.kt:113` | API Key 加密存在本机、不上传；费用你自己承担。 |
+| 50 | 派单员 | 27 | `OrderTemplateFormScreen.kt:326` | 分类只影响这一页左边那一列怎么分组；不选就是「未分类」 |
+| 51 | 共用 | 26 | `AiChatScreen.kt:1006` | 里面可以填 API Key、开关工具、拉取模型列表。 |
+| 52 | 共用 | 26 | `AiSettingsScreen.kt:344` | 低/中/高：越往上越想得全，也越慢越贵。默认「中」。 |
+| 53 | 共用 | 25 | `AiChatScreen.kt:1265` | 这段对话是从历史里分叉出来的，原对话仍在「历史」里 |
+| 54 | 派单员 | 25 | `ProductFormScreen.kt:204` | 新建默认上架；关闭开关则保存后货主下单时看不到它。 |
+| 55 | 派单员 | 25 | `UsersManageScreen.kt:608` | 决定他在「选择商品」里能看到哪些商品。默认不限制。 |
+| 56 | 派单员 | 25 | `VehicleManageScreen.kt:663` | 停用后不再派活；车牌要留在历史记录里，所以不给删。 |
+| 57 | 货主 | 25 | `ShipperLedgerScreen.kt:851` | 只记在你自己这一本账上 —— 公司那边的账不会变。 |
+| 58 | 共用 | 24 | `AiSettingsScreen.kt:650` | 测试只发一句「你好」，开启思考时会多花一点额度。 |
+| 59 | 共用 | 24 | `AiSettingsScreen.kt:726` | 关掉哪个，它就查不到或做不了那一类事。默认全开。 |
+| 60 | 派单员 | 23 | `FreightPricingScreens.kt:365` | 他还没挂规则的话，会提示你去给他挂一份再勾上。 |
+| 61 | 派单员 | 23 | `ProductCategoriesScreen.kt:153` | 改顺序：按住一行长按拖动，或直接改左边的序号。 |
+| 62 | 派单员 | 22 | `AccountManageScreen.kt:373` | 创建后账号密码自动复制，直接发给对方即可登录 |
+| 63 | 共用 | 21 | `AiSettingsScreen.kt:649` | 先点「保存」才生效，再点「测试连接」验证。 |
+| 64 | 派单员 | 21 | `DispatcherReturnRequestsScreen.kt:142` | 按这张申请实际退货：库存和账本在这一刻才变 |
+| 65 | 货主 | 21 | `ShipperOrdersScreen.kt:326` | 撤回后可以重新申请（想改数量只能这么改）。 |
+| 66 | 货主 | 21 | `ShipperReturnRequestsScreen.kt:131` | 撤回后可以重新申请（想改数量只能这么改）。 |
+| 67 | 派单员 | 20 | `DispatcherOrdersScreen.kt:311` | 退掉的那部分会自动记一笔退给客户的现金。 |
+| 68 | 共用 | 18 | `AiChatScreen.kt:1676` | 左上角「历史」里能看到以前问过的对话 |
+| 69 | 共用 | 18 | `OrderDetailScreen.kt:1251` | 到地方标一下位置，以后大家都直接能用 |
+| 70 | 共用 | 18 | `OrderDetailScreen.kt:1393` | 坐标相近会自动并成一个，不会越攒越多 |
+| 71 | 派单员 | 17 | `AccountManageScreen.kt:372` | 修改后保存即可；密码留空表示不修改 |
+| 72 | 派单员 | 17 | `SupplierDetailScreen.kt:518` | 填一个金额，这里会算出付完还差多少 |
+| 73 | 派单员 | 17 | `UsersManageScreen.kt:333` | 绑错了那边会明确告诉你是谁名下的。 |
+| 74 | 共用 | 15 | `AiSettingsScreen.kt:519` | 全程只存在这台手机上，不上传。 |
+| 75 | 共用 | 15 | `AiSettingsScreen.kt:557` | 全程只存在这台手机上，不上传。 |
+| 76 | 共用 | 14 | `ProfileScreen.kt:213` | 通知栏提醒 / 后台接收新单 |
+| 77 | 共用 | 13 | `ProfileScreen.kt:211` | 语音播报 / 后台接收新单 |
 
 > 「⚠️」= 超过 [40] 字（规范 `docs/HINT_STYLE.md` §3 的上限），共 **5** 条 ——这些是要精简的：压到一行 ≤20 字，或两行 ≤40 字（**前提与后果都要留住**）。

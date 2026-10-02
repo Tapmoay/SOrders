@@ -43,6 +43,8 @@ import com.tapmoay.sorders.ui.theme.InventoryTeal
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.ui.dispatcher.ContactCategoriesPanel
+import com.tapmoay.sorders.ui.dispatcher.ContactCategoriesViewModel
 import android.graphics.Bitmap
 import com.tapmoay.sorders.ui.common.Hint
 
@@ -171,32 +173,18 @@ fun AddressScreen(
                     // ⚠️ 只看 **loadError**：表单的错误写在抽屉里（见 AddressViewModel 的注释），
                     //    混进来就会让"保存被拦下"变成"整页列表全没了"。
                     vm.loadError != null -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() }, Modifier.fillMaxSize())
+                    // ---- 2. 联系人：**左边分类、右边列表**（FEAT-0007）----
+                    // 单独一支：左栏要占一整条竖边，塞不进 LazyColumn 的 item 里。
+                    // ⚠️ 外层是**无主语 when**，所以这一支必须写成条件（`tab == 1`），
+                    //    直接写 `1 ->` 会被当成"条件类型不匹配"编译不过。
+                    tab == 1 -> ContactCategoryPane(container = container, vm = vm, keyword = kw, contacts = shownContacts)
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         when (tab) {
-                            // ---- 2. 联系人 ----
-                            1 -> {
-                                item {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("联系人", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                        TextButton(onClick = { vm.openContactDialog() }) {
-                                            Icon(Icons.Default.PersonAddAlt, null, Modifier.size(16.dp), tint = Color(MgrGreen))
-                                            Spacer(Modifier.width(3.dp))
-                                            Text("新增联系人")
-                                        }
-                                    }
-                                }
-                                if (shownContacts.isEmpty()) {
-                                    item { EmptyView(if (kw.isBlank()) "暂无联系人" else "没有匹配「$kw」的联系人") }
-                                } else {
-                                    items(shownContacts, key = { "c" + it.id }) { c ->
-                                        ContactCard(c = c, onEdit = { vm.openContactDialog(c) }, onDelete = { vm.deleteContact(c) })
-                                    }
-                                }
-                            }
+                            // ---- 2. 联系人 ----：已由外面的 ContactCategoryPane 接管（左分类 + 右列表，FEAT-0007）
 
                             // ---- 3. 地点（单独地点）----
                             2 -> {
@@ -676,6 +664,10 @@ fun AddressScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(if (vm.editingContact == null) "添加联系人" else "编辑联系人", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                // 分类（FEAT-0007）与地点表单那排「分组」**同一个形状**：
+                // 下拉点选（设计规范 §5：下拉一律 ExposedDropdownMenuBox，别用 chips 替代）+ 末尾「＋ 新建分类…」。
+                var catExpanded by remember { mutableStateOf(false) }
+                var newCatDialog by remember { mutableStateOf(false) }
                 // 同样是**白卡 + 共用行**（2026-09-22 的全局规范，见设计系统 §5.0）
                 SectionCard {
                     FormInputRow(
@@ -699,6 +691,54 @@ fun AddressScreen(
                         icon = Icons.Default.Phone,
                         iconTint = Color(MgrGreen),
                     )
+                    // 分类：**选填**（不建分类的人照样能用联系人；后端把空串当"未分类"）。
+                    ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = it }) {
+                        FormPickRow(
+                            label = "分类",
+                            value = vm.contactCategory.trim(),
+                            placeholder = "未分类",
+                            icon = Icons.Default.Folder,
+                            iconTint = Color(ShipperTeal),
+                            onClick = { catExpanded = true },
+                            modifier = Modifier.menuAnchor(),
+                        )
+                        ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("未分类") },
+                                onClick = { vm.contactCategory = ""; catExpanded = false },
+                            )
+                            vm.contactCategories.forEach { c ->
+                                DropdownMenuItem(
+                                    // 带上"这一类里有几位"：挑分类时能看出哪个是主力（与地点那排同口径）
+                                    text = {
+                                        Text(
+                                            c.name + if (c.contactCount > 0) "（${c.contactCount} 位联系人）" else "",
+                                            maxLines = 1,
+                                        )
+                                    },
+                                    onClick = { vm.contactCategory = c.name; catExpanded = false },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("＋ 新建分类…") },
+                                onClick = { catExpanded = false; newCatDialog = true },
+                            )
+                        }
+                    }
+                }
+                if (newCatDialog) {
+                    NewPlaceCategoryDialog(
+                        busy = vm.acting,
+                        error = vm.formError,
+                        title = "新建分类",
+                        placeholder = "分类名，如 供货商 / 老客户",
+                        hint = "建好后会自动选中它。顺序到联系人左栏的「管理分类」里排。",
+                        onConfirm = { name ->
+                            vm.createContactCategoryAndSelect(name) { newCatDialog = false }
+                        },
+                        onDismiss = { newCatDialog = false },
+                    )
                 }
                 // 同上：电话不合规（InputRules 那一句）也画在这张抽屉里
                 FormErrorLine(vm.formError)
@@ -708,6 +748,104 @@ fun AddressScreen(
                 }
                 Spacer(Modifier.height(24.dp))
             }
+        }
+    }
+}
+
+/**
+ * 「联系人」这一段：**左边分类、右边列表**（FEAT-0007）。
+ *
+ * 用户原话：「我们的联系人好像是可以做分类的吧，**同样以左边为分类右边为列表的形式展示出来**」。
+ * 全 App 唯一一处「左分类右列表」在下单页的地址库抽屉（`OrderCreateScreen.kt` 的 `AddressPickerSheet`），
+ * 这里的形状就是照它抄的：`Row { MasterRail(宽 112dp) + LazyColumn(weight 1f) }`。
+ *
+ * 三条纪律也照抄那个抽屉：
+ * · key 约定 `""` = 全部 / `"c|分类名"` = 某一类 / `"manage"` = 分类管理（同一屏的第二层）；
+ * · **左栏一格都不带「N 位」**（用户 2026-09-19：「那个分组下面不要显示有多少条啊，这是多余信息」）
+ *   —— `MasterRail` 只要有任意一格带副标题，整列行高就变 60dp，多几格就吃掉一屏；
+ * · 管理是**第二层**不是新页面（用户同一天：「要干脆就不要弹一个界面…它 2 个抽屉」）。
+ *
+ * ⚠️ 别把分类做成"下拉筛选"：用户要的是**看得见的分组**（左栏），下拉只做表单里选一个值。
+ */
+@Composable
+private fun ContactCategoryPane(
+    container: AppContainer,
+    vm: AddressViewModel,
+    keyword: String,
+    /** 已经被搜索框筛过一遍的联系人（姓名 / 手机号）。这一层只再叠一次"分类"筛选。 */
+    contacts: List<ContactDto>,
+) {
+    var managing by remember { mutableStateOf(false) }
+    if (managing) {
+        // 与地址库抽屉里那个 `PlaceCategoriesViewModel` 同一取法：面板自己一份 VM（它的 load
+        // 与列表页的 load 互不干扰），关掉时回读一次名册，让左栏跟上改名 / 删除。
+        val catVm: ContactCategoriesViewModel = appViewModel { ContactCategoriesViewModel(container) }
+        // ⛔ `appViewModel` 是 Activity 级缓存（同一个实例跨次复用），VM 的 `init { load() }` 只跑第一次 ——
+        //    不在这里补一次 load 的话，用户先在下单页/抽屉里给联系人改了分类、再进来，面板上仍是**上一次的**
+        //    「N 位联系人」（2026-10-03 模拟器实测：库里已经是 1 位，面板显示「0 位联系人」，删除确认框也跟着说 0）。
+        LaunchedEffect(Unit) { catVm.load() }
+        ContactCategoriesPanel(
+            vm = catVm,
+            onBack = {
+                managing = false
+                vm.reloadContactCategories()
+            },
+        )
+        return
+    }
+
+    val railName = if (vm.contactRailKey.startsWith("c|")) vm.contactRailKey.removePrefix("c|") else ""
+    val inCategory = remember(contacts, vm.contactRailKey) {
+        if (railName.isBlank()) contacts else contacts.filter { it.category == railName }
+    }
+    Row(Modifier.fillMaxSize()) {
+        MasterRail(
+            items = buildList {
+                add(RailItem("", "全部"))
+                vm.contactCategories.forEach { c -> add(RailItem("c|" + c.name, c.name)) }
+                add(RailItem("manage", "管理分类"))
+            },
+            selectedKey = vm.contactRailKey,
+            onSelect = { key -> if (key == "manage") managing = true else vm.contactRailKey = key },
+            modifier = Modifier.width(112.dp).fillMaxHeight(),
+        )
+        LazyColumn(
+            Modifier.weight(1f).fillMaxHeight(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 选了某一类就把类名顶上来（左栏选中格与标题同一句话，位置感更强）
+                    Text(
+                        railName.ifBlank { "联系人" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { vm.openContactDialog() }) {
+                        Icon(Icons.Default.PersonAddAlt, null, Modifier.size(16.dp), tint = Color(MgrGreen))
+                        Spacer(Modifier.width(3.dp))
+                        Text("新增联系人")
+                    }
+                }
+            }
+            if (inCategory.isEmpty()) {
+                item {
+                    EmptyView(
+                        when {
+                            keyword.isNotBlank() -> "没有匹配「$keyword」的联系人"
+                            railName.isNotBlank() -> "「" + railName + "」下还没有联系人"
+                            else -> "暂无联系人"
+                        },
+                    )
+                }
+            } else {
+                items(inCategory, key = { "c" + it.id }) { c ->
+                    ContactCard(c = c, onEdit = { vm.openContactDialog(c) }, onDelete = { vm.deleteContact(c) })
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
@@ -725,21 +863,31 @@ private fun NewPlaceCategoryDialog(
     onDismiss: () -> Unit,
     /** 建失败时的一句话（如"已经存在"之外的错误）；画在弹窗里，不写到页面上。 */
     error: String? = null,
+    // 下面三个默认值 =「地点分组」那一处的原文案。联系人分类（FEAT-0007）复用同一个弹窗，
+    // 只换名字 —— 两处各写一份的话，将来改一处就会留下另一处的不一致。
+    title: String = "新建分组",
+    placeholder: String = "分组名，如 常送小区 / 工地",
+    // ⛔ 说明句**不许**写成这里的默认值：判据 _check_hints.py 靠「字面量挂在 Hint 调用里」
+    //    来盯住「有人把它改回裸 Text」，挪到参数默认值上那句话就**从提示目录里消失**、
+    //    _tools/qa/_reverse_verify_hints.py 的用例①（一处解释句改回裸 Text）也就失灵了
+    //    —— 2026-10-03 实测踩到，所以地点那一句留在下面的 Hint 调用里内联，
+    //    联系人分类（FEAT-0007 复用同一个弹窗）只在调用处换一句。
+    hint: String = "",
 ) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建分组") },
+        title = { Text(title) },
         text = {
             Column {
                 SoTextField(
                     value = name,
                     onValueChange = { name = it.take(8) },
-                    placeholder = "分组名，如 常送小区 / 工地",
+                    placeholder = placeholder,
                 )
                 Spacer(Modifier.height(8.dp))
                 Hint(
-                    "建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。",
+                    hint.ifBlank { "建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -976,6 +976,30 @@ class AiWriteTest {
             masterCalls += "reorderPlaceCategories:${ids.joinToString(",")}"
         }
 
+        // ---- 联系人分类（**按人分区**；FEAT-0007 照地点分组克隆的那一份，2026-10-03）----
+        // ⚠️ 与地点分组是**两张名册**（级联目标不同：那边挂地点、这边挂联系人），
+        //    所以替身这里也是另起一份，⛔ 不许拿 placeCategoryRows 冒充：
+        //    真拿它冒充的话，"重排联系人分类"会把地点分组一起排了 —— 那正是两张表要防的错。
+        var contactCategoryRows = listOf(
+            AiName(111, "供货商", note = "5 位联系人"),
+            AiName(112, "老客户"),
+        )
+
+        override suspend fun contactCategories() = contactCategoryRows.also { boom() }
+        override suspend fun createContactCategory(fields: JsonObject) = rec("createContactCategory", fields)
+        override suspend fun updateContactCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updateContactCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deleteContactCategory(id: Long) {
+            boom()
+            masterCalls += "deleteContactCategory:$id"
+        }
+        override suspend fun reorderContactCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderContactCategories:${ids.joinToString(",")}"
+        }
+
         // ---- 开销 / 运费 / 预订单三份分类名册（2026-09-23 按"人能操作的 AI 都要能操作"补齐）----
         // ⚠️ 三份都照上面那两份的形状写：读那一格 `also { boom() }`（读接口在撤回/重命名卡片
         //    里也要用到，不该顺手写库），写那一格先 `boom()` 再记账（证明它真的调了数据源）。
@@ -5722,6 +5746,12 @@ class AiWriteTest {
             AiWrites.PLACE_CATEGORY_UPDATE,
             AiWrites.PLACE_CATEGORY_DELETE,
             AiWrites.PLACE_CATEGORY_REORDER,
+            // FEAT-0007：联系人分类与地点分组同一个道理（按人分区、改的是自己的名册），
+            // 所以货主也**必须**能用 —— 与「联系人增删改」是同一件事的两半。
+            AiWrites.CONTACT_CATEGORY_CREATE,
+            AiWrites.CONTACT_CATEGORY_UPDATE,
+            AiWrites.CONTACT_CATEGORY_DELETE,
+            AiWrites.CONTACT_CATEGORY_REORDER,
         )) {
             assertTrue("$id 货主也要能用（改的是他自己的地址库）", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), id))
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))

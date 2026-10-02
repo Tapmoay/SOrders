@@ -324,7 +324,7 @@ id: party.master
 中文名: 往来单位档案（货主 / 批发商 / 散客 / 供应商 / 挂账单位 / 地址 / 联系人）
 class: CORE
 domain: party
-owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations
+owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations, contact_categories
 contract: -
 why: 订单必须知道「跟谁」、钱必须记在某个名下；删掉它订单根本建不起来（判定规则 3 反问：核心业务不再成立）
 impl: api/v1/customers.py, services/supplier_service.py, services/shipper_contact_service.py
@@ -333,6 +333,10 @@ pending: no
 
 > ⚠️ **这一档是"人判的"，如实说明**：指南 §6 的 Extension 候选里没有它，而它对订单是**硬依赖**。
 > ⛔ 与钱域的边界不变：这一域拥有**档案**（名字 / 电话 / 地址），钱域拥有**金额**。
+> **为什么 `contact_categories` 在这里**（FEAT-0007，2026-10-03）：它是**这一域自己那张名册**——
+> 「联系人左栏那一列的名字与顺序」，级联目标就是本域的 `shipper_contacts.category`。
+> 与 `product_categories` 归目录域、`place_categories` 归地点库同一条规矩：**名册跟着它整理的那张表走**，
+> 而不是单独开一个"分类域"（那样每加一处分类就是一次越域）。
 
 ```capability
 id: freight.vehicle_registry

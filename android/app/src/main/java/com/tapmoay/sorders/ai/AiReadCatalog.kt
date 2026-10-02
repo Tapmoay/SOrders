@@ -68,6 +68,8 @@ object AiReadCatalog {
             ReadParam("date_to", "date", false, emptyList(), false),
             ReadParam("limit", "int", false, emptyList(), false),
         )),
+        ReadAction("contact_categories.list_categories", "联系人分类名册（**当前登录人自己那份**：联系人列表左侧那一列的分类与顺序，带每类下挂着几位联系人）", "/api/v1/contact-categories", "", setOf("dispatcher", "shipper"), false, listOf(
+        )),
         ReadAction("customers.list_customers", "客户列表", "/api/v1/customers", "kind、q", setOf("dispatcher"), false, listOf(
             ReadParam("kind", "str", false, emptyList(), false),
             ReadParam("q", "str", false, emptyList(), false),
@@ -308,6 +310,7 @@ object AiReadCatalog {
     val MODULE_CN: Map<String, String> = mapOf(
         "arrears" to "挂账单位",
         "cash_flows" to "现金流水",
+        "contact_categories" to "联系人分类",
         "customers" to "客户",
         "driver_billing_rules" to "司机计费规则",
         "driver_bills" to "司机账单",

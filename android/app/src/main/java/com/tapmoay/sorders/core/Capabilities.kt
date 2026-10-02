@@ -2,7 +2,7 @@
 // 改能力表请改 backend/app/core/{capabilities,role_capabilities,capability_audit_coverage}.py，
 // 然后重跑：python _tools/ai/_gen_capability_snapshot.py
 //
-// source_hash = sha256:7fe8bf672f1b36afcadb5c8f6662d370ad70b57e1c626914985da2b658eaba5f
+// source_hash = sha256:88349483e23be9cd8f9063925460201a50a44951b80831b75102f8285e68cd96
 //
 // 它回答的唯一问题：**这个角色能不能做这件事**（指南 §R3-02：Capability → UI）。
 // ⛔ 界面里不要再写 `role == Role.DISPATCHER` 来判断「能不能做某个业务动作」——问这里。
@@ -10,7 +10,7 @@ package com.tapmoay.sorders.core
 
 object Capabilities {
     /** 能力表的指纹。判据拿它对账：Kotlin 与后端不一致就是有人手改了。 */
-    const val SOURCE_HASH: String = "sha256:7fe8bf672f1b36afcadb5c8f6662d370ad70b57e1c626914985da2b658eaba5f"
+    const val SOURCE_HASH: String = "sha256:88349483e23be9cd8f9063925460201a50a44951b80831b75102f8285e68cd96"
 
     /** 有没有「绕过角色」（后端 BYPASS_ROLES）：它不受能力表限制。 */
     val BYPASS_ROLES: Set<String> = setOf("dispatcher")
@@ -50,7 +50,7 @@ object Capabilities {
         "user:manage" to "维护账号、司机名册、货主名册",
         "order_product:edit" to "增删改订单商品行",
         "stats:read" to "看报表与统计",
-        "address:manage" to "地址与联系人：常用线路、联系人、地点（含图片）",
+        "address:manage" to "地址与联系人：常用线路、联系人（含分类）、地点（含图片）",
         "place:manage" to "地点库与地点分组（谁都能标自己的常用地点，派单员另有发布/下架）",
         "unit_conversion:manage" to "单位换算（一车=8 方那类），货主与派单员都能自己设",
         "shipper_ledger:read_own" to "货主自己的账（明细与汇总，只读）",

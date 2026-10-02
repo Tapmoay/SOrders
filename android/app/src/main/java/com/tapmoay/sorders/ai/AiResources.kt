@@ -4,6 +4,7 @@ import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.api.UnitConversionDto
 import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto
+import com.tapmoay.sorders.data.remote.dto.ContactCategoryDto
 import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.DriverBillingRuleDto
 import com.tapmoay.sorders.data.remote.dto.FreightTemplateDto
@@ -400,6 +401,35 @@ internal object AiResources {
             "按原来的名字和位置重建一格：分组名册没有回收站，删掉的那一行是真没了",
             "⚠️ 重建出来的是新的一行，编号和原来不一样（挂在它下面的地点不受影响——能删就说明本来没有地点挂着）",
             "⚠️ 只影响你自己的地址库",
+        ),
+    )
+
+    /**
+     * 联系人分类名册（**按人分区**：每个人管自己联系人列表左栏那一列，FEAT-0007）。
+     *
+     * 与地点分组那份是同一套做法（改名级联、删的前提是"没有联系人挂着"、
+     * 撤回是按原名重建一格因此**编号会变**），差别只有级联目标和"这是我自己那一份"。
+     */
+    private val CONTACT_CATEGORY = AiResource(
+        key = "contact_category",
+        cn = "联系人分类",
+        idKey = "category_id",
+        readKeys = setOf("name", "sort_order"),
+        labels = mapOf("name" to "分类名", "sort_order" to "顺序（第几位）"),
+        actions = listOf(
+            update(AiWrites.CONTACT_CATEGORY_UPDATE),
+            delete(AiWrites.CONTACT_CATEGORY_DELETE),
+        ),
+        read = { ds, id -> ds.snapshot("contact_category", id) },
+        restore = AiInverse(
+            AiWrites.CONTACT_CATEGORY_CREATE,
+            mapOf("name" to "name", "sort_order" to "sort_order"),
+            lines = listOf("名字和位置都照删之前那一行写回去（这一步走的就是「新建联系人分类」那个动作）"),
+        ),
+        restoreLines = listOf(
+            "按原来的名字和位置重建一格：分类名册没有回收站，删掉的那一行是真没了",
+            "⚠️ 重建出来的是新的一行，编号和原来不一样（挂在它下面的联系人不受影响——能删就说明本来没有人挂着）",
+            "⚠️ 只影响你自己的联系人列表",
         ),
     )
 
@@ -936,7 +966,7 @@ internal object AiResources {
     /** 全部资源。红线与单测按它逐个核对（键是否齐全、动作是否都有归属）。 */
     val TABLE: List<AiResource> = listOf(
         ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, UNIT_CONVERSION, FREIGHT_TEMPLATE, DRIVER_RULE,
-        PRODUCT, PRICE_RULE, PRODUCT_CATEGORY, PLACE_CATEGORY, VEHICLE, PRODUCT_VISIBILITY, USER,
+        PRODUCT, PRICE_RULE, PRODUCT_CATEGORY, PLACE_CATEGORY, CONTACT_CATEGORY, VEHICLE, PRODUCT_VISIBILITY, USER,
         PLACE,
         ORDER, ORDER_LINE, LEDGER_ENTRY, NOTIFICATION,
         SHIPPER_SETTLEMENT,
@@ -1148,6 +1178,12 @@ internal object AiRevertRead {
 
     /** 地点分组（与商品分类**同一个口径**：卡片上的"第几位"从 1 数，进 payload 的 `sort_order` 从 0 数）。 */
     fun placeCategory(d: com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        put("sort_order", JsonPrimitive(d.sortOrder + 1))
+    }
+
+    /** 联系人分类（与地点分组**同一个口径**：卡片上的"第几位"从 1 数，进 payload 的 `sort_order` 从 0 数）。 */
+    fun contactCategory(d: ContactCategoryDto): JsonObject = buildJsonObject {
         put("name", d.name)
         put("sort_order", JsonPrimitive(d.sortOrder + 1))
     }

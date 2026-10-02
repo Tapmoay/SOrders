@@ -420,6 +420,31 @@ interface ShipperApi {
     @POST("place-categories/reorder")
     suspend fun reorderPlaceCategories(@Body body: PlaceCategoryReorderRequest): List<PlaceCategoryDto>
 
+    /**
+     * 联系人分类名册（FEAT-0007，**按人分区**：货主 / 批发商 / 派单员各管自己那一份）。
+     *
+     * 与地点分类同一套做法（用户原话：「对分类管理的话啊，就像我们的复用地点管理一样」），
+     * 差别只有级联目标：那边改的是 `shipper_locations.category`，这边是 `shipper_contacts.category`。
+     */
+    @GET("contact-categories")
+    suspend fun listContactCategories(): List<ContactCategoryDto>
+
+    @POST("contact-categories")
+    suspend fun createContactCategory(@Body body: ContactCategoryCreateRequest): ContactCategoryDto
+
+    @PATCH("contact-categories/{categoryId}")
+    suspend fun updateContactCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: ContactCategoryUpdateRequest,
+    ): ContactCategoryDto
+
+    @DELETE("contact-categories/{categoryId}")
+    suspend fun deleteContactCategory(@Path("categoryId") categoryId: Long)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    @POST("contact-categories/reorder")
+    suspend fun reorderContactCategories(@Body body: ContactCategoryReorderRequest): List<ContactCategoryDto>
+
     @Multipart
     @POST("shipper/locations/image")
     suspend fun uploadLocationImage(@Part file: MultipartBody.Part): LocationImageOut

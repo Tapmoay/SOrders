@@ -160,6 +160,13 @@ class OperationAction(str, enum.Enum):
     PLACE_CATEGORY_UPSERT = "PLACE_CATEGORY_UPSERT"
     PLACE_CATEGORY_DELETE = "PLACE_CATEGORY_DELETE"
     PLACE_CATEGORY_REORDER = "PLACE_CATEGORY_REORDER"
+    # 联系人分类名册（2026-10-03，用户「我们的联系人好像是可以做分类的吧……**对分类管理的话啊，
+    # 就像我们的复用地点管理一样**」）：与地点分类同一类东西（按人分区、管顺序），
+    # 但**改的是另一份名册**（挂的是 `shipper_contacts.category`）。单独一套动作码而不是复用
+    # PLACE_CATEGORY_*：审计页上「改了我的地点分类」和「改了我的联系人分类」是两件事。
+    CONTACT_CATEGORY_UPSERT = "CONTACT_CATEGORY_UPSERT"
+    CONTACT_CATEGORY_DELETE = "CONTACT_CATEGORY_DELETE"
+    CONTACT_CATEGORY_REORDER = "CONTACT_CATEGORY_REORDER"
     # 开销分类名册（2026-09-20，用户「开销分类……也有个分类管理」）：与商品/地点分类同一类东西
     # （主数据、管顺序），但它还决定**卡片上突出哪一项关联**（vehicle/driver/order/none）——
     # 改它会改所有人看开销的方式，必须留痕。

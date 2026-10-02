@@ -22,6 +22,7 @@ from app.api.v1 import (
     ledger,
     notifications,
     operation_logs,
+    contact_categories,
     order_products,
     order_templates,
     order_template_categories,
@@ -101,6 +102,8 @@ api_router.include_router(suppliers.router)
 # `POST /orders/{id}/return`（唯一的执行路径）是两件事，见 `api/v1/return_requests.py` 开头。
 api_router.include_router(return_requests.router)
 api_router.include_router(places.router)
+# 联系人分类名册（FEAT-0007）：与地点分类同一套规矩，见 `api/v1/contact_categories.py` 开头
+api_router.include_router(contact_categories.router)
 api_router.include_router(place_categories.router)
 api_router.include_router(order_products.router)
 api_router.include_router(products.router)

@@ -32,6 +32,7 @@ from app.models.enums import (
 from app.models.freight_template import FreightTemplate, FreightTemplateCategory, FreightTemplateDriver
 from app.models.freight_category import FreightCategory
 from app.models.export_job import ExportFormat, ExportJobStatus, LedgerExportJob
+from app.models.contact_category import ContactCategory
 from app.models.inventory import InventoryMovement
 from app.models.ledger import Ledger
 from app.models.notification import Notification
@@ -59,6 +60,7 @@ __all__ = [
     "CashFlow",
     "CashFlowBizType",
     "CashFlowDirection",
+    "ContactCategory",
     "Customer",
     "CustomerKind",
     "DriverBill",

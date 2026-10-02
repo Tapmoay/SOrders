@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:7fe8bf672f1b36afcadb5c8f6662d370ad70b57e1c626914985da2b658eaba5f",
- "source_commit": "55a00ce",
- "generated_at": "2026-09-28T04:56:23Z",
+ "source_hash": "sha256:88349483e23be9cd8f9063925460201a50a44951b80831b75102f8285e68cd96",
+ "source_commit": "ff5ae38",
+ "generated_at": "2026-10-02T17:05:30Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -315,13 +315,13 @@
  "role_capabilities": [
   {
    "key": "address:manage",
-   "what": "地址与联系人：常用线路、联系人、地点（含图片）",
+   "what": "地址与联系人：常用线路、联系人（含分类）、地点（含图片）",
    "roles": [
     "shipper",
     "dispatcher"
    ],
    "kind": "write",
-   "gate": "backend/app/api/v1/shipper.py:30",
+   "gate": "backend/app/api/v1/shipper.py:31",
    "why_not_permission": "这一整块是「按人分区」的：货主管自己的地址库，派单员用同一套接口管代理下单要用的地址；权限点表述不了「只能动自己那一份」，那是 scope 才管的事。",
    "when_to_remove": "如果哪天把 scope=own 的权限点体系补全（`order:read_own` 那种已经在用了），这块可以收成 `address:manage` + scope=own。"
   },
@@ -550,7 +550,11 @@
    "VEHICLE_UPSERT",
    "VEHICLE_DRIVER_SET"
   ],
-  "address:manage": [],
+  "address:manage": [
+   "CONTACT_CATEGORY_UPSERT",
+   "CONTACT_CATEGORY_DELETE",
+   "CONTACT_CATEGORY_REORDER"
+  ],
   "shipper_ledger:read_own": []
  },
  "audit_exceptions": {
@@ -558,14 +562,13 @@
  },
  "audit_capability_exempt": {
   "order:internal_note": "司机/派单员给订单写内部备注：它写在 `orders.internal_notes` **字段**上，订单自己的状态与字段变化就是留痕（`ORDER_UPDATE` 那条覆盖了它）。**什么时候删掉这一条**：如果内部备注要单独可查（现在只能在订单详情里看）。",
-  "order:upload_delivery": "司机上传送达照片：留痕是**图片本体**（`delivery_photos` 表）与订单状态，不是操作日志。**什么时候删掉这一条**：如果照片要做「谁在什么时候传的第几张」这类追溯。",
-  "address:manage": "地址与联系人没有独立的审计动作码（`OperationAction` 里一个 `ADDRESS_*` 都没有）。**什么时候删掉这一条**：如果地址库要可审计（谁改了谁家的地址），先加动作码、再来销这一条。"
+  "order:upload_delivery": "司机上传送达照片：留痕是**图片本体**（`delivery_photos` 表）与订单状态，不是操作日志。**什么时候删掉这一条**：如果照片要做「谁在什么时候传的第几张」这类追溯。"
  },
  "counts": {
   "capabilities": 26,
   "role_capabilities": 5,
   "write_capabilities": 18,
-  "audited_action_codes": 92,
+  "audited_action_codes": 95,
   "audit_exceptions": 1
  }
 }

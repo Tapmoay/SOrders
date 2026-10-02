@@ -572,6 +572,14 @@ data class ContactDto(
     @SerialName("shipper_id") val shipperId: Long = 0,
     val phone: String,
     @SerialName("display_name") val displayName: String = "",
+    /**
+     * 自定义分类（"" = 未分类，FEAT-0007）。
+     *
+     * 「地址与联系人 → 联系人」的左栏、以及下单页挑人的左栏都按它分栏 ——
+     * 与地点分类**同一套做法**（名册管顺序、字符串管归属，见 models/contact_category.py）。
+     * ⛔ 存的是分类**名**，不是名册 id：名册里删掉一行不该让档案上的分类变成一串数字。
+     */
+    val category: String = "",
     @SerialName("created_at") val createdAt: String = "",
 )
 
@@ -579,6 +587,8 @@ data class ContactDto(
 data class ContactUpdateRequest(
     val phone: String? = null,
     @SerialName("display_name") val displayName: String? = null,
+    /** 分类：null = 不动；"" = 移出分类（归到"未分类"）。 */
+    val category: String? = null,
 )
 
 @Serializable
@@ -632,6 +642,30 @@ data class PlaceCategoryUpdateRequest(val name: String? = null, @SerialName("sor
 
 @Serializable
 data class PlaceCategoryReorderRequest(val ids: List<Long>)
+
+/**
+ * 联系人分类名册（FEAT-0007，**按人分区**：货主 / 批发商 / 派单员各管自己那一份）。
+ *
+ * 与 [PlaceCategoryDto] 是**同一套形状**（用户原话：「对分类管理的话啊，就像我们的复用地点管理一样」），
+ * 差别只有级联目标：那边挂的是地点，这边挂的是联系人。
+ */
+@Serializable
+data class ContactCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 这一类下**在用**的联系人条数（删之前要让用户看见影响面）。 */
+    @SerialName("contact_count") val contactCount: Int = 0,
+)
+
+@Serializable
+data class ContactCategoryCreateRequest(val name: String, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class ContactCategoryUpdateRequest(val name: String? = null, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class ContactCategoryReorderRequest(val ids: List<Long>)
 
 @Serializable
 data class LocationImageOut(val url: String = "")
@@ -748,6 +782,8 @@ data class LocationCreateRequest(
 data class ContactCreateRequest(
     val phone: String,
     @SerialName("display_name") val displayName: String = "",
+    /** 分类（"" = 未分类）。联系人是从**哪个分类里**建的，就直接归到那一类。 */
+    val category: String = "",
 )
 
 // ===== 账本 =====

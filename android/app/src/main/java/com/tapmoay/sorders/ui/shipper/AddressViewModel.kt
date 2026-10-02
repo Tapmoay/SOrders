@@ -9,6 +9,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.AddressCreateRequest
 import com.tapmoay.sorders.data.remote.dto.AddressDto
+import com.tapmoay.sorders.data.remote.dto.ContactCategoryDto
 import com.tapmoay.sorders.data.remote.dto.ContactCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.ContactUpdateRequest
@@ -94,6 +95,20 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     /** 地点分组名册（**自己那一份**）：表单里那排候选胶囊。 */
     var placeCategories by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto>>(emptyList())
 
+    /** 这个联系人归到哪个分类（空 = 未分类）；表单里可以现敲一个新的（后端会自动补进名册）。 */
+    var contactCategory by mutableStateOf("")
+
+    /** 联系人分类名册（**自己那一份**）：联系人左栏与表单里的候选用它。 */
+    var contactCategories by mutableStateOf<List<ContactCategoryDto>>(emptyList())
+
+    /**
+     * 联系人段左栏选中的那一格（FEAT-0007）：`""` = 全部 / `"c|分类名"` = 某一类 / `"manage"` = 分类管理。
+     *
+     * ⚠️ 与下单页地址库抽屉的 `sel`（key 约定 `a`/`l`/`p`/`c|名`）同一个形状 —— 那也是
+     *    全 App 唯一一处「左分类右列表」。联系人这里**没有**内置格，所以默认 `""`（全部）。
+     */
+    var contactRailKey by mutableStateOf("")
+
     /** 这个地点是不是仓库（**只有派单员**能改，见后端 `api/v1/shipper.py`）。 */
     var locIsWarehouse by mutableStateOf(false)
 
@@ -147,6 +162,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
             val okLocations = try { locations = container.repo.locations(); true } catch (e: Exception) { boom(e, "地点") }
             // 分组名册是**表单里才用到**的边角数据：它挂了不该影响这一页能不能看
             try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {}
+            try { contactCategories = container.repo.contactCategories() } catch (_: Exception) {}
             // 三条**全挂**才认定"这一页没加载出来"（整页给「重试」）；
             // 只挂了一部分就照常显示，缺的那条用 Snackbar 说一句 —— 别把好的也收走。
             if (!okAddresses && !okContacts && !okLocations) loadError = failed.firstOrNull() ?: "加载失败"
@@ -419,6 +435,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         editingContact = c
         contactName = c?.displayName ?: ""
         contactPhone = c?.phone ?: ""
+        // 分类**必须回填**：保存走的是"整份回传"（同一个请求体用于新建与编辑），
+        // 不回填就等于"改个称呼顺手把分类清掉了"。
+        contactCategory = c?.category ?: ""
         formError = null
         showContactDialog = true
     }
@@ -441,7 +460,11 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                 val cur = editingContact
                 if (cur == null) {
                     val created = container.repo.createContact(
-                        ContactCreateRequest(phone = contactPhone.trim(), displayName = contactName.trim())
+                        ContactCreateRequest(
+                            phone = contactPhone.trim(),
+                            displayName = contactName.trim(),
+                            category = contactCategory.trim(),
+                        )
                     )
                     if (lineContactCtx) {
                         selectContact(created)
@@ -450,7 +473,11 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                 } else {
                     container.repo.updateContact(
                         cur.id,
-                        ContactUpdateRequest(phone = contactPhone.trim(), displayName = contactName.trim())
+                        ContactUpdateRequest(
+                            phone = contactPhone.trim(),
+                            displayName = contactName.trim(),
+                            category = contactCategory.trim(),
+                        )
                     )
                 }
                 contactName = ""
@@ -471,6 +498,53 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
             } catch (e: Exception) {
                 notice = toApiException(e).message
             }
+        }
+    }
+
+    /**
+     * 就地新建一个联系人分类并**选中它**（联系人表单的分类下拉里那个「＋ 新建分类…」）。
+     *
+     * 与地点的 [createPlaceCategoryAndSelect] 逐条同构，连"重名直接选中已有的那个"的理由都一样：
+     * 用户要的是"归到这个名字"，不是"再建一个"。
+     */
+    fun createContactCategoryAndSelect(rawName: String, onDone: () -> Unit) {
+        val name = rawName.trim().take(8)
+        if (name.isBlank()) {
+            formError = "分类名不能为空"
+            return
+        }
+        acting = true
+        formError = null
+        viewModelScope.launch {
+            try {
+                try {
+                    container.repo.createContactCategory(name)
+                } catch (e: Exception) {
+                    val msg = toApiException(e).message.orEmpty()
+                    if (!msg.contains("已经存在")) throw e
+                }
+                contactCategories = container.repo.contactCategories()
+                contactCategory = name
+                onDone()
+            } catch (e: Exception) {
+                formError = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    /**
+     * 分类管理面板关掉后重新取名册 —— 用户可能在面板里改名 / 删掉一整类，
+     * 左栏那一格得跟着变（否则右栏按老名字筛，看起来像"这一类是空的"）。
+     */
+    fun reloadContactCategories() {
+        viewModelScope.launch {
+            try { contactCategories = container.repo.contactCategories() } catch (_: Exception) {}
+            // 选中的那一类被删掉/改名了 → 落回「全部」，别把用户留在一个筛不出东西的格子上。
+            if (contactRailKey.startsWith("c|") &&
+                contactCategories.none { "c|" + it.name == contactRailKey }
+            ) contactRailKey = ""
         }
     }
 

@@ -1345,6 +1345,19 @@ object AiWrites {
     const val PLACE_CATEGORY_DELETE = "place_category.delete"
     const val PLACE_CATEGORY_REORDER = "place_category.reorder"
 
+    // ---- 联系人分类名册（2026-10-03 FEAT-0007）----
+    //
+    // 与「地点分组」是同一件事的**另一半**：地点分组管地址库左栏那一列，联系人分类管
+    // 联系人列表左栏那一列（用户原话：「我们的联系人好像是可以做分类的吧，同样以左边为分类
+    // 右边为列表的形式展示出来」）。同样是**按人分区**的：货主 / 批发商 / 派单员各管自己那一份。
+    //
+    // ⚠️ 与地点分组**唯一的差别**是级联目标：改联系人分类的名字时跟着改的是
+    //    `shipper_contacts.category`（地点那份改的是 `shipper_locations.category`）。
+    const val CONTACT_CATEGORY_CREATE = "contact_category.create"
+    const val CONTACT_CATEGORY_UPDATE = "contact_category.update"
+    const val CONTACT_CATEGORY_DELETE = "contact_category.delete"
+    const val CONTACT_CATEGORY_REORDER = "contact_category.reorder"
+
     // ---- 另外三张**配置名册**：开销分类 / 运费分类 / 预订单分类（2026-09-23 补齐 AI 能力覆盖）
     //
     // 这三张名册原来在 `_write_coverage.py` 里挂着「不做」的理由（"分类名册是界面配置，
@@ -1444,6 +1457,8 @@ object AiWrites {
     const val G_CATEGORY = "商品分类"
     /** 地点分组（**按人分区**：每个人管自己地址库左栏那一列）。 */
     const val G_PLACE_CATEGORY = "地点分组"
+    /** 联系人分类（**按人分区**：每个人管自己联系人列表左栏那一列）。 */
+    const val G_CONTACT_CATEGORY = "联系人分类"
     /** 开销分类名册（决定「这笔钱算哪一类」，改名会级联改掉挂着的开销）。 */
     const val G_EXPENSE_CATEGORY = "开销分类"
     /** 运费分类名册（决定「这类货走哪条价目」）。 */
@@ -2186,6 +2201,28 @@ object AiWrites {
             ),
         ),
 
+        // ------------------------------------------ 联系人分类（整份重排）
+        //
+        // 与地点分组同形（手写而**不是**声明式：输入是一整份顺序，后端少一个就 400）。
+        // 同样**按人分区**：货主 / 批发商 / 派单员各管自己联系人列表左栏那一列。
+        AiWriteAction(
+            id = CONTACT_CATEGORY_REORDER,
+            title = "重排联系人分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_CONTACT_CATEGORY,
+            blurb = "把你**自己的**联系人分类在联系人列表左栏里的先后顺序一次换掉。" +
+                "**必须给全**：名册里的分类一个都不能漏（后端少一个就整份拒绝）。" +
+                "它只改显示顺序，一位联系人归在哪一类都不动。",
+            params = listOf(
+                AiWriteParam(
+                    "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
+                    hint = "必填。按想要的先后顺序**写全所有分类名**，用「、」或逗号隔开" +
+                        "（如「供货商、老客户」）。先读一次 contact_categories.list_categories " +
+                        "拿到当前名册，一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
+                ),
+            ),
+        ),
+
         // ------------------------------------------ 开销 / 运费 / 预订单分类（整份重排）
         //
         // 与上面两张名册的"重排"同形（手写而**不是**声明式：输入是一整份顺序，后端少一个就 400）。
@@ -2346,6 +2383,12 @@ object AiWrites {
         PLACE_CATEGORY_UPDATE,
         PLACE_CATEGORY_DELETE,
         PLACE_CATEGORY_REORDER,
+        // 联系人分类（2026-10-03 FEAT-0007）：与地点分组同一件事的另一半，同样**按人分区** ——
+        // 货主 / 批发商 / 派单员各管自己联系人列表左栏那一列。
+        CONTACT_CATEGORY_CREATE,
+        CONTACT_CATEGORY_UPDATE,
+        CONTACT_CATEGORY_DELETE,
+        CONTACT_CATEGORY_REORDER,
         NOTIFICATIONS_READ_ALL,
         // 消息：**只看得到自己那些**（后端 `batch-delete` / `{id}/read` 都是"仅登录 + 只动自己的"，
         // 动别人的直接 404）。手机上消息页三端共用 —— 单条已读、删除、清空货主都能点，

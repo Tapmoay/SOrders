@@ -93,6 +93,11 @@ READ_METHODS = {
     # 地点分组名册（2026-09-19）：**按人分区**的那一份，建/改/删/重排之前先读回来，
     # 也是"把某个地点归到哪一组"的候选来源。它是读（`GET /place-categories`）。
     "placeCategories",
+    # 联系人分类名册（FEAT-0007，2026-10-03）：与地点分组**完全同形** —— 按人分区的那一份，
+    # 建/改/删/重排之前先把它读回来（`GET /contact-categories`）。真正写库的是
+    # createContactCategory / updateContactCategory / deleteContactCategory / reorderContactCategories
+    # （那四个不在白名单里，默认受"prepare 里不许写"的约束）。
+    "contactCategories",
     # 查单/查行/查流水/查消息（"先找到那一条"用的都是读）
     "findOrders", "orderLines", "findDeletedOrders", "ledgerEntries",
     "myNotifications", "productPrices", "priceRuleRows",

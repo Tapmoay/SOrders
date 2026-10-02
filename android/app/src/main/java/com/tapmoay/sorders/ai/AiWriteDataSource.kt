@@ -1643,6 +1643,52 @@ class RepoWriteDataSource(
         repo.reorderPlaceCategories(ids)
     }
 
+    // ---- 联系人分类名册（按人分区，2026-10-03 FEAT-0007）----
+    //
+    // 与地点分组**同一个形状**：`note` 带"这一类下挂着几位联系人"（改名会级联改掉它们、
+    // 删除会被后端拒绝，那个数字是用户判断影响面的唯一依据），位置一律"先按排在最后建出来、
+    // 再走 reorder 挪过去"。唯一的差别是级联目标是 `shipper_contacts.category`。
+
+    /** 我自己的联系人分类（`repo.contactCategories()` 读的就是当前登录人那一份）。 */
+    override suspend fun contactCategories(): List<AiName> = repo.contactCategories().map {
+        AiName(it.id, it.name, note = if (it.contactCount > 0) "${it.contactCount} 位联系人" else null)
+    }
+
+    override suspend fun createContactCategory(fields: JsonObject) {
+        val created = repo.createContactCategory(
+            name = fields.req("name"),
+            // 先按"排在最后"建出来；有位置要求时再用 reorder 挪过去（与地点分组同一套理由）。
+            sortOrder = null,
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveContactCategoryTo(created.id, it) }
+    }
+
+    /**
+     * 把某个分类挪到「第 N 位」（**从 1 数**）。走 reorder 而不是写绝对值 ——
+     * 理由与地点分组那份一字不差（绝对值会与现有第 1 位撞车、按 id 排后落到别处）。
+     */
+    private suspend fun moveContactCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.contactCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        val idx = (position1Based - 1).coerceIn(0, ids.size)
+        ids.add(idx, id)
+        repo.reorderContactCategories(ids)
+    }
+
+    override suspend fun updateContactCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateContactCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateContactCategory(id, name = fields.str("name"), sortOrder = null)
+        fields.str("sort_order")?.toIntOrNull()?.let { moveContactCategoryTo(id, it) }
+    }
+
+    override suspend fun deleteContactCategory(id: Long) {
+        repo.deleteContactCategory(id)
+    }
+
+    override suspend fun reorderContactCategories(ids: List<Long>) {
+        repo.reorderContactCategories(ids)
+    }
+
     override suspend fun reorderProductCategories(ids: List<Long>) {
         repo.reorderProductCategories(ids)
     }
@@ -1876,6 +1922,9 @@ class RepoWriteDataSource(
                 repo.productCategories().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.productCategory(it)) }
             "place_category" ->
                 repo.placeCategories().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.placeCategory(it)) }
+            "contact_category" ->
+                repo.contactCategories().firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.contactCategory(it)) }
             // 另外三张配置名册（2026-09-23）：与上面两张同一种做法（拉列表再挑，后端没有单取）。
             "expense_category" ->
                 repo.expenseCategories().firstOrNull { it.id == id }
