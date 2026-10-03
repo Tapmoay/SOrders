@@ -5624,6 +5624,28 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**BUG-0008 单位换算的预取不看角色（司机每次登录一条 403 日志噪声）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：三端真机 E2E 走查报告（`docs/E2E_WALKTHROUGH_REPORT_20261003.md` §5.3）里那条长期噪声；本会话五件事的第 4 件。
+
+**用户口径（goal 转述，非逐字）**：「查明并消除 `GET /api/v1/unit-conversions → 403` 后台预取日志噪声（用户要求必须解决，不许留在日志里）」。
+
+**根因**：`RealtimeHub.kt` 在会话建立时**不分角色**地 `UnitConv.ensure(container.repo)` 预取一次换算表，
+而后端 `backend/app/api/v1/unit_conversions.py:44` 的 `UnitOwner = require_roles(UserRole.SHIPPER, UserRole.DISPATCHER)`
+只放货主与派单员 —— 司机（以及后端确实存在的批发商）每次登录 / 恢复会话都换回一条 403；
+`UnitConv.refresh` 又把异常吞掉，界面上什么都看不出来。
+
+**改了哪四处**：
+
+- 核心改动：不适用 —— 本次**零核心区文件改动**（`backend/app/services/**`、`backend/app/core/**` 与 `_tools/qa/_core_files.txt` 一行未碰），改的全是 App 侧加交付物。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/UnitConverts.kt`：`READ_ROLE_KEYS` + `canRead` + `ensure(repo, roleKey)` 第一行立门；
+- `android/app/src/main/java/com/tapmoay/sorders/core/RealtimeHub.kt`：会话预取改传**会话里的角色 key** `s.role`；
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt` 与 `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormScreen.kt`：各传 `container.tokenStore.cachedRole()`。
+
+**落点与提交**：判据 `_tools/qa/_check_unit_conv_prefetch_role.py`（45 项）／反验 `_tools/qa/_reverse_verify_unit_conv_prefetch_role.py`（19 条注入，末尾逐字节还原一致）／Android 单测 `UnitConvAccessTest`（3 例，`testEmuDebugUnitTest` 80 个类 / 1158 项 0 失败）／全量静检 164/164（`_check_core_freeze.py` 56 项亦全过）；实现提交 `f44f0f7`，归档提交（本笔）。
+
+**真机取证**：模拟器 5554（司机 13800000003）—— 旧包 `pm clear` 后登录，日志里 **2 行** `GET /api/v1/unit-conversions?deleted_only=false → 403`；装上新包后「全新登录」与「会话恢复」各来两遍（其中两遍是在重启后端之后），四个窗口 **0 行**，同期 `auth/login`、`notifications/unread-count`、`orders` 全是 200（截图 `_tmp/ev/40-driver-old.png` 与 `44/45/46/47-*.png`）。用令牌直打后端作对照：司机仍 403、派单员 200 —— 服务端的门没有被放宽。
+
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0007 结算单的数字和明细对不上：同一个账期两套取数口径，孤儿明细让那张单永远确认不了**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：2026-10-03 用户点名的最高优先项（本轮五件事的第 5 件）。此前我在 `docs/RECTIFICATION_REPORT_E2E.md` §5.4 把这条判成「不采纳 / 不是产品缺陷」—— 用户正式推翻。
