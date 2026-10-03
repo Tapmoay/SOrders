@@ -181,32 +181,41 @@ fun OrderCreateScreen(
         },
         bottomBar = {
             Surface(shadowElevation = 8.dp) {
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text("合计", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        // ⚠️ 金额＝**橙**（规范 §4「金额（钱）：橙 #FF9500」）：原来写的是
-                        //    `colorScheme.primary`（主题蓝）—— 那是"主操作色"，不是"钱"的色。
-                        //    全 App 的钱都是 `MoneyOrange`（账本/报表/小计），只有这一处漏了。
-                        Text(
-                            "¥" + formatMoney(vm.totalAmount().toString()),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(MoneyOrange),
+                Column(Modifier.fillMaxWidth()) {
+                    /*
+                     * ⚠️ 提交被挡下来时那句话必须画在**按钮正上方**（规范 §4.8「表单的错画在表单里」）：
+                     * 它原来是 LazyColumn 的**最后一项**，长表单要滚到底才看得见 —— 真机上点「提交订单」
+                     * 看上去就是**零反馈**（E2E 报告 P7 / P23：空表单点一次与点三次，截图字节完全相同）。
+                     * ❗ 别再把它塞回滚动区末尾：长列表里塞在末尾等于没有。
+                     */
+                    FormErrorLine(vm.error, Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp))
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("合计", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            // ⚠️ 金额＝**橙**（规范 §4「金额（钱）：橙 #FF9500」）：原来写的是
+                            //    `colorScheme.primary`（主题蓝）—— 那是"主操作色"，不是"钱"的色。
+                            //    全 App 的钱都是 `MoneyOrange`（账本/报表/小计），只有这一处漏了。
+                            Text(
+                                "¥" + formatMoney(vm.totalAmount().toString()),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(MoneyOrange),
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        PrimaryActionButton(
+                            text = if (vm.submitting) "提交中…"
+                            else "提交订单 ¥" + formatMoney(vm.totalAmount().toString()),
+                            onClick = { vm.submit { onCreated() } },
+                            enabled = !vm.submitting,
+                            containerColor = Color(0xFF00A56E),
+                            icon = Icons.Default.Send,
+                            modifier = Modifier.width(200.dp),
                         )
                     }
-                    Spacer(Modifier.weight(1f))
-                    PrimaryActionButton(
-                        text = if (vm.submitting) "提交中…"
-                        else "提交订单 ¥" + formatMoney(vm.totalAmount().toString()),
-                        onClick = { vm.submit { onCreated() } },
-                        enabled = !vm.submitting,
-                        containerColor = Color(0xFF00A56E),
-                        icon = Icons.Default.Send,
-                        modifier = Modifier.width(200.dp),
-                    )
                 }
             }
         },
@@ -642,11 +651,8 @@ fun OrderCreateScreen(
                 }
             }
 
-            item {
-                vm.error?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-            }
+            // ⚠️ 表单的错**不在这里**：提交被挡下来的那句话画在底部操作栏「提交订单」按钮正上方
+            //    （`FormErrorLine(vm.error)`）—— 长列表里塞在末尾等于没有（E2E 报告 P7/P23：真机上就是零反馈）。
             item { Spacer(Modifier.height(8.dp)) }
         }
     }

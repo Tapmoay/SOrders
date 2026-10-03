@@ -1103,6 +1103,11 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         val phoneError = InputRules.phoneError(dongjiaPhone.trim())
             ?: InputRules.phoneError(bossPhone.trim())
         when {
+            // 代理下单的第一步是**选货主**（页面最上面就是「请选择货主」）—— 把它提到同步这一道闸里，
+            // 点下去立刻就能看到这句话。原来它躲在下面的协程里，要等一圈网络往返才说。
+            // ⚠️ 协程里那道同样的闸**不能删**：会话还没读到时 `proxyMode` 仍是 false（见 init）。
+            proxyMode && shipperId == null && tempShipperName.isNullOrBlank() ->
+                error = "请选择货主或填写临时货主姓名"
             lines.isEmpty() -> error = "请至少添加一组商品"
             nameBlank -> error = "商品名称不能为空"
             noPrice != null -> error = "「${noPrice.name}」没有价格（这件商品已不在商品库），先删掉这一行再提交"
@@ -1113,6 +1118,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                 viewModelScope.launch {
                     try {
                         val s = container.tokenStore.sessionFlow.first()
+                        // ⚠️ 兜底那道闸：上面 `when` 里已经有**同步**的一份（点下去立刻看得见的那份）。
+                        //    这里再判一次是因为角色要等 `sessionFlow.first()` 才读得到 —— 抢在 init
+                        //    之前点提交时，同步那道闸还看不见 `proxyMode`，只能靠这里把单拦下来。
                         if (s?.role == "dispatcher" && shipperId == null && tempShipperName.isNullOrBlank()) {
                             error = "请选择货主或填写临时货主姓名"
                             submitting = false
