@@ -31,41 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 15:0x → 进行中] 会话：**BUG-0001 整单退货后账本吞掉被冲原行（订单账 / 货主账 / 批发商账凭空少一笔营收）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪里来**：2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md`）问题清单 **P31**。
-
-**现象（真机实测，5554）**：订单 #SO202610036508883054（速冻水饺 ×3 袋 ¥85.5）送达后**整单退货**，
-「账本管理 → 订单账（今天）」只剩一行「永盛食品 / 速冻水饺 ×-3 / 订单退货红冲（自动）/ ¥-85.5」，
-合计 **¥-85.5**、共 **1** 笔流水；被它冲掉的那行「订单送达自动记账 +85.5」**从来没有出现过**
-（切「全部」862 笔流水也不出现）。「货主账」「批发商账」同样各显示 永盛食品 ¥-85.5（1 笔）。
-库里两行俱在：`ledgers` id=878（+85.5）与 id=879（−85.5），order_id=551，entry_date=2026-10-03。
-
-**根因**：`backend/app/services/ledger_scope.py::visible_ledger_clause()` ——
-`source=ORDER` 的自动行要求订单 `status == DELIVERED`；整单退完订单转 `RETURNED` ⇒ 原行被读口径排除。
-而 `source=RETURN` 的红冲行只要求「订单没进回收站」⇒ 红冲行留着。**一减一加变成只剩一减。**
-对照：部分退货（#SO202609262768928606，退 2 留 3）订单仍是「已送达」，两行都在、合计正确 —— 只有整单退货不对称。
-
-**改哪些文件**：
-- `backend/app/services/ledger_scope.py`：`source=ORDER` 可见状态集合 {DELIVERED} → {DELIVERED, RETURNED}，docstring 补口径说明；
-- `backend/tests/`：整单退货账本净额为 0 的回归用例；
-- `_tools/qa/`：本域判据 + 配套反向验证（注入「退货后把原行藏掉」必须红）。
-
-**边界（不许破）**：回收站（软删）单的账继续不算；部分退货逐位不变；非 `ORDER` 来源行判据不变；
-**一行账本都不许删**（用户 2026-09-20 硬规矩）；账本列表 / 汇总 / 报表 / 导出四处口径仍然同源。
-
-**先交个底**：开工前已核对 `backend/app/services/ledger_scope.py` **不在** `_tools/qa/_core_files.txt`（16 条），
-所以本事项**不需要** `核心改动：` 声明行。本轮起步时 `run_code` 连续 4 个目标轮次起不来
-（`Windows Job runner exited with exit code 3221225794` / 0xC0000142），第 5 轮自行恢复，未做任何改动。
-
-**整批盘子（本次目标 = 把 E2E 报告里的 P 编号问题逐条修完，预计 10 份事项文件）**：
-BUG-0001 账本口径(P31) · BUG-0002 账号与名册(P1,P2,P10) · BUG-0003 下单空表单反馈(P7,P23) ·
-BUG-0004 订单与派单(P8,P9,P12) · CHG-0025 沽清/上架二次确认(P29) · CHG-0026 账本与报表措辞(P20,P25,P26,P32) ·
-BUG-0005 司机退货通知(P27) · CHG-0027 截断与省略号统一(P4,P18,P28,P30) · BUG-0006 登录失效文案 ·
-CHG-0028 杂项措辞(P3,P5,P11,P13、已沽清 vs 已下架、货主消息提醒默认值)。
-
----
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5660,6 +5625,36 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0001 整单退货后账本吞掉被冲原行（订单账 / 货主账 / 批发商账凭空少一笔营收）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪里来**：2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md`）问题清单 **P31**。
+
+**现象**：订单 #SO202610036508883054（速冻水饺 ×3 袋 ¥85.5）送达后**整单退货**，「账本管理 → 订单账（今天）」
+只剩 −85.5 一行、合计 **¥-85.5 / 1 笔流水**；库里两行俱在（`ledgers` id=878 `+85.5` `source=ORDER`、id=879 `−85.5` `source=RETURN`）。
+「货主账」「批发商账」同错。对照：部分退货的单仍是「已送达」，两行都在、合计正确 —— 只有整单退货不对称。
+
+**根因**：`backend/app/services/ledger_scope.py::visible_ledger_clause()` 对 `source=ORDER` 要求 `Order.status == DELIVERED`，
+而整单退货会把订单转成 `RETURNED`（`backend/app/services/order_flow.py:647 mark_returned`）⇒ 原行被读口径排除；
+`source=RETURN` 的红冲行只要求「订单没进回收站」⇒ 红冲行留着。**一减一加变成只剩一减。**
+
+**改哪些文件**：`backend/app/services/ledger_scope.py`（可见状态集合 `{DELIVERED}` → `{DELIVERED, RETURNED}` + 口径说明）、
+`backend/tests/test_ledger_scope_full_return.py`（新增 3 条）、`_tools/qa/_check_ledger_scope_full_return.py`（37 项判据）、
+`_tools/qa/_reverse_verify_ledger_scope_full_return.py`（6 条注入）、`docs/changes/BUG-0001.md`。
+
+**边界（没破）**：回收站单的账依旧不算；部分退货逐位不变；非 `ORDER` 来源的行判据不变；一行账本都没删；
+`backend/app/services/reports/loader.py::load_delivered` 仍只收 `DELIVERED` —— **营业额没被改宽**（整单退货的单对营业额贡献 0，
+账本两行相抵也是 0，两边仍是同一个数）。
+
+**结果**：全量 `python -m pytest backend/tests -q` = **3 failed / 1208 passed**，红的 3 条与本事项无关
+（同一棵树把改动 stash 掉、新用例移走后再跑，红的还是那 3 条：`test_full_loop_regression.py:174`、
+`test_money_audit_trail.py:165`、`test_timezone_family.py:109`，都是既有的「结算单金额 970.00 与明细合计 940.00 不一致」）；
+判据 37/37、反向验证 7/7；真机复测 5554 订单账 **¥0 · 共 2 笔**（货主账 / 批发商账 永盛食品 ¥0 · 2 笔）、5556「我的账本」¥0。提交 `8e7cc64`。
+
+**本批盘子**（本次目标 = 把 E2E 报告里的 P 编号问题逐条修完，已立 10 份事项文件）：BUG-0001 账本口径(P31) ·
+BUG-0002 账号与名册(P1,P2,P10) · BUG-0003 下单空表单反馈(P7,P23) · BUG-0004 订单与派单(P8,P9,P12) ·
+CHG-0025 沽清/上架二次确认(P29) · CHG-0026 账本与报表措辞(P20,P25,P26,P32) · BUG-0005 司机退货通知(P27) ·
+CHG-0027 截断与省略号统一(P4,P18,P28,P30) · BUG-0006 登录失效文案 · CHG-0028 杂项措辞(P3,P5,P11,P13、已沽清 vs 已下架、货主消息提醒默认值)。
+
 
 ### [2026-10-05 已完成] 会话：**CHG-0024 顶栏分类胶囊落在哪一边 + 地址页三档搜索框对齐**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
