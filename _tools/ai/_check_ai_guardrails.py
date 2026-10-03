@@ -3743,7 +3743,8 @@ def main() -> int:
     c.present("付款前复核「明细还在不在」", acct29, r"这张结算单已经没有任何明细")
     # 同上：锚"比较 + 紧接着就抛"这个结构，不锚那句中文（否则 `if False:` 照样绿）
     c.present("付款前复核「明细金额对不对得上」",
-              acct29, r"if Decimal\(s\.amount\) != live_total:\s*\n\s*raise ValueError\(")
+              # ⚠️ 锚点跟着源码走：BUG-0007（2026-10-03）之后付款恒等式带上了手工调整项。
+              acct29, r'if Decimal\(s\.amount\) != live_total \+ Decimal\(s\.adjustment or Decimal\("0"\)\):\s*\n\s*raise ValueError\(')
     c.present("端到端钉住「明细被删掉之后不许付款」",
               recon_tests, r"def test_明细被删掉之后不许付款")
     c.present("端到端钉住「正常付款仍然能付」（否则那条可能只是「一律拒绝」）",

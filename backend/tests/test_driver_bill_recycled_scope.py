@@ -120,3 +120,13 @@ def test_孤儿账单_订单号为空_不受影响(
     orphan = _mk_bill(db_session, did, None, "2026-10", "30.00")  # type: ignore[arg-type]
     shown = _rows(client, h, did, "2026-10")
     assert orphan in shown, f"孤儿账单不该被这次过滤误伤：{shown}"
+    # ⚠️ 收尾清理（2026-10-03 BUG-0007）：这一笔**必须删掉**，不能留在库里。
+    #    它是 `order_id` 为空的孤儿明细，而结算侧的口径是"孤儿照收"
+    #    （`settleable_bills` 的 `or_(DriverBill.order_id.is_(None), ...)`）—— 于是同月建
+    #    结算单时会把它算进金额；而**旧**的确认逻辑按 `order_ids` 重取、孤儿取不回来 ⇒
+    #    全量套件里那 3 条长期红「结算单金额 970.00 与明细合计 940.00 不一致，请核对」的
+    #    差额 30.00 就是它。本用例要验的是"过滤不误伤孤儿"，不是"把它留给别的用例"。
+    from app.models import DriverBill
+
+    db_session.delete(db_session.get(DriverBill, orphan))
+    db_session.commit()

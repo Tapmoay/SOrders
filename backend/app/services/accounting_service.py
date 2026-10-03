@@ -567,60 +567,79 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
     return receipt
 
 
+def settleable_bills(
+    db: Session, *, driver_id: int, settle_type: DriverBillType, month: str
+) -> list[DriverBill]:
+    """这个司机、这个月、这类账单里**现在还能结的** —— 只有这一处实现。
+
+    ⛔ 建单 / 确认核对 / 作废解锁**三处必须调它**（2026-10-03 BUG-0007）：
+       `create_settlement` 与 `confirm_settlement` 原来各写一套取数条件，两套口径一打架
+       就是「结算单金额 970.00 与明细合计 940.00 不一致」—— 建单按本函数取到三笔
+       （含 `order_id` 为空的历史孤儿账单），确认却按 `order_ids` 重取，
+       孤儿的 `order_id` 是 NULL、永远取不回来 ⇒ 那张单**永远确认不了**，司机这笔钱结不掉。
+
+    ⛔ 已进回收站（软删）订单的 OPEN 账单**不许被结算单收走**（2026-09-19 审计第十七轮）：
+       原来那一段**根本不 join orders**，而运费结算页与报表都排除了软删单
+       （`freight_settlement.py`、`reports.py::load_delivered` 都带 `Order.deleted_at.is_(None)`）
+       → 两边各自都错：账单表比页面**多**出这些单的应付（本机实测：2026-09 已软删单的
+       PIECE 账单 38 张 ¥1130.00），结算单会把它们一起收走并**真付款**；
+       而本机已有既成事实：结算单 #3（¥880、已付）的 `order_ids` 里就含一张已软删的订单
+       （先删单 13:55、后付款 14:50）。口径统一到"页面看得见的单才结得掉"：
+       软删单的账单留给保留任务作废（`data_retention` 在物理清理时翻成 CANCELLED 并通知双方）。
+
+    ⚠️ 只挡"订单存在且已软删"：`order_id` 为空的历史孤儿账单**照收**
+       （2026-10-03 BUG-0007 改口径）。孤儿的来历见台账 D2 —— 生产路径里 PIECE 一律带
+       `order_id`（`api/v1/driver_bills.py` 的补单、本模块送达时自动生成），
+       只有测试 / 历史数据造得出来；而"照收"的代价是它一旦存在就锁死当月结算。
+    """
+    return list(
+        db.scalars(
+            select(DriverBill)
+            .outerjoin(Order, Order.id == DriverBill.order_id)
+            .where(
+                DriverBill.driver_id == driver_id,
+                DriverBill.bill_type == settle_type,
+                DriverBill.month == month,
+                DriverBill.status == DriverBillStatus.OPEN,
+                or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),
+            )
+        )
+    )
+
+
 # ---------- ⑤ 司机结算单状态机 ----------
 def create_settlement(db: Session, body: DriverSettlementCreate, operator_id: int | None) -> DriverSettlement:
     driver = db.get(User, body.driver_id)
     if driver is None:
         raise ValueError("司机不存在")
+    # 取数只有一处实现（`settleable_bills`）：建单 / 确认核对 / 作废解锁三处必须同源，
+    # 「各写一套取数条件」正是「结算单金额 970.00 与明细合计 940.00」这条毛病的病根
+    # （2026-10-03 BUG-0007）。
+    bills = settleable_bills(
+        db, driver_id=body.driver_id, settle_type=body.settle_type, month=body.month
+    )
+    if not bills:
+        raise ValueError(f"{body.month} 无待结算明细（请先生成账单）")
+    order_ids = [b.order_id for b in bills if b.order_id]
+    # ⛔ 「这一单覆盖哪几行」在建单当刻**定死**（`bill_ids`），确认 / 付款只认它：
+    #    原来确认时按 `order_ids` 重取，而 `order_id` 为空的历史孤儿账单**没有单号可匹配**
+    #    → 被静默丢掉 → 「结算单金额 970.00 与明细合计 940.00」→ 这张单永远确认不了，
+    #    司机那笔钱结不掉（只能改库）。
+    bill_ids = [b.id for b in bills]
+    amount = sum((b.amount for b in bills), Decimal("0"))
     if body.settle_type == DriverBillType.PIECE:
-        # ⛔ 已进回收站（软删）订单的 OPEN 账单**不许被结算单收走**（2026-09-19 审计第十七轮）。
-        #    这一段原来只按"司机 + 类型 + 月份 + OPEN"取明细，**根本不 join orders**，
-        #    而运费结算页与报表都排除了软删单（`freight_settlement.py`、
-        #    `reports.py::load_delivered` 都带 `Order.deleted_at.is_(None)`）→ 两边各自都错：
-        #      · 账单表会比页面**多**出这些单的应付（本机实测：2026-09 已软删单的 PIECE 账单
-        #        38 张 ¥1130.00），结算单会把它们一起收走并**真付款**；
-        #      · 本机已有既成事实：结算单 #3（¥880、已付）的 order_ids 里就含一张已软删的订单
-        #        （先删单 13:55、后付款 14:50）。
-        #    口径统一到"页面看得见的单才结得掉"：软删单的账单留给保留任务作废（`data_retention`
-        #    在物理清理时会把它们翻成 CANCELLED 并通知司机与派单员）。
-        bills = list(
-            db.scalars(
-                select(DriverBill)
-                .outerjoin(Order, Order.id == DriverBill.order_id)
-                .where(
-                    DriverBill.driver_id == body.driver_id,
-                    DriverBill.bill_type == DriverBillType.PIECE,
-                    DriverBill.month == body.month,
-                    DriverBill.status == DriverBillStatus.OPEN,
-                    # 只挡"订单存在且已软删"：`order_id` 为空的历史孤儿账单仍按原样处理
-                    # （那是另一条已知问题，见台账 D2，不在本次口径内）
-                    or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),
-                )
-            )
-        )
-        order_ids = [b.order_id for b in bills if b.order_id]
-        amount = sum((b.amount for b in bills), Decimal("0"))
         period_from = date(int(body.month[:4]), int(body.month[5:7]), 1)
         period_to = period_from
     else:
-        bills = list(
-            db.scalars(
-                select(DriverBill).where(
-                    DriverBill.driver_id == body.driver_id,
-                    DriverBill.bill_type == DriverBillType.SALARY,
-                    DriverBill.month == body.month,
-                    DriverBill.status == DriverBillStatus.OPEN,
-                )
-            )
-        )
-        order_ids = []
-        amount = sum((b.amount for b in bills), Decimal("0"))
         period_from = None
         period_to = None
-    if not bills:
-        raise ValueError(f"{body.month} 无待结算明细（请先生成账单）")
+    # 手工改额 = 记下**差额**（不是把数字硬改掉）：恒等式 `amount == 明细合计 + adjustment`
+    # 从此在确认与付款两处都成立（原来只改 `amount`，于是"金额必须严格等于明细合计"
+    # 那道校验必然把改过额的单判死）。
+    adjustment = Decimal("0")
     if body.amount is not None and Decimal(body.amount) != amount:
-        amount = Decimal(body.amount)  # 允许手工调整（注记差异）
+        adjustment = Decimal(body.amount) - amount
+        amount = Decimal(body.amount)
     s = DriverSettlement(
         driver_id=body.driver_id,
         settle_type=body.settle_type,
@@ -630,6 +649,8 @@ def create_settlement(db: Session, body: DriverSettlementCreate, operator_id: in
         amount=amount,
         status=SettlementStatus.DRAFT,
         order_ids=order_ids,
+        bill_ids=bill_ids,
+        adjustment=adjustment,
         operator_id=operator_id,
         note=body.note,
     )
@@ -641,7 +662,26 @@ def confirm_settlement(db: Session, s: DriverSettlement, operator_id: int | None
     if s.status != SettlementStatus.DRAFT:
         raise ValueError("仅草稿可确认")
     # 原子锁定：仍 OPEN 的所属 bills → SETTLED
-    if s.settle_type == DriverBillType.PIECE and s.order_ids:
+    # ⛔ 建单当刻锁进这张单的那几笔（`bill_ids`）说了算（2026-10-03 BUG-0007）：
+    #    不再按 `order_ids` 重取 —— 孤儿明细没有单号，那样取回来必然少一笔。
+    #    建单之后**新出现**的明细不算错（它还 OPEN，留给下一张单）：月薪单的并发保护
+    #    在生成侧（`api/v1/driver_bills.py` 生成前锁司机行），不靠这里。
+    recorded = [int(x) for x in (s.bill_ids or [])]
+    if recorded:
+        current = {
+            b.id: b
+            for b in settleable_bills(
+                db, driver_id=s.driver_id, settle_type=s.settle_type, month=s.month
+            )
+        }
+        bills = [current[i] for i in recorded if i in current]
+        gone = [i for i in recorded if i not in current]
+        if gone:
+            raise ValueError(
+                f"这张结算单锁定的 {len(recorded)} 笔明细里有 {len(gone)} 笔已经不在了"
+                "（被删除或已被别的结算单占用），请作废后重新结算"
+            )
+    elif s.settle_type == DriverBillType.PIECE and s.order_ids:
         bills = list(
             db.scalars(
                 select(DriverBill).where(
@@ -670,8 +710,11 @@ def confirm_settlement(db: Session, s: DriverSettlement, operator_id: int | None
     if not bills:
         raise ValueError("账单已被其他结算单占用或不存在")
     locked_total = sum((b.amount for b in bills), Decimal("0"))
-    if Decimal(s.amount) != locked_total:
-        raise ValueError(f"结算单金额 {s.amount} 与明细合计 {locked_total} 不一致，请核对")
+    adjustment = Decimal(s.adjustment or Decimal("0"))
+    if Decimal(s.amount) != locked_total + adjustment:
+        # 手工改过额的单：差额记在 `adjustment` 上，恒等式仍然成立（BUG-0007）。
+        tail = "" if adjustment == 0 else f"（本单另有手工调整 {adjustment:+}）"
+        raise ValueError(f"结算单金额 {s.amount} 与明细合计 {locked_total} 不一致，请核对{tail}")
     for b in bills:
         b.status = DriverBillStatus.SETTLED
         b.settled_doc_id = s.id
@@ -710,7 +753,7 @@ def pay_settlement(db: Session, s: DriverSettlement, method: str, operator_id: i
     if any(b.status != DriverBillStatus.SETTLED or b.driver_id != s.driver_id for b in live):
         raise ValueError("这张结算单的明细状态与司机对不上（被别的操作改过），不能付款；请作废后重新结算")
     live_total = sum((b.amount for b in live), Decimal("0"))
-    if Decimal(s.amount) != live_total:
+    if Decimal(s.amount) != live_total + Decimal(s.adjustment or Decimal("0")):
         raise ValueError(
             f"结算单金额 {s.amount} 与现存明细合计 {live_total} 不一致，不能付款；请作废后重新结算"
         )
@@ -765,18 +808,23 @@ def cancel_settlement(db: Session, s: DriverSettlement, operator_id: int | None)
         db.rollback()
         raise ValueError("这张结算单刚刚被别的操作改过（可能已确认/已作废），请刷新后查看")
     db.refresh(s)
-    if s.settle_type == DriverBillType.PIECE and s.order_ids:
-        bills = list(
-            db.scalars(
-                select(DriverBill).where(
-                    DriverBill.settled_doc_id == s.id,
-                    DriverBill.status == DriverBillStatus.SETTLED,
-                )
+    # ⛔ 反过来解锁**一律按 `settled_doc_id`**（2026-10-03 BUG-0007）：
+    #    原来这里挂着 `s.settle_type == PIECE and s.order_ids` 的门闩 —— 于是 `order_ids`
+    #    为空的那类单（孤儿明细 / 月薪单）在 `cancel × confirm` 的历史竞态里留下的
+    #    「CANCELLED + 明细已 SETTLED」永远解不开（既不在 OPEN 里、也不可付）。
+    #    `settled_doc_id == s.id` 本身就自限（只动这张单锁住的那些行），不必再加类型/单号条件。
+    #    （草稿单正常情况下没有 SETTLED 明细：真正打上标记的是 `confirm_settlement`。）
+    bills = list(
+        db.scalars(
+            select(DriverBill).where(
+                DriverBill.settled_doc_id == s.id,
+                DriverBill.status == DriverBillStatus.SETTLED,
             )
         )
-        for b in bills:
-            b.status = DriverBillStatus.OPEN
-            b.settled_doc_id = None
+    )
+    for b in bills:
+        b.status = DriverBillStatus.OPEN
+        b.settled_doc_id = None
     return s
 
 

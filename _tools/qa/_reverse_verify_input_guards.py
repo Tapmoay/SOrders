@@ -139,7 +139,10 @@ CASES: list[tuple[str, Path, object, str]] = [
     (
         "付款前不再核对明细金额",
         ACCT,
-        lambda s: s.replace("    if Decimal(s.amount) != live_total:", "    if False:", 1),
+        # ⚠️ 锚点跟着源码走：BUG-0007（2026-10-03）之后付款恒等式带上了手工调整项。
+        #    只改锚点、不动判据 —— 注入的语义仍是「付款前不再核对明细金额」。
+        lambda s: s.replace('    if Decimal(s.amount) != live_total + Decimal(s.adjustment or Decimal("0")):',
+                            "    if False:", 1),
         "guardrails",
     ),
     (

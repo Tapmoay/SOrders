@@ -45,11 +45,14 @@ CASES: list[tuple[str, str, object, str]] = [
         "结算单又收走已软删订单的账单（先删单后付款）",
         ACCT,
         lambda s: s.replace(
-            "                .outerjoin(Order, Order.id == DriverBill.order_id)\n",
+            # ⚠️ 2026-10-03 BUG-0007：这条取数谓词搬进了 `settleable_bills`
+            #    （建单 / 确认核对 / 作废解锁三处同源），缩进随之从 16/20 空格变成 12/16 ——
+            #    锚点跟着搬家，期望仍然一样（撤掉它，软删单的账单就又被收走）。
+            "            .outerjoin(Order, Order.id == DriverBill.order_id)\n",
             "",
             1,
         ).replace(
-            "                    or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),\n",
+            "                or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),\n",
             "",
             1,
         ),

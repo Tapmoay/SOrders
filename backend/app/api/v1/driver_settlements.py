@@ -63,6 +63,8 @@ def list_settlements(
                     "amount": r.amount,
                     "status": r.status,
                     "order_ids": r.order_ids,
+                    "bill_ids": r.bill_ids,
+                    "adjustment": r.adjustment,
                     "paid_at": r.paid_at,
                     "method": r.method,
                     "operator_id": r.operator_id,
@@ -103,7 +105,7 @@ def create_settlement(
             "month": s.month,
             "settle_type": str(getattr(s.settle_type, "value", s.settle_type)),
             "amount": str(s.amount),
-            "bill_count": len(s.order_ids or []),
+            "bill_count": len(s.bill_ids or s.order_ids or []),
         },
     )
     db.commit()
@@ -112,7 +114,8 @@ def create_settlement(
     out = DriverSettlementOut(
         id=s.id, driver_id=s.driver_id, settle_type=s.settle_type, month=s.month,
         period_from=s.period_from, period_to=s.period_to, amount=s.amount, status=s.status,
-        order_ids=s.order_ids, paid_at=None, method="", operator_id=s.operator_id, note=s.note,
+        order_ids=s.order_ids, bill_ids=s.bill_ids, adjustment=s.adjustment,
+        paid_at=None, method="", operator_id=s.operator_id, note=s.note,
         driver_name=(u.full_name or u.phone or "") if u else "", created_at=s.created_at,
     )
     return out
@@ -168,6 +171,7 @@ def settlement_action(
     return DriverSettlementOut(
         id=s.id, driver_id=s.driver_id, settle_type=s.settle_type, month=s.month,
         period_from=s.period_from, period_to=s.period_to, amount=s.amount, status=s.status,
-        order_ids=s.order_ids, paid_at=s.paid_at, method=s.method, operator_id=s.operator_id,
+        order_ids=s.order_ids, bill_ids=s.bill_ids, adjustment=s.adjustment,
+        paid_at=s.paid_at, method=s.method, operator_id=s.operator_id,
         note=s.note, driver_name=(u.full_name or u.phone or "") if u else "", created_at=s.created_at,
     )

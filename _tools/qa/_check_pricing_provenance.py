@@ -191,6 +191,10 @@ CONFIG = {
     "vehicles.cargo_length_m": "车辆属性：载货区长(米)（同上）",
     "vehicles.cargo_width_m": "车辆属性：载货区宽(米)（同上）",
     "vehicles.cargo_height_m": "车辆属性：载货区高(米)（同上）",
+    # ---- 司机结算单的手工调整额（2026-10-03 · BUG-0007）：建单时派单员**手填进来的差额**
+    # （不是系统按规则算出来的），从此恒等式 `amount == 明细合计 + adjustment` 在确认与
+    # 付款两处都成立 —— 所以它归「录入即事实」这一档，不是 RULED。
+    "driver_settlements.adjustment": "结算单的手工调整额（建单时录入即事实；恒等式 amount == 明细合计 + adjustment）",
 }
 
 #: 坐标：名字是 lat/lng 的那几个，与钱无关。
@@ -220,7 +224,9 @@ RULED = {
     },
     "driver_settlements.amount": {
         "where": "driver_settlement_lines.amount 的合计（逐单指向 driver_bills / orders）",
-        "why": "结算单是聚合，来源逐单可查",
+        "why": "结算单是聚合，来源逐单可查"
+               "（2026-10-03 BUG-0007：取数只有 settleable_bills 一处，确认/付款按建单当刻"
+               "锁定的 bill_ids 认账，恒等式 amount == 明细合计 + adjustment）",
     },
     "orders.freight_fee": {
         "where": "orders.freight_rule_snapshot（同一行、同一个事务、同一次定价决定）",

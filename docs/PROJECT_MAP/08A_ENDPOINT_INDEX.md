@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:3ea93b138e78316417343854593b84320dfc5966e7f8ec2fcf3abf6a385adc4f -->
+<!-- source_hash: sha256:06fc8f7f3ac714a5e0e20e2ce3fda628e1b89a634bfeaeb44085877a571b3662 -->
 
 ## 全量端点（252 个，按文件分组）
 
@@ -143,8 +143,8 @@
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
 | 1 | `GET /api/v1/driver-settlements` | `list_settlements` | `backend/app/api/v1/driver_settlements.py:28` | 仅登录 + 体内仅允许:派单员\|司机 |
-| 2 | `POST /api/v1/driver-settlements` | `create_settlement` | `backend/app/api/v1/driver_settlements.py:79` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `PATCH /api/v1/driver-settlements/{settlement_id}` | `settlement_action` | `backend/app/api/v1/driver_settlements.py:122` | 仅登录 + 体内仅允许:派单员 |
+| 2 | `POST /api/v1/driver-settlements` | `create_settlement` | `backend/app/api/v1/driver_settlements.py:81` | 仅登录 + 体内仅允许:派单员 |
+| 3 | `PATCH /api/v1/driver-settlements/{settlement_id}` | `settlement_action` | `backend/app/api/v1/driver_settlements.py:125` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/api/v1/exception_resolution.py` — 1 个
 

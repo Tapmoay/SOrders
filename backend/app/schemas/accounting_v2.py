@@ -209,6 +209,10 @@ class DriverSettlementOut(BaseModel):
     amount: Decimal
     status: SettlementStatus
     order_ids: list | None = None
+    #: 这一单覆盖的明细行（`driver_bills.id`）与手工改额的差额 —— 「金额与明细同源」的两个凭据
+    #: （2026-10-03 BUG-0007）。老单可能为空 / 0。
+    bill_ids: list | None = None
+    adjustment: Decimal = Decimal("0")
     paid_at: datetime | None = None
     method: str = ""
     operator_id: int | None = None

@@ -1427,6 +1427,37 @@ def _bootstrap_impl(engine: Engine) -> None:
                 except DBAPIError as e:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise
+    # ---------- 结算单「覆盖哪几行明细」与手工改额差额（2026-10-03 E2E 走查 BUG-0007） ----------
+    # 没有这两列时：建单按「司机 + 月 + 类型 + OPEN + 订单未软删」取数、确认却按 `order_ids`
+    # 重取 —— `order_id` 为空的历史孤儿账单被静默丢掉 ⇒「结算单金额 970.00 与明细合计
+    # 940.00 不一致」，那张单**永远确认不了**（司机这笔钱结不掉，只能改库）。
+    # `bill_ids` 把「覆盖哪几行」在建单当刻定死；`adjustment` 记住手工改额的差额
+    # （恒等式 `amount == 明细合计 + adjustment`）。
+    # ⛔ 默认值 =「老单没有这份清单 / 没改过额」：NULL / 0，不回填。
+    # ⚠️ 正式搬迁是 `migrations/017_settlement_bill_ids.py`，这一段只是自愈副本。
+    if "driver_settlements" in insp.get_table_names():
+        scols = {c["name"] for c in insp.get_columns("driver_settlements")}
+        if "bill_ids" not in scols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE driver_settlements ADD COLUMN bill_ids JSON"))
+                    logger.warning("driver_settlements.bill_ids 已补列（默认 NULL：老单走老路）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+        if "adjustment" not in scols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE driver_settlements ADD COLUMN adjustment "
+                            "DECIMAL(12,2) NOT NULL DEFAULT 0"
+                        )
+                    )
+                    logger.warning("driver_settlements.adjustment 已补列（默认 0：没改过额）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
 
     # ---------- 成本价时间轴回填（2026-09-19 用户要求） ----------
     #
