@@ -37,8 +37,8 @@ MUTATIONS = [
     (
         "工作台又长出第二张卡片（用户当天推翻的那一版）",
         WORKBENCH,
-        "        item { WelcomeBar(role) }\n",
-        "        item { WelcomeBar(role) }\n"
+        "        item { WelcomeBar(role, memberShipper) }\n",
+        "        item { WelcomeBar(role, memberShipper) }\n"
         "        item { EntryGrid(entries = Modules.dispatcherLedgerEntries, onOpen = onOpen, onMove = {}, onDrop = {}) }\n",
         "工作台不再渲染第二张卡片",
     ),

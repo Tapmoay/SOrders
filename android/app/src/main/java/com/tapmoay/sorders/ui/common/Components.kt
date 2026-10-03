@@ -333,10 +333,35 @@ internal data class RolePalette(val label: String, val light: Color, val dark: C
 
 internal fun rolePaletteOf(role: String): RolePalette = when (role) {
     "shipper" -> RolePalette("货主", Color(0xFF005A78), Color(0xFF8FDCF0))
+    // 「批发商」这一支（CHG-0033）：与货主**同一族色** —— 他本来就是货主那一族
+    // （`users.role="shipper"`，只是 `is_member=1`），变的只是标签上那个字。
+    // 底色说的是"这一族是谁"，字说的是"这一个是谁"：颜色跟着族走，才不会被记成两套身份色。
+    "shipper_member" -> RolePalette("批发商", Color(0xFF005A78), Color(0xFF8FDCF0))
     "driver" -> RolePalette("司机", Color(0xFF00624A), Color(0xFF8FE0C0))
     "dispatcher" -> RolePalette("派单员", Color(0xFF0A4DAF), Color(0xFFA8C8FF))
     else -> RolePalette(role, Color(0xFF44464F), Color(0xFFC7C9D1))
 }
+
+/**
+ * 胶囊上用的那个键：**角色 + 他是不是批发商货主**（与 `ai/AiActor` 同一个维度）。
+ *
+ * ## 由来（用户 2026-10-04，第 2 件）
+ * > 「他那个右边的那个**货主**啊，他是**根据实际情况**来定的：如果**对面是货主**的话，
+ * >   他就**货主**，如果**对面是批发商**的话，则就是**批发商**」
+ *
+ * 批发商在库里 **`role` 仍然是 `"shipper"`**（`is_member=1`）—— 只看角色的后果是：
+ * 那 14 个批发商的手机上，工作台右边那颗胶囊一直写着「货主」，而他们那本账本其实
+ * 多一段"我的货主欠我多少"、每一单能核销（见 `ai/AiActor` 的说明）——手机长得就不一样，
+ * 标签却一样。
+ *
+ * ⛔ `memberShipper` **只对货主生效**：派单员/司机被标了 `is_member` 也不改标签
+ *    （与 [com.tapmoay.sorders.ai.AiActor.of] 同一条纪律，免得哪天有人"顺手"给派单员
+ *    开出一个货主专属的身份）。
+ * ⛔ **问不出来时按普通货主算**（`false`，fail-closed）：批发商看见「货主」会当场说
+ *    "我不是货主"，反过来给普通货主写「批发商」是**不会有人发现**的。
+ */
+internal fun roleBadgeKey(roleKey: String, memberShipper: Boolean): String =
+    if (roleKey == "shipper" && memberShipper) "shipper_member" else roleKey
 
 /**
  * 角色胶囊：**细描边 + 透明底 + 同色字**（2026-09-22 用户定的形态）。
@@ -346,10 +371,13 @@ internal fun rolePaletteOf(role: String): RolePalette = when (role) {
  * ⚠️ 图一那颗「管理者」实测是**细实线**（1px 白描边，我放大看过），所以这里取细实线 ——
  *    真要虚线，把 `border` 换成自绘 `drawBehind` 即可（判据里留了这条出口）。
  * ⛔ 不带下拉三角：我们没有"可切换的身份"（切账号在「我的」里）。
+ *
+ * ⚠️ 第二个参数是**身份**那一维（CHG-0033）：`true` = 他是批发商货主 → 胶囊上写「批发商」。
+ *    默认 `false` = 按普通货主画（fail-closed，同 [roleBadgeKey]）。
  */
 @Composable
-fun RoleBadge(role: String) {
-    val p = rolePaletteOf(role)
+fun RoleBadge(role: String, memberShipper: Boolean = false) {
+    val p = rolePaletteOf(roleBadgeKey(role, memberShipper))
     val accent = if (ThemeMode.isDark) p.dark else p.light
     Surface(
         color = Color.Transparent,

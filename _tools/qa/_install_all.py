@@ -78,7 +78,11 @@ DEVICES: list[tuple[str, str, str, str, tuple[str, ...]]] = [
 #    两端的强标志必须跟着换 —— 不换的话这两个字符串在界面上**再也不出现**，
 #    表现是"装完说没抓到角色标志文字"（`verify_role` 的第三条分支）。
 STRONG_MARK = ("工作台 · 全量管理", "工作台 · 订单与账本")
-PASSWORD = "123321"
+# 端口 → 密码。⚠️ **三个账号不是一个密码**（2026-10-04 实测：派单员 `123456`，货主与司机 `123321`）。
+# 以前这里是一个全局 `PASSWORD = "123321"`：5556/5558 能登进去只是因为它们恰好对得上，
+# 5554（派单员）则一直卡在「用户名或密码错误」—— 表现是"装完还说没登成"。
+PASSWORDS = {"5554": "123456", "5556": "123321", "5558": "123321"}
+PASSWORD = "123321"  # 表里没有的端口用这个兜底
 
 # 系统权限弹窗里我们倾向点哪个（按优先级）
 PERM_PREFER = ("Allow all", "While using the app", "Allow", "允许")
@@ -264,7 +268,7 @@ def dismiss_dialogs(serial: str, rounds: int = 6) -> None:
         time.sleep(1.2)
 
 
-def login_if_needed(serial: str, phone: str) -> str:
+def login_if_needed(serial: str, phone: str, password: str) -> str:
     """在登录页就登录。返回一句人话（成功/已在登录态/失败）。"""
     rows = ui._nodes(ui._dump_xml(f"emulator-{serial}"))
     texts = [t for t, *_ in rows if t]
@@ -284,7 +288,7 @@ def login_if_needed(serial: str, phone: str) -> str:
     time.sleep(0.8)
     if not tap("密码"):
         return "❌ 找不到密码输入框"
-    adb(serial, "shell", "input", "text", PASSWORD)
+    adb(serial, "shell", "input", "text", password)
     time.sleep(0.8)
     # 关键一步：**先关掉键盘再点登录** —— 键盘会盖住按钮（且布局会变，坐标不能写死）
     adb(serial, "shell", "input", "keyevent", "KEYCODE_BACK")
@@ -331,7 +335,7 @@ def install_one(serial: str, role: str, phone: str, avd: str,
     adb(serial, "shell", "am", "start", "-n", f"{PKG}/.MainActivity")
     time.sleep(7)
     dismiss_dialogs(serial)
-    res = login_if_needed(serial, phone)
+    res = login_if_needed(serial, phone, PASSWORDS.get(serial, PASSWORD))
     print(f"   {res}")
     check = verify_role(serial, want)
     print(f"   {check}")

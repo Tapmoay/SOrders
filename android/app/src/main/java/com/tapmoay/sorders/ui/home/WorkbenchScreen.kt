@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +65,17 @@ fun WorkbenchScreen(
     //    拖一次要经过十几个格子，每换一次写一次盘就是十几次文件写。
     // ⚠️ `ordered` 是**推出来的**（savedKeys + 当前入口清单），不是另一份状态：
     //    两份状态各自更新，升级后加了新入口时就会出现"网格里少了一格而谁都不报错"。
+    // 是不是批发商货主（CHG-0033）：头部右边那颗胶囊上的字按**实际身份**说
+    // （用户 2026-10-04 第 2 件：「如果对面是批发商的话，则就是批发商」）。
+    // ⚠️ 与 `ui/shipper/ShipperLedgerViewModel` / `ui/order/OrderDetailViewModel` 同一套口径：
+    //    问不到就当**普通货主**（fail-closed）—— 批发商看见「货主」会立刻说"我不是货主"，
+    //    反过来给普通货主写「批发商」是**不会有人发现**的。
+    // ⚠️ key 是 `role.key`：换账号/换角色回来要**重新问一次**，不能把上一个人的身份留着。
+    var memberShipper by remember(role.key) { mutableStateOf(false) }
+    LaunchedEffect(role.key) {
+        memberShipper = runCatching { container.repo.me().isMember }.getOrDefault(false)
+    }
+
     val store = remember { WorkbenchOrderStore(container.appContext) }
     var savedKeys by remember(role.key) { mutableStateOf(store.order(role.key)) }
     val ordered = remember(entries, savedKeys) {
@@ -75,7 +87,7 @@ fun WorkbenchScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { WelcomeBar(role) }
+        item { WelcomeBar(role, memberShipper) }
         item {
             HintOnce(
                 container.hintPrefs,
@@ -137,9 +149,13 @@ fun workbenchHeaderText(role: Role): String = when (role) {
  * 「工作台 · 订单与账本」会自然**折到第二行**（`maxLines = 2`、**没有** `Ellipsis`），
  * 卡片跟着长高一点 —— 而不是把字切掉。可伸缩的文本**必须显式 `weight(1f)`**
  * （§4.19 的第二条教训：不写的话它会去吃宽度、把右边那颗胶囊挤瘪）。
+ *
+ * ⚠️ [memberShipper] 是**身份**那一维（CHG-0033）：货主里的批发商，胶囊上写「批发商」
+ *    而不是「货主」（用户 2026-10-04 第 2 件）。它由 [WorkbenchScreen] 问一次再传进来 ——
+ *    头部自己不取数（否则这一行里就有了第二个网络调用点）。
  */
 @Composable
-private fun WelcomeBar(role: Role) {
+private fun WelcomeBar(role: Role, memberShipper: Boolean) {
     Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -153,7 +169,9 @@ private fun WelcomeBar(role: Role) {
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(10.dp))
-            RoleBadge(role.key)
+            // CHG-0033：把"是不是批发商"一起交给胶囊 —— 只看 `role.key` 的话，
+            // 批发商那颗胶囊又会退回「货主」。
+            RoleBadge(role.key, memberShipper)
         }
     }
 }

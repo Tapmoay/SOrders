@@ -48,8 +48,8 @@ MUTATIONS = [
     (
         "右边那颗胶囊被换成裸文字（用户要的就是那颗「管理员那种形式」的胶囊）",
         WORKBENCH,
-        "            RoleBadge(role.key)",
-        "            Text(role.key)",
+        "            RoleBadge(role.key, memberShipper)",
+        "            Text(memberShipper)",
         "右边就是角色胶囊",
     ),
     (
@@ -69,19 +69,21 @@ MUTATIONS = [
     (
         "把图一的**铃铛/未读**抄进来（用户：「未读的那个不需要，导航栏已经有了」）",
         WORKBENCH,
-        "            Spacer(Modifier.width(10.dp))\n            RoleBadge(role.key)",
-        "            Spacer(Modifier.width(10.dp))\n"
+        # ⚠️ 锚点只能落在胶囊那一行上：CHG-0033 在 Spacer 与 RoleBadge 之间插了两行注释，
+        #    原来「Spacer\nRoleBadge」那种跨行锚点在这里已经接不上了（会变成 0 次命中 = 注入打空）。
+        "            RoleBadge(role.key, memberShipper)",
         "            Icon(Icons.Default.Notifications, contentDescription = null)\n"
-        "            RoleBadge(role.key)",
+        "            RoleBadge(role.key, memberShipper)",
         "没有铃铛/未读",
     ),
     (
         "把图一的**扫码**抄进来（我们本来就没有扫码）",
         WORKBENCH,
-        "            Spacer(Modifier.width(10.dp))\n            RoleBadge(role.key)",
-        "            Spacer(Modifier.width(10.dp))\n"
+        # ⚠️ 锚点只能落在胶囊那一行上：CHG-0033 在 Spacer 与 RoleBadge 之间插了两行注释，
+        #    原来「Spacer\nRoleBadge」那种跨行锚点在这里已经接不上了（会变成 0 次命中 = 注入打空）。
+        "            RoleBadge(role.key, memberShipper)",
         '            Icon(Icons.Default.QrCodeScanner, contentDescription = "扫码")\n'
-        "            RoleBadge(role.key)",
+        "            RoleBadge(role.key, memberShipper)",
         "没有扫码",
     ),
     (

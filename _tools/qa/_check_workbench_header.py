@@ -128,7 +128,10 @@ def main() -> int:
          "多出来的容器就是把三行卡又长回来了")
     c.present("左边那条文案来自唯一那处判据（`workbenchHeaderText`）",
               body, r"workbenchHeaderText\(role\)")
-    c.present("右边就是角色胶囊（`RoleBadge`）", body, r"RoleBadge\(role\.key\)")
+    # ⚠️ 锚点要带上**身份那一维**（CHG-0033）：只写 `RoleBadge(role.key)` 的话，
+    #    批发商那颗胶囊又会退回「货主」（那正是用户 2026-10-04 第 2 件要修的东西）。
+    c.present("右边就是角色胶囊（`RoleBadge`，并把身份一起交出去）", body,
+              r"RoleBadge\(role\.key, memberShipper\)")
     c.present("文案吃剩余宽度（`weight(1f)` —— §4.19：不写会把右边的胶囊挤瘪）",
               body, r"Modifier\.weight\(1f\)")
     c.present("垂直内边距**小**（扁：12dp，原来是 20dp 的三行卡）", body, r"vertical = 12\.dp")
@@ -187,8 +190,10 @@ def main() -> int:
         r'RolePalette\((?:"[^"]*"|\w+),\s*Color\(0xFF[0-9A-Fa-f]{6}\),\s*Color\(0xFF[0-9A-Fa-f]{6}\)\)',
         palette,
     )
-    c.ok(f"每一支都给足了亮/暗两档色（找到 {len(pairs)} 支，应有 4 支 = 三种角色 + 兜底）",
-         len(pairs) == 4, f"实际 {len(pairs)} 支：{pairs[:2]}")
+    # ⚠️ 支数 4 → 5（CHG-0033 加了「批发商货主」那一支：他就是货主，只是 `is_member=1`）。
+    #    支数变了这条判据必须跟着改 —— 否则加了新身份色、或者谁删了一支，都不会有人知道。
+    c.ok(f"每一支都给足了亮/暗两档色（找到 {len(pairs)} 支，应有 5 支 = 三种角色 + 批发商货主 + 兜底）",
+         len(pairs) == 5, f"实际 {len(pairs)} 支：{pairs[:2]}")
     defs2 = [
         p.relative_to(ROOT).as_posix()
         for p in sorted(ANDROID.rglob("*.kt"))
