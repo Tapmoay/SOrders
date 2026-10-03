@@ -32,8 +32,14 @@ class SocketManager {
      * 与 [connected] = false 是两件事：那个只说"现在没连着"（网络抖动也会），
      * 这个说"再连也不会成功，令牌已经不算数了"。区别对待的理由见 [PushTrust.isServerRefusal]。
      */
-    private val _sessionRefused = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val sessionRefused: SharedFlow<Unit> = _sessionRefused.asSharedFlow()
+    private val _sessionRefused = MutableSharedFlow<String?>(extraBufferCapacity = 1)
+
+    /**
+     * 值是服务端给的原因（`session_revoked` 报文里的 `reason`：
+     * 「账号在另一台设备登录」/「登出」/「改密码」/「账号被停用」），
+     * 握手被拒等拿不到原因的场合是 null（界面那时用兜底句，⛔ 不编一个原因出来）。
+     */
+    val sessionRefused: SharedFlow<String?> = _sessionRefused.asSharedFlow()
 
     /** 一次会话只报一次：握手被拒后重连还会再抛几条，不该弹几个「登录已失效」 */
     @Volatile
@@ -96,9 +102,12 @@ class SocketManager {
             // 后端在登出 / 改密码 / 停用之后**主动推**这个事件，然后断开连接
             // （服务端撤销会话的信号，不是普通断线）。令牌此时已经作废，
             // 所以不重连、直接走清会话那条链。
-            s.on("session_revoked") {
+            s.on("session_revoked") { args ->
                 Log.w("SOrdersSock", "SESSION_REVOKED")
-                notifyRefused("会话被服务端撤销")
+                // 服务端在报文里写了原因（"账号在另一台设备登录" 等）——
+                // ⚠️ 这里原来把它丢掉了（只发一个 Unit），用户看到的永远是同一句「登录已失效」
+                // （2026-10-03 E2E 走查 BUG-0006）。
+                notifyRefused("会话被服务端撤销", revokedReason(args))
             }
             socket = s
             s.connect()
@@ -127,12 +136,27 @@ class SocketManager {
         return out
     }
 
+    /**
+     * 从 `session_revoked` 的负载里取服务端给的原因。拿不到（老后端 / 负载形状变了）
+     * 就给 null —— 界面会用兜底句，而不是编一个原因出来。
+     */
+    private fun revokedReason(args: Array<Any?>?): String? {
+        val raw = args?.firstOrNull() ?: return null
+        @Suppress("UNCHECKED_CAST")
+        val data: Map<String, Any?> = when (raw) {
+            is Map<*, *> -> raw as Map<String, Any?>
+            is org.json.JSONObject -> toMapOfJson(raw)
+            else -> return null
+        }
+        return (data["reason"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
     /** 通知"这次会话已经没救了"（去重：一次会话只报一次） */
-    private fun notifyRefused(why: String) {
+    private fun notifyRefused(why: String, reason: String? = null) {
         if (refusalNotified) return
         refusalNotified = true
         Log.w("SOrdersSock", "会话失效（$why）→ 清会话，不再重连")
-        _sessionRefused.tryEmit(Unit)
+        _sessionRefused.tryEmit(reason)
     }
 
     /** 递归把 JSONObject/JSONArray 摊成 Map/List，其余原样返回 */

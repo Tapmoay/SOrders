@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.core.business_time import business_today
+from app.core.business_time import business_today, utc_now_naive
 from app.core.security import create_access_token, verify_password
 from app.core.socket_io import revoke_user_sockets
 from app.models import User
@@ -101,6 +101,17 @@ def revoke_tokens_and_sockets(
     `background` 用来把断开动作排到响应之后（要 await socket 推送，不能在同步端点里做）。
     """
     bump_token_version(db, user)
+    # ⚠️ 2026-10-03（E2E 走查 BUG-0006）：**把原因也落库**。
+    #    原来 reason 只跟着 socket 报文发出去（客户端那一环还把它丢了），HTTP 侧四种失效原因
+    #    在 `deps.get_current_user` 里被抹成同一句「登录已失效或凭证无效」—— 用户分不清
+    #    「被顶号」和「账号被停用」，而这两件事的处置完全不同。
+    #    ⛔ 必须和 `bump_token_version` **同一个事务**（调用方紧接着 commit）：分两次提交会出现
+    #      「版本号已经 +1、原因还是上一次的」窗口，那时用户看到的是一句对不上的话。
+    #    `session_revoked_version` 记的是**撤销那一刻**的版本号（见 `deps._session_ended_detail`）。
+    user.session_revoked_reason = (reason or "").strip()[:64]
+    user.session_revoked_at = utc_now_naive()
+    user.session_revoked_version = int(getattr(user, "token_version", 0) or 0)
+    db.flush()
     background.add_task(revoke_user_sockets, user.id, reason)
 
 

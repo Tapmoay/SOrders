@@ -13,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.core.business_time import utc_now_naive
 from app.core.transport import reject_plaintext_credentials
 from app.database import get_db
 from app.deps import CurrentUser
@@ -64,6 +65,13 @@ def _login(
         # 不区分"用户不存在"与"密码错误"（避免账号枚举），也不提示还能试几次
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     login_guard.note_success(login_id)
+    # ⚠️ 2026-10-03（BUG-0006）：记下「这个账号最后一次登录成功是什么时候」。
+    #    走查原话：被顶号之后「事后在库里查不到谁顶了谁」—— 有了它，加上撤销原因/时间两列，
+    #    一次顶号在库里留得下完整痕迹（谁在什么时候登进来、把谁顶掉了）。
+    #    ⛔ 写在 commit **之前**（下面那条撤销路径同一个事务）；并且**不碰**
+    #      `session_revoked_reason`：被顶掉那台还要靠这次撤销记下的原因告诉用户发生了什么，
+    #      在这里清掉就等于把要说的话吃掉。
+    user.last_login_at = utc_now_naive()
 
     if not is_test_account(user.phone):
         revoke_tokens_and_sockets(db, user, background_tasks, "账号在另一台设备登录")

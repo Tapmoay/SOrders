@@ -1378,6 +1378,56 @@ def _bootstrap_impl(engine: Engine) -> None:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise
 
+        # ---------- 会话结束原因 / 最后登录时间（2026-10-03 E2E 走查 BUG-0006） ----------
+        # 没有这几列时：被顶号 / 被停用 / 改了密码 / 令牌过期，用户看到的都是同一句
+        # 「登录已失效，请重新登录」—— 而这四种的处置完全不同（重登 / 找派单员 / ...）。
+        # `session_revoked_reason` 由 `revoke_tokens_and_sockets` 在撤销的**同一个事务**里写；
+        # `session_revoked_version` 是「这句话还算不算数」的凭据（等于当前 token_version 才算数）。
+        # ⛔ 默认值必须是「什么都没记」（空串 / NULL / 0）：老库补列后不许替任何账号编一个原因出来。
+        if "session_revoked_reason" not in ucols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE users ADD COLUMN session_revoked_reason "
+                            "VARCHAR(64) NOT NULL DEFAULT ''"
+                        )
+                    )
+                    logger.warning("users.session_revoked_reason 已补列（默认空串：不替老账号编原因）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+        if "session_revoked_at" not in ucols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN session_revoked_at DATETIME"))
+                    logger.warning("users.session_revoked_at 已补列（默认 NULL）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+        if "session_revoked_version" not in ucols:
+            with engine.begin() as conn:
+                try:
+                    col_type = "INTEGER" if engine.dialect.name == "sqlite" else "INT"
+                    conn.execute(
+                        text(
+                            "ALTER TABLE users ADD COLUMN session_revoked_version "
+                            f"{col_type} NOT NULL DEFAULT 0"
+                        )
+                    )
+                    logger.warning("users.session_revoked_version 已补列（默认 0：按「没有原因」处理）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+        if "last_login_at" not in ucols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at DATETIME"))
+                    logger.warning("users.last_login_at 已补列（默认 NULL = 还没记过）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
     # ---------- 成本价时间轴回填（2026-09-19 用户要求） ----------
     #
     # `product_cost_history` 表由 `create_all` 建（它只建缺失的**表**，所以这里不用补列）。

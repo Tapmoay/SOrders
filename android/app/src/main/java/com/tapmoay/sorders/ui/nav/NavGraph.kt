@@ -103,7 +103,15 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
     // 登录失效时 Toast 提示（302 由 sessionFlow 自动回登录页）
     LaunchedEffect(Unit) {
         container.sessionExpiredTick.drop(1).collect {
-            Toast.makeText(container.appContext, "登录已失效，请重新登录", Toast.LENGTH_LONG).show()
+            // ⚠️ 2026-10-03（BUG-0006）：**先显示服务端给的原因**，拿不到才用兜底句。
+            //    原来这里写死一句「登录已失效」，把"被别的设备顶号 / 账号被停用 /
+            //    密码改过了 / 令牌过期"四种原因抹成了同一句话。
+            val reason = container.sessionExpiredReason.value
+            Toast.makeText(
+                container.appContext,
+                reason ?: "登录已失效，请重新登录",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 

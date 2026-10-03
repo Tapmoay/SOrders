@@ -1,8 +1,9 @@
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -43,6 +44,22 @@ class User(Base, TimestampMixin):
     #: 已发出的旧令牌在下一次请求就失效（见 `deps.get_current_user`）。
     #: 老库由 `schema_bootstrap` 补列、默认 0；老令牌没有这个 claim 也按 0 处理。
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    #: **上一次会话是怎么结束的**（2026-10-03 E2E 走查 BUG-0006）。
+    #: 登录顶号 / 登出 / 改密码 / 停用 / 删除都在 `revoke_tokens_and_sockets` 里写这一列
+    #: （与版本号 +1 同一个事务）。没有它的时候，被顶号 / 被停用 / 改了密码 / 令牌过期
+    #: 四种原因共用一句「登录已失效」，用户只能瞎猜。
+    #: `session_revoked_version` = **撤销那一刻**的 `token_version`，它是「这句话还算不算数」
+    #: 的凭据：只有它等于当前 `token_version`，这条 reason 描述的才是最近这一次结束
+    #: （对账逻辑见 `deps._session_ended_detail`）。
+    session_revoked_reason: Mapped[str] = mapped_column(
+        String(64), default="", server_default=""
+    )
+    session_revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    session_revoked_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    #: 最后一次登录成功的时间（**UTC naive**，`core/business_time.utc_now_naive()`）。
+    #: 走查原话：「事后在库里查不到谁顶了谁」——它加上上面两列，让一次顶号留得下痕迹。
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 司机画像（仅司机有意义）：small小车/large大车/trailer挂车
     vehicle_type: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     # 计费方式：salary固定工资/piece按单计费（挂车默认按单，可独立设置）

@@ -14,7 +14,9 @@ class AppContainer(val context: Context) {
     val appContext: Context = context.applicationContext
 
     val tokenStore by lazy { TokenStore(appContext) }
-    val api by lazy { ApiClient.create(tokenStore, onSessionExpired = { clearSession() }) }
+    // 401 的**原因**从拦截器一路带到界面（BUG-0006）：被顶号 / 被停用 / 改密码 / 令牌过期
+    // 四种处置完全不同，原来只有一句写死的「登录已失效，请重新登录」。
+    val api by lazy { ApiClient.create(tokenStore, onSessionExpired = { reason -> clearSession(reason) }) }
     val repo by lazy { AppRepository(api) }
     val socketManager by lazy { SocketManager() }
     val realtimeHub by lazy { RealtimeHub(this) }
@@ -41,6 +43,16 @@ class AppContainer(val context: Context) {
     val sessionExpiredTick = MutableStateFlow(0)
 
     /**
+     * 最近一次会话失效的**原因**（服务端说的原话；拿不到就是 null）。
+     *
+     * ⚠️ 2026-10-03（E2E 走查 BUG-0006）：原来只有 [sessionExpiredTick]，提示语写死在界面上
+     * （「登录已失效，请重新登录」）—— 被顶号 / 被停用 / 改了密码 / 令牌过期四种原因
+     * 在用户眼里是同一句话，而处置办法完全不同（重登 / 找派单员 / 别再乱试）。
+     * 服务端 401 的正文里已经写明原因，这里只负责把它**原样带到界面**，⛔ 不在这里改口径。
+     */
+    val sessionExpiredReason = MutableStateFlow<String?>(null)
+
+    /**
      * 点通知进来时带的单号，由 AppRoot 消费后直达订单详情。
      * 放在容器里而不是直接导航：通知可能在 Activity 还没建好时到达（冷启动），
      * 直接 navigate 会丢。
@@ -50,7 +62,8 @@ class AppContainer(val context: Context) {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** 401 时清除本地会话；AppRoot 观察 sessionFlow 会自动跳回登录页 */
-    fun clearSession() {
+    fun clearSession(reason: String? = null) {
+        sessionExpiredReason.value = reason
         sessionExpiredTick.value += 1
         // 退出登录 = 这台手机不该再为上一个账号响铃、也不该继续挂着常驻通知
         newOrderPlayer.stop()

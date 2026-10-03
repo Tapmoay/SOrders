@@ -178,10 +178,19 @@ def main() -> int:
     # ---- ③ 立足点：deps 的 tv 校验还在 ----
     c.section("立足点：deps.get_current_user 仍在比对 tv（核心文件，本方案只**用**它）")
     c.ok("deps.py 里读令牌的 tv", 'payload.get("tv"' in deps)
+    # 2026-10-03（BUG-0006）：原先只判子串 `"token_version" in deps` —— BUG-0006 给 deps.py 的
+    # `_session_ended_detail` 也加了一行 `getattr(user, "token_version", 0)`，子串就再也不是
+    # 「比对那一路」的证据了（`_reverse_verify_single_session.py` 注入 ⑦ 立刻漏网）。改成盯**比对
+    # 那一句本身**（写法必须是 getattr，为了容老对象），更严，不是放宽。
     c.ok("deps.py 里比库里的 token_version（写法是 getattr，为了容老对象）",
-         "token_version" in deps)
-    c.ok("对不上就 401（`credentials_exc`）",
-         re.search(r'"tv"[\s\S]{0,200}?credentials_exc', deps) is not None)
+         re.search(r'if int\(payload\.get\("tv", 0\) or 0\) != int\(getattr\(user, "token_version", 0\) or 0\):', deps) is not None)
+    # 2026-10-03（BUG-0006）：tv 对不上那一路不再直接抛 `credentials_exc`，而是抛
+    # `_unauthorized(_session_ended_detail(user))` —— 由它按「这一次撤销记下的原因还作不作数」
+    # 决定说原话还是兜底句。判据盯的**意图不变**（对不上必须 401），锚点跟着换。
+    c.ok("对不上就 401（`_unauthorized(...)`）",
+         re.search(r'"tv"[\s\S]{0,400}?raise _unauthorized\(', deps) is not None)
+    c.ok("而且这句话按「这一次的撤销原因」出（`_session_ended_detail`）",
+         re.search(r'"tv"[\s\S]{0,400}?_session_ended_detail\(', deps) is not None)
 
     # ---- ④ 反空转 ----
     c.section("反空转：关键调用数、被切的块都不能是空的")

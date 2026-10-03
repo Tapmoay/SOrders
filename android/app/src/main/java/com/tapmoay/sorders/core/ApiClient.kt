@@ -5,6 +5,7 @@ import com.tapmoay.sorders.data.remote.api.*
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.HttpException
 import retrofit2.Retrofit
@@ -32,7 +33,7 @@ object ApiClient {
         encodeDefaults = true
     }
 
-    fun create(tokenStore: TokenStore, onSessionExpired: () -> Unit = {}): ApiBundle {
+    fun create(tokenStore: TokenStore, onSessionExpired: (String?) -> Unit = {}): ApiBundle {
         val interceptor = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG_LOG) HttpLoggingInterceptor.Level.BODY
             else HttpLoggingInterceptor.Level.NONE
@@ -63,7 +64,13 @@ object ApiClient {
                     .build()
                 val resp = chain.proceed(req)
                 if (resp.code == 401 && token != null && !req.url.encodedPath.contains("auth/")) {
-                    onSessionExpired()
+                    // ⚠️ 2026-10-03（E2E 走查 BUG-0006）：**把服务端说的原因带出去**。
+                    //    401 的正文里现在写着四种不同的原因（被别的设备顶号 / 账号被停用 /
+                    //    密码改过了 / 令牌过期），而界面原来只会弹一句写死的「登录已失效，
+                    //    请重新登录」—— 服务端说的话正是在这一行被丢掉的。
+                    //    `peekBody` 不消费正文（后面 Retrofit 还要读它，用 string() 会把响应
+                    //    读空，出错的那次请求就再也拿不到 body 了 —— 那种坏法完全不报错）。
+                    onSessionExpired(unauthorizedDetail(resp))
                 }
                 resp
             }
@@ -123,6 +130,18 @@ object ApiClient {
     }
 
     /**
+     * 读 401 响应体里的中文 `detail`（**不消费正文**），拿不到就给 null。
+     *
+     * 界面拿到它就直接显示（"登录已结束：账号在另一台设备登录（10-03 21:40）"），
+     * 拿不到才退回那句写死的兜底。⛔ 只认中文：后端换语言/中间层塞英文时，
+     * 宁可显示兜底句，也不要把一句英文甩给用户。
+     */
+    internal fun unauthorizedDetail(resp: Response): String? = runCatching {
+        val body = resp.peekBody(64L * 1024).string()
+        parseDetail(body)?.takeIf { d -> d.any { it in '\u4e00'..'\u9fa5' } }
+    }.getOrNull()
+
+    /**
      * HTTP 错误码 + 后端给的 `detail` → 一句**能照着判断**的中文。
      *
      * ### 为什么必须有它（2026-09-21 两次踩同一个坑）
@@ -146,7 +165,11 @@ object ApiClient {
                     "如果 App 是刚更新的，多半是服务端还没更新到这个版本。"
             code >= 500 ->
                 "服务器出错了（$code），不是网络问题。请稍后重试；一直这样就把它告诉管理员。"
-            code == 401 || code == 403 -> "登录已失效或没有这个权限（$code），请重新登录后再试。"
+            // ⚠️ 2026-10-03（BUG-0006）：401 与 403 **拆开**。
+            //    403 是"这个角色没有这个权限"，跟登录一点关系都没有 —— 写成「登录已失效」
+            //    会把用户骗去重复登录（走查证据：派单员账号反复 403，界面上却说登录失效）。
+            code == 401 -> "登录已失效，请重新登录"
+            code == 403 -> "这个账号没有这个权限（$code），换有权限的账号或找派单员开权限"
             !detail.isNullOrBlank() -> "请求失败（$code）：$detail"
             else -> "请求失败（$code）"
         }

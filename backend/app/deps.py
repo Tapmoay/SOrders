@@ -2,9 +2,10 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
+from jose import ExpiredSignatureError, JWTError
 from sqlalchemy.orm import Session
 
+from app.core.business_time import local_stamp
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.core.security import decode_token
 from app.database import get_db
@@ -14,34 +15,77 @@ from app.models.enums import UserRole
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 
+def _unauthorized(detail: str) -> HTTPException:
+    """统一的 401 形状。`WWW-Authenticate: Bearer` 一直带着 —— 分支再多也别漏掉它。"""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _session_ended_detail(user: User) -> str:
+    """令牌被**服务端作废**之后，把当时记下的原因说给用户（2026-10-03 E2E 走查 BUG-0006）。
+
+    ## 为什么必须说原因
+    作废的原因有四种：被别的设备顶号、主动登出、改了密码、账号被停用/删除。
+    在这之前它们**在用户眼里是同一句话**（「登录已失效，请重新登录」），于是：
+    被停用的司机反复重登、被顶号的货主以为 App 坏了、改了密码的人以为网络有问题。
+    而服务端一直知道原因（`revoke_tokens_and_sockets` 的入参），只是没留下来。
+
+    ## 为什么必须用 `session_revoked_version` 对账，而不是「有原因就显示」
+    原因是一个**状态**，上一次撤销离现在可能已经隔了好几轮登录：用户换台手机重新登录、
+    又被顶掉，库里躺着的可能还是最早那句「登出」。不过账的话，第二台设备失效时会弹出一句
+    关于「登出」的话，而它其实是被第三台顶掉的 —— 那比不说原因更坏（说得斩钉截铁却是错的）。
+    对账规则：`session_revoked_version == token_version` ⟺ 这条原因描述的正是**最近这一次**
+    撤销（每次撤销都把版本号 +1，两者相等才说明没有更新的撤销盖在它上面）。
+    """
+    reason = (getattr(user, "session_revoked_reason", "") or "").strip()
+    current = int(getattr(user, "token_version", 0) or 0)
+    recorded = int(getattr(user, "session_revoked_version", 0) or 0)
+    if not reason or recorded != current:
+        return "登录已失效，请重新登录"
+    revoked_at = getattr(user, "session_revoked_at", None)
+    if revoked_at is None:
+        return f"登录已结束：{reason}"
+    return f"登录已结束：{reason}（{local_stamp(revoked_at)}）"
+
+
 def get_current_user(
     db: Annotated[Session, Depends(get_db)],
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> User:
-    credentials_exc = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="登录已失效或凭证无效，请重新登录",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials_exc = _unauthorized("登录已失效或凭证无效，请重新登录")
     try:
         payload = decode_token(token)
         sub = payload.get("sub")
         if sub is None:
             raise credentials_exc
         user_id = int(sub)
+    except ExpiredSignatureError:
+        # 令牌过期（24 小时）—— 与「被顶掉 / 被停用」是两回事：这个重新登录就好，
+        # 也只有它是时间到了自然发生、用户不该怀疑自己账号出了问题的。
+        raise _unauthorized("登录已过期（令牌 24 小时有效），请重新登录") from None
     except (JWTError, ValueError, TypeError):
         raise credentials_exc from None
 
     user = db.get(User, user_id)
-    if user is None or not user.is_active:
-        raise credentials_exc
+    if user is None:
+        # 账号被删除（或令牌的 sub 指向一个已经不存在的行）。
+        # ⛔ 不许退回成通用句：「登录已失效」会让人反复重登，而真实原因是这个账号已经没了。
+        raise _unauthorized("这个账号不存在或已被删除，请联系派单员")
+    if not user.is_active:
+        raise _unauthorized("这个账号已被停用，请联系派单员")
 
     # ⚠️ **服务端撤销**（2026-09-19 审计）：令牌里的 `tv` 必须等于库里当前的 `token_version`。
     #    改密码 / 停用 / 删除 / 主动登出都会把库里的值 +1，于是那些旧令牌立刻失效 ——
     #    在这之前"改密码"对已经泄漏的令牌毫无作用，只能等满 24 小时。
     #    老令牌没有 `tv` claim → 按 0 处理；老库补列时默认也是 0 → **升级不会把所有人踢下线**。
     if int(payload.get("tv", 0) or 0) != int(getattr(user, "token_version", 0) or 0):
-        raise credentials_exc
+        # 版本对不上＝这个令牌已经被服务端作废。两种情形分开说：
+        #   ① 撤销时记下的原因还作数（session_revoked_version == 当前版本）→ 原话告诉用户；
+        #   ② 记不上（老库 / 从没撤销过 / 又被下一次登录推了一格）→ 只能说「已失效」。
+        raise _unauthorized(_session_ended_detail(user))
 
     # 权限一律以数据库当前角色为准。JWT 内 role 仅作兼容/展示；若与 DB 不一致（如派单员修改了用户角色），仍允许访问，
     # 避免刷新后 401；冒用 sub 需有效签名，无法用伪造 role 提权（各接口以 user ORM 判权）。

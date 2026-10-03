@@ -106,8 +106,10 @@ class RealtimeHub(private val container: AppContainer) {
         // 而不是"以为还连着、其实一条新单都收不到"（2026-09-19 报告 C-3）。
         // ⛔ 网络不通**不**走这条链（判据见 [PushTrust.isServerRefusal]）：信号差不能把人踢下线。
         scope.launch {
-            container.socketManager.sessionRefused.collect {
-                if (container.tokenStore.cachedToken() != null) container.clearSession()
+            container.socketManager.sessionRefused.collect { reason ->
+                // 服务端在 `session_revoked` 里写了原因（被顶号 / 登出 / 改密码 / 停用），
+                // 一路带到界面上显示（BUG-0006）。
+                if (container.tokenStore.cachedToken() != null) container.clearSession(reason)
             }
         }
     }

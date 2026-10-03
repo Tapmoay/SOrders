@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:14c19b4068bf8416aa179eab55799ee60b9c4f681225578bb641540934e4e8b3 -->
+<!-- source_hash: sha256:3ea93b138e78316417343854593b84320dfc5966e7f8ec2fcf3abf6a385adc4f -->
 
 ## 全量端点（252 个，按文件分组）
 
@@ -84,9 +84,9 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | 仅登录 |
-| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` | **公开** |
-| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` | **公开** |
+| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:84` | 仅登录 |
+| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:106` | **公开** |
+| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:116` | **公开** |
 
 ### `backend/app/api/v1/cash_flows.py` — 3 个
 
@@ -642,8 +642,8 @@ _（无重复注册）_
 
 | 方法与路径 | handler | 位置 |
 |---|---|---|
-| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:98` |
-| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:108` |
+| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:106` |
+| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:116` |
 | `GET /api/v1/ledger/entries` | `list_entries` | `backend/app/api/v1/ledger.py:137` |
 | `GET /api/v1/ledger/accounts` | `list_accounts` | `backend/app/api/v1/ledger.py:190` |
 | `GET /api/v1/ledger/temp-shipper-names` | `list_temp_shipper_names` | `backend/app/api/v1/ledger.py:259` |
@@ -669,7 +669,7 @@ _（无重复注册）_
 | 方法与路径 | handler | 位置 | 含 `current.id` |
 |---|---|---|---|
 | `POST /api/v1/ai/telemetry` | `report_ai_calls` | `backend/app/api/v1/ai_telemetry.py:47` | — |
-| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:76` | — |
+| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:84` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:677` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:695` | — |
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:192` | ✅ |
