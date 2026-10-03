@@ -31,18 +31,6 @@
 
 ## 进行中
 
-### [2026-10-04 进行中] 会话：**GOV-0004 判据说明书里的「配套：N 种破坏方式」对账：六处过期数字 + 给锚点审计补第三支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求方原话**：（这一批**没有**新的点名原话 —— 起因是 2026-10-04 收尾 CHG-0021 时发现：那批判据文件里 `_tools/qa/_check_sheet_form_pages.py` 的模块 docstring 写着「配套：…（23 种破坏方式）」，而配套脚本的表长其实已经是 29。）长期口径有两条，这一批都踩到了：一是「每一次改动要提交 git，方便下次改做回去」，二是**一次逻辑改动一个提交** —— 所以这条 GOV 从 CHG-0021 里拆出来单独做；另有「你全部安排一下，全部把它做完」。
-
-**改什么**：① 把全仓 8 处「配套：…（N 种破坏方式）」里 6 处过期数字改成真实表长（`_tools/qa/_check_order_list_ui.py:33` 8→**28**、`_check_adaptive_layout.py:38` 8→**12**、`_check_list_order.py:21` 9→**13**、`_check_map_picker.py:21` 5→**7**、`_check_profile_page.py:27` 12→**16**；`_check_sheet_form_pages.py` 的 23→29 归 CHG-0021，不混进这个提交）。② 给 `_tools/qa/_check_reverse_verify_anchors.py` 补**第三支**：从各 `_check_*.py` 的 docstring 里抽「配套脚本 + N」，用 AST 数配套脚本 `INJECTIONS`/`CASES` 的表长，对不上就报红（口径只对账条数、不评价措辞；分母允许等于表长 +1，因为 `_check_money_display.py` 与 `_check_time_base.py` 那两份把「还原复检」也算一种；另加下限 `MIN_CLAIMS = 8` 防抽取失效）。③ 反验 `_tools/qa/_reverse_verify_anchor_audit.py` 新增 ⑫⑬ 两条（把 `_check_map_picker.py` 的「7 种破坏方式」改成 99 必须被抓住 / 把扫描面 `CHECK_GLOBS` 改坏必须喊「说明书条数核对得动」）。
-
-**Blast Radius**：L2（它改的是「元检查认哪些事实」的清单 —— 与 GOV-0003「改元检查的抽取逻辑」同一层；核心业务代码、接口、库表一行不动）。
-
-**文件**：`_tools/qa/_check_order_list_ui.py`、`_tools/qa/_check_adaptive_layout.py`、`_tools/qa/_check_list_order.py`、`_tools/qa/_check_map_picker.py`、`_tools/qa/_check_profile_page.py`、`_tools/qa/_check_reverse_verify_anchors.py`、`_tools/qa/_reverse_verify_anchor_audit.py`、`docs/changes/GOV-0004.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
-
-**结果**：（归档时补）
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5637,6 +5625,18 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**GOV-0004 判据说明书里的「配套：N 种破坏方式」对账：六处过期数字 + 给锚点审计补第三支**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：（这一批**没有**新的点名原话 —— 起因是 2026-10-04 收尾 CHG-0021 时发现：那批判据文件里 `_tools/qa/_check_sheet_form_pages.py` 的模块 docstring 写着「配套：…（23 种破坏方式）」，而配套脚本的表长其实已经是 29。）长期口径有两条，这一批都踩到了：一是「每一次改动要提交 git，方便下次改做回去」，二是**一次逻辑改动一个提交** —— 所以这条 GOV 从 CHG-0021 里拆出来单独做；另有「你全部安排一下，全部把它做完」。
+
+**改什么**：① 把全仓 8 处「配套：…（N 种破坏方式）」里 6 处过期数字改成真实表长（`_tools/qa/_check_order_list_ui.py:33` 8→**28**、`_check_adaptive_layout.py:38` 8→**12**、`_check_list_order.py:21` 9→**13**、`_check_map_picker.py:21` 5→**7**、`_check_profile_page.py:27` 12→**16**；`_check_sheet_form_pages.py` 的 23→29 归 CHG-0021，不混进这个提交）。② 给 `_tools/qa/_check_reverse_verify_anchors.py` 补**第三支**：从各 `_check_*.py` 的 docstring 里抽「配套脚本 + N」，用 AST 数配套脚本 `INJECTIONS`/`CASES` 的表长，对不上就报红（口径只对账条数、不评价措辞；分母允许等于表长 +1，因为 `_check_money_display.py` 与 `_check_time_base.py` 那两份把「还原复检」也算一种；另加下限 `MIN_CLAIMS = 8` 防抽取失效）。③ 反验 `_tools/qa/_reverse_verify_anchor_audit.py` 新增 ⑫⑬ 两条（把 `_check_map_picker.py` 的「7 种破坏方式」改成 99 必须被抓住 / 把扫描面 `CHECK_GLOBS` 改坏必须喊「说明书条数核对得动」）。
+
+**Blast Radius**：L2（它改的是「元检查认哪些事实」的清单 —— 与 GOV-0003「改元检查的抽取逻辑」同一层；核心业务代码、接口、库表一行不动）。
+
+**文件**：`_tools/qa/_check_order_list_ui.py`、`_tools/qa/_check_adaptive_layout.py`、`_tools/qa/_check_list_order.py`、`_tools/qa/_check_map_picker.py`、`_tools/qa/_check_profile_page.py`、`_tools/qa/_check_reverse_verify_anchors.py`、`_tools/qa/_reverse_verify_anchor_audit.py`、`docs/changes/GOV-0004.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
+
+**结果**：提交 `1081552`（10 个文件：工具 7 + 文档 3）—— 六处过期数字改对（`_check_order_list_ui.py:33` 8→28、`_check_adaptive_layout.py:38` 8→12、`_check_list_order.py:21` 9→13、`_check_map_picker.py:21` 5→7、`_check_profile_page.py:27` 12→16）+ 给 `_tools/qa/_check_reverse_verify_anchors.py` 补第三支（163 份脚本 / **1520** 条注入原文全在 / 顺带核对 **8** 处说明书条数、0 处对不上）+ 反验 `_tools/qa/_reverse_verify_anchor_audit.py` **13/13** 全 [OK] 且 5 个被碰过的文件逐字节还原；`_check_all.py` **148/148**（217.1 秒）+ 可达性 **110/110**（281 条 markdown 链接、无孤儿）。
 
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**CHG-0021 记账页「这一笔记给谁」抽屉：整段只留一个滚动容器（表单抽屉欠账表清零）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
