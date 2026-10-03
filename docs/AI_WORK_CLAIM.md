@@ -31,19 +31,6 @@
 
 ## 进行中
 
-### [2026-10-05 进行中] 会话：**FEAT-0010 账号分类与车辆分类名册（账户 / 司机 / 货主 / 批发商 / 车辆五个名册页标题右边多一个「分类」+ 左侧抽屉）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求方原话**：「还有我们的账户管理司机管理货主管理批发商管理。车辆管理……在这个位置也加个分类，默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的，那个左边侧分栏的底下，凡是跟地点是同样的」（附图：账户管理页标题右边画了红框）
-
-**改什么**：五个名册页标题右边加一个分类胶囊（默认「全部」），点开是左侧抽屉（底部那格「管理分类」进名册面板：建 / 改名 / 排序 / 删）；账户与车辆的新建 / 编辑表单里加一行分类下拉（可以现场新建）。后端两份全局名册（`user_categories` / `vehicle_categories`）+ `users.category` / `vehicles.category` 两列 + 迁移 014/015 + 两套端点（各 5 个）。⛔ 不动计费、不动权限点、不回填老数据。
-
-核心改动：backend/app/models/enums.py —— 为什么必须动核心：审计动作码是全项目共用的取值表（`_tools/qa/_core_files.txt:56` 把它列为核心区），新名册要留痕就只能在这里加码，没有第二个合法入口；本次只**追加** `USER_CATEGORY_*` / `VEHICLE_CATEGORY_*` 六个成员，既有成员一个没动。
-
-**Blast Radius**：L2（两张新表 + 两列新列 + 两条迁移 + 两套端点 + 五个页面形态 + 三处表单）
-
-**文件**：`backend/app/models/user_category.py`、`backend/app/models/vehicle_category.py`、`backend/app/api/v1/user_categories.py`、`backend/app/api/v1/vehicle_categories.py`、`backend/app/migrations/014_user_categories.py`、`backend/app/migrations/015_vehicle_categories.py`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/CategoryRostersViewModel.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/CategoryRostersPanel.kt`、`docs/changes/FEAT-0010.md`
-
-**结果**：（归档时补）
 
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
@@ -5639,6 +5626,20 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-05 进行中 → 2026-10-05 已完成] 会话：**FEAT-0010 账号分类与车辆分类名册（账户 / 司机 / 货主 / 批发商 / 车辆五个名册页标题右边多一个「分类」+ 左侧抽屉）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「还有我们的账户管理司机管理货主管理批发商管理。车辆管理……在这个位置也加个分类，默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的，那个左边侧分栏的底下，凡是跟地点是同样的」（附图：账户管理页标题右边画了红框）
+
+**改什么**：五个名册页标题右边加一个分类胶囊（默认「全部」），点开是左侧抽屉（底部那格「管理分类」进名册面板：建 / 改名 / 排序 / 删）；账户与车辆的新建 / 编辑表单里加一行分类下拉（可以现场新建）。后端两份全局名册（`user_categories` / `vehicle_categories`）+ `users.category` / `vehicles.category` 两列 + 迁移 014/015 + 两套端点（各 5 个）。⛔ 不动计费、不动权限点、不回填老数据。
+
+核心改动：backend/app/models/enums.py —— 为什么必须动核心：审计动作码是全项目共用的取值表（`_tools/qa/_core_files.txt:56` 把它列为核心区），新名册要留痕就只能在这里加码，没有第二个合法入口；本次只**追加** `USER_CATEGORY_*` / `VEHICLE_CATEGORY_*` 六个成员，既有成员一个没动。
+
+**Blast Radius**：L2（两张新表 + 两列新列 + 两条迁移 + 两套端点 + 五个页面形态 + 三处表单）
+
+**文件**：`backend/app/models/user_category.py`、`backend/app/models/vehicle_category.py`、`backend/app/api/v1/user_categories.py`、`backend/app/api/v1/vehicle_categories.py`、`backend/app/migrations/014_user_categories.py`、`backend/app/migrations/015_vehicle_categories.py`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/CategoryRostersViewModel.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/CategoryRostersPanel.kt`、`docs/changes/FEAT-0010.md`
+
+**结果**：判据 `_tools/qa/_check_account_vehicle_categories.py` **129 项全过**；反验 **55/55 全抓**；后端单测 **24 passed**（user_categories 12 + vehicle_categories 12）；`:app:compileEmuDebugKotlin` / `:app:assembleEmuDebug` BUILD SUCCESSFUL；模拟器 5554 端到端实测 14 张截图（胶囊 → 抽屉 → 管理分类 → 新建分类 → 表单挂分类 → 按分类筛出 → 删完当场撤销）；全仓 `_check_all.py` **150/150**；可达性 **112/112**；AI 侧 9 项验收全绿。提交 `4294b24`。
 
 ### [2026-10-05 进行中 → 2026-10-05 已完成] 会话：**CHG-0022 司机计费规则的新建 / 编辑从 AlertDialog 搬成单独一整页**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
