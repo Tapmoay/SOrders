@@ -13,9 +13,21 @@
 `source=ORDER` 的自动行却挂在一张 `ACCEPTED` 的单上，而按代码契约自动行只在送达那一刻写）。
 
 ## 口径（一句话）
-- **`source=ORDER` 的行**：只算"订单**已送达**且**没进回收站**"的那些（与报表侧**同一句**）；
+- **`source=ORDER` 的行**：只算"订单**已送达或已退货**且**没进回收站**"的那些（与报表侧**同一句**）；
 - **不挂订单的行**（手工记账）：一律算；
-- **别的来源**（`REFUND` 红冲等）：只要求订单没进回收站（红冲是对一份已经存在的送达账的冲回）。
+- **别的来源**（`RETURN` / `REFUND` 红冲等）：只要求订单没进回收站（红冲是对一份已经存在的送达账的冲回）。
+
+### ⚠️ 为什么"已退货"也要算（BUG-0001，2026-10-03 真机抓到的）
+`source=RETURN` 的红冲行只要求"订单没进回收站"，所以整单退货之后**它自己是可见的**；
+而它冲的那行 `source=ORDER` 如果还只认 `DELIVERED`，就会**被读口径吃掉** ——
+一减一加变成**只剩一减**。真机实测（订单 551，速冻水饺 ×3 袋 ¥85.5）：
+整单退货后「订单账（今天）」显示 **合计 −85.5 / 1 笔流水**，而库里明明是 +85.5 与 −85.5 两行
+（`ledgers` id=878 / 879，`order_id=551`），看账的人会以为这一天倒亏 85.5 元；
+「货主账」「批发商账」同错。部分退货的单仍是 `DELIVERED`、两行本来就都可见 ——
+所以这个不对称**只在整单退货**时出现，平时看不出来。
+
+⚠️ 这一条**不是**"把营业额也改宽"：`services/reports/loader.py::load_delivered` 只收
+`status == DELIVERED`，整单退货的单对营业额贡献 0；账本两行相抵也是 0 —— **两边仍然是同一个数**。
 
 修完之后本机 2026-09 两个口径**逐位一致**：账本流水 97,131.75 = 营业额 97,131.75。
 
@@ -35,7 +47,8 @@ from app.models.enums import LedgerSource, OrderStatus
 def visible_ledger_clause():
     """`WHERE` 片段（见模块文档的"口径"一节）。
 
-    - `source=ORDER` 的自动行：订单必须**已送达**且**没进回收站**；
+    - `source=ORDER` 的自动行：订单必须**已送达或已退货**且**没进回收站**
+      （已退货也要算的理由见模块文档「为什么已退货也要算」）；
     - 不挂订单的手工行：一律算；
     - 别的来源（`REFUND` 等）：只要求订单没进回收站。
     """
@@ -47,9 +60,15 @@ def visible_ledger_clause():
             ~exists(order_row.where(Order.deleted_at.isnot(None))),
             or_(
                 # 自动账本行：订单必须**已送达**（否则那行是漂移出来的 —— 本机 2026-09
-                # 就有 7 行挂在 `ACCEPTED` 的单上 ¥400，而按代码契约自动行只在送达时写）
+                # 就有 7 行挂在 `ACCEPTED` 的单上 ¥400，而按代码契约自动行只在送达时写）；
+                # ⚠️ **整单退货（RETURNED）也算**（BUG-0001）：它的红冲行本来就可见，
+                # 这里再把原行藏掉，账上就只剩一减（真机：合计 −85.5 而不是相抵的 0）。
                 Ledger.source != LedgerSource.ORDER,
-                exists(order_row.where(Order.status == OrderStatus.DELIVERED)),
+                exists(
+                    order_row.where(
+                        Order.status.in_((OrderStatus.DELIVERED, OrderStatus.RETURNED))
+                    )
+                ),
             ),
         ),
     )
