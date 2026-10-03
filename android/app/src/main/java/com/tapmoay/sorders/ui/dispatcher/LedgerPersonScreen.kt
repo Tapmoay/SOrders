@@ -45,7 +45,6 @@ import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
-import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 账本**选中某个人之后的第二层**：他在这段时期里**按订单的账**（2026-09-20 用户要求）。
@@ -231,7 +230,9 @@ internal fun PersonHeaderCard(vm: DispatcherLedgerViewModel) {
                 MiniKpi("单数", driverCount.toString() + " 单", Color(MoneyOrange), Modifier.weight(1f))
             }
             Spacer(Modifier.height(6.dp))
-            Hint(
+            // 钱的口径（2026-10-04 CHG-0031）：司机那笔钱怎么算的、为什么这里没有核销
+            // —— 这两句不说，用户会拿客户应收来对司机的账。
+            Text(
                 "司机那笔钱的口径是「按规则该给他多少」，与客户应收不是一回事，" +
                     "所以这里没有核销；要结他的账请到工作台的「司机运费结算」。",
                 style = MaterialTheme.typography.bodySmall,

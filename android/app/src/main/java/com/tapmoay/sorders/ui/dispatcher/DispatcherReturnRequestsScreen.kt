@@ -17,7 +17,6 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatDateTime
-import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 派单端「退货申请」待办页（2026-09-21）。
@@ -139,7 +138,8 @@ fun DispatcherReturnRequestsScreen(
                         )
                     }
                     Spacer(Modifier.height(10.dp))
-                    Hint(
+                    // 不可逆的后果（2026-10-04 CHG-0031）：按下"确认退货"之前唯一的防线。
+                    Text(
                         "按这张申请实际退货：库存和账本在这一刻才变" +
                             "（退回来的货补回库存、账本按这几行红冲、这单收过钱会自动退款）。",
                         style = MaterialTheme.typography.bodyMedium,

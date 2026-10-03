@@ -535,8 +535,10 @@ private fun PayDialog(
                     icon = Icons.Default.Notes, iconTint = Color(CashOut),
                 )
                 Spacer(Modifier.height(8.dp))
-                Hint(
-                    "钱真的出去了：会写一行资金流水，账本「收支」里立刻看得到。付错了可以在付款记录上「撤销」。",
+                // 不可逆的后果（2026-10-04 CHG-0031）：付款确认框里唯一说清"钱马上出去"的地方。
+                // 顺带按规范 §3 从 45 字压到 40 字以内（删的是"立刻看得到"这类修辞，不是信息）。
+                Text(
+                    "钱真的出去了：账本「收支」里会写一行资金流水。付错了能在付款记录上「撤销」。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

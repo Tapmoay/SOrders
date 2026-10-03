@@ -73,6 +73,54 @@ EMPTY_WORDS = (
     "没有找到", "还没有收到",
 )
 
+# ── 关键解释句四族（2026-10-04 CHG-0031：把被误判成"可以藏"的关键句找出来）────────────
+#
+# 用户把取舍规则说全了：**只有"不重要的 / 繁琐的"信息才隐藏或简化**。于是"长得像解释"
+# 不再等于"可以藏" —— 下面四族句子删掉会让用户**做错决定**（算错账、以为数据被上传了、
+# 按下一个撤不回来的按钮、看不出这一页现在是什么状态），所以一律 `Text(` 常显。
+#
+# 为什么不继续往 `OVERRIDE` 里一条条加：那张表只能逐句记录，**新写的**同类句子会原样
+# 漏过去（P25 那次账本口径就是这么漏掉它紧挨着的另一句的）。四族是**可复算的词表**：
+# 下一次谁把一句"钱的口径"挂成 `Hint`，红线 `_check_hints.py` 第 2 组当场报红。
+CALIBER_WORDS = (
+    "口径", "不是一回事", "不经过本系统", "不会重复收钱", "只记在",
+    "两段互不影响", "一分钱都不会变", "公司那边的账", "各记各的账",
+)
+CONSEQUENCE_EXTRA_WORDS = (
+    "会被撤掉", "会写一行", "会自动记一笔", "会补回", "在这一刻才变", "钱真的出去了",
+)
+PRIVACY_COST_WORDS = (
+    "不上传", "存在本机", "加密存在", "这台手机上", "费用你自己承担", "额度",
+)
+STATE_EXTRA_WORDS = (
+    "正在使用", "已保存一个", "服务端下发", "不是你自己填的", "会自动拿回来",
+)
+
+# 并进原来那两张表：乙族是"破坏性后果"（→ WARN），丁族是"状态回执"（→ DATA）。
+CONSEQUENCE_WORDS = CONSEQUENCE_WORDS + CONSEQUENCE_EXTRA_WORDS
+STATE_WORDS = STATE_WORDS + STATE_EXTRA_WORDS
+
+#: 族名 → 词表。`key_family()` 与 `classify()` 共用这一份（**扫描规则只有一处**）。
+KEY_FAMILIES: dict[str, tuple[str, ...]] = {
+    "钱的口径": CALIBER_WORDS,
+    "不可逆的后果": CONSEQUENCE_EXTRA_WORDS,
+    "隐私与费用": PRIVACY_COST_WORDS,
+    "当前状态的含义": STATE_EXTRA_WORDS,
+}
+
+
+def key_family(text: str) -> str | None:
+    """这一句属于四族里的哪一族？不属于就返回 `None`。
+
+    ⚠️ 它只回答"这句话像不像关键解释句"，不回答"它该不该藏" —— 后者由 `classify()`
+    结合长度/标记词一起判（四族一律**不进** `EXPLAIN`）。
+    """
+    t = text.strip()
+    for name, words in KEY_FAMILIES.items():
+        if any(w in t for w in words):
+            return name
+    return None
+
 # `${x}` 与 **`$x`（不带花括号）都算插值** —— 后者最容易漏：
 # `已选 $kinds 种` / `他现在的规则：$ruleName` / `给「$driverName」配车` 渲染的都是**活值**，
 # 它们长得像句子，被当成解释藏起来就等于"用户看不见自己刚选了什么、这是谁的规则"。
@@ -321,6 +369,10 @@ def classify(text: str, file_name: str = "") -> str:
         return "DATA"                     # 状态回执（见 STATE_WORDS 的注释）
     elif any(w in t for w in CONSEQUENCE_WORDS):
         cat = "WARN"                      # 破坏性后果：按下按钮前的唯一防线
+    elif key_family(t) is not None:
+        # 2026-10-04 CHG-0031：四族里的另外三族（钱的口径 / 隐私与费用 / 当前状态的含义）。
+        # 它们也长得像解释，但删掉会让人算错账、以为数据被上传、看不出这一页现在是什么状态。
+        return "DATA"
     elif len(t) >= EXPLAIN_MIN or (len(t) >= EXPLAIN_SHORT_MIN
                                    and any(m in t for m in EXPLAIN_MARKERS)):
         # ⚠️ 长度**不是唯一判据**：用户要求"过于冗长的说明要精简"，而一句解释被压到 14 字

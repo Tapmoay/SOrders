@@ -109,7 +109,8 @@ fun AiSettingsScreen(
                     Icon(Icons.Default.Lock, contentDescription = null, tint = accent)
                     Spacer(Modifier.width(10.dp))
                     Column {
-                        Hint(
+                        // 隐私与费用（2026-10-04 CHG-0031）：这一页最该常显的一句。
+                        Text(
                             "API Key 加密存在本机、不上传；费用你自己承担。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -319,7 +320,9 @@ fun AiSettingsScreen(
                 )
                 if (vm.hasStoredKey) {
                     Spacer(Modifier.height(4.dp))
-                    Hint(
+                    // 当前状态的含义（2026-10-04 CHG-0031）：这把 key 是哪来的、是不是你自己填的
+                    // —— 三条分支全是"现在是什么状态"，⛔ 整块不许挂到开关上。
+                    Text(
                         if (vm.usingDefaultKey) {
                             // 如实说清这把 key 是哪来的（用户 2026-09-21：测试账号默认就跑）。
                             // 不写的话他会以为是自己配过的；而且清掉之后 App 下次自检还会拿回来。
@@ -515,8 +518,14 @@ fun AiSettingsScreen(
                         Hint(
                             // ⚠️ 这里是普通 Text，不渲染 Markdown——写 **粗体** 会把星号原样显示出来
                             // （实测踩过）。要强调就用中文引号。
-                            "记下你常问什么、常用哪个时间范围，在「你没说清楚时」当作默认值。" +
-                                "全程只存在这台手机上，不上传。",
+                            "记下你常问什么、常用哪个时间范围，在「你没说清楚时」当作默认值。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        // 隐私与费用（2026-10-04 CHG-0031）：原来这两句挤在同一次 `Hint` 里，
+                        // 于是"数据存哪"跟着"怎么用法"一起被开关关掉了 —— 现在拆成两句。
+                        Text(
+                            "全程只存在这台手机上，不上传。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -551,8 +560,10 @@ fun AiSettingsScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("记住我教给你的事", style = MaterialTheme.typography.bodyLarge)
-                        Hint(
-                            // ⚠️ 这里是 `Hint`，不渲染 Markdown——别写 **粗体**（会原样显示星号）
+                        // 隐私与费用（2026-10-04 CHG-0031）：后一句说"记的东西存在哪"，
+                        // 它在这条调用里 ⇒ 整条改 `Text`（前一句是教法句，但它和隐私句是一句话的两半）。
+                        Text(
+                            // ⚠️ 这里是 `Text`，不渲染 Markdown——别写 **粗体**（会原样显示星号）
                             "你对它说「记住：城东水果批发是月结」，它就存下来，下次问到时直接用。" +
                                 "全程只存在这台手机上，不上传。",
                             style = MaterialTheme.typography.bodySmall,
@@ -646,8 +657,13 @@ fun AiSettingsScreen(
             }
 
             Hint(
-                "先点「保存」才生效，再点「测试连接」验证。" +
-                    "测试只发一句「你好」，开启思考时会多花一点额度。",
+                "先点「保存」才生效，再点「测试连接」验证。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // 隐私与费用（2026-10-04 CHG-0031）：这一下花不花额度，是用户按键前要知道的事。
+            Text(
+                "测试只发一句「你好」，开启思考时会多花一点额度。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

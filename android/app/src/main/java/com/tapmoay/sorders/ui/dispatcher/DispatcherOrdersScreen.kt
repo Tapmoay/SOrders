@@ -313,7 +313,9 @@ fun DispatcherOrdersScreen(
                 title = { DialogTitle("退货", order.orderNo) },
                 text = {
                     Column {
-                        Hint(
+                        // 不可逆的后果（2026-10-04 CHG-0031）：按下"确认退货"之前唯一的防线
+                        // ——库存、账本、退款三件事同时发生，撤不回来。
+                        Text(
                             "退回来的货会补回库存、账上按行红冲；这单如果已经收过钱，" +
                                 "退掉的那部分会自动记一笔退给客户的现金。",
                             style = MaterialTheme.typography.bodySmall,

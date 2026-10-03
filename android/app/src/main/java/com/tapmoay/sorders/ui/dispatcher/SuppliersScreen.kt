@@ -309,12 +309,21 @@ private fun SupplierExplainerCard(deleted: Boolean) {
                 "删掉的供应商在这里躺着（伪装删除：行还在库里）。点「恢复」放回来 —— " +
                     "名称、联系人、电话、地址都是删之前那一份。"
             } else {
-                "建档不动钱：先建一个供应商，再给它挂应付款（欠了多少）。付款一笔一笔记，" +
-                    "一张单可以分很多次付；每付一次都会写一行资金流水，账本「收支」里立刻看得到。"
+                "建档不动钱：先建一个供应商，再给它挂应付款（欠了多少）。"
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // 不可逆的后果（2026-10-04 CHG-0031）：付出去的钱进账本就是既成事实。
+        // 与上面那条 `Hint` **拆开**：教法句（怎么建档）可以藏，钱走出去这件事不能藏。
+        if (!deleted) {
+            Text(
+                "付款一笔一笔记，一张单可以分很多次付；每付一次都会写一行资金流水，" +
+                    "账本「收支」里立刻看得到。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(4.dp))
         Hint(
             "· 「还欠」由服务端算（撤销一笔付款，这个数会立刻变回去）\n" +

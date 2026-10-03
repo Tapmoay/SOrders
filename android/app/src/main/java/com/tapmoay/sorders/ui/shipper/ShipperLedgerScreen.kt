@@ -33,7 +33,6 @@ import com.tapmoay.sorders.ui.dispatcher.centsToMoney
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
-import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 货主账本（**以订单为基础**，2026-09-20 用户第四轮口述）。
@@ -480,7 +479,9 @@ private fun TotalsCard(vm: ShipperLedgerViewModel) {
                 color = MaterialTheme.colorScheme.outline,
             )
             Spacer(Modifier.height(4.dp))
-            Hint(
+            // 钱的口径（2026-10-04 CHG-0031）：与上面那句**同族** —— P25 那次只把上面
+            // 那句改成了常显，紧挨着的这一句被漏下了（它同样在回答"这两个数为什么不变"）。
+            Text(
                 "两段互不影响：下面那本账怎么核销，「我该付的」一分钱都不会变" +
                     "（核销只记在你自己这一本，公司那边的账不会跟着变）。",
                 style = MaterialTheme.typography.bodySmall,
@@ -488,13 +489,12 @@ private fun TotalsCard(vm: ShipperLedgerViewModel) {
             )
         } else {
             Spacer(Modifier.height(4.dp))
-            // ⚠️ 这一段是**纯解释**（不带任何值）→ 走 `Hint`；「已结清 N 单」那个数在右上角
-            //    （那一条是 `Text`）。两句混在一次 `Hint` 里的话，关掉提示会把那个数一起关掉
-            //    —— 判据 `_check_hints.py` 的 §2 专门拦这件事。
-            Hint(
+            // 钱的口径（2026-10-04 CHG-0031）：这一页只算"你欠公司的那一边"——不说清，
+            //    用户会拿自己卖货收回来的钱来对账，然后以为系统漏记了。⛔ 不许被开关藏掉。
+            //    （「已结清 N 单」那个数在右上角，那一条本来就是 `Text`。）
+            Text(
                 // ⚠️ 措辞刻意避开"单/元/次/月"这类**单位字**：分类器把带单位的句子当**数据**
                 //    （判据 `_hint_inventory.py::DIGIT_UNIT`），而数据是不许被提示开关藏掉的。
-                //    这句话是纯解释（删掉它用户照样能把事做完）。
                 "这里只有你欠公司的这一边：你自己卖货收回来的钱不经过本系统。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
@@ -869,7 +869,8 @@ private fun SettleOrderDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
                         color = Color(ReceivableOrange),
                     )
                 }
-                Hint(
+                // 钱的口径（2026-10-04 CHG-0031）：确认核销之前要说清"记在哪一本"。
+                Text(
                     "只记在你自己这一本账上 —— 公司那边的账不会变。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,

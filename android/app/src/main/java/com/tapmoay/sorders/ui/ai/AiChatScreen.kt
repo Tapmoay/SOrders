@@ -1541,7 +1541,9 @@ private fun EditingBanner(onCancel: () -> Unit) {
     ) {
         Icon(Icons.Default.Edit, contentDescription = null, tint = AiAccent, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(6.dp))
-        Hint(
+        // 不可逆的后果（2026-10-04 CHG-0031 四族之一）：发出去之后这条之后的对话就没了，
+        // 用户是看着这句话决定要不要按"发送"的 —— ⛔ 不许被提示开关藏掉。
+        Text(
             "正在编辑这条消息：发送后会重新回答，这条之后的对话会被撤掉",
             fontSize = 12.5.sp,
             color = MaterialTheme.colorScheme.onSurface,
@@ -1728,7 +1730,8 @@ private fun NotConfiguredCard(onOpenSettings: () -> Unit, onRecheck: () -> Unit)
                 Text("还没配置模型 API Key", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(8.dp))
-            Hint(
+            // 隐私与费用（2026-10-04 CHG-0031）：Key 存在哪，是用户决定填不填的前提。
+            Text(
                 "填好地址、Key、模型名即可提问；Key 只存在本机。",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

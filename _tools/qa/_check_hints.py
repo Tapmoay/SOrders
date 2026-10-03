@@ -65,6 +65,7 @@ CATALOG = ROOT / "docs" / "PROJECT_MAP" / "09A_HINT_CATALOG.md"
 MIN_TEXTS = 300          # 抽到的界面文案
 MIN_EXPLAIN = 30         # 认出来的解释句
 MIN_HINT_CALLS = 20      # 走统一入口的调用
+MIN_KEY_SENTENCES = 15   # 四族关键解释句（词表被清空时第 2b 组会空过）
 HINT_ONCE_MAX = 6        # 兼容壳的调用点数：**只许减不许增**
 
 # ── 已知的未完成项（每条都要写理由；必须仍然命中，否则红了让你删掉它）────────
@@ -188,6 +189,28 @@ def main() -> int:
              for k, v in sorted(pure_data.items())[:8])
          + "\n         这就是「关掉提示顺手把数据/状态也关了」——改回 `Text(`，"
            "并在 `_hint_inventory.OVERRIDE` 里写一句理由（如果分类器判错了）")
+
+    # ── 2b. 关键解释句**一律不许**挂在开关上（2026-10-04 CHG-0031）──────────
+    #
+    # 用户把取舍规则说全了：**只有「不重要的 / 繁琐的」信息才隐藏或简化**。
+    # 上一版只靠 `_hint_inventory.OVERRIDE` 逐句记录「这一句必须常显」，于是 P25 改过的账本
+    # 口径**紧挨着的同族句子被漏下**（它照样挂在一个 `Hint` 上，谁也不红）。四族词表是
+    # **可复算**的：谁再把一句钱的口径 / 一个撤不回来的后果 / 数据去哪了 / 这一页现在是什么
+    # 状态挂到开关上，这里当场红。
+    c.section("2b. 关键解释句（四族）不许走 Hint")
+    keys = [r for r in rows if inv.key_family(r["text"]) is not None]
+    c.ok(f"认出 {len(keys)} 条关键解释句（下限 {MIN_KEY_SENTENCES}）",
+         len(keys) >= MIN_KEY_SENTENCES,
+         "四族词表（_hint_inventory.KEY_FAMILIES）是不是被改名或清空了？"
+         "第 2b 组唯一的输入就是它认出来的这些句子 —— 表一空，这一组会**空过**")
+    hidden_keys = [r for r in keys if r["call"] == "Hint"]
+    c.ok(f"被挂到开关上的关键解释句 = {len(hidden_keys)}（必须为 0）", not hidden_keys,
+         "\n".join(
+             f"         {r['file']}:{r['line']}  [{inv.key_family(r['text'])}]  {r['text'][:52]}"
+             for r in sorted(hidden_keys, key=lambda x: (x["file"], x["line"]))[:8])
+         + "\n         修法：把那处 `Hint(` 改成 `Text(`（四族都不属于「不重要的 / 繁琐的」）。"
+           "⚠️ 同一次调用里**还有别的解释句**时只能**拆句**：教法句留在 `Hint`，"
+           "关键那一句单独写一条 `Text`（整条改 Text 会让 §1 报红）")
 
     # ── 3. 机制不许回退（**先剥注释**，KDoc 里提到旧名字是正常的）───────────
     c.section("3. 机制不许回退")

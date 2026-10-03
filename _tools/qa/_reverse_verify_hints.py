@@ -80,7 +80,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      A + "ui/common/Hints.kt", "把这个函数删掉", "保留着",
      "Hints.kt 里那个壳的 KDoc 交代了"),
     ("⑩ 多一处 HintOnce 调用（壳只许减不许增）",
-     A + "ui/shipper/ShipperLedgerScreen.kt", r"re:\bHint\(", 'HintOnce(prefs, "k", ',
+     A + "ui/dispatcher/VehicleManageScreen.kt", r"re:\bHint\(", 'HintOnce(prefs, "k", ',
      "兼容壳 HintOnce 的调用点数"),
     ("⑪ 书写规范里的尺子被改掉（规范与实现脱节）",
      "docs/HINT_STYLE.md", "首次登录", "首次登入", "规范里写了开关的默认值"),
