@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:76c99fa3cf9c637ef4c38ebffd5a78cd7788d890dac905d2f4cf9ae788971f23",
- "source_commit": "853c03e",
- "generated_at": "2026-10-03T01:41:58Z",
+ "source_hash": "sha256:9710281d65c1444b9a7544e285b58282f416da486b9a978ad6867453f37f893f",
+ "source_commit": "b496748",
+ "generated_at": "2026-10-03T03:26:23Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -367,7 +367,7 @@
     "dispatcher"
    ],
    "kind": "write",
-   "gate": "backend/app/api/v1/vehicles.py:79",
+   "gate": "backend/app/api/v1/vehicles.py:80",
    "why_not_permission": "它的授权是**体内角色判断**（`_must_dispatcher`）而不是权限点 ——属于那 35 处「体内门槛」棘轮里的一处；本轮不搬它（搬它要动端点鉴权）。",
    "when_to_remove": "体内门槛棘轮往下降、把它接成 `require_permission(...)` 的那一天。"
   }
@@ -525,7 +525,13 @@
    "USER_UPDATE",
    "USER_DELETE",
    "USER_RESTORE",
-   "CUSTOMER_MERGE"
+   "CUSTOMER_MERGE",
+   "USER_CATEGORY_UPSERT",
+   "USER_CATEGORY_DELETE",
+   "USER_CATEGORY_REORDER",
+   "VEHICLE_CATEGORY_UPSERT",
+   "VEHICLE_CATEGORY_DELETE",
+   "VEHICLE_CATEGORY_REORDER"
   ],
   "notification:manage": [
    "NOTIFICATION_MODERATE"
@@ -571,7 +577,7 @@
   "capabilities": 26,
   "role_capabilities": 5,
   "write_capabilities": 18,
-  "audited_action_codes": 98,
+  "audited_action_codes": 104,
   "audit_exceptions": 1
  }
 }

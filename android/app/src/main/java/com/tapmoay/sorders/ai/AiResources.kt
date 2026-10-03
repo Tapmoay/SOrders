@@ -544,6 +544,64 @@ internal object AiResources {
         ),
     )
 
+    /**
+     * 账号分类名册（**全店一份**，2026-10-05 FEAT-0010；账户/司机/货主/批发商四个名册页共用）。
+     *
+     * 与上面那几张分类名册同一套（改名级联、删的前提是"没有账号挂着"、
+     * 撤回是按原名重建一格因此**编号会变**），差别只有一处：它**不是"你自己那一份"**。
+     */
+    private val USER_CATEGORY = AiResource(
+        key = "user_category",
+        cn = "账号分类",
+        idKey = "category_id",
+        readKeys = setOf("name", "sort_order"),
+        labels = mapOf("name" to "分类名", "sort_order" to "顺序（第几位）"),
+        actions = listOf(
+            update(AiWrites.USER_CATEGORY_UPDATE),
+            delete(AiWrites.USER_CATEGORY_DELETE),
+        ),
+        read = { ds, id -> ds.snapshot("user_category", id) },
+        restore = AiInverse(
+            AiWrites.USER_CATEGORY_CREATE,
+            mapOf("name" to "name", "sort_order" to "sort_order"),
+            lines = listOf("名字和位置都照删之前那一行写回去（这一步走的就是「新建账号分类」那个动作）"),
+        ),
+        restoreLines = listOf(
+            "按原来的名字和位置重建一格：分类名册没有回收站，删掉的那一行是真的没了",
+            "⚠️ 重建出来的是新的一行，编号和原来不一样（能删就说明本来没有账号挂着）",
+            "⚠️ 这份名册全店一份：重建出来的这一格，所有人看到的「账户管理」左栏都跟着变",
+        ),
+    )
+
+    /**
+     * 车辆分类名册（**全店一份**，2026-10-05 FEAT-0010）。
+     *
+     * ⚠️ 与车辆上的「车型 / 车体」（vehicle_type、body_type）是**两件不同的事**，
+     * 这条名册只管"左栏分成哪几格"，也不参与计费。撤回语义与账号分类一字不差。
+     */
+    private val VEHICLE_CATEGORY = AiResource(
+        key = "vehicle_category",
+        cn = "车辆分类",
+        idKey = "category_id",
+        readKeys = setOf("name", "sort_order"),
+        labels = mapOf("name" to "分类名", "sort_order" to "顺序（第几位）"),
+        actions = listOf(
+            update(AiWrites.VEHICLE_CATEGORY_UPDATE),
+            delete(AiWrites.VEHICLE_CATEGORY_DELETE),
+        ),
+        read = { ds, id -> ds.snapshot("vehicle_category", id) },
+        restore = AiInverse(
+            AiWrites.VEHICLE_CATEGORY_CREATE,
+            mapOf("name" to "name", "sort_order" to "sort_order"),
+            lines = listOf("名字和位置都照删之前那一行写回去（这一步走的就是「新建车辆分类」那个动作）"),
+        ),
+        restoreLines = listOf(
+            "按原来的名字和位置重建一格：分类名册没有回收站，删掉的那一行是真的没了",
+            "⚠️ 重建出来的是新的一行，编号和原来不一样（能删就说明本来没有车挂着）",
+            "⚠️ 这份名册全店一份：重建出来的这一格，所有人看到的「车辆管理」左栏都跟着变",
+        ),
+    )
+
     /** 车辆（改车牌/车型/启用标记；换司机是另一个动作）。 */
     private val VEHICLE = AiResource(
         key = "vehicle",
@@ -1006,6 +1064,8 @@ internal object AiResources {
         SUPPLIER, SUPPLIER_PAYABLE, SUPPLIER_PAYMENT,
         // 另外三张配置名册（2026-09-23：AI 能建/改名/排序/删，所以撤回也要有归属）
         EXPENSE_CATEGORY, FREIGHT_CATEGORY, ORDER_TEMPLATE_CATEGORY,
+        // 两张**全店**名册（2026-10-05 FEAT-0010：账号分类 / 车辆分类）
+        USER_CATEGORY, VEHICLE_CATEGORY,
     )
 }
 
@@ -1221,6 +1281,18 @@ internal object AiRevertRead {
 
     /** 线路分类（与地点分组 / 联系人分类**同一个口径**：卡片上的"第几位"从 1 数，进 payload 的 `sort_order` 从 0 数）。 */
     fun routeCategory(d: RouteCategoryDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        put("sort_order", JsonPrimitive(d.sortOrder + 1))
+    }
+
+    /** 账号分类（与上面几张**同一个口径**：卡片上的"第几位"从 1 数，进 payload 的 `sort_order` 从 0 数）。 */
+    fun userCategory(d: com.tapmoay.sorders.data.remote.dto.UserCategoryDto): JsonObject = buildJsonObject {
+        put("name", d.name)
+        put("sort_order", JsonPrimitive(d.sortOrder + 1))
+    }
+
+    /** 车辆分类（同口径）。 */
+    fun vehicleCategory(d: com.tapmoay.sorders.data.remote.dto.VehicleCategoryDto): JsonObject = buildJsonObject {
         put("name", d.name)
         put("sort_order", JsonPrimitive(d.sortOrder + 1))
     }

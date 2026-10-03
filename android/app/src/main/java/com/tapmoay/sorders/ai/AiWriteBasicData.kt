@@ -1092,6 +1092,160 @@ internal object AiWriteBasicData {
             },
         ) { ds, p -> ds.deleteOrderTemplateCategory(p.reqLong("category_id")) },
 
+        // ------------------------------- 账号分类名册 / 车辆分类名册（FEAT-0010，2026-10-05）
+        //
+        // 两份都**只有派单员**（后端那一组端点挂 Permission.USER_MANAGE），而且
+        // **全店一份**——不是"你自己那一份"（与联系人/地点/线路那三张按人分区的名册不同），
+        // 所以卡片上不能说"只影响你自己的"，要说"所有人看到的左栏都跟着变"。
+        //
+        // ⚠️ 与其它名册唯一不同的是**级联目标**：改名跟着改的是 `users.category` /
+        //    `vehicles.category`；删除的前提是"没有账号/车挂着"；删了就是真删（没有回收站）。
+        // ⚠️ 位置走 reorder：`position` 是"建/改完之后再整体重排一次"，不是把绝对
+        //    `sort_order` 写进 body（绝对值会和现有第 1 位撞车，见数据源里那两条注释）。
+        crud(
+            id = AiWrites.USER_CATEGORY_CREATE,
+            title = "新建账号分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_USER_CATEGORY,
+            blurb = "在账号分类名册里加一格（「账户管理」左栏就是它）。" +
+                "它只决定「怎么分类、什么顺序」，不改任何账号的归属——" +
+                "某个账号归到哪一类是在「改账号」里选的那个分类名。" +
+                "⚠️ 这份名册**全店一份**：加一格，所有人看到的左栏都多一格。",
+            fields = listOf(
+                textField("name", "分类名", "必填，如「老客户」「临时号」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+            ),
+            headline = { c -> "新建账号分类：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    "只加一格分类，不改任何账号的归属",
+                    "⚠️ 全店一份：所有人看到的「账户管理」左栏都会多这一格",
+                )
+            },
+        ) { ds, p -> ds.createUserCategory(p) },
+
+        crud(
+            id = AiWrites.USER_CATEGORY_UPDATE,
+            title = "改账号分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_USER_CATEGORY,
+            blurb = "改一个账号分类的名字，或者把它排到别的位置。只填要改的那一项。" +
+                "改名会级联：挂在这个分类下的账号会跟着改成新名字（后端在同一个事务里做）。" +
+                "⚠️ 全店一份：改一格，所有人看到的左栏都跟着变。",
+            targets = listOf(targetUserCategory()),
+            fields = listOf(
+                textField("name", "新分类名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+            ),
+            headline = { c -> "改账号分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let {
+                        "⚠️ 这个分类下有 $it——改名会把这些账号的分类一起改过去（后端同一个事务）"
+                    },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                    "⚠️ 全店一份：所有人看到的「账户管理」左栏都跟着变",
+                )
+            },
+        ) { ds, p -> ds.updateUserCategory(p.reqLong("category_id"), p.pick(USER_CATEGORY_KEYS)) },
+
+        crud(
+            id = AiWrites.USER_CATEGORY_DELETE,
+            title = "删除账号分类",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_USER_CATEGORY,
+            blurb = "从账号分类名册里删掉一格。还有账号挂在这个分类下时后端会拒绝，" +
+                "并告诉你还有几个——先把那些账号改成别的分类（或给这一格改个名）再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。" +
+                "⚠️ 全店一份：删一格，所有人看到的左栏都少一格。",
+            targets = listOf(targetUserCategory()),
+            headline = { c -> "删除账号分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这个分类下有 $it" },
+                    "还有账号挂在它下面时后端会拒绝，并告诉你有几个：先把那些账号改成别的分类",
+                    "⚠️ 全店一份；账号本身一个都不会被删",
+                )
+            },
+        ) { ds, p -> ds.deleteUserCategory(p.reqLong("category_id")) },
+
+        crud(
+            id = AiWrites.VEHICLE_CATEGORY_CREATE,
+            title = "新建车辆分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_VEHICLE_CATEGORY,
+            blurb = "在车辆分类名册里加一格（「车辆管理」左栏就是它）。" +
+                "它只决定「怎么分类、什么顺序」，不改任何车辆的归属——" +
+                "⚠️ 它与车辆上的「车型」「车体」是**两件不同的事**，也不参与计费。" +
+                "⚠️ 这份名册**全店一份**：加一格，所有人看到的左栏都多一格。",
+            fields = listOf(
+                textField("name", "分类名", "必填，如「自有车」「外调车」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+            ),
+            headline = { c -> "新建车辆分类：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    "只加一格分类，不改任何车辆的归属，也不动车型/车体，更不参与计费",
+                    "⚠️ 全店一份：所有人看到的「车辆管理」左栏都会多这一格",
+                )
+            },
+        ) { ds, p -> ds.createVehicleCategory(p) },
+
+        crud(
+            id = AiWrites.VEHICLE_CATEGORY_UPDATE,
+            title = "改车辆分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_VEHICLE_CATEGORY,
+            blurb = "改一个车辆分类的名字，或者把它排到别的位置。只填要改的那一项。" +
+                "改名会级联：挂在这个分类下的车辆会跟着改成新名字（后端在同一个事务里做）。" +
+                "⚠️ 全店一份：改一格，所有人看到的左栏都跟着变。",
+            targets = listOf(targetVehicleCategory()),
+            fields = listOf(
+                textField("name", "新分类名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+            ),
+            headline = { c -> "改车辆分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let {
+                        "⚠️ 这个分类下有 $it——改名会把这些车辆的分类一起改过去（后端同一个事务）"
+                    },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                    "⚠️ 全店一份：所有人看到的「车辆管理」左栏都跟着变",
+                )
+            },
+        ) { ds, p -> ds.updateVehicleCategory(p.reqLong("category_id"), p.pick(VEHICLE_CATEGORY_KEYS)) },
+
+        crud(
+            id = AiWrites.VEHICLE_CATEGORY_DELETE,
+            title = "删除车辆分类",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_VEHICLE_CATEGORY,
+            blurb = "从车辆分类名册里删掉一格。还有车挂在这个分类下时后端会拒绝，" +
+                "并告诉你还有几辆——先把那些车改成别的分类（或给这一格改个名）再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。" +
+                "⚠️ 全店一份：删一格，所有人看到的左栏都少一格。",
+            targets = listOf(targetVehicleCategory()),
+            headline = { c -> "删除车辆分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这个分类下有 $it" },
+                    "还有车挂在它下面时后端会拒绝，并告诉你有几辆：先把那些车改成别的分类",
+                    "⚠️ 全店一份；车辆本身一辆都不会被删",
+                )
+            },
+        ) { ds, p -> ds.deleteVehicleCategory(p.reqLong("category_id")) },
+
         // ------------------------------------------------------------ 车辆
         crud(
             id = AiWrites.VEHICLE_CREATE,
@@ -1539,6 +1693,24 @@ internal object AiWriteBasicData {
         hint = "分类名（「预订单」页左栏那一列的格子名，如「老客户常单」）",
         lookup = { ds, _ -> ds.orderTemplateCategories() },
     )
+
+    /** 账号分类（按名字找；**全店一份**）。`note` = 这一类下有几个账号。 */
+    private fun targetUserCategory() = AiTargetSpec(
+        param = "category", cn = "账号分类", key = "category_id",
+        hint = "分类名（「账户管理」左栏那一列的格子名，如「老客户」「临时号」）",
+        lookup = { ds, _ -> ds.userCategories() },
+    )
+
+    /** 车辆分类（按名字找；**全店一份**）。`note` = 这一类下有几辆车。 */
+    private fun targetVehicleCategory() = AiTargetSpec(
+        param = "category", cn = "车辆分类", key = "category_id",
+        hint = "分类名（「车辆管理」左栏那一列的格子名，如「自有车」「外调车」）",
+        lookup = { ds, _ -> ds.vehicleCategories() },
+    )
+
+    /** 两张全店名册的部分更新体（只传点名的那几项）。 */
+    private val USER_CATEGORY_KEYS = setOf("name", "sort_order")
+    private val VEHICLE_CATEGORY_KEYS = setOf("name", "sort_order")
 
     /** 三张名册的部分更新体（只传点名的那几项）。 */
     private val ROSTER_KEYS = setOf("name", "sort_order")

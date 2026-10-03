@@ -290,6 +290,10 @@ class CashFlowOut(BaseModel):
 class VehicleCreate(BaseModel):
     plate_no: str = Field(..., min_length=1, max_length=16)
     vehicle_type: str = Field("", max_length=16)
+    #: 分组用的分类（空串 = 未分类，2026-10-05）。⛔ 与 `vehicle_type`（计费口径）、
+    #: `body_type`（车身型式）是**三件事**：这一格只决定车辆管理页左侧那一列怎么分组，
+    #: **不参与任何计费/匹配**。名册与顺序在 `vehicle_categories` 表里。
+    category: str = Field("", max_length=32)
     driver_id: int | None = None
     #: 车身型式（`services/vehicle_attrs.BODY_TYPES`）。空串 = 未设置 —— 它是**正式取值**
     #: （老车、以及"还不知道这车是什么型式"），不是"没填"。
@@ -317,6 +321,8 @@ class VehicleUpdate(BaseModel):
 
     plate_no: str | None = Field(None, max_length=16)
     vehicle_type: str | None = Field(None, max_length=16)
+    #: 分类。**没传** = 不改；传了名册里没有的名字 → 自动补进名册（见上面的三件事说明）。
+    category: str | None = Field(None, max_length=32)
     driver_id: int | None = None
     is_active: bool | None = None
     #: 车身型式。**没传** = 不改；传了要过 `vehicle_attrs.clean_body`。
@@ -350,6 +356,8 @@ class VehicleOut(BaseModel):
     #: ⚠️ 中文名由**后端**给：客户端再写一份 `when(...)`，两处叫法迟早不一样。
     body_type: str = ""
     body_label: str = ""
+    #: 分类（空串 = 未分类）。只用于分组视图，不影响计费/匹配。
+    category: str = ""
     #: 填过的属性 `{属性键: 数值字符串}` —— **只回填过的那些**，没量过的不出现。
     #: ⚠️ 值是**字符串**不是数字：`load_tons` / `volume_cubic` 要参与「一车 = 多少方 / 多少吨」
     #:    的换算，浮点会让 8 变成 7.999999999999999；客户端用 BigDecimal 接

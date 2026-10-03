@@ -30,6 +30,21 @@ def del_suffix(original: str | None, row_id: int, width: int) -> str:
     return base[:keep] + suffix
 
 
+def has_del_suffix(row_id: int, *values: str | None) -> bool:
+    """这些值里有任何一个带着本行自己的 `_del{id}` 后缀吗（= 这一行在回收站里）。
+
+    ⚠️ 与 [del_suffix] 是**同一处口径**（`api/v1/users.py::_is_deleted_account` 也走它）：
+       只看末尾的 `_del` + **本行 id**，⛔ 不看 `is_active` —— **停用与删除是两件事**
+       （停用的账号号码是好的，启用就该能登录）。
+
+    为什么要有这个函数：名册的"在用条数"必须把回收站里的行排除掉，否则会出现
+    "账号已经删了，可它的分类怎么也删不掉"（分类名册的删除守卫按这个数判）。
+    回收站的口径只许有这一份。
+    """
+    tail = f"_del{int(row_id)}"
+    return any(str(v or "").endswith(tail) for v in values)
+
+
 def strip_del_suffix(value: str | None) -> str:
     """[del_suffix] 的逆运算：`13800001234_del160` → `13800001234`。
 

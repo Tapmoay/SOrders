@@ -69,11 +69,60 @@ fun AccountManageScreen(
 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
 
+    // ---- 左栏分类（2026-10-05）----
+    //
+    // 用户原话：「还有我们的账户管理司机管理货主管理批发商管理。车辆管理……在这个位置也加个分类，
+    // 默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的，
+    // 那个左边侧分栏的底下，凡是跟地点是同样的」。
+    //
+    // 形态照「地址与联系人」：**抽屉**（⛔ 不是商品管理那种常驻左栏 —— 用户 2026-09-19 对那一种的
+    // 裁定是「右边的卡片的信息被挤压了不是很好看」）。抽屉底部那格「管理分类」进分类管理面板。
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    val catVm: UserCategoriesViewModel = appViewModel { UserCategoriesViewModel(container) }
+    var managingCategory by remember { mutableStateOf(false) }
+
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        drawerContent = {
+            ModalDrawerSheet {
+                CategoryDrawerSheet(
+                    title = "账号分类",
+                    // ⛔ 一格都不显示条数（用户 2026-09-19：「那个分组下面不要显示有多少条啊，
+                    //    这是多余信息」）—— 条数只在「管理分类」那个面板里出现。
+                    items = listOf(CategoryDrawerItem("", "全部")) +
+                        catVm.rows.map { CategoryDrawerItem("c|" + it.name, it.name) },
+                    selectedKey = vm.railKey,
+                    accent = Color(ShipperTeal),
+                    manageLabel = "管理分类",
+                    onPick = { key ->
+                        vm.railKey = key
+                        scope.launch { drawer.close() }
+                    },
+                    onManage = {
+                        managingCategory = true
+                        scope.launch { drawer.close() }
+                    },
+                )
+            }
+        },
+    ) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text("账户管理") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("账户管理")
+                        Spacer(Modifier.width(8.dp))
+                        // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」
+                        CategoryTriggerChip(
+                            current = railNameOf(vm.railKey),
+                            accent = Color(ShipperTeal),
+                            onClick = { scope.launch { drawer.open() } },
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -89,6 +138,21 @@ fun AccountManageScreen(
             }
         },
     ) { padding ->
+        if (managingCategory) {
+            // 分类管理在**同一屏的第二层**（不新开路由）：照「地址与联系人」的
+            // `CategoryManagePanel` 先例 —— 真机上新开一页会「抽屉先收起再弹整页、中间闪一下」。
+            // 返回时名册与账号列表都刷一遍（分类名可能刚改过）。
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                UserCategoriesPanel(
+                    vm = catVm,
+                    onBack = {
+                        managingCategory = false
+                        catVm.load()
+                        vm.loadCategories()
+                    },
+                )
+            }
+        } else {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 vm.loading -> LoadingBox()
@@ -134,7 +198,18 @@ fun AccountManageScreen(
                             )
                         }
                     }
-                    items(vm.shown, key = { it.id }) { u ->
+                    // 这一类下真的一个账号都没有时**说出来**：不说的话用户看到的是
+                    // 一个只有搜索框的空页面，会以为账号被筛没了。
+                    if (vm.railKey.isNotBlank() && vm.shownInRail.isEmpty()) {
+                        item {
+                            EmptyView(
+                                "「" + railNameOf(vm.railKey) + "」这一类下还没有账号 —— " +
+                                    "在卡片上编辑、或左栏换一格",
+                                Modifier.fillMaxWidth().height(140.dp),
+                            )
+                        }
+                    }
+                    items(vm.shownInRail, key = { it.id }) { u ->
                         AccountCard(
                             u = u,
                             onEdit = { vm.openEdit(u) },
@@ -146,6 +221,8 @@ fun AccountManageScreen(
                 }
             }
         }
+        }
+    }
     }
 
     // 删除确认
@@ -187,6 +264,7 @@ fun AccountManageScreen(
         ) {
             AccountFormSheet(
                 vm = vm,
+                catVm = catVm,
                 snackbar = snackbar,
                 copyText = { s -> copyTextToClipboard(ctx, "账号密码", s) },
             )
@@ -346,6 +424,8 @@ private fun AccountAction(
 @Composable
 private fun AccountFormSheet(
     vm: AccountManageViewModel,
+    // 左栏分类名册（2026-10-05）：分类那一格是下拉，候选来自它。
+    catVm: UserCategoriesViewModel,
     snackbar: SnackbarHostState,
     copyText: (String) -> Unit,
 ) {
@@ -429,6 +509,18 @@ private fun AccountFormSheet(
                     }
                 }
             }
+        }
+
+        // ---- 白卡 3：分类（左栏分组，2026-10-05）----
+        // 下拉（⛔ 不是再套一层弹层 —— 这一屏本身就在底部抽屉里，两层 modal 叠着是
+        // `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` §4.14 点名禁止的形态）。
+        SectionCard {
+            CategoryPickRow(
+                vm = catVm,
+                selected = vm.draftCategory,
+                onPick = { vm.draftCategory = it },
+                hint = "只影响左栏怎么分组；四个名册页（账户 / 司机 / 货主 / 批发商）共用这一份分类。",
+            )
         }
 
         // 校验/保存失败的那句话画在**抽屉里面**（见 FormErrorLine 的注释：

@@ -174,6 +174,18 @@ class OperationAction(str, enum.Enum):
     ROUTE_CATEGORY_UPSERT = "ROUTE_CATEGORY_UPSERT"
     ROUTE_CATEGORY_DELETE = "ROUTE_CATEGORY_DELETE"
     ROUTE_CATEGORY_REORDER = "ROUTE_CATEGORY_REORDER"
+    # 账号分类名册（2026-10-05，用户「账户管理司机管理货主管理批发商管理……在这个位置也加个分类」）：
+    # 与商品分类同一类东西（全局主数据、管顺序），但它**同时喂四个名册页的左侧那一列**
+    # （账户 / 司机 / 货主 / 批发商），改一次影响四页的分组视图 —— 必须留痕。
+    # 单独一套动作码而不是复用 PRODUCT_CATEGORY_*：审计页上「改了商品分类」和「改了账号分类」是两件事。
+    USER_CATEGORY_UPSERT = "USER_CATEGORY_UPSERT"
+    USER_CATEGORY_DELETE = "USER_CATEGORY_DELETE"
+    USER_CATEGORY_REORDER = "USER_CATEGORY_REORDER"
+    # 车辆分类名册（2026-10-05 同一条要求）：另一份全局名册（挂的是 `vehicles.category`）。
+    # 单独一套动作码：审计页上「改了账号分类」和「改了车辆分类」是两件事。
+    VEHICLE_CATEGORY_UPSERT = "VEHICLE_CATEGORY_UPSERT"
+    VEHICLE_CATEGORY_DELETE = "VEHICLE_CATEGORY_DELETE"
+    VEHICLE_CATEGORY_REORDER = "VEHICLE_CATEGORY_REORDER"
     # 开销分类名册（2026-09-20，用户「开销分类……也有个分类管理」）：与商品/地点分类同一类东西
     # （主数据、管顺序），但它还决定**卡片上突出哪一项关联**（vehicle/driver/order/none）——
     # 改它会改所有人看开销的方式，必须留痕。

@@ -288,6 +288,8 @@ object AiReadCatalog {
         ReadAction("unit_conversions.list_conversions", "单位换算表（例如「1 车 = 8 方」）。看数量时用它换算出第二个单位；全库共用一份，改它要慎", "/api/v1/unit-conversions", "deleted_only", setOf("dispatcher", "shipper"), false, listOf(
             ReadParam("deleted_only", "bool", false, emptyList(), false),
         )),
+        ReadAction("user_categories.list_categories", "账号分类名册（账户 / 司机 / 货主 / 批发商**四个**名册页左栏共用的那一列分类与顺序，带每类下挂着几个账号；回收站里的账号不算）", "/api/v1/user-categories", "", setOf("dispatcher", "driver", "shipper"), false, listOf(
+        )),
         ReadAction("users.list_users", "账号/人员列表（货主、司机、批发商、内部账号，可按角色与关键词筛）", "/api/v1/users", "role(shipper|driver|dispatcher)、is_member、q、skip、limit", setOf("dispatcher"), false, listOf(
             ReadParam("role", "Literal", false, listOf("shipper", "driver", "dispatcher"), false),
             ReadParam("is_member", "bool", false, emptyList(), false),
@@ -296,6 +298,8 @@ object AiReadCatalog {
             ReadParam("limit", "int", false, emptyList(), false),
         )),
         ReadAction("users.read_me", "当前登录账号自己的资料", "/api/v1/users/me", "", setOf("dispatcher", "driver", "shipper"), false, listOf(
+        )),
+        ReadAction("vehicle_categories.list_categories", "车辆分类名册（车辆管理页左栏那一列的分类与顺序，带每类下挂着几辆车；停用的车也算）", "/api/v1/vehicle-categories", "", setOf("dispatcher", "driver", "shipper"), false, listOf(
         )),
         ReadAction("vehicles.list_vehicles", "车辆列表", "/api/v1/vehicles", "", setOf("dispatcher"), false, listOf(
         )),
@@ -343,7 +347,9 @@ object AiReadCatalog {
         "stats" to "统计口径",
         "suppliers" to "供应商/应付款",
         "unit_conversions" to "单位换算",
+        "user_categories" to "账号分类",
         "users" to "司机/货主/批发商/账号",
+        "vehicle_categories" to "车辆分类",
         "vehicles" to "车辆管理",
     )
 

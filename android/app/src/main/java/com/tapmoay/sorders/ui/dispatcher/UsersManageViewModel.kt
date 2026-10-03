@@ -137,6 +137,34 @@ class UsersManageViewModel(
 
     val isSearching: Boolean get() = hits != null
 
+    // ============================================================ 左栏分类（2026-10-05）
+    //
+    // 用户原话：「还有我们的账户管理司机管理货主管理批发商管理。车辆管理……在这个位置也加个分类，
+    // 默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的」。
+    //
+    // 一份名册喂**四个**页面（账户 / 司机 / 货主 / 批发商）—— 它挂在 `users.category` 上，
+    // 后端名册是 `user_categories`（全局一份，不是按人分区那一类）。
+    // 筛选**在本地过一遍**：名册与列表本来就在手上，不往返后端（与地址页同一条）。
+    var categoryNames by mutableStateOf<List<String>>(emptyList())
+        private set
+    var railKey by mutableStateOf("")
+
+    /** 左栏选了一类之后要显示的那些账号（没选 = 全部）。 */
+    val shownInRail: List<UserDto> get() = inRail(shown, railKey) { it.category }
+
+    /** 分类名册（读不到不影响列表：静默，左栏就只有「全部」一格）。 */
+    fun loadCategories() {
+        viewModelScope.launch {
+            try {
+                val names = container.repo.userCategories().map { it.name }
+                // 选中的那一格没了（分类被删/改名）→ 回到「全部」，别把列表锁死在一个不存在的类别上
+                if (railKey.isNotBlank() && names.none { "c|" + it == railKey }) railKey = ""
+                categoryNames = names
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     /** 这个人名下的车（可能不止一辆：一个司机两辆车在现实里是存在的，所以不假设唯一）。 */
     fun vehiclesOf(driverId: Long): List<VehicleDto> = vehicles.filter { it.driverId == driverId }
 
@@ -161,6 +189,8 @@ class UsersManageViewModel(
     var draftName by mutableStateOf("")
     var draftPassword by mutableStateOf("")
     var draftVehicleType by mutableStateOf("large")
+    /** 分类（左栏分组，2026-10-05）：四个名册页共用这一份名册。 */
+    var draftCategory by mutableStateOf("")
 
     /**
      * 计费规则（v3.36）：司机可以挂一份**命名好的规则模板**，挂上之后他怎么算钱由规则决定。
@@ -179,6 +209,7 @@ class UsersManageViewModel(
         load()
         loadRules()
         loadVehicles()
+        loadCategories()
     }
 
     /** 车辆名册（只有司机池要）。失败静默：读不到车不影响改账号资料。 */
@@ -278,6 +309,7 @@ class UsersManageViewModel(
         draftName = ""
         draftPassword = ""
         draftVehicleType = "large"
+        draftCategory = ""
         draftRuleId = null
         formError = null
         showSheet = true
@@ -289,6 +321,7 @@ class UsersManageViewModel(
         draftName = u.fullName
         draftPassword = ""
         draftVehicleType = if (u.vehicleType == "trailer") "trailer" else "large"
+        draftCategory = u.category
         draftRuleId = u.driverRuleId
         formError = null
         showSheet = true
@@ -375,6 +408,8 @@ class UsersManageViewModel(
                             role = pool.role,
                             isMember = pool.memberOnly,
                             vehicleType = if (pool.role == "driver") draftVehicleType.ifBlank { null } else null,
+                            // 分类（左栏分组）：只有派单员能改这一格（后端 `PATCH /users` 里判的）
+                            category = draftCategory,
                             // ⛔ **不再发 `billing_mode` / `salary`**（2026-09-21 用户：
                             //    「司机管理他现在有固定工资和按单计费，但后面又加了一个计费规则，
                             //      其实计费规则**就已经包括**他们上面的这个」）：
@@ -391,6 +426,7 @@ class UsersManageViewModel(
                             fullName = draftName.trim().ifBlank { null },
                             password = draftPassword.ifBlank { null },
                             vehicleType = if (pool.role == "driver") draftVehicleType.ifBlank { null } else null,
+                            category = draftCategory,
                         ),
                     )
                 }

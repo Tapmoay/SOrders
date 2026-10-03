@@ -1114,6 +1114,15 @@ private fun actionLabel(action: String): String = when (action) {
     "ROUTE_CATEGORY_UPSERT" -> "改线路分类"
     "ROUTE_CATEGORY_DELETE" -> "删线路分类"
     "ROUTE_CATEGORY_REORDER" -> "调线路分类顺序"
+    // 账号分类 / 车辆分类（FEAT-0010，2026-10-05）：与前四套**分开命名**，理由同上一段 ——
+    // 审计里「改了账号分类」和「改了线路/联系人/地点/商品分类」是**五件不同的事**，
+    // 都叫「改分类」就分不出来了。车辆那三条同理（名册各管各的列）。
+    "USER_CATEGORY_UPSERT" -> "改账号分类"
+    "USER_CATEGORY_DELETE" -> "删账号分类"
+    "USER_CATEGORY_REORDER" -> "调账号分类顺序"
+    "VEHICLE_CATEGORY_UPSERT" -> "改车辆分类"
+    "VEHICLE_CATEGORY_DELETE" -> "删车辆分类"
+    "VEHICLE_CATEGORY_REORDER" -> "调车辆分类顺序"
     // 开销分类（2026-09-20）：与上面两套**分开命名**，原因同地点分类 ——
     // 审计里"改了开销分类"和"改了商品/地点分类"是三件事，都叫「改分类」就分不出来了。
     "EXPENSE_CATEGORY_UPSERT" -> "改开销分类"

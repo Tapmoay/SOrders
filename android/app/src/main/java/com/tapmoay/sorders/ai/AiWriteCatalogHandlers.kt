@@ -349,6 +349,79 @@ class ReorderOrderTemplateCategoriesHandler(
 }
 
 /**
+ * 重排账号分类（**全店一份**、只有派单员）。
+ *
+ * 与其它名册的重排**唯一的差别是影响面**：联系人/线路/地点那三张是"你自己那一份"，
+ * 这一张改完所有人看到的「账户管理」左栏都跟着变，所以卡片上必须写明这一点
+ * （用户核对时要知道自己动的是全店的门面，不是自己的私人排序）。
+ */
+class ReorderUserCategoriesHandler(
+    private val ds: AiWriteDataSource,
+    private val store: AiWritePreviewStore,
+) : AiWriteHandler {
+
+    override val actionId = AiWrites.USER_CATEGORY_REORDER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val raw = AiWriteArgs.required(
+            params, "order",
+            "整份顺序：把账号分类名**一个不漏**地按想要的先后写全（用「、」隔开）",
+        )
+        val pool = ds.userCategories()
+        if (pool.isEmpty()) {
+            throw AiWriteArgException("账号分类名册还是空的，先用「新建账号分类」建出来再排顺序。")
+        }
+        return reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "账号分类", unit = "分类",
+            pool = pool, raw = raw, readHint = "user_categories.list_categories",
+            whereCn = "「账户管理」左栏",
+            extraLines = listOf("⚠️ 这份名册**全店一份**：排完，所有人看到的左栏都跟着变"),
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val ids = (payload["category_ids"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+        ds.reorderUserCategories(ids)
+    }
+}
+
+/**
+ * 重排车辆分类（**全店一份**、只有派单员）。见 [ReorderUserCategoriesHandler] 那段说明：
+ * 影响面是全店的门面，卡片上必须写清楚。
+ */
+class ReorderVehicleCategoriesHandler(
+    private val ds: AiWriteDataSource,
+    private val store: AiWritePreviewStore,
+) : AiWriteHandler {
+
+    override val actionId = AiWrites.VEHICLE_CATEGORY_REORDER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val raw = AiWriteArgs.required(
+            params, "order",
+            "整份顺序：把车辆分类名**一个不漏**地按想要的先后写全（用「、」隔开）",
+        )
+        val pool = ds.vehicleCategories()
+        if (pool.isEmpty()) {
+            throw AiWriteArgException("车辆分类名册还是空的，先用「新建车辆分类」建出来再排顺序。")
+        }
+        return reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "车辆分类", unit = "分类",
+            pool = pool, raw = raw, readHint = "vehicle_categories.list_categories",
+            whereCn = "「车辆管理」左栏",
+            extraLines = listOf("⚠️ 这份名册**全店一份**：排完，所有人看到的左栏都跟着变"),
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val ids = (payload["category_ids"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+        ds.reorderVehicleCategories(ids)
+    }
+}
+
+/**
  * 把「水果、冻品 干货」拆成名字列表（模型多半会用「、」，但逗号/斜杠/空格也常见）。
  *
  * 分隔符**只管拆**：拆出来的每一段都要在名册里唯一命中，否则整条命令被拒绝

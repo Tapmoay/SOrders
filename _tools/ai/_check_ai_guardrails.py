@@ -103,6 +103,12 @@ READ_METHODS = {
     # 的候选来源。真正写库的是 createRouteCategory / updateRouteCategory / deleteRouteCategory /
     # reorderRouteCategories（那四个不在白名单里，默认受"prepare 里不许写"的约束）。
     "routeCategories",
+    # 账号分类名册 / 车辆分类名册（FEAT-0010，2026-10-05）：与上面那几张分类名册同形，
+    # 但**全店一份**（不是按人分区）——建/改/删/重排之前都要先把名册读回来
+    # （`GET /user-categories`、`GET /vehicle-categories`；读是登录即可，改只有派单员）。
+    # 真正写库的是 createUserCategory / updateUserCategory / deleteUserCategory /
+    # reorderUserCategories（vehicle 那四个同形），它们不在白名单里，默认受"prepare 里不许写"的约束。
+    "userCategories", "vehicleCategories",
     # 查单/查行/查流水/查消息（"先找到那一条"用的都是读）
     "findOrders", "orderLines", "findDeletedOrders", "ledgerEntries",
     "myNotifications", "productPrices", "priceRuleRows",

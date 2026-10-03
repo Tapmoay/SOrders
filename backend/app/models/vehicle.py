@@ -72,3 +72,8 @@ class Vehicle(Base, TimestampMixin):
     cargo_height_m: Mapped[Decimal | None] = mapped_column(Numeric(8, 3), nullable=True)
     #: 轴数（个，整数）——只有挂车有
     axle_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: 分类（2026-10-05 用户要求「车辆管理……在这个位置也加个分类」）：自由文本，
+    #: 空串 = 未分类，顺序由全局名册表 `vehicle_categories` 管（迁移 014 加在已有库上）。
+    #: ⚠️ 与 `vehicle_type`（车型，计费口径）、`body_type`（车身型式）是**三件事**：
+    #: 分类只用于"派单员怎么把车队分组看"，⛔ 不许参与任何计费 / 匹配判断。
+    category: Mapped[str] = mapped_column(String(32), default="", index=True)

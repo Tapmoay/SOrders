@@ -97,6 +97,42 @@ class AccountManageViewModel(
 
     val isSearching: Boolean get() = hits != null
 
+    // ============================================================ 左栏分类（2026-10-05）
+    //
+    // 用户原话：「还有我们的账户管理司机管理货主管理批发商管理……在这个位置也加个分类，
+    // 默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的」。
+    //
+    // 名册（有哪些分类、什么顺序）在 `user_categories` 这份**全店共用**的名册里，
+    // 账号上只存一个名字（`UserDto.category`）。筛选**本地过一遍** ——
+    // 名册与列表本来就在手上，不往返后端。
+
+    /** 左栏那几格（名册顺序）。拉不到就退化成只有「全部」——账号照样都在，不拦人。
+     *
+     * ⛔ 名册里没有的分类名**不是错误**（老数据、别的路径写进去的）：卡片照样画它，
+     * 只是左栏里点不到那一格而已，不许因此把账号藏起来。
+     */
+    var categoryNames by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    /** 左栏选中的那一格（`c|分类名`；空串 = 全部）。 */
+    var railKey by mutableStateOf("")
+
+    /** 这一页真正要画的账号：先按搜索/名册取，再按左栏那一格过一遍。 */
+    val shownInRail: List<UserDto> get() = inRail(shown, railKey) { it.category }
+
+    /** 拉左栏那几格。失败**不吵**（左栏退化成只有「全部」，比弹一页错误好）。 */
+    fun loadCategories() {
+        viewModelScope.launch {
+            try {
+                categoryNames = container.repo.userCategories().map { it.name }
+                // 选中的那一格没了（被改名/删掉）→ 自己回到「全部」：
+                // 不然用户会停在一列空名单前面，以为账号丢了。
+                if (railKey.isNotBlank() && categoryNames.none { "c|" + it == railKey }) railKey = ""
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     /** 搜索框的唯一入口（防抖 300ms）。 */
     fun onQueryChange(v: String) {
         query = v
@@ -134,6 +170,9 @@ class AccountManageViewModel(
     var draftPassword by mutableStateOf("")
     var draftRoleKey by mutableStateOf(AccountRoleKind.SHIPPER.key)
 
+    /** 分类草稿（空串 = 未分类）。名册里没有的名字也可以留着（老数据）。 */
+    var draftCategory by mutableStateOf("")
+
     // 必填校验错误（非空 = 抽屉里那一行红字；2026-09-22 之前是"红边 + supportingText"，
     // 而新的表单行是无边框的，没有"边"可红 —— 所以错误必须**自己说出来**，
     // 每一句都得能独立读懂是哪一栏错了）
@@ -158,7 +197,10 @@ class AccountManageViewModel(
     var deleting by mutableStateOf<UserDto?>(null)
     var deletingBusy by mutableStateOf(false)
 
-    init { load() }
+    init {
+        load()
+        loadCategories()
+    }
 
     fun load() {
         loading = users.isEmpty()
@@ -186,6 +228,7 @@ class AccountManageViewModel(
         draftPhone = ""
         draftPassword = ""
         draftRoleKey = AccountRoleKind.SHIPPER.key
+        draftCategory = ""
         clearSheetErrors()
         showSheet = true
     }
@@ -196,6 +239,7 @@ class AccountManageViewModel(
         draftPhone = u.phone
         draftPassword = ""
         draftRoleKey = AccountRoleKind.fromDto(u).key
+        draftCategory = u.category
         clearSheetErrors()
         showSheet = true
     }
@@ -239,6 +283,7 @@ class AccountManageViewModel(
             isMember = kind.isMember,
             vehicleType = kind.vehicleType,
             billingMode = billing,
+            category = draftCategory,
         )
     }
 
@@ -273,6 +318,10 @@ class AccountManageViewModel(
                             //    不存在**），而界面只回一句「已更新账号」。`null` 会被 `ApiClient.json` 的
                             //    `explicitNulls = false` 整条丢掉，正好等于"不动"（= 司机管理那条路径的语义）。
                             billingMode = null,
+                            // 分类：表单里是什么就发什么（空串 = 清成未分类）。
+                            // ⛔ 只有派单员能改（后端 `users.py` 里对非派单员 403）——
+                            //    这一页本来就只有派单员进得来。
+                            category = draftCategory,
                         )
                     )
                     onSaved("已更新账号：" + draftPhone.trim())

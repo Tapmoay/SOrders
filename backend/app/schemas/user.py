@@ -19,6 +19,9 @@ class UserOut(BaseModel):
     role: UserRole
     is_active: bool
     is_member: bool = False
+    #: 账号分类（空串 = 未分类）。名册与顺序在 `user_categories` 表里，这一格只存名字。
+    #: 账户 / 司机 / 货主 / 批发商四个名册页左侧那一列，就是按这一格分组的（2026-10-05）。
+    category: str = ""
     vehicle_type: str | None = None
     billing_mode: str | None = None
     salary: Decimal | None = None
@@ -55,6 +58,9 @@ class UserCreate(MoneyInput):
     full_name: str = Field(default="", max_length=128)
     role: UserRole
     is_member: bool = False
+    #: 账号分类（空串 = 未分类）。带了个名册里没有的名字 → 后端顺手补进名册（排到最后），
+    #: 不让"先建分类再建号"变成一道手续。
+    category: str = Field("", max_length=32)
     vehicle_type: str | None = Field(None, max_length=16)
     billing_mode: str | None = Field(None, max_length=16)
     salary: Decimal | None = Field(None, ge=0)
@@ -75,6 +81,9 @@ class UserUpdate(MoneyInput):
     role: UserRole | None = None
     is_active: bool | None = None
     is_member: bool | None = None
+    #: 账号分类（空串 = 未分类）。**不传 = 不动**；传了名册里没有的名字 → 自动补进名册。
+    #: ⛔ 仅派单员可改（司机自己改 = 自己挑一个分组）。
+    category: str | None = Field(None, max_length=32)
     vehicle_type: str | None = Field(None, max_length=16)
     billing_mode: str | None = Field(None, max_length=16)
     salary: Decimal | None = Field(None, ge=0)

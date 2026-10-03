@@ -7,7 +7,7 @@
    这一页有车型、计费规则两个选择器 + 一张商品可见范围清单，弹窗装不下（旧代码自己写着
    「字段叠起来在小屏上会把「保存」顶出屏幕」）。现在必须是 ModalBottomSheet + 三件套
    （fillMaxHeight + verticalScroll + imePadding），开关叫 showSheet、关它走 closeSheet()。
-2. 分组一律白卡（规范 §5.0）：三个 FormGroup（账号 / 车辆与计费 / 商品可见范围），
+2. 分组一律白卡（规范 §5.0）：四个 FormGroup（账号 / 车辆与计费 / 商品可见范围 / 分类），
    行一律走 ui/common/FormRows.kt 那一套 —— 这一页的 OutlinedTextField 必须是 0。
 3. 选取器一律下拉（规范 :1377）：车型与计费规则必须 ExposedDropdownMenuBox + FormPickRow(menuAnchor)。
    ⛔ 计费规则的标签「计费规则（他怎么算钱就看这一项）」是另一条判据的锚点
@@ -24,7 +24,7 @@
   只有在小屏上点保存时才知道它坏了；
 - 「错画在哪儿」是本批真正的 bug：写 error 还是 formError 都是合法 Kotlin，**没有编译器会拦**，
   而症状（点保存无反应 / 整页被顶掉）只在真机上出现；
-- 三个分组的标题 / 图标 / 底色、两个下拉的候选表都是"顺手改一下"就散的形态，审代码时看不出来。
+- 四个分组的标题 / 图标 / 底色、两个下拉的候选表都是"顺手改一下"就散的形态，审代码时看不出来。
 
 R4-BOUNDARY-JUSTIFICATION: 这条判据不下沉到任何一层边界。被查的五件事全是画法：
 用的是弹窗还是抽屉、分组是不是白卡、选取器是下拉还是 chips、错画在表单里还是页面级、
@@ -65,11 +65,13 @@ MIN_SCREEN_CHARS = 29000
 MIN_VM_CHARS = 13000
 #: OutlinedTextField 的全库基线（本批 56 → 51，只许再降）
 MAX_BASELINE = 51
-#: 三个白卡分组（标题 → 必须出现在这一组体里的东西）
+#: 四个白卡分组（标题 → 必须出现在这一组体里的东西）—— 第 4 组「分类」是 FEAT-0010 加的
+#: （账号名册那一格走共用件 CategoryPickRow，是下拉）。
 GROUPS = {
     "账号": "FormInputRow(",
     "车辆与计费": "FormPickRow(",
     "商品可见范围": "ProductVisibilityBlock(",
+    "分类": "CategoryPickRow(",
 }
 Q = chr(34)
 
@@ -224,27 +226,28 @@ def main() -> int:
          "保存请求在飞的时候被关掉，用户不知道到底存没存上")
 
     # ── 2. 分组一律白卡（规范 §5.0）──────────────────────────────────────
-    c.section("2. 分组一律白卡（规范 §5.0）：三个 FormGroup + 卡外的组标题")
+    c.section("2. 分组一律白卡（规范 §5.0）：四个 FormGroup + 卡外的组标题")
     groups = calls(screen, "FormGroup(")
     gbodies = bodies(screen, "FormGroup(")
-    c.ok(f"白卡分组恰好三个（实际 {len(groups)} 个）", len(groups) == 3,
-         "账号 / 车辆与计费 / 商品可见范围")
+    c.ok(f"白卡分组恰好四个（实际 {len(groups)} 个）", len(groups) == 4,
+         "账号 / 车辆与计费 / 商品可见范围 / 分类")
     titles = [group_arg(g, "title") for g in groups]
-    c.ok(f"三个分组的标题就是这三样（实际 {titles}）", titles == list(GROUPS),
+    c.ok(f"四个分组的标题就是这四样（实际 {titles}）", titles == list(GROUPS),
          f"要 {list(GROUPS)}")
     for (title, row), g, b in zip(GROUPS.items(), groups, gbodies):
         c.ok(f"分组「{title}」里用的是 {row}", row in b,
              "白卡分组里的行必须走 ui/common/FormRows.kt 那一套")
     tints = [arg_expr(g, "tint") for g in groups]
-    c.ok("账号与商品可见范围用本池的语义色（poolAccent(pool)）",
-         tints[0] == "poolAccent(pool)" and tints[2] == "poolAccent(pool)",
+    c.ok("账号 / 商品可见范围 / 分类用本池的语义色（poolAccent(pool)）",
+         tints[0] == "poolAccent(pool)" and tints[2] == "poolAccent(pool)"
+         and tints[3] == "poolAccent(pool)",
          f"实际 {tints}")
     c.ok("「车辆与计费」用黄绿 DriverLime（和车辆管理页同一族的语义色）",
          tints[1] == "Color(DriverLime)", f"实际 {tints[1]}")
     icons = [arg_expr(g, "icon") for g in groups]
-    c.ok(f"三个分组的图标（实际 {icons}）",
+    c.ok(f"四个分组的图标（实际 {icons}）",
          icons == ["Icons.Default.Person", "Icons.Default.LocalShipping",
-                   "Icons.Default.Visibility"])
+                   "Icons.Default.Visibility", "Icons.Default.Folder"])
     c.ok("商品可见范围那一组自己不再画标题（标题只在卡外画一次）",
          'Text("商品可见范围"' not in screen and screen.count('title = "商品可见范围"') == 1,
          "同一个标题两处画 —— 搬进白卡时最容易漏掉的一句")
@@ -413,7 +416,7 @@ def main() -> int:
         for label, _ in c.fails:
             print(f"   - {label}")
         return 1
-    print(f"✅ 全部 {c.n_ok} 项通过：表单搬进抽屉（不再是弹窗）、三个白卡分组、两个选取器都是下拉、"
+    print(f"✅ 全部 {c.n_ok} 项通过：表单搬进抽屉（不再是弹窗）、四个白卡分组、两个选取器都是下拉、"
           f"表单的错画在表单里、商品可见范围没缩水、既有口径没被动。")
     return 0
 
@@ -422,7 +425,7 @@ if __name__ == "__main__":
     if "--list" in sys.argv:
         print("== 它到底在查什么（账号管理页抽屉表单 CHG-0018）==")
         print("1. 不再是弹窗：AlertDialog 归零、ModalBottomSheet ×1、三件套齐、开关叫 showSheet")
-        print("2. 分组一律白卡：三个 FormGroup（账号 / 车辆与计费 / 商品可见范围）+ 组内只用共用行")
+        print("2. 分组一律白卡：四个 FormGroup（账号 / 车辆与计费 / 商品可见范围 / 分类）+ 组内只用共用行")
         print("3. 选取器一律下拉：车型与计费规则都 ExposedDropdownMenuBox + menuAnchor；")
         print("   计费规则标签「计费规则（他怎么算钱就看这一项）」是别处判据的锚点，必须原样留着")
         print("4. 输入行：手机号走 InputRules + required 红星、姓名不许加数字过滤、密码新建才必填")

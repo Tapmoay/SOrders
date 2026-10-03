@@ -98,7 +98,9 @@ ROLE_CAPABILITIES: tuple[RoleCapability, ...] = (
         what='车辆名册与「这辆车归哪个司机」',
         roles=('dispatcher',),
         kind='write',
-        gate='backend/app/api/v1/vehicles.py:79',
+        # ⚠️ 行号会随 import 漂移：FEAT-0010 在 vehicles.py 头部加了 `from app.api.v1.vehicle_categories
+        #    import ensure_vehicle_category`（一行），门从 :79 挪到了 :80。
+        gate='backend/app/api/v1/vehicles.py:80',
         why_not_permission='它的授权是**体内角色判断**（`_must_dispatcher`）而不是权限点 ——'
                             '属于那 35 处「体内门槛」棘轮里的一处；本轮不搬它（搬它要动端点鉴权）。',
         when_to_remove='体内门槛棘轮往下降、把它接成 `require_permission(...)` 的那一天。',

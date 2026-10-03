@@ -536,6 +536,27 @@ interface AiWriteDataSource {
     suspend fun deleteOrderTemplateCategory(id: Long)
     suspend fun reorderOrderTemplateCategories(ids: List<Long>)
 
+    /**
+     * 账号分类名册（**全店一份**，只有派单员）；`note` = 这一类下有几个账号。
+     *
+     * ⚠️ 与上面那几张按人分区的名册不同：这里读/改的是**全店唯一那一份**，
+     * 所以卡片上不能写"只影响你自己"。
+     */
+    suspend fun userCategories(): List<AiName>
+
+    suspend fun createUserCategory(fields: JsonObject)
+    suspend fun updateUserCategory(id: Long, fields: JsonObject)
+    suspend fun deleteUserCategory(id: Long)
+    suspend fun reorderUserCategories(ids: List<Long>)
+
+    /** 车辆分类名册（**全店一份**，只有派单员）；`note` = 这一类下有几辆车。 */
+    suspend fun vehicleCategories(): List<AiName>
+
+    suspend fun createVehicleCategory(fields: JsonObject)
+    suspend fun updateVehicleCategory(id: Long, fields: JsonObject)
+    suspend fun deleteVehicleCategory(id: Long)
+    suspend fun reorderVehicleCategories(ids: List<Long>)
+
     /** 整份替换某个货主/批发商的可见范围（后端同一个事务里换开关 + 换明细）。 */
     suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>)
 
@@ -809,6 +830,10 @@ class AiWriteService(
             ReorderExpenseCategoriesHandler(ds, store),
             ReorderFreightCategoriesHandler(ds, store),
             ReorderOrderTemplateCategoriesHandler(ds, store),
+            // 两张**全店**名册（2026-10-05 FEAT-0010）：账号分类 / 车辆分类。
+            // 同样是手写重排（位置必须整份提交），共用上面那份 `reorderRoster`。
+            ReorderUserCategoriesHandler(ds, store),
+            ReorderVehicleCategoriesHandler(ds, store),
             ProductVisibilityHandler(ds, store),
             // 货主自己那一本账（批发商核销 / 撤销；恢复走声明式那个 restoreAction）
             SettleMyLedgerHandler(ds, store),

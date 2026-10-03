@@ -105,7 +105,7 @@ pure_consumer: yes|no                 ← 只有 yes 才允许 owns 为空
 name: identity
 中文名: 身份与授权域
 为什么是它自己的域: 账号、角色、令牌版本是「谁」这件事的唯一事实源；权限判据只认库里的角色，所以这一域的写入点必须少而显眼。
-owns: users, usage_counters
+owns: users, usage_counters, user_categories
 commands: services.auth_service:issue_token, services.auth_service:bump_token_version, services.auth_service:revoke_tokens_and_sockets, services.login_guard:note_failure, services.login_guard:note_success, services.usage_service:record_usage
 reads: -
 events: -
@@ -113,6 +113,12 @@ pure_consumer: no
 ```
 
 **为什么 `usage_counters` 在这里**：它按 `(user_id, kind, target_id)` 计数，是「这个人」的属性 —— 换到别的域都会变成一张需要反查用户的外键表。
+
+**为什么 `user_categories` 也在这里**（FEAT-0010，2026-10-05）：它是 `users.category` 那一列的名册 ——
+「账户 / 司机 / 货主 / 批发商四个名册页左栏有哪些格、按什么顺序」就是这张表。名册跟着它命名的那张表走，
+所以它在本域（与 `place_categories` 跟着 `shipper_locations` 去 place 域是同一条规矩）。
+⚠️ 它与 `vehicle_categories` 是**两张独立的名册**：各管各的列、各管各的页面，⛔ 不合并成一张带 `kind` 的表
+（两边的级联目标与页面都不同，合并之后每次写都要多带一个 kind 参数，错一次就串类）。
 
 **被谁读**：几乎所有域。所以它是这张地图最底层的域，⛔ 它不许反过来读任何业务表（`reads: -` 不是偷懒，是声明）。
 
@@ -295,7 +301,7 @@ pure_consumer: no
 name: freight
 中文名: 运费模板与车辆域
 为什么是它自己的域: 运费模板 / 分类 / 车辆是「怎么定价、用哪台车」的主数据；它们被订单引用，但不随订单变化。
-owns: freight_categories, freight_templates, freight_template_drivers, freight_template_categories, vehicles
+owns: freight_categories, freight_templates, freight_template_drivers, freight_template_categories, vehicles, vehicle_categories
 commands: -
 无命令的理由: 这一域的增删改**全部内联在** api/v1/freight_templates.py、api/v1/freight_categories.py、api/v1/vehicles.py 的路由里，还没有应用层函数 —— 如实登记，不假装已经有。
 reads: users@identity
@@ -304,6 +310,11 @@ pure_consumer: no
 ```
 
 **为什么单独一个域**：模板 / 分类 / 车辆三张表是一套（模板按分类分组、模板可绑司机、订单按模板报价），并进目录域会让「卖什么」和「怎么运」混成一张表。
+
+**为什么 `vehicle_categories` 也在这里**（FEAT-0010，2026-10-05）：它是 `vehicles.category` 那一列的名册
+（车辆管理页左栏那一列）。名册跟着它命名的那张表走 ⇒ 本域。
+⛔ 它**不是** `freight_categories`（那是**运费模板**的分类）：一个是「这辆车归哪一组」，一个是
+「这条运价属于哪一类」，级联目标与页面都不同，所以两张名册各占一格、谁也不合并。
 
 **它是 order 的一条隐式依赖**：订单的运费来自模板（`services/freight_pricing.py::quote_for`，只读）—— 但那条边没有经 `driver_billing_rules` 那样登记在 order 的 reads 里，因为它是**下单时**的取值，不是一个跨域调用。
 

@@ -70,6 +70,10 @@ data class UserDto(
     val role: String,
     @SerialName("is_active") val isActive: Boolean = true,
     @SerialName("is_member") val isMember: Boolean = false,
+    // 账号分类（2026-10-05）：账户 / 司机 / 货主 / 批发商四个名册页**左侧那一列**按它分组。
+    // 空串 = 未分类。名册与顺序在 `user_categories`，这一格只存名字（后端是自由文本，
+    // 所以名册里没有的名字也照样显示，不会把账号藏起来）。
+    val category: String = "",
     @SerialName("vehicle_type") val vehicleType: String? = null,
     @SerialName("billing_mode") val billingMode: String? = null,
     @Serializable(with = NullableFlexibleStringSerializer::class) val salary: String? = null,
@@ -704,6 +708,57 @@ data class RouteCategoryUpdateRequest(val name: String? = null, @SerialName("sor
 
 @Serializable
 data class RouteCategoryReorderRequest(val ids: List<Long>)
+
+/**
+ * 账号分类名册（2026-10-05，**全店一份**：派单员维护，
+ * 账户 / 司机 / 货主 / 批发商**四个**名册页的左侧那一列共用这一份）。
+ *
+ * 与地点 / 联系人 / 线路那三份（按人分区）不同：账号本来就是全局的（`users` 不属于某个人），
+ * 所以这份名册跟 [RouteCategoryDto] 同形、但不带 `shipper_id`。
+ * ⛔ 抽屉里每一格**不显示条数**（用户 2026-09-19：「那个分组下面不要显示有多少条啊，这是多余信息」）；
+ * [userCount] 只在名册管理面板里用（删之前要看见影响面）。
+ */
+@Serializable
+data class UserCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 这一类下**在用**的账号条数（回收站里的账号不算 —— 与后端同一口径）。 */
+    @SerialName("user_count") val userCount: Int = 0,
+)
+
+@Serializable
+data class UserCategoryCreateRequest(val name: String, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class UserCategoryUpdateRequest(val name: String? = null, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class UserCategoryReorderRequest(val ids: List<Long>)
+
+/**
+ * 车辆分类名册（2026-10-05，**全店一份**：车辆管理页左侧那一列）。
+ *
+ * ⛔ 与车型（`vehicle_type`，计费口径）、车身型式（`body_type`）是**三件事**：
+ * 这份名册只决定车队怎么分组看，不参与任何计费 / 匹配。
+ */
+@Serializable
+data class VehicleCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 这一类下**在用**的车辆条数（**停用的车也算** —— 它照样挂着这个分类）。 */
+    @SerialName("vehicle_count") val vehicleCount: Int = 0,
+)
+
+@Serializable
+data class VehicleCategoryCreateRequest(val name: String, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class VehicleCategoryUpdateRequest(val name: String? = null, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class VehicleCategoryReorderRequest(val ids: List<Long>)
 
 @Serializable
 data class LocationImageOut(val url: String = "")
@@ -2069,6 +2124,8 @@ data class VehicleCreateRequest(
      * 表在 `ui/dispatcher/VehicleAttrs.kt`（镜像），真源在后端 `services/vehicle_attrs.py`。
      */
     @SerialName("body_type") val bodyType: String = "",
+    /** 分类（2026-10-05，空串 = 未分类）。名册里没有的名字 → 后端自动补进名册。 */
+    val category: String = "",
     /**
      * 车辆属性 `{属性键: 数值字符串}`。
      *
@@ -2100,6 +2157,8 @@ data class VehicleUpdateRequest(
     @SerialName("is_active") val isActive: Boolean? = null,
     /** **车身型式**。没传 = 不改；传了要过后端 `clean_body`（认不出的取值为 400）。 */
     @SerialName("body_type") val bodyType: String? = null,
+    /** 分类（2026-10-05）。没传 = 不改；空串 = 清成未分类。 */
+    val category: String? = null,
     /** 车辆属性（**整份替换**，见类注释第 3 条；空 map = 全部清空）。 */
     val attrs: Map<String, String>? = null,
 )
@@ -2132,6 +2191,12 @@ data class VehicleDto(
      */
     @SerialName("body_type") val bodyType: String = "",
     @SerialName("body_label") val bodyLabel: String = "",
+    /**
+     * 分类（2026-10-05，车辆管理页左侧那一列按它分组）。空串 = 未分类。
+     * ⛔ 与 [vehicleType]（计费口径）、[bodyType]（车身型式）是**三件事**，
+     * 这一格纯粹是分组，不参与任何计费 / 匹配。
+     */
+    val category: String = "",
     /**
      * 车辆属性 `{属性键: 数值字符串}` —— **只含填过的那些**。
      * ⛔ 没量过的项**不出现**（不是 0）：回一个 0，界面上就会画出一个"系统说是 0"的数。

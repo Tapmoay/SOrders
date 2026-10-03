@@ -1400,6 +1400,22 @@ object AiWrites {
     const val ORDER_TEMPLATE_CATEGORY_UPDATE = "order_template_category.update"
     const val ORDER_TEMPLATE_CATEGORY_DELETE = "order_template_category.delete"
     const val ORDER_TEMPLATE_CATEGORY_REORDER = "order_template_category.reorder"
+    // ---- 账号分类 / 车辆分类（2026-10-05 FEAT-0010）----
+    //
+    // 两份都**只有派单员**（后端那一组端点挂 Permission.USER_MANAGE），而且**全店一份**：
+    // 不是"你自己那一份"（与联系人/线路/地点分类那三张按人分区的名册不同）。
+    // 改一格的顺序或名字，所有人看到的左栏都跟着变。
+    //
+    // 四件事与其它名册同形：建 / 改名（后端在同一事务里**级联**改掉挂着账号或车的那一格
+    // 分类名）/ 排序（整份提交）/ 删（还有账号或车挂着就 400）。
+    const val USER_CATEGORY_CREATE = "user_category.create"
+    const val USER_CATEGORY_UPDATE = "user_category.update"
+    const val USER_CATEGORY_DELETE = "user_category.delete"
+    const val USER_CATEGORY_REORDER = "user_category.reorder"
+    const val VEHICLE_CATEGORY_CREATE = "vehicle_category.create"
+    const val VEHICLE_CATEGORY_UPDATE = "vehicle_category.update"
+    const val VEHICLE_CATEGORY_DELETE = "vehicle_category.delete"
+    const val VEHICLE_CATEGORY_REORDER = "vehicle_category.reorder"
 
     // ---- 共享地点库的管理（2026-09-19：用户要求 AI 也要会这一套）----
     //
@@ -1480,6 +1496,10 @@ object AiWrites {
     const val G_FREIGHT_CATEGORY = "运费分类"
     /** 预订单分类名册（决定「我这几张常用的单分成哪几类」）。 */
     const val G_ORDER_TEMPLATE_CATEGORY = "预订单分类"
+    /** 账号分类名册（**全店一份**：决定「账户管理」左栏分成哪几格；改名会级联改掉挂着的账号）。 */
+    const val G_USER_CATEGORY = "账号分类"
+    /** 车辆分类名册（**全店一份**：决定「车辆管理」左栏分成哪几格；与"车型/车体"无关，也不参与计费）。 */
+    const val G_VEHICLE_CATEGORY = "车辆分类"
     /** 共享地点（**全库共用**那一张表：改一条，所有人的选点列表都跟着变）。 */
     const val G_PLACE = "共享地点"
     const val G_PRICE = "批发商定价"
@@ -2312,6 +2332,42 @@ object AiWrites {
                     hint = "必填。按想要的先后顺序**写全所有分类名**，用「、」或逗号隔开。" +
                         "先读一次 order_template_categories.list_order_template_categories " +
                         "拿到当前名册，一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
+                ),
+            ),
+        ),
+
+        // ------------------------------------------ 账号分类 / 车辆分类的重排（2026-10-05 FEAT-0010）
+        AiWriteAction(
+            id = USER_CATEGORY_REORDER,
+            title = "重排账号分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_USER_CATEGORY,
+            blurb = "把「账户管理」左栏那几个分类的先后顺序一次换掉。" +
+                "**必须给全**：名册里的分类一个都不能漏（后端少一个就整份拒绝）。" +
+                "它只改显示顺序，一个账号归在哪一类、账号本身，都不动。",
+            params = listOf(
+                AiWriteParam(
+                    "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
+                    hint = "必填。按想要的先后顺序**写全所有分类名**，用「、」或逗号隔开（如「老客户、临时号」）。" +
+                        "先读一次 user_categories.list_categories 拿到当前名册，" +
+                        "一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
+                ),
+            ),
+        ),
+        AiWriteAction(
+            id = VEHICLE_CATEGORY_REORDER,
+            title = "重排车辆分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_VEHICLE_CATEGORY,
+            blurb = "把「车辆管理」左栏那几个分类的先后顺序一次换掉。" +
+                "**必须给全**：名册里的分类一个都不能漏（后端少一个就整份拒绝）。" +
+                "它只改显示顺序，一辆车归在哪一类、车辆本身，都不动。",
+            params = listOf(
+                AiWriteParam(
+                    "order", "整份顺序", required = true, kind = AiWriteParamKind.TEXT,
+                    hint = "必填。按想要的先后顺序**写全所有分类名**，用「、」或逗号隔开（如「自有车、外调车」）。" +
+                        "先读一次 vehicle_categories.list_categories 拿到当前名册，" +
+                        "一个都不要漏；漏了会被拒绝并告诉你少了哪几个",
                 ),
             ),
         ),

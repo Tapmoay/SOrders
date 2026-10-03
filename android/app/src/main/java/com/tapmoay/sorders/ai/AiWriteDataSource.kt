@@ -1697,6 +1697,85 @@ class RepoWriteDataSource(
         repo.reorderContactCategories(ids)
     }
 
+    // ---- 账号分类 / 车辆分类名册（**全店一份**，2026-10-05 FEAT-0010）----
+    //
+    // 形状与上面三张按人分区的名册**一字不差**，唯一差别是 repo 那几个方法打的是
+    // 全店那一组端点（`/user-categories`、`/vehicle-categories`）——
+    // 所以这里"按人分区"那几句话都不适用，卡片上的口径由规格那边负责写清楚。
+
+    /** 账号分类名册（全店一份）。`note` = 这一类下有几个账号（回收站里的不算，停用的算）。 */
+    override suspend fun userCategories(): List<AiName> = repo.userCategories().map {
+        AiName(it.id, it.name, note = if (it.userCount > 0) "${it.userCount} 个账号" else null)
+    }
+
+    override suspend fun createUserCategory(fields: JsonObject) {
+        val created = repo.createUserCategory(
+            name = fields.req("name"),
+            // 先按"排在最后"建出来；有位置要求时再用 reorder 挪过去（与上面三张同一套理由）。
+            sortOrder = null,
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveUserCategoryTo(created.id, it) }
+    }
+
+    /**
+     * 把某个分类挪到「第 N 位」（**从 1 数**）。走 reorder 而不是写绝对值 ——
+     * 绝对值会与现有第 1 位撞车、按 id 排之后落到别处（与上面三张一字不差）。
+     */
+    private suspend fun moveUserCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.userCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        val idx = (position1Based - 1).coerceIn(0, ids.size)
+        ids.add(idx, id)
+        repo.reorderUserCategories(ids)
+    }
+
+    override suspend fun updateUserCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateUserCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateUserCategory(id, name = fields.str("name"), sortOrder = null)
+        fields.str("sort_order")?.toIntOrNull()?.let { moveUserCategoryTo(id, it) }
+    }
+
+    override suspend fun deleteUserCategory(id: Long) {
+        repo.deleteUserCategory(id)
+    }
+
+    override suspend fun reorderUserCategories(ids: List<Long>) {
+        repo.reorderUserCategories(ids)
+    }
+
+    /** 车辆分类名册（全店一份）。`note` = 这一类下有几辆车（停用的也算）。 */
+    override suspend fun vehicleCategories(): List<AiName> = repo.vehicleCategories().map {
+        AiName(it.id, it.name, note = if (it.vehicleCount > 0) "${it.vehicleCount} 辆车" else null)
+    }
+
+    override suspend fun createVehicleCategory(fields: JsonObject) {
+        val created = repo.createVehicleCategory(name = fields.req("name"), sortOrder = null)
+        fields.str("sort_order")?.toIntOrNull()?.let { moveVehicleCategoryTo(created.id, it) }
+    }
+
+    /** 见 [moveUserCategoryTo]：位置一律整份提交。 */
+    private suspend fun moveVehicleCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.vehicleCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        val idx = (position1Based - 1).coerceIn(0, ids.size)
+        ids.add(idx, id)
+        repo.reorderVehicleCategories(ids)
+    }
+
+    override suspend fun updateVehicleCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateVehicleCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateVehicleCategory(id, name = fields.str("name"), sortOrder = null)
+        fields.str("sort_order")?.toIntOrNull()?.let { moveVehicleCategoryTo(id, it) }
+    }
+
+    override suspend fun deleteVehicleCategory(id: Long) {
+        repo.deleteVehicleCategory(id)
+    }
+
+    override suspend fun reorderVehicleCategories(ids: List<Long>) {
+        repo.reorderVehicleCategories(ids)
+    }
+
 
     // ---- 线路分类名册（按人分区，2026-10-04 FEAT-0009）----
     //
@@ -1993,6 +2072,13 @@ class RepoWriteDataSource(
             "order_template_category" ->
                 repo.orderTemplateCategories().firstOrNull { it.id == id }
                     ?.let { AiBefore(id, AiRevertRead.orderTemplateCategory(it)) }
+            // 两张**全店**名册（2026-10-05 FEAT-0010）：与上面三张同一种做法（拉列表再挑）。
+            "user_category" ->
+                repo.userCategories().firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.userCategory(it)) }
+            "vehicle_category" ->
+                repo.vehicleCategories().firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.vehicleCategory(it)) }
             "vehicle" -> repo.vehicles().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.vehicle(it)) }
             "product_visibility" ->
                 repo.productVisibility(id).let { AiBefore(id, AiRevertRead.productVisibility(it)) }

@@ -13,6 +13,7 @@ from app.models.expense import Expense
 from app.models.expense_category import ExpenseCategory
 from app.models.shipper_receipt import ShipperReceipt
 from app.models.vehicle import Vehicle
+from app.models.vehicle_category import VehicleCategory
 from app.models.enums import (
     BillingMode,
     CashFlowBizType,
@@ -54,6 +55,7 @@ from app.models.supplier import Supplier, SupplierPayable
 from app.models.unit_conversion import UnitConversion
 from app.models.usage import UsageCounter
 from app.models.user import User
+from app.models.user_category import UserCategory
 
 __all__ = [
     "ArrearsUnit",
@@ -112,6 +114,7 @@ __all__ = [
     "SupplierPayable",
     "UnitConversion",
     "User",
+    "UserCategory",
     "UsageCounter",
     "UserProductVisibility",
     "UserRole",
@@ -120,5 +123,6 @@ __all__ = [
     "SettlementStatus",
     "ShipperReceipt",
     "Vehicle",
+    "VehicleCategory",
     "VehicleType",
 ]

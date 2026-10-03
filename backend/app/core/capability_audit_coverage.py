@@ -72,7 +72,16 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                        'PRODUCT_VISIBILITY_SET', 'PRODUCT_CATEGORY_UPSERT', 'PRODUCT_CATEGORY_DELETE',
                        'PRODUCT_CATEGORY_REORDER', 'INVENTORY_ADJUST'),
     # ---- 账号 / 通知 ----
-    'user:manage': ('USER_CREATE', 'USER_UPDATE', 'USER_DELETE', 'USER_RESTORE', 'CUSTOMER_MERGE'),
+    'user:manage': ('USER_CREATE', 'USER_UPDATE', 'USER_DELETE', 'USER_RESTORE', 'CUSTOMER_MERGE',
+                    # FEAT-0010（2026-10-05）：账号分类名册 —— 账户 / 司机 / 货主 / 批发商四个名册页
+                    # 左栏那一列就是按 `users.category` 分组的。名册的三个写动作归到这里，
+                    # 因为它的门就是 `Permission.USER_MANAGE`（`api/v1/user_categories.py`，rbac 里只有
+                    # dispatcher 有这个权限点）。
+                    'USER_CATEGORY_UPSERT', 'USER_CATEGORY_DELETE', 'USER_CATEGORY_REORDER',
+                    # 车辆分类名册（同一批需求里的另一半）：门同样是 `Permission.USER_MANAGE`
+                    # （**不是** `vehicle:manage` —— 那一块是体内角色判断 `vehicles.py:79 _must_dispatcher`），
+                    # 所以按真实门认领到这里；两张名册都是「派单员维护的分组名册」，写动作同一档。
+                    'VEHICLE_CATEGORY_UPSERT', 'VEHICLE_CATEGORY_DELETE', 'VEHICLE_CATEGORY_REORDER'),
     'notification:manage': ('NOTIFICATION_MODERATE',),
     # ---- 角色能力（没有权限点的那几块，见 role_capabilities.py）----
     'place:manage': ('PLACE_AUTO_ADDED', 'PLACE_UPDATE', 'PLACE_PUBLISH', 'PLACE_DEMOTE', 'PLACE_DELETE',

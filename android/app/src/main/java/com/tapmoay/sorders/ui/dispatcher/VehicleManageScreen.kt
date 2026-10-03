@@ -105,6 +105,8 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
      * 这个只决定**这辆车能填哪些属性**。
      */
     var draftBody by mutableStateOf("")
+    /** 分类（左栏分组，2026-10-05）：只影响车辆管理页左栏怎么分组，⛔ 不参与计费。 */
+    var draftCategory by mutableStateOf("")
     /** 车辆属性（键 → 用户填的原文）。空串 = 这一项没填，保存前会被剔掉。 */
     var draftAttrs by mutableStateOf<Map<String, String>>(emptyMap())
     /** 换车身型式时"哪几项被去掉了"——⛔ 静默丢掉用户填过的数是最不该发生的一种。 */
@@ -158,6 +160,33 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
             }
         }
 
+    // ============================================================ 左栏分类（2026-10-05）
+    //
+    // 用户原话：「还有我们的账户管理司机管理货主管理批发商管理。车辆管理……在这个位置也加个分类，
+    // 默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的」。
+    //
+    // 名册是 `vehicle_categories`（全局一份，挂在 `vehicles.category` 上）——
+    // 与账号分类是**两份独立名册**（用户 2026-10-05 要的是两台各自管各自的）。
+    // ⛔ 与 `vehicleType`（计费口径）/ `bodyType`（车身型式）三件事，这里只做分组。
+    var categoryNames by mutableStateOf<List<String>>(emptyList())
+        private set
+    var railKey by mutableStateOf("")
+
+    /** 左栏选了一类之后要显示的车（搜索与分类**同时**生效）。 */
+    val shownInRail: List<VehicleDto> get() = inRail(shown, railKey) { it.category }
+
+    /** 分类名册（读不到不影响列表：静默，左栏就只有「全部」一格）。 */
+    fun loadCategories() {
+        viewModelScope.launch {
+            try {
+                val names = container.repo.vehicleCategories().map { it.name }
+                if (railKey.isNotBlank() && names.none { "c|" + it == railKey }) railKey = ""
+                categoryNames = names
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     fun openCreate() {
         editingId = null
         draftPlate = ""
@@ -166,6 +195,7 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftActive = true
         // 新车的车身型式默认「未设置」：⛔ 不替用户认一个（认错了，他就会在一个错误的表单上填一堆数）
         draftBody = ""
+        draftCategory = ""
         draftAttrs = emptyMap()
         bodyNote = null
         driverQuery = ""
@@ -180,6 +210,7 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftDriverId = v.driverId
         draftActive = v.isActive
         draftBody = v.bodyType
+        draftCategory = v.category
         // 后端只回**填过的**属性；这里整份接住，保存时再整份发回去（那正是后端的"整份替换"语义）。
         draftAttrs = v.attrs
         bodyNote = null
@@ -245,6 +276,7 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
                             vehicleType = draftType,
                             driverId = draftDriverId,
                             bodyType = draftBody,
+                            category = draftCategory,
                             attrs = filledAttrs(),
                         ),
                     )
@@ -258,6 +290,7 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
                             vehicleType = draftType,
                             isActive = draftActive,
                             bodyType = draftBody,
+                            category = draftCategory,
                             // ⚠️ **整份**发回去（含空 map）：后端把"传了 attrs"定义成整份替换，
                             //    只发改动的那几个键 = 其余全部被清空。见 VehicleUpdateRequest 的注释。
                             attrs = filledAttrs(),
@@ -322,11 +355,64 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
     val vm: VehicleManageViewModel = appViewModel { VehicleManageViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
-    LaunchedEffect(Unit) { vm.load() }
+    LaunchedEffect(Unit) {
+        vm.load()
+        vm.loadCategories()
+    }
 
+    // ---- 左栏分类（2026-10-05）----
+    //
+    // 用户原话：「还有我们的账户管理司机管理货主管理批发商管理。车辆管理……在这个位置也加个分类，
+    // 默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的」。
+    //
+    // 形态照「地址与联系人」：**抽屉**（⛔ 不是商品管理那种常驻左栏 —— 用户 2026-09-19 的裁定是
+    //「右边的卡片的信息被挤压了不是很好看」）。抽屉底部那格「管理分类」进分类管理面板。
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    val catVm: VehicleCategoriesViewModel = appViewModel { VehicleCategoriesViewModel(container) }
+    var managingCategory by remember { mutableStateOf(false) }
+
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        drawerContent = {
+            ModalDrawerSheet {
+                CategoryDrawerSheet(
+                    title = "车辆分类",
+                    // ⛔ 一格都不显示条数（用户 2026-09-19：「那个分组下面不要显示有多少条啊，
+                    //    这是多余信息」）—— 条数只在「管理分类」那个面板里出现。
+                    items = listOf(CategoryDrawerItem("", "全部")) +
+                        catVm.rows.map { CategoryDrawerItem("c|" + it.name, it.name) },
+                    selectedKey = vm.railKey,
+                    accent = VehicleAccent,
+                    manageLabel = "管理分类",
+                    onPick = { key ->
+                        vm.railKey = key
+                        scope.launch { drawer.close() }
+                    },
+                    onManage = {
+                        managingCategory = true
+                        scope.launch { drawer.close() }
+                    },
+                )
+            }
+        },
+    ) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { AppTopBar("车辆管理", onBack = onBack) },
+        topBar = {
+            AppTopBar(
+                "车辆管理",
+                onBack = onBack,
+                actions = {
+                    // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」
+                    CategoryTriggerChip(
+                        current = railNameOf(vm.railKey),
+                        accent = VehicleAccent,
+                        onClick = { scope.launch { drawer.open() } },
+                    )
+                },
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { vm.openCreate() },
@@ -337,6 +423,20 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
             )
         },
     ) { padding ->
+        if (managingCategory) {
+            // 分类管理在**同一屏的第二层**（不新开路由）：照「地址与联系人」的
+            // `CategoryManagePanel` 先例 —— 真机上新开一页会「抽屉先收起再弹整页、中间闪一下」。
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                VehicleCategoriesPanel(
+                    vm = catVm,
+                    onBack = {
+                        managingCategory = false
+                        catVm.load()
+                        vm.loadCategories()
+                    },
+                )
+            }
+        } else {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 vm.loading -> LoadingBox()
@@ -362,10 +462,19 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
                     }
                     if (vm.vehicles.isEmpty()) {
                         item { EmptyView("还没有登记车辆", Modifier.fillMaxWidth().height(160.dp)) }
+                    } else if (vm.railKey.isNotBlank() && vm.shownInRail.isEmpty()) {
+                        // 这一类下真的没有车时**说出来**（不说的话用户看到一个空页面）
+                        item {
+                            EmptyView(
+                                "「" + railNameOf(vm.railKey) + "」这一类下还没有车 —— " +
+                                    "在卡片上编辑、或左栏换一格",
+                                Modifier.fillMaxWidth().height(160.dp),
+                            )
+                        }
                     } else if (vm.shown.isEmpty()) {
                         item { EmptyView("没有匹配「${vm.query}」的车", Modifier.fillMaxWidth().height(160.dp)) }
                     } else {
-                        items(vm.shown, key = { it.id }) { v ->
+                        items(vm.shownInRail, key = { it.id }) { v ->
                             VehicleCard(
                                 v = v,
                                 driverName = vm.driverNameOf(v.driverId),
@@ -379,10 +488,12 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
                 }
             }
         }
+        }
+    }
     }
 
     if (vm.sheetOpen) {
-        VehicleEditSheet(vm)
+        VehicleEditSheet(vm, catVm)
     }
     vm.confirmUnbind?.let { v ->
         DangerConfirmDialog(
@@ -564,7 +675,11 @@ internal fun MiniChip(text: String, color: Color) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VehicleEditSheet(vm: VehicleManageViewModel) {
+private fun VehicleEditSheet(
+    vm: VehicleManageViewModel,
+    // 左栏分类名册（2026-10-05）：分类那一格是下拉，候选来自它。
+    catVm: VehicleCategoriesViewModel,
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var driverOpen by remember { mutableStateOf(false) }
     // 两个下拉的展开态。车型与车身型式都是"从固定取值里选一个"——
@@ -747,6 +862,17 @@ private fun VehicleEditSheet(vm: VehicleManageViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+
+            // ④ 分类（左栏分组，2026-10-05）：只影响车辆管理页左栏怎么分组，
+            //    ⛔ 与上面的车型（计费口径）、车身型式（能填哪些属性）是三件事。
+            FormGroup(icon = Icons.Default.Folder, title = "分类", tint = Color(DriverLime)) {
+                CategoryPickRow(
+                    vm = catVm,
+                    selected = vm.draftCategory,
+                    onPick = { vm.draftCategory = it },
+                    hint = "只影响车辆管理页左栏怎么分组；给车队分组用的，不参与任何计费。",
                 )
             }
 

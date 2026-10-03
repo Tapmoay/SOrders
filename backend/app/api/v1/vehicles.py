@@ -66,6 +66,7 @@ from app.deps import CurrentUser
 from app.models import User, Vehicle
 from app.models.enums import OperationAction, UserRole
 from app.schemas.accounting_v2 import VehicleCreate, VehicleDriverSet, VehicleOut, VehicleUpdate
+from app.api.v1.vehicle_categories import ensure_vehicle_category
 from app.services.operation_log_service import write_log
 from app.services import usage_service
 from app.services import vehicle_attrs as vattrs
@@ -90,6 +91,7 @@ def _out(db: Session, v: Vehicle) -> VehicleOut:
         # 车身型式与属性：中文名与"值怎么显示"都由 `services/vehicle_attrs.py` 一处给，
         # ⛔ 这里和客户端都不许再写一份 when(型式)（两处叫法迟早不一样）。
         body_type=v.body_type or "",
+        category=v.category or "",
         body_label=vattrs.body_label(v.body_type),
         attrs=vattrs.attrs_of(v),
     )
@@ -268,10 +270,14 @@ def create_vehicle(body: VehicleCreate, current: CurrentUser, db: Session = Depe
         vehicle_type=_clean_type(body.vehicle_type) or "",
         driver_id=None,
         body_type=body_type,
+        category=(body.category or "").strip()[:32],
     )
     vattrs.apply_attrs(v, values)
     db.add(v)
     db.flush()
+    # 分类是自由文本，名册只决定"左侧那一列有哪些格、按什么顺序"（见
+    # api/v1/vehicle_categories.py）：建车时带了个名册里没有的分类名 → 顺手补进名册。
+    ensure_vehicle_category(db, v.category)
     if body.driver_id is not None:
         _apply_driver(db, current, v, body.driver_id)
     lines = [f"车牌 {plate}", f"车型 {_VEHICLE_CN.get(v.vehicle_type, v.vehicle_type)}"]
@@ -305,6 +311,12 @@ def update_vehicle(vehicle_id: int, body: VehicleUpdate, current: CurrentUser, d
     if body.is_active is not None and body.is_active != v.is_active:
         changed.append("启用" if body.is_active else "停用")
         v.is_active = body.is_active
+    if body.category is not None:
+        want_category = (body.category or "").strip()[:32]
+        if want_category != (v.category or ""):
+            changed.append(f"分类 {v.category or '（未分类）'} → {want_category or '（未分类）'}")
+            v.category = want_category
+        ensure_vehicle_category(db, want_category)
 
     # ⚠️ 这里必须用 `model_fields_set`：`body.driver_id is not None` 分不出
     #    "没传这个键"（不动）和"传了 null"（解绑）——旧代码正是因此**解绑不了司机**。

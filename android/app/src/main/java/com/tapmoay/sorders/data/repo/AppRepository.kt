@@ -366,6 +366,66 @@ class AppRepository(private val api: ApiBundle) {
             com.tapmoay.sorders.data.remote.dto.RouteCategoryReorderRequest(ids)
         )
 
+    // ---- 账号分类名册（2026-10-05；**全店一份**，账户/司机/货主/批发商四个名册页共用）----
+    suspend fun userCategories() = api.shipperApi.listUserCategories()
+    suspend fun createUserCategory(name: String, sortOrder: Int? = null) =
+        api.shipperApi.createUserCategory(
+            com.tapmoay.sorders.data.remote.dto.UserCategoryCreateRequest(name, sortOrder)
+        )
+
+    /** 改名 / 改顺序（`PATCH /user-categories/{id}`，后端是部分更新：null = 不动）。 */
+    suspend fun updateUserCategory(id: Long, name: String? = null, sortOrder: Int? = null) =
+        api.shipperApi.updateUserCategory(
+            id,
+            com.tapmoay.sorders.data.remote.dto.UserCategoryUpdateRequest(name, sortOrder),
+        )
+
+    suspend fun deleteUserCategory(id: Long) = api.shipperApi.deleteUserCategory(id)
+
+    /**
+     * 「撤销删除」用的那一格 —— 账号分类名册**没有回收站**（删掉就是真删）。
+     *
+     * 所以撤销 = 按原来的名字与位置**重建一格**（走的是同一个新建端点），编号会变。
+     * ⚠️ 这样重建是安全的：后端**不允许删还挂着账号的分类**，能删掉的一定是空分类，
+     * 重建出来也就还是空的 —— 不会出现「撤销之后成员看起来回来了、其实没回来」这种错觉。
+     */
+    suspend fun restoreUserCategory(name: String, sortOrder: Int? = null) =
+        createUserCategory(name, sortOrder)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    suspend fun reorderUserCategories(ids: List<Long>) =
+        api.shipperApi.reorderUserCategories(
+            com.tapmoay.sorders.data.remote.dto.UserCategoryReorderRequest(ids)
+        )
+
+    // ---- 车辆分类名册（2026-10-05；**全店一份**，车辆管理页用）----
+    suspend fun vehicleCategories() = api.shipperApi.listVehicleCategories()
+    suspend fun createVehicleCategory(name: String, sortOrder: Int? = null) =
+        api.shipperApi.createVehicleCategory(
+            com.tapmoay.sorders.data.remote.dto.VehicleCategoryCreateRequest(name, sortOrder)
+        )
+
+    suspend fun updateVehicleCategory(id: Long, name: String? = null, sortOrder: Int? = null) =
+        api.shipperApi.updateVehicleCategory(
+            id,
+            com.tapmoay.sorders.data.remote.dto.VehicleCategoryUpdateRequest(name, sortOrder),
+        )
+
+    suspend fun deleteVehicleCategory(id: Long) = api.shipperApi.deleteVehicleCategory(id)
+
+    /**
+     * 「撤销删除」用的那一格 —— 车辆分类名册**没有回收站**（删掉就是真删）。
+     * 与 [restoreUserCategory] 同一条理由：撤销 = 按原名与位置重建一格（新编号）；
+     * 能删掉的一定是空分类（还挂着车的分类后端拒绝删），所以重建不会丢成员。
+     */
+    suspend fun restoreVehicleCategory(name: String, sortOrder: Int? = null) =
+        createVehicleCategory(name, sortOrder)
+
+    suspend fun reorderVehicleCategories(ids: List<Long>) =
+        api.shipperApi.reorderVehicleCategories(
+            com.tapmoay.sorders.data.remote.dto.VehicleCategoryReorderRequest(ids)
+        )
+
     suspend fun createContact(body: com.tapmoay.sorders.data.remote.dto.ContactCreateRequest) = api.shipperApi.createContact(body)
     suspend fun updateContact(id: Long, body: com.tapmoay.sorders.data.remote.dto.ContactUpdateRequest) = api.shipperApi.updateContact(id, body)
     suspend fun deleteContact(id: Long) = api.shipperApi.deleteContact(id)

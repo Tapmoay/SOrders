@@ -177,7 +177,7 @@ id: identity
 中文名: 身份（谁是谁）
 class: CORE
 domain: identity
-owns: users, usage_counters
+owns: users, usage_counters, user_categories
 contract: -
 why: 账号、角色、令牌版本是「谁」这件事的唯一事实源；权限判据只认库里的角色（判定规则 1）
 impl: services/auth_service.py, services/usage_service.py
@@ -346,7 +346,7 @@ id: freight.vehicle_registry
 中文名: 车辆档案
 class: CORE
 domain: freight
-owns: vehicles
+owns: vehicles, vehicle_categories
 contract: -
 why: 「有哪些车、车牌是什么」是引用型主数据（订单与司机都引它），不是"怎么算钱"的规则（判定规则 2：它变的是档案，不是算法）
 impl: api/v1/vehicles.py

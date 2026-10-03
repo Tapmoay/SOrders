@@ -119,6 +119,8 @@ data class UserCreateRequest(
     @SerialName("vehicle_type") val vehicleType: String? = null,
     @SerialName("billing_mode") val billingMode: String? = null,
     @Serializable(with = com.tapmoay.sorders.data.remote.dto.NullableFlexibleStringSerializer::class) val salary: String? = null,
+    // 账号分类（2026-10-05）。带了个名册里没有的名字 → 后端顺手补进名册（排到最后）。
+    val category: String? = null,
 )
 
 @Serializable
@@ -132,6 +134,8 @@ data class UserUpdateRequest(
     @SerialName("vehicle_type") val vehicleType: String? = null,
     @SerialName("billing_mode") val billingMode: String? = null,
     @Serializable(with = com.tapmoay.sorders.data.remote.dto.NullableFlexibleStringSerializer::class) val salary: String? = null,
+    // 账号分类（2026-10-05）。**不传 = 不动**；空串 = 清成未分类。
+    val category: String? = null,
 )
 
 interface OrderApi {
@@ -469,6 +473,56 @@ interface ShipperApi {
     /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
     @POST("route-categories/reorder")
     suspend fun reorderRouteCategories(@Body body: RouteCategoryReorderRequest): List<RouteCategoryDto>
+
+    /**
+     * 账号分类名册（2026-10-05，**全店一份**：派单员维护，
+     * 账户 / 司机 / 货主 / 批发商四个名册页共用）。
+     *
+     * 与地点那三份同一套做法，两处不同：① 不分人（账号是全局的）；
+     * ② 门是 `user:manage`（只有派单员有），所以这五个端点对他以外的角色会是 403。
+     */
+    @GET("user-categories")
+    suspend fun listUserCategories(): List<UserCategoryDto>
+
+    @POST("user-categories")
+    suspend fun createUserCategory(@Body body: UserCategoryCreateRequest): UserCategoryDto
+
+    @PATCH("user-categories/{categoryId}")
+    suspend fun updateUserCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: UserCategoryUpdateRequest,
+    ): UserCategoryDto
+
+    @DELETE("user-categories/{categoryId}")
+    suspend fun deleteUserCategory(@Path("categoryId") categoryId: Long)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    @POST("user-categories/reorder")
+    suspend fun reorderUserCategories(@Body body: UserCategoryReorderRequest): List<UserCategoryDto>
+
+    /**
+     * 车辆分类名册（2026-10-05，**全店一份**：车辆管理页左侧那一列）。
+     * 门同样是 `user:manage`（⛔ 与车辆台账的体内 `_must_dispatcher` 不是同一处判据，
+     * 分类只影响分组、不碰任何车辆事实）。
+     */
+    @GET("vehicle-categories")
+    suspend fun listVehicleCategories(): List<VehicleCategoryDto>
+
+    @POST("vehicle-categories")
+    suspend fun createVehicleCategory(@Body body: VehicleCategoryCreateRequest): VehicleCategoryDto
+
+    @PATCH("vehicle-categories/{categoryId}")
+    suspend fun updateVehicleCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: VehicleCategoryUpdateRequest,
+    ): VehicleCategoryDto
+
+    @DELETE("vehicle-categories/{categoryId}")
+    suspend fun deleteVehicleCategory(@Path("categoryId") categoryId: Long)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    @POST("vehicle-categories/reorder")
+    suspend fun reorderVehicleCategories(@Body body: VehicleCategoryReorderRequest): List<VehicleCategoryDto>
 
     @Multipart
     @POST("shipper/locations/image")

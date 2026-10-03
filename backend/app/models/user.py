@@ -62,6 +62,11 @@ class User(Base, TimestampMixin):
     #    上线那一刻所有货主的选品页都会是空的 —— 这种"默认把功能关掉"的迁移是灾难。
     #    所以用它做开关，白名单明细在 `user_product_visibility` 表里。
     product_scope: Mapped[str] = mapped_column(String(16), default="all")
+    # 账号分类（2026-10-05 用户要求「账户管理司机管理货主管理批发商管理……在这个位置也加个分类」）：
+    # **自由文本**（与 `products.category` 同一个做法，空串 = 未分类），顺序由全局名册表
+    # `user_categories` 管（`create_all` 建表；本列由迁移 014 加在已有库上）。
+    # ⛔ 不是外键：分类名本来就是给人看的短词，字符串匹配够用；代价是**改名必须级联**。
+    category: Mapped[str] = mapped_column(String(32), default="", index=True)
 
     orders_as_shipper: Mapped[list["Order"]] = relationship(
         back_populates="shipper", foreign_keys="Order.shipper_id"

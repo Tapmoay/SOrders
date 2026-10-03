@@ -49,7 +49,9 @@ from app.api.v1 import (
     system,
     unit_conversions,
     usage,
+    user_categories,
     users,
+    vehicle_categories,
 )
 
 api_router = APIRouter()
@@ -109,6 +111,11 @@ api_router.include_router(place_categories.router)
 # 线路分类名册（2026-10-04）：三档页签都要有分类显示，线路这一档原本没有名册，见
 # `api/v1/route_categories.py` 开头（与联系人/地点分类同一套规矩，第三份名册）。
 api_router.include_router(route_categories.router)
+# 账号分类 / 车辆分类名册（2026-10-05）：账户 / 司机 / 货主 / 批发商四个名册页共用一份账号名册，
+# 车辆管理页一份。与商品分类同一套规矩（全局主数据、改名级联、占用中拒删），
+# 见 `api/v1/user_categories.py` 与 `api/v1/vehicle_categories.py` 开头。
+api_router.include_router(user_categories.router)
+api_router.include_router(vehicle_categories.router)
 api_router.include_router(order_products.router)
 api_router.include_router(products.router)
 api_router.include_router(product_categories.router)

@@ -423,6 +423,16 @@
 |---|---|---|---|---|
 | `reset_usage` | 写 | `POST /api/v1/usage/reset` | 清空**我自己的**常用计数（列表回到「先创建的在前」）。 |  |
 
+## 账号分类（`user_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/user-categories` | 分类名册（按显示顺序）。四个名册页共用这一份 —— 账号是全局主数据，不按人分区。 |  |
+| `create_category` | 写 | `POST /api/v1/user-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/user-categories/{category_id}` | 改名 / 改顺序。**改名会级联改掉挂在这一类下的账号**（同一事务，见模块注释）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/user-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前（必须覆盖全部现存分类，理由见 `services/category_order`）。 |  |
+| `delete_category` | 写 | `DELETE /api/v1/user-categories/{category_id}` | 删除分类名册里的一行。**还有账号挂着时拒绝**（告诉有几个）。 |  |
+
 ## 司机/货主/批发商/账号（`users`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -437,6 +447,16 @@
 | `swap_shipper_driver` | 写 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | 货主 ↔ 司机身份切换（派单员操作）。派单员账号不可切换。 |  |
 | `delete_user` | 写 | `DELETE /api/v1/users/{user_id}` |  |  |
 | `restore_user` | 写 | `POST /api/v1/users/{user_id}/restore` | 把删掉的账号恢复回来（`DELETE /{id}` 的逆操作）。 |  |
+
+## 车辆分类（`vehicle_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/vehicle-categories` | 分类名册（按显示顺序）。全店一份 —— 车队是全局主数据。 |  |
+| `create_category` | 写 | `POST /api/v1/vehicle-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/vehicle-categories/{category_id}` | 改名 / 改顺序。**改名会级联改掉挂在这一类下的车**（同一事务）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/vehicle-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前（必须覆盖全部现存分类）。 |  |
+| `delete_category` | 写 | `DELETE /api/v1/vehicle-categories/{category_id}` | 删除分类名册里的一行。**还有车挂着时拒绝**（告诉有几辆）。 |  |
 
 ## 车辆管理（`vehicles`）
 

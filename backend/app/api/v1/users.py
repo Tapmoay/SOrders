@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 
+from app.api.v1.user_categories import ensure_user_category
 from app.core.pagination import finish_page
 from app.core.user_search import name_or_phone_like
 from sqlalchemy import select
@@ -19,7 +20,7 @@ from app.schemas.product_visibility import (
     visibility_of,
 )
 from app.schemas.user import UserCreate, UserOut, UserUpdate
-from app.services.soft_delete import del_suffix
+from app.services.soft_delete import del_suffix, has_del_suffix
 from app.services.operation_log_service import write_log
 from app.services.auth_service import revoke_tokens_and_sockets
 from app.services import usage_service
@@ -118,6 +119,7 @@ def create_user(
         is_member=body.is_member,
         salary=body.salary,
         vehicle_type=(body.vehicle_type or "").strip() or None,
+        category=(body.category or "").strip()[:32],
         billing_mode=resolve_billing_mode(
             (body.vehicle_type or "").strip() or None,
             body.billing_mode or None,
@@ -125,6 +127,9 @@ def create_user(
     )
     db.add(u)
     db.flush()
+    # 分类是自由文本，名册只决定"左侧那一列有哪些格、按什么顺序"（见 api/v1/user_categories.py）：
+    # 建号时带了个名册里没有的分类名 → 顺手补进名册（排到最后），别逼用户先建分类再建号。
+    ensure_user_category(db, u.category)
     # 账号的新建/改动以前也不进操作日志（`USER_CREATE` 枚举存在但没人用）——
     # "谁建的这个账号、谁给他改的权限"查不到。补上（v3.26）。
     write_log(
@@ -139,6 +144,7 @@ def create_user(
             "phone": u.phone,
             "role": u.role,
             "is_member": u.is_member,
+            "category": u.category,
             # ⛔ 绝不记密码（连哈希也不记）：操作日志是给人看的审计页，不是凭据库
         },
     )
@@ -261,6 +267,7 @@ def update_user(
         "salary": str(u.salary) if u.salary is not None else None,
         "billing_mode": u.billing_mode,
         "vehicle_type": u.vehicle_type,
+        "category": u.category,
     }
     if body.phone is not None:
         u.phone = body.phone
@@ -311,6 +318,13 @@ def update_user(
             u.billing_mode = normalize_billing_mode(body.billing_mode)
         elif body.vehicle_type is not None:
             u.billing_mode = resolve_billing_mode(u.vehicle_type, None)
+    # 账号分类（2026-10-05）：与工资/车型同一档，**仅派单员可改** —— 分类决定四个名册页
+    # 左侧那一列怎么分组，司机自己改等于自己挑一个组。
+    if body.category is not None:
+        if not is_dispatcher:
+            raise HTTPException(status_code=403, detail="仅派单员可修改账号分类")
+        u.category = (body.category or "").strip()[:32]
+        ensure_user_category(db, u.category)
 
     after = {
         "phone": u.phone,
@@ -321,6 +335,7 @@ def update_user(
         "salary": str(u.salary) if u.salary is not None else None,
         "billing_mode": u.billing_mode,
         "vehicle_type": u.vehicle_type,
+        "category": u.category,
     }
     changes = [
         {"field": k, "from": before[k], "to": after[k]} for k in before if before[k] != after[k]
@@ -389,7 +404,9 @@ def _is_deleted_account(u: User) -> bool:
     判据与 `delete_user` / `soft_delete.del_suffix` **同一处口径**：只看后缀，
     不看 `is_active` —— 停用与删除是两件事（停用的账号号码是好的，启用就该能登录）。
     """
-    return str(u.phone or "").endswith(f"_del{u.id}") or str(u.username or "").endswith(f"_del{u.id}")
+    # 口径实现只有一处（`services/soft_delete.has_del_suffix`）—— 分类名册的"在用条数"要按
+    # 同一个口径把回收站里的账号排除掉，两处各写一份迟早会分叉。
+    return has_del_suffix(u.id, u.phone, u.username)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

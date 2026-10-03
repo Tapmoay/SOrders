@@ -1,10 +1,10 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:4a6872fa696a803f176600caafc772e7452cb89f1e087e56affd00a1af493bdd",
+ "source_hash": "sha256:90013e02d23ba1ebb9814c6096cfe51085c32a029a5723074f20e7e024ef40ab",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 76,
-  "listed": 58,
+  "read_endpoints": 78,
+  "listed": 60,
   "missing_handler": []
  },
  "actions": [
@@ -2306,13 +2306,31 @@
    "skipped_params": []
   },
   {
+   "module": "user_categories",
+   "action": "list_categories",
+   "cn": "账号分类",
+   "module_cn": "账号分类",
+   "method": "get",
+   "path": "/api/v1/user-categories",
+   "at": "backend/app/api/v1/user_categories.py:97",
+   "auth": "仅登录",
+   "roles": [
+    "dispatcher",
+    "driver",
+    "shipper"
+   ],
+   "member_only": false,
+   "params": [],
+   "skipped_params": []
+  },
+  {
    "module": "users",
    "action": "list_users",
    "cn": "司机/货主/批发商/账号",
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:69",
+   "at": "backend/app/api/v1/users.py:70",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -2383,8 +2401,26 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users/me",
-   "at": "backend/app/api/v1/users.py:56",
+   "at": "backend/app/api/v1/users.py:57",
    "auth": "仅登录 + 体内含角色判断（需读源码）",
+   "roles": [
+    "dispatcher",
+    "driver",
+    "shipper"
+   ],
+   "member_only": false,
+   "params": [],
+   "skipped_params": []
+  },
+  {
+   "module": "vehicle_categories",
+   "action": "list_categories",
+   "cn": "车辆分类",
+   "module_cn": "车辆分类",
+   "method": "get",
+   "path": "/api/v1/vehicle-categories",
+   "at": "backend/app/api/v1/vehicle_categories.py:78",
+   "auth": "仅登录",
    "roles": [
     "dispatcher",
     "driver",
@@ -2401,7 +2437,7 @@
    "module_cn": "车辆管理",
    "method": "get",
    "path": "/api/v1/vehicles",
-   "at": "backend/app/api/v1/vehicles.py:244",
+   "at": "backend/app/api/v1/vehicles.py:246",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
