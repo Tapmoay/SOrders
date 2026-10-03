@@ -31,18 +31,6 @@
 
 ## 进行中
 
-### [2026-10-05 进行中] 会话：**CHG-0023 名册页的信息层级按设计规范重做一遍**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求方原话**：「呃还有这些啊，你已经改过的所有这些他那个侧边栏样式太不好看了，而且你看全部展开的话，他属于啊内容又比较短太空旷了我们可以搞一个半展开，然后里面的那些内容，你要理解什么样的信息要突出那我们就将什么样的信息给啊显示出来。包括我们这有张卡片啊，他也比如说我们重要的有有些还有什么信息啊，就是名称和电话号码吧，我们要有对应的语义色和图标。让信息明确，这是我们的设计规范啊你并没有按照我们的设计规范进行设计啊呃你改的那些全都看一下有没有按照设计规范进行设计，然后重新把它们搞好？核心要点就是让该重要的信息凸显出来并且保持美观」
-
-**改什么**：① 左栏分类抽屉半展开 —— `ui/common/CategoryDrawer.kt` 新增 `CategoryDrawerWidth = 240.dp`（M3 默认 ≈ 屏宽−56dp = 84%），四个**分类**抽屉（账户 / 司机·货主·批发商 / 车辆 / 地址与联系人）挂这个宽度，三个**选人**抽屉（`PersonDrawer` / `CustomerDrawer`）不收窄；抽屉每一格补左侧图标（全部 = `Icons.Default.Apps`、分类 = `Icons.Default.Folder`、管理分类 = `Icons.Default.Settings`）+ 选中态 accent 12% 底 + 右侧对勾，常驻说明压到 8 字。② 新共用件 `ui/common/RosterCard.kt`：`RosterNameRow`（本页模块色圈底图标 34/18 + 16sp 加粗 + 右侧插槽）与 `RosterPhoneRow`（`Icons.Default.Phone` 13dp + `PhoneGreen` + 15sp 前景色 + 整行长按复制），账户卡与司机 / 货主 / 批发商卡改走它。③ 顺带复核（「你改的那些全都看一下有没有按照设计规范」）：`CategoryRostersPanel.kt` 四颗裸 `IconButton` → `CardActionIcon`、强调色改形参、删除用 `MessageRed`、撤销条换回白卡 `SectionCard`；两个裸 FAB → 带字的 `ExtendedFloatingActionButton`；`ui/theme/Color.kt` 新增 `AccountBrown = 0xFF8D6E63L` + `OnAccountBrown`（宫格那一行故意保留裸字面量）；司机 / 货主 / 批发商页按池子取模块色（黄绿 / 深青 / 金）+ 压深字；规范 §2 / §3 / §4.10 修漂移 + 新增 §4.24。
-
-**Blast Radius**：L0（纯展示层：共用件、抽屉宽度、四页卡片与 FAB、两个主题 token、规范与判据；后端、DTO、仓库层、权限、审计、迁移一行不改）。
-
-**文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/common/RosterCard.kt（新）`、`android/app/src/main/java/com/tapmoay/sorders/ui/common/CategoryDrawer.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/AccountManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/CategoryRostersPanel.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/nav/Modules.kt`、`_tools/qa/_check_roster_cards.py（新）`、`_tools/qa/_reverse_verify_roster_cards.py（新）`、`_tools/qa/_check_sheet_form_pages.py`、`_tools/qa/_reverse_verify_sheet_form_pages.py`、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md（source_hash 重生成）`、`docs/changes/CHG-0023.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
-
-**结果**：（归档时补）
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5637,6 +5625,18 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-05 已完成] 会话：**CHG-0023 名册页的信息层级按设计规范重做一遍**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「呃还有这些啊，你已经改过的所有这些他那个侧边栏样式太不好看了，而且你看全部展开的话，他属于啊内容又比较短太空旷了我们可以搞一个半展开，然后里面的那些内容，你要理解什么样的信息要突出那我们就将什么样的信息给啊显示出来。包括我们这有张卡片啊，他也比如说我们重要的有有些还有什么信息啊，就是名称和电话号码吧，我们要有对应的语义色和图标。让信息明确，这是我们的设计规范啊你并没有按照我们的设计规范进行设计啊呃你改的那些全都看一下有没有按照设计规范进行设计，然后重新把它们搞好？核心要点就是让该重要的信息凸显出来并且保持美观」
+
+**改什么**：① 左栏分类抽屉半展开 —— `ui/common/CategoryDrawer.kt` 新增 `CategoryDrawerWidth = 240.dp`（M3 默认 ≈ 屏宽−56dp = 84%），四个**分类**抽屉（账户 / 司机·货主·批发商 / 车辆 / 地址与联系人）挂这个宽度，三个**选人**抽屉（`PersonDrawer` / `CustomerDrawer`）不收窄；抽屉每一格补左侧图标（全部 = `Icons.Default.Apps`、分类 = `Icons.Default.Folder`、管理分类 = `Icons.Default.Settings`）+ 选中态 accent 12% 底 + 右侧对勾，常驻说明压到 8 字。② 新共用件 `ui/common/RosterCard.kt`：`RosterNameRow`（本页模块色圈底图标 34/18 + 16sp 加粗 + 右侧插槽）与 `RosterPhoneRow`（`Icons.Default.Phone` 13dp + `PhoneGreen` + 15sp 前景色 + 整行长按复制），账户卡与司机 / 货主 / 批发商卡改走它。③ 顺带复核（「你改的那些全都看一下有没有按照设计规范」）：`CategoryRostersPanel.kt` 四颗裸 `IconButton` → `CardActionIcon`、强调色改形参、删除用 `MessageRed`、撤销条换回白卡 `SectionCard`；两个裸 FAB → 带字的 `ExtendedFloatingActionButton`；`ui/theme/Color.kt` 新增 `AccountBrown = 0xFF8D6E63L` + `OnAccountBrown`（宫格那一行故意保留裸字面量）；司机 / 货主 / 批发商页按池子取模块色（黄绿 / 深青 / 金）+ 压深字；规范 §2 / §3 / §4.10 修漂移 + 新增 §4.24。
+
+**Blast Radius**：L0（纯展示层：共用件、抽屉宽度、四页卡片与 FAB、两个主题 token、规范与判据；后端、DTO、仓库层、权限、审计、迁移一行不改）。
+
+**文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/common/RosterCard.kt（新）`、`android/app/src/main/java/com/tapmoay/sorders/ui/common/CategoryDrawer.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/AccountManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/CategoryRostersPanel.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/nav/Modules.kt`、`_tools/qa/_check_roster_cards.py（新）`、`_tools/qa/_reverse_verify_roster_cards.py（新）`、`_tools/qa/_check_sheet_form_pages.py`、`_tools/qa/_reverse_verify_sheet_form_pages.py`、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md（source_hash 重生成）`、`docs/changes/CHG-0023.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
+
+**结果**：判据 `_tools/qa/_check_roster_cards.py` **53/53**；反验 `_tools/qa/_reverse_verify_roster_cards.py` **47/47**（被碰文件逐字节还原）；全仓 `python _tools/qa/_check_all.py` **151/151 全绿**（219.6 秒）；`python backend/scripts/check_reachability.py` **113/113 全部可达**（284 条链接、无孤儿）；编译 + 单测（`:app:testEmuDebugUnitTest` 1132 个用例全过）；模拟器 5554 五张截图（`c23_a_account.png` / `c23_b_drawer.png` / `c23_c_panel.png` / `c23_d_drivers.png` / `c23_e_vehicle.png`）；顺手补齐 FEAT-0010 漏掉的测试侧两处（AiWriteTest 替身 + 两条上界）。提交 `fbff795`。
 
 ### [2026-10-05 进行中 → 2026-10-05 已完成] 会话：**FEAT-0010 账号分类与车辆分类名册（账户 / 司机 / 货主 / 批发商 / 车辆五个名册页标题右边多一个「分类」+ 左侧抽屉）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
