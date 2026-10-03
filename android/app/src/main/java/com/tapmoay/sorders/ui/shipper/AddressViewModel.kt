@@ -15,6 +15,7 @@ import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.ContactUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.LocationCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LocationDto
+import com.tapmoay.sorders.data.remote.dto.RouteCategoryDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.ReceiverContact
@@ -138,16 +139,26 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     /** 这个联系人归到哪个分类（空 = 未分类）；表单里可以现敲一个新的（后端会自动补进名册）。 */
     var contactCategory by mutableStateOf("")
 
-    /** 联系人分类名册（**自己那一份**）：联系人左栏与表单里的候选用它。 */
+    /** 联系人分类名册（**自己那一份**）：联系人段的分类抽屉与表单里的候选用它。 */
     var contactCategories by mutableStateOf<List<ContactCategoryDto>>(emptyList())
 
+    /** 这条线路归到哪个分类（空 = 未分类）；表单里从名册里选一个。 */
+    var routeCategory by mutableStateOf("")
+
+    /** 线路分类名册（**自己那一份**）：线路段的分类抽屉与表单里的候选用它。 */
+    var routeCategories by mutableStateOf<List<RouteCategoryDto>>(emptyList())
+
     /**
-     * 联系人段左栏选中的那一格（FEAT-0007）：`""` = 全部 / `"c|分类名"` = 某一类 / `"manage"` = 分类管理。
+     * 三个页签「按分类看」抽屉里各自选中的那一格：
+     * `""` = 全部 / `"c|分类名"` = 某一类（FEAT-0007 起用）；`"manage"` 留给抽屉末尾那行动作。
      *
-     * ⚠️ 与下单页地址库抽屉的 `sel`（key 约定 `a`/`l`/`p`/`c|名`）同一个形状 —— 那也是
-     *    全 App 唯一一处「左分类右列表」。联系人这里**没有**内置格，所以默认 `""`（全部）。
+     * ⚠️ 三个页签**共用同一个 key 约定**（零件 `ui/common/CategoryDrawer.kt` 只认这一套）：
+     *    路线 [routeRailKey] / 联系人 [contactRailKey] / 地点 [locRailKey]。
+     *    `"manage"` 不是一格数据 —— 点了就把这一页的内容换成管理面板（见 `AddressScreen.kt`）。
      */
+    var routeRailKey by mutableStateOf("")
     var contactRailKey by mutableStateOf("")
+    var locRailKey by mutableStateOf("")
 
     /** 这个地点是不是仓库（**只有派单员**能改，见后端 `api/v1/shipper.py`）。 */
     var locIsWarehouse by mutableStateOf(false)
@@ -203,6 +214,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
             // 分组名册是**表单里才用到**的边角数据：它挂了不该影响这一页能不能看
             try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {}
             try { contactCategories = container.repo.contactCategories() } catch (_: Exception) {}
+            try { routeCategories = container.repo.routeCategories() } catch (_: Exception) {}
             // 三条**全挂**才认定"这一页没加载出来"（整页给「重试」）；
             // 只挂了一部分就照常显示，缺的那条用 Snackbar 说一句 —— 别把好的也收走。
             if (!okAddresses && !okContacts && !okLocations) loadError = failed.firstOrNull() ?: "加载失败"
@@ -227,6 +239,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         draftIsDefault = false
         draftImageUrls = emptyList(); draftImageUploading = false
         draftContactId = null
+        routeCategory = ""
         formError = null
         showCreateDialog = true
     }
@@ -245,6 +258,8 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         draftIsDefault = a.isDefault
         draftImageUrls = a.imageUrls.ifEmpty { listOfNotNull(a.imageUrl) }; draftImageUploading = false
         draftContactId = null
+        // 分类**必须回填**：线路保存走"整份回传"，不回填就把分类静默清掉了。
+        routeCategory = a.category
         formError = null
         showCreateDialog = true
     }
@@ -425,6 +440,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                     originLat = draftOriginLat,
                     originLng = draftOriginLng,
                     isDefault = draftIsDefault,
+                    category = routeCategory.trim(),
                     imageUrls = draftImageUrls,
                 )
                 val cur = editing
@@ -591,6 +607,59 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
             if (contactRailKey.startsWith("c|") &&
                 contactCategories.none { "c|" + it.name == contactRailKey }
             ) contactRailKey = ""
+        }
+    }
+
+    /** 线路段分类抽屉 / 表单的同一件事（理由见 [reloadContactCategories]）。 */
+    fun reloadRouteCategories() {
+        viewModelScope.launch {
+            try { routeCategories = container.repo.routeCategories() } catch (_: Exception) {}
+            if (routeRailKey.startsWith("c|") &&
+                routeCategories.none { "c|" + it.name == routeRailKey }
+            ) routeRailKey = ""
+        }
+    }
+
+    /** 地点段分类抽屉 / 表单的同一件事（理由见 [reloadContactCategories]）。 */
+    fun reloadPlaceCategories() {
+        viewModelScope.launch {
+            try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {}
+            if (locRailKey.startsWith("c|") &&
+                placeCategories.none { "c|" + it.name == locRailKey }
+            ) locRailKey = ""
+        }
+    }
+
+    /**
+     * 就地新建一个线路分类并**选中它**（线路表单的分类下拉里那个「＋ 新建分类…」）。
+     *
+     * 与 [createContactCategoryAndSelect] / [createPlaceCategoryAndSelect] 逐字同构，
+     * 连"重名（409）时直接选中已有的那个"的理由都一样。
+     */
+    fun createRouteCategoryAndSelect(rawName: String, onDone: () -> Unit) {
+        val name = rawName.trim().take(8)
+        if (name.isBlank()) {
+            formError = "分类名不能为空"
+            return
+        }
+        acting = true
+        formError = null
+        viewModelScope.launch {
+            try {
+                try {
+                    container.repo.createRouteCategory(name)
+                } catch (e: Exception) {
+                    val msg = toApiException(e).message.orEmpty()
+                    if (!msg.contains("已经存在")) throw e
+                }
+                routeCategories = container.repo.routeCategories()
+                routeCategory = name
+                onDone()
+            } catch (e: Exception) {
+                formError = toApiException(e).message
+            } finally {
+                acting = false
+            }
         }
     }
 

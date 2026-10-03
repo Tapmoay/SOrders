@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:88349483e23be9cd8f9063925460201a50a44951b80831b75102f8285e68cd96",
- "source_commit": "ff5ae38",
- "generated_at": "2026-10-02T17:05:30Z",
+ "source_hash": "sha256:76c99fa3cf9c637ef4c38ebffd5a78cd7788d890dac905d2f4cf9ae788971f23",
+ "source_commit": "853c03e",
+ "generated_at": "2026-10-03T01:41:58Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -315,13 +315,13 @@
  "role_capabilities": [
   {
    "key": "address:manage",
-   "what": "地址与联系人：常用线路、联系人（含分类）、地点（含图片）",
+   "what": "地址与联系人：常用线路（含分类）、联系人（含分类）、地点（含图片）",
    "roles": [
     "shipper",
     "dispatcher"
    ],
    "kind": "write",
-   "gate": "backend/app/api/v1/shipper.py:31",
+   "gate": "backend/app/api/v1/shipper.py:32",
    "why_not_permission": "这一整块是「按人分区」的：货主管自己的地址库，派单员用同一套接口管代理下单要用的地址；权限点表述不了「只能动自己那一份」，那是 scope 才管的事。",
    "when_to_remove": "如果哪天把 scope=own 的权限点体系补全（`order:read_own` 那种已经在用了），这块可以收成 `address:manage` + scope=own。"
   },
@@ -553,7 +553,10 @@
   "address:manage": [
    "CONTACT_CATEGORY_UPSERT",
    "CONTACT_CATEGORY_DELETE",
-   "CONTACT_CATEGORY_REORDER"
+   "CONTACT_CATEGORY_REORDER",
+   "ROUTE_CATEGORY_UPSERT",
+   "ROUTE_CATEGORY_DELETE",
+   "ROUTE_CATEGORY_REORDER"
   ],
   "shipper_ledger:read_own": []
  },
@@ -568,7 +571,7 @@
   "capabilities": 26,
   "role_capabilities": 5,
   "write_capabilities": 18,
-  "audited_action_codes": 95,
+  "audited_action_codes": 98,
   "audit_exceptions": 1
  }
 }

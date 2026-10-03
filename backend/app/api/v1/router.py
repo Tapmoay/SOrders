@@ -39,6 +39,7 @@ from app.api.v1 import (
     places,
     price_rules,
     product_categories,
+    route_categories,
     products,
     reports,
     return_requests,
@@ -105,6 +106,9 @@ api_router.include_router(places.router)
 # 联系人分类名册（FEAT-0007）：与地点分类同一套规矩，见 `api/v1/contact_categories.py` 开头
 api_router.include_router(contact_categories.router)
 api_router.include_router(place_categories.router)
+# 线路分类名册（2026-10-04）：三档页签都要有分类显示，线路这一档原本没有名册，见
+# `api/v1/route_categories.py` 开头（与联系人/地点分类同一套规矩，第三份名册）。
+api_router.include_router(route_categories.router)
 api_router.include_router(order_products.router)
 api_router.include_router(products.router)
 api_router.include_router(product_categories.router)

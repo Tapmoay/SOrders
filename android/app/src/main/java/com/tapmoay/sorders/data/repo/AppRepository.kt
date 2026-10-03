@@ -344,6 +344,28 @@ class AppRepository(private val api: ApiBundle) {
             com.tapmoay.sorders.data.remote.dto.ContactCategoryReorderRequest(ids)
         )
 
+    // ---- 线路分类名册（2026-10-04，同上：**按人分区**）----
+    suspend fun routeCategories() = api.shipperApi.listRouteCategories()
+    suspend fun createRouteCategory(name: String, sortOrder: Int? = null) =
+        api.shipperApi.createRouteCategory(
+            com.tapmoay.sorders.data.remote.dto.RouteCategoryCreateRequest(name, sortOrder)
+        )
+
+    /** 改名 / 改顺序（`PATCH /route-categories/{id}`，后端是部分更新：null = 不动）。 */
+    suspend fun updateRouteCategory(id: Long, name: String? = null, sortOrder: Int? = null) =
+        api.shipperApi.updateRouteCategory(
+            id,
+            com.tapmoay.sorders.data.remote.dto.RouteCategoryUpdateRequest(name, sortOrder),
+        )
+
+    suspend fun deleteRouteCategory(id: Long) = api.shipperApi.deleteRouteCategory(id)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    suspend fun reorderRouteCategories(ids: List<Long>) =
+        api.shipperApi.reorderRouteCategories(
+            com.tapmoay.sorders.data.remote.dto.RouteCategoryReorderRequest(ids)
+        )
+
     suspend fun createContact(body: com.tapmoay.sorders.data.remote.dto.ContactCreateRequest) = api.shipperApi.createContact(body)
     suspend fun updateContact(id: Long, body: com.tapmoay.sorders.data.remote.dto.ContactUpdateRequest) = api.shipperApi.updateContact(id, body)
     suspend fun deleteContact(id: Long) = api.shipperApi.deleteContact(id)

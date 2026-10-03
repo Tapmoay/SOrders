@@ -31,6 +31,13 @@ class ShipperAddress(Base, TimestampMixin, SoftDeleteMixin):
     image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # 多张图片（JSON 数组，如 ["/static/...", ...]）；image_url 保留兼容（= 首图）
     image_urls: Mapped[str] = mapped_column(Text, default="[]")
+    #: 自定义分类（用户 2026-10-04：「干脆给线路联系人以及地点，这3个的界面…加一个分类显示」）。
+    #  与 `shipper_contacts.category` / `shipper_locations.category` **逐字同形**：同一张
+    #  `String(32)` + `index=True` + 空串 = 未分类的三件套，归属是自由文本、顺序归名册表
+    #  （`RouteCategory`）管 —— 读侧不该出现第二套写法。
+    #  ⚠️ 存在线路这一行上、**不存名册 id**：删名册一行不该让 12 条线路的归属跟着消失
+    #     （与联系人 / 地点侧同一条理由）。
+    category: Mapped[str] = mapped_column(String(32), default="", index=True)
 
     shipper: Mapped["User"] = relationship(back_populates="addresses")
 

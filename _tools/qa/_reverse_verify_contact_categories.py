@@ -121,7 +121,15 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "⑩ PATCH 丢掉 None 三档语义（改个称呼顺手把分类清掉）",
         BE_SHIPPER_API,
-        lambda s: s.replace("if body.category is not None:", "if body.category:", 1),
+        # ⚠️ FEAT-0009：`if body.category is not None:` 在这份文件里已经出现了 3 处（地址/联系人/地点），
+        #    直接 replace(..., 1) 会命中**地址**那一处 —— 联系人这半条线判据照样绿，注入等于白打。
+        #    锚点带上紧邻的那行注释，把它钉死在 update_contact 里。
+        lambda s: s.replace(
+            "    # FEAT-0007：分类 —— `None` = 不改；**空串 = 明确清成未分类**（界面上把分类清空再保存）。\n"
+            "    if body.category is not None:",
+            "    if body.category:",
+            1,
+        ),
         "PATCH 走三档语义",
     ),
     # ---- 二、迁移 012 ----
@@ -170,8 +178,8 @@ CASES: list[tuple[str, str, object, str]] = [
         BE_CAP,
         lambda s: s.replace(
             "'address:manage': ('CONTACT_CATEGORY_UPSERT', 'CONTACT_CATEGORY_DELETE', "
-            "'CONTACT_CATEGORY_REORDER'),",
-            "'address:manage': (),",
+            "'CONTACT_CATEGORY_REORDER',",
+            "'address:manage': (",
             1,
         ),
         "没认领",
@@ -179,7 +187,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "⑰ 能力 gate 行号漂到没有角色门的那一行",
         BE_ROLE_CAPS,
-        lambda s: s.replace("gate='backend/app/api/v1/shipper.py:31'", "gate='backend/app/api/v1/shipper.py:29'", 1),
+        lambda s: s.replace("gate='backend/app/api/v1/shipper.py:32'", "gate='backend/app/api/v1/shipper.py:29'", 1),
         "gate 行号",
     ),
     (
@@ -192,9 +200,11 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "⑲ 左栏那一格又显示条数（用户 2026-09-19 点名的「多余信息」）",
         ADDR_SCREEN,
+        # ⚠️ FEAT-0009：左栏搬成了标题行胶囊 + 左侧抽屉，那一格现在叫 `CategoryDrawerItem`。
+        #    锚点必须带上 `vm.contactCategories`：三档的抽屉都用同一个零件，只按零件名注入会打到线路档。
         lambda s: s.replace(
-            'add(RailItem("c|" + c.name, c.name))',
-            'add(RailItem("c|" + c.name, c.name + c.contactCount))',
+            'vm.contactCategories.map { CategoryDrawerItem("c|" + it.name, it.name) }',
+            'vm.contactCategories.map { CategoryDrawerItem("c|" + it.name, it.name + it.contactCount) }',
             1,
         ),
         "没有条数",
@@ -208,7 +218,8 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "㉑ 左栏少了「管理分类」那一格（第二层进不去）",
         ADDR_SCREEN,
-        lambda s: s.replace('add(RailItem("manage", "管理分类"))', 'add(RailItem("m", "管理"))', 1),
+        # ⚠️ FEAT-0009：管理入口现在是抽屉最后一行（`manageLabel = "管理分类"`），不再是 RailItem。
+        lambda s: s.replace('manageLabel = "管理分类"', 'manageLabel = "分类管理"', 1),
         "管理入口没了",
     ),
     (

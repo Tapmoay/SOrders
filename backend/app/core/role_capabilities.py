@@ -51,10 +51,12 @@ class RoleCapability:
 ROLE_CAPABILITIES: tuple[RoleCapability, ...] = (
     RoleCapability(
         key='address:manage',
-        what='地址与联系人：常用线路、联系人（含分类）、地点（含图片）',
+        what='地址与联系人：常用线路（含分类）、联系人（含分类）、地点（含图片）',
         roles=('shipper', 'dispatcher'),
         kind='write',
-        gate='backend/app/api/v1/shipper.py:31',
+        # ⚠️ 行号会随 import 漂移：FEAT-0009 在文件头加了一行 import，门从 :31 挪到了 :32。
+        #    判据 `_check_capability_unification.py` 会去那一行核它真是角色门（`require_roles(`）。
+        gate='backend/app/api/v1/shipper.py:32',
         why_not_permission='这一整块是「按人分区」的：货主管自己的地址库，派单员用同一套接口管代理下单要用的地址；'
                             '权限点表述不了「只能动自己那一份」，那是 scope 才管的事。',
         when_to_remove='如果哪天把 scope=own 的权限点体系补全（`order:read_own` 那种已经在用了），'

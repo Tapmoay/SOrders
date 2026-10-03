@@ -124,7 +124,7 @@ pure_consumer: no
 name: party
 中文名: 往来单位档案域
 为什么是它自己的域: 货主 / 批发商 / 散客 / 供应商 / 挂账单位是「跟谁打交道」的档案：它们不属于订单（订单只是引用），也不属于钱（钱只是记在它们名下）。
-owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations, contact_categories
+owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations, contact_categories, route_categories
 commands: services.supplier_service:soft_delete_supplier, services.supplier_service:restore_supplier, services.supplier_service:soft_delete_payable, services.supplier_service:restore_payable, services.shipper_contact_service:upsert_boss_contact
 reads: users@identity
 events: -
@@ -134,6 +134,8 @@ pure_consumer: no
 **⛔ 与钱域的边界**：这一域拥有**档案**（名字 / 电话 / 地址 / 联系人），钱域拥有**金额** —— `supplier_payables` 在钱域，因为它是「欠了多少钱」这个事实，不是「这个供应商是谁」。
 
 **地址为什么不在订单域**：订单只是**引用**一个地址；地址本身可复用（地址库 / 地点库 / 常用线路），而且货主换地址时，历史订单上的地址不该跟着变。
+
+**线路分类为什么也在这里**：`route_categories` 是 `shipper_addresses.category` 那一列的名册（FEAT-0009，2026-10-04 从零补上），与 `contact_categories` 管 `shipper_contacts.category` 是同一件事的两半 —— 名册跟着它命名的那张表走，所以两张名册都在本域。
 
 **本域真实的洞**：客户 / 地址 / 联系人的增删改内联在 `api/v1/customers.py`、`api/v1/shipper.py` 里。
 

@@ -266,7 +266,7 @@ def main() -> int:
 
     # ---- 6. 本批没顺手改别的：本页锚点 ----
     for needle, why in (
-        ("tab == 1 -> ContactCategoryPane(", "联系人左分类右列表"),
+        ("tab == 1 -> ContactCategoryPane(", "联系人的分类选择（FEAT-0009 起：标题行胶囊 + 左侧抽屉，不再是常驻左栏）"),
         ("vm.contacts.filter {", "联系人过滤入口"),
         (USER_MATCH, "按人匹配的口径（手机号后 4 位）"),
         ("ContactPickerSheet(", "联系人选择抽屉"),

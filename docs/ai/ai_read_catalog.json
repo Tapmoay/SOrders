@@ -1,10 +1,10 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:7c82a261f1b2c8bc22a5fb0a1d2568e9b249aca98267f91e4fd3f8ba7d8e39cf",
+ "source_hash": "sha256:4a6872fa696a803f176600caafc772e7452cb89f1e087e56affd00a1af493bdd",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 75,
-  "listed": 57,
+  "read_endpoints": 76,
+  "listed": 58,
   "missing_handler": []
  },
  "actions": [
@@ -1667,13 +1667,30 @@
    "skipped_params": []
   },
   {
+   "module": "route_categories",
+   "action": "list_categories",
+   "cn": "线路分类",
+   "module_cn": "线路分类",
+   "method": "get",
+   "path": "/api/v1/route-categories",
+   "at": "backend/app/api/v1/route_categories.py:100",
+   "auth": "角色:dispatcher\\|shipper",
+   "roles": [
+    "dispatcher",
+    "shipper"
+   ],
+   "member_only": false,
+   "params": [],
+   "skipped_params": []
+  },
+  {
    "module": "shipper",
    "action": "list_addresses",
    "cn": "地址与联系人",
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/addresses",
-   "at": "backend/app/api/v1/shipper.py:69",
+   "at": "backend/app/api/v1/shipper.py:70",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1690,7 +1707,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/contacts",
-   "at": "backend/app/api/v1/shipper.py:214",
+   "at": "backend/app/api/v1/shipper.py:222",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -1707,7 +1724,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/locations",
-   "at": "backend/app/api/v1/shipper.py:356",
+   "at": "backend/app/api/v1/shipper.py:364",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",

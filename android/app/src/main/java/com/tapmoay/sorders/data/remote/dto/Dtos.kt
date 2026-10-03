@@ -546,6 +546,15 @@ data class AddressDto(
     val originLat: String? = null,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("origin_lng")
     val originLng: String? = null,
+    /**
+     * 常用线路的分类（"" = 未分类，2026-10-04）。
+     *
+     * 用户 2026-10-04：「**干脆给线路联系人以及地点，这3个的界面玩个框了框的位置
+     * 加一个分类显示**」—— 线路这一档以前**连列都没有**，这一批才和联系人 / 地点对齐。
+     * 与那两档**同一套做法**（名册管顺序、字符串管归属，见 models/route_category.py）：
+     * ⛔ 存的是分类**名**，不是名册 id —— 名册里删掉一行不该让线路上的分类变成一串数字。
+     */
+    val category: String = "",
     @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("created_at") val createdAt: String = "",
@@ -563,6 +572,8 @@ data class AddressCreateRequest(
     @SerialName("origin_address") val originAddress: String? = null,
     @SerialName("origin_lat") val originLat: String? = null,
     @SerialName("origin_lng") val originLng: String? = null,
+    /** 分类："" = 未分类（名册里还没有的名字由服务端顺手补进名册，不让用户先建分类）。 */
+    val category: String = "",
     @SerialName("image_urls") val imageUrls: List<String> = emptyList(),
 )
 
@@ -666,6 +677,33 @@ data class ContactCategoryUpdateRequest(val name: String? = null, @SerialName("s
 
 @Serializable
 data class ContactCategoryReorderRequest(val ids: List<Long>)
+
+/**
+ * 线路分类名册（2026-10-04，**按人分区**：货主 / 批发商 / 派单员各管自己那一份）。
+ *
+ * 用户 2026-10-04：「干脆给线路联系人以及地点，这3个的界面…加一个分类显示」——
+ * 与 [ContactCategoryDto] / [PlaceCategoryDto] 是**同一套形状**，差别只有级联目标：
+ * 那边挂的是联系人与地点，这边挂的是常用线路（`shipper_addresses.category`）。
+ *
+ * ⚠️ 这一档是**新加的**（联系人 2026-10-03 就有了名册，线路到这天还没有）。
+ */
+@Serializable
+data class RouteCategoryDto(
+    val id: Long,
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 这一类下**在用**的线路条数（删之前要让用户看见影响面）。 */
+    @SerialName("address_count") val addressCount: Int = 0,
+)
+
+@Serializable
+data class RouteCategoryCreateRequest(val name: String, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class RouteCategoryUpdateRequest(val name: String? = null, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class RouteCategoryReorderRequest(val ids: List<Long>)
 
 @Serializable
 data class LocationImageOut(val url: String = "")

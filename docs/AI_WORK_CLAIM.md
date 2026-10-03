@@ -31,6 +31,20 @@
 
 ## 进行中
 
+### [2026-10-04 进行中] 会话：**FEAT-0009 地址与联系人三档「分类显示 + 左侧抽屉」（并给线路补上分类名册）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：「干脆给线路联系人以及地点，这3个的界面玩个框了框的位置加一个分类显示，它目前，全部的话，就显示，全部如果是其他分类就显示，其他分类点击这个按钮的时候，它就会弹出一个在左侧来，它这个左侧抽屉左侧抽屉就是我们的那个分类显示，可以去参考账本管理的那些代码就不要使用那个商品管理的界面了，商品管理的话，那样子的界面导致了右边的卡片的信息被挤压了不是很好看。」
+
+**改什么**：三个页签（路线 / 联系人 / 地址）标题行「标题 ── 新增 X」之间各加一个**分类胶囊**（全部 → 显示「全部」，选中某类 → 显示类名），点开是**左侧抽屉**（照账本管理 `DispatcherLedgerScreen.kt:93` 的 `ModalNavigationDrawer`，**不是**商品管理那种常驻左栏 `MasterRail`），抽屉末行「管理分类」进同屏第二层的管理面板。
+联系人那一档原来的常驻左栏拆掉、三档同形；**线路从零补一套分类名册**（`route_categories` 表 + 迁移 013 给 `shipper_addresses` 加 `category` 列 + 五个端点 + DTO + 管理面板），线路表单里补「分类」下拉（否则名册建了也没有赋值入口）。
+新共用零件 `ui/common/CategoryDrawer.kt`；判据 `_tools/qa/_check_route_categories.py` + 反验 `_tools/qa/_reverse_verify_route_categories.py`。
+
+**Blast Radius**：L2（Contract / Data）—— 新表 + 新列 + 迁移 013 + 五个新端点 + 五个 DTO + 三个审计码；不改权限、不改既有端点字段与语义、不给老数据回填（老线路落空串 = 未分类）。
+
+**文件**：`backend/app/models/route_category.py`、`backend/app/schemas/route_category.py`、`backend/app/api/v1/route_categories.py`、`backend/app/migrations/013_route_categories.py`、`backend/tests/test_route_categories.py`、`backend/app/api/v1/shipper.py`、`backend/app/schemas/shipper.py`、`backend/app/models/shipper.py`、`backend/app/models/enums.py`、`backend/app/models/__init__.py`、`backend/app/api/v1/router.py`、`android/.../data/remote/dto/Dtos.kt`、`api/Apis.kt`、`repo/AppRepository.kt`、`ui/common/CategoryDrawer.kt`、`ui/dispatcher/RouteCategoriesViewModel.kt`、`RouteCategoriesScreen.kt`、`ui/shipper/AddressScreen.kt`、`AddressViewModel.kt`、`_tools/ai/_gen_ai_toolmap.py`、`_gen_ai_read_catalog.py`、生成的 `docs/ai/*`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`09A_HINT_CATALOG.md`
+
+**结果**：（归档时补）
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

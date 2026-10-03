@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 229,
-    "read": 75,
-    "write": 154,
-    "unique_paths": 163,
-    "unique_method_path": 229,
+    "endpoints": 234,
+    "read": 76,
+    "write": 158,
+    "unique_paths": 166,
+    "unique_method_path": 234,
     "shadowed_routes": []
   },
   "modules": {
@@ -1637,6 +1637,56 @@
         }
       ]
     },
+    "route_categories": {
+      "cn": "线路分类",
+      "actions": [
+        {
+          "action": "list_categories",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/route-categories",
+          "handler": "list_categories",
+          "doc": "**自己那一份**分类名册（按显示顺序）。司机没有线路库，拿不到。",
+          "at": "backend/app/api/v1/route_categories.py:100"
+        },
+        {
+          "action": "create_category",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/route-categories",
+          "handler": "create_category",
+          "doc": "",
+          "at": "backend/app/api/v1/route_categories.py:112"
+        },
+        {
+          "action": "delete_category",
+          "risk": "write",
+          "method": "delete",
+          "path": "/api/v1/route-categories/{category_id}",
+          "handler": "delete_category",
+          "doc": "删掉自己名册里的一行。**还有线路挂着时拒绝**（告诉有几条）。",
+          "at": "backend/app/api/v1/route_categories.py:224"
+        },
+        {
+          "action": "reorder_categories",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/route-categories/reorder",
+          "handler": "reorder_categories",
+          "doc": "整份顺序一次提交：`ids[0]` 排最前。**必须覆盖自己全部现存分类**（理由同地点分类：",
+          "at": "backend/app/api/v1/route_categories.py:197"
+        },
+        {
+          "action": "update_category",
+          "risk": "write",
+          "method": "patch",
+          "path": "/api/v1/route-categories/{category_id}",
+          "handler": "update_category",
+          "doc": "改名 / 改顺序。**改名会级联改掉挂在这一类下的线路**（同一事务）。",
+          "at": "backend/app/api/v1/route_categories.py:149"
+        }
+      ]
+    },
     "shipper": {
       "cn": "地址与联系人",
       "actions": [
@@ -1647,7 +1697,7 @@
           "path": "/api/v1/shipper/addresses/{address_id}",
           "handler": "get_address",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:114"
+          "at": "backend/app/api/v1/shipper.py:119"
         },
         {
           "action": "list_addresses",
@@ -1656,7 +1706,7 @@
           "path": "/api/v1/shipper/addresses",
           "handler": "list_addresses",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:69"
+          "at": "backend/app/api/v1/shipper.py:70"
         },
         {
           "action": "list_contacts",
@@ -1665,7 +1715,7 @@
           "path": "/api/v1/shipper/contacts",
           "handler": "list_contacts",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:214"
+          "at": "backend/app/api/v1/shipper.py:222"
         },
         {
           "action": "list_locations",
@@ -1674,7 +1724,7 @@
           "path": "/api/v1/shipper/locations",
           "handler": "list_locations",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:356"
+          "at": "backend/app/api/v1/shipper.py:364"
         },
         {
           "action": "create_address",
@@ -1683,7 +1733,7 @@
           "path": "/api/v1/shipper/addresses",
           "handler": "create_address",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:83"
+          "at": "backend/app/api/v1/shipper.py:84"
         },
         {
           "action": "create_location",
@@ -1692,7 +1742,7 @@
           "path": "/api/v1/shipper/locations",
           "handler": "create_location",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:366"
+          "at": "backend/app/api/v1/shipper.py:374"
         },
         {
           "action": "delete_address",
@@ -1701,7 +1751,7 @@
           "path": "/api/v1/shipper/addresses/{address_id}",
           "handler": "delete_address",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:170"
+          "at": "backend/app/api/v1/shipper.py:178"
         },
         {
           "action": "delete_contact",
@@ -1710,7 +1760,7 @@
           "path": "/api/v1/shipper/contacts/{contact_id}",
           "handler": "delete_contact",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:523"
+          "at": "backend/app/api/v1/shipper.py:531"
         },
         {
           "action": "delete_location",
@@ -1719,7 +1769,7 @@
           "path": "/api/v1/shipper/locations/{location_id}",
           "handler": "delete_location",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:451"
+          "at": "backend/app/api/v1/shipper.py:459"
         },
         {
           "action": "restore_address",
@@ -1728,7 +1778,7 @@
           "path": "/api/v1/shipper/addresses/{address_id}/restore",
           "handler": "restore_address",
           "doc": "把删掉的常用地址恢复回来（DELETE /addresses/{id} 的逆操作）。",
-          "at": "backend/app/api/v1/shipper.py:182"
+          "at": "backend/app/api/v1/shipper.py:190"
         },
         {
           "action": "restore_contact",
@@ -1737,7 +1787,7 @@
           "path": "/api/v1/shipper/contacts/{contact_id}/restore",
           "handler": "restore_contact",
           "doc": "把删掉的联系人恢复回来（DELETE /contacts/{id} 的逆操作）。",
-          "at": "backend/app/api/v1/shipper.py:540"
+          "at": "backend/app/api/v1/shipper.py:548"
         },
         {
           "action": "restore_location",
@@ -1746,7 +1796,7 @@
           "path": "/api/v1/shipper/locations/{location_id}/restore",
           "handler": "restore_location",
           "doc": "把删掉的地点恢复回来（DELETE /locations/{id} 的逆操作）。",
-          "at": "backend/app/api/v1/shipper.py:508"
+          "at": "backend/app/api/v1/shipper.py:516"
         },
         {
           "action": "set_default_address",
@@ -1755,7 +1805,7 @@
           "path": "/api/v1/shipper/addresses/{address_id}/set-default",
           "handler": "set_default_address",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:197"
+          "at": "backend/app/api/v1/shipper.py:205"
         },
         {
           "action": "share_location",
@@ -1764,7 +1814,7 @@
           "path": "/api/v1/shipper/locations/{location_id}/share",
           "handler": "share_location",
           "doc": "把「我的地点」里的一个地点**设为共享地址**（进全库共用的那张表）。**只有派单员**。",
-          "at": "backend/app/api/v1/shipper.py:462"
+          "at": "backend/app/api/v1/shipper.py:470"
         },
         {
           "action": "update_address",
@@ -1773,7 +1823,7 @@
           "path": "/api/v1/shipper/addresses/{address_id}",
           "handler": "update_address",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:122"
+          "at": "backend/app/api/v1/shipper.py:127"
         },
         {
           "action": "update_contact",
@@ -1782,7 +1832,7 @@
           "path": "/api/v1/shipper/contacts/{contact_id}",
           "handler": "update_contact",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:276"
+          "at": "backend/app/api/v1/shipper.py:284"
         },
         {
           "action": "update_location",
@@ -1791,7 +1841,7 @@
           "path": "/api/v1/shipper/locations/{location_id}",
           "handler": "update_location",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:399"
+          "at": "backend/app/api/v1/shipper.py:407"
         },
         {
           "action": "upload_location_image",
@@ -1800,7 +1850,7 @@
           "path": "/api/v1/shipper/locations/image",
           "handler": "upload_location_image",
           "doc": "上传地点图片（创建订单时随地点信息一并带入）。",
-          "at": "backend/app/api/v1/shipper.py:319"
+          "at": "backend/app/api/v1/shipper.py:327"
         },
         {
           "action": "upsert_contact",
@@ -1809,7 +1859,7 @@
           "path": "/api/v1/shipper/contacts",
           "handler": "upsert_contact",
           "doc": "",
-          "at": "backend/app/api/v1/shipper.py:225"
+          "at": "backend/app/api/v1/shipper.py:233"
         }
       ]
     },

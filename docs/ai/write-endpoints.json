@@ -2100,10 +2100,91 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/route-categories",
+  "handler": "create_category",
+  "file": "v1/route_categories.py",
+  "line": 111,
+  "body": "RouteCategoryCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/route-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/route_categories.py",
+  "line": 148,
+  "body": "RouteCategoryUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/route-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/route_categories.py",
+  "line": 196,
+  "body": "RouteCategoryReorder",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/route-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/route_categories.py",
+  "line": 223,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/shipper/addresses",
   "handler": "create_address",
   "file": "v1/shipper.py",
-  "line": 82,
+  "line": 83,
   "body": "AddressCreate",
   "auth": [
    "?须读源码"
@@ -2115,7 +2196,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}",
   "handler": "update_address",
   "file": "v1/shipper.py",
-  "line": 121,
+  "line": 126,
   "body": "AddressUpdate",
   "auth": [
    "?须读源码"
@@ -2127,7 +2208,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}",
   "handler": "delete_address",
   "file": "v1/shipper.py",
-  "line": 169,
+  "line": 177,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2139,7 +2220,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}/restore",
   "handler": "restore_address",
   "file": "v1/shipper.py",
-  "line": 181,
+  "line": 189,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2151,7 +2232,7 @@
   "path": "/api/v1/shipper/addresses/{address_id}/set-default",
   "handler": "set_default_address",
   "file": "v1/shipper.py",
-  "line": 196,
+  "line": 204,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2163,7 +2244,7 @@
   "path": "/api/v1/shipper/contacts",
   "handler": "upsert_contact",
   "file": "v1/shipper.py",
-  "line": 224,
+  "line": 232,
   "body": "ContactCreate",
   "auth": [
    "?须读源码"
@@ -2194,7 +2275,7 @@
   "path": "/api/v1/shipper/contacts/{contact_id}",
   "handler": "update_contact",
   "file": "v1/shipper.py",
-  "line": 275,
+  "line": 283,
   "body": "ContactUpdate",
   "auth": [
    "?须读源码"
@@ -2225,7 +2306,7 @@
   "path": "/api/v1/shipper/locations/image",
   "handler": "upload_location_image",
   "file": "v1/shipper.py",
-  "line": 318,
+  "line": 326,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2237,7 +2318,7 @@
   "path": "/api/v1/shipper/locations",
   "handler": "create_location",
   "file": "v1/shipper.py",
-  "line": 365,
+  "line": 373,
   "body": "LocationCreate",
   "auth": [
    "?须读源码"
@@ -2249,7 +2330,7 @@
   "path": "/api/v1/shipper/locations/{location_id}",
   "handler": "update_location",
   "file": "v1/shipper.py",
-  "line": 398,
+  "line": 406,
   "body": "LocationUpdate",
   "auth": [
    "?须读源码"
@@ -2261,7 +2342,7 @@
   "path": "/api/v1/shipper/locations/{location_id}",
   "handler": "delete_location",
   "file": "v1/shipper.py",
-  "line": 450,
+  "line": 458,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2273,7 +2354,7 @@
   "path": "/api/v1/shipper/locations/{location_id}/share",
   "handler": "share_location",
   "file": "v1/shipper.py",
-  "line": 461,
+  "line": 469,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2285,7 +2366,7 @@
   "path": "/api/v1/shipper/locations/{location_id}/restore",
   "handler": "restore_location",
   "file": "v1/shipper.py",
-  "line": 507,
+  "line": 515,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2297,7 +2378,7 @@
   "path": "/api/v1/shipper/contacts/{contact_id}",
   "handler": "delete_contact",
   "file": "v1/shipper.py",
-  "line": 522,
+  "line": 530,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2309,7 +2390,7 @@
   "path": "/api/v1/shipper/contacts/{contact_id}/restore",
   "handler": "restore_contact",
   "file": "v1/shipper.py",
-  "line": 539,
+  "line": 547,
   "body": null,
   "auth": [
    "?须读源码"

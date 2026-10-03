@@ -1074,6 +1074,12 @@ class RepoWriteDataSource(
                 //    而卡片最后一行承诺"点它就能改回原样"。
                 //    地点那条路（`updatePlace`）一直有这一行 —— 这里是漏写。
                 imageUrls = cur.imageUrls,
+                // ⚠️ **必须回填分类**（2026-10-04 FEAT-0009，`_check_ai_dto_defaults.py` 抓到）：
+                //    `AddressCreateRequest.category` 的默认值是 `""`（非空默认值），`encodeDefaults = true`
+                //    会把它永远发出去 → 后端 `_clean_category("")` 就是"清空"→ **每次 AI 改这条线路的
+                //    电话/地址，它的分类都被静默清掉**（列表里那条会从分类抽屉里消失）。
+                //    用户没点名分类时按原值回填；点名了就按点名的改。
+                category = fields.str("category") ?: cur.category,
             ),
         )
     }
@@ -1691,6 +1697,53 @@ class RepoWriteDataSource(
         repo.reorderContactCategories(ids)
     }
 
+
+    // ---- 线路分类名册（按人分区，2026-10-04 FEAT-0009）----
+    //
+    // 与联系人分类**同一个形状**：`note` 带"这一类下挂着几条线路"（改名会级联改掉它们、
+    // 删除会被后端拒绝，那个数字是用户判断影响面的唯一依据），位置一律"先按排在最后建出来、
+    // 再走 reorder 挪过去"。唯一的差别是级联目标是 `shipper_addresses.category`。
+
+    /** 我自己的线路分类（`repo.routeCategories()` 读的就是当前登录人那一份）。 */
+    override suspend fun routeCategories(): List<AiName> = repo.routeCategories().map {
+        AiName(it.id, it.name, note = if (it.addressCount > 0) "${it.addressCount} 条线路" else null)
+    }
+
+    override suspend fun createRouteCategory(fields: JsonObject) {
+        val created = repo.createRouteCategory(
+            name = fields.req("name"),
+            // 先按"排在最后"建出来；有位置要求时再用 reorder 挪过去（与联系人分类同一套理由）。
+            sortOrder = null,
+        )
+        fields.str("sort_order")?.toIntOrNull()?.let { moveRouteCategoryTo(created.id, it) }
+    }
+
+    /**
+     * 把某个分类挪到「第 N 位」（**从 1 数**）。走 reorder 而不是写绝对值 ——
+     * 理由与联系人分类那份一字不差（绝对值会与现有第 1 位撞车、按 id 排后落到别处）。
+     */
+    private suspend fun moveRouteCategoryTo(id: Long, position1Based: Int) {
+        val ids = repo.routeCategories().sortedBy { it.sortOrder }.map { it.id }.toMutableList()
+        ids.remove(id)
+        val idx = (position1Based - 1).coerceIn(0, ids.size)
+        ids.add(idx, id)
+        repo.reorderRouteCategories(ids)
+    }
+
+    override suspend fun updateRouteCategory(id: Long, fields: JsonObject) {
+        require(fields.isNotEmpty()) { "updateRouteCategory 的部分更新体是空的（规格 key 写错了）" }
+        repo.updateRouteCategory(id, name = fields.str("name"), sortOrder = null)
+        fields.str("sort_order")?.toIntOrNull()?.let { moveRouteCategoryTo(id, it) }
+    }
+
+    override suspend fun deleteRouteCategory(id: Long) {
+        repo.deleteRouteCategory(id)
+    }
+
+    override suspend fun reorderRouteCategories(ids: List<Long>) {
+        repo.reorderRouteCategories(ids)
+    }
+
     override suspend fun reorderProductCategories(ids: List<Long>) {
         repo.reorderProductCategories(ids)
     }
@@ -1927,6 +1980,9 @@ class RepoWriteDataSource(
             "contact_category" ->
                 repo.contactCategories().firstOrNull { it.id == id }
                     ?.let { AiBefore(id, AiRevertRead.contactCategory(it)) }
+            "route_category" ->
+                repo.routeCategories().firstOrNull { it.id == id }
+                    ?.let { AiBefore(id, AiRevertRead.routeCategory(it)) }
             // 另外三张配置名册（2026-09-23）：与上面两张同一种做法（拉列表再挑，后端没有单取）。
             "expense_category" ->
                 repo.expenseCategories().firstOrNull { it.id == id }

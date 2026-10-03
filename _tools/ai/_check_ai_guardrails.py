@@ -98,6 +98,11 @@ READ_METHODS = {
     # createContactCategory / updateContactCategory / deleteContactCategory / reorderContactCategories
     # （那四个不在白名单里，默认受"prepare 里不许写"的约束）。
     "contactCategories",
+    # 线路分类名册（FEAT-0009，2026-10-04）：与联系人分类**完全同形** —— 按人分区的那一份，
+    # 建/改/删/重排之前先把它读回来（`GET /route-categories`），也是"把这条线路归到哪一类"
+    # 的候选来源。真正写库的是 createRouteCategory / updateRouteCategory / deleteRouteCategory /
+    # reorderRouteCategories（那四个不在白名单里，默认受"prepare 里不许写"的约束）。
+    "routeCategories",
     # 查单/查行/查流水/查消息（"先找到那一条"用的都是读）
     "findOrders", "orderLines", "findDeletedOrders", "ledgerEntries",
     "myNotifications", "productPrices", "priceRuleRows",

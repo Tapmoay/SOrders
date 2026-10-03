@@ -220,6 +220,8 @@ object AiReadCatalog {
             ReadParam("status", "Literal", false, listOf("all", "pending", "done", "rejected", "withdrawn"), false),
             ReadParam("limit", "int", false, emptyList(), false),
         )),
+        ReadAction("route_categories.list_categories", "线路分类名册（**当前登录人自己那份**：常用线路标题行那个分类抽屉里的分类与顺序，带每类下挂着几条线路）", "/api/v1/route-categories", "", setOf("dispatcher", "shipper"), false, listOf(
+        )),
         ReadAction("shipper.list_addresses", "地址与线路库", "/api/v1/shipper/addresses", "", setOf("dispatcher", "shipper"), false, listOf(
         )),
         ReadAction("shipper.list_contacts", "联系人库", "/api/v1/shipper/contacts", "", setOf("dispatcher", "shipper"), false, listOf(
@@ -335,6 +337,7 @@ object AiReadCatalog {
         "products" to "商品管理",
         "reports" to "报表中心",
         "return_requests" to "退货申请",
+        "route_categories" to "线路分类",
         "shipper" to "地址与联系人",
         "shipper_ledger" to "我的账本",
         "stats" to "统计口径",

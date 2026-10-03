@@ -553,41 +553,54 @@ def main() -> int:
         "读不到名册页要求的那条方法",
     )
 
-    # ---- 9. Android：左分类 + 右列表 ----
+    # ---- 9. Android：标题行分类胶囊 + 左侧抽屉 ----
+    #
+    # ⚠️ 这一节原来盯的是"面板里常驻一条 MasterRail 的左分类右列表"（FEAT-0007 的形态）。
+    #    2026-10-04 用户把它否掉了：「就不要使用那个商品管理的界面了，商品管理的话，那样子的界面
+    #    导致了右边的卡片的信息被挤压了不是很好看」—— 现在变成「标题行一个分类胶囊 + 点开左侧抽屉」。
+    #    判据跟着改形态（⛔ 不是删判据）：分类仍然要能选、仍然一格不带条数、管理仍然是同屏第二层。
     pane = fn_body(addr_screen, "private fun ContactCategoryPane(")
-    i_rail = pane.find("MasterRail(")
-    i_items = pane.find("items = buildList {", i_rail) if i_rail >= 0 else -1
-    j_rail = pane.find("selectedKey", i_items) if i_items >= 0 else -1
-    rail = pane[i_items:j_rail] if i_items >= 0 and j_rail > i_items else ""
     c.ok(
-        "「地址与联系人 → 联系人」是**左分类 + 右列表**（面板里有 MasterRail，且左栏是 buildList 拼的）",
-        len(pane) >= BODY_FLOOR and i_rail >= 0 and len(rail) >= BODY_FLOOR,
-        f"面板体长 {len(pane)}；左栏片段长 {len(rail)}",
-    )
-    c.ok(
-        "左栏那几格的构造里**没有条数**（用户 2026-09-19：「那个分组下面不要显示有多少条啊，这是多余信息」）",
-        len(rail) >= BODY_FLOOR and "contactCount" not in rail,
-        f"左栏片段长 {len(rail)}；出现了 contactCount",
+        "「地址与联系人 → 联系人」的分类选择是**标题行一个胶囊 + 点开左侧抽屉**（面板体里不再有常驻左栏）",
+        len(pane) >= BODY_FLOOR and "CategoryTriggerChip(" in pane and "MasterRail(" not in pane,
+        f"面板体长 {len(pane)}；MasterRail( 又回到面板里 = 变回把右边挤窄的常驻左栏了",
     )
     c.ok(
         "右栏按分类**名**过滤（it.category == railName）",
         "it.category == railName" in pane,
         "右栏没接上分类过滤",
     )
+    #: 抽屉里联系人那一列（从它的构造到下一份 placeDrawerItems 之前）。
+    _i_items = addr_screen.find("val contactDrawerItems")
+    _i_next = addr_screen.find("val placeDrawerItems", _i_items) if _i_items >= 0 else -1
+    _items = addr_screen[_i_items:_i_next] if _i_items >= 0 and _i_next > _i_items else ""
     c.ok(
-        "左栏有一格「管理分类」（打开名册页的第二层，不新开路由）",
-        'RailItem("manage"' in pane,
+        "抽屉里那几格的构造里**没有条数**（用户 2026-09-19：「那个分组下面不要显示有多少条啊，这是多余信息」）",
+        len(_items) >= 80 and "contactCount" not in _items,
+        f"抽屉那一列片段长 {len(_items)}；出现了 contactCount（用户明确否掉的东西又回来了）",
+    )
+    c.ok(
+        "抽屉里那几格是「全部」+ 每个分类，key 走 c| 前缀（与 AddressViewModel 的 contactRailKey 同一套约定）",
+        '"全部"' in _items and 'CategoryDrawerItem("c|" + it.name, it.name)' in _items,
+        "抽屉那几格不是「全部 + 每个分类」的形状",
+    )
+    c.ok(
+        "抽屉里有「管理分类」那一行（打开名册页的第二层，不新开路由）",
+        'manageLabel = "管理分类"' in addr_screen and "managingCategory = true" in addr_screen,
         "管理入口没了",
     )
     c.ok(
-        "从管理面板回来会重取名册（不然改了名左栏还是旧名字）",
-        "vm.reloadContactCategories()" in pane,
+        "从管理面板回来会重取名册（不然改了名抽屉里还是旧名字）",
+        "vm.reloadContactCategories()" in addr_screen,
         "没重取",
     )
     c.ok(
         "每次进名册面板都重新拉一次名册（appViewModel 是 Activity 级缓存，VM 的 init { load() } 只跑第一次 —— "
         "不补这一下，用户改完分类再进来看到的还是上一次的「N 位联系人」）",
-        "catVm.load()" in pane,
+        # ⚠️ 三个分支（线路 / 联系人 / 地点）各写了同一句 `LaunchedEffect(Unit) { catVm.load() }`
+        #    （局部变量都叫 catVm）⇒ 必须**数条数**：只判 `"catVm.load()" in addr_screen` 会被另外两支顶包，
+        #    把联系人这一支整句删掉判据照样绿（反向验证 ㉛ 实测踩到：注入只改掉第一处，判据仍命中另外两处）。
+        addr_screen.count("LaunchedEffect(Unit) { catVm.load() }") >= 3,
         "进面板不重取名册 —— 面板会显示上一次的「N 位联系人」，删除确认框也跟着说错",
     )
     #: 抽屉里「分类」那一格的下拉段（从 label = "分类" 到紧跟的 if (newCatDialog)）。

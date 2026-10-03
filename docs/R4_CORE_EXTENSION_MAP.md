@@ -324,7 +324,7 @@ id: party.master
 中文名: 往来单位档案（货主 / 批发商 / 散客 / 供应商 / 挂账单位 / 地址 / 联系人）
 class: CORE
 domain: party
-owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations, contact_categories
+owns: customers, suppliers, arrears_units, shipper_addresses, shipper_contacts, shipper_locations, contact_categories, route_categories
 contract: -
 why: 订单必须知道「跟谁」、钱必须记在某个名下；删掉它订单根本建不起来（判定规则 3 反问：核心业务不再成立）
 impl: api/v1/customers.py, services/supplier_service.py, services/shipper_contact_service.py
@@ -337,6 +337,9 @@ pending: no
 > 「联系人左栏那一列的名字与顺序」，级联目标就是本域的 `shipper_contacts.category`。
 > 与 `product_categories` 归目录域、`place_categories` 归地点库同一条规矩：**名册跟着它整理的那张表走**，
 > 而不是单独开一个"分类域"（那样每加一处分类就是一次越域）。
+> **为什么 `route_categories` 也在这里**（FEAT-0009，2026-10-04）：同一条规矩的第二处 —— 它就是
+> 「线路左栏那一列的名字与顺序」，级联目标 `shipper_addresses.category` 也在本域（同一张表上
+> 已经躺着 `contact_categories`，两张名册**各管各的列**、谁也不合并）。
 
 ```capability
 id: freight.vehicle_registry

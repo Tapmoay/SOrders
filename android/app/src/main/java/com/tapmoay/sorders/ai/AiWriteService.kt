@@ -485,6 +485,24 @@ interface AiWriteDataSource {
     suspend fun deleteContactCategory(id: Long)
     suspend fun reorderContactCategories(ids: List<Long>)
 
+    // ---- 线路分类名册（**按人分区**，2026-10-04 FEAT-0009）----
+    //
+    // 与地点分组 / 联系人分类是同一件事的第三份：那一份管地址库左栏、那一份管联系人列表左栏，
+    // 这一份管「地址与联系人 → 路线」那个分类抽屉。同样是"我自己那一份"
+    // （货主 / 批发商 / 派单员各管各的），界面上是那一页的「管理分类」能做的四件事。
+
+    /**
+     * 我自己的线路分类（建/改/删/重排之前先按**名字**找到那一格，也给"把线路归到某一类"当候选）。
+     *
+     * `note` 带"这一类下挂着几条线路"：删/改名会波及它们，那个数字是用户判断影响面的唯一依据。
+     */
+    suspend fun routeCategories(): List<AiName>
+
+    suspend fun createRouteCategory(fields: JsonObject)
+    suspend fun updateRouteCategory(id: Long, fields: JsonObject)
+    suspend fun deleteRouteCategory(id: Long)
+    suspend fun reorderRouteCategories(ids: List<Long>)
+
     // ---- 另外三张**配置名册**：开销分类 / 运费分类 / 预订单分类（2026-09-23 补齐能力覆盖）----
     //
     // 这三张原来挂着「不做」的理由（"分类名册是界面配置，用户在分类管理页上调"）。
@@ -785,6 +803,7 @@ class AiWriteService(
             ReorderProductCategoriesHandler(ds, store),
             ReorderPlaceCategoriesHandler(ds, store),
             ReorderContactCategoriesHandler(ds, store),
+            ReorderRouteCategoriesHandler(ds, store),
             // 三张配置名册的重排（2026-09-23 补齐）：与上面两个**共用同一份实现**
             // （`AiWriteCatalogHandlers.kt::reorderRoster`），各自只提供名词/名册/往哪提交。
             ReorderExpenseCategoriesHandler(ds, store),

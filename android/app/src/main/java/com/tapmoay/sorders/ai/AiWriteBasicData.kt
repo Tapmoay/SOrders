@@ -786,6 +786,82 @@ internal object AiWriteBasicData {
             },
         ) { ds, p -> ds.deleteContactCategory(p.reqLong("category_id")) },
 
+        // ---------------------------------------------------- 线路分类名册（FEAT-0009，2026-10-04）
+        //
+        // 与上面那两份（地点分组 / 联系人分类）是**同一件事的第三份**：地点分组管地址库左栏、
+        // 联系人分类管联系人列表左栏，这一份管「地址与联系人 → 路线」标题行那个分类抽屉。
+        //
+        // ⚠️ 与联系人分类**唯一的不同是级联目标**：改名跟着改的是 `shipper_addresses.category`
+        //    （联系人那份改的是 `shipper_contacts.category`）；其余（按人分区、能删的前提
+        //    是"没有线路挂着"、删了就是真删）一字不差。
+        crud(
+            id = AiWrites.ROUTE_CATEGORY_CREATE,
+            title = "新建线路分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_ROUTE_CATEGORY,
+            blurb = "在**你自己的**线路分类名册里加一格（「地址与联系人 → 路线」那个分类抽屉就是它）。" +
+                "它只决定「怎么分类、什么顺序」，不改任何线路的归属——" +
+                "某条线路归到哪一类是在「改线路」里选的那个分类名。",
+            fields = listOf(
+                textField("name", "分类名", "必填，如「城东片区」「常送工地」", required = true, maxChars = 32),
+                positionField("position", "排在第几位", "可选：从 1 数，1 = 排到最前面；不填就排在最后"),
+            ),
+            headline = { c -> "新建线路分类：${c.str("name")}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类名：${c.str("name")}",
+                    c.str("position")?.let { "顺序：排到第 $it 位（1 = 最前面）" } ?: "顺序：排在最后",
+                    "只加一格分类，不改任何线路的归属",
+                    "⚠️ 只影响你自己的常用线路（每个人管自己那一份，别人看不到）",
+                )
+            },
+        ) { ds, p -> ds.createRouteCategory(p) },
+
+        crud(
+            id = AiWrites.ROUTE_CATEGORY_UPDATE,
+            title = "改线路分类",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_ROUTE_CATEGORY,
+            blurb = "改一个**你自己的**线路分类的名字，或者把它排到别的位置。只填要改的那一项。" +
+                "改名会级联：挂在这个分类下的线路会跟着改成新名字（后端在同一个事务里做）。",
+            targets = listOf(targetRouteCategory()),
+            fields = listOf(
+                textField("name", "新分类名", "不改就不填", maxChars = 32),
+                positionField("position", "排到第几位", "不改就不填：从 1 数，1 = 最前面"),
+            ),
+            headline = { c -> "改线路分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let {
+                        "⚠️ 这个分类下有 $it——改名会把这些线路的分类一起改过去（后端同一个事务）"
+                    },
+                    c.str("name")?.let { "名字改成：$it" },
+                    c.str("position")?.let { "顺序改成：排到第 $it 位（1 = 最前面）" },
+                    "⚠️ 只影响你自己的常用线路",
+                )
+            },
+        ) { ds, p -> ds.updateRouteCategory(p.reqLong("category_id"), p.pick(ROUTE_CATEGORY_KEYS)) },
+
+        crud(
+            id = AiWrites.ROUTE_CATEGORY_DELETE,
+            title = "删除线路分类",
+            risk = AiWriteRisk.HIGH,
+            group = AiWrites.G_ROUTE_CATEGORY,
+            blurb = "从**你自己的**线路分类名册里删掉一格。还有线路挂在这个分类下时后端会拒绝，" +
+                "并告诉你还有几条——先把那些线路改成别的分类（或给这一格改个名）再删。" +
+                "名册没有回收站，删掉就是真删（撤回是按原名重建一格，编号会不一样）。",
+            targets = listOf(targetRouteCategory()),
+            headline = { c -> "删除线路分类：${c.ref("category")?.label}" },
+            details = { c ->
+                listOfNotNull(
+                    "分类：${c.ref("category")?.label}",
+                    c.ref("category")?.note?.let { "这个分类下有 $it" },
+                    "还有线路挂在它下面时后端会拒绝，并告诉你有几条：先把那些线路改成别的分类",
+                    "⚠️ 只影响你自己的常用线路；线路本身一条都不会被删",
+                )
+            },
+        ) { ds, p -> ds.deleteRouteCategory(p.reqLong("category_id")) },
         // ---------------------------------------------------- 开销分类名册（2026-09-23 补齐）
         //
         // 名册决定「这笔钱算哪一类」，也决定开销卡片上**突出显示哪一项关联**
@@ -1421,6 +1497,21 @@ internal object AiWriteBasicData {
 
     /** 联系人分类进 payload 的键（改分类时只传点名的那几个）。 */
     private val CONTACT_CATEGORY_KEYS = setOf("name", "sort_order")
+
+    /**
+     * 线路分类（按**名字**找，**只在自己那一份名册里找**）。
+     *
+     * `note` 带的是"这一类下挂着几条线路"——改名会波及它们、删除会被后端拒绝，
+     * 那个数字是用户判断影响面的唯一依据（与联系人分类同一套理由）。
+     */
+    private fun targetRouteCategory() = AiTargetSpec(
+        param = "category", cn = "线路分类", key = "category_id",
+        hint = "分类名（「地址与联系人 → 路线」那个分类抽屉里的格子名，如「城东片区」）",
+        lookup = { ds, _ -> ds.routeCategories() },
+    )
+
+    /** 线路分类进 payload 的键（改分类时只传点名的那几个）。 */
+    private val ROUTE_CATEGORY_KEYS = setOf("name", "sort_order")
 
     // ---------------------------------------------------------- 另外三张配置名册（2026-09-23）
     //

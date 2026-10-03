@@ -214,6 +214,43 @@ class ReorderContactCategoriesHandler(
 }
 
 /**
+ * 重排**线路分类**（整份顺序一次提交）。
+ *
+ * FEAT-0009（2026-10-04）。与联系人分类同形，同样是**按人分区**的 —— 读到的、能排的都只是
+ * 当前登录人自己那一份（货主 / 批发商 / 派单员各管自己「地址与联系人 → 路线」那个抽屉）。
+ * 唯一的差别是级联目标：这一列的名字改了，跟着改的是 `shipper_addresses.category`。
+ */
+class ReorderRouteCategoriesHandler(
+    private val ds: AiWriteDataSource,
+    private val store: AiWritePreviewStore,
+) : AiWriteHandler {
+
+    override val actionId = AiWrites.ROUTE_CATEGORY_REORDER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val raw = AiWriteArgs.required(
+            params, "order",
+            "整份顺序：把你自己的线路分类名**一个不漏**地按想要的先后写全（用「、」隔开）",
+        )
+        val pool = ds.routeCategories()
+        if (pool.isEmpty()) {
+            throw AiWriteArgException("你还没有线路分类，先用「新建线路分类」建出来再排顺序。")
+        }
+        return reorderRoster(
+            ds = ds, store = store, actionId = actionId, cn = "线路分类", unit = "分类",
+            pool = pool, raw = raw, readHint = "route_categories.list_categories",
+            whereCn = "地址与联系人 → 路线那个分类抽屉",
+            extraLines = listOf("⚠️ 只影响你自己的常用线路（每个人管自己那一份）"),
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val ids = (payload["category_ids"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+        ds.reorderRouteCategories(ids)
+    }
+}
+/**
  * 重排**开销分类**（整份顺序一次提交）。
  *
  * 2026-09-23 补齐「人能操作、AI 就要能操作」时新增的三张名册之一。

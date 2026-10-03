@@ -72,7 +72,11 @@ KINDS = ("line", "place", "contact")
 LIST_ANCHOR = "Box(Modifier.weight(1f)) {"
 #: 豁免条数上限（**只能收紧**：新加一条就会红，逼人先想清楚是不是真要再欠一笔）
 #: 2026-10-04 CHG-0020：挂账单位补上了撤回 ⇒ 上限跟着从 12 收到 11（欠账还一笔就收一格）。
-EXEMPT_MAX = 11
+#: 2026-10-04 FEAT-0009：又开了一张**分类名册**页（线路分类，第 7 张）⇒ 上限从 11 放回 12。
+#:   这是「新开一页」带来的正当增长、不是把某张名册的撤回赖掉了：那 7 张名册页的撤回
+#:   仍然整批欠着（都写着"撤回等分类名册统一收口那一批"），统一收口那一批做完要一起销账，
+#:   把这一格再收回去。
+EXEMPT_MAX = 12
 
 #: 还没配撤回入口的删除调用点 —— 键 = "相对 android/.../sorders 的路径::方法名"。
 #: ⛔ 这张表**只能收紧**：把某一页的撤回补上之后，这一行必须删掉（判据会逼你删，
@@ -101,6 +105,8 @@ EXEMPT = {
         "分类名册页 —— 同上（撤回等分类名册统一收口那一批）",
     "ui/dispatcher/ProductCategoriesViewModel.kt::deleteProductCategory":
         "分类名册页 —— 同上（撤回等分类名册统一收口那一批）",
+    "ui/dispatcher/RouteCategoriesViewModel.kt::deleteRouteCategory":
+        "分类名册页（第 7 张，FEAT-0009 新开）—— 同上（撤回等分类名册统一收口那一批）",
 }
 #: ⚠️ 上面这张表**故意没有** `SupplierDetailScreen.kt::deleteSupplierPayable`：
 #: 它删的是应付单（`deleteSupplierPayable`）、还原接口叫 `restoreSupplierPayment`（名字不同、同一件事），

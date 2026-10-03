@@ -445,6 +445,31 @@ interface ShipperApi {
     @POST("contact-categories/reorder")
     suspend fun reorderContactCategories(@Body body: ContactCategoryReorderRequest): List<ContactCategoryDto>
 
+    /**
+     * 线路分类名册（2026-10-04，**按人分区**：货主 / 批发商 / 派单员各管自己那一份）。
+     *
+     * 与地点 / 联系人分类同一套做法（用户原话：「干脆给线路联系人以及地点，这3个的
+     * 界面…加一个分类显示」），差别只有级联目标：这边改的是 `shipper_addresses.category`。
+     */
+    @GET("route-categories")
+    suspend fun listRouteCategories(): List<RouteCategoryDto>
+
+    @POST("route-categories")
+    suspend fun createRouteCategory(@Body body: RouteCategoryCreateRequest): RouteCategoryDto
+
+    @PATCH("route-categories/{categoryId}")
+    suspend fun updateRouteCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: RouteCategoryUpdateRequest,
+    ): RouteCategoryDto
+
+    @DELETE("route-categories/{categoryId}")
+    suspend fun deleteRouteCategory(@Path("categoryId") categoryId: Long)
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    @POST("route-categories/reorder")
+    suspend fun reorderRouteCategories(@Body body: RouteCategoryReorderRequest): List<RouteCategoryDto>
+
     @Multipart
     @POST("shipper/locations/image")
     suspend fun uploadLocationImage(@Part file: MultipartBody.Part): LocationImageOut

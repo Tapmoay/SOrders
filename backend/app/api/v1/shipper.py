@@ -16,6 +16,7 @@ from app.core.rbac import user_role_key
 from app.core.upload_read import MAX_IMAGE_BYTES, read_limited
 from app.api.v1.contact_categories import ensure_contact_category
 from app.api.v1.place_categories import ensure_place_category
+from app.api.v1.route_categories import ensure_route_category
 from app.database import get_db
 from app.deps import require_roles
 from app.services import place_service, usage_service
@@ -99,12 +100,16 @@ def create_address(
         origin_address=body.origin_address,
         origin_lat=body.origin_lat,
         origin_lng=body.origin_lng,
+        category=_clean_category(body.category),
     )
     _apply_images(
         addr,
         body.image_urls if body.image_urls else ([body.image_url] if body.image_url else []),
     )
     db.add(addr)
+    # 用户在新建线路时直接敲一个新分类名 = 顺手把它建进名册（与联系人/地点侧同一条）。
+    # ⚠️ 名册里没有的分类名不是错误（老数据 / 别处直接写库），所以这里只补、不校验。
+    ensure_route_category(db, current.id, addr.category)
     db.commit()
     db.refresh(addr)
     return addr
@@ -156,6 +161,9 @@ def update_address(
         a.origin_lat = body.origin_lat
     if body.origin_lng is not None:
         a.origin_lng = body.origin_lng
+    if body.category is not None:
+        a.category = _clean_category(body.category)
+        ensure_route_category(db, current.id, a.category)
     # 多图：显式传 image_urls 用新列表；旧客户端传 image_url 单图兼容
     if body.image_urls is not None:
         _apply_images(a, body.image_urls)

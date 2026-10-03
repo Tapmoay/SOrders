@@ -41,12 +41,12 @@ SEG_SIG = 'fun SegmentedStatusTabs('
 
 #: 现在那份顶部三档调用（第 ① 条注入要整块换掉它）
 SEG_CALL = '\n'.join([
-    '            SegmentedStatusTabs(',
-    '                labels = ADDRESS_TABS,',
-    '                colors = ADDRESS_TAB_COLORS,',
-    '                selected = tab,',
-    '                onSelect = { tab = it; keyword = ' + QQ + ' },',
-    '            )',
+    '                    SegmentedStatusTabs(',
+    '                        labels = ADDRESS_TABS,',
+    '                        colors = ADDRESS_TAB_COLORS,',
+    '                        selected = tab,',
+    '                        onSelect = { tab = it; keyword = ' + QQ + ' },',
+    '                    )',
     '',
 ])
 ON_SELECT = 'onSelect = { tab = it; keyword = ' + QQ + ' }'
@@ -57,19 +57,19 @@ COLORS_DECL = (
 ROUTE_HINT = '0 -> ' + Q + '搜线路：收货人 / 电话 / 地址' + Q
 SEARCH_CALL = '                    SearchField(value = keyword, onValueChange = { keyword = it })'
 CLEAR_BTN = '\n'.join([
-    '                    IconButton(',
-    '                        onClick = { keyword = ' + QQ + ' },',
-    '                        modifier = Modifier.align(Alignment.CenterEnd),',
-    '                    ) {',
-    '                        Icon(Icons.Default.Close, contentDescription = ' + Q + '清空搜索' + Q + ', modifier = Modifier.size(18.dp))',
-    '                    }',
+    '                            IconButton(',
+    '                                onClick = { keyword = ' + QQ + ' },',
+    '                                modifier = Modifier.align(Alignment.CenterEnd),',
+    '                            ) {',
+    '                                Icon(Icons.Default.Close, contentDescription = ' + Q + '清空搜索' + Q + ', modifier = Modifier.size(18.dp))',
+    '                            }',
     '',
 ])
 OLD_CLEAR_BTN = '\n'.join([
-    '                    TextButton(',
-    '                        onClick = { keyword = ' + QQ + ' },',
-    '                        modifier = Modifier.align(Alignment.CenterEnd),',
-    '                    ) { Text(' + Q + '清除' + Q + ') }',
+    '                            TextButton(',
+    '                                onClick = { keyword = ' + QQ + ' },',
+    '                                modifier = Modifier.align(Alignment.CenterEnd),',
+    '                            ) { Text(' + Q + '清除' + Q + ') }',
     '',
 ])
 USER_MATCH_LINE = 'else vm.contacts.filter { UserSearch.matches(kw, it.displayName, it.phone) }'
@@ -169,8 +169,8 @@ CASES: list[tuple[str, str, object, str]] = [
         '⑥ 地点那一档也换成 SearchField（否定式判据在空串上恒真那条）',
         ADDR,
         lambda s: s.replace(
-            '                } else {' + '\n' + '                    SoTextField(',
-            '                } else {' + '\n' + '                    SearchField(',
+            '                        } else {' + '\n' + '                            SoTextField(',
+            '                        } else {' + '\n' + '                            SearchField(',
             1,
         ),
         '两档的文本框被换掉了',

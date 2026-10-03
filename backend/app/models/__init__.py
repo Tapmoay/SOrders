@@ -33,6 +33,7 @@ from app.models.freight_template import FreightTemplate, FreightTemplateCategory
 from app.models.freight_category import FreightCategory
 from app.models.export_job import ExportFormat, ExportJobStatus, LedgerExportJob
 from app.models.contact_category import ContactCategory
+from app.models.route_category import RouteCategory
 from app.models.inventory import InventoryMovement
 from app.models.ledger import Ledger
 from app.models.notification import Notification
@@ -98,6 +99,7 @@ __all__ = [
     "PlaceUserUsage",
     "PlaceCategory",
     "PriceRule",
+    "RouteCategory",
     "Product",
     "ProductCategory",
     "ProductCostHistory",

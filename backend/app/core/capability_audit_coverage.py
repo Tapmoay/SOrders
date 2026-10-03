@@ -82,7 +82,10 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
     # FEAT-0007：地址与联系人原来一个动作码都没有（见下面 AUDIT_EXCEPTIONS 的历史注释）。
     # 联系人分类这一块**有真正的写动作**（建类 / 删类 / 排序都要可查：谁把哪一类挪到了第一位），
     # 所以认领回来 —— 例外表只减不增，靠「先加动作码、再认领」来销，不靠加例外。
-    'address:manage': ('CONTACT_CATEGORY_UPSERT', 'CONTACT_CATEGORY_DELETE', 'CONTACT_CATEGORY_REORDER'),
+    'address:manage': ('CONTACT_CATEGORY_UPSERT', 'CONTACT_CATEGORY_DELETE', 'CONTACT_CATEGORY_REORDER',
+                      # FEAT-0009（2026-10-04）：线路分类名册与联系人分类是同一件事的两半
+                      # （同一块路由、同一个角色门），所以三个动作码归到同一个能力下。
+                      'ROUTE_CATEGORY_UPSERT', 'ROUTE_CATEGORY_DELETE', 'ROUTE_CATEGORY_REORDER'),
     'shipper_ledger:read_own': (),
 }
 

@@ -331,6 +331,16 @@
 | `reject_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/reject` | 派单员驳回（**必带理由**：这是货主唯一能拿到的答复）。 |  |
 | `fulfill_return_request` | 写 | `POST /api/v1/return-requests/{request_id}/fulfill` | **派单员照这张申请实际退货** —— 货主申请的终点，也是库存/账本唯一会发生变动的时刻。 |  |
 
+## 线路分类（`route_categories`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_categories` | 只读 | `GET /api/v1/route-categories` | **自己那一份**分类名册（按显示顺序）。司机没有线路库，拿不到。 |  |
+| `create_category` | 写 | `POST /api/v1/route-categories` |  |  |
+| `update_category` | 写 | `PATCH /api/v1/route-categories/{category_id}` | 改名 / 改顺序。**改名会级联改掉挂在这一类下的线路**（同一事务）。 |  |
+| `reorder_categories` | 写 | `POST /api/v1/route-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前。**必须覆盖自己全部现存分类**（理由同地点分类： |  |
+| `delete_category` | 写 | `DELETE /api/v1/route-categories/{category_id}` | 删掉自己名册里的一行。**还有线路挂着时拒绝**（告诉有几条）。 |  |
+
 ## 地址与联系人（`shipper`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |

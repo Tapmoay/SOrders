@@ -254,7 +254,7 @@ def main() -> int:
     for needle, why in (
         ("RouteRail(", "线路卡的 A→B 轨道（共用件）"),
         ("ContactPickerSheet(", "联系人选择抽屉"),
-        ("ContactCategoryPane(", "联系人左分类右列表"),
+        ("ContactCategoryPane(", "联系人的分类选择（FEAT-0009 起：标题行胶囊 + 左侧抽屉）"),
         ("vm.contacts.filter {", "联系人搜索的用户搜索过滤"),
     ):
         c.ok(f"本批没顺手改别的：{why} 还在", needle in src, f"找不到 {needle}")

@@ -1000,6 +1000,31 @@ class AiWriteTest {
             masterCalls += "reorderContactCategories:${ids.joinToString(",")}"
         }
 
+        // ---- 线路分类（**按人分区**；FEAT-0009 给「常用线路」从零补上的那一份，2026-10-04）----
+        // ⚠️ 与前两份是**三张名册**（级联目标各不相同：地点那份挂 `shipper_locations.category`、
+        //    联系人那份挂 `shipper_contacts.category`、这一份挂 `shipper_addresses.category`），
+        //    所以替身这里也另起一份，⛔ 不许拿 contactCategoryRows 冒充：
+        //    真拿它冒充的话，"重排线路分类"会把联系人分类一起排了 —— 那正是三张表要防的错。
+        var routeCategoryRows = listOf(
+            AiName(121, "城东片区", note = "2 条线路"),
+            AiName(122, "常送工地"),
+        )
+
+        override suspend fun routeCategories() = routeCategoryRows.also { boom() }
+        override suspend fun createRouteCategory(fields: JsonObject) = rec("createRouteCategory", fields)
+        override suspend fun updateRouteCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updateRouteCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deleteRouteCategory(id: Long) {
+            boom()
+            masterCalls += "deleteRouteCategory:$id"
+        }
+        override suspend fun reorderRouteCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderRouteCategories:${ids.joinToString(",")}"
+        }
+
         // ---- 开销 / 运费 / 预订单三份分类名册（2026-09-23 按"人能操作的 AI 都要能操作"补齐）----
         // ⚠️ 三份都照上面那两份的形状写：读那一格 `also { boom() }`（读接口在撤回/重命名卡片
         //    里也要用到，不该顺手写库），写那一格先 `boom()` 再记账（证明它真的调了数据源）。
@@ -3486,10 +3511,12 @@ class AiWriteTest {
         //    2026-09-22 给「预订单」加了 4 个：建/改/删/恢复预设单 —— 120；
         //    2026-09-22 当天又给「供应商/应付款」加了 11 个：档案/应付单/付款三条线各四个
         //    减去付款那条线的「撤销付款」—— 131；
-        //    2026-09-23 给三份「分类名册」（开销/运费/预订单）各加 4 个：建/改名/删/重排 —— 143）。
+        //    2026-09-23 给三份「分类名册」（开销/运费/预订单）各加 4 个：建/改名/删/重排 —— 143；
+        //    2026-10-04 给「线路分类名册」（FEAT-0009，线路这一档也要能分类）加了 4 个：
+        //    建/改名/删/重排 —— 147）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 143（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 143)
+        assertTrue("动作数不该多于 147（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 147)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -5769,6 +5796,12 @@ class AiWriteTest {
             AiWrites.CONTACT_CATEGORY_UPDATE,
             AiWrites.CONTACT_CATEGORY_DELETE,
             AiWrites.CONTACT_CATEGORY_REORDER,
+            // FEAT-0009：线路分类与上面两份同一个道理（按人分区、改的是自己的名册），
+            // 所以货主也**必须**能用 —— 与「线路增删改」是同一件事的两半。
+            AiWrites.ROUTE_CATEGORY_CREATE,
+            AiWrites.ROUTE_CATEGORY_UPDATE,
+            AiWrites.ROUTE_CATEGORY_DELETE,
+            AiWrites.ROUTE_CATEGORY_REORDER,
         )) {
             assertTrue("$id 货主也要能用（改的是他自己的地址库）", AiWrites.allows(AiActor.byRole(AiRole.SHIPPER), id))
             assertFalse("$id 不该给未知角色", AiWrites.allows(null, id))

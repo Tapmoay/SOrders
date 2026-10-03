@@ -6,6 +6,7 @@
 # 格式：  <相对 android/app/src/main/java/com/tapmoay/sorders 的路径>  <处数>
 
 ui/ai/AiChatScreen.kt 7
+ui/common/CategoryDrawer.kt 1
 ui/common/CategoryPickerSheet.kt 1
 ui/common/Components.kt 1
 ui/common/FormRows.kt 2

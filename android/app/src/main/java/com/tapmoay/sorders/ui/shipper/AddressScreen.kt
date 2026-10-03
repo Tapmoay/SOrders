@@ -46,6 +46,10 @@ import com.tapmoay.sorders.ui.theme.OriginTeal
 import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.ui.dispatcher.ContactCategoriesPanel
 import com.tapmoay.sorders.ui.dispatcher.ContactCategoriesViewModel
+import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesPanel
+import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesViewModel
+import com.tapmoay.sorders.ui.dispatcher.RouteCategoriesPanel
+import com.tapmoay.sorders.ui.dispatcher.RouteCategoriesViewModel
 import android.graphics.Bitmap
 import com.tapmoay.sorders.ui.common.Hint
 
@@ -56,6 +60,10 @@ import com.tapmoay.sorders.ui.common.Hint
  */
 private val ADDRESS_TABS = listOf("路线", "联系人", "地址")
 private val ADDRESS_TAB_COLORS = listOf(Color(OriginTeal), Color(ShipperTeal), Color(MoneyOrange))
+
+/** 抽屉选中格 → 分类名：`""` = 全部、`"c|分类名"` = 某一类（三档共用同一套 key 约定，见 `AddressViewModel`）。 */
+private fun railCategoryName(key: String): String =
+    if (key.startsWith("c|")) key.removePrefix("c|") else ""
 /** 地址与联系人：三个列表（常用线路=联系人+地点 → 联系人 → 地点），新增入口在各自标题行右侧 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,6 +81,24 @@ fun AddressScreen(
     var keyword by remember { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // ---- 分类：三个页签共用同一个**左侧抽屉**（`ModalNavigationDrawer`）----
+    // 形态照「账本管理」，⛔ 不是商品管理那种常驻左栏：用户原话「商品管理的话，那样子的界面
+    // 导致了右边的卡片的信息被挤压了不是很好看」。
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    /** 分类管理面板（同屏第二层）：抽屉里点「管理分类」就换成它；返回时回读名册。 */
+    var managingCategory by remember { mutableStateOf(false) }
+    // 抽屉里的那一列：一趟「全部」+ 每个分类。三档共用同一套 key 约定
+    // （`""` = 全部 / `"c|分类名"` = 某一类），与 `AddressViewModel` 的 `*RailKey` 一一对应。
+    // ⛔ 一格都不显示条数 —— 用户 2026-09-19 的裁定：「那个分组下面不要显示有多少条啊，这是多余信息」。
+    val routeDrawerItems = remember(vm.routeCategories) {
+        listOf(CategoryDrawerItem("", "全部")) + vm.routeCategories.map { CategoryDrawerItem("c|" + it.name, it.name) }
+    }
+    val contactDrawerItems = remember(vm.contactCategories) {
+        listOf(CategoryDrawerItem("", "全部")) + vm.contactCategories.map { CategoryDrawerItem("c|" + it.name, it.name) }
+    }
+    val placeDrawerItems = remember(vm.placeCategories) {
+        listOf(CategoryDrawerItem("", "全部")) + vm.placeCategories.map { CategoryDrawerItem("c|" + it.name, it.name) }
+    }
 
     fun savePickedImage(uri: android.net.Uri, target: String, prefix: String) {
         scope.launch(Dispatchers.IO) {
@@ -120,163 +146,262 @@ fun AddressScreen(
     val snackbar = remember { SnackbarHostState() }
     OneShotSnackbar(snackbar, vm.notice, onConsumed = { vm.notice = null })
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            TopAppBar(
-                title = { Text("地址与联系人") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        drawerContent = {
+            ModalDrawerSheet {
+                // 抽屉里那一列随页签换（三档各有一份自己那份名册），但**形态与 key 约定完全一样**。
+                CategoryDrawerSheet(
+                    title = when (tab) {
+                        1 -> "联系人分类"
+                        2 -> "地点分类"
+                        else -> "线路分类"
+                    },
+                    items = when (tab) {
+                        1 -> contactDrawerItems
+                        2 -> placeDrawerItems
+                        else -> routeDrawerItems
+                    },
+                    selectedKey = when (tab) {
+                        1 -> vm.contactRailKey
+                        2 -> vm.locRailKey
+                        else -> vm.routeRailKey
+                    },
+                    accent = ADDRESS_TAB_COLORS[tab],
+                    manageLabel = "管理分类",
+                    onPick = { key ->
+                        when (tab) {
+                            1 -> vm.contactRailKey = key
+                            2 -> vm.locRailKey = key
+                            else -> vm.routeRailKey = key
+                        }
+                        scope.launch { drawer.close() }
+                    },
+                    onManage = {
+                        managingCategory = true
+                        scope.launch { drawer.close() }
+                    },
+                )
+            }
         },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            // 顶部三档走全 App 唯一那份 `SegmentedStatusTabs`（§3 组件速查）。
-            // ⛔ 别再退回自己画的描边胶囊：导航形态在每一页必须一样，用户才不会每次重新认。
-            SegmentedStatusTabs(
-                labels = ADDRESS_TABS,
-                colors = ADDRESS_TAB_COLORS,
-                selected = tab,
-                onSelect = { tab = it; keyword = "" },
-            )
-            // 搜索框**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
-            // 这里搜的是本地已有的那份列表 —— 数据本来就在手上，即时出结果，
-            // 不需要往返后端（共享库那一段在下单页的地址弹层里，那里才需要打后端）。
-            // ⚠️ 联系人那一档是**按人搜索**，必须走全 App 唯一那份 `SearchField`
-            //    （放大镜 + ✕ 一键清空 + 提示语同源 `core/UserSearch.HINT`）——
-            //    自己拿 `SoTextField` 顶一份，用户在两页看到的形状就不一样，
-            //    而且会丢掉"能按手机号后 4 位搜"那句提示。
-            // 线路 / 地点两档搜的是地址型文本，继续用 `SoTextField` + 地址占位语。
-            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                if (tab == 1) {
-                    SearchField(value = keyword, onValueChange = { keyword = it })
-                } else {
-                    SoTextField(
-                        value = keyword,
-                        onValueChange = { keyword = it },
-                        placeholder = when (tab) {
-                            0 -> "搜线路：收货人 / 电话 / 地址"
-                            else -> "搜地点：名称 / 地址"
+    ) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbar) },
+            topBar = {
+                TopAppBar(
+                    title = { Text("地址与联系人") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            // 分类管理（同屏第二层）：抽屉里点「管理分类」就换成它 —— 用户要的是"同一个抽屉里的第二层"，
+            // 不是再弹一个界面（也塞不进 360dp 宽的抽屉里）。
+            // 返回时回读名册：用户可能在面板里改名 / 删掉一整类，抽屉里那一格得跟着变。
+            if (managingCategory) {
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    CategoryManagePanel(
+                        container = container,
+                        tab = tab,
+                        onBack = {
+                            managingCategory = false
+                            when (tab) {
+                                1 -> vm.reloadContactCategories()
+                                2 -> vm.reloadPlaceCategories()
+                                else -> vm.reloadRouteCategories()
+                            }
                         },
                     )
                 }
-                // 清空统一成 ✕（与 `SearchField` 里的那个同形）。联系人档自带 ✕，这里不重复画。
-                if (tab != 1 && keyword.isNotBlank()) {
-                    IconButton(
-                        onClick = { keyword = "" },
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-            val kw = keyword.trim()
-            val shownAddresses = remember(vm.addresses, kw) {
-                if (kw.isBlank()) vm.addresses
-                else vm.addresses.filter {
-                    it.receiverName.contains(kw, true) || it.phone.contains(kw) ||
-                        it.detailAddress.contains(kw, true) || it.originAddress.orEmpty().contains(kw, true)
-                }
-            }
-            val shownContacts = remember(vm.contacts, kw) {
-                if (kw.isBlank()) vm.contacts
-                // 「联系人」这一段是**纯按人搜**（姓名 / 手机号，后 4 位也命中）——
-                // 走全 App 唯一那份规则（`core/UserSearch`），不在这里再写一遍 contains。
-                // ⚠️ 上面「线路」那一段**故意不用它**：它还要按地址文本匹配，
-                //    套上只认姓名/手机号的规则会让「按地址找线路」直接失效。
-                else vm.contacts.filter { UserSearch.matches(kw, it.displayName, it.phone) }
-            }
-            val shownLocations = remember(vm.locations, kw) {
-                if (kw.isBlank()) vm.locations
-                else vm.locations.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
-            }
-            // 删除是软删，但「软」是数据库的事，用户要的是**当场能救回来**（规范 06:1371：
-            // 删除一律软删 + **手边**要有撤回）。这一行就摆在列表**顶上**：它跟着内容走、
-            // 永远在第一屏；⛔ 不塞进页面底部提示位 —— 那在长列表的末尾，根本不在屏幕上。
-            vm.recentlyDeleted?.let { rd ->
-                val what = if (rd.name.isBlank()) "这条" + rd.label else "「" + rd.name + "」"
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp),
-                ) {
-                    Text(
-                        "已删除" + what,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+            } else {
+                Column(Modifier.fillMaxSize().padding(padding)) {
+                    // 顶部三档走全 App 唯一那份 `SegmentedStatusTabs`（§3 组件速查）。
+                    // ⛔ 别再退回自己画的描边胶囊：导航形态在每一页必须一样，用户才不会每次重新认。
+                    SegmentedStatusTabs(
+                        labels = ADDRESS_TABS,
+                        colors = ADDRESS_TAB_COLORS,
+                        selected = tab,
+                        onSelect = { tab = it; keyword = "" },
                     )
-                    TextButton(onClick = { vm.undoDelete() }, enabled = !vm.acting) { Text("撤销") }
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            }
-            Box(Modifier.weight(1f)) {
-                when {
-                    vm.loading -> LoadingBox(Modifier.fillMaxSize())
-                    // ⚠️ 只看 **loadError**：表单的错误写在抽屉里（见 AddressViewModel 的注释），
-                    //    混进来就会让"保存被拦下"变成"整页列表全没了"。
-                    vm.loadError != null -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() }, Modifier.fillMaxSize())
-                    // ---- 2. 联系人：**左边分类、右边列表**（FEAT-0007）----
-                    // 单独一支：左栏要占一整条竖边，塞不进 LazyColumn 的 item 里。
-                    // ⚠️ 外层是**无主语 when**，所以这一支必须写成条件（`tab == 1`），
-                    //    直接写 `1 ->` 会被当成"条件类型不匹配"编译不过。
-                    tab == 1 -> ContactCategoryPane(container = container, vm = vm, keyword = kw, contacts = shownContacts)
-                    else -> LazyColumn(
-                        Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        when (tab) {
-                            // ---- 2. 联系人 ----：已由外面的 ContactCategoryPane 接管（左分类 + 右列表，FEAT-0007）
-
-                            // ---- 3. 地点（单独地点）----
-                            2 -> {
-                                item {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("地点", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                        TextButton(onClick = { vm.openLocationCreate() }) {
-                                            Icon(Icons.Default.Place, null, Modifier.size(16.dp), tint = Color(MoneyOrange))
-                                            Spacer(Modifier.width(3.dp))
-                                            Text("新增地点")
-                                        }
-                                    }
-                                }
-                                if (shownLocations.isEmpty()) {
-                                    item { EmptyView(if (kw.isBlank()) "暂无地点" else "没有匹配「$kw」的地点") }
-                                } else {
-                                    items(shownLocations, key = { "l" + it.id }) { l ->
-                                        LocationCard(l = l, onEdit = { vm.openLocationEdit(l) }, onDelete = { vm.deleteLocation(l) })
-                                    }
-                                }
-                            }
-
-                            // ---- 1. 常用线路（联系人 + 地点）----
-                            else -> {
-                                item {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("常用线路", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                        TextButton(onClick = { vm.openCreate() }) {
-                                            Icon(Icons.Default.AddLocationAlt, null, Modifier.size(16.dp), tint = Color(ShipperTeal))
-                                            Spacer(Modifier.width(3.dp))
-                                            Text("新增线路")
-                                        }
-                                    }
-                                    Spacer(Modifier.height(4.dp))
-                                }
-                                if (shownAddresses.isEmpty()) {
-                                    item { EmptyView(if (kw.isBlank()) "暂无线路，点右侧新增" else "没有匹配「$kw」的线路") }
-                                } else {
-                                    items(shownAddresses, key = { "a" + it.id }) { a ->
-                                        AddressCard(a = a, onEdit = { vm.openEdit(a) }, onDelete = { vm.delete(a) })
-                                    }
-                                }
+                    // 搜索框**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
+                    // 这里搜的是本地已有的那份列表 —— 数据本来就在手上，即时出结果，
+                    // 不需要往返后端（共享库那一段在下单页的地址弹层里，那里才需要打后端）。
+                    // ⚠️ 联系人那一档是**按人搜索**，必须走全 App 唯一那份 `SearchField`
+                    //    （放大镜 + ✕ 一键清空 + 提示语同源 `core/UserSearch.HINT`）——
+                    //    自己拿 `SoTextField` 顶一份，用户在两页看到的形状就不一样，
+                    //    而且会丢掉"能按手机号后 4 位搜"那句提示。
+                    // 线路 / 地点两档搜的是地址型文本，继续用 `SoTextField` + 地址占位语。
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        if (tab == 1) {
+                            SearchField(value = keyword, onValueChange = { keyword = it })
+                        } else {
+                            SoTextField(
+                                value = keyword,
+                                onValueChange = { keyword = it },
+                                placeholder = when (tab) {
+                                    0 -> "搜线路：收货人 / 电话 / 地址"
+                                    else -> "搜地点：名称 / 地址"
+                                },
+                            )
+                        }
+                        // 清空统一成 ✕（与 `SearchField` 里的那个同形）。联系人档自带 ✕，这里不重复画。
+                        if (tab != 1 && keyword.isNotBlank()) {
+                            IconButton(
+                                onClick = { keyword = "" },
+                                modifier = Modifier.align(Alignment.CenterEnd),
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
                             }
                         }
-                        item { Spacer(Modifier.height(24.dp)) }
+                    }
+                    val kw = keyword.trim()
+                    // 三档各自的分类筛选：抽屉里选了某一类就只留那一类（空串 = 全部）。
+                    // ⚠️ 分类是**本地过一遍**（名册与列表本来就在手上），不往返后端。
+                    val routeRailName = railCategoryName(vm.routeRailKey)
+                    val locRailName = railCategoryName(vm.locRailKey)
+                    val shownAddresses = remember(vm.addresses, kw, vm.routeRailKey) {
+                        val base = if (kw.isBlank()) vm.addresses
+                        else vm.addresses.filter {
+                            it.receiverName.contains(kw, true) || it.phone.contains(kw) ||
+                                it.detailAddress.contains(kw, true) || it.originAddress.orEmpty().contains(kw, true)
+                        }
+                        if (routeRailName.isBlank()) base else base.filter { it.category == routeRailName }
+                    }
+                    val shownContacts = remember(vm.contacts, kw) {
+                        if (kw.isBlank()) vm.contacts
+                        // 「联系人」这一段是**纯按人搜**（姓名 / 手机号，后 4 位也命中）——
+                        // 走全 App 唯一那份规则（`core/UserSearch`），不在这里再写一遍 contains。
+                        // ⚠️ 上面「线路」那一段**故意不用它**：它还要按地址文本匹配，
+                        //    套上只认姓名/手机号的规则会让「按地址找线路」直接失效。
+                        else vm.contacts.filter { UserSearch.matches(kw, it.displayName, it.phone) }
+                    }
+                    val shownLocations = remember(vm.locations, kw, vm.locRailKey) {
+                        val base = if (kw.isBlank()) vm.locations
+                        else vm.locations.filter { it.name.contains(kw, true) || it.detailAddress.contains(kw, true) }
+                        if (locRailName.isBlank()) base else base.filter { it.category == locRailName }
+                    }
+                    // 删除是软删，但「软」是数据库的事，用户要的是**当场能救回来**（规范 06:1371：
+                    // 删除一律软删 + **手边**要有撤回）。这一行就摆在列表**顶上**：它跟着内容走、
+                    // 永远在第一屏；⛔ 不塞进页面底部提示位 —— 那在长列表的末尾，根本不在屏幕上。
+                    vm.recentlyDeleted?.let { rd ->
+                        val what = if (rd.name.isBlank()) "这条" + rd.label else "「" + rd.name + "」"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp),
+                        ) {
+                            Text(
+                                "已删除" + what,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { vm.undoDelete() }, enabled = !vm.acting) { Text("撤销") }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        when {
+                            vm.loading -> LoadingBox(Modifier.fillMaxSize())
+                            // ⚠️ 只看 **loadError**：表单的错误写在抽屉里（见 AddressViewModel 的注释），
+                            //    混进来就会让"保存被拦下"变成"整页列表全没了"。
+                            vm.loadError != null -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() }, Modifier.fillMaxSize())
+                            // ---- 2. 联系人：单独一支（它自己就是一整块 LazyColumn）----
+                            // 分类那一列已经挪进左侧抽屉（`ModalNavigationDrawer`），列表占整幅宽度。
+                            // ⚠️ 外层是**无主语 when**，所以这一支必须写成条件（`tab == 1`），
+                            //    直接写 `1 ->` 会被当成"条件类型不匹配"编译不过。
+                            tab == 1 -> ContactCategoryPane(vm = vm, keyword = kw, contacts = shownContacts, onOpenDrawer = { scope.launch { drawer.open() } })
+                            else -> LazyColumn(
+                                Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                when (tab) {
+                                    // ---- 2. 联系人 ----：已由外面的 ContactCategoryPane 接管（标题行胶囊 + 左侧抽屉）
+
+                                    // ---- 3. 地点（单独地点）----
+                                    2 -> {
+                                        item {
+                                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                                // 标题 + 分类胶囊占左边一组（用户框的就是这个位置），右边留给「新增地点」。
+                                                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                                    Text("地点", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                                                    Spacer(Modifier.width(8.dp))
+                                                    CategoryTriggerChip(
+                                                        current = locRailName,
+                                                        accent = Color(MoneyOrange),
+                                                        onClick = { scope.launch { drawer.open() } },
+                                                    )
+                                                }
+                                                TextButton(onClick = { vm.openLocationCreate() }) {
+                                                    Icon(Icons.Default.Place, null, Modifier.size(16.dp), tint = Color(MoneyOrange))
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text("新增地点")
+                                                }
+                                            }
+                                        }
+                                        if (shownLocations.isEmpty()) {
+                                            item {
+                                                EmptyView(
+                                                    when {
+                                                        kw.isNotBlank() -> "没有匹配「$kw」的地点"
+                                                        locRailName.isNotBlank() -> "「" + locRailName + "」下还没有地点"
+                                                        else -> "暂无地点"
+                                                    },
+                                                )
+                                            }
+                                        } else {
+                                            items(shownLocations, key = { "l" + it.id }) { l ->
+                                                LocationCard(l = l, onEdit = { vm.openLocationEdit(l) }, onDelete = { vm.deleteLocation(l) })
+                                            }
+                                        }
+                                    }
+
+                                    // ---- 1. 常用线路（联系人 + 地点）----
+                                    else -> {
+                                        item {
+                                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                                    Text("常用线路", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                                                    Spacer(Modifier.width(8.dp))
+                                                    CategoryTriggerChip(
+                                                        current = routeRailName,
+                                                        accent = Color(ShipperTeal),
+                                                        onClick = { scope.launch { drawer.open() } },
+                                                    )
+                                                }
+                                                TextButton(onClick = { vm.openCreate() }) {
+                                                    Icon(Icons.Default.AddLocationAlt, null, Modifier.size(16.dp), tint = Color(ShipperTeal))
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text("新增线路")
+                                                }
+                                            }
+                                            Spacer(Modifier.height(4.dp))
+                                        }
+                                        if (shownAddresses.isEmpty()) {
+                                            item {
+                                                EmptyView(
+                                                    when {
+                                                        kw.isNotBlank() -> "没有匹配「$kw」的线路"
+                                                        routeRailName.isNotBlank() -> "「" + routeRailName + "」下还没有线路"
+                                                        else -> "暂无线路，点右侧新增"
+                                                    },
+                                                )
+                                            }
+                                        } else {
+                                            items(shownAddresses, key = { "a" + it.id }) { a ->
+                                                AddressCard(a = a, onEdit = { vm.openEdit(a) }, onDelete = { vm.delete(a) })
+                                            }
+                                        }
+                                    }
+                                }
+                                item { Spacer(Modifier.height(24.dp)) }
+                            }
+                        }
                     }
                 }
             }
@@ -429,6 +554,63 @@ fun AddressScreen(
                         icon = Icons.Default.Place,
                         iconTint = Color(DestOrange),
                     )
+                    // 分类（与地点表单同一套做法：名册管顺序、字符串管归属）。
+                    // ⚠️ 下拉点选 + 最后一项「＋ 新建分类…」，⛔ 不用 chips 替代下拉（设计规范 §5），
+                    // 也不在这里自由填名字 —— 填出来的名字会绕过名册、顺序乱掉。
+                    var routeCatExpanded by remember { mutableStateOf(false) }
+                    var newRouteCatDialog by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = routeCatExpanded,
+                        onExpandedChange = { routeCatExpanded = it },
+                    ) {
+                        FormPickRow(
+                            label = "分类",
+                            value = vm.routeCategory.trim(),
+                            placeholder = "未分类",
+                            icon = Icons.Default.Folder,
+                            iconTint = Color(ShipperTeal),
+                            onClick = { routeCatExpanded = true },
+                            modifier = Modifier.menuAnchor(),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = routeCatExpanded,
+                            onDismissRequest = { routeCatExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("未分类") },
+                                onClick = { vm.routeCategory = ""; routeCatExpanded = false },
+                            )
+                            vm.routeCategories.forEach { c ->
+                                DropdownMenuItem(
+                                    // 带上"这一类下有几条线路"：选分类时能看出哪个是主力
+                                    text = {
+                                        Text(
+                                            c.name + if (c.addressCount > 0) "（${c.addressCount} 条线路）" else "",
+                                            maxLines = 1,
+                                        )
+                                    },
+                                    onClick = { vm.routeCategory = c.name; routeCatExpanded = false },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("＋ 新建分类…") },
+                                onClick = { routeCatExpanded = false; newRouteCatDialog = true },
+                            )
+                        }
+                    }
+                    if (newRouteCatDialog) {
+                        NewPlaceCategoryDialog(
+                            busy = vm.acting,
+                            error = vm.formError,
+                            title = "新建分类",
+                            placeholder = "分类名，如 常送工地 / 城东片区",
+                            onConfirm = { name ->
+                                vm.createRouteCategoryAndSelect(name) { newRouteCatDialog = false }
+                            },
+                            onDismiss = { newRouteCatDialog = false },
+                        )
+                    }
                 }
 
                 // ④ 线路图片 + 设为默认（`ImageStrip` 自带标题，所以这一张卡不再加组标题）
@@ -814,100 +996,107 @@ fun AddressScreen(
 }
 
 /**
- * 「联系人」这一段：**左边分类、右边列表**（FEAT-0007）。
+ * 「分类管理」面板：抽屉里点「管理分类」→ 关抽屉 → 该页签整块换成它（**同一屏的第二层**，⛔ 不新开页面）。
  *
- * 用户原话：「我们的联系人好像是可以做分类的吧，**同样以左边为分类右边为列表的形式展示出来**」。
- * 全 App 唯一一处「左分类右列表」在下单页的地址库抽屉（`OrderCreateScreen.kt` 的 `AddressPickerSheet`），
- * 这里的形状就是照它抄的：`Row { MasterRail(宽 112dp) + LazyColumn(weight 1f) }`。
+ * 三个页签各有一份自己的名册（线路 / 联系人 / 地点），面板本身长得一模一样 —— 这里只做「按页签挑一个 VM」。
+ * 返回时上层会回读名册（`reloadXxxCategories`），抽屉里那一格才跟着改名 / 删除走。
  *
- * 三条纪律也照抄那个抽屉：
- * · key 约定 `""` = 全部 / `"c|分类名"` = 某一类 / `"manage"` = 分类管理（同一屏的第二层）；
- * · **左栏一格都不带「N 位」**（用户 2026-09-19：「那个分组下面不要显示有多少条啊，这是多余信息」）
- *   —— `MasterRail` 只要有任意一格带副标题，整列行高就变 60dp，多几格就吃掉一屏；
- * · 管理是**第二层**不是新页面（用户同一天：「要干脆就不要弹一个界面…它 2 个抽屉」）。
+ * ⚠️ `appViewModel` 是 Activity 级缓存，VM 的 `init { load() }` 只跑第一次 ⇒ 每次进来补一次 `load()`，
+ * 否则面板显示的是上一次的条数（2026-10-03 模拟器实测：库里已经是 1 位，面板显示「0 位联系人」）。
+ */
+@Composable
+private fun CategoryManagePanel(container: AppContainer, tab: Int, onBack: () -> Unit) {
+    when (tab) {
+        1 -> {
+            val catVm: ContactCategoriesViewModel = appViewModel { ContactCategoriesViewModel(container) }
+            LaunchedEffect(Unit) { catVm.load() }
+            ContactCategoriesPanel(vm = catVm, onBack = onBack)
+        }
+        2 -> {
+            val catVm: PlaceCategoriesViewModel = appViewModel { PlaceCategoriesViewModel(container) }
+            LaunchedEffect(Unit) { catVm.load() }
+            PlaceCategoriesPanel(vm = catVm, onBack = onBack)
+        }
+        else -> {
+            val catVm: RouteCategoriesViewModel = appViewModel { RouteCategoriesViewModel(container) }
+            LaunchedEffect(Unit) { catVm.load() }
+            RouteCategoriesPanel(vm = catVm, onBack = onBack)
+        }
+    }
+}
+
+/**
+ * 「联系人」这一段：**标题行上一个分类胶囊 + 点开左侧抽屉**（三档同一形态）。
  *
- * ⚠️ 别把分类做成"下拉筛选"：用户要的是**看得见的分组**（左栏），下拉只做表单里选一个值。
+ * 用户 2026-10-04 的原话：「干脆给线路联系人以及地点，这3个的界面玩个框了框的位置加一个分类显示……
+ * 点击这个按钮的时候，它就会弹出一个在左侧来，它这个左侧抽屉就是我们的那个分类显示，可以去参考
+ * 账本管理的那些代码**就不要使用那个商品管理的界面了**，商品管理的话，那样子的界面导致了右边的
+ * 卡片的信息被挤压了不是很好看」。
+ *
+ * 所以这里**不再**常驻一条 `MasterRail` —— 那正是被否掉的商品管理式左栏（112dp 宽的固定左栏把右边
+ * 的卡片挤窄了）。抽屉是 `ModalNavigationDrawer`（形态照「账本管理」`DispatcherLedgerScreen.kt`），
+ * 不点开时右边就是整幅宽度的列表。
+ *
+ * 三条纪律照旧：
+ * · key 约定 `""` = 全部 / `"c|分类名"` = 某一类 / `"manage"` = 分类管理（抽屉里最后一行，由零件自己加）；
+ * · **抽屉里一格都不带「N 位」**（用户 2026-09-19：「那个分组下面不要显示有多少条啊，这是多余信息」）；
+ * · 管理是**同屏第二层**（`CategoryManagePanel`），不是新页面。
+ *
+ * ⚠️ 别把分类做成"下拉筛选"：用户要的是看得见的分组（抽屉里一整列），下拉只做表单里选一个值。
  */
 @Composable
 private fun ContactCategoryPane(
-    container: AppContainer,
     vm: AddressViewModel,
     keyword: String,
     /** 已经被搜索框筛过一遍的联系人（姓名 / 手机号）。这一层只再叠一次"分类"筛选。 */
     contacts: List<ContactDto>,
+    /** 点分类胶囊 → 上层开抽屉（抽屉挂在 `AddressScreen` 上，三档共用同一个）。 */
+    onOpenDrawer: () -> Unit,
 ) {
-    var managing by remember { mutableStateOf(false) }
-    if (managing) {
-        // 与地址库抽屉里那个 `PlaceCategoriesViewModel` 同一取法：面板自己一份 VM（它的 load
-        // 与列表页的 load 互不干扰），关掉时回读一次名册，让左栏跟上改名 / 删除。
-        val catVm: ContactCategoriesViewModel = appViewModel { ContactCategoriesViewModel(container) }
-        // ⛔ `appViewModel` 是 Activity 级缓存（同一个实例跨次复用），VM 的 `init { load() }` 只跑第一次 ——
-        //    不在这里补一次 load 的话，用户先在下单页/抽屉里给联系人改了分类、再进来，面板上仍是**上一次的**
-        //    「N 位联系人」（2026-10-03 模拟器实测：库里已经是 1 位，面板显示「0 位联系人」，删除确认框也跟着说 0）。
-        LaunchedEffect(Unit) { catVm.load() }
-        ContactCategoriesPanel(
-            vm = catVm,
-            onBack = {
-                managing = false
-                vm.reloadContactCategories()
-            },
-        )
-        return
-    }
-
-    val railName = if (vm.contactRailKey.startsWith("c|")) vm.contactRailKey.removePrefix("c|") else ""
+    val railName = railCategoryName(vm.contactRailKey)
     val inCategory = remember(contacts, vm.contactRailKey) {
         if (railName.isBlank()) contacts else contacts.filter { it.category == railName }
     }
-    Row(Modifier.fillMaxSize()) {
-        MasterRail(
-            items = buildList {
-                add(RailItem("", "全部"))
-                vm.contactCategories.forEach { c -> add(RailItem("c|" + c.name, c.name)) }
-                add(RailItem("manage", "管理分类"))
-            },
-            selectedKey = vm.contactRailKey,
-            onSelect = { key -> if (key == "manage") managing = true else vm.contactRailKey = key },
-            modifier = Modifier.width(112.dp).fillMaxHeight(),
-        )
-        LazyColumn(
-            Modifier.weight(1f).fillMaxHeight(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 选了某一类就把类名顶上来（左栏选中格与标题同一句话，位置感更强）
-                    Text(
-                        railName.ifBlank { "联系人" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { vm.openContactDialog() }) {
-                        Icon(Icons.Default.PersonAddAlt, null, Modifier.size(16.dp), tint = Color(ShipperTeal))
-                        Spacer(Modifier.width(3.dp))
-                        Text("新增联系人")
-                    }
-                }
-            }
-            if (inCategory.isEmpty()) {
-                item {
-                    EmptyView(
-                        when {
-                            keyword.isNotBlank() -> "没有匹配「$keyword」的联系人"
-                            railName.isNotBlank() -> "「" + railName + "」下还没有联系人"
-                            else -> "暂无联系人"
-                        },
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // 标题 + 分类胶囊占左边一组，右边留给「新增联系人」（胶囊把「新增」挤走就等于没做）。
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text("联系人", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Spacer(Modifier.width(8.dp))
+                    CategoryTriggerChip(
+                        current = railName,
+                        accent = Color(ShipperTeal),
+                        onClick = onOpenDrawer,
                     )
                 }
-            } else {
-                items(inCategory, key = { "c" + it.id }) { c ->
-                    ContactCard(c = c, onEdit = { vm.openContactDialog(c) }, onDelete = { vm.deleteContact(c) })
+                TextButton(onClick = { vm.openContactDialog() }) {
+                    Icon(Icons.Default.PersonAddAlt, null, Modifier.size(16.dp), tint = Color(ShipperTeal))
+                    Spacer(Modifier.width(3.dp))
+                    Text("新增联系人")
                 }
             }
-            item { Spacer(Modifier.height(24.dp)) }
         }
+        if (inCategory.isEmpty()) {
+            item {
+                EmptyView(
+                    when {
+                        keyword.isNotBlank() -> "没有匹配「$keyword」的联系人"
+                        railName.isNotBlank() -> "「" + railName + "」下还没有联系人"
+                        else -> "暂无联系人"
+                    },
+                )
+            }
+        } else {
+            items(inCategory, key = { "c" + it.id }) { c ->
+                ContactCard(c = c, onEdit = { vm.openContactDialog(c) }, onDelete = { vm.deleteContact(c) })
+            }
+        }
+        item { Spacer(Modifier.height(24.dp)) }
     }
 }
 

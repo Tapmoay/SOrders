@@ -41,9 +41,11 @@ CASES: list[tuple[str, str, object]] = [
         #    判据没反应，"没牙"的帽子就扣错了（实测踩到）。用 origin_lng + image_urls 两行定位。
         lambda s: s.replace(
             '    @SerialName("origin_lng") val originLng: String? = null,\n'
-            '    @SerialName("image_urls") val imageUrls: List<String> = emptyList(),\n',
+            '    /** 分类："" = 未分类（名册里还没有的名字由服务端顺手补进名册，不让用户先建分类）。 */\n'
+            '    val category: String = "",\n',
             '    @SerialName("origin_lng") val originLng: String? = null,\n'
-            '    @SerialName("image_urls") val imageUrls: List<String> = emptyList(),\n'
+            '    /** 分类："" = 未分类（名册里还没有的名字由服务端顺手补进名册，不让用户先建分类）。 */\n'
+            '    val category: String = "",\n'
             '    @SerialName("probe_new_field") val probeNewField: String = "",\n',
             1,
         ),

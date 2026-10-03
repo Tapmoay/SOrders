@@ -167,6 +167,13 @@ class OperationAction(str, enum.Enum):
     CONTACT_CATEGORY_UPSERT = "CONTACT_CATEGORY_UPSERT"
     CONTACT_CATEGORY_DELETE = "CONTACT_CATEGORY_DELETE"
     CONTACT_CATEGORY_REORDER = "CONTACT_CATEGORY_REORDER"
+    # 线路分类名册（2026-10-04，用户「干脆给线路联系人以及地点，这3个的界面玩个框了框的位置
+    # 加一个分类显示」）：与前两份同一类东西（按人分区、管顺序），第三份名册
+    # （挂的是 `shipper_addresses.category`）。单独一套动作码：审计页上「改了我的线路分类」
+    # 和「改了我的联系人/地点分类」是三件事。
+    ROUTE_CATEGORY_UPSERT = "ROUTE_CATEGORY_UPSERT"
+    ROUTE_CATEGORY_DELETE = "ROUTE_CATEGORY_DELETE"
+    ROUTE_CATEGORY_REORDER = "ROUTE_CATEGORY_REORDER"
     # 开销分类名册（2026-09-20，用户「开销分类……也有个分类管理」）：与商品/地点分类同一类东西
     # （主数据、管顺序），但它还决定**卡片上突出哪一项关联**（vehicle/driver/order/none）——
     # 改它会改所有人看开销的方式，必须留痕。

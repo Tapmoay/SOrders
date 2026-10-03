@@ -72,6 +72,9 @@ class AddressCreate(GeoInput):
     origin_address: str | None = Field(None, max_length=512)
     origin_lat: Decimal | None = None
     origin_lng: Decimal | None = None
+    #: 自定义分类（"" = 未分类）：与 `LocationCreate.category` / `ContactCreate.category`
+    #  **逐字同形**（`String(32)` 那一格），归属是自由文本、顺序归 `RouteCategory` 名册管。
+    category: str = Field(default="", max_length=32)
     # 多图：**条数与单张长度都要有界**（列是 TEXT(JSON)，不设上限就能塞进任意多张长 URL）
     image_urls: list[Url] = Field(default_factory=list, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
@@ -90,6 +93,8 @@ class AddressUpdate(GeoInput):
     origin_address: str | None = Field(None, max_length=512)
     origin_lat: Decimal | None = None
     origin_lng: Decimal | None = None
+    #: 自定义分类：None = 不改这一项，"" = 挪回未分类（与 `LocationUpdate.category` 同一条）。
+    category: str | None = Field(None, max_length=32)
     # None = 不修改；[] = 清空
     image_urls: list[Url] | None = Field(None, max_length=MAX_IMAGES)
     # 旧客户端兼容：单图
@@ -111,6 +116,8 @@ class AddressOut(_ImageUrlsMixin):
     origin_address: str | None = None
     origin_lat: Decimal | None = None
     origin_lng: Decimal | None = None
+    #: 自定义分类（"" = 未分类）。下发它，列表那一栏才能按分类筛。
+    category: str = ""
     created_at: datetime
 
 
