@@ -147,7 +147,7 @@ adb shell dumpsys activity services com.tapmoay.sorders         # 前台服务�
   ⚠️ 2026-09-21 出过一次「派单员那句用了脚本当时的默认音色云健＝男声」——**换错音色不报任何错**
   （文件能播、时长也对），只有用户听得出来；红线现在拿基频对账。
 - 红线：`python _tools/ai/_check_notify_guardrails.py`（权限/渠道/停止规则/两份素材结构/音量比例/角色×类型/音色）。
-- 反向验证：`python _tools/ai/_reverse_verify_notify.py`（43 种注入，证明红线真的会红）。
+- 反向验证：`python _tools/ai/_reverse_verify_notify.py`（46 种注入，证明红线真的会红）。
 - 真机 E2E：`python _tools/notify/_assign_order.py`（走后端真实派单链路），
   操作模拟器用 `python _tools/notify/_ui.py`（按文字点，不写死坐标）。
 - 音量核对（用户要求 80%）：先把媒体音量调低，再派一单，播放期间读

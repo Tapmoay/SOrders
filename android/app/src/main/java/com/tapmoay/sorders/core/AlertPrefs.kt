@@ -35,9 +35,14 @@ class AlertPrefs(context: Context) {
         set(v) = sp.edit().putInt(Keys.REPEAT, v).apply()
 
     /**
-     * 关闭 App 后是否继续接收派单（前台服务常驻）。
-     * **没设置过时按角色给缺省**：司机默认开（他的手机是要放在口袋里等活的），
-     * 派单员/货主默认关（他们大部分时间在电脑前，多一条常驻通知是骚扰）。
+     * 关闭 App 后是否继续接收消息（前台服务常驻）。
+     *
+     * **没设置过时所有角色都开**（见 [NewOrderAlert.defaultBackground]，2026-10-04 CHG-0030）：
+     * 从前是 `hasVoice(role)`——司机与派单员默认开、货主与批发商默认关，于是货主端
+     * 「我的 → 消息提醒」上写着「仅前台接收」，关掉 App 就收不到"司机接单了 / 货送到了"。
+     * 用户点名要统一：**后台接收对哪个角色都是净收益**，语音才是司机与派单员的活。
+     *
+     * 用户在这个开关上表过态就以他的选择为准（`contains` 那一下问的就是"他表过态没有"）。
      */
     fun backgroundEnabled(role: Role?): Boolean =
         if (sp.contains(Keys.BACKGROUND)) sp.getBoolean(Keys.BACKGROUND, false)

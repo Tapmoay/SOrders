@@ -178,11 +178,18 @@ MUTATIONS = [
         "App 内派单成功后立刻停止播报",
     ),
     (
-        "后台常驻的缺省改回「只有司机默认开」（派单员关掉 App 就彻底安静）",
+        "后台常驻的缺省改回「按角色发」（货主又变成关掉 App 一条通知都收不到）",
         CORE / "NewOrderAlert.kt",
+        "    fun defaultBackground(role: Role?): Boolean = true",
         "    fun defaultBackground(role: Role?): Boolean = hasVoice(role)",
-        "    fun defaultBackground(role: Role?): Boolean = role == Role.DRIVER",
-        "后台常驻的缺省按角色算",
+        "后台常驻的缺省对所有角色都开",
+    ),
+    (
+        "常驻通知那句写死成司机话（所有角色的通知栏里都出现「正在接收派单」）",
+        CORE / "NewOrderAlert.kt",
+        '        AlertKind.REVOKED, null -> "SOrders 正在后台接收消息" to "有新消息会立刻提醒你"',
+        '        AlertKind.REVOKED, null -> "SOrders 正在后台接收派单" to "有新派单会立刻提醒你"',
+        "非语音角色那句常驻通知说的是自己那些消息",
     ),
     (
         "设置页的试听改回硬编码司机那句（派单员点试听听到的是别人的活）",

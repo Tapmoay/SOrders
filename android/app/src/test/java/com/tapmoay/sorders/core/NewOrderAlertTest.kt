@@ -333,12 +333,51 @@ class NewOrderAlertTest {
     // ---- 后台常驻的缺省 ----
 
     @Test
-    fun `司机与派单员默认后台常驻，货主默认关`() {
-        // 两个角色都在等"响一声"：关掉 App 就收不到，等于这个功能白做（用户 2026-09-21 拍板）。
-        // 货主不是必须实时知道（他的单没人派会留在列表里）
-        assertTrue(NewOrderAlert.defaultBackground(Role.DRIVER))
-        assertTrue(NewOrderAlert.defaultBackground(Role.DISPATCHER))
-        assertFalse(NewOrderAlert.defaultBackground(Role.SHIPPER))
+    fun `所有角色都默认后台常驻`() {
+        // 2026-10-04（CHG-0030，用户点名）：从前这里是「司机与派单员默认开，货主默认关」，
+        // 于是货主端「我的 → 消息提醒」上写着「仅前台接收」——关掉 App 就收不到
+        // "司机接单了 / 货送到了"。用户的判词是**所有角色后台都能接收**：
+        // 后台接收只是把消息推进通知栏（对哪个角色都是净收益），语音才是司机与派单员的活。
+        listOf(Role.DRIVER, Role.DISPATCHER, Role.SHIPPER, null).forEach { r ->
+            assertTrue("角色 $r 也该默认后台常驻", NewOrderAlert.defaultBackground(r))
+        }
+    }
+
+    @Test
+    fun `常驻通知按角色说要收的是什么`() {
+        // 它常驻在通知栏里、一天要看很多次：给货主写"正在接收派单"就是一句天天见的假话
+        assertEquals(
+            "SOrders 正在后台接收派单" to "有新派单会立刻提醒你",
+            NewOrderAlert.serviceNotice(Role.DRIVER),
+        )
+        assertEquals(
+            "SOrders 正在后台接收新订单" to "有新订单待派单会立刻提醒你",
+            NewOrderAlert.serviceNotice(Role.DISPATCHER),
+        )
+        listOf(Role.SHIPPER, null).forEach { r ->
+            val (title, text) = NewOrderAlert.serviceNotice(r)
+            assertFalse("非语音角色的常驻通知不该提「派单」：$title", title.contains("派单"))
+            assertEquals("SOrders 正在后台接收消息" to "有新消息会立刻提醒你", title to text)
+        }
+    }
+
+    @Test
+    fun `设置页那一档也按角色说要收的是什么`() {
+        // 副标题是用户决定"要不要关掉它"时唯一读到的理由：给货主写「才收得到新派单」，
+        // 他会以为关掉的是跟自己无关的东西（他真正会漏掉的是"司机接单了 / 货送到了"）
+        listOf(Role.SHIPPER, null).forEach { r ->
+            val (title, subtitle) = NewOrderAlert.backgroundRowText(r)
+            assertFalse("非语音角色不该被告知收的是「派单」：$subtitle", subtitle.contains("派单"))
+            assertEquals("关掉 App 也收消息" to "关闭后只有打开 App 时才收得到新消息", title to subtitle)
+        }
+        assertEquals(
+            "关掉 App 也收单" to "关闭后只有打开 App 时才收得到新派单",
+            NewOrderAlert.backgroundRowText(Role.DRIVER),
+        )
+        assertEquals(
+            "关掉 App 也收单" to "关闭后只有打开 App 时才收得到新订单",
+            NewOrderAlert.backgroundRowText(Role.DISPATCHER),
+        )
     }
 
     // ---- 文案 ----
@@ -399,6 +438,13 @@ class NewOrderAlertTest {
                 repeat = NewOrderAlert.FOREVER, background = true,
             ),
         )
+        // 关掉「关掉 App 也收单」之后**必须写出来**（2026-10-04 CHG-0030）：
+        // 从前这一半只在开着的时候出现，关掉就一个字不提 —— 而这一行正是他判断
+        // "关掉 App 还收不收得到"的唯一入口。
+        assertEquals(
+            "语音 3 次·仅前台接收",
+            NewOrderAlert.summary(Role.DISPATCHER, true, voiceEnabled = true, repeat = 3, background = false),
+        )
     }
 
     @Test
@@ -408,7 +454,7 @@ class NewOrderAlertTest {
             NewOrderAlert.summary(Role.DRIVER, true, voiceEnabled = true, repeat = 3, background = true),
         )
         assertEquals(
-            "语音 1 次",
+            "语音 1 次·仅前台接收",
             NewOrderAlert.summary(Role.DRIVER, true, voiceEnabled = true, repeat = 1, background = false),
         )
         assertEquals(

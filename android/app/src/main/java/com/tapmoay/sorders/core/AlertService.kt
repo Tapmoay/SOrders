@@ -19,7 +19,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 后台接收派单的常驻服务（只给"关掉 App 也要收到单"这件事用）。
+ * 后台接收消息的常驻服务（只给"关掉 App 也要收到消息"这件事用）。
+ *
+ * 2026-10-04（CHG-0030）：这句话从前写的是"后台接收**派单**"——那只说对了司机与派单员。
+ * 货主与批发商同样要后台接收（司机接单了 / 货送到了都是他们的消息），所以通知栏那句话
+ * 按角色算（见 [NewOrderAlert.serviceNotice]），这条注释也一并改成角色中性。
  *
  * ### 为什么必须有它
  * 实时消息走的是 Socket.IO **长连接**，而长连接是进程级的：
@@ -32,7 +36,7 @@ import kotlinx.coroutines.launch
  * 业务判定全在 [RealtimeHub]（进程级，Application 里就有了），这个服务只做三件事：
  * 1. **把进程按住**，并且显式触发一次 [RealtimeHub]（App 是被服务拉起来的时，
  *    界面从没创建过它——不触发就"服务活着但没人连 Socket"）；
- * 2. 挂一条常驻通知：让用户知道它在后台收单，点进去能关掉（不做隐形后台）；
+ * 2. 挂一条常驻通知：让用户知道它在后台收消息，点进去能关掉（不做隐形后台）；
  * 3. 会话没了（退出登录）就自己退场，不留一个空转的常驻通知。
  */
 class AlertService : Service() {
@@ -93,13 +97,19 @@ class AlertService : Service() {
 
     private fun goForeground() {
         val allowed = container.notifyCenter.canPost()
+        // 这一句按**角色**说（货主不是在收派单，见 NewOrderAlert.serviceNotice）：
+        // 它常驻在通知栏里，写错了就是一天看很多次的一句假话。
+        // 角色读**同步**缓存（[TokenStore.cachedRole]）：这里没有挂起上下文，
+        // 而这句话必须现在就对（登录后重启服务时缓存已经热过）。
+        val role = Role.fromKey(container.tokenStore.cachedRole() ?: "")
+        val (title, notice) = NewOrderAlert.serviceNotice(role)
         val text = if (allowed) {
-            "有新派单会立刻提醒你"
+            notice
         } else {
             // 说清楚"现在收不到"，而不是让用户以为一切正常
             "通知权限没开，现在只会在 App 里显示"
         }
-        val n = container.notifyCenter.serviceNotification(text)
+        val n = container.notifyCenter.serviceNotification(title, text)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // API 34 起必须用清单里声明过的类型。用 specialUse 而不是 dataSync：
             // Android 15 对 dataSync 有"每 24 小时累计 6 小时"的硬上限，

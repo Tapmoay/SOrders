@@ -66,12 +66,14 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
                 ).apply {
                     description = "订单状态、账本、价格等站内消息"
                 },
+                // 渠道名要与时俱进（2026-10-04 CHG-0030）：它是**整机共享**的一条，
+                // 不能只写"派单"——货主/批发商同样会看到它（见 NewOrderAlert.serviceNotice）。
                 NotificationChannel(
                     NotifyChannels.SERVICE,
-                    "后台接收派单",
+                    "后台接收消息",
                     NotificationManager.IMPORTANCE_MIN,
                 ).apply {
-                    description = "关闭 App 后仍在接收派单的常驻提示"
+                    description = "关闭 App 后仍在接收消息的常驻提示"
                     setShowBadge(false)
                 },
             )
@@ -133,12 +135,18 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
         notify(id, n)
     }
 
-    /** 前台服务的常驻通知。文案要能回答"它到底在干什么、怎么关掉" */
-    fun serviceNotification(text: String): Notification {
+    /**
+     * 前台服务的常驻通知。文案要能回答"它到底在干什么、怎么关掉"。
+     *
+     * 标题由调用方给（[com.tapmoay.sorders.core.NewOrderAlert.serviceNotice]）：
+     * 从前这里写死「正在后台接收派单」，而 2026-10-04（CHG-0030）起所有角色都默认开——
+     * 货主的通知栏里会出现一句跟他无关的"接收派单"。
+     */
+    fun serviceNotification(title: String, text: String): Notification {
         ensureChannels()
         return NotificationCompat.Builder(context, NotifyChannels.SERVICE)
             .setSmallIcon(R.drawable.ic_stat_order)
-            .setContentTitle("SOrders 正在后台接收派单")
+            .setContentTitle(title)
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)

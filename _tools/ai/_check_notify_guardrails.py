@@ -319,8 +319,19 @@ def main() -> int:
     c.absent("不用「dispatcher.pending_pool」那条**没有单号**的角标事件当触发（去重键会退化成 -1，第二单完全不响）",
              alert, r'"dispatcher\.pending_pool" -> AlertEvent')
     c.present("「一直响」有止损上限", alert, r"FOREVER_MAX_MS")
-    c.present("后台常驻的缺省按角色算（司机与派单员默认开，货主默认关）", alert,
-              r"fun defaultBackground\(role: Role\?\): Boolean = hasVoice\(role\)")
+    # 2026-10-04（CHG-0030）：用户把这条缺省**推翻**了 —— 从前是「司机与派单员默认开，货主默认关」，
+    # 于是货主端「我的 → 消息提醒」上写着「仅前台接收」：关掉 App 一条通知都收不到。
+    # 现在**所有角色**都收（后台接收只是把消息推进通知栏），只有语音按角色分。
+    # 判据跟着钉新行为，并顺手把"常驻通知那句也得按角色说"钉上 —— 缺省一改，
+    # 写死「正在后台接收派单」的那句就变成货主天天看的假话。
+    c.present("后台常驻的缺省对所有角色都开（用户 2026-10-04 拍板：所有角色后台都能接收）", alert,
+              r"fun defaultBackground\(role: Role\?\): Boolean = true")
+    c.present("常驻通知那句按角色说（货主不是在收派单）", alert,
+              r"fun serviceNotice\(role: Role\?\): Pair<String, String> = when \(voiceKind\(role\)\) \{")
+    c.present("非语音角色那句常驻通知说的是自己那些消息（不是「正在接收派单」）", alert,
+              r'AlertKind\.REVOKED, null -> "SOrders 正在后台接收消息" to "有新消息会立刻提醒你"')
+    c.present("「我的」那一行对每个角色都写清后台那一半（关掉 App 还收不收得到）", alert,
+              r'if \(background\) "·后台接收" else "·仅前台接收"')
 
     # ---- §5 停止规则：动手的那一方必须能立刻打断 ----
     for ev in ("order.driver_ack", "order.delivered_driver", "order.revoked", "order.cancelled"):

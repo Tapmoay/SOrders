@@ -180,8 +180,56 @@ object NewOrderAlert {
         else -> voiceKind(role) == kind
     }
 
-    /** 没设置过「后台常驻」时按角色给缺省：司机与派单员默认开（都在等"响一声"），货主默认关 */
-    fun defaultBackground(role: Role?): Boolean = hasVoice(role)
+    /**
+     * 没设置过「后台常驻」时给什么缺省：**所有角色都开**。
+     *
+     * 2026-10-04（CHG-0030，用户点名）：原来是 `hasVoice(role)`——只有司机与派单员默认开，
+     * 货主 / 批发商默认关，他们「我的 → 消息提醒」那一行就写着**「仅前台接收」**：
+     * 关掉 App 之后**一条通知都收不到**，而那些消息对货主是"司机接单了 / 货送到了"，
+     * 不是可有可无的响铃。
+     *
+     * 用户的判词是「所有角色后台都能接收」：语音播报仍然是司机与派单员的活（见 [voiceKind]，
+     * 「来单了」对货主是**错的信息**），但**后台接收只是把消息推进通知栏**，
+     * 对哪个角色都是净收益 —— 真要说差别，只有"司机更在乎"这一条，
+     * 而"缺省"不是用来表达在乎程度的。
+     *
+     * 参数留着：三个调用点都是在问"我这个角色该怎么算"（[AlertPrefs.backgroundEnabled] /
+     * [AlertService.sync] / [BootReceiver]），答案一样也仍然是同一个问题 ——
+     * 将来真要分角色，只动这一行（别的写法都会让某个角色的缺省悄悄漂走）。
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun defaultBackground(role: Role?): Boolean = true
+
+    /**
+     * 后台常驻那条通知上该写什么（标题 to 正文）。**按角色说对的话**。
+     *
+     * 2026-10-04（CHG-0030）：它原来在 [com.tapmoay.sorders.core.NotifyCenter.serviceNotification]
+     * 里写死「SOrders 正在后台接收派单 / 有新派单会立刻提醒你」—— 那时只有司机与派单员默认开着，
+     * 这句话大致说得通；现在**所有角色**都默认开，货主的通知栏里就会出现"正在接收派单"，
+     * 而他既不接单也不派单：那是一句**假话**，而且它常驻在通知栏、一天要看很多次。
+     * 分工与 [voiceKind] 同一套：司机收派单、派单员收待派新订单、其余角色收自己那些消息
+     * （司机那一句**逐字不动**，它是真机上验过的那句）。
+     */
+    fun serviceNotice(role: Role?): Pair<String, String> = when (voiceKind(role)) {
+        AlertKind.NEW_ORDER -> "SOrders 正在后台接收派单" to "有新派单会立刻提醒你"
+        AlertKind.PENDING_ORDER -> "SOrders 正在后台接收新订单" to "有新订单待派单会立刻提醒你"
+        // REVOKED 走不到这里（[voiceKind] 只映射两个角色）；写出来是为了让 when 穷尽，
+        // 也让"除这两种之外都一样"这件事在代码里看得见。
+        AlertKind.REVOKED, null -> "SOrders 正在后台接收消息" to "有新消息会立刻提醒你"
+    }
+
+    /**
+     * 设置页「关掉 App 也收单」那一档的文案（标题 to 副标题）—— 同样按角色说要收的是什么。
+     *
+     * 副标题是用户决定**要不要关掉它**时唯一读到的理由：给货主写「关闭后只有打开 App 时
+     * 才收得到新派单」，他会得出"派单跟我无关，关了吧"—— 可他关掉的其实是
+     * "司机接单了 / 货送到了"这些消息（分工见 [serviceNotice]）。
+     */
+    fun backgroundRowText(role: Role?): Pair<String, String> = when (voiceKind(role)) {
+        AlertKind.NEW_ORDER -> "关掉 App 也收单" to "关闭后只有打开 App 时才收得到新派单"
+        AlertKind.PENDING_ORDER -> "关掉 App 也收单" to "关闭后只有打开 App 时才收得到新订单"
+        AlertKind.REVOKED, null -> "关掉 App 也收消息" to "关闭后只有打开 App 时才收得到新消息"
+    }
 
     /**
      * 把一条事件认成「要不要播、播什么」。
@@ -282,6 +330,10 @@ object NewOrderAlert {
      * 为什么放进纯函数：这一行是用户判断「派单来了会不会响」的唯一入口，
      * 而它必须**按角色**说不同的话——语音只有司机和派单员有（见 [hasVoice] / [voiceKind]），
      * 给**货主**写「语音 3 次」，他看到的就是一句假话（他会等一个永远不会响的东西）。
+     *
+     * 反过来也一样（2026-10-04 CHG-0030）：**「后台接收」这一半每个角色都要写**——
+     * 有语音的那两个角色从前只在开着的时候加一句「·后台接收」，关掉就一个字不提，
+     * 于是"关掉 App 还收不收得到"这件事在他们那一行上**看不出来**。
      */
     fun summary(
         role: Role?,
@@ -294,6 +346,10 @@ object NewOrderAlert {
         if (!hasVoice(role)) return if (background) "后台接收中" else "仅前台接收"
         if (!voiceEnabled) return "语音已关"
         // ⚠️ 档位文案要带上角色：派单员那一行如果写「一直响到我接单」，他会以为自己点错了页面
-        return "语音 " + repeatLabel(repeat, role) + if (background) "·后台接收" else ""
+        // ⚠️ 「后台接收 / 仅前台接收」这一半对**每个**角色都要说（2026-10-04 CHG-0030）：
+        //    从前只有货主那一支写「仅前台接收」，司机把「关掉 App 也收单」关掉之后这一行
+        //    还是「语音 3 次」—— 他会以为关掉 App 也收得到。同一个状态，全角色同一个说法。
+        return "语音 " + repeatLabel(repeat, role) +
+            if (background) "·后台接收" else "·仅前台接收"
     }
 }

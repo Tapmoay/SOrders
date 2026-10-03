@@ -67,6 +67,10 @@ fun AlertSettingsScreen(
     // 开关，等于让他调一个永远不会生效的东西——**能点、但不做事**比没有更糟。
     // 这句话也是"试听按钮该播哪一句"的唯一来源（不许在这页里硬编码某个 AlertKind）。
     val voiceKind = NewOrderAlert.voiceKind(role)
+    // 「关掉 App 也收…」那一档的标题与"关闭后会怎样"同样按角色说（判定在
+    // NewOrderAlert.backgroundRowText）：给货主写「才收得到新派单」，他会以为
+    // 关掉的是跟自己无关的东西，可他关掉的其实是"司机接单了 / 货送到了"。
+    val backgroundRow = NewOrderAlert.backgroundRowText(role)
     // 系统权限/省电策略会被用户在系统设置里改，回到这一页要重新读一次
     var notifAllowed by remember { mutableStateOf(notificationsAllowed(context)) }
     var batteryFree by remember { mutableStateOf(batteryUnrestricted(context)) }
@@ -170,13 +174,13 @@ fun AlertSettingsScreen(
             SwitchRow(
                 icon = if (background) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
                 color = Color(0xFF1E6FFF),
-                title = "关掉 App 也收单",
+                title = backgroundRow.first,
                 subtitle = if (running) {
                     "正在后台接收（通知栏有一条常驻提示，随时可关）"
                 } else if (background) {
                     "已开启，正在启动…"
                 } else {
-                    "关闭后只有打开 App 时才收得到新派单"
+                    backgroundRow.second
                 },
                 checked = background,
                 onCheckedChange = {
