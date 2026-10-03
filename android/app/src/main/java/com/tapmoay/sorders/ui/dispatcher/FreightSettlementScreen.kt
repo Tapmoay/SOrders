@@ -65,6 +65,8 @@ fun FreightSettlementScreen(
     onBack: () -> Unit,
     /** 点开某一条明细 → 这一单的**原始订单**（订单详情页）。 */
     onOpenOrder: (Long) -> Unit = {},
+    /** 上面那一行「还有 N 单运费没定价」要去的落点（运费待定价页）。 */
+    onOpenUnpriced: () -> Unit = {},
 ) {
     val vm: FreightSettlementViewModel = appViewModel { FreightSettlementViewModel(container) }
     // 两个弹层：月份网格（点药丸）与自定义区间（网格里那一行）——都声明在**函数体这一层**
@@ -143,6 +145,12 @@ fun FreightSettlementScreen(
                         scope.launch { drawer.open() }
                     },
                 )
+                // 待定价的那些单**不在下面这张表里**（这一页只算"已送达且已计价"）——
+                // 少了这一行，派单员核某位司机的运费时看到的是一片空，而钱躺在
+                // 「运费模板 → 待定价」里，两页之间连一句话都没有（E2E 走查 P19）。
+                unpricedNotice(vm.unpricedRows.size, vm.unpricedMore)?.let { text ->
+                    UnpricedNoticeRow(text, onOpenUnpriced)
+                }
                 when {
                     vm.loading && groups.isEmpty() -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
@@ -604,5 +612,49 @@ private fun SettlementOrderRow(o: FreightSettlementOrderDto) {
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * 待定价那一行的文案（没有待定价的单 → `null`，这一行不显示）。
+ *
+ * E2E 走查 P19 的成因，就是这三件事原来各说各的：还有多少单没有运费、它们**不分司机**
+ * （这一页是按司机看的）、它们**不在上面那张表里**（那张表只算已送达且已计价的单）。
+ * 少了任何一条，用户就会拿着这张表当完整的账去对。
+ *
+ * 后端一页最多 200 条，被截断时只能说「N 单以上」—— 说确数就是假话（见 `PageMeta`）。
+ */
+internal fun unpricedNotice(count: Int, more: Boolean): String? {
+    if (count <= 0) return null
+    val n = if (more) "$count 单以上" else "$count 单"
+    return "还有 $n 运费没定价 —— 不分司机，也不在上面这张表里"
+}
+
+/**
+ * 「还有 N 单运费没定价」那一行（点它去定价）。
+ *
+ * ⛔ 不复用 `PersonTriggerRow`：那个零件里写死了「选择」两个字（它是"选人"用的），
+ *    而且它在结算页**只许出现一次** —— 反验脚本就是拿那一行做的注入锚点。
+ * ⛔ 这一行**不写金额**：它只说"别处还有单"，金额要等那些单自己被定完价才算得出来。
+ */
+@Composable
+private fun UnpricedNoticeRow(text: String, onOpen: () -> Unit) {
+    Surface(
+        onClick = onOpen,
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TintedIcon(Icons.Default.PriceChange, MaterialTheme.colorScheme.error, size = 16.dp, container = 32.dp)
+            Spacer(Modifier.width(10.dp))
+            Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            Text("去定价", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        }
     }
 }

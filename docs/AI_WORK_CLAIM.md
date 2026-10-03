@@ -31,6 +31,23 @@
 
 ## 进行中
 
+### [2026-10-03 进行中] 会话：**CHG-0029 两笔钱分开说：规则卡标清「给司机的钱」，待定价的运费回流结算页（走查 P19）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**这一轮的验收口径（走查报告 `_tmp/E2E测试报告.md:240` 修复优先级第 3 条，逐字）**：
+「**P19 / P25 / P26 / P27 / P12** 口径误导与入口缺失（待定价回流结算页、账本两个数要有解释、红冲别写已核销、退货通知要发给司机、订单详情补派单入口）」——
+P25/P26 已由 `CHG-0026` 关闭、P27 已由 `BUG-0005` 关闭、P12 已由 `BUG-0004` 关闭；本条收这一组的**最后一项 P19**。
+
+**走查原话（`_tmp/E2E测试报告.md:79-83`，逐字）**：
+「同一张卡既写「按单计件 · 小货车 **每单 22 元**」，又写「**还没勾价目** —— 派给这个司机的单会进「待定价」」。王强今天真实送达的那一单，在「司机运费结算」里查不到（「本月暂无已送达且已计价的运费订单」），钱藏在另一个页面 运费模板 → 待定价 里，两页之间**没有互相链接也没有角标**。」
+
+**毛病是同一件事的两头**（详细规格见 `docs/changes/CHG-0029.md`）：
+- **规则卡**（`ui/dispatcher/DriverBillingRulesScreen.kt:209-311` 的 `RuleCard`）：卡上那笔「小货车每单 22 元」是**给司机的工资**，下半句「还没勾价目」说的是**货主付的运费** —— 两笔钱同屏同排版、一个字都没区分 ⇒ 卡面读起来像「每单 22 元已生效」。改：名字行右侧加条件角标「缺价目」（`rule.templateBriefs.isEmpty()` 时，复用共用零件 `MiniChip`）＋ 摘要上方加一行口径标签「给司机的钱」＋ 在原句**之后追加**一句「「给司机的钱」是工资；运费按价目算，没勾价目运费就出不来（点「编辑」勾上）」。⛔ 那句被冻的原话一字不动（`_tools/qa/_check_freight_pricing.py:182` 钉着整段前缀）。
+- **结算页**（`ui/dispatcher/FreightSettlementViewModel.kt` / `FreightSettlementScreen.kt`）：结算表只取「已送达且已计价」的单，待定价的单一个字都不提（后端 unpriced 过滤刻意把 `DELIVERED` 也算进来 —— `backend/app/services/accounting_service.py:187`），而待定价页 `ui/dispatcher/FreightPricingScreens.kt:195 fun UnpricedOrdersScreen(` 只能从运费模板底栏进。改：VM 多两个状态（`unpricedRows` / `unpricedMore`）＋ `private suspend fun loadUnpriced()`（复用既有的 `container.repo.unpricedOrders()`，截断只认 `page.meta.hasMore`，失败静默、不拖红主表），司机行下面显示一行 `errorContainer` 提示「还有 N 单运费没定价 —— 不分司机，也不在上面这张表里」＋「去定价 ›」，NavGraph 把它绑到 `Routes.FREIGHT_UNPRICED`。⛔ 那一行**不复用** `PersonTriggerRow`（会踩掉 `_tools/qa/_reverse_verify_freight_settlement_ui.py:86` 的注入锚点）。
+
+**落点**：`ui/dispatcher/FreightSettlementViewModel.kt`、`ui/dispatcher/FreightSettlementScreen.kt`、`ui/nav/NavGraph.kt`、`ui/dispatcher/DriverBillingRulesScreen.kt` ＋ 新增单测 `android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/FreightSettlementNoticeTest.kt` ＋ `_tools/qa/_check_freight_pricing_clarity.py`（新建）＋ `_tools/qa/_reverse_verify_freight_pricing_clarity.py`（新建）＋ `docs/changes/CHG-0029.md` ＋ README 登记行 ＋ 本条。⛔ 后端一行未动、不新增/修改请求、DTO、库表、状态机、权限；不放宽任何断言、不删用例。
+
+**落点与提交**：（跑完回填）
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

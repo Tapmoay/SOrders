@@ -216,8 +216,24 @@ private fun RuleCard(
     onRestore: () -> Unit,
 ) {
     SectionCard(modifier = Modifier.fillMaxWidth()) {
-        Text(rule.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                rule.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            // 没勾价目 = 这条规则还没配好（下面那句会解释后果）。挂个角标：卡片一多，
+            // 光看名字看不出哪条还没配好，得逐张读完才知道（E2E 走查 P19）。
+            if (rule.templateBriefs.isEmpty()) {
+                Spacer(Modifier.width(6.dp))
+                MiniChip("缺价目", MaterialTheme.colorScheme.error)
+            }
+        }
         Spacer(Modifier.height(4.dp))
+        // 「每单 ¥22」是**给司机的钱**，不是货主付的运费 —— 不写这四个字，用户会把它读成
+        // "这单的运费已经定了"（E2E 走查 P19：同一张卡既说按单计件，又说还没勾价目）。
+        Text("给司机的钱", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         // 后端算好的那句话，直接显示（见本文件顶部的说明）。
         Text(rule.summary, style = MaterialTheme.typography.bodyMedium)
         val rows = rule.categories.map { CategoryRow(it.categoryName.ifBlank { "#" + it.categoryId }, it.pieceAmount, it.commissionRate) }
@@ -245,6 +261,16 @@ private fun RuleCard(
                 "还没勾价目 —— 派给这个司机的单会进「待定价」",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            // 卡片上「小货车每单 ¥22」与「还没勾价目」看着像自相矛盾，其实是两笔钱：
+            // 上面那笔是**给司机的工资**，货主付的**运费**要按「价目」算。把两笔钱的关系
+            // 明说出来，用户才知道"钱在哪一步卡住的"（E2E 走查 P19）。
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "「给司机的钱」是工资；运费按价目算，没勾价目运费就出不来（点「编辑」勾上）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {

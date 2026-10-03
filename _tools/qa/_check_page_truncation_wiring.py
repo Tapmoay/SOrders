@@ -53,7 +53,9 @@ APIS = ANDROID / "data/remote/api/Apis.kt"
 #:    而这几个数字要防的恰恰就是「某个列表页又静默了」。
 #:    所以现在：下限＝实测值，而且**实测 > 下限也报红**（提示把下限提到实测值）——
 #:    增长时必须同步这一行，余量因此永远不存在。
-MIN_META_READS = 14     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
+#: ⚠️ 2026-10-03 上调 14 → 15：CHG-0029 让结算页也读了一次（`FreightSettlementViewModel.loadUnpriced()`
+#:    里的 `unpricedMore = page.meta.hasMore`）—— 增长时必须同步这一行，正是这条注释在防的事。
+MIN_META_READS = 15     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
 MIN_NOTES = 16          # 界面里 `TruncationNote(` 的**调用**处数（实测值；⛔ 定义那处不算）
 MIN_ENDPOINTS = 6       # 返回 `Response<List<...>>` 的列表端点方法数
 

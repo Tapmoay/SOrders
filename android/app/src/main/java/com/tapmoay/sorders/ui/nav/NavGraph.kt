@@ -544,6 +544,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onBack = { navController.popBackStack() },
                 // 明细行点开的是**这一单的原始订单**（与司机端「我的账本」同一处落点）
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
+                // 上面那一行「还有 N 单运费没定价」→ 运费待定价页（同一个容器、同一个路由表）
+                onOpenUnpriced = { navController.navigate(Routes.FREIGHT_UNPRICED) },
             )
         }
         composable(Routes.DRIVER_FREIGHT) {

@@ -9,6 +9,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.UserSearch
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementDto
 import com.tapmoay.sorders.data.remote.dto.FreightSettlementGroupDto
+import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -68,6 +69,18 @@ class FreightSettlementViewModel(private val container: AppContainer) : ViewMode
      * 于是那句「他在这个月没有单」会变成「他在这个月没有单」但**说不出他是谁**。
      */
     var selectedName by mutableStateOf("")
+
+    /**
+     * 运费还没定价的单（`unpriced=true`：**已经派出去了**、运费还是空的，连已送达的也算）。
+     *
+     * 为什么结算页要知道它（E2E 走查 P19）：这一页只算"已送达且已计价"的单，待定价的单
+     * 在这张表里**根本不出现** —— 派单员核「王强这单运费多少」时看到的是一片空，
+     * 而钱躺在「运费模板 → 待定价」里，两个页面之间原来连一句话都没有。
+     */
+    var unpricedRows by mutableStateOf<List<OrderDto>>(emptyList())
+
+    /** 待定价那边还有更多（`X-Truncated`）—— 报数时只能说「N 单以上」，不许说确数。 */
+    var unpricedMore by mutableStateOf(false)
 
     init {
         load()
@@ -141,6 +154,8 @@ class FreightSettlementViewModel(private val container: AppContainer) : ViewMode
         val from = rangeFrom
         val to = rangeTo
         viewModelScope.launch {
+            // 顺带问一句"还有多少单没有运费"（与主表**各失败各的**，见 loadUnpriced）
+            loadUnpriced()
             try {
                 data = if (from != null && to != null) {
                     // 起止都按**当地整天**算（结束那天要含进去）：不补 `23:59:59` 的话，
@@ -158,6 +173,23 @@ class FreightSettlementViewModel(private val container: AppContainer) : ViewMode
             } finally {
                 loading = false
             }
+        }
+    }
+
+    /**
+     * 问一句「还有多少单没有运费」（E2E 走查 P19：待定价那边的路要能回到这一页）。
+     *
+     * ⛔ 它失败**不能**把整页拖红：这一页的主体是已计价的账，待定价那一行只是**多给一条路**。
+     *    失败时按"没有"处理（那一行不显示）—— 页面上其余的东西该显示什么还显示什么。
+     */
+    private suspend fun loadUnpriced() {
+        try {
+            val page = container.repo.unpricedOrders()
+            unpricedRows = page.rows
+            unpricedMore = page.meta.hasMore
+        } catch (e: Exception) {
+            unpricedRows = emptyList()
+            unpricedMore = false
         }
     }
 
