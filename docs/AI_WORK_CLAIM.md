@@ -31,19 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 进行中] 会话：**BUG-0002 名册号码露出软删后缀 + 账户页没有状态档 + 停用账号能绑车**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：2026-10-03 三端真机 E2E 走查（`_tmp/E2E测试报告.md` P1 / P2 / P10）。
-
-**现象**：① 账户卡与名册卡直接画出软删账号的内部号码 `13923111638_del62`；② 账户管理页只有「分类」一层过滤，停用与已删除的账号混在同一个列表里；③ 车辆「绑司机」候选里能选中已停用（甚至已删除）的账号。
-
-**根因**：`users.phone` 一列同时装两种含义（活号 / 软删时的「号码 + `_del<id>` 后缀」—— 删号必须把号码释放给新账号），而 `UserOut` 只有 `phone` 一格 ⇒ 界面拿不到口径，只能自己猜后缀；账户列表与绑车候选都只看关键字，没看 `is_active` / 软删标记。
-
-**改哪些文件**：后端 `backend/app/schemas/user.py`（`UserOut` 加只读出参 `phone_display` / `is_deleted`）、`backend/app/api/v1/users.py`（`_to_out` 现算两格 + 新增 `_in_recycle_bin(u)`）、新增 `backend/tests/test_user_roster_phone_and_bin.py`（4 条）；Android `data/remote/dto/Dtos.kt`、`ui/common/RosterCard.kt`（`rosterPhoneOf` / `RosterPhoneRowOf` / `ROSTER_PHONE_TAKEN`）、`ui/dispatcher/AccountManageViewModel.kt`、`AccountManageScreen.kt`、`UsersManageScreen.kt`、`VehicleManageScreen.kt`。
-
-**判据·反验**：新增 `_tools/qa/_check_user_account_status.py`（静态判据）与 `_tools/qa/_reverse_verify_user_account_status.py`（12 条注入，每条都要让判据变红）。⛔ 未改核心区文件（`_tools/qa/_core_files.txt` 里没有 `api/v1/users.py` / `schemas/user.py`），故不写「核心改动：」声明行。
-
-**边界（没破）**：`users.phone` 的落库值（含 `_del` 后缀）与所有写入路径一字未动；删号 / 恢复 / 启用三个端点的语义与 400 文案不变；搜索口径 `val shown: List<UserDto> get() = hits ?: users` 未动；`UsersManageScreen.kt` 卡片里 `0xFFFFF1C6` 的「已停用」外观未动；分类名册（`shownInRail` = 分类 ∘ 状态两层）保留。
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5638,6 +5625,21 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0002 名册号码露出软删后缀 + 账户页没有状态档 + 停用账号能绑车**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：2026-10-03 三端真机 E2E 走查（`_tmp/E2E测试报告.md` P1 / P2 / P10）。
+
+**现象**：① 账户卡与名册卡直接画出软删账号的内部号码 `13923111638_del62`；② 账户管理页只有「分类」一层过滤，停用与已删除的账号混在同一个列表里；③ 车辆「绑司机」候选里能选中已停用（甚至已删除）的账号。
+
+**根因**：`users.phone` 一列同时装两种含义（活号 / 软删时的「号码 + `_del<id>` 后缀」—— 删号必须把号码释放给新账号），而 `UserOut` 只有 `phone` 一格 ⇒ 界面拿不到口径，只能自己猜后缀；账户列表与绑车候选都只看关键字，没看 `is_active` / 软删标记。
+
+**改哪些文件**：后端 `backend/app/schemas/user.py`（`UserOut` 加只读出参 `phone_display` / `is_deleted`）、`backend/app/api/v1/users.py`（`_to_out` 现算两格 + 新增 `_in_recycle_bin(u)`）、新增 `backend/tests/test_user_roster_phone_and_bin.py`（4 条）；Android `data/remote/dto/Dtos.kt`、`ui/common/RosterCard.kt`（`rosterPhoneOf` / `RosterPhoneRowOf` / `ROSTER_PHONE_TAKEN`）、`ui/dispatcher/AccountManageViewModel.kt`（`ACCOUNT_STATUS_TABS` / `matchesStatus` / `statusTab` / `restore`）、`AccountManageScreen.kt`（四档状态 + 回收站只给「恢复」）、`UsersManageScreen.kt`、`VehicleManageScreen.kt`（`DriverPickList` 过滤 `!isActive || isDeleted` 并说明挡掉几人）。**收尾时真机又扒出一件**：三页空态套了固定高度（`.height(140.dp)` / `.height(160.dp)`），而 `EmptyView` 自带上下各 48dp 内边距 ⇒ `Text` 的 maxHeight 被扣到 0，屏幕上只剩一个图标、文案连无障碍树都不进；共 9 处调用点去掉固定高度。
+
+**判据·反验**：新增 `_tools/qa/_check_user_account_status.py`（78 项静态判据，含「空态看得见」6 条）与 `_tools/qa/_reverse_verify_user_account_status.py`（13 条注入，每条都要让判据变红 → 13/13）。⛔ 未改核心区文件（`_tools/qa/_core_files.txt` 里没有 `api/v1/users.py` / `schemas/user.py`），故不写「核心改动：」声明行。
+
+**边界（没破）**：`users.phone` 的落库值（含 `_del` 后缀）与所有写入路径一字未动；删号 / 恢复 / 启用三个端点的语义与 400 文案不变；搜索口径 `val shown: List<UserDto> get() = hits ?: users` 未动；`UsersManageScreen.kt` 卡片里 `0xFFFFF1C6` 的「已停用」外观未动；分类名册（`shownInRail` = 分类 ∘ 状态两层）保留。
+
+**落点与提交**：实现提交 `129365e`（修复 + 用例 + 判据 + 文档）；判据 78/78、反验 13/13、全量 `pytest` 3 failed / 1212 passed（3 条既有红与本次无关）、`_check_all.py` 153/153、真机 5554 七张截图（`_tmp/v2_p1_p2_deleted.png`、`_tmp/dev_p10_excluded.png`、`_tmp/dev_p10_disabled.png`、`_tmp/v3_empty_tab.png`、`_tmp/v3_search_empty.png`、`_tmp/v3_vehicle_empty.png`、`_tmp/v3_users_empty.png`）；归档提交：本条（`docs/changes/README.md` 状态改已关闭、`docs/changes/BUG-0002.md` 回填提交号与证据）。
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0001 整单退货后账本吞掉被冲原行（订单账 / 货主账 / 批发商账凭空少一笔营收）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪里来**：2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md`）问题清单 **P31**。
