@@ -30,21 +30,6 @@
 ---
 
 ## 进行中
-### [2026-10-04 进行中] 会话：**CHG-0033 工作台右边那颗胶囊上的字按实际身份说：货主 / 批发商**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：用户 2026-10-04 对着工作台头部那张截图（`m22501`，448×138）提的第 2 件事（第 1 件「地点/线路/联系人的删除键搬进编辑界面 + 一律二次确认」是 CHG-0032，已归档）。
-
-**用户原话（逐字，语音转写）**：「还有第2，张图他那个右边的那个**货主**啊，他是**根据实际情况**的来定的：如果**对面是货主**的话，他就**货主**；如果**对面是批发商**的话，则就是**批发商**。」
-
-**根因**：批发商在我们库里**不是第三种角色** —— 他就是 `role = "SHIPPER"` + `is_member = 1`（2026-10-04 实测：49 个货主里 **14** 个，永盛食品 `13800000002`/`id 2` 就是其中一个）。而头部那颗胶囊走 `RoleBadge(role.key)` / `rolePaletteOf(role.key)`，只认 shipper / driver / dispatcher 三键 ⇒ 「看角色画胶囊」这条老规矩**看起来完全正确**，那 14 个人却一直被告知自己是「货主」。**这不是漏了一个分支，是把一个二维事实压成了一维。**
-
-**改了哪几处**：
-
-1. `ui/common/Components.kt`：色源多一支 `"shipper_member" -> RolePalette("批发商", Color(0xFF005A78), Color(0xFF8FDCF0))`（**有意与货主同族色**，⛔ 不借名册那枚琥珀小标）；新增唯一那份映射 `internal fun roleBadgeKey(roleKey: String, memberShipper: Boolean)`（`roleKey == "shipper" && memberShipper` 才换键 —— 派单员/司机被标了 `is_member` 也不改标签，与 `AiActor.of` 同一条纪律）；`RoleBadge(role: String, memberShipper: Boolean = false)` 收下身份，体内**只有一次** `rolePaletteOf(roleBadgeKey(role, memberShipper))`。
-2. `ui/home/WorkbenchScreen.kt`：工作台**问一次自己的身份**（`remember(role.key)` + `LaunchedEffect(role.key)` 里 `runCatching { container.repo.me().isMember }.getOrDefault(false)` ⇒ 问不到按普通货主，fail-closed），交给 `WelcomeBar(role, memberShipper)`；⛔ 头部自己不取数。
-3. 判据这一侧：**新增** `_tools/qa/_check_workbench_member_badge.py`（42 项，六层）＋ `_tools/qa/_reverse_verify_workbench_member_badge.py`（18 条注入）；**既有** `_check_workbench_header.py` 跟着换（色源支数 4 → 5、胶囊那一行带上身份）、`_reverse_verify_workbench_header.py` 涉及胶囊那一行的锚点补 `memberShipper`；单测**新增** `ui/common/RoleBadgeKeyTest.kt`（6 条）；接线三处：规范 §4.13 / 定位表 `08_CODE_LOCATOR.md:178` / 登记簿 `docs/changes/README.md:104`。
-
-**落点与提交**：⏳（进行中；四件事与实测回填见 `docs/changes/CHG-0033.md` ⑦⑧。⛔ 后端零改动、`ProfileHeader` 不碰、名册小标不碰）
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5639,6 +5624,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**CHG-0033 工作台右边那颗胶囊上的字按实际身份说：货主 / 批发商**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：用户 2026-10-04 对着工作台头部那张截图（`m22501`，448×138）提的第 2 件事（第 1 件「地点/线路/联系人的删除键搬进编辑界面 + 一律二次确认」是 CHG-0032，已归档）。
+
+**用户原话（逐字，语音转写）**：「还有第2，张图他那个右边的那个**货主**啊，他是**根据实际情况**的来定的：如果**对面是货主**的话，他就**货主**；如果**对面是批发商**的话，则就是**批发商**。」
+
+**根因**：批发商在我们库里**不是第三种角色** —— 他就是 `role = "SHIPPER"` + `is_member = 1`（2026-10-04 实测：49 个货主里 **14** 个，永盛食品 `13800000002`/`id 2` 就是其中一个）。而头部那颗胶囊走 `RoleBadge(role.key)` / `rolePaletteOf(role.key)`，只认 shipper / driver / dispatcher 三键 ⇒ 「看角色画胶囊」这条老规矩**看起来完全正确**，那 14 个人却一直被告知自己是「货主」。**这不是漏了一个分支，是把一个二维事实压成了一维。**
+
+**改了哪几处**：
+
+1. `ui/common/Components.kt`：色源多一支 `"shipper_member" -> RolePalette("批发商", Color(0xFF005A78), Color(0xFF8FDCF0))`（**有意与货主同族色**，⛔ 不借名册那枚琥珀小标）；新增唯一那份映射 `internal fun roleBadgeKey(roleKey: String, memberShipper: Boolean)`（`roleKey == "shipper" && memberShipper` 才换键 —— 派单员/司机被标了 `is_member` 也不改标签，与 `AiActor.of` 同一条纪律）；`RoleBadge(role: String, memberShipper: Boolean = false)` 收下身份，体内**只有一次** `rolePaletteOf(roleBadgeKey(role, memberShipper))`。
+2. `ui/home/WorkbenchScreen.kt`：工作台**问一次自己的身份**（`remember(role.key)` + `LaunchedEffect(role.key)` 里 `runCatching { container.repo.me().isMember }.getOrDefault(false)` ⇒ 问不到按普通货主，fail-closed），交给 `WelcomeBar(role, memberShipper)`；⛔ 头部自己不取数。
+3. 判据这一侧：**新增** `_tools/qa/_check_workbench_member_badge.py`（42 项，六层）＋ `_tools/qa/_reverse_verify_workbench_member_badge.py`（18 条注入）；**既有** `_check_workbench_header.py` 跟着换（色源支数 4 → 5、胶囊那一行带上身份）、`_reverse_verify_workbench_header.py` 涉及胶囊那一行的锚点补 `memberShipper`；单测**新增** `ui/common/RoleBadgeKeyTest.kt`（6 条）；接线三处：规范 §4.13 / 定位表 `08_CODE_LOCATOR.md:178` / 登记簿 `docs/changes/README.md:104`。
+
+**落点与提交**：判据 42 项全绿（JUDGE=0）/ 反验 18 条注入全 `[OK]`（8 个被碰过的文件逐字节还原）/ 既有红线 43 项 / 既有反验 18/18 / 开发规范 5 项 / Android 单测 1171 项 0 失败（新增 6 条）/ 生成物新鲜度 5 组 / 全量静检 169/169 / 模拟器 5556 批发商（`13800000002`）头部写「批发商」、关网重进仍「货主」（fail-closed 可观察）、同账号 `is_member=0` 写「货主」、还原后「批发商」、5554 派单员头部不变（截图 `_tmp/ev/101…106`）。实现提交 `6a7157f`（15 files / 996 insertions），归档提交（本笔）。⛔ 后端一行未动、`ProfileHeader` 不碰、名册小标不碰。
+
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**CHG-0032 删除先问一句：地点 / 线路 / 联系人的删除键搬进编辑界面，且一律二次确认**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：用户 2026-10-04 发来两张截图（第 1 张是「地址与联系人」页的联系人列表，每张卡右边一颗红垃圾桶＋一颗蓝铅笔），语音提了两处小改；本条是第 1 处（第 2 处「工作台右边那个胶囊按实际身份写批发商」另立 CHG-0033）。
