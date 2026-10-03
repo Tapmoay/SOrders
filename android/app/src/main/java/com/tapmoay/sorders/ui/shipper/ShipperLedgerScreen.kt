@@ -781,7 +781,8 @@ private fun RevokedCard(vm: ShipperLedgerViewModel) {
 private fun SettleOrderDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
     AlertDialog(
         onDismissRequest = { if (!vm.settleSubmitting) vm.closeSettle() },
-        title = { Text("核销 订单 #" + order.orderNo) },
+        // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
+        title = { DialogTitle("核销订单", "#" + order.orderNo) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 Text(
@@ -893,7 +894,7 @@ private fun OrderSettlementsDialog(vm: ShipperLedgerViewModel, order: OrderDto) 
     val list = vm.settledOfOrder(order.id)
     AlertDialog(
         onDismissRequest = { vm.closeSettlements() },
-        title = { Text("订单 #" + order.orderNo + " 的核销记录") },
+        title = { DialogTitle("订单核销记录", "#" + order.orderNo) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 list.forEach { s ->

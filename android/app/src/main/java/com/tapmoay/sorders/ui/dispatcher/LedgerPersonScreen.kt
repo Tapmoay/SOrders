@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.ui.common.DialogTitle
 import com.tapmoay.sorders.ui.common.OrderStatusChip
 import com.tapmoay.sorders.ui.common.SectionCard
 import com.tapmoay.sorders.ui.common.TruncationNote
@@ -382,7 +383,8 @@ fun SettleOrderDialog(vm: DispatcherLedgerViewModel, onDismiss: () -> Unit) {
     val order = vm.settleTarget ?: return
     AlertDialog(
         onDismissRequest = { if (!vm.settleSubmitting) onDismiss() },
-        title = { Text("核销 " + order.orderNo) },
+        // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
+        title = { DialogTitle("核销", order.orderNo) },
         text = {
             Column {
                 Text(

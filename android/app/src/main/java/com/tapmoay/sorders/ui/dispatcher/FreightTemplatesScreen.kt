@@ -264,7 +264,10 @@ private fun FreightTemplateCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    SectionCard {
+    // 卡片本体可点 = **看全文的入口**（走查 P18：「页面上只有 删除 / 编辑，看不到完整条件」）。
+    // 点开的就是这一条的抽屉（线路 / 名称 / 一车价格 / 分类 / 计费规则 / 备注全在里面），
+    // ⛔ 不为它再加第三颗按钮 —— 那一行已经被 删除 / 编辑 占满了。
+    SectionCard(modifier = Modifier.clickable { onEdit() }) {
         // ① 分类标签 + 车型徽章（这一条价目算哪几类货）
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (t.categoryNames.isEmpty()) {
@@ -304,7 +307,10 @@ private fun FreightTemplateCard(
                     if (t.priceName.isBlank()) t.name else t.name + " · " + t.priceName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    // 价目名 + 规格名一行放不下时**原来是直接 Clip**（走查 P18：读出来是半句话、
+                    // 连省略号都没有）。两行 + 省略号，剩下的交给「点卡片看全文」。
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -332,7 +338,8 @@ private fun FreightTemplateCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = if (t.ruleNames.isEmpty()) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    // 「用在：规则 A、规则 B、…」会随着规则条数变长，一行读不完就两行（走查 P18）。
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (t.remark.isNotBlank()) {
@@ -340,7 +347,8 @@ private fun FreightTemplateCard(
                         t.remark,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1,
+                        // 备注是**用户自己写的**，截断口径与上面两行一致：两行 + 省略号（走查 P18）。
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

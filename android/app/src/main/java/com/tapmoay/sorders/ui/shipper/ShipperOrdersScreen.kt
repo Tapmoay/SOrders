@@ -258,7 +258,8 @@ fun ShipperOrdersScreen(
         if (vm.showReturnDialog) {
             AlertDialog(
                 onDismissRequest = { vm.dismissReturnDialog() },
-                title = { Text("申请退货 " + order.orderNo) },
+                // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
+                title = { DialogTitle("申请退货", order.orderNo) },
                 text = {
                     Column {
                         Text(

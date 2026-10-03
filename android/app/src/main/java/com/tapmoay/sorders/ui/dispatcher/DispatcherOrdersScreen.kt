@@ -195,7 +195,8 @@ fun DispatcherOrdersScreen(
     if (vm.showEditDialog) {
         AlertDialog(
             onDismissRequest = { vm.showEditDialog = false },
-            title = { Text("编辑订单 " + (vm.editingOrder?.orderNo ?: "")) },
+            // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
+            title = { DialogTitle("编辑订单", vm.editingOrder?.orderNo ?: "") },
             text = {
                 Column {
                     OutlinedTextField(vm.editAddress, { vm.editAddress = it }, label = { Text("收货地址") }, minLines = 2, modifier = Modifier.fillMaxWidth())
@@ -303,7 +304,8 @@ fun DispatcherOrdersScreen(
         if (vm.showReturnDialog) {
             AlertDialog(
                 onDismissRequest = { if (!vm.returnSubmitting) vm.showReturnDialog = false },
-                title = { Text("退货 " + order.orderNo) },
+                // 同上：单号另起一行、小一号（走查 P4）。
+                title = { DialogTitle("退货", order.orderNo) },
                 text = {
                     Column {
                         Hint(

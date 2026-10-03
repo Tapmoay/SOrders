@@ -1317,7 +1317,10 @@ private fun ContactCard(c: ContactDto, onEdit: () -> Unit, onDelete: () -> Unit)
 /** 地点卡（纯地点） */
 @Composable
 private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Unit) {
-    SectionCard {
+    // 卡片本体可点 = **看全文的入口**（走查 P18/P30 的统一口径）：这一条的所有字段都在
+    // `openLocationEdit` 那个抽屉里，点卡片任意空白处就能看全，不必先猜「编辑」图标是干什么的。
+    // 右侧那两颗动作图标各管各的（`CardActionIcon` 自己吃掉点击），不会被这一层抢走。
+    SectionCard(modifier = Modifier.clickable { onEdit() }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val img = l.imageUrls.firstOrNull() ?: l.imageUrl
             if (!img.isNullOrBlank()) {
@@ -1371,7 +1374,12 @@ private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Uni
                             boundContactLabel(l.contactName, l.contactPhone),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(ShipperTeal),
-                            maxLines = 1,
+                            // 一行放不下时**默认 Clip 会把电话整段吃掉、连省略号都没有**（走查 P30：
+                            // 卡片上明明绑着联系人，电话号码却看不见）。给到两行；仍放不下就按上面
+                            // 地址行同一个取舍——`StartEllipsis` 保尾部：名字少几个字还能认出是谁，
+                            // 电话少一位就真打不出去了。
+                            maxLines = 2,
+                            overflow = TextOverflow.StartEllipsis,
                         )
                     }
                 }

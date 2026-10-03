@@ -342,7 +342,9 @@ class AccountManageViewModel(
                 val kind = AccountRoleKind.fromKey(draftRoleKey)
                 if (cur == null) {
                     val u = container.repo.createUser(buildCreateRequest(kind))
-                    onSaved("账号：" + u.phone + "　密码：" + draftPassword)
+                    // 两个数字串**各自成行**（走查 P4）：原来用全角空格并列，Snackbar 窄的时候
+                    // 会从账号或密码的数字中间断开，读起来像另一个数。剪贴板拿到的是同一条两行文本。
+                    onSaved("账号：" + u.phone + "\n密码：" + draftPassword)
                 } else {
                     container.repo.updateUser(
                         cur.id,

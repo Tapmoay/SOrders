@@ -148,7 +148,10 @@ fun ProfileHeader(
                             text = pay,
                             style = MaterialTheme.typography.bodyMedium,
                             color = InkSub,
-                            maxLines = 1,
+                            // 这句话本身就是「一句话说清怎么算钱」，一行放不下会在**规则名中间**断掉
+                            // （走查 P28）。给两行 —— 头部高度是调过的（见上面那段注释），但这里只多
+                            // 一行文字、不动底部留白。
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }

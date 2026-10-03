@@ -122,7 +122,8 @@ fun DispatcherReturnRequestsScreen(
     vm.fulfillTarget?.let { req ->
         AlertDialog(
             onDismissRequest = { if (!vm.acting) vm.cancelFulfill() },
-            title = { Text("办理退货 " + req.orderNo) },
+            // 标题里的单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符）。
+            title = { DialogTitle("办理退货", req.orderNo) },
             text = {
                 Column {
                     Text(
@@ -170,7 +171,8 @@ fun DispatcherReturnRequestsScreen(
     vm.rejectTarget?.let { req ->
         AlertDialog(
             onDismissRequest = { if (!vm.acting) vm.cancelReject() },
-            title = { Text("驳回退货申请 " + req.orderNo) },
+            // 同上。
+            title = { DialogTitle("驳回退货申请", req.orderNo) },
             text = {
                 Column {
                     Text(

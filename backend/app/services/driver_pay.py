@@ -323,7 +323,10 @@ def pay_summary_for(user, *, include_money: bool = True) -> str:
     if sal > 0:
         # 判据仍用 `sal`（`Decimal`），印出来的是 `money_text`（去尾零）——两者职责不同。
         return f"固定工资 {money_text(sal)} 元/月（未挂规则）" if include_money else "固定工资（未挂规则）"
-    return "固定工资（月薪未设置，账单里不会出现他的工资单）"
+    # ⚠️ 语序是判据的一部分（走查 P28）：「固定工资（月薪未设置…）」这句以**肯定词**开头，
+    #    司机在「我的」头部读到的第一印象是"我有固定工资"，而事实正好相反（没设月薪 ⇒ 不生成
+    #    工资单）。先说没有的东西，再说这笔钱本来按什么口径算。
+    return "月薪未设置，不会生成他的工资单（计费方式：固定工资）"
 
 
 def monthly_salary_of(user) -> Decimal:
