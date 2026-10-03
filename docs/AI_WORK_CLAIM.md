@@ -30,6 +30,18 @@
 ---
 
 ## 进行中
+### [2026-10-04 进行中] 会话：**BUG-0009 地点卡上的「??????」：写进来的那一刻就已经是问号**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：用户 2026-10-03 点名的第二件事 —— 查清开发库那张 `??????` 地点卡的**写入端**，并把编码 / 校验兜底补上（提示「可能是关于 AI 的功能」）。
+**用户原话（逐字）**：（查清地点卡那六个问号是怎么写进去的）「可能是关于 AI 的功能」。
+**根因**：库里存的**就是问号本身** —— `shipper_locations` id=94 ＝ `orders` id=426 的归档副本（`address_detail` 六个问号 / `delivery_description` 七个 / `contact_dongjia_name` 五个，长度各异 ⇒ **逐字符**被替换）。同一单里从库里挑的商品名与单位完好、手机号完好，只有手输的自由文本坏掉 ⇒ 损坏发生在**数据离开客户端之前 / 输入环节**，不是存储、传输、显示。当年是人工填还是 AI 代填**已不可分辨**（`operation_logs.origin` 列 2026-09-25 才随迁移 004 落地；设备上的 AI 会话记录随 BUG-0008 取证的 `pm clear` 消失），而两条路写的是**同一批字段** ⇒ 闸设在入参上。
+**改了哪四处**：
+- 新增 `backend/app/core/text_guard.py`（89 行，唯一判据）：不可显示字符（`U+FFFD` / 孤立代理项 / 除 `\t` `\n` `\r` 外的 C0·C1）与整串问号（半角 `?` / 全角 `？`）一律拒收，只拒收不替换。
+- `backend/app/schemas/text.py` 加 `ShowableModel`（`SHOWABLE_FIELDS: ClassVar[tuple[str, ...]]` ＋ `@model_validator(mode="after")`），Order / Address / Location / Contact 的 Create 与 Update 共 6 个模型挂名单（≥20 个字段）。
+- `backend/app/services/place_service.py::identify_error` 先过同一道闸再看 `NO_NAME_TEXT` —— 建地点与改共享地址说**同一句话**。
+- `backend/app/core/validation_errors.py` 的 `FIELD_CN` 补 `contact_dongjia_name`（货主姓名）/ `contact_boss_name`（老板姓名）/ `contact_name`（联系人姓名）。
+- 核心改动：`backend/app/core/text_guard.py` —— 新增「这串字人看得见吗」的**唯一判据**，全项目自由文本入参都从这一处过闸（为什么放核心区：它是判据而不是某个接口的实现，写在 Pydantic 校验器里会立刻长出第二份）。
+**落点与提交**：判据 `_tools/qa/_check_unshowable_text_guard.py`（四节 61 项）/ 反验 `_tools/qa/_reverse_verify_unshowable_text_guard.py` / 用例 `backend/tests/test_text_guard.py`（13 例）/ 全量后端 pytest 1248 项 0 失败 / 全量静检 164 → 165；实现提交与归档提交见 `docs/changes/BUG-0009.md` ⑧。
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

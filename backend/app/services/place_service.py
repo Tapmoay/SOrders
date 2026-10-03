@@ -38,6 +38,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.core import text_guard
 from app.core.business_time import utc_now_naive
 from app.services import usage_service
 from app.models import Place, PlaceUserUsage, ShipperLocation
@@ -719,7 +720,16 @@ NO_NAME_TEXT = "请给这个地点起个名字或填个地址（共享库里只�
 
 
 def identify_error(name: str | None, detail_address: str | None) -> str | None:
-    """这一行"认得出来"吗（名字与地址不能都是空）。返回给用户看的那句话，或 None。"""
+    """这一行"认得出来"吗（名字与地址不能都是空）＋"看得见"吗（BUG-0009）。或 None。
+
+    返回给用户看的那句话。两句判词都落在这里：新建（`schemas/place.py`）与改共享地址
+    （`apply_place_update`）必须说同一句话 —— "看得见"这一半同样，否则同一串问号
+    从建的路进不来、从改的路却进得来。
+    """
+    for field, value in (("name", name), ("detail_address", detail_address)):
+        err = text_guard.find(value, field)
+        if err is not None:
+            return err
     if not (name or "").strip() and not (detail_address or "").strip():
         return NO_NAME_TEXT
     return None

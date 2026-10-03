@@ -9,7 +9,15 @@ from app.core.phone import ContactPhone, OptionalContactPhone
 from app.models.enums import OrderStatus
 from app.schemas.geo import GeoInput
 from app.schemas.money import MoneyInput
-from app.schemas.text import MAX_IMAGES, MAX_PHONE, MAX_REASON, MAX_SHORT_NAME, MAX_TEXT, Url
+from app.schemas.text import (
+    MAX_IMAGES,
+    MAX_PHONE,
+    MAX_REASON,
+    MAX_SHORT_NAME,
+    MAX_TEXT,
+    ShowableModel,
+    Url,
+)
 
 
 class OrderProductIn(MoneyInput):
@@ -67,7 +75,18 @@ class OrderProductUpdate(MoneyInput):
     unit: str | None = Field(None, max_length=MAX_SHORT_NAME)
 
 
-class OrderCreate(GeoInput):
+class OrderCreate(ShowableModel, GeoInput):
+    #: 会被端到用户眼前的自由文本字段 —— `app/core/text_guard.py` 的闸逐条过（BUG-0009：
+    #: `??????` 这种**写进来时就已经坏掉**的字，只剩拦在入口一条路）。
+    SHOWABLE_FIELDS = (
+        "delivery_description",
+        "address_detail",
+        "contact_dongjia_name",
+        "contact_boss_name",
+        "temp_shipper_name",
+        "remark",
+    )
+
     lines: list[OrderProductIn] = Field(..., min_length=1, max_length=10)
     order_date: date | None = None
     # 长度上限与**列宽**一致（`String(512)` / `String(32)`），备注类是 TEXT 用 MAX_TEXT。
@@ -123,7 +142,17 @@ class OrderCreate(GeoInput):
         return self
 
 
-class OrderUpdate(GeoInput):
+class OrderUpdate(ShowableModel, GeoInput):
+    #: 同 `OrderCreate.SHOWABLE_FIELDS`（PATCH 语义：`None` = 这一项不改，闸对 None 直接放行）。
+    SHOWABLE_FIELDS = (
+        "delivery_description",
+        "address_detail",
+        "contact_dongjia_name",
+        "contact_boss_name",
+        "remark",
+        "internal_notes",
+    )
+
     delivery_description: str | None = Field(None, max_length=512)
     address_detail: str | None = Field(None, max_length=512)
     address_lat: Decimal | None = None

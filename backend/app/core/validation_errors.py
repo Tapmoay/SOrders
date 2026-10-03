@@ -55,7 +55,9 @@ FIELD_CN: dict[str, str] = {
     "delivery_description": "送货说明",
     "address_detail": "送货地址",
     "contact_dongjia_phone": "货主电话",
+    "contact_dongjia_name": "货主姓名",
     "contact_boss_phone": "老板电话",
+    "contact_boss_name": "老板姓名",
     "internal_notes": "内部备注",
     "driver_remark": "司机备注",
     "damage_note": "货损说明",
@@ -66,6 +68,7 @@ FIELD_CN: dict[str, str] = {
     "exception_resolution": "异常处理",
     # 地址 / 联系人 / 地点
     "receiver_name": "收货人",
+    "contact_name": "联系人姓名",
     "detail_address": "地址",
     "origin_address": "起点地址",
     "display_name": "联系人姓名",

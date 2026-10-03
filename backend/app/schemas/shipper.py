@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.phone import ContactPhone, OptionalContactPhone
 from app.schemas.geo import GeoInput
-from app.schemas.text import MAX_IMAGES, MAX_URL, Url
+from app.schemas.text import MAX_IMAGES, MAX_URL, ShowableModel, Url
 
 
 def _parse_image_urls(value: Any) -> list[str]:
@@ -60,7 +60,10 @@ class _ImageUrlsMixin(BaseModel):
         return out
 
 
-class AddressCreate(GeoInput):
+class AddressCreate(ShowableModel, GeoInput):
+    #: 线路（常用地址）里会被端到用户眼前的自由文本（`app/core/text_guard.py` 的闸）。
+    SHOWABLE_FIELDS = ("receiver_name", "detail_address", "origin_address", "remark")
+
     receiver_name: str = Field(default="", max_length=128)
     # 联系电话：规则在 `app/core/phone.py`（去空格后 7~12 位数字，空 = 没填）
     phone: ContactPhone = Field(default="", max_length=32)
@@ -81,7 +84,10 @@ class AddressCreate(GeoInput):
     image_url: str | None = Field(None, max_length=MAX_URL)
 
 
-class AddressUpdate(GeoInput):
+class AddressUpdate(ShowableModel, GeoInput):
+    #: 同 `AddressCreate.SHOWABLE_FIELDS`（`None` = 这一项不改）。
+    SHOWABLE_FIELDS = ("receiver_name", "detail_address", "origin_address", "remark")
+
     receiver_name: str | None = Field(None, max_length=128)
     # None = 不改这一项（可选别名会放行 None）
     phone: OptionalContactPhone = Field(None, max_length=32)
@@ -121,7 +127,11 @@ class AddressOut(_ImageUrlsMixin):
     created_at: datetime
 
 
-class LocationCreate(GeoInput):
+class LocationCreate(ShowableModel, GeoInput):
+    #: 「我的地点」里会被端到用户眼前的自由文本 —— 脏地点卡（`??????`）就是这张表，
+    #: 所以这四个字段一个都不能漏（含地点绑定的联系人）。
+    SHOWABLE_FIELDS = ("name", "detail_address", "contact_name", "remark")
+
     name: str = Field(default="", max_length=128)
     detail_address: str = Field(default="", max_length=512)
     remark: str = Field(default="", max_length=256)
@@ -142,7 +152,10 @@ class LocationCreate(GeoInput):
     image_url: str | None = Field(None, max_length=MAX_URL)
 
 
-class LocationUpdate(GeoInput):
+class LocationUpdate(ShowableModel, GeoInput):
+    #: 同 `LocationCreate.SHOWABLE_FIELDS`（`None` = 这一项不改）。
+    SHOWABLE_FIELDS = ("name", "detail_address", "contact_name", "remark")
+
     name: str | None = Field(None, max_length=128)
     detail_address: str | None = Field(None, max_length=512)
     remark: str | None = Field(None, max_length=256)
@@ -185,7 +198,10 @@ class LocationImageOut(BaseModel):
     url: str
 
 
-class ContactCreate(BaseModel):
+class ContactCreate(ShowableModel):
+    #: 联系人名册里会被端到用户眼前的自由文本。
+    SHOWABLE_FIELDS = ("display_name",)
+
     # 原来只写 `min_length=5` —— 5 位的"电话"实际上打不出去（生产库那条 `[222]` 就是这么进来的）。
     # 现在的下限由 `app/core/phone.py` 的规则给（7 位），不再另写一个更松的数字。
     # CHG-0010：**选填**了（用户原话「新建联系人的时候不需要必填手机号」）—— 默认空串，
@@ -197,7 +213,10 @@ class ContactCreate(BaseModel):
     category: str = Field(default="", max_length=32)
 
 
-class ContactUpdate(BaseModel):
+class ContactUpdate(ShowableModel):
+    #: 同 `ContactCreate.SHOWABLE_FIELDS`（`None` = 这一项不改）。
+    SHOWABLE_FIELDS = ("display_name",)
+
     # None = 不改这一项（可选别名会放行 None）
     phone: OptionalContactPhone = Field(None, max_length=32)
     display_name: str | None = Field(None, max_length=128)

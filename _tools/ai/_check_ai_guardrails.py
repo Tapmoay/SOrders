@@ -3599,7 +3599,11 @@ def main() -> int:
     c.present("业务范围（比例≤100%）**不**被平台基线抢走（否则中文 400 变英文 422）",
               money_schema, r'RATE_FIELDS = \("commission_rate",\)')
     c.present("经纬度有范围校验（坐标不是普通数字）", geo_schema, r"class GeoInput\(")
-    c.present("地址/订单的 lat/lng 都接上了", read(ROOT / "backend/app/schemas/shipper.py"), r"\(GeoInput\)")
+    # ⚠️ 2026-10-04（BUG-0009）：这些模型多继承了一层「可显示文本」基类（`ShowableModel`），
+    #    基类列表变成 `(ShowableModel, GeoInput)`，原来的 `\(GeoInput\)` 字面量就不再命中。
+    #    判据的意思没变（仍然要求「真的继承了 GeoInput」），放宽的只是「基类列表里可以有别的基类」。
+    c.present("地址/订单的 lat/lng 都接上了", read(ROOT / "backend/app/schemas/shipper.py"),
+              r"\((?:[A-Za-z_]\w*,\s*)*GeoInput(?:\s*,\s*[A-Za-z_]\w*)*\)")
     c.present("月份必须是 YYYY-MM（自由字符串会造出结不掉的幽灵工资单）",
               acct_schema, r"def validate_month\(")
     c.present("生成工资单与建结算单都用同一份月份校验",
