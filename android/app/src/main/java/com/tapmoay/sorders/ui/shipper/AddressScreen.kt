@@ -347,7 +347,7 @@ fun AddressScreen(
                                             }
                                         } else {
                                             items(shownLocations, key = { "l" + it.id }) { l ->
-                                                LocationCard(l = l, onEdit = { vm.openLocationEdit(l) }, onDelete = { vm.deleteLocation(l) })
+                                                LocationCard(l = l, onEdit = { vm.openLocationEdit(l) })
                                             }
                                         }
                                     }
@@ -385,7 +385,7 @@ fun AddressScreen(
                                             }
                                         } else {
                                             items(shownAddresses, key = { "a" + it.id }) { a ->
-                                                AddressCard(a = a, onEdit = { vm.openEdit(a) }, onDelete = { vm.delete(a) })
+                                                AddressCard(a = a, onEdit = { vm.openEdit(a) })
                                             }
                                         }
                                     }
@@ -640,6 +640,14 @@ fun AddressScreen(
                     OutlinedButton(onClick = { vm.showCreateDialog = false }, modifier = Modifier.weight(1f).height(48.dp)) { Text("取消") }
                     Button(onClick = { vm.save() }, enabled = !vm.acting, modifier = Modifier.weight(1f).height(48.dp)) { Text(if (vm.acting) "保存中…" else "保存") }
                 }
+                // ---- 删除：**只在编辑已有线路时出现**（新增时没有"这一条"可删）----
+                // 用户 2026-10-04：「把地点线路联系人…删除键移到编辑界面当中，并且做二次确认的，
+                // 不要点一下就直接删掉了，防止误触」。所以这里点下去只**举手**（askDelete 不落库），
+                // 由页面最外层那份 DangerConfirmDialog 说清删的是哪一条、还能不能恢复。
+                if (vm.editing != null) {
+                    Spacer(Modifier.height(4.dp))
+                    FormRow(label = "删除这条线路", onClick = { vm.askDelete("line") }) { DeleteActionText() }
+                }
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -807,6 +815,11 @@ fun AddressScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { vm.showLocationDialog = false }, modifier = Modifier.weight(1f).height(48.dp)) { Text("取消") }
                     Button(onClick = { vm.saveLocation() }, enabled = !vm.acting, modifier = Modifier.weight(1f).height(48.dp)) { Text(if (vm.acting) "保存中…" else "保存") }
+                }
+                // 同上：删除只在编辑已有地点时出现，点下去只举手（不落库），二次确认在页面最外层
+                if (vm.editingLocation != null) {
+                    Spacer(Modifier.height(4.dp))
+                    FormRow(label = "删除这个地点", onClick = { vm.askDelete("place") }) { DeleteActionText() }
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -980,9 +993,27 @@ fun AddressScreen(
                     OutlinedButton(onClick = { vm.showContactDialog = false }, modifier = Modifier.weight(1f).height(48.dp)) { Text("取消") }
                     Button(onClick = { vm.saveContact() }, modifier = Modifier.weight(1f).height(48.dp)) { Text(if (vm.editingContact == null) "添加" else "保存") }
                 }
+                // 同上：删除只在编辑已有联系人时出现，点下去只举手（不落库），二次确认在页面最外层
+                if (vm.editingContact != null) {
+                    Spacer(Modifier.height(4.dp))
+                    FormRow(label = "删除这个联系人", onClick = { vm.askDelete("contact") }) { DeleteActionText() }
+                }
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+    // 二次确认弹层：三档共用**一份**（用户 2026-10-04：「删除都要做二次确认的，不要点一下就直接
+    // 删掉了，防止误触」）。⚠️ 它画在页面最外层、**不画在抽屉里** —— 抽屉是 ModalBottomSheet，
+    // 两个弹层叠在一起时先关哪个、点空白处关哪个都说不清。
+    // 文案（标题点出删的是哪一条 / 正文说清还能捞回来）来自 VM 的纯函数，单测在 AddressDeleteConfirmTest。
+    vm.pendingDelete?.let { p ->
+        DangerConfirmDialog(
+            title = p.title,
+            message = p.message,
+            confirmText = "删除",
+            onConfirm = { vm.confirmDelete() },
+            onDismiss = { vm.cancelDelete() },
+        )
     }
 }
 
@@ -1084,7 +1115,7 @@ private fun ContactCategoryPane(
             }
         } else {
             items(inCategory, key = { "c" + it.id }) { c ->
-                ContactCard(c = c, onEdit = { vm.openContactDialog(c) }, onDelete = { vm.deleteContact(c) })
+                ContactCard(c = c, onEdit = { vm.openContactDialog(c) })
             }
         }
         item { Spacer(Modifier.height(24.dp)) }
@@ -1145,21 +1176,42 @@ private fun NewPlaceCategoryDialog(
 }
 
 /**
- * 线路卡：**从 A 点到 B 点**是主角，联系人退到下面，删除/编辑在**左边一上一下**。
+ * 抽屉里那颗「删除」的**字**（形状与商品页「删除商品」那一行同款：红色加粗的「删 除」）。
+ *
+ * ⛔ 三处抽屉各写一遍就是"三个红字迟早不一样"，所以只留这一份。
+ * ⚠️ 它只负责**好看**；点下去发生什么由 `FormRow` 的 onClick（= `vm.askDelete`）说了算。
+ */
+@Composable
+private fun DeleteActionText() {
+    Text(
+        "删 除",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.error,
+    )
+}
+
+/**
+ * 线路卡：**从 A 点到 B 点**是主角，联系人退到下面，动作只剩右边一颗**编辑**。
  *
  * 用户 2026-09-22 原话：「还有一点就是**线路的这个卡片这个样式不好**，你要知道我们的线路
  * 主要是什么**从 A 点**…那个**联系人啊，可以放在下面**，但是**线必须放在从 A 到 B**，
  * 然后那个**编辑和删除稍微放在左边**…**一上一下**的关系，**上面是删除、下面就是编辑**」
  * ⚠️ 后半句他当场改口了：「**啊说错了，说错了，那个编辑和删除不要在左边是在右边了**」
- * —— 所以动作收在**右边**（还是**一上一下、上删除下编辑**）；左边那一条留给 A→B 轨道。
+ * —— 所以动作收在**右边**，左边那一条留给 A→B 轨道。
  *
- * ⚠️ **删除在上、编辑在下**（用户点名两遍）—— ⛔ 不要"顺手"把危险的那个换到下面去。
+ * ## 2026-10-04（CHG-0032）他**又改了一次**：删除从卡上搬走
+ * 原话：「把地点线路联系人，他那里的**删除键卡片删除键移到编辑界面当中**，并且**做二次确认**的，
+ * **不要点一下就直接删掉了，防止误触**」。
+ * ⇒ 卡片上**只剩编辑那一颗**；删除在编辑抽屉里，且要再过一层 `DangerConfirmDialog`。
+ * ⛔ 上一版那条「删除在上、编辑在下」的规矩**随之作废** —— 卡片上已经没有"被删的那颗"可比位置了
+ *    （别再把红色垃圾桶画回卡上：那正是用户这次点名要搬走的东西）。
  *
  * ⚠️ **起点为空时只画终点行**（不画假起点、也不写字占位）：那条线路本来就没填起点，
  * 画一条"（未填）→ 终点"的轨道会让人以为线路坏了。表单里那一栏写的是「不填就是只送到终点」。
  */
 @Composable
-private fun AddressCard(a: AddressDto, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun AddressCard(a: AddressDto, onEdit: () -> Unit) {
     SectionCard {
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
@@ -1222,24 +1274,13 @@ private fun AddressCard(a: AddressDto, onEdit: () -> Unit, onDelete: () -> Unit)
                 }
             }
             Spacer(Modifier.width(8.dp))
-            // ---- 右：删除（上）/ 编辑（下）—— 一上一下，删除在上（用户点名两遍）----
-            // ⚠️ **竖排不吃 §4.2c 的"左＝反向、右＝编辑"位置条**：那一页位置条管的是**横排**
-            //    两个动作用户，这里上下排布本身就是位置信息（上＝危险）。所以只把形态对齐
-            //    （裸 18dp 图标 → `CardActionIcon` 圈底），顺序一个字不动。
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CardActionIcon(
-                    icon = Icons.Default.Delete,
-                    contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.error,
-                    onClick = onDelete,
-                )
-                CardActionIcon(
-                    icon = Icons.Default.Edit,
-                    contentDescription = "编辑",
-                    tint = MaterialTheme.colorScheme.primary,
-                    onClick = onEdit,
-                )
-            }
+            // ---- 右：只剩编辑（删除 2026-10-04 搬进了编辑抽屉，见卡片 KDoc 那一段）----
+            CardActionIcon(
+                icon = Icons.Default.Edit,
+                contentDescription = "编辑",
+                tint = MaterialTheme.colorScheme.primary,
+                onClick = onEdit,
+            )
         }
     }
 }
@@ -1276,7 +1317,7 @@ private fun CardTag(text: String, container: Color, content: Color) {
 
 /** 联系人卡 */
 @Composable
-private fun ContactCard(c: ContactDto, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun ContactCard(c: ContactDto, onEdit: () -> Unit) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TintedIcon(Icons.Default.Person, Color(ShipperTeal), size = 16.dp, container = 32.dp)
@@ -1295,15 +1336,11 @@ private fun ContactCard(c: ContactDto, onEdit: () -> Unit, onDelete: () -> Unit)
                     )
                 }
             }
-            // 卡片动作分区（见 `CardActionIcon` 的 KDoc）：**左＝反向/警示（删除），右＝编辑**
-            // —— 用户 2026-09-22：「编辑一定在右边，因为我们的惯用手是右手」。原来这两张卡
-            //    把**删除放在了最右边**（右手最容易点到的地方放着最危险的那个），且都是裸图标。
-            CardActionIcon(
-                icon = Icons.Default.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.error,
-                onClick = onDelete,
-            )
+            // 卡片动作分区（见 `CardActionIcon` 的 KDoc）：这两张卡上**只剩编辑**了 ——
+            // 删除 2026-10-04 搬进了编辑抽屉、还要过二次确认（用户：「删除都要做二次确认的，
+            // 不要点一下就直接删掉了，防止误触」）。上面那条"左＝删除、右＝编辑"的位置条说的是
+            // **两个动作**的分工；只剩一个动作时，它照旧收在**右边**
+            // （用户 2026-09-22：「编辑一定在右边，因为我们的惯用手是右手」）。
             CardActionIcon(
                 icon = Icons.Default.Edit,
                 contentDescription = "编辑",
@@ -1316,7 +1353,7 @@ private fun ContactCard(c: ContactDto, onEdit: () -> Unit, onDelete: () -> Unit)
 
 /** 地点卡（纯地点） */
 @Composable
-private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun LocationCard(l: LocationDto, onEdit: () -> Unit) {
     // 卡片本体可点 = **看全文的入口**（走查 P18/P30 的统一口径）：这一条的所有字段都在
     // `openLocationEdit` 那个抽屉里，点卡片任意空白处就能看全，不必先猜「编辑」图标是干什么的。
     // 右侧那两颗动作图标各管各的（`CardActionIcon` 自己吃掉点击），不会被这一层抢走。
@@ -1387,15 +1424,11 @@ private fun LocationCard(l: LocationDto, onEdit: () -> Unit, onDelete: () -> Uni
                     Text(l.remark, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
             }
-            // 卡片动作分区（见 `CardActionIcon` 的 KDoc）：**左＝反向/警示（删除），右＝编辑**
-            // —— 用户 2026-09-22：「编辑一定在右边，因为我们的惯用手是右手」。原来这两张卡
-            //    把**删除放在了最右边**（右手最容易点到的地方放着最危险的那个），且都是裸图标。
-            CardActionIcon(
-                icon = Icons.Default.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.error,
-                onClick = onDelete,
-            )
+            // 卡片动作分区（见 `CardActionIcon` 的 KDoc）：这两张卡上**只剩编辑**了 ——
+            // 删除 2026-10-04 搬进了编辑抽屉、还要过二次确认（用户：「删除都要做二次确认的，
+            // 不要点一下就直接删掉了，防止误触」）。上面那条"左＝删除、右＝编辑"的位置条说的是
+            // **两个动作**的分工；只剩一个动作时，它照旧收在**右边**
+            // （用户 2026-09-22：「编辑一定在右边，因为我们的惯用手是右手」）。
             CardActionIcon(
                 icon = Icons.Default.Edit,
                 contentDescription = "编辑",

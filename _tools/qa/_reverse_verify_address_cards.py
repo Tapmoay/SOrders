@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-r"""反向验证「地址与联系人页三张卡的圈底动作 + 左删右编」这条红线**真的会红**（CHG-0012，2026-10-03）。
+r"""反向验证「地址与联系人页三张卡：卡上只剩一颗编辑 + 删除在抽屉里先问一句」这条红线**真的会红**。
+
+（CHG-0012 立的规矩 + 2026-10-04 用户点名的改动：删除从卡片搬进编辑抽屉、并且做二次确认。）
 
 ## 为什么这条要反向验证
 它的判据几乎全是**正向存在性**判据（某段代码里必须有某个零件、某种顺序），这类判据有三种典型失效方式，
 每一种都要单独证明会红：
 
-1. **判据空转**：卡片被改名、动作被换回裸图标之后判据静默全绿。本脚本把删除换成裸 IconButton、
-   把两个动作对调、把线路卡改成横排，逐条改坏。
+1. **判据空转**：卡片被改名、删除被画回卡上、动作被换回裸图标之后判据静默全绿。本脚本把删除画回
+   卡片、把签名加回 onDelete、把抽屉那道"只在编辑态"的闸拿掉，逐条改坏。
 2. **抽取失效 → 函数体取到空串**：「有没有 IconButton」「谁在前」在空串上全部恒真（没有 IconButton、
    index 都是 -1）。本脚本往这一页塞一张没有动作的新卡片，逼判据在"新卡片"上出声。
 3. **只扫整个文件、不扫函数体**：三张卡的写法互相顶包 —— 联系人卡改坏了、地点卡还对，整文件
@@ -15,7 +17,12 @@ r"""反向验证「地址与联系人页三张卡的圈底动作 + 左删右编�
 另外还有「共用件退化」那条：CardActionIcon 的默认圆底被改小、内部不再走 TintedIcon、
 或者别处又冒出一份同名实现 —— 这三条都**不影响编译**，但卡片形态会一点点走样。
 
+⛔ 2026-10-04 起，旧布局那几条注入（"两个动作对调""竖排对调""删除不是红的""onDelete → onRemove"）
+**随布局一起作废**：卡片上已经没有"被删的那颗"可比位置了。删除那一路由
+`_tools/qa/_check_delete_confirm.py` 管（举手 → 二次确认 → 落库），本脚本只管卡片与抽屉这一侧。
+
 ⚠️ 快照/还原按**字节**做，跑完逐字节核对（本项目栽过「注入把 bug 留在源码里」）。
+⚠️ 跑的时候拿着注入锁（_airepo.lock_reverse_verify）：并发的检查会拒绝出结论。
 
 用法：python _tools/qa/_reverse_verify_address_cards.py
 """
@@ -28,6 +35,10 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "_tools/ai"))
+
+from _airepo import lock_reverse_verify, unlock_reverse_verify  # noqa: E402
+
 CHECK = ROOT / "_tools/qa/_check_address_cards.py"
 
 AND = "android/app/src/main/java/com/tapmoay/sorders"
@@ -152,28 +163,35 @@ CASES: list[tuple[str, str, object, str]] = [
         "裸图标按钮",
     ),
     (
-        "② 线路卡的两个动作一起换回裸图标",
+        "② 删除那颗又从抽屉搬回线路卡（用户 2026-10-04：删除键卡片删除键移到编辑界面当中）",
         ADDR,
-        lambda s: in_card(s, "AddressCard", "CardActionIcon(", "IconButton(", 2),
-        "裸图标按钮",
+        lambda s: in_card(
+            s,
+            "AddressCard",
+            "CardActionIcon(",
+            'IconButton(onClick = onEdit) { Icon(Icons.Default.Delete, contentDescription = "删除") }\n'
+            "                CardActionIcon(",
+            1,
+        ),
+        "删除那一颗",
     ),
     (
-        "③ 联系人卡两个动作对调（右＝编辑变成左＝编辑，界面上看不出来）",
+        "③ 卡片签名把 onDelete 加回来（删除又能挂在卡上）",
         ADDR,
-        lambda s: swap_actions(s, "ContactCard"),
-        "顺序反了",
+        lambda s: in_card(s, "AddressCard", "onEdit: () -> Unit) {", "onEdit: () -> Unit, onDelete: () -> Unit) {", 1),
+        "三张卡的签名都只剩 onEdit",
     ),
     (
-        "④ 地点卡两个动作对调",
+        "④ 抽屉那行删除没了「只在编辑态」的闸（新增时也能点删除）",
         ADDR,
-        lambda s: swap_actions(s, "LocationCard"),
-        "LocationCard 是横排左＝删除",
+        lambda s: s.replace("if (vm.editingLocation != null) {", "if (true) {", 1),
+        "只在编辑态画",
     ),
     (
-        "⑤ 线路卡竖排对调（危险的那个跑到下面去 —— 用户点名两遍的顺序）",
+        "⑤ 页面绕过举手直接落库（vm.askDelete → vm.delete）",
         ADDR,
-        lambda s: swap_actions(s, "AddressCard"),
-        "竖排顺序反了",
+        lambda s: s.replace('vm.askDelete("line")', "vm.delete(vm.editing!!)", 1),
+        "页面一次都不许直接调 vm.delete*",
     ),
     (
         "⑥ 联系人卡改成竖排（竖排是线路卡的特例，不许扩散）",
@@ -188,10 +206,10 @@ CASES: list[tuple[str, str, object, str]] = [
         "被改成竖排了",
     ),
     (
-        "⑦ 线路卡那个删除不再是红的（危险动作失去颜色）",
+        "⑦ 确认钮不再走 confirmDelete（弹层上点「删除」什么也不发生）",
         ADDR,
-        lambda s: in_card(s, "AddressCard", "tint = MaterialTheme.colorScheme.error,", "tint = MaterialTheme.colorScheme.primary,", 1),
-        "删除不是 error",
+        lambda s: s.replace("onConfirm = { vm.confirmDelete() },", "onConfirm = { },", 1),
+        "确认才走 confirmDelete",
     ),
     (
         "⑧ 往这一页塞一张没有动作的新卡片（清点自己算 —— 新卡片必须被管住，先登记再谈纪律）",
@@ -206,10 +224,10 @@ CASES: list[tuple[str, str, object, str]] = [
         "又自己写了一份动作控件",
     ),
     (
-        "⑩ 三张卡的回调签名被改（onDelete → onRemove）",
+        "⑩ 删除入口的 kind 拼错（撤回会挑错接口、确认会删错东西）",
         ADDR,
-        lambda s: in_card(s, "ContactCard", "onDelete: () -> Unit) {", "onRemove: () -> Unit) {", 1),
-        "回调签名一个字没动",
+        lambda s: s.replace('vm.askDelete("place")', 'vm.askDelete("spot")', 1),
+        "各有且只有一行删除入口",
     ),
     (
         "⑪ 顺手把联系人抽屉的调用点改名（本批说好一个字不动）",
@@ -236,10 +254,10 @@ CASES: list[tuple[str, str, object, str]] = [
         "CardActionIcon 里没有 TintedIcon",
     ),
     (
-        "⑮ 线路卡那条竖排来历注释被删（下一个人会顺手改成横排）",
+        "⑮ 线路卡 KDoc 里那条来历被删（下一个人会把红垃圾桶画回卡上）",
         ADDR,
-        lambda s: s.replace("删除在上、编辑在下", "删除和编辑随便排", 1),
-        "来历被删了",
+        lambda s: s.replace("CHG-0032", "CHG-XXXX", 1),
+        "线路卡的 KDoc 里记着这次改动的来历",
     ),
     (
         "⑯ 设计规范 4.2c 整节被删（规范是这条纪律唯一的文字出处）",
@@ -269,7 +287,7 @@ def run_check() -> tuple[int, str]:
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
-def main() -> int:
+def run_all() -> int:
     fails: list[str] = []
     code, out = run_check()
     if code != 0:
@@ -324,6 +342,14 @@ def main() -> int:
         return 1
     print(f"✅ {len(CASES)} 条注入都证明这条红线真的在检查。")
     return 0
+
+
+def main() -> int:
+    lock_reverse_verify()
+    try:
+        return run_all()
+    finally:
+        unlock_reverse_verify()
 
 
 if __name__ == "__main__":

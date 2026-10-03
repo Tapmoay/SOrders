@@ -17,24 +17,31 @@
 * 换个页面又写裸 IconButton → 在信息很满的卡片上那个 18dp 图标几乎看不见、手指也不好找
   （用户那句「这个不行」指的就是它），但**没有任何报错**；
 * 两个动作**对调** → 最危险的那个（删除）正好落在右手最容易点到的地方，**界面完全正常**；
-* 线路卡**顺手统一成横排** → 那条竖排是用户**点名两遍**的（删除在上、编辑在下），
-  换掉之后没人会立刻发现，直到有人误删一条线路。
+* 2026-10-04 用户又改了一次（CHG-0032）：「把地点线路联系人，他那里的**删除键卡片删除键移到
+  编辑界面当中**，并且**做二次确认**的，不要点一下就直接删掉了，防止误触」—— 于是**卡上只剩编辑那一颗**。
+  这一步同样是**静默**的：把红色垃圾桶画回卡片上、或者让抽屉里那颗删除直接落库（跳过二次确认），
+  编译、渲染、点上去全都正常，只有用户会又一次「点一下就没了」。
 
-所以判据分五层：
+所以判据分六层：
 1. **卡片清点自己算**：扫 AddressScreen.kt 里所有 private fun *Card( 的函数体，逐张断言
    「IconButton( == 0」—— 清单不许手写行号，**多扫出一张卡就红**（新卡片的动作纪律要先登记进 CARDS）；
-2. **位置**：联系人卡 / 地点卡是「删除在编辑之前」（左＝删除、右＝编辑）；线路卡是**竖排**
-   （同一个 Column(horizontalAlignment = ...) 里，删除在上、编辑在下）—— 竖排是显式豁免，不是漏检；
-3. **形态**：共用件 CardActionIcon 本身（全库只有一处定义、内部就是 TintedIcon 圆底、默认 36/18）；
-4. **本批没顺手改别的**：三张卡的回调签名、取数 / 抽屉 / 左栏锚点、来历注释、规范 4.2c；
-5. **接线**：反向验证在、CONVERTED 表里还在、文档九节、登记簿有 CHG-0012。
+2. **卡上只剩编辑**（2026-10-04 起）：每张卡恰好一颗 CardActionIcon = 编辑、主色；全页
+   contentDescription = "删除" / onDelete / Icons.Default.Delete 一律 0（搬走了就是搬走了）；
+3. **删除入口在抽屉里、只在编辑态、只举手不落库**：三个抽屉各一行 FormRow → vm.askDelete("…")，
+   包在对应的 if (vm.editingXxx != null) 里；页面**一次都不许**直接调 vm.delete*；页尾那份
+   vm.pendingDelete?.let + DangerConfirmDialog 是**唯一**的确认入口（确认才走 vm.confirmDelete()）；
+4. **形态**：共用件 CardActionIcon 本身（全库只有一处定义、内部就是 TintedIcon 圆底、默认 36/18）；
+5. **本批没顺手改别的**：三张卡的回调签名（现在只剩 onEdit）、取数 / 抽屉 / 左栏锚点、来历注释、规范 4.2c；
+6. **接线**：反向验证在、CONVERTED 表里还在、文档九节、登记簿有 CHG-0012。
 
-R4-BOUNDARY-JUSTIFICATION: 这一条**没法用边界消除** —— 位置纪律只存在于**调用点**（哪一张卡的哪两个动作），
-而类型系统看见的是两个一模一样的 @Composable () -> Unit：把左右对调、或者把共用件换回裸 IconButton，
-都能通过编译、通过渲染，也通过任何结构判据。共用件 CardActionIcon 已经把**形态**收成了一处实现，
-但没有任何机制能强制某一页**用它**、更没法强制两个动作的先后。破法又是**静默**的：页面照常工作，
-只是最危险的动作被放到了右手最容易点到的地方。所以只能靠一条判据把两侧（三张卡 ↔ 共用件的形状）
-对起来，并在反向验证里把对调、换裸图标、改竖排这三条真跑一遍。
+R4-BOUNDARY-JUSTIFICATION: 这一条**没法用边界消除** —— 这套纪律只存在于**调用点**（哪一张卡的哪几个动作、
+删除那颗是画在卡上还是抽屉里、点下去有没有中间那一层），而类型系统看见的全是一模一样的
+@Composable () -> Unit：把共用件换回裸 IconButton、把垃圾桶画回卡片、把 vm.askDelete 换成 vm.delete，
+都能通过编译、通过渲染，也通过任何结构判据。共用件 CardActionIcon / DangerConfirmDialog 已经把**形态**
+收成了一处实现，但没有任何机制能强制某一页**用它**、更没法强制"点删除必须先举手"。破法又是**静默**的：
+页面照常工作，只是用户又一次在没有任何提示的情况下丢了一条常用线路。所以只能靠一条判据把两侧
+（三张卡 ＋ 三个抽屉 ↔ 共用件的形状）对起来，并在反向验证里把"垃圾桶画回卡上""抽屉里直接删"
+"页尾那份确认弹层删掉"这几条真跑一遍。
 
 用法：python _tools/qa/_check_address_cards.py
      python _tools/qa/_check_address_cards.py --list
@@ -54,6 +61,8 @@ from _airepo import refuse_if_injecting  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 ADDR_SCREEN = AND / "ui/shipper/AddressScreen.kt"
+ADDR_VM = AND / "ui/shipper/AddressViewModel.kt"
+ADDR_CONFIRM_TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/shipper/AddressDeleteConfirmTest.kt"
 COMPONENTS = AND / "ui/common/Components.kt"
 DESIGN = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 FORM_STYLE_CHECK = ROOT / "_tools/qa/_check_form_panel_style.py"
@@ -77,7 +86,17 @@ CARD_SIG = re.compile(r"^private fun (\w*Card)\(.*\) \{", re.M)
 ICON_BTN = re.compile(r"IconButton\(")
 CARD_ACTION = re.compile(r"CardActionIcon\(")
 PRIV_ACTION = re.compile(r"private fun \w*Action\(")
-CALLBACK_PAIR = re.compile(r"onEdit: \(\) -> Unit, onDelete: \(\) -> Unit")
+CALLBACK_PAIR = re.compile(r"onEdit: \(\) -> Unit, onDelete: \(\) -> Unit")  #: 2026-10-04 起应为 0 处
+#: 只剩一个回调的三张卡（CHG-0032 之后这就是唯一合法的签名形状）
+CARD_SIG_SOLO = re.compile(r"^private fun (?:AddressCard|ContactCard|LocationCard)\(.*onEdit: \(\) -> Unit\) \{", re.M)
+#: 抽屉里那一行删除入口：FormRow(label = "删除…", onClick = { vm.askDelete("line") })
+DELETE_ROW = re.compile(r'FormRow\(label = "删除[^"]*", onClick = \{ vm\.askDelete\("(\w+)"\) \}\)')
+#: 一行删除入口与它上面那道「只在编辑态」的门（kind → 门那一行的源码）
+ASK_GUARDS = {
+    "line": "if (vm.editing != null) {",
+    "place": "if (vm.editingLocation != null) {",
+    "contact": "if (vm.editingContact != null) {",
+}
 DEL_CD = 'contentDescription = "删除"'
 EDIT_CD = 'contentDescription = "编辑"'
 VERTICAL_COLUMN = "Column(horizontalAlignment = Alignment.CenterHorizontally) {"
@@ -195,7 +214,7 @@ def main() -> int:
         got = len(bodies.get(n, ""))
         c.ok(f"{n} 抽出的函数体 ≥ {BODY_FLOOR} 字符（抽取失效即红）", got >= BODY_FLOOR, f"只有 {got} 字符")
 
-    # ---- 2. 每张卡：裸图标清零 + 两个动作都在 + 各一个 + 配色 ----
+    # ---- 2. 卡上只剩编辑（2026-10-04：删除搬进了编辑抽屉）----
     for name in [n for n in names if n in CARDS]:
         body = bodies[name]
         n_icon = len(ICON_BTN.findall(body))
@@ -207,27 +226,78 @@ def main() -> int:
             n_icon == 0,
             f"还有 {n_icon} 处裸图标按钮",
         )
-        c.ok(f"{name} 的删除与编辑各一个（不多不少）", n_del == 1 and n_edit == 1, f"删除 {n_del} / 编辑 {n_edit}")
-        c.ok(f"{name} 的每个动作都走共用件 CardActionIcon", n_act == 2, f"只有 {n_act} 个圈底动作")
         c.ok(
-            f"{name} 的危险动作是红的、编辑是主题主色",
-            DELETE_TINT in body and EDIT_TINT in body,
-            "删除不是 error 或编辑不是 primary",
+            f"{name} 卡上已经没有删除那一颗了（用户 2026-10-04：删除键卡片删除键移到编辑界面当中）",
+            n_del == 0,
+            f"卡上又画回 {n_del} 处删除图标 —— 那正是他要搬走的东西",
         )
+        c.ok(f"{name} 卡上只剩编辑那一颗（不多不少）", n_edit == 1, f"编辑 {n_edit} 处")
+        c.ok(f"{name} 的编辑走共用件 CardActionIcon", n_act == 1, f"有 {n_act} 个圈底动作")
+        c.ok(f"{name} 的编辑仍是主题主色", EDIT_TINT in body, "编辑不是 primary")
+    c.ok("全页没有 onDelete 形参了（三张卡都不再接删除回调）", "onDelete" not in src, f"还有 {src.count('onDelete')} 处")
+    c.ok("全页没有 Icons.Default.Delete（垃圾桶整个搬走了）", "Icons.Default.Delete" not in src, "垃圾桶还在卡上")
+    c.ok("全页没有 contentDescription = 删除（删除不再是一颗卡上图标）", DEL_CD not in src, f"还有 {src.count(DEL_CD)} 处")
 
-    # ---- 3. 位置：横排两张 = 删除在前；线路卡 = 竖排（显式豁免）----
-    for name in ("ContactCard", "LocationCard"):
+    # ---- 3. 三张卡：那颗编辑仍在，且都不再竖排（只剩一颗动作时没有上下之分）----
+    for name in CARDS:
         body = bodies.get(name, "")
-        d, e = body.find(DEL_CD), body.find(EDIT_CD)
-        c.ok(f"{name} 是横排左＝删除、右＝编辑（删除在编辑之前）", 0 <= d < e, "两个动作的顺序反了（变成左＝编辑）")
-        c.ok(f"{name} 不许改成竖排（竖排是线路卡点名两遍的特例）", VERTICAL_COLUMN not in body, "这张卡被改成竖排了")
+        c.ok(f"{name} 的那颗编辑还在（这一批只搬删除，不动编辑）", body.find(EDIT_CD) >= 0, "编辑那颗不见了")
+        c.ok(
+            f"{name} 右半边不再竖排（用户 2026-09-22 那条「一上一下」说的是删除 + 编辑两颗，现在只剩一颗）",
+            VERTICAL_COLUMN not in body,
+            "这张卡又被改成竖排了",
+        )
+    n_solo = len(CARD_SIG_SOLO.findall(src))
+    c.ok(f"三张卡的签名都只剩 onEdit（清点自己算，实测 {n_solo} 处）", n_solo == 3, f"实际 {n_solo} 处")
+    c.ok(
+        "线路卡的 KDoc 里记着这次改动的来历（CHG-0032：删除从卡上搬走）",
+        "CHG-0032" in raw and "搬" in raw,
+        "来历被删了 —— 下一个人会把红色垃圾桶画回卡上",
+    )
 
-    addr = bodies.get("AddressCard", "")
-    col = fn_body(addr, VERTICAL_COLUMN)
-    d, e = addr.find(DEL_CD), addr.find(EDIT_CD)
-    c.ok(f"AddressCard 的两个动作在同一个竖排 Column 里（≥ {COLUMN_FLOOR} 字符）", len(col) >= COLUMN_FLOOR, f"那一块只有 {len(col)} 字符")
-    c.ok("AddressCard 竖排顺序仍是删除在上、编辑在下（用户点名两遍）", 0 <= d < e, "竖排顺序反了（危险的那个跑到下面去了）")
-    c.ok("AddressCard 那条竖排来历还记在文件里（删除在上、编辑在下）", "删除在上、编辑在下" in raw, "来历被删了 —— 下一个人会顺手改成横排")
+    # ---- 3b. 删除入口：在抽屉里、只在编辑态、只举手不落库 ----
+    kinds = DELETE_ROW.findall(src)
+    c.ok(
+        "三个抽屉各有且只有一行删除入口（FormRow → vm.askDelete）",
+        sorted(kinds) == ["contact", "line", "place"],
+        f"抽到的是 {sorted(kinds)}",
+    )
+    for kind, guard in ASK_GUARDS.items():
+        i = src.find('vm.askDelete("' + kind + '")')
+        j = src.rfind(guard, 0, i) if i >= 0 else -1
+        c.ok(
+            f"「{kind}」那一行删除只在编辑态画（新增时没有这一条可删）",
+            i >= 0 and 0 <= j and (i - j) < 400,
+            f"入口在 {i}、那道门在 {j} —— 门没了就是新增时也能点删除",
+        )
+    spans = (
+        ('vm.askDelete("line")', "vm.save()", "vm.saveLocation()"),
+        ('vm.askDelete("place")', "vm.saveLocation()", "vm.saveContact()"),
+        ('vm.askDelete("contact")', "vm.saveContact()", "vm.pendingDelete?.let"),
+    )
+    for needle, save_btn, next_marker in spans:
+        i, s, n = src.find(needle), src.find(save_btn), src.find(next_marker)
+        c.ok(
+            f"「{needle}」落在自己那张抽屉里（取消/保存那一行之后、下一张抽屉之前）",
+            0 <= s < i < n,
+            f"位置 {i}：保存行 {s}、下一块 {n}",
+        )
+    bad = [x for x in ("vm.delete(", "vm.deleteContact(", "vm.deleteLocation(") if x in src]
+    c.ok("页面一次都不许直接调 vm.delete*（要删必须过 askDelete → 确认）", not bad, "直接落库的调用还在：" + "、".join(bad))
+    c.ok("页尾那份二次确认画在页面最外层（在最后一张抽屉之后）", src.find("vm.pendingDelete?.let") > src.find("vm.saveContact()"), "它跑到抽屉里去了")
+    for needle, why in (
+        ("DangerConfirmDialog(", "二次确认用的是共用件（别自己拼一个 AlertDialog）"),
+        (chr(34) + "删除" + chr(34) + ",", "确认钮上的字是「删除」"),
+        ("onConfirm = { vm.confirmDelete() },", "确认才走 confirmDelete（落库的唯一入口）"),
+        ("onDismiss = { vm.cancelDelete() },", "点空白/取消要有地方可退（cancelDelete）"),
+    ):
+        c.ok(f"页尾确认弹层里：{why}", needle in src, f"找不到 {needle}")
+    comp_src = code(COMPONENTS)
+    c.ok(
+        "共用件 DangerConfirmDialog 每次都弹（没有 ConfirmMemory 那种记一次就不问的开关）",
+        "ConfirmMemory" not in decl_body(comp_src, "fun DangerConfirmDialog("),
+        "二次确认被做成只问一次了 —— 用户要的是防误触，不是防第一次",
+    )
 
     # ---- 4. 形态：共用件本身（一处实现 + 圈底 + 默认尺寸）----
     defs = [p for p in kt_files if "fun CardActionIcon(" in read(p)]
@@ -250,7 +320,7 @@ def main() -> int:
 
     # ---- 5. 本批没顺手改别的：回调签名 + 本页锚点 + 规范 ----
     n_cb = len(CALLBACK_PAIR.findall(src))
-    c.ok("三张卡的回调签名一个字没动（onEdit / onDelete 各三处）", n_cb == 3, f"实际 {n_cb} 处")
+    c.ok("三张卡上没有成对回调了（onEdit + onDelete 应为 0 处）", n_cb == 0, f"实际 {n_cb} 处（删除回调又回来了？）")
     for needle, why in (
         ("RouteRail(", "线路卡的 A→B 轨道（共用件）"),
         ("ContactPickerSheet(", "联系人选择抽屉"),
@@ -296,10 +366,11 @@ if __name__ == "__main__":
     if "--list" in sys.argv:
         print("== 它到底在查什么（地址与联系人页卡片动作 CHG-0012）==")
         print("1. 卡片清点自己算：扫 private fun *Card(，逐张断言没有裸 IconButton（多一张卡就红）")
-        print("2. 每张卡：删除/编辑各一个、都走 CardActionIcon、危险的是红的、编辑是主色")
-        print("3. 位置：联系人卡/地点卡横排左删右编；线路卡竖排（删除在上、编辑在下）且来历还在")
+        print("2. 每张卡：只剩编辑那一颗（走 CardActionIcon、主色）；删除图标 / onDelete / 垃圾桶一律 0")
+        print("3. 三张卡都不竖排、签名只剩 onEdit；线路卡 KDoc 里留着「删除搬进抽屉」的来历")
+        print("3b. 删除入口在三个抽屉里、只在编辑态、只走 askDelete；页面不直接调 delete；页尾有二次确认")
         print("4. 形态：CardActionIcon 全库只有一处定义、内部是 TintedIcon 圆底、默认 36/18、Role.Button")
-        print("5. 本批没顺手改别的：回调签名、路线轨道、联系人抽屉、左分类右列表、搜索过滤、规范 4.2c")
+        print("5. 本批没顺手改别的：回调签名（只剩 onEdit）、路线轨道、联系人抽屉、左分类右列表、搜索过滤、规范 4.2c")
         print("6. 接线：反向验证在、CONVERTED 表里还在、文档九节、登记簿有 CHG-0012")
         sys.exit(0)
     sys.exit(main())

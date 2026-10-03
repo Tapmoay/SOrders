@@ -34,6 +34,47 @@ import kotlinx.coroutines.launch
  */
 data class RecentlyDeleted(val kind: String, val label: String, val id: Long, val name: String)
 
+/**
+ * 三档删除各自叫什么（[AddressViewModel.askDelete] 认的三个 kind 与它们给人看的名字）。
+ *
+ * ⚠️ 必须与 [RecentlyDeleted.label] 是同一套说法 —— 两处不一致的话，确认弹层说「地点」、
+ *    顶上那行撤销说「常用地点」，用户会以为删掉的不是同一样东西。
+ */
+private fun deleteKindLabel(kind: String): String? = when (kind) {
+    "line" -> "常用线路"
+    "place" -> "地点"
+    "contact" -> "联系人"
+    else -> null
+}
+
+/**
+ * 二次确认的**标题**：点出要删的是**哪一条**。
+ *
+ * 用户 2026-10-04：「把地点线路联系人，他那里的删除键卡片删除键移到编辑界面当中，
+ * 并且做二次确认的，**不要点一下就直接删掉了，防止误触**」。
+ *
+ * ⚠️ 名字取自**正在编辑的那份草稿**（同一次抽屉里刚改完名字，标题里就是刚敲的那个）；
+ *    名字空着时退成「这条 X」，⛔ 不留一对空引号 —— 三张卡长得像的时候，
+ *    用户就是靠这个名字确认"弹层上说的是不是我正要删的那一个"。
+ * 纯函数，单测见 `AddressDeleteConfirmTest`。
+ */
+fun deleteConfirmTitle(what: String, name: String): String =
+    if (name.isBlank()) "删除这条$what？" else "删除$what「$name」？"
+
+/**
+ * 二次确认的**正文**：说清"删完还能不能捞回来"。
+ *
+ * ⚠️ 这一句不许省：按下「删除」之前用户要知道两件事 —— ① 它是软删（还能恢复）；
+ *    ② 恢复入口就在**这一页顶上**（不在这张弹层里）。少了第 ② 句，恢复入口等于不存在。
+ * 纯函数，单测见 `AddressDeleteConfirmTest`。
+ */
+fun deleteConfirmMessage(what: String): String =
+    "确认后它就从列表里消失，列表顶上会留一行「已删除$what」，点「撤销」可以恢复；" +
+        "离开这一页就找不回来了。"
+
+/** 等着二次确认的那一次删除：[kind] 给代码用（确认后据此挑哪个 delete*），[title] / [message] 直接画给用户看。 */
+data class PendingDelete(val kind: String, val title: String, val message: String)
+
 class AddressViewModel(private val container: AppContainer) : ViewModel() {
 
     var addresses by mutableStateOf<List<AddressDto>>(emptyList())
@@ -69,11 +110,24 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     /**
      * 刚删掉的那一条（三档列表共用：线路 / 地点 / 联系人）。
      *
-     * ⛔ 删完**不能只留一句「已删除」就完了** —— 这一页每一行都没有二次确认，
-     *    点错一下就是把用户的常用线路删掉，而恢复入口在别处根本找不到。
+     * ⛔ 删完**不能只留一句「已删除」就完了**：恢复入口在别处根本找不到，
      *    所以每次删除都把它记在这里，界面在列表顶上给一行「已删除 X + 撤销」。
+     *
+     * ⚠️ 2026-10-04（CHG-0032）：删除**已经不是"点一下就发生"**了 —— 卡片上那颗红图标
+     *    搬进了各自的编辑抽屉，而且要过 [pendingDelete] 那层二次确认。这一行「撤销」仍是
+     *    第二道兜底：确认过不等于想清楚了，软删之后当场还能捞回来（规范 06:1371）。
      */
     var recentlyDeleted by mutableStateOf<RecentlyDeleted?>(null)
+
+    /**
+     * 等着用户点「删除」的那一次（用户 2026-10-04：「删除都要做二次确认的，不要点一下就直接
+     * 删掉了，防止误触」）。
+     *
+     * 为什么放在 VM 而不是界面里 `remember` 一个：标题要写**是哪一条**（名字取自正在编辑的
+     * 那份草稿），而"正在编辑哪一条"只有 VM 知道；更要紧的是它必须与抽屉**共用一个真相** ——
+     * 删成功 / 关抽屉时这个状态一起清掉，否则会出现"确认弹层还开着，那条已经被删了"。
+     */
+    var pendingDelete by mutableStateOf<PendingDelete?>(null)
 
     /** 撤回刚删的那一条（软删 → 还原，走仓库里本来就有的 restore* 接口）。 */
     fun undoDelete() {
@@ -94,6 +148,42 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
             } finally {
                 acting = false
             }
+        }
+    }
+
+    /**
+     * 举手要删（**不落库**）：抽屉里那颗「删除」只调它。
+     *
+     * ⛔ 别让界面直接调 [delete] / [deleteContact] / [deleteLocation] —— 那三个是**执行**，
+     *    中间少了二次确认就回到"点一下就没了"（用户 2026-10-04 点名要挡的就是这个）。
+     */
+    fun askDelete(kind: String) {
+        val what = deleteKindLabel(kind) ?: return
+        val name = when (kind) {
+            "line" -> editing?.receiverName
+            "place" -> editingLocation?.name
+            else -> editingContact?.displayName
+        }.orEmpty()
+        pendingDelete = PendingDelete(kind, deleteConfirmTitle(what, name), deleteConfirmMessage(what))
+    }
+
+    /** 二次确认里点「取消」：什么都不发生（当然也不落库）。 */
+    fun cancelDelete() {
+        pendingDelete = null
+    }
+
+    /**
+     * 二次确认里点「删除」：**唯一**会走到那三个 delete* 的地方。
+     *
+     * 顺手把抽屉一起关掉 —— 编辑的那条已经不在了，抽屉再开着就是"在编辑一个刚删掉的东西"。
+     */
+    fun confirmDelete() {
+        val p = pendingDelete ?: return
+        pendingDelete = null
+        when (p.kind) {
+            "line" -> editing?.let { showCreateDialog = false; delete(it) }
+            "place" -> editingLocation?.let { showLocationDialog = false; deleteLocation(it) }
+            "contact" -> editingContact?.let { showContactDialog = false; deleteContact(it) }
         }
     }
 
