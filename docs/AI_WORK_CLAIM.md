@@ -31,24 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 进行中] 会话：**CHG-0028 措辞与默认值：五处「同一个事实两处说法」（走查 P3 / P5 / P11 / P13 ＋「已沽清 vs 已下架」残余一处）**
-
-**这一轮的验收口径（走查报告 `_tmp/E2E测试报告.md:243` 修复优先级第 6 条，逐字）**：
-「其余措辞与口径一致性清理（P3 / P5 / P8 / P11 / P13 / P20 / P32 / 已沽清vs已下架 / 消息提醒默认值）」——
-P8 已由 `BUG-0004` 关闭、P20/P32 已由 `CHG-0026` 关闭、P29 已由 `CHG-0025` 关闭；本条收剩下的 P3 / P5 / P11 / P13 ＋「已沽清 vs 已下架」的**最后一处**。
-⛔ **不含**「消息提醒默认值」：那不是措辞而是通知行为默认值（`core/NewOrderAlert.kt:184` `defaultBackground(role) = hasVoice(role)` ⇒ 货主默认不开后台接收），改它要动产品决定，另立事项。
-
-**改了哪五处**（详细规格见 `docs/changes/CHG-0028.md`）：
-- **P3** 新增商品页「库存」一行**同时**画了必填红星与「（选填）」占位语（`ui/dispatcher/ProductFormScreen.kt:154-162`）⇒ `required = true` 改 `false`；后端 `backend/app/schemas/product.py:31` 本来就写「初始库存（选填，仅创建时生效）」。
-- **P5** 同一个「分类下几件商品」三处两种写法：`ProductCategoriesScreen.kt:371-375` 写「暂无商品」，而 `ProductBatchScreen.kt:342` / `ProductFormScreen.kt:354` 拼 `"${count} 个商品"`（0 时显示「0 个商品」）⇒ 在共用零件 `ui/common/CategoryPickerSheet.kt` 里加**唯一一份** `categoryCountLabel(n)`，三处都改用它。
-- **P11** 新增车辆默认「挂车」且下拉第一项也是挂车（`VehicleManageScreen.kt:81-82` 的注释「挂车最常见」与数据相反：`vehicles` 表 small 11 / large 3 / trailer 1）⇒ 顺序改成 小货车 / 大货车 / 挂车 ＋ 新增 `DEFAULT_VEHICLE_TYPE`（表首项），`:97`/`:193`/`:209` 三处字面量全部改用它；⛔ 取值集仍是计费口径那三档。
-- **P13** 订单卡异常图标只说「异常」不说类别（`DispatcherOrdersScreen.kt:121-130` 没传 `label`）⇒ 把 `ReportPriority.kt:121-134` 的判据本体抽成 `exceptionRiskOf(reason, resolved, overdue)` ＋ 新增 `orderExceptionRisk(order)`，卡片传 `label`（与「报表中心 → 异常与审计」同一个函数出同一个词）。
-- **残余** `UsersManageScreen.kt:909` 写「· 已下架」，而全 App 同一状态统一词是「已沽清」（共用角标 `ProductSoldOutBadge` 已在商品管理 / 批量操作 / 选品三页统一）⇒ 改「· 已沽清」。
-
-**要一起改的既有判据**（不一起改就是「修好了但判据红」）：`_tools/qa/_check_vehicle_form.py:222-224` 与 `_tools/qa/_check_vehicle_ui.py:265-266` 把 `VEHICLE_TYPES` 那**一整串字面量**钉住了（真实意图是「取值集不许扩」）⇒ 改成顺序无关的取值集断言 + 新增「小货车排第一 / 默认＝小货车」判据；`_tools/qa/_reverse_verify_vehicle_attrs.py:207-209` 的注入锚点正是那一整串 ⇒ 同步改锚点。
-
-**落点**：`_tools/qa/_check_wording_consistency.py`（新建）＋ `_tools/qa/_reverse_verify_wording_consistency.py`（新建）＋ `docs/changes/CHG-0028.md` ＋ README 登记行 ＋ 本条。⛔ 后端一行未动、不放宽任何断言、不删用例。
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5643,6 +5625,25 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**CHG-0028 措辞与默认值：五处「同一个事实两处说法」（走查 P3 / P5 / P11 / P13 ＋「已沽清 vs 已下架」残余一处）**
+
+**这一轮的验收口径（走查报告 `_tmp/E2E测试报告.md:243` 修复优先级第 6 条，逐字）**：
+「其余措辞与口径一致性清理（P3 / P5 / P8 / P11 / P13 / P20 / P32 / 已沽清vs已下架 / 消息提醒默认值）」——
+P8 已由 `BUG-0004` 关闭、P20/P32 已由 `CHG-0026` 关闭、P29 已由 `CHG-0025` 关闭；本条收剩下的 P3 / P5 / P11 / P13 ＋「已沽清 vs 已下架」的**最后一处**。
+⛔ **不含**「消息提醒默认值」：那不是措辞而是通知行为默认值（`core/NewOrderAlert.kt:184` `defaultBackground(role) = hasVoice(role)` ⇒ 货主默认不开后台接收），改它要动产品决定，另立事项。
+
+**改了哪五处**（详细规格见 `docs/changes/CHG-0028.md`）：
+- **P3** 新增商品页「库存」一行**同时**画了必填红星与「（选填）」占位语（`ui/dispatcher/ProductFormScreen.kt:154-162`）⇒ `required = true` 改 `false`；后端 `backend/app/schemas/product.py:31` 本来就写「初始库存（选填，仅创建时生效）」。
+- **P5** 同一个「分类下几件商品」三处两种写法：`ProductCategoriesScreen.kt:371-375` 写「暂无商品」，而 `ProductBatchScreen.kt:342` / `ProductFormScreen.kt:354` 拼 `"${count} 个商品"`（0 时显示「0 个商品」）⇒ 在共用零件 `ui/common/CategoryPickerSheet.kt` 里加**唯一一份** `categoryCountLabel(n)`，三处都改用它。
+- **P11** 新增车辆默认「挂车」且下拉第一项也是挂车（`VehicleManageScreen.kt:81-82` 的注释「挂车最常见」与数据相反：`vehicles` 表 small 11 / large 3 / trailer 1）⇒ 顺序改成 小货车 / 大货车 / 挂车 ＋ 新增 `DEFAULT_VEHICLE_TYPE`（表首项），`:97`/`:193`/`:209` 三处字面量全部改用它；⛔ 取值集仍是计费口径那三档。
+- **P13** 订单卡异常图标只说「异常」不说类别（`DispatcherOrdersScreen.kt:121-130` 没传 `label`）⇒ 把 `ReportPriority.kt:121-134` 的判据本体抽成 `exceptionRiskOf(reason, resolved, overdue)` ＋ 新增 `orderExceptionRisk(order)`，卡片传 `label`（与「报表中心 → 异常与审计」同一个函数出同一个词）。
+- **残余** `UsersManageScreen.kt:909` 写「· 已下架」，而全 App 同一状态统一词是「已沽清」（共用角标 `ProductSoldOutBadge` 已在商品管理 / 批量操作 / 选品三页统一）⇒ 改「· 已沽清」。
+
+**要一起改的既有判据**（不一起改就是「修好了但判据红」）：`_tools/qa/_check_vehicle_form.py:222-224` 与 `_tools/qa/_check_vehicle_ui.py:265-266` 把 `VEHICLE_TYPES` 那**一整串字面量**钉住了（真实意图是「取值集不许扩」）⇒ 改成顺序无关的取值集断言 + 新增「小货车排第一 / 默认＝小货车」判据；`_tools/qa/_reverse_verify_vehicle_attrs.py:207-209` 的注入锚点正是那一整串 ⇒ 同步改锚点。
+
+**落点**：`_tools/qa/_check_wording_consistency.py`（新建）＋ `_tools/qa/_reverse_verify_wording_consistency.py`（新建）＋ `docs/changes/CHG-0028.md` ＋ README 登记行 ＋ 本条。⛔ 后端一行未动、不放宽任何断言、不删用例。
+
+**落点与提交**：判据 33/33、反验 13/13（13 条注入全红、9 个被碰过的文件逐字节还原）、Android 单测 **1146 项 / 0 失败 / 2 跳过**（+10 = 4+2+4）、gradle `BUILD SUCCESSFUL`、`_check_all.py` **160/160（231.7 秒）**；既有判据三处改成顺序无关后定点复跑全绿（`_check_vehicle_form.py` 48 项 / `_check_vehicle_ui.py` 46 项 / `_check_vehicle_attrs.py` 106 项 / `_check_reverse_verify_anchors.py` 1655 条锚点全在）。⚠️ 全量静检**第一次是 158/160**：抓到 `docs/PROJECT_MAP/09A_HINT_CATALOG.md` 过期（改了 `.kt` 文案 ⇒ 1390→1392 条、行号位移），按文档给的修法重生成后复跑全绿。真机：模拟器 5554 实测四处（`_tmp/c28_p3_stock.png` 库存行无红星 / `_tmp/c28_p5_picker.png` 0 件分类说「暂无商品」/ `_tmp/c28_p11_vehicle_type.png`＋`_tmp/c28_p11_vehicle_menu.png` 默认「小货车」且下拉第一项是它 / `_tmp/c28_p13_money.png`＋`_tmp/c28_p13_other.png` 卡片说「钱货风险」「一般」）＋ 批量操作页「已沽清」角标旁证（`_tmp/c28_batch_soldout.png`）＋ 5556（货主）/ 5558（司机）冷启动冒烟。实现提交 `28a3ae0`｜归档提交：本条。
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**CHG-0027 截断与长数字：四处「看不全」（走查 P18 / P28 / P30 / P4）**
 
 **这一轮的验收口径（走查报告 `_tmp/E2E测试报告.md:236-243` 修复优先级第 5 条，逐字）**：
