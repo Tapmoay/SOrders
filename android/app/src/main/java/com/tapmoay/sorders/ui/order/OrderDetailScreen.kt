@@ -964,6 +964,10 @@ private fun DetailBody(
                 order.dispatchedAt?.let { TimeRow("派单", it) }
                 order.driverAcknowledgedAt?.let { TimeRow("司机确认", it) }
                 order.deliveredAt?.let { TimeRow("送达", it) }
+                // 退货也是这条单走过的一步（2026-10-03，E2E 走查 P27）：整单退完是 status=RETURNED，
+                // 部分退货留在「已送达」但 `returnedAt` 同样有值 —— 只按状态判会漏掉部分退货那一半
+                // （走查当时司机端这一页"仍是 已送达、流转记录里没有退货一行"）。
+                order.returnedAt?.let { TimeRow("退货", it) }
                 order.cancelledAt?.let { TimeRow("撤销", it) }
                 if (order.driverRemark.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))

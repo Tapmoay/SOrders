@@ -95,6 +95,9 @@ AGGREGATE_KEY: dict[str, str] = {
     "returns.rejected": "request_id",
     "returns.done": "request_id",
     "returns.request_closed": "request_id",
+    # 一次退货改了订单行 / 钱 / 库存，聚合根是**那张订单**（不是退货申请 ——
+    # 直连退货根本没有申请单，见 2026-10-03 的 P27）。
+    "returns.order_returned": "order_id",
 }
 
 #: 没有聚合根的事件 → **为什么**（例外要留解释，这是第一轮就定下的口径）。

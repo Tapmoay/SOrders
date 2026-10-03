@@ -694,3 +694,70 @@ async def publish_return_request_done(
         req.shipper_id,
         {"type": "order.return_request.done", "order_id": req.order_id, "request_id": req.id},
     )
+
+
+async def publish_order_returned_to_driver(
+    db: Session,
+    order_id: int,
+    *,
+    event_id: int,
+    returned_amount: str,
+    refund_amount: str,
+    fully_returned: bool,
+    items: str,
+) -> None:
+    """一次退货办完 → **经手那张单的司机**收站内信（2026-10-03，E2E 走查 P27）。
+
+    走查原文：「货主端与派单员端都收到了「退货已办理」消息；**司机端一条都没有**。」
+    司机把货送到就走了，货被退掉、这一单进了「已退货」，而他没有任何信号 ——
+    这条消息就是补上这个信号。
+
+    ⚠️ 金额与件数都是**退货那一刻的既成事实**（`return_order` 的回参与它算好的那一串），
+       ⛔ 不在这里按订单重算：钱的口径只有 `services/order_money.py` / `order_return.py` 一处。
+    ⚠️ 正文那句「账单不会被退货改动」是**成文口径**，不是安慰话：`order_return.py` 模块
+       docstring「三条刻意不做的」第 1 条写着「不复原司机账单」，`driver_pay.pay_for_order`
+       的输入里也没有退货数量。⚠️ 但⛔ 不许写成「这一单的运费照结」——整单退货的单在
+       「运费结算页」是**看不到的**（`api/v1/driver_bills.py:66-67` 把这件事挂在待拍板上），
+       那是另一个产品决策，不由这条消息替它下结论。
+    """
+    order = db.get(Order, order_id)
+    if order is None or order.driver_id is None:
+        return
+    # 收件人必须存在（`create_message` 要写 recipient_id）：与 `publish_order_freight_updated` 同一道闸
+    if db.get(User, order.driver_id) is None:
+        return
+    ono = order.order_no
+    tail = "这一单已经整单退完。" if fully_returned else "这是部分退货，订单仍然是「已送达」。"
+    refund_note = ""
+    try:
+        if float(refund_amount or 0) > 0:
+            refund_note = f"，已退款 ¥{money_text(refund_amount)}"
+    except (TypeError, ValueError):  # pragma: no cover - 出参异常时不要因此不通知司机
+        refund_note = ""
+    what = items or "（明细见订单详情）"
+    n = create_message(
+        db,
+        recipient_id=order.driver_id,
+        category="order",
+        type="order.returned",
+        title="订单被退货了",
+        content=(
+            f"订单 {ono} 退货了：{what}，退货金额 ¥{money_text(returned_amount)}{refund_note}。"
+            f"{tail}这一趟你已经跑完，账单不会被退货改动（有疑问看「我的账单」里这一笔）。"
+        ),
+        payload={
+            "order_id": order_id,
+            "order_no": ono,
+            "returned_amount": returned_amount,
+            "refund_amount": refund_amount,
+            "fully_returned": fully_returned,
+        },
+        speech_important=False,
+        # ⚠️ 幂等键必须带**发件箱那一行的编号**：同一张单可以退好几次（部分退货累加），
+        #    只用 order_id 的话第二次以后的消息会被 `create_message` 当成重复吞掉。
+        idem_key=f"order.returned" + ":" + str(order_id) + ":" + str(event_id),
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(order.driver_id, {"type": "order.returned", "order_id": order_id})

@@ -566,3 +566,51 @@ def test_mark_returned_refuses_orders_never_delivered(
     db_session.expire_all()
     assert db_session.get(Order, oid).status == OrderStatus.PENDING_DISPATCH
 
+
+def test_direct_return_tells_the_driver(
+    client, token_dispatcher, token_shipper, token_driver, users, db_session
+):
+    """派单员**直连退货**也要告诉司机（2026-10-03 E2E 走查 P27 的另一条链路）。
+
+    走查原文：「货主端与派单员端都收到了「退货已办理」消息；**司机端一条都没有**。
+    司机端订单详情仍是 已送达，流转记录里没有退货/红冲一行。他的运费可能被扣、
+    这一单可能不再结算，而他没有任何信号。」
+
+    ⚠️ 这条用例走的是**直连退货**（`POST /orders/{id}/return`，不经过退货申请）——
+    与 `test_return_request.py` 里那条"申请办完"的用例是两条不同的链路，
+    两条都必须把信号送到司机手上。
+    """
+    from app.models import Notification, Product
+
+    h, hd = auth_headers(token_dispatcher), auth_headers(token_driver)
+    prod = Product(name="直连退货通知探针", unit="件", stock=50, cost_price=Decimal("10.00"))
+    db_session.add(prod)
+    db_session.commit()
+
+    oid = _order_as_shipper(
+        client, token_shipper, "直连退货通知探针", qty=2, price="20.00", product_id=prod.id
+    )
+    _deliver(client, h, hd, users, oid)
+    line = _lines_of(client, h, oid)[0]
+    r = _return(client, h, oid, [(line["id"], 2)], note="客户不要了")
+    assert r.status_code == 200, r.text
+    assert r.json()["fully_returned"] is True
+
+    db_session.expire_all()
+    notes = (
+        db_session.query(Notification)
+        .filter(
+            Notification.recipient_id == users["driver"].id,
+            Notification.type == "order.returned",
+        )
+        .all()
+    )
+    assert notes, "直连退货没告诉司机：货主与派单员都收到了，他一条都没有"
+    content = notes[-1].content or ""
+    assert "¥40" in content, content
+    assert "整单退完" in content, content
+    # 那句话必须是**成文口径**（`order_return` 模块 docstring「不复原司机账单」），
+    # 而且⛔ 不许替"整单退货的单在运费结算页看不到"那个待拍板的产品决策下结论
+    assert "账单不会被退货改动" in content, content
+    assert (notes[-1].payload or {}).get("order_id") == oid, notes[-1].payload
+

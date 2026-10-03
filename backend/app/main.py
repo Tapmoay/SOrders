@@ -174,6 +174,16 @@ async def _outbox_deliver(event) -> None:
             note=str(event.payload.get("note") or ""),
         )
         return
+    if event.event_type == "returns.order_returned":
+        await push_events.push_order_returned_to_driver(
+            int(event.payload.get("order_id") or 0),
+            event_id=int(event.id or 0),
+            returned_amount=str(event.payload.get("returned_amount") or "0"),
+            refund_amount=str(event.payload.get("refund_amount") or "0"),
+            fully_returned=bool(event.payload.get("fully_returned")),
+            items=str(event.payload.get("items") or ""),
+        )
+        return
     if event.event_type == "notifications.created":
         from app.services import message_center
 

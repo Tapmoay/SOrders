@@ -266,7 +266,7 @@ name: return
 owns: order_return_requests, order_return_request_lines
 commands: services.order_return:return_order, services.order_return_request:submit, services.order_return_request:withdraw, services.order_return_request:reject, services.order_return_request:fulfill, services.order_return_request:close_by_direct_return
 reads: orders@order, users@identity, products@catalogue
-events: returns.requested, returns.rejected, returns.request_closed, returns.done
+events: returns.requested, returns.rejected, returns.request_closed, returns.done, returns.order_returned
 pure_consumer: no
 ```
 

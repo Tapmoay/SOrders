@@ -31,6 +31,50 @@
 
 ## 进行中
 
+### [2026-10-03 进行中] 会话：**BUG-0005 退货办完了，司机不知道：他送的那一单被退了，账单可能被改，而他没有任何信号（消息 / 订单时间线 / 司机「已完成」列表）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：走查自 2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md`）P27。
+
+**现象**（三个症状一件事）：① 货主端与派单员端都收到了「退货已办理」消息，**司机端一条都没有**；
+② 司机端订单详情的「流转记录」里**没有退货/红冲那一行**（他的单还写着「已送达」）；
+③ 整单退货之后订单是 `RETURNED`，而司机「已完成」列表只查 `DELIVERED` —— 那一单**从他的已完成里凭空消失**。
+他的运费可能被扣、这一单可能不再结算，而他没有任何信号。
+
+**根因**：退货这件事有三个当事人（货主收钱、派单员办理、司机跑了这一趟），而 `services/message_center.py` 里四条退货消息的收件人名单**从来没有司机**
+（`publish_return_request_to_dispatchers:577` → 派单员、`publish_return_request_rejected:616`、`publish_return_request_closed:510`、`publish_return_request_done:645` → `req.shipper_id` 货主）；
+客户端两处：`ui/order/OrderDetailScreen.kt` 的时间线只画了送达/撤销、没有 `returnedAt`；`ui/driver/DriverOrdersViewModel.kt` 的「已完成」写死 `status = "DELIVERED"`。
+
+**改哪些文件**（后端 5 处 + Android 2 处 + 后端测试 2 条 + 治理文档 2 处 + 判据/反验/变更文档）：
+
+- `backend/app/services/order_return.py`（**核心区**）：在退货执行完、写日志之前 `outbox.enqueue(db, "returns.order_returned", {…})` —— 退货的**唯一入口**就在这里（端点直连与申请单 fulfill 两条链路都走它），事件必须与业务写同一个事务；负载只带既成事实（order_id / returned_amount / refund_amount / fully_returned / items）。
+- `backend/app/core/outbox.py`：`AGGREGATE_KEY` 加 `"returns.order_returned": "order_id"`（聚合根是那张订单，直连退货没有申请单）。
+- `backend/app/main.py` `_outbox_deliver`：加一支 `returns.order_returned` → `push_events.push_order_returned_to_driver(...)`。
+- `backend/app/services/push_events.py`：新增 `async def push_order_returned_to_driver(order_id, *, event_id, returned_amount, refund_amount, fully_returned, items)`，自开 `SessionLocal` 转 `message_center.publish_order_returned_to_driver`（`event_id` 进幂等键：同一张单能退好几次，只用 order_id 会把第二次以后的消息吞掉）。
+- `backend/app/services/message_center.py`：新增 `publish_order_returned_to_driver` —— 收件人 `order.driver_id`，类型 `order.returned`、标题「订单被退货了」，正文写清「这一单已经整单退完」还是「部分退货」、退货金额、以及**账单不会被退货改动**；三条早退闸（订单不存在 / 没有司机 / 司机不是账号）与 `publish_order_freight_updated` 同源。
+- `android/.../ui/order/OrderDetailScreen.kt`：流转记录在「送达」与「撤销」之间加 `order.returnedAt?.let { TimeRow("退货", it) }`（整单退完是 `RETURNED`，部分退货留在「已送达」但 `returnedAt` 一样有值，只按状态判会漏一半）。
+- `android/.../ui/driver/DriverOrdersViewModel.kt`：新增 `FINISHED_STATUSES = listOf("DELIVERED", "RETURNED")`，「已完成」页签与 `periodHasData` 探测都改用它。
+- `backend/tests/test_order_return.py` / `test_return_request.py`：各加一条（直连退货一条消息；申请单连退两次 = 两条消息，钉 `event_id` 进幂等键）。
+- `docs/R4_CORE_EXTENSION_MAP.md`（事件表加 `returns.order_returned`、18 → **19 个事件**）与 `docs/DOMAIN_BOUNDARIES.md`（退货域 `events:` 行补上）。
+- 新增 `_tools/qa/_check_driver_return_notice.py`（50 项）与 `_tools/qa/_reverse_verify_driver_return_notice.py`（11 条注入）；`docs/changes/BUG-0005.md` + 登记表行。
+
+**核心改动：backend/app/services/order_return.py —— 为什么必须动核心：**
+退货**只有这一个执行入口**（`api/v1/orders_return.py:70` 直连与 `services/order_return_request.py:290` fulfill 都汇到 `return_order()`），
+而「司机要知道这一单被退了」这件事**只有在退货真的发生的那一刻**才有意义 —— 事件放在入口里、与业务写同一事务，才既不会漏（两条链路都覆盖）也不会空转（退货失败就没有事件）；
+换任何一个地方发（端点里发、定时任务里扫）都会漏掉另一条链路或产生「退了但没发出去」的窗口。收件人、单号、金额一个都不在这里算，消费者现取。
+
+**判据 · 反验**：`_check_driver_return_notice.py` **50/50**（exit 0）＋ `_reverse_verify_driver_return_notice.py` **11/11**（每条注入都让判据当场变红、9 个文件逐字节还原）。
+顺带把本事项新增事件类型**必须同时满足**的五道既有闸门全跑绿：`_check_outbox.py`（30 项）、`_check_outbox_idempotency.py`（19 种事件 / 聚合根映射 18 条 + 例外 1 条 / `create_message` 带键 17 处）、`_check_core_extension_boundary.py`（19 个事件全是事实通知、82 个实现站点）、`_check_domain_boundaries.py`（15 个域 / 57 条命令 / 19-19 个事件有主）、`_check_return_request.py`（141 项）。
+
+**边界（没破）**：Blast Radius **L2** —— **钱的口径一个字不动**（`order_return.py:26-36` 的模块 docstring 写明「不复原司机账单」：司机把货送到了、这一趟跑完了，要扣他钱是另一个决定）；
+红冲 / 回补、库存、订单状态机、货主与派单员收到的四条既有消息、`driver_bills` 的作废规则、后端接口形状与数据库结构（无新字段、无迁移）全部保持原样；
+消息里**刻意不写「这一单的运费照结」** —— 整单退货的单在「运费结算页」被排掉（`api/v1/driver_bills.py:59`），司机应付算不算那是个**产品决策**（`:66-67` 明写在「待拍板」），不替用户下结论。
+
+**真机复验（三台模拟器，真人手法，2026-10-03 11:2x–11:3x）**：
+5554 派单员：待派单池给订单 550（`SO202610034194369285`）派单给王强 → 5558 司机接单 → 拍照送达 → 5556 货主「申请退货」（申请单 20）→ 5554「退货申请」页「办理退货」→ 办理成功。
+5558 司机端三处全成立：消息中心第一条 =「订单被退货了 10-03 11:29」（`_tmp/b5_b5_driver_msg.png`）；订单详情流转记录 = 下单 / 派单 / 司机确认 / 送达 / **退货 10-03 11:29**（`_tmp/b5_driver_timeline.png`）；「已完成」页签里**两张 `RETURNED` 单都还在**、带「已退货」徽章（`_tmp/b5_driver_finished2.png`，改前它们会凭空消失）。
+5556 货主端「已退货」页签两张单都在（`_tmp/b5_shipper_returned.png`）。库内：`outbox_events` 614/615/616（615 = 新事件 `returns.order_returned`）、`notifications` 1981（收件人 115 = 王强，`type=order.returned`，`idem_key=order.returned:550:615#115`）。
+
+**落点与提交**：判据 **50/50**、反验 **11/11**、后端定点 pytest **30 passed**、后端全量 `3 failed / 1214 passed`（与基线树同一批红、与本事项无关）、gradle **BUILD SUCCESSFUL**（1136 项单测 / 0 失败 / 2 跳过）、全量静检 **158/158**（228.6 秒）。实现提交 ⏳ 待填（下一个提交）｜归档提交：本条（登记表状态改已关闭、声明块搬进 `## 已完成`）。
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

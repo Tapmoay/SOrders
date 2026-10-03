@@ -192,6 +192,38 @@ async def push_return_request_done(
         db.close()
 
 
+async def push_order_returned_to_driver(
+    order_id: int,
+    *,
+    event_id: int,
+    returned_amount: str,
+    refund_amount: str,
+    fully_returned: bool,
+    items: str,
+) -> None:
+    """一次退货办完 → **经手那张单的司机**收站内信（2026-10-03，E2E 走查 P27）。
+
+    走查原文：「货主端与派单员端都收到了「退货已办理」消息；**司机端一条都没有**。
+    司机端订单详情仍是 已送达，流转记录里没有退货/红冲一行。」
+
+    ⚠️ `event_id` 是发件箱那一行的编号：同一张单可以退好几次（部分退货累加），
+    只用 order_id 当幂等键的话，第二次以后的消息会被 `create_message` 当成重复吞掉。
+    """
+    db = SessionLocal()
+    try:
+        await message_center.publish_order_returned_to_driver(
+            db,
+            order_id,
+            event_id=event_id,
+            returned_amount=returned_amount,
+            refund_amount=refund_amount,
+            fully_returned=fully_returned,
+            items=items,
+        )
+    finally:
+        db.close()
+
+
 async def push_return_request_closed(request_id: int, *, returned_amount: str, note: str) -> None:
     """派单员**直连退货**把申请自动关掉 → 货主收站内信（含"申请了什么 / 实退什么"的对照）。
 

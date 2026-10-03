@@ -14,6 +14,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/**
+ * 「已完成」这一档包含的状态：**已送达 + 已退货**。
+ *
+ * ⚠️ 2026-10-03（E2E 走查 P27）：这里原来只查 `DELIVERED` —— 整单退完的单状态变成 `RETURNED`，
+ * 于是它从司机的「已完成」列表里**凭空消失**（他翻遍列表也找不到那张单，与"退货一条消息都没有"
+ * 是同一件事的两面）。取数与 [DriverOrdersViewModel.periodHasData] 的探测**必须同源**，
+ * 否则会出现"退档到的那一档页面还是空的"。
+ */
+private val FINISHED_STATUSES: List<String> = listOf("DELIVERED", "RETURNED")
+
 class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
 
     var tab by mutableStateOf(0) // 0=进行中 1=已完成
@@ -155,7 +165,11 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
     private suspend fun periodHasData(label: String): Boolean {
         val r = DatePresets.rangeOf(label, LocalDate.now()) ?: return true
         return try {
-            container.repo.orders(status = "DELIVERED", dateFrom = r.first, dateTo = r.second).isNotEmpty()
+            // 与 `load()` 同一份状态清单（[FINISHED_STATUSES]）：探测漏了 RETURNED 的话，
+            // 一档里明明有已退货的单却被判成"没单"，自动退档会把用户越推越远。
+            FINISHED_STATUSES.any { st ->
+                container.repo.orders(status = st, dateFrom = r.first, dateTo = r.second).isNotEmpty()
+            }
         } catch (e: Exception) {
             false
         }
@@ -182,7 +196,9 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 // 进行中 = 已派单（还没接）+ 已接单。状态取自 `OrderStatusModel.DRIVER_OPEN`
                 // （原来这里硬写两个字面量；只查 ACCEPTED 时新派来的单在司机端**根本不出现**）。
-                val statuses = if (tab == 0) OrderStatusModel.DRIVER_OPEN else listOf("DELIVERED")
+                // 已完成档 = 已送达 + 已退货（[FINISHED_STATUSES]）—— 整单退货的单**不许**从
+                // 司机列表里消失（2026-10-03，E2E 走查 P27）。
+                val statuses = if (tab == 0) OrderStatusModel.DRIVER_OPEN else FINISHED_STATUSES
                 orders = statuses
                     .flatMap { container.repo.orders(status = it, dateFrom = if (tab == 1) dateFrom else null, dateTo = if (tab == 1) dateTo else null) }
                     .sortedByDescending { it.createdAt }

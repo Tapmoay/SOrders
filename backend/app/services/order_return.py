@@ -42,6 +42,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.core import outbox
 from app.core.business_time import business_date
 from app.models import CashFlow, Ledger, Order, OrderProduct
 from app.models.enums import (
@@ -359,6 +360,25 @@ def return_order(
     order.returned_at = _now()
 
     parts = "、".join(f"{ops[i.order_product_id].product_name_snapshot}×{i.quantity}" for i in items)
+    # 2026-10-03（E2E 走查 P27「司机对退货完全无感知」）：退货这件事**司机端一条消息都没有** ——
+    # 他把货送到就走了，货被退掉、这一单进了「已退货」，他没有任何信号。
+    # 事件**在这里**入队（而不是在两个端点各写一遍）：`return_order` 是退货执行的**唯一入口**
+    # （派单员直连 / 货主申请办完两条链路最后都落到这一行），将来多出第三条退货路径时，
+    # 不用记得“还要再去补一条给司机的通知”。
+    # ⚠️ 负载带的是**这一次退货自己的既成事实**（退了多少钱、是不是整单退完、退的是哪几件）——
+    #    它们是历史、不会再变；⛔ 不带“收件人是谁 / 单号是多少”那类会变的值，
+    #    那些由消费者按 order_id 现取（`message_center.publish_order_returned_to_driver`）。
+    outbox.enqueue(
+        db,
+        "returns.order_returned",
+        {
+            "order_id": order.id,
+            "returned_amount": str(returned_amount),
+            "refund_amount": str(refund),
+            "fully_returned": fully,
+            "items": parts,
+        },
+    )
     write_log(
         db,
         operator_id=operator_id or 0,

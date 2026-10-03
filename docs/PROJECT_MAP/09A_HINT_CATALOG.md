@@ -1,7 +1,7 @@
 # 界面提示与说明目录（**机器生成，不要手改**）
 
 > 生成命令：`python _tools/qa/_hint_inventory.py --md`
-> source_hash：`sha256:93bfa4e8d40b736db387e9d0910f1e53a63535c641606ab83f6a68b33b56a89b`
+> source_hash：`sha256:84827a5dcac924713870a3367da54e99f2bfb9545a1e2bae77264614b54e2eba`
 > 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。
 
 ## 1. 口径
@@ -40,7 +40,7 @@
 | 18 | 派单员 | 36 | `ProductSortScreen.kt:228` | 从上到下就是商品管理页里的顺序。按住一行长按拖动，或点右边的 ↑ 置顶。 |
 | 19 | 派单员 | 36 | `SuppliersScreen.kt:312` | 建档不动钱：先建一个供应商，再给它挂应付款（欠了多少）。付款一笔一笔记， |
 | 20 | 派单员 | 36 | `UsersManageScreen.kt:501` | 配车请在卡片上的「配车 / 换车」里改 —— 一辆车同时只能归一个司机， |
-| 21 | 共用 | 36 | `OrderDetailScreen.kt:1369` | 补的是这个收货地点的照片（门口、路口、楼栋），以后送到这里的人能直接看到 |
+| 21 | 共用 | 36 | `OrderDetailScreen.kt:1373` | 补的是这个收货地点的照片（门口、路口、楼栋），以后送到这里的人能直接看到 |
 | 22 | 共用 | 35 | `AiSettingsScreen.kt:329` | 已保存一个 Key（加密存在本机）。直接改上面的内容再点保存即可替换。 |
 | 23 | 派单员 | 35 | `ExpenseCategoriesScreen.kt:138` | 顺序 = 开销页左边那一列的顺序；「主要关联」决定开销卡片上突出哪一项 |
 | 24 | 派单员 | 35 | `SuppliersScreen.kt:309` | 删掉的供应商在这里躺着（伪装删除：行还在库里）。点「恢复」放回来 ——  |
@@ -90,8 +90,8 @@
 | 68 | 货主 | 21 | `ShipperReturnRequestsScreen.kt:131` | 撤回后可以重新申请（想改数量只能这么改）。 |
 | 69 | 派单员 | 20 | `DispatcherOrdersScreen.kt:311` | 退掉的那部分会自动记一笔退给客户的现金。 |
 | 70 | 共用 | 18 | `AiChatScreen.kt:1676` | 左上角「历史」里能看到以前问过的对话 |
-| 71 | 共用 | 18 | `OrderDetailScreen.kt:1278` | 到地方标一下位置，以后大家都直接能用 |
-| 72 | 共用 | 18 | `OrderDetailScreen.kt:1420` | 坐标相近会自动并成一个，不会越攒越多 |
+| 71 | 共用 | 18 | `OrderDetailScreen.kt:1282` | 到地方标一下位置，以后大家都直接能用 |
+| 72 | 共用 | 18 | `OrderDetailScreen.kt:1424` | 坐标相近会自动并成一个，不会越攒越多 |
 | 73 | 派单员 | 17 | `AccountManageScreen.kt:533` | 修改后保存即可；密码留空表示不修改 |
 | 74 | 派单员 | 17 | `SupplierDetailScreen.kt:518` | 填一个金额，这里会算出付完还差多少 |
 | 75 | 派单员 | 17 | `UsersManageScreen.kt:502` | 绑错了那边会明确告诉你是谁名下的。 |

@@ -726,11 +726,12 @@ pending: no
 | `returns.rejected` | `order.return` | 退货申请被驳回 | 同上 | ❌ 不会 |
 | `returns.request_closed` | `order.return` | 那张申请被直连退货自动关掉了 | 同上 | ❌ 不会 |
 | `returns.done` | `order.return` | 货真的退掉了（钱已红冲、库存已回补） | 同上 | ❌ 不会 |
+| `returns.order_returned` | `order.return` | 退货**执行完了**（司机也要知道：他送的那一单被退了） | 同上 → 司机消息 | ❌ 不会（红冲 / 回补 / 订单状态在同一次事务里已经写好） |
 | `ledger.updated` | `money.ledger` | 账本有新的流水了 | 同上 → 账本页刷新 | ❌ 不会 |
 | `notifications.created` | `notification.data` | 有一条新的站内信 | 同上 → 收件人红点 | ❌ 不会（站内信是**数据**，已经在库里） |
 | `notifications.unread_changed` | `notification.data` | 未读数变了 | 同上 | ❌ 不会 |
 
-> ⚠️ **最后一列全是 ❌ 是本页最想钉住的一件事**：它意味着 **18 个事件没有一个在偷偷承担业务流程**。
+> ⚠️ **最后一列全是 ❌ 是本页最想钉住的一件事**：它意味着 **19 个事件没有一个在偷偷承担业务流程**。
 > 若将来有人把"送达之后要生成账单"改成"监听 `orders.delivered` 再生成账单"，
 > 这一列会变成 ✅，那时它就该被改回 **Command**（指南 §28 的原话）。
 

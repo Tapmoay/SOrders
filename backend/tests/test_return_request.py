@@ -227,6 +227,74 @@ def test_fulfill_returns_exactly_what_was_applied(
     assert "退货金额 ¥50" in (notes[-1].content or ""), notes[-1].content
 
 
+def test_return_notice_reaches_the_driver_and_repeats_per_return(
+    client, token_dispatcher, token_shipper, token_driver, users, db_session
+):
+    """★ 办了退货也要告诉**司机**（2026-10-03 E2E 走查 P27）；退两次要收到**两条**。
+
+    走查原文：「货主端与派单员端都收到了「退货已办理」消息；**司机端一条都没有**。
+    他的运费可能被扣、这一单可能不再结算，而他没有任何信号。」
+
+    ⚠️ 第二条断言钉的是**幂等键**：同一张单可以退好几次（部分退货累加），
+    幂等键只用 order_id 的话，第二次以后的消息会被 `create_message` 当成重复吞掉 ——
+    而"第二次退货"恰恰是最需要通知他的那一次（整单退完）。
+    """
+    from app.models import Notification
+
+    h, hd = auth_headers(token_dispatcher), auth_headers(token_driver)
+    oid, _pid = _order_with_product(
+        client, token_shipper, db_session, "司机通知探针", qty=4, price="25.00"
+    )
+    _deliver(client, h, hd, users, oid)
+    line = _lines_of(client, h, oid)[0]
+
+    def driver_notes() -> list:
+        db_session.expire_all()
+        return (
+            db_session.query(Notification)
+            .filter(
+                Notification.recipient_id == users["driver"].id,
+                Notification.type == "order.returned",
+            )
+            .order_by(Notification.id)
+            .all()
+        )
+
+    # ⚠️ 用**增量**计数，⛔ 不用"== 0"：同一名司机（`users["driver"]`）在这一个会话里
+    #    被前面那些退货用例反复用过，他的收件箱里早就有别的退货消息了。
+    before = len(driver_notes())
+
+    # 第一次：退 1 件（部分退货）
+    rid = _apply(client, token_shipper, oid, [(line["id"], 1)]).json()["id"]
+    assert client.post(f"/api/v1/return-requests/{rid}/fulfill", headers=h).status_code == 200
+
+    notes = driver_notes()
+    assert len(notes) == before + 1, (
+        "办了退货却没告诉司机 —— 他还是「已送达」，看不到任何信号（收到 "
+        + str(len(notes) - before)
+        + " 条）"
+    )
+    first = notes[-1]
+    content = first.content or ""
+    assert "退货" in content and "¥25" in content, content
+    assert "部分退货" in content, content
+    assert "这一趟你已经跑完" in content, content
+    # Android 点消息要能直接打开订单详情（`NoticeRouting.kt` 取不到 request_id 时按 order_id 回落）
+    assert (first.payload or {}).get("order_id") == oid, first.payload
+    assert (first.payload or {}).get("fully_returned") is False, first.payload
+
+    # 第二次：把剩下的 3 件也退掉（同一个 order_id、又一次退货）
+    rid2 = _apply(client, token_shipper, oid, [(line["id"], 3)]).json()["id"]
+    assert client.post(f"/api/v1/return-requests/{rid2}/fulfill", headers=h).status_code == 200
+    notes = driver_notes()
+    assert len(notes) == before + 2, (
+        "同一张单退了两次，司机这一单只收到 "
+        + str(len(notes) - before)
+        + " 条 —— 幂等键只按 order_id 做，第二次那条被当成重复吞掉了"
+    )
+    assert "整单退完" in (notes[-1].content or ""), notes[-1].content
+
+
 def test_full_return_through_request_sets_returned_status(
     client, token_dispatcher, token_shipper, token_driver, users, db_session
 ):
