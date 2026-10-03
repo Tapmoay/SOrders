@@ -31,36 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 进行中] 会话：**BUG-0004 派单这条路上的三个洞：档位按布尔分、带出换人不出声、订单详情页没有派单入口（待派单池 / 订单详情 / 下单页）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：走查自 2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md`）P8 / P9 / P12。
-
-**现象**：① 派单弹窗只有「大车司机 / 挂车司机」两档，下拉里却既有小车司机也有挂车司机；挑中王强（138000002345，小车司机）之后，
-输入框上方那行标签**还写「大车司机」**（`_tmp/d_dispatch.png` / `_tmp/d_drivers.png` / `_tmp/d_chosen.png`）。
-② 下单页先「从联系人里选收货人」挑好刘秋萍（13530753867），再去地址库选一条线路 —— 收货人被**静默**换成线路上的郑立新（13736969628），
-页面没有任何提示（`_tmp/o_ct1.png` → `_tmp/o_ct2.png` → `_tmp/o_addrset.png`）。
-③ 订单详情页底部只有 现场支付 / 挂账 / 拆分订单（可分派多位司机）/ 删除订单，没有派单 —— 想派一张单只能退回去翻待派单池（`_tmp/d_detail2.png` / `_tmp/m_detail2.png`）。
-
-**根因**：整份「派单」弹窗体只长在待派单池页面里（`ui/dispatcher/DispatcherPoolScreen.kt:177` 起），分类只认一个布尔量
-`var pickVehicle by remember { mutableStateOf(false) }`（:196），下拉过滤写成 `vm.drivers.filter { (it.vehicleType == "trailer") == pickVehicle }` ——
-一个布尔量扛三种车型，于是 `small` 被吞进「大车组」，标签写死 `if (pickVehicle) 挂车司机 else 大车司机`、不跟选中的人走；
-`ui/order/OrderDetailViewModel.kt` 里一行派单能力都没有，要用只能再写一份；
-而收货人两栏有四个来源（手打 / 选联系人 / 选线路 / 选地点），`ui/common/ContactFill.kt` 只回答「带出时填什么」，被覆盖的一方没有人负责说一句。
-
-**改哪些文件**：新增 `ui/dispatcher/AssignDriverDialog.kt`（一份共用弹窗：档位数据驱动、按 `vehicleType` 真值过滤、标签经唯一一份 `driverKindLabel`、错误行走共用件 `FormErrorLine`，运费模板子弹窗一并搬入）；
-`ui/dispatcher/DispatcherPoolScreen.kt` 自己那份弹窗体删掉改成调用它；`ui/dispatcher/DispatcherPoolViewModel.kt` 加 `autoLoadPool` 构造参数、名册按需 `loadDrivers()`、`confirmAssign(onAssigned)` 回调；
-`ui/order/OrderDetailScreen.kt` 底部动作区加「派单」主按钮（闸门与拆分同源 `OrderStatusModel.ASSIGNABLE`）+ `AssignDriverDialog(assignVm) { vm.load() }`；
-`ui/common/ContactFill.kt` 新增纯函数 `receiverSwapNotice(before, after, source)`；`ui/shipper/OrderCreateViewModel.kt` 加 `receiverNotice` 状态并在线路/地点两条支路各说一句、四处用户动作清零；
-`ui/shipper/OrderCreateScreen.kt` 把那句话画在收货人两栏正下方；`android/app/src/test/java/com/tapmoay/sorders/ui/common/ContactFillTest.kt` 补 4 个用例。
-
-**判据 · 反验**：`_tools/qa/_check_assign_entry.py`（37 项）＋ `_tools/qa/_reverse_verify_assign_entry.py`（32 条注入）。结果：判据 **37/37**、反验 **32/32**（每条注入都让判据当场变红，且逐文件按字节还原）。
-
-**边界（没破）**：Blast Radius **L1** —— 司机三种车型与 `driverKindLabel` 的唯一来源、「带出」的规矩（来源空着的那栏不许清用户填的值）、
-派单链路 `repo.assignOrder` / `batchAssign` 与「收取现金 / 内部备注」字段语义、只有派单员能派单与挂账的权限、待派单池的批量派单、后端与数据库，全部一个字不动。
-
-**真机复验**：**三处都在真机上成立** —— 5554（派单员）：订单详情页「派单」主色按钮就画在「拆分订单（可分派多位司机）」正上方（`_tmp/bug0004_5554_detail.png`）；点开是三个页签「小车司机 / 大车司机 / 挂车司机」（`_tmp/bug0004_5554_dialog.png`）；选「王强 13800002345」后字段上方标签写「小车司机」（`_tmp/bug0004_5554_small.png`），切到「大车司机」档后下拉里没有小车司机。5556（货主）：先挑联系人刘秋萍、再选线路 → 收货人两栏正下方出现两行橙字「收货人已换成这条线路上的 郑立新 · 13736969628（刚才填的 刘秋萍（永盛食品仓库） · 13530753867 已被替换）」（`_tmp/bug0004_5556_notice2.png`）；在「收货人名称」里手打一个字符，那句话当场消失（`_tmp/bug0004_5556_cleared.png`）。
-
-**落点与提交**：判据 **37/37**、反验 **32/32**、全量静检 **155/155**（222.5 秒）、gradle **BUILD SUCCESSFUL**（1136 项单测 / 0 失败）、真机五张截图（5554 三张 + 5556 两张）。实现提交 ⏳ 待填（下一个提交）｜归档提交：本条（登记表状态改已关闭、声明块搬进 `## 已完成`）。
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5655,6 +5625,36 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0004 派单这条路上的三个洞：档位按布尔分、带出换人不出声、订单详情页没有派单入口（待派单池 / 订单详情 / 下单页）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：走查自 2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md`）P8 / P9 / P12。
+
+**现象**：① 派单弹窗只有「大车司机 / 挂车司机」两档，下拉里却既有小车司机也有挂车司机；挑中王强（138000002345，小车司机）之后，
+输入框上方那行标签**还写「大车司机」**（`_tmp/d_dispatch.png` / `_tmp/d_drivers.png` / `_tmp/d_chosen.png`）。
+② 下单页先「从联系人里选收货人」挑好刘秋萍（13530753867），再去地址库选一条线路 —— 收货人被**静默**换成线路上的郑立新（13736969628），
+页面没有任何提示（`_tmp/o_ct1.png` → `_tmp/o_ct2.png` → `_tmp/o_addrset.png`）。
+③ 订单详情页底部只有 现场支付 / 挂账 / 拆分订单（可分派多位司机）/ 删除订单，没有派单 —— 想派一张单只能退回去翻待派单池（`_tmp/d_detail2.png` / `_tmp/m_detail2.png`）。
+
+**根因**：整份「派单」弹窗体只长在待派单池页面里（`ui/dispatcher/DispatcherPoolScreen.kt:177` 起），分类只认一个布尔量
+`var pickVehicle by remember { mutableStateOf(false) }`（:196），下拉过滤写成 `vm.drivers.filter { (it.vehicleType == "trailer") == pickVehicle }` ——
+一个布尔量扛三种车型，于是 `small` 被吞进「大车组」，标签写死 `if (pickVehicle) 挂车司机 else 大车司机`、不跟选中的人走；
+`ui/order/OrderDetailViewModel.kt` 里一行派单能力都没有，要用只能再写一份；
+而收货人两栏有四个来源（手打 / 选联系人 / 选线路 / 选地点），`ui/common/ContactFill.kt` 只回答「带出时填什么」，被覆盖的一方没有人负责说一句。
+
+**改哪些文件**：新增 `ui/dispatcher/AssignDriverDialog.kt`（一份共用弹窗：档位数据驱动、按 `vehicleType` 真值过滤、标签经唯一一份 `driverKindLabel`、错误行走共用件 `FormErrorLine`，运费模板子弹窗一并搬入）；
+`ui/dispatcher/DispatcherPoolScreen.kt` 自己那份弹窗体删掉改成调用它；`ui/dispatcher/DispatcherPoolViewModel.kt` 加 `autoLoadPool` 构造参数、名册按需 `loadDrivers()`、`confirmAssign(onAssigned)` 回调；
+`ui/order/OrderDetailScreen.kt` 底部动作区加「派单」主按钮（闸门与拆分同源 `OrderStatusModel.ASSIGNABLE`）+ `AssignDriverDialog(assignVm) { vm.load() }`；
+`ui/common/ContactFill.kt` 新增纯函数 `receiverSwapNotice(before, after, source)`；`ui/shipper/OrderCreateViewModel.kt` 加 `receiverNotice` 状态并在线路/地点两条支路各说一句、四处用户动作清零；
+`ui/shipper/OrderCreateScreen.kt` 把那句话画在收货人两栏正下方；`android/app/src/test/java/com/tapmoay/sorders/ui/common/ContactFillTest.kt` 补 4 个用例。
+
+**判据 · 反验**：`_tools/qa/_check_assign_entry.py`（37 项）＋ `_tools/qa/_reverse_verify_assign_entry.py`（32 条注入）。结果：判据 **37/37**、反验 **32/32**（每条注入都让判据当场变红，且逐文件按字节还原）。
+
+**边界（没破）**：Blast Radius **L1** —— 司机三种车型与 `driverKindLabel` 的唯一来源、「带出」的规矩（来源空着的那栏不许清用户填的值）、
+派单链路 `repo.assignOrder` / `batchAssign` 与「收取现金 / 内部备注」字段语义、只有派单员能派单与挂账的权限、待派单池的批量派单、后端与数据库，全部一个字不动。
+
+**真机复验**：**三处都在真机上成立** —— 5554（派单员）：订单详情页「派单」主色按钮就画在「拆分订单（可分派多位司机）」正上方（`_tmp/bug0004_5554_detail.png`）；点开是三个页签「小车司机 / 大车司机 / 挂车司机」（`_tmp/bug0004_5554_dialog.png`）；选「王强 13800002345」后字段上方标签写「小车司机」（`_tmp/bug0004_5554_small.png`），切到「大车司机」档后下拉里没有小车司机。5556（货主）：先挑联系人刘秋萍、再选线路 → 收货人两栏正下方出现两行橙字「收货人已换成这条线路上的 郑立新 · 13736969628（刚才填的 刘秋萍（永盛食品仓库） · 13530753867 已被替换）」（`_tmp/bug0004_5556_notice2.png`）；在「收货人名称」里手打一个字符，那句话当场消失（`_tmp/bug0004_5556_cleared.png`）。
+
+**落点与提交**：判据 **37/37**、反验 **32/32**、全量静检 **155/155**（222.5 秒）、gradle **BUILD SUCCESSFUL**（1136 项单测 / 0 失败）、真机五张截图（5554 三张 + 5556 两张）。实现提交 `ed00a16` ｜归档提交：本条（登记表状态改已关闭、声明块搬进 `## 已完成`）。
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0003 空表单点「提交订单」零反馈（货主下单 + 派单员代理下单，两个入口同一页）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：2026-10-03 三端真机 E2E 走查（`_tmp/E2E测试报告.md` P7 / P23）。
