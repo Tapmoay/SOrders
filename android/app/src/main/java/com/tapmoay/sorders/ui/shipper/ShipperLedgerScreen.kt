@@ -429,8 +429,11 @@ private fun TotalsCard(vm: ShipperLedgerViewModel) {
 
         Spacer(Modifier.height(6.dp))
         // ---- 支出：我该付的（两种货主都有）----
+        // 标签里必须带**方向**（2026-10-03 E2E 走查 P25）：批发商同时有支出与收入两段，
+        // 只写「我该付的 / 我该收的」看不出这两笔钱分别对谁 —— 走查当时两个数都是 ¥85.5，
+        // 用户会以为被收了两遍钱；其实那是同一批货的两头（他欠公司、下游货主又欠他）。
         Text(
-            "支出 · 我该付的",
+            "支出 · 我该付的（欠公司）",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -450,7 +453,7 @@ private fun TotalsCard(vm: ShipperLedgerViewModel) {
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
             // ---- 收入：我该收的（只有批发商有）----
             Text(
-                "收入 · 我该收的",
+                "收入 · 我该收的（下游欠我）",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -465,6 +468,16 @@ private fun TotalsCard(vm: ShipperLedgerViewModel) {
                     if (s.settlements > 0) "（" + s.settlements + " 笔核销）" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // 口径句**常显**（⛔ 不许改成 `Hint`）：2026-10-03 E2E 走查 P25 —— 批发商替下游货主下单，
+            // 同一批货他欠公司一笔、下游又欠他一笔，两边都还没结时这两个数**本来就会一样大**。
+            // 原来这里唯一的解释句是 `Hint`，而提示开关默认是关的（`core/HintPrefs.kt`：首次登录那一轮开、
+            // 之后冷启动自动关），于是页面上一个字都没有，用户只能看到两个一样的数。
+            // 分类器复核见 `_tools/qa/_hint_inventory.py::OVERRIDE`（判 DATA，理由写在表里）。
+            Text(
+                "同一批货的两头，两边各记各的账，不会重复收钱。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
             )
             Spacer(Modifier.height(4.dp))
             Hint(
@@ -625,8 +638,16 @@ private fun OrderRow(vm: ShipperLedgerViewModel, o: OrderDto, onOpenOrder: (Long
                 fontWeight = FontWeight.Bold,
             )
             if (vm.isMember) {
+                // 收款状态必须与订单状态自洽（2026-10-03 E2E 走查 P26）：退货是把应收**红冲**成 0
+                // （`lineReceivableCents` = 行金额 − 单价 × 已退数量），**不是收到钱** ——
+                // 原来这一格只要 remaining == 0 就写「已核销」，退货单于是被说成"收讫"
+                // （走查当时那一行是：已退货 + ¥0 + 已核销）。
                 Text(
-                    if (remaining > 0) "未核销 ¥" + formatMoney(centsToMoney(remaining)) else "已核销",
+                    when {
+                        o.status == "RETURNED" -> "已退货 · 账已冲平"
+                        remaining > 0L -> "未核销 ¥" + formatMoney(centsToMoney(remaining))
+                        else -> "已核销"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = if (remaining > 0) Color(ReceivableOrange) else Color(0xFF8A8A8E),
                 )

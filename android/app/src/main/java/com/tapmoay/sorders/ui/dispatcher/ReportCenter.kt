@@ -292,10 +292,18 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     StatRow("订单数", data.totalOrders.toString() + " 单")
                     StatRow("单均价", money(data.avgOrder))
                     StatRow("司机运费支出", money(data.totalFreight), Color(0xFFFF9500))
-                    // 口径必须写在标签里：这是**近 30 天待处理**的异常数（随本页一起取，见 ViewModel），
-                    // 而上面几行是本期（当天/周/月）的营业额口径 —— 两个窗口不同，不说清就会被当成一个。
-                    StatRow("待处理异常（近 30 天）", vm.pendingExceptionCount.toString() + " 单", Color(0xFFE53935))
                     if (data.cancelledOrders > 0) StatRow("已撤销订单数", data.cancelledOrders.toString() + " 单", Color(0xFF8A8A8E))
+                }
+            }
+            // 口径必须写在标签里（2026-10-03 E2E 走查 P20）：待处理异常是**近 30 天**的窗口，
+            // 与上面那张卡的「本期」（当天 / 周 / 月，随顶栏时间药丸变）不是一回事。
+            // 原来它跟「订单数 / 单均价 / 司机运费支出」挤在同一张卡里 —— 四个数字并列、
+            // 只有它带一句括号说明，会被读成「今天有 N 单异常」。⇒ 单独一张卡，标题与标签各写一次窗口。
+            item {
+                SectionCard {
+                    Text("待处理异常", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("近 30 天（与本页时间无关）", vm.pendingExceptionCount.toString() + " 单", Color(0xFFE53935))
                 }
             }
             item {
@@ -592,7 +600,11 @@ private fun CustomerTab(vm: ReportCenterViewModel) {
                 Text("经营概览", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 StatRow("订货笔数", totalCount.toString() + " 笔")
-                StatRow("客单价", if (all.isNotEmpty()) money((totalAmount / all.size).toString()) else "¥0.00", Color(0xFF1E6FFF))
+                // 口径写进名字（2026-10-03 E2E 走查 P32）：原来叫「客单价」，算的却是 订货总额 ÷ 客户数；
+                // 中文「客单价」通常读作每单均价，客户数 1 家时两行数字还会完全相同 —— 看着像算重了。
+                // 两个名字对称，把两种读法都写实（户均 = 每个客户，每笔 = 每笔订单）。
+                StatRow("户均订货额", if (all.isNotEmpty()) money((totalAmount / all.size).toString()) else "¥0.00", Color(0xFF1E6FFF))
+                StatRow("每笔订货额", if (totalCount > 0) money((totalAmount / totalCount).toString()) else "¥0.00", Color(0xFF1E6FFF))
                 StatRow("临时货主", shippers.count { it.tempName != null }.toString() + " 家", Color(0xFF8A8A8E))
             }
         }
