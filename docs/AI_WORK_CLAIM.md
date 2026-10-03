@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-03 进行中] 会话：**CHG-0025 沽清 / 上架必须先问一句，而且那句话只有一份（商品管理单卡 + 批量操作两个入口）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：走查自 2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md:109`）P29；同一份报告 `:241` 把它列在建议修复优先级第 4 条。
+
+**现象**：商品在售状态这条写路径上**没有确认这一步** —— 商品卡上那颗「沽清 / 上架」与批量页那两个胶囊都是「一点即改」。
+走查时**一次误触就把「赣南脐橙」静默下架**（只有一句 toast「沽清：成功 1 / 1」），事后翻列表才发现；同一张卡上的「删除」反倒有确认了。
+
+**改哪些文件**：`ui/common/ProductCardKit.kt` 新增共用弹层 `ProductActiveConfirmDialog(toActive, subject, onConfirm, onDismiss)`（后果文案**全库只有这一份**、两方向两色、`${subject}` 必须写花括号）；
+`ui/dispatcher/ProductsScreen.kt` 卡片那颗按钮改成只开弹层（`onToggle = { toggleFor = p }`，状态声明在函数级）；
+`ui/dispatcher/ProductsViewModel.kt` 的 `toggleActive` 补 `acting` 与成功回执（原来两样都没有，确认完毫无反馈）；
+`ui/dispatcher/ProductBatchScreen.kt` 两个胶囊改成 `if (vm.canAct()) confirmingActive = …` 并补上 `vm.error` 的渲染（这一页原来把错误写进去没人画）；
+`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` 新增 §4.2a（五条规范 + 「那句话只有一份」）；判据与反验、`docs/changes/CHG-0025.md` + 登记簿 + 本声明。
+
+**落点**：`_tools/qa/_check_product_active_confirm.py`（31 项）＋ `_tools/qa/_reverse_verify_product_active_confirm.py`（9 条注入 → 9/9）；
+⛔ 不给它套 `DangerConfirmDialog`（沽清可逆）、⛔ 不加「本次运行不再弹」记忆（那等于把误触放回去）。
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

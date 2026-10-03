@@ -57,6 +57,13 @@ fun ProductsScreen(
      *    声明在 content lambda 里的话外面看不见（第一版就是这么写的，编译报 Unresolved）。
      */
     var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }
+    /**
+     * 沽清 / 上架的二次确认（CHG-0025 / P29）：non-null = 弹层开着，值就是那件商品。
+     *
+     * ⚠️ 与 `quickPriceFor` 同理：必须声明在**函数级**（Scaffold 之外）—— 弹层渲染在整个
+     *    Scaffold 之后，声明在 content lambda 里的话外面看不见。
+     */
+    var toggleFor by remember { mutableStateOf<ProductDto?>(null) }
     /** 成本价历史弹窗（`⋮ → 成本价历史`）：状态在 VM 里（要拉数据），这里只读它。 */
 
     // ⚠️ **加载放在这里、不放在 VM 的 init**：从「新增/编辑商品」那一页 `popBackStack()` 回来时
@@ -183,7 +190,9 @@ fun ProductsScreen(
                                         p = p,
                                         acting = vm.acting,
                                         onEdit = { onOpenForm(p.id) },
-                                        onToggle = { vm.toggleActive(p) },
+                                        // ⚠️ 只**打开确认弹层**，不许直接调 `vm.toggleActive(p)`：
+                                        //    P29 的病就是这一行一点即改（一次误触 = 静默下架）。
+                                        onToggle = { toggleFor = p },
                                         onQuickPrice = { quickPriceFor = p },
                                     )
                                 }
@@ -203,6 +212,18 @@ fun ProductsScreen(
             busy = vm.acting,
             onConfirm = { price -> vm.updateDefaultPrice(p, price) { quickPriceFor = null } },
             onDismiss = { quickPriceFor = null },
+        )
+    }
+
+    // 沽清 / 上架的二次确认（CHG-0025 / P29）：**卡片上那个按钮只负责打开这个弹层**。
+    // 文案与形态的唯一一份在 `ui/common/ProductCardKit.kt::ProductActiveConfirmDialog`
+    // —— 批量操作页用的是同一个（单卡与批量各写一句，下次改口径必然漏一页）。
+    toggleFor?.let { p ->
+        ProductActiveConfirmDialog(
+            toActive = !p.isActive,
+            subject = "「" + p.name + "」",
+            onConfirm = { toggleFor = null; vm.toggleActive(p) },
+            onDismiss = { toggleFor = null },
         )
     }
 

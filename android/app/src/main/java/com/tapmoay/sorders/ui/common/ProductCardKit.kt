@@ -7,10 +7,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -26,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.resolveStaticUrl
 
@@ -441,4 +446,68 @@ fun ProductSoldOutBadge() {
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
         )
     }
+}
+
+/**
+ * 「**沽清（下架）/ 上架**」的二次确认 —— 全库**唯一一份**文案与形态（CHG-0025 / P29，2026-10-03）。
+ *
+ * ## 为什么要有这个弹层
+ * 2026-10-03 的 E2E 走查（P29）实测：商品管理卡上的「沽清」与批量页的「沽清（下架）/ 上架」
+ * 都是**一点即改**、只有一句事后提示 —— 走查当时**误触一次**就把一件商品静默下架了，
+ * 是事后翻列表才发现的。同一个页面上的「删除」反倒有确认（`DangerConfirmDialog`），
+ * 而"改在售状态"这个**每天都会点**的动作没有任何确认。
+ *
+ * ## 为什么不用 `DangerConfirmDialog`
+ * 沽清是**可逆**的（点「上架」就恢复，库存 / 订单 / 账本都不动），上架本身更是良性动作；
+ * 套那个红色「危险操作」件，会把"要删数据"与"改一个在售开关"说成同一件事。
+ * 但两边都**必须**问一句，而且那句话**只能有一份**：单卡与批量各写一句，
+ * 下一次改口径必然漏掉其中一处（本仓库"同一个动作两份实现"的老毛病）。
+ *
+ * ## 参数
+ * - [toActive] = **这次要变成什么**：`true` 上架（恢复售卖）、`false` 沽清（下架）。
+ * - [subject] = 被操作的对象：单个写 `「赣南脐橙」`，批量写 `选中的 3 个商品`。
+ * - 确认钮的文案与颜色跟着 [toActive] 走（上架 = 绿 `Success`、沽清 = 红 `colorScheme.error`，
+ *   与卡片上那两个动作按钮**同色**）。
+ *
+ * ⛔ **不许**在这里加"本次运行不再弹"这类记忆：P29 的病正是"一次误触就生效"，
+ * 第二次之后不弹等于把误触原样放回去。
+ */
+@Composable
+fun ProductActiveConfirmDialog(
+    toActive: Boolean,
+    subject: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                // ⚠️ 必须写 `${subject}`：中文是合法的 Kotlin 标识符字符，
+                //    `"$subject重新上架"` 会被解析成标识符 `subject重新上架`（编译不过）。
+                if (toActive) "把${subject}重新上架？" else "把${subject}沽清（下架）？",
+            )
+        },
+        text = {
+            Text(
+                if (toActive) {
+                    "上架后客户端立刻恢复售卖、可以下单；库存、价格、分组都不动。"
+                } else {
+                    "沽清（下架）后客户端立刻看不到它、也不能再下单；库存、订单、账本都不动，" +
+                        "想恢复随时点「上架」。"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (toActive) Success else MaterialTheme.colorScheme.error,
+                    contentColor = Color.White,
+                ),
+            ) { Text(if (toActive) "上架" else "沽清") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }

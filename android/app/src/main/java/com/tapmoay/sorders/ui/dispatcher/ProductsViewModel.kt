@@ -96,16 +96,32 @@ class ProductsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * 沽清（下架）/ 上架 —— 卡片上第二个大按钮那个动作。
+     *
+     * ⚠️ **2026-10-03（CHG-0025 / P29）起它只由确认弹层调用**：以前它是卡片的 `onClick`
+     *    直接调的，E2E 走查时**一次误触**就把一件商品静默下架了（同一页的「删除」反倒有确认）。
+     *    弹层是 `ui/common/ProductCardKit.kt::ProductActiveConfirmDialog`，
+     *    页面上那句 `onToggle` 现在只负责**打开弹层**（红线 `_check_product_active_confirm.py` 盯着）。
+     *
+     * `acting` 这一位以前没设过：请求在飞的那一会儿卡片上的按钮还是能点的，
+     * 第二次点击发的是同一个值（用户看到的是"点了没反应"）。
+     */
     fun toggleActive(p: ProductDto) {
+        acting = true
+        error = null
         viewModelScope.launch {
             try {
                 container.api.productApi.updateProduct(
                     p.id,
                     ProductUpdateRequest(isActive = !p.isActive),
                 )
+                actionResult = p.name + (if (p.isActive) " 已沽清" else " 已上架")
                 load()
             } catch (e: Exception) {
                 error = toApiException(e).message
+            } finally {
+                acting = false
             }
         }
     }

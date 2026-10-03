@@ -98,6 +98,21 @@ class ProductBatchViewModel(private val container: AppContainer) : ViewModel() {
         selected = emptySet()
     }
 
+    /**
+     * 点动作之前先问一句"勾了吗" —— 没勾就把话说在明处。
+     *
+     * ⚠️ 不能让弹层自己去说：`selected` 为空时弹层会写成"把**选中的 0 个**商品沽清？"，
+     *    用户看到的是一句废话，还要再点一次「取消」。`run()` 里那道判据**保留**
+     *    （界面上的入口堵住了，动作本身也得自证）。
+     */
+    fun canAct(): Boolean {
+        if (selected.isEmpty()) {
+            error = "先勾选商品"
+            return false
+        }
+        return true
+    }
+
     /** 逐条执行 [op]，收集成功/失败，最后给一句**能核对**的汇报。 */
     private fun run(label: String, op: suspend (ProductDto) -> Unit) {
         val targets = products.filter { it.id in selected }
@@ -167,9 +182,17 @@ fun ProductBatchScreen(
     val vm: ProductBatchViewModel = appViewModel { ProductBatchViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
     OneShotSnackbar(snackbar, vm.result, onConsumed = { vm.result = null })
+    // 失败**必须**看得见（与商品管理页同一条规矩）：这一页以前只挂了 `vm.result`，
+    // 于是 `vm.error`（"先勾选商品"这类）写进去之后**界面上一个字都没有**。
+    OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
     var showCategoryPicker by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    /**
+     * 沽清（下架）/ 上架的二次确认（CHG-0025 / P29）：non-null = 弹层开着，
+     * 值就是**这次要变成的状态**（`true` 上架 / `false` 沽清）。
+     */
+    var confirmingActive by remember { mutableStateOf<Boolean?>(null) }
 
     val cats = remember(vm.products, vm.categories) { categoryTabs(vm.products, vm.categories.map { it.name }) }
     var category by remember { mutableStateOf(ALL_CATEGORY) }
@@ -223,8 +246,11 @@ fun ProductBatchScreen(
                 Spacer(Modifier.height(6.dp))
                 FlowRow2 {
                     ActionChip("改分组", vm.acting) { showCategoryPicker = true }
-                    ActionChip("沽清（下架）", vm.acting) { vm.setActive(false) }
-                    ActionChip("上架", vm.acting) { vm.setActive(true) }
+                    // ⚠️ 这两个胶囊只**打开确认弹层**，不许直接调 `vm.setActive(…)`：
+                    //    批量沽清一下点掉一整页商品，比单卡更需要那一句确认（P29）。
+                    //    `canAct()`：一个都没勾就别弹（弹层里写"选中的 0 个"是句废话）。
+                    ActionChip("沽清（下架）", vm.acting) { if (vm.canAct()) confirmingActive = false }
+                    ActionChip("上架", vm.acting) { if (vm.canAct()) confirmingActive = true }
                     ActionChip("删除", vm.acting, danger = true) { confirmingDelete = true }
                 }
                 Spacer(Modifier.height(6.dp))
@@ -328,6 +354,16 @@ fun ProductBatchScreen(
             confirmText = "删除",
             onConfirm = { confirmingDelete = false; vm.delete() },
             onDismiss = { confirmingDelete = false },
+        )
+    }
+
+    // 沽清 / 上架的确认（CHG-0025 / P29）：与商品管理页**同一个弹层、同一份文案**。
+    confirmingActive?.let { target ->
+        ProductActiveConfirmDialog(
+            toActive = target,
+            subject = "选中的 " + vm.selected.size + " 个商品",
+            onConfirm = { confirmingActive = null; vm.setActive(target) },
+            onDismiss = { confirmingActive = null },
         )
     }
 }
