@@ -270,7 +270,11 @@ fun UsersManageScreen(
                             item {
                                 EmptyView(
                                     "服务端按姓名/手机号搜过，没有「" + vm.query.trim() + "」这个账号",
-                                    Modifier.fillMaxWidth().height(140.dp),
+                                    // ⛔ 本页三处空态都别加固定高度（吃过 140dp 的亏）：EmptyView 肚子里的账是
+                                    //    「上下各 48dp 内边距 + 56dp 图标 + 12dp + 文案」，固定高度 140 只留 44dp
+                                    //    的内容盒，Column 把超出的额度从后面的孩子身上扣光 → 文案被量成 0 高、
+                                    //    屏幕上只剩图标（2026-10-03 真机复测抓到）。
+                                    Modifier.fillMaxWidth(),
                                 )
                             }
                         }
@@ -288,7 +292,7 @@ fun UsersManageScreen(
                     }
                     if (!vm.isSearching && vm.shown.isEmpty()) {
                         item {
-                            EmptyView("没有匹配「${vm.query}」的账号", Modifier.fillMaxWidth().height(140.dp))
+                            EmptyView("没有匹配「${vm.query}」的账号", Modifier.fillMaxWidth())
                         }
                     }
                     // 这一类下真的一个账号都没有时**说出来**（不说的话用户看到一个空页面）
@@ -297,7 +301,7 @@ fun UsersManageScreen(
                             EmptyView(
                                 "「" + railNameOf(vm.railKey) + "」这一类下还没有账号 —— " +
                                     "在卡片上编辑、或左栏换一格",
-                                Modifier.fillMaxWidth().height(140.dp),
+                                Modifier.fillMaxWidth(),
                             )
                         }
                     }
@@ -677,10 +681,11 @@ private fun UserManageCard(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                // 电话走共用件（青绿 Phone 图标 + 前景色号码 + 长按复制），全库一个样
-                RosterPhoneRow(
-                    phone = u.phone,
-                )
+                // 电话走共用件（青绿 Phone 图标 + 前景色号码 + 长按复制），全库一个样。
+                // ⚠️ 传的是**账号**、不是 `u.phone`（2026-10-03 · E2E 报告 P1）：软删账号落库的号码
+                //    是 `13923111638_del62` 这种内部值。`RosterPhoneRowOf` 会把「号已让给新账号」
+                //    画成一句灰字说明，而不是把内部后缀端到卡上（账户页同一处已改）。
+                RosterPhoneRowOf(u)
                 if (pool == UserPool.DRIVERS) {
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

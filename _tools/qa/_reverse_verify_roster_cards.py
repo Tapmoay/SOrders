@@ -132,18 +132,18 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "名册卡电话行：15sp 前景色，⛔ 不是灰字（onSurfaceVariant）",
     ),
     (
-        "⑪ 账户卡的电话行退回自己写",
+        "⑪ 账户卡的电话行退回自己写（内部值又端上来了）",
         P_ACCT,
-        "RosterPhoneRow(phone = u.phone)",
+        "RosterPhoneRowOf(u)",
         "Text(u.phone)",
-        "账户卡：名称行走 RosterNameRow、电话行走 RosterPhoneRow",
+        "账户卡：名称行走 RosterNameRow、电话行走账号版共用件",
     ),
     (
         "⑫ 账户卡名称行退回自己写",
         P_ACCT,
         "RosterNameRow(",
         "RosterNameRowX(",
-        "账户卡：名称行走 RosterNameRow、电话行走 RosterPhoneRow",
+        "账户卡：名称行走 RosterNameRow、电话行走账号版共用件",
     ),
     (
         "⑬ 名称前的图标不是人形",
@@ -167,11 +167,11 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "账户页的胶囊 / 名称圈底图标 / FAB 都用这个棕（⛔ 不再借地址页的湖蓝）",
     ),
     (
-        "⑯ 电话没原样传（被 trim 过）",
+        "⑯ 名册卡电话行退回直画 u.phone（软删账号的后缀又露出来）",
         P_USERS,
-        "phone = u.phone,",
-        "phone = u.phone.trim(),",
-        "司机 / 货主 / 批发商卡：电话行走共用件，u.phone 原样传进去",
+        "RosterPhoneRowOf(u)",
+        "RosterPhoneRow(phone = u.phone)",
+        "司机 / 货主 / 批发商卡：电话行走共用件，账号原样传进去",
     ),
     (
         "⑰ FAB 字色退回白色（黄绿上压白字过不了 AA）",

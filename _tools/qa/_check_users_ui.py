@@ -195,9 +195,13 @@ def main() -> int:
 
     # ── 4. 既有口径没被踩坏 ──────────────────────────────────────────────
     c.section("4. 既有口径没被踩坏（别的判据也钉着这些）")
+    # ⚠️ 2026-10-03（BUG-0002 · E2E 报告 P1）：电话行从 `RosterPhoneRow(phone = u.phone,)`
+    #    改成传账号的共用件 `RosterPhoneRowOf(u)` —— 软删账号落库的号码是
+    #    `13923111638_del62` 这种内部值，卡上不该画它。钉的**意图不变**：卡头仍是
+    #    「这个人是谁」（姓氏圆底 + 姓名 + 电话），只是电话那一行换了唯一实现。
     c.ok("卡头仍是「这个人是谁」：姓氏圆底 + 姓名 + 电话",
          "clip(CircleShape).background(accent.copy(alpha = 0.16f))" in card
-         and "u.fullName.ifBlank { u.username }" in card and "u.phone," in card)
+         and "u.fullName.ifBlank { u.username }" in card and "RosterPhoneRowOf(u)" in card)
     c.ok("批发商徽章与「已停用」徽章都还在",
          "Surface(color = Color(0xFFFFF1C6)" in card and '"已停用"' in card)
     c.ok("司机池的车型 chip 与计费 chip 没动（计费仍优先显示后端算好的那句话）",

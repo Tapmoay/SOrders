@@ -20,7 +20,7 @@ from app.schemas.product_visibility import (
     visibility_of,
 )
 from app.schemas.user import UserCreate, UserOut, UserUpdate
-from app.services.soft_delete import del_suffix, has_del_suffix
+from app.services.soft_delete import del_suffix, dialable_phone, has_del_suffix
 from app.services.operation_log_service import write_log
 from app.services.auth_service import revoke_tokens_and_sockets
 from app.services import usage_service
@@ -30,6 +30,11 @@ router = APIRouter(prefix="/users", tags=["users"])
 # 司机端（司机查看自己/列表时）工资一律隐藏：工资仅派单员可见
 def _to_out(u: User, viewer: User) -> User:
     out = UserOut.model_validate(u)
+    # 名册卡上的号码：**显示口径**与落库值不是一回事（13923111638_del62 不能端给用户看）。
+    # ⚠️ [dialable_phone] 在"活着却带后缀"时返回 None —— 那正是它存在的理由（号码已经是别人的了），
+    #    界面按"没有可拨号码"处理，⛔ 不许拿 out.phone 兜底（那等于把乱码串又端回去）。
+    out.phone_display = dialable_phone(u)
+    out.is_deleted = _in_recycle_bin(u)
     is_dispatcher = user_role_key(viewer) == UserRole.DISPATCHER.value
     if not is_dispatcher:
         out.salary = None
@@ -407,6 +412,24 @@ def _is_deleted_account(u: User) -> bool:
     # 口径实现只有一处（`services/soft_delete.has_del_suffix`）—— 分类名册的"在用条数"要按
     # 同一个口径把回收站里的账号排除掉，两处各写一份迟早会分叉。
     return has_del_suffix(u.id, u.phone, u.username)
+
+
+def _in_recycle_bin(u: User) -> bool:
+    """这个账号**现在**在回收站里吗 —— 界面据此决定给「恢复」还是给「启用」。
+
+    ⚠️ 与 [_is_deleted_account] 差一个 `is_active`，这一格是**故意**的：
+    "号码带 `_del{id}` 后缀"有**两个**来源 ——
+
+    | 怎么来的 | is_active | 人在哪儿 | 卡片上该给的动作 |
+    | --- | --- | --- | --- |
+    | 删号（`delete_user` 顺手把 is_active 置 False） | False | **回收站里** | 恢复 |
+    | **恢复时撞号**（`restore_user` 只恢复身份、保留后缀） | True | 已经回来了 | 停用 |
+
+    第二行的账号有一条更隐蔽的性质：它的号码**已经不是他的了**（出参的 `phone_display`
+    给 None 就是这件事）。把它当成"在回收站里"的后果是界面上多出一个按不出结果的「恢复」，
+    而后端对"已经在用"的账号本来就没有恢复这回事（恢复是幂等的，什么都不会发生）。
+    """
+    return _is_deleted_account(u) and not u.is_active
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

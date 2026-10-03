@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import kotlinx.coroutines.delay
 
@@ -132,5 +133,63 @@ fun RosterNameRow(
             modifier = Modifier.weight(1f),
         )
         trailing()
+    }
+}
+
+/** 号码已经让给别人时画的那句话（P1）。**常驻文案 ≤ 8 字**（设计规范 §4.10）。 */
+const val ROSTER_PHONE_TAKEN: String = "号码已让给新账号"
+
+/**
+ * 名册卡该显示的那个号码（E2E 报告 P1）。
+ *
+ * 为什么需要它：账号是**软删**的 —— 删号时后端把手机号改成 `13923111638_del62` 好把号码释放
+ * 回号池（`backend/app/services/soft_delete.py`）。名册卡原来直接画 `u.phone`，于是真机上
+ * 已经停用/删掉的账号那一行写着「13923111638_del62」，用户只会当成乱码。
+ *
+ * 三条口径（顺序不能换）：
+ *  · 后端给了 `phoneDisplay` → 就画它（唯一口径在后端的 `dialable_phone`，界面不自己剥后缀）；
+ *  · 后端给的是 null → **这个号已经让给新账号了** —— 返回 null，让调用方用
+ *    [ROSTER_PHONE_TAKEN] 写出来，⛔ 不许静默留白（用户会以为"这人没填电话"）；
+ *  · `phoneDisplay` 为空、且落库值本身也**不带** `_del` 后缀 → 老后端还没有这一格，回落到
+ *    `phone`。这个后缀判据是**兜底**：它保证任何情况下 `_del` 串都不会被端到用户脸上。
+ */
+fun rosterPhoneOf(u: UserDto): String? {
+    val shown = u.phoneDisplay
+    if (!shown.isNullOrBlank()) return shown
+    return if (u.phone.contains("_del")) null else u.phone
+}
+
+/**
+ * 名册卡的电话行（按账号算）：有号画号，没号**说明原因**（P1）。
+ *
+ * [RosterPhoneRow] 那一份画的是"一个号码"；这一个先从账号里算出该画哪一个 ——
+ * 两份共用同一条口径，四张名册卡（账户 / 司机 / 货主 / 批发商）只填账号。
+ */
+@Composable
+fun RosterPhoneRowOf(
+    u: UserDto,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 15.sp,
+) {
+    val shown = rosterPhoneOf(u)
+    if (shown != null) {
+        RosterPhoneRow(phone = shown, modifier = modifier, fontSize = fontSize)
+        return
+    }
+    // 没有可拨的号 = 号已经归别人了。灰字 + 电话图标（不染青绿：青绿是"能打的号"的语义色，
+    // 这里恰恰是**打不了**），并且把原因写出来，不留白。
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Default.Phone,
+            contentDescription = "电话",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            ROSTER_PHONE_TAKEN,
+            fontSize = fontSize,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

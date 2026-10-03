@@ -35,6 +35,22 @@ import com.tapmoay.sorders.ui.theme.*
 import kotlinx.coroutines.launch
 
 /**
+ * **状态档**的下标色（与 `AccountManageViewModel.ACCOUNT_STATUS_TABS` 一一对应）：
+ * 全部 · 蓝、在用 · 绿、已停用 · 橙、已删除 · 红。
+ *
+ * 取的全是**本页卡片动作已经在用的那几个语义色**（`ui/theme/Color.kt` 的常量，不另调一份新的）：
+ * 绿 = 「启用」（在册可用）、橙 = 「停用」（暂停，还能启用回来）、红 = 「删除」（不可逆那一档）。
+ * ⛔ 与 `ACCOUNT_STATUS_TABS` 一样**只能往后加档** —— 这一份是**按下标取色**的，
+ *    插在中间会把后面每一格的颜色顶掉，而且没有一处会报错（只会看到"已删除"变灰）。
+ */
+private val ACCOUNT_STATUS_COLORS = listOf(
+    Color(NavBlue),      // 0 全部
+    Color(MgrGreen),     // 1 在用
+    Color(MoneyOrange),  // 2 已停用
+    Color(MessageRed),   // 3 已删除
+)
+
+/**
  * # 账户管理（派单员统一建号：账号 + 密码 + 角色）
  *
  * ## 这一页 2026-09-22 改了什么、为什么
@@ -165,66 +181,107 @@ fun AccountManageScreen(
                 vm.loading -> LoadingBox()
                 vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
                 vm.users.isEmpty() -> EmptyView("暂无账户，点右下角 + 创建", Modifier.align(Alignment.Center))
-                else -> LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // 搜索框（用户 2026-09-19：「账户管理…也要添加搜索键」，按**名称 / 手机号 /
-                    // 手机号后 4 位**搜）。走**服务端** `?q=` —— 这一页列的是全部角色的账号、
-                    // 一页最多 500 条，本地过滤会让第 501 个账号"不存在"。
-                    item {
-                        SearchField(value = vm.query, onValueChange = { vm.onQueryChange(it) })
-                    }
-                    if (vm.isSearching) {
-                        if (vm.hitsTruncated) {
+                else -> Column(Modifier.fillMaxSize()) {
+                    // ---- 状态档：全部 / 在用 / 已停用 / 已删除（2026-10-03 · E2E 报告 P2）----
+                    // 真机上这一页原来**只有分类那一个口径**：一屏接一屏全是历史停用/删掉的
+                    // 探针账号，而"找一个正在用的账号"没有任何筛选可点（只能先知道名字去搜）。
+                    // 落位照 `ui/shipper/AddressScreen.kt:219-250` 的先例：档位行**常驻在搜索框上面**。
+                    // ⛔ 不许把它塞进 LazyColumn 当一个 item —— 那样滚到第 30 张卡想换一档还得
+                    //    先滚回顶上（这一页一屏就是 500 条，等于"这个筛选不存在"）。
+                    SegmentedStatusTabs(
+                        labels = ACCOUNT_STATUS_TABS,
+                        colors = ACCOUNT_STATUS_COLORS,
+                        selected = vm.statusTab,
+                        onSelect = { vm.statusTab = it },
+                    )
+                    LazyColumn(
+                        // `weight(1f)`：档位行占它该占的高度，剩下的全给列表 ——
+                        // 外层从 `Box` 换成 `Column` 之后必须给权重，否则列表高度会是 0。
+                        Modifier.weight(1f),
+                        // 左右 16dp 与档位行对齐（`SegmentedStatusTabs` 自带横向 16dp）；
+                        // 上边距**留 0**：那 4/8dp 的呼吸由档位行自己带，这里再叠一层会让
+                        // "档位行 → 搜索框"的间距比"搜索框 → 卡片"大一倍。
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        // 搜索框（用户 2026-09-19：「账户管理…也要添加搜索键」，按**名称 / 手机号 /
+                        // 手机号后 4 位**搜）。走**服务端** `?q=` —— 这一页列的是全部角色的账号、
+                        // 一页最多 500 条，本地过滤会让第 501 个账号"不存在"。
+                        item {
+                            SearchField(value = vm.query, onValueChange = { vm.onQueryChange(it) })
+                        }
+                        if (vm.isSearching) {
+                            if (vm.hitsTruncated) {
+                                item {
+                                    TruncationNote(
+                                        vm.hitsLimit,
+                                        "匹配到的账号不止这些 —— 把关键词写细一点（姓名多打一个字，或手机号多打几位）",
+                                    )
+                                }
+                            }
+                            if (vm.shown.isEmpty()) {
+                                item {
+                                    EmptyView(
+                                        "服务端按姓名/手机号搜过，没有「" + vm.query.trim() + "」这个账号",
+                                        // ⛔ 别给这处空态加固定高度（吃过 140dp 的亏）：EmptyView 肚子里的账是
+                                        //    「上下各 48dp 内边距 + 56dp 图标 + 12dp 间隔 + 文案」，140 - 96 = 44dp
+                                        //    的内容盒连图标都装不下，Column 会把超出的额度从后面的孩子身上扣光，
+                                        //    文案被量成 0 高 —— 屏幕上只剩一个图标（2026-10-03 真机复测抓到）。
+                                        Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        } else if (vm.truncated) {
+                            // 被服务端截断时**说出来**（判据是响应头 `X-Truncated`，见 AccountManageViewModel）。
+                            // 这一页尤其要说：右下角就是「新建账户」，而"列表里没有"最容易被读成
+                            // "这个账号不存在"→ 再建一个 → 撞手机号唯一约束。
                             item {
                                 TruncationNote(
-                                    vm.hitsLimit,
-                                    "匹配到的账号不止这些 —— 把关键词写细一点（姓名多打一个字，或手机号多打几位）",
+                                    vm.pageLimit,
+                                    "用上面的搜索框找 —— 那是服务端按姓名/手机号搜的全量结果，" +
+                                        "不受这一页限制；直接往下翻找不到不等于没有这个账号，先别急着新建",
                                 )
                             }
                         }
-                        if (vm.shown.isEmpty()) {
+                        // 空名单**说出来**：不说的话用户看到的是"搜索框下面一片空白"，
+                        // 会以为账号被筛没了 / 被删光了。
+                        //
+                        // ⚠️ 两种空法各有各的原因，**只出其中一句**：判据是"把状态那一档摘掉之后
+                        //    还剩不剩东西" —— 剩 = 是**档位**筛空的（默认停在「在用」，而刚停用/
+                        //    刚删掉的那个账号正在「已停用」「已删除」两档里）；不剩 = 左栏那一类
+                        //    本身就没有账号。两句同时冒出来会互相打架（一句说"这一类没有"、
+                        //    一句说"换一档"）。
+                        // ⛔ 也别合并成一句笼统的"没有账号"：用户要的正是"为什么没有"。
+                        val railShown = inRail(vm.shown, vm.railKey) { it.category }
+                        if (vm.shownInRail.isEmpty() && railShown.isNotEmpty()) {
                             item {
                                 EmptyView(
-                                    "服务端按姓名/手机号搜过，没有「" + vm.query.trim() + "」这个账号",
-                                    Modifier.fillMaxWidth().height(140.dp),
+                                    "「" + ACCOUNT_STATUS_TABS[vm.statusTab] + "」这一档下没有账号 —— " +
+                                        "上面换一档看看",
+                                    Modifier.fillMaxWidth(),
                                 )
                             }
                         }
-                    } else if (vm.truncated) {
-                        // 被服务端截断时**说出来**（判据是响应头 `X-Truncated`，见 AccountManageViewModel）。
-                        // 这一页尤其要说：右下角就是「新建账户」，而"列表里没有"最容易被读成
-                        // "这个账号不存在"→ 再建一个 → 撞手机号唯一约束。
-                        item {
-                            TruncationNote(
-                                vm.pageLimit,
-                                "用上面的搜索框找 —— 那是服务端按姓名/手机号搜的全量结果，" +
-                                    "不受这一页限制；直接往下翻找不到不等于没有这个账号，先别急着新建",
+                        if (vm.railKey.isNotBlank() && railShown.isEmpty()) {
+                            item {
+                                EmptyView(
+                                    "「" + railNameOf(vm.railKey) + "」这一类下还没有账号 —— " +
+                                        "在卡片上编辑、或左栏换一格",
+                                    Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                        items(vm.shownInRail, key = { it.id }) { u ->
+                            AccountCard(
+                                u = u,
+                                onEdit = { vm.openEdit(u) },
+                                onToggle = { vm.toggleActive(u) },
+                                onDelete = { vm.deleting = u },
+                                onRestore = { vm.restore(u) },
                             )
                         }
+                        item { Spacer(Modifier.height(72.dp)) }
                     }
-                    // 这一类下真的一个账号都没有时**说出来**：不说的话用户看到的是
-                    // 一个只有搜索框的空页面，会以为账号被筛没了。
-                    if (vm.railKey.isNotBlank() && vm.shownInRail.isEmpty()) {
-                        item {
-                            EmptyView(
-                                "「" + railNameOf(vm.railKey) + "」这一类下还没有账号 —— " +
-                                    "在卡片上编辑、或左栏换一格",
-                                Modifier.fillMaxWidth().height(140.dp),
-                            )
-                        }
-                    }
-                    items(vm.shownInRail, key = { it.id }) { u ->
-                        AccountCard(
-                            u = u,
-                            onEdit = { vm.openEdit(u) },
-                            onToggle = { vm.toggleActive(u) },
-                            onDelete = { vm.deleting = u },
-                        )
-                    }
-                    item { Spacer(Modifier.height(72.dp)) }
                 }
             }
         }
@@ -238,8 +295,12 @@ fun AccountManageScreen(
             onDismissRequest = { vm.dismissDelete() },
             title = { Text("删除账户") },
             text = {
+                // ⚠️ 号码走 `rosterPhoneOf`（2026-10-03 · E2E 报告 P1）：「恢复时撞号」那种账号
+                //    是**活的**（`isActive=true`，所以这个确认框照样会弹），而它的 `phone`
+                //    仍然带着 `_del{id}` 后缀 —— 直接把 `target.phone` 端上来就是乱码。
+                val shownPhone = rosterPhoneOf(target) ?: ROSTER_PHONE_TAKEN
                 Text(
-                    "确认删除「" + (target.fullName.ifBlank { target.phone }) + " / " + target.phone +
+                    "确认删除「" + (target.fullName.ifBlank { shownPhone }) + " / " + shownPhone +
                         "」？删除后该账号不可登录，且手机号可重新建号。"
                 )
             },
@@ -287,7 +348,12 @@ fun AccountManageScreen(
  * |---|---|---|
  * | 1 | 姓名（撑满）+ 角色徽章 + 状态徽章 | 短状态与标题**同一行**，用户 2026-09-21：「不要做两排」 |
  * | 2 | 手机号（**长按复制**） | 与订单号同一个手势（用户 2026-09-19：「长按订单号是可以复制的」） |
- * | 3 | 左：删除 / 停用启用 · 右：编辑 | 用户 2026-09-22：「编辑一定在右边（惯用手是右手）…相反的操作就在左边」 |
+ * | 3 | 左：删除 / 停用启用（回收站账号是「恢复」） · 右：编辑 | 用户 2026-09-22：「编辑一定在右边（惯用手是右手）…相反的操作就在左边」 |
+ *
+ * ⚠️ 第 3 行的左栏**按 `u.isDeleted` 分两套**（2026-10-03 · E2E 报告 P1/P2）：
+ *    回收站账号只给「恢复」—— 对它按「启用」后端直接 400（`users.py:294-301`：
+ *    「这个账号在回收站里…请用「恢复」把它放回来」），再点一次「删除」也是 400
+ *    （`users.py:445-446`「这个账号已经删过了」）。⛔ 界面上不该出现按不动的按钮。
  */
 @Composable
 private fun AccountCard(
@@ -295,6 +361,8 @@ private fun AccountCard(
     onEdit: () -> Unit,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
+    // 回收站账号的"放回来"（`POST /users/{id}/restore`）。
+    onRestore: () -> Unit,
 ) {
     SectionCard {
         // ---- 行1：姓名 + 角色 + 状态（同一行）----
@@ -302,7 +370,9 @@ private fun AccountCard(
         // 16sp 加粗姓名、青绿 Phone 图标 + 前景色号码（用户 2026-10-05：「名称和电话号码…要有
         // 对应的语义色和图标。让信息明确」）—— ⛔ 别再在各页各写一份字号和颜色。
         RosterNameRow(
-            name = u.fullName.ifBlank { u.phone },
+            // 姓名空时回落到号码 —— ⛔ 这里也走 `rosterPhoneOf`（P1）：
+            // `u.phone` 可能是 `13923111638_del62`，端到标题上比端在电话行还显眼。
+            name = u.fullName.ifBlank { rosterPhoneOf(u) ?: ROSTER_PHONE_TAKEN },
             icon = Icons.Default.Person,
             accent = Color(AccountBrown),
         ) {
@@ -316,9 +386,27 @@ private fun AccountCard(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                 )
             }
-            // 停用是**异常状态**，只在它成立时出现 —— 每张卡都挂一个"正常"徽章，
+            // 停用/删除都是**异常状态**，只在它成立时出现 —— 每张卡都挂一个"正常"徽章，
             // 真正要看的那一个反而沉进背景里了。
-            if (!u.isActive) {
+            //
+            // ⚠️ 两者**互斥且分色**（2026-10-03 · E2E 报告 P2）：删号会把 `is_active` 也置 false，
+            //    所以"回收站里的账号"同时也满足 `!isActive` —— 只判 `!isActive` 的话，
+            //    一屏回收站账号全都写着「已停用」，用户根本看不出它们是**号码已经释放**的那种
+            //    （那种只能「恢复」，不能「启用」）。判据只认后端算好的 `u.isDeleted`
+            //    （`users.py::_in_recycle_bin`），界面不自己拿 `phone.contains("_del")` 猜。
+            if (u.isDeleted) {
+                Spacer(Modifier.width(6.dp))
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+                    Text(
+                        "已删除",
+                        // 底色与「已停用」同一格灰（都表示"这个人不在岗"），字色分开：
+                        // 红 = 不可逆那一档，与本页「删除」按钮同色；橙留给「已停用」（还能启用回来）。
+                        color = Color(MessageRed),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            } else if (!u.isActive) {
                 Spacer(Modifier.width(6.dp))
                 Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
                     Text(
@@ -333,7 +421,10 @@ private fun AccountCard(
         Spacer(Modifier.height(6.dp))
 
         // ---- 行2：手机号（长按复制也搬进共用件了，见 RosterCard.kt）----
-        RosterPhoneRow(phone = u.phone)
+        // ⚠️ 传**账号**而不是 `u.phone`（2026-10-03 · E2E 报告 P1）：软删账号落库的号码是
+        //    `13923111638_del62` 这种内部值，直接端上来就是乱码。`RosterPhoneRowOf` 按后端的
+        //    `phone_display` 画号；号码已经让给新账号时画「号码已让给新账号」（不静默留白）。
+        RosterPhoneRowOf(u)
         Spacer(Modifier.height(4.dp))
 
         // ---- 行3：动作行（左＝相反/警示 · 右＝编辑）----
@@ -344,16 +435,30 @@ private fun AccountCard(
         //    ⛔ 别再在这一页（或任何页）新建一个"圈底动作"控件：位置规范（左/右）与形态（圈底）
         //    都该只有一处实现，否则下一次改样式必然漏掉其中一页。
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // 左栏：先删除（最不可逆的那个）再停用/启用
-            AccountAction("删除", Icons.Default.DeleteOutline, Color(MessageRed), onDelete)
-            AccountAction(
-                if (u.isActive) "停用" else "启用",
-                if (u.isActive) Icons.Default.Pause else Icons.Default.PlayArrow,
-                if (u.isActive) Color(MoneyOrange) else Color(MgrGreen),
-                onToggle,
-            )
+            // ⚠️ 左栏**分两套**（2026-10-03 · E2E 报告 P1/P2）：回收站账号只给「恢复」——
+            //    对它按「启用」后端 400（`users.py:294-301`），再点「删除」也是 400
+            //    （同文件 :445-446「这个账号已经删过了」）。两个按钮在这里都只会吃一句报错，
+            //    ⛔ 界面上不该出现按不动的按钮。判据只认后端算好的 `u.isDeleted`（界面不猜：
+            //    `_in_recycle_bin` 除了后缀还看 `is_active`，"恢复时撞号"那种账号已经在用了）。
+            // ⚠️ 判据 `_check_sheet_form_pages.py` 钉着「动作行里**第一个** AccountAction 是删除」
+            //    （相反/警示在最左）—— 所以回收站那一支必须写在**后面**：把它写在前面，
+            //    第一次出现的动作就成了「恢复」，那条判据立刻变红。
+            if (!u.isDeleted) {
+                // 左栏：先删除（最不可逆的那个）再停用/启用
+                AccountAction("删除", Icons.Default.DeleteOutline, Color(MessageRed), onDelete)
+                AccountAction(
+                    if (u.isActive) "停用" else "启用",
+                    if (u.isActive) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    if (u.isActive) Color(MoneyOrange) else Color(MgrGreen),
+                    onToggle,
+                )
+            } else {
+                // 回收站账号：左栏只给「恢复」，它与「删除」互斥（见上面那一段）
+                AccountAction("恢复", Icons.Default.RestoreFromTrash, Color(MgrGreen), onRestore)
+            }
             Spacer(Modifier.weight(1f))
-            // 右栏：编辑（惯用手那一侧）
+            // 右栏：编辑（惯用手那一侧）—— 回收站账号也留着这一颗：后端 `update_user`
+            // **不拦**它（只有「启用」那一支拦），先把姓名/角色改对了再恢复是正常动作。
             AccountAction("编辑", Icons.Default.Edit, Color(NavBlue), onEdit)
         }
     }

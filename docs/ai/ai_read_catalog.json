@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:90013e02d23ba1ebb9814c6096cfe51085c32a029a5723074f20e7e024ef40ab",
+ "source_hash": "sha256:de860fc40322614e850ede859c2260ffc237b1ce97f2765fa7cfc5130bd251ca",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 78,
@@ -2330,7 +2330,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:70",
+   "at": "backend/app/api/v1/users.py:75",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -2401,7 +2401,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users/me",
-   "at": "backend/app/api/v1/users.py:57",
+   "at": "backend/app/api/v1/users.py:62",
    "auth": "仅登录 + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",

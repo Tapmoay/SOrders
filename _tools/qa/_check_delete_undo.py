@@ -76,7 +76,11 @@ LIST_ANCHOR = "Box(Modifier.weight(1f)) {"
 #:   这是「新开一页」带来的正当增长、不是把某张名册的撤回赖掉了：那 7 张名册页的撤回
 #:   仍然整批欠着（都写着"撤回等分类名册统一收口那一批"），统一收口那一批做完要一起销账，
 #:   把这一格再收回去。
-EXEMPT_MAX = 12
+#: 2026-10-03 BUG-0002：账户管理的「删号」配上了「恢复」（账户页第 4 档「已删除」里那颗按钮
+#:   调 repo.restoreUser）⇒ 这一笔销账，上限从 12 收到 11。
+#:   ⚠️ 它恢复的入口在**回收站那一档**，不是地址页那种贴在列表顶上的「撤销」一行 ——
+#:   那一页的撤回形态以后若要统一，改的是界面，这一行不必再挂回来。
+EXEMPT_MAX = 11
 
 #: 还没配撤回入口的删除调用点 —— 键 = "相对 android/.../sorders 的路径::方法名"。
 #: ⛔ 这张表**只能收紧**：把某一页的撤回补上之后，这一行必须删掉（判据会逼你删，
@@ -85,8 +89,7 @@ EXEMPT_MAX = 12
 EXEMPT = {
     "ui/order/OrderDetailViewModel.kt::deleteOrder":
         "订单的撤回走的是状态机（订单卡上那个「撤回」动作），不是软删还原 —— 单独一件事",
-    "ui/dispatcher/AccountManageViewModel.kt::deleteUser":
-        "删账号＝注销：能不能「撤销注销」没拍板 —— 排在账号管理那一批",
+
     "ui/dispatcher/DispatcherLedgerViewModel.kt::deleteLedger":
         "派单账本的行删除 —— 撤回排在账本那一批",
     "ui/dispatcher/PriceMatrixViewModel.kt::deletePriceRule":
@@ -245,8 +248,11 @@ def main() -> int:
     c.ok("反向验证脚本在（_tools/qa/_reverse_verify_delete_undo.py）", REVERSE.exists(),
          "没有反向验证的判据＝没人证明它真的会红")
     doc = read(DOC) if DOC.exists() else ""
-    c.ok("文档九节齐全（docs/changes/CHG-0015.md）",
-         all(s in doc for s in ("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨")),
+    #: ⚠️ 2026-10-03：原先只找光秃秃的「①…⑨」，正文里随便一次引用就能把它骗过去 ——
+    #:   反向验证 ⑭（把 `## ⑨` 那一行删掉）当时**仍然全绿**，等于这条判据没在查。
+    #:   改成认小节标题（跟 _check_dev_spec.py 与 _check_arrears_units.py:275 一个口径）。
+    c.ok("文档九节齐全（docs/changes/CHG-0015.md，认小节标题而不是字符）",
+         all(("## " + s) in doc for s in ("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨")),
          "文档缺节（_check_dev_spec.py 也会红）")
     c.ok("登记簿里有 CHG-0015 这一行（整行，不是一个链接里的字样）",
          bool(re.search(r"^\|\s*[\x60]?CHG-0015[\x60]?\s*\|", read(REGISTRY), re.M)),

@@ -15,6 +15,17 @@ class UserOut(BaseModel):
     id: int
     username: str
     phone: str
+    #: **拿来显示**的号码（None = 别给拨号入口）。口径唯一处 = services/soft_delete.dialable_phone：
+    #: 活号原样、软删去后缀、**活着却带后缀（恢复时撞号）→ None**（那个号已经是别人的了）。
+    #: ⛔ 为什么不直接把 [phone] 去后缀：《新增/编辑账号》表单拿 [phone] 回显（draftPhone），
+    #:    去掉后缀再存回去 = 把一个已经释放给别人的号码写回这个账号（撞唯一约束 / 抢号）。
+    #:    2026-10-03 真机抓到的 P1：账户管理 / 司机管理把 13923111638_del62 原样端给了用户。
+    phone_display: str | None = None
+    #: 这一行**现在**在不在回收站里（= 号码/用户名带 `_del{id}` 后缀 **且** `is_active` 为 False；
+    #: 实现 = api/v1/users.py::_in_recycle_bin）。界面据此决定给「恢复」还是给「启用」。
+    #: ⚠️ 两个反例都得排除：**停用**的账号号码是好的（不是删除）、**恢复时撞号**的账号人已经回来
+    #:    了（只是号码归了别人 —— 那件事由 [phone_display] 的 None 表达）。
+    is_deleted: bool = False
     full_name: str
     role: UserRole
     is_active: bool

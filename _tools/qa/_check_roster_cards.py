@@ -125,12 +125,14 @@ def main() -> int:
     drawer = read(DRAWER)
 
     c.section('2. 四个名册页真的用上了共用件')
-    c.ok('账户卡：名称行走 RosterNameRow、电话行走 RosterPhoneRow',
-         'RosterNameRow(' in acct and 'RosterPhoneRow(' in acct,
-         '长按复制搬进共用件之后，账户页也要跟着走那一份')
+    c.ok('账户卡：名称行走 RosterNameRow、电话行走账号版共用件',
+         'RosterNameRow(' in acct and 'RosterPhoneRowOf(u)' in acct,
+         '长按复制搬进共用件之后，账户页也要跟着走那一份；2026-10-03（BUG-0002 / E2E P1）'
+         '电话行换成收账号的 RosterPhoneRowOf(u) —— 回收站账号落库的 phone 是 '
+         '13923111638_del62 这种内部值，直接端上来就是乱码')
     c.ok('账户卡名称前的图标是人形（Icons.Default.Person）', 'Icons.Default.Person' in acct)
-    c.ok('司机 / 货主 / 批发商卡：电话行走共用件，u.phone 原样传进去',
-         'RosterPhoneRow(' in users and 'phone = u.phone,' in users)
+    c.ok('司机 / 货主 / 批发商卡：电话行走共用件，账号原样传进去',
+         'RosterPhoneRowOf(u)' in users)
     c.ok('司机 / 货主 / 批发商卡：名称提到 16sp 那一档（与账户卡同号）',
          'style = MaterialTheme.typography.titleMedium,' in users)
     c.ok('司机 / 货主 / 批发商卡：姓氏圆底与池子强调色没被改掉',

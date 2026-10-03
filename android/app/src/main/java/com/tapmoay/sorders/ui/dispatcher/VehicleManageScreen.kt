@@ -466,18 +466,22 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
                         }
                     }
                     if (vm.vehicles.isEmpty()) {
-                        item { EmptyView("还没有登记车辆", Modifier.fillMaxWidth().height(160.dp)) }
+                        // ⛔ 别加固定高度（本页三处空态同一条，吃过 160dp 的亏）：EmptyView 肚子里的账是
+                        //    「上下各 48dp 内边距 + 56dp 图标 + 12dp + 文案」，固定高度 160 只留 64dp 的内容盒，
+                        //    图标就吃掉 56dp，Column 把剩下的额度从后面孩子身上扣光 → 文案被量成 0 高、
+                        //    屏幕上只剩图标（2026-10-03 真机复测抓到）。
+                        item { EmptyView("还没有登记车辆", Modifier.fillMaxWidth()) }
                     } else if (vm.railKey.isNotBlank() && vm.shownInRail.isEmpty()) {
                         // 这一类下真的没有车时**说出来**（不说的话用户看到一个空页面）
                         item {
                             EmptyView(
                                 "「" + railNameOf(vm.railKey) + "」这一类下还没有车 —— " +
                                     "在卡片上编辑、或左栏换一格",
-                                Modifier.fillMaxWidth().height(160.dp),
+                                Modifier.fillMaxWidth(),
                             )
                         }
                     } else if (vm.shown.isEmpty()) {
-                        item { EmptyView("没有匹配「${vm.query}」的车", Modifier.fillMaxWidth().height(160.dp)) }
+                        item { EmptyView("没有匹配「${vm.query}」的车", Modifier.fillMaxWidth()) }
                     } else {
                         items(vm.shownInRail, key = { it.id }) { v ->
                             VehicleCard(
@@ -923,33 +927,55 @@ private fun DriverPickList(vm: VehicleManageViewModel) {
         { it.fullName.ifBlank { it.username } },
         { it.phone },
     )
-    val shown = hits.take(30)
+    // ⛔ **已停用 / 已删除的账号不进候选**（2026-10-03 · E2E 报告 P10）：原来停用的账号也能绑车，
+    //    绑完这辆车就成了「有司机、但派单派不出去」—— 当时界面上只在副标题里写了四个字，拦不住人。
+    //    要绑谁先到「账户管理」里把人启用（⛔ 不是在这里悄悄放行）。
+    val eligible = hits.filter { it.isActive && !it.isDeleted }
+    // 被挡在外面的**数量**要在下面说出来，不能让人看到空列表还以为「搜不到这个司机」。
+    val excluded = hits.size - eligible.size
+    val shown = eligible.take(30)
     Column(Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
         PickRow("不绑司机", vm.draftDriverId == null, "解绑（这辆车暂时不归任何人）") { vm.draftDriverId = null }
         shown.forEach { d ->
-            val name = d.fullName.ifBlank { d.phone.ifBlank { d.username } }
+            // 名字回落也不许端出 `_del{id}` 后缀（与 P1 同一件事）。
+            val name = d.fullName.ifBlank { rosterPhoneOf(d) ?: ROSTER_PHONE_TAKEN }
             val other = vm.vehicles.filter { it.driverId == d.id }
             PickRow(
                 name,
                 vm.draftDriverId == d.id,
                 when {
-                    !d.isActive -> "已停用的账号"
+                    // 「已停用」那一支不用写了：上面的 eligible 已经把停用/删除的挡在外面（P10）。
                     other.isNotEmpty() -> "他名下已经有 " + other.joinToString("、") { it.plateNo }
-                    else -> d.phone
+                    else -> rosterPhoneOf(d) ?: ROSTER_PHONE_TAKEN
                 },
             ) { vm.draftDriverId = d.id }
         }
-        if (hits.size > shown.size) {
+        if (eligible.size > shown.size) {
             Text(
-                "还有 " + (hits.size - shown.size) + " 个没显示 —— 输入姓名或手机号缩小范围。",
+                "还有 " + (eligible.size - shown.size) + " 个没显示 —— 输入姓名或手机号缩小范围。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
         }
-        if (hits.isEmpty()) {
+        // 搜到了人、却一个能绑的都没有 —— 必须说清是「人被停用了」，
+        // ⛔ 不能显示成「没有这个司机」（用户会跑去建重复账号）。
+        if (eligible.isEmpty()) {
             Text(
-                "没有匹配「" + vm.driverQuery.trim() + "」的司机。",
+                if (hits.isEmpty()) {
+                    "没有匹配「" + vm.driverQuery.trim() + "」的司机。"
+                } else {
+                    "匹配到 " + hits.size + " 个司机，但他们都是已停用/已删除的账号 —— 先把人在「账户管理」里启用。"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
+        // 有能绑的、也有被挡在外面的：挡了几个也要说（P10），否则用户以为「能绑的就这几个人」。
+        if (excluded > 0 && eligible.isNotEmpty()) {
+            Text(
+                "另有 " + excluded + " 个匹配的司机是已停用/已删除的账号，不在这里 —— 先把人在「账户管理」里启用。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),

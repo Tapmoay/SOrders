@@ -66,6 +66,22 @@ data class UserDto(
     val id: Long,
     val username: String,
     val phone: String,
+    // 名册上**该显示**的那个号码（E2E 报告 P1）：软删账号落库的 `phone` 是
+    // `13923111638_del62` 这种**内部值**（后缀 = 「号已经释放回号池」的标记），
+    // 直接端到名册卡上真人只会当成乱码。后端算好的可拨号码放在这里
+    // （唯一口径 `backend/app/services/soft_delete.py::dialable_phone`）。
+    // ⚠️ null **不是**「没填号码」，而是**这个号已经让给别人了**（删号后有人拿同一个号
+    //    建了新号，恢复时撞号 → 后端只还身份、不还号）→ 界面必须说出来，⛔ 不许回落 `phone`。
+    // ⛔ `phone` 的原值必须留着：编辑表单要回显它（`AccountManageViewModel.openEdit`
+    //    把它填回 `draftPhone`）、搜索与 AI 别名用的也是它 —— 把去掉后缀的值存回去
+    //    等于去抢那个已经属于新账号的号。展示一律走 `ui/common/RosterCard.rosterPhoneOf`。
+    @SerialName("phone_display") val phoneDisplay: String? = null,
+    // 「这个账号在回收站里」（E2E 报告 P1/P2）：后端算好的判据
+    // （`backend/app/api/v1/users.py::_in_recycle_bin` = 名字/号码带 `_del{id}` 后缀 **且** 已停用）。
+    // ⚠️ 与「已停用」是两件事：停用只是不让他登录（号还是他的，能直接启用回来）；
+    //    删除是把号**释放**回号池（只能「恢复」，撞号时号归新主人）。
+    // ⛔ 界面不许自己拿 `phone.contains("_del")` 猜：恢复撞号那种账号带后缀、但**不在**回收站里。
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
     @SerialName("full_name") val fullName: String = "",
     val role: String,
     @SerialName("is_active") val isActive: Boolean = true,

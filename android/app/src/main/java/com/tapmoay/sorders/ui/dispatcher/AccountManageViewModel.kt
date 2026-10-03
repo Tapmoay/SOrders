@@ -9,9 +9,34 @@ import com.tapmoay.sorders.data.remote.api.UserCreateRequest
 import com.tapmoay.sorders.data.remote.api.UserUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.rosterPhoneOf
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * 账户管理的**状态档**（2026-10-03 · E2E 报告 P2）。
+ *
+ * 顺序即下标，[AccountManageViewModel.statusTab] 直接用它；颜色见 `AccountManageScreen`
+ * 的 `ACCOUNT_STATUS_COLORS`（按下标取色，⛔ 只能往后面加档）。
+ */
+val ACCOUNT_STATUS_TABS: List<String> = listOf("全部", "在用", "已停用", "已删除")
+
+/**
+ * 某个账号属不属于第 [tab] 档（E2E 报告 P2）。
+ *
+ * ⚠️ 「已停用」必须**排掉**回收站：后端删号时会顺手把 `is_active` 置 false，
+ * 所以回收站账号的 `isActive` 同样是 false —— 不排掉的话「已停用」这一档里
+ * 又混进一堆删除账号，等于把 P2 那个"全是被埋掉的旧账号"原样搬了个地方。
+ * ⛔ 判据只认后端算好的 [UserDto.isDeleted]（`users.py::_in_recycle_bin`），
+ * 界面不许自己拿 `phone.contains("_del")` 猜：恢复撞号的账号带后缀但**不在**回收站里。
+ */
+fun matchesStatus(u: UserDto, tab: Int): Boolean = when (tab) {
+    1 -> u.isActive && !u.isDeleted
+    2 -> !u.isActive && !u.isDeleted
+    3 -> u.isDeleted
+    else -> true
+}
 
 /** 账户管理可选的账号角色（派单员建号用） */
 enum class AccountRoleKind(
@@ -117,8 +142,27 @@ class AccountManageViewModel(
     /** 左栏选中的那一格（`c|分类名`；空串 = 全部）。 */
     var railKey by mutableStateOf("")
 
-    /** 这一页真正要画的账号：先按搜索/名册取，再按左栏那一格过一遍。 */
-    val shownInRail: List<UserDto> get() = inRail(shown, railKey) { it.category }
+    // ============================================================ 状态档（2026-10-03 · E2E 报告 P2）
+    //
+    // 真机现场（`_tmp/E2E测试报告.md` P2）：账户管理一屏接一屏全是历史停用/删掉的探针账号，
+    // 而这一页当时**只有分类那一个口径** —— 「找一个在用的账号」没有任何筛选可点，
+    // 只能靠搜索框先知道名字。
+    //
+    // 四档与判据见 [matchesStatus]。**默认停在「在用」**：这一页的主要用途是找人 / 改人，
+    // 默认把回收站与离职账号一起端上来等于没修（它们都在「已停用」「已删除」两档里，
+    // 一按就到 —— 档位行常驻在搜索框上面）。筛选**本地过一遍**：与左栏分类同一条路，
+    // 名册本来就在手上，不往返后端。
+    //
+    // ⚠️ 三个筛选的**顺序不能换**：先 [shown]（搜索命中 / 全量名册）→ 再左栏分类 → 最后状态。
+    // ⛔ 别把状态并进服务端 `?q=`：后端此刻只认 `q`，多传一个参数不会有任何效果，
+    //     却会让人以为"筛过了"（`_check_user_search.py` 钉着服务端搜索的唯一形态）。
+
+    /** 状态档下标：0 全部 / 1 在用 / 2 已停用 / 3 已删除（文案 = [ACCOUNT_STATUS_TABS]）。 */
+    var statusTab by mutableStateOf(1)
+
+    /** 这一页真正要画的账号：先按搜索/名册取，再按左栏那一格、最后按状态档过一遍。 */
+    val shownInRail: List<UserDto> get() =
+        inRail(shown, railKey) { it.category }.filter { matchesStatus(it, statusTab) }
 
     /** 拉左栏那几格。失败**不吵**（左栏退化成只有「全部」，比弹一页错误好）。 */
     fun loadCategories() {
@@ -342,7 +386,38 @@ class AccountManageViewModel(
         viewModelScope.launch {
             try {
                 container.repo.updateUser(u.id, UserUpdateRequest(isActive = !u.isActive))
-                actionResult = if (u.isActive) "已停用：" + u.phone else "已启用：" + u.phone
+                // 提示里的号码走 `rosterPhoneOf`（2026-10-03 · E2E 报告 P1）：「恢复时撞号」
+                // 那种账号是**活的**（所以卡上给的是「启用/停用」），而它的 `phone` 仍带着
+                // `_del{id}` 后缀 —— 「已启用：13900001234_del160」就是乱码（与 P1 同一件事）。
+                // 号码真的已经归别人时（phone_display 为 null）就报姓名，⛔ 不许把后缀端出来。
+                val who = rosterPhoneOf(u) ?: u.fullName.ifBlank { u.username }
+                actionResult = if (u.isActive) "已停用：" + who else "已启用：" + who
+                load()
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            }
+        }
+    }
+
+    /**
+     * 把回收站里的账号**放回来**（E2E 报告 P1/P2）。
+     *
+     * 为什么不能拿「启用」凑合：后端对回收站账号的「启用」直接 400 ——
+     * `users.py` 里写着「这个账号在回收站里（删号时手机号已经释放给别的账号用了），
+     * 「启用」不会把手机号还回来 —— 请用「恢复」把它放回来」。
+     * 界面原来给回收站账号画的是「启用」，点下去只会吃一句后端报错，
+     * 所以卡面按 [UserDto.isDeleted] 分成两种动作：回收站 → 「恢复」，停用 → 「启用」。
+     *
+     * ⚠️ 恢复**不一定**能把号码还回来：删号之后若有人拿同一个号建了新号，
+     * 后端只还身份、号码留给新主人（`restore_user` 的冲突分支），
+     * 此时 `phone_display` 是 null —— 提示里就报姓名，⛔ 不许把 `_del{id}` 后缀端出来。
+     */
+    fun restore(u: UserDto) {
+        viewModelScope.launch {
+            try {
+                val back = container.repo.restoreUser(u.id)
+                actionResult = "已恢复：" +
+                    (rosterPhoneOf(back) ?: back.fullName.ifBlank { back.username })
                 load()
             } catch (e: Exception) {
                 error = toApiException(e).message
@@ -357,7 +432,8 @@ class AccountManageViewModel(
         viewModelScope.launch {
             try {
                 container.repo.deleteUser(u.id)
-                actionResult = "已删除：" + u.phone
+                // 同上：报号的文案一律走 `rosterPhoneOf`，别把 `_del{id}` 端给用户。
+                actionResult = "已删除：" + (rosterPhoneOf(u) ?: u.fullName.ifBlank { u.username })
                 deleting = null
                 load()
             } catch (e: Exception) {

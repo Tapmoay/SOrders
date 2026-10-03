@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:5ad074864f44ac8e95f75845863c347c11d32189756838f3a69f0a6ab327122b -->
+<!-- source_hash: sha256:14c19b4068bf8416aa179eab55799ee60b9c4f681225578bb641540934e4e8b3 -->
 
 ## 全量端点（252 个，按文件分组）
 
@@ -530,16 +530,16 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:57` | 仅登录 + 体内含角色判断（需读源码） |
-| 2 | `GET /api/v1/users` | `list_users` | `backend/app/api/v1/users.py:70` | 权限:USER_MANAGE |
-| 3 | `POST /api/v1/users` | `create_user` | `backend/app/api/v1/users.py:103` | 权限:USER_MANAGE |
-| 4 | `GET /api/v1/users/{user_id}` | `get_user` | `backend/app/api/v1/users.py:157` | 仅登录 + 体内含角色判断（需读源码） |
-| 5 | `GET /api/v1/users/{user_id}/product-visibility` | `get_product_visibility` | `backend/app/api/v1/users.py:167` | 仅登录 + 体内含角色判断（需读源码） |
-| 6 | `PUT /api/v1/users/{user_id}/product-visibility` | `set_product_visibility` | `backend/app/api/v1/users.py:182` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
-| 7 | `PATCH /api/v1/users/{user_id}` | `update_user` | `backend/app/api/v1/users.py:242` | 仅登录 + 体内含角色判断（需读源码） |
-| 8 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | `swap_shipper_driver` | `backend/app/api/v1/users.py:363` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
-| 9 | `DELETE /api/v1/users/{user_id}` | `delete_user` | `backend/app/api/v1/users.py:413` | 权限:USER_MANAGE |
-| 10 | `POST /api/v1/users/{user_id}/restore` | `restore_user` | `backend/app/api/v1/users.py:450` | 权限:USER_MANAGE |
+| 1 | `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:62` | 仅登录 + 体内含角色判断（需读源码） |
+| 2 | `GET /api/v1/users` | `list_users` | `backend/app/api/v1/users.py:75` | 权限:USER_MANAGE |
+| 3 | `POST /api/v1/users` | `create_user` | `backend/app/api/v1/users.py:108` | 权限:USER_MANAGE |
+| 4 | `GET /api/v1/users/{user_id}` | `get_user` | `backend/app/api/v1/users.py:162` | 仅登录 + 体内含角色判断（需读源码） |
+| 5 | `GET /api/v1/users/{user_id}/product-visibility` | `get_product_visibility` | `backend/app/api/v1/users.py:172` | 仅登录 + 体内含角色判断（需读源码） |
+| 6 | `PUT /api/v1/users/{user_id}/product-visibility` | `set_product_visibility` | `backend/app/api/v1/users.py:187` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
+| 7 | `PATCH /api/v1/users/{user_id}` | `update_user` | `backend/app/api/v1/users.py:247` | 仅登录 + 体内含角色判断（需读源码） |
+| 8 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | `swap_shipper_driver` | `backend/app/api/v1/users.py:368` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
+| 9 | `DELETE /api/v1/users/{user_id}` | `delete_user` | `backend/app/api/v1/users.py:436` | 权限:USER_MANAGE |
+| 10 | `POST /api/v1/users/{user_id}/restore` | `restore_user` | `backend/app/api/v1/users.py:473` | 权限:USER_MANAGE |
 
 ### `backend/app/api/v1/vehicle_categories.py` — 5 个
 

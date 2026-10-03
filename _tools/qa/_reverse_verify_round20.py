@@ -56,7 +56,14 @@ CASES: list[tuple[str, str, object, str]] = [
         "自动账本行不再要求订单已送达（漂移出来的行又会被算进账本）",
         SCOPE,
         lambda s: s.replace(
-            "                exists(order_row.where(Order.status == OrderStatus.DELIVERED)),\n",
+            # 2026-10-03（BUG-0001）源码换了写法：source=ORDER 的可见状态从「只认已送达」变成
+            #    in_((DELIVERED, RETURNED))（整单退货的原行也得留着，否则账上只剩红冲那一减）。
+            #    判据没变，只把锚点换成现在的写法 —— 别顺手改回 == OrderStatus.DELIVERED。
+            "                exists(\n"
+            "                    order_row.where(\n"
+            "                        Order.status.in_((OrderStatus.DELIVERED, OrderStatus.RETURNED))\n"
+            "                    )\n"
+            "                ),\n",
             "                exists(order_row),\n",
             1,
         ),

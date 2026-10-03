@@ -39,6 +39,16 @@
 
 ⚠️ 注入式反向验证（改坏 → 本脚本必须红）：`_tools/qa/_reverse_verify_ledger_scope_full_return.py`。
 
+### R4-BOUNDARY-JUSTIFICATION
+
+R4-BOUNDARY-JUSTIFICATION: 边界那一半**已经先做了** —— 可见集合收成一个 visible_ledger_clause()，
+列表 / 汇总 / 导出三处都从它出发（下面第 4 条钉着这一点）。代码边界仍然拦不住的是**口径本身**：
+source=ORDER 认哪几个状态是**业务决定**，「整单退货的单算不算营收」这件事没有类型能表达 ——
+改回「只认已送达」编译得过、类型也对、性能没差别，回归用例若被顺手削弱照样绿。
+所以只能靠「一条判据 + 口径说明 + 三条真实端点的用例」把同一句话钉在三处（第 1/2/3 条），
+第 5 条防判据自己动手删账、第 7 条防它空转；另一侧由
+_tools/qa/_reverse_verify_ledger_scope_full_return.py 证明这些钉子有牙。
+
 用法：python _tools/qa/_check_ledger_scope_full_return.py
 """
 from __future__ import annotations

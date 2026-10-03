@@ -41,9 +41,40 @@ REGISTRY = "docs/changes/README.md"
 BT = chr(96)  # 反引号（本文件里出现反引号会把外面的模板串截断，一律用这个拼）
 
 #: 界面那一行撤回提示：起止锚点（整块挪走 / 整块删掉都要用）
-UNDO_START = "            vm.recentlyDeleted?.let { rd ->"
-UNDO_END = "\n                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)\n            }\n"
-LIST_ANCHOR = "            Box(Modifier.weight(1f)) {\n"
+#: ⚠️ 2026-10-03：这一段在 CHG-0024 之后被外层又包了一层 Column，缩进从 12 空格变成 20 空格，
+#:    写死空格数的锚点当场腐烂 —— ① ② 两条注入直接 SKIP，而判据自己还以为绿着。
+#:    所以这里跟 _check_delete_undo.py:72 的 LIST_ANCHOR 学：**只认内容，不认缩进**。
+UNDO_START_TEXT = "vm.recentlyDeleted?.let { rd ->"
+UNDO_END_TEXT = "HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)"
+LIST_ANCHOR_TEXT = "Box(Modifier.weight(1f)) {"
+
+
+def undo_span(s: str) -> tuple[int, int]:
+    """撤回提示那一整块在 s 里的 [起, 止)（含收尾那一行和它的换行）；形态不对就给 (-1, -1)。
+
+    起：`vm.recentlyDeleted?.let { rd ->` 那一行的行首；
+    止：它收尾那个单独的 `}` 那一行的行尾。
+    ⛔ 别退回「写死 20 个空格」那种写法 —— 外层再包一层就又腐烂一遍。
+    """
+    i = s.find(UNDO_START_TEXT)
+    if i < 0:
+        return -1, -1
+    i = s.rfind("\n", 0, i) + 1
+    j = s.find(UNDO_END_TEXT, i)
+    if j < 0:
+        return -1, -1
+    j = s.find("\n", j) + 1
+    close = s.find("\n", j)
+    close = len(s) if close < 0 else close
+    if s[j:close].strip() != "}":
+        return -1, -1
+    return i, close + 1
+
+
+def drop_undo_block(s: str) -> str:
+    """① 把撤回提示那一整块删掉（注释还在、代码没了）。"""
+    i, j = undo_span(s)
+    return s if i < 0 else s[:i] + s[j:]
 
 
 def drop_line(s: str, needle: str) -> str:
@@ -62,18 +93,12 @@ def drop_block(s: str, needle: str, n: int = 3) -> str:
 
 def move_undo_after_list(s: str) -> str:
     """把撤回提示整块挪到列表容器**之后**（界面完全一样，只是「手边」不成立了）。"""
-    i = s.find(UNDO_START)
-    if i < 0:
+    i, e = undo_span(s)
+    if i < 0 or LIST_ANCHOR_TEXT not in s:
         return s
-    e = s.find(UNDO_END, i)
-    if e < 0:
-        return s
-    e += len(UNDO_END)
     block, rest = s[i:e], s[:i] + s[e:]
-    k = rest.find(LIST_ANCHOR)
-    if k < 0:
-        return s
-    k += len(LIST_ANCHOR)
+    k = rest.find(LIST_ANCHOR_TEXT)
+    k = rest.find("\n", k) + 1  # 挪到列表容器那一整行之后
     return rest[:k] + block + rest[k:]
 
 
@@ -82,7 +107,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "① 界面那行撤回提示整块被删（注释还在、代码没了 —— 最典型的假绿）",
         SCREEN,
-        lambda s: s[: s.find(UNDO_START)] + s[s.find(UNDO_END) + len(UNDO_END) :] if UNDO_START in s and UNDO_END in s else s,
+        drop_undo_block,
         "页面上画了撤回入口",
     ),
     (
@@ -140,7 +165,7 @@ CASES: list[tuple[str, str, object, str]] = [
         "仓库层三个还原接口",
     ),
     (
-        "⑪ 一个没有撤回入口的页面里又多了一个删除点（清单必须自己把它认出来）",
+        "⑪ 一个页面里又多了一个没有配对的删除点（清单必须自己把它认出来，不能靠豁免表）",
         ACCOUNT,
         lambda s: s + "private fun _reverseProbe() { container.repo.deleteWidget(1L) }\n",
         "这些删了就找不回来",
