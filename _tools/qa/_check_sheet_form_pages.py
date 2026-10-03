@@ -64,6 +64,9 @@ COLOR = AND / "ui/theme/Color.kt"
 THEME = AND / "ui/theme/Theme.kt"
 SCREEN = AND / "ui/dispatcher/AccountManageScreen.kt"
 VM = AND / "ui/dispatcher/AccountManageViewModel.kt"
+#: 名册卡的两个共用零件（2026-10-05 名册卡返工）：账户卡的电话行搬到了这里，
+#: 所以"长按复制手机号"这条判据必须**同时**接受"本页自己写"和"共用件里有"两种落点。
+ROSTER = AND / "ui/common/RosterCard.kt"
 #: 第二个搬进抽屉的页面（2026-09-22）：运费模板的「新建」。
 FREIGHT = AND / "ui/dispatcher/FreightTemplatesScreen.kt"
 FREIGHT_VM = AND / "ui/dispatcher/FreightTemplatesViewModel.kt"
@@ -328,9 +331,16 @@ def main() -> int:
              ("CardActionIcon(" in act or "TintedIcon(" in act)
              and re.search(r"\blabel\s*=", act) is not None,
              f"共用控件里没有圈底图标，或文字没传下去：{act[:80]!r}")
+    # ⚠️ 2026-10-05（名册卡返工）：这一条**锚点搬家**了，不是放宽 —— 账户卡的电话行搬进了
+    #    共用件 `ui/common/RosterCard.kt::RosterPhoneRow`（四张名册卡原来只有账户卡能长按复制，
+    #    用户这一轮要求电话行统一：青绿 Phone 图标 + 前景色号码）。
+    #    判据仍要求那三样**在同一处**出现（不是"全库某处有就行"）：本页自己写，或共用件里有，
+    #    二选一 —— 两处都有就是又长出一份会长歪的实现。
+    roster = read(ROSTER) if ROSTER.exists() else ""
+    where = screen if "combinedClickable(" in screen else roster
     c.ok("手机号长按可复制（combinedClickable + onLongClickLabel）",
-         "combinedClickable(" in screen and "onLongClickLabel" in screen
-         and "copyTextToClipboard(" in screen)
+         all(t in where for t in ("combinedClickable(", "onLongClickLabel", "copyTextToClipboard(")),
+         f"本页与共用件 {ROSTER.name} 里都没凑齐长按复制那三样")
 
     # ── 4. 错误落在抽屉里 ────────────────────────────────────────────────
     c.section("4. 错误与表单同生共死（不许顶掉整页列表）")

@@ -149,7 +149,7 @@ fun AddressScreen(
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(modifier = Modifier.width(CategoryDrawerWidth)) {
                 // 抽屉里那一列随页签换（三档各有一份自己那份名册），但**形态与 key 约定完全一样**。
                 CategoryDrawerSheet(
                     title = when (tab) {

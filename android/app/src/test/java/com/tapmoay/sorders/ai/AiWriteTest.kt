@@ -1025,6 +1025,49 @@ class AiWriteTest {
             masterCalls += "reorderRouteCategories:${ids.joinToString(",")}"
         }
 
+        // ---- 账号分类 / 车辆分类（**全店各一份**；FEAT-0010 的分类名册，2026-10-05）----
+        // ⚠️ 与前几份的分别：这两张是**全店共用**的名册（`users` / `vehicles` 都是全表），
+        //    不是「按人分区」的；账号名册一份喂四个页面（账户 / 司机 / 货主 / 批发商），
+        //    所以替身这里也只起两份，⛔ 不许拿 routeCategoryRows 冒充。
+        var userCategoryRows = listOf(
+            AiName(131, "自有车", note = "3 个账号"),
+            AiName(132, "外请车"),
+        )
+
+        override suspend fun userCategories() = userCategoryRows.also { boom() }
+        override suspend fun createUserCategory(fields: JsonObject) = rec("createUserCategory", fields)
+        override suspend fun updateUserCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updateUserCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deleteUserCategory(id: Long) {
+            boom()
+            masterCalls += "deleteUserCategory:$id"
+        }
+        override suspend fun reorderUserCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderUserCategories:${ids.joinToString(",")}"
+        }
+
+        var vehicleCategoryRows = listOf(
+            AiName(141, "冷藏车", note = "2 辆车"),
+            AiName(142, "平板车"),
+        )
+
+        override suspend fun vehicleCategories() = vehicleCategoryRows.also { boom() }
+        override suspend fun createVehicleCategory(fields: JsonObject) = rec("createVehicleCategory", fields)
+        override suspend fun updateVehicleCategory(id: Long, fields: JsonObject) {
+            boom()
+            masterCalls += "updateVehicleCategory:$id:${fields.toString()}"
+        }
+        override suspend fun deleteVehicleCategory(id: Long) {
+            boom()
+            masterCalls += "deleteVehicleCategory:$id"
+        }
+        override suspend fun reorderVehicleCategories(ids: List<Long>) {
+            boom()
+            masterCalls += "reorderVehicleCategories:${ids.joinToString(",")}"
+        }
         // ---- 开销 / 运费 / 预订单三份分类名册（2026-09-23 按"人能操作的 AI 都要能操作"补齐）----
         // ⚠️ 三份都照上面那两份的形状写：读那一格 `also { boom() }`（读接口在撤回/重命名卡片
         //    里也要用到，不该顺手写库），写那一格先 `boom()` 再记账（证明它真的调了数据源）。
@@ -3513,10 +3556,11 @@ class AiWriteTest {
         //    减去付款那条线的「撤销付款」—— 131；
         //    2026-09-23 给三份「分类名册」（开销/运费/预订单）各加 4 个：建/改名/删/重排 —— 143；
         //    2026-10-04 给「线路分类名册」（FEAT-0009，线路这一档也要能分类）加了 4 个：
-        //    建/改名/删/重排 —— 147）。
+        //    建/改名/删/重排 —— 147；
+        //    2026-10-05 给「账号分类 / 车辆分类」两份名册（FEAT-0010）各加 4 个：建/改名/删/重排 —— 155）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 147（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 147)
+        assertTrue("动作数不该多于 155（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 155)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",

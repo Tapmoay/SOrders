@@ -375,7 +375,7 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(modifier = Modifier.width(CategoryDrawerWidth)) {
                 CategoryDrawerSheet(
                     title = "车辆分类",
                     // ⛔ 一格都不显示条数（用户 2026-09-19：「那个分组下面不要显示有多少条啊，

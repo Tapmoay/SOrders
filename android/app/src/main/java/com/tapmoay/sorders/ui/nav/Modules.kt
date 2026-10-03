@@ -97,7 +97,7 @@ object Modules {
         // 点了「办理退货」那一刻库存、账本、退款、订单状态才变（用户原话：「批发商只是一个申请，
         // 派单员才是实际性的操作」）。所以它紧挨着「订单管理」：同一件事的两头。
         ModuleEntry("退货申请", Routes.DISPATCH_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),  // 棕橙 · 退货这条线
-        ModuleEntry("账户管理", Routes.ACCOUNTS, Icons.Default.AccountBox, color = 0xFF8D6E63L),                     // 棕 · 统一建号（账号+密码+角色）
+        ModuleEntry("账户管理", Routes.ACCOUNTS, Icons.Default.AccountBox, color = 0xFF8D6E63L),                     // 棕 · 统一建号（账号+密码+角色）；值 = theme/Color.kt 的 AccountBrown（判据对账）
         ModuleEntry("司机管理", Routes.DISPATCH_DRIVERS, Icons.Default.Groups, color = DriverLime),                    // 黄绿 · 司机团队
         ModuleEntry("货主管理", Routes.SHIPPERS_MANAGE, Icons.Default.PeopleAlt, color = InventoryTeal),                // 深青 · 货主
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发

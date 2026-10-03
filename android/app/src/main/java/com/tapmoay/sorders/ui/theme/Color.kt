@@ -19,6 +19,23 @@ val ArrearsTangerine = 0xFFFF6B2CL // 挂账单位（欠款警示）：橙红
 val ReportIndigo = 0xFF6950F5L     // 报表中心：靛蓝紫
 val MessageRed = 0xFFFF4D4FL       // 消息 / 通知：红
 
+// ===== 账户管理的棕（2026-10-05，CHG-0023 从工作台宫格提上来）=====
+//
+// 「账户管理」这一格在工作台宫格里一直是棕 `#8D6E63`，但它**一直是个裸字面量**（`ui/nav/Modules.kt`
+// 那一行）—— 于是这一页的其余地方只能去借隔壁模块的色：分类胶囊、卡头圈底图标、右下角 FAB
+// 原来清一色是 `ShipperTeal`（规范 §2 里那是「地址与联系人」的湖蓝）。规范 §4.3 那句
+// 「⛔ **不许用别的功能的颜色**」说的就是这件事。
+//
+// ⚠️ `ui/nav/Modules.kt` 那一行**故意留着裸字面量**，不换成这个 token：判据
+// `_tools/qa/_check_ledger_dashboard.py` 直接按 `color = 0xFF……L` 扫宫格色来算「同屏不许撞色」，
+// 换成 token 那一格就扫不到了，`BAND_EXEMPT` 里 `#8D6E63` 的豁免也会跟着落空。
+// 两处同值由 `_tools/qa/_check_roster_cards.py` 当场对账 —— 只改一处一定判红。
+//
+// [OnAccountBrown] 是**站在这块棕上的字**：纯白对它 ≈ 4.6:1（过 AA 的 4.5:1），深字只有
+// ≈ 4.5:1 而且显脏，所以 FAB 用白字 —— 与 [OnDriverLime] / [OnArrearsTangerine] 是同一件事。
+val AccountBrown = 0xFF8D6E63L     // 账户管理：棕（统一建号：账号 + 密码 + 角色）
+val OnAccountBrown = 0xFFFFFFFFL   // 棕底上的字（右下角 FAB）
+
 // ===== 车辆台账（司机管理）的黄绿（2026-10-04，CHG-0016 从 VehicleManageScreen.kt 提上来）=====
 //
 // 规范 §2 的模块色表里「司机管理」那一格一直是黄绿 #CDDC39，但**常量列写的是「-」** ——

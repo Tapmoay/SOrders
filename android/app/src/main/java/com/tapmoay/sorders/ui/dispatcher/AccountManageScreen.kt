@@ -1,7 +1,5 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,7 +32,6 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.*
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -85,7 +82,7 @@ fun AccountManageScreen(
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(modifier = Modifier.width(CategoryDrawerWidth)) {
                 CategoryDrawerSheet(
                     title = "账号分类",
                     // ⛔ 一格都不显示条数（用户 2026-09-19：「那个分组下面不要显示有多少条啊，
@@ -93,7 +90,7 @@ fun AccountManageScreen(
                     items = listOf(CategoryDrawerItem("", "全部")) +
                         catVm.rows.map { CategoryDrawerItem("c|" + it.name, it.name) },
                     selectedKey = vm.railKey,
-                    accent = Color(ShipperTeal),
+                    accent = Color(AccountBrown),
                     manageLabel = "管理分类",
                     onPick = { key ->
                         vm.railKey = key
@@ -118,7 +115,8 @@ fun AccountManageScreen(
                         // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」
                         CategoryTriggerChip(
                             current = railNameOf(vm.railKey),
-                            accent = Color(ShipperTeal),
+                            // 账户管理的**模块色**（棕）= 工作台那一格的颜色，不再借地址页的湖蓝。
+                            accent = Color(AccountBrown),
                             onClick = { scope.launch { drawer.open() } },
                         )
                     }
@@ -133,9 +131,16 @@ fun AccountManageScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { vm.openCreate() }) {
-                Icon(Icons.Default.Add, contentDescription = "新增账户")
-            }
+            // 右下角这颗是「新增一个账号」：染**账户管理的棕**（§4.3「染模块语义色…不是默认
+            // 主题蓝，一色一功能」）。原来是一颗裸 FAB、默认主题蓝，连这一页别处的色都对不上。
+            // 用 Extended（带字）与车辆管理页同形 —— 光看一颗「＋」猜不出是"新增"还是"筛选"。
+            ExtendedFloatingActionButton(
+                onClick = { vm.openCreate() },
+                containerColor = Color(AccountBrown),
+                contentColor = Color(OnAccountBrown),
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("新增账号") },
+            )
         },
     ) { padding ->
         if (managingCategory) {
@@ -282,7 +287,6 @@ fun AccountManageScreen(
  * | 2 | 手机号（**长按复制**） | 与订单号同一个手势（用户 2026-09-19：「长按订单号是可以复制的」） |
  * | 3 | 左：删除 / 停用启用 · 右：编辑 | 用户 2026-09-22：「编辑一定在右边（惯用手是右手）…相反的操作就在左边」 |
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AccountCard(
     u: UserDto,
@@ -290,29 +294,16 @@ private fun AccountCard(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val ctx = LocalContext.current
-    // 「已复制」回执：与订单详情同一套写法（`copyTextToClipboard` 在 API 33+ 自己会弹系统浮层，
-    // 那时它返回 false，这条就不画 —— 两条提示叠在一起反而看不清复制了什么）
-    var copied by remember { mutableStateOf(false) }
-    LaunchedEffect(copied) {
-        if (copied) {
-            delay(2000)
-            copied = false
-        }
-    }
-
     SectionCard {
         // ---- 行1：姓名 + 角色 + 状态（同一行）----
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                u.fullName.ifBlank { u.phone },
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
+        // 名称行/电话行走 `ui/common/RosterCard.kt` 的两个共用零件：本页模块色的圈底人形图标 +
+        // 16sp 加粗姓名、青绿 Phone 图标 + 前景色号码（用户 2026-10-05：「名称和电话号码…要有
+        // 对应的语义色和图标。让信息明确」）—— ⛔ 别再在各页各写一份字号和颜色。
+        RosterNameRow(
+            name = u.fullName.ifBlank { u.phone },
+            icon = Icons.Default.Person,
+            accent = Color(AccountBrown),
+        ) {
             val (bg, fg) = labelColors(u)
             Surface(color = bg, shape = MaterialTheme.shapes.small) {
                 Text(
@@ -339,25 +330,8 @@ private fun AccountCard(
         }
         Spacer(Modifier.height(6.dp))
 
-        // ---- 行2：手机号（长按复制）----
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                u.phone,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 15.sp,
-                modifier = Modifier.combinedClickable(
-                    onClick = {},
-                    onLongClickLabel = "复制手机号",
-                    onLongClick = {
-                        if (copyTextToClipboard(ctx, "手机号", u.phone)) copied = true
-                    },
-                ),
-            )
-            if (copied) {
-                Spacer(Modifier.width(8.dp))
-                Text("已复制", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-            }
-        }
+        // ---- 行2：手机号（长按复制也搬进共用件了，见 RosterCard.kt）----
+        RosterPhoneRow(phone = u.phone)
         Spacer(Modifier.height(4.dp))
 
         // ---- 行3：动作行（左＝相反/警示 · 右＝编辑）----

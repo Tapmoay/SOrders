@@ -105,10 +105,12 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      '            AccountAction("编辑", Icons.Default.Edit, Color(NavBlue), onEdit)',
      '            AccountAction("编辑", Icons.Default.Edit, Color(NavBlue), onEdit)',
      "左右两栏之间有 Spacer(weight 1f)"),
+    # 2026-10-05 名册卡返工：电话行搬进了共用件 `ui/common/RosterCard.kt::RosterPhoneRow`，
+    # 注入点跟着搬家（⛔ 不是把这一条删掉 —— 删掉就是"没人证明这条判据真的会红"）。
     ("⑬ 手机号长按复制被去掉（换成普通 clickable）",
-     A + "ui/dispatcher/AccountManageScreen.kt",
-     "                modifier = Modifier.combinedClickable(",
-     "                modifier = Modifier.clickable(",
+     A + "ui/common/RosterCard.kt",
+     "            modifier = Modifier.combinedClickable(",
+     "            modifier = Modifier.clickable(",
      "手机号长按可复制"),
     ("⑭ 抽屉里不画红字了（校验拦住时用户看不到任何反应）",
      A + "ui/dispatcher/AccountManageScreen.kt",

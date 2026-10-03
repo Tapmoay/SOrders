@@ -14,7 +14,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.ui.common.*
-import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.ui.theme.AccountBrown
+import com.tapmoay.sorders.ui.theme.MessageRed
 import com.tapmoay.sorders.ui.common.Hint
 
 /**
@@ -28,11 +29,21 @@ import com.tapmoay.sorders.ui.common.Hint
  * ⛔ 抽屉（`CategoryDrawerSheet`）那几格**不显示条数**；条数只在这个面板里出现
  * —— 删之前要让人看见「这一类下还挂着几个账号」。
  */
+/**
+ * @param accent 这一份名册**宿主页的模块色**（规范 §2 / §4.3「一色一功能」）：面板里的顺序
+ *   箭头、重命名弹窗里那句条数都用它 —— 原来写死成 `ShipperTeal`（地址页的湖蓝），而这一页
+ *   是账户管理的棕、车辆那一页是车辆管理的黄绿。
+ */
 @Composable
-fun UserCategoriesPanel(vm: UserCategoriesViewModel, onBack: () -> Unit) {
+fun UserCategoriesPanel(
+    vm: UserCategoriesViewModel,
+    onBack: () -> Unit,
+    accent: Color = Color(AccountBrown),
+) {
     RosterPanel(
         vm = vm,
         title = "账号分类",
+        accent = accent,
         backLabel = "返回名册",
         newPlaceholder = "新分类名（如：自有车 / 外请车 / 长期合作）",
         hint = "全店一份：账户 / 司机 / 货主 / 批发商四个名册页的左栏都用这一份，顺序就是左栏的顺序。",
@@ -47,10 +58,15 @@ fun UserCategoriesPanel(vm: UserCategoriesViewModel, onBack: () -> Unit) {
 
 /** **车辆分类**管理面板（2026-10-05，车辆管理页左栏那一列）。 */
 @Composable
-fun VehicleCategoriesPanel(vm: VehicleCategoriesViewModel, onBack: () -> Unit) {
+fun VehicleCategoriesPanel(
+    vm: VehicleCategoriesViewModel,
+    onBack: () -> Unit,
+    accent: Color = VehicleAccent,
+) {
     RosterPanel(
         vm = vm,
         title = "车辆分类",
+        accent = accent,
         backLabel = "返回车辆",
         newPlaceholder = "新分类名（如：自有车队 / 外调车 / 挂靠）",
         hint = "全店一份：车辆管理页的左栏用这一份，顺序就是左栏的顺序。" +
@@ -70,6 +86,7 @@ private fun RosterPanel(
     vm: RosterViewModel,
     title: String,
     backLabel: String,
+    accent: Color,
     newPlaceholder: String,
     hint: String,
     emptyText: String,
@@ -143,6 +160,7 @@ private fun RosterPanel(
                         onDown = { vm.move(idx, +1) },
                         onRename = { vm.openRename(r) },
                         onDelete = { vm.deleting = r },
+                        accent = accent,
                     )
                 }
             }
@@ -150,11 +168,10 @@ private fun RosterPanel(
         // 刚删掉的那一格：名册是硬删（没有回收站），所以给一个**当场能按回来**的撤销 ——
         // 按原来的名字与位置重建一格（编号会变，但成员不受影响：还挂着东西的分类后端不让删）。
         vm.undoRow?.let { gone ->
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = MaterialTheme.shapes.medium,
-            ) {
+            // 撤销条也是**纯白卡**：这一层整个装在左侧抽屉里，抽屉的面是 `SheetSurface` 那层灰，
+            // 规范 §5.0 明写「抽屉里装的卡片必须是纯白」（原话的理由：白的面上再放白卡，对比就没了）。
+            // 原来用的 `surfaceContainerHigh` 比抽屉的面还深，看着像抽屉里嵌了一块更灰的板。
+            SectionCard(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -196,7 +213,7 @@ private fun RosterPanel(
                         Text(
                             countLine.format(target.count),
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(ShipperTeal),
+                            color = accent,
                         )
                     }
                 }
@@ -224,13 +241,17 @@ private fun RosterRowCard(
     unit: String,
     first: Boolean,
     last: Boolean,
+    accent: Color,
     onUp: () -> Unit,
     onDown: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
     SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             Column(Modifier.weight(1f)) {
                 Text(row.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(
@@ -239,26 +260,46 @@ private fun RosterRowCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onUp, enabled = !first) {
-                Icon(
-                    Icons.Default.KeyboardArrowUp,
-                    contentDescription = "上移",
-                    tint = if (first) MaterialTheme.colorScheme.outlineVariant else Color(ShipperTeal),
-                )
-            }
-            IconButton(onClick = onDown, enabled = !last) {
-                Icon(
-                    Icons.Default.KeyboardArrowDown,
-                    contentDescription = "下移",
-                    tint = if (last) MaterialTheme.colorScheme.outlineVariant else Color(ShipperTeal),
-                )
-            }
-            IconButton(onClick = onRename) {
-                Icon(Icons.Default.Edit, contentDescription = "重命名", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "删除", tint = Color(0xFFFF4D4F))
-            }
+            // 四颗动作图标走共用件 `CardActionIcon`（规范 §4.2c：卡片上的**图标**动作一律做成
+            // 圈底图标）。原来这里是四枚裸 `IconButton` 里塞一个 18dp 图标 —— 规范里被用户当场
+            // 点名「这个不行」的正是那个形态：在信息很满的卡片上它太轻，手指也不好找。
+            //
+            // ⛔ 这四颗**不带字**（不传 `label`）：一行要挤下四颗，带字会把这一行撑爆；
+            //    四颗各自的 `contentDescription` 仍然说清是"上移 / 下移 / 重命名 / 删除"。
+            CardActionIcon(
+                icon = Icons.Default.KeyboardArrowUp,
+                contentDescription = "上移",
+                tint = if (first) MaterialTheme.colorScheme.outlineVariant else accent,
+                onClick = onUp,
+                enabled = !first,
+                size = 15.dp,
+                container = 30.dp,
+            )
+            CardActionIcon(
+                icon = Icons.Default.KeyboardArrowDown,
+                contentDescription = "下移",
+                tint = if (last) MaterialTheme.colorScheme.outlineVariant else accent,
+                onClick = onDown,
+                enabled = !last,
+                size = 15.dp,
+                container = 30.dp,
+            )
+            CardActionIcon(
+                icon = Icons.Default.Edit,
+                contentDescription = "重命名",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onRename,
+                size = 15.dp,
+                container = 30.dp,
+            )
+            CardActionIcon(
+                icon = Icons.Default.DeleteOutline,
+                contentDescription = "删除",
+                tint = Color(MessageRed),
+                onClick = onDelete,
+                size = 15.dp,
+                container = 30.dp,
+            )
         }
     }
 }

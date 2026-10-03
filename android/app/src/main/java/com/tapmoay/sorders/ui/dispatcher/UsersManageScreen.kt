@@ -33,6 +33,7 @@ import com.tapmoay.sorders.ui.theme.InventoryTeal
 import com.tapmoay.sorders.ui.theme.MemberGold
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.NavBlue
+import com.tapmoay.sorders.ui.theme.OnDriverLime
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.ui.theme.WarningAmber
 import com.tapmoay.sorders.util.formatMoney
@@ -122,7 +123,7 @@ fun UsersManageScreen(
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(modifier = Modifier.width(CategoryDrawerWidth)) {
                 CategoryDrawerSheet(
                     title = "账号分类",
                     // ⛔ 一格都不显示条数（用户 2026-09-19：「那个分组下面不要显示有多少条啊，
@@ -130,7 +131,7 @@ fun UsersManageScreen(
                     items = listOf(CategoryDrawerItem("", "全部")) +
                         catVm.rows.map { CategoryDrawerItem("c|" + it.name, it.name) },
                     selectedKey = vm.railKey,
-                    accent = Color(InventoryTeal),
+                    accent = poolModuleColor(pool),
                     manageLabel = "管理分类",
                     onPick = { key ->
                         vm.railKey = key
@@ -155,7 +156,9 @@ fun UsersManageScreen(
                         // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」
                         CategoryTriggerChip(
                             current = railNameOf(vm.railKey),
-                            accent = Color(InventoryTeal),
+                            // 这一池的**模块色**：司机=黄绿 / 货主=深青 / 批发商=金（§4.3 一色一功能）。
+                            // 原来三个池共用货主管理的深青 —— 批发商那一页的胶囊和工作台那一格对不上。
+                            accent = poolModuleColor(pool),
                             onClick = { scope.launch { drawer.open() } },
                         )
                     }
@@ -185,9 +188,16 @@ fun UsersManageScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { vm.openCreate() }) {
-                Icon(Icons.Default.Add, contentDescription = "新增" + pool.title.removeSuffix("管理"))
-            }
+            // 右下角这颗是「新增一个（司机 / 货主 / 批发商）」：染**这一池的模块色**，不是主题蓝
+            // —— §4.3「染模块语义色…不是默认主题蓝，一色一功能」。用 Extended（带字）不用裸 FAB：
+            // 光看一颗「＋」猜不出是"新增"还是"筛选"，老人友好这条线上带字更清楚。
+            ExtendedFloatingActionButton(
+                onClick = { vm.openCreate() },
+                containerColor = poolModuleColor(pool),
+                contentColor = poolOnColor(pool),
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("新增" + pool.title.removeSuffix("管理")) },
+            )
         },
     ) { padding ->
         if (managingCategory) {
@@ -627,7 +637,8 @@ private fun UserManageCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         u.fullName.ifBlank { u.username },
-                        style = MaterialTheme.typography.titleSmall,
+                        // 16sp 加粗：名册卡的「名称」是同一号字（账户卡 16sp / 车辆卡车牌 titleMedium）
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.width(8.dp))
@@ -653,10 +664,9 @@ private fun UserManageCard(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    u.phone,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // 电话走共用件（青绿 Phone 图标 + 前景色号码 + 长按复制），全库一个样
+                RosterPhoneRow(
+                    phone = u.phone,
                 )
                 if (pool == UserPool.DRIVERS) {
                     Spacer(Modifier.height(6.dp))
@@ -780,6 +790,37 @@ private fun poolAccent(pool: UserPool): Color = when (pool) {
     UserPool.DRIVERS -> Color(0xFF5A6B00)    // 司机黄绿（与「司机管理」同族）
     UserPool.SHIPPERS -> Color(0xFF0A3168)   // 货主蓝
     UserPool.MEMBERS -> Color(0xFF7A5900)    // 批发商金（与卡上的「批发商」徽章同色）
+}
+
+/**
+ * **这一池的模块色** = 工作台里那一格的语义色（规范 §2 / §4.3「染模块语义色…一色一功能」）。
+ *
+ * ⛔ 与上面的 [poolAccent] 是**两件事，别合并**：那个是「姓氏圆底 / 角色字」用的**深色**
+ * （浅底上要够黑才看得清，判据 `_check_users_ui.py` 钉着那三个值一个字不许动）；这个是
+ * 「分类胶囊 / 右下角 FAB」用的**模块色**，要与工作台那一格对得上 ——
+ * 用户 2026-10-05 说「你并没有按照我们的设计规范进行设计」，指的就是这里原来借了
+ * 货主管理的深青 `InventoryTeal`：批发商那一页的胶囊和工作台那一格（金）对不上。
+ */
+private fun poolModuleColor(pool: UserPool): Color = when (pool) {
+    UserPool.DRIVERS -> Color(DriverLime)      // 司机管理：黄绿
+    UserPool.SHIPPERS -> Color(InventoryTeal)  // 货主管理：深青
+    UserPool.MEMBERS -> Color(MemberGold)      // 批发商管理：金
+}
+
+/**
+ * 压在 [poolModuleColor] 上的字色（右下角那颗 Extended FAB 的字与图标）。
+ *
+ * 三个模块色的亮度差得很远，白字不是处处能用：黄绿 `#CDDC39` 上白字只有 1.4:1，
+ * 所以司机池配深橄榄 [OnDriverLime]（≈8:1）；深青 `#00A8A8` 上白字 2.9:1、金 `#F5A623`
+ * 上白字 2.0:1，**都过不了 AA 的 4.5:1**，所以货主池配深青 `#00312F`（≈4.7:1）、
+ * 批发商池配深金棕 `#3A2A00`（≈6.9:1）。
+ *
+ * ⛔ 别顺手改成一律 `Color.White`：那三个值不是审美，是白字真看不清。
+ */
+private fun poolOnColor(pool: UserPool): Color = when (pool) {
+    UserPool.DRIVERS -> Color(OnDriverLime)
+    UserPool.SHIPPERS -> Color(0xFF00312F)
+    UserPool.MEMBERS -> Color(0xFF3A2A00)
 }
 
 /**

@@ -1,6 +1,5 @@
 package com.tapmoay.sorders.ui.common
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
@@ -32,6 +32,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+/**
+ * 分类抽屉**半展开**的宽度：240dp（约屏宽的 2/3）。
+ *
+ * M3 的 `ModalDrawerSheet` 默认几乎顶满整屏（360dp 屏上约 304dp ≈ 84%），而分类抽屉里
+ * 通常只有一两格（「全部」+ 一两个分类），于是右边什么都看不见、下面一大片空 ——
+ * 用户 2026-10-05 的原话：「全部展开的话，他属于啊内容又比较短太空旷了我们可以搞一个半展开」。
+ *
+ * 240dp 的两条理由：① 右边留出可见的列表，点分类时**能立刻看到卡片跟着筛**，不用先关抽屉；
+ * ② 比既有先例 `ui/ai/AiChatScreen.kt:142 DrawerWidth = 300.dp` 窄一档 —— 那边是聊天记录
+ * （一行字多），这边是一列分类名（一格两个字），240 够放最长的那类名。
+ *
+ * ⛔ **选人抽屉不吃这条**：结算页 / 账本页那种带搜索框 + 副标题的选人抽屉内容多，
+ * 保持 `ModalDrawerSheet` 的默认宽度（别顺手统一，那几处另有判据钉着）。
+ */
+val CategoryDrawerWidth = 240.dp
 /**
  * 「按分类看」抽屉里的一格（[CategoryDrawerSheet] 的数据形状）。
  *
@@ -119,7 +134,9 @@ fun CategoryDrawerSheet(
         Spacer(Modifier.height(20.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
-        Hint("选一类只看这一类；不选就是全部。")
+        // 常驻文案压到 8 字：「半展开」的抽屉只有 240.dp 宽，16 字那句会折成两行、把第一格
+        // 往下顶。规范 §4.10「常驻文案最多 7 到 8 个字」。
+        Hint("选一类只看这一类")
         Spacer(Modifier.height(6.dp))
         LazyColumn(Modifier.weight(1f)) {
             items(items, key = { it.key }) { item ->
@@ -127,6 +144,8 @@ fun CategoryDrawerSheet(
                     label = item.label,
                     selected = item.key == selectedKey,
                     accent = accent,
+                    // 「全部」用九宫格、真分类用文件夹：一眼分清"这是复位"还是"这是一类"
+                    icon = if (item.key.isEmpty()) Icons.Default.Apps else Icons.Default.Folder,
                     onClick = { onPick(item.key) },
                 )
             }
@@ -153,37 +172,51 @@ private fun CategoryDrawerRow(
     onClick: () -> Unit,
     icon: ImageVector? = null,
 ) {
-    Row(
-        Modifier
+    // 选中那格给自己一个浅色底（只有字变色时，一列里"选中的是哪一格"要靠读字才知道；
+    // 底色是 `accent.copy(alpha = 0.12f)`，与 `CategoryTriggerChip` 同一口径 —— 一色一功能）
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) accent.copy(alpha = 0.12f) else Color.Transparent,
+        modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .clickable(onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = 2.dp),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) accent else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (selected) {
-            Icon(
-                Icons.Default.Check,
-                contentDescription = "已选中",
-                tint = accent,
-                modifier = Modifier.size(18.dp),
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 图标在**最左**：一列分类的图标要对齐成一条线，人才扫得快
+            // （原来画在右端，跟选中的对勾抢同一个位置）
+            if (icon != null) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) accent else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-        }
-        if (icon != null) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
+            if (selected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "已选中",
+                    tint = accent,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
