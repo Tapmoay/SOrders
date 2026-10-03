@@ -30,21 +30,6 @@
 ---
 
 ## 进行中
-### [2026-10-04 进行中] 会话：**CHG-0030 消息提醒按角色统一（所有角色后台都能接收）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：用户 2026-10-04 下达的五件事清单第 ③ 件 ——「消息提醒按角色统一：所有角色后台都能接收、语音只有派单员与司机（货主、批发商没有），修掉货主端默认「仅前台接收」」。
-
-**病灶**：`core/NewOrderAlert.kt` 的 `defaultBackground(role)` 从前返回 `hasVoice(role)` —— 把「关掉 App 还能不能收消息」绑在「有没有语音播报」上，于是货主与批发商默认「仅前台接收」，关掉 App 一条通知都收不到。
-
-**改了哪五处**：
-
-- `core/NewOrderAlert.kt`：缺省恒真（不再跟 `hasVoice` 绑）；`serviceNotice` / `backgroundRowText` 三支按角色说；`summary` 每个角色都写「·后台接收 / ·仅前台接收」。
-- `core/AlertPrefs.kt`：用户没表过态时走那条缺省（表过态照样听他的）。
-- `core/AlertService.kt`：读会话缓存里的角色再递进 `serviceNotice`；类注释改角色中性。
-- `core/NotifyCenter.kt`：渠道名与描述角色中性（整机共享，不能只写司机的活）；常驻通知标题由调用方给。
-- `ui/profile/AlertSettingsScreen.kt`：那一档的标题与副标题按角色说。
-
-**落点与提交**：判据 `_tools/qa/_check_alert_background_all_roles.py`（57 项）、反验 `_tools/qa/_reverse_verify_alert_background_all_roles.py`（16 条注入）；Android 单测 1160 项 0 失败；既有通知红线 120 项、既有通知反验 46/46；真机与全量静检 ⏳。实现提交（本事项）。
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5639,6 +5624,21 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**CHG-0030 消息提醒按角色统一：所有角色后台都能接收（语音仍是司机与派单员的活）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：用户 2026-10-04 下达的五件事清单第 ③ 件 ——「消息提醒按角色统一：所有角色后台都能接收、语音只有派单员与司机（货主、批发商没有），修掉货主端默认「仅前台接收」」。
+
+**病灶**：`core/NewOrderAlert.kt` 的 `defaultBackground(role)` 从前返回 `hasVoice(role)` —— 把「关掉 App 还能不能收消息」绑在「有没有语音播报」上，于是货主与批发商默认「仅前台接收」，关掉 App 一条通知都收不到。
+
+**改了哪五处**：
+
+- `core/NewOrderAlert.kt`：缺省恒真（不再跟 `hasVoice` 绑）；`serviceNotice` / `backgroundRowText` 三支按角色说；`summary` 每个角色都写「·后台接收 / ·仅前台接收」。
+- `core/AlertPrefs.kt`：用户没表过态时走那条缺省（表过态照样听他的）。
+- `core/AlertService.kt`：读会话缓存里的角色再递进 `serviceNotice`；类注释改角色中性。
+- `core/NotifyCenter.kt`：渠道名与描述角色中性（整机共享，不能只写司机的活）；常驻通知标题由调用方给。
+- `ui/profile/AlertSettingsScreen.kt`：那一档的标题与副标题按角色说。
+
+**落点与提交**：判据 `_tools/qa/_check_alert_background_all_roles.py`（57 项 / JUDGE=0）、反验 `_tools/qa/_reverse_verify_alert_background_all_roles.py`（16 条注入全红 / REV=0）；Android 单测 1160 项 0 失败；既有通知红线 120 项、既有通知反验 46/46；全量静检 166/166。真机：emulator-5556（货主 13800000002）实测「消息提醒｜后台接收中」默认开、那一档「关掉 App 也收消息」、常驻通知「SOrders 正在后台接收消息」、关掉后副标题与摘要改成「仅前台接收」再打开恢复；emulator-5558（司机 13800000003）那一档仍是「关掉 App 也收单」、关掉后台那一行变「语音 3 次·仅前台接收」（截图 `_tmp/ev/70…78`）。实现提交 `c34033a`，归档提交（本笔）。
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**BUG-0009 地点卡上的「??????」：写进来的那一刻就已经是问号**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：用户 2026-10-03 点名的第二件事 —— 查清开发库那张 `??????` 地点卡的**写入端**，并把编码 / 校验兜底补上（提示「可能是关于 AI 的功能」）。
