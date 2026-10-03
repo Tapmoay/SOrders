@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-05 进行中] 会话：**CHG-0022 司机计费规则的新建 / 编辑从 AlertDialog 搬成单独一整页**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：（这一批**没有**新的点名原话 —— 起因是设计规范与这一页自己的形态打架。）长期口径仍是「前端页面要重做按照我们的设计规范进行写」（2026-10-03 那一批的原话）与「你全部安排一下，全部把它做完」；具体形态照 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:762-763` 那条：「**表单带选择器时用单独一页**，不要塞进 `AlertDialog`：全屏选品层套在弹窗里就是两层 modal 窗口叠着，而且字段一多弹窗会顶到屏幕边」（同处明说这条不限于记账）。
+
+**改什么**：`ui/dispatcher/DriverBillingRulesScreen.kt` 的 `RuleDialog`（:277-475 —— 十段字段塞在 `AlertDialog` 里，弹窗里还能再开一个占 90% 屏高的价目选择层）整段换成**同屏整页表单**：顶栏随表单切换（新建计费规则 / 编辑计费规则）、中间一整列滚动体、底部常驻保存栏（错误行在里面，滚到底才看得见等于没有）；十个字段改走共用行 `FormInputRow` / `FormPickRow` / `FormTextAreaRow`，五组 `FormGroup` 白卡；四个「少量互斥选项」（适用车型 / 每单金额怎么定 / 计价单位 / 提成基数）保留 `SegmentedPicker` 并包进 `PickerBlock`。ViewModel `showDialog`→`showForm`、`dialogError`→`formError`，新增 `closeForm()`（一条路关表单、清错误；保存失败不关）。判据 `_tools/qa/_check_billing_rule_form.py`（53 项）+ 反验 `_tools/qa/_reverse_verify_billing_rule_form.py`（45 条）；`_check_form_panel_style.py` 的 CONVERTED 登记这一页、`_check_input_rules.py` 的豁免键跟着改名。
+
+**Blast Radius**：L0（只动一个 Kotlin 文件里的私有 composable 的版式 + 同页 ViewModel 的三个标志位改名 + 判据 / 反验 / 两份配置；接口、DTO、仓库层、权限、审计、迁移一行不动）。
+
+**文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DriverBillingRulesScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DriverBillingRulesViewModel.kt`、`_tools/qa/_check_billing_rule_form.py`、`_tools/qa/_reverse_verify_billing_rule_form.py`、`_tools/qa/_check_form_panel_style.py`、`_tools/qa/_check_input_rules.py`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（source_hash 重生成）、`docs/changes/CHG-0022.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
+
+**结果**：（归档时补）
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

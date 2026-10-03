@@ -101,10 +101,15 @@ EXCLUDED: dict[str, str] = {
     "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt::搜线路：收货人 / 电话 / 地址": (
         "地址与联系人页的**搜索框**（搜线路/联系人），关键词里带「电话」而已。"
     ),
-    "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DriverBillingRulesScreen.kt::规则名称（如：挂车计件 / 小型车月薪+提成）": (
-        "这是计费**规则的名称**（自由文本，要能写「月薪+提成」这种名字），"
-        "命中关键词只因为它出现在举例文案里。这一条是「提成」进关键词表的代价："
-        "多认一个名字框，换来两个真正该管的框（提成比例 ×2）被认出来 —— 划算，所以留着。"
+    # ⚠️ 2026-10-05（CHG-0022）：这条豁免的**键**跟着改名了 —— 司机计费规则的表单从 `AlertDialog`
+    #    搬成了单独一整页，那一格现在是 `FormInputRow(label = "规则名称", …)`。判类看的是整段调用
+    #    （label + placeholder 拼起来的 blob），标题从「规则名称（如：挂车计件 / 小型车月薪+提成）」
+    #    变成干干净净的「规则名称」，键就得跟着换，否则命中不到真实输入框、被化石规则判红。
+    "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DriverBillingRulesScreen.kt::规则名称": (
+        "这是计费**规则的名称**（自由文本，要能写「月薪+提成」这种名字）。它被判成金额框，是因为"
+        "**举例文案**里出现了「提成」两个字（placeholder = 如：挂车计件 / 小型车月薪+提成），"
+        "名字框加数字过滤就废了。这一条是「提成」进关键词表的代价：多认一个名字框，换来两个真正"
+        "该管的框（提成比例 ×2）被认出来 —— 划算，所以留着。"
     ),
     # ⚠️ 2026-10-03（CHG-0018）：这里原来还有一条豁免 —— 司机编辑弹窗里的「计费规则（他怎么算钱就看这一项）」
     #    只读下拉框。那个表单从 `AlertDialog` 搬进抽屉时整格换成了 `FormPickRow`（**不在**本脚本的

@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,9 +8,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.CurrencyYuan
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.PriceChange
 import androidx.compose.material.icons.filled.RestoreFromTrash
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.*
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.*
@@ -19,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import com.tapmoay.sorders.util.formatMoney
@@ -27,6 +38,11 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.DriverBillingRuleDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.common.Hint
+import com.tapmoay.sorders.ui.theme.DestOrange
+import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.OriginTeal
+import com.tapmoay.sorders.ui.theme.ProductPurple
+import com.tapmoay.sorders.ui.theme.ShipperTeal
 
 /**
  * 司机计费规则模板（派单员）。
@@ -61,24 +77,48 @@ fun DriverBillingRulesScreen(container: AppContainer, onBack: () -> Unit) {
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
+    // 表单开着时，系统返回键先关表单（不是退出这一页）—— 与真的「单独一页」完全一样的手感。
+    // ⚠️ 价目选择层（[FreightPickSheet]）在下面**后**注册，所以它开着时返回键先关的是那一层。
+    BackHandler(enabled = vm.showForm) { vm.closeForm() }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            AppTopBar(
-                title = "司机计费规则",
-                subtitle = "建好规则后，去司机编辑里挂给他",
-                onBack = onBack,
-                actions = {
-                    TextButton(onClick = { vm.openCreate() }) {
-                        Icon(Icons.Default.Add, null, Modifier.size(20.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("新建")
-                    }
-                },
-            )
+            // 表单开着就换成表单自己的标题 + 返回：两个顶栏叠着出现，用户说不清「现在在哪儿」。
+            if (vm.showForm) {
+                AppTopBar(
+                    title = if (vm.editing == null) "新建计费规则" else "编辑计费规则",
+                    subtitle = "固定工资 / 每单多少钱 / 提成，三件可以任意组合",
+                    onBack = { vm.closeForm() },
+                )
+            } else {
+                AppTopBar(
+                    title = "司机计费规则",
+                    subtitle = "建好规则后，去司机编辑里挂给他",
+                    onBack = onBack,
+                    actions = {
+                        TextButton(onClick = { vm.openCreate() }) {
+                            Icon(Icons.Default.Add, null, Modifier.size(20.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("新建")
+                        }
+                    },
+                )
+            }
+        },
+        bottomBar = {
+            // 保存栏**常驻**（不跟着内容滚）：这份表单很长，错误行滚到底才看得见等于没有 ——
+            // 见 [FormErrorLine] 的 KDoc「表单的错误必须和表单同生共死」。
+            if (vm.showForm) RuleFormBottomBar(vm)
         },
     ) { pad ->
+        // 表单开着 = 整页表单（同屏第二层）：早返回，列表那一段原样留在下面、不缩进。
+        if (vm.showForm) {
+            RuleFormBody(vm, pad)
+            return@Scaffold
+        }
         Column(Modifier.fillMaxSize().padding(pad)) {
+
             // 在用 / 回收站：撤回底线是"删错了要能拿回来"，那条路必须摆在明面上。
             SegmentedPicker(
                 labels = listOf("在用", "回收站"),
@@ -128,10 +168,6 @@ fun DriverBillingRulesScreen(container: AppContainer, onBack: () -> Unit) {
                 }
             }
         }
-    }
-
-    if (vm.showDialog) {
-        RuleDialog(vm)
     }
 
     if (vm.showTemplatePicker) FreightPickSheet(vm)
@@ -274,23 +310,49 @@ private fun RuleCard(
     }
 }
 
-/** 新建 / 编辑弹窗。三个金额框都能留空（空 = 0）。 */
+/**
+ * 新建 / 编辑计费规则 = **同屏整页**（用户看到的东西与「新增商品」那种单独一页一模一样）。
+ *
+ * ### 为什么不弹窗（2026-10-05 · CHG-0022）
+ * 规范 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:762-763`：「**表单带选择器时用单独一页**，
+ * 不要塞进 `AlertDialog`：全屏选品层套在弹窗里就是两层 modal 窗口叠着，而且字段一多弹窗会顶到
+ * 屏幕边」（:765 明说这条不限于记账）。这份表单两条都踩：字段十来个（按分类定价时每类再加两行），
+ * 并且里面能开「用哪些运费价目」那个整层选择器 —— 原来是「弹窗里再弹一个全屏层」。
+ *
+ * ### 为什么是「同屏第二层」而不是开新路由
+ * 后端没有「按编号取一条规则」的接口（`api/v1/driver_billing_rules.py` 只有整表与增删改），
+ * 开新路由就得在新页面里拉全表再按编号找；而且 `appViewModel` 按 `NavBackStackEntry` 作用域，
+ * 列表页那份草稿态搬不过去。先例是地址与联系人页的「管理分类」（`CategoryManagePanel`）——
+ * 用户看到的东西与真路由**完全一样**：整屏表单 + 顶部返回 + 底部保存栏 + 返回键先关表单。
+ *
+ * ### 每一格都走共用行
+ * 分组用 `FormGroup`（组标题在卡外）、格用 `FormInputRow` / `FormPickRow` / `FormTextAreaRow`
+ * （规范 §5.0「分组一律白卡」，判据 `_tools/qa/_check_form_panel_style.py`）。
+ * 四处「少量互斥选项」仍然是 `SegmentedPicker`：它天然满宽等宽，塞进 `FormRow` 右侧那半栏会挤，
+ * 所以按 `AiSettingsScreen` 那块「标签在上、选择器在下」的形态放进卡里（见 [PickerBlock]）。
+ */
 @Composable
-private fun RuleDialog(vm: DriverBillingRulesViewModel) {
-    AlertDialog(
-        onDismissRequest = { vm.showDialog = false },
-        title = { Text(if (vm.editing == null) "新建计费规则" else "编辑计费规则") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                SoTextField(
-                    vm.draftName,
-                    { vm.draftName = it },
-                    placeholder = "规则名称（如：挂车计件 / 小型车月薪+提成）",
-                )
-
-                Spacer(Modifier.height(12.dp))
-                Text("适用车型", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
+private fun RuleFormBody(vm: DriverBillingRulesViewModel, pad: PaddingValues) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(pad)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        // ---- 这条规则叫什么、挂给谁 ----
+        FormGroup(icon = Icons.Default.Badge, title = "这条规则叫什么", tint = Color(ShipperTeal)) {
+            FormInputRow(
+                label = "规则名称",
+                value = vm.draftName,
+                onValueChange = { vm.draftName = it },
+                placeholder = "如：挂车计件 / 小型车月薪+提成",
+                required = true,
+                icon = Icons.Default.Badge,
+                iconTint = Color(ShipperTeal),
+            )
+            PickerBlock(label = "适用车型", icon = Icons.Default.DirectionsCar, iconTint = Color(OriginTeal)) {
                 SegmentedPicker(
                     labels = VEHICLE_OPTIONS.map { it.second },
                     selected = indexOfValue(VEHICLE_OPTIONS, vm.draftVehicle),
@@ -298,43 +360,29 @@ private fun RuleDialog(vm: DriverBillingRulesViewModel) {
                     fontSize = 14.sp,
                     height = 38.dp,
                 )
-                Spacer(Modifier.height(4.dp))
-                Hint(
-                    "选了车型 = 这份规则只能挂给那种车的司机（挂错了后端会拦）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            }
+            Hint(
+                "选了车型 = 这份规则只能挂给那种车的司机（挂错了后端会拦）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
-                Spacer(Modifier.height(12.dp))
-                // ---- 价目归规则（用户 2026-09-21：「规则也就是取运费模板吧，也就是价目……
-                //      勾选的时候就像一个商品界面，可以全选本分类，也可以单独勾」）----
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("用哪些运费价目", style = MaterialTheme.typography.labelMedium)
-                        Text(
-                            if (vm.draftTemplateIds.isEmpty()) "还没勾 —— 派单时这个司机的单会进「待定价」"
-                            else "已勾 " + vm.draftTemplateIds.size + " 条（派单选了他就从这里按路线+分类带价）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (vm.draftTemplateIds.isEmpty()) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    TextButton(onClick = { vm.showTemplatePicker = true }) { Text("选择") }
-                }
-                Spacer(Modifier.height(12.dp))
-                SoTextField(
-                    vm.draftSalary,
-                    // 金额规则唯一实现在 core/InputRules.kt（只数字 + 至多一个小数点 + 两位小数）。
-                    // 这三个框原来什么过滤都没有，键盘还是 Number（没有小数点）。
-                    { vm.draftSalary = InputRules.moneyInput(it) },
-                    placeholder = "固定工资（元/月，留空 = 0）",
-                    keyboardType = KeyboardType.Decimal,
-                )
-
-                Spacer(Modifier.height(12.dp))
-                // ---- 每单金额怎么定（用户 2026-09-21：「按单计费有两种规则」）----
-                Text("每单金额怎么定", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
+        // ---- 三件钱：固定工资 / 每单多少钱 / 提成 ----
+        FormGroup(icon = Icons.Default.Payments, title = "钱怎么算", tint = Color(MoneyOrange)) {
+            FormInputRow(
+                label = "固定工资",
+                value = vm.draftSalary,
+                // 金额规则唯一实现在 core/InputRules.kt（只数字 + 至多一个小数点 + 两位小数）。
+                // 这几个框原来什么过滤都没有，键盘还是 Number（没有小数点）。
+                onValueChange = { vm.draftSalary = InputRules.moneyInput(it) },
+                placeholder = "元/月，留空 = 0",
+                keyboardType = KeyboardType.Decimal,
+                icon = Icons.Default.Payments,
+                iconTint = Color(MoneyOrange),
+            )
+            // 每单金额怎么定（用户 2026-09-21：「按单计费有两种规则」）
+            PickerBlock(label = "每单金额怎么定", icon = Icons.Default.CurrencyYuan, iconTint = Color(MoneyOrange)) {
                 SegmentedPicker(
                     labels = PIECE_MODE_OPTIONS.map { it.second },
                     selected = indexOfValue(PIECE_MODE_OPTIONS, vm.draftPieceMode),
@@ -342,59 +390,61 @@ private fun RuleDialog(vm: DriverBillingRulesViewModel) {
                     fontSize = 14.sp,
                     height = 38.dp,
                 )
-                Spacer(Modifier.height(6.dp))
-                if (vm.draftPieceMode == "uniform") {
-                    SoTextField(
-                        vm.draftPieceAmount,
-                        { vm.draftPieceAmount = InputRules.moneyInput(it) },
-                        placeholder = "每单金额（元，留空 = 0）",
-                        keyboardType = KeyboardType.Decimal,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                } else {
-                    // 按分类定价：一类一行（金额 / 比例），空着的那一类 = 不定价
+            }
+            if (vm.draftPieceMode == "uniform") {
+                FormInputRow(
+                    label = "每单金额",
+                    value = vm.draftPieceAmount,
+                    onValueChange = { vm.draftPieceAmount = InputRules.moneyInput(it) },
+                    placeholder = "元，留空 = 0",
+                    keyboardType = KeyboardType.Decimal,
+                    icon = Icons.Default.CurrencyYuan,
+                    iconTint = Color(MoneyOrange),
+                )
+            } else {
+                // 按分类定价：一类两行（每单金额 / 提成），空着的那一类 = 不定价
+                Text(
+                    "逐类填：哪一类货每单给多少、抽多少。没填的那些类，这一单就没有这份钱 —— " +
+                        "（这一单属于哪一类，由派单时匹配到的运价带过来）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (vm.categories.isEmpty()) {
                     Text(
-                        "逐类填：哪一类货每单给多少、抽多少。没填的那些类，这一单就没有这份钱 —— " +
-                            "（这一单属于哪一类，由派单时匹配到的运价带过来）",
+                        "还没有运费分类 —— 先到「运费模板 → 分类管理」建几个",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.error,
                     )
-                    Spacer(Modifier.height(4.dp))
-                    if (vm.categories.isEmpty()) {
-                        Text(
-                            "还没有运费分类 —— 先到「运费模板 → 分类管理」建几个",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    vm.categories.forEach { c ->
-                        val row = vm.draftCategoryRows[c.id] ?: ("" to "")
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
-                            Text(
-                                c.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.width(64.dp),
-                                maxLines = 1,
-                            )
-                            SoTextField(
-                                row.first,
-                                { vm.setCategoryRow(c.id, piece = InputRules.moneyInput(it), rate = null) },
-                                Modifier.weight(1f),
-                                placeholder = "每单 ¥",
-                                keyboardType = KeyboardType.Decimal,
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            SoTextField(
-                                row.second,
-                                { vm.setCategoryRow(c.id, piece = null, rate = InputRules.moneyInput(it, maxDecimals = 2, maxWhole = 3)) },
-                                Modifier.weight(1f),
-                                placeholder = "提成 %",
-                                keyboardType = KeyboardType.Decimal,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(2.dp))
                 }
+                vm.categories.forEach { c ->
+                    val row = vm.draftCategoryRows[c.id] ?: ("" to "")
+                    FormInputRow(
+                        label = c.name + " · 每单金额",
+                        value = row.first,
+                        onValueChange = { vm.setCategoryRow(c.id, piece = InputRules.moneyInput(it), rate = null) },
+                        placeholder = "每单 ¥",
+                        keyboardType = KeyboardType.Decimal,
+                        icon = Icons.Default.CurrencyYuan,
+                        iconTint = Color(MoneyOrange),
+                    )
+                    FormInputRow(
+                        label = c.name + " · 提成",
+                        value = row.second,
+                        onValueChange = {
+                            vm.setCategoryRow(
+                                c.id,
+                                piece = null,
+                                rate = InputRules.moneyInput(it, maxDecimals = 2, maxWhole = 3),
+                            )
+                        },
+                        placeholder = "提成 %",
+                        keyboardType = KeyboardType.Decimal,
+                        icon = Icons.Default.PriceChange,
+                        iconTint = Color(MoneyOrange),
+                    )
+                }
+            }
+            PickerBlock(label = "计价单位", icon = Icons.Default.Straighten, iconTint = Color(OriginTeal)) {
                 SegmentedPicker(
                     labels = PIECE_UNIT_OPTIONS.map { it.second },
                     selected = indexOfValue(PIECE_UNIT_OPTIONS, vm.draftPieceUnit),
@@ -402,10 +452,15 @@ private fun RuleDialog(vm: DriverBillingRulesViewModel) {
                     fontSize = 14.sp,
                     height = 38.dp,
                 )
+            }
+        }
 
-                Spacer(Modifier.height(12.dp))
-                Text("提成", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
+        FormGroup(icon = Icons.Default.PriceChange, title = "提成", tint = MaterialTheme.colorScheme.tertiary) {
+            PickerBlock(
+                label = "按什么提成",
+                icon = Icons.Default.PriceChange,
+                iconTint = MaterialTheme.colorScheme.tertiary,
+            ) {
                 SegmentedPicker(
                     labels = COMMISSION_OPTIONS.map { it.second },
                     selected = indexOfValue(COMMISSION_OPTIONS, vm.draftCommissionBase),
@@ -413,65 +468,164 @@ private fun RuleDialog(vm: DriverBillingRulesViewModel) {
                     fontSize = 14.sp,
                     height = 38.dp,
                 )
-                Spacer(Modifier.height(6.dp))
-                SoTextField(
-                    vm.draftCommissionRate,
-                    { vm.draftCommissionRate = InputRules.moneyInput(it, maxDecimals = 2, maxWhole = 3) },
-                    placeholder = "提成比例（%，如 5 表示 5%）",
-                    enabled = vm.draftCommissionBase != "none",
-                    keyboardType = KeyboardType.Decimal,
-                )
-
-                // 抽成范围：只有"按商品金额抽成"才有这回事（按运费抽成时后端会拒这个组合）。
-                if (vm.draftCommissionBase == "goods") {
-                    Spacer(Modifier.height(10.dp))
-                    Text("只对哪些商品抽成", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        if (vm.draftScopeIds.isEmpty()) "现在：全部商品都抽（点下面的商品可以缩小范围）"
-                        else "现在：只抽这 ${vm.draftScopeIds.size} 个商品（再点一下取消）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    if (vm.products.isEmpty()) {
+            }
+            FormInputRow(
+                label = "提成比例",
+                value = vm.draftCommissionRate,
+                onValueChange = {
+                    vm.draftCommissionRate = InputRules.moneyInput(it, maxDecimals = 2, maxWhole = 3)
+                },
+                placeholder = "%，如 5 表示 5%",
+                enabled = vm.draftCommissionBase != "none",
+                keyboardType = KeyboardType.Decimal,
+                icon = Icons.Default.PriceChange,
+                iconTint = MaterialTheme.colorScheme.tertiary,
+            )
+            // 抽成范围：只有「按商品金额抽成」才有这回事（按运费抽成时后端会拒这个组合）。
+            if (vm.draftCommissionBase == "goods") {
+                PickerBlock(
+                    label = "只对哪些商品抽成",
+                    icon = Icons.Default.ShoppingCart,
+                    iconTint = Color(ProductPurple),
+                ) {
+                    // 勾选区是一整排会换行的 FilterChip，塞不进 FormRow 右侧那半栏 ——
+                    // 所以这一块自己排（同卡里放自定义内容的先例：地址页的图片条 + 备注同卡）。
+                    Column(Modifier.fillMaxWidth()) {
                         Text(
-                            "没拉到商品库，暂时只能「全部商品都抽」——退出重进这一页再试",
+                            if (vm.draftScopeIds.isEmpty()) "现在：全部商品都抽（点下面的商品可以缩小范围）"
+                            else "现在：只抽这 ${vm.draftScopeIds.size} 个商品（再点一下取消）",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    } else {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            vm.products.forEach { p ->
-                                val on = p.id in vm.draftScopeIds
-                                FilterChip(
-                                    selected = on,
-                                    onClick = {
-                                        vm.draftScopeIds =
-                                            if (on) vm.draftScopeIds - p.id else vm.draftScopeIds + p.id
-                                    },
-                                    label = { Text(p.name, style = MaterialTheme.typography.bodySmall) },
-                                )
+                        Spacer(Modifier.height(6.dp))
+                        if (vm.products.isEmpty()) {
+                            Text(
+                                "没拉到商品库，暂时只能「全部商品都抽」——退出重进这一页再试",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                vm.products.forEach { p ->
+                                    val on = p.id in vm.draftScopeIds
+                                    FilterChip(
+                                        selected = on,
+                                        onClick = {
+                                            vm.draftScopeIds =
+                                                if (on) vm.draftScopeIds - p.id else vm.draftScopeIds + p.id
+                                        },
+                                        label = { Text(p.name, style = MaterialTheme.typography.bodySmall) },
+                                    )
+                                }
                             }
                         }
                     }
                 }
-
-                Spacer(Modifier.height(12.dp))
-                SoTextField(vm.draftRemark, { vm.draftRemark = it }, placeholder = "备注（选填）")
-
-                vm.dialogError?.let {
-                    Spacer(Modifier.height(12.dp))
-                    // 后端/轻校验的中文原因：留在框里，用户对着它改完再点保存。
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { vm.save() }, enabled = !vm.acting) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = { vm.showDialog = false }) { Text("取消") } },
-    )
+        }
+
+        // ---- 价目归规则（用户 2026-09-21：「规则也就是取运费模板吧，也就是价目……勾选的时候
+        //      就像一个商品界面，可以全选本分类，也可以单独勾」）----
+        FormGroup(icon = Icons.Default.Route, title = "用哪些运费价目", tint = Color(DestOrange)) {
+            FormPickRow(
+                label = "价目",
+                value = if (vm.draftTemplateIds.isEmpty()) "" else "已勾 " + vm.draftTemplateIds.size + " 条",
+                onClick = { vm.showTemplatePicker = true },
+                placeholder = "还没勾",
+                icon = Icons.Default.Route,
+                iconTint = Color(DestOrange),
+            )
+            Text(
+                if (vm.draftTemplateIds.isEmpty()) {
+                    "还没勾 —— 派单时这个司机的单会进「待定价」（点上面这一行去勾）"
+                } else {
+                    "派单选了他，就从这几条价目里按「路线 + 分类」带价"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (vm.draftTemplateIds.isEmpty()) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+
+        FormGroup(icon = Icons.Default.Notes, title = "备注", tint = MaterialTheme.colorScheme.outline) {
+            FormTextAreaRow(
+                label = "备注",
+                value = vm.draftRemark,
+                onValueChange = { vm.draftRemark = it },
+                placeholder = "选填：给同事看的一句话",
+                minLines = 2,
+                icon = Icons.Default.Notes,
+                iconTint = MaterialTheme.colorScheme.outline,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+/**
+ * 「标签 + 一整排选择器」那一块。
+ *
+ * ⚠️ 为什么不把它做成 [FormRow]：`SegmentedPicker` 天生 `fillMaxWidth` + 每段 `weight(1f)`，
+ * 而 `FormRow` 把内容放在右侧那半栏里 —— 四段挤在半栏里会一字一行。
+ * 所以形态是「标签在上、选择器在下」（先例 `ui/ai/AiSettingsScreen.kt` 的「思考强度」那块），
+ * 图标与语义色照旧不省（`FormRows.kt` 顶部那条规矩）。
+ */
+@Composable
+private fun PickerBlock(
+    label: String,
+    icon: ImageVector,
+    iconTint: Color,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        content()
+    }
+}
+
+/**
+ * 底部那条保存栏。**常驻**（不跟着内容滚）：
+ * 表单很长，错误行要是滚到底才看得见，等于没有 —— 见 `FormErrorLine` 的 KDoc
+ * （「表单的错误必须和表单同生共死 —— 画在表单里、打开表单时清掉」）。
+ */
+@Composable
+private fun RuleFormBottomBar(vm: DriverBillingRulesViewModel) {
+    Surface(shadowElevation = 8.dp) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            FormErrorLine(vm.formError)
+            Spacer(Modifier.height(2.dp))
+            Button(
+                onClick = { vm.save() },
+                enabled = !vm.acting,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = MaterialTheme.shapes.medium,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(MoneyOrange)),
+            ) {
+                Text(
+                    if (vm.acting) "保存中…" else "保存",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
 }
 
 /** 卡片上"这一类多少钱"的一行（从 DTO 归一过来，界面不直接读 DTO 字段）。 */

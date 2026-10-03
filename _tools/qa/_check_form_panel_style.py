@@ -71,6 +71,10 @@ CONVERTED = {
         "新增/编辑挂账单位（2026-10-04 · CHG-0020：从 AlertDialog 搬进抽屉，三个字段改走共用行）",
         ["FormInputRow"],
     ),
+    "ui/dispatcher/DriverBillingRulesScreen.kt": (
+        "新建/编辑计费规则（2026-10-05 · CHG-0022：从 AlertDialog 搬成单独一整页，十个字段改走共用行）",
+        ["FormInputRow", "FormPickRow", "FormTextAreaRow"],
+    ),
 }
 
 #: 表单那几种零件（少一个就红：判据不能因为"零件被删了"而空转）

@@ -45,12 +45,12 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
     var actionResult by mutableStateOf<String?>(null)
     var error by mutableStateOf<String?>(null)
 
-    // ---- 新建 / 编辑弹窗 ----
-    var showDialog by mutableStateOf(false)
+    // ---- 新建 / 编辑表单（同屏整页，CHG-0022）----
+    var showForm by mutableStateOf(false)
     var editing by mutableStateOf<DriverBillingRuleDto?>(null)
 
-    /** 弹窗内的错误（后端 400/409 原文）：**弹窗不关**，用户能对着这句话改。 */
-    var dialogError by mutableStateOf<String?>(null)
+    /** 表单内的错误（后端 400/409 原文）：**表单不关**，用户能对着这句话改。 */
+    var formError by mutableStateOf<String?>(null)
 
     var draftName by mutableStateOf("")
     /** "" = 通用；small/large/trailer。 */
@@ -209,6 +209,17 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
 
     // ------------------------------------------------------------------ 新建 / 编辑
 
+    /**
+     * 关掉表单：顶部返回、系统返回键、保存成功都走这里。
+     *
+     * 错误行跟着表单一起消失 —— [FormErrorLine] 的 KDoc：
+     * 「表单的错误必须和表单同生共死 —— 画在表单里、打开表单时清掉」。
+     */
+    fun closeForm() {
+        showForm = false
+        formError = null
+    }
+
     fun openCreate() {
         editing = null
         draftName = ""
@@ -223,11 +234,11 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
         draftPieceMode = "uniform"
         draftCategoryRows = emptyMap()
         draftTemplateIds = emptySet()
-        dialogError = null
+        formError = null
         loadProducts()
         loadCategories()
         loadTemplates()
-        showDialog = true
+        showForm = true
     }
 
     fun openEdit(r: DriverBillingRuleDto) {
@@ -244,17 +255,17 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
         draftPieceMode = r.pieceMode.ifBlank { "uniform" }
         draftCategoryRows = r.categories.associate { it.categoryId to (trimZero(it.pieceAmount) to trimZero(it.commissionRate)) }
         draftTemplateIds = r.templateIds.toSet()
-        dialogError = null
+        formError = null
         loadProducts()
         loadCategories()
         loadTemplates()
-        showDialog = true
+        showForm = true
     }
 
     fun save() {
         if (acting) return
         validateDraft()?.let {
-            dialogError = it
+            formError = it
             return
         }
         val body = DriverBillingRuleRequest(
@@ -285,17 +296,17 @@ class DriverBillingRulesViewModel(private val container: AppContainer) : ViewMod
         )
         val cur = editing
         acting = true
-        dialogError = null
+        formError = null
         viewModelScope.launch {
             try {
                 if (cur == null) container.repo.createDriverBillingRule(body)
                 else container.repo.updateDriverBillingRule(cur.id, body)
                 actionResult = if (cur == null) "已创建「${body.name}」" else "已保存「${body.name}」"
-                showDialog = false
+                closeForm()
                 load()
             } catch (e: Exception) {
-                // 400/409 的中文原因留在弹窗里：用户正对着那几格输入框，改完再点保存就行。
-                dialogError = toApiException(e).message
+                // 400/409 的中文原因留在表单里（底部那条栏）：用户正对着那几格输入框，改完再点保存就行。
+                formError = toApiException(e).message
             } finally {
                 acting = false
             }
