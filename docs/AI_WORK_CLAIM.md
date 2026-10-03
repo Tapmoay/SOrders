@@ -5624,6 +5624,21 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0007 结算单的数字和明细对不上：同一个账期两套取数口径，孤儿明细让那张单永远确认不了**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：2026-10-03 用户点名的最高优先项（本轮五件事的第 5 件）。此前我在 `docs/RECTIFICATION_REPORT_E2E.md` §5.4 把这条判成「不采纳 / 不是产品缺陷」—— 用户正式推翻。
+
+**用户原话（逐字）**：「你说结账单的数字和明细对不上，这是非常大的问题啊…金钱对不上账会出现问题的，这个必须要修的，必须查明原因，看是不是代码写错了，还是哪个逻辑链路出现了问题」。
+
+**根因**：同一个账期里有两套取数口径。建单 `create_settlement` 取「司机 + 月 + 类型 + status=OPEN + (order_id 为空 或 订单未软删)」，把 `order_id` 为空的历史孤儿明细也算进 `amount`；确认 `confirm_settlement` 却按 `s.order_ids` 重取（`DriverBill.order_id.in_(...)`）—— 孤儿没有单号，永远取不回来。于是 `amount` 恒大于 `locked_total`，差额正好是孤儿那几笔 ⇒ 确认接口必然 400「结算单金额 970.00 与明细合计 940.00 不一致，请核对」，司机的这笔钱既确认不了也付不掉。同一病根另有两个出口：`DriverSettlementCreate.amount` 允许人工改额，而确认的恒等式是 `amount == 明细合计` ⇒ 动过金额的单从建出来那一刻就注定确认不了，报错还不说原因是改额；`cancel_settlement` 的解锁块挂着 `if s.settle_type == PIECE and s.order_ids:` 门闩 ⇒ 孤儿单 / 月薪单在「作废单 + 明细已锁成 SETTLED」的竞态下永远解不开。
+
+**改了哪四处**（详细规格见 `docs/changes/BUG-0007.md`）：(a) 取数收成**一处** `settleable_bills(...)`（建单与确认共用同一个函数，软删口径搬进它体内）；(b) `driver_settlements` 加 `bill_ids`（建单当刻锁定覆盖哪几行，含孤儿）＋ 确认优先按它点名取行，明细被删 / 被占用就明确报错「这张结算单锁定的 N 笔明细里有 M 笔已经不在了…请作废后重新结算」；(c) 加 `adjustment`（人工改额记差额），恒等式变成 `amount == 明细合计 + adjustment`（确认与付款两处都认）；(d) 作废解锁改成无条件按 `settled_doc_id` 翻回 OPEN。正式搬迁 `backend/app/migrations/017_settlement_bill_ids.py`（VERSION 17）已上本机活库。
+
+- 核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：账本入账与欠款口径的唯一一处（取数与恒等式就在这里，两套口径正是 970/940 的病根）
+- 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：生产库结构变更的唯一入口（老库两列的自愈兜底，正式搬迁是 migrations/017）
+
+**落点与提交**：判据 `_tools/qa/_check_settlement_single_source.py`（40 项）＋ 反验 `_tools/qa/_reverse_verify_settlement_single_source.py`（17 条注入）＋ 回归 `backend/tests/test_settlement_single_source.py`（8 例，已实测 8 passed）＋ 全量后端套件由长期 3 红转全绿（差额 30.00 的污染源 `test_driver_bill_recycled_scope.py` 已加收尾清理）。全量后端套件（1235 passed / 0 failed，2026-10-03 实测）与全量静检 163/163 全绿；真机 emulator-5554 派单员 AI 助手走通三路（新路建单当刻锁定 s#55 李伟明 2026-09 ¥198 / 老草稿仍能确认 s#17 / 新路端到端 s#56 廖少华 2026-06 生成→确认→付款 ¥44）。实现提交 `a6f54cd` ｜归档提交：本条文档与登记表。
+
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0006 登录被踢后只有一句「登录已失效」：四种原因分不清、403 被说成掉线、事后在库里查不到「谁顶了谁」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：走查自 2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md:151-156`）的机制性发现，以及 `:232`（§八.6「users 表无 last_login_at，无法在库层面审计「谁顶了谁」」）。
