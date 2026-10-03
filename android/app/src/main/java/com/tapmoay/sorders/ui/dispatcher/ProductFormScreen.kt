@@ -85,7 +85,7 @@ fun ProductFormScreen(
     var showUnitConvDialog by remember { mutableStateOf(false) }
     // 已设的换算：按钮上要写"已设 N 条"，候选单位也要带上它们（一份来源，见 UnitConverts.kt）
     val conversions by UnitConv.rows.collectAsState()
-    LaunchedEffect(Unit) { UnitConv.ensure(container.repo) }
+    LaunchedEffect(Unit) { UnitConv.ensure(container.repo, container.tokenStore.cachedRole()) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }

@@ -31,8 +31,29 @@ object UnitConv {
     /** 拉过一次就不再拉（登录时 [ensure] 会拉）。 */
     private var loaded = false
 
-    /** 首次使用时拉一次（幂等）。**失败不抛**：调用点在 Compose 的 `LaunchedEffect` 里。 */
-    suspend fun ensure(repo: AppRepository) {
+    /**
+     * 谁能读这张表 —— **后端角色的 key**（`shipper` / `dispatcher`），不是 App 的 `Role`。
+     *
+     * ⛔ 为什么不能用 `Role` 判：`Role.fromKey` 把不认识的 key 折成 SHIPPER，
+     *    而后端确实还有 `wholesaler`（批发商）—— 用折过的枚举判，批发商照样发请求、照样 403。
+     * ⛔ 这一份必须与后端 `UnitOwner` 逐字一致（`backend/app/api/v1/unit_conversions.py`）：
+     *    两边一起对是判据 `_tools/qa/_check_unit_conv_prefetch_role.py` 的第一组。
+     */
+    val READ_ROLE_KEYS: Set<String> = setOf("shipper", "dispatcher")
+
+    /** 这个角色能不能读换算表（决定 [ensure] 要不要真的发那次 GET）。 */
+    fun canRead(roleKey: String?): Boolean = roleKey != null && roleKey in READ_ROLE_KEYS
+    /**
+     * 首次使用时拉一次（幂等）。**失败不抛**：调用点在 Compose 的 `LaunchedEffect` 里。
+     *
+     * ⛔ `roleKey` 是**必填**参数，不是装饰：换算表只有货主与派单员能读
+     *    （后端 `require_roles(SHIPPER, DISPATCHER)`）。原来这里不看角色、会话一建立就无条件拉，
+     *    司机每次登录/恢复都会换回一条 403 —— 而失败是静默的（见文件头那段），界面上什么都看不到，
+     *    只有后端日志一直在响（走查报告 §5.3「unit-conversions 403」）。
+     *    设成必填，是让"哪一页能拉"在**编译期**就必须被回答一次。
+     */
+    suspend fun ensure(repo: AppRepository, roleKey: String?) {
+        if (!canRead(roleKey)) return
         if (loaded) return
         refresh(repo)
     }

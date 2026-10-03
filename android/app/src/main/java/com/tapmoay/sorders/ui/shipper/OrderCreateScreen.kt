@@ -77,7 +77,9 @@ fun OrderCreateScreen(
     // 单位换算（一车 = 8 方）：清单里那一行要写「10 车 ≈ 80 方」（用户 2026-09-24）。
     // 全 App 一份（`UnitConv`）；下单页是**最可能用到**它的地方，所以进来就确保拉过一次。
     val conversions by UnitConv.rows.collectAsState()
-    LaunchedEffect(Unit) { UnitConv.ensure(container.repo) }
+    // 角色从 `container.tokenStore.cachedRole()`（同步）读：这一页货主与派单员（代下单）都进得来，
+    // 两个角色都能读这张表（见 UnitConv.canRead）。
+    LaunchedEffect(Unit) { UnitConv.ensure(container.repo, container.tokenStore.cachedRole()) }
     var showShipperPicker by remember { mutableStateOf(false) }
     var showImageSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current

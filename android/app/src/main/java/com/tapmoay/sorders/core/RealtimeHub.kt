@@ -79,7 +79,11 @@ class RealtimeHub(private val container: AppContainer) {
                     // 而它们都没有"载入完成"这个共同点 —— 谁先打开就先显示"10 车 ≈ 80 方"，
                     // 晚打开的那一页不该显示成另一个样子。失败**静默**（换算只是多显示一个数，
                     // 它不该让任何列表变成错误页），下一次登录还会再试。
-                    scope.launch { runCatching { UnitConv.ensure(container.repo) } }
+                    // ⛔ **按角色**决定要不要拉：这张表只有货主与派单员能读（后端 `require_roles`）。
+                    //    以前不看角色地拉一次，司机每次登录/恢复会话都在后端留下一条 403 —— 而且是静默的，
+                    //    界面上什么都看不到（走查报告 §5.3）。传的是**会话里的角色 key** `s.role`，
+                    //    不是 App 的 `Role`：后者把 wholesaler 折成 SHIPPER，批发商会继续 403。
+                    scope.launch { runCatching { UnitConv.ensure(container.repo, s.role) } }
                 } else {
                     userId = null
                     container.socketManager.disconnect()
