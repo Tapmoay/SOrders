@@ -30,7 +30,7 @@
 每节都带数量下限，注册表腐烂时先红而不是安静地什么都不查。
 
 用法：python _tools/qa/_check_order_list_ui.py
-配套：python _tools/qa/_reverse_verify_order_list_ui.py（8 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_order_list_ui.py（28 种破坏方式全被抓）
 """
 from __future__ import annotations
 

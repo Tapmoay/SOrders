@@ -25,6 +25,12 @@
   ⑩ 函数式注入表里的一条原文没了 → 必须**点名那一份脚本**（证明第二支抽取真的看见了它）；
   ⑪ 「注入表认得出的脚本数」下限失守 → 必须喊「抽取失效」，不许当成"全部正常"。
 
+2026-10-04 · CHG-0021 补的两条（`_check_*.py` 里那句「配套：…（N 种破坏方式）」**一直没人管**，
+实测 8 处声明里 6 处是错的 —— 最离谱的一处写 8、真实 28）：
+  ⑫ 说明书里的条数被写错（与脚本真实的表长对不上）→ 必须报出「配套说明书」对不上；
+  ⑬ 这一支自己失效（`CHECK_GLOBS` 扫不到 `_check_*.py`）→ 必须喊「核对得动」，
+     不许零问题全绿（安静地少查是这条元检查最可能的失效形状）。
+
 ⚠️ 快照/还原按**字节**做，跑完逐字节核对（本项目栽过"注入把 bug 留在源码里"）。
 
 用法：python _tools/qa/_reverse_verify_anchor_audit.py
@@ -44,6 +50,8 @@ VICTIM = "_tools/qa/_reverse_verify_input_rules.py"
 #: ⑨⑩ 要弄脏的那一份：它的注入表**不写成元组**（sb.replace(路径, 原文, 替换成)），
 #: 2026-10-03 之前这条元检查一条都抽不出来 ⇒ 它的锚点腐烂永远看不见（见 ⑩）。
 R4ALL = "_tools/qa/_reverse_verify_r4_all.py"
+#: ⑫ 要弄脏的那一份**判据**：它的模块 docstring 写了「配套：…（7 种破坏方式全被抓）」。
+MAP_PICKER_CHK = "_tools/qa/_check_map_picker.py"
 #: ⑦⑧ 要弄脏的那个**源码文件**：VICTIM 的第 1 条注入就是在这里把电话过滤摘掉的。
 VICTIM_TARGET = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt"
 
@@ -138,6 +146,22 @@ CASES: list[tuple] = [
         '               "    moneyZZZ_不存在: Money" + chr(10) + "    rule_name: str",\n'
         '               "    moneyZZZ_不存在: Decimal" + chr(10) + "    rule_name: str")',
         "_reverse_verify_r4_all.py",
+    ),
+    (
+        # 2026-10-04 · CHG-0021：说明书里那个「N 种破坏方式」原来谁都不管，
+        # 实测 8 处里 6 处是错的 ⇒ 第三支判据（说明书条数 vs 脚本表长）必须真的会红。
+        "「配套说明书」里的条数被写错（与脚本真实的表长对不上）→ 必须报出来",
+        MAP_PICKER_CHK,
+        "配套：python _tools/qa/_reverse_verify_map_picker.py（7 种破坏方式全被抓）",
+        "配套：python _tools/qa/_reverse_verify_map_picker.py（99 种破坏方式全被抓）",
+        "配套说明书",
+    ),
+    (
+        "说明书条数这一支自己失效（一份 `_check_*.py` 都扫不到）→ 必须喊「核对得动」，不许零问题全绿",
+        CHECK,
+        'CHECK_GLOBS = ("_tools/*/_check_*.py",)',
+        'CHECK_GLOBS = ("_tools/*/_check_ZZZ_*.py",)',
+        "说明书条数核对得动",
     ),
     (
         "「注入表认得出的脚本数」下限失守 → 必须喊「抽取失效」，不许零问题全绿",

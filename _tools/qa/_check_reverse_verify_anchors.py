@@ -74,6 +74,21 @@
 `count(...) == 1`）：`Sandbox.replace` 会要求；同一个类里的 `Sandbox.sub` 是故意的「全换」
 语义、**不要求** —— 按整份脚本判严格，会给那几条 `sub` 注入报假红。
 
+### 2026-10-04 补的第三支：**说明书里的条数也要对账**（CHG-0021）
+
+`_check_*.py` 的模块 docstring 常写「配套：python `_reverse_verify_x.py`（N 种破坏方式全被抓）」。
+那个 N **原来谁都不管**：加注入的人不会回头改这句话，于是它安静地烂成**第二份真相**——
+看起来是"这条红线被 N 种破坏证明过"，其实那个 N 早在几次补注入之后就过期了。
+2026-10-04 实测 **8 处声明里 6 处是错的**：`_check_order_list_ui.py` 写 8（真实 28）、
+`_check_sheet_form_pages.py` 写 23（真实 28）、`_check_adaptive_layout.py` 写 8（真实 12）、
+`_check_list_order.py` 写 9（真实 13）、`_check_map_picker.py` 写 5（真实 7）、
+`_check_profile_page.py` 写 12（真实 16）。
+
+口径：N 必须等于那份脚本**破坏方式表的条数**（`INJECTIONS` / `CASES` 列表的元素个数 ——
+也就是脚本自己打印的那个分母）。声明里若还写了 `a/b`，要求 `a == b` 且分母等于表长
+（或表长 +1：`_reverse_verify_money_display.py` / `_reverse_verify_time_base.py`
+把「还原复检」也算作一种）。⛔ 只对账条数，不评价措辞。
+
 用法：
   python _tools/qa/_check_reverse_verify_anchors.py [--verbose]
   python _tools/qa/_check_reverse_verify_anchors.py --restore   # 还原注入残留（会先备份）
@@ -115,6 +130,29 @@ MIN_SCRIPTS_WITH_TABLE = 122   # 实测 128（2026-10-03）
 #: 能拿到「替换成」那一格的锚点数下限（第 35 轮加的判据要用它）——2026-10-03 实测 1240 条，
 #: 抽不出来时就会有一条"注入残留永远判不出来"的检查悄悄变成绿的，所以要有下限。
 MIN_WITH_NEW = 1180
+
+#: 「配套说明书」里的条数（2026-10-04 · CHG-0021 补的第三支）：`_check_*.py` 的模块 docstring
+#: 常写「配套：python <rv>.py（N 种破坏方式全被抓）」，而这个 N **原来没有任何判据在管** ——
+#: 加注入的人不会回头改这句，于是它安静地烂成**第二份真相**。实测 8 处声明里 6 处是错的
+#: （`_check_order_list_ui.py` 写 8、真实 28；`_check_sheet_form_pages.py` 写 23、真实 28）。
+#: 口径：N 必须等于那份脚本**破坏方式表的条数**（`INJECTIONS` / `CASES` 的元素个数，
+#: 也就是它自己打印的那个分母）。⛔ 只对账条数，不评价措辞。
+CHECK_GLOBS = ("_tools/*/_check_*.py",)
+
+#: 声明的两种写法都要认：
+#:   `配套：python _tools/qa/_reverse_verify_<名字>.py（8 种破坏方式全被抓）`
+#:   `配套反向验证：`python _tools/qa/_reverse_verify_<名字>.py`（4 种破坏 5/5）。`
+#: ⚠️ 这一节自己也是 `_check_*.py`（会扫到自己）：注释里的例子必须写成 `<名字>`，
+#:    否则它会去认 `_reverse_verify_x.py` 这份不存在的脚本（第一版就踩了）。
+#: ⚠️ 数字外面常带 `**`（`（**29** 种破坏方式…）`），所以 `**` 要允许出现在数字与「种破坏」之间。
+RE_CLAIM = re.compile(r"(_tools/[^\s`）)]*_reverse_verify_[a-z0-9_]+\.py)[^\n]{0,40}?(\d+)\s*\**\s*种破坏")
+RE_CLAIM_FRAC = re.compile(r"种破坏[^\n]{0,4}?(\d+)\s*/\s*(\d+)")
+
+#: 声明指的那张表叫什么（脚本自己打印分母时用的就是这两个名字）。
+CASE_TABLES = ("INJECTIONS", "CASES")
+
+#: 核对得动的声明条数下限（低于它 = 抽取失效，必须先报错，别安静地什么都没查）。实测 8。
+MIN_CLAIMS = 8
 
 #: 有些脚本把"替换"包成自己的小助手（`sub("原文", "替换成")`）——这一格也要认。
 HELPER_NAMES = {"sub", "substitute", "replace", "mutate", "inject", "swap"}
@@ -661,6 +699,53 @@ def audit_script(
     return problems, checked, leftovers, with_new
 
 
+def case_table_len(path: Path) -> int | None:
+    """脚本里那张「破坏方式」表的条数（`INJECTIONS` / `CASES` 列表的元素个数）。
+
+    ⚠️ 为什么不数源码里的 `^    ("`：表有 4 元组 / 5 元组 / 多行 / 跨行拼接几种写法，
+    文本计数会漏；而 AST 数 `len(elts)` 与脚本自己打印的那个分母是同一个数。
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names, value = [node.target.id], node.value
+        else:
+            continue
+        if not any(n in CASE_TABLES for n in names):
+            continue
+        if isinstance(value, (ast.List, ast.Tuple)):
+            return len(value.elts)
+    return None
+
+
+def iter_claims() -> list[tuple[Path, int, Path, int, tuple[int, int] | None]]:
+    """扫 `_check_*.py` 里「配套：…（N 种破坏方式）」的声明。
+
+    返回 (声明所在的脚本, 行号, 配套的反向验证脚本, 声明的 N, 写了 `a/b` 就一并给出)。
+    """
+    out: list[tuple[Path, int, Path, int, tuple[int, int] | None]] = []
+    for g in CHECK_GLOBS:
+        for path in sorted(REPO.glob(g)):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for i, line in enumerate(text.splitlines(), 1):
+                m = RE_CLAIM.search(line)
+                if not m:
+                    continue
+                fm = RE_CLAIM_FRAC.search(line)
+                frac = (int(fm.group(1)), int(fm.group(2))) if fm else None
+                out.append((path, i, REPO / Path(m.group(1)), int(m.group(2)), frac))
+    return out
+
+
 def preview(s: str, n: int = 60) -> str:
     one = " ".join(s.split())
     return one[:n] + ("…" if len(one) > n else "")
@@ -736,6 +821,49 @@ def main() -> int:
         print(f"\n❌ 允许表里有 {len(fossils)} 条化石（脚本/标签已经不存在了，理由该删）：")
         for name, label in fossils:
             print(f"  · {name} ｜ {label}")
+        fail = True
+
+    # 「配套说明书」里的条数（2026-10-04 · CHG-0021）：`_check_*.py` 常写
+    # 「配套：python <rv>.py（N 种破坏方式全被抓）」—— 这个 N **原来没有任何判据在管**，
+    # 实测 8 处里 6 处是错的（最离谱的一处写 8、真实 28）。加注入的人不会回头改这句，
+    # 它就这样安静地烂成第二份真相；这里拿「脚本自己那张表的条数」跟它对账。
+    claims = iter_claims()
+    claim_problems: list[str] = []
+    n_checked_claims = 0
+    for c_file, c_line, rv_file, claimed, frac in claims:
+        rel_c = c_file.relative_to(REPO)
+        rel_rv = rv_file.relative_to(REPO) if rv_file.is_relative_to(REPO) else rv_file
+        if not rv_file.exists():
+            claim_problems.append(f"{rel_c}:{c_line} 指着一份不存在的配套脚本：{rel_rv}")
+            continue
+        n = case_table_len(rv_file)
+        if n is None:
+            continue  # 表不是列表字面量（抽不出来）—— 不猜，跳过
+        n_checked_claims += 1
+        if claimed != n:
+            claim_problems.append(
+                f"{rel_c}:{c_line} 写着「{claimed} 种破坏方式」，而 {rel_rv} 的表里是 {n} 条"
+            )
+        if frac is not None and not (frac[0] == frac[1] and 0 <= frac[1] - n <= 1):
+            claim_problems.append(
+                f"{rel_c}:{c_line} 写着「{frac[0]}/{frac[1]}」，而 {rel_rv} 的表里是 {n} 条"
+                "（分母要么等于表长，要么等于表长 +1 —— 有的脚本把「还原复检」也算一种）"
+            )
+    print(
+        f"顺带核对了 {len(claims)} 处「配套：…（N 种破坏方式）」说明书条数"
+        f"（{n_checked_claims} 处拿得到对照表）。"
+    )
+    if n_checked_claims < MIN_CLAIMS:
+        print(
+            f"❌ 只有 {n_checked_claims} 处说明书条数核对得动（少于 {MIN_CLAIMS}）："
+            "抽取失效了，先修这个 —— 别让这一节安静地什么都没查。"
+        )
+        fail = True
+    if claim_problems:
+        print(f"\n❌ {len(claim_problems)} 处「配套说明书」的条数与脚本对不上（它是一份会安静过期的第二真相）：")
+        for p in claim_problems:
+            print(f"  · {p}")
+        print("修法：把 `_check_*.py` 模块 docstring 里那个数字改成脚本里真实的表长（**只改数字，不动判据**）。")
         fail = True
 
     if all_problems:

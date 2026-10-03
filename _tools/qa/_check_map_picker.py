@@ -18,7 +18,7 @@
 4. **三个调用方共用这一份**：哪个页面自己再画一个地图弹层，"坐标不可信"那道闸就会漏掉那一页。
 
 用法：python _tools/qa/_check_map_picker.py
-配套：python _tools/qa/_reverse_verify_map_picker.py（5 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_map_picker.py（7 种破坏方式全被抓）
 """
 from __future__ import annotations
 

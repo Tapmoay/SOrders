@@ -18,7 +18,7 @@
 5. **App 不带 id** → 真机上下单**一次都不计分**（后端接口是可选字段，所以不报错）。
 
 用法：python _tools/qa/_check_list_order.py
-配套：python _tools/qa/_reverse_verify_list_order.py（9 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_list_order.py（13 种破坏方式全被抓）
 """
 from __future__ import annotations
 

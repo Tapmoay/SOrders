@@ -35,7 +35,7 @@
 用法：
     python _tools/qa/_check_adaptive_layout.py            # 查
     python _tools/qa/_check_adaptive_layout.py --update    # 重写存量基线（改完存量处数才用）
-配套：python _tools/qa/_reverse_verify_adaptive_layout.py（8 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_adaptive_layout.py（12 种破坏方式全被抓）
 """
 from __future__ import annotations
 

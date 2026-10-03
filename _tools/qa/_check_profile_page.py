@@ -24,7 +24,7 @@
 所以每行各给一个**锚点字符串**，并说明它为什么长这样。
 
 用法：python _tools/qa/_check_profile_page.py
-配套：python _tools/qa/_reverse_verify_profile_page.py（12 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_profile_page.py（16 种破坏方式全被抓）
 """
 from __future__ import annotations
 
