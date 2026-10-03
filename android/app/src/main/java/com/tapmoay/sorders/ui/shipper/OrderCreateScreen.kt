@@ -614,6 +614,19 @@ fun OrderCreateScreen(
                         icon = Icons.Default.Phone,
                         iconTint = Color(0xFF00B578),
                     )
+                    // P9（2026-10-03 的 E2E 走查）：选线路 / 选地点会**带出**收货人，而带出可能把
+                    // 用户刚挑好的那位静默换掉（挑的是人、带出来的是线路/地点上的快照）。
+                    // 话由 VM 说（判据只有一处：ui/common/ContactFill.kt::receiverSwapNotice），
+                    // 这里只负责**画在这两栏的正下方** —— 提示必须贴着手边那个东西，
+                    // 塞在页面末尾（或第一项）等于没有，这是 BUG-0003 用一张截图换来的教训。
+                    vm.receiverNotice?.let { msg ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFE6A23C),
+                        )
+                    }
                     // 下单人：名称 + 电话。**填谁由角色决定，不要在这里再判一次**（判据在
                     // `OrdererPrefill.kt::ordererContactFor`）：
                     // · 货主 / 批发商自己下单 → 进页面就按**账号资料**填好（`prefillOrdererFromSelf`）；

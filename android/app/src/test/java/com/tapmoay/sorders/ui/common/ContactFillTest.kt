@@ -2,6 +2,7 @@ package com.tapmoay.sorders.ui.common
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -96,5 +97,38 @@ class ContactFillTest {
         assertTrue(ReceiverContact("", "").isBlank)
         assertFalse(ReceiverContact("王老板", "").isBlank)
         assertFalse(ReceiverContact("", "138").isBlank)
+    }
+
+    // ---- 换人了要说一声（P9：带出把刚挑好的收货人换掉时不许静默） ----
+
+    @Test
+    fun `两栏一模一样就不用说`() {
+        val cur = ReceiverContact("刘秋萍", "13530753867")
+        assertNull(receiverSwapNotice(cur, cur, "这条线路"))
+    }
+
+    @Test
+    fun `带出把用户挑的人换掉时要指名道姓地说`() {
+        val msg = receiverSwapNotice(
+            ReceiverContact("刘秋萍", "13530753867"),
+            ReceiverContact("郑立新", "13736969628"),
+            "这条线路",
+        )
+        // 换成了谁、原来的谁被换掉，两句都要在（只写一句用户就没法核对）
+        assertTrue(msg!!.contains("郑立新"))
+        assertTrue(msg.contains("刘秋萍"))
+    }
+
+    @Test
+    fun `原来两栏是空的时候只说带出，不说被替换`() {
+        val msg = receiverSwapNotice(ReceiverContact(), ReceiverContact("郑立新", "13736969628"), "这个地点")
+        assertEquals("已从这个地点带出收货人：郑立新 · 13736969628", msg)
+    }
+
+    @Test
+    fun `来源一个联系人都没有时要说清是被清掉了`() {
+        // 老线路上 receiver_name / phone 都是空串 → 用户刚敲的电话会被照搬的空值冲掉
+        val msg = receiverSwapNotice(ReceiverContact("", "13530753867"), ReceiverContact(), "这条线路")
+        assertEquals("这条线路没有绑定联系人，刚才填的 13530753867 被清掉了", msg)
     }
 }

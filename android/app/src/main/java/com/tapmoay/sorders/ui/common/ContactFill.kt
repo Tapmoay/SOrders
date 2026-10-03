@@ -91,3 +91,31 @@ fun boundContactLabel(name: String?, phone: String?): String {
         else -> p
     }
 }
+
+/**
+ * 「这次带出把你刚填好的收货人换掉了」—— 界面上要说给用户的那一句话（P9，2026-10-03 走查）。
+ *
+ * 现象：先「从联系人里选收货人」挑好刘秋萍，再去地址库选一条线路 —— 收货人两栏变成了这条线路上的
+ * 郑立新，而**页面上没有任何变化可看**（用户以为还是自己挑的那位，司机会打给线路上的那个人）。
+ *
+ * ⛔ 本函数**只负责说**，不参与任何覆盖判断：线路 / 地点那两条支路的覆盖规矩（名字"非空才覆盖"、
+ *    电话"照搬"）在文件头写着本轮不动。所以它必须拿**覆盖前后**两份值来比，
+ *    而不是去猜"这次会不会覆盖"—— 猜的那份判据有一天会和 `applyAddress` 走散。
+ *
+ * @param before / @param after 覆盖前 / 覆盖后那两栏（`dongjiaName` + `dongjiaPhone`）。
+ * @param source 这次带出的来源，直接读进句子里（"这条线路" / "这个地点"）。
+ * @return null = 没什么可说的（两栏一模一样 —— 用户手改之后又选了同一条，不是"被换掉"）。
+ */
+fun receiverSwapNotice(before: ReceiverContact, after: ReceiverContact, source: String): String? {
+    if (before == after) return null
+    val had = boundContactLabel(before.name, before.phone)
+    val has = boundContactLabel(after.name, after.phone)
+    return when {
+        // 换成一个"什么都没有"的来源（老线路上没填过收货人 / 地点没绑联系人）：
+        // 这时不能装没发生 —— 用户刚填的那两栏**真的被清掉了**。
+        has.isEmpty() -> "${source}没有绑定联系人，刚才填的 $had 被清掉了"
+        // 原来那两栏是空的：这是"带出"，不是"替换"（说"被替换"会让用户去找一个不存在的旧值）。
+        had.isEmpty() -> "已从${source}带出收货人：$has"
+        else -> "收货人已换成${source}上的 $has（刚才填的 $had 已被替换）"
+    }
+}

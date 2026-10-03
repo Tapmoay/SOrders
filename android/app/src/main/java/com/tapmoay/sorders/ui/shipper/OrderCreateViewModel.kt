@@ -13,6 +13,7 @@ import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.PickedLine
 import com.tapmoay.sorders.ui.common.ReceiverContact
 import com.tapmoay.sorders.ui.common.fillReceiver
+import com.tapmoay.sorders.ui.common.receiverSwapNotice
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -158,6 +159,20 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
      * 两个都是**可改**的普通输入框：自动填只是省一次输入，不是锁死。
      */
     var dongjiaName by mutableStateOf("")
+        private set
+
+    /**
+     * 「刚才那次带出把收货人换掉了」的提示（P9，2026-10-03 的 E2E 走查）。
+     *
+     * 线路 / 地点带出收货人是**静默覆盖**的：用户先「从联系人里选收货人」挑好刘秋萍，再选一条线路，
+     * 两栏就变成了线路上的郑立新，而页面上**没有任何变化可看** —— 他以为还是自己挑的那位，
+     * 司机会打给线路上的那个人。这句话把「换成谁、原来是谁」讲出来。
+     * 判据只有一处：ui/common/ContactFill.kt::receiverSwapNotice（有单测）。
+     *
+     * 清空边界：**凡是要改写这两栏的动作都必须重算它**（手改名称 / 手改电话 / 挑联系人 /
+     * 预设单预填都清成 null）—— 用户已经自己动过那两栏，再挂着旧提示就是过期的话。
+     */
+    var receiverNotice by mutableStateOf<String?>(null)
         private set
     var bossName by mutableStateOf("")
     var remark by mutableStateOf("")
@@ -560,6 +575,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                 // 预设单里存的是**收货人文字**，不是名册里的哪一位 → 清掉联系人 id
                 // （CHG-0010：留着它会让"补号写回档案"写到上一次挑的那个人头上）
                 pickedContactId = null
+                receiverNotice = null
                 if (t.receiverName.isNotBlank()) dongjiaName = t.receiverName
                 if (t.receiverPhone.isNotBlank()) dongjiaPhone = t.receiverPhone
                 if (t.remark.isNotBlank()) remark = t.remark
@@ -792,10 +808,16 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         addressDetail = a.detailAddress
         addressLat = a.addressLat
         addressLng = a.addressLng
+        // 覆盖**前**那两栏先留一份：这条线路的覆盖规矩（名字「非空才覆盖」、电话「照搬」）本轮不动，
+        // 但覆盖之后要把「收货人换人了」讲给用户听（P9）。
+        val before = ReceiverContact(dongjiaName, dongjiaPhone)
         dongjiaPhone = a.phone
         // ⚠️ 名字只在**这条线路真的填了收货人**时才覆盖：`receiver_name` 在老线路上可能是空的，
         //    那种时候把用户刚敲进去的名字清掉，比"不自动填"更糟。电话沿用原来的行为不动。
         if (a.receiverName.isNotBlank()) dongjiaName = a.receiverName
+        // P9：用户刚挑好的收货人被这条线路**静默换掉**过（挑的是人、这里给的是线路快照）。
+        // 规矩不改，但必须说 —— 否则司机照着线路上的号码打给另一个人，界面上看不出异常。
+        receiverNotice = receiverSwapNotice(before, ReceiverContact(dongjiaName, dongjiaPhone), "这条线路")
         // 这条线路上的收货人**不是**从名册里挑的 → 清掉联系人 id（CHG-0010）
         pickedContactId = null
         // 记下"这一单用的是哪条线路"：下单时随单交给后端记一次常用度
@@ -927,6 +949,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         // 记下"这一单的收货人是名册里的哪一位"：下单时若这次补上了号码，要写回他的档案
         // （CHG-0010）。⚠️ 只能在这里赋值 —— 别处赋值＝会把号码写到别人头上。
         pickedContactId = c.id
+        // 用户自己挑的人：上一条「被线路/地点换掉」的提示已经过期，清掉
+        receiverNotice = null
         showContactSheet = false
         contactsError = null
     }
@@ -940,6 +964,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     fun onReceiverNameChange(v: String) {
         dongjiaName = v
         pickedContactId = null
+        // 用户自己动手改了这一栏 → 上面那句「被线路/地点换掉了」已经过期（留着会与他的操作打架）
+        receiverNotice = null
     }
 
     /**
@@ -953,6 +979,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
      */
     fun onReceiverPhoneChange(v: String) {
         dongjiaPhone = v
+        receiverNotice = null
     }
 
     /**
@@ -1033,6 +1060,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         //    刚敲好的名字/电话清掉 —— 他选这个地点只是为了填地址。
         // 地点上绑的收货人同样是**快照**（不是名册里挑的）→ 清掉联系人 id（CHG-0010）
         pickedContactId = null
+        val before = ReceiverContact(dongjiaName, dongjiaPhone)
         val c = fillReceiver(
             ReceiverContact(dongjiaName, dongjiaPhone),
             l.contactName,
@@ -1041,6 +1069,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         )
         dongjiaName = c.name
         dongjiaPhone = c.phone
+        // 与线路那一支同一个道理（P9）：绑了联系人的地点会把用户刚挑/刚敲的收货人换掉，要说一声
+        receiverNotice = receiverSwapNotice(before, c, "这个地点")
         // 记下"这一单用的是我地点库里的哪一条"（下单时交给后端记常用度）
         pickedLocationId = l.id
         pickedAddressId = null

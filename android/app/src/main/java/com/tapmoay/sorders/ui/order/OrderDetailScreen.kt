@@ -38,6 +38,8 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.dispatcher.AssignDriverDialog
+import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolViewModel
 import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -59,6 +61,11 @@ fun OrderDetailScreen(
     onBack: () -> Unit,
 ) {
     val vm: OrderDetailViewModel = appViewModel { OrderDetailViewModel(container, orderId) }
+    // 派单弹窗（P12）：订单详情页原来只能看，想派单得退回「派单作业」池子里去翻同一张单。
+    // 这里借派单池那份 VM 弹**同一个** `AssignDriverDialog` —— 两个入口一份实现，
+    // 档位/运费/收现金/备注的规则不会各写一份。`autoLoadPool = false`：详情页只为弹一个框，
+    // 不该顺手把几百条待派单拉下来（名册由 `openAssign` 按需拉）。
+    val assignVm: DispatcherPoolViewModel = appViewModel { DispatcherPoolViewModel(container, autoLoadPool = false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val session by container.tokenStore.sessionFlow.collectAsState(initial = null)
@@ -227,6 +234,7 @@ fun OrderDetailScreen(
                 onChargeClick = { vm.openCharge() },
                 onEditFreightClick = { vm.openFreightDialog() },
                 onSplitClick = { vm.openSplitDialog() },
+                onAssignClick = { vm.order?.let { assignVm.openAssign(it.id) } },
                 onDirectCompleteClick = { p -> vm.completeDirect({ onBack() }, p) },
                 canFillNav = vm.canFillNavigation(role.key),
                 // 「我是不是批发商」——只给「拨打司机电话」那颗按钮用（判据 `ui/common/DriverCall.kt`）。
@@ -384,6 +392,9 @@ fun OrderDetailScreen(
             dismissButton = { TextButton(onClick = { vm.showSplitDialog = false }) { Text("取消") } },
         )
     }
+    // 派单弹窗（与「派单作业」池子共用同一份实现）。派成了 → 让本页重拉一次：
+    // 状态从「派单中」翻成「已派单」，底部按钮组也跟着换（`vm.load()`）。
+    AssignDriverDialog(assignVm) { vm.load() }
     if (vm.showPayConfirm) {
         AlertDialog(
             onDismissRequest = { vm.showPayConfirm = false },
@@ -542,6 +553,7 @@ private fun DetailBody(
     onChargeClick: () -> Unit,
     onEditFreightClick: () -> Unit,
     onSplitClick: () -> Unit,
+    onAssignClick: () -> Unit,
     onDirectCompleteClick: (String?) -> Unit,
     damageByProduct: Map<Long, Int> = emptyMap(),
     damageNote: String = "",
@@ -1047,6 +1059,21 @@ private fun DetailBody(
 
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // 派单员：待派单 → 主动作就是「派单」（P12）。原来这一页只有拆分/收款/挂账/删除，
+                // 想派单必须记住单号、退回「派单作业」池子里去翻同一张单 —— 报告里就是这么丢的
+                // （`_tmp/d_detail2.png`）。闸门与拆分同源（`OrderStatusModel.ASSIGNABLE`），
+                // 用主色按钮：这是这一页唯一能把单推走的一步。
+                if (role == Role.DISPATCHER && order.status in OrderStatusModel.ASSIGNABLE) {
+                    Button(
+                        onClick = onAssignClick,
+                        enabled = !acting,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Icon(Icons.Default.PersonAddAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("派单")
+                    }
+                }
                 // 派单员：待派单可拆分（大单拆多单分派）
                 if (role == Role.DISPATCHER && order.status in OrderStatusModel.ASSIGNABLE) {
                     OutlinedButton(

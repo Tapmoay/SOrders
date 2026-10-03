@@ -12,7 +12,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonPrimitive
 
-class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel() {
+class DispatcherPoolViewModel(
+    private val container: AppContainer,
+    /**
+     * 是否在 init 里拉整个待派单池、并订阅实时刷新。
+     *
+     * 订单详情页只借**派单弹窗**（P12：详情页底部要有「派单」），它不该为弹一个框去拉
+     * 几百条待派单，更不该被「别人又下了新单」刷自己的屏。
+     */
+    private val autoLoadPool: Boolean = true,
+) : ViewModel() {
 
     var orders by mutableStateOf<List<OrderDto>>(emptyList())
     var drivers by mutableStateOf<List<UserDto>>(emptyList())
@@ -62,10 +71,12 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
     private var loadJob: Job? = null
 
     init {
-        load()
-        // 实时事件：待派单池变化自动刷新
-        viewModelScope.launch {
-            container.realtimeHub.refreshOrders.collect { load() }
+        if (autoLoadPool) {
+            load()
+            // 实时事件：待派单池变化自动刷新
+            viewModelScope.launch {
+                container.realtimeHub.refreshOrders.collect { load() }
+            }
         }
     }
 
@@ -76,7 +87,7 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
             error = null
             try {
                 orders = container.repo.orders(status = "PENDING_DISPATCH")
-                drivers = container.repo.drivers().filter { it.isActive }
+                loadDrivers()
                 // 后端的真实待派总数。
                 // 为什么必须单独取：`GET /orders?status=PENDING_DISPATCH` 对派单员**服务端强制 300 条**
                 // （积压几千单时接口会返回十几 MB），所以列表里的条数**不等于**待派总数。
@@ -91,6 +102,22 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
                 error = toApiException(e).message
             } finally {
                 loading = false
+            }
+        }
+    }
+
+    /**
+     * 单独拉司机名册（派单弹窗要用）。
+     *
+     * 抽出来是因为详情页那份 VM 是 autoLoadPool = false：它只借弹窗、不拉池子，
+     * 名册得在**打开弹窗那一刻**按需拉（openAssign 里触发）。
+     */
+    private fun loadDrivers() {
+        viewModelScope.launch {
+            try {
+                drivers = container.repo.drivers().filter { it.isActive }
+            } catch (e: Exception) {
+                error = toApiException(e).message
             }
         }
     }
@@ -151,6 +178,9 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
         assignCollectCash = false
         assignPieceAmount = ""
         assignCommissionRate = ""
+        // 名册可能还没拉过（详情页那份 VM 是 autoLoadPool = false，只借弹窗不拉池子）
+        // —— 打开框之前按需拉一次，否则下拉里一个司机都没有。
+        if (drivers.isEmpty()) loadDrivers()
         loadTemplates()
         showAssignDialog = true
     }
@@ -192,7 +222,12 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
         return mode == "PIECE"
     }
 
-    fun confirmAssign() {
+    /**
+     * 确认派单。
+     *
+     * @param onAssigned 派成功之后回调 —— 订单详情页借这个 VM 弹框，靠它刷新自己那一份。
+     */
+    fun confirmAssign(onAssigned: () -> Unit = {}) {
         if (acting) return  // 防连点：一次网络往返期间再点一次会派两遍
         val driverId = selectedDriverId ?: run { error = "请选择司机"; return }
         if (selectedIds.size > MAX_BATCH_ASSIGN) {
@@ -245,6 +280,8 @@ class DispatcherPoolViewModel(private val container: AppContainer) : ViewModel()
                     // 会让他回头去找一张已经派掉的单。语义与司机「接单成功立刻停」完全一样
                     // （见 NewOrderAlert.speaks：待派单那条只播给派单员，所以只有这里能打断它）。
                     container.newOrderPlayer.stop()
+                    // 订单详情页借这个 VM 弹派单框：派成了得让它刷新自己那一份
+                    onAssigned()
                 }
                 load()
             } catch (e: Exception) {

@@ -61,7 +61,9 @@ CHECK = ROOT / "_tools/qa/_check_money_display.py"
 MONEY_KT = "android/app/src/main/java/com/tapmoay/sorders/util/Money.kt"
 MONEY_PY = "backend/app/services/money_text.py"
 ARG_KT = "android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteArgs.kt"
-POOL_KT = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherPoolScreen.kt"
+#: 派单弹层里那一行 `¥` 原本长在 `DispatcherPoolScreen.kt` 里，BUG-0004 把弹窗抽成了共用件
+#: （`AssignDriverDialog.kt`，两个入口共用）→ 锚点跟着搬，**只改锚点、不动判据**。
+DIALOG_KT = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/AssignDriverDialog.kt"
 MSG_PY = "backend/app/services/message_center.py"
 PAY_PY = "backend/app/services/driver_pay.py"
 LOOP_KT = "android/app/src/main/java/com/tapmoay/sorders/ai/AiAgentLoop.kt"
@@ -120,7 +122,7 @@ CASES: list[tuple[str, str, str, str, str]] = [
     ),
     (
         "⑦ 新加一处金额显示时没走漏斗（卡片上会出现 `¥12.5000`）",
-        POOL_KT,
+        DIALOG_KT,
         '"¥" + formatMoney(t.fee),',
         '"¥" + t.fee,',
         "每一处 `¥` 都过了显示漏斗",
