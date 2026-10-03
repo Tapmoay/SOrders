@@ -31,36 +31,6 @@
 
 ## 进行中
 
-### [2026-10-03 进行中] 会话：**BUG-0003 空表单点「提交订单」零反馈（货主下单 + 派单员代理下单，两个入口同一页）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：2026-10-03 三端真机 E2E 走查（`_tmp/E2E测试报告.md` P7 / P23）。
-
-**现象**：什么都不填、直接点底部「提交订单 ¥0」，屏幕**一个像素都不动** —— 不弹提示、不标红、不滚动；
-E2E 报告里同一页连点两次的截图**字节完全相同**（`o_empty.png` / `o_empty2.png` 均 183380 B，代理下单页三次均 179797 B），真人以为 App 卡死。
-
-**根因**：校验一直在跑（`ui/shipper/OrderCreateViewModel.kt::submit()` 五句话术都写得好好的），但界面上**唯一的渲染点是 LazyColumn 的最后一项**
-（`ui/shipper/OrderCreateScreen.kt:645-649` 的 `item { vm.error?.let { Text(...) } }`）—— 下单页表单有三张卡，手机屏上滚不到那儿；
-且代理下单页的货主闸门要等一圈网络（协程里查完角色）才判。两个入口其实是**同一个页面**（`proxyMode` 决定标题），
-`ui/nav/NavGraph.kt:177`（货主）与 `:191`（派单员，`:195` 带 `proxyMode = true,`）都进它。
-
-**改哪些文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt`（`bottomBar` 由 `Surface{Row}` 改成
-`Surface{Column{FormErrorLine(vm.error, …) + Row(合计 / 提交订单)}}`，那句话画在提交按钮正上方；LazyColumn 末尾那份渲染删掉，只留 8dp Spacer）、
-`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateViewModel.kt`（`submit()` 的 `when` 首条补同步闸门
-`proxyMode && shipperId == null && tempShipperName.isNullOrBlank() -> error = 「请选择货主或填写临时货主姓名」`；协程里那道同款闸门保留为兜底并写清理由）。
-规范依据 = `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` §4.8「表单的错画在表单里」，共用件 `ui/common/Components.kt::FormErrorLine`。
-
-**判据·反验**：新增 `_tools/qa/_check_order_submit_feedback.py`（30 项静态判据：反空转 / 落点 / 按钮可按 / 闸门与话术 / 两个入口 / 出处与留痕）
-与 `_tools/qa/_reverse_verify_order_submit_feedback.py`（12 条注入，每条都要让判据变红）。⛔ 未改核心区文件（`ui/shipper/OrderCreateScreen.kt`、
-`ui/shipper/OrderCreateViewModel.kt` 都不在 `_tools/qa/_core_files.txt` 里）。
-
-**边界（没破）**：五句校验话术的内容、提交按钮的文案与 `0xFF00A56E` 颜色、`enabled = !vm.submitting` 的可点性口径、收货人电话可选、
-单价只有一个来源、提交成功后的 `repo.createOrder` → `onCreated()` 链路、提交失败仍写 `error = toApiException(e).message`；后端 / 路由 / 权限 / 数据一个字不动。
-
-**真机复验**：5554（派单员 13800000001）「工作台 → 代理下单」空表单点提交 → 同一屏出现「请选择货主或填写临时货主姓名」
-（`_tmp/bug0003_5554_proxy_empty.png`，红字 `center=(338, 2144)` vs 提交按钮 `y=2284`）；5556（货主 13800000002）「下单」页同操作 → 「请至少添加一组商品」
-（`_tmp/bug0003_5556_shipper_empty.png`）。
-
-**落点与提交**：实现提交 `<待填>`（修复 + 判据 + 反验 + 文档）。事项档案 `docs/changes/BUG-0003.md`；登记表行 `docs/changes/README.md`。
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5655,6 +5625,36 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0003 空表单点「提交订单」零反馈（货主下单 + 派单员代理下单，两个入口同一页）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：2026-10-03 三端真机 E2E 走查（`_tmp/E2E测试报告.md` P7 / P23）。
+
+**现象**：什么都不填、直接点底部「提交订单 ¥0」，屏幕**一个像素都不动** —— 不弹提示、不标红、不滚动；
+E2E 报告里同一页连点两次的截图**字节完全相同**（`o_empty.png` / `o_empty2.png` 均 183380 B，代理下单页三次均 179797 B），真人以为 App 卡死。
+
+**根因**：校验一直在跑（`ui/shipper/OrderCreateViewModel.kt::submit()` 五句话术都写得好好的），但界面上**唯一的渲染点是 LazyColumn 的最后一项**
+（`ui/shipper/OrderCreateScreen.kt:645-649` 的 `item { vm.error?.let { Text(...) } }`）—— 下单页表单有三张卡，手机屏上滚不到那儿；
+且代理下单页的货主闸门要等一圈网络（协程里查完角色）才判。两个入口其实是**同一个页面**（`proxyMode` 决定标题），
+`ui/nav/NavGraph.kt:177`（货主）与 `:191`（派单员，`:195` 带 `proxyMode = true,`）都进它。
+
+**改哪些文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt`（`bottomBar` 由 `Surface{Row}` 改成
+`Surface{Column{FormErrorLine(vm.error, …) + Row(合计 / 提交订单)}}`，那句话画在提交按钮正上方；LazyColumn 末尾那份渲染删掉，只留 8dp Spacer）、
+`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateViewModel.kt`（`submit()` 的 `when` 首条补同步闸门
+`proxyMode && shipperId == null && tempShipperName.isNullOrBlank() -> error = 「请选择货主或填写临时货主姓名」`；协程里那道同款闸门保留为兜底并写清理由）。
+规范依据 = `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` §4.8「表单的错画在表单里」，共用件 `ui/common/Components.kt::FormErrorLine`。
+
+**判据·反验**：新增 `_tools/qa/_check_order_submit_feedback.py`（30 项静态判据：反空转 / 落点 / 按钮可按 / 闸门与话术 / 两个入口 / 出处与留痕）
+与 `_tools/qa/_reverse_verify_order_submit_feedback.py`（12 条注入，每条都要让判据变红）。⛔ 未改核心区文件（`ui/shipper/OrderCreateScreen.kt`、
+`ui/shipper/OrderCreateViewModel.kt` 都不在 `_tools/qa/_core_files.txt` 里）。
+
+**边界（没破）**：五句校验话术的内容、提交按钮的文案与 `0xFF00A56E` 颜色、`enabled = !vm.submitting` 的可点性口径、收货人电话可选、
+单价只有一个来源、提交成功后的 `repo.createOrder` → `onCreated()` 链路、提交失败仍写 `error = toApiException(e).message`；后端 / 路由 / 权限 / 数据一个字不动。
+
+**真机复验**：5554（派单员 13800000001）「工作台 → 代理下单」空表单点提交 → 同一屏出现「请选择货主或填写临时货主姓名」
+（`_tmp/bug0003_5554_proxy_empty.png`，红字 `center=(338, 2144)` vs 提交按钮 `y=2284`）；5556（货主 13800000002）「下单」页同操作 → 「请至少添加一组商品」
+（`_tmp/bug0003_5556_shipper_empty.png`）。
+
+**落点与提交**：实现提交 `0da8af9`（修复 + 判据 + 反验 + 文档；8 files changed / 702 insertions / 30 deletions）。判据 `_tools/qa/_check_order_submit_feedback.py` **30/30**、反向验证 `_reverse_verify_order_submit_feedback.py` **12/12**、全仓 `_check_all.py` **154/154**（221.0 秒，改前 153/153）、gradle `:app:testEmuDebugUnitTest assembleEmuDebug` **BUILD SUCCESSFUL**、真机复验 5554（派单员代理下单）与 5556（货主下单）各一次。事项档案 `docs/changes/BUG-0003.md`；登记表行 `docs/changes/README.md`。
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0002 名册号码露出软删后缀 + 账户页没有状态档 + 停用账号能绑车**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：2026-10-03 三端真机 E2E 走查（`_tmp/E2E测试报告.md` P1 / P2 / P10）。

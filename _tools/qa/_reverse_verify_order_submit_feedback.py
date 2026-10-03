@@ -129,8 +129,8 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
     (
         '⑫ 声明块被删（AI_WORK_CLAIM 里不再有 BUG-0003 的进行中声明）',
         'docs/AI_WORK_CLAIM.md',
-        '### [2026-10-03 进行中] 会话：**BUG-0003',
-        '### [2026-10-03 进行中] 会话：**BUG-000X',
+        '会话：**BUG-0003 空表单点「提交订单」零反馈',
+        '会话：**BUG-000X 空表单点「提交订单」零反馈',
         'AI_WORK_CLAIM.md 里有 BUG-0003 声明块',
     ),
 ]
