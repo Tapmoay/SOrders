@@ -31,6 +31,17 @@
 
 ## 进行中
 
+### [2026-10-04 进行中] 会话：**CHG-0021 记账页「这一笔记给谁」抽屉：整段只留一个滚动容器（表单抽屉欠账表清零）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**：（这一批**没有**新的点名原话 —— 起因是判据 `_tools/qa/_check_sheet_form_pages.py` 的表单抽屉欠账表**最后一行**。）长期口径仍是「前端页面要重做按照我们的设计规范进行写」（2026-10-03 那一批的原话）与「你全部安排一下，全部把它做完」；形态照 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:1266-1272` 那条（用户对运费模板说的「他**不要使用弹窗**啊，**使用底部抽屉**，并且**底部抽屉是拉到最上面**」）。这一页的欠账归因（「缺 verticalScroll」）**本来就是错的**：名单是 `LazyColumn`，外面再套 `verticalScroll` 会直接崩 —— 真正的问题是头段钉死。
+
+**改什么**：`ui/dispatcher/LedgerCreateScreen.kt` 的 `ShipperPickerSheet`（:610 起，抽屉体 :616-714）—— 抽屉体的根从 `Column(Modifier.fillMaxWidth().fillMaxHeight(0.88f)…)` 换成 `LazyColumn(同参数)`，头段（标题「这一笔记给谁」/ 未注册客户直接填名字的 `SoTextField` / 一句说明 / `SearchField`）与底栏（清空 / 完成）**都变成列表的 item**，整段一起滚。判据 `_tools/qa/_check_sheet_form_pages.py`：`PENDING_FORMS` 清空 + 新增 §8 五条（抽屉体第一句就是 LazyColumn / 体内只有一个滚动容器 / 没有 verticalScroll / 标题·填名字·搜索框·底栏都在滚动区里）；反验 `_tools/qa/_reverse_verify_sheet_form_pages.py` 原 ㉘ 换成 ㉘㉙ 两条（列表根换回 Column / 标题钉回列表外），23→29 条。
+
+**Blast Radius**：L0（只动一个 Kotlin 文件里的一个私有 composable 的版式 + 判据/反验两个工具文件；接口 / DTO / ViewModel 状态与请求 / 权限 / 审计 / 迁移一行不动，另一处选货主抽屉 `ui/common/ShipperPickerSheet.kt` 故意不动）。
+
+**文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/LedgerCreateScreen.kt`、`_tools/qa/_check_sheet_form_pages.py`、`_tools/qa/_reverse_verify_sheet_form_pages.py`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（source_hash 重生成）、`docs/changes/CHG-0021.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
+
+**结果**：（归档时补）
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

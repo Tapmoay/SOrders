@@ -38,7 +38,14 @@
 - 全局那条（没有哪个抽屉自己传 `containerColor`）的清单是**算出来的**，不手写；
 
 用法：python _tools/qa/_check_sheet_form_pages.py
-配套：python _tools/qa/_reverse_verify_sheet_form_pages.py（**23** 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_sheet_form_pages.py（**29** 种破坏方式全被抓）
+
+## §8 是另一种形态（2026-10-04 · CHG-0021）
+ui/dispatcher/LedgerCreateScreen.kt 的「这一笔记给谁」**不是表单**（它是"挑一条"的抽屉），
+所以不进 §7 那张 FORM_ROWS 清单；它单点的是**「抽屉体只允许有一个滚动容器」**：
+头段（标题 / 直接填名字 / 搜索框 / 底栏）也必须是列表的 item ——
+原来那版是「头段钉死 + 只让名单滚」，小屏或键盘弹起时名单被压到几乎没有，
+而头段自己又滚不动（名单本来是 LazyColumn，套上 verticalScroll 会直接崩）。
 """
 from __future__ import annotations
 
@@ -60,6 +67,9 @@ VM = AND / "ui/dispatcher/AccountManageViewModel.kt"
 #: 第二个搬进抽屉的页面（2026-09-22）：运费模板的「新建」。
 FREIGHT = AND / "ui/dispatcher/FreightTemplatesScreen.kt"
 FREIGHT_VM = AND / "ui/dispatcher/FreightTemplatesViewModel.kt"
+#: §8 单点的那个抽屉（2026-10-04 · CHG-0021）：记账页「这一笔记给谁」——
+#: 它不是表单（是"挑一条"的抽屉），所以不进 §7 的 FORM_ROWS 清单，单点"只允许一个滚动容器"。
+LEDGER = AND / "ui/dispatcher/LedgerCreateScreen.kt"
 DOC = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 
 TOKEN = "SheetSurface"
@@ -142,6 +152,8 @@ FORM_ROWS = ("FormGroup(", "FormInputRow(", "FormPickRow(", "FormSwitchRow(", "F
 #: 用户要的是「拉到最上面」，`.fillMaxHeight(0.9f)` 是**有意**留一截（前面那页的先例）。
 TRIO = ("fillMaxHeight(", "verticalScroll(")
 #: ⛔ 还没搬三件套的**抽屉**（只能收紧：搬好一个就删一行；每一行都必须仍然成立）。
+#: **现在是空的** —— 最后一行（记账页「这一笔记给谁」）已在 2026-10-04（CHG-0021）按 §8
+#: 改成「整段一个滚动容器」，欠账清零。表本身留着：下一个"搬进来一半"的抽屉往这里记一行。
 #: 为什么要有这张表：`FORM_ROWS` 只认「已经换成白卡表单行」的页，而下面这几个抽屉本身也是
 #: 要往里填字的（只是还没按规范重做）—— 不记下来的话，「又一个抽屉没拉满」
 #: 永远不会有人喊（它编译得过、真机上也能用，只是半截）。
@@ -154,11 +166,9 @@ TRIO = ("fillMaxHeight(", "verticalScroll(")
 #:    欠账已经还清，判据还在替它喊（反向验证 ㉘ 就是拿这一页做实验时发现的）。
 #:    锚在那段原文上之后，抽屉真修好了 → 锚在"缺三件套"的那堆里找不到 → 当场红，
 #:    逼人把这一行删掉。
+#: ⚠️ 这张表的**源码文本**还被两个脚本读（_check_users_form.py：从表名切到第一个右花括号；
+#:    _reverse_verify_users_form.py：往赋值那一行后面插一行做注入）—— 赋值那一行别改写法。
 PENDING_FORMS = {
-    "ui/dispatcher/LedgerCreateScreen.kt": (
-        "这一笔记给谁",
-        "「这一笔记给谁」带一个自由填名字的框（有 fillMaxHeight(0.88f)，缺 verticalScroll）",
-    ),
 }
 
 
@@ -430,6 +440,46 @@ def main() -> int:
              (AND / rel).exists() and bool(still),
              "这一个抽屉已经搬好了（或文件/锚点没了）—— 把 PENDING_FORMS 里这一行删掉，"
              "别让它变成空转的豁免")
+    c.ok("「还没搬三件套」的欠账表是空的（最后一条＝记账页，2026-10-04 · CHG-0021 已还清）",
+         not PENDING_FORMS,
+         "又往这张表里记了一行？那说明有一页抽屉只搬了一半 —— 记下来是对的，"
+         "但它是一笔**欠账**，搬完就要删掉")
+    # 表空着的时候上面那个循环一条都不会报 —— 所以空本身也要有判据兜着（"零条检查"最会骗人）。
+
+    # ── 8. 记账抽屉（「这一笔记给谁」）：整段一个滚动容器（2026-10-04 · CHG-0021）──
+    # ⚠️ 这一节的前身是上面那张欠账表里最后一行，原来的记法是「有 fillMaxHeight(0.88f)，
+    #    缺 verticalScroll」—— 那个归因**是错的**：那页没有 verticalScroll，是因为它的名单
+    #    本来就是 LazyColumn，而 LazyColumn 套在 verticalScroll 里会**直接崩**。
+    #    真正该钉的是**形态**：头段钉在上面、只让名单滚 → 小屏 / 键盘弹起时名单被压到几乎
+    #    没有，而头段自己又滚不动。改成"头段也是 item"之后，判据钉死两件事：
+    #    抽屉体的**第一句就是 LazyColumn**（不再是那个钉死的 Column），以及头段那几样
+    #    都落在滚动区**里面**（位置断言：都出现在 LazyColumn( 之后）。
+    c.section("8. 记账抽屉（「这一笔记给谁」）：头段也是列表的 item，整段一起滚")
+    heads = [b for rel, _, b in sheets
+             if rel.endswith("dispatcher/LedgerCreateScreen.kt") and "这一笔记给谁" in b]
+    c.ok("认出了「这一笔记给谁」抽屉（扫描被改坏的话下面全是空转）", len(heads) == 1,
+         f"实际认出 {len(heads)} 个 —— 这一页的抽屉改叫别的了？")
+    if heads:
+        body = heads[0]
+        n_lz = body.count("LazyColumn(")
+        c.ok("抽屉体的第一句就是 LazyColumn（不是钉在上面的 Column 头段）",
+             re.search(r"\{\s*LazyColumn\(", body) is not None,
+             "又变回「头段钉死、只让名单滚」了？那一坨在小屏 / 键盘弹起时会把名单压没")
+        c.ok("抽屉体里只有一个滚动容器（LazyColumn 恰好一处）", n_lz == 1,
+             f"实际 {n_lz} 处 —— 多一个就是两个容器抢高度")
+        c.ok("抽屉体里没有 verticalScroll（LazyColumn 外面再套一层会直接崩）",
+             "verticalScroll(" not in body)
+        i = body.find("LazyColumn(")
+        pins = {
+            "标题「这一笔记给谁」": "这一笔记给谁",
+            "直接填名字的框": "未注册的客户：直接填名字",
+            "搜索框": "SearchField(",
+            "底栏（清空 / 完成）": "vm.clearShipper()",
+        }
+        out_of_scroll = [k for k, s in pins.items() if not (0 <= i < body.find(s))]
+        c.ok("标题 / 直接填名字 / 搜索框 / 底栏都在抽屉的滚动区里（不是钉在上面的头段）",
+             not out_of_scroll,
+             "这几样又跑到列表外面去了：" + "、".join(out_of_scroll))
     # 信息行（不是判据）：体内有输入框、但还没换成白卡表单行的抽屉。它们多半是**挑一条**的
     # 抽屉（框是搜索框），列出来只为下一个人判断"这一页算不算表单"。
     maybe = sorted({rel for rel, _, b in sheets
@@ -444,7 +494,8 @@ def main() -> int:
             print(f"   - {label}")
         return 1
     print(f"✅ 全部 {c.n_ok} 项通过：抽屉底色是全 App 一处说了算的中性灰、"
-          f"两页表单都是抽屉里拉满的白卡无边框行、错误与表单同生共死。")
+          f"两页表单都是抽屉里拉满的白卡无边框行、错误与表单同生共死、"
+          f"记账抽屉整段只有一个滚动容器。")
     return 0
 
 

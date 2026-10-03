@@ -181,12 +181,18 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      "~抽屉内容 fillMaxHeight("),
     # ⚠️ 为什么挑「这一笔记给谁」抽屉、不挑车辆管理页：车辆管理页有**两个**抽屉，
     #    只补齐其中一个，`still` 仍然非空、豁免照样成立 —— 那样的注入是**假红**。
-    ("㉘ 欠账被偷偷补上（「这一笔记给谁」抽屉加上了 verticalScroll）",
+    #    （2026-10-04 · CHG-0021：欠账表清零，这一格换成"钉住 §8 的形态"的两条注入。）
+    ("㉘ 记账抽屉又变回「头段钉死、只让名单滚」（列表根换回 Column）",
      A + "ui/dispatcher/LedgerCreateScreen.kt",
+     "        LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)) {",
      "        Column(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)) {",
-     "        Column(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)"
-     ".verticalScroll(rememberScrollState())) {",
-     "~还没搬三件套"),
+     "抽屉体的第一句就是 LazyColumn（不是钉在上面的 Column 头段）"),
+    ("㉙ 标题被钉回列表外面（头段那几样不再跟着滚）",
+     A + "ui/dispatcher/LedgerCreateScreen.kt",
+     "        LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)) {",
+     "        Text(\"这一笔记给谁\")\n        LazyColumn(Modifier.fillMaxWidth()"
+     ".fillMaxHeight(0.88f).padding(horizontal = 20.dp)) {",
+     "~都在抽屉的滚动区里"),
 ]
 
 

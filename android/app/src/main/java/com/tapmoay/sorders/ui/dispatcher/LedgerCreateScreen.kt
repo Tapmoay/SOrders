@@ -614,93 +614,103 @@ private fun ShipperPickerSheet(vm: LedgerCreateViewModel) {
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)) {
-            Text("这一笔记给谁", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(10.dp))
-            SoTextField(
-                value = vm.tempName,
-                onValueChange = { vm.pickTempName(it) },
-                placeholder = "未注册的客户：直接填名字",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                "填了名字就按临时货主记 —— 他会和普通货主一样出现在货主账里，下次直接从这个名单里选。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(10.dp))
-            SearchField(value = vm.shipperQuery, onValueChange = { vm.searchShippers(it) })
-            Spacer(Modifier.height(8.dp))
+        // ⚠️ 整段只允许**一个**滚动容器：头段（标题 / 直接填名字 / 搜索框）也是列表的 item。
+        //    原来是「头段钉死 + 只让名单滚」—— 那一坨在小屏或键盘弹起时会把名单压到几乎没有，
+        //    而它自己又滚不动；LazyColumn 外面再套 verticalScroll 会直接崩（列表没有高度上限），
+        //    所以只能把头段变成 item。形态与账户管理 / 运费模板 / 地址与联系人那三个抽屉同一套。
+        LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 20.dp)) {
+            item {
+                Text("这一笔记给谁", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+            item { Spacer(Modifier.height(10.dp)) }
+            item {
+                SoTextField(
+                    value = vm.tempName,
+                    onValueChange = { vm.pickTempName(it) },
+                    placeholder = "未注册的客户：直接填名字",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                Text(
+                    "填了名字就按临时货主记 —— 他会和普通货主一样出现在货主账里，下次直接从这个名单里选。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            item { Spacer(Modifier.height(10.dp)) }
+            item { SearchField(value = vm.shipperQuery, onValueChange = { vm.searchShippers(it) }) }
+            item { Spacer(Modifier.height(8.dp)) }
 
             val registered = vm.visibleShippers()
             val temps = vm.visibleTempNames()
             if (vm.shipperSearching) {
-                Box(Modifier.fillMaxWidth().height(120.dp)) { LoadingBox() }
+                item { Box(Modifier.fillMaxWidth().height(120.dp)) { LoadingBox() } }
             } else {
-                LazyColumn(Modifier.weight(1f)) {
+                item {
+                    Text(
+                        if (vm.shipperQuery.isBlank()) "已注册货主（" + registered.size + "）"
+                        else "搜索结果（" + registered.size + "）",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (registered.isEmpty()) {
                     item {
                         Text(
-                            if (vm.shipperQuery.isBlank()) "已注册货主（" + registered.size + "）"
-                            else "搜索结果（" + registered.size + "）",
+                            UserSearch.noMatchText(vm.shipperQuery) + "已注册货主",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+                items(registered, key = { it.id }) { u ->
+                    PersonRow(
+                        name = userText(u),
+                        sub = u.phone.ifBlank { "未填手机号" },
+                        selected = vm.shipperId == u.id,
+                        onClick = { vm.pickShipper(u) },
+                    )
+                }
+                if (temps.isNotEmpty()) {
+                    item {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "用过的临时货主（未注册）",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (registered.isEmpty()) {
-                        item {
-                            Text(
-                                UserSearch.noMatchText(vm.shipperQuery) + "已注册货主",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                        }
-                    }
-                    items(registered, key = { it.id }) { u ->
+                    items(temps, key = { "t|" + it }) { n ->
                         PersonRow(
-                            name = userText(u),
-                            sub = u.phone.ifBlank { "未填手机号" },
-                            selected = vm.shipperId == u.id,
-                            onClick = { vm.pickShipper(u) },
+                            name = n,
+                            sub = "未注册（记在这个名字下）",
+                            selected = vm.tempName.trim() == n,
+                            onClick = { vm.pickTempName(n); vm.showShipperPicker = false },
                         )
                     }
-                    if (temps.isNotEmpty()) {
-                        item {
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                "用过的临时货主（未注册）",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        items(temps, key = { "t|" + it }) { n ->
-                            PersonRow(
-                                name = n,
-                                sub = "未注册（记在这个名字下）",
-                                selected = vm.tempName.trim() == n,
-                                onClick = { vm.pickTempName(n); vm.showShipperPicker = false },
-                            )
-                        }
-                    }
-                    if (vm.rosterTruncated && vm.shipperQuery.isBlank()) {
-                        item {
-                            Text(
-                                "名册太长，这里只列了最近 500 个 —— 搜名字或手机号可以找到其他人。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                        }
+                }
+                if (vm.rosterTruncated && vm.shipperQuery.isBlank()) {
+                    item {
+                        Text(
+                            "名册太长，这里只列了最近 500 个 —— 搜名字或手机号可以找到其他人。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { vm.clearShipper() }) { Text("清空") }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { vm.showShipperPicker = false }) { Text("完成") }
+            item { Spacer(Modifier.height(8.dp)) }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { vm.clearShipper() }) { Text("清空") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { vm.showShipperPicker = false }) { Text("完成") }
+                }
             }
-            Spacer(Modifier.height(12.dp))
+            item { Spacer(Modifier.height(12.dp)) }
         }
     }
 }
