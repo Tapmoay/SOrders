@@ -125,6 +125,11 @@ fun DispatcherOrdersScreen(
                                     CardActionIcon(
                                         icon = if (order.isException) Icons.Default.Report else Icons.Default.WarningAmber,
                                         contentDescription = "异常",
+                                        // 说清是**哪一类**异常（钱货风险 / 履约卡住 / 一般）：
+                                        // 与「报表中心 → 异常与审计」同一个判据、同一个词，两页对得上
+                                        // （E2E 走查 P13：原来只有一个 ⚠，类别只在报表页里看得到）。
+                                        // 非异常单（那颗 ⚠ 是"待派超时"的提醒）不写词 —— 那不是一个异常。
+                                        label = if (order.isException) orderExceptionRisk(order).label else null,
                                         tint = if (order.isException) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
                                         onClick = { vm.openException(order) },
                                     )

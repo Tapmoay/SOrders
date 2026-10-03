@@ -78,8 +78,25 @@ internal fun vehicleTypeLabel(t: String?): String = when (t) {
     else -> "未设置车型"
 }
 
-/** 车型下拉的取值（顺序＝界面顺序：挂车最常见，排第一）。 */
-internal val VEHICLE_TYPES = listOf("trailer" to "挂车", "large" to "大货车", "small" to "小货车")
+/**
+ * 车型下拉的取值（顺序＝界面顺序）。
+ *
+ * **小货车排第一**：它是名册里最多的车型（本机 `vehicles` 表 small 11 / large 3 / trailer 1），
+ * 而且下拉第一项就是 [DEFAULT_VEHICLE_TYPE] —— 新建车辆时用户不动这一格也不会建错。
+ * 原来默认「挂车」且挂车排第一，不注意就会建错车型（E2E 走查 P11）。
+ *
+ * ⛔ 取值集**一个字不许扩**：这三档是**计费口径**（司机计费规则 / 运费模板都按它匹配），
+ * 顺序可以改，档位不许加（`_tools/qa/_check_vehicle_attrs.py` 钉着）。
+ */
+internal val VEHICLE_TYPES = listOf("small" to "小货车", "large" to "大货车", "trailer" to "挂车")
+
+/**
+ * 新建车辆的默认车型 ＝ 下拉第一项。
+ *
+ * ⛔ 不要另写字面量：默认值与下拉第一项**必须同源**，否则把顺序换个位置之后，
+ * "默认那一个"就会悄悄变成一个不在第一项上的值。
+ */
+internal val DEFAULT_VEHICLE_TYPE = VEHICLE_TYPES.first().first
 
 class VehicleManageViewModel(private val container: AppContainer) : ViewModel() {
 
@@ -94,7 +111,7 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     var sheetOpen by mutableStateOf(false)
     var editingId by mutableStateOf<Long?>(null)
     var draftPlate by mutableStateOf("")
-    var draftType by mutableStateOf("trailer")
+    var draftType by mutableStateOf(DEFAULT_VEHICLE_TYPE)
     var draftDriverId by mutableStateOf<Long?>(null)
     var draftActive by mutableStateOf(true)
     /**
@@ -190,7 +207,7 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     fun openCreate() {
         editingId = null
         draftPlate = ""
-        draftType = "trailer"
+        draftType = DEFAULT_VEHICLE_TYPE
         draftDriverId = null
         draftActive = true
         // 新车的车身型式默认「未设置」：⛔ 不替用户认一个（认错了，他就会在一个错误的表单上填一堆数）
@@ -206,7 +223,9 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     fun openEdit(v: VehicleDto) {
         editingId = v.id
         draftPlate = v.plateNo
-        draftType = v.vehicleType.ifBlank { "trailer" }
+        // 老数据里车型是空串（`_clean_type(...) or ""` 允许空）时落回默认那一档，
+        // 而不是硬写「挂车」：用户一保存就会把空车型写成一个他从没选过的档。
+        draftType = v.vehicleType.ifBlank { DEFAULT_VEHICLE_TYPE }
         draftDriverId = v.driverId
         draftActive = v.isActive
         draftBody = v.bodyType

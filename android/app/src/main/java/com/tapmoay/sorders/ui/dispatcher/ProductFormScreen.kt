@@ -157,7 +157,10 @@ fun ProductFormScreen(
                             value = vm.stock,
                             onValueChange = { vm.stock = InputRules.intInput(it, 7) },
                             placeholder = "初始库存（选填）",
-                            required = true,
+                            // ⛔ 不是必填：后端 `ProductCreate.stock` 的语义就是「可选，不给就是 0」
+                            // （`backend/app/schemas/product.py`:31），而这一行的占位语也写着「（选填）」。
+                            // 画红星＝跟自己的占位语打架（E2E 走查 P3）。
+                            required = false,
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
                         )
                     } else {
@@ -351,7 +354,7 @@ fun ProductFormScreen(
     if (showCategoryPicker) {
         CategoryPickerSheet(
             title = "请选择商品分组",
-            choices = vm.categories.map { CategoryChoice(it.name, "${it.productCount} 个商品") },
+            choices = vm.categories.map { CategoryChoice(it.name, categoryCountLabel(it.productCount)) },
             current = vm.category,
             onPick = { vm.category = it; showCategoryPicker = false },
             onDismiss = { showCategoryPicker = false },

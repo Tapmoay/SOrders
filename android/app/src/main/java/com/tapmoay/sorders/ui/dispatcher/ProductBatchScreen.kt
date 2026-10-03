@@ -339,7 +339,7 @@ fun ProductBatchScreen(
     if (showCategoryPicker) {
         CategoryPickerSheet(
             title = "把这些商品改到哪个分组",
-            choices = vm.categories.map { CategoryChoice(it.name, it.productCount.toString() + " 个商品") },
+            choices = vm.categories.map { CategoryChoice(it.name, categoryCountLabel(it.productCount)) },
             current = "",
             onPick = { name -> showCategoryPicker = false; vm.setCategory(name) },
             onDismiss = { showCategoryPicker = false },

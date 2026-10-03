@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ui.dispatcher
 
 import com.tapmoay.sorders.data.remote.dto.ExceptionOrderDto
+import com.tapmoay.sorders.data.remote.dto.OrderDto
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -118,9 +119,20 @@ fun auditRisk(kind: AuditKind): RiskLevel = when (kind) {
  * 142 待派超时 / 110 逾期送达 / 9 已撤销 / 9 超时未送 / 5 人工标记（货损、地址找不到…）。
  * 所以"是不是还要做点什么"必须先判出来，否则列表里 4 成是**已经送到客户手里**的单。
  */
-fun exceptionRisk(e: ExceptionOrderDto): RiskLevel {
-    if (e.exceptionResolvedAt != null) return RiskLevel.DONE
-    val r = e.exceptionReason
+fun exceptionRisk(e: ExceptionOrderDto): RiskLevel =
+    exceptionRiskOf(e.exceptionReason, resolved = e.exceptionResolvedAt != null, overdue = isOverdue(e))
+
+/**
+ * 上面那条判据的**本体**：吃三个已经取好的事实（原因文字 / 是否已解决 / 是否已经过期未送），
+ * 出一个 [RiskLevel]。
+ *
+ * 拆出来只有一个理由：**让别处也说同一个词**。订单卡上的异常图标要说"是哪一类"，
+ * 可它手里只有 [OrderDto]（没有解决时间），调不了吃 `ExceptionOrderDto` 的那个入口。
+ * ⛔ 两个入口必须由**这一份**判据出词，否则同一张异常单在卡片上和报表页里会叫两个名字。
+ */
+fun exceptionRiskOf(reason: String, resolved: Boolean, overdue: Boolean): RiskLevel {
+    if (resolved) return RiskLevel.DONE
+    val r = reason
     // ① 已经过去的事：送到了（只是迟到）、或者单子已经撤销/撤回（终态）
     if (r.contains("逾期送达") || r.contains("已撤销") || r.contains("已撤回")) return RiskLevel.PAST
     // ② 已经在赔的（货损/拒收/短少/丢失）
@@ -129,8 +141,25 @@ fun exceptionRisk(e: ExceptionOrderDto): RiskLevel {
     // ③ 卡住了：超时未送、超时未派、地址/联系不上
     val stuck = listOf("超时", "未送达", "没送到", "地址", "联系不上", "找不到", "延误", "逾期", "司机")
     if (stuck.any { r.contains(it) }) return RiskLevel.STUCK
-    if (isOverdue(e)) return RiskLevel.STUCK
+    if (overdue) return RiskLevel.STUCK
     return RiskLevel.OTHER
+}
+
+/**
+ * **订单卡上那颗异常图标说的是哪一类** —— 与「报表中心 → 异常与审计」同一个判据、同一个词
+ * （E2E 走查 P13：原来卡片上只有一个 ⚠ 写着「异常」，类别只在报表页里才看得到，两页之间没有链接）。
+ *
+ * `resolved` 恒 `false`：订单出参里**没有**"异常解决时间"（那是 `ExceptionOrderDto` 才有的字段），
+ * 而卡片上画的本来就是还没解决的那些。
+ */
+fun orderExceptionRisk(order: OrderDto): RiskLevel =
+    exceptionRiskOf(order.exceptionReason, resolved = false, overdue = isOrderOverdue(order))
+
+/** 承诺送达时间已过、而且没送到（订单出参版：与 [isOverdue] 同一条口径）。 */
+private fun isOrderOverdue(order: OrderDto): Boolean {
+    val due = parseDate(order.expectedDeliverBefore) ?: return false
+    if (order.deliveredAt != null) return false
+    return due.isBefore(LocalDate.now())
 }
 
 /**

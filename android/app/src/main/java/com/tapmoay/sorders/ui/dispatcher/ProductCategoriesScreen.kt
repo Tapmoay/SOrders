@@ -369,7 +369,7 @@ private fun CategoryRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        if (c.productCount > 0) "${c.productCount} 个商品" else "暂无商品",
+                        categoryCountLabel(c.productCount),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

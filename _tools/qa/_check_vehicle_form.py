@@ -219,9 +219,13 @@ def main() -> int:
     c.ok("本页 OutlinedTextField 是 0（规范 §5.0）", "OutlinedTextField" not in vehicle)
     c.ok(f"三个搜索框仍走 SearchField（实际 {len(re.findall(r'(?<!fun )SearchField[(]', vehicle))} 个）",
          len(re.findall(r"(?<!fun )SearchField[(]", vehicle)) == 3)
-    c.ok("车型取值表仍是计费口径那三档",
-         f"internal val VEHICLE_TYPES = listOf({Q}trailer{Q} to {Q}挂车{Q}, "
-         f"{Q}large{Q} to {Q}大货车{Q}, {Q}small{Q} to {Q}小货车{Q})" in vehicle)
+    # 只问「取值集」——顺序本身是 CHG-0028 的改动（小货车排第一），由
+    # _check_wording_consistency.py 单独钉；这里钉的是「一个字都不许扩」。
+    _vt = re.search(r"internal val VEHICLE_TYPES = listOf\(([^)]*)\)", vehicle)
+    _vt_pairs = re.findall(r'"([a-z]+)" to "([^"]+)"', _vt.group(1)) if _vt else []
+    c.ok("车型取值表仍是计费口径那三档（只问取值集，不许扩）",
+         set(_vt_pairs) == {("small", "小货车"), ("large", "大货车"), ("trailer", "挂车")},
+         f"实际解出 {_vt_pairs}")
     c.ok("载重 / 容积仍由 capacityText 画", "capacityText(v.attrs)" in vehicle)
     c.ok("仍然只停用、不删除（不出现 repo.delete）", "repo.delete" not in vehicle)
 

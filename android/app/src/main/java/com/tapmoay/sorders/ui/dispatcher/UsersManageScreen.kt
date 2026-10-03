@@ -906,7 +906,10 @@ private fun ProductVisibilityBlock(
                                 Text(p.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                                 Text(
                                     "¥" + formatMoney(p.defaultUnitPrice) + " / " + p.unit.ifBlank { "件" } +
-                                        if (p.isActive) "" else " · 已下架",
+                                        // 同一个状态全 App 只有一个词：共用角标 `ProductSoldOutBadge`
+                                        // 在商品管理 / 批量操作 / 选品三页都写「已沽清」，这里原来是第四种说法
+                                        // （E2E 走查「已沽清 vs 已下架」）。
+                                        if (p.isActive) "" else " · 已沽清",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

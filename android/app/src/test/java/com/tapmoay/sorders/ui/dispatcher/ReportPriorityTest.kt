@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ui.dispatcher
 
 import com.tapmoay.sorders.data.remote.dto.ExceptionOrderDto
+import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.OperationLogDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -275,4 +276,56 @@ class ReportPriorityTest {
             }
         }
     }
+
+    // ---------------------------------------------------------------- 异常：卡片与报表说同一个词（P13）
+
+    @Test
+    fun `订单卡与报表页共用同一份判据（同样三个事实出同一个词）`() {
+        assertEquals(RiskLevel.MONEY, exceptionRiskOf("司机反馈货损 2 件", resolved = false, overdue = false))
+        assertEquals(RiskLevel.STUCK, exceptionRiskOf("超时未送（超过预计送达时间）", resolved = false, overdue = false))
+        assertEquals(RiskLevel.PAST, exceptionRiskOf("逾期送达（超过预计送达时间）", resolved = false, overdue = false))
+        assertEquals(RiskLevel.OTHER, exceptionRiskOf("随手记一笔", resolved = false, overdue = false))
+        // 已解决优先于一切：那一单不该再被叫成「钱货风险」
+        assertEquals(RiskLevel.DONE, exceptionRiskOf("司机反馈货损 2 件", resolved = true, overdue = true))
+    }
+
+    @Test
+    fun `过期未送即使原因说不清也算履约卡住（卡片这一版没有解决时间）`() {
+        assertEquals(RiskLevel.STUCK, exceptionRiskOf("说不清楚", resolved = false, overdue = true))
+        assertEquals(RiskLevel.OTHER, exceptionRiskOf("说不清楚", resolved = false, overdue = false))
+    }
+
+    @Test
+    fun `订单卡说得出是哪一类异常（P13：原来卡片上只有一个「异常」）`() {
+        val money = OrderDto(id = 1L, orderNo = "SO1", status = "delivered", exceptionReason = "司机反馈货损 2 件")
+        assertEquals(RiskLevel.MONEY, orderExceptionRisk(money))
+        assertEquals("钱货风险", orderExceptionRisk(money).label)
+
+        val stuck = OrderDto(id = 2L, orderNo = "SO2", status = "dispatched", exceptionReason = "超时未送（超过预计送达时间）")
+        assertEquals(RiskLevel.STUCK, orderExceptionRisk(stuck))
+
+        // 承诺时间已过、又没送到：原因看不出门道也算卡住（这一单在卡片上不能只说「异常」）
+        val overdue = OrderDto(
+            id = 3L,
+            orderNo = "SO3",
+            status = "dispatched",
+            exceptionReason = "手动标记",
+            expectedDeliverBefore = LocalDate.now().minusDays(1).toString() + "T18:00:00",
+        )
+        assertEquals(RiskLevel.STUCK, orderExceptionRisk(overdue))
+    }
+
+    @Test
+    fun `送到了的迟到单在卡片上不再被叫成「履约卡住」`() {
+        val late = OrderDto(
+            id = 4L,
+            orderNo = "SO4",
+            status = "delivered",
+            exceptionReason = "逾期送达（超过预计送达时间）",
+            expectedDeliverBefore = LocalDate.now().minusDays(3).toString() + "T09:00:00",
+            deliveredAt = LocalDate.now().toString() + "T08:00:00",
+        )
+        assertEquals(RiskLevel.PAST, orderExceptionRisk(late))
+    }
+
 }

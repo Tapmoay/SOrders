@@ -204,8 +204,8 @@ CASES: list[tuple[str, str, str, str, tuple[str, ...] | str]] = [
     (
         "安卓车型 chips 里塞进车身型式（两件事被合并）",
         "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt",
-        'internal val VEHICLE_TYPES = listOf("trailer" to "挂车", "large" to "大货车", "small" to "小货车")',
-        'internal val VEHICLE_TYPES = listOf("trailer" to "挂车", "large" to "大货车", "small" to "小货车", "box" to "箱式车")',
+        'internal val VEHICLE_TYPES = listOf("small" to "小货车", "large" to "大货车", "trailer" to "挂车")',
+        'internal val VEHICLE_TYPES = listOf("small" to "小货车", "large" to "大货车", "trailer" to "挂车", "box" to "箱式车")',
         ("安卓 VEHICLE_TYPES 里出现了",),
     ),
     (

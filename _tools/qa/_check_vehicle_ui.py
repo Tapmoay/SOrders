@@ -262,8 +262,13 @@ def main() -> int:
     c.ok("卡片仍用 capacityText(v.attrs) 显示载重 / 容积（不许自己拼）",
          "capacityText(v.attrs)" in card)
     c.ok("属性表仍按 draftBody 取（attrsFor(vm.draftBody)）", "attrsFor(vm.draftBody)" in vehicle)
-    c.ok("车型取值表逐字符没动（那是计费口径，_check_vehicle_attrs.py 钉着）",
-         'internal val VEHICLE_TYPES = listOf("trailer" to "挂车", "large" to "大货车", "small" to "小货车")' in vehicle)
+    # 取值集仍是那三档（一个字不许扩）；顺序与默认值由 CHG-0028 改并由
+    # _check_wording_consistency.py 单独钉，所以这里只按集合比对。
+    _vt = re.search(r"internal val VEHICLE_TYPES = listOf\(([^)]*)\)", vehicle)
+    _vt_pairs = re.findall(r'"([a-z]+)" to "([^"]+)"', _vt.group(1)) if _vt else []
+    c.ok("车型取值表仍是计费口径那三档（取值集不许扩，_check_vehicle_attrs.py 钉着）",
+         set(_vt_pairs) == {("small", "小货车"), ("large", "大货车"), ("trailer", "挂车")},
+         f"实际解出 {_vt_pairs}")
     c.ok("三个信息标签都还在（车型 / 车身型式 / 停用）",
          "MiniChip(vehicleTypeLabel(v.vehicleType)" in card
          and "MiniChip(v.bodyLabel, VehicleAccent)" in card
