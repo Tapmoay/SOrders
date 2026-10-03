@@ -30,19 +30,6 @@
 ---
 
 ## 进行中
-
-### [2026-10-03 进行中] 会话：**BUG-0006 登录被踢后只有一句「登录已失效」：四种原因分不清、403 被说成掉线、事后在库里查不到「谁顶了谁」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：走查自 2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md:151-156`）的机制性发现，以及 `:232`（§八.6「users 表无 last_login_at，无法在库层面审计「谁顶了谁」」）。
-
-**走查原话（逐字）**：「被顶号 / 被停用 / 改了密码 / 令牌过期，在用户眼里**全是同一句话**，不说原因；服务端明明握着 reason 字符串。」另半句（`:153`）：「而 `core/ApiClient.kt:149` 把 **403（纯权限不足）也写成「登录已失效」**。」
-
-**根因**：`backend/app/services/auth_service.py:87 revoke_tokens_and_sockets(db, user, background_tasks, reason)` 的第四个参数就是那句原因（四条调用路径都传了），但它只被用来排推送与写日志、**从没有落库**；客户端 `core/ApiClient.kt:66` 见 401 就清会话（`:73 onSessionExpired`），`ui/nav/NavGraph.kt:109-112` 弹的是**硬编码**兜底句 —— 响应体里的 `detail` 从来没被读过。
-
-**改了哪五处**（详细规格见 `docs/changes/BUG-0006.md`）：(a) `users` 加 4 列（原因 / 时间 / 版本 / `last_login_at`）＋ **正式搬迁迁移 `backend/app/migrations/016_session_end_reason.py`（VERSION 16）** ＋ `core/schema_bootstrap.py` 四个幂等补列块（只是兜底：应用启动只核对不改库，R3-01）；(b) `deps.py` 四个 401 分支各说各的 ＋ `_session_ended_detail(user)` 按「这一次的原因」说话（`session_revoked_version == token_version` 才对账，否则兜底句「登录已失效，请重新登录」）；(c) `ApiClient.kt` 读正文（`peekBody`）并把原因交给 `clearSession(reason)`，401 与 403 的兜底拆成两句；(d) 长连接那条路（`SocketManager.revokedReason(args)` → `RealtimeHub`）也把原因带过去；(e) `_login` 记 `last_login_at`（写在 `db.commit()` 之前），**不碰** `session_revoked_reason`。
-
-**落点与提交**：判据 `_tools/qa/_check_session_end_reason.py` **37/37**；反验 `_tools/qa/_reverse_verify_session_end_reason.py` **32/32 全红**（被碰过的文件逐字节还原，含「正式搬迁没了 / 迁移少搬一列 / 迁移不看列在不在」三条新注入）；`backend/tests/test_session_end_reason.py` 10 例 ＋ 既有 `test_single_session.py` 共 **19 passed**；Android 单测 **1155 项 / 0 失败 / 2 跳过**；`_check_all.py` **__ALL__**；真机顶号实测见 `docs/changes/BUG-0006.md` ⑧。实现提交 `__SHA__` ｜归档提交：本条文档与登记表。
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5637,6 +5624,18 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**BUG-0006 登录被踢后只有一句「登录已失效」：四种原因分不清、403 被说成掉线、事后在库里查不到「谁顶了谁」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：走查自 2026-10-03 三端真机 E2E 报告（`_tmp/E2E测试报告.md:151-156`）的机制性发现，以及 `:232`（§八.6「users 表无 last_login_at，无法在库层面审计「谁顶了谁」」）。
+
+**走查原话（逐字）**：「被顶号 / 被停用 / 改了密码 / 令牌过期，在用户眼里**全是同一句话**，不说原因；服务端明明握着 reason 字符串。」另半句（`:153`）：「而 `core/ApiClient.kt:149` 把 **403（纯权限不足）也写成「登录已失效」**。」
+
+**根因**：`backend/app/services/auth_service.py:87 revoke_tokens_and_sockets(db, user, background_tasks, reason)` 的第四个参数就是那句原因（四条调用路径都传了），但它只被用来排推送与写日志、**从没有落库**；客户端 `core/ApiClient.kt:66` 见 401 就清会话（`:73 onSessionExpired`），`ui/nav/NavGraph.kt:109-112` 弹的是**硬编码**兜底句 —— 响应体里的 `detail` 从来没被读过。
+
+**改了哪五处**（详细规格见 `docs/changes/BUG-0006.md`）：(a) `users` 加 4 列（原因 / 时间 / 版本 / `last_login_at`）＋ **正式搬迁迁移 `backend/app/migrations/016_session_end_reason.py`（VERSION 16）** ＋ `core/schema_bootstrap.py` 四个幂等补列块（只是兜底：应用启动只核对不改库，R3-01）；(b) `deps.py` 四个 401 分支各说各的 ＋ `_session_ended_detail(user)` 按「这一次的原因」说话（`session_revoked_version == token_version` 才对账，否则兜底句「登录已失效，请重新登录」）；(c) `ApiClient.kt` 读正文（`peekBody`）并把原因交给 `clearSession(reason)`，401 与 403 的兜底拆成两句；(d) 长连接那条路（`SocketManager.revokedReason(args)` → `RealtimeHub`）也把原因带过去；(e) `_login` 记 `last_login_at`（写在 `db.commit()` 之前），**不碰** `session_revoked_reason`。
+
+**落点与提交**：判据 `_tools/qa/_check_session_end_reason.py` **37/37**；反验 `_tools/qa/_reverse_verify_session_end_reason.py` **32/32 全红**（被碰过的文件逐字节还原，含「正式搬迁没了 / 迁移少搬一列 / 迁移不看列在不在」三条新注入）；`backend/tests/test_session_end_reason.py` 10 例 ＋ 既有 `test_single_session.py` 共 **19 passed**；Android 单测 **1155 项 / 0 失败 / 2 跳过**；`_check_all.py` **162/162**；真机顶号实测见 `docs/changes/BUG-0006.md` ⑧。实现提交 `1b587a6` ｜归档提交：本条文档与登记表。
+
 ### [2026-10-03 进行中 → 2026-10-03 已完成] 会话：**CHG-0029 两笔钱分开说：规则卡标清「给司机的钱」，待定价的运费回流结算页（走查 P19）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **这一轮的验收口径（走查报告 `_tmp/E2E测试报告.md:240` 修复优先级第 3 条，逐字）**：
