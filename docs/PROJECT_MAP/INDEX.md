@@ -230,6 +230,8 @@ cd frontend; npm install; npm run build   # vue-tsc + vite（H5 本轮才第一�
 | [../RECTIFICATION_REPORT_R2.md](../RECTIFICATION_REPORT_R2.md) | R2 完整报告 |
 | [../RECTIFICATION_REPORT.md](../RECTIFICATION_REPORT.md) | 2026-09-25 那一轮的变更报告（**快照，不是活文档**） |
 | [../RELEASE_CANDIDATE.md](../RELEASE_CANDIDATE.md) | R3 发布候选记录（Git SHA / migration / 版本号） |
+| [../RECTIFICATION_REPORT_E2E.md](../RECTIFICATION_REPORT_E2E.md) | **E2E 走查整改报告**（三端真机走查 32 个编号 → 逐条闭环：12 事项 / 24 笔提交；权威是 [../changes/README.md](../changes/README.md) 与各 BUG/CHG 文档） |
+| [../E2E_WALKTHROUGH_REPORT_20261003.md](../E2E_WALKTHROUGH_REPORT_20261003.md) | 2026-10-03 三端真机 E2E 走查**原文**（整改的输入，不是现状；证据截图在 `_tmp`） |
 | [../ARCHITECTURE_RECTIFICATION_R2.md](../ARCHITECTURE_RECTIFICATION_R2.md) | R2 **方向指南原文存档**（逐字） |
 | [../ARCHITECTURE_RECTIFICATION_R3.md](../ARCHITECTURE_RECTIFICATION_R3.md) | R3 方向指南原文存档（逐字） |
 | [../ARCHITECTURE_RECTIFICATION_R4.md](../ARCHITECTURE_RECTIFICATION_R4.md) | R4 方向指南原文存档（逐字） |
