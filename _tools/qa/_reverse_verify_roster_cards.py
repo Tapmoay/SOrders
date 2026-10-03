@@ -390,6 +390,41 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "**CHG-002X",
         "AI_WORK_CLAIM.md 里有 CHG-0023 声明块（进行中 / 已完成都算）",
     ),
+    (
+        "㊽ 车辆页那颗胶囊不再与卡片右缘对齐（漏掉那 12dp）",
+        P_VEH,
+        "modifier = Modifier.padding(end = 12.dp),",
+        "modifier = Modifier,",
+        "车辆页：胶囊挂在 actions 上，右缘与卡片对齐",
+    ),
+    (
+        "㊾ 账户页那颗胶囊也跟着丢了对齐（它本该在 actions 里贴右侧）",
+        P_ACCT,
+        "modifier = Modifier.padding(end = 12.dp),",
+        "modifier = Modifier,",
+        "账户页：胶囊搬进 actions（右边空着 → 贴右侧），也补 12dp",
+    ),
+    (
+        "㊿ 司机 / 批发商池也把胶囊挪到右边（顶栏右边有按钮，用户说保持原样）",
+        P_USERS,
+        "val chipBesideTitle = pool == UserPool.MEMBERS || vm.isDriverPool",
+        "val chipBesideTitle = false",
+        "司机 / 批发商池：顶栏右边有按钮 → 胶囊保持原样贴在标题后面",
+    ),
+    (
+        "51 货主池那颗胶囊不贴右侧了（右边空着却不放右边）",
+        P_USERS,
+        "if (!chipBesideTitle) chip(Modifier.padding(end = 12.dp))",
+        "if (false) chip(Modifier.padding(end = 12.dp))",
+        "货主池（右边空）：同一颗胶囊落在 actions 里、右缘与卡片对齐",
+    ),
+    (
+        "52 地址页也塞进第四颗胶囊（那一页右边都有「新增」按钮，三颗保持原样）",
+        P_ADDR,
+        "CategoryTriggerChip(",
+        "CategoryTriggerChip(\n            CategoryTriggerChip(",
+        "⛔ 地址页那三颗保持原样（右边都有「新增」按钮 —— 右边有东西就别动）",
+    ),
 ]
 
 

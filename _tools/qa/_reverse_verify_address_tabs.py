@@ -6,11 +6,15 @@
 
 1. **判据空转**：把共用件换回自定义胶囊、把 SearchField 退回 SoTextField 之后判据静默全绿；
 2. **抽取失效 → 切片取到空串**：between(...) 取空之后，「这一段里不许有 SoTextField」这类否定式判据
-   在空串上**恒真**。本脚本把联系人那一支的写法改坏、把 else 分支也换成 SearchField，逼切片出声；
+   在空串上**恒真**。本脚本把搜索区的起点改掉（切片抽不出来）、把那份 SearchField 退回 SoTextField，
+   逼切片出声；
 3. **只扫整个文件**：SearchField( 出现两次也照样算过 —— 本脚本专门多塞一个搜索框进去。
 
 另外还有「共用件退化」那一类：SegmentedStatusTabs 少一个参数、外边距被改、
 SearchField 的默认提示语被就地写死、共用件里的 ✕ 被删 —— 这四条都不影响编译，但形态会一点点走样。
+
+⚠️ 2026-10-05（CHG-0024）搜索区形态变了：从「按档三选一（联系人档 SearchField / 另外两档 SoTextField）」
+改成「三档同一个 SearchField，只有占位语按档不同」。注入 ⑤⑥⑦⑨⑩⑪ 的锚点跟着搬，语义不变。
 
 ⚠️ 快照/还原按**字节**做，跑完逐字节核对（本项目栽过「注入把 bug 留在源码里」）。
 
@@ -55,7 +59,16 @@ COLORS_DECL = (
     'Color(OriginTeal), Color(ShipperTeal), Color(MoneyOrange))'
 )
 ROUTE_HINT = '0 -> ' + Q + '搜线路：收货人 / 电话 / 地址' + Q
-SEARCH_CALL = '                    SearchField(value = keyword, onValueChange = { keyword = it })'
+#: 搜索区那一段的起点（2026-10-05 三档统一之后：一个 Box 里装一份 SearchField）
+SEARCH_ZONE_OPEN = ('                    Box(Modifier.fillMaxWidth()'
+                    '.padding(horizontal = 16.dp, vertical = 8.dp)) {')
+#: 那份 SearchField 的调用行（全文件唯一一处 —— 三档共用）
+SEARCH_OPEN = '                        SearchField('
+#: 联系人档的占位语：走共用件自己的默认（core/UserSearch.HINT）
+CONTACT_HINT_LINE = '                                1 -> UserSearch.HINT'
+#: 收窄到「搜索区里那些行」的两个端点（切片用，与判据里的常量对齐）
+SEARCH_END = '                    val kw = keyword.trim()'
+SEARCH_ZONE_END = SEARCH_END
 CLEAR_BTN = '\n'.join([
     '                            IconButton(',
     '                                onClick = { keyword = ' + QQ + ' },',
@@ -158,29 +171,25 @@ CASES: list[tuple[str, str, object, str]] = [
         lambda s: s.replace(ON_SELECT, 'onSelect = { tab = it }', 1),
         '切档时顺手清空搜索',
     ),
-    # ---- 2. 搜索框分档 ----
+    # ---- 2. 搜索框（三档同一个形状）----
     (
-        '⑤ 联系人那一档退回自己写的 SoTextField（同一件事两个答案）',
+        '⑤ 那一份 SearchField 退回自己写的 SoTextField（同一件事两个答案）',
         ADDR,
-        lambda s: s.replace(SEARCH_CALL, '                    SoTextField(value = keyword, onValueChange = { keyword = it })', 1),
-        '联系人档还在自己写文本框',
+        lambda s: s.replace(SEARCH_OPEN, '                        SoTextField(', 1),
+        '搜索区里不再自己写 SoTextField',
     ),
     (
-        '⑥ 地点那一档也换成 SearchField（否定式判据在空串上恒真那条）',
+        '⑥ 搜索区的起点被改（切片抽不出来 → 否定式判据在空串上恒真）',
         ADDR,
-        lambda s: s.replace(
-            '                        } else {' + '\n' + '                            SoTextField(',
-            '                        } else {' + '\n' + '                            SearchField(',
-            1,
-        ),
-        '两档的文本框被换掉了',
+        lambda s: s.replace(SEARCH_ZONE_OPEN, '                    Column(Modifier.fillMaxWidth()) {', 1),
+        '搜索区那一段能抽出来',
     ),
     (
-        '⑦ 每档都塞一个 SearchField（只扫整个文件就看不出来）',
+        '⑦ 又塞一个 SearchField（只扫整个文件就看不出来）',
         ADDR,
         lambda s: s.replace(
-            '                if (tab == 1) {' + '\n',
-            '                SearchField(value = keyword, onValueChange = { keyword = it })' + '\n' + '                if (tab == 1) {' + '\n',
+            SEARCH_ZONE_OPEN,
+            '                    SearchField(value = keyword, onValueChange = { keyword = it })' + '\n' + SEARCH_ZONE_OPEN,
             1,
         ),
         '出现 2 次',
@@ -192,27 +201,23 @@ CASES: list[tuple[str, str, object, str]] = [
         '线路档占位语被改了',
     ),
     (
-        '⑨ 联系人那一档的旧占位语又回来了（说明退回 SoTextField 了）',
+        '⑨ 联系人那一档的旧占位语又回来了（说明档与档之间又开始各写各的）',
         ADDR,
-        lambda s: s.replace(
-            SEARCH_CALL,
-            '                    SoTextField(value = keyword, placeholder = ' + Q + '搜联系人：姓名 / 电话' + Q + ')',
-            1,
-        ),
-        '联系人档的旧占位语还在',
+        lambda s: s.replace(CONTACT_HINT_LINE, '                                1 -> ' + Q + '搜联系人：姓名 / 电话' + Q, 1),
+        '旧的「搜联系人」占位语已消失',
     ),
     # ---- 3. 清空按钮 ----
     (
-        '⑩ 清空换回文字按钮（不再与 SearchField 里那个 ✕ 同形）',
+        '⑩ 旧的文字清空按钮（Text(清除)）又回来了',
         ADDR,
-        lambda s: s.replace(CLEAR_BTN, OLD_CLEAR_BTN, 1),
-        '清空还是文字按钮',
+        lambda s: s.replace(CONTACT_HINT_LINE, CONTACT_HINT_LINE + '\n' + OLD_CLEAR_BTN.rstrip('\n'), 1),
+        '旧的文字清空按钮（Text(清除)）已消失',
     ),
     (
-        '⑪ 清空按钮改成一直画（联系人档会叠两个 ✕）',
+        '⑪ 联系人档的提示语被就地写死（不再同源共用件）',
         ADDR,
-        lambda s: s.replace('if (tab != 1 && keyword.isNotBlank())', 'if (keyword.isNotBlank())', 1),
-        '清空按钮的显示条件被改了',
+        lambda s: s.replace(CONTACT_HINT_LINE, '                                1 -> ' + Q + '搜姓名 / 手机号' + Q, 1),
+        '联系人档的提示语仍来自共用件',
     ),
     # ---- 4. 共用件退化 ----
     (
@@ -300,6 +305,18 @@ CASES: list[tuple[str, str, object, str]] = [
         REGISTRY,
         lambda s: drop_line(s, 'CHG-0013'),
         '没登记',
+    ),
+    (
+        '㉕ 本页又自己画一枚清空按钮（三档会叠两个 ✕）',
+        ADDR,
+        lambda s: s.replace(CONTACT_HINT_LINE, CONTACT_HINT_LINE + '\n' + CLEAR_BTN.rstrip('\n'), 1),
+        '本页不再自己画清空按钮',
+    ),
+    (
+        '㉖ 规范里那段「三档同一个 SearchField」被抹掉（下一个人会照着旧口径再写一份 SoTextField）',
+        DESIGN,
+        lambda s: s.replace('三档（路线 / 联系人 / 地址）用的是同一个', '地址那两档还是自己写', 1),
+        '规范没记下这次对齐',
     ),
 ]
 

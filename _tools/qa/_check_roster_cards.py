@@ -24,16 +24,18 @@
 1. 共用件那两条事实（图标 / 色 / 字号 / 不是灰字 / 长按复制）—— 盯的是**共用件**，
    所以四个页面用的是同一份，改坏一处四处一起红；
 2. 四个页面**真的用上了**（不是各画各的）；
-3. 抽屉宽度：4 处半展开、三个「选人」抽屉**不许**跟着收窄；
-4. 规范 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` 里 §4.24 与 §2 那一行（账户管理·棕）在不在；
-5. 文档三件（CHG-0023.md 九节 / 登记表一行 / 声明块）与反验脚本的条数对得上。
+3. 顶栏那颗分类胶囊的**落位**（2026-10-05 追加）：右边空着的页面贴右侧、右缘与卡片对齐
+   （`actions` 自带 4dp + 补 12dp = 卡片的 16dp），右边有按钮的页面保持原样贴着标题；
+4. 抽屉宽度：4 处半展开、三个「选人」抽屉**不许**跟着收窄；
+5. 规范 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` 里 §4.24 与 §2 那一行（账户管理·棕）在不在；
+6. 文档三件（CHG-0023.md 九节 / 登记表一行 / 声明块）与反验脚本的条数对得上。
 
 ## 一条容易踩的坑（判据自己记着）
 
 「电话不是灰字」**不能**用全文搜 `onSurfaceVariant` 来判：共用件别的地方本来就可能用到中性色。
 判的是**电话那一行那一个 color =**，所以下面第 1 节先把 `RosterPhoneRow` 整段切出来再看。
 
-配套：python _tools/qa/_reverse_verify_roster_cards.py（47 条注入，全是「改坏了不会有任何报错」的类型）。
+配套：python _tools/qa/_reverse_verify_roster_cards.py（52 条注入，全是「改坏了不会有任何报错」的类型）。
 
 R4-BOUNDARY-JUSTIFICATION: 本判据只读源码与文档（`read()`），不编译、不跑 UI、不连后端；
 它认证的是「这两件事的形态与登记齐不齐」，**跑不出**「装到 5554 上真的好看」——
@@ -138,7 +140,28 @@ def main() -> int:
     c.ok('⛔ 地址页的线路卡没被顺手改（那一页电话仍是很小很灰的次要信息）',
          'RosterPhoneRow(' not in read(ADDRESS) and 'RosterNameRow(' not in read(ADDRESS))
 
-    c.section('3. 左栏分类抽屉：半展开 240dp')
+    c.section('3. 顶栏分类胶囊的落位（2026-10-05 用户口径）')
+    c.ok('车辆页：胶囊挂在 actions 上，右缘与卡片对齐（actions 自带 4dp + 这里补 12dp）',
+         re.search(r'CategoryTriggerChip\([\s\S]{0,400}?modifier = Modifier\.padding\(end = 12\.dp\),', veh) is not None,
+         '用户：这颗「全部」要与下面的卡片做一个右侧对齐，就是往左移一点')
+    c.ok('账户页：胶囊搬进 actions（右边空着 → 贴右侧），也补 12dp',
+         'title = { Text("账户管理") },' in acct
+         and re.search(r'actions = \{[\s\S]{0,900}?Modifier\.padding\(end = 12\.dp\),', acct) is not None,
+         '那一页的顶栏右边是空的，胶囊就该落在 actions 里，不是继续贴着标题')
+    c.ok('司机 / 批发商池：顶栏右边有按钮 → 胶囊保持原样贴在标题后面',
+         'val chipBesideTitle = pool == UserPool.MEMBERS || vm.isDriverPool' in users
+         and re.search(r'if \(chipBesideTitle\) \{[\s\S]{0,140}?chip\(Modifier\)', users) is not None,
+         '用户：如果右边有东西的话，则就保持原样')
+    c.ok('货主池（右边空）：同一颗胶囊落在 actions 里、右缘与卡片对齐',
+         'if (!chipBesideTitle) chip(Modifier.padding(end = 12.dp))' in users,
+         '用户：如果右边是空的话，则就放在右边')
+    c.ok('⛔ 地址页那三颗保持原样（右边都有「新增」按钮 —— 右边有东西就别动）',
+         read(ADDRESS).count('CategoryTriggerChip(') == 3
+         and 'padding(end = 12.dp)' not in read(ADDRESS))
+    c.ok('这一颗仍是共用件 CategoryTriggerChip（⛔ 不是各页自己画的胶囊）',
+         'CategoryTriggerChip(' in veh and veh.count('CategoryTriggerChip(') == 1
+         and acct.count('CategoryTriggerChip(') == 1 and users.count('CategoryTriggerChip(') == 1)
+    c.section('4. 左栏分类抽屉：半展开 240dp')
     c.ok('共用常量 CategoryDrawerWidth = 240.dp（用户嫌默认宽度「太旷」）',
          'val CategoryDrawerWidth = 240.dp' in drawer)
     for label, p in (('账户管理', ACCOUNT), ('司机 / 货主 / 批发商', USERS),
@@ -152,7 +175,7 @@ def main() -> int:
         c.ok(f'{label}的选人抽屉⛔ 不跟着收窄（里面是搜索框 + 一列人，不是分类）',
              'ModalDrawerSheet {' in src and 'CategoryDrawerWidth' not in src)
 
-    c.section('4. 抽屉里的每一格')
+    c.section('5. 抽屉里的每一格')
     c.ok('每一格左边有图标：全部 = Apps / 分类 = Folder / 管理分类 = Settings',
          'if (item.key.isEmpty()) Icons.Default.Apps else Icons.Default.Folder' in drawer
          and 'Icons.Default.Settings' in drawer)
@@ -165,7 +188,7 @@ def main() -> int:
          '个账号' not in drawer and '辆车' not in drawer)
 
     panel = read(PANEL)
-    c.section('5. 「管理分类」面板（同屏第二层）')
+    c.section('6. 「管理分类」面板（同屏第二层）')
     c.ok('面板一行里的四个动作都走 CardActionIcon（⛔ 不是裸 IconButton）',
          panel.count('CardActionIcon(') == 4 and 'IconButton(' not in panel,
          '裸 IconButton 里塞 18dp 图标正是规范 §4.2c 里用户说过「这个不行」的形态')
@@ -185,7 +208,7 @@ def main() -> int:
 
     color = read(COLOR)
     mods = read(MODULES)
-    c.section('6. 账户管理页拿回自己的棕')
+    c.section('7. 账户管理页拿回自己的棕')
     c.ok('主题 token 里有 AccountBrown（账户管理：棕）', 'val AccountBrown = 0xFF8D6E63L' in color)
     c.ok('棕底上的字也有 token（OnAccountBrown）', 'val OnAccountBrown = 0xFFFFFFFFL' in color)
     c.ok('工作台宫格那一格与 token 同值（一处定义、一处对账）',
@@ -198,7 +221,7 @@ def main() -> int:
          and len(re.findall(r'(?<!Extended)FloatingActionButton\(', acct)) == 0
          and 'contentColor = Color(OnAccountBrown),' in acct and '新增账号' in acct)
 
-    c.section('7. 司机 / 货主 / 批发商页：三池各用各的模块色')
+    c.section('8. 司机 / 货主 / 批发商页：三池各用各的模块色')
     c.ok('三池的模块色映射在（司机 = 黄绿 / 货主 = 深青 / 批发商 = 金）',
          'UserPool.DRIVERS -> Color(DriverLime)' in users
          and 'UserPool.SHIPPERS -> Color(InventoryTeal)' in users
@@ -216,7 +239,7 @@ def main() -> int:
          users.count('IconButton(') == 1)
 
     spec = read(SPEC)
-    c.section('8. 规范写死了这两件事')
+    c.section('9. 规范写死了这两件事')
     c.ok('规范 §4.24 在（名册卡两条事实 + 抽屉半展开）',
          re.search(r'^### 4\.24 ', spec, re.M) is not None)
     c.ok('规范 §2 表里有账户管理那一行（棕 #8D6E63 / AccountBrown）',
@@ -227,8 +250,11 @@ def main() -> int:
     c.ok('「电话不许退回灰字」写进了规范', '不许' in spec and ('灰字' in spec))
     c.ok('这次一并修的规范漂移：TintedIcon 指到 OrderCard.kt、HintOnce 标成待删兼容壳',
          'ui/common/OrderCard.kt' in spec and '待删的兼容壳' in spec)
+    c.ok('规范里写着那颗胶囊的**落位**（右边有东西保持原样 / 右边空就贴右侧 16dp）',
+         '如果**右边有东西**的话' in spec and 'Modifier.padding(end = 12.dp)' in spec,
+         '用户 2026-10-05 的判据，必须留下原文级出处')
 
-    c.section('9. 文档三件与反验')
+    c.section('10. 文档三件与反验')
     doc = read(DOC) if DOC.exists() else ''
     c.ok('docs/changes/CHG-0023.md 存在且九节齐',
          all(f'## {x}' in doc for x in '①②③④⑤⑥⑦⑧⑨'))

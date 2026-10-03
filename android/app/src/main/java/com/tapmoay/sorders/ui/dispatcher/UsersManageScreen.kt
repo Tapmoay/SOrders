@@ -145,6 +145,23 @@ fun UsersManageScreen(
             }
         },
     ) {
+    // 顶栏那颗分类胶囊（用户画的那个红框位置：标题右边那一格 —— 默认「全部」）。
+    // 落位（用户 2026-10-05）：「其他的所有的按钮也是按照这样子的形式放在右边…
+    // 如果右边有东西的话，则就保持原样。如果右边是空的话，则就放在右边」——
+    // 司机池有「车辆」、批发商池有「批量调价」，这两个保持原样、胶囊仍贴着标题；
+    // 货主池顶栏右边空着，胶囊就贴到右侧、右缘与下面的卡片对齐
+    // （`actions` 自带 4dp 右边距 + 这里补 12dp = 卡片的 16dp 内边距）。
+    val chipBesideTitle = pool == UserPool.MEMBERS || vm.isDriverPool
+    val chip: @Composable (Modifier) -> Unit = { m ->
+        CategoryTriggerChip(
+            current = railNameOf(vm.railKey),
+            // 这一池的**模块色**：司机=黄绿 / 货主=深青 / 批发商=金（§4.3 一色一功能）。
+            // 原来三个池共用货主管理的深青 —— 批发商那一页的胶囊和工作台那一格对不上。
+            accent = poolModuleColor(pool),
+            onClick = { scope.launch { drawer.open() } },
+            modifier = m,
+        )
+    }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -152,15 +169,10 @@ fun UsersManageScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(pool.title)
-                        Spacer(Modifier.width(8.dp))
-                        // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」
-                        CategoryTriggerChip(
-                            current = railNameOf(vm.railKey),
-                            // 这一池的**模块色**：司机=黄绿 / 货主=深青 / 批发商=金（§4.3 一色一功能）。
-                            // 原来三个池共用货主管理的深青 —— 批发商那一页的胶囊和工作台那一格对不上。
-                            accent = poolModuleColor(pool),
-                            onClick = { scope.launch { drawer.open() } },
-                        )
+                        if (chipBesideTitle) {
+                            Spacer(Modifier.width(8.dp))
+                            chip(Modifier)
+                        }
                     }
                 },
                 navigationIcon = {
@@ -169,6 +181,7 @@ fun UsersManageScreen(
                     }
                 },
                 actions = {
+                    if (!chipBesideTitle) chip(Modifier.padding(end = 12.dp))
                     if (pool == UserPool.MEMBERS) {
                         TextButton(onClick = { vm.openBatch() }) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))

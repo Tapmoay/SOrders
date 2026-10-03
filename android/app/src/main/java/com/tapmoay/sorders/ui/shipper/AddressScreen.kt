@@ -229,33 +229,24 @@ fun AddressScreen(
                     // 搜索框**三段都有**（用户 2026-09-18：只要是选地点的地方都能搜）。
                     // 这里搜的是本地已有的那份列表 —— 数据本来就在手上，即时出结果，
                     // 不需要往返后端（共享库那一段在下单页的地址弹层里，那里才需要打后端）。
-                    // ⚠️ 联系人那一档是**按人搜索**，必须走全 App 唯一那份 `SearchField`
-                    //    （放大镜 + ✕ 一键清空 + 提示语同源 `core/UserSearch.HINT`）——
-                    //    自己拿 `SoTextField` 顶一份，用户在两页看到的形状就不一样，
-                    //    而且会丢掉"能按手机号后 4 位搜"那句提示。
-                    // 线路 / 地点两档搜的是地址型文本，继续用 `SoTextField` + 地址占位语。
+                    // ⚠️ 三档**同一个形状**（用户 2026-10-05：「路线和地点的搜索框怎么跟联系人的
+                    //    搜索框不一样，将他们以联系人的搜索框的形式给对齐」）—— 一律走全 App
+                    //    唯一那份 `SearchField`（放大镜 + ✕ 一键清空 + 圆角描边），
+                    //    **只有占位语按档不同**：联系人档用共用件的默认提示语
+                    //    （`core/UserSearch.HINT`「搜姓名 / 手机号（后 4 位也行）」），
+                    //    线路 / 地点两档搜的是地址型文本，各给各的提示语。
+                    //    ⛔ 别再自己拿 `SoTextField` 顶一份：那样用户在两页看到的形状就不一样，
+                    //    而且会丢掉 ✕ 一键清空（这里原来还自己画了一枚，已经删掉）。
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        if (tab == 1) {
-                            SearchField(value = keyword, onValueChange = { keyword = it })
-                        } else {
-                            SoTextField(
-                                value = keyword,
-                                onValueChange = { keyword = it },
-                                placeholder = when (tab) {
-                                    0 -> "搜线路：收货人 / 电话 / 地址"
-                                    else -> "搜地点：名称 / 地址"
-                                },
-                            )
-                        }
-                        // 清空统一成 ✕（与 `SearchField` 里的那个同形）。联系人档自带 ✕，这里不重复画。
-                        if (tab != 1 && keyword.isNotBlank()) {
-                            IconButton(
-                                onClick = { keyword = "" },
-                                modifier = Modifier.align(Alignment.CenterEnd),
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
-                            }
-                        }
+                        SearchField(
+                            value = keyword,
+                            onValueChange = { keyword = it },
+                            placeholder = when (tab) {
+                                0 -> "搜线路：收货人 / 电话 / 地址"
+                                1 -> UserSearch.HINT
+                                else -> "搜地点：名称 / 地址"
+                            },
+                        )
                     }
                     val kw = keyword.trim()
                     // 三档各自的分类筛选：抽屉里选了某一类就只留那一类（空串 = 全部）。

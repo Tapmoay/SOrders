@@ -145,7 +145,7 @@ CASES: list[tuple[str, Path, object]] = [
     #    CHG-0013 把地址页联系人档的输入框收编成共用 `SearchField` 之后，本判据按
     #    「文件里有 SearchField 就算这一页过」放行，这条注入留在这里是**空转**的
     #    （实测：把 matches 改回就地 contains，`_check_user_search.py` 仍然全绿）。
-    #    它现在住在 `_tools/qa/_reverse_verify_address_tabs.py:282`（锚点断言 `找不到 UserSearch.matches`），
+    #    它现在住在 `_tools/qa/_reverse_verify_address_tabs.py:288`（锚点断言 `找不到 UserSearch.matches`），
     #    由 `_check_address_tabs.py` 抓住。红线没丢，只是换了看门人。
     (
         "共享搜索框的默认提示语不再引用 UserSearch.HINT（各页开始各写一份）",

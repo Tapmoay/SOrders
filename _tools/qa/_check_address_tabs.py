@@ -23,10 +23,13 @@
 2. **三档的内容**：标签清单与顺序、三个语义色（走 Color.kt 的命名 token，本页裸色值必须 == 0）；
 3. **切档清空搜索**：onSelect 里 tab = it 与 keyword = 空串必须成对
    （否则换档之后是一个被上一个档关键词过滤过的空白页，看着像坏了）；
-4. **搜索框分档唯一实现**：if (tab == 1) 那一支是 SearchField( 且**不是** SoTextField(，
-   0 / 2 两支继续 SoTextField( + 地址型占位语；本页 SearchField( 只出现一次；
-5. **清空同形**：✕（contentDescription = 清空搜索），旧的文字按钮已消失，且只在非联系人档画
-   （SearchField 自带一个，不许叠两个）；
+4. **搜索框三档同一个形状**（2026-10-05 用户要求「路线和地点的搜索框怎么跟联系人的搜索框
+   不一样，将他们以联系人的搜索框的形式给对齐」）：三档都走共用件 SearchField(，
+   搜索区里 SoTextField( == 0；只有**占位语按档不同**（线路档 / 地点档各一句，
+   联系人档用共用件自己的默认提示语 UserSearch.HINT）；本页 SearchField( 仍只出现一次
+   —— 三档共用**同一处调用**，不是每一档塞一个；
+5. **清空 ✕ 由共用件提供**：contentDescription = 清空搜索 只在共用件里有，本页不再自己画一枚
+   （旧写法 Text(清除) 与 `if (tab != 1 && keyword.isNotBlank())` 都已消失）；
 6. **本批没顺手改别的** + 接线（反向验证在、文档九节、登记簿有 CHG-0013）。
 
 ⛔ 两处一个字都不能动（动了别的判据会红，而且伤真实功能）：
@@ -82,8 +85,13 @@ ROUTE_HINT = '0 -> "搜线路：收货人 / 电话 / 地址"'
 PLACE_HINT = 'else -> "搜地点：名称 / 地址"'
 #: 按人匹配的口径（联系人那一段的过滤，后 4 位就靠它）
 USER_MATCH = "UserSearch.matches(kw, it.displayName, it.phone)"
-#: 清空按钮的内容描述（与 SearchField 里那个同形）
+#: 清空按钮的内容描述（只在共用件 SearchField 里有；本页不再自己画一枚）
 CLEAR_CD = 'contentDescription = "清空搜索"'
+#: 搜索区那一段的起止（抽取失效 → 切片空串 → 否定式判据恒真，所以配了长度下限）
+SEARCH_BOX = 'Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {'
+SEARCH_END = 'val kw = keyword.trim()'
+#: 联系人档的占位语：走共用件自己的默认（core/UserSearch.HINT），不就地写一句
+CONTACT_HINT = '1 -> UserSearch.HINT'
 #: 老写法（必须消失）
 OLD_CLEAR = 'Text("清除")'
 OLD_CONTACT_HINT = "搜联系人"
@@ -220,33 +228,46 @@ def main() -> int:
         "onSelect 里没有把 keyword 清掉",
     )
 
-    # ---- 3. 搜索框分档：按人搜走共用件，地址型继续 SoTextField ----
-    contacts_branch = between(src, "if (tab == 1) {", "} else {")
-    addr_branch = between(src, "} else {", "if (tab != 1")
+    # ---- 3. 搜索框：三档同一个形状（2026-10-05 用户要求「路线和地点的搜索框怎么跟联系人的
+    #      搜索框不一样，将他们以联系人的搜索框的形式给对齐」）----
+    search_zone = between(src, SEARCH_BOX, SEARCH_END)
     c.ok(
-        "联系人那一档走共用件 SearchField（全库只有一份按人搜索框）",
-        "SearchField(" in contacts_branch,
-        "联系人档没有用 SearchField",
+        "搜索区那一段能抽出来（抽取失效即红：否定式判据在空串上恒真）",
+        len(search_zone) >= 120,
+        f"只抽到 {len(search_zone)} 字符",
     )
     c.ok(
-        "联系人那一档不再是 SoTextField（同一件事不许两个答案）",
-        "SoTextField(" not in contacts_branch,
-        "联系人档还在自己写文本框",
+        "三档同一个搜索框：走共用件 SearchField（全库唯一那份按人搜索框）",
+        "SearchField(" in search_zone,
+        "搜索区不是共用件",
     )
-    c.ok("线路 / 地点两档继续用 SoTextField", "SoTextField(" in addr_branch, "两档的文本框被换掉了")
+    c.ok(
+        "搜索区里不再自己写 SoTextField（同一件事不许两个答案）",
+        "SoTextField(" not in search_zone,
+        "搜索区里还有一个自己写的文本框",
+    )
     c.ok("线路档占位语原样保住（AI 判据的锚点，一个字都不能改）", ROUTE_HINT in src, "线路档占位语被改了")
     c.ok("地点档占位语原样保住", PLACE_HINT in src, "地点档占位语被改了")
+    c.ok(
+        "联系人档的提示语仍来自共用件（core/UserSearch.HINT：后 4 位也能搜）",
+        CONTACT_HINT in src,
+        "联系人档的提示语被就地写死",
+    )
     c.ok("旧的「搜联系人」占位语已消失", OLD_CONTACT_HINT not in raw, "联系人档的旧占位语还在")
     n_sf = src.count("SearchField(")
-    c.ok("本页 SearchField( 只出现一次（不是每一档都塞一个）", n_sf == 1, f"出现 {n_sf} 次")
+    c.ok("本页 SearchField( 只出现一次（三档共用同一处调用）", n_sf == 1, f"出现 {n_sf} 次")
 
-    # ---- 4. 清空按钮同形 ----
-    c.ok("清空统一成 ✕（contentDescription = 清空搜索，与 SearchField 里那个同形）", CLEAR_CD in raw, "清空还是文字按钮")
+    # ---- 4. 清空 ✕ 由共用件提供（本页不再自己画一枚，不许叠两个）----
     c.ok("旧的文字清空按钮（Text(清除)）已消失", OLD_CLEAR not in raw, "旧写法还在")
     c.ok(
-        "✕ 只在非联系人档画（SearchField 自带一个，不许叠两个）",
-        "if (tab != 1 && keyword.isNotBlank())" in src,
-        "清空按钮的显示条件被改了",
+        "本页不再自己画清空按钮（三档都靠共用件那一个）",
+        CLEAR_CD not in raw,
+        "本页还自己画了一枚清空按钮",
+    )
+    c.ok(
+        "旧的「只在非联系人档画 ✕」那段条件式已消失（它随自绘清空按钮一起删了）",
+        "if (tab != 1 && keyword.isNotBlank())" not in src,
+        "自绘清空按钮的旧条件式还在",
     )
 
     # ---- 5. 共用件那两侧的契约 ----
@@ -303,6 +324,11 @@ def main() -> int:
         len(sec44) >= SECTION_FLOOR and "SearchField" in sec44,
         f"那一节只剩 {len(sec44)} 字符",
     )
+    c.ok(
+        "§4.4 里记着地址页三档对齐这件事（2026-10-05：只有占位语按档不同）",
+        "三档" in sec44 and "SoTextField" in sec44,
+        "规范没记下这次对齐 —— 下一个人会照着旧口径再写一份 SoTextField",
+    )
     doc = read(DOC)
     c.ok(
         "文档九节齐全（docs/changes/CHG-0013.md）",
@@ -324,8 +350,8 @@ if __name__ == "__main__":
         print("1. 导航收编：SegmentedStatusTabs( ≥1、AddressTabBar 消失、BorderStroke( == 0、全库只一处实现")
         print("2. 三档内容：标签与顺序、三个命名 token 色、本页裸色值 == 0、调用点四项齐全")
         print("3. 切档清空搜索：onSelect 里 tab = it 与 keyword 清空成对")
-        print("4. 搜索分档：tab == 1 走 SearchField( 且不是 SoTextField(；0/2 仍 SoTextField( + 地址型占位语")
-        print("5. 清空同形：✕ contentDescription = 清空搜索、旧文字按钮消失、只在非联系人档画")
+        print("4. 搜索框三档同一个形状：三档都走 SearchField(、搜索区 SoTextField( == 0、占位语按档不同、SearchField( 只出现一次")
+        print("5. 清空 ✕ 由共用件提供：本页不再自己画一枚、旧文字按钮与旧条件式都已消失")
         print("6. 共用件契约：SegmentedStatusTabs 签名/外边距、SearchField 提示语同源 UserSearch.HINT")
         print("7. 本批没顺手改别的 + 接线：反向验证在、CONVERTED 表、§3/§4.4、文档九节、登记簿 CHG-0013")
         sys.exit(0)

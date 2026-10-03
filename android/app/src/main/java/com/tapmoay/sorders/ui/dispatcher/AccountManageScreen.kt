@@ -108,23 +108,25 @@ fun AccountManageScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("账户管理")
-                        Spacer(Modifier.width(8.dp))
-                        // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」
-                        CategoryTriggerChip(
-                            current = railNameOf(vm.railKey),
-                            // 账户管理的**模块色**（棕）= 工作台那一格的颜色，不再借地址页的湖蓝。
-                            accent = Color(AccountBrown),
-                            onClick = { scope.launch { drawer.open() } },
-                        )
-                    }
-                },
+                title = { Text("账户管理") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
+                },
+                actions = {
+                    // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」。
+                    // 落位（用户 2026-10-05）：顶栏右边**空着**的页面，胶囊贴到右侧，
+                    // 右缘与下面的卡片对齐 —— `actions` 自带 4dp 右边距，这里再补 12dp
+                    // = 卡片的 16dp 内边距。⛔ 右边已经有按钮的页面保持原样、继续贴着标题
+                    // （用户原话：「如果右边有东西的话，则就保持原样」—— 见司机 / 批发商那两池）。
+                    CategoryTriggerChip(
+                        current = railNameOf(vm.railKey),
+                        // 账户管理的**模块色**（棕）= 工作台那一格的颜色，不再借地址页的湖蓝。
+                        accent = Color(AccountBrown),
+                        onClick = { scope.launch { drawer.open() } },
+                        modifier = Modifier.padding(end = 12.dp),
+                    )
                 },
                 // 与其余派单端页面同一个口径（顶栏跟页面底色走，不单独刷一块白）
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),

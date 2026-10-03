@@ -30,7 +30,19 @@
 ---
 
 ## 进行中
+### [2026-10-05 进行中] 会话：**CHG-0024 顶栏分类胶囊落在哪一边 + 地址页三档搜索框对齐**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
+**需求方原话**：「呃你这个**全部**按钮啊，与下面的**卡片做一个右侧对齐**啊啊，就是**往左移一点**，然后，**其他的所有的按钮也是按照这样子的形式放在右边**啊，不要贴着那个名字的后面。」
+＋「如果**右边有东西**的话，则就**保持原样**。如果右边是**空**的话，则就**放在右边**。」
+＋「还有**路线和地点的搜索框怎么跟联系人的搜索框不一样**，将他们以**联系人的搜索框的形式**给**对齐**啊」。
+
+**改什么**：① 顶栏那颗分类胶囊按「右边有没有东西」分岔 —— 车辆管理 / 账户管理 / 货主管理（右边空）贴到右侧、`actions` 自带 4dp 再补 12dp ＝ 与卡片右缘的 16dp 对齐；司机管理（有「车辆」）/ 批发商管理（有「批量调价」）/ 地址与联系人（三处都有「新增…」）**保持原样**。② 地址与联系人页三档（路线 / 联系人 / 地址）的搜索框收敛成**同一个 `SearchField`**（放大镜 + ✕ 一键清空 + 圆角描边），只有**占位语按档不同**，删掉那一档自己写的 `SoTextField` 与自绘的清空按钮。顺带清掉 `_check_input_rules.py` 里一条已经变成化石的豁免（线路搜索框不再是 `SoTextField`）。
+
+**Blast Radius**：L0（只动 Android 展示层四处 + 规范 §4.4/§4.24 + 三个判据与两份反向验证；后端、DTO、权限、审计、迁移一行不改）。
+
+**文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt`、`…/AccountManageScreen.kt`、`…/UsersManageScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt`、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`_tools/qa/_check_roster_cards.py`、`_tools/qa/_check_address_tabs.py`、`_tools/qa/_check_input_rules.py`、`_tools/qa/_reverse_verify_roster_cards.py`、`_tools/qa/_reverse_verify_address_tabs.py`、`docs/changes/CHG-0024.md（新）`、`docs/changes/README.md`。
+
+**结果**：（归档时补）
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

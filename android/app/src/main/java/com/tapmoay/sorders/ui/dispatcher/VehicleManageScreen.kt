@@ -404,11 +404,16 @@ fun VehicleManageScreen(container: AppContainer, onBack: () -> Unit) {
                 "车辆管理",
                 onBack = onBack,
                 actions = {
-                    // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」
+                    // 用户画的那个红框位置：标题右边那一格 —— 默认「全部」。
+                    // 落位（用户 2026-10-05）：「与下面的卡片做一个右侧对齐」—— 这一页顶栏
+                    // 右边只有它，胶囊就贴到右侧。`actions` 自带 4dp 右边距，这里再补 12dp
+                    // = 卡片的 16dp 内边距（1080px 截图上量过：卡片右缘 16dp / 胶囊原先 4dp）
+                    // —— 用户说「往左移一点」就是这 12dp。
                     CategoryTriggerChip(
                         current = railNameOf(vm.railKey),
                         accent = VehicleAccent,
                         onClick = { scope.launch { drawer.open() } },
+                        modifier = Modifier.padding(end = 12.dp),
                     )
                 },
             )
