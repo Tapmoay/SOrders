@@ -28,6 +28,7 @@ import com.tapmoay.sorders.data.remote.dto.ExceptionOrderDto
 import com.tapmoay.sorders.data.remote.dto.OperationLogDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
+import com.tapmoay.sorders.util.moneyToDouble
 import com.tapmoay.sorders.util.saveExportFile
 import java.time.LocalDate
 import com.tapmoay.sorders.ui.common.Hint
@@ -43,7 +44,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
-    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; 7 -> "车辆成本"; 8 -> "成本覆盖"; 9 -> "税账"; else -> "异常与审计" }
+    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; 7 -> "车辆成本"; 8 -> "成本覆盖"; 9 -> "税账"; 10 -> "客户欠款"; else -> "异常与审计" }
     // 时间药丸那两个弹层的开关：**只记这一个**（自定义区间那个开关由 `DateFilterDialogs` 自己持有）
     var showPresets by remember { mutableStateOf(false) }
 
@@ -114,6 +115,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                     7 -> VehicleCostTab(vm)
                     8 -> CostCoverageTab(vm)
                     9 -> TaxTab(vm)
+                    10 -> CustomerBalanceTab(vm)
                     else -> FinanceTab(vm)
                 }
             }
@@ -1182,6 +1184,7 @@ private fun actionLabel(action: String): String = when (action) {
     "ARREARS_UNIT_UPSERT" -> "新增/修改挂账单位"
     "ARREARS_UNIT_DELETE" -> "删除挂账单位"
     "ARREARS_UNIT_RESTORE" -> "恢复挂账单位"
+    "ARREARS_UNIT_CREDIT_LIMIT" -> "设置挂账单位额度"
     "FREIGHT_TEMPLATE_UPSERT" -> "新增/修改运费模板"
     "FREIGHT_TEMPLATE_DELETE" -> "删除运费模板"
     "FREIGHT_TEMPLATE_RESTORE" -> "恢复运费模板"
@@ -1790,6 +1793,222 @@ private fun TaxTab(vm: ReportCenterViewModel) {
             item {
                 SectionCard {
                     Text("口径说明（这几种票不算数）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    data.notes.forEach { n ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(n, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 客户欠款（应收账龄 + 信用额度）：这一段该收的钱、账龄四桶、谁超了额度、逐单明细。
+ *
+ * ⚠️ 这一页**只搬后端算好的数**（GET /reports/customer-balances）：欠款、四桶、最老天数、
+ *    额度三件套全是服务端算好的字符串，这里不重算（毛利上栽过的那一次的形状）。
+ * ⚠️ 行**按后端给的顺序**摆（后端已按欠款从多到少排好、同额按名字）—— ⛔ 不在这里重排。
+ * ⚠️ `limit` 为 null = **不限额**（不是 0）；`credit_available` 为 null 时**不显示那一行**
+ *    （⛔ 不许当成 0：那是把「没管过」说成「一分都不许赊」）。
+ * ⚠️ 逐单明细里的 `bucket` 可能是**空串**（预收那一行没有账龄桶）—— 按「预收」显示，
+ *    ⛔ 不许当成「0-30 天」。
+ * ⚠️ 口径说明（notes）**原文照印**（不挑、不改），理由同税账页与利润页。
+ */
+@Composable
+private fun CustomerBalanceTab(vm: ReportCenterViewModel) {
+    val data = vm.customerBalances
+    if (vm.loading && data == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    // 展开的那一行：按「类型 + 编号或名字」记，⛔ 不按下标（刷新一屏数据后下标会串行）
+    var expanded by remember { mutableStateOf("") }
+    val warnRed = Color(0xFFE53935)
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (data == null) {
+            item { ChartEmpty("该时段还没有客户欠款") }
+        } else {
+            val t = data.totals
+            // ---- 顶卡：该收的钱 + 截止到哪一天 ----
+            item {
+                SectionCard {
+                    Text("该收的钱", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        money(t.balance),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFF6B2C),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text("截止 " + data.asOf, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("有欠款的", t.debtorCount.toString() + " 人 · " + t.orderCount.toString() + " 张单")
+                    if (t.noUnitCount > 0) {
+                        // 「没挂到名册单位上」是**账外**那一部分欠款：看得到、但名册里管不着它
+                        StatRow("没挂到名册单位上的", t.noUnitCount.toString() + " 人 · " + money(t.noUnitBalance))
+                    }
+                }
+            }
+            // ---- 账龄四桶：顺序照后端给的 bucketKeys，⛔ 不自己写死顺序 ----
+            item {
+                SectionCard {
+                    Text("账龄", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    val keys = if (data.bucketKeys.isNotEmpty()) data.bucketKeys else t.buckets.keys.toList()
+                    keys.forEach { k ->
+                        StatRow(ReportFinance.bucketLabel(k), money(t.buckets[k]))
+                    }
+                    if (moneyToDouble(t.prepaid) > 0.0) {
+                        StatRow("减：预收（客户先打的钱）", money(t.prepaid))
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    StatRow("= 该收的钱", money(t.balance), Color(0xFFFF6B2C))
+                    Spacer(Modifier.height(4.dp))
+                    // ⛔ 这里不许用 Hint(...)：这句话里带「额度」，而「额度」在
+                    //    _hint_inventory.PRIVACY_COST_WORDS 这张四族词表里 —— 四族句子
+                    //    （钱的口径 / 撤不回来的后果 / 数据去哪了 / 这一页现在什么状态）
+                    //    一律要常显，挂到提示开关上会被 _check_hints.py 第 2b 组当场拦下。
+                    Text(
+                        "这里一个加减法都不做：四桶、合计、额度全是接口给的数。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            // ---- 有额度的行超限：一条都没超时这一块不出现 ----
+            if (t.overLimitCount > 0) {
+                item {
+                    SectionCard {
+                        Text("有额度的行超限", style = MaterialTheme.typography.titleMedium, color = warnRed)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "有 " + t.overLimitCount.toString() + " 行的欠款已经超过它自己的信用额度（下面标红的那几行）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            // ---- 逐行：按后端顺序摆，点一行展开这一行的逐单明细 ----
+            item {
+                SectionCard {
+                    Text("欠款人（按欠款从多到少，" + data.rows.size.toString() + " 行）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    if (data.rows.isEmpty()) {
+                        Text(
+                            "这一段没有人欠钱。把窗口换成有已送达单的那一段再看看。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    data.rows.forEach { row ->
+                        val key = row.kind + "|" + (row.unitId?.toString() ?: row.name)
+                        val open = expanded == key
+                        Column(
+                            Modifier.fillMaxWidth().clickable { expanded = if (open) "" else key }.padding(vertical = 8.dp)
+                        ) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    if (row.name.isBlank()) "（没有名字）" else row.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    money(row.balance),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (row.overLimit) warnRed else MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.End,
+                                )
+                            }
+                            Text(
+                                ReportFinance.debtorKindLabel(row.kind) +
+                                    (if (row.phone.isBlank()) "" else " · " + row.phone) +
+                                    (if (row.customerNames.isEmpty()) "" else " · 名下客户 " + row.customerNames.joinToString("、")),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "最老 " + row.oldestDays.toString() + " 天 · " + row.orderCount.toString() + " 张单" +
+                                    (if (moneyToDouble(row.prepaid) > 0.0) " · 预收 " + money(row.prepaid) else ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            // 额度只有挂了名册单位的行才有（unit），别的行这一块整个不出现
+                            if (row.kind == "unit") {
+                                Spacer(Modifier.height(4.dp))
+                                StatRow("信用额度", if (row.limit == null) "不限额" else money(row.limit))
+                                StatRow("已经用了", money(row.creditUsed))
+                                // credit_available 为 null 时**不显示**（⛔ 不许当成 0）
+                                if (row.creditAvailable != null) {
+                                    StatRow(
+                                        "还能赊",
+                                        money(row.creditAvailable),
+                                        if (row.overLimit) warnRed else MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                if (row.overLimit && row.limit != null) {
+                                    // 只是把接口给的两个数相减来印「超了多少」，那两行本身仍是接口的原数
+                                    val over = moneyToDouble(row.creditUsed) - moneyToDouble(row.limit)
+                                    if (over >= 0.005) {
+                                        Text(
+                                            "超了 " + money(over.toString()),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = warnRed,
+                                        )
+                                    }
+                                }
+                            }
+                            if (open) {
+                                if (row.orders.isEmpty()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "这一行没有逐单明细。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                row.orders.forEach { o ->
+                                    Spacer(Modifier.height(6.dp))
+                                    Column(Modifier.fillMaxWidth().padding(start = 8.dp)) {
+                                        Text(
+                                            (if (o.orderNo.isBlank()) "（没有单号）" else o.orderNo) +
+                                                " · 送达 " + (if (o.deliveredOn.isBlank()) "（没有送达日）" else o.deliveredOn),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                        Text(
+                                            "应收 " + money(o.receivable) + " · 已收 " + money(o.collected) + " · 欠款 " + money(o.arrears),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            "账龄 " + o.days.toString() + " 天（桶：" +
+                                                (if (o.bucket.isBlank()) "预收" else ReportFinance.bucketLabel(o.bucket)) + "）" +
+                                                (if (o.anchor.isBlank()) "" else " · 从 " + o.anchor + " 起算"),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            } else if (row.orders.isNotEmpty()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "点这一行看逐单明细（这一行一共 " + row.orderCount.toString() + " 张单）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF6950F5),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            // ---- 口径说明：后端给的那几条**原文照印**（⛔ 不挑、不改） ----
+            item {
+                SectionCard {
+                    Text("口径说明", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     data.notes.forEach { n ->
                         Spacer(Modifier.height(4.dp))

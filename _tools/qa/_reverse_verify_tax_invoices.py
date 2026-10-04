@@ -339,7 +339,9 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "导出 kind 白名单忘了加 tax-summary",
         REPORTS,
-        sub("|tax-summary)$", "|cost-coverage)$"),
+        # ⚠️ 2026-10-04 · FEAT-0015：白名单尾部长出了第 11 个值 `customer-balances`，
+        # 锚点必须跟着长（⛔ 只改锚点，不动判据：注入语义仍是「把 tax-summary 这一个可选值删掉」）。
+        sub("|tax-summary|customer-balances)$", "|cost-coverage|customer-balances)$"),
     ),
     (
         "导出明细不写「算不算数」（作废 / 回收站 / 未税三种不算数看不出来）",

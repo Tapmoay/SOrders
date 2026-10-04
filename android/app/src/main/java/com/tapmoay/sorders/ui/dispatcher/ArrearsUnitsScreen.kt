@@ -24,6 +24,7 @@ import com.tapmoay.sorders.ui.theme.ArrearsTangerine
 import com.tapmoay.sorders.ui.theme.MessageRed
 import com.tapmoay.sorders.ui.theme.NavBlue
 import com.tapmoay.sorders.ui.theme.OnArrearsTangerine
+import com.tapmoay.sorders.util.formatMoney
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -155,6 +156,20 @@ fun ArrearsUnitsScreen(
                         iconTint = Color(ArrearsTangerine),
                     )
                     FormInputRow(
+                        // 标签里带「额度」两个字（与「联系电话」同一个路子：标签就是这一格的身份证）。
+                        "信用额度",
+                        vm.draftCreditLimit,
+                        // 金额过滤的唯一实现在 core/InputRules.kt（过滤写在调用点上，
+                        // 这样「这个框走的是哪条规则」在同一行就能看见）。
+                        { vm.draftCreditLimit = InputRules.moneyInput(it) },
+                        keyboardType = KeyboardType.Decimal,
+                        // 「留空＝不限额」必须写在框里：只写「选填」的话，
+                        // 用户会以为留空等于 0（那会让这个单位一分钱都算超限）。
+                        placeholder = "选填 · 留空即不限额",
+                        icon = Icons.Default.AccountBalanceWallet,
+                        iconTint = Color(ArrearsTangerine),
+                    )
+                    FormInputRow(
                         "备注",
                         vm.draftRemark,
                         { vm.draftRemark = it },
@@ -210,6 +225,13 @@ private fun UnitCard(
                 if (u.remark.isNotBlank()) {
                     Text(u.remark, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
+                // 额度写在卡上：设完要看得见，否则用户只能靠"再点开编辑框看一眼"确认自己设没设上。
+                // ⛔ null 只许说「不限额」—— 写成 ¥0 会把「没管过」说成「一分都不许赊」。
+                Text(
+                    if (u.creditLimit == null) "信用额度：不限额" else "信用额度 ¥" + formatMoney(u.creditLimit),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         Spacer(Modifier.height(8.dp))

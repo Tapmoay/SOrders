@@ -17,6 +17,7 @@ from app.services.reports._common import (  # noqa: F401
     _window,
 )
 from app.services.reports.arrears_query import build_arrears_summary  # noqa: F401
+from app.services.reports.balance_query import build_customer_balances  # noqa: F401
 from app.services.reports.cost_coverage_query import build_cost_coverage  # noqa: F401
 from app.services.reports.loader import delivered_span_sql, load_delivered  # noqa: F401
 from app.services.reports.product_query import _cost_basis_note, build_products  # noqa: F401
@@ -26,7 +27,8 @@ from app.services.reports.turnover_query import build_turnover  # noqa: F401
 from app.services.reports.vehicle_cost_query import build_vehicle_cost  # noqa: F401
 
 __all__ = [
-    "build_arrears_summary", "build_cost_coverage", "build_products", "build_profit", "build_turnover", "build_vehicle_cost",
+    "build_arrears_summary",
+    "build_customer_balances", "build_cost_coverage", "build_products", "build_profit", "build_turnover", "build_vehicle_cost",
     "delivered_span_sql", "load_delivered",
     "_cost_basis_note", "_label", "_money", "_range_dates", "_span", "_span_label", "_window",
 ]

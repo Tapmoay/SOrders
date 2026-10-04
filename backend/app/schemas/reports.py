@@ -286,3 +286,95 @@ class CostCoverageReportOut(BaseModel):
     missing_purchase_price: list[CostCoverageProduct] = []
     #: 口径说明（算不出成本怎么判、两份清单为什么不相等、补录入口在哪）
     notes: list[str] = []
+
+class CustomerBalanceOrderItem(BaseModel):
+    """逐单明细里的一单（只有 `include_orders=true` 才下发）。
+
+    钱一律来自 `services/order_money.py`：`receivable` 是应收、`collected` 是**净收**
+    （已收 − 已退）、`arrears = receivable − collected`。
+    """
+
+    order_id: int = 0
+    order_no: str = ""
+    #: 送达那天的业务日（YYYY-MM-DD）
+    delivered_on: str = ""
+    shipper_name: str = ""
+    receivable: Decimal = Decimal("0")
+    collected: Decimal = Decimal("0")
+    arrears: Decimal = Decimal("0")
+    #: 账龄锚点：这一单最早一笔正账本行的日期（没有账本行 = 送达那天）
+    anchor: str = ""
+    days: int = 0
+    bucket: str = ""
+
+
+class CustomerBalanceRow(BaseModel):
+    """一个债务人的一行：还欠多少、欠了多久、额度够不够。
+
+    ⚠️ `buckets` 里**只有正欠款**（负数 = 预收，进 `prepaid` 且取正数），
+    所以恒等式是 `balance == Σ buckets − prepaid`，⛔ 不是 `Σ buckets`。
+
+    `kind` 说明这一行的名字是怎么来的（四种凭证，见 `services/reports/balance_query.py`）：
+    `unit`（挂了挂账单位，行 = 那个单位）/ `unit_name`（只有单位名快照，单位被删了）/
+    `shipper`（货主账号）/ `temp`（临时货主名）/ `unknown`（没填货主）。
+    额度只有 `unit` 行才有（额度长在挂账单位上）。
+    """
+
+    kind: str
+    unit_id: int | None = None
+    name: str
+    phone: str = ""
+    #: 这个单位名下解析得到的客户档案名字（催收时认人用；可能为空）
+    customer_names: list[str] = []
+    #: 截止 as_of 还欠的钱（< 0 = 预收）
+    balance: Decimal = Decimal("0")
+    #: 预收（balance < 0 时取正数，单列出来）
+    prepaid: Decimal = Decimal("0")
+    buckets: dict[str, Decimal] = {}
+    #: 这一行里最老的一单欠了多少天（没欠款 = 0）
+    oldest_days: int = 0
+    order_count: int = 0
+    #: 信用额度（None = 不限额 —— ⛔ 不是 0）
+    limit: Decimal | None = None
+    #: 已用额度 = max(balance, 0)
+    credit_used: Decimal = Decimal("0")
+    #: 还能赊多少（limit 为 None 时也是 None）
+    credit_available: Decimal | None = None
+    #: 超限只是提示，⛔ 不拦任何操作
+    over_limit: bool = False
+    orders: list[CustomerBalanceOrderItem] = []
+
+
+class CustomerBalanceTotals(BaseModel):
+    """页头的几个合计（与逐行相加逐分相等）。"""
+
+    balance: Decimal = Decimal("0")
+    prepaid: Decimal = Decimal("0")
+    buckets: dict[str, Decimal] = {}
+    debtor_count: int = 0
+    order_count: int = 0
+    over_limit_count: int = 0
+    #: 没挂账单位的那部分欠款（这些单是货主/临时货主名下的，催收要找真人）
+    no_unit_balance: Decimal = Decimal("0")
+    no_unit_count: int = 0
+
+
+class CustomerBalancesOut(BaseModel):
+    """客户欠款表：逐债务人应收余额与账龄。**时点账，只搬运，不重算。**
+
+    恒等式由 `services/reports/balance_query.py::build_customer_balances` **构造上**保证：
+
+        balance == Σ buckets − prepaid（逐行）
+        totals.balance == Σ rows[].balance
+        credit_available == limit − credit_used（limit 非空时）
+
+    ⛔ 窗口起点不参与余额：`as_of` = min(窗口末, 今天)，看的是「到这一天为止还欠着多少」。
+    """
+
+    as_of: str
+    rows: list[CustomerBalanceRow] = []
+    #: 桶的顺序（0_30 / 31_60 / 61_90 / over_90）—— 界面按它摆列，⛔ 不自己排
+    bucket_keys: list[str] = []
+    totals: CustomerBalanceTotals
+    #: 口径说明（欠款怎么算、账龄锚点、时点账、额度只是提示、行按债务人分）
+    notes: list[str] = []

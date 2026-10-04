@@ -224,6 +224,13 @@ object AiReadCatalog {
             ReadParam("date_from", "date", false, emptyList(), false),
             ReadParam("date_to", "date", false, emptyList(), false),
         )),
+        ReadAction("reports.customer_balances_report", "客户欠款/应收账龄（一行一个债务人：还欠多少 + 账龄四桶 0-30/31-60/61-90/90 天以上 + 该行逐单明细(单号/送达日/应收/已收/还欠/天数)；⚠️ **时点账**：看的是「到 as_of 这一天为止还欠着多少」，⛔ 不是这一段新欠了多少；设了额度的挂账单位还带已用/可用与超限标记，超限只是提示、不挡任何操作）", "/api/v1/reports/customer-balances", "mode、date、date_from、date_to、include_orders", setOf("dispatcher"), false, listOf(
+            ReadParam("mode", "str", false, emptyList(), false),
+            ReadParam("date", "date", true, emptyList(), false),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
+            ReadParam("include_orders", "bool", false, emptyList(), false),
+        )),
         ReadAction("reports.product_report", "商品报表（销量、货损）", "/api/v1/reports/products", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("mode", "str", false, emptyList(), false),
             ReadParam("date", "date", true, emptyList(), false),

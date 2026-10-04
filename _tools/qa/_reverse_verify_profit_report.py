@@ -170,7 +170,7 @@ def _nav_wrong_route(s: str) -> str:
 
 def _vm_caps_at_five(s: str) -> str:
     """ViewModel 把页签上界改回 6（第 7 格进来会被压成第 6 页）。"""
-    return s.replace('initialTab.coerceIn(0, 9)', 'initialTab.coerceIn(0, 6)')
+    return s.replace('initialTab.coerceIn(0, 10)', 'initialTab.coerceIn(0, 6)')
 
 
 def _tab_does_own_math(s: str) -> str:

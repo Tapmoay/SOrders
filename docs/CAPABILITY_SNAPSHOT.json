@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:810ea0676ea62e3c494b4aa26174e3a221912166ea749da0bf237d62c3ad0dec",
- "source_commit": "e531a75",
- "generated_at": "2026-10-04T08:12:07Z",
+ "source_hash": "sha256:0fb21300ce12b851fe13982a89cad6fbd08ec2c88d8e46bb8065ffb4820228ab",
+ "source_commit": "9875ec5",
+ "generated_at": "2026-10-04T09:45:20Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -505,6 +505,7 @@
    "ARREARS_UNIT_UPSERT",
    "ARREARS_UNIT_DELETE",
    "ARREARS_UNIT_RESTORE",
+   "ARREARS_UNIT_CREDIT_LIMIT",
    "TAX_INVOICE_CREATE",
    "TAX_INVOICE_UPDATE",
    "TAX_INVOICE_ISSUE",
@@ -587,7 +588,7 @@
   "capabilities": 26,
   "role_capabilities": 5,
   "write_capabilities": 18,
-  "audited_action_codes": 114,
+  "audited_action_codes": 115,
   "audit_exceptions": 1
  }
 }

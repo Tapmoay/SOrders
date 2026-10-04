@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 262,
-    "read": 86,
+    "endpoints": 263,
+    "read": 87,
     "write": 176,
-    "unique_paths": 184,
-    "unique_method_path": 262,
+    "unique_paths": 185,
+    "unique_method_path": 263,
     "shadowed_routes": []
   },
   "modules": {
@@ -34,7 +34,7 @@
           "path": "/api/v1/arrears-units",
           "handler": "list_units",
           "doc": "",
-          "at": "backend/app/api/v1/arrears.py:23"
+          "at": "backend/app/api/v1/arrears.py:29"
         },
         {
           "action": "create_unit",
@@ -43,7 +43,7 @@
           "path": "/api/v1/arrears-units",
           "handler": "create_unit",
           "doc": "",
-          "at": "backend/app/api/v1/arrears.py:42"
+          "at": "backend/app/api/v1/arrears.py:48"
         },
         {
           "action": "delete_unit",
@@ -52,7 +52,7 @@
           "path": "/api/v1/arrears-units/{unit_id}",
           "handler": "delete_unit",
           "doc": "",
-          "at": "backend/app/api/v1/arrears.py:153"
+          "at": "backend/app/api/v1/arrears.py:205"
         },
         {
           "action": "restore_unit",
@@ -61,7 +61,7 @@
           "path": "/api/v1/arrears-units/{unit_id}/restore",
           "handler": "restore_unit",
           "doc": "把删掉的挂账单位恢复回来（DELETE /{id} 的逆操作）。",
-          "at": "backend/app/api/v1/arrears.py:222"
+          "at": "backend/app/api/v1/arrears.py:274"
         },
         {
           "action": "update_unit",
@@ -70,7 +70,7 @@
           "path": "/api/v1/arrears-units/{unit_id}",
           "handler": "update_unit",
           "doc": "",
-          "at": "backend/app/api/v1/arrears.py:108"
+          "at": "backend/app/api/v1/arrears.py:138"
         }
       ]
     },
@@ -1683,7 +1683,7 @@
           "path": "/api/v1/reports/arrears-summary",
           "handler": "arrears_summary",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:176"
+          "at": "backend/app/api/v1/reports.py:177"
         },
         {
           "action": "cost_coverage_report",
@@ -1692,7 +1692,16 @@
           "path": "/api/v1/reports/cost-coverage",
           "handler": "cost_coverage_report",
           "doc": "成本覆盖表：这一段窗口里，有多少收入因为「没有进货价」而算不出成本。",
-          "at": "backend/app/api/v1/reports.py:133"
+          "at": "backend/app/api/v1/reports.py:134"
+        },
+        {
+          "action": "customer_balances_report",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/reports/customer-balances",
+          "handler": "customer_balances_report",
+          "doc": "客户欠款：每个债务人还欠多少、欠了多久（0-30 / 31-60 / 61-90 / 90 天以上）。",
+          "at": "backend/app/api/v1/reports.py:189"
         },
         {
           "action": "export_report",
@@ -1701,7 +1710,7 @@
           "path": "/api/v1/reports/export",
           "handler": "export_report",
           "doc": "报表 Excel 导出（内存流 xlsx）。",
-          "at": "backend/app/api/v1/reports.py:191"
+          "at": "backend/app/api/v1/reports.py:214"
         },
         {
           "action": "product_report",
@@ -1710,7 +1719,7 @@
           "path": "/api/v1/reports/products",
           "handler": "product_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:79"
+          "at": "backend/app/api/v1/reports.py:80"
         },
         {
           "action": "profit_report",
@@ -1719,7 +1728,7 @@
           "path": "/api/v1/reports/profit",
           "handler": "profit_report",
           "doc": "经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。",
-          "at": "backend/app/api/v1/reports.py:94"
+          "at": "backend/app/api/v1/reports.py:95"
         },
         {
           "action": "tax_summary_report",
@@ -1728,7 +1737,7 @@
           "path": "/api/v1/reports/tax-summary",
           "handler": "tax_summary_report",
           "doc": "税账：这一段开了多少票（销项）、收到多少票（进项）、该交多少增值税。",
-          "at": "backend/app/api/v1/reports.py:157"
+          "at": "backend/app/api/v1/reports.py:158"
         },
         {
           "action": "turnover_report",
@@ -1737,7 +1746,7 @@
           "path": "/api/v1/reports/turnover",
           "handler": "turnover_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:64"
+          "at": "backend/app/api/v1/reports.py:65"
         },
         {
           "action": "vehicle_cost_report",
@@ -1746,7 +1755,7 @@
           "path": "/api/v1/reports/vehicle-cost",
           "handler": "vehicle_cost_report",
           "doc": "车辆成本表：每一台车在这段时间里花了多少钱（折旧 / 这台车的开销 / 挂靠司机的配送成本）。",
-          "at": "backend/app/api/v1/reports.py:113"
+          "at": "backend/app/api/v1/reports.py:114"
         }
       ]
     },

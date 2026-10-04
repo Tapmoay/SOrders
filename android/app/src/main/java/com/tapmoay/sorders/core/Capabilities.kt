@@ -2,7 +2,7 @@
 // 改能力表请改 backend/app/core/{capabilities,role_capabilities,capability_audit_coverage}.py，
 // 然后重跑：python _tools/ai/_gen_capability_snapshot.py
 //
-// source_hash = sha256:810ea0676ea62e3c494b4aa26174e3a221912166ea749da0bf237d62c3ad0dec
+// source_hash = sha256:0fb21300ce12b851fe13982a89cad6fbd08ec2c88d8e46bb8065ffb4820228ab
 //
 // 它回答的唯一问题：**这个角色能不能做这件事**（指南 §R3-02：Capability → UI）。
 // ⛔ 界面里不要再写 `role == Role.DISPATCHER` 来判断「能不能做某个业务动作」——问这里。
@@ -10,7 +10,7 @@ package com.tapmoay.sorders.core
 
 object Capabilities {
     /** 能力表的指纹。判据拿它对账：Kotlin 与后端不一致就是有人手改了。 */
-    const val SOURCE_HASH: String = "sha256:810ea0676ea62e3c494b4aa26174e3a221912166ea749da0bf237d62c3ad0dec"
+    const val SOURCE_HASH: String = "sha256:0fb21300ce12b851fe13982a89cad6fbd08ec2c88d8e46bb8065ffb4820228ab"
 
     /** 有没有「绕过角色」（后端 BYPASS_ROLES）：它不受能力表限制。 */
     val BYPASS_ROLES: Set<String> = setOf("dispatcher")

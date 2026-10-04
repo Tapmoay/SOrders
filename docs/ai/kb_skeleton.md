@@ -346,6 +346,7 @@
 | `cost_coverage_report` | 只读 | `GET /api/v1/reports/cost-coverage` | 成本覆盖表：这一段窗口里，有多少收入因为「没有进货价」而算不出成本。 |  |
 | `tax_summary_report` | 只读 | `GET /api/v1/reports/tax-summary` | 税账：这一段开了多少票（销项）、收到多少票（进项）、该交多少增值税。 |  |
 | `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` |  |  |
+| `customer_balances_report` | 只读 | `GET /api/v1/reports/customer-balances` | 客户欠款：每个债务人还欠多少、欠了多久（0-30 / 31-60 / 61-90 / 90 天以上）。 |  |
 | `export_report` | 只读 | `GET /api/v1/reports/export` | 报表 Excel 导出（内存流 xlsx）。 |  |
 
 ## 退货申请（`return_requests`）

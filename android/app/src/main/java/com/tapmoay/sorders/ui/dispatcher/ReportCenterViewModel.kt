@@ -18,7 +18,7 @@ class ReportCenterViewModel(
     initialTab: Int,
 ) : ViewModel() {
 
-    var tab by mutableStateOf(initialTab.coerceIn(0, 9))
+    var tab by mutableStateOf(initialTab.coerceIn(0, 10))
 
     /**
      * 时间**档位**（`DatePresets` 那一套：今天 / 昨天 / 前天 / 这周 / 上周 / 近 7 天 / 本月 / 上月 /
@@ -71,6 +71,16 @@ class ReportCenterViewModel(
      * ⚠️ 窗口与其他报表共用 `dateRange`：同一屏两段时间，用户只会以为账错了。
      */
     var taxSummary by mutableStateOf<TaxSummaryReportDto?>(null)
+
+    /**
+     * 客户欠款（FEAT-0015 第五期）—— 这一段**送到客户手里还没收到的钱**（应收账龄 + 信用额度）。
+     *
+     * ⚠️ 这是**时点账**：后端把窗口末与今天取小（`as_of = min(窗口末, 今天)`），
+     *    欠款余额不看窗口起点 —— 所以「近 7 天」与「本月」两档的数字**可能一样**，
+     *    那不是 bug（老账没结清就一直在表上）。
+     * ⚠️ 窗口仍与其他报表共用 `dateRange`：到期日/账龄天数按它算，窗口错开就答不上。
+     */
+    var customerBalances by mutableStateOf<CustomerBalancesDto?>(null)
     var drivers by mutableStateOf<DriverPerformanceDto?>(null)
     var exceptions by mutableStateOf<List<ExceptionOrderDto>>(emptyList())
     var operationLogs by mutableStateOf<List<OperationLogDto>>(emptyList())
@@ -296,6 +306,14 @@ class ReportCenterViewModel(
                         // 窗口与利润表错开，用户就会拿两个时段的税去对一张利润表。
                         val (f, t) = dateRange
                         taxSummary = container.repo.taxSummaryReport(ReportFinance.LEGACY_MODE, f, f, t)
+                    }
+                    10 -> {
+                        // 客户欠款（FEAT-0015）：窗口同样共用 `dateRange`（账龄天数按窗口末算）；
+                        // `include_orders=true` 是为了让行能就地展开逐单明细（点一下就能对到票号）。
+                        val (f, t) = dateRange
+                        customerBalances = container.repo.customerBalancesReport(
+                            ReportFinance.LEGACY_MODE, f, f, t, true,
+                        )
                     }
                     else -> {
                         // 异常与审计

@@ -6,8 +6,8 @@
 1. **表单不再用居中弹窗**（规范 :1266-1269）：「他不要使用弹窗啊，使用底部抽屉，
    并且**底部抽屉是拉到最上面**」⇒ ModalBottomSheet + rememberModalBottomSheetState(skipPartiallyExpanded = true)
    + fillMaxHeight() + verticalScroll。老画法（AlertDialog + 三个 SoTextField）一处都不许留。
-2. **抽屉里是白卡分组 + 共用行**（规范 :1253-1263 / §5.0）：一张 FormGroup 白卡、里面三行
-   FormInputRow；卡里不许出现描边输入框。
+2. **抽屉里是白卡分组 + 共用行**（规范 :1253-1263 / §5.0）：一张 FormGroup 白卡、里面四行
+   FormInputRow（名称 / 电话 / 信用额度 / 备注）；卡里不许出现描边输入框。
 3. **三种错分开**（规范 :458-478）：loadError 只有 load() 写、formError 画在抽屉里（FormErrorLine）、
    删除失败走 snackbar —— 表单校验绝不许写页面级 error（用户 2026-09-21 骂的「所有列表全消失了」就是这么来的）。
 4. **卡片动作按 §4.2c**：左删（提示色 MessageRed）、右编（NavBlue）、两枚都是圈底 CardActionIcon；
@@ -152,24 +152,25 @@ def main() -> int:
          "SheetCloseButton(onClick = { vm.closeSheet() })" in sheet
          and 'if (vm.editing == null) "新增挂账单位" else "编辑挂账单位"' in sheet)
 
-    # ── 3. 白卡分组 + 三行共用行 ────────────────────────────────────────
-    c.section("3. 抽屉里是白卡分组 + 三行共用行（规范 :1253-1263 / §5.0）")
+    # ── 3. 白卡分组 + 四行共用行 ────────────────────────────────────────
+    c.section("3. 抽屉里是白卡分组 + 四行共用行（规范 :1253-1263 / §5.0）")
     c.ok("只有一张白卡分组，标题是本页的模块（挂账单位）",
          screen.count("FormGroup(") == 1
          and 'FormGroup(Icons.Default.Business, "挂账单位", Color(ArrearsTangerine)) {' in screen)
-    c.ok("分组里恰好三行共用输入行（单位名称 / 联系电话 / 备注）",
-         body.count("FormInputRow(") == 3, "实际 " + str(body.count("FormInputRow(")) + " 行")
-    c.ok("三行的标签就是这三个（标签里带「电话」是输入规则判据要认的）",
-         '"单位名称",' in body and '"联系电话",' in body and '"备注",' in body)
+    c.ok("分组里恰好四行共用输入行（单位名称 / 联系电话 / 信用额度 / 备注）",
+         body.count("FormInputRow(") == 4, "实际 " + str(body.count("FormInputRow(")) + " 行")
+    c.ok("四行的标签就是这四个（标签里带「电话」「额度」是输入规则判据要认的）",
+         '"单位名称",' in body and '"联系电话",' in body and '"信用额度",' in body and '"备注",' in body)
     c.ok("单位名称是必填（required = true），另外两行没挂 required",
          body.count("required = true") == 1)
     c.ok("电话行是数字键盘 + 输入时过滤非数字（InputRules.phoneInput）",
          "keyboardType = KeyboardType.Phone," in body
          and "{ vm.draftPhone = InputRules.phoneInput(it) }," in body)
-    c.ok("选填的两行写「选填」，没有一行写「必填」",
+    c.ok("选填的三行写「选填」，没有一行写「必填」",
          'placeholder = "选填' in body and "必填" not in body)
-    c.ok("三行各有自己的图标（Business / Phone / Notes）",
+    c.ok("四行各有自己的图标（Business / Phone / AccountBalanceWallet / Notes）",
          "icon = Icons.Default.Business," in body and "icon = Icons.Default.Phone," in body
+         and "icon = Icons.Default.AccountBalanceWallet," in body
          and "icon = Icons.Default.Notes," in body)
 
     # ── 4. 表单的错画在抽屉里 + 页脚 ────────────────────────────────────
@@ -242,8 +243,8 @@ def main() -> int:
     c.section("7. 三种错分开：loadError / formError / notice（规范 :458-478）")
     c.ok("loadError 只在 load() 里写（进页面清空 + 失败填充，两处）", vm.count("loadError = ") == 2,
          "实际 " + str(vm.count("loadError = ")) + " 处")
-    c.ok("formError 有六处写入（打开表单清空 ×2 / 两条校验 / 提交前清空 / 保存失败）",
-         vm.count("formError = ") == 6, "实际 " + str(vm.count("formError = ")) + " 处")
+    c.ok("formError 有七处写入（打开表单清空 ×2 / 三条校验（名称 / 电话 / 信用额度）/ 提交前清空 / 保存失败）",
+         vm.count("formError = ") == 7, "实际 " + str(vm.count("formError = ")) + " 处")
     c.ok("没有裸的 error =（页面级与表单级的名字必须分得清）",
          (NL + "        error = ") not in vm and (NL + "            error = ") not in vm)
     c.ok("打开表单会清掉上一次的表单错误（否则「还没填，红字已经说我填错了」）",
@@ -290,7 +291,7 @@ def main() -> int:
             print("   - " + label)
         return 1
     print("✅ 全部 " + str(c.n_ok) + " 项通过：挂账单位页 —— 表单搬进拉到最上面的抽屉"
-          "（白卡分组 + 三行共用行 + 错画在表单里）、卡片动作左删右编都是圈底图标、"
+          "（白卡分组 + 四行共用行 + 错画在表单里）、卡片动作左删右编都是圈底图标、"
           "删除后手边就有真能救回来的「撤销」。")
     return 0
 
@@ -301,11 +302,12 @@ if __name__ == "__main__":
         print("1. 老画法归零：AlertDialog / SoTextField / OutlinedTextField / showDialog / vm.error 全 0，")
         print("   页面上只剩标题栏那一把 IconButton 与撤回那一个 TextButton")
         print("2. 抽屉三件套：ModalBottomSheet + skipPartiallyExpanded + 拉满 + imePadding + 能滚 + spacedBy(14.dp)")
-        print("3. 白卡分组：一张 FormGroup + 三行 FormInputRow（名称必填 / 电话数字键盘 + phoneInput / 备注）")
+        print("3. 白卡分组：一张 FormGroup + 四行 FormInputRow（名称必填 / 电话数字键盘 + phoneInput / "
+              "信用额度 moneyInput + 留空即不限额 / 备注）")
         print("4. 表单错：FormErrorLine(vm.formError) 在抽屉里、页脚取消 + 保存（模块色 + 深棕字）")
         print("5. 卡片动作：左删（MessageRed）右编（NavBlue）两枚圈底带字、卡头 TintedIcon 模块色、无裸 IconButton")
         print("6. 撤回：列表头顶「已删除「X」+ 撤销」、撤销真调 repo.restoreArrearsUnit、删空时那一行还在")
-        print("7. 三种错分开：loadError 只 load() 写、formError 六处、没有裸 error =")
+        print("7. 三种错分开：loadError 只 load() 写、formError 七处、没有裸 error =")
         print("8. 接线：后端 restore 端点 + 仓库层调用 + 反向验证脚本 + 三张工具表 + 文档九节 + 登记簿 + 声明块")
         sys.exit(0)
     sys.exit(main())

@@ -907,6 +907,16 @@ interface ArrearsApi {
     @PATCH("arrears-units/{unitId}")
     suspend fun updateUnit(@Path("unitId") unitId: Long, @Body body: ArrearsUnitUpdateRequest): ArrearsUnitDto
 
+    /**
+     * 编辑挂账单位（**含信用额度**，FEAT-0015）：界面那个编辑弹窗用这一条。
+     *
+     * ⚠️ 与 [updateUnit] 是**同一个端点**，只是请求体不同：额度需要「传字面 null = 清空」这一态，
+     *    而 `String? = null` 的键会被 `explicitNulls = false` 丢掉（详见 [ArrearsUnitEditRequest] 的说明）。
+     * ⚠️ [updateUnit] 仍在用（AI 改名字/电话/备注）—— 它⛔ 不带 `credit_limit`，所以**不会**动别人设的额度。
+     */
+    @PATCH("arrears-units/{unitId}")
+    suspend fun editUnit(@Path("unitId") unitId: Long, @Body body: ArrearsUnitEditRequest): ArrearsUnitDto
+
     @POST("arrears-units/{unitId}/restore")
     suspend fun restoreArrearsUnit(@Path("unitId") unitId: Long): ArrearsUnitDto
 
@@ -1348,6 +1358,23 @@ interface ReportApi {
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
     ): TaxSummaryReportDto
+
+    /**
+     * 客户欠款（应收账龄 + 信用额度，FEAT-0015 第五期）：谁欠我钱、欠了多久、超没超额度。
+     *
+     * ⚠️ 窗口与其他报表**同一段**（`mode`/`date`/`date_from`/`date_to` 与 [taxSummary] 逐字相同）——
+     * 同一屏里摆两段时间，用户只会以为账错了。
+     * ⚠️ `include_orders=true` 才带逐单明细（点开一行要看的那些票号）；关掉就只有汇总行。
+     * ⚠️ 返回里那些金额是**字符串**（后端 `Decimal` 两位小数），不是数字。
+     */
+    @GET("reports/customer-balances")
+    suspend fun customerBalances(
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+        @Query("include_orders") includeOrders: Boolean = true,
+    ): CustomerBalancesDto
 
     @GET("stats/driver-performance")
     suspend fun driverPerformance(

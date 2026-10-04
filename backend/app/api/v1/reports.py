@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
 
-from app.core.business_time import business_date, business_local, business_range_utc, local_stamp
+from app.core.business_time import business_date, business_local, business_range_utc, business_today, local_stamp
 from app.services.ledger_scope import visible_ledger_select
 from app.core.date_window import ensure_date_order
 from app.core.rbac import Permission
@@ -18,6 +18,7 @@ from app.deps import require_permission
 from app.models import Order, OrderProduct, User
 from app.models.enums import OrderStatus
 from app.schemas.reports import (
+    CustomerBalancesOut,
     ProductReportItem,
     ProductReportOut,
     ProfitReportOut,
@@ -33,7 +34,7 @@ from app.services.money_contract import has_per_order_pay, line_receivable, mone
 from app.services.sheet_text import append_text_row
 
 from app.services.reports_service import (
-    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money, build_vehicle_cost, build_cost_coverage, build_tax_summary,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
+    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money, build_vehicle_cost, build_cost_coverage, build_tax_summary, build_customer_balances,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
 )
 
 
@@ -184,14 +185,36 @@ def arrears_summary(
     end = date_to
     return build_arrears_summary(db, start, end)
 
+@router.get("/customer-balances", response_model=CustomerBalancesOut)
+def customer_balances_report(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+    mode: str = Query("month", pattern="^(day|week|month)$"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（与 date_to 成对给，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
+    include_orders: bool = Query(False, description="true = 每一行带逐单明细"),
+) -> CustomerBalancesOut:
+    """客户欠款：每个债务人还欠多少、欠了多久（0-30 / 31-60 / 61-90 / 90 天以上）。
 
+    ⚠️ **时点账**：`as_of` = min(窗口末, 今天)，看的是「到这一天为止还欠着多少」，
+    ⛔ 不是「这一段新欠了多少」—— 所以窗口起点不参与余额（只用来定 as_of 的上界）。
+
+    只读 —— 只搬欠款的唯一实现（`services/order_money.py::money_map` 的 `arrears`），
+    ⛔ 不重算金额、⛔ 不碰额度（额度只是这张表上的一列提示，不拦任何操作）。
+    """
+    span = _span(mode, anchor, date_from, date_to)
+    as_of = min(span[1], business_today())
+    data = build_customer_balances(db, as_of, include_orders=include_orders)
+    data.pop("_window", None)
+    return CustomerBalancesOut(**data)
 
 
 @router.get("/export")
 def export_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
-    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit|vehicle-cost|cost-coverage|tax-summary)$"),
+    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit|vehicle-cost|cost-coverage|tax-summary|customer-balances)$"),
     mode: str = Query("day", pattern="^(day|week|month)$"),
     anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
     date_from: date | None = Query(None, description="YYYY-MM-DD（finance/customers 可用，优先于 mode+anchor）"),
@@ -388,6 +411,59 @@ def export_report(
                 {"REGISTERED": "已登记", "ISSUED": "已开具", "VOIDED": "已作废"}.get(row["status"], row["status"]),
                 "算" if row["counts_in_tax"] else "不算",
             ])
+        append_text_row(ws, [])
+        append_text_row(ws, ["口径说明"])
+        for note in data["notes"]:
+            append_text_row(ws, [note])
+    elif kind == "customer-balances":
+        # 客户欠款（FEAT-0015 第五期）：逐债务人还欠多少、欠了多久。
+        # 口径与来源见 `services/reports/balance_query.py`（只读：只搬 order_money 的欠款口径）。
+        # ⚠️ 这是**时点账**：报表日 = min(窗口末, 今天)，与页面上**同一个口径**（⛔ 不另算一套）。
+        as_of = min(e, business_today())
+        data = build_customer_balances(db, as_of, include_orders=True)
+        totals = data["totals"]
+        kind_label = {"unit": "挂账单位", "unit_name": "挂账单位（改名/已删）", "shipper": "货主",
+                      "temp": "临时货主", "unknown": "未填货主"}
+        ws = next_sheet("客户欠款")
+        append_text_row(ws, ["客户欠款", "报表日", data["as_of"], "金额口径：欠款 = 应收 − 已收 + 已退（已送达未撤销）"])
+        append_text_row(ws, [
+            "合计欠款", _money(totals["balance"]),
+            "预收（收多了）", _money(totals["prepaid"]),
+            "欠款人数", totals["debtor_count"],
+            "单数", totals["order_count"],
+            "超限家数", totals["over_limit_count"],
+        ])
+        append_text_row(ws, [
+            "账龄 0-30 天", _money(totals["buckets"]["0_30"]),
+            "31-60 天", _money(totals["buckets"]["31_60"]),
+            "61-90 天", _money(totals["buckets"]["61_90"]),
+            "90 天以上", _money(totals["buckets"]["over_90"]),
+        ])
+        append_text_row(ws, [])
+        append_text_row(ws, ["欠款人", "类型", "电话", "欠款", "其中预收", "0-30 天", "31-60 天", "61-90 天",
+                             "90 天以上", "最老欠了多少天", "单数", "信用额度", "已用额度", "还能赊", "超限"])
+        for row in data["rows"]:
+            bk = row["buckets"]
+            append_text_row(ws, [
+                row["name"], kind_label.get(row["kind"], row["kind"]), row["phone"],
+                _money(row["balance"]), _money(row["prepaid"]),
+                _money(bk["0_30"]), _money(bk["31_60"]), _money(bk["61_90"]), _money(bk["over_90"]),
+                row["oldest_days"], row["order_count"],
+                # 额度为空 = **不限额**（⛔ 不是 0）；还能赊为空 = 没有额度这一说
+                "不限额" if row["limit"] is None else _money(row["limit"]),
+                _money(row["credit_used"]),
+                "—" if row["credit_available"] is None else _money(row["credit_available"]),
+                "超了" if row["over_limit"] else "",
+            ])
+        append_text_row(ws, [])
+        append_text_row(ws, ["逐单明细", "欠款人", "单号", "送达日", "应收", "已收", "欠款", "账龄起点", "天数", "账龄桶"])
+        for row in data["rows"]:
+            for it in row["orders"]:
+                append_text_row(ws, [
+                    row["name"], it["order_no"], it["delivered_on"],
+                    _money(it["receivable"]), _money(it["collected"]), _money(it["arrears"]),
+                    it["anchor"], it["days"], it["bucket"],
+                ])
         append_text_row(ws, [])
         append_text_row(ws, ["口径说明"])
         for note in data["notes"]:

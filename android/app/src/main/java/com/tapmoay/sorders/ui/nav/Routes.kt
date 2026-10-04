@@ -253,6 +253,9 @@ const val REPORT_FINANCE = "report/finance"
     /** 税账（FEAT-0014 第四期）：报表中心第 10 格 —— 销项 / 进项 / 该交的增值税。 */
     const val REPORT_TAX = "report/tax"
 
+    /** 客户欠款（FEAT-0015 第五期）：报表中心第 11 格 —— 应收账龄 / 谁欠我钱 / 信用额度超没超。 */
+    const val REPORT_CUSTOMER_BALANCES = "report/customer-balances"
+
     fun orderDetail(orderId: Long) = "order/$orderId/detail".replace("$orderId", orderId.toString())
     fun priceByShipper(shipperId: Long) = "dispatcher/pricing/shipper/$shipperId"
     fun priceByProduct(productId: Long) = "dispatcher/pricing/product/$productId"

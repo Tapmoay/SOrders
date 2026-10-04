@@ -2,6 +2,7 @@ package com.tapmoay.sorders.ui.dispatcher
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CurrencyYuan
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -25,7 +26,7 @@ import com.tapmoay.sorders.ui.common.EntryCardGrid
 /**
  * 报表中心入口页：两列、彩色圆角方形图标（白线图形）+ 黑色文字。
  *
- * 版式在 [EntryCardGrid]（与「账本管理」入口页**共用一份**）——这里只负责"有哪 10 件事"。
+ * 版式在 [EntryCardGrid]（与「账本管理」入口页**共用一份**）——这里只负责"有哪 11 件事"。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +46,9 @@ fun ReportHomeScreen(container: AppContainer, onBack: () -> Unit, onOpen: (Int) 
         // 第 10 格（FEAT-0014 第四期 税账）：这一段开了多少票、该交多少增值税。
         // 新格只许追加在末尾（key 直接当页签号，见 ReportFinance.exportKind 的说明）。
         EntryCard("9", "税账", Icons.Default.Receipt, Color(0xFFC08A4E)),
+        // 第 11 格（FEAT-0015 第五期 客户欠款）：谁欠我钱、欠了多久、超没超信用额度。
+        // 深红 #B71C1C 与「5 异常与审计」的 #FF4D4F 色距约 101（>60），同屏分得开。
+        EntryCard("10", "客户欠款", Icons.Default.AccountBalanceWallet, Color(0xFFB71C1C)),
     )
     Scaffold(
         topBar = { AppTopBar(title = "报表中心", onBack = onBack) },

@@ -1483,6 +1483,24 @@ def _bootstrap_impl(engine: Engine) -> None:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise
 
+    # ---------- 挂账单位信用额度（2026-10-04 FEAT-0015 第五期） ----------
+    #
+    # 「这家还能赊多少」：额度长在**挂账单位**上（赊账主体自己的名册），不长在客户档案上
+    # （订单与 customers 之间隔着 customers.arrears_unit_id 那条可空、非唯一的映射，
+    # 额度要与报表行 1:1 才对得上「已用 / 剩余」）。
+    # ⚠️ 可空、NULL = **不限额**：⛔ 不回填、⛔ 不当 0（0 是"一分钱都不许赊"，方向相反）。
+    # ⚠️ 正式搬迁是 `migrations/021_arrears_unit_credit_limit.py`，这一段只是自愈副本。
+    if "arrears_units" in insp.get_table_names():
+        acols = {c["name"] for c in insp.get_columns("arrears_units")}
+        if "credit_limit" not in acols:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE arrears_units ADD COLUMN credit_limit DECIMAL(14,2) NULL"))
+                    logger.warning("arrears_units.credit_limit 已补列（默认 NULL：不限额）")
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
     # ---------- 成本价时间轴回填（2026-09-19 用户要求） ----------
     #
     # `product_cost_history` 表由 `create_all` 建（它只建缺失的**表**，所以这里不用补列）。

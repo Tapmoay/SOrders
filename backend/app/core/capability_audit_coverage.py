@@ -67,6 +67,10 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                     'SUPPLIER_PAYABLE_DELETE', 'SUPPLIER_PAYABLE_RESTORE', 'SUPPLIER_PAYMENT_CREATE',
                     'SUPPLIER_PAYMENT_CANCEL', 'SUPPLIER_PAYMENT_RESTORE', 'ARREARS_UNIT_UPSERT',
                     'ARREARS_UNIT_DELETE', 'ARREARS_UNIT_RESTORE',
+                    # 信用额度（FEAT-0015 第五期）：门还是 `Permission.LEDGER_EDIT`
+                    # （改名与改额度同一个端点 `PATCH /arrears-units/{id}`，本来就归这里）——
+                    # 额度是「这家能赊多少」，与欠款、开销同一档，不另开能力。
+                    'ARREARS_UNIT_CREDIT_LIMIT',
                     # 发票台账（FEAT-0014 税账）：门是 `Permission.LEDGER_EDIT`
                     # （`api/v1/invoices.py` 的写端点）—— 票改的是**税**，与开销、欠款同一档，
                     # 所以认领到 ledger:edit（不是 product:manage：票不进货，只登记税）。

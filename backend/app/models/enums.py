@@ -240,6 +240,10 @@ class OperationAction(str, enum.Enum):
     ARREARS_UNIT_UPSERT = "ARREARS_UNIT_UPSERT"
     ARREARS_UNIT_DELETE = "ARREARS_UNIT_DELETE"
     ARREARS_UNIT_RESTORE = "ARREARS_UNIT_RESTORE"
+    # 信用额度（FEAT-0015 第五期）：改额度**单独一个动作码**，不并进 UPSERT ——
+    # 要回答的是两个不同的问题：「这个单位被谁改成什么样了」和「谁把这家能赊的上限抬了/砍了」。
+    # 合成一个，审计页上只能看到一团（与车辆 VEHICLE_UPSERT / VEHICLE_DRIVER_SET 同一理由）。
+    ARREARS_UNIT_CREDIT_LIMIT = "ARREARS_UNIT_CREDIT_LIMIT"
     # 运费模板（同上一轮审计）：它是派单填运费的**参考价**，改一个数字会影响所有人报价，
     # 而原来同样一次日志都不写。
     FREIGHT_TEMPLATE_UPSERT = "FREIGHT_TEMPLATE_UPSERT"

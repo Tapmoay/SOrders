@@ -7,8 +7,10 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto
-import com.tapmoay.sorders.data.remote.dto.ArrearsUnitUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.ArrearsUnitEditRequest
+import com.tapmoay.sorders.data.remote.dto.arrearsCreditLimitOf
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.launch
 
 /**
@@ -43,6 +45,15 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
     var draftRemark by mutableStateOf("")
 
     /**
+     * 信用额度（选填，FEAT-0015）：**空串 = 不限额**，不是 0。
+     *
+     * ⛔ 别把它默认成 `"0"`、也别在提交时把空串当 0 —— 这两个动作都会把
+     * 「老板没管过这个单位」变成「这个单位一分钱都不许赊」，界面上立刻出现一串假超限。
+     * 它跟着表单同生共死（[openCreate] / [openEdit] 都会重设）。
+     */
+    var draftCreditLimit by mutableStateOf("")
+
+    /**
      * 刚删掉的那一条（非空 = 列表头顶画一行「已删除「X」+ 撤销」）。
      *
      * 只记**一条**是有意的：撤回的意思是「我手滑了」，不是"最近删除"文件夹。
@@ -71,7 +82,7 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun openCreate() {
         editing = null
-        draftName = ""; draftPhone = ""; draftRemark = ""
+        draftName = ""; draftPhone = ""; draftRemark = ""; draftCreditLimit = ""
         // 打开表单要**清掉上一次的表单错误**：否则会看到"我还没填，红字已经说我填错了"。
         formError = null
         showSheet = true
@@ -82,6 +93,10 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
         draftName = u.name
         draftPhone = u.phone
         draftRemark = u.remark
+        // null（后端没设过额度）= 空框；⛔ 不许写成 "0.00"（那是另一回事：额度 0）。
+        // 预填走 `trimMoneyZeros`（可编辑金额框的预填规则）：`"5000.00"` → `"5000"`，
+        // 用户不动它直接保存，后端 Decimal("5000") 与 Decimal("5000.00") 数值相等 ⇒ 不会记一条假变动。
+        draftCreditLimit = trimMoneyZeros(u.creditLimit)
         formError = null
         showSheet = true
     }
@@ -103,19 +118,37 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
             formError = it
             return
         }
+        // 信用额度是**选填**的：留空合法（= 不限额，后端 `credit_limit: null` 也是合法值），
+        // 但填了就必须是个金额。校验规则唯一实现在 core/InputRules.kt，与其它金额框同一条。
+        val limitRaw = draftCreditLimit.trim()
+        InputRules.moneyError(limitRaw)?.let {
+            formError = "信用额度：$it"
+            return
+        }
         acting = true
         formError = null
         viewModelScope.launch {
             try {
                 val cur = editing
                 if (cur == null) {
+                    // 新增：留空 ⇒ credit_limit 这个键**根本不发**（后端默认 = 不限额）。
                     container.repo.createArrearsUnit(
-                        ArrearsUnitCreateRequest(draftName.trim(), draftPhone.trim(), draftRemark.trim())
+                        ArrearsUnitCreateRequest(
+                            draftName.trim(), draftPhone.trim(), draftRemark.trim(),
+                            creditLimit = limitRaw.ifBlank { null },
+                        )
                     )
                 } else {
-                    container.repo.updateArrearsUnit(
+                    // 编辑：走 [ArrearsUnitEditRequest]（不是 updateArrearsUnit）——
+                    // 「留空 = 不限额」必须真的发出**字面 null**，而 `String? = null` 的键会被序列化丢掉。
+                    container.repo.editArrearsUnit(
                         cur.id,
-                        ArrearsUnitUpdateRequest(name = draftName.trim(), phone = draftPhone.trim(), remark = draftRemark.trim()),
+                        ArrearsUnitEditRequest(
+                            name = draftName.trim(),
+                            phone = draftPhone.trim(),
+                            remark = draftRemark.trim(),
+                            creditLimit = arrearsCreditLimitOf(limitRaw),
+                        ),
                     )
                 }
                 actionResult = if (cur == null) "挂账单位已新增" else "挂账单位已更新"

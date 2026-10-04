@@ -23,7 +23,7 @@ class ReportFinanceTest {
     // ---------------------------------------------------------- 页签 → 导出 kind
 
     @Test
-    fun `页签顺序与报表入口页一致（0 营业纵览 … 9 税账）`() {
+    fun `页签顺序与报表入口页一致（0 营业纵览 … 10 客户欠款）`() {
         // 与 ReportHomeScreen 里那份入口清单逐项对齐
         assertEquals("turnover", ReportFinance.exportKind(0))
         assertEquals("products", ReportFinance.exportKind(1))
@@ -37,19 +37,44 @@ class ReportFinanceTest {
         assertEquals("cost-coverage", ReportFinance.exportKind(8))
         // 第 10 格（FEAT-0014）：销项 / 进项 / 该交的增值税
         assertEquals("tax-summary", ReportFinance.exportKind(9))
+        // 第 11 格（FEAT-0015）：谁欠我钱、欠了多久、超没超信用额度
+        assertEquals("customer-balances", ReportFinance.exportKind(10))
     }
 
     @Test
-    fun `十个页签导出的 kind 两两不同（错位的根因就是有两个页签映射到同一个词）`() {
-        val kinds = (0..9).map { ReportFinance.exportKind(it) }
+    fun `十一个页签导出的 kind 两两不同（错位的根因就是有两个页签映射到同一个词）`() {
+        val kinds = (0..10).map { ReportFinance.exportKind(it) }
         assertEquals(kinds.size, kinds.toSet().size)
     }
 
     @Test
     fun `越界页签兜到 audit，不会崩`() {
-        // 9 现在是「税账」（真 kind），所以越界的样本挪到 10
-        assertEquals("audit", ReportFinance.exportKind(10))
+        // 10 现在是「客户欠款」（FEAT-0015 的真 kind），所以越界的样本挪到 11
+        assertEquals("audit", ReportFinance.exportKind(11))
         assertEquals("audit", ReportFinance.exportKind(-1))
+    }
+
+    // ---------------------------------------------------------- 账龄桶 / 欠款行类型
+
+    @Test
+    fun `账龄桶 key 译成中文（四个桶与后端 bucket_keys 一字不差）`() {
+        assertEquals("0-30 天", ReportFinance.bucketLabel("0_30"))
+        assertEquals("31-60 天", ReportFinance.bucketLabel("31_60"))
+        assertEquals("61-90 天", ReportFinance.bucketLabel("61_90"))
+        assertEquals("90 天以上", ReportFinance.bucketLabel("over_90"))
+        // 认不出来就原样回：⛔ 不许编「其他」（会把两个桶并成一格）
+        assertEquals("over_180", ReportFinance.bucketLabel("over_180"))
+    }
+
+    @Test
+    fun `欠款行类型译成中文（unit 与 unit_name 不许并成一句）`() {
+        assertEquals("挂账单位", ReportFinance.debtorKindLabel("unit"))
+        assertEquals("挂账单位（已改名或已删）", ReportFinance.debtorKindLabel("unit_name"))
+        assertEquals("货主", ReportFinance.debtorKindLabel("shipper"))
+        assertEquals("临时货主", ReportFinance.debtorKindLabel("temp"))
+        assertEquals("未填货主", ReportFinance.debtorKindLabel("unknown"))
+        // 认不出来原样回（后端加类型时页面上看得见）
+        assertEquals("agent", ReportFinance.debtorKindLabel("agent"))
     }
 
     // ---------------------------------------------------------- 毛利公式

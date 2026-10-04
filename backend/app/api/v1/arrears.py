@@ -15,8 +15,14 @@ from app.models.enums import OperationAction
 from app.schemas.arrears import ArrearsUnitCreate, ArrearsUnitOut, ArrearsUnitUpdate
 from app.services import usage_service
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 
 router = APIRouter(prefix="/arrears-units", tags=["arrears-units"])
+
+
+def _limit_text(v: Decimal | None) -> str | None:
+    """额度的审计留痕写法：到分、定长两位（⛔ 这不是显示口径 —— 日志记的是"当时设的是什么数"）。"""
+    return None if v is None else str(v.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 @router.get("", response_model=list[ArrearsUnitOut])
@@ -49,15 +55,23 @@ def create_unit(
         select(ArrearsUnit).where(ArrearsUnit.name == name, ArrearsUnit.is_deleted.is_(False))
     ).first():
         raise HTTPException(status_code=400, detail="挂账单位名称已存在")
-    u = _insert_unit(db, name, body.phone, body.remark, operator)
+    u = _insert_unit(db, name, body.phone, body.remark, operator, credit_limit=body.credit_limit)
     db.commit()
     db.refresh(u)
     return u
 
 
-def _insert_unit(db: Session, name: str, phone: str, remark: str, operator: User) -> ArrearsUnit:
+def _insert_unit(
+    db: Session,
+    name: str,
+    phone: str,
+    remark: str,
+    operator: User,
+    *,
+    credit_limit: Decimal | None = None,
+) -> ArrearsUnit:
     """新建一行挂账单位 + 写审计（**建单位的唯一实现**，见 [find_or_create_unit]）。"""
-    u = ArrearsUnit(name=name, phone=phone.strip(), remark=remark.strip())
+    u = ArrearsUnit(name=name, phone=phone.strip(), remark=remark.strip(), credit_limit=credit_limit)
     db.add(u)
     db.flush()
     # ⚠️ 挂账单位是**钱挂在谁名下**这件事（2026-09-19 审计 R14-1）：原来四个写端点
@@ -70,6 +84,22 @@ def _insert_unit(db: Session, name: str, phone: str, remark: str, operator: User
         action=OperationAction.ARREARS_UNIT_UPSERT,
         change_payload={"unit_id": u.id, "name": u.name, "phone": u.phone, "scope": "create"},
     )
+    if credit_limit is not None:
+        # 建单位时顺手设了额度 = 一次动作、两条事实（"建了这个单位" / "这家的上限是这个数"），
+        # 各留一条日志 —— 额度单独可查，不必从建单位的日志里读出来。
+        write_log(
+            db,
+            operator_id=operator.id,
+            order_id=None,
+            action=OperationAction.ARREARS_UNIT_CREDIT_LIMIT,
+            change_payload={
+                "unit_id": u.id,
+                "name": u.name,
+                "scope": "create",
+                "before": None,
+                "after": _limit_text(credit_limit),
+            },
+        )
     return u
 
 
@@ -118,6 +148,10 @@ def update_unit(
     #    而它名下的旧欠款还挂在账上——用户以为改的是"现在用的那一个"。
     ensure_alive(u, "挂账单位", "POST /arrears-units/{id}/restore")
     before = {"name": u.name, "phone": u.phone, "remark": u.remark}
+    # ⚠️ 额度这一项看 `model_fields_set`，⛔ 不看 None：对额度来说 null 是一个**合法的值**
+    #    （= 清掉额度、回到"不限额"），所以「没传这一项」与「传了 null」必须分开。
+    limit_touched = "credit_limit" in body.model_fields_set
+    limit_before = u.credit_limit
     if body.name is not None:
         name = body.name.strip()
         dup = db.scalars(
@@ -132,6 +166,8 @@ def update_unit(
         u.phone = body.phone.strip()
     if body.remark is not None:
         u.remark = body.remark.strip()
+    if limit_touched:
+        u.credit_limit = body.credit_limit
     write_log(
         db,
         operator_id=operator.id,
@@ -144,6 +180,22 @@ def update_unit(
             "after": {"name": u.name, "phone": u.phone, "remark": u.remark},
         },
     )
+    if limit_touched and u.credit_limit != limit_before:
+        # 只有真的变了才留痕（同一个数重发一次不该产生一条"改额度"的日志 —— 审计页上的
+        # 每一条都得是"谁动了什么"，不是"谁点了保存"）。
+        write_log(
+            db,
+            operator_id=operator.id,
+            order_id=None,
+            action=OperationAction.ARREARS_UNIT_CREDIT_LIMIT,
+            change_payload={
+                "unit_id": u.id,
+                "name": u.name,
+                "scope": "update",
+                "before": _limit_text(limit_before),
+                "after": _limit_text(u.credit_limit),
+            },
+        )
     db.commit()
     db.refresh(u)
     return u

@@ -367,7 +367,11 @@ def main() -> int:
     ok("税账报表端点在（只读，走 ensure_date_order 那一族）",
        '@router.get("/tax-summary"' in reports and "build_tax_summary(" in reports
        and "TaxSummaryOut(**data)" in reports)
-    ok("导出 kind 白名单里加了 tax-summary", "|tax-summary)$" in reports)
+    # ⚠️ 2026-10-04 · FEAT-0015：白名单第 11 个值 `customer-balances` 接在 tax-summary **后面**，
+    # 所以这一条⛔ 不能再钉字符串尾部 `|tax-summary)$`（那会被后继者顶掉）——
+    # 改成钉「白名单里真的有这个可选值」，中间与结尾两种位置都算。
+    ok("导出 kind 白名单里加了 tax-summary",
+       "|tax-summary|" in reports or "|tax-summary)" in reports)
     ok("导出分支把「算不算数」逐票写出来（作废 / 回收站 / 未税三种不算数都看得见）",
        'elif kind == "tax-summary":' in reports and 'next_sheet("税账")' in reports
        and "算不算数" in reports)
@@ -474,8 +478,8 @@ def main() -> int:
     ok("导出 kind(9) = tax-summary（第 10 页导出的是税账那张表）", '9 -> "tax-summary"' in finance_kt)
     ok("报表页认第 10 格（标题 + 分发到税账页，页面本体在同一个文件里）",
        '9 -> "税账"' in center_kt and "9 -> TaxTab(vm)" in center_kt and "private fun TaxTab(" in center_kt)
-    ok("ViewModel 收下页签 0..9 且拉了税汇（窗口与其它页签同一段）",
-       "initialTab.coerceIn(0, 9)" in vm_kt and "taxSummary = container.repo.taxSummaryReport(" in vm_kt)
+    ok("ViewModel 收下页签 0..10 且拉了税汇（窗口与其它页签同一段）",
+       "initialTab.coerceIn(0, 10)" in vm_kt and "taxSummary = container.repo.taxSummaryReport(" in vm_kt)
     ok("税账页只显示接口给的数（页面里没有第二种税额算法）",
        "vatPayable" in center_kt and "tax_of_amount" not in center_kt and "sum_taxes" not in center_kt)
     ok("三条路由常量都在（报表第 10 格 / 发票台账 / 登记一张票）",

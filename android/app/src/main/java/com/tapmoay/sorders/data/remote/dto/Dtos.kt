@@ -10,6 +10,7 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
@@ -1125,6 +1126,13 @@ data class ArrearsUnitDto(
     val name: String,
     val phone: String = "",
     val remark: String = "",
+    /**
+     * 信用额度（FEAT-0015 第五期）：`null` = **不限额**（不是 0，⛔ 界面上不许显示成 ¥0.00）。
+     *
+     * ⚠️ 后端存的是 `NUMERIC` 的 NULL（`schema_bootstrap` 补的列），出参是 `Decimal | None`。
+     */
+    @Serializable(with = NullableFlexibleStringSerializer::class)
+    @SerialName("credit_limit") val creditLimit: String? = null,
     @SerialName("created_at") val createdAt: String = "",
 )
 
@@ -1133,6 +1141,14 @@ data class ArrearsUnitCreateRequest(
     val name: String,
     val phone: String = "",
     val remark: String = "",
+    /**
+     * 新建时的信用额度（选填）：不给 = 不限额。
+     *
+     * ⚠️ 这里刻意用**朴素** `String?`（不带 [NullableFlexibleStringSerializer]）：
+     *    那个序列化器在 `null` 时会写**空串**（`Dtos.kt:45` 的 `encodeString(value ?: "")`），
+     *    而空串到了后端是 422 —— 留空应当是「这一项不提」，靠 `explicitNulls = false` 把键丢掉。
+     */
+    @SerialName("credit_limit") val creditLimit: String? = null,
 )
 
 @Serializable
@@ -1141,6 +1157,41 @@ data class ArrearsUnitUpdateRequest(
     val phone: String? = null,
     val remark: String? = null,
 )
+
+/**
+ * 编辑挂账单位（**含信用额度**）：只给界面那个编辑弹窗用，AI 与旧调用方仍走 [ArrearsUnitUpdateRequest]。
+ *
+ * ### 为什么不复用 [ArrearsUnitUpdateRequest]（这是一处会静默出错的坑）
+ * 本项目 `Json { explicitNulls = false }`（`core/ApiClient.kt:32`）会**把值为 null 的属性整个键丢掉**，
+ * 而「额度」这一项 **null 是一个合法取值**（= 清空额度、回到不限额）：后端按
+ * `"credit_limit" in body.model_fields_set` 判「这一项到底动没动」
+ * （`backend/app/api/v1/arrears.py:153`）—— 键一丢就变成「没提这事」，额度**清不掉**，而且不报错。
+ * 所以这里用**非空**的 [JsonElement]：`JsonNull` 会被如实写成字面 `null`（键一定在），
+ * 数字写成 `JsonPrimitive("5000.00")`。非空属性不受 `explicitNulls` 影响。
+ *
+ * ⚠️ 名字/电话/备注在这里是**非空**的：编辑弹窗每次都把这三件套整份发出去（与旧行为一致）。
+ */
+@Serializable
+data class ArrearsUnitEditRequest(
+    val name: String,
+    val phone: String = "",
+    val remark: String = "",
+    @SerialName("credit_limit") val creditLimit: JsonElement = JsonNull,
+)
+
+/**
+ * 「额度输入框里那段文字」→ 请求体里的 `credit_limit` 值。
+ *
+ * - 空串 / 只有空白 ⇒ [JsonNull]（= 不限额，后端把字面 null 当合法的「清空」）；
+ * - 其余原样发字符串（后端 `Decimal`，最多两位小数）。
+ *
+ * ⛔ 别在这里补 `"0"`：留空与「额度 0」是两件事（后者会让这个单位一分钱都算超限）。
+ * 输入侧已经过 `InputRules.moneyInput`，所以到这里不会是全角数字或两个小数点。
+ */
+fun arrearsCreditLimitOf(raw: String): JsonElement {
+    val t = raw.trim()
+    return if (t.isEmpty()) JsonNull else JsonPrimitive(t)
+}
 
 // ===== 库存 =====
 /**
@@ -2746,4 +2797,95 @@ data class TaxSummaryReportDto(
     val invoices: List<TaxInvoiceRowDto> = emptyList(),
     @SerialName("voided_count") val voidedCount: Int = 0,
     @SerialName("default_tax_rate") val defaultTaxRate: String = "0",
+)
+
+// ===== 客户欠款 / 应收账龄（FEAT-0015 第五期，`GET /reports/customer-balances`）=====
+//
+// ⚠️ 这一组里的**金额一律是字符串**（后端 `Decimal` 量化到两位小数），不是数字。
+// ⚠️ 额度三件套只有 `kind == "unit"` 的行才有：`limit == null` = **不限额**；
+//    `credit_available == null` = **算不出来**（不限额时后端不给这个数）——
+//    ⛔ 界面上不许把它当成 0 显示成「还能赊 ¥0.00」。
+
+/**
+ * 欠款行里的一单（点开某一行才看得到的逐单明细）。
+ *
+ * ⚠️ [bucket] 可能是**空串**：预收（客户先打了钱、这一单不欠）那一行没有账龄桶，
+ *    界面上要按「预收」显示，⛔ 不许当成「0-30 天」。
+ * ⚠️ [anchor] 是算账龄的**起点日**（欠款从这一天起算），不是下单日。
+ */
+@Serializable
+data class CustomerBalanceOrderDto(
+    @SerialName("order_id") val orderId: Long = 0,
+    @SerialName("order_no") val orderNo: String = "",
+    @SerialName("delivered_on") val deliveredOn: String = "",
+    @SerialName("shipper_name") val shipperName: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val receivable: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val collected: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val arrears: String = "0.00",
+    val anchor: String = "",
+    val days: Int = 0,
+    val bucket: String = "",
+)
+
+/**
+ * 一个欠款人/单位一行（后端**已按欠款从多到少排好**，`balance` 降序、同额按名字）。
+ *
+ * ⚠️ [kind] 的五个取值见 `ReportFinance.debtorKindLabel`：`unit` 与 `unit_name` **不是一回事**
+ *    （后者是名字快照，单位改名/删了，这一行没有额度）。
+ * ⚠️ [customerNames] 是这一行名下的客户名册（货主账号下挂的临时客户），可能为空。
+ * ⚠️ [prepaid] 是**预收**（客户先付的钱）：`balance = Σ buckets − prepaid`（后端恒等式）。
+ * ⚠️ [orders] 只有在 `include_orders=true` 时才有值。
+ */
+@Serializable
+data class CustomerBalanceRowDto(
+    val kind: String = "unknown",
+    @SerialName("unit_id") val unitId: Long? = null,
+    val name: String = "",
+    val phone: String = "",
+    @SerialName("customer_names") val customerNames: List<String> = emptyList(),
+    @Serializable(with = FlexibleStringSerializer::class) val balance: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val prepaid: String = "0.00",
+    val buckets: Map<String, String> = emptyMap(),
+    @SerialName("oldest_days") val oldestDays: Int = 0,
+    @SerialName("order_count") val orderCount: Int = 0,
+    @Serializable(with = NullableFlexibleStringSerializer::class) val limit: String? = null,
+    @Serializable(with = FlexibleStringSerializer::class)
+    @SerialName("credit_used") val creditUsed: String = "0.00",
+    @Serializable(with = NullableFlexibleStringSerializer::class)
+    @SerialName("credit_available") val creditAvailable: String? = null,
+    @SerialName("over_limit") val overLimit: Boolean = false,
+    val orders: List<CustomerBalanceOrderDto> = emptyList(),
+)
+
+/** 整张表的合计（**金额一律取这里的数**，⛔ 不要拿页面上那几行自己再加一遍）。 */
+@Serializable
+data class CustomerBalanceTotalsDto(
+    @Serializable(with = FlexibleStringSerializer::class) val balance: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val prepaid: String = "0.00",
+    val buckets: Map<String, String> = emptyMap(),
+    @SerialName("debtor_count") val debtorCount: Int = 0,
+    @SerialName("order_count") val orderCount: Int = 0,
+    /** 有额度的行里**超了**的行数（0 = 一条都没超，界面上就不出那条提示）。 */
+    @SerialName("over_limit_count") val overLimitCount: Int = 0,
+    /** 没有挂到名册单位上的欠款合计（挂账单位的名册外欠款）。 */
+    @Serializable(with = FlexibleStringSerializer::class)
+    @SerialName("no_unit_balance") val noUnitBalance: String = "0.00",
+    @SerialName("no_unit_count") val noUnitCount: Int = 0,
+)
+
+/**
+ * 客户欠款（应收账龄 + 信用额度）汇总。
+ *
+ * ⚠️ [asOf] 是**时点**：后端取「窗口末」与「今天」里更早的那一个（`min(窗口末, 今天)`）——
+ *    这是时点账，窗口**起点不参与**余额，所以两个档位下的数字可能一样，那不是 bug。
+ * ⚠️ [bucketKeys] 是账龄桶的顺序（0-30 / 31-60 / 61-90 / 90 天以上），页面照它排、别自己写死顺序。
+ * ⚠️ [notes] 是后端逐条写死的中文口径说明，直接印在页面底部（⛔ 不许改写、不许挑着显示）。
+ */
+@Serializable
+data class CustomerBalancesDto(
+    @SerialName("as_of") val asOf: String = "",
+    val rows: List<CustomerBalanceRowDto> = emptyList(),
+    @SerialName("bucket_keys") val bucketKeys: List<String> = emptyList(),
+    val totals: CustomerBalanceTotalsDto = CustomerBalanceTotalsDto(),
+    val notes: List<String> = emptyList(),
 )

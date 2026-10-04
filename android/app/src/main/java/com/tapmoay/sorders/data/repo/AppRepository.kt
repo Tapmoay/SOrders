@@ -702,6 +702,13 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun arrearsUnits() = api.arrearsApi.listUnits()
     suspend fun createArrearsUnit(body: com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest) = api.arrearsApi.createUnit(body)
     suspend fun updateArrearsUnit(id: Long, body: com.tapmoay.sorders.data.remote.dto.ArrearsUnitUpdateRequest) = api.arrearsApi.updateUnit(id, body)
+
+    /**
+     * 编辑挂账单位（含信用额度，FEAT-0015）：填数字 = 设额度，留空 = 不限额（字面 `credit_limit: null`）。
+     *
+     * ⚠️ 与 [updateArrearsUnit] 走同一个后端端点，但请求体类型不同（见 [ArrearsUnitEditRequest]）。
+     */
+    suspend fun editArrearsUnit(id: Long, body: com.tapmoay.sorders.data.remote.dto.ArrearsUnitEditRequest) = api.arrearsApi.editUnit(id, body)
     suspend fun deleteArrearsUnit(id: Long) = api.arrearsApi.deleteUnit(id)
 
     suspend fun restoreArrearsUnit(id: Long) = api.arrearsApi.restoreArrearsUnit(id)
@@ -1087,6 +1094,19 @@ class AppRepository(private val api: ApiBundle) {
         dateFrom: String? = null,
         dateTo: String? = null,
     ) = api.reportApi.taxSummary(mode, date, dateFrom, dateTo)
+
+    /**
+     * 客户欠款（FEAT-0015 第五期）：窗口与 [taxSummaryReport] **同一段**。
+     *
+     * `includeOrders = true` 才带逐单明细（行点开要看的票号/应收/已收/欠款）。
+     */
+    suspend fun customerBalancesReport(
+        mode: String,
+        date: String,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        includeOrders: Boolean = true,
+    ) = api.reportApi.customerBalances(mode, date, dateFrom, dateTo, includeOrders)
 
     suspend fun driverPerformance(dateFrom: String, dateTo: String) =
         api.reportApi.driverPerformance(dateFrom, dateTo)

@@ -98,6 +98,8 @@ internal object ReportFinance {
         8 -> "cost-coverage"
         // 第 10 格（FEAT-0014 第四期 税账）：这一段开了多少票、该交多少增值税
         9 -> "tax-summary"
+        // 第 11 格（FEAT-0015 第五期 客户欠款）：谁欠我钱、欠了多久、超没超信用额度
+        10 -> "customer-balances"
         else -> "audit"
     }
 
@@ -184,5 +186,37 @@ internal object ReportFinance {
         "loss" -> "货损"
         "other" -> "其他"
         else -> c?.trim().orEmpty()
+    }
+
+    /**
+     * 账龄桶的 key → 中文。
+     *
+     * 四个 key 就是后端 `CustomerBalancesOut.bucket_keys` 里那四个词，一字不差。
+     * ⚠️ 与 [directionLabel] 同一条规矩：认不出来**原样回**——后端哪天加一个桶，
+     *    页面上会直接露出那个 key（看得见），而编一个「其他」会把两个桶并成一格。
+     */
+    fun bucketLabel(key: String): String = when (key.trim()) {
+        "0_30" -> "0-30 天"
+        "31_60" -> "31-60 天"
+        "61_90" -> "61-90 天"
+        "over_90" -> "90 天以上"
+        else -> key.trim()
+    }
+
+    /**
+     * 欠款行的类型 → 中文（后端 `CustomerBalanceRow.kind`）。
+     *
+     * ⚠️ `unit_name` 与 `unit` 是**两回事**，⛔ 不许并成一句「挂账单位」：
+     *    `unit` 是这张单还挂着名册里的单位（额度看得到）；
+     *    `unit_name` 是只留了一个**名字快照**（单位被改名或删了），这一行**没有额度**——
+     *    并起来用户会以为「我没给他额度」，而其实是「查不到这个单位了」。
+     */
+    fun debtorKindLabel(kind: String): String = when (kind.trim().lowercase()) {
+        "unit" -> "挂账单位"
+        "unit_name" -> "挂账单位（已改名或已删）"
+        "shipper" -> "货主"
+        "temp" -> "临时货主"
+        "unknown" -> "未填货主"
+        else -> kind.trim()
     }
 }

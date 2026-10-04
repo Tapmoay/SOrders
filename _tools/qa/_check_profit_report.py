@@ -277,8 +277,8 @@ def main() -> int:
     c.present("取数走 build_profit", route, r"data = build_profit\(db, mode, anchor, span=span\)")
     c.present("返回前 pop 掉 _window（内部键不许出接口）", route, r'data\.pop\("_window", None\)')
     c.present("返回 ProfitReportOut(**data)", route, r"return ProfitReportOut\(\*\*data\)")
-    c.present("导出的 kind 正则收下了第 7 / 第 8 / 第 9 / 第 10 个值（经营利润 / 车辆成本 / 成本覆盖 / 税账）",
-              api, r'\^\(turnover\|products\|drivers\|customers\|finance\|audit\|' + KIND + r'\|vehicle-cost\|cost-coverage\|tax-summary\)\$')
+    c.present("导出的 kind 正则收下了第 7 / 第 8 / 第 9 / 第 10 / 第 11 个值（经营利润 / 车辆成本 / 成本覆盖 / 税账 / 客户欠款）",
+              api, r'\^\(turnover\|products\|drivers\|customers\|finance\|audit\|' + KIND + r'\|vehicle-cost\|cost-coverage\|tax-summary\|customer-balances\)\$')
     c.present("导出里那张表叫「" + SHEET + "」", api, r'next_sheet\("' + SHEET + r'"\)')
     c.present("导出里带成本覆盖率（只有数字没有覆盖率，就是让人误读毛利）", api, r'"成本覆盖率"')
     c.present("导出里带口径说明（逐条 notes 写进表）", api, r'"口径说明"')
@@ -315,8 +315,8 @@ def main() -> int:
     c.present("页签 5 显式写 audit（原来靠 else —— 加了第 7 格之后 else 会把它吃掉）",
               finance, r'5 -> "audit"')
     cards = re.findall(r"EntryCard\(", home)
-    c.ok("入口页现在是 10 格（第 8 / 第 9 / 第 10 格是第二、三、四期的车辆成本 / 成本覆盖 / 税账）",
-         len(cards) == 10, "实际 " + str(len(cards)) + " 格")
+    c.ok("入口页现在是 11 格（第 8 / 第 9 / 第 10 / 第 11 格是第二~五期的车辆成本 / 成本覆盖 / 税账 / 客户欠款）",
+         len(cards) == 11, "实际 " + str(len(cards)) + " 格")
     c.present("第 7 格是「经营利润」且 key 是 6（key 直接当页签号用）",
               home, r'EntryCard\("6", "经营利润"')
     c.present("路由常量 REPORT_PROFIT 在", routes, r'const val REPORT_PROFIT = "report/profit"')
@@ -325,7 +325,7 @@ def main() -> int:
               nav, r"5 -> navController\.navigate\(Routes\.REPORT_EXCEPTION\)")
     c.present("利润页那条 composable 把页签号传进去",
               nav, r"composable\(Routes\.REPORT_PROFIT\) \{ ReportCenterScreen\([\s\S]{0,200}?initialTab = 6\)")
-    c.present("ViewModel 收下页签 0..9（第 8 / 第 9 / 第 10 格是第二、三、四期加的）", vm, r"initialTab\.coerceIn\(0, 9\)")
+    c.present("ViewModel 收下页签 0..10（第 8 / 第 9 / 第 10 / 第 11 格是第二~五期加的）", vm, r"initialTab\.coerceIn\(0, 10\)")
     c.present("ViewModel 给这一页留了数据槽", vm, r"var profit by mutableStateOf<ProfitReportDto\?>\(null\)")
     c.present("load() 里第 7 支取数（窗口与其它页共用同一个 dateRange）",
               vm, r"6 -> \{[\s\S]{0,200}?val \(f, t\) = dateRange[\s\S]{0,200}?profit = container\.repo\.profitReport\(")
@@ -371,7 +371,7 @@ def main() -> int:
          any("窗口" in n for n in names), "现有：" + "、".join(names))
     test_kt = kt_code(TEST_KT)
     c.present("Android 单测钉了第 7 个页签的导出 kind", test_kt, r'exportKind\(6\)')
-    c.present("Android 单测改成 10 个页签两两不同", test_kt, r"\(0\.\.9\)")
+    c.present("Android 单测改成 11 个页签两两不同", test_kt, r"\(0\.\.10\)")
     rev = read(REVERSE)
     c.present("反向验证脚本拿着注入锁（lock_reverse_verify）", rev, r"lock_reverse_verify")
     c.present("反向验证脚本自己列了注入表（CASES）", rev, r"CASES = \[")
