@@ -41,7 +41,9 @@
 
 **验收**：模拟器 5554 截图（含「我的 → 提示」总开关拨开前后对照）；`python _tools/qa/_check_all.py` 全绿；文案改动后重跑 `python _tools/qa/_hint_inventory.py --md`。
 
-**做完的样子**：抽屉默认只剩 11 行「图标 + 名字 + 箭头」，拨开提示总开关白话原样回来（`_tmp/v4_drawer.png` / `_tmp/v4_hint_on.png`）；金额列起点一致（`_tmp/v4_pl.png` / `_tmp/v4_home.png`）；红=欠钱、橙=亏损/异常。
+**做完的样子**（实现提交 `866bdc1`，9 files changed / 333 insertions(+) / 73 deletions(-)；只碰 v2 那个包）：抽屉默认只剩 11 行「图标 + 名字 + 箭头」，拨开提示总开关白话原样回来（`_tmp/v4_drawer.png` / `_tmp/v4_hint_on.png`）；金额列起点一致（`_tmp/v4_pl.png` / `_tmp/v4_home.png`，`ValueColumn = 104.dp` + `ValueGutter = 18.dp`）；红=欠钱、橙=亏损/异常；入口格「异常与审计」图标红 → 琥珀 `#F5A623`。
+
+**静检**：`python _tools/qa/_check_all.py` → **174/174 全部通过**（日志 `_tmp/checkall_chg0036.log`）；`python backend/scripts/check_reachability.py` → EXIT 0；`python _tools/qa/_hint_inventory.py --md` 已重生成提示目录；`gradle -p android :app:assembleEmuDebug` BUILD SUCCESSFUL；`python _tools/qa/_install_all.py --only 5554` → 1/1 台就绪。
 
 ### [2026-10-05 02:1x UTC → 02:3x UTC 已完成] 会话：**CHG-0035 报表中心 v2 文案减负与留白**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
