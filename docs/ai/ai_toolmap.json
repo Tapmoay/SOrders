@@ -1584,6 +1584,15 @@
           "handler": "turnover_report",
           "doc": "",
           "at": "backend/app/api/v1/reports.py:61"
+        },
+        {
+          "action": "vehicle_cost_report",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/reports/vehicle-cost",
+          "handler": "vehicle_cost_report",
+          "doc": "车辆成本表：这一段窗口里每台车的三笔成本（折旧 / 车辆开销 / 挂靠司机配送成本）与合计数。⛔ 这张表**没有收入**。",
+          "at": "backend/app/api/v1/reports.py:110"
         }
       ]
     },

@@ -1358,7 +1358,11 @@ data class ProfitReportExpenseItemDto(
 
 /**
  * 经营利润表：这一段**赚了多少**的完整链条
- * （营业收入 − 商品成本 = 商品毛利；商品毛利 − 配送成本 − 期间费用 − 税金及附加 = 营业利润）。
+ * （营业收入 − 商品成本 = 商品毛利；商品毛利 − 配送成本 − 期间费用 − 车辆折旧 − 税金及附加 = 营业利润）。
+ *
+ * ⚠️ **车辆折旧已经算进来了**（FEAT-0012 第二期）：月折旧额 = 购置价 ×（1 − 残值率）÷（使用年限 × 12），
+ *    从购置日期起按每个自然月的天数摊到这一段里。没录购置价 / 购置日期 / 使用年限的车**算不出折旧**，
+ *    它们的折旧没进 `depreciationTotal`（营业利润偏高），逐台单列在 [depreciationUncovered] 里。
  *
  * ⚠️ 这四块钱**全在后端算**，客户端一个都不许再减一遍 —— 毛利上栽过的那次
  *    （界面 72,177.75 vs 正确 10,789.00，差 6.7 倍）就是两边各算一遍造成的。这里只做展示。
@@ -1387,6 +1391,15 @@ data class ProfitReportDto(
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("operating_expense_total")
     val operatingExpenseTotal: String = "0",
     @SerialName("operating_expenses") val operatingExpenses: List<ProfitReportExpenseItemDto> = emptyList(),
+    // ---- 车辆折旧（FEAT-0012 第二期：第二期之前这一格是空的，notes 里点名说过）----
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("depreciation_total")
+    val depreciationTotal: String = "0",
+    //: 月额合计（⛔ 不是窗口金额）：给用户看"这些车每月一共提多少"
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("depreciation_monthly_total")
+    val depreciationMonthlyTotal: String = "0",
+    @SerialName("depreciation_vehicle_count") val depreciationVehicleCount: Int = 0,
+    @SerialName("depreciation_uncovered_count") val depreciationUncoveredCount: Int = 0,
+    @SerialName("depreciation_uncovered") val depreciationUncovered: List<ProfitDepreciationUncoveredDto> = emptyList(),
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("tax_total") val taxTotal: String = "0",
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("operating_profit") val operatingProfit: String = "0",
     // ---- 资金与风险（与营业纵览同源：赚了但没收到钱，一眼可见）----
@@ -1396,6 +1409,98 @@ data class ProfitReportDto(
     @SerialName("damage_qty") val damageQty: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
     //: 口径说明：凡「今天是 0」或「今天算不进」的地方都逐条写在这里（税、折旧、固定工资、未覆盖收入、货损）
+    @SerialName("notes") val notes: List<String> = emptyList(),
+)
+
+/**
+ * 折旧未覆盖的一台车（FEAT-0012 第二期）：这台车**算不出折旧** —— 缺了 [reasons] 里那几格。
+ *
+ * ⚠️ 与「算不出成本的收入」同一条原则：缺的事实**如实单列**，⛔ 不拿 0 顶替 ——
+ *    回一个 0，用户就会以为"这台车不花钱"。
+ */
+@Serializable
+data class ProfitDepreciationUncoveredDto(
+    @SerialName("vehicle_id") val vehicleId: Long = 0,
+    @SerialName("plate_no") val plateNo: String = "",
+    @SerialName("reasons") val reasons: List<String> = emptyList(),
+)
+
+/**
+ * 车辆成本表里的一行开销（按开销分类聚合；顺序由服务端定：金额降序）。
+ */
+@Serializable
+data class VehicleCostExpenseItemDto(
+    @SerialName("category") val category: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("amount") val amount: String = "0",
+)
+
+/**
+ * 车辆成本表的一台车（FEAT-0012 第二期）：这台车在这一段里**花了多少钱**。
+ *
+ * 三笔成本相加 = [totalCost]：车辆折旧 ＋ 这台车的开销 ＋ 挂靠司机的配送成本。
+ *
+ * ⚠️ 这张表**没有收入**：订单上没有「哪台车拉的」这个事实（硬摊就是编一个比例），
+ *    所以它只回答"哪台车在烧钱"，⛔ 不回答"哪台车在赚钱"。
+ * ⚠️ [monthlyDepreciation] 是**月额**（与窗口无关），给用户看"这车每月提多少"；
+ *    [depreciation] 才是这一段摊到的那一份。`null` = **算不出来**（缺台账那一格），
+ *    ⛔ 不是 0 —— 0 是「已经提足」（购置日期 + 使用年限已经过去了）。
+ * ⚠️ 四格与金额**全部走字符串**：后端是 `Decimal`，走 Double 会带出 `0.050000000000000002`，
+ *    而残值率要参与折旧乘法（与 [VehicleCreateRequest.attrs] 同一个理由）。
+ */
+@Serializable
+data class VehicleCostItemDto(
+    @SerialName("vehicle_id") val vehicleId: Long = 0,
+    @SerialName("plate_no") val plateNo: String = "",
+    @SerialName("is_active") val isActive: Boolean = true,
+    @SerialName("driver_id") val driverId: Long? = null,
+    @SerialName("driver_name") val driverName: String = "",
+    // ---- 折旧台账：缺格时 covered=false，reasons 逐条写明缺哪一项 ----
+    @SerialName("depreciation_covered") val depreciationCovered: Boolean = false,
+    @SerialName("depreciation_uncovered_reasons") val depreciationUncoveredReasons: List<String> = emptyList(),
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("purchase_price") val purchasePrice: String? = null,
+    @SerialName("purchase_date") val purchaseDate: String? = null,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("useful_life_years")
+    val usefulLifeYears: String? = null,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("residual_rate") val residualRate: String? = null,
+    /** 实际参与计提的残值率（留空 = 0%）。 */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("residual_rate_effective")
+    val residualRateEffective: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("monthly_depreciation")
+    val monthlyDepreciation: String? = null,
+    // ---- 三笔成本 ----
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("depreciation") val depreciation: String = "0",
+    @SerialName("expenses") val expenses: List<VehicleCostExpenseItemDto> = emptyList(),
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("expense_total") val expenseTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("delivery_cost") val deliveryCost: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("total_cost") val totalCost: String = "0",
+)
+
+/**
+ * 车辆成本表（FEAT-0012 第二期）：每一台车在这一段里的成本，按车排开 —— 回答"哪台车在烧钱"。
+ *
+ * 窗口口径与其它报表**完全一致**（页面级的那一段：`ReportFinance`）。两条恒等式：
+ * `totalCost == depreciationTotal + expenseTotal + deliveryCostTotal`，
+ * 且合计 == Σ 逐车（服务端保证，客户端一个数都不许再算一遍）。
+ *
+ * ⚠️ [notes] 必须**原样常显**：口径（只算成本不拆收入 / 挂车开销与利润表期间费用的关系 /
+ *    换过司机的配送成本算在当时那位司机头上 / 折旧未覆盖 / 折旧不是现金支出）全在里面。
+ */
+@Serializable
+data class VehicleCostReportDto(
+    @SerialName("period_label") val periodLabel: String = "",
+    @SerialName("date_from") val dateFrom: String = "",
+    @SerialName("date_to") val dateTo: String = "",
+    @SerialName("vehicle_count") val vehicleCount: Int = 0,
+    @SerialName("covered_count") val coveredCount: Int = 0,
+    @SerialName("uncovered_count") val uncoveredCount: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("depreciation_total") val depreciationTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("depreciation_monthly_total")
+    val depreciationMonthlyTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("expense_total") val expenseTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("delivery_cost_total")
+    val deliveryCostTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("total_cost") val totalCost: String = "0",
+    @SerialName("per_vehicle") val perVehicle: List<VehicleCostItemDto> = emptyList(),
     @SerialName("notes") val notes: List<String> = emptyList(),
 )
 
@@ -2202,6 +2307,26 @@ data class VehicleCreateRequest(
      * 没填的项**不要放进这个 map**（后端把空串与 null 都当成"没填"，但少传一个键更清楚）。
      */
     val attrs: Map<String, String>? = null,
+    // ===== 折旧台账四格（FEAT-0012 第二期，`018_vehicle_depreciation`）=====
+    /**
+     * 购置价（元）—— 折旧的计提基数。
+     *
+     * ⚠️ **传字符串**（同 [attrs] 的理由）：后端是 `Decimal`，走 Double 会带出
+     *    `120000.00000000001` 这种尾差，而它要拿去乘除算折旧。
+     * ⚠️ 校验**不在这里**：越界（≤ 0 / 超过两位小数 / 不是数字）由后端
+     *    `services/vehicle_depreciation.clean_fields` 判，回的是一句能照着改的中文（400）。
+     *    没录 = 不传（或传空串）。
+     */
+    @SerialName("purchase_price") val purchasePrice: String? = null,
+    /** 购置日期（`2025-09-16`）—— 折旧的计提起点（不能晚于今天）。 */
+    @SerialName("purchase_date") val purchaseDate: String? = null,
+    /** 使用年限（年，0.5–30、最多一位小数：`5` / `4.5`）。 */
+    @SerialName("useful_life_years") val usefulLifeYears: String? = null,
+    /**
+     * 残值率（`0.05` = 5%，0–50%、最多四位小数）。
+     * ⚠️ **留空 = 0%** —— 四格里唯一「留空有意义」的一格（界面上必须这么写）。
+     */
+    @SerialName("residual_rate") val residualRate: String? = null,
 )
 
 /**
@@ -2229,6 +2354,19 @@ data class VehicleUpdateRequest(
     val category: String? = null,
     /** 车辆属性（**整份替换**，见类注释第 3 条；空 map = 全部清空）。 */
     val attrs: Map<String, String>? = null,
+    // ===== 折旧台账四格（FEAT-0012 第二期）=====
+    //: ⚠️ 这四格与 [attrs] 的「整份替换」**相反**：没传 = 不改；**传空串 = 清空这一格**
+    //:（安卓 `explicitNulls = false` 发不出显式 null，清空只能靠空串表达）。
+    /** 购置价（元，字符串）。没传 = 不改；空串 = 清空。 */
+    @SerialName("purchase_price") val purchasePrice: String? = null,
+    /** 购置日期（`2025-09-16`）。没传 = 不改；空串 = 清空。 */
+    @SerialName("purchase_date") val purchaseDate: String? = null,
+    /** 使用年限（年）。没传 = 不改；空串 = 清空。 */
+    @SerialName("useful_life_years") val usefulLifeYears: String? = null,
+    /**
+     * 残值率（`0.05` = 5%）。没传 = 不改；**空串 = 清空**（清空之后按 0% 计提，不是"未覆盖"）。
+     */
+    @SerialName("residual_rate") val residualRate: String? = null,
 )
 
 /**
@@ -2270,6 +2408,22 @@ data class VehicleDto(
      * ⛔ 没量过的项**不出现**（不是 0）：回一个 0，界面上就会画出一个"系统说是 0"的数。
      */
     val attrs: Map<String, String> = emptyMap(),
+    // ===== 折旧台账四格与它算出来的数（FEAT-0012 第二期）=====
+    //: ⚠️ 四格全部是**字符串**（后端 `Decimal` / `date`，pydantic 把它们序列化成 JSON 字符串）——
+    //: 当 Double 接会在真机上直接解析失败。
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("purchase_price") val purchasePrice: String? = null,
+    @SerialName("purchase_date") val purchaseDate: String? = null,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("useful_life_years") val usefulLifeYears: String? = null,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("residual_rate") val residualRate: String? = null,
+    /** 四格齐了才算得出折旧；缺格时 [depreciationMissing] 逐条写明缺哪一项。 */
+    @SerialName("depreciation_covered") val depreciationCovered: Boolean = false,
+    @SerialName("depreciation_missing") val depreciationMissing: List<String> = emptyList(),
+    /**
+     * 月折旧额（元）。`null` = **算不出来**（缺格），⛔ 不是 0 ——
+     * 0 是「已经提足」（购置日期 + 使用年限已经过去了）。
+     */
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("depreciation_monthly")
+    val depreciationMonthly: String? = null,
 )
 
 // ===== 计费规则「按分类定价」的一行（2026-09-21）=====

@@ -1277,6 +1277,21 @@ interface ReportApi {
         @Query("date_to") dateTo: String? = null,
     ): ProfitReportDto
 
+    /**
+     * 车辆成本表（FEAT-0012 第二期）：每一台车在这一段里**花了多少钱** —— 回答"哪台车在烧钱"。
+     *
+     * 窗口口径与 [turnover]/[products]/[profit] **完全一致**（同一段区间，后端 `_span` 一处判）。
+     * ⛔ 这张表**没有收入**：订单上没有「哪台车拉的」这个事实（硬摊就是编一个比例），
+     *    所以它只算成本。三笔成本相加 = 成本合计，全在后端算完。
+     */
+    @GET("reports/vehicle-cost")
+    suspend fun vehicleCost(
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): VehicleCostReportDto
+
     @GET("stats/driver-performance")
     suspend fun driverPerformance(
         @Query("date_from") dateFrom: String,

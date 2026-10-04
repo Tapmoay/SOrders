@@ -204,13 +204,19 @@ object AiReadCatalog {
             ReadParam("date_from", "date", false, emptyList(), false),
             ReadParam("date_to", "date", false, emptyList(), false),
         )),
-        ReadAction("reports.profit_report", "经营利润表（这一段赚了多少：营业额 − 商品成本 − 配送成本(司机应得) − 期间费用 = 营业利润；税金与折旧今天没有数据源、如实记 0，口径说明里逐条写了；算不出成本的收入单列、不参与毛利）", "/api/v1/reports/profit", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
+        ReadAction("reports.profit_report", "经营利润表（这一段赚了多少：营业额 − 商品成本 − 配送成本(司机应得) − 期间费用 − 车辆折旧 = 营业利润；2026-10-04 起折旧有数据源了 —— 没录全购置信息的车仍单列在「折旧未覆盖」里、不进这一格，税金仍如实记 0；算不出成本的收入单列、不参与毛利）", "/api/v1/reports/profit", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("mode", "str", false, emptyList(), false),
             ReadParam("date", "date", true, emptyList(), false),
             ReadParam("date_from", "date", false, emptyList(), false),
             ReadParam("date_to", "date", false, emptyList(), false),
         )),
         ReadAction("reports.turnover_report", "营业报表（营业额/成本/毛利，按日期范围）", "/api/v1/reports/turnover", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
+            ReadParam("mode", "str", false, emptyList(), false),
+            ReadParam("date", "date", true, emptyList(), false),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
+        )),
+        ReadAction("reports.vehicle_cost_report", "车辆成本表（这一段每台车的三笔成本：车辆折旧 + 车辆开销(燃油/维修/保险…) + 挂靠司机配送成本 = 车辆成本合计；⛔ 这张表没有收入，逐台车只有成本；折旧按自然月摊到这一段的每一天，没录全购置信息的车单列在「折旧未覆盖」里、折旧记 0）", "/api/v1/reports/vehicle-cost", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("mode", "str", false, emptyList(), false),
             ReadParam("date", "date", true, emptyList(), false),
             ReadParam("date_from", "date", false, emptyList(), false),

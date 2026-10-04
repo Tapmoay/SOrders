@@ -101,6 +101,15 @@ class ProfitExpenseItem(BaseModel):
     amount: Decimal = Decimal("0")
 
 
+class ProfitDepreciationUncovered(BaseModel):
+    """一台**算不出折旧**的车（缺购置信息）：单列，⛔ 不拿 0 或平均值替它猜。"""
+
+    vehicle_id: int = 0
+    plate_no: str = ""
+    #: 缺哪几格（「没录购置价」/「没录购置日期」/「没录使用年限」），顺序固定
+    reasons: list[str] = []
+
+
 class ProfitReportOut(BaseModel):
     """经营利润表：一个窗口里「这月赚了多少」的完整链条。**只汇合，不新增事实。**
 
@@ -110,7 +119,8 @@ class ProfitReportOut(BaseModel):
        ① revenue_total == 营业纵览的 total_amount（同一 span）
        ② revenue_covered + revenue_uncovered == revenue_total
        ③ gross_profit == revenue_covered − cost_total（毛利两侧同一批行）
-       ④ operating_profit == gross_profit − delivery_cost − operating_expense_total − tax_total
+       ④ operating_profit == gross_profit − delivery_cost − operating_expense_total
+          − depreciation_total − tax_total
        ⑤ delivery_cost == 营业纵览的 total_freight（司机应得，同一 span）
        ⑥ Σ operating_expenses[].amount == 区间内 expenses 合计
     """
@@ -138,9 +148,20 @@ class ProfitReportOut(BaseModel):
     operating_expense_total: Decimal = Decimal("0")
     #: 区间内的开销（按分类），**已含货损开销** —— ⛔ 不要再单独扣一次 damage_amount
     operating_expenses: list[ProfitExpenseItem] = []
+    #: 车辆折旧：Σ 有购置信息的车在窗口内摊到的折旧（唯一实现 `services/vehicle_depreciation.py`）。
+    #  ⛔ 缺购置信息的车**不算进来**（它们的折旧是「算不出来」而不是 0），单列在下面。
+    depreciation_total: Decimal = Decimal("0")
+    #: 算得出折旧的那些车的**月折旧合计**（页面上写「N 台车 · 每月 ¥X」用；⛔ 不是窗口金额）
+    depreciation_monthly_total: Decimal = Decimal("0")
+    #: 算得出折旧的车数
+    depreciation_vehicle_count: int = 0
+    #: 缺购置信息、折旧没进上面那一格的车数（>0 时界面必须把名单摆出来）
+    depreciation_uncovered_count: int = 0
+    #: 未覆盖的车（车牌 + 缺哪几格）—— 明细 = 合计那一条只对**覆盖到的**车成立
+    depreciation_uncovered: list[ProfitDepreciationUncovered] = []
     #: 税金及附加：**今天恒为 0**（系统没有税账）—— 如实报 0，⛔ 不许编一个税率
     tax_total: Decimal = Decimal("0")
-    #: 营业利润 = 商品毛利 − 配送成本 − 期间费用 − 税金及附加
+    #: 营业利润 = 商品毛利 − 配送成本 − 期间费用 − 车辆折旧 − 税金及附加
     operating_profit: Decimal = Decimal("0")
     # ---- 资金与风险（与营业纵览同源，摆在利润旁边是为了"赚了但没收到钱"一眼可见 ----
     collected: Decimal = Decimal("0")
@@ -148,5 +169,68 @@ class ProfitReportOut(BaseModel):
     cancelled_orders: int = 0
     damage_qty: int = 0
     damage_amount: Decimal = Decimal("0")
-    #: 口径说明：凡「今天是 0」或「今天算不进」的地方都逐条写在这里（税、折旧、固定工资、未覆盖收入、货损）
+    #: 口径说明：凡「今天是 0」或「今天算不进」的地方都逐条写在这里（税、车辆折旧、固定工资、未覆盖收入、货损）
+    notes: list[str] = []
+
+
+class VehicleCostItem(BaseModel):
+    """一台车在窗口里的三笔成本（折旧 / 这台车的开销 / 挂靠司机的配送成本）。
+
+    ⛔ 没有收入：订单上只有司机、没有「这一台是哪台车拉的」这个事实，
+       按台数或按比例摊出来的收入会被拿去决定这车留不留（摊错了比不摊更糟）。
+    """
+
+    vehicle_id: int = 0
+    plate_no: str = ""
+    is_active: bool = True
+    driver_id: int | None = None
+    driver_name: str = ""
+    #: 折旧**算不算得出来**（缺购置价 / 购置日期 / 使用年限的车算不出来，不是 0）
+    depreciation_covered: bool = False
+    depreciation_uncovered_reasons: list[str] = []
+    purchase_price: Decimal | None = None
+    purchase_date: date | None = None
+    useful_life_years: Decimal | None = None
+    #: 台账里那一格的原值（留空 = None）；真正参与计提的是下面那一格
+    residual_rate: Decimal | None = None
+    #: 实际参与计提的残值率（台账留空 = 0）
+    residual_rate_effective: Decimal = Decimal("0")
+    #: 月折旧额；**算不出来是 None，不是 0**（0 是「已经提足」）
+    monthly_depreciation: Decimal | None = None
+    #: 这个窗口里摊到的折旧
+    depreciation: Decimal = Decimal("0")
+    #: 这台车的开销（按分类，金额降序）—— 与 `ProfitExpenseItem` 同一个形状
+    expenses: list[ProfitExpenseItem] = []
+    expense_total: Decimal = Decimal("0")
+    #: 挂在这台车上的司机在窗口内的按单应付合计（工资制司机不按单拿钱，所以他们名下是 0）
+    delivery_cost: Decimal = Decimal("0")
+    #: = depreciation + expense_total + delivery_cost
+    total_cost: Decimal = Decimal("0")
+
+
+class VehicleCostReportOut(BaseModel):
+    """车辆成本表：每台车在三笔成本上各花了多少。**只算成本，收入不按车拆。**
+
+    恒等式由 `services/reports/vehicle_cost_query.py::build_vehicle_cost` **构造上**保证：
+
+        total_cost == depreciation + expense_total + delivery_cost（逐车）
+        total_cost == Σ per_vehicle[].total_cost（合计 = 逐车相加）
+    """
+
+    period_label: str
+    date_from: str = ""
+    date_to: str = ""
+    vehicle_count: int = 0
+    #: 折旧算得出来的车数
+    covered_count: int = 0
+    #: 缺购置信息、折旧没进上面那一格的车数（>0 时界面必须把名单摆出来）
+    uncovered_count: int = 0
+    depreciation_total: Decimal = Decimal("0")
+    #: 算得出折旧的那些车的月折旧合计（⛔ 不是窗口金额）
+    depreciation_monthly_total: Decimal = Decimal("0")
+    expense_total: Decimal = Decimal("0")
+    delivery_cost_total: Decimal = Decimal("0")
+    total_cost: Decimal = Decimal("0")
+    per_vehicle: list[VehicleCostItem] = []
+    #: 口径说明（为什么只算成本、哪笔开销进不来、换司机怎么算、折旧未覆盖、折旧不是现金）
     notes: list[str] = []

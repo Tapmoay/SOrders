@@ -1458,6 +1458,30 @@ def _bootstrap_impl(engine: Engine) -> None:
                 except DBAPIError as e:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise
+    # ---------- 车辆折旧四列（2026-10-04 FEAT-0012 第二期） ----------
+    #
+    # 老板第 1 问「这月赚了多少」一直少的那一块：**车自己每个月也在花钱**。
+    # 有这四列，系统才能按直线法按月计提（`services/vehicle_depreciation.py`）；
+    # ⛔ 折旧额**不进库**，这四列只是**输入** —— 改口径不需要回填任何历史行。
+    # ⚠️ 四列全部可空、NULL = 「没录」：老车不回填，缺任何一格 ⇒ 该车「折旧未覆盖」，单列不猜。
+    # ⚠️ 正式搬迁是 `migrations/018_vehicle_depreciation.py`，这一段只是自愈副本。
+    if "vehicles" in insp.get_table_names():
+        vcols = {c["name"] for c in insp.get_columns("vehicles")}
+        for _col, _ddl in (
+            ("purchase_price", "ALTER TABLE vehicles ADD COLUMN purchase_price DECIMAL(12,2) NULL"),
+            ("purchase_date", "ALTER TABLE vehicles ADD COLUMN purchase_date DATE NULL"),
+            ("useful_life_years", "ALTER TABLE vehicles ADD COLUMN useful_life_years DECIMAL(4,1) NULL"),
+            ("residual_rate", "ALTER TABLE vehicles ADD COLUMN residual_rate DECIMAL(5,4) NULL"),
+        ):
+            if _col in vcols:
+                continue
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text(_ddl))
+                    logger.warning("vehicles.%s 已补列（默认 NULL：老车没录过购置信息）", _col)
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
 
     # ---------- 成本价时间轴回填（2026-09-19 用户要求） ----------
     #

@@ -147,8 +147,11 @@ def main() -> int:
 
     want("vehicle_attrs" in api_src, "API 层用了 services/vehicle_attrs（唯一真源）",
          "⛔ api/v1/vehicles.py 没有引用 services/vehicle_attrs —— 判据散了吗？")
+    # ⚠️ 基类认「BaseModel 或 MoneyInput」两者之一：FEAT-0012 让 VehicleCreate / VehicleUpdate 继承
+    #    `MoneyInput`（购置价要有上界 —— `_audit_money_fields.py` 只认「继承 MoneyInput」或「字段带 le=」）。
+    #    本判据要守的是**字段声明** `attrs:` 还在，不是它们恰好继承 `BaseModel`。
     for name in ("VehicleCreate", "VehicleUpdate", "VehicleOut"):
-        m = re.search(rf"class {name}\(BaseModel\):[\s\S]*?\n(?=class |\Z)", schema_src)
+        m = re.search(rf"class {name}\((?:BaseModel|MoneyInput)\):[\s\S]*?\n(?=class |\Z)", schema_src)
         body = m.group(0) if m else ""
         # ⚠️ 必须锚在**字段声明**上：搜子串的话，把 `attrs` 改名成 `attrs_removed` 也算"有"
         #    （反向验证第 16 条实测抓到过这个洞）。

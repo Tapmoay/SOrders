@@ -291,7 +291,11 @@ class CashFlowOut(BaseModel):
 #     决定**这辆车能填哪些属性**。
 # 判据（哪些型式能填哪些项、每项叫什么、范围多少）的**唯一实现**在 `services/vehicle_attrs.py`，
 # 这里只声明出入参形状。
-class VehicleCreate(BaseModel):
+class VehicleCreate(MoneyInput):
+    #: ⚠️ 继承 `MoneyInput`（2026-10-04 FEAT-0012）：`purchase_price` 命中 `money.MONEY_RE`，
+    #: 平台上限（`MONEY_MAX` = 9,999,999,999.99 = `Numeric(12,2)` 能存下的最大）由它一处给 ——
+    #: 与下面「折旧台账四格」那条纪律**不冲突**：这里管的是"能不能存进数据库"（`money.py` 是唯一判据），
+    #: 业务区间（> 0、最多两位小数）仍只在 `services/vehicle_depreciation.clean_fields`（中文 400）。
     plate_no: str = Field(..., min_length=1, max_length=16)
     vehicle_type: str = Field("", max_length=16)
     #: 分组用的分类（空串 = 未分类，2026-10-05）。⛔ 与 `vehicle_type`（计费口径）、
@@ -309,8 +313,28 @@ class VehicleCreate(BaseModel):
     #:    而用户需要的是一句能照着改的话（与司机计费规则 `validate_rule_params` 同一条纪律）。
     attrs: dict[str, Any] | None = None
 
+    #: ── 折旧台账四格（FEAT-0012 第二期，2026-10-04）──────────────────────────────
+    #: ⛔ 校验**不在这里**：越界要回一句**中文**、用户能照着改的话，而 `Field` 约束会变成
+    #: 422 ＋ 英文结构体（与上面 `attrs` 同一条纪律）。规则与话术的唯一实现在
+    #: `services/vehicle_depreciation.clean_fields`，接口层把它的 `ValueError` 原样转成 400。
+    #: ⚠️ 空串 = 没录（安卓发得出空串，发不出显式 null）。四个数缺任何一个 ⇒ 这辆车折旧「未覆盖」。
+    purchase_price: Decimal | None = None  # 购置价（元，折旧的计提基数）
+    purchase_date: date | None = None  # 购置日期（计提起点；不许晚于今天）
+    useful_life_years: Decimal | None = None  # 使用年限（年，0.5–30，一位小数）
+    residual_rate: Decimal | None = None  # 残值率（0–0.5；**留空 = 0%**）
 
-class VehicleUpdate(BaseModel):
+    @field_validator("purchase_price", "purchase_date", "useful_life_years", "residual_rate", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:
+        """空串 = 没录（安卓 `explicitNulls = false` 发不出显式 null，清空只能靠空串表达）。"""
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+
+class VehicleUpdate(MoneyInput):
+    #: ⚠️ 同上（FEAT-0012）：`purchase_price` 的平台上限由 `MoneyInput` 一处给；
+    #: 业务区间与中文话术仍只在 `services/vehicle_depreciation.clean_fields`。
     """改车辆：**只传要改的键**，没传的后端不动。
 
     ⚠️ **两个键各有一套"没传 vs 传空"的语义**，都必须说清：
@@ -334,6 +358,23 @@ class VehicleUpdate(BaseModel):
     #: 车辆属性。**没传** = 不改；**传了就是整份替换**（没写进去的属性会被清空）——
     #: 见类注释里那一段。
     attrs: dict[str, Any] | None = None
+
+    #: ── 折旧台账四格（FEAT-0012 第二期，2026-10-04）──────────────────────────────
+    #: **没传** = 不改；**传了空串** = 清空这一格（`model_fields_set` 判"传没传"，空串归一成 None）。
+    #: ⚠️ 与 `attrs` 的"整份替换"不同：这四格是**一格一格**的，清空一格不影响其它三格。
+    #: 校验与中文话术的唯一实现在 `services/vehicle_depreciation.clean_fields`（越界 → 400）。
+    purchase_price: Decimal | None = None  # 购置价（元）
+    purchase_date: date | None = None  # 购置日期
+    useful_life_years: Decimal | None = None  # 使用年限（年）
+    residual_rate: Decimal | None = None  # 残值率（0–0.5）
+
+    @field_validator("purchase_price", "purchase_date", "useful_life_years", "residual_rate", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:
+        """空串 = 没录（安卓 `explicitNulls = false` 发不出显式 null，清空只能靠空串表达）。"""
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
 
 class VehicleDriverSet(BaseModel):
@@ -367,3 +408,19 @@ class VehicleOut(BaseModel):
     #:    的换算，浮点会让 8 变成 7.999999999999999；客户端用 BigDecimal 接
     #:    （与 `UnitConversionDto.factor` 同一个做法）。
     attrs: dict[str, str] = Field(default_factory=dict)
+
+    #: ── 折旧台账四格原值 ＋ 算不算得出来（FEAT-0012 第二期，2026-10-04）────────────
+    #: ⚠️ 原值与"算不算得出来"是两件事：原值 `None` = 没录；`depreciation_covered=False` = 缺格。
+    #: 下面两格由 `api/v1/vehicles._out()` 用 `services/vehicle_depreciation` **现算**，
+    #: ⛔ 库里没有这几列（折旧永不落库）。
+    purchase_price: Decimal | None = None
+    purchase_date: date | None = None
+    useful_life_years: Decimal | None = None
+    residual_rate: Decimal | None = None
+    #: 这台车的折旧**算不算得出来**（购置价 / 购置日期 / 使用年限三个缺一个就是 False）。
+    depreciation_covered: bool = False
+    #: 缺的是哪几格（中文，逐项；空 = 都齐）。话术由 `vehicle_depreciation.missing_items` 给。
+    depreciation_missing: list[str] = Field(default_factory=list)
+    #: 每月折旧额（元，两位小数）。⛔ 算不出来时是 `null`，**不是 0** ——
+    #: 「0」是"已经提足"，「null」是"算不出来"，报表上这是两件事。
+    depreciation_monthly: Decimal | None = None

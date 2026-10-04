@@ -21,8 +21,10 @@
     配送成本         turnover.total_freight       ← driver_pay.pay_for_order（⛔ 不是 orders.freight_fee）
     期间费用         expenses 按 exp_date 落窗口、按分类聚合（**已含货损开销**，⛔ 不再扣 damage_amount）
     税金及附加       **今天恒为 0**（系统还没有税账）—— 如实报 0，原因写进 notes
+    车辆折旧         Σ 各车在窗口内按自然月摊到的折旧 ← `services/vehicle_depreciation.py`（唯一实现）
 
 ⛔ 没有成本数据的那部分收入**单列**（`revenue_uncovered`），既不按 0 成本、也不按平均成本替它猜。
+⛔ 没有购置信息的车同样**单列**（`depreciation_uncovered`），它们的折旧是「算不出来」而不是 0。
 
 本包只允许 SELECT / JOIN / GROUP BY —— 判据 `_tools/qa/_check_report_boundary.py` 在 AST 层面盯着。
 """
@@ -37,6 +39,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.expense import Expense
+from app.models.vehicle import Vehicle
+from app.services import vehicle_depreciation as vdep
 from app.services.reports.turnover_query import build_turnover
 
 _ZERO = Decimal("0")
@@ -46,8 +50,10 @@ _ZERO = Decimal("0")
 _NOTES: tuple[str, ...] = (
     "税金及附加记 0：系统还没有税账（没有发票登记表，也没有任何一处写过税费流水）。"
     "这不是「不用交税」，是「还没有记」—— 记了之后这一格才会动。",
-    "折旧没有算进去：车辆台账里没有购置价与折旧字段，也没有月度计提。"
-    "所以这张表的营业利润偏高（少了折旧那一块），第二期补车辆台账时接进来。",
+    "车辆折旧已经算进来了（第二期落地）：月折旧额 = 购置价 ×（1 − 残值率）÷（使用年限 × 12），"
+    "从购置日期起、按每个自然月的天数摊到这个窗口里（提足之后就是 0，不是没算）。"
+    "没录购置价 / 购置日期 / 使用年限的车算不出折旧，它们的折旧没进这一格（营业利润偏高），"
+    "单列在「折旧未覆盖」那一行里 —— 把缺的那一格补上，这一格就会跟着变。",
     "固定工资制司机的工资不在配送成本里：工资走月度工资单、不按单产生应付，"
     "而这里的配送成本 = Σ 司机应得的按单金额。所以营业利润偏高。",
     "没有成本数据的那部分收入不进商品毛利（单列在 revenue_uncovered）："
@@ -82,13 +88,19 @@ def build_profit(db: Session, mode: str, anchor: date, *, span: tuple[date, date
     expenses.sort(key=lambda r: (-r["amount"], r["category"]))
     expense_total = sum((r["amount"] for r in expenses), _ZERO)
 
+    # 车辆折旧：窗口与上面四块**同一个**（起止就是 turnover 的窗口），唯一实现在
+    # `services/vehicle_depreciation.py` —— 这里只做两件事：读一次车辆表、把合计搬进来。
+    # ⛔ 缺购置信息的车**不进**这一格（它们的折旧是「算不出来」而不是 0），单列在下面。
+    dep = vdep.summarize(db.scalars(select(Vehicle)).all(), start, end)
+    depreciation_total = Decimal(str(dep["total"]))
+
     revenue_total = turnover["total_amount"]
     revenue_covered = turnover["cost_covered_amount"]
     cost_total = turnover["cost_total"]
     delivery_cost = turnover["total_freight"]
     gross_profit = revenue_covered - cost_total
     tax_total = _ZERO
-    operating_profit = gross_profit - delivery_cost - expense_total - tax_total
+    operating_profit = gross_profit - delivery_cost - expense_total - depreciation_total - tax_total
 
     return {
         "period_label": turnover["period_label"],
@@ -104,6 +116,11 @@ def build_profit(db: Session, mode: str, anchor: date, *, span: tuple[date, date
         "delivery_cost": delivery_cost,
         "operating_expense_total": expense_total,
         "operating_expenses": expenses,
+        "depreciation_total": depreciation_total,
+        "depreciation_monthly_total": Decimal(str(dep["monthly_total"])),
+        "depreciation_vehicle_count": int(dep["covered_count"]),
+        "depreciation_uncovered_count": int(dep["uncovered_count"]),
+        "depreciation_uncovered": list(dep["uncovered"]),
         "tax_total": tax_total,
         "operating_profit": operating_profit,
         "collected": turnover["collected"],

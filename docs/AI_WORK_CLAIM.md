@@ -30,6 +30,30 @@
 ---
 
 ## 进行中
+### [2026-10-04 11:3x UTC+8 进行中] 会话：**FEAT-0012 车辆台账与折旧：把「这台车每个月自己在花钱」补进利润表，并按车算清一台车的成本**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话（2026-10-04，五期计划总纲）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
+然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行分析。」
+
+**本期口径（需求方 2026-10-04 拍板三条，问的是折旧）**：
+① 折旧怎么算 → **录「购置价 ＋ 购置日期 ＋ 使用年限 ＋ 残值率」，系统按月直线法自动计提**（填不全的车按「折旧未覆盖」单列，不猜）；
+② 折旧放哪里 → **并入「期间费用」那一层**（利润表仍是六级，多一行「− 车辆折旧」）；
+③ 历史车怎么办 → **不回溯**（缺购置价的车不算折旧，利润表单列「未覆盖折旧」并说明）。
+
+**身份**：`docs/changes/FEAT-0012.md`（第二期；五期计划 ① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 → ③ 采购与进货价闭环 → ④ 税账 → ⑤ 应收账龄与客户信用）。
+**Blast Radius**：L3（钱：接入折旧后「营业利润」这一格对**所有窗口**都会变，含回看的历史月份 —— 补的是「一直存在的事实」，⛔ 订单 / 账本 / 流水一行不写）。
+
+**文件清单（认领时拟定，实现后按 `git status` 逐条核对）**：
+- 后端：`backend/app/models/vehicle.py`（＋4 可空列）、`backend/app/migrations/018_vehicle_depreciation.py`（新）、
+  `backend/app/services/vehicle_depreciation.py`（新，直线法唯一实现）、`backend/app/services/reports/vehicle_cost_query.py`（新）、
+  `backend/app/services/reports/profit_query.py`（接入折旧）、`backend/app/services/reports/loader.py`、
+  `backend/app/schemas/reports.py`、`backend/app/api/v1/reports.py`、`backend/tests/test_vehicle_depreciation.py`（新）。
+- Android：`ui/dispatcher/VehicleManageScreen.kt`（四格输入）、`ui/dispatcher/ReportCenter.kt`（折旧行 ＋ 未覆盖卡 ＋ 车辆成本页）、
+  `ui/dispatcher/ReportHome.kt`（第 8 格）、`data/remote/dto/Dtos.kt`、`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`。
+- 判据：`_tools/qa/_check_vehicle_depreciation.py`（新）、`_tools/qa/_reverse_verify_vehicle_depreciation.py`（新）、
+  `_tools/qa/_check_profit_report.py` 与 `_tools/qa/_reverse_verify_profit_report.py`（同步折旧项：恒等式 ＋ notes 文本锚点）。
+
+**落点与提交**：⏳（关闭时回填实测数字与提交号）
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

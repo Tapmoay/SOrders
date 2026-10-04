@@ -257,10 +257,19 @@ def main() -> int:
     ok("turnover / products 两个端点都收 date_from/date_to",
        reports_py.count("date_from: date | None = Query(None") >= 3,
        "营业纵览 / 商品经营 / 导出 —— 少一个就会出现「页面按区间、那个端点按 mode」")
-    ok("两个 build_* 都收 `span` 并且**共用同一段聚合**",
-       reports_py.count("span: tuple[date, date] | None = None") >= 2
-       and reports_py.count("span if span else _window(mode, anchor)") == 2,
-       "（`load_delivered` 也收 span，所以这里用 >= 2；真正要守的是那两个 build_* 的共用写法）")
+    # ⚠️ 2026-10-04（FEAT-0012 第二期）：这条原来钉死"两个 build_*"，现在有四个
+    #    （turnover / products / profit / vehicle-cost）。按**原意**改成"每个 build_* 的窗口
+    #    只有这一个来源"：要么自己从 span 算，要么复用上游 builder 返回的 `_window`
+    #    （`build_profit` 就是后者 —— 它只用 `build_turnover` 的 `_window`，不自己算）。
+    #    它守的东西没变：窗口一旦在某处被重算，就会与别的报表错开一格，而且没有任何报错。
+    _span_param = "span: tuple[date, date]"
+    _window_from_span = "span if span else _window(mode, anchor)"
+    _builders_with_span = re.findall(r"def build_\w+\([^)]*" + re.escape(_span_param), reports_py, re.S)
+    ok("每个 build_* 的窗口只有这一个来源（自己从 span 算，或复用上游的 `_window`）",
+       len(_builders_with_span) >= 3
+       and reports_py.count(_window_from_span) == len(_builders_with_span) - 1,
+       "（`load_delivered` 只是取数、不收窗口语义，所以只数 `build_*`；"
+       "`build_profit` 复用 `build_turnover` 的 `_window` —— 于是减一）")
     ok("导出也走同一个 `_span(`（文件名与内容同一段）",
        re.search(r"s, e = _span\(mode, d, date_from, date_to\)", reports_py) is not None)
     ok("曲线的粒度由**窗口**决定（不再只看 mode）",

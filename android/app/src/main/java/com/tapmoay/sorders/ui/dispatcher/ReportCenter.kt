@@ -43,7 +43,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
-    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; else -> "异常与审计" }
+    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; 7 -> "车辆成本"; else -> "异常与审计" }
     // 时间药丸那两个弹层的开关：**只记这一个**（自定义区间那个开关由 `DateFilterDialogs` 自己持有）
     var showPresets by remember { mutableStateOf(false) }
 
@@ -111,6 +111,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                     3 -> CustomerTab(vm)
                     4 -> FinanceTab(vm)
                     6 -> ProfitTab(vm)
+                    7 -> VehicleCostTab(vm)
                     else -> FinanceTab(vm)
                 }
             }
@@ -1239,10 +1240,12 @@ private fun ExceptionCard(e: ExceptionOrderDto, onResolve: (() -> Unit)?) {
  *
  * ⚠️ 这四块钱**全在后端算**（`GET /reports/profit`），这一页一个减法都不做 ——
  *    毛利上栽过的那次（界面 72,177.75 vs 正确 10,789.00，差 6.7 倍）就是两边各算一遍造成的。
- * ⚠️ 口径说明（`notes`）必须**常显**、逐条原样画出来：那是「为什么税是 0、折旧还没算、
+ * ⚠️ 口径说明（`notes`）必须**常显**、逐条原样画出来：那是「为什么税是 0、折旧是怎么算进来的、
  *    固定工资在不在这里」的唯一出处。这些话藏进 Hint 就等于让用户把「营业利润」读成净利润。
  * ⚠️ 「算不出成本的收入」单列一张卡：它在营业额里，但**不进毛利** ——
  *    既不按 0 成本算，也不拿平均成本替它猜（猜出来的毛利比不报更坏）。
+ * ⚠️ 「折旧未覆盖的车」同样单列一张卡（FEAT-0012）：那几台车没录全购置信息、算不出折旧，
+ *    所以营业利润偏高 —— 与上一条同一条原则：不知道的如实说出来，⛔ 不拿 0 顶替。
  */
 @Composable
 private fun ProfitTab(vm: ReportCenterViewModel) {
@@ -1272,6 +1275,9 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                     StatRow("= 商品毛利", money(data.grossProfit), Color(0xFF00B578))
                     StatRow("− 配送成本(司机应得)", money(data.deliveryCost), Color(0xFFFF9500))
                     StatRow("− 期间费用", money(data.operatingExpenseTotal), Color(0xFFFF6B2C))
+                    // ⚠️ 折旧必须**单独一行**（FEAT-0012）：它已经真的从营业利润里减掉了，
+                    //    不画出来的话上面减完不等于下面那一格 —— 2026-10-04 真机实测栽过一次的形状。
+                    StatRow("− 车辆折旧", money(data.depreciationTotal), Color(0xFF8A8A8E))
                     StatRow("− 税金及附加", money(data.taxTotal), Color(0xFF8A8A8E))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     StatRow("= 营业利润", money(data.operatingProfit), opColor)
@@ -1287,6 +1293,31 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                         Text(
                             "这笔钱在营业额里，但那些行没有成本数据，所以不进毛利（既不按 0 成本算，" +
                                 "也不拿平均成本替它猜）。把进货价补录进去之后，它才会进毛利。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            if (data.depreciationUncoveredCount > 0) {
+                item {
+                    SectionCard {
+                        Text("折旧未覆盖的车", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "这 " + data.depreciationUncoveredCount.toString() + " 台车没录全购置信息，折旧算不出来，" +
+                                "所以没有进上面「− 车辆折旧」那一格（这些车的营业利润偏高）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        data.depreciationUncovered.forEach { u ->
+                            StatRow(u.plateNo, u.reasons.joinToString("、"), Color(0xFF8A8A8E))
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Hint(
+                            "在「车辆管理」里把这些车的购置价、购置日期、使用年限补上，折旧就会跟着算出来 —— " +
+                                "补上之后这一格与营业利润都会跟着变。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1334,6 +1365,118 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 第 8 页：车辆成本（FEAT-0012）—— 按车算清「这台车这一段花了多少」。
+ *
+ * ⚠️ 三笔成本（折旧 / 这台车的开销 / 挂靠司机的配送成本）与合计**全在后端算**
+ *    （`GET /reports/vehicle-cost`），这一页一个加减法都不做 —— 客户端与后端各算一遍，
+ *    就是毛利上栽过的那一次（界面 72,177.75 vs 正确 10,789.00，差 7.2 倍）的形状。
+ * ⚠️ 这一页**没有收入**：订单上不带车（只带司机），按车摊收入就是编一个比例，
+ *    而这个数会被拿去决定「这台车留不留」。所以只印成本，⛔ 不印毛利、不印利润率。
+ * ⚠️ 「折旧未覆盖」逐台写清缺哪一格：算不出来是「不知道」，不是 0（0 是已经提足）。
+ * ⚠️ 口径说明（`notes`）常显，理由同利润页：藏进 Hint 就等于让用户自己猜这几笔钱的口径。
+ */
+@Composable
+private fun VehicleCostTab(vm: ReportCenterViewModel) {
+    val data = vm.vehicleCost
+    if (vm.loading && data == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (data == null || data.perVehicle.isEmpty()) {
+            item { ChartEmpty("该时段暂无车辆成本数据") }
+        } else {
+            item {
+                StatBig("车辆成本合计", money(data.totalCost), Color(0xFFE53935))
+            }
+            item {
+                SectionCard {
+                    Text("这一段的三笔成本", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("车辆折旧", money(data.depreciationTotal), Color(0xFF8A8A8E))
+                    StatRow("车辆开销（燃油/维修/保险…）", money(data.expenseTotal), Color(0xFFFF6B2C))
+                    StatRow("挂靠司机配送成本", money(data.deliveryCostTotal), Color(0xFFFF9500))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    StatRow("= 成本合计", money(data.totalCost))
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "覆盖 " + data.coveredCount.toString() + " / " + data.vehicleCount.toString() + " 台车算得出折旧；" +
+                            "每月折旧合计 " + money(data.depreciationMonthlyTotal) + "（月额，与这一段窗口无关）。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (data.uncoveredCount > 0) {
+                item {
+                    SectionCard {
+                        Text("折旧未覆盖的车", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        data.perVehicle.filter { !it.depreciationCovered }.forEach { v ->
+                            // ⚠️ 2026-10-04 真机截图才发现：写成 StatRow(车牌, 原因) 时，原因那句有 19 个字，
+                            // 车牌只分到两三个字的宽度 ——「粤SEQ4705」被挤成竖着的三行。
+                            // 车牌与原因**各占一行**，谁也挤不到谁。
+                            Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                Text(v.plateNo, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    v.depreciationUncoveredReasons.joinToString("、"),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Hint(
+                            "这几台车没录全购置信息，折旧算不出来 —— 它们的折旧没进上面那一格（营业利润偏高）。" +
+                                "在「车辆管理」里补上缺的那一格，折旧就会跟着算出来。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            data.perVehicle.forEach { v ->
+                item {
+                    SectionCard {
+                        Text(v.plateNo + "（" + (if (v.isActive) "在用" else "停用") + "）", style = MaterialTheme.typography.titleMedium)
+                        StatRow("挂靠司机", v.driverName.ifEmpty { "未绑定" })
+                        if (v.depreciationCovered) {
+                            StatRow("每月折旧", money(v.monthlyDepreciation), Color(0xFF8A8A8E))
+                        }
+                        StatRow("车辆折旧（这一段）", money(v.depreciation), Color(0xFF8A8A8E))
+                        StatRow("这台车的开销", money(v.expenseTotal), Color(0xFFFF6B2C))
+                        StatRow("配送成本（司机应得）", money(v.deliveryCost), Color(0xFFFF9500))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        StatRow("= 成本合计", money(v.totalCost))
+                        v.expenses.forEach { e ->
+                            StatRow("· " + e.category, money(e.amount), Color(0xFF8A8A8E))
+                        }
+                        if (!v.depreciationCovered) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "折旧算不出来：" + v.depreciationUncoveredReasons.joinToString("、") + "。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                SectionCard {
+                    Text("口径说明（这几笔钱是怎么算的）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    data.notes.forEach { n ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(n, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }

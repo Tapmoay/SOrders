@@ -70,6 +70,7 @@ from app.api.v1.vehicle_categories import ensure_vehicle_category
 from app.services.operation_log_service import write_log
 from app.services import usage_service
 from app.services import vehicle_attrs as vattrs
+from app.services import vehicle_depreciation as vdep
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 
@@ -84,6 +85,11 @@ def _must_dispatcher(current: User) -> None:
 
 def _out(db: Session, v: Vehicle) -> VehicleOut:
     u = db.get(User, v.driver_id) if v.driver_id else None
+    # 折旧：**能不能算得出来**与**每月多少钱**都由 `services/vehicle_depreciation.py` 一处给
+    # （⛔ 接口层不许再写一份"缺哪格"的判断：两处判据迟早不一样，而这里判错的后果是
+    #  报表上少一笔钱、或者凭空多一笔）。月额一起给，是为了让用户在编辑抽屉里
+    #  当场看到"这一格填下去，每月会变成多少钱"。
+    missing = vdep.missing_items(v.purchase_price, v.purchase_date, v.useful_life_years)
     return VehicleOut(
         id=v.id, plate_no=v.plate_no, vehicle_type=v.vehicle_type,
         driver_id=v.driver_id, is_active=v.is_active,
@@ -94,6 +100,16 @@ def _out(db: Session, v: Vehicle) -> VehicleOut:
         category=v.category or "",
         body_label=vattrs.body_label(v.body_type),
         attrs=vattrs.attrs_of(v),
+        # 折旧台账四格原值 + 现算出来的"算不算得出来 / 每月多少"
+        purchase_price=v.purchase_price,
+        purchase_date=v.purchase_date,
+        useful_life_years=v.useful_life_years,
+        residual_rate=v.residual_rate,
+        depreciation_covered=not missing,
+        depreciation_missing=list(missing),
+        depreciation_monthly=vdep.monthly_depreciation(
+            v.purchase_price, v.useful_life_years, v.residual_rate
+        ),
     )
 
 
@@ -115,6 +131,26 @@ def _clean_attrs(body_type: str, raw: object) -> dict:
         return vattrs.parse_attrs(body_type, raw)  # type: ignore[arg-type]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+def _clean_depreciation(**raw: object) -> dict:
+    """校验折旧台账四格；不合法时把 `vehicle_depreciation` 那句中文**原样**转成 400。
+
+    ⛔ 与 [_clean_body] / [_clean_attrs] 同一条纪律：不在接口层兜默认值，也不让用户看到
+    pydantic 的英文结构体 —— 他需要的是一句能照着改的话（「残值率要在 0% 到 50% 之间」）。
+    ⛔ 四条规则（>0 / 不晚于今天 / 0.5–30 年 / 0–50%）的**唯一实现**在 services 里，
+    这里只负责把 `ValueError` 翻译成 HTTP。
+    """
+    try:
+        return vdep.clean_fields(**raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+def _apply_fields(v: Vehicle, fields: dict) -> None:
+    """把校验过的四格写到车上 —— ⛔ `setattr` 这四个字段**只有这一处**。"""
+    for key, value in fields.items():
+        setattr(v, key, value)
 
 
 def _attr_lines(body_type: str, before: dict[str, str], after: dict) -> list[str]:
@@ -265,6 +301,16 @@ def create_vehicle(body: VehicleCreate, current: CurrentUser, db: Session = Depe
     plate = _clean_plate(db, body.plate_no)
     body_type = _clean_body(body.body_type)
     values = _clean_attrs(body_type, body.attrs)
+    # 折旧台账四格：**先校验再建对象** —— 校验不过就不该产生一辆半截的车
+    # （与属性同一条路：规则与中文话术在 services，这里只落库与留痕）。
+    # ⚠️ 四格**都可以留空**（老车、临时借来的车照样要能登记）：缺格不是错误，
+    #    它只是让这辆车的折旧"未覆盖"，并在报表里单列说明 —— 见 FEAT-0012 ④。
+    fields = _clean_depreciation(
+        purchase_price=body.purchase_price,
+        purchase_date=body.purchase_date,
+        useful_life_years=body.useful_life_years,
+        residual_rate=body.residual_rate,
+    )
     v = Vehicle(
         plate_no=plate,
         vehicle_type=_clean_type(body.vehicle_type) or "",
@@ -273,6 +319,7 @@ def create_vehicle(body: VehicleCreate, current: CurrentUser, db: Session = Depe
         category=(body.category or "").strip()[:32],
     )
     vattrs.apply_attrs(v, values)
+    _apply_fields(v, fields)
     db.add(v)
     db.flush()
     # 分类是自由文本，名册只决定"左侧那一列有哪些格、按什么顺序"（见
@@ -284,6 +331,7 @@ def create_vehicle(body: VehicleCreate, current: CurrentUser, db: Session = Depe
     if body_type:
         lines.append(f"车身型式 {vattrs.body_label(body_type)}")
     lines.extend(_attr_lines(body_type, {}, values))
+    lines.extend(vdep.field_lines({}, fields))  # 建车时就填的台账四格，同样要能回查
     _log_upsert(db, current, v, "create", lines)
     db.commit()
     db.refresh(v)
@@ -341,6 +389,29 @@ def update_vehicle(vehicle_id: int, body: VehicleUpdate, current: CurrentUser, d
     changed.extend(_attr_lines(want_body, before_attrs, want_attrs))
     v.body_type = want_body
     vattrs.apply_attrs(v, want_attrs)
+
+    # ---------------- 折旧台账四格（一格一格，清空 = 传空串）----------------
+    #
+    # ⚠️ 与 `attrs` 的"整份替换"**不同**：这四格各自独立 —— 清空购置日期不该顺手把购置价
+    #    也抹掉（那是两件不同的事，用户只会以为自己改坏了）。所以判"要不要改"必须**逐格**
+    #    看 `model_fields_set`：`is not None` 分不出"没传这个键"（不动）与"传了空串"（清空），
+    #    这正是 `driver_id` 当年解绑不了司机的那个坑，同一个修法。
+    #
+    # ⚠️ 校验一律看"**改完之后**长什么样"：四格相互独立，但各自都要合法 ——
+    #    不能出现"购置价已经改了、购置日期校验失败"这种半截状态（校验在 setattr 之前）。
+    before_fields = vdep.fields_of(v)
+    after_fields = dict(before_fields)
+    touched = False
+    for key in vdep.FIELD_KEYS:
+        if key in body.model_fields_set:
+            after_fields[key] = getattr(body, key)
+            touched = True
+    if touched:
+        want_fields = _clean_depreciation(**after_fields)
+        # 只有**真的变了**才记（清空记 `→ （清空）`），与 `_attr_lines` 同一条纪律：
+        # 审计页上"改了但什么都没变"的记录会把真正的改动淹掉。
+        changed.extend(vdep.field_lines(before_fields, want_fields))
+        _apply_fields(v, want_fields)
 
     if changed:
         _log_upsert(db, current, v, "update", changed)

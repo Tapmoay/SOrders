@@ -18,7 +18,7 @@ class ReportCenterViewModel(
     initialTab: Int,
 ) : ViewModel() {
 
-    var tab by mutableStateOf(initialTab.coerceIn(0, 6))
+    var tab by mutableStateOf(initialTab.coerceIn(0, 7))
 
     /**
      * 时间**档位**（`DatePresets` 那一套：今天 / 昨天 / 前天 / 这周 / 上周 / 近 7 天 / 本月 / 上月 /
@@ -53,6 +53,9 @@ class ReportCenterViewModel(
 
     /** 经营利润表（FEAT-0011）——四块钱全在后端算好，这里只是接住它。 */
     var profit by mutableStateOf<ProfitReportDto?>(null)
+
+    /** 车辆成本表（FEAT-0012）——三笔成本（折旧 / 这台车的开销 / 挂靠司机的配送成本）全在后端算好。 */
+    var vehicleCost by mutableStateOf<VehicleCostReportDto?>(null)
     var drivers by mutableStateOf<DriverPerformanceDto?>(null)
     var exceptions by mutableStateOf<List<ExceptionOrderDto>>(emptyList())
     var operationLogs by mutableStateOf<List<OperationLogDto>>(emptyList())
@@ -229,7 +232,7 @@ class ReportCenterViewModel(
                         //    这里原来自己算了一遍（`month -> d.withDayOfMonth(1) to d`，即 1 号到**锚点当天**），
                         //    而标题与导出走整月。锚点选 8/15 时，页面按 8/1~8/15 取数（16 单）、
                         //    标题写"8 月"、导出给整月（34 单）—— 同一个页面两个数，用户对不上账。
-                        //    现在七个页签共用 `dateRange` 这一处。
+                        //    现在八个页签共用 `dateRange` 这一处。
                         val (from, to) = dateRange
                         drivers = container.repo.driverPerformance(from, to)
                     }
@@ -261,6 +264,12 @@ class ReportCenterViewModel(
                         val (f, t) = dateRange
                         profit = container.repo.profitReport(ReportFinance.LEGACY_MODE, f, f, t)
                     }
+                    7 -> {
+                        // 车辆成本（FEAT-0012）：同样共用 `dateRange` —— 这张表的窗口必须与利润表
+                        // **逐日一致**，否则同一屏上「折旧合计」与「− 车辆折旧」会是两个数。
+                        val (f, t) = dateRange
+                        vehicleCost = container.repo.vehicleCostReport(ReportFinance.LEGACY_MODE, f, f, t)
+                    }
                     else -> {
                         // 异常与审计
                         val today = LocalDate.now()
@@ -284,7 +293,7 @@ class ReportCenterViewModel(
      *
      * ⚠️ 页签→kind 的映射在 [ReportFinance] 里（纯函数 + 单测）—— 它**错过一次**：
      * 导出一张"名字对、内容错"的表（客户经营的文件里装着异常审计），导出还提示"成功"。
-     * ⚠️ 2026-09-22 起 `date_from/date_to` 对**七个 kind 全生效**（后端 `reports.py::_span` 一处判），
+     * ⚠️ 2026-09-22 起 `date_from/date_to` 对**八个 kind 全生效**（后端 `reports.py::_span` 一处判），
      *    所以这里不再按页签挑"要不要给区间" —— **给的就是页面上那一段**，
      *    否则"我看到的"和"我导出的"又会是两个区间（这类错页面上看不出来）。
      */

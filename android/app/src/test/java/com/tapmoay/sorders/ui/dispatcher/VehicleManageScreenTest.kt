@@ -41,4 +41,36 @@ class VehicleManageScreenTest {
         assertEquals("大货车", vehicleTypeLabel("large"))
         assertEquals("挂车", vehicleTypeLabel("trailer"))
     }
+
+    @Test
+    fun `算得出折旧时报每月金额（去尾零是显示口径，不是精度）`() {
+        assertEquals(
+            "每月折旧 ¥1900.5（按自然月摊到每一天）",
+            depreciationLine(true, "1900.50", emptyList()),
+        )
+    }
+
+    @Test
+    fun `算不出来时说的是缺哪一格，⛔ 不说 ¥0`() {
+        val line = depreciationLine(false, null, listOf("没录购置价", "没录使用年限"))
+        assertEquals("折旧未覆盖：没录购置价、没录使用年限", line)
+        // 「¥0」与「没录」在界面上必须是两件事：写了 ¥0，用户就再也不会去补那几格
+        org.junit.Assert.assertFalse(line.contains("¥"))
+    }
+
+    @Test
+    fun `已经提足（0）与算不出来是两句话`() {
+        val done = depreciationLine(true, "0", emptyList())
+        org.junit.Assert.assertTrue(done.contains("¥0"))
+        org.junit.Assert.assertFalse(done.contains("未覆盖"))
+    }
+
+    @Test
+    fun `残值率留空说的是 0%（四格里唯一留空有意义的一格）`() {
+        assertEquals("留空 = 0%", rateText(""))
+        assertEquals("留空 = 0%", rateText(null))
+        assertEquals("5%", rateText("0.05"))
+        assertEquals("0%", rateText("0"))
+        assertEquals("12.5%", rateText("0.125"))
+    }
 }

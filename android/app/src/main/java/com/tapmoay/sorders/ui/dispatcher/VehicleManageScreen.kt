@@ -27,6 +27,7 @@ import com.tapmoay.sorders.data.remote.dto.VehicleCreateRequest
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import com.tapmoay.sorders.data.remote.dto.VehicleUpdateRequest
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.DriverLime
 import com.tapmoay.sorders.ui.theme.MessageRed
@@ -98,6 +99,36 @@ internal val VEHICLE_TYPES = listOf("small" to "小货车", "large" to "大货�
  */
 internal val DEFAULT_VEHICLE_TYPE = VEHICLE_TYPES.first().first
 
+/**
+ * 这台车的折旧在卡片上那一行（2026-10-04 · 第二期 FEAT-0012）。
+ *
+ * ⚠️ 「算不出来」与「已经提足（0）」**必须两句话**：[monthly] 说的是金额，
+ * 而「缺购置信息」是一条**待办**。写成「每月折旧 ¥0」会让用户以为系统把这台车
+ * 算成了不折旧，于是再也不会去补那三格 —— 而真相是这一台车的折旧一分钱都没进利润表。
+ *
+ * ⛔ 这里只做**显示**，一个数都不算：折旧金额的唯一实现在后端
+ * `services/vehicle_depreciation.py`，界面拿到的就是算好的那一格。
+ */
+internal fun depreciationLine(covered: Boolean, monthly: String?, missing: List<String>): String =
+    if (covered) {
+        "每月折旧 ¥" + formatMoney(monthly) + "（按自然月摊到每一天）"
+    } else {
+        "折旧未覆盖：" + missing.joinToString("、").ifEmpty { "购置信息没录全" }
+    }
+
+/**
+ * 残值率原文（`"0.05"`）→ 界面说法（`"5%"`）。**留空 = 0%**（四格里唯一"留空有意义"的一格）。
+ *
+ * ⛔ 只做显示：值的原文（`"0.05"`）进出接口时一位不动，⛔ 不在这里四舍五入。
+ */
+internal fun rateText(raw: String?): String {
+    val v = raw?.trim().orEmpty().toDoubleOrNull() ?: return "留空 = 0%"
+    val pct = v * 100
+    val n = if (pct == Math.floor(pct)) pct.toInt().toString()
+    else String.format(java.util.Locale.US, "%.2f", pct).trimEnd('0').trimEnd('.')
+    return n + "%"
+}
+
 class VehicleManageViewModel(private val container: AppContainer) : ViewModel() {
 
     var vehicles by mutableStateOf<List<VehicleDto>>(emptyList())
@@ -126,6 +157,18 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     var draftCategory by mutableStateOf("")
     /** 车辆属性（键 → 用户填的原文）。空串 = 这一项没填，保存前会被剔掉。 */
     var draftAttrs by mutableStateOf<Map<String, String>>(emptyMap())
+
+    // ---- 折旧台账四格（2026-10-04 · 第二期 FEAT-0012）----
+    //
+    // 四格一律**原样存字符串**（购置价 / 购置日期 / 使用年限 / 残值率）：
+    // ⛔ 界面不解析、不换算、更不算折旧 —— 折旧金额的唯一实现在后端
+    // `services/vehicle_depreciation.py`，校验话术也在那一份里（越界 → 400 ＋ 一句中文）。
+    // 编辑语义与 `attrs` **相反**：没传 = 不改；传空串 = 清空这一格。
+    var draftPrice by mutableStateOf("")
+    var draftPurchaseDate by mutableStateOf("")
+    var draftLifeYears by mutableStateOf("")
+    /** 残值率原文（`"0.05"` = 5%）。**留空 = 0%**。 */
+    var draftResidualRate by mutableStateOf("")
     /** 换车身型式时"哪几项被去掉了"——⛔ 静默丢掉用户填过的数是最不该发生的一种。 */
     var bodyNote by mutableStateOf<String?>(null)
     var driverQuery by mutableStateOf("")
@@ -136,6 +179,17 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     var confirmUnbind by mutableStateOf<VehicleDto?>(null)
 
     val editing: Boolean get() = editingId != null
+
+    /**
+     * 正在编辑的这台车**现在**算出来的折旧说法（新建时为 null）。
+     *
+     * 弹层里显示它，是为了让用户改完之前先看见"现在是什么样" —— 否则补上购置价之后
+     * 只能到报表里才知道生效没有。⛔ 界面不自己算，拿的是后端回的那一格。
+     */
+    val editingDepreciation: String?
+        get() = vehicles.firstOrNull { it.id == editingId }?.let {
+            depreciationLine(it.depreciationCovered, it.depreciationMonthly, it.depreciationMissing)
+        }
 
     fun load() {
         loading = vehicles.isEmpty()
@@ -214,6 +268,12 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftBody = ""
         draftCategory = ""
         draftAttrs = emptyMap()
+        // 折旧台账四格：新车一律**空着** —— ⛔ 不预填一个"看着像"的购置价或年限，
+        //    那会让一整队车凭一个默认值开始计提折旧（而这个数会进营业利润）。
+        draftPrice = ""
+        draftPurchaseDate = ""
+        draftLifeYears = ""
+        draftResidualRate = ""
         bodyNote = null
         driverQuery = ""
         sheetError = null
@@ -232,6 +292,12 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftCategory = v.category
         // 后端只回**填过的**属性；这里整份接住，保存时再整份发回去（那正是后端的"整份替换"语义）。
         draftAttrs = v.attrs
+        // 台账四格**原样带上**（后端回什么就填什么）。用户清空某一格 = 保存时发空串 = 清掉这一格；
+        // ⛔ 不能把"空"当成"没传"：那样清空按钮点了等于没点，而用户以为已经清掉了。
+        draftPrice = v.purchasePrice.orEmpty()
+        draftPurchaseDate = v.purchaseDate.orEmpty()
+        draftLifeYears = v.usefulLifeYears.orEmpty()
+        draftResidualRate = v.residualRate.orEmpty()
         bodyNote = null
         driverQuery = ""
         sheetError = null
@@ -297,6 +363,12 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
                             bodyType = draftBody,
                             category = draftCategory,
                             attrs = filledAttrs(),
+                            // 台账四格：空着 = 没录（新建时发 null，⛔ 不发空串 ——
+                            // 空串在后端是"清掉这一格"，新建场景里两者结果一样，但语义要分开）。
+                            purchasePrice = draftPrice.trim().ifEmpty { null },
+                            purchaseDate = draftPurchaseDate.trim().ifEmpty { null },
+                            usefulLifeYears = draftLifeYears.trim().ifEmpty { null },
+                            residualRate = draftResidualRate.trim().ifEmpty { null },
                         ),
                     )
                     val who = driverNameOf(v.driverId)
@@ -313,6 +385,12 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
                             // ⚠️ **整份**发回去（含空 map）：后端把"传了 attrs"定义成整份替换，
                             //    只发改动的那几个键 = 其余全部被清空。见 VehicleUpdateRequest 的注释。
                             attrs = filledAttrs(),
+                            // 台账四格反过来：**逐格**发，空串 = 清空这一格（后端就是这么定义的），
+                            // 所以这里要原样发（⛔ 不 ifEmpty { null }，否则清空点了等于没点）。
+                            purchasePrice = draftPrice.trim(),
+                            purchaseDate = draftPurchaseDate.trim(),
+                            usefulLifeYears = draftLifeYears.trim(),
+                            residualRate = draftResidualRate.trim(),
                         ),
                     )
                     var note = "已保存 " + plate
@@ -610,6 +688,13 @@ private fun VehicleCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // 「这台车每个月自己在花钱」——折旧那一笔（2026-10-04 · 第二期 FEAT-0012）。
+                // 算不出来时写「折旧未覆盖：缺哪一格」，⛔ 不写 ¥0（0 是"已经提足"）。
+                Text(
+                    depreciationLine(v.depreciationCovered, v.depreciationMonthly, v.depreciationMissing),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -901,6 +986,70 @@ private fun VehicleEditSheet(
                     selected = vm.draftCategory,
                     onPick = { vm.draftCategory = it },
                     hint = "只影响车辆管理页左栏怎么分组；给车队分组用的，不参与任何计费。",
+                )
+            }
+
+            // ⑤ 折旧台账四格（2026-10-04 · 第二期 FEAT-0012）
+            //
+            // 用户 2026-10-04 拍板：「录购置价 ＋ 购置日期 ＋ 使用年限 ＋ 残值率，系统按月直线法自动计提」。
+            // 这四格是折旧**唯一**的录入入口 —— 报表里「− 车辆折旧」那一行就是它算出来的。
+            // ⛔ 与上面的车型（计费口径）、车身型式（能填哪些属性）、分类（左栏分组）**都是四件事**。
+            FormGroup(icon = Icons.Default.Payments, title = "折旧台账（购置信息）", tint = Color(DriverLime)) {
+                FormInputRow(
+                    label = "购置价(元)",
+                    value = vm.draftPrice,
+                    onValueChange = { vm.draftPrice = it },
+                    placeholder = "如 120000",
+                    icon = Icons.Default.Payments,
+                    iconTint = Color(DriverLime),
+                    keyboardType = KeyboardType.Decimal,
+                )
+                FormInputRow(
+                    label = "购置日期",
+                    value = vm.draftPurchaseDate,
+                    onValueChange = { vm.draftPurchaseDate = it },
+                    placeholder = "如 2025-09-16",
+                    icon = Icons.Default.Event,
+                    iconTint = Color(DriverLime),
+                )
+                FormInputRow(
+                    label = "使用年限(年)",
+                    value = vm.draftLifeYears,
+                    onValueChange = { vm.draftLifeYears = it },
+                    placeholder = "0.5 到 30，可一位小数",
+                    icon = Icons.Default.Schedule,
+                    iconTint = Color(DriverLime),
+                    keyboardType = KeyboardType.Decimal,
+                )
+                FormInputRow(
+                    label = "残值率",
+                    value = vm.draftResidualRate,
+                    onValueChange = { vm.draftResidualRate = it },
+                    placeholder = "如 0.05 = 5%；留空 = 0%",
+                    icon = Icons.Default.Percent,
+                    iconTint = Color(DriverLime),
+                    keyboardType = KeyboardType.Decimal,
+                )
+                // 这台车**现在**算出来是什么样（只在编辑时显示）。补完购置价不用跑去报表里看生效没有。
+                vm.editingDepreciation?.let { now ->
+                    Hint(
+                        now,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Hint(
+                    "月折旧额 = 购置价 ×（1 − 残值率）÷（使用年限 × 12），从购置日期起按月计提；" +
+                        "报表里再按每个自然月的天数摊到那一段窗口。" +
+                        "残值率这一格现在按 " + rateText(vm.draftResidualRate) + " 计提（留空 = 0%）。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Hint(
+                    "这四格缺任何一格，这台车的折旧就算不出来 —— 报表里单列在「折旧未覆盖」那一行，" +
+                        "⛔ 不会按 0 算（0 是「已经提足」，不是「没录」）。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 

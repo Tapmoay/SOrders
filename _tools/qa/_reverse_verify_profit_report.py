@@ -21,7 +21,7 @@
 7-11  接口与导出：不再 pop 内部键、不再把窗口交给查询、导出那一支改名、
       导出里丢掉成本覆盖率、丢掉口径说明；
 12-14 AI 读能力：toolmap 读动作改名、生成器的中文说明改名、DTO 的 snake_case 键被改成驼峰；
-15-19 Android：页签 6 的导出 kind 改回 audit、第 7 格走错路由、ViewModel 把上界改回 5、
+15-19 Android：页签 6 的导出 kind 改回 audit、第 7 格走错路由、ViewModel 把上界改回 6、
       页面自己减一遍、口径说明只画第一条；
 20-21 用例与文档：后端单测少一条、地图文档里把那四个字抹掉；
 22    本脚本自己摘掉注入锁；
@@ -59,10 +59,15 @@ SELF = "_tools/qa/_reverse_verify_profit_report.py"
 BT = chr(96)
 Q = chr(34)
 
-#: 那两条口径说明（删掉折旧那条时用得到 —— 它跨两行，只删一行仍有「折旧」二字）。
-NOTE_DEP_1 = '    "折旧没有算进去：车辆台账里没有购置价与折旧字段，也没有月度计提。"'
-NOTE_DEP_2 = '    "所以这张表的营业利润偏高（少了折旧那一块），第二期补车辆台账时接进来。",'
-NOTE_DEP = NOTE_DEP_1 + "\n" + NOTE_DEP_2 + "\n"
+#: 折旧那一条口径说明（删掉它时用得到 —— 它跨四行，只删一行仍有「折旧」二字）。
+#: ⚠️ 第二期 FEAT-0012 把这条整条重写了（折旧已经算进来了），所以这四行必须与
+#: `backend/app/services/reports/profit_query.py` 的 `_NOTES` 第 2 条**逐字一致** ——
+#: 不一致的话这条注入就变成"没改到任何东西"，而 SKIP 在反向验证里算失败。
+NOTE_DEP_1 = '    "车辆折旧已经算进来了（第二期落地）：月折旧额 = 购置价 ×（1 − 残值率）÷（使用年限 × 12），"'
+NOTE_DEP_2 = '    "从购置日期起、按每个自然月的天数摊到这个窗口里（提足之后就是 0，不是没算）。"'
+NOTE_DEP_3 = '    "没录购置价 / 购置日期 / 使用年限的车算不出折旧，它们的折旧没进这一格（营业利润偏高），"'
+NOTE_DEP_4 = '    "单列在「折旧未覆盖」那一行里 —— 把缺的那一格补上，这一格就会跟着变。",'
+NOTE_DEP = "\n".join((NOTE_DEP_1, NOTE_DEP_2, NOTE_DEP_3, NOTE_DEP_4)) + "\n"
 
 #: 反验脚本自己的注入锁（连 `unlock_reverse_verify` 一起换掉：它含子串，
 #: 只删一半的话判据那一条照样是绿的 —— 这一条是 CHG-0033 那轮踩过的坑）。
@@ -80,8 +85,8 @@ def _gross_profit_uses_revenue_total(s: str) -> str:
 
 def _operating_profit_drops_tax(s: str) -> str:
     """营业利润少减一项（税金那一格从此没人扣）。"""
-    return s.replace('    operating_profit = gross_profit - delivery_cost - expense_total - tax_total',
-                     '    operating_profit = gross_profit - delivery_cost - expense_total')
+    return s.replace('    operating_profit = gross_profit - delivery_cost - expense_total - depreciation_total - tax_total',
+                     '    operating_profit = gross_profit - delivery_cost - expense_total - depreciation_total')
 
 
 def _tax_invents_a_rate(s: str) -> str:
@@ -165,7 +170,7 @@ def _nav_wrong_route(s: str) -> str:
 
 def _vm_caps_at_five(s: str) -> str:
     """ViewModel 把页签上界改回 5（第 7 格进来会被压成第 6 页）。"""
-    return s.replace('initialTab.coerceIn(0, 6)', 'initialTab.coerceIn(0, 5)')
+    return s.replace('initialTab.coerceIn(0, 7)', 'initialTab.coerceIn(0, 6)')
 
 
 def _tab_does_own_math(s: str) -> str:
@@ -177,6 +182,17 @@ def _tab_does_own_math(s: str) -> str:
 def _tab_notes_collapsed(s: str) -> str:
     """口径说明只画第一条（其余四条「为什么是 0」从此没人看得见）。"""
     return s.replace('data.notes.forEach', 'data.notes.take(1).forEach')
+
+
+def _notes_wrapped_in_hint(s: str) -> str:
+    """口径说明整块被包进 Hint 开关（提示一关，这一页就只剩一个营业利润数字）。"""
+    return s.replace('                    data.notes.forEach { n ->',
+                     '                    Hint(\n'
+                     '                        ' + Q + '口径说明（这几件事今天算不进这张表）' + Q + ',\n'
+                     '                        style = MaterialTheme.typography.bodySmall,\n'
+                     '                        color = MaterialTheme.colorScheme.onSurfaceVariant,\n'
+                     '                    )\n'
+                     '                    data.notes.forEach { n ->')
 
 
 def _tests_drop_one(s: str) -> str:
@@ -197,8 +213,7 @@ def _chain_loses_uncovered_row(s: str) -> str:
 
 def _notes_gain_markdown(s: str) -> str:
     """口径说明里塞回 markdown 星号（手机上把 ** 原样印出来）。"""
-    return s.replace(Q + '所以这张表的营业利润偏高（少了折旧那一块）',
-                     Q + '所以这张表的营业利润**偏高**（少了折旧那一块）')
+    return s.replace('（营业利润偏高）', '（营业利润**偏高**）')
 
 
 def _self_drops_lock(s: str) -> str:
@@ -212,7 +227,7 @@ CASES = [
     ("③ 税金编出一个税率", QUERY, _tax_invents_a_rate, "税金恒为 0"),
     ("④ 期间费用丢了上界", QUERY, _expense_window_loses_upper_bound, "期间费用按业务发生日落地"),
     ("⑤ 查询里偷偷重算别的钱", QUERY, _query_recomputes_money_itself, "没有自己重算别的钱"),
-    ("⑥ 口径说明抹掉折旧那条", QUERY, _notes_drop_depreciation, "折旧还没算进来"),
+    ("⑥ 口径说明抹掉折旧那条", QUERY, _notes_drop_depreciation, "折旧是怎么算进来的"),
     ("⑦ 路由不再 pop 内部键", API, _route_keeps_internal_window, "pop 掉 _window"),
     ("⑧ 接口不再把窗口交给查询", API, _route_drops_span, "取数走 build_profit"),
     ("⑨ 导出那一支改名", API, _export_branch_renamed, "导出里有 profit 这一支"),
@@ -223,14 +238,15 @@ CASES = [
     ("⑭ DTO 的键被改成驼峰", DTOS, _dto_key_turns_camel, "21 个 snake_case 键一个不少"),
     ("⑮ 页签 6 的导出 kind 改回 audit", FINANCE, _export_kind_back_to_audit, "页签 6 导出 profit"),
     ("⑯ 入口第 7 格走错页", NAV, _nav_wrong_route, "NavGraph 里点第 7 格走到利润页"),
-    ("⑰ ViewModel 上界改回 5", VM, _vm_caps_at_five, "ViewModel 收下页签 6"),
+    ("⑰ ViewModel 上界改回 6", VM, _vm_caps_at_five, "ViewModel 收下页签 0..7"),
     ("⑱ 页面自己减一遍", CENTER, _tab_does_own_math, "页面自己不做减法"),
     ("⑲ 口径说明只画第一条", CENTER, _tab_notes_collapsed, "口径说明逐条原样常显"),
-    ("⑳ 后端单测少一条", TEST_PY, _tests_drop_one, "后端单测至少 8 条"),
+    ("⑳ 后端单测少一条", TEST_PY, _tests_drop_one, "后端单测至少 9 条"),
     ("㉑ 地图文档里抹掉那四个字", DOC_TESTING, _doc_drops_the_word, "三份地图文档都跟着改"),
     ("㉒ 本脚本自己摘掉注入锁", SELF, _self_drops_lock, "反向验证脚本拿着注入锁"),
     ("㉓ 利润构成里删掉「算不出成本的收入」那一行", CENTER, _chain_loses_uncovered_row, "利润构成是一条能自己算通的链"),
     ("㉔ 口径说明里塞回 markdown 星号", QUERY, _notes_gain_markdown, "口径说明里不许出现 markdown 星号"),
+    ("㉕ 口径说明整块被包进 Hint 开关", CENTER, _notes_wrapped_in_hint, "口径说明没有被包进 Hint 开关"),
 ]
 
 

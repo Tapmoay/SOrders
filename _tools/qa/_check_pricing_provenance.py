@@ -191,6 +191,14 @@ CONFIG = {
     "vehicles.cargo_length_m": "车辆属性：载货区长(米)（同上）",
     "vehicles.cargo_width_m": "车辆属性：载货区宽(米)（同上）",
     "vehicles.cargo_height_m": "车辆属性：载货区高(米)（同上）",
+    # ---- 折旧台账四格里的三格（2026-10-04 · FEAT-0012 第二期）：**录入即事实**，
+    # 与上面那批车辆属性同一档 —— 它们是**折旧的输入**，不是系统按规则算出来的金额。
+    # ⛔ 折旧额本身（每月多少钱）**永不落库**（`services/vehicle_depreciation.py` 按窗口现算），
+    #    所以这里没有"由规则算出来的钱列"，也就没有 provenance 缺口。
+    # ⚠️ 第四格 `purchase_date` 是日期列不是 Numeric，本来就不在这份清单里。
+    "vehicles.purchase_price": "折旧的输入：购置价（元；建车/补录时录入的事实）",
+    "vehicles.useful_life_years": "折旧的输入：使用年限（年；同上）",
+    "vehicles.residual_rate": "折旧的输入：残值率（0–0.5；同上，留空 = 0%）",
     # ---- 司机结算单的手工调整额（2026-10-03 · BUG-0007）：建单时派单员**手填进来的差额**
     # （不是系统按规则算出来的），从此恒等式 `amount == 明细合计 + adjustment` 在确认与
     # 付款两处都成立 —— 所以它归「录入即事实」这一档，不是 RULED。

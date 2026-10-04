@@ -21,9 +21,10 @@ from app.services.reports.loader import delivered_span_sql, load_delivered  # no
 from app.services.reports.product_query import _cost_basis_note, build_products  # noqa: F401
 from app.services.reports.profit_query import build_profit  # noqa: F401
 from app.services.reports.turnover_query import build_turnover  # noqa: F401
+from app.services.reports.vehicle_cost_query import build_vehicle_cost  # noqa: F401
 
 __all__ = [
-    "build_arrears_summary", "build_products", "build_profit", "build_turnover",
+    "build_arrears_summary", "build_products", "build_profit", "build_turnover", "build_vehicle_cost",
     "delivered_span_sql", "load_delivered",
     "_cost_basis_note", "_label", "_money", "_range_dates", "_span", "_span_label", "_window",
 ]

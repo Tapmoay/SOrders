@@ -1013,6 +1013,17 @@ class AppRepository(private val api: ApiBundle) {
         dateTo: String? = null,
     ) = api.reportApi.profit(mode, date, dateFrom, dateTo)
 
+    /**
+     * 车辆成本表（FEAT-0012 第二期）：窗口与 [turnoverReport]/[productReport]/[profitReport] **同一段**，
+     * 否则同一屏会出现两个时间段。
+     */
+    suspend fun vehicleCostReport(
+        mode: String,
+        date: String,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ) = api.reportApi.vehicleCost(mode, date, dateFrom, dateTo)
+
     suspend fun driverPerformance(dateFrom: String, dateTo: String) =
         api.reportApi.driverPerformance(dateFrom, dateTo)
 

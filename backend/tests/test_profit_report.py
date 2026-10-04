@@ -16,13 +16,16 @@
 3. 期间费用**按 exp_date 落窗口**，分类明细之和 == 合计；
 4. 税今天没有数据源 -> 恒为 0，且口径说明里写清「为什么是 0」（⛔ 不许编一个税率）；
 5. 边界：半截窗口 / 反了的窗口 -> 400；空窗口 -> 全 0 且不炸；
-6. 权限：不是派单员 -> 403（报表是全店口径，没有「只看自己那份」的版本）。
+6. 权限：不是派单员 -> 403（报表是全店口径，没有「只看自己那份」的版本）；
+7. 车辆折旧（第二期 FEAT-0012）：录全了购置信息的车**真的从营业利润里减掉**，
+   缺购置信息的车**单列**在 `depreciation_uncovered` 里（⛔ 不按 0 算、也不进那一格）。
 """
 
 from __future__ import annotations
 
+import calendar
 import itertools
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 
 import pytest
@@ -145,8 +148,10 @@ def test_恒等式当场成立(client, token_dispatcher, db_session, users):
             gross
             - _dec(p, "delivery_cost")
             - _dec(p, "operating_expense_total")
+            # 车辆折旧（第二期）：它必须是**独立减的一项**，⛔ 不许被折进期间费用里
+            - _dec(p, "depreciation_total")
             - _dec(p, "tax_total")
-        ), "营业利润不是四级相减的结果"
+        ), "营业利润不是五级相减的结果"
         rows = p["operating_expenses"]
         assert sum(Decimal(str(r["amount"])) for r in rows) == _dec(p, "operating_expense_total"), (
             "分类明细之和与合计对不上（页面上两处会各说各话）"
@@ -229,7 +234,8 @@ def test_空窗口全0且不炸(client, token_dispatcher):
     assert p["period_label"] == "2000-01月"
     for key in (
         "revenue_total", "revenue_covered", "revenue_uncovered", "cost_total", "gross_profit",
-        "delivery_cost", "operating_expense_total", "tax_total", "operating_profit",
+        "delivery_cost", "operating_expense_total", "depreciation_total", "tax_total",
+        "operating_profit",
         "collected", "arrears_total",
     ):
         assert _dec(p, key) == 0, key
@@ -263,11 +269,76 @@ def test_导出kind_profit有经营利润那张表(client, token_dispatcher, db_
         disp = r.headers.get("content-disposition") or ""
         assert day in disp, disp
         ws = load_workbook(BytesIO(r.content))["经营利润"]
-        cells = [str(ws.cell(i, j).value or "") for i in range(1, ws.max_row + 1) for j in range(1, 8)]
+        # ⚠️ 列数跟着表走：`营业利润` 那一行现在有 10 格（多了「车辆折旧」两格），
+        #    写死 range(1, 8) 会把它切掉 —— 于是"标签没写"和"测试没看"长得一模一样。
+        cells = [
+            str(ws.cell(i, j).value or "")
+            for i in range(1, ws.max_row + 1)
+            for j in range(1, ws.max_column + 1)
+        ]
         for label in ("营业收入(应收)", "商品成本", "商品毛利", "配送成本(司机应得)",
-                      "期间费用", "税金及附加", "营业利润", "成本覆盖率", "口径说明"):
+                      "期间费用", "车辆折旧", "税金及附加", "营业利润", "成本覆盖率", "口径说明"):
             assert label in cells, (label, cells)
         assert any("入库加权平均进货价" in c for c in cells), "覆盖率那一段必须说清成本是从哪来的"
     finally:
         _purge(db_session, oid)
+
+
+# ------------------------------------------------------ ⑦ 车辆折旧进营业利润（第二期 FEAT-0012）
+
+
+def _mk_vehicle(client, h, plate: str, **fields) -> dict:
+    r = client.post(
+        "/api/v1/vehicles",
+        json={"plate_no": plate, "vehicle_type": "small", **fields},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.mark.dispatcher
+@pytest.mark.fast
+@pytest.mark.regression
+def test_车辆折旧进营业利润且缺购置信息的单列(client, token_dispatcher, db_session):
+    """一台录全了的车 -> 折旧真的从营业利润里减掉；一台缺购置信息的车 -> 单列，⛔ 不按 0 算。"""
+    from app.core.business_time import business_today
+    from app.models import Vehicle
+
+    h = auth_headers(token_dispatcher)
+    today = business_today()
+    day = today.isoformat()
+    before = _get(client, h, "profit", mode="day", date=day)
+    ids: list[int] = []
+    try:
+        full = _mk_vehicle(
+            client, h, "利折00001",
+            purchase_price="120000", purchase_date="2025-09-16",
+            useful_life_years="5", residual_rate="0.05",
+        )
+        ids.append(full["id"])
+        blind = _mk_vehicle(client, h, "利折00002", purchase_price="60000")
+        ids.append(blind["id"])
+        after = _get(client, h, "profit", mode="day", date=day)
+        # 月折旧 = 120000 × 95% ÷ 60 = 1900.00；今天这一格 = 1900 ÷ 当月天数（按天摊，只四舍五入一次）
+        days = calendar.monthrange(today.year, today.month)[1]
+        mine = (Decimal("1900.00") / days).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        delta = _dec(after, "depreciation_total") - _dec(before, "depreciation_total")
+        assert delta == mine, "录全了购置信息的车没有按天摊进这一格（实际 +{}，应为 +{}）".format(delta, mine)
+        assert _dec(before, "operating_profit") - _dec(after, "operating_profit") == mine, (
+            "折旧没有真的从营业利润里减掉（只是页面上多一格的话就白算了）"
+        )
+        # 缺购置日期 / 使用年限的那台：折旧算不出来 -> 单列，⛔ 不按 0 算、也不进上面那一格
+        blind_rows = [r for r in after["depreciation_uncovered"] if r["plate_no"] == "利折00002"]
+        assert blind_rows, after["depreciation_uncovered"]
+        assert blind_rows[0]["reasons"] == ["没录购置日期", "没录使用年限"], blind_rows[0]
+        assert all(r["plate_no"] != "利折00001" for r in after["depreciation_uncovered"]), (
+            "录全了的车不该出现在未覆盖名单里"
+        )
+        assert after["depreciation_uncovered_count"] >= 1
+        assert _dec(after, "depreciation_monthly_total") >= Decimal("1900.00"), "月折旧合计给页面用的那一格"
+    finally:
+        for vid in ids:
+            db_session.query(Vehicle).filter(Vehicle.id == vid).delete()
+        db_session.commit()
 

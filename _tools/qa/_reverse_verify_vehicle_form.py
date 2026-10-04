@@ -71,7 +71,7 @@ CASES: list[tuple[str, str, object, str]] = [
         lambda s: s.replace(
             "FormGroup(icon = Icons.Default.Person", "SectionCard(icon = Icons.Default.Person", 1
         ),
-        "白卡分组恰好四个",
+        "白卡分组恰好五个",
     ),
     (
         "③ 组标题被改（两页叫法不一致，用户要找的东西换名字了）",

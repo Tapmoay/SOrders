@@ -206,7 +206,9 @@ def main() -> int:
     route = body(api, "def profit_report(")
     c.ok("路由 /profit 在且 ≥ 400 字符", len(route) >= 400, "只有 " + str(len(route)) + " 字符")
     c.present("导出里有 profit 这一支", api, r'elif kind == "' + KIND + r'":')
-    tab = body(center, "private fun ProfitTab(")
+    # ⚠️ limit 要**大于整段 ProfitTab**：这一段第二期又长了两块（折旧行 + 未覆盖卡），
+    #    截断的话结尾「资金状态」那几句会被切掉 —— 而"被切掉"与"没写"在判据眼里一模一样。
+    tab = body(center, "private fun ProfitTab(", limit=12000)
     c.ok("Android ProfitTab 在且 ≥ " + str(TAB_FLOOR) + " 字符", len(tab) >= TAB_FLOOR, "只有 " + str(len(tab)) + " 字符")
     c.ok("reports_service 转出了 build_profit（接口层从它 import）",
          "build_profit" in svc and "profit_query" in svc)
@@ -227,8 +229,8 @@ def main() -> int:
               fn, r'delivery_cost = turnover\["total_freight"\]')
     c.present("商品毛利 = 参与毛利的收入 − 商品成本（两侧同一批行）",
               fn, r"gross_profit = revenue_covered - cost_total")
-    c.present("营业利润 = 毛利 − 配送 − 期间费用 − 税金（四级相减，一处也不许挪到客户端）",
-              fn, r"operating_profit = gross_profit - delivery_cost - expense_total - tax_total")
+    c.present("营业利润 = 毛利 − 配送 − 期间费用 − 车辆折旧 − 税金（五级相减，一处也不许挪到客户端）",
+              fn, r"operating_profit = gross_profit - delivery_cost - expense_total - depreciation_total - tax_total")
     c.present("未覆盖收入 = 营业额 − 参与毛利的收入（单列，不替它猜成本）",
               fn, r'"revenue_uncovered": revenue_total - revenue_covered')
     c.absent("没有自己去读订单/账本/资金表（那都是别的钱的实现）",
@@ -257,7 +259,7 @@ def main() -> int:
     notes = re.search(r"_NOTES: tuple\[str, \.\.\.\] = \(([\s\S]*?)\n\)", q_raw)
     body_notes = notes.group(1) if notes else ""
     c.ok("口径说明是模块常量、至少 5 条", body_notes.count('"') >= 10, "实际 " + str(body_notes.count('"')) + " 个引号")
-    for word, why in (("税", "税金为什么是 0"), ("折旧", "折旧还没算进来"), ("工资", "固定工资不在这里"),
+    for word, why in (("税", "税金为什么是 0"), ("折旧", "折旧是怎么算进来的"), ("工资", "固定工资不在这里"),
                       ("revenue_uncovered", "未覆盖收入单列"), ("货损", "货损不重复扣")):
         c.ok("口径说明里写了「" + why + "」", word in body_notes)
     c.absent("口径说明里不许出现 markdown 星号（这些字会原样进手机与导出的表）", body_notes, r"\*\*")
@@ -275,8 +277,8 @@ def main() -> int:
     c.present("取数走 build_profit", route, r"data = build_profit\(db, mode, anchor, span=span\)")
     c.present("返回前 pop 掉 _window（内部键不许出接口）", route, r'data\.pop\("_window", None\)')
     c.present("返回 ProfitReportOut(**data)", route, r"return ProfitReportOut\(\*\*data\)")
-    c.present("导出的 kind 正则收下了第 7 个值",
-              api, r'\^\(turnover\|products\|drivers\|customers\|finance\|audit\|' + KIND + r'\)\$')
+    c.present("导出的 kind 正则收下了第 7 与第 8 个值（经营利润 / 车辆成本）",
+              api, r'\^\(turnover\|products\|drivers\|customers\|finance\|audit\|' + KIND + r'\|vehicle-cost\)\$')
     c.present("导出里那张表叫「" + SHEET + "」", api, r'next_sheet\("' + SHEET + r'"\)')
     c.present("导出里带成本覆盖率（只有数字没有覆盖率，就是让人误读毛利）", api, r'"成本覆盖率"')
     c.present("导出里带口径说明（逐条 notes 写进表）", api, r'"口径说明"')
@@ -313,7 +315,7 @@ def main() -> int:
     c.present("页签 5 显式写 audit（原来靠 else —— 加了第 7 格之后 else 会把它吃掉）",
               finance, r'5 -> "audit"')
     cards = re.findall(r"EntryCard\(", home)
-    c.ok("入口页现在是 7 格", len(cards) == 7, "实际 " + str(len(cards)) + " 格")
+    c.ok("入口页现在是 8 格（第 8 格是第二期加的「车辆成本」）", len(cards) == 8, "实际 " + str(len(cards)) + " 格")
     c.present("第 7 格是「经营利润」且 key 是 6（key 直接当页签号用）",
               home, r'EntryCard\("6", "经营利润"')
     c.present("路由常量 REPORT_PROFIT 在", routes, r'const val REPORT_PROFIT = "report/profit"')
@@ -322,7 +324,7 @@ def main() -> int:
               nav, r"5 -> navController\.navigate\(Routes\.REPORT_EXCEPTION\)")
     c.present("利润页那条 composable 把页签号传进去",
               nav, r"composable\(Routes\.REPORT_PROFIT\) \{ ReportCenterScreen\([\s\S]{0,200}?initialTab = 6\)")
-    c.present("ViewModel 收下页签 6", vm, r"initialTab\.coerceIn\(0, 6\)")
+    c.present("ViewModel 收下页签 0..7（第 8 格是第二期加的）", vm, r"initialTab\.coerceIn\(0, 7\)")
     c.present("ViewModel 给这一页留了数据槽", vm, r"var profit by mutableStateOf<ProfitReportDto\?>\(null\)")
     c.present("load() 里第 7 支取数（窗口与其它页共用同一个 dateRange）",
               vm, r"6 -> \{[\s\S]{0,200}?val \(f, t\) = dateRange[\s\S]{0,200}?profit = container\.repo\.profitReport\(")
@@ -343,15 +345,24 @@ def main() -> int:
     c.present("口径说明走 CoverNote（成本覆盖率四处一致）",
               tab, r"CoverNote\(data\.coveredLines, data\.totalLines, data\.costAvgLines, data\.costSnapshotLines\)")
     c.present("口径说明逐条原样常显", tab, r"data\.notes\.forEach")
+    # ⚠️ 2026-10-04 FEAT-0012：这一段第二期又长了一块「折旧未覆盖的车」卡，卡里那条**教法句**
+    #    （去「车辆管理」补购置信息）按 `_check_hints.py` 的规矩必须走 `Hint(`（解释句不许裸着 `Text(`）。
+    #    所以这里不再按「整段 ProfitTab 里一个 `Hint(` 都不许有」查 —— 那会把教法句误判成
+    #    「把口径说明藏起来了」。要守的原意是**口径说明那一张卡**（notes 逐条）不许进开关：
+    notes_card = body(tab, '"口径说明（这几件事今天算不进这张表）"', limit=560)
+    c.ok("口径说明那一张卡在（能定位到整块，实测 521 字符）", len(notes_card) >= 400,
+         "只有 " + str(len(notes_card)) + " 字符")
     c.absent("口径说明没有被包进 Hint 开关（藏起来就等于让人把营业利润读成净利润）",
-             tab, r"Hint\(|ExpandableCard\(|var .*by remember \{ mutableStateOf\(false\) \}")
+             notes_card, r"Hint\(|ExpandableCard\(|var .*by remember \{ mutableStateOf\(false\) \}")
+    c.present("折旧未覆盖那一格的口径句常显（没进开关）", tab,
+              r'"这 " \+ data\.depreciationUncoveredCount\.toString\(\) \+ " 台车没录全购置信息')
     c.present("资金状态那一块在（赚了不等于收到了）", tab, r"赚了不等于收到了")
 
     print("")
     print("== 7. 用例与文档 ==")
     test_py = read(TEST_PY)
     names = re.findall(r"def (test_\w+)\(", test_py)
-    c.ok("后端单测至少 8 条", len(names) >= 8, "实际 " + str(len(names)) + " 条")
+    c.ok("后端单测至少 9 条（第二期又加了一条折旧进营业利润的）", len(names) >= 9, "实际 " + str(len(names)) + " 条")
     c.ok("其中有一条逐分对账营业纵览（恒等式两侧同源）",
          any("营业纵览" in n or "逐分" in n for n in names), "现有：" + "、".join(names))
     c.ok("其中有一条钉「税恒为 0 且说了为什么」", any("税" in n for n in names), "现有：" + "、".join(names))
@@ -359,7 +370,7 @@ def main() -> int:
          any("窗口" in n for n in names), "现有：" + "、".join(names))
     test_kt = kt_code(TEST_KT)
     c.present("Android 单测钉了第 7 个页签的导出 kind", test_kt, r'exportKind\(6\)')
-    c.present("Android 单测改成 7 个页签两两不同", test_kt, r"\(0\.\.6\)")
+    c.present("Android 单测改成 8 个页签两两不同", test_kt, r"\(0\.\.7\)")
     rev = read(REVERSE)
     c.present("反向验证脚本拿着注入锁（lock_reverse_verify）", rev, r"lock_reverse_verify")
     c.present("反向验证脚本自己列了注入表（CASES）", rev, r"CASES = \[")

@@ -25,11 +25,19 @@
    （「一车 = 多少方 / 多少吨」），浮点会让 8 变成 7.999999999999999
    （与 `unit_conversions.factor` 用 `Numeric(14,4)` 同一条理由）。
    ⚠️ 列宽与迁移 `010_vehicle_attrs` 必须**逐列一致**，否则新库（create_all）与老库（ALTER）会长得不一样。
+
+## 折旧台账四列（2026-10-04 · 迁移 `018_vehicle_depreciation`）
+
+`purchase_price` / `purchase_date` / `useful_life_years` / `residual_rate` —— 给"这台车每个月
+自己在花钱"留下**输入**。它们是**台账事实**（人录的），折旧额是**派生量**（现算、不落库，
+唯一实现在 `services/vehicle_depreciation.py`）。四列全部可空、NULL = 「没录」，
+⛔ 老车不回填、不按车型猜购置价；缺购置价 / 购置日期 / 年限任何一格的车按「折旧未覆盖」**单列**。
 """
 
+from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Integer, Numeric, String
+from sqlalchemy import Date, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -77,3 +85,26 @@ class Vehicle(Base, TimestampMixin):
     #: ⚠️ 与 `vehicle_type`（车型，计费口径）、`body_type`（车身型式）是**三件事**：
     #: 分类只用于"派单员怎么把车队分组看"，⛔ 不许参与任何计费 / 匹配判断。
     category: Mapped[str] = mapped_column(String(32), default="", index=True)
+
+    # ---------------- 折旧台账（2026-10-04 · 迁移 018 / FEAT-0012） ----------------
+    #
+    # 老板五问第 1 问「这月赚了多少」一直少的那一块：**车自己每个月也在花钱**。
+    # 这四列是**台账事实**（人录进来的），折旧额永远是**派生量**
+    # （`services/vehicle_depreciation.py` 现算，⛔ 一个字节都不落库）。
+    #
+    # ⚠️ NULL 的含义是「**没录**」，⛔ 不等于 0：
+    #   · `purchase_price` NULL ≠ 0 元的车；`useful_life_years` NULL ≠ "当年就提完了"；
+    #   · 购置价 / 购置日期 / 使用年限 缺任何一格 ⇒ 该车**折旧未覆盖**，报表里单列，⛔ 不替它猜一个数
+    #     （与 `revenue_uncovered`「算不出成本的收入」同一条纪律）；
+    #   · 只有 `residual_rate` 留空有明确口径 = **0%**（界面上写着「留空 = 0%」）。
+    #
+    # ⛔ 这四列**不进** `services/vehicle_attrs.ATTR_KEYS`：那张表管的是"这车多大 / 能装多少"的
+    #    计量属性、且与车身型式绑定；折旧跟车身型式无关（三种车都能有购置价）。
+    #: 购置价（元）—— 折旧的计提基数
+    purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    #: 购置日期 —— 计提起点（窗口里"买之前"的那些天不摊折旧）
+    purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: 使用年限（年，0.5–30，可带一位小数）—— 直线法的分母
+    useful_life_years: Mapped[Decimal | None] = mapped_column(Numeric(4, 1), nullable=True)
+    #: 残值率（0–0.5 即 0%–50%）。**留空 = 0%**（购置价全额计提），不是"未覆盖"
+    residual_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)

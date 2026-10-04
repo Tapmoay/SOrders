@@ -24,13 +24,14 @@ from app.schemas.reports import (
     ReportArrearsUnitItem,
     ReportSeriesItem,
     TurnoverReportOut,
+    VehicleCostReportOut,
 )
 from app.services.cost_basis import SNAPSHOT, CostBasis
 from app.services.money_contract import has_per_order_pay, line_receivable, money_map, pay_for_order
 from app.services.sheet_text import append_text_row
 
 from app.services.reports_service import (
-    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
+    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money, build_vehicle_cost,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
 )
 
 
@@ -106,6 +107,27 @@ def profit_report(
     return ProfitReportOut(**data)
 
 
+@router.get("/vehicle-cost", response_model=VehicleCostReportOut)
+def vehicle_cost_report(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+    mode: str = Query("month", pattern="^(day|week|month)$"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（与 date_to 成对给，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
+) -> VehicleCostReportOut:
+    """车辆成本表：每一台车在这段时间里花了多少钱（折旧 / 这台车的开销 / 挂靠司机的配送成本）。
+
+    只读 —— 三笔成本全部取既有唯一实现（见 `services/reports/vehicle_cost_query.py`）；
+    ⛔ 本表没有收入：订单上只有司机、没有「哪台车拉的」这个事实（硬摊就是编一个比例）。
+    """
+    span = _span(mode, anchor, date_from, date_to)
+    data = build_vehicle_cost(db, mode, anchor, span=span)
+    data.pop("_window", None)
+    return VehicleCostReportOut(**data)
+
+
+
 
 
 @router.get("/arrears-summary")
@@ -127,7 +149,7 @@ def arrears_summary(
 def export_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
-    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit)$"),
+    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit|vehicle-cost)$"),
     mode: str = Query("day", pattern="^(day|week|month)$"),
     anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
     date_from: date | None = Query(None, description="YYYY-MM-DD（finance/customers 可用，优先于 mode+anchor）"),
@@ -201,10 +223,19 @@ def export_report(
         append_text_row(ws, [
             "配送成本(司机应得)", _money(data["delivery_cost"]),
             "期间费用", _money(data["operating_expense_total"]),
+            # 车辆折旧（第二期）：Σ 有购置信息的车在窗口内摊到的折旧；缺购置信息的车不算进来，
+            # 名单在下面单独一行 —— ⛔ 不许把它折进期间费用里（那是两件事，老板要分开看）。
+            "车辆折旧", _money(data["depreciation_total"]),
             # 税金今天恒为 0（系统还没有税账）—— 如实写 0，原因在下面的口径说明里逐条写着
             "税金及附加", _money(data["tax_total"]),
             "营业利润", _money(data["operating_profit"]),
         ])
+        if data["depreciation_uncovered_count"]:
+            # 「算不出来」不是 0：这几台车的折旧**没进**上面那一格，必须能一眼看到是哪几台、缺什么
+            plates = "、".join(
+                "{}{}".format(r["plate_no"], "（" + "、".join(r["reasons"]) + "）") for r in data["depreciation_uncovered"]
+            )
+            append_text_row(ws, ["折旧未覆盖的车", data["depreciation_uncovered_count"], plates])
         # ⚠️ 这三格是**计数不是钱**，直接写数字（⛔ 不包 str）：导出里的数要能被 Excel 当数相加，
         #    而判据「_tools/qa/_check_single_source.py」把任何「str(data[...])」当作金额表达式。
         append_text_row(ws, [
@@ -219,6 +250,41 @@ def export_report(
         for exp_row in data["operating_expenses"]:
             append_text_row(ws, [exp_row["category"], _money(exp_row["amount"])])
         append_text_row(ws, ["期间费用合计", _money(data["operating_expense_total"])])
+        append_text_row(ws, [])
+        append_text_row(ws, ["口径说明"])
+        for note in data["notes"]:
+            append_text_row(ws, [note])
+    elif kind == "vehicle-cost":
+        # 车辆成本表：每台车三笔成本（折旧 / 这台车的开销 / 挂靠司机的配送成本）。
+        # 口径与来源见 `services/reports/vehicle_cost_query.py`（只读：一个原始金额都不自己算）。
+        # ⚠️ 这张表**没有收入列** —— 订单上没有「哪台车拉的」这个事实，摊出来的收入会被拿去
+        #    决定这车留不留（摊错了比不摊更糟）；原因写在表尾的口径说明里。
+        data = build_vehicle_cost(db, mode, d, span=(s, e))
+        ws = next_sheet("车辆成本")
+        append_text_row(ws, ["车辆成本", _span_label(s, e), "口径：折旧 + 这台车的开销 + 挂靠司机的配送成本"])
+        append_text_row(ws, [
+            "车辆数", data["vehicle_count"],
+            "算得出折旧", data["covered_count"],
+            "折旧未覆盖", data["uncovered_count"],
+            "折旧合计", _money(data["depreciation_total"]),
+            "每月折旧合计", _money(data["depreciation_monthly_total"]),
+        ])
+        append_text_row(ws, [
+            "开销合计", _money(data["expense_total"]),
+            "配送成本合计", _money(data["delivery_cost_total"]),
+            "成本合计", _money(data["total_cost"]),
+        ])
+        append_text_row(ws, [])
+        append_text_row(ws, ["车牌", "挂靠司机", "车辆折旧", "这台车的开销", "配送成本", "成本合计", "开销明细", "折旧说明"])
+        for row in data["per_vehicle"]:
+            detail = "、".join("{} {}".format(x["category"], _money(x["amount"])) for x in row["expenses"])
+            why = "" if row["depreciation_covered"] else "、".join(row["depreciation_uncovered_reasons"])
+            append_text_row(ws, [
+                row["plate_no"], row["driver_name"],
+                _money(row["depreciation"]), _money(row["expense_total"]),
+                _money(row["delivery_cost"]), _money(row["total_cost"]),
+                detail, why,
+            ])
         append_text_row(ws, [])
         append_text_row(ws, ["口径说明"])
         for note in data["notes"]:
