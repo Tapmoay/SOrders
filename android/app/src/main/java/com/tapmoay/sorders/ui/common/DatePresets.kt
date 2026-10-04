@@ -40,6 +40,24 @@ object DatePresets {
      */
     const val LAST_YEAR = "近一年"
 
+    /**
+     * 「本季」= 本季第一天 ~ **今天**（与「本月」同一条口径：未来的日子没有账）。
+     *
+     * 2026-10-05 用户点名要"这个季"（报表中心时间档位：今天/本周/这个月/这一季/这一年/全部）。
+     * ⚠️ 它**不在** [ROW] 里：筛选条上已经有十档，再加两档会长到一屏放不下，
+     *    而这两档只有报表中心在用（[REPORT_ROW]）。
+     */
+    const val THIS_QUARTER = "本季"
+
+    /**
+     * 「本年」= 今年 1 月 1 日 ~ **今天**。
+     *
+     * 与 [LAST_YEAR]（近一年 = 今天往前 365 天）是**两回事**：一个跟自然年走、一个跟"最近 365 天"走。
+     * 账本用后者（跨年也能一眼看满一年），报表中心两档都给（看"今年到目前"要看前者）。
+     * 同样**不在** [ROW] 里，理由见 [THIS_QUARTER]。
+     */
+    const val THIS_YEAR = "本年"
+
     /** 「自定义」不由本表给区间（它要弹日期选择），所以**不在** [ROW] 里。 */
     const val CUSTOM = "自定义"
 
@@ -47,6 +65,19 @@ object DatePresets {
     val ROW = listOf(
         ALL, TODAY, YESTERDAY, BEFORE_YESTERDAY, THIS_WEEK, LAST_7, LAST_WEEK,
         THIS_MONTH, LAST_MONTH, LAST_YEAR,
+    )
+
+    /**
+     * **报表中心**那一排档位（2026-10-05，CHG-0034）——用户要的六档加两档：
+     * 今天 / 这周 / 上周 / 本月 / 上月 / 本季 / 本年 / 全部。
+     *
+     * 为什么不直接用 [ROW]：筛选条要的是"今天、昨天、前天、近 7 天"这种**短窗口 + 全部**，
+     * 看报表要的是"周期"（周 / 月 / 季 / 年）——两条清单服务两种问法，混在一起两头都不好用。
+     * ⚠️ 它只是**画哪几档**（[DatePresetDialog] 的 row 参数）；档位↔区间的换算仍然只有
+     *    [rangeOf] 一处，谁也不许照着自己的理解在页面里算日期。
+     */
+    val REPORT_ROW = listOf(
+        TODAY, THIS_WEEK, LAST_WEEK, THIS_MONTH, LAST_MONTH, THIS_QUARTER, THIS_YEAR, ALL,
     )
 
     /**
@@ -142,6 +173,11 @@ object DatePresets {
         // 「近一年」= 今天往前 365 天（含今天）—— 与「近 7 天」同一个写法（`minusDays(N-1)`），
         // 两种写法的差别是"到底 365 天还是 366 天"，用户看不出来，但**对账时会差一天**。
         LAST_YEAR -> today.minusDays(364).toString() to today.toString()
+        // 「本季」= 本季第一个月的 1 日 ~ 今天。季度首月 = ((月 - 1) / 3) * 3 + 1（1/4/7/10）。
+        // 先 withDayOfMonth(1) 再换月：直接 withMonth 遇到 31 日会溢出（例如 5 月 31 日 → 4 月 31 日不存在）。
+        THIS_QUARTER -> today.withDayOfMonth(1)
+            .withMonth(((today.monthValue - 1) / 3) * 3 + 1).toString() to today.toString()
+        THIS_YEAR -> today.withDayOfYear(1).toString() to today.toString()
         // 认不出的档（含「自定义」：它的区间由调用方给）→ **不加日期限制**。
         // 宁可查全量，也不要凭空造一个区间出来（造出来的区间会静默少算钱）。
         else -> null

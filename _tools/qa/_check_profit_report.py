@@ -76,7 +76,10 @@ DTOS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dto
 APIS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt"
 REPO = ROOT / "android/app/src/main/java/com/tapmoay/sorders/data/repo/AppRepository.kt"
 FINANCE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportFinance.kt"
-HOME = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportHome.kt"
+HOME = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/ReportV2Model.kt"
+# 2026-10-05 CHG-0034：11 格老入口清单从 `ReportHome.kt` 搬进了 `report/ReportV2Model.kt` 的
+# `REPORT_ENTRIES`（ReportHome.kt 只引用它，避免两处手抄）⇒ 锚点跟着实现搬家，判据一条没放宽：
+# 仍然数「一共 11 格」「第 N 格的 key 与名字」，只是改在唯一那一份清单上数。
 ROUTES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/nav/Routes.kt"
 NAV = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/nav/NavGraph.kt"
 VM = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenterViewModel.kt"

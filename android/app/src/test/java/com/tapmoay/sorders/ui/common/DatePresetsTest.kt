@@ -103,6 +103,63 @@ class DatePresetsTest {
     }
 
     @Test
+    fun `本季是本季第一个月的一日到今天（跨月不越季）`() {
+        // 2026-09-16 落在第三季度（7/8/9 月）→ 季首 = 2026-07-01
+        assertEquals("2026-07-01" to "2026-09-16", DatePresets.rangeOf(DatePresets.THIS_QUARTER, wed))
+        // 季首那天 = 单日窗口（与「本月」在月初同形）
+        assertEquals(
+            "2026-07-01" to "2026-07-01",
+            DatePresets.rangeOf(DatePresets.THIS_QUARTER, LocalDate.of(2026, 7, 1)),
+        )
+        // 四个季度各试一天：1 月 → Q1、5 月 → Q2、10 月 → Q4
+        assertEquals(
+            "2026-01-01" to "2026-02-15",
+            DatePresets.rangeOf(DatePresets.THIS_QUARTER, LocalDate.of(2026, 2, 15)),
+        )
+        // ⚠️ 31 日换月最容易写错（先换月再定日会溢出到"4 月 31 日"不存在）——这一天专门钉住
+        assertEquals(
+            "2026-04-01" to "2026-05-31",
+            DatePresets.rangeOf(DatePresets.THIS_QUARTER, LocalDate.of(2026, 5, 31)),
+        )
+        assertEquals(
+            "2026-10-01" to "2026-10-31",
+            DatePresets.rangeOf(DatePresets.THIS_QUARTER, LocalDate.of(2026, 10, 31)),
+        )
+    }
+
+    @Test
+    fun `本年是一月一日到今天（跟自然年走，不是近 365 天）`() {
+        assertEquals("2026-01-01" to "2026-09-16", DatePresets.rangeOf(DatePresets.THIS_YEAR, wed))
+        assertEquals(
+            "2026-01-01" to "2026-01-01",
+            DatePresets.rangeOf(DatePresets.THIS_YEAR, LocalDate.of(2026, 1, 1)),
+        )
+        // 与「近一年」不是一回事：1 月 1 日那天，「近一年」要跨回去年（含今天共 365 天）
+        assertEquals(
+            "2025-01-02" to "2026-01-01",
+            DatePresets.rangeOf(DatePresets.LAST_YEAR, LocalDate.of(2026, 1, 1)),
+        )
+    }
+
+    @Test
+    fun `报表中心那一排每一档都算得出区间，且本季本年只归它`() {
+        DatePresets.REPORT_ROW.forEach { label ->
+            if (label == DatePresets.ALL) {
+                assertNull(label, DatePresets.rangeOf(label, wed))
+            } else {
+                val r = DatePresets.rangeOf(label, wed)
+                assertTrue("$label 没有区间（报表上会是一颗点了没反应的药丸）", r != null)
+                assertTrue("$label 的区间是反的", (r!!.first <= r.second))
+            }
+        }
+        assertTrue(DatePresets.THIS_QUARTER in DatePresets.REPORT_ROW)
+        assertTrue(DatePresets.THIS_YEAR in DatePresets.REPORT_ROW)
+        // ⛔ 这两档只给报表中心：筛选条上已经有十档，再长会长到一屏放不下
+        assertTrue("「本季」不该进筛选条", DatePresets.THIS_QUARTER !in DatePresets.ROW)
+        assertTrue("「本年」不该进筛选条", DatePresets.THIS_YEAR !in DatePresets.ROW)
+    }
+
+    @Test
     fun `自定义那一格的标签写的是日期而不是三个字`() {
         assertEquals("09-01~09-20", DatePresets.customLabel("2026-09-01", "2026-09-20"))
         assertEquals(DatePresets.CUSTOM, DatePresets.customLabel(null, null))

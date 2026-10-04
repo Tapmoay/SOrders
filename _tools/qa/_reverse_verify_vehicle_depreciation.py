@@ -45,7 +45,8 @@ QUERY = "backend/app/services/reports/profit_query.py"
 COST = "backend/app/services/reports/vehicle_cost_query.py"
 API_R = "backend/app/api/v1/reports.py"
 VM = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenterViewModel.kt"
-HOME = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportHome.kt"
+# 2026-10-05 CHG-0034：11 格清单搬到 `report/ReportV2Model.kt` 的 REPORT_ENTRIES，注入点跟着搬
+HOME = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/ReportV2Model.kt"
 CENTER = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt"
 VSCREEN = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreen.kt"
 TEST_PY = "backend/tests/test_vehicle_depreciation.py"
@@ -155,7 +156,7 @@ def _vm_caps_at_six(s: str) -> str:
 
 def _home_drops_the_card(s: str) -> str:
     """入口第 8 格去掉（报表中心那一页从此进不去）。"""
-    return s.replace("        EntryCard(" + Q + "7" + Q + ", " + Q + "车辆成本" + Q +
+    return s.replace("EntryCard(" + Q + "7" + Q + ", " + Q + "车辆成本" + Q +
                      ", Icons.Default.DirectionsCar, Color(0xFF546E7A))," + NL, "")
 
 
@@ -195,7 +196,7 @@ CASES = [
     ("⑫ 成本表开始拆收入", COST, _cost_table_splits_revenue, "这张表只算成本"),
     ("⑬ 导出 kind 白名单漏掉它", API_R, _export_kind_regex_drops_it, "导出 kind 正则收下了 vehicle-cost"),
     ("⑭ 端点改名", API_R, _route_renamed, "端点 /reports/vehicle-cost 在"),
-    ("⑮ ViewModel 上界改回 6", VM, _vm_caps_at_six, "ViewModel 收下页签 0..8"),
+    ("⑮ ViewModel 上界改回 6", VM, _vm_caps_at_six, "ViewModel 收下页签 0..10"),
     ("⑯ 入口第 8 格去掉", HOME, _home_drops_the_card, "入口页第 8 格是车辆成本"),
     ("⑰ 利润链条删掉折旧那一行", CENTER, _chain_loses_depreciation_row, "利润构成链条里有"),
     ("⑱ 车辆管理少一格话术", VSCREEN, _screen_renames_rate_field, "车辆管理页四格"),

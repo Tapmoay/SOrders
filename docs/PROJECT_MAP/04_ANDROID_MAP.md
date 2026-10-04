@@ -74,8 +74,8 @@ util/
 | 账本工具（收款/开销/结算/车辆） | ui/dispatcher/AccountToolsScreens.kt | （复用） |
 | 司机运费结算 | ui/dispatcher/FreightSettlementScreen.kt | FreightSettlementViewModel.kt |
 | 挂账单位 | ui/dispatcher/ArrearsUnitsScreen.kt | ArrearsUnitsViewModel.kt |
-| 报表中心入口 | ui/dispatcher/ReportHome.kt（2 列 7 卡） | — |
-| 报表页 | ui/dispatcher/ReportCenter.kt（7 Tab 内容，含「经营利润」） | ReportCenterViewModel.kt |
+| 报表中心入口 | ui/dispatcher/report/ReportV2Screen.kt（新首页 + 下钻 + 抽屉；2026-10-05 CHG-0034）—— ⚠️ 老入口 ui/dispatcher/ReportHome.kt（2 列彩色卡）降级为回退落点 | ReportV2ViewModel.kt |
+| 报表页 | ui/dispatcher/ReportCenter.kt（11 个 Tab 的内容：营业纵览 / 商品经营 / 司机绩效 / 客户经营 / 资金收支 / 异常与审计 / 经营利润 / 车辆成本 / 成本覆盖 / 税账 / 客户欠款） | ReportCenterViewModel.kt |
 | 订单模板 | ui/dispatcher/FreightTemplatesScreen.kt | FreightTemplatesViewModel.kt |
 | 订单详情 | ui/order/OrderDetailScreen.kt（派单员/货主/司机共用） | OrderDetailViewModel.kt |
 | 货主下单 | ui/shipper/OrderCreateScreen.kt | OrderCreateViewModel.kt |

@@ -56,7 +56,7 @@ import com.tapmoay.sorders.ui.dispatcher.UserPool
 import com.tapmoay.sorders.ui.dispatcher.PurchaseOrderFormScreen
 import com.tapmoay.sorders.ui.dispatcher.PurchaseOrdersScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportCenterScreen
-import com.tapmoay.sorders.ui.dispatcher.ReportHomeScreen
+import com.tapmoay.sorders.ui.dispatcher.report.ReportV2Screen
 import com.tapmoay.sorders.ui.dispatcher.PriceAxis
 import com.tapmoay.sorders.ui.dispatcher.PriceMatrixScreen
 import com.tapmoay.sorders.ui.dispatcher.AccountManageScreen
@@ -619,10 +619,13 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
             )
         }
         composable(Routes.REPORT_HOME) {
-            ReportHomeScreen(
+            // 2026-10-05（CHG-0034）：报表中心入口换成 v2（五张表一张卡 + 逐层下钻 + 时间药丸 + 左侧抽屉）。
+            // 老 11 个页签仍是各自的路由（下面那 11 条 composable），抽屉里点老入口就切过去 —— 老页面零改动。
+            // 回退：把这一处换回 ReportHomeScreen(container, onBack, onOpen = { when (tab) { ... } })。
+            ReportV2Screen(
                 container = container,
                 onBack = { navController.popBackStack() },
-                onOpen = { tab ->
+                onOpenTab = { tab ->
                     when (tab) {
                         0 -> navController.navigate(Routes.REPORT_TURNOVER)
                         1 -> navController.navigate(Routes.REPORT_PRODUCT)
@@ -638,6 +641,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                         else -> navController.navigate(Routes.REPORT_EXCEPTION)
                     }
                 },
+                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
             )
         }
         composable(Routes.REPORT_TURNOVER) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 0) }

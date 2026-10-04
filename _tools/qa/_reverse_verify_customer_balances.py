@@ -50,7 +50,8 @@ REGISTRY = "docs/changes/README.md"
 CLAIM = "docs/AI_WORK_CLAIM.md"
 EP_INDEX = "docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md"
 CENTER = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt"
-HOME = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportHome.kt"
+# 2026-10-05 CHG-0034：11 格清单搬到 report/ReportV2Model.kt 的 REPORT_ENTRIES ⇒ 注入点跟着搬
+HOME = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/ReportV2Model.kt"
 VM = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenterViewModel.kt"
 
 

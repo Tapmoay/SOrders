@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-05 01:1x UTC → ] 会话：**CHG-0034 报表中心首页改成「五张表一张卡 + 时间药丸 + 左侧抽屉」并接上下钻树**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**（2026-10-05）：「你搞错啦，我不知道你继续搞这个网页版也就是样板。我要的是，你**直接基于样板和我上面的要求直接把真实的项目的结构给改了**。改制前一提交一下git」
+—— 目标从"做网页样板"改成"照样板改真实项目"；检查点提交 `c35cac6`（样板存档）已完成。
+
+**改哪些文件**（新增一个包，老实现零改动）：
+- 新增 `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/`：`ReportV2Model.kt` / `ReportV2Ui.kt` / `ReportV2ViewModel.kt` / `ReportV2Home.kt` / `ReportV2Nodes.kt` / `ReportV2Screen.kt`
+- 追加式改动（共享文件，只加不删）：`ui/common/DatePresets.kt`（追加「本季」「本年」两档 + `REPORT_ROW`，⛔ 不动 `ROW` 与既有档位语义）、`ui/common/Components.kt`（`DatePresetDialog` / `DateFilterDialogs` 追加可选参数 `row: List<String> = DatePresets.ROW`）、`ui/nav/NavGraph.kt:621`（`Routes.REPORT_HOME` 的入口由 `ReportHomeScreen` 换成 `ReportV2Screen`，老 11 条路由不动）、`ui/dispatcher/ReportHome.kt`（11 格清单改成引用 `REPORT_ENTRIES`，本页降级为回退入口）
+- 后端零改动；`ReportCenter.kt` / `ReportCenterViewModel.kt` / `ReportFinance.kt` / `ReportPriority.kt` 与老 11 个页签**一个字都不动**
+
+**明确不碰**：后端任何文件、数据库迁移、钱/账本/订单生命周期/权限/审计这五类判据、`DatePresets.ROW` 与既有档位语义、老页签的行为与布局。
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5552,6 +5564,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-05 01:1x | **CHG-0034 报表中心 v2**（我，`session-e94394d5`） | `ui/common/DatePresets.kt`、`ui/common/Components.kt`、`ui/nav/NavGraph.kt`、`ui/dispatcher/ReportHome.kt` | ① `DatePresets.kt` **只追加**：两个常量（`THIS_QUARTER="本季"`、`THIS_YEAR="本年"`）+ `REPORT_ROW`（八档）+ `rangeOf` 里两档（本季首日~今天 / 1 月 1 日~今天）——⛔ `ROW`、`AUTO_LADDER`、`ORDER_PRESET_LADDER` 一个字没动，既有档位语义不变；② `Components.kt` 给 `DatePresetDialog`(:742) 与 `DateFilterDialogs`(:812) **追加可选参数** `row: List<String> = DatePresets.ROW`（缺省行为逐字不变），内部 `DatePresets.ROW + DatePresets.CUSTOM` → `row + DatePresets.CUSTOM`；③ `NavGraph.kt:621` 只把 `Routes.REPORT_HOME` 那一处入口从 `ReportHomeScreen` 换成 `ReportV2Screen`（老 11 条 `Routes.REPORT_*` 一行没动）；④ `ReportHome.kt` 的 11 格手抄清单改成引用 `REPORT_ENTRIES`，本页降级为一键回退入口；⑤ ⚠️ **改到共享的检查脚本**（锚点跟着实现搬家，判据一条没放宽）：11 格清单从 `ui/dispatcher/ReportHome.kt` 搬进 `ui/dispatcher/report/ReportV2Model.kt` 的 `REPORT_ENTRIES` 之后，`_tools/qa/_check_profit_report.py`、`_tools/qa/_check_vehicle_depreciation.py`、`_tools/qa/_check_tax_invoices.py`、`_tools/qa/_check_customer_balances.py` 与 `_tools/qa/_reverse_verify_{tax_invoices,customer_balances,vehicle_depreciation}.py` 的文件常量改指新文件（判据文字与阈值逐字不变）；`_check_ledger_dashboard.py` 那条「清单里画的是 `DatePresets.ROW`」改成「画的是传进来的 `row` + 缺省值就是共享档位表」（**加严**：多钉一条缺省值）；顺带修掉两条**早就过期**的反验期望名（`_reverse_verify_{profit_report,vehicle_depreciation}.py` 里写的是「ViewModel 收下页签 0..8」，判据在第二~五期已改名成 0..10 ⇒ 一直报 MISS），判据本体一字未动 |
 | 2026-09-25 06:4x | **架构整改**（我，`session-e94394d5`） | `docs/PROJECT_MAP/{06_DESIGN_SYSTEM,08_CODE_LOCATOR}.md` | 只改**自己那几行**里手写的过期数字与过期引用：金额红线 **54→50 项**、反向验证 **18→16 种**、`AiWriteArgs.money(` 的「只许剩 6 处」→「只许剩 4~12 处（当前 6 处）」、客户端状态口径 **36→29 项**、已删脚本名 `_reverse_verify_client_contract.py` → `_reverse_verify_client_contract_app.py`、"三端同一条显示规则" → "两端（H5 那一端已归档）"。⛔ **没有覆盖任何别的会话写在同文件里的内容**（改前都重读过最新行） |
 | 2026-09-24 23:2x | **架构整改**（我，`session-e94394d5`） | `AGENTS.md`、`docs/PROJECT_MAP/{03_BACKEND_DETAILS,05_TESTING,08_CODE_LOCATOR}.md` | 第 8 轮：删掉手写的**会变的数字**（检查脚本数 / 端点数 / 反向验证份数 / `orders.py` 规模），改成指向生成物与命令；新增 `_tools/qa/_check_live_doc_counts.py`（27 条）守住。**只动这几行，没有别的会话的内容被覆盖** |
 | 2026-09-22 23:1x | （我） | ⚠️ **`session-78ebd95c` 的提交 `7ab1a32` 把我这一轮的 4 份文档一起提交了** | 它 `git add` 的范围覆盖了 `docs/`：`docs/AI_WORK_CLAIM.md`（我的 进行中 条目 + 交叉点三行）、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（§5 拨号那条偏好）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`（「收货人与下单人」「订单详情页」两行）、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` 都被卷进它那个提交。**代码一行没被卷走**（`orders.py` / `OrderDetail*` / `OrderCreate*` / 两条红线 / 两个新文件仍在我的工作区）。后果只有一个：README 之外的人看 git 历史时，那几个文档块会挂在"预订单"那条提交下。⚠️ 08A 那份它提交的是**我改 `orders.py` 之前**生成的版本（`update_order` 在 677 行），我这轮重新生成过（702 行），所以工作区里它又是 ` M` —— 以工作区那份为准 |

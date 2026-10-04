@@ -10,9 +10,9 @@
 
 | 目录 | 内容 | 说明 |
 | --- | --- | --- |
-| `web/` | 手机版测试网页（真连后端） | `index.html` + `js/`（core / pages1-3 / shell / dash2 / chart2 / tree / tree2 / orders / stock / drawer / docs / look）+ `css/`；`shots/` 是逐轮截图 |
-| `static-sample/` | 最早那版**纯静态**样板 | 单文件 `index.html`（假数据），用来对齐版式；`shots/` 是截图 |
-| `research/` | 两路只读接口盘点 | `backend_surface.md`（reports/stats/cash/expense/invoice/…）、`api_stock_payable.md`（库存/采购/应付/成本价）、`api_drilldown.md`（订单与下钻链路）、`android_ui_surface.md`（App 报表中心现状） |
+| `web/` | 手机版测试网页（真连后端） | [index.html](web/index.html) + `js/`（core / pages1-3 / shell / dash2 / chart2 / tree / tree2 / orders / stock / drawer / docs / look）+ `css/`；`shots/` 是逐轮截图 |
+| `static-sample/` | 最早那版**纯静态**样板 | 单文件 [index.html](static-sample/index.html)（假数据），版式与选色说明见 [DESIGN.md](static-sample/DESIGN.md)；`shots/` 是截图 |
+| `research/` | 两路只读接口盘点 | [backend_surface.md](research/backend_surface.md)（reports/stats/cash/expense/invoice/…）、[api_stock_payable.md](research/api_stock_payable.md)（库存/采购/应付/成本价）、[api_drilldown.md](research/api_drilldown.md)（订单与下钻链路）、[android_ui_surface.md](research/android_ui_surface.md)（App 报表中心现状） |
 
 ## 样板里已经定下来的东西（改造时照这个来）
 

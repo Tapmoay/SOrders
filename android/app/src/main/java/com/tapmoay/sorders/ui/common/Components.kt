@@ -733,8 +733,11 @@ fun DatePresetPill(label: String, onClick: (() -> Unit)? = null, modifier: Modif
 /**
  * 时间档位清单（点 [DatePresetPill] 打开）—— 一档一行、右边打勾。
  *
- * ⚠️ 档位与区间**仍然只有一份实现**（`DatePresets.rangeOf`）：这里只负责把 [DatePresets.ROW]
+ * ⚠️ 档位与区间**仍然只有一份实现**（`DatePresets.rangeOf`）：这里只负责把 [row]
  *    画出来、把选中的那一档回给调用方。谁也别在这里 `when(档位)` 自己算日期。
+ * ⚠️ [row] 是"哪一页画哪几档"（默认 [DatePresets.ROW]）：报表中心只列它那八档
+ *    （`DatePresets.REPORT_ROW`，含「本季/本年」，不含「昨天/前天/近一年」）——
+ *    换的是**清单**，⛔ 不是"档位怎么算"（区间仍然只有 `DatePresets.rangeOf` 一份）。
  * ⚠️ 「自定义」那一行显示的是**选中的那段日期**（`09-01~09-20`），不是光写"自定义"三个字 ——
  *    只写那三个字，用户就分不清自己选的到底是哪一段。
  */
@@ -745,13 +748,14 @@ fun DatePresetDialog(
     customTo: String?,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
+    row: List<String> = DatePresets.ROW,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("看哪一段时间") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                (DatePresets.ROW + DatePresets.CUSTOM).forEach { label ->
+                (row + DatePresets.CUSTOM).forEach { label ->
                     val shown = if (label == DatePresets.CUSTOM) {
                         DatePresets.customLabel(customFrom, customTo)
                     } else {
@@ -817,6 +821,7 @@ fun DateFilterDialogs(
     customTo: String?,
     onPickPreset: (String) -> Unit,
     onApplyCustom: (String?, String?) -> Unit,
+    row: List<String> = DatePresets.ROW,
 ) {
     var showCustom by remember { mutableStateOf(false) }
 
@@ -832,6 +837,7 @@ fun DateFilterDialogs(
                 if (label == DatePresets.CUSTOM) showCustom = true else onPickPreset(label)
             },
             onDismiss = onDismissPresets,
+            row = row,
         )
     }
     if (showCustom) {

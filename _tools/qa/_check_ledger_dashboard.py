@@ -230,8 +230,13 @@ def main() -> int:
               components, r"if \(label == DatePresets\.CUSTOM\) showCustom = true else onPickPreset\(label\)")
     c.present("药丸只有一份实现（ui/common/Components.kt）", components, r"fun DatePresetPill\(")
     c.present("档位清单也只有一份实现", components, r"fun DatePresetDialog\(")
-    c.present("清单里画的是 DatePresets.ROW（档位表不抄第二份）",
-              components, r"DatePresets\.ROW \+ DatePresets\.CUSTOM")
+    # 2026-10-05 CHG-0034：`DatePresetDialog` / `DateFilterDialogs` 多了一个可选参数 `row`（报表中心
+    # 那一排是八档，与账本页不同），内部从 `DatePresets.ROW + DatePresets.CUSTOM` 改成 `row + DatePresets.CUSTOM`。
+    # 判据跟着改，**没有放宽**：仍然要求清单来自**那一份共享档位表**（现在多钉一条 `row` 的缺省值就是它）。
+    c.present("清单里画的是传进来的 row（档位表不抄第二份）",
+              components, r"\(row \+ DatePresets\.CUSTOM\)")
+    c.present("row 的缺省值就是那份共享档位表（⛔ 不是各自抄一份）",
+              components, r"row: List<String> = DatePresets\.ROW")
     c.present("人是**侧边抽屉**（Material3 的 ModalNavigationDrawer）", screen, r"ModalNavigationDrawer\(")
     # ⚠️ 两条是**反向验证逼出来的**（原来那版判据只查"文件里有没有这个词"，
     #    注入 `if (false) { PersonTriggerRow(...) }` 或"再塞一排 chip 进抽屉"都看不出来）：
