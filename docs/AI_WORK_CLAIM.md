@@ -31,34 +31,6 @@
 
 ## 进行中
 
-### [2026-10-04 进行中] 会话：**FEAT-0014 税账：发票台账（登记 / 开具 / 作废·冲红）＋ 进销项税汇**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：五期财务计划第四期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → ③ 采购与进货价闭环 ✅ FEAT-0013（`cf70ebf` + 归档 `e531a75`）→ **④ 税账** → ⑤ 应收账龄与客户信用）。开工前先把本期的五个口径问清、拿到需求方拍板（见下），再动代码。
-
-**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
-然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
-分析。」
-
-**本期口径（需求方 2026-10-04 拍板五条，问的是税账）**：
-① 税率 → **小规模纳税人默认一档 3.00%**（现行 1% 减征时在单张发票上改），⛔ 不做多档税率表、不做配置页；
-② 台账 → **新建 `invoices` 表**（登记 → 开具 → 作废·冲红，销项 / 进项共用一张表），历史发票可补录、作废留行占位；
-③ 关联 → **进项必须挂采购单**（一张票可对多张进货单、供应商必须一致）、**销项可挂结算单**（客户必须一致）—— ⚠️ 落地时销项挂在**账本条目**（`invoice_ledgers` → `ledgers.id`，客户必须一致）：票开的是这个客户名下哪几笔应收，收款记录（`shipper_receipts`）不是「开了多少票」的粒度；
-④ 利润表 → **两个数分开**：「应交增值税（销项 − 进项）」单列一行、**不进**营业利润（增值税是价外税），「− 税」那一格只放税金及附加；
-⑤ 报表 → **要**：后端只读端点 `GET /reports/tax-summary` ＋ 报表中心第 10 格「税账」＋ 导出 kind `tax-summary`（与前两期同规格）。
-
-**做什么**：新增三张表（迁移 `020_invoices.py`：`invoices` / `invoice_purchase_orders` / `invoice_ledgers`）＋ 唯一实现 `backend/app/services/tax_service.py`（税额算法、状态机、关联校验、税汇聚合）＋ 端点 `backend/app/api/v1/invoices.py`（5 个写 ＋ 3 个读）＋ 只读报表 `GET /reports/tax-summary`（`services/reports/tax_query.py`）＋ 报表中心第 10 格「税账」＋ 工作台「发票」一格（列表页 ＋ 登记表单页）＋ 利润表接线（`tax_total` 取开销里分类名含「税」的合计并从期间费用搬出；新增只读 `vat_output` / `vat_input` / `vat_payable`，⛔ 不进 `operating_profit`）；⛔ 成本口径 `cost_basis`、欠款口径 `supplier_service`、库存不变量、`cash_flows` / `orders` / `ledgers` 一个字节不改，未新建权限点（写用 `Permission.LEDGER_EDIT`、读用 `Permission.ORDER_DISPATCH`，与应付 / 利润表同级），`shipper_receipts.invoiced` 不回填、不双写。
-
-**文件清单**（认领时拟定；⛔ 归档时按实现提交的 `--name-only` 逐条核对并改正）：
-- 文档：`docs/changes/FEAT-0014.md`（新）、`docs/changes/README.md`（登记行）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/RELEASE_CANDIDATE.md`（迁移头 19 → 20）、`docs/DOMAIN_BOUNDARIES.md`、`docs/R4_CORE_EXTENSION_MAP.md`、`docs/ACCOUNTING_V2_DESIGN.md`（P3 落地标注）、`docs/ai/kb_skeleton.md` ＋ 五份生成物（`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`）
-- 后端：`backend/app/models/invoice.py`（新）、`backend/app/migrations/020_invoices.py`（新）、`backend/app/services/tax_service.py`（新）、`backend/app/schemas/invoice.py`（新）、`backend/app/api/v1/invoices.py`（新）、`backend/app/services/reports/tax_query.py`（新）、`backend/app/models/enums.py`（＋4 个动作码与两个枚举）、`backend/app/models/__init__.py`、`backend/app/api/v1/router.py`、`backend/app/api/v1/reports.py`、`backend/app/schemas/reports.py`、`backend/app/services/reports/profit_query.py`、`backend/app/services/reports_service.py`、`backend/app/services/purchase_service.py`（删单前一道闸）、`backend/app/core/capability_audit_coverage.py`
-- Android：`ui/dispatcher/InvoicesScreen.kt`（新）、`ui/dispatcher/InvoiceFormScreen.kt`（新）、`ui/dispatcher/ReportCenter.kt`（第 10 格）、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/dispatcher/ReportHome.kt`、`ui/dispatcher/ReportFinance.kt`（利润页新行）、`ui/nav/Modules.kt`（工作台一格）、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`data/repo/AppRepository.kt`、`core/ApiClient.kt`、`ai/AiReadCatalog.kt`、`core/Capabilities.kt`（后两者生成物，不手改）
-- 判据与测试：`_tools/qa/_check_tax_invoices.py`（新）、`_tools/qa/_reverse_verify_tax_invoices.py`（新）、`_tools/qa/_probe_tax_invoices.py`（新，真实库探针）、`backend/tests/test_tax_invoices.py`（新）＋ 受影响的既有判据（`_check_profit_report.py`、`_reverse_verify_profit_report.py`、`_check_purchase_orders.py`、`_reverse_verify_purchase_orders.py`、`_check_audit_coverage.py`、`_check_report_window.py`、`_hint_inventory.py`、`_tools/ai/` 下四份生成器）
-- 核心改动：`backend/app/models/enums.py`（领域词汇表）、`backend/app/models/__init__.py`（模型注册）、`backend/app/api/v1/router.py`（路由挂载）—— 为什么必须动核心：发票的四个写动作 `TAX_INVOICE_CREATE / ISSUE / VOID / RESTORE` 必须进词表（审计覆盖与 AI 写闸门都按词表逐值比对，不入词表这四处写就没有归属），模型注册与路由挂载是接线文件、不含任何金额口径；只**追加**，⛔ 既有取值一个字节都不改。
-
-**判据与测试**：⏳ 认领时未跑 —— 判据 `_tools/qa/_check_tax_invoices.py`、反验 `_tools/qa/_reverse_verify_tax_invoices.py`（新增检查器自带 `R4-BOUNDARY-JUSTIFICATION`）、单测 `backend/tests/test_tax_invoices.py`、真实库探针、模拟器 5554 真机四处截图、全量静检。
-
-**落点与提交**：⏳ 待回填（实现提交 + 归档提交）。
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5653,6 +5625,34 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0014 税账：发票台账（登记 / 开具 / 作废·冲红）＋ 进销项税汇**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：五期财务计划第四期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → ③ 采购与进货价闭环 ✅ FEAT-0013（`cf70ebf` + 归档 `e531a75`）→ **④ 税账** → ⑤ 应收账龄与客户信用）。开工前先把本期的五个口径问清、拿到需求方拍板（见下），再动代码。
+
+**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
+然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
+分析。」
+
+**本期口径（需求方 2026-10-04 拍板五条，问的是税账）**：
+① 税率 → **小规模纳税人默认一档 3.00%**（现行 1% 减征时在单张发票上改），⛔ 不做多档税率表、不做配置页；
+② 台账 → **新建 `invoices` 表**（登记 → 开具 → 作废·冲红，销项 / 进项共用一张表），历史发票可补录、作废留行占位；
+③ 关联 → **进项必须挂采购单**（一张票可对多张进货单、供应商必须一致）、**销项可挂结算单**（客户必须一致）—— ⚠️ 落地时销项挂在**账本条目**（`invoice_ledgers` → `ledgers.id`，客户必须一致）：票开的是这个客户名下哪几笔应收，收款记录（`shipper_receipts`）不是「开了多少票」的粒度；
+④ 利润表 → **两个数分开**：「应交增值税（销项 − 进项）」单列一行、**不进**营业利润（增值税是价外税），「− 税」那一格只放税金及附加；
+⑤ 报表 → **要**：后端只读端点 `GET /reports/tax-summary` ＋ 报表中心第 10 格「税账」＋ 导出 kind `tax-summary`（与前两期同规格）。
+
+**做什么**：新增三张表（迁移 `020_invoices.py`：`invoices` / `invoice_purchase_orders` / `invoice_ledgers`）＋ 唯一实现 `backend/app/services/tax_service.py`（税额算法、状态机、关联校验、税汇聚合）＋ 端点 `backend/app/api/v1/invoices.py`（5 个写 ＋ 3 个读）＋ 只读报表 `GET /reports/tax-summary`（`services/reports/tax_query.py`）＋ 报表中心第 10 格「税账」＋ 工作台「发票」一格（列表页 ＋ 登记表单页）＋ 利润表接线（`tax_total` 取开销里分类名含「税」的合计并从期间费用搬出；新增只读 `vat_output` / `vat_input` / `vat_payable`，⛔ 不进 `operating_profit`）；⛔ 成本口径 `cost_basis`、欠款口径 `supplier_service`、库存不变量、`cash_flows` / `orders` / `ledgers` 一个字节不改，未新建权限点（写用 `Permission.LEDGER_EDIT`、读用 `Permission.ORDER_DISPATCH`，与应付 / 利润表同级），`shipper_receipts.invoiced` 不回填、不双写。
+
+**文件清单**（⛔ 已按实现提交 `b418d89` 的 `--name-only` 逐条核对并改正 —— 认领时拟的下面这一版有两处与实际不符，已改）：
+- 文档：`docs/changes/FEAT-0014.md`（新）、`docs/changes/README.md`（登记行与状态列）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/RELEASE_CANDIDATE.md`（迁移头 19 → 20）、`docs/DOMAIN_BOUNDARIES.md`、`docs/R4_CORE_EXTENSION_MAP.md`、`docs/ai/kb_skeleton.md` ＋ 六份生成物（`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`）—— ⚠️ 认领时拟改的 `docs/ACCOUNTING_V2_DESIGN.md`（P3 落地标注）**实际没动**（那一笔在上一期就落过了），已从清单删掉
+- 后端：`backend/app/models/invoice.py`（新）、`backend/app/migrations/020_invoices.py`（新）、`backend/app/services/tax_service.py`（新）、`backend/app/schemas/invoice.py`（新）、`backend/app/api/v1/invoices.py`（新）、`backend/app/services/reports/tax_query.py`（新）、`backend/app/models/enums.py`（＋4 个动作码与两个枚举）、`backend/app/models/__init__.py`、`backend/app/api/v1/router.py`、`backend/app/api/v1/reports.py`、`backend/app/schemas/reports.py`、`backend/app/services/reports/profit_query.py`、`backend/app/services/reports_service.py`、`backend/app/services/purchase_service.py`（删单前一道闸）、`backend/app/core/capability_audit_coverage.py`
+- Android：`ui/dispatcher/InvoicesScreen.kt`（新）、`ui/dispatcher/InvoiceFormScreen.kt`（新）、`ui/dispatcher/ReportCenter.kt`（第 10 格）、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/dispatcher/ReportHome.kt`、`ui/dispatcher/ReportFinance.kt`（利润页新行）、`ui/nav/Modules.kt`（工作台一格）、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`data/repo/AppRepository.kt`、`core/ApiClient.kt`、`core/Capabilities.kt`（生成物，不手改）、`ai/AiReadCatalog.kt`（生成物）、`app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt`（⚠️ 认领时漏记，实际改了：利润页新行的解析用例）
+- 判据与测试：`_tools/qa/_check_tax_invoices.py`（新，103 项）、`_tools/qa/_reverse_verify_tax_invoices.py`（新，60 条注入）、`_tools/qa/_probe_tax_invoices.py`（新，真实库探针 76 断言）、`backend/tests/test_tax_invoices.py`（新，22 用例）＋ 随口径改动的既有判据（`_tools/qa/_check_profit_report.py`、`_tools/qa/_reverse_verify_profit_report.py`、`_tools/qa/_check_vehicle_depreciation.py`、`_tools/qa/_reverse_verify_vehicle_depreciation.py`、`_tools/qa/_check_pricing_provenance.py`（发票三列按「录入即事实」归 CONFIG）、`_tools/qa/_check_report_facts.py`（并发编排：会 bootstrap 真库的命令改走串行车道 ＋ 撞锁重跑一档）、`_tools/qa/_hint_inventory.py`、`_tools/qa/_check_client_contract.py`、`_tools/qa/_check_audit_coverage.py`、`_tools/ops/_migration_tests.py` ＋ `_tools/ai/` 下四份生成器）—— ⚠️ 认领时拟的 `_check_purchase_orders.py` / `_reverse_verify_purchase_orders.py` / `_check_report_window.py` 实际没改，已从清单删掉
+- 核心改动：`backend/app/models/enums.py`（领域词汇表）、`backend/app/models/__init__.py`（模型注册）、`backend/app/api/v1/router.py`（路由挂载）—— 为什么必须动核心：发票的四个写动作 `TAX_INVOICE_CREATE / ISSUE / VOID / RESTORE` 必须进词表（审计覆盖与 AI 写闸门都按词表逐值比对，不入词表这四处写就没有归属），模型注册与路由挂载是接线文件、不含任何金额口径；只**追加**，⛔ 既有取值一个字节都不改。
+
+**判据与测试**：全部跑过（2026-10-04，日志都在 `_tmp/`）—— 判据 `_tools/qa/_check_tax_invoices.py` **全部 103 项通过**（`_tmp/chk_tax10.txt`）；反验 `_tools/qa/_reverse_verify_tax_invoices.py` **60/60 种破坏方式全部被抓到，且源码已还原**（`_tmp/rv_tax4.txt`，EXIT=0；新增检查器自带 `R4-BOUNDARY-JUSTIFICATION`）；单测 `backend/tests/test_tax_invoices.py` **22 passed**，后端全量 **`Results (171.28s): 1345 passed`**（`_tmp/pytest_feat0014_full.txt`；上一期 1323）；真实库探针 `_tools/qa/_probe_tax_invoices.py` **76 [OK] / 0 [FAIL]**（`_tmp/probe_tax_final.txt`，十三份 JSON `_tmp/ev/32x-tax-*.json`；窗口 6 月 `count 2 / ¥206.00 / 税 ¥6.00`、放宽 5–7 月 `count 3 / ¥9.00`、`vat_payable == 16.00 − 18.00 == −2.00`、利润表 ⑨ `tax_total 0 → 77.77` 且恒等式两侧都是 −77.77；跑完逐表硬删干净）；模拟器 emulator-5554 派单员实测五屏（发票台账列表 / 登记一张票 —— 界面填 500 与 3% 且**税额留空**，后端算 14.56 / 税账页 / 按税率分档 / 经营利润页，`_tmp/ev/4xx-tax-*.png`）；全量静检 **173/173**（302.0 秒，`_tmp/checkall_feat14_1.txt`），实现提交落地**之后再跑一遍 173/173**（355.8 秒，`_tmp/checkall_feat14_impl.txt`）—— 提交前那轮看不见只认「已提交检查器」的闸（R3-D17 那一类）。
+
+**落点与提交**：实现提交 `b418d89`（62 files changed, 6862 insertions(+), 176 deletions(-)）；归档提交 = 本块从「进行中」搬到「已完成」＋ `docs/changes/README.md` 状态列改「✅ 已关闭」＋ `docs/changes/FEAT-0014.md` 状态 / 关闭日期 / Commit 行回填（⛔ 只动这三个文件，不碰源码与生成物）。真机取证用的演示票（`DEMO-TAX-1` / `DEMO-TAX-2` / `DEMO-UI-1`）与那笔「税金及附加」开销已清场，库里 `invoices` 0 行、开销分类回到 8 个内置。
+
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0013 采购与进货价闭环：一次采购同时写库存、成本与供应商应付**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见下），并明确「设计风格和写代码的规范和要求，要按照我们的要求进行」＋「AI 也要具备全部的查看能力」；节奏定的是**一期一提交**，本期是第三期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → **③ 采购与进货价闭环** → ④ 税账 → ⑤ 应收账龄与客户信用）。开工前先问清采购单四件事并拿到需求方拍板（口径见下）。
