@@ -31,7 +31,7 @@
 
 ## 进行中
 
-### [2026-10-05 02:1x UTC → ] 会话：**CHG-0035 报表中心 v2 文案减负与留白**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+### [2026-10-05 02:1x UTC → 02:3x UTC 已完成] 会话：**CHG-0035 报表中心 v2 文案减负与留白**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **需求方原话**（2026-10-05）：「这个页面不需要写解释啊，你写的解释反而全是字啊，印象非常影响美观，还有那个**图标不要完全贴到左边啊，留点空隙**啊……那些没必要解释的没必要解释……**全部删掉**……如果有人想了解详情代表什么意思，**他可以询问 AI**」。
 
@@ -40,6 +40,13 @@
 - ⛔ **不改**：后端任何文件、接口与 DTO、路由与下钻链路、权限、老 11 页与 `ReportCenter.kt`、任何数字的取数口径（时点标记、「近 30 天」、「按人相加」这三类**防误读**标签保留）
 
 **验收**：模拟器 5554 前后对照截图；`python _tools/qa/_check_all.py` 全绿；文案改动后重跑 `python _tools/qa/_hint_inventory.py --md`。
+
+**做完的样子**（实现提交 `6daa79b`，8 files changed / 266 insertions(+) / 136 deletions(-)；只碰 v2 那个包的字符串与内边距）：
+- 首页：顶部那句「「上周」是自动挑的……」整句消失；`NotesCard`（「这几句话怎么读」）整张卡删除；五张表副标题只剩最短事实词（赚没赚钱 / 别人欠我（到 2026-09-27）/ 真进真出 / 哪赚哪亏 / 赚不赚钱）；走势图下那句说明消失。
+- 节点页（`ReportV2Nodes.kt`）：删掉 18 条解释 `NoteText`；行副标题瘦身（「卖出去的货按进货价算（不是买货花的现金）」→「按进货价算」…）；`Head` 的 `sub` 放开成可空；`OldEntryRow` 去掉 `sub` 参数。
+- 留白：`LazyColumn` 的 `contentPadding` 左右各 12dp；抽屉 `Column` 补 `padding(horizontal = 16.dp, vertical = 18.dp)` —— 抽屉标题与每一项图标对齐在同一条 16dp 线上（原来贴死 x=0）。
+- 防误读标记一个没少：时点「到 <日期>」、「异常单（近 30 天）」、「按人相加」；同一「上周」窗口数字逐项未变（¥7020.2 / 50 单 / ¥-3682.6 / ¥60.4 / ¥3743 / ¥0 / ¥69556.8 / ¥1043 / ¥840 / ¥3539.7 / ¥-2699.7）。
+- 静检：`python _tools/qa/_check_all.py` **174/174 全绿**；`python backend/scripts/check_reachability.py` EXIT 0；`python _tools/qa/_hint_inventory.py --md` 已按新指纹重生成 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`。
 
 
 
