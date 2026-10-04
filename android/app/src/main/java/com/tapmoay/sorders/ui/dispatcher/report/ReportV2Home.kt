@@ -138,15 +138,16 @@ private fun FiveTablesCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) 
             title = "资产负债表",
             word = "别人欠我（到 " + vm.asOfText + "）",
             amount = money(vm.customers?.totals?.balance),
-            amountColor = toneColor(Tone.WARN),
+            // 红 = 欠钱（别人欠我）。用户 2026-10-05 把红收回成这一种含义。
+            amountColor = toneColor(Tone.BAD),
             lines = triples(
                 Triple("别人欠我", vm.receivableBalance, money(vm.customers?.totals?.balance)),
                 Triple("库存", vm.stockKinds.toDouble(), vm.stockKinds.toString() + " 个品种"),
                 Triple("我欠司机", vm.driverOwed, money(vm.drivers?.drivers?.sumOf { num(it.freightOwed) }?.toString())),
             ),
             chips = listOf(
-                "欠款 " + (vm.customers?.totals?.debtorCount ?: 0) + " 人" to toneColor(Tone.WARN),
-                "超额度 " + vm.overLimitCount + " 家" to toneColor(Tone.BAD),
+                "欠款 " + (vm.customers?.totals?.debtorCount ?: 0) + " 人" to toneColor(Tone.BAD),
+                "超额度 " + vm.overLimitCount + " 家" to toneColor(if (vm.overLimitCount > 0) Tone.BAD else Tone.PLAIN),
             ),
             onClick = { onOpen(ReportNodes.balance) },
         )
@@ -241,11 +242,11 @@ private fun AlertsCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) {
         Spacer(Modifier.height(6.dp))
         LineRow(
             icon = ReportNodes.driverPayable.icon,
-            iconColor = Palette.warn,
+            iconColor = Palette.bad,
             title = "该付司机的钱",
             sub = "按人相加",
             value = money(java.lang.String.format(java.util.Locale.US, "%.2f", vm.driverOwed)),
-            valueColor = toneColor(Tone.WARN),
+            valueColor = toneColor(Tone.BAD),
             onClick = { onOpen(ReportNodes.driverPayable) },
         )
         HairLine()
@@ -261,21 +262,21 @@ private fun AlertsCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) {
         HairLine()
         LineRow(
             icon = ReportNodes.receivable.icon,
-            iconColor = Palette.warn,
+            iconColor = Palette.bad,
             title = "欠得最多的三个人",
             sub = topText,
             value = null,
-            valueColor = toneColor(Tone.WARN),
+            valueColor = toneColor(Tone.BAD),
             onClick = { onOpen(ReportNodes.receivable) },
         )
         HairLine()
         LineRow(
             icon = ReportNodes.opsExceptions.icon,
-            iconColor = Palette.bad,
+            iconColor = Palette.warn,
             title = "异常单（近 30 天）",
             sub = null,
             value = vm.exceptions.size.toString() + " 单",
-            valueColor = toneColor(if (vm.exceptions.isNotEmpty()) Tone.BAD else Tone.PLAIN),
+            valueColor = toneColor(if (vm.exceptions.isNotEmpty()) Tone.WARN else Tone.PLAIN),
             onClick = { onOpen(ReportNodes.opsExceptions) },
         )
     }

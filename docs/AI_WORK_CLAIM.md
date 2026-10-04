@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-05 02:2x UTC → 02:5x UTC 已完成] 会话：**CHG-0036 报表中心 v2 三件事（提示开关 / 金额左对齐 / 红只给欠钱）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**（2026-10-05）：「**像这样子的字不要不要**你看，哪个 App 上所有功能上都有字啊……还有像这样子的**要对齐**啊。呃他那个**金额要左对齐**啊，他有一个一定的位置，其他的也是一样的。还有一点就是**所有文字、所有数字都可以使用其他颜色，但是唯独红色只有也就是这个账他欠了钱才能使用**。还一点就是……你可以走一个就是我们**开启提示按钮的时候它才会显示**啊，其他的时候就是隐藏……包括你也有好多地方都是太多字、太多啰嗦」。
+
+**改哪些文件**（只在 v2 那个包里改配色、对齐与「哪句话常显」）：
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/`：`ReportV2Ui.kt`（`ValueColumn = 104.dp` / `ValueGutter = 18.dp`；`LineRow` 的值放进固定列宽内左对齐 + 末位可选 `subHint`；`MiniLine`、`TableTile` 对齐同一列）、`ReportV2Model.kt`（`amountTone` 负数改橙；`Palette` KDoc 写明红只给欠钱；`ReportNodes.opsExceptions` 改 warn；`REPORT_ENTRIES` 第 6 格图标 `#FF4D4F` → `#F5A623`）、`ReportV2Home.kt`、`ReportV2Nodes.kt`（`Head` 追加 `subHint`；17 处解释型小字走 `Hint`；欠钱保持红、亏损与异常改橙）、`ReportV2Screen.kt`（抽屉 11 行 `subHint = true`）
+- ⛔ **不改**：后端任何文件、接口与 DTO、路由与下钻链路、权限、老 11 页与 `ReportCenter.kt`（其内部配色不动）、`HintPrefs` / `Hint` 的机制与默认值、任何数字的取数口径；数据/限制类小字（只画前 40 条、接口按人给/按单给、车没填购置价、异常单固定近 30 天、空态句）照旧常显
+
+**验收**：模拟器 5554 截图（含「我的 → 提示」总开关拨开前后对照）；`python _tools/qa/_check_all.py` 全绿；文案改动后重跑 `python _tools/qa/_hint_inventory.py --md`。
+
+**做完的样子**：抽屉默认只剩 11 行「图标 + 名字 + 箭头」，拨开提示总开关白话原样回来（`_tmp/v4_drawer.png` / `_tmp/v4_hint_on.png`）；金额列起点一致（`_tmp/v4_pl.png` / `_tmp/v4_home.png`）；红=欠钱、橙=亏损/异常。
+
 ### [2026-10-05 02:1x UTC → 02:3x UTC 已完成] 会话：**CHG-0035 报表中心 v2 文案减负与留白**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **需求方原话**（2026-10-05）：「这个页面不需要写解释啊，你写的解释反而全是字啊，印象非常影响美观，还有那个**图标不要完全贴到左边啊，留点空隙**啊……那些没必要解释的没必要解释……**全部删掉**……如果有人想了解详情代表什么意思，**他可以询问 AI**」。
@@ -5571,6 +5583,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-05 02:5x | **CHG-0036 报表中心 v2 三件事**（我，`session-e94394d5`） | `ui/dispatcher/report/ReportV2Model.kt`（共享：`REPORT_ENTRIES`） | 只改**一格图标色**：`EntryCard("5", "异常与审计", …, Color(0xFFFF4D4F))` → `Color(0xFFF5A623)`（用户 m33242：「唯独红色只有这个账他欠了钱才能使用」；琥珀是设计系统已有色）。⚠️ 这份清单**老入口页 `ReportHome.kt` 与 v2 抽屉共用**（CHG-0034 时写的是「色值与老入口页原样一致」，这次是**有意破例**），所以回退落点那一页的「异常与审计」图标也会跟着变琥珀 —— 已记进 `docs/changes/CHG-0036.md` 的 Known Limitations；其余 10 格颜色一个字没动 |
 | 2026-10-05 01:1x | **CHG-0034 报表中心 v2**（我，`session-e94394d5`） | `ui/common/DatePresets.kt`、`ui/common/Components.kt`、`ui/nav/NavGraph.kt`、`ui/dispatcher/ReportHome.kt` | ① `DatePresets.kt` **只追加**：两个常量（`THIS_QUARTER="本季"`、`THIS_YEAR="本年"`）+ `REPORT_ROW`（八档）+ `rangeOf` 里两档（本季首日~今天 / 1 月 1 日~今天）——⛔ `ROW`、`AUTO_LADDER`、`ORDER_PRESET_LADDER` 一个字没动，既有档位语义不变；② `Components.kt` 给 `DatePresetDialog`(:742) 与 `DateFilterDialogs`(:812) **追加可选参数** `row: List<String> = DatePresets.ROW`（缺省行为逐字不变），内部 `DatePresets.ROW + DatePresets.CUSTOM` → `row + DatePresets.CUSTOM`；③ `NavGraph.kt:621` 只把 `Routes.REPORT_HOME` 那一处入口从 `ReportHomeScreen` 换成 `ReportV2Screen`（老 11 条 `Routes.REPORT_*` 一行没动）；④ `ReportHome.kt` 的 11 格手抄清单改成引用 `REPORT_ENTRIES`，本页降级为一键回退入口；⑤ ⚠️ **改到共享的检查脚本**（锚点跟着实现搬家，判据一条没放宽）：11 格清单从 `ui/dispatcher/ReportHome.kt` 搬进 `ui/dispatcher/report/ReportV2Model.kt` 的 `REPORT_ENTRIES` 之后，`_tools/qa/_check_profit_report.py`、`_tools/qa/_check_vehicle_depreciation.py`、`_tools/qa/_check_tax_invoices.py`、`_tools/qa/_check_customer_balances.py` 与 `_tools/qa/_reverse_verify_{tax_invoices,customer_balances,vehicle_depreciation}.py` 的文件常量改指新文件（判据文字与阈值逐字不变）；`_check_ledger_dashboard.py` 那条「清单里画的是 `DatePresets.ROW`」改成「画的是传进来的 `row` + 缺省值就是共享档位表」（**加严**：多钉一条缺省值）；顺带修掉两条**早就过期**的反验期望名（`_reverse_verify_{profit_report,vehicle_depreciation}.py` 里写的是「ViewModel 收下页签 0..8」，判据在第二~五期已改名成 0..10 ⇒ 一直报 MISS），判据本体一字未动 |
 | 2026-09-25 06:4x | **架构整改**（我，`session-e94394d5`） | `docs/PROJECT_MAP/{06_DESIGN_SYSTEM,08_CODE_LOCATOR}.md` | 只改**自己那几行**里手写的过期数字与过期引用：金额红线 **54→50 项**、反向验证 **18→16 种**、`AiWriteArgs.money(` 的「只许剩 6 处」→「只许剩 4~12 处（当前 6 处）」、客户端状态口径 **36→29 项**、已删脚本名 `_reverse_verify_client_contract.py` → `_reverse_verify_client_contract_app.py`、"三端同一条显示规则" → "两端（H5 那一端已归档）"。⛔ **没有覆盖任何别的会话写在同文件里的内容**（改前都重读过最新行） |
 | 2026-09-24 23:2x | **架构整改**（我，`session-e94394d5`） | `AGENTS.md`、`docs/PROJECT_MAP/{03_BACKEND_DETAILS,05_TESTING,08_CODE_LOCATOR}.md` | 第 8 轮：删掉手写的**会变的数字**（检查脚本数 / 端点数 / 反向验证份数 / `orders.py` 规模），改成指向生成物与命令；新增 `_tools/qa/_check_live_doc_counts.py`（27 条）守住。**只动这几行，没有别的会话的内容被覆盖** |

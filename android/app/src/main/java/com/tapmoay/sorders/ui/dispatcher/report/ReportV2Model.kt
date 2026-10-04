@@ -33,7 +33,8 @@ import java.util.Locale
  * 每页各配一套的下场是"同一个绿在三个页面表示三件事"，用户记不住。
  *
  * 含义（⛔ 不许改，改了所有页面一起变味）：
- * · [good] 绿 = 赚 / 收到 / 正常；· [bad] 红 = 亏 / 缺 / 异常；· [warn] 橙 = 钱还没到手/该付出去；
+ * · [good] 绿 = 赚 / 收到 / 正常；· [bad] 红 = **只给「欠钱」**（别人欠我 / 我欠别人 / 超额度）；
+ * · [warn] 橙 = 亏、算不出来、待处理（异常单、缺台账、没进货价）与「钱还没到手/该付出去」；
  * · [info] 蓝 = 中性提示（进出、比例如实说出来）；· [violet] 紫 = 资产/存货一类"在手上的东西"；
  * · [gray] 灰 = 说不清的（接口没给的口径）。
  */
@@ -60,8 +61,12 @@ internal fun toneColor(t: Tone): Color = when (t) {
     Tone.GRAY -> Palette.gray
 }
 
-/** 金额的语义：负数一律红（亏），非负绿。⛔ 不要按"正数就是好"去套欠款那几行。 */
-internal fun amountTone(v: Double): Tone = if (v < 0) Tone.BAD else Tone.GOOD
+/**
+ * 金额的语义：**亏损是橙、不是红** —— 用户 2026-10-05：「所有数字都可以使用其他颜色，但是唯独红色
+ * 只有也就是这个账，他欠了钱才能使用」。所以红被收回成「欠钱」专用（见 [Palette]），
+ * 欠款那几行的红是**写死**的（不是靠这个函数算出来的）。
+ */
+internal fun amountTone(v: Double): Tone = if (v < 0) Tone.WARN else Tone.GOOD
 
 /**
  * 报表中心的一个**节点**（一格屏）。
@@ -114,7 +119,7 @@ internal object ReportNodes {
     val opsProducts = ReportNode("ops.products", "商品", "ops", Icons.Default.Inventory2, Palette.violet)
     val opsDrivers = ReportNode("ops.drivers", "司机", "ops", Icons.Default.LocalShipping, Palette.good)
     val opsVehicles = ReportNode("ops.vehicles", "车辆", "ops", Icons.Default.DirectionsCar, Palette.gray)
-    val opsExceptions = ReportNode("ops.exceptions", "异常单", "ops", Icons.Default.ReportProblem, Palette.bad)
+    val opsExceptions = ReportNode("ops.exceptions", "异常单", "ops", Icons.Default.ReportProblem, Palette.warn)
 
     // 五、关键指标表这条链（比率，全是页面按接口给的两个数相除算的）
     val kpi = ReportNode("kpi", "关键指标表", "home", Icons.Default.Assessment, Palette.good)
@@ -146,7 +151,9 @@ internal val REPORT_ENTRIES: List<EntryCard> = listOf(
     EntryCard("2", "司机绩效", Icons.Default.LocalShipping, Color(0xFF00B578)),
     EntryCard("3", "客户经营", Icons.Default.Storefront, Color(0xFF00A2C7)),
     EntryCard("4", "资金收支", Icons.Default.SwapHoriz, Color(0xFF6950F5)),
-    EntryCard("5", "异常与审计", Icons.Default.ReportProblem, Color(0xFFFF4D4F)),
+    // 2026-10-05 CHG-0036：用户定「红色只给欠钱」（别人欠我 / 我欠别人 / 超额度）。异常不是欠账，
+    // 所以它从红 #FF4D4F 换成设计系统里已有的琥珀 #F5A623（与「营业纵览」的金橙 #FF9500 同族但更深）。
+    EntryCard("5", "异常与审计", Icons.Default.ReportProblem, Color(0xFFF5A623)),
     EntryCard("6", "经营利润", Icons.Default.CurrencyYuan, Color(0xFF00B3A4)),
     EntryCard("7", "车辆成本", Icons.Default.DirectionsCar, Color(0xFF546E7A)),
     EntryCard("8", "成本覆盖", Icons.Default.BarChart, Color(0xFF4CAF50)),

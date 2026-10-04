@@ -70,8 +70,8 @@ private fun CapNote(total: Int) {
 
 /** 一个节点的头：这是什么、这一段是哪一段、大数是多少。 */
 @Composable
-private fun Head(title: String, sub: String?, amount: String?, tone: Tone, icon: ImageVector? = null, color: Color = Palette.gray) {
-    LineRow(icon, color, title, sub, amount, if (tone == Tone.PLAIN) Color.Unspecified else toneColor(tone), null, false, MaterialTheme.typography.titleLarge)
+private fun Head(title: String, sub: String?, amount: String?, tone: Tone, icon: ImageVector? = null, color: Color = Palette.gray, subHint: Boolean = false) {
+    LineRow(icon, color, title, sub, amount, if (tone == Tone.PLAIN) Color.Unspecified else toneColor(tone), null, false, MaterialTheme.typography.titleLarge, subHint = subHint)
     HairLine()
 }
 
@@ -115,7 +115,7 @@ private fun RevenueNode(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit, onO
         SectionTitle("营业收入")
         Spacer(Modifier.height(4.dp))
         if (p == null || t == null) { LoadingBox(); return@SectionCard }
-        Head("该收多少", "已送达的单才算", money(p.revenueTotal), Tone.PLAIN)
+        Head("该收多少", "已送达的单才算", money(p.revenueTotal), Tone.PLAIN, subHint = true)
         LineRow(null, Palette.gray, "有成本出处的收入", null, money(p.revenueCovered), Color.Unspecified, null, false)
         HairLine()
         LineRow(null, Palette.gray, "没成本出处的收入", "没有进货价，算不出成本", money(p.revenueUncovered), toneColor(Tone.WARN), { onOpen(ReportNodes.cost) }, true)
@@ -164,13 +164,13 @@ private fun DriverFeeNode(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit, o
         SectionTitle("司机运费（按单应付）")
         Spacer(Modifier.height(4.dp))
         if (p == null) { LoadingBox(); return@SectionCard }
-        Head("这一段该付给司机多少", "按每一单的规则算出来的应得，不是订单上那个运费字段", money(p.deliveryCost), Tone.PLAIN)
+        Head("这一段该付给司机多少", "按每一单的规则算出来的应得，不是订单上那个运费字段", money(p.deliveryCost), Tone.PLAIN, subHint = true)
         val rows = owedRows(vm)
         if (rows.isEmpty()) {
             EmptyView("这一段没有司机的待结运费")
         } else {
             rows.take(LIST_CAP).forEach { d ->
-                LineRow(null, Palette.gray, d.driverName.orEmpty().ifBlank { "（没名字）" }, "完成了 " + d.completedCount + " 单", money(d.freightOwed), toneColor(Tone.WARN), { onOpen(ReportNodes.driverPayable) }, true)
+                LineRow(null, Palette.gray, d.driverName.orEmpty().ifBlank { "（没名字）" }, "完成了 " + d.completedCount + " 单", money(d.freightOwed), toneColor(Tone.BAD), { onOpen(ReportNodes.driverPayable) }, true)
             }
             CapNote(rows.size)
         }
@@ -187,7 +187,7 @@ private fun ExpenseNode(vm: ReportV2ViewModel, onOpenOrder: (Long) -> Unit) {
         SectionTitle("期间费用")
         Spacer(Modifier.height(4.dp))
         if (p == null) { LoadingBox(); return@SectionCard }
-        Head("这一段花掉多少", "油费、维修、过路费、罚款这些日常开销", money(p.operatingExpenseTotal), Tone.WARN)
+        Head("这一段花掉多少", "油费、维修、过路费、罚款这些日常开销", money(p.operatingExpenseTotal), Tone.WARN, subHint = true)
         val byCat = p.operatingExpenses
         if (byCat.isEmpty()) {
             EmptyView("这一段没有分类明细")
@@ -263,7 +263,7 @@ private fun TaxNode(vm: ReportV2ViewModel, onOpenTab: (Int) -> Unit) {
         SectionTitle("税账（增值税）")
         Spacer(Modifier.height(4.dp))
         if (t == null) { LoadingBox(); return@SectionCard }
-        Head("这一段应纳增值税", "销项减进项；增值税是价外税，不从营业利润那条链里扣", money(t.vatPayable), Tone.INFO)
+        Head("这一段应纳增值税", "销项减进项；增值税是价外税，不从营业利润那条链里扣", money(t.vatPayable), Tone.INFO, subHint = true)
         LineRow(null, Palette.gray, "销项（开出去的票）", (t.output?.count ?: 0).toString() + " 张 · 不含税 " + money(t.output?.netAmount), money(t.output?.taxAmount), Color.Unspecified, null, false)
         HairLine()
         LineRow(null, Palette.gray, "进项（收进来的票）", (t.input?.count ?: 0).toString() + " 张 · 不含税 " + money(t.input?.netAmount), money(t.input?.taxAmount), Color.Unspecified, null, false)
@@ -282,14 +282,14 @@ private fun BalanceNode(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) {
         SectionTitle("资产负债表（到 " + vm.asOfText + " 为止）")
         Spacer(Modifier.height(4.dp))
         if (c == null) { LoadingBox(); return@SectionCard }
-        Head("别人欠我的 + 我手上的 − 我欠别人的", "这是时点账（某一天为止的结存），不是「这一段」发生了多少", money(c.totals?.balance), Tone.WARN)
-        LineRow(ReportNodes.receivable.icon, ReportNodes.receivable.color, "别人欠我", (c.totals?.debtorCount ?: 0).toString() + " 个客户、" + (c.totals?.orderCount ?: 0) + " 张单，点进去看每一张", money(c.totals?.balance), toneColor(Tone.WARN), { onOpen(ReportNodes.receivable) }, true)
+        Head("别人欠我的 + 我手上的 − 我欠别人的", "这是时点账（某一天为止的结存），不是「这一段」发生了多少", money(c.totals?.balance), Tone.BAD, subHint = true)
+        LineRow(ReportNodes.receivable.icon, ReportNodes.receivable.color, "别人欠我", (c.totals?.debtorCount ?: 0).toString() + " 个客户 · " + (c.totals?.orderCount ?: 0) + " 张单", money(c.totals?.balance), toneColor(Tone.BAD), { onOpen(ReportNodes.receivable) }, true)
         HairLine()
         LineRow(null, Palette.gray, "客户先给的钱（预收）", "钱到了、货还没发，这是欠别人的货", money(c.totals?.prepaid), Color.Unspecified, null, false)
         HairLine()
         LineRow(ReportNodes.stock.icon, ReportNodes.stock.color, "库存（按数量看）", "接口只给数量、没有金额；要有金额得先有进货价", vm.stockKinds.toString() + " 个品种有结存", Color.Unspecified, { onOpen(ReportNodes.stock) }, true)
         HairLine()
-        LineRow(ReportNodes.driverPayable.icon, ReportNodes.driverPayable.color, "我欠司机（待结运费）", "接口按人给，这一行是页面相加的", moneyOf(vm.driverOwed), toneColor(Tone.WARN), { onOpen(ReportNodes.driverPayable) }, true)
+        LineRow(ReportNodes.driverPayable.icon, ReportNodes.driverPayable.color, "我欠司机（待结运费）", "接口按人给，这一行是页面相加的", moneyOf(vm.driverOwed), toneColor(Tone.BAD), { onOpen(ReportNodes.driverPayable) }, true)
         HairLine()
         LineRow(ReportNodes.supplierPayable.icon, ReportNodes.supplierPayable.color, "我欠供应商（应付货款）", "接口按单给，这一行是页面相加的", moneyOf(vm.supplierUnpaid), Color.Unspecified, { onOpen(ReportNodes.supplierPayable) }, true)
         HairLine()
@@ -305,7 +305,7 @@ private fun ReceivableNode(vm: ReportV2ViewModel) {
         SectionTitle("别人欠我（到 " + vm.asOfText + " 为止）")
         Spacer(Modifier.height(4.dp))
         if (c == null) { LoadingBox(); return@SectionCard }
-        Head("一共 " + (c.totals?.debtorCount ?: 0) + " 个客户欠款", (c.totals?.orderCount ?: 0).toString() + " 张单挂账 · 超额度 " + (c.totals?.overLimitCount ?: 0) + " 家", money(c.totals?.balance), Tone.WARN)
+        Head("一共 " + (c.totals?.debtorCount ?: 0) + " 个客户欠款", (c.totals?.orderCount ?: 0).toString() + " 张单挂账 · 超额度 " + (c.totals?.overLimitCount ?: 0) + " 家", money(c.totals?.balance), Tone.BAD)
         val buckets = c.totals?.buckets.orEmpty()
         if (buckets.isEmpty()) {
             NoteText("这个版本没有给账龄分档。")
@@ -325,7 +325,7 @@ private fun ReceivableNode(vm: ReportV2ViewModel) {
                     if (r.oldestDays > 0) "最久 " + r.oldestDays + " 天" else null,
                     if (r.overLimit) "超额度" else null,
                 ).joinToString(" · ")
-                LineRow(null, if (r.overLimit) Palette.bad else Palette.gray, r.name.orEmpty().ifBlank { ReportFinance.debtorKindLabel(r.kind) }, sub, money(r.balance), toneColor(if (r.overLimit) Tone.BAD else Tone.WARN), { vm.openCustomer(e.index) }, true)
+                LineRow(null, if (r.overLimit) Palette.bad else Palette.gray, r.name.orEmpty().ifBlank { ReportFinance.debtorKindLabel(r.kind) }, sub, money(r.balance), toneColor(Tone.BAD), { vm.openCustomer(e.index) }, true)
             }
             CapNote(rows.size)
         }
@@ -342,7 +342,7 @@ private fun CustomerNode(vm: ReportV2ViewModel, node: ReportNode, onOpenOrder: (
             EmptyView("这个客户不在这份欠款清单里了 —— 换过时间档位之后清单会重排，回上一页重新点一次。")
             return@SectionCard
         }
-        Head("欠款（到 " + vm.asOfText + " 为止）", (row.orderCount).toString() + " 张单" + (if (row.oldestDays > 0) " · 最久 " + row.oldestDays + " 天" else "") + (if (row.phone.orEmpty().isNotBlank()) " · " + row.phone.orEmpty() else ""), money(row.balance), if (row.overLimit) Tone.BAD else Tone.WARN)
+        Head("欠款（到 " + vm.asOfText + " 为止）", (row.orderCount).toString() + " 张单" + (if (row.oldestDays > 0) " · 最久 " + row.oldestDays + " 天" else "") + (if (row.phone.orEmpty().isNotBlank()) " · " + row.phone.orEmpty() else ""), money(row.balance), Tone.BAD)
         if (!row.limit.isNullOrBlank()) {
             LineRow(null, Palette.gray, "信用额度", "已用 " + money(row.creditUsed), money(row.limit), Color.Unspecified, null, false)
             HairLine()
@@ -360,7 +360,7 @@ private fun CustomerNode(vm: ReportV2ViewModel, node: ReportNode, onOpenOrder: (
                     if (o.days > 0) "账龄 " + o.days + " 天" else null,
                     ReportFinance.bucketLabel(o.bucket),
                 ).joinToString(" · ")
-                LineRow(null, Palette.gray, o.orderNo.orEmpty().ifBlank { "（没有单号）" }, sub, money(o.arrears), toneColor(if (num(o.arrears) > 0) Tone.WARN else Tone.PLAIN), { onOpenOrder(o.orderId) }, true)
+                LineRow(null, Palette.gray, o.orderNo.orEmpty().ifBlank { "（没有单号）" }, sub, money(o.arrears), toneColor(if (num(o.arrears) > 0) Tone.BAD else Tone.PLAIN), { onOpenOrder(o.orderId) }, true)
             }
         }
     }
@@ -373,7 +373,7 @@ private fun StockNode(vm: ReportV2ViewModel, onOpenTab: (Int) -> Unit) {
         Spacer(Modifier.height(4.dp))
         val list = vm.inventory
         if (list.isEmpty()) { LoadingBox(); return@SectionCard }
-        Head("手上有 " + vm.stockKinds + " 个品种有结存", "库存接口只给数量、没有金额 —— 要有金额，得每个商品都有进货价", null, Tone.PLAIN)
+        Head("手上有 " + vm.stockKinds + " 个品种有结存", "接口只给数量、没有金额", null, Tone.PLAIN)
         list.sortedByDescending { it.stock }.take(LIST_CAP).forEach { i ->
             LineRow(null, Palette.gray, i.productName.orEmpty().ifBlank { "（没名字）" }, i.category.orEmpty().ifBlank { "没分类" } + (if (i.reserved > 0) " · 已留 " + i.reserved else ""), i.stock.toString() + " " + i.unit, Color.Unspecified, null, false)
         }
@@ -389,12 +389,12 @@ private fun DriverPayableNode(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Uni
         Spacer(Modifier.height(4.dp))
         val rows = owedRows(vm)
         if (vm.drivers == null) { LoadingBox(); return@SectionCard }
-        Head("一共欠 " + rows.size + " 个司机", "接口按人给、没有给合计 —— 这一行是页面把每个司机的数相加起来的", moneyOf(vm.driverOwed), Tone.WARN)
+        Head("一共欠 " + rows.size + " 个司机", "接口按人给、没有给合计 —— 这一行是页面把每个司机的数相加起来的", moneyOf(vm.driverOwed), Tone.BAD)
         if (rows.isEmpty()) {
             EmptyView("这一段没有待结运费")
         } else {
             rows.take(LIST_CAP).forEach { d ->
-                LineRow(null, Palette.gray, d.driverName.orEmpty().ifBlank { "（没名字）" }, "完成 " + d.completedCount + " 单" + (d.billingMode?.takeIf { it.isNotBlank() }?.let { " · " + it } ?: ""), money(d.freightOwed), toneColor(Tone.WARN), null, false)
+                LineRow(null, Palette.gray, d.driverName.orEmpty().ifBlank { "（没名字）" }, "完成 " + d.completedCount + " 单" + (d.billingMode?.takeIf { it.isNotBlank() }?.let { " · " + it } ?: ""), money(d.freightOwed), toneColor(Tone.BAD), null, false)
             }
             CapNote(rows.size)
         }
@@ -410,7 +410,7 @@ private fun SupplierPayableNode(vm: ReportV2ViewModel, onOpenTab: (Int) -> Unit)
         SectionTitle("我欠供应商（应付货款）")
         Spacer(Modifier.height(4.dp))
         val list = vm.payables
-        Head("一共 " + list.size + " 张单", "接口按单给、没有给合计 —— 这一行是页面把它们相加起来的", moneyOf(vm.supplierUnpaid), Tone.WARN)
+        Head("一共 " + list.size + " 张单", "接口按单给、没有给合计 —— 这一行是页面把它们相加起来的", moneyOf(vm.supplierUnpaid), Tone.BAD)
         if (list.isEmpty()) {
             EmptyView("这一段没有应付未付的货款")
         } else {
@@ -421,7 +421,7 @@ private fun SupplierPayableNode(vm: ReportV2ViewModel, onOpenTab: (Int) -> Unit)
                     if (s.paid.orEmpty().isBlank()) null else "已付 " + money(s.paid),
                     if (s.paymentCount > 0) "付过 " + s.paymentCount + " 次" else null,
                 ).joinToString(" · ")
-                LineRow(null, Palette.gray, s.title.orEmpty().ifBlank { "（没有名目）" }, sub, money(s.unpaid), toneColor(if (num(s.unpaid) > 0) Tone.WARN else Tone.PLAIN), null, false)
+                LineRow(null, Palette.gray, s.title.orEmpty().ifBlank { "（没有名目）" }, sub, money(s.unpaid), toneColor(if (num(s.unpaid) > 0) Tone.BAD else Tone.PLAIN), null, false)
             }
             CapNote(list.size)
         }
@@ -485,7 +485,7 @@ private fun OpsNode(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) {
         HairLine()
         LineRow(null, Palette.gray, "商品毛利", "毛利率 " + percentText(ratioOf(p.grossProfit, p.revenueTotal)), money(p.grossProfit), toneColor(amountTone(vm.grossProfit)), null, false)
         HairLine()
-        LineRow(null, Palette.gray, "营业利润", "减掉运费、费用、折旧之后", money(p.operatingProfit), toneColor(amountTone(vm.operatingProfit)), null, false)
+        LineRow(null, Palette.gray, "营业利润", "减掉运费、费用、折旧之后", money(p.operatingProfit), toneColor(amountTone(vm.operatingProfit)), null, false, subHint = true)
         Spacer(Modifier.height(8.dp))
         SectionTitle("往哪儿看")
         LineRow(ReportNodes.opsProducts.icon, ReportNodes.opsProducts.color, "商品", "哪个卖得多、哪个亏", null, Color.Unspecified, { onOpen(ReportNodes.opsProducts) }, true)
@@ -524,10 +524,10 @@ private fun DriversNode(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit, onO
         SectionTitle("司机绩效")
         Spacer(Modifier.height(4.dp))
         if (d == null) { LoadingBox(); return@SectionCard }
-        Head("这一段有 " + d.drivers.size + " 个司机在跑", "完成单数按已送达算", null, Tone.PLAIN)
+        Head("这一段有 " + d.drivers.size + " 个司机在跑", "完成单数按已送达算", null, Tone.PLAIN, subHint = true)
         val rows = d.drivers.sortedByDescending { it.completedCount }
         rows.take(LIST_CAP).forEach { r ->
-            LineRow(null, Palette.gray, r.driverName.ifBlank { "（没名字）" }, "完成 " + r.completedCount + " 单", money(r.freightOwed), toneColor(if (num(r.freightOwed) > 0) Tone.WARN else Tone.PLAIN), { onOpen(ReportNodes.driverPayable) }, true)
+            LineRow(null, Palette.gray, r.driverName.ifBlank { "（没名字）" }, "完成 " + r.completedCount + " 单", money(r.freightOwed), toneColor(if (num(r.freightOwed) > 0) Tone.BAD else Tone.PLAIN), { onOpen(ReportNodes.driverPayable) }, true)
         }
         CapNote(rows.size)
         OldEntryRow("老页面：司机绩效", 2, onOpenTab)
@@ -558,7 +558,7 @@ private fun ExceptionsNode(vm: ReportV2ViewModel, onOpenOrder: (Long) -> Unit, o
         SectionTitle("异常单（近 30 天）")
         Spacer(Modifier.height(4.dp))
         val list = vm.exceptions
-        Head("卡住的和超时的", "⚠️ 这一页固定看最近 30 天，与上面那颗时间药丸的档位无关", list.size.toString() + " 单", if (list.isEmpty()) Tone.PLAIN else Tone.BAD)
+        Head("卡住的和超时的", "⚠️ 这一页固定看最近 30 天，与上面那颗时间药丸的档位无关", list.size.toString() + " 单", if (list.isEmpty()) Tone.PLAIN else Tone.WARN)
         if (list.isEmpty()) {
             EmptyView("近 30 天没有异常单")
         } else {
@@ -569,7 +569,7 @@ private fun ExceptionsNode(vm: ReportV2ViewModel, onOpenOrder: (Long) -> Unit, o
                     e.driverName?.takeIf { it.isNotBlank() },
                     e.exceptionReason.orEmpty().takeIf { it.isNotBlank() },
                 ).joinToString(" · ")
-                LineRow(null, Palette.bad, e.orderNo.orEmpty().ifBlank { "（没有单号）" }, sub, null, Color.Unspecified, { onOpenOrder(e.id) }, true)
+                LineRow(null, Palette.warn, e.orderNo.orEmpty().ifBlank { "（没有单号）" }, sub, null, Color.Unspecified, { onOpenOrder(e.id) }, true)
             }
             CapNote(list.size)
         }
@@ -590,24 +590,24 @@ private fun KpiNode(vm: ReportV2ViewModel) {
         SectionTitle("赚不赚钱（比率）")
         Spacer(Modifier.height(4.dp))
         if (p == null) { LoadingBox(); return@SectionCard }
-        LineRow(null, Palette.gray, "毛利率", "商品毛利 ÷ 营业额", percentText(margin), toneColor(if ((margin ?: 0.0) >= 0.0) Tone.GOOD else Tone.BAD), null, false)
+        LineRow(null, Palette.gray, "毛利率", "商品毛利 ÷ 营业额", percentText(margin), toneColor(if ((margin ?: 0.0) >= 0.0) Tone.GOOD else Tone.WARN), null, false, subHint = true)
         HairLine()
-        LineRow(null, Palette.gray, "营业利润率", "营业利润 ÷ 营业额", percentText(ratioOf(p.operatingProfit, p.revenueTotal)), toneColor(amountTone(vm.operatingProfit)), null, false)
+        LineRow(null, Palette.gray, "营业利润率", "营业利润 ÷ 营业额", percentText(ratioOf(p.operatingProfit, p.revenueTotal)), toneColor(amountTone(vm.operatingProfit)), null, false, subHint = true)
         HairLine()
-        LineRow(null, Palette.warn, "净利率", "净利 = 营业利润 − 所得税；接口没有所得税这一项", "缺所得税", toneColor(Tone.WARN), null, false)
+        LineRow(null, Palette.warn, "净利率", "净利 = 营业利润 − 所得税；接口没有所得税这一项", "缺所得税", toneColor(Tone.WARN), null, false, subHint = true)
         HairLine()
-        LineRow(null, Palette.gray, "保本营业额（粗算）", "（期间费用 + 折旧）÷ 毛利率；这一段要卖到这么多才不亏", if (be == null) "—" else moneyOf(be), Color.Unspecified, null, false)
+        LineRow(null, Palette.gray, "保本营业额（粗算）", "（期间费用 + 折旧）÷ 毛利率；这一段要卖到这么多才不亏", if (be == null) "—" else moneyOf(be), Color.Unspecified, null, false, subHint = true)
         HairLine()
-        LineRow(null, Palette.gray, "安全边际率", "（实际营业额 − 保本营业额）÷ 实际营业额；负的=还没到保本点", percentText(safety), toneColor(if ((safety ?: 0.0) >= 0.0) Tone.GOOD else Tone.BAD), null, false)
+        LineRow(null, Palette.gray, "安全边际率", "（实际营业额 − 保本营业额）÷ 实际营业额；负的=还没到保本点", percentText(safety), toneColor(if ((safety ?: 0.0) >= 0.0) Tone.GOOD else Tone.WARN), null, false, subHint = true)
         Spacer(Modifier.height(8.dp))
         SectionTitle("成本和费用")
-        LineRow(null, Palette.gray, "司机运费率", "司机运费 ÷ 营业额", percentText(ratioOf(p.deliveryCost, p.revenueTotal)), Color.Unspecified, null, false)
+        LineRow(null, Palette.gray, "司机运费率", "司机运费 ÷ 营业额", percentText(ratioOf(p.deliveryCost, p.revenueTotal)), Color.Unspecified, null, false, subHint = true)
         HairLine()
-        LineRow(null, Palette.gray, "期间费用率", "期间费用 ÷ 营业额", percentText(ratioOf(p.operatingExpenseTotal, p.revenueTotal)), Color.Unspecified, null, false)
+        LineRow(null, Palette.gray, "期间费用率", "期间费用 ÷ 营业额", percentText(ratioOf(p.operatingExpenseTotal, p.revenueTotal)), Color.Unspecified, null, false, subHint = true)
         HairLine()
-        LineRow(null, Palette.gray, "折旧占收入", "折旧 ÷ 营业额；车没填购置价就是 0", percentText(ratioOf(p.depreciationTotal, p.revenueTotal)), Color.Unspecified, null, false)
+        LineRow(null, Palette.gray, "折旧占收入", "折旧 ÷ 营业额；车没填购置价就是 0", percentText(ratioOf(p.depreciationTotal, p.revenueTotal)), Color.Unspecified, null, false, subHint = true)
         HairLine()
-        LineRow(null, Palette.gray, "成本覆盖率", "有成本出处的收入 ÷ 全部收入；低 = 毛利算不准", percentText(ratioOf(c?.revenueCovered, c?.revenueTotal)), toneColor(if ((ratioOf(c?.revenueCovered, c?.revenueTotal) ?: 1.0) >= 0.9) Tone.GOOD else Tone.WARN), null, false)
+        LineRow(null, Palette.gray, "成本覆盖率", "有成本出处的收入 ÷ 全部收入；低 = 毛利算不准", percentText(ratioOf(c?.revenueCovered, c?.revenueTotal)), toneColor(if ((ratioOf(c?.revenueCovered, c?.revenueTotal) ?: 1.0) >= 0.9) Tone.GOOD else Tone.WARN), null, false, subHint = true)
         Spacer(Modifier.height(6.dp))
     }
 }

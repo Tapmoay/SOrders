@@ -265,7 +265,9 @@ private fun ReportV2Drawer(
                 icon = e.icon,
                 iconColor = e.color,
                 title = e.label,
+                // 抽屉里那句白话是**解释**（用户 2026-10-05：「那些字……开启提示按钮的时候它才会显示」）
                 sub = REPORT_ENTRY_SUBS[e.key].orEmpty(),
+                subHint = true,
                 value = null,
                 valueColor = Color.Unspecified,
                 onClick = { onPickTab(e.key.toIntOrNull() ?: 0) },

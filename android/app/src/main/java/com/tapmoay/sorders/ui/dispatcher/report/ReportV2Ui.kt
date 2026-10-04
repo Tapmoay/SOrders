@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.ui.common.Hint
 
 /**
  * 报表中心 v2 的**共用零件**（CHG-0034）。
@@ -42,6 +43,18 @@ import androidx.compose.ui.unit.dp
  * ⛔ 这里不许出现任何 JSON、任何字段名原文（用户 2026-10-05：「不能出现 JSON 那种数据样式，
  *    那个是完全不能出现的」）。
  */
+
+/**
+ * 金额那一列的**固定宽度**（左对齐的落点）。
+ *
+ * 用户 2026-10-05：「那个金额要**左对齐**啊，他有一个一定的位置，其他的也是一样的」——
+ * 所以每一行的数不是"贴着右边尾巴排"，而是**从同一条竖线开始**：卡片内的行、迷你行、
+ * 大表头三处都按这一条线对齐（迷你行那一列要补上箭头那 18dp，见 [MiniLine]）。
+ */
+internal val ValueColumn = 104.dp
+
+/** 箭头占的宽度（金额列右边那一格，用来把迷你行的数也对到同一条线上）。 */
+internal val ValueGutter = 18.dp
 
 /** 卡片里的小标题：左边一条竖色条 + 标题（用户要的"重心"就在这条竖条上）。 */
 @Composable
@@ -98,6 +111,8 @@ internal fun LineRow(
     onClick: (() -> Unit)? = null,
     chevron: Boolean = false,
     valueStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.titleMedium,
+    /** 这一行的小字是**解释句**（"怎么算的"）⇒ 走 [Hint]，总开关关掉时整句不显示。 */
+    subHint: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -122,25 +137,42 @@ internal fun LineRow(
                 modifier = Modifier.fillMaxWidth(),
             )
             if (!sub.isNullOrBlank()) {
-                Text(
-                    sub,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                // ⚠️ 解释句（"怎么算的 / 为什么这么看"）走 [Hint]：用户 2026-10-05「那些字你可以走一个
+                //    就是我们开启提示按钮的时候它才会显示，其他的时候就是隐藏」。
+                //    ⛔ 口径与数据（「只画了前 40 条」「接口按人给，这一行是页面相加的」）不许走 Hint ——
+                //    那等于关掉提示把用户判断数字对不对的依据也一起关掉（`_check_hints.py` 钉着这条）。
+                if (subHint) {
+                    Hint(
+                        sub,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    Text(
+                        sub,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
         if (value != null) {
-            Spacer(Modifier.width(8.dp))
-            Text(
-                value,
-                style = valueStyle,
-                fontWeight = FontWeight.SemiBold,
-                color = valueColor,
-                maxLines = 1,
-                textAlign = TextAlign.End,
-            )
+            Spacer(Modifier.width(10.dp))
+            // 金额列：**固定起点、左对齐**（同一条竖线起排，见 [ValueColumn]）。
+            Box(Modifier.width(ValueColumn), contentAlignment = Alignment.CenterStart) {
+                Text(
+                    value,
+                    style = valueStyle,
+                    fontWeight = FontWeight.SemiBold,
+                    color = valueColor,
+                    maxLines = 1,
+                    textAlign = TextAlign.Start,
+                )
+            }
         }
         if (chevron || onClick != null) {
             Icon(
@@ -190,13 +222,14 @@ internal fun MiniLine(label: String, fraction: Float, value: String, color: Colo
             )
         }
         Spacer(Modifier.width(8.dp))
+        // 与行里的金额列对齐：宽度 = 金额列 + 箭头那一格（外面那条行没有箭头）
         Text(
             value,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.width(76.dp),
+            modifier = Modifier.width(ValueColumn + ValueGutter),
             maxLines = 1,
-            textAlign = TextAlign.End,
+            textAlign = TextAlign.Start,
         )
     }
 }
@@ -240,13 +273,16 @@ internal fun TableTile(
             Spacer(Modifier.width(10.dp))
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
             Spacer(Modifier.weight(1f))
-            Text(
-                amount,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = amountColor,
-                maxLines = 1,
-            )
+            Box(Modifier.width(ValueColumn), contentAlignment = Alignment.CenterStart) {
+                Text(
+                    amount,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = amountColor,
+                    maxLines = 1,
+                    textAlign = TextAlign.Start,
+                )
+            }
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
