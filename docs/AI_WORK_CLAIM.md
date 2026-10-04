@@ -30,32 +30,6 @@
 ---
 
 ## 进行中
-### [2026-10-04 进行中] 会话：**FEAT-0013 采购与进货价闭环：一次采购同时写库存、成本与供应商应付**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见 FEAT-0011 块），节奏是**一期一提交**：① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → **③ 采购与进货价闭环（本事项）** → ④ 税账 → ⑤ 应收账龄与客户信用。开工前先问了四个口径并拿到需求方拍板（见下）。
-
-**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
-然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
-分析。」
-
-**本期口径（需求方 2026-10-04 拍板四条）**：
-① 形态 → **新增「采购单」页**（供应商 ＋ 日期 ＋ 多行商品/数量/单价，保存时库存、成本、应付三件事一次写完）；
-② 应付 → **自动生成一张应付单**（金额＝单据合计、日期＝单据日期，付款照旧在供应商页分次付）；
-③ 改单 → **允许改单**（改数量/单价时自动补写差额）；
-④ 成本覆盖看板 → **要**（列出没有进货价的商品 ＋ 账上「算不出成本的收入」有多少 ＋ 补录入口）。
-
-**做什么**：新增两张表（迁移 `019_purchase_orders.py`：`purchase_orders` / `purchase_order_items`）＋ 唯一实现 `backend/app/services/purchase_service.py`（建单 / 改单 / 撤行 / 删单 / 恢复；库存、成本、应付同一事务）＋ 端点 `backend/app/api/v1/purchase_orders.py`（4 个写 ＋ 2 个读）＋ 只读报表 `GET /api/v1/reports/cost-coverage`（`services/reports/cost_coverage_query.py`）＋ 报表中心第 9 格「成本覆盖」＋ Android 采购单列表页与表单页 ＋ 供应商页对「来自采购单的应付单」加改/删保护（指向那张采购单）。
-
-**核心改动：`backend/app/models/enums.py`（新增 4 个 `OperationAction` 动作码）、`backend/app/api/v1/__init__.py`（挂载新路由）、`backend/app/models/__init__.py`（注册新模型）—— 为什么必须动核心：动作码与路由/模型注册是**词表与接线文件**（不是新口径），审计覆盖判据要求每个写端点都有动作码，路由不挂载则端点根本不存在。**金额口径一个都不进核心**：成本仍由 `cost_basis.py` 算、欠款仍在 `supplier_service.py` 相减。**
-
-**文件清单**（认领时拟定，⛔ 归档前按实现提交的 `--name-only` 逐条核对改正）：
-- 后端：`backend/app/models/purchase.py`（新）、`backend/app/migrations/019_purchase_orders.py`（新）、`backend/app/services/purchase_service.py`（新）、`backend/app/schemas/purchase.py`（新）、`backend/app/api/v1/purchase_orders.py`（新）、`backend/app/services/reports/cost_coverage_query.py`（新）、`backend/app/api/v1/reports.py`、`backend/app/api/v1/suppliers.py`、`backend/app/services/supplier_service.py`、`backend/app/models/__init__.py`、`backend/app/models/enums.py`、`backend/app/api/v1/__init__.py`；
-- Android：`ui/dispatcher/PurchaseOrdersScreen.kt`（新）、`ui/dispatcher/PurchaseOrderFormScreen.kt`（新）、`ui/dispatcher/PurchaseOrdersViewModel.kt`（新）、`ui/dispatcher/ReportCostCoverage.kt`（新）、`ui/dispatcher/ReportHome.kt`（第 9 格）、`ui/dispatcher/ReportCenter.kt`、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`data/remote/dto/Dtos.kt`、`data/remote/ApiService.kt`、`data/repo/*`；
-- 判据与测试：`_tools/qa/_check_purchase_orders.py`（新）、`_tools/qa/_reverse_verify_purchase_orders.py`（新）、`backend/tests/test_purchase_orders.py`（新）、`_tools/qa/_check_profit_report.py`（第 9 格）、`_tools/ai/_write_coverage.py`（写端点「不做」理由）、`_tools/ai/_gen_ai_read_catalog.py`（中文说明）、`docs/ai/ai_toolmap.json`；
-- 文档与生成物：`docs/changes/FEAT-0013.md`（新）、`docs/changes/README.md`（登记行）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/RELEASE_CANDIDATE.md`（迁移 19）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`android/app/src/main/java/com/tapmoay/sorders/ai/AiReadCatalog.kt`、`android/.../core/Capabilities.kt`。
-
-**落点与提交**：⏳ 判据 / 反验 / pytest / 后端探针 / 模拟器 5554 实测 / 全量静检（目标 172 项全绿）；实现提交（首行以 `FEAT-0013` 开头）与归档提交待回填。
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5650,6 +5624,31 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0013 采购与进货价闭环：一次采购同时写库存、成本与供应商应付**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见下），并明确「设计风格和写代码的规范和要求，要按照我们的要求进行」＋「AI 也要具备全部的查看能力」；节奏定的是**一期一提交**，本期是第三期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → **③ 采购与进货价闭环** → ④ 税账 → ⑤ 应收账龄与客户信用）。开工前先问清采购单四件事并拿到需求方拍板（口径见下）。
+
+**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
+然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
+分析。」
+
+**本期口径（需求方 2026-10-04 拍板四条，问的是采购单）**：
+① 形态 → **新增「采购单」页**（供应商 ＋ 日期 ＋ 多行商品/数量/单价，保存时库存、成本、应付三件事一次写完）；
+② 应付 → **自动生成一张应付单**（金额＝单据合计、日期＝单据日期，付款照旧在供应商页分次付）；
+③ 改单 → **允许改单**（改数量/单价时改写那一行绑定的入库流水，撤行走 `is_void`）；
+④ 成本覆盖看板 → **要**（列出没有进货价的商品 ＋ 账上「算不出成本的收入」有多少 ＋ 补录入口）。
+
+**做什么**：新增两张表（迁移 `019_purchase_orders.py`：`purchase_orders` / `purchase_order_items`）＋ 唯一实现 `backend/app/services/purchase_service.py`（建单 / 改单 / 撤行 / 删单 / 恢复；库存、成本、应付同一事务）＋ 端点 `backend/app/api/v1/purchase_orders.py`（4 个写 ＋ 2 个读）＋ 只读报表 `GET /api/v1/reports/cost-coverage`（`services/reports/cost_coverage_query.py`）＋ 报表中心第 9 格「成本覆盖」＋ 工作台「采购单」一格（列表页 ＋ 表单页）＋ 供应商页对「来自采购单的应付单」加改/删保护（指向那张采购单）；⛔ 成本口径 `cost_basis` 与欠款口径 `supplier_service` 一个字节不改，订单 / 账本 / 既有应付单一行未写，未新建权限点（采购单写端点用 `Permission.PRODUCT_MANAGE` —— 进货第一件事是入库，与手工入库同一个门）。
+
+**文件清单**（⛔ 已按实现提交 `cf70ebf` 的 `--name-only` 逐条核对；认领时拟定的清单在此改正：路由挂载实际落在 `backend/app/api/v1/router.py`（拟定写的是 `api/v1/__init__.py`）；`ui/dispatcher/PurchaseOrdersViewModel.kt` 与 `ui/dispatcher/ReportCostCoverage.kt` 未单独建文件（逻辑落在列表/表单页与 `ReportCenter.kt` 内）；`docs/PROJECT_MAP/08_CODE_LOCATOR.md` 实际**未动**。实际**还动了** `backend/app/core/capability_audit_coverage.py`（4 个新动作码认领到 `PRODUCT_MANAGE`）、`backend/app/schemas/reports.py`、`backend/app/services/reports_service.py`、`backend/app/api/v1/suppliers.py`、`backend/app/api/v1/reports.py`、`android/.../core/ApiClient.kt`、`android/.../ui/nav/Modules.kt`（工作台「采购单」一格挂 `product:manage`）、`android/app/src/test/.../ReportFinanceTest.kt`、`_tools/qa/_check_audit_coverage.py`、`_check_profit_report.py`、`_reverse_verify_profit_report.py`、`_check_status_gate_locking.py`、`_reverse_verify_status_gate_locking.py`、`_check_vehicle_depreciation.py`、`_reverse_verify_vehicle_depreciation.py`、`_check_pricing_provenance.py`、`_check_report_window.py`、`_hint_inventory.py`、`_tools/ai/_app_feature_coverage.py`、`_gen_ai_toolmap.py`、`_gen_ai_read_catalog.py`、`_write_coverage.py`、`docs/DOMAIN_BOUNDARIES.md`（库存域 owns 加两张表、commands 加四个写、reads 加 `suppliers@party`）、`docs/R4_CORE_EXTENSION_MAP.md`（新核心能力 `inventory.purchase_order`）、`docs/ai/kb_skeleton.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`（后六份是生成物，不手改））：
+- 文档：`docs/changes/FEAT-0013.md`（新）、`docs/changes/README.md`（登记行）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/RELEASE_CANDIDATE.md`（迁移头 18 → 19）、`docs/DOMAIN_BOUNDARIES.md`、`docs/R4_CORE_EXTENSION_MAP.md`、`docs/ai/kb_skeleton.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`
+- 后端：`backend/app/models/purchase.py`（新）、`backend/app/migrations/019_purchase_orders.py`（新）、`backend/app/services/purchase_service.py`（新）、`backend/app/schemas/purchase.py`（新）、`backend/app/api/v1/purchase_orders.py`（新）、`backend/app/services/reports/cost_coverage_query.py`（新）、`backend/app/models/enums.py`（＋4 个动作码）、`backend/app/models/__init__.py`、`backend/app/api/v1/router.py`、`backend/app/api/v1/reports.py`、`backend/app/api/v1/suppliers.py`、`backend/app/schemas/reports.py`、`backend/app/services/reports_service.py`、`backend/app/core/capability_audit_coverage.py`
+- Android：`ui/dispatcher/PurchaseOrdersScreen.kt`（新）、`ui/dispatcher/PurchaseOrderFormScreen.kt`（新）、`ui/dispatcher/ReportHome.kt`（第 9 格）、`ui/dispatcher/ReportCenter.kt`、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/dispatcher/ReportFinance.kt`、`ui/nav/Modules.kt`（工作台一格）、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`data/repo/AppRepository.kt`、`core/ApiClient.kt`、`ai/AiReadCatalog.kt`、`core/Capabilities.kt`（后两者生成物，不手改）
+- 判据与测试：`_tools/qa/_check_purchase_orders.py`（新）、`_tools/qa/_reverse_verify_purchase_orders.py`（新）、`_tools/qa/_probe_purchase_orders.py`（新，真实库探针）、`backend/tests/test_purchase_orders.py`（新，18 项）、`_tools/qa/_check_audit_coverage.py`、`_check_profit_report.py`、`_reverse_verify_profit_report.py`、`_check_status_gate_locking.py`、`_reverse_verify_status_gate_locking.py`、`_check_vehicle_depreciation.py`、`_reverse_verify_vehicle_depreciation.py`、`_check_pricing_provenance.py`、`_check_report_window.py`、`_hint_inventory.py`、`_tools/ai/_app_feature_coverage.py`、`_gen_ai_toolmap.py`、`_gen_ai_read_catalog.py`、`_write_coverage.py`
+- 核心改动：`backend/app/models/enums.py`（领域词汇表）—— 为什么必须动核心：采购单的四个写动作 `PURCHASE_ORDER_CREATE/UPDATE/DELETE/RESTORE` 必须进词表 —— 审计覆盖（`core/capability_audit_coverage.py` 按词表逐值认领）与 AI 写闸门都是按词表比对的，不入词表这四笔写就记不了账、AI 侧也看不见这一轮多了哪些动作码；只**追加**四个枚举值，⛔ 既有取值一个都不改，成本口径 `cost_basis` 与欠款口径 `supplier_service` 仍在核心侧原地不动。
+
+**落点与提交**：判据 `_tools/qa/_check_purchase_orders.py` **60 项**全绿（失败 0）/ 反验 `_tools/qa/_reverse_verify_purchase_orders.py` **39 条注入全被抓到且源码逐字节还原** / 后端真实库探针 `_tools/qa/_probe_purchase_orders.py` **56 [OK]**（建单 5 箱 × 12.50 = 合计 62.50 == 应付 62.50 == 库存 5；改单 8 × 13.00 = 104.00 而流水仍是 143 —— 改写不追加；撤行 → 0.00 / 库存 0 / 成本价回原值；同一商品两行 400 且一个字未改；删单 → 两条流水都 VOID ＋ 应付进回收站；已付款删单 400 → 撤付款后 204；恢复 200 原样；十三份 JSON 留在 `_tmp/ev/`）/ 后端 `python -m pytest` **1323 passed**（166.77 秒，含新增 `test_purchase_orders.py` 18 passed）/ 全量静检 **172/172**（249.8 秒，`_tmp/checkall_feat0013_final3.txt`；171 → 172 多出来的正是本事项新增的那一项）/ 模拟器 5554 派单员实测六屏：采购单列表、改采购单 #1、成本覆盖（¥7020.2 = 有成本出处 ¥246.4 ＋ 没有成本出处 ¥6773.8，「从来没带价进过货的商品（37 个）」）、商品管理、编辑商品成本价（¥11）、成本价历史（¥11/箱「至今 · 进货时录的」＋ ¥0/箱「建商品时填的」）—— 屏上三处数字两两对得上、无 markdown 星号（截图 `_tmp/ev/310`–`318`）。实现提交 `cf70ebf`（61 files / 5325 insertions(+)，191 deletions(-)），归档提交（本笔）。⛔ 订单 / 账本 / 既有应付单一行未写，成本口径 `cost_basis` 与欠款口径 `supplier_service` 一个字节未改。⛔ 采购单写侧本轮不进 AI 写动作（多行结构，一轮问一件事的写动作卡片放不下，四条写端点的「不做」理由写在 `_tools/ai/_write_coverage.EXCLUDED`）；数量只支持整数（与库存同一单位）；「成本覆盖」只回答「哪些商品从来没有进货价」，不把「算不出成本的收入」拆到商品。
+
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0012 车辆台账与折旧：把「这台车每个月自己在花钱」补进利润表，并按车算清一台车的成本**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见下），并明确「设计风格和写代码的规范和要求，要按照我们的要求进行」＋「AI 也要具备全部的查看能力」；节奏定的是**一期一提交**，本期是第二期（① 经营利润表 ✅ FEAT-0011 → **② 车辆台账与折旧** → ③ 采购与进货价闭环 → ④ 税账 → ⑤ 应收账龄与客户信用）。开工前先问清折旧三件事并拿到需求方拍板（口径见下）。
