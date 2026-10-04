@@ -31,6 +31,16 @@
 
 ## 进行中
 
+### [2026-10-05 02:1x UTC → ] 会话：**CHG-0035 报表中心 v2 文案减负与留白**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**（2026-10-05）：「这个页面不需要写解释啊，你写的解释反而全是字啊，印象非常影响美观，还有那个**图标不要完全贴到左边啊，留点空隙**啊……那些没必要解释的没必要解释……**全部删掉**……如果有人想了解详情代表什么意思，**他可以询问 AI**」。
+
+**改哪些文件**（只在 v2 那个包里删字、改内边距）：
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/`：`ReportV2Screen.kt`（删 autoNote 提示行 / 抽屉两句说明；`LazyColumn` 的 `contentPadding` 补左右 12dp；抽屉项左右 16dp 并与标题对齐）、`ReportV2Home.kt`（删 `NotesCard` 整张卡与多处 NoteText；五张表卡的表头副标题与四张表的 `word` 去掉「（这一段）」类废话；要盯的事只留两字标签）、`ReportV2Nodes.kt`（删 20 余处解释句，只留数据与空态）、`ReportV2ViewModel.kt`（删 `autoNote` 字段与赋值）
+- ⛔ **不改**：后端任何文件、接口与 DTO、路由与下钻链路、权限、老 11 页与 `ReportCenter.kt`、任何数字的取数口径（时点标记、「近 30 天」、「按人相加」这三类**防误读**标签保留）
+
+**验收**：模拟器 5554 前后对照截图；`python _tools/qa/_check_all.py` 全绿；文案改动后重跑 `python _tools/qa/_hint_inventory.py --md`。
+
 
 
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）

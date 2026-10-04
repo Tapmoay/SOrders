@@ -72,9 +72,6 @@ class ReportV2ViewModel(private val container: AppContainer) : ViewModel() {
     var error by mutableStateOf<String?>(null)
         private set
 
-    /** 自动挪过档位时给用户的那句话（挪到哪一档）；没挪就是 null。 */
-    var autoNote by mutableStateOf<String?>(null)
-        private set
 
     /** 导航栈：首页永远是第 0 个（栈本身也是面包屑）。 */
     var stack by mutableStateOf(listOf(ReportNodes.home))
@@ -177,11 +174,8 @@ class ReportV2ViewModel(private val container: AppContainer) : ViewModel() {
             }
             if (picked != DatePresets.ALL && picked != preset) {
                 preset = picked
-                // ⚠️ 这里存的是**屏上要显示的那一整句**，不是一个档位名：外壳（ReportV2Screen）
-                //    会把它原样画在列表最上面；只存一个「上周」的话，用户看到的就是一行没头没尾的
-                //    档位名（2026-10-05 走查抓到的）。
-                autoNote = "「" + picked + "」是自动挑的：一打开那个档位这一段没有已送达的单，" +
-                    "页面自动挪到离得最近、确实有数的那一档。"
+                // 2026-10-05（CHG-0035）：原来这里还会在屏幕最上面写一句「「上周」是自动挑的……」——
+                // 用户看完说「那些没必要解释的全部删掉」。档位与区间在顶栏药丸与副标题上已经有了。
             }
             windowSettled = true
             loading = true
@@ -208,7 +202,6 @@ class ReportV2ViewModel(private val container: AppContainer) : ViewModel() {
     // ------------------------------------------------------------ 用户动作
     fun applyPreset(label: String) {
         preset = label
-        autoNote = null
         reloadForCurrent()
     }
 
@@ -217,7 +210,6 @@ class ReportV2ViewModel(private val container: AppContainer) : ViewModel() {
             preset = DatePresets.CUSTOM
             customFrom = from
             customTo = to
-            autoNote = null
             reloadForCurrent()
         }
     }

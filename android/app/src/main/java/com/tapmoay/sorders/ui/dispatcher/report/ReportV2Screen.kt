@@ -38,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
@@ -46,7 +45,6 @@ import com.tapmoay.sorders.ui.common.AppTopBar
 import com.tapmoay.sorders.ui.common.CategoryDrawerWidth
 import com.tapmoay.sorders.ui.common.DateFilterDialogs
 import com.tapmoay.sorders.ui.common.DatePresetPill
-import com.tapmoay.sorders.ui.common.Hint
 import com.tapmoay.sorders.ui.common.DatePresets
 import com.tapmoay.sorders.ui.common.ErrorView
 import com.tapmoay.sorders.ui.common.LoadingBox
@@ -133,12 +131,12 @@ fun ReportV2Screen(
 
                     else -> LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
+                        // 左右各留 12dp（用户 2026-10-05：「图标不要完全贴到左边，留点空隙」）
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 28.dp),
                     ) {
-                        item {
-                            vm.autoNote?.let { NoteText(it) }
-                            CrumbBar(vm)
-                        }
+                        // ⛔ 这里原来挂着「档位是自动挑的」那句长解释 —— 用户 2026-10-05：
+                        //    「那些没必要解释的没必要解释……全部删掉」。档位与区间药丸自己写着。
+                        item { CrumbBar(vm) }
                         if (vm.current.id == ReportNodes.home.id) {
                             reportHomeItems(
                                 vm = vm,
@@ -239,28 +237,17 @@ private fun ReportV2Drawer(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 18.dp),
+            // 左右 16dp：抽屉里每一行的图标与标题对齐在同一条线上（原来行是 0 内边距，图标贴死左边）
+            .padding(horizontal = 16.dp, vertical = 18.dp),
     ) {
-        Text(
-            "报表中心",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(horizontal = 20.dp),
-        )
-        // 解释句走统一入口（`Hint`）：总开关关掉时整句不显示 —— ⛔ 这里是 `Hint` 不是 `Text`，
-        // 由 `_tools/qa/_check_hints.py` 第 1 组钉着。
-        Hint(
-            "数字全部来自后端接口，页面自己不做加减",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-        )
+        Text("报表中心", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(10.dp))
 
         LineRow(
             icon = Icons.Default.Home,
             iconColor = Palette.violet,
             title = "报表首页",
-            sub = "五张表：一层层点到每一张订单",
+            sub = null,
             value = null,
             valueColor = Color.Unspecified,
             onClick = onPickHome,
@@ -271,7 +258,7 @@ private fun ReportV2Drawer(
             "原来的页面",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
+            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
         REPORT_ENTRIES.forEach { e ->
             LineRow(
@@ -285,12 +272,5 @@ private fun ReportV2Drawer(
                 chevron = true,
             )
         }
-        Text(
-            "时间药丸：看哪一段。老页面里「异常与审计」固定看最近 30 天，与药丸无关。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.Normal,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-        )
     }
 }

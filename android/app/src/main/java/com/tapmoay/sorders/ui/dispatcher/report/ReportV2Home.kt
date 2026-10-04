@@ -49,7 +49,6 @@ internal fun LazyListScope.reportHomeItems(
     item { AlertsCard(vm, onOpen) }
     item { TrendCard(vm) }
     item { EntriesCard(onOpenTab) }
-    item { NotesCard() }
 }
 
 // ------------------------------------------------------------------ ① 经营总览
@@ -94,9 +93,8 @@ private fun ConclusionCard(vm: ReportV2ViewModel) {
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        // 时间档位与区间在顶栏上已经有了（药丸写着档位、副标题写着区间），这里不再重复一遍 ——
-        // 用户 2026-10-05：「不要什么都解释」。自动退档那句话由外壳画在列表最上面
-        // （ReportV2Screen 里的 vm.autoNote），这里不写第二遍。
+        // 时间档位与区间在顶栏上已经有了（药丸写着档位、副标题写着区间）——
+        // 用户 2026-10-05：「不要什么都解释」「那些没必要解释的全部删掉」，这里一个字都不重复。
     }
 }
 
@@ -108,23 +106,17 @@ private fun FiveTablesCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) 
     SectionCard {
         SectionTitle("五张表")
         Spacer(Modifier.height(2.dp))
-        Text(
-            "点哪一行，就往那一层细看，一直能点到订单",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         if (p == null || t == null) {
             LoadingBox()
             return@SectionCard
         }
         HairLine()
         // ① 利润表
-        val expenses = p.operatingExpenses
         TableTile(
             icon = ReportNodes.profit.icon,
             color = ReportNodes.profit.color,
             title = "利润表",
-            word = "赚没赚钱（这一段）",
+            word = "赚没赚钱",
             amount = money(p.operatingProfit),
             amountColor = toneColor(amountTone(vm.operatingProfit)),
             lines = triples(
@@ -144,7 +136,7 @@ private fun FiveTablesCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) 
             icon = ReportNodes.balance.icon,
             color = ReportNodes.balance.color,
             title = "资产负债表",
-            word = "别人欠我多少（到 " + vm.asOfText + " 为止）",
+            word = "别人欠我（到 " + vm.asOfText + "）",
             amount = money(vm.customers?.totals?.balance),
             amountColor = toneColor(Tone.WARN),
             lines = triples(
@@ -164,7 +156,7 @@ private fun FiveTablesCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) 
             icon = ReportNodes.cash.icon,
             color = ReportNodes.cash.color,
             title = "现金流量表",
-            word = "这一段真进真出多少",
+            word = "真进真出",
             amount = money(vm.cashSummary?.net),
             amountColor = toneColor(amountTone(vm.netCash)),
             lines = triples(
@@ -180,7 +172,7 @@ private fun FiveTablesCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) 
             icon = ReportNodes.ops.icon,
             color = ReportNodes.ops.color,
             title = "运营分析表",
-            word = "哪赚哪亏（商品 / 司机 / 车辆）",
+            word = "哪赚哪亏",
             amount = money(vm.turnover?.totalAmount),
             amountColor = toneColor(Tone.PLAIN),
             lines = triples(
@@ -200,7 +192,7 @@ private fun FiveTablesCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) 
             icon = ReportNodes.kpi.icon,
             color = ReportNodes.kpi.color,
             title = "关键指标表",
-            word = "赚不赚钱（比率，页面按接口的数算）",
+            word = "赚不赚钱",
             amount = percentText(ratioOf(p.grossProfit, p.revenueTotal)),
             amountColor = toneColor(Tone.GOOD),
             lines = triples(
@@ -211,9 +203,6 @@ private fun FiveTablesCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) 
             chips = listOf("保本 " + breakevenText(p) to toneColor(Tone.WARN)),
             onClick = { onOpen(ReportNodes.kpi) },
         )
-        NoteText("毛利率 = 商品毛利 ÷ 营业额；行驶中的这些比率接口没有给，是这一页用接口给的两个数相除算的。")
-        // 期间费用那三行只在真取到分类明细时才有意义，这里静默用一次，避免"取了不用"的悬空变量
-        if (expenses.isEmpty()) NoteText("这一段没有期间费用的分类明细。")
     }
 }
 
@@ -254,7 +243,7 @@ private fun AlertsCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) {
             icon = ReportNodes.driverPayable.icon,
             iconColor = Palette.warn,
             title = "该付司机的钱",
-            sub = "每个司机那一行的待结运费相加（接口按人给，没有给合计）",
+            sub = "按人相加",
             value = money(java.lang.String.format(java.util.Locale.US, "%.2f", vm.driverOwed)),
             valueColor = toneColor(Tone.WARN),
             onClick = { onOpen(ReportNodes.driverPayable) },
@@ -264,7 +253,7 @@ private fun AlertsCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) {
             icon = ReportNodes.receivable.icon,
             iconColor = Palette.bad,
             title = "超信用额度的客户",
-            sub = "额度是空的不算超（那是「没给他定额度」）",
+            sub = null,
             value = vm.overLimitCount.toString() + " 家",
             valueColor = toneColor(if (vm.overLimitCount > 0) Tone.BAD else Tone.PLAIN),
             onClick = { onOpen(ReportNodes.receivable) },
@@ -284,7 +273,7 @@ private fun AlertsCard(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit) {
             icon = ReportNodes.opsExceptions.icon,
             iconColor = Palette.bad,
             title = "异常单（近 30 天）",
-            sub = "卡住的、超时没送达的；点进去看是哪几张",
+            sub = null,
             value = vm.exceptions.size.toString() + " 单",
             valueColor = toneColor(if (vm.exceptions.isNotEmpty()) Tone.BAD else Tone.PLAIN),
             onClick = { onOpen(ReportNodes.opsExceptions) },
@@ -308,7 +297,6 @@ private fun TrendCard(vm: ReportV2ViewModel) {
                     labels = series.map { it.label },
                     color = Palette.good,
                 )
-                NoteText("按天画这一段每一天的营业额（" + series.size + " 个点）。这一天没有单就是 0。")
             }
         }
     }
@@ -376,18 +364,8 @@ private fun EntryGridInline(onOpenTab: (Int) -> Unit) {
     }
 }
 
-// ------------------------------------------------------------------ ⑥ 口径说明（不是 JSON，是人话）
-@Composable
-private fun NotesCard() {
-    SectionCard {
-        SectionTitle("这几句话怎么读")
-        Spacer(Modifier.height(6.dp))
-        NoteText("· 数字全部来自后端报表接口，页面不加也不改；接口没有的（库存金额、所得税、车辆购置价）就写没有，不猜。")
-        NoteText("· 「别人欠我」是时点账（到某一天为止），与「这一段」的营业额不是同一段时间 —— 两句话别对着加。")
-        NoteText("· 比率（毛利率、营业利润率、保本点）是页面用接口给的两个数相除算的，分母为 0 时写「—」。")
-        NoteText("· 每一层点到底都是订单；再往下就是那张单自己的页面。点不动的行没有箭头，点得动的才有。")
-    }
-}
+// ⑧ 原来这里还有一张「这几句话怎么读」的口径卡 —— 2026-10-05（CHG-0035）整张删掉：
+//    用户说「那些没必要解释的没必要解释……全部删掉」，想了解含义他会问 AI，口径在后端接口的 notes 与本事项文档里。
 
 /** 迷你条用的一小组：把三个数按同一把尺子折成条长（第三个数是它要显示的文字）。 */
 private fun triples(vararg items: Triple<String, Double, String>): List<Triple<String, Float, String>> {
