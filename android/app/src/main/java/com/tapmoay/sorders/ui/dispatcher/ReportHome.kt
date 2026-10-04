@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -24,7 +25,7 @@ import com.tapmoay.sorders.ui.common.EntryCardGrid
 /**
  * 报表中心入口页：两列、彩色圆角方形图标（白线图形）+ 黑色文字。
  *
- * 版式在 [EntryCardGrid]（与「账本管理」入口页**共用一份**）——这里只负责"有哪 9 件事"。
+ * 版式在 [EntryCardGrid]（与「账本管理」入口页**共用一份**）——这里只负责"有哪 10 件事"。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,6 +42,9 @@ fun ReportHomeScreen(container: AppContainer, onBack: () -> Unit, onOpen: (Int) 
         EntryCard("7", "车辆成本", Icons.Default.DirectionsCar, Color(0xFF546E7A)),
         // 第 9 格（FEAT-0013）：这一段卖出去的货里，成本有多少是有出处的（进货价）。
         EntryCard("8", "成本覆盖", Icons.Default.BarChart, Color(0xFF4CAF50)),
+        // 第 10 格（FEAT-0014 第四期 税账）：这一段开了多少票、该交多少增值税。
+        // 新格只许追加在末尾（key 直接当页签号，见 ReportFinance.exportKind 的说明）。
+        EntryCard("9", "税账", Icons.Default.Receipt, Color(0xFFC08A4E)),
     )
     Scaffold(
         topBar = { AppTopBar(title = "报表中心", onBack = onBack) },

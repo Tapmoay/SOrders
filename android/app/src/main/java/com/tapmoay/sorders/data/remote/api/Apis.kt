@@ -1334,6 +1334,21 @@ interface ReportApi {
         @Query("date_to") dateTo: String? = null,
     ): CostCoverageReportDto
 
+    /**
+     * 税账汇总（FEAT-0014 第四期）：这一段开了多少票、该交多少增值税。
+     *
+     * ⚠️ 窗口与其他报表**同一段**（`mode`/`date`/`date_from`/`date_to` 与 [costCoverage] 逐字相同）——
+     * 同一屏里摆两段时间，用户只会以为账错了。
+     * ⚠️ 返回里那些金额是**字符串**（后端 `Decimal` 两位小数），不是数字。
+     */
+    @GET("reports/tax-summary")
+    suspend fun taxSummary(
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): TaxSummaryReportDto
+
     @GET("stats/driver-performance")
     suspend fun driverPerformance(
         @Query("date_from") dateFrom: String,
@@ -1788,4 +1803,56 @@ interface UnitConversionsApi {
 
     @POST("unit-conversions/{id}/restore")
     suspend fun restoreUnitConversion(@Path("id") id: Long): UnitConversionDto
+}
+
+/**
+ * 发票台账（FEAT-0014 第四期 税账）。
+ *
+ * ⚠️ 读要 `ORDER_DISPATCH`、写要 `LEDGER_EDIT`（后端 `api/v1/invoices.py` 的 Reader/Writer）：
+ *    与「供应商」那一组同一把钥匙 —— 票面金额直接动税汇。
+ * ⚠️ 方向（销项/进项）**只在建票时定**：[updateInvoice] 的 body 里没有 direction，换方向＝作废重开。
+ * ⚠️ [deleteInvoice] 是**软删**（进回收站，可 [restoreInvoice] 放回来）；作废（[voidInvoice]）不是删除，
+ *    票留在台账里、只是退出税汇。两件事别混。
+ */
+interface InvoiceApi {
+    /** 列表：返回**裸数组** + 分页响应头（与采购单同一套路）。 */
+    @GET("invoices")
+    suspend fun listInvoices(
+        /** `OUTPUT` 销项 / `INPUT` 进项；不给 = 两边都要。 */
+        @Query("direction") direction: String? = null,
+        @Query("status") status: String? = null,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+        @Query("supplier_id") supplierId: Long? = null,
+        @Query("customer_id") customerId: Long? = null,
+        @Query("keyword") keyword: String? = null,
+        @Query("include_deleted") includeDeleted: Boolean = false,
+        @Query("limit") limit: Int = 100,
+        @Query("offset") offset: Int = 0,
+    ): List<InvoiceDto>
+
+    @GET("invoices/{invoiceId}")
+    suspend fun getInvoice(@Path("invoiceId") invoiceId: Long): InvoiceDto
+
+    @POST("invoices")
+    suspend fun createInvoice(@Body body: InvoiceCreateRequest): InvoiceDto
+
+    /** 改票：⛔ 没有方向（换方向 = 作废重开）；`null` 的字段会被序列化丢掉 = 后端按「没提这事」处理。 */
+    @PATCH("invoices/{invoiceId}")
+    suspend fun updateInvoice(@Path("invoiceId") invoiceId: Long, @Body body: InvoiceUpdateRequest): InvoiceDto
+
+    /** 开具（`REGISTERED` → `ISSUED`）。 */
+    @POST("invoices/{invoiceId}/issue")
+    suspend fun issueInvoice(@Path("invoiceId") invoiceId: Long): InvoiceDto
+
+    /** 作废（→ `VOIDED`）：票**留在台账里**、退出税汇，明细里灰着摆出来。 */
+    @POST("invoices/{invoiceId}/void")
+    suspend fun voidInvoice(@Path("invoiceId") invoiceId: Long): InvoiceDto
+
+    /** 撤票 = 软删（进回收站，可 [restoreInvoice] 放回来）。 */
+    @DELETE("invoices/{invoiceId}")
+    suspend fun deleteInvoice(@Path("invoiceId") invoiceId: Long)
+
+    @POST("invoices/{invoiceId}/restore")
+    suspend fun restoreInvoice(@Path("invoiceId") invoiceId: Long): InvoiceDto
 }

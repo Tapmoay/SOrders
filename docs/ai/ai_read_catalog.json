@@ -1,10 +1,10 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:8bba11d1d008fbbf9b56ec38a08c7ec621ceb0b0d84c2f6e6652878ec441f9f4",
+ "source_hash": "sha256:a7604607dc4fb157efe341f2ef21bcfdf4b870aee9d47cb95891149ec182ae66",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 83,
-  "listed": 64,
+  "read_endpoints": 86,
+  "listed": 66,
   "missing_handler": []
  },
  "actions": [
@@ -681,6 +681,123 @@
      "name": "date_to",
      "arg": "date_to",
      "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "invoices",
+   "action": "list_invoices",
+   "cn": "发票台账",
+   "module_cn": "发票台账",
+   "method": "get",
+   "path": "/api/v1/invoices",
+   "at": "backend/app/api/v1/invoices.py:118",
+   "auth": "权限:ORDER_DISPATCH",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "direction",
+     "arg": "direction",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "status",
+     "arg": "status_",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_from",
+     "arg": "date_from",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_to",
+     "arg": "date_to",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "supplier_id",
+     "arg": "supplier_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "customer_id",
+     "arg": "customer_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "keyword",
+     "arg": "keyword",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "limit",
+     "arg": "limit",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "offset",
+     "arg": "offset",
+     "type": "int",
      "required": false,
      "enum": [],
      "is_id": false,
@@ -1493,7 +1610,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/arrears-summary",
-   "at": "backend/app/api/v1/reports.py:156",
+   "at": "backend/app/api/v1/reports.py:176",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1530,7 +1647,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/cost-coverage",
-   "at": "backend/app/api/v1/reports.py:132",
+   "at": "backend/app/api/v1/reports.py:133",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1587,7 +1704,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/products",
-   "at": "backend/app/api/v1/reports.py:78",
+   "at": "backend/app/api/v1/reports.py:79",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1644,7 +1761,64 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/profit",
-   "at": "backend/app/api/v1/reports.py:93",
+   "at": "backend/app/api/v1/reports.py:94",
+   "auth": "权限:ORDER_DISPATCH",
+   "roles": [
+    "dispatcher"
+   ],
+   "member_only": false,
+   "params": [
+    {
+     "name": "mode",
+     "arg": "mode",
+     "type": "str",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date",
+     "arg": "anchor",
+     "type": "date",
+     "required": true,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_from",
+     "arg": "date_from",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "date_to",
+     "arg": "date_to",
+     "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "reports",
+   "action": "tax_summary_report",
+   "cn": "报表中心",
+   "module_cn": "报表中心",
+   "method": "get",
+   "path": "/api/v1/reports/tax-summary",
+   "at": "backend/app/api/v1/reports.py:157",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1701,7 +1875,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/turnover",
-   "at": "backend/app/api/v1/reports.py:63",
+   "at": "backend/app/api/v1/reports.py:64",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -1758,7 +1932,7 @@
    "module_cn": "报表中心",
    "method": "get",
    "path": "/api/v1/reports/vehicle-cost",
-   "at": "backend/app/api/v1/reports.py:112",
+   "at": "backend/app/api/v1/reports.py:113",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"

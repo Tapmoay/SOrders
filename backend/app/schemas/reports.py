@@ -123,6 +123,8 @@ class ProfitReportOut(BaseModel):
           − depreciation_total − tax_total
        ⑤ delivery_cost == 营业纵览的 total_freight（司机应得，同一 span）
        ⑥ Σ operating_expenses[].amount == 区间内 expenses 合计
+       ⑦ vat_payable == 销项税额 - 进项税额（价外税，单列一行，不进 operating_profit）；
+          Σ tax_expenses[].amount == tax_total
     """
 
     period_label: str
@@ -159,8 +161,17 @@ class ProfitReportOut(BaseModel):
     depreciation_uncovered_count: int = 0
     #: 未覆盖的车（车牌 + 缺哪几格）—— 明细 = 合计那一条只对**覆盖到的**车成立
     depreciation_uncovered: list[ProfitDepreciationUncovered] = []
-    #: 税金及附加：**今天恒为 0**（系统没有税账）—— 如实报 0，⛔ 不许编一个税率
+    #: 税金及附加（FEAT-0014）：开销里分类名带「税」的那些笔（口径唯一判据 tax_query.is_tax_category）。
+    #  ⛔ 它只可能来自真实开销：没有这种分类就是 0，不许按一个税率编一个数出来。
+    #  ⛔ 这些笔在 operating_expenses 里**不再重复出现**（挖出来单列，否则会被扣两次）。
     tax_total: Decimal = Decimal("0")
+    #: 应交增值税 = 销项税额 - 进项税额（价外税，FEAT-0014）：单列一行，⛔ 不进 operating_profit
+    #  —— 代收代付的钱，不是这一期赚的钱。三个数都来自发票台账（唯一实现 tax_service.sum_taxes）。
+    vat_output: Decimal = Decimal("0")
+    vat_input: Decimal = Decimal("0")
+    vat_payable: Decimal = Decimal("0")
+    #: 税金及附加的明细（开销里分类名带「税」的那些笔）
+    tax_expenses: list[ProfitExpenseItem] = []
     #: 营业利润 = 商品毛利 − 配送成本 − 期间费用 − 车辆折旧 − 税金及附加
     operating_profit: Decimal = Decimal("0")
     # ---- 资金与风险（与营业纵览同源，摆在利润旁边是为了"赚了但没收到钱"一眼可见 ----

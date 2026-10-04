@@ -6,7 +6,7 @@
 ```text
 create_order    建单：逐行写入库流水（source=PURCHASE）+ 记成本价 → 生成一张应付单（金额 = 合计）
 update_order    改单：**整单替换明细** —— 没出现在请求里的行 = 撤掉；改数量改单价都是「改写那条流水」
-soft_delete_order  整张单进回收站：逐行把流水摆成「没发生过」 + 应付单一起软删
+soft_delete_order  整张单进回收站：逐行把流水摆成「没发生过」 + 应付单一起软删（挂着还算数的进项票时拦下）
 restore_order   恢复：逐行原样写回 + 恢复应付单
 ```
 
@@ -34,13 +34,15 @@ from sqlalchemy.orm import Session
 from app.core.business_time import utc_now_naive
 from app.models import (
     InventoryMovement,
+    Invoice,
+    InvoicePurchaseOrder,
     Product,
     PurchaseOrder,
     PurchaseOrderItem,
     Supplier,
     SupplierPayable,
 )
-from app.models.enums import OperationAction
+from app.models.enums import InvoiceStatus, OperationAction
 from app.services import cost_history
 from app.services import supplier_service as svc
 from app.services.cost_history import record_cost
@@ -618,6 +620,47 @@ def update_order(
     return order
 
 
+def _live_invoices_on(db: Session, order_id: int) -> list[Invoice]:
+    """挂在这张采购单上、**还在税汇里算数**的那些进项票（由 FEAT-0014 加的连线）。
+
+    作废的票（VOIDED）与回收站里的票不算 —— 它们本来就不进税汇，挂着也不影响对账。
+    """
+    return list(
+        db.scalars(
+            select(Invoice)
+            .join(InvoicePurchaseOrder, InvoicePurchaseOrder.invoice_id == Invoice.id)
+            .where(
+                InvoicePurchaseOrder.purchase_order_id == order_id,
+                Invoice.is_deleted.is_(False),
+                Invoice.status != InvoiceStatus.VOIDED.value,
+            )
+            .order_by(Invoice.id)
+        )
+    )
+
+
+def _ensure_no_live_invoices(db: Session, order: PurchaseOrder) -> None:
+    """挂着还算数的进项票时，**不许删这张采购单**。
+
+    为什么不是「连票一起删掉」：发票是外来的凭证（供应商开给我们的），它的存在不取决于
+    我们这张单还在不在 —— 跟着悄悄消失，税汇里就凭空少一笔进项，而账上没有任何痕迹。
+    为什么也不是「连票一起作废」：作废是一张票自己的状态（冲红），删单没资格替它决定。
+    所以这里只如实拦下，把选择权交回给操作者：先把那些票作废或删掉，再回来删单。
+    """
+    rows = _live_invoices_on(db, order.id)
+    if not rows:
+        return
+    heads = "、".join(f"#{row.id}" for row in rows[:3])
+    more = "" if len(rows) <= 3 else f" 等 {len(rows)} 张"
+    raise HTTPException(
+        400,
+        detail=(
+            f"这张采购单上挂着 {len(rows)} 张还没作废的进项票（{heads}{more}）。"
+            "删单会让这些票的进项税额凭空少掉，税账就对不上了。"
+            "先把那些票作废或删掉，再回来删这张单。"
+        ),
+    )
+
 def soft_delete_order(db: Session, order: PurchaseOrder, *, operator_id: int | None) -> None:
     """整张单进回收站：逐行把流水摆成「没发生过」+ 应付单一起软删。
 
@@ -625,6 +668,8 @@ def soft_delete_order(db: Session, order: PurchaseOrder, *, operator_id: int | N
     「还有 N 笔没撤销的付款」）—— 这正是用户要的「已经付过钱的单不能悄悄消失」。
     """
     ensure_alive(order, "采购单", f"POST /purchase-orders/{order.id}/restore")
+    # 挂着还算数的进项票就不许删（FEAT-0014：税账的第一道闸）。
+    _ensure_no_live_invoices(db, order)
     before = _snapshot(order)
     for item in active_items(order):
         _detach_line(db, item, operator_id=operator_id)

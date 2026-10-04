@@ -18,7 +18,7 @@ class ReportCenterViewModel(
     initialTab: Int,
 ) : ViewModel() {
 
-    var tab by mutableStateOf(initialTab.coerceIn(0, 8))
+    var tab by mutableStateOf(initialTab.coerceIn(0, 9))
 
     /**
      * 时间**档位**（`DatePresets` 那一套：今天 / 昨天 / 前天 / 这周 / 上周 / 近 7 天 / 本月 / 上月 /
@@ -63,6 +63,14 @@ class ReportCenterViewModel(
      * ⚠️ 「没有成本出处」不是成本 0，是**不知道成本**：那部分收入的毛利因此是虚高的。
      */
     var costCoverage by mutableStateOf<CostCoverageReportDto?>(null)
+
+    /**
+     * 税账汇总（FEAT-0014 第四期）—— 这一段开了多少票、该交多少增值税。
+     *
+     * ⚠️ 增值税是**价外税**：`vatPayable`（销项 − 进项）**不进**经营利润那条链，别往那儿加。
+     * ⚠️ 窗口与其他报表共用 `dateRange`：同一屏两段时间，用户只会以为账错了。
+     */
+    var taxSummary by mutableStateOf<TaxSummaryReportDto?>(null)
     var drivers by mutableStateOf<DriverPerformanceDto?>(null)
     var exceptions by mutableStateOf<List<ExceptionOrderDto>>(emptyList())
     var operationLogs by mutableStateOf<List<OperationLogDto>>(emptyList())
@@ -282,6 +290,12 @@ class ReportCenterViewModel(
                         // 同一段窗口里的同一个问题（"那笔成本到底有没有出处"），窗口错开就答不上。
                         val (f, t) = dateRange
                         costCoverage = container.repo.costCoverageReport(ReportFinance.LEGACY_MODE, f, f, t)
+                    }
+                    9 -> {
+                        // 税账（FEAT-0014）：窗口同样共用 `dateRange` —— 这一页回答的是"这一段该交多少税"，
+                        // 窗口与利润表错开，用户就会拿两个时段的税去对一张利润表。
+                        val (f, t) = dateRange
+                        taxSummary = container.repo.taxSummaryReport(ReportFinance.LEGACY_MODE, f, f, t)
                     }
                     else -> {
                         // 异常与审计

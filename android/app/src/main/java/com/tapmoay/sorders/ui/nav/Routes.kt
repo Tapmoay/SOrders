@@ -201,6 +201,17 @@ object Routes {
      * ⚠️ 编号走**查询参数**：与 `DISPATCH_SUPPLIER_DETAIL` 同一条约定（这一页没有"只有编号才能进来"的意思）。
      */
     const val PURCHASE_ORDER_FORM = "dispatcher/purchase-order-form"
+
+    /**
+     * 发票台账（FEAT-0014 第四期 税账）：列表页 + 表单页。
+     *
+     * ⚠️ 与采购单同一套：列表页一个入口，表单页**一条路由两个用法**（`?invoiceId=` 缺省 = 新登记）。
+     * ⚠️ 写端点要 `ledger:edit`（票面金额直接进税汇）—— 工作台那一格的权限映射与它对齐。
+     */
+    const val INVOICES = "dispatcher/invoices"
+
+    /** 登记 / 改一张票（`?invoiceId=`，缺省 = 新登记）。 */
+    const val INVOICE_FORM = "dispatcher/invoice-form"
     /**
      * 「收支」里点某一路进来的**流水明细**（`?direction=&biz=&from=&to=`）。
      *
@@ -238,6 +249,9 @@ const val REPORT_FINANCE = "report/finance"
     const val REPORT_PROFIT = "report/profit"
     const val REPORT_VEHICLE_COST = "report/vehicle-cost"
     const val REPORT_COST_COVERAGE = "report/cost-coverage"
+
+    /** 税账（FEAT-0014 第四期）：报表中心第 10 格 —— 销项 / 进项 / 该交的增值税。 */
+    const val REPORT_TAX = "report/tax"
 
     fun orderDetail(orderId: Long) = "order/$orderId/detail".replace("$orderId", orderId.toString())
     fun priceByShipper(shipperId: Long) = "dispatcher/pricing/shipper/$shipperId"

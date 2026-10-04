@@ -153,6 +153,19 @@
 | `create_movement` | 写 | `POST /api/v1/inventory/movements` | 手工出入库：**判据与加减在同一条 SQL 里**（2026-09-19 审计）。 |  |
 | `inventory_summary` | 只读 | `GET /api/v1/inventory/summary` | 库存概览：商品名 + 当前库存 + 在途占用量（派单中未送达，低库存排前）。 |  |
 
+## 发票台账（`invoices`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_invoices` | 只读 | `GET /api/v1/invoices` |  |  |
+| `get_invoice` | 只读 | `GET /api/v1/invoices/{invoice_id}` | 一张票（回收站里的也照给：列表能点进来看，详情就得打得开）。 |  |
+| `create_invoice` | 写 | `POST /api/v1/invoices` | 登记一张票（进项 / 销项共用）。 |  |
+| `update_invoice` | 写 | `PATCH /api/v1/invoices/{invoice_id}` | 改一张**已登记**的票（已开具 / 已作废的票一个字都不动）。 |  |
+| `issue_invoice` | 写 | `POST /api/v1/invoices/{invoice_id}/issue` | 把票从「已登记」推到「已开具」（票真的开出去了）。重复推进会被拦下。 |  |
+| `void_invoice` | 写 | `POST /api/v1/invoices/{invoice_id}/void` | 作废 / 冲红：票从「已开具」或「已登记」进「已作废」。 |  |
+| `delete_invoice` | 写 | `DELETE /api/v1/invoices/{invoice_id}` | 把票放进回收站（软删，可原样恢复）。 |  |
+| `restore_invoice` | 写 | `POST /api/v1/invoices/{invoice_id}/restore` | 从回收站恢复一张票。 |  |
+
 ## 账本（`ledger`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -331,6 +344,7 @@
 | `profit_report` | 只读 | `GET /api/v1/reports/profit` | 经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。 |  |
 | `vehicle_cost_report` | 只读 | `GET /api/v1/reports/vehicle-cost` | 车辆成本表：每一台车在这段时间里花了多少钱（折旧 / 这台车的开销 / 挂靠司机的配送成本）。 |  |
 | `cost_coverage_report` | 只读 | `GET /api/v1/reports/cost-coverage` | 成本覆盖表：这一段窗口里，有多少收入因为「没有进货价」而算不出成本。 |  |
+| `tax_summary_report` | 只读 | `GET /api/v1/reports/tax-summary` | 税账：这一段开了多少票（销项）、收到多少票（进项）、该交多少增值税。 |  |
 | `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` |  |  |
 | `export_report` | 只读 | `GET /api/v1/reports/export` | 报表 Excel 导出（内存流 xlsx）。 |  |
 

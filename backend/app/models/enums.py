@@ -144,6 +144,17 @@ class OperationAction(str, enum.Enum):
     PURCHASE_ORDER_UPDATE = "PURCHASE_ORDER_UPDATE"
     PURCHASE_ORDER_DELETE = "PURCHASE_ORDER_DELETE"
     PURCHASE_ORDER_RESTORE = "PURCHASE_ORDER_RESTORE"
+    # 发票台账（FEAT-0014 税账）：一张票改的是**税**——"这个月的税为什么是这么多"要能
+    # 顺着票号查回是谁在什么时候登记/开具/作废的。六个码而不是一个，因为要回答的是
+    # 六个不同的问题：谁登记的、谁把票号改了、谁开出去的、谁作废的、谁删进回收站的、
+    # 谁从回收站放回来的（删/恢复与采购单同一档：进了回收站的票也要能回查到人）。
+    # （⛔ 不含 AI 写动作：发票本期不进 AI 写闸门，理由见 docs/changes/FEAT-0014.md 的 Known Limitations。）
+    TAX_INVOICE_CREATE = "TAX_INVOICE_CREATE"
+    TAX_INVOICE_UPDATE = "TAX_INVOICE_UPDATE"
+    TAX_INVOICE_ISSUE = "TAX_INVOICE_ISSUE"
+    TAX_INVOICE_VOID = "TAX_INVOICE_VOID"
+    TAX_INVOICE_DELETE = "TAX_INVOICE_DELETE"
+    TAX_INVOICE_RESTORE = "TAX_INVOICE_RESTORE"
     # AI 撤回：用户点了「撤回」，把一次 AI 写操作回滚掉。单独一个动作码，
     # 是为了让"这次是谁撤的、撤掉了哪一条"在审计页上一眼可辨（v3.26）。
     AI_UNDO = "AI_UNDO"
@@ -364,3 +375,33 @@ class CashFlowBizType(str, enum.Enum):
 class ReceiptSettleMode(str, enum.Enum):
     ITEMIZED = "itemized"
     ROLLING = "rolling"
+
+
+class InvoiceDirection(str, enum.Enum):
+    """一张票的方向：**我们开出去的**还是**别人开给我们的**。
+
+    税汇就是这两个方向相减（`Σ 销项 tax_amount − Σ 进项 tax_amount`，见
+    `services/tax_service.py::vat_totals`）——所以方向不能靠"客户还是供应商"去猜：
+    同一个人既可能是客户也可能是供应商，方向是这张票自己的属性。
+    """
+
+    OUTPUT = "OUTPUT"  # 销项：我们开给客户（记 customer_id）
+    INPUT = "INPUT"    # 进项：供应商开给我们（记 supplier_id）
+
+
+class InvoiceStatus(str, enum.Enum):
+    """一张票走到哪一步了。⛔ 它不是软删标记（回收站另有 `is_deleted`，两者互不代替）。
+
+    ```text
+    REGISTERED 已登记（票拿到了 / 还没开出去）→ ISSUED 已开具 → VOIDED 作废·冲红
+    ```
+
+    为什么要分开记：状态的用处是回答"这张票开出去没有"，**不是**用来猜税 ——
+    "这张票算不算数"另有唯一判据 `services/tax_service.py::counts_in_sum`
+    （VOIDED 与回收站里的票不算数，其余都算：一张已登记的进项票，税额当月就能抵，
+    不该等到"已开具"才认）。两件事分别有各自唯一的判据，⛔ 不许互相替代。
+    """
+
+    REGISTERED = "REGISTERED"
+    ISSUED = "ISSUED"
+    VOIDED = "VOIDED"

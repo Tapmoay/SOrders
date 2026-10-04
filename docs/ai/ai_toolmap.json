@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 253,
-    "read": 83,
-    "write": 170,
-    "unique_paths": 178,
-    "unique_method_path": 253,
+    "endpoints": 262,
+    "read": 86,
+    "write": 176,
+    "unique_paths": 184,
+    "unique_method_path": 262,
     "shadowed_routes": []
   },
   "modules": {
@@ -592,6 +592,83 @@
           "handler": "create_movement",
           "doc": "手工出入库：**判据与加减在同一条 SQL 里**（2026-09-19 审计）。",
           "at": "backend/app/api/v1/inventory.py:66"
+        }
+      ]
+    },
+    "invoices": {
+      "cn": "发票台账",
+      "actions": [
+        {
+          "action": "get_invoice",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/invoices/{invoice_id}",
+          "handler": "get_invoice",
+          "doc": "一张票（回收站里的也照给：列表能点进来看，详情就得打得开）。",
+          "at": "backend/app/api/v1/invoices.py:160"
+        },
+        {
+          "action": "list_invoices",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/invoices",
+          "handler": "list_invoices",
+          "doc": "",
+          "at": "backend/app/api/v1/invoices.py:118"
+        },
+        {
+          "action": "create_invoice",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/invoices",
+          "handler": "create_invoice",
+          "doc": "登记一张票（进项 / 销项共用）。",
+          "at": "backend/app/api/v1/invoices.py:170"
+        },
+        {
+          "action": "delete_invoice",
+          "risk": "write",
+          "method": "delete",
+          "path": "/api/v1/invoices/{invoice_id}",
+          "handler": "delete_invoice",
+          "doc": "把票放进回收站（软删，可原样恢复）。",
+          "at": "backend/app/api/v1/invoices.py:245"
+        },
+        {
+          "action": "issue_invoice",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/invoices/{invoice_id}/issue",
+          "handler": "issue_invoice",
+          "doc": "把票从「已登记」推到「已开具」（票真的开出去了）。重复推进会被拦下。",
+          "at": "backend/app/api/v1/invoices.py:218"
+        },
+        {
+          "action": "restore_invoice",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/invoices/{invoice_id}/restore",
+          "handler": "restore_invoice",
+          "doc": "从回收站恢复一张票。",
+          "at": "backend/app/api/v1/invoices.py:256"
+        },
+        {
+          "action": "update_invoice",
+          "risk": "write",
+          "method": "patch",
+          "path": "/api/v1/invoices/{invoice_id}",
+          "handler": "update_invoice",
+          "doc": "改一张**已登记**的票（已开具 / 已作废的票一个字都不动）。",
+          "at": "backend/app/api/v1/invoices.py:200"
+        },
+        {
+          "action": "void_invoice",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/invoices/{invoice_id}/void",
+          "handler": "void_invoice",
+          "doc": "作废 / 冲红：票从「已开具」或「已登记」进「已作废」。",
+          "at": "backend/app/api/v1/invoices.py:230"
         }
       ]
     },
@@ -1547,7 +1624,7 @@
           "path": "/api/v1/purchase-orders/{order_id}",
           "handler": "get_purchase_order",
           "doc": "一张采购单的明细（回收站里的也照给：列表能点进来看，详情就得打得开）。",
-          "at": "backend/app/api/v1/purchase_orders.py:183"
+          "at": "backend/app/api/v1/purchase_orders.py:190"
         },
         {
           "action": "list_purchase_orders",
@@ -1556,7 +1633,7 @@
           "path": "/api/v1/purchase-orders",
           "handler": "list_purchase_orders",
           "doc": "采购单列表（默认不含回收站，按单据日期倒序 —— 这是「看记录」）。",
-          "at": "backend/app/api/v1/purchase_orders.py:151"
+          "at": "backend/app/api/v1/purchase_orders.py:154"
         },
         {
           "action": "create_purchase_order",
@@ -1565,7 +1642,7 @@
           "path": "/api/v1/purchase-orders",
           "handler": "create_purchase_order",
           "doc": "建一张采购单：库存 + 成本价（加权均价）+ 供应商应付，一个事务里一次写完。",
-          "at": "backend/app/api/v1/purchase_orders.py:194"
+          "at": "backend/app/api/v1/purchase_orders.py:201"
         },
         {
           "action": "delete_purchase_order",
@@ -1574,7 +1651,7 @@
           "path": "/api/v1/purchase-orders/{order_id}",
           "handler": "delete_purchase_order",
           "doc": "撤销整张采购单（软删）：逐行把库存冲回去 + 删掉它生成的那张应付单。",
-          "at": "backend/app/api/v1/purchase_orders.py:243"
+          "at": "backend/app/api/v1/purchase_orders.py:250"
         },
         {
           "action": "restore_purchase_order",
@@ -1583,7 +1660,7 @@
           "path": "/api/v1/purchase-orders/{order_id}/restore",
           "handler": "restore_purchase_order",
           "doc": "把回收站里的采购单恢复回来：重新入库 + 恢复它生成的那张应付单。",
-          "at": "backend/app/api/v1/purchase_orders.py:258"
+          "at": "backend/app/api/v1/purchase_orders.py:265"
         },
         {
           "action": "update_purchase_order",
@@ -1592,7 +1669,7 @@
           "path": "/api/v1/purchase-orders/{order_id}",
           "handler": "update_purchase_order",
           "doc": "改单：改数量/单价就**改写那一行绑定的人库流水**（不是再记一笔冲销），撤行走 `is_void`。",
-          "at": "backend/app/api/v1/purchase_orders.py:217"
+          "at": "backend/app/api/v1/purchase_orders.py:224"
         }
       ]
     },
@@ -1606,7 +1683,7 @@
           "path": "/api/v1/reports/arrears-summary",
           "handler": "arrears_summary",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:156"
+          "at": "backend/app/api/v1/reports.py:176"
         },
         {
           "action": "cost_coverage_report",
@@ -1615,7 +1692,7 @@
           "path": "/api/v1/reports/cost-coverage",
           "handler": "cost_coverage_report",
           "doc": "成本覆盖表：这一段窗口里，有多少收入因为「没有进货价」而算不出成本。",
-          "at": "backend/app/api/v1/reports.py:132"
+          "at": "backend/app/api/v1/reports.py:133"
         },
         {
           "action": "export_report",
@@ -1624,7 +1701,7 @@
           "path": "/api/v1/reports/export",
           "handler": "export_report",
           "doc": "报表 Excel 导出（内存流 xlsx）。",
-          "at": "backend/app/api/v1/reports.py:171"
+          "at": "backend/app/api/v1/reports.py:191"
         },
         {
           "action": "product_report",
@@ -1633,7 +1710,7 @@
           "path": "/api/v1/reports/products",
           "handler": "product_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:78"
+          "at": "backend/app/api/v1/reports.py:79"
         },
         {
           "action": "profit_report",
@@ -1642,7 +1719,16 @@
           "path": "/api/v1/reports/profit",
           "handler": "profit_report",
           "doc": "经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。",
-          "at": "backend/app/api/v1/reports.py:93"
+          "at": "backend/app/api/v1/reports.py:94"
+        },
+        {
+          "action": "tax_summary_report",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/reports/tax-summary",
+          "handler": "tax_summary_report",
+          "doc": "税账：这一段开了多少票（销项）、收到多少票（进项）、该交多少增值税。",
+          "at": "backend/app/api/v1/reports.py:157"
         },
         {
           "action": "turnover_report",
@@ -1651,7 +1737,7 @@
           "path": "/api/v1/reports/turnover",
           "handler": "turnover_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:63"
+          "at": "backend/app/api/v1/reports.py:64"
         },
         {
           "action": "vehicle_cost_report",
@@ -1660,7 +1746,7 @@
           "path": "/api/v1/reports/vehicle-cost",
           "handler": "vehicle_cost_report",
           "doc": "车辆成本表：每一台车在这段时间里花了多少钱（折旧 / 这台车的开销 / 挂靠司机的配送成本）。",
-          "at": "backend/app/api/v1/reports.py:112"
+          "at": "backend/app/api/v1/reports.py:113"
         }
       ]
     },

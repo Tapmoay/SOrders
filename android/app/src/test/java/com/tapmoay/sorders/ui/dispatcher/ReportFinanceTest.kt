@@ -23,7 +23,7 @@ class ReportFinanceTest {
     // ---------------------------------------------------------- 页签 → 导出 kind
 
     @Test
-    fun `页签顺序与报表入口页一致（0 营业纵览 … 8 成本覆盖）`() {
+    fun `页签顺序与报表入口页一致（0 营业纵览 … 9 税账）`() {
         // 与 ReportHomeScreen 里那份入口清单逐项对齐
         assertEquals("turnover", ReportFinance.exportKind(0))
         assertEquals("products", ReportFinance.exportKind(1))
@@ -35,18 +35,20 @@ class ReportFinanceTest {
         assertEquals("vehicle-cost", ReportFinance.exportKind(7))
         // 第 9 格（FEAT-0013）：这一段卖出去的货里，成本有多少是有出处的
         assertEquals("cost-coverage", ReportFinance.exportKind(8))
+        // 第 10 格（FEAT-0014）：销项 / 进项 / 该交的增值税
+        assertEquals("tax-summary", ReportFinance.exportKind(9))
     }
 
     @Test
-    fun `九个页签导出的 kind 两两不同（错位的根因就是有两个页签映射到同一个词）`() {
-        val kinds = (0..8).map { ReportFinance.exportKind(it) }
+    fun `十个页签导出的 kind 两两不同（错位的根因就是有两个页签映射到同一个词）`() {
+        val kinds = (0..9).map { ReportFinance.exportKind(it) }
         assertEquals(kinds.size, kinds.toSet().size)
     }
 
     @Test
     fun `越界页签兜到 audit，不会崩`() {
-        // 8 现在是「成本覆盖」（真 kind），所以越界的样本挪到 9
-        assertEquals("audit", ReportFinance.exportKind(9))
+        // 9 现在是「税账」（真 kind），所以越界的样本挪到 10
+        assertEquals("audit", ReportFinance.exportKind(10))
         assertEquals("audit", ReportFinance.exportKind(-1))
     }
 

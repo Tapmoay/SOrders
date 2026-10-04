@@ -1408,6 +1408,15 @@ data class ProfitReportDto(
     @SerialName("cancelled_orders") val cancelledOrders: Int = 0,
     @SerialName("damage_qty") val damageQty: Int = 0,
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
+    // ---- 增值税（FEAT-0014 第四期）：**价外税**，⛔ 不进上面「= 营业利润」那条链 ----
+    //: 这一段开出去的销项票（合计）
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("vat_output") val vatOutput: String = "0",
+    //: 这一段拿到手的进项票（合计）
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("vat_input") val vatInput: String = "0",
+    //: 该交的增值税 = 销项 − 进项（后端算好的字符串；负数 = 留抵）
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("vat_payable") val vatPayable: String = "0",
+    //: 「税金及附加」那几笔开销的**明细**（分类 + 金额）：合计就是上面的 tax_total
+    @SerialName("tax_expenses") val taxExpenses: List<ProfitReportExpenseItemDto> = emptyList(),
     //: 口径说明：凡「今天是 0」或「今天算不进」的地方都逐条写在这里（税、折旧、固定工资、未覆盖收入、货损）
     @SerialName("notes") val notes: List<String> = emptyList(),
 )
@@ -2589,4 +2598,152 @@ data class FreightQuoteDto(
     val reason: String = "",
     /** 同样优先级的候选多于一条（不猜，让派单员挑） */
     val ambiguous: List<FreightQuoteCandidateDto> = emptyList(),
+)
+
+// ===================== 发票台账（FEAT-0014 第四期 税账） =====================
+
+/**
+ * 一张发票（列表与详情**同一个形状**）。
+ *
+ * ⚠️ **未税票**：`tax_rate` 与 `tax_amount` 同时为空 —— 后端按约定「没给税率就是没算过税」，
+ *    这种票**不进税汇**（销项/进项两边都不算数）。它不是"0% 税率"，也不是"税额 0"，
+ *    所以这两个字段是**可空**的（[NullableFlexibleStringSerializer]），⛔ 别默认成 "0"。
+ * ⚠️ [countsInTax] 由**后端**判（作废票与未税票给 false）：界面⛔ 不许自己拿 [status] 再判一遍 ——
+ *    两边各判一次，就会出现「明细里算数、汇总里不算数」那种对不上账的形状。
+ * ⚠️ 金额一律是**字符串**（后端 `Decimal` 两位小数在 JSON 里就是字符串），显示走 `money(...)`。
+ */
+@Serializable
+data class InvoiceDto(
+    val id: Long = 0,
+    /** `OUTPUT` 销项 / `INPUT` 进项（后端 schema 用正则钉死的两个词）。 */
+    val direction: String = "",
+    @SerialName("invoice_no") val invoiceNo: String = "",
+    @SerialName("invoice_date") val invoiceDate: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0",
+    //: 空 = 未税票（见类注释）；有值时是**百分数**（13 = 13%）
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("tax_rate") val taxRate: String? = null,
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("tax_amount") val taxAmount: String? = null,
+    /** `REGISTERED` 已登记 / `ISSUED` 已开具 / `VOIDED` 已作废。 */
+    val status: String = "",
+    @SerialName("supplier_id") val supplierId: Long? = null,
+    @SerialName("supplier_name") val supplierName: String = "",
+    @SerialName("customer_id") val customerId: Long? = null,
+    @SerialName("customer_name") val customerName: String = "",
+    val note: String = "",
+    /** 算不算进税汇（后端判：已作废的、未税的，都不算）。 */
+    @SerialName("counts_in_tax") val countsInTax: Boolean = false,
+    @SerialName("purchase_order_ids") val purchaseOrderIds: List<Long> = emptyList(),
+    @SerialName("ledger_ids") val ledgerIds: List<Long> = emptyList(),
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+/**
+ * 新建一张票。
+ *
+ * ⚠️ [direction] **只在建票时定**（改方向 = 作废重开，见 [InvoiceUpdateRequest]）。
+ * ⚠️ [taxRate] 与 [taxAmount] **同生同灭**：要么都给、要么都不给（都不给 = 未税票）；
+ *    只给税率时后端按「金额 ÷ (1 + 税率)」倒推税额。
+ * ⚠️ [purchaseOrderIds] 进项票**至少一单**（票要挂在真实的采购上，否则税汇里是无源之水）；
+ *    销项票不用给。
+ */
+@Serializable
+data class InvoiceCreateRequest(
+    /** `OUTPUT` 销项 / `INPUT` 进项（后端正则 `^(OUTPUT|INPUT)$`）。 */
+    val direction: String,
+    @SerialName("invoice_no") val invoiceNo: String = "",
+    @SerialName("invoice_date") val invoiceDate: String,
+    val amount: String,
+    @SerialName("tax_rate") val taxRate: String? = null,
+    @SerialName("tax_amount") val taxAmount: String? = null,
+    @SerialName("supplier_id") val supplierId: Long? = null,
+    @SerialName("customer_id") val customerId: Long? = null,
+    @SerialName("purchase_order_ids") val purchaseOrderIds: List<Long> = emptyList(),
+    @SerialName("ledger_ids") val ledgerIds: List<Long> = emptyList(),
+    val note: String = "",
+)
+
+/**
+ * 改一张票：**没有 direction** —— 方向只在建票时定，换方向＝作废重开一张。
+ *
+ * ⚠️ `null` 的字段会被序列化**丢掉** ⇒ 后端按「没提这事」处理，原值不动。
+ *    要清空备注就传空串（与 [PurchaseOrderUpdateRequest] 同一条规矩）。
+ */
+@Serializable
+data class InvoiceUpdateRequest(
+    @SerialName("invoice_no") val invoiceNo: String? = null,
+    @SerialName("invoice_date") val invoiceDate: String? = null,
+    val amount: String? = null,
+    @SerialName("tax_rate") val taxRate: String? = null,
+    @SerialName("tax_amount") val taxAmount: String? = null,
+    @SerialName("supplier_id") val supplierId: Long? = null,
+    @SerialName("customer_id") val customerId: Long? = null,
+    @SerialName("purchase_order_ids") val purchaseOrderIds: List<Long>? = null,
+    @SerialName("ledger_ids") val ledgerIds: List<Long>? = null,
+    val note: String? = null,
+)
+
+/** 税汇里的一边（销项或进项）：[amount] 是价税合计、[netAmount] 是不含税、[taxAmount] 是税额。 */
+@Serializable
+data class TaxSideDto(
+    val count: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("net_amount") val netAmount: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("tax_amount") val taxAmount: String = "0.00",
+    //: 未税票的张数与金额：**单独列出来**，因为它们不进上面的合计（不是"忘了算"）
+    @SerialName("untaxed_count") val untaxedCount: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("untaxed_amount") val untaxedAmount: String = "0.00",
+)
+
+/** 税汇明细里的一行票（窗口内所有票，含作废与未税的）。 */
+@Serializable
+data class TaxInvoiceRowDto(
+    val id: Long = 0,
+    val direction: String = "",
+    @SerialName("invoice_no") val invoiceNo: String = "",
+    @SerialName("invoice_date") val invoiceDate: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0.00",
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("tax_rate") val taxRate: String? = null,
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("tax_amount") val taxAmount: String? = null,
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("net_amount") val netAmount: String? = null,
+    val status: String = "",
+    /** 对方（销项给客户名、进项给供应商名）。 */
+    @SerialName("party_name") val partyName: String = "",
+    @SerialName("counts_in_tax") val countsInTax: Boolean = false,
+)
+
+/** 按税率分档的合计（一档一行）。 */
+@Serializable
+data class TaxRateBucketDto(
+    val direction: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("tax_rate") val taxRate: String = "0",
+    val count: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("net_amount") val netAmount: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("tax_amount") val taxAmount: String = "0.00",
+)
+
+/**
+ * 税账汇总（`GET /reports/tax-summary`，FEAT-0014 第四期）。
+ *
+ * ⚠️ [vatPayable] = 销项税额 − 进项税额（负数 = 留抵，不是"退税"）。
+ * ⚠️ [voidedCount] 是窗口内的**作废张数**：它们被税汇排除在外，单独报个数免得用户以为票丢了。
+ * ⚠️ [notes] 是后端逐条写死的中文口径说明，直接印在页面上。
+ */
+@Serializable
+data class TaxSummaryReportDto(
+    val mode: String = "",
+    val anchor: String = "",
+    @SerialName("date_from") val dateFrom: String = "",
+    @SerialName("date_to") val dateTo: String = "",
+    val label: String = "",
+    /** 销项（开出去的票）与进项（拿到手的票）。 */
+    val output: TaxSideDto = TaxSideDto(),
+    val input: TaxSideDto = TaxSideDto(),
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("vat_payable") val vatPayable: String = "0.00",
+    @SerialName("by_rate") val byRate: List<TaxRateBucketDto> = emptyList(),
+    val notes: List<String> = emptyList(),
+    val invoices: List<TaxInvoiceRowDto> = emptyList(),
+    @SerialName("voided_count") val voidedCount: Int = 0,
+    @SerialName("default_tax_rate") val defaultTaxRate: String = "0",
 )

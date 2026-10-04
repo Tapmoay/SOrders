@@ -91,6 +91,8 @@ MODULE_CN: dict[str, str] = {
     "vehicle_categories": "车辆分类",
     "price_rules": "批发商定价",
     "inventory": "库存管理",
+    # 发票台账（FEAT-0014 第四期，2026-10-05）：中文名与 App 里那一格同名（能力按模块认领时才对得上）。
+    "invoices": "发票台账",
     "users": "司机/货主/批发商/账号",
     "vehicles": "车辆管理",
     "expense_categories": "开销分类",

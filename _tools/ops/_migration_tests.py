@@ -23,6 +23,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import time
 import sys
 import tempfile
 from pathlib import Path
@@ -144,9 +145,13 @@ def case_old(tmp: Path) -> tuple[bool, list[str]]:
 
 def case_concurrent(tmp: Path) -> tuple[bool, list[str]]:
     db = tmp / 'dual.db'
+    t0 = time.time()
     procs = [subprocess.Popen([sys.executable, '-m', 'app.migrations', 'upgrade'], cwd=str(BACKEND),
                               env=sub_env(url_of(db)), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, encoding='utf-8', errors='replace') for _ in range(2)]
+    # 两个子进程**各跑了多久**必须记下来：这条用例偶发红（2026-10-04 实测 8 次里红 2 次），
+    # 红的时候「是谁等了 60 秒、另一个什么时候结束的」是唯一能定位的线索。
+    spans: list[float] = []
     outs = []
     for p in procs:
         # ⛔ 必须 communicate()：先 wait() 再 read() 会在管道写满时**死锁**（实测把整条用例挂住）。
@@ -155,15 +160,27 @@ def case_concurrent(tmp: Path) -> tuple[bool, list[str]]:
         except subprocess.TimeoutExpired:
             p.kill()
             text_out, _ = p.communicate()
+            spans.append(round(time.time() - t0, 1))
             outs.append((-9, text_out or ''))
             continue
+        spans.append(round(time.time() - t0, 1))
         outs.append((p.returncode, text_out or ''))
     v = versions(db)
-    lines = ['  两个进程退出码 ' + str([o[0] for o in outs])]
+    lines = ['  两个进程退出码 ' + str([o[0] for o in outs])
+             + '（分别在第 ' + ' / '.join(str(s) + 's' for s in spans) + ' 结束，从启动算起）']
     lines.append('  版本表：' + str(v) + '（每个版本必须恰好一行）')
     dup = len(v) != len(set(v))
     ok = all(o[0] == 0 for o in outs) and not dup and v == list(range(1, LATEST + 1))
     lines.append('  重复记账：' + ('有 ⛔' if dup else '没有'))
+    # ⛔ 失败的子进程**说了什么必须打出来**：2026-10-04 实测过一次「退出码 [1, 0]」而版本表完好、
+    #    没有任何重复记账 —— 光看这四个数字根本猜不出是锁超时、SQLite 忙、还是别的（当时这条用例
+    #    把子进程输出收进 outs 就再没印过，整条线索就断在这儿）。
+    for rc, text in outs:
+        if rc == 0:
+            continue
+        tail = [ln for ln in (text or '').splitlines() if ln.strip()][-8:]
+        lines.append('  ⛔ 退出码 ' + str(rc) + ' 的那一个说的是：')
+        lines.extend('      ' + x.strip()[:160] for x in tail)
     plat = 'msvcrt.locking（Windows）' if sys.platform.startswith('win') else 'fcntl.flock（POSIX）'
     lines.append('  本机互斥：' + plat + '；跨**主机**互斥是 MySQL GET_LOCK（生产；SQLite 上如实只用本机锁）')
     return ok, lines

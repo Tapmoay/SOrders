@@ -102,6 +102,7 @@ REASONS: dict[str, str] = {
     # restore_order 里 `write_log` —— 与库存流水、成本价、供应商应付**同一个事务**，
     # 写在服务层才拿得到同一个 `db`（与上面 order_return_request 那条同一种豁免）。
     # ⛔ 本模块里因此不该出现 `write_log(`，那条由下面 ②b 的判据盯着。
+    "invoices.py": "写逻辑与审计留痕都在服务层（app/services/tax_service.py 的 create/update/issue/void/soft_delete/restore 各自 write_log，六个动作码 TAX_INVOICE_*，与票面同事务），API 层只转调",
     "purchase_orders.py": "写逻辑与审计留痕都在服务层（app/services/purchase_service.py 的 create_order / update_order / soft_delete_order / restore_order 各自 write_log，与库存/成本/应付同事务），API 层只转调",
 }
 

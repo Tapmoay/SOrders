@@ -27,12 +27,13 @@ from app.schemas.reports import (
     TurnoverReportOut,
     VehicleCostReportOut,
 )
+from app.schemas.invoice import TaxSummaryOut
 from app.services.cost_basis import SNAPSHOT, CostBasis
 from app.services.money_contract import has_per_order_pay, line_receivable, money_map, pay_for_order
 from app.services.sheet_text import append_text_row
 
 from app.services.reports_service import (
-    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money, build_vehicle_cost, build_cost_coverage,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
+    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money, build_vehicle_cost, build_cost_coverage, build_tax_summary,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
 )
 
 
@@ -152,6 +153,25 @@ def cost_coverage_report(
 
 
 
+@router.get("/tax-summary", response_model=TaxSummaryOut)
+def tax_summary_report(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+    mode: str = Query("month", pattern="^(day|week|month)$"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（与 date_to 成对给，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
+) -> TaxSummaryOut:
+    """税账：这一段开了多少票（销项）、收到多少票（进项）、该交多少增值税。
+
+    只读 —— 只搬发票台账那一个事实（唯一实现 `services/tax_service.py::sum_taxes`），
+    ⛔ 不重算税额、也不把「没有税率的票」按默认税率补一个数出来（它们单列在 untaxed_* 里）。
+    """
+    span = _span(mode, anchor, date_from, date_to)
+    data = build_tax_summary(db, mode, anchor, span=span)
+    data.pop("_window", None)
+    return TaxSummaryOut(**data)
+
 @router.get("/arrears-summary")
 def arrears_summary(
     db: Session = Depends(get_db),
@@ -171,7 +191,7 @@ def arrears_summary(
 def export_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
-    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit|vehicle-cost|cost-coverage)$"),
+    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit|vehicle-cost|cost-coverage|tax-summary)$"),
     mode: str = Query("day", pattern="^(day|week|month)$"),
     anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
     date_from: date | None = Query(None, description="YYYY-MM-DD（finance/customers 可用，优先于 mode+anchor）"),
@@ -336,6 +356,37 @@ def export_report(
             append_text_row(ws, [
                 row["name"], row["unit"], row["stock"],
                 "没有进过货" if row["cost_price"] is None else _money(row["cost_price"]),
+            ])
+        append_text_row(ws, [])
+        append_text_row(ws, ["口径说明"])
+        for note in data["notes"]:
+            append_text_row(ws, [note])
+    elif kind == "tax-summary":
+        # 税账（FEAT-0014 第四期）：这一段开了多少票、该交多少增值税。
+        # 口径与来源见 `services/tax_service.py::sum_taxes`（导出与页面是同一个数）。
+        data = build_tax_summary(db, mode, d, span=(s, e))
+        ws = next_sheet("税账")
+        append_text_row(ws, ["税账", _span_label(s, e), "口径：应交增值税 = 销项税额 - 进项税额（价外税，不进营业利润）"])
+        out_side, in_side = data["output"], data["input"]
+        append_text_row(ws, ["销项税额", _money(out_side["tax_amount"]), "销项票数", out_side["count"], "销项价税合计", _money(out_side["amount"])])
+        append_text_row(ws, ["进项税额", _money(in_side["tax_amount"]), "进项票数", in_side["count"], "进项价税合计", _money(in_side["amount"])])
+        append_text_row(ws, ["应交增值税", _money(data["vat_payable"])])
+        append_text_row(ws, [])
+        append_text_row(ws, ["没填税率的票", out_side["untaxed_count"] + in_side["untaxed_count"],
+                             "作废票数", data["voided_count"], "默认税率(%)", _money(data["default_tax_rate"])])
+        append_text_row(ws, [])
+        append_text_row(ws, ["开票日期", "方向", "票号", "对方", "价税合计", "税率(%)", "税额", "状态", "算不算数"])
+        for row in data["invoices"]:
+            append_text_row(ws, [
+                str(row["invoice_date"]),
+                "销项" if row["direction"] == "OUTPUT" else "进项",
+                row["invoice_no"] or "（未填票号）",
+                row["party_name"],
+                _money(row["amount"]),
+                "" if row["tax_rate"] is None else _money(row["tax_rate"]),
+                "" if row["tax_amount"] is None else _money(row["tax_amount"]),
+                {"REGISTERED": "已登记", "ISSUED": "已开具", "VOIDED": "已作废"}.get(row["status"], row["status"]),
+                "算" if row["counts_in_tax"] else "不算",
             ])
         append_text_row(ws, [])
         append_text_row(ws, ["口径说明"])

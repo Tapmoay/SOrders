@@ -206,6 +206,12 @@ CONFIG = {
     # （不是系统按规则算出来的），从此恒等式 `amount == 明细合计 + adjustment` 在确认与
     # 付款两处都成立 —— 所以它归「录入即事实」这一档，不是 RULED。
     "driver_settlements.adjustment": "结算单的手工调整额（建单时录入即事实；恒等式 amount == 明细合计 + adjustment）",
+    # ---- 发票台账三列（2026-10-05 · FEAT-0014 第四期 税账）：票面金额与税率都是
+    # **人按票面填进来的事实**（票上印了多少就填多少），默认档 3.00% 只是出参
+    # `GET /reports/tax-summary` 的 `default_tax_rate`，**不落库**、也不是每行的来源。
+    "invoices.amount": "票面价税合计（录入即事实：票面印了多少就填多少）",
+    "invoices.tax_rate": "票面税率（百分数，录入即事实；默认档只是出参 default_tax_rate）",
+    "invoices.tax_amount": "票面税额（录入即事实；只给税率时由后端按同一行的金额与税率倒推）",
 }
 
 #: 坐标：名字是 lat/lng 的那几个，与钱无关。

@@ -43,7 +43,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
-    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; 7 -> "车辆成本"; 8 -> "成本覆盖"; else -> "异常与审计" }
+    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; 7 -> "车辆成本"; 8 -> "成本覆盖"; 9 -> "税账"; else -> "异常与审计" }
     // 时间药丸那两个弹层的开关：**只记这一个**（自定义区间那个开关由 `DateFilterDialogs` 自己持有）
     var showPresets by remember { mutableStateOf(false) }
 
@@ -113,6 +113,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                     6 -> ProfitTab(vm)
                     7 -> VehicleCostTab(vm)
                     8 -> CostCoverageTab(vm)
+                    9 -> TaxTab(vm)
                     else -> FinanceTab(vm)
                 }
             }
@@ -1079,6 +1080,15 @@ private fun actionLabel(action: String): String = when (action) {
     "PURCHASE_ORDER_UPDATE" -> "改采购单"
     "PURCHASE_ORDER_DELETE" -> "撤销采购单"
     "PURCHASE_ORDER_RESTORE" -> "恢复采购单"
+    // 发票（FEAT-0014 第四期）：六个动作码各有各的中文名 —— 审计页上要能一眼分出「建票」/
+    // 「改票」/「开具」/「作废」/「撤票」/「从回收站恢复」。⚠️ 作废与撤票**不是一回事**：
+    // 作废是票还在、退出税汇；撤票是进回收站（还能恢复）。
+    "TAX_INVOICE_CREATE" -> "建发票"
+    "TAX_INVOICE_UPDATE" -> "改发票"
+    "TAX_INVOICE_ISSUE" -> "开具发票"
+    "TAX_INVOICE_VOID" -> "作废发票"
+    "TAX_INVOICE_DELETE" -> "撤销发票（进回收站）"
+    "TAX_INVOICE_RESTORE" -> "恢复发票"
     "NOTIFICATION_MODERATE" -> "处理他人消息"
     "ORDER_LINE_ADD" -> "加一行商品"
     "ORDER_LINE_UPDATE" -> "改一行商品"
@@ -1291,6 +1301,30 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                     StatRow("= 营业利润", money(data.operatingProfit), opColor)
                 }
             }
+            // ---- 增值税（FEAT-0014 第四期）：**价外税**，⛔ 不在上面「= 营业利润」那条链里 ----
+            //    单独一张卡摆出来，理由与「折旧必须单独一行」同一条：看不见的钱会被当成算错。
+            item {
+                SectionCard {
+                    Text("增值税（价外税，不进上面的营业利润）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("销项税额（开出去的票）", money(data.vatOutput), Color(0xFF1E6FFF))
+                    StatRow("进项税额（拿到手的票）", money(data.vatInput), Color(0xFF00B578))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    StatRow(
+                        "= 该交的增值税",
+                        money(data.vatPayable),
+                        Color(if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFF00B578 else 0xFFFF6B2C),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Hint(
+                        "增值税是价外税：从客户那里代收、再交给税务，既不构成收入也不构成成本，" +
+                            "所以不在这张表的营业利润里（上面「− 税金及附加」那一行是印花税、附加税那些，不是增值税）。" +
+                            "负数 = 进项比销项多，留到下期继续抵，不是退税。票在「税账」那一页。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if ((data.revenueUncovered.toDoubleOrNull() ?: 0.0) != 0.0) {
                 item {
                     SectionCard {
@@ -1353,6 +1387,19 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         StatRow("合计", money(data.operatingExpenseTotal))
+                    }
+                }
+            }
+            if (data.taxExpenses.isNotEmpty()) {
+                item {
+                    SectionCard {
+                        Text("税金及附加明细", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        data.taxExpenses.forEach { e ->
+                            StatRow(e.category, money(e.amount), Color(0xFF8A8A8E))
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        StatRow("合计", money(data.taxTotal))
                     }
                 }
             }
@@ -1578,6 +1625,171 @@ private fun CostCoverageTab(vm: ReportCenterViewModel) {
             item {
                 SectionCard {
                     Text("口径说明（这几笔钱是怎么算的）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    data.notes.forEach { n ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(n, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ===================== ⑩ 税账（FEAT-0014 第四期） =====================
+
+/**
+ * 税账：这一段开了多少票、该交多少增值税。
+ *
+ * ⚠️ 这一页**只搬后端算好的数**（GET /reports/tax-summary）：销项、进项、该交多少、
+ *    分档合计全是服务端算好的字符串，这里一个加减法都不做（毛利上栽过的那一次的形状）。
+ * ⚠️ 增值税是**价外税**：⛔ 不参与「经营利润」那条链 —— 该交的税在利润表里本来就没被减过
+ *    （那边减掉的是「税金及附加」）。所以这一页也不做「利润减税」这种减法。
+ * ⚠️ 明细里**作废票与未税票照样摆出来**（灰着）：「这一段一共有几张票」必须是全量，
+ *    算不算数看后端给的 countsInTax，⛔ 不在这里按状态自己再判一遍。
+ * ⚠️ 口径说明（notes）常显，理由同利润页与车辆成本页。
+ */
+@Composable
+private fun TaxTab(vm: ReportCenterViewModel) {
+    val data = vm.taxSummary
+    if (vm.loading && data == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (data == null) {
+            item { ChartEmpty("该时段还没有税账数据") }
+        } else {
+            val payable = data.vatPayable.toDoubleOrNull() ?: 0.0
+            val payableColor = if (payable < 0.0) Color(0xFF00B578) else Color(0xFFFF6B2C)
+            item {
+                StatBig("该交的增值税", money(data.vatPayable), payableColor)
+            }
+            // ---- 销项 / 进项：⛔ 这里不做减法，两个合计都是后端给的 ----------------
+            item {
+                SectionCard {
+                    Text("销项与进项", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text("销项（这一段开出去的票）", style = MaterialTheme.typography.bodyLarge)
+                    StatRow("张数", data.output.count.toString() + " 张")
+                    StatRow("价税合计", money(data.output.amount))
+                    StatRow("不含税", money(data.output.netAmount))
+                    StatRow("税额", money(data.output.taxAmount), Color(0xFF1E6FFF))
+                    if (data.output.untaxedCount > 0) {
+                        StatRow(
+                            "其中未税票",
+                            data.output.untaxedCount.toString() + " 张 · " + money(data.output.untaxedAmount),
+                            Color(0xFF8A8A8E),
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text("进项（这一段拿到手的票）", style = MaterialTheme.typography.bodyLarge)
+                    StatRow("张数", data.input.count.toString() + " 张")
+                    StatRow("价税合计", money(data.input.amount))
+                    StatRow("不含税", money(data.input.netAmount))
+                    StatRow("税额", money(data.input.taxAmount), Color(0xFF00B578))
+                    if (data.input.untaxedCount > 0) {
+                        StatRow(
+                            "其中未税票",
+                            data.input.untaxedCount.toString() + " 张 · " + money(data.input.untaxedAmount),
+                            Color(0xFF8A8A8E),
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    StatRow("= 该交的增值税", money(data.vatPayable), payableColor)
+                    Spacer(Modifier.height(4.dp))
+                    Hint(
+                        "销项税额减进项税额。负数 = 进项比销项多，留到下期继续抵（不是退税）。" +
+                            "「未税票」是建票时没填税率的票，两边都不算进合计 —— 它们不是税额 0，是没算过税。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            // ---- 不算进税汇的票：作废票与未税票照样摆出来（灰着），⛔ 不许藏 ---------
+            if (data.voidedCount > 0 || data.output.untaxedCount > 0 || data.input.untaxedCount > 0) {
+                item {
+                    SectionCard {
+                        Text("不算进税汇的票", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        if (data.voidedCount > 0) {
+                            StatRow("已作废", data.voidedCount.toString() + " 张", Color(0xFFE53935))
+                        }
+                        if (data.output.untaxedCount > 0) {
+                            StatRow(
+                                "销项未税票",
+                                data.output.untaxedCount.toString() + " 张 · " + money(data.output.untaxedAmount),
+                                Color(0xFF8A8A8E),
+                            )
+                        }
+                        if (data.input.untaxedCount > 0) {
+                            StatRow(
+                                "进项未税票",
+                                data.input.untaxedCount.toString() + " 张 · " + money(data.input.untaxedAmount),
+                                Color(0xFF8A8A8E),
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Hint(
+                            "作废的票留在台账里、只是退出这一段税汇；未税票是建票时没填税率。" +
+                                "两件都不是删除：把税率补上（改那张票），它就会重新算进来。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            if (data.byRate.isNotEmpty()) {
+                item {
+                    SectionCard {
+                        Text("按税率分档", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        data.byRate.forEach { b ->
+                            StatRow(
+                                ReportFinance.directionLabel(b.direction) + " " + b.taxRate + "%",
+                                b.count.toString() + " 张 · " + money(b.taxAmount),
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                SectionCard {
+                    Text("明细（这一段一共 " + data.invoices.size.toString() + " 张票）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    if (data.invoices.isEmpty()) {
+                        Text(
+                            "这一段没有票。去「发票台账」建一张，或者把窗口换成有票的那一段。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    data.invoices.forEach { inv ->
+                        // ⚠️ 票号与对方名字**各占一行**（StatRow 会把长名字挤成竖排 —— 真机裁切教训）
+                        Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                            Text(
+                                inv.invoiceDate + " · " + (if (inv.invoiceNo.isBlank()) "（没填票号）" else inv.invoiceNo),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (inv.countsInTax) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                ReportFinance.directionLabel(inv.direction) + " · " +
+                                    ReportFinance.invoiceStatusLabel(inv.status) + " · " +
+                                    (if (inv.partyName.isBlank()) "没有对方" else inv.partyName) + " · " +
+                                    "价税合计 " + money(inv.amount) +
+                                    (if (inv.taxAmount == null) " · 未税" else " · 税额 " + money(inv.taxAmount)) +
+                                    (if (inv.countsInTax) "" else " · 不算进税汇"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                SectionCard {
+                    Text("口径说明（这几种票不算数）", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     data.notes.forEach { n ->
                         Spacer(Modifier.height(4.dp))

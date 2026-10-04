@@ -380,6 +380,18 @@ pending: no
 ```
 
 ```capability
+id: money.tax_invoice
+中文名: 发票台账与税汇（开了哪些票、该交多少增值税）
+class: CORE
+domain: money
+owns: invoices, invoice_purchase_orders, invoice_ledgers
+contract: -
+why: 票面金额**直接进税汇**（销项 − 进项），是金额事实，不可替换；状态机（登记 → 开具 → 作废·冲红）与「作废仍占票号」是持久化不变量，⛔ 界面与报表都不许自己算税额或税汇（判定规则 1）
+impl: services/tax_service.py, api/v1/invoices.py
+pending: no
+```
+
+```capability
 id: notification.data
 中文名: 站内信数据（谁在什么时候收到了什么）
 class: CORE

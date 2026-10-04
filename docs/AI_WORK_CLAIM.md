@@ -30,6 +30,35 @@
 ---
 
 ## 进行中
+
+### [2026-10-04 进行中] 会话：**FEAT-0014 税账：发票台账（登记 / 开具 / 作废·冲红）＋ 进销项税汇**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：五期财务计划第四期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → ③ 采购与进货价闭环 ✅ FEAT-0013（`cf70ebf` + 归档 `e531a75`）→ **④ 税账** → ⑤ 应收账龄与客户信用）。开工前先把本期的五个口径问清、拿到需求方拍板（见下），再动代码。
+
+**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
+然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
+分析。」
+
+**本期口径（需求方 2026-10-04 拍板五条，问的是税账）**：
+① 税率 → **小规模纳税人默认一档 3.00%**（现行 1% 减征时在单张发票上改），⛔ 不做多档税率表、不做配置页；
+② 台账 → **新建 `invoices` 表**（登记 → 开具 → 作废·冲红，销项 / 进项共用一张表），历史发票可补录、作废留行占位；
+③ 关联 → **进项必须挂采购单**（一张票可对多张进货单、供应商必须一致）、**销项可挂结算单**（客户必须一致）—— ⚠️ 落地时销项挂在**账本条目**（`invoice_ledgers` → `ledgers.id`，客户必须一致）：票开的是这个客户名下哪几笔应收，收款记录（`shipper_receipts`）不是「开了多少票」的粒度；
+④ 利润表 → **两个数分开**：「应交增值税（销项 − 进项）」单列一行、**不进**营业利润（增值税是价外税），「− 税」那一格只放税金及附加；
+⑤ 报表 → **要**：后端只读端点 `GET /reports/tax-summary` ＋ 报表中心第 10 格「税账」＋ 导出 kind `tax-summary`（与前两期同规格）。
+
+**做什么**：新增三张表（迁移 `020_invoices.py`：`invoices` / `invoice_purchase_orders` / `invoice_ledgers`）＋ 唯一实现 `backend/app/services/tax_service.py`（税额算法、状态机、关联校验、税汇聚合）＋ 端点 `backend/app/api/v1/invoices.py`（5 个写 ＋ 3 个读）＋ 只读报表 `GET /reports/tax-summary`（`services/reports/tax_query.py`）＋ 报表中心第 10 格「税账」＋ 工作台「发票」一格（列表页 ＋ 登记表单页）＋ 利润表接线（`tax_total` 取开销里分类名含「税」的合计并从期间费用搬出；新增只读 `vat_output` / `vat_input` / `vat_payable`，⛔ 不进 `operating_profit`）；⛔ 成本口径 `cost_basis`、欠款口径 `supplier_service`、库存不变量、`cash_flows` / `orders` / `ledgers` 一个字节不改，未新建权限点（写用 `Permission.LEDGER_EDIT`、读用 `Permission.ORDER_DISPATCH`，与应付 / 利润表同级），`shipper_receipts.invoiced` 不回填、不双写。
+
+**文件清单**（认领时拟定；⛔ 归档时按实现提交的 `--name-only` 逐条核对并改正）：
+- 文档：`docs/changes/FEAT-0014.md`（新）、`docs/changes/README.md`（登记行）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/RELEASE_CANDIDATE.md`（迁移头 19 → 20）、`docs/DOMAIN_BOUNDARIES.md`、`docs/R4_CORE_EXTENSION_MAP.md`、`docs/ACCOUNTING_V2_DESIGN.md`（P3 落地标注）、`docs/ai/kb_skeleton.md` ＋ 五份生成物（`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`）
+- 后端：`backend/app/models/invoice.py`（新）、`backend/app/migrations/020_invoices.py`（新）、`backend/app/services/tax_service.py`（新）、`backend/app/schemas/invoice.py`（新）、`backend/app/api/v1/invoices.py`（新）、`backend/app/services/reports/tax_query.py`（新）、`backend/app/models/enums.py`（＋4 个动作码与两个枚举）、`backend/app/models/__init__.py`、`backend/app/api/v1/router.py`、`backend/app/api/v1/reports.py`、`backend/app/schemas/reports.py`、`backend/app/services/reports/profit_query.py`、`backend/app/services/reports_service.py`、`backend/app/services/purchase_service.py`（删单前一道闸）、`backend/app/core/capability_audit_coverage.py`
+- Android：`ui/dispatcher/InvoicesScreen.kt`（新）、`ui/dispatcher/InvoiceFormScreen.kt`（新）、`ui/dispatcher/ReportCenter.kt`（第 10 格）、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/dispatcher/ReportHome.kt`、`ui/dispatcher/ReportFinance.kt`（利润页新行）、`ui/nav/Modules.kt`（工作台一格）、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`data/repo/AppRepository.kt`、`core/ApiClient.kt`、`ai/AiReadCatalog.kt`、`core/Capabilities.kt`（后两者生成物，不手改）
+- 判据与测试：`_tools/qa/_check_tax_invoices.py`（新）、`_tools/qa/_reverse_verify_tax_invoices.py`（新）、`_tools/qa/_probe_tax_invoices.py`（新，真实库探针）、`backend/tests/test_tax_invoices.py`（新）＋ 受影响的既有判据（`_check_profit_report.py`、`_reverse_verify_profit_report.py`、`_check_purchase_orders.py`、`_reverse_verify_purchase_orders.py`、`_check_audit_coverage.py`、`_check_report_window.py`、`_hint_inventory.py`、`_tools/ai/` 下四份生成器）
+- 核心改动：`backend/app/models/enums.py`（领域词汇表）、`backend/app/models/__init__.py`（模型注册）、`backend/app/api/v1/router.py`（路由挂载）—— 为什么必须动核心：发票的四个写动作 `TAX_INVOICE_CREATE / ISSUE / VOID / RESTORE` 必须进词表（审计覆盖与 AI 写闸门都按词表逐值比对，不入词表这四处写就没有归属），模型注册与路由挂载是接线文件、不含任何金额口径；只**追加**，⛔ 既有取值一个字节都不改。
+
+**判据与测试**：⏳ 认领时未跑 —— 判据 `_tools/qa/_check_tax_invoices.py`、反验 `_tools/qa/_reverse_verify_tax_invoices.py`（新增检查器自带 `R4-BOUNDARY-JUSTIFICATION`）、单测 `backend/tests/test_tax_invoices.py`、真实库探针、模拟器 5554 真机四处截图、全量静检。
+
+**落点与提交**：⏳ 待回填（实现提交 + 归档提交）。
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

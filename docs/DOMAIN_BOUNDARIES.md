@@ -200,9 +200,9 @@ pure_consumer: no
 name: money
 中文名: 钱与账本域
 为什么是它自己的域: 一笔钱只允许有一个数：应收 / 已收 / 欠款 / 红冲 / 支出 / 付款。钱域是这些事实的拥有者，其余域只能读它、或调它的命令。
-owns: ledgers, cash_flows, shipper_receipts, expenses, expense_categories, shipper_settlements, shipper_settlement_lines, supplier_payables
-commands: services.accounting_service:create_receipt, services.accounting_service:create_expense, services.accounting_service:post_delivery_accounting, services.ledger_sync:sync_ledger_from_delivered_order, services.ledger_sync:sync_order_product_from_ledger, services.supplier_service:pay_supplier
-reads: orders@order, users@identity, arrears_units@party, products@catalogue
+owns: ledgers, cash_flows, shipper_receipts, expenses, expense_categories, shipper_settlements, shipper_settlement_lines, supplier_payables, invoices, invoice_purchase_orders, invoice_ledgers
+commands: services.accounting_service:create_receipt, services.accounting_service:create_expense, services.accounting_service:post_delivery_accounting, services.ledger_sync:sync_ledger_from_delivered_order, services.ledger_sync:sync_order_product_from_ledger, services.supplier_service:pay_supplier, services.tax_service:create_invoice, services.tax_service:update_invoice, services.tax_service:issue_invoice, services.tax_service:void_invoice, services.tax_service:soft_delete_invoice, services.tax_service:restore_invoice
+reads: orders@order, users@identity, arrears_units@party, products@catalogue, purchase_orders@inventory
 events: ledger.updated
 pure_consumer: no
 ```
@@ -214,6 +214,12 @@ pure_consumer: no
 **`supplier_payables` 在钱域而不在档案域**：它是金额事实（欠多少），档案域那边只有「这个供应商是谁」。
 
 **三本账的分工**：`ledgers` 是账本流水，`shipper_receipts` 是收款记录，`shipper_settlements` 是货主核销；口径与上限各自只有一处实现（`services/shipper_settle.py`、`services/accounting_service.py`）。
+
+**发票与税汇（FEAT-0014）记在这一域**：`invoices` 是「这一段时间开了哪些票、票面多少钱」的凭证 —— **票面金额直接进税汇**（销项 − 进项 = 该交的增值税），所以它是金额事实，跟 `cash_flows` / `supplier_payables` 同族，归钱域。三条配套口径：
+
+- **税额只有一个算法**：`services/tax_service.py::tax_of_amount`（后端按「价税合计 ÷ (1 + 税率)」倒推），界面与服务层都不许再算一遍；税汇的唯一汇总点是同文件的 `sum_taxes`（只读端点 `GET /reports/tax-summary` 走它）。
+- **两张连接表跟着票走**：`invoice_purchase_orders`（进项票 ↔ 采购单）与 `invoice_ledgers`（销项票 ↔ 账本行）是**票的附属物**，没有票就没有它们 —— 所以它们的主人跟票一致（在钱域），而不是把连接表寄在采购单那一域。
+- **跨域只读不写**：进项票校验「挂的采购单是谁家的」要读 `purchase_orders@inventory`（上表 `reads` 那条边），钱域**不写**采购单、也不写库存流水；作废票退出税汇但**票号仍占着**（`no_key` 唯一索引含回收站行）。
 
 ### 3.6 inventory —— 库存域
 

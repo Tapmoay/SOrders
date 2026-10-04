@@ -44,6 +44,9 @@ import com.tapmoay.sorders.ui.driver.DriverFreightScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherOrdersScreen
 import com.tapmoay.sorders.ui.dispatcher.DispatcherReturnRequestsScreen
 import com.tapmoay.sorders.ui.dispatcher.InventoryScreen
+// 发票台账 + 登记一张票（FEAT-0014 第四期 税账）
+import com.tapmoay.sorders.ui.dispatcher.InvoiceFormScreen
+import com.tapmoay.sorders.ui.dispatcher.InvoicesScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductBatchScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductSortScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductCategoriesScreen
@@ -591,6 +594,30 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onBack = { navController.popBackStack() },
             )
         }
+        // 发票台账（FEAT-0014 第四期 税账）：列表页 + 表单页（与采购单那两页同一套写法）。
+        composable(Routes.INVOICES) {
+            InvoicesScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenForm = { id ->
+                    navController.navigate(
+                        if (id == null) Routes.INVOICE_FORM
+                        else Routes.INVOICE_FORM + "?invoiceId=" + id,
+                    )
+                },
+            )
+        }
+        composable(
+            route = Routes.INVOICE_FORM + "?invoiceId={invoiceId}",
+            arguments = listOf(navArgument("invoiceId") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            val iid = entry.arguments?.getLong("invoiceId") ?: 0L
+            InvoiceFormScreen(
+                container = container,
+                invoiceId = if (iid > 0L) iid else null,
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(Routes.REPORT_HOME) {
             ReportHomeScreen(
                 container = container,
@@ -606,6 +633,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                         6 -> navController.navigate(Routes.REPORT_PROFIT)
                         7 -> navController.navigate(Routes.REPORT_VEHICLE_COST)
                         8 -> navController.navigate(Routes.REPORT_COST_COVERAGE)
+                        9 -> navController.navigate(Routes.REPORT_TAX)
                         else -> navController.navigate(Routes.REPORT_EXCEPTION)
                     }
                 },
@@ -620,6 +648,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         composable(Routes.REPORT_PROFIT) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 6) }
         composable(Routes.REPORT_VEHICLE_COST) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 7) }
         composable(Routes.REPORT_COST_COVERAGE) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 8) }
+        composable(Routes.REPORT_TAX) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 9) }
         composable(Routes.AI_CHAT) {
             AiChatScreen(
                 ai = ai,

@@ -103,6 +103,7 @@ object ApiClient {
             supplierApi = retrofit.create(SupplierApi::class.java),
             inventoryApi = retrofit.create(InventoryApi::class.java),
             purchaseOrderApi = retrofit.create(PurchaseOrderApi::class.java),
+            invoiceApi = retrofit.create(InvoiceApi::class.java),
             priceRuleApi = retrofit.create(PriceRuleApi::class.java),
             freightTemplateApi = retrofit.create(FreightTemplateApi::class.java),
             driverBillingRuleApi = retrofit.create(DriverBillingRuleApi::class.java),
@@ -257,6 +258,8 @@ data class ApiBundle(
     val supplierApi: SupplierApi,
     val inventoryApi: InventoryApi,
     val purchaseOrderApi: PurchaseOrderApi,
+    /** 发票台账（FEAT-0014 税账）：读 `ORDER_DISPATCH`、写 `LEDGER_EDIT`。 */
+    val invoiceApi: InvoiceApi,
     val priceRuleApi: PriceRuleApi,
     val freightTemplateApi: FreightTemplateApi,
     val driverBillingRuleApi: DriverBillingRuleApi,

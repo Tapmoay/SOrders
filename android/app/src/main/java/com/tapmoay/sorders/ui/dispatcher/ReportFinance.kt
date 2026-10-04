@@ -78,7 +78,8 @@ internal object ReportFinance {
      * 报表页签 → 后端导出的 `kind`。
      *
      * ⚠️ 页签顺序的唯一真相是 `ReportHomeScreen` 里那份入口清单（0 营业纵览 / 1 商品经营 /
-     * 2 司机绩效 / 3 客户经营 / 4 资金收支 / 5 异常与审计 / 6 经营利润 / 7 车辆成本 / 8 成本覆盖）。这一版之前是**错位**的
+     * 2 司机绩效 / 3 客户经营 / 4 资金收支 / 5 异常与审计 / 6 经营利润 / 7 车辆成本 / 8 成本覆盖 /
+     * 9 税账）。这一版之前是**错位**的
      * （3→audit、4→customers、else→finance），而后端的 kind 白名单恰好接受这三个词，
      * 所以不会 400——导出"成功"，只是内容是别人的。
      *
@@ -95,7 +96,33 @@ internal object ReportFinance {
         6 -> "profit"
         7 -> "vehicle-cost"
         8 -> "cost-coverage"
+        // 第 10 格（FEAT-0014 第四期 税账）：这一段开了多少票、该交多少增值税
+        9 -> "tax-summary"
         else -> "audit"
+    }
+
+    /**
+     * 发票方向 → 中文（`OUTPUT` 销项 / `INPUT` 进项）。
+     *
+     * ⚠️ 取值是后端 schema 里那个正则 `^(OUTPUT|INPUT)$` 钉死的两个词；认不出来就**原样回**，
+     *    ⛔ 不许自己编一个「其他」—— 一个方向的票被印成"其他"，税汇就要被读错。
+     */
+    fun directionLabel(direction: String?): String = when (direction?.trim()?.uppercase()) {
+        "OUTPUT" -> "销项"
+        "INPUT" -> "进项"
+        else -> direction?.trim() ?: ""
+    }
+
+    /**
+     * 票的状态 → 中文（`REGISTERED` 已登记 / `ISSUED` 已开具 / `VOIDED` 已作废）。
+     *
+     * ⚠️ 与 [directionLabel] 同一条规矩：认不出来**原样回**，别编词。
+     */
+    fun invoiceStatusLabel(status: String?): String = when (status?.trim()?.uppercase()) {
+        "REGISTERED" -> "已登记"
+        "ISSUED" -> "已开具"
+        "VOIDED" -> "已作废"
+        else -> status?.trim() ?: ""
     }
 
     /**

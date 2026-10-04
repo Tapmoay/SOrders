@@ -150,7 +150,7 @@ def _route_renamed(s: str) -> str:
 
 def _vm_caps_at_six(s: str) -> str:
     """ViewModel 把页签上界改回 6（第 8 格进来会被压成第 7 页）。"""
-    return s.replace("initialTab.coerceIn(0, 8)", "initialTab.coerceIn(0, 6)")
+    return s.replace("initialTab.coerceIn(0, 9)", "initialTab.coerceIn(0, 6)")
 
 
 def _home_drops_the_card(s: str) -> str:

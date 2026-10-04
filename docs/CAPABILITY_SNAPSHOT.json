@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:0add3a7cf38f9e184bff98237cf0e1e94019cea16f8312d44399587a7f7c1ff8",
- "source_commit": "edc82bf",
- "generated_at": "2026-10-04T06:34:17Z",
+ "source_hash": "sha256:810ea0676ea62e3c494b4aa26174e3a221912166ea749da0bf237d62c3ad0dec",
+ "source_commit": "e531a75",
+ "generated_at": "2026-10-04T08:12:07Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -504,7 +504,13 @@
    "SUPPLIER_PAYMENT_RESTORE",
    "ARREARS_UNIT_UPSERT",
    "ARREARS_UNIT_DELETE",
-   "ARREARS_UNIT_RESTORE"
+   "ARREARS_UNIT_RESTORE",
+   "TAX_INVOICE_CREATE",
+   "TAX_INVOICE_UPDATE",
+   "TAX_INVOICE_ISSUE",
+   "TAX_INVOICE_VOID",
+   "TAX_INVOICE_DELETE",
+   "TAX_INVOICE_RESTORE"
   ],
   "price_rule:manage": [
    "PRICE_RULE_UPSERT"
@@ -581,7 +587,7 @@
   "capabilities": 26,
   "role_capabilities": 5,
   "write_capabilities": 18,
-  "audited_action_codes": 108,
+  "audited_action_codes": 114,
   "audit_exceptions": 1
  }
 }

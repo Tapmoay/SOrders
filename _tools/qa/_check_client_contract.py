@@ -157,6 +157,21 @@ def enum_values() -> list[str]:
         return []
     return re.findall(r'^\s+([A-Z_]+)\s*=\s*"', m.group(1), re.M)
 
+def status_enum_values() -> set[str]:
+    """enums.py 里**所有** `*Status` 枚举的成员（不只 OrderStatus）。
+
+    为什么需要它：第⑤条问的是「客户端有没有写出后端根本不存在的状态字面量」，
+    而 App 上除了订单状态还有别的状态（发票 `REGISTERED` / `ISSUED` / `VOIDED`、
+    结算 `SettlementStatus` …）。只认 OrderStatus 会把**正确**的发票状态判红；
+    而放宽成「任何大写串」又等于这条红线不存在。
+    ⛔ 订单状态门（`parse_backend_gates`）仍只吃 OrderStatus —— 那里放宽会让门变松。
+    """
+    src = ENUMS.read_text(encoding="utf-8")
+    out: set[str] = set()
+    for m in re.finditer(r"class (\w*Status)\(str, enum\.Enum\):(.*?)(?=\nclass |\Z)", src, re.S):
+        out |= set(re.findall(r'^\s+([A-Z_]+)\s*=\s*"', m.group(2), re.M))
+    return out
+
 
 def body_of(path: Path, func: str) -> str:
     """函数体（到下一个顶层 `def`/装饰器/`class` 为止），注释已剥掉。"""
@@ -392,6 +407,12 @@ def main() -> int:
     if len(enum_list) < 4:
         return 1
     enum = set(enum_list)
+    status_all = status_enum_values()
+    ok(
+        "从 enums.py 解析出所有 `*Status` 枚举（>=10 档，防解析失效后第⑤条空转）",
+        len(status_all) >= 10,
+        f"实际 {len(status_all)} 档：{sorted(status_all)}",
+    )
 
     print("\n① 后端状态门（真源，从源码解析）")
     try:
@@ -476,9 +497,9 @@ def main() -> int:
             src = strip_js(p.read_text(encoding="utf-8", errors="replace"))
             for pat in pats:
                 for v in re.findall(pat, src):
-                    if v not in enum:
+                    if v not in status_all:
                         bad.append(f"{p.relative_to(ROOT)} → {v}")
-    ok("客户端的状态字面量都在后端枚举里（旧四态/拼错的码会在这里红）", not bad,
+    ok("客户端的状态字面量都在后端枚举里（订单/发票/结算…各 `*Status` 的并集；旧四态或拼错的码会在这里红）", not bad,
        "；".join(sorted(set(bad))[:8]))
 
     # H5 调的端点那一节随 frontend/ 归档整段删掉（计划表 4.2）。

@@ -21,6 +21,7 @@ from app.services.reports.cost_coverage_query import build_cost_coverage  # noqa
 from app.services.reports.loader import delivered_span_sql, load_delivered  # noqa: F401
 from app.services.reports.product_query import _cost_basis_note, build_products  # noqa: F401
 from app.services.reports.profit_query import build_profit  # noqa: F401
+from app.services.reports.tax_query import build_tax_summary  # noqa: F401
 from app.services.reports.turnover_query import build_turnover  # noqa: F401
 from app.services.reports.vehicle_cost_query import build_vehicle_cost  # noqa: F401
 

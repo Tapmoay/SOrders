@@ -34,6 +34,24 @@ R3-BOUNDARY-JUSTIFICATION: 这条**没法用边界消除** —— 它管的是�
 ③ 一条结构性判据：台账里凡是要跑起本脚本的命令，必须在 SKIP 表里显式登记。
 教训与「永远红的检查＝没有检查」同源：**判据的爆炸半径，本身也是判据要管的东西**。
 
+### 并发编排（2026-10-04 补：这一条判据自己踩过的第二个坑）
+
+台账里的命令**不是彼此独立的**：会 bootstrap 数据库的那些抢的是**同一把固定路径的本机文件锁**
+（`backend/app/core/schema_bootstrap.py:33` 的 `sorders_bootstrap.lock` —— ⛔ 一把锁管**所有**库，
+不是每库一把），拿不到要等 `backend/app/core/file_lock.py:36` 的 `DEFAULT_WAIT_S = 60` 秒才抛。
+整轮 8 路并发里 `_check_r3_constraints.py` + `_migration_tests.py --fresh/--old/--concurrent` 四条
+同时报「拿不到文件锁」、**逐条单独跑却全绿** —— 台账没错，是本判据的编排把它们锁死了。三条修法：
+
+· 会 bootstrap 的命令走**单 worker 的串行车道**（`SERIAL_HINTS`，含**间接** bootstrap 的那些）；
+· 两条车道**不许重叠**：并行车道**跑完**才开串行车道。其中 `_migration_tests.py --concurrent`、
+  `_drill.py --verify lock-contention`、`_dual_instance.py` 这几条**断言的就是锁/端口的争用行为** ——
+  旁边有人同时在建库，它们断言的就不是自己那两个进程了（2026-10-04 实测：并行车道里的 pytest
+  在 bootstrap 临时库，串行车道里的 `--concurrent` 就红了；单独跑必绿）；
+· 万一还有别人（上一次检查留下的进程、正在跑的后端）占着锁：命中 `LOCK_BUSY` 的命令**单独重跑一次**，
+  过了就记为通过、并在输出里**点名**（⛔ 不许悄悄咽掉：重跑名单是下一次再红时唯一的线索）；
+· 红的命令**完整输出落盘**到 `_tmp/rf_fail/<命令>.txt` 并把路径打出来 —— 只印最后三行，
+  下次红了只能靠猜（`--concurrent` 那次只留下「❌ 不成立」四个字，看不出是哪条断言）。
+
 ### ⛔ 它证不了什么
 
 · 它证的是「那条命令现在退出 0」+「写的期望值现在还打得出」，**不证**「文档里那句话描述得准确」——
@@ -64,8 +82,36 @@ MIN_RUN = 12
 TIMEOUT_S = 180
 WORKERS = 8
 
-#: 命令里出现这些片段的**不能并发跑**（它们抢同一组端口）—— 串行处理。
-SERIAL_HINTS = ('_dual_instance.py',)
+#: 命令里出现这些片段的**不能并发跑** —— 走下面那条**单 worker 的串行车道**。两类理由：
+#:
+#: ① **抢端口**：`_dual_instance.py` 自己会起两个实例（18000 段）。
+#: ② **抢同一把固定路径的本机文件锁** —— 这是 2026-10-04 实测到的那一类：
+#:    会 bootstrap 数据库的命令（**真库或临时库都一样**）抢的是 `backend/app/core/schema_bootstrap.py:33`
+#:    里那把 `BOOTSTRAP_LOCK_FILE`（`<临时目录>/sorders_bootstrap.lock`，⛔ **一把锁管所有库**、不是每库一把）；
+#:    而 `backend/app/core/file_lock.py:36` 的 `DEFAULT_WAIT_S = 60` 意味着**拿不到就等满 60 秒再抛**
+#:    `FileLockTimeout`。于是 8 路并发里只要有几条要 bootstrap，后面的就成排地报「拿不到文件锁」——
+#:    实测那一轮：`_check_r3_constraints.py`（它自己内部还会再跑 `_migration_tests.py` 三种形态）
+#:    + `_migration_tests.py --fresh/--old/--concurrent` 四条同时假红，**逐条单独跑却全绿**：
+#:    台账一个字都没写错，是这条判据自己的编排把它们锁死了。
+#:
+#: ⛔ 判据：会 bootstrap 的命令包括「**间接** bootstrap 的命令」（`_check_r3_constraints.py` 会跑
+#:    `_migration_tests.py` 与 `_check_import_purity.py`）—— 串行是**按命令**串的，进程树内部的先后
+#:    由那条命令自己管，但两条命令行不许同时在跑。
+SERIAL_HINTS = (
+    '_dual_instance.py',          # ① 抢端口
+    '_migration_tests.py',        # ② 四种形态都要建库（真库 + 临时库）
+    '_check_import_purity.py',    # ② 真库 + 子进程核对
+    '_check_r3_constraints.py',   # ② 里面就跑上面两条
+    '_check_migrations.py',       # ② 走迁移入口
+    '_drill.py',                  # ② lock-contention / event-delay / redis-down 三格都建库
+    'prepare_schema(',            # ② 台账里那段内联脚本
+    'app.migrations',             # ② `python -m app.migrations …`（upgrade 就是 prepare_schema）
+)
+
+#: 「拿不到锁」的指纹：命令本身没错，是**撞上别人的本机锁**（bootstrap / 迁移 / SQLite 写锁）。
+#: 命中它才允许「单独重跑一次」；而且重跑名单**必须打出来** ——
+#: ⛔ 它不许变成掩盖真实失败的橡皮擦（真失败重跑几次都还是失败）。
+LOCK_BUSY = re.compile(r'FileLockTimeout|拿不到文件锁|database is locked|Resource temporarily unavailable')
 
 #: ⛔ **绝对不许由本判据启动**的命令：反向验证会**注入并改工作区**（还带注入锁）。
 #: 实测事故（2026-09-26）：台账里一条 ✅ 的复现命令写成了「按域全量跑反向验证」（~50 分钟），
@@ -162,6 +208,23 @@ def last_line(out: str) -> str:
     return tail[-1][:120] if tail else '(没有输出)'
 
 
+#: 失败命令的完整输出落在这里（相对仓库根）—— 只印最后三行看不出「是哪条断言、是不是锁」。
+FAIL_DIR = ROOT / '_tmp' / 'rf_fail'
+
+
+def dump_fail(cmd: str, out: str) -> Path:
+    '''把失败命令的完整输出写进 _tmp/rf_fail/，返回相对路径（写不进去也不许把判据带崩）。'''
+    name = re.sub(r'[^0-9A-Za-z_]+', '_', cmd)[:60].strip('_') or 'cmd'
+    try:
+        FAIL_DIR.mkdir(parents=True, exist_ok=True)
+        assert FAIL_DIR.is_dir(), '路径被占用'
+        path = FAIL_DIR / (name + '.txt')
+        path.write_text('$ ' + cmd + chr(10) + chr(10) + out, encoding='utf-8', errors='replace')
+        return path.relative_to(ROOT)
+    except Exception as exc:  # noqa: BLE001 —— 落盘失败只是少一份证据，不该让判据自己崩
+        return Path('(落盘失败：' + type(exc).__name__ + ')')
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--list', action='store_true')
@@ -247,20 +310,43 @@ def main() -> int:
     parallel = [c for c in todo if not any(h in c for h in SERIAL_HINTS)]
     serial = [c for c in todo if any(h in c for h in SERIAL_HINTS)]
     results: dict[str, tuple[int, str]] = {}
-    if parallel:
-        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-            for c, r in zip(parallel, ex.map(run, parallel)):
-                results[c] = r
+    # ⛔ 两条车道**不许重叠**（见文件头 §并发编排）：并行车道先跑完，串行车道才开跑。
+    #    理由是 2026-10-04 实测到的那次假红 —— `_migration_tests.py --concurrent` 在并行车道还在跑
+    #    （那里面有 pytest：`backend/tests/conftest.py` 会 bootstrap 一堆临时库）的时候红了，
+    #    而它单独跑必绿。**它断言的就是「两个进程同时迁移只能记一次账」**：
+    #    旁边有人也在迁移/建库，它断言的就不是自己那两个进程了 —— 这类命令必须独占机器。
+    #    代价是多花「并行车道」那一小段（实测总时长仍在 300 秒预算内）。
+    with ThreadPoolExecutor(max_workers=WORKERS) as par_pool:
+        par_futs = {c: par_pool.submit(run, c) for c in parallel}
+        for c, fut in par_futs.items():
+            results[c] = fut.result()
     for c in serial:
         results[c] = run(c)
+
+    # ⚠️ 只被**别人的锁**挡住的命令：单独再跑一次（这时两条车道都空了）。
+    #    这一档存在的理由：本判据的 8 路并发 + 上一次检查可能留下的进程 + 正在跑的后端，
+    #    都可能正握着那把锁；那是**环境**在响，不是台账在写假话。
+    retried: list[str] = []
+    for c in todo:
+        code, out = results.get(c, (1, '没跑到'))
+        if code == 0 or not LOCK_BUSY.search(out):
+            continue
+        code2, out2 = run(c)
+        if code2 == 0:
+            results[c] = (0, out2)
+            retried.append(c)
 
     n_exp = 0
     for c in todo:
         code, out = results.get(c, (1, '没跑到'))
         if code != 0:
             tail = [ln for ln in out.splitlines() if ln.strip()][-3:]
+            # ⛔ 只印最后三行＝下次红了只能靠猜（2026-10-04 实测：`_migration_tests.py --concurrent`
+            #    在并发那一轮红，而它只留下「❌ 不成立」四个字，看不出是哪条断言、也看不出是不是锁）。
+            #    所以完整输出**落盘**并把路径打出来 —— 三行给人看，文件给下一个人（或下一轮的我）看。
             fails.append('台账里那条 ✅ 现在跑不通（退出码 ' + str(code) + '）：' + c
-                          + '  ← ' + ' / '.join(x.strip()[:100] for x in tail))
+                          + '  ← ' + ' / '.join(x.strip()[:100] for x in tail)
+                          + '  （完整输出：' + str(dump_fail(c, out)) + '）')
             continue
         for ln, x in expects.get(c, []):
             n_exp += 1
@@ -270,7 +356,14 @@ def main() -> int:
 
     print('报告事实核对：台账 ' + str(total_ok) + ' 条 ✅ / 去重后 ' + str(len(cmds)) + ' 条命令'
           + '（跑 ' + str(len(todo)) + ' / 跳过 ' + str(len(cmds) - len(todo)) + '）'
-          + '；期望值核了 ' + str(n_exp) + ' 条')
+          + '；期望值核了 ' + str(n_exp) + ' 条'
+          + ('；**被锁挡住、单独重跑才过** ' + str(len(retried)) + ' 条' if retried else ''))
+    if retried:
+        # ⛔ 这一行不许删：重跑通过**不是**「台账没问题」的沉默证据，它得让人看见
+        #    「这一轮有人和我抢那把 sorders_bootstrap.lock」——下一次再红时这是唯一的线索。
+        print('  ⚠️ 这些命令第一次跑撞上了本机文件锁（并发抢锁，不是台账写错），单独重跑一次才过：')
+        for c in retried:
+            print('     ⚠️ ' + c)
     for c in cmds:
         if c in SKIP:
             print('  ⏭  ' + c)
@@ -278,7 +371,8 @@ def main() -> int:
             code, _ = results.get(c, (1, ''))
             mark = '✅' if code == 0 else '❌'
             got = expects.get(c, [])
-            print('  ' + mark + '  ' + c + (('  → ' + ', '.join(x for _ln, x in got)) if got else ''))
+            note = '  ⚠️ 重跑一次才过（并发抢锁）' if c in retried else ''
+            print('  ' + mark + '  ' + c + (('  → ' + ', '.join(x for _ln, x in got)) if got else '') + note)
     if fails:
         print()
         for f in fails:

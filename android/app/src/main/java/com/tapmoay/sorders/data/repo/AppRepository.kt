@@ -790,6 +790,33 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun deletePurchaseOrder(id: Long) = api.purchaseOrderApi.deletePurchaseOrder(id)
     suspend fun restorePurchaseOrder(id: Long) = api.purchaseOrderApi.restorePurchaseOrder(id)
 
+    // ---- 发票台账（FEAT-0014 税账）：票面金额直接进税汇，所以写端点要 LEDGER_EDIT ----
+    suspend fun invoices(
+        direction: String? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        keyword: String? = null,
+        includeDeleted: Boolean = false,
+    ) = api.invoiceApi.listInvoices(
+        direction = direction,
+        dateFrom = dateFrom,
+        dateTo = dateTo,
+        keyword = keyword,
+        includeDeleted = includeDeleted,
+    )
+    suspend fun invoice(id: Long) = api.invoiceApi.getInvoice(id)
+    suspend fun createInvoice(body: com.tapmoay.sorders.data.remote.dto.InvoiceCreateRequest) =
+        api.invoiceApi.createInvoice(body)
+    suspend fun updateInvoice(id: Long, body: com.tapmoay.sorders.data.remote.dto.InvoiceUpdateRequest) =
+        api.invoiceApi.updateInvoice(id, body)
+    /** 开具（已登记 → 已开具）。 */
+    suspend fun issueInvoice(id: Long) = api.invoiceApi.issueInvoice(id)
+    /** 作废：票**留在台账里**、退出税汇（不是删除）。 */
+    suspend fun voidInvoice(id: Long) = api.invoiceApi.voidInvoice(id)
+    /** 撤票 = 软删（进回收站，可 [restoreInvoice] 放回来）。 */
+    suspend fun deleteInvoice(id: Long) = api.invoiceApi.deleteInvoice(id)
+    suspend fun restoreInvoice(id: Long) = api.invoiceApi.restoreInvoice(id)
+
 
     suspend fun inventorySummary() = api.inventoryApi.summary()
 
@@ -1050,6 +1077,16 @@ class AppRepository(private val api: ApiBundle) {
         dateFrom: String? = null,
         dateTo: String? = null,
     ) = api.reportApi.costCoverage(mode, date, dateFrom, dateTo)
+
+    /**
+     * 税账汇总（FEAT-0014 第四期）：窗口与 [costCoverageReport]/[profitReport] **同一段**。
+     */
+    suspend fun taxSummaryReport(
+        mode: String,
+        date: String,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ) = api.reportApi.taxSummary(mode, date, dateFrom, dateTo)
 
     suspend fun driverPerformance(dateFrom: String, dateTo: String) =
         api.reportApi.driverPerformance(dateFrom, dateTo)

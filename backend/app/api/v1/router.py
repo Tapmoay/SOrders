@@ -18,6 +18,7 @@ from app.api.v1 import (
     freight_categories,
     freight_templates,
     inventory,
+    invoices,
     expense_categories,
     ledger,
     notifications,
@@ -130,6 +131,9 @@ api_router.include_router(inventory.router)
 # 采购单（FEAT-0013）：与库存是同一条链 —— 一次进货同时写库存、成本价与供应商应付，
 # 实现见 `app/services/purchase_service.py`（端点只做鉴权与出参）。
 api_router.include_router(purchase_orders.router)
+# 发票台账（FEAT-0014 第四期「税账」）：登记 / 开具 / 作废，销项与进项共用一条线，
+# 实现见 `app/services/tax_service.py`（端点只做鉴权与出参）。
+api_router.include_router(invoices.router)
 api_router.include_router(notifications.router)
 api_router.include_router(operation_logs.router)
 api_router.include_router(stats.router)

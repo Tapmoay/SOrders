@@ -66,7 +66,12 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                     'SUPPLIER_UPSERT', 'SUPPLIER_DELETE', 'SUPPLIER_RESTORE', 'SUPPLIER_PAYABLE_UPSERT',
                     'SUPPLIER_PAYABLE_DELETE', 'SUPPLIER_PAYABLE_RESTORE', 'SUPPLIER_PAYMENT_CREATE',
                     'SUPPLIER_PAYMENT_CANCEL', 'SUPPLIER_PAYMENT_RESTORE', 'ARREARS_UNIT_UPSERT',
-                    'ARREARS_UNIT_DELETE', 'ARREARS_UNIT_RESTORE'),
+                    'ARREARS_UNIT_DELETE', 'ARREARS_UNIT_RESTORE',
+                    # 发票台账（FEAT-0014 税账）：门是 `Permission.LEDGER_EDIT`
+                    # （`api/v1/invoices.py` 的写端点）—— 票改的是**税**，与开销、欠款同一档，
+                    # 所以认领到 ledger:edit（不是 product:manage：票不进货，只登记税）。
+                    'TAX_INVOICE_CREATE', 'TAX_INVOICE_UPDATE', 'TAX_INVOICE_ISSUE',
+                    'TAX_INVOICE_VOID', 'TAX_INVOICE_DELETE', 'TAX_INVOICE_RESTORE'),
     'price_rule:manage': ('PRICE_RULE_UPSERT',),
     # ---- 商品 / 库存 ----
     'product:manage': ('PRODUCT_CREATE', 'PRODUCT_UPDATE', 'PRODUCT_DELETE', 'PRODUCT_RESTORE',
