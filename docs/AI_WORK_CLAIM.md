@@ -30,30 +30,6 @@
 ---
 
 ## 进行中
-### [2026-10-04 11:3x UTC+8 进行中] 会话：**FEAT-0012 车辆台账与折旧：把「这台车每个月自己在花钱」补进利润表，并按车算清一台车的成本**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**需求方原话（2026-10-04，五期计划总纲）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
-然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行分析。」
-
-**本期口径（需求方 2026-10-04 拍板三条，问的是折旧）**：
-① 折旧怎么算 → **录「购置价 ＋ 购置日期 ＋ 使用年限 ＋ 残值率」，系统按月直线法自动计提**（填不全的车按「折旧未覆盖」单列，不猜）；
-② 折旧放哪里 → **并入「期间费用」那一层**（利润表仍是六级，多一行「− 车辆折旧」）；
-③ 历史车怎么办 → **不回溯**（缺购置价的车不算折旧，利润表单列「未覆盖折旧」并说明）。
-
-**身份**：`docs/changes/FEAT-0012.md`（第二期；五期计划 ① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 → ③ 采购与进货价闭环 → ④ 税账 → ⑤ 应收账龄与客户信用）。
-**Blast Radius**：L3（钱：接入折旧后「营业利润」这一格对**所有窗口**都会变，含回看的历史月份 —— 补的是「一直存在的事实」，⛔ 订单 / 账本 / 流水一行不写）。
-
-**文件清单（认领时拟定，实现后按 `git status` 逐条核对）**：
-- 后端：`backend/app/models/vehicle.py`（＋4 可空列）、`backend/app/migrations/018_vehicle_depreciation.py`（新）、
-  `backend/app/services/vehicle_depreciation.py`（新，直线法唯一实现）、`backend/app/services/reports/vehicle_cost_query.py`（新）、
-  `backend/app/services/reports/profit_query.py`（接入折旧）、`backend/app/services/reports/loader.py`、
-  `backend/app/schemas/reports.py`、`backend/app/api/v1/reports.py`、`backend/tests/test_vehicle_depreciation.py`（新）。
-- Android：`ui/dispatcher/VehicleManageScreen.kt`（四格输入）、`ui/dispatcher/ReportCenter.kt`（折旧行 ＋ 未覆盖卡 ＋ 车辆成本页）、
-  `ui/dispatcher/ReportHome.kt`（第 8 格）、`data/remote/dto/Dtos.kt`、`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`。
-- 判据：`_tools/qa/_check_vehicle_depreciation.py`（新）、`_tools/qa/_reverse_verify_vehicle_depreciation.py`（新）、
-  `_tools/qa/_check_profit_report.py` 与 `_tools/qa/_reverse_verify_profit_report.py`（同步折旧项：恒等式 ＋ notes 文本锚点）。
-
-**落点与提交**：⏳（关闭时回填实测数字与提交号）
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5648,6 +5624,29 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0012 车辆台账与折旧：把「这台车每个月自己在花钱」补进利润表，并按车算清一台车的成本**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见下），并明确「设计风格和写代码的规范和要求，要按照我们的要求进行」＋「AI 也要具备全部的查看能力」；节奏定的是**一期一提交**，本期是第二期（① 经营利润表 ✅ FEAT-0011 → **② 车辆台账与折旧** → ③ 采购与进货价闭环 → ④ 税账 → ⑤ 应收账龄与客户信用）。开工前先问清折旧三件事并拿到需求方拍板（口径见下）。
+
+**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
+然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
+分析。」
+
+**本期口径（需求方 2026-10-04 拍板三条，问的是折旧）**：
+① 折旧怎么算 → **录「购置价 ＋ 购置日期 ＋ 使用年限 ＋ 残值率」，系统按月直线法自动计提**（填不全的车按「折旧未覆盖」单列，不猜）；
+② 折旧放哪里 → **并入「期间费用」那一层**（利润表仍是六级，多一行「− 车辆折旧」）；
+③ 历史车怎么办 → **不回溯**（缺购置价的车不算折旧，利润表单列「未覆盖折旧」并说明）。
+
+**做什么**：给 `vehicles` 补四个可空台账列（迁移 `018_vehicle_depreciation.py`）＋ 折旧唯一实现 `backend/app/services/vehicle_depreciation.py`（直线法按月、按自然月天数摊进窗口）＋ 利润表恒等式从四级变五级（`gross − delivery − expense − depreciation − tax`）＋ 新只读端点 `GET /api/v1/reports/vehicle-cost` 与报表中心第 8 格「车辆成本」（折旧 / 该车开销 / 该车司机的配送成本，⛔ 这张表没有收入）＋ 导出第 8 个 kind ＋ AI 只读目录自动上架 `reports.vehicle_cost_report`；⛔ 计费口径与属性表一个字节不改，订单 / 账本 / 流水一行不写。
+
+**文件清单**（⛔ 已按实现提交 `3cad95b` 的 `--name-only` 逐条核对；认领时拟定的清单在此改正：实际**还动了** `backend/app/core/schema_bootstrap.py`、`backend/app/core/role_capabilities.py`（gate 行号随门移动）、`backend/app/api/v1/vehicles.py`、`backend/app/schemas/accounting_v2.py`（两个车辆模型继承 `MoneyInput` 拿到金额上界）、`android/app/src/test/.../VehicleManageScreenTest.kt`、`docs/RELEASE_CANDIDATE.md`（迁移头 17 → 18）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`（两处登记）、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`09A_HINT_CATALOG.md`、`docs/ai/ai_read_catalog.json`（后几份是生成物，不手改）；`backend/app/services/reports/loader.py` 实际**未动** —— 窗口照旧由 `backend/app/api/v1/reports.py` 的 `span` 传进去）：
+- 文档：`docs/changes/FEAT-0012.md`（新）、`docs/changes/README.md`（登记行）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/RELEASE_CANDIDATE.md`、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`
+- 后端：`backend/app/models/vehicle.py`（＋4 可空列）、`backend/app/migrations/018_vehicle_depreciation.py`（新）、`backend/app/core/schema_bootstrap.py`、`backend/app/services/vehicle_depreciation.py`（新）、`backend/app/services/reports/vehicle_cost_query.py`（新）、`backend/app/services/reports/profit_query.py`（接入折旧）、`backend/app/services/reports/__init__.py`、`backend/app/services/reports_service.py`、`backend/app/schemas/reports.py`、`backend/app/schemas/accounting_v2.py`、`backend/app/api/v1/reports.py`、`backend/app/api/v1/vehicles.py`、`backend/app/core/role_capabilities.py`
+- Android：`ui/dispatcher/VehicleManageScreen.kt`（第 ⑤ 组四格）、`ui/dispatcher/ReportCenter.kt`（折旧行 ＋ 未覆盖卡 ＋ 车辆成本页）、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/dispatcher/ReportFinance.kt`、`ui/dispatcher/ReportHome.kt`（第 8 格）、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`data/remote/dto/Dtos.kt`、`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、`ai/AiReadCatalog.kt`、`core/Capabilities.kt`（后两者生成物，不手改）
+- 判据与测试：`_tools/qa/_check_vehicle_depreciation.py`（新）、`_tools/qa/_reverse_verify_vehicle_depreciation.py`（新）、`backend/tests/test_vehicle_depreciation.py`（新）、`backend/tests/test_vehicle_cost_report.py`（新）、`backend/tests/test_profit_report.py`、`android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/VehicleManageScreenTest.kt`、`android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt`、`_tools/qa/_check_profit_report.py` 与 `_tools/qa/_reverse_verify_profit_report.py`（同步折旧项：恒等式 ＋ notes 文本锚点 ＋ 口径说明卡规则收窄）、`_tools/qa/_check_vehicle_form.py`、`_tools/qa/_reverse_verify_vehicle_form.py`、`_tools/qa/_check_vehicle_attrs.py`、`_tools/qa/_check_report_window.py`、`_tools/qa/_check_pricing_provenance.py`、`_tools/qa/_hint_inventory.py`、`_tools/ai/_gen_ai_read_catalog.py`
+
+**落点与提交**：判据 `_tools/qa/_check_vehicle_depreciation.py` **77 项**全绿（失败 0）/ 反验 `_tools/qa/_reverse_verify_vehicle_depreciation.py` **21 条注入全 `[OK]`**（12 个被碰过的文件逐字节还原）/ 后端 `python -m pytest` **1305 passed**（含新增 `test_vehicle_depreciation.py` 41 passed 与 `test_vehicle_cost_report.py`）/ 两个真实窗口恒等式成立（2026-09：营业额 28223.8 − 商品成本 … − 期间费用 7618 − **车辆折旧 3775** − 税金 0 = 营业利润 **−12989**，五级相减 `True`、旧四级写法 `False`；车辆成本 `7475.00 == 3775.0 + 2740.00 + 960.00`，**逐台 15 台三笔之和 == 该车合计全部成立**，顶层与逐车都没有收入字段）/ 端点实测越界 400 中文、类型错 422、空窗口折旧 0 / 生成物新鲜度 5 组 / 全量静检 **171/171**（245.2 秒，`_tmp/checkall_feat0012_final.txt`）/ 模拟器 5554 派单员实测车辆卡片折旧行「每月折旧 ¥1875」、编辑抽屉第 ⑤ 组四格（120000.00 / 2025-09-16 / 5.0 / 0.0500）、利润页「− 车辆折旧 ¥880.83」与未覆盖说明、报表中心 **8 格**、车辆成本页 `968.83 == 880.83 + 0 + 88` 且逐车卡「每月折旧 ¥1900 / 这一段 ¥443.33」（截图 `_tmp/ev/230`–`237`）。真机实测抓到两处显示缺陷并当场修（车牌被 19 个字的原因挤成三行／残值率 0.0500 看不出是 5%），新包复测截图 `_tmp/ev/240`、`241`。实现提交 `3cad95b`（52 files / 3691 insertions），归档提交（本笔）。⛔ 订单 / 账本 / 流水一行未写，四个金额口径一个字节未改。
+
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0011 经营利润表：把已经算得出来的四块钱汇成一张「这月赚了多少」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见下），并明确「设计风格和写代码的规范和要求，要按照我们的要求进行」＋「AI 也要具备全部的查看能力」；节奏定的是**一期一提交**，本期是第一期。
