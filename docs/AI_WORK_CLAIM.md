@@ -31,28 +31,6 @@
 
 ## 进行中
 
-### [2026-10-04 进行中] 会话：**FEAT-0015 应收账龄与客户信用：逐客户应收余额 + 账龄四桶 + 客户额度**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
-
-**从哪来**：五期财务计划第五期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → ③ 采购与进货价闭环 ✅ FEAT-0013（`cf70ebf` + 归档 `e531a75`）→ ④ 税账 ✅ FEAT-0014（`b418d89` + 归档 `9875ec5`）→ **⑤ 应收账龄与客户信用**）。这一期在设计稿里早有缺口与口径：`docs/ACCOUNTING_V2_DESIGN.md:69`（G2「挂账无发生额/结清/账龄 →『谁欠我钱』算不出，无法催收对账」）、`:406`（`GET /reports/customer-balances` 端点定义：逐客户应收余额 + 账龄桶 + `group_by=arrears_unit` + 逐单可展开）、`:424`（客户欠款公式：`Σ(ledgers 应收行+负向红冲) − Σ(cash_flows IN, party_type=customer) + Σ(cash_flows OUT 且 biz_type=REFUND_CUSTOMER, party_type=customer)`，<0=预收）、`:427`（**账龄定义**：桶 = 0-30 / 31-60 / 61-90 / >90 天；锚点 = 各应收行 `entry_date` → 今天；红冲行单独不计账龄，只冲减发生额）；`:444` 把「客户信用额度」列在 P4（可选档），本期一并做掉。
-
-**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
-然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
-分析。」
-
-**做什么**：(a) 新增只读报表 `GET /reports/customer-balances` —— **一行一个债务人**（挂账单位 → 单位名快照 → 货主 → 临时货主 → 未填货主，四道凭证按次序认）的应收余额（预收为负、单列）+ 账龄四桶 + `include_orders=true` 逐单明细（单号 / 送达日 / 应收 / 已收 / 还欠 / 账龄天数 / 落在哪一桶）；⛔ 行的身份必须与「这笔钱该向谁要」1:1，所以**只有这一种视图**（不做第二个分组口径）；(b) `arrears_units` 加一列 `credit_limit`（迁移 021，可空 = 不限额，**不回填**）＋ 一个设/清额度的写端点（留日志）；(c) 报表中心加第 11 格「客户欠款」页（余额 + 四桶 + 逐单展开 + 超额标记）+ 挂账单位名册页可设额度；(d) 账龄天数一律按**业务日**（`business_date`）算，金额一律到分。⛔ 既有欠款口径一个字节不改：新报表必须与既有「挂账未收 / 挂账单位汇总」**逐分对得上**，对不上改的是新报表。
-
-**文件清单**（认领时拟定，⛔ 落地后按实现提交的 `--name-only` 逐条改正）：
-- 后端：`backend/app/services/reports/balance_query.py`（新，只读查询）、`backend/app/schemas/reports.py`（加四个出参模型）、`backend/app/services/reports_service.py`（加一条 re-export）、`backend/app/api/v1/reports.py`（加一个只读端点 + 一个导出 kind）、`backend/app/api/v1/arrears.py`（额度出参加审计）、`backend/app/schemas/arrears.py`（额度进出参）、`backend/app/models/arrears.py`（加 `credit_limit` 列）、`backend/app/migrations/021_arrears_unit_credit_limit.py`（新，只加一列）、`backend/app/models/enums.py`（只追加一个动作码）、`backend/app/core/capability_audit_coverage.py`（动作码归属）、`backend/app/core/schema_bootstrap.py`（自愈补列）、DB 域登记（`docs/DOMAIN_BOUNDARIES.md`）
-- Android：`ui/dispatcher/ReportHome.kt`（第 11 格）、`ui/dispatcher/ReportCenter.kt` ＋ `ReportCenterViewModel.kt`（新页）、`ui/dispatcher/ReportFinance.kt`、`ui/nav/Routes.kt` ＋ `NavGraph.kt`、`data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`data/repo/AppRepository.kt`、`ui/dispatcher/ArrearsUnitsScreen.kt` ＋ `ArrearsUnitsViewModel.kt`（设额度）
-- 判据与测试：`_tools/qa/_check_customer_balances.py`（新）、`_tools/qa/_reverse_verify_customer_balances.py`（新）、`_tools/qa/_probe_customer_balances.py`（新，真实库）、`backend/tests/test_customer_balances.py`（新）＋ 生成物（端点索引 / AI 只读目录 / 能力快照）与 `docs/` 回填
-
-- 核心改动：backend/app/models/enums.py —— 为什么必须动核心：只追加一个动作码 `ARREARS_UNIT_CREDIT_LIMIT`（额度每一次改动都要能回答「谁把额度从多少改成了多少」），既有取值一个不动。
-- 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：只加一段 `arrears_units.credit_limit` 的自愈补列（老库启动即可用，NULL = 不限额），与既有 vehicles 折旧补列同一形状，⛔ 不动任何既有补列逻辑。
-
-**判据与测试**：判据 `_tools/qa/_check_customer_balances.py` **90/90**（八节：口径 / 账龄桶边界 / 预收 / 四种债务人凭证 / 额度 / 权限 / 只读边界 / 能判红）｜ 反验 `_tools/qa/_reverse_verify_customer_balances.py` **37/37**（每条注入都报红，跑完 17 个被碰过的文件与运行前逐字节一致）｜ 单测 `backend/tests/test_customer_balances.py` **6 passed** ｜ 真库探针 `_tools/qa/_probe_customer_balances.py` **184/184**（真库造 17 张单全走真端点，收工 `69556.80` 回基线、无残留）｜ 后端 pytest 全量 **1351 passed**（④期 1345 + 6）｜ 真机 `emulator-5554` 实拍第 11 格 ＋ `_tmp/_ev_cb.py` **16 条**逐条对拍（屏上 ¥69556.8 / 四桶 28475.6+19770.9+20535.9+774.4 / 33 人·365 张单；跨口径 `turnover.arrears_total` 逐分相等 69556.80；导出 xlsx 413 行 × 15 列；额度设/清各留一条痕）｜ 全量静检 **173 → 174/174**（`_tmp/checkall_feat15c.txt`）。
-
-**落点与提交**：⏳ 待回填（实现提交 + 归档提交）。
-
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……
@@ -5647,6 +5625,34 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0015 应收账龄与客户信用：逐债务人应收余额 + 账龄四桶 + 挂账单位信用额度**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：五期财务计划第五期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → ③ 采购与进货价闭环 ✅ FEAT-0013（`cf70ebf` + 归档 `e531a75`）→ ④ 税账 ✅ FEAT-0014（`b418d89` + 归档 `9875ec5`）→ **⑤ 应收账龄与客户信用**）。这一期在设计稿里早有缺口与口径：`docs/ACCOUNTING_V2_DESIGN.md:69`（G2「挂账无发生额/结清/账龄 →『谁欠我钱』算不出，无法催收对账」）、`:406`（`GET /reports/customer-balances` 端点定义：逐客户应收余额 + 账龄桶 + `group_by=arrears_unit` + 逐单可展开）、`:424`（客户欠款公式：`Σ(ledgers 应收行+负向红冲) − Σ(cash_flows IN, party_type=customer) + Σ(cash_flows OUT 且 biz_type=REFUND_CUSTOMER, party_type=customer)`，<0=预收）、`:427`（**账龄定义**：桶 = 0-30 / 31-60 / 61-90 / >90 天；锚点 = 各应收行 `entry_date` → 今天；红冲行单独不计账龄，只冲减发生额）；`:444` 把「客户信用额度」列在 P4（可选档），本期一并做掉。
+
+**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
+然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
+分析。」
+
+**做什么**：(a) 新增只读报表 `GET /reports/customer-balances` —— **一行一个债务人**（挂账单位 → 单位名快照 → 货主 → 临时货主 → 未填货主，四道凭证按次序认）的应收余额（预收为负、单列）+ 账龄四桶 + `include_orders=true` 逐单明细（单号 / 送达日 / 应收 / 已收 / 还欠 / 账龄天数 / 落在哪一桶）；⛔ 行的身份必须与「这笔钱该向谁要」1:1，所以**只有这一种视图**（不做第二个分组口径）；(b) `arrears_units` 加一列 `credit_limit`（迁移 021，可空 = 不限额，**不回填**）＋ 一个设/清额度的写端点（留日志）；(c) 报表中心加第 11 格「客户欠款」页（余额 + 四桶 + 逐单展开 + 超额标记）+ 挂账单位名册页可设额度；(d) 账龄天数一律按**业务日**（`business_date`）算，金额一律到分。⛔ 既有欠款口径一个字节不改：新报表必须与既有「挂账未收 / 挂账单位汇总」**逐分对得上**，对不上改的是新报表。
+
+**文件清单**（已按实现提交 `0fa6edb` 的 `--name-only` 逐条核对改正）：
+- 后端：`backend/app/services/reports/balance_query.py`（新，只读查询）、`backend/app/schemas/reports.py`（加四个出参模型）、`backend/app/services/reports_service.py`（加一条 re-export）、`backend/app/api/v1/reports.py`（加一个只读端点 + 一个导出 kind）、`backend/app/api/v1/arrears.py`（额度出参加审计）、`backend/app/schemas/arrears.py`（额度进出参）、`backend/app/models/arrears.py`（加 `credit_limit` 列）、`backend/app/migrations/021_arrears_unit_credit_limit.py`（新，只加一列）、`backend/app/models/enums.py`（只追加一个动作码）、`backend/app/core/capability_audit_coverage.py`（动作码归属）、`backend/app/core/schema_bootstrap.py`（自愈补列）、DB 域登记（`docs/DOMAIN_BOUNDARIES.md`）（⚠️ 落地时 `docs/DOMAIN_BOUNDARIES.md` 没动）
+- Android：`ui/dispatcher/ReportHome.kt`（第 11 格）、`ui/dispatcher/ReportCenter.kt` ＋ `ReportCenterViewModel.kt`（新页）、`ui/dispatcher/ReportFinance.kt`、`ui/nav/Routes.kt` ＋ `NavGraph.kt`、`data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`data/repo/AppRepository.kt`、`ui/dispatcher/ArrearsUnitsScreen.kt` ＋ `ArrearsUnitsViewModel.kt`（设额度）
+- 判据与测试：`_tools/qa/_check_customer_balances.py`（新）、`_tools/qa/_reverse_verify_customer_balances.py`（新）、`_tools/qa/_probe_customer_balances.py`（新，真实库）、`backend/tests/test_customer_balances.py`（新）＋ 生成物（端点索引 / AI 只读目录 / 能力快照）与 `docs/` 回填
+
+- 核心改动：backend/app/models/enums.py —— 为什么必须动核心：只追加一个动作码 `ARREARS_UNIT_CREDIT_LIMIT`（额度每一次改动都要能回答「谁把额度从多少改成了多少」），既有取值一个不动。
+- 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：只加一段 `arrears_units.credit_limit` 的自愈补列（老库启动即可用，NULL = 不限额），与既有 vehicles 折旧补列同一形状，⛔ 不动任何既有补列逻辑。
+
+**判据与测试**：判据 `_tools/qa/_check_customer_balances.py` **90/90**（八节：口径 / 账龄桶边界 / 预收 / 四种债务人凭证 / 额度 / 权限 / 只读边界 / 能判红）｜ 反验 `_tools/qa/_reverse_verify_customer_balances.py` **37/37**（每条注入都报红，跑完 17 个被碰过的文件与运行前逐字节一致）｜ 单测 `backend/tests/test_customer_balances.py` **6 passed** ｜ 真库探针 `_tools/qa/_probe_customer_balances.py` **184/184**（真库造 17 张单全走真端点，收工 `69556.80` 回基线、无残留）｜ 后端 pytest 全量 **1351 passed**（④期 1345 + 6）｜ 真机 `emulator-5554` 实拍第 11 格 ＋ `_tmp/_ev_cb.py` **16 条**逐条对拍（屏上 ¥69556.8 / 四桶 28475.6+19770.9+20535.9+774.4 / 33 人·365 张单；跨口径 `turnover.arrears_total` 逐分相等 69556.80；导出 xlsx 413 行 × 15 列；额度设/清各留一条痕）｜ 全量静检 **173 → 174/174**（`_tmp/checkall_feat15c.txt`）。
+
+**文件清单落地改正**（照实现提交 `0fa6edb --name-only` 的 50 个文件）：
+- 认领时拟改而**实际没动**：`docs/DOMAIN_BOUNDARIES.md`（额度挂在既有 `arrears_units` 表上，域边界没变）；`docs/ACCOUNTING_V2_DESIGN.md`（本期没去标 P4 落地）。
+- 认领时漏记而**实际改了**：`android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt`（越界样本 10 → 11、新增 bucketLabel / debtorKindLabel 用例）、生成物七份（`docs/CAPABILITY_SNAPSHOT.json` / `docs/CAPABILITY_AUDIT_COVERAGE.md` / `docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md` / `docs/PROJECT_MAP/09A_HINT_CATALOG.md` / `docs/ai/ai_read_catalog.json` / `docs/ai/ai_toolmap.json` / `docs/ai/kb_skeleton.md`）、`docs/RELEASE_CANDIDATE.md`（迁移头 20 → 21）、`docs/changes/README.md`（登记行）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiReadCatalog.kt` 与 `android/app/src/main/java/com/tapmoay/sorders/core/Capabilities.kt`（生成物同步）。
+- 被本期顶红又修好的既有判据（⛔ 只改断言锚点与数字，产品口径一个字节不动）：`_tools/qa/_check_profit_report.py`（入口页 10 → 11 格、导出 kind 正则）、`_tools/qa/_check_tax_invoices.py`（白名单断言别再钉字符串尾部）、`_tools/qa/_check_pricing_provenance.py`（`arrears_units.credit_limit` 归 CONFIG）、`_tools/qa/_reverse_verify_tax_invoices.py`（只改注入锚点）、`_tools/qa/_check_arrears_units.py`（表单多第 4 行额度）、`_tools/qa/_check_vehicle_depreciation.py`、`_tools/qa/_reverse_verify_profit_report.py`、`_tools/qa/_reverse_verify_vehicle_depreciation.py`、`_tools/ai/_write_coverage.py`（`PATCH /arrears-units/{}` 记「本轮不开放」）、`_tools/ai/_gen_ai_read_catalog.py`（新增本读端点的说明）。
+
+**落点与提交**：实现提交 `0fa6edb`（50 files changed / 4025 insertions(+) / 118 deletions(-)）；归档提交 = 本块从「进行中」搬到「已完成」＋ `docs/changes/README.md` 状态列改「✅ 已关闭」＋ `docs/changes/FEAT-0015.md` 状态 / 关闭日期 / Commit 行回填（⛔ 只动这三个文件，不碰源码与生成物）。⛔ 订单 / 账本 / 流水 / 结算单一行未写，既有欠款口径（挂账单位汇总 / 挂账未收 / `money_map.arrears` / `shipper_settle` 核销）一个字节未改；额度只作比较门槛（`over_limit = credit_used > limit`），不参与任何加减；超限只提示、不挡下单发货；AI 侧写动作记「本轮不开放」（`_tools/ai/_write_coverage.EXCLUDED` 里写了理由），读动作已上架（`GET /reports/customer-balances` 进 AI 只读目录，67 端点）。
+
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0014 税账：发票台账（登记 / 开具 / 作废·冲红）＋ 进销项税汇**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **从哪来**：五期财务计划第四期（① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → ③ 采购与进货价闭环 ✅ FEAT-0013（`cf70ebf` + 归档 `e531a75`）→ **④ 税账** → ⑤ 应收账龄与客户信用）。开工前先把本期的五个口径问清、拿到需求方拍板（见下），再动代码。
