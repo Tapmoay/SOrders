@@ -368,6 +368,18 @@ pending: no
 ```
 
 ```capability
+id: inventory.purchase_order
+中文名: 采购单（进什么货、按什么价）
+class: CORE
+domain: inventory
+owns: purchase_orders, purchase_order_items
+contract: -
+why: 一次进货把**库存、进价、供应商欠款**三件事写进同一个事务（FEAT-0013），这三件都是核心事实、不可替换；它自己不做金额判定 —— 货款应付的口径仍在钱域（`services/supplier_service.py` 一处实现）（判定规则 1）
+impl: services/purchase_service.py, api/v1/purchase_orders.py
+pending: no
+```
+
+```capability
 id: notification.data
 中文名: 站内信数据（谁在什么时候收到了什么）
 class: CORE

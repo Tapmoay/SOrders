@@ -49,6 +49,7 @@ from app.models.place_category import PlaceCategory
 from app.models.product import PriceRule, Product, ProductCostHistory
 from app.models.product_category import ProductCategory
 from app.models.product_visibility import UserProductVisibility
+from app.models.purchase import PurchaseOrder, PurchaseOrderItem
 from app.models.shipper import ShipperAddress, ShipperContact, ShipperLocation
 from app.models.shipper_settlement import ShipperSettlement, ShipperSettlementLine
 from app.models.supplier import Supplier, SupplierPayable
@@ -105,6 +106,8 @@ __all__ = [
     "Product",
     "ProductCategory",
     "ProductCostHistory",
+    "PurchaseOrder",
+    "PurchaseOrderItem",
     "ShipperAddress",
     "ShipperContact",
     "ShipperLocation",

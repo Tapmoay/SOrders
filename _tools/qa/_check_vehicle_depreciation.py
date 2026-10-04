@@ -363,8 +363,10 @@ def main() -> int:
     c.need("路由常量与 NavGraph 都认第 8 格", routes + nav, (
         esc("const val REPORT_VEHICLE_COST = " + chr(34) + "report/vehicle-cost" + chr(34)),
         esc("7 -> navController.navigate(Routes.REPORT_VEHICLE_COST)"), esc("initialTab = 7")))
-    c.need("ViewModel 收下页签 0..7 且拉了 vehicleCost", vm, (
-        esc("initialTab.coerceIn(0, 7)"), esc("vehicleCost = container.repo.vehicleCostReport(")))
+    # ⚠️ 上界 2026-10-05 从 7 抬到 8（FEAT-0013 加了第 9 格「成本覆盖」）—— 这里钉的仍是「第 8 格
+    #    进得来」，所以只改数字，不改判据的意思。
+    c.need("ViewModel 收下页签 0..8 且拉了 vehicleCost", vm, (
+        esc("initialTab.coerceIn(0, 8)"), esc("vehicleCost = container.repo.vehicleCostReport(")))
     c.present("利润构成链条里有「− 车辆折旧」这一行（在期间费用与税金之间）",
               tab, "(?s)" + esc(chr(34) + "− 期间费用" + chr(34)) + ".{0,600}?" + esc(chr(34) + "− 车辆折旧" + chr(34))
               + ".{0,600}?" + esc(chr(34) + "− 税金及附加" + chr(34)))

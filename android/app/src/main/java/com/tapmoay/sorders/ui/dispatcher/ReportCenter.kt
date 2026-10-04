@@ -43,7 +43,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
-    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; 7 -> "车辆成本"; else -> "异常与审计" }
+    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; 7 -> "车辆成本"; 8 -> "成本覆盖"; else -> "异常与审计" }
     // 时间药丸那两个弹层的开关：**只记这一个**（自定义区间那个开关由 `DateFilterDialogs` 自己持有）
     var showPresets by remember { mutableStateOf(false) }
 
@@ -112,6 +112,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                     4 -> FinanceTab(vm)
                     6 -> ProfitTab(vm)
                     7 -> VehicleCostTab(vm)
+                    8 -> CostCoverageTab(vm)
                     else -> FinanceTab(vm)
                 }
             }
@@ -1071,6 +1072,13 @@ private fun actionLabel(action: String): String = when (action) {
     "SUPPLIER_PAYMENT_CREATE" -> "付供应商款"
     "SUPPLIER_PAYMENT_CANCEL" -> "撤销付款"
     "SUPPLIER_PAYMENT_RESTORE" -> "恢复付款"
+    // 采购单（FEAT-0013 第三期）：建单那一下同时改**库存 + 成本价 + 供应商欠款**（本仓库唯一一处
+    // L3 写），所以四个动作码必须各有各的中文名 —— 审计页上要能一眼分出
+    // 「建了一张单」/「改了单」/「撤了单」/「从回收站恢复了」，⛔ 不许出现原始码。
+    "PURCHASE_ORDER_CREATE" -> "建采购单"
+    "PURCHASE_ORDER_UPDATE" -> "改采购单"
+    "PURCHASE_ORDER_DELETE" -> "撤销采购单"
+    "PURCHASE_ORDER_RESTORE" -> "恢复采购单"
     "NOTIFICATION_MODERATE" -> "处理他人消息"
     "ORDER_LINE_ADD" -> "加一行商品"
     "ORDER_LINE_UPDATE" -> "改一行商品"
@@ -1466,6 +1474,104 @@ private fun VehicleCostTab(vm: ReportCenterViewModel) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    }
+                }
+            }
+            item {
+                SectionCard {
+                    Text("口径说明（这几笔钱是怎么算的）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    data.notes.forEach { n ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(n, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 第 9 页：成本覆盖（FEAT-0013 第三期）——「这一段卖出去的货里，成本有多少是**有出处的**」。
+ *
+ * ⚠️ 这一页回答的是**一个信任问题**，不是一个金额：毛利 = 收入 − 成本，而成本只有在
+ *    「这个商品带价进过货」时才算得出来。剩下那部分**不是成本 0，是不知道成本** ——
+ *    利润那一页因此是虚高的，这一页就是去把虚高的那部分指出来。
+ * ⚠️ 「有出处」分两种，页面上分开印：这一段里用**这一段自己的平均进货价**的，与
+ *    这一段没进过货、只能用**商品当前的成本价快照**的（后者更旧，但也不是 0）。
+ * ⚠️ 从来没带价进过货的商品，`cost_price` 是**空**（不知道），⛔ 不印 0；页面上写「没有进过货」。
+ * ⚠️ 金额一律后端算好的字符串（`GET /reports/cost-coverage`），这一页一个加减法都不做 ——
+ *    客户端与后端各算一遍，就是毛利上栽过的那一次的形状（见车辆成本页那条注释）。
+ * ⚠️ 口径说明（`notes`）常显，理由同利润页与车辆成本页。
+ */
+@Composable
+private fun CostCoverageTab(vm: ReportCenterViewModel) {
+    val data = vm.costCoverage
+    if (vm.loading && data == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (data == null) {
+            item { ChartEmpty("该时段暂无成本覆盖数据") }
+        } else {
+            item {
+                StatBig("这一段卖出去的货", money(data.revenueTotal), Color(0xFF1E6FFF))
+            }
+            item {
+                SectionCard {
+                    Text("收入里有多少带着成本出处", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("收入合计", money(data.revenueTotal))
+                    StatRow("有成本出处的收入", money(data.revenueCovered), Color(0xFF00B578))
+                    StatRow("没有成本出处的收入", money(data.revenueUncovered), Color(0xFFE53935))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text(
+                        "按明细行数：" + data.coveredLines.toString() + " / " + data.totalLines.toString() + " 行算得出成本；" +
+                            "其中 " + data.costAvgLines.toString() + " 行用这一段自己的平均进货价、" +
+                            data.costSnapshotLines.toString() + " 行用商品当前的成本价快照（这一段没进过货）。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Hint(
+                        "「没有成本出处」不是成本 0，是不知道成本 —— 这一部分钱在「经营利润」那页是虚高的。" +
+                            "给这个商品带价进一次货（「采购单」），它的成本价就有了。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (data.missingPurchasePriceCount > 0) {
+                item {
+                    SectionCard {
+                        Text(
+                            "从来没带价进过货的商品（" + data.missingPurchasePriceCount.toString() + " 个）",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        // ⚠️ 名字与那行小字**各占一行**（车辆成本页那条真机裁切教训）：
+                        //    StatRow 会把长商品名挤成竖排。
+                        data.missingPurchasePrice.forEach { p ->
+                            Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                Text(
+                                    p.name + "（" + p.unit + "）" + (if (p.isActive) "" else " · 已停用"),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    "成本价：没有进过货 · 库存 " + p.stock.toString(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Hint(
+                            "这些商品卖出去的收入，成本这边只能记成「不知道」。去「采购单」建一张带单价的" +
+                                "进货单，它们的库存与成本价会一起更新，这一页就会跟着少几个。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 245,
-    "read": 79,
-    "write": 166,
-    "unique_paths": 173,
-    "unique_method_path": 245,
+    "endpoints": 253,
+    "read": 83,
+    "write": 170,
+    "unique_paths": 178,
+    "unique_method_path": 253,
     "shadowed_routes": []
   },
   "modules": {
@@ -1537,6 +1537,65 @@
         }
       ]
     },
+    "purchase_orders": {
+      "cn": "采购单",
+      "actions": [
+        {
+          "action": "get_purchase_order",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/purchase-orders/{order_id}",
+          "handler": "get_purchase_order",
+          "doc": "一张采购单的明细（回收站里的也照给：列表能点进来看，详情就得打得开）。",
+          "at": "backend/app/api/v1/purchase_orders.py:183"
+        },
+        {
+          "action": "list_purchase_orders",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/purchase-orders",
+          "handler": "list_purchase_orders",
+          "doc": "采购单列表（默认不含回收站，按单据日期倒序 —— 这是「看记录」）。",
+          "at": "backend/app/api/v1/purchase_orders.py:151"
+        },
+        {
+          "action": "create_purchase_order",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/purchase-orders",
+          "handler": "create_purchase_order",
+          "doc": "建一张采购单：库存 + 成本价（加权均价）+ 供应商应付，一个事务里一次写完。",
+          "at": "backend/app/api/v1/purchase_orders.py:194"
+        },
+        {
+          "action": "delete_purchase_order",
+          "risk": "write",
+          "method": "delete",
+          "path": "/api/v1/purchase-orders/{order_id}",
+          "handler": "delete_purchase_order",
+          "doc": "撤销整张采购单（软删）：逐行把库存冲回去 + 删掉它生成的那张应付单。",
+          "at": "backend/app/api/v1/purchase_orders.py:243"
+        },
+        {
+          "action": "restore_purchase_order",
+          "risk": "write",
+          "method": "post",
+          "path": "/api/v1/purchase-orders/{order_id}/restore",
+          "handler": "restore_purchase_order",
+          "doc": "把回收站里的采购单恢复回来：重新入库 + 恢复它生成的那张应付单。",
+          "at": "backend/app/api/v1/purchase_orders.py:258"
+        },
+        {
+          "action": "update_purchase_order",
+          "risk": "write",
+          "method": "patch",
+          "path": "/api/v1/purchase-orders/{order_id}",
+          "handler": "update_purchase_order",
+          "doc": "改单：改数量/单价就**改写那一行绑定的人库流水**（不是再记一笔冲销），撤行走 `is_void`。",
+          "at": "backend/app/api/v1/purchase_orders.py:217"
+        }
+      ]
+    },
     "reports": {
       "cn": "报表中心",
       "actions": [
@@ -1547,7 +1606,16 @@
           "path": "/api/v1/reports/arrears-summary",
           "handler": "arrears_summary",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:112"
+          "at": "backend/app/api/v1/reports.py:156"
+        },
+        {
+          "action": "cost_coverage_report",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/reports/cost-coverage",
+          "handler": "cost_coverage_report",
+          "doc": "成本覆盖表：这一段窗口里，有多少收入因为「没有进货价」而算不出成本。",
+          "at": "backend/app/api/v1/reports.py:132"
         },
         {
           "action": "export_report",
@@ -1556,7 +1624,7 @@
           "path": "/api/v1/reports/export",
           "handler": "export_report",
           "doc": "报表 Excel 导出（内存流 xlsx）。",
-          "at": "backend/app/api/v1/reports.py:127"
+          "at": "backend/app/api/v1/reports.py:171"
         },
         {
           "action": "product_report",
@@ -1565,7 +1633,7 @@
           "path": "/api/v1/reports/products",
           "handler": "product_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:76"
+          "at": "backend/app/api/v1/reports.py:78"
         },
         {
           "action": "profit_report",
@@ -1574,7 +1642,7 @@
           "path": "/api/v1/reports/profit",
           "handler": "profit_report",
           "doc": "经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。",
-          "at": "backend/app/api/v1/reports.py:91"
+          "at": "backend/app/api/v1/reports.py:93"
         },
         {
           "action": "turnover_report",
@@ -1583,7 +1651,7 @@
           "path": "/api/v1/reports/turnover",
           "handler": "turnover_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:61"
+          "at": "backend/app/api/v1/reports.py:63"
         },
         {
           "action": "vehicle_cost_report",
@@ -1591,8 +1659,8 @@
           "method": "get",
           "path": "/api/v1/reports/vehicle-cost",
           "handler": "vehicle_cost_report",
-          "doc": "车辆成本表：这一段窗口里每台车的三笔成本（折旧 / 车辆开销 / 挂靠司机配送成本）与合计数。⛔ 这张表**没有收入**。",
-          "at": "backend/app/api/v1/reports.py:110"
+          "doc": "车辆成本表：每一台车在这段时间里花了多少钱（折旧 / 这台车的开销 / 挂靠司机的配送成本）。",
+          "at": "backend/app/api/v1/reports.py:112"
         }
       ]
     },
@@ -2009,7 +2077,7 @@
           "path": "/api/v1/suppliers/{supplier_id}",
           "handler": "get_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:184"
+          "at": "backend/app/api/v1/suppliers.py:185"
         },
         {
           "action": "list_payables",
@@ -2018,7 +2086,7 @@
           "path": "/api/v1/supplier-payables",
           "handler": "list_payables",
           "doc": "应付单列表（按单据日期倒序 —— 这是\"看记录\"，不是挑名册）。",
-          "at": "backend/app/api/v1/suppliers.py:268"
+          "at": "backend/app/api/v1/suppliers.py:269"
         },
         {
           "action": "list_payments",
@@ -2027,7 +2095,7 @@
           "path": "/api/v1/supplier-payments",
           "handler": "list_payments",
           "doc": "付款记录列表（默认只看**没被撤销**的）。",
-          "at": "backend/app/api/v1/suppliers.py:400"
+          "at": "backend/app/api/v1/suppliers.py:407"
         },
         {
           "action": "list_suppliers",
@@ -2036,7 +2104,7 @@
           "path": "/api/v1/suppliers",
           "handler": "list_suppliers",
           "doc": "供应商列表（默认不含回收站）。",
-          "at": "backend/app/api/v1/suppliers.py:137"
+          "at": "backend/app/api/v1/suppliers.py:138"
         },
         {
           "action": "cancel_payment",
@@ -2045,7 +2113,7 @@
           "path": "/api/v1/supplier-payments/{flow_id}",
           "handler": "cancel_payment",
           "doc": "**撤销一笔付款**（软删那一行资金流水）。",
-          "at": "backend/app/api/v1/suppliers.py:462"
+          "at": "backend/app/api/v1/suppliers.py:469"
         },
         {
           "action": "create_payable",
@@ -2054,7 +2122,7 @@
           "path": "/api/v1/suppliers/{supplier_id}/payables",
           "handler": "create_payable",
           "doc": "给某个供应商挂一笔应付（欠他的钱）。**这一步不动钱** —— 付的时候才动。",
-          "at": "backend/app/api/v1/suppliers.py:288"
+          "at": "backend/app/api/v1/suppliers.py:289"
         },
         {
           "action": "create_supplier",
@@ -2063,7 +2131,7 @@
           "path": "/api/v1/suppliers",
           "handler": "create_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:158"
+          "at": "backend/app/api/v1/suppliers.py:159"
         },
         {
           "action": "delete_payable",
@@ -2072,7 +2140,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}",
           "handler": "delete_payable",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:365"
+          "at": "backend/app/api/v1/suppliers.py:369"
         },
         {
           "action": "delete_supplier",
@@ -2081,7 +2149,7 @@
           "path": "/api/v1/suppliers/{supplier_id}",
           "handler": "delete_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:234"
+          "at": "backend/app/api/v1/suppliers.py:235"
         },
         {
           "action": "pay_payable",
@@ -2090,7 +2158,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}/payments",
           "handler": "pay_payable",
           "doc": "**付一笔款**（分次付款：同一张单可以付很多次，每次一行资金流水）。",
-          "at": "backend/app/api/v1/suppliers.py:437"
+          "at": "backend/app/api/v1/suppliers.py:444"
         },
         {
           "action": "restore_payable",
@@ -2099,7 +2167,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}/restore",
           "handler": "restore_payable",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:382"
+          "at": "backend/app/api/v1/suppliers.py:389"
         },
         {
           "action": "restore_payment",
@@ -2108,7 +2176,7 @@
           "path": "/api/v1/supplier-payments/{flow_id}/restore",
           "handler": "restore_payment",
           "doc": "把撤销掉的付款放回来。",
-          "at": "backend/app/api/v1/suppliers.py:487"
+          "at": "backend/app/api/v1/suppliers.py:494"
         },
         {
           "action": "restore_supplier",
@@ -2117,7 +2185,7 @@
           "path": "/api/v1/suppliers/{supplier_id}/restore",
           "handler": "restore_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:250"
+          "at": "backend/app/api/v1/suppliers.py:251"
         },
         {
           "action": "update_payable",
@@ -2126,7 +2194,7 @@
           "path": "/api/v1/supplier-payables/{payable_id}",
           "handler": "update_payable",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:320"
+          "at": "backend/app/api/v1/suppliers.py:321"
         },
         {
           "action": "update_supplier",
@@ -2135,7 +2203,7 @@
           "path": "/api/v1/suppliers/{supplier_id}",
           "handler": "update_supplier",
           "doc": "",
-          "at": "backend/app/api/v1/suppliers.py:196"
+          "at": "backend/app/api/v1/suppliers.py:197"
         }
       ]
     },
@@ -2408,7 +2476,7 @@
           "path": "/api/v1/vehicles",
           "handler": "list_vehicles",
           "doc": "新增一辆车（车牌 / 车型 / **车身型式** / **车辆属性** / 司机）。",
-          "at": "backend/app/api/v1/vehicles.py:246"
+          "at": "backend/app/api/v1/vehicles.py:282"
         },
         {
           "action": "create_vehicle",
@@ -2417,7 +2485,7 @@
           "path": "/api/v1/vehicles",
           "handler": "create_vehicle",
           "doc": "新增一辆车（车牌 / 车型 / **车身型式** / **车辆属性** / 司机）。",
-          "at": "backend/app/api/v1/vehicles.py:254"
+          "at": "backend/app/api/v1/vehicles.py:290"
         },
         {
           "action": "set_vehicle_driver",
@@ -2426,7 +2494,7 @@
           "path": "/api/v1/vehicles/{vehicle_id}/driver",
           "handler": "set_vehicle_driver",
           "doc": "把车绑给某个司机 / 解绑。`driver_id` 缺省或 null **都算解绑**。",
-          "at": "backend/app/api/v1/vehicles.py:353"
+          "at": "backend/app/api/v1/vehicles.py:424"
         },
         {
           "action": "update_vehicle",
@@ -2435,7 +2503,7 @@
           "path": "/api/v1/vehicles/{vehicle_id}",
           "handler": "update_vehicle",
           "doc": "",
-          "at": "backend/app/api/v1/vehicles.py:294"
+          "at": "backend/app/api/v1/vehicles.py:342"
         }
       ]
     }

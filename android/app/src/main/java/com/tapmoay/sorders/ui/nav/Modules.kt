@@ -102,6 +102,7 @@ object Modules {
         ModuleEntry("货主管理", Routes.SHIPPERS_MANAGE, Icons.Default.PeopleAlt, color = InventoryTeal),                // 深青 · 货主
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
         ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品（还原成原来的色）
+        ModuleEntry("采购单", Routes.PURCHASE_ORDERS, Icons.Default.ShoppingCart, color = 0xFF4CAF50L),                 // 绿 · 进货入库（保存同时改库存/成本价/供应商欠款）
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
         // 单位换算（2026-09-24 用户要求：「一车是等于 8 方」）。
         // 紧挨着商品/库存两格：它管的是"这件货怎么计量"，与那两块是同一族的事。
@@ -327,6 +328,8 @@ object Modules {
         Routes.MEMBERS to "user:manage",
         Routes.PRODUCTS to "product:manage",
         Routes.INVENTORY to "product:manage",
+        // 采购单一格挂写侧能力：能改库存的人才建得了采购单（读也一样，见 `purchase_orders.py` 的 Reader）
+        Routes.PURCHASE_ORDERS to "product:manage",
         Routes.UNIT_CONVERSIONS to "unit_conversion:manage",
         Routes.LEDGER_HOME to "ledger:edit",
         Routes.DISPATCH_VEHICLES to "vehicle:manage",

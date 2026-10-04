@@ -311,6 +311,17 @@
 | `delete_product` | 写 | `DELETE /api/v1/products/{product_id}` | **软删除**商品（可 `POST /{id}/restore` 恢复）。下架请用 PATCH is_active=false。 |  |
 | `restore_product` | 写 | `POST /api/v1/products/{product_id}/restore` | 把软删除的商品恢复回来（`DELETE /{id}` 的逆操作）。 |  |
 
+## 采购单（`purchase_orders`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `list_purchase_orders` | 只读 | `GET /api/v1/purchase-orders` | 采购单列表（默认不含回收站，按单据日期倒序 —— 这是「看记录」）。 |  |
+| `get_purchase_order` | 只读 | `GET /api/v1/purchase-orders/{order_id}` | 一张采购单的明细（回收站里的也照给：列表能点进来看，详情就得打得开）。 |  |
+| `create_purchase_order` | 写 | `POST /api/v1/purchase-orders` | 建一张采购单：库存 + 成本价（加权均价）+ 供应商应付，一个事务里一次写完。 |  |
+| `update_purchase_order` | 写 | `PATCH /api/v1/purchase-orders/{order_id}` | 改单：改数量/单价就**改写那一行绑定的人库流水**（不是再记一笔冲销），撤行走 `is_void`。 |  |
+| `delete_purchase_order` | 写 | `DELETE /api/v1/purchase-orders/{order_id}` | 撤销整张采购单（软删）：逐行把库存冲回去 + 删掉它生成的那张应付单。 |  |
+| `restore_purchase_order` | 写 | `POST /api/v1/purchase-orders/{order_id}/restore` | 把回收站里的采购单恢复回来：重新入库 + 恢复它生成的那张应付单。 |  |
+
 ## 报表中心（`reports`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -318,6 +329,8 @@
 | `turnover_report` | 只读 | `GET /api/v1/reports/turnover` |  |  |
 | `product_report` | 只读 | `GET /api/v1/reports/products` |  |  |
 | `profit_report` | 只读 | `GET /api/v1/reports/profit` | 经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。 |  |
+| `vehicle_cost_report` | 只读 | `GET /api/v1/reports/vehicle-cost` | 车辆成本表：每一台车在这段时间里花了多少钱（折旧 / 这台车的开销 / 挂靠司机的配送成本）。 |  |
+| `cost_coverage_report` | 只读 | `GET /api/v1/reports/cost-coverage` | 成本覆盖表：这一段窗口里，有多少收入因为「没有进货价」而算不出成本。 |  |
 | `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` |  |  |
 | `export_report` | 只读 | `GET /api/v1/reports/export` | 报表 Excel 导出（内存流 xlsx）。 |  |
 

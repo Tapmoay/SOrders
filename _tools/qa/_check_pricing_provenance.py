@@ -175,6 +175,9 @@ CONFIG = {
     "cash_flows.amount": "现金流水金额（录入即事实）",
     "shipper_receipts.amount": "货主收款金额（录入即事实）",
     "supplier_payables.amount": "供应商应付金额（录入即事实）",
+    # FEAT-0013：采购单明细的单价就是 row 输入（建单/改单时人填的价），
+    # 它与它写出的 `inventory_movements.unit_cost` 同源 —— 不是算出来的，归 CONFIG。
+    "purchase_order_items.unit_cost": "采购单价（录入即事实：建单/改单时人填的价，不是算出来的）",
     "shipper_settlements.amount": "货主核销金额（录入即事实）",
     "shipper_settlement_lines.amount": "核销明细金额（录入即事实）",
     # ---- 车辆属性（2026-09-28 · FEAT-0001）：**派单员建车时量了填进来的事实**，

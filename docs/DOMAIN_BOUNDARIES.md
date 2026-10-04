@@ -221,9 +221,9 @@ pure_consumer: no
 name: inventory
 中文名: 库存域
 为什么是它自己的域: 库存流水是「货动了没有」的账；它由订单的派单 / 送达 / 撤销 / 退货触发，但库存数本身只由这一域写。
-owns: inventory_movements
-commands: services.inventory_service:auto_stock_out, services.inventory_service:auto_stock_commit, services.inventory_service:auto_stock_release, services.inventory_service:restock_room, services.inventory_service:restock_returned, services.warehouse:auto_warehouse_inbound
-reads: orders@order, products@catalogue
+owns: inventory_movements, purchase_orders, purchase_order_items
+commands: services.inventory_service:auto_stock_out, services.inventory_service:auto_stock_commit, services.inventory_service:auto_stock_release, services.inventory_service:restock_room, services.inventory_service:restock_returned, services.warehouse:auto_warehouse_inbound, services.purchase_service:create_order, services.purchase_service:update_order, services.purchase_service:soft_delete_order, services.purchase_service:restore_order
+reads: orders@order, products@catalogue, suppliers@party
 events: -
 pure_consumer: no
 ```
@@ -235,6 +235,11 @@ pure_consumer: no
 **到仓入库是独立的一条线**（用户 2026-09-19 拍板）：它不撤销预占、也不改扣减，判据在 `services/warehouse.py` 一处。
 
 **本域真实的洞**：手工出入库（`api/v1/inventory.py`）仍然内联在路由里。
+
+**采购单（FEAT-0013）记在这一域**：`purchase_orders` / `purchase_order_items` 是「这次进了什么货、按什么价」的记录 —— 它做的事就是动库存（建单/改单在**同一个事务**里出一行 `inventory_movements`、并把 `products.cost_price` 跟着更新），所以归库存域。两条配套口径：
+
+- **钱不在这一域**：那张自动生成的货款应付（`supplier_payables`）归钱域（§3.5），金额口径只有一处实现（`services/supplier_service.py`）；本域的命令只是**在同一个事务里建它 / 跟着单头改它**，从供应商页改删它会被 `guard_supplier_payable` 拦下。
+- **改单是改写，不是又记一笔**：一行明细恒等于一条库存流水（`purchase_order_items.movement_id`）；撤行 = 把那条流水置 0 / `VOID` 并按剩下的流水重算成本价（`services/purchase_service.py::_reprice_product`）。
 
 ### 3.7 settlement —— 结算域
 

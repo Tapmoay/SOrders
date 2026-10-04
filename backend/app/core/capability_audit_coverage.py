@@ -24,6 +24,7 @@
 | `ORDER_TEMPLATE_*` | `order_templates.py` → `Permission.ORDER_EDIT` |
 | `SUPPLIER_*` | `suppliers.py` → `Permission.LEDGER_EDIT` |
 | `ARREARS_UNIT_*` | `arrears.py` → `Permission.LEDGER_EDIT` |
+| `PURCHASE_ORDER_*` | `purchase_orders.py` → `Permission.PRODUCT_MANAGE`（写端点）|
 | `VEHICLE_*` | `vehicles.py:79 _must_dispatcher`（体内角色判断，没有权限点） |
 
 ## 判据看到什么、看不到什么（说清楚，免得被当成更强的保证）
@@ -70,7 +71,13 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
     # ---- 商品 / 库存 ----
     'product:manage': ('PRODUCT_CREATE', 'PRODUCT_UPDATE', 'PRODUCT_DELETE', 'PRODUCT_RESTORE',
                        'PRODUCT_VISIBILITY_SET', 'PRODUCT_CATEGORY_UPSERT', 'PRODUCT_CATEGORY_DELETE',
-                       'PRODUCT_CATEGORY_REORDER', 'INVENTORY_ADJUST'),
+                       'PRODUCT_CATEGORY_REORDER', 'INVENTORY_ADJUST',
+                       # 采购单（FEAT-0013）：门是 `Permission.PRODUCT_MANAGE`
+                       # （`api/v1/purchase_orders.py` 的写端点）—— 进货第一件事是入库，
+                       # 与手工入库同一个权限点，所以认领到这里（不是 ledger:edit：
+                       # 应付单是它**连带**生成的，不是另一个能力在做这件事）。
+                       'PURCHASE_ORDER_CREATE', 'PURCHASE_ORDER_UPDATE',
+                       'PURCHASE_ORDER_DELETE', 'PURCHASE_ORDER_RESTORE'),
     # ---- 账号 / 通知 ----
     'user:manage': ('USER_CREATE', 'USER_UPDATE', 'USER_DELETE', 'USER_RESTORE', 'CUSTOMER_MERGE',
                     # FEAT-0010（2026-10-05）：账号分类名册 —— 账户 / 司机 / 货主 / 批发商四个名册页

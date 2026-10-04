@@ -133,6 +133,10 @@ MODULE_CN: dict[str, str] = {
     # ⛔ 它不是业务模块、⛔ App 不调它、⛔ 也不给模型读 —— 读侧的理由写在
     #    `_read_coverage.py` 的 EXCLUDED 里（"不是用不上，是它不是业务能力"）。
     "diagnostics": "定价只读诊断",
+    # 采购单（FEAT-0013，2026-10-04）：一次进货 = 库存 + 成本价 + 供应商应付。
+    # ⚠️ 中文名要与 App 工作台那一格**同名**（`_tools/ai/_app_feature_coverage.py` 里
+    #    这一格），以及报表中心第 9 格「成本覆盖」—— 能力按模块认领时靠它对齐。
+    "purchase_orders": "采购单",
 }
 
 ROUTE_RE = re.compile(

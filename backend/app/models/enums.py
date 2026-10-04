@@ -137,6 +137,13 @@ class OperationAction(str, enum.Enum):
     # 库存调整（出入库流水）：和改价同一类——动了货/钱的账，月底对不上要能回查。
     # 以前**一条都不写**，审计页上永远看不到"谁把库存改了多少"（v3.29 补上）。
     INVENTORY_ADJUST = "INVENTORY_ADJUST"
+    # 采购单（FEAT-0013）：一次采购同时动库存、成本价与供应商应付 —— 三件事都可能要回查
+    # 「谁把这批货的进货价改了」，所以建/改/删/恢复各一个码（拆开才答得了"是谁把价改了"
+    # 与"这张单被谁撤了"这两个不同的问题）。
+    PURCHASE_ORDER_CREATE = "PURCHASE_ORDER_CREATE"
+    PURCHASE_ORDER_UPDATE = "PURCHASE_ORDER_UPDATE"
+    PURCHASE_ORDER_DELETE = "PURCHASE_ORDER_DELETE"
+    PURCHASE_ORDER_RESTORE = "PURCHASE_ORDER_RESTORE"
     # AI 撤回：用户点了「撤回」，把一次 AI 写操作回滚掉。单独一个动作码，
     # 是为了让"这次是谁撤的、撤掉了哪一条"在审计页上一眼可辨（v3.26）。
     AI_UNDO = "AI_UNDO"

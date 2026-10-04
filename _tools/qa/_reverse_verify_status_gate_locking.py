@@ -68,7 +68,9 @@ CASES: list[tuple[str, Path, str, str, str]] = [
         "        raise HTTPException(status_code=400, detail=\"这一单已经撤销了，不用再定价\")",
         "    if order.status == OrderStatus.CANCELLED:\n"
         "        raise HTTPException(status_code=400, detail=\"这一单已经撤销了，不用再定价\")",
-        "orders.freight_fee ← orders_assignment.py::price_freight",   # 2026-09-24 阶段 4：price_freight 搬了家
+        # 2026-10-04：金额的赋值搬进了唯一写入口（order_money.record_freight_decision），C 段的
+        #   字段盘点从此盯不到这个端点 —— 改由检查器的 REQUIRED_LOCKERS 点名钉住，期望词跟着换。
+        "price_freight 仍然先取锁再判",
     ),
     (
         "别处又冒出一个直接判状态的地方（没登记理由就是绕过那道门）",

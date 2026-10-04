@@ -30,6 +30,32 @@
 ---
 
 ## 进行中
+### [2026-10-04 进行中] 会话：**FEAT-0013 采购与进货价闭环：一次采购同时写库存、成本与供应商应付**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见 FEAT-0011 块），节奏是**一期一提交**：① 经营利润表 ✅ FEAT-0011 → ② 车辆台账与折旧 ✅ FEAT-0012 → **③ 采购与进货价闭环（本事项）** → ④ 税账 → ⑤ 应收账龄与客户信用。开工前先问了四个口径并拿到需求方拍板（见下）。
+
+**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。
+然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行
+分析。」
+
+**本期口径（需求方 2026-10-04 拍板四条）**：
+① 形态 → **新增「采购单」页**（供应商 ＋ 日期 ＋ 多行商品/数量/单价，保存时库存、成本、应付三件事一次写完）；
+② 应付 → **自动生成一张应付单**（金额＝单据合计、日期＝单据日期，付款照旧在供应商页分次付）；
+③ 改单 → **允许改单**（改数量/单价时自动补写差额）；
+④ 成本覆盖看板 → **要**（列出没有进货价的商品 ＋ 账上「算不出成本的收入」有多少 ＋ 补录入口）。
+
+**做什么**：新增两张表（迁移 `019_purchase_orders.py`：`purchase_orders` / `purchase_order_items`）＋ 唯一实现 `backend/app/services/purchase_service.py`（建单 / 改单 / 撤行 / 删单 / 恢复；库存、成本、应付同一事务）＋ 端点 `backend/app/api/v1/purchase_orders.py`（4 个写 ＋ 2 个读）＋ 只读报表 `GET /api/v1/reports/cost-coverage`（`services/reports/cost_coverage_query.py`）＋ 报表中心第 9 格「成本覆盖」＋ Android 采购单列表页与表单页 ＋ 供应商页对「来自采购单的应付单」加改/删保护（指向那张采购单）。
+
+**核心改动：`backend/app/models/enums.py`（新增 4 个 `OperationAction` 动作码）、`backend/app/api/v1/__init__.py`（挂载新路由）、`backend/app/models/__init__.py`（注册新模型）—— 为什么必须动核心：动作码与路由/模型注册是**词表与接线文件**（不是新口径），审计覆盖判据要求每个写端点都有动作码，路由不挂载则端点根本不存在。**金额口径一个都不进核心**：成本仍由 `cost_basis.py` 算、欠款仍在 `supplier_service.py` 相减。**
+
+**文件清单**（认领时拟定，⛔ 归档前按实现提交的 `--name-only` 逐条核对改正）：
+- 后端：`backend/app/models/purchase.py`（新）、`backend/app/migrations/019_purchase_orders.py`（新）、`backend/app/services/purchase_service.py`（新）、`backend/app/schemas/purchase.py`（新）、`backend/app/api/v1/purchase_orders.py`（新）、`backend/app/services/reports/cost_coverage_query.py`（新）、`backend/app/api/v1/reports.py`、`backend/app/api/v1/suppliers.py`、`backend/app/services/supplier_service.py`、`backend/app/models/__init__.py`、`backend/app/models/enums.py`、`backend/app/api/v1/__init__.py`；
+- Android：`ui/dispatcher/PurchaseOrdersScreen.kt`（新）、`ui/dispatcher/PurchaseOrderFormScreen.kt`（新）、`ui/dispatcher/PurchaseOrdersViewModel.kt`（新）、`ui/dispatcher/ReportCostCoverage.kt`（新）、`ui/dispatcher/ReportHome.kt`（第 9 格）、`ui/dispatcher/ReportCenter.kt`、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`data/remote/dto/Dtos.kt`、`data/remote/ApiService.kt`、`data/repo/*`；
+- 判据与测试：`_tools/qa/_check_purchase_orders.py`（新）、`_tools/qa/_reverse_verify_purchase_orders.py`（新）、`backend/tests/test_purchase_orders.py`（新）、`_tools/qa/_check_profit_report.py`（第 9 格）、`_tools/ai/_write_coverage.py`（写端点「不做」理由）、`_tools/ai/_gen_ai_read_catalog.py`（中文说明）、`docs/ai/ai_toolmap.json`；
+- 文档与生成物：`docs/changes/FEAT-0013.md`（新）、`docs/changes/README.md`（登记行）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/RELEASE_CANDIDATE.md`（迁移 19）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/CAPABILITY_SNAPSHOT.json`、`docs/CAPABILITY_AUDIT_COVERAGE.md`、`android/app/src/main/java/com/tapmoay/sorders/ai/AiReadCatalog.kt`、`android/.../core/Capabilities.kt`。
+
+**落点与提交**：⏳ 判据 / 反验 / pytest / 后端探针 / 模拟器 5554 实测 / 全量静检（目标 172 项全绿）；实现提交（首行以 `FEAT-0013` 开头）与归档提交待回填。
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

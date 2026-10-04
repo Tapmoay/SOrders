@@ -141,6 +141,21 @@ def slice_fun(src: str, header: str) -> str:
     return src[i:end + 1]
 
 
+def py_def_body(src: str, name: str) -> str:
+    """取出一个**模块级** Python 函数的函数体：从 `def name(` 那行到下一个顶格 `def` / `class`。
+
+    ⚠️ 与上面的 `slice_fun` 不是一回事：那一个是给 Kotlin 配平花括号用的，Python 的边界只有
+    「下一个顶格定义」这一个信号 —— 不能按缩进猜（多行字符串里顶格的文本会骗人）。
+    ⚠️ 本函数读的是 `reports_source()` 的**并集**（段间用 `# ===== 文件名 =====` 隔开），
+    每个 build_* 各自在不同的文件里、都是顶格定义 —— 于是并集里按顶格切照样切得准。
+    """
+    i = src.find(chr(10) + "def " + name + "(")
+    if i < 0:
+        return ""
+    rest = src[i + 1:]
+    stops = [k for k in (rest.find(chr(10) + "def ", 1), rest.find(chr(10) + "class ", 1)) if k > 0]
+    return rest[:min(stops)] if stops else rest
+
 def main() -> int:
     fin = read(FINANCE)
     vm = read(VM)
@@ -257,19 +272,30 @@ def main() -> int:
     ok("turnover / products 两个端点都收 date_from/date_to",
        reports_py.count("date_from: date | None = Query(None") >= 3,
        "营业纵览 / 商品经营 / 导出 —— 少一个就会出现「页面按区间、那个端点按 mode」")
-    # ⚠️ 2026-10-04（FEAT-0012 第二期）：这条原来钉死"两个 build_*"，现在有四个
-    #    （turnover / products / profit / vehicle-cost）。按**原意**改成"每个 build_* 的窗口
-    #    只有这一个来源"：要么自己从 span 算，要么复用上游 builder 返回的 `_window`
-    #    （`build_profit` 就是后者 —— 它只用 `build_turnover` 的 `_window`，不自己算）。
+    # ⚠️ 2026-10-04（FEAT-0012 第二期）：这条原来钉死"两个 build_*"，改过一次（四个）；
+    #    同一天第三期又加了 `build_cost_coverage` —— 现在 **5 个**：
+    #      · 自己从 span 算：`build_turnover` / `build_products` / `build_vehicle_cost`
+    #      · 复用上游 `_window`：`build_profit` / `build_cost_coverage`（都取 `build_turnover` 的）
+    #    ⛔ 上一版写的是 `count(字面量) == len(build_*) - 1`（"只有 profit 复用"），
+    #    第二个复用者一出现就**假红**了 —— 而它的原意从来不是"恰好一个复用者"，
+    #    是"每个 build_* 的窗口只有这一个来源"。所以现在**逐个函数看函数体**，不再数总数。
     #    它守的东西没变：窗口一旦在某处被重算，就会与别的报表错开一格，而且没有任何报错。
     _span_param = "span: tuple[date, date]"
     _window_from_span = "span if span else _window(mode, anchor)"
-    _builders_with_span = re.findall(r"def build_\w+\([^)]*" + re.escape(_span_param), reports_py, re.S)
-    ok("每个 build_* 的窗口只有这一个来源（自己从 span 算，或复用上游的 `_window`）",
-       len(_builders_with_span) >= 3
-       and reports_py.count(_window_from_span) == len(_builders_with_span) - 1,
+    _builders = re.findall(r"def (build_\w+)\([^)]*" + re.escape(_span_param), reports_py, re.S)
+    _bodies = {n: py_def_body(reports_py, n) for n in _builders}
+    _own = [n for n, b in _bodies.items() if b.count(_window_from_span) == 1]
+    _reuse = [n for n, b in _bodies.items()
+              if b.count(_window_from_span) == 0
+              and re.search(r"\w+\[\"_window\"\]", b) is not None
+              and "_window(mode, anchor)" not in b]
+    ok("每个 build_* 的窗口只有这一个来源（自己从 span 算，或复用上游 builder 的 `_window`）",
+       len(_builders) >= 5
+       and sorted(_own + _reuse) == sorted(_builders)
+       and "build_turnover" in _own,
+       f"自己算的：{sorted(_own)}；复用上游的：{sorted(_reuse)}；"
        "（`load_delivered` 只是取数、不收窗口语义，所以只数 `build_*`；"
-       "`build_profit` 复用 `build_turnover` 的 `_window` —— 于是减一）")
+       "一个都不许落在两桶之外 —— 那说明它自己又算了一遍窗口）")
     ok("导出也走同一个 `_span(`（文件名与内容同一段）",
        re.search(r"s, e = _span\(mode, d, date_from, date_to\)", reports_py) is not None)
     ok("曲线的粒度由**窗口**决定（不再只看 mode）",

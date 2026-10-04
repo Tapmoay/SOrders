@@ -20,11 +20,15 @@
 再判 + 条件 UPDATE 占位"），但**接口层那几道"状态门"没跟着改** —— 因为那些端点不是状态跃迁，
 看起来不像"并发那一类"。所以要有机器盯着。
 
-## 判据（4 条，清单自己算）
+## 判据（5 条，清单自己算）
 
 - **A. 先锁再判**：凡是调 `lock_order_row(db, …)` 的函数，那个调用必须出现在**该函数里第一处
   `status` 比较之前**。"先判后锁"等于没锁（判完到拿锁之间那道缝还在），而这一条特别容易被
   后来的人"顺手整理"成先判后锁。
+- **A2. 点名必取锁的函数**：写入收拢到帮手函数之后（金额唯一写入口那类），字段只剩一个写入点，
+  C 段就盯不到它们了 —— 于是"把这一行锁删掉"不再让任何一条变红（反向验证实测就是这样）。
+  `REQUIRED_LOCKERS` 把这类函数点名钉住：名字必须在代码里（防化石），而且必须真的调
+  `lock_order_row`；理由太短也算不成立。
 - **B. 明细编辑的门只有一处**：`_order_allows_line_edit` 的调用点必须落在
   `_locked_editable_order`（取锁 + 重读后的那个对象）里，或写在下面的 `ALLOW` 表里带理由；
   三个写端点（新建/改/删明细）必须都走 `_locked_editable_order`。
@@ -66,6 +70,45 @@ BACKEND = ROOT / "backend" / "app"
 MIN_LOCKS = 3
 MIN_MULTI_FIELDS = 4
 MIN_LINE_ENDPOINTS = 3
+
+#: **点名必须取锁**的函数（键 = 函数名）。C 段是按「同一个字段有多个写入点」盘点的，而这几个端点
+#: 的写入已经收拢进**唯一的帮手**（金额写入口 order_money.record_freight_decision 那一层不取锁），
+#: 于是那个字段只剩一个写入点 —— 「把这一行锁删掉」从此不会让任何一条判据变红：串行跑一百遍都是
+#: 对的，只有并发那一瞬间才放行一个已送达/已撤销的单（2026-09-23 第 6 轮实测缺陷就是从这两个端点
+#: 之间"同一个字段两套状态规则"来的）。所以这里点名钉住，并接上反向验证的那支注入。
+REQUIRED_LOCKERS: dict[str, str] = {
+    "price_freight": (
+        "手动定价：先判状态（撤销的不许定价、已送达且定过数的只许填空），再把金额交给唯一写入口 ——"
+        "金额那一层不取锁，锁只能在这里取；少了它，送达能挤进判与写之间。"
+    ),
+    "update_order_freight": (
+        "事后改运费：同一个字段的第二个写入端点（第 6 轮那两个端点两套状态规则），同样先锁再判再写；"
+        "删掉这行锁在功能上完全看不出来，只会让已送达的单被改价。"
+    ),
+}
+
+#: C 段是按**属性名**盘点的（`order.<字段> =`），而 backend/app/services/purchase_service.py
+#: 里的局部变量 `order` 是一张**采购单**（`PurchaseOrder`）—— 它写的是
+#: purchase_orders.remark / purchase_orders.is_deleted，**另一张表**，两张表各有各的生命周期，
+#: 不存在「同一个字段被两套口径各写各的」这回事。键 = (文件名, 函数名, 字段名)，命中即从
+#: 盘点里剔除（D 段还回头问一句「这条还在吗」）。
+#: ⚠️ 为什么不改成「按模型推断」：这里没有类型信息，推断只能靠猜，猜错的代价是**漏掉真的**
+#:    多写入点 —— 那正是这一条存在的理由。所以宁可显式登记 + 防化石。
+NOT_ORDERS_FIELD_WRITERS: dict[tuple[str, str, str], str] = {
+    ("purchase_service.py", "soft_delete_order", "is_deleted"): (
+        "写的是 purchase_orders.is_deleted（采购单，另一张表）：采购单没有订单那套状态门，"
+        "它的撤销由 purchase_orders.py 端点上的 ensure_alive 与 guard_supplier_payable"
+        "（还有没撤销的付款就不许撤销整张单）把关，与 orders 的删除口径无关。"
+    ),
+    ("purchase_service.py", "restore_order", "is_deleted"): (
+        "同上：把 purchase_orders.is_deleted 清回 False，与 soft_delete_order 互逆；"
+        "恢复时还要按当前库存重新核算够不够（不够就如实报错），同样不碰 orders。"
+    ),
+    ("purchase_service.py", "update_order", "remark"): (
+        "写的是 purchase_orders.remark（采购单的备注，另一张表）：这张单的备注是自由文本，"
+        "与订单备注没有任何共享口径，orders 上也没有第二个写入点会写同一列。"
+    ),
+}
 
 #: `_order_allows_line_edit` 允许出现的调用点（键 = 文件名 + 函数名），**没有理由的一律报红**。
 ALLOW_LINE_GATE: dict[tuple[str, str], str] = {
@@ -246,10 +289,25 @@ def main() -> int:
              "它自己读了订单对象再判状态 —— 并发下会放行已送达/已撤销的单")
     c.ok(f"明细写端点不少于 {MIN_LINE_ENDPOINTS} 个", len(bodies) >= 0)
 
-    print("\n== C. 同一个字段有多个写入点时，这个字段必须有交代（取锁 / 或者书面理由）==")
     # 「会取锁的函数」= 自己调了 `lock_order_row` 的那些；调用它们**也算**取到了锁
     # （例：`assign_order` 把运费交给 `assign_driver`，而后者先锁行再判 + 条件 UPDATE 占位）。
     lockers = {name for _, name, _ in lock_sites}
+    print("\n== A2. 点名必取锁的函数（写入收拢到唯一帮手、C 段盯不到的那些）==")
+    # C 段是按**字段**盘点的；这几个端点的写入已经收拢到唯一的帮手函数里（金额那一层不取锁），
+    # 于是那个字段只剩一个写入点 —— 「把这一行锁删掉」从此不会让任何一条判据变红，
+    # 而它正是 2026-09-23 第 6 轮那两处实测缺陷的入口。所以这里点名钉住：名字必须在，
+    # 而且必须真的取锁（这条也正是反向验证脚本里那支「定价端点不取锁」的注入）。
+    _all_names = {n for f in py_files() for n, _ in functions(read(f))}
+    for _fn, _why in sorted(REQUIRED_LOCKERS.items()):
+        c.ok(f"点名 {_fn} 还在代码里（不是化石）", _fn in _all_names,
+             "这个名字已经不在代码里了 —— 把 REQUIRED_LOCKERS 里那条删掉")
+        c.ok(f"{_fn} 仍然先取锁再判：{_why[:26]}…", _fn in lockers,
+             f"{_fn} 里没有 lock_order_row( —— 它是「读状态 → 判断 → 写」的写端点，"
+             "写入落在不取锁的帮手函数里；删掉这行锁在功能上完全看不出来，"
+             "只有并发那一瞬间会放行一个已送达/已撤销的单（第 6 轮实测缺陷）")
+        c.ok(f"{_fn} 的理由写得够长", len(_why) >= 20,
+             "理由太短，等于没写（要能回答『为什么这个函数必须取锁』）")
+    print("\n== C. 同一个字段有多个写入点时，这个字段必须有交代（取锁 / 或者书面理由）==")
     # 盘点：`orders.<字段> =`（已剥注释、`=(?!=)` 排除 `==`），**按 (字段, 文件, 函数) 去重**。
     # ⚠️ 这一条是从**两次实测缺陷**里长出来的（第 6 轮 `freight_fee`：两个端点两套状态规则 →
     #    送达后还能定价，账单 300 而结算页 350；第 7 轮 `arrears_unit_id`：三个写入点只有
@@ -262,12 +320,18 @@ def main() -> int:
     #   (b) 在下面 `SAME_FIELD_REASONS` 里按**字段**写一句"为什么这些写入点不会分叉"。
     # 没有 (a) 也没有 (b) → 报红（并且理由表要防化石）。
     field_writers: dict[str, list[tuple[str, str, str]]] = {}
+    suppressed: set[tuple[str, str, str]] = set()
     for f in py_files():
         for name, body in functions(read(f)):
             code = code_only(body)
             if not re.search(r"\border\.[a-z_]+\s*=(?!=)", code):
                 continue
             for m in re.finditer(r"\border\.([a-z_]+)\s*=(?!=)", code):
+                hit = (f.name, name, m.group(1))
+                if hit in NOT_ORDERS_FIELD_WRITERS:
+                    # 「order」只是变量名 —— 这个写入点落在另一张表上（理由见上面那张表）。
+                    suppressed.add(hit)
+                    continue
                 sites = field_writers.setdefault(m.group(1), [])
                 if not any(fn == f.name and nm == name for fn, nm, _ in sites):
                     sites.append((f.name, name, code))
@@ -304,6 +368,12 @@ def main() -> int:
     fossils_same = sorted(k for k in SAME_FIELD_REASONS if k not in multi)
     c.ok("同源理由表没有化石（那个字段已经不是多写入点了）", not fossils_same,
          f"已经不存在：{fossils_same}")
+    fossils_orders = sorted(k for k in NOT_ORDERS_FIELD_WRITERS if k not in suppressed)
+    c.ok("「order 其实是采购单」那张例外表没有化石", not fossils_orders,
+         f"已经不存在：{fossils_orders}（那条写入点没了 / 字段改名了，就把这一行删掉）")
+    for _key, _reason in sorted(NOT_ORDERS_FIELD_WRITERS.items()):
+        c.ok(f"例外 {_key[1]}::{_key[2]} 的理由写得够长", len(_reason) >= 20,
+             "理由太短，等于没写（要能回答『这里为什么不是 orders 的字段』）")
 
     print("\n== E. 订单状态的写入点只允许在 OrderFlow（报告 §7「唯一写入口」）==")
     # ⚠️ 为什么单列一条：C 段盘的是 `order.<字段> =`（**赋值**），而状态跃迁还有**第二种写法** ——

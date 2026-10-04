@@ -1056,6 +1056,39 @@ interface SupplierApi {
 }
 
 /**
+ * 采购单（FEAT-0013 第三期）：单头 + 多行「商品 / 数量 / 单价」。
+ *
+ * 保存时服务端在**同一个事务**里改库存、改进货价、生成供应商应付单 —— 三处钱一起动。
+ * 读走 `ORDER_DISPATCH`（与库存/报表同门），写走 `PRODUCT_MANAGE`（能改库存的人才建得了采购单）。
+ */
+interface PurchaseOrderApi {
+    /** 列表：返回**裸数组** + 分页响应头（与库存流水同一条约定）。 */
+    @GET("purchase-orders")
+    suspend fun listPurchaseOrders(
+        @Query("supplier_id") supplierId: Long? = null,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+        @Query("include_deleted") includeDeleted: Boolean = false,
+    ): List<PurchaseOrderDto>
+
+    @GET("purchase-orders/{orderId}")
+    suspend fun getPurchaseOrder(@Path("orderId") orderId: Long): PurchaseOrderDto
+
+    @POST("purchase-orders")
+    suspend fun createPurchaseOrder(@Body body: PurchaseOrderCreateRequest): PurchaseOrderDto
+
+    @PATCH("purchase-orders/{orderId}")
+    suspend fun updatePurchaseOrder(@Path("orderId") orderId: Long, @Body body: PurchaseOrderUpdateRequest): PurchaseOrderDto
+
+    /** 撤单 = 软删：库存退回去、应付与流水作废，可 `restore` 放回来。 */
+    @DELETE("purchase-orders/{orderId}")
+    suspend fun deletePurchaseOrder(@Path("orderId") orderId: Long)
+
+    @POST("purchase-orders/{orderId}/restore")
+    suspend fun restorePurchaseOrder(@Path("orderId") orderId: Long): PurchaseOrderDto
+}
+
+/**
  * `GET /inventory/movements` 一页取多少条 —— **后端的上限就是 500**（`Query(100, le=500)`）。
  *
  * ⚠️ 取满上限只是"这一页尽量大"，**不等于"全部"**：该端点现在回报 `X-Truncated` /
@@ -1291,6 +1324,15 @@ interface ReportApi {
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
     ): VehicleCostReportDto
+
+    /** 成本覆盖表（FEAT-0013）：这一段卖出去的货里，成本有多少是有出处的。窗口与其他报表同一段。 */
+    @GET("reports/cost-coverage")
+    suspend fun costCoverage(
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): CostCoverageReportDto
 
     @GET("stats/driver-performance")
     suspend fun driverPerformance(

@@ -194,9 +194,23 @@ object AiReadCatalog {
             ReadParam("product_id", "int", false, emptyList(), true),
             ReadParam("limit", "int", false, emptyList(), false),
         )),
+        ReadAction("purchase_orders.list_purchase_orders", "采购单（什么时候、跟哪个供应商、进了哪些货、多少件×多少钱；含已撤单/已撤行的，进货价就是从那一次定的；⚠️ 欠他多少要看应付单、付过几次要看付款记录）", "/api/v1/purchase-orders", "supplier_id、date_from、date_to、include_deleted、limit、offset", setOf("dispatcher"), false, listOf(
+            ReadParam("supplier_id", "int", false, emptyList(), true),
+            ReadParam("date_from", "str", false, emptyList(), false),
+            ReadParam("date_to", "str", false, emptyList(), false),
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
+            ReadParam("limit", "int", false, emptyList(), false),
+            ReadParam("offset", "int", false, emptyList(), false),
+        )),
         ReadAction("reports.arrears_summary", "挂账/欠款汇总报表", "/api/v1/reports/arrears-summary", "date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("date_from", "date", true, emptyList(), false),
             ReadParam("date_to", "date", true, emptyList(), false),
+        )),
+        ReadAction("reports.cost_coverage_report", "成本覆盖（这一段的收入里有多少是知道进货价的：覆盖/未覆盖的收入与行数，以及从没记过进货价的商品清单；⚠️ 它只说「成本算不算得出来」，不是利润表）", "/api/v1/reports/cost-coverage", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
+            ReadParam("mode", "str", false, emptyList(), false),
+            ReadParam("date", "date", true, emptyList(), false),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
         )),
         ReadAction("reports.product_report", "商品报表（销量、货损）", "/api/v1/reports/products", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("mode", "str", false, emptyList(), false),
@@ -351,6 +365,7 @@ object AiReadCatalog {
         "price_rules" to "批发商定价",
         "product_categories" to "商品分类",
         "products" to "商品管理",
+        "purchase_orders" to "采购单",
         "reports" to "报表中心",
         "return_requests" to "退货申请",
         "route_categories" to "线路分类",

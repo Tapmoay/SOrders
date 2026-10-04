@@ -775,6 +775,22 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun cancelSupplierPayment(flowId: Long) = api.supplierApi.cancelPayment(flowId)
     suspend fun restoreSupplierPayment(flowId: Long) = api.supplierApi.restorePayment(flowId)
 
+    // ---- 采购单（FEAT-0013）：保存时后端在同一事务里改库存/进货价/供应商欠款 ----
+    suspend fun purchaseOrders(
+        supplierId: Long? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        includeDeleted: Boolean = false,
+    ) = api.purchaseOrderApi.listPurchaseOrders(supplierId, dateFrom, dateTo, includeDeleted)
+    suspend fun purchaseOrder(id: Long) = api.purchaseOrderApi.getPurchaseOrder(id)
+    suspend fun createPurchaseOrder(body: com.tapmoay.sorders.data.remote.dto.PurchaseOrderCreateRequest) =
+        api.purchaseOrderApi.createPurchaseOrder(body)
+    suspend fun updatePurchaseOrder(id: Long, body: com.tapmoay.sorders.data.remote.dto.PurchaseOrderUpdateRequest) =
+        api.purchaseOrderApi.updatePurchaseOrder(id, body)
+    suspend fun deletePurchaseOrder(id: Long) = api.purchaseOrderApi.deletePurchaseOrder(id)
+    suspend fun restorePurchaseOrder(id: Long) = api.purchaseOrderApi.restorePurchaseOrder(id)
+
+
     suspend fun inventorySummary() = api.inventoryApi.summary()
 
     /**
@@ -1023,6 +1039,17 @@ class AppRepository(private val api: ApiBundle) {
         dateFrom: String? = null,
         dateTo: String? = null,
     ) = api.reportApi.vehicleCost(mode, date, dateFrom, dateTo)
+
+    /**
+     * 成本覆盖表（FEAT-0013 第三期）：窗口与 [turnoverReport]/[profitReport]/[vehicleCostReport]
+     * **同一段**，否则同一屏会出现两个时间段。
+     */
+    suspend fun costCoverageReport(
+        mode: String,
+        date: String,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ) = api.reportApi.costCoverage(mode, date, dateFrom, dateTo)
 
     suspend fun driverPerformance(dateFrom: String, dateTo: String) =
         api.reportApi.driverPerformance(dateFrom, dateTo)

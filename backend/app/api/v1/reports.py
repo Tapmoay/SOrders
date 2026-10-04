@@ -22,6 +22,7 @@ from app.schemas.reports import (
     ProductReportOut,
     ProfitReportOut,
     ReportArrearsUnitItem,
+    CostCoverageReportOut,
     ReportSeriesItem,
     TurnoverReportOut,
     VehicleCostReportOut,
@@ -31,7 +32,7 @@ from app.services.money_contract import has_per_order_pay, line_receivable, mone
 from app.services.sheet_text import append_text_row
 
 from app.services.reports_service import (
-    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money, build_vehicle_cost,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
+    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money, build_vehicle_cost, build_cost_coverage,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
 )
 
 
@@ -127,6 +128,27 @@ def vehicle_cost_report(
     return VehicleCostReportOut(**data)
 
 
+@router.get("/cost-coverage", response_model=CostCoverageReportOut)
+def cost_coverage_report(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+    mode: str = Query("month", pattern="^(day|week|month)$"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（与 date_to 成对给，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
+) -> CostCoverageReportOut:
+    """成本覆盖表：这一段窗口里，有多少收入因为「没有进货价」而算不出成本。
+
+    只读 —— 收入那一侧直接取营业纵览（"算不出成本的收入"的唯一判据在那里），
+    ⛔ 本表不重算成本、也不把「没记过进货价的商品」说成那笔收入的来源
+    （两者相关但不等价，见 `services/reports/cost_coverage_query.py` 开头）。
+    """
+    span = _span(mode, anchor, date_from, date_to)
+    data = build_cost_coverage(db, mode, anchor, span=span)
+    data.pop("_window", None)
+    return CostCoverageReportOut(**data)
+
+
 
 
 
@@ -149,7 +171,7 @@ def arrears_summary(
 def export_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
-    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit|vehicle-cost)$"),
+    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit|vehicle-cost|cost-coverage)$"),
     mode: str = Query("day", pattern="^(day|week|month)$"),
     anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
     date_from: date | None = Query(None, description="YYYY-MM-DD（finance/customers 可用，优先于 mode+anchor）"),
@@ -284,6 +306,36 @@ def export_report(
                 _money(row["depreciation"]), _money(row["expense_total"]),
                 _money(row["delivery_cost"]), _money(row["total_cost"]),
                 detail, why,
+            ])
+        append_text_row(ws, [])
+        append_text_row(ws, ["口径说明"])
+        for note in data["notes"]:
+            append_text_row(ws, [note])
+    elif kind == "cost-coverage":
+        # 成本覆盖表（FEAT-0013 第三期）：这一段卖出去的货里，有多少钱的成本是**从进货单真的知道**的。
+        # 口径与来源见 `services/reports/cost_coverage_query.py`（只读：一个原始金额都不自己算）。
+        # ⚠️ 这张表**没有"毛利"列**：覆盖不到的那部分成本我们并不知道（不是 0），
+        #    把它当 0 算出来的毛利会被拿去定价 —— "不知道"必须留在表上，见表尾口径说明。
+        data = build_cost_coverage(db, mode, d, span=(s, e))
+        ws = next_sheet("成本覆盖")
+        append_text_row(ws, ["成本覆盖", _span_label(s, e), "口径：这一段卖出去的货里，成本有出处的那部分"])
+        append_text_row(ws, [
+            "收入合计", _money(data["revenue_total"]),
+            "有成本出处的收入", _money(data["revenue_covered"]),
+            "没有成本出处的收入", _money(data["revenue_uncovered"]),
+        ])
+        append_text_row(ws, [
+            "明细行数", data["total_lines"],
+            "有出处（进货价）", data["cost_avg_lines"],
+            "有出处（库存成本）", data["cost_snapshot_lines"],
+            "有出处的行数合计", data["covered_lines"],
+        ])
+        append_text_row(ws, [])
+        append_text_row(ws, ["从来没带价进过货的商品", "单位", "库存", "记着的成本价"])
+        for row in data["missing_purchase_price"]:
+            append_text_row(ws, [
+                row["name"], row["unit"], row["stock"],
+                "没有进过货" if row["cost_price"] is None else _money(row["cost_price"]),
             ])
         append_text_row(ws, [])
         append_text_row(ws, ["口径说明"])

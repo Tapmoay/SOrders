@@ -43,6 +43,7 @@ from app.schemas.supplier import (
     SupplierPaymentOut,
     SupplierUpdate,
 )
+from app.services import purchase_service as psvc
 from app.services import supplier_service as svc
 from app.services import usage_service
 from app.services.operation_log_service import write_log
@@ -324,6 +325,9 @@ def update_payable(
     operator: User = Dispatcher,
 ) -> SupplierPayableOut:
     p = svc.get_payable_or_404(db, payable_id)
+    # ⛔ 采购单生成的那张应付单在这里改不了：它的金额由那张单的明细说了算，
+    #    两处都能改就必然对不上（改单入口在采购单页）。
+    psvc.guard_supplier_payable(db, p)
     before = {"title": p.title, "category": p.category, "amount": str(p.amount),
               "doc_date": str(p.doc_date), "remark": p.remark}
     if body.amount is not None:
@@ -368,6 +372,9 @@ def delete_payable(
     operator: User = Dispatcher,
 ) -> None:
     p = svc.get_payable_or_404(db, payable_id)
+    # ⛔ 同上：要撤销这张应付，就撤销它那张采购单（DELETE /purchase-orders/{id}），
+    #    那条路会同时把库存与应付一起冲回去。
+    psvc.guard_supplier_payable(db, p)
     title = p.title
     svc.soft_delete_payable(db, p)
     write_log(

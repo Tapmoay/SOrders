@@ -2284,6 +2284,114 @@ data class SupplierPaymentCreateRequest(
     val remark: String = "",
 )
 
+// ---------------------------------------------------------------------------
+// 采购单（FEAT-0013 第三期）：单头 + 多行「商品 / 数量 / 单价」。
+//
+// ⚠️ 金额与合计**全在后端算好**（`total` / `amount` / 应付已付与还差都是字符串两位小数）：
+//    客户端拿到的就是能直接印的数，⛔ 不自己乘、不自己减（客户端再算一遍 = 第二个口径）。
+// ⚠️ 「只改单头」与「把明细全撤了」是两件事：改单请求里 `items = null` = 只改单头；
+//    给了数组 = 整单替换（没出现的行算撤行）。
+// ---------------------------------------------------------------------------
+
+/** 采购单**明细行**（读）。`amount` 是后端算好的行金额（撤行恒 "0.00"）。 */
+@Serializable
+data class PurchaseItemDto(
+    val id: Long,
+    @SerialName("product_id") val productId: Long,
+    @SerialName("product_name") val productName: String = "",
+    val unit: String = "",
+    val quantity: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("unit_cost") val unitCost: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) val amount: String = "0.00",
+    @SerialName("is_void") val isVoid: Boolean = false,
+    @SerialName("movement_id") val movementId: Long? = null,
+)
+
+/** 采购单（列表与详情**同一个** DTO：列表里 `items` 是空数组）。 */
+@Serializable
+data class PurchaseOrderDto(
+    val id: Long,
+    @SerialName("supplier_id") val supplierId: Long,
+    @SerialName("supplier_name") val supplierName: String = "",
+    @SerialName("doc_date") val docDate: String = "",
+    val remark: String = "",
+    @SerialName("item_count") val itemCount: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) val total: String = "0.00",
+    @SerialName("payable_id") val payableId: Long? = null,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("payable_paid") val payablePaid: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("payable_unpaid") val payableUnpaid: String = "0.00",
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("operator_id") val operatorId: Long? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    val items: List<PurchaseItemDto> = emptyList(),
+)
+
+/**
+ * 采购单**明细行**（写）。
+ *
+ * ⚠️ `id` 只在**改单**时给：给了 = 改这一行（库存流水是**改写**，不是又记一笔）；不给 = 新加一行。
+ */
+@Serializable
+data class PurchaseItemRequest(
+    val id: Long? = null,
+    @SerialName("product_id") val productId: Long,
+    val quantity: Int,
+    @SerialName("unit_cost") val unitCost: String,
+)
+
+/** 新建采购单：服务端在**同一个事务**里写库存流水、进货价与供应商应付单（三处钱一起动）。 */
+@Serializable
+data class PurchaseOrderCreateRequest(
+    @SerialName("supplier_id") val supplierId: Long,
+    @SerialName("doc_date") val docDate: String,
+    val remark: String = "",
+    val items: List<PurchaseItemRequest>,
+)
+
+/**
+ * 改采购单：`null` 的字段会被序列化丢掉 ⇒ 后端按「没提这事」处理（与供应商改档同一套）。
+ *
+ * ⚠️ `items = null`（整个字段不给）= **只改单头**；给了数组 = 整单替换。
+ * ⚠️ 清空备注要传空串：`null` 会被丢掉，改不掉。
+ */
+@Serializable
+data class PurchaseOrderUpdateRequest(
+    @SerialName("supplier_id") val supplierId: Long? = null,
+    @SerialName("doc_date") val docDate: String? = null,
+    val remark: String? = null,
+    val items: List<PurchaseItemRequest>? = null,
+)
+
+/** 成本覆盖表里「从来没带价进过货」的商品：`cost_price == null` 是**不知道**，不是 0。 */
+@Serializable
+data class CostCoverageProductDto(
+    @SerialName("product_id") val productId: Long,
+    val name: String = "",
+    val unit: String = "",
+    val stock: Int = 0,
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("cost_price") val costPrice: String? = null,
+    @SerialName("is_active") val isActive: Boolean = true,
+)
+
+/** 成本覆盖报表（FEAT-0013）：这一段卖出去的货里，成本有多少是有出处的。 */
+@Serializable
+data class CostCoverageReportDto(
+    @SerialName("period_label") val periodLabel: String = "",
+    @SerialName("date_from") val dateFrom: String = "",
+    @SerialName("date_to") val dateTo: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("revenue_total") val revenueTotal: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("revenue_covered") val revenueCovered: String = "0.00",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("revenue_uncovered") val revenueUncovered: String = "0.00",
+    @SerialName("total_lines") val totalLines: Int = 0,
+    @SerialName("covered_lines") val coveredLines: Int = 0,
+    @SerialName("cost_avg_lines") val costAvgLines: Int = 0,
+    @SerialName("cost_snapshot_lines") val costSnapshotLines: Int = 0,
+    @SerialName("missing_purchase_price_count") val missingPurchasePriceCount: Int = 0,
+    @SerialName("missing_purchase_price") val missingPurchasePrice: List<CostCoverageProductDto> = emptyList(),
+    val notes: List<String> = emptyList(),
+)
+
 @Serializable
 data class VehicleCreateRequest(
     @SerialName("plate_no") val plateNo: String,

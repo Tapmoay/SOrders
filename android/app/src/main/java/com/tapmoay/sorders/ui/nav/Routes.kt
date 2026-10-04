@@ -186,6 +186,21 @@ object Routes {
      *    这一页没有"只有编号才能进来"的意思，查询串也让 `Routes.supplierDetail(id)` 一处拼得出来。
      */
     const val DISPATCH_SUPPLIER_DETAIL = "dispatcher/suppliers/detail"
+
+    /**
+     * 采购单（FEAT-0013 第三期）：选供应商、填日期、加几行「商品 / 数量 / 单价」。
+     *
+     * ⚠️ 保存时后端在**同一个事务**里改库存、改进货价、生成供应商应付单 —— 三处钱一起动。
+     *    所以这一页只提交，不自己算合计（金额与合计都是后端算好的字符串，见 `PurchaseOrderDto`）。
+     */
+    const val PURCHASE_ORDERS = "dispatcher/purchase-orders"
+
+    /**
+     * 新建 / 改一张采购单（`?orderId=`，缺省 = 新建）。
+     *
+     * ⚠️ 编号走**查询参数**：与 `DISPATCH_SUPPLIER_DETAIL` 同一条约定（这一页没有"只有编号才能进来"的意思）。
+     */
+    const val PURCHASE_ORDER_FORM = "dispatcher/purchase-order-form"
     /**
      * 「收支」里点某一路进来的**流水明细**（`?direction=&biz=&from=&to=`）。
      *
@@ -222,6 +237,7 @@ const val REPORT_FINANCE = "report/finance"
     const val REPORT_EXCEPTION = "report/exception"
     const val REPORT_PROFIT = "report/profit"
     const val REPORT_VEHICLE_COST = "report/vehicle-cost"
+    const val REPORT_COST_COVERAGE = "report/cost-coverage"
 
     fun orderDetail(orderId: Long) = "order/$orderId/detail".replace("$orderId", orderId.toString())
     fun priceByShipper(shipperId: Long) = "dispatcher/pricing/shipper/$shipperId"

@@ -41,6 +41,7 @@ from app.api.v1 import (
     product_categories,
     route_categories,
     products,
+    purchase_orders,
     reports,
     return_requests,
     shipper,
@@ -126,6 +127,9 @@ api_router.include_router(reports.router)
 api_router.include_router(ledger.router)
 api_router.include_router(arrears.router)
 api_router.include_router(inventory.router)
+# 采购单（FEAT-0013）：与库存是同一条链 —— 一次进货同时写库存、成本价与供应商应付，
+# 实现见 `app/services/purchase_service.py`（端点只做鉴权与出参）。
+api_router.include_router(purchase_orders.router)
 api_router.include_router(notifications.router)
 api_router.include_router(operation_logs.router)
 api_router.include_router(stats.router)

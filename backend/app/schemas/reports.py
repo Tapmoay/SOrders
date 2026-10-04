@@ -234,3 +234,44 @@ class VehicleCostReportOut(BaseModel):
     per_vehicle: list[VehicleCostItem] = []
     #: 口径说明（为什么只算成本、哪笔开销进不来、换司机怎么算、折旧未覆盖、折旧不是现金）
     notes: list[str] = []
+
+
+class CostCoverageProduct(BaseModel):
+    """一个「从来没记过进货价」的商品（成本覆盖页的补录清单）。"""
+
+    product_id: int = 0
+    name: str = ""
+    unit: str = ""
+    stock: int = 0
+    #: 台账上最近一次记过的进货价（⛔ 不是报表算成本时用的那个加权平均价）
+    cost_price: Decimal | None = None
+    is_active: bool = True
+
+
+class CostCoverageReportOut(BaseModel):
+    """成本覆盖表：这一段窗口里有多少收入因为「没有进货价」算不出成本。**只搬运，不重算。**
+
+    ⛔ `missing_purchase_price` 是**商品**清单，`revenue_uncovered` 是**订单行**算出来的钱：
+    两者相关但不等价（一笔算不出成本的收入也可能来自当期没进货、其实有进价的商品），
+    所以这里并排列出来，⛔ 不写成比例、也不说「这笔钱就是这些商品造成的」。
+    """
+
+    period_label: str
+    date_from: str = ""
+    date_to: str = ""
+    #: 这一段窗口的营业额（与营业纵览同一个数）
+    revenue_total: Decimal = Decimal("0")
+    #: 参与毛利的收入（成本 > 0 的那些行）
+    revenue_covered: Decimal = Decimal("0")
+    #: 算不出成本的收入 = 营业额 − 参与毛利的收入（不进毛利）
+    revenue_uncovered: Decimal = Decimal("0")
+    #: 交付过的订单行数 / 其中算得出成本的
+    total_lines: int = 0
+    covered_lines: int = 0
+    #: 参与毛利的那几行里，按入库加权均价算的 / 按成本快照算的
+    cost_avg_lines: int = 0
+    cost_snapshot_lines: int = 0
+    missing_purchase_price_count: int = 0
+    missing_purchase_price: list[CostCoverageProduct] = []
+    #: 口径说明（算不出成本怎么判、两份清单为什么不相等、补录入口在哪）
+    notes: list[str] = []

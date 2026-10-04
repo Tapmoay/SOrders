@@ -59,9 +59,9 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:527a891178e2d5e13ebd0f4276a419cd93451784a6fdbd63fd5f3633bd15f978 -->
+<!-- source_hash: sha256:e022976649ddcc3213230da0319dbfda3d5ef4099ff078eb196b4726d67485c8 -->
 
-## 全量端点（254 个，按文件分组）
+## 全量端点（261 个，按文件分组）
 
 
 ### `backend/app/api/v1/ai_telemetry.py` — 1 个
@@ -398,16 +398,28 @@
 | 7 | `DELETE /api/v1/products/{product_id}` | `delete_product` | `backend/app/api/v1/products.py:350` | 权限:PRODUCT_MANAGE |
 | 8 | `POST /api/v1/products/{product_id}/restore` | `restore_product` | `backend/app/api/v1/products.py:427` | 权限:PRODUCT_MANAGE |
 
-### `backend/app/api/v1/reports.py` — 6 个
+### `backend/app/api/v1/purchase_orders.py` — 6 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/reports/turnover` | `turnover_report` | `backend/app/api/v1/reports.py:62` | 权限:ORDER_DISPATCH |
-| 2 | `GET /api/v1/reports/products` | `product_report` | `backend/app/api/v1/reports.py:77` | 权限:ORDER_DISPATCH |
-| 3 | `GET /api/v1/reports/profit` | `profit_report` | `backend/app/api/v1/reports.py:92` | 权限:ORDER_DISPATCH |
-| 4 | `GET /api/v1/reports/vehicle-cost` | `vehicle_cost_report` | `backend/app/api/v1/reports.py:111` | 权限:ORDER_DISPATCH |
-| 5 | `GET /api/v1/reports/arrears-summary` | `arrears_summary` | `backend/app/api/v1/reports.py:134` | 权限:ORDER_DISPATCH |
-| 6 | `GET /api/v1/reports/export` | `export_report` | `backend/app/api/v1/reports.py:149` | 权限:ORDER_DISPATCH |
+| 1 | `GET /api/v1/purchase-orders` | `list_purchase_orders` | `backend/app/api/v1/purchase_orders.py:154` | 权限:ORDER_DISPATCH |
+| 2 | `GET /api/v1/purchase-orders/{order_id}` | `get_purchase_order` | `backend/app/api/v1/purchase_orders.py:190` | 权限:ORDER_DISPATCH |
+| 3 | `POST /api/v1/purchase-orders` | `create_purchase_order` | `backend/app/api/v1/purchase_orders.py:201` | 权限:PRODUCT_MANAGE |
+| 4 | `PATCH /api/v1/purchase-orders/{order_id}` | `update_purchase_order` | `backend/app/api/v1/purchase_orders.py:224` | 权限:PRODUCT_MANAGE |
+| 5 | `DELETE /api/v1/purchase-orders/{order_id}` | `delete_purchase_order` | `backend/app/api/v1/purchase_orders.py:250` | 权限:PRODUCT_MANAGE |
+| 6 | `POST /api/v1/purchase-orders/{order_id}/restore` | `restore_purchase_order` | `backend/app/api/v1/purchase_orders.py:265` | 权限:PRODUCT_MANAGE |
+
+### `backend/app/api/v1/reports.py` — 7 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `GET /api/v1/reports/turnover` | `turnover_report` | `backend/app/api/v1/reports.py:63` | 权限:ORDER_DISPATCH |
+| 2 | `GET /api/v1/reports/products` | `product_report` | `backend/app/api/v1/reports.py:78` | 权限:ORDER_DISPATCH |
+| 3 | `GET /api/v1/reports/profit` | `profit_report` | `backend/app/api/v1/reports.py:93` | 权限:ORDER_DISPATCH |
+| 4 | `GET /api/v1/reports/vehicle-cost` | `vehicle_cost_report` | `backend/app/api/v1/reports.py:112` | 权限:ORDER_DISPATCH |
+| 5 | `GET /api/v1/reports/cost-coverage` | `cost_coverage_report` | `backend/app/api/v1/reports.py:132` | 权限:ORDER_DISPATCH |
+| 6 | `GET /api/v1/reports/arrears-summary` | `arrears_summary` | `backend/app/api/v1/reports.py:156` | 权限:ORDER_DISPATCH |
+| 7 | `GET /api/v1/reports/export` | `export_report` | `backend/app/api/v1/reports.py:171` | 权限:ORDER_DISPATCH |
 
 ### `backend/app/api/v1/return_requests.py` — 6 个
 
@@ -480,21 +492,21 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/suppliers` | `list_suppliers` | `backend/app/api/v1/suppliers.py:137` | 权限:LEDGER_EDIT |
-| 2 | `POST /api/v1/suppliers` | `create_supplier` | `backend/app/api/v1/suppliers.py:158` | 权限:LEDGER_EDIT |
-| 3 | `GET /api/v1/suppliers/{supplier_id}` | `get_supplier` | `backend/app/api/v1/suppliers.py:184` | 权限:LEDGER_EDIT |
-| 4 | `PATCH /api/v1/suppliers/{supplier_id}` | `update_supplier` | `backend/app/api/v1/suppliers.py:196` | 权限:LEDGER_EDIT |
-| 5 | `DELETE /api/v1/suppliers/{supplier_id}` | `delete_supplier` | `backend/app/api/v1/suppliers.py:234` | 权限:LEDGER_EDIT |
-| 6 | `POST /api/v1/suppliers/{supplier_id}/restore` | `restore_supplier` | `backend/app/api/v1/suppliers.py:250` | 权限:LEDGER_EDIT |
-| 7 | `GET /api/v1/supplier-payables` | `list_payables` | `backend/app/api/v1/suppliers.py:268` | 权限:LEDGER_EDIT |
-| 8 | `POST /api/v1/suppliers/{supplier_id}/payables` | `create_payable` | `backend/app/api/v1/suppliers.py:288` | 权限:LEDGER_EDIT |
-| 9 | `PATCH /api/v1/supplier-payables/{payable_id}` | `update_payable` | `backend/app/api/v1/suppliers.py:320` | 权限:LEDGER_EDIT |
-| 10 | `DELETE /api/v1/supplier-payables/{payable_id}` | `delete_payable` | `backend/app/api/v1/suppliers.py:365` | 权限:LEDGER_EDIT |
-| 11 | `POST /api/v1/supplier-payables/{payable_id}/restore` | `restore_payable` | `backend/app/api/v1/suppliers.py:382` | 权限:LEDGER_EDIT |
-| 12 | `GET /api/v1/supplier-payments` | `list_payments` | `backend/app/api/v1/suppliers.py:400` | 权限:LEDGER_EDIT |
-| 13 | `POST /api/v1/supplier-payables/{payable_id}/payments` | `pay_payable` | `backend/app/api/v1/suppliers.py:437` | 权限:LEDGER_EDIT |
-| 14 | `DELETE /api/v1/supplier-payments/{flow_id}` | `cancel_payment` | `backend/app/api/v1/suppliers.py:462` | 权限:LEDGER_EDIT |
-| 15 | `POST /api/v1/supplier-payments/{flow_id}/restore` | `restore_payment` | `backend/app/api/v1/suppliers.py:487` | 权限:LEDGER_EDIT |
+| 1 | `GET /api/v1/suppliers` | `list_suppliers` | `backend/app/api/v1/suppliers.py:138` | 权限:LEDGER_EDIT |
+| 2 | `POST /api/v1/suppliers` | `create_supplier` | `backend/app/api/v1/suppliers.py:159` | 权限:LEDGER_EDIT |
+| 3 | `GET /api/v1/suppliers/{supplier_id}` | `get_supplier` | `backend/app/api/v1/suppliers.py:185` | 权限:LEDGER_EDIT |
+| 4 | `PATCH /api/v1/suppliers/{supplier_id}` | `update_supplier` | `backend/app/api/v1/suppliers.py:197` | 权限:LEDGER_EDIT |
+| 5 | `DELETE /api/v1/suppliers/{supplier_id}` | `delete_supplier` | `backend/app/api/v1/suppliers.py:235` | 权限:LEDGER_EDIT |
+| 6 | `POST /api/v1/suppliers/{supplier_id}/restore` | `restore_supplier` | `backend/app/api/v1/suppliers.py:251` | 权限:LEDGER_EDIT |
+| 7 | `GET /api/v1/supplier-payables` | `list_payables` | `backend/app/api/v1/suppliers.py:269` | 权限:LEDGER_EDIT |
+| 8 | `POST /api/v1/suppliers/{supplier_id}/payables` | `create_payable` | `backend/app/api/v1/suppliers.py:289` | 权限:LEDGER_EDIT |
+| 9 | `PATCH /api/v1/supplier-payables/{payable_id}` | `update_payable` | `backend/app/api/v1/suppliers.py:321` | 权限:LEDGER_EDIT |
+| 10 | `DELETE /api/v1/supplier-payables/{payable_id}` | `delete_payable` | `backend/app/api/v1/suppliers.py:369` | 权限:LEDGER_EDIT |
+| 11 | `POST /api/v1/supplier-payables/{payable_id}/restore` | `restore_payable` | `backend/app/api/v1/suppliers.py:389` | 权限:LEDGER_EDIT |
+| 12 | `GET /api/v1/supplier-payments` | `list_payments` | `backend/app/api/v1/suppliers.py:407` | 权限:LEDGER_EDIT |
+| 13 | `POST /api/v1/supplier-payables/{payable_id}/payments` | `pay_payable` | `backend/app/api/v1/suppliers.py:444` | 权限:LEDGER_EDIT |
+| 14 | `DELETE /api/v1/supplier-payments/{flow_id}` | `cancel_payment` | `backend/app/api/v1/suppliers.py:469` | 权限:LEDGER_EDIT |
+| 15 | `POST /api/v1/supplier-payments/{flow_id}/restore` | `restore_payment` | `backend/app/api/v1/suppliers.py:494` | 权限:LEDGER_EDIT |
 
 ### `backend/app/api/v1/system.py` — 1 个
 
@@ -595,7 +607,7 @@
 | `ORDER_COMPLETE_DRIVER` | 2 | `POST /api/v1/orders/{order_id}/complete-with-upload`<br>`POST /api/v1/orders/{order_id}/complete` |
 | `ORDER_CREATE` | 2 | `POST /api/v1/orders`<br>`GET /api/v1/products` |
 | `ORDER_DELETE_CANCELLED` | 1 | `DELETE /api/v1/orders/{order_id}`（体内条件判断） |
-| `ORDER_DISPATCH` | 28 | `GET /api/v1/diagnostics/orders/{order_id}/pricing-decision`<br>`GET /api/v1/driver-billing-rules`<br>`POST /api/v1/driver-billing-rules`<br>`PUT /api/v1/driver-billing-rules/{rule_id}`<br>`DELETE /api/v1/driver-billing-rules/{rule_id}`<br>`POST /api/v1/driver-billing-rules/{rule_id}/restore`<br>`GET /api/v1/freight-categories`<br>`POST /api/v1/freight-categories`<br>`PATCH /api/v1/freight-categories/{category_id}`<br>`POST /api/v1/freight-categories/reorder`<br>`DELETE /api/v1/freight-categories/{category_id}`<br>`GET /api/v1/freight-templates`<br>`POST /api/v1/freight-templates`<br>`PUT /api/v1/freight-templates/{template_id}`<br>`DELETE /api/v1/freight-templates/{template_id}`<br>`POST /api/v1/freight-templates/{template_id}/restore`<br>`GET /api/v1/freight-templates/quote`<br>`POST /api/v1/orders/batch-assign`<br>`POST /api/v1/orders/{order_id}/price-freight`<br>`POST /api/v1/orders/{order_id}/assign`<br>`POST /api/v1/orders/{order_id}/split`<br>`POST /api/v1/orders/{order_id}/freight`<br>`GET /api/v1/reports/turnover`<br>`GET /api/v1/reports/products`<br>`GET /api/v1/reports/profit`<br>`GET /api/v1/reports/vehicle-cost`<br>`GET /api/v1/reports/arrears-summary`<br>`GET /api/v1/reports/export` |
+| `ORDER_DISPATCH` | 31 | `GET /api/v1/diagnostics/orders/{order_id}/pricing-decision`<br>`GET /api/v1/driver-billing-rules`<br>`POST /api/v1/driver-billing-rules`<br>`PUT /api/v1/driver-billing-rules/{rule_id}`<br>`DELETE /api/v1/driver-billing-rules/{rule_id}`<br>`POST /api/v1/driver-billing-rules/{rule_id}/restore`<br>`GET /api/v1/freight-categories`<br>`POST /api/v1/freight-categories`<br>`PATCH /api/v1/freight-categories/{category_id}`<br>`POST /api/v1/freight-categories/reorder`<br>`DELETE /api/v1/freight-categories/{category_id}`<br>`GET /api/v1/freight-templates`<br>`POST /api/v1/freight-templates`<br>`PUT /api/v1/freight-templates/{template_id}`<br>`DELETE /api/v1/freight-templates/{template_id}`<br>`POST /api/v1/freight-templates/{template_id}/restore`<br>`GET /api/v1/freight-templates/quote`<br>`POST /api/v1/orders/batch-assign`<br>`POST /api/v1/orders/{order_id}/price-freight`<br>`POST /api/v1/orders/{order_id}/assign`<br>`POST /api/v1/orders/{order_id}/split`<br>`POST /api/v1/orders/{order_id}/freight`<br>`GET /api/v1/purchase-orders`<br>`GET /api/v1/purchase-orders/{order_id}`<br>`GET /api/v1/reports/turnover`<br>`GET /api/v1/reports/products`<br>`GET /api/v1/reports/profit`<br>`GET /api/v1/reports/vehicle-cost`<br>`GET /api/v1/reports/cost-coverage`<br>`GET /api/v1/reports/arrears-summary`<br>`GET /api/v1/reports/export` |
 | `ORDER_EDIT` | 15 | `GET /api/v1/order-template-categories`<br>`POST /api/v1/order-template-categories`<br>`PATCH /api/v1/order-template-categories/{category_id}`<br>`POST /api/v1/order-template-categories/reorder`<br>`DELETE /api/v1/order-template-categories/{category_id}`<br>`GET /api/v1/order-templates`<br>`POST /api/v1/order-templates`<br>`PATCH /api/v1/order-templates/{template_id}`<br>`POST /api/v1/order-templates/{template_id}/use`<br>`DELETE /api/v1/order-templates/{template_id}`<br>`POST /api/v1/order-templates/{template_id}/restore`<br>`PATCH /api/v1/orders/{order_id}`<br>`PATCH /api/v1/orders/{order_id}/exception`<br>`POST /api/v1/orders/{order_id}/pay`<br>`POST /api/v1/orders/{order_id}/charge` |
 | `ORDER_INTERNAL_NOTE` | 1 | `POST /api/v1/orders/{order_id}/driver-note` |
 | `ORDER_PRODUCT_EDIT` | 3 | `POST /api/v1/order-products`<br>`PATCH /api/v1/order-products/{line_id}`<br>`DELETE /api/v1/order-products/{line_id}` |
@@ -605,7 +617,7 @@
 | `ORDER_RETURN_REQUEST` | 3 | `POST /api/v1/return-requests`<br>`GET /api/v1/return-requests/mine`<br>`POST /api/v1/return-requests/{request_id}/withdraw` |
 | `ORDER_UPLOAD_DELIVERY` | 1 | `POST /api/v1/orders/{order_id}/delivery-photos` |
 | `PRICE_RULE_MANAGE` | 5 | `POST /api/v1/price-rules/batch`<br>`POST /api/v1/price-rules`<br>`GET /api/v1/price-rules/{rule_id}`<br>`PATCH /api/v1/price-rules/{rule_id}`<br>`DELETE /api/v1/price-rules/{rule_id}` |
-| `PRODUCT_MANAGE` | 13 | `GET /api/v1/inventory/movements`<br>`POST /api/v1/inventory/movements`<br>`GET /api/v1/inventory/summary`<br>`POST /api/v1/product-categories`<br>`PATCH /api/v1/product-categories/{category_id}`<br>`POST /api/v1/product-categories/reorder`<br>`DELETE /api/v1/product-categories/{category_id}`<br>`POST /api/v1/products`<br>`GET /api/v1/products/cost-history`<br>`PATCH /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/image`<br>`DELETE /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/restore` |
+| `PRODUCT_MANAGE` | 17 | `GET /api/v1/inventory/movements`<br>`POST /api/v1/inventory/movements`<br>`GET /api/v1/inventory/summary`<br>`POST /api/v1/product-categories`<br>`PATCH /api/v1/product-categories/{category_id}`<br>`POST /api/v1/product-categories/reorder`<br>`DELETE /api/v1/product-categories/{category_id}`<br>`POST /api/v1/products`<br>`GET /api/v1/products/cost-history`<br>`PATCH /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/image`<br>`DELETE /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/restore`<br>`POST /api/v1/purchase-orders`<br>`PATCH /api/v1/purchase-orders/{order_id}`<br>`DELETE /api/v1/purchase-orders/{order_id}`<br>`POST /api/v1/purchase-orders/{order_id}/restore` |
 | `STATS_READ` | 8 | `POST /api/v1/stats/exception-orders/{order_id}/resolve`<br>`GET /api/v1/stats/shipper-product-chart`<br>`GET /api/v1/stats/shipper-activity`<br>`GET /api/v1/stats/product-drilldown`<br>`GET /api/v1/stats/driver-performance`<br>`GET /api/v1/stats/shipper-performance`<br>`GET /api/v1/stats/exception-orders`<br>`POST /api/v1/stats/export` |
 | `USER_MANAGE` | 15 | `POST /api/v1/driver-billing-rules/attach`<br>`POST /api/v1/user-categories`<br>`PATCH /api/v1/user-categories/{category_id}`<br>`POST /api/v1/user-categories/reorder`<br>`DELETE /api/v1/user-categories/{category_id}`<br>`GET /api/v1/users`<br>`POST /api/v1/users`<br>`PUT /api/v1/users/{user_id}/product-visibility`<br>`POST /api/v1/users/{user_id}/swap-shipper-driver`<br>`DELETE /api/v1/users/{user_id}`<br>`POST /api/v1/users/{user_id}/restore`<br>`POST /api/v1/vehicle-categories`<br>`PATCH /api/v1/vehicle-categories/{category_id}`<br>`POST /api/v1/vehicle-categories/reorder`<br>`DELETE /api/v1/vehicle-categories/{category_id}` |
 
@@ -688,4 +700,4 @@ _（无重复注册）_
 | `GET /api/v1/user-categories` | `list_categories` | `backend/app/api/v1/user_categories.py:97` | — |
 | `GET /api/v1/vehicle-categories` | `list_categories` | `backend/app/api/v1/vehicle_categories.py:78` | — |
 
-> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **142** 个端点命中（占 55%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/contact_categories.py`、`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/route_categories.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/user_categories.py`、`backend/app/api/v1/users.py`、`backend/app/api/v1/vehicle_categories.py`。
+> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **142** 个端点命中（占 54%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/contact_categories.py`、`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/route_categories.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/user_categories.py`、`backend/app/api/v1/users.py`、`backend/app/api/v1/vehicle_categories.py`。

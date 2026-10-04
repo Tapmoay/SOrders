@@ -18,7 +18,7 @@ class ReportCenterViewModel(
     initialTab: Int,
 ) : ViewModel() {
 
-    var tab by mutableStateOf(initialTab.coerceIn(0, 7))
+    var tab by mutableStateOf(initialTab.coerceIn(0, 8))
 
     /**
      * 时间**档位**（`DatePresets` 那一套：今天 / 昨天 / 前天 / 这周 / 上周 / 近 7 天 / 本月 / 上月 /
@@ -56,6 +56,13 @@ class ReportCenterViewModel(
 
     /** 车辆成本表（FEAT-0012）——三笔成本（折旧 / 这台车的开销 / 挂靠司机的配送成本）全在后端算好。 */
     var vehicleCost by mutableStateOf<VehicleCostReportDto?>(null)
+
+    /**
+     * 成本覆盖表（FEAT-0013 第三期）—— 这一段卖出去的货里成本有多少是**有出处的**。
+     *
+     * ⚠️ 「没有成本出处」不是成本 0，是**不知道成本**：那部分收入的毛利因此是虚高的。
+     */
+    var costCoverage by mutableStateOf<CostCoverageReportDto?>(null)
     var drivers by mutableStateOf<DriverPerformanceDto?>(null)
     var exceptions by mutableStateOf<List<ExceptionOrderDto>>(emptyList())
     var operationLogs by mutableStateOf<List<OperationLogDto>>(emptyList())
@@ -269,6 +276,12 @@ class ReportCenterViewModel(
                         // **逐日一致**，否则同一屏上「折旧合计」与「− 车辆折旧」会是两个数。
                         val (f, t) = dateRange
                         vehicleCost = container.repo.vehicleCostReport(ReportFinance.LEGACY_MODE, f, f, t)
+                    }
+                    8 -> {
+                        // 成本覆盖（FEAT-0013）：窗口同样共用 `dateRange` —— 这一页与利润表是
+                        // 同一段窗口里的同一个问题（"那笔成本到底有没有出处"），窗口错开就答不上。
+                        val (f, t) = dateRange
+                        costCoverage = container.repo.costCoverageReport(ReportFinance.LEGACY_MODE, f, f, t)
                     }
                     else -> {
                         // 异常与审计

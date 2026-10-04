@@ -150,7 +150,7 @@ def _route_renamed(s: str) -> str:
 
 def _vm_caps_at_six(s: str) -> str:
     """ViewModel 把页签上界改回 6（第 8 格进来会被压成第 7 页）。"""
-    return s.replace("initialTab.coerceIn(0, 7)", "initialTab.coerceIn(0, 6)")
+    return s.replace("initialTab.coerceIn(0, 8)", "initialTab.coerceIn(0, 6)")
 
 
 def _home_drops_the_card(s: str) -> str:
@@ -195,7 +195,7 @@ CASES = [
     ("⑫ 成本表开始拆收入", COST, _cost_table_splits_revenue, "这张表只算成本"),
     ("⑬ 导出 kind 白名单漏掉它", API_R, _export_kind_regex_drops_it, "导出 kind 正则收下了 vehicle-cost"),
     ("⑭ 端点改名", API_R, _route_renamed, "端点 /reports/vehicle-cost 在"),
-    ("⑮ ViewModel 上界改回 6", VM, _vm_caps_at_six, "ViewModel 收下页签 0..7"),
+    ("⑮ ViewModel 上界改回 6", VM, _vm_caps_at_six, "ViewModel 收下页签 0..8"),
     ("⑯ 入口第 8 格去掉", HOME, _home_drops_the_card, "入口页第 8 格是车辆成本"),
     ("⑰ 利润链条删掉折旧那一行", CENTER, _chain_loses_depreciation_row, "利润构成链条里有"),
     ("⑱ 车辆管理少一格话术", VSCREEN, _screen_renames_rate_field, "车辆管理页四格"),

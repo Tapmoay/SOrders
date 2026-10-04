@@ -50,6 +50,8 @@ import com.tapmoay.sorders.ui.dispatcher.ProductCategoriesScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductFormScreen
 import com.tapmoay.sorders.ui.dispatcher.ProductsScreen
 import com.tapmoay.sorders.ui.dispatcher.UserPool
+import com.tapmoay.sorders.ui.dispatcher.PurchaseOrderFormScreen
+import com.tapmoay.sorders.ui.dispatcher.PurchaseOrdersScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportCenterScreen
 import com.tapmoay.sorders.ui.dispatcher.ReportHomeScreen
 import com.tapmoay.sorders.ui.dispatcher.PriceAxis
@@ -563,6 +565,32 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
             )
         }
+        // 采购单（FEAT-0013 第三期）：列表页 + 表单页。
+        // ⚠️ 表单页一条路由两个用法（`?orderId=` 缺省 = 新建）——与「商品表单」「账本 4 类账」同一套路：
+        //    **同一页的两个档位就一条路由**，不要建两个页面。
+        composable(Routes.PURCHASE_ORDERS) {
+            PurchaseOrdersScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenForm = { id ->
+                    navController.navigate(
+                        if (id == null) Routes.PURCHASE_ORDER_FORM
+                        else Routes.PURCHASE_ORDER_FORM + "?orderId=" + id,
+                    )
+                },
+            )
+        }
+        composable(
+            route = Routes.PURCHASE_ORDER_FORM + "?orderId={orderId}",
+            arguments = listOf(navArgument("orderId") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            val oid = entry.arguments?.getLong("orderId") ?: 0L
+            PurchaseOrderFormScreen(
+                container = container,
+                orderId = if (oid > 0L) oid else null,
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(Routes.REPORT_HOME) {
             ReportHomeScreen(
                 container = container,
@@ -577,6 +605,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                         5 -> navController.navigate(Routes.REPORT_EXCEPTION)
                         6 -> navController.navigate(Routes.REPORT_PROFIT)
                         7 -> navController.navigate(Routes.REPORT_VEHICLE_COST)
+                        8 -> navController.navigate(Routes.REPORT_COST_COVERAGE)
                         else -> navController.navigate(Routes.REPORT_EXCEPTION)
                     }
                 },
@@ -590,6 +619,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         composable(Routes.REPORT_EXCEPTION) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 5) }
         composable(Routes.REPORT_PROFIT) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 6) }
         composable(Routes.REPORT_VEHICLE_COST) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 7) }
+        composable(Routes.REPORT_COST_COVERAGE) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 8) }
         composable(Routes.AI_CHAT) {
             AiChatScreen(
                 ai = ai,

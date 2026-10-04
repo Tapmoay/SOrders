@@ -169,8 +169,8 @@ def _nav_wrong_route(s: str) -> str:
 
 
 def _vm_caps_at_five(s: str) -> str:
-    """ViewModel 把页签上界改回 5（第 7 格进来会被压成第 6 页）。"""
-    return s.replace('initialTab.coerceIn(0, 7)', 'initialTab.coerceIn(0, 6)')
+    """ViewModel 把页签上界改回 6（第 7 格进来会被压成第 6 页）。"""
+    return s.replace('initialTab.coerceIn(0, 8)', 'initialTab.coerceIn(0, 6)')
 
 
 def _tab_does_own_math(s: str) -> str:
@@ -238,7 +238,7 @@ CASES = [
     ("⑭ DTO 的键被改成驼峰", DTOS, _dto_key_turns_camel, "21 个 snake_case 键一个不少"),
     ("⑮ 页签 6 的导出 kind 改回 audit", FINANCE, _export_kind_back_to_audit, "页签 6 导出 profit"),
     ("⑯ 入口第 7 格走错页", NAV, _nav_wrong_route, "NavGraph 里点第 7 格走到利润页"),
-    ("⑰ ViewModel 上界改回 6", VM, _vm_caps_at_five, "ViewModel 收下页签 0..7"),
+    ("⑰ ViewModel 上界改回 6", VM, _vm_caps_at_five, "ViewModel 收下页签 0..8"),
     ("⑱ 页面自己减一遍", CENTER, _tab_does_own_math, "页面自己不做减法"),
     ("⑲ 口径说明只画第一条", CENTER, _tab_notes_collapsed, "口径说明逐条原样常显"),
     ("⑳ 后端单测少一条", TEST_PY, _tests_drop_one, "后端单测至少 9 条"),

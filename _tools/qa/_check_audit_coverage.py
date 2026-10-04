@@ -97,6 +97,12 @@ REASONS: dict[str, str] = {
     "usage.py": "重置的是**派生统计**（「常用度」＝列表排序的依据），不是业务数据："
                 "订单/账目/主数据一条都不动，清掉只是让排序回到「先创建的在前」；"
                 "与 notifications.py 那条同类（改的是状态，不是业务事实）",
+    # 2026-10-04 FEAT-0013（采购与进货价闭环）：四个写端点的审计留痕都在服务层
+    # `app/services/purchase_service.py` 的 create_order / update_order / soft_delete_order /
+    # restore_order 里 `write_log` —— 与库存流水、成本价、供应商应付**同一个事务**，
+    # 写在服务层才拿得到同一个 `db`（与上面 order_return_request 那条同一种豁免）。
+    # ⛔ 本模块里因此不该出现 `write_log(`，那条由下面 ②b 的判据盯着。
+    "purchase_orders.py": "写逻辑与审计留痕都在服务层（app/services/purchase_service.py 的 create_order / update_order / soft_delete_order / restore_order 各自 write_log，与库存/成本/应付同事务），API 层只转调",
 }
 
 WRITE_ROUTE = re.compile(r"@router\.(?:post|patch|put|delete)\(")
