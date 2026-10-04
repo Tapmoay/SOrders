@@ -93,3 +93,60 @@ class ProductReportOut(BaseModel):
     #  （口径与理由见 `TurnoverReportOut` 那两行的注释；两页必须同口径）。
     cost_avg_lines: int = 0
     cost_snapshot_lines: int = 0
+
+class ProfitExpenseItem(BaseModel):
+    """期间费用的一行（按开销分类聚合；顺序由服务端定：金额降序、同额按分类名）。"""
+
+    category: str
+    amount: Decimal = Decimal("0")
+
+
+class ProfitReportOut(BaseModel):
+    """经营利润表：一个窗口里「这月赚了多少」的完整链条。**只汇合，不新增事实。**
+
+    ⛔ 六条恒等式由 `services/reports/profit_query.py::build_profit` **构造上**保证，
+       判据 `_tools/qa/_check_profit_report.py` 与 `backend/tests/test_profit_report.py` 两边都钉：
+
+       ① revenue_total == 营业纵览的 total_amount（同一 span）
+       ② revenue_covered + revenue_uncovered == revenue_total
+       ③ gross_profit == revenue_covered − cost_total（毛利两侧同一批行）
+       ④ operating_profit == gross_profit − delivery_cost − operating_expense_total − tax_total
+       ⑤ delivery_cost == 营业纵览的 total_freight（司机应得，同一 span）
+       ⑥ Σ operating_expenses[].amount == 区间内 expenses 合计
+    """
+
+    period_label: str
+    # ---- 收入侧 ----
+    #: 营业收入（应收）—— 与营业纵览**同一批行、同一个数**（口径唯一实现 order_money.receivable）
+    revenue_total: Decimal = Decimal("0")
+    #: 「参与毛利」的收入：只有算得出成本的那些行（与营业纵览/商品经营同一句口径）
+    revenue_covered: Decimal = Decimal("0")
+    #: 没有成本数据、因此**不进毛利**的收入。⛔ 单列而不猜：既不按 0 成本、也不按平均成本替它算
+    revenue_uncovered: Decimal = Decimal("0")
+    # ---- 成本与毛利 ----
+    cost_total: Decimal = Decimal("0")            # 参与毛利行的成本合计（cost_basis 三级口径）
+    gross_profit: Decimal = Decimal("0")          # = revenue_covered − cost_total
+    total_lines: int = 0                          # 覆盖率分母（订单行总数）
+    covered_lines: int = 0                        # 覆盖率分子（算得出成本的行数）
+    cost_avg_lines: int = 0                       # 分子里走"入库加权平均进货价"的行数
+    cost_snapshot_lines: int = 0                  # 分子里退回"下单成本快照"的行数（⛔ 界面必须两个都报）
+    # ---- 三级利润 ----
+    #: 配送成本 = 司机应得的按单金额（`driver_pay.pay_for_order`）—— 与营业纵览的"司机运费支出"同源。
+    #  ⛔ 不是 Σ orders.freight_fee（那只是提成基数；2026-09-19 审计实测虚高 93%）；
+    #  ⛔ 也不含固定工资制司机的工资（他们不按单拿钱，见 notes）。
+    delivery_cost: Decimal = Decimal("0")
+    operating_expense_total: Decimal = Decimal("0")
+    #: 区间内的开销（按分类），**已含货损开销** —— ⛔ 不要再单独扣一次 damage_amount
+    operating_expenses: list[ProfitExpenseItem] = []
+    #: 税金及附加：**今天恒为 0**（系统没有税账）—— 如实报 0，⛔ 不许编一个税率
+    tax_total: Decimal = Decimal("0")
+    #: 营业利润 = 商品毛利 − 配送成本 − 期间费用 − 税金及附加
+    operating_profit: Decimal = Decimal("0")
+    # ---- 资金与风险（与营业纵览同源，摆在利润旁边是为了"赚了但没收到钱"一眼可见 ----
+    collected: Decimal = Decimal("0")
+    arrears_total: Decimal = Decimal("0")
+    cancelled_orders: int = 0
+    damage_qty: int = 0
+    damage_amount: Decimal = Decimal("0")
+    #: 口径说明：凡「今天是 0」或「今天算不进」的地方都逐条写在这里（税、折旧、固定工资、未覆盖收入、货损）
+    notes: list[str] = []

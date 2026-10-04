@@ -1347,6 +1347,58 @@ data class ProductReportDto(
     @SerialName("cost_snapshot_lines") val costSnapshotLines: Int = 0,
 )
 
+/**
+ * 经营利润表（FEAT-0011）里的一行期间费用（按开销分类聚合；顺序由服务端定：金额降序）。
+ */
+@Serializable
+data class ProfitReportExpenseItemDto(
+    @SerialName("category") val category: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("amount") val amount: String = "0",
+)
+
+/**
+ * 经营利润表：这一段**赚了多少**的完整链条
+ * （营业收入 − 商品成本 = 商品毛利；商品毛利 − 配送成本 − 期间费用 − 税金及附加 = 营业利润）。
+ *
+ * ⚠️ 这四块钱**全在后端算**，客户端一个都不许再减一遍 —— 毛利上栽过的那次
+ *    （界面 72,177.75 vs 正确 10,789.00，差 6.7 倍）就是两边各算一遍造成的。这里只做展示。
+ * ⚠️ `taxTotal` 恒为 `"0"`：税金及附加今天**没有数据源**（系统没有税账、没有发票表），
+ *    后端如实报 0，并把「为什么是 0」逐条写进 `notes`。界面必须把 `notes` **原样常显**画出来，
+ *    否则用户会把「营业利润」当成净利润 —— 那不是这张表在说的东西。
+ * ⚠️ `revenueUncovered`（算不出成本的收入）必须单列：营业额里确实有这笔钱，但它**不进毛利**，
+ *    既不按 0 成本算，也不拿平均成本替它猜。
+ */
+@Serializable
+data class ProfitReportDto(
+    @SerialName("period_label") val periodLabel: String = "",
+    // ---- 收入侧 ----
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("revenue_total") val revenueTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("revenue_covered") val revenueCovered: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("revenue_uncovered") val revenueUncovered: String = "0",
+    // ---- 成本与毛利（两侧同一批行）----
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_total") val costTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("gross_profit") val grossProfit: String = "0",
+    @SerialName("total_lines") val totalLines: Int = 0,
+    @SerialName("covered_lines") val coveredLines: Int = 0,
+    @SerialName("cost_avg_lines") val costAvgLines: Int = 0,
+    @SerialName("cost_snapshot_lines") val costSnapshotLines: Int = 0,
+    // ---- 三级利润 ----
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("delivery_cost") val deliveryCost: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("operating_expense_total")
+    val operatingExpenseTotal: String = "0",
+    @SerialName("operating_expenses") val operatingExpenses: List<ProfitReportExpenseItemDto> = emptyList(),
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("tax_total") val taxTotal: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("operating_profit") val operatingProfit: String = "0",
+    // ---- 资金与风险（与营业纵览同源：赚了但没收到钱，一眼可见）----
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("collected") val collected: String = "0",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("arrears_total") val arrearsTotal: String = "0",
+    @SerialName("cancelled_orders") val cancelledOrders: Int = 0,
+    @SerialName("damage_qty") val damageQty: Int = 0,
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("damage_amount") val damageAmount: String = "0",
+    //: 口径说明：凡「今天是 0」或「今天算不进」的地方都逐条写在这里（税、折旧、固定工资、未覆盖收入、货损）
+    @SerialName("notes") val notes: List<String> = emptyList(),
+)
+
 @Serializable
 data class DriverPerformanceRowDto(
     @SerialName("driver_id") val driverId: Long = 0,

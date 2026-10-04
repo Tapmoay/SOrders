@@ -563,7 +563,7 @@ def test_turnover_and_products_export_filenames_follow_the_real_window(client, t
     )
     assert fn5 == "customers-report-2026-09-01_2026-09-05.xlsx", f"按区间导出的文件名错了：{fn5}"
 
-    # ⚠️ 2026-09-22 更新（报表时间控件换成"档位药丸"那一轮）：**六个 kind 现在都认区间**。
+    # ⚠️ 2026-09-22 更新（报表时间控件换成"档位药丸"那一轮）：**七个 kind 现在都认区间**。
     #    以前 `date_from/date_to` 对 turnover/products 不起作用，所以上面那条"名字跟真实区间走"
     #    只能拿 mode 的窗口来比；现在页面发的就是区间（`ReportFinance.windowOf`），
     #    区间**优先于 mode+anchor** —— 于是这里的正确期望变成：**名字 = 传进去的那一段**，

@@ -23,7 +23,7 @@ class ReportFinanceTest {
     // ---------------------------------------------------------- 页签 → 导出 kind
 
     @Test
-    fun `页签顺序与报表入口页一致（0 营业纵览 … 5 异常与审计）`() {
+    fun `页签顺序与报表入口页一致（0 营业纵览 … 6 经营利润）`() {
         // 与 ReportHomeScreen 里那份入口清单逐项对齐
         assertEquals("turnover", ReportFinance.exportKind(0))
         assertEquals("products", ReportFinance.exportKind(1))
@@ -31,17 +31,18 @@ class ReportFinanceTest {
         assertEquals("customers", ReportFinance.exportKind(3))
         assertEquals("finance", ReportFinance.exportKind(4))
         assertEquals("audit", ReportFinance.exportKind(5))
+        assertEquals("profit", ReportFinance.exportKind(6))
     }
 
     @Test
-    fun `六个页签导出的 kind 两两不同（错位的根因就是有两个页签映射到同一个词）`() {
-        val kinds = (0..5).map { ReportFinance.exportKind(it) }
+    fun `七个页签导出的 kind 两两不同（错位的根因就是有两个页签映射到同一个词）`() {
+        val kinds = (0..6).map { ReportFinance.exportKind(it) }
         assertEquals(kinds.size, kinds.toSet().size)
     }
 
     @Test
     fun `越界页签兜到 audit，不会崩`() {
-        assertEquals("audit", ReportFinance.exportKind(6))
+        assertEquals("audit", ReportFinance.exportKind(7))
         assertEquals("audit", ReportFinance.exportKind(-1))
     }
 

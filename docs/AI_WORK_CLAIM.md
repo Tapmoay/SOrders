@@ -30,6 +30,22 @@
 ---
 
 ## 进行中
+### [2026-10-04 进行中] 会话：**FEAT-0011 经营利润表：把已经算得出来的四块钱汇成一张「这月赚了多少」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**从哪来**：用户 2026-10-04 要求把整个项目的财务系统补完整（原话见下），并明确「设计风格和写代码的规范和要求，要按照我们的要求进行」＋「AI 也要具备全部的查看能力」；节奏定的是**一期一提交**，本期是第一期。
+
+**用户原话（逐字）**：「自己目标，我们将整个项目的财务系统进行一个完善。同时，你也可以加对应的前端和后端的能力。然后对应的设计风格和写代码的规范和要求，要按照我们的要求进行。与此同时，别忘了，我们的a i也要具备啊，全部的查看能力，他能通过这些所有数据进行分析。」
+
+**做什么**（只汇合、不新增事实）：新只读端点 `GET /api/v1/reports/profit` ＋ 新查询 `services/reports/profit_query.py::build_profit` ＋ `ProfitReportOut` ＋ 报表中心第 7 页「经营利润」＋ 导出第 7 个 kind `profit` ＋ AI 只读目录自动多出 `reports.profit_report`；四个金额口径（`order_money.receivable` / `cost_basis` / `driver_pay.pay_for_order` / `expenses` 按 `exp_date` 区间合计）一个字节都不改，`ledgers` / `cash_flows` / `expenses` / `driver_bills` 一行都不写。
+
+**文件清单**（⛔ 已按 `git status` 逐条核对，认领时写错的三处路径在此改正：利润页**没有独立文件**，它在 `ReportCenter.kt` 的 `private fun ProfitTab` 里；Apis/AppRepository 的实际目录是 `data/remote/api/` 与 `data/repo/`）：
+- 文档：`docs/changes/FEAT-0011.md`（新）、`docs/changes/README.md`（登记行）、`docs/AI_WORK_CLAIM.md`（本块）、`docs/PROJECT_MAP/04_ANDROID_MAP.md`、`05_TESTING.md`、`06_DESIGN_SYSTEM.md`、`07_END_TO_END_FLOW.md`、`08_CODE_LOCATOR.md`、`08A_ENDPOINT_INDEX.md`、`09A_HINT_CATALOG.md`（生成物，不手改）、`docs/ai/ai_read_catalog.json`、`docs/ai/ai_toolmap.json`、`docs/ai/kb_skeleton.md`（三份生成物，不手改）
+- 后端：`backend/app/services/reports/profit_query.py`（新）、`backend/app/schemas/reports.py`、`backend/app/api/v1/reports.py`、`backend/app/services/reports_service.py`、`backend/app/services/reports/__init__.py`、`backend/app/services/reports/_common.py`、`backend/app/services/ledger_export.py`、`backend/app/services/sheet_text.py`
+- Android：`data/remote/dto/Dtos.kt`、`data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、`ui/dispatcher/ReportCenter.kt`（利润页 `ProfitTab` 就在这里）、`ui/dispatcher/ReportCenterViewModel.kt`、`ui/dispatcher/ReportHome.kt`、`ui/dispatcher/ReportFinance.kt`、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`ai/AiReadCatalog.kt`（生成物，不手改）
+- 判据与测试：`_tools/qa/_check_profit_report.py`（新）、`_tools/qa/_reverse_verify_profit_report.py`（新）、`backend/tests/test_profit_report.py`（新）、`backend/tests/test_report_window.py`、`backend/tests/test_audit_round25_export_content.py`、`android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ReportFinanceTest.kt`、`_tools/ai/_gen_ai_read_catalog.py`
+
+**落点与提交**：判据 `_tools/qa/_check_profit_report.py` **96 项**全绿（失败 0）/ 反验 `_tools/qa/_reverse_verify_profit_report.py` **24 条注入全 `[OK]`**（12 个被碰过的文件逐字节还原）/ 后端 `python -m pytest tests/test_profit_report.py -q` **8 passed** / 与只读探针同窗口六条恒等式**逐分相同**（`_tmp/profit_probe.txt`，2026-09 窗口营业额 28,223.80、司机应得 6,519.00）/ 端点真实可调 `HTTP 200`（含半截与顺序颠倒 `400`、mode 非法 `422`、空窗口全 0 且 notes 仍 5 条、`/reports/export?kind=profit` → 200 / 6,284 bytes xlsx）/ 生成物新鲜度 5 组 / 全量静检 **170/170**（253.9 秒，`_tmp/checkall_feat0011_c.txt`）/ 模拟器 5554 派单员（`13800000001`）报表中心 **7 格**入口（第 7 格「经营利润」）+ 页面上利润构成链条自洽（7020.2 − 6773.8 = 246.4；246.4 − 186 = 60.4）、屏上与导出文案均无 markdown 星号（截图 `_tmp/ev/200-report-home-7cards.png`、`_tmp/ev/201-profit-report.png`）。真机实测抓到两处显示缺陷并当场修（链条补两行 / 去掉 `**` 与 `⛔`）。实现提交（本笔），归档提交（下一笔）。⛔ 四个金额口径一个字节未改、`ledgers` / `cash_flows` / `expenses` / `driver_bills` 一行未写。
+
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
 **需求方原话**：「我感觉高德的地图非常不高清哦，能不能就是地图选点这一点啊，全部换成（我的数据）……

@@ -1243,7 +1243,7 @@ interface ReportApi {
      * 营业纵览。
      *
      * ⚠️ 2026-09-22：`date_from`/`date_to` **成对给 = 按这一段区间取数**（页面上的档位药丸走这条：
-     * 今天/昨天/近 7 天/本月/上月/自定义都是一段区间，六个页签共用同一段）；不给就是老口径
+     * 今天/昨天/近 7 天/本月/上月/自定义都是一段区间，七个页签共用同一段）；不给就是老口径
      * `mode` + `date`。两个都给时**区间优先**（后端 `reports.py::_span` 一处判）。
      */
     @GET("reports/turnover")
@@ -1262,6 +1262,20 @@ interface ReportApi {
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
     ): ProductReportDto
+
+    /**
+     * 经营利润表（FEAT-0011）：这一段赚了多少。
+     *
+     * 窗口口径与 [turnover]/[products] **完全一致**（同一段区间，后端 `_span` 一处判）；
+     * 返回里的四块钱全由后端算，客户端只展示、不再减一遍。
+     */
+    @GET("reports/profit")
+    suspend fun profit(
+        @Query("mode") mode: String,
+        @Query("date") date: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+    ): ProfitReportDto
 
     @GET("stats/driver-performance")
     suspend fun driverPerformance(

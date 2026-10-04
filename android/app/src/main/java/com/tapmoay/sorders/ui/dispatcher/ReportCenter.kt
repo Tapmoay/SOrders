@@ -43,7 +43,7 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
 
-    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; else -> "异常与审计" }
+    val title = when (vm.tab) { 0 -> "营业纵览"; 1 -> "商品经营"; 2 -> "司机绩效"; 3 -> "客户经营"; 4 -> "资金收支"; 5 -> "异常与审计"; 6 -> "经营利润"; else -> "异常与审计" }
     // 时间药丸那两个弹层的开关：**只记这一个**（自定义区间那个开关由 `DateFilterDialogs` 自己持有）
     var showPresets by remember { mutableStateOf(false) }
 
@@ -109,6 +109,8 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                     1 -> ProductTab(vm)
                     2 -> DriverTab(vm)
                     3 -> CustomerTab(vm)
+                    4 -> FinanceTab(vm)
+                    6 -> ProfitTab(vm)
                     else -> FinanceTab(vm)
                 }
             }
@@ -1226,6 +1228,114 @@ private fun ExceptionCard(e: ExceptionOrderDto, onResolve: (() -> Unit)?) {
                 if (e.exceptionResolvedAt != null) Text("解决：" + e.exceptionResolution, style = MaterialTheme.typography.bodySmall, color = Color(0xFF00B578))
             }
             if (onResolve != null) TextButton(onClick = onResolve) { Text("解决") }
+        }
+    }
+}
+
+// ===================== ⑦ 经营利润（FEAT-0011） =====================
+
+/**
+ * 经营利润：这一段**赚了多少**（营业收入 − 商品成本 − 配送成本 − 期间费用 − 税金及附加）。
+ *
+ * ⚠️ 这四块钱**全在后端算**（`GET /reports/profit`），这一页一个减法都不做 ——
+ *    毛利上栽过的那次（界面 72,177.75 vs 正确 10,789.00，差 6.7 倍）就是两边各算一遍造成的。
+ * ⚠️ 口径说明（`notes`）必须**常显**、逐条原样画出来：那是「为什么税是 0、折旧还没算、
+ *    固定工资在不在这里」的唯一出处。这些话藏进 Hint 就等于让用户把「营业利润」读成净利润。
+ * ⚠️ 「算不出成本的收入」单列一张卡：它在营业额里，但**不进毛利** ——
+ *    既不按 0 成本算，也不拿平均成本替它猜（猜出来的毛利比不报更坏）。
+ */
+@Composable
+private fun ProfitTab(vm: ReportCenterViewModel) {
+    val data = vm.profit
+    if (vm.loading && data == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (data != null) {
+            val op = data.operatingProfit.toDoubleOrNull() ?: 0.0
+            val opColor = if (op >= 0) Color(0xFF00B578) else Color(0xFFE53935)
+            item {
+                StatBig("营业利润", money(data.operatingProfit), opColor)
+            }
+            item {
+                SectionCard {
+                    Text("利润构成", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("营业收入(应收)", money(data.revenueTotal), Color(0xFF1E6FFF))
+                    // ⚠️ 这两行是**必须**的（2026-10-04 真机实测才发现）：没有它们，上面那行营业额减去下面那行成本 ≠ 再下面那行毛利
+                    //    （实测 7020.2 − 186 = 60.4，看着像算错了 —— 真因是「算不出成本的那部分收入不进毛利」）。
+                    //    这条链现在每一步都能自己算通：营业额 − 算不出成本 = 参与毛利；参与毛利 − 商品成本 = 商品毛利。
+                    StatRow("− 算不出成本的收入", money(data.revenueUncovered), Color(0xFF8A8A8E))
+                    StatRow("= 参与毛利的收入", money(data.revenueCovered), Color(0xFF1E6FFF))
+                    StatRow("− 商品成本", money(data.costTotal))
+                    StatRow("= 商品毛利", money(data.grossProfit), Color(0xFF00B578))
+                    StatRow("− 配送成本(司机应得)", money(data.deliveryCost), Color(0xFFFF9500))
+                    StatRow("− 期间费用", money(data.operatingExpenseTotal), Color(0xFFFF6B2C))
+                    StatRow("− 税金及附加", money(data.taxTotal), Color(0xFF8A8A8E))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    StatRow("= 营业利润", money(data.operatingProfit), opColor)
+                }
+            }
+            if ((data.revenueUncovered.toDoubleOrNull() ?: 0.0) != 0.0) {
+                item {
+                    SectionCard {
+                        Text("算不出成本的收入", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        StatRow("这段营业额里", money(data.revenueUncovered), Color(0xFF8A8A8E))
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "这笔钱在营业额里，但那些行没有成本数据，所以不进毛利（既不按 0 成本算，" +
+                                "也不拿平均成本替它猜）。把进货价补录进去之后，它才会进毛利。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            item {
+                SectionCard {
+                    Text("口径说明（这几件事今天算不进这张表）", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    CoverNote(data.coveredLines, data.totalLines, data.costAvgLines, data.costSnapshotLines)
+                    data.notes.forEach { n ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(n, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (data.operatingExpenses.isNotEmpty()) {
+                item {
+                    SectionCard {
+                        Text("期间费用明细", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        data.operatingExpenses.forEach { e ->
+                            StatRow(e.category, money(e.amount), Color(0xFFFF6B2C))
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        StatRow("合计", money(data.operatingExpenseTotal))
+                    }
+                }
+            }
+            item {
+                SectionCard {
+                    Text("资金状态", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    StatRow("已收", money(data.collected), Color(0xFF00B578))
+                    StatRow("挂账未收", money(data.arrearsTotal), Color(0xFFFF6B2C))
+                    if (data.cancelledOrders > 0) StatRow("已撤销订单数", data.cancelledOrders.toString() + " 单", Color(0xFF8A8A8E))
+                    if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFE53935))
+                    if ((data.damageAmount.toDoubleOrNull() ?: 0.0) != 0.0) {
+                        StatRow("货损金额（已含在期间费用里）", money(data.damageAmount), Color(0xFFE53935))
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "「已收 / 挂账未收」说的是这一段收回多少钱，与上面的利润不是一回事：赚了不等于收到了。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

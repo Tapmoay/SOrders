@@ -967,7 +967,7 @@ container = 30.dp)`）—— 真机核对过：那一页的观感与改前**完�
    - **那个日历的根因**：`ReportTimeNav` 顶上"完整时段"是个**可点的 Surface**，
      真机 dump 出来的节点是 `[42,296][803,422]` —— **761×126 px 一整条可点区域**，正压在顶栏下面，
      随手一点就弹 M3 的 `DatePickerDialog`。删掉它之后，在那一带点一下**什么都不会发生**（真机验过）。
-   - **六个页签共用一段窗口**：`ReportFinance.windowOf`（纯函数）是"档位 → (from,to)"的唯一实现，
+   - **七个页签共用一段窗口**：`ReportFinance.windowOf`（纯函数）是"档位 → (from,to)"的唯一实现，
      它只调 `DatePresets.rangeOf`（**档位与区间的唯一实现**）——「本月」在报表与账本是同一段。
      ⛔ 报表页里不许再有 `mode`/`anchor` 那第二套窗口状态。
    - **为此给后端补了可选区间**：`/reports/turnover`、`/reports/products`、`/reports/export`

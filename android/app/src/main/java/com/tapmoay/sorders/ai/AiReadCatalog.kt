@@ -204,6 +204,12 @@ object AiReadCatalog {
             ReadParam("date_from", "date", false, emptyList(), false),
             ReadParam("date_to", "date", false, emptyList(), false),
         )),
+        ReadAction("reports.profit_report", "经营利润表（这一段赚了多少：营业额 − 商品成本 − 配送成本(司机应得) − 期间费用 = 营业利润；税金与折旧今天没有数据源、如实记 0，口径说明里逐条写了；算不出成本的收入单列、不参与毛利）", "/api/v1/reports/profit", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
+            ReadParam("mode", "str", false, emptyList(), false),
+            ReadParam("date", "date", true, emptyList(), false),
+            ReadParam("date_from", "date", false, emptyList(), false),
+            ReadParam("date_to", "date", false, emptyList(), false),
+        )),
         ReadAction("reports.turnover_report", "营业报表（营业额/成本/毛利，按日期范围）", "/api/v1/reports/turnover", "mode、date、date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("mode", "str", false, emptyList(), false),
             ReadParam("date", "date", true, emptyList(), false),

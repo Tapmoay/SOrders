@@ -17,13 +17,20 @@ from app.database import get_db
 from app.deps import require_permission
 from app.models import Order, OrderProduct, User
 from app.models.enums import OrderStatus
-from app.schemas.reports import ProductReportItem, ProductReportOut, ReportArrearsUnitItem, ReportSeriesItem, TurnoverReportOut
+from app.schemas.reports import (
+    ProductReportItem,
+    ProductReportOut,
+    ProfitReportOut,
+    ReportArrearsUnitItem,
+    ReportSeriesItem,
+    TurnoverReportOut,
+)
 from app.services.cost_basis import SNAPSHOT, CostBasis
 from app.services.money_contract import has_per_order_pay, line_receivable, money_map, pay_for_order
 from app.services.sheet_text import append_text_row
 
 from app.services.reports_service import (
-    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, _cost_basis_note, build_arrears_summary, _money,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
+    _window, _label, _span_label, _span, _range_dates, delivered_span_sql, load_delivered, build_turnover, build_products, build_profit, _cost_basis_note, build_arrears_summary, _money,   # noqa: F401 —— 阶段 4 下沉到 service 层，这里 re-export 保住既有引用
 )
 
 
@@ -80,6 +87,25 @@ def product_report(
     return ProductReportOut(**data)
 
 
+@router.get("/profit", response_model=ProfitReportOut)
+def profit_report(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+    mode: str = Query("day", pattern="^(day|week|month)$"),
+    anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
+    date_from: date | None = Query(None, description="YYYY-MM-DD（与 date_to 成对给，优先于 mode+anchor）"),
+    date_to: date | None = Query(None, description="YYYY-MM-DD"),
+) -> ProfitReportOut:
+    """经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。
+
+    只读 —— 它不新增事实，四格全部取既有唯一实现（见 `services/reports/profit_query.py`）。
+    """
+    span = _span(mode, anchor, date_from, date_to)
+    data = build_profit(db, mode, anchor, span=span)
+    data.pop("_window", None)
+    return ProfitReportOut(**data)
+
+
 
 
 @router.get("/arrears-summary")
@@ -101,7 +127,7 @@ def arrears_summary(
 def export_report(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
-    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit)$"),
+    kind: str = Query(..., pattern="^(turnover|products|drivers|customers|finance|audit|profit)$"),
     mode: str = Query("day", pattern="^(day|week|month)$"),
     anchor: date = Query(..., alias="date", description="YYYY-MM-DD 锚点日期"),
     date_from: date | None = Query(None, description="YYYY-MM-DD（finance/customers 可用，优先于 mode+anchor）"),
@@ -122,7 +148,7 @@ def export_report(
     #    `turnover-report-2026-09-18.xlsx`、内容却是 09-01~09-30。对账/存档时按文件名找回来
     #    会拿到一份"名字与内容不符"的凭证（2026-09-19 第二轮外部检查 R2-4；
     #    第十一轮报过一次，第十五轮只修了另外四个 kind，这两个漏了）。
-    # ⚠️ 2026-09-22（报表时间控件换成档位药丸那一轮）：**六个 kind 现在都认 `date_from/date_to`**
+    # ⚠️ 2026-09-22（报表时间控件换成档位药丸那一轮）：**七个 kind 现在都认 `date_from/date_to`**（2026-10-04 第 7 个 kind = 经营利润）
     #    （`turnover`/`products` 也收下了），所以这一段的判据收成**一个** `_span(...)` ——
     #    与页面上、与下面 `build_*` 用的是**同一个窗口**。原来那段"turnover/products 一律按 mode"
     #    的分支留着就又会分叉（App 现在发的就是区间）。
@@ -162,6 +188,41 @@ def export_report(
         append_text_row(ws, ["挂账未收单位TOP"])
         for u in data["arrears_units"]:
             append_text_row(ws, [u.name, _money(u.amount)])
+    elif kind == "profit":
+        # 经营利润表：四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。
+        # 口径与来源见 `services/reports/profit_query.py`（只读：一个原始金额都不自己算）。
+        # ⚠️ 每一格都要能被追问「这是怎么算的」—— 所以覆盖率与口径说明**一起写进表里**，
+        #    ⛔ 不许只丢一个「营业利润」的数字出去（老板照它判断挣没挣钱）。
+        data = build_profit(db, mode, d, span=(s, e))
+        ws = next_sheet("经营利润")
+        append_text_row(ws, ["经营利润", _span_label(s, e), "金额口径：已送达未撤销"])
+        append_text_row(ws, ["营业收入(应收)", _money(data["revenue_total"]), "其中参与毛利", _money(data["revenue_covered"]), "不参与毛利", _money(data["revenue_uncovered"])])
+        append_text_row(ws, ["商品成本", _money(data["cost_total"]), "商品毛利", _money(data["gross_profit"])])
+        append_text_row(ws, [
+            "配送成本(司机应得)", _money(data["delivery_cost"]),
+            "期间费用", _money(data["operating_expense_total"]),
+            # 税金今天恒为 0（系统还没有税账）—— 如实写 0，原因在下面的口径说明里逐条写着
+            "税金及附加", _money(data["tax_total"]),
+            "营业利润", _money(data["operating_profit"]),
+        ])
+        # ⚠️ 这三格是**计数不是钱**，直接写数字（⛔ 不包 str）：导出里的数要能被 Excel 当数相加，
+        #    而判据「_tools/qa/_check_single_source.py」把任何「str(data[...])」当作金额表达式。
+        append_text_row(ws, [
+            "成本覆盖率", data["covered_lines"], data["total_lines"], "行算得出成本",
+            "其中入库加权平均进货价", data["cost_avg_lines"],
+            "按下单成本快照", data["cost_snapshot_lines"],
+        ])
+        append_text_row(ws, ["已收", _money(data["collected"]), "挂账未收", _money(data["arrears_total"]), "已撤销订单", data["cancelled_orders"]])
+        append_text_row(ws, ["货损件数", data["damage_qty"], "货损金额", _money(data["damage_amount"])])
+        append_text_row(ws, [])
+        append_text_row(ws, ["期间费用明细", "金额"])
+        for exp_row in data["operating_expenses"]:
+            append_text_row(ws, [exp_row["category"], _money(exp_row["amount"])])
+        append_text_row(ws, ["期间费用合计", _money(data["operating_expense_total"])])
+        append_text_row(ws, [])
+        append_text_row(ws, ["口径说明"])
+        for note in data["notes"]:
+            append_text_row(ws, [note])
     elif kind == "products":
         data = build_products(db, mode, d, span=(s, e))
         ws = next_sheet("商品经营")

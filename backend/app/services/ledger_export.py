@@ -69,7 +69,7 @@ def _append_text_row(ws, cells: list) -> None:
     """写一行；**字符串一律强制成文本节点**（以 `=` 开头的值不许变成活公式）。
 
     ⚠️ 2026-09-24 第 20 轮（D7-1）：实现搬到了 `services/sheet_text.py`，因为
-    `api/v1/reports.py` 的六个 kind 与 `services/stats_export.py` 原来**没有抄这份防护**
+    `api/v1/reports.py` 的七个 kind 与 `services/stats_export.py` 原来**没有抄这份防护**
     （报表导出里全是裸 `ws.append`）—— 同一条规矩一个仓库里两份实现，迟早就分叉。
     这里保留这个名字只是为了不动本文件里的 15 个调用点。
     """

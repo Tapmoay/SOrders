@@ -105,7 +105,7 @@
    - 货主 `order.delivered` + 派单员广播 `order.delivered`
    - **`ledger.updated` → 货主账本自动入账**（`ledger_sync` 幂等，把订单行写进货主账本 ORDER 源）
    - 司机运费进入正所在月的计价明细（PIECE 时）或月薪账单（SALARY）
-   - 报表数据可查（营业/商品/司机/资金）
+   - 报表数据可查（营业/商品/司机/客户/资金/异常/经营利润）
 
 ---
 
@@ -158,7 +158,7 @@
 | 货主没账号 | 代理下单（temp_shipper_name） |
 | 账务 | 账本管理：订单账编辑备注/手动记账/收款单/开销单/司机结算单/车辆 |
 | 挂账 | 挂账单位管理；收款（`/orders/{id}/pay` 结清）或转账（`/orders/{id}/charge` 换单位） |
-| 经营分析 | 报表中心 6 报表 + 导出 Excel |
+| 经营分析 | 报表中心 7 报表（含「经营利润」）+ 导出 Excel |
 | 司机结算 | 月结：`driver-bills/generate` → `driver-settlements` confirm→pay；报表可见待结运费（PIECE） |
 | 审计 | 操作日志（`operation-logs`）：谁改了什么 |
 

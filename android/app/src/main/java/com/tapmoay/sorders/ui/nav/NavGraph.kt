@@ -574,6 +574,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                         2 -> navController.navigate(Routes.REPORT_DRIVER)
                         3 -> navController.navigate(Routes.REPORT_CUSTOMER)
                         4 -> navController.navigate(Routes.REPORT_FINANCE)
+                        5 -> navController.navigate(Routes.REPORT_EXCEPTION)
+                        6 -> navController.navigate(Routes.REPORT_PROFIT)
                         else -> navController.navigate(Routes.REPORT_EXCEPTION)
                     }
                 },
@@ -585,6 +587,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         composable(Routes.REPORT_CUSTOMER) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 3) }
         composable(Routes.REPORT_FINANCE) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 4) }
         composable(Routes.REPORT_EXCEPTION) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 5) }
+        composable(Routes.REPORT_PROFIT) { ReportCenterScreen(container = container, onBack = { navController.popBackStack() }, initialTab = 6) }
         composable(Routes.AI_CHAT) {
             AiChatScreen(
                 ai = ai,

@@ -989,7 +989,7 @@ class AppRepository(private val api: ApiBundle) {
      *
      * ⚠️ `dateFrom`/`dateTo` 成对给 = **按这一段区间取数**（页面上的档位药丸走这条）；
      * 不给就走老的 `mode` + `date`。两个都给时**区间优先**（后端一处判）。
-     * 六个页签必须传**同一段**，否则同一屏会出现两个时间段。
+     * 七个页签必须传**同一段**，否则同一屏会出现两个时间段。
      */
     suspend fun turnoverReport(
         mode: String,
@@ -1004,6 +1004,14 @@ class AppRepository(private val api: ApiBundle) {
         dateFrom: String? = null,
         dateTo: String? = null,
     ) = api.reportApi.products(mode, date, dateFrom, dateTo)
+
+    /** 经营利润表（FEAT-0011）：窗口与 [turnoverReport]/[productReport] 同一段，否则同一屏两个时间段。 */
+    suspend fun profitReport(
+        mode: String,
+        date: String,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+    ) = api.reportApi.profit(mode, date, dateFrom, dateTo)
 
     suspend fun driverPerformance(dateFrom: String, dateTo: String) =
         api.reportApi.driverPerformance(dateFrom, dateTo)

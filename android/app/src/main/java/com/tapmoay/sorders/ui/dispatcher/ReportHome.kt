@@ -2,6 +2,7 @@ package com.tapmoay.sorders.ui.dispatcher
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CurrencyYuan
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Payments
@@ -21,7 +22,7 @@ import com.tapmoay.sorders.ui.common.EntryCardGrid
 /**
  * 报表中心入口页：两列、彩色圆角方形图标（白线图形）+ 黑色文字。
  *
- * 版式在 [EntryCardGrid]（与「账本管理」入口页**共用一份**）——这里只负责"有哪 6 件事"。
+ * 版式在 [EntryCardGrid]（与「账本管理」入口页**共用一份**）——这里只负责"有哪 7 件事"。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +34,8 @@ fun ReportHomeScreen(container: AppContainer, onBack: () -> Unit, onOpen: (Int) 
         EntryCard("3", "客户经营", Icons.Default.Storefront, Color(0xFF00A2C7)),
         EntryCard("4", "资金收支", Icons.Default.SwapHoriz, Color(0xFF6950F5)),
         EntryCard("5", "异常与审计", Icons.Default.ReportProblem, Color(0xFFFF4D4F)),
+        // 第 7 格只许追加在末尾：key 直接当页签号用（见 ReportFinance.exportKind 的说明）
+        EntryCard("6", "经营利润", Icons.Default.CurrencyYuan, Color(0xFF00B3A4)),
     )
     Scaffold(
         topBar = { AppTopBar(title = "报表中心", onBack = onBack) },

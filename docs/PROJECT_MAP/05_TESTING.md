@@ -150,12 +150,12 @@ python _tools/qa/_probe_prod_readonly.py --sql              # 只打印会发出
 3. **派单**：池→指派（运费/计费/收现勾选）→ 司机端收到推送
 4. **司机完成**：接单→送达→（拍照/现金/挂账分流）→ 状态 DELIVERED
 5. **账本**：订单账自动同步、手动记账、货主账/批发商账聚合、收款单、挂账单位
-6. **报表**：6 页数据/毛利覆盖率/待结运费/导出 xlsx 落盘
+6. **报表**：7 页数据/毛利覆盖率/待结运费/**经营利润**/导出 xlsx 落盘
 7. **导航**：订单详情 → 高德导航直拉
 8. **异常**：超时自动异常、手动标记、解决
 9. **库存/商品/价格**：商品增改、批价档、批量调价、库存流水
 10. **消息**：Socket 实时刷新、消息中心
 11. **导出**：账本导出租（异步任务）、报表导出（同步 xlsx）→ ⚠️ **xlsx 要逐格与接口对账**
-    （六个 kind 全覆盖：`backend/tests/test_export_cells_match_api.py` 管 turnover/products，
+    （七个 kind 全覆盖：`backend/tests/test_export_cells_match_api.py` 管 turnover/products，
     `test_export_cells_other_kinds.py` 管 finance/customers/drivers/audit；
     反向验证 `_tools/qa/_reverse_verify_export_cells.py`，注入条数以它自己打印的为准）

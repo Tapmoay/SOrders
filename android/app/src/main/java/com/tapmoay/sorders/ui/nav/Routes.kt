@@ -220,6 +220,7 @@ const val REPORT_TURNOVER = "report/turnover"
 const val REPORT_CUSTOMER = "report/customer"
 const val REPORT_FINANCE = "report/finance"
     const val REPORT_EXCEPTION = "report/exception"
+    const val REPORT_PROFIT = "report/profit"
 
     fun orderDetail(orderId: Long) = "order/$orderId/detail".replace("$orderId", orderId.toString())
     fun priceByShipper(shipperId: Long) = "dispatcher/pricing/shipper/$shipperId"

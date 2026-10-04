@@ -317,6 +317,7 @@
 |---|---|---|---|---|
 | `turnover_report` | 只读 | `GET /api/v1/reports/turnover` |  |  |
 | `product_report` | 只读 | `GET /api/v1/reports/products` |  |  |
+| `profit_report` | 只读 | `GET /api/v1/reports/profit` | 经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。 |  |
 | `arrears_summary` | 只读 | `GET /api/v1/reports/arrears-summary` |  |  |
 | `export_report` | 只读 | `GET /api/v1/reports/export` | 报表 Excel 导出（内存流 xlsx）。 |  |
 

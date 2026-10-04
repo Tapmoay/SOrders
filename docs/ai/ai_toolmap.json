@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 244,
-    "read": 78,
+    "endpoints": 245,
+    "read": 79,
     "write": 166,
-    "unique_paths": 172,
-    "unique_method_path": 244,
+    "unique_paths": 173,
+    "unique_method_path": 245,
     "shadowed_routes": []
   },
   "modules": {
@@ -84,7 +84,7 @@
           "path": "/api/v1/auth/token",
           "handler": "login_form",
           "doc": "OAuth2 兼容：username 字段填手机号。",
-          "at": "backend/app/api/v1/auth.py:108"
+          "at": "backend/app/api/v1/auth.py:116"
         },
         {
           "action": "login_json",
@@ -93,7 +93,7 @@
           "path": "/api/v1/auth/login",
           "handler": "login_json",
           "doc": "",
-          "at": "backend/app/api/v1/auth.py:98"
+          "at": "backend/app/api/v1/auth.py:106"
         },
         {
           "action": "logout",
@@ -102,7 +102,7 @@
           "path": "/api/v1/auth/logout",
           "handler": "logout",
           "doc": "登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）+ 断开长连接。",
-          "at": "backend/app/api/v1/auth.py:76"
+          "at": "backend/app/api/v1/auth.py:84"
         }
       ]
     },
@@ -335,7 +335,7 @@
           "path": "/api/v1/driver-settlements",
           "handler": "create_settlement",
           "doc": "",
-          "at": "backend/app/api/v1/driver_settlements.py:79"
+          "at": "backend/app/api/v1/driver_settlements.py:81"
         },
         {
           "action": "settlement_action",
@@ -344,7 +344,7 @@
           "path": "/api/v1/driver-settlements/{settlement_id}",
           "handler": "settlement_action",
           "doc": "",
-          "at": "backend/app/api/v1/driver_settlements.py:122"
+          "at": "backend/app/api/v1/driver_settlements.py:125"
         }
       ]
     },
@@ -1547,7 +1547,7 @@
           "path": "/api/v1/reports/arrears-summary",
           "handler": "arrears_summary",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:86"
+          "at": "backend/app/api/v1/reports.py:112"
         },
         {
           "action": "export_report",
@@ -1556,7 +1556,7 @@
           "path": "/api/v1/reports/export",
           "handler": "export_report",
           "doc": "报表 Excel 导出（内存流 xlsx）。",
-          "at": "backend/app/api/v1/reports.py:101"
+          "at": "backend/app/api/v1/reports.py:127"
         },
         {
           "action": "product_report",
@@ -1565,7 +1565,16 @@
           "path": "/api/v1/reports/products",
           "handler": "product_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:69"
+          "at": "backend/app/api/v1/reports.py:76"
+        },
+        {
+          "action": "profit_report",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/reports/profit",
+          "handler": "profit_report",
+          "doc": "经营利润表：把已经算得出来的四块钱（营业额 / 商品成本 / 司机应得 / 开销）按**同一个窗口**汇合。",
+          "at": "backend/app/api/v1/reports.py:91"
         },
         {
           "action": "turnover_report",
@@ -1574,7 +1583,7 @@
           "path": "/api/v1/reports/turnover",
           "handler": "turnover_report",
           "doc": "",
-          "at": "backend/app/api/v1/reports.py:54"
+          "at": "backend/app/api/v1/reports.py:61"
         }
       ]
     },
@@ -2245,7 +2254,7 @@
           "path": "/api/v1/users/{user_id}/product-visibility",
           "handler": "get_product_visibility",
           "doc": "某个货主/批发商能看到哪些商品（白名单）。派单员在用户编辑页回显它。",
-          "at": "backend/app/api/v1/users.py:167"
+          "at": "backend/app/api/v1/users.py:172"
         },
         {
           "action": "get_user",
@@ -2254,7 +2263,7 @@
           "path": "/api/v1/users/{user_id}",
           "handler": "get_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:157"
+          "at": "backend/app/api/v1/users.py:162"
         },
         {
           "action": "list_users",
@@ -2263,7 +2272,7 @@
           "path": "/api/v1/users",
           "handler": "list_users",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:70"
+          "at": "backend/app/api/v1/users.py:75"
         },
         {
           "action": "read_me",
@@ -2272,7 +2281,7 @@
           "path": "/api/v1/users/me",
           "handler": "read_me",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:57"
+          "at": "backend/app/api/v1/users.py:62"
         },
         {
           "action": "create_user",
@@ -2281,7 +2290,7 @@
           "path": "/api/v1/users",
           "handler": "create_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:103"
+          "at": "backend/app/api/v1/users.py:108"
         },
         {
           "action": "delete_user",
@@ -2290,7 +2299,7 @@
           "path": "/api/v1/users/{user_id}",
           "handler": "delete_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:413"
+          "at": "backend/app/api/v1/users.py:436"
         },
         {
           "action": "restore_user",
@@ -2299,7 +2308,7 @@
           "path": "/api/v1/users/{user_id}/restore",
           "handler": "restore_user",
           "doc": "把删掉的账号恢复回来（`DELETE /{id}` 的逆操作）。",
-          "at": "backend/app/api/v1/users.py:450"
+          "at": "backend/app/api/v1/users.py:473"
         },
         {
           "action": "set_product_visibility",
@@ -2308,7 +2317,7 @@
           "path": "/api/v1/users/{user_id}/product-visibility",
           "handler": "set_product_visibility",
           "doc": "整份设置某个货主/批发商的可见商品（**白名单**：勾了的才给他看）。",
-          "at": "backend/app/api/v1/users.py:182"
+          "at": "backend/app/api/v1/users.py:187"
         },
         {
           "action": "swap_shipper_driver",
@@ -2317,7 +2326,7 @@
           "path": "/api/v1/users/{user_id}/swap-shipper-driver",
           "handler": "swap_shipper_driver",
           "doc": "货主 ↔ 司机身份切换（派单员操作）。派单员账号不可切换。",
-          "at": "backend/app/api/v1/users.py:363"
+          "at": "backend/app/api/v1/users.py:368"
         },
         {
           "action": "update_user",
@@ -2326,7 +2335,7 @@
           "path": "/api/v1/users/{user_id}",
           "handler": "update_user",
           "doc": "",
-          "at": "backend/app/api/v1/users.py:242"
+          "at": "backend/app/api/v1/users.py:247"
         }
       ]
     },
