@@ -31,17 +31,7 @@
 
 ## 进行中
 
-### [2026-10-05 01:1x UTC → ] 会话：**CHG-0034 报表中心首页改成「五张表一张卡 + 时间药丸 + 左侧抽屉」并接上下钻树**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
-**需求方原话**（2026-10-05）：「你搞错啦，我不知道你继续搞这个网页版也就是样板。我要的是，你**直接基于样板和我上面的要求直接把真实的项目的结构给改了**。改制前一提交一下git」
-—— 目标从"做网页样板"改成"照样板改真实项目"；检查点提交 `c35cac6`（样板存档）已完成。
-
-**改哪些文件**（新增一个包，老实现零改动）：
-- 新增 `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/`：`ReportV2Model.kt` / `ReportV2Ui.kt` / `ReportV2ViewModel.kt` / `ReportV2Home.kt` / `ReportV2Nodes.kt` / `ReportV2Screen.kt`
-- 追加式改动（共享文件，只加不删）：`ui/common/DatePresets.kt`（追加「本季」「本年」两档 + `REPORT_ROW`，⛔ 不动 `ROW` 与既有档位语义）、`ui/common/Components.kt`（`DatePresetDialog` / `DateFilterDialogs` 追加可选参数 `row: List<String> = DatePresets.ROW`）、`ui/nav/NavGraph.kt:621`（`Routes.REPORT_HOME` 的入口由 `ReportHomeScreen` 换成 `ReportV2Screen`，老 11 条路由不动）、`ui/dispatcher/ReportHome.kt`（11 格清单改成引用 `REPORT_ENTRIES`，本页降级为回退入口）
-- 后端零改动；`ReportCenter.kt` / `ReportCenterViewModel.kt` / `ReportFinance.kt` / `ReportPriority.kt` 与老 11 个页签**一个字都不动**
-
-**明确不碰**：后端任何文件、数据库迁移、钱/账本/订单生命周期/权限/审计这五类判据、`DatePresets.ROW` 与既有档位语义、老页签的行为与布局。
 
 ### [2026-10-02 07:0x UTC → 07:3x UTC 已完成] 会话：**CHG-0009 自备影像层从 z≥19 扩到 z≥15**（DSH `session-62576f1f-fcf1-4b7a-ae9b-ab68c1ad0ced`）
 
@@ -5638,6 +5628,28 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-05 01:1x UTC → 02:1x UTC 已完成] 会话：**CHG-0034 报表中心首页改成「五张表一张卡 + 时间药丸 + 左侧抽屉」并接上下钻树**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**需求方原话**（2026-10-05）：「你搞错啦，我不知道你继续搞这个网页版也就是样板。我要的是，你**直接基于样板和我上面的要求直接把真实的项目的结构给改了**。改制前一提交一下git」
+—— 目标从"做网页样板"改成"照样板改真实项目"；检查点提交 `c35cac6`（样板存档）已完成。
+
+**实现提交**：`b676fd9`（27 个文件，+2640/−71；这一条是归档提交，把登记表状态与本事项目志收口）。
+
+**改哪些文件**（新增一个包，老实现零改动）：
+- 新增 `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/`：`ReportV2Model.kt` / `ReportV2Ui.kt` / `ReportV2ViewModel.kt` / `ReportV2Home.kt` / `ReportV2Nodes.kt` / `ReportV2Screen.kt`
+- 追加式改动（共享文件，只加不删）：`ui/common/DatePresets.kt`（追加「本季」「本年」两档 + `REPORT_ROW`，⛔ 不动 `ROW` 与既有档位语义）、`ui/common/Components.kt`（`DatePresetDialog` / `DateFilterDialogs` 追加可选参数 `row: List<String> = DatePresets.ROW`）、`ui/nav/NavGraph.kt:621`（`Routes.REPORT_HOME` 的入口由 `ReportHomeScreen` 换成 `ReportV2Screen`，老 11 条路由不动）、`ui/dispatcher/ReportHome.kt`（11 格清单改成引用 `REPORT_ENTRIES`，本页降级为回退入口）
+- 后端零改动；`ReportCenter.kt` / `ReportCenterViewModel.kt` / `ReportFinance.kt` / `ReportPriority.kt` 与老 11 个页签**一个字都不动**
+
+**明确不碰**：后端任何文件、数据库迁移、钱/账本/订单生命周期/权限/审计这五类判据、`DatePresets.ROW` 与既有档位语义、老页签的行为与布局。
+
+**做完的样子**：第一屏 = 一段话结论 + 会计五张表合并成一张卡（每行像按钮）+ 要盯的事 + 走势 + 详细报表 11 格；点进去是节点栈逐层下钻，最底层落到**真实订单**（模拟器实测 ¥170.7 与报表行逐分相等）；顶栏时间药丸八档（今天/这周/上周/本月/上月/本季/本年/全部 + 自选）；左侧抽屉保留原来 11 个入口。口径：页面不做金额加减（唯二例外写在行上）、比率分母 0 显示「—」、时点账与区间账分开写时间、接口没有的如实标注。
+
+**走查抓到并修掉的真缺陷**：① 首页「异常单（近 30 天）」恒 0 单（首页数据组 `CORE_KEYS` 少 `exceptions`，老页签同一件事 51 单）；② 保本胶囊写成「¥0.00」、期间费用率写成「0.0%」（都绕过/漏了去尾零口径）。
+
+**静检**：`python _tools/qa/_check_all.py` **174/174 全部通过**；`python backend/scripts/check_reachability.py` EXIT 0（146/146 文档可达）；`DatePresetsTest` 追加 3 条（跨季不越季 / 本年跟自然年 / `REPORT_ROW` 每档都有区间）。
+
+**顺带**：11 格老入口清单只留一份（`report/ReportV2Model.kt` 的 `REPORT_ENTRIES`）⇒ 六条老红线与三条反验的文件常量跟着实现搬家（判据一条没放宽，其中「清单里画的是 `DatePresets.ROW`」那条改成钉 `row + DatePresets.CUSTOM` 与缺省值，**加严**）；修掉两条早就过期的反验期望名（「ViewModel 收下页签 0..8」→ 0..10）。
 
 ### [2026-10-04 进行中 → 2026-10-04 已完成] 会话：**FEAT-0015 应收账龄与客户信用：逐债务人应收余额 + 账龄四桶 + 挂账单位信用额度**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
