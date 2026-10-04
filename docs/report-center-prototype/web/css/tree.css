@@ -1,0 +1,29 @@
+/* 五张表 + 树状下钻的样式（配合 phone-xiaomi14.css） */
+.crumb { font-size: 11px; color: #8A94A6; margin: 0 0 8px; line-height: 1.6; }
+.crumb a { color: #1E6FFF; text-decoration: none; }
+.crumb .cs { margin: 0 3px; color: #C7CDD6; }
+.trow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 9px 2px; border-bottom: 1px solid #F1F3F6; }
+.trow:last-child { border-bottom: none; }
+.trow.go { cursor: pointer; }
+.trow.go:active { background: #F7F9FC; }
+.trow .tl { color: #3A4252; font-size: 12.5px; line-height: 1.5; }
+.trow .tl .tn { display: block; color: #9AA3B2; font-size: 11px; font-style: normal; margin-top: 2px; }
+.trow .tv { font-size: 14px; font-weight: 700; color: #1B2230; white-space: nowrap; }
+.trow .tv .ta { font-style: normal; color: #C7CDD6; font-weight: 400; margin-left: 4px; }
+.trow .tv.green { color: #00B578; }
+.trow .tv.orange { color: #FF9F0A; }
+.trow .tv.red { color: #E53935; }
+.trow .tv.tot { border-top: 1px solid #E7EBF0; padding-top: 2px; }
+.trow .tv.tot.green { color: #00B578; }
+.trow .tv.tot.red { color: #E53935; }
+.trow .tv.tot.orange { color: #FF9F0A; }
+.st5 { padding: 11px 12px; border-radius: 12px; background: #F8FAFD; margin-bottom: 9px; cursor: pointer; }
+.st5:last-child { margin-bottom: 0; }
+.st5:active { background: #EFF4FB; }
+.st5 .s5h { display: flex; align-items: center; gap: 6px; }
+.st5 .s5h b { font-size: 14px; color: #1B2230; }
+.st5 .s5n { width: 17px; height: 17px; border-radius: 50%; background: #1E6FFF; color: #fff; font-size: 11px; line-height: 17px; text-align: center; font-weight: 700; }
+.st5 .s5q { color: #9AA3B2; font-size: 10.5px; }
+.st5 .s5h .ta { margin-left: auto; font-style: normal; color: #C7CDD6; }
+.st5 .s5m { font-size: 19px; font-weight: 700; color: #1B2230; margin: 6px 0 3px; }
+.st5 .s5s { font-size: 11px; color: #7A8496; line-height: 1.5; }

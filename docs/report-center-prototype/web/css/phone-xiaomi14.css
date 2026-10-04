@@ -1,0 +1,49 @@
+/* 小米 14 的尺寸标准 + 仪表盘新增两块（经营状态 / 建议）的样式
+   小米 14：6.36 英寸、1200 × 2670 物理像素、20:9、密度 3.0 → 逻辑 400 × 890 dp
+   这一份只覆盖尺寸与新增块，颜色和卡片样式仍以 style.css 为准 */
+.phone { width: 400px; min-height: 0; border-width: 8px; border-radius: 42px; }
+.statusbar { height: 26px; padding: 0 20px; font-size: 10px; }
+.ph { max-height: none; height: min(864px, calc(100vh - 104px)); }  /* 890 − 26（状态条）= 864 */
+
+/* 标题栏 + 时间药丸一起吸顶：时间随时能点 */
+.pstick { position: sticky; top: 0; z-index: 7; background: #F2F3F5; padding-top: 2px; }
+.pstick .pbar { position: static; }
+
+/* 经营状态 */
+.verdict { background: #F5F2FF; border: 1px solid #E4DCFF; color: #4B3AA8; border-radius: 12px;
+  padding: 9px 11px; font-size: 12px; line-height: 1.6; margin: 0 0 8px; }
+.hl { border-top: 1px solid #F0F2F5; padding: 8px 0 7px; }
+.hl:first-of-type { border-top: 0; }
+.hlh { display: flex; align-items: baseline; gap: 6px; }
+.hlh i { width: 8px; height: 8px; border-radius: 50%; background: #C9CFDA; flex: 0 0 auto; }
+.hl.good .hlh i { background: #00B578; }
+.hl.warn .hlh i { background: #FF9F0A; }
+.hl.bad .hlh i { background: #E53935; }
+.hlh b { font-size: 12.5px; }
+.hlh em { margin-left: auto; font-style: normal; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+.hl.good .hlh em { color: #00A46C; }
+.hl.warn .hlh em { color: #E08800; }
+.hl.bad .hlh em { color: #D3312D; }
+.hld { font-size: 11.5px; color: #6B7383; line-height: 1.6; margin-top: 3px; }
+
+/* 建议 */
+.adv { border-top: 1px solid #F0F2F5; padding: 9px 0 8px; }
+.adv:first-of-type { border-top: 0; padding-top: 2px; }
+.advh { display: flex; gap: 7px; align-items: baseline; font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+.advh .n { flex: 0 0 auto; width: 17px; height: 17px; border-radius: 50%; background: #FFF1D9; color: #B26A00;
+  font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.advd { font-size: 11.5px; color: #5A6273; line-height: 1.65; margin: 4px 0 0 24px; }
+.advb { font-size: 11px; color: #9AA3B2; line-height: 1.6; margin: 3px 0 0 24px; }
+.advb a { color: #1E6FFF; text-decoration: none; font-weight: 600; }
+
+/* 真手机上（小米 14 的 400dp 宽以内）：去掉手机壳，整屏就是 App 的样子 */
+@media (max-width: 440px) {
+  body { padding: 0 0 env(safe-area-inset-bottom); display: block; }
+  .stage { display: block; }
+  .phone { width: 100%; border-width: 0; border-radius: 0; box-shadow: none; }
+  .ph { height: auto; max-height: none; overflow: visible; }
+  .statusbar { display: none; }
+}
+.notice.eh b { color: #8a5300; }
+.notice.eh .ehb { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.notice.eh .ehb .pill { padding: 3px 10px; }

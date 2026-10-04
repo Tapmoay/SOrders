@@ -1,0 +1,1040 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>报表中心 · 仪表盘样板（假数据，不连后端）</title>
+<style>
+/* ============================================================
+   报表中心仪表盘 · 独立样板（v0）
+   ⛔ 与 App 源码零耦合：不连后端、不引任何库、数据全是编的。
+   颜色/圆角/字号抄自 App 现有令牌：
+     SectionCard  白卡 + 16 圆角 + 1dp 阴影 + 16 内边距，靠灰底分层
+     StatBig      小灰标签 + headlineSmall 加粗彩色数字
+     StatRow      左灰标签 / 右加粗数字（右对齐）
+     GroupHeader  淡紫底 #F3F0FF + 4×14 紫条 #6950F5 + 加粗 #495057
+   颜色语义（App 里已经在用，样板沿用同一套）：
+     蓝 #1E6FFF 中性数量 / 绿 #00B578 赚到·收到 / 橙 #FF9500 支出
+     橙红 #FF6B2C 挂账未收 / 红 #E53935 风险·货损 / 灰 #8A8A8E 已过去
+   ============================================================ */
+:root{
+  --bg:#F2F2F7; --card:#FFFFFF; --line:#E9E9EE;
+  --t1:#111114; --t2:#8A8A8E; --t3:#B0B0B6;
+  --blue:#1E6FFF; --green:#00B578; --orange:#FF9500; --warn:#FF6B2C;
+  --red:#E53935; --purple:#6950F5; --teal:#00A2C7; --grey:#8A8A8E; --deep:#B71C1C;
+  --sh:0 1px 2px rgba(0,0,0,.06);
+}
+*{box-sizing:border-box; -webkit-font-smoothing:antialiased}
+html,body{margin:0; padding:0; background:#DFE1E6;
+  font-family:-apple-system,system-ui,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif; color:var(--t1)}
+.stage{display:flex; gap:28px; align-items:flex-start; justify-content:center; padding:28px}
+/* ---------- 手机壳 ---------- */
+.phone{width:390px; height:844px; background:var(--bg); border-radius:38px; position:relative;
+  box-shadow:0 18px 50px rgba(0,0,0,.25); overflow:hidden; display:flex; flex-direction:column; flex:0 0 auto}
+body.full .phone{height:auto; border-radius:20px}
+.statusbar{height:44px; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between;
+  padding:0 22px; font-size:13px; font-weight:600; color:#111}
+.appbar{flex:0 0 auto; background:var(--bg); display:flex; align-items:center; gap:8px; padding:6px 12px 10px}
+.appbar .back{width:34px; height:34px; border-radius:17px; display:grid; place-items:center; cursor:pointer; color:#111}
+.appbar .back:hover{background:rgba(0,0,0,.05)}
+.appbar h1{font-size:19px; font-weight:700; margin:0; flex:1; text-align:center; letter-spacing:.2px}
+.appbar .right{min-width:34px; display:flex; justify-content:flex-end}
+.screen{flex:1 1 auto; overflow-y:auto; padding:0 14px 26px; scroll-behavior:smooth}
+body.full .screen{overflow:visible}
+.screen::-webkit-scrollbar{width:0}
+/* ---------- 通用零件 ---------- */
+.card{background:var(--card); border-radius:16px; box-shadow:var(--sh); padding:16px; margin-bottom:12px}
+.card h2{font-size:15px; font-weight:700; margin:0 0 10px; display:flex; align-items:center; gap:8px}
+.card h2 .chev{margin-left:auto; color:var(--t3); font-size:13px; font-weight:500}
+.bar{width:4px; height:14px; border-radius:2px; background:var(--purple); flex:0 0 auto}
+.grp{background:#F3F0FF; border-radius:8px; padding:8px 12px; margin:4px 0 10px; display:flex; align-items:center; gap:8px}
+.grp b{color:#495057; font-size:13px}
+.row{display:flex; align-items:center; padding:7px 0; gap:10px}
+.row .lbl{flex:1; color:var(--t2); font-size:14px}
+.row .val{font-size:15px; font-weight:700; text-align:right}
+.row .val.big{font-size:16px}
+.sub{color:var(--t2); font-size:12.5px; line-height:1.55; margin:8px 0 0}
+.hr{height:1px; background:var(--line); margin:8px 0}
+.kpi{display:flex; gap:10px}
+.kpi .card{flex:1; margin-bottom:12px}
+.kpi .lab{color:var(--t2); font-size:12.5px}
+.kpi .num{font-size:24px; font-weight:800; margin-top:4px; letter-spacing:-.4px}
+.kpi .delta{font-size:12px; font-weight:600; margin-top:2px}
+.delta.up{color:var(--green)} .delta.down{color:var(--red)} .delta.flat{color:var(--t2)}
+.clk{cursor:pointer; border-radius:12px; transition:background .12s}
+.clk:hover{background:rgba(0,0,0,.028)}
+.dot{width:8px; height:8px; border-radius:4px; flex:0 0 auto}
+.tag{font-size:11.5px; font-weight:700; padding:2px 7px; border-radius:6px; flex:0 0 auto}
+.tag.red{background:#FDECEC; color:var(--red)} .tag.warn{background:#FFF1E8; color:var(--warn)}
+.tag.green{background:#E6F7F1; color:var(--green)} .tag.grey{background:#F0F0F4; color:var(--t2)}
+.tag.blue{background:#EAF1FF; color:var(--blue)} .tag.purple{background:#F1EEFF; color:var(--purple)}
+.pillbar{display:flex; gap:8px; padding:2px 0 12px}
+.pill{font-size:12.5px; padding:6px 11px; border-radius:9px; background:#E9E9EE; color:#5A5A61; cursor:pointer; font-weight:600}
+.pill.on{background:#E4ECFF; color:var(--blue)}
+.tabbar{display:flex; gap:8px; overflow-x:auto; padding:2px 14px 0; margin:0 -14px 12px; scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+.tabbar .pill{flex:0 0 auto; white-space:nowrap; background:#fff}
+.prog{height:8px; border-radius:4px; background:#EFEFF4; overflow:hidden; margin-top:6px}
+.prog i{display:block; height:100%; border-radius:4px}
+/* 入口网格 */
+.grid{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.tile{background:var(--card); border-radius:14px; box-shadow:var(--sh); padding:12px; display:flex; gap:10px; align-items:center; cursor:pointer}
+.tile:hover{transform:translateY(-1px)}
+.tile .ico{width:38px; height:38px; border-radius:11px; display:grid; place-items:center; flex:0 0 auto}
+.tile .tx b{display:block; font-size:13.5px; font-weight:600}
+.tile .tx span{display:block; font-size:11px; color:var(--t2); margin-top:2px}
+/* 柱状图 */
+.chart{display:flex; align-items:flex-end; gap:6px; height:110px; margin-top:6px}
+.chart .col{flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:4px}
+.chart .b1{width:100%; border-radius:5px 5px 2px 2px; background:var(--blue)}
+.chart .b2{width:100%; border-radius:5px 5px 2px 2px; background:var(--green)}
+.chart .cl{font-size:10px; color:var(--t2)}
+/* 明细行（逐单/逐条） */
+.det{display:flex; align-items:baseline; gap:8px; padding:6px 0; font-size:12.5px; color:var(--t2)}
+.det b{color:var(--t1); font-size:14px}
+.det .r{margin-left:auto; text-align:right}
+/* 侧栏 */
+.side{width:330px; background:#fff; border-radius:16px; padding:18px; box-shadow:var(--sh); font-size:13px; line-height:1.7}
+.side h3{margin:0 0 8px; font-size:15px}
+.side .nav{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 4px}
+.side .nav a{font-size:12px; padding:4px 8px; border-radius:7px; background:#F0F0F4; color:#444; text-decoration:none; cursor:pointer}
+.side .nav a:hover{background:#E4ECFF; color:var(--blue)}
+.side ul{margin:6px 0 10px 16px; padding:0} .side li{margin:3px 0}
+.side .warnbox{background:#FFF6E5; border-radius:10px; padding:10px; font-size:12.5px; color:#7A5200; margin-top:10px}
+@media (max-width:900px){ .side{display:none} .stage{padding:0; gap:0} }
+
+/* ---------- v1 仪表盘新增 ---------- */
+.tag{font-size:11px;color:var(--t3);font-weight:400;margin-left:6px;border:1px solid #E5E5EA;border-radius:9px;padding:1px 6px;white-space:nowrap}
+.big{font-size:27px;font-weight:800;margin-top:2px}
+.chartx{display:flex;gap:6px;align-items:flex-end;justify-content:space-between;margin-top:10px}
+.colx{flex:1;text-align:center}
+.cx{font-size:10.5px;color:var(--t3);margin-top:3px;white-space:nowrap}
+.gbg{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:72px}
+.gb1{width:13px;border-radius:3px 3px 0 0;background:var(--blue)}
+.gb2{width:9px;border-radius:3px 3px 0 0;background:var(--green)}
+.stack{display:flex;height:8px;border-radius:4px;overflow:hidden;gap:2px;margin:12px 0 8px}
+.stack i{display:block}
+.bz{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--t2);padding:1px 0}
+.bz .lbl{flex:1}
+.bz .val{margin-left:auto;font-weight:700;color:var(--t1)}
+.row.tot{border-top:1px solid #EFEFF4;margin-top:5px;padding-top:8px}
+.row.tot .lbl{font-weight:700;color:var(--t1)}
+.neg{color:#FF6B2C !important}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span>LTE &nbsp; 100%</span></div>
+    <div class="appbar" id="appbar"></div>
+    <div class="screen" id="screen"></div>
+  </div>
+  <div class="side">
+    <h3>仪表盘样板 v0（假数据）</h3>
+    <div>这是一个<strong>完全独立</strong>的样板：不连后端、不引库、不改 App 任何代码。目的是先定「进去先看什么、怎么看、点哪里进去」。</div>
+    <div class="nav" id="sidenav"></div>
+    <ul>
+      <li>顶部三个大数字＝先给结论（赚到 / 赚了多少 / 还没收回来）</li>
+      <li>待处理按<strong>危险层级</strong>排，红色＝钱货风险</li>
+      <li>每个数字都带<strong>窗口</strong>（本周 / 近 30 天），不塞折叠提示</li>
+      <li>颜色固定语义：绿赚 / 橙欠 / 红险 / 灰已过去，且都配文字</li>
+      <li>需要横向对比的才用表格（账龄四桶、TOP 排行）</li>
+    </ul>
+    <div class="warnbox">里面的数字全是编的（订单、金额、司机、客户都是假名字），只看<strong>版式与信息层级</strong>。</div>
+  </div>
+</div>
+<script>
+/* ============================================================
+   假数据：三套窗口（本周 / 本月 / 上月），切药丸就换一套。
+   ⚠️ 这些数字是编的 —— 用来验版式，不代表任何真实经营情况。
+   ============================================================ */
+/* 四套窗口（今天 / 本周 / 本月 / 上月），切药丸就换一套。
+   ⚠️ 数字全是编的，但两两自洽：毛利 = 参与毛利收入 − 商品成本；营业利润 = 毛利 − 司机运费 − 期间费用 − 折旧；
+   营业额 = 本期已收 + 本期新增挂账；走势各柱之和 = 营业额。窗口内的数叫「这一段」，跨窗口不变的叫「到今天为止」。 */
+const D = {
+  today: {
+    standing: 69556.8,
+    debtorCount: 33,
+    orderCount: 365,
+    buckets: [
+      [
+        "0-30 天",
+        28475.6,
+        "var(--green)"
+      ],
+      [
+        "31-60 天",
+        19770.9,
+        "var(--blue)"
+      ],
+      [
+        "61-90 天",
+        20535.9,
+        "var(--orange)"
+      ],
+      [
+        "90 天以上",
+        774.4,
+        "var(--red)"
+      ]
+    ],
+    debtors: [
+      [
+        "Shipper",
+        6726.4,
+        86,
+        40
+      ],
+      [
+        "周秀英",
+        3840.7,
+        85,
+        20
+      ],
+      [
+        "家家福川菜馆",
+        3763.9,
+        72,
+        18
+      ]
+    ],
+    freightOwed: 8420,
+    driverCount: 6,
+    excMoney: 3,
+    excStuck: 12,
+    excPast: 119,
+    overLimit: 1,
+    vat: 3912.4,
+    vatOut: 9860,
+    vatIn: 5947.6,
+    invoices: 42,
+    invOk: 39,
+    invVoid: 2,
+    invRed: 1,
+    asOf: "10-04",
+    win: "今天",
+    range: "10-04",
+    days: 1,
+    hourly: true,
+    trendTag: "按小时 08:00 ~ 15:00",
+    turnover: 22500,
+    orders: 72,
+    avg: 312.5,
+    freight: 2980,
+    cancelled: 0,
+    grossDelta: 0,
+    covered: 20480,
+    productCost: 15690,
+    gross: 4790,
+    expense: 560,
+    depreciation: 170,
+    operating: 1080,
+    costCovPct: 91,
+    coverage: 91,
+    costCovLines: 152,
+    costLines: 167,
+    damage: 0,
+    damageQty: 0,
+    collected: 17880,
+    collectedIn: 17880,
+    newArrears: 4620,
+    collectRate: 79.5,
+    arrears: 69556.8,
+    vehicle: 1180,
+    trend: [
+      [
+        "08:00",
+        1200,
+        220
+      ],
+      [
+        "09:00",
+        3400,
+        720
+      ],
+      [
+        "10:00",
+        4100,
+        880
+      ],
+      [
+        "11:00",
+        3900,
+        830
+      ],
+      [
+        "12:00",
+        2100,
+        440
+      ],
+      [
+        "13:00",
+        2600,
+        550
+      ],
+      [
+        "14:00",
+        3200,
+        680
+      ],
+      [
+        "15:00",
+        2000,
+        470
+      ]
+    ]
+  },
+  week: {
+    standing: 69556.8,
+    debtorCount: 33,
+    orderCount: 365,
+    buckets: [
+      [
+        "0-30 天",
+        28475.6,
+        "var(--green)"
+      ],
+      [
+        "31-60 天",
+        19770.9,
+        "var(--blue)"
+      ],
+      [
+        "61-90 天",
+        20535.9,
+        "var(--orange)"
+      ],
+      [
+        "90 天以上",
+        774.4,
+        "var(--red)"
+      ]
+    ],
+    debtors: [
+      [
+        "Shipper",
+        6726.4,
+        86,
+        40
+      ],
+      [
+        "周秀英",
+        3840.7,
+        85,
+        20
+      ],
+      [
+        "家家福川菜馆",
+        3763.9,
+        72,
+        18
+      ]
+    ],
+    freightOwed: 8420,
+    driverCount: 6,
+    excMoney: 3,
+    excStuck: 12,
+    excPast: 119,
+    overLimit: 1,
+    vat: 3912.4,
+    vatOut: 9860,
+    vatIn: 5947.6,
+    invoices: 42,
+    invOk: 39,
+    invVoid: 2,
+    invRed: 1,
+    asOf: "10-04",
+    win: "本周",
+    range: "09-29 ~ 10-04",
+    days: 6,
+    hourly: false,
+    trendTag: "按天 09-29 ~ 10-04",
+    turnover: 128640,
+    orders: 412,
+    avg: 312.2,
+    freight: 18760,
+    cancelled: 3,
+    grossDelta: 12.4,
+    covered: 118400,
+    productCost: 91900,
+    gross: 26500,
+    expense: 3240,
+    depreciation: 1020,
+    operating: 3480,
+    costCovPct: 91,
+    coverage: 91,
+    costCovLines: 1024,
+    costLines: 1126,
+    damage: 1240,
+    damageQty: 6,
+    collected: 96300,
+    collectedIn: 96300,
+    newArrears: 32340,
+    collectRate: 74.9,
+    arrears: 69556.8,
+    vehicle: 6480,
+    trend: [
+      [
+        "09-29",
+        18200,
+        3750
+      ],
+      [
+        "09-30",
+        21400,
+        4410
+      ],
+      [
+        "10-01",
+        19800,
+        4080
+      ],
+      [
+        "10-02",
+        24100,
+        4960
+      ],
+      [
+        "10-03",
+        22640,
+        4660
+      ],
+      [
+        "10-04",
+        22500,
+        4640
+      ]
+    ]
+  },
+  month: {
+    standing: 69556.8,
+    debtorCount: 33,
+    orderCount: 365,
+    buckets: [
+      [
+        "0-30 天",
+        28475.6,
+        "var(--green)"
+      ],
+      [
+        "31-60 天",
+        19770.9,
+        "var(--blue)"
+      ],
+      [
+        "61-90 天",
+        20535.9,
+        "var(--orange)"
+      ],
+      [
+        "90 天以上",
+        774.4,
+        "var(--red)"
+      ]
+    ],
+    debtors: [
+      [
+        "Shipper",
+        6726.4,
+        86,
+        40
+      ],
+      [
+        "周秀英",
+        3840.7,
+        85,
+        20
+      ],
+      [
+        "家家福川菜馆",
+        3763.9,
+        72,
+        18
+      ]
+    ],
+    freightOwed: 8420,
+    driverCount: 6,
+    excMoney: 3,
+    excStuck: 12,
+    excPast: 119,
+    overLimit: 1,
+    vat: 2618.6,
+    vatOut: 9860,
+    vatIn: 5947.6,
+    invoices: 42,
+    invOk: 39,
+    invVoid: 2,
+    invRed: 1,
+    asOf: "10-04",
+    win: "本月",
+    range: "10-01 ~ 10-04",
+    days: 4,
+    hourly: false,
+    trendTag: "按天 10-01 ~ 10-04",
+    turnover: 89040,
+    orders: 268,
+    avg: 332.24,
+    freight: 12980,
+    cancelled: 3,
+    grossDelta: 6.1,
+    covered: 80100,
+    productCost: 61780,
+    gross: 18320,
+    expense: 2460,
+    depreciation: 760,
+    operating: 2120,
+    costCovPct: 90,
+    coverage: 90,
+    costCovLines: 642,
+    costLines: 713,
+    damage: 860,
+    damageQty: 4,
+    collected: 61200,
+    collectedIn: 61200,
+    newArrears: 27840,
+    collectRate: 68.7,
+    arrears: 69556.8,
+    vehicle: 4320,
+    trend: [
+      [
+        "10-01",
+        19800,
+        4070
+      ],
+      [
+        "10-02",
+        24100,
+        4960
+      ],
+      [
+        "10-03",
+        22640,
+        4660
+      ],
+      [
+        "10-04",
+        22500,
+        4630
+      ]
+    ]
+  },
+  last: {
+    standing: 69556.8,
+    debtorCount: 33,
+    orderCount: 365,
+    buckets: [
+      [
+        "0-30 天",
+        28475.6,
+        "var(--green)"
+      ],
+      [
+        "31-60 天",
+        19770.9,
+        "var(--blue)"
+      ],
+      [
+        "61-90 天",
+        20535.9,
+        "var(--orange)"
+      ],
+      [
+        "90 天以上",
+        774.4,
+        "var(--red)"
+      ]
+    ],
+    debtors: [
+      [
+        "Shipper",
+        6726.4,
+        86,
+        40
+      ],
+      [
+        "周秀英",
+        3840.7,
+        85,
+        20
+      ],
+      [
+        "家家福川菜馆",
+        3763.9,
+        72,
+        18
+      ]
+    ],
+    freightOwed: 8420,
+    driverCount: 6,
+    excMoney: 3,
+    excStuck: 12,
+    excPast: 119,
+    overLimit: 1,
+    vat: 17420.8,
+    vatOut: 43920,
+    vatIn: 26499.2,
+    invoices: 42,
+    invOk: 39,
+    invVoid: 2,
+    invRed: 1,
+    asOf: "10-04",
+    win: "上月",
+    range: "09-01 ~ 09-30",
+    days: 30,
+    hourly: false,
+    trendTag: "按周 第1 ~ 第4 周",
+    turnover: 592460,
+    orders: 1893,
+    avg: 312.97,
+    freight: 86400,
+    cancelled: 11,
+    grossDelta: -3.2,
+    covered: 538300,
+    productCost: 419600,
+    gross: 118700,
+    expense: 14600,
+    depreciation: 7650,
+    operating: 10050,
+    costCovPct: 88,
+    coverage: 88,
+    costCovLines: 4310,
+    costLines: 4898,
+    damage: 5240,
+    damageQty: 27,
+    collected: 546180,
+    collectedIn: 546180,
+    newArrears: 46280,
+    collectRate: 92.2,
+    arrears: 69556.8,
+    vehicle: 28640,
+    trend: [
+      [
+        "第1周",
+        132400,
+        26520
+      ],
+      [
+        "第2周",
+        148600,
+        29770
+      ],
+      [
+        "第3周",
+        151200,
+        30290
+      ],
+      [
+        "第4周",
+        160260,
+        32120
+      ]
+    ]
+  }
+};const WINKEYS = ['today','week','month','last'];
+let KEYS = WINKEYS[0], PANE = 'dash';
+
+/* ---------- 工具 ---------- */
+const money = v => '¥' + Number(v).toLocaleString('zh-CN',{minimumFractionDigits:2, maximumFractionDigits:2}).replace(/\.00$/,'');
+const num = v => Number(v).toLocaleString('zh-CN');
+const d = () => D[KEYS];
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+/* ---------- 图标（白线，抄 App 的彩色方块 + 白图形） ---------- */
+const ICON = {
+  bars:'<path d="M4 20h16M7.5 20V11M12 20V5M16.5 20v-6"/>',
+  box:'<path d="M4 8l8-4 8 4v8l-8 4-8-4V8z"/><path d="M4 8l8 4 8-4M12 12v8"/>',
+  truck:'<path d="M3 16V7h11v9M14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/>',
+  store:'<path d="M4 9l1.5-5h13L20 9M5 9v10h14V9M9 19v-5h6v5"/>',
+  swap:'<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  warn:'<path d="M12 4l8.5 15h-17L12 4z"/><path d="M12 10v4M12 16.6v.2"/>',
+  yuan:'<path d="M7 6l5 6 5-6M12 12v7M8.5 13.5h7M8.5 16.5h7"/>',
+  car:'<path d="M4 15l1.5-5h13L20 15M5 15h14v3H5v-3z"/><circle cx="8" cy="18" r="1.4"/><circle cx="16" cy="18" r="1.4"/>',
+  cover:'<path d="M4 19h16M6.5 19v-5M11 19V8M15.5 19v-8M20 19V5"/>',
+  receipt:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/>',
+  wallet:'<path d="M4 8h16v11H4zM4 8l2-3h11l1 3"/><circle cx="16" cy="13.5" r="1.3"/>'
+};
+const icon = (k,c) => '<span class="ico" style="background:'+c+'"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+ICON[k]+'</svg></span>';
+
+/* ---------- 11 个入口（顺序与 App 的入口页一致） ---------- */
+/* 入口：颜色一处定义（卡片图标色 = 页面里那个大数字的颜色，同一个语义永远同一个色）；
+   第 6 位是「什么时候点它」，第 7 位是分档：often = 常用（每天/每周都要看），rarely = 偶尔才查。 */
+const ENTRIES = [
+  ['turnover','bars','#1E6FFF','营业纵览','每天收工前扫一眼：这一天做了多少、按天/按小时明细','often'],
+  ['arrears','wallet','#FF6B2C','客户欠款','每周必看：谁欠我钱、欠了多久、有没有超额度','often'],
+  ['audit','warn','#E53935','异常与审计','有异常就点：要处理的异常、谁动了钱和数据','often'],
+  ['finance','swap','#00B578','资金收支','想知道钱够不够时：钱从哪来、花到哪去','often'],
+  ['drivers','truck','#00A2C7','司机绩效','给司机结账前：谁送得多、还欠他多少','rarely'],
+  ['profit','yuan','#00B3A4','经营利润','月底/季度：这一段到底剩多少','rarely'],
+  ['products','box','#8455E6','商品经营','想看哪样货在赚、哪样在损','rarely'],
+  ['customers','store','#6950F5','客户经营','想看谁在买、谁的账在涨','rarely'],
+  ['coverage','cover','#4CAF50','成本覆盖','毛利看着不对时：有多少货算得出成本','rarely'],
+  ['vehicle','car','#546E7A','车辆成本','想看养车花掉多少、每辆车多少','rarely'],
+  ['tax','receipt','#C08A4E','税账','申报前：开了多少票、该交多少','rarely']
+];
+
+/* ============================================================
+   页面：仪表盘
+   ============================================================ */
+/* 拖得最久的异常单（示例；「异常」页里的前三张单号与这里一致） */
+const WINTABS = ['今天','本周','本月','上月'];
+const EXC = [['货损','SO20261003001247','拖 3 天'],['拒收','SO20261002001088','拖 4 天'],['短少','SO20261001001014','拖 5 天']];
+/* 入口卡片：图标色与服务页里那个大数字同色 */
+const tile = e => '<div class="tile" onclick="go(&apos;' + e[0] + '&apos;)">' + icon(e[1], e[2]) +
+  '<span class="tx"><b>' + e[3] + '</b><span>' + e[4] + '</span></span></div>';
+
+/* ============================================================
+   页面：仪表盘（结论 → 还没收回来的钱 → 要处理的事 → 钱 → 赚了多少 → 税 → 走势 → 常用/偶尔入口）
+   ============================================================ */
+function dash(){
+  const v = d();
+  const tmax = Math.max.apply(null, v.trend.map(t => t[1]));
+  const chart = v.trend.map(t => '<div class="colx">' +
+      '<div class="cx" style="color:var(--t1);font-weight:700">' + (t[1]/1000).toFixed(1) + 'k</div>' +
+      '<div class="gbg"><div class="gb1" style="height:' + Math.max(8, t[1]/tmax*70) + 'px"></div>' +
+      '<div class="gb2" style="height:' + Math.max(5, t[2]/tmax*70) + 'px"></div></div>' +
+      '<div class="cx">' + t[0] + '</div></div>').join('');
+  const bkSum = v.buckets.reduce((a,b) => a + b[1], 0);
+  const bkBar = v.buckets.map(b => '<i style="width:' + (b[1]/bkSum*100).toFixed(1) + '%;background:' + b[2] + '"></i>').join('');
+  const bkRow = v.buckets.map(b => '<div class="bz"><span class="dot" style="background:' + b[2] + '"></span>' +
+      '<span class="lbl">' + b[0] + '</span><span class="val">' + money(b[1]) + '</span></div>').join('');
+  const pills = WINTABS.map((t, i) =>
+      '<div class="pill ' + (KEYS===WINKEYS[i]?'on':'') + '" onclick="setWin(' + i + ')">' + t + '</div>').join('');
+  const todo = (go, color, title, desc, num, unit) =>
+      '<div class="row clk" onclick="go(&apos;' + go + '&apos;)">' +
+      '<span class="dot" style="background:' + color + '"></span>' +
+      '<span class="lbl"><b style="color:var(--t1)">' + title + '</b> · ' + desc + '</span>' +
+      '<span class="val" style="color:' + color + '">' + num + ' ' + unit + '</span><span style="color:var(--t3)">›</span></div>';
+  return '' +
+  '<div class="pillbar">' + pills +
+    '<div class="pill" style="margin-left:auto;background:#fff" onclick="toast(&quot;样板数据是编的，不做刷新&quot;)">刷新</div>' +
+  '</div>' +
+
+  /* ① 先给结论：这一段做了多少、赚了多少 */
+  '<div class="kpi">' +
+    '<div class="card">' +
+      '<div class="lab">' + v.win + '营业额<span class="tag">这一段</span></div>' +
+      '<div class="num" style="color:var(--blue)">' + money(v.turnover) + '</div>' +
+      '<div class="delta ' + (v.hourly || !v.grossDelta ? 'flat' : (v.grossDelta>=0?'up':'down')) + '">' +
+        (v.hourly ? '今天到现在为止 · ' : (v.grossDelta ? (v.grossDelta>=0?'↑':'↓') + ' 比上期 ' + Math.abs(v.grossDelta) + '% · ' : '')) +
+        v.orders + ' 单 · 撤销 ' + v.cancelled + ' 单</div>' +
+    '</div>' +
+    '<div class="card">' +
+      '<div class="lab">其中赚到的（毛利）</div>' +
+      '<div class="num" style="color:var(--green)">' + money(v.gross) + '</div>' +
+      '<div class="delta flat">毛利率 ' + (v.gross/v.covered*100).toFixed(1) + '% · 单均价 ' + money(v.avg) + '</div>' +
+    '</div>' +
+  '</div>' +
+
+  /* ② 还没收回来的钱（时点账，和下面「钱」卡的区间账不是一回事） */
+  '<div class="card clk" onclick="go(&apos;arrears&apos;)">' +
+    '<h2><span class="bar" style="background:var(--warn)"></span>还没收回来的钱<span class="tag">到今天为止</span><span class="chev">看是谁 ›</span></h2>' +
+    '<div class="big" style="color:var(--warn)">' + money(v.standing) + '</div>' +
+    '<div class="sub">' + v.debtorCount + ' 人 · ' + v.orderCount + ' 张单 —— 这是<b>累计</b>还欠着的钱（时点），不是这一段新欠的。</div>' +
+    '<div class="stack">' + bkBar + '</div>' + bkRow +
+    '<div class="sub">这里面有 <b style="color:var(--red)">' + money(v.buckets[3][1]) + '</b> 已经拖过 90 天。</div>' +
+  '</div>' +
+
+  /* ③ 要处理的事（当前状态，不随药丸变） */
+  '<div class="card">' +
+    '<h2><span class="bar" style="background:var(--red)"></span>要处理的事<span class="tag">到 ' + v.asOf + ' 为止</span></h2>' +
+    todo('audit', 'var(--red)', '钱货风险', '已经在赔钱或可能丢货', v.excMoney, '单') +
+    todo('audit', 'var(--orange)', '履约卡住', '单卡住了但还没赔钱', v.excStuck, '单') +
+    todo('arrears', 'var(--warn)', '超信用额度', '还能赊多少已经用满', v.overLimit, '家') +
+    todo('drivers', 'var(--teal)', '该付司机的钱', '司机待结运费，别忘了给', money(v.freightOwed), '· ' + v.driverCount + ' 人') +
+    '<div class="hr"></div>' +
+    '<div class="sub" style="margin:8px 0 2px">「钱货风险」里拖得最久的三条（共 ' + v.excMoney + ' 条，点进去看全部）：</div>' +
+    EXC.map(x => '<div class="row clk" onclick="go(&apos;audit&apos;)">' +
+      '<span class="lbl" style="color:var(--t1)"><span class="tag" style="color:var(--red)">' + x[0] + '</span> · ' + x[1] + '</span>' +
+      '<span class="val" style="color:var(--red)">' + x[2] + '</span><span style="color:var(--t3)">›</span></div>').join('') +
+    '<div class="hr"></div>' +
+    '<div class="row" style="opacity:.72"><span class="dot" style="background:var(--t3)"></span>' +
+    '<span class="lbl">已过去 · 不用处理，只是留档</span>' +
+    '<span class="val" style="color:var(--t2);font-weight:600">' + v.excPast + ' 单</span></div>' +
+    '<div class="sub">「已过去」单独沉底：它混在一起时会把真要处理的那几条淹掉。</div>' +
+  '</div>' +
+
+  /* ④ 钱（这一段） */
+  '<div class="card">' +
+    '<h2><span class="bar" style="background:var(--green)"></span>钱<span class="tag">这一段</span></h2>' +
+    '<div class="row"><span class="lbl">这一段营业额（应收）</span><span class="val" style="color:var(--blue)">' + money(v.turnover) + '</span></div>' +
+    '<div class="row"><span class="lbl">这一段收回来</span><span class="val" style="color:var(--green)">' + money(v.collectedIn) + '</span></div>' +
+    '<div class="row"><span class="lbl">这一段新增挂账</span><span class="val" style="color:var(--warn)">' + money(v.newArrears) + '</span></div>' +
+    '<div class="prog"><i style="width:' + v.collectRate + '%;background:var(--green)"></i></div>' +
+    '<div class="sub">收款率 ' + v.collectRate + '%（这一段收回来 ÷ 这一段营业额）；「这一段」和上面那张「到今天为止」是两个口径，报表里也分开摆。</div>' +
+  '</div>' +
+
+  /* ⑤ 赚了多少：一张小利润表 */
+  '<div class="card clk" onclick="go(&apos;profit&apos;)">' +
+    '<h2><span class="bar" style="background:var(--teal)"></span>赚了多少<span class="tag">这一段</span><span class="chev">利润表 ›</span></h2>' +
+    '<div class="row"><span class="lbl">参与毛利的收入（有成本的那批行）</span><span class="val">' + money(v.covered) + '</span></div>' +
+    '<div class="row"><span class="lbl">− 商品成本</span><span class="val neg">' + money(v.productCost) + '</span></div>' +
+    '<div class="row tot"><span class="lbl">＝ 商品毛利</span><span class="val" style="color:var(--green)">' + money(v.gross) + '</span></div>' +
+    '<div class="row"><span class="lbl">− 司机运费（司机应得）</span><span class="val neg">' + money(v.freight) + '</span></div>' +
+    '<div class="row"><span class="lbl">− 期间费用</span><span class="val neg">' + money(v.expense) + '</span></div>' +
+    '<div class="row"><span class="lbl">− 车辆折旧</span><span class="val neg">' + money(v.depreciation) + '</span></div>' +
+    '<div class="row tot"><span class="lbl">＝ 营业利润</span><span class="val" style="color:var(--teal)">' + money(v.operating) + '</span></div>' +
+    '<div class="sub">成本算得出来的行 ' + v.costCovPct + '%（' + num(v.costCovLines) + ' / ' + num(v.costLines) + ' 行）—— 其余行<b>不进毛利</b>，但营业额里仍然有它们' +
+      (v.damage > 0 ? '；货损 ' + money(v.damage) + ' 已经算在期间费用里。' : '；这一段没有货损。') +
+      '<span style="color:var(--blue)"> 哪些货没成本 ›</span></div>' +
+  '</div>' +
+
+  /* ⑥ 税 */
+  '<div class="card clk" onclick="go(&apos;tax&apos;)">' +
+    '<h2><span class="bar" style="background:var(--sand,#C08A4E)"></span>税<span class="tag">这一段</span><span class="chev">税账 ›</span></h2>' +
+    '<div class="row"><span class="lbl">销项税（开出去的票）</span><span class="val">' + money(v.vatOut) + '</span></div>' +
+    '<div class="row"><span class="lbl">− 进项税（收到的票）</span><span class="val neg">' + money(v.vatIn) + '</span></div>' +
+    '<div class="row tot"><span class="lbl">＝ 这一段应缴增值税</span><span class="val" style="color:var(--orange)">' + money(v.vat) + '</span></div>' +
+    '<div class="sub">发票台账 ' + v.invoices + ' 张（已开 ' + v.invOk + ' · 作废 ' + v.invVoid + ' · 冲红 ' + v.invRed + '）。申报前请按税局口径复核，页面只做汇总。</div>' +
+  '</div>' +
+
+  /* ⑦ 走势 */
+  '<div class="card">' +
+    '<h2><span class="bar" style="background:var(--blue)"></span>走势<span class="tag">' + v.trendTag + '</span></h2>' +
+    '<div class="chartx">' + chart + '</div>' +
+    '<div class="sub">蓝＝营业额，绿＝毛利 —— <b>同一把尺子</b>（都从 0 起算），所以毛利柱矮是真实的，不是画错。</div>' +
+  '</div>' +
+
+  /* ⑧ 钻取入口 */
+  '<div class="grp"><span class="bar"></span><b>常用报表</b><span class="tag">每天都可能点</span></div>' +
+  '<div class="grid">' + ENTRIES.filter(e => e[5] === 'often').map(tile).join('') + '</div>' +
+  '<div class="grp"><span class="bar" style="background:var(--t3)"></span><b>偶尔才查</b><span class="tag">有具体问题时再点</span></div>' +
+  '<div class="grid">' + ENTRIES.filter(e => e[5] === 'rarely').map(tile).join('') + '</div>' +
+  '<div class="sub" style="text-align:center;margin-top:14px;color:var(--t3)">分档依据：后端数据面的「每天必看 / 偶尔才查」归纳 · 样板数据是编的 · 不连后端 · 不动 App 代码</div>';
+}
+/* ============================================================
+   子页面
+   ============================================================ */
+function head(t){ return '<div class="grp"><span class="bar"></span><b>'+t+'</b></div>'; }
+function row(l,v,c){ return '<div class="row"><span class="lbl">'+l+'</span><span class="val"'+(c?' style="color:'+c+'"':'')+'>'+v+'</span></div>'; }
+function kpi(l,v,c,sub){ return '<div class="card"><div class="lab" style="color:var(--t2);font-size:12.5px">'+l+
+  '</div><div style="font-size:25px;font-weight:800;margin-top:4px;color:'+c+'">'+v+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>'; }
+function note(t){ return '<div class="sub">'+t+'</div>'; }
+
+const PRODMIX = [['白菜',0.30,4.5],['土豆',0.22,3.2],['洋葱',0.19,2.8],['西红柿',0.17,5.0],['青椒',0.12,6.0]];
+const DRVMIX  = [['张师傅',0.30],['李师傅',0.26],['王师傅',0.24],['赵师傅',0.20]];
+const CUSMIX  = [['家家福川菜馆',0.34],['周秀英',0.26],['李记小炒',0.22],['城北食堂',0.18]];
+const CARMIX  = [['皖A·12345 厢式',0.32],['皖A·67890 冷链',0.28],['皖A·24680 面包',0.24],['皖A·13579 三轮',0.16]];
+const GAPMIX  = [['西红柿',0.42],['黄瓜',0.33],['豆角',0.25]];
+const pctOf = (a,b) => b ? (a/b*100) : 0;
+
+const PAGES = {
+  turnover: () => { const v=d(); return kpi('这一段实际营业金额（'+v.range+'）', money(v.turnover), 'var(--blue)',
+      '完成 '+v.orders+' 单 · 单均价 '+money(v.avg)+' · 撤销 '+v.cancelled+' 单') +
+    '<div class="card"><h2><span class="bar"></span>这一段的钱分成两半</h2>' +
+    row('收回来了', money(v.collectedIn), 'var(--green)') +
+    row('还挂在那儿（这一段新增）', money(v.newArrears), 'var(--warn)') +
+    row('＝ 营业额', money(v.turnover), 'var(--blue)') +
+    note('未收款不让营业额变小：营业额 ＝ 这一段已收 ＋ 这一段新增挂账（钱只有一份，口径来自 order_money）。') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--green)"></span>盈利与损耗</h2>' +
+    row('商品毛利', money(v.gross), 'var(--green)') +
+    row('货损金额', money(v.damage), 'var(--red)') + row('货损件数', v.damageQty+' 件', 'var(--red)') +
+    row('成本算得出来的行', v.costCovPct+'%（'+num(v.costCovLines)+' / '+num(v.costLines)+' 行）') +
+    note('毛利口径：成本按入库流水的加权平均进货价；没记过进货价的行不进毛利，但仍然算在营业额里。') + '</div>' +
+    head(v.trendTag) + '<div class="card">' + v.trend.map(t =>
+      '<div class="row"><span class="dot" style="background:var(--purple)"></span><span class="lbl" style="color:var(--t1)">'+t[0]+'</span>' +
+      '<span class="val" style="color:var(--t2);font-weight:500;font-size:13px">'+Math.round(t[1]/v.avg)+' 单</span>' +
+      '<span class="val" style="color:var(--blue)">'+money(t[1])+'</span></div>').join('') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--red)"></span>异常（近 30 天，与上面窗口无关）</h2>' +
+    row('钱货风险', v.excMoney+' 单', 'var(--red)') + row('履约卡住', v.excStuck+' 单', 'var(--warn)') +
+    note('这条的时间窗口和上面的不一样，所以单独一张卡；「已过去」的 '+v.excPast+' 单沉底，不算在处理里。') + '</div>'; },
+
+  products: () => { const v=d(); const rows = PRODMIX.map((a) => ({ n:a[0], s:a[1], amt:v.turnover*a[1], q:Math.round(v.turnover*a[1]/a[2]), g:v.gross*a[1], o:Math.round(v.orders*a[1]) }));
+    const qty = rows.reduce((acc,r) => acc+r.q, 0);
+    return '<div class="kpi">' +
+    '<div class="card"><div class="lab" style="color:var(--t2);font-size:12.5px">商品总金额</div><div class="num" style="color:#8455E6">'+money(v.turnover)+'</div></div>' +
+    '<div class="card"><div class="lab" style="color:var(--t2);font-size:12.5px">出库总斤数</div><div class="num" style="color:#00A8A8">'+num(qty)+' 斤</div></div></div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--green)"></span>盈利与损耗</h2>' +
+    row('商品毛利', money(v.gross), 'var(--green)') + row('货损金额', money(v.damage), 'var(--red)') +
+    note('口径与「营业纵览」同一处，不在这里再算一遍。') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:#8455E6"></span>销量 TOP</h2>' + rows.map(r =>
+      '<div class="row"><span class="lbl" style="color:var(--t1)">'+r.n+'</span><span class="val" style="color:#8455E6">'+num(r.q)+' 斤</span></div>' +
+      '<div class="prog"><i style="width:'+(r.s/PRODMIX[0][1]*100)+'%;background:#8455E6"></i></div>').join('') + '</div>' +
+    head('商品明细（'+rows.length+' 种 · 合计就是上面那个商品总金额）') +
+    '<div class="pillbar"><div class="pill on">按金额</div><div class="pill">按斤数</div><div class="pill">按毛利</div><div class="pill">按货损</div></div>' +
+    '<div class="card">' + rows.map(r => '<div class="row clk"><span class="dot" style="background:#8455E6"></span>' +
+      '<span class="lbl" style="color:var(--t1)"><b>'+r.n+'</b><br><span style="font-size:12px">'+num(r.q)+' 斤 · '+r.o+' 单</span></span>' +
+      '<span class="val">'+money(r.amt)+'<br><span style="font-size:12px;color:var(--green)">毛利 '+money(r.g)+'</span></span></div><div class="hr"></div>').join('') + '</div>'; },
+
+  drivers: () => { const v=d(); const rows = DRVMIX.map((a) => ({ n:a[0], f:v.freight*a[1], o:Math.round(v.orders*a[1]), owe:v.freightOwed*a[1] }));
+    return kpi('该付司机的钱（还没结的）', money(v.freightOwed), '#00A2C7', v.driverCount+' 人 · 这一段已经付出的运费 '+money(v.freight)) +
+    '<div class="card"><h2><span class="bar" style="background:var(--green)"></span>司机绩效（'+v.win+'）</h2>' + rows.map(r =>
+      '<div class="row"><span class="lbl"><b style="color:var(--t1)">'+r.n+'</b><br>' +
+      '<span style="font-size:12px">'+r.o+' 单 · 运费 '+money(r.f)+'</span><br>' +
+      '<span style="font-size:12px;color:var(--teal)">还没结 '+money(r.owe)+'</span></span>' +
+      '<span class="val" style="color:var(--teal)">'+money(r.f)+'</span></div><div class="hr"></div>').join('') +
+    note('这一列加起来 ＝ 仪表盘里的司机运费 '+money(v.freight)+'，待结合计 ＝ '+money(v.freightOwed)+'。司机的钱一律按「按单应付」算，⛔ 不是订单上那个运费字段。') + '</div>' +
+    head('按送达时效') + '<div class="card">' +
+    row('平均送达用时', v.hourly ? '今天这一天还看不出平均' : '1 天 4 小时') +
+    row('超时未送（并进「履约卡住」）', v.excStuck+' 单', 'var(--warn)') +
+    row('准时率', v.hourly ? '样本还太少' : '96%', v.hourly ? 'var(--t3)' : 'var(--green)') +
+    note('准时率没有样本时接口给的是 null，⛔ 不是 0 —— 界面不许把「没数据」画成「0%」。') + '</div>'; },
+
+  customers: () => { const v=d(); const rows = CUSMIX.map((a) => ({ n:a[0], amt:v.turnover*a[1], o:Math.round(v.orders*a[1]) }));
+    return kpi('买货最多的客户（'+v.win+'这一段）', money(v.turnover), '#6950F5', '这一段一共 '+v.orders+' 单 · 单均价 '+money(v.avg)) +
+    '<div class="card"><h2><span class="bar" style="background:#6950F5"></span>逐个客户（合计就是上面这个数）</h2>' + rows.map(r =>
+      '<div class="row"><span class="lbl"><b style="color:var(--t1)">'+r.n+'</b><br><span style="font-size:12px">'+r.o+' 单</span></span>' +
+      '<span class="val" style="color:var(--teal)">'+money(r.amt)+'</span></div><div class="hr"></div>').join('') +
+    note('这一列加起来 ＝ 这一段营业额 '+money(v.turnover)+'。') + '</div>' +
+    head('还欠着钱的（到今天为止，不是这一段）') + '<div class="card">' + v.debtors.map(x =>
+      '<div class="row clk"><span class="lbl"><b style="color:var(--t1)">'+x[0]+'</b><br>' +
+      '<span style="font-size:12px">最老 '+x[2]+' 天 · '+x[3]+' 张单</span></span>' +
+      '<span class="val" style="color:var(--warn)">'+money(x[1])+'</span></div>').join('') +
+    row('合计（全部 '+v.debtorCount+' 人 · '+v.orderCount+' 张单）', money(v.standing), 'var(--warn)') + '</div>' +
+    head('挂账单位（名册）') + '<div class="card">' +
+    row('名册单位欠款合计', money(0)) +
+    note('现在这一档是空的：'+v.debtorCount+' 行全是自然人（货主 / 未填货主），名册里的挂账单位还没欠过钱 —— 一旦有，这里按单位列出来，并且能设额度。') + '</div>'; },
+
+  finance: () => { const v=d(); const out = v.productCost + v.freight + v.expense; const net = v.collectedIn - out;
+    const flows = [['收 · 家家福川菜馆', money(v.collectedIn*0.32), 1, '10-04 09:12'],
+      ['收 · 周秀英', money(v.collectedIn*0.21), 1, '10-03 17:40'],
+      ['付 · 司机运费（张师傅）', '−'+money(v.freight*0.30), 0, '10-03 18:02'],
+      ['付 · 采购付款', '−'+money(v.productCost*0.25), 0, '10-02 08:30']];
+    return kpi('这一段收进来', money(v.collectedIn), '#00B578', '花出去 '+money(out)+' · 净'+(net<0?'流出 ':'流入 ')+money(Math.abs(net))) +
+    '<div class="card"><h2><span class="bar" style="background:var(--green)"></span>收进来</h2>' +
+    row('客户付的钱', money(v.collectedIn), 'var(--green)') +
+    note('只算真的收进来的。挂账的 '+money(v.newArrears)+' 不在里面 —— 那是「还没收」，不是「收了」。') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--orange)"></span>花出去</h2>' +
+    row('采购付款（含垫出去的）', money(v.productCost), 'var(--orange)') +
+    row('付给司机', money(v.freight), 'var(--orange)') +
+    row('期间费用', money(v.expense), 'var(--orange)') +
+    row('＝ 花出去', money(out), 'var(--orange)') +
+    row('净' + (net<0?'流出':'流入'), (net<0?'−':'')+money(Math.abs(net)), net<0?'var(--red)':'var(--green)') +
+    note('采购和运费都是先垫出去的，挂账的钱还没进来时会看到净流出，这很正常。') + '</div>' +
+    head('最近几笔（示例）') + '<div class="card">' + flows.map(f =>
+      '<div class="row"><span class="lbl" style="color:var(--t1)">'+f[0]+'<br><span style="font-size:12px;color:var(--t3)">'+f[3]+'</span></span>' +
+      '<span class="val" style="color:'+(f[2]?'var(--green)':'var(--orange)')+'">'+f[1]+'</span></div>').join('') + '</div>'; },
+
+  audit: () => { const v=d(); return '<div class="card"><h2><span class="bar" style="background:var(--red)"></span>异常（按危险层级，同级按拖得久）</h2>' +
+    row('钱货风险 · 货损 / 拒收 / 短少', v.excMoney+' 单', 'var(--red)') +
+    row('履约卡住 · 超时未送', v.excStuck+' 单', 'var(--warn)') +
+    note('「按危险层级，同级按拖得久」这条排序规则写在标题里，⛔ 不藏在提示里让人猜。') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--t3)"></span>已过去（不用处理，只是留档）</h2>' +
+    row('逾期送达 ＋ 已撤销', v.excPast+' 单', 'var(--t3)') +
+    note('这一档单独沉底：混在一起时会把真要处理的那几条淹掉。') + '</div>' +
+    head('审计（谁动了钱和数据）') +
+    '<div class="pillbar"><div class="pill on">全部</div><div class="pill">改钱</div><div class="pill">删数据</div><div class="pill">账号权限</div><div class="pill">改状态</div></div>' +
+    '<div class="card">' + [['删数据','删除流水 · 王调度','10-04 14:22','var(--red)'],
+      ['改钱','改单价 3.20 → 3.60 · 王调度','10-04 11:05','var(--orange)'],
+      ['账号权限','新建账号 · 李四（司机）','10-03 18:40','var(--purple)'],
+      ['改状态','派单 · 张师傅','10-03 09:12','var(--blue)']].map(a =>
+      '<div class="row"><span class="lbl" style="color:var(--t1)"><span class="tag" style="color:'+a[3]+'">'+a[0]+'</span><br>'+a[1]+'<br>' +
+      '<span style="font-size:12px;color:var(--t3)">'+a[2]+'</span></span></div><div class="hr"></div>').join('') + '</div>' +
+    note('改动都留痕：改额度、改价、删流水各一条；只有数值真的变了才写第二条。'); },
+
+  profit: () => { const v=d(); const nocost = v.turnover - v.covered;
+    return kpi('这一段营业利润（'+v.range+'）', money(v.operating), '#00B3A4',
+      '利润率 '+pctOf(v.operating, v.turnover).toFixed(1)+'%（营业利润 ÷ 营业额）· 商品毛利率 '+pctOf(v.gross, v.turnover).toFixed(1)+'%') +
+    '<div class="card"><h2><span class="bar" style="background:var(--green)"></span>利润表（'+v.win+'这一段）</h2>' +
+    row('参与毛利的收入（有成本的那部分）', money(v.covered)) +
+    row('− 商品成本', '−'+money(v.productCost), 'var(--orange)') +
+    row('＝ 商品毛利', money(v.gross), 'var(--green)') +
+    row('− 司机运费（按单应付）', '−'+money(v.freight), 'var(--orange)') +
+    row('− 期间费用', '−'+money(v.expense), 'var(--orange)') +
+    row('− 车辆折旧', '−'+money(v.depreciation), 'var(--orange)') +
+    row('＝ 营业利润', money(v.operating), 'var(--green)') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--t3)"></span>不进毛利、但营业额里仍然有的那部分</h2>' +
+    row('没进货价的行（'+num(v.costLines - v.costCovLines)+' 行）', money(nocost), 'var(--t2)') +
+    row('所以：这一段营业额', money(v.turnover), 'var(--blue)') +
+    note('成本算得出来的行 '+v.costCovPct+'%（'+num(v.costCovLines)+' / '+num(v.costLines)+' 行）；其余行不报成本、也就不进毛利 —— 所以毛利率不会被高估。') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--red)"></span>不该漏掉的两项</h2>' +
+    row('货损', '−'+money(v.damage), 'var(--red)') +
+    row('已撤销订单（不进营业额）', v.cancelled+' 单', 'var(--t3)') + '</div>' +
+    note('这一页不再自己算一遍：每个数都和仪表盘「赚了多少」那张卡同源，窗口跟着顶部药丸走。'); },
+
+  vehicle: () => { const v=d(); const other = v.vehicle - v.depreciation;
+    return kpi('这一段车辆成本合计', money(v.vehicle), '#546E7A',
+      '其中折旧 '+money(v.depreciation)+' · 其它（油钱 / 保养 / 保险）'+money(other)) +
+    '<div class="card"><h2><span class="bar" style="background:var(--warn)"></span>成本构成</h2>' +
+    row('折旧', money(v.depreciation), 'var(--orange)') +
+    row('其它（油钱 / 保养 / 保险）', money(other), 'var(--orange)') +
+    row('＝ 合计', money(v.vehicle), 'var(--warn)') + '</div>' +
+    head('逐车（'+CARMIX.length+' 辆）') + '<div class="card">' + CARMIX.map(a =>
+      '<div class="row clk"><span class="lbl" style="color:var(--t1)">'+a[0]+'</span>' +
+      '<span class="val">'+money(v.vehicle*a[1])+'</span></div><div class="hr"></div>').join('') +
+    note('车辆成本这一页⛔ 没有收入，所以只报成本，不往单上摊。') + '</div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--t3)"></span>成本凑不全的车（三种原因，顺序固定）</h2>' +
+    row('这一段没跑单', '1 辆', 'var(--t3)') + row('没加油 / 没保养记录', '1 辆', 'var(--t3)') +
+    row('没保险单', '1 辆', 'var(--t3)') +
+    note('三种原因的先后顺序是接口定死的，界面不要自己排。') + '</div>'; },
+
+  coverage: () => { const v=d(); const nocost = v.turnover - v.covered;
+    return kpi('成本算得出来的行', v.costCovPct+'%', '#4CAF50',
+      num(v.costCovLines)+' / '+num(v.costLines)+' 行 · 没成本的行 '+num(v.costLines - v.costCovLines)+' 行、金额 '+money(nocost)) +
+    '<div class="card"><h2><span class="bar" style="background:var(--teal)"></span>哪些货没成本</h2>' + GAPMIX.map(a =>
+      '<div class="row clk"><span class="lbl" style="color:var(--t1)"><b>'+a[0]+'</b><br>' +
+      '<span style="font-size:12px">'+Math.round((v.costLines - v.costCovLines)*a[1])+' 行没成本 · 涉及金额 '+money(nocost*a[1])+'</span></span>' +
+      '<span class="val" style="color:var(--blue)">去补进货价 ›</span></div><div class="hr"></div>').join('') +
+    note('三样加起来 '+money(nocost)+'，正好等于「营业额 − 参与毛利的收入」。') + '</div>' +
+    head('口径') + '<div class="card">' +
+    note('成本来自入库流水的加权平均进货价（期间均价 / 累计均价，同一张表只用一级）；该商品没记过进货价的，按下单那一刻的成本快照。两个数（均价行数 / 快照行数）都要报出来，否则会让人以为整份毛利都是平均价算的。') + '</div>'; },
+
+  tax: () => { const v=d(); return kpi('这一段应缴增值税', money(v.vat), '#C08A4E', '销项 − 进项 · 按开票日归集（⛔ 不按记账日）') +
+    '<div class="card"><h2><span class="bar" style="background:var(--orange)"></span>税</h2>' +
+    row('销项税（开出去的票）', money(v.vatOut)) +
+    row('进项税（收到的票）', money(v.vatIn), 'var(--green)') +
+    row('＝ 应缴', money(v.vat), 'var(--orange)') +
+    note('这一页只做汇总，申报前请按税局口径复核。') + '</div>' +
+    head('发票台账（'+v.invoices+' 张）') +
+    '<div class="pillbar"><div class="pill on">全部</div><div class="pill">已开 '+v.invOk+'</div><div class="pill">作废 '+v.invVoid+'</div><div class="pill">冲红 '+v.invRed+'</div></div>' +
+    '<div class="card">' + [['已开','增值税普通发票 · '+money(v.vatOut*0.42),'10-04','var(--green)'],
+      ['已开','增值税专用发票 · '+money(v.vatOut*0.58),'10-03','var(--green)'],
+      ['作废','增值税普通发票 · '+money(v.vatOut*0.13),'10-02','var(--t3)']].map(a =>
+      '<div class="row"><span class="lbl" style="color:var(--t1)"><span class="tag" style="color:'+a[3]+'">'+a[0]+'</span><br>'+a[1]+'<br>' +
+      '<span style="font-size:12px;color:var(--t3)">'+a[2]+'</span></span></div><div class="hr"></div>').join('') + '</div>'; },
+
+  arrears: () => { const v=d(); const sum = v.buckets.reduce((a,b) => a+b[1], 0);
+    return '<div class="card"><div class="lab" style="color:var(--t2);font-size:12.5px">该收的钱（到今天 '+v.asOf+' 为止）</div>' +
+    '<div class="num" style="color:var(--warn)">'+money(v.standing)+'</div>' +
+    '<div class="sub">有欠款的 '+v.debtorCount+' 人 · '+v.orderCount+' 张单 —— 这是累计还欠着的钱（时点），⛔ 不是这一段新欠的。</div>' +
+    '<div class="sub">没挂到名册单位上的：'+v.debtorCount+' 人 · '+money(v.standing)+'</div></div>' +
+    '<div class="card"><h2><span class="bar" style="background:var(--warn)"></span>账龄</h2>' +
+    v.buckets.map(b => row(b[0], money(b[1]), b[2])).join('') + '<div class="hr"></div>' +
+    row('＝ 该收的钱', money(v.standing), 'var(--warn)') +
+    row('预收（客户先给的钱，单列）', money(0), 'var(--t3)') +
+    note('四桶之和 '+money(sum)+' ＝ 该收的钱；预收单列、不进桶。四桶、合计、额度全是接口给的数，这里一个加减法都不做。') + '</div>' +
+    head('欠款人（按欠款从多到少，'+v.debtorCount+' 行）') + '<div class="card">' + v.debtors.map(x =>
+      '<div class="row clk"><span class="lbl"><b style="color:var(--t1)">'+x[0]+'</b><br>' +
+      '<span style="font-size:12px">货主 · 13800000002 · 最老 '+x[2]+' 天 · '+x[3]+' 张单</span><br>' +
+      '<span style="font-size:12px;color:var(--blue)">点这一行看逐单明细（这一行一共 '+x[3]+' 张单）</span></span>' +
+      '<span class="val" style="color:var(--warn)">'+money(x[1])+'</span></div>').join('') + '</div>' +
+    head('展开后：逐单明细（示例）') + '<div class="card">' +
+    '<div class="det"><span>SO202607035256733105 · 送达 2026-07-04</span></div>' +
+    '<div class="det"><span>应收 ¥170.70 · 已收 ¥0 · 欠款 <b>¥170.70</b></span><span class="r">账龄 86 天（桶：61-90 天）<br>从 2026-07-03 起算</span></div>' +
+    note('明细里的每个数都和「逐单」那一行对得上；屏幕上的合计 ＝ 各行相加，按分对。') + '</div>'; }
+};
+const TITLE = { dash:'报表中心', turnover:'营业纵览', products:'商品经营', drivers:'司机绩效', customers:'客户经营',
+  finance:'资金收支', audit:'异常与审计', profit:'经营利润', vehicle:'车辆成本', coverage:'成本覆盖', tax:'税账', arrears:'客户欠款' };
+
+function go(p){ PANE = p; render(); document.getElementById('screen').scrollTop = 0; }
+function setWin(i){ KEYS = (typeof i === 'number') ? WINKEYS[i] : i; render(); }
+function toast(t){
+  const el = document.createElement('div');
+  el.textContent = t;
+  el.style.cssText = 'position:fixed;left:50%;bottom:60px;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;font-size:12.5px;padding:8px 14px;border-radius:9px;z-index:9';
+  document.body.appendChild(el); setTimeout(() => el.remove(), 1600);
+}
+function render(){
+  document.getElementById('appbar').innerHTML =
+    (PANE === 'dash' ? '<div class="back" style="visibility:hidden">‹</div>' : '<div class="back" onclick="go(\'dash\')">‹</div>') +
+    '<h1>'+TITLE[PANE]+'</h1>' +
+    '<div class="right">' + (PANE === 'dash' ? '<span style="font-size:12.5px;color:var(--t2)">'+d().win+' ▾</span>' : '<span style="font-size:12.5px;color:var(--blue)">导出</span>') + '</div>';
+  const subBar = (PANE === 'dash') ? '' :
+    '<div class="pillbar">' + WINTABS.map((t, i) =>
+      '<div class="pill' + (KEYS === WINKEYS[i] ? ' on' : '') + '" onclick="setWin(' + i + ')">' + t + '</div>').join('') + '</div>' +
+    '<div class="tabbar" id="tabbar">' + ENTRIES.map(e =>
+      '<div class="pill' + (PANE === e[0] ? ' on' : '') + '"' + (PANE === e[0] ? ' id="tabcur"' : '') + ' onclick="go(&apos;' + e[0] + '&apos;)">' + e[3] + '</div>').join('') + '</div>';
+  document.getElementById('screen').innerHTML = (PANE === 'dash') ? dash() : subBar + PAGES[PANE]();
+  const tb = document.getElementById('tabbar'), tc = document.getElementById('tabcur');
+  if (tb && tc) tb.scrollLeft = Math.max(0, tc.offsetLeft - 60);
+}
+document.getElementById('sidenav').innerHTML =
+  [['dash','仪表盘']].concat(ENTRIES.map(e => [e[0], e[3]])).map(([k,t]) =>
+    '<a onclick="go(\''+k+'\')">'+t+'</a>').join('');
+if (location.search.indexOf('full') >= 0) document.body.classList.add('full');
+var m = location.search.match(/pane=([a-z]+)/); if (m && TITLE[m[1]]) PANE = m[1];
+var w = location.search.match(/w=(today|week|month|last)/); if (w) KEYS = w[1];
+if (location.search.indexOf('only') >= 0) document.querySelector('.side').style.display = 'none';
+render();
+</script>
+</body>
+</html>

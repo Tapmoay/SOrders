@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>报表中心 · 测试网页（连真后端）</title>
+<link rel="stylesheet" href="css/style.css?v=48">
+<link rel="stylesheet" href="css/phone-xiaomi14.css?v=48">
+<link rel="stylesheet" href="css/tree.css?v=48">
+<link rel="stylesheet" href="css/look.css?v=48">
+</head>
+<body>
+<div id="root"><div class="loading">正在加载…</div></div>
+<script src="js/core.js?v=48"></script>
+<script src="js/pages1.js?v=48"></script>
+<script src="js/pages2.js?v=48"></script>
+<script src="js/pages3.js?v=48"></script>
+<script src="js/shell.js?v=48"></script>
+<script src="js/dash2.js?v=48"></script>
+<script src="js/chart2.js?v=48"></script>
+<script src="js/tree.js?v=48"></script>
+<script src="js/tree2.js?v=48"></script>
+<script src="js/orders.js?v=48"></script>
+<script src="js/stock.js?v=48"></script>
+<script src="js/look.js?v=48"></script>
+<script src="js/drawer.js?v=48"></script>
+<script src="js/docs.js?v=48"></script>
+<script>
+  DASH.state.win = windowFor('month');
+  render();
+  if (DASH.state.token) { boot().catch(function (e) { DASH.state.notice = '取数失败：' + e; render(); }); }
+</script>
+</body>
+</html>
