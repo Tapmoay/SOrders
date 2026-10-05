@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.core import outbox
 from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission
 from app.database import get_db
@@ -76,6 +77,27 @@ def _resync_stock_if_assigned(db: Session, order: Order, operator_id: int) -> in
 def _order_allows_line_edit(order: Order) -> bool:
     """派单员修正明细：待派单与已接单（运输中）均可编辑；已送达/已撤销不可。"""
     return order.status in LINE_EDITABLE_STATUSES
+
+
+def _notify_driver_lines_changed(db: Session, order: Order) -> None:
+    """商品行改了（增 / 改 / 删）→ 让**经手那张单的司机**知道（2026-10-05 CHG-0040）。
+
+    用户原话：「在这个阶段可以对订单进行更改，不管是货主、商品，全部都可以更改」
+    「**如果更改的话，对应的司机是会收到消息的**说他这个信息已经更改了」。
+    ⛔ 货主端一个字都不提醒（与 CHG-0039「静默退回派单池」同一口径）：明细改动会改变
+       货主看得到的金额与件数，但「谁在什么时候动了这一单」不需要他知道。
+
+    ⚠️ 为什么必须**在这个文件里**发这条事件：商品行的三个写端点全在这里，而它们此前
+       连 `outbox` 都没 import —— 改单路径（`commands/order.py` 的 `orders.edited`）只覆盖
+       地址 / 联系人 / 配送说明，**明细改动对司机是完全无感的**（订单列表不刷新、不响、
+       消息中心也没有一条），一条既不报错也不生效的链路。
+    ⚠️ 事件只带 driver_id + order_id、不带明细：客户端收到后一律重拉服务端权威数据
+       （`push_events.push_order_edited_to_driver` 的既定做法）。
+    ⛔ 不 commit：与本次业务写同一个事务（发件箱的承诺，见 `core/outbox.py` 模块说明）。
+    """
+    if order.driver_id is None:
+        return
+    outbox.enqueue(db, "orders.edited", {"driver_id": order.driver_id, "order_id": order.id})
 
 
 #: 可以改明细的状态（**只有这一处**：Python 判据与上面那条条件 UPDATE 的 WHERE 共用它）。
@@ -221,6 +243,7 @@ def create_order_product(
     # 行加了 → 预占要跟着加，否则送达时这件货**永远不扣库**（见 resync_reservations 的说明）
     db.flush()
     _resync_stock_if_assigned(db, order, current.id)
+    _notify_driver_lines_changed(db, order)
     db.commit()
     db.refresh(op)
     return op
@@ -285,6 +308,7 @@ def update_order_product(
     # 数量/商品改了 → 预占按商品逐一对账补齐（否则送达按旧流水扣库：多扣/少扣/扣错商品）
     db.flush()
     _resync_stock_if_assigned(db, order, current.id)
+    _notify_driver_lines_changed(db, order)
     db.commit()
     db.refresh(op)
     return op
@@ -317,4 +341,5 @@ def delete_order_product(
         # 行删了 → 对应的预占要放掉，否则送达会照扣一件已经不存在的货
         db.flush()
         _resync_stock_if_assigned(db, order, current.id)
+        _notify_driver_lines_changed(db, order)
     db.commit()

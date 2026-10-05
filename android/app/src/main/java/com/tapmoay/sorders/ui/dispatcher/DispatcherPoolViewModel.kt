@@ -4,11 +4,20 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.FreightTemplateDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
+import com.tapmoay.sorders.data.remote.dto.OrderProductCreateRequest
+import com.tapmoay.sorders.data.remote.dto.OrderProductRow
+import com.tapmoay.sorders.data.remote.dto.OrderProductUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
+import com.tapmoay.sorders.data.remote.api.PriceRuleDto
+import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.ORDER_LIST_LIMIT
+import com.tapmoay.sorders.ui.common.PickedLine
+import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonPrimitive
@@ -156,6 +165,10 @@ class DispatcherPoolViewModel(
         loadJob = viewModelScope.launch {
             loading = dispatched.isEmpty()
             error = null
+            // 选司机那颗要用司机名册：从订单详情借进来的这份 VM 只在打开派单弹窗时才拉
+            // 名册（`openAssign`），不在这里补一句的话筛选抽屉永远是空的 —— 而空抽屉
+            // 看起来跟「这些司机都没有单」一模一样（静默失效）。
+            if (drivers.isEmpty()) loadDrivers()
             try {
                 val assigned = container.repo.orders(status = "DISPATCHED")
                 val accepted = container.repo.orders(status = "ACCEPTED")
@@ -451,6 +464,342 @@ class DispatcherPoolViewModel(
                 acting = false
             }
         }
+    }
+
+    // ---- 选司机（「已完成派单」顶栏那一颗，CHG-0040）----
+
+    /**
+     * 只看这一位司机的单（null = 全部司机，仍然按司机分组）。
+     *
+     * 用户 2026-10-05：「司机一旦多起来订单一旦多起来就是很容易找不到」⇒
+     * 「上面改一个可以选择司机的方式」「同样也是左边侧边栏」。
+     */
+    var driverFilterId by mutableStateOf<Long?>(null)
+
+    /** 选司机抽屉开着没有。 */
+    var showDriverPicker by mutableStateOf(false)
+
+    /** 抽屉里的搜索词（认名字与手机号，认法只有 core/UserSearch.kt 一处）。 */
+    var driverQuery by mutableStateOf("")
+
+    /** 触发行上写着「现在在看谁」：选了就说名字，没选就说全部司机。 */
+    val driverFilterLabel: String
+        get() {
+            val picked = drivers.firstOrNull { it.id == driverFilterId }
+            if (picked != null) return picked.fullName.ifBlank { picked.username }
+            // 名册还没拉到时不许编一个数出来（「全部司机（0 位）」是假话）
+            return if (drivers.isEmpty()) "全部司机" else "全部司机（" + drivers.size + " 位）"
+        }
+
+    /** 筛选之后要画的组（没选司机 = 全部组，分组与排序都不变）。 */
+    val visibleGroups: List<DriverOrderGroup>
+        get() = dispatchedGroups.filter { driverFilterId == null || it.driverId == driverFilterId }
+
+    fun openDriverPicker() {
+        driverQuery = ""
+        showDriverPicker = true
+    }
+
+    /** 选人（null = 点了「全部司机」）。抽屉由界面自己关（见 PoolDriverFilterDrawer）。 */
+    fun pickDriver(driverId: Long?) {
+        driverFilterId = driverId
+    }
+
+    // ---- 改单（这一档直接改收货信息与货物明细，CHG-0040）----
+    //
+    // 用户 2026-10-05：「在这个阶段可以对订单进行更改，不管是货主、商品，全部都可以更改」
+    // 「如果更改的话，对应的司机是会收到消息的，说这个信息已经更改了」。
+    // 司机那条消息由后端发（orders.edited → 站内信 + 实时信号），界面这一侧只负责如实说一句。
+
+    /** 正在改的那一单（非空 = 改单抽屉开着）。 */
+    var editingOrder by mutableStateOf<OrderDto?>(null)
+
+    var editAddress by mutableStateOf("")
+    var editDongjiaName by mutableStateOf("")
+    var editDongjiaPhone by mutableStateOf("")
+    var editBossName by mutableStateOf("")
+    var editBossPhone by mutableStateOf("")
+    var editRemark by mutableStateOf("")
+
+    /** 这一单的货物明细（服务端权威值：每次改动之后重拉一次，不在本地加减）。 */
+    var editLines by mutableStateOf<List<OrderProductRow>>(emptyList())
+
+    /** 明细还在拉（空列表 + 正在拉 ≠ 这一单没有货，界面必须说清是哪种）。 */
+    var editLinesLoading by mutableStateOf(false)
+
+    /** 正在改的那一行（非空 = 行编辑弹层开着）。 */
+    var editingLine by mutableStateOf<OrderProductRow?>(null)
+    var lineQty by mutableStateOf("")
+    var linePrice by mutableStateOf("")
+
+    /** 加一件货的选品抽屉。 */
+    var showLinePicker by mutableStateOf(false)
+    var products by mutableStateOf<List<ProductDto>>(emptyList())
+    var loadingProducts by mutableStateOf(false)
+    var categoryOrder by mutableStateOf<List<String>>(emptyList())
+
+    /**
+     * 商品库的专属价（这一单货主的那一份）。
+     *
+     * priceRulesShipper 是「这份 map 属于谁」的守卫：对不上就回退默认价 ——
+     * 与 OrderCreateViewModel.priceFor 同一条教训（专属价规则没到 ≠ 这个货主没有专属价）。
+     */
+    var priceRules by mutableStateOf<Map<Long, PriceRuleDto>>(emptyMap())
+    var priceRulesShipper by mutableStateOf<Long?>(null)
+
+    /** 改单抽屉里的失败原因（弹层还开着，不能把整页换成 ErrorView）。 */
+    var editError by mutableStateOf<String?>(null)
+
+    /** 一次改动进行中：防连点（连点两次会改两遍，司机也会收到两条）。 */
+    var editBusy by mutableStateOf(false)
+
+    /** 打开改单抽屉（「已完成派单」卡片右侧那颗「编辑」）。 */
+    fun openEdit(order: OrderDto) {
+        editingOrder = order
+        editAddress = order.addressDetail
+        editDongjiaName = order.contactDongjiaName
+        editDongjiaPhone = order.contactDongjiaPhone
+        editBossName = order.contactBossName
+        editBossPhone = order.contactBossPhone
+        editRemark = order.remark
+        editError = null
+        editingLine = null
+        editLines = emptyList()
+        loadProducts()
+        loadPriceRules(order.shipperId)
+        // 明细必须重新拉：订单详情里那份是 OrderProductDto，行编辑要的是 OrderProductRow
+        viewModelScope.launch { fetchEditLines(order.id) }
+    }
+
+    /** 关掉改单抽屉（把这一轮的状态清干净，别让下一次打开看见上一单的残留）。 */
+    fun closeEdit() {
+        editingOrder = null
+        editingLine = null
+        showLinePicker = false
+        editError = null
+        editLines = emptyList()
+        editLinesLoading = false
+    }
+
+    /**
+     * 重拉这一单的货物明细（服务端权威值）。
+     *
+     * ⛔ 不在本地加减：行金额由后端按 resolve_line_total 重算（还可能带专属价与成本快照），
+     * 本地跟着改一个数就会出现「界面 3 件、后端 2 件」这种对不上的账。
+     */
+    private suspend fun fetchEditLines(orderId: Long) {
+        editLinesLoading = true
+        try {
+            editLines = container.repo.orderProductLines(orderId)
+        } catch (e: Exception) {
+            editError = toApiException(e).message
+        } finally {
+            editLinesLoading = false
+        }
+    }
+
+    /**
+     * 保存收货信息（地址 / 收货人 / 下单人 / 备注）。
+     *
+     * 货主归属不在这里改：那是另一个动作（改的是这单归谁结账），混在一个保存键里
+     * 会让「我就想改个电话」变成改账。内部备注也原样带回去，不在这一层动它。
+     */
+    fun saveEdit() {
+        val o = editingOrder ?: return
+        // 电话格式先在界面这一侧挡一道（规则只有一份：core/InputRules.kt）。老单里可能存着
+        // 随手写的值，那时要说清「这一单的电话得先改一下」，而不是让后端甩一句看不懂的话。
+        InputRules.phoneError(editDongjiaPhone.trim())?.let { editError = it; return }
+        InputRules.phoneError(editBossPhone.trim())?.let { editError = it; return }
+        if (editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            try {
+                container.repo.updateOrder(
+                    o.id,
+                    OrderUpdateRequest(
+                        addressDetail = editAddress.trim(),
+                        contactDongjiaPhone = editDongjiaPhone.trim(),
+                        contactBossPhone = editBossPhone.trim(),
+                        contactDongjiaName = editDongjiaName.trim(),
+                        contactBossName = editBossName.trim(),
+                        remark = editRemark.trim(),
+                        internalNotes = o.internalNotes,
+                    ),
+                )
+                actionResult = "已经改好，司机那边会收到一条消息"
+                load()
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                editBusy = false
+            }
+        }
+    }
+
+    fun openLineEdit(line: OrderProductRow) {
+        editingLine = line
+        lineQty = line.quantity.toString()
+        // 预填走 `trimMoneyZeros`（可编辑金额框的预填规矩，见 util/Money.kt 的 ④）：
+        // 后端单价列是 Numeric(14,4)，直接填进去是 `60.0000` 这种，用户得先删掉四个 0 才能改价。
+        // ⛔ 不用 `formatMoney` —— 它只留两位，会把 `12.3456` 的价预填成 `12.35`（＝用户没改价、价却变了）。
+        linePrice = trimMoneyZeros(line.unitPrice)
+        editError = null
+    }
+
+    fun closeLineEdit() {
+        editingLine = null
+    }
+
+    /**
+     * 存这一行（数量 + 单价）。
+     *
+     * ⚠️ 单价与数量必须一起报：后端是把两个值合起来重算行金额的，只报单价它会按
+     * 旧数量算，出现「改了价、总额没动」这种没人看得懂的结果。
+     */
+    fun saveLine() {
+        val line = editingLine ?: return
+        val o = editingOrder ?: return
+        val qty = lineQty.trim().toIntOrNull()
+        if (qty == null || qty <= 0) {
+            editError = "数量要填一个大于 0 的整数"
+            return
+        }
+        val price = linePrice.trim()
+        if (price.isEmpty() || price.toDoubleOrNull() == null) {
+            editError = "单价要填数字"
+            return
+        }
+        if (editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            try {
+                container.repo.updateOrderProduct(
+                    line.id,
+                    OrderProductUpdateRequest(quantity = qty, unitPrice = price),
+                )
+                editingLine = null
+                actionResult = "这件货改好了，司机那边会收到一条消息"
+                fetchEditLines(o.id)
+                load()
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                editBusy = false
+            }
+        }
+    }
+
+    /** 删掉这一行（后端会把它从这一单里去掉，货主那边的账跟着变）。 */
+    fun deleteLine() {
+        val line = editingLine ?: return
+        val o = editingOrder ?: return
+        if (editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            try {
+                container.repo.deleteOrderProduct(line.id)
+                editingLine = null
+                actionResult = "这一件货删掉了，司机那边会收到一条消息"
+                fetchEditLines(o.id)
+                load()
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                editBusy = false
+            }
+        }
+    }
+
+    /**
+     * 从选品页挑回来的一件货。
+     *
+     * 挑多件 = 调多次接口：一行一次请求，其中一行失败也只丢那一行（整批一起失败会让人
+     * 以为「一件都没加上」，然后重复加一遍）。失败原因落在改单抽屉里，选品页留着让他重试。
+     */
+    fun addPickedLines(picked: List<PickedLine>) {
+        val o = editingOrder ?: return
+        if (picked.isEmpty() || editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            var added = 0
+            var firstError: String? = null
+            for (p in picked) {
+                try {
+                    container.repo.addOrderProduct(
+                        OrderProductCreateRequest(
+                            orderId = o.id,
+                            productId = p.productId,
+                            productNameSnapshot = p.name,
+                            quantity = p.qty,
+                            unitPrice = p.price,
+                            unit = p.unit,
+                        ),
+                    )
+                    added += 1
+                } catch (e: Exception) {
+                    if (firstError == null) firstError = toApiException(e).message
+                }
+            }
+            if (added > 0) {
+                showLinePicker = false
+                actionResult = "加了 " + added + " 件货，司机那边会收到一条消息"
+                fetchEditLines(o.id)
+                load()
+            }
+            if (firstError != null) editError = firstError
+            editBusy = false
+        }
+    }
+
+    /** 商品库（加一件货要用）。失败原因落在改单抽屉里，不换整页。 */
+    fun loadProducts() {
+        if (loadingProducts || products.isNotEmpty()) return
+        loadingProducts = true
+        viewModelScope.launch {
+            try {
+                products = container.repo.products(includeInactive = false)
+                categoryOrder = container.repo.productCategories().map { it.name }
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                loadingProducts = false
+            }
+        }
+    }
+
+    /**
+     * 拉这一单货主的专属价。
+     *
+     * 取数只有 repo.priceRules 一处（与 OrderCreateViewModel 同一份规则），界面不许自己拼。
+     */
+    fun loadPriceRules(shipperId: Long?) {
+        if (shipperId == null || priceRulesShipper == shipperId) return
+        viewModelScope.launch {
+            try {
+                priceRules = container.repo.priceRules(shipperId).associateBy { it.productId }
+                priceRulesShipper = shipperId
+            } catch (_: Exception) {
+                // 没拿到就不报价（priceFor 回退默认价）。⛔ 不许把「不知道」记成「这个货主没有专属价」
+                priceRules = emptyMap()
+                priceRulesShipper = null
+            }
+        }
+    }
+
+    /**
+     * 加一件货时报的单价：这一单货主的专属价优先，没有就用商品库默认价。
+     *
+     * ⚠️ 只有 priceRulesShipper 与这一单的货主一致时才认那份规则 —— 对不上意味着「我们还不知道」，
+     * 按默认价报给谈好价的批发商就是多收他的钱（不是少赚）。
+     */
+    fun priceFor(p: ProductDto): String {
+        val sid = editingOrder?.shipperId
+        if (sid == null || priceRulesShipper != sid) return p.defaultUnitPrice
+        return priceRules[p.id]?.specialUnitPrice ?: p.defaultUnitPrice
     }
 
     companion object {

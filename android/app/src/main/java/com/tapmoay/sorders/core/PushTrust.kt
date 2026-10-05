@@ -63,6 +63,8 @@ object PushTrust {
         "order.dispatched",
         "order.driver_ack",
         "order.driver_ack_dispatcher",
+        // CHG-0040：派单员改了这张单的收货信息或货物明细 → 司机收到一条站内信
+        "order.edited",
         "order.freight.updated",
         "order.navigation.filled",
         "order.recalled",

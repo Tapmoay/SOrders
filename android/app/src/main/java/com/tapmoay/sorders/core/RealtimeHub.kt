@@ -212,6 +212,10 @@ class RealtimeHub(private val container: AppContainer) {
                     "order.cancelled", "order.cancelled_dispatcher", "order.dispatched", "order.recalled",
                     "order.driver_ack", "order.driver_ack_dispatcher", "order.created", "order.freight.updated" ->
                         _refreshOrders.tryEmit(Unit)
+                    // CHG-0040：派单员改了收货信息或货物明细（后端 order_products 三个写端点都会发
+                    // orders.edited → 站内信 + 这条实时信号）—— 司机这边重拉一次就好。
+                    // ⛔ 这个取值以前在这里**没有任何分支**：后端发了没人认，改单对司机完全无感。
+                    "order.updated" -> _refreshOrders.tryEmit(Unit)
                     "dispatcher.pending_pool" -> _refreshOrders.tryEmit(Unit)
                     "ledger.updated" -> _refreshLedger.tryEmit(Unit)
                 }

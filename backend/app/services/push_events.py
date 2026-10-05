@@ -55,13 +55,25 @@ async def push_driver_ack_shipper(shipper_id: int, order_id: int) -> None:
         db.close()
 
 
-async def push_order_edited_to_driver(driver_id: int, order_id: int) -> None:
-    """改单（地址 / 联系人电话 / 配送说明）→ 让司机那一页自己重拉（2026-09-24 第 20 轮 C12-3）。
+async def push_order_edited_to_driver(driver_id: int, order_id: int, *, event_id: int = 0) -> None:
+    """改单（地址 / 联系人 / 配送说明 / 商品行）→ 司机收**站内信** + 那一页自己重拉。
 
+    2026-10-05 CHG-0040：这里原来只有一句 `emit_realtime(…"order.updated"…)`，而 Android
+    那边 `RealtimeHub.kt` 的 `when (e.type)` 里**根本没有 `"order.updated"` 这一支**
+    ⇒ 改单对司机**完全无感**：列表不刷新、不响、消息中心也没有一条。
+    ⇒ 现在两件事一起做：落一条站内信（`message_center.publish_order_edited_driver`）
+      + 实时信号（客户端据此重拉权威数据）。
+
+    ⚠️ `event_id` 是发件箱那一行的编号：同一张单可以改很多次，只用 order_id 当幂等键的话，
+    第二次以后的消息会被 `create_message` 当成重复吞掉。
     ⛔ 事件**不带负载**：客户端一律重拉服务端权威数据（`RealtimeHub.kt` 的既定做法），
-    所以不存在"推送里的地址是旧的"这种可能。
+    所以不存在「推送里的地址是旧的」这种可能。
     """
-    await message_center.emit_realtime(driver_id, {"type": "order.updated", "order_id": order_id})
+    db = SessionLocal()
+    try:
+        await message_center.publish_order_edited_driver(db, driver_id, order_id, event_id=event_id)
+    finally:
+        db.close()
 
 
 async def push_ledger_updated(

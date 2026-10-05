@@ -234,6 +234,48 @@ async def publish_order_revoked(db: Session, driver_id: int, order_id: int, reas
     await emit_realtime(driver_id, {"type": "order.revoked", "order_id": order_id, "reason": reason})
 
 
+async def publish_order_edited_driver(
+    db: Session, driver_id: int, order_id: int, *, event_id: int = 0
+) -> None:
+    """派单员改了这一单 → **经手那张单的司机**收站内信（2026-10-05 CHG-0040）。
+
+    用户原话：「在这个阶段可以对订单进行更改，不管是货主、商品，全部都可以更改」
+    「**如果更改的话，对应的司机是会收到消息的**说他这个信息已经更改了」。
+    ⛔ 货主端一个字都不提醒（与 CHG-0039「静默退回派单池」同一口径）：改单是派单员的
+       内部修正，货主看得到的金额与件数本来就会跟着变，但没有一条「你的单被改了」的消息
+       要发给他。
+
+    ⚠️ 这条消息**刻意不说改了哪一处**：发件箱负载里只有 driver_id + order_id
+      （`orders.edited` 的聚合根就是订单，见 `core/outbox.py` 的 `AGGREGATE_KEY`），
+      而「改了什么」的唯一权威是订单本身 —— 所以正文说的是「去看一眼详情」，
+      ⛔ 绝不在这里按订单重算或猜哪几个字段变了（说错一处比不说更坏）。
+    ⚠️ 幂等键必须带**发件箱那一行的编号**：同一张单会被改很多次，只用 order_id 的话，
+      第二次以后的改动会被 `create_message` 当成重复吞掉。
+    """
+    order = db.get(Order, order_id)
+    if order is None:
+        return
+    # 收件人必须存在（`create_message` 要写 recipient_id）：与 `publish_order_returned_to_driver` 同一道闸
+    if db.get(User, driver_id) is None:
+        return
+    ono = order.order_no
+    n = create_message(
+        db,
+        recipient_id=driver_id,
+        category="order",
+        type="order.edited",
+        title="订单信息有修改",
+        content=f"订单 {ono} 的收货信息或货物明细被派单员修改了，出车前请打开订单详情核对一遍。",
+        payload={"order_id": order_id, "order_no": ono},
+        # 改单会改「送到哪、送给谁、送几件」——司机正在跑这一单，值得念出来
+        speech_important=True,
+        idem_key=f"order.edited" + ":" + str(order_id) + ":" + str(driver_id) + ":" + str(event_id),
+    )
+    db.commit()
+    db.refresh(n)
+    await emit_notification(n)
+    await emit_realtime(driver_id, {"type": "order.updated", "order_id": order_id})
+
 async def publish_order_recalled_shipper(db: Session, shipper_id: int, order_id: int) -> None:
     order = db.get(Order, order_id)
     ono = order.order_no if order else str(order_id)

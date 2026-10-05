@@ -151,6 +151,7 @@ async def _outbox_deliver(event) -> None:
         await push_events.push_order_edited_to_driver(
             int(event.payload.get("driver_id") or 0),
             int(event.payload.get("order_id") or 0),
+            event_id=int(event.id or 0),
         )
         return
     if event.event_type == "returns.requested":
