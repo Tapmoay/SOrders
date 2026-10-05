@@ -5791,7 +5791,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`a7f20a4`（本事项只动两个 `ui/order` 文件 + 两份新 QA 脚本 + 一条 `ALLOW` 追加 + 一条复核表化石删除 + 一份生成物重生成 + 三份文档）。
 
-### [2026-10-06 04:0x CST → 进行中] 会话：**CHG-0046 分类管理三档收口：名字不再被挤、排序改成长按拖动、返回分成三层**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-06 04:0x → 04:2x CST 已完成] 会话：**CHG-0046 分类管理三档收口：名字不再被挤、排序改成长按拖动、返回分成三层**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-06 / L-07 / L-08**（L-06：「我在联系人新建那个（分类）……**新建分类的卡片的名称并没有正常显示**」；L-07：「它的排序**最好不要用那个按钮排序**，我们直接像**拖动卡片式**的排序」；L-08：「点击了那个管理分类嘛，然后进去之后再点那个返回啊，就**顶上的返回**啊，他是**直接退出了**啊不要啊，**我们是任何返回都是返回上 1 级**……但这样子，**不好，互相容易误解**」）—— 台账 L-01…L-32 逐条落地的**第六条**（三条同址，合成一个 CHG）。
 
@@ -5807,7 +5807,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：`gradle -p android :app:compileEmuDebugKotlin` **BUILD SUCCESSFUL in 22s**（只余既有 icon 弃用告警，三个重写过的面板文件一条告警都没有）；生成物 `python _tools/qa/_hint_inventory.py --md` 重生成后 `_check_generated_freshness.py` 4 个产物 / 4 个指纹全过；`python _tools/qa/_check_all.py` **184 项：182 ✅ / 2 ❌**（两条红均非本事项：`_check_backend_fresh.py` 旧进程假红、`_check_report_facts.py` 缺 `VERSION 0.2.5`；本事项新判据在这次运行里 **✅ 119 项**，日志 `_tmp/checkall_chg0046.log`）；`python backend/scripts/check_reachability.py` **可达 165 / 165**、342 条 markdown 链接全有效。
 
-**实现提交**：⏳
+**实现提交**：`8f42059`（本事项动 7 个 `.kt` + 两份新 QA 脚本 + 一份生成物重生成 + 三份文档）。
 
 ---
 
