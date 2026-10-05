@@ -5905,7 +5905,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 `_check_ledger_pay_block_gate.py` **51/51**；反验 **18/18**；既有红线 `_check_report_metrics.py` **24 项全过**；编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL in 8s**（3 条既有 deprecation 警告都在 `ShipperLedgerScreen.kt:111/:757/:1050`）；全量静检 **190 项 188 ✅ / 2 ❌（两条红均非本事项：本机后端旧进程 ＋ 发布会的 `VERSION 0.2.5`）**；可达性 **171/171（348 条链接全有效、孤儿 0）**。
 
-**实现提交**：⏳ 待回填（本次实现提交）。
+**实现提交**：`bd322f2`（2026-10-06 07:2x CST，**10 files changed, 982 insertions(+), 41 deletions(-)**）—— 客户端 2 个 `.kt`（`ui/shipper/ShipperLedgerScreen.kt` ＋ `ui/shipper/ShipperLedgerViewModel.kt`）／ 两份新 QA（`_tools/qa/_check_ledger_pay_block_gate.py` 51/51 ＋ `_tools/qa/_reverse_verify_ledger_pay_block_gate.py` 18/18）／ 两份既有 QA 随动（`_check_report_metrics.py` ＋ `_reverse_verify_report_metrics.py`）／ 生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md` ／ 三份文档（`docs/changes/CHG-0052.md` ＋ `docs/changes/README.md` ＋ `docs/AI_WORK_CLAIM.md`）。
 
 ---
 
