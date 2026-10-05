@@ -99,6 +99,12 @@ fun DriverOrdersScreen(
                 vm.tab == 1 && !vm.windowSettled -> LoadingBox()
                 vm.loading -> LoadingBox()
                 vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
+                // ⚠️ 屏幕上这批单**不是这一栏的**（2026-10-06，BUG-0014）：`ordersTab` 才是"画的是哪一栏"。
+                //    只挡 `tab == 1 && !windowSettled` 那一档是不够的 —— 那一档只在**第一次**进「已完成」
+                //    时关闸；切回来 / 切过去都会漏出上一栏的单，而且卡片还按上一栏的样子画。
+                //    ⛔ 这一档必须排在 `error` **之后**：取数失败时 ordersTab 会一直停在旧值，
+                //    排在前面就把 ErrorView 顶掉了（用户将永远看不到失败，只看到转圈）。
+                vm.ordersTab != vm.tab -> LoadingBox()
                 else -> LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
@@ -134,7 +140,7 @@ fun DriverOrdersScreen(
                                     }
                                     Spacer(Modifier.height(6.dp))
                                 }
-                                OrderCard(order = order, onClick = { onOpenOrder(order.id) }, driverMode = true, highlight = vm.tab == 0)
+                                OrderCard(order = order, onClick = { onOpenOrder(order.id) }, driverMode = true, highlight = vm.ordersTab == 0)
                             }
                         }
                     }

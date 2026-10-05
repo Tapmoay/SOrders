@@ -5725,6 +5725,20 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 （`Modules.shipperEntries` 就 6 格，没有那一项），而 `DispatcherLedgerScreen.kt:533` 的注释也写着
 "图在 `ui/common/Charts.kt`（报表中心/**货主账本**/司机端在用）"—— 所以这一轮**保留**了它。
 
+### [2026-10-06 02:5x → 03:xx CST 进行中] 会话：**BUG-0014 司机任务页切栏目的那一瞬，卡片按「上一栏」的样式画「新一栏」的单**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 第 L-01 条（原文：「切「已完成」时卡片件数**先由红变紫、字号由 titleLarge 变 titleMedium**，一个往返后才换成该栏数据」）；随后（m00002）下令「把这个文档里**所有的 bug 和要改的东西全部改完**」—— 台账 L-01…L-32 全部要按仓库规范逐条立项落地，**这是第一条**。
+
+**病灶**：`ui/driver/DriverOrdersScreen.kt:137` 的 `highlight = vm.tab == 0` 拿「用户想看哪一栏」当「屏幕上画的是哪一栏」：`tab` 在点下去那一瞬就变了，`vm.orders` 却要等网络回来才整体替换。于是切换的那一个往返里，属于「进行中」的那批单被画成已完成的样式（颜色 `ui/theme/Color.kt` 的 `ProductPurple` / `DangerRed`、字号在 `ui/common/OrderCard.kt:282-292` 两个分支）。原有那道门（`vm.tab == 1 && !vm.windowSettled`）只在**第一次**进「已完成」时关闸，切回来 / 切过去都会漏。
+
+**改法（L0，三处）**：① VM 新增 `ordersTab`（`DriverOrdersViewModel.kt:44-45`，private set）＝「屏幕上画的是哪一栏」；② `load()` 在**挂起点之前**捕获 `val wanted = tab`（`:211`）、取数改用 `wanted`、把 `orders = fetched` 与 `ordersTab = wanted` 写成**相邻两句**（`:227-228`，中间不许出现挂起点）；③ Screen 的卡片高亮改读 `vm.ordersTab`（`:143`），`when` 里新增一档 `vm.ordersTab != vm.tab -> LoadingBox()`（`:107`）并**排在 `error` 之后**（否则取数失败会被这一档顶掉、用户永远看不到失败）。
+
+**判据 / 反验**：`_tools/qa/_check_driver_tab_highlight.py` **17/17**（8 组：`ordersTab` 声明在 `init` 之前 / 挂起点前捕获 `wanted` / 取数用 `wanted` / 两句相邻 / 档门排在 `error` 之后 / `highlight` 取自 `ordersTab` 且**全仓代码**里不许再出现 `highlight = vm.tab`（VM 的 KDoc 里那句历史写法是故意留的「从前错在哪」）/ 呈现未动 / 两处指路注释）；`_tools/qa/_reverse_verify_driver_tab_highlight.py` **15/15**（13 条把实现改坏 + 1 条新建「按 vm.tab 算高亮」的越权页 + 还原后逐字节比对全绿）。编译 `gradle -p android :app:compileEmuDebugKotlin` **BUILD SUCCESSFUL**（1m 1s）；回归 `_check_driver_money.py` **35/35**、`_check_vm_state_before_init.py` 通过（283 个 .kt / 38 个 VM / 0 处声明在 init 之后）。
+
+**明确不碰**：`ui/common/OrderCard.kt`（呈现层，一个字没动）、`selectTab` 的既有逻辑与 `windowSettled` 那道门、取数口径（`DRIVER_OPEN` / `FINISHED_STATUSES`）、后端**一个字节都不动**；共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `enums.py` / `ReportCenter.kt`）**一个都没动**。
+
+**静检**：`python _tools/qa/_check_all.py` → **181 项：180 ✅ / 1 ❌**（唯一那条红是 `_check_report_facts.py` 复现台账两条 ✅ 时的既有红：BUG-0013 那条 `FileLockTimeout（等了 60.0s）` 偶发 + `docs/RELEASE_CANDIDATE.md` 缺 `VERSION 0.2.5`（工作区 ` M VERSION` 在开会话前就有、另一个会话在做发布）—— 两条都与本事项无关，本事项新判据在这次运行里 ✅ 17 项；日志 `_tmp/checkall_bug0014.log`）；`python backend/scripts/check_reachability.py` → 161/161、无孤儿、338 条链接全有效（exit 0）。
+
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
@@ -5737,6 +5751,8 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-06 03:0x | **BUG-0014 司机任务页切栏目的那一瞬，卡片按「上一栏」的样式画「新一栏」的单**（我，`session-bd8fe093`） | `_tools/qa/_check_reverse_verify_anchors.py`（共享：**反向验证的锚点元检查**） | ⚠️ **只追加一条 `ALLOW` 书面理由**（键 = `("_reverse_verify_driver_tab_highlight.py", "司机端新增一个按 vm.tab 算高亮的页面（清单自己算 → 必须点名它）")`）：本事项新增的反验脚本用「**新建**一个按 `vm.tab` 算高亮的越权页」这条注入去试「清单自己算 → 必须点名新页面」那条判据，而该判据对 `.kt` 目标会先报「目标文件不存在（被改名/搬走了？）」—— 与 `_reverse_verify_driver_money.py` 的 `_LeakScreen.kt` **同一个先例**（新建型注入的目标文件本来就只在注入期间存在）。⛔ 判据逻辑、阈值、扫描口径**一个字没动**（196 份 / 2051 条一条不少），只写了一条「它为什么必然找不到」的理由；该文件的化石守卫仍要求这条键真实存在。 |
+| 2026-10-06 03:0x | **BUG-0014**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 改了两个 `ui/driver/*.kt` 之后按生成器的规矩重跑 `python _tools/qa/_hint_inventory.py --md`（1627 条文案）—— 该产物的指纹覆盖 `backend/app/**/*.py` 与 `android/app/src/main/**/*.kt`（`_tools/ai/_airepo.py:259-296`，路径也进哈希），不重生成 `_check_generated_freshness.py` 必红。⛔ 只跑生成器，没有手改一个字。 |
 | 2026-10-05 02:5x | **CHG-0036 报表中心 v2 三件事**（我，`session-e94394d5`） | `ui/dispatcher/report/ReportV2Model.kt`（共享：`REPORT_ENTRIES`） | 只改**一格图标色**：`EntryCard("5", "异常与审计", …, Color(0xFFFF4D4F))` → `Color(0xFFF5A623)`（用户 m33242：「唯独红色只有这个账他欠了钱才能使用」；琥珀是设计系统已有色）。⚠️ 这份清单**老入口页 `ReportHome.kt` 与 v2 抽屉共用**（CHG-0034 时写的是「色值与老入口页原样一致」，这次是**有意破例**），所以回退落点那一页的「异常与审计」图标也会跟着变琥珀 —— 已记进 `docs/changes/CHG-0036.md` 的 Known Limitations；其余 10 格颜色一个字没动 |
 | 2026-10-05 01:1x | **CHG-0034 报表中心 v2**（我，`session-e94394d5`） | `ui/common/DatePresets.kt`、`ui/common/Components.kt`、`ui/nav/NavGraph.kt`、`ui/dispatcher/ReportHome.kt` | ① `DatePresets.kt` **只追加**：两个常量（`THIS_QUARTER="本季"`、`THIS_YEAR="本年"`）+ `REPORT_ROW`（八档）+ `rangeOf` 里两档（本季首日~今天 / 1 月 1 日~今天）——⛔ `ROW`、`AUTO_LADDER`、`ORDER_PRESET_LADDER` 一个字没动，既有档位语义不变；② `Components.kt` 给 `DatePresetDialog`(:742) 与 `DateFilterDialogs`(:812) **追加可选参数** `row: List<String> = DatePresets.ROW`（缺省行为逐字不变），内部 `DatePresets.ROW + DatePresets.CUSTOM` → `row + DatePresets.CUSTOM`；③ `NavGraph.kt:621` 只把 `Routes.REPORT_HOME` 那一处入口从 `ReportHomeScreen` 换成 `ReportV2Screen`（老 11 条 `Routes.REPORT_*` 一行没动）；④ `ReportHome.kt` 的 11 格手抄清单改成引用 `REPORT_ENTRIES`，本页降级为一键回退入口；⑤ ⚠️ **改到共享的检查脚本**（锚点跟着实现搬家，判据一条没放宽）：11 格清单从 `ui/dispatcher/ReportHome.kt` 搬进 `ui/dispatcher/report/ReportV2Model.kt` 的 `REPORT_ENTRIES` 之后，`_tools/qa/_check_profit_report.py`、`_tools/qa/_check_vehicle_depreciation.py`、`_tools/qa/_check_tax_invoices.py`、`_tools/qa/_check_customer_balances.py` 与 `_tools/qa/_reverse_verify_{tax_invoices,customer_balances,vehicle_depreciation}.py` 的文件常量改指新文件（判据文字与阈值逐字不变）；`_check_ledger_dashboard.py` 那条「清单里画的是 `DatePresets.ROW`」改成「画的是传进来的 `row` + 缺省值就是共享档位表」（**加严**：多钉一条缺省值）；顺带修掉两条**早就过期**的反验期望名（`_reverse_verify_{profit_report,vehicle_depreciation}.py` 里写的是「ViewModel 收下页签 0..8」，判据在第二~五期已改名成 0..10 ⇒ 一直报 MISS），判据本体一字未动 |
 | 2026-09-25 06:4x | **架构整改**（我，`session-e94394d5`） | `docs/PROJECT_MAP/{06_DESIGN_SYSTEM,08_CODE_LOCATOR}.md` | 只改**自己那几行**里手写的过期数字与过期引用：金额红线 **54→50 项**、反向验证 **18→16 种**、`AiWriteArgs.money(` 的「只许剩 6 处」→「只许剩 4~12 处（当前 6 处）」、客户端状态口径 **36→29 项**、已删脚本名 `_reverse_verify_client_contract.py` → `_reverse_verify_client_contract_app.py`、"三端同一条显示规则" → "两端（H5 那一端已归档）"。⛔ **没有覆盖任何别的会话写在同文件里的内容**（改前都重读过最新行） |

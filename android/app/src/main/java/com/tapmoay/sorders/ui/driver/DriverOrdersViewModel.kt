@@ -28,6 +28,22 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
 
     var tab by mutableStateOf(0) // 0=进行中 1=已完成
     var orders by mutableStateOf<List<OrderDto>>(emptyList())
+
+    /**
+     * **`orders` 里这批单属于哪一栏**（0=进行中 1=已完成）—— 2026-10-06，BUG-0014。
+     *
+     * ⚠️ 与 [tab] 是**两件事**，切换的那一瞬间必然不同：
+     *   `tab`      = 用户**想看**哪一栏（点下去就变了）；
+     *   `ordersTab` = 屏幕上**画的**是哪一栏（要等网络回来才变）。
+     * 从前卡片拿 [tab] 算高亮（`highlight = vm.tab == 0`），于是点「已完成」的一瞬间，
+     * 那批**属于「进行中」的单**被画成已完成的样式（件数由红变紫、字号 titleLarge→titleMedium），
+     * 一个往返之后才连数据一起换掉 —— 用户看到的就是"先闪一下错的样式"。
+     *
+     * ⛔ 别把这两个状态拆开写：见 [load] 里那句"必须相邻"。
+     */
+    var ordersTab by mutableStateOf(0)
+        private set
+
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var refreshing by mutableStateOf(false)
@@ -190,6 +206,9 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
 
     fun load() {
         loadJob?.cancel()
+        // ⚠️ **在挂起点之前**把"这一趟是给哪一栏取的"钉死：取数期间用户又切了一次 tab 的话，
+        //    拿回来的是**旧那一栏**的数据 —— 那时若按新 tab 记 [ordersTab]，就又把两件事混成一件。
+        val wanted = tab
         loadJob = viewModelScope.launch {
             loading = orders.isEmpty()
             error = null
@@ -198,10 +217,15 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
                 // （原来这里硬写两个字面量；只查 ACCEPTED 时新派来的单在司机端**根本不出现**）。
                 // 已完成档 = 已送达 + 已退货（[FINISHED_STATUSES]）—— 整单退货的单**不许**从
                 // 司机列表里消失（2026-10-03，E2E 走查 P27）。
-                val statuses = if (tab == 0) OrderStatusModel.DRIVER_OPEN else FINISHED_STATUSES
-                orders = statuses
-                    .flatMap { container.repo.orders(status = it, dateFrom = if (tab == 1) dateFrom else null, dateTo = if (tab == 1) dateTo else null) }
+                val statuses = if (wanted == 0) OrderStatusModel.DRIVER_OPEN else FINISHED_STATUSES
+                val fetched = statuses
+                    .flatMap { container.repo.orders(status = it, dateFrom = if (wanted == 1) dateFrom else null, dateTo = if (wanted == 1) dateTo else null) }
                     .sortedByDescending { it.createdAt }
+                // ⚠️ 这两句**必须相邻**（中间不许出现任何挂起点）：`orders` 与 [ordersTab] 是同一个事实的两半，
+                //    要么一起换、要么都不换。拆开写就会出现"数据是新的、栏位还是旧的"（或反过来），
+                //    而这两种错都不会报错、只在屏幕上闪一下。
+                orders = fetched
+                ordersTab = wanted
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {
