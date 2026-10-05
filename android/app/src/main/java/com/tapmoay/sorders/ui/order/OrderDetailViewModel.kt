@@ -66,10 +66,13 @@ class OrderDetailViewModel(
     var loadingUnits by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 
-    // 司机：确认 / 备注 / 拍照送达
-    var showNoteDialog by mutableStateOf(false)
+    // 司机：确认 / 内部备注 / 拍照送达（2026-10-06 台账 L-04：两个弹层退役，改成页面内的字段）
+    //
+    // ⛔ 从前这里有 `showNoteDialog`（内部备注弹窗）与 `showDeliverySheet`（拍照送达底部抽屉）
+    //    两个开关。现在「要不要弹层」这件事不存在了：照片区、送达备注、提交按钮直接画在详情页
+    //    最底下，状态只剩「已经拍了几张」（`capturedPhotos`）与「备注写了什么」
+    //    （`driverRemark` / `noteText`）。写入口是**追加**语义，所以 `noteText` 不回填已有备注。
     var noteText by mutableStateOf("")
-    var showDeliverySheet by mutableStateOf(false)
     var capturedPhotos by mutableStateOf<List<String>>(emptyList())
     var pendingRawPhoto by mutableStateOf<String?>(null)
     var driverRemark by mutableStateOf("")
@@ -390,8 +393,8 @@ class OrderDetailViewModel(
         viewModelScope.launch {
             try {
                 order = container.repo.driverNote(orderId, note)
+                // 写完就清空：这一格是**再写一条**，不是编辑框（后端 append-only，见 `driver-note`）。
                 noteText = ""
-                showNoteDialog = false
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {
@@ -622,7 +625,8 @@ class OrderDetailViewModel(
                 )
                 driverRemark = ""
                 resetDamage()
-                showDeliverySheet = false
+                // 已拍的照片**不清**：这一页随后就是「已送达」，照片区随之不再画；
+                // 清掉反而会让上传失败后重试时丢图（文件本来也还在 `cacheDir/photos`）。
                 onDone()
             } catch (e: Exception) {
                 error = toApiException(e).message

@@ -259,12 +259,13 @@ fun OrderDetailScreen(
                     openAmapNavigation(context, vm.order?.addressLng, vm.order?.addressLat, vm.order?.addressDetail)
                 },
                 onAck = { vm.ack() },
-                onNoteClick = {
-                    vm.noteText = vm.order?.driverRemark ?: ""
-                    vm.showNoteDialog = true
-                },
-                onCaptureClick = { vm.showDeliverySheet = true },
+                // 点「拍照送达」= **直接进相机**（用户台账 L-04 第 ① 条）：从前它只开一个底部抽屉，
+                // 抽屉里再点一次才是相机 ——「一步能做完的不要拆两步」。
+                onCaptureClick = { capture() },
                 onPhotoClick = openPhoto,
+                // 刚拍还没上传的那张是本地 `File`（不是服务端 URL），所以走 `open(models, at)` 那一支；
+                // 本地图不给「保存到相册」那颗按钮（它本来就在这台手机上，再下一次没有意义）。
+                onCapturedPhotoClick = { i -> preview.open(vm.capturedPhotos.map { File(it) }, i) },
                 onPayClick = { vm.showPayConfirm = true },
                 onChargeClick = { vm.openCharge() },
                 onEditFreightClick = { vm.openFreightDialog() },
@@ -285,6 +286,15 @@ fun OrderDetailScreen(
             damageNote = vm.damageNote,
             onDamageQty = { id, q -> vm.damageByProduct[id] = q },
             onDamageNote = { vm.damageNote = it },
+            // 拍照送达这条链路的页面内状态（L-04）：已拍几张、送达备注、内部备注（追加一条）。
+            photos = vm.capturedPhotos,
+            remark = vm.driverRemark,
+            onRemarkChange = { vm.driverRemark = it },
+            onRemovePhoto = { i -> vm.removeCapturedPhoto(i) },
+            onSubmitDelivery = { p -> vm.completeDelivery({ onBack() }, p) },
+            noteText = vm.noteText,
+            onNoteTextChange = { vm.noteText = it },
+            onSaveNote = { vm.saveNote() },
             )
             }
         }
@@ -501,44 +511,11 @@ fun OrderDetailScreen(
         )
     }
 
-    // 司机内部备注
-    if (vm.showNoteDialog) {
-        AlertDialog(
-            onDismissRequest = { vm.showNoteDialog = false },
-            title = { Text("内部备注") },
-            text = {
-                OutlinedTextField(
-                    value = vm.noteText,
-                    onValueChange = { vm.noteText = it },
-                    label = { Text("备注（与派单员可见）") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = { TextButton(onClick = { vm.saveNote() }) { Text("保存") } },
-            dismissButton = { TextButton(onClick = { vm.showNoteDialog = false }) { Text("取消") } },
-        )
-    }
-
-    // 拍照送达底部弹窗
-    if (vm.showDeliverySheet) {
-        DeliverySheet(
-            photos = vm.capturedPhotos,
-            remark = vm.driverRemark,
-            uploading = vm.uploading,
-            onRemarkChange = { vm.driverRemark = it },
-            onCapture = { capture() },
-            onRemove = { i -> vm.removeCapturedPhoto(i) },
-            onSubmit = { p -> vm.completeDelivery({ onBack() }, p) },
-            onDismiss = { vm.showDeliverySheet = false },
-            collectCash = vm.order?.collectCash == true,
-            products = vm.order?.orderProducts ?: emptyList(),
-            damageByProduct = vm.damageByProduct,
-            damageNote = vm.damageNote,
-            onDamageQty = { id, q -> vm.damageByProduct[id] = q },
-            onDamageNote = { vm.damageNote = it },
-        )
-    }
+    // ⛔ 「拍照送达」的底部抽屉（`DeliverySheet`）与内部备注 AlertDialog 已在 2026-10-06 拆掉
+    //   （用户台账 L-04）：照片、送达备注、「提交送达」全搬进 `DetailBody` 最底下那两块，
+    //   破损卡片只留商品明细下面那一份（抽屉里那份是**第二份**）。
+    //   `vm.showDeliverySheet` / `vm.showNoteDialog` 随之退役 —— 状态不再是「开不开弹层」，
+    //   而是「已经拍了几张」（`vm.capturedPhotos`）。
 
     // 照片大图（翻页 / 双指缩放 / 保存到相册）—— 实现在 ui/common/ImagePreview.kt，
     // 全库只此一份：地址页、下单页、订单详情页点开的都是它。
@@ -624,9 +601,10 @@ private fun DetailBody(
     onDeleteClick: () -> Unit,
     onNavigate: () -> Unit,
     onAck: () -> Unit,
-    onNoteClick: () -> Unit,
     onCaptureClick: () -> Unit,
     onPhotoClick: (String) -> Unit,
+    /** 点刚拍还没上传的那张（本地 `File`）→ 大图预览；`i` 是它在 `photos` 里的序号。 */
+    onCapturedPhotoClick: (Int) -> Unit = {},
     onPayClick: () -> Unit,
     onChargeClick: () -> Unit,
     onEditFreightClick: () -> Unit,
@@ -638,6 +616,25 @@ private fun DetailBody(
     damageNote: String = "",
     onDamageQty: (Long, Int) -> Unit = { _, _ -> },
     onDamageNote: (String) -> Unit = {},
+    // ── 拍照送达这条链路的页面内状态与动作（用户台账 L-04：照片、送达备注、内部备注、完成）──
+    /** 已经拍了还没上传的照片（本地绝对路径，落在 `context.cacheDir/photos`）。 */
+    photos: List<String> = emptyList(),
+    /** 送达备注（提交时随照片一起上传）。 */
+    remark: String = "",
+    onRemarkChange: (String) -> Unit = {},
+    onRemovePhoto: (Int) -> Unit = {},
+    /** 提交送达：`cash` / `arrears` / `null`（含义与挂车直结那条路的 `onDirectCompleteClick` 相同）。 */
+    onSubmitDelivery: (String?) -> Unit = {},
+    /**
+     * 内部备注（**追加一条**）。
+     *
+     * ⛔ 后端 `POST /orders/{id}/driver-note` 是 append-only（`orders_delivery.py` 写
+     * `[司机 {时间}] ` 前缀**累加**到 `internal_notes`，注释明说写进去就再也改不了），
+     * 所以这里**不回填**已有备注 —— 这一格是「再写一条」，历史在上面收货信息卡里只读看。
+     */
+    noteText: String = "",
+    onNoteTextChange: (String) -> Unit = {},
+    onSaveNote: () -> Unit = {},
     /** 司机/派单员：这单还没有坐标 → 可以到场补上 */
     canFillNav: Boolean = false,
     onFillNavClick: () -> Unit = {},
@@ -1355,13 +1352,15 @@ private fun DetailBody(
                             }
                         }
                     } else {
+                        // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——
+                        // 页面上只留**一个**拍照入口，免得两颗按钮干同一件事。
                         Button(
                             onClick = onCaptureClick,
                             modifier = Modifier.fillMaxWidth().height(56.dp),
                         ) {
                             Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("拍照送达")
+                            Text(if (photos.isEmpty()) "拍照送达" else "继续拍照（" + photos.size + " 张）")
                         }
                     }
                     Button(
@@ -1372,14 +1371,8 @@ private fun DetailBody(
                         Spacer(Modifier.width(8.dp))
                         Text("高德导航")
                     }
-                    OutlinedButton(
-                        onClick = onNoteClick,
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                    ) {
-                        Icon(Icons.Default.Notes, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("内部备注")
-                    }
+                    // 「内部备注」那颗按钮（+ AlertDialog）已退役：备注改成页面最底下的输入框
+                    // （L-04 第 ⑥ 条「不要弹窗」）。⛔ 角色门一个字没放松 —— 见下面「内部备注」那一块。
                 }
                 // 派单员：已派单/已接单均可导航
                 // 派单员：已接单可导航
@@ -1396,6 +1389,169 @@ private fun DetailBody(
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
+        // ── 送达凭证（司机 · 拍照送达这条链路）2026-10-06 用户台账 L-04 ────────────────
+        // 从前这一整块在底部抽屉里（`ModalBottomSheet`）：点「拍照送达」只开抽屉，照片、
+        // 送达备注、货物破损、「提交送达」全都躺在抽屉里；拍完想再拍一张得**先关抽屉**再点入口。
+        // 用户原话（m00061）：「点击拍照送达就**直接拍照**」「拍完的照片就在订单界面里出现缩略图，
+        // 然后我们可以**再点击继续拍照**」「送达备注就写在内部备注的上面」。
+        //
+        // ⛔ 挂车直结那条路（`order.freightVisible`）**不走这里**：`has_per_order_pay` 的单
+        //    点一下「完成订单 / 收取现金 / 挂账」就走 `completeDirect`（**不带照片**），那颗按钮
+        //    留在上面的动作卡里，所以这一块整块不画。
+        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE && !order.freightVisible) {
+            item {
+                SectionCard {
+                    SectionTitle(
+                        Icons.Default.PhotoCamera,
+                        Color(ProductPurple),
+                        if (photos.isEmpty()) "送达凭证" else "送达照片（已拍 " + photos.size + " 张）",
+                    )
+                    if (photos.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "点一下看大图（可双指放大、可存相册）；右上角的 ⊗ 是删掉这一张",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            photos.forEachIndexed { i, path ->
+                                Box {
+                                    AsyncImage(
+                                        model = File(path),
+                                        contentDescription = "已拍照片",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(84.dp)
+                                            .clip(MaterialTheme.shapes.medium)
+                                            .clickable { onCapturedPhotoClick(i) },
+                                    )
+                                    IconButton(
+                                        onClick = { onRemovePhoto(i) },
+                                        modifier = Modifier.align(Alignment.TopEnd).size(26.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Cancel,
+                                            contentDescription = "移除",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    OutlinedTextField(
+                        value = remark,
+                        onValueChange = onRemarkChange,
+                        label = { Text("送达备注（可选）") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+
+        // ── 内部备注（司机 / 派单员可见）2026-10-06 L-04 第 ⑥ 条 + L-05 的口径 ──────────
+        // 从前这里是一颗按钮 + 一个 AlertDialog：写一句话要弹窗、写完再关。用户要的是「就在页面
+        // 上写」——弹窗去掉，**角色门一个字都没放松**：后端 `order_response.py` 对货主把
+        // `internal_notes` 抹成空串，`orders_delivery.py` 只放 DRIVER/DISPATCHER（司机还
+        // 必须是这单的司机）；界面这一侧就是下面这行 `role` 判据 + 收货信息卡里那道只读门。
+        //
+        // ⛔ 写入口是 **append-only**：后端给每条加 `[司机 {时间}] ` 前缀**累加**到
+        //    `internal_notes`（注释明说写进去就再也改不了）。所以这一格**不回填**已有备注 ——
+        //    它只能是「再写一条」，历史在上面收货信息卡里只读看。
+        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
+            item {
+                SectionCard {
+                    SectionTitle(Icons.Default.Notes, Color(0xFF1E6FFF), "内部备注")
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "只有司机和派单员看得到。写进去是追加一条，已有的那条不会被改动。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = noteText,
+                        onValueChange = onNoteTextChange,
+                        label = { Text("再写一条备注（与派单员可见）") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onSaveNote,
+                        enabled = !acting && noteText.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("添加备注")
+                    }
+                }
+            }
+        }
+
+        // ── 完成（拍照送达这条链路的最后一步）────────────────────────────────────
+        // 用户第 ④ 条：「**只有上传最少一张照片之后才会有这个**（完成入口）」⇒ 一张都没拍时这一
+        // 块**整块不存在**（不是置灰：没照片时连按钮都不该出现在页面上）。第 ③ 条：「完成按钮就
+        // 移到内部备注的最下面」⇒ 它就是这一页最后一个块。
+        // ⛔ `completeDelivery` 里那道 `capturedPhotos.isEmpty()` 是**第二道门**（防界面
+        //    之外的调用），别顺手删。挂车直结不走这里（见上面「送达凭证」那块）。
+        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE &&
+            !order.freightVisible && photos.isNotEmpty()
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (order.collectCash) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = { onSubmitDelivery("cash") },
+                                enabled = !uploading,
+                                modifier = Modifier.weight(1f).height(56.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(MoneyOrange),
+                                    contentColor = Color.White,
+                                ),
+                            ) {
+                                if (uploading) {
+                                    CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("收取现金（" + photos.size + " 张）", style = MaterialTheme.typography.titleSmall)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { onSubmitDelivery("arrears") },
+                                enabled = !uploading,
+                                modifier = Modifier.weight(1f).height(56.dp),
+                            ) {
+                                Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("挂账（" + photos.size + " 张）", style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    } else {
+                        Button(
+                            onClick = { onSubmitDelivery(null) },
+                            enabled = !uploading,
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                        ) {
+                            if (uploading) {
+                                CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("提交送达（" + photos.size + " 张照片）", style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1696,131 +1852,14 @@ private fun DamageCard(
 
 /** 拍照送达弹层：多张照片 + 备注 + 提交 */
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DeliverySheet(
-    photos: List<String>,
-    remark: String,
-    uploading: Boolean,
-    onRemarkChange: (String) -> Unit,
-    onCapture: () -> Unit,
-    onRemove: (Int) -> Unit,
-    onSubmit: (String?) -> Unit,
-    onDismiss: () -> Unit,
-    collectCash: Boolean = false,
-    products: List<com.tapmoay.sorders.data.remote.dto.OrderProductDto> = emptyList(),
-    damageByProduct: Map<Long, Int> = emptyMap(),
-    damageNote: String = "",
-    onDamageQty: (Long, Int) -> Unit = { _, _ -> },
-    onDamageNote: (String) -> Unit = {},
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
-            Text("送达凭证", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "送达照片 · 自动加水印",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
+// ⛔ 底部抽屉（DeliverySheet）已删除（用户台账 L-04：「点击拍照送达就直接拍照」）。
+//   它原来那四件事现在的去处：
+//   ① 已拍照片的缩略图 → 上面 DetailBody 里的「送达照片」区（可点开大图、右上角可删）；
+//   ② 「再拍一张」 → 动作卡里那颗**同一个**拍照入口（拍过之后文案变「继续拍照（N 张）」）；
+//   ③ 送达备注 / 货物破损 → 备注搬进「送达照片」区；破损这一页商品明细下面本来就有一份
+//      （DamageCard），抽屉里那份是**第二份**，随抽屉一起没了；
+//   ④ 「提交送达 / 收取现金 / 挂账」 → 页面最底下的「完成」块（**至少一张照片**才画）。
 
-            // 已拍照片缩略图
-            if (photos.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    photos.forEachIndexed { i, path ->
-                        Box {
-                            AsyncImage(
-                                model = File(path),
-                                contentDescription = "待上传照片",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(84.dp)
-                                    .clip(MaterialTheme.shapes.medium),
-                            )
-                            IconButton(
-                                onClick = { onRemove(i) },
-                                modifier = Modifier.align(Alignment.TopEnd).size(26.dp),
-                            ) {
-                                Icon(
-                                    Icons.Default.Cancel,
-                                    contentDescription = "移除",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-
-            OutlinedButton(
-                onClick = onCapture,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-            ) {
-                Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (photos.isEmpty()) "拍摄第一张照片" else "再拍一张（" + photos.size + "）")
-            }
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = remark,
-                onValueChange = onRemarkChange,
-                label = { Text("送达备注（可选）") },
-                minLines = 2,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(16.dp))
-            DamageCard(
-                products = products,
-                damageByProduct = damageByProduct,
-                damageNote = damageNote,
-                onQtyChange = onDamageQty,
-                onNoteChange = onDamageNote,
-            )
-            Spacer(Modifier.height(16.dp))
-            if (collectCash) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = { onSubmit("cash") },
-                        enabled = !uploading && photos.isNotEmpty(),
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(MoneyOrange), contentColor = Color.White),
-                    ) {
-                        if (uploading) {
-                            CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text("收取现金（" + photos.size + " 张）")
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = { onSubmit("arrears") },
-                        enabled = !uploading && photos.isNotEmpty(),
-                        modifier = Modifier.weight(1f).height(50.dp),
-                    ) {
-                        Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("挂账（" + photos.size + " 张）")
-                    }
-                }
-            } else {
-                Button(
-                    onClick = { onSubmit(null) },
-                    enabled = !uploading && photos.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                ) {
-                    if (uploading) {
-                        CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                    } else {
-                        Text("提交送达（" + photos.size + " 张照片）")
-                    }
-                }
-            }
-        }
-    }
-}
 
 /** 支付状态徽章 */
 @Composable

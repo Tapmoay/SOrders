@@ -188,6 +188,12 @@ ALLOW: dict[tuple[str, str], str] = {
     ): "同上面两条（CHG-0044 判据 1「全仓只有一处 fun ImagePreviewDialog(」）："
        "这条注入**故意新建一个文件**（`ui/common/_LeakPreviewScreen.kt`，跑完删掉）来试那条判据 ——"
        "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
+    (
+        "_reverse_verify_delivery_flow.py",
+        "又在订单侧抄了一个拍照送达抽屉（扫全仓的那条判据必须点名它）",
+    ): "同上面三条（CHG-0045 判据 1「任何 .kt 里都没有 `fun DeliverySheet(`」）："
+       "这条注入**故意新建一个文件**（`ui/order/_LeakDeliverySheet.kt`，跑完删掉）来试那条判据 ——"
+       "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
 }
 
 
