@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.ui.theme.SuccessDark
 import com.tapmoay.sorders.ui.theme.ThemeMode
@@ -486,6 +487,51 @@ fun DangerConfirmDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         },
+    )
+}
+
+/**
+ * 卡片式弹窗 —— 白底 ＋ 弹层圆角，**不再是 M3 那层灰蓝**。
+ *
+ * 成因（用户台账 L-16，已确证到色值）：M3 `AlertDialog` 的默认容器 = `colorScheme.surfaceContainerHigh`，
+ * 本主题把它设成 `ui/theme/Color.kt:152 = #DDE1EA` ⇒ 全库 68 处弹窗都继承这个「灰蓝灰蓝的」底色。
+ * 用户 2026-10-06（m00354 原话）：「核销不要用弹窗啊……哎还是用弹窗吧，但是我们换个样式，
+ * 不要那种灰蓝灰蓝的，我们像那种卡片的弹窗样式一样。这个要改啊，因为太丑了。」
+ *
+ * 这个零件只定**容器**那一层（与 [SectionCard] 同一套语言：白底、弹层圆角 28、不抬升）；
+ * 槽位（[icon] / [title] / [text] / 两颗按钮）与 `AlertDialog` 逐字相同 ——
+ * 所以调用点只是把 `AlertDialog` 调用换成 `CardAlertDialog`，排版、文案、交互一个字不动。
+ *
+ * ⛔ `tonalElevation = 0.dp` 不能省：M3 默认那 6dp 会给白底再刷一层主色薄雾，看着又偏回灰蓝。
+ * ⛔ 不许用改主题 token 的办法「变白」：`surfaceContainerHigh` 另有 6 处消费者
+ *   （`ui/ai/AiRichText.kt` / `ui/ai/AiChatScreen.kt` ×4 / `ui/messages/MessagesScreen.kt` 未读底色）。
+ *
+ * 逐步收敛的落点：以后要立的那套「弹窗语言」（图标 ＋ 语义色）以本零件为**唯一落点** ——
+ * 一处改、所有迁过来的弹窗跟着变；其余弹窗仍走 `AlertDialog` 的默认灰蓝（边界见 CHG-0051）。
+ */
+@Composable
+fun CardAlertDialog(
+    onDismissRequest: () -> Unit,
+    confirmButton: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    dismissButton: (@Composable () -> Unit)? = null,
+    icon: (@Composable () -> Unit)? = null,
+    title: (@Composable () -> Unit)? = null,
+    text: (@Composable () -> Unit)? = null,
+    properties: DialogProperties = DialogProperties(),
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        confirmButton = confirmButton,
+        modifier = modifier,
+        dismissButton = dismissButton,
+        icon = icon,
+        title = title,
+        text = text,
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        properties = properties,
     )
 }
 

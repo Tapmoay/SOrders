@@ -18,7 +18,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
@@ -36,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.ui.common.CardAlertDialog
 import com.tapmoay.sorders.ui.common.DialogTitle
 import com.tapmoay.sorders.ui.common.OrderStatusChip
 import com.tapmoay.sorders.ui.common.SectionCard
@@ -382,7 +382,7 @@ private fun PersonOrderCard(
 @Composable
 fun SettleOrderDialog(vm: DispatcherLedgerViewModel, onDismiss: () -> Unit) {
     val order = vm.settleTarget ?: return
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = { if (!vm.settleSubmitting) onDismiss() },
         // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
         title = { DialogTitle("核销", order.orderNo) },
@@ -468,7 +468,7 @@ fun SettleOrderDialog(vm: DispatcherLedgerViewModel, onDismiss: () -> Unit) {
 @Composable
 fun SettleAllDialog(vm: DispatcherLedgerViewModel, onDismiss: () -> Unit) {
     val targets = vm.settleAllTargets()
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = { if (!vm.settleSubmitting) onDismiss() },
         title = { Text("核销全部（" + targets.size + " 单）") },
         text = {

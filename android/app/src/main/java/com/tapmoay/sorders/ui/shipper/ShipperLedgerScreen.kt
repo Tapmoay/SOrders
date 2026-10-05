@@ -173,7 +173,7 @@ fun ShipperLedgerScreen(
         )
     }
     vm.restoreTarget?.let { s ->
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.cancelRestore() },
             title = { Text("恢复这笔核销？") },
             text = {
@@ -779,7 +779,7 @@ private fun RevokedCard(vm: ShipperLedgerViewModel) {
  */
 @Composable
 private fun SettleOrderDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = { if (!vm.settleSubmitting) vm.closeSettle() },
         // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
         title = { DialogTitle("核销订单", "#" + order.orderNo) },
@@ -893,7 +893,7 @@ private fun SettleOrderDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
 @Composable
 private fun OrderSettlementsDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
     val list = vm.settledOfOrder(order.id)
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = { vm.closeSettlements() },
         title = { DialogTitle("订单核销记录", "#" + order.orderNo) },
         text = {

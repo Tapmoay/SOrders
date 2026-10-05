@@ -1,0 +1,274 @@
+"""核销那一族弹窗改成**卡片式**（台账 L-16，2026-10-06）：白底 ＋ 弹层圆角，不再是 M3 那层灰蓝。
+
+## 用户口径（原话）
+「核销不要用弹窗啊，用弹窗的样式太难看了。哎还是用弹窗吧，但是我们换个样式，不要那种灰蓝灰蓝的，
+我们像那种卡片的弹窗样式一样。这个要改啊，因为太丑了。」（用户 m00354）
+
+## 机制：那层「灰蓝灰蓝的」是从哪来的
+M3 的 `AlertDialog` 默认容器色 = `colorScheme.surfaceContainerHigh`；本主题把它设成
+`ui/theme/Color.kt:152 = #DDE1EA`（接线在 `ui/theme/Theme.kt:101`）。全仓 68 处
+`AlertDialog(` **没有一处**设过 `containerColor` ⇒ 所有弹窗都是那个灰蓝底。用户后来又补了
+一句（m00542）：「不一定要是卡片式的，只是现在的弹窗太难看了，**具体样式我们可以之后慢慢定**」，
+并要求这套语言要有自己的图标与语义色。
+
+## 这一刀只动「容器那一层」（别顺手多改）
+- **动**：`ui/common/Components.kt` 新增共用零件 `CardAlertDialog`（白底 ＋
+  `shapes.extraLarge` ＋ `tonalElevation = 0.dp`），把**核销这一族** 5 处调用点迁过去
+  （货主账本 3 处 ＋ 派单员账本 2 处）。槽位 / 文案 / 排版 / 交互一个字不动 —— 换的只是那层底。
+- **不动**：主题 token（`surfaceContainerHigh` 另有 6 处消费者：AI 聊天 4 ＋ 富文本引用块 1 ＋
+  消息未读底色 1；改它等于顺手改了那些页面）；`DangerConfirmDialog`（全 App 共用的危险确认，
+  属于待拍板的「弹窗语言」）；其余 63 处裸 `AlertDialog(`（本事项的边界，见 CHG-0051 的
+  Known Limitations）。
+
+## 判据
+1. 零件本身：签名逐字（含 `properties` 透传）、转发给 `AlertDialog`、三行样式
+   （`shape` / `containerColor = MaterialTheme.colorScheme.surface` / `tonalElevation = 0.dp`）；
+   KDoc 里点了 L-16 与用户原话；
+2. 核销这一族 5 处都迁了，且这两个文件里**代码**中再没有裸 `AlertDialog(`；
+3. 全仓**代码**里裸 `AlertDialog(` 从 68 → 63（只有这 5 处被迁），`CardAlertDialog(` = 6
+   （1 处定义 ＋ 5 处调用）；
+4. 边界：别的页面一处没动（OrderDetailScreen 8 / DispatcherOrdersScreen 5 / OrderCreateScreen 4
+   / ProfileScreen 3）；
+5. 方案 C 的护栏：主题 token 与它的 6 处消费者一个字没动；`DangerConfirmDialog` 与既有判据
+   钉它的两行都还在；
+6. 文档与随动：`docs/changes/CHG-0051.md` 在、README 有行、AI_WORK_CLAIM 有条目与交叉点行；
+7. 防静默空转：扫到的 .kt >= MIN_KT，关键文件都在。
+
+## 为什么这条必须有机器的判据
+「换个弹窗样式」是**一层容器的颜色**：把它改回灰蓝不会有任何编译错误、不会有任何用例报红，而界面上
+是「一眼就能看出丑」的那种坏。反向破坏用例见 _reverse_verify_ledger_dialog_style.py（零件样式被抽回
+默认 / 某个文件少迁一处 / `containerColor` 被删 / 调用点被改回裸 `AlertDialog` / 主题
+token 被改（方案 C 回潮）/ `DangerConfirmDialog` 被顺手改掉 / 文档口径被改回去 … ＋ 还原后
+逐字节比对）。
+
+## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
+`containerColor: Color` 在类型上就是一个颜色：`#DDE1EA`（灰蓝）与 `surface`（白）
+都是合法的 `Color`，「这层底不该是灰蓝」是**用户看到的观感口径**，任何类型都表达不出「卡片式」。
+所以判据只能钉在零件的三行样式、迁移清单的计数（68 → 63）与「别处一处没动」上。
+
+用法：python _tools/qa/_check_ledger_dialog_style.py
+"""
+import re
+import sys
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+ROOT = Path(__file__).resolve().parents[2]
+AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
+COMP = AND / "ui/common/Components.kt"
+SHIPPER = AND / "ui/shipper/ShipperLedgerScreen.kt"
+DISPATCHER = AND / "ui/dispatcher/LedgerPersonScreen.kt"
+COLOR = AND / "ui/theme/Color.kt"
+THEME = AND / "ui/theme/Theme.kt"
+AI_RICH = AND / "ui/ai/AiRichText.kt"
+AI_CHAT = AND / "ui/ai/AiChatScreen.kt"
+MSGS = AND / "ui/messages/MessagesScreen.kt"
+DETAIL = AND / "ui/order/OrderDetailScreen.kt"
+DISP_ORDERS = AND / "ui/dispatcher/DispatcherOrdersScreen.kt"
+ORDER_CREATE = AND / "ui/shipper/OrderCreateScreen.kt"
+PROFILE = AND / "ui/profile/ProfileScreen.kt"
+GUARDS = ROOT / "_tools/qa/_check_cancel_entry_and_guards.py"
+CHG = ROOT / "docs/changes/CHG-0051.md"
+README = ROOT / "docs/changes/README.md"
+CLAIM = ROOT / "docs/AI_WORK_CLAIM.md"
+REVERSE = ROOT / "_tools/qa/_reverse_verify_ledger_dialog_style.py"
+
+#: 全仓至少要有这么多 .kt（防「目录被搬走 → 一个都没扫到 → 全绿」）。
+MIN_KT = 100
+#: 迁移前全仓裸 `AlertDialog(` 是 68 处；本事项只迁核销那 5 处。
+BARE_AFTER = 63
+#: 零件定义 1 处 ＋ 迁移调用点 5 处。
+CARD_AFTER = 6
+#: 核销这一族的迁移清单（文件 ＋ 迁了几处）。
+MIGRATED = [(SHIPPER, 3, "货主账本"), (DISPATCHER, 2, "派单员账本")]
+#: 别处一处没动（这些数字是迁移当时实测的）。
+UNTOUCHED = [(DETAIL, 8), (DISP_ORDERS, 5), (ORDER_CREATE, 4), (PROFILE, 3)]
+#: 主题 token 的消费者（本事项明确没碰它们；数字是实测的）。
+CONSUMERS = [(AI_RICH, 1, "富文本引用块底"), (AI_CHAT, 4, "AI 聊天 4 处"), (MSGS, 1, "消息未读底色")]
+REQUIRED_FILES = [COMP, SHIPPER, DISPATCHER, COLOR, THEME, AI_RICH, AI_CHAT, MSGS, CHG, REVERSE]
+
+#: ⛔ 数裸弹窗时必须排除 `Card` 前缀（`CardAlertDialog(` 里含子串 `AlertDialog(`），
+#:    否则新零件会被当成"没迁干净"。Python 的 `re` 支持负向后顾，ripgrep 不支持。
+BARE = r"(?<!Card)AlertDialog\("
+CARD = r"CardAlertDialog\("
+
+
+def read(p: Path) -> str:
+    return p.read_text(encoding="utf-8")
+
+
+def code_only(text: str) -> str:
+    """去掉注释但**保留换行数**（行号才对得上）。
+
+    ⛔ 零件的 KDoc 里**故意**写着「把 `AlertDialog` 调用换成 `CardAlertDialog`」这类话；
+    判据要钉的是**代码**里还有几处，不是注释里提没提它。
+    """
+    text = re.sub(r"/\*[\s\S]*?\*/", lambda m: "\n" * m.group(0).count("\n"), text)
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def count(text: str, pattern: str) -> int:
+    return len(re.findall(pattern, text))
+
+
+class Checker:
+    def __init__(self) -> None:
+        self.fails: list[str] = []
+        self.passes = 0
+
+    def ok(self, label: str, cond: bool, detail: str = "") -> None:
+        if cond:
+            self.passes += 1
+            print(f"  [OK]   {label}")
+        else:
+            self.fails.append(label + (f" —— {detail}" if detail else ""))
+            print(f"  [FAIL] {label}" + (f" —— {detail}" if detail else ""))
+
+    def present(self, label: str, text: str, pattern: str) -> None:
+        self.ok(label, re.search(pattern, text) is not None, f"没找到 {pattern!r}")
+
+    def absent(self, label: str, text: str, pattern: str) -> None:
+        self.ok(label, re.search(pattern, text) is None, f"不该出现却出现了 {pattern!r}")
+
+
+def main() -> int:
+    c = Checker()
+    comp = read(COMP)
+    comp_code = code_only(comp)
+    ship_code = code_only(read(SHIPPER))
+    disp_code = code_only(read(DISPATCHER))
+
+    print("== 1. 零件本身：CardAlertDialog ==")
+    c.present("@Composable 的 CardAlertDialog 在", comp_code, r"@Composable\s*\nfun CardAlertDialog\(")
+    sig = (
+        "fun CardAlertDialog(\n"
+        "    onDismissRequest: () -> Unit,\n"
+        "    confirmButton: @Composable () -> Unit,\n"
+        "    modifier: Modifier = Modifier,\n"
+        "    dismissButton: (@Composable () -> Unit)? = null,\n"
+        "    icon: (@Composable () -> Unit)? = null,\n"
+        "    title: (@Composable () -> Unit)? = null,\n"
+        "    text: (@Composable () -> Unit)? = null,\n"
+        "    properties: DialogProperties = DialogProperties(),\n"
+        ") {"
+    )
+    c.ok("签名与 AlertDialog **逐字对齐**（8 个槽位一个不少，调用点才不用改排版）", sig in comp_code,
+         "签名对不上：多槽 / 少槽都会让调用点被迫改结构")
+    body_i = comp_code.find("fun CardAlertDialog(")
+    body = comp_code[body_i:body_i + 2000] if body_i >= 0 else ""
+    c.present("转发给 AlertDialog（不是自己画一层 Surface）", body, r"\n\s*AlertDialog\(")
+    c.present("白底：containerColor = MaterialTheme.colorScheme.surface", body,
+              r"containerColor = MaterialTheme\.colorScheme\.surface,")
+    c.present("弹层圆角：shape = MaterialTheme.shapes.extraLarge", body,
+              r"shape = MaterialTheme\.shapes\.extraLarge,")
+    c.present("⛔ tonalElevation = 0.dp（M3 默认那 6dp 会给白底再刷一层主色薄雾）", body,
+              r"tonalElevation = 0\.dp,")
+    c.present("properties 也透传（调用点传的 DialogProperties 不会丢）", body, r"properties = properties,")
+    c.present("DialogProperties 的 import 在", comp_code,
+              r"import androidx\.compose\.ui\.window\.DialogProperties")
+    c.present("KDoc 点了台账编号 L-16（可追溯到用户原话）", comp, r"台账 L-16")
+    c.present("KDoc 里留着用户那句「灰蓝灰蓝」（后来的人知道要躲什么）", comp, r"灰蓝灰蓝")
+
+    print("== 2. 核销这一族 5 处都迁了（两个角色的两个入口，不能只改一半） ==")
+    for p, n, who in MIGRATED:
+        got = count(code_only(read(p)), CARD)
+        c.ok(f"{who}：{n} 处核销弹窗全走 CardAlertDialog", got == n, f"实际 {got} 处")
+        c.ok(f"{who}：代码里再没有裸 AlertDialog(", count(code_only(read(p)), BARE) == 0,
+             f"还有 {count(code_only(read(p)), BARE)} 处没迁")
+    c.ok("货主账本「恢复这笔核销」那一支迁了（vm.restoreTarget 那一处）",
+         "vm.restoreTarget?.let { s ->\n        CardAlertDialog(" in ship_code)
+    c.ok("货主账本 SettleOrderDialog（核销订单）迁了",
+         "private fun SettleOrderDialog(vm: ShipperLedgerViewModel, order: OrderDto) {\n    CardAlertDialog(" in ship_code)
+    c.ok("货主账本 OrderSettlementsDialog（订单核销记录）迁了",
+         "private fun OrderSettlementsDialog(vm: ShipperLedgerViewModel, order: OrderDto) {\n    val list = vm.settledOfOrder(order.id)\n    CardAlertDialog(" in ship_code)
+    c.ok("派单员账本 SettleOrderDialog（核销）迁了",
+         "fun SettleOrderDialog(vm: DispatcherLedgerViewModel, onDismiss: () -> Unit) {\n    val order = vm.settleTarget ?: return\n    CardAlertDialog(" in disp_code)
+    c.ok("派单员账本 SettleAllDialog（核销全部）迁了",
+         "fun SettleAllDialog(vm: DispatcherLedgerViewModel, onDismiss: () -> Unit) {\n    val targets = vm.settleAllTargets()\n    CardAlertDialog(" in disp_code)
+    c.present("标题没动：货主「恢复这笔核销？」", ship_code, r'Text\("恢复这笔核销？"\)')
+    c.present("标题没动：货主「核销订单 + 单号」", ship_code, r'DialogTitle\("核销订单", "#" \+ order\.orderNo\)')
+    c.present("标题没动：货主「订单核销记录」", ship_code, r'DialogTitle\("订单核销记录",')
+    c.present("标题没动：派单员「核销 + 单号」", disp_code, r'DialogTitle\("核销", order\.orderNo\)')
+    c.present("标题没动：派单员「核销全部（N 单）」", disp_code, r'Text\("核销全部（" \+ targets\.size \+ " 单）"\)')
+    c.ok("两颗按钮的槽位照旧（confirmButton 还在，没有把弹窗改成别的形状）",
+         count(ship_code, r"confirmButton =") >= 3 and count(disp_code, r"confirmButton =") >= 2)
+
+    print("== 3. 全仓计数：68 → 63，且只有这 5 处被迁 ==")
+    kts = sorted(AND.rglob("*.kt"))
+    bare_total = 0
+    card_total = 0
+    bare_left: dict[str, int] = {}
+    for p in kts:
+        t = code_only(read(p))
+        b = count(t, BARE)
+        bare_total += b
+        card_total += count(t, CARD)
+        if b:
+            bare_left[p.relative_to(AND).as_posix()] = b
+    c.ok(f"全仓代码里裸 AlertDialog( = {bare_total} 处（迁移前 68，只迁核销那 5 处）", bare_total == BARE_AFTER,
+         f"实际 {bare_total}")
+    c.ok(f"全仓 CardAlertDialog( = {card_total} 处（1 处定义 ＋ 5 处调用）", card_total == CARD_AFTER,
+         f"实际 {card_total}")
+    for p, _, who in MIGRATED:
+        rel = p.relative_to(AND).as_posix()
+        c.ok(f"{who}不在「还有裸 AlertDialog」的名单里", rel not in bare_left,
+             f"还在名单里：{bare_left.get(rel)} 处")
+
+    print("== 4. 边界：别的页面一处没动 ==")
+    for p, n in UNTOUCHED:
+        got = count(code_only(read(p)), BARE)
+        c.ok(f"{p.name} 一处没动（仍是 {n} 处裸 AlertDialog）", got == n, f"现在是 {got} 处")
+    c.ok("Components.kt 自己仍是 4 处裸 AlertDialog（DangerConfirmDialog 1 ＋ 新零件转发 1 ＋ 两个日期筛选弹窗 2）",
+         count(comp_code, BARE) == 4, f"现在是 {count(comp_code, BARE)} 处")
+
+    print("== 5. 方案 C 的护栏：主题 token 与它的消费者一个字没动 ==")
+    color = read(COLOR)
+    c.present("Color.kt：SurfaceContainerHigh 仍是 #DDE1EA（没有靠改 token 变白）", color,
+              r"val SurfaceContainerHigh = Color\(0xFFDDE1EA\)")
+    c.present("Color.kt：暗色那档也还在", color, r"val SurfaceContainerHighDark = Color\(0xFF292A31\)")
+    theme = read(THEME)
+    c.present("Theme.kt：仍把它接到 colorScheme.surfaceContainerHigh", theme,
+              r"surfaceContainerHigh = SurfaceContainerHigh,")
+    c.present("Theme.kt：暗色那行也还在", theme, r"surfaceContainerHigh = SurfaceContainerHighDark,")
+    for p, n, why in CONSUMERS:
+        got = count(read(p), r"surfaceContainerHigh")
+        c.ok(f"消费者没被顺手改：{p.name} 仍有 {n} 处（{why}）", got >= n, f"现在只剩 {got} 处")
+    c.present("DangerConfirmDialog 还在（全 App 共用的危险确认，本事项明确没碰）", comp_code,
+              r"fun DangerConfirmDialog\(")
+    guards = read(GUARDS)
+    c.ok("既有判据仍在钉 DangerConfirmDialog 的两行（没有为了让新零件好写而松掉它）",
+         "enabled: Boolean = true," in guards and "enabled = enabled," in guards)
+
+    print("== 6. 文档与随动 ==")
+    c.ok("docs/changes/CHG-0051.md 在（本事项的立项文档）", CHG.exists())
+    chg = read(CHG) if CHG.exists() else ""
+    c.present("CHG-0051 点得出零件名（后来的人知道改哪里）", chg, r"CardAlertDialog")
+    c.present("CHG-0051 点得出台账编号", chg, r"L-16")
+    c.present("CHG-0051 写了这一刀的边界（其余弹窗仍是灰蓝）", chg, r"其余")
+    c.present("docs/changes/README.md 有 CHG-0051 的登记行（链到文档）", read(README),
+              r"\[CHG-0051\.md\]\(CHG-0051\.md\)")
+    claim = read(CLAIM)
+    c.present("AI_WORK_CLAIM 有本事项的条目（标题行）", claim, r"会话：\*\*CHG-0051")
+    c.present("AI_WORK_CLAIM 的交叉点表记了客户端三处（零件 ＋ 两个账本页）", claim,
+              r"`ui/common/Components\.kt` ＋ `ui/shipper/ShipperLedgerScreen\.kt` ＋ `ui/dispatcher/LedgerPersonScreen\.kt`")
+
+    print("== 7. 防静默空转 ==")
+    c.ok(f"扫到的 .kt 有 {len(kts)} 份（>= {MIN_KT}）", len(kts) >= MIN_KT)
+    for p in REQUIRED_FILES:
+        c.ok(f"关键文件在：{p.relative_to(ROOT).as_posix()}", p.exists())
+    rv = read(REVERSE) if REVERSE.exists() else ""
+    c.ok("反验脚本在，且注入表至少 12 条", rv.count("\n    (\n") >= 12, f"实际 {rv.count(chr(10) + '    (' + chr(10))} 条")
+
+    print()
+    if c.fails:
+        print(f"❌ {len(c.fails)} 项不通过：")
+        for f in c.fails:
+            print(f"  - {f}")
+        return 1
+    print(f"✅ 全部 {c.passes} 项通过。")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
