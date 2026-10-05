@@ -143,9 +143,10 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     Capability(
         permission="ORDER_RECALL",
-        what="撤回派单（把单从司机手里收回来）",
+        what="撤回派单（把单从司机手里收回来）／静默退回派单池（货主端看不到）",
         scope="all",
-        scope_why="撤回改派是全局动作：把单从某个司机手里收回来再派给别人",
+        scope_why="撤回改派是全局动作：把单从某个司机手里收回来再派给别人；静默退回货主无感，"
+                  "所以它更是全局动作（没有人会因为这次变动来问）",
         roles=("dispatcher",),
         kind="write",
     ),

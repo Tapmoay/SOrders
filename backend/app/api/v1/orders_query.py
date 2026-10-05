@@ -21,7 +21,7 @@ from app.models import Order, User
 from app.models.enums import OrderStatus, UserRole
 from app.schemas.order import OrderOut
 from app.services.money_contract import money_map
-from app.services.order_response import enrich_order_out
+from app.services.order_response import enrich_order_out, shipper_status_matches
 from app.api.v1.orders_common import _get_order_scoped
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -201,7 +201,14 @@ def list_orders(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无法识别当前用户角色")
 
     if status_filter is not None:
-        q = q.where(Order.status == status_filter)
+        if role == UserRole.SHIPPER.value:
+            # 货主看到的"状态"是 `coalesce(shipper_status_hold, status)`（CHG-0039 静默退回）——
+            # 必须走 [shipper_status_matches] 那一个口径。一张被静默退回的单：真状态
+            # PENDING_DISPATCH、冻结状态 DISPATCHED/ACCEPTED；两边各写各的就会让它**同时**
+            # 出现在「派单中」与「已派单」两档里，或者从「已派单」档里凭空消失。
+            q = q.where(shipper_status_matches(status_filter))
+        else:
+            q = q.where(Order.status == status_filter)
     # ⚠️⚠️ `unpriced` 必须**两条路径都加**（2026-09-21 真机抓到）：这个端点有两条互不相干的查询
     #    构造路径（上面"派单员 + 搜索词"那条用 `stmt`，这条用 `q`），过滤条件要各写一遍。
     #    只加在上面那条的后果：**待定价页（不带 q）静默返回全部订单**——它显示的是"所有单"，

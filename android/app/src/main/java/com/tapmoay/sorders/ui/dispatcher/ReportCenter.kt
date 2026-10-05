@@ -1045,6 +1045,10 @@ private fun actionLabel(action: String): String = when (action) {
     "ORDER_UPDATE" -> "修改订单"
     "ORDER_DISPATCH" -> "派单"
     "ORDER_RECALL" -> "撤回派单"
+    // 静默退回派单池（CHG-0039）：单回到池子里、**货主那一侧什么都没发生**（状态不变、没有提醒）。
+    // 审计页上必须与「撤回派单」分得开：前者货主会收到"这单被召回了"，后者不会 ——
+    // 两者的状态跃迁一模一样，只有通知对象不同，靠动作码区分。
+    "ORDER_RELEASE_SILENT" -> "退回派单池（货主无感）"
     "ORDER_COMPLETE" -> "送达完成"
     "ORDER_CANCEL" -> "撤销订单"
     "ORDER_DELETE" -> "移入回收站"

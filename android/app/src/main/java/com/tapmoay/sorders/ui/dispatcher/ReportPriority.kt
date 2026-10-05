@@ -324,6 +324,9 @@ private fun changesOf(obj: JsonObject): List<Triple<String, String, String>> {
 private val GENERIC_KEYS = listOf(
     "order_no", "name", "product", "shipper", "full_name", "username", "phone",
     "role", "is_member", "stock", "restored", "note",
+    // 退回派单池（CHG-0039）：原因只写给派单员看（货主端一个字都不出），
+    // 而审计页是派单员唯一能回看它的地方 —— 不念出来这条日志就只剩一句"没有可读的明细"。
+    "reason",
 )
 
 /**
@@ -370,6 +373,7 @@ private val FIELD_CN = mapOf(
     "is_active" to "上下架", "is_member" to "批发商", "delivery_description" to "送货说明",
     "driver_id" to "司机", "shipper_id" to "货主", "product_id" to "商品", "user_id" to "账号",
     "before" to "原值", "after" to "新值", "restored" to "恢复了", "note" to "说明",
+    "reason" to "原因",
     // 下面这几个是**第二遍真机**补上的：不然审计页上会出现 `order_no SOTEST…`、`role shipper`
     "order_no" to "订单", "username" to "账号", "role" to "角色",
     "shipper" to "批发商", "product" to "商品",

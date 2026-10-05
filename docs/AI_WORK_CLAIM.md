@@ -31,6 +31,24 @@
 
 ## 进行中
 
+### [2026-10-05 05:0x UTC 进行中] 会话：**CHG-0039 派单池加「已完成派单」分页（按司机分组）+ 派单员可把已派的单静默退回派单池（货主端无感）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**用户原话（语音转写，`****` = 「操作」）**：「在派单词（=派单池）再加一个分页为**已完成派单**，这个已完成派单跟派单词是一样的。但是有一点不（=不同），就是拍（=派）单完成之后，他会进入到这里订单」「派单员可以对订单进行修改…**司机一个卡片是一个司机，然后司机里面有很多小卡片，小卡片就是订单**，然后派单员可以点进去，对这些订单进行修改」「比如说一个司机接了 2 个货主的订单，他同时送 2 个货主，派单员可以将某一个货主调整为一个货主…这些货物先送这个货主的」「如果是这样操作的话，那**原来的那个货主的货物就会重新回到派单池**，然后派单员又可以重新对这个派单进行操作、进行派单」「**这一点要注意**：这个操作**货主端是不会显示的** —— 货主端如果派单了之后，派单员执行这个操作，货主端仍然会显示状态为**已派单**或者说**司机已接单**；订单的状态会**默默**发生改变，**不会有任何的消息提醒**。这个操作**只限于派单员**，货主不会有任何的交易提醒，而且**货主也不需要知道这个**」。
+
+**核心改动（先在声明页登记、再动手 —— `_check_core_freeze.py` 第 3/4 条）**：
+- 核心改动：`backend/app/services/order_flow.py` —— 为什么必须动核心：静默退回派单池是一条**新的订单状态跃迁**（已派单/已接单 → 待派单），而「状态机唯一写入口」就在这个文件里；绕开它另写一处赋值等于把并发防重（条件 UPDATE）与派单/撤回的既有不变量拆成两份。
+- 核心改动：`backend/app/services/order_response.py` —— 为什么必须动核心：用户要的「货主端仍然显示已派单/司机已接单」只能落在**唯一的出参出口**上（`enrich_order_out` 的按角色门控处），写在别处就会出现同一条口径两个实现（列表一个样、详情另一个样）。
+- 核心改动：`backend/app/models/enums.py` —— 为什么必须动核心：退回池要在审计里与「撤回派单」（会通知货主）区分开，只能新增一个动作码（领域词汇表是全项目共用的取值）。
+- 核心改动：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：新增一列 `orders.shipper_status_hold`（货主最后看到的状态）必须走生产库结构变更的唯一入口。
+
+**改什么（计划，落地后逐条回填）**：
+- 后端：`backend/app/models/order.py` 加 `shipper_status_hold`（nullable `OrderStatus`，货主可见状态冻结值）；`backend/app/migrations/022_order_shipper_status_hold.py` + `core/schema_bootstrap.py` 登记；`services/order_flow.py` 新增 `silent_release(...)`（条件 UPDATE：`DISPATCHED/ACCEPTED → PENDING_DISPATCH`，清 `driver_id`/`dispatched_at`/`driver_acknowledged_at`/逐单覆盖值/两份计费快照、写 `shipper_status_hold` = 原状态、`auto_stock_release`、写 `ORDER_RELEASE` 审计）并让 `assign_driver` / `cancel_pending` 顺手清掉该列；`api/v1/orders_assignment.py` 新增 `POST /orders/{order_id}/release`（权限 `ORDER_RECALL`，**不给货主发任何事件**，只发 `orders.revoked` 给被收回的司机 + `orders.pending_pool_changed` 给派单员）；`services/order_response.py` 对货主把 `status` 覆写回 `shipper_status_hold`；`api/v1/orders_query.py` 的货主档位过滤对冻结值感知（否则货主的「已派单」档会看不到、跑到「派单中」档）；`commands/registry.py` 登记这条跃迁。
+- Android：`ui/dispatcher/DispatcherPoolScreen.kt` 顶部分段（待派单池 / 已完成派单）；「已完成派单」按司机分组（一位司机一张 `SectionCard`，卡里是订单小行），行内两枚动作（左「退回池」/右进详情）；`DispatcherPoolViewModel.kt` 加分组数据与退回动作；`data/remote/api/Apis.kt` + `data/repo/AppRepository.kt` 接新端点。
+- 明确不做（本轮）：真正的「并单」关系载体（orders 表没有 vehicle_id/批次号，order 之间只有 `parent_order_id` = 拆单子单，复用会让审计与报表分不清拆与合）；一键改派（用户描述的流程是「退回池 → 再派」，本轮就按这条走）。
+
+**判据 / 证据（计划）**：新写 `_tools/qa/_check_silent_release.py`（跃迁形状 / 无货主事件 / 出参覆写只在货主一侧 / 池页两档并存 / 分组按司机）+ 对应反向验证；跑 `_check_all.py`（基线 175）、`backend/scripts/check_reachability.py`、`_check_dev_spec.py`、`_check_order_commands.py`、`_check_core_freeze.py`、`_check_client_contract.py`；编译装机在 5554 上取证（派单员），货主端在 5556 上取证「状态没变、没有新站内信」。
+
+**状态**：实现 + 判据/反验 + 真实库探针 + 真机实测**全部做完**（`_check_silent_release.py` 74/74、`_reverse_verify_silent_release.py` 42/42、迁移四态 4/4、5554 退回 + 5556 货主无感逐项取证）；下一步：全量静检 → 提交 → 归档。
 ### [2026-10-05 03:5x UTC → 04:2x UTC 已完成] 会话：**CHG-0038 派单那一层改形态 + 「单位换算」入口搬进商品管理顶栏**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（四张截图一起发来）**：「把这个**单位换算移到商品管理的那里**，我画了红色框的」「这个派单的界面改一下啊，有点丑啊。**颜色不要改**。这种淡蓝色啊，改成那种啊**淡白色**吧，**像那种纸质书的感觉**」「什么运费啊啊，这个**模板可以保留**…像什么**这一单决定多少钱提成多少这个不要管**，我们以后直接在那个订单里去给他订了」「**选择司机列表的时候搞一个左侧抽屉吧**…不然司机多了就不好搞…他直接拉起分类，像商品那样拉起一些分类列表」「**不要搞弹窗了，直接也搞个底部抽屉吧**，拉的比较上面一点**拉高一点**」。

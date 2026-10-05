@@ -153,6 +153,11 @@ def assign_driver(
     # ---- 原子占位：把「待派单 → 派单中」这件事**只让一个请求做成** ----
     # 与 `complete_delivery` 同一条理由：SQLite 不认 `FOR UPDATE`，
     # 两个并发派单会各自通过上面的状态检查，把同一张单派给两个司机。
+    # ⚠️ 解冻货主可见状态（2026-10-05，CHG-0039）：这一单可能是派单员**静默退回派单池**
+    #    又被重新派出去的（`release_dispatch`）；新司机上任之后，货主那一侧就该跟着新事实走，
+    #    所以下面这条 UPDATE 里把冻结值一起清成 NULL（= 以真实状态为准）。
+    #    ⛔ 必须与状态同一条 UPDATE：分成两次写就会出现"状态已派单、货主看到的还是旧的那一档"
+    #       这个中间态（而这条 CAS 的全部意义就是"跃迁只有一个瞬间"）。
     claimed = db.execute(
         update(Order)
         .where(
@@ -161,7 +166,7 @@ def assign_driver(
             # 隔离区的单不许派（同上）：判完到写之间被删掉的话，这里再挡一次
             Order.deleted_at.is_(None),
         )
-        .values(status=OrderStatus.DISPATCHED, driver_id=driver.id, dispatched_at=_now())
+        .values(status=OrderStatus.DISPATCHED, driver_id=driver.id, dispatched_at=_now(), shipper_status_hold=None)
     )
     if claimed.rowcount != 1:
         db.rollback()
@@ -640,6 +645,90 @@ def recall_dispatch(
             "recalled_driver_id": recalled_driver_id,
             "order_snapshot": snapshot,
             "recalled_at": _now().isoformat(),
+        },
+    )
+
+
+def release_dispatch(
+    db: Session,
+    order: Order,
+    operator: User,
+    reason: str = "",
+) -> None:
+    """把已派出去（或司机已接单）的单**静默**退回派单池（2026-10-05 用户要求，CHG-0039）。
+
+    用户要的动作：一个司机手里有 2 个货主的货，派单员要把**某一个货主**的货拿回来、
+    「这些货物先送这个货主的」，退回之后「原来的那个货主的货物就会重新回到派单池」，
+    派单员再照常派给别人。
+
+    ## ⛔ 为什么不复用它旁边那个 `recall_dispatch`（两者改的是同一格状态）
+    差别**只在货主那一侧**，而那一侧就是这条动作的定义：
+      · `recall_dispatch` 必然通知货主 —— 端点入队 `orders.recalled`，
+        `services/message_center.py::publish_order_recalled_shipper` 给他发「派单已撤回」；
+      · 这条动作用户逐字要求「货主端是不会显示的……订单的状态会默默发生改变，
+        不会有任何的消息提醒……货主也不需要知道」。
+    所以复用等于让货主收到一条他不该收到的通知。静默不是"少发一条推送"的优化，
+    它是这条动作的**定义**（也就必须有自己的审计码 `ORDER_RELEASE_SILENT`：
+    事后要能回答"这张单为什么换了司机、货主当时看到的又是什么"）。
+
+    ## 货主为什么仍然看到旧状态（`Order.shipper_status_hold`）
+    真实状态必须真的回到 `PENDING_DISPATCH`：池子、待派计数、批量派单、
+    `assign_driver` 的状态门全部天然复用，也不会出现"派单员看到的是假状态"。
+    货主那一侧靠冻结列：这里把**被收回那一刻的真实状态**写进 `shipper_status_hold`，
+    出参时只对货主覆写（`services/order_response.py` 的货主分支 —— 货主可见状态唯一出口）；
+    这一单重新派出去时 `assign_driver` 的 CAS 会把它清空（解冻）。
+
+    ## 钱与库存（与 `recall_dispatch` 同口径，一处不省）
+      · 逐单覆盖值（`driver_piece_amount` / `driver_commission_rate`）**必须一起清掉**：
+        它们是"给**这个**司机单独定的数"，退回之后这张单没有司机了；不清的话下一任司机
+        按上一任的数字拿钱（R12-M1 实测：运费 1000、残留覆盖 300+8% → 账单 380，
+        而新司机的规则只该 350）。
+      · `auto_stock_release` 释放预占：货还在公司手里（没有司机取货），
+        不释放的话退回来的单会带着一份**已经出库**的预占，再派一次就扣两次库存。
+    """
+    allowed = (OrderStatus.DISPATCHED, OrderStatus.ACCEPTED)
+    if order.status not in allowed:
+        raise ValueError("仅「已派单/已接单」订单可退回派单池")
+    snapshot = order_snapshot_for_log(db, order)
+    released_driver_id = order.driver_id
+    # 货主那一侧"最后看到的状态"：就是被收回这一刻的真实状态（DISPATCHED / ACCEPTED）。
+    # ⛔ 不能用 `order.status` 事后现读 —— CAS 成功之后 `order.status` 已经是 PENDING_DISPATCH 了。
+    shipper_status_hold = order.status
+    # ⚠️ 条件 UPDATE（与 `recall_dispatch`/`cancel_pending` 同一条理由，2026-09-19 审计）：
+    #    退回 × 送达 / 退回 × 撤销并发时，无条件赋值会把**已送达**的单覆盖回「待派单 + 无司机」，
+    #    于是同一张单能被再派一次、库存与货损各记两次。
+    claimed = db.execute(
+        update(Order)
+        .where(Order.id == order.id, Order.status.in_(allowed), Order.deleted_at.is_(None))
+        .values(
+            status=OrderStatus.PENDING_DISPATCH,
+            # 冻结货主可见状态（CHG-0039）：只对货主出参生效，派单员/司机看到的都是真实状态。
+            shipper_status_hold=shipper_status_hold,
+            driver_id=None,
+            dispatched_at=None,
+            driver_acknowledged_at=None,
+            # ⚠️ 逐单覆盖值一起清掉（理由见 `recall_dispatch` 里那段，同一条账错）。
+            driver_piece_amount=None,
+            driver_commission_rate=None,
+        )
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise ValueError("这张单刚刚被别的操作改过（可能已送达/已撤销），请刷新后再退回")
+    db.refresh(order)
+    auto_stock_release(db, order, operator.id)
+    write_log(
+        db,
+        operator_id=operator.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_RELEASE_SILENT,
+        change_payload={
+            "reason": reason,
+            "released_driver_id": released_driver_id,
+            # 落库留痕：货主那一侧**仍然**看到的状态（事后回答"货主当时看到的是什么"）
+            "shipper_status_hold": shipper_status_hold.value,
+            "order_snapshot": snapshot,
+            "released_at": _now().isoformat(),
         },
     )
 

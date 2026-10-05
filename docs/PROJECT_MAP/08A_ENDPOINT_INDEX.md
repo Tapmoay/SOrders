@@ -59,9 +59,9 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:356eda6adcf5a95e402c99176d078f3003da8e4cfa61b3ee486f85462d50c5c9 -->
+<!-- source_hash: sha256:721da4124172ce4b3cd53f0241d9f1e63a8b76de236decfca61f8fb0c796afc5 -->
 
-## 全量端点（271 个，按文件分组）
+## 全量端点（272 个，按文件分组）
 
 
 ### `backend/app/api/v1/ai_telemetry.py` — 1 个
@@ -294,16 +294,17 @@
 | 5 | `DELETE /api/v1/order-templates/{template_id}` | `delete_template` | `backend/app/api/v1/order_templates.py:350` | 权限:ORDER_EDIT |
 | 6 | `POST /api/v1/order-templates/{template_id}/restore` | `restore_template` | `backend/app/api/v1/order_templates.py:383` | 权限:ORDER_EDIT |
 
-### `backend/app/api/v1/orders_assignment.py` — 6 个
+### `backend/app/api/v1/orders_assignment.py` — 7 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders_assignment.py:72` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
-| 2 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders_assignment.py:116` | 权限:ORDER_DISPATCH |
-| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:305` | 权限:ORDER_DISPATCH |
-| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:380` | 权限:ORDER_DISPATCH |
-| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:406` | 权限:ORDER_DISPATCH |
-| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:465` | 权限:ORDER_RECALL |
+| 1 | `POST /api/v1/orders/batch-assign` | `batch_assign_orders` | `backend/app/api/v1/orders_assignment.py:74` | 权限:ORDER_DISPATCH + 体内含角色判断（需读源码） |
+| 2 | `POST /api/v1/orders/{order_id}/price-freight` | `price_freight` | `backend/app/api/v1/orders_assignment.py:118` | 权限:ORDER_DISPATCH |
+| 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:307` | 权限:ORDER_DISPATCH |
+| 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:382` | 权限:ORDER_DISPATCH |
+| 5 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:408` | 权限:ORDER_DISPATCH |
+| 6 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:467` | 权限:ORDER_RECALL |
+| 7 | `POST /api/v1/orders/{order_id}/release` | `release_order` | `backend/app/api/v1/orders_assignment.py:500` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/orders_delivery.py` — 6 个
 
@@ -345,8 +346,8 @@
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
 | 1 | `GET /api/v1/orders` | `list_orders` | `backend/app/api/v1/orders_query.py:77` | 体内仅允许:派单员\|司机\|货主 |
-| 2 | `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders_query.py:257` | 体内仅允许:派单员 |
-| 3 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:273` | **公开** |
+| 2 | `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders_query.py:264` | 体内仅允许:派单员 |
+| 3 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:280` | **公开** |
 
 ### `backend/app/api/v1/orders_return.py` — 1 个
 
@@ -627,7 +628,7 @@
 | `ORDER_INTERNAL_NOTE` | 1 | `POST /api/v1/orders/{order_id}/driver-note` |
 | `ORDER_PRODUCT_EDIT` | 3 | `POST /api/v1/order-products`<br>`PATCH /api/v1/order-products/{line_id}`<br>`DELETE /api/v1/order-products/{line_id}` |
 | `ORDER_READ_ALL` | 2 | `GET /api/v1/order-products`<br>`GET /api/v1/order-products/{line_id}` |
-| `ORDER_RECALL` | 1 | `POST /api/v1/orders/{order_id}/recall` |
+| `ORDER_RECALL` | 2 | `POST /api/v1/orders/{order_id}/recall`<br>`POST /api/v1/orders/{order_id}/release` |
 | `ORDER_RETURN` | 4 | `POST /api/v1/orders/{order_id}/return`<br>`GET /api/v1/return-requests`<br>`POST /api/v1/return-requests/{request_id}/reject`<br>`POST /api/v1/return-requests/{request_id}/fulfill` |
 | `ORDER_RETURN_REQUEST` | 3 | `POST /api/v1/return-requests`<br>`GET /api/v1/return-requests/mine`<br>`POST /api/v1/return-requests/{request_id}/withdraw` |
 | `ORDER_UPLOAD_DELIVERY` | 1 | `POST /api/v1/orders/{order_id}/delivery-photos` |
@@ -681,8 +682,8 @@ _（无重复注册）_
 | `GET /api/v1/notifications` | `list_notifications` | `backend/app/api/v1/notifications.py:40` |
 | `GET /api/v1/notifications/{notification_id}` | `get_notification` | `backend/app/api/v1/notifications.py:269` |
 | `GET /api/v1/orders` | `list_orders` | `backend/app/api/v1/orders_query.py:77` |
-| `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders_query.py:257` |
-| `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:273` |
+| `GET /api/v1/orders/pending-dispatch-count` | `pending_dispatch_count` | `backend/app/api/v1/orders_query.py:264` |
+| `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:280` |
 | `GET /api/v1/pricing/quote` | `quote` | `backend/app/extensions/pricing/api.py:54` |
 | `GET /api/v1/unit-conversion/preview` | `preview` | `backend/app/extensions/unit_conversion/api.py:42` |
 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:388` |

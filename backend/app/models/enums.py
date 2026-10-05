@@ -85,6 +85,16 @@ class OperationAction(str, enum.Enum):
     ORDER_UPDATE = "ORDER_UPDATE"
     ORDER_DISPATCH = "ORDER_DISPATCH"
     ORDER_RECALL = "ORDER_RECALL"
+    # 派单员把已派出去（或司机已接单）的单**静默**退回派单池（2026-10-05 用户要求，CHG-0039）。
+    #
+    # ⛔ 为什么不复用 `ORDER_RECALL`：这两个动作在**货主那一侧**是相反的 ——
+    #    ORDER_RECALL 必然通知货主（`services/message_center.py::publish_order_recalled_shipper`，
+    #    outbox 事件 `orders.recalled`，货主看到「派单已撤回」）；而这条动作用户明确要求
+    #    「货主端是不会显示的……订单的状态会默默发生改变，不会有任何的消息提醒」。
+    #    合成一个码的后果：审计页上分不出"货主知道的那次撤回"和"货主根本不知道的那次退回"，
+    #    而这恰恰是这条动作的**全部意义**（出事时要能回答"这张单为什么换了司机、
+    #    货主当时看到的又是什么"）。
+    ORDER_RELEASE_SILENT = "ORDER_RELEASE_SILENT"
     ORDER_COMPLETE = "ORDER_COMPLETE"
     ORDER_CANCEL = "ORDER_CANCEL"
     ORDER_DELETE = "ORDER_DELETE"

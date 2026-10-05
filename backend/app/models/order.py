@@ -111,6 +111,17 @@ class Order(Base, TimestampMixin):
 
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     driver_acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 货主可见状态**冻结**（2026-10-05 用户要求，CHG-0039）：派单员把已派的单静默退回派单池时，
+    # 真实状态回到 PENDING_DISPATCH（池子、待派计数、批量派单、`assign_driver` 的状态门全部天然复用），
+    # 但货主那一侧**不能跟着变**（用户原话：「货主端仍然会显示状态为已派单或者说司机已接单……
+    # 货主也不需要知道」）。这一列存的就是"被收回那一刻货主最后看到的状态"（DISPATCHED/ACCEPTED）。
+    #   · 出参：**只有货主视角**覆写（`services/order_response.py` 货主分支 —— 货主可见状态只有那一个出口）；
+    #   · 货主档位查询：按 coalesce 语义过滤（`api/v1/orders_query.py`），否则这张单会
+    #     从「已派单」档消失、跑到「派单中」档（用户看到的就是状态自己变了）；
+    #   · 解冻：这张单重新派出去时 `assign_driver` 的 CAS 把它一起清空（回到"以真实状态为准"）。
+    # ⛔ **不进 `OrderOut`/不进 DTO**：它是一条内部影子状态，派单员与司机看到的都必须是真实状态；
+    #    给客户端加一个它用不到的字段，只会让下一个人以为这个状态是"大家一起看的"。
+    shipper_status_hold: Mapped[OrderStatus | None] = mapped_column(Enum(OrderStatus), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, doc="撤销时间；用于已撤销订单保留期限与自动清理"

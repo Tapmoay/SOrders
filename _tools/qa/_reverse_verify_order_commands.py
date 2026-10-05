@@ -123,8 +123,8 @@ CASES: list[tuple[str, str, str, str, str]] = [
     (
         "⑬ 从地图的订单域里拿掉一条命令（归属与形状对不上）",
         MAP,
-        "commands: commands.order:create_order, commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:mark_returned, services.order_flow:split_order",
-        "commands: commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:mark_returned, services.order_flow:split_order",
+        "commands: commands.order:create_order, commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:release_dispatch, services.order_flow:mark_returned, services.order_flow:split_order",
+        "commands: commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:release_dispatch, services.order_flow:mark_returned, services.order_flow:split_order",
         "不在地图的订单域 commands 行里",
     ),
 ]

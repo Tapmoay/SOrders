@@ -8,6 +8,7 @@ import com.tapmoay.sorders.data.remote.dto.FreightTemplateDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.ORDER_LIST_LIMIT
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonPrimitive
@@ -68,6 +69,30 @@ class DispatcherPoolViewModel(
     /** 运费模板没加载出来的原因（有值 = 下拉是空的，但不是"没配模板"）。 */
     var templateError by mutableStateOf<String?>(null)
 
+    // ---- 分页：待派单池 / 已完成派单（CHG-0039）----
+
+    /** 当前分页（[TAB_POOL] / [TAB_COMPLETED]）。 */
+    var tab by mutableStateOf(TAB_POOL)
+
+    /** 「已完成派单」那一档的单（`ACCEPTED` + `DISPATCHED` 两档相加，见 [loadDispatched]）。 */
+    var dispatched by mutableStateOf<List<OrderDto>>(emptyList())
+
+    /** 那一档的两次查询有没有撞上 300 条上限（界面据此说一句实话）。 */
+    var dispatchedHitCap by mutableStateOf(false)
+
+    // 退回派单池弹窗（静默动作：货主端无感）
+    var showReleaseDialog by mutableStateOf(false)
+    var releaseOrderId by mutableStateOf<Long?>(null)
+    /** 退回原因（可选：这个动作不依赖理由，理由只是派单员自己的事后线索）。 */
+    var releaseReason by mutableStateOf("")
+    /**
+     * 弹窗里的错误（退回失败的原因）。
+     *
+     * 与页面级 [error] 分开：弹窗还开着，不能把整页换成 ErrorView（那会让列表一起消失、
+     * 用户以为数据没了）—— 同 `ui/common/Components.kt::FormErrorLine` 的那条教训。
+     */
+    var dialogError by mutableStateOf<String?>(null)
+
     private var loadJob: Job? = null
 
     init {
@@ -80,7 +105,17 @@ class DispatcherPoolViewModel(
         }
     }
 
+    /**
+     * 按**当前分页**拉数据（待派单池 / 已完成派单）。
+     *
+     * 为什么合成一个入口：init 的实时订阅、各处的「重试」、派完/退完之后的"再拉一次"
+     * 都只认 `load()`；分页切换只是换一个数据源，不该让每个调用点都去判断档位。
+     */
     fun load() {
+        if (tab == TAB_COMPLETED) loadDispatched() else loadPool()
+    }
+
+    private fun loadPool() {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             loading = orders.isEmpty()
@@ -107,6 +142,47 @@ class DispatcherPoolViewModel(
     }
 
     /**
+     * 「已完成派单」那一档：**已经交到司机手里的单**（他已接单的 + 派了他还没点的）。
+     *
+     * 为什么是两次查询相加：这一档在数据上不是一个状态 —— `ACCEPTED`（司机点了接单）与
+     * `DISPATCHED`（派给他了、他还没点）在货主与派单员眼里是同一件事（"货在这个司机手上"），
+     * 而 `GET /orders` 的 `status` 只吃**一个**状态值（`api/v1/orders_query.py`）。
+     *
+     * ⚠️ 截断判据必须按**两次查询各自**判：两档合并后条数可能正好是 300 的两倍，
+     *    用 `dispatched.size >= ORDER_LIST_LIMIT` 会把"恰好 300 单"误判成截断。
+     */
+    private fun loadDispatched() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            loading = dispatched.isEmpty()
+            error = null
+            try {
+                val assigned = container.repo.orders(status = "DISPATCHED")
+                val accepted = container.repo.orders(status = "ACCEPTED")
+                dispatched = assigned + accepted
+                dispatchedHitCap = assigned.size >= ORDER_LIST_LIMIT || accepted.size >= ORDER_LIST_LIMIT
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    /**
+     * 切分页：清掉选择态（批量选择只在待派那一档有意义），再按新档拉一次。
+     *
+     * 用户 2026-10-05：「在派单词（派单池）再加一个分页为已完成派单，这个已完成派单跟
+     * 派单词是一样的。但是有一点不同，就是派单完成之后，他会进入到这里订单」。
+     */
+    fun selectTab(index: Int) {
+        if (index == tab) return
+        tab = index
+        clearSelection()
+        load()
+    }
+
+    /**
      * 单独拉司机名册（派单弹窗要用）。
      *
      * 抽出来是因为详情页那份 VM 是 autoLoadPool = false：它只借弹窗、不拉池子，
@@ -127,6 +203,32 @@ class DispatcherPoolViewModel(
     /** 列表是不是被后端的 300 条上限截断了（界面据此显示一句实话）。 */
     val listTruncated: Boolean
         get() = (totalPending ?: 0) > orders.size
+
+    /**
+     * 「已完成派单」按司机分组：**一张卡 = 一个司机，卡里的小卡 = 他手上的单**。
+     *
+     * 用户 2026-10-05 逐字：「司机一个卡片是一个司机，然后司机里面有很多小卡片，
+     * 小卡片就是订单，然后派单员可以点进去，对这些订单进行修改」。
+     *
+     * 组间顺序：谁手里有更新的单谁在前。这里没有"最后更新时间"可用（订单列表不带），
+     * 用组内最大的 id 近似 —— 派单员刚退回/刚派出去的那张单所属的司机排在最上面。
+     */
+    val dispatchedGroups: List<DriverOrderGroup>
+        get() = dispatched
+            .groupBy { it.driverId }
+            .map { (driverId, list) ->
+                val sorted = list.sortedByDescending { it.id }
+                val head = sorted.first()
+                DriverOrderGroup(
+                    driverId = driverId,
+                    // 名字取不到时**不能空着**：卡片头只剩个电话，派单员认不出是谁
+                    driverName = head.driverName?.takeIf { it.isNotBlank() }
+                        ?: if (driverId == null) "未指派司机" else "司机 #" + driverId,
+                    driverPhone = head.driverPhone,
+                    orders = sorted,
+                )
+            }
+            .sortedByDescending { it.orders.first().id }
 
     fun toggleSelect(id: Long) {
         val next = if (id in selectedIds) selectedIds - id else selectedIds + id
@@ -315,6 +417,42 @@ class DispatcherPoolViewModel(
         }
     }
 
+    // ---- 退回派单池（静默：货主端无感，CHG-0039）----
+    fun openRelease(orderId: Long) {
+        releaseOrderId = orderId
+        releaseReason = ""
+        dialogError = null
+        showReleaseDialog = true
+    }
+
+    /**
+     * 确认退回。
+     *
+     * ⛔ 这一个动作**不许**给货主发任何提醒、也**不许**改货主看到的状态
+     * （用户 2026-10-05 逐字：「货主端仍然会显示状态为已派单或者说司机已接单；
+     * 订单的状态会默默发生改变，不会有任何的消息提醒」）—— 所以这里只调后端那一个
+     * 静默端点，成功后什么也不广播；司机那边掉单是后端发 `orders.revoked` 的事。
+     */
+    fun confirmRelease() {
+        val oid = releaseOrderId ?: return
+        if (acting) return  // 防连点：一次网络往返期间再点一次会退两遍
+        acting = true
+        dialogError = null
+        viewModelScope.launch {
+            try {
+                container.repo.releaseOrder(oid, releaseReason.trim())
+                showReleaseDialog = false
+                actionResult = "已退回派单池，货主端不会有任何变化"
+                load()
+            } catch (e: Exception) {
+                // 弹窗级错误：框还开着，不能把整页换成 ErrorView（那会让列表一起消失）
+                dialogError = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
     companion object {
         /**
          * 一次批量派单最多几单。
@@ -324,5 +462,22 @@ class DispatcherPoolViewModel(
          * 后端放宽/收紧了这个数，这里也要跟着改（否则用户会在"选得下、派不出"之间撞墙）。
          */
         const val MAX_BATCH_ASSIGN = 100
+
+        /** 分页下标（界面 `SegmentedPicker` 的 `selected`）。 */
+        const val TAB_POOL = 0
+        const val TAB_COMPLETED = 1
     }
 }
+
+/**
+ * 「已完成派单」那一档里**一个司机 + 他手上的单**。
+ *
+ * 界面上就是"一张卡里套几张小卡"（用户 2026-10-05：「司机一个卡片是一个司机，
+ * 然后司机里面有很多小卡片，小卡片就是订单」）。
+ */
+data class DriverOrderGroup(
+    val driverId: Long?,
+    val driverName: String,
+    val driverPhone: String?,
+    val orders: List<OrderDto>,
+)

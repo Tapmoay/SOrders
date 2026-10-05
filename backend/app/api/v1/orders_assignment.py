@@ -32,10 +32,12 @@ from app.schemas.order import (
     OrderBatchAssignOut,
     OrderOut,
     OrderRecallBody,
+    OrderReleaseBody,
 )
 from app.services.operation_log_service import write_log
 from app.services.order_flow import split_order
 from app.services.order_flow import assign_driver, lock_order_row, recall_dispatch
+from app.services.order_flow import release_dispatch
 from app.services.accounting_service import BillAlreadySettledError, resync_open_piece_bill
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.services.order_money import (
@@ -486,6 +488,54 @@ def recall_order(
         outbox.enqueue(db, "orders.revoked", {"driver_id": old_driver_id, "order_id": order_id, "reason": body.reason})
     if shipper_id is not None:
         outbox.enqueue(db, "orders.recalled", {"shipper_id": shipper_id, "order_id": order_id})
+    outbox.enqueue(db, "orders.pending_pool_changed", {})
+    db.commit()
+    full = load_order_for_response(db, order.id)
+    if full is None:
+        raise HTTPException(status_code=500, detail="订单数据异常")
+    return enrich_order_out(full, db, current)
+
+
+@router.post("/{order_id}/release", response_model=OrderOut)
+def release_order(
+    order_id: int,
+    body: OrderReleaseBody,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_RECALL)),
+) -> OrderOut:
+    """把一张已派出去的单**静默**退回派单池（CHG-0039，2026-10-05 用户要求）。
+
+    ⛔ 与 `POST /orders/{order_id}/recall` 的差别**只有通知对象**：撤回会告诉货主
+    （`orders.recalled` → `publish_order_recalled_shipper`），这一条**不告诉** ——
+    货主端仍显示「已派单/司机已接单」，状态默默改变、没有任何提醒。
+    所以这里**刻意不发** `orders.recalled`：outbox 是全项目唯一那条"提醒货主"的通道，
+    少发一条就是少一条提醒；而多发一条 = **用户明确说不要的那件事发生了**。
+    被收回的司机照常收到 `orders.revoked`（他手里那张单必须立刻消失），
+    派单员自己的池子照常收到 `orders.pending_pool_changed`。
+
+    权限沿用 `Permission.ORDER_RECALL`：门一样、状态跃迁一样（DISPATCHED/ACCEPTED →
+    PENDING_DISPATCH），差别只在通知对象 —— 为它另开一个权限点，等于多出一份
+    「谁能静默改单」的名单要维护，而这份名单里不会有第二个人。
+    """
+    order = db.scalars(
+        select(Order).options(selectinload(Order.order_products)).where(Order.id == order_id)
+    ).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    old_driver_id = order.driver_id
+    try:
+        release_dispatch(db, order, current, body.reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    # ⚠️ 两条事件与这次退回**同一个事务**（退回失败就一条都不发）；
+    #    ⛔ 这里**没有** `orders.recalled` —— 那一条会提醒货主（见 docstring）。
+    if old_driver_id:
+        outbox.enqueue(
+            db,
+            "orders.revoked",
+            {"driver_id": old_driver_id, "order_id": order_id, "reason": body.reason},
+        )
     outbox.enqueue(db, "orders.pending_pool_changed", {})
     db.commit()
     full = load_order_for_response(db, order.id)

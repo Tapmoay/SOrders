@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.rbac import user_role_key
@@ -91,6 +91,44 @@ def apply_driver_view_gating(data: dict, order: Order) -> None:
         data["freight_fee"] = None
 
 
+#: 「静默退回派单池」期间货主**看到**的状态（CHG-0039，2026-10-05）。
+#:
+#: 派单员可以把一张已经派出去的单**静默**退回派单池。真实状态必须回到
+#: `PENDING_DISPATCH`——池子的查询、待派计数、批量派单、`order.assign` 的状态门
+#: 全都按这个值工作，绕开它就要在每一处各放宽一次判断（那才是真正的危险）；
+#: 而**货主那一侧不许有任何变化**（用户原话：货主端仍然显示「已派单/司机已接单」，
+#: 订单状态默默改变，不会有任何消息提醒）。于是：真状态留在 `orders.status`，
+#: 货主看到的那个留在 `orders.shipper_status_hold`。
+#:
+#: ⛔ **这一列只在「单还在池子里」时有意义** —— 两个读法都带着这道状态门。
+#:    理由：「退回池子」不是它唯一的出口，撤销（`order_flow.cancel_pending`）、拆单
+#:    （`order_flow.split_order`）同样会让一张单离开池子，而那些路径**不该**为了这一列
+#:    各写一次 NULL（写漏一处，货主就会看到一张**已撤销**的单挂在「已派单」档里 ——
+#:    那是"状态说错了"，比"没有静默"更糟）。写侧只在重派时清它
+#:    （`order_flow.assign_driver`：那一刻"这一单又有司机了"，影子状态该消失）。
+def shipper_visible_status_of(order: Order) -> OrderStatus:
+    """货主看到的状态（单张详情 / 行内判断用）。列表按档位筛用下面的 SQL 版，同一口径。"""
+    if order.status == OrderStatus.PENDING_DISPATCH and order.shipper_status_hold is not None:
+        return order.shipper_status_hold
+    return order.status
+
+
+def shipper_status_matches(status_filter: OrderStatus):
+    """[shipper_visible_status_of] 的 SQL 版（货主列表按档位筛）——**同一口径，别各写一份**。
+
+    少了任何一半都会错：只有 `status == status_filter` 那一半，被静默退回的单会从
+    「已派单」档里消失（货主以为自己那单被撤了）；只有 `hold == status_filter` 那一半，
+    它同时出现在「派单中」与「已派单」两档里（一张单算两次）。
+    """
+    return or_(
+        and_(Order.shipper_status_hold.is_(None), Order.status == status_filter),
+        and_(
+            Order.shipper_status_hold == status_filter,
+            Order.status == OrderStatus.PENDING_DISPATCH,
+        ),
+    )
+
+
 def enrich_order_out(
     order: Order, db: Session, viewer: User | None = None, money: OrderMoney | None = None
 ) -> OrderOut:
@@ -155,6 +193,10 @@ def enrich_order_out(
             #    `driver_piece_amount` / `driver_commission_rate` 从旁边漏了出去 ——
             #    现在收成 [hide_driver_pay] 一处，按 [DRIVER_PAY_FIELDS] 整族遮蔽。
             hide_driver_pay(data)
+            # 静默退回派单池期间，货主看到的是**冻结值**：他那一侧什么都没发生
+            # （状态不变、没有提醒），而真实状态已经是 `PENDING_DISPATCH`（在池子里等人重派）。
+            # ⛔ 货主的 `status` 只能从这里出去（[shipper_visible_status_of] 是该口径唯一定义处）。
+            data["status"] = shipper_visible_status_of(order)
         elif role == UserRole.DISPATCHER.value:
             data["freight_visible"] = True
         elif role == UserRole.DRIVER.value and order.driver_id is not None:

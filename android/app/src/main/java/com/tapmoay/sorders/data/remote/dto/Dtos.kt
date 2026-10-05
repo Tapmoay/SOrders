@@ -521,6 +521,16 @@ data class OrderChargeBody(@SerialName("arrears_unit_id") val arrearsUnitId: Lon
 @Serializable
 data class OrderRecallBody(val reason: String)
 
+/**
+ * 静默退回派单池（CHG-0039）的请求体。
+ *
+ * 与 [OrderRecallBody] 只差一件事：**理由可选**。撤回是"会通知货主"的动作，理由要写进
+ * 那条消息里给货主一个交代；退回是**货主无感**的动作（用户 2026-10-05：「这个操作货主端
+ * 是不会显示的……不会有任何的消息提醒」），理由是派单员写给自己的事后线索，不该逼他填。
+ */
+@Serializable
+data class OrderReleaseBody(val reason: String = "")
+
 // ⛔ `OrderCancelBody` 已删除（2026-09-23 复核 H8）：撤销订单的接口**没有请求体**
 //    （`Apis.kt::cancelOrder` 只有 `@Path("orderId")`），后端 `cancel_order` 也不接收原因。
 //    这个 DTO 从加进来那天起就是**零引用**的，留着只会让人以为"撤销原因"是个已经做了的功能。

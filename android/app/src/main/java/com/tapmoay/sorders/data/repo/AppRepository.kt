@@ -227,6 +227,13 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun recallOrder(orderId: Long, reason: String) =
         api.orderApi.recallOrder(orderId, com.tapmoay.sorders.data.remote.dto.OrderRecallBody(reason))
 
+    /**
+     * 静默退回派单池：与 [recallOrder] 的唯一差别是**通知对象** ——
+     * 撤回要告诉货主"这单被撤回了"，退回不告诉任何人（`reason` 只是派单员自己的线索）。
+     */
+    suspend fun releaseOrder(orderId: Long, reason: String = "") =
+        api.orderApi.releaseOrder(orderId, com.tapmoay.sorders.data.remote.dto.OrderReleaseBody(reason))
+
     suspend fun updateOrder(orderId: Long, body: com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest) =
         api.orderApi.updateOrder(orderId, body)
 

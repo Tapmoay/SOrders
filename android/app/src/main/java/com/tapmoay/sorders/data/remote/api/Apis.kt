@@ -312,6 +312,13 @@ interface OrderApi {
     @POST("orders/{orderId}/recall")
     suspend fun recallOrder(@Path("orderId") orderId: Long, @Body body: OrderRecallBody): OrderDto
 
+    /**
+     * 静默退回派单池（CHG-0039）：单回到池子、司机立刻看不到它，而**货主端没有任何变化**
+     * （后端刻意不发 `orders.recalled`，见 `api/v1/orders_assignment.py::release_order`）。
+     */
+    @POST("orders/{orderId}/release")
+    suspend fun releaseOrder(@Path("orderId") orderId: Long, @Body body: OrderReleaseBody): OrderDto
+
     // ⚠️ 必须是 PATCH。后端是 `@router.patch("/{order_id}/exception")`，
     // 这里原先写成了 @POST —— 结果是派单员在「订单管理 → 标记异常」点一次、405 一次，
     // 而且错误信息只会显示成一句笼统的失败，没人会想到是动词写错了。

@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:a01a0aa6cbe69430c5be98ffe6ad50956db0ff29e12e094440a581e95db062a9",
+ "source_hash": "sha256:4cffcc7db80e2e001990819f9eda76d7b5db9a78ff33b045f3ba2f498747c013",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 87,
@@ -1341,7 +1341,7 @@
    "module_cn": "订单/派单",
    "method": "get",
    "path": "/api/v1/orders/pending-dispatch-count",
-   "at": "backend/app/api/v1/orders_query.py:257",
+   "at": "backend/app/api/v1/orders_query.py:264",
    "auth": "体内仅允许:派单员",
    "roles": [
     "dispatcher"

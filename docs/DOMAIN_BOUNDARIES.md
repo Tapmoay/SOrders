@@ -171,7 +171,7 @@ name: order
 中文名: 订单域
 为什么是它自己的域: 订单状态、派单归属、订单生命周期是这套系统围绕的中心事实；它连接钱、司机、退货、库存、通知、报表，但**不拥有**其中任何一个。
 owns: orders, order_products, order_templates, order_template_categories
-commands: commands.order:create_order, commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:mark_returned, services.order_flow:split_order
+commands: commands.order:create_order, commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:release_dispatch, services.order_flow:mark_returned, services.order_flow:split_order
 reads: users@identity, products@catalogue, shipper_addresses@party, driver_billing_rules@settlement
 events: orders.assigned, orders.created, orders.delivered, orders.cancelled, orders.recalled, orders.revoked, orders.edited, orders.driver_acked, orders.freight_updated, orders.pending_pool_changed, orders.navigation_filled
 pure_consumer: no

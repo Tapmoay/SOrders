@@ -17,6 +17,7 @@ from app.schemas.order import (
     OrderProductOut,
     OrderProductUpdate,
     OrderRecallBody,
+    OrderReleaseBody,
     OrderUpdate,
 )
 from app.schemas.price_rule import PriceRuleCreate, PriceRuleOut, PriceRuleUpdate
@@ -42,6 +43,7 @@ __all__ = [
     "OrderProductOut",
     "OrderProductUpdate",
     "OrderRecallBody",
+    "OrderReleaseBody",
     "OrderUpdate",
     "PriceRuleCreate",
     "PriceRuleOut",

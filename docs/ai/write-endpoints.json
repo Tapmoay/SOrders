@@ -16,7 +16,7 @@
   "path": "/api/v1/arrears-units",
   "handler": "create_unit",
   "file": "v1/arrears.py",
-  "line": 41,
+  "line": 47,
   "body": "ArrearsUnitCreate",
   "auth": [
    "LEDGER_EDIT"
@@ -39,6 +39,12 @@
     "type": "str",
     "required": false,
     "default": null
+   },
+   {
+    "name": "credit_limit",
+    "type": "Decimal | None",
+    "required": false,
+    "default": "None"
    }
   ]
  },
@@ -47,7 +53,7 @@
   "path": "/api/v1/arrears-units/{unit_id}",
   "handler": "update_unit",
   "file": "v1/arrears.py",
-  "line": 107,
+  "line": 137,
   "body": "ArrearsUnitUpdate",
   "auth": [
    "LEDGER_EDIT"
@@ -70,6 +76,12 @@
     "type": "str | None",
     "required": false,
     "default": "None"
+   },
+   {
+    "name": "credit_limit",
+    "type": "Decimal | None",
+    "required": false,
+    "default": "None"
    }
   ]
  },
@@ -78,7 +90,7 @@
   "path": "/api/v1/arrears-units/{unit_id}",
   "handler": "delete_unit",
   "file": "v1/arrears.py",
-  "line": 152,
+  "line": 204,
   "body": null,
   "auth": [
    "LEDGER_EDIT"
@@ -90,7 +102,7 @@
   "path": "/api/v1/arrears-units/{unit_id}/restore",
   "handler": "restore_unit",
   "file": "v1/arrears.py",
-  "line": 221,
+  "line": 273,
   "body": null,
   "auth": [
    "LEDGER_EDIT"
@@ -102,7 +114,7 @@
   "path": "/api/v1/auth/logout",
   "handler": "logout",
   "file": "v1/auth.py",
-  "line": 75,
+  "line": 83,
   "body": null,
   "auth": [
    "仅登录"
@@ -114,7 +126,7 @@
   "path": "/api/v1/auth/login",
   "handler": "login_json",
   "file": "v1/auth.py",
-  "line": 97,
+  "line": 105,
   "body": "LoginRequest",
   "auth": [
    "?须读源码"
@@ -145,7 +157,7 @@
   "path": "/api/v1/auth/token",
   "handler": "login_form",
   "file": "v1/auth.py",
-  "line": 107,
+  "line": 115,
   "body": null,
   "auth": [
    "?须读源码"
@@ -379,7 +391,7 @@
   "path": "/api/v1/driver-settlements",
   "handler": "create_settlement",
   "file": "v1/driver_settlements.py",
-  "line": 78,
+  "line": 80,
   "body": "DriverSettlementCreate",
   "auth": [
    "仅登录",
@@ -392,7 +404,7 @@
   "path": "/api/v1/driver-settlements/{settlement_id}",
   "handler": "settlement_action",
   "file": "v1/driver_settlements.py",
-  "line": 121,
+  "line": 124,
   "body": "SettlementActionBody",
   "auth": [
    "仅登录",
@@ -686,6 +698,78 @@
   "body": "MovementCreate",
   "auth": [
    "PRODUCT_MANAGE"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/invoices",
+  "handler": "create_invoice",
+  "file": "v1/invoices.py",
+  "line": 169,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/invoices/{invoice_id}",
+  "handler": "update_invoice",
+  "file": "v1/invoices.py",
+  "line": 199,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/invoices/{invoice_id}/issue",
+  "handler": "issue_invoice",
+  "file": "v1/invoices.py",
+  "line": 217,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/invoices/{invoice_id}/void",
+  "handler": "void_invoice",
+  "file": "v1/invoices.py",
+  "line": 229,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/invoices/{invoice_id}",
+  "handler": "delete_invoice",
+  "file": "v1/invoices.py",
+  "line": 244,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/invoices/{invoice_id}/restore",
+  "handler": "restore_invoice",
+  "file": "v1/invoices.py",
+  "line": 255,
+  "body": null,
+  "auth": [
+   "?须读源码"
   ],
   "bodyFields": null
  },
@@ -1276,7 +1360,7 @@
   "path": "/api/v1/orders/batch-assign",
   "handler": "batch_assign_orders",
   "file": "v1/orders_assignment.py",
-  "line": 71,
+  "line": 73,
   "body": "OrderBatchAssignBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -1313,7 +1397,7 @@
   "path": "/api/v1/orders/{id}/price-freight",
   "handler": "price_freight",
   "file": "v1/orders_assignment.py",
-  "line": 115,
+  "line": 117,
   "body": "OrderFreightPriceBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -1325,7 +1409,7 @@
   "path": "/api/v1/orders/{id}/assign",
   "handler": "assign_order",
   "file": "v1/orders_assignment.py",
-  "line": 304,
+  "line": 306,
   "body": "OrderAssignBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -1337,7 +1421,7 @@
   "path": "/api/v1/orders/{id}/split",
   "handler": "split_order_endpoint",
   "file": "v1/orders_assignment.py",
-  "line": 379,
+  "line": 381,
   "body": "OrderSplitBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -1356,7 +1440,7 @@
   "path": "/api/v1/orders/{id}/freight",
   "handler": "update_order_freight",
   "file": "v1/orders_assignment.py",
-  "line": 405,
+  "line": 407,
   "body": "OrderFreightBody",
   "auth": [
    "ORDER_DISPATCH"
@@ -1368,7 +1452,7 @@
   "path": "/api/v1/orders/{id}/recall",
   "handler": "recall_order",
   "file": "v1/orders_assignment.py",
-  "line": 464,
+  "line": 466,
   "body": "OrderRecallBody",
   "auth": [
    "ORDER_RECALL"
@@ -1379,6 +1463,25 @@
     "type": "str",
     "required": true,
     "default": null
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/orders/{id}/release",
+  "handler": "release_order",
+  "file": "v1/orders_assignment.py",
+  "line": 499,
+  "body": "OrderReleaseBody",
+  "auth": [
+   "ORDER_RECALL"
+  ],
+  "bodyFields": [
+   {
+    "name": "reason",
+    "type": "str",
+    "required": false,
+    "default": "''"
    }
   ]
  },
@@ -2026,6 +2129,54 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/purchase-orders",
+  "handler": "create_purchase_order",
+  "file": "v1/purchase_orders.py",
+  "line": 200,
+  "body": "PurchaseOrderCreate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/purchase-orders/{id}",
+  "handler": "update_purchase_order",
+  "file": "v1/purchase_orders.py",
+  "line": 223,
+  "body": "PurchaseOrderUpdate",
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/purchase-orders/{id}",
+  "handler": "delete_purchase_order",
+  "file": "v1/purchase_orders.py",
+  "line": 249,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/purchase-orders/{id}/restore",
+  "handler": "restore_purchase_order",
+  "file": "v1/purchase_orders.py",
+  "line": 264,
+  "body": null,
+  "auth": [
+   "?须读源码"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/return-requests",
   "handler": "create_return_request",
   "file": "v1/return_requests.py",
@@ -2249,26 +2400,7 @@
   "auth": [
    "?须读源码"
   ],
-  "bodyFields": [
-   {
-    "name": "phone",
-    "type": "ContactPhone",
-    "required": false,
-    "default": null
-   },
-   {
-    "name": "display_name",
-    "type": "str",
-    "required": false,
-    "default": null
-   },
-   {
-    "name": "category",
-    "type": "str",
-    "required": false,
-    "default": null
-   }
-  ]
+  "bodyFields": null
  },
  {
   "method": "PATCH",
@@ -2280,26 +2412,7 @@
   "auth": [
    "?须读源码"
   ],
-  "bodyFields": [
-   {
-    "name": "phone",
-    "type": "OptionalContactPhone",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "display_name",
-    "type": "str | None",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "category",
-    "type": "str | None",
-    "required": false,
-    "default": "None"
-   }
-  ]
+  "bodyFields": null
  },
  {
   "method": "POST",
@@ -2493,7 +2606,7 @@
   "path": "/api/v1/suppliers",
   "handler": "create_supplier",
   "file": "v1/suppliers.py",
-  "line": 157,
+  "line": 158,
   "body": "SupplierCreate",
   "auth": [
    "?须读源码"
@@ -2536,7 +2649,7 @@
   "path": "/api/v1/suppliers/{supplier_id}",
   "handler": "update_supplier",
   "file": "v1/suppliers.py",
-  "line": 195,
+  "line": 196,
   "body": "SupplierUpdate",
   "auth": [
    "?须读源码"
@@ -2579,7 +2692,7 @@
   "path": "/api/v1/suppliers/{supplier_id}",
   "handler": "delete_supplier",
   "file": "v1/suppliers.py",
-  "line": 233,
+  "line": 234,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2591,7 +2704,7 @@
   "path": "/api/v1/suppliers/{supplier_id}/restore",
   "handler": "restore_supplier",
   "file": "v1/suppliers.py",
-  "line": 249,
+  "line": 250,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2603,7 +2716,7 @@
   "path": "/api/v1/suppliers/{supplier_id}/payables",
   "handler": "create_payable",
   "file": "v1/suppliers.py",
-  "line": 287,
+  "line": 288,
   "body": "SupplierPayableCreate",
   "auth": [
    "?须读源码"
@@ -2615,7 +2728,7 @@
   "path": "/api/v1/supplier-payables/{payable_id}",
   "handler": "update_payable",
   "file": "v1/suppliers.py",
-  "line": 319,
+  "line": 320,
   "body": "SupplierPayableUpdate",
   "auth": [
    "?须读源码"
@@ -2627,7 +2740,7 @@
   "path": "/api/v1/supplier-payables/{payable_id}",
   "handler": "delete_payable",
   "file": "v1/suppliers.py",
-  "line": 364,
+  "line": 368,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2639,7 +2752,7 @@
   "path": "/api/v1/supplier-payables/{payable_id}/restore",
   "handler": "restore_payable",
   "file": "v1/suppliers.py",
-  "line": 381,
+  "line": 388,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2651,7 +2764,7 @@
   "path": "/api/v1/supplier-payables/{payable_id}/payments",
   "handler": "pay_payable",
   "file": "v1/suppliers.py",
-  "line": 436,
+  "line": 443,
   "body": "SupplierPaymentCreate",
   "auth": [
    "?须读源码"
@@ -2663,7 +2776,7 @@
   "path": "/api/v1/supplier-payments/{flow_id}",
   "handler": "cancel_payment",
   "file": "v1/suppliers.py",
-  "line": 461,
+  "line": 468,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2675,7 +2788,7 @@
   "path": "/api/v1/supplier-payments/{flow_id}/restore",
   "handler": "restore_payment",
   "file": "v1/suppliers.py",
-  "line": 486,
+  "line": 493,
   "body": null,
   "auth": [
    "?须读源码"
@@ -2794,10 +2907,91 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/user-categories",
+  "handler": "create_category",
+  "file": "v1/user_categories.py",
+  "line": 104,
+  "body": "UserCategoryCreate",
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/user-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/user_categories.py",
+  "line": 134,
+  "body": "UserCategoryUpdate",
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/user-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/user_categories.py",
+  "line": 176,
+  "body": "UserCategoryReorder",
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/user-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/user_categories.py",
+  "line": 200,
+  "body": null,
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/users",
   "handler": "create_user",
   "file": "v1/users.py",
-  "line": 101,
+  "line": 107,
   "body": "UserCreate",
   "auth": [
    "USER_MANAGE"
@@ -2809,7 +3003,7 @@
   "path": "/api/v1/users/{user_id}/product-visibility",
   "handler": "set_product_visibility",
   "file": "v1/users.py",
-  "line": 175,
+  "line": 186,
   "body": "ProductVisibilityIn",
   "auth": [
    "USER_MANAGE"
@@ -2834,7 +3028,7 @@
   "path": "/api/v1/users/{user_id}",
   "handler": "update_user",
   "file": "v1/users.py",
-  "line": 235,
+  "line": 246,
   "body": "UserUpdate",
   "auth": [
    "仅登录"
@@ -2846,7 +3040,7 @@
   "path": "/api/v1/users/{user_id}/swap-shipper-driver",
   "handler": "swap_shipper_driver",
   "file": "v1/users.py",
-  "line": 347,
+  "line": 367,
   "body": null,
   "auth": [
    "USER_MANAGE"
@@ -2858,7 +3052,7 @@
   "path": "/api/v1/users/{user_id}",
   "handler": "delete_user",
   "file": "v1/users.py",
-  "line": 395,
+  "line": 435,
   "body": null,
   "auth": [
    "USER_MANAGE"
@@ -2870,7 +3064,88 @@
   "path": "/api/v1/users/{user_id}/restore",
   "handler": "restore_user",
   "file": "v1/users.py",
-  "line": 432,
+  "line": 472,
+  "body": null,
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": null
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/vehicle-categories",
+  "handler": "create_category",
+  "file": "v1/vehicle_categories.py",
+  "line": 87,
+  "body": "VehicleCategoryCreate",
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str",
+    "required": true,
+    "default": null
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/vehicle-categories/{category_id}",
+  "handler": "update_category",
+  "file": "v1/vehicle_categories.py",
+  "line": 117,
+  "body": "VehicleCategoryUpdate",
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": [
+   {
+    "name": "name",
+    "type": "str | None",
+    "required": false,
+    "default": "None"
+   },
+   {
+    "name": "sort_order",
+    "type": "int | None",
+    "required": false,
+    "default": "None"
+   }
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/vehicle-categories/reorder",
+  "handler": "reorder_categories",
+  "file": "v1/vehicle_categories.py",
+  "line": 159,
+  "body": "VehicleCategoryReorder",
+  "auth": [
+   "USER_MANAGE"
+  ],
+  "bodyFields": [
+   {
+    "name": "ids",
+    "type": "list[int]",
+    "required": true,
+    "default": null
+   }
+  ]
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/vehicle-categories/{category_id}",
+  "handler": "delete_category",
+  "file": "v1/vehicle_categories.py",
+  "line": 183,
   "body": null,
   "auth": [
    "USER_MANAGE"
@@ -2882,101 +3157,33 @@
   "path": "/api/v1/vehicles",
   "handler": "create_vehicle",
   "file": "v1/vehicles.py",
-  "line": 251,
+  "line": 289,
   "body": "VehicleCreate",
   "auth": [
    "仅登录",
    "体内:派单员"
   ],
-  "bodyFields": [
-   {
-    "name": "plate_no",
-    "type": "str",
-    "required": true,
-    "default": null
-   },
-   {
-    "name": "vehicle_type",
-    "type": "str",
-    "required": false,
-    "default": "''"
-   },
-   {
-    "name": "driver_id",
-    "type": "int | None",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "body_type",
-    "type": "str",
-    "required": false,
-    "default": "''"
-   },
-   {
-    "name": "attrs",
-    "type": "dict[str, Any] | None",
-    "required": false,
-    "default": "None"
-   }
-  ]
+  "bodyFields": null
  },
  {
   "method": "PATCH",
   "path": "/api/v1/vehicles/{vehicle_id}",
   "handler": "update_vehicle",
   "file": "v1/vehicles.py",
-  "line": 287,
+  "line": 341,
   "body": "VehicleUpdate",
   "auth": [
    "仅登录",
    "体内:派单员"
   ],
-  "bodyFields": [
-   {
-    "name": "plate_no",
-    "type": "str | None",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "vehicle_type",
-    "type": "str | None",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "driver_id",
-    "type": "int | None",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "is_active",
-    "type": "bool | None",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "body_type",
-    "type": "str | None",
-    "required": false,
-    "default": "None"
-   },
-   {
-    "name": "attrs",
-    "type": "dict[str, Any] | None",
-    "required": false,
-    "default": "None"
-   }
-  ]
+  "bodyFields": null
  },
  {
   "method": "POST",
   "path": "/api/v1/vehicles/{vehicle_id}/driver",
   "handler": "set_vehicle_driver",
   "file": "v1/vehicles.py",
-  "line": 340,
+  "line": 423,
   "body": "VehicleDriverSet",
   "auth": [
    "仅登录",

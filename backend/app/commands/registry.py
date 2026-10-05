@@ -131,6 +131,20 @@ ORDER_COMMANDS: tuple[CommandSpec, ...] = (
             "它还要清掉逐单覆盖值，否则下一任司机按上一任的数字拿钱。",
     ),
     CommandSpec(
+        name="order.release_silent",
+        domain="order",
+        impl="services.order_flow:release_dispatch",
+        capabilities=("ORDER_RECALL",),
+        from_states=("DISPATCHED", "ACCEPTED"),
+        to_state="PENDING_DISPATCH",
+        events=("orders.revoked", "orders.pending_pool_changed"),
+        effects=("operation_logs", "inventory_movements"),
+        why="静默退回派单池（CHG-0039）：状态跃迁与撤回**逐字相同**（连清掉的逐单覆盖值都一样），"
+            "区别只在通知对象 —— 撤回会告诉货主（orders.recalled），这一条不告诉。"
+            "它单独成一条命令而不是 recall 的一个开关，是因为**事件清单**不同：这张表要能回答"
+            "「哪条命令会提醒货主」，而那正是用户划下的那条边界。",
+    ),
+    CommandSpec(
         name="order.split",
         domain="order",
         impl="services.order_flow:split_order",

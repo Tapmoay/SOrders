@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:0fb21300ce12b851fe13982a89cad6fbd08ec2c88d8e46bb8065ffb4820228ab",
- "source_commit": "9875ec5",
- "generated_at": "2026-10-04T09:45:20Z",
+ "source_hash": "sha256:e29bb88443fa579e950587baa2397d62095ee02c9eabf2101899fd3e514311a7",
+ "source_commit": "c3526c5",
+ "generated_at": "2026-10-05T05:00:38Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -135,9 +135,9 @@
   {
    "key": "order:recall",
    "member": "ORDER_RECALL",
-   "what": "撤回派单（把单从司机手里收回来）",
+   "what": "撤回派单（把单从司机手里收回来）／静默退回派单池（货主端看不到）",
    "scope": "all",
-   "scope_why": "撤回改派是全局动作：把单从某个司机手里收回来再派给别人",
+   "scope_why": "撤回改派是全局动作：把单从某个司机手里收回来再派给别人；静默退回货主无感，所以它更是全局动作（没有人会因为这次变动来问）",
    "roles": [
     "dispatcher"
    ],
@@ -449,7 +449,8 @@
    "DRIVER_RULE_ATTACH"
   ],
   "order:recall": [
-   "ORDER_RECALL"
+   "ORDER_RECALL",
+   "ORDER_RELEASE_SILENT"
   ],
   "order:cancel_dispatcher": [
    "ORDER_CANCEL"
@@ -588,7 +589,7 @@
   "capabilities": 26,
   "role_capabilities": 5,
   "write_capabilities": 18,
-  "audited_action_codes": 115,
+  "audited_action_codes": 116,
   "audit_exceptions": 1
  }
 }

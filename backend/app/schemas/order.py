@@ -383,6 +383,18 @@ class OrderRecallBody(BaseModel):
     reason: str = Field(..., min_length=1, max_length=MAX_REASON)
 
 
+class OrderReleaseBody(BaseModel):
+    """静默退回派单池（CHG-0039）。
+
+    与 [OrderRecallBody] 的差别**只有两件**：理由可选、**不通知货主**。
+    理由为什么可选：这个动作的语义不依赖理由 —— 它在界面上有且只有一种用法
+    （「这个司机手里这一单先给别人」），派单员点一下就走；强行必填只会逼出一堆
+    「1」这种假理由进审计日志，而审计日志的价值恰恰在于它写的是真话。
+    """
+
+    reason: str = Field("", max_length=MAX_REASON)
+
+
 class OrderReturnItem(BaseModel):
     """退货的一行（哪一行商品、退几件）。"""
 

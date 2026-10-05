@@ -50,7 +50,9 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                       'FREIGHT_TEMPLATE_DELETE', 'FREIGHT_TEMPLATE_RESTORE', 'FREIGHT_CATEGORY_UPSERT',
                       'FREIGHT_CATEGORY_DELETE', 'FREIGHT_CATEGORY_REORDER', 'DRIVER_RULE_UPSERT',
                       'DRIVER_RULE_ATTACH'),
-    'order:recall': ('ORDER_RECALL',),
+    # 静默退回派单池（CHG-0039）与撤回共用 `Permission.ORDER_RECALL`：门一样、状态跃迁一样，
+    # 差别只在通知对象（撤回告诉货主，静默退回不告诉）——所以它是这个能力下的第二个动作码。
+    'order:recall': ('ORDER_RECALL', 'ORDER_RELEASE_SILENT'),
     'order:cancel_dispatcher': ('ORDER_CANCEL',),
     'order:cancel_shipper': ('ORDER_CANCEL',),
     'order:delete_cancelled': ('ORDER_DELETE', 'ORDER_RESTORE'),

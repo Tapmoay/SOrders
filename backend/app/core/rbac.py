@@ -147,7 +147,14 @@ SCOPES: dict[Permission, tuple[str, str]] = {
     Permission.ORDER_RETURN_REQUEST: ("own", "货主只能给自己的单提退货申请"),
     Permission.ORDER_DELETE_CANCELLED: ("own", "软删进回收站：货主限自己的、派单员不限"),
     Permission.ORDER_DISPATCH: ("all", "派单是全局动作：要看到所有待派单与所有司机"),
-    Permission.ORDER_RECALL: ("all", "撤回改派是全局动作：把单从某个司机手里收回来再派给别人"),
+    # ⚠️ 理由必须与 `capabilities.py` 里那条 `Capability(permission="ORDER_RECALL")` 的
+    #    `scope_why` **逐字相同**（判据 `_check_capability_registry.py` 双向对账）：
+    #    静默退回派单池（CHG-0039）与撤回共用这一个权限点，所以理由也要一起说清楚。
+    Permission.ORDER_RECALL: (
+        "all",
+        "撤回改派是全局动作：把单从某个司机手里收回来再派给别人；静默退回货主无感，"
+        "所以它更是全局动作（没有人会因为这次变动来问）",
+    ),
     Permission.ORDER_EDIT: ("all", "派单员代客改单，改的往往是别人名下的单，所以不分归属"),
     Permission.ORDER_COMPLETE_DRIVER: ("assigned", "司机只能完成派给自己的单"),
     Permission.ORDER_INTERNAL_NOTE: ("assigned", "内部备注写在单上，司机限自己的单"),

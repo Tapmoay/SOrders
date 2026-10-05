@@ -52,7 +52,7 @@ CASES: list[tuple[str, str, str, str, str]] = [
      '不是角色门'),
     ('⑤ 角色能力键与权限点同名', ROLE_CAPS, "key='address:manage'", "key='order:dispatch'", '与权限点重名'),
     ('⑥ 从一个能力下面删掉动作码', COVER,
-     "'order:recall': ('ORDER_RECALL',),", "'order:recall': (),", '既没有能力认领'),
+     "'order:recall': ('ORDER_RECALL', 'ORDER_RELEASE_SILENT'),", "'order:recall': (),", '既没有能力认领'),
     ('⑦ 反空转下限失守（覆盖表被掏空）', CHK,
      'MIN_ACTION_CODES = 80', 'MIN_ACTION_CODES = 999', '被覆盖的动作码只有'),
     ('⑧ 一个工作台入口失去能力与例外理由', MODULES,
