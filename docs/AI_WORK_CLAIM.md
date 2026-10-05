@@ -5741,6 +5741,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`ad470a9`（本事项只动两个 `ui/driver` 文件 + 两份 QA 脚本 + 三份文档 + 一条 ALLOW 追加 + 一份生成物重生成）。
 
+### [2026-10-06 03:0x → 进行中] 会话：**BUG-0015 订单详情「下单人」那行被 `weight(1f)` 顶到最右：中间的空隙"有时候有有时候又没有"，与「收货人」那行不对齐**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 第 **L-02** 条（原文 m00061：「它那个中间为什么老是出现一些空格啊？**有时候有有时候又没有**，就是下单人和后面的那些显示的信息中间出现了空格，跟上面的又不做一个对齐，非常怪」，附 445×990 截图，红框就是这两行）—— 台账 L-01…L-32 逐条落地的**第二条**。
+
+**病灶**：`ui/order/OrderDetailScreen.kt` 的「下单人」那一行把标签写成 `Text("下单人", style = bodyMedium, modifier = Modifier.weight(1f))`，`weight(1f)` 把值**顶到整行最右** ⇒ 中间那段空隙 = `整行宽 − 标签宽 − 值宽`：值一长就贴住、值一短就空一大截（与数据脏不脏无关，所以用户看到的是"有时候有有时候又没有"）；而它上面那一行「收货人」是 `Text("收货人 " + who, titleMedium, Bold)` **一个 Text 左对齐** ⇒ 两行的**值起点**与**字号字重**都不一样。
+
+**改法（L0，一处）**：`OrderDetailScreen.kt:850-865` 把两个 Text 合成一个 —— `val bossText = bossWho ?: "未填"` + `Text("下单人 " + bossText, style = titleMedium, fontWeight = Bold, color = 有值 0xFF00B578 绿 / 没填 onSurfaceVariant 灰)`，与收货人同形（图标 22dp + 8dp 间隔也一致）；**绿色**（2026-09-22 用户点名要的）与**「先弹确认再拨」**两条一个字没动。
+
+**判据 / 反验**：`_tools/qa/_check_contact_names.py` **72/72**（既有红线里**追加** 4 条：①详情页不许再出现 `Text("下单人", … weight(1f))` ②「下单人」那行必须是 `"下单人 " +` 拼出来的**一个** Text ③两行的 `style` 必须一致（`re.findall` 把两行都抓出来比对）④值仍然是绿色；另按该文件既有先例把「详情页有『下单人』」那条锚点放宽成认两种形态 —— 判据本意是"这一行真的在"）；`_tools/qa/_reverse_verify_contact_names.py` **29/29**（新增 3 条注入：改回 label + `weight(1f)` / 字号掉回 `bodyMedium` / 去掉绿色；原有 1 条注入的锚点跟着实现从旧行搬到 `"下单人 " + bossText,`）。编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL**（16s 增量）。
+
+**明确不碰**：`ui/common/OrderCard.kt:34-70` 的 `contactWho(...)`（卡片与详情共用的"名字（电话）"口径，一字未动）、收货人那一行、`confirmCallBoss` 的弹窗逻辑与"没填也要画这一行"的两道条件、`EditHint` / `ContactEditBlock` 的就地编辑、后端**一个字节都不动**；共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `enums.py` / `ReportCenter.kt`）**一个都没动**。
+
+**静检**：`python _tools/qa/_check_all.py` → **181 项：179 ✅ / 2 ❌**（日志 `_tmp/checkall_bug0015b.log`）：①`_check_backend_fresh.py` 报「本机后端跑的是旧代码（PID 30144 于 2026-10-05 18:58:26 启动，源码 2026-10-06 03:07:54 还被改过）」—— **跑过反向验证套件后必然报的假红**（注入再还原会把文件 mtime 全部刷新，而 `git status` 里 `backend/` 一个 ` M` 都没有 ⇒ 内容一字未变）；②`_check_report_facts.py` 报 `docs/RELEASE_CANDIDATE.md` 缺 `VERSION 0.2.5`（另一个会话在做发布，` M VERSION` 在开会话前就在）。**两条都与本事项无关**。另：`python backend/scripts/check_reachability.py` → **可达文档 162/162**、markdown 链接全有效、无孤儿（exit 0）。⚠️ 顺带补掉 L-01 的一条尾巴：`_tools/qa/_check_driver_tab_highlight.py` 缺 `R4-BOUNDARY-JUSTIFICATION:` 声明（R3-D17 `checker_budget` 只在**提交之后**才看得见新检查器，工作区里跑全量静检时是绿的）—— 已按 `_check_text_truncation.py` 等既有先例补写「为什么代码边界解决不了这件事」，判据本体一字未动（仍 17/17），`_check_r3_constraints.py` 复跑 **8 组全绿**。
+
+**实现提交**：⏳（归档时回填）
+
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
@@ -5753,6 +5769,8 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-06 03:0x | **BUG-0015 订单详情「下单人」行与「收货人」行同形**（我，`session-bd8fe093`） | `_tools/qa/_check_contact_names.py`、`_tools/qa/_reverse_verify_contact_names.py`（共享：**联系人/下单人口径**那条红线） | ⚠️ **只做追加，判据一条没放宽**：在既有 68 项后追加 4 条（①详情页不许再出现 `Text("下单人", … weight(1f))` 顶开值 ②「下单人」那行必须是 `"下单人 " +` 拼出来的**一个** Text（与收货人同形）③两行的 `style` 必须一致（`re.findall` 抓两行比对）④值仍然是绿色 `0xFF00B578`）；反验追加 3 条注入（改回 label+`weight(1f)` / `style` 掉回 `bodyMedium` / 去掉绿色）。⛔ 唯一一处"放宽"是把「详情页有『下单人』」那条锚点从只认 `"下单人"` 改成 `"下单人 " \+` 或旧形态都认 —— 因为实现把字面从 `"下单人"` 改成了 `"下单人 "`，而该条判据的本意是"这一行真的在"，不是"它必须长成某个样子"；原有 1 条注入的锚点同步从旧行搬到 `"下单人 " + bossText,`（注入规则不变）。 |
+| 2026-10-06 03:0x | **BUG-0015**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 改了 `ui/order/OrderDetailScreen.kt` 之后按生成器的规矩重跑 `python _tools/qa/_hint_inventory.py --md`（1627 条文案）—— 该产物的指纹覆盖 `backend/app/**/*.py` 与 `android/app/src/main/**/*.kt`（`_tools/ai/_airepo.py:259-296`，路径也进哈希），不重生成 `_check_generated_freshness.py` 必红。⛔ 只跑生成器，没有手改一个字。 |
 | 2026-10-06 03:0x | **BUG-0014 司机任务页切栏目的那一瞬，卡片按「上一栏」的样式画「新一栏」的单**（我，`session-bd8fe093`） | `_tools/qa/_check_reverse_verify_anchors.py`（共享：**反向验证的锚点元检查**） | ⚠️ **只追加一条 `ALLOW` 书面理由**（键 = `("_reverse_verify_driver_tab_highlight.py", "司机端新增一个按 vm.tab 算高亮的页面（清单自己算 → 必须点名它）")`）：本事项新增的反验脚本用「**新建**一个按 `vm.tab` 算高亮的越权页」这条注入去试「清单自己算 → 必须点名新页面」那条判据，而该判据对 `.kt` 目标会先报「目标文件不存在（被改名/搬走了？）」—— 与 `_reverse_verify_driver_money.py` 的 `_LeakScreen.kt` **同一个先例**（新建型注入的目标文件本来就只在注入期间存在）。⛔ 判据逻辑、阈值、扫描口径**一个字没动**（196 份 / 2051 条一条不少），只写了一条「它为什么必然找不到」的理由；该文件的化石守卫仍要求这条键真实存在。 |
 | 2026-10-06 03:0x | **BUG-0014**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 改了两个 `ui/driver/*.kt` 之后按生成器的规矩重跑 `python _tools/qa/_hint_inventory.py --md`（1627 条文案）—— 该产物的指纹覆盖 `backend/app/**/*.py` 与 `android/app/src/main/**/*.kt`（`_tools/ai/_airepo.py:259-296`，路径也进哈希），不重生成 `_check_generated_freshness.py` 必红。⛔ 只跑生成器，没有手改一个字。 |
 | 2026-10-05 02:5x | **CHG-0036 报表中心 v2 三件事**（我，`session-e94394d5`） | `ui/dispatcher/report/ReportV2Model.kt`（共享：`REPORT_ENTRIES`） | 只改**一格图标色**：`EntryCard("5", "异常与审计", …, Color(0xFFFF4D4F))` → `Color(0xFFF5A623)`（用户 m33242：「唯独红色只有这个账他欠了钱才能使用」；琥珀是设计系统已有色）。⚠️ 这份清单**老入口页 `ReportHome.kt` 与 v2 抽屉共用**（CHG-0034 时写的是「色值与老入口页原样一致」，这次是**有意破例**），所以回退落点那一页的「异常与审计」图标也会跟着变琥珀 —— 已记进 `docs/changes/CHG-0036.md` 的 Known Limitations；其余 10 格颜色一个字没动 |

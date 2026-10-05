@@ -129,14 +129,12 @@ MUTATIONS = [
         "只有一份实现",
     ),
     (
-        # ⚠️ 2026-09-22 修：锚点原来是 `InfoRow("下单人", who)`，而详情页那一行早就改成
-        #    "可点击拨打 + 点击先弹确认"的自绘行 → 注入变成 [SKIP]（同上面那条，一直没在验）。
+        # ⚠️ 锚点跟着实现搬（2026-10-06 L-02：那一行从 `Text("下单人", weight(1f))` + 值
+        #    改成 label 与值拼成一个 Text）—— **规则没变**：详情页不许出现旧词「老板电话」。
         "详情页又用回旧词「老板电话」（与下单页/卡片/AI 不一致）",
         DETAIL,
-        '                        Text("下单人", style = MaterialTheme.typography.bodyMedium, '
-        "modifier = Modifier.weight(1f))\n",
-        '                        Text("老板电话", style = MaterialTheme.typography.bodyMedium, '
-        "modifier = Modifier.weight(1f))\n",
+        '                            "下单人 " + bossText,\n',
+        '                            "老板电话 " + bossText,\n',
         "订单详情里没有旧词",
     ),
     (
@@ -238,6 +236,42 @@ MUTATIONS = [
         '    assert only_name["contact_boss_phone"] == ""\n',
         '    assert only_name["contact_boss_phone"] is not None\n',
         "用例真的在断言",
+    ),
+    # ===== 第三轮（2026-10-06）：「收货人」与「下单人」这两行**必须同形** =====
+    (
+        "⛔ 「下单人」那行又变成 label + weight(1f) 把值顶到最右（就是用户说的"
+        "「中间那个空格有时候有有时候又没有」）",
+        DETAIL,
+        '                            "下单人 " + bossText,\n'
+        "                            style = MaterialTheme.typography.titleMedium,\n",
+        '                        Text("下单人", style = MaterialTheme.typography.titleMedium, '
+        "modifier = Modifier.weight(1f))\n"
+        "                        Text(\n"
+        "                            bossText,\n"
+        "                            style = MaterialTheme.typography.titleMedium,\n",
+        "label 用 weight(1f) 顶开值",
+    ),
+    (
+        "「下单人」那行的字号掉回 bodyMedium（与收货人对不上，用户说的"
+        "「跟上面的又不做一个对齐」）",
+        DETAIL,
+        '                            "下单人 " + bossText,\n'
+        "                            style = MaterialTheme.typography.titleMedium,\n",
+        '                            "下单人 " + bossText,\n'
+        "                            style = MaterialTheme.typography.bodyMedium,\n",
+        "两行的字号与字重一致",
+    ),
+    (
+        "「下单人」的值不再是绿色（推翻用户 2026-09-22 点名要的那个颜色）",
+        DETAIL,
+        "                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF00B578)\n"
+        "                                else MaterialTheme.colorScheme.onSurfaceVariant,\n"
+        "                        )\n"
+        "                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.BOSS) })\n",
+        "                            color = MaterialTheme.colorScheme.onSurfaceVariant,\n"
+        "                        )\n"
+        "                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.BOSS) })\n",
+        "仍然是绿色",
     ),
 ]
 

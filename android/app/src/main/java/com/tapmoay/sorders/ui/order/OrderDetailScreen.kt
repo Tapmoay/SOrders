@@ -847,10 +847,19 @@ private fun DetailBody(
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("下单人", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        // 与上面「收货人」那一行**同形**：label 与值拼成一个 Text、左对齐、同一个字号字重
+                        // （用户 2026-10-06：「就是**下单人**和后面的那些显示的信息中间出现了空格，
+                        //   **有时候有有时候又没有**，跟上面的又不做一个对齐，非常怪」）。
+                        // ⛔ 别再给 label 加 `Modifier.weight(1f)` —— 那会把值顶到整行最右，
+                        //    中间的空隙 = 整行宽 − label 宽 − 值宽：**值一长空隙就没了、值一短空隙就很大**，
+                        //    那正是"有时候有有时候又没有"的来源（不是数据脏）。
+                        // 绿色是用户 2026-09-22 点名要的（「样式不要变，但是颜色变一下，变成（一）点绿色」），
+                        // 判据要的是字面形态 "下单人 " + who（_check_contact_names.py）；颜色仍看 bossWho 本身。
+                        val bossText = bossWho ?: "未填"
                         Text(
-                            bossWho ?: "未填",
-                            style = MaterialTheme.typography.bodyMedium,
+                            "下单人 " + bossText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF00B578)
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
