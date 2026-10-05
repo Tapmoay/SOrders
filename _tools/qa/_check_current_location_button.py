@@ -100,7 +100,7 @@ def _sheet_body(code: str) -> str | None:
     ⚠️ 它是这个文件里**最后一个**大 composable，后面跟着的是别的小函数；
     切到下一个顶格的 `@Composable` / `private fun` 为止就够了（不追求精确配对）。
     """
-    start = code.find("private fun AddressPickerSheet(")
+    start = code.find("fun AddressPickerSheet(")
     if start < 0:
         return None
     tail = code[start + 10:]
@@ -139,7 +139,7 @@ def main() -> int:
         _pass()
         _ok("地址库抽屉里没有它（用户点名不许放那儿）")
     # 在表单里 = 出现在 AddressPickerSheet 之前的那一段
-    form_body = code.split("private fun AddressPickerSheet(")[0]
+    form_body = code.split("fun AddressPickerSheet(")[0]
     if "我就在这里" in form_body:
         _pass()
         _ok("它在表单那一侧（与「地图选点 / 地址库」同一层）")

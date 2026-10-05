@@ -695,6 +695,7 @@ fun OrderCreateScreen(
     if (vm.showAddressSheet) {
         AddressPickerSheet(
             container = container,
+            title = "选择收货地址",
             addresses = vm.addresses,
             locations = vm.locations,
             places = vm.places,
@@ -856,8 +857,13 @@ fun OrderCreateScreen(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddressPickerSheet(
+fun AddressPickerSheet(
     container: AppContainer,
+    /**
+     * 左上角那行标题：**一份实现两个入口**（2026-10-06，CHG-0047）—— 下单页是
+     * 「选择收货地址」，线路表单的起点/终点各是「选择起点」/「选择终点」。
+     */
+    title: String,
     addresses: List<AddressDto>,
     locations: List<LocationDto>,
     places: List<PlaceDto>,
@@ -885,6 +891,14 @@ private fun AddressPickerSheet(
     onDemotePlace: (Long) -> Unit,
     onRestorePlace: (Long) -> Unit,
     onShareLocation: (LocationDto) -> Unit,
+    /**
+     * 「＋ 新增地点」那一格点了做什么；`null` = **不画这一格**（下单页没有"行内新增地点"
+     * 那条路，它就没传 —— 于是下单页这份与改动前逐字一致）。
+     *
+     * 线路表单（CHG-0047）传的是 `vm.openLocationCreate("start"/"end")`：新建完由
+     * `pendingSlot` 自动回填到那个槽位，人不用建完再回来选一次。
+     */
+    onAddLocation: (() -> Unit)? = null,
 
     onDismiss: () -> Unit,
 ) {
@@ -967,7 +981,7 @@ private fun AddressPickerSheet(
     ) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(bottom = 12.dp)) {
             Text(
-                "选择收货地址",
+                title,
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
@@ -1049,7 +1063,21 @@ private fun AddressPickerSheet(
                                 )
                             }
                         }
-                        sel == "l" || sel.startsWith("c|") -> if (shownLocations.isEmpty()) {
+                        sel == "l" || sel.startsWith("c|") -> {
+                            // 「＋ 新增地点」摆在**第一格**（2026-10-06，CHG-0047）：线路表单从
+                            // 「我的地点」里选起点/终点时，这里才是"我现在就要新建一条"的出口 ——
+                            // 改动前这个抽屉里一条新建入口都没有（只能退出抽屉、去「地址与联系人」加）。
+                            // ⛔ 只画在「我的地点」段：共享地点库那张表**全库共用**，不给人在这里往里加。
+                            if (onAddLocation != null) {
+                                item {
+                                    TextButton(
+                                        onClick = onAddLocation,
+                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                                    ) { Text("＋ 新增地点") }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                }
+                            }
+                            if (shownLocations.isEmpty()) {
                             item {
                                 SheetEmptyHint(
                                     if (kw.isBlank()) {
@@ -1082,6 +1110,7 @@ private fun AddressPickerSheet(
                                     },
                                 )
                             }
+                        }
                         }
                         else -> if (places.isEmpty()) {
                             item {

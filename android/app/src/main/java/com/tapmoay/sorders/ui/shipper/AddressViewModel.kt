@@ -226,6 +226,24 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     /** 地点分组名册（**自己那一份**）：表单里那排候选胶囊。 */
     var placeCategories by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto>>(emptyList())
 
+    /**
+     * 共享地点库（**全库共用**的一张表，2026-10-06 / 台账 L-09）：起点/终点那个地点库抽屉的
+     * 第三段就是它。后端这套接口早就有（下单页一直在用），这一页原来只是**没接上**。
+     */
+    var places by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.PlaceDto>>(emptyList())
+
+    /** 共享地点这一页被服务端截断了没有 + 本次上限（判据是响应头 `X-Truncated`/`X-Result-Limit`）。 */
+    var placesTruncated by mutableStateOf(false)
+    var placesLimit by mutableStateOf<Int?>(null)
+
+    /**
+     * 刚删掉的那条共享地点（编号 + 名字）：抽屉拿它在列表顶上画一行「已删除 · 撤销」。
+     *
+     * 为什么要有它：删除是**软删**（用户 2026-09-19 定的规矩），"能恢复"这件事必须在手边
+     * 有个入口 —— 撤回卡只在 AI 那条路上有，人点的那一下也得能撤回来。
+     */
+    var recentlyDeletedPlace by mutableStateOf<Pair<Long, String>?>(null)
+
     /** 这个联系人归到哪个分类（空 = 未分类）；表单里可以现敲一个新的（后端会自动补进名册）。 */
     var contactCategory by mutableStateOf("")
 
@@ -276,6 +294,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 当前登录人能不能标仓库 —— 货主看不到那个开关（后端也会拦，这里只是不给他点一个必然报错的东西）。 */
     var canMarkWarehouse by mutableStateOf(false)
+
+    /** 当前登录人能不能管共享地点库（改名称/撤销/删除都只对派单员开放，后端也会拦）。 */
+    var canManageSharedPlaces by mutableStateOf(false)
     var locImageUploading by mutableStateOf(false)
     var pendingSlot by mutableStateOf<String?>(null)   // 行内新增地点回填槽位 start/end
     var lineContactCtx by mutableStateOf(false)        // 从线路抽屉打开的联系人抽屉
@@ -305,6 +326,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
             try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {}
             try { contactCategories = container.repo.contactCategories() } catch (_: Exception) {}
             try { routeCategories = container.repo.routeCategories() } catch (_: Exception) {}
+            // 共享地点库也顺手拉一份（2026-10-06，CHG-0047）：抽屉一打开第三段就该有内容，
+            // 不然会先闪一句"共享地点库还是空的"再自己填上。
+            loadPlaces()
             // 三条**全挂**才认定"这一页没加载出来"（整页给「重试」）；
             // 只挂了一部分就照常显示，缺的那条用 Snackbar 说一句 —— 别把好的也收走。
             if (!okAddresses && !okContacts && !okLocations) loadError = failed.firstOrNull() ?: "加载失败"
@@ -313,7 +337,11 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         }
         viewModelScope.launch {
             try {
-                canMarkWarehouse = container.tokenStore.sessionFlow.first()?.role == "dispatcher"
+                // 读一次会话按两处用：仓库标记与共享库管理权判的是**同一个角色**，
+                // 分两个协程各读一次是白花一次请求（2026-10-06，CHG-0047）。
+                val isDispatcher = container.tokenStore.sessionFlow.first()?.role == "dispatcher"
+                canMarkWarehouse = isDispatcher
+                canManageSharedPlaces = isDispatcher
             } catch (_: Exception) {
             }
         }
@@ -467,6 +495,74 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         // 地点有图 → 线路图片自动带图（多张全带）
         if (l.imageUrls.isNotEmpty() || !l.imageUrl.isNullOrBlank()) {
             draftImageUrls = l.imageUrls.ifEmpty { listOfNotNull(l.imageUrl) }
+        }
+    }
+
+    /**
+     * 从**线路**里挑一条回填（2026-10-06，CHG-0047 / 台账 L-09）：[asOrigin] 决定填起点还是终点。
+     *
+     * ⚠️ 起点那一侧有个真会发生的坑：线路的起点是**可选**的（`originAddress` 可能是空的 ——
+     * 那条线路本身就是"只送到终点"）。这种线路**什么都不填**并把理由说出来，
+     * ⛔ 绝不拿它的终点当地起点：那是"悄悄改了用户要去的地方"。
+     */
+    fun applyPickedRoute(a: AddressDto, asOrigin: Boolean) {
+        if (asOrigin) {
+            val addr = a.originAddress.orEmpty().trim()
+            if (addr.isEmpty()) {
+                formError = "这条线路没写起点（只送到终点），改选一个地点，或先编辑这条线路补上起点"
+                return
+            }
+            draftOrigin = addr
+            draftOriginLat = a.originLat
+            draftOriginLng = a.originLng
+            return
+        }
+        draftDetail = a.detailAddress
+        draftLat = a.addressLat
+        draftLng = a.addressLng
+        // 线路上的收货人两栏是**快照**：照 [selectDestLocation] 的规矩"有值才覆盖" ——
+        // 没写收货人的线路不许把用户刚敲好的名字/电话清掉。
+        val f = fillReceiver(
+            ReceiverContact(draftName, draftPhone),
+            a.receiverName,
+            a.phone,
+            ContactFillMode.BROUGHT,
+        )
+        draftName = f.name
+        draftPhone = f.phone
+    }
+
+    /**
+     * 从**共享地点库**挑一条回填（2026-10-06，CHG-0047 / 台账 L-09）。
+     *
+     * ⛔ 共享地点**不带联系人**（也不许带）：`places` 是**全库共用**的一张表 —— 司机补录
+     * 的坐标所有人都会选到，往它上面绑一个人的电话等于给所有人换了默认收货人。
+     * 那张表根本没有这两个字段，绑定只存在于「我的地点」（`shipper_locations`）。
+     */
+    fun applyPickedPlace(p: com.tapmoay.sorders.data.remote.dto.PlaceDto, asOrigin: Boolean) {
+        val addr = p.detailAddress.ifBlank { p.name }
+        if (asOrigin) {
+            draftOrigin = addr
+            draftOriginLat = p.addressLat
+            draftOriginLng = p.addressLng
+        } else {
+            draftDetail = addr
+            draftLat = p.addressLat
+            draftLng = p.addressLng
+        }
+        // 记一次"我用了它"。**同一个人用到第 2 次**时后端会自动把它收进我的地点库，
+        // 那时要在界面上说一句 —— 静默改了用户自己的库，他下次看到多出一条来源不明的
+        // 记录只能猜。界面语言：说清"发生了什么"，不说"操作成功"。
+        viewModelScope.launch {
+            try {
+                val r = container.repo.usePlace(p.id)
+                if (r.autoAdded) {
+                    notice = "「${p.name.ifBlank { p.detailAddress }}」你用过几次了，已加进你的「我的地点」"
+                    locations = container.repo.locations()
+                }
+            } catch (_: Exception) {
+                // 记账失败不该打断"新建/编辑线路"：它只是"常用地点"的统计，不是必要步骤
+            }
         }
     }
 
@@ -717,6 +813,119 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
             if (locRailKey.startsWith("c|") &&
                 placeCategories.none { "c|" + it.name == locRailKey }
             ) locRailKey = ""
+        }
+    }
+
+    /**
+     * 地址库抽屉每次打开都刷一遍**抽屉里显示的那三份**：分组名册 / 线路 / 我的地点。
+     * （分组名册是"自己那一份"：货主和派单员各管各的，互相看不到。）
+     *
+     * 为什么是"三份一起"：抽屉左栏是分组名册、右栏是线路/地点。只刷名册的话，点进那个
+     * 刚改名的分组会显示「这个分组下还没有地点」（按新名字一条都筛不到），而数据其实一条没少。
+     */
+    fun reloadAddressLibrary() {
+        viewModelScope.launch { try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {} }
+        viewModelScope.launch { try { addresses = container.repo.addresses() } catch (_: Exception) {} }
+        viewModelScope.launch { try { locations = container.repo.locations() } catch (_: Exception) {} }
+    }
+
+    /** 共享地点库（全库共用）。搜索时由界面调 `loadPlaces(q)`。 */
+    fun loadPlaces(q: String? = null) {
+        viewModelScope.launch {
+            try {
+                val page = container.repo.placesPage(q)
+                places = page.rows
+                placesTruncated = page.meta.hasMore
+                placesLimit = page.meta.limit
+            } catch (_: Exception) {}
+        }
+    }
+
+    // ===== 共享库的管理（**只有派单员**，用户 2026-09-19）=====
+    //
+    // 用户原话：「共享地址的编辑只有派单员可以编辑，其他人都编辑不了。派单员可以改名称，
+    // 也可以把一些地点给设置为共享地址，也可以撤销某些共享地址，把它降为普通的地址，
+    // 或者直接删掉」。
+    //
+    // 四个动作都在这里**如实回报**（[notice]），而且**改完立刻重拉两份列表**：
+    // 撤销会同时改「共享地点」（少一条）和「我的地点」（多一条），只刷一份的话
+    // 抽屉里会出现"刚撤销的地点还在共享库里"这种假象。
+
+    /** 改共享地点的名称/地址。 */
+    fun updatePlace(id: Long, name: String?, address: String?) {
+        if (name == null && address == null) {
+            notice = "没有要改的内容"
+            return
+        }
+        viewModelScope.launch {
+            try {
+                container.repo.updatePlace(
+                    id,
+                    com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest(name = name, detailAddress = address),
+                )
+                notice = "已改共享地点"
+                loadPlaces()
+            } catch (e: Exception) {
+                notice = toApiException(e).message
+            }
+        }
+    }
+
+    /** 从共享库**删掉**一个地点（软删 → 界面立刻给一次「撤销」的机会）。 */
+    fun deletePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                container.repo.deletePlace(id)
+                recentlyDeletedPlace = id to (places.firstOrNull { it.id == id }?.name.orEmpty())
+                notice = "已从共享地点库删除（别人的选点列表里也没有它了；删错了可以点「撤销」）"
+                loadPlaces()
+            } catch (e: Exception) {
+                notice = toApiException(e).message
+            }
+        }
+    }
+
+    /** 把刚删掉的那条共享地点放回来（回收站里那一条）。 */
+    fun restorePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                container.repo.restorePlace(id)
+                recentlyDeletedPlace = null
+                notice = "已恢复这条共享地点"
+                loadPlaces()
+            } catch (e: Exception) {
+                notice = toApiException(e).message
+            }
+        }
+    }
+
+    /** **撤销**共享地址 → 降为**自己**的普通地点。 */
+    fun demotePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                val r = container.repo.demotePlace(id)
+                notice = if (r.created) "已撤销，并存进了你的「我的地点」"
+                else "已撤销（你本来就有这个地点，没有重复加）"
+                locations = container.repo.locations()
+                loadPlaces()
+            } catch (e: Exception) {
+                notice = toApiException(e).message
+            }
+        }
+    }
+
+    /** 把「我的地点」里的一个地点**设为共享地址**。 */
+    fun shareLocation(l: LocationDto) {
+        viewModelScope.launch {
+            try {
+                val p = container.repo.shareLocation(l.id)
+                // 如实说明"新建"还是"并入"：用户以为库里多了一条、而列表没变，是最容易困惑的地方
+                notice = if (p.merged) "已并入共享地点库里的「${p.name}」（坐标相近，没有重复建）"
+                else "已设为共享地址，以后大家都能直接选它"
+                loadPlaces()
+            } catch (e: Exception) {
+                notice = toApiException(e).message
+            }
         }
     }
 

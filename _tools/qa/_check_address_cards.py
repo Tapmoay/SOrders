@@ -89,6 +89,10 @@ PRIV_ACTION = re.compile(r"private fun \w*Action\(")
 CALLBACK_PAIR = re.compile(r"onEdit: \(\) -> Unit, onDelete: \(\) -> Unit")  #: 2026-10-04 起应为 0 处
 #: 只剩一个回调的三张卡（CHG-0032 之后这就是唯一合法的签名形状）
 CARD_SIG_SOLO = re.compile(r"^private fun (?:AddressCard|ContactCard|LocationCard)\(.*onEdit: \(\) -> Unit\) \{", re.M)
+#: 「删除回调又挂回卡上」的**形参**形状（2026-10-06 / CHG-0047）：只认参数声明 `onDelete: () -> Unit`，
+#: 不认调用点的**具名实参** —— 地址页现在托管着共用的「地点库抽屉」那一层，里面那句
+#: `onDeletePlace = { vm.deletePlace(it) }` 是抽屉的参数，不是卡上的删除键。
+ON_DELETE_PARAM = re.compile(r"onDelete\s*:\s*\(\)\s*->\s*Unit")
 #: 抽屉里那一行删除入口：FormRow(label = "删除…", onClick = { vm.askDelete("line") })
 DELETE_ROW = re.compile(r'FormRow\(label = "删除[^"]*", onClick = \{ vm\.askDelete\("(\w+)"\) \}\)')
 #: 一行删除入口与它上面那道「只在编辑态」的门（kind → 门那一行的源码）
@@ -234,7 +238,11 @@ def main() -> int:
         c.ok(f"{name} 卡上只剩编辑那一颗（不多不少）", n_edit == 1, f"编辑 {n_edit} 处")
         c.ok(f"{name} 的编辑走共用件 CardActionIcon", n_act == 1, f"有 {n_act} 个圈底动作")
         c.ok(f"{name} 的编辑仍是主题主色", EDIT_TINT in body, "编辑不是 primary")
-    c.ok("全页没有 onDelete 形参了（三张卡都不再接删除回调）", "onDelete" not in src, f"还有 {src.count('onDelete')} 处")
+    c.ok(
+        "全页没有 onDelete 形参了（三张卡都不再接删除回调）",
+        not ON_DELETE_PARAM.search(src),
+        f"还有 {src.count('onDelete')} 处（形参 {len(ON_DELETE_PARAM.findall(src))} 处）",
+    )
     c.ok("全页没有 Icons.Default.Delete（垃圾桶整个搬走了）", "Icons.Default.Delete" not in src, "垃圾桶还在卡上")
     c.ok("全页没有 contentDescription = 删除（删除不再是一颗卡上图标）", DEL_CD not in src, f"还有 {src.count(DEL_CD)} 处")
 

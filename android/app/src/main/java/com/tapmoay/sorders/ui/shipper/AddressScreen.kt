@@ -73,8 +73,8 @@ fun AddressScreen(
     onBack: () -> Unit,
 ) {
     val vm: AddressViewModel = appViewModel { AddressViewModel(container) }
-    var startLocMenu by remember { mutableStateOf(false) }
-    var endLocMenu by remember { mutableStateOf(false) }
+    /** 地点库弹层正在给谁选：`"origin"` = 起点 / `"dest"` = 终点；null = 没开（2026-10-06，CHG-0047）。 */
+    var locPickerTarget by remember { mutableStateOf<String?>(null) }
     var imageTarget by remember { mutableStateOf("loc") }
     var showImageSource by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(0) }  // 0=路线 1=联系人 2=地址
@@ -486,30 +486,15 @@ fun AddressScreen(
                         icon = Icons.Default.Route,
                         iconTint = Color(OriginTeal),
                     )
-                    Box {
-                        FormActionRow(
-                            label = "从地点库选起点",
-                            onClick = { startLocMenu = true },
-                            icon = Icons.Default.List,
-                            iconTint = Color(OriginTeal),
-                        )
-                        DropdownMenu(expanded = startLocMenu, onDismissRequest = { startLocMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("＋ 新增地点", color = MaterialTheme.colorScheme.primary) },
-                                onClick = { startLocMenu = false; vm.openLocationCreate("start") },
-                            )
-                            if (vm.locations.isEmpty()) {
-                                DropdownMenuItem(text = { Text("暂无地点，请先新增地点") }, onClick = { startLocMenu = false })
-                            } else {
-                                vm.locations.forEach { l ->
-                                    DropdownMenuItem(
-                                        text = { Text(l.name.ifBlank { "地点" } + " · " + l.detailAddress, maxLines = 1) },
-                                        onClick = { vm.selectOriginLocation(l); startLocMenu = false },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    // 从地点库选起点（2026-10-06，CHG-0047 / 台账 L-09）：原来是一个只列
+                    // "自己的地点"的下拉菜单 —— 现在换成**与下单页同一个抽屉**（线路 / 我的地点 /
+                    // 共享地点三段，带搜索、分类、图片）。挑中的那条由 applyPickedRoute 回填。
+                    FormActionRow(
+                        label = "从地点库选起点",
+                        onClick = { vm.loadPlaces(); locPickerTarget = "origin" },
+                        icon = Icons.Default.List,
+                        iconTint = Color(OriginTeal),
+                    )
                     FormActionRow(
                         label = "在地图上选起点",
                         onClick = { vm.openPicker("origin") },
@@ -529,30 +514,14 @@ fun AddressScreen(
                         icon = Icons.Default.Place,
                         iconTint = Color(DestOrange),
                     )
-                    Box {
-                        FormActionRow(
-                            label = "从地点库选终点",
-                            onClick = { endLocMenu = true },
-                            icon = Icons.Default.List,
-                            iconTint = Color(DestOrange),
-                        )
-                        DropdownMenu(expanded = endLocMenu, onDismissRequest = { endLocMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("＋ 新增地点", color = MaterialTheme.colorScheme.primary) },
-                                onClick = { endLocMenu = false; vm.openLocationCreate("end") },
-                            )
-                            if (vm.locations.isEmpty()) {
-                                DropdownMenuItem(text = { Text("暂无地点，请先新增地点") }, onClick = { endLocMenu = false })
-                            } else {
-                                vm.locations.forEach { l ->
-                                    DropdownMenuItem(
-                                        text = { Text(l.name.ifBlank { "地点" } + " · " + l.detailAddress, maxLines = 1) },
-                                        onClick = { vm.selectDestLocation(l); endLocMenu = false },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    // 从地点库选终点（2026-10-06，CHG-0047 / 台账 L-09）：与起点共用同一个抽屉，
+                    // 只是标题不同。**终点那一侧选线路**会顺带把收货人两栏带出来（有值才覆盖）。
+                    FormActionRow(
+                        label = "从地点库选终点",
+                        onClick = { vm.loadPlaces(); locPickerTarget = "dest" },
+                        icon = Icons.Default.List,
+                        iconTint = Color(DestOrange),
+                    )
                     FormActionRow(
                         label = "在地图上选终点",
                         onClick = { vm.openPicker("dest") },
@@ -1015,6 +984,44 @@ fun AddressScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+    // 地点库弹层（2026-10-06，CHG-0047 / 台账 L-09）：起点、终点共用**同一个**抽屉 ——
+    // 与下单页那份 `AddressPickerSheet` 是**一份实现**（同包顶层函数），只有标题不同。
+    // ⚠️ 它画在表单抽屉**外**这一层：表单里点「从地点库选起点」时，先开的是表单、再叠这一层。
+    //    点「＋ 新增地点」必须**先关掉它**再开新建弹层（否则两层 ModalBottomSheet 加一个对话框
+    //    叠在一起，点空白处关哪个说不清）；新建完由 `pendingSlot` 回填到刚才那个槽位。
+    locPickerTarget?.let { target ->
+        val asOrigin = target == "origin"
+        AddressPickerSheet(
+            container = container,
+            title = if (asOrigin) "选择起点" else "选择终点",
+            addresses = vm.addresses,
+            locations = vm.locations,
+            places = vm.places,
+            categories = vm.placeCategories,
+            placesTruncated = vm.placesTruncated,
+            placesLimit = vm.placesLimit,
+            onPickAddress = { a -> vm.applyPickedRoute(a, asOrigin = asOrigin); locPickerTarget = null },
+            onPickLocation = { l ->
+                if (asOrigin) vm.selectOriginLocation(l) else vm.selectDestLocation(l)
+                locPickerTarget = null
+            },
+            onPickPlace = { p -> vm.applyPickedPlace(p, asOrigin = asOrigin); locPickerTarget = null },
+            onSearchPlaces = { vm.loadPlaces(it) },
+            onCategoriesChanged = { vm.reloadAddressLibrary() },
+            canManagePlaces = vm.canManageSharedPlaces,
+            recentlyDeleted = vm.recentlyDeletedPlace,
+            onUpdatePlace = { id, name, addr -> vm.updatePlace(id, name, addr) },
+            onDeletePlace = { vm.deletePlace(it) },
+            onDemotePlace = { vm.demotePlace(it) },
+            onRestorePlace = { vm.restorePlace(it) },
+            onShareLocation = { vm.shareLocation(it) },
+            onAddLocation = {
+                locPickerTarget = null
+                vm.openLocationCreate(if (asOrigin) "start" else "end")
+            },
+            onDismiss = { locPickerTarget = null },
+        )
     }
     // 二次确认弹层：三档共用**一份**（用户 2026-10-04：「删除都要做二次确认的，不要点一下就直接
     // 删掉了，防止误触」）。⚠️ 它画在页面最外层、**不画在抽屉里** —— 抽屉是 ModalBottomSheet，

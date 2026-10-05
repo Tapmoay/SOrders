@@ -55,7 +55,7 @@ APIS = ANDROID / "data/remote/api/Apis.kt"
 #:    增长时必须同步这一行，余量因此永远不存在。
 #: ⚠️ 2026-10-03 上调 14 → 15：CHG-0029 让结算页也读了一次（`FreightSettlementViewModel.loadUnpriced()`
 #:    里的 `unpricedMore = page.meta.hasMore`）—— 增长时必须同步这一行，正是这条注释在防的事。
-MIN_META_READS = 15     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
+MIN_META_READS = 16     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
 #: ⚠️ 2026-10-05 上调 16 → 17：CHG-0039 给派单池加了「已完成派单」那一档（按司机分组），
 #:    它同样会被后端 300 条上限截断，所以也要说一句实话。
 MIN_NOTES = 17          # 界面里 `TruncationNote(` 的**调用**处数（实测值；⛔ 定义那处不算）

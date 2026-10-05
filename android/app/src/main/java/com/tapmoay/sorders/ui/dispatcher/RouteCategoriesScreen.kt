@@ -63,12 +63,29 @@ import com.tapmoay.sorders.ui.common.Hint
  */
 private val CATEGORY_ROW_HEIGHT = 84.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RouteCategoriesPanel(
     vm: RouteCategoriesViewModel,
-    /** 宿主给的"返回上一层"。本面板自己不画返回（见文件头 KDoc）：宿主没有顶栏时才会点它。 */
     onBack: (() -> Unit)? = null,
+) {
+    // 操作回执（台账 L-11，2026-10-06）：VM 里早就把「已新建分类：xxx」这类回执写好了
+    // （`actionResult`），可这三档面板一次都没渲染过 —— 建了/改了/删了分类界面上一点回声
+    // 都没有，用户只能自己猜到底成没成。这里照全 App 的同一套写法把它接上。
+    val snackbar = remember { SnackbarHostState() }
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+    // Box 只当"托住提示条"的壳：它原样把父约束传给子 Column，面板内部布局一行都不动。
+    Box(Modifier.fillMaxSize()) {
+        RouteCategoriesBody(vm, onBack)
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RouteCategoriesBody(
+    vm: RouteCategoriesViewModel,
+    /** 宿主给的"返回上一层"。本面板自己不画返回（见文件头 KDoc）：宿主没有顶栏时才会点它。 */
+    onBack: (() -> Unit)?,
 ) {
     // 长按拖动三件套：状态住面板这一层（行零件只负责画与报位移），
     // 「拖了多少像素 = 几格」的换算走 ProductCategoriesViewModel.dragSteps 那一份。
