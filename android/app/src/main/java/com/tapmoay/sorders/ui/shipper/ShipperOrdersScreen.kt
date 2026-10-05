@@ -125,7 +125,7 @@ fun ShipperOrdersScreen(
                                     // 状态门取 `OrderStatusModel.CANCELLABLE`（后端 `cancel_pending` 同一对取值）。
                                     if (order.status in OrderStatusModel.CANCELLABLE) {
                                         TextButton(
-                                            onClick = { vm.cancelTarget = order },
+                                            onClick = { vm.openCancel(order) },
                                             enabled = !vm.acting,
                                             shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
                                             colors = ButtonDefaults.textButtonColors(
@@ -246,8 +246,10 @@ fun ShipperOrdersScreen(
             title = "确认撤销订单？",
             message = "订单 #" + target.orderNo + " 撤销后将不再处理。司机若已接单无法撤销。",
             confirmText = "确认撤销",
+            error = vm.cancelError,
+            enabled = !vm.acting,
             onConfirm = { vm.confirmCancel() },
-            onDismiss = { vm.cancelTarget = null },
+            onDismiss = { vm.dismissCancel() },
         )
     }
 

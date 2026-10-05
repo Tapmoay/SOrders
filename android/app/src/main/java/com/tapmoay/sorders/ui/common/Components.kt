@@ -450,6 +450,9 @@ fun PrimaryActionButton(
  * 失败原因却写进**页面级** `error` —— 而页面级错误在这块弹层**下面**，用户看到的是
  * "弹层一直在、点了没反应"（真机实测：核销的「恢复」被后端 400 拒了两次，
  * 界面上一个字都没出现）。表单类弹层的错误必须画在**弹层自己**里面（见 [FormErrorLine]）。
+ *
+ * `enabled = false` 用在"提交中"：一次网络往返期间再点一次等于**发两遍** —— 撤销这类
+ * 不可逆动作，第二遍必然被后端拒，用户看到的是"点了没反应"或"撤销失败"。
  */
 @Composable
 fun DangerConfirmDialog(
@@ -459,6 +462,7 @@ fun DangerConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     error: String? = null,
+    enabled: Boolean = true,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -472,6 +476,7 @@ fun DangerConfirmDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
+                enabled = enabled,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
                     contentColor = Color.White,

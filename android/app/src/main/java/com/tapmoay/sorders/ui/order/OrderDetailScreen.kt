@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.Capabilities
 import com.tapmoay.sorders.core.HintPrefs
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
@@ -253,7 +254,7 @@ fun OrderDetailScreen(
                 onAddPlacePhoto = { showPlacePhotoSheet = true },
                 acting = vm.acting,
                 uploading = vm.uploading,
-                onCancelClick = { vm.showCancelDialog = true },
+                onCancelClick = { vm.cancelError = null; vm.showCancelDialog = true },
                 onDeleteClick = { vm.showDeleteDialog = true },
                 onNavigate = {
                     openAmapNavigation(context, vm.order?.addressLng, vm.order?.addressLat, vm.order?.addressDetail)
@@ -369,10 +370,17 @@ fun OrderDetailScreen(
         AlertDialog(
             onDismissRequest = { vm.showCancelDialog = false },
             title = { Text("确认撤销订单？") },
-            text = { Text("撤销后派单员不再处理。") },
+            text = {
+                Column {
+                    Text("撤销后派单员不再处理。")
+                    // 失败原因画在**弹层里**（页面级 error 会把整页换成 ErrorView，见 [vm.cancelError]）
+                    FormErrorLine(vm.cancelError)
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = { vm.cancel() },
+                    enabled = !vm.acting,
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 ) { Text("确认撤销") }
             },
@@ -1268,8 +1276,14 @@ private fun DetailBody(
                         Text("转货（转给别的货主）")
                     }
                 }
-                // 货主：派单中/已派单可撤销（后端 `cancel_pending` 同一对取值）
-                if (role == Role.SHIPPER && order.status in OrderStatusModel.CANCELLABLE) {
+                // 撤销：**货主撤自己名下的单 / 派单员撤任意单**（后端 `cancel_pending` 同一对取值）。
+                // 权限两端同源：`order:cancel_shipper` / `order:cancel_dispatcher` 都在能力表里
+                // （后者写的是「撤销任意单（含代客撤销）」）。2026-10-06（台账 L-12）：
+                // 原来这里写死 `role == Role.SHIPPER`，于是派单员在详情页**没有撤销的门**。
+                // 判据不再问角色 —— `Capabilities.kt` 文件头的规矩就是「业务动作要问能力表」。
+                val canCancel = Capabilities.can(role.key, "order:cancel_shipper") ||
+                    Capabilities.can(role.key, "order:cancel_dispatcher")
+                if (canCancel && order.status in OrderStatusModel.CANCELLABLE) {
                     OutlinedButton(
                         onClick = onCancelClick,
                         enabled = !acting,

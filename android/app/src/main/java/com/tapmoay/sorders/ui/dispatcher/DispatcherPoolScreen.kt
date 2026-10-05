@@ -233,10 +233,17 @@ fun DispatcherPoolScreen(
         AlertDialog(
             onDismissRequest = { vm.showCancelDialog = false },
             title = { Text("撤销订单") },
-            text = { Text("确认撤销该订单？撤销后货主将在「已撤销」中看到该订单。") },
+            text = {
+                Column {
+                    Text("确认撤销该订单？撤销后货主将在「已撤销」中看到该订单。")
+                    // 失败原因画在**弹层里**（页面级 error 被弹层盖住，2026-09-23 真机抓到）
+                    FormErrorLine(vm.dialogError)
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = { vm.confirmCancel() },
+                    enabled = !vm.acting,
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 ) { Text("确认撤销") }
             },

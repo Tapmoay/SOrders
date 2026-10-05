@@ -373,8 +373,15 @@ def main() -> int:
          0 <= disp_screen.find("leading = {") < disp_screen.find("extra = {"))
     c.ok("货主页：这一页的动作全是反向类 → 全在 `leading`，右边留给「编辑」",
          "leading = {" in ship_screen and "extra = {" not in ship_screen)
-    c.ok("货主页：撤销订单仍走 `vm.cancelTarget`、退货申请仍走 `vm.openReturn`",
-         "vm.cancelTarget = order" in ship_screen and "vm.openReturn(order)" in ship_screen)
+    # ⚠️ 2026-10-06（CHG-0049）：入口收口 —— 撤销不再由卡片直接写 `vm.cancelTarget`，改成走
+    #    `vm.openCancel(order)`（它内部设 `cancelTarget`，并顺手清掉上一次的失败原因）。
+    #    意图不变：撤销仍然先走弹层确认、不在卡片上直接撤 —— 所以这里同时钉住「新入口在」
+    #    与「卡片不再直接写 cancelTarget」（直接写 = 上一次的失败原因会留在弹层里）。
+    c.ok("货主页：撤销订单先走 `vm.openCancel(order)`（弹层确认后才撤）、退货申请仍走 `vm.openReturn`",
+         "vm.openCancel(order)" in ship_screen and "vm.openReturn(order)" in ship_screen
+         and "vm.cancelTarget = order" not in ship_screen
+         and "cancelTarget = order" in ship_vm,
+         "卡片直接改状态 = 上一次的失败原因会留在弹层里；入口该走 openCancel")
 
     c.section("7. 订单详情：单号独占一行（不缩字号）+ 长按复制")
     # ⚠️ 单号那句是**跨行**写的（`Text(` 与 `"#" + order.orderNo` 不在同一行），

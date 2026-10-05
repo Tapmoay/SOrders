@@ -53,8 +53,15 @@ class OrderDetailViewModel(
     var isMemberShipper by mutableStateOf(false)
         private set
 
-    // 货主撤销
+    // 撤销（货主撤自己的单 / 派单员代客撤销 —— 见台账 L-12）
     var showCancelDialog by mutableStateOf(false)
+
+    /**
+     * 撤销弹层里的失败原因（2026-10-06，台账 L-13）。
+     *
+     * ⛔ 不许写页面级 [error]：那会把整页换成 ErrorView —— 弹窗还开着、内容先消失。
+     */
+    var cancelError by mutableStateOf<String?>(null)
 
     // 软删除（隔离区 30 天，派单员可恢复）
     var showDeleteDialog by mutableStateOf(false)
@@ -335,14 +342,16 @@ class OrderDetailViewModel(
      * 真要做，就做成后端字段 + 界面输入框 + 审计留痕，而不是一个被静默丢掉的形参。
      */
     fun cancel() {
+        if (acting) return  // 防连点：一次网络往返期间再点两次会发两遍撤销（第二遍必然 400）
         acting = true
-        error = null
+        cancelError = null
         viewModelScope.launch {
             try {
                 order = container.repo.cancelOrder(orderId)
                 showCancelDialog = false
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // ⛔ 不写页面级 [error]（整页 ErrorView 会把内容一起带走）；错误画在弹层自己里面
+                cancelError = toApiException(e).message
             } finally {
                 acting = false
             }

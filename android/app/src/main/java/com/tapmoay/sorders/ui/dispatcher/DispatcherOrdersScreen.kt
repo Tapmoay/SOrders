@@ -149,6 +149,16 @@ fun DispatcherOrdersScreen(
                                     if (order.status in OrderStatusModel.RETURNABLE && vm.hasReturnable(order)) {
                                         TextButton(onClick = { vm.openReturn(order) }) { Text("退货") }
                                     }
+                                    // 撤销（2026-10-06，台账 L-12）：**派单员也能撤单**。后端 `cancel_order`
+                                    // 的派单员分支一直允许（权限 `order:cancel_dispatcher`，能力表里写的是
+                                    // 「撤销任意单（含代客撤销）」），原来只是界面没给入口。
+                                    // ⚠️ 与上面的「撤回」**不是一个动作**：撤回 = 回待派单池、要填原因、
+                                    //    司机收到撤回通知；撤销 = 这张单作废（不可逆）、货主在「已撤销」里看到。
+                                    if (order.status in OrderStatusModel.CANCELLABLE) {
+                                        TextButton(onClick = { vm.openCancel(order) }) {
+                                            Text("撤销", color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
                                 },
                                 extra = {
                                     // 编辑：**一律在右边**（用户：「编辑一定在右边，因为我们的惯用手是
@@ -248,6 +258,29 @@ fun DispatcherOrdersScreen(
         )
     }
 
+    // 撤销确认（派单员代客撤销：不可逆 + 双方都收到通知）
+    if (vm.showCancelDialog) {
+        AlertDialog(
+            onDismissRequest = { vm.showCancelDialog = false },
+            title = { Text("撤销订单") },
+            text = {
+                Column {
+                    Text("确认撤销该订单？撤销后货主将在「已撤销」中看到该订单。")
+                    // 失败原因画在**弹层里**（页面级 error 被弹层盖住，2026-09-23 真机抓到）
+                    FormErrorLine(vm.dialogError)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.confirmCancel() },
+                    enabled = !vm.acting,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("确认撤销") }
+            },
+            dismissButton = { TextButton(onClick = { vm.showCancelDialog = false }) { Text("再想想") } },
+        )
+    }
+
     // 撤回派单弹窗
     if (vm.showRecallDialog) {
         AlertDialog(
@@ -255,7 +288,7 @@ fun DispatcherOrdersScreen(
             title = { Text("撤回派单") },
             text = {
                 Column {
-                    Text("撤回后订单回到「派单中」，司机端将收到撤回通知。")
+                    Text("撤回后订单回到待派单池（等重新派单），司机端将收到撤回通知。")
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         vm.recallReason,

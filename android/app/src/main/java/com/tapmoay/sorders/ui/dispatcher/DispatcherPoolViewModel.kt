@@ -410,11 +410,13 @@ class DispatcherPoolViewModel(
     // ---- 撤销（未派送）----
     fun openCancel(orderId: Long) {
         cancelOrderId = orderId
+        dialogError = null
         showCancelDialog = true
     }
 
     fun confirmCancel() {
         val oid = cancelOrderId ?: return
+        if (acting) return  // 防连点：一次网络往返期间再点两次会发两遍撤销（第二遍必然 400）
         acting = true
         viewModelScope.launch {
             try {
@@ -423,7 +425,8 @@ class DispatcherPoolViewModel(
                 showCancelDialog = false
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // ⛔ 不写页面级 [error]：那会把整页换成 ErrorView（弹层还开着、列表先没了）
+                dialogError = toApiException(e).message
             } finally {
                 acting = false
             }

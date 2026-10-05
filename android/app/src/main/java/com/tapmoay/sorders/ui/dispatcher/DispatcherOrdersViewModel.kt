@@ -93,6 +93,13 @@ class DispatcherOrdersViewModel(container: AppContainer) :
     var recallOrderId by mutableStateOf<Long?>(null)
     var recallReason by mutableStateOf("")
 
+    // 撤销（2026-10-06，台账 L-12）：派单员**也能撤单** —— 后端 `cancel_order` 的派单员分支
+    // 一直允许（权限 `order:cancel_dispatcher`），原来只有界面没给入口。
+    // ⚠️ 与「撤回派单」**不是一回事**：撤回 = 回待派单池、要填原因、司机收到撤回通知；
+    //    撤销 = 这张单作废（不可逆）、货主在「已撤销」里看到它、双方都收到通知。
+    var showCancelDialog by mutableStateOf(false)
+    var cancelOrderId by mutableStateOf<Long?>(null)
+
     // 异常标记
     var showExceptionDialog by mutableStateOf(false)
     var exceptionOrderId by mutableStateOf<Long?>(null)
@@ -246,8 +253,33 @@ class DispatcherOrdersViewModel(container: AppContainer) :
         viewModelScope.launch {
             try {
                 container.repo.recallOrder(oid, recallReason.trim())
-                actionResult = "已撤回派单，订单回到派单中"
+                actionResult = "已撤回派单，订单回到待派单池（等重新派单）"
                 showRecallDialog = false
+                load()
+            } catch (e: Exception) {
+                dialogError = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    // ---- 撤销（派单员代客撤销：后端 `cancel_order` 的派单员分支，权限 `order:cancel_dispatcher`）----
+    fun openCancel(o: OrderDto) {
+        cancelOrderId = o.id
+        clearDialogError()
+        showCancelDialog = true
+    }
+
+    fun confirmCancel() {
+        val oid = cancelOrderId ?: return
+        if (acting) return  // 防连点：一次网络往返期间再点一次会撤两遍（第二遍必然被后端拒，用户看到的是"撤销失败"）
+        acting = true
+        viewModelScope.launch {
+            try {
+                container.repo.cancelOrder(oid)
+                actionResult = "订单已撤销"
+                showCancelDialog = false
                 load()
             } catch (e: Exception) {
                 dialogError = toApiException(e).message
@@ -391,6 +423,7 @@ class DispatcherOrdersViewModel(container: AppContainer) :
         showRecallDialog = false
         showExceptionDialog = false
         showReturnDialog = false
+        showCancelDialog = false
         clearDialogError()
     }
 }

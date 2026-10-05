@@ -59,6 +59,14 @@ class ShipperOrdersViewModel(container: AppContainer) :
     var actionResult by mutableStateOf<String?>(null)
     var cancelTarget by mutableStateOf<OrderDto?>(null)
 
+    /**
+     * 撤销弹层里的失败原因（2026-10-06，台账 L-13）。
+     *
+     * ⛔ 不许写成页面级 [error]：那会把整页换成 ErrorView —— 弹窗还开着、列表先消失，
+     * 用户以为数据没了（这一页的动作全是反向/破坏类，撤销失败必须先说清为什么）。
+     */
+    var cancelError by mutableStateOf<String?>(null)
+
     // 档位（`tab`）、时间药丸（`preset` / `customFrom` / `customTo` / `showDatePresets`）、
     // 自动挡（`windowSettled` / `selectTab` / `applyPreset` / `applyCustomRange`）**全在基类**：
     // 这一套原来在派单员与货主两页一字不差抄了两遍（`_tools/qa/_scan_dup.py` 报出 5 组跨文件
@@ -312,11 +320,24 @@ class ShipperOrdersViewModel(container: AppContainer) :
         }
     }
 
+    /** 打开撤销二次确认（顺手清掉上一次的失败原因：弹层与它的错误同生共死）。 */
+    fun openCancel(order: OrderDto) {
+        cancelTarget = order
+        cancelError = null
+    }
+
+    /** 关掉撤销弹层（连带清掉它的错误行）。 */
+    fun dismissCancel() {
+        cancelTarget = null
+        cancelError = null
+    }
+
     /** 卡片直撤：确认后调取消接口 */
     fun confirmCancel() {
         val target = cancelTarget ?: return
+        if (acting) return  // 防连点：一次网络往返期间再点两次会发两遍撤销（第二遍必然 400）
         acting = true
-        error = null
+        cancelError = null
         viewModelScope.launch {
             try {
                 container.repo.cancelOrder(target.id)
@@ -324,7 +345,8 @@ class ShipperOrdersViewModel(container: AppContainer) :
                 cancelTarget = null
                 load()
             } catch (e: Exception) {
-                error = toApiException(e).message
+                // ⛔ 不写页面级 [error]（整页 ErrorView 会把列表一起带走、用户以为数据没了）
+                cancelError = toApiException(e).message
             } finally {
                 acting = false
             }
