@@ -1,7 +1,7 @@
 # 界面提示与说明目录（**机器生成，不要手改**）
 
 > 生成命令：`python _tools/qa/_hint_inventory.py --md`
-> source_hash：`sha256:940548182248ae55d463b4681e4a20cb67f099286388b859f94bd57e9e4c9d29`
+> source_hash：`sha256:9731214e8b78f5a9ec6d4e5d4a4f4edadf89357ade7c3212c55e70978e864f13`
 > 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。
 
 ## 1. 口径
@@ -78,7 +78,7 @@
 | 56 | 派单员 | 29 | `VehicleManageScreen.kt:1189` | 一辆车同时只能归一个司机。选了别人名下的车 = 改挂过来。 |
 | 57 | 派单员 | 28 | `ExpenseCategoriesScreen.kt:244` | 老数据里的分类名，改不了也排不了序；它名下的开销照常显示 |
 | 58 | 派单员 | 28 | `SuppliersScreen.kt:312` | 建档不动钱：先建一个供应商，再给它挂应付款（欠了多少）。 |
-| 59 | 货主 | 28 | `AddressScreen.kt:1186` | 建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。 |
+| 59 | 货主 | 28 | `AddressScreen.kt:1197` | 建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。 |
 | 60 | 派单员 | 27 | `CategoryRostersPanel.kt:362` | 建好后会自动选中它。顺序到左栏底部的「管理分类」里排。 |
 | 61 | 派单员 | 27 | `OrderTemplateFormScreen.kt:326` | 分类只影响这一页左边那一列怎么分组；不选就是「未分类」 |
 | 62 | 共用 | 26 | `AiChatScreen.kt:1006` | 里面可以填 API Key、开关工具、拉取模型列表。 |

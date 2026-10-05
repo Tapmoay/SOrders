@@ -62,6 +62,13 @@ class ShipperContact(Base, TimestampMixin, SoftDeleteMixin):
     #  ⚠️ 存在联系人这一行上、**不存人名册 id**：分类是"这个人属于哪一类"，不是"他的档案在哪一格"，
     #     名册删一行不该让 30 位联系人的归属跟着消失（与地点侧同一条理由）。
     category: Mapped[str] = mapped_column(String(32), default="", index=True)
+    #: 备注（L-10，用户 2026-10-06：「**联系人他也是要有备注的**」「而此备注**只有自己才能看见**」）。
+    #: 一行自由文本，**只属于这个货主自己**：客户端在「选联系人」那一刻把它带进「我的地点」的备注栏
+    #: （带过去之后那一格就是用户自己的，可以单独改 —— ⛔ 不做「跟随联系人」的联动）。
+    #: ⛔ 不进共享地点库（`places` 那张表上根本没有这一列）、⛔ 不进订单出参。
+    #: 与 `shipper_locations.remark` **逐字同形**（同样 `String(256)`、同样 `default=""`）：
+    #: 两处是同一件事（「给人看的一行说明」），读侧不该出现两套写法。
+    remark: Mapped[str] = mapped_column(String(256), default="")
 
     shipper: Mapped["User"] = relationship(back_populates="contacts")
 

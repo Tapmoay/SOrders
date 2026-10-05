@@ -921,6 +921,17 @@ fun AddressScreen(
                         icon = Icons.Default.Phone,
                         iconTint = Color(MgrGreen),
                     )
+                    // 备注（L-10，用户 2026-10-06「联系人他也是要有备注的」）：**选填**的一行自由文本。
+                    // **只有自己看得见** —— 不进共享地点库、也不进订单出参；选这位联系人时
+                    // 它会被带进**地点备注**（那一格随后归用户自己改）。形状与地点表单那一格逐字相同。
+                    FormInputRow(
+                        label = "备注",
+                        value = vm.contactRemark,
+                        onValueChange = { vm.contactRemark = it },
+                        placeholder = "选填",
+                        icon = Icons.Default.Notes,
+                        iconTint = MaterialTheme.colorScheme.outline,
+                    )
                     // 分类：**选填**（不建分类的人照样能用联系人；后端把空串当"未分类"）。
                     ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = it }) {
                         FormPickRow(
@@ -1349,6 +1360,12 @@ private fun ContactCard(c: ContactDto, onEdit: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(c.displayName.ifBlank { "联系人" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(c.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // 备注（L-10）也上卡：用户 2026-10-06 明确要求备注显示在联系人卡上
+                // （「联系人他也是要有备注的」）。形状与地点卡那一行相同：没写就整行不画、不留空标签。
+                if (c.remark.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(c.remark, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                }
                 // 分类（FEAT-0007）也要在卡上看得见：左栏那道筛选就是按它过滤的，卡片上一个字都不写，
                 // 用户在「全部」里只能逐个点开编辑去看这个人归在哪一类。没归类就整行不画，不留空标签。
                 if (c.category.isNotBlank()) {

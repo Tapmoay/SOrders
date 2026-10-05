@@ -199,8 +199,9 @@ class LocationImageOut(BaseModel):
 
 
 class ContactCreate(ShowableModel):
-    #: 联系人名册里会被端到用户眼前的自由文本。
-    SHOWABLE_FIELDS = ("display_name",)
+    #: 联系人名册里会被端到用户眼前的自由文本（**含备注**：它同样会长在联系人卡上、
+    #: 并会被带进地点备注栏 —— 与 `LocationCreate.SHOWABLE_FIELDS` 里的 remark 同一条理由）。
+    SHOWABLE_FIELDS = ("display_name", "remark")
 
     # 原来只写 `min_length=5` —— 5 位的"电话"实际上打不出去（生产库那条 `[222]` 就是这么进来的）。
     # 现在的下限由 `app/core/phone.py` 的规则给（7 位），不再另写一个更松的数字。
@@ -211,17 +212,23 @@ class ContactCreate(ShowableModel):
     #: 自定义分类（空 = 未分类）。名册里没有这个名字时**自动补进去**（顺手建分类）——
     #  FEAT-0007，与 `LocationCreate.category` 同一个口径。
     category: str = Field(default="", max_length=32)
+    #: 备注（L-10，用户 2026-10-06「联系人他也是要有备注的」）：一行自由文本，空串 = 没写。
+    #: 长度与 `LocationCreate.remark` **逐字同形**（同样是 256）—— 这一行会被带进**地点备注**，
+    #: 两边长度不一样就会出现「带过去就被截断」这种没人能解释的现象。
+    remark: str = Field(default="", max_length=256)
 
 
 class ContactUpdate(ShowableModel):
     #: 同 `ContactCreate.SHOWABLE_FIELDS`（`None` = 这一项不改）。
-    SHOWABLE_FIELDS = ("display_name",)
+    SHOWABLE_FIELDS = ("display_name", "remark")
 
     # None = 不改这一项（可选别名会放行 None）
     phone: OptionalContactPhone = Field(None, max_length=32)
     display_name: str | None = Field(None, max_length=128)
     #: None = 不改；"" = 清成未分类（与地点那一格同一条 PATCH 语义）
     category: str | None = Field(None, max_length=32)
+    #: 备注（L-10）：None = 不改；**"" = 明确清掉**（与地点那一格同一条 PATCH 语义）。
+    remark: str | None = Field(None, max_length=256)
 
 
 class ContactOut(BaseModel):
@@ -233,6 +240,9 @@ class ContactOut(BaseModel):
     display_name: str
     #: 自定义分类（"" = 未分类）：联系人列表左侧那一列按它分栏 —— FEAT-0007。
     category: str = ""
+    #: 备注（L-10）："" = 没写。**只回给联系人自己的主人** —— 这个端点的查询本来
+    #: 就按 `current.id` 隔离（见 api/v1/shipper.py::list_contacts 的过滤与排序）。
+    remark: str = ""
     created_at: datetime
 
     @field_validator("phone", mode="before")

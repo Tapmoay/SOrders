@@ -622,6 +622,15 @@ data class ContactDto(
      * ⛔ 存的是分类**名**，不是名册 id：名册里删掉一行不该让档案上的分类变成一串数字。
      */
     val category: String = "",
+    /**
+     * 备注（L-10，用户 2026-10-06：「联系人他也是要有备注的」）："" = 没写。
+     *
+     * 与 `LocationDto.remark` 是**同一样东西**（同样是 256 字，见后端 `ContactCreate.remark`）：
+     * 在「选联系人」那一刻会被带进**地点备注栏**，之后那一格归用户自己改
+     * （⛔ 不做「跟随联系人」的联动）。**只有自己看得见** —— 服务端只把它回给联系人自己的主人，
+     * ⛔ 不进共享地点库、⛔ 不进订单出参。
+     */
+    val remark: String = "",
     @SerialName("created_at") val createdAt: String = "",
 )
 
@@ -631,6 +640,8 @@ data class ContactUpdateRequest(
     @SerialName("display_name") val displayName: String? = null,
     /** 分类：null = 不动；"" = 移出分类（归到"未分类"）。 */
     val category: String? = null,
+    /** 备注：null = 不动；"" = 清掉（与地点备注同一条 PATCH 语义）。 */
+    val remark: String? = null,
 )
 
 @Serializable
@@ -904,6 +915,8 @@ data class ContactCreateRequest(
     @SerialName("display_name") val displayName: String = "",
     /** 分类（"" = 未分类）。联系人是从**哪个分类里**建的，就直接归到那一类。 */
     val category: String = "",
+    /** 备注（"" = 没写）：只有自己看得见；选这位联系人时会带进地点备注。 */
+    val remark: String = "",
 )
 
 // ===== 账本 =====

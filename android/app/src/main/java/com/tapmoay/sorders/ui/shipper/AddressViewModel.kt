@@ -416,6 +416,10 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                 )
                 locContactName = f.name
                 locContactPhone = f.phone
+                // L-10：选联系人时把他档案上的**备注**带进地点备注 —— ⛔ 只在地点备注还空着时填：
+                // 用户自己写过的那一行是他的，不能被联系人档案上的字盖掉（这与 fillReceiver 的
+                // 「有值才覆盖」是**两条不同的纪律**，别混）。
+                if (locRemark.isBlank() && c.remark.isNotBlank()) locRemark = c.remark
             }
             else -> selectContact(c)
         }
@@ -675,6 +679,14 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     var contactName by mutableStateOf("")
     var contactPhone by mutableStateOf("")
 
+    /**
+     * 联系人备注（L-10，用户 2026-10-06：「联系人他也是要有备注的」）。
+     *
+     * "" = 没写。**只有自己看得见** —— 服务端只把它回给联系人自己的主人；
+     * 选这位联系人时它会被带进**地点备注**（那一格随后归用户自己改）。
+     */
+    var contactRemark by mutableStateOf("")
+
     fun openContactDialog(c: ContactDto? = null, fromLine: Boolean = false) {
         lineContactCtx = fromLine
         editingContact = c
@@ -683,6 +695,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         // 分类**必须回填**：保存走的是"整份回传"（同一个请求体用于新建与编辑），
         // 不回填就等于"改个称呼顺手把分类清掉了"。
         contactCategory = c?.category ?: ""
+        // 备注同理**必须回填**：保存走的是「整份回传」（新建与编辑共用同一个请求体），
+        // 不回填就等于「改个称呼顺手把备注清掉了」。
+        contactRemark = c?.remark ?: ""
         formError = null
         showContactDialog = true
     }
@@ -709,6 +724,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                             phone = contactPhone.trim(),
                             displayName = contactName.trim(),
                             category = contactCategory.trim(),
+                            remark = contactRemark.trim(),
                         )
                     )
                     if (lineContactCtx) {
@@ -722,6 +738,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                             phone = contactPhone.trim(),
                             displayName = contactName.trim(),
                             category = contactCategory.trim(),
+                            remark = contactRemark.trim(),
                         )
                     )
                 }

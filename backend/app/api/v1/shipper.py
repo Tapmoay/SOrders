@@ -239,6 +239,8 @@ def upsert_contact(
     name = (body.display_name or "").strip()
     # FEAT-0007：分类与地点那一格同一个口径（strip、≤32 字、空串 = 未分类）。
     category = _clean_category(body.category)
+    # L-10 备注：与姓名同一套清洗（strip；长度上限由 ContactCreate.remark 的 max_length 给）。
+    remark = (body.remark or "").strip()
     # 姓名和手机号**至少填一个**：两个都空的联系人在列表里是一行认不出、也没法拨的空白。
     # 用户只要求"手机号不必填"，没要求"可以什么都不填"。
     if not phone and not name:
@@ -267,10 +269,18 @@ def upsert_contact(
         # POST /contacts 是 upsert（按号认人），界面上新建时没选分类，不该把老档案的分类抹掉。
         if category:
             row.category = category
+        # 备注（L-10）与分类**同一条**：这次真的给了才覆盖（空串 = 这次没提备注，不是
+        # 「把老备注清掉」）—— POST 是 upsert（按号认人），清空备注要走 PATCH。
+        if remark:
+            row.remark = remark
     else:
         # 空号一律写 NULL，⛔ 不写空串：空串是真值，两条空号会撞 (shipper_id, phone) 唯一约束。
         row = ShipperContact(
-            shipper_id=current.id, phone=phone or None, display_name=name, category=category
+            shipper_id=current.id,
+            phone=phone or None,
+            display_name=name,
+            category=category,
+            remark=remark,
         )
         db.add(row)
     # 名册里没有这个分类名就顺手补一个（与地点创建同一条：用户敲个新名字 = 建了它）。
@@ -318,6 +328,10 @@ def update_contact(
     if body.category is not None:
         c.category = _clean_category(body.category)
         ensure_contact_category(db, current.id, c.category)
+    # L-10 备注 —— 与分类同一条 PATCH 语义：None = 不改；**空串 = 明确清掉**。
+    # ⛔ 清空只能走这里：POST 那边空串代表「这次没提」，抹不掉老备注。
+    if body.remark is not None:
+        c.remark = body.remark.strip()
     db.commit()
     db.refresh(c)
     return c
