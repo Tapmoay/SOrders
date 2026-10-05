@@ -391,6 +391,11 @@ private fun DrawerCustomerRow(
  * · **支出 · 我该付的**：这一段我下的这些单 —— 货款 / 已付 / 还欠（欠的是**公司/总分销商**）；
  * · **收入 · 我该收的**：只有**批发商**才有 —— 货款 / 已收 / 待收（收的是**他的下游货主**）。
  *
+ * ⛔ **支出那一段只在「全部」时画**（2026-10-06 台账 L-17，用户 m00354）：抽屉里选中某个货主之后，
+ *    卡片上只剩「收入 · 我该收的」，下面直接接他的订单明细 —— 用户的原话是"他只会显示我该收的，
+ *    就没有了，他下面就是那个订单信息"。闸门看 [ShipperLedgerViewModel.isAllCustomers]
+ *    （与标题同一判据），**不是**"支出算不出来"：选了人支出照样是那一单的钱。
+ *
  * ⛔ **两个方向的数一个字节都不互相写**（后端 `shipper-ledger` 从不写 `orders.paid`）——
  *    所以下面那本账怎么核销，"我该付的"都不会变。这一条在卡片上也要看得出来（两段之间画分隔线）。
  *
@@ -426,33 +431,44 @@ private fun TotalsCard(vm: ShipperLedgerViewModel) {
             )
         }
 
-        Spacer(Modifier.height(6.dp))
-        // ---- 支出：我该付的（两种货主都有）----
-        // 标签里必须带**方向**（2026-10-03 E2E 走查 P25）：批发商同时有支出与收入两段，
-        // 只写「我该付的 / 我该收的」看不出这两笔钱分别对谁 —— 走查当时两个数都是 ¥85.5，
-        // 用户会以为被收了两遍钱；其实那是同一批货的两头（他欠公司、下游货主又欠他）。
-        Text(
-            "支出 · 我该付的（欠公司）",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            "¥" + formatMoney(s?.unpaid ?: "0"),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color(PayableRed),
-        )
-        Text(
-            "货款 ¥" + formatMoney(s?.payable ?: "0") + " · 已付 ¥" + formatMoney(s?.paid ?: "0"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // ---- 支出：我该付的（只在「全部」时画）----
+        // ⛔ **选中某个货主就不画这一段**（2026-10-06 台账 L-17，用户 m00354：「当选到固定货主的时候，
+        //    他只会显示我该收的，就没有了，他下面就是那个订单信息」）。闸门与标题**同一判据**
+        //    （[ShipperLedgerViewModel.isAllCustomers]）：标题上写着谁的名字，这一段就不在。
+        // ⚠️ 不是"支出算不出来"：选中某人时他照样欠公司钱，只是不在这张卡上再画一遍 ——
+        //    那一单的钱就在下面的订单明细里（用户说的"他下面就是那个订单信息"）。
+        if (vm.isAllCustomers) {
+            Spacer(Modifier.height(6.dp))
+            // 标签里的**方向**是 2026-10-03 E2E 走查 P25 的防混线：批发商同时有支出与收入两段，
+            // 只写「我该付的 / 我该收的」看不出这两笔钱分别对谁 —— 走查当时两个数都是 ¥85.5，
+            // 用户会以为被收了两遍钱；其实那是同一批货的两头（他欠公司、下游货主又欠他）。
+            // ⚠️ P25 那一版还在括号里点了"欠谁"（（欠公司）/（下游欠我））—— **2026-10-06 台账 L-17
+            //    按用户 m00354 把那两处括号省略掉了**（"那个括号都不应该存在"）。方向词一个不能少，
+            //    防混的另一半（下面两句**常显**口径句 ＋ 两段之间那条分隔线）也一个字没动。
+            Text(
+                "支出 · 我该付的",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "¥" + formatMoney(s?.unpaid ?: "0"),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(PayableRed),
+            )
+            Text(
+                "货款 ¥" + formatMoney(s?.payable ?: "0") + " · 已付 ¥" + formatMoney(s?.paid ?: "0"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         if (s?.isMember == true) {
-            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            // 分隔线只在两段都画时才画（选中某人时上面那一段不在，顶上横一条线像卡片缺了一块）
+            if (vm.isAllCustomers) HorizontalDivider(Modifier.padding(vertical = 10.dp))
             // ---- 收入：我该收的（只有批发商有）----
             Text(
-                "收入 · 我该收的（下游欠我）",
+                "收入 · 我该收的",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -13,6 +13,9 @@
 - P25 我的账本 · 卡片：「支出 · 我该付的」与「收入 · 我该收的」在批发商账号下**都是 ¥85.5**
   （同一批货的两头：他欠公司、下游货主又欠他）。标签里没有方向，唯一那句解释是 Hint，
   而提示开关默认是关的（core/HintPrefs.kt）—— 页面上一个字都没有。
+  ⇒ 2026-10-06 台账 L-17（用户 m00354：「那个括号都不应该存在」）**推翻了 P25 的括号写法**：
+    标签回到「支出 · 我该付的」/「收入 · 我该收的」，方向靠**方向词** ＋ 常显口径句体现。
+    本判据第 ③ 组因此**反过来**钉：裸标签必须在、**括号不许再挂回去**。
 - P26 我的账本 · 行：退货单的应收被**红冲成 0**（lineReceivableCents = 行金额 − 单价 × 已退数量），
   而那一格只看 remaining == 0 就写「已核销」，于是「已退货」的行被说成钱已收讫。
 
@@ -21,7 +24,8 @@
 StatRow(客单价, money(totalAmount / all.size)) 与新标签类型完全一样；
 else 已核销 与 RETURNED -> 已退货 · 账已冲平 也一样能编译、单测全绿。
 所以判据只能盯**结构**：老标签必须消失（0 处也红）、两个「户均 / 每笔」的**分母必须不同**、
-RETURNED 那一支必须排在 remaining > 0L 之前、方向标签必须带括号、那句口径说明必须是常显 Text
+RETURNED 那一支必须排在 remaining > 0L 之前、方向标签必须带**方向词**且**不许带括号**
+（括号写法 2026-10-06 被台账 L-17 推翻，见上面 P25 那条）、那句口径说明必须是常显 Text
 （最近的那个调用不许是 Hint）、四句话**全库各只有一份**。
 
 R4-BOUNDARY-JUSTIFICATION: 这一条**边界解决不了**。P20 / P32 / P25 / P26 的病都不是「算错」，
@@ -78,11 +82,14 @@ OLD_AVG = "客单价"
 PER_CUSTOMER = "户均订货额"
 PER_ORDER = "每笔订货额"
 
-#: P25：方向标签（括号里写清这笔钱对谁）与那句**常显**口径说明
+#: P25：方向标签与那句**常显**口径说明
+#: ⚠️ 2026-10-06 台账 L-17（用户 m00354）**推翻了 P25 的括号写法** —— 现在标签就是
+#:    「支出 · 我该付的」/「收入 · 我该收的」（不带（欠公司）/（下游欠我））；
+#:    方向靠**方向词**（支出/收入 ＋ 我该付的/我该收的）＋ 那句常显口径说明体现。
 PAY_LABEL = "支出 · 我该付的"
-PAY_LABEL_NEW = "支出 · 我该付的（欠公司）"
+PAY_LABEL_OLD = "支出 · 我该付的（欠公司）"
 RECV_LABEL = "收入 · 我该收的"
-RECV_LABEL_NEW = "收入 · 我该收的（下游欠我）"
+RECV_LABEL_OLD = "收入 · 我该收的（下游欠我）"
 SAME_GOODS = "同一批货的两头，两边各记各的账，不会重复收钱。"
 
 #: P26：退货那一支的判词，与它替换掉的老表达式
@@ -226,21 +233,21 @@ def main() -> int:
         "两行用了同一个分母（又变成同一个数算两遍）",
     )
 
-    # ---- 3. P25：方向标签 + 常显口径句 ----
+    # ---- 3. P25：方向标签 + 常显口径句（括号写法已被 2026-10-06 台账 L-17 推翻）----
     c.ok(
-        f"支出标签带方向 {DQ}{PAY_LABEL_NEW}{DQ}",
-        PAY_LABEL_NEW in led,
-        "标签还是裸的（看不出这笔钱是欠谁的）",
+        f"支出标签带方向词 {DQ}{PAY_LABEL}{DQ}（L-17 起不带括号）",
+        PAY_LABEL in led,
+        "支出标签连方向词都没了（只看一个 ¥ 数，看不出这笔钱是付出的还是收进的）",
     )
     c.ok(
-        f"收入标签带方向 {DQ}{RECV_LABEL_NEW}{DQ}",
-        RECV_LABEL_NEW in led,
-        "标签还是裸的",
+        f"收入标签带方向词 {DQ}{RECV_LABEL}{DQ}（L-17 起不带括号）",
+        RECV_LABEL in led,
+        "收入标签连方向词都没了",
     )
     c.ok(
-        "裸标签全库 0 处（两个方向都不许只剩一个）",
-        all((DQ + PAY_LABEL + DQ) not in src and (DQ + RECV_LABEL + DQ) not in src for _n, src in sources),
-        "仍在：" + "、".join(hits(DQ + PAY_LABEL + DQ, sources) + hits(DQ + RECV_LABEL + DQ, sources)),
+        "括号不许再挂回两个标签上（2026-10-06 台账 L-17 / 用户 m00354「那个括号都不应该存在」）",
+        all((DQ + PAY_LABEL_OLD + DQ) not in src and (DQ + RECV_LABEL_OLD + DQ) not in src for _n, src in sources),
+        "仍在：" + "、".join(hits(DQ + PAY_LABEL_OLD + DQ, sources) + hits(DQ + RECV_LABEL_OLD + DQ, sources)),
     )
     c.ok(
         f"口径句全库恰好 1 处（两段卡片共用一句，不许各写各的）：{SAME_GOODS}",

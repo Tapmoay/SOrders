@@ -5891,6 +5891,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`3430d18`（本事项动 9 个文件：3 个 `.kt`（`ui/common/Components.kt` 加共用件 ＋ `ui/shipper/ShipperLedgerScreen.kt` / `ui/dispatcher/LedgerPersonScreen.kt` 各 3 / 2 处迁移）＋ 生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md` 随行号漂移重生成 ＋ 两份新 QA 脚本（`_tools/qa/_check_ledger_dialog_style.py` / `_tools/qa/_reverse_verify_ledger_dialog_style.py`）＋ 三份文档（`docs/changes/CHG-0051.md` / `docs/changes/README.md` / `docs/AI_WORK_CLAIM.md`）；9 files changed, 868 insertions(+), 7 deletions(-)）。
 
+### [2026-10-06 07:2x → 07:4x CST 已完成] 会话：**CHG-0052 「我的账本」那一段支出只在选「全部」时画：选中某个货主就只剩「我该收的」，两个方向标签的括号一并省略（推翻 CHG-0026 的 P25 括号修法）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-06 交来的只读排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-17**（ref **m00354**）：「还有一个 bug：如果我在那个**货主选择**里选了**一个固定的人**，他那个**我欠公司的**是**不会显示**的，只有**别人欠我的** —— 我就说我该收的那个，那个**括号都不应该存在**、括号都要**省略掉**，不要搞括号的内容，就是「我该付的」和「我该收的」；当**选到固定货主**的时候，他**只会显示我该收的**，就没有了，他下面就是那个**订单信息**。这是个 bug。」口径定稿（**m00573**）：选「**全部**」时「我该付的」**要显示**；选「**某个货主**」时它**直接不显示**、只留「我该收的」，下面接订单信息；两处括号一并去掉。
+
+**病灶**：改动前 `ui/shipper/ShipperLedgerScreen.kt` 的 `TotalsCard` 里，「支出 · 我该付的（欠公司）」那一段（标签 ＋ `"¥" + formatMoney(s?.unpaid ?: "0")` ＋ 「货款 / 已付」副行）是**无条件**画的 —— 台账逐行复核过：`:222 item { TotalsCard(vm) }` 无条件、`:430-449` 那段无条件，选人只改后端的过滤参数（`customer_name` / `customer_phone` 两侧同一处 `_customer_filter`），`is_member` 是"这个账号是不是批发商"、与选了谁无关 ⇒ 所以世上没有"选中某人后支出消失了"这个事实，用户要的是**反过来新增一道闸门**（他记的是现象，口径是 m00573 给的）。另外那两处括号来自 `docs/changes/CHG-0026.md:88` 的 P25 修法（起因 `docs/E2E_WALKTHROUGH_REPORT_20261003.md:86-88`：批发商两头数字一样大、用户以为被收两遍钱）⇒ 删括号**等于推翻一条既有裁定**。
+
+**改法（PRESENTATION，2 个 `.kt` ＋ 2 份既有 QA 随动）**：① `ui/shipper/ShipperLedgerViewModel.kt` 新增**派生**属性 `val isAllCustomers: Boolean get() = selectedCustomer == null`（`:475-477`，与顶上标题**同一判据**，纯加法、没有既有调用方）；② `ui/shipper/ShipperLedgerScreen.kt`：支出段那三行被 `:440 if (vm.isAllCustomers) {` 包住（`:464` 闭括号）、`:468` 分隔线跟同一闸门（`if (vm.isAllCustomers) HorizontalDivider(…)`）、两处标签去括号（`:449 "支出 · 我该付的"`、`:471 "收入 · 我该收的"`），`:483` 的计数括号「（N 笔核销）」**保留**；③ 既有红线随动 `_tools/qa/_check_report_metrics.py`：把 P25 的括号写法收成 `PAY_LABEL_OLD` / `RECV_LABEL_OLD` 两个常量，判据**反过来**钉「裸标签必须在、括号不许再挂回去」，反验 `_reverse_verify_report_metrics.py` 第 ⑤ 条改成「把括号挂回去」。
+
+**判据 / 反验**：新增 `_tools/qa/_check_ledger_pay_block_gate.py`（**51/51**，6 组：①支出段闸门 ＋ 与标题同一判据 ②收入段照旧 ③括号（含计数括号保留）④没被顺手改掉（常显口径句 / 换人必重取 / 后端零改动三连）⑤随动与文档 ⑥防静默空转）＋ 反验 `_tools/qa/_reverse_verify_ledger_pay_block_gate.py`（**18 条注入**：拆闸门 / 换判据 / 分隔线脱钩 / 收入段被包进去 / 换掉未付那个数 / 括号挂回 / 删计数括号 / 删 VM 判据 / 换人不重取 / 后端被塞口径 / 改旧 CHG 快照 / 删 README 行 / 删本条 / 新建带括号的页面）。
+
+**明确不碰**：钱口径（`s?.unpaid` ＋ `Color(PayableRed)`、`s.unreceived` ＋ `Color(ReceivableOrange)`、副行「货款 ¥… · 已付 ¥…」）；后端 `backend/app/api/v1/shipper_ledger.py` 逐字未动（展示口径没漏进服务端）；`selectCustomer` 仍 `load()`、`UNSET_CUSTOMER` 不过滤那一支；两句**常显**口径句（P25 防混的另一半）仍是 `Text(` 起步；列表区（每人卡 / 订单行）在批发商这一支仍只画下游一侧 —— 要不要在每人卡上补一行"我该付给公司多少"**不在本事项**；`docs/changes/CHG-0026.md` 历史快照**不回去改**（推翻由 CHG-0052 声明）。
+
+**验证**：判据 `_check_ledger_pay_block_gate.py` **51/51**；反验 **18/18**；既有红线 `_check_report_metrics.py` **24 项全过**；编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL in 8s**（3 条既有 deprecation 警告都在 `ShipperLedgerScreen.kt:111/:757/:1050`）；全量静检 **190 项 188 ✅ / 2 ❌（两条红均非本事项：本机后端旧进程 ＋ 发布会的 `VERSION 0.2.5`）**；可达性 **171/171（348 条链接全有效、孤儿 0）**。
+
+**实现提交**：⏳ 待回填（本次实现提交）。
+
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
@@ -5903,6 +5919,9 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-06 07:2x | **CHG-0052 我的账本支出段闸门 ＋ 括号省略**（我，`session-bd8fe093`） | `ui/shipper/ShipperLedgerScreen.kt` ＋ `ui/shipper/ShipperLedgerViewModel.kt`（**两处客户端文件，同一次改动**） | 合计卡支出段加 `if (vm.isAllCustomers)` 闸门（选中某个货主时不画这一段）、分隔线跟同一闸门、两处方向标签去括号；VM 新增派生属性 `isAllCustomers`。 |
+| 2026-10-06 07:2x | **CHG-0052**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0052.md`（新建，两文件必须同一次提交） | 在 CHG-0051 行之后追加 CHG-0052 登记行（5 列），实现提交时状态写 `🔧 进行中（…实现提交待落）`；CHG-0052.md 按九节模板写全（Boundary 宣布 **PRESENTATION**、并声明推翻 `CHG-0026.md` 的 P25 括号修法）。 |
+| 2026-10-06 07:2x | **CHG-0052**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本 ＋ 两份既有随动**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_ledger_pay_block_gate.py`（51/51 / 6 组；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）与 `_reverse_verify_ledger_pay_block_gate.py`（18 条注入）；随动 `_check_report_metrics.py`（P25 括号写法收成老写法常量 ＋ 反过来钉「括号不许再挂回」）与 `_reverse_verify_report_metrics.py`（第 ⑤ 条改成「把括号挂回去」）。 |
 | 2026-10-06 06:5x | **CHG-0051 核销弹窗换上卡片样式**（我，`session-bd8fe093`） | `ui/common/Components.kt` ＋ `ui/shipper/ShipperLedgerScreen.kt` ＋ `ui/dispatcher/LedgerPersonScreen.kt`（**三处客户端文件，同一次改动**） | 新增共用件 `CardAlertDialog`（`:513-534`：纯转发 `AlertDialog(`，只覆盖 `shape = MaterialTheme.shapes.extraLarge,` / `containerColor = MaterialTheme.colorScheme.surface,` / `tonalElevation = 0.dp,` 三行 ＋ 一行 `import androidx.compose.ui.window.DialogProperties`）⇒ 核销这一族 5 处弹窗迁移（`ShipperLedgerScreen.kt:176/:782/:896`、`LedgerPersonScreen.kt:385/:471`；后者另删一行 `import androidx.compose.material3.AlertDialog`、加一行 `import com.tapmoay.sorders.ui.common.CardAlertDialog`）。⚠️ 别的会话要动 `Components.kt` 时：这个零件是**加法**，别顺手改它的三行样式或主题 token（判据 `_check_ledger_dialog_style.py` 与反验 16 条注入钉着）。 |
 | 2026-10-06 06:5x | **CHG-0051**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 本事项改了 3 个 `.kt`（`Components.kt` 加行 ⇒ 行号漂移）⇒ 重跑 `python _tools/qa/_hint_inventory.py --md` 后重生成。⛔ 端点索引与 `docs/ai/ai_read_catalog.json` 应**字节未变**（本事项零后端改动）。 |
 | 2026-10-06 06:5x | **CHG-0051**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0051.md`（新建，两文件必须同一次提交） | 在 CHG-0050 行之后追加 CHG-0051 登记行（5 列），实现提交时状态写 `🔧 进行中（判据 _check_ledger_dialog_style.py 62/62 ＋ 反验 _reverse_verify_ledger_dialog_style.py 16/16 ＋ 编译 BUILD SUCCESSFUL in 11s；实现提交待落）`，归档提交再改成 `✅ 已关闭（…）`。⚠️ 只碰这一行：`_check_dev_spec.py` 要文件名 ↔ 内文 ID ↔ 这一行三处一致。 |

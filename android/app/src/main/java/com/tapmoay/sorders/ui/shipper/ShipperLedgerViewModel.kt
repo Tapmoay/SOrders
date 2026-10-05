@@ -462,6 +462,20 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
         get() = selectedCustomerKey?.let { k -> allCustomers.firstOrNull { it.key == k } }
 
     /**
+     * 现在是「全部」还是「某一个货主」——顶卡片按它决定**画不画支出那一段**
+     * （2026-10-06 台账 L-17，用户 m00354：「当选到固定货主的时候，他只会显示我该收的，
+     * 就没有了，他下面就是那个订单信息」）。
+     *
+     * ⛔ 闸门与标题**同一判据**：标题那一行写着谁的名字（[selectedCustomer]），这一段就不在。
+     *    ⚠️ 不是"支出算不出来" —— 选中某人时他照样欠公司钱，只是不在这张卡上再画一遍，
+     *    那一单的钱就在下面的订单明细里。
+     * ⚠️ 普通货主没有"人"可挑（[selectedCustomerKey] 永远是 null，见 [customers] 的注释），
+     *    对他们这一支恒为 true：账本顶上照旧画支出段。
+     */
+    val isAllCustomers: Boolean
+        get() = selectedCustomer == null
+
+    /**
      * 顶卡片上的数 = **服务端的收支统计**（[summary]，在 [load] 里取）。
      *
      * ⛔ 这里原来有一份客户端求和（`ledgerTotals`：把这一页订单的 `arrears_amount` 加起来）。
