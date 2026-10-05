@@ -5725,7 +5725,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 （`Modules.shipperEntries` 就 6 格，没有那一项），而 `DispatcherLedgerScreen.kt:533` 的注释也写着
 "图在 `ui/common/Charts.kt`（报表中心/**货主账本**/司机端在用）"—— 所以这一轮**保留**了它。
 
-### [2026-10-06 02:5x → 03:xx CST 进行中] 会话：**BUG-0014 司机任务页切栏目的那一瞬，卡片按「上一栏」的样式画「新一栏」的单**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-06 02:5x → 03:1x CST 已完成] 会话：**BUG-0014 司机任务页切栏目的那一瞬，卡片按「上一栏」的样式画「新一栏」的单**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 第 L-01 条（原文：「切「已完成」时卡片件数**先由红变紫、字号由 titleLarge 变 titleMedium**，一个往返后才换成该栏数据」）；随后（m00002）下令「把这个文档里**所有的 bug 和要改的东西全部改完**」—— 台账 L-01…L-32 全部要按仓库规范逐条立项落地，**这是第一条**。
 
@@ -5738,6 +5738,8 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 **明确不碰**：`ui/common/OrderCard.kt`（呈现层，一个字没动）、`selectTab` 的既有逻辑与 `windowSettled` 那道门、取数口径（`DRIVER_OPEN` / `FINISHED_STATUSES`）、后端**一个字节都不动**；共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `enums.py` / `ReportCenter.kt`）**一个都没动**。
 
 **静检**：`python _tools/qa/_check_all.py` → **181 项：180 ✅ / 1 ❌**（唯一那条红是 `_check_report_facts.py` 复现台账两条 ✅ 时的既有红：BUG-0013 那条 `FileLockTimeout（等了 60.0s）` 偶发 + `docs/RELEASE_CANDIDATE.md` 缺 `VERSION 0.2.5`（工作区 ` M VERSION` 在开会话前就有、另一个会话在做发布）—— 两条都与本事项无关，本事项新判据在这次运行里 ✅ 17 项；日志 `_tmp/checkall_bug0014.log`）；`python backend/scripts/check_reachability.py` → 161/161、无孤儿、338 条链接全有效（exit 0）。
+
+**实现提交**：`ad470a9`（本事项只动两个 `ui/driver` 文件 + 两份 QA 脚本 + 三份文档 + 一条 ALLOW 追加 + 一份生成物重生成）。
 
 ---
 
