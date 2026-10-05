@@ -194,6 +194,12 @@ ALLOW: dict[tuple[str, str], str] = {
     ): "同上面三条（CHG-0045 判据 1「任何 .kt 里都没有 `fun DeliverySheet(`」）："
        "这条注入**故意新建一个文件**（`ui/order/_LeakDeliverySheet.kt`，跑完删掉）来试那条判据 ——"
        "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
+    (
+        "_reverse_verify_all_drivers_photo.py",
+        "新建一个还带着免拍照支的页面（全仓扫描必须点名它）",
+    ): "同上面四条（CHG-0050 判据 1「全仓 .kt 里都没有 `if (order.freightVisible) {` / `onDirectCompleteClick`」）："
+       "这条注入**故意新建一个文件**（`ui/order/_LegacyFreightVisible.kt`，跑完删掉）来试「全仓扫描」那条判据 ——"
+       "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
 }
 
 

@@ -273,7 +273,6 @@ fun OrderDetailScreen(
                 onSplitClick = { vm.openSplitDialog() },
                 onTransferClick = { vm.openTransfer() },
                 onAssignClick = { vm.order?.let { assignVm.openAssign(it.id) } },
-                onDirectCompleteClick = { p -> vm.completeDirect({ onBack() }, p) },
                 canFillNav = vm.canFillNavigation(role.key),
                 // 「我是不是批发商」——只给「拨打司机电话」那颗按钮用（判据 `ui/common/DriverCall.kt`）。
                 // 会话里没有 `is_member`，只能从 `/users/me` 取（拿不到时是 false ＝ 不给）。
@@ -619,7 +618,6 @@ private fun DetailBody(
     onSplitClick: () -> Unit,
     onTransferClick: () -> Unit,
     onAssignClick: () -> Unit,
-    onDirectCompleteClick: (String?) -> Unit,
     damageByProduct: Map<Long, Int> = emptyMap(),
     damageNote: String = "",
     onDamageQty: (Long, Int) -> Unit = { _, _ -> },
@@ -631,7 +629,7 @@ private fun DetailBody(
     remark: String = "",
     onRemarkChange: (String) -> Unit = {},
     onRemovePhoto: (Int) -> Unit = {},
-    /** 提交送达：`cash` / `arrears` / `null`（含义与挂车直结那条路的 `onDirectCompleteClick` 相同）。 */
+    /** 提交送达：`cash` / `arrears` / `null`（`cash`＝当场收现金、`arrears`＝挂账、`null`＝按这一单的默认口径）。 */
     onSubmitDelivery: (String?) -> Unit = {},
     /**
      * 内部备注（**追加一条**）。
@@ -1332,50 +1330,24 @@ private fun DetailBody(
                         Text("确认接单", style = MaterialTheme.typography.titleSmall)
                     }
                 }
-                // 司机：已接单 → 拍照送达 / 导航 / 备注（挂车司机可直接完成，无需拍照）
+                // 司机：已接单 → 拍照送达 / 导航 / 备注
+                // 2026-10-06（台账 L-15，用户 m00354：「挂车……他也要拍照，同样的流程」）：
+                // 从前 `order.freightVisible` 为真（＝这一单按单计费；挂车默认就是）走的是**免拍照**那一支 ——
+                // 一颗「完成订单 / 收取现金 / 挂账」点下去直接完成，`vm.completeDirect` 也不带照片。
+                // **那一支已撤掉**：所有司机一律走下面的「拍照送达」，收款方式在拍完照之后的完成块里选
+                // （见本文件「完成（拍照送达这条链路的最后一步）」那一块）。
+                // ⛔ 计费口径一个字没动：`driver_pay.has_per_order_pay` 仍是"钱那一侧"的判据，
+                //    `vm.completeDirect` 与 `POST /orders/{id}/complete` 也仍在（老版本 APK 还要用）。
                 if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
-                    if (order.freightVisible) {
-                        if (order.collectCash) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    onClick = { onDirectCompleteClick("cash") },
-                                    modifier = Modifier.weight(1f).height(56.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(MoneyOrange), contentColor = Color.White),
-                                ) {
-                                    Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(20.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("收取现金", style = MaterialTheme.typography.titleSmall)
-                                }
-                                OutlinedButton(
-                                    onClick = { onDirectCompleteClick("arrears") },
-                                    modifier = Modifier.weight(1f).height(56.dp),
-                                ) {
-                                    Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(20.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("挂账", style = MaterialTheme.typography.titleSmall)
-                                }
-                            }
-                        } else {
-                            Button(
-                                onClick = { onDirectCompleteClick(null) },
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("完成订单", style = MaterialTheme.typography.titleSmall)
-                            }
-                        }
-                    } else {
-                        // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——
-                        // 页面上只留**一个**拍照入口，免得两颗按钮干同一件事。
-                        Button(
-                            onClick = onCaptureClick,
-                            modifier = Modifier.fillMaxWidth().height(56.dp),
-                        ) {
-                            Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (photos.isEmpty()) "拍照送达" else "继续拍照（" + photos.size + " 张）")
-                        }
+                    // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——
+                    // 页面上只留**一个**拍照入口，免得两颗按钮干同一件事。
+                    Button(
+                        onClick = onCaptureClick,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (photos.isEmpty()) "拍照送达" else "继续拍照（" + photos.size + " 张）")
                     }
                     Button(
                         onClick = onNavigate,
@@ -1409,10 +1381,10 @@ private fun DetailBody(
         // 用户原话（m00061）：「点击拍照送达就**直接拍照**」「拍完的照片就在订单界面里出现缩略图，
         // 然后我们可以**再点击继续拍照**」「送达备注就写在内部备注的上面」。
         //
-        // ⛔ 挂车直结那条路（`order.freightVisible`）**不走这里**：`has_per_order_pay` 的单
-        //    点一下「完成订单 / 收取现金 / 挂账」就走 `completeDirect`（**不带照片**），那颗按钮
-        //    留在上面的动作卡里，所以这一块整块不画。
-        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE && !order.freightVisible) {
+        // 2026-10-06（台账 L-15）：这一块从前对 `order.freightVisible`（按单计费的单；挂车默认就是）
+        // **整块不画** —— 那种单在上面的动作卡上点一下就完成了。**那条路已撤掉**：送达凭证是
+        // 「送到了」这件事的凭证，与这一单怎么给司机结账无关，所以现在对**所有**可完成的司机都画。
+        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
             item {
                 SectionCard {
                     SectionTitle(
@@ -1513,9 +1485,12 @@ private fun DetailBody(
         // 块**整块不存在**（不是置灰：没照片时连按钮都不该出现在页面上）。第 ③ 条：「完成按钮就
         // 移到内部备注的最下面」⇒ 它就是这一页最后一个块。
         // ⛔ `completeDelivery` 里那道 `capturedPhotos.isEmpty()` 是**第二道门**（防界面
-        //    之外的调用），别顺手删。挂车直结不走这里（见上面「送达凭证」那块）。
+        //    之外的调用），别顺手删。
+        // 2026-10-06（台账 L-15）：闸门里原来还有半句 `!order.freightVisible` —— 挂车那一档
+        // 从前不走这里（在动作卡上直接完成）。现在**所有司机一律先拍照**，所以闸门只剩「拍了照」；
+        // 收款方式（收现金 / 挂账）仍在下面这一块的 `order.collectCash` 里选。
         if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE &&
-            !order.freightVisible && photos.isNotEmpty()
+            photos.isNotEmpty()
         ) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

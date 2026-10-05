@@ -88,25 +88,44 @@ MUTATIONS = [
         "三块都在页面上",
     ),
     (
-        "内部备注那张卡挪到达送凭证上面（用户第 ⑤ 条说反了）",
+        "「内部备注」那张卡被挪到达送备注上面（用户第 ⑤ 条说反了）",
         DETAIL,
-        "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE && !order.freightVisible) {\n",
-        '        SectionTitle(Icons.Default.Notes, Color(0xFF1E6FFF), "内部备注")\n'
-        "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE && !order.freightVisible) {\n",
+        "                    OutlinedTextField(\n"
+        "                        value = remark,\n",
+        '                    SectionTitle(Icons.Default.Notes, Color(0xFF1E6FFF), "内部备注")\n'
+        "                    OutlinedTextField(\n"
+        "                        value = remark,\n",
         "送达备注在内部备注上面",
     ),
-    # ---- 4. 完成入口：至少一张照片 ----
     (
-        "完成入口不再要求「至少一张照片」（用户第 ④ 条）",
+        # 2026-10-06（台账 L-15）：从前这条注入的是"把内部备注挪到凭证上面"，它的 old 锚
+        # 里带着 `!order.freightVisible`（那半句已经撤了）。改成钉新意图：免拍照那一支不许长回来。
+        "挂车直结那一支又长回来了（挂车又能不拍照直接完成）",
+        DETAIL,
+        "                if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {\n"
+        "                    // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——\n",
+        "                if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {\n"
+        "                    if (order.freightVisible) {\n"
+        "                        Button(onClick = { onDirectCompleteClick(null) },\n"
+        "                            modifier = Modifier.fillMaxWidth().height(56.dp)) {\n"
+        '                            Text("完成订单", style = MaterialTheme.typography.titleSmall)\n'
+        "                        }\n"
+        "                    }\n"
+        "                    // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——\n",
+        "freightVisible 分支",
+    ),
+    (
+        "完成入口那道闸门又加回 `!order.freightVisible`（挂车重新免拍照）",
         DETAIL,
         "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE &&\n"
-        "            !order.freightVisible && photos.isNotEmpty()\n"
+        "            photos.isNotEmpty()\n"
         "        ) {\n",
         "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE &&\n"
         "            !order.freightVisible\n"
         "        ) {\n",
         "完成那一块的闸门",
     ),
+    # ---- 4. 完成入口：至少一张照片 ----
     (
         "把 VM 里那道「空照片不许提交」的第二道门删掉",
         VM,
@@ -119,11 +138,12 @@ MUTATIONS = [
     ),
     # ---- 5. 挂车直结那条路不许被照片门绑住 ----
     (
-        "挂车直结那颗「收取现金」被拿掉（改走 null）",
+        "把删掉的「挂车直结」那条管线又接回来（`onDirectCompleteClick` 重新接上）",
         DETAIL,
-        'onClick = { onDirectCompleteClick("cash") },',
-        'onClick = { onDirectCompleteClick(null) },',
-        "直结的三颗按钮仍在",
+        "                canFillNav = vm.canFillNavigation(role.key),\n",
+        "                onDirectCompleteClick = { p -> vm.completeDirect({ onBack() }, p) },\n"
+        "                canFillNav = vm.canFillNavigation(role.key),\n",
+        "直结的三颗按钮都不在了",
     ),
     (
         "直结那条路也要求先拍照（用户要的「一步完成」变成两步）",
@@ -131,7 +151,7 @@ MUTATIONS = [
         "    fun completeDirect(onDone: () -> Unit, payment: String? = null) {",
         "    fun completeDirect(onDone: () -> Unit, payment: String? = null) {\n"
         "        if (capturedPhotos.isEmpty()) return",
-        "completeDirect（挂车直结）",
+        "completeDirect（老包",
     ),
     # ---- 6. 内部备注的两道角色门 ----
     (

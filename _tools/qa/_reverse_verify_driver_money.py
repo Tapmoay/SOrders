@@ -73,11 +73,15 @@ MUTATIONS = [
         "商品行的小计有",
     ),
     (
-        "把「完成流程」那个 freightVisible 分支一起删掉（改坏了流程）",
+        # 2026-10-06（台账 L-15）：`if (order.freightVisible)` 那个分支已经撤掉，old 锚也换了。
+        "把「完成流程」那个 freightVisible 分支加回来（挂车又不拍照了）",
         DETAIL,
-        "                    if (order.freightVisible) {",
-        "                    if (false) {",
-        "仍被完成流程用着",
+        "                    Button(\n"
+        "                        onClick = onCaptureClick,\n",
+        "                    if (order.freightVisible) { onDirectCompleteClick(null) }\n"
+        "                    Button(\n"
+        "                        onClick = onCaptureClick,\n",
+        "完成流程里不再有",
     ),
     (
         "后端不按单的单改发 0 而不是不发（数字重新下发到司机手机上）",

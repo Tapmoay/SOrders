@@ -21,8 +21,10 @@
 2. 订单详情（`ui/order/OrderDetailScreen.kt`）司机分支不出现运费，且详情页里仅剩的运费
    渲染在**派单员**那一块（`role == Role.DISPATCHER`）；
 3. 详情页商品行仍不给司机看货款（`role != Role.DRIVER` 那道门没被顺手删掉）；
-4. ⚠️ **不能删过头**：`order.freightVisible` 仍被「完成流程」用着（按单计费的司机可以直接完成、
-   固定工资的司机要走拍照送达）——把那个 `if` 一起删掉＝改坏了流程；
+4. ⚠️ **不能删过头**：完成流程里**不许再有**按计费方式免拍照的分支（2026-10-06 台账 L-15：
+   所有司机一律拍照，那个 `if (order.freightVisible)` 已经撤掉 —— 判据在 `_check_all_drivers_photo.py`），
+   但 `freight_visible` 这个出参字段与客户端 DTO 字段仍在（后端照发），完成块里那两颗
+   「收取现金（N 张）/ 挂账（N 张）」也还在；
 5. ⚠️ **不能靠"把后端那个数抹成 0"来实现**：后端司机视角门控
    （`order_response.py::apply_driver_view_gating`）必须还在、且仍按**这一单**的模式判；
 6. 钱的算法一处都没动：`driver_pay.py::order_pay` 与其消费点仍在；
@@ -136,9 +138,14 @@ def main() -> int:
               detail,
               r"if \(role != Role\.DRIVER\) \{\s*\n\s*Text\(\s*\n\s*\"¥\" \+ formatMoney\(line\.lineTotal\)")
 
-    print("\n== 4. 别删过头：完成流程那两档还在（按单计费可直接完成 / 固定工资走拍照）==")
-    c.present("`order.freightVisible` 仍被完成流程用着", detail, r"if \(order\.freightVisible\) \{")
-    c.present("收现金 / 挂账 两个按钮还在（挂车直结那条路）", detail, r"Text\(\"收取现金\", style")
+    print("\n== 4. 别删过头：完成流程不再按计费方式免拍照，字段与收款按钮都还在 ==")
+    c.absent("完成流程里不再有 `order.freightVisible` 分支（2026-10-06 台账 L-15）", detail,
+             r"if \(order\.freightVisible\) \{")
+    c.present("收现金 / 挂账 两个按钮还在（拍完照之后的完成块里选）", detail,
+              r"Text\(\"收取现金（\" \+ photos\.size \+ \" 张）\"")
+    dto = read(AND / "data/remote/dto/Dtos.kt")
+    c.present("`freight_visible` 这个出参字段客户端仍在解（删字段要另开 CHG）", dto,
+              r'@SerialName\("freight_visible"\) val freightVisible')
 
     print("\n== 5. 后端门控还在，且仍按『这一单』的模式判（不是靠把数抹成 0）==")
     orsp = read(ORDER_RESPONSE)

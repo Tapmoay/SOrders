@@ -593,7 +593,14 @@ class OrderDetailViewModel(
         }
     }
 
-    /** payment：cash=收取现金 arrears=挂账 null=默认（未勾选收现时自动挂账） */
+    /**
+     * 不带照片的那条完成路（`POST /orders/{id}/complete`）。
+     *
+     * ⛔ 2026-10-06（台账 L-15）起**界面不再走它** —— 所有司机（含挂车）一律先拍照，走 [completeDelivery]。
+     *    留在这里是因为那条端点还得对老版本 APK / 外部调用方可用；服务端的照片门已收紧：
+     *    空照片列表一律 400「请至少上传一张送达照片」。
+     * payment：cash=收取现金 arrears=挂账 null=默认（未勾选收现时自动挂账）
+     */
     fun completeDirect(onDone: () -> Unit, payment: String? = null) {
         acting = true
         error = null

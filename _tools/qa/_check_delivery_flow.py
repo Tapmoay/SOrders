@@ -18,8 +18,10 @@
    （后端 POST /orders/{id}/driver-note 写 "[司机 {时间}] " 前缀**累加**到 internal_notes，
    注释明说写进去就再也改不了）。⚠️ 旧代码在打开弹窗前把 noteText **回填成 driverRemark**
    （送货备注）—— 那不是"编辑已有备注"，是把送货备注抄进历史；本事项一并去掉。
-4. 挂车直结那条路（order.freightVisible）**不带照片**、走 completeDirect：没照片就不该出现
-   "完成"入口，但那一颗「完成订单 / 收取现金 / 挂账」也不能被照片门挡住 —— 两条路分开判。
+4. ~~挂车直结那条路（order.freightVisible）**不带照片**、走 completeDirect~~ —— **这一条已被
+   2026-10-06 台账 L-15 推翻**（用户 m00354：「挂车……他也要拍照，同样的流程」）：所有司机一律
+   拍照，界面上那个 `if (order.freightVisible)` 分支与三颗 `onDirectCompleteClick` 都撤掉了；
+   `order.freightVisible` 这个字段若还要用，只能用在"显示运费"这类**与完成流程无关**的地方。
 
 ## 为什么这条必须有机器的判据
 这一条几乎全是"没报错但也没发生"的毛病：抽屉删了可以再长回来（编译器很乐意）；
@@ -44,10 +46,11 @@ DeliverySheet / DamageCard / 自写大图弹层，编译器不会有意见。所
 2. 照片长在页面里：缩略图（AsyncImage(model = File(path))）可点开唯一那一份大图预览
    （preview.open(vm.capturedPhotos.map { File(it) }, i)）、右上角可移除；拍照入口文案跟随张数；
 3. 页面顺序就是用户说的顺序：送达备注 → 内部备注 → 完成按钮；
-4. 完成入口至少一张照片：photos.isNotEmpty() 与 !order.freightVisible 同在一个 if 里，
-   且 VM 里那道 capturedPhotos.isEmpty() 第二道门还在；
-5. 挂车直结不受照片门约束：if (order.freightVisible) 分支与三颗 onDirectCompleteClick 仍在，
-   completeDirect 里不碰 capturedPhotos；
+4. 完成入口至少一张照片：闸门 = 司机 + 可完成 + photos.isNotEmpty()（**不再有** `!order.freightVisible`
+   那半句，2026-10-06 台账 L-15），且 VM 里那道 capturedPhotos.isEmpty() 第二道门还在；
+5. 免拍照那一支不许长回来：界面里 `if (order.freightVisible) {` 命中 0、`onDirectCompleteClick(` 命中 0、
+   动作卡上不再有「完成订单」这颗一步完成的按钮；VM 里的 completeDirect 仍在但**不碰** capturedPhotos
+   （它成了老版本 APK / `POST /orders/{id}/complete` 的兼容路，照片门由后端守）；
 6. 内部备注的两道角色门一字未松：界面 role == DRIVER || DISPATCHER 的只读显示仍在、
    输入框在司机门以内；后端 order_response.py 对货主抹空 + orders_delivery.py 的
    require_permission(ORDER_INTERNAL_NOTE) + 只放 DRIVER/DISPATCHER + 司机必须是本单司机；
@@ -186,25 +189,27 @@ def main() -> int:
     c.ok("送达备注在内部备注上面（用户第 ⑤ 条）", 0 < i_remark < i_note, f"{i_remark} < {i_note}")
     c.ok("完成按钮在内部备注下面（用户第 ③ 条：页面最底部）", i_note < i_submit, f"{i_note} < {i_submit}")
 
-    print("\n== 4. 完成入口：至少一张照片才出现，且不带照片的路不被它挡住 ==")
-    c.present("完成那一块的闸门 = 司机 + 可完成 + 非挂车直结 + 至少一张",
+    print("\n== 4. 完成入口：至少一张照片才出现（所有司机一律，含挂车 · 台账 L-15）==")
+    c.present("完成那一块的闸门 = 司机 + 可完成 + 至少一张",
               detail_code,
               r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE &&\s*\n"
-              r"\s*!order\.freightVisible && photos\.isNotEmpty\(\)\s*\n\s*\)")
+              r"\s*photos\.isNotEmpty\(\)\s*\n\s*\)")
     c.present("收款方式那颗「收取现金（N 张）」还在", detail_code, r'"收取现金（" \+ photos\.size \+ " 张）"')
     c.present("「挂账（N 张）」还在", detail_code, r'"挂账（" \+ photos\.size \+ " 张）"')
     c.present("第二道门还在（VM 里那颗空照片拦截）", vm_code,
               r'if \(capturedPhotos\.isEmpty\(\)\) \{\s*\n\s*error = "请至少拍摄一张送达照片"')
-    c.present("挂车直结那一支仍在（freightVisible）", detail_code, r"if \(order\.freightVisible\) \{")
-    c.present("直结的三颗按钮仍在（现金 / 挂账 / 完成订单）", detail_code,
-              r'onDirectCompleteClick\("cash"\)[\s\S]{0,700}?onDirectCompleteClick\("arrears"\)')
-    c.present("没有收款方式时那颗「完成订单」也仍在", detail_code, r'onDirectCompleteClick\(null\)')
+    # 2026-10-06（台账 L-15）：这一组从前钉的是"挂车直结那一支仍在"—— 用户说挂车也要拍照，
+    # 那一支已经撤掉了，所以断言反过来：界面里不许再有那个分支、也不许再有那三颗按钮。
+    c.absent("界面里不再有「挂车直结」那一支（freightVisible 分支）", detail_code, r"if \(order\.freightVisible\) \{")
+    c.absent("直结的三颗按钮都不在了（`onDirectCompleteClick` 参数行 / 调用点一律不许出现）", detail_code, r"onDirectCompleteClick")
+    c.absent("动作卡上不再有「完成订单」这种一步完成的入口", detail_code, r'Text\("完成订单", style')
+    c.present("拍照送达那颗入口还在（同一处闸门以内）", detail_code, r"onClick = onCaptureClick,")
     i_direct = vm_code.find("fun completeDirect(")
     i_deliver = vm_code.find("fun completeDelivery(")
     seg = vm_code[i_direct:i_deliver] if 0 <= i_direct < i_deliver else ""
-    c.ok("completeDirect（挂车直结）**不**碰 capturedPhotos",
+    c.ok("completeDirect（老包 / 接口兼容那条路）**不**碰 capturedPhotos",
          bool(seg) and "capturedPhotos" not in seg,
-         "他在直结那条路里要求了照片，等于把「一步完成」改成了「必须先拍照」")
+         "界面已经不走它了；它反过来要求照片＝老版本 APK 直接 400（服务端那道门已经收紧）")
 
     print("\n== 5. 内部备注：两道角色门一字未松（台账 L-05） ==")
     c.present("界面只读门仍在（司机 / 派单员才看得到那一行）", detail_code,

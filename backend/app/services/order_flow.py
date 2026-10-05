@@ -12,7 +12,7 @@ from app.models import Order, User
 from app.models.order import OrderProduct
 from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.services.accounting_service import post_delivery_accounting
-from app.services.money_contract import has_per_order_pay, rule_of_user
+from app.services.money_contract import rule_of_user
 from app.services.driver_pay import (
     ZERO,
     dispatch_mode,
@@ -411,11 +411,14 @@ def complete_delivery(
     if order.driver_id != driver.id:
         raise ValueError("非本单指派司机，无法操作")
     if not delivery_photo_urls:
-        # 免拍照只给"这张单不按单拿钱"的（工资制）单，判据与账单一处：`driver_pay.has_per_order_pay`
-        # （快照优先，老单按钱那一侧的口径补）。原来这里按司机**现在**的车型/计费兜底 ——
-        # 同一张老单会"免了拍照、却在按单给他结账"。
-        if not has_per_order_pay(order):
-            raise ValueError("请至少上传一张送达照片")
+        # 2026-10-06（台账 L-15，用户 m00354：「挂车……他也要拍照，同样的流程」）：**所有司机一律拍照**。
+        # 从前这里给"这张单不按单拿钱"的（工资制）单留着口子（判据 `driver_pay.has_per_order_pay`），
+        # 而挂车默认按单计费 —— 于是挂车那一档免拍照直接完成。那道豁免按用户口径撤掉了：
+        # 空照片列表**一律**拒，不再看这一单怎么给司机结账。
+        # ⛔ 计费口径本身没动：`has_per_order_pay` / `order_mode` 仍是"钱那一侧"的判据，只是这里不再用它。
+        # ⚠️ 这条收紧对**已经装上拍照流程的新客户端**才成立：老版本 APK 走 `POST /orders/{id}/complete`
+        #    （不带照片）会在这里拿到 400，需要同批发版。
+        raise ValueError("请至少上传一张送达照片")
     # ⛔ 照片必须是**本系统送达上传端点**的产物（2026-09-19 全项目报告 L-14，低）：
     #    上面只判了"列表非空"，于是 `["x"]` 就算履行了拍照义务 —— 而这条义务的意义是
     #    "送到时留证"，随手编一个字符串就绕过去了。判据取上传端点唯一的产物形状

@@ -238,7 +238,13 @@ def test_turnover_driver_freight_matches_settlement(client, token_dispatcher, db
     assert r.status_code in (200, 201), r.text
     hd = auth_headers(dtoken)
     assert client.post(f"/api/v1/orders/{o['id']}/driver-ack", headers=hd).status_code in (200, 201)
-    r = client.post(f"/api/v1/orders/{o['id']}/complete", json={"payment": "arrears"}, headers=hd)
+    # 2026-10-06（台账 L-15）：送达一律要照片 —— 这条路从前靠"工资制单免拍照"的口子进来，
+    # 那道豁免撤了，所以这里也得带一张（形状照 `/static/uploads/delivery/` 的凭证）。
+    r = client.post(
+        f"/api/v1/orders/{o['id']}/complete",
+        json={"payment": "arrears", "delivery_photo_urls": ["/static/uploads/delivery/probe.jpg"]},
+        headers=hd,
+    )
     assert r.status_code in (200, 201), r.text
 
     # 把送达时刻钉成**当地 04:00**（= UTC 前一天 20:00）：这条单在"当地日窗口"里，
