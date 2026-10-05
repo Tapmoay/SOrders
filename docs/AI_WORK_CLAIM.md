@@ -31,7 +31,7 @@
 
 ## 进行中
 
-### [2026-10-05 03:5x UTC 进行中] 会话：**CHG-0038 派单那一层改形态 + 「单位换算」入口搬进商品管理顶栏**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+### [2026-10-05 03:5x UTC → 04:2x UTC 已完成] 会话：**CHG-0038 派单那一层改形态 + 「单位换算」入口搬进商品管理顶栏**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（四张截图一起发来）**：「把这个**单位换算移到商品管理的那里**，我画了红色框的」「这个派单的界面改一下啊，有点丑啊。**颜色不要改**。这种淡蓝色啊，改成那种啊**淡白色**吧，**像那种纸质书的感觉**」「什么运费啊啊，这个**模板可以保留**…像什么**这一单决定多少钱提成多少这个不要管**，我们以后直接在那个订单里去给他订了」「**选择司机列表的时候搞一个左侧抽屉吧**…不然司机多了就不好搞…他直接拉起分类，像商品那样拉起一些分类列表」「**不要搞弹窗了，直接也搞个底部抽屉吧**，拉的比较上面一点**拉高一点**」。
 
@@ -44,7 +44,9 @@
 
 **判据 / 证据**：`_check_unit_conversion.py` 63 项（含「工作台已经没有那一格」+「商品管理顶栏那颗按钮接上了路由」）、`_check_assign_entry.py` 46 项、`_check_sheet_form_pages.py` 70/70、`_check_input_rules.py` 178 框、`_check_form_panel_style.py` 38/0、`_app_feature_coverage.py --check` COV=0、`_check_capability_unification.py` CAP=0；反向验证 `_reverse_verify_unit_conversion.py` 23/23、`_reverse_verify_assign_entry.py` 35/35（新增 ㉝ 主框退回居中弹窗 / ㉞ 逐单覆盖块长回来 / ㉟ 选司机退回下拉框）；`gradle -p android :app:assembleEmuDebug` BUILD SUCCESSFUL + 装模拟器 5554；实机九张截图 + 取色（`_tmp/probe_chg0038.txt`：旧淡蓝 `#ECEFF5` 命中 **0 像素**、抽屉底 `#F0F0F0`、白卡 `#FFFFFF`）。
 
-**做完的样子 / 静检**：待收尾回填（`docs/changes/CHG-0038.md` 已写，⑦⑧⑨ 与实现提交待回填）。
+**做完的样子**（实现提交 `e82b0cb`，18 files changed / 650 insertions(+) / 201 deletions(-)；后端零改动）：工作台九宫格少了「单位换算」那一格、同一颗入口长到「商品管理」顶栏「排序」左边（`_archive/chg0038-08-5554-products-topbar.png`），点开就是原来那一页（`chg0038-09-5554-unit-conv.png`）；派单那一层是拉到屏高的底部抽屉（`chg0038-02-5554-assign-sheet.png`：白卡分组、「这一单单独定」整块消失），选司机点开左侧抽屉（`chg0038-03`：左栏三档车型 / 右栏名单），搜 `2345` 只剩王强（`chg0038-04`），选中后入口行跟着写「王强 13800002345」（`chg0038-05`），切「挂车司机」名单只剩挂车（`chg0038-06`），挂车司机出现运费组 + 「运费模板」入口（`chg0038-07`），模板子弹窗照常列出真模板（`chg0038-10`）。
+
+**静检**：`python _tools/qa/_check_all.py` → **175/175 全部通过**（284.6 秒，基线 175）；`backend/scripts/check_reachability.py` → 154/154、EXIT 0；`_tools/qa/_check_dev_spec.py` → 5 项全过；`gradle -p android :app:assembleEmuDebug` BUILD SUCCESSFUL + 装 5554；正向 `_check_unit_conversion.py` 63/63、`_check_assign_entry.py` 46/46、`_check_sheet_form_pages.py` 70/70、`_check_form_panel_style.py` 38/0、`_check_input_rules.py` 178 框 / 认出 34、`_check_money_display.py` 放行表 0 条化石、`_check_r3_constraints.py` 27 条全守（补了 CHG-0037 那份判据的 `R4-BOUNDARY-JUSTIFICATION:`）；反向 `_reverse_verify_unit_conversion.py` 23/23、`_reverse_verify_assign_entry.py` 35/35（逐字节还原）；取色 `_tmp/probe_chg0038.txt`（旧淡蓝 `#ECEFF5` 0 像素 / 抽屉底 `#F0F0F0` / 白卡 `#FFFFFF`）。⚠️ 全量静检里 `_check_backend_fresh.py` 需先重启本机后端（反向验证刷了 `backend/app/**` 的 mtime，内容未变），已重启（PID 22252）。
 
 ### [2026-10-05 03:0x UTC → 03:2x UTC 已完成] 会话：**CHG-0037 报表中心金额配色改口径（带负号 ⇒ 红）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
