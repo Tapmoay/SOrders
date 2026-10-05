@@ -33,6 +33,7 @@ import com.tapmoay.sorders.data.remote.dto.UserDto
  * @param tempName 临时货主（未注册）的名字；非空即表示"这一单是为他下的"
  * @param onPick 选中一位**已注册**货主（实现方负责清掉临时货主名字）
  * @param onPickTemp 填了一个**未注册**的临时货主名字（实现方负责清掉 shipperId）
+ * @param title 抽屉标题（默认"为谁下单"；转货那一处传"转给谁"）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +44,13 @@ fun ShipperPickerSheet(
     onPick: (Long) -> Unit,
     onPickTemp: (String) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * 抽屉标题。默认是"为谁下单"（下单页与记一笔账都这么叫）。
+     *
+     * ⚠️ 转货（CHG-0042）借这个抽屉选**收下这批货的**货主 —— 那件事不叫"下单"，
+     * 标题照旧会把派单员看糊涂，所以留一个可传的标题，而不在这一页再抄一份选人抽屉。
+     */
+    title: String = "为谁下单",
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var keyword by remember { mutableStateOf("") }
@@ -61,7 +69,7 @@ fun ShipperPickerSheet(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "为谁下单",
+                    title,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),

@@ -13,8 +13,12 @@ import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderProductDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.OrderTransferLineBody
+import com.tapmoay.sorders.data.remote.dto.OrderTransferRequest
+import com.tapmoay.sorders.data.remote.dto.OrderTransferResultDto
 import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductDto
+import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.PickedLine
 import com.tapmoay.sorders.util.trimMoneyZeros
@@ -136,6 +140,146 @@ class OrderDetailViewModel(
             } finally {
                 acting = false
             }
+        }
+    }
+
+    // ── 派单员：转货（把货转给别的货主，CHG-0042）─────────────────────────────
+    //
+    // 用户说的三种形状其实是**同一件事**，所以只有一条命令（后端 `commands/order.py::transfer_lines`）：
+    // · 把 A 的 50 件里的 30 件并给 B（B 自己还有 40 件）→ 后端会找到 B 在途的那张单并进去；
+    // · 把 A 的 50 件拆成 20 + 30 给 B 和 C → 转两次，第二次源单还在（货没被搬空）；
+    // · 整单全给 B → 一次全填，源单被搬空 → 后端按「撤销」把它作废。
+    //
+    // ⚠️ 界面**不预告**"转完两边各剩多少"：那是后端与账的事，这里只负责收齐派单员的意思，
+    //    结果以回参为准重拉一次（load()）——自己算一份必然和后端算的不是一个数。
+    var showTransferSheet by mutableStateOf(false)
+    var showTransferPicker by mutableStateOf(false)
+
+    /** 可选的目标货主名册（与下单页同一份：`repo.shippers()`；含临时货主那条路）。 */
+    var transferShippers by mutableStateOf<List<UserDto>>(emptyList())
+    var transferTargetId by mutableStateOf<Long?>(null)
+    var transferTempName by mutableStateOf<String?>(null)
+
+    /** 订单行 id → 这一行要**转出去几件**（不在表里的行 = 不转）。 */
+    val transferQty = mutableStateMapOf<Long, Int>()
+    var transferError by mutableStateOf<String?>(null)
+    var transferBusy by mutableStateOf(false)
+
+    /** 目标货主在界面上显示成什么（选完人之后那一行要把他写出来）。 */
+    val transferTargetLabel: String
+        get() {
+            transferTargetId?.let { id ->
+                transferShippers.firstOrNull { it.id == id }?.let { u ->
+                    return u.fullName.ifBlank { u.username }
+                }
+            }
+            return transferTempName.orEmpty()
+        }
+
+    /** 打开转货：**先选人**（没定转给谁，填数量没有意义）。 */
+    fun openTransfer() {
+        transferTargetId = null
+        transferTempName = null
+        transferQty.clear()
+        transferError = null
+        showTransferPicker = true
+        loadTransferShippers()
+    }
+
+    private fun loadTransferShippers() {
+        viewModelScope.launch {
+            // 名册拉不到**不算错**：临时货主那条路照样能把货转出去（与下单页同一处分寸）。
+            transferShippers = runCatching { container.repo.shippers() }.getOrDefault(emptyList())
+        }
+    }
+
+    fun onPickTransferShipper(id: Long) {
+        transferTargetId = id
+        transferTempName = null
+        showTransferPicker = false
+        showTransferSheet = true
+    }
+
+    fun onPickTransferTemp(name: String) {
+        transferTempName = name.trim()
+        transferTargetId = null
+        showTransferPicker = false
+        showTransferSheet = true
+    }
+
+    /**
+     * 回到"选人"那一步。
+     *
+     * ⚠️ 必须**先关这一个再开那一个**：两个 ModalBottomSheet 同时在屏上，底下的会被压没，
+     * 关掉上面那个之后它也不一定回来（真机上表现为"点取消，整页空了"）。
+     */
+    fun reopenTransferPicker() {
+        showTransferSheet = false
+        showTransferPicker = true
+    }
+
+    fun setTransferQty(lineId: Long, qty: Int) {
+        transferQty[lineId] = qty
+    }
+
+    /** 「全部转出」：每一行都填成它**现在的**数量（整单转走那条路）。 */
+    fun fillAllTransfer() {
+        order?.orderProducts?.forEach { transferQty[it.id] = it.quantity }
+    }
+
+    fun saveTransfer() {
+        val o = order ?: return
+        val target = transferTargetId
+        val temp = transferTempName?.trim().orEmpty()
+        if (target == null && temp.isEmpty()) {
+            transferError = "请先选一位货主（或填临时货主）"
+            return
+        }
+        // 只报"真的要转的行"：没填的行不传（传 0 会被后端当成非法数量）。
+        // 上限夹在**这一行现有数量**之内 —— 后端也会拒，但不该让他先跑一趟网络才知道。
+        val lines = o.orderProducts.mapNotNull { line ->
+            val q = transferQty[line.id] ?: 0
+            if (q >= 1) OrderTransferLineBody(line.id, q.coerceAtMost(line.quantity)) else null
+        }
+        if (lines.isEmpty()) {
+            transferError = "请至少填一件要转出去的货"
+            return
+        }
+        viewModelScope.launch {
+            transferBusy = true
+            transferError = null
+            try {
+                val r = container.repo.transferOrderLines(
+                    orderId,
+                    OrderTransferRequest(
+                        shipperId = target,
+                        // 二选一：选了已注册货主就不带临时名字（后端也以真货主为准）
+                        tempShipperName = if (target == null) temp else null,
+                        lines = lines,
+                    ),
+                )
+                actionResult = transferResultText(r)
+                showTransferSheet = false
+                load()
+            } catch (e: Exception) {
+                // 错画在抽屉里（与拆单/改行同一条规矩）：整页顶成错误页会把刚填的丢掉。
+                transferError = toApiException(e).message
+            } finally {
+                transferBusy = false
+            }
+        }
+    }
+
+    /** 转货结果说人话：转了几行、去了哪张单、源单有没有被搬空作废。 */
+    private fun transferResultText(r: OrderTransferResultDto): String {
+        val who = r.order.shipperName?.takeIf { it.isNotBlank() }
+            ?: r.order.tempShipperName?.takeIf { it.isNotBlank() }
+            ?: "目标货主"
+        val head = "已把 " + r.movedLines + " 行货转给「" + who + "」"
+        return when {
+            r.sourceCancelled -> head + "，源单已撤销（货全转走了）"
+            r.createdTarget -> head + "，开了一张新单 " + r.order.orderNo
+            else -> head + "，并进了 " + r.order.orderNo + "（他本来在途的那张）"
         }
     }
 

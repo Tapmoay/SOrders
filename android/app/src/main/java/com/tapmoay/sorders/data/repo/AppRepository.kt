@@ -944,6 +944,15 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun splitOrder(orderId: Long, parts: List<Int>) =
         api.orderApi.splitOrder(orderId, com.tapmoay.sorders.data.remote.dto.OrderSplitRequest(parts))
 
+    /**
+     * 转货（CHG-0042）：把某几行的一部分转给别的货主。
+     *
+     * ⚠️ 与 [splitOrder] **不是一回事**：拆单拆的是**同一个货主**的货（拆完还是他的，
+     * 只是分成几张可分别派单的单）；转货动的是**货归谁**（账记到谁头上、送货单写谁的名字）。
+     */
+    suspend fun transferOrderLines(orderId: Long, body: com.tapmoay.sorders.data.remote.dto.OrderTransferRequest) =
+        api.orderApi.transferOrderLines(orderId, body)
+
     suspend fun freightTemplates(vehicleType: String? = null) = api.freightTemplateApi.listTemplates(vehicleType)
 
     /** 运费模板名册（AI 改/删模板时先找到那一条） */

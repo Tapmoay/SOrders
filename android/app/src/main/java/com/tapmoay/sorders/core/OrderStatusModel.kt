@@ -57,6 +57,16 @@ object OrderStatusModel {
     /** 改商品行：后端 `order_products._order_allows_line_edit`。 */
     val LINE_EDITABLE: Set<String> = setOf("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED")
 
+    /**
+     * 转货（把货转给别的货主，CHG-0042）：后端 `commands/order.py::transfer_lines` 那道挡板
+     * （`if order.status in (DELIVERED, CANCELLED, RETURNED): raise`）的**补集**。
+     *
+     * ⚠️ 与 [LINE_EDITABLE] 今天是同一组值，但**不是同一件事**：那个管"改行的数量与单价"，
+     * 这个管"货归谁"。两条判据将来各自会变（比如已送达的单允许改行、但绝不许转货），
+     * 所以这里另立一个名字，⛔ 不要图省事直接引用 LINE_EDITABLE。
+     */
+    val TRANSFERABLE: Set<String> = setOf("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED")
+
     /** 司机确认接单：后端 `orders.driver_ack_view`。 */
     val ACKABLE: Set<String> = setOf("DISPATCHED")
 

@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-05 16:5x CST 进行中] 会话：**CHG-0042 派单期跨货主转货：一张单里的货可以拆给别人、也可以并到别人的单上（拆 / 并 / 整单转出）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**用户原话（语音转写）**：「其实我说的编辑界面是**编辑这样子的订单详情界面**而不是你（另外）写了一个还有一个」；
+「假如 A 老板下了 50 单货、B 老板下了 40 单货，然后一起由一个司机直接发车，但 B 老板非常着急，所以派单员决定将 A 的 50 单货中的 30 单货和 40 单货**合并**在一起变成 70 单货给 B 老板，有时候可能是**全部货都直接给这个老板**；也有时候会把 A 的 50 单货**拆成 20 单和 30 单**，另外 30 单给另一个老板 C」。
+
+**改什么（后端已完成，Android 端落地中）**：
+- 新命令 `order.transfer`（impl `commands.order:transfer_lines`）：`backend/app/commands/order.py` 末尾新增一节（`IN_TRAFFIC_STATUSES` / `TransferResult` / 七个助手 / `transfer_lines`），`backend/app/schemas/order.py` 三个入出参、`backend/app/api/v1/orders_assignment.py` 新增 `POST /orders/{order_id}/transfer`、`backend/app/commands/registry.py` 注册、`docs/DOMAIN_BOUNDARIES.md` 订单域 commands 行认领。
+- 三条硬规矩：① 本命令**不写订单状态** —— 源单被搬空时借既有的 `services.order_flow.cancel_pending` 作废（`_check_status_gate_locking.py` 的 `ALLOWED_STATUS_WRITERS` 只有 order_flow.py）；② 实现只能落在 `order_flow.py` 或 `commands/order.py`（`_tools/qa/_check_order_commands.py:177`）⇒ 原稿 `services/order_transfer.py` 已合并进 `commands/order.py` 并删除；③ `to_state=""` + 一处 `status in (DELIVERED, CANCELLED, RETURNED)` 挡板（判据 10）。
+- 明确不做：不动 `orders` 表结构、不改状态机、不让界面算钱（金额仍由后端按 `unit_price × 数量` 重算）、不接受「已送达/已撤销/已退货」的单、整单转空对**已接单**的单先要求撤回派单。
+
+**核心改动（先在声明页登记、再动手 —— `_check_core_freeze.py` 第 3/4 条）**：
+- 核心改动：`backend/app/models/enums.py` —— 为什么必须动核心：转货要在审计里与既有的「拆分订单」（`ORDER_SPLIT`，拆的是**同一个货主**的货、单号加 `-1`/`-2` 后缀）区分开 —— 复用 `ORDER_SPLIT` 会把「拆成两份」读成「货换主了」，而这两件事决定账本行落给谁、通知发给谁、司机手上的送货单写谁。新增一个领域的动作码只能落在**领域词汇表**这个文件里。
 ### [2026-10-05 07:0x UTC → 08:1x UTC 已完成] 会话：**CHG-0041 订单详情页就地改单：点哪一块改哪一块（收货信息 + 商品行增删改），不再跳「新增订单」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（语音转写）**：「**编辑订单不是新增一个订单界面而是在详情订单界面**它不是有很多的显示，ui 状态吗？**我们可以点击对应的状态。然后进行编辑**」（同一句里还提出了"改了货主且仍是同一司机 ⇒ 自动合并订单"的设想 —— ⛔ 那一件**未立项**，与 CHG-0041 分开记）。

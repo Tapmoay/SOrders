@@ -102,6 +102,15 @@ class OperationAction(str, enum.Enum):
     ORDER_EXCEPTION = "ORDER_EXCEPTION"
     ORDER_FREIGHT = "ORDER_FREIGHT"
     ORDER_SPLIT = "ORDER_SPLIT"
+    # 派单期**跨货主转货**（2026-10-05 用户要求，CHG-0042）：把一张单里的货挪到**另一个货主**名下，
+    # 或并进目标货主已经在途的那张单（A 的 30 件并进 B 的 40 件 = 70 件给 B）。
+    #
+    # ⛔ 为什么不复用 `ORDER_SPLIT`：拆单拆的是**同一个货主**的货（单号加 -1/-2 后缀，货主一个都不动），
+    #    而转货动的是**货归谁** —— 它决定账本行落给谁（`accounting_service` 按 `order.shipper_id` 落账）、
+    #    决定「已送达」通知发给谁、决定司机手上那张送货单写谁的名字。
+    #    合成一个码的后果：审计页上分不出"这张单拆成了两份"和"这批货换了老板"，
+    #    而这恰恰是这条动作的**全部意义**（出问题时第一个要问的就是"这批货什么时候、被谁挪给了谁"）。
+    ORDER_TRANSFER = "ORDER_TRANSFER"
     # 退货（2026-09-20）：动了钱（红冲营收 + 可能退现）也动了库存，必须留痕。
     ORDER_RETURN = "ORDER_RETURN"
     # 货主**申请**退货（2026-09-21 用户要求：「批发商只是一个申请，派单员才是实际性的操作」）。

@@ -32,20 +32,33 @@ Route → Command → Order Application Logic → Order Domain Rule → Persiste
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core import outbox
+from app.core.business_time import local_stamp, utc_now_naive
 from app.core.command_id import traced_command
 from app.core.rbac import user_role_key
 from app.models import Order, User
 from app.models.enums import OperationAction, OrderStatus, UserRole
+from app.models.order import OrderProduct
 from app.schemas.order import OrderCreate, OrderUpdate
 from app.schemas.product_visibility import product_visible_to
 from app.services import place_service, usage_service
 from app.services.auth_service import new_order_no
+from app.services.driver_pay import money
+from app.services.inventory_service import resync_reservations
 from app.services.operation_log_service import write_log
-from app.services.order_flow import build_order_products, ensure_order_date, lock_order_row
+from app.services.order_flow import (
+    build_order_products,
+    cancel_pending,
+    ensure_order_date,
+    lock_order_row,
+)
 from app.services.order_response import load_order_for_response
 from app.services.shipper_contact_service import upsert_boss_contact
 
@@ -348,3 +361,556 @@ def update_order(db: Session, *, actor: User, order_id: int, body: OrderUpdate) 
     if full is None:
         raise CommandError("订单数据异常", 500)
     return full
+
+# ========================================================================================
+# 命令 order.transfer：派单期跨货主转货（CHG-0042）
+#
+# 为什么这一节住在 commands/order.py，而不是自己开一个 services/order_transfer.py：
+#   _tools/qa/_check_order_commands.py:177 规定「订单域命令的实现只能落在
+#   services/order_flow.py 或 commands.order」—— 订单域不许长出第三个家。
+#   本节只负责把动作组织起来（取单 → 判前置 → 建/找目标单 → 搬明细 → 记日志 → 入队事件），
+#   状态跃迁仍然只在 services/order_flow.py 里发生（作废源单借 cancel_pending）。
+#
+# 派单期**跨货主转货**（CHG-0042）：把一张订单里的货挪到**另一个货主**名下。
+#
+# ## 这个能力治的是什么（用户 2026-10-05 原话）
+# 「假如 A 老板下了 50 单货、B 老板下了 40 单货，然后一起由一个司机直接发车，但 B 老板非常着急，
+# 所以派单员决定将 A 的 50 单货中的 30 单货和 40 单货**合并**在一起变成 70 单货给 B 老板，
+# 有时候可能是**全部货都直接给这个老板**；也有时候会把 A 的 50 单货**拆成 20 单和 30 单**，
+# 另外 30 单给另一个老板 C。」
+#
+# 三种形状都在这里：① 部分转出（50 → 20 + 30）；② 整单转出（全部货换个货主）；
+# ③ 转入时**并入**目标货主已经在途的那张单（40 + 30 = 70 —— 司机只拿一张送货单、账也只落一笔）。
+#
+# ## 为什么不复用既有的「拆分订单」（`services.order_flow.split_order`）
+# `split_order` 拆的是**同一个货主**的货（单号加 `-1`/`-2` 后缀），货主一个都不动。
+# 转货动的是**货归谁**：它决定账本行落给谁（`accounting_service` 按 `order.shipper_id` 落账）、
+# 决定「已送达」通知发给谁、决定司机手上那张送货单写谁的名字。
+# 两者事实不同、审计读法也不同 —— 所以是独立命令 `order.transfer` + 独立动作码 `ORDER_TRANSFER`。
+# （复用 `ORDER_SPLIT` 会把「拆成两份」读成「货换主了」，反过来也一样。）
+#
+# ## 三条硬规矩（都是 `_tools/qa/` 的判据逼出来的，动这个文件前先读它们）
+# 1. ⛔ **本模块不许写订单状态** —— `_check_status_gate_locking.py` 的 `ALLOWED_STATUS_WRITERS`
+#    只有 `services/order_flow.py`。被搬空的源单要作废，一律调既有的
+#    `services.order_flow.cancel_pending`：状态写入、库存释放、`ORDER_CANCEL` 审计都留在那条
+#    既有链路上（⛔ 不要在这里再写一遍「撤销」）。
+# 2. ⛔ **`api/` 层不许构造订单**（`_check_order_commands.py` 判据 9）—— 目标单在本模块里建，
+#    构造期状态只用 `OrderStatus.PENDING_DISPATCH`（`order.create` / `order.recall` 的 to_state）。
+# 3. ⛔ **本文件里只许有一处「某变量 + status + in + 元组」的写法**，且**恰好**列出
+#    DELIVERED / CANCELLED / RETURNED：注册表里 `order.transfer` 的 `to_state=""`（转货本身
+#    不改源单的状态，只在把货搬空时才借 `cancel_pending` 作废），判据 10 从 `def transfer_lines(`
+#    截到文件末尾、把那里头的状态并成「挡掉的状态集」，要求
+#    `from_states == OrderStatus 全集 − 挡掉的状态集`。⇒ 辅助函数一律写在 `transfer_lines` **之前**；
+#    别处要判状态请用 `is not` / `not in` 的写法（那两种不会被那条正则认成「挡板」）。
+#
+# ========================================================================================
+
+
+IN_TRAFFIC_STATUSES: tuple[OrderStatus, ...] = (
+    OrderStatus.PENDING_DISPATCH,
+    OrderStatus.DISPATCHED,
+    OrderStatus.ACCEPTED,
+)
+
+
+@dataclass(frozen=True)
+class TransferResult:
+    """转货的结果（**事实**，不是给界面直接渲染的文案）。"""
+
+    #: 货**现在**在哪张单上：新开的那张，或者并进去的那张。
+    order: Order
+    #: 源单（可能已经按「撤销」作废 —— 见 `source_cancelled`）。
+    source: Order
+    #: True = 目标货主原本没有在途的单，这次**新开**了一张；False = **并入**了既有的一张。
+    created_target: bool
+    #: True = 源单的货被这次操作**搬空**、已调 `cancel_pending` 作废。
+    source_cancelled: bool
+    #: 搬走的明细**行数**（不是件数：件数跨单位求和没有意义，只用于提示语）。
+    moved_lines: int
+
+
+def _stamp() -> str:
+    """`[转货 10-05 16:39]` 里那段时间戳。
+
+    ⛔ 必须走 `business_time`：库里存 UTC naive、界面看的是 +8，自己 `datetime.now()`
+    印出来的「转货时间」会差 8 小时（`_check_single_source.py` 也禁止后端自己算日期）。
+    """
+    return local_stamp(utc_now_naive())
+
+
+def _user_label(user: User) -> str:
+    """账号在界面/审计里显示的名字：姓名 → 账号名 → #id。"""
+    return (user.full_name or "").strip() or (user.username or "").strip() or f"#{user.id}"
+
+
+def _note_with(old: str | None, line: str) -> str:
+    """在既有内部备注后面**追一行**（⛔ 不覆盖 —— 那一栏里躺着派单员的原话）。
+
+    分隔符与 `order_flow.assign_driver` / `split_order` 一致（`chr(10)`）；
+    原备注为空时不留下开头那个空行。
+    """
+    head = (old or "").strip()
+    return (head + chr(10) + line) if head else line
+
+
+def _shipper_label(db: Session, shipper_id: int | None, temp_name: str | None) -> str:
+    """货主在界面上、在审计里显示的名字：临时货主用填的那个名字，真货主用账号姓名。"""
+    name = (temp_name or "").strip()
+    if name:
+        return name
+    if shipper_id is not None:
+        user = db.get(User, shipper_id)
+        if user is not None:
+            return _user_label(user)
+    return "未指定货主"
+
+def _resolve_target_shipper(
+    db: Session, target_shipper_id: int | None, temp_name: str | None
+) -> tuple[int | None, str | None, str]:
+    """把「转给谁」的两个入参校验成 `(shipper_id, temp_name, 显示名)`。
+
+    判据与 `commands/order.py::create_order` 的代理下单**同一条**：真货主必须在库里、
+    角色就是货主，而且账号还活着 —— 转给一个司机/派单员的账号，货就落进一个不会收货、
+    也不会出现在货主账本里的名字下。
+    """
+    temp = (temp_name or "").strip() or None
+    if target_shipper_id is None:
+        if not temp:
+            raise CommandError("请选择要转给哪位货主（或填一个临时货主姓名）")
+        return None, temp, temp
+    user = db.get(User, target_shipper_id)
+    if user is None or user_role_key(user) != UserRole.SHIPPER.value:
+        raise CommandError("无效的货主")
+    if not getattr(user, "is_active", True):
+        raise CommandError("这个货主账号已停用，不能把货转给他；请先恢复账号或换一位货主")
+    # 两个都给了：以**真货主**为准（`create_order` 也是这个口径：选了货主就不看临时名字）。
+    return int(user.id), None, _user_label(user)
+
+
+def _orderer_contact(db: Session, shipper_id: int | None, temp_name: str | None) -> tuple[str, str]:
+    """新单上那两栏「下单人」（姓名 / 电话）。
+
+    口径与 `commands/order.py::create_order` 的代理下单兜底**同一条**：没带下单人时，
+    填的就是**这一单的货主**的账号资料 —— 转了货却把「下单人」留空，司机到了收货点
+    连该打给谁都不知道。
+    """
+    if shipper_id is not None:
+        user = db.get(User, shipper_id)
+        if user is not None:
+            return (user.full_name or "").strip(), (user.phone or "").strip()
+    return (temp_name or "").strip(), ""
+
+
+def _resync_stock_if_assigned(db: Session, order: Order, operator_id: int) -> int:
+    """派单**之后**行变了才需要重算预占（没派单的单还没有预占流水）。
+
+    与 `api/v1/order_products.py::_resync_stock_if_assigned` 是**同一道门、同一段逻辑** ——
+    ⛔ 不能直接 import 那个函数：`services` 不许 import `api`（依赖方向是单向的）。
+    那边改门的时候这边要跟着看（预占按商品对账，判据在 `inventory_service.resync_reservations`）。
+    """
+    if order.dispatched_at is None:
+        return 0
+    db.execute(select(Order.id).where(Order.id == order.id).with_for_update())
+    return resync_reservations(db, order, operator_id)
+
+
+def _collect_moves(
+    db: Session, source: Order, lines: list[tuple[int, int]]
+) -> list[tuple[OrderProduct, int]]:
+    """校验「搬哪几行、各搬多少」并取出这些行（⛔ 一切以**库里现在的**数量为准）。
+
+    界面上的数量可能是几分钟前读的（另一个人刚改过这一单），所以：
+      · 行不属于这一单 → 拒绝（防串单）；
+      · 要搬的数量 < 1，或大于这一行**现在**的数量 → 拒绝，并把现在的数量写进答复
+        （「这一行现在只有 4 件」比「参数错误」有用得多）。
+    """
+    rows = {
+        int(op.id): op
+        for op in db.scalars(select(OrderProduct).where(OrderProduct.order_id == source.id))
+    }
+    if not rows:
+        raise CommandError("这一单没有商品明细，没有可转的货")
+    moves: list[tuple[OrderProduct, int]] = []
+    seen: set[int] = set()
+    for line_id, qty in lines:
+        key = int(line_id)
+        op = rows.get(key)
+        if op is None:
+            raise CommandError("要转的明细行不属于这一单，请刷新后重试")
+        if key in seen:
+            raise CommandError("同一行明细出现了两次，请刷新后重试")
+        seen.add(key)
+        want = int(qty)
+        have = int(op.quantity or 0)
+        if want < 1:
+            raise CommandError("转货数量至少 1 件")
+        if want > have:
+            raise CommandError(
+                f"「{op.product_name_snapshot}」这一行现在只有 {have}{op.unit_snapshot or ''}，"
+                f"转不出 {want}；请刷新后按现在的数量再转"
+            )
+        moves.append((op, want))
+    if not moves:
+        raise CommandError("请选择要转出的商品行")
+    return moves
+
+def _find_merge_target(
+    db: Session, source: Order, *, shipper_id: int | None, temp_name: str | None
+) -> Order | None:
+    """找**要并进去的那张单**：同一个货主、同一趟货（同一个收货地址）、还在路上、司机一致。
+
+    ⛔ 只有**唯一**一张候选时才并：两张以上说明这趟货本来就有两张单，猜错比不并更麻烦
+    （这时新开一张，派单员看得见它出现在待派单池里，要并也来得及）。
+    ⛔ **不按 `order_date` 匹配**：那是「哪天下的单」，不是「哪趟货」—— A 昨天下的 50 件
+    与 B 今天下的 40 件完全可能同一趟车走（用户 2026-10-05 那个场景就是这样）。
+    """
+    if not (source.address_detail or "").strip():
+        return None
+    cands = list(
+        db.scalars(
+            select(Order)
+            .where(
+                Order.id != source.id,
+                Order.deleted_at.is_(None),
+                Order.status.in_(IN_TRAFFIC_STATUSES),
+                Order.address_detail == source.address_detail,
+            )
+            .order_by(Order.id)
+        )
+    )
+    same: list[Order] = []
+    for o in cands:
+        if shipper_id is not None:
+            if o.shipper_id != shipper_id:
+                continue
+        elif o.shipper_id is not None or (o.temp_shipper_name or "").strip() != (temp_name or ""):
+            continue
+        # 司机的口径：并进去的单不能挂在**别的**司机名下（那就成了「从别人车上抢货」）。
+        # 目标单还没派单（driver_id 为空）时可以并 —— 那正是「B 的单也在等派单」的常态。
+        if o.driver_id is not None and o.driver_id != source.driver_id:
+            continue
+        same.append(o)
+    return same[0] if len(same) == 1 else None
+
+
+def _load_merge_target(
+    db: Session,
+    source: Order,
+    target_order_id: int,
+    *,
+    shipper_id: int | None,
+    temp_name: str | None,
+) -> Order:
+    """派单员**指名**要并进去的那张单（界面上选出来的）—— 逐条把上面那张自动判据再问一遍。"""
+    target = db.scalars(select(Order).where(Order.id == target_order_id)).first()
+    if target is None or target.deleted_at is not None:
+        raise CommandError("要并入的那张单不存在（可能已被删除）")
+    if target.id == source.id:
+        raise CommandError("不能把货并进它自己")
+    if target.status not in IN_TRAFFIC_STATUSES:
+        raise CommandError("要并入的那张单已经送达/撤销/退货了，不能再并货进去")
+    if (target.address_detail or "").strip() != (source.address_detail or "").strip():
+        raise CommandError("要并入的那张单收货地址与这一单不同，不能并（司机要跑两个地方）")
+    if shipper_id is not None:
+        if target.shipper_id != shipper_id:
+            raise CommandError("要并入的那张单不是这位货主的")
+    elif target.shipper_id is not None or (target.temp_shipper_name or "").strip() != (temp_name or ""):
+        raise CommandError("要并入的那张单不是这位临时货主的")
+    if target.driver_id is not None and target.driver_id != source.driver_id:
+        raise CommandError("要并入的那张单已经派给别的司机了，不能并")
+    return target
+
+
+def _create_target_order(
+    db: Session,
+    source: Order,
+    *,
+    shipper_id: int | None,
+    temp_name: str | None,
+    actor: User,
+) -> Order:
+    """给目标货主**新开一张单**：地址/收货人/备注照抄源单（同一趟货、同一个收货地点）。
+
+    抄什么、不抄什么，判据是「这条信息属于**这趟货**，还是属于**源单的钱与归属**」：
+      · 属于这趟货 → 照抄：地址、经纬度、地点图、收货人（姓名+电话）、送货说明、备注、司机备注；
+      · 属于源单的钱与归属 → **不抄**：`payment_method` / `paid` / `arrears_unit_*` /
+        `collect_cash`（现金还是挂账、挂在哪个单位，是**这一位货主**的口径；`arrears_unit_id`
+        是指向而不是快照，把 A 的挂账单位抄到 B 的单上，B 的账就记到 A 的单位头上了）；
+        运费与司机计费快照也不抄（`split_order` 的派生单同样不带，派单员派单时再按这位司机的
+        规则定价）。
+    """
+    boss_name, boss_phone = _orderer_contact(db, shipper_id, temp_name)
+    target = Order(
+        order_no=new_order_no(),
+        # ⛔ 构造期状态只写在这里（`order.create` / `order.recall` 声明过的 to_state）：
+        #    `_check_order_commands.py` 判据 9 只认「某条命令声明过的 to_state」，
+        #    而状态跃迁一律在 `order_flow.py` 里 —— 本模块一个字都不写状态。
+        status=OrderStatus.PENDING_DISPATCH,
+        shipper_id=shipper_id,
+        temp_shipper_name=temp_name,
+        order_date=source.order_date,
+        delivery_description=source.delivery_description,
+        address_detail=source.address_detail,
+        address_lat=source.address_lat,
+        address_lng=source.address_lng,
+        address_image_url=source.address_image_url,
+        contact_dongjia_name=source.contact_dongjia_name,
+        contact_dongjia_phone=source.contact_dongjia_phone,
+        contact_boss_name=boss_name,
+        contact_boss_phone=boss_phone,
+        remark=source.remark,
+        driver_remark=source.driver_remark,
+        internal_notes=f"[转货 {_stamp()}] 由 {source.order_no} 转入（操作人：{_user_label(actor)}）",
+        parent_order_id=source.id,
+    )
+    db.add(target)
+    db.flush()
+    return target
+
+
+def _put_line(db: Session, target: Order, op: OrderProduct, qty: int) -> None:
+    """把 `qty` 件搬到目标单上：**同商品同单价同单位同成本**就并进既有那一行，否则追加一行。
+
+    ⛔ 判据里必须带上 `unit_price`（还有单位与成本快照）：单价不同的同一种商品**不许并成一行** ——
+    并了就得二选一，而「这一行的单价到底按谁算」在账上再也查不出来（货款按行金额入账）。
+    """
+    unit = (op.unit_snapshot or "")[:32]
+    price = op.unit_price if op.unit_price is not None else Decimal("0")
+    for row in target.order_products:
+        if (
+            row.product_id == op.product_id
+            and row.unit_price == op.unit_price
+            and (row.unit_snapshot or "") == unit
+            and row.cost_price_snapshot == op.cost_price_snapshot
+        ):
+            # ⛔ 件数**只能由数据库自增**，不许写成 `row.quantity = int(row.quantity or 0) + qty`：
+            #    两次转货同时并进同一张单的同一行时，两边都读到同一个旧值、各自算新值，
+            #    后写的把前一次转入的件数整段盖掉 —— 货搬过去了两批、账上只记一批，谁都不报错
+            #    （红线 `_tools/qa/_check_counter_updates.py` 钉着；与 `auto_stock_commit` 的库存、
+            #    退货的 `returned_quantity` 是同一条理由）。
+            # ⚠️ 行金额必须由**同一个表达式**算出来（同一件数），分开算会出现
+            #    「件数已是新值、金额还按旧件数」的行 —— 而这一行的金额是要进货款账的。
+            merged = func.coalesce(OrderProduct.quantity, 0) + qty
+            res = db.execute(
+                update(OrderProduct)
+                .where(OrderProduct.id == row.id)
+                .values(
+                    quantity=merged,
+                    line_total=func.coalesce(OrderProduct.unit_price, 0) * merged,
+                )
+            )
+            if res.rowcount != 1:
+                # 行没了（或 id 不对）= 这一次转货的口径已经不作数，宁可整笔退回也不写半张单。
+                raise CommandError(
+                    f"「{op.product_name_snapshot}」这一行刚刚被另一笔操作改动了，请重新打开这张单再转"
+                )
+            # 让内存里那一份失效：下面按行重算预占时（`_resync_stock_if_assigned` →
+            # `resync_reservations` → `_order_rows`）读的就是 `order.order_products` 这个集合，
+            # 不失效它就会拿着**改动前**的件数去算差额、算出 0 来。
+            db.expire(row, ["quantity", "line_total"])
+            return
+    target.order_products.append(
+        OrderProduct(
+            product_id=op.product_id,
+            product_name_snapshot=op.product_name_snapshot,
+            quantity=qty,
+            unit_price=price,
+            line_total=money(price * qty),
+            cost_price_snapshot=op.cost_price_snapshot,
+            unit_snapshot=unit,
+        )
+    )
+
+@traced_command("order.transfer")
+def transfer_lines(
+    db: Session,
+    *,
+    actor: User,
+    order_id: int,
+    lines: list[tuple[int, int]],
+    target_shipper_id: int | None = None,
+    temp_shipper_name: str | None = None,
+    merge_into_order_id: int | None = None,
+) -> TransferResult:
+    """把 `order_id` 那张单上的货转给**另一个货主**（或并进同货主已在途的那张单）。
+
+    `lines` = `[(明细行 id, 要转的数量), …]`；每一行都给满数量就是**整单转出**。
+
+    事务纪律（与 `order_flow` 的每个写操作同一条）：
+      1. **先锁再判**（判据 A）：锁放在第一句，判断全在锁之后 —— 先判后锁等于没锁；
+      2. 行/数量以**库里的现在值**为准，不等界面；
+      3. 派过单的单要**重算预占**（`resync_reservations`）：实扣是按流水走的，
+         行变了不补，库存就永久错账（见 `inventory_service.resync_reservations` 的 docstring）。
+      4. 源单被搬空 → 调 `cancel_pending` 作废（⛔ 状态写入只在 `order_flow.py` 里）。
+      5. **由命令层 commit**（与 `create_order` / `update_order` 同一条：命令层收尾提交，发件箱事件与业务写在同一个事务里）。
+    """
+    # 取单：判据 A 只要求「取锁早于第一处状态比较」，按 id 取单这一句不比较状态。
+    source = db.scalars(select(Order).where(Order.id == order_id)).first()
+    if source is None:
+        raise CommandError("未找到对应记录", 404)
+    # ⛔ 第一句就是锁（判据 A：凡出现 lock_order_row 的函数，取锁必须早于第一处状态比较）。
+    order = lock_order_row(db, source)
+
+    if order.deleted_at is not None:
+        raise CommandError("这一单在回收站里，不能转货；请先恢复它")
+
+    # ⚠️ 这是本文件**唯一**一处 `status in (…)`：判据 10 从本函数截到文件末尾，把这里列出的状态
+    #    并成「挡掉的状态集」，再要求注册表里的 from_states 恰好是剩下的那三个。
+    #    已送达 = 货已经算过账（`accounting_service` 按订单行落账）；已撤销/已退货 = 这一单已经结束。
+    if order.status in (
+        OrderStatus.DELIVERED,
+        OrderStatus.CANCELLED,
+        OrderStatus.RETURNED,
+    ):
+        raise CommandError("「已送达 / 已撤销 / 已退货」的单不能再转货：那些货已经算过账或已经退回去了")
+
+    moves = _collect_moves(db, order, lines)
+    total_rows = len(db.scalars(select(OrderProduct.id).where(OrderProduct.order_id == order.id)).all())
+    empties_source = len(moves) == total_rows and all(int(qty) >= int(op.quantity or 0) for op, qty in moves)
+
+    if empties_source and order.status == OrderStatus.ACCEPTED:
+        # 司机已经接单 = 他认下的是"这一单"；把货全搬走等于撤单，而「已接单」的撤销
+        # 不在 `cancel_pending` 的门里（那条路只收待派单/已派单未接单）。
+        # ⇒ 整单转空这条路对「已接单」关掉：先让派单员把这一单**撤回待派单**（recall），再转。
+        raise CommandError(
+            "司机已经接单了，整单转空要走「撤回派单」再转（已接单的单不能直接作废）；"
+            "也可以只转一部分"
+        )
+
+    shipper_id, temp_name, label = _resolve_target_shipper(db, target_shipper_id, temp_shipper_name)
+    if shipper_id is not None and shipper_id == order.shipper_id:
+        label = f"{label}（同货主并单）"
+
+    created = False
+    if merge_into_order_id is not None:
+        target = _load_merge_target(
+            db, order, int(merge_into_order_id), shipper_id=shipper_id, temp_name=temp_name
+        )
+        # 并进去的那张单也要先锁住：两个人同时往同一张单上并货，行与预占都会算重
+        # （锁序恒为「源单 → 目标单」，与调用方传进来的源单一致）。
+        db.execute(select(Order.id).where(Order.id == target.id).with_for_update())
+    else:
+        target = _find_merge_target(db, order, shipper_id=shipper_id, temp_name=temp_name)
+        if target is None:
+            target = _create_target_order(
+                db, order, shipper_id=shipper_id, temp_name=temp_name, actor=actor
+            )
+            created = True
+        else:
+            db.execute(select(Order.id).where(Order.id == target.id).with_for_update())
+
+    # 审计要用的行快照：**先取**再动行（`db.delete` 之后主键读起来不一定还在）。
+    moved_payload: list[dict[str, Any]] = []
+    for op, qty in moves:
+        price = op.unit_price if op.unit_price is not None else Decimal("0")
+        moved_payload.append(
+            {
+                "line_id": int(op.id),
+                "product_id": op.product_id,
+                "product_name": op.product_name_snapshot,
+                "unit": (op.unit_snapshot or ""),
+                "quantity": int(qty),
+                "unit_price": str(price),
+                "line_total": str(money(price * int(qty))),
+            }
+        )
+
+    for op, qty in moves:
+        _put_line(db, target, op, int(qty))
+        have = int(op.quantity or 0)
+        if int(qty) >= have:
+            db.delete(op)
+        else:
+            op.quantity = have - int(qty)
+            op.line_total = money((op.unit_price or Decimal("0")) * int(op.quantity))
+
+    # ⛔ 行搬完，先把这批改动落盘、并让明细集合失效，再让预占去对账：
+    #    resync_reservations 读的是「这一单现在的行」（_order_rows 优先取 relationship），
+    #    而本项目的 sessionmaker 是 autoflush=False —— 不 flush 也不 expire 的话，它读到的
+    #    是搬走前那份内存缓存（整行搬走的行还留在集合里、数量还是原值），差额算成 0：
+    #    源单会**永久占着一批已经不存在的货**，而货已经到了目标单上（那边的占用另算）。
+    #    探针实测就是这个形状（源单 p1 的 -10 赖着不动）。
+    db.flush()
+    db.expire(order, ["order_products"])
+
+    source_cancelled = False
+    if empties_source:
+        # 货搬空了：源单借既有的「撤销」链路作废 —— 状态、库存、审计都留在 order_flow.py 里。
+        cancel_pending(db, order, actor)
+        source_cancelled = True
+
+    # 预占重算：源单还剩货（或被搬空但没有派过单）时各自对账一次。
+    if not source_cancelled:
+        _resync_stock_if_assigned(db, order, actor.id)
+    _resync_stock_if_assigned(db, target, actor.id)
+
+    # 内部备注写在**最后**（在 cancel_pending / resync 之后）：cancel_pending 里有 db.refresh(order)，
+    # 而本项目的 sessionmaker 是 autoflush=False —— 先写的备注还没落盘，一次 refresh 就把它整段丢掉
+    # （探针实测：整单转空那条路上，源单的「已转出给谁」整句消失）。落在最后，谁也盖不掉。
+    order.internal_notes = _note_with(
+        order.internal_notes,
+        f"[转货 {_stamp()}] 已转出给「{label}」（{target.order_no}）：{len(moves)} 行"
+        f"（操作人：{_user_label(actor)}）",
+    )
+    if not created:
+        target.internal_notes = _note_with(
+            target.internal_notes,
+            f"[转货 {_stamp()}] 已从 {order.order_no} 转入：{len(moves)} 行"
+            f"（操作人：{_user_label(actor)}）",
+        )
+
+    # 操作日志两行：一条挂在源单上（货出去了）、一条挂在目标单上（货进来了）。
+    # 两边的 change_payload 都必须是**可 JSON 序列化**的（金额一律 str —— write_log 走
+    # json.dumps，Decimal 直接塞进去会抛）。
+    write_log(
+        db,
+        operator_id=actor.id,
+        order_id=order.id,
+        action=OperationAction.ORDER_TRANSFER,
+        change_payload={
+            "direction": "out",
+            "target_order_id": int(target.id),
+            "target_order_no": target.order_no,
+            "target_shipper": label,
+            "target_shipper_id": shipper_id,
+            "created_target": created,
+            "source_cancelled": source_cancelled,
+            "lines": moved_payload,
+        },
+    )
+    write_log(
+        db,
+        operator_id=actor.id,
+        order_id=target.id,
+        action=OperationAction.ORDER_TRANSFER,
+        change_payload={
+            "direction": "in",
+            "source_order_id": int(order.id),
+            "source_order_no": order.order_no,
+            "source_shipper": _shipper_label(db, order.shipper_id, order.temp_shipper_name),
+            "source_shipper_id": order.shipper_id,
+            "lines": moved_payload,
+        },
+    )
+
+    # 发件箱：与业务写**同一个事务**（outbox.enqueue 自己不 commit，由本层最后 commit 一次）。
+    outbox.enqueue(db, "orders.pending_pool_changed", {})
+    if created:
+        outbox.enqueue(db, "orders.created", {"order_id": int(target.id)})
+    elif target.driver_id is not None:
+        # 并进去的单已经派给某位司机了：他手上的送货单多了一项，得告诉他。
+        outbox.enqueue(db, "orders.edited", {"driver_id": int(target.driver_id), "order_id": int(target.id)})
+    if source_cancelled:
+        recipients = [int(u) for u in (order.shipper_id, order.driver_id) if u is not None]
+        outbox.enqueue(db, "orders.cancelled", {"user_ids": recipients, "order_id": int(order.id)})
+    elif order.driver_id is not None:
+        outbox.enqueue(db, "orders.edited", {"driver_id": int(order.driver_id), "order_id": int(order.id)})
+
+    db.commit()
+    return TransferResult(
+        order=target,
+        source=order,
+        created_target=created,
+        source_cancelled=source_cancelled,
+        moved_lines=len(moves),
+    )

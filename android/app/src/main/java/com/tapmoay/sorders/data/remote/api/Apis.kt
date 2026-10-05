@@ -245,6 +245,15 @@ interface OrderApi {
     @POST("orders/{orderId}/split")
     suspend fun splitOrder(@Path("orderId") orderId: Long, @Body body: OrderSplitRequest): List<OrderDto>
 
+    /**
+     * 转货（CHG-0042）：把这张单里某几行的一部分（或全部）转给另一个货主。
+     *
+     * 回的是**两张单的最新样子**（源单 + 目标单）：源单可能被搬空而作废、目标单可能是新开的，
+     * 只回一张的话另一张要等下一次拉取才知道发生了什么。
+     */
+    @POST("orders/{orderId}/transfer")
+    suspend fun transferOrderLines(@Path("orderId") orderId: Long, @Body body: OrderTransferRequest): OrderTransferResultDto
+
     @POST("orders/{orderId}/cancel")
     suspend fun cancelOrder(@Path("orderId") orderId: Long): OrderDto
 

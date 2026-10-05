@@ -1824,6 +1824,48 @@ data class OrderSplitRequest(
     val parts: List<Int>,
 )
 
+/**
+ * 转货：把这张单里某几行的一部分（或全部）转给**另一个货主**（CHG-0042）。
+ *
+ * [lineId] 是订单行的 id（不是商品 id：同一件货可以有多行，价格可能不同）。
+ * [quantity] 是**转出去多少**（不是转完剩多少），后端会按现有数量校验。
+ * 目标货主二选一：[shipperId]（已注册货主）或 [tempShipperName]（临时货主，没账号）。
+ */
+@Serializable
+data class OrderTransferLineBody(
+    @SerialName("line_id") val lineId: Long,
+    val quantity: Int,
+)
+
+/**
+ * 转货请求。
+ *
+ * [mergeIntoOrderId] 是「并进目标货主已经在途的那一张单」——界面 v1 **不传**它：
+ * 后端自己会找同货主同地址的那张单（找不到就新开一张），写在这里只是保留接口。
+ */
+@Serializable
+data class OrderTransferRequest(
+    @SerialName("shipper_id") val shipperId: Long? = null,
+    @SerialName("temp_shipper_name") val tempShipperName: String? = null,
+    @SerialName("merge_into_order_id") val mergeIntoOrderId: Long? = null,
+    val lines: List<OrderTransferLineBody>,
+)
+
+/**
+ * 转货结果：源单 + 目标单的**最新**样子（两边都要重新画，所以后端两张都回）。
+ *
+ * [createdTarget] = 目标单是新建的（不是并进既有单）；
+ * [sourceCancelled] = 源单的货被搬空了、已经按「撤销」作废（这一条必须让派单员看见）。
+ */
+@Serializable
+data class OrderTransferResultDto(
+    val order: OrderDto,
+    @SerialName("source_order") val sourceOrder: OrderDto,
+    @SerialName("created_target") val createdTarget: Boolean = false,
+    @SerialName("source_cancelled") val sourceCancelled: Boolean = false,
+    @SerialName("moved_lines") val movedLines: Int = 0,
+)
+
 @Serializable
 data class FreightUpdateRequest(
     @SerialName("freight_fee") val freightFee: String? = null,

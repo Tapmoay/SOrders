@@ -157,6 +157,22 @@ ORDER_COMMANDS: tuple[CommandSpec, ...] = (
             "把它与「撤销」分开，是因为它同时改变一批订单，而不是一张。",
     ),
     CommandSpec(
+        name="order.transfer",
+        domain="order",
+        impl="commands.order:transfer_lines",
+        capabilities=("ORDER_EDIT",),
+        from_states=("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED"),
+        to_state="",
+        events=("orders.created", "orders.edited", "orders.cancelled", "orders.pending_pool_changed"),
+        effects=("operation_logs", "inventory_movements"),
+        why="派单期**跨货主转货**（CHG-0042）：把一张单里的货挪给另一个货主，或并进目标货主已在途的那张单。"
+            "to_state 是空串，因为转货**不改源单的状态** —— 只在把源单的货**全部**搬空时才借 "
+            "`cancel_pending` 把那张空壳单作废（状态写入仍只发生在 services/order_flow.py，"
+            "实现里那道 status 挡板挡掉的正是「已送达 / 已撤销 / 已退货」）。"
+            "它单独成一条命令而不是 `order.split` 的一个模式，是因为**货主变了**：账落给谁、"
+            "通知发给谁是两个不同的事实。",
+    ),
+    CommandSpec(
         name="order.return",
         domain="order",
         impl="services.order_flow:mark_returned",

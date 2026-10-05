@@ -28,6 +28,8 @@ from app.schemas.order import (
     OrderAssignBody,
     OrderFreightBody,
     OrderSplitBody,
+    OrderTransferBody,
+    OrderTransferOut,
     OrderBatchAssignBody,
     OrderBatchAssignOut,
     OrderOut,
@@ -36,6 +38,7 @@ from app.schemas.order import (
 )
 from app.services.operation_log_service import write_log
 from app.services.order_flow import split_order
+from app.commands import order as order_commands
 from app.services.order_flow import assign_driver, lock_order_row, recall_dispatch
 from app.services.order_flow import release_dispatch
 from app.services.accounting_service import BillAlreadySettledError, resync_open_piece_bill
@@ -403,6 +406,45 @@ def split_order_endpoint(
     db.commit()
     return [enrich_order_out(c, db, current) for c in created]
 
+
+@router.post("/{order_id}/transfer", response_model=OrderTransferOut)
+def transfer_order_lines_endpoint(
+    order_id: int,
+    body: OrderTransferBody,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
+) -> OrderTransferOut:
+    """把这张单里的货转给**另一个货主**（或并进目标货主已经在途的那张单）。
+
+    派单期的动作：货还在路上（待派单 / 已派单未接单 / 已接单），货归谁还能改；
+    源单的货被搬空 → 命令层按「撤销」把它作废（`source_cancelled`）。
+
+    业务规则与事务收尾都在命令层（`commands/order.py` 的 `transfer_lines`），
+    路由只负责 HTTP：错误文案与状态码**原样透出**（与本仓 create/update 同一条）。
+    """
+    try:
+        result = order_commands.transfer_lines(
+            db,
+            actor=current,
+            order_id=order_id,
+            lines=[(int(ln.line_id), int(ln.quantity)) for ln in body.lines],
+            target_shipper_id=body.shipper_id,
+            temp_shipper_name=body.temp_shipper_name,
+            merge_into_order_id=body.merge_into_order_id,
+        )
+    except order_commands.CommandError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from None
+    except ValueError as e:
+        # 领域规则（services/order_flow）抛的仍是 ValueError —— 与本文件既有的
+        # 拆分/派单端点同一条翻译（那两条路也还不是命令层）。
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return OrderTransferOut(
+        order=enrich_order_out(result.order, db, current),
+        source_order=enrich_order_out(result.source, db, current),
+        created_target=result.created_target,
+        source_cancelled=result.source_cancelled,
+        moved_lines=result.moved_lines,
+    )
 
 @router.post("/{order_id}/freight", response_model=OrderOut)
 def update_order_freight(

@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:e29bb88443fa579e950587baa2397d62095ee02c9eabf2101899fd3e514311a7",
- "source_commit": "c3526c5",
- "generated_at": "2026-10-05T05:00:38Z",
+ "source_hash": "sha256:e562ce53bd1681c3b2fbd9de4196e59070f1f381e298fa99898b989614bb084b",
+ "source_commit": "5ec9f0e",
+ "generated_at": "2026-10-05T08:55:11Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -427,6 +427,7 @@
    "ORDER_UPDATE",
    "ORDER_EXCEPTION",
    "ORDER_SPLIT",
+   "ORDER_TRANSFER",
    "ORDER_FREIGHT",
    "ORDER_FREIGHT_PRICE",
    "ORDER_TEMPLATE_UPSERT",
@@ -589,7 +590,7 @@
   "capabilities": 26,
   "role_capabilities": 5,
   "write_capabilities": 18,
-  "audited_action_codes": 116,
+  "audited_action_codes": 117,
   "audit_exceptions": 1
  }
 }

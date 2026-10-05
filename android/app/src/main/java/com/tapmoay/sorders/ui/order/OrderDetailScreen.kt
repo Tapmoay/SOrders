@@ -253,6 +253,7 @@ fun OrderDetailScreen(
                 onChargeClick = { vm.openCharge() },
                 onEditFreightClick = { vm.openFreightDialog() },
                 onSplitClick = { vm.openSplitDialog() },
+                onTransferClick = { vm.openTransfer() },
                 onAssignClick = { vm.order?.let { assignVm.openAssign(it.id) } },
                 onDirectCompleteClick = { p -> vm.completeDirect({ onBack() }, p) },
                 canFillNav = vm.canFillNavigation(role.key),
@@ -426,6 +427,36 @@ fun OrderDetailScreen(
             dismissButton = { TextButton(onClick = { vm.showSplitDialog = false }) { Text("取消") } },
         )
     }
+    // 转货：先选「转给谁」（选人抽屉），选完才开那张表单抽屉。
+    // ⛔ 两个 ModalBottomSheet 不能同时开（底下的会被压没），所以选人抽屉一关才开表单抽屉
+    //    （ViewModel 的 reopenTransferPicker 就是照这个顺序把两个开关拨过来的）。
+    if (vm.showTransferPicker) {
+        ShipperPickerSheet(
+            shippers = vm.transferShippers,
+            selectedId = vm.transferTargetId,
+            tempName = vm.transferTempName,
+            onPick = { vm.onPickTransferShipper(it) },
+            onPickTemp = { vm.onPickTransferTemp(it) },
+            onDismiss = { vm.showTransferPicker = false },
+            title = "转给谁",
+        )
+    }
+    if (vm.showTransferSheet) {
+        vm.order?.let { o ->
+            OrderTransferSheet(
+                order = o,
+                targetLabel = vm.transferTargetLabel,
+                qtyOf = { vm.transferQty[it] ?: 0 },
+                onQtyChange = { id, q -> vm.setTransferQty(id, q) },
+                onFillAll = { vm.fillAllTransfer() },
+                onPickShipper = { vm.reopenTransferPicker() },
+                busy = vm.transferBusy,
+                error = vm.transferError,
+                onConfirm = { vm.saveTransfer() },
+                onDismiss = { vm.showTransferSheet = false },
+            )
+        }
+    }
     // 派单弹窗（与「派单作业」池子共用同一份实现）。派成了 → 让本页重拉一次：
     // 状态从「派单中」翻成「已派单」，底部按钮组也跟着换（`vm.load()`）。
     AssignDriverDialog(assignVm) { vm.load() }
@@ -592,6 +623,7 @@ private fun DetailBody(
     onChargeClick: () -> Unit,
     onEditFreightClick: () -> Unit,
     onSplitClick: () -> Unit,
+    onTransferClick: () -> Unit,
     onAssignClick: () -> Unit,
     onDirectCompleteClick: (String?) -> Unit,
     damageByProduct: Map<Long, Int> = emptyMap(),
@@ -1206,6 +1238,20 @@ private fun DetailBody(
                         Icon(Icons.Default.CallSplit, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("拆分订单（可分派多位司机）")
+                    }
+                }
+                // 派单员：这一张单上的货可以转给**别的货主**（拆出去 / 并过去 / 整单转出）。
+                // 闸门与「拆分订单」刻意不同源：拆分只对「待派单」开放，转货在途三态都能转
+                // （OrderStatusModel.TRANSFERABLE ＝ 后端 transfer_lines 那道挡板的补集）。
+                if (role == Role.DISPATCHER && order.status in OrderStatusModel.TRANSFERABLE) {
+                    OutlinedButton(
+                        onClick = onTransferClick,
+                        enabled = !acting,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("转货（转给别的货主）")
                     }
                 }
                 // 货主：派单中/已派单可撤销（后端 `cancel_pending` 同一对取值）

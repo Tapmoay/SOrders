@@ -310,6 +310,42 @@ class OrderSplitBody(BaseModel):
     parts: list[int] = Field(..., min_length=2, max_length=5, description="各子单比例/份数（如 [1,1] 或 [150,150]，按比例拆分数量）")
 
 
+class OrderTransferLineBody(BaseModel):
+    """要转出去的一行货（明细行 id + 数量）。"""
+
+    line_id: int = Field(..., description="商品明细行 id（订单详情里那一行的 id）")
+    quantity: int = Field(..., ge=1, description="这一行转出多少件（≤ 这一行现在的数量）")
+
+
+class OrderTransferBody(BaseModel):
+    """派单期**跨货主转货**（CHG-0042）。
+
+    用户 2026-10-05：「假如 A 老板下了 50 单货、B 老板下了 40 单货，然后一起由一个司机直接发车，
+    但 B 老板非常着急，所以派单员决定将 A 的 50 单货中的 30 单货和 40 单货合并在一起变成 70 单货
+    给 B 老板，有时候可能是全部货都直接给这个老板；也有时候会把 A 的 50 单货拆成 20 单和 30 单，
+    另外 30 单给另一个老板 C。」
+
+    `shipper_id` 与 `temp_shipper_name` 二选一（都给了**以真货主为准**）；
+    `merge_into_order_id` 留空 = 让后端自己判断：目标货主在这趟货上**恰好**有一张在途的单就并进去，
+    否则新开一张（两张以上候选时新开，见 `commands/order.py` 的 `_find_merge_target`）。
+    """
+
+    shipper_id: int | None = Field(None, description="转给哪位货主（真账号 id）")
+    temp_shipper_name: str | None = Field(None, max_length=128, description="转给临时货主（没账号，填名字）")
+    merge_into_order_id: int | None = Field(None, description="并进这一张单（空 = 自动判断）")
+    lines: list[OrderTransferLineBody] = Field(..., min_length=1, max_length=100, description="要转的货：行 id + 数量")
+
+
+class OrderTransferOut(BaseModel):
+    """转货的结果：货**现在**在哪张单上、源单还在不在。"""
+
+    order: OrderOut = Field(..., description="货现在在哪张单上（新开的那张，或并进去的那张）")
+    source_order: OrderOut = Field(..., description="源单（可能已按「撤销」作废，见 source_cancelled）")
+    created_target: bool = Field(..., description="True = 给目标货主新开了一张单；False = 并进了既有的那张")
+    source_cancelled: bool = Field(..., description="True = 源单的货被搬空，已按「撤销」作废")
+    moved_lines: int = Field(..., description="搬走的明细行数（不是件数）")
+
+
 class OrderFreightPriceBody(MoneyInput):
     """派单员**手动定价**（没匹配到价目的单）。
 
