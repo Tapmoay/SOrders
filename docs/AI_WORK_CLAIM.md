@@ -31,18 +31,23 @@
 
 ## 进行中
 
-### [2026-10-05 16:5x CST 进行中] 会话：**CHG-0042 派单期跨货主转货：一张单里的货可以拆给别人、也可以并到别人的单上（拆 / 并 / 整单转出）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+### [2026-10-05 16:5x → 17:5x CST 已完成] 会话：**CHG-0042 派单期跨货主转货：一张单里的货可以拆给别人、也可以并到别人的单上（拆 / 并 / 整单转出）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（语音转写）**：「其实我说的编辑界面是**编辑这样子的订单详情界面**而不是你（另外）写了一个还有一个」；
 「假如 A 老板下了 50 单货、B 老板下了 40 单货，然后一起由一个司机直接发车，但 B 老板非常着急，所以派单员决定将 A 的 50 单货中的 30 单货和 40 单货**合并**在一起变成 70 单货给 B 老板，有时候可能是**全部货都直接给这个老板**；也有时候会把 A 的 50 单货**拆成 20 单和 30 单**，另外 30 单给另一个老板 C」。
 
-**改什么（后端已完成，Android 端落地中）**：
+**改什么（后端 + Android 全部落地）**：
 - 新命令 `order.transfer`（impl `commands.order:transfer_lines`）：`backend/app/commands/order.py` 末尾新增一节（`IN_TRAFFIC_STATUSES` / `TransferResult` / 七个助手 / `transfer_lines`），`backend/app/schemas/order.py` 三个入出参、`backend/app/api/v1/orders_assignment.py` 新增 `POST /orders/{order_id}/transfer`、`backend/app/commands/registry.py` 注册、`docs/DOMAIN_BOUNDARIES.md` 订单域 commands 行认领。
 - 三条硬规矩：① 本命令**不写订单状态** —— 源单被搬空时借既有的 `services.order_flow.cancel_pending` 作废（`_check_status_gate_locking.py` 的 `ALLOWED_STATUS_WRITERS` 只有 order_flow.py）；② 实现只能落在 `order_flow.py` 或 `commands/order.py`（`_tools/qa/_check_order_commands.py:177`）⇒ 原稿 `services/order_transfer.py` 已合并进 `commands/order.py` 并删除；③ `to_state=""` + 一处 `status in (DELIVERED, CANCELLED, RETURNED)` 挡板（判据 10）。
 - 明确不做：不动 `orders` 表结构、不改状态机、不让界面算钱（金额仍由后端按 `unit_price × 数量` 重算）、不接受「已送达/已撤销/已退货」的单、整单转空对**已接单**的单先要求撤回派单。
 
 **核心改动（先在声明页登记、再动手 —— `_check_core_freeze.py` 第 3/4 条）**：
 - 核心改动：`backend/app/models/enums.py` —— 为什么必须动核心：转货要在审计里与既有的「拆分订单」（`ORDER_SPLIT`，拆的是**同一个货主**的货、单号加 `-1`/`-2` 后缀）区分开 —— 复用 `ORDER_SPLIT` 会把「拆成两份」读成「货换主了」，而这两件事决定账本行落给谁、通知发给谁、司机手上的送货单写谁。新增一个领域的动作码只能落在**领域词汇表**这个文件里。
+- 状态：**已关闭**。判据 `_tools/qa/_check_order_transfer.py` **64/64**、反验 `_tools/qa/_reverse_verify_order_transfer.py` **33/33**（按字节还原）、真库探针 `_tmp/_probe_chg0042_transfer.py` **80/80**（`backend/sorders.db` 字节副本上跑产品代码：订单 602→616、审计 2057→2072）；全量静检 **179/179**（`CHECKALL=0`，日志 `_tmp/checkall_chg0042c.log`）；`check_reachability.py` 可达文档 159/159、无孤儿。
+- 真机 5554（真库对账齐备，截图 `_tmp/chg0042_e2e/07..14*.png`）：场景一「部分转货」——源单 603 赣南脐橙 ×10→**×6 袋**（¥421.8→**¥282.6**，状态仍是派单中）、新建目标单 **604**（货主 Shipper 13800000002、`parent_order_id=603`、×4 袋 ¥139.2、地址与收货人照抄、下单人换成目标货主）；场景二「整单转出」——6+6 全转 ⇒ **并进同一张 604**（既有行 4→**10 件** + 新行 苹果 6 筐）、源单 603 **CANCELLED**。真库：审计 **2165/2166**（`order.transfer#537568fd`）与 **2167**（`ORDER_CANCEL`）/**2168/2169**（`order.transfer#9f8c5aba`）、发件箱 **863–868**、`inventory_movements` 为空（未派单不占库）。夹具（603/604 ＋ 8 条审计 ＋ 6 条事件 ＋ 3 条常用度 ＋ 2 条「我的地点」）已**按 id 精确清理**回 **602 单 / 2057 审计**。
+- 真库探针当场逮到三处静态判据看不见的坑，都修完并各自固化成一条判据 + 一条注入：① `_put_line` 调用少一个 `db` 针脚（第一次转货就 TypeError 500）；② 两处内部备注被 `cancel_pending` 里的 `db.refresh` 吃掉（autoflush=False）；③ 整行搬走后预占不跟着走（`resync_reservations` 读的是内存集合 ⇒ 源单永久占着已搬走的货）。修法：`_put_line(db, …)`、备注挪到函数末尾、move 循环后 `db.flush() + db.expire(order, ["order_products"])`。
+- 收尾清掉本轮新引入的 13 条全量静检红：动作中文名（`ui/dispatcher/ReportCenter.kt` 加 `"ORDER_TRANSFER" -> "转货"`）、`_tools/ai/_write_coverage.py::EXCLUDED` 登记 `("POST", "orders/{}/transfer")`（本轮不开放：多行结构化写 ＋ 一次改两张单的预占）、`OrderTransferSheet.kt` 的价格行挪出 weight 行（自适应布局 §5）、`_put_line` 并行改 SQL 表达式（计数列原子化）、删一个死 import、三份生成物重跑、重启后端。
+- 实现提交 `8919fbc`。
 ### [2026-10-05 07:0x UTC → 08:1x UTC 已完成] 会话：**CHG-0041 订单详情页就地改单：点哪一块改哪一块（收货信息 + 商品行增删改），不再跳「新增订单」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（语音转写）**：「**编辑订单不是新增一个订单界面而是在详情订单界面**它不是有很多的显示，ui 状态吗？**我们可以点击对应的状态。然后进行编辑**」（同一句里还提出了"改了货主且仍是同一司机 ⇒ 自动合并订单"的设想 —— ⛔ 那一件**未立项**，与 CHG-0041 分开记）。
