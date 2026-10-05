@@ -210,8 +210,27 @@ fun OrderDetailScreen(
                         )
                     }
                 }
+                // 「这个动作成了」——本页以前**从不显示它**：`actionResult` 早就有
+                // （改单/改明细/改运费/拆单/挂账都往里写），但整页要 `Scaffold` 才画得出
+                // Snackbar，而这一页没有，于是用户点完只能自己盯着内容看变没变。
+                // 正向色画一行、**4 秒后自己消失**（上面那两条红色横幅是"没成"，不会与它同时出现）。
+                vm.actionResult?.let { msg ->
+                    LaunchedEffect(msg) {
+                        delay(4000)
+                        vm.actionResult = null
+                    }
+                    Surface(color = MaterialTheme.colorScheme.primaryContainer) {
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
                 DetailBody(
                 order = vm.order!!,
+                edit = vm,
                 role = role,
                 prefs = container.hintPrefs,
                 uploadingPlace = vm.uploadingPlace,
@@ -252,6 +271,21 @@ fun OrderDetailScreen(
             )
             }
         }
+    }
+
+    // 「加一件货」的选品弹层（CHG-0041）：与派单池（CHG-0040 那套）、下单页**同一个组件**
+    // （`ui/common/ProductPicker.kt`）—— 挑法、分类签、批发商专属价都不用在这里再写一遍。
+    if (vm.showLinePicker) {
+        ProductPickerSheet(
+            products = vm.linePickerProducts,
+            loading = vm.linePickerLoading,
+            priceFor = { vm.priceForLinePicker(it) },
+            onConfirm = { picked -> vm.addPickedLines(picked) },
+            onDismiss = { vm.closeLinePicker() },
+            categoryOrder = vm.linePickerCategories,
+            error = vm.editError,
+            onRetry = { vm.loadEditProducts(force = true) },
+        )
     }
 
     // 司机/派单员：地图选点 → 补导航信息（只有原本没坐标的单能补）
@@ -536,6 +570,11 @@ private fun DriverRow(name: String, phone: String, onDial: (() -> Unit)?) {
 @Composable
 private fun DetailBody(
     order: OrderDto,
+    /**
+     * 就地改单的**全部**状态与动作（CHG-0041）。界面这一侧只认得这个接口 ——
+     * 六个草稿值加一串动作摊平成参数的话，这张参数表（本来就有 30 个）就没人读得懂了。
+     */
+    edit: OrderEditHost,
     role: Role,
     prefs: HintPrefs,
     uploadingPlace: Boolean,
@@ -571,6 +610,17 @@ private fun DetailBody(
     memberShipper: Boolean = false,
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
+    // ── 就地改单的两个门（CHG-0041）──
+    // ① **谁能改**：只有**派单员** —— 后端 `Permission.ORDER_EDIT` / `ORDER_PRODUCT_EDIT`
+    //    只发给 dispatcher（`backend/app/core/rbac.py:95,104`），货主与司机都没有那颗权限。
+    // ② **什么状态能改**：判据**只有一处** —— `core/OrderStatusModel.kt` 的 `EDITABLE`
+    //    （外围信息：后端 `orders.update_order` 只拒已送达/已撤销/已退货）与 `LINE_EDITABLE`
+    //    （商品行：后端 `order_products.LINE_EDITABLE_STATUSES`）。那两个集合由
+    //    `_tools/qa/_check_client_contract.py` 与后端源码逐值对账。
+    // ⛔ 别在这一页另写一套状态判断：宽一点就是把"点下去必然 400"的按钮摆在用户面前
+    //    （本页「挂账」那颗就是这么被修过一次的，见 `OrderStatusModel.canChargeToArrears`）。
+    val canEditInfo = role == Role.DISPATCHER && order.status in OrderStatusModel.EDITABLE
+    val canEditLines = role == Role.DISPATCHER && order.status in OrderStatusModel.LINE_EDITABLE
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -651,21 +701,28 @@ private fun DetailBody(
                 val ctx = LocalContext.current
                 // 下单人那一行点了之后**先确认再拨**（见下面那段注释）
                 var confirmCallBoss by remember { mutableStateOf(false) }
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(
-                        Icons.Default.Place,
-                        contentDescription = "地址",
-                        tint = androidx.compose.ui.graphics.Color(0xFF1E6FFF),
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        order.addressDetail.ifBlank { "未填写收货地址" },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
+                // 就地改（CHG-0041）：点行尾那个「改」，这一块原地变成多行输入框。
+                if (edit.editingField == OrderEditField.ADDRESS) {
+                    AddressEditBlock(edit)
+                } else {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(
+                            Icons.Default.Place,
+                            contentDescription = "地址",
+                            tint = androidx.compose.ui.graphics.Color(0xFF1E6FFF),
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            order.addressDetail.ifBlank { "未填写收货地址" },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        // 「改」只画给改得动的人（判据见 DetailBody 开头那两个门）
+                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.ADDRESS) })
+                    }
                 }
                 // 位置图片：横排缩略图 + 「补地点图」（点缩略图看大图）。
                 // 以前这里只画 `addressImageUrl`（首图，150dp 大图）—— 多图上传之后
@@ -693,7 +750,16 @@ private fun DetailBody(
                 Spacer(Modifier.height(8.dp))
                 // 收货人（可点击拨打）与下单人（2026-09-20 用户要求：「详情也会显示这 2 个信息，
                 // 这边的电话号码都会显示出来」）。名称与电话的拼接规则在 `contactWho`（卡片共用）。
-                contactWho(order.contactDongjiaName, order.contactDongjiaPhone)?.let { who ->
+                if (edit.editingField == OrderEditField.DONGJIA) {
+                    ContactEditBlock(edit, "收货人", OrderEditField.DONGJIA_NAME, OrderEditField.DONGJIA_PHONE)
+                }
+                // ⚠️ 姓名/电话都空时**也要画这一行**（只要改得动）：收货人电话正是司机到场要打的
+                //    那个号，而以前 `contactWho(...)?.let` 会整行不画 —— 派单员连"补一个号"的入口都没有。
+                val dongjiaWho = contactWho(order.contactDongjiaName, order.contactDongjiaPhone)
+                if (dongjiaWho != null || canEditInfo) {
+                    // 判据要的是字面形态 "收货人 " + who（_check_contact_names.py）：
+                    // 空值兜底收在一个变量里，颜色判断仍看 dongjiaWho 本身。
+                    val who = dongjiaWho ?: "未填"
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -717,17 +783,24 @@ private fun DetailBody(
                             "收货人 " + who,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = androidx.compose.ui.graphics.Color(0xFF0A6CFF),
+                            color = if (dongjiaWho != null) androidx.compose.ui.graphics.Color(0xFF0A6CFF)
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         // ⛔ 这里原来右边还有一句「点击拨打」。用户 2026-09-22：「那个**点击拨打**那个提示
                         //    可以**去掉**，不需要啊，因为他这个已经**蓝色亮起来**了，人家就知道可以拨打」。
+                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.DONGJIA) })
                     }
                 }
                 // 下单人：**也能拨**，但**不直接拨**（用户 2026-09-22：「点击拨打下单人不是点一下就立马
                 // 可以拨打，而是他有个**弹窗确认**『是否确认拨打』，可以取消」）—— 下单人常常就在旁边，
                 // 误点一下就拨出去不礼貌；收货人是"货要送到的人"，那一行仍然一点就拨。
                 // 电话号码那一段是**绿色小字**（用户：「样式不要变，但是颜色变一下，变成（一）点绿色」）。
-                contactWho(order.contactBossName, order.contactBossPhone)?.let { who ->
+                if (edit.editingField == OrderEditField.BOSS) {
+                    ContactEditBlock(edit, "下单人", OrderEditField.BOSS_NAME, OrderEditField.BOSS_PHONE)
+                }
+                // 同理：没填时也画这一行（能改的话），否则"补一个下单人电话"无从下手
+                val bossWho = contactWho(order.contactBossName, order.contactBossPhone)
+                if (bossWho != null || canEditInfo) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -744,10 +817,12 @@ private fun DetailBody(
                         Spacer(Modifier.width(8.dp))
                         Text("下单人", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                         Text(
-                            who,
+                            bossWho ?: "未填",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = androidx.compose.ui.graphics.Color(0xFF00B578),
+                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF00B578)
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.BOSS) })
                     }
                     // 确认弹窗（不是一点就拨）：下单人常常就在旁边，误点一下不礼貌
                     if (confirmCallBoss) {
@@ -773,7 +848,15 @@ private fun DetailBody(
                         )
                     }
                 }
-                if (order.remark.isNotBlank()) InfoRow("备注", order.remark)
+                if (edit.editingField == OrderEditField.REMARK) {
+                    RemarkEditBlock(edit)
+                } else if (order.remark.isNotBlank() || canEditInfo) {
+                    // 备注空着时也画一行（只要改得动）：那是"写一句给司机的话"的入口。
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { InfoRow("备注", order.remark.ifBlank { "未填写" }) }
+                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.REMARK) })
+                    }
+                }
                 if (role == Role.DRIVER || role == Role.DISPATCHER) {
                     if (order.internalNotes.isNotBlank()) InfoRow("内部备注", order.internalNotes)
                 }
@@ -820,6 +903,16 @@ private fun DetailBody(
             SectionCard {
                 SectionTitle(Icons.Default.Inventory2, Color(ProductPurple), "商品明细")
                 Spacer(Modifier.height(10.dp))
+                // 点一行就能改，这件事得说出来：行本身看不出可点（用户要的形态是
+                // 「点击对应的 ui 状态/信息就编辑」，入口的可见性由这句话兜底）。
+                if (canEditLines) {
+                    Text(
+                        "点某一行可以改数量与单价",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
                 // 单位换算（一车 = 8 方）：**全 App 一份**（`UnitConv`）。设过换算时数量那一格写
                 // 「×10 车 ≈ 80 方」（用户 2026-09-24：「我下的十车，会有 2 个数据」）。
                 val conversions by UnitConv.rows.collectAsState()
@@ -853,8 +946,18 @@ private fun DetailBody(
                 }
                 val hasDamage = order.orderProducts.any { it.damageQuantity > 0 }
                 order.orderProducts.forEachIndexed { i, line ->
+                    // 改一行货（CHG-0041）：点这一行 → 原地变成「数量 / 单价 / 删掉这件货」。
+                    if (canEditLines && edit.editingLineId == line.id) {
+                        ProductLineEditBlock(edit, line)
+                    } else {
                     Row(
-                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .then(
+                                // 点整行就能改（比每行右边再挂一颗「改」省地方，动作与派单池那颗一致）
+                                if (canEditLines) Modifier.clickable { edit.startLineEdit(line) } else Modifier,
+                            )
+                            .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -904,6 +1007,21 @@ private fun DetailBody(
                         Spacer(Modifier.height(4.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
+                    }
+                }
+                // 这一单还没有货时也说一句：一张空白卡片看起来像"没加载出来"
+                if (canEditLines && order.orderProducts.isEmpty()) {
+                    Text(
+                        "这一单还没有货物 —— 点下面的「加一件货」加。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                // 「加一件货」：与派单池**同一个动作**（`addPickedLines` 逐行报，失败只丢那一行）；
+                // 选品弹层挂在屏级（见 `OrderDetailScreen` 里那段挂载）。
+                if (canEditLines) {
+                    TextButton(onClick = { edit.openLinePicker() }) { Text("加一件货") }
                 }
                 Spacer(Modifier.height(10.dp))
                 HorizontalDivider()

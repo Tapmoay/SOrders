@@ -83,7 +83,11 @@ LIST_ANCHOR = "Box(Modifier.weight(1f)) {"
 #:   调 repo.restoreUser）⇒ 这一笔销账，上限从 12 收到 11。
 #:   ⚠️ 它恢复的入口在**回收站那一档**，不是地址页那种贴在列表顶上的「撤销」一行 ——
 #:   那一页的撤回形态以后若要统一，改的是界面，这一行不必再挂回来。
-EXEMPT_MAX = 11
+#: 2026-10-05 CHG-0040 / CHG-0041：订单详情页与派单池都能**就地删一件货**（同一个后端硬删端点）
+#:   ⇒ 上限从 11 放到 13。这是"新开两个删除入口"带来的正当增长，不是把哪一笔撤回赖掉：
+#:   两处都写着"撤回要后端给 order_products 配软删列 + 还原端点（新迁移）"，那件事排在
+#:   改单收口那一批，做完一起销账、再把这一格收回 11。
+EXEMPT_MAX = 13
 
 #: 还没配撤回入口的删除调用点 —— 键 = "相对 android/.../sorders 的路径::方法名"。
 #: ⛔ 这张表**只能收紧**：把某一页的撤回补上之后，这一行必须删掉（判据会逼你删，
@@ -92,6 +96,11 @@ EXEMPT_MAX = 11
 EXEMPT = {
     "ui/order/OrderDetailViewModel.kt::deleteOrder":
         "订单的撤回走的是状态机（订单卡上那个「撤回」动作），不是软删还原 —— 单独一件事",
+
+    "ui/order/OrderDetailViewModel.kt::deleteOrderProduct":
+        "改单里删一件货（CHG-0041）—— 撤回要后端给 order_products 配软删列 + 还原端点（新迁移），排在改单收口那一批",
+    "ui/dispatcher/DispatcherPoolViewModel.kt::deleteOrderProduct":
+        "派单池改单里删一件货（CHG-0040）—— 同上（撤回要后端软删 + 还原端点，新迁移）",
 
     "ui/dispatcher/DispatcherLedgerViewModel.kt::deleteLedger":
         "派单账本的行删除 —— 撤回排在账本那一批",

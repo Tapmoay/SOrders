@@ -8,14 +8,23 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.OrderDto
+import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.data.remote.api.PriceRuleDto
+import com.tapmoay.sorders.data.remote.dto.OrderProductCreateRequest
+import com.tapmoay.sorders.data.remote.dto.OrderProductDto
+import com.tapmoay.sorders.data.remote.dto.OrderProductUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.PickedLine
+import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.launch
 import java.io.File
 
 class OrderDetailViewModel(
     private val container: AppContainer,
     private val orderId: Long,
-) : ViewModel() {
+) : ViewModel(), OrderEditHost {
 
     var order by mutableStateOf<OrderDto?>(null)
     var loading by mutableStateOf(false)
@@ -469,6 +478,332 @@ class OrderDetailViewModel(
             } finally {
                 uploading = false
             }
+        }
+    }
+
+    // ---- 就地在详情页改单（CHG-0041）----
+    //
+    // 用户 2026-10-05：「编辑订单不是新增一个订单界面而是在详情订单界面……点击对应的 ui 信息
+    // 就可以对应进行编辑」。所以这一层只有**草稿 + 保存**两个动作，界面那一侧负责
+    // 「点哪一块 → 哪一块变成输入框」（见 ui/order/OrderEditInline.kt）。
+
+    /** 正在就编辑的那一块（null = 没在编辑）。取值见 [OrderEditField]。 */
+    override var editingField by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * 草稿（键见 [OrderEditField]）。
+     *
+     * ⚠️ 每次 [startEdit] 都把六个数**从这一单当前的值重新铺一遍**：改一组、其余组原样带回去。
+     * 不这么做的话，上一轮改了一半又取消的草稿会混进这一次的请求里 —— 那等于替用户改了别的东西，
+     * 而且他看不到（那一块当时没在编辑态）。
+     */
+    private val editDrafts = mutableStateMapOf<String, String>()
+
+    /** 上一次改动失败的原因（就地显示，**不换整页**：内容还在，只是这一步没成）。 */
+    override var editError by mutableStateOf<String?>(null)
+        private set
+
+    /** 一次改动进行中：防连点（连点两次会改两遍，司机也会收到两条消息）。 */
+    override var editBusy by mutableStateOf(false)
+        private set
+
+    /** 正在改的那一行货（行的 id；null = 没在编辑）。 */
+    override var editingLineId by mutableStateOf<Long?>(null)
+        private set
+
+    override var lineQty by mutableStateOf("")
+        private set
+
+    override var linePrice by mutableStateOf("")
+        private set
+
+    /** 「加一件货」的选品弹层。 */
+    var showLinePicker by mutableStateOf(false)
+        private set
+
+    var linePickerProducts by mutableStateOf<List<ProductDto>>(emptyList())
+        private set
+
+    var linePickerLoading by mutableStateOf(false)
+        private set
+
+    var linePickerCategories by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    /**
+     * 商品库的专属价（这一单货主的那一份）。
+     *
+     * editPriceRulesShipper 是「这份 map 属于谁」的守卫：对不上就回退默认价 ——
+     * 与 OrderCreateViewModel.priceFor 同一条教训（专属价规则没到 ≠ 这个货主没有专属价）。
+     */
+    private var editPriceRules by mutableStateOf<Map<Long, PriceRuleDto>>(emptyMap())
+    private var editPriceRulesShipper by mutableStateOf<Long?>(null)
+
+    override fun draft(key: String): String = editDrafts[key].orEmpty()
+
+    override fun setDraft(key: String, value: String) {
+        editDrafts[key] = value
+    }
+
+    override fun startEdit(field: String) {
+        val o = order ?: return
+        editDrafts[OrderEditField.ADDRESS_DETAIL] = o.addressDetail
+        editDrafts[OrderEditField.DONGJIA_NAME] = o.contactDongjiaName
+        editDrafts[OrderEditField.DONGJIA_PHONE] = o.contactDongjiaPhone
+        editDrafts[OrderEditField.BOSS_NAME] = o.contactBossName
+        editDrafts[OrderEditField.BOSS_PHONE] = o.contactBossPhone
+        editDrafts[OrderEditField.REMARK_TEXT] = o.remark
+        editError = null
+        editingLineId = null
+        editingField = field
+    }
+
+    override fun cancelEdit() {
+        editingField = null
+        editError = null
+    }
+
+    /**
+     * 存这一个编辑块。
+     *
+     * 报的是**六个字段全量**（不是只报改的那一个）：后端 `PATCH /orders/{id}` 是"给什么改什么"，
+     * 而其余五个都是刚从这一单读出来的**当前值**，原样带回去等于没动它。
+     * 这么写还有个好处：改地址、改收货人、改下单人、改备注走的是**同一条路径** ——
+     * 少一条分支就少一处"某个字段忘了带上"的机会。
+     *
+     * ⚠️ 内部备注（`internalNotes`）原样带回：它是派单员写的内部话，不在这一层改，
+     *    但少了它会不会被清掉取决于后端的缺席语义，带上就没有这个疑问。
+     * ⛔ 货主归属（`shipper_id`）**不在这里**：那是改账，不是改单（用户 2026-10-05 的两件事分开谈）。
+     */
+    override fun saveEdit() {
+        val o = order ?: return
+        // ⚠️ 这两个局部变量**不能叫 dongjiaPhone / bossPhone**：_check_contact_binding.py 按
+        //    \bdongjia(Phone|Name)\s*= 找「界面直写收货人两栏」，它连变量声明一起抓 —— 那是误报，
+        //    但改名比松判据安全（那条判据管的是下单页的手改入口清 pickedContactId）。
+        val phoneDraft = draft(OrderEditField.DONGJIA_PHONE).trim()
+        val bossDraft = draft(OrderEditField.BOSS_PHONE).trim()
+        // 电话格式先在界面这一侧挡一道（规则只有一份：core/InputRules.kt）。生产库里真的躺着
+        // 「嘿嘿」「嘻嘻」这种电话（见 InputRules 文件头），那时要说清「这一单的电话得先改一下」，
+        // 而不是让后端甩一句看不懂的话。
+        InputRules.phoneError(phoneDraft)?.let { editError = it; return }
+        InputRules.phoneError(bossDraft)?.let { editError = it; return }
+        if (editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            try {
+                order = container.repo.updateOrder(
+                    o.id,
+                    OrderUpdateRequest(
+                        addressDetail = draft(OrderEditField.ADDRESS_DETAIL).trim(),
+                        contactDongjiaPhone = phoneDraft,
+                        contactBossPhone = bossDraft,
+                        contactDongjiaName = draft(OrderEditField.DONGJIA_NAME).trim(),
+                        contactBossName = draft(OrderEditField.BOSS_NAME).trim(),
+                        remark = draft(OrderEditField.REMARK_TEXT).trim(),
+                        internalNotes = o.internalNotes,
+                    ),
+                )
+                editingField = null
+                actionResult = "已经改好，司机那边会收到一条消息"
+                load()
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                editBusy = false
+            }
+        }
+    }
+
+    // ---- 改一件货（数量 / 单价 / 删掉）----
+
+    override fun updateLineQty(value: String) {
+        lineQty = value
+    }
+
+    override fun updateLinePrice(value: String) {
+        linePrice = value
+    }
+
+    override fun startLineEdit(line: OrderProductDto) {
+        editingField = null
+        editingLineId = line.id
+        lineQty = line.quantity.toString()
+        // 预填走 `trimMoneyZeros`（可编辑金额框的预填规矩，见 util/Money.kt 的 ④）：
+        // 后端单价列是 Numeric(14,4)，直接填进去是 `60.0000` 这种，用户得先删掉四个 0 才能改价。
+        // ⛔ 不用 `formatMoney` —— 它只留两位，会把 `12.3456` 的价预填成 `12.35`（＝用户没改价、价却变了）。
+        linePrice = trimMoneyZeros(line.unitPrice)
+        editError = null
+    }
+
+    override fun cancelLineEdit() {
+        editingLineId = null
+        editError = null
+    }
+
+    /**
+     * 存这一行（数量 + 单价）。
+     *
+     * ⚠️ 单价与数量必须一起报：后端是把两个值合起来重算行金额的，只报单价它会按旧数量算，
+     * 出现「改了价、总额没动」这种没人看得懂的结果。
+     */
+    override fun saveLine() {
+        val lineId = editingLineId ?: return
+        val qty = lineQty.trim().toIntOrNull()
+        if (qty == null || qty <= 0) {
+            editError = "数量要填一个大于 0 的整数"
+            return
+        }
+        val price = linePrice.trim()
+        if (price.isEmpty() || price.toDoubleOrNull() == null) {
+            editError = "单价要填数字"
+            return
+        }
+        if (editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            try {
+                container.repo.updateOrderProduct(
+                    lineId,
+                    OrderProductUpdateRequest(quantity = qty, unitPrice = price),
+                )
+                editingLineId = null
+                actionResult = "这件货改好了，司机那边会收到一条消息"
+                load()
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                editBusy = false
+            }
+        }
+    }
+
+    /** 删掉这一行（后端把它从这一单里去掉，货主那边的账跟着变）。 */
+    override fun deleteLine() {
+        val lineId = editingLineId ?: return
+        if (editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            try {
+                container.repo.deleteOrderProduct(lineId)
+                editingLineId = null
+                actionResult = "这一件货删掉了，司机那边会收到一条消息"
+                load()
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                editBusy = false
+            }
+        }
+    }
+
+    // ---- 加一件货（选品弹层）----
+
+    override fun openLinePicker() {
+        showLinePicker = true
+        loadEditProducts()
+        loadEditPriceRules(order?.shipperId)
+    }
+
+    fun closeLinePicker() {
+        showLinePicker = false
+    }
+
+    /**
+     * 商品库（加一件货要用）。
+     *
+     * [force] = true 时重拉一次（上一次没拉到时的「重试」）；否则已经有货就不动它 ——
+     * 每次开弹层都重拉一遍，用户挑到一半的清单会被这一次刷新清掉。
+     * 失败原因落在编辑块里（[editError]），**不换整页**。
+     */
+    fun loadEditProducts(force: Boolean = false) {
+        if (linePickerLoading || (!force && linePickerProducts.isNotEmpty())) return
+        linePickerLoading = true
+        viewModelScope.launch {
+            try {
+                linePickerProducts = container.repo.products(includeInactive = false)
+                linePickerCategories = container.repo.productCategories().map { it.name }
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                linePickerLoading = false
+            }
+        }
+    }
+
+    /**
+     * 拉这一单货主的专属价。
+     *
+     * 取数只有 repo.priceRules 一处（与 OrderCreateViewModel 同一份规则），界面不许自己拼。
+     */
+    private fun loadEditPriceRules(shipperId: Long?) {
+        if (shipperId == null || editPriceRulesShipper == shipperId) return
+        viewModelScope.launch {
+            try {
+                editPriceRules = container.repo.priceRules(shipperId).associateBy { it.productId }
+                editPriceRulesShipper = shipperId
+            } catch (_: Exception) {
+                // 没拿到就不报价（priceForLinePicker 回退默认价）。
+                // ⛔ 不许把「不知道」记成「这个货主没有专属价」
+                editPriceRules = emptyMap()
+                editPriceRulesShipper = null
+            }
+        }
+    }
+
+    /**
+     * 加一件货时报的单价：这一单货主的专属价优先，没有就用商品库默认价。
+     *
+     * ⚠️ 只有 editPriceRulesShipper 与这一单的货主一致时才认那份规则 —— 对不上意味着「我们还不知道」，
+     * 按默认价报给谈好价的批发商就是多收他的钱（不是少赚）。
+     */
+    fun priceForLinePicker(p: ProductDto): String {
+        val sid = order?.shipperId
+        if (sid == null || editPriceRulesShipper != sid) return p.defaultUnitPrice
+        return editPriceRules[p.id]?.specialUnitPrice ?: p.defaultUnitPrice
+    }
+
+    /**
+     * 从选品弹层挑回来的一件货。
+     *
+     * 挑多件 = 调多次接口：一行一次请求，其中一行失败也只丢那一行（整批一起失败会让人
+     * 以为「一件都没加上」，然后重复加一遍）。失败原因落在编辑块里，选品页留着让他重试。
+     */
+    fun addPickedLines(picked: List<PickedLine>) {
+        val o = order ?: return
+        if (picked.isEmpty() || editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            var added = 0
+            var firstError: String? = null
+            for (p in picked) {
+                try {
+                    container.repo.addOrderProduct(
+                        OrderProductCreateRequest(
+                            orderId = o.id,
+                            productId = p.productId,
+                            productNameSnapshot = p.name,
+                            quantity = p.qty,
+                            unitPrice = p.price,
+                            unit = p.unit,
+                        ),
+                    )
+                    added += 1
+                } catch (e: Exception) {
+                    if (firstError == null) firstError = toApiException(e).message
+                }
+            }
+            if (added > 0) {
+                showLinePicker = false
+                actionResult = "加了 " + added + " 件货，司机那边会收到一条消息"
+                load()
+            }
+            if (firstError != null) editError = firstError
+            editBusy = false
         }
     }
 

@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:721da4124172ce4b3cd53f0241d9f1e63a8b76de236decfca61f8fb0c796afc5 -->
+<!-- source_hash: sha256:69c64bf031fa5dd7c5e20f14f63e3e5edf7e408265385f5b3d5c59aa87bdcbd7 -->
 
 ## 全量端点（272 个，按文件分组）
 
@@ -267,11 +267,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/order-products` | `list_order_products` | `backend/app/api/v1/order_products.py:161` | 权限:ORDER_READ_ALL |
-| 2 | `POST /api/v1/order-products` | `create_order_product` | `backend/app/api/v1/order_products.py:174` | 权限:ORDER_PRODUCT_EDIT |
-| 3 | `GET /api/v1/order-products/{line_id}` | `get_order_product` | `backend/app/api/v1/order_products.py:230` | 权限:ORDER_READ_ALL |
-| 4 | `PATCH /api/v1/order-products/{line_id}` | `update_order_product` | `backend/app/api/v1/order_products.py:238` | 权限:ORDER_PRODUCT_EDIT |
-| 5 | `DELETE /api/v1/order-products/{line_id}` | `delete_order_product` | `backend/app/api/v1/order_products.py:294` | 权限:ORDER_PRODUCT_EDIT |
+| 1 | `GET /api/v1/order-products` | `list_order_products` | `backend/app/api/v1/order_products.py:183` | 权限:ORDER_READ_ALL |
+| 2 | `POST /api/v1/order-products` | `create_order_product` | `backend/app/api/v1/order_products.py:196` | 权限:ORDER_PRODUCT_EDIT |
+| 3 | `GET /api/v1/order-products/{line_id}` | `get_order_product` | `backend/app/api/v1/order_products.py:253` | 权限:ORDER_READ_ALL |
+| 4 | `PATCH /api/v1/order-products/{line_id}` | `update_order_product` | `backend/app/api/v1/order_products.py:261` | 权限:ORDER_PRODUCT_EDIT |
+| 5 | `DELETE /api/v1/order-products/{line_id}` | `delete_order_product` | `backend/app/api/v1/order_products.py:318` | 权限:ORDER_PRODUCT_EDIT |
 
 ### `backend/app/api/v1/order_template_categories.py` — 5 个
 
@@ -606,10 +606,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:388` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:426` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:440` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:465` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:389` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:427` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:441` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:466` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -686,10 +686,10 @@ _（无重复注册）_
 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:280` |
 | `GET /api/v1/pricing/quote` | `quote` | `backend/app/extensions/pricing/api.py:54` |
 | `GET /api/v1/unit-conversion/preview` | `preview` | `backend/app/extensions/unit_conversion/api.py:42` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:388` |
-| `GET /health` | `health` | `backend/app/main.py:426` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:440` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:465` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:389` |
+| `GET /health` | `health` | `backend/app/main.py:427` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:441` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:466` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 
