@@ -5809,7 +5809,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`8f42059`（本事项动 7 个 `.kt` + 两份新 QA 脚本 + 一份生成物重生成 + 三份文档）。
 
-### [2026-10-06 04:4x → 进行中 CST] 会话：**CHG-0047 线路表单的起点 / 终点改用与下单页同一份地点库抽屉 + 三档分类面板补回执**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-06 04:4x → 05:2x CST 已完成] 会话：**CHG-0047 线路表单的起点 / 终点改用与下单页同一份地点库抽屉 + 三档分类面板补回执**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-09 / L-11**（L-09：「我那个在路线了、路线新增路线，他不是**可以从地点库选**吗？所以**地点库怎么还是只有自己的地点库**……我们现在已经改了方案了，已经是**左边侧边栏，然后来选地点**，但同时还有一个叫什么**共享地点**……**你可以去看一下像我们代理下单那个地点库是怎么改的**哦，**要是对应的包括终点也是一样的**」；L-11：「在「管理分类」里新建一个分类，界面**不弹任何提示**（名字出现在列表里就算成功）；改名、删除同理」）—— 台账 L-01…L-32 逐条落地的**第七条**（L-10 单独立项 CHG-0048）。
 
@@ -5820,6 +5820,10 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 **判据 / 反验**：`_tools/qa/_check_place_picker_shared.py`（新建，309 行）**100/100**（8 组：弹层唯一实现 / 标题走形参 8 + 「＋ 新增地点」画在哪段 8 + 两个调用点 8 + 起终点共用宿主且画在表单抽屉外 15 + 选中效果没退化 3 + AddressViewModel 数据源与管理动作 28 + 三档面板回执 9×3 + OneShotSnackbar 只有一份 2）；`_tools/qa/_reverse_verify_place_picker_shared.py`（新建，266 行）**22/22**（21 条注入 + 还原后逐字节比对；**没有** CREATIONS ⇒ 不动 `_check_reverse_verify_anchors.py` 的 ALLOW 表）。⚠️ 反验第一轮抓出我自己写的**一条永远为真**的假绿（「关弹层发生在开新建之前」拿两个 `find()` 比先后 = 恒真，因为开括号那行必然在最前）⇒ 改成钉相邻文本形状 `onAddLocation = \{\s*\n\s*locPickerTarget = null\s*\n\s*vm\.openLocationCreate\(`（教训：排序类判据必须钉「两条语句相邻的文本形状」）。顺带同步三份既有判据 + 一份：`_check_current_location_button.py`（`private fun AddressPickerSheet(` → `fun AddressPickerSheet(`，`:103` / `:142` 两处）、`_check_address_cards.py`（`ON_DELETE_PARAM` 只认**形参**，不再被新宿主的调用点具名实参 `onDeletePlace = { … }` 误伤）、`_check_page_truncation_wiring.py`（`MIN_META_READS` 15→16，因为 `loadPlaces` 读了 `page.meta`）、`_check_category_row_layout.py`（补上 R3-D17 要求的 `R4-BOUNDARY-JUSTIFICATION:`）。
 
 **明确不碰**：后端一个字节都不动（`placesPage` / `usePlace` / `updatePlace` / `deletePlace` / `restorePlace` / `demotePlace` / `shareLocation` 全是既有仓库方法与既有端点）；`AddressPickerSheet` 的既有内容（左栏三段、sheet 行、管理分组、软删与恢复、既有 `SheetRow`）原样；下单页那份调用点除新增 `title = "选择收货地址"` 外不改行为；共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `enums.py` / `ReportCenter.kt`）一个都没动。
+
+**验证**：`gradle -p android :app:compileEmuDebugKotlin` **BUILD SUCCESSFUL in 46s**（只余既有 icon 弃用告警，改过的四个 `.kt` 一条告警都没有）；`python _tools/qa/_check_all.py` **185 项：183 ✅ / 2 ❌**（两条红均非本事项：`_check_backend_fresh.py` = 本机后端 PID 30144 是 2026-10-05 18:58:26 启的旧进程；`_check_report_facts.py` 2 条 = `docs/RELEASE_CANDIDATE.md` 里没有 `VERSION 0.2.5`（工作区 ` M VERSION` 开会话前就有，另一个会话在做发布）＋ `python _tools/ops/_migration_tests.py --concurrent` 本机文件锁超时（两个并发迁移进程各 ~61s，排队那个超过 60s 上限 ⇒ `app.core.file_lock.FileLockTimeout`；本事项零后端改动）；本事项新判据在本次运行里 ✅ 100 项，日志 `_tmp/checkall_chg0047c.log`）；`python backend/scripts/check_reachability.py` **可达文档 166 / 166、markdown 链接 343 条全有效、无孤儿**（exit 0）；`_check_dev_spec.py` 5 项全过（登记文件 81 份）；`_check_generated_freshness.py` 5 组全过；既有红线 `_check_current_location_button.py` 10 项 / `_check_address_cards.py` 63 项 / `_check_category_row_layout.py` 119 项 / `_check_reverse_verify_anchors.py` 2158 条 / `_check_r3_constraints.py` 8 组全过。
+
+**实现提交**：`22f0f83`（本事项动 7 个 `.kt` + 两份新 QA 脚本 + 四份既有判据的随动 + 一份生成物重生成 + 三份文档）。
 
 ---
 
