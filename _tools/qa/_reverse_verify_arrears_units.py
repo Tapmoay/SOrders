@@ -90,7 +90,7 @@ def swap_card_actions(s: str) -> str:
 
 
 def to_pick_row(s: str) -> str:
-    """把备注那一行的共用输入行换成选择行（三行输入就只剩两行）。"""
+    """把备注那一行的共用输入行换成选择行（四行共用输入行就只剩三行）。"""
     k = s.find('"备注",')
     if k < 0:
         return s
@@ -130,9 +130,12 @@ CASES: list[tuple[str, str, object, str]] = [
      SCREEN, lambda s: paste_after(s, 'FormGroup(Icons.Default.Business, "挂账单位", Color(ArrearsTangerine)) {',
                                    NL + "                    OutlinedTextField("),
      "描边输入框一处都没有"),
-    ("⑦ 三行输入里混进一个选择行",
+    #: ⚠️ 这条注入的期望关键词 2026-10-05 才跟着判据更新：抽屉里的共用输入行从三行变四行
+    #:   （多了「信用额度」），判据的措辞也变成了「恰好四行共用输入行」，旧关键词再也匹配不上 ——
+    #:   注入本身一直有效（计数从 4 掉到 3），只是"认不出自己在报红"，于是被记成 MISS。
+    ("⑦ 备注那一行换成选择行（共用输入行只剩三行）",
      SCREEN, to_pick_row,
-     "恰好三行共用输入行"),
+     "恰好四行共用输入行"),
     ("⑧ 电话行不再过滤非数字",
      SCREEN, lambda s: rep(s, "{ vm.draftPhone = InputRules.phoneInput(it) },", "{ vm.draftPhone = it },"),
      "数字键盘"),
@@ -188,9 +191,9 @@ CASES: list[tuple[str, str, object, str]] = [
     ("㉓ 共用件 FormInputRow 的定义没了",
      FORMROWS, lambda s: rep(s, "fun FormInputRow(", "fun FormInputRowX("),
      "共用件还在定义处"),
-    ("㉔ 欠账表的上限没有跟着收紧（11 条变回 12 条）",
-     DELUNDO, lambda s: rep(s, "EXEMPT_MAX = 11", "EXEMPT_MAX = 12"),
-     "上限也跟着收紧到 11"),
+    ("㉔ 欠账表的上限没有跟着收紧（13 条变回 12 条）",
+     DELUNDO, lambda s: rep(s, "EXEMPT_MAX = 13", "EXEMPT_MAX = 12"),
+     "上限也跟着收到 13"),
     ("㉕ 本页没有登记进表单行单一来源表",
      PANEL, lambda s: drop_line(s, '"ui/dispatcher/ArrearsUnitsScreen.kt"'),
      "本页登记进了"),

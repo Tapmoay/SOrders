@@ -266,12 +266,15 @@ def main() -> int:
     c.ok("本页登记进了「表单行单一来源」的 CONVERTED 表",
          "ui/dispatcher/ArrearsUnitsScreen.kt" in norm(PANEL))
     c.ok("表单抽屉清单里算上了本页（今天 6 个）", "今天 6 个" in norm(SHEET))
-    #: ⚠️ 这里的 11 是 CHG-0020 当时把上限收到的那个数（同页那一笔欠账销掉 ⇒ 收一格）。
+    #: ⚠️ 这里的数字是 CHG-0020 当时把上限收到的那个数（同页那一笔欠账销掉 ⇒ 收一格）。
     #: 2026-10-04 FEAT-0009 新开了一张分类名册页 ⇒ 上限放回 12；2026-10-03 BUG-0002 把
-    #: 账户管理的「删号」销了账 ⇒ 上限又收到 11。这一条跟着写上限的当前值，
-    #: 但**本页不许再挂回欠账表**那半句永远不变。
-    c.ok("删除/撤回的欠账表里没有本页了，上限也跟着收紧到 11（BUG-0002 把账户管理的撤回收了）",
-         "deleteArrearsUnit" not in norm(DELUNDO) and "EXEMPT_MAX = 11" in norm(DELUNDO))
+    #: 账户管理的「删号」销了账 ⇒ 上限又收到 11。
+    #: 2026-10-05 CHG-0040 / CHG-0041：订单详情页与派单池都能**就地删一件货**（同一个后端硬删端点）
+    #:   ⇒ 上限从 11 放到 13（理由与销账时机写在 _tools/qa/_check_delete_undo.py:86-89）。
+    #: 这一条跟着写上限的当前值，但**本页不许再挂回欠账表**那半句永远不变。
+    c.ok("删除/撤回的欠账表里没有本页了，上限也跟着收到 13（BUG-0002 销了账户管理的撤回；"
+         "CHG-0040/0041 新增两个就地删货入口又放回 13，欠账待销）",
+         "deleteArrearsUnit" not in norm(DELUNDO) and "EXEMPT_MAX = 13" in norm(DELUNDO))
     doc = norm(DOC) if DOC.exists() else ""
     c.ok("文档九节齐全（docs/changes/CHG-0020.md，认小节标题而不是字符）",
          all(("## " + s) in doc for s in ("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨")),

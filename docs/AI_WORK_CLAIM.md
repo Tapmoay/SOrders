@@ -31,6 +31,38 @@
 
 ## 进行中
 
+### [2026-10-05 07:0x UTC → 08:1x UTC 已完成] 会话：**CHG-0041 订单详情页就地改单：点哪一块改哪一块（收货信息 + 商品行增删改），不再跳「新增订单」**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**用户原话（语音转写）**：「**编辑订单不是新增一个订单界面而是在详情订单界面**它不是有很多的显示，ui 状态吗？**我们可以点击对应的状态。然后进行编辑**」（同一句里还提出了"改了货主且仍是同一司机 ⇒ 自动合并订单"的设想 —— ⛔ 那一件**未立项**，与 CHG-0041 分开记）。
+
+**改什么**：
+- Android 三个文件（后端**一个字节都没改**，复用既有 `PATCH /orders/{orderId}`、`PATCH /order-products/{lineId}`、`DELETE /order-products/{lineId}`）：
+  `ui/order/OrderDetailScreen.kt`（地址 / 收货人 / 下单人 / 备注四行尾各一颗「改」，商品行点行即改，底部「加一件货」，保存后绿色横幅「已经改好，司机那边会收到一条消息」）、
+  `ui/order/OrderDetailViewModel.kt`（就地编辑的草稿与六个入口；本地校验先于请求）、
+  新建 `ui/order/OrderEditInline.kt`（就地编辑块；表单格走房规共用行 `ui/common/FormRows.kt` 的 `FormInputRow`/`FormTextAreaRow`）。
+- 门（逐字判据）：`canEditInfo = role == Role.DISPATCHER && OrderStatusModel.EDITABLE`、`canEditLines` 同理走 `LINE_EDITABLE` ⇒ 只有派单员、且单还没到终态，才看得见「改」。
+- 明确不做：不新增端点、不动 `orders` 表结构、不让界面算钱（金额一律后端 `resolve_line_total` 重算）、不做"改完也通知货主"（沿用 CHG-0040 的静默口径）。
+- 判据：新建 `_tools/qa/_check_detail_inline_edit.py`（**55 项 / 9 节**）+ `_tools/qa/_reverse_verify_detail_inline_edit.py`（**30 条注入 / 6 个目标文件**）。
+- 状态：**已关闭**。真机 5554：改地址（绿横幅 + 地址即变）、改商品行数量 4→5（行小计由后端重算 **¥260.5**、合计 ¥303.9）、数量填 **0** → 只出红字「数量要填一个大于 0 的整数」且页面数字不动、改完全部还原；5556 货主端同一批单的详情页 `dump 改 加一件货` **输出为空**。⚠️ 如实标注：**「终态看不见改」只有代码判据、没有真机截图**（派单员的「已完成派单」档只列已派未送达的单）。实现提交 `25ef780`。
+
+### [2026-10-05 07:5x UTC 进行中（登记完成；缺陷本身 ⏸ 待拍板）] 会话：**BUG-0013 迁移并发：自举锁只等 60 秒，而并发下某条建表迁移偶发 ~59 秒（只登记、未修）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**现场来源**：全量静检唯一那条红 —— 台账里 `python _tools/ops/_migration_tests.py --concurrent` 记着 ✅，实跑退出 1（`两个进程退出码 [1, 0]`、失败方 `FileLockTimeout: 拿不到文件锁 …sorders_bootstrap.lock（等了 60.0s）`）。
+**实测（本轮）**：单进程空库迁移 **8/8 全快（~2s）**；干净态 `FileLock(BOOTSTRAP_LOCK_FILE, wait_s=1.0)` → `acquired in 0.00s`（不是有人长期握锁）；并发下**赢的一方**某条建表迁移偶发 `020_invoices 完成（59077 ms）` / `019_purchase_orders 完成（59140 ms）`（其余全 0 ms）；埋 `sqlite3.Cursor.execute` 的两次慢跑**一条慢 execute 都没有** ⇒ 卡点不在 Python 层 execute（怀疑 `Connection.commit`/连接建立/Windows 文件锁），根因未定论。
+**处置**：只登记（`docs/changes/BUG-0013.md` + 登记表一行），**本轮一行产品代码未改**；两种改法（加等待余量 / 先量后改）等用户拍板。`docs` 全仓检索确认此前**没有**为它立过项。
+
+### [2026-10-05 06:4x UTC → 08:1x UTC 已完成] 会话：**CHG-0040 派单池「已完成派单」加顶部「选司机」（左侧抽屉）+ 这一档可直接改单（收货信息 + 商品行增删改，改完只通知司机）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**用户原话（语音转写）**：「现在这个界面……**司机一旦多起来、订单一旦多起来就是很容易找不到**」⇒「**上面改一个可以选择司机的方式**」「**同样也是左边侧边栏**」「选司机、同样抓取列表」；「**在这个阶段可以对订单进行更改，不管是货主、商品，全部都可以更改**」「**如果更改的话，对应的司机是会收到消息的**，说这个信息已经更改了」。
+（开工前用 ask_user_question 拍板两条：① 顶栏一颗「选司机」→ 左侧抽屉（左栏车型档位 / 右栏名单，可搜名字与手机号），**默认「全部司机」**，选中某位后只列他的单；② **全放开**改单，**改完只通知司机、货主端零提醒** —— 与 CHG-0039 静默退回同一口径。）
+
+**改什么（落地中）**：
+- 后端（已完成，真实库探针已证）：`backend/app/api/v1/order_products.py` 三个写端点（POST/PATCH/DELETE）在 `_resync_stock_if_assigned` 之后、`db.commit()` 之前统一调新助手 `_notify_driver_lines_changed(db, order)` → `outbox.enqueue(db, "orders.edited", {"driver_id", "order_id"})`（此前这个文件连 `outbox` 都没 import ⇒ **改商品行对司机完全无感**）；`backend/app/services/message_center.py` 新增 `publish_order_edited_driver(db, driver_id, order_id, *, event_id = 0)`（站内信 `type="order.edited"`、标题「订单信息有修改」、`speech_important=True`、幂等键带发件箱行号 `order.edited:{order_id}:{driver_id}:{event_id}` —— 不带行号则第二次改单会被幂等吞掉）→ `emit_notification` + `emit_realtime({"type": "order.updated"})`；`backend/app/services/push_events.py::push_order_edited_to_driver` 增加 `event_id` 参数并改走站内信（原来只 emit 一个实时信号）。
+- Android：`core/PushTrust.kt` 的 `ORDER_TYPES` 加 `"order.edited"`；`core/RealtimeHub.kt` 的 `when (e.type)` 补 `"order.updated"` 分支（只刷新、不播报）—— 此前这个取值在 Android 全仓**零命中**，后端发了也没人认；`ui/dispatcher/DispatcherPoolViewModel.kt` + `ui/dispatcher/DispatcherPoolScreen.kt` 加「选司机」筛选（`PersonTriggerRow` + 左侧抽屉 `MasterRail` + `PersonDrawer`，`allLabel = "全部司机"`）与改单抽屉（`ModalBottomSheet`：收货信息 + 货物明细增删改，复用 `ProductPickerSheet` 并按**这单货主**的专属价报价）。
+- 明确不做：不动 `orders` 表结构（改单一律走既有端点 `PATCH /orders/{id}` 与 `order-products` 三个端点）；不做「改完也通知货主」（用户只要司机知道）；不动派单弹窗、不动「退回池子」。
+- 判据计划：新增 `_tools/qa/_check_pool_edit.py` + 配套反验（改单只通知司机 / 商品行三端点都发事件 / 站内信幂等键带 event_id / 池页面里 `AssignDriverDialog(` 仍只出现一次且不引入 `ExposedDropdownMenuBox` / 编辑在右、反向在左）；重跑 `_check_assign_entry.py`、`_check_notify_guardrails.py`、`_check_silent_release.py` 与全量 `_check_all.py`。
+- 状态：**已关闭**。后端三处 + Android 四处全部落地；判据 `_tools/qa/_check_pool_edit.py` **92/92**、反验 `_tools/qa/_reverse_verify_pool_edit.py` **61/61**（按字节还原）；真实库探针：改 3 次商品行 → outbox 856/857/858 + notifications 1984/1985/1986（收件人都是司机 39，货主 18 零新增）；5554 真机端到端：改 602 单的备注 → 屏上变「带票据过来E2E41」、库里 `orders.remark` 同步 + outbox **861** + 司机 39 站内信 **1989**（`type='order.edited'`、标题「订单信息有修改」），改回原值又新增 862/1990（幂等键带发件箱行号 ⇒ 两次改动不互相吞），测试数据已还原；5556 货主端打开同一批单详情页**零「改」节点**。实现提交 `1a09a3b`。
+- 状态（补）：本轮收尾时顺带把全量静检里的红清到只剩一条既有的 —— ① `_check_form_panel_style`：新写的 9 个描边输入框全换成房规共用行（`ui/common/FormRows.kt` 的 `FormInputRow` / `FormTextAreaRow`；`OrderEditInline.kt` 的 `EditBox` 只换内部实现、调用点一个字未动）；② `_check_input_rules`（单价框走 `InputRules.priceInput`）；③ `_check_dead_code`（删两个废 import）；④ `_check_contact_binding` / `_check_contact_names`（详情页收货人两栏改走 `phoneDraft`/`bossDraft` 与字面 `"收货人 " + who`）；⑤ `_check_delete_undo`（两个新删除入口登记进 `EXEMPT`，`EXEMPT_MAX` **11→13** 并写明欠账理由）；⑥ `_check_backend_fresh`（重启后端进程）；⑦ 三份生成物重跑（`gen_endpoint_index` / `_gen_ai_read_catalog` / `_hint_inventory --md`）；⑧ 与 CHG-0041 相关：`_check_arrears_units` 里那格把 `EXEMPT_MAX` 的期望值写死成 11（提到 13 之后这格就红了）⇒ 期望值与说明更新到 13，配套反验 `_reverse_verify_arrears_units.py` 的第 ㉔ 条注入同步；⑨ 顺手补上 `_reverse_verify_arrears_units.py` 第 ⑦ 条的**陈旧期望关键词**（抽屉里的共用输入行早从三行变四行，注入一直有效、只是认不出自己在报红，于是被记成 MISS —— 这条**全量静检看不见**，因为 `_check_all.py` 不跑反向验证）。最终全量静检 **178/178 全部通过**（`EXIT 0`，完整输出 `_tmp/checkall_final4.txt`）；其中「迁移并发用例」是**偶发**的（上一轮红、重启后端后本轮过），已另立 **BUG-0013** 登记等拍板。
 ### [2026-10-05 05:0x UTC → 14:2x UTC 已完成] 会话：**CHG-0039 派单池加「已完成派单」分页（按司机分组）+ 派单员可把已派的单静默退回派单池（货主端无感）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（语音转写，`****` = 「操作」）**：「在派单词（=派单池）再加一个分页为**已完成派单**，这个已完成派单跟派单词是一样的。但是有一点不（=不同），就是拍（=派）单完成之后，他会进入到这里订单」「派单员可以对订单进行修改…**司机一个卡片是一个司机，然后司机里面有很多小卡片，小卡片就是订单**，然后派单员可以点进去，对这些订单进行修改」「比如说一个司机接了 2 个货主的订单，他同时送 2 个货主，派单员可以将某一个货主调整为一个货主…这些货物先送这个货主的」「如果是这样操作的话，那**原来的那个货主的货物就会重新回到派单池**，然后派单员又可以重新对这个派单进行操作、进行派单」「**这一点要注意**：这个操作**货主端是不会显示的** —— 货主端如果派单了之后，派单员执行这个操作，货主端仍然会显示状态为**已派单**或者说**司机已接单**；订单的状态会**默默**发生改变，**不会有任何的消息提醒**。这个操作**只限于派单员**，货主不会有任何的交易提醒，而且**货主也不需要知道这个**」。
