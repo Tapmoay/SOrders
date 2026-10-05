@@ -1,23 +1,5 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
-import com.tapmoay.sorders.ui.common.*
-import com.tapmoay.sorders.ui.theme.ShipperTeal
-import com.tapmoay.sorders.ui.common.Hint
-
 /**
  * **地点分组管理**（用户 2026-09-19）：「管理分组是一个新的界面吧，像商品管理的分组一样，
  * 同样是可以创建分组然后进行排序」。
@@ -34,29 +16,84 @@ import com.tapmoay.sorders.ui.common.Hint
  * 同一套做法（名册管顺序、字符串管归属、改名级联、整份顺序提交幂等），差别只有一处：
  * **按人分区** —— 货主和派单员各管自己地址库那一列。
  *
- * ## 排序
- * **两种方式共用一处逻辑**（`ui/common/CategoryRoster.kt::moveItemTo` 那一份，见 `VM.moveTo/move`）：
- * 这里用的是"填第几位"（与商品分类管理页的输入框同一个语义），
- * 长按拖动的手势代码没有搬过来 —— 分组通常只有几个，数字框已经够用，
- * 而拖动那套（行高量尺 + 拖影 + 手势取消）在抽屉里还要再处理滚动冲突。
- * 提交的始终是**整份顺序**（后端 `/reorder` 要整份，只传一部分会 400）。
+ * ## 排序（2026-10-06：旧裁定推翻）
+ * ⚠️ 这里原来写着「长按拖动的手势代码没有搬过来 —— 分组通常只有几个，数字框已经够用，
+ *    而拖动那套（行高量尺 + 拖影 + 手势取消）在抽屉里还要再处理滚动冲突」。**那条裁定作废**：
+ *    用户 2026-10-06 点名要拖动排序（「它的排序最好不要用那个按钮排序，我们直接像拖动卡片式的排序」），
+ *    而且当初那条理由（"在 240dp 的抽屉里拖动会和滚动打架"）也已经不成立 —— 面板现在是整屏第二层。
+ * 现在上下箭头退役，改成**长按一行拖动**（手势 / 行高量尺 / 拖动换算照
+ * `ui/dispatcher/ProductCategoriesScreen.kt` 那一份，换算函数 `dragSteps()` 与那一页共用；
+ * 搬运顺序仍然是 `ui/common/CategoryRoster.kt::moveItemTo` 那一份纯函数）。
+ * 左边的位次框留着（拖动与"直接填第几位"并存），提交的始终是**整份顺序**
+ * （后端 `/reorder` 要整份，只传一部分会 400）。
+ *
+ * ## 返回（2026-10-06）
+ * 面板**自己不画返回**：`onBack` 由宿主点名才画。地址与联系人页的返回在**页面顶栏**——
+ * 用户原话「虽然你在这里也有像什么搞了那个返回路线或者返回联系人，但这样子不好，互相容易误解」；
+ * 下单页的地点抽屉没有顶栏，所以那一处仍然点名它。
  */
+
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
+import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.MessageRed
+import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.ui.common.Hint
+
+/**
+ * 行高 = 位次框 52dp + 白卡上下各 16dp（[SectionCard] 的内边距）。
+ *
+ * 拖动换算（`dragSteps`）按它算，所以**不能自适应** —— 与商品分类管理页那个 68dp 同一个理由
+ * （那边不用 SectionCard，所以那边是 68dp；两处数值不同、语义相同）。
+ */
+private val CATEGORY_ROW_HEIGHT = 84.dp
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaceCategoriesPanel(
     vm: PlaceCategoriesViewModel,
-    onBack: () -> Unit,
+    /** 宿主给的"返回上一层"。本面板自己不画返回（见文件头 KDoc）：宿主没有顶栏时才会点它。 */
+    onBack: (() -> Unit)? = null,
 ) {
+    // 长按拖动三件套：状态住面板这一层（行零件只负责画与报位移），
+    // 「拖了多少像素 = 几格」的换算走 ProductCategoriesViewModel.dragSteps 那一份。
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var dragOffset by remember { mutableStateOf(0f) }
+    val haptic = LocalHapticFeedback.current
+    val rowHeightPx = with(LocalDensity.current) { CATEGORY_ROW_HEIGHT.toPx() }
+
     Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("地点分组", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("返回地址")
+            // 顶栏已经有一颗返回时这里不再画第二颗（用户：「互相容易误解」）。
+            if (onBack != null) {
+                TextButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("返回地址")
+                }
             }
         }
         Row(
@@ -77,7 +114,7 @@ fun PlaceCategoriesPanel(
             )
         }
         Hint(
-            "只影响你自己的左栏分组，别人看不到；顺序就是左栏的顺序。",
+            "只影响你自己的左栏分组，别人看不到；顺序就是左栏的顺序。长按一行可以拖动排序。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp),
@@ -92,25 +129,48 @@ fun PlaceCategoriesPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
             )
-            else -> LazyColumn(
-                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 460.dp),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            // ⚠️ 这里是 Column + verticalScroll，**不是** LazyColumn：拖动要靠"一行一个固定高度"
+            //    来把位移换算成格数，LazyColumn 的 item 复用会让这个换算变成靠测量
+            //    （与商品分类管理页同一个理由；代价是拖到边缘不会自动滚）。
+            else -> Column(
+                Modifier.fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
             ) {
-                itemsIndexed(vm.rows, key = { _, c -> c.id }) { idx, c ->
-                    CategoryRow(
-                        c = c,
-                        // ⚠️ 显示的是**列表里的位次**（1 起），不是 `sort_order`：
-                        //    后端新建时给的是 `max+1`（第一个是 1 不是 0），拿它 +1 会显示成 2。
-                        position = idx + 1,
-                        first = idx == 0,
-                        last = idx == vm.rows.lastIndex,
-                        onMoveTo = { pos -> vm.moveTo(c.id, pos) },
-                        onUp = { vm.move(idx, -1) },
-                        onDown = { vm.move(idx, +1) },
-                        onRename = { vm.openRename(c) },
-                        onDelete = { vm.deleting = c },
-                    )
+                vm.rows.forEachIndexed { idx, c ->
+                    // ⚠️ `key(c.id)` 不能省：被拖动那一行的 `pointerInput` 要跟着它自己的 id，
+                    //    不给稳定 key 时节点会随位置重建 ⇒ 手势被取消（表现是"拖了半天只挪一格就自己松手"）。
+                    key(c.id) {
+                        CategoryRow(
+                            c = c,
+                            // ⚠️ 显示的是**列表里的位次**（1 起），不是 `sort_order`：
+                            //    后端新建时给的是 `max+1`（第一个是 1 不是 0），拿它 +1 会显示成 2。
+                            position = idx + 1,
+                            busy = vm.acting,
+                            dragging = draggingId == c.id,
+                            dragOffset = if (draggingId == c.id) dragOffset else 0f,
+                            onDragStart = {
+                                draggingId = c.id
+                                dragOffset = 0f
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            onDrag = { dy ->
+                                dragOffset += dy
+                                val steps = dragSteps(dragOffset, rowHeightPx)
+                                if (steps != 0) {
+                                    vm.moveBy(c.id, steps)
+                                    dragOffset -= steps * rowHeightPx
+                                }
+                            },
+                            onDragEnd = { draggingId = null; dragOffset = 0f },
+                            onPosition = { pos -> vm.moveTo(c.id, pos) },
+                            onRename = { vm.openRename(c) },
+                            onDelete = { vm.deleting = c },
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
@@ -165,72 +225,116 @@ fun PlaceCategoriesPanel(
 }
 
 /**
- * 一行分组：位次输入框 + 名字 + 挂着几个地点 + 上下移 / 改名 / 删。
+ * 一行分类：位次输入框 + 长按拖动区（名字 + 个地点 + ⠿）+ 更多操作（改名 / 删除）。
  *
- * 位次那个小框与「商品分类管理」是**同一个交互**（填几就排到第几，1 起）——
- * 用户 2026-09-19：「调整排序你直接复用商品管理的那个分类管理的代码就可以了」。
- * 上下箭头保留着：改一位时它比"选中数字再敲"快，两种都是同样的整份提交。
+ * 颜色跟着**模块语义色**走 ——「地址与联系人」这一页的三档各有一个（设计规范 §2 一色一功能）。
+ *
+ * ⚠️ 拖动手势只挂在"名字 + ⠿"那一块上，**不挂整行**：位次框还要长按选字、⋮ 还要点开菜单
+ * （与 `ui/dispatcher/ProductCategoriesScreen.kt` 同一套）。
  */
 @Composable
 private fun CategoryRow(
     c: PlaceCategoryDto,
     position: Int,
-    first: Boolean,
-    last: Boolean,
-    onMoveTo: (Int) -> Unit,
-    onUp: () -> Unit,
-    onDown: () -> Unit,
+    busy: Boolean,
+    dragging: Boolean,
+    dragOffset: Float,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onPosition: (Int) -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    SectionCard {
+    var menu by remember { mutableStateOf(false) }
+    SectionCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(CATEGORY_ROW_HEIGHT)
+            // 拖动中的那一行跟着手指走 + 轻微放大（卡片样式仍走共用件 SectionCard ——
+            // 商品分类页那套自绘 Surface 的描边/阴影变化这边没有，因为这几档本来就是白卡。
+            .graphicsLayer {
+                translationY = dragOffset
+                if (dragging) {
+                    scaleX = 1.02f
+                    scaleY = 1.02f
+                }
+            },
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             var posField by remember(c.id, position) { mutableStateOf(position.toString()) }
-            OutlinedTextField(
-                value = posField,
-                onValueChange = { v ->
-                    val clean = com.tapmoay.sorders.core.InputRules.intInput(v, 3)
-                    posField = clean
-                    clean.toIntOrNull()?.let(onMoveTo)
-                },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.titleMedium.copy(
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    color = Color(ShipperTeal),
-                ),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            // 「填第几位」用 SoTextField（浅灰底 + 圆角）而不是 OutlinedTextField：
+            // 全库描边输入框的总数是**只减不许增**的基线（判据 _check_form_panel_style.py：
+            // 「新页面又写描边框了？用 FormRows.kt 那五行」）。
+            Box(Modifier.width(58.dp)) {
+                SoTextField(
+                    value = posField,
+                    onValueChange = { v ->
+                        val clean = com.tapmoay.sorders.core.InputRules.intInput(v, 3)
+                        posField = clean
+                        clean.toIntOrNull()?.let(onPosition)
+                    },
+                    enabled = !busy,
                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                ),
-                modifier = Modifier.width(58.dp),
-            )
+                )
+            }
             Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(c.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(
-                    c.locationCount.toString() + " 个地点",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = onUp, enabled = !first) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(c.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { onDragStart() },
+                            onDrag = { change, drag ->
+                                change.consume()
+                                onDrag(drag.y)
+                            },
+                            onDragEnd = { onDragEnd() },
+                            onDragCancel = { onDragEnd() },
+                        )
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        c.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        // 显式占满这一列：maxLines=1 + 省略号却不给宽度的文本会去吃兄弟的宽度
+                        // （判据 _check_adaptive_layout.py 的存量基线只许减不许增）
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        c.locationCount.toString() + " 个地点",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Icon(
-                    Icons.Default.KeyboardArrowUp,
-                    contentDescription = "上移",
-                    tint = if (first) MaterialTheme.colorScheme.outlineVariant else Color(ShipperTeal),
+                    Icons.Default.DragHandle,
+                    contentDescription = "长按拖动排序",
+                    tint = MaterialTheme.colorScheme.outline,
                 )
             }
-            IconButton(onClick = onDown, enabled = !last) {
-                Icon(
-                    Icons.Default.KeyboardArrowDown,
-                    contentDescription = "下移",
-                    tint = if (last) MaterialTheme.colorScheme.outlineVariant else Color(ShipperTeal),
-                )
-            }
-            IconButton(onClick = onRename) {
-                Icon(Icons.Default.Edit, contentDescription = "重命名", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "删除", tint = Color(0xFFFF4D4F))
+            Box {
+                IconButton(onClick = { menu = true }, enabled = !busy) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(20.dp))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("改名") },
+                        leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, null) },
+                        onClick = { menu = false; onRename() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("删除", color = Color(MessageRed)) },
+                        leadingIcon = { Icon(Icons.Default.DeleteOutline, null, tint = Color(MessageRed)) },
+                        onClick = { menu = false; onDelete() },
+                    )
+                }
             }
         }
     }

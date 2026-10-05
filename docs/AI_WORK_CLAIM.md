@@ -5791,6 +5791,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`a7f20a4`（本事项只动两个 `ui/order` 文件 + 两份新 QA 脚本 + 一条 `ALLOW` 追加 + 一条复核表化石删除 + 一份生成物重生成 + 三份文档）。
 
+### [2026-10-06 04:0x CST → 进行中] 会话：**CHG-0046 分类管理三档收口：名字不再被挤、排序改成长按拖动、返回分成三层**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-06 / L-07 / L-08**（L-06：「我在联系人新建那个（分类）……**新建分类的卡片的名称并没有正常显示**」；L-07：「它的排序**最好不要用那个按钮排序**，我们直接像**拖动卡片式**的排序」；L-08：「点击了那个管理分类嘛，然后进去之后再点那个返回啊，就**顶上的返回**啊，他是**直接退出了**啊不要啊，**我们是任何返回都是返回上 1 级**……但这样子，**不好，互相容易误解**」）—— 台账 L-01…L-32 逐条落地的**第六条**（三条同址，合成一个 CHG）。
+
+**病灶**：三档分类面板（`ui/dispatcher/{Contact,Route,Place}CategoriesScreen.kt`）每行 = 58dp 位次框 + 名字/条数 + **四颗默认 48dp IconButton**（↑ / ↓ / 改名 / 删除）⇒ 360dp 屏上名字列只剩 `288 − 58 − 10 − 48×4 = 28dp` ≈ 2 个中文字（分类名上限 8 个字），且三处名字 `Text` 只有 `maxLines = 1`、**没有** `overflow = Ellipsis`（地点那处连 `fillMaxWidth()` 都没有）⇒ 硬切半个字；排序只有「填位次 + ↑↓」；`ui/shipper/AddressScreen.kt:219` 的顶栏返回**无条件** `onClick = onBack`（不看 `managingCategory`），而面板里又各有一颗「返回联系人 / 返回线路 / 返回地址」⇒ 用户报的「直接退出了」与「互相容易误解」。
+
+**改法（L1 主 + L0 触及，7 个 .kt）**：① 三份面板**整文件重写**：行零件照用户已认可的商品分类页（`ui/dispatcher/ProductCategoriesScreen.kt:363-399`）——名字 `weight(1f)` + `maxLines = 1` + `overflow = TextOverflow.Ellipsis` + `Modifier.fillMaxWidth()`，四颗内联图标换成 ⠿ `DragHandle`（contentDescription「长按拖动排序」）+ ⋮ `MoreVert` 菜单（改名 / 删除，删除用命名 token `Color(MessageRed)`），固定件 `58+10+48+48 = 164dp` ⇒ 名字列 `360 − 72 − 164 = 124dp` ≈ 8 个中文字；位次框保留但一律 `SoTextField`（地点那处 `OutlinedTextField` 换掉 ⇒ 全库描边计数只减不增）；列表从 `LazyColumn` 换成 `Column + verticalScroll(rememberScrollState())`（`key(c.id)` 必须有，否则拖动会被手势取消），行高常量 `CATEGORY_ROW_HEIGHT = 84.dp`；拖动四件套照抄（`detectDragGesturesAfterLongPress` + `change.consume()` + `dragSteps(dragOffset, rowHeightPx)` + `vm.moveBy(c.id, steps)`，起手一记 `HapticFeedbackType.LongPress`）。② 三个 VM 同形：新增 `moveBy(id, steps)`；`moveTo` 先 `rows = next` 再提交（拖动跟手）；新增 `private var submitSeq = 0`，成功 `if (seq == submitSeq) rows = fresh`、失败 `if (seq == submitSeq) load()`；旧的 `fun move(index, delta)` 退役。③ `AddressScreen.kt`：新增 `leaveCategoryPanel`（关面板 + 按 tab 重读名册）/ `backOneLevel`（抽屉 → 面板 → 退页）/ `BackHandler(enabled = managingCategory && !drawer.isOpen)`；顶栏返回（`:219`）改走 `backOneLevel`；`CategoryManagePanel`（`:1047`）不再传 `onBack`，三处调用点（`:1052` / `:1057` / `:1062`）改成 `XCategoriesPanel(vm = catVm)`；面板 `onBack` 改成可空 + `if (onBack != null)` 才画 ⇒ 地址页那一层只有顶栏一颗返回；**下单页的地点抽屉仍然点名**（`ui/shipper/OrderCreateScreen.kt:1000-1011` 没有顶栏，不点名用户会卡在面板里）。
+
+**判据 / 反验**：`_tools/qa/_check_category_row_layout.py`（新建，`PANELS` 三元组驱动）**119/119**（6 组：行零件 12×3 / 位次框 2×3 / 拖动 10×3 / 面板返回 2×3 / VM 10×3 / 宿主页 11）；`_tools/qa/_reverse_verify_category_row_layout.py`（新建）**21/21**（20 条注入 + 还原后逐字节比对；⚠️ 它靠判据的 label 原文做期望匹配，以后改判据文案要同步改它）；**没有** CREATIONS 条目 ⇒ 不需要动 `_check_reverse_verify_anchors.py` 的 ALLOW 表。
+
+**明确不碰**：后端**一个字节都不动**（分类顺序仍是 `repo.reorderXCategories(ids)` 整份提交、删除仍是软删）；两条弹窗文案与分类下拉（`AddressScreen.kt:942-989`）原样；商品分类页与另两处同形旧页面（`ui/dispatcher/FreightCategoriesScreen.kt:189` / `ExpenseCategoriesScreen.kt:209`）本轮不动（用户只点了前三个）；共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `enums.py` / `ReportCenter.kt`）**一个都没动**。
+
+**顺带修掉我自己上一轮留下的一行空占位**：`docs/AI_WORK_CLAIM.md` 的 CHG-0045 条目末尾原有一行 `**实现提交**：⏳`（归档回填时新的数字行插在它前面，占位那行忘了删）—— 本次一并删掉。
+
+**验证**：`gradle -p android :app:compileEmuDebugKotlin` **BUILD SUCCESSFUL in 22s**（只余既有 icon 弃用告警，三个重写过的面板文件一条告警都没有）；生成物 `python _tools/qa/_hint_inventory.py --md` 重生成后 `_check_generated_freshness.py` 4 个产物 / 4 个指纹全过；`python _tools/qa/_check_all.py` **184 项：182 ✅ / 2 ❌**（两条红均非本事项：`_check_backend_fresh.py` 旧进程假红、`_check_report_facts.py` 缺 `VERSION 0.2.5`；本事项新判据在这次运行里 **✅ 119 项**，日志 `_tmp/checkall_chg0046.log`）；`python backend/scripts/check_reachability.py` **可达 165 / 165**、342 条 markdown 链接全有效。
+
 **实现提交**：⏳
 
 ---
@@ -5805,6 +5821,8 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-06 04:0x | **CHG-0046 分类管理三档收口：名字不再被挤、排序改成长按拖动、返回分成三层**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 改了三个 `ui/dispatcher/*CategoriesScreen.kt` 与 `ui/shipper/AddressScreen.kt` 之后按生成器的规矩重跑 `python _tools/qa/_hint_inventory.py --md`（三档 Hint 各多一句「长按一行可以拖动排序。」）—— 该产物的指纹覆盖 `backend/app/**/*.py` 与 `android/app/src/main/**/*.kt`（路径也进哈希），重跑后 `_check_generated_freshness.py` 4 个产物 / 4 个指纹全过 |
+| 2026-10-06 04:0x | **CHG-0046**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0046.md`（新文件，两文件必须同一次提交） | 在 CHG-0045 行之后**追加** CHG-0046 登记行（5 列，`_check_dev_spec.py` 要求「文件名 ↔ 内文 ID ↔ README 行」三处一致）。⚠️ 共享提醒：只碰这两处 |
 | 2026-10-06 03:4x | **CHG-0045 司机「拍照送达」一步到位：抽屉退役、照片长在订单页里、完成按钮沉到最底部**（我，`session-bd8fe093`） | `_tools/qa/_check_reverse_verify_anchors.py`（共享：**反向验证的锚点元检查**） | ⚠️ **只追加一条 `ALLOW` 书面理由**（键 = `("_reverse_verify_delivery_flow.py", "又在订单侧抄了一个拍照送达抽屉（扫全仓的那条判据必须点名它）")`，本事项的第 4 条、也是全表第 4 条）：本事项新增的反验脚本用「**新建**一份 `ui/order/_LeakDeliverySheet.kt` 再抄一个拍照送达抽屉」这条注入去试「全仓 `fun DeliverySheet(` 0 命中」那条判据，而该判据对 `.kt` 目标会先报「目标文件不存在（被改名/搬走了？）」—— 与 `_reverse_verify_driver_money.py` 的 `_LeakScreen.kt`、`_reverse_verify_driver_tab_highlight.py` 的 `_LeakTabScreen.kt`、`_reverse_verify_image_preview.py` 的 `_LeakPreviewScreen.kt` **同一个先例**（新建型注入的目标文件本来就只在注入期间存在）。⛔ 判据逻辑、阈值、扫描口径**一个字没动**（198 份 / 2117 条一条不少），只写了一条「它为什么必然找不到」的理由；化石守卫仍要求这条键真实存在。 |
 | 2026-10-06 03:4x | **CHG-0045**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 改了两个 `ui/order/*.kt` 之后按生成器的规矩重跑 `python _tools/qa/_hint_inventory.py --md`（**1624 条**文案 —— 比上一版 1627 少 3 条：本事项把抽屉里那三句静态文案换成了页面里的动态句与 `SectionTitle`）—— 该产物的指纹覆盖 `backend/app/**/*.py` 与 `android/app/src/main/**/*.kt`（`_tools/ai/_airepo.py:259-296`，路径也进哈希），不重生成 `_check_generated_freshness.py` 必红。⛔ 只跑生成器，没有手改一个字。 |
 | 2026-10-06 03:4x | **CHG-0045**（我，`session-bd8fe093`） | `_tools/qa/_hint_inventory.py`（共享：**提示盘点器 + 它的逐条复核表**） | ⚠️ **删掉复核表里一条已成化石的 `OVERRIDE`**（原键 = `("OrderDetailScreen.kt", "送达照片 · 自动加水印")`，位置在 `:249-252`）并原处留 8 行书面说明。理由：那句标签本次从抽屉里的裸 `Text(...)` 变成了页面里的 `SectionTitle(...)`，而抽取规则 `CALL_RE`（`:156-161`）**不认 `SectionTitle`** ⇒ 这一行不再进 `rows` ⇒ 复核表命中 0 次；那道防化石守卫只在**生成模式**跑（`--check` 在 `:532-552` 提前 return，CI 走 `--check` 永远看不到它），所以是我手工跑 `--md` 时才撞上的。按守卫自己的提示删除是唯一诚实的收口（⛔ 不许把键改指认对象糊过去 —— 试过，仍然 ❌）。⛔ 分类规则、阈值、其它复核条目一个字未动；删后 `--md` ✅ 盘点完成、`--check` ✅ 1624 条一致。 |

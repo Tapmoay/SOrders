@@ -83,17 +83,6 @@ class ContactCategoriesViewModel(private val container: AppContainer) : ViewMode
         }
     }
 
-    /** 上/下移一格：**提交整份顺序**（见类注释）。 */
-    fun move(index: Int, delta: Int) {
-        val target = index + delta
-        if (index !in rows.indices || target !in rows.indices) return
-        val next = rows.toMutableList()
-        val tmp = next[index]
-        next[index] = next[target]
-        next[target] = tmp
-        submit(next)
-    }
-
     /**
      * 排到第几位（1 起）—— 与「商品分类管理」「地点分组」**同一个语义**（用户要求直接复用那套）。
      *
@@ -103,20 +92,41 @@ class ContactCategoriesViewModel(private val container: AppContainer) : ViewMode
     fun moveTo(id: Long, position: Int) {
         val next = moveItemTo(rows, { it.id }, id, position)
         if (next === rows) return  // 没变化（同一位置）：不发请求
+        // ⚠️ 先本地换位、再发请求（2026-10-06 改）：拖动时行要**跟着手指走** ——
+        //    等一个往返再换位的话，手指早就离开那一格了。响应回来时若没有更新的提交，再以服务端那份为准。
+        rows = next
         submit(next)
     }
+
+    /**
+     * 长按拖动：把某一行往前/往后挪 `steps` 格（正数往后）—— 与商品分类管理页那套同一语义。
+     *
+     * 「拖了多少像素 = 几格」的换算在 `ui/dispatcher/ProductCategoriesViewModel.kt` 的
+     * `dragSteps()` 里（那一页与这三档共用同一个函数）；这里只负责"挪几格"。
+     */
+    fun moveBy(id: Long, steps: Int) {
+        if (steps == 0) return
+        val idx = rows.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        moveTo(id, idx + 1 + steps)  // `moveTo` 的位次是 1 起
+    }
+
+    /** 提交编号：拖动时会连着发几次整份顺序，晚到的旧响应不许把新顺序覆盖回去。 */
+    private var submitSeq = 0
 
     private fun submit(next: List<ContactCategoryDto>) {
         // 只提交名册里的行（规则与另外四张名册同一处：`ui/common/CategoryRoster.kt`）
         val ids = submittableIds(next) { it.id }
+        val seq = ++submitSeq
         acting = true
         error = null
         viewModelScope.launch {
             try {
-                rows = container.repo.reorderContactCategories(ids)
+                val fresh = container.repo.reorderContactCategories(ids)
+                if (seq == submitSeq) rows = fresh
             } catch (e: Exception) {
                 error = toApiException(e).message
-                load()
+                if (seq == submitSeq) load()
             } finally {
                 acting = false
             }

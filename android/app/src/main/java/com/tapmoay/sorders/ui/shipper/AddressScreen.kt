@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -146,6 +147,30 @@ fun AddressScreen(
     val snackbar = remember { SnackbarHostState() }
     OneShotSnackbar(snackbar, vm.notice, onConsumed = { vm.notice = null })
 
+    // 返回是**分层**的（用户 2026-10-06：「我们是任何返回都是返回上 1 级」）：
+    // 抽屉开着 → 先关抽屉；分类管理面板开着 → 退回上一层（并按页签重读名册）；否则才退出这一页。
+    val leaveCategoryPanel: () -> Unit = {
+        managingCategory = false
+        // 回来时回读名册：用户可能在面板里改名 / 删掉一整类，抽屉里那一格得跟着变。
+        when (tab) {
+            1 -> vm.reloadContactCategories()
+            2 -> vm.reloadPlaceCategories()
+            else -> vm.reloadRouteCategories()
+        }
+    }
+    val backOneLevel: () -> Unit = {
+        if (drawer.isOpen) {
+            scope.launch { drawer.close() }
+        } else if (managingCategory) {
+            leaveCategoryPanel()
+        } else {
+            onBack()
+        }
+    }
+    // 系统返回键 / 手势：面板开着时回抽屉那一层。
+    // ⚠️ 抽屉自己开着的那一种归 `ModalNavigationDrawer` 处理（它自己会先关抽屉），所以这里把它排除掉。
+    BackHandler(enabled = managingCategory && !drawer.isOpen) { leaveCategoryPanel() }
+
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
@@ -191,7 +216,7 @@ fun AddressScreen(
                 TopAppBar(
                     title = { Text("地址与联系人") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        IconButton(onClick = { backOneLevel() }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     },
@@ -203,18 +228,7 @@ fun AddressScreen(
             // 返回时回读名册：用户可能在面板里改名 / 删掉一整类，抽屉里那一格得跟着变。
             if (managingCategory) {
                 Box(Modifier.fillMaxSize().padding(padding)) {
-                    CategoryManagePanel(
-                        container = container,
-                        tab = tab,
-                        onBack = {
-                            managingCategory = false
-                            when (tab) {
-                                1 -> vm.reloadContactCategories()
-                                2 -> vm.reloadPlaceCategories()
-                                else -> vm.reloadRouteCategories()
-                            }
-                        },
-                    )
+                    CategoryManagePanel(container = container, tab = tab)
                 }
             } else {
                 Column(Modifier.fillMaxSize().padding(padding)) {
@@ -1023,26 +1037,29 @@ fun AddressScreen(
  * 三个页签各有一份自己的名册（线路 / 联系人 / 地点），面板本身长得一模一样 —— 这里只做「按页签挑一个 VM」。
  * 返回时上层会回读名册（`reloadXxxCategories`），抽屉里那一格才跟着改名 / 删除走。
  *
+ * 返回：面板里**不画**返回按钮（用户 2026-10-06：「互相容易误解」）—— 页面顶栏那一颗是唯一入口，
+ * 而且它是分层的（面板开着就先退回抽屉那一层，见 `AddressScreen` 里的 `backOneLevel`）。
+ *
  * ⚠️ `appViewModel` 是 Activity 级缓存，VM 的 `init { load() }` 只跑第一次 ⇒ 每次进来补一次 `load()`，
  * 否则面板显示的是上一次的条数（2026-10-03 模拟器实测：库里已经是 1 位，面板显示「0 位联系人」）。
  */
 @Composable
-private fun CategoryManagePanel(container: AppContainer, tab: Int, onBack: () -> Unit) {
+private fun CategoryManagePanel(container: AppContainer, tab: Int) {
     when (tab) {
         1 -> {
             val catVm: ContactCategoriesViewModel = appViewModel { ContactCategoriesViewModel(container) }
             LaunchedEffect(Unit) { catVm.load() }
-            ContactCategoriesPanel(vm = catVm, onBack = onBack)
+            ContactCategoriesPanel(vm = catVm)
         }
         2 -> {
             val catVm: PlaceCategoriesViewModel = appViewModel { PlaceCategoriesViewModel(container) }
             LaunchedEffect(Unit) { catVm.load() }
-            PlaceCategoriesPanel(vm = catVm, onBack = onBack)
+            PlaceCategoriesPanel(vm = catVm)
         }
         else -> {
             val catVm: RouteCategoriesViewModel = appViewModel { RouteCategoriesViewModel(container) }
             LaunchedEffect(Unit) { catVm.load() }
-            RouteCategoriesPanel(vm = catVm, onBack = onBack)
+            RouteCategoriesPanel(vm = catVm)
         }
     }
 }
