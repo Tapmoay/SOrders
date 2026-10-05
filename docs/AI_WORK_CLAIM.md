@@ -5757,7 +5757,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`eaba334`（本事项只动一个源文件 `ui/order/OrderDetailScreen.kt` + 两份既有 QA 脚本的追加 + L-01 那条检查器声明 + 一份生成物重生成 + 三份文档）。
 
-### [2026-10-06 03:2x CST 进行中（实现 / 判据 / 反验已落盘，收尾＝跑全量静检与两次提交）] 会话：**CHG-0044 大图预览能双指缩放、能存进相册：三个入口收口到唯一那一份弹层**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-06 03:2x CST → 03:4x CST 已完成] 会话：**CHG-0044 大图预览能双指缩放、能存进相册：三个入口收口到唯一那一份弹层**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 第 **L-03** 条（原文 m00061：「点一下确实放大了，但要**支持双指/双手独立缩放**（有时候拍得比较远，要放大才能看清），**并且图片要支持下载**」）—— 台账 L-01…L-32 逐条落地的**第三条**。
 
@@ -5768,6 +5768,10 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 **判据 / 反验**：`_tools/qa/_check_image_preview.py` **58/58**（7 组：全库只有一处弹层且三页都在用 / 缩放手势 / 单击与拖动不打架 / 保存通路（只认服务端路径 + 共享 client + IO 线程 + 成败回执 + 防连点）/ `ExportUtil.kt` 两条系统分支且没动既有函数 / 详情页两处入口收口 + 同组翻页 + 黑底 / 防静默空转）；`_tools/qa/_reverse_verify_image_preview.py` **42/42**（41 条注入 + 1 条"新建 `ui/common/_LeakPreviewScreen.kt` 抄第二份实现" + 还原后逐字节比对全绿）。⚠️ **反验当场抓出三条"假绿"并已修**：①「放大后单击 = 先回 1×」原来只匹配 `if (scale > MIN_SCALE) { scale = MIN_SCALE`，而双击那段里有一模一样的一行 ⇒ 改成先把 `onTap = { … }` 的处理体切出来再看（⚠️ 收口必须认「第一个 `},`」，用"换行 + `},`"收口时单行写法会把 `onDoubleTap` 整段吞进单击里）②「落盘也在 IO 线程」原来允许"200 字符内出现过" ⇒ 改成必须紧邻 `saveImageToGallery(` ③「`openStaticPaths` 剔空 + 拼地址」原来是一条判据 ⇒ 拆成两条。
 
 **明确不碰**：`resolveStaticUrl` 的拼法（仍然只有一处）、缩略图区块 `DeliveryPhotosSection(urls, onPhotoClick)` 与 `PlacePhotoStrip(..., onPreview)` 的签名与调用形态、既有 `saveExportFile` 的落点（`Downloads/SOrders报表`）与 MIME、黑底观感 / 翻页 / 计数、权限（无新增权限、Q 以下那条 `WRITE_EXTERNAL_STORAGE maxSdkVersion=28` 是既有的）；后端**一个字节都不动**；共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `enums.py` / `ReportCenter.kt`）**一个都没动**。
+
+**静检**：`python _tools/qa/_check_all.py` → **182 项：180 ✅ / 2 ❌**（日志 `_tmp/checkall_chg0044.log`）：①`_check_backend_fresh.py` 报「本机后端跑的是旧代码（PID 30144 于 2026-10-05 18:58:26 启动，源码 2026-10-06 03:2x 还被改过）」—— **跑过反向验证套件后必然报的假红**（注入再还原会把文件 mtime 全部刷新，而 `git status` 里 `backend/` 一个 ` M` 都没有 ⇒ 内容一字未变）；②`_check_report_facts.py` 报 `docs/RELEASE_CANDIDATE.md` 缺 `VERSION 0.2.5`（另一个会话在做发布，` M VERSION` 在开会话前就在）。**两条都与本事项无关**，本事项新判据在这次运行里 ✅ 58 项（日志第 276 行）。另：`python backend/scripts/check_reachability.py` → **可达文档 163/163**、340 条 markdown 链接全有效、无孤儿（exit 0）；`_check_dev_spec.py` 5 项全过、`_check_generated_freshness.py` 5 组全过、`_check_live_doc_counts.py --check` 全过。
+
+**实现提交**：`4464061`（本事项动三个源文件 + 两份新 QA 脚本 + `_check_reverse_verify_anchors.py` 一条 ALLOW 追加 + 一份生成物重生成 + 三份文档）。
 
 ---
 
