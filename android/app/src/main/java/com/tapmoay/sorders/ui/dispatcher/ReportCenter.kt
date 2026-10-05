@@ -318,7 +318,8 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     Text("盈利概览", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     val profit = grossProfit(data)
-                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
+                    // ⚠️ 毛利为负 ⇒ 红（用户 2026-10-05 口径：带负号的金额一律红），非负仍是本页的绿。
+                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), if (profit >= 0) Color(0xFF00B578) else Color(0xFFE53935))
                     CoverNote(data.costCoveredLines, data.totalLines, data.costAvgLines, data.costSnapshotLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
                     if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFE53935))
@@ -422,7 +423,8 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                     Text("盈利与损耗", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     val profit = productGrossProfit(data)
-                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00B578))
+                    // ⚠️ 毛利为负 ⇒ 红（用户 2026-10-05 口径：带负号的金额一律红），非负仍是本页的绿。
+                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), if (profit >= 0) Color(0xFF00B578) else Color(0xFFE53935))
                     CoverNote(data.costCoveredLines, data.totalLines, data.costAvgLines, data.costSnapshotLines)
                     StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
                 }
@@ -490,7 +492,8 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                                  else "毛利 ¥" + formatMoney(profit.toString())) +
                                     (if (p.damageQty > 0) " · 货损 ¥" + formatMoney(p.damageAmount) else ""),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (profit == null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF00B578),
+                                color = if (profit == null) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else if (profit < 0) Color(0xFFE53935) else Color(0xFF00B578),
                             )
                         }
                         Text(money(p.amount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFFF9500))
@@ -1293,7 +1296,9 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                     StatRow("− 算不出成本的收入", money(data.revenueUncovered), Color(0xFF8A8A8E))
                     StatRow("= 参与毛利的收入", money(data.revenueCovered), Color(0xFF1E6FFF))
                     StatRow("− 商品成本", money(data.costTotal))
-                    StatRow("= 商品毛利", money(data.grossProfit), Color(0xFF00B578))
+                    val gp = data.grossProfit.toDoubleOrNull() ?: 0.0
+                    val gpColor = if (gp >= 0) Color(0xFF00B578) else Color(0xFFE53935)
+                    StatRow("= 商品毛利", money(data.grossProfit), gpColor)
                     StatRow("− 配送成本(司机应得)", money(data.deliveryCost), Color(0xFFFF9500))
                     StatRow("− 期间费用", money(data.operatingExpenseTotal), Color(0xFFFF6B2C))
                     // ⚠️ 折旧必须**单独一行**（FEAT-0012）：它已经真的从营业利润里减掉了，
@@ -1313,10 +1318,12 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                     StatRow("销项税额（开出去的票）", money(data.vatOutput), Color(0xFF1E6FFF))
                     StatRow("进项税额（拿到手的票）", money(data.vatInput), Color(0xFF00B578))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    // ⚠️ 留抵（进项比销项多，带负号）⇒ 红（CHG-0037：「带负号的金额一律红」）；
+                    //    正数仍然是橙 —— 该交的税，和「欠钱」不是同一件事。
                     StatRow(
                         "= 该交的增值税",
                         money(data.vatPayable),
-                        Color(if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFF00B578 else 0xFFFF6B2C),
+                        Color(if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFE53935 else 0xFFFF6B2C),
                     )
                     Spacer(Modifier.height(4.dp))
                     Hint(
@@ -1664,7 +1671,8 @@ private fun TaxTab(vm: ReportCenterViewModel) {
             item { ChartEmpty("该时段还没有税账数据") }
         } else {
             val payable = data.vatPayable.toDoubleOrNull() ?: 0.0
-            val payableColor = if (payable < 0.0) Color(0xFF00B578) else Color(0xFFFF6B2C)
+            // ⚠️ 留抵（带负号）⇒ 红（CHG-0037）；正数仍是橙。
+            val payableColor = if (payable < 0.0) Color(0xFFE53935) else Color(0xFFFF6B2C)
             item {
                 StatBig("该交的增值税", money(data.vatPayable), payableColor)
             }

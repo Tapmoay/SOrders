@@ -263,7 +263,8 @@ private fun TaxNode(vm: ReportV2ViewModel, onOpenTab: (Int) -> Unit) {
         SectionTitle("税账（增值税）")
         Spacer(Modifier.height(4.dp))
         if (t == null) { LoadingBox(); return@SectionCard }
-        Head("这一段应纳增值税", "销项减进项；增值税是价外税，不从营业利润那条链里扣", money(t.vatPayable), Tone.INFO, subHint = true)
+        // ⚠️ 应纳增值税可以为负（留抵）：带负号 ⇒ 红（用户 2026-10-05 口径），非负保持中性蓝。
+        Head("这一段应纳增值税", "销项减进项；增值税是价外税，不从营业利润那条链里扣", money(t.vatPayable), if (num(t.vatPayable) < 0) Tone.BAD else Tone.INFO, subHint = true)
         LineRow(null, Palette.gray, "销项（开出去的票）", (t.output?.count ?: 0).toString() + " 张 · 不含税 " + money(t.output?.netAmount), money(t.output?.taxAmount), Color.Unspecified, null, false)
         HairLine()
         LineRow(null, Palette.gray, "进项（收进来的票）", (t.input?.count ?: 0).toString() + " 张 · 不含税 " + money(t.input?.netAmount), money(t.input?.taxAmount), Color.Unspecified, null, false)
@@ -346,7 +347,9 @@ private fun CustomerNode(vm: ReportV2ViewModel, node: ReportNode, onOpenOrder: (
         if (!row.limit.isNullOrBlank()) {
             LineRow(null, Palette.gray, "信用额度", "已用 " + money(row.creditUsed), money(row.limit), Color.Unspecified, null, false)
             HairLine()
-            LineRow(null, if (row.overLimit) Palette.bad else Palette.gray, "还能欠多少", if (row.overLimit) "已经超过额度了" else "剩下的额度", money(row.creditAvailable), toneColor(if (row.overLimit) Tone.BAD else Tone.GOOD), null, false)
+            // ⚠️ 颜色只看**这个数自己带不带负号**（「还能欠多少」为负 = 超额）；文案仍按接口给的 overLimit。
+            val canStillOwe = num(row.creditAvailable)
+            LineRow(null, if (canStillOwe < 0) Palette.bad else Palette.gray, "还能欠多少", if (row.overLimit) "已经超过额度了" else "剩下的额度", money(row.creditAvailable), toneColor(if (canStillOwe < 0) Tone.BAD else Tone.GOOD), null, false)
         }
         Spacer(Modifier.height(8.dp))
         SectionTitle("每一张单")
@@ -360,7 +363,8 @@ private fun CustomerNode(vm: ReportV2ViewModel, node: ReportNode, onOpenOrder: (
                     if (o.days > 0) "账龄 " + o.days + " 天" else null,
                     ReportFinance.bucketLabel(o.bucket),
                 ).joinToString(" · ")
-                LineRow(null, Palette.gray, o.orderNo.orEmpty().ifBlank { "（没有单号）" }, sub, money(o.arrears), toneColor(if (num(o.arrears) > 0) Tone.BAD else Tone.PLAIN), { onOpenOrder(o.orderId) }, true)
+                // ⚠️ 欠钱（正数）是红；退款 / 红冲那种负数是红（带负号）；只有 0 不红。
+                LineRow(null, Palette.gray, o.orderNo.orEmpty().ifBlank { "（没有单号）" }, sub, money(o.arrears), toneColor(if (num(o.arrears) != 0.0) Tone.BAD else Tone.PLAIN), { onOpenOrder(o.orderId) }, true)
             }
         }
     }
@@ -527,7 +531,8 @@ private fun DriversNode(vm: ReportV2ViewModel, onOpen: (ReportNode) -> Unit, onO
         Head("这一段有 " + d.drivers.size + " 个司机在跑", "完成单数按已送达算", null, Tone.PLAIN, subHint = true)
         val rows = d.drivers.sortedByDescending { it.completedCount }
         rows.take(LIST_CAP).forEach { r ->
-            LineRow(null, Palette.gray, r.driverName.ifBlank { "（没名字）" }, "完成 " + r.completedCount + " 单", money(r.freightOwed), toneColor(if (num(r.freightOwed) > 0) Tone.BAD else Tone.PLAIN), { onOpen(ReportNodes.driverPayable) }, true)
+            // ⚠️ 待结是红（钱还没付出去）；若接口给出负数（多付了）也是红（带负号）；0 不红。
+            LineRow(null, Palette.gray, r.driverName.ifBlank { "（没名字）" }, "完成 " + r.completedCount + " 单", money(r.freightOwed), toneColor(if (num(r.freightOwed) != 0.0) Tone.BAD else Tone.PLAIN), { onOpen(ReportNodes.driverPayable) }, true)
         }
         CapNote(rows.size)
         OldEntryRow("老页面：司机绩效", 2, onOpenTab)

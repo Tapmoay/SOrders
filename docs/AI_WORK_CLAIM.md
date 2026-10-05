@@ -31,6 +31,21 @@
 
 ## 进行中
 
+### [2026-10-05 11:0x UTC 进行中] 会话：**CHG-0037 报表中心金额配色改口径（带负号 ⇒ 红）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**用户口径（原话，取代 CHG-0036 的红规则）**：「如果是负的钱的话，就是欠钱，只要是带负号的都是用红色的，其他的用其他颜色或者黑色都没关系」「也就是那些金钱显示啊」。
+
+**改什么（5 处配色代码 + 2 份新判据）**：
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/ReportV2Model.kt`：`amountTone(v)` 的负数分支 `Tone.WARN`（琥珀）→ `Tone.BAD`（红 `#FF4D4F`），并改掉 `Palette` 与 `amountTone` 上「红只给欠钱 / 亏损是橙、不是红」的注释。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/report/ReportV2Nodes.kt` 四处「可为负却按别的条件上色」：税账「这一段应纳增值税」（留抵为负、原画蓝）、客户「还能欠多少」（原按 `overLimit` 布尔判）、客户欠款串 `o.arrears`（原只认 > 0）、司机绩效 `r.freightOwed`（原只认 > 0）—— 一律改成「先看这个数自己带不带负号」。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt`（老页面）三处商品毛利恒绿（`:321` 营业纵览 / `:425` 商品经营 / `:1296` = 商品毛利）+ `:493` 单品毛利行 —— 改成毛利为负时画本页的红 `#E53935`。
+- 新增 `_tools/qa/_check_report_money_color.py` 与 `_tools/qa/_reverse_verify_report_money_color.py`。
+
+**明确不碰**：后端任何文件、schema、接口 / DTO / 路由 / 权限、任何一个数字与文案、CHG-0036 的三件事（金额列固定列宽内左对齐 / 提示总开关 / 异常与审计入口格琥珀）、利润表的结构减号行（`− 商品成本` 等值本身是正数、减号是运算符）、老页面已经按正负上色的「净流入」与「营业利润」两处。
+
+**判据 / 证据**：`_check_report_money_color.py`（负数必须 `Tone.BAD`、四处可变符号点必须显式判符号、老页面三处毛利必须按正负分流、结构减号行必须仍是 `Color.Unspecified`、扫到的金额渲染点 ≥ N 防空转）；反向验证逐条注入必须当场红；模拟器 5554 截图（v2 首页 / 利润表 / 税账 / 老页面经营利润 —— 负数红、正数不红、结构减号行仍中性）；`python _tools/qa/_check_all.py` + `python backend/scripts/check_reachability.py` + `python _tools/qa/_check_dev_spec.py`。
+
+**做完的样子**：待补（收尾回填）。
 ### [2026-10-05 03:4x UTC 进行中] 会话：**BUG-0010 / BUG-0011 / BUG-0012 记账口径缺陷登记（只登记、未修，等用户拍板）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **来源**：GOV-0005 那轮「伪造一份真实数据 → 独立重算对账」找到的三处真错（探针 exit 1 的 5 条红全部指向它们）。**本轮只写文档，一行产品代码都不改**。
