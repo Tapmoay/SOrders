@@ -5874,7 +5874,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL in 11s**（复跑 3s / 15 up-to-date）；全量后端 **1364 passed**（基线 1358 ＋ 新 6；被收紧打红的 `test_audit_round12_guards.py` 单跑 **13 passed**）；锚点元检查 `_check_reverse_verify_anchors.py` **2229 条注入原文全在**（175/203 份脚本；新判据那条「新建文件」注入已在 `ALLOW` 表留书面理由）＋ `_check_r3_constraints.py` **8 组全过**；生成物四连全绿（freshness 5 组 / endpoint_index ✅ 283 文件·273 端点 / hints 31 项 / ai_read ✅ 67 个列表端点）；可达性 **169 / 169**（346 条 markdown 链接全有效、孤儿 0 —— 登记行加上之前 `docs/changes/CHG-0050.md` 正是那唯一一份孤儿）；`_check_dev_spec.py` 5 项全过（登记文件 84 份）；**全量静检 188 项：186 ✅ / 2 ❌**（380.7 秒；两条红均非本事项 —— `_check_backend_fresh.py` 本机后端是 2026-10-05 18:58:26 启的旧进程、`_check_report_facts.py` 只剩 1 条 `VERSION 0.2.5`；本事项新判据 ✅ 56 项、两份随动判据 ✅ 50 项 / 36 项、`_check_dev_spec.py` ✅ 5 项全过）。
 
-**实现提交**：⏳ 待回填（本次实现提交）。
+**实现提交**：`deda75e`（本事项动 17 个文件：客户端 2 个 `.kt`（`android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt` / `android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailViewModel.kt`）＋ 后端 1 个 `.py`（`backend/app/services/order_flow.py`）＋ 后端新用例 `backend/tests/test_delivery_photo_required.py` ＋ 既有后端用例随动 `backend/tests/test_audit_round12_guards.py` ＋ 两份新 QA 脚本（`_tools/qa/_check_all_drivers_photo.py` / `_tools/qa/_reverse_verify_all_drivers_photo.py`）＋ 两份既有判据与两份反验随动 ＋ `_tools/qa/_check_reverse_verify_anchors.py` 一条 ALLOW 追加 ＋ `docs/DOMAIN_MODEL.md` ＋ 一份生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md` ＋ 三份文档；**17 files changed / 1366 insertions(+) / 102 deletions(-)**）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
