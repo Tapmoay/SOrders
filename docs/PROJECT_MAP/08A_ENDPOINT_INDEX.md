@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:c729849ed37d1758c6a28b3c121ec14440127f8a3a22623c740c114624615e34 -->
+<!-- source_hash: sha256:9d4277729d5f17f954f81ece96b749b3a054183ca662b8c17214f77ba75b80f8 -->
 
 ## 全量端点（273 个，按文件分组）
 
@@ -303,9 +303,9 @@
 | 3 | `POST /api/v1/orders/{order_id}/assign` | `assign_order` | `backend/app/api/v1/orders_assignment.py:310` | 权限:ORDER_DISPATCH |
 | 4 | `POST /api/v1/orders/{order_id}/split` | `split_order_endpoint` | `backend/app/api/v1/orders_assignment.py:385` | 权限:ORDER_DISPATCH |
 | 5 | `POST /api/v1/orders/{order_id}/transfer` | `transfer_order_lines_endpoint` | `backend/app/api/v1/orders_assignment.py:411` | 权限:ORDER_DISPATCH |
-| 6 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:450` | 权限:ORDER_DISPATCH |
-| 7 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:509` | 权限:ORDER_RECALL |
-| 8 | `POST /api/v1/orders/{order_id}/release` | `release_order` | `backend/app/api/v1/orders_assignment.py:542` | 权限:ORDER_RECALL |
+| 6 | `POST /api/v1/orders/{order_id}/freight` | `update_order_freight` | `backend/app/api/v1/orders_assignment.py:452` | 权限:ORDER_DISPATCH |
+| 7 | `POST /api/v1/orders/{order_id}/recall` | `recall_order` | `backend/app/api/v1/orders_assignment.py:511` | 权限:ORDER_RECALL |
+| 8 | `POST /api/v1/orders/{order_id}/release` | `release_order` | `backend/app/api/v1/orders_assignment.py:544` | 权限:ORDER_RECALL |
 
 ### `backend/app/api/v1/orders_delivery.py` — 6 个
 

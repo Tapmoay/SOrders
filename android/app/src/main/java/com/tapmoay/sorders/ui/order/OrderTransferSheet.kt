@@ -36,6 +36,7 @@ import com.tapmoay.sorders.ui.common.FormActionRow
 import com.tapmoay.sorders.ui.common.FormErrorLine
 import com.tapmoay.sorders.ui.common.FormGroup
 import com.tapmoay.sorders.ui.common.FormPickRow
+import com.tapmoay.sorders.ui.common.FormRow
 import com.tapmoay.sorders.ui.common.Hint
 import com.tapmoay.sorders.ui.common.QtyStepper
 import com.tapmoay.sorders.ui.common.SheetCloseButton
@@ -73,6 +74,8 @@ fun OrderTransferSheet(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // 源单现在是不是在某位司机手上（司机名字只有真派过单才有；命令层看的是 status ∈ 已派单/已接单）。
+    val holder = order.driverName?.takeIf { it.isNotBlank() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -95,7 +98,10 @@ fun OrderTransferSheet(
             }
             // 解释句走 Hint（判据 _check_hints：裸 Text 写解释句会红）。这一句是纯静态字面量，
             // 没有任何变量拼进来 —— 一旦带插值，整句会被降级成「数据」，那这条 Hint 就白写了。
-            Hint("填上的数量就是转出去的数量；留着不填的，原样不动；全填满就把原来那张作废。")
+            Hint(
+                "填上的数量就是转出去的数量；留着不填的，原样不动；全填满就把原来那张作废。" +
+                    "原来那趟活儿在谁手上，新开的那张单就直接派给谁（并进他手上那张单时，就在那张单上加货）。"
+            )
             FormGroup(icon = Icons.Default.Person, title = "转给谁", tint = Color(ShipperTeal)) {
                 FormPickRow(
                     label = "目标货主",
@@ -105,6 +111,15 @@ fun OrderTransferSheet(
                     icon = Icons.Default.Person,
                     iconTint = Color(ShipperTeal),
                 )
+                // 新单归谁跑（CHG-0043）：只**说清后果**，具体人名等后端算完由结果文案点名。
+                // 这里不预告能不能跟上（司机离职 / 那一单刚被别人派走都可能变），所以只读展示。
+                FormRow(label = "新单归谁跑") {
+                    Text(
+                        text = if (holder != null) "跟原司机 " + holder else "进待派单池",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             FormGroup(icon = Icons.Default.Inventory2, title = "转哪几件货", tint = Color(ProductPurple)) {
                 FormActionRow(

@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-05 18:1x → 19:xx CST 进行中] 会话：**CHG-0043 转货跟司机：新开的那张单直接派给原来那位司机**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**用户原话**：（本轮没有新的用户原话 —— 由 goal `goal-ea14930c-423e-4296-b68d-5348f0e8b170` 的 objective 与 CHG-0042 落地的审计缺口驱动：objective 要求「否则**新建一张归属目标货主、跟随同司机**的单」，而 CHG-0042 建出来的新单是不带司机的待派单，货在司机车上、单不在他手上。）
+
+**改什么（后端 + Android）**：
+- `backend/app/commands/order.py`：新增常量 `DRIVER_HOLDING_STATUSES = (DISPATCHED, ACCEPTED)`（:420-423）；`TransferResult` 加两个字段 `followed_driver_name` / `follow_skipped_reason`（:441/:443）；转货函数里在**挡板之后、任何写之前**取意图（:798-804），行搬完 `db.flush() + db.expire(order, ["order_products"])`（:857-858）→ 源单该作废的作废（`cancel_pending`，:863-864）→ 源单预占对账（:868）→ **跟随派单**（:870-925：`db.get(User, follow_driver_id)`、三条前置、`assign_driver(...)`（:906）、`except ValueError` → `raise CommandError(409)`）→ `db.flush()`（:927）→ 目标单预占对账（:928，此时是复核、差额 0）→ 备注与审计（两行各带跟随事实）→ 发件箱 `orders.pending_pool_changed` + 三选一（跟上了 `orders.assigned` / 新建进池 `orders.created` / 并进既有单 `orders.edited`，:986-1006）。
+- 为什么不包 SAVEPOINT（失败即整笔失败）：`assign_driver` 在「这一单已经被派过了」那条路上自己 `db.rollback()`（`services/order_flow.py:171-173`），而 `Session.rollback()` 回滚的是**整笔事务**、存档点一起被放掉 —— 包 `with db.begin_nested():` 是假保险（真库探针实测：已搬好的行整段丢掉，库里却留下一句"新订单待派单"）；所以派不出去就抛 `CommandError(409)`「这笔转货没有完成（源单没动、货也没搬）」，没有 commit ⇒ 零副作用。另有 `db.flush()`（:927）**必须在目标单对账之前**：`autoflush=False` 下派单刚写的预占流水不落盘，SUM 出来是 0、复核会再写一整笔（探针实测该占 4 件被写成 8 件）。
+- 契约：`backend/app/schemas/order.py:347/:351` 两个可空字段、`backend/app/api/v1/orders_assignment.py:447/:448` 原样透出、`backend/app/commands/registry.py:166-172` events 五项（含 `orders.assigned`，`docs/DOMAIN_BOUNDARIES.md` 订单域本来就认领着它）、`Dtos.kt` 的 `OrderTransferResultDto` 加两个 `@SerialName`。
+- 界面：`ui/order/OrderTransferSheet.kt` 多一行只读「新单归谁跑」（跟原司机 <名字> / 进待派单池）+ Hint 一句静态规则；`ui/order/OrderDetailViewModel.kt` 的结果文案按两个字段拼一句。
+- 明确不做：不动状态机（命令层一句 `status =` 都没有）、不动钱（CHG-0042 的 MONEY_FIELDS 一条没碰）、不加待派单池卡片动作（入口仍只在订单详情页）、跟随失败不拦整笔转货。
+
+**状态**：进行中 —— 实现 / 判据 `_tools/qa/_check_transfer_follow.py`（**52/52 全绿**）/ 反向验证 `_tools/qa/_reverse_verify_transfer_follow.py`（**36/36 全被抓住**）/ 真库探针 `_tmp/_probe_chg0043_follow.py`（**94/94**，真库一个字节没动）/ Android 三处 / `docs/changes/CHG-0043.md` 已落盘 / 真机 emulator-5554 三场景已过（部分转货 + 跟随、整单转空 + 跟随、未派单显示「进待派单池」零写入）并已按 id 清理夹具；待跑：全量静检复跑、⑧⑨ 回填与提交。
 ### [2026-10-05 16:5x → 17:5x CST 已完成] 会话：**CHG-0042 派单期跨货主转货：一张单里的货可以拆给别人、也可以并到别人的单上（拆 / 并 / 整单转出）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（语音转写）**：「其实我说的编辑界面是**编辑这样子的订单详情界面**而不是你（另外）写了一个还有一个」；

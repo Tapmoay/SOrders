@@ -54,6 +54,7 @@ from app.services.driver_pay import money
 from app.services.inventory_service import resync_reservations
 from app.services.operation_log_service import write_log
 from app.services.order_flow import (
+    assign_driver,
     build_order_products,
     cancel_pending,
     ensure_order_date,
@@ -412,6 +413,15 @@ IN_TRAFFIC_STATUSES: tuple[OrderStatus, ...] = (
     OrderStatus.ACCEPTED,
 )
 
+#: 「货已经在这位司机手上」的两个状态（CHG-0043）：转货时按这一条决定新单跟不跟原司机。
+#: ⛔ 写成模块级常量而不是函数里的一次 `status in (...)`：`_check_order_transfer.py` 判据 2 用
+#:    「本函数里 `order.status in (` 恰好一处」来钉住那道**挡板**（它定义了 from_states 的补集），
+#:    函数体里再出现同形状的表达式，读者与判据都会分不清哪一处是挡板、哪一处只是读一眼状态。
+DRIVER_HOLDING_STATUSES: tuple[OrderStatus, ...] = (
+    OrderStatus.DISPATCHED,
+    OrderStatus.ACCEPTED,
+)
+
 
 @dataclass(frozen=True)
 class TransferResult:
@@ -427,6 +437,10 @@ class TransferResult:
     source_cancelled: bool
     #: 搬走的明细**行数**（不是件数：件数跨单位求和没有意义，只用于提示语）。
     moved_lines: int
+    #: 新开的那张单**跟上了源单的司机**时，这位司机的显示名字；没跟= None（CHG-0043）。
+    followed_driver_name: str | None = None
+    #: 本来要跟、但没跟成的原因（一句人话，给界面如实说）；没这个打算或已经跟上 = None。
+    follow_skipped_reason: str | None = None
 
 
 def _stamp() -> str:
@@ -777,6 +791,16 @@ def transfer_lines(
             "也可以只转一部分"
         )
 
+    # 源单是不是**已经派在某位司机手上**（CHG-0043）：是的话，这次转出去的货还在这位司机的车上 ——
+    # 换的是货主，不是这一趟活儿。新开的那张单要**跟着他派出去**，而不是回待派单池等派单员再派一次；
+    # 否则同一批货会裂成"一张单在司机手上、一张单在池子里"，司机那一侧的送货单也永远对不上。
+    # ⚠️ 必须在任何写之前取：整单转空那条路会把源单作废（cancel_pending），作废之后不能再指望读得到。
+    follow_driver_id = (
+        int(order.driver_id)
+        if order.driver_id is not None and order.status in DRIVER_HOLDING_STATUSES
+        else None
+    )
+
     shipper_id, temp_name, label = _resolve_target_shipper(db, target_shipper_id, temp_shipper_name)
     if shipper_id is not None and shipper_id == order.shipper_id:
         label = f"{label}（同货主并单）"
@@ -842,6 +866,65 @@ def transfer_lines(
     # 预占重算：源单还剩货（或被搬空但没有派过单）时各自对账一次。
     if not source_cancelled:
         _resync_stock_if_assigned(db, order, actor.id)
+
+    # ── 跟随原司机：新开的那张单直接派给源单的司机（CHG-0043）────────────────────────
+    # 什么时候跟：源单在司机手上（follow_driver_id）＋ 这次是**新开**的一张 ＋ 那张新单还没有司机。
+    #   · **并入**的那张单不跟：它本来就有自己的司机（`_find_merge_target` 只找"同一位司机、
+    #     或者一辆车都还没派的"单）；而"还没派"的那种不能替他做决定 —— 那上面还压着别的货，
+    #     派给谁得派单员说了算，转货这一下不该顺手替另一批货挑司机。
+    # 为什么必须等**行搬完**再派：预占是在派单那一刻按整张单的现状写的（`auto_stock_out` 按行写净额），
+    #   行没搬完就派，写出去的是搬之前的数；反之新单在派单前一条预占流水都没有，所以这里派完，
+    #   下面那句 `_resync_stock_if_assigned(target)` 对出来的差额是 0、写不出第二笔占用。
+    followed_name: str | None = None
+    follow_skipped: str | None = None
+    if follow_driver_id is not None and created and target.driver_id is None:
+        driver = db.get(User, follow_driver_id)
+        problem = ""
+        if driver is None:
+            problem = "原来那位司机的账号已经找不到了"
+        elif user_role_key(driver) != UserRole.DRIVER.value:
+            problem = "原来那位司机的账号已经不是司机了"
+        elif not driver.is_active:
+            problem = "原来那位司机已经停用（离职或被删除）"
+        if problem:
+            # 跟不上的时候**不拦这笔转货**：货主之间的事实已经成立（货搬过去了），
+            # 只把"这一单落在池子里等人派"如实带回去，由界面说清楚。
+            follow_skipped = f"{problem}，新单没有跟过去，已放进待派单池，请重新指派一位司机"
+        else:
+            # ⛔ 这里**故意不拿 SAVEPOINT 兜**（真库探针实测过的坑，2026-10-05）：
+            #    `assign_driver` 在"这一单刚刚被别人派走了"那条路上会自己 `db.rollback()`
+            #    （order_flow.py:171-173 那条 CAS 分支），而 SQLAlchemy 的 `Session.rollback()`
+            #    回滚的是**整笔事务** —— 连 `with db.begin_nested():` 建的那个存档点一起放掉，
+            #    并不是"退回到存档点"。包了存档点照样会把这笔转货**已经搬好的行**整段丢掉，
+            #    而函数还会接着往下写备注 / 写审计 / 发发件箱并 commit：库里留下一句
+            #    "新订单待派单"、那张单却根本不存在（探针 H 实测）。所以这里改成
+            #    **失败即整笔失败**：派不出去就抛 CommandError，没有 commit ⇒ 源单没动、
+            #    货也没搬，派单员重试即可 —— 宁可什么都没发生，也不许留下半笔账。
+            #    三种**可预期**的"跟不上"（账号找不到 / 已经不是司机 / 已停用）在上面就挡掉了，
+            #    走优雅降级那条路，不受这里影响。
+            try:
+                assign_driver(
+                    db,
+                    target,
+                    driver,
+                    actor,
+                    f"这一趟货本来就在这位司机手上（源单 {order.order_no}），转货后跟随原司机派单",
+                )
+            except ValueError as e:
+                raise CommandError(
+                    f"新单没能派给原司机（{e}）；这笔转货没有完成（源单没动、货也没搬），请重试",
+                    status_code=409,
+                ) from e
+            followed_name = _user_label(driver)
+
+    # 目标单的预占对账放在**派单之后**：跟着司机走的新单，它那笔预占正是 `assign_driver` →
+    # `auto_stock_out` 在派单那一刻按整张单写下的净额；这里再对一次账，差额应当是 0
+    # （对不上就补一笔，`resync_reservations` 自己的口径）。没派单的目标单在这道门上直接 return。
+    # ⛔ 对账前必须先 flush（会话是 autoflush=False，见 database.py:110）：`assign_driver` →
+    #    `auto_stock_out` 刚写下的那些 RESERVED 流水还在会话里没落盘，而 `resync_reservations`
+    #    是拿 SQL 现算"这一单已经占了多少"的 —— 不 flush 它算出来是 0，会照着 want 再写一整笔
+    #    （真库探针实测：新单该占 4 件，被写成 8 件）。
+    db.flush()
     _resync_stock_if_assigned(db, target, actor.id)
 
     # 内部备注写在**最后**（在 cancel_pending / resync 之后）：cancel_pending 里有 db.refresh(order)，
@@ -875,6 +958,10 @@ def transfer_lines(
             "target_shipper_id": shipper_id,
             "created_target": created,
             "source_cancelled": source_cancelled,
+            # 新开的那张单跟没跟上源单的司机（CHG-0043）：这是"这趟货归谁送"的事实，
+            # 与"货归谁"记在同一行审计里。
+            "followed_driver": followed_name,
+            "follow_skipped_reason": follow_skipped,
             "lines": moved_payload,
         },
     )
@@ -889,13 +976,25 @@ def transfer_lines(
             "source_order_no": order.order_no,
             "source_shipper": _shipper_label(db, order.shipper_id, order.temp_shipper_name),
             "source_shipper_id": order.shipper_id,
+            "followed_driver": followed_name,
+            "follow_skipped_reason": follow_skipped,
             "lines": moved_payload,
         },
     )
 
     # 发件箱：与业务写**同一个事务**（outbox.enqueue 自己不 commit，由本层最后 commit 一次）。
     outbox.enqueue(db, "orders.pending_pool_changed", {})
-    if created:
+    if followed_name is not None:
+        # 新单**已经跟着原司机派出去了**（CHG-0043）：对司机来说这是一张**新派单**，
+        # 走 orders.assigned（文案是"您有新的派单：SO…，请及时处理"）。
+        # ⛔ 不能图省事复用下面那个 orders.edited：它的文案是"订单信息有修改，出车前请核对一遍"，
+        #    对一个**从没见过这张单**的司机说这句，他会去找一张自己手上根本没有的单。
+        outbox.enqueue(
+            db, "orders.assigned", {"driver_id": int(target.driver_id), "order_id": int(target.id)}
+        )
+    elif created:
+        # 新开的单还在池子里等派单 —— 这才是 orders.created 那句"新订单待派单"说得通的情形。
+        # （跟着司机走了的单**不发**这一条：它不是待派单，派单员收到通知点进去只会扑空。）
         outbox.enqueue(db, "orders.created", {"order_id": int(target.id)})
     elif target.driver_id is not None:
         # 并进去的单已经派给某位司机了：他手上的送货单多了一项，得告诉他。
@@ -913,4 +1012,6 @@ def transfer_lines(
         created_target=created,
         source_cancelled=source_cancelled,
         moved_lines=len(moves),
+        followed_driver_name=followed_name,
+        follow_skipped_reason=follow_skipped,
     )

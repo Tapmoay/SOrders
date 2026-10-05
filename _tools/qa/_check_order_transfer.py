@@ -32,7 +32,7 @@ R4-BOUNDARY-JUSTIFICATION: 这一条**边界解决不了**。被查的形状全�
    from_states=在途三态、to_state 空串、事件与副作用与实现里真发的一致。
 2. 实现：挡板逐字挡掉三个终态、from_states 恰好是全集减它、锁早于第一处状态比较、整单搬空借 cancel_pending、
    已接单不许整单转空、不写 order.status、不碰钱、只 commit 一次、并单前给目标单加锁、
-   两行 ORDER_TRANSFER 审计、四个发件箱事件、预占各重算一次、
+   两行 ORDER_TRANSFER 审计、五个发件箱事件、预占各重算一次、
    且对账之前**先落盘 + 让明细集合失效**（autoflush=False 的会话读的是内存缓存）、
    内部备注写在 cancel_pending / 重算**之后**、_put_line 的调用与定义同口径。
 3. 端点：POST /orders/{id}/transfer、权限点 ORDER_DISPATCH（不新建）、CommandError 原样透出、
@@ -92,8 +92,14 @@ REQUIRED = [CMD, REG, API, ENUMS, COV, SCHEMA, MAP, SNAP, COVMD, APIS, DTO, REPO
 IN_TRAFFIC = ["PENDING_DISPATCH", "DISPATCHED", "ACCEPTED"]
 #: 挡板挡掉的三个终态。
 BLOCKED = ["DELIVERED", "CANCELLED", "RETURNED"]
-#: 实现里真发的四个事件（与注册表声明的逐字比）。
-FOUR_EVENTS = ["orders.created", "orders.edited", "orders.cancelled", "orders.pending_pool_changed"]
+#: 实现里真发的五个事件（与注册表声明的逐字比）。⚠️ 第五个 orders.assigned 是 CHG-0043 加的。
+OUTBOX_EVENTS = [
+    "orders.created",
+    "orders.edited",
+    "orders.cancelled",
+    "orders.assigned",
+    "orders.pending_pool_changed",
+]
 #: 转货不许碰的钱字段（一眼能看出「这一处有没有顺手抄一格」）。
 MONEY_FIELDS = ["payment_method", "arrears_unit", "collect_cash"]
 
@@ -150,13 +156,16 @@ def field(spec: str, key: str) -> str:
 
 
 def enqueued(src: str) -> set[str]:
-    """源码里真发出去的事件名（只认 outbox.enqueue(db, 后面那个字面量）。"""
-    out: set[str] = set()
-    for part in src.split("outbox.enqueue(db, ")[1:]:
-        p = part.lstrip()
-        if p.startswith(Q):
-            out.add(p[1:].split(Q)[0])
-    return out
+    """源码里真发出去的事件名（只认 outbox.enqueue 后面那个字面量）。
+
+    ⚠️ 必须**允许调用折行**：CHG-0043 的 orders.assigned 那一句是
+    `outbox.enqueue(\n    db, "orders.assigned", {…})` —— 按 \`"outbox.enqueue(db, "\` 切字符串
+    在折行时一条都认不出来，判据会误报「注册表声明了五个、代码只发了四个」。
+    """  # noqa: D301
+    return {
+        m.group(1)
+        for m in re.finditer(r"outbox\.enqueue\(\s*db\s*,\s*" + Q + r"([A-Za-z_.]+)" + Q, src)
+    }
 
 
 def enum_members(src: str, cls: str) -> list[str]:
@@ -245,7 +254,9 @@ def main() -> int:
     ok("能力点是 ORDER_EDIT（与 order.edit / order.split 同一颗，不新建权限点）", items(field(spec, "capabilities")) == ["ORDER_EDIT"], "capabilities=" + field(spec, "capabilities"))
     ok("from_states 逐字是「待派单 / 已派单 / 已接单」", items(field(spec, "from_states")) == IN_TRAFFIC, "from_states=" + field(spec, "from_states"))
     ok("to_state 是空串（转货本身不改源单的状态）", ("to_state=" + Q + Q) in spec)
-    ok("声明的四个事件与实现里真的 enqueue 的四个逐字一致", set(items(field(spec, "events"))) == enqueued(transfer) and len(enqueued(transfer)) == 4, "声明=" + str(sorted(items(field(spec, "events")))) + " 代码=" + str(sorted(enqueued(transfer))))
+    # ⚠️ 事件个数从 4 变 5 是 **CHG-0043** 改的（跟随原司机时多发一条 orders.assigned）：
+    #    数目刻意写死 —— 以后谁再加/减一条事件，必须回到这里把这两处一起改掉再看一眼。
+    ok("声明的五个事件与实现里真的 enqueue 的五个逐字一致", set(items(field(spec, "events"))) == enqueued(transfer) and len(enqueued(transfer)) == 5, "声明=" + str(sorted(items(field(spec, "events")))) + " 代码=" + str(sorted(enqueued(transfer))))
     ok("声明的副作用是 operation_logs + inventory_movements", items(field(spec, "effects")) == ["operation_logs", "inventory_movements"], "effects=" + field(spec, "effects"))
     ok("why 里点名「借 cancel_pending 作废」（读者要能一眼看出状态写入仍在 order_flow）", "cancel_pending" in spec and "order_flow" in spec)
 
@@ -297,7 +308,7 @@ def main() -> int:
     ok("两处内部备注写在最后（cancel_pending 里的 db.refresh 会把没落盘的备注整段丢掉）",
        0 <= i_cancel < i_note_src < i_note_dst < i_log,
        "作废=" + str(i_cancel) + " 源备注=" + str(i_note_src) + " 目标备注=" + str(i_note_dst) + " 审计=" + str(i_log))
-    ok("四个发件箱事件都真的发了（池子 / 新建 / 源单作废 / 司机在手上）", all((Q + e + Q) in transfer for e in FOUR_EVENTS))
+    ok("五个发件箱事件都真的发了（池子 / 建单或并单 / 源单作废 / 跟随派单）", all((Q + e + Q) in transfer for e in OUTBOX_EVENTS))
     ok("命令层只 commit 一次（业务写与发件箱同一个事务）", transfer.count("db.commit()") == 1, "commit=" + str(transfer.count("db.commit()")))
 
     # ── 3. 端点 ──────────────────────────────────────────────────────────

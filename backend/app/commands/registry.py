@@ -163,7 +163,13 @@ ORDER_COMMANDS: tuple[CommandSpec, ...] = (
         capabilities=("ORDER_EDIT",),
         from_states=("PENDING_DISPATCH", "DISPATCHED", "ACCEPTED"),
         to_state="",
-        events=("orders.created", "orders.edited", "orders.cancelled", "orders.pending_pool_changed"),
+        events=(
+            "orders.created",
+            "orders.edited",
+            "orders.cancelled",
+            "orders.assigned",
+            "orders.pending_pool_changed",
+        ),
         effects=("operation_logs", "inventory_movements"),
         why="派单期**跨货主转货**（CHG-0042）：把一张单里的货挪给另一个货主，或并进目标货主已在途的那张单。"
             "to_state 是空串，因为转货**不改源单的状态** —— 只在把源单的货**全部**搬空时才借 "

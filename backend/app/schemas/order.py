@@ -344,6 +344,14 @@ class OrderTransferOut(BaseModel):
     created_target: bool = Field(..., description="True = 给目标货主新开了一张单；False = 并进了既有的那张")
     source_cancelled: bool = Field(..., description="True = 源单的货被搬空，已按「撤销」作废")
     moved_lines: int = Field(..., description="搬走的明细行数（不是件数）")
+    followed_driver_name: str | None = Field(
+        None,
+        description="新开的那张单跟着源单的司机派了出去：这位司机的显示名字；没跟= null（CHG-0043）",
+    )
+    follow_skipped_reason: str | None = Field(
+        None,
+        description="本来要跟着原司机派、但没跟成的原因（一句人话）；没这个打算或已经跟上= null（CHG-0043）",
+    )
 
 
 class OrderFreightPriceBody(MoneyInput):

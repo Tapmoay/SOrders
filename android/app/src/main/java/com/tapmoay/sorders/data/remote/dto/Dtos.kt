@@ -1856,6 +1856,10 @@ data class OrderTransferRequest(
  *
  * [createdTarget] = 目标单是新建的（不是并进既有单）；
  * [sourceCancelled] = 源单的货被搬空了、已经按「撤销」作废（这一条必须让派单员看见）。
+ *
+ * [followedDriverName] / [followSkippedReason]（CHG-0043）：新开的那张单**跟没跟上源单的司机** ——
+ * 跟上了 = 这位司机的名字；本来要跟、但没跟成（司机离职 / 那一单刚被别人派走）= 原因一句话；
+ * 没这个打算（并进既有单、源单本来就没派司机）= 两个都是 null。
  */
 @Serializable
 data class OrderTransferResultDto(
@@ -1864,6 +1868,8 @@ data class OrderTransferResultDto(
     @SerialName("created_target") val createdTarget: Boolean = false,
     @SerialName("source_cancelled") val sourceCancelled: Boolean = false,
     @SerialName("moved_lines") val movedLines: Int = 0,
+    @SerialName("followed_driver_name") val followedDriverName: String? = null,
+    @SerialName("follow_skipped_reason") val followSkippedReason: String? = null,
 )
 
 @Serializable

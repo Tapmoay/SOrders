@@ -89,9 +89,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         '声明里漏掉「源单被搬空」那个事件：发件箱照样发，注册表从此少说一件事（下游按注册表对账就会漏掉这一路）',
         'backend/app/commands/registry.py',
-        'events=("orders.created", "orders.edited", "orders.cancelled", "orders.pending_pool_changed"),',
-        'events=("orders.created", "orders.edited", "orders.pending_pool_changed"),',
-        '声明的四个事件与实现里真的 enqueue 的四个逐字一致',
+        'events=(\n            "orders.created",\n            "orders.edited",\n            "orders.cancelled",\n            "orders.assigned",\n            "orders.pending_pool_changed",\n        ),',
+        'events=(\n            "orders.created",\n            "orders.edited",\n            "orders.assigned",\n            "orders.pending_pool_changed",\n        ),',
+        '声明的五个事件与实现里真的 enqueue 的五个逐字一致',
     ),
     (
         '挡板少列一个终态（把「已退货」放进来）：退过货的单还能再转一次，那些货已经退回去了，两边账都会多出一批不存在的货',

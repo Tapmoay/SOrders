@@ -444,6 +444,8 @@ def transfer_order_lines_endpoint(
         created_target=result.created_target,
         source_cancelled=result.source_cancelled,
         moved_lines=result.moved_lines,
+        followed_driver_name=result.followed_driver_name,
+        follow_skipped_reason=result.follow_skipped_reason,
     )
 
 @router.post("/{order_id}/freight", response_model=OrderOut)

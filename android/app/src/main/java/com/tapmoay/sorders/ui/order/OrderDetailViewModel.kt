@@ -276,10 +276,17 @@ class OrderDetailViewModel(
             ?: r.order.tempShipperName?.takeIf { it.isNotBlank() }
             ?: "目标货主"
         val head = "已把 " + r.movedLines + " 行货转给「" + who + "」"
+        // 新单跟没跟上原来那位司机（CHG-0043）：跟上了点名司机；没跟上把原因原样说出来
+        // （⛔ 不许吞掉 —— 单子这时候躺在待派单池里等人派，不说清楚就会以为什么都没发生）。
+        val follow = when {
+            r.followedDriverName != null -> "，新单已派给原司机 " + r.followedDriverName
+            r.followSkippedReason != null -> "，" + r.followSkippedReason
+            else -> ""
+        }
         return when {
-            r.sourceCancelled -> head + "，源单已撤销（货全转走了）"
-            r.createdTarget -> head + "，开了一张新单 " + r.order.orderNo
-            else -> head + "，并进了 " + r.order.orderNo + "（他本来在途的那张）"
+            r.sourceCancelled -> head + "，源单已撤销（货全转走了）" + follow
+            r.createdTarget -> head + "，开了一张新单 " + r.order.orderNo + follow
+            else -> head + "，并进了 " + r.order.orderNo + "（他本来在途的那张）" + follow
         }
     }
 
