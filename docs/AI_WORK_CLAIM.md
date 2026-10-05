@@ -31,7 +31,7 @@
 
 ## 进行中
 
-### [2026-10-05 18:1x → 19:xx CST 进行中] 会话：**CHG-0043 转货跟司机：新开的那张单直接派给原来那位司机**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+### [2026-10-05 18:1x → 19:xx CST 已完成] 会话：**CHG-0043 转货跟司机：新开的那张单直接派给原来那位司机**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话**：（本轮没有新的用户原话 —— 由 goal `goal-ea14930c-423e-4296-b68d-5348f0e8b170` 的 objective 与 CHG-0042 落地的审计缺口驱动：objective 要求「否则**新建一张归属目标货主、跟随同司机**的单」，而 CHG-0042 建出来的新单是不带司机的待派单，货在司机车上、单不在他手上。）
 
@@ -42,7 +42,10 @@
 - 界面：`ui/order/OrderTransferSheet.kt` 多一行只读「新单归谁跑」（跟原司机 <名字> / 进待派单池）+ Hint 一句静态规则；`ui/order/OrderDetailViewModel.kt` 的结果文案按两个字段拼一句。
 - 明确不做：不动状态机（命令层一句 `status =` 都没有）、不动钱（CHG-0042 的 MONEY_FIELDS 一条没碰）、不加待派单池卡片动作（入口仍只在订单详情页）、跟随失败不拦整笔转货。
 
-**状态**：进行中 —— 实现 / 判据 `_tools/qa/_check_transfer_follow.py`（**52/52 全绿**）/ 反向验证 `_tools/qa/_reverse_verify_transfer_follow.py`（**36/36 全被抓住**）/ 真库探针 `_tmp/_probe_chg0043_follow.py`（**94/94**，真库一个字节没动）/ Android 三处 / `docs/changes/CHG-0043.md` 已落盘 / 真机 emulator-5554 三场景已过（部分转货 + 跟随、整单转空 + 跟随、未派单显示「进待派单池」零写入）并已按 id 清理夹具；待跑：全量静检复跑、⑧⑨ 回填与提交。
+- 状态：**已关闭**。判据 `_tools/qa/_check_transfer_follow.py` **52/52**、反验 `_tools/qa/_reverse_verify_transfer_follow.py` **36/36**（按字节还原）、真库探针 `_tmp/_probe_chg0043_follow.py` **94/94**（`backend/sorders.db` 字节副本上跑产品代码：订单 602→615、审计 2057→2081）；CHG-0042 回归 `_check_order_transfer.py` **64/64** ＋ `_reverse_verify_order_transfer.py` **33/33**；全量静检 **180/180**（`CHECKALL=0`，日志 `_tmp/checkall_chg0043_final.log`）；`check_reachability.py` 可达文档 **160/160**、无孤儿。
+- 真机 5554（截图 `_tmp/chg0043_e2e/01_sheet_follow.png` ~ `04_all_out_banner.png`、真库对账 `verify.json` / `verify_allout.json`）：场景一「部分转货 4+2」——源单 604 → 新单 605（货主 旺客来烧腊饭店、`driver_id=3`、**DISPATCHED**、`reserved={3:-4, 6:-2}`、发件箱 `orders.assigned`、内部备注点名源单号），横幅「已把 2 行货转给「旺客来烧腊饭店」，开了一张新单 SO…，新单已派给原司机 Driver」；场景二「整单转空」——源单 **CANCELLED**、预占 `{}`、发件箱 `orders.cancelled`，新单行 10+6、预占 `{3:-10, 6:-6}`、DISPATCHED，横幅「…源单已撤销（货全转走了），新单已派给原司机 Driver」；场景三「源单还没派单」——抽屉显示 **`进待派单池`**，点取消后订单数不变（零写入）。⛔ 第一次端到端**无效**：8000 上跑的是陈旧进程（`/openapi.json` 里查不到两个新字段），重启后重跑才作数。夹具已按 id 精确清理回 **603 单 / 2058 审计 / 最大发件箱 862**。
+- 收尾清掉本轮新引入的 9 条静检红：三份生成物重跑（`docs/ai/ai_read_catalog.json` / `08A_ENDPOINT_INDEX.md` / `09A_HINT_CATALOG.md`）、`CHG-0043.md` 补 ID 元数据头、**判据自己的真 bug**（`_check_order_transfer.py` 的 `enqueued()` 只认单行 `outbox.enqueue(db, ` 调用，而 `orders.assigned` 是折行写法 ⇒ 干净代码上误报红；`FOUR_EVENTS` 一并更名 `OUTBOX_EVENTS`）、反验锚点随 `registry.py` 五事件改写、后端陈旧重启（`_check_backend_fresh`）。
+- 实现提交 `39769d6`。
 ### [2026-10-05 16:5x → 17:5x CST 已完成] 会话：**CHG-0042 派单期跨货主转货：一张单里的货可以拆给别人、也可以并到别人的单上（拆 / 并 / 整单转出）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话（语音转写）**：「其实我说的编辑界面是**编辑这样子的订单详情界面**而不是你（另外）写了一个还有一个」；
