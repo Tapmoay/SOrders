@@ -5741,7 +5741,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`ad470a9`（本事项只动两个 `ui/driver` 文件 + 两份 QA 脚本 + 三份文档 + 一条 ALLOW 追加 + 一份生成物重生成）。
 
-### [2026-10-06 03:0x → 进行中] 会话：**BUG-0015 订单详情「下单人」那行被 `weight(1f)` 顶到最右：中间的空隙"有时候有有时候又没有"，与「收货人」那行不对齐**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-06 03:0x → 03:2x CST 已完成] 会话：**BUG-0015 订单详情「下单人」那行被 `weight(1f)` 顶到最右：中间的空隙"有时候有有时候又没有"，与「收货人」那行不对齐**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 第 **L-02** 条（原文 m00061：「它那个中间为什么老是出现一些空格啊？**有时候有有时候又没有**，就是下单人和后面的那些显示的信息中间出现了空格，跟上面的又不做一个对齐，非常怪」，附 445×990 截图，红框就是这两行）—— 台账 L-01…L-32 逐条落地的**第二条**。
 
@@ -5755,7 +5755,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **静检**：`python _tools/qa/_check_all.py` → **181 项：179 ✅ / 2 ❌**（日志 `_tmp/checkall_bug0015b.log`）：①`_check_backend_fresh.py` 报「本机后端跑的是旧代码（PID 30144 于 2026-10-05 18:58:26 启动，源码 2026-10-06 03:07:54 还被改过）」—— **跑过反向验证套件后必然报的假红**（注入再还原会把文件 mtime 全部刷新，而 `git status` 里 `backend/` 一个 ` M` 都没有 ⇒ 内容一字未变）；②`_check_report_facts.py` 报 `docs/RELEASE_CANDIDATE.md` 缺 `VERSION 0.2.5`（另一个会话在做发布，` M VERSION` 在开会话前就在）。**两条都与本事项无关**。另：`python backend/scripts/check_reachability.py` → **可达文档 162/162**、markdown 链接全有效、无孤儿（exit 0）。⚠️ 顺带补掉 L-01 的一条尾巴：`_tools/qa/_check_driver_tab_highlight.py` 缺 `R4-BOUNDARY-JUSTIFICATION:` 声明（R3-D17 `checker_budget` 只在**提交之后**才看得见新检查器，工作区里跑全量静检时是绿的）—— 已按 `_check_text_truncation.py` 等既有先例补写「为什么代码边界解决不了这件事」，判据本体一字未动（仍 17/17），`_check_r3_constraints.py` 复跑 **8 组全绿**。
 
-**实现提交**：⏳（归档时回填）
+**实现提交**：`eaba334`（本事项只动一个源文件 `ui/order/OrderDetailScreen.kt` + 两份既有 QA 脚本的追加 + L-01 那条检查器声明 + 一份生成物重生成 + 三份文档）。
 
 ---
 
