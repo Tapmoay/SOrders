@@ -338,6 +338,8 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onOpenForm = { pid -> navController.navigate(Routes.productForm(pid)) },
                 // 底栏第三格「批量操作」（2026-09-21，用户点名要的三格之一）
                 onOpenBatch = { navController.navigate(Routes.PRODUCT_BATCH) },
+                // 单位换算（一车 = 8 方）· 2026-10-05 CHG-0038：入口从工作台那一格搬到商品管理顶栏。
+                onOpenUnitConversions = { navController.navigate(Routes.UNIT_CONVERSIONS) },
                 // 顶栏右上角「排序」→ 商品排序页（用户：「那个排序你没加啊」）
                 onOpenSort = { navController.navigate(Routes.PRODUCT_SORT) },
             )

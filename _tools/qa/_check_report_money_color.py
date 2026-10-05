@@ -28,6 +28,14 @@
 ⛔ 已知盲区：这里只判「源码怎么写的」，判不了「用户在屏幕上看到的确实是红」—— 那一步靠模拟器
 截图（CHG-0037.md ⑧ 的三张）；颜色够不够红（对比度）也不在这里判。
 
+R4-BOUNDARY-JUSTIFICATION: 这一条**没法用边界消除** —— 「这个数该画什么颜色」不是类型属性：
+正数 53.48 与负数 -127.49 走的是同一路 `Double` / `String`，同一个 `Tone` 枚举同时装得下红与橙，
+把 `amountTone` 的负数分支写回 `Tone.WARN` 既不会编译失败、也不会让任何单测或接口契约翻红；
+而且它**有两份实现**（v2 的 `amountTone` 与老报表页那几处 `if (x >= 0) 绿 else 红`），
+用户看得见的正是这两份画出来的结果。所以只能扫「判负那一句到底写成什么色」
+（`Tone.BAD` / `#E53935` 还是 `Tone.WARN` / `#00B578`），并把「结构减号行不许被连坐」
+按清单挡住。反向破坏用例见 `_tools/qa/_reverse_verify_report_money_color.py`（14 条注入）。
+
 用法：python _tools/qa/_check_report_money_color.py
 """
 from __future__ import annotations

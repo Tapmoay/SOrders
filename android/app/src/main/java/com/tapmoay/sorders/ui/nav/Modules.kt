@@ -20,7 +20,6 @@ import com.tapmoay.sorders.ui.theme.NavBlue
 import com.tapmoay.sorders.ui.theme.ProductPurple
 import com.tapmoay.sorders.ui.theme.ReportIndigo
 import com.tapmoay.sorders.ui.theme.ShipperTeal
-import com.tapmoay.sorders.ui.theme.UnitConvRose
 
 /**
  * 工作台图标入口：**一格 = 一个页面**（`route` 即导航路由）。
@@ -105,11 +104,11 @@ object Modules {
         ModuleEntry("采购单", Routes.PURCHASE_ORDERS, Icons.Default.ShoppingCart, color = 0xFF4CAF50L),                 // 绿 · 进货入库（保存同时改库存/成本价/供应商欠款）
         ModuleEntry("发票台账", Routes.INVOICES, Icons.Default.Receipt, color = 0xFFC08A4EL),                          // 焦糖棕 · 税账（原 #795548 太深、被宫格亮度带判据否过；票面金额直接进税汇，写要 ledger:edit）
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
-        // 单位换算（2026-09-24 用户要求：「一车是等于 8 方」）。
-        // 紧挨着商品/库存两格：它管的是"这件货怎么计量"，与那两块是同一族的事。
-        // ⚠️ 用户点名要的按钮在「请选择单位」页里（派单员从商品编辑才到得了），
-        //    所以另开这一格 —— 货主也要能自己设（他原话：「我们的货主和派单员，他可以自动的设置单位」）。
-        ModuleEntry("单位换算", Routes.UNIT_CONVERSIONS, Icons.Default.SwapHoriz, color = UnitConvRose),                // 洋红紫 · 一车=8方
+        // ⛔ 这里**没有**「单位换算」那一格（2026-10-05 CHG-0038）：用户原话「把这个**单位换算
+        //    移到商品管理的那里**」—— 他在商品管理顶栏右上角、紧挨着「排序」的位置画了红框。
+        //    ⚠️ 搬的是**入口**，不是功能：那一页、路由 `Routes.UNIT_CONVERSIONS`、商品编辑 →
+        //    「请选择单位」里的「添加单位换算」都照旧；入口长在 `ProductsScreen` 的顶栏
+        //    （`onOpenUnitConversions`）上。
         // 「账本管理」**回到工作台网格**（用户 2026-09-20 第二轮：那张卡片被推翻，工作台改回原来的样式）。
         // 这一格点进去是**入口页**（`LedgerHomeScreen`，报表中心那种形式），里面 6 件事：
         // 司机账（已并入司机结算）/ 订单账 / 货主账 / 批发商账 / 客户收款 / 开销管理。
@@ -261,8 +260,10 @@ object Modules {
         // ⛔ 单位换算**已从货主/批发商的工作台移除**（CHG-0001，用户 2026-09-27）：
         //    原话「我们还要改的就是货主也就是批发商和货主啊，他那个**单位换算是不需要有的**，
         //    也不要有啊」。⛔ 这不是"藏起来"：那一格本来就在工作台网格里，删掉它 = 他看不到这个入口。
-        // ⚠️ 派单员那一侧**保留**（`dispatcherEntries` 里还有一格），
-        //    商品编辑 →「请选择单位」页里的「添加单位换算」按钮也**照旧**（那是另一条路，用户没点名它）。
+        // ⚠️ 派单员那一侧**也搬走了**（2026-10-05 CHG-0038）：用户原话「把这个单位换算**移到商品管理
+        //    的那里**」—— 工作台那一格删掉，入口挪进商品管理顶栏（`ProductsScreen` 的
+        //    `onOpenUnitConversions`，就在「排序」左边，正是他画红框的地方）。
+        //    商品编辑 →「请选择单位」页里的「添加单位换算」按钮**照旧**（那是另一条路，用户没点名它）。
         // ⚠️ 路由 `Routes.UNIT_CONVERSIONS` 与那一页**都还在** —— 删入口不等于删功能。
         // AI 助手放**最后一格**（用户 2026-09-15 明确要求：不要第一个）。
         // 理由站得住：这一排前 5 格是"货主日常办的事"（看单/下单/地址/账本/消息），
@@ -333,7 +334,9 @@ object Modules {
         Routes.PURCHASE_ORDERS to "product:manage",
         // 发票台账一格挂写侧能力：票面金额直接进税汇，能改账本的人才登记得了票（与 `invoices.py` 的 LEDGER_EDIT 对齐）
         Routes.INVOICES to "ledger:edit",
-        Routes.UNIT_CONVERSIONS to "unit_conversion:manage",
+        // ⛔ 这里没有 `Routes.UNIT_CONVERSIONS`（2026-10-05 CHG-0038）：那一格已从工作台搬进
+        //    商品管理顶栏。本表只登记**工作台那一格**挂的能力 —— 留着这一行会被
+        //    `_check_capability_unification.py` 读成"入口表里有已经不存在的路由（化石）"。
         Routes.LEDGER_HOME to "ledger:edit",
         Routes.DISPATCH_VEHICLES to "vehicle:manage",
         Routes.FREIGHT_TEMPLATES to "order:dispatch",

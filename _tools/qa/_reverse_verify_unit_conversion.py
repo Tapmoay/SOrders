@@ -44,6 +44,8 @@ CARD = f"{AND}/ui/common/OrderCard.kt"
 PEEK = f"{AND}/ui/common/OrderPeek.kt"
 REALTIME = f"{AND}/core/RealtimeHub.kt"
 REPORT = f"{AND}/ui/dispatcher/ReportCenter.kt"
+PRODUCTS = f"{AND}/ui/dispatcher/ProductsScreen.kt"
+MODULES = f"{AND}/ui/nav/Modules.kt"
 TEST = "android/app/src/test/java/com/tapmoay/sorders/ui/common/UnitConversionDisplayTest.kt"
 
 #: (说明, 相对路径, 替换函数, 期望在输出里出现的关键词 —— 空串 = 只要非零退出)
@@ -198,6 +200,23 @@ CASES: list[tuple[str, str, object, str]] = [
         lambda s: s.replace('REVERSE = "_tools/qa/_reverse_verify_unit_conversion.py"',
                             'REVERSE = "_tools/qa/_reverse_verify_unit_conversion_gone.py"', 1),
         "反向验证",
+    ),
+    (
+        "㉒ 商品管理顶栏那颗「单位换算」按钮被删（用户画红框的位置，功能从界面上消失）",
+        PRODUCTS,
+        lambda s: s.replace('Text("单位换算")', 'Text("单位")', 1),
+        "单位换算",
+    ),
+    (
+        "㉓ 工作台那一格又长回来（用户要的是搬走，不是两处都有）",
+        MODULES,
+        lambda s: s.replace(
+            '        // 「账本管理」**回到工作台网格**',
+            '        ModuleEntry("单位换算", Routes.UNIT_CONVERSIONS, Icons.Default.SwapHoriz, color = UnitConvRose),\n'
+            '        // 「账本管理」**回到工作台网格**',
+            1,
+        ),
+        "工作台",
     ),
 ]
 

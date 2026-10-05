@@ -38,6 +38,13 @@ fun ProductsScreen(
     onOpenCategories: () -> Unit = {},
     /** 打开「批量操作」页（底栏第三格）。 */
     onOpenBatch: () -> Unit = {},
+    /**
+     * 打开**单位换算**页（`Routes.UNIT_CONVERSIONS`）：顶栏右上角、紧挨着「排序」的左边。
+     *
+     * 2026-10-05（CHG-0038）用户要求：「把这个**单位换算移到商品管理的那里**」——
+     * 他画的红框就在这条顶栏上。工作台那一格同步删掉了（**搬入口**，不是加第二个入口）。
+     */
+    onOpenUnitConversions: () -> Unit = {},
     /** 打开「商品排序」页（顶栏右上角；用户 2026-09-21：「那个排序你没加啊」）。 */
     onOpenSort: () -> Unit = {},
     /**
@@ -98,7 +105,16 @@ fun ProductsScreen(
                 // ✅ 2026-09-21 顶栏**重新有了一个按钮**：「排序」——
                 //    它与底栏那三个不是一类：那三个是"日常增改"，排序是"偶尔调一次次序"，
                 //    而且它有自己的一整页（`Routes.PRODUCT_SORT`）。放顶栏不会与底栏抢位置。
+                // ✅ 2026-10-05（CHG-0038）顶栏**又加了一颗**「单位换算」：用户要求把它从工作台
+                //    「**移到商品管理的那里**」—— 红框就画在这一行上、紧挨着「排序」的地方。
                 actions = {
+                    // 单位换算（一车 = 8 方）—— 与「排序」同类：都是"偶尔调一次"的设置项，
+                    // 各自有一整页（`Routes.UNIT_CONVERSIONS` / `Routes.PRODUCT_SORT`）。
+                    TextButton(onClick = onOpenUnitConversions) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("单位换算")
+                    }
                     TextButton(onClick = onOpenSort) {
                         Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))

@@ -52,7 +52,8 @@ FUNNEL = ("formatMoney(", "trimMoneyZeros(", "centsToMoney(", "money(", "moneyTe
 NOT_MONEY: list[tuple[str, str]] = [
     ('prefix: String = "¥"', "共用组件 `MoneyText` 的默认前缀 —— 它自己那一行就把值过了 `formatMoney`"),
     ('"一车运费 ¥（可后补）"', "输入框的提示语，¥ 后面没有数字（值由用户自己填）"),
-    ('"这一单的钱 ¥"', "同上：派单弹层里的提示语"),
+    # ('"这一单的钱 ¥"', "同上：派单弹层里的提示语"),   ← 2026-10-05 CHG-0038 删掉了那个框，
+    # 键命中不到任何真实文本 ⇒ 放行表的化石规则当场报红，整条撤掉（不是挪到别处）。
     ('placeholder = "每单 ¥"', "同上：提示语"),
     ('placeholder = "运费 ¥"', "同上：提示语"),
     ('"¥（选填，留空记 0）"', "同上：提示语"),

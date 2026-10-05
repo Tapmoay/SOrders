@@ -31,7 +31,8 @@
    ㉓ 谁都能再写一份 `driverKindLabel`；
    ㉔ `driverKindLabel` 本体改名 / ㉕㉖㉗ 三种车型的名字被改错；
    ㉘ 出处那句「手边是个位置」被删；
-   ㉙ 登记表那一行被删 / ㉚ 声明块标题被改 / ㉛ 文档少一节 / ㉜ 反验脚本自己不在。
+   ㉙ 登记表那一行被删 / ㉚ 声明块标题被改 / ㉛ 文档少一节 / ㉜ 反验脚本自己不在；
+   ㉝ 主框退回居中弹窗 / ㉞ 逐单覆盖块长回来 / ㉟ 选司机退回下拉框（2026-10-05 CHG-0038 的那一层形态）。
 
 ⚠️ 被硬中断（Ctrl+C / 断电）会留下注入的 bug：跑
 `python _tools/qa/_check_reverse_verify_anchors.py --restore` 按注入串还原，⛔ 别改锚点。
@@ -82,8 +83,8 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "① 标签写死回「大车司机 / 挂车司机」（挑中小车司机王强，输入框上方还写着大车司机）",
         DIALOG,
-        'label = { Text(driverKindLabel(vm.selectedDriver?.vehicleType ?: pick.ifBlank { null })) },',
-        'label = { Text(if (pick == "trailer") "挂车司机" else "大车司机") },',
+        'label = driverKindLabel(vm.selectedDriver?.vehicleType ?: pick.ifBlank { null }),',
+        'label = if (pick == "trailer") "挂车司机" else "大车司机",',
         "标签经唯一一份 driverKindLabel",
     ),
     (
@@ -96,10 +97,10 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "③ 页签写死两档（名册里只有挂车司机时，第一页还是空白的大车档）",
         DIALOG,
-        '                        val kindOrder = listOf("small", "large", "trailer")\n'
-        '                        val kinds = kindOrder.filter { k -> vm.drivers.any { (it.vehicleType ?: "") == k } } +\n'
-        '                            if (vm.drivers.any { (it.vehicleType ?: "") !in kindOrder }) listOf("") else emptyList()',
-        '                        val kinds = listOf("large", "trailer")',
+        'val kindOrder = listOf("small", "large", "trailer")\n'
+        '        val kinds = kindOrder.filter { k -> vm.drivers.any { (it.vehicleType ?: "") == k } } +\n'
+        '            if (vm.drivers.any { (it.vehicleType ?: "") !in kindOrder }) listOf("") else emptyList()',
+        'val kinds = listOf("large", "trailer")',
         "档位是数据驱动的",
     ),
     (
@@ -318,6 +319,28 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "REVERSE = ROOT / '_tools/qa/_reverse_verify_assign_entry.py'",
         "REVERSE = ROOT / '_tools/qa/_reverse_verify_assign_entry_x.py'",
         "配套反向验证脚本在",
+    ),
+    (
+        "㉝ 主框退回居中弹窗（用户要的底部抽屉没了）",
+        DIALOG,
+        'ModalBottomSheet(',
+        'AlertDialog(',
+        "主框已经是底部抽屉",
+    ),
+    (
+        "㉞ 「这一单单独定」那块长回来（逐单覆盖又回到界面上）",
+        DIALOG,
+        '                        FormErrorLine(vm.error)',
+        '                        Text("这一单单独定（不填就按他的规则算）")\n'
+        '                        FormErrorLine(vm.error)',
+        "「这一单单独定」整块已经不在界面上",
+    ),
+    (
+        "㉟ 选司机退回下拉框（司机多了又得在一条竖列里翻）",
+        DIALOG,
+        'PersonTriggerRow(',
+        'ExposedDropdownMenuBox(',
+        "选司机不再用下拉框",
     ),
 ]
 

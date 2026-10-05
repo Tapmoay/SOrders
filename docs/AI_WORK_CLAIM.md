@@ -31,6 +31,21 @@
 
 ## 进行中
 
+### [2026-10-05 03:5x UTC 进行中] 会话：**CHG-0038 派单那一层改形态 + 「单位换算」入口搬进商品管理顶栏**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
+
+**用户原话（四张截图一起发来）**：「把这个**单位换算移到商品管理的那里**，我画了红色框的」「这个派单的界面改一下啊，有点丑啊。**颜色不要改**。这种淡蓝色啊，改成那种啊**淡白色**吧，**像那种纸质书的感觉**」「什么运费啊啊，这个**模板可以保留**…像什么**这一单决定多少钱提成多少这个不要管**，我们以后直接在那个订单里去给他订了」「**选择司机列表的时候搞一个左侧抽屉吧**…不然司机多了就不好搞…他直接拉起分类，像商品那样拉起一些分类列表」「**不要搞弹窗了，直接也搞个底部抽屉吧**，拉的比较上面一点**拉高一点**」。
+
+**改什么**：
+- 入口搬家（3 个产品文件）：`android/app/src/main/java/com/tapmoay/sorders/ui/nav/Modules.kt` 删掉工作台那一格 `ModuleEntry("单位换算", …)`（连带 `UnitConvRose` import 与 `ENTRY_CAPABILITY` 里那一行）；`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt` 顶栏在「排序」左边新增 `onOpenUnitConversions` 那颗 `Text("单位换算")`；`android/app/src/main/java/com/tapmoay/sorders/ui/nav/NavGraph.kt` 把它接到 `Routes.UNIT_CONVERSIONS`（⛔ 路由本身一字不改）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/AssignDriverDialog.kt`（272 → 320 行）：主框 `AlertDialog` → `ModalBottomSheet(skipPartiallyExpanded = true)`（内容 `fillMaxHeight() + verticalScroll`；⛔ 不传 `containerColor` —— 全 App 19 个抽屉的底由 `ui/theme/Color.kt` 的 `SheetSurface` 一处说了算）；两处淡蓝归零（选中档 `primary.copy(alpha = 0.14f)` 与未选中档 `surfaceVariant #ECEFF5`）；选司机 `ExposedDropdownMenuBox` → `PersonTriggerRow` 入口 + 左侧 `ModalNavigationDrawer`（左栏 `MasterRail` 车型档位 / 右栏 `PersonDrawer` 名单，走 `core/UserSearch` 搜名字与手机号）；删掉「这一单单独定（这一单的钱 ¥ / 提成 %）」整块；运费模板 `AlertDialog` 原样保留（入口改成运费组里一行 `FormRow("运费模板")`）。
+- 配套：`_tools/ai/_app_feature_coverage.py`（「单位换算」并进「商品管理」那一组）、`_tools/ai/_gen_ai_toolmap.py`、`_tools/qa/_check_unit_conversion.py`（入口那两条换锚点）、`_tools/qa/_check_assign_entry.py`（新增「2b. 形态」9 项）、两份 `_reverse_verify_*.py` 各补注入、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`。
+
+**明确不碰**：后端任何文件、schema、接口 / DTO / 路由 / 权限、数字与口径；运费模板子弹窗（含 `"¥" + formatMoney(t.fee)`）；P8 两条行为（档位按 `vehicleType` 真值分、标签跟选中的人走）；`FormErrorLine(vm.error)`；VM 字段 `assignPieceAmount` / `assignCommissionRate` 与 `confirmAssign` 拼参（只删界面，不删能力）；全 App 抽屉底色。
+
+**判据 / 证据**：`_check_unit_conversion.py` 63 项（含「工作台已经没有那一格」+「商品管理顶栏那颗按钮接上了路由」）、`_check_assign_entry.py` 46 项、`_check_sheet_form_pages.py` 70/70、`_check_input_rules.py` 178 框、`_check_form_panel_style.py` 38/0、`_app_feature_coverage.py --check` COV=0、`_check_capability_unification.py` CAP=0；反向验证 `_reverse_verify_unit_conversion.py` 23/23、`_reverse_verify_assign_entry.py` 35/35（新增 ㉝ 主框退回居中弹窗 / ㉞ 逐单覆盖块长回来 / ㉟ 选司机退回下拉框）；`gradle -p android :app:assembleEmuDebug` BUILD SUCCESSFUL + 装模拟器 5554；实机九张截图 + 取色（`_tmp/probe_chg0038.txt`：旧淡蓝 `#ECEFF5` 命中 **0 像素**、抽屉底 `#F0F0F0`、白卡 `#FFFFFF`）。
+
+**做完的样子 / 静检**：待收尾回填（`docs/changes/CHG-0038.md` 已写，⑦⑧⑨ 与实现提交待回填）。
+
 ### [2026-10-05 03:0x UTC → 03:2x UTC 已完成] 会话：**CHG-0037 报表中心金额配色改口径（带负号 ⇒ 红）**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户口径（原话，取代 CHG-0036 的红规则）**：「如果是负的钱的话，就是欠钱，只要是带负号的都是用红色的，其他的用其他颜色或者黑色都没关系」「也就是那些金钱显示啊」。

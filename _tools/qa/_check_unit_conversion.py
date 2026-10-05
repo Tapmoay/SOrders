@@ -27,7 +27,8 @@
    且**量列宽与渲染同源**（不同源 = 右对齐当场错位）；
 4. **钱一个字节都不参与**：显示判据的函数体里不许出现价格/金额；
 5. **一份来源**：全 App 的换算表只有 `UnitConv` 一个持有者；
-6. **两处入口一份弹窗**（`UnitConversionDialog` 只定义一次）、删除有手边的恢复入口、
+6. **入口在商品管理顶栏**（`UnitConversionDialog` 只定义一次；⛔ 工作台那一格从 2026-10-05
+   CHG-0038 起**不存在**了 —— 用户要求把它搬到商品管理顶栏）、删除有手边的恢复入口、
    审计码有中文名、单测/文档/反向验证都在。
 
 用法：python _tools/qa/_check_unit_conversion.py
@@ -67,6 +68,8 @@ PEEK = AND / "ui/common/OrderPeek.kt"
 DETAIL = AND / "ui/order/OrderDetailScreen.kt"
 CREATE = AND / "ui/shipper/OrderCreateScreen.kt"
 REPORT = AND / "ui/dispatcher/ReportCenter.kt"
+PRODUCTS = AND / "ui/dispatcher/ProductsScreen.kt"
+NAV = AND / "ui/nav/NavGraph.kt"
 
 TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/common/UnitConversionDisplayTest.kt"
 BE_TEST = ROOT / "backend/tests/test_unit_conversions.py"
@@ -327,7 +330,7 @@ def main() -> int:
         "RealtimeHub 里没有 clear —— 换账号会看到别人的换算",
     )
 
-    # ---- 7. 两处入口、一份弹窗 ----
+    # ---- 7. 入口（商品管理顶栏 + 请选择单位页）、一份弹窗 ----
     dialog_defs = [p.relative_to(AND).as_posix() for p in ui_files if count(r"fun UnitConversionDialog\(", code(p))]
     c.ok(
         "「添加单位换算」弹窗只有一处定义",
@@ -346,14 +349,25 @@ def main() -> int:
         "UnitConversionDialog(" in code(PAGE) and "UnitConversionDialog(" in code(FORM_SCREEN),
         "有一处自己又画了一个弹窗",
     )
-    # ⚠️ 这条判据被**用户推翻过一次**（2026-09-27 CHG-0001）：原来要求"两端各一格"，
-    #    用户原话是「**货主/批发商的单位换算不需要有**」⇒ 现在**只许派单员有一格**。
-    #    ⛔ 两个方向都要判：少了 = 功能被误删；多了 = 用户明确不要的那个入口又长回来。
-    #    只判"≥1"的话，货主那格被默默加回来也没人知道。
+    # ⚠️ 这条判据被**用户推翻过两次**：
+    #    2026-09-27 CHG-0001：用户原话「**货主/批发商的单位换算不需要有**」⇒ 只许派单员一格；
+    #    2026-10-05 CHG-0038：用户又要求「把这个**单位换算移到商品管理的那里**」——
+    #      红框就画在商品管理顶栏右上角、紧挨着「排序」的位置 ⇒ 工作台那一格**整个删掉**，
+    #      入口长到商品管理顶栏。
+    #    ⛔ 两个方向都要判：工作台**不许再有**格子（长回来 = 用户已经不要的那个入口又回来了）；
+    #       商品管理顶栏**必须有**那颗按钮、而且**必须接着路由**（没有 = 功能被藏起来，他找不到）。
+    #    只判"≥1"的话，入口被默默搬回去 / 按钮被删掉都没人知道。
     c.ok(
-        "工作台入口只有派单员一格（货主端不要 —— 用户 2026-09-27 明确要求）",
-        count(r'ModuleEntry\("单位换算"', code(AND / "ui/nav/Modules.kt")) == 1,
-        "格数不是 1：0 = 入口被误删了；2 = 用户明确不要的货主入口又长回来了",
+        "工作台已经没有「单位换算」那一格（用户 2026-10-05 要求搬到商品管理顶栏）",
+        count(r'ModuleEntry\("单位换算"', code(AND / "ui/nav/Modules.kt")) == 0,
+        "格数不是 0：用户要的是**搬走**，不是两处都有",
+    )
+    c.ok(
+        "商品管理顶栏有「单位换算」入口、并且接上了路由（用户画红框的位置，紧挨着「排序」）",
+        "onOpenUnitConversions" in code(PRODUCTS)
+        and 'Text("单位换算")' in code(PRODUCTS)
+        and "onOpenUnitConversions = { navController.navigate(Routes.UNIT_CONVERSIONS) }" in code(NAV),
+        "顶栏那颗按钮没了 / 文案被改 / 或者没接上路由（点进去没反应）",
     )
 
     # ---- 8. 删除要有手边的恢复入口 ----

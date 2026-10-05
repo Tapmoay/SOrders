@@ -19,7 +19,7 @@
 3. 派单弹窗与它需要的一切（司机名册、档位、运费/收现金/备注、`repo.assignOrder`）原本只长在
    `ui/dispatcher/DispatcherPoolScreen.kt` 里 —— 订单详情页要用，只能再写一份或搬一份。
 
-## 判据分五层
+## 判据分六层
 1. **反空转**：三个页面 + 共用弹窗体都抠得出来；
 2. **P8 档位**：弹窗按 `vehicleType` 真值分档、下拉按该档过滤、标签经**唯一一份** `driverKindLabel`；
    布尔分档（`pickVehicle`）与写死的两个档位名归零；
@@ -27,7 +27,13 @@
    借 `autoLoadPool = false` 的那份 VM、并把**同一个**弹窗挂在页面上；池页面里不再有第二份弹窗体；
 4. **P9 一句话**：`receiverSwapNotice` 是唯一判据（有单测）；线路 / 地点两条支路都说话；
    用户自己动过那两栏（手改名称 / 手改电话 / 挑联系人 / 预填）之后提示必须清掉；话画在那两栏**正下方**；
-5. **出处与留痕**：`_check_delete_undo.py` 那句「手边是个位置」还在、两个脚本 + 文档 + 登记表 + 声明块都在。
+5. **出处与留痕**：`_check_delete_undo.py` 那句「手边是个位置」还在、两个脚本 + 文档 + 登记表 + 声明块都在；
+6. **2026-10-05（CHG-0038）形态层**：主框是**底部抽屉**（拉到屏高、内容可滚，全文件只剩运费模板那一处
+   `AlertDialog`）、选司机点开的是**左侧抽屉**（左栏车型档位 `MasterRail` + 右栏 `PersonDrawer` 名单，
+   不再用下拉框）、「这一单单独定」整块在界面上**不存在**（但 VM 字段与后端参数还在）、运费模板入口保留。
+   用户原话：「不要搞弹窗了，直接也搞个底部抽屉吧，拉的比较上面一点拉高一点」「选择司机列表的时候
+   搞一个左侧抽屉吧…不然司机多了就不好搞」「像什么这一单决定多少钱提成多少这个不要管」
+   「这个模板可以保留」。
 
 R4-BOUNDARY-JUSTIFICATION: 这一条**边界解决不了**。P8 是「同一个布尔量被当成三种车型用」——
 `vehicleType` 是后端的字符串，类型系统拦不住 `small` 被当成大车；P12 是**入口存在性**：
@@ -36,7 +42,7 @@ R4-BOUNDARY-JUSTIFICATION: 这一条**边界解决不了**。P8 是「同一个�
 提示落点**这四处结构，并把「弹窗只许有一份实现」按清单挡住（谁再抄一份，两份规矩就会走散）。
 
 用法：python _tools/qa/_check_assign_entry.py
-配套：python _tools/qa/_reverse_verify_assign_entry.py（32 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_assign_entry.py（35 种破坏方式全被抓）
 '''
 from __future__ import annotations
 
@@ -135,6 +141,31 @@ def main() -> int:
     c.ok('弹窗自己的错误行用共用件 FormErrorLine', 'FormErrorLine(vm.error)' in dialog,
          '弹窗里的失败话术没有落点 —— 用户点「确认派单」被挡下来时看不到话')
 
+    # ── 2b. 2026-10-05（CHG-0038）：主框是底部抽屉，司机改成左侧抽屉里选 ──────
+    c.section('2b. 2026-10-05（CHG-0038）：主框是底部抽屉，司机改成左侧抽屉里选')
+    c.ok('主框已经是底部抽屉（不是居中弹窗）', 'ModalBottomSheet(' in dialog,
+         '又变回居中弹窗了 —— 用户 2026-10-05 要的是「不要搞弹窗了，直接也搞个底部抽屉吧」')
+    n_alert = dialog.count('AlertDialog(')
+    c.ok('全文件只剩一处 AlertDialog（运费模板那颗子弹窗，本轮没动）', n_alert == 1,
+         f'读到 {n_alert} 处 —— 主框又退回居中弹窗了？')
+    c.ok('抽屉拉到屏高、内容可滚（用户「拉的比较上面一点 拉高一点」）',
+         'fillMaxHeight()' in dialog and 'verticalScroll(rememberScrollState())' in dialog)
+    c.ok('选司机不再用下拉框（司机一多就得在一条竖列里翻）',
+         'ExposedDropdownMenuBox' not in dialog and 'PersonTriggerRow(' in dialog,
+         '选司机那行退回下拉框了 —— 用户：「不然司机多了就不好搞」')
+    c.ok('点开 = 左侧抽屉：车型档位左栏 + 这一档的司机名单',
+         'ModalNavigationDrawer(' in dialog and 'MasterRail(' in dialog and 'PersonDrawer(' in dialog,
+         '选司机的左侧抽屉没了（左栏档位 / 右栏名单）')
+    c.ok('抽屉里点中人写回同一个 selectedDriverId',
+         'vm.selectedDriverId = key?.toLongOrNull()' in dialog)
+    c.ok('「这一单单独定」整块已经不在界面上',
+         '这一单单独定' not in dialog and '这一单的钱 ¥' not in dialog and '提成 %' not in dialog,
+         '逐单覆盖那块又长回来了 —— 用户：「这个不要管，我们以后直接在那个订单里去给他订了」')
+    c.ok('删的只是界面：VM 里那两个字段还在（后端参数也还在）',
+         'assignPieceAmount' in pvm and 'assignCommissionRate' in pvm)
+    c.ok('运费模板入口保留（用户点名要留：「这个模板可以保留」）',
+         'templatePick = true' in dialog and '选择运费模板' in dialog)
+
     # ── 3. P12：详情页入口 ───────────────────────────────────────────────
     c.section('3. P12：订单详情页能派单，且与池子共用同一份实现')
     c.ok('详情页引入了共用弹窗与那份 VM',
@@ -205,7 +236,8 @@ def main() -> int:
             print(f'   - {label}')
         return 1
     print(f'✅ 全部 {c.n_ok} 项通过：派单弹窗按真实车型分档、标签跟选中的人走；'
-          f'订单详情页与待派单池共用同一份实现；带出换掉收货人时会贴在那两栏下方说一声。')
+          f'订单详情页与待派单池共用同一份实现；带出换掉收货人时会贴在那两栏下方说一声；'
+          f'派单那一层是底部抽屉 + 左侧抽屉选司机（CHG-0038）。')
     return 0
 
 
