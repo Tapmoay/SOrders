@@ -29,7 +29,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.AppContainer
@@ -80,7 +79,24 @@ fun OrderDetailScreen(
         return
     }
     val role = Role.fromKey(session?.role ?: "")
-    var previewUrl by remember { mutableStateOf<String?>(null) }
+    // 大图预览：**用全库唯一那一份**（ui/common/ImagePreview.kt）。这一页 2026-10-06 之前
+    // 自己写了一个 Dialog（只有"点开、再点关闭"），与 ImagePreview.kt:44-45 的 ⛔ 约定冲突 ——
+    // 于是详情页既没有翻页/计数，也没有双指缩放与保存到相册（用户台账 L-03）。
+    val preview = rememberImagePreview()
+    // 点开一张大图：`onPhotoClick` 只给得到一个 URL，而弹层要在**这一组**里左右翻页 ——
+    // 所以拿这个 URL 回两组里去认领（位置参考图 / 送达照片），认到哪组就在哪组里翻，
+    // 认不到就退回"只看这一张"。两组不可能含同一个 URL（一次上传只属于一组）。
+    val openPhoto: (String) -> Unit = { url ->
+        val order = vm.order
+        val place = order?.let { it.imageUrls.ifEmpty { listOfNotNull(it.addressImageUrl) } }.orEmpty()
+        val delivery = order?.deliveryPhotoUrls.orEmpty()
+        val group = when {
+            delivery.contains(url) -> delivery
+            place.contains(url) -> place
+            else -> listOf(url)
+        }
+        preview.openStaticPaths(group, group.indexOf(url))
+    }
 
     // 系统相机拍照（成品走 FileProvider）。**不需要 CAMERA 权限**——
     // 这一行以前是错的：清单声明了 `android.permission.CAMERA`，而系统文档写明
@@ -248,7 +264,7 @@ fun OrderDetailScreen(
                     vm.showNoteDialog = true
                 },
                 onCaptureClick = { vm.showDeliverySheet = true },
-                onPhotoClick = { previewUrl = it },
+                onPhotoClick = openPhoto,
                 onPayClick = { vm.showPayConfirm = true },
                 onChargeClick = { vm.openCharge() },
                 onEditFreightClick = { vm.openFreightDialog() },
@@ -524,17 +540,9 @@ fun OrderDetailScreen(
         )
     }
 
-    // 照片大图
-    previewUrl?.let { url ->
-        Dialog(onDismissRequest = { previewUrl = null }) {
-            AsyncImage(
-                model = resolveStaticUrl(url),
-                contentDescription = "送达照片",
-                modifier = Modifier.fillMaxSize().clickable { previewUrl = null },
-                contentScale = ContentScale.Fit,
-            )
-        }
-    }
+    // 照片大图（翻页 / 双指缩放 / 保存到相册）—— 实现在 ui/common/ImagePreview.kt，
+    // 全库只此一份：地址页、下单页、订单详情页点开的都是它。
+    preview.Show()
 }
 
 /**

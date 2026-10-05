@@ -1,12 +1,21 @@
 package com.tapmoay.sorders.ui.common
 
+import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -15,15 +24,37 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.tapmoay.sorders.core.NetworkDns
+import com.tapmoay.sorders.util.resolveStaticUrl
+import com.tapmoay.sorders.util.saveImageToGallery
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** 缩放下限：1× 就是"整张图刚好放进屏幕"。 */
+private const val MIN_SCALE = 1f
+
+/** 缩放上限：5× 够看清门牌号 / 单号那一行小字，再大就是马赛克了。 */
+private const val MAX_SCALE = 5f
+
+/** 双击一次放大到 2.5×（1× ↔ 2.5× 来回切）—— 比"双击就一直放到最大"更常用。 */
+private const val DOUBLE_TAP_SCALE = 2.5f
 
 /**
  * # 点开看大图（全屏预览）—— 全库唯一一处
@@ -36,13 +67,24 @@ import coil.compose.AsyncImage
  * **看不出来**。而这一张图是要拿去找货、送货的 —— 拍错了当场不知道，等司机拿着它找不到地方
  * 才发现，那时候人已经不在现场了。所以"能点开看"是这条链路的**必要一环**，不是体验优化。
  *
- * ## 交互（三条都是刻意的）
+ * ## 交互（四条都是刻意的）
  * 1. **点任意处关闭**（不用去找那个小 `X`）—— 全屏看图时手指唯一想干的事就是"看完了退出"；
  * 2. **左右箭头翻页**（多张时）+ 底部 `2/3` —— 拍了一串照片要一张张看，关掉再点开太费事；
- * 3. **黑底**（不是白底、不是卡片）—— 照片自己的颜色才是主角，白底会把浅色照片糊掉。
+ * 3. **黑底**（不是白底、不是卡片）—— 照片自己的颜色才是主角，白底会把浅色照片糊掉；
+ * 4. **双指缩放 + 拖动 + 双击放大**（2026-10-06 用户台账 L-03：「点一下确实放大了，但要
+ *    **支持双指/双手独立缩放**（有时候拍得比较远，要放大才能看清）」）—— 拍得远的
+ *    门牌 / 单号 / 金额，在"刚好铺满"的倍数下仍然看不清，整屏放大是唯一能看清的办法。
  *
- * ⛔ **不要在每个页面各写一个**：这是一个纯 UI 组件（`AsyncImage` + 黑底 + 翻页），
- * 抄三份就会出现"有的页面能翻页、有的不能""有的点空白关不掉"。
+ * ## 保存到相册（右上角那个 ⤓）
+ * 用户同一句里的后半句：「**并且图片要支持下载**」。取的是服务端那张原图
+ * （[resolveStaticUrl] 拼出来的 `/static/…` 是**不带鉴权**的公开静态资源），
+ * 落 `Pictures/SOrders`（[saveImageToGallery]）。
+ * ⚠️ 只给"服务端上的图"画这个按钮：表单里**刚拍还没上传**的那张是本地 `File`，
+ * 它本来就在这台手机上，再"下载"一次没有意义。
+ *
+ * ⛔ **不要在每个页面各写一个**：这是一个纯 UI 组件（`AsyncImage` + 黑底 + 翻页 + 缩放），
+ * 抄三份就会出现"有的页面能翻页、有的不能""有的点空白关不掉""有的能缩放、有的不能"。
+ * 订单详情页 2026-10-06 之前就是自己写的一份（只有"点开、再点关闭"），本事项把它收了回来。
  */
 @Composable
 fun ImagePreviewDialog(
@@ -54,6 +96,17 @@ fun ImagePreviewDialog(
     var index by remember(startIndex, models) {
         mutableStateOf(startIndex.coerceIn(0, models.lastIndex))
     }
+    // 缩放状态**跟着 index 走**（remember(index)）：翻到下一张就归位。
+    // 不归位的话，第二张会继承上一张的放大倍数与拖动位移，人看到的是"这张图自己歪了 / 糊了"。
+    var scale by remember(index) { mutableStateOf(MIN_SCALE) }
+    var offset by remember(index) { mutableStateOf(Offset.Zero) }
+    var box by remember { mutableStateOf(IntSize.Zero) }
+    var saving by remember(index) { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // 只有服务端的图（String 路径）能下载；本地 File 不算。
+    val currentPath = models.getOrNull(index) as? String
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -62,22 +115,105 @@ fun ImagePreviewDialog(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.96f))
-                // 点任意处关闭（见类文档第 1 条）
-                .clickable(onClick = onDismiss),
+                .onSizeChanged { box = it }
+                // ⚠️ 「点任意处关闭」从 `clickable` 换成了 `detectTapGestures`，不是随手改的：
+                //    `clickable` 只认"按下再抬起"，而缩放 / 拖动的手势中间**也会抬手** ——
+                //    于是"我明明在拖这张图，它却把预览给我关了"。手势自己认得清"这是单击还是拖动"。
+                .pointerInput(index) {
+                    detectTapGestures(
+                        onTap = {
+                            // 1× 时单击＝关闭（老行为一个字没变）；放大后单击＝先回到 1×，
+                            // 再点一次才关 —— 放大看细节时那一下点击，人想要的是"看全图"。
+                            if (scale > MIN_SCALE) {
+                                scale = MIN_SCALE
+                                offset = Offset.Zero
+                            } else {
+                                onDismiss()
+                            }
+                        },
+                        onDoubleTap = {
+                            if (scale > MIN_SCALE) {
+                                scale = MIN_SCALE
+                                offset = Offset.Zero
+                            } else {
+                                scale = DOUBLE_TAP_SCALE
+                            }
+                        },
+                    )
+                },
         ) {
             AsyncImage(
                 model = models[index],
                 contentDescription = "图片预览",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().padding(8.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offset.x
+                        translationY = offset.y
+                    }
+                    // 双指缩放 + 放大后拖动（全库唯一一处手势缩放实现）
+                    .pointerInput(index) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val next = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+                            scale = next
+                            offset = if (next <= MIN_SCALE) Offset.Zero else clampPan(offset + pan, next, box)
+                        }
+                    },
             )
-            // 右上角关闭
-            IconButton(
-                onClick = onDismiss,
+            // 右上角：保存到相册 + 关闭
+            Row(
                 modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Icon(Icons.Default.Close, contentDescription = "关闭预览", tint = Color.White)
+                if (currentPath != null) {
+                    IconButton(
+                        enabled = !saving,
+                        onClick = {
+                            val full = resolveStaticUrl(currentPath)
+                            if (full == null) {
+                                Toast.makeText(context, "这张图没有可下载的地址", Toast.LENGTH_SHORT).show()
+                            } else {
+                                saving = true
+                                scope.launch {
+                                    val bytes = withContext(Dispatchers.IO) { downloadBytes(full) }
+                                    val saved = bytes?.let {
+                                        withContext(Dispatchers.IO) {
+                                            saveImageToGallery(context, it, photoFileName(full, index))
+                                        }
+                                    }
+                                    saving = false
+                                    Toast.makeText(
+                                        context,
+                                        if (saved != null) "已保存到相册：" + saved.substringAfterLast('/')
+                                        else "保存失败，请检查网络后重试",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                        },
+                    ) {
+                        if (saving) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = "保存到相册", tint = Color.White)
+                        }
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "关闭预览", tint = Color.White)
+                }
             }
+            // 手势是"藏起来的功能"：不写一句没人知道能缩放（用户点名的需求，不能靠猜）
+            Text(
+                "双指缩放 / 双击放大",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 28.dp),
+            )
             if (models.size > 1) {
                 IconButton(
                     onClick = { index = (index - 1 + models.size) % models.size },
@@ -102,6 +238,33 @@ fun ImagePreviewDialog(
     }
 }
 
+/** 取原图字节；任何一步不成就返回 null（调用方只负责说"保存失败"），不抛给界面。 */
+private fun downloadBytes(url: String): ByteArray? {
+    return try {
+        NetworkDns.okHttp.newCall(okhttp3.Request.Builder().url(url).get().build()).execute().use { resp ->
+            if (resp.isSuccessful) resp.body?.bytes() else null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/**
+ * 拖动别把图拖出屏幕：放大到 n 倍后，每个方向最多能露出 `(n − 1) / 2 × 边长`，
+ * 再多就该看见黑边了（那正是"图被拖飞了、怎么都拖不回来"的来源）。
+ */
+private fun clampPan(raw: Offset, scale: Float, box: IntSize): Offset {
+    val maxX = box.width * (scale - 1f) / 2f
+    val maxY = box.height * (scale - 1f) / 2f
+    return Offset(raw.x.coerceIn(-maxX, maxX), raw.y.coerceIn(-maxY, maxY))
+}
+
+/** 文件名优先沿用服务端那个（带时间戳、天然不重名），取不到才自己拼一个。 */
+private fun photoFileName(url: String, index: Int): String {
+    val name = url.substringBefore('?').substringAfterLast('/')
+    return if (name.contains('.')) name else "SOrders_" + (index + 1) + "_" + System.currentTimeMillis() + ".jpg"
+}
+
 /**
  * 一份"正在预览哪几张图"的状态。
  *
@@ -114,7 +277,8 @@ fun ImagePreviewDialog(
  * ```
  * val preview = rememberImagePreview()
  * …
- * Thumb(…, onClick = { preview.open(models, i) })
+ * Thumb(…, onClick = { preview.open(models, i) })      // 本地 File：直接给 model
+ * Thumb(…, onClick = { preview.openStaticPaths(urls, i) })  // 服务端路径：自己会拼成全地址
  * preview.Show()
  * ```
  * 把它收成一个小盒子，是为了让每个页面都**不用**自己写 `var previewUrls by remember{…}`
@@ -129,6 +293,18 @@ class ImagePreviewState internal constructor() {
         if (all.isEmpty()) return
         models = all
         index = at.coerceIn(0, all.lastIndex)
+    }
+
+    /**
+     * 打开一组**服务端相对路径**（`/static/…`，订单里的图都是这种）：内部过 [resolveStaticUrl]。
+     *
+     * 让调用方交路径而不是自己拼地址，是为了"拼法只有一处"；顺带把空白路径剔掉 ——
+     * 那种格子点开只会是一张黑图，不如让它不在翻页序列里（会跟着调整 [at] 的落点）。
+     */
+    fun openStaticPaths(paths: List<String>, at: Int) {
+        val usable = paths.withIndex().filter { it.value.isNotBlank() }
+        val hit = usable.indexOfFirst { it.index == at }.coerceAtLeast(0)
+        open(usable.map { resolveStaticUrl(it.value) ?: it.value }, hit)
     }
 
     /** 在 Composable 里调一次，负责把弹层画出来。 */

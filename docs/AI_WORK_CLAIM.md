@@ -5757,6 +5757,18 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`eaba334`（本事项只动一个源文件 `ui/order/OrderDetailScreen.kt` + 两份既有 QA 脚本的追加 + L-01 那条检查器声明 + 一份生成物重生成 + 三份文档）。
 
+### [2026-10-06 03:2x CST 进行中（实现 / 判据 / 反验已落盘，收尾＝跑全量静检与两次提交）] 会话：**CHG-0044 大图预览能双指缩放、能存进相册：三个入口收口到唯一那一份弹层**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-06 交来的排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 第 **L-03** 条（原文 m00061：「点一下确实放大了，但要**支持双指/双手独立缩放**（有时候拍得比较远，要放大才能看清），**并且图片要支持下载**」）—— 台账 L-01…L-32 逐条落地的**第三条**。
+
+**病灶**：详情页的送达照片 / 位置参考图点开是一条 `Dialog { AsyncImage(fillMaxSize) + .clickable { previewUrl = null } }`（`ui/order/OrderDetailScreen.kt`）—— 只能"看一眼再点关"，没有缩放、没有平移、没有保存、没有翻页（同组第二张看不到）；而地址页（`ui/shipper/AddressScreen.kt:1455`）与下单页（`ui/shipper/OrderCreateScreen.kt:76`）用的是 `ui/common/ImagePreview.kt` 里那份 `ImagePreviewDialog`（有左右翻页 + 2/3 计数 + 黑底），但同样不能缩放、不能保存 ⇒ 同一件事三处入口、能力还不一样。
+
+**改法（L0，三个文件）**：① 唯一那一份 `ImagePreviewDialog` 长出双指缩放 1×–5×（`detectTransformGestures` + `graphicsLayer`）、放大后拖动（`clampPan` 按 `(n−1)/2 × 边长` 夹住，1× 时位移清零）、双击在 1×/2.5× 之间切、`detectTapGestures` 取代 `.clickable`（1× 单击 = 关；放大后单击 = 先回 1×，再点才关 —— 否则捏合 / 拖动中途抬手会把预览关掉），并加 `ImagePreviewState.openStaticPaths(paths, at)`（剔空白 + 拼地址）与右上角「保存到相册」+ 底部一行「双指缩放 / 双击放大」；② 订单详情页改用 `rememberImagePreview()`（`:82-99`，两处入口 `onPhotoClick = openPhoto` / `:267`，弹层 `preview.Show()` `:545`）并删掉自写 Dialog 与 `import androidx.compose.ui.window.Dialog`；③ `util/ExportUtil.kt` 新增 `saveImageToGallery(context, bytes, fileName): String?`（Q+ 走 MediaStore.Images.Media + `Pictures/SOrders` + `image/jpeg` + IS_PENDING 1→0；Q 以下写公开目录 + `MediaScannerConnection.scanFile`），既有 `saveExportFile` 一个字没动。
+
+**判据 / 反验**：`_tools/qa/_check_image_preview.py` **58/58**（7 组：全库只有一处弹层且三页都在用 / 缩放手势 / 单击与拖动不打架 / 保存通路（只认服务端路径 + 共享 client + IO 线程 + 成败回执 + 防连点）/ `ExportUtil.kt` 两条系统分支且没动既有函数 / 详情页两处入口收口 + 同组翻页 + 黑底 / 防静默空转）；`_tools/qa/_reverse_verify_image_preview.py` **42/42**（41 条注入 + 1 条"新建 `ui/common/_LeakPreviewScreen.kt` 抄第二份实现" + 还原后逐字节比对全绿）。⚠️ **反验当场抓出三条"假绿"并已修**：①「放大后单击 = 先回 1×」原来只匹配 `if (scale > MIN_SCALE) { scale = MIN_SCALE`，而双击那段里有一模一样的一行 ⇒ 改成先把 `onTap = { … }` 的处理体切出来再看（⚠️ 收口必须认「第一个 `},`」，用"换行 + `},`"收口时单行写法会把 `onDoubleTap` 整段吞进单击里）②「落盘也在 IO 线程」原来允许"200 字符内出现过" ⇒ 改成必须紧邻 `saveImageToGallery(` ③「`openStaticPaths` 剔空 + 拼地址」原来是一条判据 ⇒ 拆成两条。
+
+**明确不碰**：`resolveStaticUrl` 的拼法（仍然只有一处）、缩略图区块 `DeliveryPhotosSection(urls, onPhotoClick)` 与 `PlacePhotoStrip(..., onPreview)` 的签名与调用形态、既有 `saveExportFile` 的落点（`Downloads/SOrders报表`）与 MIME、黑底观感 / 翻页 / 计数、权限（无新增权限、Q 以下那条 `WRITE_EXTERNAL_STORAGE maxSdkVersion=28` 是既有的）；后端**一个字节都不动**；共享文件（`Apis.kt` / `Dtos.kt` / `AppRepository.kt` / `NavGraph.kt` / `Routes.kt` / `enums.py` / `ReportCenter.kt`）**一个都没动**。
+
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
@@ -5769,6 +5781,8 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-06 03:2x | **CHG-0044 大图预览能双指缩放、能存进相册**（我，`session-bd8fe093`） | `_tools/qa/_check_reverse_verify_anchors.py`（共享：**反向验证的锚点元检查**） | ⚠️ **只追加一条 `ALLOW` 书面理由**（键 = `("_reverse_verify_image_preview.py", "订单侧又抄了一份大图预览（扫全仓的那条判据必须点名它）")`，本事项的第 3 条）：本事项新增的反验脚本用「**新建**一份 `ui/common/_LeakPreviewScreen.kt` 抄第二份大图预览」这条注入去试「全库只许有一处 `fun ImagePreviewDialog(`」那条判据，而该判据对 `.kt` 目标会先报「目标文件不存在（被改名/搬走了？）」—— 与 `_reverse_verify_driver_money.py` 的 `_LeakScreen.kt`、`_reverse_verify_driver_tab_highlight.py` 的 `_LeakTabScreen.kt` **同一个先例**（新建型注入的目标文件本来就只在注入期间存在）。⛔ 判据逻辑、阈值、扫描口径**一个字没动**（197 份 / 2094 条一条不少），只写了一条「它为什么必然找不到」的理由；化石守卫仍要求这条键真实存在。 |
+| 2026-10-06 03:2x | **CHG-0044**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 改了 `ui/common/ImagePreview.kt` / `ui/order/OrderDetailScreen.kt` / `util/ExportUtil.kt` 之后按生成器的规矩重跑 `python _tools/qa/_hint_inventory.py --md`（1627 条文案）—— 该产物的指纹覆盖 `backend/app/**/*.py` 与 `android/app/src/main/**/*.kt`（`_tools/ai/_airepo.py:259-296`，路径也进哈希），不重生成 `_check_generated_freshness.py` 必红。⛔ 只跑生成器，没有手改一个字。 |
 | 2026-10-06 03:0x | **BUG-0015 订单详情「下单人」行与「收货人」行同形**（我，`session-bd8fe093`） | `_tools/qa/_check_contact_names.py`、`_tools/qa/_reverse_verify_contact_names.py`（共享：**联系人/下单人口径**那条红线） | ⚠️ **只做追加，判据一条没放宽**：在既有 68 项后追加 4 条（①详情页不许再出现 `Text("下单人", … weight(1f))` 顶开值 ②「下单人」那行必须是 `"下单人 " +` 拼出来的**一个** Text（与收货人同形）③两行的 `style` 必须一致（`re.findall` 抓两行比对）④值仍然是绿色 `0xFF00B578`）；反验追加 3 条注入（改回 label+`weight(1f)` / `style` 掉回 `bodyMedium` / 去掉绿色）。⛔ 唯一一处"放宽"是把「详情页有『下单人』」那条锚点从只认 `"下单人"` 改成 `"下单人 " \+` 或旧形态都认 —— 因为实现把字面从 `"下单人"` 改成了 `"下单人 "`，而该条判据的本意是"这一行真的在"，不是"它必须长成某个样子"；原有 1 条注入的锚点同步从旧行搬到 `"下单人 " + bossText,`（注入规则不变）。 |
 | 2026-10-06 03:0x | **BUG-0015**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**） | 改了 `ui/order/OrderDetailScreen.kt` 之后按生成器的规矩重跑 `python _tools/qa/_hint_inventory.py --md`（1627 条文案）—— 该产物的指纹覆盖 `backend/app/**/*.py` 与 `android/app/src/main/**/*.kt`（`_tools/ai/_airepo.py:259-296`，路径也进哈希），不重生成 `_check_generated_freshness.py` 必红。⛔ 只跑生成器，没有手改一个字。 |
 | 2026-10-06 03:0x | **BUG-0014 司机任务页切栏目的那一瞬，卡片按「上一栏」的样式画「新一栏」的单**（我，`session-bd8fe093`） | `_tools/qa/_check_reverse_verify_anchors.py`（共享：**反向验证的锚点元检查**） | ⚠️ **只追加一条 `ALLOW` 书面理由**（键 = `("_reverse_verify_driver_tab_highlight.py", "司机端新增一个按 vm.tab 算高亮的页面（清单自己算 → 必须点名它）")`）：本事项新增的反验脚本用「**新建**一个按 `vm.tab` 算高亮的越权页」这条注入去试「清单自己算 → 必须点名新页面」那条判据，而该判据对 `.kt` 目标会先报「目标文件不存在（被改名/搬走了？）」—— 与 `_reverse_verify_driver_money.py` 的 `_LeakScreen.kt` **同一个先例**（新建型注入的目标文件本来就只在注入期间存在）。⛔ 判据逻辑、阈值、扫描口径**一个字没动**（196 份 / 2051 条一条不少），只写了一条「它为什么必然找不到」的理由；该文件的化石守卫仍要求这条键真实存在。 |

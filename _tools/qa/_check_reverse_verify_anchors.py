@@ -182,6 +182,12 @@ ALLOW: dict[tuple[str, str], str] = {
     ): "同 `_reverse_verify_driver_money.py` 的那一条（BUG-0014 判据 4「清单自己算 → 必须点名新页面」）："
        "这条注入**故意新建一个文件**（`_LeakTabScreen.kt`，跑完删掉）来试那条判据 ——"
        "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
+    (
+        "_reverse_verify_image_preview.py",
+        "订单侧又抄了一份大图预览（扫全仓的那条判据必须点名它）",
+    ): "同上面两条（CHG-0044 判据 1「全仓只有一处 fun ImagePreviewDialog(」）："
+       "这条注入**故意新建一个文件**（`ui/common/_LeakPreviewScreen.kt`，跑完删掉）来试那条判据 ——"
+       "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
 }
 
 
