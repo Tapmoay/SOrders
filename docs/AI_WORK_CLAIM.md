@@ -6106,7 +6106,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 `python _tools/qa/_check_order_settle_button.py` **95/95 通过（exit 0）**；反验 `python _tools/qa/_reverse_verify_order_settle_button.py` **14/14 [OK]**（8 个被碰文件按字节还原）；`python _tools/qa/_check_all.py` **208/208 全过（exit 0）**；`python backend/scripts/check_reachability.py` 可达文档 190/190；gradle `:app:compileEmuDebugKotlin` 通过、`:app:testEmuDebugUnitTest` **1251 跑 / 1 红**（预存在的 `AiHabitTest.recognisesCommonPeriodsFromToolArguments`）/ 2 skip；真机 emulator-5554（派单员 13800000001）：单 592 挂账前「现场支付＋挂账」→ 挂账后「核销＋改挂账单位」、单 598 点「核销」把这笔 ¥160 收掉变「已收清」、临时货主单 604 点「核销」给的是引导弹层（不是红错）—— 截图 `shots/chg0069_*_5554.png`。
 
-- 状态：已完成（实现提交 `（见 §⑧）`；判据 95/95 ＋ 反验 14/14（按字节还原）＋ `_check_all.py` 208/208 ＋ gradle 1251 跑 / 1 红为预存在的 `AiHabitTest` / 2 skip ＋ 真机 5554 三档对照截图）。
+- 状态：已完成（实现提交 `1da681f`；判据 95/95 ＋ 反验 14/14（按字节还原）＋ `_check_all.py` 208/208 ＋ gradle 1251 跑 / 1 红为预存在的 `AiHabitTest` / 2 skip ＋ 真机 5554 三档对照截图）。
 
 ---
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
