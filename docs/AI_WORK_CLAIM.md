@@ -6068,7 +6068,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**（2026-10-07 跑完，逐条实测）：判据 `_check_order_row_columns.py` **41/41** ＋ `_check_order_return_visible.py` **70/70** ＋ 既有回归 `_check_detail_inline_edit.py` **55/55** ＋ `_check_driver_money.py` **36 项全过**；反验四份 `_reverse_verify_order_row_columns.py` **19/19** ＋ `_reverse_verify_order_return_visible.py` **26/26** ＋ `_reverse_verify_detail_inline_edit.py` **31/31** ＋ `_reverse_verify_driver_money.py` **19/19**（76 条注入逐条被抓、每个被注入的文件按字节还原）；`gradle :app:assembleEmuDebug` **BUILD SUCCESSFUL in 12s**（APK `android/app/build/outputs/apk/emu/debug/app-emu-debug.apk` = 44,490,930 字节）＋ `:app:testEmuDebugUnitTest` = **1244 跑 / 1 红 / 2 skip**（红的是既存日期性 `AiHabitTest.kt:76` —— 每月 1–7 号必红，与本案无关）；全量静检 `python _tools/qa/_check_all.py` = **203 脚本 / 202 ✅ / 1 ❌**（唯一红 `_tools/qa/_check_backend_fresh.py`：本机 uvicorn 比源码旧，脚本自述跑过反验后必然如此，修法是重启后端）；真机 emulator-5554（派单员，单 `SO202609258977071261`）改前 `shots/chg0065_before_5554_detail.png`（行 ¥104.4 / 合计 ¥104.4）→ 改后 `shots/chg0065_after_5554_detail.png`（行 ¥34.8 / 合计「已退 ¥69.6　¥34.8」）。
 
-**实现提交**：（归档提交回填）—— 本事项动 Android 1（`ui/order/OrderDetailScreen.kt`）＋ QA 9（改判据 4 ＋ 改反验 5）＋ 文档 5（`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/changes/CHG-0065.md`、`docs/changes/README.md`、本文件））。
+**实现提交**：`19205b9`—— 本事项动 Android 1（`ui/order/OrderDetailScreen.kt`）＋ QA 9（改判据 4 ＋ 改反验 5）＋ 文档 5（`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/changes/CHG-0065.md`、`docs/changes/README.md`、本文件））。
 
 ---
 
@@ -6086,7 +6086,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**（2026-10-07 跑完，逐条实测）：判据 `_check_order_detail_time.py` **39/39**（7 组）；反验 `_reverse_verify_order_detail_time.py` **11/11**（11 条注入逐条被抓、被注入的文件按字节还原）；`gradle :app:testEmuDebugUnitTest` = **1244 跑 / 1 红 / 2 skip**，其中 `TimeFmtTest` **8/8**（含新三条），红的那条是既存日期性 `AiHabitTest.kt:76`；`gradle :app:assembleEmuDebug` **BUILD SUCCESSFUL in 12s**（APK 44,490,930 字节）；全量静检 **203 脚本 / 202 ✅ / 1 ❌**（唯一红 `_check_backend_fresh.py`，环境性）；真机 emulator-5554 同一张单：改前 `shots/chg0065_before_5554_detail.png` 是「创建于 09-25 02:58」→ 改后 `shots/chg0065_after_5554_detail.png` 是「创建于 2026-09-25 02:58」，另 `shots/chg0066_after_5554_time.png` 同屏看到「申请时间 2026-09-25 02:58」与五条流转记录 `09-25 02:58`（两档并排）。
 
-**实现提交**：（归档提交回填）—— 本事项动 Android 3（`util/TimeFmt.kt`、`ui/order/OrderDetailScreen.kt`、`test/.../util/TimeFmtTest.kt`）＋ QA 2（判据与反验各一新）＋ 文档 4（`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/changes/CHG-0066.md`、`docs/changes/README.md`、本文件））。
+**实现提交**：`5427bf0`—— 本事项动 Android 3（`util/TimeFmt.kt`、`ui/order/OrderDetailScreen.kt`、`test/.../util/TimeFmtTest.kt`）＋ QA 2（判据与反验各一新）＋ 文档 4（`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/changes/CHG-0066.md`、`docs/changes/README.md`、本文件））。
 
 ---
 
