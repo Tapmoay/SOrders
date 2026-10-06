@@ -6183,6 +6183,10 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 | 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `_tools/ai/_check_notify_guardrails.py`（**AI 层红线，多会话共读**） | 代码搬家会让它的两条断言变成化石 ⇒ 改钉新家：① 「设置页在权限没开时给出『去开启』入口」从 `openNotificationSettings` 改成 `NotifyPermission.openSettings(`；② 「设置页能跳通知权限设置」改钉 `core/NotifyPermission.kt` 的 `ACTION_APP_NOTIFICATION_SETTINGS`，并新增 absent「设置页不再自己拼」。122 → 124 项 |
 | 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `_tools/qa/_check_ledger_dialog_style.py`（CHG-0051 的判据，多会话共读） | 「全仓 `CardAlertDialog(` = 6」由**等式改下限** `>= 6`：这一族是**在扩散的**共用件（本事项在首页又加一处），等式会让每一个后来正当的调用点都变成红；**少**一处（迁回去 / 被删）仍然红 |
 | 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**，⛔ 勿手改） | 新增弹层文案后按规矩重跑 `python _tools/qa/_hint_inventory.py --md`（不重生成会连环红：`_check_generated_freshness.py` / `_check_hints.py` / `_check_order_contact_edit.py`） |
+| 2026-10-06 15:1x | **CHG-0063 亮色背景换成暖白家族**（我，`session-bd8fe093`） | `ui/theme/Color.kt` ＋ `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` ＋ `ui/common/Components.kt`（讲历史的注释） | 亮色四个 token 换成暖白（#F8F7F4 / #F1EEE9 / #E9E6DF / #E1DDD5，每层 R 比 B 高、层间仍严格递减）；接线一行没改（换值不换线）；设计基线那一行写新值并把「抽屉那一层不许动」写进去 |
+| 2026-10-06 15:1x | **CHG-0063**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0063.md`（新建，**两文件必须同一次提交**） | 在 CHG-0062 那一行之后追加 CHG-0063 行 |
+| 2026-10-06 15:1x | **CHG-0063**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_warm_surface_palette.py`（6 组 41/41；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）＋ `_reverse_verify_warm_surface_palette.py`（12 条注入） |
+| 2026-10-06 15:1x | **CHG-0063**（我，`session-bd8fe093`） | `_tools/qa/_check_ledger_dialog_style.py` ＋ `_tools/qa/_reverse_verify_ledger_dialog_style.py`（CHG-0051 的判据与反验，**多会话共读**） | 第 5 组第一条口径从「必须是 #DDE1EA」松成「不是纯白、也不亮过 #F0F0F0」（原意不变）；反验那条注入的锚点跟着现值 #E1DDD5 走 |
 
 ---
 
@@ -7215,5 +7219,23 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 **验证**：判据 27/27 · 反验 23/23 · 单测 `NotifyPermissionTest` BUILD SUCCESSFUL in 11s · 编译 BUILD SUCCESSFUL in 11s · 既有红线 `_check_notify_guardrails.py` 124/124 与 `_check_ledger_dialog_style.py` 62/62 · 生成物新鲜度 5 组全过（`_check_hints.py` 31 项；改过界面文案，已重跑 `_tools/qa/_hint_inventory.py --md`）· 可达性 **181 / 181** · 全量静检 **200 脚本 / 198 ✅ / 2 ❌**（两条红都与本事项无关）。
 
 **实现提交**：`9f70c50`（本事项动 **13 个文件**：Android 5（改 3 ＋ 新 2）＋ QA 4（新 2 ＋ 改 2）＋ 文档 3 ＋ 生成物 1）
+
+---
+
+### [2026-10-06 15:1x → 15:4x CST 已完成] 会话：**CHG-0063 亮色背景从「灰蓝」换成暖白家族（台账 L-19）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：「我们的整体背景基调，颜色太过于灰蓝了不好看。我更偏向于稍微偏白一点啊，整体的基调。」（ref **m00481**）；动手前当面收窄范围：「我说的是那种就是浮游的弹窗啊，就浮在中间的像那种啊底部抽屉啊，侧面抽屉啊，那些都不要搞啊别搞反了嘞」（ref **m09782**）。色温口径：**暖**（R 比 B 高，形如 `#F8F7F4`），不是中性灰。
+
+**病灶**：① 亮色四个 token（页面底 `BackgroundLight` 与周围那三层）全是 B 通道高于 R 的灰蓝（#F2F3F7 / #ECEFF5 / #E6E9F0 / #DDE1EA），用户看真机说「太过于灰蓝」；② 这四个值被顶栏（`ui/common/Components.kt:208-211` 读 `colorScheme.background`）、50 处 Scaffold 的页面底与全库几十处弹层继承，逐页改既会漏也会漂移（台账 `:774` 明确否）；③ 设计基线 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:10` 写着旧值，改了色不同步它 = 文档骗人。
+
+**改法（CORE ＋ INFRASTRUCTURE，1 个 `.kt` ＋ 1 个 KDoc ＋ 1 行设计基线 ＋ 2 本 QA 脚本）**：① `ui/theme/Color.kt` 四个亮色 token 换成暖白家族（#F8F7F4 / #F1EEE9 / #E9E6DF / #E1DDD5），每层 R 比 B 高、层与层严格递减（各通道和 765 > 739 > 712 > 686 > 659，白卡 #FFFFFF 仍最亮），并补一段注释块写清口径与「抽屉那一层一个字都不许动」；② 接线一行没改（换值不换线）；③ 设计基线那一行写新值、点明「暖」与「分层不许塌」、把抽屉那一层标成不许动；④ 两处讲历史的注释跟着现状（`ui/theme/Color.kt:226` 与 `ui/common/Components.kt:493-497`）；⑤ 既有判据 `_tools/qa/_check_ledger_dialog_style.py` 第 5 组第一条口径从「必须是 #DDE1EA」松成「不是纯白、也不亮过 #F0F0F0」（原意不变），`_tools/qa/_reverse_verify_ledger_dialog_style.py` 那条注入的锚点跟着现值走。
+
+**判据 / 反验**：新增 `_tools/qa/_check_warm_surface_palette.py`（6 组 41/41；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）＋ `_tools/qa/_reverse_verify_warm_surface_palette.py`（**12** 条注入，3 个被注入文件逐字节还原）。
+
+**明确不碰**：底部抽屉与侧面抽屉那一层（`SheetSurface #F0F0F0` 与 `ui/theme/Theme.kt:99` 的接线，用户 m09782 点名）；暗色全套（BackgroundDark / SurfaceDark / SurfaceVariantDark / SurfaceContainer*Dark / Outline*Dark）；两个字描边 token 与 `ui/common/EntryGrid.kt:74` 写死的 1dp 描边；白卡 `SurfaceLight`；15 个语义色；后端 / 接口 / 权限 / 领域模型（零改动）；历史变更单与旧条目里写的旧色值（那是当时的事实）。
+
+**验证**：判据 **41/41** · 反验 **12/12** · 既有两条回归 62/62 与 16/16 · 抽屉那本 **76/76** · 全量静检 **201 脚本 / 199 ✅ / 2 ❌**（既有那两条）· 可达性 **182 / 182** · 真机（emulator-5554）改前/改后截图各一张（`shots/l19_before_5554_home.png` / `shots/l19_after_5554_home.png`）。
+
+**实现提交**：`PENDING`（本事项动 **11** 个文件：Android 2 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
 
 ---

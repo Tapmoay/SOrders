@@ -7,7 +7,7 @@
 ## 1. 核心设计原则
 
 - **一色一功能**：每个功能/模块有唯一语义色，跨端同功能同色（下单绿/账本橙/消息红/地址湖蓝）
-- **背景分层**：页面底 `BackgroundLight=#F2F3F7`，卡片白底圆角（`MaterialTheme.shapes`），信息用 SectionCard
+- **背景分层**：页面底 `BackgroundLight=#F8F7F4`（**暖白**：R 比 B 高，不是中性灰、更不是灰蓝）—— 台账 L-19 / CHG-0063 起，顶栏与周围那几层 `SurfaceVariantLight=#F1EEE9` / `SurfaceContainer=#E9E6DF` / `SurfaceContainerHigh=#E1DDD5` 一起往暖白走，**分层不许塌**（白卡 `#FFFFFF` 仍是最亮的一层）；卡片白底圆角（`MaterialTheme.shapes`），信息用 SectionCard。⛔ 底部抽屉与侧面抽屉那一层是 `SheetSurface=#F0F0F0`（纯中性，用户点名「那些都不要搞」）
 - **低调卡片**：白底 + 浅描边（#ECEFF5）或极浅阴影；不要重边框/大圆/浓渐变
 - **文字层级**：关键是重要的数字/名称用色加粗，次要说明用灰色 `onSurfaceVariant` 小字
 - **按钮风格**：默认 Material3 样式（用户否决过大圆圈/胶囊大按钮）；加减等主操作色可自定义淡蓝底

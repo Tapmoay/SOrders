@@ -228,8 +228,16 @@ def main() -> int:
 
     print("== 5. 方案 C 的护栏：主题 token 与它的消费者一个字没动 ==")
     color = read(COLOR)
-    c.present("Color.kt：SurfaceContainerHigh 仍是 #DDE1EA（没有靠改 token 变白）", color,
-              r"val SurfaceContainerHigh = Color\(0xFFDDE1EA\)")
+    # 台账 L-19 / CHG-0063 起，亮色这四层改成「暖白家族」（页面底与周围那几层一起往暖白走）。
+    # 这条断言的原意一个字没变：**弹层那一层不许被刷成纯白来冒充卡片式**。所以口径从
+    # 「必须是 #DDE1EA」松成「既不是纯白、也不许亮过 #F0F0F0」；确切值交给
+    # _tools/qa/_check_warm_surface_palette.py 去钉（那里还管着分层与抽屉那一层）。
+    m = re.search(r"val SurfaceContainerHigh = Color\(0xFF([0-9A-Fa-f]{6})\)", color)
+    v = int(m.group(1), 16) if m else None
+    too_bright = v is None or v == 0xFFFFFF or max((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF) > 0xF0
+    c.ok("Color.kt：SurfaceContainerHigh 仍是那一层灰（不是纯白；台账 L-19 起是暖白那一层）",
+         not too_bright,
+         "没找到那一行" if v is None else ("现在是 #%06X" % v))
     c.present("Color.kt：暗色那档也还在", color, r"val SurfaceContainerHighDark = Color\(0xFF292A31\)")
     theme = read(THEME)
     c.present("Theme.kt：仍把它接到 colorScheme.surfaceContainerHigh", theme,

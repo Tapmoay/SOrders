@@ -151,15 +151,24 @@ val OnSecondaryContainer = Color(0xFF0B3D2E)
 val Tertiary = Color(0xFFF57F17)
 val ErrorLight = Color(0xFFFF4D4F)
 val ErrorContainerLight = Color(0xFFFFECEC)
-val BackgroundLight = Color(0xFFF2F3F7)
+// ── 暖白家族（台账 L-19 · CHG-0063，2026-10-06）──────────────────────────────
+// 用户口径（ref m00481）：「我们的整体背景基调，颜色太过于灰蓝了不好看。我更偏向于
+// 稍微偏白一点啊，整体的基调。」随后选定方向：**暖一点**（R 比 B 高），不是中性灰。
+// 这四层是**页面底与它周围那几层**（顶栏读的就是 BackgroundLight），一起往暖白走；
+// 越往下越深一档，白卡（SurfaceLight）仍是最亮的那一层，分层不许塌。
+// ⛔ 底部抽屉与侧面抽屉**不在此列**（用户 ref m09782：「底部抽屉啊，侧面抽屉啊，
+//    那些都不要搞啊别搞反了嘞」）：它们读的是 SheetSurface，那个值一个字都不许动。
+// ⛔ 描边（OutlineLight / OutlineVariantLight）与暗色那一套也都不在此列。
+// 判据：_tools/qa/_check_warm_surface_palette.py（R >= B、分层递减、抽屉层没动都在里面）。
+val BackgroundLight = Color(0xFFF8F7F4)
 val OnBackgroundLight = Color(0xFF17181C)
 val SurfaceLight = Color(0xFFFFFFFF)
 val OnSurfaceLight = Color(0xFF17181C)
-val SurfaceVariantLight = Color(0xFFECEFF5)
+val SurfaceVariantLight = Color(0xFFF1EEE9)
 val OnSurfaceVariantLight = Color(0xFF3B404A)
-val SurfaceContainerLow = Color(0xFFEDEFF4)
-val SurfaceContainer = Color(0xFFE6E9F0)
-val SurfaceContainerHigh = Color(0xFFDDE1EA)
+val SurfaceContainerLow = Color(0xFFEDEFF4)  // 死值：亮色下被 Theme.kt 换成 SheetSurface（抽屉的面）
+val SurfaceContainer = Color(0xFFE9E6DF)
+val SurfaceContainerHigh = Color(0xFFE1DDD5)
 
 /**
  * **底部抽屉的面** —— 全 App 所有 `ModalBottomSheet` 的底色（2026-09-22）。
@@ -214,7 +223,7 @@ val OnBackgroundDark = Color(0xFFE2E2E9)
  * **卡片和背景是同一个颜色**，完全没有分层：卡片看不出边界、分组看不出分界，
  * 用户 2026-09-18 的原话是「有些卡片都不是很明显，信息丢失，感觉不是很好」。
  *
- * 亮色下能分层是因为「白卡 + 灰底」（#FFFFFF on #F2F3F7）；
+ * 亮色下能分层是因为「白卡 + 底色」（#FFFFFF on `BackgroundLight`；台账 L-19 起是暖白 #F8F7F4）；
  * 暗色下必须反过来用「亮一点的灰 + 更黑的黑」，这是暗色主题唯一能做分层的方向。
  * 顺带一提：`shadowElevation` 在暗色下基本看不见，所以分层只能靠**色差**，
  * 不能再指望阴影（见 `SectionCard` 里补的那条暗色描边）。
