@@ -6016,7 +6016,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 → ✅ 十一组 **50 项**全绿；反验 → ✅ **18/18**（18 条注入 ＋ 还原后 13 个文件按字节比对一致）；`_check_reverse_verify_anchors.py` → **2447 条**注入原文全在（本刀 ＋18 条）；Android `gradle -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest` → BUILD SUCCESSFUL（新增 14 条单测全过）；全量静检 **197 脚本 / 195 ✅ / 2 ❌**；可达性 **178 / 178**；人工：对着 AI 助手问一条订单，看到分行 ＋ 状态带色。
 
-**实现提交**：`__IMPL_SHA__`（本事项动 20 个文件：Android 12 ＋ QA 2 ＋ 文档 6；归档提交另计）。
+**实现提交**：`3b33d91`（本事项动 20 个文件：Android 12 ＋ QA 2 ＋ 文档 6；归档提交另计）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
