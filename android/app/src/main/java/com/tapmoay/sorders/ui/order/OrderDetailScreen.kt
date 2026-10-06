@@ -744,11 +744,29 @@ private fun DetailBody(
                 val ctx = LocalContext.current
                 // 下单人那一行点了之后**先确认再拨**（见下面那段注释）
                 var confirmCallBoss by remember { mutableStateOf(false) }
+                // 只读地图弹层的开关（L-18）：地址那一行整行可点时置 true，关闭回调里复位。
+                var showPlaceMap by remember { mutableStateOf(false) }
                 // 就地改（CHG-0041）：点行尾那个「改」，这一块原地变成多行输入框。
                 if (edit.editingField == OrderEditField.ADDRESS) {
                     AddressEditBlock(edit)
                 } else {
-                    Row(verticalAlignment = Alignment.Top) {
+                    // 2026-10-06 台账 L-18。用户原话（m00481）：「点击那个地点信息……直接在地图上显示出来」
+                    // 「这只是能看，不能做修改」；口径后来在 **m00542** 定稿（以它为准）：「点击订单详情就
+                    // 直接打开一个地图，就是我们直接定位的那个地图……只是看一些详细……不会产生任何返回结果」。
+                    // ⇒ 点开的是 **App 内只读地图弹层**（`AmapViewDialog`：与选点弹层共用同一份地图单例，
+                    // 只加一枚目标点 marker —— 没有确认口、没有 `onPicked`，坐标在签名上就漏不出去），
+                    // ⛔ **不跳高德 App**。司机那颗「高德导航」按钮一个字没动：它问的是「怎么去」
+                    // （route 协议，真导航），与这里「在哪」（看一眼）是两件事。
+                    // ⛔ 没坐标不给入口：`addressLat/addressLng` 空着连目标点都放不下去
+                    // （空坐标的退化见 `ui/common/AmapPicker.kt` 与 `ai/AiGeocode.kt` 里那两句注释）；
+                    // ⛔ 这里只读：不写库、不调后端、不改订单 —— 要改地址仍然只有行尾那个「改」。
+                    val hasCoords = !order.addressLat.isNullOrBlank() && !order.addressLng.isNullOrBlank()
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = if (hasCoords) {
+                            Modifier.clickable { showPlaceMap = true }
+                        } else Modifier,
+                    ) {
                         Icon(
                             Icons.Default.Place,
                             contentDescription = "地址",
@@ -763,8 +781,24 @@ private fun DetailBody(
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
                         )
+                        // 行尾这颗只是把"这行能点"说出来，它自己不带 onClick（热区是整行）
+                        if (hasCoords) MapLookHint()
                         // 「改」只画给改得动的人（判据见 DetailBody 开头那两个门）
                         if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.ADDRESS) })
+                    }
+                }
+                // 只读地图弹层（L-18）：闸门与上面那句 hasCoords 同源，这里再兜一层解析 ——
+                // 解析不出来就什么都不开（⛔ 不许出现一张没有目标点的空地图）。
+                if (showPlaceMap) {
+                    val placeLat = order.addressLat?.toDoubleOrNull()
+                    val placeLng = order.addressLng?.toDoubleOrNull()
+                    if (placeLat != null && placeLng != null) {
+                        AmapViewDialog(
+                            lat = placeLat,
+                            lng = placeLng,
+                            title = order.addressDetail,
+                            onDismiss = { showPlaceMap = false },
+                        )
                     }
                 }
                 // 位置图片：横排缩略图 + 「补地点图」（点缩略图看大图）。
@@ -1545,6 +1579,23 @@ private fun DetailBody(
 }
 
 /** 商品破损卡片槽（选填·公司自担）：点开可逐商品填破损数量 + 货损备注，默认收起不占空间 */
+/**
+ * 地址行尾那颗「看地图」（2026-10-06 台账 L-18）。
+ *
+ * ⛔ 它**自己不带 onClick**：热区是整行（见收货信息卡里那段注释），这颗只是把"这行能点"
+ * 说出来；一行里再摆第二颗按键（与「改」并列）会让用户分不清点哪儿是改、点哪儿是看 ——
+ * L-18 只留一个入口。有坐标才画（判据与收货信息卡里那句 hasCoords 同源）。
+ */
+@Composable
+private fun MapLookHint() {
+    Text(
+        "看地图",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
 /**
  * 收货信息里的「导航信息」块。
  *

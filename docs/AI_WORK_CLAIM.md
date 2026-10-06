@@ -5907,6 +5907,21 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`bd322f2`（2026-10-06 07:2x CST，**10 files changed, 982 insertions(+), 41 deletions(-)**）—— 客户端 2 个 `.kt`（`ui/shipper/ShipperLedgerScreen.kt` ＋ `ui/shipper/ShipperLedgerViewModel.kt`）／ 两份新 QA（`_tools/qa/_check_ledger_pay_block_gate.py` 51/51 ＋ `_tools/qa/_reverse_verify_ledger_pay_block_gate.py` 18/18）／ 两份既有 QA 随动（`_check_report_metrics.py` ＋ `_reverse_verify_report_metrics.py`）／ 生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md` ／ 三份文档（`docs/changes/CHG-0052.md` ＋ `docs/changes/README.md` ＋ `docs/AI_WORK_CLAIM.md`）。
 
+### [2026-10-06 07:44 → 07:5x CST 已完成] 会话：**CHG-0053 订单详情「地点信息」点开一张 App 内只读地图看一眼（不跳高德、没有确认口、没坐标不给入口；口径以 m00542 为准）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-06 交来的只读排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-18**：「订单详情页面……点击那个**地点信息**……是可以**直接调用高德**，然后**直接在地图上显示出来**」「这**只是能看，不能做修改**，修改的话只能到那个**地点库**里面去修改」（ref **m00481**）；台账**附录 G** 里更晚的一条把口径改成（ref **m00542**）：「点击订单详情就**直接打开一个地图**，就是我们**直接定位的那个地图**……**只是看一些详细**……**不会产生任何返回结果**」—— 汇总表那行逐字「用户已定（**m00542：在 App 内打开只读地图，不跳高德**；未实现）」。
+
+**病灶**：改动前 `ui/order/OrderDetailScreen.kt` 收货信息卡里**地址那一行**的 modifier 就是 `Modifier,` —— 没有 clickable、没有提示，点它没有任何反应；坐标（`order.addressLat` / `order.addressLng`）早就在数据里，但只有司机那块「高德导航」（`openAmapNavigation` → `androidamap://route`，问的是"怎么去"）与门牌照用到它。台账 L-18 **正文**那条旧建议（新增 `openAmapView` 走 `androidamap://viewMap`）是 m00481 的字面，**没有采用** —— 本会话先按它落过盘，读到附录 G 后整体撤回，`util/AmapUri.kt` 已用 `git checkout --` 回到 HEAD。
+
+**改法（PRESENTATION，1 个已改 `.kt` ＋ 1 个新建 `.kt`）**：① `ui/order/OrderDetailScreen.kt`：`:748` 本屏开关 `showPlaceMap`；`:763` 那句 `hasCoords`（与司机那块 `:1618` 逐字同一句）；`:766-767` 条件 clickable（热区是**整行**，点下去只把开关打开、不跳高德）；`:785` 行尾那颗 `MapLookHint`（**自己不带 onClick**，一行只留一个入口，四颗「改」不动）；`:792-801` 渲染块（解析兜底 `placeLat != null && placeLng != null`，`onDismiss` 只复位）；② 新建 `ui/common/AmapViewDialog.kt`（193 行）：`fun AmapViewDialog(lat: Double, lng: Double, title: String, onDismiss: () -> Unit)` —— **只读边界写在签名里**（没有 `onPicked`、没有确认口）：复用进程内那个 `AmapMapHolder` 单例载体、相机 16f 落到这一单坐标、落一枚**真 marker** 且关弹层时 `clearPlaceMarker()`、顶栏只有「关闭」、右上角可切标准/卫星、`onDispose` 里只 `onPause`（**永不** `onDestroy`：高德 9.8.3 在 Android 15+/16 arm64 上会 native SIGABRT）；**没有**改 `AmapPicker.kt`（那是选点契约，被 `_check_map_picker.py` 逐条钉死）。
+
+**判据 / 反验**：新增 `_tools/qa/_check_order_place_map.py`（8 组：弹层本身／它不是选点弹层／不跳高德／入口在地址那一行／只读／闸门与既有那块逐字一致／`MapLookHint` 与四颗「改」／文档与防空转；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）＋ 反验 `_tools/qa/_reverse_verify_order_place_map.py`（22 条注入；模板化 `read_bytes` / `write_bytes` / 还原后**逐字节复核**）。
+
+**明确不碰**：`util/AmapUri.kt`（逐字 HEAD：`androidamap://route?sourceApplication=sorders&dev=0&t=0` ＋ `&dlat=` ＋ `&dlon=` ＋ `&dname=` ＋ `&style=0` ＋ `setPackage("com.autonavi.minimap")` ＋ 没装高德时的 navigation 网页回退）；`ui/common/AmapPicker.kt` 与 `AmapMapHolder`（`applyMapType(` 仍恰好 2 处、永不 `onDestroy`）；四颗 `if (canEditInfo) EditHint(`（新入口是另一个符号）；司机那块三态文案与 `onClick = onNavigate`；详情页里不许出现裸 `Dialog(` 这条既有红线（只读地图以**命名 composable** 形式进来）；本事项**不写任何数据**（那一段里没有 `vm.` / `container.` / `repo.` / `.saveEdit` / `.submit`）；台账（只读）与旧 CHG 文档不回改。
+
+**验证**：判据 `_check_order_place_map.py` → ✅ 84 项全过；反验 → ✅ 22/22（21 条注入 ＋ 还原后全绿）；编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL in 9s**（既有 deprecation 警告：Notes / MyLocation 图标 ＋ `OrderDetailScreen.kt` 四颗 `HintOnce`）；全量静检 `_check_all.py` → 191 项：189 ✅ / 2 ❌（`_tools/qa/_check_backend_fresh.py`：跑过反向验证后本机后端进程跑的是注入前那份旧代码，必然报这条；`_tools/qa/_check_report_facts.py` 的 2 条：`docs/RELEASE_CANDIDATE.md` 里没记 `VERSION 0.2.5`（另一会话刚改过 `VERSION`）＋ `_tools/ops/_migration_tests.py --concurrent` 在 Windows 本机互斥上跑不通 —— 两条红都与本事项无关；本事项新增的 `_check_order_place_map.py` 在这一跑里显示 `✅ 全部 84 项通过。`）；可达性 → 172/172、markdown 链接 349 条全有效、孤儿 0。
+
+**实现提交**：`（实现提交待落，归档提交回填）`（2026-10-06 07:4x CST）—— 1 个已改 `.kt`（`ui/order/OrderDetailScreen.kt`）／ 1 个新建 `.kt`（`ui/common/AmapViewDialog.kt`）／ 2 份新 QA（`_check_order_place_map.py` ＋ `_reverse_verify_order_place_map.py`）／ 生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（`.kt` 行号漂移重生成）／ 三份文档（`docs/changes/CHG-0053.md` ＋ `docs/changes/README.md` ＋ `docs/AI_WORK_CLAIM.md`）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
@@ -5919,6 +5934,9 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-06 07:44 | **CHG-0053 订单详情地点信息只读地图**（我，`session-bd8fe093`） | `ui/order/OrderDetailScreen.kt` ＋ `ui/common/AmapViewDialog.kt`（**一处入口 ＋ 一个新文件，同一次改动**） | 地址那一行条件 clickable（热区整行）＋ 行尾「看地图」＋ 弹层渲染块与解析兜底；新建只读弹层（复用地图单例、真 marker 且关时摘掉、只有「关闭」、只 `onPause` 永不 `onDestroy`）。 |
+| 2026-10-06 07:44 | **CHG-0053**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0053.md`（新建，两文件必须同一次提交） | 在 CHG-0052 行之后追加 CHG-0053 登记行（5 列），实现提交时状态写 `🔧 进行中（…）`；CHG-0053.md 按九节模板写全（Boundary 宣布 **PRESENTATION**、口径以 **m00542** 为准、并声明撤回台账里 m00481 那条 `viewMap` 建议）。 |
+| 2026-10-06 07:44 | **CHG-0053**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_order_place_map.py`（8 组；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）与 `_reverse_verify_order_place_map.py`（22 条注入）。 |
 | 2026-10-06 07:2x | **CHG-0052 我的账本支出段闸门 ＋ 括号省略**（我，`session-bd8fe093`） | `ui/shipper/ShipperLedgerScreen.kt` ＋ `ui/shipper/ShipperLedgerViewModel.kt`（**两处客户端文件，同一次改动**） | 合计卡支出段加 `if (vm.isAllCustomers)` 闸门（选中某个货主时不画这一段）、分隔线跟同一闸门、两处方向标签去括号；VM 新增派生属性 `isAllCustomers`。 |
 | 2026-10-06 07:2x | **CHG-0052**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0052.md`（新建，两文件必须同一次提交） | 在 CHG-0051 行之后追加 CHG-0052 登记行（5 列），实现提交时状态写 `🔧 进行中（…实现提交待落）`；CHG-0052.md 按九节模板写全（Boundary 宣布 **PRESENTATION**、并声明推翻 `CHG-0026.md` 的 P25 括号修法）。 |
 | 2026-10-06 07:2x | **CHG-0052**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本 ＋ 两份既有随动**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_ledger_pay_block_gate.py`（51/51 / 6 组；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）与 `_reverse_verify_ledger_pay_block_gate.py`（18 条注入）；随动 `_check_report_metrics.py`（P25 括号写法收成老写法常量 ＋ 反过来钉「括号不许再挂回」）与 `_reverse_verify_report_metrics.py`（第 ⑤ 条改成「把括号挂回去」）。 |
