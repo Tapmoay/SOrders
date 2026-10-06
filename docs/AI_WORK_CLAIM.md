@@ -6019,6 +6019,23 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 **实现提交**：`3b33d91`（本事项动 20 个文件：Android 12 ＋ QA 2 ＋ 文档 6；归档提交另计）。
 ---
 
+### [2026-10-06 1x:xx → 1x:xx CST 已完成] 会话：**CHG-0061 补拍照片也要有水印：当场拍的两行、事后补的三行（台账 L-22）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-06 交来的只读排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-22**（第 824 行）正文（ref **m00542**）：「如果有些信息是**补上去的照片**的话，会有一些水印……那个水印就是会显示时间，然后这个照片是**被人补过的**，就是说是补过的照片就可以了」。
+
+**病灶**：订单详情页「位置图片」两条补图入口**都不画水印** —— 相册那条把选中的图拷进 cacheDir 之后直接 `vm.uploadPlacePhoto(f)`；相机那条把 `TakePicturePreview` 给的位图按 `Bitmap.CompressFormat.JPEG, 88` 落盘之后直接传。而「拍照送达」那条路早就画了「时间 + 地点」两行 ⇒ **事后补的与当场拍的在上传物上长得一模一样**（留痕失真，正是用户说的那一幕）。
+
+**改法（Android 4 个文件）**：① 新增 `util/WatermarkText.kt`（**零 import** 的纯 object：`MAKEUP_TAG = "补拍 · 事后补录"` / `LOCATION_FALLBACK = "送达地点"` / `LOCATION_MAX = 60` / `lines(time, locationText, tag = null)` —— 两行是底，`if (!tag.isNullOrBlank()) out += tag` 追加到最后）；② `util/Watermark.kt`：`process(…, tag: String? = null)`（默认值 ⇒ 既有调用点一个字不改）＋ 新增 `markBitmap(src: Bitmap, outFile, locationText, tag = null)`（`if (scaled !== src) scaled.recycle()`，⛔ 不回收调用方的位图 —— 那是系统相机回调给的），`drawWatermark` 改成问 `WatermarkText.lines` 要行（原来那段 `listOf(time, locationText.take(60).ifBlank { "送达地点" })` 已删）；③ `ui/order/OrderDetailScreen.kt`：地点口径收成局部 `watermarkText()` 一处（实时定位 → 逆地理 → 订单地址 → 兜底），相册那条路改成 `Dispatchers.IO` 里先 `Watermark.process(f, marked, watermarkText(), WatermarkText.MAKEUP_TAG)` 再 `vm.uploadPlacePhoto(marked)`，相机那条路改成 `Watermark.markBitmap(bmp, f, watermarkText(), WatermarkText.MAKEUP_TAG)`（那行 JPEG 88 已删）；④ 新增单测 `util/WatermarkTextTest.kt` 7 条。
+
+**明确不碰**：送达照那条路（`Watermark.process(File(rawPath), out, wmText)` 逐字未变、**且不带补拍标识** —— 当场拍的照片被标成"事后补录"是反向失真，比少一行更糟）＋ 上传接口 `uploadPlacePhoto(file: java.io.File)` 与后端（零改动）＋ `process` 既有链路（EXIF 摆正 → 缩放 → 画 → JPEG 85）与 `MAX_EDGE = 2560` ＋ 订单详情页其它卡片与 `OrderDetailViewModel`。
+
+**判据 / 反验**：新增 `_tools/qa/_check_place_photo_watermark.py`（六组 **45 项**：文案 / 兜底 / 上限只有一份出处（`LOCATION_MAX = 60` **卡词边界**，防 600）＋ `lines()` 形状 ＋ 「补拍」「补拍 · 事后补录」「送达地点」三个字面量在整个客户端只出现在那一个文件 ＋ 图形层不再自己拼行且不回收调用方位图 ＋ 地点口径只有一处且三条路都调它 ＋ 送达照逐字未变且不带标签 ＋ 相册先画后传 ＋ 相机不再落盘无水印 jpg ＋ 上行接口一个字没改 ＋ 单测六条 ＋ 规范与反验与接线）＋ `_tools/qa/_reverse_verify_place_photo_watermark.py`（**19/19**）；设计规范 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` §4.26 把这条记成纪律。
+
+**验证**：判据 → ✅ **45 项**；反验 → ✅ **19/19**（还原后 9 个文件按字节比对一致）；`_check_reverse_verify_anchors.py` → **2455 条注入原文全部还在**；Android `gradle -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest` → BUILD SUCCESSFUL ＋ 新增 `WatermarkTextTest` 全过；全量静检 `_check_all.py` → **198 脚本 / 196 ✅ / 2 ❌**；可达性 → **179 / 179**。
+
+**实现提交**：`__IMPL_SHA__`（本事项动 11 个文件：Android 4（`util/WatermarkText.kt` 新 / `test/.../util/WatermarkTextTest.kt` 新 / `util/Watermark.kt` / `ui/order/OrderDetailScreen.kt`）＋ QA 2（判据与反验各一新）＋ 文档 5（`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（新增/改动 .kt 后重生成）、`docs/changes/CHG-0061.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`）；归档提交只回填 sha）。
+---
+
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
 > ⚠️ **那个目录在 `/_archive/` 的忽略名单里（`.gitignore`），不进 git** —— 换一台机器就没有这份存档。
 > 真正丢不了的是 git 历史：任何一版旧内容都取得回来 ——

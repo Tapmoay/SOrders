@@ -52,7 +52,6 @@ import com.tapmoay.sorders.util.moneyToDouble
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import android.graphics.Bitmap
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,6 +100,19 @@ fun OrderDetailScreen(
         preview.openStaticPaths(group, group.indexOf(url))
     }
 
+    // 水印第二行（地点）的口径 —— 「拍照送达」与「位置图片」**共用这一处**：
+    // 实时定位 → 逆地理地址（高德）→ 订单地址 → 兜底「送达地点」。
+    // 台账 L-22 要求补拍那张的水印与送达照长得一样（只多第三行），所以口径只能有一份。
+    fun watermarkText(): String {
+        val order = vm.order
+        val loc = container.locationManager.lastPoint
+        // 预留：接入高德后由 GeoResolver 逆地理编码返回具体地点名（村/路/店名）
+        return if (loc != null)
+            (GeoResolver.resolveSync(context, loc.lat, loc.lng)
+                ?: order?.addressDetail ?: WatermarkText.LOCATION_FALLBACK)
+        else order?.addressDetail ?: WatermarkText.LOCATION_FALLBACK
+    }
+
     // 系统相机拍照（成品走 FileProvider）。**不需要 CAMERA 权限**——
     // 这一行以前是错的：清单声明了 `android.permission.CAMERA`，而系统文档写明
     // "declares as using the CAMERA permission which is not granted → ACTION_IMAGE_CAPTURE
@@ -115,13 +127,9 @@ fun OrderDetailScreen(
                 try {
                     val dir = File(context.cacheDir, "photos").apply { mkdirs() }
                     val out = File(dir, "done_" + System.currentTimeMillis() + ".jpg")
-                    val order = vm.order
-                    val loc = container.locationManager.lastPoint
-                    // 预留：接入高德后由 GeoResolver 逆地理编码返回具体地点名（村/路/店名）
-                    val wmText = if (loc != null)
-                        (com.tapmoay.sorders.util.GeoResolver.resolveSync(context, loc.lat, loc.lng)
-                            ?: order?.addressDetail ?: "送达地点")
-                    else order?.addressDetail ?: "送达地点"
+                    // 这一张是**当场拍的** ⇒ 不带补拍标识，水印仍是两行（与改前逐字一致）。
+                    // 地点口径与「位置图片」共用同一个出处（见上面的 watermarkText()）。
+                    val wmText = watermarkText()
                     Watermark.process(File(rawPath), out, wmText)
                     vm.addCapturedPhoto(out.absolutePath)
                 } catch (_: Exception) {
@@ -159,7 +167,17 @@ fun OrderDetailScreen(
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     f.outputStream().use { output -> input.copyTo(output) }
                 }
-                vm.uploadPlacePhoto(f)
+                // 补拍的照片**也要有水印**（台账 L-22）：时间 + 地点，第三行标明是事后补的。
+                // 顺带把图压到 2560 长边再传（相册原图动辄十几 MB）。
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val marked = File(context.cacheDir, "place_done_" + System.currentTimeMillis() + "_" + i + ".jpg")
+                        Watermark.process(f, marked, watermarkText(), WatermarkText.MAKEUP_TAG)
+                        vm.uploadPlacePhoto(marked)
+                    } catch (_: Exception) {
+                        vm.error = "照片处理失败，请重试"
+                    }
+                }
             } catch (_: Exception) {
                 vm.error = "图片读取失败，请换一张"
             }
@@ -172,7 +190,8 @@ fun OrderDetailScreen(
                 try {
                     val dir = File(context.cacheDir, "place_imgs").apply { mkdirs() }
                     val f = File(dir, "cam_" + System.currentTimeMillis() + ".jpg")
-                    f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                    // 补拍的照片**也要有水印**（台账 L-22）：这张已经是内存里的位图，直接画。
+                    Watermark.markBitmap(bmp, f, watermarkText(), WatermarkText.MAKEUP_TAG)
                     vm.uploadPlacePhoto(f)
                 } catch (_: Exception) {
                     vm.error = "照片处理失败，请重试"

@@ -1383,6 +1383,23 @@ Text(..., textAlign = TextAlign.End, modifier = Modifier.width(qtyW))
 
 判据 `_tools/qa/_check_ai_answer_style.py` ＋ 反向验证 `_tools/qa/_reverse_verify_ai_answer_style.py`（判定表被摘掉一档 / 两条上限改大 / 「无异常」那条被删 / 开关不再往下传 / 渲染器默认关掉上色 / 用户气泡那行被写死成 true / 认不出来的键不再原样返回 / 换标签挪到兜底之前 / 提示词两处口径被删 / 单测里那条反例被换掉 / 判据清单指向不存在的文件 / 反验脚本自己不见了 / 设计规范这段被改成别的名字 —— 逐条注入都要能报红）。
 
+### 4.26 照片上的水印：**当场拍的两行、事后补的三行**（2026-10-06 用户点名，台账 L-22）
+
+用户原话：「如果有些信息是**补上去的照片**的话，会有一些水印……那个水印就是会显示时间，然后这个照片是**被人补过的**，就是说是补过的照片就可以了。」
+
+详情页里能传两种照片，**肉眼却分不出哪张是当场拍的** —— 这正是「补」这件事的留痕风险：司机到不了现场，事后挑一张相册里的图传上来，与当场拍的看起来一模一样。
+
+- **当场拍的**（「拍照送达」那条链路）：时间 + 地点，**两行** —— 行为一个字都没变；
+- **事后补上来的**（详情页「位置图片」：相册选最多 9 张 / 系统相机拍）：同样两行 **＋ 第三行「补拍 · 事后补录」**。
+
+**落法（文案只有一份、地点口径只有一处）**：
+- **画哪几行 = 纯函数**：`android/app/src/main/java/com/tapmoay/sorders/util/WatermarkText.kt` 的 `lines(time, locationText, tag)`（不 import 任何 `android.*` ⇒ JVM 单测直接钉）。常量 `MAKEUP_TAG = "补拍 · 事后补录"`、`LOCATION_FALLBACK = "送达地点"`、`LOCATION_MAX = 60`；`tag` 为 null 或空白 ⇒ 只有两行（**当场拍的绝不许被标成补拍**）。
+- **怎么画 = 图形层**：`android/app/src/main/java/com/tapmoay/sorders/util/Watermark.kt` 只有「位图怎么摆」：`process(srcFile, outFile, locationText, tag = null)`（磁盘文件，按 EXIF 摆正）与 `markBitmap(src, outFile, locationText, tag = null)`（**内存位图**，系统相机 `TakePicturePreview` 那条路）。⛔ `markBitmap` 不回收调用方的位图。
+- **地点口径只有一处**：`android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt` 的局部函数 `watermarkText()`（实时定位 → `GeoResolver.resolveSync` 逆地理 → 订单地址 → 兜底）—— 三条路（送达照 / 相册补图 / 相机补图）都调它；各写一份的话，同一单的两张照片会印出两个地点。
+- **先画水印再上传**（不是传完再补画），补图两条路都挪到 `Dispatchers.IO` 上压图（顺带把长边压到 2560 再传：相册原图动辄十几 MB）。
+
+判据 `_tools/qa/_check_place_photo_watermark.py` ＋ 反向验证 `_tools/qa/_reverse_verify_place_photo_watermark.py`（补拍标识文案被改掉 / `lines` 的 tag 分支被删 / 送达照那行被加上补拍标识 / 相册那条路传的还是原图 / 相机那条路退回「先落盘无水印 jpg」/ 地点口径被抄成第二份 / 单测被掏空 / 设计规范这段被改名 —— 逐条注入都要能报红）。
+
 ## 5. 用户明确偏好（改 UI 前必看）
 
 ### 5.-1 地图选点要能给**卫星图**（2026-09-22 用户点名）
