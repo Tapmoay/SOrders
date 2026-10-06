@@ -7214,6 +7214,6 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 
 **验证**：判据 27/27 · 反验 23/23 · 单测 `NotifyPermissionTest` BUILD SUCCESSFUL in 11s · 编译 BUILD SUCCESSFUL in 11s · 既有红线 `_check_notify_guardrails.py` 124/124 与 `_check_ledger_dialog_style.py` 62/62 · 生成物新鲜度 5 组全过（`_check_hints.py` 31 项；改过界面文案，已重跑 `_tools/qa/_hint_inventory.py --md`）· 可达性 **181 / 181** · 全量静检 **200 脚本 / 198 ✅ / 2 ❌**（两条红都与本事项无关）。
 
-**实现提交**：`PENDING`
+**实现提交**：`9f70c50`（本事项动 **13 个文件**：Android 5（改 3 ＋ 新 2）＋ QA 4（新 2 ＋ 改 2）＋ 文档 3 ＋ 生成物 1）
 
 ---
