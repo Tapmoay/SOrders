@@ -7259,3 +7259,25 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 **验证**：判据 **45/45** · 反验 **12/12** · 既有回归 `_check_ledger_dialog_style.py` **62/62** 与 `_reverse_verify_ledger_dialog_style.py` **16/16** · `:app:compileEmuDebugKotlin` ＋ `:app:testEmuDebugUnitTest` **BUILD SUCCESSFUL in 2m 14s** · `:app:assembleEmuDebug` exit 0 · 全量静检 **202 脚本 / 200 ✅ / 2 ❌**（两条红与本刀无关）· 可达性 **183 / 183** · 真机 emulator-5554 改前/改后各 2 张弹窗截图（`shots/chg0064_before_5554_cancel_order.png`、`…_after_5554_cancel_order.png`、`…_before_5554_apply_return.png`、`…_after_5554_apply_return.png`）；5556 装着别的会话更高版本号，装不上，那一侧只有判据钉档。
 
 **实现提交**：`72f141f`（本事项动 **46** 个文件：Android 37 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
+
+---
+
+### [2026-10-07 00:0x → 00:4x CST 已完成] 会话：**发版 0.2.6：台账 L-01…L-32 的 23 张单上线（后端八步 ＋ 手机包上传 ＋ 发布台账回填）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：「然后你提交完了git然后再push一下。完成之后，我们就上传新的版本更新版本号」（ref **m10686**）。
+
+**三个决定**（随后逐条拍板）：版本号打 **0.2.6（补丁）**（线上当时是另一个会话 2026-10-06 00:33 发的 0.2.5 / 2026100602，不含这批）；**现在就发**（构建 phone release 包 ＋ `publish_apk.py` 上传）；**后端一起发，先发后端再发 APK**（这批含后端改动：CHG-0050 挂车不再免拍照的服务端豁免、CHG-0058 收货人/下单人不能全空的前后端双拦 ＋ 司机信息不给司机与 AI）。
+
+**改法（五件，产品代码只碰了一处）**：① `VERSION` 0.2.5 → **0.2.6**（`03bde4b`，只改仓库根一个文件；Android versionName 与后端 app_version 都读它）；② 发布第一跑在 migrate 步红：024 的 `CREATE UNIQUE INDEX IF NOT EXISTS` 是 SQLite 语法，MySQL 的 CREATE INDEX 不认 ⇒ 照 `013_route_categories.py` 的既有正解改（`acda0ce`：`_indexes(engine)` 先 `inspect` 判存在再建、加列与建索引**分开判、分开执行**、`_sqlite_rebuild()` 改调 `_ensure_index`、docstring 补现场）；生产当时是**半截状态**（MySQL DDL 隐式提交：`schema_versions` 停在 23、两列已加成功、`uq_upv_category` 没有、`product_id` 仍 NOT NULL），所以修法是「能接着往下走」而不是「回滚重来」；③ 生产 MySQL 演练：scratch 库 `sorders_drill_024`（照生产半截结构重建）跑 `upgrade` **两遍** ⇒ 第 1 遍 exit 0（207 ms 建索引）、第 2 遍 no-op，之后 `version=24` / `product_id` 可空 / `uq_upv_category` 在 / 老约束在 / 11 行一行没丢；生产库全程只读；④ `_tools/deploy/_release.py --all --go` **八步全过**（backup → stage → migrate → verify → start → health → smoke → business，`release-exit=0`）：备份 `/opt/sorders-backup/pre_release/20261006T161920Z`（库 538,744 B ＋ 上传 108,019,355 B / 2119 文件，sha256 通过）、生产 stage 到发布点、**结构 23（半截）→ 24**、`sorders-api-a/b` 逐个 active ＋ `/health=200` ＋ canary 30% 与 `.env` 一致、smoke `ERROR 0 / 未批准告警 0`；⑤ 手机包：`assemblePhoneRelease`（0.2.6 / versionCode **2026100701** / `-PapiBaseUrl=https://8.145.40.22`）⇒ `check_phone_apk.py` **✅ 可以发**（签名指纹与线上一致、包内无开发地址）⇒ `publish_apk.py` 上传 `sorders-0.2.6-2026100701.apk`（45,178,533 B，sha256 `48C6F388B247FC6E…`）＋ `sorders-latest.apk` ＋ `version.json`（回读 OK、HTTP 206 探包 OK；短链 `http://8.145.40.22/apk`）。
+
+**判据 / 证据**：`docs/RELEASE_CANDIDATE.md` 整张表现取重填 —— Git SHA = `acda0ce…`、**DB migration version 24**、Android ＋ Backend **0.2.6**、config checksum（systemd `7450d600ccfa8b86` ／ nginx `98dd5c2f1ee050630048ffa356cf754b` ／ requirements `4f6f3ad341928200`）、artifact `48C6F388B247FC6E`；并新增「0.2.6 发布（只读采集）」与「2026-10-07 复核」两小节；生产库形状直查（`SHOW CREATE TABLE user_product_visibility`）＋ `/health` 响应体实证。随动修掉发布引出的两条红：`_tools/qa/_check_dialog_language.py` 补 `R3-BOUNDARY-JUSTIFICATION`（R3-D17）、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` 按迁移后的行号重生成（`_check_generated_freshness.py` / `_check_hints.py` 回绿）。发布后还补了防复发红线：`_tools/qa/_check_migrations.py` 新增「方言可携」一节（迁移里再出现 MySQL 不认的 `CREATE INDEX / ADD COLUMN / DROP INDEX IF NOT EXISTS` 就报红，配三条注入 ⇒ 20/20）＋ `_tools/ai/_check_ai_guardrails.py` 那条钉索引的红线原来钉的正是被修掉的旧字面量，改成新写法并补「存在性问库 / 先判再建 / 升级路径真的调用」三条（§31 共 38 条注入全部会红）。
+
+**提交编号的补写（要记一笔）**：`03bde4b` / `acda0ce` 这两条提交在 2026-10-07 00:3x 被**改写标题**补上可回溯编号（原名 `f488a52` / `bd818eb`；发版那条按 `_check_r3_constraints.py` 的豁免写「无 ID：发版动作」，024 那条挂回它的来源单 `CHG-0062`）—— ⛔ **树内容一字未动**（`git diff <旧> <新>` 为空，包、文件、迁移号全不变），只换了 SHA；`_check_r3_constraints.py` 的 R3-D02 由红转绿。生产机上 checkout 的还是老对象，内容一致。
+
+**明确不碰**：业务代码与库表结构（本刀上线的是台账那 23 张单早已提交的实现，一行产品代码都没在本刀里写）；`docs/PRODUCTION_ACCEPTANCE.md` §三 的人工有限写烟测清单（见下）。
+
+**⚠️ 已知局限**：`_release.py` 的 business 步**故意不自动化**（要往生产写业务数据），脚本只打印说明并标「完成」⇒ **§三 的人工有限写烟测本次尚未逐条做**；0.2.6 的真机核验只装了模拟器 emu 包（release 包只做了包内校验，没在真机上装过）。
+
+**验证**：全量静检 **202 脚本 / 201 ✅ / 1 ❌**（唯一那条红是 `_tools/qa/_check_backend_fresh.py` —— 注入式反向验证还原时会刷新 mtime，脚本自己的注里就写着「跑过反向验证后必然报」；本机 uvicorn PID 3052 起于 23:22:50，重启即消）；可达性 **183 / 183**；`release-exit=0`；`check_phone_apk.py` ✅；生产 `/health` `{"status":"ok","version":"0.2.6","redis":"ok",…}`。
+
+**实现提交**：`03bde4b`（版本号）＋ `acda0ce`（024 迁移修复）＋ `5712703`（CHG-0064 判据边界声明 ＋ 提示目录重生成）＋ `ccab098`（迁移方言红线 ＋ 守卫线随动）＋ 本次发布台账与声明页那一刀（本提交）。
