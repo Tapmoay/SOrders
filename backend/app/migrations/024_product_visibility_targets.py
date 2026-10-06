@@ -46,6 +46,17 @@
    （测试库都是 `create_all` 建的新形状，2026-10-06 真库探针才撞出来）。
    手法照 `011_contact_phone_optional`：SQLite 不支持 `MODIFY COLUMN` ⇒ **中转表 + DROP + 按模型重建**；
    其它方言一句 `MODIFY COLUMN product_id INT NULL`。
+
+### ⚠️ 2026-10-06 生产发布撞到的一条（MySQL 不认 `CREATE INDEX IF NOT EXISTS`）
+
+第一版这里写的是 `CREATE UNIQUE INDEX IF NOT EXISTS ...` —— SQLite 认，**MySQL 不认**：
+生产 `python -m app.migrations upgrade` 直接
+`(pymysql.err.ProgrammingError) (1064, "... near 'IF NOT EXISTS uq_upv_category ON ...'")`，
+`_runner` 抛 `MigrationFailed`，发布停在 migrate 步、服务没重启。
+⚠️ 而且它把生产库改成了**半截**：MySQL 的 DDL 隐式提交 ⇒ 那两列**已经加上去了**，
+索引那一句没跑成、`schema_versions` 也没记账。所以重跑必须能**接着往下走**（README 硬要求 2）。
+修正写法照 `013_route_categories.py`：用 `_indexes(engine)` 判存在，
+⛔ 加列与建索引**分开判、分开执行**（挤在一个块里连着做，一失败就不知道停在哪）。
 """
 
 from __future__ import annotations
@@ -66,9 +77,9 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("mode", "mode VARCHAR(8) NOT NULL DEFAULT 'allow'"),
 )
 INDEX = "uq_upv_category"
-INDEX_DDL = (
-    f"CREATE UNIQUE INDEX IF NOT EXISTS {INDEX} ON {TABLE} (user_id, category_name, mode)"
-)
+#: ⛔ 不带 `IF NOT EXISTS`：MySQL 的 `CREATE INDEX` 不支持这个语法（只有 SQLite 认），
+#:    2026-10-06 生产发布就是这么红的（见 docstring 末段）。存在性判断走 `_indexes(engine)`。
+INDEX_DDL = f"CREATE UNIQUE INDEX {INDEX} ON {TABLE} (user_id, category_name, mode)"
 #: 分类行的 product_id 是 NULL，所以这一列必须可空（见 docstring 第 5 条）。
 COLUMN_PRODUCT_ID = "product_id"
 #: SQLite 中转表名。带事项号，避免和别的表撞名（同 011 的写法）。
@@ -92,6 +103,19 @@ def _product_id_nullable(engine: Engine) -> bool | None:
         if col["name"] == COLUMN_PRODUCT_ID:
             return bool(col["nullable"])
     return None
+
+
+def _indexes(engine: Engine) -> set[str]:
+    """这一张表现有的索引名（同 012 / 013 / 014 / 015 的写法）。"""
+    return {ix["name"] for ix in inspect(engine).get_indexes(TABLE)}
+
+
+def _ensure_index(engine: Engine) -> None:
+    """建那条具名唯一索引：已经在了就什么都不做（幂等，SQLite 与 MySQL 同一句 DDL）。"""
+    if INDEX in _indexes(engine):
+        return
+    with engine.begin() as conn:
+        conn.execute(text(INDEX_DDL))
 
 
 def _sqlite_rebuild(engine: Engine) -> None:
@@ -118,10 +142,10 @@ def _sqlite_rebuild(engine: Engine) -> None:
         # 位置对应（中转表是按 new_cols 的顺序 select 出来的），所以这里不逐个点名列。
         conn.execute(text(f'INSERT INTO "{TABLE}" ({cols_sql}) SELECT * FROM "{STAGING}"'))
         conn.execute(text(f'DROP TABLE "{STAGING}"'))
-        # 重建把上面那条具名唯一索引一起带走了（模型里是内联 UNIQUE 约束，SQLite 给它起的是
-        # sqlite_autoindex_* 这种名字），所以这里补回同一句 DDL，让"重建过的老库"与
-        # "只走 ALTER 的老库"落到同一个形状上。
-        conn.execute(text(INDEX_DDL))
+    # 重建把上面那条具名唯一索引一起带走了（模型里是内联 UNIQUE 约束，SQLite 给它起的是
+    # sqlite_autoindex_* 这种名字），所以这里补回同一条索引，让"重建过的老库"与
+    # "只走 ALTER 的老库"落到同一个形状上。⛔ 单开一块：DDL 一失败要能看出停在哪一步。
+    _ensure_index(engine)
 
 
 def upgrade(engine: Engine) -> None:
@@ -130,11 +154,14 @@ def upgrade(engine: Engine) -> None:
         # 全新库由 create_all 按模型建表（模型里已经有这两列、两条唯一约束、一条 CHECK，
         # 且 product_id 本来就可空），这里没什么可做的。
         return
-    with engine.begin() as conn:
-        for name, ddl in COLUMNS:
-            if name not in have:
+    # ⛔ 加列与建索引**分开判、分开执行**（照 013 那条注释）：MySQL 的 DDL 隐式提交，
+    #    一条迁移可能"改了一半"才失败，下次重跑必须能接着往下走（README 硬要求 2）。
+    #    2026-10-06 生产就是这么半截的：两列加成功了，索引那一句语法不过。
+    for name, ddl in COLUMNS:
+        if name not in have:
+            with engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE {TABLE} ADD COLUMN {ddl}"))
-        conn.execute(text(INDEX_DDL))
+    _ensure_index(engine)
     # ⚠️ 顺序：先补完上面两列，再重建 —— 重建是按模型列名搬数据的，`mode` 得先在表里
     #    （老库上它由列默认值 `'allow'` 填出来）。
     nullable = _product_id_nullable(engine)
