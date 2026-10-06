@@ -6000,7 +6000,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 `_check_qty_focus_select.py` → ✅ 十组 **40 项**全绿；反验 → ✅ **11/11**（11 条注入 ＋ 还原后 7 个文件按字节比对一致）；`_check_qty_dialog_style.py` → **22 项全过**、`_reverse_verify_qty_dialog.py` → **9/9**（5 个文件按字节还原）；`_check_reverse_verify_anchors.py` → **2440 条**注入原文全在（本刀 ＋11 条）；Android `gradle -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest` → BUILD SUCCESSFUL（1m 25s）＋ 新增 `FieldSelectionTest` 7 条全过、`QtyStepperTest` 原样；生成物 `_gen_capability_snapshot.py` ＋ `_hint_inventory.py --md` 重生成后 `_check_generated_freshness.py` **5 组全过**；全量静检 **196 脚本 / 194 ✅ / 2 ❌**（两条既有红与本事项无关：本机后端跑着旧代码 / 另一会话的 `docs/RELEASE_CANDIDATE.md` VERSION 记录）；可达性 **177/177**；人工：点进数量框直接打 15 看到的是 15。
 
-**实现提交**：`__IMPL_SHA__`（本事项动 17 个文件：Android 7 ＋ QA 4 ＋ 文档 6；归档提交另计）。
+**实现提交**：`1f5fc37`（本事项动 17 个文件：Android 7 ＋ QA 4 ＋ 文档 6；归档提交另计）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
