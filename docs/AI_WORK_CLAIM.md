@@ -5984,7 +5984,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 `_check_order_contact_required.py` → ✅ 十组 **63 项**全绿；反验 → ✅ **54/54**（54 条注入 ＋ 还原后 29 个文件按字节比对一致）；后端 `backend/tests/test_order_contact_required.py` → **9 passed**，老测试 33 处 payload 随动后 27 个文件全绿；既有红线 `_check_contact_names.py` **72/72**、`_check_unshowable_text_guard.py` **67 项通过 / 0 失败**、`_check_order_contact_edit.py` **135/135**；Android `_agent\gradle\gradle-8.9\bin\gradle.bat -p android :app:compileEmuDebugKotlin` → BUILD SUCCESSFUL，`:app:testEmuDebugUnitTest` → 全过；全量静检 **195 脚本 / 193 ✅ / 2 ❌**（两条既有红与本事项无关：本机后端跑着旧代码 ／ 另一会话的 `docs/RELEASE_CANDIDATE.md` VERSION 记录待跟）；可达性 176/176（链接全部有效、孤儿 0）。本刀连带回绿：`_check_hints.py` **31 项**（近似名提示改走 `Hint(`）、`_check_order_driver_call.py` **45 项**（司机那一行的口径随动）、`_reverse_verify_order_driver_call.py` **25/25**、`_reverse_verify_contact_names.py` **29/29**、`_check_reverse_verify_anchors.py` **2429 条**、`_check_generated_freshness.py` 5 组。
 
-**实现提交**：`__IMPL_SHA__`（本事项动 66 个文件；归档提交另计）。
+**实现提交**：`d6dedb1`（本事项动 66 个文件；归档提交另计）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
