@@ -6124,7 +6124,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **真机 emulator-5554**（派单员 `13800000001`；`python _tools/qa/_install_all.py --only 5554` exit 0，APK 44.4MB）：`shots/chg0070_01_preview_first_5554.png`（`1 / 2`，节点里只有 `<下一张>`）→ 单指横滑（adb `input motionevent DOWN → 3×MOVE → UP`，约 1 秒）→ `_02_preview_next_5554.png`（`2 / 2`）→ 再左滑 → `_03_last_stops_5554.png`（**仍 `2 / 2`**，只有 `<上一张>`）→ 右滑 → `_04_back_to_first_5554.png`（`1 / 2`）→ 再右滑 → `_05_first_stops_5554.png`（**仍 `1 / 2`**）；商品图那档 `_06_product_single_5554.png`（只有 `<图片预览>` / `<保存到相册>` / `<关闭预览>`，**无箭头无计数**）；`_04_mid_drag_5554.png` 是 1× 档拖动中途跟手（照片横移、右侧露黑底）。⚠️ **取证教训**：`input swipe`（800px/220ms 快扫）在 Compose 的 `detectTransformGestures` 里累积不出待翻页位移、**翻不动页** ⇒ 一律用 `input motionevent` 逐步注入。取证脏数据（无代码 / 判据依赖）：订单 601 与 592 各挂 2 张截图当「地点照片」、商品 1 赣南脐橙的展示图指向一张截图。
 
-- 状态：已完成（开工 2026-10-07 06:0x，关单 06:2x；变更单 `docs/changes/CHG-0070.md`；实现提交 `（见 §⑧）`）
+- 状态：已完成（开工 2026-10-07 06:0x，关单 06:2x；变更单 `docs/changes/CHG-0070.md`；实现提交 `a17aa81`）
 - 回填：`docs/changes/CHG-0070.md` §⑦ 四行结果列 / §⑧ 六行 Actual 列 / §⑨ 六格已填满；`docs/changes/README.md` 状态格已改「✅ 已关闭」
 
 ---
