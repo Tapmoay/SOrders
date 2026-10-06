@@ -1382,11 +1382,13 @@ private fun MessageRow(
                             )
                         } else {
                             // 模型答复走富文本：表格画成真表格、**粗体** 真加粗（原来纯文本时表格是一堆竖线，看不清）
+                            // 重要信息还会按类别自动上色 —— 但用户自己发的消息是蓝底白字，不能上色
                             AiRichText(
                                 text = m.text,
                                 fontSize = MessageTextSize,
                                 lineHeight = 26.sp,
                                 color = bubbleText,
+                                toned = !isUser,
                             )
                         }
                     }

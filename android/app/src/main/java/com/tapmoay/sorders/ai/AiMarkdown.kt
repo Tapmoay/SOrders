@@ -21,8 +21,13 @@ package com.tapmoay.sorders.ai
  */
 object AiMarkdown {
 
-    /** 行内片段：目前只需要区分「是不是粗体」。 */
-    data class Span(val text: String, val bold: Boolean = false)
+    /**
+     * 行内片段：区分「是不是粗体」，以及**界面按类别自动上的那一档颜色**。
+     *
+     * [tone] 由 [AiAnswerTone] 在解析之后确定性地填（模型写不出颜色，见那边的类注释）；
+     * 默认 null ＝ 不上色，所以既有的构造与单测不受影响。
+     */
+    data class Span(val text: String, val bold: Boolean = false, val tone: AnswerTone? = null)
 
     /** 一个解析出来的块。 */
     sealed interface Block {

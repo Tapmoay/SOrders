@@ -79,8 +79,10 @@ class AiRowShaperTest {
         //    换成另一个名字类键（`customer_name`）继续钉 [AiRowShaper.normalizeNames]。
         val row = obj("""{"shipper_name":"货主#88","customer_name":"王建国","full_name":"122","amount":"10"}""")
         val shaped = AiRowShaper.shape(row)
-        assertEquals("\"未命名\"", shaped["shipper_name"].toString())
-        assertEquals("\"王建国\"", shaped["customer_name"].toString())
+        // ⚠️ 台账 L-24 之后 `shape` 最后一步会把认得的英文键换成中文标签（见 [AiFieldLabels]），
+        //    所以这里读的是标签；`full_name` 不在那张表里，原样留着 —— 顺带钉住"不认识的键不动"。
+        assertEquals("\"未命名\"", shaped["货主"].toString())
+        assertEquals("\"王建国\"", shaped["客户"].toString())
         assertEquals("\"未命名\"", shaped["full_name"].toString())
     }
 
@@ -94,7 +96,7 @@ class AiRowShaperTest {
         val shaped = AiRowShaper.shape(row)
         assertFalse("司机姓名不许喂给模型：$shaped", shaped.containsKey("driver_name"))
         assertFalse("司机电话不许喂给模型：$shaped", shaped.containsKey("driver_phone"))
-        assertTrue("业务字段要留：$shaped", shaped.containsKey("order_no"))
+        assertTrue("业务字段要留：$shaped", shaped.containsKey("订单号"))
         // ⚠️ 成本开关管不着这一条（它不是成本类）：派单员默认就开着成本开关，
         //    若把它写在 `if (allowCost) return false` 后面，这一条等于从来没生效过。
         assertTrue(AiRowShaper.isHiddenField("driver_name", allowCost = true))
@@ -109,7 +111,7 @@ class AiRowShaperTest {
         // 代价是"某单的商品行"看不到明细——这一点已在文档里写明。
         val row = obj("""{"order_no":"SO1","product":{"name":"酱油","qty":2},"lines":[{"a":1},{"a":2}]}""")
         val shaped = AiRowShaper.shape(row)
-        assertEquals("\"酱油\"", shaped["name"].toString())
+        assertEquals("\"酱油\"", shaped["名称"].toString())
         assertEquals("2", shaped["lines_count"].toString())
         assertNull(shaped["lines"])
     }
@@ -143,7 +145,7 @@ class AiRowShaperTest {
                "settled_amount":"293.20","order_products":[{"a":1},{"a":2}]}""",
         )
         val shaped = AiRowShaper.shape(row)
-        assertEquals("\"293.20\"", shaped["goods_amount"].toString())
+        assertEquals("\"293.20\"", shaped["货款"].toString())
         assertEquals("\"0.00\"", shaped["arrears_amount"].toString())
         assertEquals("2", shaped["order_products_count"].toString())
         assertFalse(

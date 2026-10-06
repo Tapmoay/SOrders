@@ -131,6 +131,16 @@ val WarningAmber = 0xFFFF9F1CL     // 提醒 / 待处理
 val DangerRed = 0xFFFF5252L        // 危险 / 异常
 val InfoBlue = 0xFF1E6FFFL         // 信息
 
+// AI 回答正文里的「重要信息」用色（台账 L-24 / CHG-0060）。
+// ⛔ 只借上面这四个语义色，**一个新色都不造**。颜色由界面按类别确定性地地上
+// 见 ai/AiAnswerTone.kt。模型自己在回答里写不出颜色，这也正是"同类信息必须统一"的保证。
+// 四档从重到轻：
+// 危险 → 钱 → 提醒 → 正常；一次回答最多出现两种（规则写在那边的类注释里）。
+val AiToneDanger = DangerRed       // 危险 / 异常（最重）
+val AiToneMoney = MoneyOrange      // 账本信息（钱）
+val AiToneWarn = WarningAmber      // 提醒 / 待处理
+val AiToneOk = SuccessGreen        // 成功 / 正常
+
 // Light
 val Primary = Color(0xFF1E6FFF)
 val OnPrimary = Color(0xFFFFFFFF)

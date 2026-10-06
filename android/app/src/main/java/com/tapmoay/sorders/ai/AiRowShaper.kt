@@ -136,9 +136,13 @@ object AiRowShaper {
         },
     )
 
-    /** 一行完整加工：剔字段 → 抹平 → 名字兜底。所有工具都该走这个。 */
+    /**
+     * 一行完整加工：剔字段 → 抹平 → 名字兜底 → 换中文标签。所有工具都该走这个。
+     *
+     * ⚠️ 换标签是**最后一步**：它认的是英文键名，跑到 [normalizeNames] 前面就认不出 name 类字段了。
+     */
     fun shape(row: JsonObject, allowCost: Boolean = false): JsonObject =
-        normalizeNames(stripAndFlatten(row, allowCost))
+        AiFieldLabels.apply(normalizeNames(stripAndFlatten(row, allowCost)))
 
     /**
      * 宽松取出「行数组」：裸数组；对象则先试已知包装键，**再退到"第一个对象数组"**。

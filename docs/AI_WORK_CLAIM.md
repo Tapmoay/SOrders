@@ -6001,6 +6001,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 **验证**：判据 `_check_qty_focus_select.py` → ✅ 十组 **40 项**全绿；反验 → ✅ **11/11**（11 条注入 ＋ 还原后 7 个文件按字节比对一致）；`_check_qty_dialog_style.py` → **22 项全过**、`_reverse_verify_qty_dialog.py` → **9/9**（5 个文件按字节还原）；`_check_reverse_verify_anchors.py` → **2440 条**注入原文全在（本刀 ＋11 条）；Android `gradle -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest` → BUILD SUCCESSFUL（1m 25s）＋ 新增 `FieldSelectionTest` 7 条全过、`QtyStepperTest` 原样；生成物 `_gen_capability_snapshot.py` ＋ `_hint_inventory.py --md` 重生成后 `_check_generated_freshness.py` **5 组全过**；全量静检 **196 脚本 / 194 ✅ / 2 ❌**（两条既有红与本事项无关：本机后端跑着旧代码 / 另一会话的 `docs/RELEASE_CANDIDATE.md` VERSION 记录）；可达性 **177/177**；人工：点进数量框直接打 15 看到的是 15。
 
 **实现提交**：`1f5fc37`（本事项动 17 个文件：Android 7 ＋ QA 4 ＋ 文档 6；归档提交另计）。
+
+### [2026-10-06 12:0x → 1x:xx CST 已完成] 会话：**CHG-0060 AI 回答里的「重要信息」：加粗归模型、颜色归界面（台账 L-24）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-05/06 交来的只读排查台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-24**（第 944 行）正文（ref **m00731** / **m00779** / **m00812**）：「我让他去查订单，他返回只有一个订单……并没有按表格的形式进行展示，还是以文字的形式，这样子很难有可读性」「这重要的信息用特殊样式这些样式都可以选择。而如果**信息越重要越要用特殊的颜色**进行搞」「我们这个样式**不能随便乱搞** —— 比如说联系人的话，可能就使用统一的样式，什么**数字**、**账本信息**，我们都属于**统一的样式**」「这关于特定的表格模板暂时也不需要搞」「（英文键 → 中文标签）可以啊可以啊……其实也不需要做的很复杂，因为它只是一个信息、重要信息的展示而已」。
+
+**病根**：① 提示词只覆盖「多条目」——`ai/AiAnswerStyle.kt` 第 9 条与 `ai/AiAgentLoop.kt:486-487` 的结尾第 2 条都写「**超过 3 个条目**用表格或每项一行」⇒ 用户问"这一单怎么样"在模型眼里是 **1 个条目**、按字面不必排版；② 重要信息没有样式 —— `ai/AiMarkdown.kt` 的 `Span` 只有 `text`/`bold`，而回答里的键是**后端英文键**（`order_no`/`arrears`），模型每次现场翻译 ⇒ 同一件事翻出「金额/货款/合计」三种词，还常年付这份 token。
+
+**改法（Android 12 个文件）**：① 新增 `ai/AiAnswerTone.kt`：`enum class AnswerTone { MONEY, DANGER, WARN, OK }`（编译逼着它公开 —— `AiMarkdown.Span` 是 public，公开字段不能是 internal 类型）＋ `internal object AiAnswerTone`：四类词表 ＋ `MAX_CHARS = 16` / `MAX_TONED = 12` / `MAX_KINDS = 2` ＋ `NOT_DANGER = listOf("无异常", "没有异常", "无风险", "已恢复")` ＋ `fun toneOf(text)`（长度与句读先否掉，再「不是坏消息 → DANGER → MONEY → WARN → OK」）＋ `fun apply(blocks)`（表格原样返回；先到先得、最多两种颜色、最多 12 处）；② 新增 `ai/AiFieldLabels.kt`：一层薄表（≈35 条英文键 → 中文标签）＋ `of(key) = LABELS[key] ?: key` ＋ `apply(row)`；③ `ai/AiMarkdown.kt:30` 的 `Span` 多 `bold` / `tone` 两个带默认值的字段；④ `ai/AiRowShaper.kt:144` `shape(...)` 的**最后一步**才是换标签；⑤ `ui/theme/Color.kt:139-142` 四个别名（`AiToneDanger = DangerRed` / `AiToneMoney = MoneyOrange` / `AiToneWarn = WarningAmber` / `AiToneOk = SuccessGreen`）；⑥ `ui/ai/AiRichText.kt`：`toned: Boolean = true`（默认给助手气泡上色）＋ 染色入口 ＋ `toneColor`；⑦ `ui/ai/AiChatScreen.kt:1391` `toned = !isUser,`；⑧ 提示词：`ai/AiAnswerStyle.kt` 第 9 条补「只有一条也要分行」与「两列小表」、新增 9.1 / 9.2，`ai/AiAgentLoop.kt:488` 结尾同步；⑨ 单测：新增 `AiAnswerToneTest.kt` 8 条、`AiFieldLabelsTest.kt` 6 条，`AiRowShaperTest.kt` 随动换成中文键；⑩ `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:1370` 新增 §4.25。
+
+**判据 / 反验**：新增 `_tools/qa/_check_ai_answer_style.py`（十一组 **50 项**：判定表形状 / 三条上限**卡词边界** / 「无异常」先判 / 表格原样 / 颜色只用四个别名 / 用户气泡不上色 / 标签表四组 / 提示词六条 / 规范与反验在 / CHG 文档与登记簿接线）＋ `_tools/qa/_reverse_verify_ai_answer_style.py`（**15 条注入** —— 其中「上限改大 100 倍」第一跑是 `[MISS]`：判据当时是子串匹配，`MAX_TONED: Int = 1200` 照样绿 ⇒ 判据改成 `re.search(rf"const val {name}: Int = {want}\b")` 卡词边界之后才全红）。
+
+**明确不碰**：表格那一路（块类型 / `MdTable` / 中性白卡配色）＋ 用户自己发的气泡 ＋ `AiAnswerStyle` 既有 9 条与第 10 条、结尾【最后再确认两件事】＋ 后端 / 接口 / 权限点 / 审计 / 数据模型 ＋ `AiCardTable` 那条路。
+
+**验证**：判据 → ✅ 十一组 **50 项**全绿；反验 → ✅ **18/18**（18 条注入 ＋ 还原后 13 个文件按字节比对一致）；`_check_reverse_verify_anchors.py` → **2447 条**注入原文全在（本刀 ＋18 条）；Android `gradle -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest` → BUILD SUCCESSFUL（新增 14 条单测全过）；全量静检 **197 脚本 / 195 ✅ / 2 ❌**；可达性 **178 / 178**；人工：对着 AI 助手问一条订单，看到分行 ＋ 状态带色。
+
+**实现提交**：`__IMPL_SHA__`（本事项动 20 个文件：Android 12 ＋ QA 2 ＋ 文档 6；归档提交另计）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`

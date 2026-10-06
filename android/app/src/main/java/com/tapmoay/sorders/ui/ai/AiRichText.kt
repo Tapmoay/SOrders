@@ -27,7 +27,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tapmoay.sorders.ai.AiAnswerTone
 import com.tapmoay.sorders.ai.AiMarkdown
+import com.tapmoay.sorders.ai.AnswerTone
+import com.tapmoay.sorders.ui.theme.AiToneDanger
+import com.tapmoay.sorders.ui.theme.AiToneMoney
+import com.tapmoay.sorders.ui.theme.AiToneOk
+import com.tapmoay.sorders.ui.theme.AiToneWarn
 
 /**
  * 把模型答复渲染成「能看清」的样子：**表格画成 Excel 那样的真表格，`**粗体**` 真加粗**。
@@ -49,6 +55,15 @@ import com.tapmoay.sorders.ai.AiMarkdown
  * | **隔行浅底** | 一行很长时，眼睛不会滑到隔壁行 |
  * | **合计行加粗** | "合计/总计/小计"那行是结论，不该和明细长一样 |
  *
+ * ### 重要信息由界面自动上色（台账 L-24）
+ * 用户要的是「重要的信息用特殊的样式」「信息越重要越要用特殊的颜色」，同时又钉了一条红线：
+ * **「样式不能随便乱搞」——联系人就统一是联系人那一套，数字、账本信息也各有各的统一写法**。
+ * 让模型自己挑颜色做不到"统一"（同一句话今天红、明天橙），还要为这套标记语法常年付提示词的 token。
+ * 所以分工是：**加粗归模型**（它在回答里圈出最多 3 处重点）、**颜色归界面**——
+ * 界面按 `AiAnswerTone` 的封闭词表确定性地判定类别并上色，模型既不知道也写不出来。
+ *
+ * 用户气泡也走这个渲染器，而它是蓝底白字——所以上色由调用点决定（用户气泡传 `toned = false`）。
+ *
  * ### 表格的配色刻意**不跟随气泡**
  * 用户气泡是蓝底白字、助手气泡是浅灰底深字。表格如果跟着气泡走，两张底色下的
  * 表头/斑马纹都要各调一遍，还容易调出对比度不足的组合。所以表格统一画在**中性白卡**上、
@@ -60,14 +75,18 @@ fun AiRichText(
     fontSize: TextUnit,
     lineHeight: TextUnit,
     color: Color,
+    toned: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val blocks = remember(text) { AiMarkdown.parse(text) }
+    val blocks = remember(text, toned) {
+        val parsed = AiMarkdown.parse(text)
+        if (toned) AiAnswerTone.apply(parsed) else parsed
+    }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEach { b ->
             when (b) {
                 is AiMarkdown.Block.Table -> MdTable(b, fontSize = TableFontSize)
-                is AiMarkdown.Block.Line -> MdLineBlock(b, fontSize, lineHeight, color)
+                is AiMarkdown.Block.Line -> MdLineBlock(b, fontSize, lineHeight, color, toned)
             }
         }
     }
@@ -82,8 +101,9 @@ private fun MdLineBlock(
     fontSize: TextUnit,
     lineHeight: TextUnit,
     color: Color,
+    toned: Boolean,
 ) {
-    val annotated = line.annotated()
+    val annotated = line.annotated(toned)
     when (line.kind) {
         AiMarkdown.Block.Kind.HEADING -> Text(
             annotated,
@@ -114,14 +134,34 @@ private fun MdLineBlock(
 }
 
 /** 把行内片段拼成 AnnotatedString（粗体 → SemiBold，比 Bold 在中文小字下更清楚一点）。 */
-private fun AiMarkdown.Block.Line.annotated(): AnnotatedString = buildAnnotatedString {
+private fun AiMarkdown.Block.Line.annotated(toned: Boolean): AnnotatedString = buildAnnotatedString {
     spans.forEach { s ->
-        if (s.bold) {
-            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(s.text) }
-        } else {
+        val tone = if (toned) s.tone else null
+        if (!s.bold && tone == null) {
             append(s.text)
+        } else {
+            withStyle(
+                SpanStyle(
+                    color = toneColor(tone),
+                    fontWeight = if (s.bold) FontWeight.SemiBold else null,
+                )
+            ) { append(s.text) }
         }
     }
+}
+
+/**
+ * 类别 → 语义色。颜色只在 `ui/theme/Color.kt` 里定义（⛔ 这里不写裸十六进制），
+ * 四个 token 是既有语义色的别名，**没有新造色**：危险 → 红、钱 → 橙、提醒 → 琥珀、正常 → 绿。
+ *
+ * null（或没开启上色）返回 [Color.Unspecified]，行内片段的颜色就沿用文本自己的 color。
+ */
+private fun toneColor(tone: AnswerTone?): Color = when (tone) {
+    AnswerTone.DANGER -> Color(AiToneDanger)
+    AnswerTone.MONEY -> Color(AiToneMoney)
+    AnswerTone.WARN -> Color(AiToneWarn)
+    AnswerTone.OK -> Color(AiToneOk)
+    null -> Color.Unspecified
 }
 
 // ==================================================================== 表格
