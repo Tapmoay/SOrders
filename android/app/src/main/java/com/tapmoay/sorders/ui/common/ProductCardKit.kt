@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -340,6 +341,24 @@ fun ProductThumb(
         }
     }
 }
+
+/**
+ * 商品缩略图**能不能点开看大图** —— 这条规则**只有这一处**。
+ *
+ * 用户 2026-10-07（台账 L-37 / m01517）：「**商品图点击商品图，他就能查看详情**嘛……
+ * 那个商品卡片也是可以查看的……包括我们在下单的时候也是会选择商品嘛……
+ * 那个图点击那个（卡片）也可以查看的。」
+ * 三处商品缩略图（管理列表 88dp / 选品行 56dp / 勾选行 40dp）点一下都看这一张的大图。
+ *
+ * ⚠️ 两个刻意的选择：
+ * 1. **没图（空 url）就不给热区** —— 那种格子点开只有一张黑底占位，"点了没反应"
+ *    比"根本没得点"更让人以为是自己点歪了；
+ * 2. 它是个 **Modifier 扩展**、不是把 `clickable` 塞进 [ProductThumb] ——
+ *    零件只负责画，"能不能点、点了干什么"由调用点定：同一个缩略图在**商品编辑页**
+ *    仍然是"点了重新选图"（那一页不改，用户 m01532 明确过）。
+ */
+fun Modifier.productImageClickable(url: String?, onClick: () -> Unit): Modifier =
+    if (url.isNullOrBlank()) this else this.clickable(onClick = onClick)
 
 /**
  * **一件商品长什么样** —— 全库唯一的那个"行主体"。

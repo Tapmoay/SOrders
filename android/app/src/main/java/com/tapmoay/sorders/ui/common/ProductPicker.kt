@@ -132,6 +132,8 @@ fun ProductPickerBody(
     val picked = remember { mutableStateMapOf<Long, PickedLine>() }
     var editing by remember { mutableStateOf<ProductDto?>(null) }
     val listState = rememberLazyListState()
+    // 看大图（台账 L-37）：点商品图 → 这一张的大图。只传这一件 ⇒ 没有箭头 / 计数 / 翻页。
+    val preview = rememberImagePreview()
 
     // 分类清单：由商品 + **名册顺序**算出来（不是手写枚举），
     // 保证"派单员在分类管理里排一下、选品页就跟着变"
@@ -228,6 +230,7 @@ fun ProductPickerBody(
                                     price = if (showPrice) priceFor(p) else "",
                                     pickedQty = picked[p.id]?.qty ?: 0,
                                     onAdd = { editing = p },
+                                    onImageClick = { url -> preview.openStaticPaths(listOf(url), 0) },
                                 )
                             }
                         }
@@ -296,6 +299,8 @@ fun ProductPickerBody(
             }
         }
     }
+
+    preview.Show()
 
     editing?.let { p ->
         val exist = picked[p.id]
@@ -421,6 +426,7 @@ private fun ProductRow(
     price: String,
     pickedQty: Int,
     onAdd: () -> Unit,
+    onImageClick: (String) -> Unit,
 ) {
     val unit = unitOrDefault(product.unit)
     // ⛔ 沽清（下架）之后这一格**整卡变灰、点不动** —— 台账 L-35 / BUG-0017（用户 m01347 原话：
@@ -467,6 +473,8 @@ private fun ProductRow(
                     imageUrl = product.imageUrl,
                     nameColor = product.nameColor,
                     size = 56.dp,
+                    // 点图＝看这一张的大图（台账 L-37；没图不给热区）
+                    modifier = Modifier.productImageClickable(product.imageUrl) { product.imageUrl?.let(onImageClick) },
                     solid = true,
                 )
             },

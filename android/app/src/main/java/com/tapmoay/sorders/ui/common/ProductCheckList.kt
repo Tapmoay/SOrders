@@ -105,6 +105,8 @@ internal fun ProductCheckList(
     var category by remember { mutableStateOf(ALL_CATEGORY) }
     // 分类会随商品增减变化（名册里删掉一类、最后一件事商品被下架）：选中那档没了就回「全部」
     LaunchedEffect(cats) { if (category !in cats) category = ALL_CATEGORY }
+    // 看大图（台账 L-37）：点勾选行里那张商品图 → 看这一张的大图（只传这一张）。
+    val preview = rememberImagePreview()
 
     val kw = keyword.trim()
     val visible = remember(products, category, kw) {
@@ -188,7 +190,17 @@ internal fun ProductCheckList(
                                         )
                                     },
                                     thumb = {
-                                        ProductThumb(imageUrl = p.imageUrl, nameColor = p.nameColor, size = 40.dp)
+                                        ProductThumb(
+                                            imageUrl = p.imageUrl,
+                                            nameColor = p.nameColor,
+                                            size = 40.dp,
+                                            // 点图＝看这一张的大图（台账 L-37）。⚠️ 这一格原来点下去是**勾选**
+                                            // （整行都挂着 onToggleProduct）；点图改成看大图之后，
+                                            // 勾选要靠左边那个勾选框或行的其它位置——⑨ Known Limitations 记了这条。
+                                            modifier = Modifier.productImageClickable(p.imageUrl) {
+                                                preview.openStaticPaths(listOfNotNull(p.imageUrl), 0)
+                                            },
+                                        )
                                     },
                                     badge = if (p.isActive) null else ({ ProductSoldOutBadge() }),
                                 )
@@ -206,6 +218,7 @@ internal fun ProductCheckList(
                 }
             }
         }
+        preview.Show()
     }
 }
 

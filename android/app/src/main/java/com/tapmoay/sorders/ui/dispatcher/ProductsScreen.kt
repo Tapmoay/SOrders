@@ -71,6 +71,13 @@ fun ProductsScreen(
      *    Scaffold 之后，声明在 content lambda 里的话外面看不见。
      */
     var toggleFor by remember { mutableStateOf<ProductDto?>(null) }
+    /**
+     * 看大图（台账 L-37）：点商品图 → 这一张的大图。**声明在函数级**（同 [quickPriceFor]）。
+     *
+     * ⚠️ 只把**这一件**那张图传进去（`listOf` 一个元素）：单张 ⇒ 自动没有左右箭头、
+     *    没有「1 / 1」计数、也滑不动 —— "商品图只有放大看图"（用户 m01486 原话）。
+     */
+    val preview = rememberImagePreview()
     /** 成本价历史弹窗（`⋮ → 成本价历史`）：状态在 VM 里（要拉数据），这里只读它。 */
 
     // ⚠️ **加载放在这里、不放在 VM 的 init**：从「新增/编辑商品」那一页 `popBackStack()` 回来时
@@ -210,6 +217,7 @@ fun ProductsScreen(
                                         //    P29 的病就是这一行一点即改（一次误触 = 静默下架）。
                                         onToggle = { toggleFor = p },
                                         onQuickPrice = { quickPriceFor = p },
+                                        onShowImage = { url -> preview.openStaticPaths(listOf(url), 0) },
                                     )
                                 }
                             }
@@ -220,6 +228,8 @@ fun ProductsScreen(
             }
         }
     }
+
+    preview.Show()
 
     // 快捷改价（只改默认售价）
     quickPriceFor?.let { p ->
@@ -396,6 +406,7 @@ private fun ProductCard(
     onEdit: () -> Unit,
     onToggle: () -> Unit,
     onQuickPrice: () -> Unit,
+    onShowImage: (String) -> Unit,
 ) {
     SectionCard {
         // ---- 大图 + 名称 + **售价** + **库存**（库存在售价的正下方）----
@@ -419,6 +430,8 @@ private fun ProductCard(
                     imageUrl = p.imageUrl,
                     nameColor = p.nameColor,
                     size = 88.dp,
+                    // 点图＝看这一张的大图（台账 L-37；没图就不给热区，规则在 ProductCardKit）
+                    modifier = Modifier.productImageClickable(p.imageUrl) { p.imageUrl?.let(onShowImage) },
                     shape = MaterialTheme.shapes.medium,
                 )
             },

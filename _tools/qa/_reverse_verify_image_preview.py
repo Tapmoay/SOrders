@@ -1,4 +1,4 @@
-"""反向验证：把 CHG-0044 那 56 条判据逐条弄坏，看它们**真的会红**。
+"""反向验证：把 CHG-0044 与 CHG-0070（台账 L-37 横滑翻页 / 商品图）的红线逐条弄坏，看它们**真的会红**。
 
 为什么这块必须反向验证：这一条全是"没报错但也没发生"的毛病 ——
 把 .pointerInput { detectTapGestures } 换回 .clickable { onDismiss() } 编译通过、点一下也确实能关，
@@ -24,6 +24,10 @@ PREVIEW = AND / "ui/common/ImagePreview.kt"
 EXPORT = AND / "util/ExportUtil.kt"
 DETAIL = AND / "ui/order/OrderDetailScreen.kt"
 PUBLIC_DIR = AND / "ui/common"
+# ---- CHG-0070（台账 L-37）：横滑翻页 / 商品图点图看大图 ----
+SWIPE = AND / "ui/common/ImageSwipe.kt"
+PRODUCTS = AND / "ui/dispatcher/ProductsScreen.kt"
+FORM = AND / "ui/dispatcher/ProductFormScreen.kt"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词)
 MUTATIONS = [
@@ -145,11 +149,12 @@ MUTATIONS = [
         "拖动有边界：clampPan",
     ),
     (
-        "1x 时不清位移（回到原图却是偏的）",
+        "1x 时图不跟手（横滑没有任何反馈，用户以为滑不动）",
         PREVIEW,
-        "                            offset = if (next <= MIN_SCALE) Offset.Zero else clampPan(offset + pan, next, box)",
-        "                            offset = clampPan(offset + pan, next, box)",
-        "1x 时位移清零",
+        "                                if (abs(pan.x) > abs(pan.y)) swipe += pan.x\n"
+        "                                offset = Offset(swipe.coerceIn(-box.width.toFloat(), box.width.toFloat()), 0f)",
+        "                                offset = Offset.Zero",
+        "1x 档",
     ),
     # ---- 4. 保存到相册 ----
     (
@@ -218,7 +223,7 @@ MUTATIONS = [
     (
         "删掉底部那句手势提示（缩放变成没人知道的隐藏功能）",
         PREVIEW,
-        '                "双指缩放 / 双击放大",',
+        '                "双指缩放 / 双击放大 / 左右滑动翻页",',
         '                "",',
         "手势是藏起来的",
     ),
@@ -325,6 +330,61 @@ MUTATIONS = [
         '                    "${index + 1} / ${models.size}",',
         '                    "${index + 1}",',
         "计数文案仍在",
+    ),
+    # ---- 7. 看大图横滑翻页，箭头到头即停（CHG-0070 / 台账 L-37）----
+    (
+        "把横滑翻页摘掉（只剩两个箭头按钮，回到用户抱怨的那个状态）",
+        PREVIEW,
+        "                        val step = swipePageStep(\n"
+        "                            accumX = swipe,\n"
+        "                            boxWidth = box.width,\n"
+        "                            atFirst = index <= 0,\n"
+        "                            atLast = index >= models.lastIndex,\n"
+        "                        )",
+        "                        val step = 0",
+        "预览页真的用了这个纯函数",
+    ),
+    (
+        "放大后也当翻页用（分档没了：放大时图不跟手，一拖就翻页）",
+        PREVIEW,
+        "                            if (next <= MIN_SCALE) {",
+        "                            if (true) {",
+        "1x 档",
+    ),
+    (
+        "箭头又改回环绕（到头绕回去，用户明确说过不要）",
+        PREVIEW,
+        "                        onClick = { index -= 1 },",
+        "                        onClick = { index = (index - 1 + models.size) % models.size },",
+        "环绕写法",
+    ),
+    (
+        "首张也画左箭头（那颗点了没反应的按钮）",
+        PREVIEW,
+        "                if (index > 0) {",
+        "                if (models.size > 1) {",
+        "首张不画左箭头",
+    ),
+    (
+        "到头即停的守卫删掉（第一张往右直接绕到最后一张）",
+        SWIPE,
+        "        if (atFirst) 0 else -1",
+        "        -1",
+        "到头即停",
+    ),
+    (
+        "商品图上不给热区（用户点商品图没反应）",
+        PRODUCTS,
+        "                    modifier = Modifier.productImageClickable(p.imageUrl) { p.imageUrl?.let(onShowImage) },",
+        "                    modifier = Modifier,",
+        "商品管理列表",
+    ),
+    (
+        "商品编辑页也改成点图看大图（用户说过那一页是重新选图）",
+        FORM,
+        "                .clickable(onClick = onPick),",
+        "                .clickable(onClick = onPick)\n                .productImageClickable(\"x\") { },",
+        "编辑页那颗大图不动",
     ),
 ]
 

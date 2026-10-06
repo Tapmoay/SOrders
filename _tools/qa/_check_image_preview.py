@@ -52,7 +52,15 @@
    Pictures/SOrders / IS_PENDING 两步）与 Q 以下（公开目录 + MediaScannerConnection.scanFile）
    两条分支；**没有动** saveExportFile 的目录与 MIME；
 6. 详情页把两处调用收口到唯一那一份：onPhotoClick = openPhoto、preview.openStaticPaths(...)、
-   preview.Show()；PlacePhotoStrip / DeliveryPhotosSection 的签名没动（只换弹层，不换调用形态）。
+   preview.Show()；PlacePhotoStrip / DeliveryPhotosSection 的签名没动（只换弹层，不换调用形态）；
+7. 看大图能左右滑动翻页（CHG-0070 / 台账 L-37）：阈值是个纯函数（ui/common/ImageSwipe.kt，
+   横滑超过宽度 18% 才翻、到头即停、没量到宽度不翻），预览页在**抬手之后**（根 Box 上那个
+   只看不吃的 Initial 观察者）才定夺，1× 时横滑是"翻页的预备动作"、放大后才是平移
+   （贴到边界继续拖也算待翻页 ⇒ 不存在"放大后滑不动"）；两颗箭头到头即停、首/末张不画，
+   源码里**不许**再有 % models.size 那种环绕写法；
+8. 商品图只加「点图看大图」（CHG-0070 / 台账 L-37）：热区规则只有一处
+   （Modifier.productImageClickable，空图不给热区），三处调用点各只传这一张
+   （⇒ 没有箭头 / 计数 / 翻页）；商品**编辑页**那颗 168dp 不动（它点下去是「重新选图」）。
 
 用法：python _tools/qa/_check_image_preview.py
 """
@@ -70,11 +78,23 @@ DETAIL = AND / "ui/order/OrderDetailScreen.kt"
 ADDRESS = AND / "ui/shipper/AddressScreen.kt"
 CREATE = AND / "ui/shipper/OrderCreateScreen.kt"
 
+# ---- CHG-0070（台账 L-37）：看大图能左右滑动翻页 / 商品图点图看大图 ----
+SWIPE = AND / "ui/common/ImageSwipe.kt"
+SWIPE_TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/common/ImageSwipeTest.kt"
+CARDKIT = AND / "ui/common/ProductCardKit.kt"
+PRODUCTS = AND / "ui/dispatcher/ProductsScreen.kt"
+PICKER = AND / "ui/common/ProductPicker.kt"
+CHECKLIST = AND / "ui/common/ProductCheckList.kt"
+FORM = AND / "ui/dispatcher/ProductFormScreen.kt"
+
 #: 全仓至少要有这么多 .kt（防"目录被搬走 → 一个都没扫到 → 全绿"）。
 MIN_KT = 100
 
 #: 必须真的数到这几个文件（少一个就说明目录结构变了，判据要跟着改）。
 REQUIRED_FILES = [PREVIEW, EXPORT, DETAIL, ADDRESS, CREATE]
+
+#: CHG-0070 新增 / 改动的关键文件（少一个也要红）
+REQUIRED_FILES_0070 = [SWIPE, SWIPE_TEST, CARDKIT, PRODUCTS, PICKER, CHECKLIST, FORM]
 
 
 class Checker:
@@ -188,8 +208,13 @@ def main() -> int:
          "if (scale > MIN_SCALE)" in tap and "scale = MIN_SCALE" in tap,
          "onTap 体：" + tap.strip()[:90])
     c.present("拖动有边界：clampPan((n-1)/2 x 边长)", pv, r"box\.width \* \(scale - 1f\) / 2f")
-    c.present("1x 时位移清零（不然拖不回正中）",
-              pv, r"offset = if \(next <= MIN_SCALE\) Offset\.Zero else clampPan\(")
+    # ⚠️ 2026-10-07（CHG-0070）这一行改成了**分档**：1× 时横滑是"翻页的预备动作"
+    #    （图跟着手指横移，松手由根 Box 上那个观察者定夺翻不翻），放大后才是 clampPan 平移
+    #    （贴到边界继续往外拖，多出来的那一截也算待翻页 ⇒ 不会"放大后滑不动"）。
+    c.present("1x 档：横滑让图跟着手指走（位移就是这一次的待翻页量）",
+              pv, r"if \(next <= MIN_SCALE\) \{[\s\S]{0,240}?swipe \+= pan\.x[\s\S]{0,120}?offset = Offset\(swipe\.coerceIn\(")
+    c.present("放大档：照旧 clampPan 平移，只有贴到边界才把多出来的算进待翻页",
+              pv, r"val moved = clampPan\(offset \+ pan, next, box\)[\s\S]{0,200}?swipe \+= \(offset \+ pan\)\.x - moved\.x")
 
     print("\n== 4. 保存到相册（只给服务端的图、走共享 client、成败各有反馈）==")
     c.present("只认服务端路径（本地 File 不给下载按钮）",
@@ -206,7 +231,8 @@ def main() -> int:
     c.present("失败有反馈（说清是网络）", pv, r'"保存失败，请检查网络后重试"')
     c.present("保存中防重复点（按钮禁用 + 转圈）",
               pv, r"enabled = !saving,[\s\S]{0,1400}?CircularProgressIndicator\(")
-    c.present("手势是藏起来的：底部写了一句用法", preview, r'"双指缩放 / 双击放大"')
+    c.present("手势是藏起来的：底部写了一句用法（含左右滑动翻页）",
+              preview, r'"双指缩放 / 双击放大 / 左右滑动翻页"')
 
     print("\n== 5. util/ExportUtil.kt：两条系统分支，且没动既有那个函数 ==")
     c.present("有 saveImageToGallery(context, bytes, fileName): String?",
@@ -245,9 +271,72 @@ def main() -> int:
     c.present("多张时才有左右箭头与计数", pv, r"if \(models\.size > 1\) \{")
     c.present("计数文案仍在（index + 1 / size）", preview, r'"\$\{index \+ 1\} / \$\{models\.size\}"')
 
-    print("\n== 7. 防静默空转 ==")
+    print("\n== 7. 看大图能左右滑动翻页，箭头到头即停（CHG-0070 / 台账 L-37）==")
+    # 用户 m01438：「…但是如果我想看下一张照片就是左右滑动不行，非要按按钮。这个不要，
+    #   左右滑动这样更方便，就是真实的（相册）操作」；m01486：「不要不要不要循环啊，
+    #   就是可以有滑到底的」；m01517：「首章和末章的箭头就是俺藏起来吧」。
+    # 阈值单独成一个纯函数（ui/common/ImageSwipe.kt，零 Compose import）：手指验不了，
+    # 但"这一次横滑够不够翻一页 / 到头该不该停"能验。
+    sw = code_only(read(SWIPE))
+    c.present("翻页阈值是个纯函数（JVM 单测能钉边界）",
+              sw, r"internal fun swipePageStep\(accumX: Float, boxWidth: Int, atFirst: Boolean, atLast: Boolean\): Int")
+    c.present("阈值只有一个数：横滑超过宽度的 18% 才算翻页",
+              sw, r"internal const val SWIPE_PAGE_FRACTION = 0\.18f")
+    c.present("还没量到宽度 / NaN 一律不翻（布局完之前那一帧）",
+              sw, r"if \(boxWidth <= 0 \|\| accumX\.isNaN\(\)\) return 0")
+    c.present("往左拖＝下一张、往右拖＝上一张",
+              sw, r"return if \(accumX < 0f\) \{[\s\S]{0,80}?if \(atLast\) 0 else 1[\s\S]{0,80}?if \(atFirst\) 0 else -1")
+    c.present("到头即停：第一张往右 / 最后一张往左都是 0", sw, r"if \(atFirst\) 0 else -1")
+    c.present("预览页真的用了这个纯函数（不是白写一份）",
+              pv, r"swipePageStep\([\s\S]{0,160}?accumX = swipe,[\s\S]{0,80}?boxWidth = box\.width,")
+    c.present("抬手之后才定夺翻不翻（detectTransformGestures 没有抬手回调）",
+              pv, r"awaitEachGesture \{[\s\S]{0,400}?awaitFirstDown\(requireUnconsumed = false\)")
+    c.present("那个观察者只走 Initial 通道看", pv, r"awaitPointerEvent\(PointerEventPass\.Initial\)")
+    c.absent("观察者一次都不消费（一消费就是「放大后滑不动」）", pv, r"\.consume\(\)")
+    c.present("翻页沿用既有的 remember(index) 归位（没有第二套缩放 / 位移状态）",
+              pv, r"val step = swipePageStep\([\s\S]{0,600}?index = \(index \+ step\)\.coerceIn\(0, models\.lastIndex\)")
+    c.present("翻到头不绕回去：首张不画左箭头", pv, r"if \(index > 0\) \{[\s\S]{0,400}?KeyboardArrowLeft")
+    c.present("翻到头不绕回去：末张不画右箭头", pv, r"if \(index < models\.lastIndex\) \{[\s\S]{0,400}?KeyboardArrowRight")
+    c.absent("源码里不再有「翻到头绕回去」的环绕写法", pv, r"% models\.size")
+    c.present("箭头本身留着（用户要留，只是到头即停）",
+              pv, r'contentDescription = "上一张"[\s\S]{0,500}?contentDescription = "下一张"')
+    c.present("翻页提示写进底部那句用法里", preview, r"左右滑动翻页")
+    test_src = read(SWIPE_TEST)
+    c.ok("纯函数有 JVM 单测钉边界（阈值 / 到头即停 / 单张 / 没量到宽度）",
+         test_src.count("@Test") >= 8, f"实际 {test_src.count('@Test')} 条")
+
+    print("\n== 8. 商品图只加「点图看大图」（CHG-0070 / 台账 L-37；不加左右滑动）==")
+    # 用户 m01517：「商品图点击商品图，他就能查看详情嘛」；m01532：「商品的编辑页面
+    #   是重新选图的，它不是查看图片的」⇒ 编辑页那颗 168dp 一个字不动。
+    kit = code_only(read(CARDKIT))
+    products = code_only(read(PRODUCTS))
+    picker = code_only(read(PICKER))
+    checklist = code_only(read(CHECKLIST))
+    form = code_only(read(FORM))
+    c.present("「有没有图、能不能点」这条规则只有一处",
+              kit, r"fun Modifier\.productImageClickable\(url: String\?, onClick: \(\) -> Unit\): Modifier")
+    c.present("没图就不给热区（点开只有一张黑图）",
+              kit, r"if \(url\.isNullOrBlank\(\)\) this else this\.clickable\(onClick = onClick\)")
+    m_thumb = re.search(r"fun ProductThumb\([\s\S]*?\n\}\n", kit)
+    thumb_body = m_thumb.group(0) if m_thumb else ""
+    c.ok("缩略图零件自己仍不带 clickable（能不能点由调用点定）",
+         bool(thumb_body) and ".clickable" not in thumb_body, thumb_body.strip()[:80])
+    for label, txt, fname in (
+        ("商品管理列表（88dp 卡）", products, "ProductsScreen.kt"),
+        ("选品行（下单页 / 地址页共用那一份）", picker, "ProductPicker.kt"),
+        ("勾选行（批量操作）", checklist, "ProductCheckList.kt"),
+    ):
+        n_hit = txt.count("productImageClickable(")
+        c.ok(f"{label}的商品图能点开看大图", n_hit == 1, f"{fname} 里 {n_hit} 处")
+        n_one = len(re.findall(r"openStaticPaths\(listOf(?:NotNull)?\(", txt))
+        c.ok(f"{label}只传这一张（单张 ⇒ 没有箭头 / 计数 / 翻页）", n_one == 1, f"{fname} 里 {n_one} 处")
+    c.absent("商品编辑页那颗大图不动（它点下去是「重新选图」）", form, r"productImageClickable\(")
+
+    print("\n== 9. 防静默空转 ==")
     missing = [str(p.relative_to(ROOT)) for p in REQUIRED_FILES if not p.exists()]
     c.ok(f"{len(REQUIRED_FILES)} 个关键文件都在", not missing, "；".join(missing))
+    missing2 = [str(p.relative_to(ROOT)) for p in REQUIRED_FILES_0070 if not p.exists()]
+    c.ok(f"CHG-0070 的 {len(REQUIRED_FILES_0070)} 个关键文件也没少", not missing2, "；".join(missing2))
     i_decl = line_of(dt, "val preview = rememberImagePreview()")
     i_show = line_of(dt, "preview.Show()")
     n_show = dt.count("preview.Show()")

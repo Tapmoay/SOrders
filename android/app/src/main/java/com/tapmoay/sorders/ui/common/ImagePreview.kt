@@ -2,6 +2,8 @@ package com.tapmoay.sorders.ui.common
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -43,6 +46,7 @@ import coil.compose.AsyncImage
 import com.tapmoay.sorders.core.NetworkDns
 import com.tapmoay.sorders.util.resolveStaticUrl
 import com.tapmoay.sorders.util.saveImageToGallery
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -69,7 +73,11 @@ private const val DOUBLE_TAP_SCALE = 2.5f
  *
  * ## 交互（四条都是刻意的）
  * 1. **点任意处关闭**（不用去找那个小 `X`）—— 全屏看图时手指唯一想干的事就是"看完了退出"；
- * 2. **左右箭头翻页**（多张时）+ 底部 `2/3` —— 拍了一串照片要一张张看，关掉再点开太费事；
+ * 2. **左右箭头翻页 + 横滑翻页**（多张时）+ 底部 `2/3` —— 拍了一串照片要一张张看，关掉再点开太费事。
+ *    2026-10-07 用户台账 L-37：「我想看下一张照片就是**左右滑动不行，非要按按钮**。这个不要，
+ *    **左右滑动这样更方便**，就是真实的（相册）操作」；顺带钉了两条边界 ——「**不要不要不要循环**啊，
+ *    就是**可以有滑到底**的」（到头即停）与「**首章和末章的箭头就是俺藏起来吧**」（首张不画左箭头、
+ *    末张不画右箭头）。滑动的**分档**见下面 `detectTransformGestures` 那一段；
  * 3. **黑底**（不是白底、不是卡片）—— 照片自己的颜色才是主角，白底会把浅色照片糊掉；
  * 4. **双指缩放 + 拖动 + 双击放大**（2026-10-06 用户台账 L-03：「点一下确实放大了，但要
  *    **支持双指/双手独立缩放**（有时候拍得比较远，要放大才能看清）」）—— 拍得远的
@@ -100,6 +108,9 @@ fun ImagePreviewDialog(
     // 不归位的话，第二张会继承上一张的放大倍数与拖动位移，人看到的是"这张图自己歪了 / 糊了"。
     var scale by remember(index) { mutableStateOf(MIN_SCALE) }
     var offset by remember(index) { mutableStateOf(Offset.Zero) }
+    // 这一次横滑累积了多少「待翻页」的位移（px，向右为正）。**跟着 index 归零**：
+    // 翻完一页重新起算，连滑两下不会一下跳两张。
+    var swipe by remember(index) { mutableStateOf(0f) }
     var box by remember { mutableStateOf(IntSize.Zero) }
     var saving by remember(index) { mutableStateOf(false) }
     val context = LocalContext.current
@@ -140,6 +151,33 @@ fun ImagePreviewDialog(
                             }
                         },
                     )
+                }
+                // 「松手」这一步：`detectTransformGestures` 没有抬手回调，所以在根 Box 上另挂一个
+                // **只看不吃**的观察者 —— 全部手指抬起时，拿这一次累积的横滑位移去定夺翻不翻页。
+                // ⚠️ 走 `Initial` 通道（在下面的缩放 / 拖动拿到事件**之前**）、且**一次都不 consume**：
+                //    所以它不会把事件从子节点那几套手势手里抢走（抢了就是"放大后滑不动"）。
+                .pointerInput(index) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var event = awaitPointerEvent(PointerEventPass.Initial)
+                        while (event.changes.any { it.pressed }) {
+                            event = awaitPointerEvent(PointerEventPass.Initial)
+                        }
+                        // 手指都抬起来了：这一次横滑够不够翻一页、往哪翻（到头即停，判据在 ImageSwipe.kt）。
+                        val step = swipePageStep(
+                            accumX = swipe,
+                            boxWidth = box.width,
+                            atFirst = index <= 0,
+                            atLast = index >= models.lastIndex,
+                        )
+                        if (step != 0) {
+                            index = (index + step).coerceIn(0, models.lastIndex)
+                        } else if (scale <= MIN_SCALE) {
+                            // 没过阈值：1× 时跟着手指滑出去的那一点要回正（不能停在半路）
+                            offset = Offset.Zero
+                        }
+                        swipe = 0f
+                    }
                 },
         ) {
             AsyncImage(
@@ -160,7 +198,19 @@ fun ImagePreviewDialog(
                         detectTransformGestures { _, pan, zoom, _ ->
                             val next = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
                             scale = next
-                            offset = if (next <= MIN_SCALE) Offset.Zero else clampPan(offset + pan, next, box)
+                            // 分档：横向那一份位移到底是「翻页」还是「平移」——
+                            //   1× 时＝翻页的预备动作（图跟着手指横移，松手由上面的观察者定夺）；
+                            //   放大后＝平移，**只有已经贴到左右边界还继续往外拖**，超出的那一截
+                            //   才算待翻页（所以「放大后滑不动、必须先双击回 1×」这件事不存在）。
+                            // 竖着拖（abs(pan.x) <= abs(pan.y)）两边都不算：这是在看图，不是翻页。
+                            if (next <= MIN_SCALE) {
+                                if (abs(pan.x) > abs(pan.y)) swipe += pan.x
+                                offset = Offset(swipe.coerceIn(-box.width.toFloat(), box.width.toFloat()), 0f)
+                            } else {
+                                val moved = clampPan(offset + pan, next, box)
+                                if (abs(pan.x) > abs(pan.y)) swipe += (offset + pan).x - moved.x
+                                offset = moved
+                            }
                         }
                     },
             )
@@ -207,25 +257,33 @@ fun ImagePreviewDialog(
                     Icon(Icons.Default.Close, contentDescription = "关闭预览", tint = Color.White)
                 }
             }
-            // 手势是"藏起来的功能"：不写一句没人知道能缩放（用户点名的需求，不能靠猜）
-            Text(
-                "双指缩放 / 双击放大",
+            // 手势是"藏起来的功能"：不写一句没人知道能缩放、能横滑翻页（用户点名的需求，不能靠猜）。
+            // ⚠️ 这是**解释句**（删掉也照样能看图）⇒ 走 Hint（总开关关掉时整句不显示），不许裸 Text。
+            Hint(
+                "双指缩放 / 双击放大 / 左右滑动翻页",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 28.dp),
             )
             if (models.size > 1) {
-                IconButton(
-                    onClick = { index = (index - 1 + models.size) % models.size },
-                    modifier = Modifier.align(Alignment.CenterStart).padding(8.dp),
-                ) {
-                    Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "上一张", tint = Color.White)
+                // 到头即停（⛔ 不环绕）：第一张没有「上一张」、最后一张没有「下一张」，那两颗箭头就不画。
+                // 用户 m01486：「不要不要不要循环啊，就是可以有滑到底的」；
+                // m01517：「首章和末章的箭头就是俺藏起来吧……因为你首张的左边箭头怎么可能会有呢？」
+                if (index > 0) {
+                    IconButton(
+                        onClick = { index -= 1 },
+                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp),
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "上一张", tint = Color.White)
+                    }
                 }
-                IconButton(
-                    onClick = { index = (index + 1) % models.size },
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp),
-                ) {
-                    Icon(Icons.Default.KeyboardArrowRight, contentDescription = "下一张", tint = Color.White)
+                if (index < models.lastIndex) {
+                    IconButton(
+                        onClick = { index += 1 },
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp),
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = "下一张", tint = Color.White)
+                    }
                 }
                 Text(
                     "${index + 1} / ${models.size}",

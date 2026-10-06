@@ -53,8 +53,8 @@ CASES: list[tuple[str, str, object, str]] = [
      "行外观不自己画"),
     ("零件自己画缩略图（ProductThumb 换成别的）",
      PART,
-     lambda s: s.replace("ProductThumb(imageUrl = p.imageUrl, nameColor = p.nameColor, size = 40.dp)",
-                         "Box()", 1),
+     # CHG-0070 把那颗 40dp 缩略图改成了多行调用（加 productImageClickable）⇒ 锚点改用正则兜缩进。
+     lambda s: gsub(s, r"ProductThumb\([\s\S]*?\n\s*\)", "Box()"),
      "行外观不自己画"),
     ("零件自己画了一条分类栏（CategoryRail 定义搬了进来）",
      PART,
