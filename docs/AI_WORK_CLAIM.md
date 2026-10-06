@@ -7236,6 +7236,6 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 
 **验证**：判据 **41/41** · 反验 **12/12** · 既有两条回归 62/62 与 16/16 · 抽屉那本 **76/76** · 全量静检 **201 脚本 / 199 ✅ / 2 ❌**（既有那两条）· 可达性 **182 / 182** · 真机（emulator-5554）改前/改后截图各一张（`shots/l19_before_5554_home.png` / `shots/l19_after_5554_home.png`）。
 
-**实现提交**：`PENDING`（本事项动 **11** 个文件：Android 2 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
+**实现提交**：`0aeaf2b`（本事项动 **11** 个文件：Android 2 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
 
 ---
