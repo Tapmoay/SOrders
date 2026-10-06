@@ -170,9 +170,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "屏上的合计改成本地自算（单价 × 数量）：行小计与合计从此可以和后端/账本对不上，而这不报错",
         SCREEN,
-        "val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }",
-        "val total = order.orderProducts.sumOf { moneyToDouble(it.unitPrice) * it.quantity }",
-        "屏上的合计仍取服务端的行小计之和（不是单价 × 数量）",
+        "val netTotal = netOrderMoneyText(order)",
+        'val netTotal = "¥" + formatMoney(order.orderProducts.sumOf { moneyToDouble(it.unitPrice) * it.quantity }.toString())',
+        "屏上的合计走共用口径",
     ),
     (
         "后端行金额改成自己乘（不再走唯一算法）：四舍五入/单位换算的规矩全没了",

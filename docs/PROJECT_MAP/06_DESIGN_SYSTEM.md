@@ -1109,6 +1109,24 @@ Text(..., textAlign = TextAlign.End, modifier = Modifier.width(qtyW))
 - 卡片底部那句合计同理：**全单同一个单位**时才写它（`sharedUnitOf(...)`，一单全是桶 → 「共 6 桶」），
   混装（6 桶 + 3 箱）本来就没有共同单位 → 退回口语的「件」。
 
+**③ 退过货的行：件数与金额都画净额（2026-10-07 用户报障后补进这一节）**
+
+```kotlin
+private fun netQty(l: OrderProductDto): Int = (l.quantity - l.returnedQuantity).coerceAtLeast(0)  // 件数 → 「×3」
+private fun netLineMoneyText(l: OrderProductDto): String =
+    "¥" + formatMoney(centsToMoney(lineReceivableCents(l)))   // 行金额 − 单价 × 已退数量
+val netTotal = netOrderMoneyText(order)                       // 合计同理（orderReceivableCents）
+```
+- ⛔ 净额算式**不是**「(数量 − 已退数) × 单价」：生产库 `order_products.line_total` 有历史折扣，
+  只能**行金额 − 单价 × 已退数量**，与后端 `backend/app/services/order_money.py::line_receivable` 同源；
+  客户端那一份在 `ui/dispatcher/LedgerPersonStats.kt::lineReceivableCents` / `orderReceivableCents`
+  （账本页早就在用，详情页**直接复用**，`ui.order` 调 `ui.dispatcher` 有先例）。
+- 真退过的单，合计那行右侧多一颗 `已退 ¥X`（`colorScheme.error`）；**没退过的单一个像素都不动**。
+- ⚠️ 定义面（画的是哪一串）与量宽度（`rememberTextWidth(netLineMoneyText(l), moneyStyle)`）**必须同源**：
+  量的是原价、画的是净额，位数一变右边就被裁 —— 与 ② 是同一条道理。
+- ⛔ 这一条只覆盖**订单详情页**（`role != Role.DRIVER` 才画金额那一列）：四张列表的订单卡片、
+  现场支付确认弹层、两端退货申请列表页**都不动**（口径与边界见 `docs/changes/CHG-0065.md`）。
+
 **落地在三处（三端共用）**
 
 | 位置 | 谁看得到 |
@@ -1117,9 +1135,9 @@ Text(..., textAlign = TextAlign.End, modifier = Modifier.width(qtyW))
 | `ui/order/OrderDetailScreen.kt` 的「商品明细」 | 派单员 + 货主（`role != Role.DRIVER` 才画金额） |
 | `ui/common/OrderPeek.kt`（账本里点一行展开的小卡） | 派单员账本 + 货主账本 |
 
-判据 `_tools/qa/_check_order_row_columns.py`（32 项，含「三个拼法各只有一处定义」「卡片调用点 ≥4」
-「量宽度用的那串必须就是画出来的那一串」）
-+ 反向验证 `_tools/qa/_reverse_verify_order_row_columns.py`（12 种注入，12/12 全被抓到）。
+判据 `_tools/qa/_check_order_row_columns.py`（**41 项**，含「三个拼法各只有一处定义」「卡片调用点 ≥4」
+「量宽度用的那串必须就是画出来的那一串」，以及 ③ 那三条净额）
++ 反向验证 `_tools/qa/_reverse_verify_order_row_columns.py`（**19 种注入**，19/19 全被抓到）。
 
 ### 4.21 数量小窗：**单位只读在最右、数字居中、步进器只有一份** —— 2026-09-23 用户点名
 

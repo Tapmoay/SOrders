@@ -68,8 +68,8 @@ MUTATIONS = [
     (
         "把详情页商品行的『司机看不到货款』那道门拆掉",
         DETAIL,
-        "if (role != Role.DRIVER) {\n                            Text(\n                                \"¥\" + formatMoney(line.lineTotal),",
-        "if (true) {\n                            Text(\n                                \"¥\" + formatMoney(line.lineTotal),",
+        "if (role != Role.DRIVER) {\n                            Text(\n                                netLineMoneyText(line),",
+        "if (true) {\n                            Text(\n                                netLineMoneyText(line),",
         "商品行的小计有",
     ),
     (

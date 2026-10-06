@@ -3,8 +3,8 @@
 
 ## 为什么要有这一份
 这一条守的是「用户没说就看不见」的那类退化：净数算式改回原数量、小字不画、那块只读的退货申请被换成
-跳转、取数失败改成写页面级 error……每一条**都不会有编译错误、不会有任何用例报红**（商品明细照旧四格、
-金额照旧对得上、`_check_order_row_columns.py` 照样绿）。判据脚本写得再细，只要它自己坏了
+跳转、取数失败改成写页面级 error、件数与金额退回原价……每一条**都不会有编译错误、不会有任何用例报红**
+（商品明细照旧四格、钱按原价显示也"看着对"、`_check_order_row_columns.py` 照样绿）。判据脚本写得再细，只要它自己坏了
 （锚点漂了、正则写宽了、切段一路切到文件尾），它**照样全绿** —— 所以这里逐条把源码改坏一次，
 要求判据必须报红。
 
@@ -110,7 +110,7 @@ MUTATIONS = [
     (
         "申请时间不画",
         SCREEN,
-        '"申请时间 " + formatDateTime(req.createdAt),',
+        '"申请时间 " + formatDateTimeFull(req.createdAt),',
         '"",',
         "申请时间画出来",
     ),
@@ -122,18 +122,25 @@ MUTATIONS = [
         "没有直接调仓库",
     ),
     (
-        "行金额也跟着改成净数（退货只该红冲账本，不该改行金额）",
+        "行金额退回原价（用户 2026-10-07 的报障当场复发：件数是净数、钱是原价）",
         SCREEN,
-        '"¥" + formatMoney(line.lineTotal)',
-        '"¥" + formatMoney(line.lineTotal - line.returnedQuantity)',
-        "行金额照旧",
+        "netLineMoneyText(line),",
+        '"¥" + formatMoney(line.lineTotal),',
+        "行金额画的是**退货后**的净额",
     ),
     (
-        "合计也跟着改（同上）",
+        "合计退回原价（Σ lineTotal）——退过货的单上下两个数又说两件事",
         SCREEN,
-        "sumOf { moneyToDouble(it.lineTotal) }",
-        "sumOf { moneyToDouble(it.lineTotal) - 1 }",
-        "合计照旧",
+        "val netTotal = netOrderMoneyText(order)",
+        'val netTotal = "¥" + formatMoney(order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }.toString())',
+        "合计同样画净额",
+    ),
+    (
+        "「已退 ¥X」改成恒不画（钱退了多少，页面上没人说）",
+        SCREEN,
+        "if (returnedAmount > 0.0) {",
+        "if (false) {",
+        "合计同样画净额",
     ),
     (
         "角色不再看登录缓存（自己猜一个）",

@@ -42,6 +42,9 @@ import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.dispatcher.AssignDriverDialog
 import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolViewModel
+import com.tapmoay.sorders.ui.dispatcher.centsToMoney
+import com.tapmoay.sorders.ui.dispatcher.lineReceivableCents
+import com.tapmoay.sorders.ui.dispatcher.orderReceivableCents
 import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -632,6 +635,30 @@ private fun DriverRow(name: String, phone: String, onDial: (() -> Unit)?) {
  */
 private fun netQty(l: OrderProductDto): Int = (l.quantity - l.returnedQuantity).coerceAtLeast(0)
 
+/**
+ * 这一行**现在**值多少钱（显示串）：行金额 − 单价 × 已退数量。
+ *
+ * 台账 L-38 / CHG-0065。用户 2026-10-07（m11305）看着「火腿 ×2 已退 3」问"**为什么钱没有变**" ——
+ * 件数那一格从 L-21 起就是净数，金额这一格却还是"当时卖了多少"（`line_total`）。两格从此同口径。
+ *
+ * ⚠️ 算式**只有这一处**，而且不是这里发明的：`ui/dispatcher/LedgerPersonStats.kt::lineReceivableCents`
+ *    与后端 `services/order_money.py::line_receivable` 是同一个式子（账本页的行应收用的就是它）。
+ *    量列宽（`moneyW`）与画出来那串都走它 —— 各写一份的话列宽会按"另一个数"去量、右边被裁。
+ * ⛔ 别改回 `formatMoney(line.lineTotal)`：退过货的行会按原价显示，而合计已经退了 → 一张卡里上下对不上。
+ */
+private fun netLineMoneyText(l: OrderProductDto): String =
+    "¥" + formatMoney(centsToMoney(lineReceivableCents(l)))
+
+/**
+ * 这一单**现在**值多少钱（显示串）＝ 各行 [netLineMoneyText] 之和。
+ *
+ * 与后端 `order_money.receivable` 同源（`orderReceivableCents` 是那一份的客户端实现，
+ * 账本页「应收 ¥」用的也是它）。⛔ 别拿它当"还欠多少"：欠款一律读后端的 `arrears_amount`
+ * （现场收现金没有流水、退现也不在这里，客户端减出来的数偏大 —— 见 `util/Money.kt::settleArrears`）。
+ */
+private fun netOrderMoneyText(o: OrderDto): String =
+    "¥" + formatMoney(centsToMoney(orderReceivableCents(o)))
+
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -701,7 +728,12 @@ private fun DetailBody(
      */
     returnRequests: List<ReturnRequestDto> = emptyList(),
 ) {
-    val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
+    // 这一单**现在**值多少（台账 L-38 / CHG-0065）：每行「行金额 − 单价 × 已退数量」之和，
+    // 与后端 `services/order_money.py::line_receivable` **同一个式子**（`orderReceivableCents`）。
+    // ⛔ 别改回 `sumOf { moneyToDouble(it.lineTotal) }`：那是"当时卖了多少"，退过货的单会按原价显示。
+    val netTotal = netOrderMoneyText(order)
+    // 「已退 ¥X」那颗小字画不画（与件数那格的「已退 N」同一个判据：真的退过才画）。
+    val returnedAmount = moneyToDouble(order.returnedAmount)
     // ── 就地改单的两个门（CHG-0041）──
     // ① **谁能改**：只有**派单员** —— 后端 `Permission.ORDER_EDIT` / `ORDER_PRODUCT_EDIT`
     //    只发给 dispatcher（`backend/app/core/rbac.py:95,104`），货主与司机都没有那颗权限。
@@ -1112,7 +1144,7 @@ private fun DetailBody(
                     maxOf(acc, rememberTextWidth("×" + qtyWithUnitConverted(netQty(l), l.unit, conversions), qtyStyle))
                 }
                 val moneyW = order.orderProducts.fold(0.dp) { acc, l ->
-                    maxOf(acc, rememberTextWidth("¥" + formatMoney(l.lineTotal), moneyStyle))
+                    maxOf(acc, rememberTextWidth(netLineMoneyText(l), moneyStyle))
                 }
                 // 货损那一格也**单独占一列**：它一出现就会把这行的金额往左挤 ——
                 // 不占列的话，"有货损的那一行"金额就和别的行对不齐了（正是要修的那件事）。
@@ -1169,7 +1201,7 @@ private fun DetailBody(
                         Spacer(Modifier.width(12.dp))
                         if (role != Role.DRIVER) {
                             Text(
-                                "¥" + formatMoney(line.lineTotal),
+                                netLineMoneyText(line),
                                 style = moneyStyle,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 textAlign = TextAlign.End,
@@ -1224,8 +1256,20 @@ private fun DetailBody(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),
                         )
+                        // 钱也要跟着退货回退（台账 L-38 / CHG-0065）：件数那格早就是净数，只改件数不改钱，
+                        // 用户看到的就是「火腿 ×2 已退 3 … ¥430.8」这种自相矛盾的一行。
+                        // 小字与件数那格的「已退 N」同一个颜色/语义（退掉的那部分值多少钱）；没退过的单
+                        // 一个像素都不动。
+                        if (returnedAmount > 0.0) {
+                            Text(
+                                "已退 ¥" + formatMoney(order.returnedAmount),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
                         Text(
-                            "¥" + formatMoney(total.toString()),
+                            netTotal,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = androidx.compose.ui.graphics.Color(0xFFFF9500),
@@ -1378,7 +1422,7 @@ private fun DetailBody(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
-                                "¥" + formatMoney(total.toString()),
+                                netTotal,
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )

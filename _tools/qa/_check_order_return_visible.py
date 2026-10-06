@@ -28,7 +28,12 @@
   `ui/order/OrderDetailScreen.kt`（件数画净数 ＋ 小字「已退 N」＋「商品明细」卡尾那块只读的退货申请）。
 - **不动**：`core/ReturnRules.kt`（只加显示、不加算法）、后端（`order_id` 过滤本来就已就绪）、
   退货申请两端页面与路由（`Routes` / `NavGraph` / `NoticeRouting` 一个字没动）、
-  `ui/common/ReturnRequestChip.kt`（共用胶囊）、行金额与合计（退货只红冲账本，不改行金额）。
+  `ui/common/ReturnRequestChip.kt`（共用胶囊）。
+- ⚠️ **后续（2026-10-07，台账 L-38 / CHG-0065）**：用户看着「火腿 ×2 已退 3 … ¥430.8」问
+  「**为什么钱没有变**」—— 上面那句「行金额与合计逐字未动」**已被推翻**：两格从此都画**净额**
+  （行金额 − 单价 × 已退数量，与后端 `order_money.py::line_receivable` 同源），合计那一行多一颗
+  小字「已退 ¥X」。下面第 4 组的判据同步改成"必须画净额"。
+  ⛔ 这一刀只改**订单详情页**：订单卡片（`ui/common/OrderCard.kt`）与两端退货申请列表页没动。
 
 ## 判据（8 组）
 1. 取数：按登录缓存的角色**原文**分派到两个接口、拉「全部」档位、失败只留空列表、不写页面级 error；
@@ -36,7 +41,8 @@
 3. 那块是**只读**的：没有按钮、没有写操作、没有自己造的状态中文名；
 4. **不做跳转**（详情页不许把用户扔进退货申请页）；
 5. 件数画净数、后面跟一个小字「已退 N」，且只在这一行真的退过时才画；
-6. 金额与合计没被顺手改成净数（退货只红冲账本）；
+6. 金额与合计**画的是退货后的净额**（`netLineMoneyText` / `netOrderMoneyText`），且合计那行只在
+   真退过时多一颗「已退 ¥X」小字；
 7. 共用件没被抄第二份（胶囊调用点清单、`loadReturnRequests` 定义恰一处）；
 8. 文档（CHG / README / CLAIM）＋ 反验脚本 ＋ 防静默空转。
 
@@ -231,7 +237,7 @@ def main() -> int:
     c.ok("状态胶囊走共用件", CHIP_CALL in block)
     c.ok("中文名只许来自后端的 statusLabel（不自己映射一份）", "statusLabel" in block)
     c.ok("要退的东西原文照登（linesSummary）", '"要退 " + req.linesSummary' in block)
-    c.ok("申请时间画出来（formatDateTime）", "formatDateTime(req.createdAt)" in block)
+    c.ok("申请时间画出来（带年份那一档 formatDateTimeFull）", "formatDateTimeFull(req.createdAt)" in block)
     c.ok("被驳回的要把原因画出来（没填要有兜底文案）",
          re.search(r'if \(req\.status == "rejected"\) \{[\s\S]{0,400}?"驳回原因："', block) is not None
          and "req.rejectReason" in block and "（派单员没有填原因）" in block,
@@ -251,7 +257,7 @@ def main() -> int:
     c.absent("没有跳高德", block, "androidamap")
     c.ok("整块里一次都没有出现 Routes（要做动作就得跳出去）", "Routes." not in block)
 
-    c.section("4. 件数画净数、后面跟一个小字「已退 N」")
+    c.section("4. 件数与金额都画净数（件数 − 已退数 / 行金额 − 单价 × 已退数量）＋ 各自一颗小字")
     c.ok("净数算式全仓只有这一份（唯一一处相减）",
          screen.count("(l.quantity - l.returnedQuantity)") == 1 and NETQTY in screen)
     c.ok("量宽度与画出来那串都走 netQty（否则右边被固定宽度裁掉）",
@@ -264,8 +270,20 @@ def main() -> int:
     c.ok("净数不许为负（退到超过原件数也不能画出负数）", ".coerceAtLeast(0)" in screen)
     c.ok("算法本身没被动（core/ReturnRules.kt 一个字没改）",
          "fun maxReturnable(" in rules and "returnedQuantity" in rules)
-    c.ok("行金额照旧（退货只红冲账本，不改行金额）", '"¥" + formatMoney(line.lineTotal)' in screen)
-    c.ok("合计照旧", "sumOf { moneyToDouble(it.lineTotal) }" in screen)
+    # ---- 台账 L-38 / CHG-0065（2026-10-07）：钱也要跟着退货回退 ----
+    # ⛔ 上面那句"行金额与合计逐字未动"是 CHG-0054 当时的决定，**已被用户推翻**：他看到的是一行
+    #    「火腿 ×2 已退 3 … ¥430.8」—— 件数是净数、钱是原价，同一行里两个数说的是两件事。
+    c.ok("行金额画的是**退货后**的净额（行金额 − 单价 × 已退数量，与后端 line_receivable 同源）",
+         "netLineMoneyText(line)" in screen
+         and '"¥" + formatMoney(line.lineTotal)' not in screen
+         and "centsToMoney(lineReceivableCents(l))" in screen,
+         "退回原价 = 退过货的行仍按「当时卖了多少」显示，而合计已经退了 → 一张卡里上下对不上")
+    c.ok("合计同样画净额，且只在真退过时多一颗「已退 ¥X」小字（没退过的单一个像素不动）",
+         "val netTotal = netOrderMoneyText(order)" in screen
+         and "val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }" not in screen
+         and re.search(r'if \(returnedAmount > 0\.0\) \{[\s\S]{0,240}?"已退 ¥" \+ formatMoney\(order\.returnedAmount\)',
+                       screen) is not None,
+         "只退件数不退钱：用户 2026-10-07 报的就是这一条")
 
     c.section("5. 共用的件没被抄第二份")
     c.ok("状态胶囊调用点清单恰三处（定义 ＋ 两端页面）",

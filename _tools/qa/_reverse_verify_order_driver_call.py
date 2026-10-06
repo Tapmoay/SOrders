@@ -200,8 +200,8 @@ MUTATIONS = [
     (
         "定位表「订单详情页」那一行不再指路判据（改了核心文件却不更新地图）",
         LOCATOR,
-        "判据 `_tools/qa/_check_order_driver_call.py` |",
-        "判据（脚本名待补） |",
+        "判据 `_tools/qa/_check_order_driver_call.py`",
+        "判据（脚本名待补）",
         "定位表的「订单详情页」那一行",
     ),
     (

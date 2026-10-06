@@ -323,8 +323,11 @@ def main() -> int:
         f"实际 {n_boxes} 个 —— 多一个金额框＝用户以为能直接改钱",
     )
     ok(
-        "屏上的合计仍取服务端的行小计之和（不是单价 × 数量）",
-        "val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }" in screen,
+        # ⚠️ 2026-10-07（台账 L-38 / CHG-0065）：那一行从 `val total = Σ lineTotal` 换成了
+        #    `netOrderMoneyText(order)`（各行「行金额 − 单价 × 已退」之和，与账本/后端同源）。
+        #    这一条守的东西没变：**屏上的钱不许由客户端自己乘出来**。
+        "屏上的合计走共用口径（netOrderMoneyText），不是客户端拿单价 × 数量自己算",
+        "val netTotal = netOrderMoneyText(order)" in screen,
         "前端自算合计＝与订单/账本金额对不上",
     )
     ok(

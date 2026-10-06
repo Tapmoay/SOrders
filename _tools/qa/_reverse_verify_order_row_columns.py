@@ -164,6 +164,38 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "if (true) {",
         "「已退 N」跟在净数后面",
     ),
+    # ---- 以下四条是台账 L-38 / CHG-0065（2026-10-07）加进来的：钱也要跟着退货回退 ----
+    # 用户（m11305）看着「火腿 ×2 已退 3 … ¥430.8」问「为什么钱没有变」—— 件数早就是净数了，
+    # 金额却还是"当时卖了多少"。这四条坏起来同样**一句报错都没有**：没退过货的单子照样对，
+    # 只有退过货的那几张单上下两个数各说各的（而且看起来都很正常）。
+    (
+        "⑯ 行金额退回原价（用户 2026-10-07 的报障当场复发：件数是净数、钱是原价）",
+        DETAIL,
+        r"re:netLineMoneyText\(line\),",
+        '"¥" + formatMoney(line.lineTotal),',
+        "金额那一格画的是退货后的净额",
+    ),
+    (
+        "⑰ 只把量宽度那处改回原价（列宽按原价、数字画净额 → 位数一变就被裁）",
+        DETAIL,
+        r"re:rememberTextWidth\(netLineMoneyText\(l\), moneyStyle\)",
+        'rememberTextWidth("¥" + formatMoney(l.lineTotal), moneyStyle)',
+        "金额列的宽度也按净额量",
+    ),
+    (
+        "⑱ 合计退回 Σ lineTotal（客户端自己再算一遍：与各行净额、与账本都能对不上）",
+        DETAIL,
+        "val netTotal = netOrderMoneyText(order)",
+        'val netTotal = "¥" + formatMoney(order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }.toString())',
+        "合计走 netOrderMoneyText",
+    ),
+    (
+        "⑲ 「已退 ¥X」改成恒不画（钱退了多少，页面上没人说）",
+        DETAIL,
+        "if (returnedAmount > 0.0) {",
+        "if (false) {",
+        "真退过的单，合计那行多一颗小字",
+    ),
 ]
 
 

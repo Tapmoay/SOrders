@@ -6054,6 +6054,24 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`0b43c2b`（本事项动 40 个文件：后端 6（迁移 024 新 ＋ 模型 / schema / users.py / product_categories.py / 测试）＋ Android 12（`ui/common/ProductCheckList.kt` 新 ＋ 屏 / VM / 批量页 / DTO / 仓库 / AI 五个文件 / 单测）＋ QA 15（`_tools/ai/_check_ai_guardrails.py` ＋ 新增判据与反验各 1 ＋ 改判据 7 ＋ 改反验 5）＋ 文档 7（位置表 ＋ 端点索引 ＋ 提示目录 ＋ 生成物 `ai_read_catalog.json` ＋ 本文件 ＋ 登记簿 ＋ 变更单），归档提交另计）。
 
+### [2026-10-07 00:45 → 进行中 CST] 会话：**CHG-0065 退货之后订单详情的钱也跟着回退（台账 L-44）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-07 在会话里当场报的第 ① 条（ref **m11305**）：退货之后订单详情那一行已经是「火腿 ×2 已退 3」（件数是净数），钱却还是原价 —— 「为什么钱还是整个的整数」⇒ **件数怎么退，钱就怎么退**。⛔ 与上一单的关系：CHG-0054 当时的口径是「退货走账本红冲、客户端行金额与合计**逐字未动**」（`docs/changes/CHG-0054.md:78`、`:174`，判据还把这条钉死）—— 本单是**口径推翻**，不是补漏。
+
+**病灶**：后端**本来就有**净额口径（`backend/app/services/order_money.py:22-27` 的 total / returned / receivable / settled / refunded / arrears 与恒等式；`:101` `line_receivable(op)`），客户端是 CHG-0054 当时**故意**没跟 ⇒ 同一条商品行里件数与钱说两件互相矛盾的事（「×2 已退 3」旁边写着原价）。
+
+**改法（Android 1 个文件）**：① `ui/order/OrderDetailScreen.kt:45-47` 新增三行 import（`ui.dispatcher` 的 `centsToMoney` / `lineReceivableCents` / `orderReceivableCents`，跨包复用有先例）；② `:649` 新增 `private fun netLineMoneyText(l: OrderProductDto): String = "¥" + formatMoney(centsToMoney(lineReceivableCents(l)))`（函数体在 `:650`）、`:659` 新增 `netOrderMoneyText(o)`；③ 商品明细那一格的量宽（`:1147` `rememberTextWidth(netLineMoneyText(l), moneyStyle)`）与画（`:1204` `netLineMoneyText(line)`）都换成净额；④ 合计 `:734` 换成 `val netTotal = netOrderMoneyText(order)`（旧的 `val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }` 已删）＋ `:736` `val returnedAmount = moneyToDouble(order.returnedAmount)`；⑤ `:1263` `if (returnedAmount > 0.0) {` 时合计行多一颗 error 色小字 `:1265` `"已退 ¥" + formatMoney(order.returnedAmount)`；⑥ 算式**一处都没有新写** —— 复用账本页那份 `ui/dispatcher/LedgerPersonStats.kt`（`lineReceivableCents(:54)` / `orderReceivableCents(:85)` / `centsToMoney(:78)`），与后端 `order_money.py:101 line_receivable` 同源（⚠️ 不能写成 `(quantity − returned) × unitPrice`：生产库 `line_total` 有历史折扣）。
+
+**明确不碰**：现场支付确认弹层（后端 `order_money.py:192` 在「现场收现金、无流水」时 `settled = total`，仍是**总额**口径，只改文案会与账目打架）＋ 订单卡片 `ui/common/OrderCard.kt:120` 的 Σ lineTotal（L-21 只点名详情页）＋ 件数那一列（CHG-0054 的净数 ＋「已退 N」逐字不动）＋ 账本与账本红冲 ＋ 后端 / 接口 / 字段 / 权限 / 状态机（零改动）。
+
+**判据 / 反验**：既有判据三份随动 —— `_tools/qa/_check_order_row_columns.py`（新增 ③c 节 4 条：定义正则 ／ 量画同源 ／ 合计走 `netOrderMoneyText` ／ 「已退 ¥X」判定；并把金额右对齐与量宽两处锚点改成 `netLineMoneyText`）＋ `_tools/qa/_check_order_return_visible.py`（判据 6 与第 4 组标题改成「件数与金额都画净数」）＋ `_tools/qa/_check_detail_inline_edit.py`（那条合计断言换成走共用口径）；反向验证三份对应注入 —— `_reverse_verify_order_row_columns.py` 的 ⑯⑰⑱⑲（行金额画回原价 ／ 量宽按原价量 ／ 合计走回 Σ lineTotal ／ 「已退 ¥X」被摘掉）＋ `_reverse_verify_order_return_visible.py` 的两条金额注入 ＋ `_reverse_verify_detail_inline_edit.py` 那条。
+
+**验证**（2026-10-07 跑完，逐条实测）：判据 `_check_order_row_columns.py` **41/41** ＋ `_check_order_return_visible.py` **70/70** ＋ 既有回归 `_check_detail_inline_edit.py` **55/55** ＋ `_check_driver_money.py` **36 项全过**；反验四份 `_reverse_verify_order_row_columns.py` **19/19** ＋ `_reverse_verify_order_return_visible.py` **26/26** ＋ `_reverse_verify_detail_inline_edit.py` **31/31** ＋ `_reverse_verify_driver_money.py` **19/19**（76 条注入逐条被抓、每个被注入的文件按字节还原）；`gradle :app:assembleEmuDebug` **BUILD SUCCESSFUL in 12s**（APK `android/app/build/outputs/apk/emu/debug/app-emu-debug.apk` = 44,490,930 字节）＋ `:app:testEmuDebugUnitTest` = **1244 跑 / 1 红 / 2 skip**（红的是既存日期性 `AiHabitTest.kt:76` —— 每月 1–7 号必红，与本案无关）；全量静检 `python _tools/qa/_check_all.py` = **203 脚本 / 202 ✅ / 1 ❌**（唯一红 `_tools/qa/_check_backend_fresh.py`：本机 uvicorn 比源码旧，脚本自述跑过反验后必然如此，修法是重启后端）；真机 emulator-5554（派单员，单 `SO202609258977071261`）改前 `shots/chg0065_before_5554_detail.png`（行 ¥104.4 / 合计 ¥104.4）→ 改后 `shots/chg0065_after_5554_detail.png`（行 ¥34.8 / 合计「已退 ¥69.6　¥34.8」）。
+
+**实现提交**：（归档提交回填）—— 本事项动 Android 1（`ui/order/OrderDetailScreen.kt`）＋ QA 9（改判据 4 ＋ 改反验 5）＋ 文档 5（`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/changes/CHG-0065.md`、`docs/changes/README.md`、本文件））。
+
+---
+
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
@@ -6191,6 +6209,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 | 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0064.md`（新建，**两文件必须同一次提交**） | 在 CHG-0063 那一行之后追加 CHG-0064 行（`_check_dev_spec.py` 会为「加了文件没登记」当场变红） |
 | 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_dialog_language.py`（6 组 45 项；docstring 写清台账 L-20 与用户原话 ref m00481 / m00542）＋ `_reverse_verify_dialog_language.py`（12 条注入，4 个被注入文件还原后逐字节一致） |
 | 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `_tools/qa/_check_ledger_dialog_style.py` ＋ `_tools/qa/_reverse_verify_ledger_dialog_style.py`（CHG-0051 的判据与反验，**多会话共读**） | 口径随动：`BARE_AFTER` 63 → **1**、`CARD_AFTER` 6 → **69**，「别处一处没动」那一组语义反过来（**一处不剩**）；反验那条注入的锚点改成含 tone 的调用点（本次迁移在每个调用点插了一行 tone，老形状的锚点会腐烂） |
+| 2026-10-07 01:2x | **CHG-0065**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0065.md`（新建，**两文件必须同一次提交**） | 在 CHG-0064 那一行之后追加 CHG-0065 登记行（`_check_dev_spec.py` 会为「加了文件没登记」当场变红） |
 
 ---
 

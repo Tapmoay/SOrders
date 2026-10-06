@@ -16,6 +16,7 @@
 | 有人把「空单位」兜底成「件」（照商品那一侧的 `unitOrDefault` 抄一份） | 老单**凭空长出**「×6 件」：系统编了一个没人填过的事实，而它看起来完全正常（用户会拿它去对货） |
 | 「数量 + 单位」在卡片 / 详情页 / 账本小卡各拼一份 | 改一处漏两处（卡片写「6 桶」、明细还写「6」），两边都不报错 |
 | 商品明细的件数/金额退回**各自自然宽度** | 数字位数一变两列就参差 —— 用户说的「没有做对齐」 |
+| 商品明细的金额画原价（`"¥" + formatMoney(line.lineTotal)`） | 件数是净数（「×2 已退 3」）、钱是原价 —— 同一行里两个数说的是两件事；合计却已经退了 → **用户 2026-10-07 就是拿这个来问的**（台账 L-38 / CHG-0065），而编译、别的红线全绿 |
 | 货损那一格改成「这一行有货损才占位」 | **没货损的那几行**金额贴最右、有货损的往左缩一截 → 金额列自己错开一格 |
 | 卡片底部合计不管单位 | 一单「6 桶」底下写着「共 6 **件**」 |
 | 在 `map` 里调 `rememberTextWidth` | 组合期槽位与列表长度对不上（`Adaptive.kt` 明说只有 fold / forEach 能放进去，map 不是 inline） |
@@ -28,7 +29,10 @@
 3. 订单卡片：商品行走 `qtyWithUnit(`，底部合计走 `sharedUnitOf(`；四张订单列表共用这一张卡
    （调用点从源码算，不手写文件名）。
 4. 订单详情的「商品明细」：件数、金额两格都 `Modifier.width(<量出来的>)` + `textAlign = TextAlign.End`；
-   货损格用**整单判据** `hasDamage` 占位（不是「这一行有没有」）。
+   货损格用**整单判据** `hasDamage` 占位（不是「这一行有没有」）；
+   ⚠️ 这两格的**内容**从 2026-10-07（台账 L-38 / CHG-0065）起都是**净数**：件数 − 已退数、
+   行金额 − 单价 × 已退数量（`netQty` / `netLineMoneyText`，与后端 `line_receivable` 同源），
+   合计走 `netOrderMoneyText`，真退过的单合计那行还多一颗小字「已退 ¥X」。
 5. 账本小卡 `OrderPeek.kt` 同形（派单员账本与货主账本共用它）。
 6. 钱的规矩没被顺手删：`role != Role.DRIVER` 那道门还在（细则在 `_check_driver_money.py`）。
 7. 反空转：文件在、被扫的块非空、解析出的「量宽」调用 ≥5。
@@ -257,7 +261,7 @@ def main() -> int:
     )
     c.ok(
         "金额那一格右对齐（textAlign = TextAlign.End + 同一个宽度）",
-        re.search(r'"¥" \+ formatMoney\(line\.lineTotal\),[\s\S]{0,200}?'
+        re.search(r"netLineMoneyText\(line\),[\s\S]{0,200}?"
                   r"textAlign = TextAlign\.End,\s*modifier = Modifier\.width\(moneyW\)", block) is not None,
         "用户：「价格与价格做个对齐」",
     )
@@ -278,9 +282,9 @@ def main() -> int:
         "量的比画的窄 → 数字被固定宽度裁掉，而界面上没有任何提示",
     )
     c.ok(
-        "金额列同理（量的是 ¥ + formatMoney，画的是同一串、同一个 moneyStyle）",
-        re.search(r'rememberTextWidth\("¥" \+ formatMoney\(l\.lineTotal\), moneyStyle\)', block) is not None
-        and re.search(r'"¥" \+ formatMoney\(line\.lineTotal\),[\s\S]{0,120}?style = moneyStyle,',
+        "金额列同理（量的是 netLineMoneyText —— 净额那一串，画的也是它、同一个 moneyStyle）",
+        re.search(r"rememberTextWidth\(netLineMoneyText\(l\), moneyStyle\)", block) is not None
+        and re.search(r"netLineMoneyText\(line\),[\s\S]{0,120}?style = moneyStyle,",
                       block) is not None,
     )
     c.ok(
@@ -329,6 +333,41 @@ def main() -> int:
         re.search(r"H\w*\(\s*\"已退 ", block) is None,
         "禁止把纯数据塞进提示组件（细则在 _check_hints.py）",
     )
+    # ---- ③c 金额也画净额（台账 L-38 / CHG-0065，2026-10-07）----
+    # ⚠️ 用户（m11305）看着「火腿 ×2 已退 3 … ¥430.8」问「为什么钱没有变」：件数早就是净数（③b），
+    #    金额却还是"当时卖了多少"。这一格从 CHG-0065 起也画净额，算式**不是新写的** ——
+    #    `lineReceivableCents`（账本页的行应收）与后端 `order_money.py::line_receivable` 同一个式子：
+    #    行金额 − 单价 × 已退数量（不能拿 quantity − returned 直接乘单价，生产库 line_total 有历史折扣）。
+    c.section("商品明细的金额画净额（行金额 − 单价 × 已退数量）＋「已退 ¥X」小字")
+    c.ok(
+        "金额那一格画的是退货后的净额，不是原价（算式与后端/账本同源：netLineMoneyText → lineReceivableCents）",
+        re.search(r'private fun netLineMoneyText\(l: OrderProductDto\): String =\s*\n\s*'
+                  r'"¥" \+ formatMoney\(centsToMoney\(lineReceivableCents\(l\)\)\)', detail) is not None
+        and re.search(r'"¥" \+ formatMoney\(line\.lineTotal\),', block) is None,
+        "退回原价 = 退过货的行按原价显示，而合计已经退了 → 一张卡里上下两个数各说各的"
+        "（用户 2026-10-07 报的就是这一条）",
+    )
+    c.ok(
+        "金额列的宽度也按净额量（量的是 netLineMoneyText、画的是同一串、同一个 moneyStyle）",
+        re.search(r"rememberTextWidth\(netLineMoneyText\(l\), moneyStyle\)", block) is not None
+        and re.search(r"netLineMoneyText\(line\),[\s\S]{0,120}?style = moneyStyle,", block) is not None,
+        "按原价的宽度去装净额的数字 → 位数一变右边就被裁掉（列看着还是对的，数字少一截）",
+    )
+    c.ok(
+        "合计走 netOrderMoneyText（各行的净额之和），不是客户端再 Σ 一遍 lineTotal",
+        "val netTotal = netOrderMoneyText(order)" in detail
+        and "val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }" not in detail,
+        "两处各算一遍 = 一张卡里两个数各说各的",
+    )
+    c.ok(
+        # ⚠️ 这一段在「合计」那一行**之后** ⇒ 不在上面那个 block 里，必须用 detail 找。
+        "真退过的单，合计那行多一颗小字「已退 ¥X」（没退过的单一个像素都不动）",
+        re.search(r'if \(returnedAmount > 0\.0\) \{[\s\S]{0,240}?'
+                  r'"已退 ¥" \+ formatMoney\(order\.returnedAmount\)', detail) is not None
+        and re.search(r'H\w*\(\s*"已退 ¥', detail) is None,
+        "无条件画 = 每张单都多一句「已退 ¥0」；挂到提示组件上 = 把纯数据当成解释句（提示组件是给『⚠ 那两个』用的）",
+    )
+
     c.ok(
         "钱的门还在：司机看不到货款那一格（role != Role.DRIVER）",
         re.search(r"if \(role != Role\.DRIVER\) \{", block) is not None,
