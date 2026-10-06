@@ -116,13 +116,18 @@ internal object AiWriteMasterData {
             risk = AiWriteRisk.MEDIUM,
             group = AiWrites.G_PRODUCT,
             // ⚠️ 措辞必须与后端一致（2026-09-19 审计「声明式 CRUD」专项，高）：
-            //    原来这里写「下架后**不能再用它下单**」——**没有任何一侧拦这件事**：
+            //    原来这里写「下架后**不能再用它下单**」——**当时没有任何一侧拦这件事**：
             //    `order_flow.py` 下单只查 `prod.is_deleted`（全仓没有 `Product.is_active` 判定），
-            //    而 App 的选品页是 `includeInactive=true` + 只画一个红色「已下架」角标、加号仍可点。
-            //    所以"下架"的真实语义是「标记为停用 + 下单页显示警告」，不是"拦住下单"。
+            //    而 App 的选品页是 `includeInactive=true` + 只画一个红色角标、加号仍可点。
+            //    所以当时"下架"的真实语义是「标记为停用 + 下单页显示警告」，不是"拦住下单"。
             //    卡片承诺一件后端不做的事，用户就会以为拦住 —— 这是本项目反复强调的那类谎。
+            //    ✅ 2026-10-07（BUG-0017 / 台账 L-35）两面都补齐了，这句话才敢这么写：
+            //    选品页**整卡变灰、加号点不动**（`ui/common/ProductPicker.kt`），
+            //    下单闸门**真的拒**（`backend/app/services/order_flow.py :: build_order_products`）。
+            //    ⛔ 再改这句话之前先看那两处：退回"只是标记、系统不拦"的说法就是二次说谎。
             blurb = "把商品停用（下架）或重新启用。下架=**在名册里标记为停用**：" +
-                "下单页仍会列出它（带「已下架」标记），系统**不会**拦住拿它下单；已有的单不受影响。",
+                "下单页仍会列出它（带「已沽清」标记，整张卡是灰的、加号点不动），" +
+                "拿它下单会被拦住（服务端同样拒）；已有的单不受影响。",
             targets = listOf(targetProduct()),
             fields = listOf(
                 boolField("active", "上架还是下架", "true=上架（可用），false=下架（标记为停用）"),

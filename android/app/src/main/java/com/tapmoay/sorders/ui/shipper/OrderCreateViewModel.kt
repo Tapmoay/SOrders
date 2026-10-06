@@ -34,6 +34,24 @@ data class LineDraft(
 const val MAX_ORDER_LINES = 10
 
 /**
+ * 购物车里**第一行已经沽清（下架）**的商品 —— 台账 L-35 / BUG-0017。
+ *
+ * ⛔ 为什么客户端还要再拦一道：选品页那一格已经点不动了（`ui/common/ProductPicker.kt`），
+ *    但**购物车里可能本来就有它** —— 先在购物车放一件、派单员随后沽清、再点「确定下单」，
+ *    这条路只有这里能挡。⚠️ 服务端还有一道（`order_flow.build_order_products`）：
+ *    AI 下单与老包绕过界面时归它管。
+ * ⚠️ 判据是这一页启动时读回来的那份 `products`（含下架商品，`includeInactive = true`）：
+ *    不带 productId 的手输商品不在这道闸门里（它本来就没有"沽清"这回事）；
+ *    目录里查不到的行也不误拦（那一句由"没有价格"那道闸门去说）。
+ *
+ * 抽出成顶层函数是为了能被单测直接调 —— 同 [mergePickedIntoLines]。
+ */
+fun soldOutLine(lines: List<LineDraft>, products: List<ProductDto>): LineDraft? =
+    lines.firstOrNull { ln ->
+        ln.productId != null && products.firstOrNull { it.id == ln.productId }?.isActive == false
+    }
+
+/**
  * 把一次挑好的商品并入下单清单（**纯函数**，有测试盯着 —— `ProductPickerTest`）。
  *
  * 两条规则，都是为了不出现"看着加了、其实没加"：
@@ -1128,6 +1146,15 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
          *    422 结构体**；而且页面上根本没有填价的地方（见 [priceSourceNote] 那段注释）。
          */
         val noPrice = lines.firstOrNull { it.price.isBlank() }
+        /**
+         * 已经沽清（下架）的那一行 —— 台账 L-35 / BUG-0017（用户 m01347：「就是**拦住不让下**，
+         * 不可能是提示后他仍然可以下呀」）。
+         *
+         * ⛔ 为什么客户端还要再拦一道：选品页里那一格已经点不动了，但**购物车里可能本来就有它**
+         *    —— 先在购物车放一件、派单员随后沽清、再点「确定下单」，这条路只有这里能挡。
+         * ⚠️ 谓词只有一份：顶层纯函数 [soldOutLine]（有单测盯着）；⛔ 不要再在这里内联一份。
+         */
+        val soldOut = soldOutLine(lines, products)
         // 电话格式先在这一侧挡一道：这两个框现在只让数字进来（`InputRules.phoneInput`），
         // 但"位数不够"过滤挡不住（用户可能刚输了一半就点提交）。在这里拦下来，
         // 用户看到的是**立刻**的中文提示，而不是等服务端 422 转一圈。
@@ -1143,6 +1170,8 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             lines.isEmpty() -> error = "请至少添加一组商品"
             nameBlank -> error = "商品名称不能为空"
             noPrice != null -> error = "「${noPrice.name}」没有价格（这件商品已不在商品库），先删掉这一行再提交"
+            // 沽清（下架）那一行：与"没有价格"同一个形状 —— 点下去立刻说清是哪一件、怎么办。
+            soldOut != null -> error = "「${soldOut.name}」已经沽清（下架），不能再下单，先删掉这一行再提交"
             phoneError != null -> error = phoneError
             // L-32（用户 m01132「无主账是不可能存在的」＋ m01242「干脆后端也拦一下」）：
             // 四个联系字段（收货人/下单人的名字与电话）**全空** ⇒ 下不出单，服务端也会拒。

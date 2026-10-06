@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -422,8 +423,21 @@ private fun ProductRow(
     onAdd: () -> Unit,
 ) {
     val unit = unitOrDefault(product.unit)
+    // ⛔ 沽清（下架）之后这一格**整卡变灰、点不动** —— 台账 L-35 / BUG-0017（用户 m01347 原话：
+    //    「文字的话你就留一个**已沽清**吧；灰掉了之后**就不能点**的哈……就是**整卡变灰**嘛……
+    //     就是**拦住不让下**，不可能是提示后他仍然可以下呀。」）。
+    //    三件事一起才叫"不能卖"：① 卡变灰（底色 + 内容一起暗）；② 加号灰掉、点它没有反应；
+    //    ③ 真的到了提交那一步，客户端与后端各有一道闸（见 `OrderCreateViewModel.submit` 与
+    //    `backend/app/services/order_flow.py :: build_order_products`）。
+    //    ⚠️ 角标仍然是**共用的那一个** `ProductSoldOutBadge`（文案只有「已沽清」，⛔ 不在这里改写）；
+    //    ⚠️ 列表**仍然列着**它（好让人看见"这件卖完了"，而不是以为商品丢了）。
+    val soldOut = !product.isActive
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = if (soldOut) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
         shape = RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth(),
@@ -441,7 +455,9 @@ private fun ProductRow(
                 if (price.isBlank()) null else productPriceFact(price, product.unit),
                 if (pickedQty > 0) pickedFact(pickedQty, unit) else null,
             ),
-            modifier = Modifier.padding(10.dp),
+            // 整卡变灰：内容（图 / 名 / 事实 / 角标）一起暗下去，与灰底合起来就是用户要的
+            // 「整卡变灰」。⚠️ 只在此处生效 —— 商品管理页与批量页的卡不受影响（它们各有各的用法）。
+            modifier = Modifier.padding(10.dp).alpha(if (soldOut) 0.6f else 1f),
             dense = true,
             // 商品图：**缩略图那一份零件**，这一页用 `solid = true`
             //（名称色实底 + 白图标）—— 它是"挑东西"，色块帮着扫；
@@ -459,10 +475,15 @@ private fun ProductRow(
                 // 圆形「＋」（外卖 App 的通用形态）；已选过就显示数量角标
                 Box {
                     FilledIconButton(
-                        onClick = onAdd,
+                        // ⛔ 沽清的这件：onClick 不触发（灰按钮有时也会收到点击）+ enabled = false
+                        //    （灰掉、连按下的涟漪都没有）。没有数量小窗、不会加行。
+                        onClick = { if (!soldOut) onAdd() },
+                        enabled = !soldOut,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = if (pickedQty > 0) Color(0xFF00A56E) else Color(0xFF1E6FFF),
                             contentColor = Color.White,
+                            disabledContainerColor = MaterialTheme.colorScheme.outlineVariant,
+                            disabledContentColor = MaterialTheme.colorScheme.outline,
                         ),
                         modifier = Modifier.size(36.dp),
                     ) {

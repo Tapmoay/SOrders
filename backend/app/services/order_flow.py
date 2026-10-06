@@ -860,6 +860,16 @@ def build_order_products(
                 raise ValueError(
                     f"第 {idx + 1} 行的商品「{prod.name}」已经删除了。请重新选一个商品。"
                 )
+            if not prod.is_active:
+                # 沽清（下架）之后**不能再卖** —— 台账 L-35 / BUG-0017（用户 m01347：「就是拦住
+                # 不让下，不可能是提示后他仍然可以下呀」）。客户端那两处只挡得住界面：
+                # AI 下单、老包、直接打接口都绕得过，所以同一条规矩必须在这里也成立。
+                # ⚠️ 老单不走这里（改数量 / 转单 / 拆单都不经过 build_order_products），
+                #    历史订单里那些"后来被沽清"的行照旧能看、能动。
+                raise ValueError(
+                    f"第 {idx + 1} 行的商品「{prod.name}」已经沽清（下架），不能再下单。"
+                    "请先删掉这一行，或者换一件还在售的商品。"
+                )
             cost_snap = prod.cost_price or Decimal("0")
             if not unit:
                 unit = (prod.unit or "件").strip()

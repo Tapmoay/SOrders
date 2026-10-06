@@ -176,4 +176,40 @@ class ProductPickerTest {
         val merged = mergePickedIntoLines(custom, listOf(picked(1, 2)))!!
         assertEquals(2, merged.size)
     }
+
+    // ---------------- 沽清（下架）的行不许下单（台账 L-35 / BUG-0017）----------------
+
+    private fun live(id: Long) = ProductDto(id = id, name = "商品$id", isActive = true)
+
+    private fun dead(id: Long) = ProductDto(id = id, name = "商品$id", isActive = false)
+
+    @Test
+    fun `购物车里混进沽清的行时点名的是那一行`() {
+        // 先在购物车放一件 → 派单员随后沽清 → 提交：这条只有客户端能挡（服务端那道管绕过界面的）
+        val lines = listOf(
+            LineDraft(productId = 1L, name = "A", price = "10"),
+            LineDraft(productId = 2L, name = "B", price = "20"),
+        )
+        assertEquals("B", soldOutLine(lines, listOf(live(1), dead(2)))?.name)
+    }
+
+    @Test
+    fun `全是在售商品时一道都不拦`() {
+        val lines = listOf(LineDraft(productId = 1L, name = "A", price = "10"))
+        assertNull(soldOutLine(lines, listOf(live(1), live(2))))
+    }
+
+    @Test
+    fun `手输的自定义商品不在这道闸门里`() {
+        // 手输的行没有 productId，"沽清"这件事对它不成立 —— 目录里全是沽清的也不许误伤它
+        val lines = listOf(LineDraft(productId = null, name = "临时货", price = "5"))
+        assertNull(soldOutLine(lines, listOf(dead(1))))
+    }
+
+    @Test
+    fun `目录里查不到这一行时不误拦（老包、目录过期）`() {
+        // 编号对不上商品库的那一行由服务端的"已经不在商品库里"去说，客户端不抢那句话
+        val lines = listOf(LineDraft(productId = 99L, name = "X", price = "5"))
+        assertNull(soldOutLine(lines, listOf(live(1))))
+    }
 }
