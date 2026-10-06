@@ -538,6 +538,8 @@ private fun PurchaseLineEditor(
             onValueChange = { onQty(InputRules.intInput(it, 7)) },
             keyboardType = KeyboardType.Number,
             placeholder = "0",
+            // 用户点进来直接打 15 ⇒ 15（不是 115）。
+            selectAllOnFocus = true,
             icon = Icons.Default.SwapVert,
             iconTint = Color(0xFF1E6FFF),
         )

@@ -13,7 +13,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -185,8 +188,16 @@ fun FormInputRow(
     keyboardType: KeyboardType = KeyboardType.Text,
     icon: ImageVector? = null,
     iconTint: Color = Color.Unspecified,
+    // 数量类字段才打开（默认关）：点进去**整串选中** —— 2026-10-06 用户报的 `1` + `15` = `115`，
+    // 见 `FieldSelection.kt`（全 App 共用一份）。其余字段的行为一个字都不变。
+    selectAllOnFocus: Boolean = false,
 ) {
     val focus = remember { FocusRequester() }
+    // 文本状态在本件内部用 `TextFieldValue` 受控（只有它能表达"选中了哪几个字"）；对外仍是 String。
+    var field by remember { mutableStateOf(fieldAtEnd(value)) }
+    // ⚠️ 组合期同步（不是 `LaunchedEffect(value)`）：父级把文字过滤回原样时 `value` 没变，
+    //    按 key 触发的副作用不会再跑，框里会留下刚被拒掉的那个字符。
+    if (field.text != value) field = fieldAtEnd(value)
     FormRow(
         label = label,
         modifier = modifier,
@@ -196,7 +207,7 @@ fun FormInputRow(
         onClick = if (enabled) ({ focus.requestFocus() }) else null,
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            if (value.isEmpty() && enabled) {
+            if (field.text.isEmpty() && enabled) {
                 Text(
                     placeholder,
                     style = MaterialTheme.typography.bodyLarge,
@@ -206,8 +217,11 @@ fun FormInputRow(
                 )
             }
             BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
+                value = field,
+                onValueChange = { v ->
+                    field = v
+                    if (v.text != value) onValueChange(v.text)
+                },
                 enabled = enabled,
                 singleLine = true,
                 textStyle = LocalTextStyle.current.merge(
@@ -219,7 +233,10 @@ fun FormInputRow(
                 ),
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus)
+                    .selectAllOnFocus(enabled = selectAllOnFocus) { field = selectedAll(field) },
             )
         }
     }

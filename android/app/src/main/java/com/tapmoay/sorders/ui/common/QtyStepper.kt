@@ -23,6 +23,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +78,8 @@ import com.tapmoay.sorders.core.InputRules
  *    原来的 `Icons.Default.*` 是方头粗笔画，放在圆角描边里显硬。禁用时整格转 `outline` 灰
  *    （数量到下限／上限时看得见，而不是点了没反应）。
  * 4. **数量判据只有一份**：见 [typedQty]。
+ * 5. **点进去＝整串选中**（2026-10-06 用户报的 `1` + `15` = `115`）：见 `FieldSelection.kt` ——
+ *    三处数量框共用同一份实现，默认值与上下限一个字没动。
  *
  * ## 单位标签（用户圈出来的那个位置）
  * 用户原话：「…**放在最右边**…那个**显示单位**也就这个商品的单位」。放在**标题行最右边**，
@@ -132,6 +139,15 @@ fun QtyStepper(
     onQtyChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 框里显示的那一串：**只有它能表达"选中了哪几个字"** —— 点进来那一刻要整串选中，
+    // 所以这里必须拿着 TextFieldValue，不能只拿 String（`value = qty.toString()` 时光标
+    // 只能落在末尾 ⇒ 想填 15 会变成 115）。见 `FieldSelection.kt`。
+    var field by remember { mutableStateOf(fieldAtEnd(qty.toString())) }
+    // 外面把数量改了（`−` / `+` / 转单那层的 `coerceIn`）⇒ 回填，光标放末尾。
+    LaunchedEffect(qty) {
+        val want = qty.toString()
+        if (field.text != want) field = fieldAtEnd(want)
+    }
     Row(
         modifier = modifier
             .height(STEP_HEIGHT)
@@ -147,8 +163,14 @@ fun QtyStepper(
         )
         StepDivider()
         OutlinedTextField(
-            value = qty.toString(),
-            onValueChange = { onQtyChange(typedQty(it)) },
+            value = field,
+            onValueChange = { v ->
+                // 判据仍然只有 `typedQty` 一份；框里显示的必须是夹好之后的数
+                // （否则会出现"框里写着 0、值却是 1"那种两处不一致）。
+                val n = typedQty(v.text)
+                field = if (n.toString() == v.text) v else fieldAtEnd(n.toString())
+                onQtyChange(n)
+            },
             singleLine = true,
             textStyle = MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.Bold,
@@ -167,7 +189,9 @@ fun QtyStepper(
             ),
             modifier = Modifier
                 .weight(1f)
-                .fillMaxHeight(),
+                .fillMaxHeight()
+                // 点进去 ⇒ 整串选中（2026-10-06 用户报的 `1` + `15` = `115`）。
+                .selectAllOnFocus { field = selectedAll(field) },
         )
         StepDivider()
         StepCell(

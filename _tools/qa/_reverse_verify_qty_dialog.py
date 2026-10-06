@@ -102,10 +102,12 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "⑤ 数量判据内联回弹窗里（`typedQty` 不再被调用，上限又抄一份 `9999`）",
         STEPPER,
+        # 2026-10-06 随动：锚点跟着新写法走（框改成 TextFieldValue 受控、先落进 val n），
+        # 只改锚点、不动判据 —— 注入的还是"typedQty 不再被调用、上限又抄一份 9999"。
         lambda s: s.replace(
-            "            onValueChange = { onQtyChange(typedQty(it)) },",
-            "            onValueChange = { onQtyChange(InputRules.intInput(it, 4).toIntOrNull()"
-            "?.coerceIn(1, 9999) ?: 1) },",
+            "                val n = typedQty(v.text)",
+            "                val n = InputRules.intInput(v.text, 4).toIntOrNull()"
+            "?.coerceIn(1, 9999) ?: 1",
             1,
         ),
         "typedQty",

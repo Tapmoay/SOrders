@@ -244,9 +244,13 @@ def main() -> int:
     )
 
     # ---- 7. 数量判据与上下限只有一份来源 ----
+    # 2026-10-06 随动：步进器的框改成 `TextFieldValue` 受控（聚焦即全选，见
+    # `_check_qty_focus_select.py`），递出去的值先落进 `val n`。口径没变、只是**更强**了：
+    # 现在要求「递给 `onQtyChange` 的那个值**就是** `typedQty(` 的返回值」。
     c.ok(
-        "数量判据走共用的 `typedQty(`（步进器的 onValueChange 里）",
-        count(r"onValueChange\s*=\s*\{\s*onQtyChange\(typedQty\(", stepper_body) >= 1,
+        "数量判据走共用的 `typedQty(`（步进器的 onValueChange 里，且递出去的就是它夹好的数）",
+        count(r"val n = typedQty\(", stepper_body) >= 1
+        and count(r"onQtyChange\(n\)", stepper_body) >= 1,
         "步进器没走 typedQty（判据又内联回来了）",
     )
     relit = [

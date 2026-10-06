@@ -521,6 +521,8 @@ fun LedgerCreateScreen(container: AppContainer, onBack: () -> Unit, onSaved: () 
                         value = vm.qty,
                         onValueChange = { vm.qty = InputRules.intInput(it, 6) },
                         keyboardType = KeyboardType.Number,
+                        // 用户点进来直接打 15 ⇒ 15（不是 115）。
+                        selectAllOnFocus = true,
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))

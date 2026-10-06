@@ -544,13 +544,24 @@ fun SoTextField(
     placeholder: String? = null,
     keyboardType: KeyboardType = KeyboardType.Text,
     enabled: Boolean = true,
+    // 数量类字段才打开（默认关）：点进去**整串选中** —— 2026-10-06 用户报的 `1` + `15` = `115`，
+    // 见 `FieldSelection.kt`（全 App 共用一份）。其余字段的行为一个字都不变。
+    selectAllOnFocus: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val bg = if (enabled) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    // 文本状态在本件内部用 `TextFieldValue` 受控（只有它能表达"选中了哪几个字"）；对外仍是 String。
+    var field by remember { mutableStateOf(fieldAtEnd(value)) }
+    // ⚠️ 这一句是**组合期**同步，不是 `LaunchedEffect(value)`：父级把文字过滤回**原样**时
+    //    `value` 没变、按 key 触发的副作用不会再跑，框里会留下刚被拒掉的那个字符。
+    if (field.text != value) field = fieldAtEnd(value)
     BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
+        value = field,
+        onValueChange = { v ->
+            field = v
+            if (v.text != value) onValueChange(v.text)
+        },
         enabled = enabled,
         interactionSource = interaction,
         singleLine = true,
@@ -566,13 +577,14 @@ fun SoTextField(
                 width = if (focused) 2.dp else 1.dp,
                 color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = RoundedCornerShape(12.dp),
-            ),
+            )
+            .selectAllOnFocus(enabled = selectAllOnFocus) { field = selectedAll(field) },
         decorationBox = { inner ->
             Box(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
-                if (value.isEmpty() && !placeholder.isNullOrBlank()) {
+                if (field.text.isEmpty() && !placeholder.isNullOrBlank()) {
                     Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 inner()

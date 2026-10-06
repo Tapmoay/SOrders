@@ -1156,6 +1156,24 @@ Text(..., textAlign = TextAlign.End, modifier = Modifier.width(qtyW))
 否则会出现"框里的框"。图标用 `Icons.Rounded.Add/Remove`（圆头，配圆角描边），
 禁用那一格转灰但**照样画出来**（少画一个会像"这一格坏了"）。
 
+**④ 点进去 ＝ 整串选中**（2026-10-06 用户报的 `1` + `15` = `115`，台账 L-25）
+
+用户对着「添加商品」的数量框：
+> 「添加商品的时候……那里就**不要填 1 了，就默认是 0**」「如果他自己已经填好了 1 的话……
+>  我们又填 15 的话，那就变成了 **115**，这就**显示了错误**了」
+> 「**假如它没有去改的话就是 1；如果它去改的话，就是 0**，它按它填的数额去计算。是这样子的，这是个 bug」
+
+病不在数值上（后端收 115 也照样建单）：框里放着上一次那个数（`1`），点进去光标落在**末尾**，
+用户想填 15、敲 `1` `5`，框里成了 `115`。**默认值一个字没动** —— 用户要的正是"不去改就是 1"；
+改的是那一下点击：**聚焦即全选，打字就是替换**（已经在框里再点一下仍能挪光标，这是逃生门）。
+
+实现只有一份：`ui/common/FieldSelection.kt` 的 `selectedAll` / `fieldAtEnd` / `Modifier.selectAllOnFocus`
+（两个纯函数有 JVM 单测 `FieldSelectionTest`）。`QtyStepper` 把它挂在数量框上，框里显示的那一串从此用
+`TextFieldValue` 受控（**只有它能表达"选中了哪几个字"**）；`Components.kt::SoTextField` 与
+`FormRows.kt::FormInputRow` 各带一个**默认关闭**的 `selectAllOnFocus` 开关，只有数量类字段打开
+（账本「记一笔账」的数量 / 采购单行数量）⇒ 其余几十个普通字段行为一个字不变。
+退货页那一行（`OrderReturnLines`）体内**没有输入框**，所以不在其列。
+
 ⛔ **不许再各写一份**。改之前这一组东西在两个弹窗里各写了一遍，而长得不一样：
 
 | | 选品页 `QtyDialog` | 下单页行编辑 `LineEditDialog` |
@@ -1176,6 +1194,11 @@ Text(..., textAlign = TextAlign.End, modifier = Modifier.width(qtyW))
 
 判据 `_tools/qa/_check_qty_dialog_style.py` + 反向验证 `_tools/qa/_reverse_verify_qty_dialog.py`
 （数字又贴左 / 单位挪进正文 / 单位变成输入框 / 又各写一份 / 判据空转 —— 逐条注入都要能报红）。
+
+判据 `_tools/qa/_check_qty_focus_select.py` + 反向验证 `_tools/qa/_reverse_verify_qty_focus_select.py`
+（④ 那一条：把全选摘掉 / 把 `TextRange(0, len)` 改成只把光标挪到末尾 / 开关默认成 `true` /
+框退回 `qty.toString()` / 判据内联回步进器 / 又冒出一处挂载 / 默认值被改 / 单测与规范被删 ——
+逐条注入都要能报红）。退货页那条"体内没有输入框"也在同一条红线里钉着。
 
 ### 4.22 联系人：**可以挑、也可以绑在「地点 / 线路」上** —— 2026-09-24 用户要求
 
