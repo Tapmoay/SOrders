@@ -5935,9 +5935,9 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **明确不碰**：后端接口 / 字段 / 权限表（`order_id` 过滤本来就已就绪）＋ `core/ReturnRules.kt`（`maxReturnable` 等一个字没动，展示口径不许漏进算法）＋ 行金额 `"¥" + formatMoney(line.lineTotal)` 与合计 `sumOf { moneyToDouble(it.lineTotal) }`（退货只红冲账本）＋ 两端退货申请页面（撤回 / 办理仍只在那边做）＋ 详情页不放任何动作与跳转（整块无 Button / onClick / Routes.）＋ 订单本体取数失败的语义（退货申请失败不许写 `error`，否则整页变 ErrorView）＋ 共用胶囊只**用**不抄第二份。
 
-**验证**：判据 `_check_order_return_visible.py` → ✅ 70 项全过；反验 → ✅ 25/25（25 条注入 ＋ 还原后逐字节比对一致）；编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL in 10s**（既有 deprecation 警告：`OrderDetailScreen.kt:1399` CallSplit、`:1595` Notes、`:1766/:1857/:1908` 的 HintOnce）；全量静检 `_check_all.py` → 192 项：190 ✅ / 2 ❌（`_tools/qa/_check_backend_fresh.py` 本机后端进程跑的是旧代码 ＋ `_tools/qa/_check_report_facts.py` 1 条：`docs/RELEASE_CANDIDATE.md` 未记 `VERSION 0.2.5`；两条红都与本事项无关）；可达性 → 173/173、markdown 链接 350 条全有效、孤儿 0。
+**验证**：判据 `_check_order_return_visible.py` → ✅ 70 项全过；反验 → ✅ 25/25（25 条注入 ＋ 还原后逐字节比对一致）；编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL in 10s**（既有 deprecation 警告：`OrderDetailScreen.kt:1399` CallSplit、`:1595` Notes、`:1766/:1857/:1908` 的 HintOnce）；全量静检 `_check_all.py` → 192 项 190✅/2❌（两条红与本事项无关）；可达性 → 173/173。
 
-**实现提交**：__IMPL__（本事项动 __NFILES__ 个文件：2 个 `.kt`（`ui/order/OrderDetailViewModel.kt` ＋ `ui/order/OrderDetailScreen.kt`）／ 1 份新判据 `_tools/qa/_check_order_return_visible.py` ／ 1 份新反验 `_tools/qa/_reverse_verify_order_return_visible.py` ／ 随动 2 份 `_tools/qa/_check_order_row_columns.py` ＋ `_tools/qa/_reverse_verify_order_row_columns.py`；归档提交另计）。
+**实现提交**：4797285（本事项动 10 个文件：2 个 `.kt`（`ui/order/OrderDetailViewModel.kt` ＋ `ui/order/OrderDetailScreen.kt`）／ 1 份新判据 `_tools/qa/_check_order_return_visible.py` ／ 1 份新反验 `_tools/qa/_reverse_verify_order_return_visible.py` ／ 随动 2 份 `_tools/qa/_check_order_row_columns.py` ＋ `_tools/qa/_reverse_verify_order_row_columns.py` ／ 文档 4 份（`docs/changes/CHG-0054.md`（新）＋ `docs/changes/README.md` ＋ `docs/AI_WORK_CLAIM.md` ＋ `docs/PROJECT_MAP/09A_HINT_CATALOG.md`）；归档提交另计）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
