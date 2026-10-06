@@ -6255,7 +6255,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **⛔ 明确不碰**：不新建端点、不动 `Apis.kt` / `SupplierCreateRequest` / 后端；不动供应商页那两处的全字段表单、选客户弹层、进项票既有错误行措辞；不改权限与审计（仍走 `POST /suppliers` ⇒ `_check_name_free` 重名校验 ＋ `SUPPLIER_UPSERT` 审计）。
 
-- 状态：已完成（实现提交 `（见 §⑧）`；判据 74/74 ＋ 反验 12/12（按字节还原）＋ `_check_form_panel_style.py` 38/38 ＋ `_check_reverse_verify_anchors.py` 222 份脚本 / 2614 条注入全在 ＋ gradle 1249 跑 / 1 红为预存在的 `AiHabitTest` / 2 skip ＋ 真机 5554 全流程取证（七张 `shots/chg0068_*_5554.png`）＋ 全量静检见 §⑧ 第 ⑤ 行）。
+- 状态：已完成（实现提交 `b607605`；判据 74/74 ＋ 反验 12/12（按字节还原）＋ `_check_form_panel_style.py` 38/38 ＋ `_check_reverse_verify_anchors.py` 222 份脚本 / 2614 条注入全在 ＋ gradle 1249 跑 / 1 红为预存在的 `AiHabitTest` / 2 skip ＋ 真机 5554 全流程取证（七张 `shots/chg0068_*_5554.png`）＋ 全量静检见 §⑧ 第 ⑤ 行）。
 
 ### [2026-10-07 03:4x → 04:2x 已完成] 会话：**BUG-0017 沽清（下架）的商品：整卡变灰、点不动，下单拦在客户端与服务端两道**（台账 **L-35**）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
