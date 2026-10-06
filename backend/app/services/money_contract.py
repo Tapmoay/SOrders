@@ -66,6 +66,9 @@ FIGURES: tuple[Figure, ...] = (
             "services/order_money.py::money_of",
             "services/order_money.py::money_map",
             "services/order_money.py::line_receivable",
+            # 折后单价（CHG-0071）：打过折的行 line_total 是折后值 ⇒ 退货红冲与
+            # 「这一行还能收多少」都按它算 —— 用户口径「退货按折后实付退」（ref m13365）。
+            "services/order_money.py::line_unit_price",
         ),
         consumers=(
             "services/order_response.py",
@@ -179,6 +182,27 @@ FIGURES: tuple[Figure, ...] = (
             r"func\.sum\(\s*CashFlow\.amount",
             "自己聚合资金流水当已付 —— 只有 supplier_service 一处算（与订单的钱不是同一个数）",
         ),),
+    ),
+    Figure(
+        key="order_discount",
+        name="订单打折（百分比 / 抹零）省下的钱与折后行金额",
+        meaning=(
+            "折扣只由派单员在改单时打（Permission.ORDER_EDIT）；整单或只打勾选的行；"
+            "按分四舍五入 + 余数摊回各行 ⇒ Σ 折后行金额 = 折后总额（用户口径 ref m01280 / m01347）"
+        ),
+        impls=(
+            "services/order_discount.py::apply_discount",
+            "services/order_discount.py::clear_discount",
+            "services/order_discount.py::plan_discount",
+            "services/order_discount.py::reapply_after_line_change",
+        ),
+        consumers=(
+            "api/v1/orders_discount.py",
+            "api/v1/order_products.py",
+        ),
+        # 这四个函数**不**转出（REEXPORTS 里没有）：折扣是订单域内部的一步计算，
+        # 转出会把「打折」变成跨域接口；详情页要的折后单价走 order_money.line_unit_price。
+        forbid=(),
     ),
 )
 

@@ -10,6 +10,7 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ContactCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest
+import com.tapmoay.sorders.data.remote.dto.OrderDiscountBody
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
@@ -720,6 +721,114 @@ class OrderDetailViewModel(
         }
     }
 
+    // ============================================================ 订单打折（台账 L-34 / CHG-0071）
+    //
+    // 用户 m01280：「商品可以打折……就是订单它可以给订单进行打折」；口径四条在 m01347 落定：
+    // 入口只有派单员改单（`Permission.ORDER_EDIT`）、两种表达（减百分比 / 抹零）、范围两档
+    // （整单打折 / 只打勾选的几件）、商品档案上勾了「不参与打折」的行整单时**自动跳过**、
+    // 只打几件时**不许勾**。理由选填（m13365），但要写进操作日志与订单详情（谁、何时、打了几折）。
+    //
+    // ⚠️ 这里一个乘法都不做：把钱算准的那一份在 `backend/app/services/order_discount.py`
+    //    （摊到每行、幂等替换、取消时逐行还原）。客户端只管「值填得对不对」
+    //    （`OrderDiscount.kt::discountValueError`）与把结果显示出来。
+
+    /** 折扣弹层开着没有。 */
+    var showDiscountDialog by mutableStateOf(false)
+    /** 减百分比 / 抹零（两个常量在 `OrderDiscount.kt`）。 */
+    var discountKind by mutableStateOf(DISCOUNT_KIND_PERCENT)
+    /** 值框里的原文（⛔ 发出去时不做任何格式化 —— 见 `discountValueToSend`）。 */
+    var discountValue by mutableStateOf("")
+    /** 理由（选填；写进操作日志与订单详情那一行）。 */
+    var discountReason by mutableStateOf("")
+    /** true = 整单打折；false = 只打下面勾选的那几行。 */
+    var discountWholeOrder by mutableStateOf(true)
+    /** 「只打几件」勾了哪些行（`OrderProductDto.id`）。 */
+    var discountPickedLines by mutableStateOf<Set<Long>>(emptySet())
+    /** 弹层里那句红字（值不合法 / 服务端拒了 —— 服务端那句话比客户端猜得准）。 */
+    var discountError by mutableStateOf<String?>(null)
+    /**
+     * 打开折扣弹层：这一单打过折就把**现在的**折扣回填进去（没打过就是空表单）。
+     *
+     * ⛔ 不预演「打完要付多少」—— 抹零会被"最后一行没那么多钱"改小，预演的数与
+     *    服务端算出来的不一样，用户会以为界面在骗他（口径见 `OrderDiscount.kt` 文件头）。
+     */
+    fun openDiscount() {
+        val o = order ?: return
+        if (!canDiscount(o.status)) {
+            error = "这一单现在的状态不能再改钱了 —— 已送达 / 已撤销 / 已退货的单请先让货主重开一张。"
+            return
+        }
+        discountKind = o.discountKind?.takeIf { it == DISCOUNT_KIND_AMOUNT } ?: DISCOUNT_KIND_PERCENT
+        // 预填用 `trimMoneyZeros`（去尾零、保四位精度）—— 后端 `discount_value` 是 Numeric(14,4)，
+        // 序列化出来是 "10.0000"；直接摆进框里难看，用 `formatMoney` 又会把 12.3456 骗成 12.35。
+        discountValue = trimMoneyZeros(o.discountValue)
+        discountReason = o.discountReason.orEmpty()
+        val picked = discountLineIds(o)
+        discountWholeOrder = picked.isEmpty()
+        discountPickedLines = picked
+        discountError = null
+        showDiscountDialog = true
+    }
+
+    /**
+     * 下发折扣（新建或**替换** —— 后端是幂等替换，不是叠乘：10% 之后再打 10% 是 10%）。
+     *
+     * 服务端拒的话（抹零比这一单还多、勾到了「不参与打折」的行）把那句话逐字显示在弹层里，
+     * ⛔ 不换成"保存失败，请重试"这种什么也没说的字。
+     */
+    fun applyDiscount() {
+        if (order == null) return
+        val bad = discountValueError(discountKind, discountValue)
+        if (bad != null) {
+            discountError = bad
+            return
+        }
+        if (!discountWholeOrder && discountPickedLines.isEmpty()) {
+            discountError = "先勾一件商品，或者改成「整单」"
+            return
+        }
+        acting = true
+        discountError = null
+        error = null
+        viewModelScope.launch {
+            try {
+                order = container.repo.applyOrderDiscount(
+                    orderId,
+                    OrderDiscountBody(
+                        kind = discountKind,
+                        value = discountValueToSend(discountValue),
+                        lineIds = if (discountWholeOrder) null else discountPickedLines.sorted(),
+                        reason = discountReason.trim().ifBlank { null },
+                    ),
+                )
+                actionResult = "已打折：" + discountSummary(discountKind, discountValueToSend(discountValue))
+                showDiscountDialog = false
+            } catch (e: Exception) {
+                discountError = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    /** 取消折扣：后端把每一行还原成打折前的金额、清掉快照，再记一条 `ORDER_DISCOUNT_CLEAR`。 */
+    fun clearDiscount() {
+        if (order == null) return
+        acting = true
+        discountError = null
+        error = null
+        viewModelScope.launch {
+            try {
+                order = container.repo.clearOrderDiscount(orderId)
+                actionResult = "已取消折扣"
+                showDiscountDialog = false
+            } catch (e: Exception) {
+                discountError = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
     // ---- 司机/派单员：给没有坐标的订单补导航信息 ----
     //
     // 为什么入口开在订单详情而不是列表：这是**到场之后**做的动作，

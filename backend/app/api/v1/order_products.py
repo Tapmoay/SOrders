@@ -15,6 +15,9 @@ from app.schemas.order import OrderProductCreate, OrderProductOut, OrderProductU
 from app.services.inventory_service import resync_reservations
 from app.services.operation_log_service import write_log
 from app.services.order_flow import lock_order_row, resolve_line_total
+# 打折与明细的关系（CHG-0071 / 台账 L-34）：这一单挂着折扣时，改 / 删一行都必须把折扣
+# **按新金额重算一遍**，否则「Σ 行金额 = 折后总额」当场破（账本按行入账，破在哪一行谁都说不清）。
+from app.services.order_discount import OrderDiscountError, reapply_after_line_change
 
 router = APIRouter(prefix="/order-products", tags=["order-products"])
 
@@ -307,6 +310,16 @@ def update_order_product(
     )
     # 数量/商品改了 → 预占按商品逐一对账补齐（否则送达按旧流水扣库：多扣/少扣/扣错商品）
     db.flush()
+    # 这一单挂着折扣 ⇒ 按新金额把折扣重算一遍（CHG-0071 / 台账 L-34）。
+    # ⚠️ 上面那行 `op.line_total = resolve_line_total(…)` **逐字保留**：行金额永远先由
+    #    「单价 × 数量」定下来，折扣只作用在它**现在的**金额上 —— 服务里同理：刚被改的
+    #    这一行保持调用方算好的值（`edited_line`），只重算其余参与过的行。
+    # ⛔ 没打过折的单在这里一个字节都不动（`reapply_after_line_change` 直接返回 None）。
+    try:
+        reapply_after_line_change(db, order=order, edited_line=op)
+    except OrderDiscountError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     _resync_stock_if_assigned(db, order, current.id)
     _notify_driver_lines_changed(db, order)
     db.commit()
@@ -340,6 +353,17 @@ def delete_order_product(
         )
         # 行删了 → 对应的预占要放掉，否则送达会照扣一件已经不存在的货
         db.flush()
+        # 这一单挂着折扣 ⇒ 也要重算（CHG-0071）：被删的行从参与范围里消失，折扣按**剩下的**
+        # 行重算；对不上（例如抹零金额超过了剩下的合计）就 400 让派单员先取消折扣 ——
+        # ⛔ 不能放着不管：`discount_amount` 快照会一直说一个已经不存在的优惠。
+        try:
+            reapply_after_line_change(db, order=order, edited_line=None)
+        except OrderDiscountError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail=f"这一单还挂着折扣，删掉这行之后重算对不上：{exc}",
+            ) from exc
         _resync_stock_if_assigned(db, order, current.id)
         _notify_driver_lines_changed(db, order)
     db.commit()

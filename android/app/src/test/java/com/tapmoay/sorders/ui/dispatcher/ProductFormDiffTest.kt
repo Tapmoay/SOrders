@@ -35,6 +35,7 @@ class ProductFormDiffTest {
         alert: Int = 0,
         color: String? = "#1565C0",
         active: Boolean = true,
+        noDiscount: Boolean = false,
     ) = ProductDto(
         id = 7L,
         name = name,
@@ -46,6 +47,7 @@ class ProductFormDiffTest {
         unit = unit,
         category = category,
         lowStockAlert = alert,
+        noDiscount = noDiscount,
     )
 
     /** 草稿默认 = "原样打开、什么都没碰"（预填口径与 `ProductFormViewModel.fill` 一致）。 */
@@ -58,6 +60,7 @@ class ProductFormDiffTest {
         alert = if (p.lowStockAlert > 0) p.lowStockAlert.toString() else "",
         color = p.nameColor ?: com.tapmoay.sorders.ui.common.DEFAULT_PRODUCT_NAME_COLOR,
         active = p.isActive,
+        noDiscount = p.noDiscount,
     )
 
     @Test
@@ -163,6 +166,22 @@ class ProductFormDiffTest {
         val req = productEdits(p, base.copy(color = "#2E7D32"))
         assertNotNull(req)
         assertEquals("#2E7D32", req!!.nameColor)
+    }
+
+    @Test
+    fun `「不参与打折」开关真的改了才带上（而且只带这一个键）`() {
+        val p = product(noDiscount = false)
+        val req = productEdits(p, draftOf(p).copy(noDiscount = true))
+        assertNotNull(req)
+        assertEquals(true, req!!.noDiscount)
+        // 其余键一个都不许跟上来（Json `explicitNulls=false`：null 的键根本不进请求体）
+        assertNull(req.name)
+        assertNull(req.defaultUnitPrice)
+        assertNull(req.isActive)
+        // 反向：库里本来就是 true、草稿没碰 ⇒ 一个字节都不发
+        val already = product(noDiscount = true)
+        assertNull(productEdits(already, draftOf(already)))
+        assertEquals(true, draftOf(already).noDiscount)
     }
 
     @Test

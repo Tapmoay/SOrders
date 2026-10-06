@@ -124,6 +124,21 @@ ALLOW_LINE_GATE: dict[tuple[str, str], str] = {
 #: **同一个字段的多个写入点**按字段写的理由（键 = `orders` 上的字段名）：回答
 #: 「这些写入点为什么不会分叉」。⛔ 写不出理由的，就该像第 6·7 轮那两处一样去修，
 #: 而不是在这里补一句"没事"。
+#: 折扣七列共用的那句交代（键是字段名 —— 判据按**字段**要一句"为什么这些写入点不会分叉"）。
+#: 七列是**同一份决定的七个面**：三个写入点全在 `services/order_discount.py` 一个模块里，
+#: 数字只有一个来源 —— 纯函数 `plan_discount`。⛔ 别把它们拆成七个不同的说法：
+#: 它们本来就同源，如实写成七份反而会掩盖"这七列永远一起写"这个关键事实。
+_DISCOUNT_SAME_SOURCE = (
+    "折扣七列是**同一份决定的七个面**：三个写入点全住在 `services/order_discount.py` 一个模块里，"
+    "数字只有一个来源 —— 纯函数 `plan_discount`（按 kind / value 与参与行算出总优惠，再按各行占比摊到每一行、"
+    "Σ 折后行金额 = 订单金额，钱契约 order_discount）。`apply_discount` 是**幂等替换**"
+    "（先按快照 `_restore` 还原、再对整个范围重算）、`reapply_after_line_change` 只把"
+    "「刚改的那一行」排除在外（那一行的金额由调用方先算好，其余参与行按**同一算法**重摊）、"
+    "`clear_discount` 是它的逆（七列一起置 None、每一行按快照 `before` 精确还原）——"
+    "**没有任何一条路径只写其中几列**，所以不存在「两个数」。并发上：三个调用点的入口都是订单写端点，"
+    "进门先经 `_locked_editable_order` / `_editable_order_for_discount`（先取锁再判 + 条件 UPDATE 占位），"
+    "服务函数只在同一个事务里按同一份快照重算（CHG-0071 / 台账 L-34）。"
+)
 SAME_FIELD_REASONS: dict[str, str] = {
     # ---- 收款状态那一组：三个写入点（送达 / 现场收款确认 / 挂账）----
     "paid": (
@@ -166,6 +181,15 @@ SAME_FIELD_REASONS: dict[str, str] = {
         "只在「解除」那条路径写时间、在「重新标记」时清空（`patch_order_exception` 里那一句），"
         "两处合起来保证「非空 ⟺ 这条异常已经解决」。"
     ),
+    # ---- 订单折扣七列（2026-10-07 · CHG-0071 / 台账 L-34）----
+    # 三个写入点（apply_discount / clear_discount / reapply_after_line_change）共用上面那一句交代。
+    "discount_kind": _DISCOUNT_SAME_SOURCE,
+    "discount_value": _DISCOUNT_SAME_SOURCE,
+    "discount_amount": _DISCOUNT_SAME_SOURCE,
+    "discount_lines": _DISCOUNT_SAME_SOURCE,
+    "discount_reason": _DISCOUNT_SAME_SOURCE,
+    "discount_by_id": _DISCOUNT_SAME_SOURCE,
+    "discount_at": _DISCOUNT_SAME_SOURCE,
     # ---- 软删 ----
     "deleted_at": (
         "订单的隔离状态**只有这一列**（没有独立的 `is_deleted`）：软删写时间戳、恢复写 NULL，"

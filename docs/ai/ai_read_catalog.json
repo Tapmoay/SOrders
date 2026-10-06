@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:7c0080cd8511bc2bacdbbc82dc921ee0ea86e37224ce7f94a3533a96059d0d5f",
+ "source_hash": "sha256:64650df54f349fc60231094bf2042111a4cd236a5fc0a447229aab589185f7e3",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 87,
@@ -1136,7 +1136,7 @@
    "module_cn": "订单商品行",
    "method": "get",
    "path": "/api/v1/order-products",
-   "at": "backend/app/api/v1/order_products.py:183",
+   "at": "backend/app/api/v1/order_products.py:186",
    "auth": "权限:ORDER_READ_ALL",
    "roles": [
     "dispatcher"
@@ -1496,7 +1496,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products/cost-history",
-   "at": "backend/app/api/v1/products.py:187",
+   "at": "backend/app/api/v1/products.py:189",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"

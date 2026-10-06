@@ -83,6 +83,18 @@ class OperationAction(str, enum.Enum):
 
     ORDER_CREATE = "ORDER_CREATE"
     ORDER_UPDATE = "ORDER_UPDATE"
+    # 订单打折（2026-10-07 用户要求，CHG-0071 / 台账 L-34）：一次让价会**改写每一行的金额**
+    # （折后值写进 `order_products.line_total`），收款 / 账本 / 营业额 / 毛利全跟着变。
+    #
+    # ⛔ 为什么不复用 `ORDER_UPDATE`：两个动作要回答的是两个不同的问题 ——
+    #    「这张单的地址 / 联系人被谁改了」（ORDER_UPDATE，一个字节的钱都没动）
+    #    和「谁在什么时候把这一单便宜了多少、为什么」（下面两个码）。
+    #    合成一个的后果：审计页上分不出"改了个电话"和"少了 200 元"，
+    #    而这恰恰是打折这件事的**全部意义**（用户口径 m13365：理由要写进操作日志与订单详情）。
+    # 两个码而不是一个：**打折与取消折扣是相反的两件事** —— 取消会把行金额还原成原价、
+    # 营业额当场变回去，出事时第一个要问的正是"这个折扣是谁取消的"。
+    ORDER_DISCOUNT = "ORDER_DISCOUNT"
+    ORDER_DISCOUNT_CLEAR = "ORDER_DISCOUNT_CLEAR"
     ORDER_DISPATCH = "ORDER_DISPATCH"
     ORDER_RECALL = "ORDER_RECALL"
     # 派单员把已派出去（或司机已接单）的单**静默**退回派单池（2026-10-05 用户要求，CHG-0039）。

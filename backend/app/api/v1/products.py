@@ -143,6 +143,8 @@ def create_product(
         unit=body.unit or "件",
         category=(body.category or "").strip()[:32],
         low_stock_alert=body.low_stock_alert or 0,
+        # 「不参与打折」（CHG-0071 / 台账 L-34）：建商品时就能勾；不勾 = False（参与打折）。
+        no_discount=bool(body.no_discount),
     )
     db.add(p)
     db.flush()

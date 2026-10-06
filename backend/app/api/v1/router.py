@@ -31,6 +31,7 @@ from app.api.v1 import (
     orders,
     orders_assignment,
     orders_delivery,
+    orders_discount,
     orders_lifecycle,
     orders_media,
     orders_payment,
@@ -94,6 +95,10 @@ api_router.include_router(orders_delivery.router)
 # 2026-09-24 阶段 4 纯搬迁到 `api/v1/orders_lifecycle.py` 与 `api/v1/orders_return.py`。
 api_router.include_router(orders_lifecycle.router)
 api_router.include_router(orders_return.router)
+# orders 的**打折**（给这一单让价 / 取消折扣）：2026-10-07 新加（CHG-0071 / 台账 L-34）。
+# 钱落到每一行（`order_products.line_total` 折后值），算法只有一处 `services/order_discount.py`；
+# 这一条 router 同样**自带** prefix="/orders"，在这里并列挂载（理由见上面 orders_query 那一段）。
+api_router.include_router(orders_discount.router)
 # 预订单 / 订单模板（2026-09-22 用户要求：「预设好的订单，参数没有变直接下单」）。
 # 它自己不生成订单 —— 真下单仍走上面那条 `orders.router`。
 api_router.include_router(order_templates.router)

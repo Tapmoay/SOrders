@@ -328,6 +328,19 @@ interface OrderApi {
     @POST("orders/{orderId}/charge")
     suspend fun chargeOrder(@Path("orderId") orderId: Long, @Body body: OrderChargeBody): OrderDto
 
+    /**
+     * 给订单打折（CHG-0071 / 台账 L-34）。
+     *
+     * `line_ids` 空 = 整单打折；非空 = 只打这几行。取消折扣走 [clearOrderDiscount]
+     * （后端按快照把行金额**精确还原**，不是"再打一次反向折扣"）。
+     */
+    @POST("orders/{orderId}/discount")
+    suspend fun applyOrderDiscount(@Path("orderId") orderId: Long, @Body body: OrderDiscountBody): OrderDto
+
+    /** 取消折扣。本来就没有折扣时后端 400（不许落一条"取消了折扣"的假审计）。 */
+    @DELETE("orders/{orderId}/discount")
+    suspend fun clearOrderDiscount(@Path("orderId") orderId: Long): OrderDto
+
     @POST("orders/{orderId}/recall")
     suspend fun recallOrder(@Path("orderId") orderId: Long, @Body body: OrderRecallBody): OrderDto
 
@@ -903,6 +916,8 @@ data class ProductCreateRequest(
     /** 商品分类（选品页左侧分组用）；空 = 未分类。 */
     val category: String? = null,
     @SerialName("low_stock_alert") val lowStockAlert: Int? = null,
+    /** 「不参与打折」：算折扣时跳过它（⛔ 不是"价格不能变"）。 */
+    @SerialName("no_discount") val noDiscount: Boolean? = null,
 )
 
 @Serializable
@@ -921,6 +936,8 @@ data class ProductUpdateRequest(
     @SerialName("low_stock_alert") val lowStockAlert: Int? = null,
     /** 显示顺序（小的在前）。**只有「商品排序」页会写它**，一次一个商品（逐条 PATCH）。 */
     @SerialName("sort_order") val sortOrder: Int? = null,
+    /** 「不参与打折」：算折扣时跳过它（⛔ 不是"价格不能变"；传 null = 不改）。 */
+    @SerialName("no_discount") val noDiscount: Boolean? = null,
 )
 
 interface ArrearsApi {

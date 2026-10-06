@@ -98,8 +98,29 @@ def _is_customer_refund(direction: object, biz: object) -> bool:
     return str(getattr(biz, "value", biz) or "") == CashFlowBizType.REFUND_CUSTOMER.value
 
 
+def line_unit_price(op: OrderProduct) -> Decimal:
+    """这一行**真正卖的单价**（4 位小数）—— 打过折的行返回折后单价。
+
+    行金额与「单价 × 数量」一致（绝大多数行）⇒ 原样返回 `unit_price`，一个字节都不动；
+    不一致 ⇒ 返回 **行金额 ÷ 数量**（这一行是被打过折的：`line_total` 被写成了折后值，
+    见 `services/order_discount.py` 与 CHG-0071）。
+
+    为什么要有它：退货的红冲（`order_return._line_amount`）与"这一行还能收多少"
+    （`line_receivable`）都得按**客户当时实付的单价**算 —— 用 `unit_price` 的话，
+    打过折的单退了货会按原价退，退得比收的多（用户口径 ref m13365：「退货按折后实付退」）。
+    """
+    qty = Decimal(int(op.quantity or 0))
+    unit = Decimal(op.unit_price or ZERO)
+    total = Decimal(op.line_total) if op.line_total is not None else unit * qty
+    if qty <= 0:
+        return unit.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    if total == q2(unit * qty):
+        return unit.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return (total / qty).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
 def line_receivable(op: OrderProduct) -> Decimal:
-    """**这一行现在还能收多少** = 行金额 − 单价 × 已退数量。
+    """**这一行现在还能收多少** = 行金额 − 折后单价 × 已退数量。
 
     这是"按商品核销"的金额来源，也是整单核销的金额来源（整单 = 所有行的和）：
     两者必须是同一个算法，否则会出现"整单核销要 700、按商品加起来要 1000"
@@ -107,9 +128,11 @@ def line_receivable(op: OrderProduct) -> Decimal:
 
     为什么不用 `quantity − returned_quantity` 直接乘单价：`line_total` 在生产库里有
     历史折扣（不等于 `单价×数量`），按行存下来的 `line_total` 才是当时真正卖的价。
+
+    退掉的那部分按 `line_unit_price`（折后单价）冲，⛔ 不是 `unit_price`：客户实付多少就退多少。
     """
     total = op.line_total if op.line_total is not None else (op.unit_price or ZERO) * Decimal(op.quantity or 0)
-    returned = (op.unit_price or ZERO) * Decimal(int(op.returned_quantity or 0))
+    returned = line_unit_price(op) * Decimal(int(op.returned_quantity or 0))
     return q2(Decimal(total) - returned)
 
 

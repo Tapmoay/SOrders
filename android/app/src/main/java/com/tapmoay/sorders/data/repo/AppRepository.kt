@@ -883,6 +883,20 @@ class AppRepository(private val api: ApiBundle) {
         )
 
     /**
+     * 给订单打折（CHG-0071 / 台账 L-34）。
+     *
+     * ⚠️ **入口只有派单员改单**（后端要 `Permission.ORDER_EDIT`）：货主/批发商下单时不能打折。
+     * `lineIds` 空 = 整单（后端静默跳过「不参与打折」的商品）；非空 = 只打这几行。
+     */
+    suspend fun applyOrderDiscount(
+        orderId: Long,
+        body: com.tapmoay.sorders.data.remote.dto.OrderDiscountBody,
+    ) = api.orderApi.applyOrderDiscount(orderId, body)
+
+    /** 取消折扣：后端按快照把行金额精确还原（⛔ 不是"再打一次反向折扣"）。 */
+    suspend fun clearOrderDiscount(orderId: Long) = api.orderApi.clearOrderDiscount(orderId)
+
+    /**
      * 我的消息列表（**一页**）。
      *
      * `limit` 现在是**真的**（2026-09-19 审计 R14-8）：原然后端是一条硬 `.limit(200)`，

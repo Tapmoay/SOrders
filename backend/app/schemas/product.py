@@ -33,6 +33,10 @@ class ProductCreate(MoneyInput):
     # 分类（如 饮料/粮油/日化）：选品页左侧导航按它分组；留空 = 「未分类」（老数据都是这一档）
     category: str | None = Field(None, max_length=MAX_SHORT_NAME, description="商品分类，选品页左侧分组用")
     low_stock_alert: int | None = Field(None, ge=0, description="库存报警阈值：库存≤该值提醒（0=不报警）")
+    # 「不参与打折」（CHG-0071 / 台账 L-34，用户原话 ref m01280：「对应的商品是可以固定价格的，
+    # 就是不参与打折」）：语义**只有一条** —— 订单打折算钱时**跳过它**。
+    # ⛔ 它不是"价格不能改"：改价、批发商专属价、将来的价格规则照旧生效。
+    no_discount: bool = Field(False, description="勾上后订单打折会跳过这个商品（价格本身照旧可改）")
 
     @field_validator("name_color", mode="before")
     @classmethod
@@ -63,6 +67,9 @@ class ProductUpdate(MoneyInput):
     # 显示顺序（小的在前）。**只有"商品排序"那一个页面会写它**（逐条 PATCH），
     # 新建成 0 = 没排过（列表里退回按 id 倒序，新的在前），与分类名册同一个口径。
     sort_order: int | None = Field(None, ge=0, description="显示顺序，小的在前（0=没排过）")
+    # 「不参与打折」（CHG-0071）：见 `ProductCreate.no_discount` 的说明。
+    # PATCH 是**按实际出现的字段**更新，所以不传 = 不动，传 false 才是"改回参与打折"。
+    no_discount: bool | None = None
 
     @field_validator("name_color", mode="before")
     @classmethod
@@ -99,7 +106,8 @@ class ProductOut(BaseModel):
     low_stock_alert: int = 0
     # 商品列表里的显示顺序（小的在前；0/相同 = 没排过，此时按 id 倒序即"新的在前"）
     sort_order: int = 0
-
+    # 「不参与打折」（CHG-0071 / 台账 L-34）：商品编辑页那个勾选框读的就是它。
+    no_discount: bool = False
 
 class ProductCostHistoryOut(BaseModel):
     """成本价的**一段生效区间**（用户 2026-09-19 要求的时间轴，见 `models/product.py`）。

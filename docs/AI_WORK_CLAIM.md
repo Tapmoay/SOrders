@@ -6128,6 +6128,28 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 - 回填：`docs/changes/CHG-0070.md` §⑦ 四行结果列 / §⑧ 六行 Actual 列 / §⑨ 六格已填满；`docs/changes/README.md` 状态格已改「✅ 已关闭」
 
 ---
+### [2026-10-07 06:4x → 待定 CST] 会话：**CHG-0071 订单打折（百分比 / 抹零、可只打勾选的行）＋ 商品「不参与打折」（台账 L-34）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**（ref **m01280**，逐字）：「我们要加个新功能就是商品可以打折，就是订单它可以给订单进行打折，然后我们对应的商品是可以固定价格的，就是不参与打折。」口径补充 **m01347** 四条裁定：① 打折入口只有一个 ＝ **派单员改单时**（`Permission.ORDER_EDIT`），货主 / 批发商**下单不能打折**；② 两种表达都要 —— **百分比**（减 10%）与**抹零**（减一个金额）；③ 不叫「固定价」，叫「**不参与打折**」——**商品级勾选**，语义只有「算折扣时跳过它」，**价格照旧可以变**（改价 / 专属价 / `price_rules` 全照常生效），⛔ 不长在 `PriceRule` 上；④ 折扣粒度两档都要（整单 ＋ 只勾选某些商品）。口径补充 **m13365** 补齐六问：理由**选填**但必须进操作日志与订单详情（谁、何时、打了几折）；**退货按折后实付退**。台账（`_tmp/USER_BUG_LEDGER_20261006.md:1621-1687`）推荐落法 **A2**：折扣**摊到行**（行金额写折后值）＋ `orders` 存快照。
+
+**病灶**：今天系统里**没有任何一处能打折**。想给一单便宜 10 元只有三条坏路：改商品档案单价（改的是**所有人的报价**）、配 `price_rules` 专属价（**永久价**，等于把一次促销写死进报价体系）、或者什么都不做（账上多收）。退回时也只能按原单价退（多退给客户）。⛔ 关键约束：收款 / 账本 / 毛利全按行金额 `order_products.line_total` 算（`backend/app/services/order_money.py:134-136`，`goods_amount = Σ line_total`），所以**折扣必须摊到行**，否则这条恒等式当场破。
+
+**改法**（后端 ＋ Android ＋ AI ＋ 判据 2 份）：① 新 `backend/app/services/order_discount.py` 作为**唯一一份**折扣算法（整单 / 勾选行 × percent / amount；按分四舍五入并把余数摊回各行，保证 Σ 行金额 = 折后总额）；② `backend/app/models/order.py` 加七个折扣快照列（`discount_kind` / `discount_value` / `discount_amount` / `discount_line_ids`(JSON) / `discount_reason` / `discount_by_id` / `discount_at`）、`backend/app/models/product.py` 加 `no_discount BOOLEAN DEFAULT 0`（先例 `:25 is_active`），老库走**正式迁移** `backend/app/migrations/025_order_discount.py`（⛔ 不写 `core/schema_bootstrap.py` —— 加列是正式变更，「自愈」只做缺表补表；`_check_silent_release.py` 第 5 条钉着）；③ 新端点 `POST /orders/{order_id}/discount` 与 `DELETE /orders/{order_id}/discount`（沿用 `Permission.ORDER_EDIT`，⛔ 不新建权限）；④ `backend/app/api/v1/order_products.py:283` 的重算改走折后口径（打折后改数量 / 单价不许把折扣抹掉）；⑤ `backend/app/services/order_money.py:101-113 line_receivable` 对参与折扣的行按 `line_total / quantity`（折后单价）退；⑥ 客户端：商品编辑页「不参与打折」开关 ＋ 改单弹窗折扣区块（范围 / 方式 / 理由）＋ 订单详情显示「已优惠 ¥X · 理由 · 人 · 时刻」；⑦ AI：`ai/AiWriteMasterData.kt` 商品多 `no_discount`、`ai/AiWrite.kt` 的 `AiWrites.ORDERS_UPDATE` 参数表加折扣两项。
+
+**明确不碰**：报价体系（`price_rules.py` 与 `ui/shipper/OrderCreateViewModel.kt:761-765 priceFor` 一字不动，下单页仍然没有单价输入框）＋ 下单 / 货主自助侧不许出现打折 ＋ `order_flow.resolve_line_total` 的「客户端给的金额不许偏离 单价×数量」守卫 ＋ 挂账 / 核销 / 收款单 / 资金流水 / 账本入账口径 ＋ 历史订单的行金额与审计（不回填、不重算）＋ 权限体系。
+
+**验证**：判据 `_tools/qa/_check_order_discount.py` **216/216 exit 0**；反验 `_tools/qa/_reverse_verify_order_discount.py` **34/34 [OK] exit 0** ＋「还原后红线全绿」（被碰文件按字节还原）；`python -m pytest backend/tests/test_order_discount.py backend/tests/test_order_return.py -q` **31 passed**（18 ＋ 13）；`_check_money_contract.py` **57 通过 / 0 失败**（契约 6 条）；全量静检 `_check_all.py` **209/209 exit 0（390.0 秒）**；`check_reachability.py` **192/192 exit 0**；`_check_live_doc_counts.py --check` 54 通过 / 0 失败；`gradle -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest` 编译通过 ＋ 1271 跑 / 1 红为预存在的 `AiHabitTest`（`AiHabitTest.kt:76`）/ 2 skip；真机 emulator-5554 十四张截图 `shots/chg0071_*_5554.png`（整单 10% ¥251.8 → ¥228.82、勾中「不参与打折」的行被 4xx 挡住、`取消折扣` 精确还原、商品页开关关掉后重进仍是关）。⚠️ AI 写侧（商品 `no_discount` 与 `ORDERS_UPDATE` 的折扣两项）按排期不在本单，理由与排期在 `_tools/ai/_write_coverage.py` 的 `EXCLUDED`；读侧不用改（订单出参自带 `discount_*`）。
+
+**核心改动（先在声明页登记、再动手 —— `_check_core_freeze.py` 第 3/4 条）**：
+- 核心改动：`backend/app/services/order_money.py` —— 为什么必须动核心：新增 `line_unit_price`（这一行**真正卖的单价**）并让 `line_receivable` 的退货按它冲 —— 折扣单退了货必须按**折后实付**退（用户口径 ref m13365），而「这一行还能收多少」只有这一处实现；行金额与「单价×数量」一致时它原样返回 `unit_price`，普通单毫厘不变。
+- 核心改动：`backend/app/services/order_return.py` —— 为什么必须动核心：`_line_amount`（退货红冲金额的**唯一算法**）改用同一个 `line_unit_price` —— 退现与账本红冲必须是同一个单价，否则打折单退一次货，退现按折后、账本按原价，两边差一个折扣。
+- 核心改动：`backend/app/services/order_response.py` —— 为什么必须动核心：`discount_amount` 是新的金额出参，必须归进「司机视角遮蔽」那张表（`CUSTOMER_GOODS_FIELDS`）并在 `apply_driver_view_gating` 里清零 —— 门控清单漏一个金额字段，司机包里就多一个数（`backend/tests/test_order_out_driver_pay_gating.py` 逐字段钉着）。
+- 核心改动：`backend/app/models/enums.py` —— 为什么必须动核心：审计动作码（`ORDER_DISCOUNT` / `ORDER_DISCOUNT_CLEAR`）是全项目共用的取值表，打折要能回答「谁、何时、打了多少」，只能在这里追加两个码（`core/capability_audit_coverage.py` 的 `order:edit` 元组跟着加）。
+
+- 状态：已完成（开工 2026-10-07 06:4x，关单 07:5x；变更单 `docs/changes/CHG-0071.md`；Blast Radius L2；实现提交 `______`）
+
+---
+
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
 > ⚠️ **那个目录在 `/_archive/` 的忽略名单里（`.gitignore`），不进 git** —— 换一台机器就没有这份存档。
 > 真正丢不了的是 git 历史：任何一版旧内容都取得回来 ——

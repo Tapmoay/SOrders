@@ -58,6 +58,12 @@ except Exception as exc:  # noqa: BLE001  # pragma: no cover
 MODULE_CN: dict[str, str] = {
     "orders": "订单/派单",
     "order_products": "订单商品行",
+    # 订单打折（CHG-0071 / 台账 L-34，2026-10-07）：入口是**订单详情页那个折扣块**
+    #（「打折」/「改折扣」/「取消折扣」），⛔ 不是工作台独立一格 —— 也就没有
+    #  `Modules.kt` 的格名可对齐；读侧没有它自己的动作（折后金额随订单详情一起读，
+    #  归「订单/派单」那一条），所以 `_app_feature_coverage.py` 的认领不受影响。
+    # ⚠️ 写动作（POST / DELETE）本轮不开放，理由写在 `_tools/ai/_write_coverage.py` 的 EXCLUDED 里。
+    "orders_discount": "订单打折",
     "shipper": "地址与联系人",
     # 货主自己那一本账（2026-09-20）：普通货主只看单（搜索 + 日期筛选 + 欠总分销商合计），
     # 批发商另外能给他下游的货主**核销**（整单 / 按商品 / 可撤销）。

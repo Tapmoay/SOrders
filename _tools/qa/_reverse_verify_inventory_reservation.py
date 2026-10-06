@@ -59,10 +59,10 @@ CASES: list[tuple[str, str, object, bool, str | None]] = [
         "删行那条路径不再重算预占（调用点从 3 个变成 2 个）",
         OP,
         lambda s: s.replace(
-            "        # 行删了 → 对应的预占要放掉，否则送达会照扣一件已经不存在的货\n"
-            "        db.flush()\n"
+            # CHG-0071 在删行端点的 flush 与 _resync 之间插了折扣重算块 ⇒ 锚点下移到那一行本身
+            # （8 空格缩进只有删行路径有 ⇒ 唯一；仍是「3 个调用点变 2 个」的原意）
             "        _resync_stock_if_assigned(db, order, current.id)\n",
-            "        db.flush()\n",
+            "",
             1,
         ),
         True,

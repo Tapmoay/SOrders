@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -294,6 +295,8 @@ fun OrderDetailScreen(
                 onPayClick = { vm.showPayConfirm = true },
                 onChargeClick = { vm.openCharge() },
                 onSettleClick = { vm.openSettle() },
+                onDiscountClick = { vm.openDiscount() },
+                onClearDiscountClick = { vm.clearDiscount() },
                 onEditFreightClick = { vm.openFreightDialog() },
                 onSplitClick = { vm.openSplitDialog() },
                 onTransferClick = { vm.openTransfer() },
@@ -566,6 +569,37 @@ fun OrderDetailScreen(
         )
     }
 
+    // 打折（台账 L-34 / CHG-0071）：入口只有派单员改钱这一处 ——「值填得对不对」由
+    // `OrderDiscount.kt::discountValueError` 判，钱由服务端算（这一页不预演打几折省多少）。
+    if (vm.showDiscountDialog) {
+        vm.order?.let { o ->
+            OrderDiscountDialog(
+                order = o,
+                kind = vm.discountKind,
+                value = vm.discountValue,
+                reason = vm.discountReason,
+                wholeOrder = vm.discountWholeOrder,
+                pickedLines = vm.discountPickedLines,
+                busy = vm.acting,
+                errorText = vm.discountError,
+                onKindChange = { vm.discountKind = it },
+                onValueChange = { vm.discountValue = it },
+                onReasonChange = { vm.discountReason = it },
+                onWholeOrderChange = { vm.discountWholeOrder = it },
+                onToggleLine = { id ->
+                    vm.discountPickedLines = if (id in vm.discountPickedLines) {
+                        vm.discountPickedLines - id
+                    } else {
+                        vm.discountPickedLines + id
+                    }
+                },
+                onDismiss = { vm.showDiscountDialog = false },
+                onConfirm = { vm.applyDiscount() },
+                onClear = { vm.clearDiscount() },
+            )
+        }
+    }
+
     // 这单的货主还没有客户档案（口径 ④）：正式货主就地建 / 关联一份；
     // 临时货主（没有账号可关联）只给引导 —— 后端 `create_receipt` 必 400，⛔ 不发那一次注定失败的请求。
     if (vm.showCustomerDialog) {
@@ -717,6 +751,10 @@ private fun DetailBody(
     onChargeClick: () -> Unit,
     /** 点「核销」（已挂账那一档的主按钮）—— 整单核销，见 `OrderDetailViewModel.settleNow`。 */
     onSettleClick: () -> Unit,
+    /** 点「打折 / 改折扣」（派单员改钱那一扇门，见 `OrderDetailViewModel.openDiscount`）。 */
+    onDiscountClick: () -> Unit,
+    /** 点「取消折扣」——把每一行还原成打折前的金额（见 `OrderDetailViewModel.clearDiscount`）。 */
+    onClearDiscountClick: () -> Unit,
     onEditFreightClick: () -> Unit,
     onSplitClick: () -> Unit,
     onTransferClick: () -> Unit,
@@ -1522,6 +1560,44 @@ private fun DetailBody(
                             Spacer(Modifier.width(6.dp))
                             Text("挂账")
                         }
+                        }
+                    }
+                    // ── 打折（台账 L-34 / CHG-0071）───────────────────────────────
+                    // 钱已经由服务端摊到每一行上了（`discount_amount` 只是个快照），这一块只念结果。
+                    // ⛔ 插在三档 `when` **之后**：上面那段有两条既有红线按缩进逐字钉着
+                    //    （判据的 900 字符窗口 + 反验的锚点），插到前面去会把它们挤失配。
+                    val savedDiscount = discountHeadline(order)
+                    Spacer(Modifier.height(12.dp))
+                    if (savedDiscount == null) {
+                        OutlinedButton(
+                            onClick = onDiscountClick,
+                            enabled = !acting && canDiscount(order.status),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.LocalOffer, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("打折")
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(savedDiscount, fontWeight = FontWeight.SemiBold, color = Color(MoneyOrange))
+                            discountTrace(order)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            order.discountAt?.takeIf { it.isNotBlank() }?.let {
+                                Text(formatDateTime(it), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = onDiscountClick,
+                                enabled = !acting && canDiscount(order.status),
+                                modifier = Modifier.weight(1f),
+                            ) { Text("改折扣") }
+                            OutlinedButton(
+                                onClick = onClearDiscountClick,
+                                enabled = !acting && canDiscount(order.status),
+                                modifier = Modifier.weight(1f),
+                            ) { Text("取消折扣") }
                         }
                     }
                 }

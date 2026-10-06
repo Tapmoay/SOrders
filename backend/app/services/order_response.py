@@ -43,6 +43,26 @@ CUSTOMER_GOODS_FIELDS: tuple[str, ...] = (
     "settled_amount",
     "refunded_amount",
     "arrears_amount",
+    # 折扣（CHG-0071 / 台账 L-34）：`discount_amount` 也是货款 —— 它是"这一单便宜了多少"，
+    # 单看它就能反推出原价。⚠️ 它只是折扣那八格里唯一"名字像钱"的一个（上面那个正则只认
+    # amount/fee/price/total/rate/commission/salary/cost），其余七格也要跟着整块遮蔽 ——
+    # 见 [DISCOUNT_FIELDS] 与 [apply_driver_view_gating]。
+    "discount_amount",
+)
+
+#: 折扣快照那八格（CHG-0071）：**只有派单员与货主**该看到（让的是货主的钱）。
+#: 司机视角**整块**置空 —— 只清 `discount_amount` 的话，司机拿 `discount_lines` 里逐行的
+#: 原价 / 折后价一减就还原了货款（与 [DRIVER_PAY_FIELDS] 整族遮蔽同一个道理：
+#: 「清单没跟上」才是当年漏掉 `driver_piece_amount` 的病因）。
+DISCOUNT_FIELDS: tuple[str, ...] = (
+    "discount_kind",
+    "discount_value",
+    "discount_amount",
+    "discount_lines",
+    "discount_reason",
+    "discount_by_id",
+    "discount_by_name",
+    "discount_at",
 )
 
 
@@ -87,6 +107,12 @@ def apply_driver_view_gating(data: dict, order: Order) -> None:
     data["returned_amount"] = Decimal("0")
     data["refunded_amount"] = Decimal("0")
     data["arrears_amount"] = Decimal("0")
+    # 折扣那八格（CHG-0071 / 台账 L-34）：司机不该看到"这一单便宜了多少" —— 它是货款的
+    # 一部分，而 `discount_lines` 里逐行的 before/after 把每一行的**原价与折后价**都写明了，
+    # `discount_reason` 又是派单员随手写的自由文本（常常带钱数）。
+    # ⛔ **整块**清，别只清 `discount_amount` 一个数：留下 `discount_lines` 等于没清。
+    for _discount_field in DISCOUNT_FIELDS:
+        data[_discount_field] = None
     data["freight_visible"] = per_order
     if not per_order:
         data["freight_fee"] = None
@@ -163,6 +189,16 @@ def enrich_order_out(
     else:
         tn = (order.temp_shipper_name or "").strip()
         data["shipper_name"] = tn or None
+    # 谁打的折（CHG-0071 · 台账 L-34）：库里只有 `discount_by_id`，名字在这里查一次 ——
+    # 详情页要显示「谁、何时、打了几折」（用户口径 m13365：理由要写进订单详情）。
+    # ⚠️ 与 `driver_phone` 同一条规矩：查不到就**留空**，不要印一个别人的名字/号码。
+    #    号码走 `dialable_phone`（活账号带 `_del{id}` 后缀 = 那号已经不是他的 → 返回 None）。
+    # ⚠️ 代价：只有**打过折**的单（`discount_by_id` 非空）才多发这一条 `db.get`；
+    #    列表端点的批量口径不受影响（未打折的单一个查询都不多）。
+    if order.discount_by_id:
+        discount_user = db.get(User, order.discount_by_id)
+        if discount_user is not None:
+            data["discount_by_name"] = discount_user.full_name or dialable_phone(discount_user)
     data["is_new_for_driver"] = bool(
         order.status in (OrderStatus.DISPATCHED, OrderStatus.ACCEPTED)
         and order.driver_id is not None

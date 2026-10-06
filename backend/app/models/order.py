@@ -106,6 +106,33 @@ class Order(Base, TimestampMixin):
 
     delivery_photo_urls: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
+    # ---- 折扣快照（CHG-0071 / 台账 L-34，2026-10-07）----
+    # 用户原话（ref m01280）：「订单它可以给订单进行打折」。折扣**必须摊到行金额**上：
+    # 收款 / 账本 / 毛利全按 `order_products.line_total` 算、`goods_amount = Σ line_total`
+    # （`services/order_money.py`），只记一个整单折扣而不动行的话这条恒等式当场破。
+    # ⛔ 这七列是**这一单当时打了什么折**的快照，算法只有一处：`services/order_discount.py`。
+    # ⛔ 七列**同生共死**：没打折的单七列全空（历史订单不回填、不重算）。
+    #: "percent" = 按百分比减（value 是**减掉的百分点**，10 = 减 10%）；"amount" = 抹零（减 value 元）。
+    discount_kind: Mapped[str | None] = mapped_column(String(16), nullable=True, default=None)
+    #: 折扣值：percent 时是百分点（0 < value < 100），amount 时是抹零金额（> 0）。
+    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True, default=None)
+    #: 这一单**实际优惠掉的总额**（正数，= Σ(原行金额 − 折后行金额)）。
+    #: 为什么要单独存：行金额是四舍五入 + 余数摊回的结果，`discount_value` 反推不出它
+    #: （抹零被"参与行的总额"封顶时尤其如此）—— 账要对得上，就得把当时那个数留下来。
+    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True, default=None)
+    #: 参与折扣的行（JSON 数组，每项 `{"line_id": …, "before": …, "after": …}`）：
+    #: 哪些行、打折**之前**这一行是多少、打完是多少。空 = 这一单没打过折
+    #: （正常路径下总是写全参与行；见 `services/order_discount.py`）。
+    #: 为什么要 `before`：取消折扣 / 换一种折扣要**精确还原我们改之前那个数** ——
+    #: 生产库里存在 `line_total ≠ 单价×数量` 的历史行，靠乘法反推会改错账。
+    #: `after` 给详情页用（"这一行当时便宜了多少"不用自己反推）。
+    discount_lines: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True, default=None)
+    #: 打折理由（选填，用户口径 m13365：理由要写进操作日志与订单详情）。
+    discount_reason: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    #: 谁打的折 / 什么时候打的（用户口径：详情要显示"谁、何时、打了几折"）。
+    discount_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, default=None)
+    discount_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+
     # 软删除隔离时间：用户删除后 30 天内隔离（用户不可见），派单员可恢复；到期后物理清理
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 

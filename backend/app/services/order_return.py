@@ -57,7 +57,7 @@ from app.services.inventory_service import restock_returned
 from app.services.ledger_response import order_shipper_label
 from app.services.operation_log_service import write_log
 from app.services.order_flow import mark_returned
-from app.services.order_money import money_of, q2
+from app.services.order_money import line_unit_price, money_of, q2
 
 ZERO = Decimal("0")
 
@@ -111,8 +111,17 @@ def _line_amount(op: OrderProduct, qty: int) -> Decimal:
       在这里先取两位的话，卖 12.3456 只冲 12.35，那 0.0044 会永远留在应收里清不掉。
     · **整次退货取两位**：退现是付现金，必须到分；而"到分"这个动作一次就够
       （按行取两位再求和 = 多取了一次，正是上面那 1 分的来源）。
+
+    ## 打过折的行（CHG-0071）：按**折后实付**退
+
+    单价取的是 `order_money.line_unit_price(op)` —— **这一行真正卖的单价**，而不是 `unit_price`。
+    打过折的行 `line_total` 被写成折后值（见 `services/order_discount.py`），于是它返回「行金额 ÷ 数量」。
+
+    用户口径（ref m13365）：「**退货按折后实付退**」。按 `unit_price` 退的话，打折卖出去的单
+    退了货会**退得比收的多**；而这里的数必须与 `line_receivable`（"这一行还能收多少"）
+    用同一个单价口径，否则退现与账本各差一个折扣。
     """
-    return ((op.unit_price or ZERO) * Decimal(qty)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return (line_unit_price(op) * Decimal(qty)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 
 def max_returnable(op: OrderProduct) -> int:

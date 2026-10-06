@@ -44,7 +44,9 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
     'order:create': ('ORDER_CREATE',),
     'order:edit': ('ORDER_UPDATE', 'ORDER_EXCEPTION', 'ORDER_SPLIT', 'ORDER_TRANSFER', 'ORDER_FREIGHT',
                    'ORDER_FREIGHT_PRICE',
-                   'ORDER_TEMPLATE_UPSERT', 'ORDER_TEMPLATE_DELETE', 'ORDER_TEMPLATE_RESTORE',
+                   # 打折的两条（CHG-0071 / 台账 L-34）：门与改单相同（order:edit，只有派单员），
+                   # 但写下的动作码不同 —— 审计页要能回答「谁把这一单便宜了多少、为什么」。
+                   'ORDER_DISCOUNT', 'ORDER_DISCOUNT_CLEAR',                   'ORDER_TEMPLATE_UPSERT', 'ORDER_TEMPLATE_DELETE', 'ORDER_TEMPLATE_RESTORE',
                    'ORDER_TEMPLATE_CATEGORY_UPSERT', 'ORDER_TEMPLATE_CATEGORY_DELETE',
                    'ORDER_TEMPLATE_CATEGORY_REORDER'),
     # 补联系信息（台账 L-27）：门是**另一个权限点**（`order:edit_contact`），

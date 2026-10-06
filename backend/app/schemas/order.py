@@ -258,6 +258,30 @@ class OrderOut(BaseModel):
     settled_amount: Decimal = Decimal("0")  # 已收（含现场收现金）
     refunded_amount: Decimal = Decimal("0")  # 已退给客户的现金（REFUND_CUSTOMER）
     arrears_amount: Decimal = Decimal("0")  # 欠款（< 0 = 预收）
+    # ---- 折扣快照（CHG-0071 / 台账 L-34）----
+    # 用户原话（ref m01280）：「商品可以打折，就是**订单**它可以给订单进行打折」。
+    # 钱**已经摊到行上**：折后值写进 `order_products.line_total`（算法只有一处：
+    # `services/order_discount.py`），这八格只是「这一单当时打了什么折」的快照，
+    # ⛔ **不参与任何金额计算**（别拿它去减总额，总额就是 Σ 行金额）。
+    #: "percent" = 按百分比减（`discount_value` 是**减掉的百分点**，10 = 减 10%）；
+    #: "amount" = 抹零（减 `discount_value` 元）。空 = 这一单没打过折（历史订单一律为空）。
+    discount_kind: str | None = None
+    discount_value: Decimal | None = None
+    #: 这一单**实际优惠掉的钱**（Σ(原行金额 − 折后行金额)，正数）—— 详情页「已优惠 ¥X」就是它。
+    #: ⚠️ 别用 `discount_value` 反推：行金额是四舍五入 + 余数摊回的结果，抹零还会被合计封顶。
+    discount_amount: Decimal | None = None
+    #: 参与折扣的行 `[{"line_id": …, "before": …, "after": …}]`（before/after 是**字符串**，
+    #: 保 NUMERIC 的 4 位精度）。取消折扣 / 改单重算都按 `before` **精确还原**。
+    discount_lines: list[dict[str, Any]] | None = None
+    #: 打折理由（选填；用户口径 m13365：理由要写进操作日志与订单详情）。
+    discount_reason: str | None = None
+    #: 谁打的折 / 什么时候打的（`discount_by_name` 是装配时查出来的名字，库里没有这一列）。
+    discount_by_id: int | None = None
+    discount_by_name: str | None = None
+    discount_at: datetime | None = None
+    # ⚠️ 司机视角下这八格**整块为空**（`services/order_response.py::apply_driver_view_gating`）：
+    #    `discount_amount` 是货款的一部分；`discount_lines` 里逐行的原价 / 折后价更是把
+    #    货款写明了 —— 只清一个数等于没清（司机一减就还原）。
     # ⚠️ 界面上写"还欠多少"就用 `arrears_amount`，**不要**自己拿 `goods_amount − settled_amount`：
     #    退货红冲与退现都不在 `settled_amount` 里，减出来的数会偏大。
     #    恒等式（`tests/test_order_return.py` 钉着）：
@@ -296,6 +320,26 @@ class OrderOut(BaseModel):
         """
         return v or ""
 
+    @field_validator("discount_lines", mode="before")
+    @classmethod
+    def _parse_discount_lines(cls, v: Any) -> list[dict[str, Any]] | None:
+        """折扣行快照（JSON 列）→ 字典列表；空 / 坏数据一律当「这一单没打过折」。
+
+        与同文件 `image_urls` / `freight_category` 两个 validator 同一条规矩：**出参字段自己
+        兜住库里的脏数据**，别让一整页订单列表替一行坏 JSON 殉葬。
+        ⛔ 这里只做形状归一，**不算钱**（金额一律按库里存的字符串原样带出去）。
+        """
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except Exception:
+                return None
+        if not isinstance(v, list):
+            return None
+        return [x for x in v if isinstance(x, dict)] or None
+
 
 class OrderChargeBody(BaseModel):
     """派单员：把订单记到挂账单位名下。
@@ -308,6 +352,30 @@ class OrderChargeBody(BaseModel):
 
     arrears_unit_id: int | None = None
     arrears_unit_name: str = Field(default="", max_length=100)
+
+
+class OrderDiscountBody(MoneyInput):
+    """派单员：给这一单打个折（CHG-0071 / 台账 L-34）——**改单时**顺手让价。
+
+    用户原话（ref m01280）：「商品可以打折，就是**订单**它可以给订单进行打折」。
+    四种口径（ref m01347）：入口只有派单员改单（`Permission.ORDER_EDIT`；货主 / 批发商下单
+    **不能**打折）；`kind` 两种表达都要（`percent` 减百分比 / `amount` 抹零）；
+    `line_ids` 空 = 整单、给 id = 只打这几行；`reason` 选填但要进操作日志与订单详情（ref m13365）。
+
+    ⚠️ 业务规则（值 > 0、百分比 < 100、抹零不超过参与行合计、勾到「不参与打折」的商品要 400）
+    **全在 `services/order_discount.py` 里判** —— 这里只拦「存不进数据库的数」（`MoneyInput`），
+    与其余几个 Body 同一条分工。
+    """
+
+    kind: str = Field(
+        ..., max_length=16, description="percent = 按百分比减；amount = 抹零（减一个金额）"
+    )
+    value: Decimal = Field(..., description="percent 时是减掉的百分点（10 = 减 10%）；amount 时是抹零金额")
+    line_ids: list[int] | None = Field(
+        None,
+        description="只给这几行打折（订单明细行 id）；空 / 不给 = 整单",
+    )
+    reason: str | None = Field(None, max_length=255, description="打折理由（选填；进操作日志与订单详情）")
 
 
 class OrderExceptionBody(BaseModel):

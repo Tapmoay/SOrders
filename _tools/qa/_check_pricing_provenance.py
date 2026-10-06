@@ -171,6 +171,10 @@ CONFIG = {
     "order_products.cost_price_snapshot": "订单行成本快照（它自己就是快照）",
     "orders.driver_piece_amount": "派单员对这一单单独定的金额（值即事实）",
     "orders.driver_commission_rate": "派单员对这一单单独定的比例（值即事实）",
+    # ---- 订单折扣（2026-10-07 · CHG-0071 / 台账 L-34）：
+    # `discount_value` 是**派单员当场填进来的那个数**（"减 10%" 里的 10，或抹零的那个金额），
+    # 与上面两行同一档 —— 值即事实，⛔ 不是系统按规则算出来的（折扣额那列才在 RULED）。
+    "orders.discount_value": "派单员当场填的折扣值（percent = 百分数 / amount = 抹零金额；值即事实）",
     "expenses.amount": "开销金额（录入即事实）",
     "cash_flows.amount": "现金流水金额（录入即事实）",
     "shipper_receipts.amount": "货主收款金额（录入即事实）",
@@ -258,6 +262,17 @@ RULED = {
         "why": "R4-11 补上的：这笔承运价出自哪条价目、按什么计价方式、属于哪一版计价契约、"
                "当时算出来多少 —— 全在那份快照里；写入口只有 "
                "services/order_money.record_freight_decision 一处",
+    },
+    # ---- 订单折扣额（2026-10-07 · CHG-0071 / 台账 L-34）：**算出来的**那一格。
+    "orders.discount_amount": {
+        "where": "orders.discount_lines（同一行、同一次决定：逐行打折前/后的金额快照，字符串）"
+                 " + discount_kind / discount_value",
+        "why": "折扣额是按规则算出来的：percent 用参与行合计 × 百分比、amount 用抹零金额，"
+               "再按各行占比**摊到每一行**、尾差给小数部分最大的那几行"
+               "（services/order_discount.py::_spread）⇒ Σ 折后行金额 = 订单金额，"
+               "钱契约 order_discount（用户口径 ref m01280 / m01347）；"
+               "落库的那份逐行 before/after 快照能独立复核这个数，改行后由 "
+               "reapply_after_line_change 重摊（清折扣用 clear_discount 按快照精确还原）",
     },
 }
 

@@ -200,12 +200,19 @@ fun ProductFormScreen(
                         checked = vm.active,
                         onCheckedChange = { vm.active = it },
                     )
+                    // 「不参与打折」＝算订单折扣时跳过这件商品（台账 L-34 / CHG-0071）。
+                    // ⛔ 别改叫「固定价」：它管不住这个价格 —— 改价、批发商专属价照旧生效。
+                    FormSwitchRow(
+                        label = "不参与打折",
+                        checked = vm.noDiscount,
+                        onCheckedChange = { vm.noDiscount = it },
+                    )
                 }
 
                 Spacer(Modifier.height(10.dp))
                 Hint(
-                    if (vm.isNew) "新建默认上架；关闭开关则保存后货主下单时看不到它。"
-                    else "下架后货主下单时不可选，但已有订单不受影响。",
+                    if (vm.isNew) "新建默认上架；关闭开关则保存后货主下单时看不到它。勾了「不参与打折」的商品，订单打折时会自动跳过（价格照旧能改）。"
+                    else "下架后货主下单时不可选，但已有订单不受影响。勾了「不参与打折」的商品，订单打折时会自动跳过（价格照旧能改）。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.padding(horizontal = 4.dp),

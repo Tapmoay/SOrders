@@ -73,6 +73,14 @@ class ProductFormViewModel(
     var color by mutableStateOf(DEFAULT_PRODUCT_NAME_COLOR)
     var active by mutableStateOf(true)
 
+    /**
+     * 「不参与打折」（台账 L-34 / CHG-0071 / 用户 m01347 ③）。
+     *
+     * 语义**只有一条**：订单打折算钱时跳过这件商品。⛔ 不是"价格不能变" —— 改价、
+     * 批发商专属价（`price_rules`）照旧全生效。界面上的名字也就不能叫「固定价」。
+     */
+    var noDiscount by mutableStateOf(false)
+
     /** 本地新选的图片路径（保存时上传）；null = 没换图。 */
     var imageLocal by mutableStateOf<String?>(null)
 
@@ -150,6 +158,7 @@ class ProductFormViewModel(
         alert = if (p.lowStockAlert > 0) p.lowStockAlert.toString() else ""
         color = p.nameColor ?: DEFAULT_PRODUCT_NAME_COLOR
         active = p.isActive
+        noDiscount = p.noDiscount
         imageLocal = null
         imageCleared = false
     }
@@ -206,6 +215,7 @@ class ProductFormViewModel(
                             unit = cleanUnit,
                             category = cleanCategory,
                             lowStockAlert = alertInt,
+                            noDiscount = noDiscount,
                         ),
                     )
                     // ⚠️ 图片上传用**接住的这个 id**（2026-09-19 审计）：原来按名字去全表猜，
@@ -363,6 +373,7 @@ class ProductFormViewModel(
         alert = alert,
         color = color,
         active = active,
+        noDiscount = noDiscount,
         imageCleared = imageCleared,
     )
 
@@ -417,6 +428,8 @@ internal data class ProductDraft(
     val alert: String,
     val color: String,
     val active: Boolean,
+    /** 「不参与打折」（算订单折扣时跳过这件商品；⛔ 不是价格不能变）。 */
+    val noDiscount: Boolean = false,
     /** 用户点过「移除图片」（只有它才写 `image_url=""`；换成新图走上传端点）。 */
     val imageCleared: Boolean = false,
 )
@@ -452,6 +465,7 @@ internal fun productEdits(baseline: ProductDto, d: ProductDraft): ProductUpdateR
     val unitOut = if (unit != baseline.unit) { dirty = true; unit } else null
     val categoryOut = if (category != baseline.category) { dirty = true; category } else null
     val activeOut = if (d.active != baseline.isActive) { dirty = true; d.active } else null
+    val noDiscountOut = if (d.noDiscount != baseline.noDiscount) { dirty = true; d.noDiscount } else null
     val colorOut = if (color != (baseline.nameColor ?: DEFAULT_PRODUCT_NAME_COLOR)) { dirty = true; color } else null
     val alertOut = if (alert != baseline.lowStockAlert) { dirty = true; alert } else null
     // 图片：只有"点过移除"才写；换成新图走上传端点（不在这条 PATCH 里）
@@ -465,6 +479,7 @@ internal fun productEdits(baseline: ProductDto, d: ProductDraft): ProductUpdateR
         unit = unitOut,
         category = categoryOut,
         isActive = activeOut,
+        noDiscount = noDiscountOut,
         nameColor = colorOut,
         lowStockAlert = alertOut,
         imageUrl = imageOut,

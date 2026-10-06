@@ -230,6 +230,26 @@ data class OrderDto(
      */
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("arrears_amount")
     val arrearsAmount: String = "0",
+    // ---- 打折（CHG-0071 / 台账 L-34）：**入口只有派单员改单**；钱已经摊到行上
+    //      （`orderProducts[].lineTotal` 就是折后值，商品行的单价不变）----
+    /** `percent` = 减百分比；`amount` = 抹零（减一个金额）。空 = 这一单没打折。 */
+    @SerialName("discount_kind") val discountKind: String? = null,
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("discount_value")
+    val discountValue: String? = null,
+    /**
+     * 已优惠的总金额（**服务端算好的快照**）。
+     *
+     * ⛔ 不许拿 kind/value 在客户端反推：抹零的实际金额会被"行金额不够减"改小，
+     *    反推出来的数与账上差几毛，而账单上差一毛就是两本账。
+     */
+    @Serializable(with = NullableFlexibleStringSerializer::class) @SerialName("discount_amount")
+    val discountAmount: String? = null,
+    /** 参与打折的行（`orderProducts[].id`）；空 = 老数据没有逐行快照。 */
+    @SerialName("discount_lines") val discountLines: List<kotlinx.serialization.json.JsonObject>? = null,
+    @SerialName("discount_reason") val discountReason: String? = null,
+    /** 打折的人（服务端按 `discount_by_id` 查出来的名字）。 */
+    @SerialName("discount_by_name") val discountByName: String? = null,
+    @SerialName("discount_at") val discountAt: String? = null,
 )
 
 /** 退货的一行（哪一行商品、退几件）。 */
@@ -536,6 +556,24 @@ data class OrderBatchAssignOut(val results: List<BatchAssignResult> = emptyList(
 data class OrderChargeBody(
     @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
     @SerialName("arrears_unit_name") val arrearsUnitName: String? = null,
+)
+
+/**
+ * 打折入参（CHG-0071 / 台账 L-34）。
+ *
+ * `kind`：`percent` = 减百分比（`value` 是 10 就是减 10%）；`amount` = 抹零（减 `value` 元）。
+ * ⚠️ `lineIds` 空 = **整单打折**（后端会静默跳过商品档案里勾了「不参与打折」的行）；
+ *    非空 = 只打这几行（勾到了「不参与打折」的行，后端会 400 并点名是哪个商品 ——
+ *    为的是不出现"他以为打了折、其实没打"）。
+ * `reason` 选填，会写进操作日志与订单详情（谁、何时、打了几折）。
+ */
+@Serializable
+data class OrderDiscountBody(
+    val kind: String,
+    @Serializable(with = FlexibleStringSerializer::class)
+    val value: String,
+    @SerialName("line_ids") val lineIds: List<Long>? = null,
+    val reason: String? = null,
 )
 
 @Serializable
@@ -1108,6 +1146,13 @@ data class ProductDto(
      * 2026-09-21 加：之前顺序恒为"最新建的排最前"，一个分类里几十个商品时用户没法调。
      */
     @SerialName("sort_order") val sortOrder: Int = 0,
+    /**
+     * 「不参与打折」（CHG-0071 / 台账 L-34）。
+     *
+     * ⚠️ 语义**只有一条**：派单员给订单打折时跳过这个商品。
+     *    ⛔ 不是"价格不能变"—— 改价、批发商专属价、价格规则全照常生效。
+     */
+    @SerialName("no_discount") val noDiscount: Boolean = false,
 )
 
 // ===== 商品分类名册 =====

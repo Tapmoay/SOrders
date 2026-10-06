@@ -23,6 +23,13 @@ class Product(Base, TimestampMixin):
     # 成本价：报表计算毛利率用（售价 - 成本）
     cost_price: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 「不参与打折」（2026-10-07 用户原话：商品「可以固定价格的，就是不参与打折」，CHG-0071）。
+    #: 语义**只有一条**：整单折扣 / 勾选折扣算钱时**跳过它**。
+    #:   · ⛔ 它不是"价格不能变" —— 改价、批发商专属价（`price_rules`）、将来的价格规则照旧生效；
+    #:     它也不长在 `PriceRule` 上（那是把一次性促销写成永久价，用户明确否掉的做法）。
+    #:   · 派单员**显式**勾到它的行 ⇒ 端点 4xx 拒绝（不静默过滤：静默跳过会让用户以为打了折）。
+    #: 老库由正式迁移 `backend/app/migrations/025_order_discount.py` 补列（新库由 create_all 直接建出来）。
+    no_discount: Mapped[bool] = mapped_column(Boolean, default=False)
     image_url: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
     # 当前库存（只由库存流水增减，不走商品编辑接口）
     stock: Mapped[int] = mapped_column(Integer, default=0)
