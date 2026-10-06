@@ -6033,7 +6033,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 → ✅ **45 项**；反验 → ✅ **19/19**（还原后 9 个文件按字节比对一致）；`_check_reverse_verify_anchors.py` → **2455 条注入原文全部还在**；Android `gradle -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest` → BUILD SUCCESSFUL ＋ 新增 `WatermarkTextTest` 全过；全量静检 `_check_all.py` → **198 脚本 / 196 ✅ / 2 ❌**；可达性 → **179 / 179**。
 
-**实现提交**：`__IMPL_SHA__`（本事项动 11 个文件：Android 4（`util/WatermarkText.kt` 新 / `test/.../util/WatermarkTextTest.kt` 新 / `util/Watermark.kt` / `ui/order/OrderDetailScreen.kt`）＋ QA 2（判据与反验各一新）＋ 文档 5（`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（新增/改动 .kt 后重生成）、`docs/changes/CHG-0061.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`）；归档提交只回填 sha）。
+**实现提交**：`cbe4394`（本事项动 11 个文件：Android 4（`util/WatermarkText.kt` 新 / `test/.../util/WatermarkTextTest.kt` 新 / `util/Watermark.kt` / `ui/order/OrderDetailScreen.kt`）＋ QA 2（判据与反验各一新）＋ 文档 5（`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（新增/改动 .kt 后重生成）、`docs/changes/CHG-0061.md`、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`）；归档提交只回填 sha）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
