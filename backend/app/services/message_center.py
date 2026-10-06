@@ -251,6 +251,9 @@ async def publish_order_edited_driver(
       ⛔ 绝不在这里按订单重算或猜哪几个字段变了（说错一处比不说更坏）。
     ⚠️ 幂等键必须带**发件箱那一行的编号**：同一张单会被改很多次，只用 order_id 的话，
       第二次以后的改动会被 `create_message` 当成重复吞掉。
+    ⚠️ 2026-10-06 CHG-0057：**货主 / 批发商自己也能补联系信息了**
+      （`PATCH /orders/{order_id}/contact`，门是新的权限点），所以正文不再写死"被某某修改了"
+      —— 写死角色就是对他说的假话。谁改的看操作日志（这条消息里一个字都不提）。
     """
     order = db.get(Order, order_id)
     if order is None:
@@ -265,7 +268,7 @@ async def publish_order_edited_driver(
         category="order",
         type="order.edited",
         title="订单信息有修改",
-        content=f"订单 {ono} 的收货信息或货物明细被派单员修改了，出车前请打开订单详情核对一遍。",
+        content=f"订单 {ono} 的收货信息或货物明细有改动，出车前请打开订单详情核对一遍。",
         payload={"order_id": order_id, "order_no": ono},
         # 改单会改「送到哪、送给谁、送几件」——司机正在跑这一单，值得念出来
         speech_important=True,

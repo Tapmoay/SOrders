@@ -238,7 +238,16 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         RBAC,
         '"shipper": frozenset(\n        {\n            Permission.ORDER_CREATE,',
         '"shipper": frozenset(\n        {\n            Permission.ORDER_EDIT,\n            Permission.ORDER_CREATE,',
-        "shipper 一个字都改不了（两个改单权限点一个都没有）",
+        "shipper 改不动单据本体与货物（只有 ORDER_EDIT_CONTACT 那一个联系信息的门）",
+    ),
+    # ⚠️ CHG-0057（L-27）：货主那一扇补联系信息的门**必须**在 rbac 里开着 —— 少了它，
+    #    详情页那颗「去补联系信息」按钮就成了"点下去必然 403"的摆件（用户点下去才知道不行）。
+    (
+        "把 ORDER_EDIT_CONTACT 从货主那一格里删掉（新开的那扇门又关上了）",
+        RBAC,
+        "            Permission.ORDER_EDIT_CONTACT,\n",
+        "",
+        "shipper 改不动单据本体与货物（只有 ORDER_EDIT_CONTACT 那一个联系信息的门）",
     ),
     (
         "dispatcher 那一格少了 ORDER_PRODUCT_EDIT：派单员从此改不了明细（点保存必然 403）",

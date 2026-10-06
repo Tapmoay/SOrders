@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -121,6 +122,20 @@ fun ShipperOrdersScreen(
                                 // 所以**一个都不放右边** —— 右边那个位置留给"编辑"
                                 // （用户原话：「编辑一定在右边…相反的操作，就在左边」）。
                                 leading = {
+                                    // 「账上认不出人」的单（收货人与下单人都没填名字，L-28 / CHG-0057）：
+                                    // 一颗红标，点它进详情补联系信息。
+                                    // ⛔ 只能放这一侧：右边那个位置留给"编辑"，而且这一页不许出现右侧那个
+                                    //    动作分区（判据 _tools/qa/_check_order_list_ui.py 按字面盯着这一页的形态 ——
+                                    //    连注释里写出那个字面形状都会让它假红，2026-10-06 踩过一次）。
+                                    if (order.contactRisk) {
+                                        CardActionIcon(
+                                            icon = Icons.Default.WarningAmber,
+                                            contentDescription = "补联系信息",
+                                            label = "补联系信息",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            onClick = { onOpenOrder(order.id) },
+                                        )
+                                    }
                                     // 待派单/已派单（司机未接）可卡片直撤，不进详情。
                                     // 状态门取 `OrderStatusModel.CANCELLABLE`（后端 `cancel_pending` 同一对取值）。
                                     if (order.status in OrderStatusModel.CANCELLABLE) {

@@ -9,6 +9,7 @@ from app.models.enums import OrderStatus, UserRole
 from app.schemas.order import OrderOut
 from app.services.money_contract import has_per_order_pay, money_map, money_of
 from app.services.driver_pay import order_mode
+from app.services.order_contact import contact_risk_of
 from app.services.order_money import OrderMoney
 from app.services.soft_delete import dialable_phone
 
@@ -167,6 +168,11 @@ def enrich_order_out(
         and order.driver_id is not None
         and order.driver_acknowledged_at is None
     )
+    # 这一单在账上能不能认出人（台账 L-28「无主账」的入口）：口径只有
+    # `services/order_contact.py` 一处，客户端与 AI 都只读这个布尔值。
+    # ⛔ 别在这里再写一遍名字判断 —— 账本页的分组（`api/v1/shipper_ledger.py::_customer_name_expr`）
+    #    与它必须是同一口径，第二份实现就是"同一个问题两个答案"。
+    data["contact_risk"] = contact_risk_of(order)
     # 这一单的钱：口径只有 `services/order_money.py` 一处（退货红冲、部分核销、现场收现金
     # 三件事都在这三个数里体现，客户端不许自己再加一遍）
     m = money or money_of(db, order)

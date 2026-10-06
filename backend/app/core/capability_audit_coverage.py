@@ -47,6 +47,10 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                    'ORDER_TEMPLATE_UPSERT', 'ORDER_TEMPLATE_DELETE', 'ORDER_TEMPLATE_RESTORE',
                    'ORDER_TEMPLATE_CATEGORY_UPSERT', 'ORDER_TEMPLATE_CATEGORY_DELETE',
                    'ORDER_TEMPLATE_CATEGORY_REORDER'),
+    # 补联系信息（台账 L-27）：门是**另一个权限点**（`order:edit_contact`），
+    # 但写下的动作码与 `order:edit` 是同一个 —— 一次改单就是一次改单，审计页上不该
+    # 出现两个名字（谁改的看 `operator_id`，那一栏本来就是"谁"的唯一记录）。
+    'order:edit_contact': ('ORDER_UPDATE',),
     'order:dispatch': ('ORDER_DISPATCH', 'ORDER_NAVIGATION_FILL', 'FREIGHT_TEMPLATE_UPSERT',
                       'FREIGHT_TEMPLATE_DELETE', 'FREIGHT_TEMPLATE_RESTORE', 'FREIGHT_CATEGORY_UPSERT',
                       'FREIGHT_CATEGORY_DELETE', 'FREIGHT_CATEGORY_REORDER', 'DRIVER_RULE_UPSERT',

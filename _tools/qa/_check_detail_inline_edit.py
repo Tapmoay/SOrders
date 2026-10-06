@@ -435,11 +435,28 @@ def main() -> int:
     )
     for role in ("shipper", "driver"):
         blk = role_block(rb, role)
-        ok(
-            f"{role} 一个字都改不了（两个改单权限点一个都没有）",
-            bool(blk) and "Permission.ORDER_EDIT" not in blk and "Permission.ORDER_PRODUCT_EDIT" not in blk,
-            "客户端放行、后端 403，用户点下去才知道不行",
-        )
+        # ⚠️ CHG-0057（L-27）：货主多了一个**只改联系信息**的权限点
+        #    `ORDER_EDIT_CONTACT` —— 而 "Permission.ORDER_EDIT" 正好是它的**前缀**，
+        #    原来那条断言（"Permission.ORDER_EDIT" not in blk）加了新点之后必然假红。
+        #    改成先把 ORDER_EDIT_CONTACT 从这一格的字面里抠掉，再看剩下的里有没有
+        #    ORDER_EDIT（整单改）与 ORDER_PRODUCT_EDIT（改货）—— 意图一字未改：
+        #    货主 / 司机改不动单据本体与货物，货主只多那一扇补联系信息的门。
+        blob = blk.replace("Permission.ORDER_EDIT_CONTACT", "")
+        full_edit = "Permission.ORDER_EDIT" in blob
+        product_edit = "Permission.ORDER_PRODUCT_EDIT" in blob
+        contact_edit = "Permission.ORDER_EDIT_CONTACT" in blk
+        if role == "shipper":
+            ok(
+                "shipper 改不动单据本体与货物（只有 ORDER_EDIT_CONTACT 那一个联系信息的门）",
+                bool(blk) and not full_edit and not product_edit and contact_edit,
+                "客户端放行、后端 403，用户点下去才知道不行；⛔ 也不许顺手把 ORDER_EDIT 给他",
+            )
+        else:
+            ok(
+                f"{role} 一个字都改不了（三个改单权限点一个都没有）",
+                bool(blk) and not full_edit and not product_edit and not contact_edit,
+                "客户端放行、后端 403，用户点下去才知道不行",
+            )
 
     # ---- ⑧ 能改哪些状态 ---------------------------------------------------
     section("⑧ 能改哪些状态：就是「在途三态」，且与后端逐值一致")

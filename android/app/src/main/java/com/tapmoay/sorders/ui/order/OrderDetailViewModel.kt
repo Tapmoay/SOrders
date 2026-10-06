@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.data.remote.dto.ContactCreateRequest
+import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.PriceRuleDto
@@ -21,7 +23,10 @@ import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.PickedLine
+import com.tapmoay.sorders.ui.common.ReceiverContact
+import com.tapmoay.sorders.ui.common.fillReceiver
 import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.launch
@@ -795,9 +800,17 @@ class OrderDetailViewModel(
      * ⚠️ 内部备注（`internalNotes`）原样带回：它是派单员写的内部话，不在这一层改，
      *    但少了它会不会被清掉取决于后端的缺席语义，带上就没有这个疑问。
      * ⛔ 货主归属（`shipper_id`）**不在这里**：那是改账，不是改单（用户 2026-10-05 的两件事分开谈）。
+     *
+     * ⚠️ **补联系信息**那一块不在上面这条路上：它在函数头上就分流给了 [saveContactOnly] ——
+     *    那一扇门只收四个联系字段，报多了后端会退回（403）。
      */
     override fun saveEdit() {
         val o = order ?: return
+        // 补联系信息（L-27 / CHG-0057）走**另一扇门**，见 saveContactOnly。
+        if (editingField == OrderEditField.CONTACT) {
+            saveContactOnly(o)
+            return
+        }
         // ⚠️ 这两个局部变量**不能叫 dongjiaPhone / bossPhone**：_check_contact_binding.py 按
         //    \bdongjia(Phone|Name)\s*= 找「界面直写收货人两栏」，它连变量声明一起抓 —— 那是误报，
         //    但改名比松判据安全（那条判据管的是下单页的手改入口清 pickedContactId）。
@@ -832,6 +845,147 @@ class OrderDetailViewModel(
                 editError = toApiException(e).message
             } finally {
                 editBusy = false
+            }
+        }
+    }
+
+    /**
+     * 只补联系信息（L-27 / CHG-0057）：四个字段、另一扇门。
+     *
+     * 与 [saveEdit] 的三处不同：
+     * 1. 只报 `contactDongjiaName/Phone` 与 `contactBossName/Phone` 四个 —— 别的字段一个都不报；
+     * 2. 打的是 `PATCH /orders/{id}/contact`（后端 `contact_only=True`：多报一个别的字段退回 403）；
+     * 3. 电话**选填**（`required = false`）：这一扇门是来补人的，有的单只有一个名字、电话确实没有
+     *    —— 与 `ui/shipper/OrderCreateViewModel.kt::saveReceiverAsContact` 同一条口径。
+     *
+     * ⚠️ 成功语**不能说**"司机那边会收到一条消息"：终态单（已完成 / 已取消 / 已退回）后端不推
+     *    `orders.edited`（见 `commands/order.py` 里 `not (contact_only and finished)`），那句会变成假话。
+     */
+    private fun saveContactOnly(o: OrderDto) {
+        val phoneDraft = draft(OrderEditField.DONGJIA_PHONE).trim()
+        val bossDraft = draft(OrderEditField.BOSS_PHONE).trim()
+        // 电话格式先在界面这一侧挡一道（规则只有一份：core/InputRules.kt）；这一扇门里电话选填。
+        InputRules.phoneError(phoneDraft, required = false)?.let { editError = it; return }
+        InputRules.phoneError(bossDraft, required = false)?.let { editError = it; return }
+        if (editBusy) return
+        editBusy = true
+        editError = null
+        viewModelScope.launch {
+            try {
+                order = container.repo.updateOrderContact(
+                    o.id,
+                    OrderUpdateRequest(
+                        contactDongjiaName = draft(OrderEditField.DONGJIA_NAME).trim(),
+                        contactDongjiaPhone = phoneDraft,
+                        contactBossName = draft(OrderEditField.BOSS_NAME).trim(),
+                        contactBossPhone = bossDraft,
+                    ),
+                )
+                editingField = null
+                actionResult = "联系信息已经补上"
+                load()
+            } catch (e: Exception) {
+                editError = toApiException(e).message
+            } finally {
+                editBusy = false
+            }
+        }
+    }
+
+    // ---- 补联系信息：选人弹层（L-27 / CHG-0057）----
+    // 零件与下单页**同一个**（ui/common/ContactPickerSheet.kt）：用户 2026-10-06（m01132）要的是
+    // "他可以去调用他自己的那个收货人列表，也可以新建一个收货人，都是一样的，我们这些代码是可以复用的"。
+
+    override var showContactSheet by mutableStateOf(false)
+        private set
+    override var contacts by mutableStateOf<List<ContactDto>>(emptyList())
+        private set
+    override var contactsError by mutableStateOf<String?>(null)
+        private set
+    override var loadingContacts by mutableStateOf(false)
+        private set
+    override var creatingContact by mutableStateOf(false)
+        private set
+    override var contactSaveError by mutableStateOf<String?>(null)
+        private set
+
+    override fun openContactSheet() {
+        showContactSheet = true
+        contactSaveError = null
+        loadContacts()
+    }
+
+    override fun closeContactSheet() {
+        showContactSheet = false
+    }
+
+    /**
+     * 拉一遍自己的联系人名册。
+     *
+     * 与下单页那一条（`ui/shipper/OrderCreateViewModel.kt::loadContacts`）同一条写法：失败只写进
+     * [contactsError]、在弹层里就地报 —— ⛔ 不换整页错误：名册拉不到不该把订单详情顶掉。
+     */
+    override fun loadContacts() {
+        if (loadingContacts) return
+        loadingContacts = true
+        contactsError = null
+        viewModelScope.launch {
+            try {
+                contacts = container.repo.contacts()
+            } catch (e: Exception) {
+                contactsError = toApiException(e).message ?: "联系人加载失败"
+            } finally {
+                loadingContacts = false
+            }
+        }
+    }
+
+    /**
+     * 挑中一位联系人 → 填进**收货人**那两格。
+     *
+     * 走 `fillReceiver(..., ContactFillMode.PICKED)`：**整对替换**（换人就是换人，不把上一位的
+     * 电话留在下面）—— 与下单页 `pickReceiver` 同一条规矩；规则本身只有
+     * `ui/common/ContactFill.kt` 一份，这里不重写。
+     */
+    override fun pickContactForDongjia(c: ContactDto) {
+        val picked = fillReceiver(
+            ReceiverContact(
+                name = draft(OrderEditField.DONGJIA_NAME),
+                phone = draft(OrderEditField.DONGJIA_PHONE),
+            ),
+            c.displayName,
+            c.phone,
+            ContactFillMode.PICKED,
+        )
+        setDraft(OrderEditField.DONGJIA_NAME, picked.name)
+        setDraft(OrderEditField.DONGJIA_PHONE, picked.phone)
+        showContactSheet = false
+    }
+
+    /**
+     * 在弹层里现建一位联系人，建成后直接选中（用户要的"也可以新建一个"）。
+     *
+     * 电话**选填**（`required = false`）：与下单页 `saveReceiverAsContact` 一致 —— 有的联系人
+     * 就是只有一个名字。建失败写在 [contactSaveError] 里，弹层不关，人可以改一改再存。
+     */
+    override fun createContactAndPick(name: String, phone: String) {
+        val p = phone.trim()
+        InputRules.phoneError(p, required = false)?.let { contactSaveError = it; return }
+        if (creatingContact) return
+        creatingContact = true
+        contactSaveError = null
+        viewModelScope.launch {
+            try {
+                val created = container.repo.createContact(
+                    ContactCreateRequest(phone = p, displayName = name.trim()),
+                )
+                contacts = contacts + created
+                showContactSheet = false
+                pickContactForDongjia(created)
+            } catch (e: Exception) {
+                contactSaveError = toApiException(e).message ?: "联系人没建成"
+            } finally {
+                creatingContact = false
             }
         }
     }

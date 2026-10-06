@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:e562ce53bd1681c3b2fbd9de4196e59070f1f381e298fa99898b989614bb084b",
- "source_commit": "5ec9f0e",
- "generated_at": "2026-10-05T08:55:11Z",
+ "source_hash": "sha256:5260710140e42a4ece54196ca5b18b264f5c0411c339f988fccf2e37d303155b",
+ "source_commit": "33aad59",
+ "generated_at": "2026-10-06T02:01:12Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -151,6 +151,17 @@
    "scope_why": "派单员代客改单，改的往往是别人名下的单，所以不分归属",
    "roles": [
     "dispatcher"
+   ],
+   "kind": "write"
+  },
+  {
+   "key": "order:edit_contact",
+   "member": "ORDER_EDIT_CONTACT",
+   "what": "补自己名下订单的联系信息",
+   "scope": "own",
+   "scope_why": "货主只能补自己名下的单的联系信息（行级过滤按 shipper_id）",
+   "roles": [
+    "shipper"
    ],
    "kind": "write"
   },
@@ -412,6 +423,7 @@
    "order:cancel_shipper",
    "order:create",
    "order:delete_cancelled",
+   "order:edit_contact",
    "order:read_own",
    "order:return_request",
    "place:manage",
@@ -436,6 +448,9 @@
    "ORDER_TEMPLATE_CATEGORY_UPSERT",
    "ORDER_TEMPLATE_CATEGORY_DELETE",
    "ORDER_TEMPLATE_CATEGORY_REORDER"
+  ],
+  "order:edit_contact": [
+   "ORDER_UPDATE"
   ],
   "order:dispatch": [
    "ORDER_DISPATCH",
@@ -587,10 +602,10 @@
   "order:upload_delivery": "司机上传送达照片：留痕是**图片本体**（`delivery_photos` 表）与订单状态，不是操作日志。**什么时候删掉这一条**：如果照片要做「谁在什么时候传的第几张」这类追溯。"
  },
  "counts": {
-  "capabilities": 26,
+  "capabilities": 27,
   "role_capabilities": 5,
-  "write_capabilities": 18,
-  "audited_action_codes": 117,
+  "write_capabilities": 19,
+  "audited_action_codes": 118,
   "audit_exceptions": 1
  }
 }

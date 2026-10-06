@@ -159,6 +159,16 @@ CAPABILITIES: tuple[Capability, ...] = (
         kind="write",
     ),
     Capability(
+        permission="ORDER_EDIT_CONTACT",
+        what="补自己名下订单的联系信息",
+        scope="own",
+        # ⚠️ 这一句必须逐字等于 `rbac.SCOPES[Permission.ORDER_EDIT_CONTACT]` 的第二项。
+        scope_why="货主只能补自己名下的单的联系信息（行级过滤按 shipper_id）",
+        # ⛔ 不写 dispatcher：他走 `rbac.BYPASS_ROLES` 那条绕过，写进来判据会报红。
+        roles=("shipper",),
+        kind="write",
+    ),
+    Capability(
         permission="ORDER_COMPLETE_DRIVER",
         what="确认接单与完成配送",
         scope="assigned",

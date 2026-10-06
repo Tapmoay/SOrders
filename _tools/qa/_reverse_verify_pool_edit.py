@@ -116,7 +116,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      "        payload={\"order_id\": order_id, \"order_no\": ono},\n        # 改单会改「送到哪、送给谁、送几件」——司机正在跑这一单，值得念出来\n        speech_important=False,\n",
      "值得念出来（司机正在跑这一单，speech_important=True）"),
     ("正文改口说「已同步」（司机以为不用看，到门口才发现地址变了）", MSG,
-     "        content=f\"订单 {ono} 的收货信息或货物明细被派单员修改了，出车前请打开订单详情核对一遍。\",\n",
+     "        content=f\"订单 {ono} 的收货信息或货物明细有改动，出车前请打开订单详情核对一遍。\",\n",
      "        content=f\"订单 {ono} 的收货信息或货物明细已同步。\",\n",
      "正文不猜改了哪一处，只让他去详情核对（说错一处比不说更坏）"),
     ("幂等键只按订单（同一张单第二次改动被当成重复吞掉：司机只收到第一条）", MSG,

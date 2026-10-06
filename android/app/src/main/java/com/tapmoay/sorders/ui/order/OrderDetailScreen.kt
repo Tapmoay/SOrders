@@ -686,6 +686,13 @@ private fun DetailBody(
     //    （本页「挂账」那颗就是这么被修过一次的，见 `OrderStatusModel.canChargeToArrears`）。
     val canEditInfo = role == Role.DISPATCHER && order.status in OrderStatusModel.EDITABLE
     val canEditLines = role == Role.DISPATCHER && order.status in OrderStatusModel.LINE_EDITABLE
+    // 补联系信息（L-27 / L-28 / CHG-0057）：**货主**那一扇门，与上面两道门互不相干。
+    // ⛔ 问能力表而不是问角色 —— core/Capabilities.kt 文件头的规矩就是「业务动作要问能力表」，
+    //    这一页「挂账」那颗已经照这个改过一次了。
+    // ⛔ 键与那一问放在 `canEditOrderContact()`（同包，`OrderEditInline.kt`）：本文件已经有
+    //    `order:cancel_shipper` / `order:cancel_dispatcher` 两个字面量，再加一个就凑够 3 个，
+    //    会被判成「手抄的第二份权限词表」（R3-02-B / R3-D04）。
+    val canEditContact = canEditOrderContact(role)
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -754,6 +761,28 @@ private fun DetailBody(
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.padding(10.dp),
                         )
+                    }
+                }
+                // 「账上认不出人」（L-28 / CHG-0057）：收货人姓名与下单人姓名**都没填**的单，
+                // 核销时归不到谁头上（服务端 app/services/order_contact.py::contact_risk_of 判的，
+                // 客户端这一格是只读的）。⚠️ 红条与上面「异常订单」同一套 errorContainer 配色，
+                // 但它**不是**异常单：这里一个字都没动 is_exception 的语义。
+                if (order.contactRisk) {
+                    Spacer(Modifier.height(10.dp))
+                    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small) {
+                        Text(
+                            "账上认不出人：收货人与下单人都没填名字，核销时不能归到谁头上（会变成无主账）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                    // 补的入口只给拿得到 order:edit_contact 的人（现在只有货主自己）。
+                    if (canEditContact) {
+                        Spacer(Modifier.height(4.dp))
+                        TextButton(onClick = { edit.startEdit(OrderEditField.CONTACT) }, enabled = !edit.editBusy) {
+                            Text("去补联系信息")
+                        }
                     }
                 }
             }
@@ -955,6 +984,11 @@ private fun DetailBody(
                             },
                         )
                     }
+                }
+                // 补联系信息那一块（L-27）：挂在下单人之后、备注之前 —— 它就是收货人 /
+                // 下单人这两组的"补齐版"，离那两行最近。四颗「改」一颗都没动。
+                if (edit.editingField == OrderEditField.CONTACT) {
+                    ContactFillPanel(edit)
                 }
                 if (edit.editingField == OrderEditField.REMARK) {
                     RemarkEditBlock(edit)

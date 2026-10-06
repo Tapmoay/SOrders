@@ -194,6 +194,15 @@ data class OrderDto(
     @SerialName("is_exception") val isException: Boolean = false,
     @SerialName("exception_reason") val exceptionReason: String = "",
     @SerialName("exception_resolution") val exceptionResolution: String = "",
+    /**
+     * 「账上认不出人」：收货人姓名与下单人姓名**都没填**（L-28 / CHG-0057）。
+     *
+     * ⛔ **只由服务端算**（后端 `app/services/order_contact.py::contact_risk_of`，出参在
+     * `app/services/order_response.py::enrich_order_out` 里填）。客户端这一格是**只读**的：
+     * 不许在 Kotlin 里再写一遍「两个名字都空」这条规矩 —— 两边各写一遍，迟早会算出两个答案
+     * （核销归账认的是服务端那一份）。
+     */
+    @SerialName("contact_risk") val contactRisk: Boolean = false,
     @SerialName("payment_method") val paymentMethod: String = "cash",
     @SerialName("address_image_url") val addressImageUrl: String? = null,
     /** 收货地址参考图（多图）；旧后端只有 [addressImageUrl]（首图）时这里是空的。 */

@@ -297,11 +297,49 @@ def resolve_exception(db: Session, *, actor: User, order_id: int, note: str) -> 
     db.commit()
     return order
 
+#: 货主 / 批发商那一扇门（`PATCH /orders/{id}/contact`，台账 L-27）**能补**的字段。
+#: 顺序 = 入参顺序 = 审计日志 `before`/`after` 里的顺序。
+CONTACT_FIELDS: tuple[str, ...] = (
+    "contact_dongjia_name",
+    "contact_boss_name",
+    "contact_dongjia_phone",
+    "contact_boss_phone",
+)
+
+#: 只有**派单员**能改的字段 → 出错时用的中文名（按顺序取第一个非 None 的）。
+#: ⛔ 这张表是货主那一扇门的守卫用的，也就是 `ORDER_EDIT_CONTACT` 与 `ORDER_EDIT`
+#:    两个权限点的**分界线本身**：少写一行的后果不是"少一层校验"，而是货主能改地址、
+#:    能改内部备注 —— 那是把派单员的编辑权原地让出去（见 `core/rbac.py` 里那段理由）。
+#: ⚠️ 判据会拿 `OrderUpdate.model_fields` **自算**这两个集合的补集（`_tools/qa/_check_order_contact_edit.py`），
+#:    所以这里漏一个字段是红的，不是"忘了"。
+DISPATCHER_ONLY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("delivery_description", "配送说明"),
+    ("address_detail", "送货地址"),
+    ("address_lat", "送货地址坐标"),
+    ("address_lng", "送货地址坐标"),
+    ("remark", "订单备注"),
+    ("internal_notes", "内部备注"),
+)
+
+#: 派单员那一扇门在审计日志里记的字段 —— **就是原来那三项，一个字没动**
+#: （R2-02 搬运时的行为要冻住：日志的形状变了，读日志的人会发现对不上）。
+DISPATCHER_TRACKED_FIELDS: tuple[str, ...] = (
+    "delivery_description",
+    "address_detail",
+    "remark",
+)
+
+
 @traced_command("order.edit")
-def update_order(db: Session, *, actor: User, order_id: int, body: OrderUpdate) -> Order:
+def update_order(
+    db: Session, *, actor: User, order_id: int, body: OrderUpdate, contact_only: bool = False
+) -> Order:
     """`PATCH /orders/{id}` 的应用层：改单（地址 / 收货人电话 / 配送说明 / 内部备注）。
 
     ⚠️ 与 `api/v1/orders_lifecycle.py::update_order` **行为逐字一致**（第二轮 R2-02 搬运）。
+
+    `contact_only=True` 是**货主 / 批发商那一扇门**（`PATCH /orders/{id}/contact`，台账 L-27）：
+    只许补联系信息（下面那道守卫），且**终态的单也能补**（见状态门处的理由）。
     """
     order = db.scalars(select(Order).where(Order.id == order_id)).first()
     if order is None:
@@ -309,13 +347,30 @@ def update_order(db: Session, *, actor: User, order_id: int, body: OrderUpdate) 
     # ⚠️ 先锁再判（2026-09-23 第 6 轮）：上面那份是**可能过期**的对象，
     #    而"判完到写之间"正是司机送达/撤销能挤进来的窗口（同 `order_products` 那一处）。
     order = lock_order_row(db, order)
-    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
+    # 终态的门：整张单不再可改（地址 / 收货人与下单人电话之外的一切都动不了了）。
+    finished = order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED)
+    if contact_only:
+        # ⛔ 下面两道守卫就是两个权限点的**分界线**：漏掉后一道的后果不是"少一层校验"，
+        #    而是货主那一扇门等于整张单的编辑权（地址、内部备注、别人名下的单）。
+        if all(getattr(body, f, None) is None for f in CONTACT_FIELDS):
+            raise CommandError("没有要补的联系信息", 400)
+        for field, label in DISPATCHER_ONLY_FIELDS:
+            if getattr(body, field, None) is not None:
+                raise CommandError(f"联系信息以外的内容要派单员才能改（{label}）", 403)
+        # ⛔ 这一扇门**不过下面那道终态门**（台账 L-28）：风险提示盯的恰恰是"账上认不出人"的
+        #    **存量**单，而存量单绝大多数已经送达/结束 —— 这条门如果连补名字都挡，"去补联系信息"
+        #    就是一个点不动的死胡同（403），账本里的「未指定货主」永远消不掉。
+        #    联系信息不是业务状态：它不改金额、不改库存、不改状态机（本函数只写这四个字段）。
+        # ⚠️ 写成 `elif` 而不是把 `not contact_only` 并进上面那个 `if`：
+        #    `_tools/qa/_check_client_contract.py` 按 `if order.status in (…): raise` 这个
+        #    **字面形状**解析"哪些状态不可改"，`_tools/qa/_check_order_commands.py` 也靠同一形状
+        #    对账前置状态 —— 形状一散，那两条红线就静默失效（不报错，只是永远绿）。
+    elif order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
         raise CommandError("订单已结束，不可再编辑")
-    before = {
-        "delivery_description": order.delivery_description,
-        "address_detail": order.address_detail,
-        "remark": order.remark,
-    }
+    # 审计日志记哪几个字段：派单员那条路仍记原来那三项（行为冻结），货主那条路记他真能动
+    # 的那四项 —— 否则日志里会出现"改了，但 change_payload 一个字都没记"。
+    tracked = CONTACT_FIELDS if contact_only else DISPATCHER_TRACKED_FIELDS
+    before = {f: getattr(order, f) for f in tracked}
     if body.delivery_description is not None:
         order.delivery_description = body.delivery_description
     if body.address_detail is not None:
@@ -336,11 +391,7 @@ def update_order(db: Session, *, actor: User, order_id: int, body: OrderUpdate) 
         order.remark = body.remark
     if body.internal_notes is not None:
         order.internal_notes = body.internal_notes
-    after = {
-        "delivery_description": order.delivery_description,
-        "address_detail": order.address_detail,
-        "remark": order.remark,
-    }
+    after = {f: getattr(order, f) for f in tracked}
     write_log(
         db,
         operator_id=actor.id,
@@ -355,7 +406,9 @@ def update_order(db: Session, *, actor: User, order_id: int, body: OrderUpdate) 
     #    客户在电话里改了地址 → 派单员改完 → 司机那一页还是旧地址，且断线重连也补不回
     #    （重连只回补通知表、不带订单负载）。司机拿着旧地址跑一趟的成本是真实发生的。
     #    ⚠️ 事件与这次改单**同一个事务**（放在 commit 之前）：改单没成，司机就不该收到「地址变了」。
-    if order.driver_id:
+    # ⚠️ 补联系信息那条路只在**单还没结束**时推：终态的单司机早就跑完了，补一个名字推过去
+    #    只是噪音（他不会再跑这一趟）；而在途的单必须推 —— 他手上那个电话可能已经换了。
+    if order.driver_id and not (contact_only and finished):
         outbox.enqueue(db, "orders.edited", {"driver_id": order.driver_id, "order_id": order.id})
     db.commit()
     full = load_order_for_response(db, order.id)

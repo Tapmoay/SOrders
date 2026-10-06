@@ -42,6 +42,14 @@ class Permission(str, Enum):
     ORDER_DISPATCH = "order:dispatch"
     ORDER_RECALL = "order:recall"
     ORDER_EDIT = "order:edit"
+    # 货主 / 批发商**自己**补这一单的联系信息（台账 L-27，用户 m01132：「他自己去写一个收货人」）。
+    #
+    # ⛔ 为什么必须与上一条**分开两个权限点**（而不是把上一条加进货主那一格）：
+    #    上一条管的是**整张单** —— 送货地址（改地址＝司机跑错地方）、内部备注
+    #    （派单员写给派单员看的东西）、以及**别人名下的单**（它的 scope 是 all）。
+    #    货主要补的只有"这单送给谁、打给谁"；那条门一旦打开，他顺手就能改地址与内部备注、
+    #    还能改别人名下的单 —— 那不是"多给了一点方便"，是把派单员的编辑权原地让出去。
+    ORDER_EDIT_CONTACT = "order:edit_contact"
     ORDER_COMPLETE_DRIVER = "order:complete_driver"
     ORDER_INTERNAL_NOTE = "order:internal_note"
     ORDER_UPLOAD_DELIVERY = "order:upload_delivery"
@@ -69,6 +77,10 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             # ⚠️ 这条注释里刻意**不写**那个权限点的完整名字：`_check_order_return.py` 会在
             #    "货主这一段"里搜它，写了就等于声明"货主也有退货权"（那是错的）。
             Permission.ORDER_RETURN_REQUEST,
+            # 补**自己名下**那一单的联系信息（台账 L-27）。
+            # ⛔ 只补联系信息：整张单的编辑权（含地址、内部备注、别人名下的单）不在这一格里，
+            #    也不许有 —— 命令层 `update_order(contact_only=True)` 那道守卫就是这条线。
+            Permission.ORDER_EDIT_CONTACT,
             Permission.ORDER_DELETE_CANCELLED,
             Permission.LEDGER_READ_OWN,
             Permission.NOTIFICATION_READ,
@@ -156,6 +168,9 @@ SCOPES: dict[Permission, tuple[str, str]] = {
         "所以它更是全局动作（没有人会因为这次变动来问）",
     ),
     Permission.ORDER_EDIT: ("all", "派单员代客改单，改的往往是别人名下的单，所以不分归属"),
+    # ⚠️ 理由必须与 `capabilities.py` 里那条 `Capability(permission="ORDER_EDIT_CONTACT")`
+    #    的 `scope_why` **逐字相同**（判据 `_check_capability_registry.py` 双向对账）。
+    Permission.ORDER_EDIT_CONTACT: ("own", "货主只能补自己名下的单的联系信息（行级过滤按 shipper_id）"),
     Permission.ORDER_COMPLETE_DRIVER: ("assigned", "司机只能完成派给自己的单"),
     Permission.ORDER_INTERNAL_NOTE: ("assigned", "内部备注写在单上，司机限自己的单"),
     Permission.ORDER_UPLOAD_DELIVERY: ("assigned", "送达照片只能传到派给自己的那张单上（行级过滤按 driver_id）"),

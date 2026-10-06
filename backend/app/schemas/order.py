@@ -166,6 +166,17 @@ class OrderUpdate(ShowableModel, GeoInput):
     internal_notes: str | None = Field(None, max_length=MAX_TEXT)
 
 
+class OrderContactUpdate(OrderUpdate):
+    """`PATCH /orders/{id}/contact` 的入参（台账 L-27）—— 货主/批发商那一扇门只补联系信息。
+
+    ⚠️ 为什么不另写一个只含四个字段的模型：改单的实现只能有**一份**
+    （`commands/order.py::update_order(..., contact_only=True)`）—— 两个入参模型＝两处字段清单，
+    迟早有一处漏一个字段。
+    ⛔ 继承下来的那几个多余字段由**命令层的守卫**兜住（fail-closed：非联系字段非 None 就 403）；
+    判据与反验都钉在那道守卫上，而不是钉在这个类上。
+    """
+
+
 class OrderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -187,6 +198,10 @@ class OrderOut(BaseModel):
     # 收货人 / 下单人的名称（老数据是空串 = 没记过名字，客户端按"没填"显示）
     contact_dongjia_name: str = ""
     contact_boss_name: str = ""
+    #: 收货人与下单人的姓名**都空** ⇒ 这一单在按人看的账目里归不进谁（台账 L-28 的「无主账」，
+    #: 唯一实现是 `services/order_contact.py::contact_risk_of`）。
+    #: ⛔ 客户端只读它，**不许自己再判一遍**（同一件事两个答案 = 本项目最贵的一类错）。
+    contact_risk: bool = False
     remark: str
     internal_notes: str
     driver_remark: str

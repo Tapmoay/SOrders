@@ -237,6 +237,10 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun updateOrder(orderId: Long, body: com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest) =
         api.orderApi.updateOrder(orderId, body)
 
+    /** 补联系信息（L-27 / CHG-0057）：只报四个联系字段，走货主专用的那扇门（`order:edit_contact`）。 */
+    suspend fun updateOrderContact(orderId: Long, body: com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest) =
+        api.orderApi.updateOrderContact(orderId, body)
+
     suspend fun markException(orderId: Long, body: com.tapmoay.sorders.data.remote.dto.OrderExceptionBody) =
         api.orderApi.markException(orderId, body)
 

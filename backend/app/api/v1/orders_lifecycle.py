@@ -26,7 +26,13 @@ from app.database import get_db
 from app.deps import DispatcherUser, require_permission, require_roles
 from app.models import Order, User
 from app.models.enums import OperationAction, OrderStatus, UserRole
-from app.schemas.order import OrderCreate, OrderExceptionBody, OrderOut, OrderUpdate
+from app.schemas.order import (
+    OrderContactUpdate,
+    OrderCreate,
+    OrderExceptionBody,
+    OrderOut,
+    OrderUpdate,
+)
 from app.services.operation_log_service import write_log
 from app.services.order_response import enrich_order_out, load_order_for_response
 from app.api.v1.orders_common import (
@@ -129,6 +135,33 @@ def update_order(
 ) -> OrderOut:
     try:
         order = order_commands.update_order(db, actor=current, order_id=order_id, body=body)
+    except order_commands.CommandError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from None
+    return enrich_order_out(order, db, current)
+
+
+@router.patch("/{order_id}/contact", response_model=OrderOut)
+def update_order_contact(
+    order_id: int,
+    body: OrderContactUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_EDIT_CONTACT)),
+) -> OrderOut:
+    """货主 / 批发商补**自己那一单**的联系信息（台账 L-27）。
+
+    ⚠️ 与上面 `PATCH /{order_id}` 的差别只有两处，别的全部复用：
+    ① 权限点是 `ORDER_EDIT_CONTACT`（不是 `ORDER_EDIT`）；
+    ② **先 `_get_order_scoped` 做归属校验** —— 上面那个端点今天不调它（派单员就该能
+       改任何人的单，那个权限点的 scope 是 all），而这一扇门的 scope 是 own：
+       少了这一行，货主带着自己的 token 就能补**别人名下**那一单的联系信息。
+    ⛔ 派单员走 `rbac.BYPASS_ROLES` 也能进这一扇门 —— 但他在这里能动的比
+       `PATCH /{order_id}` **更少**（终态单只许补联系信息），所以这不是越权。
+    """
+    _get_order_scoped(order_id, current, db)
+    try:
+        order = order_commands.update_order(
+            db, actor=current, order_id=order_id, body=body, contact_only=True
+        )
     except order_commands.CommandError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail) from None
     return enrich_order_out(order, db, current)

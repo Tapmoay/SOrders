@@ -17,11 +17,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.tapmoay.sorders.core.Capabilities
 import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductDto
+import com.tapmoay.sorders.ui.common.ContactPickerSheet
 import com.tapmoay.sorders.ui.common.FormErrorLine
 import com.tapmoay.sorders.ui.common.FormInputRow
 import com.tapmoay.sorders.ui.common.FormTextAreaRow
+import com.tapmoay.sorders.ui.nav.Role
 
 /**
  * 订单详情页「点哪块信息就改哪块」（CHG-0041）。
@@ -107,6 +111,44 @@ interface OrderEditHost {
      * `ui/common/ProductPicker.kt`）—— 详情页这一层只需要"能要求把它打开"。
      */
     fun openLinePicker()
+
+    // ---- 补联系信息（L-27 / CHG-0057）—— 货主那一扇门 ----
+
+    /**
+     * 「从联系人里选」那个弹层开着吗。
+     *
+     * 零件与下单页**同一个**（`ui/common/ContactPickerSheet.kt`）：用户 2026-10-06（m01132）
+     * 说的就是"他可以去调用他自己的那个收货人列表，也可以新建一个收货人……这些代码是可以复用的"。
+     */
+    val showContactSheet: Boolean
+
+    /** 自己的联系人名册（弹层里那一列）。 */
+    val contacts: List<ContactDto>
+
+    /** 名册拉失败的原因（只写在弹层里，⛔ 不换整页）。 */
+    val contactsError: String?
+
+    val loadingContacts: Boolean
+
+    /** 「新建联系人」进行中。 */
+    val creatingContact: Boolean
+
+    /** 新建联系人失败的原因（就地写在新建对话框里）。 */
+    val contactSaveError: String?
+
+    /** 打开选人弹层（顺手刷新一遍名册）。 */
+    fun openContactSheet()
+
+    fun closeContactSheet()
+
+    /** 重新拉一遍名册。 */
+    fun loadContacts()
+
+    /** 挑中一位 → 填进**收货人**那一组（换人就是换人，整对替换）。 */
+    fun pickContactForDongjia(c: ContactDto)
+
+    /** 在弹层里现建一位联系人，建成后直接选中。 */
+    fun createContactAndPick(name: String, phone: String)
 }
 
 /**
@@ -127,6 +169,15 @@ object OrderEditField {
 
     /** 备注。 */
     const val REMARK = "remark"
+
+    /**
+     * 补联系信息那一整块（L-27 / CHG-0057）—— **货主**那一扇门。
+     *
+     * ⛔ 与上面四块不是同一扇门：这一块只报四个联系字段，走 `PATCH /orders/{id}/contact`
+     * （权限点 `order:edit_contact`，只给货主、scope=own）；上面四块归派单员（`canEditInfo`）。
+     * 这也是为什么详情页那四颗「改」（[EditHint]）一个字都不用动 —— 既有判据钉死了它们的条数。
+     */
+    const val CONTACT = "contact"
 
     const val ADDRESS_DETAIL = "addressDetail"
     const val DONGJIA_NAME = "contactDongjiaName"
@@ -212,6 +263,88 @@ fun ContactEditBlock(
             saveLabel = "保存" + title,
             onSave = { edit.saveEdit() },
             onCancel = { edit.cancelEdit() },
+        )
+    }
+}
+
+/**
+ * 补联系信息（L-27 / L-28 / CHG-0057）—— 货主那一扇门。
+ *
+ * ## 为什么单独摆一块，而不是复用上面那两颗「改」
+ * 上面那些块归**派单员**（详情页里的 `canEditInfo`），而且收货人 / 下单人那两行在两个名字
+ * **都空**的时候根本不画（`dongjiaWho != null || canEditInfo`）—— 偏偏"两个名字都空"正是
+ * 这一块要修的那种单。所以货主这一扇门得自己有一块看得见的界面。
+ *
+ * ## 它报什么、走哪条路
+ * 只报**四个联系字段**（收货人姓名/电话、下单人姓名/电话），走 `PATCH /orders/{id}/contact`
+ * （权限点 `order:edit_contact`，只给货主、scope=own）。地址 / 备注 / 内部备注一个字都不报，
+ * 多报一个别的字段后端会退回（403）—— 那扇门不是拿来改单的，是拿来把"账上认不出人"补齐的。
+ *
+ * ⛔ **两个名字至少填一个**：后端算「账上认不出人」看的就是这两个**姓名**（只填电话不算），
+ * 只填电话再保存，那条红标还会在。
+ */
+@Composable
+fun ContactFillPanel(edit: OrderEditHost, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth()) {
+        Text("补联系信息", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "这单账上认不出人：收货人与下单人都没填名字，核销时不能归到谁头上（会变成无主账）。" +
+                "两个名字至少填一个 —— 收货人是到场接货的人，下单人是下这一单的人。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = { edit.openContactSheet() }, enabled = !edit.editBusy) {
+            Text("从联系人里选收货人")
+        }
+        Spacer(Modifier.height(4.dp))
+        EditBox(
+            label = "收货人姓名",
+            value = edit.draft(OrderEditField.DONGJIA_NAME),
+            onValue = { edit.setDraft(OrderEditField.DONGJIA_NAME, it) },
+        )
+        Spacer(Modifier.height(8.dp))
+        EditBox(
+            label = "收货人电话",
+            value = edit.draft(OrderEditField.DONGJIA_PHONE),
+            // 电话只让数字进来（规则唯一实现在 core/InputRules.kt，⛔ 别在界面里另写一遍过滤）
+            onValue = { edit.setDraft(OrderEditField.DONGJIA_PHONE, InputRules.phoneInput(it)) },
+            keyboard = KeyboardType.Phone,
+        )
+        Spacer(Modifier.height(8.dp))
+        EditBox(
+            label = "下单人姓名",
+            value = edit.draft(OrderEditField.BOSS_NAME),
+            onValue = { edit.setDraft(OrderEditField.BOSS_NAME, it) },
+        )
+        Spacer(Modifier.height(8.dp))
+        EditBox(
+            label = "下单人电话",
+            value = edit.draft(OrderEditField.BOSS_PHONE),
+            onValue = { edit.setDraft(OrderEditField.BOSS_PHONE, InputRules.phoneInput(it)) },
+            keyboard = KeyboardType.Phone,
+        )
+        EditActions(
+            error = edit.editError,
+            busy = edit.editBusy,
+            saveLabel = "保存联系信息",
+            onSave = { edit.saveEdit() },
+            onCancel = { edit.cancelEdit() },
+        )
+    }
+    // 选人弹层挂在这一块里：它只在这块打开时才有意义。
+    if (edit.showContactSheet) {
+        ContactPickerSheet(
+            contacts = edit.contacts,
+            onPick = { edit.pickContactForDongjia(it) },
+            onDismiss = { edit.closeContactSheet() },
+            loading = edit.loadingContacts,
+            error = edit.contactsError,
+            onRetry = { edit.loadContacts() },
+            onCreate = { name, phone -> edit.createContactAndPick(name, phone) },
+            creating = edit.creatingContact,
+            createError = edit.contactSaveError,
         )
     }
 }
@@ -364,3 +497,26 @@ private fun EditActions(
         }
     }
 }
+// ============================================================== 权限门（「谁能做这件事」）
+
+/**
+ * 这一单能不能补联系信息（收货人 / 下单人的姓名与电话那四格，台账 L-27 / L-28 / L-31，CHG-0057）？
+ *
+ * ## 为什么这件事要单独有个名字，而不是在详情页上再写一遍
+ * 「谁能做这件事」的唯一真相在后端 `backend/app/core/rbac.py`（由
+ * `_tools/ai/_gen_capability_snapshot.py` 生成到 `core/Capabilities.kt`）——
+ * 这里只是把那一格**问出口**，没有第二份授权矩阵：权限键是 `"order:edit_contact"`，
+ * 谁有它由生成物回答。
+ *
+ * ⚠️ 为什么不在详情页上直接写 `Capabilities.can(role.key, "order:edit_contact")`（原来的写法）：
+ *    那个文件里已经有 `"order:cancel_shipper"` 与 `"order:cancel_dispatcher"` 两个字面量，
+ *    再加一个就凑够 3 个 —— `_tools/qa/_check_capability_unification.py` 与
+ *    `_tools/qa/_check_r3_constraints.py` 的 R3-D04 都把「一个 Kotlin 文件里 ≥3 个互异的
+ *    权限键字面量」判成**手抄的第二份权限词表**（R3-02-B：授权只该有一个来源）。
+ *    键放在这一处、问题也只在这一处回答，两边就都只有一个来源。
+ *
+ * ⚠️ 为什么不是 `role == Role.SHIPPER`：能力表里这一格以后可能开给别的角色
+ *    （派单员那条路合并过来、或者开给别的岗位），写成角色判断就会出现
+ *    「能力表说能、界面说不能」这种两边走散的局面。
+ */
+fun canEditOrderContact(role: Role): Boolean = Capabilities.can(role.key, "order:edit_contact")

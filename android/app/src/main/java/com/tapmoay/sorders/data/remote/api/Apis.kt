@@ -230,6 +230,16 @@ interface OrderApi {
     @PATCH("orders/{orderId}")
     suspend fun updateOrder(@Path("orderId") orderId: Long, @Body body: OrderUpdateRequest): OrderDto
 
+    /**
+     * 补联系信息（L-27 / CHG-0057）：货主**只**能改这四个字段的那扇门。
+     *
+     * 与上面那扇全量门的区别全在服务端：权限点 `order:edit_contact`（只给货主、scope=own），
+     * 命令层走 `contact_only=True`，只认四个联系字段，多传一个别的字段会被退回（403）。
+     * ⛔ 别拿上面那个方法顶替它 —— 那扇门把地址 / 内部备注 / 别人名下的单一起敞开。
+     */
+    @PATCH("orders/{orderId}/contact")
+    suspend fun updateOrderContact(@Path("orderId") orderId: Long, @Body body: OrderUpdateRequest): OrderDto
+
     @DELETE("orders/{orderId}")
     suspend fun deleteOrder(@Path("orderId") orderId: Long)
 
