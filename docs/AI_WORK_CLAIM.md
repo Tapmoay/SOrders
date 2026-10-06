@@ -7258,4 +7258,4 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 
 **验证**：判据 **45/45** · 反验 **12/12** · 既有回归 `_check_ledger_dialog_style.py` **62/62** 与 `_reverse_verify_ledger_dialog_style.py` **16/16** · `:app:compileEmuDebugKotlin` ＋ `:app:testEmuDebugUnitTest` **BUILD SUCCESSFUL in 2m 14s** · `:app:assembleEmuDebug` exit 0 · 全量静检 **202 脚本 / 200 ✅ / 2 ❌**（两条红与本刀无关）· 可达性 **183 / 183** · 真机 emulator-5554 改前/改后各 2 张弹窗截图（`shots/chg0064_before_5554_cancel_order.png`、`…_after_5554_cancel_order.png`、`…_before_5554_apply_return.png`、`…_after_5554_apply_return.png`）；5556 装着别的会话更高版本号，装不上，那一侧只有判据钉档。
 
-**实现提交**：`HASH`（本事项动 **46** 个文件：Android 37 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
+**实现提交**：`72f141f`（本事项动 **46** 个文件：Android 37 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
