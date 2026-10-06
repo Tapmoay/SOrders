@@ -1,6 +1,5 @@
 package com.tapmoay.sorders.ui.profile
 
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -37,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AlertService
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.NewOrderAlert
+import com.tapmoay.sorders.core.NotifyPermission
+import com.tapmoay.sorders.core.startFirstResolvable
 import com.tapmoay.sorders.ui.common.TintedIcon
 import com.tapmoay.sorders.ui.nav.Role
 
@@ -72,7 +73,7 @@ fun AlertSettingsScreen(
     // 关掉的是跟自己无关的东西，可他关掉的其实是"司机接单了 / 货送到了"。
     val backgroundRow = NewOrderAlert.backgroundRowText(role)
     // 系统权限/省电策略会被用户在系统设置里改，回到这一页要重新读一次
-    var notifAllowed by remember { mutableStateOf(notificationsAllowed(context)) }
+    var notifAllowed by remember { mutableStateOf(NotifyPermission.enabled(context)) }
     var batteryFree by remember { mutableStateOf(batteryUnrestricted(context)) }
     val running by AlertService.running.collectAsState()
 
@@ -99,7 +100,10 @@ fun AlertSettingsScreen(
                     title = "手机还没允许 SOrders 发通知",
                     body = "不开这个权限，派单来了手机上不会弹任何东西——只有打开 App 才看得到。",
                     action = "去开启",
-                    onClick = { openNotificationSettings(context) },
+                    // ⚠️ 这句话与首页那张硬提示（`ui/home/RoleHomeScreen.kt`）**逐字相同**：
+                    //    两个入口一个口径，判据 `_check_notify_permission_guide.py` 钉着它。
+                    icon = Icons.Default.NotificationsOff,
+                    onClick = { NotifyPermission.openSettings(context) },
                 )
                 Spacer(Modifier.height(12.dp))
             }
@@ -242,7 +246,7 @@ fun AlertSettingsScreen(
     // 不变的话用户会以为"设了没用"，然后放弃这个功能。
     LaunchedEffect(Unit) {
         while (true) {
-            notifAllowed = notificationsAllowed(context)
+            notifAllowed = NotifyPermission.enabled(context)
             batteryFree = batteryUnrestricted(context)
             kotlinx.coroutines.delay(700)
         }
@@ -301,16 +305,27 @@ private fun ChoiceRow(title: String, role: Role?, current: Int, onPick: (Int) ->
     }
 }
 
-/** 需要用户去系统里做一件事的提示：说清"不做会怎样" + 一个能点的按钮 */
+/**
+ * 需要用户去系统里做一件事的提示：说清"不做会怎样" + 一个能点的按钮。
+ *
+ * `icon` 默认是电池那个（省电那一张卡）；通知那一张显式传 `NotificationsOff` ——
+ * 2026-10-06（CHG-0056）之前两张卡都顶着电池图标，用户第一眼读到的是"电池的事"。
+ */
 @Composable
-private fun WarnCard(title: String, body: String, action: String, onClick: () -> Unit) {
+private fun WarnCard(
+    title: String,
+    body: String,
+    action: String,
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.BatteryAlert,
+) {
     Surface(
         color = Color(0xFFFFF3E0),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TintedIcon(Icons.Default.BatteryAlert, Color(0xFFFF9500), size = 18.dp, container = 34.dp)
+            TintedIcon(icon, Color(0xFFFF9500), size = 18.dp, container = 34.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
@@ -327,26 +342,15 @@ private fun WarnCard(title: String, body: String, action: String, onClick: () ->
     }
 }
 
-// ---- 系统状态读取 / 跳转（都在这一页里，别处不用） ----
-
-private fun notificationsAllowed(context: Context): Boolean {
-    val nm = context.getSystemService(NotificationManager::class.java) ?: return false
-    return nm.areNotificationsEnabled()
-}
+// ---- 系统状态读取 / 跳转 ----
+// ⚠️ 通知那半（有没有权限、跳哪个设置页）已搬进 `core/NotifyPermission.kt`（CHG-0056）：
+//    首页那张硬提示与这一页的卡片必须走**同一套判定**，否则两个入口会互相矛盾。
+//    这一页只剩"省电策略"这一项读取。
 
 /** 省电策略是否"不受限制"。读这个状态不需要任何权限。 */
 private fun batteryUnrestricted(context: Context): Boolean {
     val pm = context.getSystemService(PowerManager::class.java) ?: return true
     return pm.isIgnoringBatteryOptimizations(context.packageName)
-}
-
-private fun openNotificationSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    startFirstResolvable(context, intent) {
-        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName))
-    }
 }
 
 private fun openBatterySettings(context: Context) {
@@ -357,17 +361,3 @@ private fun openBatterySettings(context: Context) {
     }
 }
 
-/**
- * 跳系统设置：首选页在个别 ROM 上不存在（各家都改过），
- * 所以留一个"应用详情页"兜底——**必须能点到某个设置页**，
- * 否则用户点「去开启」没反应，会以为 App 坏了。
- */
-private fun startFirstResolvable(context: Context, preferred: Intent, fallback: () -> Intent) {
-    val candidates = listOf(preferred, fallback().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    for (i in candidates) {
-        if (i.resolveActivity(context.packageManager) != null) {
-            runCatching { context.startActivity(i) }
-            return
-        }
-    }
-}

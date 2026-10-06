@@ -148,6 +148,9 @@ def main() -> int:
     main_activity = strip_comments(read(SRC / "MainActivity.kt"))
     nav = strip_comments(read(SRC / "ui/nav/NavGraph.kt"))
     settings = strip_comments(read(SRC / "ui/profile/AlertSettingsScreen.kt"))
+    # 2026-10-06（CHG-0056）：通知权限的读法 / 判定 / 跳转收口到 core/NotifyPermission.kt，
+    # 设置页只做转发 ⇒ 「能跳通知权限设置」这条断言要改钉到它新的家（否则代码搬了、判据红在旧址）。
+    notify_perm = strip_comments(read(CORE / "NotifyPermission.kt"))
     detail_vm = strip_comments(read(SRC / "ui/order/OrderDetailViewModel.kt"))
     pool_vm = strip_comments(read(SRC / "ui/dispatcher/DispatcherPoolViewModel.kt"))
     profile = strip_comments(read(SRC / "ui/profile/ProfileScreen.kt"))
@@ -403,7 +406,8 @@ def main() -> int:
     )
     c.present("摘要按角色说不同的话（货主不该被告知有语音）", alert, r"if \(!hasVoice\(role\)\) return if \(background\)")
     c.present("权限没开时明确说出来（而不是显示一个假的「已开」）", alert, r'"通知权限未开"')
-    c.present("设置页在权限没开时给出「去开启」入口", settings, r"手机还没允许 SOrders 发通知[\s\S]{0,400}?openNotificationSettings")
+    c.present("设置页在权限没开时给出「去开启」入口（转发给 core/NotifyPermission.kt）", settings,
+              r"手机还没允许 SOrders 发通知[\s\S]{0,400}?NotifyPermission\.openSettings\(")
     c.present("设置页能改重复次数", settings, r"REPEAT_CHOICES\.forEach")
     c.present("设置页有试听且真的会播一遍", settings, r"试听一声[\s\S]{0,900}?newOrderPlayer\.play\(")
     # ⚠️ 判据必须钉到**试听那一处调用**（`planFor(voiceKind, repeat)`）：只写 `play(voiceKind,`
@@ -414,7 +418,13 @@ def main() -> int:
     c.present("开关文案按角色说（派单员听到的是「待派单」那一句）", settings,
               r"role == Role\.DISPATCHER[\s\S]{0,160}?有新订单待派单")
     c.present("档位文案也按角色说（派单员不接单）", settings, r"repeatLabel\(n, role\)")
-    c.present("设置页能跳通知权限设置", settings, r"ACTION_APP_NOTIFICATION_SETTINGS")
+    # ⚠️ CHG-0056 起跳法只有 core/NotifyPermission.kt 一份；页面里那段 Intent 已删（写死旧址 = 判据化石）。
+    c.present("设置页能跳通知权限设置（跳法收口在 core/NotifyPermission.kt）", notify_perm,
+              r"ACTION_APP_NOTIFICATION_SETTINGS")
+    c.present("设置页那张卡真的转发到共用那份（不是自己又拼一份）", settings,
+              r"NotifyPermission\.openSettings\(")
+    c.absent("设置页不再自己拼通知设置页 Intent（跳法不许有第二份）", settings,
+             r"ACTION_APP_NOTIFICATION_SETTINGS")
     c.present("设置页能跳省电策略设置", settings, r"ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS")
     c.present("设置项落在本机（聊天/设置不上传）", prefs, r'getSharedPreferences\("alerts"')
 

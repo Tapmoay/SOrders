@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,8 +25,10 @@ import androidx.core.content.ContextCompat
 import com.tapmoay.sorders.core.AlertService
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.DeviceLocation
+import com.tapmoay.sorders.core.NotifyPermission
 import com.tapmoay.sorders.core.SunLocation
 import com.tapmoay.sorders.ui.messages.MessagesScreen
+import com.tapmoay.sorders.ui.common.CardAlertDialog
 import com.tapmoay.sorders.ui.common.LoadingBox
 import com.tapmoay.sorders.ui.nav.AiNavButton
 import com.tapmoay.sorders.ui.nav.Modules
@@ -60,11 +63,29 @@ fun RoleHomeScreen(
             scope.launch { if (DeviceLocation.requestSingle(permContext) != null) ThemeMode.refreshAuto(permContext) }
         }
     }
+    // ⭐ 通知权限的**硬提示**（台账 L-26 第⑤条 / CHG-0056）：手机上不让发通知时，进首页主动拦一次、
+    //    把用户领到那个开关去 —— 而不是像从前那样"静默降级"（用户原话 m01132：
+    //    「这个一定要有的这个权限，我们**如果权限不足的话，我们就给他开**」；
+    //    漏通知的后果他点得很明白：「**账会乱掉**的，绝对是不允许的」）。
+    var showNotifyGuide by rememberSaveable { mutableStateOf(false) }
+
+    // 判一次"要不要拦"。**只在系统那轮权限弹窗走完之后调**：用户刚点过"允许"就不该再拦
+    // （areNotificationsEnabled() 有一拍延迟，所以这一轮拿到的授予结果也当"开着"看）；
+    // 没给（或他早就在系统设置里关过）才轮到我们这张。
+    fun guideNotifyPermission(grantedNow: Boolean) {
+        val ok = grantedNow || NotifyPermission.enabled(permContext)
+        if (NotifyPermission.shouldPrompt(ok, NotifyPermission.promptedThisLaunch)) {
+            NotifyPermission.markPrompted()
+            showNotifyGuide = true
+        }
+    }
+
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         // 定位权限授予（或已授予）→ 预热定位：地图选点打开即跳当前位置，无需等待
         val locOk = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (locOk) warmUpLocation()
+        guideNotifyPermission(grants[Manifest.permission.POST_NOTIFICATIONS] == true)
     }
     LaunchedEffect(Unit) {
         val perms = buildList {
@@ -87,6 +108,10 @@ fun RoleHomeScreen(
         } else {
             // 权限齐全：直接预热定位（地图选点秒定位）
             warmUpLocation()
+            // 没有要申请的了（含 API 33 以下：那一档根本没有 POST_NOTIFICATIONS）：
+            // 这时候还没权限就只可能是**用户在系统设置里关掉的**，系统弹窗不会再出现 ——
+            // 只能靠我们这张硬提示把他领过去。
+            guideNotifyPermission(false)
         }
     }
 
@@ -287,5 +312,35 @@ fun RoleHomeScreen(
                 )
             }
         }
+    }
+
+    // 通知权限没开 → 硬提示。文案与「我的 → 消息提醒」那张卡片同一个口径（说清"不做会怎样"），
+    // 这里只是把它拦在**进门的门口**：不进设置页的用户从前一辈子看不到那句提醒。
+    // 样式走共用件 CardAlertDialog（白卡那套弹窗语言的唯一落点），图标用语义色橙。
+    if (showNotifyGuide) {
+        CardAlertDialog(
+            onDismissRequest = { showNotifyGuide = false },
+            icon = {
+                Icon(
+                    Icons.Default.NotificationsOff,
+                    contentDescription = null,
+                    tint = Color(0xFFFF9500),
+                )
+            },
+            title = { Text("手机上还没允许发通知") },
+            text = {
+                // ⚠️ 与「我的 → 消息提醒」那张卡片**逐字相同**的那句（两个入口一个口径）。
+                Text("不开这个权限，派单来了手机上不会弹任何东西——只有打开 App 才看得到。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showNotifyGuide = false
+                    NotifyPermission.openSettings(permContext)
+                }) { Text("去开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotifyGuide = false }) { Text("以后再说") }
+            },
+        )
     }
 }

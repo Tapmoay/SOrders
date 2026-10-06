@@ -25,8 +25,9 @@ M3 的 `AlertDialog` 默认容器色 = `colorScheme.surfaceContainerHigh`；本�
    （`shape` / `containerColor = MaterialTheme.colorScheme.surface` / `tonalElevation = 0.dp`）；
    KDoc 里点了 L-16 与用户原话；
 2. 核销这一族 5 处都迁了，且这两个文件里**代码**中再没有裸 `AlertDialog(`；
-3. 全仓**代码**里裸 `AlertDialog(` 从 68 → 63（只有这 5 处被迁），`CardAlertDialog(` = 6
-   （1 处定义 ＋ 5 处调用）；
+3. 全仓**代码**里裸 `AlertDialog(` 从 68 → 63（只有这 5 处被迁），`CardAlertDialog(` ≥ 6
+   （1 处定义 ＋ CHG-0051 迁的 5 处调用；这一族是**在扩散的**共用件 —— 2026-10-06 CHG-0056
+   在首页又加了一处，所以这里改成下限：**少一处**（有人把迁移回退）照样红，多一处是本来的方向）；
 4. 边界：别的页面一处没动（OrderDetailScreen 8 / DispatcherOrdersScreen 5 / OrderCreateScreen 4
    / ProfileScreen 3）；
 5. 方案 C 的护栏：主题 token 与它的 6 处消费者一个字没动；`DangerConfirmDialog` 与既有判据
@@ -78,7 +79,7 @@ REVERSE = ROOT / "_tools/qa/_reverse_verify_ledger_dialog_style.py"
 MIN_KT = 100
 #: 迁移前全仓裸 `AlertDialog(` 是 68 处；本事项只迁核销那 5 处。
 BARE_AFTER = 63
-#: 零件定义 1 处 ＋ 迁移调用点 5 处。
+#: 零件定义 1 处 ＋ 迁移调用点 5 处（＝下限；后来别的事项可以继续用它，见 docstring §3）。
 CARD_AFTER = 6
 #: 核销这一族的迁移清单（文件 ＋ 迁了几处）。
 MIGRATED = [(SHIPPER, 3, "货主账本"), (DISPATCHER, 2, "派单员账本")]
@@ -208,7 +209,10 @@ def main() -> int:
             bare_left[p.relative_to(AND).as_posix()] = b
     c.ok(f"全仓代码里裸 AlertDialog( = {bare_total} 处（迁移前 68，只迁核销那 5 处）", bare_total == BARE_AFTER,
          f"实际 {bare_total}")
-    c.ok(f"全仓 CardAlertDialog( = {card_total} 处（1 处定义 ＋ 5 处调用）", card_total == CARD_AFTER,
+    # ⚠️ 这里是**下限**不是等式：CHG-0051 之后别的事项陆续用它（CHG-0056 在首页加了一处），
+    #    等式会让每一个后来的正当调用点都变红；但**少**一处（迁回去 / 被删）仍然必须当场红。
+    c.ok(f"全仓 CardAlertDialog( = {card_total} 处（≥ {CARD_AFTER}：1 处定义 ＋ 5 处迁移调用）",
+         card_total >= CARD_AFTER,
          f"实际 {card_total}")
     for p, _, who in MIGRATED:
         rel = p.relative_to(AND).as_posix()

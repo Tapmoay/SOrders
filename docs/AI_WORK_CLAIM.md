@@ -6177,6 +6177,12 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 | 2026-09-21 1:0x | **运费模板/计费规则**（我） | `_tools/ai/_gen_ai_toolmap.py`、`_read_coverage.py`、`_write_coverage.py` | 追加：模块中文名一行、两个新读端点的理由、五条新写端点的「不做」理由（都是追加） |
 | 2026-09-21 1:0x | **运费模板/计费规则**（我） | `ui/dispatcher/UsersManageScreen.kt` / `UsersManageViewModel.kt` | 删掉司机编辑页的「固定工资」「计费方式」两个老字段（VM 也不再发这两个字段）—— 用户点名「计费规则就已经包括他们上面的」 |
 | 2026-09-20 23:5x | **账本记一笔账**（我） | `ui/dispatcher/DispatcherLedgerScreen.kt` / `DispatcherLedgerViewModel.kt` | 删掉记账弹窗与它的草稿状态（**同一件事不留两份**），换成 `LaunchedEffect(Unit) { vm.onEnter() }`。`_check_user_search` 钉的锚点（`KpiBlock(` / `SearchField(` / `UserSearch.filter(accountRows()` / `LedgerAccountRow(` 恰好两处）一个没动；账本页的版式（药丸 + 抽屉 + 无图）也没动 |
+| 2026-10-06 14:4x | **CHG-0056 通知权限不足就引导去开**（我，`session-bd8fe093`） | `android/.../core/NotifyPermission.kt`（新建）＋ `core/NotifyCenter.kt` ＋ `ui/home/RoleHomeScreen.kt` ＋ `ui/profile/AlertSettingsScreen.kt` ＋ 单测 `core/NotifyPermissionTest.kt`（新建） | 「通知权限开着没有」的**读法 / 判定 / 跳转**收口到唯一一份；首页进门没开就弹一次 `CardAlertDialog`（⛔ 不是拦路页）；设置页删掉私有那份改转发；⛔ 零落盘 |
+| 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0056.md`（新建，**两文件必须同一次提交**） | 在 CHG-0055 行之后追加 CHG-0056 一行（`_check_dev_spec.py` 会为「加了文件没登记」当场变红） |
+| 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_notify_permission_guide.py`（6 组 27 项；docstring 写清台账 L-26 第 ⑤ 条与用户原话 ref m01132）＋ `_reverse_verify_notify_permission_guide.py`（23 条注入，5 个被碰过的文件还原后逐字节一致） |
+| 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `_tools/ai/_check_notify_guardrails.py`（**AI 层红线，多会话共读**） | 代码搬家会让它的两条断言变成化石 ⇒ 改钉新家：① 「设置页在权限没开时给出『去开启』入口」从 `openNotificationSettings` 改成 `NotifyPermission.openSettings(`；② 「设置页能跳通知权限设置」改钉 `core/NotifyPermission.kt` 的 `ACTION_APP_NOTIFICATION_SETTINGS`，并新增 absent「设置页不再自己拼」。122 → 124 项 |
+| 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `_tools/qa/_check_ledger_dialog_style.py`（CHG-0051 的判据，多会话共读） | 「全仓 `CardAlertDialog(` = 6」由**等式改下限** `>= 6`：这一族是**在扩散的**共用件（本事项在首页又加一处），等式会让每一个后来正当的调用点都变成红；**少**一处（迁回去 / 被删）仍然红 |
+| 2026-10-06 14:4x | **CHG-0056**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**，⛔ 勿手改） | 新增弹层文案后按规矩重跑 `python _tools/qa/_hint_inventory.py --md`（不重生成会连环红：`_check_generated_freshness.py` / `_check_hints.py` / `_check_order_contact_edit.py`） |
 
 ---
 
@@ -7191,5 +7197,23 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 
 **留给下一件事**：`FEAT-0005` 车辆属性接进单位换算（吨/方现在**还没有任何消费点**）——
 它要先回答"这一单算哪辆车"，会穿孔到四个显示消费点，按规范 §二十五 单独立案。
+
+---
+
+### [2026-10-06 14:3x → 15:0x CST 已完成] 会话：**CHG-0056 通知权限不足时进首页就拦一次并引导去开（台账 L-26 第 ⑤ 条）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**（ref **m01132**）：「这个一定要有的这个权限，我们**如果权限不足的话，我们就给他开**」——动机是漏一条通知**账会乱掉**（「绝对是不允许的」）。台账 `_tmp/USER_BUG_LEDGER_20261006.md` 的 **L-26 第 ⑤ 条**（验收行第 1602 行）写着「通知权限关掉 → 进首页时给出"去开"的**硬提示**（而不是静默降级）」；编号来龙去脉：`docs/changes/CHG-0055.md:307`「通知权限那半 …… 由 **CHG-0056** 承接」、`docs/changes/CHG-0057.md:13`。
+
+**病灶**：① 「通知权限开着没有」在全 App 有**三份**读法（`core/NotifyCenter.kt::canPost()` 自己读 `manager.areNotificationsEnabled()`、设置页私有 `notificationsAllowed`、跳转 Intent 也写在设置页里）；② **没有一处**在权限没开时告诉用户 —— 权限关着时 App 照发（系统不弹），司机端派单来了不响也不弹；③ API 32 及以下 / 已被永久拒绝的人**连权限申请回调都走不到** ⇒ 静默降级，用户永远不知道要开。
+
+**改法（CORE ＋ UI，5 个 `.kt` ＋ 1 个单测文件）**：① 新建 `core/NotifyPermission.kt`（108 行）：`enabled(context)` = `NotificationManagerCompat…areNotificationsEnabled()`、`shouldPrompt(enabled, promptedThisLaunch)`（**纯判定**，两入一出）、`markPrompted()`、`openSettings(context)`（`ACTION_APP_NOTIFICATION_SETTINGS` ＋ 兜底应用详情页）＋ 从设置页搬来并升级成共用的 `internal fun startFirstResolvable(context, preferred, fallback)`；`var promptedThisLaunch` **只活在进程内**（⛔ 不落盘）。② `ui/home/RoleHomeScreen.kt`：权限回调末尾（`:88`）与「没有可申请的权限」那一支（`:114`）都走 `guideNotifyPermission(...)`（`:75-81`），没开就在 Scaffold 之后叠一张 `CardAlertDialog`（`:320-345`：「手机上还没允许发通知」＋「去开启」＋「以后再说」）——⛔ **不是拦路页**（不 return，页面照常进出）。③ `ui/profile/AlertSettingsScreen.kt`：删掉私有 `notificationsAllowed` / `openNotificationSettings` / `startFirstResolvable`，那张卡改成转发 `NotifyPermission.openSettings(context)`；`WarnCard` 加一个 `icon` 形参（默认仍是电池 ⇒ 省电卡一个字没动）。④ `core/NotifyCenter.kt:128-130`：`canPost()` 改转发共用那份（读法全 App 只一处）。⑤ 新增单测 `android/app/src/test/java/com/tapmoay/sorders/core/NotifyPermissionTest.kt`：5 条（`shouldPrompt` 四组合逐条比对 ＋ 标记只记一次）。两处入口那句话**逐字相同**：`不开这个权限，派单来了手机上不会弹任何东西——只有打开 App 才看得到。`
+
+**判据 / 反验**：新增 `_tools/qa/_check_notify_permission_guide.py`（6 组 **27 项**：反空转与唯一落点 / 首页真的会拦 / 硬提示 / 设置页 / 进程内标记 / 单测）＋ `_tools/qa/_reverse_verify_notify_permission_guide.py`（**23 条**注入；5 个被碰过的文件还原后逐字节一致）。**顺带修掉两条会变成化石的既有判据**（代码搬走、判据钉在旧址）：① `_tools/ai/_check_notify_guardrails.py` 那条「设置页能跳通知权限设置」改钉新家 `core/NotifyPermission.kt` ＋「设置页不再自己拼 Intent」的 absent（122 → **124 项**）；② `_tools/qa/_check_ledger_dialog_style.py` 的「全仓 `CardAlertDialog(` = 6」由**等式改下限** `>= 6`（CHG-0051 那一族是在**扩散的**共用件，本事项在首页又加一处；**少**一处仍然红）。
+
+**明确不碰**：后端接口 / 字段 / 协议 / 权限表（零改动）；权限**申请**流程本身（只在它末尾多判一次）；提醒链路三层（`NewOrderAlert` 判定 / `NewOrderPlayer` 播报 / `NotifyCenter` 发通知）与 CHG-0055 刚换的两条渠道 id（`orders_alert` / `messages_alert`）；`core/AlertService.kt` / `core/BootReceiver.kt` / `core/AlertPrefs.kt`；省电那张卡与「我的 → 消息提醒」那 3 处试听；⛔ 不把 `promptedThisLaunch` 落盘；⛔ 不做拦路页。
+
+**验证**：判据 27/27 · 反验 23/23 · 单测 `NotifyPermissionTest` BUILD SUCCESSFUL in 11s · 编译 BUILD SUCCESSFUL in 11s · 既有红线 `_check_notify_guardrails.py` 124/124 与 `_check_ledger_dialog_style.py` 62/62 · 生成物新鲜度 5 组全过（`_check_hints.py` 31 项；改过界面文案，已重跑 `_tools/qa/_hint_inventory.py --md`）· 可达性 **181 / 181** · 全量静检 **200 脚本 / 198 ✅ / 2 ❌**（两条红都与本事项无关）。
+
+**实现提交**：`PENDING`
 
 ---

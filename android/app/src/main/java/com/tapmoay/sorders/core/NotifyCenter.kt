@@ -125,7 +125,9 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
         )
     }
 
-    fun canPost(): Boolean = manager.areNotificationsEnabled()
+    // ⚠️ 读法全 App 只有一处：`core/NotifyPermission.kt`（CHG-0056 起首页那道硬提示也走它）。
+    //    这里只转发 —— 抄第二份的话，两个入口迟早在"到底开没开"上互相矛盾。
+    fun canPost(): Boolean = NotifyPermission.enabled(context)
 
     /** 新单/派单/撤回：高优先级，锁屏也看得见 */
     fun postOrder(orderId: Long?, title: String, body: String) {
