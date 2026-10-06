@@ -169,7 +169,7 @@ fun ExpenseCategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     // 建 / 改名
     vm.editing?.let { (id, current) ->
         var text by remember(id) { mutableStateOf(current) }
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { if (!vm.busy) vm.editing = null },
             title = { Text(if (id == null) "新建开销分类" else "改分类名") },
             text = {

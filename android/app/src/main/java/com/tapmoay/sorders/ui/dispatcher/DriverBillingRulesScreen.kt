@@ -174,7 +174,8 @@ fun DriverBillingRulesScreen(container: AppContainer, onBack: () -> Unit) {
 
     // 删除确认：被拦时**框不关**，把后端那句话显示在里面（"还有 N 个司机挂着这份规则…"）。
     vm.deleteTarget?.let { r ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.deleteTarget = null; vm.deleteError = null },
             title = { Text("删除计费规则") },
             text = {

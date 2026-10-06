@@ -410,7 +410,8 @@ private fun PayableEditorDialog(
     var docDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var remark by remember { mutableStateOf("") }
 
-    AlertDialog(
+    CardAlertDialog(
+        tone = DialogTone.WARN,
         onDismissRequest = onDismiss,
         title = { Text("挂一笔应付款") },
         text = {
@@ -482,7 +483,8 @@ private fun PayDialog(
     val over = unpaid != null && typed != null && typed > unpaid
     val after = if (unpaid != null && typed != null) (unpaid - typed).setScale(2).toPlainString() else null
 
-    AlertDialog(
+    CardAlertDialog(
+        tone = DialogTone.DANGER,
         onDismissRequest = onDismiss,
         title = { Text("付款：${p.title}") },
         text = {

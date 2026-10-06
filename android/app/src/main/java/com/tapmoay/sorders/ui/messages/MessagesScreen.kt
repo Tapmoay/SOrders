@@ -179,7 +179,8 @@ fun MessagesScreen(
     // 批量删除确认
     val batchIds = pendingBatchDelete
     if (batchIds != null) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { pendingBatchDelete = null },
             title = { Text(if (batchIds.isEmpty()) "清空全部消息" else "删除消息") },
             text = {

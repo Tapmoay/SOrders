@@ -57,6 +57,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.ui.theme.SuccessDark
 import com.tapmoay.sorders.ui.theme.ThemeMode
+import com.tapmoay.sorders.ui.theme.WarningAmber
 import com.tapmoay.sorders.util.formatMoney
 
 /**
@@ -465,8 +466,9 @@ fun DangerConfirmDialog(
     error: String? = null,
     enabled: Boolean = true,
 ) {
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
+        tone = DialogTone.DANGER,
         title = { Text(title, style = MaterialTheme.typography.titleMedium) },
         text = {
             Column {
@@ -491,6 +493,34 @@ fun DangerConfirmDialog(
 }
 
 /**
+ * 弹层语义档 —— 台账 L-20 定下的「弹窗语言」：**一张卡只出一个图标，颜色就是这件事的性质**。
+ *
+ * - [INFO] 提示蓝（品牌主色）：普通确认、表单、选择器 —— 也就是**默认档**；
+ * - [WARN] 警告橙（[com.tapmoay.sorders.ui.theme.WarningAmber]）：会改数字/会覆盖/要留神的动作；
+ * - [DANGER] 危险红（`colorScheme.error`）：删了/撤了/退掉就回不来的动作。
+ *
+ * ⛔ 只准在这三档里挑：多一档颜色就多一种"这件事到底是什么性质"的歧义；
+ * 档位与颜色的对应关系由 `_tools/qa/_check_dialog_language.py` 钉着。
+ */
+enum class DialogTone { INFO, WARN, DANGER }
+
+/** 语义档对应的那一个图标（三档的形状也各不相同 —— 只靠颜色分不出档的界面，色盲用户读不到）。 */
+@Composable
+private fun DialogToneIcon(tone: DialogTone) {
+    val asset = when (tone) {
+        DialogTone.INFO -> Icons.Filled.Info
+        DialogTone.WARN -> Icons.Filled.WarningAmber
+        DialogTone.DANGER -> Icons.Filled.Dangerous
+    }
+    val tint = when (tone) {
+        DialogTone.INFO -> MaterialTheme.colorScheme.primary
+        DialogTone.WARN -> Color(WarningAmber)
+        DialogTone.DANGER -> MaterialTheme.colorScheme.error
+    }
+    Icon(asset, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp))
+}
+
+/**
  * 卡片式弹窗 —— 白底 ＋ 弹层圆角，**不再是 M3 那层灰蓝**。
  *
  * 成因（用户台账 L-16，已确证到色值）：M3 `AlertDialog` 的默认容器 = `colorScheme.surfaceContainerHigh`，
@@ -509,8 +539,17 @@ fun DangerConfirmDialog(
  * ⛔ 不许用改主题 token 的办法「变白」：`surfaceContainerHigh` 另有 6 处消费者
  *   （`ui/ai/AiRichText.kt` / `ui/ai/AiChatScreen.kt` ×4 / `ui/messages/MessagesScreen.kt` 未读底色）。
  *
- * 逐步收敛的落点：以后要立的那套「弹窗语言」（图标 ＋ 语义色）以本零件为**唯一落点** ——
- * 一处改、所有迁过来的弹窗跟着变；其余弹窗仍走 `AlertDialog` 的默认灰蓝（边界见 CHG-0051）。
+ * ⭐ 这套「弹窗语言」（图标 ＋ 语义色）以本零件为**唯一落点**：一处改、全库弹窗跟着变。
+ * CHG-0051 立本件时全库还剩 63 处裸 `AlertDialog`（口径见那一单的「谁都不许自己画一层底」）；
+ * 台账 L-20 / CHG-0064（2026-10-06）把那 62 处一次性迁完 —— 于是**其余弹窗已不剩一处**（本件体内
+ * 那一行就是全库唯一的裸弹窗）。
+ *
+ * ⭐ 台账 L-20 / CHG-0064（2026-10-06）起**收敛完成**：全库 62 处裸 `AlertDialog` 一次性迁到本件，
+ * 于是**本件体内那一行 `AlertDialog(` 就是全库唯一剩下的一处**（`_tools/qa/_check_dialog_language.py`
+ * 钉着"裸弹窗恰好 1 处、且它在 [CardAlertDialog] 的函数体里"）。语言 = 顶部那一个语义色图标，
+ * 也就是新增的 [tone] 形参（默认 [DialogTone.INFO]；危险动作必须显式给 [DialogTone.DANGER]）。
+ * [DangerConfirmDialog] 是本件最厚的一层包装：它把那 21 处「红色确认钮」的老调用点
+ * 一并向 [DialogTone.DANGER] 对齐 —— 一处改、所有危险确认跟着变。
  */
 @Composable
 fun CardAlertDialog(
@@ -521,6 +560,7 @@ fun CardAlertDialog(
     icon: (@Composable () -> Unit)? = null,
     title: (@Composable () -> Unit)? = null,
     text: (@Composable () -> Unit)? = null,
+    tone: DialogTone = DialogTone.INFO,
     properties: DialogProperties = DialogProperties(),
 ) {
     AlertDialog(
@@ -528,7 +568,7 @@ fun CardAlertDialog(
         confirmButton = confirmButton,
         modifier = modifier,
         dismissButton = dismissButton,
-        icon = icon,
+        icon = icon ?: { DialogToneIcon(tone) },
         title = title,
         text = text,
         shape = MaterialTheme.shapes.extraLarge,
@@ -816,7 +856,7 @@ fun DatePresetDialog(
     onDismiss: () -> Unit,
     row: List<String> = DatePresets.ROW,
 ) {
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("看哪一段时间") },
         text = {
@@ -960,7 +1000,7 @@ fun DateRangeDialog(
     var pickingField by remember { mutableStateOf("from") }
     var showDatePicker by remember { mutableStateOf(false) }
 
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("选择日期范围") },
         text = {

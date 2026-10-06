@@ -193,7 +193,7 @@ private fun CreateContactDialog(
     // 改成姓名与电话**至少填一个** —— 两个都空存下来是一条谁也认不出的记录。
     val phoneError = InputRules.phoneError(phone.trim(), required = false)
     val identityError = InputRules.contactIdentityError(name, phone)
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("新建联系人") },
         text = {

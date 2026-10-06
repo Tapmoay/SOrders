@@ -66,7 +66,7 @@ fun UnitConversionDialog(
     // 本地只挡"明显还没填完"（空、两边同名、率不是正数）—— 真正的判据在后端
     val ready = f.isNotEmpty() && t.isNotEmpty() && f != t && (rate.toBigDecimalOrNull()?.signum() ?: 0) > 0
 
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial == null) "添加单位换算" else "编辑单位换算") },
         text = {

@@ -533,7 +533,7 @@ internal fun CostHistoryDialog(
     onDismiss: () -> Unit,
 ) {
     val unit = p.unit.ifBlank { "件" }
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("成本价历史", maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {
@@ -631,7 +631,8 @@ private fun QuickPriceDialog(
     // ⚠️ 用 trimMoneyZeros 而不是 formatMoney —— 后者只留两位小数，会把 12.3456 显示成 12.35
     var price by remember { mutableStateOf(trimMoneyZeros(p.defaultUnitPrice)) }
     val unit = p.unit.ifBlank { "件" }
-    AlertDialog(
+    CardAlertDialog(
+        tone = DialogTone.WARN,
         onDismissRequest = onDismiss,
         title = { Text("改默认售价", maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {

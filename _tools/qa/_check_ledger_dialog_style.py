@@ -16,20 +16,25 @@ M3 的 `AlertDialog` 默认容器色 = `colorScheme.surfaceContainerHigh`；本�
   `shapes.extraLarge` ＋ `tonalElevation = 0.dp`），把**核销这一族** 5 处调用点迁过去
   （货主账本 3 处 ＋ 派单员账本 2 处）。槽位 / 文案 / 排版 / 交互一个字不动 —— 换的只是那层底。
 - **不动**：主题 token（`surfaceContainerHigh` 另有 6 处消费者：AI 聊天 4 ＋ 富文本引用块 1 ＋
-  消息未读底色 1；改它等于顺手改了那些页面）；`DangerConfirmDialog`（全 App 共用的危险确认，
-  属于待拍板的「弹窗语言」）；其余 63 处裸 `AlertDialog(`（本事项的边界，见 CHG-0051 的
-  Known Limitations）。
+  消息未读底色 1；改它等于顺手改了那些页面）。
+- ⚠️ **后续**：`DangerConfirmDialog` 与「其余 63 处裸 `AlertDialog(`」原本是本事项的边界，后来由
+  台账 L-20 / **CHG-0064** 一次性收敛到本件（全库 68 处调用点全走 `CardAlertDialog`，本件体内那
+  一行 `AlertDialog(` 成了**全库唯一**剩下的一处；`DangerConfirmDialog` 改成转发本件 ＋
+  `tone = DialogTone.DANGER`）。所以下面第 3 / 第 4 组的计数口径已随之更新 —— 一条也没松：
+  「少迁一处」照样红，「多出一处裸弹窗」也照样红。
 
 ## 判据
 1. 零件本身：签名逐字（含 `properties` 透传）、转发给 `AlertDialog`、三行样式
    （`shape` / `containerColor = MaterialTheme.colorScheme.surface` / `tonalElevation = 0.dp`）；
    KDoc 里点了 L-16 与用户原话；
 2. 核销这一族 5 处都迁了，且这两个文件里**代码**中再没有裸 `AlertDialog(`；
-3. 全仓**代码**里裸 `AlertDialog(` 从 68 → 63（只有这 5 处被迁），`CardAlertDialog(` ≥ 6
-   （1 处定义 ＋ CHG-0051 迁的 5 处调用；这一族是**在扩散的**共用件 —— 2026-10-06 CHG-0056
-   在首页又加了一处，所以这里改成下限：**少一处**（有人把迁移回退）照样红，多一处是本来的方向）；
-4. 边界：别的页面一处没动（OrderDetailScreen 8 / DispatcherOrdersScreen 5 / OrderCreateScreen 4
-   / ProfileScreen 3）；
+3. 全仓**代码**里裸 `AlertDialog(` = 1（只剩 `CardAlertDialog` 定义体内那一处；轨迹 68 →
+   CHG-0051 的 63 → CHG-0056 的 62 → 台账 L-20 / CHG-0064 的 1），`CardAlertDialog(` ≥ 69
+   （1 处定义 ＋ 全库 68 处调用点；这一族是**在扩散的**共用件，所以这里是下限：**少一处**
+   （有人把迁移回退）照样红，多一处是本来的方向）；
+4. 全库收敛：CHG-0051 当时「别处一处没动」的那几页，CHG-0064 之后也一处不剩
+   （OrderDetailScreen 原 8 / DispatcherOrdersScreen 原 5 / OrderCreateScreen 原 4
+   / ProfileScreen 原 3，现在都是 0）；
 5. 方案 C 的护栏：主题 token 与它的 6 处消费者一个字没动；`DangerConfirmDialog` 与既有判据
    钉它的两行都还在；
 6. 文档与随动：`docs/changes/CHG-0051.md` 在、README 有行、AI_WORK_CLAIM 有条目与交叉点行；
@@ -45,7 +50,7 @@ token 被改（方案 C 回潮）/ `DangerConfirmDialog` 被顺手改掉 / 文�
 ## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
 `containerColor: Color` 在类型上就是一个颜色：`#DDE1EA`（灰蓝）与 `surface`（白）
 都是合法的 `Color`，「这层底不该是灰蓝」是**用户看到的观感口径**，任何类型都表达不出「卡片式」。
-所以判据只能钉在零件的三行样式、迁移清单的计数（68 → 63）与「别处一处没动」上。
+所以判据只能钉在零件的三行样式、迁移清单的计数（68 → 63 → 1）与「谁都不许自己画一层底」上。
 
 用法：python _tools/qa/_check_ledger_dialog_style.py
 """
@@ -77,14 +82,16 @@ REVERSE = ROOT / "_tools/qa/_reverse_verify_ledger_dialog_style.py"
 
 #: 全仓至少要有这么多 .kt（防「目录被搬走 → 一个都没扫到 → 全绿」）。
 MIN_KT = 100
-#: 迁移前全仓裸 `AlertDialog(` 是 68 处；本事项只迁核销那 5 处。
-BARE_AFTER = 63
-#: 零件定义 1 处 ＋ 迁移调用点 5 处（＝下限；后来别的事项可以继续用它，见 docstring §3）。
-CARD_AFTER = 6
+#: 迁移前全仓裸 `AlertDialog(` 是 68 处；CHG-0051 只迁核销那 5 处（63），CHG-0056 之后 62，
+#: 台账 L-20 / CHG-0064 把剩下的全库收敛 ⇒ 只该剩 `CardAlertDialog` **定义体内**那一处。
+BARE_AFTER = 1
+#: 零件定义 1 处 ＋ 全库 68 处调用点（CHG-0064 迁移完成时实测 69 ＝下限）。
+CARD_AFTER = 69
 #: 核销这一族的迁移清单（文件 ＋ 迁了几处）。
 MIGRATED = [(SHIPPER, 3, "货主账本"), (DISPATCHER, 2, "派单员账本")]
-#: 别处一处没动（这些数字是迁移当时实测的）。
-UNTOUCHED = [(DETAIL, 8), (DISP_ORDERS, 5), (ORDER_CREATE, 4), (PROFILE, 3)]
+#: CHG-0051 当时刻意没碰的那几页（数字是迁移当时实测的）；CHG-0064 之后它们也一处不剩。
+UNTOUCHED = [(DETAIL, 8, "司机端订单详情"), (DISP_ORDERS, 5, "派单员订单列表"),
+             (ORDER_CREATE, 4, "货主下单页"), (PROFILE, 3, "我的")]
 #: 主题 token 的消费者（本事项明确没碰它们；数字是实测的）。
 CONSUMERS = [(AI_RICH, 1, "富文本引用块底"), (AI_CHAT, 4, "AI 聊天 4 处"), (MSGS, 1, "消息未读底色")]
 REQUIRED_FILES = [COMP, SHIPPER, DISPATCHER, COLOR, THEME, AI_RICH, AI_CHAT, MSGS, CHG, REVERSE]
@@ -151,10 +158,11 @@ def main() -> int:
         "    icon: (@Composable () -> Unit)? = null,\n"
         "    title: (@Composable () -> Unit)? = null,\n"
         "    text: (@Composable () -> Unit)? = null,\n"
+        "    tone: DialogTone = DialogTone.INFO,\n"
         "    properties: DialogProperties = DialogProperties(),\n"
         ") {"
     )
-    c.ok("签名与 AlertDialog **逐字对齐**（8 个槽位一个不少，调用点才不用改排版）", sig in comp_code,
+    c.ok("签名与 AlertDialog **逐字对齐**（8 个槽位一个不少；CHG-0064 起多一档 tone，调用点照样不用改排版）", sig in comp_code,
          "签名对不上：多槽 / 少槽都会让调用点被迫改结构")
     body_i = comp_code.find("fun CardAlertDialog(")
     body = comp_code[body_i:body_i + 2000] if body_i >= 0 else ""
@@ -195,7 +203,7 @@ def main() -> int:
     c.ok("两颗按钮的槽位照旧（confirmButton 还在，没有把弹窗改成别的形状）",
          count(ship_code, r"confirmButton =") >= 3 and count(disp_code, r"confirmButton =") >= 2)
 
-    print("== 3. 全仓计数：68 → 63，且只有这 5 处被迁 ==")
+    print("== 3. 全仓计数：68 → 1（CHG-0064 之后只剩定义自己那一处） ==")
     kts = sorted(AND.rglob("*.kt"))
     bare_total = 0
     card_total = 0
@@ -207,11 +215,12 @@ def main() -> int:
         card_total += count(t, CARD)
         if b:
             bare_left[p.relative_to(AND).as_posix()] = b
-    c.ok(f"全仓代码里裸 AlertDialog( = {bare_total} 处（迁移前 68，只迁核销那 5 处）", bare_total == BARE_AFTER,
+    c.ok(f"全仓代码里裸 AlertDialog( = {bare_total} 处（只有 CardAlertDialog 定义体内那一处；"
+         f"迁移前 68 → CHG-0051 的 63 → 台账 L-20 / CHG-0064 的 1）", bare_total == BARE_AFTER,
          f"实际 {bare_total}")
     # ⚠️ 这里是**下限**不是等式：CHG-0051 之后别的事项陆续用它（CHG-0056 在首页加了一处），
     #    等式会让每一个后来的正当调用点都变红；但**少**一处（迁回去 / 被删）仍然必须当场红。
-    c.ok(f"全仓 CardAlertDialog( = {card_total} 处（≥ {CARD_AFTER}：1 处定义 ＋ 5 处迁移调用）",
+    c.ok(f"全仓 CardAlertDialog( = {card_total} 处（≥ {CARD_AFTER}：1 处定义 ＋ 全库 68 处调用点）",
          card_total >= CARD_AFTER,
          f"实际 {card_total}")
     for p, _, who in MIGRATED:
@@ -219,12 +228,15 @@ def main() -> int:
         c.ok(f"{who}不在「还有裸 AlertDialog」的名单里", rel not in bare_left,
              f"还在名单里：{bare_left.get(rel)} 处")
 
-    print("== 4. 边界：别的页面一处没动 ==")
-    for p, n in UNTOUCHED:
+    print("== 4. 全库收敛：CHG-0051 当时「别处一处没动」的那几页，现在也一处不剩 ==")
+    # ⚠️ 这一组的语义在台账 L-20 / CHG-0064 之后**反过来**了：CHG-0051 那刀刻意留着它们
+    #    （「别处一处没动」），CHG-0064 把全库 62 处一次性收敛 ⇒ 现在这些页面里**再冒出一处
+    #    裸弹窗就是回潮**。原有的边界精神没丢：依然是「谁都不许自己画一层底」。
+    for p, n, why in UNTOUCHED:
         got = count(code_only(read(p)), BARE)
-        c.ok(f"{p.name} 一处没动（仍是 {n} 处裸 AlertDialog）", got == n, f"现在是 {got} 处")
-    c.ok("Components.kt 自己仍是 4 处裸 AlertDialog（DangerConfirmDialog 1 ＋ 新零件转发 1 ＋ 两个日期筛选弹窗 2）",
-         count(comp_code, BARE) == 4, f"现在是 {count(comp_code, BARE)} 处")
+        c.ok(f"{p.name} 一处不剩（CHG-0064 迁掉原来那 {n} 处：{why}）", got == 0, f"现在是 {got} 处")
+    c.ok("Components.kt 里只剩定义自己那一处裸 AlertDialog（日期筛选与 DangerConfirmDialog 也都迁了）",
+         count(comp_code, BARE) == 1, f"现在是 {count(comp_code, BARE)} 处")
 
     print("== 5. 方案 C 的护栏：主题 token 与它的消费者一个字没动 ==")
     color = read(COLOR)

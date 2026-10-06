@@ -116,7 +116,8 @@ fun ShipperReturnRequestsScreen(
 
     // 撤回二次确认：文案必须写清"撤回不是删除"（用户口径）
     vm.withdrawTarget?.let { req ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.cancelWithdraw() },
             title = { Text("撤回这张退货申请？") },
             text = {

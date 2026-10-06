@@ -425,7 +425,7 @@ private fun SupplierEditorDialog(
     var address by remember { mutableStateOf(initial?.address.orEmpty()) }
     var remark by remember { mutableStateOf(initial?.remark.orEmpty()) }
 
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial == null) "新增供应商 / 厂商" else "改资料") },
         text = {

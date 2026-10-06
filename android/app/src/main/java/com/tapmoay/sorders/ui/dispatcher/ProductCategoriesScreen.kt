@@ -216,7 +216,8 @@ fun ProductCategoriesScreen(
 
     // 删除确认：把"还有几个商品挂在这一类"写在脸上（后端也会拦，这里先说清楚）
     vm.deleting?.let { c ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.deleting = null },
             title = { Text("删除分类「${c.name}」？") },
             text = {
@@ -412,7 +413,7 @@ private fun CategoryNameDialog(
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(initial) }
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isNew) "新建分类" else "给分类改名") },
         text = {

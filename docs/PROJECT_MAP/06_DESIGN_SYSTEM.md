@@ -11,7 +11,11 @@
 - **低调卡片**：白底 + 浅描边（#ECEFF5）或极浅阴影；不要重边框/大圆/浓渐变
 - **文字层级**：关键是重要的数字/名称用色加粗，次要说明用灰色 `onSurfaceVariant` 小字
 - **按钮风格**：默认 Material3 样式（用户否决过大圆圈/胶囊大按钮）；加减等主操作色可自定义淡蓝底
-- **弹窗**：选择/确认类用 `AlertDialog`；表单类用 Drawer/ModalBottomSheet 由场景决定
+- **弹窗**：选择/确认类**一律走**零件 `CardAlertDialog`（`ui/common/Components.kt`）—— **白卡**（`containerColor = MaterialTheme.colorScheme.surface` ＋ `tonalElevation = 0.dp`）
+  ＋ 顶部一个**语义色图标**（`DialogTone`：INFO＝提示蓝 / WARN＝警告橙 / DANGER＝危险红；⛔ 只三档，不写默认 INFO）；
+  危险动作（删除/撤销/撤回/作废/解绑/不可逆）用 `DangerConfirmDialog`（转发本件 ＋ 显式 DANGER），表单类用 Drawer/ModalBottomSheet 由场景决定。
+  ⭐ 台账 L-20 / CHG-0064 起，全库 62 处裸 `AlertDialog(` 一次性收敛到这一件（全库唯一剩下的那一行在零件自己体内）—— ⛔ 不要再自己画一层底：
+  M3 默认那层 `surfaceContainerHigh` 灰 ＋ 6dp tonal elevation 就是用户说的「弹窗太难看了」（原话见 CHG-0064.md）。
 
 ## 2. 语义色总表（Color.kt / ui/theme/Color.kt）
 

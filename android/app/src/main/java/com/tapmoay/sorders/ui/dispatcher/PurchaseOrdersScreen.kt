@@ -216,7 +216,8 @@ fun PurchaseOrdersScreen(
     }
 
     confirmDelete?.let { o ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { confirmDelete = null },
             title = { Text("撤销采购单 #${o.id}？") },
             text = {

@@ -148,7 +148,8 @@ fun FreightCategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     // 建 / 改名
     vm.editing?.let { (id, current) ->
         var text by remember(id) { mutableStateOf(current) }
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { if (!vm.busy) vm.editing = null },
             title = { Text(if (id == null) "新建运费分类" else "改分类名") },
             text = {

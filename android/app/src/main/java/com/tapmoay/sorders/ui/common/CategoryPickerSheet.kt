@@ -203,7 +203,7 @@ fun CategoryNameDialog(
     confirmText: String = "确定",
 ) {
     var name by remember(initial) { mutableStateOf(initial) }
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(title) },
         text = {

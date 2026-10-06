@@ -239,7 +239,8 @@ fun InvoicesScreen(
     }
 
     confirmVoid?.let { inv ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { confirmVoid = null },
             title = { Text("作废票 #" + inv.id + "？") },
             text = {
@@ -256,7 +257,8 @@ fun InvoicesScreen(
     }
 
     confirmDelete?.let { inv ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { confirmDelete = null },
             title = { Text("撤销票 #" + inv.id + "？") },
             text = {

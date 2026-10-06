@@ -208,7 +208,7 @@ fun DispatcherOrdersScreen(
 
     // 编辑弹窗
     if (vm.showEditDialog) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.showEditDialog = false },
             // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
             title = { DialogTitle("编辑订单", vm.editingOrder?.orderNo ?: "") },
@@ -260,7 +260,8 @@ fun DispatcherOrdersScreen(
 
     // 撤销确认（派单员代客撤销：不可逆 + 双方都收到通知）
     if (vm.showCancelDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.showCancelDialog = false },
             title = { Text("撤销订单") },
             text = {
@@ -283,7 +284,8 @@ fun DispatcherOrdersScreen(
 
     // 撤回派单弹窗
     if (vm.showRecallDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.showRecallDialog = false },
             title = { Text("撤回派单") },
             text = {
@@ -313,7 +315,8 @@ fun DispatcherOrdersScreen(
 
     // 异常登记弹窗
     if (vm.showExceptionDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { vm.showExceptionDialog = false },
             title = { Text("异常登记") },
             text = {
@@ -340,7 +343,8 @@ fun DispatcherOrdersScreen(
     // 退货弹窗（2026-09-20）：整单退 / 只退其中几个商品，**数量自己勾**
     vm.returnTarget?.let { order ->
         if (vm.showReturnDialog) {
-            AlertDialog(
+            CardAlertDialog(
+                tone = DialogTone.DANGER,
                 onDismissRequest = { if (!vm.returnSubmitting) vm.showReturnDialog = false },
                 // 同上：单号另起一行、小一号（走查 P4）。
                 title = { DialogTitle("退货", order.orderNo) },

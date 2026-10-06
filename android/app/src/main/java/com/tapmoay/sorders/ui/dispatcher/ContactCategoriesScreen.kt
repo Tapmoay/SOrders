@@ -198,7 +198,7 @@ private fun ContactCategoriesBody(
     }
 
     vm.renaming?.let { target ->
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.renaming = null },
             title = { Text("重命名分类") },
             text = {

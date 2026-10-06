@@ -366,7 +366,7 @@ fun OrderDetailScreen(
 
     // 选图用 AlertDialog（设计规范 §5：选择/确认弹窗一律 AlertDialog，如选图"拍照/相册"）
     if (showPlacePhotoSheet) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { showPlacePhotoSheet = false },
             title = { Text("加位置图片") },
             text = { Text("下一单的人也能看到") },
@@ -388,7 +388,8 @@ fun OrderDetailScreen(
 
     // 撤销二次确认
     if (vm.showCancelDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.showCancelDialog = false },
             title = { Text("确认撤销订单？") },
             text = {
@@ -411,7 +412,8 @@ fun OrderDetailScreen(
 
     // 软删除确认（隔离区 30 天，派单员可恢复）
     if (vm.showDeleteDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.showDeleteDialog = false },
             title = { Text("删除订单？") },
             text = { Text("删除后 30 天内可恢复。确认删除吗？") },
@@ -427,7 +429,8 @@ fun OrderDetailScreen(
 
     // 派单员：现场收款确认
     if (vm.showFreightDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { vm.showFreightDialog = false },
             title = { Text("修改司机运费") },
             text = {
@@ -448,7 +451,8 @@ fun OrderDetailScreen(
         )
     }
     if (vm.showSplitDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.showSplitDialog = false },
             title = { Text("拆分订单") },
             text = {
@@ -516,7 +520,8 @@ fun OrderDetailScreen(
     // 状态从「派单中」翻成「已派单」，底部按钮组也跟着换（`vm.load()`）。
     AssignDriverDialog(assignVm) { vm.load() }
     if (vm.showPayConfirm) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { vm.showPayConfirm = false },
             title = { Text("现场收款确认") },
             text = { Text("确认已现场收到货款 ¥" + formatMoney(vm.order?.orderProducts?.sumOf { moneyToDouble(it.lineTotal) }.toString()) + "？确认后订单标记为已收款。") },
@@ -985,7 +990,7 @@ private fun DetailBody(
                     }
                     // 确认弹窗（不是一点就拨）：下单人常常就在旁边，误点一下不礼貌
                     if (confirmCallBoss) {
-                        AlertDialog(
+                        CardAlertDialog(
                             onDismissRequest = { confirmCallBoss = false },
                             title = { Text("确认拨打") },
                             text = {
@@ -1934,7 +1939,7 @@ private fun NavigationFillDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("补上导航信息") },
         text = {

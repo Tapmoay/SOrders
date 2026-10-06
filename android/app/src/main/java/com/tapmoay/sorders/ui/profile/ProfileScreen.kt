@@ -38,6 +38,7 @@ import com.tapmoay.sorders.ui.common.appViewModel
 import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProfileHeaderBottom
+import com.tapmoay.sorders.ui.common.CardAlertDialog
 
 /**
  * 「我的」——**三端共用**一页（货主 / 派单员 / 司机都从底部 Tab 进）。
@@ -391,7 +392,7 @@ fun ProfileScreen(
 
     // 有新版 → 确认弹窗
     if (vm.updateState == "confirm" && vm.latest != null) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.updateState = "idle" },
             // ⚠️ **两行都要带构建号**（2026-09-23 用户报障：只显示 `0.2.3` 时，
             //    「发现新版本 v0.2.3」与「当前版本：v0.2.3 · 2026092204」看着一模一样，
@@ -424,7 +425,7 @@ fun ProfileScreen(
     // "…isn't allowed to install unknown apps from this source"，
     // 绝大多数人的下一步是点 Cancel，然后得出结论「下载完了但没更新」。
     if (vm.updateState == "needInstallPermission") {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.updateState = "idle" },
             title = { Text("还差一步：允许安装应用") },
             text = {
@@ -449,7 +450,7 @@ fun ProfileScreen(
 
     // 结果提示
     if (vm.updateState == "latest" && vm.updateMessage != null) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.updateState = "idle"; vm.updateMessage = null },
             title = { Text("检查更新") },
             text = { Text(vm.updateMessage.orEmpty()) },

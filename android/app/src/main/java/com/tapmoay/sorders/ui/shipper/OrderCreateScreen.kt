@@ -758,7 +758,7 @@ fun OrderCreateScreen(
 
     // 位置图片：弹窗选择（拍摄 / 图片上传·多张）
     if (showImageSheet) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { showImageSheet = false },
             title = { Text("位置图片") },
             text = {
@@ -1274,7 +1274,7 @@ private fun ConfirmActionDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
@@ -1316,7 +1316,7 @@ private fun EditPlaceDialog(
 ) {
     var name by remember(place.id) { mutableStateOf(place.name) }
     var address by remember(place.id) { mutableStateOf(place.detailAddress) }
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("改共享地点") },
         text = {
@@ -1601,7 +1601,7 @@ fun LineEditDialog(
     var name by remember { mutableStateOf(initial.name) }
     var qty by remember { mutableStateOf(initial.quantity.coerceAtLeast(1)) }
 
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {

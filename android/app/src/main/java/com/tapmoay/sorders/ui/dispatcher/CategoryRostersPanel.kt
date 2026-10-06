@@ -196,7 +196,7 @@ private fun RosterPanel(
     }
 
     vm.renaming?.let { target ->
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.renaming = null },
             title = { Text("重命名分类") },
             text = {
@@ -352,7 +352,7 @@ fun CategoryPickRow(
     }
 
     if (creating) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { creating = false },
             title = { Text("新建分类") },
             text = {

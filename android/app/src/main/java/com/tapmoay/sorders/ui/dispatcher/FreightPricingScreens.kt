@@ -290,7 +290,8 @@ fun UnpricedOrdersScreen(container: AppContainer, onBack: () -> Unit, onOpenOrde
     }
 
     vm.target?.let { o ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { if (!vm.acting) vm.target = null },
             title = { Text("给这一单定价") },
             text = {

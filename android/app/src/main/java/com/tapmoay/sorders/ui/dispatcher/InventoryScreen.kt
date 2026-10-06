@@ -67,7 +67,8 @@ fun InventoryScreen(
 
     // 出入库弹窗
     if (vm.showMovementDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { vm.showMovementDialog = false },
             title = { Text(if (vm.movementInbound) "入库" else "出库") },
             text = {

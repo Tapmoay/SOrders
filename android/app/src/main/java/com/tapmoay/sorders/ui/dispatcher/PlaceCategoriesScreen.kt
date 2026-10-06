@@ -202,7 +202,7 @@ private fun PlaceCategoriesBody(
     }
 
     vm.renaming?.let { target ->
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { vm.renaming = null },
             title = { Text("重命名分组") },
             text = {

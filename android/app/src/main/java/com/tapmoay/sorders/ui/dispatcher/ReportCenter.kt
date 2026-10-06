@@ -136,7 +136,8 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
     )
 
     vm.resolveTarget?.let { t ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { vm.resolveTarget = null },
             title = { Text("解决异常") },
             text = {

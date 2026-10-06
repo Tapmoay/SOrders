@@ -264,7 +264,7 @@ fun AssignDriverDialog(
     }
     // 运费模板选择（本轮没动：仍是子弹窗，入口在运费那一组里）
     if (templatePick) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { templatePick = false },
             title = { Text("选择运费模板") },
             text = {

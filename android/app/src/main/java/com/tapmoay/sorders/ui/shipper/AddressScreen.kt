@@ -845,7 +845,7 @@ fun AddressScreen(
 
     // ---- 添加图片：选择来源（拍照 / 从相册选择）----
     if (showImageSource) {
-        AlertDialog(
+        CardAlertDialog(
             onDismissRequest = { showImageSource = false },
             title = { Text("添加图片") },
             text = {
@@ -1182,7 +1182,7 @@ private fun NewPlaceCategoryDialog(
     hint: String = "",
 ) {
     var name by remember { mutableStateOf("") }
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {

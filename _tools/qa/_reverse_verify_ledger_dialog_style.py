@@ -6,7 +6,9 @@
 - 5 处调用点**只改一半**（两个角色两个入口，很容易漏掉派单员那一族），同样没有任何报错；
 - 最像「正经改法」的是方案 C：直接去改主题 token `SurfaceContainerHigh` —— 编译通过、
   所有核销弹窗一起变白，**顺手改掉了另外 6 处消费者**（AI 聊天 4 ＋ 富文本引用块 1 ＋ 消息未读底色 1）；
-- 还有一种是越界：顺手把别的页面（OrderDetailScreen 那 8 处）也改了，而本事项的边界只管核销这一族。
+- 还有一种是**回潮**：台账 L-20 / CHG-0064 把全库收敛之后，某一处又自己画一层底
+  （OrderDetailScreen 那个「打电话确认」冒出一处裸 `AlertDialog(`）—— 那时候全库只该剩
+  `CardAlertDialog` 定义体内那一处。
 所以下面每一条都对应 `_check_ledger_dialog_style.py` 里的一条判据，注入后必须出现**指定那句红**。
 
 用法：python _tools/qa/_reverse_verify_ledger_dialog_style.py    # 全部报红 → 退出码 0
@@ -79,7 +81,7 @@ MUTATIONS = [
     (
         "货主「订单核销记录」那一处改回裸弹窗（只改了一半）",
         SHIPPER,
-        "    CardAlertDialog(\n        onDismissRequest = { vm.closeSettlements() },\n",
+        "    CardAlertDialog(\n        tone = DialogTone.DANGER,\n        onDismissRequest = { vm.closeSettlements() },\n",
         "    AlertDialog(\n        onDismissRequest = { vm.closeSettlements() },\n",
         "代码里再没有裸",
     ),
@@ -91,11 +93,11 @@ MUTATIONS = [
         "2 处核销弹窗全走",
     ),
     (
-        "越界：顺手把别的页面（司机端订单详情）也改了 —— 本事项只管核销这一族",
+        "回潮：司机端订单详情又冒出一处裸弹窗（CHG-0064 之后全库只该剩定义自己那一处）",
         DETAIL,
-        "                        AlertDialog(\n                            onDismissRequest = { confirmCall",
         "                        CardAlertDialog(\n                            onDismissRequest = { confirmCall",
-        "一处没动",
+        "                        AlertDialog(\n                            onDismissRequest = { confirmCall",
+        "一处不剩",
     ),
     (
         "方案 C 回潮：把主题 token 改成白的（顺手改掉 6 处消费者）",

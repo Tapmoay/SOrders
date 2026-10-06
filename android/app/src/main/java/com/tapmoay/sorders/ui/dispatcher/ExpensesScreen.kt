@@ -500,7 +500,7 @@ private fun ExpenseDetailDialog(
     onOpenOrder: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("开销详情") },
         text = {

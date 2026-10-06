@@ -291,7 +291,8 @@ fun AccountManageScreen(
 
     // 删除确认
     vm.deleting?.let { target ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.dismissDelete() },
             title = { Text("删除账户") },
             text = {

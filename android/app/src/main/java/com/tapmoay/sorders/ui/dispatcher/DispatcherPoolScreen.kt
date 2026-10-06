@@ -230,7 +230,8 @@ fun DispatcherPoolScreen(
 
     // 撤销确认
     if (vm.showCancelDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.showCancelDialog = false },
             title = { Text("撤销订单") },
             text = {
@@ -253,7 +254,8 @@ fun DispatcherPoolScreen(
 
     // 退回派单池（静默动作：货主端看不到、也没有任何提醒 —— 用户 2026-10-05 明确要求）
     if (vm.showReleaseDialog) {
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { vm.showReleaseDialog = false },
             title = { Text("退回派单池") },
             text = {

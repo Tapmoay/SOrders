@@ -119,7 +119,8 @@ fun DispatcherReturnRequestsScreen(
 
     // ---- 办理退货：二次确认（文案是本页最重要的东西）----
     vm.fulfillTarget?.let { req ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { if (!vm.acting) vm.cancelFulfill() },
             // 标题里的单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符）。
             title = { DialogTitle("办理退货", req.orderNo) },
@@ -169,7 +170,8 @@ fun DispatcherReturnRequestsScreen(
 
     // ---- 驳回：理由必填（空理由连提交按钮都点不动）----
     vm.rejectTarget?.let { req ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { if (!vm.acting) vm.cancelReject() },
             // 同上。
             title = { DialogTitle("驳回退货申请", req.orderNo) },

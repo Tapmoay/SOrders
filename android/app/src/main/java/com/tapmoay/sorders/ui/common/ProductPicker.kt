@@ -559,7 +559,7 @@ fun QtyDialog(
 ) {
     var qty by remember { mutableStateOf(initialQty.coerceAtLeast(1)) }
 
-    AlertDialog(
+    CardAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {

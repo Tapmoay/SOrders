@@ -273,7 +273,8 @@ fun ShipperOrdersScreen(
     //    （本仓库的规矩是"钱只算一处"）。金额在派单员办理的回执里由后端给。
     vm.returnTarget?.let { order ->
         if (vm.showReturnDialog) {
-            AlertDialog(
+            CardAlertDialog(
+                tone = DialogTone.WARN,
                 onDismissRequest = { vm.dismissReturnDialog() },
                 // 单号另起一行、小一号（走查 P4：标题那 24sp 一行塞不下 20 个字符，会被从数字中间劈开）。
                 title = { DialogTitle("申请退货", order.orderNo) },
@@ -329,7 +330,8 @@ fun ShipperOrdersScreen(
 
     // 撤回申请（二次确认）：文案必须写清"撤回不是删除"
     vm.withdrawTarget?.let { req ->
-        AlertDialog(
+        CardAlertDialog(
+            tone = DialogTone.DANGER,
             onDismissRequest = { vm.cancelWithdraw() },
             title = { Text("撤回这张退货申请？") },
             text = {

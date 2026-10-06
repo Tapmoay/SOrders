@@ -910,6 +910,7 @@ private fun SettleOrderDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
 private fun OrderSettlementsDialog(vm: ShipperLedgerViewModel, order: OrderDto) {
     val list = vm.settledOfOrder(order.id)
     CardAlertDialog(
+        tone = DialogTone.DANGER,
         onDismissRequest = { vm.closeSettlements() },
         title = { DialogTitle("订单核销记录", "#" + order.orderNo) },
         text = {

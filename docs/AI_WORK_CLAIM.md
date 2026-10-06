@@ -6187,6 +6187,10 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 | 2026-10-06 15:1x | **CHG-0063**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0063.md`（新建，**两文件必须同一次提交**） | 在 CHG-0062 那一行之后追加 CHG-0063 行 |
 | 2026-10-06 15:1x | **CHG-0063**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_warm_surface_palette.py`（6 组 41/41；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）＋ `_reverse_verify_warm_surface_palette.py`（12 条注入） |
 | 2026-10-06 15:1x | **CHG-0063**（我，`session-bd8fe093`） | `_tools/qa/_check_ledger_dialog_style.py` ＋ `_tools/qa/_reverse_verify_ledger_dialog_style.py`（CHG-0051 的判据与反验，**多会话共读**） | 第 5 组第一条口径从「必须是 #DDE1EA」松成「不是纯白、也不亮过 #F0F0F0」（原意不变）；反验那条注入的锚点跟着现值 #E1DDD5 走 |
+| 2026-10-06 15:4x | **CHG-0064 弹窗语言：全库裸弹窗收敛到 `CardAlertDialog`**（我，`session-bd8fe093`） | `ui/common/Components.kt` ＋ 36 个 .kt 的 62 处调用点 ＋ `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:14` | 零件长出 `tone: DialogTone`（INFO / WARN / DANGER，默认 INFO）＋ `DialogToneIcon`（图标 ＋ 语义色，三档**形状也不同**）；`DangerConfirmDialog` 改**转发**本件 ＋ 显式 DANGER（21 处「红色确认钮」老调用点零改动跟着走）；62 处裸 `AlertDialog(` 一次迁完（全库只剩零件体内那一行）；设计基线写弹窗容器口径 |
+| 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0064.md`（新建，**两文件必须同一次提交**） | 在 CHG-0063 那一行之后追加 CHG-0064 行（`_check_dev_spec.py` 会为「加了文件没登记」当场变红） |
+| 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_dialog_language.py`（6 组 45 项；docstring 写清台账 L-20 与用户原话 ref m00481 / m00542）＋ `_reverse_verify_dialog_language.py`（12 条注入，4 个被注入文件还原后逐字节一致） |
+| 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `_tools/qa/_check_ledger_dialog_style.py` ＋ `_tools/qa/_reverse_verify_ledger_dialog_style.py`（CHG-0051 的判据与反验，**多会话共读**） | 口径随动：`BARE_AFTER` 63 → **1**、`CARD_AFTER` 6 → **69**，「别处一处没动」那一组语义反过来（**一处不剩**）；反验那条注入的锚点改成含 tone 的调用点（本次迁移在每个调用点插了一行 tone，老形状的锚点会腐烂） |
 
 ---
 
@@ -7239,3 +7243,19 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 **实现提交**：`0aeaf2b`（本事项动 **11** 个文件：Android 2 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
 
 ---
+
+### [2026-10-06 15:2x → 15:5x CST 已完成] 会话：**CHG-0064 弹窗语言：全库 62 处裸 `AlertDialog` 收敛到 `CardAlertDialog`（白卡 ＋ 顶部语义色图标，台账 L-20）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：「很多弹窗都太难看了，像我们这个批发商和货主他那个退货……那个弹窗太难看了，不符合我们的设计基调。」（ref **m00481**）；样式口径（ref **m00542**，台账 `:853` 逐字记的）：「不一定要是卡片式的，只是现在的弹窗太难看了，具体样式我们可以之后慢慢定」＋「对应的图标、语义色都是要有的」⇒ **不是把弹窗改成卡片式，而是给全 App 的弹窗立一套自己的语言：图标 ＋ 语义色**。
+
+**病灶**：① M3 的 `AlertDialog` 默认容器 = `colorScheme.surfaceContainerHigh`（本主题那层灰）＋ 6dp tonal elevation，而全库几十处调用点**无一处**设过 `containerColor`、**无一处**带图标 ⇒ 所有弹窗长同一个灰底，「删了就回不来」的动作与「填个表单」长得一模一样；② 「弹窗该长什么样」没有任何一处写着口径 ⇒ 每加一个弹窗都要重新吵一次；③ 台账 `:1494` 说得明白：L-16 / L-19 / L-20 是同一件事的三个面（弹窗层 / 页面底 / 抽屉层），而当时只有抽屉那层有判据。
+
+**改法（PRESENTATION ＋ 一处共用零件：1 个零件 ＋ 36 个 .kt ＋ 文档 4 ＋ QA 4 ＋ 生成物 1）**：① `ui/common/Components.kt` 的 `CardAlertDialog(`（:553）形参表在 `text` 与 `properties` 之间插入 `tone: DialogTone = DialogTone.INFO,`（:561，默认档 = 提示蓝 ⇒ **老调用点一个都不用改**），函数体内 `AlertDialog(`（:564）那一行改成 `icon = icon ?: { DialogToneIcon(tone) },`（:569）；② 新增 `enum class DialogTone { INFO, WARN, DANGER }`（:505，⛔ 只三档）与 `private fun DialogToneIcon(tone: DialogTone)`（:509：图标档 `Icons.Filled.Info` / `WarningAmber` / `Dangerous`，色档 `colorScheme.primary` / `Color(WarningAmber)` / `colorScheme.error`，收尾 `Icon(asset, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp))`）；③ `DangerConfirmDialog`（:460）改成**转发** `CardAlertDialog(` ＋ 显式 `tone = DialogTone.DANGER,` —— 它那 **21 处**老调用点（散在 20 个文件）一个字没改就跟着拿到了 DANGER 档，红色确认钮那两行原样；④ 全库 **62 处裸 `AlertDialog(`** 一次迁完（36 个 .kt；63 → 1，全库唯一剩下的那一行就是零件自己体内 `:564` 那行），每处按内容标档 **INFO 36 ／ WARN 13 ／ DANGER 19**（68 处调用点 = 迁移 62 ＋ 原先就在用本件的 6）；⑤ 设计基线 `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:14` 从「选择/确认类用 `AlertDialog`」改写成弹窗容器口径（白卡 ＋ 顶部语义色图标 ＋ 危险动作走 `DangerConfirmDialog` ＋「⛔ 不要再自己画一层底」）；⑥ 零件 KDoc 与判据 docstring 里「30 余处」订正为 21 处，KDoc 里「其余弹窗仍走 AlertDialog 的默认灰蓝」那段过期描述改成现状；⑦ CHG-0051 那条既有判据 `_tools/qa/_check_ledger_dialog_style.py` 随动（`BARE_AFTER = 63` → `1`、`CARD_AFTER = 6` → `69`、`UNTOUCHED` 那组语义反过来改成「一处不剩」）＋ 它的反验那条注入的锚点改成含 tone 的调用点。
+
+**判据 / 反验**：新增 `_tools/qa/_check_dialog_language.py`（6 组 **45/45**：全库裸弹窗计数 ／ 零件白卡三行 ＋ 默认档 ＋ 图标接线 ／ `DialogTone` 三档与图标色一一对应 ／ DCD 转发 ＋ 显式 DANGER ／ 危险正文必须 DANGER ＋ 用户点名那 6 处退货弹窗逐个钉档 ／ 登记与随动）＋ `_tools/qa/_reverse_verify_dialog_language.py`（**12** 条注入：回潮自己画一层底 ／ 白卡被换回 `surfaceContainerHigh` ／ tonal elevation 回到 6dp ／ 默认档被删 ／ 图标接线被删 ／ 档位被抹平 ／ 多长出第四档 ／ DCD 掉档 ／ 危险正文掉档 ／ 设计基线被改回旧口径）。
+
+**明确不碰**：弹窗的**按钮与文案**、点击后的**业务行为**（迁移只换函数名 ＋ 插一行 tone）；白卡三行本身（CHG-0051 的口径，本刀只扩大覆盖面）；`ui/common/DialogTitle.kt`；表单类 Drawer/ModalBottomSheet 与核销抽屉那一层（L-16 的另一面）；后端 / 接口 / 字段 / 权限 / 领域模型 / 状态机（零改动，`git diff --stat` 里没有 backend/）；历史变更单与旧条目里写的旧事实（CHG-0051.md 的 63 处、CHG-0063.md 的色值）。
+
+**验证**：判据 **45/45** · 反验 **12/12** · 既有回归 `_check_ledger_dialog_style.py` **62/62** 与 `_reverse_verify_ledger_dialog_style.py` **16/16** · `:app:compileEmuDebugKotlin` ＋ `:app:testEmuDebugUnitTest` **BUILD SUCCESSFUL in 2m 14s** · `:app:assembleEmuDebug` exit 0 · 全量静检 **202 脚本 / 200 ✅ / 2 ❌**（两条红与本刀无关）· 可达性 **183 / 183** · 真机 emulator-5554 改前/改后各 2 张弹窗截图（`shots/chg0064_before_5554_cancel_order.png`、`…_after_5554_cancel_order.png`、`…_before_5554_apply_return.png`、`…_after_5554_apply_return.png`）；5556 装着别的会话更高版本号，装不上，那一侧只有判据钉档。
+
+**实现提交**：`HASH`（本事项动 **46** 个文件：Android 37 ＋ QA 4 ＋ 文档 4 ＋ 生成物 1）
