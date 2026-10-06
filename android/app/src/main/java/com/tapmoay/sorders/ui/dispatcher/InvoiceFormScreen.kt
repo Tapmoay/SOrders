@@ -26,6 +26,7 @@ import com.tapmoay.sorders.data.remote.dto.CustomerDto
 import com.tapmoay.sorders.data.remote.dto.InvoiceCreateRequest
 import com.tapmoay.sorders.data.remote.dto.InvoiceUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.PurchaseOrderDto
+import com.tapmoay.sorders.data.remote.dto.SupplierCreateRequest
 import com.tapmoay.sorders.data.remote.dto.SupplierDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
@@ -157,6 +158,29 @@ class InvoiceFormViewModel(private val container: AppContainer, private val invo
         purchaseOrderIds = emptyList()
         orders = emptyList()
         loadOrders()
+    }
+
+    /**
+     * 就地新建一家供应商（CHG-0068 / 台账 L-40）：进项票这边**也要能建**，别支使用户跑一趟档案页。
+     *
+     * 只送**名称 ＋ 电话**（用户拍板的"最小可建"：地址/备注以后到「供应商 / 厂商」页补）。
+     * 建完顺手把刚建的那家选上。
+     *
+     * ⚠️ 刷新名册**不能**走 [loadSuppliers]：它带头一句 `if (suppliers.isNotEmpty()) return` 早退守卫
+     *    （那是"进页面才拉一次"的意思），就地新建之后名册还是旧的 ⇒ 这里直接重拉一遍。
+     */
+    fun createSupplierInline(name: String, phone: String, onCreated: (SupplierDto) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val s = container.repo.createSupplier(SupplierCreateRequest(name = name, phone = phone))
+                suppliers = container.repo.suppliers()
+                pickSupplier(s)
+                onCreated(s)
+            } catch (e: Exception) {
+                // 重名之类由后端拦（400），它那句人话直接显示在这一页已有的错误行上。
+                formError = toApiException(e).message
+            }
+        }
     }
 
     fun pickCustomer(c: CustomerDto) {
@@ -292,6 +316,8 @@ fun InvoiceFormScreen(container: AppContainer, invoiceId: Long?, onBack: () -> U
     var showSupplierSheet by remember { mutableStateOf(false) }
     var showCustomerSheet by remember { mutableStateOf(false) }
     var showOrderSheet by remember { mutableStateOf(false) }
+    // 就地新建供应商（CHG-0068）：下面弹层里那颗「新建供应商」把这张最小表单打开。
+    var creatingSupplier by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = { AppTopBar(title = if (vm.isNew) "登记一张票" else "改这张票", onBack = onBack) },
@@ -485,13 +511,30 @@ fun InvoiceFormScreen(container: AppContainer, invoiceId: Long?, onBack: () -> U
     if (showSupplierSheet) {
         PickSheet(
             title = "选供应商",
-            empty = "还没有供应商 —— 先去「供应商」里建一家。",
+            // 空态本身就是入口（下面那颗「新建供应商」）：不用跑去档案页建。
+            empty = "还没有供应商 —— 现在就建一家",
+            createLabel = "新建供应商",
+            onCreate = { creatingSupplier = true },
             rows = vm.suppliers.map { it.id to listOf(it.name, contactOf(it.contactName, it.phone)) },
             onPick = { id ->
                 vm.suppliers.firstOrNull { it.id == id }?.let { vm.pickSupplier(it) }
                 showSupplierSheet = false
             },
             onDismiss = { showSupplierSheet = false },
+        )
+    }
+
+    if (creatingSupplier) {
+        SupplierEditorDialog(
+            initial = null,
+            minimal = true,
+            onDismiss = { creatingSupplier = false },
+            onSave = { name, _, phone, _, _ ->
+                vm.createSupplierInline(name, phone) {
+                    creatingSupplier = false
+                    showSupplierSheet = false
+                }
+            },
         )
     }
 
@@ -550,6 +593,9 @@ private fun LockedNotice(vm: InvoiceFormViewModel) {
  * 通用单选弹层：一行一个选项（标题 + 一行小字）。
  *
  * ⚠️ 用纯文本行（不是 `ListItem`）：手感跟采购单表单页那两个弹层保持一致。
+ *
+ * [createLabel] ＋ [onCreate] 都给上时，弹层底部多一颗按钮（**就地新建**，CHG-0068 / 台账 L-40）。
+ * 两个都是可选的：选客户那处不传，形态与以前逐字一致。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -559,6 +605,8 @@ private fun PickSheet(
     rows: List<Pair<Long, List<String>>>
     ,
     onPick: (Long) -> Unit,
+    createLabel: String? = null,
+    onCreate: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -604,6 +652,12 @@ private fun PickSheet(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
+        }
+        if (createLabel != null && onCreate != null) {
+            TextButton(
+                onClick = onCreate,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp),
+            ) { Text(createLabel) }
         }
         Spacer(Modifier.height(28.dp))
     }

@@ -210,7 +210,7 @@ fun BasicSettingsScreen(
             onDismiss = { showResetConfirm = false },
         )
     }
-    OneShotSnackbar(snackbar, resetMessage) { resetMessage = null }
+    OneShotSnackbar(snackbar, resetMessage, onConsumed = { resetMessage = null })
     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 }

@@ -25,6 +25,7 @@ import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.PurchaseItemRequest
 import com.tapmoay.sorders.data.remote.dto.PurchaseOrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.PurchaseOrderUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.SupplierCreateRequest
 import com.tapmoay.sorders.data.remote.dto.SupplierDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.*
@@ -187,6 +188,29 @@ class PurchaseOrderFormViewModel(
         supplierName = s.name
     }
 
+    /**
+     * 就地新建一家供应商（CHG-0068 / 台账 L-40）：在选供应商的弹层里就能建，不用跑「供应商 / 厂商」页。
+     *
+     * 只送**名称 ＋ 电话**（用户 2026-10-07 拍板的"最小可建"：地址/备注以后到档案页补，
+     * 弹窗底部已经写了这句话）。建完把名册重拉一遍、**顺手选中刚建的那一家** ——
+     * 不然用户还得在列表里再找一遍自己刚建的东西。
+     *
+     * 重名由后端 `_check_name_free` 拦（400），这里把它那句人话原样显示，不自己另编一套。
+     */
+    fun createSupplierInline(name: String, phone: String, onCreated: (SupplierDto) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val s = container.repo.createSupplier(SupplierCreateRequest(name = name, phone = phone))
+                loadSuppliers()
+                pickSupplier(s)
+                actionResult = "已建档案：${s.name}"
+                onCreated(s)
+            } catch (e: Exception) {
+                actionResult = toApiException(e).message
+            }
+        }
+    }
+
     /** 从选品弹层加行。单价由弹层按"这个商品上一次的进货价"预填（见 [lastCostOrBlank]）。 */
     fun addPicked(picked: List<PickedLine>) {
         if (picked.isEmpty()) return
@@ -224,7 +248,8 @@ class PurchaseOrderFormViewModel(
     fun save() {
         val sid = supplierId
         if (sid == null) {
-            actionResult = "还没选供应商"
+            // 不是报错，是**入口**：这句话会让提示条上长出「现在就建一家」（见 [NEED_SUPPLIER]）。
+            actionResult = NEED_SUPPLIER
             return
         }
         if (lines.isEmpty()) {
@@ -281,6 +306,14 @@ class PurchaseOrderFormViewModel(
     }
 }
 
+/**
+ * 没选供应商时那句引导（CHG-0068 / 台账 L-40，用户 2026-10-07 拍板：「带一颗『现在就建一家』」）。
+ *
+ * ⛔ 它是**入口**不是报错：提示条上那颗按钮就是靠这句话认出来的（见 [PurchaseOrderFormScreen]
+ *    里 `actionLabel = if (vm.actionResult == NEED_SUPPLIER)`）—— 改这句要连着改那一处。
+ */
+private const val NEED_SUPPLIER = "还没选供应商 —— 现在就建一家"
+
 /** 金额一律"后端字符串 → 加个 ¥"，⛔ 客户端不做四则运算。 */
 private fun yuan(s: String?): String = "¥" + formatMoney(s ?: "0")
 
@@ -306,13 +339,23 @@ fun PurchaseOrderFormScreen(
     val vm: PurchaseOrderFormViewModel = appViewModel { PurchaseOrderFormViewModel(container, orderId) }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.start() }
-    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
-    // 保存成功就回上一页（列表页每次进组合都会重拉，新单立刻出现在那儿）。
-    LaunchedEffect(vm.saved) { if (vm.saved) onBack() }
 
     var showSupplierPicker by remember { mutableStateOf(false) }
     var showProductPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    // 就地新建供应商（CHG-0068）：弹层里那颗「新建供应商」把这张表单打开。
+    var creatingSupplier by remember { mutableStateOf(false) }
+
+    // 只有"还没选供应商"那句带按钮：点一下直接开选供应商弹层，人不用退出去补档案。
+    OneShotSnackbar(
+        snackbar,
+        vm.actionResult,
+        onConsumed = { vm.actionResult = null },
+        actionLabel = if (vm.actionResult == NEED_SUPPLIER) "现在就建一家" else null,
+        onAction = { showSupplierPicker = true },
+    )
+    // 保存成功就回上一页（列表页每次进组合都会重拉，新单立刻出现在那儿）。
+    LaunchedEffect(vm.saved) { if (vm.saved) onBack() }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -464,7 +507,23 @@ fun PurchaseOrderFormScreen(
                 showSupplierPicker = false;
             },
             onRetry = { vm.loadSuppliers() },
+            // 建完**直接选中刚建的那家**、两个弹层一起关：回到采购单上，供应商那一栏已经填好了。
+            onCreate = { creatingSupplier = true },
             onDismiss = { showSupplierPicker = false },
+        )
+    }
+
+    if (creatingSupplier) {
+        SupplierEditorDialog(
+            initial = null,
+            minimal = true,
+            onDismiss = { creatingSupplier = false },
+            onSave = { name, _, phone, _, _ ->
+                vm.createSupplierInline(name, phone) {
+                    creatingSupplier = false
+                    showSupplierPicker = false
+                }
+            },
         )
     }
 
@@ -563,7 +622,13 @@ private fun PurchaseLineEditor(
     }
 }
 
-/** 选供应商的底部弹层：能搜（供应商可能几十家）。 */
+/**
+ * 选供应商的底部弹层：能搜（供应商可能几十家）。
+ *
+ * [onCreate] 非空时底部多一颗「新建供应商」——**就地新建**（CHG-0068 / 台账 L-40：
+ * 「没有建供应商的话他可以在这里直接选择新建供应商，省得又跑到那边去」）。
+ * 空态那句话与这颗按钮指的是同一件事，别再写第二个入口。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SupplierPickSheet(
@@ -571,6 +636,7 @@ private fun SupplierPickSheet(
     loading: Boolean,
     onPick: (SupplierDto) -> Unit,
     onRetry: () -> Unit,
+    onCreate: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     var q by remember { mutableStateOf("") }
@@ -590,7 +656,8 @@ private fun SupplierPickSheet(
             when {
                 loading -> LoadingBox(Modifier.height(160.dp))
                 suppliers.isEmpty() -> {
-                    EmptyView("还没有供应商档案，先去「供应商 / 厂商」建一个")
+                    // 空态本身就是入口（下面那颗「新建供应商」）—— 不再支使人跑去别的页面。
+                    EmptyView("还没有供应商 —— 现在就建一家")
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = onRetry) { Text("重新加载") }
                 }
@@ -626,6 +693,10 @@ private fun SupplierPickSheet(
                         }
                     }
                 }
+            }
+            if (onCreate != null) {
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = onCreate) { Text("新建供应商") }
             }
             Spacer(Modifier.height(16.dp))
         }

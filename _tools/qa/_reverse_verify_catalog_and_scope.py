@@ -419,8 +419,25 @@ CASES: list[tuple[str, Path, object]] = [
         "OneShotSnackbar 顺序反过来（先显示再消费 → 切页返回会重放）",
         COMPONENTS,
         lambda s: s.replace(
-            "        onConsumed()\n        scope.launch { hostState.showSnackbar(text) }",
-            "        scope.launch { hostState.showSnackbar(text) }\n        onConsumed()",
+            "        onConsumed()\n"
+            "        // \u26a0\ufe0f showSnackbar 必须是这个协程块里的**第一句**（中间不能有注释/赋值）：项目红线\n"
+            "        //    `_tools/ai/_check_ai_guardrails.py` 认的就是「显示挂在 rememberCoroutineScope() 上、\n"
+            "        //    不在 LaunchedEffect 的 key 上」这个形状（写成 `val result =` 再接一句会被判成后者）。\n"
+            "        scope.launch {\n"
+            "            hostState.showSnackbar(\n"
+            "                message = text,\n"
+            "                actionLabel = actionLabel,\n"
+            "                withDismissAction = false,\n"
+            "            ).let { result ->",
+            "        // \u26a0\ufe0f showSnackbar 必须是这个协程块里的**第一句**（中间不能有注释/赋值）：项目红线\n"
+            "        //    `_tools/ai/_check_ai_guardrails.py` 认的就是「显示挂在 rememberCoroutineScope() 上、\n"
+            "        //    不在 LaunchedEffect 的 key 上」这个形状（写成 `val result =` 再接一句会被判成后者）。\n"
+            "        scope.launch {\n"
+            "            hostState.showSnackbar(\n"
+            "                message = text,\n"
+            "                actionLabel = actionLabel,\n"
+            "                withDismissAction = false,\n"
+            "            ).let { result ->",
             1,
         ),
     ),

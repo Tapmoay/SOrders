@@ -4,8 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -14,12 +12,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
-import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.SupplierCreateRequest
 import com.tapmoay.sorders.data.remote.dto.SupplierDto
 import com.tapmoay.sorders.data.remote.dto.SupplierUpdateRequest
@@ -405,67 +401,3 @@ private fun SupplierCard(
     }
 }
 
-/** 建 / 改档案：一张卡里的几个字段（与「新增开销」「新建预设单」同一种形态）。 */
-/** 建 / 改档案：**表单行走共用那一套**（`ui/common/FormRows.kt`）。
- *
- * ⚠️ 这里是**共用行、不是 `OutlinedTextField`**：设计规范 §5.0 把「分组一律白卡 + 输入用无边框行」
- *    定成了全局规范（用户 2026-09-22：「把他们改进这种**白色的卡片样式**……**所有都要这样子去改**」），
- *    判据 `_tools/qa/_check_form_panel_style.py` 盯着"全库描边输入框总数只许减不许增"。
- *    对话框本身就是那张"卡"，所以行**不再外面再套一层 SectionCard**（框套框正是用户要消灭的东西）。
- */
-@Composable
-private fun SupplierEditorDialog(
-    initial: SupplierDto?,
-    onDismiss: () -> Unit,
-    onSave: (name: String, contact: String, phone: String, address: String, remark: String) -> Unit,
-) {
-    var name by remember { mutableStateOf(initial?.name.orEmpty()) }
-    var contact by remember { mutableStateOf(initial?.contactName.orEmpty()) }
-    var phone by remember { mutableStateOf(initial?.phone.orEmpty()) }
-    var address by remember { mutableStateOf(initial?.address.orEmpty()) }
-    var remark by remember { mutableStateOf(initial?.remark.orEmpty()) }
-
-    CardAlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "新增供应商 / 厂商" else "改资料") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                FormInputRow(
-                    label = "名称", value = name, onValueChange = { name = it },
-                    placeholder = "如 永盛食品有限公司", required = true,
-                    icon = Icons.Default.Storefront, iconTint = Color(CashOut),
-                )
-                FormInputRow(
-                    label = "联系人", value = contact, onValueChange = { contact = it },
-                    placeholder = "对方的联系人",
-                    icon = Icons.Default.Person, iconTint = Color(CashOut),
-                )
-                FormInputRow(
-                    // 电话只让数字进来（规则唯一实现在 core/InputRules.kt）。后端那一侧要求
-                    // 7~12 位数字 —— 前端在这一步就把汉字/字母挡在外面，别让用户敲完才吃一个 422。
-                    label = "电话", value = phone, onValueChange = { phone = InputRules.phoneInput(it) },
-                    placeholder = "7~12 位数字，座机写 07521234567",
-                    keyboardType = KeyboardType.Phone,
-                    icon = Icons.Default.Call, iconTint = Color(CashOut),
-                )
-                FormTextAreaRow(
-                    label = "地址", value = address, onValueChange = { address = it },
-                    placeholder = "对方的地址（可选）", minLines = 2,
-                    icon = Icons.Default.Place, iconTint = Color(CashOut),
-                )
-                FormInputRow(
-                    label = "备注", value = remark, onValueChange = { remark = it },
-                    placeholder = "一句话（可选）",
-                    icon = Icons.Default.Notes, iconTint = Color(CashOut),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onSave(name.trim(), contact.trim(), phone.trim(), address.trim(), remark.trim()) },
-            ) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}

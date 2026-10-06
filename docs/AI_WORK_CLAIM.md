@@ -6238,6 +6238,25 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-07 04:3x → 04:4x 已完成] 会话：**CHG-0068 选供应商的弹层里能就地新建一家（采购单 ＋ 进项票两处）**（台账 **L-40**）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**（台账 L-40）：「没有建供应商的话他可以在这里直接选择新建供应商，省得又跑到那边去」。四问拍板：只填**名称 ＋ 电话**（最小可建）、进项票那处弹层**一起改**、建完要**一句提示**、采购单保存时那句「还没选供应商」**改成引导**并带一颗「现在就建一家」。
+
+**改什么（5 个源码文件 ＋ 2 份新判据 ＋ 1 份生成物 ＋ 3 份文档，边界结论 PRESENTATION）**：
+- 新增 `android/app/src/main/java/com/tapmoay/sorders/ui/common/SupplierEditorDialog.kt`：供应商页那份建/改弹窗提成**唯一一份**共用件，多一个 `minimal` 形态（标题「新建供应商」、只问**名称 ＋ 电话**、底部一行「地址、备注以后可以在「供应商 / 厂商」页补」）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/SuppliersScreen.kt`：删掉页面私有那一份（两处调用点照旧，全字段形态一个字没动）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/PurchaseOrderFormScreen.kt`：选供应商弹层底部「新建供应商」＋ 空态句改成入口 ＋ `createSupplierInline`（建完**直接选中**）＋ 保存那句改 `NEED_SUPPLIER = "还没选供应商 —— 现在就建一家"` 引导 ＋ 提示条上那颗「现在就建一家」。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/InvoiceFormScreen.kt`：同一件事（`PickSheet` 多两个可选参数 `createLabel` / `onCreate`；VM 直接 `suppliers = container.repo.suppliers()` 重拉名册，绕开 `loadSuppliers()` 的 `if (suppliers.isNotEmpty()) return` 早退守卫）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/Components.kt`：`OneShotSnackbar` 加**可选**的 `actionLabel` / `onAction`（保持"显示挂在 `rememberCoroutineScope()` 上、`showSnackbar` 是 `scope.launch {` 第一句"这个红线形状）；全库唯一用尾随 lambda 的 `ui/profile/BasicSettingsScreen.kt:213` 改成显式 `onConsumed = { … }`（否则编译红）。
+- 判据：`_tools/qa/_check_supplier_inline_create.py`（74/74，带"扫到的 .kt < 100 或抽不出函数体就判停"的空转闸）＋ `_tools/qa/_reverse_verify_supplier_inline_create.py`（12 条注入逐条让判据变红并点名那一条，跑完按字节还原）。
+- 文档：`docs/changes/CHG-0068.md`、`docs/changes/README.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成：源码文案变了），本页。
+
+**核心改动声明行**：不适用（`_tools/qa/_core_files.txt` 16 条白名单全是 backend ＋ `ai/AiWriteService.kt`，本单只动界面层）。
+
+**⛔ 明确不碰**：不新建端点、不动 `Apis.kt` / `SupplierCreateRequest` / 后端；不动供应商页那两处的全字段表单、选客户弹层、进项票既有错误行措辞；不改权限与审计（仍走 `POST /suppliers` ⇒ `_check_name_free` 重名校验 ＋ `SUPPLIER_UPSERT` 审计）。
+
+- 状态：已完成（实现提交 `（见 §⑧）`；判据 74/74 ＋ 反验 12/12（按字节还原）＋ `_check_form_panel_style.py` 38/38 ＋ `_check_reverse_verify_anchors.py` 222 份脚本 / 2614 条注入全在 ＋ gradle 1249 跑 / 1 红为预存在的 `AiHabitTest` / 2 skip ＋ 真机 5554 全流程取证（七张 `shots/chg0068_*_5554.png`）＋ 全量静检见 §⑧ 第 ⑤ 行）。
+
 ### [2026-10-07 03:4x → 04:2x 已完成] 会话：**BUG-0017 沽清（下架）的商品：整卡变灰、点不动，下单拦在客户端与服务端两道**（台账 **L-35**）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**（m01347）：「文字的话你就留一个**已沽清**吧；灰掉了之后**就不能点**的哈 —— 就是我们已沽清之后，他是**点不动**的，不能产生这个反应，就是**整卡变灰**嘛……就是**拦住不让下**，不可能是提示后他仍然可以下呀。」

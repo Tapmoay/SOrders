@@ -1141,18 +1141,35 @@ fun SegmentedPicker(
  *
  * @param message 待显示的消息；null = 什么都不做
  * @param onConsumed 把消息置空（**在显示之前**调用）
+ * @param actionLabel 非空 = 提示条上**多一颗按钮**（材料库 `Snackbar` 原生就有这个能力）；
+ *   不传 = 老样子。全库那几十处调用点一个字都不用改（CHG-0068 只给"还没选供应商"那一句挂按钮）。
+ * @param onAction 人**真的按了**那颗按钮时回调（超时/滑掉/被后来的消息顶掉都不算）。
  */
 @Composable
 fun OneShotSnackbar(
     hostState: SnackbarHostState,
     message: String?,
     onConsumed: () -> Unit,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(message) {
         val text = message ?: return@LaunchedEffect
         onConsumed()
-        scope.launch { hostState.showSnackbar(text) }
+        // ⚠️ showSnackbar 必须是这个协程块里的**第一句**（中间不能有注释/赋值）：项目红线
+        //    `_tools/ai/_check_ai_guardrails.py` 认的就是「显示挂在 rememberCoroutineScope() 上、
+        //    不在 LaunchedEffect 的 key 上」这个形状（写成 `val result =` 再接一句会被判成后者）。
+        scope.launch {
+            hostState.showSnackbar(
+                message = text,
+                actionLabel = actionLabel,
+                withDismissAction = false,
+            ).let { result ->
+                // 只有"人真的点了那颗按钮"才算 —— 这一条让"提示条的按钮"可以安全地当入口用。
+                if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
+            }
+        }
     }
 }
 
