@@ -6146,7 +6146,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 - 核心改动：`backend/app/services/order_response.py` —— 为什么必须动核心：`discount_amount` 是新的金额出参，必须归进「司机视角遮蔽」那张表（`CUSTOMER_GOODS_FIELDS`）并在 `apply_driver_view_gating` 里清零 —— 门控清单漏一个金额字段，司机包里就多一个数（`backend/tests/test_order_out_driver_pay_gating.py` 逐字段钉着）。
 - 核心改动：`backend/app/models/enums.py` —— 为什么必须动核心：审计动作码（`ORDER_DISCOUNT` / `ORDER_DISCOUNT_CLEAR`）是全项目共用的取值表，打折要能回答「谁、何时、打了多少」，只能在这里追加两个码（`core/capability_audit_coverage.py` 的 `order:edit` 元组跟着加）。
 
-- 状态：已完成（开工 2026-10-07 06:4x，关单 07:5x；变更单 `docs/changes/CHG-0071.md`；Blast Radius L2；实现提交 `______`）
+- 状态：已完成（开工 2026-10-07 06:4x，关单 07:5x；变更单 `docs/changes/CHG-0071.md`；Blast Radius L2；实现提交 `750280d`）
 
 ---
 
