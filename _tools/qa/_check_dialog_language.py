@@ -14,7 +14,7 @@ CHG-0063），再加那 6dp 的 tonal elevation。全库几十处调用点**无�
 1. 共用零件 `ui/common/Components.kt` 的 `CardAlertDialog` 长出 `tone: DialogTone`（默认 INFO）
    与 `DialogToneIcon`（INFO=提示蓝 / WARN=警告橙 / DANGER=危险红，三档**形状也不同**）；
 2. `DangerConfirmDialog` 改成转发本件 ＋ `tone = DialogTone.DANGER`（21 处"红色确认钮"的老
-   调用点一次性对齐，21 处）；
+   调用点一次性对齐）；
 3. 全库 62 处裸 `AlertDialog(` 一次性迁到本件 ⇒ 本件体内那**一行** `AlertDialog(` 成了全库
    唯一剩下的一处。
 
@@ -37,6 +37,13 @@ CHG-0063），再加那 6dp 的 tonal elevation。全库几十处调用点**无�
 危险弹窗忘了给 DANGER —— 编译通过、用例全绿，界面上却是「一眼看出不对」的那种坏。
 反向验证：python _tools/qa/_reverse_verify_dialog_language.py（12 种破坏方式全被抓）。
 
+R3-BOUNDARY-JUSTIFICATION: 这不是「多一条红线」——「弹窗难看」是**审美**，不是某段代码写错了：
+`containerColor` 的类型就是 `Color`，灰和白一样合法；「危险动作配红图标」只写在人的脑子里。
+唯一的代码边界是「弹窗都从 `CardAlertDialog` 出」，可这条边界拦不住这一刀真正会坏的方式 ——
+零件里那三行（白卡 / 语义色图标 / `tonalElevation = 0.dp`）抽掉任何一行都仍然编译通过，
+档位被抹平成一种颜色也不报错，新页面完全可以自己再手写一行 `AlertDialog(` 绕开零件。
+所以要钉的不是「谁调用了谁」，而是**全库弹窗的形态**（唯一落点 / 三档齐全 / 危险正文必配 DANGER），
+只能靠跨文件计数 ＋ 逐个调用点的档位断言，再配反向注入证明它真能判红。
 用法：python _tools/qa/_check_dialog_language.py
 """
 from __future__ import annotations
