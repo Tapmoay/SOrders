@@ -108,7 +108,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "⑨ 在 map 里调 rememberTextWidth（组合期槽位与列表长度对不上）",
         DETAIL,
         r"re:val qtyW = order\.orderProducts\.fold\(0\.dp\) \{ acc, l ->\s*"
-        r"maxOf\(acc, rememberTextWidth\(\"×\" \+ qtyWithUnitConverted\(l\.quantity, l\.unit, conversions\), qtyStyle\)\)\s*\}",
+        r"maxOf\(acc, rememberTextWidth\(\"×\" \+ qtyWithUnitConverted\(netQty\(l\), l\.unit, conversions\), qtyStyle\)\)\s*\}",
         "val qtyW = order.orderProducts.map { "
         'rememberTextWidth("×" + qtyWithUnit(it.quantity, it.unit), qtyStyle) }.maxOrNull() ?: 0.dp',
         # ⚠️ 期望串要连 `⛔ ` 一起写：判据标签本身以它开头，少写这两个字符就永远匹配不上
@@ -118,7 +118,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "⑫ 量宽度时偷偷把单位去掉（那一列会按「×6」的宽度去装「×6 桶」→ 数字被裁掉）",
         DETAIL,
-        r're:rememberTextWidth\("×" \+ qtyWithUnitConverted\(l\.quantity, l\.unit, conversions\), qtyStyle\)',
+        r're:rememberTextWidth\("×" \+ qtyWithUnitConverted\(netQty\(l\), l\.unit, conversions\), qtyStyle\)',
         'rememberTextWidth("×" + l.quantity, qtyStyle)',
         "量宽度用的那串文字与画出来的那串是同一个拼法",
     ),
@@ -137,6 +137,32 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "`ui/common/Units.kt::qtyWithUnitConverted`",
         "`ui/common/Units.kt::qtyWithUnit`",
         "08_CODE_LOCATOR.md 的订单卡片那一行提到单位与两列",
+    ),
+    # ---- 以下三条是台账 L-21 / CHG-0054 加进来的：净数那一格 ----
+    # 用户 2026-10-06（m00481）：「总数从 5 个，退了 3 个，总数会变成 2 个」；m00542 定案
+    # 「只显示最后的数字，然后后面一个小字『已退 3』」。这一格坏起来同样是**一句报错都没有**：
+    # 没退过货的单子照样对，只有退过货的那几行悄悄多画了几件。
+    (
+        "⑬ 净数算式退回原数量（退过货的行又画成下单数，用户点名的那句当场复发）",
+        DETAIL,
+        r"re:private fun netQty\(l: OrderProductDto\): Int = \(l\.quantity - l\.returnedQuantity\)\.coerceAtLeast\(0\)",
+        "private fun netQty(l: OrderProductDto): Int = l.quantity",
+        # ⚠️ 期望串只写标签的**前半**（判据那行里 netQty 后面还有反引号与括号，写全长容易假红）
+        "净数算式只有一处",
+    ),
+    (
+        "⑭ 只把「画出来」那处改回原数量（列宽按净数、数字画的却是下单数）",
+        DETAIL,
+        r're:"×" \+ qtyWithUnitConverted\(netQty\(line\), line\.unit, conversions\),',
+        '"×" + qtyWithUnitConverted(line.quantity, line.unit, conversions),',
+        "量宽度与画出来那串都走 netQty",
+    ),
+    (
+        "⑮ 「已退 N」改成无条件画（没退过的行也写一句「已退 0」）",
+        DETAIL,
+        "if (line.returnedQuantity > 0) {",
+        "if (true) {",
+        "「已退 N」跟在净数后面",
     ),
 ]
 

@@ -251,7 +251,7 @@ def main() -> int:
          f"实际 {len(block)} 字符")
     c.ok(
         "件数那一格右对齐（textAlign = TextAlign.End + 同一个宽度）",
-        re.search(r'"×" \+ qtyWithUnitConverted\(line\.quantity, line\.unit, conversions\),[\s\S]{0,200}?'
+        re.search(r'"×" \+ qtyWithUnitConverted\(netQty\(line\), line\.unit, conversions\),[\s\S]{0,200}?'
                   r"textAlign = TextAlign\.End,\s*modifier = Modifier\.width\(qtyW\)", block) is not None,
         "用户：「件与件数做对齐」",
     )
@@ -271,9 +271,9 @@ def main() -> int:
     #    数字被那个固定宽度裁掉，屏幕上只是"看着有点挤"，一句报错都没有。
     c.ok(
         "量宽度用的那串文字与画出来的那串是同一个拼法（都带单位、同一个 style、换算也同源）",
-        re.search(r'rememberTextWidth\("×" \+ qtyWithUnitConverted\(l\.quantity, l\.unit, conversions\), qtyStyle\)',
+        re.search(r'rememberTextWidth\("×" \+ qtyWithUnitConverted\(netQty\(l\), l\.unit, conversions\), qtyStyle\)',
                   block) is not None
-        and re.search(r'"×" \+ qtyWithUnitConverted\(line\.quantity, line\.unit, conversions\),[\s\S]{0,120}?style = qtyStyle,',
+        and re.search(r'"×" \+ qtyWithUnitConverted\(netQty\(line\), line\.unit, conversions\),[\s\S]{0,120}?style = qtyStyle,',
                       block) is not None,
         "量的比画的窄 → 数字被固定宽度裁掉，而界面上没有任何提示",
     )
@@ -298,6 +298,36 @@ def main() -> int:
         re.search(r"\.map \{[^}]*rememberTextWidth", detail) is None
         and re.search(r"\.map \{[^}]*rememberTextWidth", peek) is None,
         "Adaptive.kt 明说：forEach / fold 是 inline 所以能调，map 不是",
+    )
+    # ---- ③b 净数（台账 L-21 / CHG-0054）----
+    # ⚠️ 用户 2026-10-06（m00481）：「总数从 5 个，退了 3 个，总数会变成 2 个」；m00542 定案
+    #    「只显示最后的数字，然后后面一个小字『已退 3』」。这一格从此画**净数**——
+    #    真缺陷的样子是"没退过货的单子照样对"，只有退过货的那几行才少几件，**一句报错都没有**。
+    c.section("商品明细的件数画净数（下单数 − 已退数）＋ 后面跟一个小字「已退 N」")
+    c.ok(
+        "净数算式只有一处（`netQty`），且**不许为负**",
+        re.search(r"private fun netQty\(l: OrderProductDto\): Int = \(l\.quantity - l\.returnedQuantity\)\.coerceAtLeast\(0\)",
+                  detail) is not None
+        and detail.count("(l.quantity - l.returnedQuantity)") == 1,
+        "算式抄成第二份 / 忘了 coerceAtLeast(0)：老数据里 已退 > 下单 时会画出一个负数",
+    )
+    c.ok(
+        "量宽度与画出来那串都走 netQty（不是只把画的那处改了）",
+        re.search(r"qtyWithUnitConverted\(netQty\(l\), l\.unit, conversions\)", block) is not None
+        and re.search(r"qtyWithUnitConverted\(netQty\(line\), line\.unit, conversions\)", block) is not None,
+        "只改画的那一处 → 列宽仍按**原数量**去量，「×12」的宽度装「×9」，右边那几位被裁掉",
+    )
+    c.ok(
+        "「已退 N」跟在净数后面，且**只在这一行真的退过时**才画",
+        re.search(r"modifier = Modifier\.width\(qtyW\),[\s\S]{0,400}?"
+                  r"if \(line\.returnedQuantity > 0\) \{[\s\S]{0,200}?"
+                  r'"已退 " \+ line\.returnedQuantity', block) is not None,
+        "没退过的行也画「已退 0」＝ 每行都多一句废话；退过却不画 → 件数变少了没人解释",
+    )
+    c.ok(
+        "「已退 N」是**数据**，不是解释句（没挂到提示组件上）",
+        re.search(r"H\w*\(\s*\"已退 ", block) is None,
+        "禁止把纯数据塞进提示组件（细则在 _check_hints.py）",
     )
     c.ok(
         "钱的门还在：司机看不到货款那一格（role != Role.DRIVER）",

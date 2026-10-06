@@ -37,6 +37,8 @@ import com.tapmoay.sorders.core.HintPrefs
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.dto.OrderDto
+import com.tapmoay.sorders.data.remote.dto.OrderProductDto
+import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.dispatcher.AssignDriverDialog
 import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolViewModel
@@ -277,6 +279,7 @@ fun OrderDetailScreen(
                 // 「我是不是批发商」——只给「拨打司机电话」那颗按钮用（判据 `ui/common/DriverCall.kt`）。
                 // 会话里没有 `is_member`，只能从 `/users/me` 取（拿不到时是 false ＝ 不给）。
                 memberShipper = vm.isMemberShipper,
+                returnRequests = vm.returnRequests,
                 onFillNavClick = {
                     // 先预热定位：地图一打开就落在司机当前所在处，少拖一次
                     container.locationManager.requestSingle()
@@ -589,6 +592,20 @@ private fun DriverRow(name: String, phone: String, onDial: (() -> Unit)?) {
     }
 }
 
+/**
+ * 这一行还剩几件（台账 L-21 / CHG-0054）：**下单数 − 已退数**，不许为负。
+ *
+ * 用户 2026-10-06（m00481）：「总数从 5 个，退了 3 个，总数会变成 2 个」—— 详情页那一格从此画净数，
+ * 「少掉的那几件」由紧跟其后的小字「已退 3」说明（m00542 定案的口径）。
+ *
+ * ⚠️ 算式**只有这一处**：量列宽（`qtyW`）与画出来那串都走它 —— 各写一份的话，列宽会按"另一个数"
+ *    去量，多出来的位数被固定宽度裁掉（`_tools/qa/_check_order_row_columns.py` 守这条）。
+ * ⚠️ `.coerceAtLeast(0)`：老数据里 `returnedQuantity > quantity` 时**不许画负数**
+ *    （与 `ui/dispatcher/LedgerPersonScreen.kt` 那一处同一算式）。
+ */
+private fun netQty(l: OrderProductDto): Int = (l.quantity - l.returnedQuantity).coerceAtLeast(0)
+
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DetailBody(
@@ -651,6 +668,11 @@ private fun DetailBody(
      * 会话里没有 `is_member`，这一页自己取不到（见 `OrderDetailViewModel.isMemberShipper`）。
      */
     memberShipper: Boolean = false,
+    /**
+     * 这一单的退货申请（台账 L-21 / CHG-0054）—— 由 `OrderDetailViewModel.returnRequests` 取，
+     * 这里只负责画（**只读**：撤回 / 办理仍在退货申请页，不在这里再放一遍）。
+     */
+    returnRequests: List<ReturnRequestDto> = emptyList(),
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
     // ── 就地改单的两个门（CHG-0041）──
@@ -1018,8 +1040,11 @@ private fun DetailBody(
                 val damageStyle = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 )
+                // 件数那一格画的是**净数**（台账 L-21 / CHG-0054）：用户 2026-10-06「总数从 5 个，
+                // 退了 3 个，总数会变成 2 个」，m00542 定案「只显示最后的数字，然后后面一个小字
+                // 『已退 3』」。算式只有一处（`netQty`，与后端 `max_returnable` 同源）。
                 val qtyW = order.orderProducts.fold(0.dp) { acc, l ->
-                    maxOf(acc, rememberTextWidth("×" + qtyWithUnitConverted(l.quantity, l.unit, conversions), qtyStyle))
+                    maxOf(acc, rememberTextWidth("×" + qtyWithUnitConverted(netQty(l), l.unit, conversions), qtyStyle))
                 }
                 val moneyW = order.orderProducts.fold(0.dp) { acc, l ->
                     maxOf(acc, rememberTextWidth("¥" + formatMoney(l.lineTotal), moneyStyle))
@@ -1059,12 +1084,23 @@ private fun DetailBody(
                             // 拼法只有一处：`Units.kt::qtyWithUnit`（订单卡片走的也是它）。
                             // 2026-09-24 起设过换算时再带后半截（「×10 车 ≈ 80 方」），
                             // 量列宽与渲染用**同一个函数**（不同的话右对齐当场错位）。
-                            "×" + qtyWithUnitConverted(line.quantity, line.unit, conversions),
+                            "×" + qtyWithUnitConverted(netQty(line), line.unit, conversions),
                             style = qtyStyle,
                             color = androidx.compose.ui.graphics.Color(0xFF8455E6),
                             textAlign = TextAlign.End,
                             modifier = Modifier.width(qtyW),
                         )
+                        // 「已退 3」跟在净数后面（m00542 的字面：「后面一个小字」）：件数为什么变少，
+                        // 这一行就是答案。只在这一行**真的退过**时才画（没退过的行不加噪音）。
+                        // ⛔ 它是**数据**（退了几件），不是解释句 —— 别挂到提示组件上去。
+                        if (line.returnedQuantity > 0) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "已退 " + line.returnedQuantity,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         Spacer(Modifier.width(12.dp))
                         if (role != Role.DRIVER) {
                             Text(
@@ -1144,6 +1180,77 @@ private fun DetailBody(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
+                    }
+                }
+                // ── 这一单的退货申请（台账 L-21 / CHG-0054）──
+                // 用户 2026-10-06（m00542）：「在查看的时候也可以查到这个单子的退货单」——
+                // 就把这一单的那几条**直接画在这里**，不用再跑去退货申请列表里翻。反向那一半
+                // （退货单 → 订单）本来就能点（两端退货申请页的 `onOpenOrder`）。
+                // ⛔ 不做「点一下跳到退货申请页」：那边带 `?focus=` 进去会把这一条标成
+                //    那条定位徽章文案（`ui/common/ReturnRequestsUi.kt` 里唯一一份，判据
+                //    `_check_return_request.py` 钉死全仓只许一处 —— 所以这里连这句文案都
+                //    不许抄）—— 从订单点进去却把徽章当成事实就是一句假话；不带 focus 又只能落到整张列表上，还得自己找。
+                // ⛔ 这一块是**只读展示**：撤回 / 办理仍在退货申请页，动作不在这里再放一遍。
+                // 只在**有申请**时出现：一条都没有还画一块空标题，比不画更像"没加载出来"。
+                if (returnRequests.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "退货申请",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            returnRequests.size.toString() + " 条",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    returnRequests.forEach { req ->
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 状态中文名只许来自后端的 statusLabel（共用胶囊，见 `ui/common/ReturnRequestChip.kt`）
+                            ReturnRequestStatusChip(status = req.status, label = req.statusLabel)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "要退 " + req.linesSummary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "申请时间 " + formatDateTime(req.createdAt),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        // 被驳回：原因必须显示 —— 这是货主唯一能拿到的答复（与退货申请页同一句文案）
+                        if (req.status == "rejected") {
+                            Text(
+                                "驳回原因：" + req.rejectReason.ifBlank { "（派单员没有填原因）" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        // 已办理：谁办的、什么时候（钱和货是那一刻变的，与退货申请页同形）
+                        if (req.status == "done") {
+                            Text(
+                                buildString {
+                                    append("已由 ")
+                                    append(req.handledByName.ifBlank { "派单员" })
+                                    append(" 办理")
+                                    val at = formatDateTime(req.handledAt)
+                                    if (at.isNotBlank()) append(" · ").append(at)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

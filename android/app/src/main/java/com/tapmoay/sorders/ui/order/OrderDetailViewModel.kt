@@ -18,12 +18,22 @@ import com.tapmoay.sorders.data.remote.dto.OrderTransferRequest
 import com.tapmoay.sorders.data.remote.dto.OrderTransferResultDto
 import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductDto
+import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.PickedLine
+import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.launch
 import java.io.File
+
+/**
+ * 退货申请状态档位（后端 `return_requests.py` 的 `Literal` 闭集）里的「全部」。
+ *
+ * 详情页要画**所有**档位：只拉 pending 的话，已办完 / 已驳回的那几条会凭空消失 ——
+ * 用户 2026-10-06（m00542）要的是"查到这个单子的退货单"，不是"还没办的"。
+ */
+private const val RETURN_STATUS_ALL = "all"
 
 class OrderDetailViewModel(
     private val container: AppContainer,
@@ -51,6 +61,19 @@ class OrderDetailViewModel(
      * ⚠️ 取不到时保持 `false` ＝ **不给**：拿不准的动作就不递出去（真门还在后端，这里只决定画不画）。
      */
     var isMemberShipper by mutableStateOf(false)
+        private set
+
+    /**
+     * 这一单的退货申请（台账 L-21 / CHG-0054）。
+     *
+     * 用户 2026-10-06（m00542）：「在查看的时候也可以查到这个单子的退货单」—— 反向那一半
+     * （退货单 → 订单）本来就能点（两端退货申请页的 `onOpenOrder`），缺的是**订单 → 这张单的申请**，
+     * 所以详情页要把这一单的申请画出来（画在「商品明细」卡里，见 `OrderDetailScreen`）。
+     *
+     * ⛔ **非关键取数**：失败只留空列表，不许写 [error] —— 那会把整页顶成 ErrorView，
+     *    而这里只是卡片下面多一块。照 [isMemberShipper] 的 `runCatching{}.getOrDefault(...)` 写。
+     */
+    var returnRequests by mutableStateOf<List<ReturnRequestDto>>(emptyList())
         private set
 
     // 撤销（货主撤自己的单 / 派单员代客撤销 —— 见台账 L-12）
@@ -327,6 +350,32 @@ class OrderDetailViewModel(
                 if (order == null) error = msg else refreshWarning = msg
             } finally {
                 loading = false
+            }
+        }
+        // 这一单的退货申请（L-21）：与订单本体同一次刷新，socket 事件推来时也一起更新。
+        loadReturnRequests()
+    }
+
+    /**
+     * 拉这一单的退货申请（[returnRequests]）。
+     *
+     * 两个角色的接口**不是同一个**（后端 `return_requests.py` 的权限表）：货主走
+     * `GET /return-requests/mine`（`ShipperOnly`），派单员走 `GET /return-requests`；
+     * **司机两个都不给**（403）—— 所以先按登录缓存的角色原文分派，认不出的一律不拉。
+     * ⚠️ 必须用 `TokenStore.cachedRole()` 的**原文**比较，⛔ 不经过 `Role.fromKey`：
+     *    它把认不出的 key 回落成 SHIPPER，那会让司机去调货主的接口。
+     */
+    private fun loadReturnRequests() {
+        viewModelScope.launch {
+            returnRequests = when (container.tokenStore.cachedRole()) {
+                Role.SHIPPER.key ->
+                    runCatching { container.repo.myReturnRequests(orderId = orderId, status = RETURN_STATUS_ALL).items }
+                        .getOrDefault(emptyList())
+                Role.DISPATCHER.key ->
+                    runCatching { container.repo.returnRequestTodo(status = RETURN_STATUS_ALL, orderId = orderId).items }
+                        .getOrDefault(emptyList())
+                // 司机（以及认不出的角色）：后端 403，别去撞
+                else -> emptyList()
             }
         }
     }
