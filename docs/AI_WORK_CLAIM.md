@@ -31,20 +31,6 @@
 
 ## 进行中
 
-### [2026-10-07 02:3x → 进行中] 会话：**CHG-0067 地点库左栏与「线路分类」长成同一套 ＋ BUG-0016 账本「欠款人＝我自己」红色异常提示**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
-
-**改什么（6 个源码文件 ＋ 4 份判据 ＋ 6 份文档）**：
-- `android/app/src/main/java/com/tapmoay/sorders/ui/common/Components.kt`（MasterRail 选中态白底 → `accent.copy(alpha = 0.12f)`；新增 `RailItem.dividerBefore`；渲染 `RailItem.icon` 16dp/8dp；⛔ 不画对勾）
-- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt`（地址库左栏五格图标 Route/Home/Groups/Folder/Settings ＋ 湖蓝 `Color(ShipperTeal)` ＋「管理分组」独有分隔线）
-- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerGrouping.kt`（新增纯函数 `isSelfDebtCustomer(name, phone, meName, mePhone)`：名字或电话撞上货主账号都算，空串与身份 null 一律不报）
-- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerViewModel.kt`（记住 `me().fullName`/`phone`，暴露 `isSelfDebt(g)`）
-- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerScreen.kt`（左栏那格红字 ＋ 主区卡片 `errorContainer` 红条）
-- `android/app/src/test/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerGroupingTest.kt`（新用例「自己欠自己 名字或电话撞上货主账号都算异常」）
-- 判据：`_tools/qa/_check_master_rail_style.py`（47/47）、`_reverse_verify_master_rail_style.py`（14/14）、`_check_ledger_self_debt.py`（83/83）、`_reverse_verify_ledger_self_debt.py`（15/15）
-- 文档：`docs/changes/CHG-0067.md`、`docs/changes/BUG-0016.md`、`docs/changes/README.md`、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成：源码里多了 3 条文案）
-
-⛔ **明确不碰**：`backend/**`（后端那处「下单人没填就写货主账号资料」保持原样，治本另立事项）；账本顶上那张卡的数（仍一律取服务端 `GET /shipper-ledger/summary`）与核销流程（**只提示、不拦**）；`ui/common/CategoryDrawer.kt`（本次的参照件，一字不动）；MasterRail 另外 3 个落点的传参；`Apis.kt` / `Dtos.kt` / `AppRepository.kt`（本次零改动，无交叉点）。
-
 ### [2026-10-05 18:1x → 19:xx CST 已完成] 会话：**CHG-0043 转货跟司机：新开的那张单直接派给原来那位司机**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话**：（本轮没有新的用户原话 —— 由 goal `goal-ea14930c-423e-4296-b68d-5348f0e8b170` 的 objective 与 CHG-0042 落地的审计缺口驱动：objective 要求「否则**新建一张归属目标货主、跟随同司机**的单」，而 CHG-0042 建出来的新单是不带司机的待派单，货在司机车上、单不在他手上。）
@@ -6251,6 +6237,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-07 02:3x → 03:0x 已完成] 会话：**CHG-0067 地点库左栏与「线路分类」长成同一套 ＋ BUG-0016 账本「欠款人＝我自己」红色异常提示**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**改什么（6 个源码文件 ＋ 4 份判据 ＋ 6 份文档）**：
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/Components.kt`（MasterRail 选中态白底 → `accent.copy(alpha = 0.12f)`；新增 `RailItem.dividerBefore`；渲染 `RailItem.icon` 16dp/8dp；⛔ 不画对勾）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt`（地址库左栏五格图标 Route/Home/Groups/Folder/Settings ＋ 湖蓝 `Color(ShipperTeal)` ＋「管理分组」独有分隔线）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerGrouping.kt`（新增纯函数 `isSelfDebtCustomer(name, phone, meName, mePhone)`：名字或电话撞上货主账号都算，空串与身份 null 一律不报）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerViewModel.kt`（记住 `me().fullName`/`phone`，暴露 `isSelfDebt(g)`）
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerScreen.kt`（左栏那格红字 ＋ 主区卡片 `errorContainer` 红条）
+- `android/app/src/test/java/com/tapmoay/sorders/ui/shipper/ShipperLedgerGroupingTest.kt`（新用例「自己欠自己 名字或电话撞上货主账号都算异常」）
+- 判据：`_tools/qa/_check_master_rail_style.py`（47/47）、`_reverse_verify_master_rail_style.py`（14/14）、`_check_ledger_self_debt.py`（83/83）、`_reverse_verify_ledger_self_debt.py`（15/15）
+- 文档：`docs/changes/CHG-0067.md`、`docs/changes/BUG-0016.md`、`docs/changes/README.md`、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成：源码里多了 3 条文案）
+
+⛔ **明确不碰**：`backend/**`（后端那处「下单人没填就写货主账号资料」保持原样，治本另立事项）；账本顶上那张卡的数（仍一律取服务端 `GET /shipper-ledger/summary`）与核销流程（**只提示、不拦**）；`ui/common/CategoryDrawer.kt`（本次的参照件，一字不动）；MasterRail 另外 3 个落点的传参；`Apis.kt` / `Dtos.kt` / `AppRepository.kt`（本次零改动，无交叉点）。
+
+**收口（归档提交：本条）**：实现提交 `70db088`（17 files changed, +1491 / −45）。落点与证据：判据 `_check_master_rail_style.py` **47/47** ＋ `_reverse_verify_master_rail_style.py` **14/14** ＋ `_check_ledger_self_debt.py` **83/83** ＋ `_reverse_verify_ledger_self_debt.py` **15/15**；`:app:compileEmuDebugKotlin` / `:app:compileEmuDebugUnitTestKotlin` 绿；单测 **1245 跑 / 1 红 / 2 skip**（那 1 红是**预存在**的 `AiHabitTest.recognisesCommonPeriodsFromToolArguments`：2026-10-07 当天「近 7 天」窗口恰好等于本月，先命中 `ai/AiHabit.kt:105-122` 的「本月」分支，两个文件都不在本次改动里）；静态检查 205 项**剩 2 条环境红**（`_check_backend_fresh.py` 本机后端进程比源码旧；`_check_report_facts.py` 钉的 `_tools/ops/_migration_tests.py --concurrent` 本机 `FileLockTimeout`＝台账 **BUG-0013** 老账）；`backend/scripts/check_reachability.py` 187/187。⚠️ **模拟器对照截图未取得**：本机没有 adb（`adb devices` → no adb），已如实写进两份变更单的 Known Limitations。
 
 ### [2026-10-05 01:1x UTC → 02:1x UTC 已完成] 会话：**CHG-0034 报表中心首页改成「五张表一张卡 + 时间药丸 + 左侧抽屉」并接上下钻树**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
