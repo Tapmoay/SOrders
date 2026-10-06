@@ -39,7 +39,12 @@ def _order(client: TestClient, tok: str, lines: list[dict]):
     return client.post(
         "/api/v1/orders",
         headers=auth_headers(tok),
-        json={"lines": lines, "delivery_description": "护栏测试"},
+        json={
+            # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+            "contact_dongjia_name": "收货人甲",
+            "lines": lines,
+            "delivery_description": "护栏测试",
+        },
     )
 
 

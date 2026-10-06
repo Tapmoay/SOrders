@@ -19,6 +19,8 @@ def _mk_order(client, headers, **over) -> dict:
         # 派单员代理下单必须指明货主：shipper_id 或 temp_shipper_name 二选一，
         # 否则 create_order 返回 400「代理下单请选择货主或填写临时货主姓名」。
         "temp_shipper_name": "测试货主",
+        # L-32：临时货主没有账号资料可兜底，四个联系字段全空会被后端硬拦
+        "contact_dongjia_name": "收货人甲",
     }
     payload.update(over)
     r = client.post("/api/v1/orders", json=payload, headers=headers)
@@ -220,7 +222,8 @@ def test_同一张单不能被逐单核销两次(client, token_dispatcher, token
     hs = auth_headers(token_shipper)
     order = client.post(
         "/api/v1/orders", headers=hs,
-        json={"lines": [{"product_name_snapshot": "核销探针货", "quantity": 1,
+        json={"contact_dongjia_name": "收货人甲",
+              "lines": [{"product_name_snapshot": "核销探针货", "quantity": 1,
                          "unit_price": "100.00", "line_total": "100.00"}],
               "delivery_description": "核销探针"},
     )
@@ -255,7 +258,8 @@ def test_逐单核销仍然可以滚动作补差额(client, token_dispatcher, to
     hs = auth_headers(token_shipper)
     order = client.post(
         "/api/v1/orders", headers=hs,
-        json={"lines": [{"product_name_snapshot": "补差探针货", "quantity": 1,
+        json={"contact_dongjia_name": "收货人甲",
+              "lines": [{"product_name_snapshot": "补差探针货", "quantity": 1,
                          "unit_price": "50.00", "line_total": "50.00"}],
               "delivery_description": "补差探针"},
     )
@@ -285,7 +289,8 @@ def test_部分核销之后整单核销只收剩下的欠款(client, token_dispa
     hs = auth_headers(token_shipper)
     order = client.post(
         "/api/v1/orders", headers=hs,
-        json={"lines": [
+        json={"contact_dongjia_name": "收货人甲",
+              "lines": [
             {"product_name_snapshot": "整单甲", "quantity": 1, "unit_price": "60.00", "line_total": "60.00"},
             {"product_name_snapshot": "整单乙", "quantity": 1, "unit_price": "40.00", "line_total": "40.00"},
         ], "delivery_description": "整单核销探针"},
@@ -342,7 +347,8 @@ def test_一张收款单可以批量核销同一个人的多张单(client, token
     for i, amount in enumerate(("30.00", "70.00")):
         r = client.post(
             "/api/v1/orders", headers=hs,
-            json={"lines": [{"product_name_snapshot": f"批量货{i}", "quantity": 1,
+            json={"contact_dongjia_name": "收货人甲",
+                  "lines": [{"product_name_snapshot": f"批量货{i}", "quantity": 1,
                              "unit_price": amount, "line_total": amount}],
                   "delivery_description": "批量核销探针"},
         )

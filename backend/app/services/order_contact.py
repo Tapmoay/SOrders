@@ -24,9 +24,19 @@
 规则只能有一处实现：出参 `OrderOut.contact_risk` 由 `order_response.enrich_order_out` 填，
 客户端与 AI 都只读那个布尔值（⛔ 不许在 Kotlin 里照 `customerNameOf` 再判一遍 ——
 那正是「同一个问题两个答案」的经典形状）。
+
+## 另一件事（台账 L-32）：下单与改单时，这四个字段**不能全空**
+上面那套是"事后看得出来"（出参 `contact_risk`），这一套是"事前不让它发生"：
+`contact_dongjia_*` / `contact_boss_*` 四个字段全空的单，用户口述是「**不可能存在**的」（m01132）。
+判据只有一份（`contact_info_missing`），四个落点都调它：下单 `create_order`、改单 `update_order`
+（按**合并后的结果**判）、转货新开单 `_create_target_order`、拆单 `split_order`。
+⛔ 不做数据库约束（NOT NULL / CHECK）：存量空单会被迁移炸掉；
+⛔ 也不写在 Pydantic 那层：`_shipper_xor_temp` 在「下单人＝货主」兜底**之前**跑，会把合格单误拒。
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 from app.models import Order
 
@@ -49,3 +59,48 @@ def contact_risk_of(order: Order) -> bool:
     ⚠️ 只看**两个姓名**，不看电话、不看派单员专属的地址与备注（理由见模块头）。
     """
     return all(contact_name_blank(getattr(order, f, None)) for f in CONTACT_NAME_FIELDS)
+
+
+# ---- L-32：下单 / 改单时「下单人 或 收货人」至少有一个有信息 -------------------------
+#: 四个联系信息字段 —— **任一个非空即合格**（名字或电话，任选一端）。
+#: ⚠️ 与 `CONTACT_NAME_FIELDS` 是**两套**判据（那套只看两个姓名，是"账上认不认得出人"），
+#:    台账明令不许合并：一个是事后提示，一个是事前拦截，口径本来就不一样。
+CONTACT_INFO_FIELDS: tuple[str, ...] = (
+    "contact_dongjia_name",
+    "contact_dongjia_phone",
+    "contact_boss_name",
+    "contact_boss_phone",
+)
+
+#: 四个都空时对用户说的那一句话（后端四个落点 + 客户端文案**同源**，⛔ 不许各写一句）。
+CONTACT_INFO_REQUIRED = "请填写收货人或下单人（名字或电话，至少一个）"
+
+
+def merged_contact_info(*sources: object) -> dict[str, str]:
+    """把几份"联系信息"按**先后顺序**叠起来（后写覆盖先写）。
+
+    三种形状都认：ORM 行（`Order`）、Pydantic 入参（`OrderCreate` / `OrderUpdate`）、普通 dict。
+    ⚠️ `None` 表示"这一份没说这个字段"（`OrderUpdate` 的部分更新语义）⇒ **不算改**，
+    所以改单要按"库里的值 + 请求体"叠出来的**合并结果**判，而不是只看请求体。
+    """
+    merged: dict[str, str] = dict.fromkeys(CONTACT_INFO_FIELDS, "")
+    for source in sources:
+        if source is None:
+            continue
+        for field in CONTACT_INFO_FIELDS:
+            if isinstance(source, Mapping):
+                raw = source.get(field)
+            else:
+                raw = getattr(source, field, None)
+            if raw is None:
+                continue
+            merged[field] = str(raw).strip()
+    return merged
+
+
+def contact_info_missing(source: object) -> bool:
+    """四个联系字段**全空** ⇒ True（"这一单认不出人"的唯一判法，L-32 的四个落点都调它）。
+
+    ⛔ 只去空白，与 `contact_name_blank` / 账本 SQL 的 `nullif(trim(...))` 同一口径。
+    """
+    return all(not value for value in merged_contact_info(source).values())

@@ -61,6 +61,18 @@ class AiAnswerStyleTest {
         assertTrue("保留窄屏列数上限：\n$p", p.contains("表格**最多 4 列**"))
     }
 
+    @Test
+    fun `提示词要求下单时收货人或下单人至少一个有信息（台账 L-32）`() {
+        // 后端 `backend/app/services/order_contact.py::CONTACT_INFO_REQUIRED` 会硬拦全空的单，
+        // 所以这条规则必须在**提示词真的那一份**里：否则模型会照着"可选"的 hint 下空单，
+        // 用户看到的是"申请了但执行失败"。
+        val p = prompt
+        assertTrue("要有这一条：\n$p", p.contains("下单时「收货人 / 下单人」至少要有一个有信息"))
+        assertTrue("要列出是哪四个字段：\n$p", p.contains("收货人名字、收货人电话、下单人名字、下单人电话"))
+        assertTrue("要写明不许自己编：\n$p", p.contains("缺信息就问，不要自己编"))
+        assertTrue("要写明代理下单的例外：\n$p", p.contains("派单员代理下单、用户又没提下单人时可以不填下单人"))
+    }
+
     /**
      * 剥掉行注释再断言。
      *

@@ -75,11 +75,32 @@ class AiRowShaperTest {
 
     @Test
     fun namesAreNormalizedInsideRows() {
-        val row = obj("""{"shipper_name":"货主#88","driver_name":"王建国","full_name":"122","amount":"10"}""")
+        // ⚠️ 这里原来拿 `driver_name` 当例子 —— 台账 L-30 之后它整条被摘掉了，
+        //    换成另一个名字类键（`customer_name`）继续钉 [AiRowShaper.normalizeNames]。
+        val row = obj("""{"shipper_name":"货主#88","customer_name":"王建国","full_name":"122","amount":"10"}""")
         val shaped = AiRowShaper.shape(row)
         assertEquals("\"未命名\"", shaped["shipper_name"].toString())
-        assertEquals("\"王建国\"", shaped["driver_name"].toString())
+        assertEquals("\"王建国\"", shaped["customer_name"].toString())
         assertEquals("\"未命名\"", shaped["full_name"].toString())
+    }
+
+    @Test
+    fun driverNameAndPhoneAreNeverFedToTheModel() {
+        // 台账 L-30（用户 m01220：「**不要不要，AI 不管这个的**……（在）**回答（里）不要有这个**」）。
+        // 判据落在**数据侧**（不是提示词叮嘱）：整行整形之后这两个键必须不在。
+        val row = obj(
+            """{"order_no":"SO1","driver_name":"王建国","driver_phone":"13800000003","amount":"10"}""",
+        )
+        val shaped = AiRowShaper.shape(row)
+        assertFalse("司机姓名不许喂给模型：$shaped", shaped.containsKey("driver_name"))
+        assertFalse("司机电话不许喂给模型：$shaped", shaped.containsKey("driver_phone"))
+        assertTrue("业务字段要留：$shaped", shaped.containsKey("order_no"))
+        // ⚠️ 成本开关管不着这一条（它不是成本类）：派单员默认就开着成本开关，
+        //    若把它写在 `if (allowCost) return false` 后面，这一条等于从来没生效过。
+        assertTrue(AiRowShaper.isHiddenField("driver_name", allowCost = true))
+        assertTrue(AiRowShaper.isHiddenField("driver_phone", allowCost = true))
+        // 反例：别把 `driver*` 一锅端 —— 计费方式是业务字段（订单卡上就写它）
+        assertFalse(AiRowShaper.isHiddenField("driver_billing_mode"))
     }
 
     @Test

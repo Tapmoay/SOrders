@@ -34,7 +34,7 @@ def test_已退货的单不许再从账本侧改金额(
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [{"product_name_snapshot": "退货门探针", "quantity": 2, "unit_price": "40"}],
+        json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "退货门探针", "quantity": 2, "unit_price": "40"}],  # L-32
               "delivery_description": "退货门探针"},
     )
     assert r.status_code == 201, r.text

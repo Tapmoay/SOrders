@@ -152,12 +152,22 @@ MUTATIONS = [
         "有定义有调用",
     ),
     (
-        "顺手把整行藏给非派单端（用户只说了**按钮**给谁；司机是谁这一行三个角色都看）",
+        "把角色门去掉（司机自己也看见司机名与电话 —— 台账 L-30 / 用户 2026-10-06：\n"
+        "「司机端不要显示 —— 他的订单详情不要显示司机的名称以及电话号码……」）",
         DETAIL,
+        "                if (role != Role.DRIVER && !order.driverName.isNullOrBlank()) {\n"
+        "                    val driverPhone",
         "                if (!order.driverName.isNullOrBlank()) {\n                    val driverPhone",
+        "司机自己看不到",
+    ),
+    (
+        "把这一行的门收得过紧（收成「只有派单员看得见」—— 货主与批发商就看不到「这单谁在拉」了）",
+        DETAIL,
+        "                if (role != Role.DRIVER && !order.driverName.isNullOrBlank()) {\n"
+        "                    val driverPhone",
         "                if (role == Role.DISPATCHER && !order.driverName.isNullOrBlank()) {\n"
         "                    val driverPhone",
-        "三个角色都画这一行",
+        "司机自己看不到",
     ),
     (
         "后端把库里的原样值直接下发（软删后缀 `_del160` 落在拨号按钮底下）",

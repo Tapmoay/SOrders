@@ -35,6 +35,8 @@ def _create_minimal_order(client: TestClient, token_shipper: str) -> int:
                 }
             ],
             "delivery_description": "x",
+            # L-32（2026-10-06）：四个联系字段不能全空才建得了单。
+            "contact_dongjia_name": "收货人甲",
         },
     )
     assert r.status_code == 201, r.text
@@ -140,6 +142,7 @@ def test_ledger_includes_order_delivery_description_and_sync_endpoint(
                 }
             ],
             "delivery_description": "定制机 A 型 / 红色",
+            "contact_dongjia_name": "收货人甲",  # L-32
         },
     )
     assert r.status_code == 201, r.text
@@ -239,6 +242,7 @@ def test_temp_shipper_ledger_auto_on_order_complete(
                 }
             ],
             "delivery_description": "代送",
+            "contact_dongjia_name": "收货人甲",  # L-32：临时货主没有账号资料可兜底
             "temp_shipper_name": "张临时",
         },
     )

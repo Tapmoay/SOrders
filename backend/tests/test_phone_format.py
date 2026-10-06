@@ -72,6 +72,8 @@ def _order_body() -> dict:
             {"product_name_snapshot": "电话护栏", "quantity": 1, "unit_price": "1", "line_total": "1"}
         ],
         "address_detail": "电话护栏地址",
+        # L-32：临时货主没有账号资料可兜底，四个联系字段全空会被后端硬拦
+        "contact_dongjia_name": "收货人甲",
         "temp_shipper_name": _uniq("电话护栏临时货主"),
     }
 
@@ -124,8 +126,8 @@ GOOD_CONTACT_PHONES: list[tuple[str, str]] = [
 #:   - 派单员**代理下单**必须给 `temp_shipper_name`（否则 400「代理下单请选择货主或填写临时货主姓名」），
 #:     货主本人下单则**不能**带 shipper_id。
 CONTACT_ENDPOINTS: list[tuple[str, str, "Callable[[], dict]", str]] = [
-    ("订单-货主电话", "/api/v1/orders", _order_body, "contact_dongjia_phone"),
-    ("订单-老板电话", "/api/v1/orders", _order_body, "contact_boss_phone"),
+    ("订单-收货人电话", "/api/v1/orders", _order_body, "contact_dongjia_phone"),
+    ("订单-下单人电话", "/api/v1/orders", _order_body, "contact_boss_phone"),
     ("地址-收货人电话", "/api/v1/shipper/addresses", _address_body, "phone"),
     ("联系人电话", "/api/v1/shipper/contacts", _contact_body, "phone"),
     ("挂账单位电话", "/api/v1/arrears-units", _arrears_body, "phone"),

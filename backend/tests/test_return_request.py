@@ -40,7 +40,13 @@ def _order_with_product(client, token_shipper, db_session, name: str, qty: int, 
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [line], "delivery_description": f"{name}地址", "address_detail": f"{name}地址"},
+        json={
+            # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+            "contact_dongjia_name": "收货人甲",
+            "lines": [line],
+            "delivery_description": f"{name}地址",
+            "address_detail": f"{name}地址",
+        },
     )
     assert r.status_code == 201, r.text
     return int(r.json()["id"]), int(prod.id)
@@ -624,6 +630,7 @@ def test_apply_requires_delivered_and_cannot_over_ask(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
         json={
+            "contact_dongjia_name": "收货人甲",
             "lines": [{"product_name_snapshot": "未送达申请探针", "quantity": 2, "unit_price": "10.00", "line_total": "20.00"}],
             "delivery_description": "未送达申请地址",
             "address_detail": "未送达申请地址",

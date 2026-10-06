@@ -53,6 +53,11 @@ from app.services.auth_service import new_order_no
 from app.services.driver_pay import money
 from app.services.inventory_service import resync_reservations
 from app.services.operation_log_service import write_log
+from app.services.order_contact import (
+    CONTACT_INFO_REQUIRED,
+    contact_info_missing,
+    merged_contact_info,
+)
 from app.services.order_flow import (
     assign_driver,
     build_order_products,
@@ -132,6 +137,21 @@ def create_order(db: Session, *, actor: User, body: OrderCreate) -> Order:
         if not boss_name and not boss_phone:
             boss_name = (target_shipper.full_name or "").strip()
             boss_phone = (target_shipper.phone or "").strip()
+
+    # L-32：下单时「收货人 / 下单人」四个联系字段**不能全空**（用户口述「无主账是不可能存在的」，
+    # m01242 定稿"干脆后端也拦一下，保险一点"）。
+    # ⚠️ 位置必须在上面那段「下单人＝货主」兜底**之后**：兜底会替派单员补上下单人，
+    #    在兜底之前算会把"派单员选中货主"的**合格单**误拒（这也是⛔不许写进 Pydantic 的原因：
+    #    `schemas/order.py::_shipper_xor_temp` 跑在兜底之前）。
+    if contact_info_missing(
+        {
+            "contact_dongjia_name": body.contact_dongjia_name,
+            "contact_dongjia_phone": body.contact_dongjia_phone,
+            "contact_boss_name": boss_name,
+            "contact_boss_phone": boss_phone,
+        }
+    ):
+        raise CommandError(CONTACT_INFO_REQUIRED)
 
     # 白名单（v3.43）：货主自己下单时，**不许**把看不到的商品塞进单里。
     # 为什么必须在这一层挡：选品页把商品藏起来只是"看不到"，
@@ -367,6 +387,11 @@ def update_order(
         #    对账前置状态 —— 形状一散，那两条红线就静默失效（不报错，只是永远绿）。
     elif order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.RETURNED):
         raise CommandError("订单已结束，不可再编辑")
+    # L-32：改单也要保证"四个联系字段不全空" —— 按**合并后的结果**判（`body` 里 None = 不改，
+    # 所以拿库里的现值和请求体叠一次）：把最后一个联系方式删掉会被当场拒，只改其中一项不受影响。
+    # ⚠️ 位置在字段赋值之前：这时还没动 ORM 字段，抛异常即整条回滚，不会留下"改了一半"的单。
+    if contact_info_missing(merged_contact_info(order, body)):
+        raise CommandError(CONTACT_INFO_REQUIRED)
     # 审计日志记哪几个字段：派单员那条路仍记原来那三项（行为冻结），货主那条路记他真能动
     # 的那四项 —— 否则日志里会出现"改了，但 change_payload 一个字都没记"。
     tracked = CONTACT_FIELDS if contact_only else DISPATCHER_TRACKED_FIELDS
@@ -707,6 +732,17 @@ def _create_target_order(
         规则定价）。
     """
     boss_name, boss_phone = _orderer_contact(db, shipper_id, temp_name)
+    # L-32：转货新开单也是"新的一张单"——抄完源单、补上这位货主之后仍全空就拦
+    # （台账原话：「继承后仍为空 ⇒ 拦」）。临时货主那一路没有账号资料可补，最容易撞上这条。
+    if contact_info_missing(
+        {
+            "contact_dongjia_name": source.contact_dongjia_name,
+            "contact_dongjia_phone": source.contact_dongjia_phone,
+            "contact_boss_name": boss_name,
+            "contact_boss_phone": boss_phone,
+        }
+    ):
+        raise CommandError(CONTACT_INFO_REQUIRED)
     target = Order(
         order_no=new_order_no(),
         # ⛔ 构造期状态只写在这里（`order.create` / `order.recall` 声明过的 to_state）：

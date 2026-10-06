@@ -49,12 +49,19 @@ object AiRowShaper {
     private val ROW_ARRAY_KEYS = listOf("shippers", "items", "rows", "data", "list", "results", "records")
 
     /**
-     * 这个字段能不能给模型看。**两类都要拦**：
+     * 这个字段能不能给模型看。**三类都要拦**：
      * 1. **内部主键**（`id` / `*_id`）：AI 的所有工具参数里都没有"编号"这一项（要编号的筛选条件一律按名字解析），
      *    所以编号对模型是纯粹的多余信息。**从源头不给，才是"回答里不可能出现编号"的唯一可靠保证**——
      *    靠提示词叮嘱是会漏的。
      * 2. **成本 / 毛利**：`cost*` / `profit` / `margin`，以及中文的成本/毛利。
      *    ⚠️ 这一类**可以由用户主动放开**（[allowCost]），见下面的说明。
+     *
+     * 3. **司机姓名与电话**（台账 L-30，用户 m01220：「**不要不要，AI 不管这个的** —— AI **只管填信息**的
+     *    是这样子的；（在）**回答（里）不要有这个**」）：一律**从数据侧不喂**，不靠提示词叮嘱
+     *    （理由同第 1 条）。⚠️ 这一条**不受 [allowCost] 影响**：成本开关讲的是成本口径，
+     *    与"谁能看到司机"无关，开了开关也不该漏出司机姓名/电话。
+     *    ⚠️ 已知并接受的代价：派单员问「哪个司机跑得最多」时，回答里只剩单量（`driver_name` 被摘掉），
+     *    只读工具的筛选条件仍可按名字**传参**（`AiWriteArgs`/`resolveDriver` 走类型化 DTO，不过这一道）。
      *
      * @param allowCost 用户是否打开了「允许 AI 查看成本与毛利」（`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。
      *   ⛔ 默认必须是 `false`：成本价一旦进模型上下文，它就出现在聊天记录里、可能被截图外发 ——
@@ -65,6 +72,8 @@ object AiRowShaper {
     fun isHiddenField(key: String, allowCost: Boolean = false): Boolean {
         val k = key.lowercase()
         if (k == "id" || k.endsWith("_id")) return true
+        // 司机姓名/电话（台账 L-30）：放在 `allowCost` **之前** —— 它不是成本类，开关管不着它。
+        if (k == "driver_name" || k == "driver_phone") return true
         if (allowCost) return false
         return k.contains("cost") || k.contains("profit") || k.contains("margin") ||
             key.contains("成本") || key.contains("毛利")

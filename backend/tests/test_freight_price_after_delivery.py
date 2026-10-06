@@ -38,7 +38,7 @@ def _deliver_unpriced(client: TestClient, token_shipper: str, token_dispatcher: 
                       driver_id: int, driver_tok: str) -> int:
     """建单 → 派给司机（**不带运费**）→ 接单 → 送达；返回订单 id。"""
     r = client.post("/api/v1/orders", headers=auth_headers(token_shipper),
-                    json={"lines": [{"product_name_snapshot": "定价探针货", "quantity": 1,
+                    json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "定价探针货", "quantity": 1,
                                      "unit_price": "80.00", "line_total": "80.00"}]})
     assert r.status_code == 201, r.text
     oid = int(r.json()["id"])
@@ -155,7 +155,8 @@ def test_已送达且已定价的单_不许再改价(
     assert _attach(client, token_dispatcher, driver_id, rule["id"]).status_code == 200
 
     r = client.post("/api/v1/orders", headers=auth_headers(token_shipper),
-                    json={"lines": [{"product_name_snapshot": "已定价货", "quantity": 1,
+                    json={"contact_dongjia_name": "收货人甲",
+                          "lines": [{"product_name_snapshot": "已定价货", "quantity": 1,
                                      "unit_price": "80.00", "line_total": "80.00"}]})
     oid = int(r.json()["id"])
     assert client.post(f"/api/v1/orders/{oid}/assign", headers=auth_headers(token_dispatcher),

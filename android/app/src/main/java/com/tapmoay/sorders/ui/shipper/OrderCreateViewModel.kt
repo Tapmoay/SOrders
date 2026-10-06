@@ -9,9 +9,11 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.dto.*
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.CONTACT_REQUIRED_MESSAGE
 import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.PickedLine
 import com.tapmoay.sorders.ui.common.ReceiverContact
+import com.tapmoay.sorders.ui.common.contactInfoMissing
 import com.tapmoay.sorders.ui.common.fillReceiver
 import com.tapmoay.sorders.ui.common.receiverSwapNotice
 import kotlinx.coroutines.Job
@@ -1142,6 +1144,14 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             nameBlank -> error = "商品名称不能为空"
             noPrice != null -> error = "「${noPrice.name}」没有价格（这件商品已不在商品库），先删掉这一行再提交"
             phoneError != null -> error = phoneError
+            // L-32（用户 m01132「无主账是不可能存在的」＋ m01242「干脆后端也拦一下」）：
+            // 四个联系字段（收货人/下单人的名字与电话）**全空** ⇒ 下不出单，服务端也会拒。
+            // ⚠️ 判据只有一处：`ui/common/ContactRequirement.kt`（后端那份在
+            //    `backend/app/services/order_contact.py::CONTACT_INFO_REQUIRED`，同一句话）。
+            // ⚠️ 提交键**刻意不灰**：与这一页其它校验（商品名、价格、货主）同一形状 —— 点下去
+            //    立刻说清为什么；灰掉一个按钮却不说原因，用户只会以为 App 坏了。
+            contactInfoMissing(dongjiaName, dongjiaPhone, bossName, bossPhone) ->
+                error = CONTACT_REQUIRED_MESSAGE
             else -> {
                 submitting = true
                 error = null

@@ -238,6 +238,8 @@ def test_order_rejects_hidden_product(client, token_dispatcher, token_shipper, u
     r = client.post(
         "/api/v1/orders",
         json={
+            # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {
                     "product_id": hide["id"],

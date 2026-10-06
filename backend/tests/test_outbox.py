@@ -169,7 +169,7 @@ def test_assigning_an_order_enqueues_the_event_in_the_same_transaction(
     created = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [line], "delivery_description": "发件箱地址", "address_detail": "发件箱地址"},
+        json={"contact_dongjia_name": "收货人甲", "lines": [line], "delivery_description": "发件箱地址", "address_detail": "发件箱地址"},  # L-32
     )
     assert created.status_code == 201, created.text
     oid = int(created.json()["id"])
@@ -203,7 +203,7 @@ def test_completing_a_delivery_enqueues_both_events(
     created = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [line], "delivery_description": "送达地址", "address_detail": "送达地址"},
+        json={"contact_dongjia_name": "收货人甲", "lines": [line], "delivery_description": "送达地址", "address_detail": "送达地址"},  # L-32
     )
     assert created.status_code == 201, created.text
     oid = int(created.json()["id"])
@@ -251,7 +251,7 @@ def test_cancelling_an_order_enqueues_cancelled_and_pool_events(
     created = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [line], "delivery_description": "撤销地址", "address_detail": "撤销地址"},
+        json={"contact_dongjia_name": "收货人甲", "lines": [line], "delivery_description": "撤销地址", "address_detail": "撤销地址"},  # L-32
     )
     assert created.status_code == 201, created.text
     oid = int(created.json()["id"])

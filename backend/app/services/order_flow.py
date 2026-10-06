@@ -28,6 +28,7 @@ from app.services.inventory_service import auto_stock_commit, auto_stock_out, au
 from app.services.warehouse import auto_warehouse_inbound, warehouse_for_order
 from app.services.ledger_sync import sync_ledger_from_delivered_order
 from app.services.operation_log_service import write_log
+from app.services.order_contact import CONTACT_INFO_REQUIRED, contact_info_missing
 
 
 def _now() -> datetime:
@@ -289,6 +290,10 @@ def split_order(
     lines = list(order.order_products)
     if not lines:
         raise ValueError("订单无商品明细，无法拆分")
+    # L-32：拆单的每一张子单都会继承父单的四个联系字段 ⇒ 父单全空时拆出来的全是"无主账"。
+    # 放在原子占位之前：不能抢到了才抛异常（那样父单已经被改成 CANCELLED，用户看到"拆失败但单没了"）。
+    if contact_info_missing(order):
+        raise ValueError(CONTACT_INFO_REQUIRED)
 
     # ⚠️ **原子占位**（2026-09-23 并发实测补；与 `assign_driver` / `cancel_pending` /
     #    `recall_dispatch` / `complete_delivery` 同一手法）。
@@ -332,7 +337,9 @@ def split_order(
             address_lat=order.address_lat,
             address_lng=order.address_lng,
             address_image_url=order.address_image_url,
+            contact_dongjia_name=order.contact_dongjia_name,
             contact_dongjia_phone=order.contact_dongjia_phone,
+            contact_boss_name=order.contact_boss_name,
             contact_boss_phone=order.contact_boss_phone,
             remark=order.remark,
             internal_notes=f"[拆分 {idx + 1}/{len(parts)}] 由 {order.order_no} 拆分",

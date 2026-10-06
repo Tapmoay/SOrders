@@ -110,8 +110,11 @@ def test_货主自己下单时后端不补下单人(client, users, token_shipper
 
     这条同时钉住"兜底别越界"：`target_shipper.id == current.id` 时一个字节都不写，
     否则"客户端明明填了空"会被悄悄盖成"填了货主"——而它到底是不是空的，只有客户端知道。
+
+    ⚠️ 2026-10-06（台账 L-32）之后"四个联系字段全空"的单**建不出来**了，所以这条用例改成
+    "只填收货人、下单人留空" —— 钉的还是同一件事：后端没有替他补上下单人。
     """
-    out = _create_order(client, token_shipper)
+    out = _create_order(client, token_shipper, contact_dongjia_name="收货人甲")
     assert out["contact_boss_name"] == ""
     assert out["contact_boss_phone"] == ""
 

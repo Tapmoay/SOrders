@@ -54,10 +54,13 @@ FIELD_CN: dict[str, str] = {
     # 订单
     "delivery_description": "送货说明",
     "address_detail": "送货地址",
-    "contact_dongjia_phone": "货主电话",
-    "contact_dongjia_name": "货主姓名",
-    "contact_boss_phone": "老板电话",
-    "contact_boss_name": "老板姓名",
+    # ⚠️ 口径一律是「收货人 / 下单人」（`models/order.py:58-65`：dongjia = 到现场接货的人、
+    #    boss = 下这一单的人）。这里原来写着「货主电话 / 老板电话」—— 它是 422 提示里
+    #    直接端到用户眼前的那几个字，与下单页、订单卡片、AI 三处都对不上。台账 L-32 顺手对齐。
+    "contact_dongjia_phone": "收货人电话",
+    "contact_dongjia_name": "收货人姓名",
+    "contact_boss_phone": "下单人电话",
+    "contact_boss_name": "下单人姓名",
     "internal_notes": "内部备注",
     "driver_remark": "司机备注",
     "damage_note": "货损说明",

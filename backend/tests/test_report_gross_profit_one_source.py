@@ -71,7 +71,7 @@ def _deliver(client: TestClient, token_shipper: str, token_dispatcher: str, toke
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [LINE_A, LINE_B], "delivery_description": "毛利同源探针"},
+        json={"contact_dongjia_name": "收货人甲", "lines": [LINE_A, LINE_B], "delivery_description": "毛利同源探针"},  # L-32
     )
     assert r.status_code == 201, r.text
     oid = int(r.json()["id"])

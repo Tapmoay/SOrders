@@ -97,10 +97,10 @@ CASES: list[tuple[str, str, object, str]] = [
         LOC_CREATE,
     ),
     (
-        "订单名单漏掉「货主姓名」（那一单坏掉的三个字段之一）",
+        "订单名单漏掉「收货人姓名」（那一单坏掉的三个字段之一）",
         ORDER,
         lambda s: s.replace('        "contact_dongjia_name",\n', "", 1),
-        "CHECK:货主姓名",
+        "CHECK:收货人姓名",
     ),
     (
         "地点模型摘掉混入（出脏数据的那张表不再过闸）",
@@ -117,7 +117,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "FIELD_CN 摘掉字段中文名（提示里冒英文 key）",
         VERR,
-        lambda s: s.replace('    "contact_dongjia_name": "货主姓名",\n', "", 1),
+        lambda s: s.replace('    "contact_dongjia_name": "收货人姓名",\n', "", 1),
         "CHECK:FIELD_CN",
     ),
     (

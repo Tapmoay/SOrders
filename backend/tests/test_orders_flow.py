@@ -34,6 +34,8 @@ def _create_order(client: TestClient, token_shipper: str) -> int:
                 }
             ],
             "delivery_description": "door",
+            # L-32（2026-10-06）：四个联系字段不能全空才建得了单。
+            "contact_dongjia_name": "收货人甲",
         },
     )
     assert r.status_code == 201, r.text
@@ -205,6 +207,8 @@ def test_dispatcher_create_order_temp_shipper_name(
             ],
             "delivery_description": "代下单",
             "address_detail": "测试地址",
+            # L-32：临时货主没有账号资料可兜底 ⇒ 联系信息必须由下单人给。
+            "contact_dongjia_name": "收货人甲",
             "temp_shipper_name": "老王",
         },
     )

@@ -448,7 +448,10 @@ class AiTools(
                 rows.forEach { d ->
                     add(
                         buildJsonObject {
-                            put("driver_name", safeName(d.driverName))
+                            // ⛔ 不喂司机姓名（台账 L-30 / 用户 m01220：「AI 不管这个的……回答里不要有这个」）：
+                            //    这一行原来写的是 `put("driver_name", safeName(d.driverName))`。
+                            //    这是**手搓 JSON**、不过 `AiRowShaper`，所以必须在源头删掉，
+                            //    否则"只改闸门"是假的。行还是照发（单量/准时率是业务数据），只是不认人。
                             put("completed_orders", d.completedCount)
                             // 后端给的是 0~1 的比例，这里换算成百分数，减少模型算错概率
                             d.onTimeRate?.let { put("on_time_rate_percent", round1(it * 100)) }

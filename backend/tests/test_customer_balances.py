@@ -79,6 +79,8 @@ def _arrears_order(client: TestClient, db_session, token_dispatcher: str, token_
     users["driver"].billing_mode = "piece"
     db_session.commit()
     body: dict = {
+        # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+        "contact_dongjia_name": "收货人甲",
         "lines": [{"product_name_snapshot": "客户欠款探针货", "quantity": 1, "unit_price": amount}],
     }
     if temp_name:

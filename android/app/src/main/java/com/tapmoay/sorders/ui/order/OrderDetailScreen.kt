@@ -513,6 +513,9 @@ fun OrderDetailScreen(
         ChargeSheet(
             loading = vm.loadingUnits,
             units = vm.arrearsUnits,
+            // L-29：名字已经按**下单人 → 收货人**预填好（见 `OrderDetailViewModel::openCharge`），
+            // 用户看一眼确认即可 —— ⛔ 不是静默直挂（m01132：「他可以看一眼再确认」）。
+            initialName = vm.chargeNewUnitName,
             onPick = { unit -> vm.charge(unit.id) },
             // 就地新建（用户 2026-09-22：「直接点击挂账，这个挂账单位是**自动添加**的」）
             onCreate = { name -> vm.chargeNewUnit(name) },
@@ -1009,15 +1012,19 @@ private fun DetailBody(
                 //
                 // ① **"谁能拨"的判据只有一处**：`ui/common/DriverCall.kt::canDialDriver`
                 //    （派单员 + **批发商**）。⛔ 别在这一行里再写一遍角色判断，更别顺手放宽成"所有货主"。
-                //    这一行本身（司机是谁 + 电话）三个角色都看得到 —— 它同时是"这单谁在拉"的记账信息，
-                //    所以门只落在**动作**（那颗按钮）上，不落在这一行上。
+                //    这一行本身（司机是谁 + 电话）**司机自己看不到**（台账 L-30，用户 m01132：
+                //    「司机端不要显示 —— 他的订单详情不要显示司机的名称以及电话号码……其他的，
+                //     比如说批发商、或者货主、或者派单员可以看」；定稿又补了一句：「司机确实拨不了，
+                //     但是我认为司机的那个信息不需要去看，因为他自己知道自己的电话号码」）——
+                //    所以这一行多了一道**角色门**（`role != Role.DRIVER`），动作那颗按钮的门仍是
+                //    `canDialDriver`（两件事，别合并：能拨的人 ≠ 该看见这一行的人）。
                 // ② 号码**不是能拨的形状**时（空号、或司机账号进了回收站之后后端下发的
                 //    `13800001234_del160` 这种带软删后缀的值）不给按钮：一个点不动的按钮比
                 //    没有按钮更糟，用户会以为是 App 坏了。判据复用 `InputRules`（**不自己写一份
                 //    电话规则**）：`phoneError` 管"太短/空"，`PHONE_MAX` 管"多出来的尾巴"。
                 // ③ 按钮与信息**同排、贴最右**（设计规范 §4.16.7：`Row { 信息 weight(1f); 按钮们 }`，
                 //    别让按钮单独占一行、也别用裸 `IconButton`）。
-                if (!order.driverName.isNullOrBlank()) {
+                if (role != Role.DRIVER && !order.driverName.isNullOrBlank()) {
                     val driverPhone = order.driverPhone.orEmpty().trim()
                     val dialable = driverPhone.length <= InputRules.PHONE_MAX &&
                         InputRules.phoneError(driverPhone) == null
@@ -2072,6 +2079,8 @@ private fun PaymentBadge(order: OrderDto) {
 private fun ChargeSheet(
     loading: Boolean,
     units: List<com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto>,
+    /** 输入框的预填名字（下单人 → 收货人，见 VM）；用户可改。 */
+    initialName: String,
     onPick: (com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto) -> Unit,
     /** 就地新建一个单位并挂上（"自动添加"：名字不在名册里也照样能挂）。 */
     onCreate: (String) -> Unit,
@@ -2090,9 +2099,11 @@ private fun ChargeSheet(
             Spacer(Modifier.height(10.dp))
             // ⚠️ 名册里没有那个单位时**不用先退出去建**（用户 2026-09-22：
             //    「直接点击挂账，这个挂账单位是**自动添加**的」）：
-            //    在这里写个名字就能建出来并挂上 —— 两个动作（建 + 挂）分开写审计，
-            //    所以建成功、挂失败时那句话要说清"单位已建好，再点一次即可"（见 VM）。
-            var newName by remember { mutableStateOf("") }
+            //    在这里写个名字就能建出来并挂上 —— 后端一条请求里"建单位 + 挂账"是**同一个事务**
+            //    （见 VM 的注释），所以不会再出现"单位建好了、账没挂上"的中间态。
+            // ⚠️ 名字是**预填**的（下单人 → 收货人）：m01072 要的是"别让我去名册里挑"，
+            //    但 m01132 定稿仍要"看一眼再确认"，所以这里是可编辑的预填，不是直接提交。
+            var newName by remember { mutableStateOf(initialName) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SoTextField(
                     value = newName,
@@ -2104,7 +2115,25 @@ private fun ChargeSheet(
                 TextButton(
                     onClick = { onCreate(newName) },
                     enabled = !acting && newName.isNotBlank(),
-                ) { Text(if (acting) "处理中…" else "新建并挂账") }
+                ) {
+                    // 按钮上直接写出**建的是哪个名字**（"看一眼再确认"要看得见）：
+                    // 只写"新建并挂账"时，预填的名字被改了一半也看不出来。
+                    Text(if (acting) "处理中…" else "新建「" + newName.trim() + "」并挂账")
+                }
+            }
+            // 名字**很像但不同**时要提示（用户 m01132：「名字很像但不同，比如说**打了一个空格**，
+            // 这个**要提示**」）。判据是一处纯函数（`ui/order/ChargeUnitName.kt::similarArrearsUnitName`，
+            // 有单测）：⛔ 只提示、绝不自动合并 —— 是不是同一家只有用户知道。
+            similarArrearsUnitName(newName, units.map { it.name })?.let { existing ->
+                // ⚠️ 这句是**解释句**（"该怎么办"），按房规必须走 `Hint`：总开关关掉就整句不显示
+                // （判据 `_tools/qa/_check_hints.py` 第 1 组，裸 `Text` 会报红）。名字本身（那个很像的
+                // 名字）在下方的名册列表里照样看得见 —— 关掉提示不等于看不见数据。
+                Hint(
+                    "名册里已经有一个很像的「" + existing + "」—— 如果就是同一家，直接从下面选它，别建重了",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFE6A23C),
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(6.dp))

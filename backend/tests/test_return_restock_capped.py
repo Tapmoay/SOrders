@@ -42,7 +42,7 @@ def _order_with_line(client: TestClient, token_shipper: str, token_dispatcher: s
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [line], "delivery_description": "退货回补探针"},
+        json={"contact_dongjia_name": "收货人甲", "lines": [line], "delivery_description": "退货回补探针"},  # L-32
     )
     assert r.status_code == 201, r.text
     oid = int(r.json()["id"])

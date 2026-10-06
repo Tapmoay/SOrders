@@ -39,6 +39,8 @@ def _create_order(client, token, shipper_id, **kw):
             }
         ],
         "address_detail": kw.pop("address_detail", "照片测试地址"),
+        # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+        "contact_dongjia_name": "收货人甲",
         "shipper_id": shipper_id,
     }
     body.update(kw)

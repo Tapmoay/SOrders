@@ -1717,10 +1717,21 @@ object AiWrites {
                     hint = "可选。用户说了就填；没说就留空（他能在页面上补）" + HERE_HINT,
                 ),
                 AiWriteParam("date", "下单日期", kind = AiWriteParamKind.DATE, hint = "YYYY-MM-DD；不填默认今天"),
-                AiWriteParam("name_dongjia", "收货人名称", hint = "可选。到现场接货的人叫什么"),
-                AiWriteParam("phone_dongjia", "收货人电话", hint = "可选"),
-                AiWriteParam("name_boss", "下单人名称", hint = "可选。下这一单的人叫什么"),
-                AiWriteParam("phone_boss", "下单人电话", hint = "可选"),
+                // L-32（用户 m01242「干脆后端也拦一下，保险一点」）：这四个联系字段**不能全空**，
+                // 后端 `create_order` 会当场拒单 ⇒ 四条 hint 必须一起说清"四个里至少填一个"，
+                // 只改其中一条的话，模型看到另外三条写着"可选"照样会下空单。
+                AiWriteParam(
+                    "name_dongjia", "收货人名称",
+                    hint = "到现场接货的人叫什么。⚠️ 下面这四个联系字段（收货人 / 下单人的名字与电话）" +
+                        "**至少要填一个**，四个全空下不出单",
+                ),
+                AiWriteParam("phone_dongjia", "收货人电话", hint = "收货人的手机号"),
+                AiWriteParam("name_boss", "下单人名称", hint = "下这一单的人叫什么"),
+                AiWriteParam(
+                    "phone_boss", "下单人电话",
+                    hint = "下单人的手机号。⚠️ 派单员代理下单、用户又没提下单人时**可以不填**：" +
+                        "后端会用选中的那位货主的账号资料补上（⛔ 不要自己编一个号码）",
+                ),
                 AiWriteParam("remark", "备注", hint = "可选，一句话"),
             ),
         ),
@@ -1786,10 +1797,16 @@ object AiWrites {
                 ),
                 AiWriteParam("delivery", "送达说明", hint = "可选。送给客户/司机看的说明"),
                 AiWriteParam("address", "送货地址", hint = "可选。改完司机会按新地址跑" + HERE_HINT),
-                AiWriteParam("dongjia_name", "收货人名称", hint = "可选。到现场接货的人叫什么"),
-                AiWriteParam("dongjia_phone", "收货人电话", hint = "可选。收货方联系人电话"),
-                AiWriteParam("boss_name", "下单人名称", hint = "可选。下这一单的人叫什么"),
-                AiWriteParam("boss_phone", "下单人电话", hint = "可选。下单方电话"),
+                // L-32：改单这四条**可以不动**（不传 = 不改），但⛔ 不能把四个联系字段一起改空 ——
+                // 后端 `update_order` 按**合并后的结果**判，四个全空会当场拒单。
+                AiWriteParam("dongjia_name", "收货人名称", hint = "可选。到现场接货的人叫什么；不传＝不改"),
+                AiWriteParam("dongjia_phone", "收货人电话", hint = "可选。收货方联系人电话；不传＝不改"),
+                AiWriteParam("boss_name", "下单人名称", hint = "可选。下这一单的人叫什么；不传＝不改"),
+                AiWriteParam(
+                    "boss_phone", "下单人电话",
+                    hint = "可选。下单方电话；不传＝不改。⚠️ 收货人 / 下单人的名字与电话" +
+                        "**不能一起改空**（四个全空后端会拒单）",
+                ),
                 AiWriteParam("remark", "备注", hint = "可选"),
                 AiWriteParam("internal_note", "内部备注", hint = "可选。只有内部能看"),
             ),

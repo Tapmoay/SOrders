@@ -50,7 +50,7 @@ def _deliver(client: TestClient, token_shipper: str, token_dispatcher: str, toke
              driver_id: int, *, amount: str, collect_cash: bool, payment: str | None) -> int:
     r = client.post(
         "/api/v1/orders", headers=auth_headers(token_shipper),
-        json={"lines": [{"product_name_snapshot": "报表闭合探针", "quantity": 1,
+        json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "报表闭合探针", "quantity": 1,
                          "unit_price": amount, "line_total": amount}],
               "delivery_description": "报表闭合探针"},
     )

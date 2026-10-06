@@ -99,6 +99,15 @@ class OrderDetailViewModel(
     var showChargeSheet by mutableStateOf(false)
     var arrearsUnits by mutableStateOf<List<com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto>>(emptyList())
     var loadingUnits by mutableStateOf(false)
+
+    /**
+     * 「新建并挂账」那个输入框的**预填名字**（台账 L-29，用户 m01072）：下单人 → 收货人 → 空。
+     *
+     * 名字的判据只有一处（`ui/order/ChargeUnitName.kt::defaultArrearsUnitName`），在 [openCharge]
+     * 里算好；弹层只负责显示它、并让用户改 —— 用户 m01132 定稿是「可以（填）名字……他**可以看一眼
+     * 再确认**」，⛔ 不是"点一下直接挂上"。
+     */
+    var chargeNewUnitName by mutableStateOf("")
     var actionResult by mutableStateOf<String?>(null)
 
     // 司机：确认 / 内部备注 / 拍照送达（2026-10-06 台账 L-04：两个弹层退役，改成页面内的字段）
@@ -516,6 +525,10 @@ class OrderDetailViewModel(
 
     fun openCharge() {
         loadingUnits = true
+        // L-29（用户 m01072）：「我们这个挂账……假如有个订单，他没有新的挂账单位，我们直接点击挂账
+        // 的话是**自动给他添加挂账单位的**……所以这个就直接**自动化**吧」—— 名字按**下单人 → 收货人**
+        // 预填好（与账本页认人那条回退同源），用户看一眼就能确认。
+        chargeNewUnitName = defaultArrearsUnitName(order?.contactBossName, order?.contactDongjiaName)
         viewModelScope.launch {
             try {
                 arrearsUnits = container.repo.arrearsUnits()
@@ -549,11 +562,12 @@ class OrderDetailViewModel(
      * 用户原话：「我们这个挂账有个联动：假如有个订单，他没有结账，**直接点击挂账**，
      * 这个**挂账单位是自动添加的**」。
      *
-     * ⚠️ **两步而不是一步**（先建单位、再挂账）：两个动作各自都有审计（`ARREARS_UNIT_UPSERT`
-     * 与 `ORDER_CHARGE`），出问题时能看出是"建单位那步失败"还是"挂账那步失败"；
-     * 而"一步完成"要新开后端契约，收益只有省一次往返。
-     * ⚠️ **建成功、挂失败**时必须让用户看见：这时单位已经建出来了（列表里已经有了），
-     * 所以那句话要写清"单位已建好，重新点一次挂账即可"，而不是一句笼统的失败。
+     * ⚠️ **一步而不是两步**（走后端 `arrears_unit_name`）：`find_or_create_unit` 与挂账在**同一个事务**
+     * 里 —— 要么"单位建好且挂上了"，要么什么都没发生。原来分两步（先 `createArrearsUnit`、再
+     * `chargeOrder`）时，中途失败会留下一张**已建好但没挂上**的单位，界面上只能提示"再点一次挂账"，
+     * 而那种中间态在账上完全看不出来。
+     * ⚠️ 两条审计**都还在**：建单位由 `_insert_unit` 写 `ARREARS_UNIT_UPSERT`、挂账由端点写
+     * `ORDER_CHARGE` —— 这正是当初分两步的理由，现在它不成立了。
      */
     fun chargeNewUnit(rawName: String) {
         val name = rawName.trim()
@@ -563,21 +577,16 @@ class OrderDetailViewModel(
         }
         // 名册里已经有同名的 → 不重复建，直接用它挂（与后端 `find_or_create_unit` 同口径）
         arrearsUnits.firstOrNull { it.name == name }?.let { charge(it.id); return }
+        // 名册里已经有同名的 → 直接用它挂（与后端 `find_or_create_unit` 同口径：同名复用、
+        // 躺在回收站里的那条也认）。这一支走 id，省掉一次"建或恢复"的判断。
+        arrearsUnits.firstOrNull { it.name == name }?.let { charge(it.id); return }
         acting = true
+        error = null
         viewModelScope.launch {
             try {
-                val created = container.repo.createArrearsUnit(
-                    com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest(name = name),
-                )
-                arrearsUnits = container.repo.arrearsUnits()
-                try {
-                    order = container.repo.chargeOrder(orderId, created.id)
-                    actionResult = "已挂账到「" + created.name + "」（单位是新建的）"
-                    showChargeSheet = false
-                } catch (e: Exception) {
-                    error = "单位「" + created.name + "」已建好，但挂账没成功：" +
-                        toApiException(e).message + "（再点一次挂账，从名册里选它）"
-                }
+                order = container.repo.chargeOrder(orderId, name)
+                actionResult = "已挂账到「" + name + "」"
+                showChargeSheet = false
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

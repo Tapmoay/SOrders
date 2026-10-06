@@ -36,7 +36,7 @@ def test_货主读自己的单不许带出运费与司机计费(
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [{"product_name_snapshot": "运费口径探针", "quantity": 1, "unit_price": "500"}],
+        json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "运费口径探针", "quantity": 1, "unit_price": "500"}],  # L-32
               "delivery_description": "运费口径探针"},
     )
     assert r.status_code == 201, r.text

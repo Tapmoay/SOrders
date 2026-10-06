@@ -52,6 +52,8 @@ def _deliver_and_return(client: TestClient, h: dict[str, str], users: dict) -> t
     r = client.post(
         "/api/v1/orders",
         json={
+            # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+            "contact_dongjia_name": "收货人甲",
             "shipper_id": users["shipper"].id,
             "lines": [{"product_name_snapshot": _uniq("退现对象探针货"), "quantity": 2,
                        "unit_price": "10", "line_total": "20"}],
@@ -164,6 +166,7 @@ def test_refund_row_falls_back_to_the_temp_name_for_accountless_shippers(
     r = client.post(
         "/api/v1/orders",
         json={
+            "contact_dongjia_name": "收货人甲",
             "temp_shipper_name": temp_name,
             "lines": [{"product_name_snapshot": _uniq("退现对象临时货"), "quantity": 1,
                        "unit_price": "10", "line_total": "10"}],

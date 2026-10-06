@@ -26,6 +26,8 @@ ORDER_BODY = {
         {"product_name_snapshot": "看得见测试商品", "quantity": 1, "unit_price": "1", "unit": ""}
     ],
     "address_detail": "正常地址 1 号",
+    # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+    "contact_dongjia_name": "收货人甲",
 }
 
 
@@ -157,7 +159,7 @@ def test_create_order_with_only_marks_address_is_rejected(client, token_shipper)
         headers=auth_headers(token_shipper),
     )
     assert r2.status_code == 422, r2.text
-    assert "货主姓名" in r2.json()["detail"]
+    assert "收货人姓名" in r2.json()["detail"]
 
     # 正常值照旧能下单（闸不许把正常路也堵上）
     ok = client.post(

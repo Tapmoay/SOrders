@@ -238,6 +238,8 @@ def _deliver(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
         json={
+            # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+            "contact_dongjia_name": "收货人甲",
             "lines": [{"product_name_snapshot": "计费测试货", "quantity": quantity,
                        "unit_price": goods_unit_price,
                        "line_total": str(Decimal(goods_unit_price) * quantity)}],
@@ -339,7 +341,7 @@ def test_改规则不动已经派出去的单_但影响之后派的单(
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [{"product_name_snapshot": "快照测试货", "quantity": 1,
+        json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "快照测试货", "quantity": 1,
                          "unit_price": "10.00", "line_total": "10.00"}],
               "delivery_description": "快照测试地址"},
     )
@@ -440,7 +442,7 @@ def test_按商品金额提成_可以只对指定商品抽(
              "unit_price": "10.00", "line_total": "20.00"},
             {"product_id": p2["id"], "product_name_snapshot": p2["name"], "quantity": 3,
              "unit_price": "10.00", "line_total": "30.00"},
-        ], "delivery_description": "抽成范围测试"},
+        ], "delivery_description": "抽成范围测试", "contact_dongjia_name": "收货人甲"},  # L-32
     )
     assert r.status_code == 201, r.text
     oid = int(r.json()["id"])
@@ -531,7 +533,7 @@ def _mk_order(client: TestClient, token_shipper: str) -> int:
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [{"product_name_snapshot": "派单拦截测试货", "quantity": 1,
+        json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "派单拦截测试货", "quantity": 1,
                          "unit_price": "10.00", "line_total": "10.00"}],
               "delivery_description": "派单拦截测试地址"},
     )

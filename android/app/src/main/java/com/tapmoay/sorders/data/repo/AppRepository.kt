@@ -852,7 +852,25 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun payOrder(orderId: Long) = api.orderApi.payOrder(orderId)
     suspend fun chargeOrder(orderId: Long, arrearsUnitId: Long) =
-        api.orderApi.chargeOrder(orderId, com.tapmoay.sorders.data.remote.dto.OrderChargeBody(arrearsUnitId))
+        api.orderApi.chargeOrder(
+            orderId,
+            com.tapmoay.sorders.data.remote.dto.OrderChargeBody(arrearsUnitId = arrearsUnitId),
+        )
+
+    /**
+     * 挂账到一个**按名字**给的单位（台账 L-29）：名字不在名册里就**就地建一个**再挂上。
+     *
+     * ⚠️ 这条路是**一条请求**（后端 `find_or_create_unit` 与挂账在同一个事务里）：
+     *    要么"建好且挂上"，要么什么都没发生。旧的两步写法（先 `createArrearsUnit`、
+     *    再 `chargeOrder`）中途失败会留下一张已建好却没挂上的单位，账上看不出来。
+     * ⚠️ 两条审计都还在：建单位由 `_insert_unit` 写 `ARREARS_UNIT_UPSERT`、
+     *    挂账由端点写 `ORDER_CHARGE`（当初分两步的理由，现在不成立了）。
+     */
+    suspend fun chargeOrder(orderId: Long, arrearsUnitName: String) =
+        api.orderApi.chargeOrder(
+            orderId,
+            com.tapmoay.sorders.data.remote.dto.OrderChargeBody(arrearsUnitName = arrearsUnitName),
+        )
 
     /**
      * 我的消息列表（**一页**）。

@@ -89,6 +89,9 @@ def test_full_production_loop_holds_all_audited_invariants(
                 "quantity": 2, "unit_price": "10", "line_total": "20",
             }],
             "address_detail": "端到端探针地址",
+            # L-32（2026-10-06）：四个联系字段不能全空才建得了单（这条是货主自己下单，
+            # 没有"用货主账号兜底"那一段）。
+            "contact_dongjia_name": "收货人甲",
         },
         headers=hs,
     )

@@ -39,6 +39,8 @@ def _order_as_shipper(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
         json={
+            # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+            "contact_dongjia_name": "收货人甲",
             "lines": [line],
             "delivery_description": f"{name}地址",
             "address_detail": f"{name}地址",
@@ -285,6 +287,7 @@ def test_itemized_by_product_keeps_paid_false_until_fully_settled(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
         json={
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {"product_name_snapshot": "核销甲", "quantity": 1, "unit_price": "100.00", "line_total": "100.00"},
                 {"product_name_snapshot": "核销乙", "quantity": 1, "unit_price": "60.00", "line_total": "60.00"},
@@ -367,6 +370,7 @@ def test_money_identity_holds_after_return_and_partial_receipt(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
         json={
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {"product_name_snapshot": "恒等甲", "quantity": 10, "unit_price": "20.00", "line_total": "200.00"},
                 {"product_name_snapshot": "恒等乙", "quantity": 5, "unit_price": "10.00", "line_total": "50.00"},
@@ -429,6 +433,7 @@ def test_return_amount_is_one_number_even_with_four_decimal_prices(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
         json={
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {"product_name_snapshot": "四分单价甲", "quantity": 1, "unit_price": "12.3456",
                  "line_total": "12.3456"},

@@ -524,8 +524,19 @@ data class BatchAssignResult(
 @Serializable
 data class OrderBatchAssignOut(val results: List<BatchAssignResult> = emptyList())
 
+/**
+ * 挂账入参：**按 id 或按名字，二选一**（后端 `OrderChargeBody` 是互斥的：给了
+ * `arrears_unit_id` 就用它，否则拿 `arrears_unit_name` 走 `find_or_create_unit` ——
+ * 没有就地建、已存在就复用、躺在回收站里的放回来）。
+ *
+ * ⚠️ 两个字段都**可空**是必须的：`core/ApiClient.kt` 的 Json 配了 `explicitNulls = false`，
+ *    为 null 的键会被整个丢掉 —— 所以按 id 那条路发出去仍然只有 id，不会变成"两个都给"。
+ */
 @Serializable
-data class OrderChargeBody(@SerialName("arrears_unit_id") val arrearsUnitId: Long)
+data class OrderChargeBody(
+    @SerialName("arrears_unit_id") val arrearsUnitId: Long? = null,
+    @SerialName("arrears_unit_name") val arrearsUnitName: String? = null,
+)
 
 @Serializable
 data class OrderRecallBody(val reason: String)

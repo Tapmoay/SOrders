@@ -38,6 +38,8 @@ def _order(client, h, shipper_id: int, name: str, qty: int = 1, price: str = "50
     r = client.post(
         "/api/v1/orders",
         json={
+            # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+            "contact_dongjia_name": "收货人甲",
             "shipper_id": shipper_id,
             "lines": [
                 {
@@ -214,6 +216,7 @@ def test_receipt_stores_deduped_order_ids(client, token_dispatcher, token_shippe
         "/api/v1/orders",
         headers=hs,
         json={
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {
                     "product_name_snapshot": "去重探针货",

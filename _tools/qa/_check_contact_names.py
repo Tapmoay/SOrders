@@ -106,6 +106,20 @@ AI_RES = ANDROID / "ai/AiResources.kt"
 RECEIVER, ORDERER = "contact_dongjia_name", "contact_boss_name"
 
 
+def action_block(src: str, action_id: str) -> str:
+    """抠出 `AiWriteAction(id = X, …)` 这一整块（到下一个 `AiWriteAction(` 为止）。
+
+    ⚠️ 不写"两个参数之间最多 600 字"那种魔数：2026-10-06（台账 L-32）给创建订单的四条联系人 hint
+    补了"四个联系字段至少要填一个"的口径之后，600 字就不够了 —— 判据于是**假红**，
+    而假红的下一步就是被人把魔数调大（再然后就永远绿）。按动作边界抠块不依赖字数。
+    """
+    i = src.find(f"id = {action_id},")
+    if i < 0:
+        return ""
+    j = src.find("AiWriteAction(", i)
+    return src[i : j if j > 0 else len(src)]
+
+
 def read(p: Path) -> str:
     if not p.exists():
         raise SystemExit(f"找不到文件：{p}（改名/移动了？本脚本的断言要跟着改）")
@@ -322,10 +336,22 @@ def main() -> int:
               rf'contactDongjiaName = editDongjiaName[\s\S]{{0,200}}?contactBossName = editBossName')
 
     # ---- ⑨ AI：创建/改单两个动作认得它们，handler 真的带上 ----
-    c.present("AI 创建订单的动作有这两个名称参数", ai_catalog,
-              r'AiWriteParam\("name_dongjia"[\s\S]{0,600}?AiWriteParam\("name_boss"')
-    c.present("AI 改单的动作有这两个名称参数", ai_catalog,
-              r'AiWriteParam\("dongjia_name"[\s\S]{0,600}?AiWriteParam\("boss_name"')
+    create_block = action_block(ai_catalog, "ORDERS_CREATE")
+    # ⚠️ 参数名与 `AiWriteParam(` 之间**允许换行**：参数写成一行的还是两行的是排版细节，
+    #    判据只关心"这两个名称参数在这个动作里"。
+    c.ok(
+        "AI 创建订单的动作有这两个名称参数",
+        bool(re.search(r'AiWriteParam\(\s*"name_dongjia"', create_block))
+        and bool(re.search(r'AiWriteParam\(\s*"name_boss"', create_block)),
+        f"ORDERS_CREATE 块里只有 {create_block.count('AiWriteParam(')} 个参数",
+    )
+    update_block = action_block(ai_catalog, "ORDERS_UPDATE")
+    c.ok(
+        "AI 改单的动作有这两个名称参数",
+        bool(re.search(r'AiWriteParam\(\s*"dongjia_name"', update_block))
+        and bool(re.search(r'AiWriteParam\(\s*"boss_name"', update_block)),
+        f"ORDERS_UPDATE 块里只有 {update_block.count('AiWriteParam(')} 个参数",
+    )
     c.present("AI 创建订单的 payload 带上它们", ai_order,
               rf'put\("{RECEIVER}", nameDongjia\)[\s\S]{{0,200}}?put\("{ORDERER}", nameBoss\)')
     c.present("AI 改单的改动清单带上它们", ai_order,

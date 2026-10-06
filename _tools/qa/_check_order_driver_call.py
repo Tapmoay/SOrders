@@ -26,13 +26,15 @@
 | 客户端自己写一份电话校验 | 与 `core/InputRules.kt`（全库唯一一份）分叉 → 同一串号码"能填不能拨/能拨不能填" |
 | 后端把软删后缀原样下发 | `driver_phone` 落在**拨号按钮**底下才变得危险：用户按下去才知道打不通，那时人已经不在手机旁边 |
 | 把按钮整颗删掉（"简化"） | 用户点名要的功能没了，而这一页看起来完全正常 |
-| 顺手把整行藏给非派单端 | 用户只说了**按钮**给谁；司机是谁这一行本身三个角色都看（它同时是"这单谁在拉"的记账信息） |
+| 把「司机是谁」这一行放开给司机自己看（去掉 `role != Role.DRIVER`） | 台账 L-30 / 用户 2026-10-06：「司机端不要显示 —— 他的订单详情不要显示司机的名称以及电话号码……」（司机自己知道自己的号码，这一行对他没有信息量） |
+| 把这一行收成"只有派单员看得见"（门收得过紧） | 货主与批发商就看不到"这单谁在拉"了 —— 用户点名的只是**司机**不给看，别顺手扩大（反向验证里两条都注了） |
 | 改了核心文件（`order_response.py`）却不更新定位表 | 下一个人按地图去读，读到的是"没有这段处理"的那一版 |
 
 ## 判据
 Android：`ui/common/DriverCall.kt` 是**唯一一份**判据（全源码树里只有一处 `fun canDialDriver(`），
 且明说了"普通货主与司机不给"（文件里出现 `Role.DRIVER` 就报红）；`OrderDetailScreen.kt` 的
 `DriverRow` 定义与调用、开关真的调它、`ACTION_DIAL`、不可拨就不画、图标与语义色俱在、按钮与信息**同排**；
+司机是谁这一行**司机自己看不到**（`role != Role.DRIVER`，2026-10-06 CHG-0058 / 台账 L-30 —— "谁能看这一行"与"谁能拨"是两件事）；
 `OrderDetailViewModel` 提供 `isMemberShipper`（取不到＝不给）。
 后端：`services/order_response.py` 下发的 `driver_phone` 过 `strip_del_suffix`（软删后缀去尾）。
 配套：单测、后端用例、设计规范 §5 那条偏好、定位表那一行。
@@ -128,8 +130,8 @@ def main() -> int:
     c.ok("找得到司机那一行的调用点（锚点还在）", i >= 0, f"没找到 {CALL_ANCHOR!r}")
     block = code[max(0, i - 600): i + 1000] if i >= 0 else ""
 
-    c.present("司机这一行**只以『有司机』为条件**（三个角色都画这一行）",
-              block, r"if \(!order\.driverName\.isNullOrBlank\(\)\) \{\s*val driverPhone")
+    c.present("司机这一行**司机自己看不到**、其他人『有司机才画』（2026-10-06 CHG-0058 / 台账 L-30）",
+              block, r"if \(role != Role\.DRIVER && !order\.driverName\.isNullOrBlank\(\)\) \{\s*val driverPhone")
     # ⚠️ 拆成三条、别揉成一条：揉起来之后"谁能拨"和"号码不可拨就不给"会互相掩护 ——
     #    去掉 `&& dialable` 时前一条照样绿（`dialable` 这个 val 还在上面算着，只是没人用）。
     c.present("**拨号按钮走的是共用判据**（`ui/common/DriverCall.kt::canDialDriver`，判据只有一处）",
@@ -137,13 +139,18 @@ def main() -> int:
     c.present("**号码不是能拨的形状就不给按钮**（`dialable` 真的接进了开关）",
               block, r"onDial = if \(canDialDriver\([^)]*\) && dialable\) \{")
     # ⚠️ "就地再写一遍角色判断"是这条规则最现实的坏法：判据分叉，改一处漏一处。
-    # ⚠️ 窗口**只取这一行自己的判断区**（从「有司机吗」那一句起、到拨号动作结束）：上面几行
-    #    还有一个 `role == Role.DRIVER || Role.DISPATCHER`（那是**内部备注**给谁看的），
-    #    把它卷进来会造成假红 —— 而假红的下场就是下一个人把这条判据删掉。
+    # ⚠️ 窗口**只取这一行自己的判断区**（从门的 `{` 之后起、到拨号动作结束）：门那一行本身
+    #    含 `Role.DRIVER`（2026-10-06 CHG-0058 起），上面几行还有一个
+    #    `role == Role.DRIVER || Role.DISPATCHER`（那是**内部备注**给谁看的），
+    #    把它们卷进来会造成假红 —— 而假红的下场就是下一个人把这条判据删掉。
     # ⚠️ 窗口**不许用 `GATE_CALL` 定位**：把判据换成就地角色判断时那一行就没了，
     #    取不到窗口 → 窗口是空的 → "空串里当然没有 Role" → 这条判据**自己被绕过**（反向验证抓到）。
-    row_i = code.find("if (!order.driverName.isNullOrBlank()) {")
-    decide_block = code[row_i: row_i + 900] if row_i >= 0 else ""
+    # ⚠️ 2026-10-06 CHG-0058（台账 L-30）：这一行的门从"只以『有司机』为条件"改成"**非司机** ＋ 有司机"。
+    #    锚点跟着实现搬，**判据本身不放宽** —— 仍然要求有门、且门里没有第二处角色判断。
+    DRIVER_ROW_GATE = "if (role != Role.DRIVER && !order.driverName.isNullOrBlank()) {"
+    row_i = code.find(DRIVER_ROW_GATE)
+    gate_end = row_i + len(DRIVER_ROW_GATE) if row_i >= 0 else -1
+    decide_block = code[gate_end: gate_end + 900] if gate_end >= 0 else ""
     c.ok("取到了『司机那一行』的判断区（取不到这条就是空转）",
          len(decide_block) > 300 and "ACTION_DIAL" in decide_block,
          f"{len(decide_block)} 个字符、含拨号动作＝{'ACTION_DIAL' in decide_block}")

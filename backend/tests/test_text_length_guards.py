@@ -38,7 +38,7 @@ def _new_order(client: TestClient, tok: str) -> int:
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(tok),
-        json={"lines": [{"product_name_snapshot": "长度边界货", "quantity": 1, "unit_price": "9"}]},
+        json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "长度边界货", "quantity": 1, "unit_price": "9"}]},  # L-32
     )
     assert r.status_code == 201, r.text
     return int(r.json()["id"])
@@ -63,7 +63,7 @@ def test_文本超长被拒且给出中文字段与上限(
     r = client.post(
         "/api/v1/orders",
         headers=auth_headers(token_shipper),
-        json={"lines": [{"product_name_snapshot": "长度边界货", "quantity": 1}],
+        json={"contact_dongjia_name": "收货人甲", "lines": [{"product_name_snapshot": "长度边界货", "quantity": 1}],  # L-32
               "delivery_description": "x" * 513},
     )
     assert r.status_code == 422, r.text

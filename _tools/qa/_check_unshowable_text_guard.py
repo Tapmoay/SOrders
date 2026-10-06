@@ -314,8 +314,8 @@ def main() -> int:
     )
     #: 每个模型**自己**那份名单必须含哪些字段（按类抠：只看「全文件出现过」会漏掉摘项）。
     EXPECT = (
-        ("OrderCreate", order, ON, "送货地址 / 送货说明 / 货主姓名 / 老板姓名"),
-        ("OrderUpdate", order, ON, "送货地址 / 送货说明 / 货主姓名 / 老板姓名"),
+        ("OrderCreate", order, ON, "送货地址 / 送货说明 / 收货人姓名 / 下单人姓名"),
+        ("OrderUpdate", order, ON, "送货地址 / 送货说明 / 收货人姓名 / 下单人姓名"),
         ("AddressCreate", shipper, ("receiver_name", "detail_address", "origin_address"), "收货人 / 详细地址 / 发货地址"),
         ("AddressUpdate", shipper, ("receiver_name", "detail_address", "origin_address"), "收货人 / 详细地址 / 发货地址"),
         ("LocationCreate", shipper, ("name", "detail_address", "contact_name"), "名称 / 详细地址 / 联系人姓名"),
@@ -359,10 +359,10 @@ def main() -> int:
         "顺序反了：一串问号会先撞上必填判词，用户看到的是另一句话",
     )
     c.ok(
-        "FIELD_CN 补齐三个字段的中文名（提示里说的是「货主姓名」不是英文 key）",
+        "FIELD_CN 补齐三个字段的中文名（提示里说的是「收货人姓名」不是英文 key）",
         '"contact_name": "联系人姓名",' in verr
-        and '"contact_dongjia_name": "货主姓名",' in verr
-        and '"contact_boss_name": "老板姓名",' in verr,
+        and '"contact_dongjia_name": "收货人姓名",' in verr
+        and '"contact_boss_name": "下单人姓名",' in verr,
         "缺一个键，那一格就会把英文 key 直接端到用户眼前",
     )
 

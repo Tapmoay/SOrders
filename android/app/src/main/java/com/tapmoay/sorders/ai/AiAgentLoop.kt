@@ -431,7 +431,9 @@ class AiAgentLoop(
             // ⚠️ 这里原来把 36 张表挨个列了一遍（派单员视角）。货主读到会以为自己也能查
             //    操作日志/库存/账号——**能力名摆到眼前，它就会去试**。改成按角色算数量，
             //    具体是哪几张以 `read_data` 的说明为准（同一份 [AiReads.forRole]）。
-            appendLine("10. 系统里的只读列表都能通过 `read_data` 工具读到。")
+            // ⚠️ 编号是 11：第 10 条在 [AiAnswerStyle.RULES] 里（下单的联系信息，台账 L-32），
+            //    它在上面那行 `append(AiAnswerStyle.RULES)` 里就插进来了。
+            appendLine("11. 系统里的只读列表都能通过 `read_data` 工具读到。")
             appendLine("    ⚠️ **你能读的只有 ${readTableCount()} 张表**，具体是哪几张以 `read_data` 的工具说明为准")
             appendLine("    （那份说明是按你的角色裁出来的，和真实能读的完全一致，不要凭印象扩展）。")
             appendLine("   - 用户问的东西在这几张里时，**先去查，不要直接说「我查不了」**；")

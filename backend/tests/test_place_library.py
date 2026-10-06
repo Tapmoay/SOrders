@@ -53,6 +53,8 @@ def _create_order(client, token, shipper_id, **kw):
             }
         ],
         "address_detail": kw.pop("address_detail", "某路口进来第三家"),
+        # L-32：下单必须至少一端有联系信息（后端命令层硬拦；与 App 下单页同源）
+        "contact_dongjia_name": "收货人甲",
         "shipper_id": shipper_id,
     }
     body.update(kw)
@@ -147,6 +149,7 @@ def test_order_line_unit_falls_back_to_product_unit(client, token_dispatcher, us
         "/api/v1/orders",
         json={
             "shipper_id": users["shipper"].id,
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {
                     "product_id": p["id"],
@@ -174,6 +177,7 @@ def test_order_line_unit_can_be_changed_per_line(client, token_dispatcher, users
         "/api/v1/orders",
         json={
             "shipper_id": users["shipper"].id,
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {
                     "product_id": p["id"],
