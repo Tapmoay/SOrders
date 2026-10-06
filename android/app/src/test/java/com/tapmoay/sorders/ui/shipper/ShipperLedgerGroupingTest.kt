@@ -168,6 +168,24 @@ class ShipperLedgerGroupingTest {
     }
 
     @Test
+    fun `自己欠自己 名字或电话撞上货主账号都算异常`() {
+        // 2026-10-07 用户 m12371 报障：账本里出现一张**以货主自己名字命名**的客户卡
+        // （「Shipper 欠我 ¥430.80」），字面读起来就是"我欠我自己的账"。
+        // 真库里的两单：orders.id=603（shipper 2「Shipper」13800000002，收货人空 ⇒ 键
+        // 落到货主自己）与 orders.id=595（收货人苏春梅、电话填的却是货主 12 自己的号）。
+        assertTrue(isSelfDebtCustomer("Shipper", "13800000002", "Shipper", "13800000002"))
+        assertTrue(isSelfDebtCustomer("苏春梅", "13619667470", "陈记中学食堂", "13619667470"))
+        // ⚠️ **同名也算**：卡片标题写的就是货主自己的名字（同名的客户在账本上分不出来）
+        assertTrue(isSelfDebtCustomer("Shipper", "13500000001", "Shipper", "13800000002"))
+        // 名字电话都对不上 = 真客户；「未指定货主」那一档（名字不是人、电话常为空）也不许误报
+        assertTrue(!isSelfDebtCustomer("罗伟东", "13500000001", "Shipper", "13800000002"))
+        assertTrue(!isSelfDebtCustomer(UNSET_CUSTOMER, "", "Shipper", "13800000002"))
+        // 身份还没拿到（users/me 没回来或取失败）一律不报：宁可漏，不可误报
+        assertTrue(!isSelfDebtCustomer("Shipper", "13800000002", null, null))
+        assertTrue(!isSelfDebtCustomer("", "", "Shipper", "13800000002"))
+    }
+
+    @Test
     fun `某人已结清的单不再算欠 但仍在明细里`() {
         val o = order(1, "罗伟东", lines = listOf(line(11, "白菜", 10, "10")))
         val s = settle(101, 1, "100", listOf(11L to "100"))

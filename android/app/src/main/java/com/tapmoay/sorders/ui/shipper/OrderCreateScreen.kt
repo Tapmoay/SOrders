@@ -949,12 +949,17 @@ fun AddressPickerSheet(
     //    五格的第二行空着。真机截图里那五行「8 条 / 9 条 / 3 条 / 0 条 / 0 条」就是这么来的。
     // 同理「管理分组」那格也不再挂「新建 / 排序」：它是**去的地方**不是**数据**，
     // 挂一行小字只会让"整列里独独这一格是两行"。
+    // 图标（2026-10-07 用户 m12367）：用户拿这一列与「地址与联系人」里的**线路分类**面板比，
+    // 说"这里也要有图标、颜色要跟它一样、管理分组前面加一条线"。图标语义：
+    // 线路=Route、我的地点=Home、共享地点=Groups、自定义分类=Folder、管理分组=Settings
+    // （后两个与分类抽屉里的「某一类 / 管理分类」同图标 —— 跨屏同一个东西同一个图标）。
     val railItems = buildList {
-        add(RailItem("a", "线路"))
-        add(RailItem("l", "我的地点"))
-        add(RailItem("p", "共享地点"))
-        categories.forEach { c -> add(RailItem("c|" + c.name, c.name)) }
-        add(RailItem("manage", "管理分组"))
+        add(RailItem("a", "线路", icon = Icons.Default.Route))
+        add(RailItem("l", "我的地点", icon = Icons.Default.Home))
+        add(RailItem("p", "共享地点", icon = Icons.Default.Groups))
+        categories.forEach { c -> add(RailItem("c|" + c.name, c.name, icon = Icons.Default.Folder)) }
+        // 「管理分组」是**去的地方**不是**数据**：上面一条线把它隔开（手指少一格的偏差就跳走了）
+        add(RailItem("manage", "管理分组", icon = Icons.Default.Settings, dividerBefore = true))
     }
 
     // ⚠️ 分组被**改名/删掉**之后，左栏的选中项可能还指着一个已经不存在的老名字
@@ -1028,6 +1033,9 @@ fun AddressPickerSheet(
                     MasterRail(
                         items = railItems,
                         selectedKey = sel,
+                        // 强调色 = **地址湖蓝**（规范 §2 一色一功能「地址」那一格），
+                        // 也是「管理分组」进去那一页（PlaceCategoriesScreen）用的色。
+                        accent = Color(ShipperTeal),
                         onSelect = { key ->
                             if (key == "manage") {
                                 managing = true

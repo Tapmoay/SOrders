@@ -1246,12 +1246,22 @@ data class RailItem(
     /** 第二行小字（数量/金额/单数…）；null = 只有一行。 */
     val subtitle: String? = null,
     /**
-     * 图标。**只有"这一列是页面级导航"时才给**（派单员账本那 8 格要"图标 + 文字"）；
-     * 分类/司机/地址来源那些不带 —— 它们本身就是有名字的类别，加图标只会让一列更花。
+     * 图标。**给不给由调用方定**：null = 这一列不画图标（左边不留空档）。
+     *
+     * 2026-10-07 用户 m12367 点名要它：下单页「地点库」左栏要与「线路分类」面板
+     * **长得一样**（每格带图标 + 同一套强调色），那一列就从"只有字"变成"图标 + 字"。
      */
     val icon: ImageVector? = null,
-    /** 图标语义色；null = 跟着选中态走（未选中用弱化色）。 */
+    /** 图标语义色；null = 跟着选中态走（未选中弱化色、选中染强调色）。 */
     val iconTint: Color? = null,
+    /**
+     * 这一格**上面**画一条分隔线（2026-10-07 用户 m12367：「管理分组」前面要有一条线）。
+     *
+     * 用途只有一个：把它与上面的**数据格**隔开 —— 点分类是"换右栏内容"，点它**跳去另一个界面**，
+     * 手指少一格的偏差就点错了（用户 2026-09-19 指着截图里的红框说过这格的位置）。
+     * ⛔ 第一格给 true 没有意义（上面本来就是列首），渲染时跳过。
+     */
+    val dividerBefore: Boolean = false,
     /**
      * 分组标题：这一格的分组**与上一格不同**时，在它上面画一条小标题
      * （账本的「账本 / 工具」——不分组的话用户分不清哪几格是切右边、哪几格是离开这一页）。
@@ -1263,8 +1273,12 @@ data class RailItem(
  * 两栏版式左边那一列 —— **分类 / 司机 / 地址来源三处共用这一份**（用户 2026-09-19 连着要了
  * 三个"像商品管理那样"的界面：库存、运费结算、下单地址库）。
  *
- * 选中态：整块换白底 + 左侧一条**语义色**竖条（外卖 App 的通用写法，一眼看出现在在哪一类），
- * 未选中是半透明灰底。语义色由调用方给（商品/库存=主题主色，运费结算=它的珊瑚橙）。
+ * 选中态（2026-10-07 改口径）：**浅强调色底** `accent.copy(alpha = 0.12f)` + 左侧一条
+ * **语义色**竖条 + 文字与图标都染强调色 —— 与"分类抽屉"那一列
+ * （`ui/common/CategoryDrawer.kt` 里的 `CategoryDrawerRow`）**同一个口径**。
+ * 用户 m12367 把下单页「地点库」左栏与「线路分类」面板摆在一起比，结论是"要跟它一样"。
+ * 未选中是半透明灰底。语义色由调用方给（商品/库存=主题主色，运费结算=它的珊瑚橙，
+ * 地点库=湖蓝 `ShipperTeal`）。
  *
  * ⚠️ 行高跟着 [RailItem.subtitle] 自动变（52dp / 60dp）：有副标题还压 52dp 会把两行字挤在一起，
  *    而"挤"在老人用户那里等于看不清。
@@ -1284,36 +1298,61 @@ fun MasterRail(
     LazyColumn(
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
     ) {
-        itemsIndexed(items, key = { _, it -> it.key }) { _, item ->
+        itemsIndexed(items, key = { _, it -> it.key }) { index, item ->
             val on = item.key == selectedKey
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(rowHeight)
-                    .background(if (on) MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { onSelect(item.key) },
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (on) {
-                    Box(Modifier.fillMaxHeight().width(4.dp).background(accent))
+            Column(Modifier.fillMaxWidth()) {
+                // 分隔线画在**这一格自己**的上面（不是上一格的下面）：由"要隔开的那一格"声明，
+                // 中间插一格/删一格时线跟着它走，不会留在原地。
+                if (item.dividerBefore && index > 0) {
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 }
-                Column(Modifier.padding(horizontal = 12.dp)) {
-                    Text(
-                        item.label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                        color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (item.subtitle != null) {
-                        Text(
-                            item.subtitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (on) accent else MaterialTheme.colorScheme.outline,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(rowHeight)
+                        .background(if (on) accent.copy(alpha = 0.12f) else Color.Transparent)
+                        .clickable { onSelect(item.key) },
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (on) {
+                        Box(Modifier.fillMaxHeight().width(4.dp).background(accent))
+                    }
+                    Row(
+                        Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (item.icon != null) {
+                            Icon(
+                                item.icon,
+                                contentDescription = null,
+                                tint = item.iconTint
+                                    ?: if (on) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        // ⛔ 这里**不画对勾**（分类抽屉那一列有）：这一列只有 112dp 宽
+                        //    （下单页那张抽屉），图标＋文字＋对勾三样一起上，分类名会被挤成
+                        //    一个字两行 —— 用户要的是"看得清有哪几类"，不是"多一个勾"。
+                        Column {
+                            Text(
+                                item.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                                color = if (on) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (item.subtitle != null) {
+                                Text(
+                                    item.subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (on) accent else MaterialTheme.colorScheme.outline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             }

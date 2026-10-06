@@ -65,6 +65,43 @@ fun customerPhoneOf(o: OrderDto): String {
  */
 fun customerKeyOf(o: OrderDto): String = customerNameOf(o) + "|" + customerPhoneOf(o)
 
+/**
+ * 「这一档的客户**就是货主自己**」—— 账上不可能存在的账（用户 2026-10-07 报障 m12371：
+ * 「不可能存在我欠我自己的账」，他在账本里看到一张以自己账号名命名的客户卡）。
+ *
+ * ## 它是怎么来的（不是脏数据，是回退链的必然结果）
+ * 分组名走 [customerNameOf] 的回退链 收货人 → 下单人；而**下单人**在后端有一条
+ * "账号资料兜底"（backend/app/commands/order.py：下单人没填就写 target_shipper.full_name
+ * / phone）—— 货主**给自己下单**时，两者都落到他自己身上。
+ * 真库里有这么两单：orders.id=603（shipper 2「Shipper」13800000002，收货人空 ⇒ 分组键
+ * Shipper|13800000002，欠 ¥430.8）、orders.id=595（shipper 12，收货人苏春梅但电话
+ * 填的正是货主自己的 13619667470 ⇒ 键 苏春梅|13619667470）。
+ *
+ * ## 判据＝分组键的两半，撞上任意一半就算
+ * · **电话相同**（两边都非空）：这张卡上的号就是货主自己的号 —— 收钱/催款都打回自己；
+ * · **名字相同**（两边都非空）：卡片标题写的就是货主自己的名字，用户读到的就是
+ *   "我欠我自己"（名字本来就是分组键的前半段，同名的客户在账本上分不出来）。
+ *
+ * ⛔ 空串一律**不算命中**：「未指定货主」那一档的名字不是人，电话也常常是空的
+ *    （83 单那种老账）—— 它另有提示，不能借这条判据混进来。
+ * ⛔ 身份没拿到时（users/me 还没回来 / 取失败 → null）一律**不报**：宁可漏，不可误报。
+ * ⚠️ 只做**提示**，不拦核销、不改数字：用户要的是"知道这一档有问题"，
+ *    至于那笔钱怎么算，得他先把收货人改对。
+ */
+fun isSelfDebtCustomer(
+    name: String,
+    phone: String,
+    meName: String?,
+    mePhone: String?,
+): Boolean {
+    val n = name.trim()
+    val p = phone.trim()
+    val mn = meName?.trim().orEmpty()
+    val mp = mePhone?.trim().orEmpty()
+    if (p.isNotEmpty() && mp.isNotEmpty() && p == mp) return true
+    return n.isNotEmpty() && mn.isNotEmpty() && n == mn
+}
+
 /** 每一行**已经核销了多少**（分）。只算没撤销的核销记录。 */
 fun settledByLineCents(settlements: List<ShipperSettlementDto>): Map<Long, Long> {
     val out = HashMap<Long, Long>()

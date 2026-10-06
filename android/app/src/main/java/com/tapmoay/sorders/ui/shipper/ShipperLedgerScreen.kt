@@ -340,6 +340,9 @@ private fun CustomerDrawer(vm: ShipperLedgerViewModel, onPick: (String?) -> Unit
                         " · 欠我 ¥" + formatMoney(centsToMoney(c.owedCents)),
                     selected = vm.selectedCustomerKey == c.key,
                     onClick = { onPick(c.key) },
+                    // 名册里也标一下（m12371）：不标的话要点开才知道哪一档是"我自己"，
+                    // 而这一档恰恰是**最不该当客户看**的那一档。
+                    warn = if (vm.isSelfDebt(c)) "就是你自己 · 请先改收货人" else null,
                 )
             }
             if (vm.drawerCustomers.isEmpty()) {
@@ -356,6 +359,8 @@ private fun DrawerCustomerRow(
     subtitle: String,
     selected: Boolean,
     onClick: () -> Unit,
+    /** 红字提示（目前只有一处：这一档的客户就是货主自己，见 [ShipperLedgerViewModel.isSelfDebt]）。 */
+    warn: String? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 12.dp),
@@ -372,6 +377,13 @@ private fun DrawerCustomerRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (warn != null) {
+                Text(
+                    warn,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
         if (selected) {
             Icon(
@@ -561,6 +573,27 @@ private fun CustomerCard(
                     g.orders.size.toString() + " 单 · 货款 ¥" + formatMoney(centsToMoney(g.goodsCents)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // 「欠款人就是我自己」这一档必须**当场说破**（用户 2026-10-07 m12371：他在账本里
+        // 看到一张以自己账号名命名的客户卡 —— 字面读起来就是"我欠我自己的账"）。
+        // 配色与订单详情里那两条红条同一套（errorContainer / onErrorContainer），
+        // 与「异常订单」「账上认不出人」是一家人：**只提示、不改数、不拦核销**。
+        // 判据在 [ShipperLedgerViewModel.isSelfDebt]（纯函数，见 ShipperLedgerGrouping）。
+        if (vm.isSelfDebt(g)) {
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text(
+                    "异常订单：这一档的客户就是你自己（名字或电话与你的账号相同）。" +
+                        "账上不可能有「你欠你自己」这种账 —— 这笔钱收不到任何人头上，" +
+                        "去订单里把收货人改成真正的客户。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(10.dp),
                 )
             }
         }

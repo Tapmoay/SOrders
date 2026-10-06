@@ -49,6 +49,20 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
     var meLoaded by mutableStateOf(false)
         private set
 
+    /**
+     * 「我」是谁 —— 名字与电话（同一次 users/me 顺手拿的）。
+     *
+     * 只为一件事：认出账本里**欠款人就是货主自己**那一档（用户 2026-10-07 m12371）。
+     * ⚠️ 名字取 full_name：后端给「下单人」兜底时写的正是这个字段
+     * （backend/app/commands/order.py 里 boss_name = (target_shipper.full_name or "").strip()），
+     * 换成别的字段就会漏掉它兜底写进去的那些单。
+     * ⚠️ 取不到（异常）就保持 null —— 判据见 [isSelfDebtCustomer]：null 一律不报。
+     */
+    var meName by mutableStateOf<String?>(null)
+        private set
+    var mePhone by mutableStateOf<String?>(null)
+        private set
+
     // ===== 这一段要看的账 =====
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -199,7 +213,10 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
         //    （界面先闪一版"全都没核销"，用户会以为数据错了）。
         viewModelScope.launch {
             try {
-                isMember = container.repo.me().isMember
+                val me = container.repo.me()
+                isMember = me.isMember
+                meName = me.fullName
+                mePhone = me.phone
             } catch (_: Exception) {
                 // 问不到就当普通货主：这一页最坏退化成"只有搜索 + 档位 + 订单列表"，
                 // 而不是把一段用不了的功能画出来（核销按钮点了必然 403）。
@@ -435,6 +452,12 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
 
     /** 每一行已经核销了多少（分）。 */
     val settledByLine: Map<Long, Long> get() = settledByLineCents(settlements)
+
+    /**
+     * 这一档的客户**就是货主自己**（账上不可能有这种账：用户 2026-10-07 m12371）。
+     * 判据是纯函数，在 [isSelfDebtCustomer] 里，与后端"下单人按账号资料兜底"同一个口径。
+     */
+    fun isSelfDebt(g: LedgerCustomer): Boolean = isSelfDebtCustomer(g.name, g.phone, meName, mePhone)
 
     /** 这一段的**全部**货主（按欠款倒序），抽屉里那一份名册。 */
     val allCustomers: List<LedgerCustomer>
