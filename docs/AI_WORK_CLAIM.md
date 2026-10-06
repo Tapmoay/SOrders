@@ -5968,7 +5968,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 `_check_order_contact_edit.py` → ✅ 九组 **136/136** 全绿；反验 → ✅ **45/45**（45 条注入 ＋ 还原后 21 个文件按字节比对一致）；相关既有红线 9 份随动后全绿；Android 编译 `_agent\gradle\gradle-8.9\bin\gradle.bat -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL**；生成物新鲜度 `python _tools/qa/_check_generated_freshness.py` → 5 组全过；全量静检 `python _tools/qa/_check_all.py` → 194 项 192✅/2❌（两条既有红与本事项无关：`_check_backend_fresh.py` 本机后端跑旧代码、`_check_report_facts.py` 的 `VERSION 0.2.5` 未记进发布记录 —— 那是另一个会话在做的 0.2.5 发布）；可达性 → 175/175。
 
-**实现提交**：`__IMPL_SHA__`（本事项动 31 个文件：后端 9 ＋ Android 8 ＋ 生成物 5 ＋ QA 6 ＋ 文档 3；归档提交另计）。
+**实现提交**：`b0e8a2a`（本事项动 31 个文件：后端 9 ＋ Android 8 ＋ 生成物 5 ＋ QA 6 ＋ 文档 3；归档提交另计）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
