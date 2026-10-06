@@ -6050,9 +6050,9 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **连带修复（本次改动顶红的既有判据）**：`_check_hints.py`（第二层底部那句"改这里只是改草稿"由 `Hint` 改成常驻 `Text` —— Hint 是可关闭的提示，这句是这一层的口径说明）⇒ **31 项**；`_check_users_ui.py`（裸 IconButton 两处返回键 / 剩下的 TextButton 只有页头两个）⇒ **47 项**；`_check_roster_cards.py`（同一条判据，连带反验 ⑳ 的期望关键词同步）⇒ **60 项**；`_check_contact_remark.py`（迁移最新号由目录自己算：023 唯一 ＋ 最新号唯一）⇒ **40 项**；`_audit_text_fields.py --check`（分类名加 `CategoryName = Annotated[str, StringConstraints(max_length=32)]`，列表元素也有长度上界）⇒ **259 个字段 / 有界 250 / 列表无条数上界 0**。
 
-**验证**：后端 `pytest` ⇒ **1380 passed**；真库迁移探针（停在 022 的开发库副本）⇒ **11 条断言全过**（改前崩在 `NOT NULL constraint failed: user_product_visibility.product_id`）；Android `AiWriteTest` ⇒ **307 tests**（商品可见范围那一组 11 条）；生成物重跑 `python -m scripts.gen_endpoint_index`（285 文件 / 274 端点）、`python _tools/ai/_gen_ai_read_catalog.py`、`python _tools/qa/_hint_inventory.py --md`（291 个 .kt / 1650 条界面文案）；`python _tools/qa/_check_reverse_verify_anchors.py` ⇒ **2510 条**注入原文全部还在（186/214 份脚本）；全量静检 / 可达性 / 文档计数记在归档提交。
+**验证**：后端 `pytest` ⇒ **1380 passed**；真库迁移探针（停在 022 的开发库副本）⇒ **11 条断言全过**（改前崩在 `NOT NULL constraint failed: user_product_visibility.product_id`）；Android `AiWriteTest` ⇒ **307 tests**（商品可见范围那一组 11 条）；生成物重跑 `python -m scripts.gen_endpoint_index`（285 文件 / 274 端点）、`python _tools/ai/_gen_ai_read_catalog.py`、`python _tools/qa/_hint_inventory.py --md`（291 个 .kt / 1650 条界面文案）；`python _tools/qa/_check_reverse_verify_anchors.py` ⇒ **2512 条**注入原文全部还在（186/214 份脚本）；全量静检 / 可达性 / 文档计数记在归档提交。
 
-**实现提交**：`PENDING`（本事项动 32 个文件：后端 6（迁移 024 新 ＋ 模型 / schema / users.py / product_categories.py / 测试）＋ Android 11（`ui/common/ProductCheckList.kt` 新 ＋ 屏 / VM / 批量页 / DTO / 仓库 / AI 四个文件 / 单测）＋ QA 8（判据 4 ＋ 反验 4，其中 2 新）＋ 文档 4（位置表 / 本文件 / 登记簿 / CLAIM），归档提交另计）。
+**实现提交**：`0b43c2b`（本事项动 40 个文件：后端 6（迁移 024 新 ＋ 模型 / schema / users.py / product_categories.py / 测试）＋ Android 12（`ui/common/ProductCheckList.kt` 新 ＋ 屏 / VM / 批量页 / DTO / 仓库 / AI 五个文件 / 单测）＋ QA 15（`_tools/ai/_check_ai_guardrails.py` ＋ 新增判据与反验各 1 ＋ 改判据 7 ＋ 改反验 5）＋ 文档 7（位置表 ＋ 端点索引 ＋ 提示目录 ＋ 生成物 `ai_read_catalog.json` ＋ 本文件 ＋ 登记簿 ＋ 变更单），归档提交另计）。
 
 ---
 
