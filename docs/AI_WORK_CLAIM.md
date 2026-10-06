@@ -6238,6 +6238,24 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-07 03:4x → 04:2x 已完成] 会话：**BUG-0017 沽清（下架）的商品：整卡变灰、点不动，下单拦在客户端与服务端两道**（台账 **L-35**）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**（m01347）：「文字的话你就留一个**已沽清**吧；灰掉了之后**就不能点**的哈 —— 就是我们已沽清之后，他是**点不动**的，不能产生这个反应，就是**整卡变灰**嘛……就是**拦住不让下**，不可能是提示后他仍然可以下呀。」
+
+**改什么（4 个源码文件 ＋ 2 份判据 ＋ 2 份单测 ＋ 4 份文档）**：
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/ProductPicker.kt`：`ProductRow` 下架商品整卡变灰（`Surface` color 换 `surfaceVariant.copy(alpha = 0.45f)` ＋ `ProductLine` 的 modifier 加 `alpha(0.6f)`，⛔ 不改 `ProductCardKit` 这个共用件）；加号 `FilledIconButton` 的 `onClick` / `enabled` 同一道闸门（灰掉、点不动、不弹数量小窗、不加行）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateViewModel.kt`：`submit` 前新增 `soldOutLine(lines, products)`，拦住并指认「第 N 行的「红富士苹果」已经沽清（下架），不能再下单，先删掉这一行再提交」。
+- `backend/app/services/order_flow.py` 的 `build_order_products`：商品库分支里补 `if not prod.is_active: raise ValueError(...)`（界面拦不住 AI 下单与老包；改数量/转单/拆单不走这条路，历史单不受影响）。
+- `android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteMasterData.kt`：「下架」那张 AI 写工具卡片的说法跟着行为一起改（原写「系统**不会**拦住拿它下单」—— 不改就成了二次说谎）。
+- 单测：`android/app/src/test/java/com/tapmoay/sorders/ui/shipper/ProductPickerTest.kt`（新 4 条）＋ `backend/tests/test_order_sold_out.py`（6 条）。
+- 判据：`_tools/qa/_check_sold_out_block.py`（58/58，带「总项数 < 40 即判停在空转」的闸）＋ `_tools/qa/_reverse_verify_sold_out_block.py`（12 条注入逐条让判据变红并点名那一条，跑完按字节还原）。
+- 文档：`docs/changes/BUG-0017.md`、`docs/changes/README.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`（重生成：源码文案变了）、本页。
+
+**核心改动声明行**：`核心改动：backend/app/services/order_flow.py —— 为什么必须动核心：下单只有 build_order_products 这一条路，沽清要真的"不能卖"就必须在这条路上成立；界面拦不住 AI 下单与老包。`
+
+**⛔ 明确不碰**：`ui/common/ProductCardKit.kt` 的 `ProductSoldOutBadge` 文案（仍只有「已沽清」，不参数化）；`ui/common/ProductCheckList.kt`（可见范围/授权页用同一个角标，那一页下架商品**必须仍可勾**）；`ui/order/OrderDetailViewModel.kt` 与 `ui/dispatcher/DispatcherPoolViewModel.kt`（已经 `includeInactive = false`，已成立、不动）；`data/repo/AppRepository.kt` 的 `products(includeInactive = true)` 默认值与 `Apis.kt` 的 products 端点（列表仍含下架商品）；历史订单 / 金额 / 核销 / 账本；`backend/app/commands/order.py` 的"下单人兜底"（与本事项无关）。
+
+- 状态：已完成（实现提交 `a0abdc9`；判据 58/58 ＋ 反验 12/12 ＋ 服务端单测 6 passed ＋ 客户端 `ProductPickerTest` 新 4 条（`gradle :app:testEmuDebugUnitTest` 1249 跑 / 1 红为预存在的 `AiHabitTest` / 2 skip）＋ 真后端真 HTTP 400 点名第 N 行 ＋ 真机 `shots/bug0017_picker_soldout_5556.png` ＋ 全量静检 `_tools/qa/_check_all.py` **206/206 全绿**）
 ### [2026-10-07 02:3x → 03:0x 已完成] 会话：**CHG-0067 地点库左栏与「线路分类」长成同一套 ＋ BUG-0016 账本「欠款人＝我自己」红色异常提示**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **改什么（6 个源码文件 ＋ 4 份判据 ＋ 6 份文档）**：
