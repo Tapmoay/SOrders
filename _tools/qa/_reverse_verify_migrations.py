@@ -28,6 +28,9 @@ CHECK = ROOT / "_tools" / "qa" / "_check_migrations.py"
 MIG = ROOT / "backend" / "app" / "migrations"
 RUNNER = MIG / "_runner.py"
 BASELINE = MIG / "001_baseline.py"
+#: 方言可携那三条注入（2026-10-06 发版 0.2.6 撞到的那一类）：拿真迁移文件当靶子。
+MIG24 = MIG / "024_product_visibility_targets.py"
+MIG13 = MIG / "013_route_categories.py"
 BOOTSTRAP = ROOT / "backend" / "app" / "core" / "schema_bootstrap.py"
 BACKUP_SH = ROOT / "_tools" / "backup" / "_backup.sh"
 TESTS = ROOT / "backend" / "tests" / "test_schema_migrations.py"
@@ -125,6 +128,27 @@ CASES: list[tuple[str, Path, object]] = [
         "单测被删掉一条（判据下限靠数量守着）",
         TESTS,
         lambda s: s.replace("def test_baseline_is_a_noop", "def _disabled_baseline_is_a_noop", 1),
+    ),
+    # ---- ⑩ 方言可携：MySQL 不认的 DDL（2026-10-06 发版 0.2.6 撞到）----
+    # 注入的就是当时那三行写法：SQLite 认、MySQL 不认。第 7 节只扫代码，
+    # 所以这几条注入必须让它报红 —— 否则下次还会发不出去。
+    (
+        "索引 DDL 又加回 IF NOT EXISTS（SQLite 认、MySQL 不认 —— 生产 migrate 就是这么红的）",
+        MIG24,
+        lambda s: s.replace('INDEX_DDL = f"CREATE UNIQUE INDEX {INDEX} ON {TABLE} (user_id, category_name, mode)"',
+                            'INDEX_DDL = f"CREATE UNIQUE INDEX IF NOT EXISTS {INDEX} ON {TABLE} (user_id, category_name, mode)"', 1),
+    ),
+    (
+        "加列写成 ADD COLUMN IF NOT EXISTS（MySQL 不认这个语法）",
+        MIG13,
+        lambda s: s.replace('f"ALTER TABLE {TABLE} ADD COLUMN {DDL}"',
+                            'f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS {DDL}"', 1),
+    ),
+    (
+        "删索引用 DROP INDEX IF EXISTS（MySQL 同样不认）",
+        MIG13,
+        lambda s: s.replace('conn.execute(text(f"CREATE INDEX {INDEX_NAME} ON {TABLE} ({COLUMN})"))',
+                            'conn.execute(text(f"DROP INDEX IF EXISTS {INDEX_NAME} ON {TABLE}"))', 1),
     ),
 ]
 

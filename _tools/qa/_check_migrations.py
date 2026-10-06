@@ -222,7 +222,33 @@ def main(argv: list[str] | None = None) -> int:
          "CLI 不 import app.database（避免「看版本」顺带把自愈跑一遍）",
          "⛔ __main__.py 引了 app.database —— 那会在导入时执行 bootstrap")
 
-    # ---------------------------------------------------------- 7. 数量判据（防空转）
+    # ---------------------------------------------------------- 7. 方言可携：DDL 两处方言都得认
+    # ⚠️ 2026-10-06（发版 0.2.6 踩到）：`CREATE UNIQUE INDEX IF NOT EXISTS ...` 只有 SQLite 认，
+    #    MySQL 的 `CREATE INDEX` 根本没有 `IF NOT EXISTS` 这个语法 —— 生产 migrate 直接
+    #    `(1064, "... near 'IF NOT EXISTS uq_upv_category ON ...'")`，发布停在那一步；
+    #    而且 MySQL 的 DDL 隐式提交，库被改成"半截"（两列加好了、索引没建）。
+    #    ⛔ 只扫**代码**（`code_only` 已剥注释与 docstring），所以解释性注释不会假红。
+    #    存在性判断请走 `inspect(engine).get_indexes`（012 / 013 / 014 / 015 的写法）。
+    BAD_DDL = (
+        (r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS", "CREATE INDEX IF NOT EXISTS"),
+        (r"ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS", "ADD COLUMN IF NOT EXISTS"),
+        (r"DROP\s+INDEX\s+IF\s+EXISTS", "DROP INDEX IF EXISTS"),
+    )
+    ddl_seen = 0
+    offenders: list[str] = []
+    for p in mig_files:
+        src = code_only(read(p))
+        ddl_seen += len(re.findall(r"CREATE\s+(?:UNIQUE\s+)?INDEX|ALTER\s+TABLE|DROP\s+INDEX", src))
+        for pat, shown in BAD_DDL:
+            if re.search(pat, src):
+                offenders.append(f"{p.name} → {shown}")
+    want(not offenders, "迁移里的 DDL 两处方言都认（没有 MySQL 不认的 IF NOT EXISTS）",
+         f"⛔ 这些迁移写了 MySQL 不认的 DDL（只有 SQLite 认）：{offenders}"
+         " —— 存在性判断走 inspect(engine).get_indexes，见 013_route_categories.py")
+    want(ddl_seen >= 1, f"扫到 {ddl_seen} 处 DDL 字面量（一处都没扫到说明本节取法失效）",
+         "⛔ 一处 DDL 都没扫到 —— 本节判据可能空转")
+
+    # ---------------------------------------------------------- 8. 数量判据（防空转）
     total = len(passed) + len(failed)
     want(total >= MIN_RULES, f"判据条数 {total} ≥ {MIN_RULES}",
          f"⛔ 只跑了 {total} 条判据（< {MIN_RULES}）—— 检查可能空转了")
@@ -233,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             print("  " + f)
         return 1
     if check_mode:
-        print(f"✅ 迁移体系 {len(passed)} 项全部通过（版本表 / 命名 / 记账顺序 / 漂移不拦启动 / 接线 / 表名单点）")
+        print(f"✅ 迁移体系 {len(passed)} 项全部通过（版本表 / 命名 / 记账顺序 / 漂移不拦启动 / 接线 / 表名单点 / 方言可携）")
     else:
         for p in passed:
             print("  ✅ " + p)

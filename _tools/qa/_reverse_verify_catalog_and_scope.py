@@ -154,6 +154,45 @@ CASES: list[tuple[str, Path, object]] = [
         #    只是写第二行时直接唯一冲突（两个方向只能存在一个）。
         lambda s: s.replace("ON {TABLE} (user_id, category_name, mode)", "ON {TABLE} (user_id, category_name)", 1),
     ),
+    # ⚠️ 2026-10-06（发版 0.2.6 撞到）：MySQL 的 `CREATE INDEX` **不认** `IF NOT EXISTS`
+    #    （只有 SQLite 认）。下面四条打的是同一条链：DDL 写法 / 问库 / 先判再建 / 调用点。
+    #    第一条注入的就是当时写歪的那一版原样。
+    (
+        "索引 DDL 又加回 `IF NOT EXISTS`（SQLite 认、MySQL 不认 —— 生产 migrate 就是这么红的）",
+        MIG24,
+        lambda s: s.replace(
+            'INDEX_DDL = f"CREATE UNIQUE INDEX {INDEX} ON {TABLE} (user_id, category_name, mode)"',
+            'INDEX_DDL = f"CREATE UNIQUE INDEX IF NOT EXISTS {INDEX} ON {TABLE} (user_id, category_name, mode)"',
+            1,
+        ),
+    ),
+    (
+        "存在性不再问库（`_indexes` 永远返空 → 每次重跑都硬建一次索引）",
+        MIG24,
+        lambda s: s.replace(
+            'return {ix["name"] for ix in inspect(engine).get_indexes(TABLE)}',
+            "return set()",
+            1,
+        ),
+    ),
+    (
+        "「先判存在再建」那一步没了（重跑时索引已在 → MySQL 报 Duplicate key name）",
+        MIG24,
+        lambda s: s.replace(
+            "    if INDEX in _indexes(engine):\n        return\n",
+            "",
+            1,
+        ),
+    ),
+    (
+        "upgrade 不再调用 `_ensure_index`（函数还在、判据那条也还在，索引却根本没建）",
+        MIG24,
+        lambda s: s.replace(
+            '                conn.execute(text(f"ALTER TABLE {TABLE} ADD COLUMN {ddl}"))\n    _ensure_index(engine)',
+            '                conn.execute(text(f"ALTER TABLE {TABLE} ADD COLUMN {ddl}"))',
+            1,
+        ),
+    ),
     # ⚠️ 2026-10-06（真库探针抓到）：单测库都是 create_all 建的新形状，所以"老库 product_id 还是
     #    NOT NULL"在单测里永远看不见 —— 分类行（product_id NULL）一写就是
     #    `NOT NULL constraint failed: user_product_visibility.product_id`，接口 500。

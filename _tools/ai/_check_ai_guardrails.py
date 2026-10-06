@@ -4079,10 +4079,28 @@ def main() -> int:
     #    所以新增的每一条红线都配了注入实验（见 _reverse_verify_catalog_and_scope.py 的 ② 段）。
     c.present("迁移给分类行的 mode 默认 allow（老行天然还是单品授权，一条数据都不搬）",
               mig24, r'"mode", "mode VARCHAR\(8\) NOT NULL DEFAULT \'allow\'"')
-    c.present("分类行的唯一性带上 mode（allow / deny 各占一行，不互相顶掉）",
+    # ⚠️ 2026-10-06（发版 0.2.6 在生产撞到）：这条唯一索引原来写成 `CREATE UNIQUE INDEX
+    #    IF NOT EXISTS ...`（SQLite 认、MySQL 不认），生产上 migrate 直接
+    #    `(1064, "... near 'IF NOT EXISTS uq_upv_category ON ...'")`，发布就停在那一步。
+    #    所以这条红线**刻意不接受** `IF NOT EXISTS`：谁再加回去，这里报红（配了注入）。
+    c.present("分类行的唯一性带上 mode（allow / deny 各占一行，不互相顶掉；也不带 MySQL 不认的 IF NOT EXISTS）",
               mig24,
-              r"CREATE UNIQUE INDEX IF NOT EXISTS \{INDEX\} ON \{TABLE\} "
+              r"CREATE UNIQUE INDEX \{INDEX\} ON \{TABLE\} "
               r"\(user_id, category_name, mode\)")
+    # ⚠️ 同上：改法照 013 —— 存在性问库（`inspect.get_indexes`），先判再建。只锚
+    #    `_ensure_index` 的定义、不锚调用点的话，把 `upgrade` 里那一行删掉照样绿
+    #    （索引根本没建，判据却全绿）—— 所以「判」「建」「在哪调」三处一起锚，
+    #    并在 _reverse_verify_catalog_and_scope.py 的 ② 段各配一条注入。
+    c.present("索引存在性问库（`inspect.get_indexes`），不赌 `IF NOT EXISTS`",
+              mig24,
+              r"return \{ix\[[^\]]{1,16}\] for ix in inspect\(engine\)\.get_indexes\(TABLE\)\}")
+    c.present("建索引先判存在再建（幂等：已经在了就返回，重跑不炸）",
+              mig24,
+              r"def _ensure_index\(engine: Engine\) -> None:[\s\S]{0,240}?"
+              r"if INDEX in _indexes\(engine\):\s*\n\s*return")
+    c.present("升级路径真的调用它（只定义不调用 = 索引根本没建）",
+              mig24,
+              r"def upgrade\(engine: Engine\) -> None:[\s\S]{0,2000}?_ensure_index\(engine\)")
     # ⚠️ 2026-10-06 真库探针才抓到：单测库全是 `create_all` 建的新形状（`product_id` 本来就可空），
     #    所以"024 之前建出来的库里它是 NOT NULL"在单测里**永远看不见** —— 分类行（product_id NULL）
     #    一写就是 `NOT NULL constraint failed: user_product_visibility.product_id`，接口 500。
