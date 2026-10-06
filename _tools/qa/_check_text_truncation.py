@@ -70,6 +70,7 @@ SHIPPER_LEDGER = AND / "ui/shipper/ShipperLedgerScreen.kt"
 DISP_ORDERS = AND / "ui/dispatcher/DispatcherOrdersScreen.kt"
 DISP_RETURNS = AND / "ui/dispatcher/DispatcherReturnRequestsScreen.kt"
 LEDGER_PERSON = AND / "ui/dispatcher/LedgerPersonScreen.kt"
+ORDER_DETAIL = AND / "ui/order/OrderDetailScreen.kt"
 DIALOG_TITLE = AND / "ui/common/DialogTitle.kt"
 PAY = ROOT / "backend/app/services/driver_pay.py"
 README = ROOT / "docs/changes/README.md"
@@ -82,7 +83,8 @@ ZWJ = chr(0x2060)
 #: 反斜杠：Kotlin 源码里的 \u2060 / \n 都靠它拼（⛔ 本文里不写裸转义 —— 锚点审计要的是源文件里那几个字符）
 BS = chr(92)
 
-#: P4：八个弹层标题 —— 单号另起一行、小一号、整块不换行（(文件, 那一行的逐字原文, 说明)）
+#: P4 那八个弹层标题 + CHG-0069 的核销确认弹层（第九处，L-44）—— 单号另起一行、小一号、整块不换行
+#: （(文件, 那一行的逐字原文, 说明)）
 TITLES: list[tuple[Path, str, str]] = [
     (SHIPPER_ORDERS, "title = { DialogTitle(" + DQ + "申请退货" + DQ + ", order.orderNo) }", "货主 · 申请退货"),
     (SHIPPER_LEDGER, "title = { DialogTitle(" + DQ + "核销订单" + DQ + ", " + DQ + "#" + DQ + " + order.orderNo) }", "货主 · 核销"),
@@ -92,10 +94,11 @@ TITLES: list[tuple[Path, str, str]] = [
     (DISP_RETURNS, "title = { DialogTitle(" + DQ + "办理退货" + DQ + ", req.orderNo) }", "派单员 · 办理退货"),
     (DISP_RETURNS, "title = { DialogTitle(" + DQ + "驳回退货申请" + DQ + ", req.orderNo) }", "派单员 · 驳回"),
     (LEDGER_PERSON, "title = { DialogTitle(" + DQ + "核销" + DQ + ", order.orderNo) }", "派单员 · 核销"),
+    (ORDER_DETAIL, "title = { DialogTitle(" + DQ + "核销" + DQ + ", orderNo) }", "派单员 · 订单详情核销（L-44 / CHG-0069）"),
 ]
 
 IMPORT = "import com.tapmoay.sorders.util.noBreak"
-#: 八个弹层标题现在都调这一个 composable（单号那一行只在这里钉）
+#: 这九个弹层标题现在都调这一个 composable（单号那一行只在这里钉）
 DT_CALL = "DialogTitle("
 DT_SIG = "fun DialogTitle(action: String, orderNo: String)"
 #: 界面文件数的下限：目录被搬走时判据必须**报红**，而不是空转变绿
@@ -179,7 +182,7 @@ def main() -> int:
 
     # ---- 1. 通用工具 ----
     print()
-    print("== 1. 通用工具：整块不换行 + 标题两行（P4 那八个标题全靠它） ==")
+    print("== 1. 通用工具：整块不换行 + 标题两行（P4 那八个 + CHG-0069 那一处全靠它） ==")
     nb = read(NOBREAK)
     nbc = code(NOBREAK)
     c.ok("util/NoBreak.kt 在", NOBREAK.exists(), "找不到 " + str(NOBREAK))
@@ -215,7 +218,7 @@ def main() -> int:
             if ".noBreak()" in line:
                 uses.append((name, line.strip()))
     c.ok(
-        "noBreak() 全库只剩 1 处使用（八处标题都改调 DialogTitle，换行点只在这里钉）",
+        "noBreak() 全库只剩 1 处使用（九处标题都改调 DialogTitle，换行点只在这里钉）",
         len(uses) == 1,
         f"实际 {len(uses)} 处：" + "、".join(n for n, _l in uses[:3]),
     )
@@ -257,7 +260,11 @@ def main() -> int:
         for line in src.splitlines():
             if DT_CALL in line:
                 calls.append((name, line.strip()))
-    c.ok("DialogTitle 的调用点恰好 8 处（P4 那八个弹层标题）", len(calls) == 8, f"实际 {len(calls)} 处")
+    c.ok(
+        "DialogTitle 的调用点恰好 9 处（P4 那八个 ＋ CHG-0069 的核销确认弹层）",
+        len(calls) == 9,
+        f"实际 {len(calls)} 处",
+    )
     not_title = [l for _n, l in calls if not l.startswith("title = {")]
     c.ok("每一处都长在弹层标题里（⛔ 别拿它去拼正文长串）", not not_title, "这些行不在标题里：" + "、".join(not_title[:3]))
     risky = [l for _n, l in calls if ("repo." in l or "Request(" in l or "json" in l)]
@@ -402,12 +409,12 @@ def main() -> int:
         print()
         print("  == 它到底在查什么 ==")
         print("     · util/NoBreak.kt：插 U+2060、幂等、只用于标题、⛔ 不回传，且源码里不出现真实零宽字符");
-        print("     · 全库 8 处使用 + 五个文件都 import 了它（没有多余 import）");
+        print("     · noBreak() 全库只剩 DialogTitle.kt 这一处使用（没有多余 import）");
         print("     · P30 地点卡：联系人行两行 + 保尾部；卡片本体可点开抽屉");
         print("     · P18 运费模板：三处小字两行 + Ellipsis；卡片本体可点；没加第三颗按钮");
         print("     · P28 后端：那句以「月薪未设置」开头，旧语序全库 0 处，一句话只有一处拼");
         print("     · P28 客户端：司机「我的」那行两行 + Ellipsis，取值仍来自 pay_summary");
-        print("     · P4：账号密码两行、全角并列清零；八个弹层标题都调 DialogTitle")
+        print("     · P4：账号密码两行、全角并列清零；九个弹层标题都调 DialogTitle")
         print("       （单号另起一行 + bodyMedium + 封一行带省略号 + noBreak）");
         print("     · 登记簿与配套反向验证脚本在 + 本文自己的边界理由在");
 

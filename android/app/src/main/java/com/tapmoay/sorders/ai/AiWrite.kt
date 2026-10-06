@@ -598,6 +598,16 @@ data class AiOrderRef(
      * 谁忘了传，退化成的是"改动之前的行为"，不是崩掉。
      */
     val arrearsAmount: String = amount,
+    /**
+     * 这单的**收款方式**（后端 `order.payment_method`：`cash` / `arrears` / …）。
+     *
+     * 为什么卡片要带它（2026-10-07 台账 L-44 / CHG-0069）：**光看欠款分不出"已挂账"与"没挂账的欠款单"** ——
+     * 未收款的现金单也有一笔欠款（核销那一套本来就按欠款算）。挂账之后 `paid` 仍是 False、
+     * `settledAmount` 仍是 0，`canChargeToArrears` 仍为真 ⇒ AI 照弹"将挂账到 X"的确认卡，
+     * 而点下去＝把欠款**静默改挂到另一家**（后端 `charge_order` 里唯一的门只挡"已收款"）。
+     * 判据与界面那一半**共用** `OrderStatusModel.isChargedToArrears`（一处实现、两处消费）。
+     */
+    val paymentMethod: String = "cash",
 ) {
     /** 卡片上显示的中文状态（由 [status] 推出来，不再单独存一份）。 */
     val statusCn: String get() = statusLabel(status)

@@ -153,6 +153,7 @@ class RepoWriteDataSource(
                 paid = d.paid,
                 settledAmount = d.settledAmount,
                 arrearsAmount = d.arrearsAmount,
+                paymentMethod = d.paymentMethod,
             )
         }
 
@@ -585,6 +586,7 @@ class RepoWriteDataSource(
                 paid = d.paid,
                 settledAmount = d.settledAmount,
                 arrearsAmount = d.arrearsAmount,
+                paymentMethod = d.paymentMethod,
             )
         }
 

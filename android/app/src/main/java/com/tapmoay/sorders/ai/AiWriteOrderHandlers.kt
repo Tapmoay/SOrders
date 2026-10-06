@@ -815,6 +815,16 @@ class ChargeOrderHandler(
     override suspend fun prepare(params: JsonObject): AiWriteOutcome {
         val order = resolveOrder(params)
         requireStatus(order, OrderStatusModel.NOT_CANCELLED, "已撤销的单不能挂账")
+        // ⛔ 已挂账的单不许再挂一次（2026-10-07 台账 L-44 / CHG-0069 口径 ⑥）：
+        //    挂账之后 `paid` 仍 False、`settledAmount` 仍是 0 ⇒ `canChargeToArrears` 仍为真 ⇒
+        //    卡片照弹"将挂账到 X"，而后端 `charge_order` 里唯一的门只挡"已收款" ⇒
+        //    点下去＝把欠款**静默改挂到另一家**。判据与界面那一半共用同一个函数（一处实现、两处消费）。
+        if (OrderStatusModel.isChargedToArrears(order.paymentMethod, order.paid, order.settledAmount)) {
+            throw AiWriteArgException(
+                "这单已经挂账了（收款方式＝挂账、钱还没收）—— 要核销、或要改挂账单位，" +
+                    "请到订单详情底部那两颗按钮上做。请如实告诉用户，不要改去动别的单。",
+            )
+        }
         // ⛔ 已收款的单不许改回挂账（后端 `_reject_if_already_collected` 会 400）。
         //    判据与界面那一半**共用** `OrderStatusModel.canChargeToArrears`：
         //    AI 侧原来只判了状态，于是会弹一张**注定失败**的确认卡 ——

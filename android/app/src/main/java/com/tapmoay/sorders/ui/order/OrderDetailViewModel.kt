@@ -9,8 +9,10 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ContactCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ContactDto
+import com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.api.PriceRuleDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderProductDto
@@ -20,6 +22,7 @@ import com.tapmoay.sorders.data.remote.dto.OrderTransferRequest
 import com.tapmoay.sorders.data.remote.dto.OrderTransferResultDto
 import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductDto
+import com.tapmoay.sorders.data.remote.dto.ReceiptCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
@@ -28,9 +31,11 @@ import com.tapmoay.sorders.ui.common.PickedLine
 import com.tapmoay.sorders.ui.common.ReceiverContact
 import com.tapmoay.sorders.ui.common.fillReceiver
 import com.tapmoay.sorders.ui.nav.Role
+import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.trimMoneyZeros
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.LocalDate
 
 /**
  * 退货申请状态档位（后端 `return_requests.py` 的 `Literal` 闭集）里的「全部」。
@@ -109,6 +114,18 @@ class OrderDetailViewModel(
      */
     var chargeNewUnitName by mutableStateOf("")
     var actionResult by mutableStateOf<String?>(null)
+
+    // ---- 核销这一扇门的状态（2026-10-07，CHG-0069 / 台账 L-44）----
+    /** 核销确认弹层（整单核销，口径 ②）。 */
+    var showSettleConfirm by mutableStateOf(false)
+    /** 「就地建 / 关联客户档案」弹层（口径 ④；这单的货主还没有档案时弹它）。 */
+    var showCustomerDialog by mutableStateOf(false)
+    /** 核销要往哪份客户档案上记（`CustomerDto.id`）——整单核销的 `customer_id`。 */
+    var settleCustomerId by mutableStateOf<Long?>(null)
+    /** 这单挂在**临时货主**身上（`shipperId == null`）：核销记不到谁头上，只能给引导（口径 ④）。 */
+    var settleTempShipper by mutableStateOf(false)
+    /** 收款方式（`cash` / `transfer` / `wechat` / `arrears_settle`，唯一实现在 `ui/common/SettleMethodPicker.kt`）。 */
+    var settleMethod by mutableStateOf("cash")
 
     // 司机：确认 / 内部备注 / 拍照送达（2026-10-06 台账 L-04：两个弹层退役，改成页面内的字段）
     //
@@ -587,6 +604,114 @@ class OrderDetailViewModel(
                 order = container.repo.chargeOrder(orderId, name)
                 actionResult = "已挂账到「" + name + "」"
                 showChargeSheet = false
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    // ============================================================ 核销（订单详情就地收款）
+    //
+    // 用户 2026-10-07（ref m01874）：「挂完账之后仍然还有挂账按钮在那里……它这些按钮要变成
+    // 什么要变成核销啊」；口径六问在 m01956 落定：主「核销」＋ 次「改挂账单位」，点核销 =
+    // **直接整单核销**（整单 / 按商品那个选择留在账本页），没有客户档案时就地建 / 关联一份。
+    //
+    // ⚠️ 这条路与账本页那扇门是**同一个端点**（`POST /ledger/receipts`）与同一个
+    //    [ReceiptCreateRequest]：⛔ 这里不另写一套核销逻辑、不自己算钱 —— 金额一律取
+    //    `order.arrearsAmount`（后端逐单按欠款校验；退过货的单上它不是商品行合计）。
+
+    /** 底部那颗「核销」：先认人（有没有客户档案），再决定弹哪一扇门。 */
+    fun openSettle() {
+        val o = order ?: return
+        if (!OrderStatusModel.canSettle(o.paid, o.status, o.arrearsAmount)) {
+            error = "这一单已经没有可收的钱了（已收清 / 已退货 / 已撤销）。"
+            return
+        }
+        acting = true
+        viewModelScope.launch {
+            try {
+                // 核销认的是**客户档案**：后端拿 `order.shipper_id` 去比 `customer.user_id`，
+                // 所以这里也只按 userId 认（⛔ 不按名字 —— 重名会把钱收到别人头上）。
+                val cust = container.repo.customers().firstOrNull { it.userId != null && it.userId == o.shipperId }
+                settleCustomerId = cust?.id
+                settleTempShipper = o.shipperId == null
+                settleMethod = "cash"
+                if (cust != null) showSettleConfirm = true else showCustomerDialog = true
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    /** 整单核销（口径 ②：一点就收，不弹"整单 / 按商品"）。 */
+    fun settleNow() {
+        val o = order ?: return
+        val cid = settleCustomerId ?: return
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                container.repo.createReceipt(
+                    ReceiptCreateRequest(
+                        customerId = cid,
+                        amount = o.arrearsAmount,
+                        method = settleMethod,
+                        receivedAt = LocalDate.now().toString(),
+                        orderIds = listOf(orderId),
+                        settleMode = "itemized",
+                    ),
+                )
+                order = container.repo.order(orderId)
+                actionResult = "已核销 ¥" + formatMoney(o.arrearsAmount)
+                showSettleConfirm = false
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    /**
+     * 就地建一份客户档案并**关联**到这张单的货主账号（口径 ④）。
+     *
+     * 带 `userId` 再建一次就是"关联"：后端 `customers.create_customer` 见到该 user 已有档案会
+     * 把旧的那条**原样返回**（`backend/app/api/v1/customers.py:63-66`），所以这里不用先查。
+     * ⚠️ 临时货主（`shipperId == null`）没有可关联的账号 —— 后端 `create_receipt` 会 400
+     *    「订单 X 无客户归属」，所以那一条路只给引导、连请求都不发。
+     */
+    fun createCustomerAndSettle(rawName: String, rawPhone: String) {
+        val o = order ?: return
+        val sid = o.shipperId
+        if (sid == null) {
+            error = "这张单是临时货主（下单时没绑账号），核销记不到谁头上 —— 请先到「货主管理」把账号关联成客户。"
+            return
+        }
+        val name = rawName.trim()
+        if (name.isEmpty()) {
+            error = "请先写一个客户名"
+            return
+        }
+        acting = true
+        error = null
+        viewModelScope.launch {
+            try {
+                val c = container.repo.createCustomer(
+                    CustomerCreateRequest(
+                        kind = "registered",
+                        userId = sid,
+                        name = name,
+                        phone = rawPhone.trim().ifBlank { null },
+                    ),
+                )
+                settleCustomerId = c.id
+                showCustomerDialog = false
+                showSettleConfirm = true
+                actionResult = "已建客户档案「" + c.name + "」"
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

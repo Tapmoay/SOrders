@@ -293,6 +293,7 @@ fun OrderDetailScreen(
                 onCapturedPhotoClick = { i -> preview.open(vm.capturedPhotos.map { File(it) }, i) },
                 onPayClick = { vm.showPayConfirm = true },
                 onChargeClick = { vm.openCharge() },
+                onSettleClick = { vm.openSettle() },
                 onEditFreightClick = { vm.openFreightDialog() },
                 onSplitClick = { vm.openSplitDialog() },
                 onTransferClick = { vm.openTransfer() },
@@ -551,6 +552,35 @@ fun OrderDetailScreen(
         )
     }
 
+    // 派单员：核销（台账 L-44 / CHG-0069 口径 ②）——**整单核销**，一点就收；
+    // 「整单 / 按商品」那个选择留在账本页那一套里（`LedgerPersonScreen::SettleOrderDialog`）。
+    if (vm.showSettleConfirm) {
+        SettleConfirmDialog(
+            orderNo = vm.order?.orderNo.orEmpty(),
+            amount = vm.order?.arrearsAmount.orEmpty(),
+            method = vm.settleMethod,
+            onMethodChange = { vm.settleMethod = it },
+            busy = vm.acting,
+            onDismiss = { vm.showSettleConfirm = false },
+            onConfirm = { vm.settleNow() },
+        )
+    }
+
+    // 这单的货主还没有客户档案（口径 ④）：正式货主就地建 / 关联一份；
+    // 临时货主（没有账号可关联）只给引导 —— 后端 `create_receipt` 必 400，⛔ 不发那一次注定失败的请求。
+    if (vm.showCustomerDialog) {
+        if (vm.settleTempShipper) {
+            TempShipperSettleDialog(onDismiss = { vm.showCustomerDialog = false })
+        } else {
+            CustomerEditorDialog(
+                initialName = vm.order?.shipperName?.trim().orEmpty(),
+                busy = vm.acting,
+                onDismiss = { vm.showCustomerDialog = false },
+                onSave = { name, phone -> vm.createCustomerAndSettle(name, phone) },
+            )
+        }
+    }
+
     // ⛔ 「拍照送达」的底部抽屉（`DeliverySheet`）与内部备注 AlertDialog 已在 2026-10-06 拆掉
     //   （用户台账 L-04）：照片、送达备注、「提交送达」全搬进 `DetailBody` 最底下那两块，
     //   破损卡片只留商品明细下面那一份（抽屉里那份是**第二份**）。
@@ -685,6 +715,8 @@ private fun DetailBody(
     onCapturedPhotoClick: (Int) -> Unit = {},
     onPayClick: () -> Unit,
     onChargeClick: () -> Unit,
+    /** 点「核销」（已挂账那一档的主按钮）—— 整单核销，见 `OrderDetailViewModel.settleNow`。 */
+    onSettleClick: () -> Unit,
     onEditFreightClick: () -> Unit,
     onSplitClick: () -> Unit,
     onTransferClick: () -> Unit,
@@ -1453,7 +1485,21 @@ private fun DetailBody(
                         }
                         Spacer(Modifier.height(12.dp))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // ⛔ 分档条件挂在 `when` 上、**不**给下面那段原文再包一层块：两条既有红线
+                    //    按缩进逐字钉着这一段（判据 `_tools/qa/_check_paid_actions.py` ③ 取
+                    //    挂账那颗按钮的文案之前 900 字符的窗口；反验 `_reverse_verify_paid_actions.py`
+                    //    的锚点 ① 钉着下面那一行 32 空格的 `canChargeToArrears(...)`）——
+                    //    多缩进一层就会失配。分档口径 = 台账 L-44 / CHG-0069：
+                    //    已收款 →「已收清」；已挂账 →「核销」＋「改挂账单位」；其余 → 原样两颗。
+                    val charged = OrderStatusModel.isChargedToArrears(order.paymentMethod, order.paid, order.settledAmount)
+                    when {
+                        order.paid -> CollectedActionsRow()
+                        charged -> ChargedActionsRow(
+                            acting = acting,
+                            onSettleClick = onSettleClick,
+                            onChangeUnitClick = onChargeClick,
+                        )
+                        else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
                             onClick = onPayClick,
                             enabled = !acting && !(order.paid && order.paymentMethod == "cash"),
@@ -1475,6 +1521,7 @@ private fun DetailBody(
                             Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("挂账")
+                        }
                         }
                     }
                 }
@@ -2118,6 +2165,126 @@ private fun DamageCard(
 
 
 /** 支付状态徽章 */
+/**
+ * 「已挂账」那一档的两颗按钮（台账 L-44 / CHG-0069 口径 ①②⑤）。
+ *
+ * 挂账之后 `paid` 仍 False、`settledAmount` 仍 0，于是今天那两颗按钮原样都在 —— 而它们在这一档
+ * 上点了都是坏的：再点一次挂账 = 欠款**静默改挂到另一家**；点「现场支付」= 欠款**静默蒸发**、
+ * 账上一笔流水都没有。所以这一档换成正事：**核销**（主）＋ **改挂账单位**（次，挂错单位有纠错路），
+ * 「现场支付」收掉不画（口径 ⑤）。
+ */
+@Composable
+private fun ChargedActionsRow(
+    acting: Boolean,
+    onSettleClick: () -> Unit,
+    onChangeUnitClick: () -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Button(onClick = onSettleClick, enabled = !acting, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("核销")
+        }
+        OutlinedButton(onClick = onChangeUnitClick, enabled = !acting, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("改挂账单位")
+        }
+    }
+}
+
+/**
+ * 「已收清」那一档（口径 ③）：不再给两颗点了必然失败的按钮，改一行说明。
+ *
+ * 今天它显示的是「已收款（禁用）＋ 挂账（禁用）」两颗灰按钮 —— 灰着的东西也在占位置、也在问
+ * "我该点哪个"，而这单的钱已经收到了，没有可核销的欠款。
+ */
+@Composable
+private fun CollectedActionsRow() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = Color(MgrGreen),
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("已收清 —— 这单的钱已经收到，没有可核销的欠款", style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+/**
+ * 核销确认弹层（台账 L-44 口径 ①②）：标题带单号、金额**只显示不让人改**（取 `arrearsAmount`，
+ * 后端逐单按欠款校验）、收款方式四选一（唯一实现在 `ui/common/SettleMethodPicker.kt`）。
+ */
+@Composable
+private fun SettleConfirmDialog(
+    orderNo: String,
+    amount: String,
+    method: String,
+    onMethodChange: (String) -> Unit,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    CardAlertDialog(
+        onDismissRequest = onDismiss,
+        // ⛔ 标题不许直接拼单号（走查 P4 / CHG-0027）：20 个字符在 24sp 的标题里会被从
+        //    中间劈开。走全库唯一那份 `ui/common/DialogTitle.kt`（动作名一行、单号另起一行）。
+        title = { DialogTitle("核销", orderNo) },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("本次核销", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.weight(1f))
+                    Text("¥" + formatMoney(amount), style = MaterialTheme.typography.titleLarge, color = Color(MoneyOrange))
+                }
+                Spacer(Modifier.height(10.dp))
+                SettleMethodPicker(selected = method, onSelect = onMethodChange)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "整单核销：把这单还欠的一次收掉（要按商品收，去账本那一单上点「核销」）。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !busy) { Text(if (busy) "处理中…" else "确认核销") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+/**
+ * 临时货主那一档（口径 ④）：核销要记在一份客户档案上，而这单没有账号可关联 ——
+ * 后端 `accounting_service.create_receipt` 必 400（「订单 X 无客户归属」）⇒ 只给引导，不发请求。
+ */
+@Composable
+private fun TempShipperSettleDialog(onDismiss: () -> Unit) {
+    CardAlertDialog(
+        tone = DialogTone.WARN,
+        onDismissRequest = onDismiss,
+        title = { Text("核销记不到谁头上") },
+        text = {
+            Hint(
+                "这张单挂在「临时货主」身上（下单时没绑账号）—— 核销要记在一份客户档案上，而它没有账号可关联。" +
+                    "请先到「货主管理」把这位货主关联到一个账号，再回来核销。",
+            )
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
+    )
+}
+
 @Composable
 private fun PaymentBadge(order: OrderDto) {
     val (label, bg, fg) = when {

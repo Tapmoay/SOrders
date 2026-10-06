@@ -149,4 +149,32 @@ object OrderStatusModel {
      */
     fun canChargeToArrears(paid: Boolean, settledAmount: String?): Boolean =
         !paid && (settledAmount?.toDoubleOrNull() ?: 0.0) <= 0.0
+
+    /**
+     * 这一单是不是「**已经挂账、还没收**」（2026-10-07，CHG-0069 / 台账 L-44）。
+     *
+     * 用户原话（ref m01874）：「挂完账之后仍然还有挂账按钮在那里呃这个不应该这样子的……
+     * 如果挂完账之后，它这些按钮要变成什么要变成核销啊」。挂账（`POST /orders/{id}/charge`）
+     * 只改 `payment_method = "arrears"`：[paid] 仍是 false、[settledAmount] 仍是 0，
+     * 于是 [canChargeToArrears] 为真 ⇒ 底部那两颗按钮原样都在 —— 而在这一档上它们点了都是坏的：
+     * ⛔ 再点一次挂账 = 欠款**静默改挂到另一家**（后端那个门只挡"已收款"）；
+     * ⛔ 点「现场支付」= 欠款**静默蒸发**、账上一笔流水都没有（`orders_payment.py:212-226` 写着这件事）。
+     *
+     * ⚠️ 这是**界面分档**用的判断，⛔ 不许并进 [canChargeToArrears] —— 那个函数是界面与 AI
+     *    共用的"已收款"门，语义只有"钱收没收到"一件事；混进"已挂账"会让 AI 侧连话都说不清。
+     */
+    fun isChargedToArrears(paymentMethod: String?, paid: Boolean, settledAmount: String?): Boolean =
+        !paid && paymentMethod == "arrears" && (settledAmount?.toDoubleOrNull() ?: 0.0) <= 0.0
+
+    /**
+     * 这一单**还有没有可收的钱**（能不能核销）—— 与账本页 `DispatcherLedgerViewModel.canSettle`
+     * **同口径**（2026-10-07，CHG-0069）：未收清、状态不是已撤销/已退货、欠款 > 0。
+     *
+     * ⚠️ 金额一律用 [arrearsAmount]（后端 `orders.arrears_amount`）：退过货的单上「商品行合计」
+     *    与「还欠多少」差一大截（本机 order 13：行 42.80 / 欠 21.40），按行金额去核销会被
+     *    后端逐单校验打回 400。
+     */
+    fun canSettle(paid: Boolean, status: String, arrearsAmount: String?): Boolean =
+        !paid && status.uppercase() != "CANCELLED" && status.uppercase() != "RETURNED" &&
+            (arrearsAmount?.toDoubleOrNull() ?: 0.0) > 0.0
 }

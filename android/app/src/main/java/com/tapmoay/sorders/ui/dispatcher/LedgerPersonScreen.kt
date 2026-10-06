@@ -3,7 +3,6 @@ package com.tapmoay.sorders.ui.dispatcher
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,7 +19,6 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +37,7 @@ import com.tapmoay.sorders.ui.common.CardAlertDialog
 import com.tapmoay.sorders.ui.common.DialogTitle
 import com.tapmoay.sorders.ui.common.OrderStatusChip
 import com.tapmoay.sorders.ui.common.SectionCard
+import com.tapmoay.sorders.ui.common.SettleMethodPicker
 import com.tapmoay.sorders.ui.common.TruncationNote
 import com.tapmoay.sorders.ui.theme.DangerRed
 import com.tapmoay.sorders.ui.theme.MgrGreen
@@ -524,21 +523,10 @@ private const val LIST_MAX = 6
  */
 @Composable
 private fun SettleMethodChips(vm: DispatcherLedgerViewModel) {
-    Text("收款方式", style = MaterialTheme.typography.titleSmall)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(
-            "cash" to "现金",
-            "transfer" to "转账",
-            "wechat" to "微信",
-            "arrears_settle" to "挂账结清",
-        ).forEach { (v, l) ->
-            FilterChip(
-                selected = vm.settleMethod == v,
-                onClick = { vm.settleMethod = v },
-                label = { Text(l, maxLines = 1) },
-            )
-        }
-    }
+    // ⚠️ 函数体只剩这一行委托：四个选项与「收款方式」标题的唯一实现在 `ui/common/SettleMethodPicker.kt`
+    //    （2026-10-07，CHG-0069 —— 订单详情那扇核销门要吃同一份）。⛔ 这里不许再展开成第二份；
+    //    也不许把签名改成表达式体：判据与反验都逐字钉着上面这一行（`private fun SettleMethodChips(`）。
+    SettleMethodPicker(selected = vm.settleMethod, onSelect = { vm.settleMethod = it })
 }
 
 /** 「本次核销 ¥X」那一行（只读 —— 金额由界面算，见 [SettleOrderDialog] 顶部那段）。 */
