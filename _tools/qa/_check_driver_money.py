@@ -134,7 +134,7 @@ def main() -> int:
               detail, r"⛔ 别加回来：判据 `_tools/qa/_check_driver_money\.py`")
 
     print("\n== 3. 详情页商品行：司机仍然看不到货款 ==")
-    # 2026-10-07（台账 L-44）：商品行的小计改成**退货后的净额** `netLineMoneyText(line)`
+    # 2026-10-07（台账 L-45）：商品行的小计改成**退货后的净额** `netLineMoneyText(line)`
     # （口径见 `docs/changes/CHG-0065.md`）—— 换的只是金额那串的锚点，`role != Role.DRIVER`
     # 这道门本身没动。金额串自己的断言在 `_tools/qa/_check_order_row_columns.py` ③c，
     # 这里只回答「司机看不见货款的门还在不在」。

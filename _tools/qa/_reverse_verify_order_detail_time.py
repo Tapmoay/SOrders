@@ -121,9 +121,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "⑪ CHG-0066.md 里的台账编号被改成别的（文档与台账对不上号）",
         CHG,
+        "L-46",
         "L-45",
-        "L-44",
-        "CHG-0066.md 写了「L-45」",
+        "CHG-0066.md 写了「L-46」",
     ),
 ]
 

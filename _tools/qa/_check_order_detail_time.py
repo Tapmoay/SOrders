@@ -206,7 +206,7 @@ def main() -> int:
     chg = read(CHG)
     reverse = read(REVERSE)
     c.ok("CHG-0066.md 在且写够了", len(chg) > 500, "len=" + str(len(chg)))
-    for token in ["L-45", "m11305", "创建于", "流转记录", "formatDateTimeFull", "yyyy-MM-dd HH:mm"]:
+    for token in ["L-46", "m11305", "创建于", "流转记录", "formatDateTimeFull", "yyyy-MM-dd HH:mm"]:
         c.ok("CHG-0066.md 写了「" + token + "」", token in chg)
     c.ok("README 里登记了 CHG-0066", "[CHG-0066.md](CHG-0066.md)" in read(README))
     c.ok("AI_WORK_CLAIM 里认领了 CHG-0066", "CHG-0066" in read(CLAIM))

@@ -6054,7 +6054,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **实现提交**：`0b43c2b`（本事项动 40 个文件：后端 6（迁移 024 新 ＋ 模型 / schema / users.py / product_categories.py / 测试）＋ Android 12（`ui/common/ProductCheckList.kt` 新 ＋ 屏 / VM / 批量页 / DTO / 仓库 / AI 五个文件 / 单测）＋ QA 15（`_tools/ai/_check_ai_guardrails.py` ＋ 新增判据与反验各 1 ＋ 改判据 7 ＋ 改反验 5）＋ 文档 7（位置表 ＋ 端点索引 ＋ 提示目录 ＋ 生成物 `ai_read_catalog.json` ＋ 本文件 ＋ 登记簿 ＋ 变更单），归档提交另计）。
 
-### [2026-10-07 00:45 → 进行中 CST] 会话：**CHG-0065 退货之后订单详情的钱也跟着回退（台账 L-44）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-07 00:45 → 进行中 CST] 会话：**CHG-0065 退货之后订单详情的钱也跟着回退（台账 L-45）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**：用户 2026-10-07 在会话里当场报的第 ① 条（ref **m11305**）：退货之后订单详情那一行已经是「火腿 ×2 已退 3」（件数是净数），钱却还是原价 —— 「为什么钱还是整个的整数」⇒ **件数怎么退，钱就怎么退**。⛔ 与上一单的关系：CHG-0054 当时的口径是「退货走账本红冲、客户端行金额与合计**逐字未动**」（`docs/changes/CHG-0054.md:78`、`:174`，判据还把这条钉死）—— 本单是**口径推翻**，不是补漏。
 
@@ -6072,7 +6072,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ---
 
-### [2026-10-07 00:45 → 进行中 CST] 会话：**CHG-0066 订单详情的时刻只给「创建于」与退货申请加年份（台账 L-45）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-07 00:45 → 进行中 CST] 会话：**CHG-0066 订单详情的时刻只给「创建于」与退货申请加年份（台账 L-46）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**：用户 2026-10-07 在会话里当场报的第 ② 条（ref **m11305**）：订单详情里只有月份和时间、没有年份，要的是订单号下面那一行「信息要非常详细」；同一句里明确「项目那个流转记录不需要显示年份」⇒ **按位置分档**，不是全页统一换。
 
@@ -6232,7 +6232,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 | 2026-10-07 01:2x | **CHG-0066**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**）：`_check_order_detail_time.py`（7 组）与 `_reverse_verify_order_detail_time.py`（11 种破坏方式） | 新增「时间按位置分档」这条红线；反验逐条证明它真的在检查 |
 | 2026-10-07 01:2x | **CHG-0065／CHG-0066**（我，`session-bd8fe093`） | `_tools/qa/` 里**六份既有脚本随动**（多会话共读）：`_check_order_row_columns.py`（新增 ③c 节 4 条 ＋ 金额右对齐与量画同源两处锚点改成 `netLineMoneyText`）、`_check_order_return_visible.py`（判据 6 与第 4 组标题改成「件数与金额都画净数」）、`_check_detail_inline_edit.py`（合计断言改成走共用口径）＋ 对应三份反验的注入锚点 | 口径从「退货只红冲账本、客户端金额逐字未动」（CHG-0054）改成「钱也画净额」；三份判据的标签/期望关键词同步 |
 | 2026-10-07 01:2x | **CHG-0065／CHG-0066**（我，`session-bd8fe093`） | `android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt`（**两个 CHG 都动这一个文件，两笔提交要按 CHG 拆开**）＋ `android/app/src/main/java/com/tapmoay/sorders/util/TimeFmt.kt` ＋ `android/app/src/test/java/com/tapmoay/sorders/util/TimeFmtTest.kt` | 详情页：两个净额换算函数（`:649` / `:659`）＋ 行金额量画换净额（`:1147` / `:1204`）＋ 合计走 `netOrderMoneyText`（`:734`）＋「已退 ¥X」小字（`:1263-1266`）；三处时刻换档（`:807` / `:1337` / `:1356`）。TimeFmt：新增 `formatDateTimeFull`（`:58`，pattern `yyyy-MM-dd HH:mm`）。单测：三个新用例（并排两档 / 跨年 / 退化） |
-| 2026-10-07 01:2x | **CHG-0065／CHG-0066**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:1074` 那一节（设计基线，多会话共写）＋ `docs/PROJECT_MAP/08_CODE_LOCATOR.md:239` 与 `:246`（定位表，多会话共写）＋ 用户台账 `_tmp/USER_BUG_LEDGER_20261006.md`（**用户交来的只读台账，改它要走「补记」而不是改旧记录**） | 设计基线：4.20 那一节补「金额一列从 CHG-0065 起也是净数」并把过期的判据规模（32 项 / 12 种注入）改成现状；定位表：订单详情页那行补坐标、时间格式化那行写清两档；台账：补第二次收口 ＋ 索引表 L-44/L-45 ＋ 两个章节 ＋ 附录 T |
+| 2026-10-07 01:2x | **CHG-0065／CHG-0066**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:1074` 那一节（设计基线，多会话共写）＋ `docs/PROJECT_MAP/08_CODE_LOCATOR.md:239` 与 `:246`（定位表，多会话共写）＋ 用户台账 `_tmp/USER_BUG_LEDGER_20261006.md`（**用户交来的只读台账，改它要走「补记」而不是改旧记录**） | 设计基线：4.20 那一节补「金额一列从 CHG-0065 起也是净数」并把过期的判据规模（32 项 / 12 种注入）改成现状；定位表：订单详情页那行补坐标、时间格式化那行写清两档；台账：补第二次收口 ＋ 索引表 L-45/L-46 ＋ 两个章节 ＋ 附录 T |
 
 ---
 
