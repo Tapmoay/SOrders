@@ -40,6 +40,10 @@ ORDERS_L = ROOT / "backend/app/api/v1/orders_lifecycle.py"
 ORDER_CMD = ROOT / "backend/app/commands/order.py"
 ORDERS_API = ROOT / "backend/app/api/v1/orders.py"
 USERS_API = ROOT / "backend/app/api/v1/users.py"
+# ⚠️ 2026-10-06（CHG-0062）：「按分类给」与「单独关掉」两个维度的**表结构**全在这份迁移里
+#    （两列 + 一条唯一索引）。它没有运行时分支可注入，所以注入点选在「默认值」与「索引列」上：
+#    这两处改歪都不会报错，只会让老行变成「不给他看」、或让 allow/deny 互相顶掉。
+MIG24 = ROOT / "backend/app/migrations/024_product_visibility_targets.py"
 VIS_SCHEMA = ROOT / "backend/app/schemas/product_visibility.py"
 USER_MODEL = ROOT / "backend/app/models/user.py"
 BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
@@ -133,13 +137,90 @@ CASES: list[tuple[str, Path, object]] = [
         ),
     ),
     (
-        "「不受限」改成返回空集合（默认把所有人挡在外面）",
-        VIS_SCHEMA,
+        "迁移把分类行的默认值改成 deny（老行当场从「给他看这 3 个」翻成「就不给他看这 3 个」）",
+        MIG24,
+        # ⚠️ 不能只锤 `NOT NULL DEFAULT 'allow'`：迁移的 docstring 里也有一句同样的话，
+        #    锤它只会改到注释（判据照样绿）—— 必须锤 `("mode", ...)` 这一整行。
         lambda s: s.replace(
-            '    if (getattr(user, "product_scope", None) or SCOPE_ALL) != SCOPE_CUSTOM:\n        return None',
-            '    if (getattr(user, "product_scope", None) or SCOPE_ALL) != SCOPE_CUSTOM:\n        return set()',
+            "(\"mode\", \"mode VARCHAR(8) NOT NULL DEFAULT 'allow'\")",
+            "(\"mode\", \"mode VARCHAR(8) NOT NULL DEFAULT 'deny'\")",
             1,
         ),
+    ),
+    (
+        "分类行的唯一索引不带 mode（「这一类给他看」与「这一类不给他看」互相顶掉）",
+        MIG24,
+        # ⚠️ 注入的是**索引列**，不是拋异常：少了 mode 这个库照样建得起来，
+        #    只是写第二行时直接唯一冲突（两个方向只能存在一个）。
+        lambda s: s.replace("ON {TABLE} (user_id, category_name, mode)", "ON {TABLE} (user_id, category_name)", 1),
+    ),
+    # ⚠️ 2026-10-06（真库探针抓到）：单测库都是 create_all 建的新形状，所以"老库 product_id 还是
+    #    NOT NULL"在单测里永远看不见 —— 分类行（product_id NULL）一写就是
+    #    `NOT NULL constraint failed: user_product_visibility.product_id`，接口 500。
+    #    两条注入各打一半：一条打"什么时候该动"，一条打"真的动手了没有"。
+    (
+        "老库的可空性不再补（分类行写不进去、接口 500）—— 条件被写死成假",
+        MIG24,
+        lambda s: s.replace(
+            '    if nullable is False:\n        if engine.dialect.name == "sqlite":',
+            '    if False:\n        if engine.dialect.name == "sqlite":',
+            1,
+        ),
+    ),
+    (
+        "老库的可空性不再补 —— 条件还在，但「重建那一行」没了",
+        MIG24,
+        lambda s: s.replace(
+            '        if engine.dialect.name == "sqlite":\n            _sqlite_rebuild(engine)',
+            '        if engine.dialect.name == "sqlite":\n            pass',
+            1,
+        ),
+    ),    # ⚠️ 2026-10-06（CHG-0062）：解析规则搬进 `resolve_visible_product_ids` 之后，
+    #    「不受限 = None」变成**两处**（谁不受限 / 什么配置算不受限），两处各配一条注入：
+    #    只注入其中一条的话，另一条被改成 `return set()` 时没人拦得住。
+    (
+        "「不受限」改成返回空集合（默认把所有人挡在外面）—— 谁不受限这一处",
+        VIS_SCHEMA,
+        lambda s: s.replace(
+            "    if not visibility_applies_to(user):\n        return None",
+            "    if not visibility_applies_to(user):\n        return set()",
+            1,
+        ),
+    ),
+    (
+        "「all 且一条排除行都没有」也改成空集合（「全部商品」当场变成「全都看不到」）",
+        VIS_SCHEMA,
+        lambda s: s.replace(
+            "    if scope != SCOPE_CUSTOM and not deny_ids and not deny_categories:\n        return None",
+            "    if scope != SCOPE_CUSTOM and not deny_ids and not deny_categories:\n        return set()",
+            1,
+        ),
+    ),
+    (
+        "按分类授权不再查商品（「以后新建到这一类的自动也带上」这条承诺静默失效）",
+        VIS_SCHEMA,
+        # ⚠️ 注入的是“那一整块不再执行”，不是删掉中文注释：只锤注释/签名的话，
+        #    把 `if allow_categories:` 改成 `if False:` 它照样绿 —— 而那等于“按分类给=白给”。
+        # ⚠️ 必须**把整块删掉**：这条判据锤的是「文件里有没有那句 `Product.category.in_(allow_categories)`」，
+        #    包一层 `if False:` 的话那行代码还在文件里，断言照样绿（第一次就是这么注入的，被这次运行抓出来）。
+        lambda s: s.replace(
+            '        if allow_categories:\n'
+            '            # ⭐ 这一句就是"按分类授权"的全部：分类名现查，不是一个快照。\n'
+            '            picked |= set(\n'
+            '                db.scalars(\n'
+            '                    select(Product.id).where(\n'
+            '                        Product.category.in_(allow_categories), Product.is_deleted.is_(False)\n'
+            '                    )\n'
+            '                ).all()\n'
+            '            )\n',
+            "",
+            1,
+        ),
+    ),
+    (
+        "排除不再从结果里减掉（关掉的商品照样看得见、照样能下单）",
+        VIS_SCHEMA,
+        lambda s: s.replace("    return picked - hidden", "    return picked", 1),
     ),
     (
         "可见性对派单员也生效（把自己挡在外面，改错了没人能改回来）",
@@ -179,9 +260,29 @@ CASES: list[tuple[str, Path, object]] = [
         ),
     ),
     (
-        "custom 但一个都没勾不再拒绝（用户以为配好了、其实什么都看不到）",
+        "勾了但商品全被删不再拒绝（以为配好了、其实一件都没给）",
         USERS_API,
-        lambda s: s.replace("        if not body.product_ids:", "        if False:", 1),
+        lambda s: s.replace("        if not alive:", "        if False:", 1),
+    ),
+    (
+        "配完一个都看不到也不拒绝（用户以为配好了，其实选品页是空的）",
+        USERS_API,
+        # ⚠️ 判据是**解析结果**而不是“勾了几个”：只选分类不勾单品是合法配置，
+        #    所以这条护栏只能锤在“算出来是空”上（不能回去锤 `if not body.product_ids:`）。
+        lambda s: s.replace(
+            "    if seen is not None and not seen and _catalog_has_alive_product(db):",
+            "    if False:",
+            1,
+        ),
+    ),
+    (
+        "分类改名不再把可见范围的行一起改（关掉的商品集体复活）",
+        PCAT_API,
+        lambda s: s.replace(
+            "        vis = _rename_visibility_category(db, old_name, body.name)",
+            "        vis = {}",
+            1,
+        ),
     ),
     (
         "可见范围不再留痕（授权改动查不到是谁改的）",
@@ -201,7 +302,12 @@ CASES: list[tuple[str, Path, object]] = [
             '            "user_name": u.full_name or u.phone,\n'
             '            "scope": out.scope,\n'
             '            "product_ids": out.product_ids,\n'
+            '            "category_names": out.category_names,\n'
+            '            "hidden_product_ids": out.hidden_product_ids,\n'
+            '            "hidden_category_names": out.hidden_category_names,\n'
             '            "product_count": len(out.product_ids),\n'
+            '            "category_count": len(out.category_names),\n'
+            '            "hidden_count": len(out.hidden_product_ids) + len(out.hidden_category_names),\n'
             "        },\n"
             "    )\n",
             "",

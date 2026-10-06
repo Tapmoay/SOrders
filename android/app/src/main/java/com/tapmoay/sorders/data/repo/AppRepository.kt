@@ -631,13 +631,23 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun reorderProductCategories(ids: List<Long>) =
         api.productApi.reorderCategories(com.tapmoay.sorders.data.remote.dto.ProductCategoryReorderRequest(ids))
 
-    // ---- 商品可见范围（白名单：勾了的才给他看）----
+    // ---- 商品可见范围（分类 + 单品，授权 + 排除；CHG-0062）----
     suspend fun productVisibility(userId: Long) = api.productApi.getProductVisibility(userId)
-    suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>) =
-        api.productApi.setProductVisibility(
-            userId,
-            com.tapmoay.sorders.data.remote.dto.ProductVisibilityRequest(scope, productIds),
-        )
+
+    /** 提交**整份**可见范围 —— 六个参数就是后端那五个字段（`scope` 两档 + 四维）。 */
+    suspend fun setProductVisibility(
+        userId: Long,
+        scope: String,
+        productIds: List<Long>,
+        categoryNames: List<String> = emptyList(),
+        hiddenProductIds: List<Long> = emptyList(),
+        hiddenCategoryNames: List<String> = emptyList(),
+    ) = api.productApi.setProductVisibility(
+        userId,
+        com.tapmoay.sorders.data.remote.dto.ProductVisibilityRequest(
+            scope, productIds, categoryNames, hiddenProductIds, hiddenCategoryNames,
+        ),
+    )
 
     // AI 写动作要用的三个（原来只转发了 list 与传图）
     suspend fun createProduct(body: com.tapmoay.sorders.data.remote.api.ProductCreateRequest) =

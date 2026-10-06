@@ -496,8 +496,21 @@ data class AiName(
  * 而 `scope=all` 时白名单是空的、`scope=custom` 时白名单可能空（历史脏数据）——
  * "全部商品"和"一个都没勾"在后端是**两件完全不同的事**（前者不受限，后者什么都看不到），
  * 混成一个布尔量就会把后者显示成前者，而那是这套能力里最危险的一种错。
+ *
+ * 2026-10-06（CHG-0062）从两维变四维：可见范围现在既能**按分类给**（以后新建到这个分类的
+ * 商品自动也给他看 —— 用户原话），也能在看得见的范围里**单独关掉某个商品/整类商品**。
+ * ⚠️ 撤回靠这份快照整份写回（后端 PUT 是整份替换）：少读一个维度，撤回就会**静默把那一维清空**。
  */
-data class AiVisibility(val scope: String, val productIds: List<Long>) {
+data class AiVisibility(
+    val scope: String,
+    val productIds: List<Long> = emptyList(),
+    /** 授权给他的**分类名**（只在 custom 档生效；空串 = 「未分类」那一类）。 */
+    val categoryNames: List<String> = emptyList(),
+    /** 单独关掉的商品编号（两档都生效，关掉优先于给看）。 */
+    val hiddenProductIds: List<Long> = emptyList(),
+    /** 整类关掉的分类名（两档都生效，关掉优先于给看）。 */
+    val hiddenCategoryNames: List<String> = emptyList(),
+) {
     /** 模式的中文（卡片上不许出现 `custom` 这种码）。 */
     fun scopeLabel(): String = if (scope.equals("custom", ignoreCase = true)) "只给勾选的" else "全部商品（不限制）"
 }
@@ -1442,6 +1455,8 @@ object AiWrites {
     //
     // 用户 2026-09-18 原话：「甚至也可以直接叫 ai 操作（指定某个批发商/货主只能看到哪些商品）」。
     // 它本质是**授权**，所以是 HIGH：改错了，那个货主打开选品页会少东西（或什么都看不到）。
+    // 2026-10-06（CHG-0062）用户又提了两条：按**分类**给（"以后增加到这个分类的商品自动显示"）、
+    // 以及在范围里**单独关掉**某个商品 —— 于是这条动作从两维变四维（分类给看/单品给看/单品关掉/整类关掉）。
     const val USER_PRODUCT_VISIBILITY = "user.product_visibility"
 
     /** 域标签：清单与文档按它分组。 */
@@ -2396,7 +2411,8 @@ object AiWrites {
             risk = AiWriteRisk.HIGH,
             group = G_USER,
             blurb = "指定某个货主/批发商在选品页和下单一共能看见哪些商品：" +
-                "要么「全部商品」（不限制），要么「只给勾选的」并点名那几个。" +
+                "要么「全部商品」（不限制），要么「只给勾选的」并按**分类**、按**商品**点名；" +
+                "还能在看得见的范围里单独关掉某几个商品、或整类关掉。" +
                 "**这本质是授权**——改成「只给勾选的」之后，没勾的商品他从列表到下单都碰不到。",
             params = listOf(
                 AiWriteParam(
@@ -2410,8 +2426,25 @@ object AiWrites {
                 ),
                 AiWriteParam(
                     "products", "勾选的商品", kind = AiWriteParamKind.TEXT,
-                    hint = "scope=custom 时必填：只给他看的商品名，多个用「、」隔开。" +
-                        "一个都不勾会被拒绝（那样他打开选品页是空的）；想放开就传 scope=all",
+                    hint = "scope=custom 时用：单独给这几件商品（名称，多个用「、」隔开）。" +
+                        "它和 categories 至少要给一样 —— 两样都没给、或者给了又被 hide_* 全关掉，" +
+                        "会被拒绝（那样他打开选品页是空的）；想放开就传 scope=all",
+                ),
+                AiWriteParam(
+                    "categories", "勾选的分类", kind = AiWriteParamKind.TEXT,
+                    hint = "scope=custom 时用：整类给他（分类名，多个用「、」隔开）。" +
+                        "按分类给的好处是**以后新建到这个分类的商品自动也给他看**（用户原话）。" +
+                        "分类名先读一次名册核对（product_categories），对不上会被拒绝",
+                ),
+                AiWriteParam(
+                    "hide_products", "单独关掉的商品", kind = AiWriteParamKind.TEXT,
+                    hint = "可选。在看得见的范围里**单独关掉**这几件商品（名称，多个用「、」隔开）。" +
+                        "两档都生效（all 档用它在「全部商品」里挖洞），**关掉优先于给看**",
+                ),
+                AiWriteParam(
+                    "hide_categories", "整类关掉的分类", kind = AiWriteParamKind.TEXT,
+                    hint = "可选。整类关掉（分类名，多个用「、」隔开）。两档都生效、关掉优先于给看，" +
+                        "而且**以后新建到这一类的商品也看不见**；分类名同样要先按名册核对",
                 ),
             ),
         ),

@@ -1571,8 +1571,18 @@ class RepoWriteDataSource(
         AiName(it.id, it.name, note = if (it.productCount > 0) "${it.productCount} 个商品" else null)
     }
 
+    // ⚠️ 五个字段一个都不能漏：这份快照是撤回时**整份写回**的底稿，
+    //    少读一维 = 撤回把那一维静默清空（分类授权尤其致命：选品页会凭空少一批商品）。
     override suspend fun productVisibility(userId: Long): AiVisibility =
-        repo.productVisibility(userId).let { AiVisibility(it.scope, it.productIds) }
+        repo.productVisibility(userId).let {
+            AiVisibility(
+                it.scope,
+                it.productIds,
+                it.categoryNames,
+                it.hiddenProductIds,
+                it.hiddenCategoryNames,
+            )
+        }
 
     override suspend fun createProductCategory(fields: JsonObject) {
         val created = repo.createProductCategory(
@@ -1978,8 +1988,17 @@ class RepoWriteDataSource(
         else -> "不突出"
     }
 
-    override suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>) {
-        repo.setProductVisibility(userId, scope, productIds)
+    override suspend fun setProductVisibility(
+        userId: Long,
+        scope: String,
+        productIds: List<Long>,
+        categoryNames: List<String>,
+        hiddenProductIds: List<Long>,
+        hiddenCategoryNames: List<String>,
+    ) {
+        repo.setProductVisibility(
+            userId, scope, productIds, categoryNames, hiddenProductIds, hiddenCategoryNames,
+        )
     }
 
     override suspend fun createCustomer(fields: JsonObject) {

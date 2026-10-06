@@ -237,8 +237,9 @@ def main() -> int:
          and len(re.findall(r'(?<!Extended)FloatingActionButton\(', users)) == 0)
     c.ok('⛔ 卡片上那三个深色（姓氏圆底 / 徽章）一个字没动',
          'Color(0xFF5A6B00)' in users and 'Color(0xFF0A3168)' in users and 'Color(0xFF7A5900)' in users)
-    c.ok('整个文件只剩返回那一颗 IconButton（判据 _check_users_ui.py 钉着）',
-         users.count('IconButton(') == 1)
+    # CHG-0062：商品可见范围多了一个整屏第二层，它自带一颗返回键 ⇒ 两处（都不是卡片动作）。
+    c.ok('整个文件里的裸 IconButton 只有两处返回键（判据 _check_users_ui.py 钉着）',
+         users.count('IconButton(') == 2)
 
     spec = read(SPEC)
     c.section('9. 规范写死了这两件事')

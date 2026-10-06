@@ -557,8 +557,21 @@ interface AiWriteDataSource {
     suspend fun deleteVehicleCategory(id: Long)
     suspend fun reorderVehicleCategories(ids: List<Long>)
 
-    /** 整份替换某个货主/批发商的可见范围（后端同一个事务里换开关 + 换明细）。 */
-    suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>)
+    /**
+     * 整份替换某个货主/批发商的可见范围（后端同一个事务里换开关 + 换四维明细）。
+     *
+     * 四个明细列表哪一档算数：`productIds`/`categoryNames` 只在 custom 档写进去；
+     * `hiddenProductIds`/`hiddenCategoryNames` **两档都生效**（all 档靠它们在"全部商品"里挖洞）。
+     * 省略的维度 = 空 = 整份替换里"这一维没有"（撤回靠这一点把旧值原样写回）。
+     */
+    suspend fun setProductVisibility(
+        userId: Long,
+        scope: String,
+        productIds: List<Long>,
+        categoryNames: List<String> = emptyList(),
+        hiddenProductIds: List<Long> = emptyList(),
+        hiddenCategoryNames: List<String> = emptyList(),
+    )
 
     // ---- 基础资料（地址/联系人/地点/挂账单位/运费模板/车辆/客户）----
 

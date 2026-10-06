@@ -602,11 +602,23 @@ class AiWriteTest {
             // 可见范围没有独立的一行（它就在 users 上）：照真实实现合成一份，否则
             // "撤回要写回旧值"这件事在替身上测不出来。
             if (resourceKey == "product_visibility") {
+                // ⚠️ 五个键一个都不能少：撤回是拿这份快照**整份写回**的，少一个键
+                //    就等于"撤回时把那一维清空"（分类那一维会让选品页凭空少一批商品）。
+                //    这里必须照抄生产实现 [AiRevertRead.productVisibility] 的键集。
                 return AiBefore(
                     id,
                     buildJsonObject {
                         put("scope", visibility.scope)
                         put("product_ids", JsonArray(visibility.productIds.map { JsonPrimitive(it) }))
+                        put("category_names", JsonArray(visibility.categoryNames.map { JsonPrimitive(it) }))
+                        put(
+                            "hidden_product_ids",
+                            JsonArray(visibility.hiddenProductIds.map { JsonPrimitive(it) }),
+                        )
+                        put(
+                            "hidden_category_names",
+                            JsonArray(visibility.hiddenCategoryNames.map { JsonPrimitive(it) }),
+                        )
                     },
                 )
             }
@@ -1136,11 +1148,22 @@ class AiWriteTest {
         var visibility = AiVisibility("all", emptyList())
 
         override suspend fun productVisibility(userId: Long) = visibility.also { boom() }
-        override suspend fun setProductVisibility(userId: Long, scope: String, productIds: List<Long>) {
+        override suspend fun setProductVisibility(
+            userId: Long,
+            scope: String,
+            productIds: List<Long>,
+            categoryNames: List<String>,
+            hiddenProductIds: List<Long>,
+            hiddenCategoryNames: List<String>,
+        ) {
             boom()
             // 整份替换：写完就是新的样子（撤回的探针靠它核对"中间有没有被别人改过"）
-            visibility = AiVisibility(scope, productIds)
-            masterCalls += "setProductVisibility:$userId:$scope:${productIds.joinToString(",")}"
+            visibility = AiVisibility(scope, productIds, categoryNames, hiddenProductIds, hiddenCategoryNames)
+            // 调用串四维全记（用 "|" 分段）：只记授权那一维的话，
+            // "少发一维 = 静默清空那一维"这类回归在测试里根本看不见。
+            masterCalls += "setProductVisibility:$userId:$scope:" +
+                "${productIds.joinToString(",")}|${categoryNames.joinToString(",")}|" +
+                "${hiddenProductIds.joinToString(",")}|${hiddenCategoryNames.joinToString(",")}"
         }
 
         // ---- 批量调价 ----
@@ -5641,7 +5664,7 @@ class AiWriteTest {
         assertTrue("要列名字：$text", text.contains("2. 皇冠梨"))
         assertTrue("要写改前是什么样：$text", text.contains("现在：全部商品（不限制）"))
         r.svc.execute(card.token)
-        assertEquals("setProductVisibility:31:custom:41,42", r.ds.masterCalls.single())
+        assertEquals("setProductVisibility:31:custom:41,42|||", r.ds.masterCalls.single())
     }
 
     @Test
@@ -5665,7 +5688,7 @@ class AiWriteTest {
         assertTrue("改前那一份也要列名字：$text", text.contains("红富士苹果"))
         assertTrue("清掉白名单这件事必须写在卡上：$text", text.contains("会被清掉"))
         r.svc.execute(card.token)
-        assertEquals("setProductVisibility:31:all:", r.ds.masterCalls.single())
+        assertEquals("setProductVisibility:31:all:|||", r.ds.masterCalls.single())
     }
 
     @Test
@@ -5682,7 +5705,7 @@ class AiWriteTest {
             undoCard.detailLines.any { it.contains("撤回到 custom") },
         )
         r.svc.execute(undoCard.token)
-        assertTrue("白名单要整份写回去：${r.ds.masterCalls}", r.ds.masterCalls.any { it == "setProductVisibility:31:custom:41" })
+        assertTrue("白名单要整份写回去：${r.ds.masterCalls}", r.ds.masterCalls.any { it == "setProductVisibility:31:custom:41|||" })
     }
 
     @Test
@@ -5697,6 +5720,111 @@ class AiWriteTest {
         )
         assertTrue("要说清它不是货主：${out.reason}", out.reason.contains("货主"))
         assertEquals(0, r.ds.masterCalls.size)
+    }
+
+    @Test
+    fun `商品可见范围：按分类给（分类名按名册原文存，差一个字就存成空分类）`() = runBlocking {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.USER_PRODUCT_VISIBILITY,
+                p("user" to "城东水果批发", "scope" to "custom", "categories" to "水果"),
+            ),
+        )
+        assertEquals("商品可见范围：城东水果批发 → 只给勾选的 1 个分类", card.summary)
+        val text = card.summary + "\n" + card.detailLines.joinToString("\n")
+        assertTrue("要列分类名：$text", text.contains("分类 1. 水果"))
+        // 按分类给是"活的"：以后新建到这一类的商品自动也带上——这句必须写在卡上
+        assertTrue("要说清是活的：$text", text.contains("以后新建到这一类里的商品"))
+        r.svc.execute(card.token)
+        assertEquals("setProductVisibility:31:custom:|水果||", r.ds.masterCalls.single())
+    }
+
+    @Test
+    fun `商品可见范围：分类名对不上就拒绝（后端按名字存，差一个字会静默挂空）`() = runBlocking<Unit> {
+        val r = Rig()
+        val out = rejected(
+            r.svc.preview(
+                AiWrites.USER_PRODUCT_VISIBILITY,
+                p("user" to "城东水果批发", "scope" to "custom", "categories" to "水果类"),
+            ),
+        )
+        // 文案由 AiWriteArgs.strict 抛（本地那句兜底走不到）：要说清是**哪一个**名字对不上
+        assertTrue("要说清对不上：${out.reason}", out.reason.contains("没有匹配「水果类」的商品分类"))
+        assertEquals(0, r.ds.masterCalls.size)
+    }
+
+    @Test
+    fun `商品可见范围：all 档单独关掉一件（在「全部商品」里挖洞，关掉优先于给看）`() = runBlocking {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.USER_PRODUCT_VISIBILITY,
+                p("user" to "城东水果批发", "scope" to "all", "hide_products" to "红富士苹果"),
+            ),
+        )
+        assertEquals(
+            "商品可见范围：城东水果批发 → 全部商品（不限制）（另单独关掉 1 个商品）",
+            card.summary,
+        )
+        val text = card.detailLines.joinToString("\n")
+        assertTrue("要写清关掉的是哪一件：$text", text.contains("另外关掉：红富士苹果"))
+        assertTrue("关掉优先于给看这句话必须在卡上：$text", text.contains("关掉优先于给看"))
+        r.svc.execute(card.token)
+        assertEquals("setProductVisibility:31:all:||41|", r.ds.masterCalls.single())
+    }
+
+    @Test
+    fun `商品可见范围：整类关掉（以后新建到这一类的商品也看不见）`() = runBlocking {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.USER_PRODUCT_VISIBILITY,
+                p(
+                    "user" to "城东水果批发", "scope" to "custom",
+                    "categories" to "水果", "hide_categories" to "冻品",
+                ),
+            ),
+        )
+        val text = card.detailLines.joinToString("\n")
+        assertTrue("要写清关掉的是哪一类：$text", text.contains("另外关掉：冻品"))
+        r.svc.execute(card.token)
+        assertEquals("setProductVisibility:31:custom:|水果||冻品", r.ds.masterCalls.single())
+    }
+
+    @Test
+    fun `商品可见范围：custom 给的又被关掉盖住就拒绝（配完一个都看不到）`() = runBlocking<Unit> {
+        val r = Rig()
+        val out = rejected(
+            r.svc.preview(
+                AiWrites.USER_PRODUCT_VISIBILITY,
+                p(
+                    "user" to "城东水果批发", "scope" to "custom",
+                    "products" to "红富士苹果", "hide_products" to "红富士苹果",
+                ),
+            ),
+        )
+        assertTrue("要说清会被后端拒：${out.reason}", out.reason.contains("一个商品都看不到"))
+        assertEquals(0, r.ds.masterCalls.size)
+    }
+
+    @Test
+    fun `商品可见范围：撤回把四维整份写回去（少写一维就是静默清空那一维）`() = runBlocking {
+        val r = Rig()
+        r.ds.visibility = AiVisibility(
+            scope = "custom",
+            productIds = listOf(41),
+            categoryNames = listOf("水果"),
+            hiddenProductIds = listOf(42),
+            hiddenCategoryNames = listOf("冻品"),
+        )
+        val card = ok(
+            r.svc.preview(AiWrites.USER_PRODUCT_VISIBILITY, p("user" to "城东水果批发", "scope" to "all")),
+        )
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        val undoCard = ok(r.svc.offerUndo(done.undoToken!!))
+        r.svc.execute(undoCard.token)
+        assertEquals("setProductVisibility:31:custom:41|水果|42|冻品", r.ds.masterCalls.last())
     }
 
     @Test

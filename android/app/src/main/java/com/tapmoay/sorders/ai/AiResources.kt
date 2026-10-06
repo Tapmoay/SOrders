@@ -643,20 +643,32 @@ internal object AiResources {
      * 撤回就是"把开关和白名单整份写回写之前的样子"——它天然可逆（后端 PUT 是整份替换），
      * 所以这里不需要任何特殊形状。
      *
-     * ⚠️ `product_ids` 是**静默键**：它是内部编号，"商品白名单：[12, 15] → 撤回到 [12, 13, 15]"
-     *    这种东西摆在卡上等于没写（用户根本不认编号）。它照样整份写回去，只是不占一行；
-     *    要改哪几个商品，**正向那张卡上是一个一个列了名字的**。
+     * ⚠️ 四个明细键都是**静默键**：`product_ids`/`hidden_product_ids` 是内部编号，
+     *    "商品白名单：[12, 15] → 撤回到 [12, 13, 15]"这种东西摆在卡上等于没写（用户根本不认编号）；
+     *    分类那两个虽然是人话，但一张撤回卡上连列四串名字会把它淹掉。
+     *    它们照样整份写回去，只是不占一行；要改哪几样，**正向那张卡上是一个一个列了名字的**。
+     *
+     * ⚠️ 2026-10-06（CHG-0062）：可见范围有了"按分类给 / 单独关掉"这两维，读回键也从 2 个变 5 个。
+     *    少声明一个的后果不是"卡上少一行"，而是**撤回时那个键根本没写回去**（撤回看起来成功了），
+     *    单测那条"labels + silent 必须正好等于 readKeys"就是为这件事钉的。
      */
     private val PRODUCT_VISIBILITY = AiResource(
         key = "product_visibility",
         cn = "商品可见范围",
         idKey = "user_id",
-        readKeys = setOf("scope", "product_ids"),
+        readKeys = setOf(
+            "scope", "product_ids", "category_names", "hidden_product_ids", "hidden_category_names",
+        ),
         labels = mapOf(
             "scope" to "可见范围（all=全部商品 / custom=只给勾选的）",
             "product_ids" to "勾选的商品",
+            "category_names" to "勾选的分类",
+            "hidden_product_ids" to "单独关掉的商品",
+            "hidden_category_names" to "整类关掉的分类",
         ),
-        silent = setOf("product_ids"),
+        silent = setOf(
+            "product_ids", "category_names", "hidden_product_ids", "hidden_category_names",
+        ),
         actions = listOf(update(AiWrites.USER_PRODUCT_VISIBILITY)),
         read = { ds, id -> ds.snapshot("product_visibility", id) },
     )
@@ -1335,9 +1347,14 @@ internal object AiRevertRead {
         put("active", JsonPrimitive(d.isActive))
     }
 
+    // 五个键一次写全：撤回拿这份快照**整份写回**，少一个键就是撤回时把那一维清空
+    // （分类那一维尤其致命：授权项没了，那个货主的选品页会凭空少一批商品）。
     fun productVisibility(d: ProductVisibilityDto): JsonObject = buildJsonObject {
         put("scope", d.scope)
         put("product_ids", JsonArray(d.productIds.map { JsonPrimitive(it) }))
+        put("category_names", JsonArray(d.categoryNames.map { JsonPrimitive(it) }))
+        put("hidden_product_ids", JsonArray(d.hiddenProductIds.map { JsonPrimitive(it) }))
+        put("hidden_category_names", JsonArray(d.hiddenCategoryNames.map { JsonPrimitive(it) }))
     }
 
     fun user(d: UserDto): JsonObject = buildJsonObject {

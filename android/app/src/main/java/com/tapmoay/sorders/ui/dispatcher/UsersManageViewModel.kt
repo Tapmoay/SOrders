@@ -12,6 +12,8 @@ import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.ALL_CATEGORY
+import com.tapmoay.sorders.ui.common.categoryOf
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -328,6 +330,10 @@ class UsersManageViewModel(
         // 商品可见范围：**只有货主/批发商有这一项**（派单员不受限，司机没有商品目录）
         draftScope = "all"
         draftVisible = emptySet()
+        draftAllowCategories = emptySet()
+        draftHidden = emptySet()
+        draftHiddenCategories = emptySet()
+        visibilityQuery = ""
         if (visibilityApplies) {
             visibilityLoading = true
             viewModelScope.launch {
@@ -335,6 +341,11 @@ class UsersManageViewModel(
                     val v = container.repo.productVisibility(u.id)
                     draftScope = v.scope
                     draftVisible = v.productIds.toSet()
+                    // 四维一起回显：少回显一维 = 一保存就把它抹掉（排除项被抹掉更糟：
+                    // 用户以为某个商品是关着的，它其实又出现了）
+                    draftAllowCategories = v.categoryNames.toSet()
+                    draftHidden = v.hiddenProductIds.toSet()
+                    draftHiddenCategories = v.hiddenCategoryNames.toSet()
                 } catch (_: Exception) {
                     // 读不到就按"不限制"显示：**不能**默认成 custom ——
                     // 那会在保存时把一个没配过白名单的人改成"什么都看不到"
@@ -352,29 +363,101 @@ class UsersManageViewModel(
         }
     }
 
-    // ---- 商品可见范围（白名单）----
+    // ---- 商品可见范围（分类 + 单品，授权 + 排除；CHG-0062）----
     /** 只有货主/批发商有"商品可见范围"这一项。 */
     val visibilityApplies: Boolean
         get() = editing != null && editing?.role == "shipper"
 
     var draftScope by mutableStateOf("all")
+
+    /** 单品**授权**（只有「只给勾选的」那一档看它）。 */
     var draftVisible by mutableStateOf<Set<Long>>(emptySet())
+
+    /** 分类**授权**（按名字算；空串代表「未分类」那一类。只有 custom 档算数）。 */
+    var draftAllowCategories by mutableStateOf<Set<String>>(emptySet())
+
+    /** 单品**排除**（两档都生效，且**优先于授权**）。 */
+    var draftHidden by mutableStateOf<Set<Long>>(emptySet())
+
+    /** 分类**排除**（两档都生效，且优先于授权）。 */
+    var draftHiddenCategories by mutableStateOf<Set<String>>(emptySet())
+
     var visibilityLoading by mutableStateOf(false)
 
+    /**
+     * 可见范围第二层里的搜索词。
+     *
+     * 留在 VM 而不是第二层里 `remember`：退出去看一眼上一层的档位汇总、再进来接着挑，
+     * 词不该被清掉（和批量页的 `query` 同一个道理）。
+     */
+    var visibilityQuery by mutableStateOf("")
+
     fun setScope(scope: String) {
+        // 只换档位，**不清**那四维：勾过的东西留着，切回来还在。
+        // 哪一维在哪一档算数是后端定的（`replace_visibility` 在 scope != custom 时不写授权行），
+        // 界面按同一套口径显示就行。
         draftScope = scope
     }
 
-    fun toggleVisible(productId: Long) {
-        draftVisible = if (productId in draftVisible) draftVisible - productId else draftVisible + productId
+    /**
+     * 他**最终看得见**的商品 id —— 与后端 `resolve_visible_product_ids` 同一套规则：
+     * 先按档位算授权，再减排除，**排除优先**（分类排除压单品授权、单品排除压分类授权）。
+     */
+    fun visibleProductIds(): Set<Long> {
+        val allowed = if (draftScope == "custom") {
+            products.filter { categoryOf(it) in draftAllowCategories || it.id in draftVisible }
+        } else {
+            products
+        }
+        val denied = products.filter { categoryOf(it) in draftHiddenCategories }.map { it.id }.toSet()
+        return allowed.map { it.id }.toSet() - draftHidden - denied
     }
 
-    fun selectAllVisible() {
-        draftVisible = products.map { it.id }.toSet()
+    /** 点一个商品行：现在"看得见"就关掉它，看不见就放开它。 */
+    fun toggleVisibleProduct(p: ProductDto) {
+        val id = p.id
+        if (id in visibleProductIds()) {
+            // 靠分类授权看见的也要用单品排除压住它 —— 只撤单品授权会"点了没反应"
+            draftHidden = draftHidden + id
+            draftVisible = draftVisible - id
+        } else {
+            draftHidden = draftHidden - id
+            // custom 档里"这一类没整类授权"：得单独把这件加进单品授权，否则放开还是不显示
+            if (draftScope == "custom" && categoryOf(p) !in draftAllowCategories) {
+                draftVisible = draftVisible + id
+            }
+        }
     }
 
-    fun clearVisible() {
-        draftVisible = emptySet()
+    /**
+     * 点分类头（和"全选筛选出的 N 个"那一行）。
+     *
+     * [ALL_CATEGORY] 不是分类、只是一档筛选（还可能被搜索词收窄过），所以它只能**逐件**关，
+     * 不能记成"这一类不给"。
+     */
+    fun toggleVisibleCategory(name: String, targetOn: Boolean, ids: List<Long>) {
+        val picked = ids.toSet()
+        val named = name != ALL_CATEGORY
+        if (targetOn) {
+            draftHidden = draftHidden - picked
+            if (named) {
+                draftHiddenCategories = draftHiddenCategories - name
+                if (draftScope == "custom") draftAllowCategories = draftAllowCategories + name
+            }
+        } else if (named && draftScope == "custom") {
+            // custom 档"这一类不给" = 撤掉整类授权；已经单件授权进来的也要撤 ——
+            // 用户点的是"这一类全不给"，留一件开着是打脸
+            draftAllowCategories = draftAllowCategories - name
+            draftVisible = draftVisible - picked
+            draftHidden = draftHidden - picked
+        } else if (named) {
+            // all 档"这一类不给"记成分类排除：以后新建到这个分类的商品**自动**也看不见
+            //（只逐件关的话，明天新加的商品又会冒出来）
+            draftHiddenCategories = draftHiddenCategories + name
+            draftHidden = draftHidden - picked
+        } else {
+            draftHidden = draftHidden + picked
+        }
     }
 
     /** 关掉抽屉（右上角的 × 与底部「取消」都走这里）。保存途中不许关：闸门是 [acting]。 */
@@ -433,17 +516,30 @@ class UsersManageViewModel(
                 actionResult = if (cur == null) "已新增" else "已更新"
                 // 商品可见范围**单独一条写路径**（`PUT /users/{id}/product-visibility`）：
                 // 它改的是"他能在选品页看到什么"，和改资料不是一件事；单独调也更好报错
-                // （后端会因为"选了自定义却一个都没勾"而拒绝，那句话要原样给用户看）。
+                // （后端会因为"配完他一个商品都看不到"而拒绝，那句话要原样给用户看）。
                 if (cur != null && visibilityApplies) {
-                    if (draftScope == "custom" && draftVisible.isEmpty()) {
-                        // 资料已经改成功了，这里**如实分开说**，不能整体报"更新失败"
-                        actionResult = "资料已更新，但可见范围没保存：选了「只给勾选的」却一个都没勾 —— " +
+                    val seen = visibleProductIds()
+                    if (seen.isEmpty() && products.isNotEmpty()) {
+                        // 本地先拦一道，省一次注定失败的往返。判据与后端**一模一样**：
+                        // 不看"勾了几个"，看"他到底能看见几个"（只勾分类、一件单品都不勾是完全合法的）。
+                        // 商品目录空的时候不拦 —— 那说明目录还没建，不是配错了。
+                        // 资料已经改成功了，这里**如实分开说**，不能整体报"更新失败"。
+                        actionResult = "资料已更新，但可见范围没保存：这么配他一个商品都看不到 —— " +
                             "那样他打开选品页会是空的"
                     } else {
                         try {
-                            container.repo.setProductVisibility(cur.id, draftScope, draftVisible.toList())
+                            // 五样全发：哪一维在哪一档生效由后端判（授权只在 custom 档写、排除两档都写）
+                            container.repo.setProductVisibility(
+                                cur.id, draftScope,
+                                draftVisible.toList(),
+                                draftAllowCategories.toList(),
+                                draftHidden.toList(),
+                                draftHiddenCategories.toList(),
+                            )
                             if (draftScope == "custom") {
-                                actionResult = "已更新，可见商品 ${draftVisible.size} 个"
+                                val off = draftHidden.size + draftHiddenCategories.size
+                                actionResult = "已更新，可见商品 ${seen.size} 个" +
+                                    if (off > 0) "（另关掉 $off 个）" else ""
                             }
                         } catch (e: Exception) {
                             actionResult = "资料已更新，但可见范围没保存：" + toApiException(e).message

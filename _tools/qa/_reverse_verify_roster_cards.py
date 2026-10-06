@@ -199,7 +199,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         P_USERS,
         "IconButton(",
         "IconButtonX(",
-        "整个文件只剩返回那一颗 IconButton（判据 _check_users_ui.py 钉着）",
+        "整个文件里的裸 IconButton 只有两处返回键（判据 _check_users_ui.py 钉着）",
     ),
     (
         "㉑ 卡片上那个深橄榄被顺手调了一格",

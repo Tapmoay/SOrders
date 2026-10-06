@@ -73,6 +73,9 @@ PRIORITY = AND / "ui/dispatcher/ReportPriority.kt"
 REPORT = AND / "ui/dispatcher/ReportCenter.kt"
 USERS = AND / "ui/dispatcher/UsersManageScreen.kt"
 BADGE = AND / "ui/common/ProductCardKit.kt"
+# CHG-0062：账户管理页「商品可见范围」第二层的那一列商品行整块搬进了这个共用零件，
+# 所以第 5 节「同一个状态只有一个词」要连着这个文件一起看（搬家不是放宽）。
+PART = AND / "ui/common/ProductCheckList.kt"
 SCHEMA = ROOT / "backend/app/schemas/product.py"
 PRODUCTS_API = ROOT / "backend/app/api/v1/products.py"
 README = ROOT / "docs/changes/README.md"
@@ -316,9 +319,13 @@ def main() -> int:
     # ---- 5. 同一个状态只有一个词 ----
     section("5. 同一个状态只有一个词（已沽清 vs 已下架）")
     users_src = app.get(USERS, "")
+    # CHG-0062：这一列商品行整块搬进了共用零件 ui/common/ProductCheckList.kt，
+    # 所以「账户管理那一行写的是哪个词」要连着零件一起看 —— 搬家不是放宽：
+    # 零件里必须走共用角标 ProductSoldOutBadge，且两个文件里都不许出现「已下架」。
+    part_src = app.get(PART, "")
     c.ok(
-        "账户管理的商品行写「· 已沽清」",
-        '" · 已沽清"' in users_src and "已下架" not in users_src,
+        "账户管理的商品行（现住在共用零件里）写「已沽清」",
+        "ProductSoldOutBadge(" in part_src and "已下架" not in users_src and "已下架" not in part_src,
         "这一行又写回了「已下架」—— 同一个状态在 App 里就有两个词了",
     )
     stale = [str(p.relative_to(AND)) for p in ui_files if "已下架" in app[p]]

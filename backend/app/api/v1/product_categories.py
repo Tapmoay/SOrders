@@ -9,6 +9,9 @@ v3.42 的分类顺序是**推出来的**（按商品数倒序）—— 那是"�
 两者的关系写死成三条：
 1. **改名要级联**：名册改名时，同一事务里把所有 `products.category` 从旧名改成新名
    —— 不级联的话，改完名商品全变成"未分类"，而且**不报错**；
+   同一事务里还要把**商品可见范围**里挂在这个分类名上的行一起改名（`user_product_visibility`，
+   授权与排除两个方向都要）：不改的话，货主授权的那一类会指向一个不存在的旧名字 ——
+   选品页凭空少一批商品；排除方向更糟，本来关掉的商品会**全部重新出现**，而且不报错；
 2. **新建商品时带了名册里没有的分类名 → 自动补进名册**（排到最后）。
    否则派单员要先建分类、再建商品，两步做完才能用；
 3. **删除有名册在用的分类 → 拒绝**（告诉还有几个商品挂着）。
@@ -25,8 +28,9 @@ from sqlalchemy.orm import Session
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
-from app.models import Product, ProductCategory, User
+from app.models import Product, ProductCategory, User, UserProductVisibility
 from app.models.enums import OperationAction
+from app.models.product_visibility import MODE_ALLOW, MODE_DENY
 from app.schemas.product_category import (
     ProductCategoryCreate,
     ProductCategoryOut,
@@ -119,6 +123,62 @@ def create_category(
     return _out(row, _counts(db))
 
 
+def _rename_visibility_category(db: Session, old_name: str, new_name: str) -> dict[str, int]:
+    """把商品可见范围里挂在这个分类名上的行一起改名（授权 + 排除，见模块注释第 1 条）。
+
+    ⚠️ **不能**直接 UPDATE：唯一索引 `uq_upv_category(user_id, category_name, mode)` 会撞。
+    同一个人身上有三种撞车，都要先清再搬（三种的结果都与"改名前的语义"逐条对得上）：
+    1. 同一模式下旧名、新名两行都在（他把目标名当成"还没建的分类"提前配过）
+       ⇒ 合并成一行：授权是并集、排除也是并集，留一行语义不变；
+    2. 授权旧名 + 排除新名 ⇒ 搬完只留排除那一行
+       （`_split_rows` 里 deny 本来就优先，这里只是把库里的冗余清掉，读出来还是"不给看"）；
+    3. 排除旧名 + 授权新名 ⇒ 同上，留排除那一行。
+    ⛔ 不做"分类名必须存在、必须在名册里"的校验：可见范围允许指向还没建、
+    还没有商品的分类名（那正是"以后加到这一类就自动可见"的用法）。
+    """
+    t = UserProductVisibility.__table__
+    renamed = merged = dropped = 0
+    for mode in (MODE_ALLOW, MODE_DENY):
+        # 目标模式下已经有行的那些人：旧行不搬过去（搬了就撞唯一索引），直接删
+        dup_users = set(
+            db.scalars(
+                select(t.c.user_id).where(
+                    t.c.category_name == new_name, t.c.mode == mode
+                )
+            ).all()
+        )
+        if dup_users:
+            merged += db.execute(
+                t.delete().where(
+                    t.c.category_name == old_name,
+                    t.c.mode == mode,
+                    t.c.user_id.in_(dup_users),
+                )
+            ).rowcount
+        renamed += db.execute(
+            t.update()
+            .where(t.c.category_name == old_name, t.c.mode == mode)
+            .values(category_name=new_name)
+        ).rowcount
+    # 搬完以后同一格上"授权 + 排除"两行都在的：只留排除那一行（拒绝优先，与写入端归一一致）
+    both_users = set(
+        db.scalars(
+            select(t.c.user_id).where(
+                t.c.category_name == new_name, t.c.mode == MODE_DENY
+            )
+        ).all()
+    )
+    if both_users:
+        dropped = db.execute(
+            t.delete().where(
+                t.c.category_name == new_name,
+                t.c.mode == MODE_ALLOW,
+                t.c.user_id.in_(both_users),
+            )
+        ).rowcount
+    return {"rows_renamed": renamed, "rows_merged": merged, "allow_rows_dropped": dropped}
+
+
 @router.patch("/{category_id}", response_model=ProductCategoryOut)
 def update_category(
     category_id: int,
@@ -126,7 +186,8 @@ def update_category(
     current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
     db: Session = Depends(get_db),
 ) -> ProductCategoryOut:
-    """改名 / 改顺序。**改名会级联改掉挂在它下面的商品**（同一事务，见模块注释）。"""
+    """改名 / 改顺序。**改名会级联**：挂在它下面的商品、以及商品可见范围里的分类名，
+    都在同一事务里跟着改（见模块注释第 1 条）。"""
     row = db.get(ProductCategory, category_id)
     if row is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
@@ -145,8 +206,19 @@ def update_category(
             #    否则恢复那个商品时它挂的是一个已经不存在的分类名（选品页会多出一格）。
             Product.__table__.update().where(Product.category == old_name).values(category=body.name)
         ).rowcount
+        # ⭐ 可见范围里的分类名也要跟着改：不改的话，货主授权的那一类会指向一个不存在的
+        #    旧名字（选品页凭空少一批商品），排除的那一类会让本来关掉的商品全部重新出现。
+        vis = _rename_visibility_category(db, old_name, body.name)
         row.name = body.name
-        changes.append({"field": "name", "from": old_name, "to": body.name, "products_moved": moved})
+        changes.append(
+            {
+                "field": "name",
+                "from": old_name,
+                "to": body.name,
+                "products_moved": moved,
+                "visibility_renamed": vis,
+            }
+        )
     if body.sort_order is not None and body.sort_order != row.sort_order:
         changes.append({"field": "sort_order", "from": row.sort_order, "to": body.sort_order})
         row.sort_order = body.sort_order

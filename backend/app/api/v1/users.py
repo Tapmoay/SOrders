@@ -17,6 +17,7 @@ from app.schemas.product_visibility import (
     ProductVisibilityIn,
     ProductVisibilityOut,
     replace_visibility,
+    resolve_visible_product_ids,
     visibility_of,
 )
 from app.schemas.user import UserCreate, UserOut, UserUpdate
@@ -183,6 +184,18 @@ def get_product_visibility(
     return visibility_of(db, user_id)
 
 
+def _catalog_has_alive_product(db: Session) -> bool:
+    """商品库里还有没有在架商品（用来决定"一个都看不到"要不要拦）。
+
+    ⚠️ 空目录的库**不能**拦：那样连 `scope=all` 都存不下去，而"什么都还没有"
+    和"配错了"是两件事（见闸门②）。
+    """
+    return (
+        db.scalars(select(Product.id).where(Product.is_deleted.is_(False)).limit(1)).first()
+        is not None
+    )
+
+
 @router.put("/{user_id}/product-visibility", response_model=ProductVisibilityOut)
 def set_product_visibility(
     user_id: int,
@@ -190,12 +203,15 @@ def set_product_visibility(
     current: User = Depends(require_permission(Permission.USER_MANAGE)),
     db: Session = Depends(get_db),
 ) -> ProductVisibilityOut:
-    """整份设置某个货主/批发商的可见商品（**白名单**：勾了的才给他看）。
+    """整份设置某个货主/批发商的可见范围（分类 + 单品，**授权** + **排除**）。
 
     ⚠️ 两条拒绝，都是为了不让用户"以为配好了、其实没有"：
-    1. `scope=custom` 但一个商品都没勾 → 拒绝（那等于让他什么都看不到；
-       真要做这件事，是先把 scope 设成 custom 再逐个勾，而不是空着交上来）；
-    2. 勾了但**所有**编号都不在商品库里（全被删了）→ 拒绝并说明。
+    1. 授权里勾了商品、但**所有**编号都不在商品库里了（可能已被删除）→ 拒绝并说明
+       （排除里勾了已删商品不算问题：商品都没了，本来就看不见）；
+    2. **配完以后一个商品都看不到** → 拒绝。判据是"他到底能看见几个"，不是"勾了几个"：
+       `scope=custom` 只选分类、一个单品都不勾是**完全合法**的配置 ——
+       分类名下以后新加的商品会自动可见，那正是这一版新加的能力；`scope=all`
+       把商品一个个关光同样会被拦。
     只挡这两条，是因为它们都会让界面显示"已设置"而实际效果是"空目录"。
     """
     u = db.get(User, user_id)
@@ -206,17 +222,12 @@ def set_product_visibility(
             status_code=400,
             detail="商品可见范围只对货主/批发商有意义（派单员不受限，否则改错了没人能改回来）",
         )
-    if body.scope == "custom":
-        if not body.product_ids:
-            raise HTTPException(
-                status_code=400,
-                detail="选了「只给勾选的商品」却一个都没勾 —— 那样他打开选品页会是空的。"
-                "请至少勾一个商品，或者改回「全部商品」。",
-            )
+    alive: set[int] = set()
+    if body.product_ids:
         alive = set(
             db.scalars(
                 select(Product.id).where(
-                    Product.id.in_(body.product_ids), Product.is_deleted.is_(False)
+                    Product.id.in_(set(body.product_ids)), Product.is_deleted.is_(False)
                 )
             ).all()
         )
@@ -225,6 +236,29 @@ def set_product_visibility(
                 status_code=400,
                 detail="勾选的商品都不在商品库里了（可能已被删除），请重新勾选",
             )
+    # ② 按**配完以后的真实结果**判，而不是按"勾了几个"判。与读端点共用同一个解析函数
+    #    （resolve_visible_product_ids）：闸门自己另写一套的话，迟早出现
+    #    "保存时算着能看见三个、他打开选品页却一个都没有"。
+    seen = resolve_visible_product_ids(
+        db,
+        body.scope,
+        [pid for pid in body.product_ids if pid in alive],
+        body.category_names,
+        body.hidden_product_ids,
+        body.hidden_category_names,
+    )
+    if seen is not None and not seen and _catalog_has_alive_product(db):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "选了「只给勾选的商品」，但按分类和商品算下来他一个商品都看不到 —— "
+                "那样他打开选品页会是空的。请至少选一个分类或勾一个商品，"
+                "或者改回「全部商品」。"
+                if body.scope == "custom"
+                else "这么配完他一个商品都看不到（商品被「不给看」关光了）。"
+                "请少关几个，或者改回「全部商品」。"
+            ),
+        )
     out = replace_visibility(db, u, body)
     write_log(
         db,
@@ -236,7 +270,12 @@ def set_product_visibility(
             "user_name": u.full_name or u.phone,
             "scope": out.scope,
             "product_ids": out.product_ids,
+            "category_names": out.category_names,
+            "hidden_product_ids": out.hidden_product_ids,
+            "hidden_category_names": out.hidden_category_names,
             "product_count": len(out.product_ids),
+            "category_count": len(out.category_names),
+            "hidden_count": len(out.hidden_product_ids) + len(out.hidden_category_names),
         },
     )
     db.commit()

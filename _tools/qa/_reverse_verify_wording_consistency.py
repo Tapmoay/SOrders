@@ -43,6 +43,8 @@ VEHICLE = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleMa
 ORDERS = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/DispatcherOrdersScreen.kt"
 PRIORITY = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportPriority.kt"
 USERS = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/UsersManageScreen.kt"
+# CHG-0062：那一列商品行搬进了这个共用零件（第 5 节的用词注入也跟着搬过来）。
+PART = "android/app/src/main/java/com/tapmoay/sorders/ui/common/ProductCheckList.kt"
 README = "docs/changes/README.md"
 
 #: 共用那一份（改词 / 删掉都要红）与卡片那一句
@@ -130,9 +132,13 @@ CASES: list[tuple[str, str, object, str]] = [
         "薄封装",
     ),
     (
-        "⑪ 账户管理那一行又写回「已下架」（同一个状态两个词）",
-        USERS,
-        lambda s: s.replace('if (p.isActive) "" else " · 已沽清",', 'if (p.isActive) "" else " · 已下架",', 1),
+        "⑪ 账户管理那一行的商品行又写回「已下架」（同一个状态两个词）",
+        PART,
+        lambda s: s.replace(
+            "badge = if (p.isActive) null else ({ ProductSoldOutBadge() }),",
+            'badge = if (p.isActive) null else ({ Text("已下架", color = Color.Gray) }),',
+            1,
+        ),
         "已沽清",
     ),
     (

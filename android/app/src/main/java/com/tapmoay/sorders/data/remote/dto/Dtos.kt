@@ -1142,11 +1142,25 @@ data class ProductCategoryUpdateRequest(
 @Serializable
 data class ProductCategoryReorderRequest(val ids: List<Long>)
 
-// ===== 商品可见范围（白名单）=====
+// ===== 商品可见范围（分类 + 单品，授权 + 排除）=====
 /**
  * 某个货主/批发商能看到哪些商品。
  *
- * `scope = all`（默认）= 不限制；`scope = custom` = **只给他看 `productIds` 里勾选的**。
+ * `scope` 仍然只有**两档**：`all`（默认）= 不限制；`custom` = 只给他看"授权的那些"。
+ * 而"哪些"有**四维**（CHG-0062 / 台账 L-23，2026-10-06）：
+ *
+ * | 字段 | 含义 | 哪一档生效 |
+ * |---|---|---|
+ * | `productIds` | 单品**授权** | 只在 `custom` 算数 |
+ * | `categoryNames` | 分类**授权**（空串 = 「未分类」那一类） | 同上 |
+ * | `hiddenProductIds` | 单品**排除**（单独关掉某个商品） | **两档都生效** |
+ * | `hiddenCategoryNames` | 分类**排除**（整类不给） | **两档都生效** |
+ *
+ * ⚠️ 分类授权是**按名字算的、不是快照**：以后新建到这个分类的商品**自动可见**。
+ * 用户 2026-10-06 原话：「假如以后我们有其他的商品增加了这个分类，它就不会显示了，
+ * 这是绝对不行的……以后有其他商品增加到这个分类当中，它自动是显示的」。
+ * 所以界面上**不许**把分类展开成当刻的 id 列表再上报 —— 那样等于把"分类"偷偷变成"快照"。
+ *
  * ⚠️ 默认必须是 `all`：老账号没有配置，如果默认当成"白名单为空 = 什么都看不到"，
  * 一上线所有人打开选品页都是空的 —— 这类"默认把功能关掉"的迁移是灾难性的。
  */
@@ -1154,12 +1168,24 @@ data class ProductCategoryReorderRequest(val ids: List<Long>)
 data class ProductVisibilityDto(
     val scope: String = "all",
     @SerialName("product_ids") val productIds: List<Long> = emptyList(),
+    @SerialName("category_names") val categoryNames: List<String> = emptyList(),
+    @SerialName("hidden_product_ids") val hiddenProductIds: List<Long> = emptyList(),
+    @SerialName("hidden_category_names") val hiddenCategoryNames: List<String> = emptyList(),
 )
 
+/**
+ * 提交**整份**可见范围（后端 `replace_visibility` 是**先清后写**：这里是全量，不是增量）。
+ *
+ * ⚠️ `scope = all` 时后端**不会**写 `productIds` 里的单品授权（留空即可），
+ * 但 `hidden*` 两维**照写** —— "全部商品、但这一件不给看"就靠它。
+ */
 @Serializable
 data class ProductVisibilityRequest(
     val scope: String,
     @SerialName("product_ids") val productIds: List<Long> = emptyList(),
+    @SerialName("category_names") val categoryNames: List<String> = emptyList(),
+    @SerialName("hidden_product_ids") val hiddenProductIds: List<Long> = emptyList(),
+    @SerialName("hidden_category_names") val hiddenCategoryNames: List<String> = emptyList(),
 )
 
 // ===== 挂账单位 =====

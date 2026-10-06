@@ -177,14 +177,19 @@ def main() -> int:
     c.ok("卡片区一个裸 IconButton 都没有（用户点名「这个不行」的就是它）",
          "IconButton(" not in card, f"卡片区还有 {card.count('IconButton(')} 处")
     n_icon_btn = len(re.findall(r"IconButton\(", users))
-    c.ok("整个文件只剩返回键那一个 IconButton（它不是卡片动作）",
-         n_icon_btn == 1 and "IconButton(onClick = onBack)" in users,
-         f"实际 {n_icon_btn} 处")
+    # ⚠️ CHG-0062：商品可见范围多了一个**整屏第二层**，它自带一颗返回键 ——
+    #    所以「全文件只剩页头那一颗」变成「两处，且两处都是返回键，卡片区一处都没有」。
+    #    卡头不许挂裸 IconButton 的**意图没变**（上一条 + 卡片区那一条仍钉着）。
+    c.ok("整个文件里的裸 IconButton 只有两处返回键（页头 + 商品可见范围第二层）",
+         n_icon_btn == 2 and users.count("IconButton(onClick = onBack)") == 2,
+         f"实际 {n_icon_btn} 处（其中返回键 {users.count('IconButton(onClick = onBack)')} 处）")
     c.ok("卡片区一个 TextButton 都没有（三个文字键平铺已整行换掉）",
          "TextButton(" not in card, f"卡片区还有 {card.count('TextButton(')} 处")
     n_text_btn = len(re.findall(r"TextButton\(", users))
-    c.ok("剩下的 TextButton 只有页头两个（批量调价 / 车辆）与抽屉里的全选 / 全不选",
-         n_text_btn == 4, f"实际 {n_text_btn} 处")
+    # ⚠️ CHG-0062：抽屉里那两个（全选 / 全不选）随商品清单搬进共用零件
+    #    `ui/common/ProductCheckList.kt`（那两枚的判断在 _check_product_check_list.py 那边）。
+    c.ok("剩下的 TextButton 只有页头两个（批量调价 / 车辆）",
+         n_text_btn == 2, f"实际 {n_text_btn} 处")
     c.ok("批发商池卡头的「定价」业务入口还在（它不是通用卡片动作，留在卡头）",
          "Button(onClick = onOpenPricing, contentPadding = PaddingValues(horizontal = 12.dp))" in card
          and 'Text("定价")' in card)

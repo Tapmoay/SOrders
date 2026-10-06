@@ -252,9 +252,13 @@ def main() -> int:
         for m in re.finditer(r"^VERSION = (\d+)$", t, re.M):
             all_versions.append((int(m.group(1)), f.name))
     top = max(v for v, _ in all_versions) if all_versions else -1
-    c.ok("[迁移] 023 存在且 VERSION = 23（全目录唯一最大）",
-         MIG.exists() and top == 23 and sum(1 for v, _ in all_versions if v == 23) == 1,
-         "最大版本号是 " + str(top) + "（023 是 " + str(sum(1 for v, _ in all_versions if v == 23)) + " 份）")
+    n23 = sum(1 for v, _ in all_versions if v == 23)
+    ntop = sum(1 for v, _ in all_versions if v == top)
+    # ⚠️ 最新一版**不写死**：这条判据关心的是「023 在、且版本号不打架」，
+    #    后面再加迁移（CHG-0062 的 024 就是第一个）不该把它弄红。
+    c.ok("[迁移] 023 存在，且全目录最新号的迁移唯一（最新号由目录自己算）",
+         MIG.exists() and n23 == 1 and ntop == 1 and top >= 23,
+         "最大版本号是 " + str(top) + "（023 是 " + str(n23) + " 份，最大号是 " + str(ntop) + " 份）")
     c.ok("[迁移] NAME 是 shipper_contact_remark（与文件名同形）",
          'NAME = "shipper_contact_remark"' in mig and MIG.name == "023_shipper_contact_remark.py",
          "NAME / 文件名不一致")

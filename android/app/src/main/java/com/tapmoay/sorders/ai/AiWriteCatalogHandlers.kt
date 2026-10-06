@@ -14,8 +14,9 @@ import kotlinx.serialization.json.put
  * 声明式的形状是「一条已有的记录 + 几个字段」，而这两个动作的形状都不是：
  * - `product_category.reorder` 的输入是**一整份顺序**（名册里每个分类都要出现一次），
  *   而"谁被漏了"这句人话只能在处理器里写（后端也是整份校验，少一个就 400）；
- * - `user.product_visibility` 的输入是**一串商品名**（勾选白名单），
- *   声明式的目标解析一次只认一个名字，而且"custom 但一个都没勾"必须**在弹卡之前**就拒绝
+ * - `user.product_visibility` 的输入是**一串分类名 + 一串商品名 + 一串"关掉"**
+ *   （四维：按分类给看 / 按单品给看 / 单独关掉 / 整类关掉），声明式的目标解析一次只认一个名字，
+ *   而且"custom 却什么都没给""给的那几样又被关掉盖住"必须**在弹卡之前**就拒绝
  *   （后端会拒，但那时候用户已经点过确认了）。
  *
  * ### 两条共同规矩（和其它处理器一样）
@@ -437,13 +438,22 @@ internal fun splitNames(raw: String): List<String> =
  *
  * ### 卡片上必须写清的四件事（少一件用户就没法核对）
  * 1. 改的是**谁**（姓名 + 是不是批发商）；
- * 2. 现在是**什么模式**（全部商品 / 只给勾选的）——他可能已经设过一次了；
- * 3. 改成什么模式（改回「全部商品」时还要写明：**旧白名单会被清掉**）；
- * 4. `custom` 时**把商品名一个一个列出来**——只写"N 个"用户核对不了（他不知道是哪 N 个）。
+ * 2. 现在是**什么模式**（全部商品 / 只给勾选的），以及关掉过哪几样——他可能已经设过一次了；
+ * 3. 改成什么模式（改回「全部商品」时还要写明：**旧的授权名单会被清掉**）；
+ * 4. `custom` 时**把分类名和商品名一个一个列出来**——只写"N 个"用户核对不了（他不知道是哪几样）。
  *
- * ### 为什么 `custom` 但一个都没勾要在弹卡之前拒绝
- * 后端也会拒（"那样他打开选品页会是空的"），但那时候用户已经点过一次确认了。
- * 这两条（空白名单、商品名对不上）都属于"用户以为配好了、其实没有"，一律前置。
+ * ### 可见范围是**四维**的（2026-10-06 / CHG-0062 用户提的两条）
+ * 授权：按**分类**给（"以后增加到这个分类的商品自动显示"——所以分类这一维是按名字算、
+ * 不是此刻的快照）、按**单品**给；排除：单独关掉某个商品、整类关掉。后两维**两档都生效**
+ * （`all` 档靠它们在"全部商品"里挖洞），而且**关掉优先于给看**。
+ *
+ * ### 哪些要在弹卡之前拒绝
+ * 后端也会拒（"那样他打开选品页会是空的"），但那时候用户已经点过一次确认了。所以前置两类：
+ * ① `custom` 却分类和商品都没给（那是空白名单）；
+ * ② 给的分类/商品**又被"关掉"盖住了**——从配置本身就能看出必然是空的。
+ * ⚠️ 只有 ② 能前置："某个分类下现在到底有几件商品"客户端数不出来，那一半由后端闸门兜着
+ * （它按**解析结果**判，不是按勾了几个）。
+ * 名字对不上（商品 / 分类）同样属于"用户以为配好了、其实没有"，一律前置。
  */
 class ProductVisibilityHandler(
     private val ds: AiWriteDataSource,
@@ -469,83 +479,169 @@ class ProductVisibilityHandler(
             AiWriteArgs.required(params, "scope", "是「全部商品」还是「只给勾选的」？只能是 all 或 custom"),
         )
         val productsRaw = AiWriteArgs.str(params, "products")
+        val categoriesRaw = AiWriteArgs.str(params, "categories")
+        val hideProductsRaw = AiWriteArgs.str(params, "hide_products")
+        val hideCategoriesRaw = AiWriteArgs.str(params, "hide_categories")
 
         // 现在是什么样（卡片上要写"改前"——否则用户不知道自己是第一次设还是改过）
         val before = ds.productVisibility(user.id)
 
-        // 商品名 → 编号。**只对 custom 解析**：scope=all 时白名单会被整份清空，
-        // 那时候再解析一遍商品名只是让一句本来无害的话变成"查不到就拒绝"。
-        val picked = ArrayList<AiName>()
+        // 商品池**一次拉齐**：授权、排除、卡片上的名字，三处共用同一份快照，
+        // 不会出现"卡上写着给他看 A、发出去的是 B"。
+        val pool = ds.products()
+
+        /** 商品名 → 名册那一条；对不上整条拒绝（"用户以为配好了、其实没配"）。 */
+        fun productOf(name: String): AiName = AiWriteArgs.strict(name, pool, "商品")
+            ?: throw AiWriteArgException("商品「$name」没对上，请核对名字。")
+
+        // 分类名册**按需拉一次**（只给"没提分类"的命令省一次读）。
+        var roster: List<AiName>? = null
+        /**
+         * 分类名 → 名册里的**原文**。
+         *
+         * ⚠️ 回填的是 `hit.label`，不是用户嘴里那串：后端按名字存分类授权、而且**不校验存在性**，
+         *    差一个空格/大小写就会把授权挂在一个不存在的分类上（选品页凭空少一批商品，还不报错）。
+         */
+        suspend fun categoryOf(name: String): String {
+            val all = roster ?: ds.productCategories().also { roster = it }
+            val hit = AiWriteArgs.strict(name, all, "商品分类")
+                ?: throw AiWriteArgException("商品分类「$name」没对上，请先读一次分类名册再核对名字。")
+            return hit.label
+        }
+
+        // 授权侧：**只对 custom 解析** —— scope=all 时授权名单会被整份清空，
+        // 那时候再解析一遍名字只会让一句本来无害的话变成"查不到就拒绝"。
+        val picked = linkedMapOf<Long, AiName>()
+        val allowCats = linkedSetOf<String>()
         if (scope == "custom") {
-            if (productsRaw.isNullOrBlank()) {
-                throw AiWriteArgException(
-                    "选了「只给勾选的商品」却一个商品名都没给 —— 那样他打开选品页会是空的。" +
-                        "请让用户点名要给他看的商品（至少一个），或者改成「全部商品」。",
-                )
+            productsRaw?.let { raw ->
+                for (name in splitNames(raw)) {
+                    val hit = productOf(name)
+                    picked[hit.id] = hit
+                }
             }
-            val pool = ds.products()
-            for (name in splitNames(productsRaw)) {
-                val hit = AiWriteArgs.strict(name, pool, "商品")
-                    ?: throw AiWriteArgException("商品「$name」没对上，请核对名字。")
-                if (picked.none { it.id == hit.id }) picked += hit
+            categoriesRaw?.let { raw ->
+                for (name in splitNames(raw)) allowCats += categoryOf(name)
             }
-            if (picked.isEmpty()) {
+            if (picked.isEmpty() && allowCats.isEmpty()) {
                 throw AiWriteArgException(
-                    "一个商品名都没解析出来 —— 那样他打开选品页会是空的。请让用户点名商品，或者传 scope=all。",
+                    "选了「只给勾选的」却分类和商品一样都没给 —— 那样他打开选品页会是空的。" +
+                        "请让用户点名分类（一整类，以后新建到这一类的商品自动也带上）或点名商品，" +
+                        "或者改成「全部商品」。",
                 )
             }
         }
 
-        // 商品编号 → 名字（现在那份白名单里可能有已经下架/删掉的编号，如实写出来）
-        val nameOf: Map<Long, String> = if (before.productIds.isEmpty()) {
-            emptyMap()
-        } else {
-            ds.products().associate { it.id to it.label }
+        // 排除侧：**两档都生效**（all 档靠它在"全部商品"里挖洞），所以不分局势都要解析。
+        val hidden = linkedMapOf<Long, AiName>()
+        val hiddenCats = linkedSetOf<String>()
+        hideProductsRaw?.let { raw ->
+            for (name in splitNames(raw)) {
+                val hit = productOf(name)
+                hidden[hit.id] = hit
+            }
+        }
+        hideCategoriesRaw?.let { raw ->
+            for (name in splitNames(raw)) hiddenCats += categoryOf(name)
+        }
+
+        // 前置拒绝里**只能放"从配置本身就能看出必然为空"**的那一种：
+        // 给的那几样又被"关掉"整份盖住 ⇒ 一个都剩不下。至于"某个分类下现在到底有几件"
+        // 客户端数不出来，那一半交给后端闸门（它按**解析结果**判，不是按勾了几个）。
+        if (scope == "custom" &&
+            (picked.keys - hidden.keys).isEmpty() &&
+            (allowCats - hiddenCats).isEmpty()
+        ) {
+            throw AiWriteArgException(
+                "这么配下来他一个商品都看不到（给的那几样又被「关掉」盖住了）—— 后端也会拒。" +
+                    "请少关几样，或者改成「全部商品」。",
+            )
+        }
+
+        // 商品编号 → 名字：现在那份名单里可能有已经下架/删掉的编号，如实写出来（不写裸编号）。
+        val nameOf: Map<Long, String> = pool.associate { it.id to it.label }
+
+        // 卡片上"改成什么"那一句：授权几类几件 + （有排除时）另外关掉几项。
+        val giveCn = when {
+            scope != "custom" -> "全部商品（不限制）"
+            allowCats.isNotEmpty() && picked.isNotEmpty() ->
+                "只给勾选的 ${allowCats.size} 个分类 ＋ ${picked.size} 个商品"
+            allowCats.isNotEmpty() -> "只给勾选的 ${allowCats.size} 个分类"
+            else -> "只给勾选的 ${picked.size} 个商品"
+        }
+        val offCn = when {
+            hidden.isEmpty() && hiddenCats.isEmpty() -> ""
+            hiddenCats.isEmpty() -> "（另单独关掉 ${hidden.size} 个商品）"
+            hidden.isEmpty() -> "（另整类关掉 ${hiddenCats.size} 个分类）"
+            else -> "（另关掉 ${hiddenCats.size} 个分类 ＋ ${hidden.size} 个商品）"
         }
 
         return AiWriteOutcome.NeedConfirm(
             store.card(
                 actionId,
-                summary = "商品可见范围：${user.label} → " + if (scope == "custom") {
-                    "只给勾选的 ${picked.size} 个商品"
-                } else {
-                    "全部商品（不限制）"
-                },
+                summary = "商品可见范围：${user.label} → $giveCn$offCn",
                 detailLines = buildList {
                     add("对象：${user.label}" + (user.note?.let { "（$it）" } ?: ""))
-                    add("现在：${describe(before.scope, before.productIds, nameOf)}")
+                    add("现在：${describe(before, nameOf)}")
+                    add("改成：$giveCn")
                     if (scope == "custom") {
-                        add("改成：只给勾选的 ${picked.size} 个商品")
-                        // ⚠️ 必须把名字一个不漏地列出来：只写"N 个"，用户核对不了是哪几个。
-                        picked.forEachIndexed { i, p -> add("　${i + 1}. ${p.label}") }
-                        add("他打开选品页、下单时，没勾的商品一处都看不到（列表和接口一起挡）")
+                        // ⚠️ 必须把分类名和商品名一个不漏地列出来：只写"N 个"用户核对不了是哪几样。
+                        allowCats.forEachIndexed { i, c -> add("　分类 ${i + 1}. ${catLabel(c)}") }
+                        if (allowCats.isNotEmpty()) {
+                            add("　按分类给是活的：以后新建到这一类里的商品，也会自动带上")
+                        }
+                        picked.values.forEachIndexed { i, p -> add("　商品 ${i + 1}. ${p.label}") }
+                        add("他打开选品页、下单时，没给的商品一处都看不到（列表和接口一起挡）")
                     } else {
-                        add("改成：全部商品（不限制）——整个商品库他都能看到、都能下单")
-                        if (before.productIds.isNotEmpty()) {
-                            add("⚠️ 现在勾着的那 ${before.productIds.size} 个会被清掉：以后要再限制，得重新勾一遍")
+                        add("整个商品库他都能看到、都能下单")
+                        val had = before.productIds.size + before.categoryNames.size
+                        if (had > 0) {
+                            add("⚠️ 现在给着的那 $had 项授权会被清掉：以后要再限制，得重新点一遍")
                         }
                     }
+                    if (hidden.isNotEmpty() || hiddenCats.isNotEmpty()) {
+                        val off = hiddenCats.map { catLabel(it) } + hidden.values.map { it.label }
+                        add("另外关掉：${off.joinToString("、")}")
+                        add("关掉优先于给看：上面就算给了，被关掉的这几样他还是看不到")
+                    }
                     if (scope == "all" && !productsRaw.isNullOrBlank()) {
-                        add("（你提到的商品名不会写进去：范围是「全部商品」，本来就不需要白名单）")
+                        add("（你提到的商品名不会写进授权：范围是「全部商品」，本来就不需要授权名单）")
+                    }
+                    if (scope == "all" && !categoriesRaw.isNullOrBlank()) {
+                        add("（你提到的分类也不会写进授权，同上）")
                     }
                 },
                 payload = buildJsonObject {
                     put("user_id", user.id)
                     put("scope", scope)
-                    put(
-                        "product_ids",
-                        JsonArray(if (scope == "custom") picked.map { JsonPrimitive(it.id) } else emptyList()),
-                    )
+                    put("product_ids", JsonArray(picked.keys.map { JsonPrimitive(it) }))
+                    put("category_names", JsonArray(allowCats.map { JsonPrimitive(it) }))
+                    put("hidden_product_ids", JsonArray(hidden.keys.map { JsonPrimitive(it) }))
+                    put("hidden_category_names", JsonArray(hiddenCats.map { JsonPrimitive(it) }))
                 },
             ),
         )
     }
 
     override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
-        val ids = (payload["product_ids"] as? JsonArray).orEmpty()
-            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
-        ds.setProductVisibility(payload.reqLong("user_id"), payload.req("scope"), ids)
+        // 四维一起发：后端 PUT 是**整份替换**，少发一维就等于把那一维清空。
+        ds.setProductVisibility(
+            payload.reqLong("user_id"),
+            payload.req("scope"),
+            payload.longList("product_ids"),
+            payload.strList("category_names"),
+            payload.longList("hidden_product_ids"),
+            payload.strList("hidden_category_names"),
+        )
     }
+
+    /** payload 里的编号数组（撤回也走这里，形状必须和正向发出去的一模一样）。 */
+    private fun JsonObject.longList(key: String): List<Long> = (this[key] as? JsonArray).orEmpty()
+        .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toLongOrNull() }
+
+    /** payload 里的分类名数组。 */
+    private fun JsonObject.strList(key: String): List<String> = (this[key] as? JsonArray).orEmpty()
+        .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 
     /** 范围归一：收 `all` / `custom`，也收用户嘴里的「全部商品」「只给勾选的」。 */
     private fun resolveScope(raw: String): String {
@@ -559,15 +655,41 @@ class ProductVisibilityHandler(
         }
     }
 
-    /** 「现在是什么样」那一行：模式 + （只给勾选时）把商品名列出来。 */
-    private fun describe(scope: String, ids: List<Long>, nameOf: Map<Long, String>): String {
-        if (!scope.equals("custom", ignoreCase = true)) return "全部商品（不限制）"
-        if (ids.isEmpty()) return "只给勾选的，但白名单是空的（他选品页什么都看不到）"
-        // 查不到名字的那个编号**不写编号**：卡片上出现 "编号 123" 用户也不知道那是谁，
-        // 只会怀疑是不是改错了地方（和"静默键不许上卡"是同一条理由）。
-        val names = ids.joinToString("、") { nameOf[it] ?: "（一个已经不在商品库里的商品）" }
-        return "只给勾选的 ${ids.size} 个商品：$names"
+    /** 「现在是什么样」那一行：模式 + 授权（分类 / 单品）+ 关掉的那几样。 */
+    private fun describe(v: AiVisibility, nameOf: Map<Long, String>): String {
+        val parts = ArrayList<String>()
+        if (v.scope.equals("custom", ignoreCase = true)) {
+            if (v.categoryNames.isEmpty() && v.productIds.isEmpty()) {
+                parts += "只给勾选的，但授权名单是空的（他选品页什么都看不到）"
+            } else {
+                if (v.categoryNames.isNotEmpty()) {
+                    parts += "分类 " + v.categoryNames.joinToString("、") { catLabel(it) }
+                }
+                if (v.productIds.isNotEmpty()) {
+                    parts += "${v.productIds.size} 个商品：" + namesOf(v.productIds, nameOf)
+                }
+            }
+        } else {
+            parts += "全部商品（不限制）"
+        }
+        if (v.hiddenCategoryNames.isNotEmpty() || v.hiddenProductIds.isNotEmpty()) {
+            val off = v.hiddenCategoryNames.map { catLabel(it) } + namesOf(v.hiddenProductIds, nameOf)
+            parts += "关掉：" + off.joinToString("、")
+        }
+        return parts.joinToString("；")
     }
+
+    /**
+     * 编号 → 名字。
+     *
+     * 查不到名字的那个编号**不写编号**：卡片上出现 "编号 123" 用户也不知道那是谁，
+     * 只会怀疑是不是改错了地方（和"静默键不许上卡"是同一条理由）。
+     */
+    private fun namesOf(ids: List<Long>, nameOf: Map<Long, String>): String =
+        ids.joinToString("、") { nameOf[it] ?: "（一个已经不在商品库里的商品）" }
+
+    /** 分类名的中文：空串是**「未分类」那一类**（与商品自己的 category 同一套写法）。 */
+    private fun catLabel(name: String): String = name.ifEmpty { "未分类" }
 
     private companion object {
         /** 查货主名册时一次拉多少条（和账本记一笔那边同一个口径）。 */

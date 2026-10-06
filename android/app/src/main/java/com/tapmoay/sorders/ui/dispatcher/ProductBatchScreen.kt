@@ -1,13 +1,8 @@
 package com.tapmoay.sorders.ui.dispatcher
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -88,10 +83,16 @@ class ProductBatchViewModel(private val container: AppContainer) : ViewModel() {
         selected = if (id in selected) selected - id else selected + id
     }
 
-    /** 「全选」/「取消全选」作用在**当前看得见的那一批**（搜索/分类筛过之后的），不是整个库。 */
-    fun toggleAll(visible: List<ProductDto>) {
-        val ids = visible.map { it.id }.toSet()
-        selected = if (ids.isNotEmpty() && ids.all { it in selected }) selected - ids else selected + ids
+    /**
+     * 「全选这一类」/「取消全选」作用在**当前看得见的那一批**（搜索/分类筛过之后的），不是整个库。
+     *
+     * ⚠️ 参数是 id 而不是 `List<ProductDto>`（CHG-0062）：筛选已经搬进共用零件
+     * `ui/common/ProductCheckList.kt`，它算出来的「看得见的那一批」就是这几个 id，
+     * 页面上再筛一遍 = 同一件事两份判据（两处一旦不一致，全选就会选中屏幕外的商品）。
+     */
+    fun toggleAll(ids: List<Long>) {
+        val set = ids.toSet()
+        selected = if (set.isNotEmpty() && set.all { it in selected }) selected - set else selected + set
     }
 
     fun clearSelection() {
@@ -171,7 +172,13 @@ class ProductBatchViewModel(private val container: AppContainer) : ViewModel() {
  *
  * ⚠️ 勾选这一步**没有复用选品页那个全屏弹层**（`ProductPickerBody`）：那一个的状态机是
  * "挑商品 + 填数量 + 汇总金额加入清单"，而这里是"打勾 + 批量改属性"——
- * 把它扩成两种模式要让它同时承担两套模型。这里复用**判据与导航条**（真正共用的那部分）。
+ * 把它扩成两种模式要让它同时承担两套模型。
+ *
+ * ## 勾选那一整块现在是共用零件（CHG-0062，2026-10-06）
+ * 原来这里自己拼了「搜索框 + CategoryRail + LazyColumn + 全选这一类」，
+ * 商品可见范围（`UsersManageScreen` 的第二层）要的是**同一套动作**，于是整套提到
+ * `ui/common/ProductCheckList.kt`（三态分类头也一并搬过去：原来那个两态勾选框
+ * 看不出"这一类勾了一半"）。这里的差别只剩回调：勾一行 = 选中这件商品。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -194,15 +201,8 @@ fun ProductBatchScreen(
      */
     var confirmingActive by remember { mutableStateOf<Boolean?>(null) }
 
-    val cats = remember(vm.products, vm.categories) { categoryTabs(vm.products, vm.categories.map { it.name }) }
-    var category by remember { mutableStateOf(ALL_CATEGORY) }
-    LaunchedEffect(cats) { if (category !in cats) category = ALL_CATEGORY }
-    val keyword = vm.query.trim()
-    val visible = remember(vm.products, category, keyword) {
-        vm.products
-            .filter { category == ALL_CATEGORY || categoryOf(it) == category }
-            .filter { keyword.isEmpty() || it.name.contains(keyword, ignoreCase = true) }
-    }
+    // ⚠️ 「搜索词 / 选中哪一分类 / 筛出来哪一批」这三样**不再在这里**：它们随着勾选那一块
+    //    一起搬进了 `ProductCheckList`（搜索词仍由这里拿着 —— 见下面 keyword = vm.query）。
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -256,83 +256,20 @@ fun ProductBatchScreen(
                 Spacer(Modifier.height(6.dp))
             }
 
-            // ---- 搜索（横跨整页，与商品管理页同一个位置与理由）----
-            OutlinedTextField(
-                value = vm.query,
-                onValueChange = { vm.query = it },
-                placeholder = { Text("搜索商品名称", style = MaterialTheme.typography.bodySmall) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                trailingIcon = {
-                    if (vm.query.isNotEmpty()) {
-                        IconButton(onClick = { vm.query = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(18.dp))
-                        }
-                    }
-                },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            // ---- 搜索 + 左分类栏 + 勾选行：**共用那一份零件**（CHG-0062）----
+            ProductCheckList(
+                products = vm.products,
+                checkedIds = vm.selected,
+                onToggleProduct = { vm.toggle(it) },
+                onToggleCategory = { _, _, ids -> vm.toggleAll(ids) },
+                keyword = vm.query,
+                onKeywordChange = { vm.query = it },
+                modifier = Modifier.weight(1f),
+                categoryOrder = vm.categories.map { it.name },
+                loading = vm.loading,
+                error = vm.loadError,
+                onRetry = { vm.load() },
             )
-
-            when {
-                vm.loading -> LoadingBox()
-                vm.loadError != null -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
-                vm.products.isEmpty() -> EmptyView("暂无商品")
-                else -> Row(Modifier.weight(1f)) {
-                    CategoryRail(
-                        tabs = cats,
-                        selected = category,
-                        onSelect = { category = it },
-                        modifier = Modifier.width(92.dp).fillMaxHeight(),
-                    )
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        if (visible.isEmpty()) {
-                            EmptyView(
-                                if (keyword.isNotEmpty()) "没有名称含「" + keyword + "」的商品" else "「" + category + "」下暂无商品",
-                                Modifier.align(Alignment.Center),
-                            )
-                        } else {
-                            LazyColumn(
-                                Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(start = 8.dp, end = 10.dp, top = 6.dp, bottom = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                item {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        val allOn = visible.all { it.id in vm.selected }
-                                        Checkbox(checked = allOn, onCheckedChange = { vm.toggleAll(visible) })
-                                        Text("全选这一类（" + visible.size + "）", style = MaterialTheme.typography.bodyMedium)
-                                    }
-                                }
-                                items(visible, key = { it.id }) { p ->
-                                    val on = p.id in vm.selected
-                                    // ⛔ 行外观全部来自 `ui/common/ProductCardKit.kt`：
-                                    //    勾选框是**前置槽**、图是**缩略图槽**、售价与库存来自
-                                    //    `productFacts()`（顺序与配色都定在那儿，五个页面同源）。
-                                    //    原来这里是自己拼的一行 `"¥… · 库存 …"` —— 那正是
-                                    //    用户 2026-09-21 说的「其他地方你也得改」要消灭的东西。
-                                    ProductLine(
-                                        name = p.name,
-                                        nameColor = p.nameColor,
-                                        facts = productFacts(p.defaultUnitPrice, p.unit, p.stock, p.lowStockAlert),
-                                        dense = true,
-                                        modifier = Modifier
-                                            .clickable { vm.toggle(p.id) }
-                                            .padding(vertical = 4.dp),
-                                        leading = {
-                                            Checkbox(checked = on, onCheckedChange = { vm.toggle(p.id) })
-                                        },
-                                        thumb = {
-                                            ProductThumb(imageUrl = p.imageUrl, nameColor = p.nameColor, size = 40.dp)
-                                        },
-                                        badge = if (p.isActive) null else ({ ProductSoldOutBadge() }),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 

@@ -23,7 +23,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
-import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
 import com.tapmoay.sorders.ui.common.*
@@ -353,6 +352,14 @@ fun UsersManageScreen(
     if (vm.showSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(onDismissRequest = { vm.closeSheet() }, sheetState = sheetState) {
+            // 「商品可见范围」是**这个抽屉里的第二层**（点那一格进去，见 ProductVisibilityLayer）。
+            // ⚠️ 它必须在这里就分叉，**不能**塞进下面那个 Column：那个 Column 是 verticalScroll 的，
+            // 里面再放一个 LazyColumn（带左栏的清单）会被量成无限高，跑起来直接崩。
+            var showVisibilityLayer by remember { mutableStateOf(false) }
+            if (showVisibilityLayer) {
+                ProductVisibilityLayer(vm = vm, accent = poolAccent(pool), onBack = { showVisibilityLayer = false })
+            } else {
+            // 下面这一段的缩进没跟着调整：里面两百行，Kotlin 不看缩进，重排只会把 diff 弄脏
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -517,15 +524,21 @@ fun UsersManageScreen(
                         title = "商品可见范围",
                         tint = poolAccent(pool),
                     ) {
-                        ProductVisibilityBlock(
-                            scope = vm.draftScope,
-                            onScope = { vm.setScope(it) },
-                            products = vm.products,
-                            selected = vm.draftVisible,
-                            onToggle = { vm.toggleVisible(it) },
-                            onAll = { vm.selectAllVisible() },
-                            onNone = { vm.clearVisible() },
-                            loading = vm.visibilityLoading,
+                        // 这里只报"现在是什么样"，真正的勾选在第二层（分类 × 商品的一张清单）。
+                        // 为什么不在抽屉里直接摊开：见 ProductVisibilityLayer 的 KDoc。
+                        FormPickRow(
+                            label = "可见范围",
+                            value = visibilitySummary(vm),
+                            placeholder = "去设置",
+                            icon = Icons.Default.Visibility,
+                            iconTint = poolAccent(pool),
+                            onClick = { showVisibilityLayer = true },
+                        )
+                        Hint(
+                            "按分类给：以后新建到这个分类的商品会自动也给他看。某个商品不想给，" +
+                                "就在清单里单独关掉它。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -561,6 +574,7 @@ fun UsersManageScreen(
                     ) { Text(if (vm.acting) "保存中…" else "保存") }
                 }
                 Spacer(Modifier.height(24.dp))
+            }
             }
         }
     }
@@ -842,84 +856,112 @@ private fun poolOnColor(pool: UserPool): Color = when (pool) {
 }
 
 /**
- * **商品可见范围**（白名单）：勾了的才给他看。
+ * **商品可见范围**第二层：分类 × 商品的一张清单，勾上的才给他看（2026-10-06 · CHG-0062）。
+ *
+ * ## 为什么是"抽屉里的第二层"而不是抽屉里那一段
+ * 清单带左栏（分类）＋逐行三态勾选，抽屉里原来那段固定 220dp 滚动区装不下；而且清单本身要能滚
+ * （`LazyColumn` 塞进 `verticalScroll` 里会被量成无限高，直接崩）。所以它是**同一个抽屉里的第二层**：
+ * 顶栏一条返回箭头 ＋ 整屏清单 —— 与地址页「管理分类」同一套写法（`ui/shipper/AddressScreen.kt`）。
  *
  * ## 为什么默认是「全部商品」
  * 这个开关一旦默认成"只给勾选的"，**所有老账号上线那一刻选品页就全空了** ——
  * 而真正的原因藏在一条数据库迁移里，界面上只表现为"商品全没了"。
  * 所以默认不限制，要限制必须由人明确点。
  *
- * ## 为什么"只给勾选的"却一个都没勾时要拦住
+ * ## 为什么"配完一个商品都看不到"要拦住
  * 那等于让他什么都看不到。用户想这么干的时候，正确路径是先把范围切过去、再逐个勾，
  * 而不是交一份空的上来 —— 交空的只说明他还没勾（或者是误操作），不是他的本意。
+ * 注意判据是"他到底能看见几个"，不是"勾了几个"：只勾分类、一件单品都不勾是完全合法的。
+ *
+ * ## 关掉一行与关掉一类的区别（这一层最容易看错的一处）
+ * 「不给看」记的是**排除**，而且排除**优先于**授权：
+ *  - 关一个商品 ⇒ 单品排除（他在别的分类/单选里怎么配都压不过它）；
+ *  - custom 档关一个分类 ⇒ 撤掉整类授权（这一类整类不给）；
+ *  - all 档关一个分类 ⇒ 分类排除（**以后**新建到这个分类的商品也自动看不见 —— 只逐件关的话，
+ *    明天新加的商品又会冒出来，"这一类不给"就不是他的本意了）。
+ * 被整类关掉的那些行**从列表里藏掉会更糟**：用户会以为那个商品不存在。这里留着、写清原因，
+ * 但把勾选禁掉（`rowLocked`）—— 点了没反应比点不了更让人困惑。
  */
 @Composable
-private fun ProductVisibilityBlock(
-    scope: String,
-    onScope: (String) -> Unit,
-    products: List<ProductDto>,
-    selected: Set<Long>,
-    onToggle: (Long) -> Unit,
-    onAll: () -> Unit,
-    onNone: () -> Unit,
-    loading: Boolean,
+private fun ProductVisibilityLayer(
+    vm: UsersManageViewModel,
+    accent: Color,
+    onBack: () -> Unit,
 ) {
-    Column {
-        // 标题不在这里：白卡分组（FormGroup）已经把「商品可见范围」画在卡外了，
-        // 这里再写一遍就是同一个标题两处画（2026-10-03 · CHG-0018 从 AlertDialog 搬进抽屉时删的）。
-        Hint(
-            "决定他在「选择商品」里能看到哪些商品。默认不限制。",
+    // 先算一次"现在到底看得见几个"，下面三处都用它（每行都算一遍 = 每帧扫全表）
+    val seen = vm.visibleProductIds()
+    val hiddenCats = vm.draftHiddenCategories
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            }
+            Text("商品可见范围", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScopeChip("全部商品", vm.draftScope != "custom") { vm.setScope("all") }
+            ScopeChip("只给勾选的", vm.draftScope == "custom") { vm.setScope("custom") }
+        }
+        Text(
+            if (vm.draftScope == "custom") {
+                "已授权 ${vm.draftAllowCategories.size} 个分类 · 另加 ${vm.draftVisible.size} 个单品" +
+                    " · 实际可见 ${seen.size} 个"
+            } else {
+                "全部商品 · 实际可见 ${seen.size} 个"
+            } + if (hiddenCats.isEmpty() && vm.draftHidden.isEmpty()) "" else
+                " · 已关掉 ${vm.draftHidden.size + hiddenCats.size} 项",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (seen.isEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ProductCheckList(
+            products = vm.products,
+            checkedIds = seen,
+            onToggleProduct = { id -> vm.products.firstOrNull { it.id == id }?.let { vm.toggleVisibleProduct(it) } },
+            onToggleCategory = { name, targetOn, ids -> vm.toggleVisibleCategory(name, targetOn, ids) },
+            keyword = vm.visibilityQuery,
+            onKeywordChange = { vm.visibilityQuery = it },
+            modifier = Modifier.weight(1f),
+            loading = vm.visibilityLoading,
+            emptyText = "商品库里还没有商品",
+            searchPlaceholder = "搜索商品名称",
+            // 被整类关掉的行勾不了：点一个"怎么点都不会变"的勾选框比点不了更让人困惑。
+            // 要单独放开某一件，先把这一类打开（分类头那一格）。
+            rowLocked = { p -> categoryOf(p) in hiddenCats },
+            rowNote = { p ->
+                when {
+                    categoryOf(p) in hiddenCats -> "这一类已整类关掉 —— 要单独放开，先把这一类打开"
+                    p.id in vm.draftHidden -> "已单独关掉"
+                    vm.draftScope == "custom" && categoryOf(p) !in vm.draftAllowCategories &&
+                        p.id !in vm.draftVisible -> "这一类的商品没授权给他（勾上＝单独加这一件）"
+                    else -> null
+                }
+            },
+        )
+        // 这句不是「提示」而是这一层的口径说明：它随时都要看得见（Hint 会被用户关掉、
+        // 首轮之后默认不显示），所以走 Text 而不是 Hint（判据 _tools/qa/_check_hints.py 管这个）。
+        Text(
+            "改这里只是改草稿：回到上一层按「保存」才会写进去。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScopeChip("全部商品", scope != "custom") { onScope("all") }
-            ScopeChip("只给勾选的", scope == "custom") { onScope("custom") }
-        }
-        if (scope == "custom") {
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (selected.isEmpty()) "还没勾任何商品 —— 这样他打开选品页会是空的"
-                    else "已勾 ${selected.size} / ${products.size} 个商品",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (selected.isEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onAll) { Text("全选") }
-                TextButton(onClick = onNone) { Text("全不选") }
-            }
-            if (loading) {
-                LoadingBox(Modifier.height(80.dp))
-            } else {
-                // 固定高度内滚动：商品多了这一段**自己滚**，不把抽屉撑到没边 ——
-                // 下面还有「取消 / 保存」，货主名下几十个商品时不能让保存键滚出屏幕。
-                Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
-                    products.forEach { p ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { onToggle(p.id) }.padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(checked = p.id in selected, onCheckedChange = { onToggle(p.id) })
-                            Column(Modifier.weight(1f)) {
-                                Text(p.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                                Text(
-                                    "¥" + formatMoney(p.defaultUnitPrice) + " / " + p.unit.ifBlank { "件" } +
-                                        // 同一个状态全 App 只有一个词：共用角标 `ProductSoldOutBadge`
-                                        // 在商品管理 / 批量操作 / 选品三页都写「已沽清」，这里原来是第四种说法
-                                        // （E2E 走查「已沽清 vs 已下架」）。
-                                        if (p.isActive) "" else " · 已沽清",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        Spacer(Modifier.height(12.dp))
     }
+}
+
+/** 可见范围那一格的汇总：档位 ＋ 授权/排除的量 ＋ **实际可见几个**（最有用的一个数）。 */
+private fun visibilitySummary(vm: UsersManageViewModel): String {
+    val off = vm.draftHidden.size + vm.draftHiddenCategories.size
+    val who = if (vm.draftScope == "custom") {
+        "只给勾选的（${vm.draftAllowCategories.size} 个分类 ＋ ${vm.draftVisible.size} 个单品）"
+    } else {
+        "全部商品"
+    }
+    return "$who · 实际可见 ${vm.visibleProductIds().size} 个" + if (off > 0) " · 已关掉 $off 项" else ""
 }
 
 @Composable

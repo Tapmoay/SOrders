@@ -8,13 +8,21 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 
-from app.models import Place, ProductCategory, ShipperLocation, User, UserProductVisibility
+from app.models import (
+    Place,
+    Product,
+    ProductCategory,
+    ShipperLocation,
+    User,
+    UserProductVisibility,
+)
 from app.services import place_service
 from tests.conftest import auth_headers
 
@@ -182,7 +190,11 @@ def test_visibility_whitelist_hides_other_products(client, token_dispatcher, tok
         headers=h,
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"scope": "custom", "product_ids": [keep["id"]]}
+    v = r.json()
+    assert v["scope"] == "custom" and v["product_ids"] == [keep["id"]]
+    # L-23：出参多了分类与排除两维（这一条只勾了单品，那三个必须是空的）
+    assert v["category_names"] == [] and v["hidden_product_ids"] == []
+    assert v["hidden_category_names"] == []
 
     rows = client.get("/api/v1/products", headers=auth_headers(token_shipper)).json()
     ids = {x["id"] for x in rows}
@@ -198,14 +210,18 @@ def test_visibility_whitelist_hides_other_products(client, token_dispatcher, tok
 
 
 def test_custom_scope_without_products_is_rejected(client, token_dispatcher, users):
-    """`custom` 但一个都没勾 → 拒绝（那等于让他什么都看不到，而界面会显示"已设置"）。"""
+    """`custom` 但一个都没勾 → 拒绝（那等于让他什么都看不到，而界面会显示"已设置"）。
+
+    L-23 之后判据从"勾了几个"改成"**他到底能看见几个**"：分类算进来以后，
+    "只选了分类不勾单品"是完全合法的（下面那条用例盯的就是它）。
+    """
     r = client.put(
         f"/api/v1/users/{users['shipper'].id}/product-visibility",
         json={"scope": "custom", "product_ids": []},
         headers=auth_headers(token_dispatcher),
     )
     assert r.status_code == 400
-    assert "一个都没勾" in r.json()["detail"]
+    assert "一个商品都看不到" in r.json()["detail"]
 
 
 def test_visibility_only_for_shippers(client, token_dispatcher, users):
@@ -258,6 +274,8 @@ def test_order_rejects_hidden_product(client, token_dispatcher, token_shipper, u
     ok = client.post(
         "/api/v1/orders",
         json={
+            # L-32：下单必须至少一端有联系信息（上面那次拦在可见范围上，这次要真的建成单）
+            "contact_dongjia_name": "收货人甲",
             "lines": [
                 {
                     "product_id": other["id"],
@@ -289,6 +307,337 @@ def test_visibility_rows_are_replaced_not_appended(client, token_dispatcher, use
         headers=h,
     ).json()
     assert v["product_ids"] == [b["id"]], "必须是替换而不是追加"
+
+
+# -------------------------------------------- ②b 分类授权 / 单独关掉（L-23，CHG-0062）
+
+
+def _seen_ids(client, token) -> set[int]:
+    """这个身份在选品页能看到的商品编号（`limit` 拉满，别被分页截断）。"""
+    rows = client.get("/api/v1/products?limit=500", headers=auth_headers(token)).json()
+    return {x["id"] for x in rows}
+
+
+def test_visibility_category_covers_products_added_later(
+    client, token_dispatcher, token_shipper, users
+):
+    """按分类授权：**以后**加进这一类的商品自动可见（不是把现在的编号抄一份）。
+
+    用户 2026-10-06 原话：「假如以后有其他商品增加到这个分类，它自动是显示的」。
+    做成快照也能让当刻的界面对，但以后每加一个商品都要回来重配一次 —— 而**没人会记得**，
+    表现出来是"我明明授权了这个分类，新商品却看不到"。所以这条用例的重头戏是最后一步：
+    配完之后**再加**一个商品。
+
+    不改会怎样：`resolve_visible_product_ids` 里"按分类名现查"那句被换成把当时这一类下的
+    编号写进明细（当刻看起来完全一样、上面那些断言也照过），后加的商品就永久看不见。
+    """
+    h = auth_headers(token_dispatcher)
+    old = _mk_product(client, token_dispatcher, "分类授权-原有", category="分类授权类")
+    other = _mk_product(client, token_dispatcher, "分类授权-别的类", category="分类授权别的类")
+
+    r = client.put(
+        f"/api/v1/users/{users['shipper'].id}/product-visibility",
+        json={"scope": "custom", "category_names": ["分类授权类"]},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    v = r.json()
+    assert v["category_names"] == ["分类授权类"]
+    assert v["product_ids"] == [], "只授权分类时不该把现有编号也写进去（写进去就成快照了）"
+
+    got = _seen_ids(client, token_shipper)
+    assert old["id"] in got
+    assert other["id"] not in got, "没授权的分类不该看到"
+
+    late = _mk_product(client, token_dispatcher, "分类授权-后加", category="分类授权类")
+    assert late["id"] in _seen_ids(client, token_shipper), "配完之后加进这一类的商品必须自动可见"
+
+
+def test_visibility_denies_one_product_inside_an_allowed_category(
+    client, token_dispatcher, token_shipper, users
+):
+    """整类给他看，但**单独关掉其中一个**（all 档与 custom 档都要能关）。
+
+    用户 2026-10-06 原话：「这个分类是要全部显示的，但是某个商品我们不让它显示，
+    就把它直接关闭……以后其他新商品增加到这个分类，他也会正常显示」。
+    后半句的意思是：关掉的是**那个商品**，不是这一类 —— 所以关掉之后新加进这一类的
+    商品照样要可见（分类那一行的 deny 才是"整类都别给他看"）。
+    """
+    h = auth_headers(token_dispatcher)
+    uid = users["shipper"].id
+    a = _mk_product(client, token_dispatcher, "整类-甲", category="整类类")
+    b = _mk_product(client, token_dispatcher, "整类-乙", category="整类类")
+    far = _mk_product(client, token_dispatcher, "整类-别的类", category="整类别的类")
+
+    # ① all 档：全给他看，只关掉甲
+    r = client.put(
+        f"/api/v1/users/{uid}/product-visibility",
+        json={"scope": "all", "hidden_product_ids": [a["id"]]},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["hidden_product_ids"] == [a["id"]]
+    got = _seen_ids(client, token_shipper)
+    assert a["id"] not in got and b["id"] in got and far["id"] in got
+
+    # ② custom 档：这一类全给 + 关掉甲（"这一类给你看，就这一个不给"）
+    r = client.put(
+        f"/api/v1/users/{uid}/product-visibility",
+        json={
+            "scope": "custom",
+            "category_names": ["整类类"],
+            "hidden_product_ids": [a["id"]],
+        },
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    got = _seen_ids(client, token_shipper)
+    assert b["id"] in got and a["id"] not in got
+    assert far["id"] not in got, "custom 档里没授权的分类不该出现"
+
+    # ③ 关掉的是**商品**不是分类：后加进这一类的商品仍然可见
+    late = _mk_product(client, token_dispatcher, "整类-后加", category="整类类")
+    assert late["id"] in _seen_ids(client, token_shipper)
+
+    # 反向对照：派单员照样看得到被关掉的那个（关的是"给不给他看"，不是把商品下架）
+    allrows = client.get("/api/v1/products?limit=500", headers=h).json()
+    assert a["id"] in {x["id"] for x in allrows}
+
+
+def test_visibility_category_with_no_products_is_rejected(client, token_dispatcher, users):
+    """授权的分类**现在一个在架商品都没有** → 拒绝（配完他打开选品页就是空的）。
+
+    这是 L-23 的自决：分类名本身合法、以后加进这一类的商品也确实会可见，
+    但"你现在打开是空的"才是当刻的事实 —— 与"custom 一个都没勾"同一个理由
+    （界面显示"已设置"、人却看不到任何商品，然后来报"商品都不见了"）。
+    `replace_visibility` 那条"分类名不做存在性校验"管的是名册里没有、但**有商品**挂着的
+    名字（老数据）；这里管的是"配完看不见东西"，两件事。
+    """
+    r = client.put(
+        f"/api/v1/users/{users['shipper'].id}/product-visibility",
+        json={"scope": "custom", "category_names": ["这个类还没有商品"]},
+        headers=auth_headers(token_dispatcher),
+    )
+    assert r.status_code == 400, r.text
+    assert "一个商品都看不到" in r.json()["detail"]
+
+
+def test_visibility_all_scope_hiding_everything_is_rejected(
+    client, token_dispatcher, users, db_session
+):
+    """`all` 档把**每一个在架商品**都关掉 → 拒绝（结果同样是"打开是空的"）。
+
+    ⚠️ 必须从库里取**全部**在架编号：`GET /api/v1/products` 只给一页（默认 200 条），
+    拿它去关的话剩下的商品还是可见的 —— 闸门不会触发，用例会假绿。
+    """
+    all_ids = list(
+        db_session.scalars(select(Product.id).where(Product.is_deleted.is_(False))).all()
+    )
+    assert all_ids, "库里得有在架商品，这条用例才有意义"
+    uid = users["shipper"].id
+    h = auth_headers(token_dispatcher)
+
+    r = client.put(
+        f"/api/v1/users/{uid}/product-visibility",
+        json={"scope": "all", "hidden_product_ids": all_ids},
+        headers=h,
+    )
+    assert r.status_code == 400, r.text
+    assert "关光了" in r.json()["detail"]
+
+    # 反向对照：少关一个就存得下（否则这条"拦"可能只是"一律拦"）
+    ok = client.put(
+        f"/api/v1/users/{uid}/product-visibility",
+        json={"scope": "all", "hidden_product_ids": all_ids[:-1]},
+        headers=h,
+    )
+    assert ok.status_code == 200, ok.text
+
+
+def test_category_rename_carries_visibility_rows_over(
+    client, token_dispatcher, token_shipper, users, db_session
+):
+    """分类改名时，挂在它名下的**可见范围行**要一起改名（授权与排除两个方向）。
+
+    两个后果都是"界面上看不出来"的那种：
+    - 授权方向：那一行指向一个不存在的旧名字 ⇒ 货主凭空少一批商品；
+    - 排除方向：本来关掉的商品**全部重新出现**，而且不报错。
+    """
+    h = auth_headers(token_dispatcher)
+    uid = users["shipper"].id
+    # ⚠️ 分类名（连带商品名）带一个**本次运行独有**的尾巴：测试库在一次运行里是累积的，
+    #    `.test_dbs/` 里还可能留着上一次被中断的库（文件名带 PID，PID 会被系统回收）。
+    #    固定名字一旦撞上残留行，红的是"改名没级联"这种**看起来像产品缺陷**的断言 ——
+    #    本次收尾就踩过一次（单文件跑绿、全量跑红，红点还每次都换）。
+    tail = uuid.uuid4().hex[:6]
+    old_cat, new_cat = f"改名旧类-{tail}", f"改名新类-{tail}"
+    old_deny, new_deny = f"改名排除旧类-{tail}", f"改名排除新类-{tail}"
+
+    def find_id(name: str) -> int:
+        cats = client.get("/api/v1/product-categories", headers=h).json()
+        hits = [c["id"] for c in cats if c["name"] == name]
+        assert len(hits) == 1, ("分类名册里应该有且只有一行", name, cats)
+        return hits[0]
+
+    def rename(old: str, new: str) -> None:
+        r = client.patch(
+            f"/api/v1/product-categories/{find_id(old)}", json={"name": new}, headers=h
+        )
+        assert r.status_code == 200, r.text
+        # 先钉住"改名真的落到了这一行"：这一步不成立时，下面那条断言会长成
+        # "级联没生效"（同一个误导在收尾排查里出现过一次，查了很久）。
+        assert r.json()["name"] == new, r.text
+
+    # ① custom：整类授权 + 单独关掉一个
+    keep = _mk_product(client, token_dispatcher, f"改名-可见-{tail}", category=old_cat)
+    deny = _mk_product(client, token_dispatcher, f"改名-关掉-{tail}", category=old_cat)
+    r = client.put(
+        f"/api/v1/users/{uid}/product-visibility",
+        json={
+            "scope": "custom",
+            "category_names": [old_cat],
+            "hidden_product_ids": [deny["id"]],
+        },
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+
+    rename(old_cat, new_cat)
+    v = client.get(f"/api/v1/users/{uid}/product-visibility", headers=h).json()
+    assert v["category_names"] == [new_cat], (
+        "授权行要跟着改名",
+        v,
+        # 顺手把名册带上：这条断言真正想说的是"那一行指向的名字还在不在"，只报可见
+        # 范围看不出是"级联没生效"还是"改名根本没落到这一行"。
+        [c["name"] for c in client.get("/api/v1/product-categories", headers=h).json()],
+    )
+    assert v["hidden_product_ids"] == [deny["id"]], "单独关掉的那个商品不受改名影响"
+    assert v["hidden_category_names"] == []
+    got = _seen_ids(client, token_shipper)
+    assert keep["id"] in got and deny["id"] not in got
+
+    # ② all + 整类排除：改名之后这一类**还得是关着的**
+    blocked = _mk_product(client, token_dispatcher, f"改名-整类关-{tail}", category=old_deny)
+    r = client.put(
+        f"/api/v1/users/{uid}/product-visibility",
+        json={"scope": "all", "hidden_category_names": [old_deny]},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    assert blocked["id"] not in _seen_ids(client, token_shipper)
+
+    rename(old_deny, new_deny)
+    v = client.get(f"/api/v1/users/{uid}/product-visibility", headers=h).json()
+    assert v["hidden_category_names"] == [new_deny], (v, [old_deny, new_deny])
+    assert blocked["id"] not in _seen_ids(client, token_shipper), "改名不能把关掉的一类放出来"
+
+
+def test_rename_visibility_merges_rows_that_collide(users, db_session):
+    """`_rename_visibility_category` 的三种撞车都要合并掉（唯一索引 (user_id, category_name, mode)）。
+
+    ⚠️ 今天**从接口进不来**这条路径：闸门②要求"配完看得见商品"，而任何有商品的分类
+    都会被自动补进名册（于是改名撞名会被 409 挡下）。能造出这种形状的只有手写进库的
+    历史数据、或者将来放宽闸门 —— 但一旦撞上就是 IntegrityError：整次改名失败，
+    用户只看到一句"服务器错误"，而分类名还停在旧的。
+    """
+    from app.api.v1.product_categories import _rename_visibility_category
+    from app.models.product_visibility import MODE_ALLOW, MODE_DENY
+
+    shipper, driver, dispatcher = users["shipper"], users["driver"], users["dispatcher"]
+    for uid, name, mode in (
+        (shipper.id, "旧类", MODE_ALLOW),  # 同模式旧新两行都在 → 并成一行
+        (shipper.id, "新类", MODE_ALLOW),
+        (driver.id, "旧类", MODE_ALLOW),  # 授权旧名 + 排除新名 → 只留排除
+        (driver.id, "新类", MODE_DENY),
+        (dispatcher.id, "旧类", MODE_DENY),  # 排除旧名 + 授权新名 → 只留排除
+        (dispatcher.id, "新类", MODE_ALLOW),
+    ):
+        db_session.add(UserProductVisibility(user_id=uid, category_name=name, mode=mode))
+    db_session.commit()
+
+    counts = _rename_visibility_category(db_session, "旧类", "新类")
+    db_session.commit()
+
+    left = {
+        (r.user_id, r.category_name, r.mode)
+        for r in db_session.scalars(select(UserProductVisibility)).all()
+    }
+    assert left == {
+        (shipper.id, "新类", MODE_ALLOW),
+        (driver.id, "新类", MODE_DENY),
+        (dispatcher.id, "新类", MODE_DENY),
+    }, "撞车之后每个用户每个方向只该剩一行，而且**排除优先**"
+    # 计数逐项对得上：
+    # - renamed 2 = driver 的「旧类授权」（搬过去叫新类）+ dispatcher 的「旧类排除」；
+    # - merged 1 = shipper 的「旧类授权」被删掉（新类上已经有一行授权了）；
+    # - dropped 2 = driver 的「新类授权」（刚搬过来的那行，撞上他自己的新类排除）+
+    #   dispatcher 的「新类授权」（原来就在）。
+    assert counts == {"rows_renamed": 2, "rows_merged": 1, "allow_rows_dropped": 2}
+
+
+def test_migration_024_makes_product_id_nullable_on_old_db(tmp_path):
+    """⚠️ 老库的 `product_id` 还是 NOT NULL：迁移 024 必须把它改成可空，否则分类行一写就 500。
+
+    这条用例**故意不用 conftest 的测试库** —— 那是 `create_all` 建出来的新形状，
+    `product_id` 本来就可空，老库的毛病在它上面永远看不见（2026-10-06 真库探针才撞出来：
+    `NOT NULL constraint failed: user_product_visibility.product_id`）。
+    所以这里手工建一张 024 之前的表，再单独跑 024 的 `upgrade()`。
+    """
+    import importlib.util
+
+    from sqlalchemy import create_engine, inspect, text
+
+    from app.migrations import MIGRATIONS_DIR
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}", future=True)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE user_product_visibility ("
+            " id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, product_id INTEGER NOT NULL,"
+            " created_at DATETIME, updated_at DATETIME)"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX uq_user_product_visibility"
+            " ON user_product_visibility (user_id, product_id)"
+        ))
+        conn.execute(text(
+            "INSERT INTO user_product_visibility (id, user_id, product_id, created_at, updated_at)"
+            " VALUES (1, 2, 7, '2026-10-06 00:00:00', '2026-10-06 00:00:00')"
+        ))
+
+    path = MIGRATIONS_DIR / "024_product_visibility_targets.py"
+    spec = importlib.util.spec_from_file_location("mig024_for_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.upgrade(engine)
+
+    cols = {c["name"]: c["nullable"] for c in inspect(engine).get_columns("user_product_visibility")}
+    assert cols["product_id"] is True, cols
+    with engine.begin() as conn:
+        # 老行一字未动，并且被读成"单品授权行"
+        row = conn.execute(text(
+            "SELECT product_id, category_name, mode FROM user_product_visibility WHERE id = 1"
+        )).one()
+        assert tuple(row) == (7, None, "allow"), tuple(row)
+        # ⭐ 这一句才是本条用例的目的：分类行（product_id 为 NULL）现在写得进去了
+        conn.execute(text(
+            "INSERT INTO user_product_visibility (user_id, product_id, category_name, mode, created_at, updated_at)"
+            " VALUES (2, NULL, '水果', 'allow', '2026-10-06 00:00:00', '2026-10-06 00:00:00')"
+        ))
+        conn.execute(text(
+            "INSERT INTO user_product_visibility (user_id, product_id, category_name, mode, created_at, updated_at)"
+            " VALUES (2, NULL, '水果', 'deny', '2026-10-06 00:00:00', '2026-10-06 00:00:00')"
+        ))
+    # 迁移必须能重跑（README 硬要求）：第二遍是安静的空转
+    mod.upgrade(engine)
+    assert _upv_index_names(engine) >= {"uq_upv_category"}, _upv_index_names(engine)
+
+
+def _upv_index_names(engine) -> set[str]:
+    """重建之后 `uq_upv_category` 这个**名字**还在不在（重建最容易把它弄丢）。"""
+    from sqlalchemy import inspect
+
+    return {i["name"] for i in inspect(engine).get_indexes("user_product_visibility")}
 
 
 # ---------------------------------------------------------------- ③ 常用地点

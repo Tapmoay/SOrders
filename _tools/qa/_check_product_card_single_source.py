@@ -55,21 +55,37 @@ SORT = AND / "ui/dispatcher/ProductSortScreen.kt"
 BATCH_PRICE = AND / "ui/dispatcher/BatchPriceSheets.kt"
 PRICE_MATRIX = AND / "ui/dispatcher/PriceMatrixScreen.kt"
 
+#: CHG-0062：批量页与「商品可见范围」第二层的**商品行**搬进了这个共用零件
+#: （两个调用方语义不同、动作相同）。它现在也是"渲染商品的页面"之一，所以下面三张
+#: "不许手拼"的清单里都要有它 —— 否则"行里手拼 `¥…` / 手解颜色"这一整类毛病会在
+#: 搬家的同时悄悄漏出判据范围（改法搬家 ≠ 可以放宽）。
+PART = AND / "ui/common/ProductCheckList.kt"
+
+#: 「商品可见范围」第二层所在的那一页（它也是"把整列商品行交给零件"的那一类）。
+USERS = AND / "ui/dispatcher/UsersManageScreen.kt"
+
 #: 这一轮新增/搬动的文件 —— 少一个就红（防"文件被搬走 → 判据全都空转 → 满屏绿灯"）。
 REQUIRED_FILES = [
-    KIT, FORM_ROWS, UNITS, UNIT_SHEET, CAT_SHEET, FORM_SCREEN, FORM_VM, FORM_TEST, BATCH, SORT,
+    KIT, FORM_ROWS, UNITS, UNIT_SHEET, CAT_SHEET, FORM_SCREEN, FORM_VM, FORM_TEST, BATCH, SORT, PART,
 ]
 
 #: 三条商品外观都必须走零件（它们自己不许再画缩略图）。
 THREE_VIEWS = [LIST, PICKER, INVENTORY]
 
-#: **渲染商品**的页面（第二轮起全部走 `ProductLine` + `productFacts`）。
+#: **自己渲染商品行**的页面（第二轮起全部走 `ProductLine` + `productFacts`）。
 #: 少一个就会漏掉一处"改了一个地方、别处不跟着变"（用户 2026-09-21 的原话）。
-PRODUCT_LINE_VIEWS = [LIST, BATCH, SORT, PICKER]
+#: CHG-0062：`BATCH` 从这张表里**搬走**了 —— 它那一整列商品行现在由共用零件
+#: `ProductCheckList.kt` 画，零件自己进这张表（就是下面的 `PART`）；搬走的那个页面
+#: 改由 `ROW_LIST_DELEGATES` 盯「确实交出去了」。
+PRODUCT_LINE_VIEWS = [LIST, SORT, PICKER, PART]
+
+#: 把**一整列商品行**交给共用零件的页面：自己不许再拼行（`ProductCheckList` 恰好一处调用）。
+#: 这是**搬家不是放宽**：行主体的判据跟着实现挪到 `PART` 上了，这两个页面只留下「交出去」这一句。
+ROW_LIST_DELEGATES = [BATCH, USERS]
 
 #: 这些页面里**不许**再出现 `"¥" + …` 这种手拼价格 / `parseColor` 这种手解颜色。
-NO_HAND_ROLLED_MONEY = [LIST, BATCH, SORT, PICKER, BATCH_PRICE]
-NO_HAND_ROLLED_COLOR = [LIST, BATCH, SORT, PICKER, INVENTORY, PRICE_MATRIX]
+NO_HAND_ROLLED_MONEY = [LIST, BATCH, SORT, PICKER, BATCH_PRICE, PART]
+NO_HAND_ROLLED_COLOR = [LIST, BATCH, SORT, PICKER, INVENTORY, PRICE_MATRIX, PART]
 
 #: 扫到的界面文件数下限（防目录改名/搬走之后"一个文件都没扫到"也算过）。
 MIN_UI_FILES = 100
@@ -235,7 +251,8 @@ def main() -> int:
     ]
     c.ok("这三条判据没有第二份实现", not dup, f"另有实现：{dup}")
 
-    # ---- 4b. 五个渲染商品的页面共用同一个"行主体"与同一个"事实构造器" ----
+    # ---- 4b. 渲染商品的页面共用同一个"行主体"与同一个"事实构造器" ----
+    #          （CHG-0062 起：自己画行的 4 个 + 把整列交给零件的 2 个，见上面两张表）
     # 用户 2026-09-21（第二轮）：「像我们这样子的形式——比如说右边是分类、它是个条的，
     # 那个商品啊，它其实是有点区别的…你也**全部做深**吧…**其他地方你也得改**，
     # 最好是采用（通）用的继承，**上次你改一个地方，它就其他跟着改了**。」
@@ -247,6 +264,15 @@ def main() -> int:
     )
     for p in PRODUCT_LINE_VIEWS:
         c.ok(f"{p.name} 的商品行/卡走共用的 ProductLine", count(r"ProductLine\(", code(p)) >= 1)
+    for p in ROW_LIST_DELEGATES:
+        # CHG-0062：这两页（批量操作 / 商品可见范围第二层）自己不再拼行，整列交给共用零件。
+        # 判据因此从"你有没有调 ProductLine"变成"你有没有把这件事交出去" —— 行主体的那一句
+        # 由 PRODUCT_LINE_VIEWS 里的 PART 负责，两边合起来才等于原来那一条。
+        c.ok(
+            f"{p.name} 把整列商品行交给共用零件（ProductCheckList 一处调用）",
+            count(r"ProductCheckList\(", code(p)) == 1,
+            "这一页要么又自己拼了行、要么把零件调了两遍",
+        )
 
     c.ok(
         "productFacts（事实构造器）只有一处定义",
@@ -314,9 +340,11 @@ def main() -> int:
             and not [p.name for p in ui_files if p != KIT and count(rf"fun {fn}\(", code(p))],
             f"{fn} 在别处也被定义了",
         )
-    sold = [p.name for p in (LIST, BATCH, PICKER) if count(r"ProductSoldOutBadge\(", code(p)) >= 1]
+    # CHG-0062：批量页那一个换成了 `PART` —— 批量页/可见范围层的行都从零件里出，
+    # 角标也就跟着零件走（页面自己不再引用 ProductSoldOutBadge）。
+    sold = [p.name for p in (LIST, PICKER, PART) if count(r"ProductSoldOutBadge\(", code(p)) >= 1]
     c.ok(
-        "「已沽清」角标在三个会显示它的页面上都是同一份实现",
+        "「已沽清」角标在三个会显示它的页面上都是同一份实现（管理页 / 选品页 / 勾选清单零件）",
         len(sold) == 3,
         f"只有这些页面用了它：{sold}",
     )

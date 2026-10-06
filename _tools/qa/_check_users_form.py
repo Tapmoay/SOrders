@@ -4,7 +4,7 @@
 盯住五件事：
 
 1. 表单不再塞进弹窗（规范 :762-763「表单带选择器时用单独一页，不要塞进 AlertDialog」）：
-   这一页有车型、计费规则两个选择器 + 一张商品可见范围清单，弹窗装不下（旧代码自己写着
+   这一页有车型、计费规则两个选择器 + 一个商品可见范围入口（点进去是第二层整屏清单），弹窗装不下（旧代码自己写着
    「字段叠起来在小屏上会把「保存」顶出屏幕」）。现在必须是 ModalBottomSheet + 三件套
    （fillMaxHeight + verticalScroll + imePadding），开关叫 showSheet、关它走 closeSheet()。
 2. 分组一律白卡（规范 §5.0）：四个 FormGroup（账号 / 车辆与计费 / 商品可见范围 / 分类），
@@ -16,7 +16,10 @@
    → FormErrorLine 画在「保存」正上方；save() 里**不许**再出现页面级 error = 赋值
    （那种写法会画到抽屉背后：用户看到的是"点保存没反应"，关掉抽屉整页还被 ErrorView 顶掉 —— 这就是本批修的 bug）。
 5. 既有口径没被动：搜索仍打服务端（SearchField + vm.query）、司机卡片的车型 chip 还在、
-   driverKindLabel 四档不变、商品可见范围那套（两选一 / 全选 / 全不选 / 勾选数 / 自己滚）没缩水。
+   driverKindLabel 四档不变、商品可见范围那套（两选一 / 入口 + 第二层 / 汇总「实际可见 N 个」/ 配完一个都看不到就拦住）没缩水。
+
+「商品清单」那一套（搜索 / 左分类栏 / 三态「全选这一类」/ 勾选行 / 自己滚 / 不把行藏掉）已经搬进 ui/common/ProductCheckList.kt，
+两个页面共用 —— 零件自己的判据在 _tools/qa/_check_product_check_list.py；本脚本第 6 节只钉页面侧的形状（入口 / 第二层 / 汇总 / 拦住）。
 
 为什么这些必须由机器盯着：
 
@@ -54,6 +57,8 @@ FORMS = AND / "ui/common/FormRows.kt"
 COMPONENTS = AND / "ui/common/Components.kt"
 DESIGN = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 REVERSE = ROOT / "_tools/qa/_reverse_verify_users_form.py"
+PART_CHECK = ROOT / "_tools/qa/_check_product_check_list.py"
+PART_REVERSE = ROOT / "_tools/qa/_reverse_verify_product_check_list.py"
 FORM_PANEL = ROOT / "_tools/qa/_check_form_panel_style.py"
 SHEET_PAGES = ROOT / "_tools/qa/_check_sheet_form_pages.py"
 BASELINE = ROOT / "_tools/qa/_form_panel_baseline.txt"
@@ -70,7 +75,7 @@ MAX_BASELINE = 51
 GROUPS = {
     "账号": "FormInputRow(",
     "车辆与计费": "FormPickRow(",
-    "商品可见范围": "ProductVisibilityBlock(",
+    "商品可见范围": "FormPickRow(",
     "分类": "CategoryPickRow(",
 }
 Q = chr(34)
@@ -248,9 +253,11 @@ def main() -> int:
     c.ok(f"四个分组的图标（实际 {icons}）",
          icons == ["Icons.Default.Person", "Icons.Default.LocalShipping",
                    "Icons.Default.Visibility", "Icons.Default.Folder"])
-    c.ok("商品可见范围那一组自己不再画标题（标题只在卡外画一次）",
-         'Text("商品可见范围"' not in screen and screen.count('title = "商品可见范围"') == 1,
-         "同一个标题两处画 —— 搬进白卡时最容易漏掉的一句")
+    c.ok("商品可见范围那一组自己不再画标题（标题只在卡外画一次；第二层顶栏那个是另一屏）",
+         'Text("商品可见范围"' not in gbodies[2]
+         and screen.count('title = "商品可见范围"') == 1
+         and 'Text("商品可见范围", style = MaterialTheme.typography.titleLarge' in screen,
+         "同一个标题两处画 —— 搬进白卡时最容易漏掉的一句；gbodies[2] 就是第三个白卡（可见范围那一组）")
 
     # ── 3. 选取器一律下拉（规范 :1377）────────────────────────────────────
     c.section("3. 选取器一律下拉（规范 :1377）：两个下拉都锚在共用行上")
@@ -260,8 +267,9 @@ def main() -> int:
     c.ok(f"两个下拉都锚在共用行上（menuAnchor 实际 {screen.count('Modifier.menuAnchor()')} 处）",
          screen.count("Modifier.menuAnchor()") == 2,
          "FormPickRow 少了 menuAnchor 就点不开")
-    c.ok(f"选取行恰好两处（实际 {len(calls(screen, 'FormPickRow('))} 处）",
-         len(calls(screen, "FormPickRow(")) == 2)
+    c.ok(f"选取行恰好三处（车型 / 计费规则 / 可见范围入口，实际 {len(calls(screen, 'FormPickRow('))} 处）",
+         len(calls(screen, "FormPickRow(")) == 3,
+         "多出来的一处 = 有人在抽屉里又手拼了一个入口")
     c.ok("车型候选就是那两档（大车 / 挂车 —— 计费口径的取值表不许扩）",
          'listOf("large" to "大车司机", "trailer" to "挂车司机")' in screen,
          "vehicles.vehicle_type 是计费用的词，取值集合不能加")
@@ -353,18 +361,42 @@ def main() -> int:
          "PrimaryActionButton(" not in screen)
 
     # ── 6. 商品可见范围没缩水 ─────────────────────────────────────────────
-    c.section("6. 商品可见范围（货主/批发商）整块没缩水")
-    c.ok(f"整块在（定义 + 一处调用，实际 {screen.count('ProductVisibilityBlock(')} 处）",
-         screen.count("ProductVisibilityBlock(") == 2)
+    c.section("6. 商品可见范围（货主/批发商）：入口一格 + 第二层整屏清单，没缩水")
+    c.ok(f"第二层在（定义 + 一处调用，实际 {screen.count('ProductVisibilityLayer(')} 处）",
+         screen.count("ProductVisibilityLayer(") == 2,
+         "定义没了 / 调用没了 —— 两种都是这一块消失")
+    c.ok("清单没有摊回抽屉里（那一组只剩「可见范围」一格，点它开第二层）",
+         'label = "可见范围"' in screen
+         and "onClick = { showVisibilityLayer = true }" in screen
+         and "heightIn(max = 220.dp)" not in screen,
+         "摊回抽屉 = LazyColumn 被塞进 verticalScroll（量成无限高，直接崩）")
     c.ok("两选一还在（全部商品 / 只给勾选的）",
          'ScopeChip("全部商品"' in screen and 'ScopeChip("只给勾选的"' in screen)
-    c.ok("勾选数说人话（已勾 N / M 个商品）",
-         "已勾 ${selected.size} / ${products.size} 个商品" in screen)
-    c.ok("一个都没勾时如实拦住（不能让他打开选品页是空的）", "还没勾任何商品" in screen)
-    c.ok("全选 / 全不选还在", 'Text("全选")' in screen and 'Text("全不选")' in screen)
-    c.ok("商品行还是可勾的 Checkbox", "Checkbox(checked = p.id in selected" in screen)
-    c.ok("商品清单自己滚（heightIn(max = 220.dp)）—— 不把抽屉撑到没边",
-         "heightIn(max = 220.dp)" in screen)
+    c.ok("上一层那一格就说人话（实际可见 N 个，不是让人自己数勾了几个）",
+         "private fun visibilitySummary(" in screen
+         and "实际可见 ${vm.visibleProductIds().size} 个" in screen)
+    c.ok("第二层顶上同样先给「实际可见 N 个」（与上一层同一套口径）",
+         "val seen = vm.visibleProductIds()" in screen and "实际可见 ${seen.size} 个" in screen)
+    c.ok("一个商品都看不见时数字当场变红（不用等保存才知道配错了）",
+         "if (seen.isEmpty()) MaterialTheme.colorScheme.error" in screen)
+    c.ok("判据是「他到底看得见几个」、不是「勾了几个」（只按分类授权是合法的一种）",
+         "fun visibleProductIds()" in vm
+         and "products.filter { categoryOf(it) in draftAllowCategories || it.id in draftVisible }" in vm,
+         "看勾了几个会把「只授权了分类」误判成配错了")
+    c.ok("保存前就拦住：这么配他一个商品都看不到（本地先拦一道，与后端同一套判据）",
+         "if (seen.isEmpty() && products.isNotEmpty()) {" in vm
+         and "他一个商品都看不到" in vm and "选品页会是空的" in vm,
+         "交上去只能说明他还没勾，不是他的本意")
+    c.ok("关掉一行 / 关掉一类在界面上分开说（不许长一样）",
+         '"已单独关掉"' in screen and "这一类已整类关掉" in screen,
+         "排除优先于授权 —— 混成一句话，用户不知道该去关谁")
+    c.ok("被整类关掉的行勾不动、当场写清原因（不把行藏掉）",
+         "rowLocked = { p -> categoryOf(p) in hiddenCats }" in screen
+         and "要单独放开，先把这一类打开" in screen,
+         "藏起来的商品 = 用户以为它不存在")
+    c.ok("清单走共用零件 ui/common/ProductCheckList.kt（它自己那套由别的判据盯着）",
+         "ProductCheckList(" in screen and "checkedIds = seen," in screen,
+         "两个调用方必须是同一份零件，否则「能复用就复用」又散成两份")
     c.ok("只在「编辑一个货主」时出现（vm.editing != null && vm.visibilityApplies）",
          "if (vm.editing != null && vm.visibilityApplies)" in screen)
     c.ok("可见范围仍然只对货主/批发商生效（visibilityApplies 判 role == shipper）",
@@ -389,6 +421,9 @@ def main() -> int:
     c.section("8. 接线：反验脚本、两个闸门、文档九节、登记簿")
     c.ok("反向验证脚本在（_tools/qa/_reverse_verify_users_form.py）", REVERSE.exists(),
          "没有它的话上面每一条都可能是空转")
+    c.ok("清单零件（ui/common/ProductCheckList.kt）自己的判据 ＋ 反验也在",
+         PART_CHECK.exists() and PART_REVERSE.exists(),
+         "共用零件没人盯 = 两个调用方各自的保证都成了空转")
     c.ok("本页已登记进 _check_form_panel_style.py 的 CONVERTED",
          '"ui/dispatcher/UsersManageScreen.kt": (' in read(FORM_PANEL),
          "改好的页面必须进 CONVERTED，否则它只是这一次碰巧干净")
@@ -417,7 +452,7 @@ def main() -> int:
             print(f"   - {label}")
         return 1
     print(f"✅ 全部 {c.n_ok} 项通过：表单搬进抽屉（不再是弹窗）、四个白卡分组、两个选取器都是下拉、"
-          f"表单的错画在表单里、商品可见范围没缩水、既有口径没被动。")
+          f"表单的错画在表单里、商品可见范围（入口 + 第二层）没缩水、既有口径没被动。")
     return 0
 
 
@@ -431,7 +466,8 @@ if __name__ == "__main__":
         print("4. 输入行：手机号走 InputRules + required 红星、姓名不许加数字过滤、密码新建才必填")
         print("5. 表单的错画在表单里：save() 三类错都走 formError，且不再出现页面级 error =")
         print("6. 页脚：取消走 closeSheet、保存是本池深色底 + 白字、两键同宽同高")
-        print("7. 商品可见范围整块没缩水（两选一 / 全选 / 全不选 / 勾选数 / 自己滚）")
+        print("7. 商品可见范围没缩水（入口一格 + 第二层整屏清单：两选一 / 汇总「实际可见 N 个」/")
+        print("   关一行≠关一类 / 配完一个都看不到就拦在保存前）；清单零件另有判据 _check_product_check_list.py")
         print("8. 接线：反验脚本在、CONVERTED 登记、基线降到 51、欠账表已清、文档九节、登记簿有 CHG-0018")
     else:
         sys.exit(main())

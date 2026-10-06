@@ -36,6 +36,11 @@ PICKER = AND / "ui/common/ProductPicker.kt"
 INVENTORY = AND / "ui/dispatcher/InventoryScreen.kt"
 BATCH = AND / "ui/dispatcher/ProductBatchScreen.kt"
 SORT = AND / "ui/dispatcher/ProductSortScreen.kt"
+#: CHG-0062 起：商品行（含「已沽清」角标、售价/库存事实行）也在这个**共用零件**里 ——
+#: 批量操作页与「商品可见范围」第二层的整列行都走它，所以「手拼价格 / 手解颜色 / 自己拼行」
+#: 这几类注入的落点也跟着搬到这里（原来落在 BATCH 上）。
+PART = AND / "ui/common/ProductCheckList.kt"
+USERS = AND / "ui/dispatcher/UsersManageScreen.kt"
 ROUTES = AND / "ui/nav/Routes.kt"
 NAV = AND / "ui/nav/NavGraph.kt"
 
@@ -181,13 +186,34 @@ MUTATIONS = [
         "售价排在库存前面",
     ),
     (
-        "批量页把售价行手拼回来（`\"¥\" + formatMoney(…) + \"/\" + unitOrDefault(…)`）",
-        BATCH,
-        "                                        badge = if (p.isActive) null else ({ ProductSoldOutBadge() }),",
-        "                                        badge = null,\n"
-        "                                        // 手拼一行回去\n"
-        '                                        name2 = "¥" + formatMoney(p.defaultUnitPrice) + "/" + unitOrDefault(p.unit),',
+        "勾选清单那一行把售价行手拼回来（`\"¥\" + formatMoney(…) + \"/\" + unitOrDefault(…)`）",
+        PART,
+        "                                    badge = if (p.isActive) null else ({ ProductSoldOutBadge() }),",
+        "                                    badge = null,\n"
+        "                                    // 手拼一行回去\n"
+        '                                    name2 = "¥" + formatMoney(p.defaultUnitPrice) + "/" + unitOrDefault(p.unit),',
         "不再把「售价」拼成一行",
+    ),
+    (
+        "勾选清单那一行自己解析名称颜色（脏值会崩，且与商品卡分叉）",
+        PART,
+        "                                    nameColor = p.nameColor,",
+        "                                    nameColor = parseColor(p.nameColor),",
+        "不再自己解析颜色",
+    ),
+    (
+        "勾选清单不再走共用的行主体（自己拼一行回去）",
+        PART,
+        "                                ProductLine(\n                                    name = p.name,",
+        "                                Column(\n                                    name = p.name,",
+        "走共用的 ProductLine",
+    ),
+    (
+        "批量页不再把整列行交给共用零件（自己拼回去，改一处不再处处跟着变）",
+        BATCH,
+        "ProductCheckList(",
+        "ProductCheckListOld(",
+        "把整列商品行交给共用零件",
     ),
     (
         "商品管理页又抄一份「已沽清」角标",

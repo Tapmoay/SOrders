@@ -3972,6 +3972,9 @@ def main() -> int:
     psvc31 = read(ROOT / "backend/app/services/place_service.py")
     places_api31 = read(ROOT / "backend/app/api/v1/places.py")
     boot31 = read(ROOT / "backend/app/core/schema_bootstrap.py")
+    #: CHG-0062（台账 L-23）：可见范围从"只认单品"扩成"分类 + 单品、授权 + 排除"，
+    #: 承载这两维的就是这份迁移（两列 + 一条唯一索引）。
+    mig24 = read(ROOT / "backend/app/migrations/024_product_visibility_targets.py")
     picker31 = read(UI / "common/ProductPicker.kt")
     cat_screen = read(UI / "dispatcher/ProductCategoriesScreen.kt")
     cat_vm = read(UI / "dispatcher/ProductCategoriesViewModel.kt")
@@ -4038,10 +4041,17 @@ def main() -> int:
               vis_schema, r"def visible_product_ids\(db: Session, user: User \| None\) -> set\[int\] \| None:")
     # ⚠️ 锚**返回 None 的那两行**，不锚文档里那句解释：解释永远在，改成 `return set()`
     #    也不会动它 —— 而那正是"默认把所有人挡在外面"的事故写法（反向验证抓到）。
-    c.present("不受限用 None 表示（不是空集合）—— 两者语义绝不相同",
+    # 2026-10-06（CHG-0062）：判据从「一处」变成「两处」—— 解析规则搬进了
+    #    `resolve_visible_product_ids`（读端点与写闸门共用同一个函数），"不受限"那一行也跟着搬了：
+    #    ① 谁不受限（非货主）留在 `visible_product_ids`；
+    #    ② 什么配置算不受限（`all` 且**一条排除行都没有**）在解析函数里。
+    #    ⚠️ 两处都要锚：只锚 ① 的话，把 ② 改成 `return set()`，"全部商品"会当场变成"全都看不到"。
+    c.present("不受限用 None 表示（不是空集合）—— 谁不受限这一处",
               vis_schema,
-              r"if not visibility_applies_to\(user\):\s*\n\s*return None[\s\S]{0,240}?"
-              r"!= SCOPE_CUSTOM:\s*\n\s*return None")
+              r"if not visibility_applies_to\(user\):\s*\n\s*return None")
+    c.present("不受限用 None 表示（不是空集合）—— 「all 且没有排除项」这一处",
+              vis_schema,
+              r"if scope != SCOPE_CUSTOM and not deny_ids and not deny_categories:\s*\n\s*return None")
     c.present("可见性只对货主生效（派单员不受限，否则改错了没人能改回来）",
               vis_schema, r"return role_key\.lower\(\) == UserRole\.SHIPPER\.value")
     c.present("商品列表按白名单过滤", products_api31,
@@ -4054,8 +4064,53 @@ def main() -> int:
               r"if not product_visible_to\(db, \w+, ln\.product_id\)")  # R2-02：下单那段搬进 commands/order.py，形参 current→actor
     # ⚠️ 这两条锚"**真的抛 / 真的写日志**"这个结构，不锚那句中文/那行 action=
     #    （把整块塞进 `if False:` 之后，中文和 action= 都还在文件里，照样绿 —— 反向验证抓到）
-    c.present("`custom` 但一个都没勾 → **拒绝**（那等于让他什么都看不到）", users_api31,
-              r"if not body\.product_ids:\s*\n\s*raise HTTPException\(\s*\n\s*status_code=400")
+    # 2026-10-06（CHG-0062）钉住的**换了**：以前是「custom 且一个单品都没勾 → 拒绝」，
+    #    现在「只选分类、一个单品都不勾」是**合法**配置（用户原话："以后增加到这个分类的商品自动显示"）。
+    #    真正该拒的是"算完一个都看不到"。⚠️ 锚"按**解析结果**判"这个结构：
+    #    只看 `body.product_ids` 的话，`scope=all` 把商品一个个关光就溜过去了。
+    c.present("勾了但商品全被删 → **拒绝**（否则他以为配好了、其实勾的没进去）", users_api31,
+              r"if not alive:\s*\n\s*raise HTTPException\(\s*\n\s*status_code=400")
+    c.present("配完**一个都看不到** → 拒绝（判据是解析结果，不是勾了几个）", users_api31,
+              r"if seen is not None and not seen and _catalog_has_alive_product\(db\):\s*\n\s*raise HTTPException")
+    c.present("空商品库**不拦**（「什么都还没有」和「配错了」是两件事）", users_api31,
+              r"def _catalog_has_alive_product\(db: Session\) -> bool:[\s\S]{0,400}?limit\(1\)\)\.first\(\)\s*\n\s*is not None")
+    # ---- ②b 分类维 + 排除维（CHG-0062 / 台账 L-23，2026-10-06）----
+    # ⚠️ 这一节全是静态结构断言，而这类判据最容易空转（正则写歪了照样全绿）。
+    #    所以新增的每一条红线都配了注入实验（见 _reverse_verify_catalog_and_scope.py 的 ② 段）。
+    c.present("迁移给分类行的 mode 默认 allow（老行天然还是单品授权，一条数据都不搬）",
+              mig24, r'"mode", "mode VARCHAR\(8\) NOT NULL DEFAULT \'allow\'"')
+    c.present("分类行的唯一性带上 mode（allow / deny 各占一行，不互相顶掉）",
+              mig24,
+              r"CREATE UNIQUE INDEX IF NOT EXISTS \{INDEX\} ON \{TABLE\} "
+              r"\(user_id, category_name, mode\)")
+    # ⚠️ 2026-10-06 真库探针才抓到：单测库全是 `create_all` 建的新形状（`product_id` 本来就可空），
+    #    所以"024 之前建出来的库里它是 NOT NULL"在单测里**永远看不见** —— 分类行（product_id NULL）
+    #    一写就是 `NOT NULL constraint failed: user_product_visibility.product_id`，接口 500。
+    #    这条红线锚"迁移真的去补可空性"，并且**把调用点一起锚进去**：
+    #    只锚函数定义的话，把 `_sqlite_rebuild(engine)` 那一行删掉照样绿（反向验证抓到）。
+    c.present("迁移把老库 product_id 的可空性补上（只在真的不可空时才重建）",
+              mig24,
+              r"if nullable is False:\s*\n\s*if engine\.dialect\.name == \"sqlite\":\s*\n"
+              r"\s*_sqlite_rebuild\(engine\)")
+    c.present("端到端钉住「老库跑完 024 之后分类行写得进去」", pcat_test,
+              r"def test_migration_024_makes_product_id_nullable_on_old_db")
+    # ⚠️ 锚"真的把 allow_categories 拼进查询"这一句，不锚函数名：只锚签名的话，
+    #    把 `if allow_categories:` 整块删掉（按分类给=白给）它照样绿。
+    c.present("按分类授权是**现查**分类名下的商品（以后新建到这一类的自动也带上）",
+              vis_schema,
+              r"Product\.category\.in_\(allow_categories\), Product\.is_deleted\.is_\(False\)")
+    c.present("排除压授权（关掉的商品不因为被授权就露出来）",
+              vis_schema, r"return picked - hidden")
+    # ⚠️ 改名级联**两处**：商品那一处是老红线（上面），可见范围这一处是 CHG-0062 新增的。
+    #    漏了它的后果是"关掉的商品集体复活"——不报错，只是那些商品又看得见了。
+    c.present("分类改名时**可见范围里的分类名一起改**（不改的话关掉的商品会集体复活）",
+              pcat_api, r"vis = _rename_visibility_category\(db, old_name, body\.name\)")
+    c.present("端到端钉住「按分类给：以后新建到这个分类的商品自动可见」", pcat_test,
+              r"def test_visibility_category_covers_products_added_later")
+    c.present("端到端钉住「整类给、单独关掉其中一件」", pcat_test,
+              r"def test_visibility_denies_one_product_inside_an_allowed_category")
+    c.present("端到端钉住「分类改名把可见范围的行一起搬走（含撞车合并）」", pcat_test,
+              r"def test_category_rename_carries_visibility_rows_over")
     c.present("可见范围只给货主/批发商设（对派单员设没有意义）", users_api31,
               r"商品可见范围只对货主/批发商有意义")
     c.present("改动留痕（本质是授权）", users_api31,
