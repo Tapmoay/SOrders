@@ -5,7 +5,7 @@ import java.time.ZoneId
 import org.junit.Test
 
 /**
- * `parseBackendInstant` / `formatDateTime`：**后端 naive UTC → 设备本地时间**。
+ * `parseBackendInstant` / `formatDateTime` / `formatDateTimeFull`：**后端 naive UTC → 设备本地时间**。
  *
  * ## 为什么这个文件必须存在
  * 后端的时间列一律是 naive UTC，JSON 里是 `"2026-09-19T10:09:36.713251"`（没有 `Z`、没有偏移）。
@@ -49,6 +49,28 @@ class TimeFmtTest {
     fun `跨日也按本地算`() {
         // UTC 的 19 号 20:30 = 东八区的 20 号 04:30（月/日都要跟着翻）
         assertEquals("09-20 04:30", formatDateTime("2026-09-19T20:30:00", shanghai))
+    }
+
+    @Test
+    fun `带年份那一档：同一时刻只多一个年份`() {
+        // 台账 L-39 / CHG-0066：订单号下面那行「创建于 …」用它（用户 2026-10-07：「它还有年份的」）。
+        // ⚠️ 不能只断言"比 formatDateTime 长"—— 漏掉时区换算的实现也会更长。这里把两个函数的
+        //    输出并排钉住：**同一时刻、同一时区，差的就是那个年份**。
+        assertEquals("2026-09-19 18:09", formatDateTimeFull("2026-09-19T10:09:36.713251", shanghai))
+        assertEquals("09-19 18:09", formatDateTime("2026-09-19T10:09:36.713251", shanghai))
+    }
+
+    @Test
+    fun `带年份那一档跨年也按本地算`() {
+        // UTC 2025-12-31 20:30 = 东八区 2026-01-01 04:30（年/月/日都要跟着翻）
+        assertEquals("2026-01-01 04:30", formatDateTimeFull("2025-12-31T20:30:00", shanghai))
+    }
+
+    @Test
+    fun `带年份那一档认不出来的形状也不崩`() {
+        assertEquals("2026-09-19", formatDateTimeFull("2026-09-19", shanghai))
+        assertEquals("", formatDateTimeFull(null, shanghai))
+        assertEquals("", formatDateTimeFull("  ", shanghai))
     }
 
     @Test

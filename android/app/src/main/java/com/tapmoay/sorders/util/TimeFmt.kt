@@ -42,6 +42,28 @@ fun formatDateTime(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String 
         iso.take(16).replace('T', ' ')
     }
 }
+/**
+ * 与 [formatDateTime] 同一个时刻，但**带年份**（`yyyy-MM-dd HH:mm`）。
+ *
+ * 台账 L-39 / CHG-0066：用户 2026-10-07（m11305）「订单详情的信息为什么只有月份和时间啊，
+ * 它还有年份的……我们要的那个就是**订单号的下面**……要显示年份的创建于是多少多少」——
+ * 订单号下面那一行「创建于 …」用它。
+ *
+ * ⛔ 「流转记录」那几条**不用**它（同一次里用户还说：「项目那个流转记录不需要显示年份」）：
+ *    那是同一张单先后走过的几步，年/月/日都是噪音。两端退货申请列表页同样没换。
+ *
+ * ⚠️ 与 [formatDateTime] 一样：naive 串按 UTC 解释再换算到设备时区（"所有时间早 8 小时"那个
+ *    缺陷就是这一处修掉的）；认不出来的形状退化成截断显示，不崩。
+ */
+fun formatDateTimeFull(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String {
+    if (iso.isNullOrBlank()) return ""
+    return runCatching {
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(parseBackendInstant(iso).atZoneSameInstant(zone))
+    }.getOrElse {
+        iso.take(16).replace('T', ' ')
+    }
+}
+
 
 /**
  * 后端时刻字符串 → 带时区的时刻。

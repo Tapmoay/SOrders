@@ -6072,6 +6072,24 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ---
 
+### [2026-10-07 00:45 → 进行中 CST] 会话：**CHG-0066 订单详情的时刻只给「创建于」与退货申请加年份（台账 L-45）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：用户 2026-10-07 在会话里当场报的第 ② 条（ref **m11305**）：订单详情里只有月份和时间、没有年份，要的是订单号下面那一行「信息要非常详细」；同一句里明确「项目那个流转记录不需要显示年份」⇒ **按位置分档**，不是全页统一换。
+
+**病灶**：全 App 只此一档时间格式 `util/TimeFmt.kt:36 formatDateTime` = `MM-dd HH:mm` ⇒ 屏幕上根本没有年份；而单号本身带着 8 位日期（`SO` + yyyyMMdd + 10 位随机数），两个时间源一个带年份一个不带，跨年的单只能靠猜。
+
+**改法（Android 3 个文件）**：① `util/TimeFmt.kt:58` 新增 `fun formatDateTimeFull(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String`，与不带年份那一档**只差** pattern（`:61` `DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")`），时刻口径逐字相同（`parseBackendInstant(iso).atZoneSameInstant(zone)`：后端 naive UTC → 设备本地）＋ 同样的 `runCatching` / `getOrElse` 截断兜底；② 详情页三处换档 —— `ui/order/OrderDetailScreen.kt:807` `"创建于 " + formatDateTimeFull(order.createdAt)`、`:1337` `"申请时间 " + formatDateTimeFull(req.createdAt)`、`:1356` `val at = formatDateTimeFull(req.handledAt)`；③ 流转记录那一块**逐字未动**（`:1381` SectionTitle「流转记录」＋ `:1383-1391` 六条 `TimeRow`，本体 `:2317-2333` 的 `private fun TimeRow(label: String, iso: String)` 体内 `:2328` 仍是 `formatDateTime(iso)`）；④ 单测 `android/app/src/test/java/com/tapmoay/sorders/util/TimeFmtTest.kt` 新增三个用例（同一时刻两档并排 `2026-09-19 18:09` / `09-19 18:09`、跨年 UTC `2025-12-31T20:30:00` → `2026-01-01 04:30`、认不出来的形状不崩）。
+
+**明确不碰**：`formatDateTime` 本体与其全部既有调用点（四张列表页、两端退货申请**列表**页、司机运费页的日期控件；调用点清单 = 4 处 = 定义 1 ＋ 详情页 3，判据逐处钉）＋ 流转记录六步的文案与顺序 ＋ 后端 / 接口 / 字段 / 时区基准（时间本来就是 ISO，年份一直在里面）＋ 历史变更单里写的旧事实。
+
+**判据 / 反验**：新增 `_tools/qa/_check_order_detail_time.py`（7 组：反空转 ／ 定义面（全仓恰一处 + pattern 带 yyyy + 与老档同一条时刻口径 + 签名逐字）／「创建于」换档且没退回 ／ 流转记录那一块 0 处带年份且 TimeRow 本体仍走老档 ／ 退货申请两个时刻 ／ 调用点清单 4 处且别的页面 0 处 ／ 单测并排钉两档与跨年 ／ 登记随动）＋ 新增 `_tools/qa/_reverse_verify_order_detail_time.py`（**11 种破坏方式**：「创建于」退回老档 ／ pattern 去掉 yyyy ／ 申请时间与办理时间退回 ／ 流转记录某一步被换档 ／ 定义被复制一份 ／ 签名被改 ／ TimeRow 本体换档 ／ 单测改回单档 ／ 别处多出调用点 ／ 文档编号被改）。
+
+**验证**（2026-10-07 跑完，逐条实测）：判据 `_check_order_detail_time.py` **39/39**（7 组）；反验 `_reverse_verify_order_detail_time.py` **11/11**（11 条注入逐条被抓、被注入的文件按字节还原）；`gradle :app:testEmuDebugUnitTest` = **1244 跑 / 1 红 / 2 skip**，其中 `TimeFmtTest` **8/8**（含新三条），红的那条是既存日期性 `AiHabitTest.kt:76`；`gradle :app:assembleEmuDebug` **BUILD SUCCESSFUL in 12s**（APK 44,490,930 字节）；全量静检 **203 脚本 / 202 ✅ / 1 ❌**（唯一红 `_check_backend_fresh.py`，环境性）；真机 emulator-5554 同一张单：改前 `shots/chg0065_before_5554_detail.png` 是「创建于 09-25 02:58」→ 改后 `shots/chg0065_after_5554_detail.png` 是「创建于 2026-09-25 02:58」，另 `shots/chg0066_after_5554_time.png` 同屏看到「申请时间 2026-09-25 02:58」与五条流转记录 `09-25 02:58`（两档并排）。
+
+**实现提交**：（归档提交回填）—— 本事项动 Android 3（`util/TimeFmt.kt`、`ui/order/OrderDetailScreen.kt`、`test/.../util/TimeFmtTest.kt`）＋ QA 2（判据与反验各一新）＋ 文档 4（`docs/PROJECT_MAP/08_CODE_LOCATOR.md`、`docs/changes/CHG-0066.md`、`docs/changes/README.md`、本文件））。
+
+---
+
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
@@ -6210,6 +6228,11 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 | 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_dialog_language.py`（6 组 45 项；docstring 写清台账 L-20 与用户原话 ref m00481 / m00542）＋ `_reverse_verify_dialog_language.py`（12 条注入，4 个被注入文件还原后逐字节一致） |
 | 2026-10-06 15:4x | **CHG-0064**（我，`session-bd8fe093`） | `_tools/qa/_check_ledger_dialog_style.py` ＋ `_tools/qa/_reverse_verify_ledger_dialog_style.py`（CHG-0051 的判据与反验，**多会话共读**） | 口径随动：`BARE_AFTER` 63 → **1**、`CARD_AFTER` 6 → **69**，「别处一处没动」那一组语义反过来（**一处不剩**）；反验那条注入的锚点改成含 tone 的调用点（本次迁移在每个调用点插了一行 tone，老形状的锚点会腐烂） |
 | 2026-10-07 01:2x | **CHG-0065**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0065.md`（新建，**两文件必须同一次提交**） | 在 CHG-0064 那一行之后追加 CHG-0065 登记行（`_check_dev_spec.py` 会为「加了文件没登记」当场变红） |
+| 2026-10-07 01:2x | **CHG-0066**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0066.md`（新建，**两文件必须同一次提交**） | 在 CHG-0065 那一行之后追加 CHG-0066 登记行 —— `_check_order_detail_time.py` 组 7 会读这两个文件（README 的链接 ＋ CHG 正文里的六个 token） |
+| 2026-10-07 01:2x | **CHG-0066**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**）：`_check_order_detail_time.py`（7 组）与 `_reverse_verify_order_detail_time.py`（11 种破坏方式） | 新增「时间按位置分档」这条红线；反验逐条证明它真的在检查 |
+| 2026-10-07 01:2x | **CHG-0065／CHG-0066**（我，`session-bd8fe093`） | `_tools/qa/` 里**六份既有脚本随动**（多会话共读）：`_check_order_row_columns.py`（新增 ③c 节 4 条 ＋ 金额右对齐与量画同源两处锚点改成 `netLineMoneyText`）、`_check_order_return_visible.py`（判据 6 与第 4 组标题改成「件数与金额都画净数」）、`_check_detail_inline_edit.py`（合计断言改成走共用口径）＋ 对应三份反验的注入锚点 | 口径从「退货只红冲账本、客户端金额逐字未动」（CHG-0054）改成「钱也画净额」；三份判据的标签/期望关键词同步 |
+| 2026-10-07 01:2x | **CHG-0065／CHG-0066**（我，`session-bd8fe093`） | `android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt`（**两个 CHG 都动这一个文件，两笔提交要按 CHG 拆开**）＋ `android/app/src/main/java/com/tapmoay/sorders/util/TimeFmt.kt` ＋ `android/app/src/test/java/com/tapmoay/sorders/util/TimeFmtTest.kt` | 详情页：两个净额换算函数（`:649` / `:659`）＋ 行金额量画换净额（`:1147` / `:1204`）＋ 合计走 `netOrderMoneyText`（`:734`）＋「已退 ¥X」小字（`:1263-1266`）；三处时刻换档（`:807` / `:1337` / `:1356`）。TimeFmt：新增 `formatDateTimeFull`（`:58`，pattern `yyyy-MM-dd HH:mm`）。单测：三个新用例（并排两档 / 跨年 / 退化） |
+| 2026-10-07 01:2x | **CHG-0065／CHG-0066**（我，`session-bd8fe093`） | `docs/PROJECT_MAP/06_DESIGN_SYSTEM.md:1074` 那一节（设计基线，多会话共写）＋ `docs/PROJECT_MAP/08_CODE_LOCATOR.md:239` 与 `:246`（定位表，多会话共写）＋ 用户台账 `_tmp/USER_BUG_LEDGER_20261006.md`（**用户交来的只读台账，改它要走「补记」而不是改旧记录**） | 设计基线：4.20 那一节补「金额一列从 CHG-0065 起也是净数」并把过期的判据规模（32 项 / 12 种注入）改成现状；定位表：订单详情页那行补坐标、时间格式化那行写清两档；台账：补第二次收口 ＋ 索引表 L-44/L-45 ＋ 两个章节 ＋ 附录 T |
 
 ---
 

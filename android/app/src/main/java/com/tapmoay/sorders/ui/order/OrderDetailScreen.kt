@@ -804,7 +804,7 @@ private fun DetailBody(
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "创建于 " + formatDateTime(order.createdAt),
+                        "创建于 " + formatDateTimeFull(order.createdAt),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
@@ -1334,7 +1334,7 @@ private fun DetailBody(
                         }
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "申请时间 " + formatDateTime(req.createdAt),
+                            "申请时间 " + formatDateTimeFull(req.createdAt),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1353,7 +1353,7 @@ private fun DetailBody(
                                     append("已由 ")
                                     append(req.handledByName.ifBlank { "派单员" })
                                     append(" 办理")
-                                    val at = formatDateTime(req.handledAt)
+                                    val at = formatDateTimeFull(req.handledAt)
                                     if (at.isNotBlank()) append(" · ").append(at)
                                 },
                                 style = MaterialTheme.typography.bodySmall,
