@@ -54,6 +54,15 @@ data class AlertEvent(
     val dedupeKey: String,
 )
 
+/**
+ * `sync` 回补里的一条候选（2026-10-06 CHG-0055）：重连后要判断"这一条该不该补响一声"。
+ *
+ * 只带判定要用的三样：事件类型、单号、标题（标题只进播报文案，不参与判定）。
+ * 与 [AlertEvent] 分开是因为它比后者**更早**一步：候选里混着撤回、送达、改单这些
+ * 根本不该响的事件，先得由 [NewOrderAlert.ringbackOf] 挑出那一条，才轮得到 [AlertEvent]。
+ */
+data class RingItem(val type: String, val orderId: Long?, val title: String)
+
 object NewOrderAlert {
 
     /**
@@ -309,6 +318,94 @@ object NewOrderAlert {
         // 派单员那条同理：这一单已经处理完了，之后它若又回到待派池（撤销后重开、拆单等），
         // 那是一次**新的**待派单，必须重新响。
         seen.remove("pending:" + orderId)
+    }
+
+    /**
+     * 「已响过」记录的保留窗口：**一天**。
+     *
+     * 比 [DEDUPE_MS]（60 秒，防两条链路推同一件事）长得多，因为它防的是另一件事：
+     * 进程被杀 / 冷启动后重连，后端会把断线期间那批站内信**再补一遍** ——
+     * 内存里那份 `announced` 已经随进程没了，只有落盘的记录能回答"这一声我之前响过没有"
+     * （用户 2026-10-06 的口径：**响过了就没必要，没响的话就要响**）。
+     * 一天足够覆盖"司机今天出车"这一段；超窗的记录在读的时候就丢掉了。
+     */
+    const val RUNG_KEEP_MS = 24 * 60 * 60 * 1000L
+
+    /** 「已响过」最多记多少条：超了从最旧的丢。这不是业务口径，是防"越攒越长"。 */
+    const val RUNG_MAX = 64
+
+    /**
+     * 读落盘的「已响过」记录（`AlertPrefs.rungKeys`）：`key@时间戳;key@时间戳`。
+     *
+     * ⛔ 坏行一律丢掉、不抛异常：这个串只由本机进程写，格式坏了最多是升级时的残留，
+     *    而"读失败"**不该**让新单不响（少一条记录 = 多响一声，比不响安全得多）。
+     */
+    fun rungDecode(raw: String?, now: Long): MutableMap<String, Long> {
+        val out = mutableMapOf<String, Long>()
+        raw?.split(';')?.forEach { part ->
+            val cut = part.lastIndexOf('@')
+            if (cut <= 0) return@forEach
+            val at = part.substring(cut + 1).toLongOrNull() ?: return@forEach
+            out[part.substring(0, cut)] = at
+        }
+        rungTrim(out, now)
+        return out
+    }
+
+    /** 写回盘上：按时间升序拼（老的在前，人肉看的时候顺序与发生顺序一致）。 */
+    fun rungEncode(seen: Map<String, Long>): String =
+        seen.entries.sortedBy { it.value }.joinToString(";") { it.key + "@" + it.value }
+
+    /** 裁剪：先丢掉超过 [RUNG_KEEP_MS] 的，条数超过 [RUNG_MAX] 时只留最新的那些。 */
+    fun rungTrim(seen: MutableMap<String, Long>, now: Long) {
+        seen.entries.removeAll { now - it.value > RUNG_KEEP_MS }
+        if (seen.size <= RUNG_MAX) return
+        val keep = seen.entries.sortedByDescending { it.value }.take(RUNG_MAX).map { it.key }
+        seen.keys.retainAll(keep.toSet())
+    }
+
+    /** 记一条"响过了"（顺手裁一次，别让这份记录一直长）。 */
+    fun markRung(seen: MutableMap<String, Long>, key: String, now: Long) {
+        seen[key] = now
+        rungTrim(seen, now)
+    }
+
+    /**
+     * 回补（重连 / 登录后的 `sync`）里该补响哪一条；没有就返回 null。
+     *
+     * ⛔ 为什么必须有这个函数（2026-10-06 CHG-0055，台账 L-26）：
+     *    `sync` 那条分支只把回补的站内信推进通知栏、**一声不响**（代码注释自己写着
+     *    "司机错过新单的三层提醒在重连这条路径上是空的"）。于是车子发动前才登录、
+     *    或者路上断网那一段被派的单：通知栏里躺着，人在车上不会翻通知栏 —— 而那正是
+     *    他最需要听见的一声。用户原话：「假如司机登录了账号，这时候有个订单派给他了，
+     *    他就直接开始响铃……**那个铃声要响的，不是不响**」。
+     *
+     * 三条"自己不响"的规矩都在这里：
+     *   · 只补**还在等他动手**的那一声（[voiceKind] 那一类）：撤回/取消不补
+     *     （错过的活已经没了，为它喊一嗓子只会让人以为又来了一单）；
+     *   · 同一单在它**之后**还有"该闭嘴了"的信号（接单 / 送达 / 撤回 / 派完）⇒ 这单不用他管了，不补；
+     *   · 一次只补**最新的一条**（其余只进通知栏）：回补可能一次带来十几条，全放出来就是十几段语音叠着响。
+     *
+     * `rung` 是落盘的"已响过"（[rungDecode] 的产物）：命中就说明这一声之前已经响过，不再补。
+     * 传进来的 `items` 按**时间升序**（后端取最新那批之后客户端 reverse），所以从后往前找第一条。
+     */
+    fun ringbackOf(items: List<RingItem>, role: Role?, rung: Map<String, Long>): RingItem? {
+        val kind = voiceKind(role) ?: return null
+        val stopped = mutableSetOf<Long>()
+        for (i in items.indices.reversed()) {
+            val item = items[i]
+            // "这单结束了"的信号：先把它记下来，再判它**前面**那些候选该不该补
+            if (shouldStop(item.type)) {
+                item.orderId?.let { stopped += it }
+                continue
+            }
+            val ev = eventOf(item.type, item.orderId, item.title) ?: continue
+            if (ev.kind != kind) continue
+            if (item.orderId != null && item.orderId in stopped) continue
+            if (rung.containsKey(ev.dedupeKey)) continue
+            return item
+        }
+        return null
     }
 
     /** 设置页显示的档位文案（用户看不懂「0 次」是什么意思） */

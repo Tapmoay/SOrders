@@ -21,6 +21,7 @@ class AlertPrefs(context: Context) {
         const val BACKGROUND = "background_enabled"
         const val BOOST = "boost_volume"
         const val LAST_NOTIFICATION_ID = "last_notification_id"
+        const val RUNG = "rung_keys"
         const val NOTIFY_TOKEN = "notify_token"
     }
 
@@ -68,6 +69,17 @@ class AlertPrefs(context: Context) {
     var lastNotificationId: Long
         get() = sp.getLong(Keys.LAST_NOTIFICATION_ID, 0L)
         set(v) = sp.edit().putLong(Keys.LAST_NOTIFICATION_ID, v).apply()
+
+    /**
+     * 「已响过」的记录：去重键 → 响的时间，编码/裁剪/超窗都在 [NewOrderAlert.rungDecode]。
+     *
+     * ⛔ 为什么必须落盘：`RealtimeHub.announced` 只活在进程里；进程被杀之后重连，
+     *    后端会把断线期间那批站内信**再补一遍** —— 盘上没有这份记录，那一批单就会再响一遍，
+     *    而用户 2026-10-06 的口径是「**响过了就没必要；没响的话就要响**」。
+     */
+    var rungKeys: String
+        get() = sp.getString(Keys.RUNG, "") ?: ""
+        set(v) = sp.edit().putString(Keys.RUNG, v).apply()
 
     /**
      * 「这条 intent 真的是本机通知发出来的」凭据：每安装一个随机串，只落在本机私有存储。

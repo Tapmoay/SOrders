@@ -466,4 +466,88 @@ class NewOrderAlertTest {
             NewOrderAlert.summary(Role.DRIVER, true, voiceEnabled = true, repeat = NewOrderAlert.FOREVER, background = true),
         )
     }
+
+    // ---- 回补补响（2026-10-06 CHG-0055，台账 L-26）：重连/登录后那批站内信里该补响哪一条 ----
+
+    @Test
+    fun `回补里最新的一条新单要补响（只补一条）`() {
+        // 用户原话：假如司机登录了账号，这时候有个订单派给他了，他就直接开始响铃 ——
+        // 那个铃声要响的，不是不响。回补里可能一次带来十几条，所以只补**最新**那一条。
+        val items = listOf(
+            RingItem("order.assigned", 11L, "新派单"),
+            RingItem("order.assigned", 12L, "新派单"),
+        )
+        val pick = NewOrderAlert.ringbackOf(items, Role.DRIVER, emptyMap())
+        assertNotNull(pick)
+        assertEquals(12L, pick?.orderId ?: 0L)
+    }
+
+    @Test
+    fun `响过的那一单不再补响`() {
+        // 用户原话：断网要分情况 —— 响过了就没必要，没响的话就要响。
+        val items = listOf(RingItem("order.assigned", 12L, "新派单"))
+        val key = NewOrderAlert.eventOf("order.assigned", 12L, "")?.dedupeKey ?: ""
+        assertNull(NewOrderAlert.ringbackOf(items, Role.DRIVER, mapOf(key to 1_000L)))
+    }
+
+    @Test
+    fun `后面已经接单的那一单不补响`() {
+        // 这一单在他离线期间被派给他、又被他（或别人）接掉了：错过的活已经不用他管，
+        // 为它喊一嗓子只会让人以为又来了一单。
+        val items = listOf(
+            RingItem("order.assigned", 12L, "新派单"),
+            RingItem("order.driver_ack", 12L, ""),
+        )
+        assertNull(NewOrderAlert.ringbackOf(items, Role.DRIVER, emptyMap()))
+    }
+
+    @Test
+    fun `撤回的与货主的一条都不补响`() {
+        // 撤回/取消不是还在等他动手的那一声；货主那条路上根本没有语音播报这件事。
+        assertNull(NewOrderAlert.ringbackOf(listOf(RingItem("order.revoked", 12L, "任务被撤回")), Role.DRIVER, emptyMap()))
+        assertNull(NewOrderAlert.ringbackOf(listOf(RingItem("order.assigned", 12L, "新派单")), Role.SHIPPER, emptyMap()))
+    }
+
+    @Test
+    fun `派单员补的是待派单那一条`() {
+        val items = listOf(
+            RingItem("order.assigned", 22L, "新派单"),
+            RingItem("order.created", 21L, "新订单"),
+        )
+        val pick = NewOrderAlert.ringbackOf(items, Role.DISPATCHER, emptyMap())
+        assertEquals(21L, pick?.orderId ?: 0L)
+    }
+
+    @Test
+    fun `已响过的记录能写能读`() {
+        val seen = mutableMapOf("assigned:1" to 1_000L, "pending:2" to 2_000L)
+        val raw = NewOrderAlert.rungEncode(seen)
+        assertEquals("assigned:1@1000;pending:2@2000", raw)
+        assertEquals(seen, NewOrderAlert.rungDecode(raw, 3_000L))
+    }
+
+    @Test
+    fun `坏掉的记录不许让新单不响`() {
+        // 读失败只能是"少一条记录 = 多响一声"，绝不能反过来。
+        val seen = NewOrderAlert.rungDecode(";garbage;assigned:9@abc;pending:8@100", 200L)
+        assertEquals(setOf("pending:8"), seen.keys)
+    }
+
+    @Test
+    fun `超窗的已响过记录会被丢掉`() {
+        val seen = mutableMapOf("assigned:1" to 0L, "assigned:2" to NewOrderAlert.RUNG_KEEP_MS)
+        NewOrderAlert.rungTrim(seen, NewOrderAlert.RUNG_KEEP_MS + 1)
+        assertEquals(setOf("assigned:2"), seen.keys)
+    }
+
+    @Test
+    fun `记录太多时只留最新的那些`() {
+        val seen = mutableMapOf<String, Long>()
+        for (i in 1..NewOrderAlert.RUNG_MAX + 5) {
+            NewOrderAlert.markRung(seen, "assigned:" + i, i.toLong())
+        }
+        assertEquals(NewOrderAlert.RUNG_MAX, seen.size)
+        assertTrue(seen.containsKey("assigned:" + (NewOrderAlert.RUNG_MAX + 5)))
+        assertFalse(seen.containsKey("assigned:1"))
+    }
 }

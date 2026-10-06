@@ -128,8 +128,12 @@ class RealtimeHub(private val container: AppContainer) {
                 // 而回补窗口本身也退化成"补最旧的 200 条"（后端已改），于是断线期间的消息
                 // 既不会变成系统通知、也不会播报 —— 司机错过新单的三层提醒在重连这条路径上是空的。
                 // 现在：① 逐条补发系统通知（白名单里的订单事件走订单通知，其余走消息通知）；
-                //      ② 游标**落盘**（`AlertPrefs.lastNotificationId`），进程重启不再归零。
+                //      ② 游标**落盘**（`AlertPrefs.lastNotificationId`），进程重启不再归零；
+                //      ③ **补响**（2026-10-06 CHG-0055，台账 L-26）——回补的这一条也可能是
+                //         "他还没听见的那一单"，判定见 [NewOrderAlert.ringbackOf]。
                 val list = e.data["notifications"]
+                // ③ 的候选：整批看完再决定补哪一条（"只补最新一条"这条口径要看到全批）
+                val rungCandidates = mutableListOf<RingItem>()
                 if (list is List<*>) {
                     list.forEach { item ->
                         val m = item as? Map<*, *> ?: return@forEach
@@ -146,10 +150,14 @@ class RealtimeHub(private val container: AppContainer) {
                                 container.notifyCenter.postMessage(title, content, id)
                             }
                         }
+                        // ③ 候选：回补里的这一条（含撤回/送达这类"不该响"的，由纯判定去挑）
+                        rungCandidates += RingItem(ntype, PushTrust.orderIdOf(m), title)
                         if (ntype.startsWith("order.")) _refreshOrders.tryEmit(Unit)
                         bumpCursor(id)
                     }
                 }
+                // 断线 / 还没登录那段时间被派的单，在重连这一刻补响一声（判定见 [NewOrderAlert.ringbackOf]）
+                ringback(rungCandidates)
                 _unreadCount.value = (e.data["unread_count"] as? Number)?.toLong() ?: 0L
             }
             "notification" -> {
@@ -233,15 +241,59 @@ class RealtimeHub(private val container: AppContainer) {
         // 站内信与 realtime 两条链路都会走到这里：撤回/取消这一类"该闭嘴了"的信号
         // 顺手把该单的新单去重键作废（R14-14），否则撤回后重派没人响。
         NewOrderAlert.forgetOnStop(announced, type, orderId)
+        // 同一条作废口径也要落到盘上：内存那份随进程消失，而盘上那条"已响过"若留着，
+        // 撤回之后重新派给同一个司机就会被它吞掉（R14-14 的原形）。
+        forgetRungOnStop(type, orderId)
         val ev = NewOrderAlert.eventOf(type, orderId, title) ?: return
         if (!NewOrderAlert.speaks(role, ev.kind)) return
         val now = System.currentTimeMillis()
         if (NewOrderAlert.isDuplicate(announced, ev.dedupeKey, now)) return
         announced[ev.dedupeKey] = now
+        // 落盘（2026-10-06 CHG-0055）：回补补响时靠它回答"这一声之前响过没有"，
+        // ⛔ 少了这一行，每次冷启动重连都会把断线期间那批单**再响一遍**。
+        markRung(ev.dedupeKey, now)
         container.newOrderPlayer.play(
             ev.kind,
             NewOrderAlert.planFor(ev.kind, container.alertPrefs.repeatTimes),
         )
+    }
+
+
+    /**
+     * 回补补响（2026-10-06 CHG-0055，台账 L-26）。用户原话：「假如司机登录了账号，这时候有个订单
+     * 派给他了，他就直接开始响铃……**那个铃声要响的，不是不响**」「断网期间：响过了就没必要，
+     * 没响的话就要响」。
+     *
+     * ⛔ 缺口形状：`sync` 那条分支原来**只有系统通知、一声不响** —— 司机登录前 / 断网期间被派的单
+     *    在通知栏里躺着，而人在车上不会翻通知栏：这条路径上"三层提醒"只有一层。
+     * 判定在 [NewOrderAlert.ringbackOf]（纯函数、有单测）：只补还在等他的那一声、一次只补最新的一条。
+     */
+    private fun ringback(candidates: List<RingItem>) {
+        if (candidates.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val rung = NewOrderAlert.rungDecode(container.alertPrefs.rungKeys, now)
+        val pick = NewOrderAlert.ringbackOf(candidates, role, rung) ?: return
+        // 与实时那条路走**同一个入口**：播放、内存去重、落盘都在 announce 里。
+        // 这里再判一遍"该不该响"就会有两处口径，而它们迟早会漂。
+        announce(pick.type, pick.orderId, pick.title)
+    }
+
+    /** 把一条"响过了"记到盘上（失败静默：记不上最多多响一声，不能让它挡住播报）。 */
+    private fun markRung(key: String, now: Long) {
+        val seen = NewOrderAlert.rungDecode(container.alertPrefs.rungKeys, now)
+        NewOrderAlert.markRung(seen, key, now)
+        runCatching { container.alertPrefs.rungKeys = NewOrderAlert.rungEncode(seen) }
+    }
+
+    /**「这单结束了」时把盘上那条"已响过"也作废（与内存那份同一口径，见 [announce]）。 */
+    private fun forgetRungOnStop(type: String, orderId: Long?) {
+        if (orderId == null || !NewOrderAlert.shouldStop(type)) return
+        val now = System.currentTimeMillis()
+        val seen = NewOrderAlert.rungDecode(container.alertPrefs.rungKeys, now)
+        val before = seen.size
+        NewOrderAlert.forgetOnStop(seen, type, orderId)
+        if (seen.size == before) return  // 盘上本来就没有这两个键：不必写一次
+        runCatching { container.alertPrefs.rungKeys = NewOrderAlert.rungEncode(seen) }
     }
 
     /**

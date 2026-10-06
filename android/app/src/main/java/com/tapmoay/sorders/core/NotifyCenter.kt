@@ -14,11 +14,29 @@ import com.tapmoay.sorders.R
 /** 通知渠道 id。**改这里必须同时改系统设置里的旧渠道**，所以定了就别动。 */
 object NotifyChannels {
 
-    /** 派单/新单/撤回：要横幅、要震动，但**不出系统提示音**（声音由 App 自己放，见 NewOrderPlayer） */
+    /**
+     * 旧的派单渠道：**只留定义、不再往这里发**（2026-10-06 CHG-0055）。
+     *
+     * ⛔ 安卓的渠道是**一次性**的：`createNotificationChannels` 对已存在的 id 只更新名字与描述，
+     *    importance / 声音 / 震动都归用户在系统设置里管 —— 想给"派单与新单"把震动补回来、
+     *    或让"消息"带上系统提示音，**只能换一个新的 id**（[ORDERS_ALERT] / [MESSAGES_ALERT]）:
+     *    只改这一份定义，在老用户机器上**什么都不变**。
+     *    定义留着不删：删了只是让新装机器没这条渠道，而老机器上用户改过的设置与旧记录还在，
+     *    渠道名也要跟着改成"（旧）"—— 两个同名的渠道摆在一起，用户没法判断该关哪个。
+     */
     const val ORDERS = "orders"
 
-    /** 普通站内信：静默进通知栏，不打断 */
+    /**
+     * 派单/新单/撤回（2026-10-06 起实际发的是这一条）：要横幅、要震动，
+     * 但**不出系统提示音**（声音由 App 自己放，才停得下来，见 [NewOrderPlayer]）。
+     */
+    const val ORDERS_ALERT = "orders_alert"
+
+    /** 旧的普通站内信渠道：同上，只留定义（这一条从前是**静默**进通知栏的） */
     const val MESSAGES = "messages"
+
+    /** 普通站内信（2026-10-06 起实际发的是这一条）：带系统提示音、要震动。 */
+    const val MESSAGES_ALERT = "messages_alert"
 
     /** 前台服务常驻通知：最低优先级，只为了让用户知道"它在后台收单"并能一键停 */
     const val SERVICE = "service"
@@ -50,10 +68,24 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
                 // 震动交给渠道（跟着用户的系统设置走），所以 App 里不再自己振。
                 NotificationChannel(
                     NotifyChannels.ORDERS,
+                    "派单与新单（旧）",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "旧渠道：App 已改用「派单与新单」，这一条不再发送"
+                    setSound(null, null)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 400)
+                    enableLights(true)
+                },
+                // ⭐ 2026-10-06（CHG-0055，台账 L-26）：实际发送的派单渠道。
+                // 用户原话「通知来的时候手机要震动一下，这个是要有的」——老渠道上这个开关
+                // 是用户在系统设置里可以关掉的，而换 id 之后它是一次**新的**默认（震动开）。
+                NotificationChannel(
+                    NotifyChannels.ORDERS_ALERT,
                     "派单与新单",
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
-                    description = "有新派单、任务被撤回时提醒（语音播报由 App 负责）"
+                    description = "有新派单、任务被撤回时提醒（语音播报由 App 负责，会震动）"
                     setSound(null, null)
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 400)
@@ -61,10 +93,23 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
                 },
                 NotificationChannel(
                     NotifyChannels.MESSAGES,
-                    "消息",
+                    "消息（旧）",
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply {
-                    description = "订单状态、账本、价格等站内消息"
+                    description = "旧渠道：App 已改用「消息」，这一条不再发送"
+                },
+                // ⭐ 2026-10-06（CHG-0055，台账 L-26）：实际发送的消息渠道。
+                // 用户原话「系统通知的声音太小了」——老渠道是 IMPORTANCE_DEFAULT 且**不振**；
+                // 这里抬到 HIGH（有横幅、有系统提示音）并**明确打开震动**：
+                // 「所有通知都要震动」。
+                NotificationChannel(
+                    NotifyChannels.MESSAGES_ALERT,
+                    "消息",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "订单状态、账本、价格等站内消息（有提示音，会震动）"
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 400)
                 },
                 // 渠道名要与时俱进（2026-10-04 CHG-0030）：它是**整机共享**的一条，
                 // 不能只写"派单"——货主/批发商同样会看到它（见 NewOrderAlert.serviceNotice）。
@@ -86,7 +131,7 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
     fun postOrder(orderId: Long?, title: String, body: String) {
         if (!canPost()) return
         ensureChannels()
-        val n = NotificationCompat.Builder(context, NotifyChannels.ORDERS)
+        val n = NotificationCompat.Builder(context, NotifyChannels.ORDERS_ALERT)
             .setSmallIcon(R.drawable.ic_stat_order)
             .setContentTitle(title)
             .setContentText(body)
@@ -117,7 +162,7 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
     fun postMessage(title: String, body: String, notificationId: Long = 0L) {
         if (!canPost()) return
         ensureChannels()
-        val n = NotificationCompat.Builder(context, NotifyChannels.MESSAGES)
+        val n = NotificationCompat.Builder(context, NotifyChannels.MESSAGES_ALERT)
             .setSmallIcon(R.drawable.ic_stat_order)
             .setContentTitle(title)
             .setContentText(body)
