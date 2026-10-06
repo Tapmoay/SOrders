@@ -5921,7 +5921,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：判据 `_check_order_place_map.py` → ✅ 84 项全过；反验 → ✅ 22/22（21 条注入 ＋ 还原后全绿）；编译 `gradle -p android :app:compileEmuDebugKotlin` → **BUILD SUCCESSFUL in 9s**（既有 deprecation 警告：Notes / MyLocation 图标 ＋ `OrderDetailScreen.kt` 四颗 `HintOnce`）；全量静检 `_check_all.py` → 191 项：189 ✅ / 2 ❌（`_tools/qa/_check_backend_fresh.py`：跑过反向验证后本机后端进程跑的是注入前那份旧代码，必然报这条；`_tools/qa/_check_report_facts.py` 的 2 条：`docs/RELEASE_CANDIDATE.md` 里没记 `VERSION 0.2.5`（另一会话刚改过 `VERSION`）＋ `_tools/ops/_migration_tests.py --concurrent` 在 Windows 本机互斥上跑不通 —— 两条红都与本事项无关；本事项新增的 `_check_order_place_map.py` 在这一跑里显示 `✅ 全部 84 项通过。`）；可达性 → 172/172、markdown 链接 349 条全有效、孤儿 0。
 
-**实现提交**：`（实现提交待落，归档提交回填）`（2026-10-06 07:4x CST）—— 1 个已改 `.kt`（`ui/order/OrderDetailScreen.kt`）／ 1 个新建 `.kt`（`ui/common/AmapViewDialog.kt`）／ 2 份新 QA（`_check_order_place_map.py` ＋ `_reverse_verify_order_place_map.py`）／ 生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（`.kt` 行号漂移重生成）／ 三份文档（`docs/changes/CHG-0053.md` ＋ `docs/changes/README.md` ＋ `docs/AI_WORK_CLAIM.md`）。
+**实现提交**：`8ec6100`（2026-10-06 07:5x CST）—— 1 个已改 `.kt`（`ui/order/OrderDetailScreen.kt`）／ 1 个新建 `.kt`（`ui/common/AmapViewDialog.kt`）／ 2 份新 QA（`_check_order_place_map.py` ＋ `_reverse_verify_order_place_map.py`）／ 生成物 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（`.kt` 行号漂移重生成）／ 三份文档（`docs/changes/CHG-0053.md` ＋ `docs/changes/README.md` ＋ `docs/AI_WORK_CLAIM.md`）。
 ---
 
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
