@@ -90,7 +90,7 @@
 | 只读烟测 | `_prod_smoke.py --readonly`：**31 通过 / 3 已批准告警 / 0 不一致**（发布前是「29 通过 / 3 告警 / **2 不一致**」—— 那两条「生产代码 ≠ HEAD」「库结构 ≠ 28」正是本次消掉的）；已批准告警仍是 Redis 设口令 / MySQL 时区 UTC / 生产路由数 202 ≠ 快照 167 |
 
 ⛔ **本次后端与 Android 一起发**：八步（backup → stage → migrate → verify → start → health → smoke → business）全过、`release-exit=0`（日志 `_tmp/release_027.txt`）。
-⚠️ 第 8 步 business 是**人工有限写烟测**（脚本故意不自动化）—— 本次**仍未逐条做**，要按 `docs/PRODUCTION_ACCEPTANCE.md` §三 走一遍并留痕。
+✅ 第 8 步 business 是**人工有限写烟测**（`_release.py` 故意不自动化）—— 2026-10-08 01:0x CST **已补做并留痕**：`python _tools/ops/_canary_live_write.py` 三阶段全绿（脚本自检 **8/8**，三次都拿到 `RESULT|OK`、退出码 0）：`--phase create` 建演练单 **id=20904 / SO202610087129642729**（送货地址带标记「R4 演练单」，运费 66.00，派单后 `DISPATCHED`）→ `--phase refreight --order 20904`（运费改 **77.00**，`pricing kind = legacy_client`）→ `--phase cancel --order 20904`（状态 `CANCELLED`，**撤销而不是删除**）。
 
 **APK 这一次**（0.2.7 / 2026100801）：`assemblePhoneRelease`（Gradle 8.9 ＋ `-PapiBaseUrl=https://8.145.40.22`，⛔ 没改 `android/local.properties`）→ `check_phone_apk.py` ✅（versionName 0.2.7 / versionCode 2026100801 / 含 `arm64-v8a` 与 `armeabi-v7a` / 编译进包的 BuildConfig 是生产地址）→ `publish_apk.py` 上传 `sorders-0.2.7-2026100801.apk` ＋ 刷新 `sorders-latest.apk` ＋ 重写 `version.json`，回读 `version 0.2.7 / versionCode 2026100801 OK`、探包 `206`。
 ⚠️ **这一趟踩到一个坑（发布后已修）**：`publish_apk.py --note` 的中文说明在 **Windows PowerShell 5.1** 下被 `Get-Content` 按 **gb2312** 解码 ⇒ 写进线上 `version.json` 的 `note` 是乱码；发现后用 base64 直写线上文件修正、经 HTTP 回读**逐字一致**（0.2.6 那份 note 也呈同类乱码特征）。治本（给脚本加 `--note-file`／写盘前编码自检）记入台账待拍板。
@@ -227,5 +227,5 @@ systemctl start sorders-api
 1. ✅ **发布已执行**：`python _tools/deploy/_release.py --all --go` 八步全过、`release-exit=0`（后端与 Android 一起发）；
 2. ✅ 生产**就在发布点** `fd43e1d8b51bcca6b093902e5d7ea8107d9bd3e4`，`/health` version `0.2.7`、结构版本 **28**（仓库头 = 生产现状：待跑 0 / 漂移 0 / 陌生版本 0）；
 3. ✅ 更新链现读：线上 `version.json` = `0.2.7` / `2026100801` / `sorders-0.2.7-2026100801.apk`，`_tools/deploy/_check_update_flow.py` **43/43**；
-4. ⚠️ 第 8 步 business 的**有限写烟测仍是人工**、本次**尚未做**（脚本故意不自动化）；仓库里有带硬限制的 `_tools/ops/_canary_live_write.py`（只肯动 R4 演练单、撤销不删除），待用户点头再跑；
+4. ✅ 第 8 步 business 的**有限写烟测已于 2026-10-08 01:0x CST 补做**（用户点头后才跑）：带硬限制的 `_tools/ops/_canary_live_write.py`（只肯动 R4 演练单、撤销不删除）三阶段全绿 —— 建单 **20904** → 改运费 **77.00** → **CANCELLED**，自检 8/8，详见 §三「0.2.7 发布」那段末尾；
 5. ⚠️ 新增一条已知坑：线上 `version.json` 的 `note` 中文在 **Windows PowerShell 5.1** 下会被 `Get-Content` 的 gb2312 解码打乱（本次已用 base64 直写修正，治本待定）。

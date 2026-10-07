@@ -7610,7 +7610,7 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 
 **判据 / 证据**：`docs/RELEASE_CANDIDATE.md` 整张表现取重填（Git SHA `fd43e1d`、迁移 **28**、Android ＋ Backend **0.2.7**、config checksum systemd `7450d600ccfa8b86` ／ nginx `98dd5c2f1ee050630048ffa356cf754b` ／ requirements `4f6f3ad341928200`、artifact **45,309,605 字节 / `2957723DCD3416E6`**）＋ 新增「0.2.7 发布（只读采集）」与「2026-10-08 复核」两小节；`_tools/deploy/_check_update_flow.py` **43/43**；发布后 `_prod_smoke.py --readonly` **31 通过 / 3 已批准告警 / 0 不一致**（发布前那两条不一致已消）；`/health` 实测 `{"status":"ok","version":"0.2.7",…}`。
 
-**⚠️ 已知局限**：① §三 的**人工有限写烟测本次仍未做**（`_release.py` 的 business 步故意不自动化；仓库里现成的 `_tools/ops/_canary_live_write.py` 带「只肯动 R4 演练单」硬限制，未跑）；② 发布后发现线上 `version.json` 的 `note` 是乱码 —— 本次用 `Get-Content` 读 UTF-8 备注文件，**Windows PowerShell 5.1 按 gb2312 解码**后传给了 `--note`（0.2.6 那份 note 也呈同类乱码特征）；已用 base64 直写线上 `version.json` 修正、回读逐字一致，治本（`--note-file` / 写盘前编码自检）记入台账待拍板；③ 真机核验只装过模拟器 emu 包，release 包只做包内校验。
+**⚠️ 已知局限**：① §三 的**人工有限写烟测已于 2026-10-08 01:0x CST 补做**（用户 m26776 点头后才跑；`_tools/ops/_canary_live_write.py` 自检 8/8：create **20904** → refreight **77.00** → cancel **CANCELLED**，三次 `RESULT|OK`）；② 发布后发现线上 `version.json` 的 `note` 是乱码 —— 本次用 `Get-Content` 读 UTF-8 备注文件，**Windows PowerShell 5.1 按 gb2312 解码**后传给了 `--note`（0.2.6 那份 note 也呈同类乱码特征）；已用 base64 直写线上 `version.json` 修正、回读逐字一致，治本（`--note-file` / 写盘前编码自检）记入台账待拍板；③ 真机核验只装过模拟器 emu 包，release 包只做包内校验。
 
 **明确不碰**：业务代码与库表结构（本刀上线的是 0.2.6 之后那 39 个提交早已提交的实现）；`docs/PRODUCTION_ACCEPTANCE.md` §三 的人工清单本身。
 
