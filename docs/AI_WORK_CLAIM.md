@@ -6459,6 +6459,28 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-08 01:0x → 01:4x CST 已关闭] 会话：**CHG-0081 司机「任务列表」的订单卡片最底下直接给一颗「确认接单」——接单不必再进详情页**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
+
+**用户原话**（ref **m00001**）：「你要做的就是我们司机端，他不是有一个可以要确认订单吗？就是接订单嘛，这个确认订单，他的按钮是进入订单详情面才能确认这个就太麻烦了，直接把它改一下改成他不是有订单那个卡片吗？呃直接在订单卡片里面的最底下是有一个呃按钮，他可以直接在那里点击确认这样子的话，他就很方便了他就不需要直接的点进去啊？进行确认就可以了」。台账：`_tmp/USER_BUG_LEDGER_20261006.md` **L-51**（本单补记 —— 该台账原有的 L-01…L-48 只覆盖 2026-10-06 那一轮走查）。
+
+**病灶**：司机「任务列表」的卡片只有 `onClick = { onOpenOrder(order.id) }` 一个动作 —— 要接单得 点卡 → 进详情页 → 滑到页面底部 → 点那颗绿底「确认接单」→ 再返回。一屏三四张单时每张都要走一遍来回。接单这件事、那颗按钮、那条端点（`POST /orders/{id}/driver-ack`）都是现成的，缺的只是**入口的位置**。
+
+**改法（3 个 Android 文件 ＋ 2 份新判据 ＋ 1 条既有误报修正 ＋ 5 份文档，边界结论 PRESENTATION）**：
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderCard.kt`：新增**第三个可选槽** `bottomAction: @Composable ColumnScope.() -> Unit = {}`（`:133`，写在 `extra` 之后；KDoc 写明"为什么另开槽不塞进 `extra`"），在卡片 Column 里、动作行 Row（`leading()` / `Spacer(weight)` / `extra()`）**之后**加一行 `bottomAction()`（`:346`）。**默认空** ⇒ 其它三张列表（派单员待派单池 / 订单管理 / 货主我的订单）逐像素不变 —— `OrderCard` 自己不判角色、不判状态，谁能用这个槽由**调用方**决定。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/driver/DriverOrdersViewModel.kt`：三个状态（都在 `init { }` **之前**，`vm:93` / `:103` / `:113`）—— `ackingOrderId`（**单值锁**：一次只接一张、别的卡一起置灰）、`ackError`（那句话）、`ackErrorOrderId`（那句话是**哪一张**的，⛔ 没有它一句错会挂在所有卡上）；`fun ack(order: OrderDto)`（`:199`）：并发守卫 `if (ackingOrderId != null) return` → `repo.driverAck(order.id)` → `orders = orders.map { if (it.id == updated.id) updated else it }`（⚠️ `List` **没有** `replace`，那是 `MutableList` 的 —— 第一版这么写编译报 `Unresolved reference 'replace'`）→ `container.newOrderPlayer.stop()`（**当场掐掉提醒音**，与 `core/NewOrderAlert.kt` 那套"接单/送达/撤回/取消/点通知/关开关都能立刻打断"同一条口径，本单只是把"接单"这一条真的接上）→ `container.realtimeHub.notifyOrdersChanged()`；失败 `ackError` + `ackErrorOrderId` + 再 `load()` 一次；`finally { ackingOrderId = null }`；另有 `fun clearAckError()`（`:230`）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/driver/DriverOrdersScreen.kt`：那个 `OrderCard(...)` 调用点（`screen:146`）改成多行具名参数并接上第三个槽（`:167`）—— 三条闸门 `vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver`；整宽 56dp 绿底（`0xFF00B578`）白字 ＋ `Icons.Default.CheckCircle`（与详情页那颗同一套颜色与图标）＋ `enabled = !locked` ＋ 在飞那一张画白转圈；失败那句错走 `FormErrorLine` 并**按 `ackErrorOrderId` 过滤**（只有出错那一张卡显示 —— 页面级 `error` 被渲染门 `vm.error != null -> ErrorView(...)` 拿去顶掉整个列表，见设计系统 §4.8）。
+- 新增 `_tools/qa/_check_driver_card_ack.py`（**46 项 / 7 节**）＋ `_tools/qa/_reverse_verify_driver_card_ack.py`（**22 条注入**，逐条按字节还原）。
+- 修正既有判据的**误报**：`_tools/qa/_check_driver_tab_highlight.py` 那条 `highlight = vm\.ordersTab == 0\)` 盯的是**右括号** —— 调用点从单行改成多行具名参数后 `0)` 变 `0,` ⇒ 误报（实测真的红了）；改成 `highlight = vm\.ordersTab == 0\b`，17/17 复绿。**教训**：正则钉到括号上＝把"排版"也钉进了判据。
+- 文档：`docs/changes/CHG-0081.md`、`docs/changes/README.md`（登记簿一行）、`docs/PROJECT_MAP/08_CODE_LOCATOR.md`（司机任务列表行 ＋ 订单卡片行）、`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md`（新增 **§4.2d**：卡片最底下那一整行留给"这一张单现在要做的那一件事"，并写清它与 §4.2c「卡片动作」的区别）、用户台账补记 L-51。
+
+**明确不碰**：详情页那颗「确认接单」的文案 / 颜色 / 高度 / 图标 / 状态门（`enabled = !acting`）**逐字不动**（全仓仍**恰好两处** `Text("确认接单"`）；`OrderCard` 的 `leading` / `extra` 两个老槽与动作行顺序（`leading()` → `Spacer(weight)` → `extra()`）；点卡片仍进详情页（`onOpenOrder(order.id)` / `driverMode = true` / `highlight = vm.ordersTab == 0`）；其它三张列表逐像素不变；后端一行不改（端点契约 / `services/order_flow.py::accept_order` 的条件 UPDATE CAS / `outbox` 推货主与派单员那两条 / `is_new_for_driver` 的算法）；可接档口径只有 `core/OrderStatusModel.kt::ACKABLE` 一处（今天 = `setOf("DISPATCHED")`；⛔ 不许在页面里硬写字面量）；司机端不显示金额。
+
+**判据 / 反验**：判据 7 节 = ① `OrderCard` 有第三个槽且**默认值代码级为空**、全卡**恰好一处** `bottomAction()` 调用且排在动作行之后；② 司机任务页三条闸门 ＋ `onClick = { vm.ack(order) }` ＋ 全仓 `Text("确认接单"` 恰好两处；③ 详情页那颗逐字未动；④ `ack()` 的并发守卫 / 按 id 换那条 / 停播报 / 喊刷新 / 失败记单号 ＋ `load()` / `finally` 解锁 / 状态门不硬写字面量；⑤ 失败的错落在卡片上；⑥ 按钮整宽 56dp、绿底白字、`enabled = !locked`、白转圈、两个 import 在位、三状态在 `init` 之前；⑦ 后端 CAS 一个字未动。反验 22 条含坏法：删调用句 / 调用句重复插一句 / **整句搬到卡片最上面** / 签名默认值改非空 / 状态门换硬写 `"DISPATCHED"` / 状态门整删 / `ordersTab`→`tab` / 删 `!order.isNewForDriver` / 点它不调 `ack` / 删 `enabled = !locked` / 去掉 `busy` 判断 / 删 `ackErrorOrderId` 过滤 / 56dp→40dp / 删 `CheckCircle` import / 删 `newOrderPlayer.stop()` / 删 `realtimeHub.notifyOrdersChanged()` / 删并发守卫 / 按下标换那条 / 失败不 `load()` / 失败不记单号 / 把错写进页面级 `error` / 三状态整段挪 `init` 之后 / 新建 `ui/common/_LeakAckButton.kt`（第三处「确认接单」）。
+
+- 状态：✅ **已关闭**（2026-10-08 01:0x 开工 · 2026-10-08 01:4x 关闭；变更单 `docs/changes/CHG-0081.md`；Blast Radius **L0 —— 展示层**）
+- 真机：⚠️ **未做**（当天 `adb devices` 为空 —— 三台模拟器都没起）。要补：起 `emulator -avd SOrdersDriver -port 5558`（司机 `13800000003`），打开一张 `DISPATCHED` 的单，看卡片**最底下**那颗绿色「确认接单」并点它。判据 46/46 ＋ 反验 22/22 已绿；`compileEmuDebugKotlin` BUILD SUCCESSFUL；单测 1303 completed / 0 failed / 2 skipped；`_check_all.py` **218 项里 12 项没过——那 12 项全部出自另一条并行会话的 `ai_operations`（AI 操作日志）未收口面**（逐条见 `docs/changes/CHG-0081.md` ⑨ Known Limitations ⑤）；本单自己的 6 个脚本（新增 2 份 + 随动 4 份）全绿
+- 真库 / HTTP：不适用（不写库、不发新请求、后端一行不改；接单那一笔走的是既有 `POST /orders/{id}/driver-ack`）
+
 ### [2026-10-07 04:3x → 04:4x 已完成] 会话：**CHG-0068 选供应商的弹层里能就地新建一家（采购单 ＋ 进项票两处）**（台账 **L-40**）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**（台账 L-40）：「没有建供应商的话他可以在这里直接选择新建供应商，省得又跑到那边去」。四问拍板：只填**名称 ＋ 电话**（最小可建）、进项票那处弹层**一起改**、建完要**一句提示**、采购单保存时那句「还没选供应商」**改成引导**并带一颗「现在就建一家」。

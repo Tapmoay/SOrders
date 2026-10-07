@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -14,8 +15,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.ui.common.*
 
 /**
@@ -140,7 +143,75 @@ fun DriverOrdersScreen(
                                     }
                                     Spacer(Modifier.height(6.dp))
                                 }
-                                OrderCard(order = order, onClick = { onOpenOrder(order.id) }, driverMode = true, highlight = vm.ordersTab == 0)
+                                OrderCard(
+                                    order = order,
+                                    // ⚠️ 卡片**本体**仍然是进详情页（点卡片＝看这一单的全部：商品行、
+                                    //    照片、内部备注…）。下面那颗按钮只是把"接单"这一个动作
+                                    //    从详情页搬到列表上，**不替代**详情页。
+                                    onClick = { onOpenOrder(order.id) },
+                                    driverMode = true,
+                                    highlight = vm.ordersTab == 0,
+                                    // 卡片最底下那一整行（2026-10-08，CHG-0081）：司机**在列表上直接接单**，
+                                    // 不必先进详情页。用户原话：「直接在订单卡片里面的最底下是有一个按钮，
+                                    // 他可以直接在那里点击确认…他就不需要直接的点进去…进行确认就可以了」。
+                                    //
+                                    // 三个判据各有出处，别合并：
+                                    //  · 状态门 [OrderStatusModel.ACKABLE]＝详情页那颗按钮的同一把尺
+                                    //    （后端 `services/order_flow.accept_order` 只认 DISPATCHED → ACCEPTED）；
+                                    //  · 「进行中」那一栏才画（`vm.ordersTab == 0`）：已完成档里全是送达/退货的单，
+                                    //    按定义接不了（用 `ordersTab` 而不是 `tab` —— 见 `ordersTab` 的 KDoc：
+                                    //    切栏那一瞬间 `tab` 已经变了、屏幕上的数据还没变）；
+                                    //  · `!order.isNewForDriver` 是**冗余**的一道（后端那个字段就是
+                                    //    "已派单且还没接过"），留着是因为这颗按钮会改状态：
+                                    //    万一哪天 ACKABLE 放宽，也不至于在"新任务"标还在时就给一颗接单键。
+                                    bottomAction = {
+                                        if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver) {
+                                            // 语义绿 = 「已送达/成功」那一支（`0xFF00B578`），与详情页那颗
+                                            // 逐像素同色同高（56dp）——同一个动作在两个页面上不该长得不一样。
+                                            // 高 56dp 是刻意的例外：`06_DESIGN_SYSTEM.md §4.2` 那排 40dp 是
+                                            // **并列**的次要动作，而这是"这一张单现在要做的那一件事"，是主行动。
+                                            val busy = vm.ackingOrderId == order.id
+                                            // 同一时刻只接一张：只要有请求在飞，**别的**卡片那颗也置灰
+                                            // （`ackingOrderId` 是单值；两个请求同时在飞时界面说不清谁成了谁没成）。
+                                            val locked = vm.ackingOrderId != null
+                                            Button(
+                                                onClick = { vm.ack(order) },
+                                                enabled = !locked,
+                                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(56.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF00B578),
+                                                    contentColor = Color.White,
+                                                ),
+                                            ) {
+                                                if (busy) {
+                                                    // 转圈：点下去到服务器回话之间必须看得见"在处理"，
+                                                    // 否则司机连点，第二次必然被后端 CAS 判成 400。
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(20.dp),
+                                                        color = Color.White,
+                                                        strokeWidth = 2.dp,
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        Icons.Default.CheckCircle,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(20.dp),
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(8.dp))
+                                                Text("确认接单", style = MaterialTheme.typography.titleSmall)
+                                            }
+                                            // 失败的那句话说在**这张卡上**（设计规范 §4.8「错误的落点」）：
+                                            // 页面级 `error` 会被渲染门拿去顶掉整个列表，那他就连这张单都看不见了。
+                                            // ⚠️ 必须按单号过滤（`ackErrorOrderId`）：`ackError` 是个单值，
+                                            //    不判的话一张单失败会让**所有**卡片底下同时冒同一句红字。
+                                            FormErrorLine(
+                                                if (vm.ackErrorOrderId == order.id) vm.ackError else null,
+                                                Modifier.padding(top = 6.dp),
+                                            )
+                                        }
+                                    },
+                                )
                             }
                         }
                     }

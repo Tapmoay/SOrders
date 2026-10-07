@@ -200,6 +200,12 @@ ALLOW: dict[tuple[str, str], str] = {
     ): "同上面四条（CHG-0050 判据 1「全仓 .kt 里都没有 `if (order.freightVisible) {` / `onDirectCompleteClick`」）："
        "这条注入**故意新建一个文件**（`ui/order/_LegacyFreightVisible.kt`，跑完删掉）来试「全仓扫描」那条判据 ——"
        "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
+    (
+        "_reverse_verify_driver_card_ack.py",
+        "其它页面（通用的 ui/common）也冒出一颗「确认接单」（清单自己算 → 必须点名它）",
+    ): "同上面五条（CHG-0081 判据 2「全仓 `Text(\"确认接单\"` 恰好两处」）："
+       "这条注入**故意新建一个文件**（`ui/common/_LeakAckButton.kt`，跑完删掉）来试「全仓恰好两处」那条判据 ——"
+       "「目标文件不存在」正是它一开始的状态，不是锚点腐烂。",
 }
 
 

@@ -116,6 +116,21 @@ fun OrderCard(
      */
     leading: @Composable RowScope.() -> Unit = {},
     extra: @Composable RowScope.() -> Unit = {},
+    /**
+     * 卡片**最底下**那一整行：留给"这一张单现在要做的那一件事"（整宽主行动）。
+     *
+     * 为什么另开一个槽而不是复用 [extra]（2026-10-08，CHG-0081）：用户要的是司机在**列表上**
+     * 直接接单（原话：「直接在订单卡片里面的最底下…按钮…直接在那里点击确认」）——
+     * 那是一屏里最该被一眼看到、最好按到的一颗，所以它**整宽、独占一行**；
+     * 而 [extra] 是右对齐的图标动作（编辑类），塞不下也压不住这个分量。
+     *
+     * ⚠️ 两种"主行动"别混：商品卡那种"底部一排三个等宽大按钮"是**并列**的多动作
+     * （`06_DESIGN_SYSTEM.md §4.2`）；这里只有一个动作，所以是一条整宽按钮
+     * （与 §4.2c 的左右分区也不冲突 —— 那两个槽管的是**图标动作**的位置）。
+     *
+     * 默认空 = **不画这一行**，其它调用点（派单员待派池 / 订单管理 / 我的订单）逐像素不变。
+     */
+    bottomAction: @Composable ColumnScope.() -> Unit = {},
 ) {
     val total = order.orderProducts.sumOf { moneyToDouble(it.lineTotal) }
     val totalQty = order.orderProducts.sumOf { it.quantity }
@@ -326,6 +341,9 @@ fun OrderCard(
                 Spacer(Modifier.weight(1f))
                 extra()
             }
+            // 卡片**最底下**那一整行：留给"这一张单现在要做的那件事"（整宽主行动）。
+            // 默认不画 → 其它列表（派单员待派池 / 订单管理 / 我的订单）与以前**逐像素一样**。
+            bottomAction()
         }
     }
 }

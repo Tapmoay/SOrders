@@ -77,6 +77,43 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
     private var loadJob: Job? = null
 
     /**
+     * **正在确认接单的那一张单**（`null` = 没有请求在飞）—— 2026-10-08，CHG-0081。
+     *
+     * 用户要的是"在卡片上直接接单"（原话：「直接在订单卡片里面的最底下…按钮…
+     * 直接在那里点击确认…他就不需要直接的点进去…进行确认就可以了」）。卡片上多了一颗
+     * 一点就改状态的按钮，就必须回答"点下去到服务器回话之间这一格画什么"：
+     *  · 按下的那颗 → 转圈 + 置灰（不然司机会连点，第二次必然被后端 CAS 判成 400
+     *    「这张单刚刚被改过…」—— 那是一条**看起来像系统坏了**的错）；
+     *  · 同一时刻**别的**卡片那颗也一起置灰（[ackingOrderId] 是个单值）：一次只接一张，
+     *    两个请求同时在飞的时候界面说不清"哪一张成了、哪一张没成"。
+     *
+     * ⚠️ 必须声明在 `init { }` **之前**（属性初始化按书写顺序执行，写在后面这一页打开就崩）
+     *    —— 判据 `_tools/qa/_check_vm_state_before_init.py`。
+     */
+    var ackingOrderId by mutableStateOf<Long?>(null)
+        private set
+
+    /**
+     * 确认接单**失败**的原因（成功即清空）。
+     *
+     * ⛔ 它**不进**页面级 [error]：那个 error 是"这一页没加载出来"（渲染门会拿它顶掉整个列表，
+     *    司机连那张单都看不见了）。接单失败是**这一张卡**的事 —— 卡片还在、按钮还在，
+     *    他看完那句话就能再点一次（与设计规范 §4.8「错误的落点」同一条）。
+     */
+    var ackError by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * [ackError] 那句话是**哪一张单**的（`null` = 没有）。
+     *
+     * ⚠️ 没有它就出大问题：`ackError` 是个单值，而列表上**每一张卡都读同一个字段**
+     *    → 一张单接单失败，屏幕上**所有**卡片底下同时冒出同一句红字（司机看到的是
+     *    "这些单全都出问题了"）。错误的落点必须精确到那一张卡。
+     */
+    var ackErrorOrderId by mutableStateOf<Long?>(null)
+        private set
+
+    /**
      * **「已完成」那一段的窗口定下来了没有**（2026-09-21）。
      *
      * 这一页与账本页**不完全一样**：它没有"先按今天拉一次"那一步（盘点发生在切到「已完成」
@@ -133,6 +170,66 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
                 load()
             }
         }
+    }
+
+    /**
+     * **确认接单**（2026-10-08，CHG-0081）—— 司机在**卡片上**直接接单，不必先进详情页。
+     *
+     * 为什么把接单搬到列表上：用户原话「这个确认订单，他的按钮是进入订单详情面才能确认，
+     * 这个就太麻烦了…直接在订单卡片里面的最底下…有一个按钮…他就不需要直接的点进去…
+     * 进行确认就可以了」。接单是司机最高频、最该"一下就能做完"的动作，而它此前**只有**
+     * 详情页那一个入口（`ui/order/OrderDetailScreen.kt` 那颗整宽按钮）。
+     *
+     * 三件事与详情页**必须同源**（少一件就是"列表上接的单和详情页接的单不一样"）：
+     *  ① 状态门 = [OrderStatusModel.ACKABLE]（不是硬写 `"DISPATCHED"`）：卡片上画不画那颗按钮、
+     *     点下去之前再判一次，用的是同一个集合；
+     *  ② 成功即 [AppContainer.newOrderPlayer].stop()：接完还在喊「来单了」，司机会怀疑到底接上没有；
+     *  ③ 成功后 `realtimeHub.notifyOrdersChanged()`：这一页自己刷新，**也让别的页面（详情页/角标）
+     *     跟着知道状态变了**。
+     *
+     * 三种收场，各有各的道理：
+     *  · 成功 → 用响应回来的那张单**原地换掉列表里那一条**（`OrderOut` 是整单，不用再拉一次列表）；
+     *  · 被后端 CAS 拒（"这张单刚刚被改过…"）→ [ackError] + **再拉一次列表**：那句话说的是
+     *    "你手上这张单已经不是这样了"，只弹错误却把过期状态留在屏幕上，他只会再点一次；
+     *  · 网络失败 → 只写 [ackError]（列表还准，重连重试即可）。
+     *
+     * ⚠️ 它**不是** [load] 的替代：`load()` 里有"orders 与 ordersTab 必须相邻"那条规矩，
+     *    这里只动 `orders` 里的**一条**，不碰 `ordersTab`（那一栏没变）。
+     */
+    fun ack(order: OrderDto) {
+        // 已经有请求在飞 → 直接不管（按钮那边也置灰了）。后端对重复接单是**硬拒**：
+        // `services/order_flow.accept_order` 的条件 UPDATE 撞不上就 400「这张单刚刚被改过…」，
+        // 那条错看起来像系统坏了，而它其实只是"你点了两下"。
+        if (ackingOrderId != null) return
+        ackingOrderId = order.id
+        ackError = null
+        ackErrorOrderId = null
+        viewModelScope.launch {
+            try {
+                val updated = container.repo.driverAck(order.id)
+                // ⚠️ 按 **id** 换那一条（不是按下标）：`load()`/实时推送期间列表可能已经变了
+                //    （新单进来、旧的被撤回），按下标换会把结果写到别人头上。
+                //    ⚠️ `List` 没有 `replace`（那是 `MutableList` 的）—— 这里要的是**换成一个新列表**。
+                orders = orders.map { if (it.id == updated.id) updated else it }
+                container.newOrderPlayer.stop()
+                container.realtimeHub.notifyOrdersChanged()
+            } catch (e: Exception) {
+                ackError = toApiException(e).message
+                ackErrorOrderId = order.id
+                // 失败就把列表拉回真相：这条错多半是"状态已经变了"，而屏幕上那份还是点之前的样子。
+                // 拉回来的结果由 `load()` 写进 `orders`；那两个 ack 错误状态不会被它清掉
+                // （互不干扰），所以他还能看见"为什么没接上"。
+                load()
+            } finally {
+                ackingOrderId = null
+            }
+        }
+    }
+
+    /** 确认接单失败的那句话由用户手动收起（换一栏/手动刷新也该清掉）。 */
+    fun clearAckError() {
+        ackError = null
+        ackErrorOrderId = null
     }
 
     /** 用户自己挑的档位（右上角那个药丸 → 档位清单）。**手动**：从此不再自动退档。 */

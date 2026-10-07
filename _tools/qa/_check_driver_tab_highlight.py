@@ -118,7 +118,11 @@ def main() -> int:
               vm, r"这两句\*\*必须相邻\*\*")
 
     print("\n== 3. Screen：高亮与渲染门都看『画的是哪一栏』 ==")
-    c.present("卡片高亮取自 vm.ordersTab", screen, r"highlight = vm\.ordersTab == 0\)")
+    # ⚠️ 这里原来写的是 `highlight = vm\.ordersTab == 0\)`（**盯右括号**）—— 2026-10-08 CHG-0081
+    #    把司机端那次 `OrderCard(...)` 调用改成了多行具名参数（新增 `bottomAction`），
+    #    `0)` 后面不再是换行而是逗号 → 这条**误报**成"高亮不看 ordersTab了"。
+    #    判据要钉的是"值取自 vm.ordersTab"，不是"后面跟着右括号"，所以只认到 `== 0`。
+    c.present("卡片高亮取自 vm.ordersTab", screen, r"highlight = vm\.ordersTab == 0\b")
     c.present("渲染门有『不是这一栏 → LoadingBox』那一档",
               screen, r"vm\.ordersTab != vm\.tab -> LoadingBox\(\)")
     i_err = screen.find("vm.error != null -> ErrorView(")
