@@ -31,21 +31,6 @@
 
 ## 进行中
 
-### [2026-10-08 02:0x → 02:3x CST 已完成] 会话：**CHG-0083 卡片上那颗「确认接单」真的出现了 —— 拿掉初版多挂的那道 `!order.isNewForDriver`（真机打脸后修的 bug）**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
-
-**用户原话**（ref **m01138**，逐字，语音转写）：「我登进去了，你现在看一下,他为什么还是一样的呢？没有任何的在卡片中啊？还是只能定到详情中详情才能呃点确认接单」。⚠️ 这是 `docs/changes/CHG-0081.md`（提交 `4ecb500`）的**补丁单** —— 台账不上新行（CHG-0081 的 **L-51** 就是这条需求的台账行）。
-
-**病灶**：CHG-0081 初版把闸门写成三条 `vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver`。而 `isNewForDriver` 的语义**正是**「已派单、且这个司机还没确认过」（后端 `backend/app/services/order_response.py:205` 按 `driver_acknowledged_at is None` 算，前端是 DTO 字段 `android/.../data/remote/dto/Dtos.kt:187`）⇒ 与 `ACKABLE`（`android/app/src/main/java/com/tapmoay/sorders/core/OrderStatusModel.kt:71`：`val ACKABLE: Set<String> = setOf("DISPATCHED")`）**互斥** ⇒ **真正需要接的新单永远不画按钮**（能看见按钮的只剩"状态已派单、但已不是新任务"这种病态单）。用户那两张卡（都是 `已派单` ＋「新任务」标）正好全军覆没。「手滑点两下」不需要这道门：成功后 `ACKABLE` 当场变假（按钮同时消失）＋ `ackingOrderId` 单值锁 ＋ 后端 `accept_order` 的 CAS 兜底。
-
-**改法**：① `android/app/src/main/java/com/tapmoay/sorders/ui/driver/DriverOrdersScreen.kt:172` 闸门由三条**收回两条** `if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE) {`，:164-170 注释整段重写成「⛔ 不要再加 `!order.isNewForDriver`」＋真机打脸的理由；② `_tools/qa/_check_driver_card_ack.py` 46 → **47 项**（删「冗余一道门」那条 `present`，换成 `c.absent(..., code_only(screen), r"!order\.isNewForDriver")` ＋ `c.present(..., r"不要再加 `!order\.isNewForDriver`")`；⚠️ 必须分开用 `code_only` 与原文本 —— 混用会把「注释里提到它」误判成「代码里还挂着它」，实测假红）；③ `_tools/qa/_reverse_verify_driver_card_ack.py` 三条注入随动（含把原来那条「删掉冗余门」**反向**成「把初版那个 bug 加回来」）；④ `_tools/qa/_install_all.py:84` 口令表 5554 由 `123456` 改 `123321`（真机取证时被这张过期表绊过一次，它从来与开发库对不上）。
-
-**明确不碰**：详情页那颗「确认接单」的文案/色/高/图标/门逐字不动（全仓仍**恰好两处** `Text("确认接单"`）；`OrderCard` 第三槽仍默认空、仍恰好一处调用且排在动作行之后；点卡片仍进详情页（`onOpenOrder(order.id)` / `driverMode = true` / `highlight = vm.ordersTab == 0`）；后端一行不改（端点契约 / `accept_order` 的 CAS / outbox 推货主与派单员 / `is_new_for_driver` 的算法）；`ACKABLE` 仍是唯一可接档口径；页面级 `error` 不承接接单失败（§4.8）；司机端不显示金额。⛔ 以后**不许**再往这道门上加任何条件。
-
-**判据 / 反验**：`python _tools/qa/_check_driver_card_ack.py` **47/47**（新增两条把这道门反向钉死）；`python _tools/qa/_reverse_verify_driver_card_ack.py` **22/22**（逐条按字节还原，末行「还原后红线全绿」）；`gradle -p android :app:assembleEmuDebug` **BUILD SUCCESSFUL**（APK 46,724,083 字节，已 `install -r` 进 5558）；单测 **1303 / 0 failed / 2 skipped**。
-
-- 状态：✅ **已关闭**（2026-10-08 02:0x 开工 · 02:3x 关闭；变更单 `docs/changes/CHG-0083.md`；Blast Radius **L0 —— 展示层**）
-- 真机：✅ 已跑（`emulator -avd SOrdersDriver -port 5558`，司机 `13800000003` / 口令 `123321`，用户已登入）：**点前**两张 `已派单`＋「新任务」的卡上各一颗「确认接单」（文字节点 `[493,1014][661,1075]` / `[493,1773][661,1834]`），按钮本体 `x[84,996]`＝**912px 整宽**（屏宽 1080）、高 `147px`；**真点第 1 颗** @ (577,1044) ⇒ 节点 **2 → 1**、第 1 张卡变 **`已接单`**、按钮与「新任务」标一起消失、第 2 张卡不受影响；跨过 UI 的独立事实 `(603, 'DISPATCHED', True)` → **`(603, 'ACCEPTED', False)`**（`GET /api/v1/orders`）。截图 `shots/chg0081_fix_01_按钮已出现.png` / `chg0081_fix_02_接单后.png`。⚠️ 订单 **603** 是**真实开发库数据**、已被这次取证接掉（要复看需派单员重派）；「提醒音当场停」与「失败那句错的落点」真机未独立取证（依据仍是源码＋判据）。
-
 ### [2026-10-08 01:0x → 02:1x CST 已完成] 会话：**CHG-0082 AI 操作流水：AI 用你的身份动过的每一次请求都落一行（谁 / 何时 / 哪个动作 / 成没成 / 失败原因），派单员单独一页可查（台账 L-52）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**（ref **m26776**，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2802` 逐字，勾选项）：「**再加一张 AI 操作流水**：每次 AI 动作都落一行（谁、何时、什么动作、成没成、失败原因），**管理端单独一页看**」。⚠️ 台账号沿革：立项时下一个空号是 **L-51**（`_tmp/b551_dump.txt:50` 记着「next free ledger id is L-51; CHG-0081 is taken by a parallel session」），源码注释先按 L-51 写了 19 处；随后并行会话把 **L-51** 用在 CHG-0081 上 ⇒ 本单**改号 L-52**（16 处逐字替换，改完判据当场复跑 96/96）。
@@ -6492,6 +6477,21 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-08 02:0x → 02:3x CST 已完成] 会话：**CHG-0083 卡片上那颗「确认接单」真的出现了 —— 拿掉初版多挂的那道 `!order.isNewForDriver`（真机打脸后修的 bug）**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
+
+**用户原话**（ref **m01138**，逐字，语音转写）：「我登进去了，你现在看一下,他为什么还是一样的呢？没有任何的在卡片中啊？还是只能定到详情中详情才能呃点确认接单」。⚠️ 这是 `docs/changes/CHG-0081.md`（提交 `4ecb500`）的**补丁单** —— 台账不上新行（CHG-0081 的 **L-51** 就是这条需求的台账行）。
+
+**病灶**：CHG-0081 初版把闸门写成三条 `vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver`。而 `isNewForDriver` 的语义**正是**「已派单、且这个司机还没确认过」（后端 `backend/app/services/order_response.py:205` 按 `driver_acknowledged_at is None` 算，前端是 DTO 字段 `android/.../data/remote/dto/Dtos.kt:187`）⇒ 与 `ACKABLE`（`android/app/src/main/java/com/tapmoay/sorders/core/OrderStatusModel.kt:71`：`val ACKABLE: Set<String> = setOf("DISPATCHED")`）**互斥** ⇒ **真正需要接的新单永远不画按钮**（能看见按钮的只剩"状态已派单、但已不是新任务"这种病态单）。用户那两张卡（都是 `已派单` ＋「新任务」标）正好全军覆没。「手滑点两下」不需要这道门：成功后 `ACKABLE` 当场变假（按钮同时消失）＋ `ackingOrderId` 单值锁 ＋ 后端 `accept_order` 的 CAS 兜底。
+
+**改法**：① `android/app/src/main/java/com/tapmoay/sorders/ui/driver/DriverOrdersScreen.kt:172` 闸门由三条**收回两条** `if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE) {`，:164-170 注释整段重写成「⛔ 不要再加 `!order.isNewForDriver`」＋真机打脸的理由；② `_tools/qa/_check_driver_card_ack.py` 46 → **47 项**（删「冗余一道门」那条 `present`，换成 `c.absent(..., code_only(screen), r"!order\.isNewForDriver")` ＋ `c.present(..., r"不要再加 `!order\.isNewForDriver`")`；⚠️ 必须分开用 `code_only` 与原文本 —— 混用会把「注释里提到它」误判成「代码里还挂着它」，实测假红）；③ `_tools/qa/_reverse_verify_driver_card_ack.py` 三条注入随动（含把原来那条「删掉冗余门」**反向**成「把初版那个 bug 加回来」）；④ `_tools/qa/_install_all.py:84` 口令表 5554 由 `123456` 改 `123321`（真机取证时被这张过期表绊过一次，它从来与开发库对不上）。
+
+**明确不碰**：详情页那颗「确认接单」的文案/色/高/图标/门逐字不动（全仓仍**恰好两处** `Text("确认接单"`）；`OrderCard` 第三槽仍默认空、仍恰好一处调用且排在动作行之后；点卡片仍进详情页（`onOpenOrder(order.id)` / `driverMode = true` / `highlight = vm.ordersTab == 0`）；后端一行不改（端点契约 / `accept_order` 的 CAS / outbox 推货主与派单员 / `is_new_for_driver` 的算法）；`ACKABLE` 仍是唯一可接档口径；页面级 `error` 不承接接单失败（§4.8）；司机端不显示金额。⛔ 以后**不许**再往这道门上加任何条件。
+
+**判据 / 反验**：`python _tools/qa/_check_driver_card_ack.py` **47/47**（新增两条把这道门反向钉死）；`python _tools/qa/_reverse_verify_driver_card_ack.py` **22/22**（逐条按字节还原，末行「还原后红线全绿」）；`gradle -p android :app:assembleEmuDebug` **BUILD SUCCESSFUL**（APK 46,724,083 字节，已 `install -r` 进 5558）；单测 **1303 / 0 failed / 2 skipped**。
+
+- 状态：✅ **已关闭**（2026-10-08 02:0x 开工 · 02:3x 关闭；变更单 `docs/changes/CHG-0083.md`；Blast Radius **L0 —— 展示层**）
+- 真机：✅ 已跑（`emulator -avd SOrdersDriver -port 5558`，司机 `13800000003` / 口令 `123321`，用户已登入）：**点前**两张 `已派单`＋「新任务」的卡上各一颗「确认接单」（文字节点 `[493,1014][661,1075]` / `[493,1773][661,1834]`），按钮本体 `x[84,996]`＝**912px 整宽**（屏宽 1080）、高 `147px`；**真点第 1 颗** @ (577,1044) ⇒ 节点 **2 → 1**、第 1 张卡变 **`已接单`**、按钮与「新任务」标一起消失、第 2 张卡不受影响；跨过 UI 的独立事实 `(603, 'DISPATCHED', True)` → **`(603, 'ACCEPTED', False)`**（`GET /api/v1/orders`）。截图 `shots/chg0081_fix_01_按钮已出现.png` / `chg0081_fix_02_接单后.png`。⚠️ 订单 **603** 是**真实开发库数据**、已被这次取证接掉（要复看需派单员重派）；「提醒音当场停」与「失败那句错的落点」真机未独立取证（依据仍是源码＋判据）。
 
 ### [2026-10-08 01:0x → 01:4x CST 已关闭] 会话：**CHG-0081 司机「任务列表」的订单卡片最底下直接给一颗「确认接单」——接单不必再进详情页**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
 
