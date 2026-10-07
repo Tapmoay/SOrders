@@ -43,7 +43,7 @@
 
 **判据 / 反验**：新建 `_tools/qa/_check_ai_my_prices.py`（**107 项 / 9 节**：三条登记一处 · 参数只有三个名字且⛔没有 `xxx_id` · 两条处理器（会员闸 / prepare 不写后端 / commit 只认 payload） · 两张卡文案（无 Markdown 粗体 / 只影响以后新下的单 / 回落口径 / 复活 / 伪装删除） · 数据源五条与三跳链路 · 资源与撤回（改价那条⛔不许进资源） · 覆盖表与生成物 · 单测与文书 · 防静默空转）＋ 新建 `_tools/qa/_reverse_verify_ai_my_prices.py`（**51 条注入**逐条让判据变红并点名，按字节还原）。配套：`_check_role_parity.py` 的 `MEMBER_ONLY_ACTIONS` 补三条（这条判据**自己抓到了我** —— 源码多了三条、角色账没跟上）、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` 重生成（`python _tools/qa/_hint_inventory.py --md`）、生成物 `ai_toolmap.json`（端点 272 → **274**、读 87 → **89**）与 `kb_skeleton.md`。
 
-- 状态：✅ **已关闭**（2026-10-08 02:0x 开工 · 03:3x 关闭；变更单 `docs/changes/CHG-0084.md`；全量静检 **218/219**（唯一一条红是**环境性**的：本机 uvicorn 比源码旧，只差注释级改动）；Blast Radius **L1 —— AI 能力面**；提交 `（待回填）`）
+- 状态：✅ **已关闭**（2026-10-08 02:0x 开工 · 03:3x 关闭；变更单 `docs/changes/CHG-0084.md`；全量静检 **218/219**（唯一一条红是**环境性**的：本机 uvicorn 比源码旧，只差注释级改动）；Blast Radius **L1 —— AI 能力面**；提交 `87a93f0`）
 - 真机：⚠️ **未做**（本单不加界面、不加端点：要真机验就得跑一次真实的模型会话，留待本批四单做完后的整体真机；如实记在变更单 ⑨ Known Limitations）
 - 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— **为什么必须动核心**：这一页是 AI 写动作的**唯一注册表与执行口**（动作 id 常量 / 域分组 `G_MY_PRICE` / `ALL` / 各角色清单 `SHIPPER_ACTIONS` 在 `AiWrite.kt`，数据源接口与两条 `RawHandler` 的注入点 `rawHandlers` 在 `AiWriteService.kt`）—— 三条新动作要能被模型看见、能被 `allows()` 放行、**预演与执行两条路走同一扇门**，就必须在这两处登记；⛔ 不改任何既有动作的语义与文案、不改三道闸（preview → 确认卡 → execute）与角色门、不改审计面。
 
