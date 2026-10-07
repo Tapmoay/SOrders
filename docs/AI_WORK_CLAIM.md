@@ -6202,7 +6202,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **真机抓到的一条真缺陷（已修 + 判据补强）**：卡片明细里原样显示了 `系统按**商品档案上的单位**记`（Markdown 粗体在纯文本卡片里露出星号）—— 来源是 `ai/AiWritePurchases.kt` 的 `ignoredNote(...)`，而当时的粗体红线只扫卡片块（`details +=` 与 `store.card(...)`），解析器写给用户的说明句是盲区（`_tools/ai/_check_ai_guardrails.py` 同类红线也这么漏）。修法：去掉两个星号 ＋ 在 `_check_ai_purchase_orders.py` §4 新增一条扫解析器说明句；重新出包（2026-10-07 10:20:00，46519438 字节）并用 `_tmp/chg0074_dex_str.py` 在 APK 的 15 个 `.dex` 里确认只剩不带星号的那句，再 `adb install -r` 装上重跑了一遍干净取证。
 
-- 状态：**已关闭**（开工 2026-10-07 09:5x → 关单 2026-10-07 10:4x；变更单 `docs/changes/CHG-0074.md`；Blast Radius L2；实现提交 `（见归档提交回填）`）
+- 状态：**已关闭**（开工 2026-10-07 09:5x → 关单 2026-10-07 10:4x；变更单 `docs/changes/CHG-0074.md`；Blast Radius L2；实现提交 `5f8c543`）
 
 ---
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
