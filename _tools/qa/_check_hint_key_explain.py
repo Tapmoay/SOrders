@@ -103,7 +103,8 @@ SITES: list[tuple[str, str]] = [
     ("ui/dispatcher/DispatcherOrdersScreen.kt", "退回来的货会补回库存"),
     ("ui/dispatcher/DispatcherOrdersScreen.kt", "会自动记一笔退给客户的现金"),
     ("ui/dispatcher/DispatcherReturnRequestsScreen.kt", "库存和账本在这一刻才变"),
-    ("ui/dispatcher/LedgerPersonScreen.kt", "司机那笔钱的口径"),
+    # 2026-10-07 CHG-0075：司机那一档从账本页并进「司机账 · 运费结算」，这一句跟着搬家（同一句话，常显不变）。
+    ("ui/dispatcher/FreightSettlementScreen.kt", "司机那笔钱的口径"),
     ("ui/dispatcher/SupplierDetailScreen.kt", "钱真的出去了"),
     ("ui/dispatcher/SuppliersScreen.kt", "每付一次都会写一行资金流水"),
     ("ui/dispatcher/UsersManageScreen.kt", "按车型的老口径兜底"),

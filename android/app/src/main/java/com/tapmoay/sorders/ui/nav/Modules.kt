@@ -115,19 +115,18 @@ object Modules {
         //    「请选择单位」里的「添加单位换算」都照旧；入口长在 `ProductsScreen` 的顶栏
         //    （`onOpenUnitConversions`）上。
         // 「账本管理」**回到工作台网格**（用户 2026-09-20 第二轮：那张卡片被推翻，工作台改回原来的样式）。
-        // 这一格点进去是**入口页**（`LedgerHomeScreen`，报表中心那种形式），里面 6 件事：
-        // 司机账（已并入司机结算）/ 订单账 / 货主账 / 批发商账 / 客户收款 / 开销管理。
+        // 这一格点进去是**入口页**（`LedgerHomeScreen`，报表中心那种形式），里面 7 件事：
+        // 订单账 / 司机账 · 运费结算 / 货主账 / 批发商账 / 客户收款 / 收支 / 供应商应付。
         // 颜色沿用「账本 = 橙」这条跨端同色约定（与货主端「我的账本」同色）。
         ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 橙 · 账本（跨端同色）
         // ⛔ 这里**没有**「开销管理」那一格：它并进上面「账本管理」里了（用户点名要合并）。
         ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF48F0F0L),            // 亮青 · 车与车况（用户：「车辆管理直接放在桌面上」）
-        // ⛔ 这里**没有**「账本管理」那一格：它连同它下面那 8 件事一起搬到了工作台的
-        //    第二张卡片里（`dispatcherLedgerEntries`，用户 2026-09-20 点名）。留着这一格
-        //    就等于同一个东西有两个入口，而且这一格点进去只是"账本页的默认档位"——
-        //    用户真正要找的是下面 8 件里的**那一件**。
+        // ⛔ 这里**没有**「司机运费结算」那一格了（2026-10-07 CHG-0075）：它与账本管理入口页
+        //    那格「司机账」并成了「司机账 · 运费结算」，合并后只剩账本管理入口页那一格
+        //    （`Routes.FREIGHT_SETTLEMENT`）—— 留着就等于同一个东西两个入口。
         // 「运费模板」「计费规则」原来挂在「派单作业」分组下，用户 2026-09-19 要求提成**两个独立图标**
         // （「去掉这个将里面的计费模板和计费规则，给移出来做一个 2 个单独的图标放在工作台里面」）。
-        // 位置紧挨着「账本管理 / 司机运费结算」这一串**钱的入口**：它们回答的正是"这钱按什么算"。
+        // 位置紧挨着「账本管理」这一串**钱的入口**：它们回答的正是"这钱按什么算"。
         //
         // 名字：用户口述是「计费模板」，但**没有照抄** —— 它和旁边的「计费规则」只差一个字，
         // 并排摆两个几乎同名的图标，用户每次都得想一下点哪个（那正是"反人性"）。
@@ -187,7 +186,6 @@ object Modules {
         //      这一格的目标跟"跟邻居一样"相反，是**单独一条**规则（见上面那段）。
         ModuleEntry("运费模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = 0xFF5F7FBFL),                 // 雾蓝 · 订单运费的价目表
         ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFF8EC714L),           // 亮黄绿 · 司机怎么算钱
-        ModuleEntry("司机运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.Payments, color = 0xFFFF8A65L),            // 珊瑚橙 · 运费结算
         ModuleEntry("挂账单位", Routes.ARREARS_UNITS, Icons.Default.Business, color = ArrearsTangerine),                 // 橙红 · 挂账警示（= 原来的色，家族里就是这一档）
         // 报表中心直达营业额报表界面（顶部 4 页签：营业/商品/司机/异常，可切换）
         ModuleEntry(
@@ -203,30 +201,38 @@ object Modules {
     )
 
     /**
-     * 「账本管理」入口页（`LedgerHomeScreen`）里的 **6 格**（用户 2026-09-20 第二轮定稿）。
+     * 「账本管理」入口页（`LedgerHomeScreen`）里的 **7 格**（用户 2026-09-20 第二轮定稿；
+     * 2026-10-07 CHG-0075 把「司机账」与「司机运费结算」并成了一格）。
      *
      * 原话：「首先，我们将**司机的账和司机结算这 2 个东西合并成一个**；然后订单账本，
      * 再加上货主账本以及批发商账，还有客户收款以及开销管理，**合并成一个形式，就叫做账本管理**，
      * 这个账本管理**类似于报表中心的形式**；然后车辆台账属于车辆管理，车辆管理直接放在桌面上」。
+     * 2026-10-07 用户又点名一次：「还有一个就是将司机账，就是账本管理的司机账，以及司机运费结算啊，
+     * 这 2 个直接合并成一个……本来就是司机的运费结算」（CHG-0075，台账 L-36）。
      *
      * 与上一版（工作台那张 8 格卡片）的差别，一条一条对着看：
-     * · **司机结算不再单独占一格** —— 入口页里没有它（用户点名「合并成一个」）；而账本页里
-     *   **也不再挂入口**（2026-09-20 第四轮：「那个结算，这个也直接去掉」）—— 它从工作台
-     *   那一格 `Routes.FREIGHT_SETTLEMENT` 进。
+     * · **司机结算与司机账并成了一格** —— 就是这里第 2 格「司机账 · 运费结算」；工作台原来那格
+     *   「司机运费结算」**已删**（2026-10-07 CHG-0075）—— 合并之后只有一个入口，就是这一格
+     *   （`Routes.FREIGHT_SETTLEMENT`，**单独一页**，不是账本页的档位）。
      * · **开销管理并进来**（原来它在卡片里是第 7 格，现在在这里）。
      * · **车辆台账搬去工作台**，改叫「车辆管理」（用户：「车辆台账就是车辆管理嘛」）。
      *
-     * 4 类账 = **同一页的四个档位**（`Routes.dispatcherLedger(tab)`）——
-     * ⛔ 别给它们各建一个页面：同一套数据四份实现，改一处漏三处。
+     * 3 类账 = **同一页的三个档位**（`Routes.dispatcherLedger(tab)`：0 订单账 / 1 货主账 / 2 批发商账）——
+     * ⛔ 别给它们各建一个页面：同一套数据三份实现，改一处漏两处。
+     * ⛔ 别把「司机账 · 运费结算」塞成这一页的第 4 个档位：它的数据源是 `/freight-settlement`，
+     *   跟账本那三类不是同一条接口（见 `FreightSettlementViewModel`）。
      * ⛔ 也别在那一页里再加一条档位导航：用户 2026-09-20 明确否掉了（「最上面的 4 个去掉，
      *   那是老的导航栏」）—— 格子点进去是哪一类，那一页就是哪一类。
      */
     val ledgerHomeEntries: List<ModuleEntry> = listOf(
-        // ---- 4 类账（同一页的 4 个档位）----
+        // ---- 3 类账（同一页的 3 个档位：0 订单账 / 1 货主账 / 2 批发商账）----
         ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = MoneyOrange),     // 橙 · 账本本体
-        ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF2E7D32L),           // 深绿 · 司机该拿多少（结算走工作台那一格）
-        ModuleEntry("货主账", Routes.dispatcherLedger(2), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少
-        ModuleEntry("批发商账", Routes.dispatcherLedger(3), Icons.Default.Storefront, color = 0xFFB8860BL),             // 暗金 · 批发账户
+        // 「司机账 · 运费结算」是**单独一页**（`Routes.FREIGHT_SETTLEMENT`），不是账本页的档位：
+        // 2026-10-07 CHG-0075 把原来这里那格「司机账」与工作台那格「司机运费结算」并成了一个。
+        // 颜色沿用原「司机账」的深绿 —— 这一页 7 格配色两两距离 ≥60 的既有事实不变。
+        ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF2E7D32L),   // 深绿 · 司机该拿多少 + 给他结账
+        ModuleEntry("货主账", Routes.dispatcherLedger(1), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少
+        ModuleEntry("批发商账", Routes.dispatcherLedger(2), Icons.Default.Storefront, color = 0xFFB8860BL),             // 暗金 · 批发账户
         // ---- 2 个工具（各自有页面）----
         ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),                 // 深紫
         // 「收支」（2026-09-22 用户要求）：**收入按来源、支出按去路**各一路一行。
@@ -356,7 +362,6 @@ object Modules {
         Routes.dispatcherLedger(0) to "ledger:read_all",
         Routes.dispatcherLedger(1) to "ledger:read_all",
         Routes.dispatcherLedger(2) to "ledger:read_all",
-        Routes.dispatcherLedger(3) to "ledger:read_all",
         Routes.DISPATCH_RECEIPTS to "ledger:edit",
         Routes.DISPATCH_CASH to "ledger:edit",
         Routes.DISPATCH_SUPPLIERS to "ledger:edit",

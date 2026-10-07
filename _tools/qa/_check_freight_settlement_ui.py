@@ -1,11 +1,19 @@
-"""红线：**司机运费结算这一页的形状** —— 抽屉选人 + 顶栏右上角月份（2026-09-22 用户第二轮）。
+"""红线：**司机账 · 运费结算这一页的形状** —— 抽屉选人 + 顶栏右上角档位药丸
+（2026-10-07 CHG-0075 合并后定稿；**取代** 2026-09-22 的「月份网格」那一版）。
 
 ## 由来（用户原话，逐句对着做）
 
-> 那个**司机运费结算**，我们的形式也发生改变时间嘛，我们也可以按照**右上角一个时间**（栏），
-> 但是**月份的选择形式跟我们平常的不一样**。然后我们那个司机他那个**不要按照这样子的商品的管理**啊。
-> 这样子，**非常不好** —— 我们直接换那个**类似于货主的账本管理**的那种形式，是那个**左侧的抽屉栏**
+> 还有一个就是将司机账，就是账本管理的司机账，以及司机运费结算啊，这 2 个直接合并成一个。
+（2026-10-07，台账 L-36；变更单 docs/changes/CHG-0075.md —— 合并之后**只有这一个入口**：
+账本管理入口页那格「司机账 · 运费结算」，路由 `Routes.FREIGHT_SETTLEMENT`）
+
+2026-09-22 他还说过这一页的形状：
+
+> 那个**司机运费结算**……我们直接换那个**类似于货主的账本管理**的那种形式，是那个**左侧的抽屉栏**
 > 在那里选择人物，**也可以在那里搜索**，然后呢，选择之后，我们就可以**直接看对应的那个司机那个结账**。
+
+当时他另外加了一句「**月份的选择形式跟我们平常的不一样**」——**那一句已被 2026-10-07 的合并覆盖**：
+合并之后这一页的时间就是账本页那一套档位（`DateFilterDialogs`，含「全部」、按天）。
 
 ## 这条判据守的事，坏起来都不会报错
 
@@ -13,8 +21,9 @@
 |---|---|
 | 又把 `MasterRail` 那套"商品管理式左栏"装回来 | 页面看着没坏，但用户已经点名否过一次（他会再否第二次） |
 | 选人的抽屉**又各写一份** | 账本页的抽屉改了（比如加"停用"标记），结算页那份没跟上 —— 两边都不报错 |
-| 把"月份"退回我们常用的那列**档位清单**（`DatePresetDialog`） | 用户点名的"**选择形式不一样**"当场失效（那是**按天**的档位，不是**月份**） |
-| 换窗口时"回落到第一位司机" | 用户明明在看张师傅，切个月份屏幕上是李四的账 —— 界面上一句话都没有 |
+| 时间控件**又各写一份**（自己拼 yyyy-MM、自己算"本月"） | 「账本页的本月」与「结算页的本月」差几天，而两边都看着对 |
+| 把年月网格（`MonthPickerSheet`）装回来 | 合并后这一页与账本页对"时间怎么选"有两个答案 |
+| 换窗口时"回落到第一位司机" | 用户明明在看张师傅，切个时间屏幕上是李四的账 —— 界面上一句话都没有 |
 | 「自定义区间」在改版里被顺手丢掉 | 2026-09-20 用户明确要过「除了上个月上上个月，还可以选择时间」 |
 
 ## 判据（清单**全部自己算**，不手写"要查哪些文件"）
@@ -26,9 +35,10 @@
 3. **结算页的形状**：`ModalNavigationDrawer` + `ModalDrawerSheet` + `PersonDrawer(` +
    `PersonTriggerRow(`；**没有** `MasterRail(`。
 4. **时间是顶栏右上角的药丸**：`AppTopBar(` 的 `actions` 里调 `DatePresetPill(`。
-5. **点开是年月网格**：`MonthPickerSheet(` + `(1..12).chunked(3)` + 年份左右翻；
-   **不许**出现 `DatePresetDialog(`（那是"我们平常的"档位清单）。
-6. **自定义区间还在**：网格里那一行接着开 `DateRangeDialog(`。
+5. **点开是账本那一份档位弹层**（`DateFilterDialogs(`）；**不许**再出现 `MonthPickerSheet(` /
+   `MonthCell(` / `vm.pickMonth(`（2026-10-07 CHG-0075 覆盖了 2026-09-22 的年月网格）。
+6. **自定义区间还在**：`DateFilterDialogs` 内部接着开 `DateRangeDialog(`（唯一实现），页面用
+   `vm.applyCustomRange` 收区间。
 7. **选中态语义**：「空串 = 全部」；换了窗口**不许**悄悄回落到第一位司机
    （页面里得有"他在这一段没有单"那一支）。
 8. 反空转：文件不存在、关键块为空、认出的调用点 < 2 都要先报错，而不是安静通过。
@@ -58,6 +68,7 @@ PICKER = ANDROID / "ui/common/PersonPicker.kt"
 SCREEN = ANDROID / "ui/dispatcher/FreightSettlementScreen.kt"
 VM = ANDROID / "ui/dispatcher/FreightSettlementViewModel.kt"
 LEDGER_SCREEN = ANDROID / "ui/dispatcher/DispatcherLedgerScreen.kt"
+COMPONENTS = ANDROID / "ui/common/Components.kt"
 DESIGN = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 
 MIN_CALL_SITES = 2
@@ -104,6 +115,7 @@ def main() -> int:
     picker = read(PICKER)
     screen = read(SCREEN)
     vm = read(VM)
+    components = read(COMPONENTS)
     design = io.open(DESIGN, encoding="utf-8", errors="replace").read()
 
     # ---- ① 选人的零件只有一份 ----
@@ -137,7 +149,7 @@ def main() -> int:
     )
 
     # ---- ② 结算页的形状 ----
-    print("\n司机运费结算页：抽屉选人 + 顶栏月份")
+    print("\n司机账 · 运费结算页：抽屉选人 + 顶栏档位药丸（与账本页同一份 DateFilterDialogs）")
     ok("页面里有侧边抽屉（ModalNavigationDrawer）", "ModalNavigationDrawer(" in screen)
     ok(
         "抽屉真的挂在 ModalDrawerSheet 上（不是画在正文里的一个方块）",
@@ -161,8 +173,8 @@ def main() -> int:
         "fun shiftMonth(" not in vm,
     )
 
-    # ---- ③ 时间是顶栏右上角的药丸，点开是年月网格 ----
-    print("\n时间：顶栏右上角一个药丸 → 年月网格（**不是**我们平常那列档位清单）")
+    # ---- ③ 时间是顶栏右上角的药丸，点开是**账本那一套档位清单** ----
+    print("\n时间：顶栏右上角一个药丸 → 账本那套档位清单（CHG-0075：与账本页同一份实现）")
     ok(
         "药丸在 AppTopBar 的 actions 里（右上角）",
         re.search(r"AppTopBar\([\s\S]{0,500}?actions = \{[\s\S]{0,400}?DatePresetPill\(", screen) is not None,
@@ -172,29 +184,34 @@ def main() -> int:
         re.search(r"DatePresetPill\(label = vm\.periodLabel", screen) is not None,
     )
     ok(
-        "点开是月份网格（年份左右翻 + 12 格）",
-        re.search(r"MonthPickerSheet\(", screen) is not None
-        and "(1..12).chunked(3)" in screen
-        and re.search(r"year -= 1", screen) is not None,
+        "点开的是账本页那一份档位弹层（DateFilterDialogs）",
+        "DateFilterDialogs(" in screen
+        and "preset = vm.preset" in screen
+        and "onPickPreset = { vm.applyPreset(it) }" in screen,
+        "这一页的时间**跟账本一样**（2026-10-07 CHG-0075）；自己再写一份就会出现"
+        "「账本页的本月与结算页的本月差几天」，而两边都看着对",
     )
     ok(
-        "⛔ 点开的**不是**我们平常那列档位清单（用户点名的「选择形式不一样」）",
-        "DatePresetDialog(" not in screen and "DateFilterDialogs(" not in screen,
-        "那两份是**按天**的档位清单；这一页结的是**月**",
+        "⛔ 年月网格那一套（MonthPickerSheet / MonthCell / pickMonth）已删干净",
+        "MonthPickerSheet(" not in screen and "MonthCell(" not in screen
+        and "vm.pickMonth(" not in screen and "fun pickMonth(" not in vm,
+        "2026-09-22 的「月份选择形式不一样」已被 2026-10-07 的合并覆盖（CHG-0075）",
     )
     ok(
-        "换月份只走 VM 那一个入口（页面不自己拼月份字符串）",
-        re.search(r"vm\.pickMonth\(", screen) is not None,
-    )
-    ok(
-        "自定义区间还在（网格里那一行接着开区间弹层）",
-        re.search(r"onCustom = \{[\s\S]{0,200}?showRange = true", screen) is not None
-        and re.search(r"DateRangeDialog\(", screen) is not None,
+        "自定义区间还在（档位清单里选「自定义」接着开区间弹层）",
+        "onApplyCustom = { f, t -> vm.applyCustomRange(f, t) }" in screen
+        and re.search(r"fun DateFilterDialogs\([\s\S]{0,1400}?DateRangeDialog\(", components) is not None,
         "用户 2026-09-20 要过「除了上个月上上个月，还可以选择时间」—— 不许在改版里丢掉",
     )
     ok(
-        "月份网格里标注了「今天所在的月」（用户对着日历找「这个月」靠它）",
-        re.search(r"isCurrent = key == current", screen) is not None,
+        "默认档是本月，且区间来自 DatePresets（不是自己拼 yyyy-MM）",
+        re.search(r"preset by mutableStateOf\(DatePresets\.THIS_MONTH\)", vm) is not None
+        and re.search(r"DatePresets\.rangeOf\(", vm) is not None,
+    )
+    ok(
+        "「全部」那一档给接口一对宽到没有实际边界的端点（接口不给 from/to 直接 400）",
+        "DatePresets.WIDE_FROM" in vm and "DatePresets.WIDE_TO" in vm,
+        "宽边界只有一份（ui/common/DatePresets.kt）；各页自带一对迟早会漂",
     )
 
     # ---- ④ 选中态：空串 = 全部；换了窗口不悄悄换人 ----
@@ -238,11 +255,21 @@ def main() -> int:
     # ---- ⑥ 设计规范里记着这条形状 ----
     print("\n设计规范：这两条形状写在文档里（下一个人照文档做，而不是照猜）")
     ok(
-        "06_DESIGN_SYSTEM.md 的 §4.15 第 8 条记着这次的形状（含「按月不是按天」这条理由）",
+        "06_DESIGN_SYSTEM.md 的 §4.15 第 8 条记着这次的形状（合并后的名字 + 与账本共用那一份）",
         "§4.15 第 8 条" in design
         and "PersonPicker.kt" in design
-        and "MonthPickerSheet" in design,
-        "文档过期比没有文档更糟：下一个人会照「我们平常那列档位清单」再做一遍",
+        and "司机账 · 运费结算" in design
+        and "DateFilterDialogs" in design,
+        "文档过期比没有文档更糟：下一个人会照 2026-09-22 那版再做一遍",
+    )
+    # 年月网格可以在文档里留个"墓碑"，但**只许**以"已删/别再装回来"的口气出现 ——
+    # 否则那句话就是下一个人照着做的说明书。
+    grid_at = design.find("MonthPickerSheet")
+    grid_ctx = design[max(0, grid_at - 260): grid_at + 260] if grid_at >= 0 else ""
+    ok(
+        "文档里提到年月网格时只许写「已删 / 别再装回来」（不是「点开的是年月网格」）",
+        grid_at < 0 or any(w in grid_ctx for w in ("已删", "不许", "别再", "覆盖")),
+        "文档里留一句「点开的是年月网格」＝下一个人照样装回来",
     )
 
     print("\n" + "=" * 60)
@@ -251,7 +278,7 @@ def main() -> int:
         for f in fails:
             print("   - " + f)
         return 1
-    print(f"✅ 全部 {passes} 项通过：结算页 = 抽屉选人 + 顶栏月份，且选人零件只有一份。")
+    print(f"✅ 全部 {passes} 项通过：司机账 · 运费结算 = 抽屉选人 + 顶栏档位药丸（与账本同一份），且选人零件只有一份。")
     return 0
 
 

@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
  *
  * | 谁 | 页面 | 抽屉里装的是 |
  * |---|---|---|
- * | 账本页 | `ui/dispatcher/DispatcherLedgerScreen.kt` | 司机账 / 货主账 / 批发商账的人（带"全部"那一行） |
+ * | 账本页 | `ui/dispatcher/DispatcherLedgerScreen.kt` | 货主账 / 批发商账的人（带"全部"那一行）；司机那一档 2026-10-07 并走了（CHG-0075） |
  * | 运费结算 | `ui/dispatcher/FreightSettlementScreen.kt` | 这个月有结算的司机（带"全部"那一行） |
  *
  * ## 三条规矩（都是用户点过名的，别在本文件里放松）

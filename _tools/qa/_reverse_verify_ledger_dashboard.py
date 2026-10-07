@@ -31,6 +31,8 @@ MODULES = ANDROID / "ui/nav/Modules.kt"
 COMPONENTS = ANDROID / "ui/common/Components.kt"
 NAVGRAPH = ANDROID / "ui/nav/NavGraph.kt"
 COLOR = ANDROID / "ui/theme/Color.kt"
+SETTLEMENT_SCREEN = ANDROID / "ui/dispatcher/FreightSettlementScreen.kt"
+SETTLEMENT_VM = ANDROID / "ui/dispatcher/FreightSettlementViewModel.kt"
 
 # (说明, 文件, 原文, 替换成, 期望变红的检查名关键词)
 MUTATIONS = [
@@ -43,11 +45,11 @@ MUTATIONS = [
         "工作台不再渲染第二张卡片",
     ),
     (
-        "6 件事又摆回工作台网格（账本管理这个统一入口白做了）",
+        "入口页少一格（订单账那一格被删，7 格变 6 格）",
         MODULES,
         '        ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = MoneyOrange),     // 橙 · 账本本体\n',
         "",
-        "正好 6 格",
+        "正好 7 格",
     ),
     (
         "「账本管理」那一格从网格里消失（入口没了）",
@@ -77,7 +79,7 @@ MUTATIONS = [
         '        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),                 // 深紫\n',
         '        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),\n'
         '        ModuleEntry("司机结算", Routes.DISPATCH_SETTLEMENTS, Icons.Default.Handshake, color = 0xFF7CB342L),\n',
-        "6 格里没有「司机结算」",
+        "7 格里没有旧名「司机结算」",
     ),
     # ---- 2026-09-21 精简轮：两个弹层的接线收进共用 host 之后，锚点搬到那儿 ----
     (
@@ -197,7 +199,7 @@ MUTATIONS = [
     (
         "账本页的档位又能被切开（入口页定死的档位形同虚设）",
         VM,
-        "    var tab by mutableStateOf(initialTab)\n        private set\n",
+        "    var tab by mutableStateOf(if (initialTab in 0..2) initialTab else 0)\n        private set\n",
         "    var tab by mutableStateOf(initialTab)\n\n    fun selectTab(i: Int) { tab = i }\n",
         "也没有能切档位的方法",
     ),
@@ -206,12 +208,12 @@ MUTATIONS = [
         SCREEN,
         "    initialTab: Int = 0,\n",
         "    onOpenSettlements: () -> Unit = {},\n    initialTab: Int = 0,\n",
-        "「司机结算单」入口没了",
+        "账本页与它的 VM 里不再挂「司机结算单」入口",
     ),
     (
         "批量核销在「全部人」那一层也能点（收的钱会记到某个人的档案上）",
         VM,
-        "        if (personKey == null || tab == 1) return\n",
+        "        if (personKey == null || tab == 0) return\n",
         "",
         "批量核销**必须先选中某个人**",
     ),
@@ -252,11 +254,11 @@ MUTATIONS = [
         "两个入口页都不自己排格子",
     ),
     (
-        "4 类账各建一个页面（不再走同一条带参数的路由）",
+        "3 类账里有一格自己建了页面（不再走同一条带参数的路由）",
         MODULES,
-        "        ModuleEntry(\"货主账\", Routes.dispatcherLedger(2), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少\n",
+        "        ModuleEntry(\"货主账\", Routes.dispatcherLedger(1), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少\n",
         "        ModuleEntry(\"货主账\", Routes.SHIPPER_LEDGER, Icons.Default.PeopleAlt, color = 0xFF00695CL),\n",
-        "4 类账走**同一条带参数的路由**",
+        "3 类账走**同一条带参数的路由**",
     ),
     (
         "入口页的路由没注册（点「账本管理」什么都不发生）",
@@ -278,6 +280,49 @@ MUTATIONS = [
         "    initialTab: Int = 0,\n",
         "    onOpenReceipts: () -> Unit = {},\n    initialTab: Int = 0,\n",
         "账本页不再自己带",
+    ),
+    # ---- 2026-10-07 CHG-0075：司机账与司机运费结算并成一页（台账 L-36）----
+    (
+        "工作台那格「司机运费结算」又长回来（两个入口 = 两种时间口径，两边都看着对）",
+        MODULES,
+        '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 橙 · 账本（跨端同色）\n',
+        '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 橙 · 账本（跨端同色）\n        ModuleEntry("司机运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.Payments, color = 0xFFFF8A65L),\n',
+        "工作台那格「司机运费结算」已删（合并后入口只在入口页）",
+    ),
+    (
+        "入口页那格退回「司机账」= 账本页第 4 档（合并白做了）",
+        MODULES,
+        '        ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF2E7D32L),   // 深绿 · 司机该拿多少 + 给他结账\n',
+        '        ModuleEntry("司机账", Routes.dispatcherLedger(3), Icons.Default.LocalShipping, color = 0xFF2E7D32L),\n',
+        "入口页里没有单独的「司机账」那一格（合并后叫「司机账 · 运费结算」）",
+    ),
+    (
+        "越界的 deep link 不再落回订单账（标题写订单账、页面却走账户汇总）",
+        VM,
+        '    var tab by mutableStateOf(if (initialTab in 0..2) initialTab else 0)\n',
+        '    var tab by mutableStateOf(initialTab)\n',
+        "档位进来之后不再变（private set），且越界的 tab 落回订单账",
+    ),
+    (
+        "结算页那行「司机结算（按月）」不再挂在页面上（孤儿路由又没人进得去）",
+        SETTLEMENT_SCREEN,
+        '                SettlementSheetsRow(onOpenSettlements)\n',
+        "",
+        "那一行真的挂在页面上（不是一段没人调的死代码）",
+    ),
+    (
+        "NavGraph 不再把那个出口接到孤儿路由上（点了打不开）",
+        NAVGRAPH,
+        '                onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },\n',
+        "",
+        "NavGraph 把那个出口接到孤儿路由上",
+    ),
+    (
+        "结算页里长出核销（把「该给他多少」与「他欠我多少」混成一个口径）",
+        SETTLEMENT_VM,
+        '    fun load() {\n',
+        '    fun openSettleAll() {\n    }\n\n    fun load() {\n',
+        "合并后的「司机账 · 运费结算」里数不到核销",
     ),
 ]
 

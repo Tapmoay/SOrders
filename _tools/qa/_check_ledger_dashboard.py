@@ -20,8 +20,9 @@
 
 于是定稿：
 · **工作台回到单网格**（只有一张卡片）；
-· 网格上有「账本管理」一格 → **入口页**（报表中心那种形式）→ 6 件事，其中
-  **司机账并入司机结算**、**开销管理并进来**；
+· 网格上有「账本管理」一格 → **入口页**（报表中心那种形式）→ 各件事，其中
+  **司机账与司机结算合成一格**（2026-10-07 CHG-0075 把它从工作台挪进入口页，见下面「第五轮」）、
+  **开销管理并进来**；
 · **车辆管理**（= 车辆台账）单独一格放桌面上。
 
 **第四轮（2026-09-20，当前这一版）**：他看了账本页的真机，把**页内那条 4 页签导航**否掉了，
@@ -38,14 +39,24 @@
 
 所以现在账本页是：**一类账一页**（档位由入口页那一格定），从上到下
 **搜索 → 日期档位 → 人（默认「全部」）→ 图 → 数据**；司机结算单的入口不在这一页了
-（功能还在，走工作台那一格）。
+（功能还在：2026-10-07 合并后走**入口页那一格**「司机账 · 运费结算」）。
+
+**第五轮（2026-10-07，CHG-0075）**：他把 2026-09-20 拆开的两件事又合回一件（台账 L-36）：
+
+> 还有一个就是将司机账，就是账本管理的司机账，以及司机运费结算啊，这 2 个直接合并成一个。
+
+于是：入口页那一格改名为「**司机账 · 运费结算**」并指向结算页（`Routes.FREIGHT_SETTLEMENT`）；
+**工作台那格「司机运费结算」整格删掉**；账本页只剩 **3 档**（0 订单账 / 1 货主账 / 2 批发商账，
+越界 tab 落回 0）；结算页顶上那颗药丸点开的是**账本那一套** `DateFilterDialogs`
+（2026-09-22 那版年月网格被这一轮覆盖）。
 
 ## 这条规则会被写坏成什么样（都不是假想）
 
 | 写坏的方式 | 表现 |
 |---|---|
 | 工作台又长出第二张卡片 | 用户明确否掉的那一版；同一批东西分两块，来回找 |
-| 6 件事又摆回工作台网格 | 工作台变成一屏 20+ 格，"账本管理"这个统一入口就白做了 |
+| 入口页那几件事又摆回工作台网格 | 工作台变成一屏 20+ 格，"账本管理"这个统一入口就白做了 |
+| **司机账又变回账本页的档位**（或工作台又长出「司机运费结算」一格） | 用户 2026-10-07 刚把两件事合并；两个入口 = 两种时间口径，两边都看着对 |
 | 入口页自己排一遍格子（不用共用版式） | 两页图标大小/圆角/行距各偏一点，一眼看出是两个时代做的 |
 | 车辆管理不出现在工作台 | 用户：「车辆管理直接放在桌面上就行了」 |
 | 开销管理两边都放 | 两个入口 = 用户以为丢了东西 |
@@ -67,18 +78,20 @@
    网格里写死的色都要在亮度家族带（B 66-100）内。
 3. **入口页是报表中心那一套**：两页都调 `EntryCardGrid`，而它**全项目只有一处定义**，
    两个入口页自己都不出现 `LazyVerticalGrid(`。
-4. **入口页正好 6 格**（`Modules.ledgerHomeEntries`）：4 类账走同一条带参数路由 + 客户收款 + 开销管理；
-   两两配色距离 ≥60。
+4. **入口页正好 7 格**（`Modules.ledgerHomeEntries`）：**3 类账**走同一条带参数路由（0/1/2）+
+   「司机账 · 运费结算」（单独一页）+ 客户收款 + 收支 + 供应商/应付；两两配色距离 ≥60。
 5. **账本页一类账一页**：没有 `LedgerTabBar`、没有能切档位的方法；档位由构造参数 `initialTab`
    定死（`private set`）；顶栏标题写这一类账的名字。
 6. **排版顺序**（源码里这几处的先后）：搜索 → 日期档位 → 人 → 图；选人栏默认「全部」。
-7. **司机结算**：账本页与 NavGraph 都不再有 `onOpenSettlements`，但 `Routes.FREIGHT_SETTLEMENT`
-   仍然存在、仍然注册、网格里仍然有那一格（防"顺手把功能删了"）。
+7. **司机账 · 运费结算**（2026-10-07 CHG-0075 合并）：入口**只在**入口页那一格，工作台那格删掉；
+   账本页与它的 VM 里**不许**再有 `onOpenSettlements`/「司机结算单」，反过来**结算页**要给
+   「司机结算（按月）」留出口（`onOpenSettlements` → `Routes.DISPATCH_SETTLEMENTS`，救活孤儿路由），
+   `Routes.FREIGHT_SETTLEMENT` 仍然存在、仍然注册（防"顺手把功能删了"）。
 8. **批量核销**：只有选中某个人时才给（`personKey == null` 直接返回）；金额 = 各单欠款之和；
    一笔收款带全部 `order_ids`；弹层里逐单列出来；收款方式与客户档案警告各只有一份。
 9. **日期档位与图表同源**：`DatePresets.rangeOf` 唯一实现、`Canvas(` 只许在 `Charts.kt`、
    账本页不许 `moneyToDouble(`。
-10. 反空转：6 格、配色数、认出的文件数低于下限就报错，而不是安静地什么都不查。
+10. 反空转：格数、配色数、认出的文件数低于下限就报错，而不是安静地什么都不查。
 
 ⚠️ 注入式反向验证（改坏 → 本脚本必须红）：`_tools/qa/_reverse_verify_ledger_dashboard.py`。
 
@@ -102,6 +115,9 @@ ANDROID = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 SCREEN = ANDROID / "ui/dispatcher/DispatcherLedgerScreen.kt"
 VM = ANDROID / "ui/dispatcher/DispatcherLedgerViewModel.kt"
 PERSON_SCREEN = ANDROID / "ui/dispatcher/LedgerPersonScreen.kt"
+#: 合并后的那一页（2026-10-07 CHG-0075）：账本管理入口页那格「司机账 · 运费结算」。
+SETTLEMENT_SCREEN = ANDROID / "ui/dispatcher/FreightSettlementScreen.kt"
+SETTLEMENT_VM = ANDROID / "ui/dispatcher/FreightSettlementViewModel.kt"
 LEDGER_HOME = ANDROID / "ui/dispatcher/LedgerHomeScreen.kt"
 REPORT_HOME = ANDROID / "ui/dispatcher/ReportHome.kt"
 ENTRY_GRID = ANDROID / "ui/common/EntryGrid.kt"
@@ -125,13 +141,16 @@ CANVAS_ALLOW = {
 }
 
 #: 「账本管理」入口页里的 7 格（顺序即显示顺序）。
-#: 用户 2026-09-20 第二轮定稿了 6 格（司机账**并入司机结算**、开销管理**并进来**、
+#: 用户 2026-09-20 第二轮定稿了 6 格（开销管理**并进来**、
+#: 2026-10-07 CHG-0075：第 2 格从账本页那一档改成**独立一页**「司机账 · 运费结算」
+#:   （用户原话「将司机账，就是账本管理的司机账，以及司机运费结算啊，这 2 个直接合并成一个」）——
+#:   账本页因此只剩 3 档，工作台那格「司机运费结算」删掉。
 #: 车辆台账**搬去工作台**）；2026-09-22 加第 7 格「供应商/应付」——
 #: 用户原话「支出主要是**给某个供应商或者说是厂商支付尾款**……**购买一个装备或者说是设备**……
 #: 比如说类似**邮费**啊」，拍板口径是"跟客户一个量级的档案"（可挂账、可查还欠多少、可分次付款）。
 #: ⚠️ 它**不是**把「收支」那一格顶掉：那一格是**日记账**（一笔一笔的流水），
 #:    这一格是**往来账**（欠谁多少、分几次付清）—— 两件事、两个页面，两边都通。
-LEDGER_TILES = ["订单账", "司机账", "货主账", "批发商账", "客户收款", "收支", "供应商/应付"]
+LEDGER_TILES = ["订单账", "司机账 · 运费结算", "货主账", "批发商账", "客户收款", "收支", "供应商/应付"]
 
 #: 亮度家族带（B 66-100）之外的**既有**格子 → 理由。只用来拦新增的，不回溯判老的。
 BAND_EXEMPT = {
@@ -172,6 +191,7 @@ def main() -> int:
     screen = read(SCREEN)
     vm = read(VM)
     person_screen = read(PERSON_SCREEN)
+    settlement_screen = read(SETTLEMENT_SCREEN)
     ledger_home = read(LEDGER_HOME)
     report_home = read(REPORT_HOME)
     entry_grid = read(ENTRY_GRID)
@@ -196,8 +216,10 @@ def main() -> int:
               screen, r"Text\(vm\.kindTitle\(\)")
     c.present("档位由入口页定（构造参数 initialTab）",
               vm, r"class DispatcherLedgerViewModel\([\s\S]{0,240}?initialTab: Int = 0")
-    c.present("档位进来之后不再变（private set）",
-              vm, r"var tab by mutableStateOf\(initialTab\)[\s\S]{0,40}?private set")
+    c.ok("档位进来之后不再变（private set），且越界的 tab 落回订单账",
+         re.search(r"var tab by mutableStateOf\(if \(initialTab in 0\.\.2\) initialTab else 0\)[\s\S]{0,40}?private set", vm) is not None,
+         "老的 deep link `dispatcherLedger(3)` 现在没有那一档了：落进 else 分支就会出现"
+         "「标题写订单账、页面却走账户汇总」这种自相矛盾")
     # 排版顺序：判据是源码里这几处的**先后**，不是"某句话在不在文件里"
     marks = [(k, screen.find(v)) for k, v in (
         ("时间", "DatePresetPill("), ("人", "PersonTriggerRow("), ("数据", "LedgerDashboardCard("))]
@@ -256,21 +278,31 @@ def main() -> int:
     c.absent("合计不再拿「搜索过滤后」的那一份算（那会让用户照着筛过的数去对账）",
              vm, r"val rows = visibleAccountRows\(\)")
 
-    # ---- ①b 司机结算：账本页不再挂入口，但**功能不许丢** ----
+    # ---- ①b 司机账 + 司机结算：2026-10-07 合并成一件（CHG-0075）----
     #
-    # 用户 2026-09-20 第四轮：「那个结算，这个也直接去掉」。去掉的是**账本页里那个入口**，
-    # 不是这个功能 —— 它仍然在（工作台那一格），这条断言就是防"顺手把功能删了"。
-    c.absent("司机账里那个「司机结算单」入口没了", screen + vm, r"onOpenSettlements|司机结算单")
-    c.absent("NavGraph 也不再为它接线", navgraph, r"onOpenSettlements")
-    c.present("司机结算仍然进得去（工作台那一格是它唯一的入口）",
-              modules, r'ModuleEntry\("司机运费结算", Routes\.FREIGHT_SETTLEMENT')
+    # 2026-09-20 第四轮他把账本页里那个入口去掉了（「那个结算，这个也直接去掉」）；
+    # 2026-10-07 他又把两件事合回一件（台账 L-36）：
+    #   「还有一个就是将司机账，就是账本管理的司机账，以及司机运费结算啊，这 2 个直接合并成一个。」
+    # 于是入口只剩**账本管理入口页那一格**；工作台那格整格删掉；
+    # 结算页反过来给「司机结算（按月）」留一个出口（救活那条孤儿路由）。
+    c.present("入口页那一格就是合并后的唯一入口（指向结算页）",
+              modules, r'ModuleEntry\("司机账 · 运费结算", Routes\.FREIGHT_SETTLEMENT')
+    c.absent("工作台那格「司机运费结算」已删（合并后入口只在入口页）",
+             modules, r'ModuleEntry\("司机运费结算", Routes\.FREIGHT_SETTLEMENT')
+    c.absent("账本页与它的 VM 里不再挂「司机结算单」入口", screen + vm, r"onOpenSettlements|司机结算单")
+    c.present("结算页给「司机结算（按月）」留了出口那一行",
+              settlement_screen, r"private fun SettlementSheetsRow\(")
+    c.present("那一行真的挂在页面上（不是一段没人调的死代码）",
+              settlement_screen, r"SettlementSheetsRow\(onOpenSettlements\)")
+    c.present("NavGraph 把那个出口接到孤儿路由上",
+              navgraph, r"onOpenSettlements = \{ navController\.navigate\(Routes\.DISPATCH_SETTLEMENTS\) \}")
     c.present("结算页的路由还在", routes, r'const val FREIGHT_SETTLEMENT =')
     c.present("结算页在 NavGraph 里还注册着", navgraph, r"composable\(Routes\.FREIGHT_SETTLEMENT\)")
 
     # ---- ①c 批量核销：点合计一次收清（用户：「相当于一个可控的批量处理」）----
     c.present("点合计能批量核销（一笔收款、多张单）", vm, r"fun submitSettleAll\(")
     c.present("批量核销**必须先选中某个人**（用户：「如果是全部的话，那个合计是不能批量核销的」）",
-              vm, r"if \(personKey == null \|\| tab == 1\) return")
+              vm, r"if \(personKey == null \|\| tab == 0\) return")
     c.present("批量金额 = 各单欠款之和（后端算的 arrears_amount，客户端不自己减）",
               vm, r"centsToMoney\(settleAllTargets\(\)\.sumOf \{ orderArrearsCents\(it\) \}\)")
     c.present("一笔收款带上所有选中的单（`order_ids`，不是发 N 个请求）",
@@ -284,8 +316,12 @@ def main() -> int:
     c.ok(f"收款方式定义处数正常（实测 {n_methods}）", n_methods == 1, "抄了第二份（单张加了「挂账结清」批量没加）")
     c.present("没有客户档案那条警告也只有一份（它是拦得住一次错账的那条）",
               person_screen, r"private fun NoCustomerWarning\(")
-    c.present("司机那一层**没有**核销（他那笔钱是「该给他多少」，不是应收）",
-              person_screen, r"所以这里没有核销")
+    c.present("核销只活在账本页的人那一层（货主/批发商）",
+              person_screen, r"fun SettleAllDialog\(")
+    n_settle = len(re.findall(r"openSettleAll\(|SettleAllDialog\(|submitSettleAll\(",
+                              settlement_screen + read(SETTLEMENT_VM)))
+    c.ok(f"合并后的「司机账 · 运费结算」里数不到核销（实测 {n_settle} 处）", n_settle == 0,
+         "司机那笔是「该给他多少」，不是应收 —— 给他挂一层核销就是把两个口径搞混")
 
     # ---- ② 工作台**只有一张卡片**（用户 2026-09-20 第二轮推翻了卡片版）----
     c.absent("工作台不再渲染第二张卡片", workbench, r"dispatcherLedgerEntries")
@@ -335,7 +371,10 @@ def main() -> int:
                   r'ModuleEntry\("车辆管理", Routes\.DISPATCH_VEHICLES')
         c.absent("网格里没有「开销管理」（它并进账本管理了）", g, r'"开销管理"')
         c.absent("网格里没有「车辆台账」这个旧名（就是车辆管理）", g, r'"车辆台账"')
-        c.absent("网格里没有「司机结算」那一格（并进司机账了）", g, r'"司机结算"')
+        c.absent("网格里没有「司机结算」那一格（2026-10-07 起并进「司机账 · 运费结算」）",
+                 g, r'"司机结算"')
+        c.absent("工作台那格「司机运费结算」整格删了（入口只在账本管理入口页，CHG-0075）",
+                 g, r'ModuleEntry\("司机运费结算", Routes\.FREIGHT_SETTLEMENT')
         for banned in ("订单账", "货主账", "批发商账", "客户收款"):
             c.absent(f"网格里没有「{banned}」（它在账本管理入口页里）", g, rf'"{banned}"')
         # 工作台那一规：**跟邻居一样亮、一样鲜艳，只差色相**（用户 2026-09-20 定的）。
@@ -352,7 +391,7 @@ def main() -> int:
              not stray_band, "用户否过这类色：" + "、".join(stray_band))
         c.ok(f"网格里数得出入口（实测 {len(labels)} 格）", len(labels) >= 16, f"实际 {labels}")
 
-    # ---- ④ 账本管理入口页：报表中心那种形式，6 格，且**版式只有一份** ----
+    # ---- ④ 账本管理入口页：报表中心那种形式，7 格，且**版式只有一份** ----
     c.present("有「账本管理」入口页", ledger_home, r"fun LedgerHomeScreen\(")
     c.present("入口页用的是**共用**的入口卡版式（不是自己又画一遍）", ledger_home, r"EntryCardGrid\(")
     c.present("标题是「账本管理」", ledger_home, r'AppTopBar\(title = "账本管理"')
@@ -365,24 +404,28 @@ def main() -> int:
     c.ok(f"两个入口页都不自己排格子（实测 {n_lazy} 处 LazyVerticalGrid）", n_lazy == 0,
          "自己排格子 = 第二份版式")
     block = re.search(r"val ledgerHomeEntries[\s\S]*?\n    \)\n", modules)
-    c.ok("取到 6 格清单（取不到这条检查就是空转）", block is not None and len(block.group(0)) > 200)
+    c.ok(f"取到 {len(LEDGER_TILES)} 格清单（取不到这条检查就是空转）", block is not None and len(block.group(0)) > 200)
     if block:
         body = block.group(0)
         labels = re.findall(r'ModuleEntry\("([^"]+)"', body)
-        c.ok(f"正好 6 格（实测 {len(labels)}）", labels == LEDGER_TILES, f"实际 {labels}")
+        c.ok(f"正好 {len(LEDGER_TILES)} 格（实测 {len(labels)}）", labels == LEDGER_TILES, f"实际 {labels}")
         c.ok(
-            "4 类账走**同一条带参数的路由**（不是四个页面）",
-            len(re.findall(r"Routes\.dispatcherLedger\(", body)) == 4,
-            "少于 4 条",
+            "3 类账走**同一条带参数的路由**（不是三个页面）",
+            len(re.findall(r"Routes\.dispatcherLedger\(", body)) == 3,
+            "少于 3 条",
         )
+        c.present("合并后那一格走结算页（不再是账本页的第 4 个档位）",
+                  body, r'ModuleEntry\("司机账 · 运费结算", Routes\.FREIGHT_SETTLEMENT')
+        c.absent("入口页里没有单独的「司机账」那一格（合并后叫「司机账 · 运费结算」）",
+                 body, r'ModuleEntry\("司机账", ')
         for r in ("Routes.DISPATCH_RECEIPTS", "Routes.DISPATCH_CASH"):
             c.present(f"两个工具之一走 {r}", body, re.escape(r))
-        c.absent("6 格里没有「司机结算」（并进司机账了）", body, r'"司机结算"')
-        c.absent("6 格里没有「车辆台账」（它去工作台了）", body, r'"车辆台账"')
+        c.absent("7 格里没有旧名「司机结算」（合并后那一格叫「司机账 · 运费结算」）", body, r'"司机结算"')
+        c.absent("7 格里没有「车辆台账」（它去工作台了）", body, r'"车辆台账"')
         # 2026-09-22 用户：「我记得好像有个开销管理吧，干脆把我们两个**整合在一起**」——
         # 开销管理从"并列一格"降成「收支 → 支出」里的明细入口（它自己那一页与路由都还在，
         # 见下面 ⑦）。
-        c.absent("6 格里不再并列一格「开销管理」（并进「收支」了）", body, r'"开销管理"')
+        c.absent("7 格里不再并列一格「开销管理」（并进「收支」了）", body, r'"开销管理"')
         c.present("「收支」那一格指向它自己那一页", body, r'ModuleEntry\("收支", Routes\.DISPATCH_CASH')
         icons = re.findall(r"Icons\.Default\.(\w+)", body)
         # ⚠️ 条数不再写死 `== 6`：这个数会随格子增删变化（2026-09-22 加了「供应商/应付」），
@@ -393,7 +436,7 @@ def main() -> int:
             len(set(icons)) == len(icons) == len(LEDGER_TILES),
             f"{icons}",
         )
-        # 同屏不许撞色：6 格两两 RGB 欧氏距离 ≥60
+        # 同屏不许撞色：7 格两两 RGB 欧氏距离 ≥60
         cols = [(m[0], m[1]) for m in re.findall(r'ModuleEntry\("([^"]+)"[\s\S]{0,200}?color = (MoneyOrange|0xFF[0-9A-Fa-f]{6}L)', body)]
         hexes = []
         for name, tok in cols:
@@ -519,7 +562,7 @@ def main() -> int:
         for f in c.fails:
             print("   - " + f)
         return 1
-    print(f"✅ 全部 {c.passes} 项通过：工作台一格 → 账本管理入口页（报表中心形式，6 件事）→ 账本页只管看账，且数与图同源。")
+    print(f"✅ 全部 {c.passes} 项通过：工作台一格 → 账本管理入口页（报表中心形式，7 件事）→ 账本页只管看账，且数与图同源。")
     return 0
 
 

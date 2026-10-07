@@ -13,7 +13,7 @@ package com.tapmoay.sorders.core
  *
  * | 消费点 | 数据从哪来 | 怎么搜 |
  * |---|---|---|
- * | 账本仪表盘（司机账/货主账/批发商账） | `/ledger/accounts`、`/freight-settlement` **一次回全量**（没有分页） | 本地用 [matches] |
+ * | 账本仪表盘（货主账/批发商账）与「司机账 · 运费结算」 | `/ledger/accounts`、`/freight-settlement` **一次回全量**（没有分页） | 本地用 [matches] |
  * | 司机/货主/批发商/账户管理 | `/users` **一页最多 500 条**（`X-Truncated`） | 服务端 `?q=`（同一个判据的后端实现：`app/core/user_search.py`） |
  *
  * 两张表看起来是"两套实现"，其实是**同一条规则按数据是否完整分流**：

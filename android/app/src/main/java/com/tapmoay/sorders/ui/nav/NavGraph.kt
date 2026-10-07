@@ -431,11 +431,14 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
             )
         }
         // 账本页支持 `?tab=` 直达某一类账（账本管理入口页里的 4 格用它）。
-        // 4 类账是**同一页的四个档位**，所以这里一条路由带一个参数就够了，不要建四个页面。
+        // 3 类账是**同一页的三个档位**（0 订单账 / 1 货主账 / 2 批发商账），所以这里一条路由带一个参数
+        // 就够了，不要建三个页面。
         // ⛔ 页内**没有**切换档位的入口了（用户 2026-09-20：「最上面的 4 个去掉，那是老的导航栏」），
         //    所以这个参数就是"这一页是哪一本账"，进来之后不再变。
-        // ⛔ 这里**没有** `onOpenSettlements` 了：司机结算单不再挂在司机账页面里（用户：
-        //    「那个结算，这个也直接去掉」），它从工作台那一格（`Routes.FREIGHT_SETTLEMENT`）进。
+        // ⛔ 司机那一档（原来的 1）2026-10-07 并走了（CHG-0075）：它整个挂到了
+        //    `Routes.FREIGHT_SETTLEMENT`（「司机账 · 运费结算」）那一页，本页只服务货主/批发商。
+        // ⛔ 越界的 tab（比如老的 `dispatcherLedger(3)`）在 VM 里落回 0，不会变成"名字是订单账、
+        //    内容却是账户汇总"的自相矛盾页面。
         composable(
             route = Routes.DISPATCH_LEDGER + "?tab={tab}",
             arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 }),
@@ -570,6 +573,9 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
                 // 上面那一行「还有 N 单运费没定价」→ 运费待定价页（同一个容器、同一个路由表）
                 onOpenUnpriced = { navController.navigate(Routes.FREIGHT_UNPRICED) },
+                // 「司机结算（按月）」那一页的出口（2026-10-07 CHG-0075 救活）：合并之前它挂在
+                // 账本页的司机档里，现在挂到这一页上 —— 结完账去那儿按月份打结算单。
+                onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },
             )
         }
         composable(Routes.DRIVER_FREIGHT) {

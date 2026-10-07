@@ -1,9 +1,9 @@
-"""反向验证 `_tools/qa/_check_freight_settlement_ui.py`（红线：结算页 = 抽屉选人 + 顶栏月份）。
+"""反向验证 `_tools/qa/_check_freight_settlement_ui.py`（红线：司机账 · 运费结算 = 抽屉选人 + 顶栏档位药丸，与账本页共用同一份）。
 
 ## 为什么必须做
 
 这条判据守的事**坏起来一条报错都不会有**：
-把 `MasterRail` 那套左栏装回来、把抽屉再抄一份到结算页、把"月份"退回我们常用的那列档位清单、
+把 `MasterRail` 那套左栏装回来、把抽屉再抄一份到结算页、把 2026-09-22 那版年月网格装回来、
 换窗口时悄悄回落到第一位司机 —— 这四种改法**都能编译、都能跑、界面都"看着正常"**。
 用户拿到的只有"怎么又变回去了"，而检查如果只会查"文件里有没有这个词"，它一条都抓不住。
 
@@ -95,36 +95,40 @@ CASES: list[tuple[str, Path, object]] = [
         VM,
         lambda s: s.replace("    fun selectDriver(key: String) {", "    fun shiftMonth(delta: Int) {}\n\n    fun selectDriver(key: String) {", 1),
     ),
-    # ---- ③ 时间是顶栏药丸 → 年月网格 ----
+    # ---- ③ 时间是顶栏药丸 → 与账本共用的档位弹层（2026-10-07 CHG-0075 覆盖了 2026-09-22 的年月网格）----
     (
         "药丸从顶栏拿掉（时间控件不在右上角了）",
         SCREEN,
-        lambda s: s.replace("DatePresetPill(label = vm.periodLabel, onClick = { showMonths = true })", 'Text("本月")', 1),
+        lambda s: s.replace("DatePresetPill(label = vm.periodLabel, onClick = { showPresets = true })", 'Text("本月")', 1),
     ),
     (
-        "点开的是我们平常那列**档位清单**（「按月的选择形式」当场失效）",
+        "把 2026-09-22 那版**年月网格**装回来（用户 2026-10-07 已经把它并进账本那套档位）",
         SCREEN,
-        lambda s: s.replace("        MonthPickerSheet(\n", "        DatePresetDialog(\n", 1),
+        lambda s: s.replace(
+            "    DateFilterDialogs(\n",
+            "    MonthPickerSheet(month = vm.preset, onPick = {}, onCustom = {}, onDismiss = {})\n    DateFilterDialogs(\n",
+            1,
+        ),
     ),
     (
-        "月份网格里不再有年份左右翻（跨年只能一个月一个月点）",
+        "档位弹层换成一个空壳（点一档不换窗口）",
         SCREEN,
-        lambda s: s.replace("{ year -= 1 }", "{ }", 1),
+        lambda s: s.replace("        onPickPreset = { vm.applyPreset(it) },\n", "", 1),
     ),
     (
-        "换月份改成页面自己赋值（绕过 VM 那个入口）",
+        "「自定义区间」那条路被丢掉（2026-09-20 用户明确要过）",
         SCREEN,
-        lambda s: s.replace("vm.pickMonth(m)", "vm.month = m", 1),
+        lambda s: s.replace("        onApplyCustom = { f, t -> vm.applyCustomRange(f, t) },\n", "", 1),
     ),
     (
-        "「自定义区间」在改版里被丢掉（2026-09-20 用户明确要过的那条路）",
-        SCREEN,
-        lambda s: s.replace("                showMonths = false\n                showRange = true", "                showMonths = false", 1),
+        "默认档自己拼一个字符串（不再走 DatePresets 那一份换算）",
+        VM,
+        lambda s: s.replace("DatePresets.THIS_MONTH", '"2026-10"'),
     ),
     (
-        "区间弹层不再挂上（那一行点了没反应）",
-        SCREEN,
-        lambda s: s.replace("        DateRangeDialog(\n", "        // DateRangeDialog(\n", 1),
+        "「全部」那一档的宽边界自己抄一份（两页各写一遍，改一处漏一处）",
+        VM,
+        lambda s: s.replace("DatePresets.WIDE_FROM", '"2000-01-01"'),
     ),
     # ---- ④ 选中态：空串 = 全部；换窗口不悄悄换人 ----
     (
@@ -175,6 +179,20 @@ CASES: list[tuple[str, Path, object]] = [
         # ⚠️ 不复用 `count=1`：这一节号在 §4.6 与控件表里也各被引用了一次，
         #    只换第一处的话判据照样绿 —— 那样这条注入就是空转的（第一次跑就是这么被抓出来的）。
         lambda s: s.replace("§4.15 第 8 条", "§4.15 第 X 条"),
+    ),
+    (
+        "设计文档里又写回「点开的是年月网格」这条指导口径（下一个人照做就把 2026-10-07 那版覆盖掉了）",
+        DESIGN,
+        lambda s: s.replace(
+            "# 06 UI 设计与语义色体系\n",
+            "# 06 UI 设计与语义色体系\n\n> 时间控件：结算页点开的是年月网格（`MonthPickerSheet`：年份左右翻 + 12 个月格子）。\n",
+            1,
+        ),
+    ),
+    (
+        "设计文档里的合并后入口名被改掉（文档与代码对不上）",
+        DESIGN,
+        lambda s: s.replace("司机账 · 运费结算", "司机账"),
     ),
 ]
 

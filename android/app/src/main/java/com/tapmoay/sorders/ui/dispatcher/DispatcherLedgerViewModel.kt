@@ -4,7 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocalShipping
+
 import androidx.compose.material.icons.filled.PeopleAlt
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.ui.graphics.Color
@@ -13,8 +13,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.UserSearch
-import com.tapmoay.sorders.data.remote.dto.FreightSettlementGroupDto
-import com.tapmoay.sorders.data.remote.dto.FreightSettlementOrderDto
+
 import com.tapmoay.sorders.data.remote.dto.LedgerAccountOut
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
@@ -22,7 +21,7 @@ import com.tapmoay.sorders.data.remote.dto.ReceiptCreateRequest
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.DatePresets
 import com.tapmoay.sorders.ui.theme.MemberGold
-import com.tapmoay.sorders.ui.theme.MgrGreen
+
 import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.moneyToDouble
@@ -30,15 +29,18 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 /**
- * 账本仪表盘的一行 —— **司机账 / 货主账 / 批发商账共用同一个视图模型**。
+ * 账本仪表盘的一行 —— **货主账 / 批发商账共用同一个视图模型**。
  *
- * 三种账的数据源不同（`/freight-settlement` 的 group vs `/ledger/accounts` 的账户汇总），
+ * 两种账的数据源是同一份账户汇总（`/ledger/accounts`，靠 kind 区分货主/批发商），
  * 但**仪表盘要看的四件事是同一件**：这是谁（名字）+ 怎么找到他（手机号）+
  * 他有几笔 + 一共多少钱。上一版把这一层拆成两套卡片 + 两套挑选器，
  * 结果是"同一个需求改两处、改一处漏一处"。
+ *
+ * ⚠️ 司机那一档 2026-10-07 并进 `FreightSettlementScreen`（CHG-0075）：他那份数据源是
+ *    `/freight-settlement` 的 group，与账户汇总不是一套，所以不再挂在这个视图模型上。
  */
 data class LedgerAccountRow(
-    /** `d|<司机 id>` / `u|<货主 id>` / `t|<临时货主名>`（跨 tab 不通用，换 tab 会清）。 */
+    /** `u|<货主 id>` / `t|<临时货主名>`（跨 tab 不通用，换 tab 会清）。 */
     val key: String,
     /** 名字（**原样**，可能是空串 —— 空名要靠手机号搜，所以不在这里兜底成「货主」）。 */
     val title: String,
@@ -60,9 +62,11 @@ data class LedgerDashboard(val accounts: Int, val count: Int, val total: Double)
  * 派单员账本（信息优先：日期范围流水 + 汇总金额 + 手动记账）。
  * 查询/记账全部复用 ledger API 与通用日期解析，不写死业务。
  *
- * ⚠️ [initialTab] 是**这一类账**，由入口页（`LedgerHomeScreen` 的 6 格）定下来，
+ * ⚠️ [initialTab] 是**这一类账**，由入口页（`LedgerHomeScreen` 的 7 格）定下来，
  *    页面内**不再切换**：用户 2026-09-20 看了真机，把页内那条 4 页签导航否掉了 ——
  *    「最上面的 4 个去掉，那是**老的导航栏**」。
+ * ⚠️ 2026-10-07 CHG-0075 之后只剩 3 档（0 订单账 / 1 货主账 / 2 批发商账）；越界的值
+ *    （老的 `dispatcherLedger(3)` 深链）**落回 0**，免得出现"名字是订单账、内容却是账户汇总"。
  */
 class DispatcherLedgerViewModel(
     private val container: AppContainer,
@@ -139,14 +143,18 @@ class DispatcherLedgerViewModel(
     //    图与它们的取数纯函数（`LedgerCharts.kt`）一起删了 —— 留着"没人调的类型开关 +
     //    取数函数"只会让下一个人以为这一页还能切图。
 
-    // ===== 账本分类：0=订单账 1=司机账 2=货主账 3=批发商账 =====
+    // ===== 账本分类：0=订单账 1=货主账 2=批发商账 =====
+    //
+    // 注意：司机那一档（原来的 1）2026-10-07 并进了「司机账 · 运费结算」那一页
+    // （FreightSettlementScreen，CHG-0075）：司机那笔钱是 driver_pay（我们该给他多少），
+    // 与这里的应收/已收/欠款不是一套口径，挤在同一排档位里只会让人拿错数。
+    // 所以 1/2 从「司机/货主」顺延成了「货主/批发商」——档位号变了。
     //
     // ⛔ 页面里**没有**切换它的入口了（用户 2026-09-20：「最上面的 4 个去掉，那是老的导航栏」）——
     //    它由入口页那一格决定，构造时就定死。留着 `selectTab` 那样一个没人调的方法，
     //    下一个人会以为"这一页还能切档位"，然后照着它写一个切档位的入口。
-    var tab by mutableStateOf(initialTab)
+    var tab by mutableStateOf(if (initialTab in 0..2) initialTab else 0)
         private set
-    var driverAccounts by mutableStateOf<List<FreightSettlementGroupDto>>(emptyList())
     var shipperAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
     var memberAccounts by mutableStateOf<List<LedgerAccountOut>>(emptyList())
     var accountsLoading by mutableStateOf(false)
@@ -178,31 +186,18 @@ class DispatcherLedgerViewModel(
     var query by mutableStateOf("")
 
     /** 当前 tab 的**全部**账户行（顺序 = 服务端顺序，已按金额倒序）。 */
-    fun accountRows(): List<LedgerAccountRow> = when (tab) {
-        1 -> driverAccounts.map {
+    fun accountRows(): List<LedgerAccountRow> {
+        val rows = if (tab == 2) memberAccounts else shipperAccounts
+        return rows.map {
             LedgerAccountRow(
-                key = "d|" + it.driverId,
-                title = it.driverName,
-                phone = it.driverPhone,
-                inactive = !it.driverActive,
+                key = accountKey(it),
+                title = it.name,
+                phone = it.phone,
+                inactive = !it.isActive,
                 count = it.count,
-                countUnit = "单",
-                total = it.total,
+                countUnit = "笔",
+                total = moneyToDouble(it.total),
             )
-        }
-        else -> {
-            val isMember = tab == 3
-            (if (isMember) memberAccounts else shipperAccounts).map {
-                LedgerAccountRow(
-                    key = accountKey(it),
-                    title = it.name,
-                    phone = it.phone,
-                    inactive = !it.isActive,
-                    count = it.count,
-                    countUnit = "笔",
-                    total = moneyToDouble(it.total),
-                )
-            }
         }
     }
 
@@ -241,30 +236,23 @@ class DispatcherLedgerViewModel(
 
     /** 顶栏标题。 */
     fun kindTitle(): String = when (tab) {
-        1 -> "司机账"
-        2 -> "货主账"
-        3 -> "批发商账"
+        1 -> "货主账"
+        2 -> "批发商账"
         else -> "订单账"
     }
 
-    /** 行卡/空态里的那两个字（「未命名司机」这种兜底也用它）。 */
-    fun kindLabel(): String = if (tab == 3) "批发商" else kindTitle().removeSuffix("账")
+    /** 行卡/空态里的那两个字（「未命名货主」这种兜底也用它）。 */
+    fun kindLabel(): String = if (tab == 2) "批发商" else kindTitle().removeSuffix("账")
 
     fun kindColor(): Color = when (tab) {
-        1 -> Color(MgrGreen)
-        3 -> Color(MemberGold)
+        2 -> Color(MemberGold)
         else -> Color(ShipperTeal)
     }
 
     fun kindIcon(): ImageVector = when (tab) {
-        1 -> Icons.Default.LocalShipping
-        3 -> Icons.Default.Storefront
+        2 -> Icons.Default.Storefront
         else -> Icons.Default.PeopleAlt
     }
-
-    /** 司机账那一行自己在响应里带的订单明细（不用再请求）。 */
-    fun driverOrdersOf(key: String): List<FreightSettlementOrderDto> =
-        driverAccounts.firstOrNull { "d|" + it.driverId == key }?.orders.orEmpty()
 
     // ============================================================ 明细里的订单可以展开
     //
@@ -307,23 +295,15 @@ class DispatcherLedgerViewModel(
      */
     val periodStart: String? get() = rangeFrom
 
-    /** 司机账/货主账/批发商账：按当前时间范围拉取账户汇总 */
+    /** 货主账/批发商账：按当前时间范围拉取账户汇总 */
     fun loadAccounts() {
         accountsLoading = true
         loadError = null
         viewModelScope.launch {
             try {
-                if (tab == 1) {
-                    // ⚠️ 结算接口**必须**给 from/to（不给直接 400），所以「全部」那一档用一对
-                    //    宽到没有实际边界的端点：业务数据不可能早于 2000 年，也不会有 2099 年后的单。
-                    val f = rangeFrom ?: WIDE_FROM
-                    val t = rangeTo ?: WIDE_TO
-                    driverAccounts = container.repo.freightSettlementRange(f + " 00:00:00", t + " 23:59:59").groups
-                } else {
-                    // 账户汇总接口的 from/to 可以省：省掉就是**真·全部**（不传一个假区间进去）
-                    if (tab == 2) shipperAccounts = container.repo.ledgerAccounts(rangeFrom, rangeTo, "shipper")
-                    if (tab == 3) memberAccounts = container.repo.ledgerAccounts(rangeFrom, rangeTo, "member")
-                }
+                // 账户汇总接口的 from/to 可以省：省掉就是**真·全部**（不传一个假区间进去）
+                if (tab == 1) shipperAccounts = container.repo.ledgerAccounts(rangeFrom, rangeTo, "shipper")
+                if (tab == 2) memberAccounts = container.repo.ledgerAccounts(rangeFrom, rangeTo, "member")
             } catch (e: Exception) {
                 loadError = toApiException(e).message
             } finally {
@@ -445,19 +425,11 @@ class DispatcherLedgerViewModel(
         }
     }
 
-    private companion object {
-        /**
-         * 「全部」那一档给**结算接口**的边界（见 [loadAccounts]）。
-         * 账户汇总接口不需要它们 —— 那边省掉 from/to 就是真的不加条件。
-         */
-        const val WIDE_FROM = "2000-01-01"
-        const val WIDE_TO = "2099-12-31"
-    }
 
     /**
      * 这一段有没有账（**只探测、不动页面状态**）。
      *
-     * 判据与页面自己那一份取数**同源**：订单账看流水、司机账看结算分组、货主/批发商账看账户汇总
+     * 判据与页面自己那一份取数**同源**：订单账看流水、货主/批发商账看账户汇总
      * —— 用别的接口猜"有没有单"，会出现"退档到的那一天页面还是空的"。
      * ⚠️ 探测失败（网络/权限）当"没数"处理：不能因为探测不通就把用户按在一个看不见的窗口上。
      */
@@ -467,8 +439,7 @@ class DispatcherLedgerViewModel(
         return try {
             when (tab) {
                 0 -> container.repo.ledgerEntries(from = f, to = t).rows.isNotEmpty()
-                1 -> container.repo.freightSettlementRange(f + " 00:00:00", t + " 23:59:59").groups.isNotEmpty()
-                else -> container.repo.ledgerAccounts(f, t, if (tab == 3) "member" else "shipper").isNotEmpty()
+                else -> container.repo.ledgerAccounts(f, t, if (tab == 2) "member" else "shipper").isNotEmpty()
             }
         } catch (e: Exception) {
             false
@@ -536,13 +507,11 @@ class DispatcherLedgerViewModel(
     /**
      * 时间窗口换了之后要重取的东西。**一处写全**：漏一处就是"上面的合计写着本月、
      * 下面的明细还是上个月"，而两边都不报错。
-     * ⚠️ 司机那一层不用重取：他的单**跟在账户汇总响应里**（`/freight-settlement` 的 group 自带
-     *    `orders`），账户汇总重取一次，他的第二层就跟着新了。
      */
     private fun refreshForNewWindow() {
         if (tab != 0) loadAccounts()
         // 第二层（某个人的按订单账）也要跟着换窗口
-        if (personKey != null && tab != 1) loadPerson()
+        if (personKey != null) loadPerson()
     }
 
     /**
@@ -587,7 +556,7 @@ class DispatcherLedgerViewModel(
         }
         load()
         loadAccounts()
-        if (personKey != null && tab != 1) loadPerson()
+        if (personKey != null) loadPerson()
     }
 
     fun confirmDelete() {
@@ -621,20 +590,18 @@ class DispatcherLedgerViewModel(
     }
 
     /**
-     * 点账户行 = **看他这一段的账**（第二层）。三类账走同一条路：
+     * 点账户行 = **看他这一段的账**（第二层）。
      *
-     * · 货主 / 批发商：要另取"按送达日落在窗口里的单"（[loadPerson]，它还要找客户档案）；
-     * · 司机：那几单**已经在列表响应里**（`/freight-settlement` 每个 group 自带 `orders`），
-     *   再打一次后端只是把同样的数再取一遍 —— 所以司机这一层不发请求。
-     *   ⚠️ 司机那笔钱的口径是 `driver_pay`（我们该给他多少），与客户应收是两套，
-     *      所以他的第二层**没有核销**，只有"他跑了哪几趟、这一共多少"。
+     * 货主 / 批发商：另取"按送达日落在窗口里的单"（[loadPerson]，它还要找客户档案）。
+     * ⚠️ 司机那一层**不在这一页了**（2026-10-07 并进 `FreightSettlementScreen`，CHG-0075）——
+     *    他的钱是 `driver_pay`、口径与客户应收是两套，那一页里也没有核销。
      */
     fun openPerson(row: LedgerAccountRow) {
         personKey = row.key
         personOrders = emptyList()
         personStats = emptyList()
         personCustomerId = null
-        if (tab != 1) loadPerson()
+        loadPerson()
     }
 
     /** 选择栏上的「全部」= 回到第一层（所有人）。 */
@@ -673,15 +640,6 @@ class DispatcherLedgerViewModel(
 
     /** 空列表时给一句能照着做的话（口径词 + 时间档位）。 */
     fun personTimeHint(): String = "当前是「" + periodWord + "」，可以点右上角换一个日期档位。"
-
-    /**
-     * 司机的第二层：他不是"客户应收"，而是**这一段时间我们该给他多少**
-     * （口径在 `services/driver_pay.py`，与组头的 `total` 同一份）。返回 (合计, 单数)。
-     */
-    fun driverPersonTotal(): Pair<Double, Int> {
-        val row = accountRows().firstOrNull { it.key == personKey } ?: return 0.0 to 0
-        return row.total to row.count
-    }
 
     /** 「清空勾选」= 回到整单核销（不是"什么都不收"）。 */
     fun clearSettleLines() {
@@ -835,7 +793,8 @@ class DispatcherLedgerViewModel(
 
     fun openSettleAll() {
         // 门：没选人就没有"这个人的合计"可点（用户明确否掉了"全部时批量核销"）。
-        if (personKey == null || tab == 1) return
+        // 订单账（tab == 0）那一层没有"某个人的合计"这回事 —— 那里逐笔看流水，核销在第二层做。
+        if (personKey == null || tab == 0) return
         if (settleAllTargets().isEmpty()) {
             error = "这一段没有还没结清的单。"
             return

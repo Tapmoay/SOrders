@@ -151,15 +151,18 @@ class ModulesEntryTest {
         val e = Modules.ledgerHomeEntries
         assertEquals("用户点名的就是这 7 件", 7, e.size)
         assertEquals(
-            listOf("订单账", "司机账", "货主账", "批发商账", "客户收款", "收支", "供应商/应付"),
+            listOf("订单账", "司机账 · 运费结算", "货主账", "批发商账", "客户收款", "收支", "供应商/应付"),
             e.map { it.label },
         )
-        // 4 类账是**同一页的 4 个档位**（一条带参数的路由），不是四个页面
+        // 3 类账是**同一页的 3 个档位**（一条带参数的路由），不是三个页面
         assertEquals(
-            "4 类账必须都走 dispatcher/ledger?tab=",
-            (0..3).map { Routes.dispatcherLedger(it) },
-            e.take(4).map { it.route },
+            "3 类账必须都走 dispatcher/ledger?tab=",
+            listOf(Routes.dispatcherLedger(0), Routes.dispatcherLedger(1), Routes.dispatcherLedger(2)),
+            listOf(e[0].route, e[2].route, e[3].route),
         )
+        // 2026-10-07 CHG-0075：「司机账 · 运费结算」是**单独一页**，不是账本页的第 4 个档位 ——
+        // 它把原来那格「司机账」（`dispatcherLedger(1)`）与工作台那格「司机运费结算」并成了一个。
+        assertEquals("合并后那一格必须落在结算页上", Routes.FREIGHT_SETTLEMENT, e[1].route)
         // 三个工具各自有页面（点了就离开账本页）
         assertEquals(
             listOf(Routes.DISPATCH_RECEIPTS, Routes.DISPATCH_CASH, Routes.DISPATCH_SUPPLIERS),
@@ -204,7 +207,7 @@ class ModulesEntryTest {
     }
 
     @Test
-    fun `账本管理入口页 6 格两两颜色分得开（同屏不许撞色）`() {
+    fun `账本管理入口页 7 格两两颜色分得开（同屏不许撞色）`() {
         val e = Modules.ledgerHomeEntries
         for (i in e.indices) {
             for (j in i + 1 until e.size) {
@@ -247,7 +250,7 @@ class ModulesEntryTest {
     }
 
     @Test
-    fun `账本管理入口页 6 个图标互不相同`() {
+    fun `账本管理入口页 7 个图标互不相同`() {
         val icons = Modules.ledgerHomeEntries.map { it.icon.name }
         assertEquals("同一页里两格同图标 = 没标", icons.size, icons.toSet().size)
     }

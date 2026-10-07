@@ -20,19 +20,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.UserSearch
-import com.tapmoay.sorders.data.remote.dto.FreightSettlementOrderDto
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.ui.common.*
-import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProductPurple
-import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
 
 /**
- * 派单员账本：**一类账一页**（订单账 / 司机账 / 货主账 / 批发商账，由入口页那一格定）。
+ * 派单员账本：**一类账一页**（订单账 / 货主账 / 批发商账，由入口页那一格定）。
+ *
+ * ⚠️ 司机那一档 2026-10-07 并进了「司机账 · 运费结算」那一页（`FreightSettlementScreen`，
+ *    CHG-0075）：他的钱是 `driver_pay`、口径与客户应收是两套，挤在同一排档位里只会让人拿错数。
+ *    入口页那一格现在直接指向结算页，这里只剩三档（档位号 1/2 = 货主/批发商）。
  *
  * ## 页面形状（2026-09-20 第五轮定稿，用户口述逐条对着做）
  *
@@ -51,7 +52,7 @@ import kotlinx.coroutines.launch
  * ## 这一页被否掉过的东西（别再装回来）
  *
  * · 页内那条 **4 页签导航**（`LedgerTabBar`）——「最上面的 4 个去掉，那是**老的导航栏**」；
- * · **司机账里的「司机结算单」入口**——「那个结算，这个也直接去掉」（功能还在，走工作台那一格）；
+ * · **司机账里的「司机结算单」入口**——「那个结算，这个也直接去掉」（那一档整个并走了，见上）；
  * · **日期胶囊那一行**（`DatePresetRow`）——「太复杂了，这样的不好，换一种崭新形式」；
  * · **人员 chip 那一行**——「假如司机多的话，那我要选该怎么去选呢？」；
  * · **三种图**（折线/条形/扇形）——「直接去掉就行了…在报表中心看就可以了」。
@@ -173,7 +174,7 @@ fun DispatcherLedgerScreen(
                         !vm.windowSettled -> LoadingBox()
                         vm.loading && vm.tab == 0 -> LoadingBox()
                         vm.accountsLoading && vm.tab != 0 -> LoadingBox()
-                        vm.loadError != null && vm.tab != 0 && vm.driverAccounts.isEmpty() && vm.shipperAccounts.isEmpty() && vm.memberAccounts.isEmpty() ->
+                        vm.loadError != null && vm.tab != 0 && vm.shipperAccounts.isEmpty() && vm.memberAccounts.isEmpty() ->
                             ErrorView(vm.loadError.orEmpty(), onRetry = { if (vm.tab == 0) vm.load() else vm.loadAccounts() })
                         else -> LazyColumn(
                             Modifier.fillMaxSize(),
@@ -254,7 +255,7 @@ fun DispatcherLedgerScreen(
 }
 
 /**
- * 账户一行 —— 司机账 / 货主账 / 批发商账**同一个版式、同一份实现**。
+ * 账户一行 —— 货主账 / 批发商账**同一个版式、同一份实现**。
  *
  * 名字下面那行是**手机号 + 笔数/单数**：
  * · 手机号是**同名不同人**唯一的分辨依据（两个「张老板」以前是两行一模一样的卡，
@@ -444,89 +445,6 @@ private fun LedgerDashboardCard(
             hint = "点某一行进他的账（核销在那一页里）；批量核销要先选中某个人，再点他的合计",
         )
         // ⚠️ 选人的入口**不在这里**：它是页面上单独那一行（设计规范 §4.15）。
-    }
-}
-
-/**
- * 司机账展开：他在这段时间里完成的单。
- *
- * ⚠️ 明细**已经跟在结算响应里**（`group.orders`），所以这里不请求、也没有"加载中"这一态。
- * ⚠️ 金额显示的是**司机应得**（`pay_total`，与组头合计同源）；货主运费另用小字标注 ——
- *    两个数常常不等，拿运费当"他该拿多少"会让这一列加起来对不上上面的合计。
- */
-@Composable
-private fun DriverOrderLines(
-    orders: List<FreightSettlementOrderDto>,
-    expandedOrderId: Long?,
-    expandedOrder: OrderDto?,
-    orderLoading: Boolean,
-    onToggleOrder: (Long) -> Unit,
-    onOpenOrder: (Long) -> Unit,
-) {
-    if (orders.isEmpty()) {
-        Text(
-            "这一段时间里没有他的单",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
-    orders.forEach { o ->
-        Row(
-            // 与账本其余各处一致：点一下**就地展开那一单**，不是跳走
-            Modifier.fillMaxWidth().clickable { onToggleOrder(o.orderId) }.padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Default.LocalShipping, contentDescription = null, tint = Color(MgrGreen), modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(7.dp))
-            Column(Modifier.weight(1f)) {
-                Text(o.orderNo, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    // ⚠️ 时间戳走 `formatDateTime`（统一换算到当地）：直接 `take(16)` 印出来的是
-                    //    **UTC**，真机上早 8 小时、当地凌晨那几单还会跨到前一天（模拟器是 UTC 看不见）
-                    listOfNotNull(formatDateTime(o.deliveredAt).ifBlank { null }, o.deliveryDescription.ifBlank { null }, o.addressDetail.ifBlank { null }).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    "¥" + formatMoney(o.payTotal),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.End,
-                    color = Color(MoneyOrange),
-                    modifier = Modifier.widthIn(min = 92.dp),
-                )
-                Text(
-                    if (o.freightFee != null) "运费 ¥" + formatMoney(o.freightFee) else "运费 待定价",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (o.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFFF6B2C),
-                )
-            }
-        }
-        if (o.orderId == expandedOrderId) {
-            OrderPeek(loading = orderLoading, order = expandedOrder, onOpenFull = { onOpenOrder(o.orderId) })
-        }
-    }
-}
-
-/** 司机第二层那一块：他这一段跑的单（不再请求，明细在列表响应里）。 */
-@Composable
-internal fun DriverPersonOrders(vm: DispatcherLedgerViewModel, onOpenOrder: (Long) -> Unit) {
-    SectionCard {
-        Text("他跑的单（" + vm.periodWord + "）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        DriverOrderLines(
-            orders = vm.driverOrdersOf(vm.personKey.orEmpty()),
-            expandedOrderId = vm.expandedOrderId,
-            expandedOrder = vm.expandedOrder,
-            orderLoading = vm.expandedOrderLoading,
-            onToggleOrder = { vm.toggleOrderDetail(it) },
-            onOpenOrder = onOpenOrder,
-        )
     }
 }
 

@@ -26,20 +26,28 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 
 /**
- * 司机运费结算 —— **侧边抽屉选人 + 顶栏右上角一个月份**（2026-09-22 用户第二轮定稿）。
+ * 司机账 · 运费结算 —— **侧边抽屉选人 + 顶栏右上角档位药丸**（2026-10-07 CHG-0075 合并后定稿）。
  *
- * 用户原话：
- * > 那个**司机运费结算**，我们的形式也发生改变……我们也可以按照**右上角一个时间**（栏），
- * > 但是**月份的选择形式跟我们平常的不一样**。然后我们那个司机他那个**不要按照这样子的
- * > 商品的管理**啊 —— 这样子非常不好，我们直接换那个**类似于货主的账本管理**的那种形式，
- * > 是那个**左侧的抽屉栏**在那里选择人物，**也可以在那里搜索**，然后选择之后，
- * > 我们就可以**直接看对应的那个司机那个结账**。
+ * 这一页原来是两页：账本管理入口页那格「司机账」（`dispatcherLedger(1)`）与工作台那格
+ * 「司机运费结算」。用户 2026-10-07 说（台账 L-36，原话见 `docs/changes/CHG-0075.md`）：
+ * > 还有一个就是将司机账，就是账本管理的司机账，以及司机运费结算啊，这 2 个直接合并成一个。
+ *
+ * 所以现在**只有一个入口**：账本管理入口页那格「司机账 · 运费结算」
+ * （路由 `Routes.FREIGHT_SETTLEMENT`），时间**用账本那套档位**（`DateFilterDialogs`）。
+ *
+ * ⚠️ 2026-09-22 那轮定的**年月网格**（「月份的选择形式跟我们平常的不一样」）被这一轮**覆盖**：
+ * 同一个项目里两个时间控件两套写法，用户得学两次、判据也钉不住。人员那一套**没变**，
+ * 下面是那一段仍然有效的原话：
+ * > 那个**司机运费结算**……我们那个司机他那个**不要按照这样子的商品的管理**啊 ——
+ * > 这样子非常不好，我们直接换那个**类似于货主的账本管理**的那种形式，是那个**左侧的
+ * > 抽屉栏**在那里选择人物，**也可以在那里搜索**，然后选择之后，我们就可以**直接看对应的
+ * > 那个司机那个结账**。
  *
  * ## 页面上只有三件东西（顺序也是用户定的）
  *
  * | 谁 | 形态 |
  * |---|---|
- * | **时间** | 顶栏**右上角**一个药丸（`DatePresetPill`，与账本页同一个零件、同一个位置）；点开是**年月网格** |
+ * | **时间** | 顶栏**右上角**一个药丸（`DatePresetPill`，与账本页同一个零件、同一个位置）；点开是**档位清单**（`DateFilterDialogs`，含「全部」与按天自定义） |
  * | **人员** | 页面上**一行入口** → `ModalNavigationDrawer` 的**侧边抽屉**（抽屉里带搜索，选中即关） |
  * | **数据** | 没选人 = 这个月一共要付多少 + 每人一行（点一行进他的结算）；选了人 = 他的统计 + 价格明细 |
  *
@@ -48,6 +56,8 @@ import java.math.BigDecimal
  * · **`MasterRail` 那个左栏**（司机列表 + 页面上横跨整页的搜索框）—— 那是"商品管理那套思维"，
  *   用户 2026-09-22 的原话是「**不要按照这样子的商品的管理**啊。这样子，**非常不好**」；
  * · **页内那一行月份药丸**（上上月 / 上月 / 本月 / 自定义）—— 时间挪到顶栏之后，页面上不再铺这一行；
+ * · **年月网格弹层**（`MonthPickerSheet`：年份左右翻 + 12 个月格子）—— 2026-09-22 装上的，
+ *   2026-10-07 用户把时间口径收回到账本那一套档位，于是它整个删掉（顶上现在是 `DateFilterDialogs`）；
  * · ⛔ **选人不是一排 chip**：人一多就选不过来（这条与账本页同一条规矩，见 `ui/common/PersonPicker.kt`）。
  *
  * ## 右栏（选中某人）为什么是"上统计、下明细"
@@ -63,16 +73,17 @@ import java.math.BigDecimal
 fun FreightSettlementScreen(
     container: AppContainer,
     onBack: () -> Unit,
-    /** 点开某一条明细 → 这一单的**原始订单**（订单详情页）。 */
+    /** 明细行展开块里那个「打开订单」→ 这一单的**原始订单**（订单详情页）。 */
     onOpenOrder: (Long) -> Unit = {},
     /** 上面那一行「还有 N 单运费没定价」要去的落点（运费待定价页）。 */
     onOpenUnpriced: () -> Unit = {},
+    /** 「司机结算（按月）」那一页的出口（CHG-0075 ⑤：把那个没人进得去的孤儿页挂上来）。 */
+    onOpenSettlements: () -> Unit = {},
 ) {
     val vm: FreightSettlementViewModel = appViewModel { FreightSettlementViewModel(container) }
-    // 两个弹层：月份网格（点药丸）与自定义区间（网格里那一行）——都声明在**函数体这一层**
-    // （弹层画在 Scaffold 外面，声明在它的 content 里就出了作用域）
-    var showMonths by remember { mutableStateOf(false) }
-    var showRange by remember { mutableStateOf(false) }
+    // 档位清单（点药丸）——弹层画在 Scaffold 外面，所以开关声明在**函数体这一层**
+    // （声明在它的 content 里就出了作用域）。「自定义」那个日期弹层由 DateFilterDialogs 自己接着开。
+    var showPresets by remember { mutableStateOf(false) }
     // 侧边抽屉：选人用（与账本页同一个零件，见 ui/common/PersonPicker.kt）
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -117,12 +128,12 @@ fun FreightSettlementScreen(
         Scaffold(
             topBar = {
                 AppTopBar(
-                    title = "司机运费结算",
+                    title = "司机账 · 运费结算",
                     onBack = onBack,
                     actions = {
                         // 时间：顶栏右上角一个紧凑药丸（与账本页同一个零件、同一个位置）。
                         // 口径词永远看得见 —— 这一页最容易搞错的就是"这些数字是哪一段的"。
-                        DatePresetPill(label = vm.periodLabel, onClick = { showMonths = true })
+                        DatePresetPill(label = vm.periodLabel, onClick = { showPresets = true })
                     },
                 )
             },
@@ -151,6 +162,9 @@ fun FreightSettlementScreen(
                 unpricedNotice(vm.unpricedRows.size, vm.unpricedMore)?.let { text ->
                     UnpricedNoticeRow(text, onOpenUnpriced)
                 }
+                // 「司机结算（按月）」是这一页给的出口（CHG-0075 ⑤）：那个页面今天只在 NavGraph 里
+                // 注册着、全仓没有一个入口 —— 用户点不到它，等于没有。
+                SettlementSheetsRow(onOpenSettlements)
                 when {
                     vm.loading && groups.isEmpty() -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
@@ -169,162 +183,30 @@ fun FreightSettlementScreen(
                         )
                     }
                     selected == null -> AllDrivers(vm, groups)
-                    else -> DriverDetail(selected, vm.periodWord, onOpenOrder)
+                    else -> DriverDetail(vm, selected, onOpenOrder)
                 }
             }
         }
     }
 
-    // 月份：**年月网格**（年份左右翻 + 12 个月格子），不是我们常用的那列"档位清单"
-    if (showMonths) {
-        MonthPickerSheet(
-            month = vm.month,
-            current = vm.currentMonth(),
-            onPick = { m ->
-                showMonths = false
-                vm.pickMonth(m)
-            },
-            // 「自定义区间」接着开区间弹层（顺序：先关网格、再开弹层）
-            onCustom = {
-                showMonths = false
-                showRange = true
-            },
-            onDismiss = { showMonths = false },
-        )
-    }
-
-    // 自定义区间与订单/账本/库存那几页**同一份实现**（`DateRangeDialog`）
-    if (showRange) {
-        DateRangeDialog(
-            initialFrom = vm.rangeFrom,
-            initialTo = vm.rangeTo,
-            onDismiss = { showRange = false },
-            onApply = { f, t -> vm.applyRange(f, t) },
-        )
-    }
+    // 时间：档位清单 + 自定义区间。两个弹层的状态机在 `DateFilterDialogs` 里（账本/结算/报表
+    // 那几个页面共用一份，见 ui/common/Components.kt）—— 这一页不再自己画时间控件。
+    DateFilterDialogs(
+        showPresets = showPresets,
+        onDismissPresets = { showPresets = false },
+        preset = vm.preset,
+        customFrom = vm.customFrom,
+        customTo = vm.customTo,
+        onPickPreset = { vm.applyPreset(it) },
+        onApplyCustom = { f, t -> vm.applyCustomRange(f, t) },
+    )
 }
 
-/** 这一页的语义色 = 司机运费结算的珊瑚橙（工作台图标同色）。 */
+/** 这一页的语义色 = 司机运费结算的珊瑚橙（工作台那格已并进账本管理入口页，色仍归这一页用）。 */
 private val Accent = 0xFFFF8A65L
 
 /** 应得那个数用的橙（与报表/账本的金额色同一个）。 */
 private val MoneyO = 0xFFFF9500L
-
-/**
- * 月份选择：**年份左右翻 + 12 个月格子** + 底部「自定义区间（按天）」。
- *
- * 为什么是这个形态（用户 2026-09-22）：「我们也可以按照**右上角一个时间**（栏），
- * 但是**月份的选择形式跟我们平常的不一样**」。
- * "我们平常的"= 账本页那列**档位清单**（全部/今天/昨天/…一档一行）——
- * 那是**按天**的筛选；这一页结的是**月**，所以给的是月历式的网格：
- * 一次能看见一整年（"我要看上上上个月"不用在清单里一路翻），跨年也只用点一下"‹"。
- *
- * ⚠️ 选中的那个月高亮；**今天所在的月份**用同一个语义色淡淡标出来（用户对着日历找"这个月"时
- * 靠的就是它）——两者一眼能分开：选中是**实心**的。
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MonthPickerSheet(
-    month: String,
-    current: String,
-    onPick: (String) -> Unit,
-    onCustom: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    // 翻到哪一年：初值 = 当前选中的那一年；**在弹层里翻年不改选中**（点月份才改）
-    var year by remember { mutableStateOf(month.take(4).toIntOrNull() ?: current.take(4).toIntOrNull() ?: 2026) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 22.dp),
-        ) {
-            Text("选择月份", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { year -= 1 }) {
-                    Icon(Icons.Default.ChevronLeft, contentDescription = "上一年")
-                }
-                Text(
-                    year.toString() + " 年",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { year += 1 }) {
-                    Icon(Icons.Default.ChevronRight, contentDescription = "下一年")
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            (1..12).chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { m ->
-                        val key = "%04d-%02d".format(year, m)
-                        MonthCell(
-                            label = m.toString() + " 月",
-                            selected = key == month,
-                            isCurrent = key == current,
-                            onClick = { onPick(key) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-            HorizontalDivider(Modifier.padding(vertical = 4.dp))
-            Row(
-                Modifier.fillMaxWidth().clickable(onClick = onCustom).padding(vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Default.DateRange,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("自定义区间（按天选）", style = MaterialTheme.typography.bodyLarge)
-                Spacer(Modifier.weight(1f))
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-/** 月历里的一格（选中 = 实心语义色；"今天所在的月"用同一个色淡淡标出来）。 */
-@Composable
-private fun MonthCell(
-    label: String,
-    selected: Boolean,
-    isCurrent: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        onClick = onClick,
-        color = if (selected) Color(Accent) else MaterialTheme.colorScheme.surface,
-        contentColor = when {
-            selected -> Color.White
-            isCurrent -> Color(Accent)
-            else -> MaterialTheme.colorScheme.onSurface
-        },
-        shape = MaterialTheme.shapes.small,
-        modifier = modifier.height(50.dp),
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (selected || isCurrent) FontWeight.Bold else FontWeight.Normal,
-            )
-        }
-    }
-}
 
 /**
  * 「全部」那一屏：**这个月一共要付多少**（仪表盘卡）+ **每人一行**（点一行进他的结算）。
@@ -380,7 +262,7 @@ private fun AllDrivers(vm: FreightSettlementViewModel, groups: List<FreightSettl
         }
         item {
             Text(
-                "每人各多少 · 点一行看他这一个月的价格明细",
+                "每人各多少 · 点一行看他" + vm.periodWord + "的价格明细",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 2.dp, top = 2.dp),
@@ -453,11 +335,11 @@ private fun DriverLine(g: FreightSettlementGroupDto, onOpen: () -> Unit) {
     }
 }
 
-/** 选中某人：上面统计、下面明细。 */
+/** 选中某人：上面统计、下面明细（点一行**就地展开**那一单）。 */
 @Composable
 private fun DriverDetail(
+    vm: FreightSettlementViewModel,
     g: FreightSettlementGroupDto,
-    periodWord: String,
     onOpenOrder: (Long) -> Unit,
 ) {
     // 统计块要的几个数：**全部从同一批明细算出来**，不另开口径。
@@ -509,7 +391,7 @@ private fun DriverDetail(
                 // ⚠️ 「应得」和「货主运费」是**两个不同的数**，标签必须各写各的：
                 //    混起来就会出现"明细加起来 ≠ 上面那个数"（这一页的老毛病）。
                 Text(
-                    periodWord + "司机应得",
+                    vm.periodWord + "司机应得",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -523,6 +405,17 @@ private fun DriverDetail(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     g.count.toString() + " 单已完成 · 货主运费合计 ¥" + formatMoney(freightTotal.toString()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // 钱的口径（2026-10-04 CHG-0031；2026-10-07 CHG-0075 从账本页司机那一档搬到这里，
+                // 并把它原来那句「要结他的账请到工作台的『司机运费结算』」删掉 —— 这一页自己就是那个入口）：
+                // 司机那笔钱怎么算的、为什么这一页没有核销。不说，用户会拿客户应收来对司机的账。
+                // ⚠️ 拼起来的**每一段字面量**都要自带四族词（这里两段都有「不是一回事」）：抽取器逐段看，
+                //    漏一段就会被 `_check_hints.py` 第 1 组当成「裸露的解释句」。
+                Text(
+                    "司机那笔钱的口径是「按规则该给他多少」，与客户应收不是一回事，所以这一页没有核销；" +
+                        "上面那个「货主运费合计」是货主该付的运费，与给司机的钱不是一回事。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -550,7 +443,7 @@ private fun DriverDetail(
         }
         item {
             Text(
-                "价格明细（每单：司机应得 / 货主运费）· 点一行看原始订单",
+                "价格明细（每单：司机应得 / 货主运费）· 点一行展开这一单",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 2.dp, top = 2.dp),
@@ -559,7 +452,18 @@ private fun DriverDetail(
         itemsIndexed(g.orders, key = { _, o -> o.orderId }) { _, o ->
             // 明细行**可点**（2026-09-20 用户要求：「他的那个下面明细的订单卡片是可以点击的，
             // 点击就是原始的订单信息」）—— 结算时看到一笔对不上，下一件事一定是翻原单。
-            SectionCard(Modifier.clickable { onOpenOrder(o.orderId) }) { SettlementOrderRow(o) }
+            SectionCard(Modifier.clickable { vm.toggleOrderDetail(o.orderId) }) {
+                SettlementOrderRow(o)
+                if (o.orderId == vm.expandedOrderId) {
+                    // 展开块里那个「打开订单」才是跳去详情页的门（用户 2026-09-20：
+                    // 「点击就是原始的订单信息」）—— 与账本页同一个零件、同一套形状。
+                    OrderPeek(
+                        loading = vm.expandedOrderLoading,
+                        order = vm.expandedOrder,
+                        onOpenFull = { onOpenOrder(o.orderId) },
+                    )
+                }
+            }
         }
     }
 }
@@ -655,6 +559,53 @@ private fun UnpricedNoticeRow(text: String, onOpen: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("去定价", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/**
+ * 「司机结算（按月）」那一行的出口（CHG-0075 ⑤）。
+ *
+ * 那个页面（`Routes.DISPATCH_SETTLEMENTS` → `SettlementsScreen`：按月份出的结算单）今天
+ * **全仓没有一个入口** —— 只在 NavGraph 里注册着，用户点不到，等于没有。合并这一轮把它挂到
+ * 结算页上：结完账要打单、或要翻某个月的结算单，从这一行进。
+ *
+ * ⛔ 这一行**不写金额**：它是"别处还有一份按月出的单据"的指路牌，不是这一页那些数的另一个口径。
+ */
+@Composable
+private fun SettlementSheetsRow(onOpen: () -> Unit) {
+    Surface(
+        onClick = onOpen,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TintedIcon(
+                Icons.Default.Payments,
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                size = 16.dp,
+                container = 32.dp,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("司机结算（按月）", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "按月份出的结算单，结完账去那儿打单",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("打开", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }

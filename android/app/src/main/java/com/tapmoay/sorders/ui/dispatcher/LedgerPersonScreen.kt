@@ -69,10 +69,10 @@ import com.tapmoay.sorders.util.formatMoney
  * · 反过来说，**这一段的账目发生额**要看「订单账」那一档（那是流水口径）。
  * 两个数都对，只是回答的问题不同 —— 所以页面上的口径词必须写出来（设计规范 §4.9）。
  *
- * ## 司机那一层不一样（同一支函数，两种内容）
- * 司机的钱是「我们该给他多少」（`driver_pay`），与客户应收是两套口径，**没有核销**；
- * 而且他那些单**已经在账户列表响应里**（`/freight-settlement` 的 group 自带 `orders`），
- * 不再请求一次。硬把"按订单核销"套到司机身上，会让人以为司机也能被"核销"。
+ * ## ⚠️ 司机不在这里了（2026-10-07 CHG-0075）
+ * 司机那一层原来是这一支函数里的一个分支（他跑的单 + 应得运费，**没有核销**）。
+ * 他与「司机账 · 运费结算」并成了一页（`FreightSettlementScreen`），入口在账本管理入口页
+ * 那格「司机账 · 运费结算」——所以这一支现在只服务货主 / 批发商，两种内容变成一种。
  */
 fun LazyListScope.ledgerPersonItems(
     vm: DispatcherLedgerViewModel,
@@ -86,12 +86,6 @@ fun LazyListScope.ledgerPersonItems(
                     "要完整的账请点右上角的日期档位把范围缩小一点",
             )
         }
-    }
-
-    // 司机：他跑的单（不再请求；口径是"该给他多少"，所以这里没有核销）
-    if (vm.tab == 1) {
-        item { DriverPersonOrders(vm, onOpenOrder) }
-        return
     }
 
     // ③ 「哪些货物、什么价、欠多少」
@@ -191,14 +185,13 @@ fun LazyListScope.ledgerPersonItems(
  *
  * 「核销全部」为什么放在这张卡的**合计**下面：用户 2026-09-20 说的就是"直接点这个合计
  * 将它核销掉"。所以按钮跟三个数在同一张卡里、金额就写在按钮上 —— 用户点之前看得见要收多少。
- * ⛔ 司机没有这个按钮（他的钱不是应收，见文件头那段）。
+ * ⛔ 这一页只剩货主 / 批发商（司机那一档 2026-10-07 并进 `FreightSettlementScreen`，
+ *    CHG-0075）：两人的钱都是"客户应收"，都有核销 —— 所以这里不再分岔。
  */
 @Composable
 internal fun PersonHeaderCard(vm: DispatcherLedgerViewModel) {
-    val isDriver = vm.tab == 1
     val (receivable, settled, arrears) = vm.personKpi()
     val targets = vm.settleAllTargets()
-    val (driverTotal, driverCount) = vm.driverPersonTotal()
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { vm.closePerson() }) {
@@ -211,11 +204,8 @@ internal fun PersonHeaderCard(vm: DispatcherLedgerViewModel) {
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    when {
-                        vm.personLoading -> "正在拉他这一段的账…"
-                        isDriver -> "这一段跑了 " + driverCount + " 单（" + vm.periodWord + "）"
-                        else -> "按送达日期筛出 " + vm.personOrders.size + " 单（" + vm.periodWord + "）"
-                    },
+                    if (vm.personLoading) "正在拉他这一段的账…"
+                    else "按送达日期筛出 " + vm.personOrders.size + " 单（" + vm.periodWord + "）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -223,51 +213,35 @@ internal fun PersonHeaderCard(vm: DispatcherLedgerViewModel) {
         }
         Spacer(Modifier.height(10.dp))
         if (vm.personLoading) return@SectionCard
-        if (isDriver) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MiniKpi("应得运费", "¥" + formatMoney(driverTotal.toString()), Color(MgrGreen), Modifier.weight(1f))
-                MiniKpi("单数", driverCount.toString() + " 单", Color(MoneyOrange), Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(6.dp))
-            // 钱的口径（2026-10-04 CHG-0031）：司机那笔钱怎么算的、为什么这里没有核销
-            // —— 这两句不说，用户会拿客户应收来对司机的账。
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MiniKpi("应收", "¥" + formatMoney(receivable.toString()), Color(MoneyOrange), Modifier.weight(1f))
+            MiniKpi("已收", "¥" + formatMoney(settled.toString()), Color(MgrGreen), Modifier.weight(1f))
+            MiniKpi("欠款", "¥" + formatMoney(arrears.toString()), Color(DangerRed), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = { vm.openSettleAll() },
+            enabled = targets.isNotEmpty() && !vm.settleSubmitting,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
             Text(
-                "司机那笔钱的口径是「按规则该给他多少」，与客户应收不是一回事，" +
-                    "所以这里没有核销；要结他的账请到工作台的「司机运费结算」。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MiniKpi("应收", "¥" + formatMoney(receivable.toString()), Color(MoneyOrange), Modifier.weight(1f))
-                MiniKpi("已收", "¥" + formatMoney(settled.toString()), Color(MgrGreen), Modifier.weight(1f))
-                MiniKpi("欠款", "¥" + formatMoney(arrears.toString()), Color(DangerRed), Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(10.dp))
-            Button(
-                onClick = { vm.openSettleAll() },
-                enabled = targets.isNotEmpty() && !vm.settleSubmitting,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    if (targets.isEmpty()) "这一段没有还没结清的单"
-                    else "核销全部（" + targets.size + " 单 · ¥" + formatMoney(vm.settleAllAmount()) + "）"
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                if (vm.personOrders.isEmpty()) {
-                    "这一段没有送达的单。" + vm.personTimeHint()
-                } else {
-                    "「核销全部」= 把这一段里还没结清的 " + targets.size + " 单合成一笔收款、一次收清；" +
-                        "只想收其中一张，点下面那一单的「核销」。"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (targets.isEmpty()) "这一段没有还没结清的单"
+                else "核销全部（" + targets.size + " 单 · ¥" + formatMoney(vm.settleAllAmount()) + "）"
             )
         }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (vm.personOrders.isEmpty()) {
+                "这一段没有送达的单。" + vm.personTimeHint()
+            } else {
+                "「核销全部」= 把这一段里还没结清的 " + targets.size + " 单合成一笔收款、一次收清；" +
+                    "只想收其中一张，点下面那一单的「核销」。"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
