@@ -613,11 +613,13 @@ def main() -> int:
     )
     test_src = read(TEST)
     # 2026-10-08（CHG-0084 / 台账 L-53）：上限从 159 抬到 162（「我的下游价」三条：定价 / 删价 /
-    # 撤回删除），这条判据跟着抬 —— 它判的是「上限抬过，而且每次抬都在同一条理由史里点名是哪一单」，
-    # 不是把 159 钉死（钉死会让每一次正当的加动作都变成一条假红）。
+    # 撤回删除）；同一天（CHG-0085 / 台账 L-54）又从 162 抬到 165（「订单结构」三条：转货 / 静默退回
+    # 派单池 / 补联系信息）。这条判据跟着抬 —— 它判的是「上限抬过，而且每次抬都在同一条理由史里
+    # 点名是哪一单」，不是把 159 钉死（钉死会让每一次正当的加动作都变成一条假红）。
     c.ok(
         "动作总数上限跟着抬了（并写明理由）",
-        "动作数不该多于 162" in test_src and "CHG-0074" in test_src and "CHG-0084" in test_src,
+        "动作数不该多于 165" in test_src and "CHG-0074" in test_src
+        and "CHG-0084" in test_src and "CHG-0085" in test_src,
     )
     c.ok(
         "假实现跟着接口同步了（否则整个单测模块编译不过）",
@@ -626,7 +628,7 @@ def main() -> int:
     )
     c.ok(
         "说明书体积上限跟着抬了（并写明理由）",
-        "上限 26000" in read(PROMPT_TEST) and "进货单照片" in read(PROMPT_TEST),
+        "上限 27000" in read(PROMPT_TEST) and "进货单照片" in read(PROMPT_TEST),
     )
     missing = [pth.relative_to(ROOT).as_posix() for pth in REQUIRED_FILES if not pth.exists()]
     c.ok(f"{len(REQUIRED_FILES)} 个关键文件都在", not missing, "；".join(missing))

@@ -749,6 +749,9 @@ internal object AiResources {
         actions = listOf(
             update(AiWrites.ORDERS_FREIGHT),
             update(AiWrites.ORDERS_UPDATE),
+            // 补联系信息（2026-10-08 CHG-0085）：货主那一扇门，只动四个联系字段，**终态单也允许**。
+            // 撤回走通用的「payload 改了哪几个键、就撤回哪几个键」（四个联系字段都在 readKeys / labels 里）。
+            update(AiWrites.ORDERS_UPDATE_CONTACT),
             // 派单 ↔ 撤回派单：撤回不是"把司机栏清空"这一个字段，而是走撤回动作本身
             //（它会退回待派单、清司机栏、推送给原司机）。v3.26 这段是手写的，现在只是声明。
             paired(

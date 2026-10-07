@@ -1180,6 +1180,20 @@ object AiWrites {
     // ---- 订单（第四批：补导航 = 引用共享地点库里已有的坐标）----
     const val ORDERS_FILL_NAV = "orders.fill_nav"
 
+    // ---- 订单（第五批：订单结构三条，2026-10-08 CHG-0085）----
+    //
+    // 三条都**不是新能力**：端点与手工入口早就有了（转货 CHG-0042 / 静默退回派单池 CHG-0039 /
+    // 补联系信息 CHG-0057），本批只是把它们接进 AI 的动作目录（台账 L-54，目标① 第二单）。
+    //
+    // · ORDERS_TRANSFER / ORDERS_RELEASE —— **派单员**（后端 `ORDER_DISPATCH` / `ORDER_RECALL`）；
+    //   ⇒ ⛔ 不进 SHIPPER_ACTIONS，与 orders.assign / orders.recall 同形（货主连清单里都看不见）。
+    // · ORDERS_UPDATE_CONTACT —— **货主**（后端 `ORDER_EDIT_CONTACT`，scope = own）；
+    //   ⇒ 进 SHIPPER_ACTIONS ＋ 标 `roles = setOf(AiRole.SHIPPER)`：派单员改这四个字段走既有的
+    //     ORDERS_UPDATE 那张卡（它本来就能写这四个字段），这里不给他重复开一扇门。
+    const val ORDERS_TRANSFER = "orders.transfer"
+    const val ORDERS_RELEASE = "orders.release"
+    const val ORDERS_UPDATE_CONTACT = "orders.update_contact"
+
     // ---- 退货申请（第五批，2026-09-21 用户要求）----
     //
     // 用户原话：「批发商**只是一个申请**，派单员才是实际性的操作。派单员进行完了之后，
@@ -1740,6 +1754,81 @@ object AiWrites {
                     hint = "必填。会**推送给原司机**，所以要写清楚（如「车辆临时故障，改派他人」）",
                 ),
             ),
+        ),
+        // ---- 订单结构三条（2026-10-08 CHG-0085）：转货 / 静默退回派单池 / 补联系信息 ----
+        //
+        // 这三条原来登记在 `_tools/ai/_write_coverage.py` 的「决定不做」桶里（订单结构部分）。
+        // 三条的落点全是**既有端点**，卡片上的话必须按后端真实语义写死 —— 判据逐句钉着：
+        //   · 转货卡：转给谁 / 转哪几行各多少件 / **转完源单会怎样**（搬空＝作废、否则还剩几件）/
+        //     新单跟不跟原司机（`transfer_lines` 只在"新开的那张目标单"上跟，并进既有单**不跟**）；
+        //   · 退回卡：现在是谁在跑 / **货主端不会有任何变化**（后端刻意不发 `orders.recalled`）；
+        //   · 补联系卡：逐格 `旧 → 新`（原来是空的写「（空）」）。
+        AiWriteAction(
+            id = ORDERS_TRANSFER,
+            title = "转货（转给别的货主）",
+            risk = AiWriteRisk.HIGH,
+            group = G_ORDER,
+            blurb = "把这一张单上的货**转给另一位货主**：可以整单转，也可以只转其中几件（多行、每行写转多少）。" +
+                "转给谁**必须给一个**：系统里已有的货主写在 to_shipper（只写姓名），没有账号的临时货主写在 " +
+                "to_temp_name（一个名字）—— 两个都给会被拒。" +
+                "源单被搬空会自动按「撤销」作废；源单已经派在某位司机手上时，**新开的那张单**会跟着他一起派出去" +
+                "（并进既有单时不跟）。一次同时改两张单，**撤不回来**。",
+            params = listOf(
+                AiWriteParam("order", "订单", required = true, hint = "必填，订单号；不确定就先查一下"),
+                AiWriteParam(
+                    "to_shipper", "转给谁（系统里已有的货主）",
+                    hint = "与 to_temp_name **二选一**（必须给一个）。**只传货主姓名**，编号由系统自己找；" +
+                        "一个都对不上或对上多个就先问用户，不要替他挑",
+                ),
+                AiWriteParam(
+                    "to_temp_name", "转给谁（没有账号的临时货主）",
+                    hint = "与 to_shipper **二选一**（必须给一个）：系统里没有账号的货主用这一项，" +
+                        "传一个名字（最多 128 字），目标单上只记这个名字",
+                ),
+                AiWriteParam(
+                    "lines", "转哪几件", kind = AiWriteParamKind.TEXT,
+                    hint = "**留空 = 整单转出**。只转一部分时传数组：" +
+                        "[{\"product\":\"红富士苹果\",\"quantity\":30}]（product 传商品名，quantity 只传数字，" +
+                        "最多 10 行；数量超过这一行现在的件数会被拒绝）",
+                ),
+            ),
+        ),
+        // ⚠️ 与上面那条 `ORDERS_RECALL` 的差别**只有货主那一侧**，这一条是本批最容易被"顺手合并"的动作：
+        //    合并的后果是货主收到一条他不该收到的通知，所以两条各自留着，卡片上也把这件事写在脸上。
+        AiWriteAction(
+            id = ORDERS_RELEASE,
+            title = "退回派单池（货主无感）",
+            risk = AiWriteRisk.HIGH,
+            group = G_ORDER,
+            blurb = "把**已经派出去**的单静默退回「待派单」池：司机手里就没有这一单了，可以重新派给别人。" +
+                "⛔ 与「撤回派单」的差别**只有货主那一侧** —— 这条**不给货主任何消息**，" +
+                "他那边的状态照旧（这是这个动作的定义，不是漏发）；被收回的那位司机照常收到一条" +
+                "「派单被撤回」的通知，写了 reason 就带上理由。",
+            params = listOf(
+                AiWriteParam("order", "订单", required = true, hint = "必填，订单号"),
+                AiWriteParam(
+                    "reason", "退回原因",
+                    hint = "可选，一句话：被收回的那位司机会在他那条「派单被撤回」通知里看到" +
+                        "（货主那边什么都看不到）",
+                ),
+            ),
+        ),
+        AiWriteAction(
+            id = ORDERS_UPDATE_CONTACT,
+            title = "补联系信息",
+            risk = AiWriteRisk.MEDIUM,
+            group = G_ORDER,
+            blurb = "给**自己名下**的订单补收货人 / 下单人的名称与电话（四个字段，至少填一项）。" +
+                "**已送达、已撤销的单也能补**（这一扇门偏偏就是为它们开的）。" +
+                "⛔ 只能补联系信息：配送说明、送货地址、备注那些要派单员才能改。",
+            params = listOf(
+                AiWriteParam("order", "订单", required = true, hint = "必填，订单号"),
+                AiWriteParam("dongjia_name", "收货人名称", hint = "可选（四个字段里至少填一项）"),
+                AiWriteParam("dongjia_phone", "收货人电话", hint = "可选"),
+                AiWriteParam("boss_name", "下单人名称", hint = "可选"),
+                AiWriteParam("boss_phone", "下单人电话", hint = "可选"),
+            ),
+            roles = setOf(AiRole.SHIPPER),
         ),
         AiWriteAction(
             id = ORDERS_CANCEL,
@@ -2549,11 +2638,14 @@ object AiWrites {
     /**
      * **货主能用的动作**（白名单，只此一处）。
      *
-     * 为什么用"白名单"而不是给每个动作标角色：50 个动作里货主只能用 13 个，
+     * 为什么用"白名单"而不是给每个动作标角色：全表一百多个动作里货主能用的只有这份清单
+     * （2026-10-08 CHG-0085 时点：165 个动作里 44 条在清单内，其中 6 条还只有批发商货主能用），
      * 逐个标注的话**漏标一个就等于多给他一个权限**，而这一处一眼就能看全、能审计。
+     * ⚠️ 改动作总数 / 清单条数时，上面这句数字要跟着改（判据会另算一遍，不等这句话）。
      *
-     * 这 13 个是照着后端 `ROLE_PERMISSIONS['shipper']` + `shipper.py` 的角色门定的：
+     * 清单里的每一条都是照着后端 `ROLE_PERMISSIONS['shipper']` + `shipper.py` 的角色门定的：
      * - `orders.create`（order:create）、`orders.cancel`（order:cancel_shipper）；
+     * - `orders.update_contact`（order:edit_contact，**scope = own**：只补自己名下那一单）；
      * - 地址/联系人/地点（`require_roles(SHIPPER, DISPATCHER)`，走角色门不是权限点）；
      * - `notifications.read_all`（notification:read）。
      *
@@ -2563,6 +2655,13 @@ object AiWrites {
     val SHIPPER_ACTIONS: Set<String> = setOf(
         ORDERS_CREATE,
         ORDERS_CANCEL,
+        // 补**自己名下**那一单的联系信息（2026-10-08 CHG-0085；后端 `order:edit_contact`）。
+        // ⚠️ 这一条与 `orders.update` 是**两个动作**，别指望"货主也能改单"：
+        //    改单那张卡（`ORDERS_UPDATE`）不在白名单里（它要 `ORDER_EDIT`，派单员专属），
+        //    而这一条只能动四个联系字段 —— 命令层 `update_order(contact_only=True)` 是那条线。
+        // ⚠️ 它同时标了 `roles = setOf(AiRole.SHIPPER)`：派单员改这四个字段走既有的改单卡，
+        //    不给他重复开一扇门（两扇门 = 两份卡片文案要维护，而名单里不会有第二个人用它）。
+        ORDERS_UPDATE_CONTACT,
         ADDRESS_CREATE,
         ADDRESS_UPDATE,
         ADDRESS_DELETE,

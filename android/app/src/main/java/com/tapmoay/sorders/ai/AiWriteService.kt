@@ -146,6 +146,24 @@ interface AiWriteDataSource {
     suspend fun cancelOrder(orderId: Long)
 
     /**
+     * 转货（订单结构三条之一，2026-10-08 CHG-0085）：把若干行（或整单）转给另一个货主。
+     *
+     * `shipperId` 与 `tempShipperName` **二选一**（都给了以后端为准＝真货主算数）。
+     */
+    suspend fun transferOrderLines(
+        orderId: Long,
+        shipperId: Long?,
+        tempShipperName: String?,
+        lines: List<Pair<Long, Int>>,
+    )
+
+    /** 静默退回派单池（CHG-0085）：回到「待派单」，**不通知货主**（只通知被收回的原司机）。 */
+    suspend fun releaseOrder(orderId: Long, reason: String)
+
+    /** 补联系信息（CHG-0085）：只写四个联系字段，终态单也允许（后端 contact_only 那一路）。 */
+    suspend fun updateOrderContact(orderId: Long, fields: JsonObject)
+
+    /**
      * 这一单**可退的商品行**（退货动作的核对依据）。
      *
      * ⚠️ 必须问后端/仓库要，不能在卡片里凭 `AiOrderRef.amount` 推算：
@@ -861,6 +879,10 @@ class AiWriteService(
             AssignOrderHandler(ds, store),
             RecallOrderHandler(ds, store),
             CancelOrderHandler(ds, store),
+            // 订单结构三条（2026-10-08 CHG-0085）：转货 / 静默退回派单池 / 补联系信息。
+            TransferOrderHandler(ds, store),
+            ReleaseOrderHandler(ds, store),
+            UpdateOrderContactHandler(ds, store),
             ReturnOrderHandler(ds, store),
             // 退货申请（2026-09-21）：货主申请/撤回 + 派单员驳回/办理。
             // ⚠️ 顺序与 `AiWrites.ACTIONS` 无关（那张表管设置页的显示顺序），这里只管"谁能跑"。

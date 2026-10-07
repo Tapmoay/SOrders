@@ -467,7 +467,7 @@ def main() -> int:
     c.has("单测里有这一域的调用记录器（断言点确认之后真的写了一次）", t, "myPriceCalls")
     c.has("单测里有可定价商品的夹具", t, "var myPriceProductRows: MutableList<AiMyPriceProduct>")
     c.ok("单测摸到三条动作（>= 5 处）", subs(t, "SHIPPER_PRICE_") >= 5, "实际 " + str(subs(t, "SHIPPER_PRICE_")))
-    c.has("动作数上界抬到了 162（每加一批动作都要抬一次）", t, "AiWrites.ALL.size <= 162")
+    c.has("动作数上界抬到了 165（每加一批动作都要抬一次）", t, "AiWrites.ALL.size <= 165")
     c.ok("变更单九节齐（少一节 _check_dev_spec.py 也会红）", all(x in read(CHG_DOC) for x in CHG_SECTIONS))
     c.has("变更单里写了台账号 L-53", read(CHG_DOC), "L-53")
     c.has("登记簿里有这一条", read(REGISTRY), CHG_ID)

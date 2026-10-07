@@ -361,6 +361,41 @@ _RESTORE_ID = re.compile(r"id\s*=\s*(?:AiWrites\.)?([A-Z][A-Z0-9_]*)\s*,")
 _HANDLER = re.compile(r"override\s+val\s+actionId\s*=\s*AiWrites\.([A-Z][A-Z0-9_]*)")
 _NEXT_TOP_LEVEL = re.compile(r"\n(?:internal\s+|private\s+)?(?:class|object|fun|val)\s")
 _DS_CALL = re.compile(r"\bds\.(\w+)\s*\(")
+#: 通用读回器：`ds.snapshot("order", id)` —— 第一个实参是**资源键**（见 [AiResources.TABLE]）。
+_SNAPSHOT_CALL = re.compile(r"\bds\.snapshot\s*\(")
+_SNAPSHOT_KEY = re.compile(r'\s*"([a-z_]+)"\s*,')
+
+
+def ds_calls(text: str) -> set[str]:
+    """一段（处理器/动作）代码里调到的 ds 函数名；`ds.snapshot("order", id)` 记成 `snapshot@order`。
+
+    ⚠️ **为什么 snapshot 要单列**：它是**一个** ds 函数，但按资源键分派到 30+ 个 repo 方法
+    （`AiWriteDataSource.kt` 那个 `when (resourceKey)`）。整块算给谁都等于说"这个动作读了
+    全部 30 个资源"，实测把 `orders.transfer` 算成 35 个端点、`orders.update_contact` 算成 33 个
+    —— 于是判据报出一片**假越权**（"派单员能动货主自己的账"），而这份判据自己的教条是
+    「假越权比不报更糟」（见本文件 `[越权]` 那段的注释）。
+
+    键**不是**字面量时（变量、表达式、拼出来的键）退回宽口径 `snapshot` —— 宁可多报，不漏报。
+    """
+    out: set[str] = set()
+    exact: list[tuple[int, int]] = []
+    for m in _SNAPSHOT_CALL.finditer(text):
+        km = _SNAPSHOT_KEY.match(text[m.end():])
+        if km:
+            out.add("snapshot@" + km.group(1))
+            exact.append((m.start(), m.end() + km.end()))
+        else:
+            out.add("snapshot")
+    for m in _DS_CALL.finditer(text):
+        if m.group(1) == "snapshot" and any(a <= m.start() < b for a, b in exact):
+            continue  # 已经按字面量键精确解析过（别再加一次宽口径）
+        out.add(m.group(1))
+    return out
+
+
+#: `when (resourceKey)` 的分支头：`"order" ->` / `"a", "b" ->`（键名形如 `[a-z_]+`）。
+_BRANCH_KEYS = re.compile(r'((?:"[a-z_]+"\s*,\s*)*"[a-z_]+")\s*->')
+
 
 #: 反空转计数器：参数式处理器认出了几条 `ds.` 关联（[param_handlers] 写，main 里断言）。
 PARAM_HANDLER_PAIRS: list[int] = [0]
@@ -379,7 +414,7 @@ def action_ds_fns() -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
 
     def add(const: str, text: str) -> None:
-        fns = _DS_CALL.findall(text)
+        fns = ds_calls(text)
         if fns:
             out.setdefault(const, set()).update(fns)
 
@@ -449,7 +484,7 @@ def param_handlers() -> dict[str, set[str]]:
             body = bodies.get(m.group(1))
             if not body:
                 continue
-            fns = _DS_CALL.findall(body)
+            fns = ds_calls(body)
             if fns:
                 out.setdefault(m.group(2), set()).update(fns)
     # 反空转：一条都认不出说明注册点的写法又变了（那时这条判据会静默退回"看不见"）
@@ -471,15 +506,32 @@ def impl_repo_methods() -> dict[str, set[str]]:
     def repo_calls(text: str) -> set[str]:
         return set(re.findall(r"\brepo\.(\w+)\s*\(", text))
 
-    out: dict[str, set[str]] = {}
-    for fn, body in bodies.items():
-        found = repo_calls(body)
+    def with_helpers(text: str) -> set[str]:
+        found = repo_calls(text)
         # 一跳私有 helper：`moveCategoryTo(...)` 这类间接调用（末尾要有 `(`）
-        for helper in set(re.findall(r"\b([a-z]\w+)\s*\(", body)) - found:
+        for helper in set(re.findall(r"\b([a-z]\w+)\s*\(", text)) - found:
             hb = bodies.get(helper)
             if hb:
                 found |= repo_calls(hb)
-        out[fn] = found
+        return found
+
+    out: dict[str, set[str]] = {}
+    for fn, body in bodies.items():
+        out[fn] = with_helpers(body)
+
+    # ⭐ 通用读回器**按分支单列**（`snapshot@order` 这样），与 [ds_calls] 里那套精确解析配对：
+    #    不拆的话，`ds.snapshot("order", id)` 会被算成"读了全部 30 个资源"（假越权）。
+    snap = bodies.get("snapshot")
+    if snap is not None:
+        marks = [
+            (m.start(), m.end(), re.findall(r'"([a-z_]+)"', m.group(1)))
+            for m in _BRANCH_KEYS.finditer(snap)
+        ]
+        for i, (_, seg_start, keys) in enumerate(marks):
+            seg = snap[seg_start: marks[i + 1][0] if i + 1 < len(marks) else len(snap)]
+            fns = with_helpers(seg)
+            for key in keys:
+                out["snapshot@" + key] = fns
     return out
 
 
@@ -558,11 +610,22 @@ def ai_role_endpoints(role: str, member: bool) -> dict[str, set[str]]:
             c for c in whitelist
             if c in consts and (c not in member_only or member) and role_ok(c)
         }
+    def repo_fns_of(ds: str) -> set[str]:
+        """ds 函数名 → 它摸到的 repo 方法。
+
+        ⚠️ `snapshot@键` 没解析出来时（键拼错 / 资源表里没有这一条键）**退回宽口径**
+        `snapshot`：宁可多报一条，也不让一条真的越权从缝里漏过去（判据的教条：
+        「不报」比「报错」更糟）。
+        """
+        if ds in impl:
+            return impl[ds]
+        return impl.get("snapshot", set()) if ds.startswith("snapshot@") else set()
+
     out: dict[str, set[str]] = {}
     for const in sorted(allowed):
         eps: set[str] = set()
         for ds in ds_by_const.get(const, ()):
-            for rm in impl.get(ds, ()):
+            for rm in repo_fns_of(ds):
                 if rm in repo2ep:
                     eps.add(repo2ep[rm])
         out[consts[const]] = eps

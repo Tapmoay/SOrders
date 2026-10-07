@@ -168,6 +168,13 @@ READ_METHODS = {
     # 真正写库的是 setMyPrice / deleteMyPrice / restoreMyPrice —— 那三个**不在**白名单里，
     # 默认受「prepare 里不许写」的约束。
     "myPriceProducts", "myPrices",
+    # 订单结构三条（CHG-0085，2026-10-08）：转货 / 静默退回 / 补联系信息的处理器都要在**发卡之前**
+    # 把这一单当前的样子读回来（`ds.snapshot("order", id)` → `GET /orders/{id}`）—— 卡片上「改前」
+    # 那一栏（原来的单价、原来的电话）和「源单还剩几件」全靠它。
+    # ⚠️ 它按 `resourceKey` 分派：33 个键**全部**落到 GET（`snapshot@order` → `GET orders/{}`、
+    #    `snapshot@shipper_settlement` → `GET shipper-ledger/settlements`），一个写库的分支都没有。
+    #    真正写库的是 transferOrderLines / releaseOrder / updateOrderContact —— 那三个**不在**白名单里。
+    "snapshot",
 }
 
 
@@ -1330,6 +1337,12 @@ def main() -> int:
     # 用户的口径是「货主好多权限根本不需要操作，它只需要知道自己该干的事」——
     # 所以主数据/派单/账本写入/账号管理这些**一个都不许**混进去。
     # 判据按**常量名**匹配（`ORDERS_`、`PRODUCTS_`…）：加进来一个新动作时会自动被这条逮到。
+    # ⚠️ 2026-10-08（CHG-0085）口径收窄：条目**以 `_` 结尾 = 家族前缀**，否则 = **精确常量名** ——
+    #    原来一律前缀匹配，于是 `"ORDERS_UPDATE"`（改单）把新加的 `ORDERS_UPDATE_CONTACT`
+    #    （补联系信息）一起判红。**那不是越权**：货主的能力集合里本来就有 `order:edit_contact`
+    #    （`core/Capabilities.kt:22`，中文名「补自己名下订单的联系信息」；`backend/app/core/rbac.py:179`
+    #    给的 scope 是 `own`、行级过滤按 shipper_id），AI 开给他只是把手机上做得到的事搬进助手。
+    #    下面那条「豁免有据」的判据把这一点钉住：能力表里删掉那一条，这里就会红。
     whitelist = block_between(wr, "val SHIPPER_ACTIONS: Set<String> = setOf(", "\n    )")
     shipper_n = len(re.findall(r"\b[A-Z][A-Z0-9_]+\b", strip_comments(whitelist)))
     # 「全量」按**动作常量**数（`const val X = "动作.id"`）—— 那是这份文件里动作的唯一定义处，
@@ -1348,7 +1361,25 @@ def main() -> int:
         #    所以 AI 也要能删（用户第七轮：「他手机做不到的事情 AI 也做不到」，
         #    反过来同样成立）。留下的两条（发消息 / 改消息）仍然是派单员的。
     )
-    leaked = sorted({p for p in forbidden_prefixes if re.search(rf"\b{p}", whitelist)})
+    # ⚠️ 必须**剥注释**再搜（2026-10-08）：白名单块里有一条注释写着
+    #    「改单那张卡（`ORDERS_UPDATE`）不在白名单里（它要 `ORDER_EDIT`，派单员专属）」——
+    #    按原文搜会把**注释里的名字**判成"混进来了"（误报与真报长得一样，是让人学会无视红线的路径）。
+    #    同款教训这份文件里记过：`store.offer(` 出现在注释里被数成一次调用（实测栽过两次）。
+    wl_nc = strip_comments(whitelist)
+    leaked = sorted(
+        {
+            p
+            for p in forbidden_prefixes
+            # 以 `_` 结尾 = 家族前缀（`PRODUCTS_` ⇒ `PRODUCTS_*`）；否则 = **精确常量名**
+            # （`ORDERS_UPDATE` 不该吃掉 `ORDERS_UPDATE_CONTACT`）。
+            if re.search(rf"\b{p}" if p.endswith("_") else rf"\b{p}\b", wl_nc)
+        }
+    )
+    c.present(
+        "货主那条「补联系信息」是货主自己的能力（上面豁免的前提，删了它这里就红）",
+        AI_join("../core/Capabilities.kt"),
+        r'"order:edit_contact"',
+    )
     c.ok(
         "货主白名单里没有主数据/派单/账本写入/账号管理（裁少了 = 越权）",
         not leaked,

@@ -1,10 +1,12 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.OrderStatusModel
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -245,7 +247,424 @@ class RecallOrderHandler(
     }
 }
 
-// ============================================================== 撤回派单
+// ============================================================== 订单结构三条（CHG-0085）
+//
+// 转货 / 静默退回派单池 / 补联系信息 —— 三条端点后端早就有（人工入口也在用），2026-10-08 这一单
+// 才把它们接进 AI 的动作目录。三条各自有一个"名字像、后果完全不同"的邻居，卡片上必须把差别说清楚：
+//   · 把货挪给另一个货主 = 「转货」，不是「撤销」：源单可能还剩几行，也可能被搬空作废；
+//   · 把单从司机手里收回来但不告诉货主 = 「静默退回派单池」，不是「撤回派单」（那条会推给货主）；
+//   · 货主自己补四个联系字段 = 「补联系信息」，不是「改单」（改单是派单员那一扇门）。
+// ⚠️ 这三段文案被 _tools/qa/_check_ai_order_structure.py 逐句钉着：转货与撤销、静默与撤回的差别
+//    就落在这几行字上，改文案请连着判据一起改。
+
+/**
+ * 转货：把这一单的若干行（或者整单）转给另一个货主。
+ *
+ * 后端 POST /orders/{id}/transfer 说明白的三件事，卡片上都要有：
+ *   ① 目标单**沿用这一行原来的单价**（不是重新定价，也不会带原来的收款方式 / 运费）；
+ *   ② 目标单是"并进既有单"还是"新开一张"由后端找（同收货地址、还在途中、司机一致的那一张，
+ *      只有唯一一张时才并）；新开的那张**会跟着原司机一起派出去**；
+ *   ③ 源单被搬空就作废 —— 但"已接单"的单不允许整单转空（要先用撤回派单），这条在卡片之前拦。
+ */
+class TransferOrderHandler(
+    ds: AiWriteDataSource,
+    store: AiWritePreviewStore,
+) : OrderWriteHandler(ds, store) {
+
+    override val actionId = AiWrites.ORDERS_TRANSFER
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val order = resolveOrder(params)
+        requireStatus(
+            order,
+            OrderStatusModel.TRANSFERABLE,
+            "「已送达」「已撤销」「已退货」的单不能转货（那些货已经算过账，或者已经退回去了）",
+        )
+
+        // ---- 转给谁：系统里的真货主 / 临时货主，二选一（与界面上"选人 / 填名字"是同一个选择）
+        val rawTo = AiWriteArgs.str(params, "to_shipper")
+        val rawTemp = AiWriteArgs.str(params, "to_temp_name")
+        if (rawTo != null && rawTemp != null) {
+            throw AiWriteArgException(
+                "转给谁只能给一个：to_shipper（系统里已经有的货主）或者 to_temp_name（临时货主）。" +
+                    "两个都给我不知道该以哪个为准。",
+            )
+        }
+        if (rawTo == null && rawTemp == null) {
+            throw AiWriteArgException(
+                "这批货转给谁？告诉我货主姓名；如果他在系统里没有账号，用 to_temp_name 给一个临时货主的名字。",
+            )
+        }
+        val target = rawTo?.let {
+            AiWriteArgs.strict(it, ds.searchShippers(it, LedgerEntryWriteHandler.SHIPPER_PROBE_LIMIT), "货主")!!
+        }
+        val tempName = rawTemp?.let { AiWriteArgs.text(it, "临时货主姓名", max = 128) }
+
+        // 后端 L-32 那道门是「四个联系字段**全空**才拦」（services/order_contact.py::contact_info_missing
+        // 只看那四个），而临时货主这一路，后端会把"下单人"写成这个临时名字自己（_orderer_contact）——
+        // ⇒ 临时货主这条路后端**根本拦不住**，也不该在这里替它加一道更严的门（更严＝把一笔后端允许的
+        // 转货挡在卡片外面）。所以这里只把「没有电话可打」这件事记下来，交给卡片如实说。
+        val before = ds.snapshot("order", order.id)?.values
+        val receiverBlank = !hasSnapshotValue(before, "contact_dongjia_name") &&
+            !hasSnapshotValue(before, "contact_dongjia_phone")
+
+        val lines = ds.orderLines(order.id)
+        if (lines.isEmpty()) {
+            throw AiWriteArgException("这一单一件商品都没有，没有货可以转。")
+        }
+        val picked = parseTransferLines(params, lines)
+        val rest = lines.mapNotNull { line ->
+            val moved = picked.firstOrNull { it.first.id == line.id }?.second ?: 0
+            (line.quantity - moved).takeIf { it > 0 }?.let { line to it }
+        }
+        if (rest.isEmpty() && order.status == "ACCEPTED") {
+            throw AiWriteArgException(
+                "司机已经接单了，整单转空要走「撤回派单」再转（已接单的单不能直接作废）；也可以只转一部分。",
+            )
+        }
+        val movedQty = picked.sumOf { it.second }
+        val movedMoney = picked.fold(BigDecimal.ZERO) { acc, (line, qty) -> acc.add(lineTotalOf(line, qty)) }
+
+        return card(
+            summary = "转货：${order.orderNo} 转 ${picked.size} 行给 ${target?.label ?: tempName}",
+            details = buildList {
+                addAll(orderLines(order))
+                add("———— 转给谁 ————")
+                if (target != null) {
+                    add(
+                        "目标货主：${target.label}" +
+                            if (target.id == order.shipperId) {
+                                "（就是这一单现在的货主 ⇒ 后端按「同货主并单」处理）"
+                            } else {
+                                ""
+                            },
+                    )
+                } else {
+                    add("目标货主：${tempName}（临时货主：系统里没有他的账号，目标单上只记一个名字）")
+                }
+                if (receiverBlank) {
+                    add(
+                        "⚠️ 这一单的收货人姓名和电话都是空的：新单会照着抄一份空白" +
+                            (if (tempName != null) "，临时货主在系统里也没有账号、补不出下单人的电话" else "") +
+                            " —— 司机到了没有人可打。建议先用「补联系信息」补一个电话再转（后端只在四栏全空时拦：" +
+                            "「请填写收货人或下单人（名字或电话，至少一个）」）。",
+                    )
+                }
+                add("———— 转哪几行 ————")
+                for ((line, qty) in picked) {
+                    add(
+                        "· ${line.product}  ${qty} 件 × ${AiWriteArgs.moneyText(line.unitPrice)} 元/件" +
+                            " = ${AiWriteArgs.moneyText(lineTotalOf(line, qty))} 元",
+                    )
+                }
+                add("合计转出 ${movedQty} 件 / ${AiWriteArgs.moneyText(movedMoney)} 元（目标单沿用这几行原来的单价）")
+                add("———— 转完之后 ————")
+                if (rest.isEmpty()) {
+                    add("源单 ${order.orderNo} 的货全搬空 ⇒ 这张单会变成「已撤销」作废、占用的库存释放")
+                } else {
+                    add("源单 ${order.orderNo} 还剩 ${rest.sumOf { it.second }} 件（${rest.size} 行），状态不变")
+                }
+                add(
+                    "目标单：先在这位货主名下找同一个收货地址、还在途中的那一张（司机一致，或者两张都还没派单）——" +
+                        "只有唯一一张时才并进去；否则新开一张（地址、收货人、备注照抄这一单）",
+                )
+                if (order.driverLabel != null) {
+                    add(
+                        "这一单现在在 ${order.driverLabel} 手上：新开的那张会跟着他一起派出去" +
+                            "（并进既有单时不跟 —— 那张单有自己的司机）",
+                    )
+                }
+                add("新单不带这一单的收款方式、挂账单位和运费：那是原货主的口径，派单的时候再定")
+                add("⛔ 这一次会同时改两张单（源单少几件、目标单多几件，源单还可能作废），撤不回来；要转回去得再发起一次反向的转货")
+            },
+            payload = buildJsonObject {
+                put("order_id", order.id)
+                target?.let { put("to_shipper_id", it.id) }
+                tempName?.let { put("to_temp_name", it) }
+                put(
+                    "lines",
+                    buildJsonArray {
+                        for ((line, qty) in picked) {
+                            add(
+                                buildJsonObject {
+                                    put("order_product_id", line.id)
+                                    put("quantity", qty)
+                                },
+                            )
+                        }
+                    },
+                )
+            },
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        val raw = payload["lines"] as? JsonArray
+            ?: throw AiWriteArgException("转货明细丢了，请重新发起一次。")
+        val lines = raw.map { el ->
+            val obj = el as? JsonObject ?: throw AiWriteArgException("转货明细丢了，请重新发起一次。")
+            obj.reqLong("order_product_id") to obj.reqInt("quantity")
+        }
+        ds.transferOrderLines(
+            orderId = payload.reqLong("order_id"),
+            shipperId = if (payload["to_shipper_id"] != null) payload.reqLong("to_shipper_id") else null,
+            tempShipperName = payload.str("to_temp_name"),
+            lines = lines,
+        )
+    }
+}
+
+/**
+ * 静默退回派单池：把这单从司机手里收回、回到「待派单」，**但不告诉货主**。
+ *
+ * 与「撤回派单」在系统里是同一件事（同一个状态跃迁、同一个权限点），差别**只有通知对象**：
+ * 撤回会给货主推一条"已撤回"，这一条刻意不发（api/v1/orders_assignment.py::release_order：
+ * "货主端仍显示已派单 / 司机已接单，状态会默默发生改变，不会有任何的消息提醒"）。所以卡片上
+ * 必须把"货主看不出来"说明白 —— 用户选了这一条，等于选了"这件事不让货主知道"。
+ */
+class ReleaseOrderHandler(
+    ds: AiWriteDataSource,
+    store: AiWritePreviewStore,
+) : OrderWriteHandler(ds, store) {
+
+    override val actionId = AiWrites.ORDERS_RELEASE
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val order = resolveOrder(params)
+        requireStatus(order, OrderStatusModel.RECALLABLE, "只有「已派单」或「司机已接单」的单能退回派单池")
+
+        // 理由**可选**（后端也允许空）：它进的是司机那条撤回通知和操作日志 —— 货主看不到这条动作的任何东西。
+        val reason = AiWriteArgs.str(params, "reason")?.let { AiWriteArgs.text(it, "退回理由", max = 200) }
+
+        return card(
+            summary = "退回派单池：${order.orderNo}（原司机 ${order.driverLabel ?: "—"}）",
+            details = buildList {
+                addAll(orderLines(order))
+                add("———— 货主那边 ————")
+                add("不会有任何变化：他看到的还是「${order.statusCn}」、还是这位司机，也收不到任何提醒")
+                add("（这就是这个动作的定义 —— 与「撤回派单」唯一的区别就在这里：那一条会告诉货主）")
+                add("———— 司机那边 ————")
+                add(
+                    "${order.driverLabel ?: "原司机"}会收到一条撤回通知" +
+                        if (reason != null) "，原因：${reason}" else "（没写原因）",
+                )
+                add("———— 这一单本身 ————")
+                add("回到「待派单」，司机栏清空，可以重新派给别人")
+                add("派单时单独定的司机计件费 / 提成会清掉（那两项是跟着这位司机走的），占用的库存释放")
+                add("⛔ 撤不回来：要再跑起来请重新派单；货主那边从头到尾都不知道发生过这件事")
+            },
+            payload = buildJsonObject {
+                put("order_id", order.id)
+                reason?.let { put("reason", it) }
+            },
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        ds.releaseOrder(payload.reqLong("order_id"), payload.str("reason").orEmpty())
+    }
+}
+
+/**
+ * 补联系信息：货主补**自己名下**那一单的四个联系字段（收货人 / 下单人的名字与电话）。
+ *
+ * ⚠️ 状态门**不过**：这一条与「改单」是两个动作 —— 后端 update_order(contact_only=True) 那一路
+ * 刻意写成 elif，终态单（已送达 / 已撤销 / 已退货）**允许**补联系信息（货送完了才发现号码写错，
+ * 正是这一条存在的理由），而改单在终态单上会被拒。终态单补完**不推**司机（他不会再跑这一趟）。
+ */
+class UpdateOrderContactHandler(
+    ds: AiWriteDataSource,
+    store: AiWritePreviewStore,
+) : OrderWriteHandler(ds, store) {
+
+    override val actionId = AiWrites.ORDERS_UPDATE_CONTACT
+
+    override suspend fun prepare(params: JsonObject): AiWriteOutcome {
+        val order = resolveOrder(params)
+
+        val changes = contactChanges(params)
+        if (changes.isEmpty()) {
+            throw AiWriteArgException(
+                "你还没说要补哪一项。这一单可以补：收货人名称、收货人电话、下单人名称、下单人电话（至少填一项）。",
+            )
+        }
+
+        val before = ds.snapshot("order", order.id)?.values
+        return card(
+            summary = "补联系信息：${order.orderNo}（${changes.size} 项）",
+            details = buildList {
+                addAll(orderLines(order))
+                add("———— 补这几项 ————")
+                for (c in changes) {
+                    add("· ${c.cn}：${beforeText(before, c.key)} → ${c.value}")
+                }
+                add("———— 补完之后 ————")
+                if (order.status in FINISHED_STATUSES) {
+                    add("这一单已经是「${order.statusCn}」：不会给司机推提醒（他不会再跑这一趟；补上只是让这一单以后认得出人）")
+                } else if (order.driverLabel != null) {
+                    add("${order.driverLabel} 会收到一条「订单有改动」的提醒（他手上的电话可能已经换了）")
+                }
+                add("这一条只能补联系信息：送货地址、配送说明、备注那些要派单员才能改")
+                add("补错了可以撤回（撤回把这几项改回原来的值）")
+            },
+            payload = buildJsonObject {
+                put("order_id", order.id)
+                for (c in changes) put(c.key, c.value)
+            },
+        )
+    }
+
+    override suspend fun commit(payload: JsonObject, idempotencyKey: String) {
+        ds.updateOrderContact(payload.reqLong("order_id"), payload)
+    }
+}
+
+/**
+ * 这个 JSON 值现在长什么样（只用在报错文案里）。
+ *
+ * 用途只有一个：把 `lines` 传成字符串 / 数字 / 对象时，得让模型知道自己**现在给的是什么** ——
+ * 只回一句「得是一个数组」，它下一轮很可能照原样再传一次。
+ */
+private fun shapeOf(value: JsonElement): String = when (value) {
+    is JsonNull -> "空的（null）"
+    is JsonArray -> "一个数组"
+    is JsonObject -> "一个对象"
+    is JsonPrimitive -> if (value.isString) "一段文字" else "一个数字"
+}
+
+/** 一次最多转几行（一张单的商品行本来只有几行；真撞上说明模型在编，不如直接拒）。 */
+private const val MAX_TRANSFER_LINES = 10
+
+/**
+ * 把 lines 参数解析成"哪一行、转几件"。
+ *
+ * ⛔ 三条规矩与退货那个 parseItems 一模一样（2026-09-24 F1-D4 的教训：把"不是数组"当成"留空"，
+ * 结果整单被退掉了）：
+ *   · 键不在 / 是 null  ⇒ **整单**（每一行都按现在的数量转）；
+ *   · 是空数组          ⇒ 拒绝（"一件都不转"没有意义，多半是模型没想清楚）；
+ *   · 别的形状          ⇒ 拒绝，并把它现在是什么形状说出来。
+ */
+private fun parseTransferLines(
+    params: JsonObject,
+    lines: List<AiOrderLine>,
+): List<Pair<AiOrderLine, Int>> {
+    val node = params["lines"]
+    val raw = node as? JsonArray
+    if (raw == null) {
+        if (node == null || node is JsonNull) return lines.map { it to it.quantity }
+        throw AiWriteArgException(
+            "lines 得是一个数组（每一项写清楚商品和件数），现在是${shapeOf(node)}。" +
+                "如果是整单转出，**完全不传 lines** 就行。",
+        )
+    }
+    if (raw.isEmpty()) {
+        throw AiWriteArgException(
+            "lines 是个空数组 —— 一件都不转没有意义。要么把要转的每一行写出来" +
+                "（[{\"product\":\"红富士苹果\",\"quantity\":30}]），要么**完全不传 lines**（= 整单转出）。",
+        )
+    }
+    if (raw.size > MAX_TRANSFER_LINES) {
+        throw AiWriteArgException(
+            "一次最多转 ${MAX_TRANSFER_LINES} 行（这一单只有 ${lines.size} 行），你给了 ${raw.size} 行。",
+        )
+    }
+    val pool = transferPool(lines)
+    val out = mutableListOf<Pair<AiOrderLine, Int>>()
+    for (el in raw) {
+        val obj = el as? JsonObject ?: throw AiWriteArgException(
+            "lines 里每一项都要是一个对象（例：{\"product\":\"红富士苹果\",\"quantity\":30}），" +
+                "现在是${shapeOf(el)}。",
+        )
+        val name = AiWriteArgs.required(obj, "product", "要转哪一件商品？")
+        val hit = AiWriteArgs.strict(name, pool, "可转的商品")!!
+        val line = lines.first { it.id == hit.id }
+        val qty = AiWriteArgs.str(obj, "quantity")?.let { AiWriteArgs.parseQuantity(it) } ?: 1
+        if (qty > line.quantity) {
+            throw AiWriteArgException("「${line.product}」这一单现在只有 ${line.quantity} 件，转不了 ${qty} 件。")
+        }
+        if (out.any { it.first.id == line.id }) {
+            throw AiWriteArgException("「${line.product}」写了两次 —— 同一行只写一次，把件数写在那一项里。")
+        }
+        out += line to qty
+    }
+    return out
+}
+
+/** 转货时给模型认商品用的名字池：**同名不同价的行走单价消歧**（否则 strict 会报"对上了多个"）。 */
+private fun transferPool(lines: List<AiOrderLine>): List<AiName> {
+    val dup = lines.groupingBy { it.product }.eachCount()
+    return lines.map { line ->
+        val label = if ((dup[line.product] ?: 0) > 1) {
+            "${line.product}（单价 ${AiWriteArgs.moneyText(line.unitPrice)} 元/件）"
+        } else {
+            line.product
+        }
+        AiName(id = line.id, label = label, aliases = listOf(line.product))
+    }
+}
+
+/** 一行的金额（件数 × 单价，到分）—— 纯展示用，后端自己会算。 */
+private fun lineTotalOf(line: AiOrderLine, qty: Int): BigDecimal =
+    BigDecimal(line.unitPrice).multiply(BigDecimal(qty)).setScale(2, RoundingMode.HALF_UP)
+
+/**
+ * 终态三兄弟 —— 与后端 commands/order.py::update_order 里那一行 finished **同一份口径**
+ * （补联系信息在终态单上**不推**司机）。
+ * ⚠️ OrderStatusModel 里没有这一组（它只管"哪些状态能做某个动作"）；要在别处再用到时请先搬过去，
+ *    不要留第三个副本。
+ */
+private val FINISHED_STATUSES = setOf("DELIVERED", "CANCELLED", "RETURNED")
+
+/** 撤回快照里某个键**真的有值**（不是缺、不是 null、不是空串）—— 给前置判断用，不给人看。 */
+private fun hasSnapshotValue(before: JsonObject?, key: String): Boolean {
+    val e = before?.get(key) ?: return false
+    if (e is JsonNull) return false
+    return AiRevertJson.textOf(e).isNotBlank()
+}
+
+/** 撤回快照里某个键给人看的旧值（缺 / 空 ⇒「（空）」）。 */
+private fun beforeText(before: JsonObject?, key: String): String =
+    AiRevertJson.textOf(before?.get(key)).ifBlank { "（空）" }
+
+/** 补联系信息的一个字段：卡片上的中文名、写回后端的键、这一次要写进去的值。 */
+private data class ContactChange(val cn: String, val key: String, val value: String)
+
+/** 四个联系参数 → 要写进后端的字段（只收非空的项；一个都没有时返回空表，由调用点拒绝）。 */
+private fun contactChanges(params: JsonObject): List<ContactChange> = buildList {
+    AiWriteArgs.str(params, "dongjia_name")?.let {
+        add(ContactChange("收货人名称", "contact_dongjia_name", AiWriteArgs.text(it, "收货人名称", max = 64)))
+    }
+    AiWriteArgs.str(params, "dongjia_phone")?.let {
+        add(ContactChange("收货人电话", "contact_dongjia_phone", contactPhone(it, "收货人电话")))
+    }
+    AiWriteArgs.str(params, "boss_name")?.let {
+        add(ContactChange("下单人名称", "contact_boss_name", AiWriteArgs.text(it, "下单人名称", max = 64)))
+    }
+    AiWriteArgs.str(params, "boss_phone")?.let {
+        add(ContactChange("下单人电话", "contact_boss_phone", contactPhone(it, "下单人电话")))
+    }
+}
+
+/**
+ * 联系电话的归一 + 校验。
+ *
+ * 后端那条规则（core/phone.py）是"全是 ASCII 数字、7~12 位"，客户端那份在 core/InputRules.kt。
+ * 界面走的是**按键过滤**（phoneInput 直接把非数字吃掉），可模型给的是一整串文本 ——
+ * ⛔ 所以这里先自己判一次"有没有夹汉字字母符号"，再交给 phoneInput / phoneError 归一和报错；
+ *    不能像界面那样**静默把字母丢掉**（用户说错了他得知道，而不是号码被悄悄改成另一个）。
+ */
+private fun contactPhone(raw: String, cn: String): String {
+    val trimmed = raw.filterNot { it.isWhitespace() || it == '-' }
+    val allDigits = trimmed.isNotEmpty() && trimmed.all { it in '0'..'9' || it in '０'..'９' }
+    if (!allDigits) {
+        throw AiWriteArgException(
+            "「${cn}」只能是数字，7~12 位（座机请把区号一起填上，如 057188888888）；不要填汉字、字母或符号。",
+        )
+    }
+    val v = InputRules.phoneInput(trimmed)
+    InputRules.phoneError(v)?.let { throw AiWriteArgException("「${cn}」${it}") }
+    return v
+}
 
 // ============================================================== 撤销订单
 

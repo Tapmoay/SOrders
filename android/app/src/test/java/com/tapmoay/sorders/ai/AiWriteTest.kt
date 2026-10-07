@@ -147,6 +147,31 @@ class AiWriteTest {
             orderCalls += "cancel:$orderId"
         }
 
+        // ---- 订单结构三条（CHG-0085）----
+        //
+        // 转货的落库记录写成 transfer:<单号>:<目标（编号或临时名）>:<行id>x<件数>,…：
+        // 一次调用要同时说清"转给谁"和"转哪几行"，所以两边都在这一行里。
+        override suspend fun transferOrderLines(
+            orderId: Long,
+            shipperId: Long?,
+            tempShipperName: String?,
+            lines: List<Pair<Long, Int>>,
+        ) {
+            boom()
+            orderCalls += "transfer:$orderId:" + (shipperId?.toString() ?: tempShipperName ?: "?") + ":" +
+                lines.joinToString(",") { it.first.toString() + "x" + it.second }
+        }
+
+        override suspend fun releaseOrder(orderId: Long, reason: String) {
+            boom()
+            orderCalls += "release:$orderId:$reason"
+        }
+
+        override suspend fun updateOrderContact(orderId: Long, fields: JsonObject) {
+            boom()
+            orderCalls += "contact:$orderId:" + fields.toString()
+        }
+
         /**
          * 退货（2026-09-20）：可退行由用例摆（[returnLines]），退货调用记进 orderCalls。
          * 与真实现一样是"**先读回可退余量、再按上限校验**"两步，所以这里读方法也吃 `boom()`。
@@ -3660,10 +3685,12 @@ class AiWriteTest {
         //    建/改名/删/重排 —— 147；
         //    2026-10-05 给「账号分类 / 车辆分类」两份名册（FEAT-0010）各加 4 个：建/改名/删/重排 —— 155；
         //    2026-10-07 给「采购单」加 4 个（CHG-0074，台账 L-42）：建单/改单头/撤单/恢复 —— 159；
-        //    2026-10-08 给「我的下游价」加 3 个（CHG-0084，台账 L-53）：定价/删价/恢复 —— 162）。
+        //    2026-10-08 给「我的下游价」加 3 个（CHG-0084，台账 L-53）：定价/删价/恢复 —— 162；
+        //    2026-10-08 当天又给「订单结构」加 3 个（CHG-0085，台账 L-54）：转货 / 静默退回派单池 /
+        //    补联系信息 —— 165）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 162（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 162)
+        assertTrue("动作数不该多于 165（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 165)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -3897,10 +3924,15 @@ class AiWriteTest {
             AiWrites.ALL.size - notForDispatcher.size,
             AiWrites.forRole(AiActor.byRole(AiRole.DISPATCHER)).size,
         )
-        // 反向钉住：点名不给派单员的**只有**退货申请那两条（别人顺手给 orders.assign 加个
-        // `roles = setOf(SHIPPER)` 就会把派单的核心能力裁掉，而那不会有人发现）
+        // 反向钉住：点名不给派单员的**只有**退货申请那两条 ＋ 补联系信息（2026-10-08 CHG-0085；
+        // 别人顺手给 orders.assign 加个 `roles = setOf(SHIPPER)` 就会把派单的核心能力裁掉，而那不会有人发现）。
+        // ⚠️ 补联系信息是**故意**不给派单员的：他要动联系人走「改单」那张卡（`orders.update`），
+        //    这一条开的是货主那一扇门（后端 `order:edit_contact`，scope = own），给派单员等于多开一扇。
         assertEquals(
-            setOf(AiWrites.RETURN_REQUEST_APPLY, AiWrites.RETURN_REQUEST_WITHDRAW),
+            setOf(
+                AiWrites.RETURN_REQUEST_APPLY, AiWrites.RETURN_REQUEST_WITHDRAW,
+                AiWrites.ORDERS_UPDATE_CONTACT,
+            ),
             notForDispatcher - memberOnlyIds,
         )
     }
@@ -6295,8 +6327,363 @@ class AiWriteTest {
             r.svc.preview(AiWrites.SHIPPER_PRICE_SET, p("product" to "红富士苹果", "price" to "9.9")),
         )
         assertTrue("要说清是哪本账没有：${out.reason}", out.reason.contains("普通货主"))
-        assertTrue("要给出路（找派单员把他设成批发商）：${out.reason}", out.reason.contains("货主管理"))
         assertEquals("拦住的时候一个字都不许写", 0, r.ds.myPriceCalls.size)
+    }
+    // ==================================================== 订单结构三条（CHG-0085，台账 L-54）
+    //
+    // 这三条各自有一个"名字很像、后果完全不同"的邻居，所以用例的重点都不是"参数有没有传下去"：
+    //   · 转货 ↔ 撤销 / 派单：源单可能只剩几行、也可能被搬空作废，目标单可能并进别人名下那一张；
+    //   · 静默退回 ↔ 撤回派单：同一个状态跃迁，**唯一**的差别是货主那边一个提醒都没有；
+    //   · 补联系信息 ↔ 改单：同一张单，开的是货主那一扇门（后端 order:edit_contact），只动四个字段。
+    // 于是每一条都断言同一组东西：① 卡片把差别写清楚了；② 拦得住的时候在**弹卡之前**就拦；
+    // ③ 落库那一次调用，就是卡片上那一行。
+
+    /** 转货的 lines：处理器认的是**商品名 + 件数**（不是行 id，行 id 只在落库 payload 里）。 */
+    private fun transferLines(vararg items: Pair<String, Int>): JsonArray = buildJsonArray {
+        for ((product, qty) in items) {
+            add(
+                buildJsonObject {
+                    put("product", product)
+                    put("quantity", qty)
+                },
+            )
+        }
+    }
+
+    /** 转货入参：lines 是数组，p() 装不下，所以单独拼一份。 */
+    private fun transferParams(
+        vararg kv: Pair<String, String>,
+        lines: JsonElement? = null,
+        order: String = "SOTEST2026091100230",
+    ): JsonObject = buildJsonObject {
+        put("order", order)
+        kv.forEach { (k, v) -> put(k, v) }
+        if (lines != null) put("lines", lines)
+    }
+
+    @Test
+    fun `转货：转给系统里的货主 —— 卡片写清两张单会变成什么，落库只有行 id 和件数`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.orders = listOf(r.ds.orders[0].copy(shipperId = 31), r.ds.orders[1])
+        r.ds.snapshots["order:61"] = buildJsonObject {
+            put("contact_dongjia_name", "王老板")
+            put("contact_dongjia_phone", "13700001111")
+        }
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams("to_shipper" to "城东水果批发", lines = transferLines("红富士苹果" to 2)),
+            ),
+        )
+
+        assertEquals("转货：SOTEST2026091100230 转 1 行给 城东水果批发", card.summary)
+        assertTrue(card.bodyLines.any { it.contains("目标货主：城东水果批发") })
+        // 转给同一个人时后端按「同货主并单」处理 —— 不说出来用户会以为新开了一张
+        assertTrue(card.bodyLines.any { it.contains("就是这一单现在的货主") })
+        assertTrue(card.bodyLines.any { it.contains("合计转出 2 件 / 128") })
+        assertTrue("目标单沿用原来的单价，不能在这里按别的价重算", card.bodyLines.any { it.contains("原来的单价") })
+        assertTrue("源单还剩多少要算给他看", card.bodyLines.any { it.contains("还剩 5 件（2 行）") })
+        assertTrue(card.bodyLines.any { it.contains("撤不回来") })
+        // 收货人有电话 ⇒ 那句"司机到了没有人可打"的警告不该出现
+        assertFalse(card.bodyLines.any { it.contains("收货人姓名和电话都是空的") })
+        assertFalse("这一单还没派出去，不该冒出「跟着司机走」那一段", card.bodyLines.any { it.contains("会跟着他一起派出去") })
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf("transfer:61:31:901x2"), r.ds.orderCalls)
+    }
+
+    @Test
+    fun `转货：临时货主 —— 不去名册里找名字，卡片要写明他在系统里没有账号`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.snapshots["order:61"] = buildJsonObject {
+            put("contact_dongjia_name", "王老板")
+            put("contact_dongjia_phone", "13700001111")
+        }
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams("to_temp_name" to "老王", lines = transferLines("皇冠梨" to 1)),
+            ),
+        )
+        assertTrue(card.bodyLines.any { it.contains("目标货主：老王") })
+        assertTrue("临时货主没有账号这件事必须写在卡片上", card.bodyLines.any { it.contains("临时货主") })
+        assertTrue("临时货主这条路一次都不该去查名册（他自己就是没有账号的那种）", r.ds.searchShipperCalls.isEmpty())
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf("transfer:61:老王:902x1"), r.ds.orderCalls)
+    }
+
+    @Test
+    fun `转货：转给谁必须二选一 —— 两个都给、一个都不给都在弹卡之前拦住`() = runBlocking<Unit> {
+        val r = Rig()
+        val both = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams("to_shipper" to "城东水果批发", "to_temp_name" to "老王"),
+            ),
+        )
+        assertTrue("要说清这两个是二选一：${both.reason}", both.reason.contains("只能给一个"))
+
+        val none = rejected(r.svc.preview(AiWrites.ORDERS_TRANSFER, transferParams()))
+        assertTrue("要问出转给谁：${none.reason}", none.reason.contains("转给谁"))
+        assertTrue("要告诉他两个参数都能用：${none.reason}", none.reason.contains("to_temp_name"))
+
+        assertEquals("拦住的时候一个字都不许写", 0, r.ds.orderCalls.size)
+    }
+
+    @Test
+    fun `转货：明细的形状 —— 不是数组、空数组、不是对象、超过 10 行、超过现有件数、同一行写两次`() = runBlocking<Unit> {
+        val r = Rig()
+        val to = "to_shipper" to "城东水果批发"
+
+        // 不是数组：必须把"现在是什么形状"说出来，否则模型下一轮很可能照原样再传一次
+        val notArray = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams(to, lines = JsonPrimitive("红富士苹果 2 件")),
+            ),
+        )
+        assertTrue("要说出现在是「一段文字」：${notArray.reason}", notArray.reason.contains("一段文字"))
+        assertTrue("要给出路（整单转出就别传这个参数）：${notArray.reason}", notArray.reason.contains("完全不传 lines"))
+
+        val empty = rejected(
+            r.svc.preview(AiWrites.ORDERS_TRANSFER, transferParams(to, lines = buildJsonArray { })),
+        )
+        assertTrue("空数组 = 一件都不转，没有意义：${empty.reason}", empty.reason.contains("空数组"))
+
+        val notObject = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams(to, lines = buildJsonArray { add(JsonPrimitive("红富士苹果")) }),
+            ),
+        )
+        assertTrue("要说清每一项都得是对象：${notObject.reason}", notObject.reason.contains("每一项都要是一个对象"))
+
+        val tooMany = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams(to, lines = transferLines(*Array(11) { "红富士苹果" to 1 })),
+            ),
+        )
+        assertTrue("上限 10 行：${tooMany.reason}", tooMany.reason.contains("最多转 10 行"))
+
+        val over = rejected(
+            r.svc.preview(AiWrites.ORDERS_TRANSFER, transferParams(to, lines = transferLines("红富士苹果" to 6))),
+        )
+        assertTrue("要拿库里的现在值说事：${over.reason}", over.reason.contains("现在只有 5 件"))
+
+        val twice = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams(to, lines = transferLines("红富士苹果" to 1, "红富士苹果" to 1)),
+            ),
+        )
+        assertTrue("同一行写两次要拒（否则件数会被算两次）：${twice.reason}", twice.reason.contains("写了两次"))
+
+        val unknown = rejected(
+            r.svc.preview(AiWrites.ORDERS_TRANSFER, transferParams(to, lines = transferLines("西瓜" to 1))),
+        )
+        assertTrue("查不到的商品名要拒：${unknown.reason}", unknown.reason.contains("没有匹配"))
+
+        assertEquals("拦住的时候一个字都不许写", 0, r.ds.orderCalls.size)
+    }
+
+    @Test
+    fun `转货：终态单不能转；已接单的单不许整单转空（要指出该走哪条路）`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.orders = listOf(
+            r.ds.orders[0].copy(status = "DELIVERED"),
+            r.ds.orders[1].copy(status = "ACCEPTED", driverLabel = "李强"),
+        )
+
+        val done = rejected(
+            r.svc.preview(AiWrites.ORDERS_TRANSFER, transferParams("to_shipper" to "城东水果批发")),
+        )
+        assertTrue("要说清是状态不对，并且要说明为什么：${done.reason}", done.reason.contains("已送达"))
+        assertTrue(done.reason.contains("不能转货"))
+
+        // 已接单 + 不传 lines（= 整单转出）⇒ 不能直接把这单作废，必须先撤回派单
+        val accepted = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams("to_shipper" to "城东水果批发", order = "SOTEST2026091200229"),
+            ),
+        )
+        assertTrue("要给出路（先撤回派单，或者只转一部分）：${accepted.reason}", accepted.reason.contains("撤回派单"))
+        assertTrue(accepted.reason.contains("只转一部分"))
+
+        assertEquals("拦住的时候一个字都不许写", 0, r.ds.orderCalls.size)
+    }
+
+    @Test
+    fun `转货：收货人姓名电话都是空的 —— 不拦，但卡片要警告司机到了没有人可打`() = runBlocking<Unit> {
+        // 后端只在四个联系字段**全空**时才拦（contact_info_missing），而临时货主那一路后端会把
+        // "下单人"写成这个临时名字自己 ⇒ 这里拦不住也不该拦：更严的门会把后端允许的转货挡在卡片外。
+        // 所以这件事只能落在卡片上（用户有权知道，也有权不改）。
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_TRANSFER,
+                transferParams("to_temp_name" to "老王", lines = transferLines("红富士苹果" to 1)),
+            ),
+        )
+        assertTrue(card.bodyLines.any { it.contains("收货人姓名和电话都是空的") })
+        assertTrue("要给出路：先补一个电话再转", card.bodyLines.any { it.contains("补联系信息") })
+        assertTrue("要把后端的原话带上（让模型知道后端什么时候才拦）", card.bodyLines.any { it.contains("请填写收货人或下单人") })
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf("transfer:61:老王:901x1"), r.ds.orderCalls)
+    }
+
+    @Test
+    fun `静默退回：卡片要写明货主那边没有任何变化，理由只进司机那条通知`() = runBlocking<Unit> {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_RELEASE,
+                p("order" to "SOTEST2026091200229", "reason" to "车辆临时故障"),
+            ),
+        )
+        assertEquals("退回派单池：SOTEST2026091200229（原司机 李强）", card.summary)
+        // 这一条的**定义**就是"货主那边什么都不知道"：少写一句，用户就会以为是撤回派单
+        assertTrue(card.bodyLines.any { it.contains("不会有任何变化") })
+        assertTrue(card.bodyLines.any { it.contains("也收不到任何提醒") })
+        assertTrue(card.bodyLines.any { it.contains("与「撤回派单」唯一的区别") })
+        assertTrue(card.bodyLines.any { it.contains("李强会收到一条撤回通知，原因：车辆临时故障") })
+        assertTrue(card.bodyLines.any { it.contains("回到「待派单」") })
+        assertTrue("司机计件费/提成会跟着清掉，这会影响他的钱", card.bodyLines.any { it.contains("计件费") })
+        assertTrue(card.bodyLines.any { it.contains("撤不回来") })
+
+        val done = r.svc.execute(card.token)
+        assertTrue(done is AiWriteOutcome.Done)
+        assertEquals(listOf("release:62:车辆临时故障"), r.ds.orderCalls)
+        assertNull("退回派单池没有撤回（理由见 AiRevert.undoNoneOf）", (done as AiWriteOutcome.Done).undoToken)
+    }
+
+    @Test
+    fun `静默退回：不写理由 —— 后端收到空串，卡片上写「没写原因」`() = runBlocking<Unit> {
+        val r = Rig()
+        val card = ok(r.svc.preview(AiWrites.ORDERS_RELEASE, p("order" to "SOTEST2026091200229")))
+        assertTrue("理由可选，但卡片上要说清这次没写：${card.bodyLines}", card.bodyLines.any { it.contains("（没写原因）") })
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        // 后端允许空理由（这个动作的语义不依赖它）⇒ 必须原样传空串，不能替他编一句"未填写"
+        assertEquals(listOf("release:62:"), r.ds.orderCalls)
+    }
+
+    @Test
+    fun `静默退回：待派单、已送达的单没有「退」这回事 —— 弹卡之前就拒`() = runBlocking<Unit> {
+        val r = Rig()
+        val out = rejected(r.svc.preview(AiWrites.ORDERS_RELEASE, p("order" to "SOTEST2026091100230")))
+        assertTrue("要说清只有哪两种状态能做：${out.reason}", out.reason.contains("只有「已派单」或「司机已接单」"))
+        assertEquals("拦住的时候一个字都不许写", 0, r.ds.orderCalls.size)
+    }
+
+    @Test
+    fun `补联系信息：货主补自己那一单 —— 旧值写进卡片，撤回挂着（撤回要读得回旧值）`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        r.ds.snapshots["order:61"] = buildJsonObject {
+            put("contact_dongjia_phone", "13700001111")
+        }
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_UPDATE_CONTACT,
+                p("order" to "SOTEST2026091100230", "dongjia_phone" to "13911112222"),
+            ),
+        )
+        assertEquals("补联系信息：SOTEST2026091100230（1 项）", card.summary)
+        assertTrue("旧值 → 新值要写出来：${card.bodyLines}", card.bodyLines.any { it.contains("· 收货人电话：13700001111 → 13911112222") })
+        assertTrue("要说明这一条只能补联系信息", card.bodyLines.any { it.contains("只能补联系信息") })
+        assertTrue(card.bodyLines.any { it.contains("补错了可以撤回") })
+
+        val done = r.svc.execute(card.token)
+        assertTrue(done is AiWriteOutcome.Done)
+        assertNotNull("旧值读得回来就该挂上撤回", (done as AiWriteOutcome.Done).undoToken)
+        assertEquals(
+            listOf(
+                "contact:61:" + buildJsonObject {
+                    put("order_id", 61)
+                    put("contact_dongjia_phone", "13911112222")
+                }.toString(),
+            ),
+            r.ds.orderCalls,
+        )
+    }
+
+    @Test
+    fun `补联系信息：一个字段都不给要拦住；派单员连这张卡都看不到`() = runBlocking<Unit> {
+        val shipper = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        val empty = rejected(
+            shipper.svc.preview(AiWrites.ORDERS_UPDATE_CONTACT, p("order" to "SOTEST2026091100230")),
+        )
+        assertTrue("要告诉他至少填一项：${empty.reason}", empty.reason.contains("至少填一项"))
+        assertTrue("要把能补的四项列出来：${empty.reason}", empty.reason.contains("收货人名称"))
+        assertTrue(empty.reason.contains("下单人电话"))
+        assertEquals("拦住的时候一个字都不许写", 0, shipper.ds.orderCalls.size)
+
+        // 派单员：他要改联系人走「改单」那一张卡（orders.update）；这一条开的是货主那一扇门
+        // （后端 order:edit_contact ⇒ 命令层 update_order(contact_only=True)），给他等于多开一扇。
+        val dispatcher = Rig()
+        val denied = rejected(
+            dispatcher.svc.preview(
+                AiWrites.ORDERS_UPDATE_CONTACT,
+                p("order" to "SOTEST2026091100230", "dongjia_phone" to "13911112222"),
+            ),
+        )
+        assertTrue("拒绝理由要说明是权限问题：${denied.reason}", denied.reason.contains("权限"))
+        assertEquals("拦住的时候一个字都不许写", 0, dispatcher.ds.orderCalls.size)
+    }
+
+    @Test
+    fun `补联系信息：终态单也能补（这正是它存在的理由）—— 但不再推司机`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        r.ds.orders = listOf(
+            r.ds.orders[0].copy(status = "DELIVERED", driverLabel = "李强"),
+            r.ds.orders[1],
+        )
+        r.ds.snapshots["order:61"] = buildJsonObject { put("contact_dongjia_name", "王老板") }
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_UPDATE_CONTACT,
+                p("order" to "SOTEST2026091100230", "dongjia_name" to "张三"),
+            ),
+        )
+        // 货送完了才发现号码写错，正是这一条存在的理由 ⇒ 终态单**不设状态门**（与「改单」正好相反）
+        assertTrue(
+            "终态单补完不该再推司机：${card.bodyLines}",
+            card.bodyLines.any { it.contains("已经是「已送达」") && it.contains("给司机推提醒") },
+        )
+        assertFalse("终态单不该出现「他手上的电话可能已经换了」：${card.bodyLines}", card.bodyLines.any { it.contains("订单有改动") })
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(1, r.ds.orderCalls.size)
+    }
+
+    @Test
+    fun `订单结构三条的角色门：转货和静默退回只给派单员，补联系信息只给货主`() {
+        val shipper = AiActor.of(AiRole.SHIPPER, true)
+        val dispatcher = AiActor.byRole(AiRole.DISPATCHER)
+
+        assertTrue(AiWrites.allows(dispatcher, AiWrites.ORDERS_TRANSFER))
+        assertTrue(AiWrites.allows(dispatcher, AiWrites.ORDERS_RELEASE))
+        assertFalse(
+            "补联系信息开的是货主那一扇门（order:edit_contact），派单员走「改单」那张卡",
+            AiWrites.allows(dispatcher, AiWrites.ORDERS_UPDATE_CONTACT),
+        )
+        assertFalse("转货会同时改两张单，货主只能发起退货申请", AiWrites.allows(shipper, AiWrites.ORDERS_TRANSFER))
+        assertFalse(AiWrites.allows(shipper, AiWrites.ORDERS_RELEASE))
+        assertTrue(AiWrites.allows(shipper, AiWrites.ORDERS_UPDATE_CONTACT))
+
+        // 模型那份清单（= forRole 去掉 undoOnly）：三条都该在里面，但货主那份里没有转货和退回
+        assertTrue(AiWrites.forModel(dispatcher).any { it.id == AiWrites.ORDERS_TRANSFER })
+        assertTrue(AiWrites.forModel(dispatcher).any { it.id == AiWrites.ORDERS_RELEASE })
+        assertFalse(AiWrites.forModel(shipper).any { it.id == AiWrites.ORDERS_TRANSFER })
+        assertFalse(AiWrites.forModel(shipper).any { it.id == AiWrites.ORDERS_RELEASE })
+        assertTrue(AiWrites.forModel(shipper).any { it.id == AiWrites.ORDERS_UPDATE_CONTACT })
     }
 
 }

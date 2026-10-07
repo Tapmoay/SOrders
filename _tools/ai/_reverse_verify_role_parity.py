@@ -27,6 +27,7 @@ SHIPPER_LEDGER = AI / "AiWriteShipperLedger.kt"
 CAPS = ROOT / "_tools/ai/_show_role_caps.py"
 SERVICE = AI / "AiWriteService.kt"
 TPL_HANDLERS = AI / "AiWriteOrderTemplateHandlers.kt"
+ORDER_HANDLERS = AI / "AiWriteOrderHandlers.kt"
 
 #: (名字, 文件, 原串, 换成什么) —— 每个都是**一种真实的破坏方式**。
 CASES: list[tuple[str, Path, str, str]] = [
@@ -82,6 +83,20 @@ CASES: list[tuple[str, Path, str, str]] = [
         TPL_HANDLERS,
         "ds.createOrderTemplate(payload)",
         "// ds.createOrderTemplate(payload)",
+    ),
+    # ---- 通用读回器（`ds.snapshot(资源键, id)`）那条路（2026-10-08 补）----
+    # ⚠️ 注入点必须是**旧判据恰恰会看歪的那个位置**：`ds.snapshot("order", id)` 明明只读订单，
+    #    但 `snapshot` 的实现体是一个覆盖 30+ 个资源的 `when (resourceKey)` —— 不按**字面量资源键**
+    #    拆开的话，判据要么把这个动作算成"读了全部 30 个资源"（一片**假越权**，2026-10-08 修的就是它），
+    #    要么（修过头、把 snapshot 整个跳过时）连下面这条真越权也看不见。
+    #    这一条钉住的是**修完之后仍然看得见真越权**。
+    (
+        "处理器里的通用读回器被指向越权资源（派单员顺手读了货主自己那本账）",
+        ORDER_HANDLERS,
+        '        val before = ds.snapshot("order", order.id)?.values\n'
+        '        val receiverBlank',
+        '        val before = ds.snapshot("shipper_settlement", order.id)?.values\n'
+        '        val receiverBlank',
     ),
 ]
 

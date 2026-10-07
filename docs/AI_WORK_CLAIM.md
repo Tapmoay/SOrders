@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-08 03:4x → 04:5x CST 已完成] 会话：**CHG-0085 订单结构三条开给 AI：转货 / 静默退回派单池 / 补联系信息（台账 L-54）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径（ref `m28098`，目标 `goal-7564f8c1-48e7-4083-9d73-4fd51a21b64c` 原文，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2814`）：「① `AI 覆盖补齐` —— 把「本轮不开放」的 15~16 个写端点（`发票台账 6、钱相关 7、订单结构 3`）开给对应角色，并开`下游定价两条读动作`，保持「不漏、不越」的三方对账全绿 …… `司机端维持不加 AI。`」本单是目标① 四单里的`第二单`。
+
+`病灶`：订单结构这三条端点早就有手工入口（转货抽屉 `android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderTransferSheet.kt` / 派单员池页那颗「退回池子」/ 订单详情页「补联系信息」），AI 这一侧整块挂在 `_tools/ai/_write_coverage.py` 的「决定不做」桶里 —— 而且是`三类不同的理由`：① `POST orders/{}/transfer`（多行明细装不进「一轮问一件事」的卡片、一次同时改两张单的库存预占）；② `POST orders/{}/release`（静默退回＝货主端无感、没有事后线索可核，是派单员盯着那张单时做的界面动作）；③ `PATCH orders/{}/contact`（被误当成「改单那张卡的子集」，它其实是`另一扇门`：货主给自己名下的单补，改单那张卡归派单员）。派单员在 AI 里说「把城东水果那 50 件里的 30 件转给明辉食品」只会得到「做不到」。
+
+`改法`：① `ai/AiWrite.kt`：三个 id 常量（`ORDERS_TRANSFER = "orders.transfer"` / `ORDERS_RELEASE = "orders.release"` / `ORDERS_UPDATE_CONTACT = "orders.update_contact"`）＋ `MANUAL` 里三条规格（组名复用 `G_ORDER`；转货 HIGH / 静默退回 HIGH / 补联系信息 MEDIUM）＋ `SHIPPER_ACTIONS 只加 ORDERS_UPDATE_CONTACT`（前两条按后端权限只归派单员；白名单是 fail-closed：新动作不进白名单 = 货主拿不到）。② `ai/AiWriteOrderHandlers.kt`：`TransferOrderHandler` / `ReleaseOrderHandler` / `UpdateOrderContactHandler`（`prepare` 一个字都不写后端、`commit` 只认 payload；转货读 `ds.snapshot("order", id)` 与 `ds.orderLines(id)` 现场、`ds.searchShippers(名字)` 只回编号不回名字、明细上限 10 行、终态三兄弟 `DELIVERED/CANCELLED/RETURNED` 不许转、整单转空＋已接单要让路「撤回派单」；补联系信息复用 `InputRules.phoneError` 并逐项只落四个联系字段）。③ `AiWriteService.kt` / `AiWriteDataSource.kt`：数据源接口三条抽象方法 ＋ 三条 override（真的落到 `repo.transferOrderLines` / `repo.releaseOrder` / `repo.updateOrderContact`）。④ `AiResources.kt` 的 ORDER 资源给「补联系信息」加 `update(...)`（一键撤回；四个联系字段已在 `readKeys` 且有中文名）；`AiRevert.kt` 给转货与静默退回各一条 `UNDO_NONE` 理由并点名出路（再转回去 / 重新派单）。⑤ 覆盖表：`_write_coverage.py` 删三条 `EXCLUDED`、把三处来龙去脉改写成「已开」。⑥ 单测 13 条（走`真的` `AiWriteService`：转货 6 / 静默退回 3 / 补联系信息 3 / 角色矩阵 1），动作总数上界 162 → `165`。
+
+`明确不碰`：后端一行不改（`backend/app/commands/order.py::transfer_lines` 的五条事务纪律与三道挡板、`release_dispatch` 的「刻意不通知货主」、`update_order(contact_only=True)` 的字段白名单与 `_get_order_scoped` 归属校验）；历史订单与审计；权限点（沿用 `order:dispatch` / `order:recall` / `order:edit_contact`，⛔ 不新建）；司机端维持不加 AI；手工路径逐字不动；派单员那扇「改单」门（它本来就能写这四个字段，本单不给它重复开一扇）。
+
+`判据 / 反验`：新建 `_tools/qa/_check_ai_order_structure.py`（`306 条 / 9 节`：登记一处 · 角色门（转货与退回⛔不进白名单、补联系信息进且标 `roles`）· 参数只有那几个名字且⛔没有 `xxx_id` · 三条处理器（prepare 不写后端 / commit 只认 payload）· 三张卡文案逐句 · 数据源三条与三跳链路 · 资源与撤回 · 覆盖表与生成物 · 单测与文书 · 防静默空转）＋ 新建 `_tools/qa/_reverse_verify_ai_order_structure.py`（`45 条注入`逐条让判据变红并点名，按字节还原）。配套随动：`_tools/ai/_check_role_parity.py` 的 snapshot 解析（原来只认 `snapshot("x")` 字面量写法，本单的 `ds.snapshot("order", …)` 读回器被`这条判据自己`抓到 ⇒ 改成精确解析 `snapshot@<resourceKey>`，并补了第 8 条反验用例）、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` 重生成。全量静检头一轮还逮到四处**判据口径过宽**（`_check_ai_guardrails.py` 的白名单前缀匹配误伤 `ORDERS_UPDATE_CONTACT`、`_show_role_caps.py` 的 `SHIPPER_FORBIDDEN_HINTS` 误伤 `orders.update_contact`、白名单块注释里的 `ORDERS_UPDATE` 被原文搜索误伤、`READ_METHODS` 缺 `snapshot`、三张卡里 11 处 Markdown 星号）—— 逐条查明后**只收窄不放宽**（豁免有据：货主本来就有 `order:edit_contact`，`android/app/src/main/java/com/tapmoay/sorders/core/Capabilities.kt:22` 与 `backend/app/core/rbac.py:179` scope=own，并补了一条正向断言），见变更单 ⑥ 随动第 6 条。
+
+- 状态：✅ `已关闭`（2026-10-08 03:4x 开工 · 04:5x 关闭；变更单 `docs/changes/CHG-0085.md`；全量静检 `219/220`（唯一一条红是环境性：本机 uvicorn 比源码旧，与 CHG-0084 同口径）；Blast Radius `L1 —— AI 能力面`；提交 `（待回填）`）
+- 真机：⚠️ `未做`（本单不加界面、不加端点：三条端点的手工路径早就在（转货抽屉 / 池页那颗「退回池子」/ 补联系信息那一块），要真机验就得跑一次真实模型会话，留待本批四单做完后的整体真机；如实记在变更单 ⑨ Known Limitations）
+- 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— `为什么必须动核心`：这一页是 AI 写动作的`唯一注册表与执行口`（动作 id 常量 / 域分组 `G_ORDER` / `ALL` / 各角色清单 `SHIPPER_ACTIONS` 在 `AiWrite.kt`，数据源接口与三个 `RawHandler` 的注入点 `rawHandlers` 在 `AiWriteService.kt`）—— 三条新动作要能被模型看见、能被 `allows()` 放行、`预演与执行两条路走同一扇门`，就必须在这两处登记；⛔ 不改任何既有动作的语义与文案、不改三道闸（preview → 确认卡 → execute）与角色门、不改审计面。
+
 ### [2026-10-08 02:0x → 03:3x CST 已完成] 会话：**CHG-0084 下游价开给 AI：批发商货主的三条写动作（定价 / 删价 / 撤回删除）＋ 两条读动作（台账 L-53）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户口径**（ref **m28098**，目标 `goal-7564f8c1-48e7-4083-9d73-4fd51a21b64c` 原文，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2814`）：「① **AI 覆盖补齐** —— 把「本轮不开放」的 15~16 个写端点（**发票台账 6、钱相关 7、订单结构 3**）开给对应角色，并开**下游定价两条读动作**，保持「不漏、不越」的三方对账全绿 …… **司机端维持不加 AI。**」本单是目标① 四单里的**第一单**，也是唯一含读侧解封的一单。

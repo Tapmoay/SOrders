@@ -409,9 +409,9 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
     (
         "动作数上界没跟着抬（下一批加动作时会先撞到这堵墙）",
         T,
+        "AiWrites.ALL.size <= 165",
         "AiWrites.ALL.size <= 162",
-        "AiWrites.ALL.size <= 159",
-        "动作数上界抬到了 162",
+        "动作数上界抬到了 165",
     ),
     (
         "单测里没有可定价商品的夹具（判据会以为这一域没被测过）",

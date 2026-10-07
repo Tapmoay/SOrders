@@ -134,9 +134,16 @@ def main() -> int:
     for a in sorted(shipper - defined):
         problems.append(f"货主白名单里的 `{a}` 根本不是已注册的动作")
     # ② 货主一个"永远不许"的能力都不许有
+    #    ⚠️ 2026-10-08（CHG-0085）口径收窄：提示词**以 `.` 结尾 = 家族前缀**（`products.` ⇒
+    #    `products.*`），否则 = **精确的动作 id**。原来一律 `startswith`，于是 `"orders.update"`
+    #    （改单：运费/地址）把新开的 `orders.update_contact`（补联系信息）一起判红 ——
+    #    而**那是货主自己的能力**：`core/Capabilities.kt:22` 的能力集合里本来就有
+    #    `order:edit_contact`（中文名「补自己名下订单的联系信息」），`backend/app/core/rbac.py:179`
+    #    给的 scope 是 `own`、行级过滤按 shipper_id。手机上他做得到，助手也就做得到。
+    #    写错 id 仍会被 ① 当成化石逮到（口径只收窄，没放宽）。
     for a in sorted(shipper):
         for hint, why in SHIPPER_FORBIDDEN_HINTS.items():
-            if a == hint or a.startswith(hint):
+            if a.startswith(hint) if hint.endswith(".") else a == hint:
                 problems.append(f"货主拿到了不该有的 `{a}`（{why}）")
     # ③ fail-closed：认不出角色 = 一个动作都不给
     #    （这条靠 `AiWrites.forRole` 开头那句 `?: return emptyList()` 保证，这里断言它还在）

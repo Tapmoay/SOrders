@@ -638,6 +638,16 @@ object AiRevert {
             listOf(AiWrites.ORDERS_BATCH_ASSIGN),
             "一次派了一批单，撤回要逐单退回「待派单」——请按单号逐单撤回（一次说一张单）",
         )
+        none(
+            listOf(AiWrites.ORDERS_TRANSFER),
+            "转货一次动两张单（源单少了那几行、目标单多了那几行，搬空了源单还会作废）——" +
+                "要转回去请再发起一次反向的转货（把那些货从目标单转回来）",
+        )
+        none(
+            listOf(AiWrites.ORDERS_RELEASE),
+            "退回派单池只是把单从司机手里收了回来（货主那边什么都不知道）——" +
+                "要还原就重新派给原来的司机",
+        )
         // ---- 发出去就到别人手机上了 ----
         none(
             listOf(AiWrites.NOTIFICATIONS_SEND, AiWrites.NOTIFICATIONS_PRICE_CHANGE),

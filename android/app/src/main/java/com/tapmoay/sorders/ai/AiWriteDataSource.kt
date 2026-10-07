@@ -264,6 +264,45 @@ class RepoWriteDataSource(
         )
     }
 
+    override suspend fun transferOrderLines(
+        orderId: Long,
+        shipperId: Long?,
+        tempShipperName: String?,
+        lines: List<Pair<Long, Int>>,
+    ) {
+        repo.transferOrderLines(
+            orderId,
+            com.tapmoay.sorders.data.remote.dto.OrderTransferRequest(
+                shipperId = shipperId,
+                tempShipperName = tempShipperName,
+                lines = lines.map {
+                    com.tapmoay.sorders.data.remote.dto.OrderTransferLineBody(
+                        lineId = it.first,
+                        quantity = it.second,
+                    )
+                },
+            ),
+        )
+    }
+
+    override suspend fun releaseOrder(orderId: Long, reason: String) {
+        repo.releaseOrder(orderId, reason)
+    }
+
+    override suspend fun updateOrderContact(orderId: Long, fields: JsonObject) {
+        // 与 updateOrder 同一条纪律：只搬 handler 明确要改的四个键（DTO 默认 null = 不改这一项）；
+        // 多塞一个别的字段会被后端挡回来（contact_only 那一路只认这四个）。
+        repo.updateOrderContact(
+            orderId,
+            com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest(
+                contactDongjiaName = fields.str("contact_dongjia_name"),
+                contactDongjiaPhone = fields.str("contact_dongjia_phone"),
+                contactBossName = fields.str("contact_boss_name"),
+                contactBossPhone = fields.str("contact_boss_phone"),
+            ),
+        )
+    }
+
     override suspend fun setOrderException(
         id: Long,
         isException: Boolean,
