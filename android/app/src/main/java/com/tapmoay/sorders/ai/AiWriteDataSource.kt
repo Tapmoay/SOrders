@@ -5,6 +5,10 @@ import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.PurchaseItemRequest
+import com.tapmoay.sorders.data.remote.dto.PurchaseOrderCreateRequest
+import com.tapmoay.sorders.data.remote.dto.PurchaseOrderDto
+import com.tapmoay.sorders.data.remote.dto.PurchaseOrderUpdateRequest
 import com.tapmoay.sorders.data.repo.AppRepository
 import com.tapmoay.sorders.ui.dispatcher.centsToMoney
 import com.tapmoay.sorders.ui.dispatcher.lineReceivableCents
@@ -1517,6 +1521,55 @@ class RepoWriteDataSource(
         repo.restoreSupplierPayment(flowId)
     }
 
+    // ---- 采购单（CHG-0074 / 台账 L-42）----
+    //
+    // 这一组只做转发：三处钱事实（库存 / 成本价 / 供应商欠款）全部由后端 purchase_service
+    // 在同一个事务里落，客户端⛔ 不拆成三步分别调（拆开就会有一半成功、一半失败的单）。
+
+    override suspend fun purchaseOrder(id: Long): PurchaseOrderDto? = repo.purchaseOrder(id)
+
+    override suspend fun createPurchaseOrder(
+        supplierId: Long,
+        docDate: String,
+        remark: String,
+        lines: List<AiPurchaseLine>,
+    ): Long = repo.createPurchaseOrder(
+        PurchaseOrderCreateRequest(
+            supplierId = supplierId,
+            docDate = docDate,
+            remark = remark,
+            items = lines.map {
+                PurchaseItemRequest(productId = it.productId, quantity = it.quantity, unitCost = it.unitCost)
+            },
+        ),
+    ).id
+
+    /**
+     * 只改单头三样。
+     *
+     * ⚠️ items **故意不传**（= null）：后端 _apply_items 是整份替换语义，给了数组就等于
+     *    "把没有出现的行撤掉" —— 而这条动作向用户承诺的是"这张单的货与钱一律不动"。
+     */
+    override suspend fun updatePurchaseOrderHead(
+        orderId: Long,
+        supplierId: Long,
+        docDate: String,
+        remark: String,
+    ) {
+        repo.updatePurchaseOrder(
+            orderId,
+            PurchaseOrderUpdateRequest(supplierId = supplierId, docDate = docDate, remark = remark),
+        )
+    }
+
+    override suspend fun deletePurchaseOrder(id: Long) {
+        repo.deletePurchaseOrder(id)
+    }
+
+    override suspend fun restorePurchaseOrder(id: Long) {
+        repo.restorePurchaseOrder(id)
+    }
+
     override suspend fun createVehicle(fields: JsonObject) {
         repo.createVehicle(
             com.tapmoay.sorders.data.remote.dto.VehicleCreateRequest(
@@ -2136,6 +2189,9 @@ class RepoWriteDataSource(
             "supplier_payment" ->
                 repo.supplierPayments(includeDeleted = true).firstOrNull { it.id == id }
                     ?.let { AiBefore(id, AiRevertRead.supplierPayment(it)) }
+            // 采购单（CHG-0074）：后端有单取端点（GET /purchase-orders/{id}）⇒ 走第 1 条读法。
+            // ⛔ 不带上回收站：撤单之后这张单还在（is_deleted=true 也能单取），单取端点自己会返回它。
+            "purchase_order" -> repo.purchaseOrder(id)?.let { AiBefore(id, AiRevertRead.purchaseOrder(it)) }
             "freight_template" ->
                 repo.freightTemplates().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.freightTemplate(it)) }
             "driver_rule" ->

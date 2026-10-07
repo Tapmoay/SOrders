@@ -1252,6 +1252,27 @@ object AiWrites {
     /** 用户贴一张表格、每行一套规则（第四种用法）。见 [ApplyPriceTableHandler]。 */
     const val PRICE_RULES_APPLY_TABLE = "price_rules.apply_table"
 
+    // ---- 采购单（CHG-0074 / 台账 L-42：用户要「上传一张进货单照片 → AI 读出每行 → 建采购单」）----
+    //
+    // 用户原话（台账标为**大意**，ref m01700）：「我上传一张图片，然后 AI 分析出来数据之后就立马
+    // 帮我新建一个采购单……直接帮我搞好库存，该入的入、价格是多少就该是多少，然后还有记录的」。
+    //
+    // 四个动作 = 一张单的四种活法（建 / 改单头 / 撤 / 恢复）。它们**不是一个**动作：
+    //   「按进货单建单」要一次把库存、成本价、供应商欠款三处一起落（HIGH）；
+    //   「改单头」只动供应商/日期/备注（MEDIUM）；「撤单」是把建单整个反过来（HIGH）。
+    //   三个合成一个，风险只能取最高档 —— 用户会很快学会无视那张红牌（见 [AiWriteRisk] 那一节）。
+    //
+    // ⛔ 四个都只给派单员：后端这四个写端点都要 Permission.LEDGER_EDIT，
+    //    而 rbac.py 里只有派单员同时有 PRODUCT_MANAGE 与 LEDGER_EDIT。
+    /** 按一张进货单（照片/文件/贴的表）建采购单：库存、成本价、供应商欠款三处一起落。见 [CreatePurchaseOrderHandler]。 */
+    const val PURCHASE_ORDERS_CREATE = "purchase_orders.create"
+    /** 改一张采购单的**单头**（供应商 / 单据日期 / 备注）。改行不在这里（后端换行是整份替换）。 */
+    const val PURCHASE_ORDERS_UPDATE = "purchase_orders.update"
+    /** 撤掉一张采购单：冲库存 ＋ 撤应付 ＋ 重算成本价。见 [DeletePurchaseOrderHandler]。 */
+    const val PURCHASE_ORDERS_DELETE = "purchase_orders.delete"
+    /** 把撤掉的采购单放回来（撤回路径专用，模型看不到它）。 */
+    const val PURCHASE_ORDERS_RESTORE = "purchase_orders.restore"
+
     // ---- 账号与收费规则 ----
     const val USERS_CREATE = "users.create"
     const val USERS_UPDATE_PROFILE = "users.update_profile"
@@ -1529,6 +1550,13 @@ object AiWrites {
     const val G_PLACE = "共享地点"
     const val G_PRICE = "批发商定价"
     const val G_STOCK = "库存"
+    /**
+     * 采购单（进货单建单 / 改单头 / 撤单）。
+     *
+     * 与 [G_STOCK] 挨着，因为它们是同一件事的两半：**调库存**是"数量不对了"，
+     * **采购单**是"货进来了、该欠谁多少" —— 用户嘴里这两件事也总是一起出现。
+     */
+    const val G_PURCHASE = "采购单"
     const val G_USER = "账号与收费规则"
     const val G_ADDRESS = "地址与联系人"
 
@@ -1562,7 +1590,9 @@ object AiWrites {
             // 预订单 / 订单模板（2026-09-22 用户要求「AI 直接创建预定单」）
             AiWriteOrderTemplates.ACTIONS +
             // 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求「给供应商付尾款」）
-            AiWriteSuppliers.ACTIONS
+            AiWriteSuppliers.ACTIONS +
+            // 采购单（2026-10-07 CHG-0074：用户要「上传一张进货单照片 → AI 建采购单」）
+            AiWritePurchases.ACTIONS
 
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(

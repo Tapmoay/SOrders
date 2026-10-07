@@ -6,6 +6,7 @@ import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
+import com.tapmoay.sorders.data.remote.dto.PurchaseOrderDto
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
@@ -650,6 +651,31 @@ interface AiWriteDataSource {
     suspend fun cancelSupplierPayment(flowId: Long)
     suspend fun restoreSupplierPayment(flowId: Long)
 
+    // ---- 采购单（CHG-0074 / 台账 L-42：进货单照片 → 采购单）----
+    //
+    // 为什么这一组要单独开一段：采购单是本项目里**唯一一个"一次写、三处钱一起落"的单据**
+    // （库存 / 成本价 / 供应商欠款，由后端 purchase_service 在同一个事务里完成）。
+    // AI 侧只调用这一个入口，⛔ 不自己拼那三步、也⛔ 不写 inventory_movements
+    // （入库记录由那次入库自然产生，AI 只读 —— 用户口径 m13365 ⑤）。
+
+    /** 读一张采购单的现状（改单头 / 撤单之前先看它现在什么样）。读不到返回 null，**不编造**。 */
+    suspend fun purchaseOrder(id: Long): PurchaseOrderDto?
+
+    /**
+     * **建一张采购单**（一次调用落三处：库存增加、这几个商品的成本价重算、供应商欠款增加）。
+     * 返回新单的编号 —— 卡片完成后那句话要点名它（"要撤就跟我说撤掉采购单 #N"）。
+     */
+    suspend fun createPurchaseOrder(supplierId: Long, docDate: String, remark: String, lines: List<AiPurchaseLine>): Long
+
+    /** 只改**单头三样**（供应商 / 单据日期 / 备注）：这张单的货与钱一律不动。 */
+    suspend fun updatePurchaseOrderHead(orderId: Long, supplierId: Long, docDate: String, remark: String)
+
+    /** **撤单** = 冲库存 ＋ 撤应付 ＋ 重算成本价（后端既有语义）。 */
+    suspend fun deletePurchaseOrder(id: Long)
+
+    /** 把撤掉的采购单放回来（撤回路径专用）。 */
+    suspend fun restorePurchaseOrder(id: Long)
+
     // ---- 司机计费规则（v3.36）----
 
     /** 计费规则名册（改/删规则、给司机挂规则时先按**名字**找到那一条）。 */
@@ -775,6 +801,26 @@ class AiWriteService(
 
     /** 成本类字段的键名（见 [costFieldIn]）。改这里必须同时改 `AiWriteMasterData` 里那两个 `key`。 */
     private val COST_PARAMS = listOf("cost_price", "unit_cost")
+
+    /**
+     * **整条动作建立在成本上**的动作（v3.46，CHG-0074）。
+     *
+     * 为什么不能只靠 [costFieldIn]：它只看参数**顶层的键**。采购单那两条动作的钱
+     * 藏在 `rows`（一张表格的原文）与单头里 —— 进货价是这张单的核心事实，
+     * 关着成本开关的人在卡片上连"这一单多少钱"都不该看到。所以整条动作在这一档拒绝，
+     * 话术与成本字段那条门共用一句（见 [costGateMessage]）。
+     */
+    private val COST_BUILT_ACTIONS: Set<String> = setOf(
+        AiWrites.PURCHASE_ORDERS_CREATE,
+        AiWrites.PURCHASE_ORDERS_UPDATE,
+    )
+
+    /** 成本开关关着时，那个字段（或那条动作）的拒绝话术。位置与出路都写在里面。 */
+    private fun costGateMessage(field: String): String =
+        "「$field」（成本/进货价）现在是关着的：打开它之后我才能读成本、毛利，" +
+            "也才能帮你改成本价或记进货价。\n" +
+            "位置：AI 助手 → 设置 → 「允许 AI 查看成本与毛利」。\n" +
+            "在此之前，成本价请在「商品管理 → 编辑」里改，进货价在「库存管理 → 入库」里填。"
     /**
      * 动作 id → 处理器。
      *
@@ -859,7 +905,17 @@ class AiWriteService(
             // 供应商付款（2026-09-22）：**唯一一个把钱写出去的动作**，所以是手写处理器
             // （卡片要写"还差多少 → 付完还差多少"，声明式拿不到这两个数）。
             // ⛔ 其余十个（档案/应付单的增改删、撤销付款、三个 restore）走声明式。
+            // 供应商付款（2026-09-22）：**唯一一个把钱写出去的动作**，所以是手写处理器
+            // （卡片要写"还差多少 → 付完还差多少"，声明式拿不到这两个数）。
+            // ⛔ 其余十个（档案/应付单的增改删、撤销付款、三个 restore）走声明式。
             SupplierPaymentWriteHandler(ds, store),
+            // 采购单（2026-10-07 CHG-0074）：建单要"先把一张表读成确定的行、再逐行对名册"，
+            // 撤单的卡片要写明"三件事一起回滚"且**不许**出现钱 —— 两个都超出声明式的表达力
+            // （与 products.apply_table 同一个处境、同一个解法）。
+            // ⛔ restore 走声明式那一个（restoreAction），不要在这里再注册一遍。
+            CreatePurchaseOrderHandler(ds, store),
+            UpdatePurchaseOrderHandler(ds, store),
+            DeletePurchaseOrderHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 
         // 声明式：凡是带 crud 规格的动作，一律由通用处理器执行
@@ -919,12 +975,12 @@ class AiWriteService(
         // （`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。开关关着时：**不发卡、直接说清楚**，
         // 而不是"发一张卡、点了什么都不发生"——后者是本项目最贵的一类坑。
         costFieldIn(params)?.let { field ->
-            return AiWriteOutcome.Rejected(
-                "「$field」（成本/进货价）现在是关着的：打开它之后我才能读成本、毛利，" +
-                    "也才能帮你改成本价或记进货价。\n" +
-                    "位置：AI 助手 → 设置 → 「允许 AI 查看成本与毛利」。\n" +
-                    "在此之前，成本价请在「商品管理 → 编辑」里改，进货价在「库存管理 → 入库」里填。",
-            )
+            return AiWriteOutcome.Rejected(costGateMessage(field))
+        }
+        // 整条动作建立在成本上（采购单）：参数顶层没有 `cost_price` / `unit_cost` 这两个键，
+        // 但它的钱全在 `rows` 文本与单头里 —— 关着成本开关的人连卡片都不该看到金额。
+        if (action.id in COST_BUILT_ACTIONS && !allowCost()) {
+            return AiWriteOutcome.Rejected(costGateMessage("进货价"))
         }
 
         return try {

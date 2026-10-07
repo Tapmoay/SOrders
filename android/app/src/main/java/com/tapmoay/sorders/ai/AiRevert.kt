@@ -610,6 +610,11 @@ object AiRevert {
             "一次建了「一批商品」，撤回要逐个删（而且删之前得先确认哪一个都不是你原来就有的）；" +
                 "请点名要删的那几个，我逐个删给你",
         )
+        none(
+            listOf(AiWrites.PURCHASE_ORDERS_CREATE),
+            "一次建了整张采购单：它进过的货要逐行冲回、供应商欠款要撤掉、成本价还要重算——" +
+                "请跟我说一句「撤掉采购单 #N」，我按单号撤给你（撤单本身就是这三件事的反向操作）",
+        )
         // ---- 状态锁定之后就回不去了 ----
         none(
             listOf(AiWrites.SETTLEMENTS_CONFIRM),

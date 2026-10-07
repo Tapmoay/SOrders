@@ -13,6 +13,7 @@ import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.remote.dto.NotificationDto
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
+import com.tapmoay.sorders.data.remote.dto.PurchaseOrderDto
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductRow
 import com.tapmoay.sorders.data.remote.dto.OrderTemplateDto
@@ -1032,6 +1033,43 @@ internal object AiResources {
      * 那会写出**第二行**流水，而第一行还躺在回收站里：账上从此有两笔钱，
      * 一笔真的、一笔是假的，谁也不敢删。
      */
+    /**
+     * 一张采购单（CHG-0074 / 台账 L-42）。
+     *
+     * ### 为什么只有三个读回键
+     * 因为 AI 那条「改采购单」的动作**只改单头三样**（供应商 / 单据日期 / 备注）：
+     * 行与钱一律不动。撤回就是把这三次写回旧值，所以快照只需要这三样。
+     * ⛔ 数量与进价故意不在这里：后端的换行是**整份替换**语义，改一行等于重写整张单，
+     * 而"重写一张已经进过货的单"会连带改库存与成本价 —— 那不是撤回，是另一次建单。
+     *
+     * ### 为什么 remark 声明成可写回的空值
+     * 快照里空备注会写成 JsonNull，而这条 PATCH **收得下空串**（kotlinx 的 explicitNulls = false
+     * 只丢 null，空串照发）⇒ 撤回时能把备注清回"没有"。不声明的话，
+     * AiRevert.patchPlan 会按"空值写不回去"的老规矩在卡上写一句**假话**。
+     */
+    private val PURCHASE_ORDER = AiResource(
+        key = "purchase_order",
+        cn = "采购单",
+        idKey = "order_id",
+        readKeys = setOf("supplier_id", "doc_date", "remark"),
+        labels = mapOf(
+            "supplier_id" to "供应商",
+            "doc_date" to "单据日期",
+            "remark" to "备注",
+        ),
+        nullableWritable = setOf("remark"),
+        actions = listOf(
+            update(AiWrites.PURCHASE_ORDERS_UPDATE),
+            delete(AiWrites.PURCHASE_ORDERS_DELETE),
+            paired(
+                AiWrites.PURCHASE_ORDERS_RESTORE,
+                AiInverse(AiWrites.PURCHASE_ORDERS_DELETE, mapOf("order_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        read = { ds, id -> ds.snapshot("purchase_order", id) },
+        restore = AiInverse(AiWrites.PURCHASE_ORDERS_RESTORE, mapOf("target_id" to AiRevert.ID)),
+    )
     private val SUPPLIER_PAYMENT = AiResource(
         key = "supplier_payment",
         cn = "付款记录",
@@ -1073,7 +1111,7 @@ internal object AiResources {
         SHIPPER_SETTLEMENT,
         ORDER_TEMPLATE,
         // 供应商 / 厂商 + 应付款 + 付款（2026-09-22）
-        SUPPLIER, SUPPLIER_PAYABLE, SUPPLIER_PAYMENT,
+        SUPPLIER, SUPPLIER_PAYABLE, SUPPLIER_PAYMENT, PURCHASE_ORDER,
         // 另外三张配置名册（2026-09-23：AI 能建/改名/排序/删，所以撤回也要有归属）
         EXPENSE_CATEGORY, FREIGHT_CATEGORY, ORDER_TEMPLATE_CATEGORY,
         // 两张**全店**名册（2026-10-05 FEAT-0010：账号分类 / 车辆分类）
@@ -1214,6 +1252,19 @@ internal object AiRevertRead {
      * ⚠️ 后端会拦住"金额改到比已付还小"：真出现这种情况，撤回那一步会如实报错
      * （而不是静默改成一个错的数）。
      */
+    /**
+     * 一张采购单的**单头三样**（撤回就写回这三样）。
+     *
+     * ⚠️ 空备注写成 JsonNull 而不是空串：资源上声明了 nullableWritable = setOf("remark")，
+     *    于是 AiRevert.patchPlan 会把"原来的备注是空的"当成**能清回去**（这条 PATCH 收得下空串），
+     *    而不是按老规矩在撤回卡上写一句"写不回空值"的假话。
+     */
+    fun purchaseOrder(d: PurchaseOrderDto): JsonObject = buildJsonObject {
+        put("supplier_id", d.supplierId)
+        put("doc_date", d.docDate)
+        put("remark", if (d.remark.isBlank()) JsonNull else JsonPrimitive(d.remark))
+    }
+
     fun supplierPayable(d: SupplierPayableDto): JsonObject = buildJsonObject {
         put("title", d.title)
         put("category", d.category)

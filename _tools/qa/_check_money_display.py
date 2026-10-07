@@ -296,8 +296,12 @@ def main() -> int:
     value_forms = ('put("price", ', 'put("value", ', 'put("amount", ',
                    "val amount = AiWriteArgs.money(amountValue)",
                    "val fee = feeRaw?.let { AiWriteArgs.money(")
+    #    2026-10-07 补（CHG-0074）：槽名不该是白名单。`put("<槽>", AiWriteArgs.money(` 这个句式本身
+    #    只可能出现在 payload 里 —— 卡片是 `details += "…" + …` 那种字符串拼接，写不出 `put(`。
+    #    原先只钉死三个槽名，等于"谁加一个域谁红"（采购单的行级进货价槽名叫 unit_cost，就是这么红的）。
+    put_form = re.compile(r'put\("[a-z_]+", AiWriteArgs\.money\(')
     wrong = [f"{f}:{i} → {code[:90]}" for f, i, code in money_sites
-             if not any(v in code for v in value_forms)]
+             if not (put_form.search(code) or any(v in code for v in value_forms))]
     # ⚠️ **不数个数**：`AiWriteArgs.money(` 的处数会随着别的域新增处理器而变（每加一个域就多一两处
     #    「值」），钉死个数等于"谁加功能谁红"。真正的判据是**形态**：剩下的每一处都必须是「值」。
     #    下界 4 是防"有人把值也全改成去零、于是这条判据空转"。

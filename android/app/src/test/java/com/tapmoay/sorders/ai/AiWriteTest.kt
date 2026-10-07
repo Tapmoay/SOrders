@@ -3,6 +3,7 @@ package com.tapmoay.sorders.ai
 import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
+import com.tapmoay.sorders.data.remote.dto.PurchaseOrderDto
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -622,6 +623,11 @@ class AiWriteTest {
                     },
                 )
             }
+            // 采购单（CHG-0074）：与生产实现（AiRevertRead.purchaseOrder）同一份键集。
+            if (resourceKey == "purchase_order") {
+                val dto = purchaseRows.firstOrNull { it.id == id } ?: return null
+                return AiBefore(id, AiRevertRead.purchaseOrder(dto))
+            }
             return null
         }
 
@@ -915,6 +921,47 @@ class AiWriteTest {
         override suspend fun restoreSupplierPayment(flowId: Long) {
             boom()
             supplierCalls += "restoreSupplierPayment:$flowId"
+        }
+
+        // ---- 采购单（CHG-0074）----
+        //
+        // 默认**一张单都没有**：读不到 = 这一条撤不回来 / 那个动作该如实说"读不到编号 N 的单"。
+        // 要测"读得到"的用例自己往 purchaseRows 里塞一张（键集与生产实现一致：只读单头三样）。
+        var purchaseRows = emptyList<PurchaseOrderDto>()
+        var nextPurchaseOrderId = 700L
+        val purchaseCalls = mutableListOf<String>()
+
+        override suspend fun purchaseOrder(id: Long): PurchaseOrderDto? {
+            boom()
+            purchaseCalls += "purchaseOrder:$id"
+            return purchaseRows.firstOrNull { it.id == id }
+        }
+
+        override suspend fun createPurchaseOrder(
+            supplierId: Long,
+            docDate: String,
+            remark: String,
+            lines: List<AiPurchaseLine>,
+        ): Long {
+            boom()
+            purchaseCalls += "createPurchaseOrder:$supplierId:$docDate:$remark:" +
+                lines.joinToString("+") { "${it.productId}x${it.quantity}@${it.unitCost}" }
+            return nextPurchaseOrderId
+        }
+
+        override suspend fun updatePurchaseOrderHead(orderId: Long, supplierId: Long, docDate: String, remark: String) {
+            boom()
+            purchaseCalls += "updatePurchaseOrderHead:$orderId:$supplierId:$docDate:$remark"
+        }
+
+        override suspend fun deletePurchaseOrder(id: Long) {
+            boom()
+            purchaseCalls += "deletePurchaseOrder:$id"
+        }
+
+        override suspend fun restorePurchaseOrder(id: Long) {
+            boom()
+            purchaseCalls += "restorePurchaseOrder:$id"
         }
         override suspend fun createFreightTemplate(fields: JsonObject) = rec("createFreightTemplate", fields)
         override suspend fun updateFreightTemplate(id: Long, fields: JsonObject) {
@@ -3580,10 +3627,11 @@ class AiWriteTest {
         //    2026-09-23 给三份「分类名册」（开销/运费/预订单）各加 4 个：建/改名/删/重排 —— 143；
         //    2026-10-04 给「线路分类名册」（FEAT-0009，线路这一档也要能分类）加了 4 个：
         //    建/改名/删/重排 —— 147；
-        //    2026-10-05 给「账号分类 / 车辆分类」两份名册（FEAT-0010）各加 4 个：建/改名/删/重排 —— 155）。
+        //    2026-10-05 给「账号分类 / 车辆分类」两份名册（FEAT-0010）各加 4 个：建/改名/删/重排 —— 155；
+        //    2026-10-07 给「采购单」加 4 个（CHG-0074，台账 L-42）：建单/改单头/撤单/恢复 —— 159）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 155（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 155)
+        assertTrue("动作数不该多于 159（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 159)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",

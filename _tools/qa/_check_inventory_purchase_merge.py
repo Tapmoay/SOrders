@@ -40,8 +40,9 @@
 4. 后端**只读派生**：MovementOut.purchase_order_id（不是列、不在写模型里、没有迁移）、
    _attach_purchase_orders 是唯一挂载点、按本页 id 一次反查、两条过滤都在、且挂在
    finish_page 之前；
-5. 写侧与 AI 权限一个字没改（采购单仍然没有 AI 写域）；变更单九节 + 登记簿 + 工作声明 +
-   反验脚本 + 防静默空转。
+5. 写侧与 AI 权限：本单一个字没改（当时采购单还没有 AI 写域）；⚠️ 2026-10-07 CHG-0074
+   （台账 L-42）把那四条写端点开了 ⇒ 这一节跟着改成「写域已开」的正向断言（见 §5 的注释）；
+   变更单九节 + 登记簿 + 工作声明 + 反验脚本 + 防静默空转。
 
 用法：python _tools/qa/_check_inventory_purchase_merge.py
 """
@@ -359,11 +360,27 @@ def main() -> int:
     )
     c.ok("端点仍把整页交给 finish_page（没绕过分页）", "return finish_page(rows, limit, response)" in api)
 
-    print("\n== 5. 写侧与 AI 权限一个字没改 ==")
+    print("\n== 5. 写侧与 AI 权限 ==")
+    # 2026-10-07 CHG-0074（台账 L-42）：采购单的 AI 写域**后来开了** —— 用户口径 m13365 ②
+    # 「上传一张进货单照片 → AI 读出供应商与每行 → 确认卡 → 建采购单」。所以这一节从
+    # 「仍然不开放」改成正向断言：那四条写端点确实从 EXCLUDED 里移走了、理由写在原处；
+    # 写能力也跟着入口落在「库存管理」那一格（认领跟着入口走，与读能力同一个口径）。
     wcov = read(WRITE_COVERAGE)
-    c.ok("采购单的 AI 写域仍然不开放（理由还在原处）", "采购单（FEAT-0013，2026-10-04）：**本轮不开放**" in wcov)
-    c.ok("四条写端点逐条列着「不做」的理由", '("POST", "purchase-orders")' in wcov and '("PATCH", "purchase-orders/{}")' in wcov)
+    c.ok("采购单的写域已开、理由写在原处（CHG-0074）", "2026-10-07 CHG-0074（台账 L-42）起已开" in wcov)
+    c.ok(
+        "四条写端点不再列在 EXCLUDED 里",
+        not any(
+            k in wcov
+            for k in (
+                '("POST", "purchase-orders")',
+                '("PATCH", "purchase-orders/{}")',
+                '("DELETE", "purchase-orders/{}")',
+                '("POST", "purchase-orders/{}/restore")',
+            )
+        ),
+    )
     c.ok('覆盖表把「采购单」读能力并到「库存管理」那一格', '["库存管理", "采购单"],' in cov)
+    c.ok('覆盖表那格的写能力也认领了「采购单」', '["库存", "采购单"],' in cov)
     c.ok('不再有独立的「采购单」模块条目（否则 --check 报化石）', '"采购单": (' not in cov)
     c.ok("覆盖表那格的说明写清了采购单从它进", "采购单从它进（列表 + 表单：建单/改单/撤单/恢复）" in cov)
 
