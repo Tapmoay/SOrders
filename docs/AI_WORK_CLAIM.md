@@ -31,7 +31,7 @@
 
 ## 进行中
 
-### [2026-10-07 14:43 → 待定 CST] 会话：**CHG-0078 AI 自己出表格 ＋ 聊天里直接下载/分享（台账 L-43）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-07 14:43 → 16:10 CST 已完成] 会话：**CHG-0078 AI 自己出表格 ＋ 聊天里直接下载/分享（台账 L-43）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**（ref **m01794**，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2152` 逐字）：「还有一个就是我让 ai 去把这个月的货主的账导成表格这个 ai 啊，他直接让我去报表中心查看或下载啊。这肯定不行啊，他**首先第一点，他要自己做表格先给我看**……然后如果他让我……下载的话，他旁边也就是他会输出一个**下载按钮**啊，直接点击下载按钮，直接给下载了……**这个功能是要具备的在聊天框中**啊，我们是要具备这个功能的，不然还要自己跑过去看，那要 AI 干嘛。」口径 **m01850 四条**：① 文件行在**气泡下方一行**；② **当场重新生成**（服务器不留文件）；③ **账本大导出也进聊天**，且**保留每天 20 次配额**；④ 落 `Downloads/SOrders报表` ＋ **新增「下载完可分享到微信、QQ」**（须先解决 Uri）。收口 **m01865**：分享与下载**同批**做，且**只对 Android 10+ 开**。
 
@@ -43,8 +43,9 @@
 
 **判据 / 反验**：新建 `_tools/qa/_check_ai_export_files.py`（两个工具的 id/组/角色/参数逐字对；`export_sheet` 里 0 命中 `repo.exportReport` 与 `body.close()`；`export_ledger` 里 0 命中 `createLedgerExportJob`；配方**摘过**才进模型；`AiEvent.FileOffered` 在 VM 有分支；文件行只在 `role != USER` 且 `exportRecipe != null` 时画；分享只在 Q+ 给 Intent、以下给中文原因；两个入口调**同一个**函数；提示词三处口径一致；空转闸）＋ 新建 `_tools/qa/_reverse_verify_ai_export_files.py`（逐条注入：`export_sheet` 改回打后端、`export_ledger` 改成工具回合就建任务、配方整段漏给模型、货主进角色集、Android 9 那条改静默 `return`、报表中心另写一份 `Intent`、提示词改回「两件事」、`_write_coverage` 理由改回旧口径，每条期望判据红再按字节还原）；配套改 `_tools/ai/_write_coverage.py` 两条 EXCLUDED 的理由（今天是"聊天里递不给用户"）、`_check_ai_answer_style.py` 与 `_reverse_verify_answer_style.py`、`_tools/ai/_app_feature_coverage.py`。
 
-- 状态：🔧 **进行中**（开工 2026-10-07 14:43；变更单 `docs/changes/CHG-0078.md`；Blast Radius L2）
-- 真机 / HTTP：待跑
+- 状态：✅ **已关闭**（开工 2026-10-07 14:43，关闭 16:10；变更单 `docs/changes/CHG-0078.md`；Blast Radius L2；提交 `40da99b`）
+- 真机：emulator-5554 十三张截图 `shots/chg0078_00_launch_5554.png` … `shots/chg0078_12_fixed_regenerated_5554.png`（四步：① 问「把这个月的货主账单导成表格」⇒ 聊天里真出现「客户经营-2026-10-01_2026-10-07.xlsx」＋「下载」；② 点「下载」⇒ 行变「分享」＋「已保存到：/storage/emulated/0/Download/SOrders报表/…」，`adb shell ls -l` 见到那份 5659 字节；③ 点「分享」⇒ 系统 `Sharing 1 file` 面板；④ 账本大导出点按钮前 `ledger_export_jobs` **0 行**。三条边界：重启后老对话照读（配方真落盘）、`jobId` 已有时再点不建任务（1 行 → 1 行）、产物被清理 404 时如实报「再点一次会重新生成。」⇒ 再点建新任务（1 行 → 2 行、文件重新落盘）。）
+- 真库 / HTTP：开发库 `backend/sorders.db` 的 `ledger_export_jobs` 行数 0 → 1 → 1 → 2（点按钮前不烧配额，配额是用户的）；后端一行未改（三道闸 / 配额 / 端点契约 / 鉴权全部照旧）；判据 `_check_ai_export_files.py` 158/158 ＋ 反验 `_reverse_verify_ai_export_files.py` 17/17 ＋ 单测 1303 completed（1 条既存日期 flake）/ 2 skipped ＋ 全量静检 `_check_all.py` 216/216（332.3 秒）。两文件都是真 xlsx（回本机验过 zip 结构：客户账 `A1:D23`、账本 `A1:J5`）。
 
 ### [2026-10-07 13:0x → 14:22 CST 已完成] 会话：**CHG-0077 批发商给自己的商品定价，给不同的下游联系人不同的价（台账 L-38）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
