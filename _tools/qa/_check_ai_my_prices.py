@@ -439,7 +439,10 @@ def main() -> int:
     c.has("恢复动作的映射用的是恢复动作自己的参数名 target_id", res_block, 'AiInverse(AiWrites.SHIPPER_PRICE_RESTORE, mapOf("target_id" to AiRevert.ID))')
     c.has("恢复明细两句（放回来之后与删掉之前一模一样）", res_block, "放回来之后编号、商品、给谁、单价都和删掉之前一模一样")
     c.ok("⛔ 改价那条**不进**资源（upsert 在写之前不知道撤到哪一条）", "SHIPPER_PRICE_SET" not in r)
-    c.has("资源收录进 TABLE", r, "        SHIPPER_PRICE,\n    )")
+    #    2026-10-08 随动（CHG-0086）：发票域把 `INVOICE,` 收在 `SHIPPER_PRICE,` 之后 ——
+    #    原来钉的是「表尾那一行就是 SHIPPER_PRICE」，谁在它后面再收一个域都会红。
+    #    改成钉**当前表尾**（仍然要钉表尾：只查"名字在文件里出现过"是查不出"没进表"的）。
+    c.has("资源收录进 TABLE", r, "        INVOICE,\n    )")
     c.has("改价那条在 UNDO_NONE 里有一条专门理由", rv, "listOf(AiWrites.SHIPPER_PRICE_SET),")
     c.has("理由里点名出路（说一句改回去 / 删掉）", rv, "把 XXX 的价改成 YYY")
     c.has("理由里点明删价那条有撤回按钮", rv, "删价是有「撤回」按钮的")
@@ -467,7 +470,7 @@ def main() -> int:
     c.has("单测里有这一域的调用记录器（断言点确认之后真的写了一次）", t, "myPriceCalls")
     c.has("单测里有可定价商品的夹具", t, "var myPriceProductRows: MutableList<AiMyPriceProduct>")
     c.ok("单测摸到三条动作（>= 5 处）", subs(t, "SHIPPER_PRICE_") >= 5, "实际 " + str(subs(t, "SHIPPER_PRICE_")))
-    c.has("动作数上界抬到了 165（每加一批动作都要抬一次）", t, "AiWrites.ALL.size <= 165")
+    c.has("动作数上界抬到了 171（每加一批动作都要抬一次）", t, "AiWrites.ALL.size <= 171")
     c.ok("变更单九节齐（少一节 _check_dev_spec.py 也会红）", all(x in read(CHG_DOC) for x in CHG_SECTIONS))
     c.has("变更单里写了台账号 L-53", read(CHG_DOC), "L-53")
     c.has("登记簿里有这一条", read(REGISTRY), CHG_ID)

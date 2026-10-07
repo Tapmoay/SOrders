@@ -67,6 +67,7 @@ IMPL_FILES = (
     "AiWriteCrudHandlers.kt",
     "AiWriteOrderHandlers.kt",
     "AiWriteOrderLineHandlers.kt",
+    "AiWriteInvoices.kt",
     "AiWriteLedgerHandlers.kt",
     "AiWriteNotificationHandlers.kt",
     "AiWriteShipperLedgerHandlers.kt",
@@ -358,7 +359,16 @@ _ACTION_BLOCK = re.compile(r"id\s*=\s*(?:AiWrites\.)?([A-Z][A-Z0-9_]*)\s*,")
 #: 撤回工厂调用点里的动作 id：`restoreAction(cn = …, id = AiWrites.MY_LEDGER_RESTORE, …)`
 _RESTORE_ID = re.compile(r"id\s*=\s*(?:AiWrites\.)?([A-Z][A-Z0-9_]*)\s*,")
 # 手写处理器：`class CancelOrderHandler(...) { override val actionId = AiWrites.ORDERS_CANCEL … }`
-_HANDLER = re.compile(r"override\s+val\s+actionId\s*=\s*AiWrites\.([A-Z][A-Z0-9_]*)")
+#: ⚠️ 2026-10-08（CHG-0086）：手写处理器的 `actionId` 有**两种等价写法**，这里必须都认下：
+#:    裸形态 `override val actionId = AiWrites.X`，以及带显式类型标注的
+#:    `override val actionId: String = AiWrites.X`（发票那五个处理器一开始就是这么写的）。
+#:    只认裸形态的后果不是"少认一步"，而是**那些动作整体隐身**：它们进不了 `ds_by_const`，
+#:    `ai_role_endpoints` 自然也不会把它们算成能力，于是 `[dispatcher] 不缺能力` 一次报出
+#:    五条**假缺口**（"手机上能做、AI 没能力"）—— 正是本文件反复强调"比不报更糟"的那一类错。
+#:    房内写法仍以裸形态为准（其余 ~200 个处理器都是裸形态）。
+_HANDLER = re.compile(
+    r"override\s+val\s+actionId\s*(?::\s*[A-Za-z_][\w.<>?, ]*\s*)?=\s*AiWrites\.([A-Z][A-Z0-9_]*)"
+)
 _NEXT_TOP_LEVEL = re.compile(r"\n(?:internal\s+|private\s+)?(?:class|object|fun|val)\s")
 _DS_CALL = re.compile(r"\bds\.(\w+)\s*\(")
 #: 通用读回器：`ds.snapshot("order", id)` —— 第一个实参是**资源键**（见 [AiResources.TABLE]）。

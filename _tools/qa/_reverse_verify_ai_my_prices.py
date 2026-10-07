@@ -302,7 +302,7 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
     (
         "资源没收录进 TABLE（红线逐个资源对账会缺一个）",
         RES,
-        "        SHIPPER_PRICE,\n    )",
+        "        INVOICE,\n    )",
         "    )",
         "资源收录进 TABLE",
     ),
@@ -409,9 +409,9 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
     (
         "动作数上界没跟着抬（下一批加动作时会先撞到这堵墙）",
         T,
-        "AiWrites.ALL.size <= 165",
+        "AiWrites.ALL.size <= 171",
         "AiWrites.ALL.size <= 162",
-        "动作数上界抬到了 165",
+        "动作数上界抬到了 171",
     ),
     (
         "单测里没有可定价商品的夹具（判据会以为这一域没被测过）",

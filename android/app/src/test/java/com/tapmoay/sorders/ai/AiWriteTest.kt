@@ -1019,6 +1019,68 @@ class AiWriteTest {
             boom()
             purchaseCalls += "restorePurchaseOrder:$id"
         }
+
+        // ---- 发票台账（CHG-0086）----
+        //
+        // 默认**台账里一张票都没有**：读不到 = 这一条该如实说"没找到这样一张票"，
+        // 而不是凭空动别的票。要测"找得到"的用例自己往 invoiceRows 里塞一张。
+        // ⚠️ 假数据源这里**照抄生产的筛选口径**（后端那三个筛子在 repo 里）：
+        //    方向 / 关键字（票号或对方名）/ 日期窗口 / 是否含回收站。
+        var invoiceRows = emptyList<AiInvoiceRef>()
+        var nextInvoiceId = 900L
+        val invoiceCalls = mutableListOf<String>()
+
+        override suspend fun invoices(
+            direction: String?,
+            keyword: String?,
+            dateFrom: String?,
+            dateTo: String?,
+            includeDeleted: Boolean,
+        ): List<AiInvoiceRef> {
+            boom()
+            invoiceCalls += "invoices:$direction:$keyword:$dateFrom:$dateTo:$includeDeleted"
+            return invoiceRows.filter { row ->
+                (includeDeleted || !row.isDeleted) &&
+                    (direction == null || row.direction == direction) &&
+                    (keyword == null || row.invoiceNo.contains(keyword, ignoreCase = true) ||
+                        row.partyName.contains(keyword, ignoreCase = true)) &&
+                    (dateFrom == null || row.invoiceDate >= dateFrom) &&
+                    (dateTo == null || row.invoiceDate <= dateTo)
+            }
+        }
+
+        override suspend fun createInvoice(draft: AiInvoiceDraft): Long {
+            boom()
+            invoiceCalls += "createInvoice:${draft.direction}:${draft.invoiceNo}:${draft.invoiceDate}:" +
+                "${draft.amount}:${draft.taxRate}:${draft.taxAmount}:${draft.supplierId}:" +
+                "${draft.customerId}:${draft.purchaseOrderIds.joinToString("+")}:${draft.note}"
+            return nextInvoiceId
+        }
+
+        override suspend fun updateInvoice(id: Long, changes: JsonObject) {
+            boom()
+            invoiceCalls += "updateInvoice:$id:${changes.toString()}"
+        }
+
+        override suspend fun issueInvoice(id: Long) {
+            boom()
+            invoiceCalls += "issueInvoice:$id"
+        }
+
+        override suspend fun voidInvoice(id: Long) {
+            boom()
+            invoiceCalls += "voidInvoice:$id"
+        }
+
+        override suspend fun deleteInvoice(id: Long) {
+            boom()
+            invoiceCalls += "deleteInvoice:$id"
+        }
+
+        override suspend fun restoreInvoice(id: Long) {
+            boom()
+            invoiceCalls += "restoreInvoice:$id"
+        }
         override suspend fun createFreightTemplate(fields: JsonObject) = rec("createFreightTemplate", fields)
         override suspend fun updateFreightTemplate(id: Long, fields: JsonObject) {
             boom()
@@ -3687,10 +3749,12 @@ class AiWriteTest {
         //    2026-10-07 给「采购单」加 4 个（CHG-0074，台账 L-42）：建单/改单头/撤单/恢复 —— 159；
         //    2026-10-08 给「我的下游价」加 3 个（CHG-0084，台账 L-53）：定价/删价/恢复 —— 162；
         //    2026-10-08 当天又给「订单结构」加 3 个（CHG-0085，台账 L-54）：转货 / 静默退回派单池 /
-        //    补联系信息 —— 165）。
+        //    补联系信息 —— 165；
+        //    2026-10-08 当天再给「发票台账」加 6 个（CHG-0086，台账 L-55）：登记/改/开具/作废/撤票/恢复
+        //    —— 171（这六件事手工页早就能做，这次是把它们也开给 AI）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 165（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 165)
+        assertTrue("动作数不该多于 171（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 171)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -6684,6 +6748,632 @@ class AiWriteTest {
         assertFalse(AiWrites.forModel(shipper).any { it.id == AiWrites.ORDERS_TRANSFER })
         assertFalse(AiWrites.forModel(shipper).any { it.id == AiWrites.ORDERS_RELEASE })
         assertTrue(AiWrites.forModel(shipper).any { it.id == AiWrites.ORDERS_UPDATE_CONTACT })
+    }
+
+    // ==================================================== 发票台账（CHG-0086，台账 L-55）
+    //
+    // 六条动作都只给派单员（后端要 ledger:edit）。这组用例的重点不是"能不能落库"——
+    // 而是四件**用户看不见却会吃亏**的事：
+    // ① 认不出是哪一张票时绝不动手（一个都不给就反问、对不上列候选、撞多张拒绝，票号唯一除外）；
+    // ② 回收站里的票要"找得到、但说清楚它在回收站"，不许装成"系统里没有这张票"；
+    // ③ 税额与后端同一个算法（只给税率时倒推），且算出来的数**显式进 payload**；
+    // ④ 登记 / 开具 / 作废撤不回来 —— 卡片当场说清，别等点完才发现没有后悔药。
+
+    /** 台账里现成的一张票：默认「已登记 · 销项 · 含税 13% · 1130 元」。 */
+    private fun invRow(
+        id: Long = 901L,
+        direction: String = AiInvoiceRef.DIR_OUTPUT,
+        no: String = "INV2026090001",
+        date: String = "2026-10-01",
+        amount: String = "1130.00",
+        rate: String? = "13",
+        tax: String? = null,
+        status: String = AiInvoiceRef.ST_REGISTERED,
+        party: String = "老王果行",
+        note: String = "",
+        deleted: Boolean = false,
+    ): AiInvoiceRef = AiInvoiceRef(
+        id = id,
+        direction = direction,
+        invoiceNo = no,
+        invoiceDate = date,
+        amount = amount,
+        taxRate = rate,
+        taxAmount = tax,
+        status = status,
+        partyName = party,
+        note = note,
+        isDeleted = deleted,
+    )
+
+    @Test
+    fun `发票·登记进项票：名册查名、采购单逐张核，卡片把五件事写全`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.supplierRows = listOf(AiName(501, "城东农资"))
+        r.ds.purchaseRows = listOf(
+            PurchaseOrderDto(id = 12, supplierId = 501),
+            PurchaseOrderDto(id = 15, supplierId = 501),
+        )
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.INVOICES_CREATE,
+                p(
+                    "direction" to "INPUT",
+                    "invoice_no" to "INV001",
+                    "date" to "2026-10-01",
+                    "amount" to "1130",
+                    "tax_rate" to "13",
+                    "supplier" to "城东农资",
+                    "purchase_orders" to "12、15",
+                ),
+            ),
+        )
+        assertEquals("登记进项票 INV001：1130 元（含税 13%）", card.summary)
+        assertTrue(card.detailLines.any { it.contains("方向：进项（供应商开给我们）") })
+        assertTrue(card.detailLines.any { it.contains("票号：INV001") })
+        assertTrue(card.detailLines.any { it.contains("开票日期：2026-10-01") })
+        assertTrue(card.detailLines.any { it.contains("价税合计：1130 元") })
+        assertTrue(
+            card.detailLines.any {
+                it.contains("税率：13%；税额：130 元（按「合计 ÷ (1 + 税率)」倒推，与后端同一个算法）")
+            },
+        )
+        assertTrue(card.detailLines.any { it.contains("不含税金额：1000 元") })
+        assertTrue(card.detailLines.any { it.contains("供应商：城东农资") })
+        assertTrue(card.detailLines.any { it.contains("挂的采购单：#12、#15") })
+        assertTrue(card.detailLines.any { it.contains("票号一旦登记就唯一占号") })
+        assertTrue(card.detailLines.any { it.contains("以后改不动税率") })
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        // 落库的税额是**算出来的**那个数：卡片上给用户看的数与库里存的数是同一个。
+        assertEquals(
+            "createInvoice:INPUT:INV001:2026-10-01:1130.00:13.00:130.00:501:null:12+15:",
+            r.ds.invoiceCalls.single(),
+        )
+    }
+
+    @Test
+    fun `发票·登记销项票：没给税率就是未税票（卡片当场说清它不进税汇）`() = runBlocking<Unit> {
+        val r = Rig()
+        // customerRows 默认就有「老王果行」（301）
+        val card = ok(
+            r.svc.preview(
+                AiWrites.INVOICES_CREATE,
+                p("direction" to "OUTPUT", "date" to "2026-10-02", "amount" to "300", "customer" to "老王果行"),
+            ),
+        )
+        assertEquals("登记销项票（票号还没拿到）：300 元（未税）", card.summary)
+        assertTrue(card.detailLines.any { it.contains("票号：还没拿到，先空着（登记之后可以在台账里补上）") })
+        assertTrue(
+            card.detailLines.any { it.contains("税率：没填 —— 这是一张未税票：它照常留在台账里，但不进税汇") },
+        )
+        assertTrue(card.detailLines.any { it.contains("客户：老王果行") })
+        assertTrue(card.detailLines.any { it.contains("空票号不参与查重") })
+        assertFalse("未税票不该出现税额那一行：`{card.detailLines}`", card.detailLines.any { it.contains("税额：") })
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals("createInvoice:OUTPUT::2026-10-02:300.00:null:null:null:301::", r.ds.invoiceCalls.single())
+    }
+
+    @Test
+    fun `发票·登记参数门：方向、对方、采购单一处不对就当场说清，一条都不许写`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.supplierRows = listOf(AiName(501, "城东农资"))
+        val base = arrayOf("direction" to "OUTPUT", "date" to "2026-10-01", "amount" to "100")
+
+        assertTrue(
+            rejected(r.svc.preview(AiWrites.INVOICES_CREATE, p("date" to "2026-10-01", "amount" to "100")))
+                .reason.contains("缺少 direction"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p("direction" to "OUTPUT", "amount" to "100", "customer" to "老王果行"),
+                ),
+            ).reason.contains("缺少 date"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p("direction" to "OUTPUT", "date" to "2026-10-01", "customer" to "老王果行"),
+                ),
+            ).reason.contains("缺少 amount"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p("direction" to "不知道往哪开", "date" to "2026-10-01", "amount" to "100"),
+                ),
+            ).reason.contains("direction 只能是 OUTPUT"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(
+                        "direction" to "INPUT",
+                        "date" to "2026-10-01",
+                        "amount" to "100",
+                        "supplier" to "城东农资",
+                        "customer" to "老王果行",
+                        "purchase_orders" to "12",
+                    ),
+                ),
+            ).reason.contains("不该填客户"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p("direction" to "INPUT", "date" to "2026-10-01", "amount" to "100", "purchase_orders" to "12"),
+                ),
+            ).reason.contains("缺少 supplier"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(*base, "customer" to "老王果行", "supplier" to "城东农资"),
+                ),
+            ).reason.contains("不该填供应商"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(*base),
+                ),
+            ).reason.contains("缺少 customer"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(*base, "customer" to "老王果行", "purchase_orders" to "12"),
+                ),
+            ).reason.contains("销项票不该挂采购单"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(
+                        "direction" to "INPUT",
+                        "date" to "2026-10-01",
+                        "amount" to "100",
+                        "supplier" to "城东农资",
+                    ),
+                ),
+            ).reason.contains("缺少 purchase_orders"),
+        )
+        // 名册里没有的名字：列候选、不猜
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(
+                        "direction" to "INPUT",
+                        "date" to "2026-10-01",
+                        "amount" to "100",
+                        "supplier" to "张三的店",
+                        "purchase_orders" to "12",
+                    ),
+                ),
+            ).reason.contains("名册里没有这个供应商"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(
+                        "direction" to "INPUT",
+                        "date" to "2026-10-01",
+                        "amount" to "100",
+                        "supplier" to "城东农资",
+                        "purchase_orders" to "第一张",
+                    ),
+                ),
+            ).reason.contains("不是数字"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(
+                        "direction" to "INPUT",
+                        "date" to "2026-10-01",
+                        "amount" to "100",
+                        "supplier" to "城东农资",
+                        "purchase_orders" to "12",
+                    ),
+                ),
+            ).reason.contains("不在系统里"),
+        )
+        assertEquals("一次都不许写", 0, r.ds.invoiceCalls.size)
+    }
+
+    @Test
+    fun `发票·税额：只给税率时按后端同一算法倒推，并把算出来的数写进 payload`() = runBlocking<Unit> {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.INVOICES_CREATE,
+                p(
+                    "direction" to "OUTPUT",
+                    "date" to "2026-10-01",
+                    "amount" to "1130",
+                    "tax_rate" to "13",
+                    "customer" to "老王果行",
+                ),
+            ),
+        )
+        assertTrue(card.detailLines.any { it.contains("税额：130 元（按「合计 ÷ (1 + 税率)」倒推") })
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertTrue("算出来的税额要显式进 payload：`{r.ds.invoiceCalls}`", r.ds.invoiceCalls.single().contains(":130.00:"))
+
+        // 票面上印了税额就以票面为准（不再倒推）
+        val printed = ok(
+            r.svc.preview(
+                AiWrites.INVOICES_CREATE,
+                p(
+                    "direction" to "OUTPUT",
+                    "date" to "2026-10-01",
+                    "amount" to "1130",
+                    "tax_rate" to "13",
+                    "tax_amount" to "155",
+                    "customer" to "老王果行",
+                ),
+            ),
+        )
+        assertTrue(printed.detailLines.any { it.contains("税额：155 元（票面上印的数）") })
+
+        // 只给税额不给税率：这张票到底算不算税？—— 这件事必须在登记那一刻问清
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(
+                        "direction" to "OUTPUT",
+                        "date" to "2026-10-01",
+                        "amount" to "1130",
+                        "tax_amount" to "155",
+                        "customer" to "老王果行",
+                    ),
+                ),
+            ).reason.contains("只给了税额、没给税率"),
+        )
+        // 税额比合计还大：这两个数填反了
+        assertTrue(
+            rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_CREATE,
+                    p(
+                        "direction" to "OUTPUT",
+                        "date" to "2026-10-01",
+                        "amount" to "1130",
+                        "tax_rate" to "13",
+                        "tax_amount" to "1300",
+                        "customer" to "老王果行",
+                    ),
+                ),
+            ).reason.contains("是不是填反了"),
+        )
+    }
+
+    @Test
+    fun `发票·定位门：一个能收窄的都不给、找不到、撞上多张，都不许动手`() = runBlocking<Unit> {
+        val r = Rig()
+        val none = rejected(r.svc.preview(AiWrites.INVOICES_UPDATE, p("new_amount" to "100")))
+        assertTrue(none.reason.contains("要动的是哪一张票？"))
+        assertTrue("要给出下一步：`{none.candidates}`", none.candidates.any { it.contains("发票台账") })
+
+        val missing = rejected(
+            r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV-NOPE", "new_amount" to "100")),
+        )
+        assertTrue(missing.reason.contains("台账里没找到这样一张票"))
+        assertTrue(missing.reason.contains("票号「INV-NOPE」"))
+        assertTrue(missing.reason.contains("最近 100 张里"))
+
+        r.ds.invoiceRows = listOf(
+            invRow(id = 901, no = "A1", date = "2026-10-01", amount = "1130.00"),
+            invRow(id = 902, no = "A2", date = "2026-10-01", amount = "1130.00", party = "明辉食品商行"),
+        )
+        val many = rejected(
+            r.svc.preview(
+                AiWrites.INVOICES_UPDATE,
+                p("date" to "2026-10-01", "amount" to "1130", "new_amount" to "100"),
+            ),
+        )
+        assertTrue("撞多张要说清张数：`{many.reason}`", many.reason.contains("对上了 2 张票"))
+        assertEquals(2, many.candidates.size)
+        assertTrue(many.candidates.all { it.contains("销项票") })
+
+        // 票号是唯一精确的键：同号两行（历史脏数据）不拒绝、直接认第一行 —— 这条是**例外**，
+        // 因为"同一个方向同一个票号"在后端本来就只允许存在一张。
+        r.ds.invoiceRows = listOf(invRow(id = 901, no = "A1"), invRow(id = 902, no = "A1", deleted = true))
+        val byNo = ok(r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "A1", "new_amount" to "100")))
+        assertTrue(byNo.detailLines.any { it.contains("销项票 A1") })
+        assertEquals("拦住的时候一个字都不许写", 0, r.ds.invoiceCalls.count { !it.startsWith("invoices:") })
+    }
+
+    @Test
+    fun `发票·回收站里的票：找得到，但要如实说它在回收站里（不是「没有这张票」）`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.invoiceRows = listOf(invRow(id = 901, deleted = true))
+
+        val upd = rejected(
+            r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV2026090001", "new_amount" to "100")),
+        )
+        assertTrue(upd.reason.contains("在回收站里"))
+        assertTrue(upd.reason.contains("回收站里的票改不动"))
+        assertTrue(upd.reason.contains("恢复这张票"))
+
+        assertTrue(
+            rejected(r.svc.preview(AiWrites.INVOICES_ISSUE, p("invoice_no" to "INV2026090001")))
+                .reason.contains("先恢复出来，再开具"),
+        )
+        assertTrue(
+            rejected(r.svc.preview(AiWrites.INVOICES_VOID, p("invoice_no" to "INV2026090001")))
+                .reason.contains("作废一个已经在回收站里的票没有意义"),
+        )
+        assertTrue(
+            rejected(r.svc.preview(AiWrites.INVOICES_DELETE, p("invoice_no" to "INV2026090001")))
+                .reason.contains("已经在回收站里了"),
+        )
+
+        // 这一条同时钉住"必须带 includeDeleted = true"：不带就等于"台账里根本没这张票"，
+        // 那时用户会得到一句彻头彻尾的假话。
+        assertTrue("每次定位都要连回收站一起找：`{r.ds.invoiceCalls}`", r.ds.invoiceCalls.all { it.endsWith(":true") })
+        assertEquals("一条都不许写", 0, r.ds.invoiceCalls.count { !it.startsWith("invoices:") })
+    }
+
+    @Test
+    fun `发票·改票的三道门：已开具、已作废、未税票，三种都改不动`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.invoiceRows = listOf(invRow(status = AiInvoiceRef.ST_ISSUED))
+        val issued = rejected(
+            r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV2026090001", "new_amount" to "100")),
+        )
+        assertTrue(issued.reason.contains("已经是「已开具」了，改不动"))
+        assertTrue(issued.reason.contains("作废重开一张"))
+
+        r.ds.invoiceRows = listOf(invRow(status = AiInvoiceRef.ST_VOIDED))
+        assertTrue(
+            rejected(
+                r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV2026090001", "new_amount" to "100")),
+            ).reason.contains("已经是「已作废」了，改不动"),
+        )
+
+        // 未税票：加不上税率、也不该有税额 ——「有没有税」在登记那一刻就定了
+        r.ds.invoiceRows = listOf(invRow(rate = null, tax = null))
+        assertTrue(
+            rejected(
+                r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV2026090001", "new_tax_rate" to "13")),
+            ).reason.contains("现在加不上税率"),
+        )
+        assertTrue(
+            rejected(
+                r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV2026090001", "new_tax_amount" to "130")),
+            ).reason.contains("不该有税额"),
+        )
+        assertEquals("一次都不许写", 0, r.ds.invoiceCalls.count { !it.startsWith("invoices:") })
+    }
+
+    @Test
+    fun `发票·改票：逐字段写改前改后、税额跟着重算；「没说要改什么」与「说的和现在一样」是两句话`() =
+        runBlocking<Unit> {
+            val r = Rig()
+            r.ds.invoiceRows = listOf(invRow(note = "先记一笔"))
+
+            val card = ok(
+                r.svc.preview(
+                    AiWrites.INVOICES_UPDATE,
+                    p("invoice_no" to "INV2026090001", "new_amount" to "2260", "note" to ""),
+                ),
+            )
+            assertEquals("改销项票 INV2026090001：价税合计 1130 元 → 2260 元（共 3 处）", card.summary)
+            assertTrue(
+                card.detailLines.any {
+                    it.contains("这张票现在是：销项票 INV2026090001 · 2026-10-01 · 1130 元 · 含税 13% · 已登记 · 老王果行")
+                },
+            )
+            assertTrue(card.detailLines.any { it.contains("价税合计：1130 元 → 2260 元") })
+            assertTrue(card.detailLines.any { it.contains("税额：（空） → 260 元") })
+            assertTrue(card.detailLines.any { it.contains("备注：先记一笔 → （清空）") })
+            assertTrue(card.detailLines.any { it.contains("改完这张票还是「已登记」") })
+            assertTrue(card.detailLines.any { it.contains("票的「有没有税」改不了") })
+
+            assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+            // ⚠️ 不能写 .single()：preview 里那次"定位"也是一次数据源调用（invoices(...)）。
+            val call = r.ds.invoiceCalls.last()
+            assertTrue(call.startsWith("updateInvoice:901:"))
+            assertTrue("合计要按新值发：`{call}`", call.contains("\"amount\":\"2260.00\""))
+            // 合计变了、用户没显式给新税额 ⇒ 按同一算法重算（后端在"改了合计"时也是这么干的）
+            assertTrue("税额要跟着重算：`{call}`", call.contains("\"tax_amount\":\"260.00\""))
+            assertTrue("备注空串 = 清空：`{call}`", call.contains("\"note\":\"\""))
+            assertFalse("没点名的项不许跟着发：`{call}`", call.contains("invoice_date"))
+            assertFalse("票号没改就不该出现：`{call}`", call.contains("invoice_no"))
+
+            // 什么都没说
+            assertTrue(
+                rejected(r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV2026090001")))
+                    .reason.contains("你还没说要改成什么"),
+            )
+            // 说了、但和现在一样 ⇒ 要明确说"没什么可改的"，而不是"你还没说"
+            val same = rejected(
+                r.svc.preview(
+                    AiWrites.INVOICES_UPDATE,
+                    p("invoice_no" to "INV2026090001", "new_amount" to "1130"),
+                ),
+            )
+            assertTrue("说了但没变，要如实说：`{same.reason}`", same.reason.contains("和现在一模一样"))
+            assertEquals(
+                "拒绝的时候一个字都不许写",
+                1,
+                r.ds.invoiceCalls.count { !it.startsWith("invoices:") },
+            )
+        }
+
+    @Test
+    fun `发票·开具：卡片要把「冻结」与「和进不进税汇无关」两件事说清`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.invoiceRows = listOf(invRow())
+        val card = ok(r.svc.preview(AiWrites.INVOICES_ISSUE, p("invoice_no" to "INV2026090001")))
+        assertEquals("开具销项票 INV2026090001：1130 元", card.summary)
+        assertTrue(card.detailLines.any { it.contains("开具之后这张票就冻结了：一个字都改不动") })
+        assertTrue(card.detailLines.any { it.contains("登记那天起就已经在税汇里了") })
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals("issueInvoice:901", r.ds.invoiceCalls.last())
+
+        // 未税票：开不开都不影响税汇（它本来就不在税汇里）
+        r.ds.invoiceRows = listOf(invRow(id = 902, rate = null, tax = null))
+        val untaxed = ok(r.svc.preview(AiWrites.INVOICES_ISSUE, p("invoice_no" to "INV2026090001")))
+        assertTrue(untaxed.detailLines.any { it.contains("这张是未税票，一直不进税汇") })
+
+        r.ds.invoiceRows = listOf(invRow(status = AiInvoiceRef.ST_ISSUED))
+        assertTrue(
+            rejected(r.svc.preview(AiWrites.INVOICES_ISSUE, p("invoice_no" to "INV2026090001")))
+                .reason.contains("已经开具过了"),
+        )
+        r.ds.invoiceRows = listOf(invRow(status = AiInvoiceRef.ST_VOIDED))
+        assertTrue(
+            rejected(r.svc.preview(AiWrites.INVOICES_ISSUE, p("invoice_no" to "INV2026090001")))
+                .reason.contains("作废的票不能再开具"),
+        )
+    }
+
+    @Test
+    fun `发票·作废：票留在台账里、票号一直占着、退出税汇，且与「撤票」不是一件事`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.invoiceRows = listOf(invRow())
+        val card = ok(r.svc.preview(AiWrites.INVOICES_VOID, p("invoice_no" to "INV2026090001")))
+        assertEquals("作废销项票 INV2026090001：1130 元", card.summary)
+        assertTrue(card.detailLines.any { it.contains("票号一直占着、退出税汇") })
+        assertTrue(card.detailLines.any { it.contains("税账上的变化：销项 / 进项合计里不再算它") })
+        assertTrue(card.detailLines.any { it.contains("作废撤不回来") })
+        assertTrue(card.detailLines.any { it.contains("它和「撤票」不是一件事") })
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals("voidInvoice:901", r.ds.invoiceCalls.last())
+
+        // 未税票：作废只影响一件事（从此不能再开具）
+        r.ds.invoiceRows = listOf(invRow(id = 902, rate = null, tax = null))
+        val untaxed = ok(r.svc.preview(AiWrites.INVOICES_VOID, p("invoice_no" to "INV2026090001")))
+        assertTrue(untaxed.detailLines.any { it.contains("本来就是未税票（不进税汇）") })
+
+        // 已开具的票：作废是它唯一的出路
+        r.ds.invoiceRows = listOf(invRow(status = AiInvoiceRef.ST_ISSUED))
+        val issued = ok(r.svc.preview(AiWrites.INVOICES_VOID, p("invoice_no" to "INV2026090001")))
+        assertTrue(issued.detailLines.any { it.contains("作废是已开具的票唯一的出路") })
+
+        r.ds.invoiceRows = listOf(invRow(status = AiInvoiceRef.ST_VOIDED))
+        assertTrue(
+            rejected(r.svc.preview(AiWrites.INVOICES_VOID, p("invoice_no" to "INV2026090001")))
+                .reason.contains("已经作废过了"),
+        )
+    }
+
+    @Test
+    fun `发票·撤票：进回收站、票号还占着；撤回把它原样放回来`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.invoiceRows = listOf(invRow())
+        val card = ok(r.svc.preview(AiWrites.INVOICES_DELETE, p("invoice_no" to "INV2026090001")))
+        assertEquals("撤票（进回收站）销项票 INV2026090001：1130 元", card.summary)
+        assertTrue(card.detailLines.any { it.contains("但票号仍然占着") })
+        assertTrue(card.detailLines.any { it.contains("放回去随时可以") })
+        assertTrue(card.detailLines.any { it.contains("它和「作废」不是一件事") })
+
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        assertEquals("deleteInvoice:901", r.ds.invoiceCalls.last())
+        assertNotNull("撤票要能撤回", done.undoToken)
+
+        val undoCard = ok(r.svc.offerUndo(done.undoToken!!))
+        assertTrue(
+            "恢复卡片要说清放回来的是哪一张：`{undoCard.detailLines}`",
+            undoCard.detailLines.any { it.contains("把刚才撤掉的那张票放回来") },
+        )
+        assertTrue(undoCard.detailLines.any { it.contains("都和撤掉之前一模一样") })
+        assertTrue(r.svc.execute(undoCard.token) is AiWriteOutcome.Done)
+        assertEquals("restoreInvoice:901", r.ds.invoiceCalls.last())
+    }
+
+    @Test
+    fun `发票·撤回改票：把改动过的字段按原值写回去`() = runBlocking<Unit> {
+        val r = Rig()
+        r.ds.invoiceRows = listOf(invRow(note = "先记一笔"))
+        r.ds.snapshots["invoice:901"] = buildJsonObject {
+            put("invoice_no", "INV2026090001")
+            put("invoice_date", "2026-10-01")
+            put("amount", "1130.00")
+            put("tax_rate", "13.00")
+            put("tax_amount", "130.00")
+            put("note", "先记一笔")
+        }
+        val card = ok(
+            r.svc.preview(AiWrites.INVOICES_UPDATE, p("invoice_no" to "INV2026090001", "new_amount" to "2260")),
+        )
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        assertNotNull("改票要能撤回", done.undoToken)
+
+        val undoCard = ok(r.svc.offerUndo(done.undoToken!!))
+        assertTrue(
+            "撤回卡要写清撤回的是哪一项：`{undoCard.detailLines}`",
+            undoCard.detailLines.any { it.contains("价税合计") },
+        )
+        assertTrue(r.svc.execute(undoCard.token) is AiWriteOutcome.Done)
+        val call = r.ds.invoiceCalls.last()
+        assertTrue("撤回要把原值写回去：`{call}`", call.contains("\"amount\":\"1130.00\""))
+    }
+
+    @Test
+    fun `发票·六条动作的角色门：只有派单员，货主一条都看不到`() {
+        val ids = listOf(
+            AiWrites.INVOICES_CREATE,
+            AiWrites.INVOICES_UPDATE,
+            AiWrites.INVOICES_ISSUE,
+            AiWrites.INVOICES_VOID,
+            AiWrites.INVOICES_DELETE,
+            AiWrites.INVOICES_RESTORE,
+        )
+        val dispatcher = AiActor.byRole(AiRole.DISPATCHER)
+        val shipper = AiActor.of(AiRole.SHIPPER, true)
+        ids.forEach { id ->
+            assertTrue("派单员该有 $id", AiWrites.allows(dispatcher, id))
+            assertFalse("货主不该有 $id（后端要 ledger:edit）", AiWrites.allows(shipper, id))
+            assertFalse("货主那份清单里不该出现 $id", AiWrites.forModel(shipper).any { it.id == id })
+            assertFalse("$id 不在货主动作清单里", AiWrites.SHIPPER_ACTIONS.contains(id))
+            assertEquals("六条都归「发票」这一组", AiWrites.G_INVOICE, AiWrites.byId(id)!!.group)
+        }
+        // 恢复是**撤回专用**：模型那份清单里不该有它（它只能由撤回路径发起）
+        assertTrue(AiWrites.byId(AiWrites.INVOICES_RESTORE)!!.undoOnly)
+        assertFalse(AiWrites.forModel(dispatcher).any { it.id == AiWrites.INVOICES_RESTORE })
+        assertTrue(AiWrites.forModel(dispatcher).any { it.id == AiWrites.INVOICES_CREATE })
+    }
+
+    @Test
+    fun `发票·撤回口径：登记、开具、作废三条撤不回来，改票与撤票能撤回，恢复自己不能被撤回`() {
+        // 三条不可逆的要**当场说清**（不是等用户点了才发现），并且都要给出"那该怎么办"
+        val create = AiWrites.undoNoneOf(AiWrites.INVOICES_CREATE)
+        assertNotNull(create)
+        assertTrue("登记撤不回来要说清：`create`", create!!.contains("撤不回来"))
+        assertTrue("还要给出出路：`create`", create.contains("作废这张票") && create.contains("把这张票撤掉"))
+        val issue = AiWrites.undoNoneOf(AiWrites.INVOICES_ISSUE)
+        assertNotNull(issue)
+        assertTrue("开具不能反悔：`issue`", issue!!.contains("开具不能反悔"))
+        val void = AiWrites.undoNoneOf(AiWrites.INVOICES_VOID)
+        assertNotNull(void)
+        assertTrue("作废也撤不回来：`void`", void!!.contains("作废也撤不回来"))
+
+        // 改票 / 撤票都能撤回
+        assertTrue(AiWrites.undoCapableOf(AiWrites.INVOICES_UPDATE))
+        assertTrue(AiWrites.undoCapableOf(AiWrites.INVOICES_DELETE))
+        assertNull("两边都写＝自相矛盾", AiWrites.undoNoneOf(AiWrites.INVOICES_UPDATE))
+        assertNull(AiWrites.undoNoneOf(AiWrites.INVOICES_DELETE))
+        // 恢复自己走 undoOnly 那条路：不需要"撤不回来"的理由（也不该有撤回入口）
+        assertNull(AiWrites.undoNoneOf(AiWrites.INVOICES_RESTORE))
     }
 
 }

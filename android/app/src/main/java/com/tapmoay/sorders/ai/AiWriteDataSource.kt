@@ -1,6 +1,8 @@
 package com.tapmoay.sorders.ai
 
 import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
+import com.tapmoay.sorders.data.remote.dto.InvoiceCreateRequest
+import com.tapmoay.sorders.data.remote.dto.InvoiceUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
@@ -1653,6 +1655,108 @@ class RepoWriteDataSource(
         repo.restorePurchaseOrder(id)
     }
 
+    // ---- 发票台账（CHG-0086）----
+    //
+    // 与采购单那一段同一条纪律：**这里只做转发**。票号唯一、状态门（只有"已登记"能改）、
+    // 税额怎么算、算不算进税汇 —— 全部由后端 invoices.py / tax_service.py 说了算。
+    // 客户端各判一次就会出现"卡片上说不进税汇、库里却进了"那种对不上账的形状。
+
+    /** 按"能收窄的条件"在窗口里找票；[includeDeleted] 由调用方决定（定位时必须带上，见接口注释）。 */
+    override suspend fun invoices(
+        direction: String?,
+        keyword: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        includeDeleted: Boolean,
+    ): List<AiInvoiceRef> = repo.invoices(
+        direction = direction,
+        dateFrom = dateFrom,
+        dateTo = dateTo,
+        keyword = keyword,
+        includeDeleted = includeDeleted,
+    ).map {
+        AiInvoiceRef(
+            id = it.id,
+            direction = it.direction,
+            invoiceNo = it.invoiceNo,
+            invoiceDate = it.invoiceDate,
+            amount = it.amount,
+            taxRate = it.taxRate,
+            taxAmount = it.taxAmount,
+            status = it.status,
+            // 对方是谁要看方向：后端把供应商与客户分成两个字段存（进项票的对方是供应商、
+            // 销项票的对方是客户），卡片上只有一个"对方"，在这里合成。
+            partyName = if (it.direction == AiInvoiceRef.DIR_INPUT) it.supplierName else it.customerName,
+            note = it.note,
+            isDeleted = it.isDeleted,
+        )
+    }
+
+    /**
+     * 登记一张票。
+     *
+     * 方向 / 税率 / 税额三样都在 draft 里定死：方向只在登记时能定（改方向＝作废重开），
+     * 税率与税额同生同灭（后端 schema 也是这个口径，都没给＝未税票）。
+     */
+    override suspend fun createInvoice(draft: AiInvoiceDraft): Long = repo.createInvoice(
+        InvoiceCreateRequest(
+            direction = draft.direction,
+            invoiceNo = draft.invoiceNo,
+            invoiceDate = draft.invoiceDate,
+            amount = draft.amount,
+            taxRate = draft.taxRate,
+            taxAmount = draft.taxAmount,
+            supplierId = draft.supplierId,
+            customerId = draft.customerId,
+            purchaseOrderIds = draft.purchaseOrderIds,
+            note = draft.note,
+        ),
+    ).id
+
+    /**
+     * 改一张还没开具的票。
+     *
+     * [changes] 就是 prepare 造出来的那份 payload：**逐项取、没提到的不碰**
+     * （[InvoiceUpdateRequest] 里 null 的字段会被序列化丢掉，后端按"没提这事"处理）。
+     * ⛔ 这里不许"缺什么就从库里补什么"：那会把 payload 变成一句空话 ——
+     *    卡片上写着"只改日期"，库里却把票号一起写回去了，而两条路径分叉是不会报错的。
+     */
+    override suspend fun updateInvoice(id: Long, changes: JsonObject) {
+        repo.updateInvoice(
+            id,
+            InvoiceUpdateRequest(
+                invoiceNo = changes.str("invoice_no"),
+                invoiceDate = changes.str("invoice_date"),
+                amount = changes.str("amount"),
+                taxRate = changes.str("tax_rate"),
+                taxAmount = changes.str("tax_amount"),
+                // ⚠️ 备注按"键在不在"判断：**空串在这里是有含义的**（把备注清掉），
+                //    而 JsonObject.str 的通用口径把空串当成"没填"。
+                note = if (changes.containsKey("note")) (changes.str("note") ?: "") else null,
+            ),
+        )
+    }
+
+    /** 开具（已登记 → 已开具）。 */
+    override suspend fun issueInvoice(id: Long) {
+        repo.issueInvoice(id)
+    }
+
+    /** 作废：票留在台账里、退出税汇。 */
+    override suspend fun voidInvoice(id: Long) {
+        repo.voidInvoice(id)
+    }
+
+    /** 撤票 = 软删（进回收站，可恢复）。 */
+    override suspend fun deleteInvoice(id: Long) {
+        repo.deleteInvoice(id)
+    }
+
+    /** 把撤掉的票从回收站放回来（撤回路径专用）。 */
+    override suspend fun restoreInvoice(id: Long) {
+        repo.restoreInvoice(id)
+    }
+
     override suspend fun createVehicle(fields: JsonObject) {
         repo.createVehicle(
             com.tapmoay.sorders.data.remote.dto.VehicleCreateRequest(
@@ -2244,6 +2348,9 @@ class RepoWriteDataSource(
             "order_line" -> AiBefore(id, AiRevertRead.orderLine(repo.orderProductLine(id)))
             "ledger_entry" -> AiBefore(id, AiRevertRead.ledgerEntry(repo.ledgerEntry(id)))
             "notification" -> AiBefore(id, AiRevertRead.notification(repo.notificationById(id)))
+            // 发票（CHG-0086）：后端有 GET /invoices/{id} ⇒ 按 id 单取。记录不在时它会抛 404，
+            // 由 AiRevert.plan 统一兜住（读不到 = 撤不回来），所以这里不吞异常、也不编造。
+            "invoice" -> AiBefore(id, AiRevertRead.invoice(repo.invoice(id)))
             "price_rule" -> repo.priceRules().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.priceRule(it)) }
             "location" -> repo.locations().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.location(it)) }
             "place" -> repo.placesAll().firstOrNull { it.id == id }?.let { AiBefore(id, AiRevertRead.place(it)) }

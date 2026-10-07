@@ -9,6 +9,7 @@ import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.RouteCategoryDto
 import com.tapmoay.sorders.data.remote.dto.DriverBillingRuleDto
 import com.tapmoay.sorders.data.remote.dto.FreightTemplateDto
+import com.tapmoay.sorders.data.remote.dto.InvoiceDto
 import com.tapmoay.sorders.data.remote.dto.LedgerEntryDto
 import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.remote.dto.NotificationDto
@@ -1142,6 +1143,67 @@ internal object AiResources {
             "放回来之后编号、商品、给谁、单价都和删掉之前一模一样",
         ),
     )
+
+    /**
+     * 一张发票（2026-10-08 CHG-0086）。
+     *
+     * ### 为什么只有六个读回键
+     * 因为 AI 那条「改发票」的动作**只改这六样**（票号 / 开票日期 / 合计 / 税率 / 税额 / 备注）：
+     * 单头这六样就是撤回要写回的全部东西，多读一个键反而会让人以为它也能撤。
+     * ⛔ 方向、对方（供应商 / 客户）、挂的采购单**故意不在这里**：那几样在库里是
+     * 结构和归属（改方向等于换一张票），AI 那条改票动作根本递不上去 ⇒ 也不该假装能撤回。
+     *
+     * ### 为什么 invoice_no 与 note 声明成可写回的空值
+     * 这张票的票号**允许为空**（月结代开：先登记、后补号）。后端的 PATCH 对空号是
+     * 明确收下的（tax_service.py 里空号 = 把号清掉、重新变成"待补号"），备注同理
+     * （空串 = 清空备注）⇒ 撤回时能把票号 / 备注清回"没有"。
+     * 不声明的话，AiRevert.patchPlan 会按"空值写不回去"的老规矩在卡上写一句**假话**。
+     *
+     * ### 为什么 tax_rate / tax_amount 空着写 JsonNull、却**不**声明可写回
+     * 在后端，显式传 null 确实能把税率清掉——但 App 这条路（InvoiceUpdateRequest
+     * 的 explicitNulls = false）**发不出显式 null**，只能"不提这一项"。所以撤回一张
+     * **未税票**时，卡上那句「这一项原来就是空的，而这个接口清不掉它」是实话。
+     *
+     * ### 新建 / 开具 / 作废为什么不在这里
+     * 新建那张票在写之前**根本没有编号**（撤不了），开具与作废**没有逆操作**
+     * （票一直留在台账里、占着号）——三条都在 [AiRevert] 的 UNDO_NONE 里逐条写明后果。
+     *
+     * ### 软删与恢复
+     * 删除是伪装删除（票行还在），恢复就是逐字段照搬那一行 ⇒ 用默认那两句文案即可。
+     */
+    private val INVOICE = AiResource(
+        key = "invoice",
+        cn = "发票",
+        idKey = "invoice_id",
+        readKeys = setOf("invoice_no", "invoice_date", "amount", "tax_rate", "tax_amount", "note"),
+        labels = mapOf(
+            "invoice_no" to "票号",
+            "invoice_date" to "开票日期",
+            "amount" to "价税合计",
+            "tax_rate" to "税率",
+            "tax_amount" to "税额",
+            "note" to "备注",
+        ),
+        moneyKeys = setOf("amount", "tax_amount", "tax_rate"),
+        nullableWritable = setOf("invoice_no", "note"),
+        actions = listOf(
+            update(AiWrites.INVOICES_UPDATE),
+            delete(AiWrites.INVOICES_DELETE),
+            paired(
+                AiWrites.INVOICES_RESTORE,
+                AiInverse(AiWrites.INVOICES_DELETE, mapOf("invoice_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        read = { ds, id -> ds.snapshot("invoice", id) },
+        restore = AiInverse(AiWrites.INVOICES_RESTORE, mapOf("target_id" to AiRevert.ID)),
+        // 默认那两句说的是"恢复之后编号、图片、坐标、备注都和删掉之前一模一样"——
+        // 票没有图片也没有坐标，照搬上去就是没说人话，所以换成这张表自己的两句（六样字段全在）。
+        restoreLines = listOf(
+            "把刚才撤掉的那张票放回来（后台是伪装删除：票那一行还在，逐字段照搬）",
+            "放回来之后票号、开票日期、价税合计、税率、税额、备注都和撤掉之前一模一样",
+        ),
+    )
     /** 全部资源。红线与单测按它逐个核对（键是否齐全、动作是否都有归属）。 */
     val TABLE: List<AiResource> = listOf(
         ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, UNIT_CONVERSION, FREIGHT_TEMPLATE, DRIVER_RULE,
@@ -1158,6 +1220,8 @@ internal object AiResources {
         USER_CATEGORY, VEHICLE_CATEGORY,
         // 下游价（2026-10-08 CHG-0084）：只有「删 / 放回来」成对，改价那条走 UNDO_NONE
         SHIPPER_PRICE,
+        // 发票台账（2026-10-08 CHG-0086）：改 / 删 / 恢复三条挂在这，建·开具·作废走 UNDO_NONE
+        INVOICE,
     )
 }
 
@@ -1305,6 +1369,25 @@ internal object AiRevertRead {
         put("supplier_id", d.supplierId)
         put("doc_date", d.docDate)
         put("remark", if (d.remark.isBlank()) JsonNull else JsonPrimitive(d.remark))
+    }
+
+    /**
+     * 一张发票的**六样可改字段**（撤回就写回这六样，键名与 payload 一一对应）。
+     *
+     * ⚠️ 空票号与空备注都写成 JsonNull 而不是空串：资源上声明了
+     *    nullableWritable = setOf("invoice_no", "note")，于是 AiRevert.patchPlan 会把
+     *    "原来就没有票号 / 备注"当成**能清回去**（这条 PATCH 收得下空号与空串），
+     *    而不是按老规矩在撤回卡上写一句"写不回空值"的假话。
+     * ⚠️ 税率 / 税额空着也写 JsonNull，但资源**没有**把它们声明成可写回——
+     *    后端的 InvoiceUpdate 收得下显式 null，而 App 这条路发不出显式 null。
+     */
+    fun invoice(d: InvoiceDto): JsonObject = buildJsonObject {
+        put("invoice_no", if (d.invoiceNo.isBlank()) JsonNull else JsonPrimitive(d.invoiceNo))
+        put("invoice_date", d.invoiceDate)
+        put("amount", d.amount)
+        put("tax_rate", d.taxRate?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("tax_amount", d.taxAmount?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("note", if (d.note.isBlank()) JsonNull else JsonPrimitive(d.note))
     }
 
     fun supplierPayable(d: SupplierPayableDto): JsonObject = buildJsonObject {

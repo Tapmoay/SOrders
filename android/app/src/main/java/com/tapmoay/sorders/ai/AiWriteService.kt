@@ -714,6 +714,51 @@ interface AiWriteDataSource {
     /** 把撤掉的采购单放回来（撤回路径专用）。 */
     suspend fun restorePurchaseOrder(id: Long)
 
+    // ---- 发票台账（CHG-0086：六条写端点一次全开给 AI，只给派单员）----
+    //
+    // 为什么定位要"拉一段列表再自己挑"（其余资源多数是"按名字查名册"或"按编号单取"）：
+    // 票**没有名字**，用户手里能报出来的只有票号 / 日期 / 金额 / 对方这几样，
+    // 而且他常常只记得其中两样 —— 所以这一组接口按"能收窄的条件"收，筛不筛得动由处理器定。
+
+    /**
+     * 在**一段窗口**里找票（票号 / 对方名字走 [keyword]）。
+     *
+     * [includeDeleted] 默认 false，但**定位时必须传 true**：票在回收站里的时候，
+     * 不带上它就等于"这张票不存在" ⇒ 用户说"作废那张票"会被判成"找不到"，
+     * 而真正的原因只是它被撤过 —— 那种误判会让用户重复登记一张新票。
+     * 命中回收站由处理器如实拒绝（"先在回收站里，恢复它再动"）。
+     */
+    suspend fun invoices(
+        direction: String? = null,
+        keyword: String? = null,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        includeDeleted: Boolean = false,
+    ): List<AiInvoiceRef>
+
+    /**
+     * **登记一张票**。返回新票的编号（卡片完成后那句话要点名它）。
+     *
+     * 方向 / 税率 / 税额三样都在 [AiInvoiceDraft] 里定死：方向只在登记时能定
+     * （改方向＝作废重开），税率与税额**同生同灭**（都没有＝未税票）。
+     */
+    suspend fun createInvoice(draft: AiInvoiceDraft): Long
+
+    /** 改一张**还没开具**的票。[changes] 就是 prepare 造出来的那份 payload（⛔ 不在这里读用户输入）。 */
+    suspend fun updateInvoice(id: Long, changes: JsonObject)
+
+    /** 开具（已登记 → 已开具）。 */
+    suspend fun issueInvoice(id: Long)
+
+    /** 作废：票留在台账里、退出税汇。 */
+    suspend fun voidInvoice(id: Long)
+
+    /** 撤票 = 软删（进回收站，可恢复）。 */
+    suspend fun deleteInvoice(id: Long)
+
+    /** 把撤掉的票从回收站放回来（撤回路径专用）。 */
+    suspend fun restoreInvoice(id: Long)
+
     // ---- 司机计费规则（v3.36）----
 
     /** 计费规则名册（改/删规则、给司机挂规则时先按**名字**找到那一条）。 */
@@ -964,6 +1009,15 @@ class AiWriteService(
             // ⛔ restore 走声明式那一个（restoreAction），不要在这里再注册一遍。
             SetMyPriceHandler(ds, store),
             DeleteMyPriceHandler(ds, store),
+            // 发票台账（2026-10-08 CHG-0086）：五条手写 —— 建票的税额要与后端同一个算法、
+            // 改票要逐项算"从什么改成什么"、开具/作废/撤票的卡片都要把"撤不回来"说清楚，
+            // 四条都超出声明式的表达力。
+            // ⛔ restore 走声明式那一个（restoreAction），不要在这里再注册一遍。
+            CreateInvoiceHandler(ds, store),
+            UpdateInvoiceHandler(ds, store),
+            IssueInvoiceHandler(ds, store),
+            VoidInvoiceHandler(ds, store),
+            DeleteInvoiceHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 
         // 声明式：凡是带 crud 规格的动作，一律由通用处理器执行

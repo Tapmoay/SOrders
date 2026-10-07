@@ -175,6 +175,18 @@ READ_METHODS = {
     #    `snapshot@shipper_settlement` → `GET shipper-ledger/settlements`），一个写库的分支都没有。
     #    真正写库的是 transferOrderLines / releaseOrder / updateOrderContact —— 那三个**不在**白名单里。
     "snapshot",
+    # 发票台账（CHG-0086，2026-10-08）：六条动作（登记 / 改票 / 开具 / 作废 / 撤票 / 从回收站恢复）
+    # 都靠"先把这一张票定位出来"才敢发卡 —— 定位就是**读**（`GET /invoices`，而且必须连回收站一起找，
+    # 否则会拿一句"台账里没这张票"糊弄用户，而那张票只是躺在回收站里）。
+    # ⚠️ 它必须在白名单里：prepare 里读不到票，就没有「改前（价税合计 1130 → 2260）」那一栏、
+    #    也没有"对上了 2 张票，请说清楚是哪一张"的候选列表。
+    #    真正写库的是 createInvoice / updateInvoice / issueInvoice / voidInvoice / deleteInvoice /
+    #    restoreInvoice —— 那六个**不在**白名单里，默认受「prepare 里不许写」的约束。
+    "invoices",
+    # 采购单逐张核在不在（CHG-0086，2026-10-08）：登记进项票时要确认挂的那几张采购单真的存在
+    # （「采购单 #12 不在系统里（编号对不对？）」就是拿它查出来的）。它是**读**：
+    # AiWriteDataSource.kt:1612 override suspend fun purchaseOrder(id: Long): PurchaseOrderDto? = repo.purchaseOrder(id)。
+    "purchaseOrder",
 }
 
 

@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-08 05:0x → 05:5x CST 已完成] 会话：**CHG-0086 发票台账六条开给 AI：登记 / 改 / 开具 / 作废 / 撤票 / 恢复（台账 L-55）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径（ref `m28098`，目标 `goal-7564f8c1-48e7-4083-9d73-4fd51a21b64c` 原文，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2873`）：「① `AI 覆盖补齐` —— 把「本轮不开放」的 15~16 个写端点（`发票台账 6、钱相关 7、订单结构 3`）开给对应角色，并开`下游定价两条读动作`，保持「不漏、不越」的三方对账全绿 …… `司机端维持不加 AI。`」本单是目标① 四单里的`第三单`。
+
+`病灶`：发票台账这六条端点早就有手工入口与页面（发票页的「新建 / 编辑 / 开具 / 作废 / 删除 / 恢复」，六条端点在 `android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt:2068-2108`、仓库方法在 `data/repo/AppRepository.kt:872-896` 齐备），AI 这一侧整块挂在 `_tools/ai/_write_coverage.py` 的「决定不做」桶里 —— 用户 2026-10-08 的口径是`这不是能力缺口，是排期`：页面早就能做，AI 只是没排到。⛔ 与订单结构那三条不同类：那三条里两条有「多行明细装不进卡片」的真理由，发票这六条只有「还没排到」。
+
+`改法`：① 新建 `ai/AiWriteInvoices.kt`（六条规格 ＋ 五个处理器 ＋ 共用定位器 `resolveInvoice` ＋ 税额算法 `taxOf`；第 6 条「恢复发票」由 `restoreAction` 生成、`undoOnly = true`）；② `ai/AiWrite.kt`：六个 id 常量（`AiWrite.kt:1311-1321`）＋ `G_INVOICE = "发票"` ＋ 六条挂进 `ALL`；③ `ai/AiWriteService.kt`：数据源接口加七个方法 ＋ 注册表加五个处理器（第 6 条走声明式补挂，自动获得批量）；④ `ai/AiWriteDataSource.kt`：七个实现（定位走 `repo.invoices(keyword, ±31 天, includeDeleted = true)`）＋ `snapshot("invoice", id)`；⑤ `ai/AiResources.kt`：`INVOICE` 资源（读回六键 ＝ 改票能改的六样；可写回的空值只有票号与备注）＋ `AiRevertRead.invoice`；⑥ `ai/AiRevert.kt`：登记 / 开具 / 作废三条 `UNDO_NONE` 理由；⑦ 三处工具随动（覆盖表删六条 `EXCLUDED`、`_check_ai_guardrails.py` 的 `READ_METHODS` 补 `invoices` / `purchaseOrder`、`_check_role_parity.py` 的 `IMPL_FILES` 补新文件）＋ 动作上界 165 → 171、说明书上限 27000 → 29000（实测 27807）五处联动点 ＋ hint catalog 重生成；⑧ 单测 14 条 ＋ 新判据 `_tools/qa/_check_ai_invoices.py`（258 条）＋ 新反验 `_tools/qa/_reverse_verify_ai_invoices.py`（37 条注入）。
+
+`明确不碰`：后端（`backend/` 一个字节不动）、数据库（无迁移、无新字段）、六条端点的权限点与行为、货主清单（`SHIPPER_ACTIONS` 44 条不增 —— 六条全只给派单员）、司机端（维持不加 AI）、读覆盖（78/70/8/0 不变）、既有 165 个动作的 id / 参数 / 卡片文案。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_invoices.py`（258 条，全绿）/ `python _tools/qa/_reverse_verify_ai_invoices.py`（逐条注入 → 要求判据报出那一条红 → 逐字节还原），另跑 `_write_coverage.py` / `_read_coverage.py --check` / `_check_ai_guardrails.py` / `_check_role_parity.py`。
+
+- 状态：✅ 已关闭（2026-10-08；变更单 `docs/changes/CHG-0086.md`；台账 **L-55**；全量静检 **220/221**（唯一一条红是环境性：本机 uvicorn 比源码旧）；Blast Radius **L1**；提交 `〔待回填：实现提交〕`）。
+- 真机：⚠️ 未做（本单不加界面、不加端点 —— 六条手工路径早就在，要真机验就得跑一次真实模型会话；留待本批四单做完后的整体真机）。
+- 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— 为什么必须动核心：数据源接口（七个方法）与处理器注册表都在这个文件里，发票域按既有域的形状接进去，不另起一层框架（`AiWriteInvoices.kt` 只提供规格与处理器）。
+
 ### [2026-10-08 03:4x → 04:5x CST 已完成] 会话：**CHG-0085 订单结构三条开给 AI：转货 / 静默退回派单池 / 补联系信息（台账 L-54）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m28098`，目标 `goal-7564f8c1-48e7-4083-9d73-4fd51a21b64c` 原文，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2814`）：「① `AI 覆盖补齐` —— 把「本轮不开放」的 15~16 个写端点（`发票台账 6、钱相关 7、订单结构 3`）开给对应角色，并开`下游定价两条读动作`，保持「不漏、不越」的三方对账全绿 …… `司机端维持不加 AI。`」本单是目标① 四单里的`第二单`。

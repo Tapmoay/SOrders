@@ -1299,6 +1299,27 @@ object AiWrites {
     /** 把撤掉的采购单放回来（撤回路径专用，模型看不到它）。 */
     const val PURCHASE_ORDERS_RESTORE = "purchase_orders.restore"
 
+    // ---- 发票台账（2026-10-08 CHG-0086）----
+    //
+    // 六条写端点（登记 / 改票 / 开具 / 作废 / 撤票 / 恢复）一次全开给 AI。
+    // 理由与采购单那一批同一类：票面金额直接决定税汇（后端 counts_in_tax），
+    // 而派单员在手工页上本来就做得完这六件事 —— 这是一次**排期**，不是补能力缺口。
+    //
+    // ⛔ 六条都只给派单员：后端 invoices.py 的写闸门是 Permission.LEDGER_EDIT，
+    //    而 rbac.py 里只有派单员拿得到它（读闸门 ORDER_DISPATCH 是另一回事）。
+    /** 登记一张票：方向 + 票号 + 开票日期 + 价税合计（＋税率/税额、对方、挂的采购单）。见 [CreateInvoiceHandler]。 */
+    const val INVOICES_CREATE = "invoices.create"
+    /** 改一张**还没开具**的票（已开具 / 已作废的改不动，后端 400）。见 [UpdateInvoiceHandler]。 */
+    const val INVOICES_UPDATE = "invoices.update"
+    /** 开具：已登记 → 已开具，票就此**冻结**（一个字都改不动，也不是"这时才进税汇"）。见 [IssueInvoiceHandler]。 */
+    const val INVOICES_ISSUE = "invoices.issue"
+    /** 作废：票**留在台账里**、继续占着号、退出税汇（与撤票不是一件事）。见 [VoidInvoiceHandler]。 */
+    const val INVOICES_VOID = "invoices.void"
+    /** 撤票：软删（进回收站、随时能原样恢复），票号仍然占着。见 [DeleteInvoiceHandler]。 */
+    const val INVOICES_DELETE = "invoices.delete"
+    /** 把撤掉的票从回收站放回来（撤回路径专用，模型看不到它）。 */
+    const val INVOICES_RESTORE = "invoices.restore"
+
     // ---- 账号与收费规则 ----
     const val USERS_CREATE = "users.create"
     const val USERS_UPDATE_PROFILE = "users.update_profile"
@@ -1591,6 +1612,13 @@ object AiWrites {
      * **采购单**是"货进来了、该欠谁多少" —— 用户嘴里这两件事也总是一起出现。
      */
     const val G_PURCHASE = "采购单"
+    /**
+     * 发票台账（销项票 / 进项票）。
+     *
+     * 单独一组，不并进账目那一组：用户嘴里「一张票」与「一笔账」是两件事
+     * —— 票管的是税、账管的是钱，后端也是两张表、两套权限。
+     */
+    const val G_INVOICE = "发票"
     const val G_USER = "账号与收费规则"
     const val G_ADDRESS = "地址与联系人"
 
@@ -1628,7 +1656,9 @@ object AiWrites {
             // 采购单（2026-10-07 CHG-0074：用户要「上传一张进货单照片 → AI 建采购单」）
             AiWritePurchases.ACTIONS +
             // 我的下游价（2026-10-08 CHG-0084：把「本轮不开放」的那一批端点开给货主）
-            AiWriteMyPrices.ACTIONS
+            AiWriteMyPrices.ACTIONS +
+            // 发票台账六条（2026-10-08 CHG-0086：手工页早就能做这六件事，这次是排期）
+            AiWriteInvoices.ACTIONS
 
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(
@@ -2639,7 +2669,7 @@ object AiWrites {
      * **货主能用的动作**（白名单，只此一处）。
      *
      * 为什么用"白名单"而不是给每个动作标角色：全表一百多个动作里货主能用的只有这份清单
-     * （2026-10-08 CHG-0085 时点：165 个动作里 44 条在清单内，其中 6 条还只有批发商货主能用），
+     * （2026-10-08 CHG-0086 时点：171 个动作里 44 条在清单内，其中 6 条还只有批发商货主能用），
      * 逐个标注的话**漏标一个就等于多给他一个权限**，而这一处一眼就能看全、能审计。
      * ⚠️ 改动作总数 / 清单条数时，上面这句数字要跟着改（判据会另算一遍，不等这句话）。
      *

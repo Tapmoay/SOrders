@@ -300,14 +300,25 @@ def main() -> int:
     #    只可能出现在 payload 里 —— 卡片是 `details += "…" + …` 那种字符串拼接，写不出 `put(`。
     #    原先只钉死三个槽名，等于"谁加一个域谁红"（采购单的行级进货价槽名叫 unit_cost，就是这么红的）。
     put_form = re.compile(r'put\("[a-z_]+", AiWriteArgs\.money\(')
+    #    2026-10-08 补（CHG-0086）：值还会落在**第二种同样安全**的句式上 —— 发票域的 payload 是
+    #    `MutableMap<String, JsonElement>`（`buildJsonObject{}` 的结果不可变，而改票要按条件逐槽塞），
+    #    于是那一行写成 `payload["amount"] = JsonPrimitive(AiWriteArgs.money(v))`。
+    #    `payload["槽"] = ` 与 `put("槽", ` 一样只可能出现在 payload 里（卡片是
+    #    `details += "…" + …` 字符串拼接，写不出索引赋值）⇒ 它同样是「值」的形态，不是印在卡片上的字。
+    #    ⛔ 反方向那一半（下面的 `payload_money`）必须**同时认这两种句式**，否则「把某个槽改成
+    #    `moneyText(`」在索引赋值上又会隐身（2026-09-25 反向验证第 ⑬ 条踩过的正是这个坑）。
+    index_form = re.compile(r'payload\["[a-z_]+"\] = JsonPrimitive\(AiWriteArgs\.money\(')
     wrong = [f"{f}:{i} → {code[:90]}" for f, i, code in money_sites
-             if not (put_form.search(code) or any(v in code for v in value_forms))]
+             if not (put_form.search(code) or index_form.search(code)
+                     or any(v in code for v in value_forms))]
     # ⚠️ **不数个数**：`AiWriteArgs.money(` 的处数会随着别的域新增处理器而变（每加一个域就多一两处
     #    「值」），钉死个数等于"谁加功能谁红"。真正的判据是**形态**：剩下的每一处都必须是「值」。
     #    下界 4 是防"有人把值也全改成去零、于是这条判据空转"。
     c.ok(f"`AiWriteArgs.money(` 剩下的 {len(money_sites)} 处**每一处都是「值」的形态**"
          f"（进 payload / 参与比较），没有一处是印在卡片上的",
-         4 <= len(money_sites) <= 12 and not wrong,
+         #    上界 12 → 18：2026-10-08 CHG-0086 的发票域**多出 4 处值**（amount / tax_rate /
+         #    tax_amount 两处）—— 与上面同一条口径：不数个数，涨了跟着抬。
+         4 <= len(money_sites) <= 18 and not wrong,
          f"实际 {len(money_sites)} 处；形态不对的：" + "；".join(wrong[:6]))
     # ⛔ 上面那条只防**一个方向**（"用了 `money(` 的地方是不是值形态"）。反方向它看不见：
     #    把某个 payload 槽**改成 `moneyText(`** 之后，那一行就不再含 `AiWriteArgs.money(`、
@@ -316,11 +327,16 @@ def main() -> int:
     #    `put("amount", AiWriteArgs.moneyText(amount))` 时红线**仍然全绿** —— 当时只有条数
     #    下限 4~12 在拦，而 6 处掉到 5 处照样落在区间里）。
     #    所以反方向也正面钉一次：**金额 payload 槽里不许出现显示口径**。
+    #    ⚠️ 2026-10-08（CHG-0086）：槽名多了两个税槽（`tax_amount` / `tax_rate` —— 发票那一域
+    #    把税额与税率直接进 payload），句式多了一种索引赋值（与上面的 `index_form` 对齐）。
+    #    ⛔ 两处必须**一起**改：只改上面那一半，索引赋值形态就成了这条红线的盲区。
+    MONEY_SLOTS = r'"(?:amount|price|value|fee|tax_amount|tax_rate)"'
     payload_money = [
         (p.relative_to(ROOT).as_posix(), i, code.strip())
         for p in sorted((ANDROID / "ai").glob("*.kt"))
         for i, code in _code_lines(read(p))
-        if re.search(r'put\(\s*"(?:amount|price|value|fee)"\s*,', code)
+        if re.search(r'put\(\s*' + MONEY_SLOTS + r'\s*,', code)
+        or re.search(r'payload\[' + MONEY_SLOTS + r'\]\s*=', code)
     ]
     c.ok(f"扫到的金额 payload 槽 >= 4 处（实际 {len(payload_money)}，防正则失配后空转）",
          len(payload_money) >= 4)
