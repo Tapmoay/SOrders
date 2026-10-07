@@ -85,6 +85,7 @@ import com.tapmoay.sorders.ai.AiRecentPhotos
 import com.tapmoay.sorders.ai.AiRole
 import com.tapmoay.sorders.ai.AiVision
 import com.tapmoay.sorders.ai.AiWriteRisk
+import com.tapmoay.sorders.ai.StoredExportRecipe
 import com.tapmoay.sorders.ai.ThinkingLevel
 import com.tapmoay.sorders.ui.common.AppTopBar
 import com.tapmoay.sorders.ui.common.DangerConfirmDialog
@@ -95,6 +96,7 @@ import com.tapmoay.sorders.ui.theme.AiBlue
 import com.tapmoay.sorders.ui.theme.aiBrandBrush
 import kotlinx.coroutines.launch
 import com.tapmoay.sorders.ui.common.Hint
+import com.tapmoay.sorders.util.shareExportFile
 
 // ===== 本页自定义尺寸（老人友好：正文 17sp、次要信息 14sp、可点区域 ≥ 48dp）=====
 private val MessageTextSize = 17.sp
@@ -554,6 +556,8 @@ fun AiChatScreen(
                             scope.launch { snackbar.showSnackbar("已放回输入框，改完点发送即可（原回答会被撤掉）") }
                         },
                         onUndo = { token -> vm.undoWrite(token) },
+                        onDownload = { idx -> vm.downloadExport(idx) },
+                        onToast = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                     )
                 }
                 if (vm.totalTokens > 0) {
@@ -1289,6 +1293,10 @@ private fun MessageRow(
     onBranch: (Int) -> Unit,
     onEdit: (Int) -> Unit,
     onUndo: (String) -> Unit,
+    /** 这条回答下面的文件行被点了「下载」/「再试一次」（v3.34，CHG-0078）。 */
+    onDownload: (Int) -> Unit,
+    /** 起不了分享面板时的实话（走聊天页那条 snackbar）。 */
+    onToast: (String) -> Unit,
 ) {
     val isUser = m.role == Role.USER
     var menu by remember { mutableStateOf(false) }
@@ -1395,6 +1403,20 @@ private fun MessageRow(
                 }
             }
 
+            // 这条回答带回来的**文件**（v3.34，CHG-0078，台账 L-43）。
+            // 工具回合只回了一张"配方"，真正的生成/下载发生在用户点这一行之后 ——
+            // 所以这里画的是"待取件的凭据 + 一个按钮"，不是文件本身。
+            val recipe = m.exportRecipe
+            if (!isUser && recipe != null) {
+                Spacer(Modifier.height(6.dp))
+                ExportFileRow(
+                    recipe = recipe,
+                    state = m.exportState,
+                    onDownload = { onDownload(index) },
+                    onToast = onToast,
+                )
+            }
+
             // 时间 / 用量 / 复制 / 分支：一排放在气泡下方。
             // 复制和分支**做成看得见的图标按钮**，不再只藏在长按菜单里——长按是"知道有这功能才找得到"，
             // 而这两个动作是天天要用的。图标用中性色（onSurfaceVariant），不用 AI 语义色：
@@ -1495,6 +1517,107 @@ private fun MessageRow(
                         menu = false
                         onBranch(index)
                     },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 助手回答下面那行「文件」（v3.34，CHG-0078，台账 L-43）。
+ *
+ * ### 它为什么长在**回答下面**
+ * 用户原话（m01794）：「他首先第一点，他要自己做表格先给我看，然后…他会输出一个下载按钮，
+ * 直接点击下载按钮，直接给下载了」。所以按钮必须贴在那句话底下 ——
+ * 他看到"表给你了"的那一刻，手边就有那颗按钮，不用再去别处找。
+ *
+ * ### 三态各有各的样子（都在这一行里）
+ * - 还没点：[下载]；
+ * - 点过了：转圈 + 「正在生成…（已等 8 秒）」，按钮收起（连点不会开出两个账本任务）；
+ * - 成了：文件名 + 「已保存到 …」+ [分享]；失败：一句实话 + [再试一次]。
+ *
+ * ### 分享只对 Android 10+ 开（口径 m01865）
+ * Q 以下落盘拿不到 `content://`（[ExportedFile.uri] 为 null），系统层面就发不出去；
+ * 这时**如实说明并把文件位置指清楚**，而不是画一颗点了没反应的按钮。
+ */
+@Composable
+private fun ExportFileRow(
+    recipe: StoredExportRecipe,
+    state: ExportRowState,
+    onDownload: () -> Unit,
+    onToast: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            // Q+ 才有 content:// Uri：能分享就摆按钮，不能就在下面如实说一句。
+            val saved = state.file
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Description,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    recipe.fileName.ifBlank { "导出文件" },
+                    fontSize = MessageTextSize,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                when {
+                    state.busy -> CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    saved != null && saved.shareable -> TextButton(
+                        onClick = {
+                            if (!shareExportFile(context, saved)) {
+                                onToast("没找到能接收文件的 App，文件已经存到「下载 / SOrders报表」。")
+                            }
+                        },
+                    ) { Text("分享", fontSize = MessageTextSize) }
+                    saved != null -> Unit
+                    else -> TextButton(onClick = onDownload) {
+                        Text(if (state.error.isBlank()) "下载" else "再试一次", fontSize = MessageTextSize)
+                    }
+                }
+            }
+            val note = when {
+                state.busy -> state.progress.ifBlank { "正在生成…" }
+                state.error.isNotBlank() -> "⚠ " + state.error
+                saved != null -> "已保存到：" + saved.path
+                else -> ""
+            }
+            if (note.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    note,
+                    fontSize = MetaTextSize,
+                    color = if (state.error.isNotBlank()) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // 这台手机分享不了（Android 10 以下）：把"为什么"和"文件在哪儿"一次说清，
+            // 而不是让用户对着一个不存在的按钮找半天。
+            if (saved != null && !saved.shareable) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "这台手机（Android 10 以下）不能把文件直接发给微信/QQ；文件已存到「下载 / SOrders报表」，从那里也能发。",
+                    fontSize = MetaTextSize,
+                    color = MaterialTheme.colorScheme.outline,
                 )
             }
         }

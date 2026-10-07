@@ -38,6 +38,8 @@ class AiEnabledToolsTest {
         // EXPORT_SHEET 在默认集里，但**不在**"保存时见过的清单"里 = 保存之后新加的。
         val effective = AiKeyStore.resolveEnabledTools(saved, seenAtSave, dispatcher)
         assertTrue("新加的工具没按默认开（老用户升级后新功能会静默失效）：$effective", AiTools.EXPORT_SHEET in effective)
+        // 同一个规矩对 CHG-0078 新加的 export_ledger 也成立（漏进默认集 = 静默筛掉）
+        assertTrue("新加的工具没按默认开：$effective", AiTools.EXPORT_LEDGER in effective)
         assertTrue(AiTools.READ_DATA in effective)
     }
 
@@ -58,8 +60,10 @@ class AiEnabledToolsTest {
         val first = AiKeyStore.resolveEnabledTools(saved, seenAtSave, dispatcher)
         val second = AiKeyStore.resolveEnabledTools(saved, seenAtSave, dispatcher)
         assertTrue("第一次读就没有新工具：$first", AiTools.EXPORT_SHEET in first)
+        assertTrue("第一次读就没有新工具：$first", AiTools.EXPORT_LEDGER in first)
         assertEquals("读两次结果不一样 = 读路径在改状态：$first vs $second", first, second)
         assertTrue("第二次读丢了新工具（就是那个静默丢能力的 bug）：$second", AiTools.EXPORT_SHEET in second)
+        assertTrue("第二次读丢了新工具：$second", AiTools.EXPORT_LEDGER in second)
     }
 
     @Test

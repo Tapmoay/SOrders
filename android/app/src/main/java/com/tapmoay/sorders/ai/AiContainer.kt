@@ -203,6 +203,15 @@ class AiContainer(
         AiLocation.AmapCurrentLocationProvider(appContext)
     }
 
+    /**
+     * 导出取件（v3.34，CHG-0078）：聊天页点「下载」时真正去后端拿文件的那一步。
+     *
+     * 为什么装在容器里：它要的是**同一个** [repo]（带登录态的那套客户端）与
+     * `applicationContext`（落盘用，不是 Activity，不会泄漏）；这两样容器手上都有，
+     * 而聊天页只能拿到容器。
+     */
+    val exports: AiExportService by lazy { AiExportService(repo, appContext) }
+
     /** 6 个只读工具 + 2 个操作工具（记住 / 改数据）；两层开关都实时读 Keystore，设置页一改立刻生效。 */
     val tools: AiToolset by lazy {
         AiTools(

@@ -22,6 +22,24 @@ sealed interface AiEvent {
     data class ToolFinished(val name: String, val ok: Boolean, val summary: String) : AiEvent
 
     /**
+     * 这一次工具调用**给用户带回来一个文件**（2026-10-07 CHG-0078，台账 L-43）。
+     *
+     * ### 为什么是事件，而不是"让模型自己说"
+     * 文件是**界面**才画得出来的东西（一行图标 ＋ 文件名 ＋ 下载/分享按钮），模型能给的只有文字。
+     * 以前的做法是让模型说一句"请到报表中心查看/下载"—— 用户的原话就是冲着这句来的
+     * （m01794：「他直接让我去报表中心查看或下载啊。这肯定不行啊」）。
+     *
+     * ### 为什么带的是 recipe（配方）而不是文件本身
+     * 生成发生在用户点按钮那一刻（见 [AiTools.exportSheet] 那段理由），所以事件里只能带
+     * 「怎么生成」：一个 JSON 字符串，原样存进聊天记录（[StoredExportRecipe]），
+     * 界面点下载时再交给 [AiExportService]。**它同时会被从喂给模型的结果里摘掉**（[AiTools.splitRecipe]）。
+     *
+     * @param name 工具名（`export_sheet` / `export_ledger`）—— 只用来排错，界面不看它。
+     * @param recipeJson 配方 JSON 原文；聊天页负责解析成 [StoredExportRecipe]。
+     */
+    data class FileOffered(val name: String, val recipeJson: String) : AiEvent
+
+    /**
      * 模型给出的正文。
      *
      * ### 从「一次性全量」改成「可连续追加」（v3.5 流式）
@@ -330,7 +348,13 @@ class AiAgentLoop(
                         )
                         if (fnName == AiTools.PREVIEW_WRITE && isCardOffered(output)) cardsOffered++
 
-                        messages += ChatMessage.tool(call.id, output)
+                        // 文件类工具的结果里带着一张「配方」（怎么生成那个文件）。
+                        // 摘出来发给界面（画一行下载按钮），**剩下的才喂给模型** ——
+                        // 理由见 [AiTools.splitRecipe]：配方里有货主编号，而且生成还没发生。
+                        val (forModel, recipeJson) = AiTools.splitRecipe(output)
+                        if (recipeJson != null) onEvent(AiEvent.FileOffered(fnName, recipeJson))
+
+                        messages += ChatMessage.tool(call.id, forModel)
                     }
                     // 回到第 2 步
                 }
@@ -478,14 +502,19 @@ class AiAgentLoop(
             appendLine("回答用简体中文，语气像一个熟练的调度同事：简短、直接、不说客套话。")
             // ⚠️ **结尾再钉一次**（用户实机反馈：规则写在第 8.1 条里，模型照样解释一大段）。
             //    模型对提示词**开头和结尾**最敏感，中间那 80 行它会"读过去"。
-            //    所以把最容易犯的两条放在最后，用最短的祈使句重复一遍。
+            //    所以把最容易犯的几条放在最后，用最短的祈使句重复一遍。
+            //    第 3 条是 2026-10-07 CHG-0078 加的：用户要文件时，模型必须"把文件交在聊天里"，
+            //    而不是指路（用户原话 m01794：「他直接让我去报表中心查看或下载啊。这肯定不行啊」）。
             appendLine()
-            appendLine("【最后再确认两件事】")
+            appendLine("【最后再确认三件事】")
             appendLine("1. 查不到 / 没权限 / 能力不在清单里 → **一句话说完就停**：")
             appendLine("   「这个我查不了」，最多再补「去 XX 页面看」。不要解释原因、不要列你还能给什么、不要分点。")
             appendLine("2. 结果里有几条就写几行：只有 1 条时也一样，按「标签：值」一行一个字段，金额单独一行；")
             appendLine("   超过 3 个条目用表格或每项一行。**不要写成一整段文字**，同一件事问两遍排版要长一样。")
             appendLine("   颜色由界面自己上，你不用写任何颜色标记；要强调就把那个值 **加粗**，一条回答最多 3 处。")
+            appendLine("3. 用户要文件（导出/下载/给我一份表格）→ **用导出工具**，然后用一句话告诉他")
+            appendLine("   「文件在下面，点一下就能下载」；说清楚是哪张表、哪一段时间。")
+            appendLine("   ⛔ **绝对不要**让他「去报表中心查看/下载」—— 文件就在这条回答下面等着他点。")
             // 使用习惯 / 早前对话摘要：放在**最后**，因为它是对上面规则的补充而不是替代；
             // 而且它自带「用户没说时才用」的约束（见 AiHabits.promptHint），不会盖过用户的明确要求。
             if (!systemExtra.isNullOrBlank()) {

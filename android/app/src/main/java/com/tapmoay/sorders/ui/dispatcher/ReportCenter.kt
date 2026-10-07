@@ -29,7 +29,8 @@ import com.tapmoay.sorders.data.remote.dto.OperationLogDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.moneyToDouble
-import com.tapmoay.sorders.util.saveExportFile
+import com.tapmoay.sorders.util.saveExportFileWithUri
+import com.tapmoay.sorders.util.shareExportFile
 import java.time.LocalDate
 import com.tapmoay.sorders.ui.common.Hint
 
@@ -75,8 +76,30 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
                                 if (bytes != null) {
                                     val (f, t) = vm.dateRange
                                     val fn = title + "-" + f + "_" + t + ".xlsx"
-                                    val path = saveExportFile(context, bytes, fn)
-                                    scope.launch { snackbar.showSnackbar(if (path != null) "已导出：" + path else "导出失败：无法保存文件") }
+                                    // 落盘要**带上 Uri**：导出完那一刻的「分享」得靠它，
+                                    // 与聊天页那条文件行是**同一段实现**（CHG-0078，口径 m01865）。
+                                    val saved = saveExportFileWithUri(context, bytes, fn)
+                                    when {
+                                        saved == null -> scope.launch {
+                                            snackbar.showSnackbar("导出失败：无法保存文件")
+                                        }
+                                        // Android 10 以下拿不到 content://：系统层面就发不出去，
+                                        // 如实说清楚文件在哪，而不是画一颗点了没反应的按钮。
+                                        !saved.shareable -> scope.launch {
+                                            snackbar.showSnackbar("已导出：" + saved.path + "（这台手机不能直接分享，从「下载 / SOrders报表」里发）")
+                                        }
+                                        else -> scope.launch {
+                                            val res = snackbar.showSnackbar(
+                                                message = "已导出：" + saved.path,
+                                                actionLabel = "分享",
+                                                withDismissAction = true,
+                                                duration = SnackbarDuration.Long,
+                                            )
+                                            if (res == SnackbarResult.ActionPerformed && !shareExportFile(context, saved)) {
+                                                snackbar.showSnackbar("没找到能接收文件的 App，文件已经存到「下载 / SOrders报表」。")
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         },

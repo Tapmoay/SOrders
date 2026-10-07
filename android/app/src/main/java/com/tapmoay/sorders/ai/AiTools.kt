@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -337,6 +338,7 @@ class AiTools(
                 DRIVER_PERFORMANCE -> driverPerformance(args)
                 SHIPPER_PERFORMANCE -> shipperPerformance(args)
                 EXPORT_SHEET -> exportSheet(args)
+                EXPORT_LEDGER -> exportLedger(args)
                 READ_DATA -> reader.read(str(args, "action").orEmpty(), args)
                 REMEMBER -> remember(args)
                 PREVIEW_WRITE -> previewWrite(args)
@@ -487,16 +489,27 @@ class AiTools(
         }.toString()
     }
 
-    // ------------------------------------------------------- 工具 5：导出表
+    // ------------------------------------------------------- 工具 5：导出表（报表）
 
     /**
-     * 导出 Excel。**第一版不下载文件**：只把请求打到后端（真正生成 xlsx），
-     * 立刻关掉响应流（[okhttp3.ResponseBody.close]），让用户自己去报表中心查看/下载。
-     * 这样做的原因：聊天页没有文件保存/分享的 UI，硬下到缓存目录只会变成垃圾文件。
+     * 把报表导成 Excel，**文件直接在聊天里给**（2026-10-07 CHG-0078，台账 L-43）。
+     *
+     * ### 这一回合**不生成文件**，只回一张"配方"
+     * 真正的生成发生在用户点聊天里那颗下载按钮之后（[AiExportService.deliver]）。两条理由：
+     * 1. 用户可能只是问一句"能导吗"，或者接着就改主意（换月份、换人）——先算一遍是白烧一次；
+     * 2. 账本那条路要几十秒、还吃**用户每天 20 次**的配额。配额是用户的，不能替他提前花。
+     *
+     * ### 回给模型的 JSON 里带 `recipe`，而它**到不了模型眼里**
+     * [AiAgentLoop] 把工具结果塞回消息之前会调 [splitRecipe] 把 `recipe` 整段摘掉 ——
+     * 里面有货主编号这种"用户眼里不存在的东西"，模型看到就会复述进回答。
+     *
+     * 本回合也不再需要 suspend：它一次网络都不发（旧版在这里打了后端又立刻 `body.close()`）。
      */
-    private suspend fun exportSheet(args: JsonObject): String {
+    private fun exportSheet(args: JsonObject): String {
         val kind = str(args, "kind")
-            ?: throw ToolArgException("缺少 kind：要导出哪种表（turnover=营业/products=商品/drivers=司机/customers=客户/finance=财务/audit=异常审计）。")
+            ?: throw ToolArgException(
+                "缺少 kind：要导出哪种表（turnover=营业/products=商品/drivers=司机/customers=客户/finance=资金收支/audit=异常审计）。",
+            )
         if (kind !in EXPORT_KINDS) {
             throw ToolArgException("kind 只能是 ${EXPORT_KINDS.joinToString("/")}，收到的是「$kind」。")
         }
@@ -508,23 +521,105 @@ class AiTools(
         val from = dateArg(args, "date_from")
         val to = dateArg(args, "date_to")
 
-        // 注意：后端 reports.py 的查询参数名是 date（形参别名 anchor），不是 anchor
-        val body = repo.exportReport(
+        // 区间在客户端算一次，**为了文件名**（用户拿它对账）——规则与后端 _window/_span 一致，
+        // 判据 `_check_ai_export_files.py` 钉着两边同一条。
+        val (spanFrom, spanTo) = reportSpan(mode, anchor, from, to)
+        val label = spanLabel(spanFrom, spanTo)
+        val fileName = exportTitle(kind) + "-" + label + ".xlsx"
+        val recipe = StoredExportRecipe(
+            source = StoredExportRecipe.SOURCE_REPORT,
             kind = kind,
             mode = mode,
             date = anchor.toString(),
-            dateFrom = from?.toString(),
-            dateTo = to?.toString(),
+            dateFrom = spanFrom.toString(),
+            dateTo = spanTo.toString(),
+            fileName = fileName,
         )
-        body.close() // 不下载：把体积留给报表页自己按需下载
 
         return buildJsonObject {
             put("ok", true)
-            put("message", "已生成，请到「报表中心」查看/下载。")
-            put("kind", kind)
-            put("mode", mode)
-            put("date", anchor.toString())
-            if (from != null && to != null) put("date_range", "$from ~ $to")
+            put("message", exportTitle(kind) + "（" + label + "）准备好了 —— 点下面的按钮就能下载，也能直接分享。")
+            put("file_name", fileName)
+            put("recipe", recipeJson(recipe))
+        }.toString()
+    }
+
+    // ------------------------------------------------------- 工具 6：导出账本
+
+    /**
+     * 把**某一个货主**的账导成 Excel（账本那条异步任务）。
+     *
+     * 这一回合只做两件事：**认人**（名字 → 编号）＋ 回配方；**不建任务**（理由见 [exportSheet]）。
+     *
+     * 认人走的是账本页那张同一份名单（`GET /ledger/accounts`）⇒ "聊天里认得出的"与
+     * "账本页看得到的"永远是同一批人：不会出现聊天里答应得好好的、点了下载却吃 403 的人。
+     *
+     * 同名多个人**不猜**：把候选（带电话）回给模型让它问用户 —— 导错人的账是给人添乱，
+     * 而多问一句的成本只是多问一句。
+     */
+    private suspend fun exportLedger(args: JsonObject): String {
+        val who = str(args, "shipper")
+            ?: throw ToolArgException("缺少 shipper：要导**哪一个货主**的账？填姓名。")
+        val from = dateArg(args, "date_from")
+            ?: throw ToolArgException("缺少 date_from：从哪天开始？格式 YYYY-MM-DD。")
+        val to = dateArg(args, "date_to")
+            ?: throw ToolArgException("缺少 date_to：到哪天为止？格式 YYYY-MM-DD。")
+        if (from.isAfter(to)) throw ToolArgException("开始日期不能晚于结束日期。")
+
+        val accounts = repo.ledgerAccounts(from = from.toString(), to = to.toString(), kind = "shipper")
+        val hits = accounts.filter { it.name.trim() == who }
+        if (hits.isEmpty()) {
+            // 把"这个区间里有账的人"顺手报出来：用户十有八九是名字写错了一个字，
+            // 模型拿着这张名单就能直接问"是不是要说 XXX"，而不是干巴巴一句"没找到"。
+            val near = accounts.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct().take(10)
+            throw ToolArgException(
+                if (near.isEmpty()) {
+                    "这个区间里没有叫「$who」的货主有账。"
+                } else {
+                    "没找到叫「$who」的货主。这个区间里有账的货主是：" + near.joinToString("、") + "。"
+                },
+            )
+        }
+        if (hits.size > 1) {
+            return buildJsonObject {
+                put("ok", false)
+                put("message", "有两个以上都叫「$who」的货主，先问清是哪一个（把电话念给用户听）。")
+                putJsonArray("candidates") {
+                    hits.forEach {
+                        add(
+                            buildJsonObject {
+                                put("name", it.name)
+                                put("phone", it.phone ?: "")
+                                put("count", it.count)
+                            },
+                        )
+                    }
+                }
+            }.toString()
+        }
+
+        val target = hits.first()
+        val id = target.id
+            ?: throw ToolArgException("「${target.name}」是临时货主，账本里没有他的正式账号，导不了。")
+        val label = spanLabel(from, to)
+        val fileName = "账本-" + target.name + "-" + label + ".xlsx"
+        val recipe = StoredExportRecipe(
+            source = StoredExportRecipe.SOURCE_LEDGER,
+            dateFrom = from.toString(),
+            dateTo = to.toString(),
+            shipperId = id,
+            shipperName = target.name,
+            fileName = fileName,
+        )
+
+        return buildJsonObject {
+            put("ok", true)
+            put(
+                "message",
+                "「" + target.name + "」" + label + " 的账准备好了 —— 点下面的按钮开始生成（要几十秒，好了会自动下载）。",
+            )
+            put("file_name", fileName)
+            put("recipe", recipeJson(recipe))
         }.toString()
     }
 
@@ -534,7 +629,7 @@ class AiTools(
      * 把用户明确要求记住的一条事实存进**本机**记忆。
      *
      * ### 它是本工具集里唯一"写"的操作，而它写的东西不碰后端
-     * 前 6 个工具全是只读查询。这一个会落盘，但落的是 App 私有目录里的一份 JSON
+     * 除它以外的工具全是只读查询。这一个会落盘，但落的是 App 私有目录里的一份 JSON
      * （见 [AiMemoryStore]）：
      * - **不改任何业务数据**（不下单、不派单、不改价）；
      * - **不出这台手机**（与聊天记录、使用习惯同一条隐私边界）；
@@ -738,6 +833,18 @@ class AiTools(
         const val EXPORT_SHEET = "export_sheet"
 
         /**
+         * 「导出一本账」：把**某一个货主**的账（一段区间）导成 Excel，并且**文件直接在聊天里给**。
+         *
+         * ### 为什么它和 [EXPORT_SHEET] 是两个工具，而不是一个工具加参数
+         * 两者后端完全是两套：报表是**同步现算**（几秒、服务器不留文件、不占任何配额）；
+         * 账本是**异步任务**（本机实测 39.77 秒 / 峰值 469MB，见 `api/v1/ledger.py` 那段注释），
+         * 还要先按**人**认（名字 → `/ledger/accounts` → 编号），而且吃**用户每天 20 次**的配额。
+         * 合成一个的话，模型会把不该合的东西合起来（用户说"导表"它顺手把账本参数也填上），
+         * 给用户的话术也会串（一个"马上好"，一个"要等一会儿"）。
+         */
+        const val EXPORT_LEDGER = "export_ledger"
+
+        /**
          * 通用「读列表」工具：把系统里**所有只读列表**都开放给 AI（36 个端点，见 [AiReadCatalog]）。
          *
          * 为什么最后加的是它：前面 5 个工具是"某个问题的专用路径"，覆盖不了用户随口问的
@@ -794,6 +901,7 @@ class AiTools(
             SHIPPER_PERFORMANCE,
             READ_DATA,
             EXPORT_SHEET,
+            EXPORT_LEDGER,
             REMEMBER,
             PREVIEW_WRITE,
         )
@@ -812,6 +920,7 @@ class AiTools(
             SHIPPER_PERFORMANCE to Group.QUERY,
             READ_DATA to Group.QUERY,
             EXPORT_SHEET to Group.QUERY,
+            EXPORT_LEDGER to Group.QUERY,
             REMEMBER to Group.OPERATE,
             PREVIEW_WRITE to Group.OPERATE,
         )
@@ -837,7 +946,9 @@ class AiTools(
             AiRole.DISPATCHER to ALL.toSet(),
             // 货主：只留他能用的。四个专门工具和"出表格"都是派单员视角
             // （`search_shipper`=找人、`inventory_alerts`=库存预警、`driver_performance`=司机跑车统计、
-            //  `shipper_performance`=货主统计、`export_sheet`=报表中心导出，后端全是 STATS_READ/派单员权限）。
+            //  `shipper_performance`=货主统计、`export_sheet`=报表导出、`export_ledger`=导一本账，
+            //  后端全是 STATS_READ/派单员权限；货主能导的只有**他自己**那本账，而他本来就在账本页导 →
+            //  聊天里先不开（L-43 口径：本轮只给派单员）。
             AiRole.SHIPPER to setOf(READ_DATA, REMEMBER, PREVIEW_WRITE),
         )
 
@@ -872,6 +983,97 @@ class AiTools(
         private val EXPORT_KINDS = listOf("turnover", "products", "drivers", "customers", "finance", "audit")
         private val EXPORT_MODES = listOf("day", "week", "month")
 
+        /**
+         * 六张表的中文名（kind → 名字）。**一处定义、三个用户**：工具回话、下载的文件名、判据脚本。
+         *
+         * 逐字与报表页页签、后端各 sheet 的标题相同（`ui/dispatcher/ReportCenter.kt:47` 与
+         * `backend/app/api/v1/reports.py` 的 `next_sheet("…")`）—— 同一张表在三处叫同一个名字，
+         * 用户对着文件名就找得到是哪一个页签。
+         */
+        val EXPORT_TITLES: Map<String, String> = mapOf(
+            "turnover" to "营业纵览",
+            "products" to "商品经营",
+            "drivers" to "司机绩效",
+            "customers" to "客户经营",
+            "finance" to "资金收支",
+            "audit" to "异常与审计",
+        )
+
+        /** 中文名；认不出的 kind 就原样回（`exportSheet` 已经先把非法值挡在门外）。 */
+        fun exportTitle(kind: String): String = EXPORT_TITLES[kind] ?: kind
+
+        /**
+         * 这一次导出**真实的取数区间** —— 与后端 `services/reports/_common.py::_span` / `_window`
+         * 是**同一条规则**（day=当天、week=本周一~周日、month=整月；给了 from+to 就用它）。
+         *
+         * 为什么要在这里再算一遍：文件名要用它（`营业纵览-2026-09-01_2026-09-30.xlsx`），
+         * 而文件名是**给用户对账用的凭证** —— 名字与内容不符这件事后端栽过一次
+         * （2026-09-19 外部检查 R2-4：`kind=turnover&mode=month` 导出的文件名写着锚点日、
+         * 内容却是整月）。判据 `_check_ai_export_files.py` 钉着两边规则一致。
+         */
+        fun reportSpan(
+            mode: String,
+            anchor: LocalDate,
+            dateFrom: LocalDate?,
+            dateTo: LocalDate?,
+        ): Pair<LocalDate, LocalDate> {
+            // 「只给一头」是**错**，不是"猜另一头"：后端的 _span 对此直接 400，这边如实说同一件事。
+            if ((dateFrom == null) != (dateTo == null)) {
+                throw ToolArgException("date_from 与 date_to 要一起给：只给一头的话，统计的是哪一段没人知道。")
+            }
+            if (dateFrom != null && dateTo != null) {
+                if (dateFrom.isAfter(dateTo)) throw ToolArgException("开始日期不能晚于结束日期。")
+                return dateFrom to dateTo
+            }
+            return when (mode) {
+                // 周一~周日（与后端 `d - timedelta(days=d.weekday())` 同一条）
+                "week" -> {
+                    val start = anchor.minusDays((anchor.dayOfWeek.value - 1).toLong())
+                    start to start.plusDays(6)
+                }
+                // 整月（后端：下月 1 号往前一天 —— ⛔ 不是"下月 1 号"，那会把下月 1 号的单算进本月）
+                "month" -> {
+                    val first = anchor.withDayOfMonth(1)
+                    first to first.plusDays(32).withDayOfMonth(1).minusDays(1)
+                }
+                else -> anchor to anchor
+            }
+        }
+
+        /** 文件名里的那一段：`2026-09-01_2026-09-30`；只有一天就写 `2026-09-30`（后端 `range_label` 同规格）。 */
+        fun spanLabel(from: LocalDate, to: LocalDate): String =
+            if (from == to) from.toString() else "${from}_$to"
+
+        /**
+         * 把工具结果里的 `recipe` 摘出来（**给界面用，不给模型**）。
+         *
+         * 返回「去掉 recipe 的 JSON」to「recipe 原文」；不是 JSON、或里面没有 recipe，就原样返回、第二项 null。
+         *
+         * 为什么非摘不可：配方里有**货主编号**与文件名。模型看到编号就会忍不住复述它
+         * （"已为货主 12 生成 账本-张三-….xlsx"）—— 用户眼里根本没有编号这个东西；
+         * 更要命的是**真正的生成还没发生**，说了就等于替用户宣告一件没发生的事。
+         */
+        fun splitRecipe(output: String): Pair<String, String?> {
+            val obj = try {
+                ApiClient.json.parseToJsonElement(output) as? JsonObject
+            } catch (e: Exception) {
+                null
+            } ?: return output to null
+            val recipe = obj["recipe"] as? JsonObject ?: return output to null
+            val stripped = JsonObject(obj.filterKeys { it != "recipe" })
+            return stripped.toString() to recipe.toString()
+        }
+
+        /**
+         * 把一张配方编码成 JSON（[exportSheet] / [exportLedger] 出参里的 `recipe` 那一格）。
+         *
+         * ⛔ **不许手拼键名**：键名只有 [StoredExportRecipe] 这一处定义。手拼过一次就漂了 ——
+         * 解析那侧开着 `ignoreUnknownKeys`，对不上的键会被当成"多出来的字段"整段忽略、
+         * 每个字段静默回落成默认值，症状是"文件行点了没反应"，而且一眼看不出为什么。
+         */
+        private fun recipeJson(recipe: StoredExportRecipe): JsonElement =
+            ApiClient.json.encodeToJsonElement(StoredExportRecipe.serializer(), recipe)
+
         /** 设置页用的中文短名。 */
         private val TITLES = mapOf(
             SEARCH_SHIPPER to "查货主",
@@ -880,6 +1082,7 @@ class AiTools(
             SHIPPER_PERFORMANCE to "货主下单排行",
             READ_DATA to "读所有列表",
             EXPORT_SHEET to "导出报表",
+            EXPORT_LEDGER to "导出账本",
             REMEMBER to "记住一件事",
             PREVIEW_WRITE to "改数据（需你确认）",
         )
@@ -891,7 +1094,8 @@ class AiTools(
             DRIVER_PERFORMANCE to "某时间段司机完成单量、准时率、待结运费",
             SHIPPER_PERFORMANCE to "某时间段货主下单量与金额排行",
             READ_DATA to "系统里所有只读列表（账号、商品、报表、账本、日志…），按模块可在下面逐项开关",
-            EXPORT_SHEET to "生成营业/商品/司机/客户/财务/审计 Excel",
+            EXPORT_SHEET to "生成营业/商品/司机/客户/资金/审计 Excel，文件直接出现在聊天里",
+            EXPORT_LEDGER to "按货主与起止日期导出一本账（Excel），文件直接出现在聊天里",
             REMEMBER to "你说「记住…」时，把这句话存到本机，以后提问自动带上（可在下面查看和删除）",
             // ⚠️ 设置页这两行是用普通 Text() 渲染的，**不解析 Markdown**。
             // 写 `**加粗**` 只会在屏幕上显示成一堆星号（v3.7 真机实测踩过）。
@@ -1065,6 +1269,28 @@ class AiTools(
                     }
                     putJsonArray("required") { add(JsonPrimitive("kind")) }
                 },
+                EXPORT_LEDGER to buildJsonObject {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("shipper") {
+                            put("type", "string")
+                            put("description", "哪一个货主的账：填**姓名**（如「张三」），⛔ 不要填编号；同名多个人时工具会回 candidates，你要问用户是哪一个")
+                        }
+                        putJsonObject("date_from") {
+                            put("type", "string")
+                            put("description", "开始日期 YYYY-MM-DD（闭区间）")
+                        }
+                        putJsonObject("date_to") {
+                            put("type", "string")
+                            put("description", "结束日期 YYYY-MM-DD（闭区间）")
+                        }
+                    }
+                    putJsonArray("required") {
+                        add(JsonPrimitive("shipper"))
+                        add(JsonPrimitive("date_from"))
+                        add(JsonPrimitive("date_to"))
+                    }
+                },
                 // ⛔ `read_data` **刻意不在这张表里**（2026-09-21 删掉了这一份）。
                 //    它的 action 清单按角色裁（见 [AiTools.readDataSpec]），而这张静态表在
                 //    companion 里**看不到实例上的角色** —— `specs` 里 `READ_DATA` 也从来不落到
@@ -1128,10 +1354,18 @@ class AiTools(
                 "有的是工具替你补的默认值——**回答里必须说明你实际按什么范围统计**；\n" +
                 "5. 返回值里没有账号编号、也没有成本与毛利，你也不要试图去猜。",
             EXPORT_SHEET to
-                "把报表导出成 Excel 文件（在后端生成）。\n" +
-                "什么时候用：用户明确说「导出」「下载表格」「给我一份 Excel」。\n" +
-                "说明：本工具只触发导出并告知用户去「报表中心」查看/下载，不返回表格内容；" +
+                "把报表导成 Excel，**文件会直接出现在聊天里**（回答下面一行，用户点一下就能下载、也能分享出去）。\n" +
+                "什么时候用：用户说「导出」「下载表格」「给我一份 Excel」，而没说具体是哪一本账。\n" +
+                "怎么用：挑 kind（哪张表）与时间（mode+date 或 date_from/date_to）。\n" +
+                "⛔ **不要**告诉用户「去报表中心查看/下载」—— 文件就在这条回答下面，按钮由界面加。\n" +
                 "如果用户只是要看数字，请改用其它查询工具，不要用本工具。",
+            EXPORT_LEDGER to
+                "把一个**货主**的账（一段区间）导成 Excel，文件同样直接出现在聊天里。\n" +
+                "什么时候用：用户说「导出/下载**某个人**的账」「把这个月的货主账导成表格」。\n" +
+                "参数：shipper 填**姓名**（⛔ 不要编号；同名多个人时工具会回 candidates，你要问清是哪一个）、" +
+                "date_from / date_to 是一段起止日（必填，闭区间）。\n" +
+                "⛔ 别说「已经生成好了」——**真正的生成发生在他点下载按钮之后**（账本要几十秒，而且每天次数有限）；" +
+                "你只要告诉他文件在下面、点一下就行。",
             REMEMBER to
                 "把用户**明确要求你记住**的一条事实，存进本机长期记忆（下次提问会自动带上）。\n" +
                 "什么时候用：**只在用户明确说了**「记住…」「以后都…」「下次别忘了…」这类话时调用。\n" +

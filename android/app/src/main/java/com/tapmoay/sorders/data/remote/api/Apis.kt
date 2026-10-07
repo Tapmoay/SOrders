@@ -720,6 +720,28 @@ interface LedgerApi {
 
     @GET("ledger/temp-shipper-names")
     suspend fun listTempShipperNames(): List<String>
+
+    /**
+     * 申请导出一本账（v3.34，CHG-0078）。**三个闸**都在后端：上一次的还没生成完 → 429；
+     * 今天已经导出够 20 次 → 429；区间超过 20000 笔 → 400。三条的中文原文由 `toApiException`
+     * 直接转给用户看（那三句话本来就是写给用户看的）。
+     */
+    @POST("ledger/export-jobs")
+    suspend fun createExportJob(@Body body: LedgerExportJobCreateDto): LedgerExportJobDto
+
+    /** 查一次任务状态（聊天页每 2 秒问一次，最多 60 次）。 */
+    @GET("ledger/export-jobs/{jobId}")
+    suspend fun exportJob(@Path("jobId") jobId: Long): LedgerExportJobDto
+
+    /**
+     * 取文件本体（`Content-Disposition` 里带文件名）。
+     *
+     * ⚠️ 必须 `@Streaming`：不标的话 Retrofit 会把整本 xlsx **先读进内存**再交给我们，
+     * 而一本账的 xlsx 可能几十 MB —— 在手机上那是一次 OOM 风险。
+     */
+    @Streaming
+    @GET("ledger/export-jobs/{jobId}/download")
+    suspend fun downloadExportJob(@Path("jobId") jobId: Long): okhttp3.ResponseBody
 }
 
 @Serializable

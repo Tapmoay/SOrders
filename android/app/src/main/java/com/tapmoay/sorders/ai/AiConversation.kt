@@ -45,12 +45,71 @@ data class StoredMessage(
      * 存的是一份文本，换的是"这个对话在任何时候都能接着聊"。
      */
     val attachmentBlock: String = "",
+    /**
+     * 这条答复下方那个**文件行**的凭据（v3.34，CHG-0078）：AI 说「表在这儿，点一下就能下载」时，
+     * 点那颗按钮需要的东西全在这条记录里 —— 导出什么（哪张表 / 哪本账）、哪一段时间、给谁导、
+     * 文件叫什么。**它不含文件本身**：文件由按钮当场去后端取（口径 m01850 ②）。
+     *
+     * 为什么必须落盘（而不是只挂在界面状态上）：用户关掉 App、第二天打开这个对话，
+     * 那颗按钮还得在 —— 不然他会看到一句「表已经放在下面了」下面什么都没有。
+     *
+     * 为什么文件编号（账本那本账的 shipper_id）只在这里、不进提示词：全仓库口径是
+     * 「参数里只许出现名字，绝不要传编号」，而账本导出端点按编号收口（见 AiTools.exportLedger）。
+     * AiAgentLoop 在把工具结果喂给模型之前会把这一段**整段摘掉**。
+     */
+    val exportRecipe: StoredExportRecipe? = null,
 ) {
     val isUser: Boolean get() = role == ROLE_USER
 
     companion object {
         const val ROLE_USER = "user"
         const val ROLE_ASSISTANT = "assistant"
+    }
+}
+
+/**
+ * 文件行的凭据（v3.34，CHG-0078）。字段名就是 JSON 键名，改名 = 改盘上格式。
+ *
+ * 两类来源共用一个模型（[source] 决定按钮点下去走哪条路）：
+ * - [SOURCE_REPORT]：报表中心的六张表 —— 后端现算现返（服务器不留文件），点一次生成一次。
+ * - [SOURCE_LEDGER]：某一本货主账 —— 后端是**异步任务**（要排队生成），所以要带 [shipperId]
+ *   与生成出来的 [jobId]（有了它，再点只重新下载，不再吃每天 20 次的配额）。
+ */
+@Serializable
+data class StoredExportRecipe(
+    /** [SOURCE_REPORT] 或 [SOURCE_LEDGER]。 */
+    val source: String = SOURCE_REPORT,
+    /** 报表用：AiTools.EXPORT_KINDS 里的那六个之一。 */
+    val kind: String = "",
+    /** 报表用：day / week / month。 */
+    val mode: String = "",
+    /** 报表用：锚点日（决定统计周期）。 */
+    val date: String = "",
+    val dateFrom: String = "",
+    val dateTo: String = "",
+    /** 账本用：这本账是谁的（**编号只在这里**，不进提示词）。 */
+    val shipperId: Long = 0L,
+    /** 账本用：给用户看的名字（文件名与提示都用它，⛔ 不回落成编号）。 */
+    val shipperName: String = "",
+    /** 落盘与分享用的文件名（中文名 + 起止日期 + .xlsx）。 */
+    val fileName: String = "",
+    /** 账本用：已经生成过的任务（>0 = 再点只重新下载，不建新任务、不吃配额）。 */
+    val jobId: Long = 0L,
+) {
+    companion object {
+        const val SOURCE_REPORT = "report"
+        const val SOURCE_LEDGER = "ledger"
+
+        // 单独一份 Json：读盘那份（AiConversations.json）是私有的，而且它只认整个对话文件；
+        // 这里解析的是**工具当场回的那一小段**，多一个字段（将来）就该忽略而不是整条丢掉。
+        private val json = Json { ignoreUnknownKeys = true }
+
+        /** 解析配方 JSON；解不出来就返回 null（⛔ 绝不因为一段脏 JSON 把聊天页搞崩）。 */
+        fun parse(raw: String): StoredExportRecipe? = try {
+            json.decodeFromString(serializer(), raw)
+        } catch (e: Exception) {
+            null
+        }
     }
 }
 
@@ -461,6 +520,7 @@ object AiConversations {
         tokens: Int = 0,
         attachments: List<StoredAttachment> = emptyList(),
         attachmentBlock: String = "",
+        exportRecipe: StoredExportRecipe? = null,
     ): StoredMessage = StoredMessage(
         role = if (isUser) StoredMessage.ROLE_USER else StoredMessage.ROLE_ASSISTANT,
         text = text,
@@ -471,5 +531,6 @@ object AiConversations {
         tokens = tokens,
         attachments = attachments,
         attachmentBlock = attachmentBlock,
+        exportRecipe = exportRecipe,
     )
 }

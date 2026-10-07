@@ -12,7 +12,8 @@
 2. 全仓**零**手势缩放（detectTransformGestures 在改动前 0 命中）：照片是 72dp 的缩略图
    拍下来的，拍得远的门牌 / 单号在"刚好铺满屏幕"的倍数下仍然看不清。
 3. 全仓**没有**保存图片的实现：util/ExportUtil.kt 那份 saveExportFile 的目录
-   （Downloads/SOrders报表）与 MIME（xlsx）都是写死的，参数化它只会让两个调用点更难读，
+   （Downloads/SOrders报表）与 MIME（xlsx）当时都是写死的（CHG-0078 v3.34 才把这两个值
+   提成常量 EXPORT_SUBDIR / MIME_XLSX，**落点与 MIME 一个字没变**），
    所以另写了 saveImageToGallery（落 Pictures/SOrders / image/jpeg）。
 
 ## 为什么这条必须有机器的判据
@@ -247,10 +248,15 @@ def main() -> int:
     c.present("Q 以下写完喊媒体扫描（否则相册要等下次开机才看见）",
               ex, r"MediaScannerConnection\.scanFile\(context,")
     c.present("异常一律返回 null（不把失败抛到界面上）", ex, r"catch \(e: Exception\) \{\s*\n\s*null")
-    c.present("既有 saveExportFile 的目录没被顺手改掉",
-              ex, r'Environment\.DIRECTORY_DOWNLOADS \+ "/SOrders报表"')
-    c.present("既有 saveExportFile 的 MIME 也没动",
-              ex, r'put\(MediaStore\.Downloads\.MIME_TYPE, "application/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet"\)')
+    # ⚠️ CHG-0078（v3.34）把这两个写死值提成了常量（ExportedFile 要把 Uri 带回来），
+    #    落点与 MIME 一个字没变 —— 所以这里改成"常量值 + 用法"两段一起钉：
+    #    常量值被改、或用法被绕过（直接内联另一个目录 / 另一串 MIME），两种都会红。
+    c.present("既有 saveExportFile 的目录没被顺手改掉（仍是 Downloads/SOrders报表）",
+              ex, r'private const val EXPORT_SUBDIR = "SOrders报表"[\s\S]{0,4000}?'
+                  r'Environment\.DIRECTORY_DOWNLOADS \+ "/" \+ EXPORT_SUBDIR')
+    c.present("既有 saveExportFile 的 MIME 也没动（仍是 xlsx）",
+              ex, r'private const val MIME_XLSX = "application/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet"'
+                  r'[\s\S]{0,4000}?put\(MediaStore\.Downloads\.MIME_TYPE, MIME_XLSX\)')
 
     print("\n== 6. 详情页：两处调用收口到唯一那一份，并且能在本组里翻页 ==")
     c.present("onPhotoClick 走 openPhoto（不再是 previewUrl = it）", dt, r"onPhotoClick = openPhoto,")

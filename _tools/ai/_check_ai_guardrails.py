@@ -33,9 +33,16 @@ UIAI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/ai"
 UI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui"
 
 # 只读工具白名单：多一个都算越界
+#
+# v3.34（CHG-0078，台账 L-43）加了 `export_ledger`：它**仍然是只读**，理由要写清楚 ——
+#   · 工具回合自己只发一个 `GET /ledger/accounts`（认人），一次都不 POST；
+#   · 真正建任务的那一下（`POST /ledger/export-jobs`，会吃用户当天 20 次配额）在
+#     `ai/AiExportService.kt` 里，**只由用户在聊天里点「下载」触发**——
+#     与 preview_write 同一种形状（工具只能申请，落库那一步在界面上的那颗按钮手里）。
+# 下面 §2-b 有两条断言钉着这件事（工具层不许出现建任务的调用）。
 ALLOWED_TOOLS = {
     "search_shipper", "inventory_alerts", "driver_performance",
-    "shipper_performance", "export_sheet", "read_data",
+    "shipper_performance", "export_sheet", "export_ledger", "read_data",
 }
 
 # 唯一允许存在的「非只读」工具：它**只写本机记忆**，不碰后端一个字节。
@@ -476,7 +483,7 @@ def main() -> int:
         consts = dict(re.findall(r'const val ([A-Z_]+) = "([a-z_]+)"', tools))
         resolved = {consts.get(n, n) for n in names}
         c.ok(
-            "工具集 = 6 个只读 + 至多 1 个「只写本机」 + 至多 1 个「受控写数据」，没有别的",
+            "工具集 = 7 个只读 + 至多 1 个「只写本机」 + 至多 1 个「受控写数据」，没有别的",
             resolved == ALLOWED_TOOLS | LOCAL_ONLY_TOOLS | GATED_WRITE_TOOLS,
             f"实际={sorted(resolved)}",
         )
@@ -490,6 +497,21 @@ def main() -> int:
             len(GATED_WRITE_TOOLS) <= 1,
             f"实际={sorted(GATED_WRITE_TOOLS)}",
         )
+
+    print("\n== 2b. 导出工具：能出文件，但没有「替用户建任务」的能力 ==")
+    # 这一节钉的是 CHG-0078 那条设计的**要害**：文件是在用户点按钮之后才生成的，
+    # 所以"工具回合不建任务"不是一句注释，而是一条能被注入打红的形状。
+    c.present("两个导出工具都在（报表现算 / 账本异步）", tools, r'const val EXPORT_LEDGER = "export_ledger"')
+    c.absent("导出工具自己不建任务（POST 只由用户点「下载」触发）", tools, r"createLedgerExportJob")
+    c.absent("工具层不碰「建任务 / 轮询 / 下载」那三下（那些只在用户点按钮之后）", tools, r"ledgerExportJob\(")
+    c.present("报表现算那条也不再打网络（旧版打了后端又 body.close()）", tools, r"private fun exportSheet\(args: JsonObject\): String")
+    c.present("出参里的 recipe 由数据类自己的序列化器编码（键名只有一处定义）",
+              tools, r"encodeToJsonElement\(StoredExportRecipe\.serializer\(\)")
+    c.absent("不许手拼 recipe 的 JSON 键（对不上字段名会静默回落成默认值）", tools, r'putJsonObject\("recipe"\)')
+    c.present("配方在喂给模型之前被整段摘掉", loop, r"val \(forModel, recipeJson\) = AiTools\.splitRecipe\(output\)")
+    c.present("摘掉之后喂给模型的是 forModel（⛔ 不是原样那条）", loop, r"ChatMessage\.tool\(call\.id, forModel\)")
+    c.present("工具说明里明说不要指路", tools, r"不要\*\*告诉用户「去报表中心查看/下载」")
+    c.present("系统提示词结尾也钉着同一句", loop, r"绝对不要\*\*让他「去报表中心查看/下载」")
 
     print("\n== 2a. 「只写本机」工具的红线（它只能碰记忆文件，不许碰后端）==")
     c.present("remember 走的是本机记忆写入，不是 HTTP", tools, r"REMEMBER -> remember\(args\)")
@@ -1458,11 +1480,21 @@ def main() -> int:
     )
     # ⚠️ 结尾再钉一次：用户实机反馈「规则写在第 8.1 条里，模型照样解释一大段」。
     #    模型对提示词的**开头和结尾**最敏感，中间那 80 行它会读过去。
-    c.present("提示词结尾再钉一次那两条", strip_comments(loop), r"【最后再确认两件事】")
+    c.present("提示词结尾再钉一次那三条", strip_comments(loop), r"【最后再确认三件事】")
     c.present(
         "结尾钉的是「一句话说完就停」和「超过 3 条用表格」",
         strip_comments(loop),
         r"不要解释原因、不要列你还能给什么、不要分点",
+    )
+    c.present(
+        "结尾第 3 条：要文件就调导出工具，⛔ 不许指路去报表中心（CHG-0078 / 用户原话 m01794）",
+        strip_comments(loop),
+        r"3\. 用户要文件",
+    )
+    c.present(
+        "那一条把「不要指路」写成了明文禁令（而不是靠模型自觉）",
+        strip_comments(loop),
+        r"绝对不要\*\*让他「去报表中心查看/下载」",
     )
 
     c.present("角色有同步缓存（工具清单是同步路径）", AI_join("../core/TokenStore.kt"), r"fun cachedRole\(\): String\?")

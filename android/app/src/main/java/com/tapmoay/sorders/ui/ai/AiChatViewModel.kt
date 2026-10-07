@@ -20,8 +20,11 @@ import com.tapmoay.sorders.ai.ChatMessage
 import com.tapmoay.sorders.ai.LlmConfig
 import com.tapmoay.sorders.ai.StoredAttachment
 import com.tapmoay.sorders.ai.StoredConversation
+import com.tapmoay.sorders.ai.StoredExportRecipe
 import com.tapmoay.sorders.ai.StoredMessage
 import com.tapmoay.sorders.ai.ThinkingLevel
+import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.util.ExportedFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,6 +44,23 @@ data class AttachmentChip(
     val filename: String,
     val summary: String,
     val warnings: List<String> = emptyList(),
+)
+
+/**
+ * 一条助手消息下面那行「文件」的**运行态**（v3.34，CHG-0078）。
+ *
+ * 与 [UiMessage.exportRecipe] 的分工：配方是**盘上的凭据**（关掉 App、第二天打开还在），
+ * 这里是**这一次运行的过程**（转圈、进度、存到哪、报什么错）——刷新即无，所以不进盘。
+ */
+data class ExportRowState(
+    /** 正在生成 / 正在下载：按钮这时禁用（连点不该开出两个账本任务）。 */
+    val busy: Boolean = false,
+    /** 进行中的那句话（「正在生成…（已等 8 秒）」）；[busy] 为 false 时没有意义。 */
+    val progress: String = "",
+    /** 已经存到手机上的文件；界面拿它显示路径、并交给「分享」（Q+ 才有 content:// Uri）。 */
+    val file: ExportedFile? = null,
+    /** 失败时的实话（后端中文原样展示，不改写、不吞掉）。 */
+    val error: String = "",
 )
 
 /** 聊天页上可见的一条消息（工具痕迹挂在所属助手消息上，不单独成气泡） */
@@ -74,6 +94,15 @@ data class UiMessage(
      * 空 = 这条消息没有附件（普通消息一分钱额外开销都不加）。
      */
     val attachmentBlock: String = "",
+    /**
+     * 这条答复下面那行「文件」的凭据（v3.34，CHG-0078）。null = 这条回答没带文件。
+     *
+     * 它由 [AiEvent.FileOffered] 挂上来（工具回合只回配方、不生成文件），并且**随消息落盘**
+     * —— 用户第二天打开这个对话，那颗下载按钮还得在。
+     */
+    val exportRecipe: StoredExportRecipe? = null,
+    /** 那行文件的运行态（转圈 / 进度 / 存到哪 / 报什么错）；不落盘，刷新即无。 */
+    val exportState: ExportRowState = ExportRowState(),
 )
 
 /** 抽屉里一行历史对话（把「显示格式」算好再给界面，界面不做日期和 token 的字符串拼接）。 */
@@ -1208,6 +1237,14 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
                 // 用量挂到这一条答复上（抽屉里的「用量」也是由它累加出来的）
                 updateAt(holder) { m -> m.copy(tokens = runTokens) }
             }
+            is AiEvent.FileOffered -> {
+                // 工具回合带回一张"配方"——界面据此在这条回答下面画一行文件（图标 + 文件名 + 下载）。
+                // 解析失败就当作没有这一行：宁可少画一行，也不要让聊天页崩在一条脏 JSON 上。
+                val recipe = StoredExportRecipe.parse(ev.recipeJson)
+                if (recipe != null) {
+                    updateAt(holder) { it.copy(exportRecipe = recipe, exportState = ExportRowState()) }
+                }
+            }
             // 刻意不写 else：核心层若新增事件类型，这里立刻编译不过，避免悄悄漏掉一种痕迹
         }
     }
@@ -1233,6 +1270,63 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
 
     /** 工具内部名 → 中文名：直接用核心层那一份，避免两边各写一套 */
     private fun toolLabel(raw: String): String = ai.agentLoop.toolDisplayName(raw)
+
+    // ---------------- 文件行：点「下载」（v3.34，CHG-0078） ----------------
+
+    /**
+     * 用户点了助手消息下面那颗「下载」。三件事都在这里，界面只管画：
+     * 1. 这一行立刻变成「正在生成…」并禁用（连点不会开出两个账本任务）；
+     * 2. 交给 [AiExportService] 取件 + 落盘（报表现算、账本要轮询到生成好）；
+     * 3. 成功就把文件挂到行上（界面显示路径与「分享」），失败就把实话放进 [ExportRowState.error]。
+     *
+     * ⚠️ 账本任务号一拿到就**写回配方并落盘**（[onJobId]）：用户中途退出 App、回来再点，
+     *    是继续等那个任务，而不是再建一个 —— 每次建任务都吃他每天 20 次里的一次。
+     *
+     * 分享**不在这里**：它要一个 `Context`（`Intent.ACTION_SEND`），而本 VM 刻意不持有 Context
+     * （见类注释）。所以行上挂着 [ExportedFile]，由聊天页拿 `LocalContext` 去发。
+     */
+    fun downloadExport(index: Int) {
+        val msg = messages.getOrNull(index) ?: return
+        val recipe = msg.exportRecipe ?: return
+        if (msg.exportState.busy) return
+
+        updateAt(index) {
+            it.copy(exportState = it.exportState.copy(busy = true, progress = "正在生成…", error = ""))
+        }
+        viewModelScope.launch {
+            try {
+                val file = ai.exports.deliver(
+                    recipe = recipe,
+                    onProgress = { p ->
+                        updateAt(index) { it.copy(exportState = it.exportState.copy(progress = p)) }
+                    },
+                    onJobId = { id ->
+                        updateAt(index) { it.copy(exportRecipe = it.exportRecipe?.copy(jobId = id)) }
+                        persist()
+                    },
+                )
+                // 落盘成功：进度那句话退休，换成"存到哪了"（界面顺手把「分享」也摆出来）
+                updateAt(index) { it.copy(exportState = ExportRowState(busy = false, file = file)) }
+            } catch (e: CancellationException) {
+                // 页面走了/用户取消了：把转圈收掉，但**不报错**（他没做错什么）
+                updateAt(index) { it.copy(exportState = ExportRowState()) }
+                throw e
+            } catch (e: Exception) {
+                val api = toApiException(e)
+                // 产物被后端清理时（`exports/` 只留 30 天，见 `backend/app/services/data_retention.py`），
+                // 配方里记着的那个任务号**已经作废**：清掉它，下一次点按钮才会重新排队生成，
+                // 而不是永远重复同一句「导出文件不存在」。
+                if (api.code == 404) {
+                    updateAt(index) { it.copy(exportRecipe = it.exportRecipe?.copy(jobId = 0)) }
+                    persist()
+                }
+                val why = (api.message?.takeIf { it.isNotBlank() }
+                    ?: e.message?.takeIf { it.isNotBlank() }
+                    ?: "这次没成功，再点一次试试。") + if (api.code == 404) "，再点一次会重新生成。" else ""
+                updateAt(index) { it.copy(exportState = ExportRowState(busy = false, error = why)) }
+            }
+        }
+    }
 
     // ---------------- 消息列表小工具 ----------------
 
@@ -1312,6 +1406,7 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
         tokens = tokens,
         attachments = attachments.map { StoredAttachment(it.filename, it.summary, it.warnings) },
         attachmentBlock = attachmentBlock,
+        exportRecipe = exportRecipe,
     )
 
     private fun StoredMessage.toUi(): UiMessage = UiMessage(
@@ -1324,6 +1419,7 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
         tokens = tokens,
         attachments = attachments.map { AttachmentChip(it.filename, it.summary, it.warnings) },
         attachmentBlock = attachmentBlock,
+        exportRecipe = exportRecipe,
     )
 
     private companion object {

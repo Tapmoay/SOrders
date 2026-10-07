@@ -104,7 +104,7 @@ MUTATIONS: list[tuple[str, str | None, object, Path]] = [
     (
         "提示词结尾那段又钉没了（模型对结尾最敏感，一删就又开始解释一大段）",
         "提示词结尾再钉一次那两条",
-        lambda s: s.replace('            appendLine("【最后再确认两件事】")\n', "", 1),
+        lambda s: s.replace('            appendLine("【最后再确认三件事】")\n', "", 1),
         LOOP,
     ),
     # ---- 审计内容（第二遍真机才抓全：第一版只认两种 JSON 形状，其余原样摆出去）----

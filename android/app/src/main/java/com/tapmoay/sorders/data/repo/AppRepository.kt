@@ -3,6 +3,7 @@ package com.tapmoay.sorders.data.repo
 import com.tapmoay.sorders.core.ApiBundle
 import com.tapmoay.sorders.core.ApiClient
 import com.tapmoay.sorders.data.remote.dto.AiCallReportDto
+import com.tapmoay.sorders.data.remote.dto.LedgerExportJobCreateDto
 import kotlinx.coroutines.CancellationException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -558,6 +559,16 @@ class AppRepository(private val api: ApiBundle) {
         api.orderApi.fillNavigation(orderId, body)
 
     // ---- 账本 ----
+    // ---- 账本导出（v3.34，CHG-0078：AI 在聊天里直接把文件给用户）----
+    /** 申请导出一本账。返回的任务号要留住 —— 同一个任务号再取一次不会再吃配额。 */
+    suspend fun createLedgerExportJob(shipperId: Long, dateFrom: String, dateTo: String) =
+        api.ledgerApi.createExportJob(LedgerExportJobCreateDto(shipperId, dateFrom, dateTo))
+
+    suspend fun ledgerExportJob(jobId: Long) = api.ledgerApi.exportJob(jobId)
+
+    /** 取 xlsx 本体。调用方负责 `use { }`（响应流不关会漏连接）。 */
+    suspend fun downloadLedgerExportJob(jobId: Long) = api.ledgerApi.downloadExportJob(jobId)
+
     suspend fun ledgerAccounts(from: String? = null, to: String? = null, kind: String = "shipper") = api.ledgerApi.accounts(from, to, kind)
     /**
      * 账本流水（**一页**）。截断位跟着行一起回（[PageRows.meta]）。

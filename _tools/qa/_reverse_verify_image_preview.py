@@ -266,7 +266,7 @@ MUTATIONS = [
     (
         "顺手把既有 saveExportFile 的目录也改了（报表落点被动）",
         EXPORT,
-        'put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SOrders报表")',
+        'put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + EXPORT_SUBDIR)',
         'put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SOrders")',
         "既有 saveExportFile 的目录没被顺手改掉",
     ),

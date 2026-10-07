@@ -619,7 +619,12 @@ class AiKeyStore(
         /**
          * 默认全开的工具。
          *
-         * **6 个只读工具**：没有任何写操作，默认全开是安全的。
+         * **7 个只读工具**：没有任何写操作，默认全开是安全的。
+         * （第 7 个是 `export_ledger`，CHG-0078 / 台账 L-43：它**只回一张"配方"**、
+         *   一个网络调用都不发，真正建导出任务的是用户点的那颗「下载」按钮 ——
+         *   所以在"不安全"这件事上它与 `export_sheet` 同类，同样默认全开。
+         *   ⛔ 漏进这个集合 = 末尾那句 `intersect(DEFAULT_ENABLED_TOOLS)` 把新工具**静默筛掉**，
+         *   用户升级后什么都点不到，且没有任何报错。）
          * 外加 **`remember`**：它只写本机记忆文件（App 私有目录、用户能逐条看见/改/删、
          * 不出手机），不碰任何业务数据，所以同样可以默认开
          * （理由与红线见 [AiTools.REMEMBER] 与 `_check_ai_guardrails.py` 的 §2）。
@@ -635,6 +640,7 @@ class AiKeyStore(
             AiTools.SHIPPER_PERFORMANCE,
             AiTools.READ_DATA,
             AiTools.EXPORT_SHEET,
+            AiTools.EXPORT_LEDGER,
             AiTools.REMEMBER,
             AiTools.PREVIEW_WRITE,
         )

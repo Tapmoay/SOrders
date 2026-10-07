@@ -1013,6 +1013,44 @@ data class LedgerEntryDto(
     @SerialName("created_at") val createdAt: String = "",
 )
 
+
+/**
+ * 账本导出的**异步任务**（v3.34，CHG-0078）。
+ *
+ * 为什么账本是异步：一本账要几千行，后端实测单任务 39.77 秒 / 峰值 RAM 469MB（见
+ * `backend/app/api/v1/ledger.py` 里那段注释）。所以 POST 一下拿到任务号，再轮询它的状态。
+ *
+ * 字段与后端 `LedgerExportJobOut` 一一对应；`status` 的四个取值是 `pending` / `processing` /
+ * `done` / `failed`（后端 `models/export_job.py:15-19` 的枚举值就是这四个小写词）。
+ */
+@Serializable
+data class LedgerExportJobDto(
+    val id: Long = 0,
+    @SerialName("created_by_id") val createdById: Long = 0,
+    @SerialName("shipper_id") val shipperId: Long = 0,
+    @SerialName("file_format") val fileFormat: String = "excel",
+    @SerialName("date_from") val dateFrom: String = "",
+    @SerialName("date_to") val dateTo: String = "",
+    val status: String = "pending",
+    @SerialName("error_message") val errorMessage: String? = null,
+) {
+    companion object {
+        const val PENDING = "pending"
+        const val PROCESSING = "processing"
+        const val DONE = "done"
+        const val FAILED = "failed"
+    }
+}
+
+/** 申请一次账本导出（v3.34，CHG-0078）。`shipper_id` 是**编号**——调用方负责先把名字认成编号。 */
+@Serializable
+data class LedgerExportJobCreateDto(
+    @SerialName("shipper_id") val shipperId: Long,
+    @SerialName("date_from") val dateFrom: String,
+    @SerialName("date_to") val dateTo: String,
+    @SerialName("export_format") val exportFormat: String = "excel",
+)
+
 @Serializable
 data class LedgerAccountOut(
     val id: Long? = null,

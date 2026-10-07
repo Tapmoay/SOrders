@@ -32,7 +32,7 @@ MODEL = "deepseek-flash"
 TEST_PHONE = "13900000001"
 DB = repo_root() / "backend" / "sorders.db"
 
-# ---- 工具定义：与 App 端 ai/AiTools.kt 的 5 个只读工具一一对应 ----
+# ---- 工具定义：与 App 端 ai/AiTools.kt 的只读工具一一对应（read_data 是总入口，这里不模拟） ----
 TOOLS = [
     ("search_shipper", "按姓名或手机号模糊查找货主/司机等用户，返回 id、姓名、角色。当用户说某人名但你不确定是哪个人时先用它。",
      {"q": {"type": "string", "description": "姓名或手机号的一部分"}, "role": {"type": "string", "enum": ["shipper", "driver", "dispatcher"]}}),
@@ -41,6 +41,8 @@ TOOLS = [
     ("shipper_performance", "某时间段内各货主的下单量与金额排行（只统计已送达订单）。", {"date_from": {"type": "string"}, "date_to": {"type": "string"}}),
     ("export_sheet", "导出报表为 Excel。kind 取值 turnover/products/drivers/customers/finance/audit。",
      {"kind": {"type": "string"}, "mode": {"type": "string", "enum": ["day", "week", "month"]}, "date": {"type": "string", "description": "锚点日期 YYYY-MM-DD"}}),
+    ("export_ledger", "把一个货主的账（一段区间）导成 Excel。shipper 填姓名，date_from/date_to 是起止日。",
+     {"shipper": {"type": "string"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}}),
 ]
 
 SYSTEM = (
@@ -126,6 +128,21 @@ def run_tool(name: str, args: dict, token: str) -> str:
         date = args.get("date", "2026-09-14")
         code, data = api_get(f"/reports/export?kind={kind}&mode={mode}&date={date}", token)
         return json.dumps({"ok": code == 200, "note": "导出请求已发出（文件流未下载）"}, ensure_ascii=False)
+    elif name == "export_ledger":
+        # 与 App 端一致：工具回合**只认人、只回配方**，一个建任务的请求都不发
+        # （真正的 POST 发生在用户点「下载」之后，见 ai/AiExportService.kt）。
+        code, data = api_get(
+            f"/ledger/accounts?kind=shipper&date_from={args.get('date_from')}&date_to={args.get('date_to')}", token
+        )
+        if code != 200:
+            return json.dumps({"error": f"该能力暂不可用（HTTP {code}）"}, ensure_ascii=False)
+        want = str(args.get("shipper", "")).strip()
+        hit = [a for a in (data or []) if want and want in str(a.get("name", ""))]
+        return json.dumps(
+            {"ok": True, "matched": [a.get("name") for a in hit],
+             "note": "配方已备好：文件会在用户点下载之后出现在聊天里（本条探针不建任务）"},
+            ensure_ascii=False,
+        )
     else:
         return json.dumps({"error": f"未知工具 {name}"}, ensure_ascii=False)
 

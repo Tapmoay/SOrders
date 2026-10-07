@@ -411,7 +411,11 @@ def extract() -> dict:
 
 # 明确排除（每条都要写清理由，免得以后有人以为是漏了）
 EXCLUDE = {
-    # GET 但返回的是**文件流**（xlsx），不是列表；导出走专门的 export_sheet 工具（要写临时文件）
+    # GET 但返回的是**文件流**（xlsx），不是列表，没有可复述的读结果。
+    # 要文件请走 App 端的导出工具（CHG-0078 / 台账 L-43）：
+    # `export_sheet` 连网络都不发，只按 kind+日期拼一份"配方"交给界面；
+    # 用户点那颗「下载」之后才由 `ai/AiExportService.kt` 真去 GET 一次。
+    # 所以这条不是"漏了读动作"，而是"读动作不产生可喂给模型的列表"。
     "reports.export_report",
 }
 
